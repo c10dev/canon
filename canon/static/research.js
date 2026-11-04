@@ -21,7 +21,7 @@ function rsInit(name) {
     stageBackend: backend(), stage: 'style', stageText: '', stageResult: null,
     budgetBackend: backend(), budget: null,
     checkBackend: backend(), checkEp: null, checkPlants: '3', check: null, checkModes: {},
-    checkJudge: backend(), checkTwoStep: false,
+    checkJudge: backend(), checkTwoStep: false, checkEnglish: false, checkLangs: {}, checkTally: [],
     compareEp: null, compareA: cmpA, compareB: cmpB, compare: null, adopt: true, pickResult: null, probeError: null,
   };
 }
@@ -31,6 +31,8 @@ async function rsLoadLog() {
   S.rs.log = r.log;
   S.rs.stages = r.stages;
   S.rs.checkModes = r.check_modes || {};
+  S.rs.checkLangs = r.check_langs || {};
+  S.rs.checkTally = r.check_lang_tally || [];
 }
 
 async function rsLoad() {
@@ -145,8 +147,9 @@ Object.assign(actions, {
     await run(`${n}화에 모순을 심고 검수 방식마다 검수하는 중… (저장하지 않음)`, async () => {
       S.rs.check = await api('POST', `/projects/${enc(S.name)}/research/check`,
         { backend: rsBackend(S.rs.checkBackend), episode: n, plants: Number(S.rs.checkPlants) || 3,
-          ...(S.rs.checkTwoStep ? { judge: rsBackend(S.rs.checkJudge) } : {}) });
-      S.rs.log.unshift(S.rs.check);
+          ...(S.rs.checkTwoStep ? { judge: rsBackend(S.rs.checkJudge) } : {}),
+          ...(S.rs.checkEnglish ? { langs: ['ko', 'en'] } : {}) });
+      await rsLoadLog();
     });
   },
   async rsBudget() {
@@ -303,12 +306,30 @@ function rsBudgetView() {
     </section>${out}`;
 }
 
+// 검수 시험 한 줄의 이름. 영어판을 함께 돌린 시험만 언어를 붙인다
+const rsRunName = (r, m) => ((r.langs || []).length > 1 ? `${m.mode} · ${m.lang === 'en' ? '영어' : '한국어'}` : m.mode);
+const rsPct = (a, b) => (b ? `${Math.round((a / b) * 100)}%` : '-');
+
+// 한국어판 · 영어판 짝 시험 누적 (research.lang_tally). 한쪽만 찾은 수가 두 판의 차이를 만든다
+function rsTallyCard() {
+  const t = S.rs.checkTally;
+  if (!t.length) return '';
+  const rows = t.map((x) => `<tr><td>${esc(x.mode)}</td><td>${x.trials}번 · ${x.planted}개</td>
+      <td><strong>${x.ko_found}/${x.planted}</strong> ${rsPct(x.ko_found, x.planted)}</td><td><strong>${x.en_found}/${x.planted}</strong> ${rsPct(x.en_found, x.planted)}</td>
+      <td>${x.only_ko} / ${x.only_en}</td><td>${rsNum(x.ko_other / x.trials, 1)} / ${rsNum(x.en_other / x.trials, 1)}</td></tr>`).join('');
+  return `<section class="card"><h2>지시문 언어 비교 (기록 전체)</h2>
+      <p class="desc">한국어판과 영어판을 함께 돌린 시험에서 두 판이 모두 성공한 방식만 셌어요. 같은 사본을 두 판으로 검수하니 차이는 '한쪽만 찾음'에서 나와요. 다른 지적은 심지 않은 곳을 짚은 수로, 많으면 헛짚음이 많다는 뜻일 수 있어요.</p>
+      <div class="rs-scroll"><table class="rs-table"><thead><tr><th>방식</th><th>시험 · 심은 모순</th><th>한국어 찾음</th><th>영어 찾음</th><th>한쪽만 찾음 (한국어 / 영어)</th><th>시험당 다른 지적 (한국어 / 영어)</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <div class="small">한쪽만 찾은 수가 적으면 우연과 구별하기 어려워요. 여러 화에서 시험을 쌓아 보세요.</div>
+    </section>`;
+}
+
 function rsCheckView() {
   const eps = P().episodes.filter((e) => e.text);
   const r = S.rs.check;
   let out = '';
   if (r) {
-    const modes = r.runs.map((x) => `<th>${esc(x.mode)}<div class="small">${x.tokens == null ? '' : `~${rsNum(x.tokens)} 토큰`}</div>${x.mode === 'twostep' && x.ok ? `<div class="small">판단기 ~${rsNum(x.judge_tokens)} 토큰 · 진술 ${x.claims}개 중 ${x.flagged}개 의심</div>` : ''}</th>`).join('');
+    const modes = r.runs.map((x) => `<th>${esc(rsRunName(r, x))}<div class="small">${x.tokens == null ? '' : `~${rsNum(x.tokens)} 토큰`}</div>${x.mode === 'twostep' && x.ok ? `<div class="small">판단기 ~${rsNum(x.judge_tokens)} 토큰 · 진술 ${x.claims}개 중 ${x.flagged}개 의심</div>` : ''}</th>`).join('');
     const rows = r.planted.map((x, i) => `<tr><td><div class="small">${esc(x.type)} · 근거: ${x.source_episode ? `${x.source_episode}화 (${x.distance}화 전)` : '설정이나 확정 사실'}</div>
         <div class="rs-prose small"><del>${esc(x.quote)}</del><br><ins>${esc(x.replacement)}</ins></div></td>
         ${r.runs.map((m) => `<td>${!m.ok ? '<span class="chip usage-fail">실패</span>' : m.hits[i] ? '<span class="chip finalized">찾음</span>' : '<span class="chip written">놓침</span>'}${m.ok && m.raised && !m.hits[i] ? `<div class="small">${m.raised[i] ? '판단기는 올림' : '판단기가 놓침'}</div>` : ''}</td>`).join('')}</tr>`).join('');
@@ -316,17 +337,20 @@ function rsCheckView() {
     out = `<section class="card">
       <div class="between"><h2>${r.episode}화 · ${esc(r.backend)}</h2><span class="small">심은 모순 ${r.planted.length}개${r.skipped.length ? ` (원문을 못 찾아 ${r.skipped.length}개 뺌)` : ''} · ${r.seconds}초</span></div>
       <div class="rs-scroll"><table class="rs-table"><thead><tr><th>심은 모순</th>${modes}</tr></thead><tbody>${rows}<tr><td>찾은 수</td>${sum}</tr></tbody></table></div>
-      ${r.runs.filter((m) => m.ok && m.other.length).map((m) => `<details><summary>${esc(m.mode)}의 다른 지적 ${m.other.length}개</summary><ul>${m.other.map((i) => `<li class="small">${esc(i.type)}: ${esc(i.description)}</li>`).join('')}</ul></details>`).join('')}
+      ${r.runs.filter((m) => m.ok && m.other.length).map((m) => `<details><summary>${esc(rsRunName(r, m))}의 다른 지적 ${m.other.length}개</summary><ul>${m.other.map((i) => `<li class="small">${esc(i.type)}: ${esc(i.description)}</li>`).join('')}</ul></details>`).join('')}
       ${r.runs.filter((m) => m.mode === 'twostep' && m.ok && m.judged.length).map((m) => `<details><summary>판단기가 본 진술 ${m.judged.length}개 (${esc(m.judge)})</summary><ul>${m.judged.map((j) => `<li class="small">${j.flagged ? '<span class="chip written">의심</span> ' : ''}어긋남 ${Math.round((j.probs[1] || 0) * 100)}% · ${esc(j.claim)}${j.mass < 0.5 ? ' <span class="hint">선택지 밖 답이 많았어요</span>' : ''}</li>`).join('')}</ul></details>`).join('')}
       <div class="small">한 번으로는 우연이 커요. 여러 화에서 몇 번 돌려 기록 탭에서 찾은 비율을 견주세요. 모순을 심는 것도 같은 모델이 해요.</div>
     </section>`;
   }
   const modes = Object.entries(S.rs.checkModes).map(([k, v]) => `<li><strong>${esc(k)}</strong>: ${esc(v)}</li>`).join('');
+  const langs = Object.entries(S.rs.checkLangs).map(([k, v]) => `<li><strong>${k === 'en' ? '영어' : '한국어'}</strong>: ${esc(v)}</li>`).join('');
   return `<section class="card">
       <p class="desc">본문이 있는 화에 모순을 몇 개 심고, 검수 방식마다 그걸 찾는지 봐요. 장편 검수는 입력을 줄인 방식이 기본이라 줄여서 놓치는 게 없는지 확인하는 용도예요. 작품에는 저장하지 않고, 호출은 심기 1번 + 방식마다 1번이에요.</p>
       ${modes ? `<ul class="small">${modes}</ul>` : ''}
       ${rsBackendFields('checkBackend', S.rs.checkBackend)}
       <label class="check-row"><input type="checkbox" data-rs="checkTwoStep" onchange="render()"${S.rs.checkTwoStep ? ' checked' : ''}><span><strong>두 걸음 검수도 시험</strong> <span class="small">위 백엔드가 진술을 뽑고 의심만 판정해요. 그 사이에 판단기가 진술마다 선택지 확률만 내요(로컬 서버는 logprobs 지원 필요). 검수 모델 호출 2번 + 판단기 호출 진술 수만큼 늘어요.</span></span></label>
+      <label class="check-row"><input type="checkbox" data-rs="checkEnglish" onchange="render()"${S.rs.checkEnglish ? ' checked' : ''}><span><strong>영어 지시문도 시험</strong> <span class="small">같은 사본을 검수 지시문 영어판으로 한 번 더 검수해요. full · budget 마다 호출이 1번씩 늘어요.</span></span></label>
+      ${S.rs.checkEnglish && langs ? `<ul class="small">${langs}</ul>` : ''}
       ${S.rs.checkTwoStep ? `<h3>판단기</h3>${rsBackendFields('checkJudge', S.rs.checkJudge, [['local', '로컬 서버'], ['mock', 'mock']])}` : ''}
       <div class="row">
         <div class="field" style="max-width:320px"><label for="rs-check-ep">화</label>
@@ -334,7 +358,7 @@ function rsCheckView() {
         <div class="field" style="max-width:140px"><label for="rs-check-n">심을 모순</label><input id="rs-check-n" type="number" min="1" max="5" value="${esc(S.rs.checkPlants)}" data-rs="checkPlants"></div>
       </div>
       <div><button class="btn dark" data-action="rsCheck">시험</button></div>
-    </section>${out}`;
+    </section>${out}${rsTallyCard()}`;
 }
 
 function rsCompareView() {
@@ -375,7 +399,7 @@ function rsLogView() {
     if (x.kind === 'stage') line = `${S.rs.stages[x.stage] || x.stage} · ${x.backend} · ${x.ok ? `빈 필드 ${x.empty.length}/${x.fields}, 범위 밖 ${x.out_of_range.length}, 시도 ${x.attempts}` : '실패'} · ${x.seconds}초`;
     if (x.kind === 'budget') line = `${x.backend} · 한도 ${x.limit ? rsNum(x.limit) : '알 수 없음'} · ${x.first_over ? `${x.first_over}화부터 넘침` : x.first_tight ? `${x.first_tight}화부터 빠듯함` : '넘침 없음'}`;
     if (x.kind === 'compare') line = `${x.episode}화 · ${x.backends.join(' vs ')}`;
-    if (x.kind === 'check') line = `${x.episode}화 · ${x.backend} · ${x.runs.map((m) => `${m.mode} ${m.ok ? `${m.found}/${x.planted.length}` : '실패'}`).join(', ')}`;
+    if (x.kind === 'check') line = `${x.episode}화 · ${x.backend} · ${x.runs.map((m) => `${rsRunName(x, m)} ${m.ok ? `${m.found}/${x.planted.length}` : '실패'}`).join(', ')}`;
     if (x.kind === 'pick') line = `${x.episode}화 · ${x.picked} 고름${x.adopted ? ' (본문 채택)' : ''}`;
     return `<li><div class="between"><span><span class="chip">${RS_KIND[x.kind] || x.kind}</span> ${esc(line)}</span><span class="small">${esc(fmtDateTime(x.time))}</span></div>
       <details><summary>자세히</summary><pre class="brief mono">${esc(JSON.stringify(x, null, 2))}</pre></details></li>`;

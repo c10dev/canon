@@ -16,7 +16,7 @@ os.environ.setdefault("CANON_HOME", tempfile.mkdtemp())
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from canon import research, settings, store, web  # noqa: E402
+from canon import prompts, research, settings, store, web  # noqa: E402
 from canon.schema import Relationship, SetupSuggestion  # noqa: E402
 
 SAMPLE = (Path(__file__).resolve().parent.parent / "examples" / "sample_style.txt").read_text(encoding="utf-8")
@@ -157,6 +157,38 @@ class ResearchTest(unittest.TestCase):
         self.assertGreater(two["judge_tokens"], 0)
         self.assertEqual(r["judge"], "mock")
         self.assertIn("twostep", self.c.get(f"{self.api}/research").json()["check_modes"])
+
+    def test_check_trial_english_instructions(self):
+        p = store.load(self.name)
+        e = p.episode(1)
+        e.text, e.status = "서윤은 등대 문을 열었다. 바람이 거셌다. 도현이 뒤에서 불렀다. 둘은 계단을 올랐다.", "written"
+        store.save(self.name, p)
+        self.assertEqual(self.c.get(f"{self.api}/research").json()["check_lang_tally"], [])
+        r = self.c.post(f"{self.api}/research/check", json={"backend": {"provider": "mock"}, "episode": 1, "plants": 2,
+                                                             "langs": ["ko", "en"]}).json()
+        self.assertEqual([(m["mode"], m["lang"]) for m in r["runs"]], [("full", "ko"), ("full", "en"), ("budget", "ko"), ("budget", "en")])
+        self.assertTrue(all(m["ok"] and m["found"] == 2 for m in r["runs"]))
+        self.assertEqual(r["langs"], ["ko", "en"])
+        g = self.c.get(f"{self.api}/research").json()
+        self.assertIn("en", g["check_langs"])
+        self.assertEqual([(x["mode"], x["trials"], x["planted"], x["ko_found"], x["en_found"], x["only_ko"], x["only_en"])
+                          for x in g["check_lang_tally"]], [("full", 1, 2, 2, 2, 0, 0), ("budget", 1, 2, 2, 2, 0, 0)])
+        bad = self.c.post(f"{self.api}/research/check", json={"backend": {"provider": "mock"}, "episode": 1, "langs": ["jp"]})
+        self.assertEqual(bad.status_code, 400)
+
+    def test_check_prompt_english_keeps_korean_data(self):
+        p = store.load(self.name)
+        e = p.episode(1)
+        e.text, e.status = "서윤은 등대 문을 열었다.", "written"
+        ko, en = prompts.check_prompt(p, 1, "full"), prompts.check_prompt(p, 1, "full", "en")
+        self.assertIn("1화 본문에서 위 자료와 어긋나는 곳을 찾으세요.", ko)
+        self.assertNotIn("Find the places", ko)
+        self.assertIn("# Text of episode 1 (under review)\n서윤은 등대 문을 열었다.", en)
+        self.assertIn("Do not translate them", en)
+        self.assertNotIn("어긋나는 곳을 찾으세요", en)
+        self.assertTrue(en.startswith(prompts.static_context(p)))  # 작품 데이터 칸은 한국어 그대로
+        self.assertEqual(prompts.checker_system("en"), prompts.SYSTEM_CHECKER_EN)
+        self.assertEqual(prompts.checker_system(), prompts.SYSTEM_CHECKER)
 
     def test_budget_flags_first_episode_over_limit(self):
         VllmLike.max_len = 3000

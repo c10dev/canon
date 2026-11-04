@@ -50,9 +50,9 @@ function autoDefaults() {
   };
 }
 
-async function autoLoad(withEstimate = true) {
+async function autoLoad(withEstimate = true, pre) {
   if (!S.name) return;
-  S.auto = await api('GET', `/projects/${enc(S.name)}/auto`).catch(() => null);
+  S.auto = await (pre || api('GET', `/projects/${enc(S.name)}/auto`)).catch(() => null);
   if (!S.autoForm || S.autoForm.project !== S.name) S.autoForm = { ...autoDefaults(), project: S.name };
   if (withEstimate) await autoEstimate();
   autoPoll();

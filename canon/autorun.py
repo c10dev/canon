@@ -21,7 +21,7 @@ from typing import Any, Callable, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from . import charlog, dynamics, jobs, pipeline, prompts, settings, store, usage
+from . import charlog, context, dynamics, jobs, pipeline, prompts, settings, store, usage
 from .llm import BatchLLM, Interrupted, SchemaMismatch, get_llm
 from .research import CHARS_PER_TOKEN, JSON_OUTPUT_RESERVE, _filler
 from .schema import ConsistencyReport, Project, StateDelta, TextVersion
@@ -233,34 +233,62 @@ def _measured(name: str | None) -> dict[str, dict[str, float]]:
             for k, v in acc.items()}
 
 
-def estimate(p: Project, target: int, batch: bool, policy: Policy, name: str | None = None) -> dict:
-    """남은 화를 끝까지 쓸 때의 토큰, 비용, 시간 추정. 아직 안 쓴 화는 목표 분량으로 쓰였다고 가정한다."""
-    todo = _todo(p, target)
+# 추정 프롬프트 길이 기억: {(작품, 파일 판, 목표 화, 검수): (빠진 화, [(단계, 글자 수, 기본 출력 토큰)])}.
+# 화면은 배치 끔 · 켬 두 추정을 함께 묻는데 프롬프트는 같다. 장편은 화마다 검수 프롬프트를 만드느라 1초 가까이 걸린다
+_calls_memo: dict[tuple, tuple[list[int], list[tuple[str, int, float]]]] = {}
+_calls_lock = threading.Lock()
+
+
+def _calls(p: Project, todo: list[int], check: bool) -> tuple[list[int], list[tuple[str, int, float]]]:
+    """남은 화마다 부를 호출의 (단계, 프롬프트 글자 수, 기본 출력 토큰). 아직 안 쓴 화는 목표 분량의 채움 글로 본다."""
     have = {e.plot.number: e for e in p.episodes}
     sim = p.model_copy(deep=True)
     for e in sim.episodes:
         if not e.text:
             e.text = _filler(p, p.meta.words_per_episode)
-    measured = _measured(name)
     write_out = p.meta.words_per_episode / CHARS_PER_TOKEN
+    missing, out = [], []
+    with context.reuse_paragraphs():  # 화마다 검수 색인을 만들 때 같은 본문을 다시 쪼개지 않는다
+        for n in todo:
+            e = have.get(n)
+            if e is None:
+                missing.append(n)
+                continue
+            out.append(("state", len(prompts.SYSTEM_EDITOR + prompts.state_prompt(sim, n)), JSON_OUTPUT_RESERVE))
+            if check:
+                out.append(("check", len(prompts.SYSTEM_CHECKER + prompts.check_prompt(sim, n)), JSON_OUTPUT_RESERVE))
+            if e.status in ("draft", "confirmed"):
+                out.append(("write", len(prompts.writer_system(sim) + prompts.episode_prompt(sim, n)), write_out))
+    return missing, out
+
+
+def _calls_cached(p: Project, todo: list[int], check: bool, name: str | None) -> tuple[list[int], list[tuple[str, int, float]]]:
+    """_calls 를 작품 파일 판으로 기억한다. 같은 추정을 동시에 물으면 뒤 요청은 앞 요청이 끝나길 기다려 결과를 쓴다."""
+    path = store.project_dir(name) / "project.json" if name else None
+    if not path or not path.exists():
+        return _calls(p, todo, check)
+    key = (name, store.tag(path), tuple(todo), check)
+    with _calls_lock:
+        if key not in _calls_memo:
+            _calls_memo.clear()  # 작품 하나의 지금 판만 둔다
+            _calls_memo[key] = _calls(p, todo, check)
+        return _calls_memo[key]
+
+
+def estimate(p: Project, target: int, batch: bool, policy: Policy, name: str | None = None) -> dict:
+    """남은 화를 끝까지 쓸 때의 토큰, 비용, 시간 추정. 아직 안 쓴 화는 목표 분량으로 쓰였다고 가정한다.
+    name 을 주면 p 는 그 작품의 디스크 내용이어야 한다 (프롬프트 길이를 파일 판으로 기억한다)."""
+    todo = _todo(p, target)
+    have = {e.plot.number: e for e in p.episodes}
+    measured = _measured(name)
     steps = {"write": 0, "check": 0, "state": 0}
     tokens = {s: [0.0, 0.0] for s in steps}
-    missing = []
-    for n in todo:
-        e = have.get(n)
-        if e is None:
-            missing.append(n)
-            continue
-        calls = [("state", prompts.SYSTEM_EDITOR + prompts.state_prompt(sim, n), JSON_OUTPUT_RESERVE)]
-        if policy.check:
-            calls.append(("check", prompts.SYSTEM_CHECKER + prompts.check_prompt(sim, n), JSON_OUTPUT_RESERVE))
-        if e.status in ("draft", "confirmed"):
-            calls.append(("write", prompts.writer_system(sim) + prompts.episode_prompt(sim, n), write_out))
-        for step, text, out in calls:
-            m = measured.get(step + (":batch" if batch and batchable(step) else "")) or measured.get(step)
-            steps[step] += 1
-            tokens[step][0] += len(text) / CHARS_PER_TOKEN
-            tokens[step][1] += m["out"] if m and m["out"] else out
+    missing, calls = _calls_cached(p, todo, policy.check, name)
+    for step, chars, out in calls:
+        m = measured.get(step + (":batch" if batch and batchable(step) else "")) or measured.get(step)
+        steps[step] += 1
+        tokens[step][0] += chars / CHARS_PER_TOKEN
+        tokens[step][1] += m["out"] if m and m["out"] else out
     cost: Optional[float] = 0.0
     unpriced = []
     for step, (tin, tout) in tokens.items():

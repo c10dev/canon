@@ -22,7 +22,7 @@ from pydantic import BaseModel
 from . import context, metrics, pipeline, prompts, settings, store
 from .judge import make_judge
 from .llm import LLM, GeminiLLM, LocalLLM, make_llm
-from .schema import ConsistencyReport, PlantSet, Project
+from .schema import ConsistencyReport, ConsistencyReportEn, PlantSet, Project
 
 CHARS_PER_TOKEN = context.CHARS_PER_TOKEN
 JSON_OUTPUT_RESERVE = 2000  # 검수, 상태 변경안 출력에 남겨 둘 토큰 (추정)
@@ -313,12 +313,14 @@ def _hit(found: str, planted: str) -> bool:
 
 TRIAL_MODES = {**prompts.CHECK_MODES,
                "twostep": "진술 뽑기 → 판단기가 옛 화 전부와 견줘 거르기 → 의심만 검수 모델이 판정 (판단기 시험)"}
+TRIAL_LANGS = prompts.CHECK_LANGS  # 검수 지시문 언어. 영어판은 full · budget 에만 붙고 twostep 은 한국어로 한 번만 돈다
 
 
 def check_trial(p: Project, n: int, b: Backend, plants: int = 3, modes: list[str] | None = None, seed: int | None = None,
-                judge: Backend | None = None) -> dict:
+                judge: Backend | None = None, langs: list[str] | None = None) -> dict:
     """모순 plants 개를 심은 n화를 검수 방식마다 검수한다. 심은 것과 검수 호출은 같은 백엔드를 쓴다.
-    judge 를 주면 두 걸음 검수(twostep)도 돌린다. 판단기는 local 또는 mock."""
+    judge 를 주면 두 걸음 검수(twostep)도 돌린다. 판단기는 local 또는 mock.
+    langs 에 en 을 넣으면 같은 사본을 검수 지시문 영어판으로도 검수해 방식 × 언어마다 한 줄씩 낸다."""
     ep = p.episode(n)
     if not ep.text:
         raise ValueError(f"{n}화 본문이 없어요")
@@ -326,6 +328,10 @@ def check_trial(p: Project, n: int, b: Backend, plants: int = 3, modes: list[str
     bad = [m for m in modes if m not in TRIAL_MODES]
     if bad:
         raise ValueError(f"알 수 없는 검수 방식: {', '.join(bad)} ({' | '.join(TRIAL_MODES)})")
+    langs = list(dict.fromkeys(langs or ["ko"]))
+    bad = [x for x in langs if x not in TRIAL_LANGS]
+    if bad:
+        raise ValueError(f"알 수 없는 검수 언어: {', '.join(bad)} ({' | '.join(TRIAL_LANGS)})")
     if "twostep" in modes and judge is None:
         judge = Backend(provider="mock" if b.provider == "mock" else "local")
     seed = random.randrange(1 << 30) if seed is None else seed
@@ -350,22 +356,56 @@ def check_trial(p: Project, n: int, b: Backend, plants: int = 3, modes: list[str
         if mode == "twostep":
             runs.append(_two_step_run(llm, judge, q, n, used))
             continue
-        prompt = prompts.check_prompt(q, n, mode)
-        row: dict[str, Any] = {"mode": mode, "chars": len(prompt), "tokens": context.est_tokens(prompts.SYSTEM_CHECKER + prompt)}
-        t1 = time.perf_counter()
-        try:
-            rep = llm.json(prompts.SYSTEM_CHECKER, prompt, ConsistencyReport,
-                           hint={"episode": n, "plants": [x.replacement for x in used]})
-            hits = [any(_hit(i.current_quote, x.replacement) for i in rep.issues) for x in used]
-            extra = [i.model_dump() for i in rep.issues if not any(_hit(i.current_quote, x.replacement) for x in used)]
-            row.update(ok=True, hits=hits, found=sum(hits), other=extra, usage=getattr(llm, "last_usage", None))
-        except Exception as e:  # 한 방식이 실패해도 다른 방식은 돌린다
-            row.update(ok=False, error=f"{type(e).__name__}: {e}")
-        row["seconds"] = round(time.perf_counter() - t1, 2)
-        runs.append(row)
+        for lang in langs:
+            runs.append(_check_run(llm, q, n, mode, lang, used))
     return {"backend": label(b), "model": _model_name(llm), "episode": n, "seed": seed, "planted": planted,
-            "skipped": skipped, "runs": runs, "seconds": round(time.perf_counter() - t, 2),
+            "skipped": skipped, "runs": runs, "seconds": round(time.perf_counter() - t, 2), "langs": langs,
             "judge": label(judge) if judge and "twostep" in modes else None}
+
+
+def lang_tally(name: str) -> list[dict]:
+    """검수 시험 기록 전체에서 한국어판과 영어판을 짝지어 센다. 같은 시험 · 같은 방식에서 두 언어가 모두 성공한 것만 넣어
+    실패가 한쪽 비율을 흔들지 않게 한다. only_ko · only_en 은 심은 모순 하나를 한쪽만 찾은 수 (두 판의 차이는 여기서 나온다)."""
+    path = _log_path(name)
+    rows: dict[str, dict] = {}
+    for line in path.read_text(encoding="utf-8").splitlines() if path.exists() else []:
+        x = json.loads(line)
+        if x.get("kind") != "check" or "en" not in (x.get("langs") or []):
+            continue
+        by = {(m["mode"], m.get("lang", "ko")): m for m in x["runs"] if m.get("ok")}
+        for mode in dict.fromkeys(m["mode"] for m in x["runs"]):
+            ko, en = by.get((mode, "ko")), by.get((mode, "en"))
+            if not ko or not en:
+                continue
+            r = rows.setdefault(mode, {"mode": mode, "trials": 0, "planted": 0, "ko_found": 0, "en_found": 0,
+                                       "only_ko": 0, "only_en": 0, "ko_other": 0, "en_other": 0})
+            r["trials"] += 1
+            r["planted"] += len(ko["hits"])
+            r["ko_found"] += ko["found"]
+            r["en_found"] += en["found"]
+            r["only_ko"] += sum(a and not b for a, b in zip(ko["hits"], en["hits"]))
+            r["only_en"] += sum(b and not a for a, b in zip(ko["hits"], en["hits"]))
+            r["ko_other"] += len(ko["other"])
+            r["en_other"] += len(en["other"])
+    return list(rows.values())
+
+
+def _check_run(llm: LLM, q: Project, n: int, mode: str, lang: str, used: list) -> dict:
+    """검수 한 번. 영어판은 시스템 프롬프트 · 지시문 · 응답 스키마 설명만 다르고 찾음을 세는 규칙은 같다."""
+    system = prompts.checker_system(lang)
+    prompt = prompts.check_prompt(q, n, mode, lang)
+    row: dict[str, Any] = {"mode": mode, "lang": lang, "chars": len(prompt), "tokens": context.est_tokens(system + prompt)}
+    t1 = time.perf_counter()
+    try:
+        rep = llm.json(system, prompt, ConsistencyReportEn if lang == "en" else ConsistencyReport,
+                       hint={"episode": n, "plants": [x.replacement for x in used]})
+        hits = [any(_hit(i.current_quote, x.replacement) for i in rep.issues) for x in used]
+        extra = [i.model_dump() for i in rep.issues if not any(_hit(i.current_quote, x.replacement) for x in used)]
+        row.update(ok=True, hits=hits, found=sum(hits), other=extra, usage=getattr(llm, "last_usage", None))
+    except Exception as e:  # 한 방식이 실패해도 다른 방식은 돌린다
+        row.update(ok=False, error=f"{type(e).__name__}: {e}")
+    row["seconds"] = round(time.perf_counter() - t1, 2)
+    return row
 
 
 def _two_step_run(llm: LLM, jb: Backend, q: Project, n: int, used: list) -> dict:

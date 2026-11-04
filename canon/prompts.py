@@ -2067,24 +2067,79 @@ CHECK_MODES = {"full": "앞선 본문 한도까지 원문 + 자료 전부 (단�
                "budget": "직전 화 원문 + 옛 화에서 찾은 관련 단락 + 이번 화 인물 자료 (장편 기본)"}
 
 
-def check_prompt(p: Project, n: int, mode: str = "") -> str:
-    """검수 프롬프트. mode 를 비우면 장편은 budget, 단편은 full. 연구 화면 검수 시험이 두 방식을 견준다."""
+# 검수 지시문 영어판 (연구 화면 검수 시험의 언어 비교용, 실제 검수 경로는 쓰지 않는다).
+# 바꾸는 것은 시스템 프롬프트, 검수 칸 제목, 요구사항, 응답 스키마 설명(schema.ConsistencyReportEn)뿐이다.
+# 작품 데이터, static_context, 앞선 본문 안 소제목, 빈 칸 문구, 기능별 검수 규칙(시간 · 이동 · 차림 · 상태창)은 한국어 그대로다.
+CHECK_LANGS = {"ko": "한국어 지시문 (지금 검수와 같음)", "en": "영어 지시문 (작품 데이터와 인용은 한국어 그대로, 설명은 한국어로 받음)"}
+
+SYSTEM_CHECKER_EN = (
+    "You are a copy editor for a serialized Korean novel. Find only the places where this episode's text contradicts "
+    "the earlier text, the settings, or the confirmed facts. Every issue quotes the earlier evidence and the sentence "
+    "from this episode verbatim. If you cannot quote evidence, do not report the issue. Do not judge prose quality or taste."
+)
+
+
+def checker_system(lang: str = "ko") -> str:
+    return SYSTEM_CHECKER_EN if lang == "en" else SYSTEM_CHECKER
+
+
+def check_prompt(p: Project, n: int, mode: str = "", lang: str = "ko") -> str:
+    """검수 프롬프트. mode 를 비우면 장편은 budget, 단편은 full. 연구 화면 검수 시험이 두 방식을 견준다.
+    lang 이 en 이면 지시문만 영어판(CHECK_LANGS)이다."""
     mode = mode or ("budget" if p.serial else "full")
+    en = lang == "en"
     ep = p.episode(n)
     if mode == "budget":
         facts_text, states, relations, secrets, past, note = _check_budget(p, n)
     else:
         facts_text, states, relations, secrets, past, note = _check_full(p, n)
+    if en and note:
+        note = (" (the previous episodes are full text; earlier ones are a story summary and excerpts that overlap this episode. "
+                "When you quote an excerpt, source_episode is that excerpt's episode)")
     els = elements.active_block(p, n)
-    els = f"\n\n# 이야기 요소 ({n}화 시점에 사실인 것)\n{els}" if els else ""
+    els = (f"\n\n# Story elements (true as of episode {n})\n{els}" if en else f"\n\n# 이야기 요소 ({n}화 시점에 사실인 것)\n{els}") if els else ""
     line = storylines.episode_block(p, n)
-    line = f"\n\n# {n}화의 이야기 줄기\n{line}" if line else ""
+    line = (f"\n\n# Storyline of episode {n}\n{line}" if en else f"\n\n# {n}화의 이야기 줄기\n{line}") if line else ""
     tl = timeline.episode_block(p, n)
-    line += f"\n\n# 작품 속 시간\n{tl}" if tl else ""
+    line += f"\n\n# {'In-story time' if en else '작품 속 시간'}\n{tl}" if tl else ""
     tr = travel.episode_block(p, n)
-    line += f"\n\n# 이동 거리 (지도 기준)\n{tr}" if tr else ""
+    line += f"\n\n# {'Travel distance (from the map)' if en else '이동 거리 (지도 기준)'}\n{tr}" if tr else ""
     pov = pov_block(p, n)
-    pov = f"\n\n# {n}화 서술 시점 (스타일 프로필보다 우선)\n{pov}" if pov else ""
+    pov = (f"\n\n# Narrative POV of episode {n} (overrides the style profile)\n{pov}" if en
+           else f"\n\n# {n}화 서술 시점 (스타일 프로필보다 우선)\n{pov}") if pov else ""
+    rules = f"{timeline.check_rule(p, n)}{travel.check_rule(p, n)}{attire_check_rule(p)}{statwin.check_rule(p)}"
+    if en:
+        return f"""{static_context(p)}
+
+# Confirmed facts
+{facts_text}{els}
+
+# Current character states (end of episode {n - 1})
+{states}
+
+# Current relationships
+{relations}
+
+# Secrets (characters in hidden_from do not know them yet)
+{secrets}
+
+# Earlier text{note}
+{past or "None (first episode)"}
+
+# Plot of episode {n}
+{dump(ep.plot)}{line}{pov}
+
+# Text of episode {n} (under review)
+{ep.text}
+
+Find the places in the text of episode {n} that contradict the material above.
+- Check: confirmed facts; story elements and details (names, ages, appearance, places, objects); time order and causality; a character who acts as if they know information they do not know yet; speech (forms of address, 존댓말/반말, sentence endings); world rules; plot events that are missing.
+- Blocking: within one scene, check whether a character's position, facing (front or back), posture, what they hold, or what is hidden changes without an action that changes it. Example: a character turns away and covers their body with a cloak, but the next sentence shows their face or chest. In this case source_episode is {n} and source_quote is the earlier sentence in the same episode.
+- POV: check whether the narration leaves this episode's narrative POV (the one given above, or else narration_pov in the style profile). Signs: the narration tells what the POV character cannot see or does not know yet; the first-person '나' becomes another character; the POV character changes without a scene break; in an episode with a set narration voice, the endings of narrative sentences leave that voice (ignore dialogue). If the evidence is a POV instruction, source_episode is 0 and source_quote is that instruction sentence.{rules}
+- Copy source_quote and current_quote verbatim from the original Korean text. Do not translate them. If the evidence is a setting or a character state, source_episode is 0.
+- Do not report a suspicion that you cannot support with a quote. If there is no contradiction, leave issues as an empty list.
+- Write description and suggestion in Korean.
+- episode is {n}."""
     return f"""{static_context(p)}
 
 # 확정된 사실
@@ -2111,7 +2166,7 @@ def check_prompt(p: Project, n: int, mode: str = "") -> str:
 {n}화 본문에서 위 자료와 어긋나는 곳을 찾으세요.
 - 확인할 것: 확정 사실, 이야기 요소와 세부(이름, 나이, 외모, 장소, 물건), 시간 순서와 인과, 인물이 아직 모르는 정보를 아는 듯 행동하는지, 말투(호칭, 존댓말/반말, 어미), 세계관 규칙, 플롯 사건 누락.
 - 동선: 한 장면 안에서 인물의 위치, 몸이 향한 쪽(앞 · 뒤, 등 · 배), 자세, 손에 든 것, 가려진 곳이 바꾸는 행동 없이 달라지는지 봅니다. 예: 등을 돌리고 망토로 몸을 가렸는데 다음 문장에서 그 인물의 표정이나 가슴께가 보임. 이때 source_episode 는 {n}, source_quote 는 같은 화의 앞 문장입니다.
-- 시점: 서술이 이 화의 서술 시점(위에 따로 없으면 스타일 프로필의 narration_pov)을 벗어나는지 봅니다. 시점 인물이 볼 수 없거나 아직 모르는 것을 서술함, 1인칭의 '나'가 다른 인물로 바뀜, 장면 구분 없이 시점 인물이 바뀜, 서술 말투가 정해진 화에서 지문의 어미가 그 말투를 벗어남(대사는 보지 않음). 근거가 시점 지시면 source_episode 는 0, source_quote 는 그 지시 문장입니다.{timeline.check_rule(p, n)}{travel.check_rule(p, n)}{attire_check_rule(p)}{statwin.check_rule(p)}
+- 시점: 서술이 이 화의 서술 시점(위에 따로 없으면 스타일 프로필의 narration_pov)을 벗어나는지 봅니다. 시점 인물이 볼 수 없거나 아직 모르는 것을 서술함, 1인칭의 '나'가 다른 인물로 바뀜, 장면 구분 없이 시점 인물이 바뀜, 서술 말투가 정해진 화에서 지문의 어미가 그 말투를 벗어남(대사는 보지 않음). 근거가 시점 지시면 source_episode 는 0, source_quote 는 그 지시 문장입니다.{rules}
 - source_quote 와 current_quote 는 원문을 그대로 옮깁니다. 근거가 설정이나 인물 상태면 source_episode 는 0 입니다.
 - 근거를 인용할 수 없는 의심은 넣지 않습니다. 모순이 없으면 issues 를 빈 목록으로 둡니다.
 - episode 는 {n} 입니다."""

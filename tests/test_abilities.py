@@ -1,14 +1,18 @@
 """스킬 · 특성 도감(canon/abilities.py) 테스트: 조각 나누기, 상태창 잇기, 얻은 화 계산, 작가 편집, CLI, 웹. 실행: python -m pytest tests"""
 import importlib
+import os
+import tempfile
 
-import pytest
-from fastapi.testclient import TestClient
+os.environ.setdefault("CANON_HOME", tempfile.mkdtemp())  # 이 파일이 맨 먼저 store 를 불러와도 저장소의 projects/ 를 쓰지 않게
 
-from canon import abilities, cli, pipeline, statwin, store
-from canon.schema import Ability, AbilityGrade, StatValue
+import pytest  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
 
-from .test_statwin import _play
-from .test_storylines import _short
+from canon import abilities, cli, pipeline, statwin, store  # noqa: E402
+from canon.schema import Ability, AbilityGrade, StatValue  # noqa: E402
+
+from .test_statwin import _play  # noqa: E402
+from .test_storylines import _short  # noqa: E402
 
 
 def _project():

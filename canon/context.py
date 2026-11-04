@@ -10,6 +10,8 @@ from __future__ import annotations
 import math
 import re
 from collections import Counter
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Iterable
 
 from . import elements
@@ -349,6 +351,31 @@ def _paragraphs(text: str) -> list[str]:
     return out
 
 
+# 본문 → [(단락, 글 조각)] 기억. 여러 화의 색인을 잇달아 만드는 쪽(자동 집필 비용 추정)이 reuse_paragraphs() 안에서만 쓴다.
+# 같은 본문의 단락을 화마다 다시 쪼개지 않게 한다. 밖에서는 None 이라 색인을 다 만들면 메모리를 놓는다
+_para_memo: ContextVar[dict[str, list[tuple[str, set[str]]]] | None] = ContextVar("para_memo", default=None)
+
+
+@contextmanager
+def reuse_paragraphs():
+    """이 안에서 만드는 PassageIndex 는 본문마다 단락 쪼개기와 글 조각을 한 번만 계산한다."""
+    tok = _para_memo.set({})
+    try:
+        yield
+    finally:
+        _para_memo.reset(tok)
+
+
+def _paragraph_grams(text: str) -> list[tuple[str, set[str]]]:
+    memo = _para_memo.get()
+    if memo is not None and text in memo:
+        return memo[text]
+    out = [(para, grams(para)) for para in _paragraphs(text)]
+    if memo is not None:
+        memo[text] = out
+    return out
+
+
 class PassageIndex:
     """n화 앞 본문(skip 화 제외)의 단락과 글 조각 빈도. 질문 여러 개를 같은 색인으로 찾을 때(두 걸음 검수) 한 번만 만든다."""
 
@@ -358,8 +385,8 @@ class PassageIndex:
             m = e.plot.number
             if m >= n or m in skip or not e.text:
                 continue
-            for k, para in enumerate(_paragraphs(e.text)):
-                self.paras.append((m, k, para, grams(para)))
+            for k, (para, g) in enumerate(_paragraph_grams(e.text)):
+                self.paras.append((m, k, para, g))
         self.df: Counter = Counter()
         for *_, g in self.paras:
             self.df.update(g)

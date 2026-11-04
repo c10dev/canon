@@ -64,7 +64,7 @@ AI 로 소설을 길게 쓸수록 인물 관계, 심리, 말투, 복선, 문체�
 | `canon/llm.py` | LLM 프로바이더 인터페이스(`json`, `text`)와 Gemini(API 키 또는 Vertex AI 서비스 계정 `_vertex_client`), 로컬(OpenAI 호환) 구현, 단계별 선택(`get_llm(stage)`). 설정 화면의 Gemini 연결 방식은 `static/vertex.js` |
 | `canon/claude.py` | Claude 백엔드: 구독 로그인(`claude`, 설치된 Claude Code 를 `claude -p` 로 부름, 로그인 상태 `status`)과 API 키(`claude-api`, Anthropic SDK). Canon 은 Claude 계정 로그인을 직접 받거나 토큰을 저장하지 않는다(Anthropic 정책). 화면은 `static/claude.js` |
 | `canon/usage.py` | AI 사용량과 비용: LLM 구현이 실제 호출마다 `record` 로 `projects/.usage/usage.jsonl` 에 남기고, 작품 · 화 · 작업은 `scope(...)` 로 붙인다(웹 미들웨어, `jobs.start`, 자동 집필, CLI). 가격표(`DEFAULT_PRICES` + 설정의 `prices`, 날짜별 `since`)로 볼 때 비용을 계산하고 자동 집필 추정도 같은 표를 쓴다. 화면은 `static/usage.js` |
-| `canon/research.py` | 연구 화면(모델 실험) 로직. 서버 점검, 샘플 비교, 단계 시험, 컨텍스트 크기, 검수 시험(모순을 심고 `TRIAL_MODES` 마다 찾는지, `check_trial`, 판단기를 주면 두 걸음 검수 `twostep`도), 블라인드 비교. 작품 데이터와 분리해 `research/log.jsonl` 에 기록 |
+| `canon/research.py` | 연구 화면(모델 실험) 로직. 서버 점검, 샘플 비교, 단계 시험, 컨텍스트 크기, 검수 시험(모순을 심고 `TRIAL_MODES` 마다 찾는지, `check_trial`, 판단기를 주면 두 걸음 검수 `twostep`도, 검수 지시문 영어판 비교 `TRIAL_LANGS` · `lang_tally`), 블라인드 비교. 작품 데이터와 분리해 `research/log.jsonl` 에 기록 |
 | `canon/judge.py` | 판단기: 글을 쓰지 않고 선택지 확률만 낸다(Jev 의 System One 방식). `LocalJudge`(OpenAI 호환 서버 logprobs, 출력 1토큰), `MockJudge`, `make_judge` / `get_judge`(`CANON_JUDGE`). 호출마다 `usage.record`(단계 `judge`). 두 걸음 검수 `pipeline.check_two_step`(진술 `prompts.claims_prompt` → 근거 `claim_evidence` → 의심 `verdict_prompt`)가 쓰고, 아직 연구 화면에서만 |
 | `canon/mock.py` | 테스트용 가짜 LLM |
 | `canon/library.py` | 문체 라이브러리: 작품과 따로 `projects/.styles/<id>.json` 에 문체(원문, 프로필, 기준 지표)를 저장. 작품에 적용하면 복사하고 `Project.style_id` · `style_version` 으로 출처만 기억. 저장마다 버전(`StyleVersion`), 칸별 비교(`diff`), 되돌리기(`restore`) |
@@ -74,7 +74,7 @@ AI 로 소설을 길게 쓸수록 인물 관계, 심리, 말투, 복선, 문체�
 | `canon/static/setupchat.js` | 설정 도우미의 대화로 다듬기 패널(`CHAT_TOPICS.setup`): 칸별 변경안과 지금 값 비교(이미 채운 칸을 바꾸는 부분은 기본으로 체크하지 않음), 새 인물을 고르지 않으면 그 인물과의 관계는 끔, 방향 여러 안(`chat.js` 의 `optionsCard`), 적용 · 적용 취소. 칸 이름(`SETUP_KEYS`, `SETUP_CHAR_LABEL`)과 부분 id 는 `setupchat.KEY_LABELS` · `CHAR_LABELS` · `part_ids` 와 같다 |
 | `canon/static/stylechat.js` | 문체 화면의 대화로 다듬기(대화 주제 `style`: 칸별 변경안과 지금 값 비교, 시험 문단, 고른 칸 적용 · 적용 취소, 라이브러리 새 버전)와 '이 문체로 쓴 예시' 카드. 서버는 `pipeline.revise_style` · `apply_style_chat` · `undo_style_chat` · `style_example`. 칸 이름은 `prompts.STYLE_KEY_LABELS` 와 같다 |
 | `canon/static/mystyle.js` | 나만의 문체: 스타일 프로필의 가끔 쓰는 장치 칸(`deviceFields`), 문체 화면의 '내 수정에서 배우기' 카드(서버 `pipeline.learn_style` / `apply_learning`), 라이브러리 항목의 버전 목록. 장치의 쓴 화 세기는 `metrics.device_last` 와 같은 규칙 |
-| `canon/store.py` | `projects/<이름>/project.json` 저장, 본문을 `episodes/NN.md` 로 내보내기. 화면 저장 기록(`writer`, `edit_rev` · `saved_by`, 파일 끝만 읽음), 검토를 기다리는 AI 결과와 실패한 작업(`pending.json`, `load_pending` / `edit_pending`) |
+| `canon/store.py` | `projects/<이름>/project.json` 저장, 본문을 `episodes/NN.md` 로 내보내기. 읽은 작품 캐시(`load` 는 깊은 복사본, 읽기만 할 때 `peek` 은 캐시 것이라 고치지 않는다, 저장하면 바로 채움), 파일 판(`tag`, 작품 GET 의 ETag · 저장 응답의 `X-Project-ETag` 는 `saved`). 작품 GET 과 작품을 돌려주는 응답은 스냅샷을 화 번호만 보내고(`web._SNAPSHOT_LIGHT`), 작품 저장(PUT)은 디스크 스냅샷을 지킨다. 화면 저장 기록(`writer`, `edit_rev` · `saved_by`, 파일 끝만 읽음), 검토를 기다리는 AI 결과와 실패한 작업(`pending.json`, `load_pending` / `edit_pending`) |
 | `canon/cancel.py` | 웹 작업 멈추기 신호. `jobs.start` 가 스레드마다 두고, LLM 호출 전과 저장 전에 `check()` 로 확인해 멈춘 작업이 결과를 저장하지 못하게 한다 |
 | `canon/cli.py` | 명령줄 (`python -m canon ...`) |
 | `canon/jobs.py` | 웹의 오래 걸리는 AI 작업을 스레드로 돌리는 메모리 작업 목록. 중복 실행 막기, 진행률, 작업이 맡은 화를 저장 덮어쓰기에서 지키기(`owned_episodes`), 멈추기(`stop`) |
@@ -96,7 +96,7 @@ AI 로 소설을 길게 쓸수록 인물 관계, 심리, 말투, 복선, 문체�
 - **바뀌지 않는 블록이 앞, 화마다 바뀌는 블록이 뒤.** `static_context()` 를 앞에 둬야 화 사이 Claude API 캐시(`claude.cache_blocks`)가 맞는다. Gemini 4 암묵적 캐시는 화 사이에 겹치는 앞부분(약 6,700토큰)을 재사용하지 않고, 앞 요청을 통째로 품은 요청(다시 생성, 요청 칸, 형식 고치기 재시도)에만 맞는다(2026-10-27 실측, DESIGN.md). 그래서 요청이나 재료는 프롬프트 맨 뒤에 덧붙인다. 컨텍스트에 블록을 추가할 때 이 순서를 지킨다.
 - **API 경로와 작업지시서 경로는 같은 프롬프트를 공유한다.** 프롬프트를 고칠 때는 `prompts.py` 한 곳만 고치고, `brief` 출력도 함께 확인한다. 나중에 MCP 서버도 이 함수들을 재사용한다.
 - **LLM 호출은 `LLM` 인터페이스 뒤에만 둔다.** pipeline 이나 cli 에서 SDK 를 직접 부르지 않는다. 새 LLM 구현이나 새 API 호출 경로는 `usage.record` 를 불러 사용량 화면에 잡히게 한다. 스레드를 새로 띄우면 `contextvars.copy_context()` 로 작품 · 화 정보를 넘긴다.
-- LLM 이 채우는 스키마(`SetupSuggestion`, `StyleProfile`, `ArcPlan`, `PlotBatch`, `EpisodeDraft`, `PlotRevision`, `NameOptions`, `PassageRevision`, `StateDelta`, `NewPlace`, `StoryEvent`, `ConsistencyReport`, `SeriesPlan`, `ArcProposal`, `Recap`, `ImpactReport`, `StorylineProposal`, `SerialConversion`, `SerialRebuild`, `Rework`, `HookReport`, `OpeningPlots`, `IllustDraft`, `LookSuggestion`, `StyleLearning`, `StyleRevision`, `StyleEdit`, `StyleSample`, `SetupRevision`, `SetupEdit`, `CharacterEdit`, `VoiceSuggestion`, `PlantSet`, `PlaceSort`, `ClaimSet`, `StoryTime`, `Deadline`, `BodySuggestion`, `MapSuggestion`, `StatWindowSuggestion`, `StatWindowOption`, `StatInitSuggestion`, `StatInitCharacter`)에는 dict 타입 필드를 쓰지 않는다 (Gemini 구조화 출력 호환).
+- LLM 이 채우는 스키마(`SetupSuggestion`, `StyleProfile`, `ArcPlan`, `PlotBatch`, `EpisodeDraft`, `PlotRevision`, `NameOptions`, `PassageRevision`, `StateDelta`, `NewPlace`, `StoryEvent`, `ConsistencyReport`, `ConsistencyReportEn`, `ConsistencyIssueEn`, `SeriesPlan`, `ArcProposal`, `Recap`, `ImpactReport`, `StorylineProposal`, `SerialConversion`, `SerialRebuild`, `Rework`, `HookReport`, `OpeningPlots`, `IllustDraft`, `LookSuggestion`, `StyleLearning`, `StyleRevision`, `StyleEdit`, `StyleSample`, `SetupRevision`, `SetupEdit`, `CharacterEdit`, `VoiceSuggestion`, `PlantSet`, `PlaceSort`, `ClaimSet`, `StoryTime`, `Deadline`, `BodySuggestion`, `MapSuggestion`, `StatWindowSuggestion`, `StatWindowOption`, `StatInitSuggestion`, `StatInitCharacter`)에는 dict 타입 필드를 쓰지 않는다 (Gemini 구조화 출력 호환).
 
 ## 개발 명령
 
@@ -109,7 +109,22 @@ CANON_LLM=mock python -m canon ...  # 수동 확인
 
 환경 변수: `GEMINI_API_KEY`, `CANON_GEMINI_AUTH`(key | vertex) / `CANON_VERTEX_CREDENTIALS` / `GOOGLE_CLOUD_PROJECT` / `GOOGLE_CLOUD_LOCATION`(Vertex AI 서비스 계정), `CANON_LLM`(gemini | local | claude | claude-api | mock), `CANON_CLAUDE_MODEL` / `CANON_CLAUDE_BIN` / `CANON_CLAUDE_TIMEOUT` / `ANTHROPIC_API_KEY`(Claude, `claude-api` 만 키를 씀), `CANON_MODEL`(기본 `gemini-4-argon`), `CANON_LOCAL_URL` / `CANON_LOCAL_MODEL` / `CANON_LOCAL_KEY`(로컬 서버), `CANON_LLM_PLAN` / `_WRITE` / `_CHECK` / `_STATE` / `_NAME` / `_REVISE` / `_ILLUSTRATION`(단계별 백엔드), `CANON_MODEL_PLAN` / `_WRITE` / `_CHECK` / `_STATE` / `_NAME` / `_REVISE` / `_ILLUSTRATION`(단계별 모델), `CANON_HOME`(프로젝트 저장 위치, 기본 `projects/`), `CANON_USAGE`(사용량 기록 파일, 기본 `projects/.usage/usage.jsonl`).
 
-스키마나 파이프라인을 바꾸면 `canon/mock.py` 도 맞춰 고치고 전체 시험(`python -m pytest -q tests`)이 통과하는지 확인한다. `python -m unittest` 는 시험 대부분(pytest 형식 함수)을 건너뛰므로 쓰지 않는다. 시험은 `CANON_HOME` 을 임시 폴더로 두고 돌린다(몇몇 시험이 `canon` 을 먼저 불러 실제 `projects/` 에 작품을 만들 수 있다). `web.py` 의 엔드포인트나 응답 모델을 바꾸면 `python scripts/make_openapi.py` 로 Swift 앱의 명세를 다시 만든다(`tests/test_openapi.py` 가 본다). 연산 이름은 함수 이름이라 웹 함수 이름을 바꾸면 Swift 호출부도 바뀐다. 실제 Gemini 호출은 키가 있을 때만 확인할 수 있으니, 확인하지 못했다면 그렇다고 밝힌다.
+스키마나 파이프라인을 바꾸면 `canon/mock.py` 도 맞춰 고치고 전체 시험(`python -m pytest -q tests`)이 통과하는지 확인한다. `python -m unittest` 는 시험 대부분(pytest 형식 함수)을 건너뛰므로 쓰지 않는다. 시험은 `CANON_HOME` 을 임시 폴더로 두고 돌린다(몇몇 시험이 `canon` 을 먼저 불러 실제 `projects/` 에 작품을 만들 수 있다). `web.py` 의 엔드포인트나 응답 모델을 바꾸면 `python scripts/make_openapi.py` 로 Swift 앱의 명세를 다시 만든다(`tests/test_openapi.py` 가 본다). 연산 이름은 함수 이름이라 웹 함수 이름을 바꾸면 Swift 호출부도 바뀐다. 실제 Gemini 호출은 키가 있을 때만 확인할 수 있으니, 확인하지 못했다면 그렇다고 밝힌다. 키가 있으면 아래 '비용 드는 모델 실험' 규칙대로 직접 돌려 확인한다.
+
+## 비용 드는 모델 실험
+
+에이전트는 이 규칙 안에서 유료 API(Gemini, Vertex AI, `claude-api`)를 부르는 실험을 사용자에게 묻지 않고 돌린다. 이 규칙은 "비용이 걸린 확인은 돌리지 않는다" 같은 전역 규칙보다 우선한다.
+
+- **할 수 있는 것**: 실호출 검증, 프롬프트 튜닝, 모델 · 백엔드 비교, 검수 시험, 캐시 · 토큰 실측. 연구 화면 로직(`research.py`), `compare`, `openings`, `hook`, 스크립트로 부른다.
+- **예산**: 실험 하나의 추정 비용이 $5 이하이고 세션 합계가 $10 이하면 묻지 않는다. 넘을 것 같으면 추정 비용과 이유를 적어 먼저 묻는다. 사용자가 그 세션에서 다른 한도를 정하면 그 한도를 쓴다.
+- **추정 먼저**: 돌리기 전에 호출 수 × 프롬프트 크기(한국어 1.7자/토큰)로 비용을 어림한다. 가격은 `python -m canon usage --prices` 의 가격표를 쓴다. 표본은 작게 시작한다(1~2회로 형식과 비용을 본 뒤 늘린다).
+- **싼 쪽부터**: 같은 질문에 답할 수 있으면 mock → 로컬 → 싼 모델(flash 급) → 비싼 모델 순으로 고른다. 기다려도 되는 대량 호출은 배치(절반 가격)를 쓴다.
+- **작품 데이터 보호**: 사용자 작품(`projects/<이름>/`)은 바꾸지 않는다. 작품이 필요하면 임시 `CANON_HOME` 에 복사해 쓴다. 블라인드 비교의 '본문으로 채택'은 켜지 않는다.
+- **사용량 기록**: 호출은 실제 사용량 기록에 남긴다. 임시 `CANON_HOME` 을 쓸 때도 `CANON_USAGE=$PWD/projects/.usage/usage.jsonl` 로 둔다. 시작 전과 끝난 뒤 `python -m canon usage --days 1` 을 견줘 세션 비용을 센다.
+- **멈출 때**: 형식 오류 · 실패가 연달아 나거나 같은 호출을 세 번 넘게 다시 보내면 멈추고 원인을 먼저 본다. 끝없이 도는 반복문이나 자동 집필(`auto`)을 목표 없이 띄우지 않는다.
+- **결과**: 실험마다 목적, 모델, 표본 수, 결과, 쓴 비용을 남긴다. 연구 화면 실험은 `research/log.jsonl` 에 저절로 남고, 정리한 글은 `reports/` 에 둔다(커밋하지 않음). 설계를 바꾸는 실측값은 DESIGN.md 에 날짜와 함께 옮긴다(예: 캐시 실측 2026-10-27).
+- **보고**: 작업 보고에 쓴 비용(가격표 추정치)과 모델별 호출 수를 적는다. 키가 없거나 호출이 막혀 못 돌린 실험은 그렇다고 적는다.
+- 키와 결제 설정은 바꾸지 않는다. 키를 화면 · 로그 · 보고에 찍지 않는다.
 
 ## 규칙
 
