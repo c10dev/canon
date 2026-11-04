@@ -66,6 +66,7 @@
 ### `canon/mock.py`
 
 - 테스트용 가짜 LLM
+- `MockLLM.json` 은 스키마로 `RESPONDERS` 만 찾는다. `mock.py` 의 응답도 `@responds` 함수(`_r_<스키마>`)이고 `json` 안에 스키마 분기를 두지 않는다(`tests/test_mock_registry.py`)
 - 가짜 문체 프로필은 시험 원문에 있는 표지 · 장치와 걸러져야 할 표지 · 장치를 함께 낸다 (`count_markers` 와 문체 넣은 쓰기 경로 시험)
 - 새 기능의 가짜 응답은 `mock_<기능>.py` 에 `@responds(스키마)` 로 두고(`RESPONDERS`) `mock.py` 맨 끝에서 불러온다
   - `mock_birth.py` 출생 배경
