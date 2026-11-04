@@ -1297,7 +1297,7 @@ if (window.visualViewport && typeof window.visualViewport.addEventListener === '
 .src-rows { display: flex; flex-direction: column; }
 .src-row { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto auto; gap: 12px; align-items: center; min-height: 52px; border-top: 1px solid var(--rule); font-size: 0.8125rem; padding: 6px 0; }
 .src-row:first-child { border-top: none; }
-.src-row input[type="checkbox"] { width: 18px; height: 18px; }
+.src-row input[type="checkbox"] { width: var(--checkbox); height: var(--checkbox); }
 .src-t { display: flex; flex-direction: column; gap: 2px; cursor: pointer; min-width: 0; }
 .src-x select, .soe-range input { min-height: 36px; }
 .soe-range input { width: 64px; }

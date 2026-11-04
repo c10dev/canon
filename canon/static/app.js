@@ -483,7 +483,17 @@ function selecting() {
 // 입력을 마치면(다른 입력칸이 아닌 곳으로 포커스가 가면) 입력 중이라 미뤄 둔 다시 그리기를 한다
 document.addEventListener('focusout', () => setTimeout(() => { if (S.renderPending && !isTyping() && !selecting()) render(); }));
 // 글자 선택을 풀면 선택 중이라 미뤄 둔 다시 그리기를 한다
-document.addEventListener('selectionchange', () => setTimeout(() => { if (S.renderPending && !isTyping() && !selecting()) render(); }));  // 누른 버튼의 동작이 먼저 돈다
+document.addEventListener('selectionchange', () => setTimeout(() => { if (S.renderPending && !isTyping() && !selecting()) render(); }));
+// 휴대폰 키보드 높이를 --kb 로 둔다. 아래에 붙는 대화 시트 · 다시 생성 열과 찾기 팔레트가 키보드 위에 선다 (app.css 900px 이하)
+if (window.visualViewport && typeof window.visualViewport.addEventListener === 'function') {
+  const fitKeyboard = () => {
+    const vv = window.visualViewport;
+    const kb = vv.scale > 1.01 ? 0 : Math.max(0, Math.round(innerHeight - vv.height - vv.offsetTop));  // 두 손가락으로 확대한 동안은 키보드가 아니다
+    document.documentElement.style.setProperty('--kb', `${kb < 80 ? 0 : kb}px`);  // 80px 아래는 주소창이 접히고 펴지는 것이라 키보드로 보지 않는다
+  };
+  window.visualViewport.addEventListener('resize', fitKeyboard);
+  window.visualViewport.addEventListener('scroll', fitKeyboard);
+}  // 누른 버튼의 동작이 먼저 돈다
 
 // 작업 결과가 보이는 화면
 JOB_DONE_MSG.check = (j) => `${j.ep}화 검수가 끝났어요${j.result && j.result.round ? ` (${j.result.round}회차)` : ''}: 짚은 곳 ${j.result ? j.result.issues : 0}개${j.result && j.result.round > 1 ? `, 새 지적 ${j.result.added}개` : ''}`;
@@ -1518,13 +1528,18 @@ function menuBtn(id, label, body, { cls = 'btn', aria = '', title = '', align = 
 /** 열린 메뉴 창이 화면 밖으로 나가지 않게 한다. 창은 버튼 오른쪽 끝에 맞춰 왼쪽으로 펼치는데, 좁은 화면에서 버튼이
     줄 왼쪽으로 내려가면 창이 왼쪽 밖으로 나간다. 그러면 버튼 왼쪽 끝에 맞춘다 (.pop-panel.left) */
 function fitMenus() {
+  const W = document.documentElement.clientWidth;
   document.querySelectorAll('#app .pop-panel').forEach((p) => {
-    if (p.classList.contains('left')) return;
-    if (p.getBoundingClientRect().left < 8) p.classList.add('left', 'fit-left');
+    if (!p.classList.contains('left') && p.getBoundingClientRect().left < 8) p.classList.add('left', 'fit-left');
+    // 버튼이 줄 가운데에 있으면 어느 쪽에 맞춰도 넘친다. 그러면 화면 안으로 옆으로 민다 (휴대폰 폭)
+    const r = p.getBoundingClientRect();
+    const shift = r.right > W - 8 ? Math.max(8 - r.left, W - 8 - r.right) : r.left < 8 ? 8 - r.left : 0;
+    if (shift) { p.style.translate = `${Math.round(shift)}px 0`; p.classList.add('fit-shift'); }
   });
 }
 window.addEventListener('resize', () => {
   document.querySelectorAll('#app .pop-panel.fit-left').forEach((p) => p.classList.remove('left', 'fit-left'));
+  document.querySelectorAll('#app .pop-panel.fit-shift').forEach((p) => { p.classList.remove('fit-shift'); p.style.translate = ''; });
   fitMenus();
 });
 

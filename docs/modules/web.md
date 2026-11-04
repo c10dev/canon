@@ -34,6 +34,7 @@
   - 64px 레일로 접기 `toggleRail` · `syncRail`(901~1599px 에서 대화 패널을 열면 저절로)
   - 900px 이하는 위쪽 띠와 왼쪽 서랍 `drawerHead`
 - 창 폭 경계 `BP`(phone 640 · narrow 900 · chatRail 1599)와 `mq(이름)`: app.css `@media` 와 같은 값이다. `hub.js` · `review.js` 도 이것을 쓴다
+- 휴대폰 키보드 높이 `--kb`(`visualViewport`, 80px 아래와 두 손가락 확대는 0): 아래 시트 · 찾기 팔레트가 키보드 위에 선다
 - 사이드바 아이콘(`navItems` · `navMark`: 단계는 번호, 그 밖은 토스페이스 이모지 `.tf`, 출처 문구는 사이드바 아래, Swift `Screen.mark` 와 같은 글자)
 - 사이드바 작품 칸(`workCard`: 제목 · 갈래 · 플레이 사본(`play.js` `playSideTag`) · 장편은 지금 부 · 아크(`partOf` · `arcOf`), 화 칸 띠는 단편 전체 · 장편 지금 아크, 다음 할 일은 `home.js` `nextStep`, 좁은 폭 위쪽 띠 줄이기는 `app.css` `.work-card`)
 - 4 · 5 · 6 줄이 가리키는 화(`navEp`: 한 화 흐름 `FLOW_PAGES` · 작업지시서는 보는 화)
@@ -235,6 +236,8 @@
 - 화면(사이드바 `navItems` 와 같은 이름) · 화 번호 · 인물 이름 · 설정 칸(칸 이름과 값, `palSetupFields`, 고르면 `S.jumpTo` 로 설정 도우미 기획서의 그 칸) · 설정 대화상자의 줄(`SET_ROWS`, 고르면 그 갈래를 연다) · 다음 할 일 · 저장(`saveShortcut`) · 알림 창(`hubOpen`)을 찾는다
 - 작품 밖은 작품 목록 · 설정 · 알림 창과 설정 줄만
 - 검색 `paletteItems` · `paletteMatch` 는 순수 함수(`tests/test_palette_js.py` 가 node 로 맞춰 본다)
+- 640px 이하는 찾기 칸 오른쪽에 닫기 버튼 `.pal-x`(화면을 거의 다 덮고 Esc 가 없다)
+- 찾기 칸은 휴대폰 키보드 Enter 가 '이동'(`enterkeyhint="go"`)
 - CSS 는 JS 에서 주입
 
 ### `canon/static/passage.js`
@@ -332,6 +335,7 @@
   - 바로 저장 `setSave`(바꾼 칸만 `PUT /config`) · `setProjectSave`(칸마다 작품 API)
   - 저장 띠 없음
   - 키만 줄 안 '키 저장'
+  - 글 칸 `textRow`(모델 이름 · 주소 · 경로)는 휴대폰 키보드 자동 대문자 · 고치기를 끈다
   - 작품별 단계 값 `projectStage`
   - 단계 줄의 추론 강도 칸 `effortSelect`: Claude · Gemini 단계에만, 목록은 백엔드가 받는 값(`effortOptions`)
   - Claude 로그인 줄 `claude.js` · Vertex 줄 `vertex.js`

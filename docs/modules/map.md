@@ -302,6 +302,7 @@
 - 지도 화면 뼈대
 - 상태 · 불러오기(`atlasLoad`, 미리보기 · 자리 찾기 상태 `atlasGenPreview` · `atlasFindNow`)
 - 지도 그림(`atlasSvg`, 마을 `atlasVillageSvg`)
+- 장소 핀 누름 원 `.at-hit`은 손가락 기기(`ATLAS_COARSE`)에서 화면 반지름 22px보다 작지 않다
 - 화면을 모르는 계산
   - 되돌리기 `atlasPinDiff` · `atlasPinApply`
   - 자리 찾기 처음 고름 `atlasFindDefault` · `atlasFindPins`
