@@ -11,6 +11,8 @@ const STAGES = [['plan', '계획', '설정 제안 · 문체 분석 · 기승전�
 // 백엔드를 비우면 따르는 단계 (settings.STAGE_PARENT 와 같다)
 const STAGE_PARENT = { name: 'plan', revise: 'write', illustration: 'plan', play: 'write', chat: 'plan' };
 const stageName = (s) => (STAGES.find(([x]) => x === s) || [s, s])[1];
+// '본문 쓰기를 따름' · '계획을 따름' (조사 josa 는 setup.js)
+const stageFollow = (s) => `${stageName(s)}${josa(stageName(s), '을', '를')} 따름`;
 const PROVIDERS = [['gemini', 'Gemini API'], ['claude', 'Claude 구독 로그인'], ['claude-api', 'Claude API 키'], ['local', '로컬 서버'],
   ['mock', 'mock (AI 없이 화면 확인)']];
 const provName = (v) => (PROVIDERS.find(([x]) => x === v) || [v, v])[1];
@@ -363,13 +365,31 @@ function stageRow(s, c) {
   const envMock = c.provider === 'mock' && c.provider_source === 'env';  // 환경 변수 CANON_LLM=mock 이면 단계 선택과 상관없이 모두 mock
   const lockLLM = envMock || st.env === `CANON_LLM_${s.toUpperCase()}`;
   const lockModel = st.model_env === `CANON_MODEL_${s.toUpperCase()}`;
-  const follow = STAGE_PARENT[s] ? `${stageName(STAGE_PARENT[s])}을 따름` : '기본 AI를 따름';
+  const follow = STAGE_PARENT[s] ? `${stageFollow(STAGE_PARENT[s])}` : '기본 AI를 따름';
   const notes = [desc, stageHint(s, c), lockLLM && !envMock ? `AI는 환경 변수 CANON_LLM_${s.toUpperCase()}이 정했어요` : '',
     lockModel ? `모델은 환경 변수 CANON_MODEL_${s.toUpperCase()}이 정했어요` : ''].filter(Boolean).map(esc).join(' · ');
   const own = (c.stage_settings || {})[s] || '';
-  return setRow(id, label, notes,
+  return setRow(id, label, [notes, effortNote(s, st)].filter(Boolean).join(' · '),
     `<select class="set-inp half" data-setstage="${s}" aria-label="${esc(label)} AI"${lockLLM ? ' disabled' : ''}><option value="">${follow}</option>${PROVIDERS.map(([v, l]) => `<option value="${v}"${own === v ? ' selected' : ''}>${l}</option>`).join('')}</select>
-     <input class="set-inp half" type="text" data-setstagemodel="${s}" aria-label="${esc(label)} 모델" list="model-options" value="${esc((c.stage_model_settings || {})[s] || '')}" placeholder="모델: ${esc(st.model || '기본')}"${lockModel ? ' readonly' : ''}>`);
+     <input class="set-inp half" type="text" data-setstagemodel="${s}" aria-label="${esc(label)} 모델" list="model-options" value="${esc((c.stage_model_settings || {})[s] || '')}" placeholder="모델: ${esc(st.model || '기본')}"${lockModel ? ' readonly' : ''}>${effortSelect(s, label, st, c)}`);
+}
+
+// Claude 추론 강도 (settings.EFFORTS). Claude 백엔드 단계에만 보인다. 비우면 모델 기본값
+const EFFORT_LABEL = { low: '낮음', medium: '보통', high: '높음', xhigh: '아주 높음', max: '최대' };
+const effortLocked = (s, st) => st.effort_env === `CANON_EFFORT_${s.toUpperCase()}`;
+
+function effortSelect(s, label, st, c) {
+  if (!['claude', 'claude-api'].includes(st.provider)) return '';
+  const own = (c.stage_effort_settings || {})[s] || '';
+  const follow = STAGE_PARENT[s] && !own && st.effort ? `${stageFollow(STAGE_PARENT[s])} (${EFFORT_LABEL[st.effort] || st.effort})` : '추론 강도: 모델 기본값';
+  const opts = (c.efforts || Object.keys(EFFORT_LABEL)).map((v) => `<option value="${v}"${own === v ? ' selected' : ''}>추론 강도: ${EFFORT_LABEL[v] || v}</option>`).join('');
+  return `<select class="set-inp half" data-setstageeffort="${s}" aria-label="${esc(label)} 추론 강도"${effortLocked(s, st) ? ' disabled' : ''}><option value="">${esc(follow)}</option>${opts}</select>`;
+}
+
+function effortNote(s, st) {
+  if (!['claude', 'claude-api'].includes(st.provider)) return '';
+  if (effortLocked(s, st)) return esc(`추론 강도는 환경 변수 CANON_EFFORT_${s.toUpperCase()}이 정했어요 (${EFFORT_LABEL[st.effort] || st.effort})`);
+  return '';
 }
 
 /** 고급 줄의 환경 변수 목록: [변수 이름, 값 한 줄] (키는 끝 네 글자만) */
@@ -392,6 +412,7 @@ function setEnvList(c) {
     const st = (c.stages || {})[s] || {};
     if (st.env === `CANON_LLM_${s.toUpperCase()}`) out.push([st.env, provName(st.provider)]);
     if (st.model_env === `CANON_MODEL_${s.toUpperCase()}`) out.push([st.model_env, st.model]);
+    if (effortLocked(s, st)) out.push([st.effort_env, st.effort]);
   });
   return out;
 }
@@ -584,6 +605,7 @@ async function setChange(e) {
   const row = (el.closest('.set-row') || { id: '' }).id.replace(/^row-/, '');
   if (el.dataset.setstage) return setSave(row, { stages: { [el.dataset.setstage]: v } });
   if (el.dataset.setstagemodel) return setSave(row, { stage_models: { [el.dataset.setstagemodel]: v } });
+  if (el.dataset.setstageeffort) return setSave(row, { stage_efforts: { [el.dataset.setstageeffort]: v } });
   const f = el.dataset.setfield;
   if (!f || el.readOnly) return;
   if (['provider', 'model', 'local_url', 'local_model', 'claude_model', 'claude_bin', 'vertex_credentials', 'vertex_project', 'vertex_location'].includes(f)) {

@@ -923,6 +923,7 @@ export CANON_LOCAL_URL=http://localhost:11434/v1   # Ollama. llama.cpp :8080/v1,
 export CANON_LOCAL_MODEL=gemma4:31b                # 비우면 서버에 하나뿐인 모델
 export CANON_LLM_WRITE=local                       # 본문만 로컬 (plan / write / check / state / name / revise / illustration / play / chat)
 export CANON_MODEL_STATE=gemini-3.8-flash          # 상태 변경안만 다른 모델 (CANON_MODEL_PLAN / _WRITE / _CHECK / _STATE / _NAME / _REVISE / _ILLUSTRATION / _PLAY / _CHAT)
+export CANON_EFFORT_CHECK=high                     # Claude 로 돌리는 단계의 추론 강도 (low | medium | high | xhigh | max, CANON_EFFORT_<단계>)
 # 전부 로컬이면 CANON_LLM=local
 
 python -m canon compare 등대 3                  # 같은 화를 gemini 와 local 로 써서 1, 2 번으로 가림
@@ -961,6 +962,7 @@ export CANON_CLAUDE_MODEL=opus    # 선택. 비우면 Claude Code 기본 모델 
 - 구독 호출에는 `ANTHROPIC_API_KEY` 를 넘기지 않는다. 넘기면 Claude Code 가 구독 대신 그 키로 과금하기 때문이다. API 키는 `claude-api` 방식에서만 쓴다 (설정 › AI 연결의 Anthropic API 키 칸 또는 `ANTHROPIC_API_KEY`).
 - 구독 한도는 평범한 개인 사용을 기준으로 한다. 자동 집필처럼 오래 도는 작업은 API 키 방식이 맞고, 한도에 걸리면 그 화에서 멈추고 이유를 알린다.
 - `claude` 가 PATH 에 없으면 설정 › AI 연결의 **claude 실행 파일** 칸이나 `CANON_CLAUDE_BIN` 에 경로를 적는다. 설정 칸은 파일 이름이 `claude` 인 경로만 받는다(로그인 없는 웹 API 로 다른 실행 파일을 부르지 않게). 다른 이름이면 `CANON_CLAUDE_BIN` 을 쓴다. 한 번 호출 제한 시간은 `CANON_CLAUDE_TIMEOUT`(초, 기본 900).
+- **추론 강도**: 설정 › 단계별 모델에서 Claude 로 돌리는 단계 줄에 **추론 강도** 칸이 생긴다(낮음 low · 보통 medium · 높음 high · 아주 높음 xhigh · 최대 max). 비우면 모델 기본값을 쓴다(Opus 5.5 는 medium, Sonnet 5.5 는 high. 구독은 Claude Code 설정을 따른다). 구독은 `claude --effort` 로, API 키는 `output_config.effort` 로 넘긴다. 부분 수정 · 이름 추천처럼 부모 단계가 있는 줄은 비워 두면 같은 백엔드인 부모 단계 강도를 따른다. 환경 변수 `CANON_EFFORT_CHECK` 처럼 단계마다 정할 수도 있고, 화면 칸보다 우선한다. 강도는 단계 프리셋에 들어가지 않는다. 강도가 높을수록 생각 토큰이 늘어 느려진다. 검수 한 화 실측(2026-11-04, Opus 5.5 구독, 1회씩): 낮음 17초 · 보통 41초 · 높음 59초 · 아주 높음 118초. 사용량 기록에는 정한 강도가 `effort` 로 남는다.
 
 ## 연구 화면 (모델 실험)
 

@@ -127,6 +127,8 @@ def record(llm: Any, tokens: Optional[dict], started: Optional[float] = None, *,
         "ok": ok,
         "error": _error_text(error) if error is not None else "",
     }
+    if getattr(llm, "effort", ""):
+        row["effort"] = llm.effort  # Claude 추론 강도. 정하지 않았으면 칸이 없다 (모델 기본값)
     if prompt:
         from .context import blocks
         row["chars"] = len(prompt)

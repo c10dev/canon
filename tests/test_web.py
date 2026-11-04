@@ -115,7 +115,7 @@ def test_settings(client, tmp_path, monkeypatch):
                                         "local_key": "lk-1", "stages": {"write": "local"}}).json()
     assert c["local_url"] == "http://nhn:8000/v1" and c["has_local_key"] and "lk-1" not in str(c)
     assert c["stages"]["write"] == {"provider": "local", "source": "file", "model": "gemma", "model_source": "default",
-                                   "env": "", "model_env": ""}
+                                   "env": "", "model_env": "", "effort": "", "effort_source": "default", "effort_env": ""}
     assert c["stages"]["plan"]["provider"] == "gemini"
 
     # 이름·지명 단계는 따로 정하지 않으면 계획 단계를 따르고, 단계별 모델을 지정할 수 있다
@@ -124,8 +124,15 @@ def test_settings(client, tmp_path, monkeypatch):
     assert c["stages"]["name"]["model"] == "gemini-2.5-pro"
     c = client.put("/api/config", json={"stages": {"name": "local"}, "stage_models": {"name": "qwen3"}}).json()
     assert c["stages"]["name"] == {"provider": "local", "source": "file", "model": "qwen3", "model_source": "file",
-                                  "env": "", "model_env": ""}
+                                  "env": "", "model_env": "", "effort": "", "effort_source": "default", "effort_env": ""}
     assert c["stage_model_settings"] == {"plan": "gemini-2.5-pro", "name": "qwen3"}
+    # Claude 추론 강도는 단계마다 정하고, 모르는 값은 400
+    assert client.put("/api/config", json={"stage_efforts": {"check": "huge"}}).status_code == 400
+    c = client.put("/api/config", json={"stages": {"check": "claude"}, "stage_efforts": {"check": "high"}}).json()
+    assert c["stages"]["check"]["effort"] == "high" and c["stage_effort_settings"] == {"check": "high"}
+    assert c["efforts"] == ["low", "medium", "high", "xhigh", "max"]
+    c = client.put("/api/config", json={"stages": {"check": ""}, "stage_efforts": {"check": ""}}).json()
+    assert c["stage_effort_settings"] == {} and c["stages"]["check"]["effort"] == ""
     from canon.llm import get_llm as _get
     assert _get("name").model == "qwen3" and _get("plan").model == "gemini-2.5-pro"
     assert client.put("/api/config", json={"stage_models": {"draft": "x"}}).status_code == 400

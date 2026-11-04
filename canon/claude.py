@@ -18,6 +18,8 @@ claude-api (API 키)
   CANON_CLAUDE_BIN    claude 실행 파일 경로 (PATH 에 없을 때)
   ANTHROPIC_API_KEY   claude-api 의 키. 구독 호출에는 넘기지 않는다 (넘기면 Claude Code 가 키로 과금한다)
   CANON_CLAUDE_TIMEOUT  한 번 호출의 제한 시간(초, 기본 900)
+  CANON_EFFORT_<단계>   단계별 추론 강도 (settings.stage_effort). 구독은 --effort, API 는 output_config.effort 로 넘긴다.
+                      비우면 모델 기본값 (Opus 5.5 는 medium, Sonnet 5.5 는 high. 구독은 Claude Code 설정을 따른다)
 """
 from __future__ import annotations
 
@@ -137,7 +139,7 @@ def _flags(binary: str) -> frozenset[str]:
 def _probe(binary: str, real: str) -> frozenset[str]:
     out = _run([binary, "--help"], 30)
     text = out.stdout + out.stderr
-    known = ("--safe-mode", "--tools", "--strict-mcp-config", "--no-session-persistence", "--json-schema")
+    known = ("--safe-mode", "--tools", "--strict-mcp-config", "--no-session-persistence", "--json-schema", "--effort")
     return frozenset(f for f in known if f in text)
 
 
@@ -224,11 +226,13 @@ class ClaudeCodeLLM:
     """설치된 Claude Code 를 `claude -p` 로 부른다. 도구는 모두 끄고, 시스템 프롬프트를 Canon 것으로 바꾸고,
     세션을 남기지 않는다. 구조화 출력은 --json-schema 로 받고 pydantic 으로 검증해, 어긋나면 한 번 더 묻는다."""
 
-    def __init__(self, model: str | None = None, binary: str | None = None, timeout: float | None = None):
+    def __init__(self, model: str | None = None, binary: str | None = None, timeout: float | None = None,
+                 effort: str = ""):
         from . import settings
 
         self.binary = find_binary(binary)
         self.requested = model or settings.claude_model()[0]
+        self.effort = effort if effort in settings.EFFORTS else ""  # 실제로 넘긴 값만 남긴다 (_args)
         self.timeout = timeout or float(os.environ.get("CANON_CLAUDE_TIMEOUT", "900"))
         self.served = ""
         self.last_usage: dict | None = None
@@ -274,6 +278,11 @@ class ClaudeCodeLLM:
                 args.append(f)
         if self.requested:
             args += ["--model", self.requested]
+        if self.effort:
+            if "--effort" not in flags:  # 오래된 버전: 강도 없이 부르고, 사용량 기록에 강도를 남기지 않는다
+                self.effort = ""
+            else:
+                args += ["--effort", self.effort]
         if schema is not None:
             args += ["--json-schema", json.dumps(schema, ensure_ascii=False)]
         return args
@@ -380,7 +389,7 @@ class ClaudeAPILLM:
     """Anthropic API 키로 Messages API 를 부른다. 구조화 출력은 output_config.format 으로 강제하고
     pydantic 으로 검증한다. 긴 본문도 끊기지 않게 스트리밍으로 받는다."""
 
-    def __init__(self, model: str | None = None, api_key: str | None = None):
+    def __init__(self, model: str | None = None, api_key: str | None = None, effort: str = ""):
         import anthropic
 
         from . import settings
@@ -390,6 +399,7 @@ class ClaudeAPILLM:
             raise RuntimeError("Anthropic API 키가 없어요. 웹 설정의 AI 연결에서 넣거나 ANTHROPIC_API_KEY를 설정하세요.")
         self.client = anthropic.Anthropic(api_key=key, max_retries=3)
         self.model = model or settings.claude_model()[0] or DEFAULT_API_MODEL
+        self.effort = effort if effort in settings.EFFORTS else ""
         self.last_usage: dict | None = None
         self.last_attempts = 0
         self.last_raw = ""
@@ -415,6 +425,8 @@ class ClaudeAPILLM:
                                "messages": [{"role": "user", "content": cache_blocks((self.model, system, schema and schema.__name__), with_note(prompt))}]}
         if schema is not None:
             req["output_config"] = {"format": {"type": "json_schema", "schema": strict_schema(schema)}}
+        if self.effort:
+            req.setdefault("output_config", {})["effort"] = self.effort
         if self.model.startswith(FALLBACK_MODELS):
             req |= {"betas": [FALLBACK_BETA], "fallbacks": "default"}
         try:

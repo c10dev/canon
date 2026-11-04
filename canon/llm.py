@@ -754,8 +754,9 @@ class LocalLLM:
         return self._chat(system, [{"role": "user", "content": prompt}], **self.sampling)
 
 
-def make_llm(provider: str, model: str | None = None) -> LLM:
-    """model 이 비어 있으면 그 백엔드의 기본 모델(설정의 model 또는 local_model)을 쓴다."""
+def make_llm(provider: str, model: str | None = None, effort: str = "") -> LLM:
+    """model 이 비어 있으면 그 백엔드의 기본 모델(설정의 model 또는 local_model)을 쓴다.
+    effort 는 Claude 추론 강도(settings.EFFORTS)이고 다른 백엔드는 무시한다. 비우면 모델 기본값."""
     if provider == "mock":
         from .mock import MockLLM
 
@@ -767,16 +768,19 @@ def make_llm(provider: str, model: str | None = None) -> LLM:
     if provider in ("claude", "claude-api"):
         from .claude import ClaudeAPILLM, ClaudeCodeLLM
 
-        return ClaudeCodeLLM(model=model or None) if provider == "claude" else ClaudeAPILLM(model=model or None)
+        if provider == "claude":
+            return ClaudeCodeLLM(model=model or None, effort=effort)
+        return ClaudeAPILLM(model=model or None, effort=effort)
     raise ValueError(f"알 수 없는 LLM 프로바이더: {provider} (gemini | local | claude | claude-api | mock)")
 
 
 def get_llm(stage: str | None = None) -> LLM:
     """stage: plan | write | check | state | name | revise | illustration | play | chat. 단계별 백엔드와 모델 설정이 없으면 전체 설정을 쓴다.
-    지금 작업의 작품(usage.scope)이 단계 프리셋을 골랐으면 그 프리셋의 단계 칸을 쓴다 (settings.project_preset)."""
+    지금 작업의 작품(usage.scope)이 단계 프리셋을 골랐으면 그 프리셋의 단계 칸을 쓴다 (settings.project_preset).
+    Claude 백엔드면 단계 추론 강도(settings.stage_effort)도 넘긴다."""
     from . import settings
 
-    llm = make_llm(settings.stage_provider(stage)[0], settings.stage_model(stage)[0])
+    llm = make_llm(settings.stage_provider(stage)[0], settings.stage_model(stage)[0], settings.stage_effort(stage)[0])
     if stage:
         llm.stage = stage  # type: ignore[attr-defined]  # 사용량 기록이 단계를 적는다
     return llm

@@ -190,6 +190,44 @@ class ClaudeCodeTest(unittest.TestCase):
             with self.assertRaisesRegex(claude.ClaudeCodeError, "설치"):
                 claude.ClaudeCodeLLM().text("s", "p")
 
+    def test_effort_flag_and_usage(self):
+        (self.dir / "help.txt").write_text("--safe-mode --tools <t> --strict-mcp-config --no-session-persistence "
+                                           "--json-schema <s> --effort <level>", encoding="utf-8")
+        llm = claude.ClaudeCodeLLM(effort="high")
+        llm.text("s", "p")
+        args = self.calls()[-1]["args"]
+        self.assertEqual(args[args.index("--effort") + 1], "high")
+        self.assertEqual(usage.read()[-1]["effort"], "high")
+        claude.ClaudeCodeLLM().text("s", "p")  # 비우면 Claude Code 기본 강도
+        self.assertNotIn("--effort", self.calls()[-1]["args"])
+        self.assertNotIn("effort", usage.read()[-1])
+        self.assertEqual(claude.ClaudeCodeLLM(effort="huge").effort, "")  # 모르는 값은 넘기지 않는다
+
+    def test_effort_skipped_on_old_cli(self):
+        llm = claude.ClaudeCodeLLM(effort="low")  # 기본 가짜 --help 에는 --effort 가 없다
+        llm.text("s", "p")
+        self.assertNotIn("--effort", self.calls()[-1]["args"])
+        self.assertNotIn("effort", usage.read()[-1])  # 넘기지 못한 강도는 기록하지 않는다
+
+    def test_stage_effort_setting(self):
+        with mock.patch.dict(os.environ, {"CANON_LLM": "gemini", "CANON_LLM_CHECK": "claude", "CANON_LLM_WRITE": "claude"}):
+            self.assertEqual(get_llm("check").effort, "")
+            settings.update(stage_efforts={"check": "XHigh", "write": "low"})
+            self.assertEqual(settings.stage_effort("check"), ("xhigh", "file"))
+            self.assertEqual(get_llm("check").effort, "xhigh")
+            self.assertEqual(settings.stage_effort("revise"), ("low", "file"))  # 부분 수정은 본문 쓰기를 따른다
+            pub = settings.public()
+            self.assertEqual(pub["stages"]["check"]["effort"], "xhigh")
+            self.assertEqual(pub["stage_effort_settings"], {"check": "xhigh", "write": "low"})
+            self.assertEqual(pub["stages"]["plan"]["effort"], "")  # Gemini 단계는 강도가 없다
+            with mock.patch.dict(os.environ, {"CANON_EFFORT_CHECK": "medium"}):
+                self.assertEqual(settings.stage_effort("check"), ("medium", "env"))
+                self.assertEqual(settings.public()["stages"]["check"]["effort_env"], "CANON_EFFORT_CHECK")
+            with self.assertRaisesRegex(ValueError, "추론 강도"):
+                settings.update(stage_efforts={"check": "huge"})
+            settings.update(stage_efforts={"check": ""})
+            self.assertEqual(settings.stage_effort("check"), ("", "default"))
+
     def test_settings_route_stages(self):
         with mock.patch.dict(os.environ, {"CANON_LLM": "gemini", "CANON_LLM_WRITE": "claude", "CANON_CLAUDE_MODEL": "opus"}):
             llm = get_llm("write")
@@ -281,6 +319,21 @@ class ClaudeAPITest(unittest.TestCase):
         self.assertEqual([r["backend"] for r in rows], ["claude-api", "claude-api"])
         cost = usage.row_cost(rows[-1], usage.prices())[0]
         self.assertAlmostEqual(cost, (100 * 4 + 1000 * 20) / 1e6)
+
+    def test_effort_in_output_config(self):
+        llm = claude.ClaudeAPILLM(effort="max")
+        self.reqs, queue = [], [_msg('{"options": [{"name": "윤채린", "reason": "맑다"}]}'), _msg("글")]
+        llm.client = SimpleNamespace(beta=SimpleNamespace(messages=SimpleNamespace(
+            stream=lambda **req: FakeStream(queue.pop(0), self.reqs, req))))
+        llm.json("s", "p", NameOptions)
+        self.assertEqual(self.reqs[0]["output_config"]["effort"], "max")
+        self.assertEqual(self.reqs[0]["output_config"]["format"]["type"], "json_schema")
+        llm.text("s", "p")
+        self.assertEqual(self.reqs[1]["output_config"], {"effort": "max"})
+        self.assertEqual(usage.read()[-1]["effort"], "max")
+        plain = self.make(_msg("글"))
+        plain.text("s", "p")
+        self.assertNotIn("output_config", self.reqs[0])  # 비우면 모델 기본값 (Opus 5.5 는 medium)
 
     def test_refusal_and_haiku_without_fallback(self):
         llm = self.make(_msg("", "refusal"), model="claude-haiku-5-5")

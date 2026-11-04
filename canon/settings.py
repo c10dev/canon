@@ -3,7 +3,8 @@
 웹 설정 화면에서 저장하면 ~/.canon/config.json 에 들어간다 (CANON_CONFIG 로 경로 변경).
 환경 변수가 있으면 파일보다 우선한다: CANON_LLM, CANON_MODEL, GEMINI_API_KEY(또는 GOOGLE_API_KEY),
 CANON_LOCAL_URL, CANON_LOCAL_MODEL, CANON_LOCAL_KEY, CANON_LLM_PLAN / _WRITE / _CHECK / _STATE / _NAME / _REVISE / _CHAT,
-CANON_MODEL_PLAN / _WRITE / _CHECK / _STATE / _NAME / _REVISE (단계별 모델), CANON_CLAUDE_MODEL, CANON_CLAUDE_BIN,
+CANON_MODEL_PLAN / _WRITE / _CHECK / _STATE / _NAME / _REVISE (단계별 모델), CANON_EFFORT_PLAN / _WRITE / _CHECK / ...
+(단계별 Claude 추론 강도), CANON_CLAUDE_MODEL, CANON_CLAUDE_BIN,
 ANTHROPIC_API_KEY (Claude 백엔드, claude.py), CANON_GEMINI_AUTH(key | vertex, 또는 GOOGLE_GENAI_USE_VERTEXAI=true),
 CANON_VERTEX_CREDENTIALS(또는 GOOGLE_APPLICATION_CREDENTIALS), GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION (Vertex AI). prices 는 AI 요금 가격표에서 고친 줄 (usage.py).
 작품이 단계 프리셋을 고르면(Settings.model_preset) 그 작품의 호출에서는 프리셋이 설정 파일의 단계 칸을 대신한다 (project_preset).
@@ -27,6 +28,10 @@ PROVIDERS = ("gemini", "local", "claude", "claude-api", "mock")
 STAGES = ("plan", "write", "check", "state", "name", "revise", "illustration", "play", "chat")
 # 따로 정하지 않으면 이 단계의 설정을 따른다 (이름 추천 · 삽화 프롬프트 · 플롯 대화는 계획 단계 일이고, 부분 수정 · 플레이 장면은 본문 쓰기 일이다)
 STAGE_PARENT = {"name": "plan", "revise": "write", "illustration": "plan", "play": "write", "chat": "plan"}
+# Claude 추론 강도 (claude --effort, Messages API output_config.effort). 비우면 모델 기본값을 쓴다.
+# 다른 백엔드는 이 값을 보지 않는다. 단계 프리셋에는 넣지 않는다 (설정 파일 stage_efforts 와 환경 변수만).
+EFFORTS = ("low", "medium", "high", "xhigh", "max")
+CLAUDE_PROVIDERS = ("claude", "claude-api")
 # 단계별 백엔드 · 모델 묶음. 고르면 설정 화면의 단계 칸을 채운다 (적지 않은 단계는 비워서 부모 단계나 생성 방식을 따른다).
 # 작가가 만든 묶음은 설정 파일 stage_presets 에 둔다 (save_preset).
 BUILTIN_PRESETS = (
@@ -216,15 +221,34 @@ def stage_model(stage: str | None, preset: dict | None = _CURRENT) -> tuple[str,
     return value, src
 
 
+def stage_effort(stage: str | None, preset: dict | None = _CURRENT) -> tuple[str, str]:
+    """단계별 Claude 추론 강도와 출처. 단계 환경 변수(CANON_EFFORT_CHECK 등) → 설정 파일 stage_efforts.
+    비어 있으면 부모 단계가 같은 백엔드일 때 부모 값을 따르고, 그래도 없으면 ""(모델 기본값).
+    EFFORTS 밖의 값은 ""로 본다. preset 은 부모 단계의 백엔드를 비교할 때만 쓴다."""
+    if stage is None or stage not in STAGES:
+        return "", "default"
+    if preset is _CURRENT:
+        preset = project_preset()
+    value, src = _pick((f"CANON_EFFORT_{stage.upper()}",), (_read().get("stage_efforts") or {}).get(stage))
+    value = value.lower()
+    if value in EFFORTS:
+        return value, src
+    parent = STAGE_PARENT.get(stage)
+    if parent and stage_provider(stage, preset) == stage_provider(parent, preset):
+        return stage_effort(parent, preset)
+    return "", "default"
+
+
 def stage_env(stage: str, kind: str = "LLM") -> str:
-    """이 단계의 백엔드(kind="LLM") 또는 모델(kind="MODEL")을 정한 환경 변수 이름. 설정 파일이나 기본값이 정했으면 "".
+    """이 단계의 백엔드(kind="LLM"), 모델(kind="MODEL") 또는 추론 강도(kind="EFFORT")를 정한 환경 변수 이름. 설정 파일이나 기본값이 정했으면 "".
     물려받은 값이면 부모 단계나 전체 값의 변수 이름을 준다 (예: CANON_LLM 만 있으면 모든 단계가 CANON_LLM)."""
     if kind == "LLM" and provider()[0] == "mock":
         return "CANON_LLM" if provider()[1] == "env" else ""
     own = f"CANON_{kind}_{stage.upper()}"
     if os.environ.get(own):
         return own
-    if ((_read().get("stages" if kind == "LLM" else "stage_models")) or {}).get(stage):
+    key = {"LLM": "stages", "MODEL": "stage_models", "EFFORT": "stage_efforts"}[kind]
+    if (_read().get(key) or {}).get(stage):
         return ""
     parent = STAGE_PARENT.get(stage)
     if kind == "LLM":
@@ -260,8 +284,11 @@ def update(*, provider: str | None = None, model: str | None = None,
            claude_bin: str | None = None, anthropic_api_key: str | None = None,
            clear_anthropic_key: bool = False, gemini_auth: str | None = None,
            vertex_credentials: str | None = None, vertex_project: str | None = None,
-           vertex_location: str | None = None) -> None:
+           vertex_location: str | None = None, stage_efforts: dict[str, str] | None = None) -> None:
     """None 인 값은 그대로 둔다. 빈 문자열이면 파일에서 지운다."""
+    bad = [f"{k}={v}" for k, v in (stage_efforts or {}).items() if (v or "").strip() and v.strip().lower() not in EFFORTS]
+    if bad:
+        raise ValueError(f"추론 강도는 {' / '.join(EFFORTS)} 중 하나예요: {', '.join(bad)}")
     if claude_bin and claude_bin.strip() and Path(claude_bin.strip()).name.lower() not in CLAUDE_BIN_NAMES:
         # 설정 화면(로그인 없는 웹 API)으로 아무 실행 파일이나 부르게 하지 않는다. 다른 이름은 CANON_CLAUDE_BIN 으로
         raise ValueError("claude 실행 파일 경로만 적을 수 있어요 (파일 이름이 claude). 다른 이름이면 CANON_CLAUDE_BIN으로 정하세요")
@@ -286,6 +313,8 @@ def update(*, provider: str | None = None, model: str | None = None,
         _set_stage_map(data, "stages", stages)  # 빈 값이면 전체 provider 를 따른다
     if stage_models is not None:
         _set_stage_map(data, "stage_models", stage_models)  # 빈 값이면 백엔드 기본 모델
+    if stage_efforts is not None:
+        _set_stage_map(data, "stage_efforts", {k: (v or "").strip().lower() for k, v in stage_efforts.items()})  # 빈 값이면 모델 기본값
     _write(data)
 
 
@@ -374,7 +403,9 @@ def stage_view(preset: dict | None) -> dict[str, dict]:
                  "claude": cmodel or "Claude Code 기본 모델", "claude-api": cmodel or "claude-opus-5-5"}.get(sp, sp)
         if sm and sp != "mock":
             label = sm
-        out[s] = {"provider": sp, "source": ssrc, "model": label, "model_source": smsrc}
+        eff, esrc = stage_effort(s, preset) if sp in CLAUDE_PROVIDERS else ("", "default")
+        out[s] = {"provider": sp, "source": ssrc, "model": label, "model_source": smsrc,
+                  "effort": eff, "effort_source": esrc}
     return out
 
 
@@ -393,7 +424,8 @@ def public() -> dict:
     vloc, vloc_src = vertex_location()
     # Vertex 는 키 문자열 대신 프로젝트(와 키 파일 또는 기본 자격 증명)가 있으면 부를 수 있다
     gemini_ready = bool(vproj) and (not vcred or Path(vcred).is_file()) if auth == "vertex" else bool(key)
-    stages = {s: {**v, "env": stage_env(s), "model_env": stage_env(s, "MODEL")} for s, v in stage_view(None).items()}
+    stages = {s: {**v, "env": stage_env(s), "model_env": stage_env(s, "MODEL"), "effort_env": stage_env(s, "EFFORT")}
+              for s, v in stage_view(None).items()}
     return {
         "provider": prov,
         "provider_source": prov_src,
@@ -427,6 +459,8 @@ def public() -> dict:
         "stages": stages,
         "stage_settings": {k: v for k, v in (_read().get("stages") or {}).items() if k in STAGES},
         "stage_model_settings": {k: v for k, v in (_read().get("stage_models") or {}).items() if k in STAGES},
+        "stage_effort_settings": {k: v for k, v in (_read().get("stage_efforts") or {}).items() if k in STAGES},
+        "efforts": list(EFFORTS),
         "stage_presets": presets(),
         "local_sampling": local_sampling(),
         "path": str(config_path()),

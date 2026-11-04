@@ -212,6 +212,9 @@ class StageConfig(_Out):
     model_source: str
     env: str  # 백엔드를 정한 환경 변수 이름. 없으면 ""
     model_env: str
+    effort: str = ""  # Claude 추론 강도. Claude 단계가 아니거나 정하지 않았으면 "" (모델 기본값)
+    effort_source: str = "default"
+    effort_env: str = ""
 
 
 class StagePreset(_Out):
@@ -256,6 +259,8 @@ class ConfigView(_Out):
     stages: dict[str, StageConfig]
     stage_settings: dict[str, str]  # 설정 파일에 적은 단계별 백엔드
     stage_model_settings: dict[str, str]
+    stage_effort_settings: dict[str, str] = {}
+    efforts: list[str] = []
     stage_presets: list[StagePreset] = []
     local_sampling: dict[str, float] = {}  # 로컬 본문 생성 샘플링 (설정 파일 local_sampling 이 기본값을 덮는다). 화면은 읽기만
     path: str  # 설정 파일 경로
@@ -325,6 +330,7 @@ class SettingsIn(BaseModel):
     local_key: str | None = None
     stages: dict[str, str] | None = None  # {"write": "local"}, 빈 값이면 전체 설정을 따름
     stage_models: dict[str, str] | None = None  # {"state": "gemini-3.8-flash"}, 빈 값이면 백엔드 기본 모델
+    stage_efforts: dict[str, str] | None = None  # {"check": "high"}, Claude 추론 강도. 빈 값이면 모델 기본값
     claude_model: str | None = None
     claude_bin: str | None = None
     anthropic_api_key: str | None = None  # Claude Console API 키. 구독 로그인은 Claude Code 가 따로 관리
@@ -346,6 +352,9 @@ def put_config(body: SettingsIn) -> ConfigView:
     for stage in body.stage_models or {}:
         if stage not in settings.STAGES:
             raise HTTPException(400, f"알 수 없는 단계예요: {stage}")
+    for stage, value in (body.stage_efforts or {}).items():
+        if stage not in settings.STAGES or (value and value.strip().lower() not in settings.EFFORTS):
+            raise HTTPException(400, f"추론 강도는 {' / '.join(settings.EFFORTS)} 중 하나예요: {stage}={value}")
     if body.gemini_auth not in (None, "", "key", "vertex"):
         raise HTTPException(400, "Gemini 연결 방식은 key / vertex 중 하나예요")
     if body.vertex_credentials and body.vertex_credentials.lstrip().startswith("{"):
@@ -356,7 +365,7 @@ def put_config(body: SettingsIn) -> ConfigView:
                     claude_bin=body.claude_bin, anthropic_api_key=body.anthropic_api_key,
                     clear_anthropic_key=body.clear_anthropic_key, gemini_auth=body.gemini_auth,
                     vertex_credentials=body.vertex_credentials, vertex_project=body.vertex_project,
-                    vertex_location=body.vertex_location)
+                    vertex_location=body.vertex_location, stage_efforts=body.stage_efforts)
     return settings.public()
 
 
