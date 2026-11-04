@@ -175,18 +175,39 @@ def _error_text(e: Any) -> str:
     return text[:300]
 
 
+# 경로별로 읽은 줄과 읽은 끝 위치를 기억한다. 기록은 붙이기만 하므로 다음에는 늘어난 부분만 읽는다.
+# 파일이 바뀌었으면(다른 inode, 줄어든 크기) 처음부터 읽는다. {경로: (inode, 읽은 바이트, 줄들)}
+_read_cache: dict[Path, tuple[int, int, list[dict]]] = {}
+_read_lock = threading.Lock()
+
+
 def read(path: Optional[Path] = None) -> list[dict]:
+    """기록 전체. 돌려준 목록과 그 안의 dict 는 고치지 않는다 (다음 호출과 함께 쓴다)."""
     path = path or log_path()
-    if not path.exists():
+    try:
+        st = path.stat()
+    except OSError:
         return []
-    out = []
-    with path.open(encoding="utf-8") as f:
-        for line in f:
-            try:
-                out.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue  # 쓰다 끊긴 줄
-    return out
+    with _read_lock:
+        ino, done, rows = _read_cache.get(path, (st.st_ino, 0, []))
+        if ino != st.st_ino or st.st_size < done:
+            done, rows = 0, []
+        if st.st_size > done:
+            with path.open("rb") as f:
+                f.seek(done)
+                chunk = f.read()
+            end = chunk.rfind(b"\n") + 1  # 마지막 줄을 아직 쓰는 중이면 다음에 읽는다
+            rows = rows + [r for r in map(_row, chunk[:end].splitlines()) if r is not None]
+            done += end
+        _read_cache[path] = (st.st_ino, done, rows)
+        return list(rows)
+
+
+def _row(line: bytes) -> Optional[dict]:
+    try:
+        return json.loads(line)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return None  # 쓰다 끊긴 줄
 
 
 # ---------- 가격표 ----------

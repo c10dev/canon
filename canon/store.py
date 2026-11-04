@@ -1,5 +1,5 @@
 """JSON 파일 저장소. projects/<이름>/project.json 하나에 모든 상태를 보관하고,
-본문은 읽기 편하도록 episodes/NN.md 로도 내보낸다."""
+본문은 읽기 편하도록 episodes/NN.md 로도 내보낸다 (화가 100화를 넘으면 NNN.md, ep_file)."""
 from __future__ import annotations
 
 import json
@@ -8,6 +8,7 @@ import re
 import shutil
 import threading
 from contextvars import ContextVar
+from datetime import datetime
 from pathlib import Path
 
 from . import cancel
@@ -133,13 +134,59 @@ _MARK = re.compile(r'"edit_rev":\s*(\d+),\s*"saved_by":\s*("(?:[^"\\]|\\.)*")')
 
 
 def _saved_mark(path: Path) -> tuple[int, str]:
-    """디스크 작품의 (edit_rev, saved_by). 두 칸은 Project 의 마지막 필드라 파일 끝만 읽는다 (장편도 저장마다 전체를 읽지 않게)."""
+    """디스크 작품의 (edit_rev, saved_by). 두 칸은 Project 의 마지막 필드라 파일 끝만 읽는다 (장편도 저장마다 전체를 읽지 않게).
+    끝에서 찾지 못하면(필드 차례가 바뀐 옛 파일, 아주 긴 saved_by) 파일 전체를 읽는다. 0 으로 돌려주면 충돌 검사가 꺼진다.
+    tests/test_store_backup.py 가 두 칸이 마지막 필드인지 본다."""
     with path.open("rb") as f:
         f.seek(0, os.SEEK_END)
         f.seek(max(0, f.tell() - 4096))
         tail = f.read().decode("utf-8", errors="ignore")
-    m = _MARK.search(tail)
-    return (int(m.group(1)), json.loads(m.group(2))) if m else (0, "")
+    if m := _MARK.search(tail):
+        return int(m.group(1)), json.loads(m.group(2))
+    try:
+        d = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return 0, ""
+    return int(d.get("edit_rev") or 0), str(d.get("saved_by") or "")
+
+
+# ---------- 저장 전 백업 ----------
+# project.prev.json: 직전 판 하나. backups/project.<날짜-시>.json: 시간마다 첫 저장 직전 판, 최근 BACKUP_KEEP 개.
+# 저장은 늘 새 파일로 바꿔치기(os.replace)하므로 옛 판은 하드 링크로 붙잡으면 복사하지 않아도 그대로 남는다.
+BACKUP_DIR = "backups"
+BACKUP_KEEP = 24
+
+
+def _hold(src: Path, dst: Path) -> None:
+    """src 를 dst 로 남긴다. 하드 링크가 되면 복사하지 않는다 (파일 크기와 관계없이 바로 끝난다)."""
+    tmp = dst.with_name(f"{dst.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    try:
+        os.link(src, tmp)
+    except OSError:  # 하드 링크를 지원하지 않는 파일 시스템
+        shutil.copy(src, tmp)
+    os.replace(tmp, dst)
+
+
+def _backup(d: Path, path: Path) -> None:
+    _hold(path, d / "project.prev.json")
+    bdir = d / BACKUP_DIR
+    dst = bdir / f"project.{datetime.now():%Y%m%d-%H}.json"
+    if dst.exists():
+        return
+    bdir.mkdir(exist_ok=True)
+    _hold(path, dst)
+    for old in sorted(bdir.glob("project.*.json"))[:-BACKUP_KEEP]:
+        old.unlink(missing_ok=True)
+
+
+def backups(name: str) -> list[Path]:
+    """남아 있는 시간별 백업, 오래된 것부터."""
+    return sorted((project_dir(name) / BACKUP_DIR).glob("project.*.json"))
+
+
+def ep_file(d: Path, n: int, last: int) -> Path:
+    """n화 본문을 내보낼 파일. 마지막 화가 100화 이상이면 세 자리로 써서 파일 이름 차례가 화 차례와 같다."""
+    return d / "episodes" / f"{n:0{3 if last >= 100 else 2}d}.md"
 
 
 # ---------- 검토를 기다리는 AI 결과와 실패한 작업 ----------
@@ -193,7 +240,7 @@ def save(name: str, p: Project) -> Path:
             p.edit_rev, p.saved_by = rev + 1, writer.get()
         else:  # 작업이 오래전에 읽은 사본을 저장해도 화면 저장 기록은 디스크 것을 잇는다
             p.edit_rev, p.saved_by = rev, by
-        shutil.copy(path, d / "project.prev.json")  # 직전 버전 하나는 남겨 둔다
+        _backup(d, path)  # 직전 판과 시간별 백업을 남긴다
     # 다른 스레드(자동 집필, 백그라운드 작업)가 쓰는 도중에 읽어도 빈 파일을 보지 않게 바꿔치기로 쓴다
     # 들여쓰기 없이 쓴다: 장편은 들여쓰기만으로 1MB 넘게 커지고 저장마다 0.015초 더 걸린다 (2026-11-02 실측)
     tmp = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
@@ -205,18 +252,19 @@ def save(name: str, p: Project) -> Path:
         got[name] = _tag(st)
 
     ep_dir = d / "episodes"
+    last = max((e.plot.number for e in p.episodes), default=0)
     for ep in p.episodes:
         if ep.text:
             ep_dir.mkdir(exist_ok=True)
-            f = ep_dir / f"{ep.plot.number:02d}.md"
+            f = ep_file(d, ep.plot.number, last)
             body = f"# {ep.plot.number}화. {ep.plot.title}\n\n{ep.text}\n"
             if _md_written.get(f) != (hash(body), _mtime(f)):  # 지난번에 쓴 그대로면 다시 쓰지 않는다
                 f.write_text(body, encoding="utf-8")
                 _md_written[f] = (hash(body), _mtime(f))
-    if ep_dir.is_dir():  # 본문을 지운 화나 빠진 화의 내보낸 파일은 지운다 (NN.md 만, 작가가 둔 다른 파일은 그대로)
-        have = {e.plot.number for e in p.episodes if e.text}
+    if ep_dir.is_dir():  # 본문을 지운 화나 빠진 화, 자릿수가 바뀐 옛 이름의 내보낸 파일은 지운다 (숫자.md 만, 작가가 둔 다른 파일은 그대로)
+        have = {ep_file(d, e.plot.number, last).name for e in p.episodes if e.text}
         for f in ep_dir.glob("*.md"):
-            if f.stem.isdigit() and int(f.stem) not in have:
+            if f.stem.isdigit() and f.name not in have:
                 f.unlink(missing_ok=True)
     return path
 
