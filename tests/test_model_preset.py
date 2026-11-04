@@ -66,7 +66,7 @@ def test_get_llm_uses_project_preset(env, monkeypatch):
     settings, store = env
     from canon import llm, usage
     made = []
-    monkeypatch.setattr(llm, "make_llm", lambda prov, model=None: made.append((prov, model)) or type("Fake", (), {})())
+    monkeypatch.setattr(llm, "make_llm", lambda prov, model=None, effort="": made.append((prov, model)) or type("Fake", (), {})())
     _pick(store, "a", "anthropic")
     with usage.scope(project="a"):
         llm.get_llm("check")

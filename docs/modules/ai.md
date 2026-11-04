@@ -7,6 +7,7 @@
 - Claude 백엔드
 - 구독 로그인(`claude`, 설치된 Claude Code 를 `claude -p` 로 부름, 로그인 상태 `status`)과 API 키(`claude-api`, Anthropic SDK)
 - Canon 은 Claude 계정 로그인을 직접 받거나 토큰을 저장하지 않는다(Anthropic 정책)
+- 단계별 추론 강도(`settings.stage_effort`)를 구독은 `--effort`(모르는 버전이면 뺌), API 는 `output_config.effort` 로 넘긴다. 비우면 모델 기본값. 사용량 기록 줄의 `effort`
 - 화면은 `static/claude.js`
 
 ### `canon/judge.py`
@@ -41,6 +42,7 @@
 - 환경 변수
   - `ANTHROPIC_API_KEY`: Claude API 키(`claude-api` 만 키를 씀)
   - `CANON_CLAUDE_BIN` · `CANON_CLAUDE_MODEL` · `CANON_CLAUDE_TIMEOUT`: Claude
+  - `CANON_EFFORT_<단계>`: 단계별 Claude 추론 강도(low · medium · high · xhigh · max, `settings.stage_effort`)
   - `CANON_GEMINI_AUTH`: Gemini 연결 방식(key | vertex)
   - `CANON_GEMINI_TIMEOUT`: Gemini 응답을 기다리는 초(기본 600)
   - `CANON_HOME`: 프로젝트 저장 위치(기본 `projects/`)

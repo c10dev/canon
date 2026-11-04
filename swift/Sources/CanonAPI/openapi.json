@@ -5180,7 +5180,7 @@
   "/api/projects/{name}/sessions/{sid}/turns/{t}/approval": {
    "post": {
     "summary": "Agent Approval",
-    "description": "승인 카드에 답하고 같은 턴을 이어 돌린다. 쓴 작품을 함께 돌려준다.",
+    "description": "승인 카드에 답하고 같은 턴을 이어 돌린다. 쓴 작품을 함께 돌려준다.\n화 넣기 · 빼기 카드는 화 끼워 넣기 화면과 같은 검사(_renumber_ready)를 거치고 자동 집필 기록의 화 번호도 옮긴다.",
     "operationId": "agent_approval",
     "parameters": [
      {
@@ -15006,6 +15006,56 @@
     }
    }
   },
+  "/api/projects/{name}/write-material": {
+   "put": {
+    "summary": "Set Write Material",
+    "description": "쓰기 재료의 양 (Settings.write_material). fixed 면 스토리보드 장면 · 큐 시트를 빼고 고정점만 넣는다 (board.fixed_only).",
+    "operationId": "set_write_material",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/WriteMaterial"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project-Output"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/projects/{name}/cue-setting": {
    "put": {
     "summary": "Set Cue Setting",
@@ -17088,7 +17138,7 @@
      "target": {
       "type": "string",
       "title": "Target",
-      "description": "ChatScope.target: '' 기본, 'arc:N', 'next'",
+      "description": "다듬을 곳: '' 기본, 'arc:N', 'next', 'part:N'(부), 'ep:N'(한 화 플롯). 부 · 화는 그 곳이 든 아크로 읽는다 (pipeline.chat_target)",
       "default": ""
      },
      "mode": {
@@ -17158,7 +17208,7 @@
      "target": {
       "type": "string",
       "title": "Target",
-      "description": "ChatScope.target: '' 기본, 'arc:N', 'next'",
+      "description": "다듬을 곳: '' 기본, 'arc:N', 'next', 'part:N'(부), 'ep:N'(한 화 플롯). 부 · 화는 그 곳이 든 아크로 읽는다 (pipeline.chat_target)",
       "default": ""
      },
      "mode": {
@@ -17666,7 +17716,7 @@
       },
       "type": "array",
       "title": "Keys",
-      "description": "묻는 부분 ('parts' · 'arc' · 'acts' · 화 번호)"
+      "description": "묻는 부분 ('parts' · 'arc' · 'acts' · 화 번호 · 'renumber')"
      },
      "kinds": {
       "items": {
@@ -17692,6 +17742,10 @@
       },
       "type": "array",
       "title": "Picked"
+     },
+     "op": {
+      "$ref": "#/components/schemas/RenumberOp",
+      "description": "화 넣기 · 빼기를 묻는 카드 (tool 이 insert_episodes · remove_episode)"
      }
     },
     "type": "object",
@@ -18292,6 +18346,7 @@
        "storyboard": true,
        "stop_on_board_warnings": true,
        "cue_sheet": true,
+       "polish": false,
        "max_style_distance": 0.0
       }
      }
@@ -18463,6 +18518,14 @@
       "title": "Applied",
       "description": "이번 실행에서 자동 반영한 화"
      },
+     "polish_due": {
+      "items": {
+       "type": "integer"
+      },
+      "type": "array",
+      "title": "Polish Due",
+      "description": "이번 실행이 쓰고 아직 다듬지 않은 화 (Policy.polish). 서버가 다시 시작해도 이어서 다듬는다. 작가가 쓴 본문은 넣지 않는다"
+     },
      "tokens_in": {
       "type": "integer",
       "title": "Tokens In",
@@ -18509,6 +18572,7 @@
      "pending_text",
      "batches",
      "applied",
+     "polish_due",
      "tokens_in",
      "tokens_out",
      "cost",
@@ -21082,6 +21146,22 @@
       "type": "object",
       "title": "Stage Model Settings"
      },
+     "stage_effort_settings": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "type": "object",
+      "title": "Stage Effort Settings",
+      "default": {}
+     },
+     "efforts": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Efforts",
+      "default": []
+     },
      "stage_presets": {
       "items": {
        "$ref": "#/components/schemas/StagePreset"
@@ -21136,6 +21216,8 @@
      "stages",
      "stage_settings",
      "stage_model_settings",
+     "stage_effort_settings",
+     "efforts",
      "stage_presets",
      "local_sampling",
      "path"
@@ -26648,6 +26730,12 @@
       "description": "화마다 쓰기 전에 큐 시트를 만들어 쓴다 (작품이 큐 시트를 쓸 때만, cue.on)",
       "default": true
      },
+     "polish": {
+      "type": "boolean",
+      "title": "Polish",
+      "description": "화마다 본문을 쓴 뒤 서술 문장만 다듬은 판으로 바꾼다 (revise 단계 모델, pipeline.polish_episode). 쓴 판은 이전 판으로 남는다. 다듬기가 대사 줄을 바꿔 멈추면 쓴 글로 이어 간다. 검수와 상태 변경안은 다듬은 글을 본다",
+      "default": false
+     },
      "max_style_distance": {
       "type": "number",
       "title": "Max Style Distance",
@@ -28239,6 +28327,68 @@
     "title": "ReleasePlan",
     "description": "연재 일정. 작가가 적는 값이라 프롬프트에 넣지 않는다. 비축분 · 하루 목표는 화면이 계산한다 (static/home.js releasePlan)."
    },
+   "RenumberOp": {
+    "properties": {
+     "kind": {
+      "type": "string",
+      "enum": [
+       "insert",
+       "remove"
+      ],
+      "title": "Kind",
+      "default": "insert"
+     },
+     "at": {
+      "type": "integer",
+      "title": "At",
+      "description": "insert: 이 화 앞에 넣는다 / remove: 뺄 화",
+      "default": 0
+     },
+     "titles": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Titles",
+      "description": "insert: 새 화마다 제목 (수가 넣을 화 수)"
+     },
+     "summaries": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Summaries",
+      "description": "insert: 새 화마다 한 줄 요약"
+     },
+     "notes": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Notes",
+      "description": "무엇이 어떻게 옮겨 가는지 (승인 카드에 보임, 쓴 뒤에는 쓴 결과)"
+     },
+     "removed": {
+      "$ref": "#/components/schemas/EpisodePlot",
+      "description": "remove: 뺀 화의 플롯 (되돌리기용)"
+     },
+     "removed_status": {
+      "type": "string",
+      "title": "Removed Status",
+      "description": "remove: 뺀 화의 상태 (되돌리기용)",
+      "default": ""
+     },
+     "after_total": {
+      "type": "integer",
+      "title": "After Total",
+      "description": "쓴 직후 화 수. 되돌릴 때 이와 다르면 그 뒤에 화 번호가 바뀐 것으로 보고 되돌리지 않는다",
+      "default": 0
+     }
+    },
+    "type": "object",
+    "title": "RenumberOp",
+    "description": "대화 에이전트의 화 넣기 · 빼기 (agent.RENUMBER_TOOLS). 늘 작가에게 묻고, 승인하면 pipeline.insert_episode · remove_episode 로 쓴다."
+   },
    "Renumbered": {
     "properties": {
      "project": {
@@ -28757,10 +28907,11 @@
       "type": "string",
       "enum": [
        "fresh",
-       "revise"
+       "revise",
+       "polish"
       ],
       "title": "Mode",
-      "description": "fresh: 처음부터 새로 / revise: 지난 판을 넣고 고쳐 쓰기",
+      "description": "fresh: 처음부터 새로 / revise: 지난 판을 넣고 고쳐 쓰기 / polish: 대사 · 사건은 그대로 두고 서술 문장만 다듬기",
       "default": "fresh"
      },
      "keep": {
@@ -29459,6 +29610,17 @@
       "title": "Cue Sheet",
       "description": "화마다 쓰기 전에 큐 시트(큐마다 기능 · 긴장 · 템포 · 편성 · 핵심 대사 · 분량)를 만들어 쓰기 프롬프트 끝에 넣는다. 비우면 장편 켬 · 단편 끔 (cue.on)"
      },
+     "write_material": {
+      "type": "string",
+      "enum": [
+       "",
+       "scenes",
+       "fixed"
+      ],
+      "title": "Write Material",
+      "description": "쓰기 재료의 양. fixed(고정점만)면 스토리보드의 장면 목록을 쓰기 요청에서 빼고 고정점(시간 · 기한 · 이어받을 것 · 상태창 · 이동 · 끝 차림 · 깨지 않을 것)만 넣으며, 큐 시트를 만들거나 넣지 않는다. scenes 와 비움은 지금처럼 장면까지 넣는다 (board.fixed_only)",
+      "default": ""
+     },
      "keep_snapshots": {
       "type": "boolean",
       "title": "Keep Snapshots",
@@ -29519,6 +29681,13 @@
       },
       "type": "object",
       "title": "Stage Models"
+     },
+     "stage_efforts": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "type": "object",
+      "title": "Stage Efforts"
      },
      "claude_model": {
       "type": "string",
@@ -30487,6 +30656,21 @@
      "model_env": {
       "type": "string",
       "title": "Model Env"
+     },
+     "effort": {
+      "type": "string",
+      "title": "Effort",
+      "default": ""
+     },
+     "effort_source": {
+      "type": "string",
+      "title": "Effort Source",
+      "default": "default"
+     },
+     "effort_env": {
+      "type": "string",
+      "title": "Effort Env",
+      "default": ""
      }
     },
     "type": "object",
@@ -30496,7 +30680,10 @@
      "model",
      "model_source",
      "env",
-     "model_env"
+     "model_env",
+     "effort",
+     "effort_source",
+     "effort_env"
     ],
     "title": "StageConfig",
     "description": "단계 하나가 지금 쓰는 백엔드와 모델 (settings.public 의 stages)."
@@ -33066,6 +33253,16 @@
       "title": "Pronoun Per 1K",
       "description": "1,000자당 '그는/그녀의' 류 대명사 수 (번역투)"
      },
+     "da_ending_ratio": {
+      "type": "number",
+      "title": "Da Ending Ratio",
+      "description": "대사 밖 서술 문장 중 '~다.' 로 맺는 비율. 서술 문장이 ENDING_MIN 개 미만이면 재지 않음"
+     },
+     "da_run_ratio": {
+      "type": "number",
+      "title": "Da Run Ratio",
+      "description": "대사 밖 서술 문장 중 '~다.' 끝이 ENDING_RUN 줄 이상 이어진 덩어리에 든 비율 (대사가 끼면 끊김)"
+     },
      "ai_pattern_hits": {
       "items": {
        "type": "string"
@@ -34973,7 +35170,25 @@
      "key"
     ],
     "title": "WriteItem",
-    "description": "바로 쓴 것 한 부분. key 는 'parts' · 'arc' · 'acts' · 'draft'(다음 아크 초안) · 화 번호."
+    "description": "바로 쓴 것 한 부분. key 는 'parts' · 'arc' · 'acts' · 'draft'(다음 아크 초안) · 화 번호 · 'renumber'(화 넣기 · 빼기)."
+   },
+   "WriteMaterial": {
+    "properties": {
+     "mode": {
+      "type": "string",
+      "enum": [
+       "",
+       "scenes",
+       "fixed"
+      ],
+      "title": "Mode"
+     }
+    },
+    "type": "object",
+    "required": [
+     "mode"
+    ],
+    "title": "WriteMaterial"
    },
    "WriteRecord-Input": {
     "properties": {
@@ -35004,6 +35219,10 @@
      },
      "after": {
       "$ref": "#/components/schemas/PlotUndo-Input"
+     },
+     "op": {
+      "$ref": "#/components/schemas/RenumberOp",
+      "description": "화 넣기 · 빼기를 쓴 기록. 되돌리기는 반대 동작(agent.inverse)"
      }
     },
     "type": "object",
@@ -35039,6 +35258,10 @@
      },
      "after": {
       "$ref": "#/components/schemas/PlotUndo-Output"
+     },
+     "op": {
+      "$ref": "#/components/schemas/RenumberOp",
+      "description": "화 넣기 · 빼기를 쓴 기록. 되돌리기는 반대 동작(agent.inverse)"
      }
     },
     "type": "object",
