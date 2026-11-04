@@ -34,8 +34,9 @@ def _git(repo: Path, *args: str, timeout: float = 60) -> str:
     return out.stdout.strip()
 
 
-def update(repo: Path = REPO, install: bool = True) -> Result:
-    """origin/main 을 받아 fast-forward 한다. 의존성이 바뀌었으면 설치한다."""
+def update(repo: Path = REPO, install: bool = True, smoke: bool = True) -> Result:
+    """origin/main 을 받아 fast-forward 한다. 의존성이 바뀌었으면 설치한다.
+    smoke 면 새 코드로 웹 서버 모듈을 불러 보고, 불러지지 않으면 이전 커밋으로 돌린다."""
     if not (repo / ".git").exists():
         return Result(False, "git 저장소가 아니라 자동 업데이트를 건너뛰어요")
     try:
@@ -63,8 +64,27 @@ def update(repo: Path = REPO, install: bool = True) -> Result:
         except (OSError, subprocess.SubprocessError) as e:
             _git(repo, "reset", "--keep", old)
             return Result(False, f"의존성 설치에 실패해 이전 버전으로 돌렸어요: {_reason(e)}")
+    if smoke and (err := _smoke(repo)):
+        _git(repo, "reset", "--keep", old)
+        return Result(False, f"새 코드를 불러오지 못해 이전 버전으로 돌렸어요: {err}")
     log = _git(repo, "log", "--format=%s", f"{old}..{new}").splitlines()
     return Result(True, f"{len(log)}개 커밋을 받았어요: " + " / ".join(log[:3]))
+
+
+# 다시 시작하기 전에 새 코드가 불러지는지 본다. 불러지지 않는 코드로 execv 하면 systemd 가 같은 코드로 재시작만 되풀이한다
+SMOKE_MODULE = "canon.web"
+
+
+def _smoke(repo: Path, module: str = SMOKE_MODULE) -> str:
+    """새 프로세스에서 module 을 불러 본다. 성공하면 빈 문자열, 실패하면 마지막 오류 줄."""
+    if not (repo / Path(*module.split("."))).with_suffix(".py").exists():
+        return ""  # 이 저장소에 그 모듈이 없다 (시험용 저장소)
+    try:
+        subprocess.run([sys.executable, "-c", f"import {module}"], cwd=repo, capture_output=True, text=True,
+                       timeout=120, check=True)
+    except (OSError, subprocess.SubprocessError) as e:
+        return _reason(e)
+    return ""
 
 
 def _reason(e: Exception) -> str:
