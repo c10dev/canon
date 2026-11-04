@@ -319,7 +319,7 @@ def _agent_step(hint: dict) -> PlotAgentStep:
     """대화 에이전트 흉내. 처음엔 플롯을 읽고, 다음 단계에 플롯 대화 흉내(_revision)로 고치고, 쓴 결과를 보면 끝낸다.
     '여러 안' 요청은 되묻고, '?' 로 끝나면 답만 하고, '끝없이' 는 상한 시험으로 늘 읽는다.
     '끝 이름' 은 읽은 뒤 칸 이름 reply 를 도구로 적어 끝낸다 (모델이 실제로 낸 응답 모양).
-    '분석' 은 처음에 예고만 하고, 되돌림 단계(tool 'reply')를 보면 내용을 쓴다."""
+    '빈 물음' 은 묻는 말 없는 ask 를 내고, '분석' 은 처음에 예고만 하고, 되돌림 단계(tool 'reply')를 보면 내용을 쓴다."""
     msg, steps, tools = hint["message"], hint.get("steps", []), hint.get("tools", [])
     if "끝없이" in msg:
         return PlotAgentStep(thought="더 읽어 봐요", tool="read_plots",
@@ -327,6 +327,10 @@ def _agent_step(hint: dict) -> PlotAgentStep:
     if hint.get("mode") == "options" and "ask" not in tools:
         rev = _revision({**hint, "mode": "options"})
         return PlotAgentStep(thought="방향을 먼저 물어요", tool="ask", question="어느 방향으로 갈까요?", options=rev.options, reply=rev.reply)
+    if "빈 물음" in msg:  # 묻는 말 · 안 · 답이 모두 빈 ask (2026-11-04 실제 응답 모양). '계속' 이면 되돌려도 또 빈 ask
+        if "ask_empty" in tools and "계속" not in msg:
+            return PlotAgentStep(reply="1~7화를 보면 승 구간의 감각 묘사가 4화에서 끊겨요.")
+        return PlotAgentStep(tool="ask")
     if "분석" in msg:  # 첫 답은 예고만 한다 (2026-11-04 실제 응답 모양). 되돌림 단계를 보면 내용을 쓴다
         if "reply" in tools:
             return PlotAgentStep(reply="기(1~2화)는 일상이 깨지는 사건이 늦어요. 승(3~5화)은 감각 묘사가 점점 짙어져요.")
