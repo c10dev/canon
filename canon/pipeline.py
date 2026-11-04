@@ -2986,6 +2986,10 @@ def rewrite_episode(llm: LLM, p: Project, n: int, req: RewriteRequest, cut: list
 
 POLISH_TRIES = 2
 POLISH_SPAN = (0.85, 1.15)  # 다듬은 글 / 지금 본문 글자 수. 밖이면 내용을 더하거나 뺀 것으로 본다
+# 다듬은 판의 말줄임으로 끊는 서술 · 서술 물음(metrics.narration_tics)이 종류마다 이보다 많고 지금 본문보다 늘면 다시 부른다.
+# 프롬프트는 '화에 셋까지'라고 쓰지만 그대로 검사하면 좋은 판도 버린다: 2026-11-04 작가 블라인드(Gemini 원고를 Claude 가 다듬음)에서
+# 이긴 두 판은 4 · 4, 2 · 4개, 진 판은 9 · 5개였다. Gemini 원래 판은 0~1개.
+POLISH_TIC_RETRY = 6
 _FIXED_OPEN = ("\"", "“", "「", "『", "‘", "'", "─", "—")
 
 
@@ -3006,21 +3010,49 @@ def polish_problem(old: str, new: str) -> str:
     return ""
 
 
+def polish_tics(old: str, new: str) -> str:
+    """다듬은 글이 말줄임 끝 서술이나 서술 물음을 너무 늘렸으면 그 까닭, 아니면 빈 글.
+    종류마다 POLISH_TIC_RETRY 개를 넘고 지금 본문보다 늘었을 때만 짚는다 (원래 많던 글은 탓하지 않는다)."""
+    a, b = metrics.narration_tics(old), metrics.narration_tics(new)
+    names = {"trail": "말줄임으로 끊는 서술", "question": "서술 속 물음"}
+    over = [f"{names[k]}이 {a[k]}개에서 {b[k]}개로 늘었어요" for k in names if b[k] > max(POLISH_TIC_RETRY, a[k])]
+    return ", ".join(over)
+
+
 def polish_episode(llm: LLM, p: Project, n: int, cut: list[MetaCut] | None = None) -> str:
     """지금 본문의 서술 문장만 다듬는다 (prompts.polish_prompt). 저장하지 않는다 (set_candidate 로 새 판에 둔다).
-    대사 · 효과음 줄이 바뀐 글은 POLISH_TRIES 번까지 다시 부르고, 그래도 바뀌면 멈춘다. 다듬기 모델은 revise 단계를 부른 쪽이 고른다."""
+    대사 · 효과음 줄이 바뀐 글은 POLISH_TRIES 번까지 다시 부르고, 그래도 바뀌면 멈춘다. 다듬기 모델은 revise 단계를 부른 쪽이 고른다.
+    말줄임 · 물음을 너무 늘린 글(polish_tics, 서술 말투가 있는 화는 보지 않음)도 다시 부른다. 끝내 줄지 않으면 멈추지 않고
+    그중 덜 늘린 판을 낸다: 작가가 새 판을 견줘 고르니, 글은 나아졌을 수 있다."""
     ep = _editable(p, n)
     old = ep.text.strip()
     if not old:
         raise ValueError(f"{n}화에 다듬을 본문이 없어요")
     prompt = prompts.polish_prompt(p, n, old)
-    why = ""
+    look = not prompts.voiced(p, n)  # 서술 말투가 있는 화는 문장 끝 몫 · 상한을 넣지 않으니 세지도 않는다
+    why, best = "", None
+    log = logging.getLogger("canon")
     for _ in range(POLISH_TRIES):
-        new = _write(llm, p, n, prompt, cut)
+        part: list[MetaCut] = []
+        new = _write(llm, p, n, prompt, part)
         why = polish_problem(old, new)
-        if not why:
+        if why:
+            log.warning("%s화 서술 다듬기를 다시 불러요: %s", n, why)
+            continue
+        tic = polish_tics(old, new) if look else ""
+        if not tic:
+            if cut is not None:
+                cut[:] = part
             return new
-        logging.getLogger("canon").warning("%s화 서술 다듬기를 다시 불러요: %s", n, why)
+        log.warning("%s화 서술 다듬기를 다시 불러요: %s", n, tic)
+        t = metrics.narration_tics(new)
+        if best is None or sum(t.values()) < best[0]:
+            best = (sum(t.values()), new, part)
+    if best is not None:
+        log.warning("%s화 서술 다듬기: 말줄임 · 물음이 줄지 않아 덜 늘린 판을 냈어요", n)
+        if cut is not None:
+            cut[:] = best[2]
+        return best[1]
     raise ValueError(f"{n}화 서술 다듬기를 쓰지 않았어요. {why}. 다시 시도해 주세요")
 
 
