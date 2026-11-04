@@ -163,6 +163,12 @@ def load_pending(name: str) -> dict:
     return {"results": d.get("results", {}), "failures": d.get("failures", {})}
 
 
+def pending_eps(name: str, first: int = 1) -> list[int]:
+    """first 화부터 검토를 기다리는 AI 결과나 실패한 작업이 있는 화. 화 번호를 옮기기 전에 막는 데 쓴다."""
+    d = load_pending(name)
+    return sorted({r.get("ep") or 0 for r in [*d["results"].values(), *d["failures"].values()] if (r.get("ep") or 0) >= max(first, 1)})
+
+
 def edit_pending(name: str, fn) -> dict:
     """pending.json 을 읽어 fn(d) 로 고치고 저장한다."""
     cancel.check()
@@ -250,6 +256,11 @@ def drop_branch(name: str) -> None:
 
 def _play_path(name: str) -> Path:
     return project_dir(name) / "play.json"
+
+
+def shares_text(name: str) -> bool:
+    """앞 화 본문을 다른 작품과 함께 쓰는 작품(갈래 집안, 플레이 사본). 본문이 있는 화의 번호를 옮기지 않는다 (renumber.last_fixed)."""
+    return load_branch(name) is not None or load_play(name) is not None
 
 
 def load_play(name: str) -> PlayInfo | None:

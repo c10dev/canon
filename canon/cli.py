@@ -829,7 +829,8 @@ def cmd_causal(a: argparse.Namespace) -> None:
 def cmd_insert(a: argparse.Namespace) -> None:
     """아직 안 쓴 화 앞에 새 화(외전, 중간 이야기)를 넣거나(--remove 면 빼고) 뒤 화 번호를 함께 옮긴다. --delete 는 본문이 있거나 반영한 마지막 화를 지운다."""
     p = store.load(a.name)
-    lo, hi = pipeline.insert_range(p)
+    move = not store.shares_text(a.name)  # 본문만 있고 반영하지 않은 화도 옮긴다 (갈래 · 플레이는 옮기지 않음)
+    lo, hi = pipeline.insert_range(p, move)
     if a.n is None:
         print(f"새 화는 {lo}~{hi}화 자리에 넣을 수 있어요 ({hi}화는 마지막 화 뒤). 예: insert {a.name} {lo} --title \"외전\" --ai")
         return
@@ -840,10 +841,10 @@ def cmd_insert(a: argparse.Namespace) -> None:
         notes = pipeline.delete_last(trial, n, a.keep_plot)
         end = (lambda x: x - 1 if x >= n else x) if not a.keep_plot else None
     elif a.remove:
-        notes = pipeline.remove_episode(trial, n)
+        notes = pipeline.remove_episode(trial, n, move)
         end = (lambda x: x - 1 if x >= n else x)
     else:
-        notes = pipeline.insert_episode(trial, n, a.title or "", a.summary or "", a.line or "")
+        notes = pipeline.insert_episode(trial, n, a.title or "", a.summary or "", a.line or "", move)
         end = (lambda x: x + 1 if x >= n else x)
     print("\n".join(notes))
     if not confirm("이대로 반영할까요?", a.yes):

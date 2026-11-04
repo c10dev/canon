@@ -39,6 +39,7 @@
 - 모델이 'reply' · 'done' 같은 끝 이름(`schema.AGENT_END_TOOLS`)을 tool 에 적으면 빈 글로 받는다
 - 도구는 읽기(`read_plots` · `read_summaries` · `find_text`(`context.recall`) · `read_cast`, 결과 `RESULT_LIMIT` 자)와 쓰기 `edit_plot`
 - 되묻기 `ask`
+- 화 넣기 · 빼기 `insert_episodes` · `remove_episode`(`RENUMBER_TOOLS`, `RenumberOp`): 복사본에 해 보고(`preview`) 늘 승인 카드로 묻는다(`permit` 의 `renumber`). 쓰기 `apply_op`, 되돌리기 반대 동작 `inverse`, 자동 집필 번호 `shift`. 번호를 옮긴 뒤에는 턴을 다시 찾는다(작품 칸이 통째로 바뀜)
 - 쓰기는 `clean_revision` 으로 거른다(본문이 있는 화는 막힘)
 - 쓰기 부분마다 종류(`KIND_LABELS`)를 매긴다
 - 권한(`permit`) 안이면 `pipeline.plot_apply` 로 바로 쓴다(`WriteRecord`)
@@ -278,7 +279,8 @@
 ### `canon/renumber.py`
 
 - 화 끼워 넣기 · 빼기
-- 안 쓴 화의 번호를 옮길 때 함께 옮길 곳(플롯, 구간 · 아크 · 부 범위, 복선, 인과율 요소, 줄기, 인물 첫 등장 화, 대화 주제)
+- 반영하지 않은 화의 번호를 옮길 때 함께 옮길 곳(플롯, 구간 · 아크 · 부 범위, 복선, 인과율 요소, 줄기, 인물 첫 등장 화, 대화 주제, 문체 대화 · 에이전트 턴의 화, 복선 근거 문장, 검수 지적 근거 화)
+- 옮길 수 없는 화 `last_fixed`: 기본은 본문이 있거나 반영한 화, `move_text` 면 반영했거나 연재처에 올린 화만(본문만 있는 화는 함께 민다, `has_text`). 갈래 · 플레이 작품은 기본 규칙(`store.shares_text`)
 - LLM 호출 없음
 - 검사와 새 화는 `pipeline.insert_episode` / `remove_episode`
 - 새 화 AI 초안은 `draft_episode`(`prompts.episode_plot_prompt`)

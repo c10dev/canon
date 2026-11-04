@@ -15,10 +15,10 @@ import time
 import uuid
 from datetime import datetime, timezone
 
-from . import cancel, context, jobs, pipeline, prompts, store
+from . import cancel, context, jobs, pipeline, prompts, renumber, store
 from .llm import LLM, dump, out_cap, wait_cap
-from .schema import (AgentSession, AgentTurn, Approval, AskCard, ChatScope, PlotAgentStep, PlotRevision, Project, StepRecord,
-                     WriteItem, WriteRecord)
+from .schema import (AgentSession, AgentTurn, Approval, AskCard, ChatScope, PlotAgentStep, PlotRevision, Project, RenumberOp,
+                     StepRecord, WriteItem, WriteRecord)
 
 TOPICS = ("plot",)
 MAX_STEPS = 8  # 한 번 돌 때 부르는 단계 수. 닿으면 '이어 하기'로 같은 턴을 이어 간다
@@ -26,9 +26,13 @@ RESULT_LIMIT = 2500  # 읽기 도구 결과 글자 예산 (프롬프트가 단�
 TITLE_LIMIT = 24
 MODE_LABELS = {"ask": "물어보기", "draft": "빈 곳 · 초안만 자동", "all": "모두 자동"}
 # 쓰기 한 부분의 종류. '빈 곳 · 초안만 자동'은 draft · next 만 바로 쓰고 나머지는 묻는다
-KIND_LABELS = {"draft": "초안 화", "next": "다음 아크 초안", "confirmed": "확정한 화", "arc": "아크 칸", "acts": "구간 · 범위", "parts": "부 구성"}
+KIND_LABELS = {"draft": "초안 화", "next": "다음 아크 초안", "confirmed": "확정한 화", "arc": "아크 칸", "acts": "구간 · 범위", "parts": "부 구성",
+               "renumber": "화 넣기 · 빼기"}
 DRAFT_KINDS = ("draft", "next")
 READ_TOOLS = ("read_plots", "read_summaries", "find_text", "read_cast")
+# 화 넣기 · 빼기. 뒤 화 번호(본문만 있고 반영하지 않은 화 포함, renumber.last_fixed)가 바뀌므로 권한 모드와 상관없이 늘 묻는다
+RENUMBER_TOOLS = ("insert_episodes", "remove_episode")
+MAX_INSERT = 10  # 한 번에 넣는 새 화 수
 # 한 단계의 AI 호출 한도. 보통 5~30초, 길어도 4분 남짓이다(2026-11-03 사용량 기록 13건, 가장 긴 것 263초).
 # 응답이 없으면 STEP_WAIT 초 뒤 한 번 다시 부르고, 또 없으면 오류로 턴을 멈춘다 (llm.wait_cap)
 STEP_WAIT = 300
@@ -164,7 +168,9 @@ def _strip(t: AgentTurn) -> None:
 # ---------- 권한 ----------
 
 def permit(s: AgentSession, kind: str) -> str:
-    """'auto' (바로 쓴다) 또는 'ask' (작가에게 묻는다). 막힘은 정리 단계(clean_revision)가 따로 판정한다."""
+    """'auto' (바로 쓴다) 또는 'ask' (작가에게 묻는다). 막힘은 정리 단계(clean_revision)가 따로 판정한다. 화 넣기 · 빼기는 늘 묻는다."""
+    if kind == "renumber":
+        return "ask"
     if s.mode == "all" or kind in s.auto_kinds:
         return "auto"
     if s.mode == "ask":
@@ -319,6 +325,119 @@ def edit_plot(p: Project, s: AgentSession, turn: AgentTurn, edit: PlotRevision) 
     return steps
 
 
+# ---------- 화 넣기 · 빼기 ----------
+
+def _split(v: str) -> list[str]:
+    return [x.strip() for x in str(v or "").replace("\n", "|").split("|")]
+
+
+def op_from(tool: str, args: dict[str, str]) -> RenumberOp:
+    """도구 인자를 화 넣기 · 빼기로 읽는다. insert_episodes: at, count, titles · summaries ('|' 로 나눔). remove_episode: n."""
+    def num(k: str) -> int:
+        try:
+            return int(str(args.get(k, "")).strip().rstrip("화개"))
+        except ValueError:
+            raise ValueError(f"{k}에 화 번호를 숫자로 넣으세요") from None
+    if tool == "remove_episode":
+        return RenumberOp(kind="remove", at=num("n"))
+    titles = [x for x in _split(args.get("titles", "")) if x]
+    try:
+        count = num("count") if str(args.get("count", "")).strip() else max(len(titles), 1)
+    except ValueError:
+        count = max(len(titles), 1)
+    if not 1 <= count <= MAX_INSERT:
+        raise ValueError(f"한 번에 1~{MAX_INSERT}화까지 넣을 수 있어요")
+    summaries = _split(args.get("summaries", ""))
+    return RenumberOp(kind="insert", at=num("at"), titles=(titles + [""] * count)[:count], summaries=(summaries + [""] * count)[:count])
+
+
+def op_label(op: RenumberOp) -> str:
+    if op.kind == "remove":
+        return f"{op.at}화 빼기"
+    c = len(op.titles)
+    return f"{op.at}화 앞에 새 화 {c}개 넣기" if c > 1 else f"{op.at}화 앞에 새 화 넣기"
+
+
+def shift(op: RenumberOp, inverse: bool = False):
+    """이 동작이 옛 화 번호를 어디로 옮기는지 (autorun.renumber 에 넘긴다). inverse 는 되돌릴 때."""
+    c = len(op.titles) if op.kind == "insert" else -1
+    if inverse:
+        c = -c
+    at = op.at + (len(op.titles) if inverse and op.kind == "insert" else 0)
+    return lambda x: x + c if x >= at else x
+
+
+def apply_op(p: Project, op: RenumberOp, move: bool) -> list[str]:
+    """화를 넣거나 뺀다 (pipeline.insert_episode · remove_episode). 무엇을 옮겼는지 돌려준다. 못 하면 ValueError 로 p 는 그대로다."""
+    if op.kind == "remove":
+        ep = p.episode(op.at)
+        plot, status = ep.plot.model_copy(deep=True), ep.status
+        notes = pipeline.remove_episode(p, op.at, move)
+        op.removed, op.removed_status = plot, status
+    else:
+        before = p.model_copy(deep=True)
+        c = len(op.titles)
+        texts = [e.plot.number for e in p.episodes if e.plot.number >= op.at and renumber.has_text(e)]
+        q = p.model_copy(deep=True)
+        for i, (t, s) in enumerate(zip(op.titles, op.summaries)):
+            pipeline.insert_episode(q, op.at + i, t, s, move_text=move)
+        for f in Project.model_fields:
+            setattr(p, f, getattr(q, f))
+        moved = [e.plot.number for e in before.episodes if e.plot.number >= op.at]
+        head = f"{op.at}~{op.at + c - 1}화에 새 화 {c}개를 넣었어요." if c > 1 else f"{op.at}화에 새 화를 넣었어요."
+        if moved:
+            head += f" 원래 {moved[0]}~{moved[-1]}화는 {moved[0] + c}~{moved[-1] + c}화가 됐어요."
+        notes = [head]
+        if texts:
+            notes.append(f"본문이 있는 {' · '.join(f'{n}화' for n in texts)}는 {' · '.join(f'{n + c}화' for n in texts)}가 됐어요. "
+                         "본문 속 화 번호나 앞 화와 잇는 문장은 그대로라 검수로 다시 보세요.")
+        notes += pipeline._renumber_notes(before, p, {})
+    op.after_total = len(p.episodes)
+    return notes
+
+
+def preview(p: Project, op: RenumberOp, move: bool, held: list[int]) -> list[str]:
+    """쓰지 않고 해 본다. 못 하면 ValueError. held 는 검토를 기다리는 결과가 있는 화 (store.pending_eps)."""
+    stuck = [n for n in held if n >= op.at]
+    if stuck:
+        raise ValueError(f"{', '.join(f'{n}화' for n in stuck)}에 검토를 기다리는 AI 결과나 실패한 작업이 있어 화 번호를 옮길 수 없어요. "
+                         "작가가 먼저 확인하거나 버려야 해요")
+    return apply_op(p.model_copy(deep=True), op.model_copy(deep=True), move)
+
+
+def inverse(p: Project, op: RenumberOp, move: bool) -> None:
+    """쓴 화 넣기 · 빼기를 되돌린다. 그 뒤 화 번호가 바뀌었거나 넣은 화에 본문이 생겼으면 ValueError (p 는 그대로)."""
+    if len(p.episodes) != op.after_total:
+        raise ValueError("그 뒤에 화를 넣거나 빼서 번호가 달라졌어요")
+    q = p.model_copy(deep=True)
+    if op.kind == "insert":
+        for i in reversed(range(len(op.titles))):
+            pipeline.remove_episode(q, op.at + i, move)
+    else:
+        pipeline.insert_episode(q, op.at, move_text=move)
+        if op.removed:
+            e = q.episode(op.at)
+            e.plot = op.removed.model_copy(update={"number": op.at})
+            e.status = op.removed_status or e.status  # type: ignore[assignment]
+    for f in Project.model_fields:
+        setattr(p, f, getattr(q, f))
+
+
+def renumber_step(p: Project, turn: AgentTurn, tool: str, args: dict[str, str], move: bool, held: list[int]) -> bool:
+    """화 넣기 · 빼기 도구: 해 보고 되면 승인 카드를 남긴다 (True: 턴을 끝내고 답을 기다린다). 안 되면 막힘 단계."""
+    try:
+        op = op_from(tool, args)
+        op.notes = preview(p, op, move, held)
+    except (ValueError, KeyError) as e:
+        why = str(e).strip("'")
+        turn.steps.append(StepRecord(kind="block", tool=tool, label=tool, why=why, result=f"할 수 없어요: {why}"))
+        return False
+    turn.approval = Approval(tool=tool, op=op, keys=["renumber"], kinds=["renumber"])
+    turn.steps.append(StepRecord(kind="wait", tool=tool, label=op_label(op), why="화 번호가 바뀌어 늘 물어보고 해요",
+                                 result=f"작가에게 물음: {op_label(op)}. 작가의 답을 기다려야 하므로 턴을 끝냅니다"))
+    return True
+
+
 # ---------- 한 턴 ----------
 
 def _edit(name: str, fn):
@@ -345,8 +464,9 @@ def _preamble_retry(turn: AgentTurn, reply: str) -> bool:
     return True
 
 
-def _step(p: Project, sid: str, t: int, step: PlotAgentStep) -> str:
-    """AI 의 한 단계를 처리해 턴에 남긴다. 턴을 끝내면 끝 상태를 돌려준다 ('' 이면 다음 단계)."""
+def _step(p: Project, sid: str, t: int, step: PlotAgentStep, move: bool = True, held: list[int] | None = None) -> str:
+    """AI 의 한 단계를 처리해 턴에 남긴다. 턴을 끝내면 끝 상태를 돌려준다 ('' 이면 다음 단계).
+    move · held 는 화 넣기 · 빼기에 쓴다 (store.shares_text 의 반대, store.pending_eps)."""
     s, turn = turn_of(p, sid, t)
     args = {a.name: a.value for a in step.args}
     tool = step.tool.strip()
@@ -373,6 +493,10 @@ def _step(p: Project, sid: str, t: int, step: PlotAgentStep) -> str:
     elif tool in READ_TOOLS:
         where, result = read(p, tool, args)
         turn.steps.append(StepRecord(kind="read", tool=tool, label=where, why=step.thought.strip(), result=result))
+    elif tool in RENUMBER_TOOLS:
+        if renumber_step(p, turn, tool, args, move, held or []):
+            turn.reply = step.reply.strip() or step.thought.strip()
+            end = "wait"
     elif tool == "edit_plot":
         turn.steps += edit_plot(p, s, turn, step.edit)
         if turn.approval and turn.approval.state == "wait":
@@ -401,7 +525,8 @@ def run_turn(llm: LLM, name: str, sid: str, t: int, job=None) -> dict:
             job.step_at = time.time()
         with wait_cap(STEP_WAIT), out_cap(STEP_OUT_TOKENS):
             step = llm.json(prompts.SYSTEM_AGENT_PLOT, prompts.agent_plot_prompt(p, s, turn, scope, MAX_STEPS - i), PlotAgentStep, hint=hint)
-        end = _edit(name, lambda q: _step(q, sid, t, step))
+        move, held = not store.shares_text(name), store.pending_eps(name)
+        end = _edit(name, lambda q: _step(q, sid, t, step, move, held))
         if job is not None:
             job.done = i + 1
             job.note = step.thought[:60]
@@ -427,13 +552,26 @@ def resume(p: Project, sid: str, t: int, note: StepRecord | None = None) -> None
     turn.end, turn.error = "", ""
 
 
-def decide(p: Project, sid: str, t: int, approve: bool, picked: list[str], remember: bool = False) -> None:
-    """승인 카드에 답한다. 승인하면 고른 부분을 쓰고, 같은 턴을 이어 가도록 연다 (resume)."""
+def decide(p: Project, sid: str, t: int, approve: bool, picked: list[str], remember: bool = False, move: bool = True) -> None:
+    """승인 카드에 답한다. 승인하면 고른 부분을 쓰고, 같은 턴을 이어 가도록 연다 (resume).
+    화 넣기 · 빼기 카드는 move 규칙(renumber.last_fixed)으로 쓴다."""
     s, turn = turn_of(p, sid, t)
     a = turn.approval
     if a is None or a.state != "wait" or turn.end != "wait":
         raise ValueError("답할 승인 카드가 없어요")
-    if approve:
+    if approve and a.op:
+        op = a.op.model_copy(deep=True)
+        notes = apply_op(p, op, move)  # 못 하면 ValueError 로 카드를 그대로 둔다
+        s, turn = turn_of(p, sid, t)  # 화 번호를 옮기면 작품 칸이 통째로 바뀌므로 다시 찾는다
+        a = turn.approval
+        assert a is not None
+        op.notes = notes
+        turn.writes.append(WriteRecord(tool=a.tool, op=op, items=[WriteItem(key="renumber", label=op_label(op))]))
+        a.state, a.picked = "approved", ["renumber"]
+        note = StepRecord(kind="note", tool="approval", label=op_label(op), why="작가가 승인했어요",
+                          result=f"작가가 승인해 저장함: {op_label(op)}. " + " ".join(notes)
+                          + " 새 화 플롯은 제목 · 요약만 있으니 필요하면 edit_plot 으로 채웁니다.")
+    elif approve:
         keys = [k for k in picked if k in a.keys] if picked else list(a.keys)
         if not keys:
             raise ValueError("쓸 부분을 고르세요")
@@ -451,19 +589,49 @@ def decide(p: Project, sid: str, t: int, approve: bool, picked: list[str], remem
     resume(p, sid, t, note)
 
 
-def undo(p: Project, sid: str, t: int, w: int | None = None, key: str | None = None) -> tuple[list[str], list[str], list[str]]:
+def undo_ops(p: Project, sid: str, t: int, w: int | None = None, key: str | None = None) -> list[RenumberOp]:
+    """undo 가 되돌리려는 화 넣기 · 빼기 (web 이 화 번호를 옮겨도 되는지 먼저 본다)."""
+    _, turn = turn_of(p, sid, t)
+    recs = [turn.writes[w]] if w is not None and 0 <= w < len(turn.writes) else turn.writes
+    return [r.op for r in recs if r.op and any(i.state == "done" and (key is None or i.key == key) for i in r.items)]
+
+
+def undo(p: Project, sid: str, t: int, w: int | None = None, key: str | None = None, move: bool = True,
+         reverted: list[RenumberOp] | None = None) -> tuple[list[str], list[str], list[str]]:
     """바로 쓴 것을 되돌린다. w · key 를 주면 그 부분만, 없으면 그 턴 전체를 뒤에서부터.
-    지금 값이 쓴 직후 값과 같은 부분만 돌린다 (pipeline.plot_undo). (되돌린 이름, 남긴 이름, 남긴 까닭)."""
+    지금 값이 쓴 직후 값과 같은 부분만 돌린다 (pipeline.plot_undo). 화 넣기 · 빼기는 반대 동작(inverse)으로 돌리고,
+    돌린 것을 reverted 에 더한다. (되돌린 이름, 남긴 이름, 남긴 까닭)."""
     _, turn = turn_of(p, sid, t)
     if w is not None and not 0 <= w < len(turn.writes):
         raise KeyError("쓴 기록이 없어요")
-    recs = [turn.writes[w]] if w is not None else list(reversed(turn.writes))
+    order = [w] if w is not None else list(reversed(range(len(turn.writes))))
     done_l: list[str] = []
     kept_l: list[str] = []
     why_l: list[str] = []
-    for rec in recs:
-        items = [i for i in rec.items if i.state == "done" and (key is None or i.key == key)]
+
+    def pick(k: int):
+        rec = turn_of(p, sid, t)[1].writes[k]  # 화 번호를 옮기면 작품 칸이 통째로 바뀌므로 매번 다시 찾는다
+        return rec, [i for i in rec.items if i.state == "done" and (key is None or i.key == key)]
+
+    for k in order:
+        rec, items = pick(k)
         if not items:
+            continue
+        if rec.op:
+            try:
+                inverse(p, rec.op, move)
+                rec, items = pick(k)
+            except ValueError as e:
+                for i in items:
+                    i.state, i.reason = "kept", str(e)
+                    kept_l.append(i.label)
+                    why_l.append(str(e))
+            else:
+                for i in items:
+                    i.state = "reverted"
+                    done_l.append(i.label)
+                if reverted is not None:
+                    reverted.append(rec.op)
             continue
         keys = [i.key for i in items if i.key != "draft"]
         done, kept, why = pipeline.plot_undo(p, keys, rec.before, rec.after) if keys and rec.before and rec.after else ([], [], [])

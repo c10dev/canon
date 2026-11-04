@@ -34,3 +34,17 @@ def test_last_fixed_matches_server():
     got = run_js(["app.js", "insert.js"], "data.map((p) => { S.project = p; return lastFixed(); })", [dump(p) for p in cases])
     assert got == [renumber.last_fixed(p) for p in cases]
     assert len(set(got)) > 3  # 여러 갈래를 실제로 지난다
+
+
+@needs_node
+def test_last_fixed_move_text_matches_server():
+    cases = _cases()
+    p = Project(episodes=[episode(n) for n in range(1, 8)])
+    p.episodes[1].status = "finalized"
+    p.episodes[5].text, p.episodes[5].status = "본문", "written"
+    cases.append(p.model_copy(deep=True))
+    p.release.released = 4
+    cases.append(p)
+    got = run_js(["app.js", "insert.js"], "data.map((p) => { S.project = p; return lastFixed(true); })", [dump(p) for p in cases])
+    assert got == [renumber.last_fixed(p, True) for p in cases]
+    assert got[-2:] == [2, 4]
