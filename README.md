@@ -260,6 +260,10 @@ sudo tailscale serve --bg --https=8446 http://127.0.0.1:8000
 
 그러면 같은 tailnet 의 맥, 아이폰에서 `https://<서버이름>.<tailnet>.ts.net:8446` 로 열린다. 작품은 서버의 `~/canon/projects/` 에, API 키는 서버 계정의 `~/.canon/config.json` 에 저장된다. 다른 컴퓨터에서 쓰던 작품은 `projects/<이름>/` 폴더를 그대로 복사하면 된다. 포트 대시보드(예: Portboard)를 쓰고 있으면 systemd 서비스 이름 `Canon - AI 소설 작성 웹 UI` 로 잡힌다. 로그는 `journalctl -u canon -f`.
 
+#### 머지 전에 시험 돌리기
+
+PR 과 `main` 푸시마다 GitHub Actions(`.github/workflows/test.yml`)가 전체 시험을 돌린다. 시험은 가짜 응답만 써서 비밀값이 필요 없다. 서버는 `main` 을 자동으로 받으므로, 시험이 실패한 PR 은 머지하지 않는다.
+
 #### 머지하면 바로 받기
 
 서버는 10분마다 새 코드를 확인한다. `main` 에 머지하자마자 받게 하려면 GitHub Actions(`.github/workflows/notify-server.yml`)가 머지 때마다 Tailscale 로 들어와 서버의 `POST /api/update/check` 를 부르게 한다. 이 요청은 확인을 앞당길 뿐이고, 코드는 늘 `origin/main` 에서만 받는다. 진행 중인 AI 작업이 있으면 그 작업이 끝난 뒤 다시 시작하는 것은 같다.
