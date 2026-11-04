@@ -162,6 +162,28 @@ def _endings(text: str) -> tuple[Optional[float], Optional[float]]:
     return round(sum(narr) / len(narr), 2), round(sum(r for r in runs if r >= ENDING_RUN) / len(narr), 2)
 
 
+_TRAIL = re.compile(r"(?:…|\.{2,})$")  # 말줄임으로 끝남
+_FX_OPEN = ("─", "—")  # 효과음 줄
+
+
+def narration_tics(text: str) -> dict[str, int]:
+    """서술 다듬기가 새로 만들기 쉬운 버릇을 센다: 말줄임으로 끊는 서술 문장(trail)과 서술 속 물음(question).
+    문장은 sentences 로 나누니 말줄임 뒤를 띄어 쓴 곳('누군가… 손을 댔다')도 한 번 끊긴 것으로 센다.
+    따옴표로 여는 대사 줄, 효과음 줄, 따옴표뿐인 문장은 세지 않는다 (_endings 와 같은 서술 문장)."""
+    trail = question = 0
+    for line in text.split("\n"):
+        line = line.strip()
+        if not line or line.startswith(_QUOTE_OPEN) or line.startswith(_FX_OPEN):
+            continue
+        for x in sentences(line):
+            if _QUOTE.fullmatch(x):
+                continue
+            end = x.rstrip("\"'”’」』) ")
+            trail += bool(_TRAIL.search(end))
+            question += end.endswith("?")
+    return {"trail": trail, "question": question}
+
+
 def _short_ending_ratio(paras: list[str]) -> Optional[float]:
     ends = []
     for para in paras:

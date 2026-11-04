@@ -105,3 +105,58 @@ def test_cli_polish(tmp_path, monkeypatch):
     assert "서술만 다듬기" in out.getvalue()
     assert e.made_by.mode == "polish" and e.text != before
     assert pipeline.fixed_lines(e.text) == pipeline.fixed_lines(before)
+
+
+def test_narration_tics_count_only_narration():
+    text = "물이 식었다…\n\n왜 식었지?\n\n“정말…?”\n\n─쿠르르…\n\n누군가… 손을 댔다.\n\n그런가... 아니다."
+    # 말줄임 뒤를 띄어 쓴 곳('누군가… 손을')도 문장이 끊기니 센다
+    assert __import__("canon.metrics", fromlist=["x"]).narration_tics(text) == {"trail": 3, "question": 1}
+
+
+LONG = "\n\n".join([f"{k}번째 문을 열었다." for k in range(12)] + ["“가자.”"])
+
+
+def _tics(k: int) -> str:
+    """LONG 의 서술 k줄을 말줄임 끝으로 바꾼 글 (글자 수는 같다)."""
+    lines = LONG.split("\n\n")
+    return "\n\n".join(x.replace("열었다.", "열었다…") if i < k else x for i, x in enumerate(lines))
+
+
+def test_polish_tics_only_when_above_limit_and_grown():
+    assert pipeline.polish_tics(LONG, _tics(pipeline.POLISH_TIC_RETRY)) == ""
+    assert "말줄임으로 끊는 서술이 0개에서 7개로" in pipeline.polish_tics(LONG, _tics(7))
+    assert pipeline.polish_tics(_tics(9), _tics(8)) == ""  # 원래 많던 글은 탓하지 않는다
+
+
+class _Tics:
+    """첫 판은 말줄임을 9개, 다음 판은 7개 늘린 글을 낸다."""
+    calls = 0
+
+    def text(self, system, prompt):
+        _Tics.calls += 1
+        return _tics(9 if _Tics.calls == 1 else 7)
+
+
+def _long(client):
+    from canon import store
+
+    _written(client)
+    p = store.load("lh")
+    p.episode(1).text = LONG
+    return p
+
+
+def test_polish_retries_on_tics_then_keeps_the_lesser(client):
+    p = _long(client)
+    _Tics.calls = 0
+    out = pipeline.polish_episode(_Tics(), p, 1)
+    assert _Tics.calls == pipeline.POLISH_TRIES and out == _tics(7)  # 멈추지 않고 덜 늘린 판
+
+
+def test_polish_skips_tic_check_for_narration_voice(client):
+    p = _long(client)
+    hero = p.characters[0]
+    hero.narration_voice = "해요체로 서술한다"
+    p.episode(1).plot.pov = hero.id
+    _Tics.calls = 0
+    assert pipeline.polish_episode(_Tics(), p, 1) == _tics(9) and _Tics.calls == 1
