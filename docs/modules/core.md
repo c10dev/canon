@@ -369,6 +369,7 @@
 - 붙인 라우트는 `app.routes` 에 감싼 모양으로만 들어가서, 응답 모양을 바꾸는 코드는 `_ROUTERS` 의 라우트도 함께 본다(`_SNAPSHOT_LIGHT`)
 - `serve` 는 로깅 설정이 없으면 INFO 수준, 시각 · 수준 · 로거 이름을 붙인 형식으로 정한다. 업데이트 · 자동 집필 이어 가기 안내도 이 로그로 낸다
 - 작품 GET 과 작품을 돌려주는 응답은 스냅샷을 화 번호만 보낸다(`_SNAPSHOT_LIGHT`). 작품 저장(PUT)은 디스크 스냅샷을 지킨다
+- `GET /` 는 index.html 의 `/static/*.js` 태그를 내용 해시가 붙은 묶음 하나(`/bundle/<해시>.js`, 오래 캐시)로 바꿔 보낸다(`_bundle`). 파일을 고치면 해시가 바뀐다
 - 화면의 작품 저장은 `PATCH /api/projects/{name}`(`ProjectPatch`): 바뀐 최상위 칸만 받고 보내지 않은 칸은 디스크 것을 쓴다. 그 뒤는 `put_project` 와 같다
 - PATCH 의 `episodes` 에서 `{"$same": 화}` 는 디스크의 그 화다. 디스크에 없는 화면 409
 - 인물 · 관계도와 지도 응답은 작품 판으로 JSON 을 기억하고 ETag 를 붙인다(`_json_view`)

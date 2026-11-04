@@ -7,8 +7,10 @@ AI 가 만든 제안(설정, 문체, 구조, 상태 변경안)은 바로 저장�
 from __future__ import annotations
 
 import contextvars
+import hashlib
 import json
 import logging
+import os
 import random
 import re
 import threading
@@ -4682,9 +4684,46 @@ class _Static(StaticFiles):
 app.mount("/static", _Static(directory=STATIC), name="static")
 
 
+# 화면 스크립트 묶음. index.html 의 /static/*.js 태그 68개를 파일을 이은 스크립트 하나로 바꿔 보낸다 (요청과 재확인이 하나로 준다).
+# 주소에 내용 해시가 있어 오래 캐시해도 된다. 파일을 고치면(서버는 화면 파일을 디스크에서 바로 읽는다) 해시와 주소가 바뀐다.
+# 모두 일반 스크립트라 전역을 함께 쓰고, 따로 읽을 때와 차례가 같다. CANON_NO_BUNDLE=1 이면 파일마다 따로 보낸다 (고칠 때 오류 위치 보기)
+_SCRIPT_TAG = re.compile(r'<script src="/static/([A-Za-z0-9_./-]+\.js)"></script>\n?')
+_bundle_cache: dict[str, Any] = {}
+
+
+def _bundle() -> tuple[str, str, str]:
+    """(묶은 index.html, 해시, 묶은 스크립트). 화면 파일의 판(수정 시각 · 크기)이 같으면 전에 만든 것을 쓴다."""
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    files = _SCRIPT_TAG.findall(html)
+    sig = (html, tuple((f, (st := (STATIC / f).stat()).st_mtime_ns, st.st_size) for f in files))
+    if _bundle_cache.get("sig") != sig:
+        body = "".join(f"/* ---------- {f} ---------- */\n{(STATIC / f).read_text(encoding='utf-8')}\n;\n" for f in files)
+        h = hashlib.sha1(body.encode()).hexdigest()[:16]
+        first = True
+
+        def one(m: re.Match) -> str:
+            nonlocal first
+            if first:
+                first = False
+                return f'<script src="/bundle/{h}.js"></script>\n'
+            return ""
+        _bundle_cache.update(sig=sig, out=(_SCRIPT_TAG.sub(one, html), h, body))
+    return _bundle_cache["out"]
+
+
 @app.get("/")
-def index() -> FileResponse:
-    return FileResponse(STATIC / "index.html", headers=NO_CACHE)
+def index() -> Response:
+    if os.environ.get("CANON_NO_BUNDLE"):
+        return FileResponse(STATIC / "index.html", headers=NO_CACHE)
+    return Response(_bundle()[0], media_type="text/html; charset=utf-8", headers=NO_CACHE)
+
+
+@app.get("/bundle/{h}.js")
+def script_bundle(h: str) -> Response:
+    """묶은 화면 스크립트. 지금 판의 해시면 오래 캐시하고, 옛 해시면(그 사이 파일을 고쳤다) 지금 판을 캐시하지 않고 보낸다."""
+    _, now, body = _bundle()
+    cache = {"Cache-Control": "public, max-age=31536000, immutable"} if h == now else NO_CACHE
+    return Response(body, media_type="text/javascript; charset=utf-8", headers=cache)
 
 
 # 작품 전체를 돌려주는 응답도 스냅샷은 화 번호만 보낸다 (get_project 와 같은 모양). 장편은 스냅샷이 작품의 절반 가까이라
