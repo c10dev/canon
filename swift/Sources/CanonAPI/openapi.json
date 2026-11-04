@@ -9038,6 +9038,65 @@
     }
    }
   },
+  "/api/projects/{name}/episodes/{n}/fixes/apply": {
+   "post": {
+    "summary": "Apply Finding Fixes",
+    "description": "고른 고침안 여러 개를 차례로 본문에 넣는다 (검수 화면의 한꺼번에 검토). 지적마다 한 묶음이라 하나씩 되돌릴 수 있다.\n앞 고침안이 같은 문장을 바꿔 못 넣은 것은 까닭과 함께 돌려준다.",
+    "operationId": "apply_finding_fixes",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/FixBatchIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/FixBatchOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/projects/{name}/episodes/{n}/fix-groups/{group}/undo": {
    "post": {
     "summary": "Undo Finding Fix",
@@ -22759,6 +22818,78 @@
     "type": "object",
     "title": "FixApplyIn"
    },
+   "FixBatchIn": {
+    "properties": {
+     "items": {
+      "items": {
+       "$ref": "#/components/schemas/FixPick"
+      },
+      "type": "array",
+      "title": "Items",
+      "description": "작가가 고른 고침안. 이 차례대로 넣는다"
+     },
+     "confirm": {
+      "type": "boolean",
+      "title": "Confirm",
+      "description": "그대로 둠 · 잘못 짚음 지적의 문장도 바꾸는 줄 알고 적용한다",
+      "default": false
+     }
+    },
+    "type": "object",
+    "required": [
+     "items"
+    ],
+    "title": "FixBatchIn"
+   },
+   "FixBatchOut": {
+    "properties": {
+     "project": {
+      "$ref": "#/components/schemas/Project-Output"
+     },
+     "applied": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Applied",
+      "description": "넣은 지적 id"
+     },
+     "failed": {
+      "items": {
+       "$ref": "#/components/schemas/FixFail"
+      },
+      "type": "array",
+      "title": "Failed",
+      "description": "넣지 못한 지적과 까닭. 나머지는 넣었다"
+     }
+    },
+    "type": "object",
+    "required": [
+     "project",
+     "applied",
+     "failed"
+    ],
+    "title": "FixBatchOut"
+   },
+   "FixFail": {
+    "properties": {
+     "fid": {
+      "type": "string",
+      "title": "Fid"
+     },
+     "error": {
+      "type": "string",
+      "title": "Error",
+      "description": "넣지 못한 까닭 (화면에 그대로 보인다)"
+     }
+    },
+    "type": "object",
+    "required": [
+     "fid",
+     "error"
+    ],
+    "title": "FixFail"
+   },
    "FixOption": {
     "properties": {
      "label": {
@@ -22820,6 +22951,34 @@
     ],
     "title": "FixPatch",
     "description": "고침안이 함께 고치는 이 화의 다른 문장 하나 (딸린 곳)."
+   },
+   "FixPick": {
+    "properties": {
+     "fid": {
+      "type": "string",
+      "title": "Fid",
+      "description": "지적 id"
+     },
+     "k": {
+      "type": "integer",
+      "title": "K",
+      "description": "넣을 고침안 번호 (0부터)"
+     },
+     "skip": {
+      "items": {
+       "type": "integer"
+      },
+      "type": "array",
+      "title": "Skip",
+      "description": "넣지 않을 딸린 곳 번호 (0부터)"
+     }
+    },
+    "type": "object",
+    "required": [
+     "fid",
+     "k"
+    ],
+    "title": "FixPick"
    },
    "Foreshadow": {
     "properties": {

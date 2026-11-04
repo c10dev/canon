@@ -356,3 +356,62 @@ def test_check_done_matches_check_state():
     e.edits = [TextEdit(id="x2", at="2026-10-30T11:00:00+00:00", group="g1")]
     e.findings[0].closed_by, e.findings[0].fix_group = "one", "g1"
     assert findings.check_done(e)  # 이 지적만 다시 검수가 본 고침
+
+
+def test_fix_targets_and_batch_apply(demo):
+    """열린 지적 모두 고침안 받기의 대상(fix_targets)과 고른 고침안 한꺼번에 넣기(apply_fixes)."""
+    from canon.mock import MockLLM
+    p = store.load(demo)
+    ep = p.episode(1)
+    q1, q2 = "바람이 불었다.", "서윤은 등대 앞에 섰다."
+    pipeline.apply_check(p, ConsistencyReport(episode=1, issues=[issue(q1), issue(q2, "동선"), issue("본문에 없는 문장.", "말투")]))
+    findings.set_status(ep, "f2", "kept", None, "t")
+    assert pipeline.fix_targets(ep) == ["f1"]  # 처리한 지적 · 문장이 없는 지적은 빼고
+    findings.set_status(ep, "f2", "open", None, "t")
+    assert pipeline.fix_targets(ep) == ["f1", "f2"]
+    for fid in ("f1", "f2"):
+        pipeline.store_fixes(p, 1, fid, pipeline.propose_fixes(MockLLM(), p, 1, fid))
+    assert pipeline.fix_targets(ep) == []  # 넣을 수 있는 고침안이 있으면 다시 받지 않는다
+
+    # f2 의 안이 f1 문장(q1)도 딸린 곳으로 고친다 → f1 을 먼저 넣으면 f2 는 문장이 없어 못 넣고, 나머지는 넣는다
+    from canon.schema import FixOption, FixPatch
+    pipeline.store_fixes(p, 1, "f2", [FixOption(label="앞까지", text="서윤은 등대 뒤에 섰다.", extra=[FixPatch(quote=q1, replacement="바람이 멎었다.")])])
+    done, failed = pipeline.apply_fixes(p, 1, [("f1", 0, []), ("f2", 0, []), ("f9", 0, [])])
+    assert done == ["f1"] and [f for f, _ in failed] == ["f2", "f9"]
+    assert "고침안을 다시 받으세요" in failed[0][1] and "그런 지적이 없어요" in failed[1][1]
+    assert ep.findings[0].fix_group == "x1" and q1 not in ep.text and q2 in ep.text
+    assert pipeline.fix_targets(ep) == ["f2"]  # f1 은 문장이 바뀌어 빠지고, f2 는 넣을 수 있는 안이 없어 다시 받는다
+    done, failed = pipeline.apply_fixes(p, 1, [("f2", 0, [0])])  # 딸린 곳을 빼면 넣을 수 있다
+    assert done == ["f2"] and failed == [] and "서윤은 등대 뒤에 섰다." in ep.text
+
+
+def test_web_fixes_job_and_batch_apply(demo):
+    import time
+
+    from canon import web
+    importlib.reload(web)
+    c = TestClient(web.app)
+    p = store.load(demo)
+    pipeline.apply_check(p, ConsistencyReport(episode=1, issues=[issue("바람이 불었다."), issue("서윤은 등대 앞에 섰다.", "동선")]))
+    store.save(demo, p)
+    j = c.post(f"/api/projects/{demo}/jobs", json={"kind": "fixes", "ep": 1}).json()
+    assert j["total"] == 2 and "지적 2개 고침안" in j["label"]
+    for _ in range(100):
+        j = next(x for x in c.get("/api/jobs").json() if x["id"] == j["id"])
+        if j["status"] != "running":
+            break
+        time.sleep(0.05)
+    assert (j["status"], j["done"], j["result"]) == ("done", 2, {"done": 2, "failed": []})
+    e = store.load(demo).episode(1)
+    assert all(len(f.fixes) == 2 for f in e.findings)
+    r = c.post(f"/api/projects/{demo}/jobs", json={"kind": "fixes", "ep": 1})
+    assert r.status_code == 400 and "고침안을 받을 열린 지적이 없어요" in r.text  # 모두 받았으면 다시 받지 않는다
+
+    base = f"/api/projects/{demo}/episodes/1"
+    assert c.post(f"{base}/fixes/apply", json={"items": []}).status_code == 400
+    out = c.post(f"{base}/fixes/apply", json={"items": [{"fid": "f1", "k": 0}, {"fid": "f2", "k": 0}]}).json()
+    assert out["applied"] == ["f1", "f2"] and out["failed"] == []
+    ep = out["project"]["episodes"][0]
+    assert [f["fix_group"] for f in ep["findings"]] == ["x1", "x2"]  # 지적마다 한 묶음
+    assert all(set(s) == {"episode"} for s in out["project"]["snapshots"])  # 스냅샷은 화 번호만 (작품 응답과 같다)
+    assert [f.status for f in store.load(demo).episode(1).findings] == ["open", "open"]  # 넣기만으로 닫지 않는다 (다시 검수가 닫는다)

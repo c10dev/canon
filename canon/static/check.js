@@ -4,6 +4,7 @@
    (passage.js 의 떠 있는 도구, mode 'finding'): AI 고침안 비교와 적용(딸린 곳 포함), 묶음 되돌리기, 이 지적만 다시 검수, 다른 처리 길.
    지적과 회차는 서버 findings.merge 가 만든다 (Episode.findings · rounds). 상태 · 심각도 바꾸기는 PUT …/findings/{id},
    고침안 POST …/findings/{id}/fixes · …/fixes/{k}/apply, 되돌리기 POST …/fix-groups/{묶음}/undo, 다시 검수 POST …/findings/{id}/recheck,
+   한꺼번에: 열린 지적 모두 고침안 받기(작업 'fixes') → 고침안 한꺼번에 검토(지적마다 고르고 고른 것만 POST …/fixes/apply),
    문체 지표는 GET …/style. app.js 의 S, P, actions, api, render, run, home.js 의 checkState, write.js 의 epNav · widenToggle · nextStepBtn,
    marks.js 의 draftBox · readHtml, passage.js 의 textNow · editableEp · passageNotes · editTime · wordDiff · flushText · focusText · showTool,
    opening.js 의 openingChecks 를 그대로 쓴다. */
@@ -18,7 +19,19 @@ Object.assign(S, {
   chkNote: '',         // 고른 지적의 메모 칸 (저장 전)
   chkNoteFor: '',      // chkNote 가 어느 지적('화:id')의 메모인지
   fixSkip: {},         // '화:id:고침안 번호' → 빼고 넣을 딸린 곳 번호 목록
+  fbOpen: 0,           // 고침안 한꺼번에 검토를 연 화 (0 이면 닫힘)
+  fbOn: {},            // '화:id' → 작가가 넣기로 고른 지적 (보이는 고침안을 넣는다)
+  fbOpt: {},           // '화:id' → 보이는 고침안 번호
+  fbNote: {},          // '화:id' → 고침안을 받지 못했거나 넣지 못한 까닭
 });
+
+JOB_DONE_MSG.fixes = (j) => {
+  const r = j.result || {};
+  const failed = (r.failed || []).length;
+  return `${j.ep}화 지적 ${r.done || 0}개의 고침안이 도착했어요${failed ? ` (${failed}개는 받지 못했어요)` : ''}. 검수 화면의 '고침안 한꺼번에 검토'에서 넣을 것만 고르세요.`;
+};
+JOB_PAGES.fixes = ['check'];
+JOB_LINK.fixes = (j) => `#/p/${enc(j.project)}/check/${j.ep}`;
 
 // 서버 schema.FINDING_STATUS · SEVERITY 와 같은 이름
 const FINDING_STATUS = { open: '열림', fixed: '고침', kept: '그대로 둠', wrong: '잘못 짚음' };
@@ -249,8 +262,9 @@ function chkList(n, e, text, sel, checkBtn) {
   } else {
     const { list, changes, no } = chkShown(n, e);
     const ids = new Set(list.map((f) => f.id));
+    const bar = fbBar(n, e, text);
     const caption = no ? `<div class="between"><strong style="font-size:0.8125rem">${no}회차가 바꾼 지적</strong><button type="button" class="btn small ghost" data-action="chkRound" data-arg="${no}">회차 보기 끄기</button></div>` : '';
-    body = list.length ? `${caption}<ul class="chk-list">${list.map((f) => {
+    body = list.length ? `${caption}${bar}<ul class="chk-list">${list.map((f) => {
       const flag = findingFlag(e, f, text);
       const child = f.parent && ids.has(f.parent);
       return `<li><button type="button" class="chk-item${f.status === 'open' ? '' : ' done'}${child ? ' child' : ''}" aria-current="${f.id === sel}" data-action="chkSel" data-arg="${esc(f.id)}">
@@ -347,6 +361,127 @@ function fixPanel(n, fid) {
   return `${head}${done}${list}${applied ? '' : tools}${ways}`;
 }
 
+// ----- 고침안 한꺼번에: 열린 지적마다 AI 고침안을 받고(작업 'fixes'), 작가가 지적마다 고른 것만 넣는다 -----
+
+/** 고침안을 받을 지적: 열린 지적 가운데 문장이 지금 본문에 있고 넣을 수 있는 고침안이 없는 것 (서버 pipeline.fix_targets 와 같은 셈). */
+function fbNeed(e, text) {
+  return (e.findings || []).filter((f) => {
+    const q = (f.current_quote || '').trim();
+    return f.status === 'open' && q && text.includes(q) && !(f.fixes || []).some((o) => !fixMissing(text, f, o, []).length);
+  });
+}
+
+/** 지적의 넣을 수 있는 고침안 번호 (고른 딸린 곳을 뺀 뒤 모든 문장이 본문에 있는 것). 이미 넣은 지적은 없다. */
+function fbUsable(n, e, f, text) {
+  if (f.status !== 'open' || fixApplied(e, f)) return [];
+  return (f.fixes || []).map((o, k) => k).filter((k) => !fixMissing(text, f, f.fixes[k], S.fixSkip[`${n}:${f.id}:${k}`] || []).length);
+}
+
+/** 보이는 고침안 번호: 고른 적이 있고 넣을 수 있으면 그것, 아니면 넣을 수 있는 첫 안. */
+function fbShown(n, e, f, text) {
+  const ok = fbUsable(n, e, f, text);
+  const k = S.fbOpt[`${n}:${f.id}`];
+  return ok.includes(k) ? k : ok.length ? ok[0] : -1;
+}
+
+/** 고침안이 바꿀 본문 자리들 [시작, 끝]. 같은 자리를 바꾸는 두 안을 함께 고르면 뒤 것은 들어가지 않는다. */
+function fbSpans(text, f, opt, skip) {
+  const quotes = [f.current_quote, ...(opt.extra || []).filter((_, i) => !skip.includes(i)).map((x) => x.quote)];
+  return quotes.map((q) => (q || '').trim()).filter(Boolean).map((q) => { const a = text.indexOf(q); return [a, a + q.length]; }).filter(([a]) => a >= 0);
+}
+
+/** 고른 지적 가운데 앞에서 고른 지적과 같은 자리를 바꾸는 것: id → 앞 지적. 넣는 차례(목록 차례)로 센다. */
+function fbClash(n, e, text, list) {
+  const taken = [];
+  const out = {};
+  for (const f of list) {
+    const k = fbShown(n, e, f, text);
+    if (!S.fbOn[`${n}:${f.id}`] || k < 0) continue;
+    const spans = fbSpans(text, f, f.fixes[k], S.fixSkip[`${n}:${f.id}:${k}`] || []);
+    const hit = taken.find((t) => t.spans.some(([a, b]) => spans.some(([c, d]) => a < d && c < b)));
+    if (hit) out[f.id] = hit.f;
+    else taken.push({ f, spans });
+  }
+  return out;
+}
+
+/** 지적 목록 위 띠: 열린 지적 모두 고침안 받기 · 한꺼번에 검토. 고칠 수 있는 화이고 자동 집필이 돌지 않을 때만. */
+function fbBar(n, e, text) {
+  if (!editableEp(e) || autoOn()) return '';
+  const open = (e.findings || []).filter((f) => f.status === 'open');
+  if (!open.length) return '';
+  const need = fbNeed(e, text).length;
+  const ready = open.filter((f) => fbUsable(n, e, f, text).length).length;
+  const b = jobBtn('fixes', n, `열린 지적 ${need}개 고침안 받기`);
+  return `<div class="fb-bar"><span class="small">AI가 열린 지적마다 고침안을 내면, 지적마다 보고 고른 것만 본문에 넣어요</span>
+    <div class="row" style="gap:6px">${need ? `<button type="button" class="btn small" data-action="fixAll" data-arg="${n}"${b.attr}>${b.label}</button>` : ''}
+    ${ready ? `<button type="button" class="btn small${need ? '' : ' primary'}" data-action="fbOpen" data-arg="${n}">한꺼번에 검토 · ${ready}</button>` : ''}</div></div>`;
+}
+
+/** 한꺼번에 검토: 열린 지적마다 고침안 하나를 보고 고른다. 고르지 않은 지적은 그대로 남는다. */
+function fbView(n, e, text) {
+  const list = findingOrder((e.findings || []).filter((f) => f.status === 'open'));
+  const clash = fbClash(n, e, text, list);
+  const need = fbNeed(e, text).length;
+  const b = jobBtn('fixes', n, `남은 ${need}개 고침안 받기`);
+  let picked = 0;
+  let pickable = 0;
+  const rows = list.map((f) => {
+    const key = `${n}:${f.id}`;
+    const chips = `<span class="chip ${SEV_CHIP[f.severity] || 'warn'}">${SEVERITY[f.severity] || '보통'}</span><span class="chip">${esc(f.type)}</span>`;
+    const note = S.fbNote[key] ? `<span class="small" style="color:var(--amber-ink)">${esc(S.fbNote[key])}</span>` : '';
+    if (fixApplied(e, f)) {
+      return `<li class="fb-row done"><div class="between"><span class="row" style="gap:4px">${chips}<span class="chip">넣음</span><strong class="fb-desc">${esc(f.description)}</strong></span>
+        <button type="button" class="btn small" data-action="fbUndo" data-arg="${esc(f.fix_group)}">되돌리기</button></div></li>`;
+    }
+    const k = fbShown(n, e, f, text);
+    if (k < 0) {
+      const q = (f.current_quote || '').trim();
+      const why = !q || !text.includes(q) ? '지적한 문장을 지금 본문에서 찾을 수 없어요. 이미 고쳤으면 다시 검수하세요'
+        : (f.fixes || []).length ? '고침안을 받은 뒤 본문이 바뀌었어요. 고침안을 다시 받으세요' : '아직 고침안이 없어요';
+      return `<li class="fb-row off"><div class="row" style="gap:4px">${chips}<strong class="fb-desc">${esc(f.description)}</strong></div>
+        <span class="small">${esc(why)}</span>${note}</li>`;
+    }
+    pickable++;
+    const on = !!S.fbOn[key];
+    if (on) picked++;
+    const opt = f.fixes[k];
+    const skip = S.fixSkip[`${n}:${f.id}:${k}`] || [];
+    const ok = fbUsable(n, e, f, text);
+    const seg = ok.length > 1 ? `<div class="seg" role="group" aria-label="고침안">${ok.map((i) => `<button type="button" aria-pressed="${i === k}" data-action="fbOpt" data-arg="${esc(f.id)}:${i}">${esc(f.fixes[i].label)}</button>`).join('')}</div>`
+      : `<strong style="font-size:0.8125rem">${esc(opt.label)}</strong>`;
+    const extras = (opt.extra || []).map((x, i) => `<label class="fix-extra"><input type="checkbox" data-action="fbSkip" data-arg="${esc(f.id)}:${k}:${i}"${skip.includes(i) ? '' : ' checked'}>
+        <span><span class="pdiff small-diff">${wordDiff(x.quote, x.replacement)}</span>${x.reason ? `<span class="small">${esc(x.reason)}</span>` : ''}</span></label>`).join('');
+    const hit = clash[f.id];
+    return `<li class="fb-row${on ? ' on' : ''}">
+      <label class="fb-pick"><input type="checkbox" data-action="fbPick" data-arg="${esc(f.id)}"${on ? ' checked' : ''}><span class="row" style="gap:4px">${chips}<strong class="fb-desc">${esc(f.description)}</strong></span></label>
+      ${f.suggestion ? `<span class="small">고칠 방향 → ${esc(f.suggestion)}</span>` : ''}
+      ${seg}
+      <div class="pdiff small-diff">${wordDiff(f.current_quote.trim(), opt.text)}</div>
+      ${opt.note ? `<span class="small">${esc(opt.note)}</span>` : ''}
+      ${extras ? `<div class="fix-extras"><span class="small" style="font-weight:700">이 화의 딸린 곳 ${opt.extra.length} · 함께 고쳐요</span>${extras}</div>` : ''}
+      ${hit ? `<span class="small" style="color:var(--amber-ink)">앞에서 고른 지적(${esc(findingShort(hit))})과 같은 문장을 바꿔요. 함께 넣으면 이 안은 들어가지 않아요.</span>` : ''}
+      ${note}
+    </li>`;
+  }).join('');
+  return `<section class="card fb" aria-label="고침안 한꺼번에 검토">
+    <div class="between"><div class="lead" style="gap:2px"><h2>고침안 한꺼번에 검토</h2>
+      <span class="small">지적마다 고침안을 보고 넣을 것만 고르세요. 고른 것만 본문에 들어가고, 지적마다 한 묶음이라 하나씩 되돌릴 수 있어요.</span></div>
+      <div class="row" style="gap:6px">${need ? `<button type="button" class="btn small" data-action="fixAll" data-arg="${n}"${b.attr}>${b.label}</button>` : ''}<button type="button" class="btn small ghost" data-action="fbClose">닫기</button></div></div>
+    <ol class="fb-list">${rows}</ol>
+    <div class="between fb-foot"><span class="small">고른 ${picked}개 / 넣을 수 있는 ${pickable}개 · 넣은 뒤에는 고친 곳이 다른 곳과 어긋나지 않는지 다시 검수하세요</span>
+      <div class="row" style="gap:6px"><button type="button" class="btn small" data-action="fbAll" data-arg="1"${pickable ? '' : ' disabled'}>모두 고르기</button><button type="button" class="btn small" data-action="fbAll" data-arg="0"${picked ? '' : ' disabled'}>모두 풀기</button>
+        <button type="button" class="btn primary" data-action="fbApply"${picked ? '' : ' disabled'}>고른 ${picked}개 넣기</button></div></div>
+  </section>`;
+}
+
+/** 작업 'fixes' 가 끝났다: 받지 못한 지적의 까닭을 남기고 그 화의 한꺼번에 검토를 연다. */
+function fixesJobResult(j) {
+  const n = j.ep;
+  for (const x of (j.result && j.result.failed) || []) S.fbNote[`${n}:${x.id}`] = `고침안을 받지 못했어요: ${x.error}`;
+  S.fbOpen = n;
+}
+
 function viewCheck(n) {
   const e = ep(n);
   if (!e) return header('5단계', stepLabel('check'), '') + noEpisode();
@@ -372,6 +507,7 @@ function viewCheck(n) {
   const sel = chkSelected(n);
   const editable = editableEp(e);
   const center = editable ? draftBox(n, text) : `<div class="read" data-read="${n}">${readHtml(n, text)}</div>`;
+  if (S.fbOpen === n && editable && !autoOn() && (e.rounds || []).length) return head + chkStrip(n, e, st) + fbView(n, e, text);
   const notes = passageNotes(n);
   // 본문이 왼쪽 넓은 칸, 지적 목록과 상세는 오른쪽 칸에 쌓는다 (집필 · 상태 승인 단계와 같은 자리). 좁은 폭은 목록 → 상세 → 본문 순서
   return head + chkStrip(n, e, st) + `<div class="check-cols">
@@ -574,6 +710,96 @@ Object.assign(actions, {
         pj = await api('POST', url, { skip, confirm: true });
       }
       afterFix(n, id, pj);
+    });
+  },
+  /** 열린 지적 모두 고침안 받기 (작업 'fixes'). 저장하지 않은 본문을 먼저 저장한다 */
+  async fixAll(n) {
+    n = Number(n);
+    try {
+      await saveIfDirty();
+      await flushText(n);
+    } catch (err) {
+      showError(err);
+      return;
+    }
+    await startJob('fixes', n);
+  },
+  fbOpen(n) {
+    S.fbOpen = Number(n);
+    hideTool();
+    render();
+  },
+  fbClose() {
+    S.fbOpen = 0;
+    render();
+  },
+  fbPick(id) {
+    const key = `${chkEp()}:${id}`;
+    if (S.fbOn[key]) delete S.fbOn[key];
+    else S.fbOn[key] = true;
+    render();
+  },
+  fbOpt(arg) {
+    const [id, k] = String(arg).split(':');
+    S.fbOpt[`${chkEp()}:${id}`] = Number(k);
+    render();
+  },
+  fbSkip(arg) {
+    const [id, k, i] = String(arg).split(':');
+    const key = `${chkEp()}:${id}:${k}`;
+    const skip = new Set(S.fixSkip[key] || []);
+    if (skip.has(Number(i))) skip.delete(Number(i));
+    else skip.add(Number(i));
+    S.fixSkip[key] = [...skip].sort((a, b) => a - b);
+    render();
+  },
+  /** 모두 고르기 (1) · 모두 풀기 (0): 넣을 수 있는 열린 지적만 */
+  fbAll(v) {
+    const n = chkEp();
+    const e = ep(n);
+    const text = textNow(n);
+    for (const f of (e.findings || []).filter((x) => x.status === 'open')) {
+      const key = `${n}:${f.id}`;
+      if (v === '1' && fbShown(n, e, f, text) >= 0) S.fbOn[key] = true;
+      else delete S.fbOn[key];
+    }
+    render();
+  },
+  /** 고른 고침안을 목록 차례(심각도 순)로 넣는다. 그대로 두기로 정한 지적의 문장을 건드리는 안은 확인한 뒤 다시 넣는다 */
+  async fbApply() {
+    const n = chkEp();
+    const e = ep(n);
+    const text = textNow(n);
+    const items = findingOrder((e.findings || []).filter((f) => f.status === 'open' && S.fbOn[`${n}:${f.id}`]))
+      .map((f) => ({ f, k: fbShown(n, e, f, text) })).filter((x) => x.k >= 0)
+      .map(({ f, k }) => ({ fid: f.id, k, skip: S.fixSkip[`${n}:${f.id}:${k}`] || [] }));
+    if (!items.length) return;
+    const url = `/projects/${enc(S.name)}/episodes/${n}/fixes/apply`;
+    await run('고른 고침안을 넣는 중', async () => {
+      await saveIfDirty();
+      await flushText(n);
+      let res = await api('POST', url, { items });
+      let applied = res.applied;
+      const decided = res.failed.filter((x) => /그대로 두기로 정한 지적/.test(x.error));
+      if (decided.length && await askConfirm(`고른 고침안 ${decided.length}개는 그대로 두기로 정한 지적의 문장도 바꿔요. 그래도 넣을까요?`, { ok: '넣기' })) {
+        S.project = res.project;
+        const again = await api('POST', url, { items: items.filter((x) => decided.some((d) => d.fid === x.fid)), confirm: true });
+        res = { project: again.project, failed: [...res.failed.filter((x) => !decided.includes(x)), ...again.failed] };
+        applied = [...applied, ...again.applied];
+      }
+      S.project = res.project;
+      for (const id of applied) { delete S.fbOn[`${n}:${id}`]; delete S.fbNote[`${n}:${id}`]; }
+      for (const x of res.failed) S.fbNote[`${n}:${x.fid}`] = `넣지 못했어요: ${x.error}`;
+      toast(res.failed.length ? `${applied.length}개를 넣었어요. ${res.failed.length}개는 넣지 못해 까닭을 남겼어요` : `${applied.length}개를 넣었어요. 고친 곳이 다른 곳과 어긋나지 않는지 다시 검수하세요`, !!res.failed.length);
+    });
+  },
+  async fbUndo(group) {
+    const n = chkEp();
+    await run('되돌리는 중', async () => {
+      await saveIfDirty();
+      await flushText(n);
+      S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/fix-groups/${enc(group)}/undo`);
+      toast('고침안을 되돌렸어요');
     });
   },
   async fixUndo(group) {

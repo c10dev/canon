@@ -6,6 +6,7 @@ AI 가 만든 제안(설정, 문체, 구조, 상태 변경안)은 바로 저장�
 """
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import random
@@ -13,6 +14,7 @@ import re
 import threading
 import time
 import zlib
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Literal, NoReturn
 from urllib.parse import quote, unquote
@@ -2239,7 +2241,7 @@ def impact_reopen(name: str, eid: str) -> Project:
 # ---------- 백그라운드 작업 ----------
 
 class JobIn(BaseModel):
-    kind: str  # suggest | arc | plots | write | board | cues | state | impact | series | nextarc | recap_arc | recap_part | fold_knows | storyline | convert | rebuild | rework | hook | openings | opening_drafts
+    kind: str  # suggest | arc | plots | write | board | cues | state | check | fixes | impact | series | nextarc | recap_arc | recap_part | fold_knows | storyline | convert | rebuild | rework | hook | openings | opening_drafts
     ep: int | None = None  # 화 번호. plots 는 장편에서 아크 번호(없으면 초안이 있는 모든 아크), recap_* 는 아크·부 번호
     element: str = ""  # impact 일 때 요소 id
     note: str = ""  # arc, series, plots, nextarc, storyline, convert, rebuild: 작가가 바라는 것. board: 있으면 지금 스토리보드를 이 요청대로 AI 가 고친다
@@ -2330,7 +2332,7 @@ def start_job(name: str, body: JobIn) -> dict:
         _not_auto(name)
     if kind in jobs.EP_AI_KINDS and (old := jobs.waiting_on(name, n)):  # 같은 화에 호출이 겹치면 요청 한도(429)에 더 걸린다
         _waiting_409(old)
-    stage = {"write": "write", "state": "state", "recap_arc": "state", "recap_part": "state", "fold_knows": "state", "rework": "revise",
+    stage = {"write": "write", "state": "state", "recap_arc": "state", "recap_part": "state", "fold_knows": "state", "rework": "revise", "fixes": "revise",
              "hook": "check", "check": "check", "opening_drafts": "write", "stattrial": "write", "stage_extract": "check", "cue_run": "write",
              }.get(kind, "plan")  # 나머지는 plan
     llm = get_llm(stage)  # 키가 없으면 여기서 바로 오류를 보여 준다
@@ -2399,6 +2401,36 @@ def start_job(name: str, body: JobIn) -> dict:
             for prop in rep._stage_held:  # 작가가 손본 본문 장면은 덮지 않고 장면 연출 화면의 비교로 남긴다
                 _stage_keep(name, prop)
             return {"issues": r.found, "round": r.no, "added": r.added, "stage": len(rep._stage)}  # 짚은 곳: 검수 모델 + 장면 연출 규칙
+    elif kind == "fixes":
+        # 열린 지적마다 AI 고침안을 받아 그 지적에 남긴다. 본문은 바꾸지 않는다 (작가가 검수 화면의 '한꺼번에 검토'에서 고른 것만 넣는다)
+        if n is None or not p.episode(n).text:
+            raise ValueError("본문이 있는 화만 고침안을 받아요")
+        pipeline._editable(p, n)
+        todo = pipeline.fix_targets(p.episode(n))
+        if not todo:
+            raise ValueError("고침안을 받을 열린 지적이 없어요. 지적한 문장이 지금 본문에 있고 넣을 수 있는 고침안이 없는 지적만 받아요")
+        label, total, owned = f"{n}화 지적 {len(todo)}개 고침안", len(todo), set()
+
+        def fn(job: jobs.Job):
+            q0 = store.load(name)
+            failed: list[dict] = []
+            with ThreadPoolExecutor(max_workers=min(pipeline.FIX_WORKERS, len(todo))) as pool:
+                futures = {pool.submit(contextvars.copy_context().run, pipeline.propose_fixes, llm, q0, n, fid): fid for fid in todo}
+                for fut in as_completed(futures):
+                    fid = futures[fut]
+                    try:
+                        opts = fut.result()
+                    except cancel.Cancelled:
+                        raise
+                    except Exception as e:  # 한 지적이 실패해도 나머지는 남긴다
+                        failed.append({"id": fid, "error": getattr(e, "message", None) or str(e) or type(e).__name__})
+                    else:
+                        cancel.check()
+                        _edit(name, lambda q: pipeline.store_fixes(q, n, fid, opts))
+                    job.done += 1
+            if len(failed) == len(todo):
+                raise ValueError(f"고침안을 하나도 받지 못했어요: {failed[0]['error']}")
+            return {"done": len(todo) - len(failed), "failed": failed}
     elif kind in ("stage_draft", "stage_extract"):
         # 장면 연출 AI: 플롯 사건에서 계획 장면 초안, 본문에서 본문 장면 뽑기. 결과는 장면 연출 화면이 비교한 뒤 적용한다
         if n is None:
@@ -2657,7 +2689,7 @@ def start_job(name: str, body: JobIn) -> dict:
         raise ValueError(f"모르는 작업이에요: {kind}")
 
     try:
-        with usage.scope(episode=n if kind in ("write", "board", "state", "check", "rework", "hook", "openings", "opening_drafts", "plot_one", "cue_sheet", "cue_run", "cues") else None, task=kind):
+        with usage.scope(episode=n if kind in ("write", "board", "state", "check", "fixes", "rework", "hook", "openings", "opening_drafts", "plot_one", "cue_sheet", "cue_run", "cues") else None, task=kind):
             job = jobs.start(name, kind, n, label, _keep_pending(name, kind, n, label, fn), total=total, owned=owned)
     except jobs.Busy as b:
         return {**b.job.public(), "already": True}
@@ -3514,6 +3546,42 @@ def apply_finding_fix(name: str, n: int, fid: str, k: int, body: FixApplyIn) -> 
     _load(name).episode(n)
     _text_guard(name, n)
     return _edit(name, lambda q: pipeline.apply_fix(q, n, fid, k, body.skip, body.confirm))
+
+
+class FixPick(BaseModel):
+    fid: str = Field(description="지적 id")
+    k: int = Field(description="넣을 고침안 번호 (0부터)")
+    skip: list[int] = Field(default_factory=list, description="넣지 않을 딸린 곳 번호 (0부터)")
+
+
+class FixBatchIn(BaseModel):
+    items: list[FixPick] = Field(description="작가가 고른 고침안. 이 차례대로 넣는다")
+    confirm: bool = Field(False, description="그대로 둠 · 잘못 짚음 지적의 문장도 바꾸는 줄 알고 적용한다")
+
+
+class FixFail(_Out):
+    fid: str
+    error: str = Field(description="넣지 못한 까닭 (화면에 그대로 보인다)")
+
+
+class FixBatchOut(_Out):
+    project: Project
+    applied: list[str] = Field(description="넣은 지적 id")
+    failed: list[FixFail] = Field(description="넣지 못한 지적과 까닭. 나머지는 넣었다")
+
+
+@app.post("/api/projects/{name}/episodes/{n}/fixes/apply")
+def apply_finding_fixes(name: str, n: int, body: FixBatchIn) -> FixBatchOut:
+    """고른 고침안 여러 개를 차례로 본문에 넣는다 (검수 화면의 한꺼번에 검토). 지적마다 한 묶음이라 하나씩 되돌릴 수 있다.
+    앞 고침안이 같은 문장을 바꿔 못 넣은 것은 까닭과 함께 돌려준다."""
+    if not body.items:
+        raise ValueError("넣을 고침안을 고르세요")
+    _load(name).episode(n)
+    _text_guard(name, n)
+    out: list = []
+    p = _edit(name, lambda q: out.extend(pipeline.apply_fixes(q, n, [(x.fid, x.k, x.skip) for x in body.items], body.confirm)))
+    done, failed = out
+    return {"project": p, "applied": done, "failed": [{"fid": f, "error": e} for f, e in failed]}
 
 
 @app.post("/api/projects/{name}/episodes/{n}/fix-groups/{group}/undo")
@@ -6418,8 +6486,8 @@ def index() -> FileResponse:
 # 반영 같은 저장 응답이 크게 준다. 경로를 모두 만든 뒤 응답 모양을 바꾸고 처리기를 다시 만든다
 _SNAPSHOT_LIGHT = {"snapshots": {"__all__": set(Snapshot.model_fields) - {"episode"}}}
 for _route in app.routes:
-    if isinstance(_route, APIRoute) and _route.response_model is Project:
-        _route.response_model_exclude = _SNAPSHOT_LIGHT
+    if isinstance(_route, APIRoute) and _route.response_model in (Project, FixBatchOut):
+        _route.response_model_exclude = _SNAPSHOT_LIGHT if _route.response_model is Project else {"project": _SNAPSHOT_LIGHT}
         _route.app = request_response(_route.get_route_handler())
 
 

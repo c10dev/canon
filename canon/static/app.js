@@ -250,7 +250,7 @@ function jobFor(kind, ep = null, name = S.name) {
 }
 
 // 한 화를 두고 AI 를 부르는 작업. 같은 화에서 멈춘 작업이 아직 응답을 기다리면 새로 시작하지 않는다 (서버 jobs.EP_AI_KINDS, 409)
-const EP_AI_KINDS = new Set(['board', 'check', 'cues', 'plot_one', 'state', 'write']);
+const EP_AI_KINDS = new Set(['board', 'check', 'cues', 'fixes', 'plot_one', 'state', 'write']);
 const EP_WAIT_TIP = '앞에서 멈춘 작업이 아직 AI 응답을 기다려요. 이미 보낸 호출은 끊을 수 없어요. 응답이 오면 다시 시작할 수 있어요';
 
 /** n 화의 EP_AI_KINDS 작업 가운데 멈췄지만 아직 AI 응답을 기다리는 것. 서버 jobs.waiting_on 과 같은 셈 */
@@ -433,6 +433,7 @@ async function pollJobs(soon = false) {
     }
     if (j.kind === 'impact' && j.status === 'done') await mergeImpacts();
     if (j.kind === 'check' && j.status === 'done') await mergeEpisodes((e) => e.plot.number === j.ep);  // 검수 결과는 그 화에 붙었다
+    if (j.kind === 'fixes' && j.status !== 'running') await mergeEpisodes((e) => e.plot.number === j.ep);  // 받은 고침안은 그 화 지적에 붙었다 (실패해도 앞서 받은 것은 남았다)
     if (j.kind === 'auto') {
       // 다른 탭이나 명령줄에서 시작했어도 잠금(autoOn)이 걸리고, 끝나면 풀리게 실행 상태를 받아 온다. autoPoll 이 이어서 지켜본다
       if ((j.status === 'running') !== autoOn() && typeof autoLoad === 'function') await autoLoad(false);
@@ -634,7 +635,8 @@ function applyJobResult(j) {
   } else if (['hook', 'openings', 'opening_drafts'].includes(j.kind)) {
     openingJobResult(j);
   } else if (['stage_draft', 'stage_extract', 'check'].includes(j.kind) && typeof stageJobResult === 'function') {
-    stageJobResult(j);
+    stageJobResult(j);  } else if (j.kind === 'fixes' && typeof fixesJobResult === 'function') {
+    fixesJobResult(j);  // 고침안 한꺼번에 검토를 연다 (check.js)
   }
 }
 
