@@ -25,16 +25,16 @@ from . import anchor, atlas, board, cue, dynamics, features, findings, jobs, pip
 from . import stage as stage_mod
 from .llm import BatchLLM, Interrupted, SchemaMismatch, get_llm
 from .research import CHARS_PER_TOKEN, JSON_OUTPUT_RESERVE, _filler
-from .schema import ConsistencyReport, Project, StateDelta, TextVersion
+from .schema import ConsistencyReport, Project, RewriteRequest, StateDelta, TextVersion
 
 LOG_KEEP = 500
-STEP_NAMES = {"plan": "스토리보드", "write": "본문", "check": "검수", "state": "상태 변경안"}
+STEP_NAMES = {"plan": "스토리보드", "write": "본문", "revise": "서술 다듬기", "check": "검수", "state": "상태 변경안"}
 # 루프 단계(Run.step) 이름: 서버 재시작 뒤 어느 단계를 다시 하는지 알릴 때
-RUN_STEPS = {"board": "스토리보드 만들기", "cues": "큐 시트 만들기", "write": "본문 쓰기", "review": "검수와 상태 변경안 만들기", "confirm": "플롯 확정"}
+RUN_STEPS = {"board": "스토리보드 만들기", "cues": "큐 시트 만들기", "write": "본문 쓰기", "polish": "서술 다듬기", "review": "검수와 상태 변경안 만들기", "confirm": "플롯 확정"}
 # 화 상태 이름 (화면 STATUS 와 같은 말)
 EP_STATUS = {"draft": "초안", "confirmed": "확정", "written": "작성됨", "finalized": "반영 완료"}
 # 측정값이 없을 때 쓰는 단계별 소요 시간 추정 (초, 일반 호출)
-SECONDS = {"plan": 90.0, "write": 90.0, "check": 40.0, "state": 40.0}
+SECONDS = {"plan": 90.0, "write": 90.0, "revise": 90.0, "check": 40.0, "state": 40.0}
 # 스토리보드 추정: 출력 토큰, 쓰기 프롬프트에 붙는 블록 글자 수 (손으로 채운 스토리보드 예시에서 잰 어림, DESIGN.md)
 BOARD_OUT, BOARD_CHARS = 3500, 3500
 # 큐 시트 추정: 출력 토큰, 쓰기 프롬프트에 붙는 블록 글자 수 (11화 실측: 출력 1,524토큰, 쓰기 입력 +1,375토큰, DESIGN.md)
@@ -61,6 +61,8 @@ class Policy(BaseModel):
     stop_on_board_warnings: bool = Field(True, description="AI 가 만든 스토리보드에 이번 화 플롯과 어긋남(plot_vs_state · plot_vs_text · time)이나 "
                                          "값 범위 경고가 있으면 멈춤. 다음 화 플롯 경고는 기록만. 작가가 고친 스토리보드로는 멈추지 않는다")
     cue_sheet: bool = Field(True, description="화마다 쓰기 전에 큐 시트를 만들어 쓴다 (작품이 큐 시트를 쓸 때만, cue.on)")
+    polish: bool = Field(False, description="화마다 본문을 쓴 뒤 서술 문장만 다듬은 판으로 바꾼다 (revise 단계 모델, pipeline.polish_episode). "
+                         "쓴 판은 이전 판으로 남는다. 다듬기가 대사 줄을 바꿔 멈추면 쓴 글로 이어 간다. 검수와 상태 변경안은 다듬은 글을 본다")
     max_style_distance: float = Field(0, description="작품 정착 문체에서 최근 화 평균 문체 거리(anchor.rolling)가 이만큼 넘으면 멈춤. "
                                      "0 이면 보지 않음. 정착 문체가 없으면 보지 않음")
 
@@ -92,6 +94,8 @@ class Run(BaseModel):
     pending_text: str = Field("", description="검토 대기 변경안을 만든 본문. 그 뒤 본문을 고쳤으면 그대로 반영하지 않는다")
     batches: dict[str, str] = Field(default_factory=dict, description="기다리는 배치 작업 slot -> 이름")
     applied: list[int] = Field(default_factory=list, description="이번 실행에서 자동 반영한 화")
+    polish_due: list[int] = Field(default_factory=list, description="이번 실행이 쓰고 아직 다듬지 않은 화 (Policy.polish). "
+                                  "서버가 다시 시작해도 이어서 다듬는다. 작가가 쓴 본문은 넣지 않는다")
     tokens_in: int = 0
     tokens_out: int = 0
     cost: float = 0.0
@@ -267,7 +271,7 @@ def estimate(p: Project, target: int, batch: bool, policy: Policy, name: str | N
             e.text = _filler(p, p.meta.words_per_episode)
     measured = _measured(name)
     write_out = p.meta.words_per_episode / CHARS_PER_TOKEN
-    steps = {"plan": 0, "write": 0, "check": 0, "state": 0}
+    steps = {"plan": 0, "write": 0, "revise": 0, "check": 0, "state": 0}
     boards = policy.storyboard and board.on(p)
     cues = policy.cue_sheet and cue.on(p)
     tokens = {s: [0.0, 0.0] for s in steps}
@@ -301,6 +305,8 @@ def estimate(p: Project, target: int, batch: bool, policy: Policy, name: str | N
                 calls.append(("plan", prompts.SYSTEM_PLANNER + prompts.cue_sheet_prompt(sim, n) + " " * (BOARD_CHARS if made else 0), CUE_OUT))
             calls.append(("write", prompts.writer_system(sim) + prompts.episode_prompt(sim, n)
                           + " " * ((BOARD_CHARS if made else 0) + (CUE_CHARS if sheet else 0)), write_out))
+            if policy.polish:  # 서술 다듬기 한 번: 작품 고정 블록 + 쓴 본문(목표 분량) + 규칙, 본문 전체를 다시 낸다
+                calls.append(("revise", prompts.writer_system(sim) + prompts.polish_prompt(sim, n, sim.episode(n).text), write_out))
         for step, text, out in calls:
             m = measured.get(step + (":batch" if batch and batchable(step) else "")) or measured.get(step)
             steps[step] += 1
@@ -331,9 +337,10 @@ def estimate(p: Project, target: int, batch: bool, policy: Policy, name: str | N
     widen += stage_waves / eps_n if eps_n else 0  # 장면 뽑기도 검수 뒤에 부른다 (동시 호출 수만큼 묶어 한 차례)
     slow = widen if "check" not in measured else 1  # 잰 검수 시간은 넓히기까지 든 시간이다
     # 일반 호출: 본문 + (동시에 부르는 검수와 상태 변경안 중 긴 쪽)
-    normal = steps["plan"] * secs("plan") + steps["write"] * secs("write") + eps * max((secs(s) * (slow if s == "check" else 1) for s in review), default=0.0)
+    normal = steps["plan"] * secs("plan") + steps["write"] * secs("write") + steps["revise"] * secs("revise") + eps * max((secs(s) * (slow if s == "check" else 1) for s in review), default=0.0)
     # 배치: 본문 한 번, 검수 + 상태 변경안 한 번을 기다린다 (넓히기를 켜면 검수 배치를 두 번 더 기다린다)
-    rounds = ((steps["write"] if batchable("write") else 0) + (eps if any(batchable(s) for s in review) else 0)
+    rounds = ((steps["write"] if batchable("write") else 0) + (steps["revise"] if batchable("revise") else 0)
+              + (eps if any(batchable(s) for s in review) else 0)
               + (eps * (widen - 1) if "check" in review and batchable("check") else 0)) if batch else 0
     waits = [v["seconds"] for k, v in measured.items() if k.endswith(":batch")]
     return {
@@ -475,6 +482,9 @@ class Runner:
                         continue  # 새 큐 시트를 저장했다. 다시 읽고 쓴다
                     self._write(p, n)
                     continue
+                if n in run.polish_due:
+                    self._polish(p, n)
+                    continue
                 self._review(p, n)
         except _Halt as h:
             self._finish(h)
@@ -579,6 +589,10 @@ class Runner:
             cue.mark_used(q, n, True)  # 자동 집필은 있는 큐 시트를 넣어 쓴다 (prompts.episode_prompt)
             anchor.stamp(q, n)
         q = _edit(self.name, put)
+        if self.run.policy.polish:
+            with self.ctl.lock:
+                self.run.polish_due = [x for x in self.run.polish_due if x != n] + [n]
+                self.ctl.save()
         self.log(f"{n}화 본문 {len(text):,}자", **usage)
         _, drift = pipeline.style_drift(q, n)
         for w in drift[:3]:
@@ -586,6 +600,44 @@ class Runner:
         if prompts.is_opening(n):
             for w in pipeline.opening_metrics(q, n)[1][:3]:
                 self.log(f"초반: {w}", "warn")
+
+    def _polish(self, p: Project, n: int) -> None:
+        """방금 쓴 본문의 서술 문장만 다듬어 본문으로 바꾼다 (Policy.polish). 쓴 판은 이전 판으로 남는다 (pipeline.replace_text).
+        다듬기가 멈추거나(대사 줄이 바뀜), 그사이 본문이 바뀌었으면 쓴 글 그대로 검수로 간다. 화를 멈추지 않는다."""
+        self._set(n, "polish")
+        self.log(f"{n}화 서술을 다듬는 중" + (" (배치)" if self.run.batch and batchable("revise") else ""))
+        before = p.episode(n).text
+        cut: list = []
+
+        def done(note: str = "", level: str = "info", **kw: Any) -> None:
+            with self.ctl.lock:
+                self.run.polish_due = [x for x in self.run.polish_due if x != n]
+                self.ctl.save()
+            if note:
+                self.log(note, level, **kw)
+
+        try:
+            (text, model), use = self.call("revise", n, lambda llm: (pipeline.polish_episode(llm, p, n, cut), pipeline.writer_of(llm)))
+        except ValueError as e:
+            done(f"{n}화 서술 다듬기를 건너뛰고 쓴 글로 이어 가요: {e}", "warn")
+            return
+        kept = {"same": True}
+
+        def put(q: Project) -> None:
+            ep = q.episode(n)
+            if ep.status != "written" or ep.text != before:
+                kept["same"] = False
+                return
+            pipeline.replace_text(ep, text, made_by=RewriteRequest(mode="polish"), written_by=model, meta_cut=cut)
+            anchor.stamp(q, n)
+        q = _edit(self.name, put)
+        if not kept["same"]:
+            done(f"{n}화 본문이 그사이 바뀌어 다듬은 글은 버렸어요", "warn", **use)
+            return
+        done(f"{n}화 서술 다듬기: {len(before):,}자 → {len(text):,}자 (쓴 판은 이전 판에 있어요)", **use)
+        _, drift = pipeline.style_drift(q, n)
+        for w in drift[:3]:
+            self.log(f"문체: {w}", "warn")
 
     def _review(self, p: Project, n: int) -> None:
         self._set(n, "review")

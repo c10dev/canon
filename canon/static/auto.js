@@ -7,7 +7,7 @@ const AUTO_STATUS = {
   running: ['진행 중', 'confirmed'], paused: ['일시정지', 'written'], review: ['검토 대기', 'written'],
   stopped: ['중지됨', 'draft'], done: ['끝남', 'finalized'], error: ['오류로 멈춤', 'written'],
 };
-const AUTO_STEP = { board: '스토리보드 만드는 중', cues: '큐 시트 만드는 중', write: '본문 쓰는 중', review: '검수와 상태 변경안 만드는 중', confirm: '플롯 확정', applied: '반영 완료' };
+const AUTO_STEP = { board: '스토리보드 만드는 중', cues: '큐 시트 만드는 중', write: '본문 쓰는 중', polish: '서술 다듬는 중', review: '검수와 상태 변경안 만드는 중', confirm: '플롯 확정', applied: '반영 완료' };
 // 관계 변화 민감도: 한 인물이 다른 인물을 보는 온기나 신뢰가 한 화에 이만큼 넘게 바뀌면 멈춘다
 const AUTO_SHIFT = [[0.2, '민감하게 (작은 변화에도 멈춤)'], [0.3, '보통'], [0.45, '둔하게 (큰 변화에만 멈춤)'], [0, '보지 않음']];
 // 정착 문체 흐름 멈춤 (anchor.py 의 DRIFT_WARN 과 같은 값, 1.3 은 사람 웹소설 다른 작품끼리 평균 1.33 아래)
@@ -48,7 +48,7 @@ function autoDefaults() {
     batch: last ? last.batch : false,
     policy: last ? { cue_sheet: true, ...last.policy } : {
       check: true, max_issues: 0, ignore_minor: false, stop_on_critical: true, max_shift: 0.3, stop_on_stage: false, stop_on_warnings: false, confirm_plots: false, review_every: 0, hand_pick_opening: true,
-      storyboard: true, stop_on_board_warnings: true, cue_sheet: true, max_style_distance: 0,
+      storyboard: true, stop_on_board_warnings: true, cue_sheet: true, polish: false, max_style_distance: 0,
     },
   };
 }
@@ -203,7 +203,7 @@ function autoEstCard() {
   // 쓸 수 있는 화가 없으면 시간 · 비용을 적지 않고 시작 버튼도 끈다 (viewAuto)
   if (!x.episodes) return autoNothingNote(x);
   const local = Object.entries(x.stages).filter(([, v]) => v === 'local').map(([k]) => ({ plan: '스토리보드', write: '본문', check: '검수', state: '상태' }[k]));
-  return `<div class="small">${x.episodes ? `${x.from}~${x.to}화 ${x.episodes}화 남음 · 호출 ${x.calls.plan ? `스토리보드 ${x.calls.plan} · ` : ''}본문 ${x.calls.write} · 검수 ${x.calls.check} · 상태 ${x.calls.state} · 토큰 입력 약 ${x.tokens_in.toLocaleString()} / 출력 약 ${x.tokens_out.toLocaleString()}` : `${x.to}화까지 남은 화가 없어요`}</div>
+  return `<div class="small">${x.episodes ? `${x.from}~${x.to}화 ${x.episodes}화 남음 · 호출 ${x.calls.plan ? `스토리보드 ${x.calls.plan} · ` : ''}본문 ${x.calls.write} · ${x.calls.revise ? `다듬기 ${x.calls.revise} · ` : ''}검수 ${x.calls.check} · 상태 ${x.calls.state} · 토큰 입력 약 ${x.tokens_in.toLocaleString()} / 출력 약 ${x.tokens_out.toLocaleString()}` : `${x.to}화까지 남은 화가 없어요`}</div>
     <div class="grid-2">${col(e.off, false)}${col(e.on, true)}</div>
     ${x.missing.length ? `<div class="note warn">플롯이 없는 화(${rangeText(x.missing)}화)에서 멈춰요. ${autoPlotHint(x.missing[0])}</div>` : ''}
     ${(x.drafts || []).length ? `<div class="note warn">플롯이 초안인 ${rangeText(x.drafts)}화에서 멈춰요. 추정은 끝까지 쓴다고 보고 셌어요. 확정하거나 '초안 플롯도 자동으로 확정하고 쓰기'를 켜세요.</div>` : ''}
@@ -226,6 +226,7 @@ function autoPolicyForm(f, disabled, bind = 'auto') {
       ${chk('confirm_plots', '초안 플롯도 자동으로 확정하고 쓰기', '켜면 덜 멈춰요. 끄면 초안 플롯을 만난 화에서 멈춰요')}
       ${P().settings.storyboard ?? P().meta.form === 'serial' ? chk('storyboard', '화마다 스토리보드를 만들고 쓰기', '쓰기 전에 장면 순서와 이번 화 확정 값(시간 · 상태창 수치 · 차림)을 정해요. 화당 AI 호출이 하나 늘어요') : ''}
       ${cueOn() ? chk('cue_sheet', '화마다 큐 시트를 만들고 쓰기', '쓰기 전에 큐마다 긴장 · 템포 · 편성 · 핵심 대사 · 분량을 정해요. 화당 AI 호출이 하나 늘어요. 작가가 고친 큐 시트는 그대로 써요') : ''}
+      ${chk('polish', '화마다 쓴 뒤 서술 다듬기', '대사 · 사건은 그대로 두고 서술 문장만 다듬은 판으로 바꿔요. 쓴 판은 이전 판에 남아요. 설정의 &lsquo;본문 부분 수정&rsquo; 단계 모델을 써서 화당 AI 호출이 하나 늘어요. 실측에서는 Claude로 다듬은 판이 나았어요')}
     </div>
     <h3 class="auto-h">이럴 때는 멈추고 기다려요</h3>
     <p class="desc">걸리는 게 없으면 상태 변경안을 검토 없이 반영하고 다음 화로 가요. 반영한 화는 표시해 두고, 화마다 남는 스냅샷으로 되돌릴 수 있어요.</p>
@@ -280,6 +281,7 @@ function autoPolicySummary(p) {
   const go = [p.check ? '화마다 검수' : '검수 안 함'];
   if (p.storyboard && (P().settings.storyboard ?? P().meta.form === 'serial')) go.push('스토리보드를 만들고 쓰기');
   if (p.cue_sheet && cueOn()) go.push('큐 시트를 만들고 쓰기');
+  if (p.polish) go.push('쓴 뒤 서술 다듬기');
   go.push(p.confirm_plots ? '초안 플롯도 확정하고 쓰기' : '초안 플롯에서 멈춤');
   if (p.check) on.push(p.max_issues ? `검수 어긋남 ${p.max_issues + 1}개부터${p.ignore_minor ? '(사소한 것 빼고)' : ''}` : `검수 어긋남 1개부터${p.ignore_minor ? '(사소한 것 빼고)' : ''}`);
   (p.check && p.stop_on_critical ? on : off).push('치명 지적');
