@@ -230,6 +230,7 @@
 - 수정 기록과 되돌리기
 - 고친 뒤 다시 할 단계 알림
 - 상태 정리 경고에서 «» 문장을 찾아 고르기(`warnQuote`, `warnItems`, `warnPick`)
+- 경고의 'AI에게 고치기'는 대화 패널을 거치지 않고 첫 후보를 바로 본문에 넣는다(`aiFixNow`: 저장 → 부분 수정 대화 → 후보 0 적용 → 되돌리기 알림). 후보가 없으면 대화 패널을 연다
 - 서버는 `pipeline.edit_text` · `revise_passage` · `apply_passage` · `undo_edit`
 
 ### `canon/static/plot.js`
