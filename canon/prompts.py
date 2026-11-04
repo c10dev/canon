@@ -1104,7 +1104,9 @@ def story_parts(p: Project, n: int, plans: bool = False) -> tuple[str, str]:
     past = "\n\n".join(e[k] for e, k in zip(entries, level))
 
     tail = [e for e in eps if e.plot.number >= arc_start]
-    if n - arc_start < 3:  # 아크 첫머리에는 직전 아크의 마지막 화들도 이어서 본다
+    # 아크 첫머리에는 직전 아크의 마지막 화들도 이어서 본다. n 이 아직 아크가 없는 화(다음 아크 기획)면 이번 아크가 없으니
+    # 넣지 않는다: 직전 아크 화가 '이번 아크' 밑에 들어가 새 아크의 화로 읽히고, 앞 블록 · 직전 아크 화 블록과 겹친다
+    if cur_arc and n - arc_start < 3:
         tail = [e for e in eps if arc_start - 3 <= e.plot.number < arc_start] + tail
     rows = [line(e) for e in tail]
     keep = 8  # 이번 아크가 길면 최근 8화를 빼고 오래된 화부터 첫 문장으로
@@ -1439,10 +1441,14 @@ def next_arc_prompt(p: Project, start: int, length: int, note: str) -> str:
         f"- {f.id} ({f.planted_ep}화에 심음, {f.scope}{f', {f.due_ep}화 회수 예정' if f.due_ep else ''}"
         f"{', 오래됨' if start - f.planted_ep > 50 else ''}): {f.description}" for f in opened)
     prev = max(p.story_arcs, key=lambda a: a.start_ep) if p.story_arcs else None
-    prev_eps = [e.plot for e in p.episodes if prev and prev.start_ep <= e.plot.number <= prev.end_ep][-3:]
+    # 직전 아크 마지막 3화. 반영한 화는 요약을 쓴 본문 요약으로 바꾼다: 줄거리 블록은 아크 요약을 승인하면 화별 요약을 접으므로
+    # 실제로 쓰인 아크 끝을 여기서 본다 (story_parts 는 다음 아크 기획 때 직전 아크 화를 따로 넣지 않는다)
+    prev_eps = [e.plot.model_copy(update={"summary": e.summary or e.plot.summary}) for e in p.episodes
+                if prev and prev.start_ep <= e.plot.number <= prev.end_ep][-3:]
     plan_secrets, _ = context.pick_secrets(p, ids, note + "\n" + "\n".join(x.summary for x in prev_eps),
                                            context.BUDGET["state_secrets"])
-    size = f"{length}화 안팎" if length else "내용에 맞게 5~30화 (보통 10~25화). 첫 아크는 25화 안에 큰 보상이 오도록 짧고 세게"
+    size = f"{length}화 안팎" if length else "내용에 맞게 5~30화 (보통 10~25화)" + (
+        ". 첫 아크는 25화 안에 큰 보상이 오도록 짧고 세게" if start == 1 else "")
     main_states, knows_cut = state_view(p, [s for s in p.states if s.character_id in {c.id for c in static_characters(p)}],
                                         query=note + "\n" + "\n".join(x.summary for x in prev_eps))
     # 사실 · 조연 상태의 순서: 부 목표와 아크 아이디어, 직전 아크 끝 플롯, 작가 요청과 겹치는 것부터
@@ -1476,7 +1482,7 @@ def next_arc_prompt(p: Project, start: int, length: int, note: str) -> str:
 {story_so_far(p, start, plans=True) or "없음 (첫 아크)"}
 [직전 아크]
 {dump(prev.model_dump(exclude={"summary"})) if prev else "없음"}
-[직전 아크의 마지막 화 플롯]
+[직전 아크의 마지막 화 플롯 (반영한 화의 summary 는 쓴 본문 요약)]
 {dump(prev_eps) if prev_eps else "없음"}
 [열린 복선]{f" (그 밖에 {fs_more}개는 오래된 아크 단위 복선이라 뺐습니다)" if fs_more else ""}
 {fs_lines or "없음"}
