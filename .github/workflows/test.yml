@@ -25,7 +25,7 @@ jobs:
         with:
           python-version: "3.14"
           cache: pip
-          cache-dependency-path: requirements*.txt
+          cache-dependency-path: requirements.lock
       - uses: actions/setup-node@v4  # 화면 js 대조 시험(tests/jsvm.py)이 node 를 쓴다
         with:
           node-version: "22"
