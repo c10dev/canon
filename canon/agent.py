@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 import uuid
 from datetime import datetime, timezone
@@ -32,6 +33,13 @@ READ_TOOLS = ("read_plots", "read_summaries", "find_text", "read_cast")
 # 응답이 없으면 STEP_WAIT 초 뒤 한 번 다시 부르고, 또 없으면 오류로 턴을 멈춘다 (llm.wait_cap)
 STEP_WAIT = 300
 STEP_OUT_TOKENS = 16384  # 가장 긴 단계 출력은 생각 포함 약 9,100토큰이었다. 같은 글을 되풀이하면 여기서 끊는다
+# 할 일을 예고만 하고 끝낸 답의 끝말. 2026-11-04 '아크 1을 서사 분석' 턴이 첫 단계에서 이 한 문장만 내고 끝났다
+# ("…분석해 작가님께 전달합니다.", gemini-4-argon, 출력 81토큰). 이런 답은 한 번 되돌려 내용을 쓰게 한다
+PREAMBLE_END = re.compile(r"(겠습니다|겠어요|드릴게요|할게요|드립니다|전달합니다|정리합니다|분석합니다|살펴봅니다|짚어 봅니다)[.!…\s]*$")
+PREAMBLE_LIMIT = 300  # 이보다 긴 답은 내용이 있다고 본다
+PREAMBLE_TOOL = "reply"  # 되돌린 단계의 도구 칸. 한 턴에 한 번만 되돌린다
+PREAMBLE_NOTE = ("방금 reply 는 할 일을 예고만 했어요. 작가는 그 내용을 기다리고, 이 답이 턴의 마지막 말이 됩니다. "
+                 "분석 · 검토 · 답을 reply 에 바로 다 쓰세요. 더 읽을 것이 있으면 읽기 도구를 먼저 부르세요")
 
 
 def now() -> str:
@@ -318,6 +326,20 @@ def _edit(name: str, fn):
     return out
 
 
+def is_preamble(reply: str) -> bool:
+    """답이 내용 없이 할 일을 예고만 하는지 ("…분석해 전달합니다", "…살펴보겠습니다")."""
+    reply = reply.strip()
+    return 0 < len(reply) <= PREAMBLE_LIMIT and bool(PREAMBLE_END.search(reply))
+
+
+def _preamble_retry(turn: AgentTurn, reply: str) -> bool:
+    """쓴 것도 물은 것도 없이 예고만 한 답이면 단계 줄을 남기고 True (턴을 끝내지 않는다). 한 턴에 한 번만."""
+    if turn.writes or turn.approval or any(x.tool == PREAMBLE_TOOL for x in turn.steps) or not is_preamble(reply):
+        return False
+    turn.steps.append(StepRecord(kind="note", tool=PREAMBLE_TOOL, why="예고만 해서 내용을 다시 청했어요", result=PREAMBLE_NOTE))
+    return True
+
+
 def _step(p: Project, sid: str, t: int, step: PlotAgentStep) -> str:
     """AI 의 한 단계를 처리해 턴에 남긴다. 턴을 끝내면 끝 상태를 돌려준다 ('' 이면 다음 단계)."""
     s, turn = turn_of(p, sid, t)
@@ -325,8 +347,10 @@ def _step(p: Project, sid: str, t: int, step: PlotAgentStep) -> str:
     tool = step.tool.strip()
     end = ""
     if not tool:
-        turn.reply = step.reply.strip() or step.thought.strip()
-        end = "done"
+        reply = step.reply.strip() or step.thought.strip()
+        if not _preamble_retry(turn, reply):
+            turn.reply = reply
+            end = "done"
     elif tool == "ask":
         turn.ask = AskCard(question=step.question.strip(), options=step.options[:4])
         turn.reply = step.reply.strip() or step.question.strip()

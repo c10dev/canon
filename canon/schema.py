@@ -992,7 +992,8 @@ class PlotAgentStep(BaseModel):
                                description="edit_plot 일 때만: 바꿀 것만 채운 변경안. reply 는 한 줄 설명. 다른 도구면 비워 둔다")
     question: str = Field("", description="ask 일 때만: 작가에게 묻는 말")
     options: list[Direction] = Field(default_factory=list, description="ask 일 때만: 고를 방향 2~3개 (방향을 물을 때)")
-    reply: str = Field("", description="tool 이 비었을 때: 작가에게 하는 답 2~5문장. 무엇을 바꿨고 무엇을 물었는지")
+    reply: str = Field("", description="tool 이 비었을 때: 작가에게 하는 답이자 턴의 마지막 말. 고쳤으면 무엇을 바꿨고 물었는지 2~5문장. "
+                       "분석 · 검토 · 질문에는 그 내용을 여기에 다 쓴다. 할 일을 예고만 하지 않는다")
 
     @field_validator("tool", mode="before")
     @classmethod
