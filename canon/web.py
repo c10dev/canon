@@ -2072,17 +2072,17 @@ def chat_clear(name: str, topic: str) -> Project:
 class SessionsOut(BaseModel):
     sessions: list[AgentSession]
     legacy: int = 0  # 옛 단발 대화 메시지 수 (화면의 '이전 대화')
-    model: str = ""  # 상태 줄에 보일 모델 이름 (plan 단계)
+    model: str = ""  # 상태 줄에 보일 모델 이름 (chat 단계)
     max_steps: int = agent.MAX_STEPS
 
 
 def _model_label() -> str:
     try:
-        m = getattr(get_llm("plan"), "model", "")
+        m = getattr(get_llm("chat"), "model", "")
         m = m() if callable(m) else m
     except Exception:
         m = ""
-    return m if isinstance(m, str) and m else settings.stage_provider("plan")[0]
+    return m if isinstance(m, str) and m else settings.stage_provider("chat")[0]
 
 
 @app.get("/api/projects/{name}/sessions")
@@ -2132,7 +2132,7 @@ class TurnIn(BaseModel):
 
 def _run_agent(name: str, sid: str, t: int) -> dict:
     """턴을 백그라운드 작업으로 돌린다. 같은 작품의 대화 작업은 한 번에 하나다."""
-    llm = get_llm("plan")  # 키가 없으면 여기서 바로 오류를 보여 준다
+    llm = get_llm("chat")  # 플롯 대화 단계 (비우면 계획 단계). 키가 없으면 여기서 바로 오류를 보여 준다
     s = agent.session(_load(name), sid)
     try:
         with usage.scope(task="agent"):

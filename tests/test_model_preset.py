@@ -162,7 +162,7 @@ def test_js_project_stage_matches_server(env, monkeypatch, preset):
     mine = settings.save_preset("계획만 Claude", {"plan": "claude"}, {"state": "gemini-3.8-flash"})
     pid = {"mine": mine["id"], "gone": "my-gone"}.get(preset, preset)
     _pick(store, "a", pid)
-    stages = ["plan", "write", "check", "state", "name", "revise", "illustration"]
+    stages = ["plan", "write", "check", "state", "name", "revise", "illustration", "play", "chat"]
     data = {"config": settings.public(), "project": json.loads(store.load("a").model_dump_json()), "stages": stages}
     run = subprocess.run(["node", "-e", HARNESS, str(SETTINGS_JS)], input=json.dumps(data), capture_output=True, text=True, encoding="utf-8")
     assert run.returncode == 0, run.stderr

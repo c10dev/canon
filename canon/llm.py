@@ -7,7 +7,7 @@
   CANON_GEMINI_AUTH=vertex  키 대신 Google Cloud 서비스 계정으로 Vertex AI 의 Gemini 를 부른다
     (CANON_VERTEX_CREDENTIALS 또는 GOOGLE_APPLICATION_CREDENTIALS, GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION)
   CANON_LOCAL_URL / CANON_LOCAL_MODEL / CANON_LOCAL_KEY  로컬 서버 (Ollama, llama.cpp, vLLM, LM Studio)
-  CANON_LLM_PLAN / _WRITE / _CHECK / _STATE / _NAME / _REVISE  단계별 백엔드 (예: CANON_LLM_WRITE=local)
+  CANON_LLM_PLAN / _WRITE / _CHECK / _STATE / _NAME / _REVISE / _CHAT  단계별 백엔드 (예: CANON_LLM_WRITE=local)
   CANON_MODEL_PLAN / _WRITE / _CHECK / _STATE / _NAME / _REVISE  단계별 모델 (예: CANON_MODEL_STATE=gemini-3.8-flash)
 """
 from __future__ import annotations
@@ -769,7 +769,7 @@ def make_llm(provider: str, model: str | None = None) -> LLM:
 
 
 def get_llm(stage: str | None = None) -> LLM:
-    """stage: plan | write | check | state | name | revise | illustration. 단계별 백엔드와 모델 설정이 없으면 전체 설정을 쓴다.
+    """stage: plan | write | check | state | name | revise | illustration | play | chat. 단계별 백엔드와 모델 설정이 없으면 전체 설정을 쓴다.
     지금 작업의 작품(usage.scope)이 단계 프리셋을 골랐으면 그 프리셋의 단계 칸을 쓴다 (settings.project_preset)."""
     from . import settings
 

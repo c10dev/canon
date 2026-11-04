@@ -2,7 +2,7 @@
 
 웹 설정 화면에서 저장하면 ~/.canon/config.json 에 들어간다 (CANON_CONFIG 로 경로 변경).
 환경 변수가 있으면 파일보다 우선한다: CANON_LLM, CANON_MODEL, GEMINI_API_KEY(또는 GOOGLE_API_KEY),
-CANON_LOCAL_URL, CANON_LOCAL_MODEL, CANON_LOCAL_KEY, CANON_LLM_PLAN / _WRITE / _CHECK / _STATE / _NAME / _REVISE,
+CANON_LOCAL_URL, CANON_LOCAL_MODEL, CANON_LOCAL_KEY, CANON_LLM_PLAN / _WRITE / _CHECK / _STATE / _NAME / _REVISE / _CHAT,
 CANON_MODEL_PLAN / _WRITE / _CHECK / _STATE / _NAME / _REVISE (단계별 모델), CANON_CLAUDE_MODEL, CANON_CLAUDE_BIN,
 ANTHROPIC_API_KEY (Claude 백엔드, claude.py), CANON_GEMINI_AUTH(key | vertex, 또는 GOOGLE_GENAI_USE_VERTEXAI=true),
 CANON_VERTEX_CREDENTIALS(또는 GOOGLE_APPLICATION_CREDENTIALS), GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION (Vertex AI). prices 는 AI 요금 가격표에서 고친 줄 (usage.py).
@@ -23,9 +23,10 @@ DEFAULT_LOCAL_URL = "http://localhost:11434/v1"  # Ollama. llama.cpp 는 :8080/v
 PROVIDERS = ("gemini", "local", "claude", "claude-api", "mock")
 # 단계: plan(설정 제안, 문체 분석, 기승전결, 화별 플롯) / write(본문) / check(검수) / state(상태 추출)
 # / name(이름·지명 AI 추천) / revise(본문 부분 수정, 서술 다듬기) / illustration(삽화 프롬프트) / play(플레이 모드 장면)
-STAGES = ("plan", "write", "check", "state", "name", "revise", "illustration", "play")
-# 따로 정하지 않으면 이 단계의 설정을 따른다 (이름 추천 · 삽화 프롬프트는 계획 단계 일이고, 부분 수정 · 플레이 장면은 본문 쓰기 일이다)
-STAGE_PARENT = {"name": "plan", "revise": "write", "illustration": "plan", "play": "write"}
+# / chat(플롯 대화 에이전트, agent.run_turn)
+STAGES = ("plan", "write", "check", "state", "name", "revise", "illustration", "play", "chat")
+# 따로 정하지 않으면 이 단계의 설정을 따른다 (이름 추천 · 삽화 프롬프트 · 플롯 대화는 계획 단계 일이고, 부분 수정 · 플레이 장면은 본문 쓰기 일이다)
+STAGE_PARENT = {"name": "plan", "revise": "write", "illustration": "plan", "play": "write", "chat": "plan"}
 # 단계별 백엔드 · 모델 묶음. 고르면 설정 화면의 단계 칸을 채운다 (적지 않은 단계는 비워서 부모 단계나 생성 방식을 따른다).
 # 작가가 만든 묶음은 설정 파일 stage_presets 에 둔다 (save_preset).
 BUILTIN_PRESETS = (

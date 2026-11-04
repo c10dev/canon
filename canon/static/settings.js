@@ -7,9 +7,9 @@
 
 const STAGES = [['plan', '계획', '설정 제안 · 문체 분석 · 기승전결 · 화별 플롯'], ['write', '본문 쓰기', '화 본문'], ['check', '검수', '모순 찾기'],
   ['state', '상태 변경안', '본문에서 바뀐 상태 뽑기'], ['name', '이름 · 지명 추천', ''], ['revise', '본문 부분 수정', '고른 부분 고치기 · 서술 다듬기'],
-  ['illustration', '삽화 프롬프트', ''], ['play', '플레이 장면', '플레이 모드']];
+  ['illustration', '삽화 프롬프트', ''], ['play', '플레이 장면', '플레이 모드'], ['chat', '플롯 대화', '기승전결 · 플롯 화면의 AI 대화']];
 // 백엔드를 비우면 따르는 단계 (settings.STAGE_PARENT 와 같다)
-const STAGE_PARENT = { name: 'plan', revise: 'write', illustration: 'plan', play: 'write' };
+const STAGE_PARENT = { name: 'plan', revise: 'write', illustration: 'plan', play: 'write', chat: 'plan' };
 const stageName = (s) => (STAGES.find(([x]) => x === s) || [s, s])[1];
 const PROVIDERS = [['gemini', 'Gemini API'], ['claude', 'Claude 구독 로그인'], ['claude-api', 'Claude API 키'], ['local', '로컬 서버'],
   ['mock', 'mock (AI 없이 화면 확인)']];
