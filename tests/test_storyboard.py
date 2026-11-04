@@ -437,3 +437,32 @@ def test_board_js_changes_and_done_message():
     })()""", {})
     assert got[0] == ["장면 2", "장면 3 더함", "깨지 않을 것"] and got[1] == [] and got[2] == []
     assert got[3].startswith("2화 스토리보드를 요청대로 고쳤어요") and got[4].startswith("2화 스토리보드를 만들었어요")
+
+
+class _EmptyScenes(MockLLM):
+    """scenes 만 비운 응답을 몇 번 낸다 (실측: gemini-4-argon 이 성인 장면 플롯에서 그랬다)."""
+    def __init__(self, empty: int):
+        super().__init__()
+        self.empty, self.calls, self.prompts = empty, 0, []
+
+    def json(self, system, prompt, schema, hint=None):
+        d = super().json(system, prompt, schema, hint)
+        self.calls += 1
+        self.prompts.append(prompt)
+        if self.calls <= self.empty:
+            d.scenes = []
+        return d
+
+
+def test_empty_scenes_retry_then_error(demo):
+    p = store.load(demo)
+    _written(p, 1)
+    llm = _EmptyScenes(1)
+    b = pipeline.make_storyboard(llm, p, 2)  # 한 번 비면 다시 묻는다
+    assert llm.calls == 2 and b.scenes
+    assert llm.prompts[1].startswith(llm.prompts[0]) and "scenes 가 비어" in llm.prompts[1]  # 덧붙임은 맨 뒤
+    with pytest.raises(RuntimeError, match="장면을 하나도"):
+        pipeline.make_storyboard(_EmptyScenes(2), p, 2)  # 두 번 비면 저장하지 않게 오류
+    pipeline.set_storyboard(p, 2, b, by="ai")
+    with pytest.raises(RuntimeError, match="장면을 하나도"):
+        pipeline.revise_storyboard(_EmptyScenes(2), p, 2, "밤으로")

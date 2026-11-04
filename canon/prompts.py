@@ -2906,6 +2906,13 @@ def storyboard_prompt(p: Project, n: int) -> str:
 
 
 
+def board_scenes_retry(events: int) -> str:
+    """스토리보드 응답의 scenes 가 비었을 때 다시 물으며 프롬프트 맨 뒤에 붙이는 글 (pipeline._board_draft). 앞부분 캐시를 깨지 않게 뒤에 붙인다."""
+    return (f"\n\n지난 응답은 scenes 가 비어 있었습니다. scenes 를 비우지 않습니다. 이번 화 플롯 events {events}개를 "
+            "장면 3~7개에 빠짐없이 나눠 맡기고, 장면마다 장소 · 자리 · 목표 · 전환점 · 장면 끝 상태를 명사구로 적습니다. "
+            "묘사와 본문 문장은 적지 않으므로 장면 칸에는 일어나는 일의 이름만 적습니다.")
+
+
 BOARD_ASK_LIMIT = 2000  # 스토리보드 고치기 요청 글자 수 (web.JobIn.note)
 
 
