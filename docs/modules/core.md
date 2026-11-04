@@ -265,7 +265,7 @@
 - 웹 쓰기 작업과 명령줄은 `polish` 일 때 revise 단계 모델을 부른다
 - AI 가 본문 전체를 쓰는 호출자가 `pipeline.writer_of(llm)` 을 `replace_text(written_by=)` · `set_candidate(model=)` · `research.save_compare(models=)` 로 넘긴다. 작가 수정은 바꾸지 않는다(수정 기록 `edits`)
 - 인물 지금 차림(`CharacterState.attire`, 옷 · 상처 · 지닌 물건)은 지금 값만 덮어쓰고 지난 값은 스냅샷
-- 차림 규칙은 `prompts.ATTIRE_STATE_RULE` · `attire_write_rule` · `attire_check_rule`
+- 차림 규칙은 `prompts.ATTIRE_STATE_RULE` · `attire_write_rule` · `attire_check_rule`. 옷 · 가방 · 신발은 종류(백팩 · 숄더백 · 핸드백 …)와 가방의 메는 자리까지 적고, 쓰기는 그 종류 · 메는 방식을 지키고, 검수는 같은 물건의 종류 · 메는 방식 · 색이 설명 없이 바뀐 곳을 본다. 종류를 모르는 조각 경고는 `attire.py`
 - 인물 감정(`CharacterState.emotional_state`)은 맞서는 감정이면 두 층 라벨('겉: … / 속: …', '머리: … / 몸: …'). 상태 규칙 `prompts.LAYER_STATE_RULE`, 찾기 `LAYER` · `layered`, 검수 규칙 `layer_check_rule`(두 층 라벨이 있을 때만). 쓰기 규칙은 없다
 - 작품이 쓸 단계 프리셋(`Settings.model_preset`, 비우면 전체 설정)은 `settings.project_preset` 이 찾고 `stage_provider` · `stage_model` 이 지금 작업의 작품(`usage.scope`)에서 저절로 쓴다
 - 화별 스토리보드(`Episode.storyboard`, `Storyboard`: 장면 · 시간 · 상태창 바뀐 양 · 이동 · 끝 차림 · 넘겨받을 것 · 깨지 않을 것 · 경고)는 상태 승인 대상이 아니다
