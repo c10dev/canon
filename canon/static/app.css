@@ -104,6 +104,10 @@ ul, ol { margin: 0; }
 .side { flex: 0 0 232px; width: 232px; padding: var(--space-14) var(--space-12) 0; background: var(--surface); border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: var(--space-10); }
 /* 넓은 화면은 사이드바를 붙여 둔다. 긴 화면을 내려도 메뉴와 진행 카드가 보이고, 아래 설정 줄(.side-foot)은 사이드바를 굴려도 바닥에 붙어 있다 (900px 이하는 위쪽 띠라 아래 규칙이 덮는다) */
 @media (min-width: 901px) { .side { position: sticky; top: 0; align-self: flex-start; height: 100vh; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; } }
+/* sticky 사이드바는 따로 쌓이는 층이라, 안에서 여는 ⋯ 메뉴(#pop-side-more)의 --z-menu 가 사이드바 안에서만 통한다.
+   레일에서 메뉴가 본문 위로 나오면 본문의 sticky 칸(목차 .outline 등 --z-sticky)이 메뉴를 덮으므로, 메뉴가 열린 동안만 사이드바를 메뉴 층으로 올린다.
+   늘 올리면 왼쪽 위 알림 말풍선(#toast, --z-toast)을 덮는다 */
+@media (min-width: 901px) { .side:has(#pop-side-more) { z-index: var(--z-menu); } }
 /* 맨 위 줄: 이름 · 알림 · 찾기 · 레일 접기. 기호 버튼(.side-ico)은 면 없이, 마우스를 올리면 bg 면 */
 .side-top { display: flex; align-items: center; gap: var(--space-4); padding-left: var(--space-8); }
 .side-top .brand { flex: 1 0 auto; padding: 0; }  /* 이름은 줄지 않는다. 사이드바에 스크롤바가 생겨 줄이 좁아지면 기호 버튼이 30px 까지 준다 */
