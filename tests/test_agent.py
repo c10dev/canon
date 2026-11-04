@@ -271,3 +271,29 @@ def test_wait_cap_never_raises_the_limit(monkeypatch):
     monkeypatch.delenv("CANON_GEMINI_TIMEOUT")
     with llm.wait_cap(300):
         assert llm.gemini_timeout() == 300
+
+
+def test_chat_stage_follows_plan_until_set(monkeypatch, tmp_path):
+    """플롯 대화 단계(chat)는 비우면 계획 단계를 따르고, 따로 고르면 그 백엔드 · 모델만 쓴다."""
+    from canon import settings
+    monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
+    monkeypatch.setenv("CANON_LLM", "gemini")
+    for k in ("CANON_LLM_PLAN", "CANON_LLM_CHAT", "CANON_MODEL_PLAN", "CANON_MODEL_CHAT"):
+        monkeypatch.delenv(k, raising=False)
+    assert settings.STAGE_PARENT["chat"] == "plan"
+    settings.update(stage_models={"plan": "gemini-4-argon"})
+    assert settings.stage_provider("chat")[0] == "gemini" and settings.stage_model("chat")[0] == "gemini-4-argon"
+    settings.update(stages={"chat": "claude"})
+    assert settings.stage_provider("chat")[0] == "claude" and settings.stage_provider("plan")[0] == "gemini"
+    assert settings.stage_model("chat")[0] == ""  # 백엔드가 다르면 계획 단계 모델을 물려받지 않는다
+
+
+def test_turn_uses_chat_stage(client, monkeypatch):
+    from canon import web
+    asked = []
+    real = web.get_llm
+    monkeypatch.setattr(web, "get_llm", lambda stage=None: asked.append(stage) or real(stage))
+    _project(client)
+    asked.clear()  # 작품 만들기는 계획 단계를 쓴다
+    _say(client, _session(client), "3화 고쳐 줘")
+    assert set(asked) == {"chat"}  # 턴과 패널 상태 줄의 모델 이름 모두

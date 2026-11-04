@@ -2111,7 +2111,7 @@ def cmd_play(a: argparse.Namespace) -> None:
 
 
 STAGE_LABELS = {"plan": "계획", "write": "본문", "check": "검수", "state": "상태 변경안", "name": "이름 추천",
-                "revise": "부분 수정", "illustration": "삽화 프롬프트", "play": "플레이 장면", "research": "연구"}
+                "revise": "부분 수정", "illustration": "삽화 프롬프트", "play": "플레이 장면", "chat": "플롯 대화", "research": "연구"}
 
 
 def _usd(x: float | None) -> str:
