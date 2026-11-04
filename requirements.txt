@@ -5,4 +5,5 @@ networkx>=3.0  # 장면 연출 이동 경로의 가장 짧은 길
 fastapi>=0.110
 uvicorn>=0.29
 anthropic>=1.0  # Claude API 키(claude-api) 백엔드
-pytest>=7  # 시험: python -m pytest -q tests
+pytest>=7  # 시험: python -m pytest -q -n auto tests
+pytest-xdist>=3  # 시험을 CPU 수만큼 나눠 돌린다 (-n auto)

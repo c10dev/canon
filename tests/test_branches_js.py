@@ -23,8 +23,6 @@ def test_folder_names_pass_server_check():
 
 
 @needs_node
-@pytest.mark.xfail(strict=True, reason="어긋남: folderOf 는 64 UTF-16 단위로 잘라 이모지 가운데를 끊을 수 있다. "
-                   "끊긴 반쪽 글자는 NAME_RE 를 지나도 폴더를 만들 때 깨진다")
 def test_folder_name_cut_keeps_whole_characters():
     title = "a" + "🗡" * 40
     folder = run_js(["app.js", "home.js"], "folderOf(data)", title)

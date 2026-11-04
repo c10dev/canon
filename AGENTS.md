@@ -49,7 +49,7 @@ AI 로 소설을 길게 쓸수록 인물 관계, 심리, 말투, 복선, 문체�
 
 ```bash
 pip install -r requirements.txt
-CANON_HOME=$(mktemp -d) python -m pytest -q tests        # 전체 시험 (mock LLM, API 키 불필요, 1~2분)
+CANON_HOME=$(mktemp -d) python -m pytest -q -n auto tests  # 전체 시험 (mock LLM, API 키 불필요, 9코어에서 약 2분, -n 없이 약 6분)
 CANON_HOME=$(mktemp -d) python -m pytest -q tests/test_timeline.py  # 고친 기능의 시험만 빠르게
 CANON_LLM=mock python -m canon ...  # 수동 확인
 ```

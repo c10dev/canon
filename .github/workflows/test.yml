@@ -34,4 +34,4 @@ jobs:
       - name: 전체 시험
         run: |
           export CANON_HOME="$(mktemp -d)"
-          python -m pytest -q tests
+          python -m pytest -q -n auto tests
