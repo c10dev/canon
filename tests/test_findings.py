@@ -242,6 +242,13 @@ def test_fixes_apply_and_undo(demo):
     from canon.mock import MockLLM
     # 고침안은 낱말만 바꾸는 규칙을 받는다 (풀어 쓴 고침안이 나오지 않게)
     assert prompts.MINIMAL_FIX_RULES in prompts.fix_prompt(p, 1, ep.issues[0], [])
+    assert prompts.TEXT_RIGHT_RULE.format(field="options") in prompts.fix_prompt(p, 1, ep.issues[0], [])
+
+    class TextRight:  # 본문이 맞다는 답은 그 답을 오류로 보인다
+        def json(self, system, prompt, schema, hint=None):
+            return schema(reply="본문이 맞아요. 플롯을 고치세요.")
+    with pytest.raises(ValueError, match="본문은 고치지 않았어요. 본문이 맞아요"):
+        pipeline.propose_fixes(TextRight(), p, 1, "f1")
     opts = pipeline.propose_fixes(MockLLM(), p, 1, "f1")
     assert [o.label for o in opts] == ["짧게 고치기", "뒤 문장까지"]  # 원문 그대로인 안은 걸렀다
     assert [x.quote for x in opts[1].extra] == [nxt]

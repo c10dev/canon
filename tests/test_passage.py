@@ -116,3 +116,20 @@ def test_fix_request_keeps_wording(client):
     free = prompts.passage_prompt(q, 1, sel, "벽면으로 바꿔 줘")
     assert prompts.PASSAGE_FREE_RULES in free and prompts.PASSAGE_FIX_RULES not in free
     assert prompts.PASSAGE_FIX_RULES not in prompts.passage_prompt(q, 1, sel, "검수 지적: x", "longer")
+
+
+class _TextRight:
+    """본문이 맞고 플롯이 틀렸다고 답하는 LLM (prompts.TEXT_RIGHT_RULE)."""
+    def json(self, system, prompt, schema, hint=None):
+        return schema(reply="본문이 맞아요. 플롯의 38L을 22L로 고치세요.")
+
+
+def test_fix_request_may_keep_text(client):
+    """고치기 요청에는 본문을 두라는 답이 오면 그대로 보이고, 다른 요청은 다시 적어 달라는 말이 붙는다."""
+    _written(client)
+    q = Project.model_validate(client.get("/api/projects/lh").json())
+    sel = Selection(start=0, text="바람이 불었다.")
+    assert prompts.TEXT_RIGHT_RULE.format(field="candidates") in prompts.passage_prompt(q, 1, sel, "상태 정리 경고: 38L")
+    rev = pipeline.revise_passage(_TextRight(), q, 1, sel, "상태 정리 경고: 38L")
+    assert rev.candidates == [] and rev.reply == "본문이 맞아요. 플롯의 38L을 22L로 고치세요."
+    assert "※" in pipeline.revise_passage(_TextRight(), q, 1, sel, "더 낫게").reply
