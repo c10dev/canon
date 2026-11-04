@@ -140,6 +140,17 @@ def test_preamble_reply_is_sent_back_once(client):
     assert t["reply"].startswith("기(1~2화)")
 
 
+def test_empty_ask_is_sent_back_once(client):
+    """question · options · reply 가 모두 빈 ask 는 답할 것이 없는 '되물음' 줄만 남겼다 (2026-11-04 서버 턴). 한 번 되돌린다."""
+    _project(client)
+    sid = _session(client)
+    t = _say(client, sid, "빈 물음으로 분석해 줘")
+    assert [(s["kind"], s["tool"]) for s in t["steps"]] == [("note", "ask_empty")] and t["end"] == "done"
+    assert t["reply"].startswith("1~7화") and not t["ask"]
+    t = _say(client, sid, "빈 물음 계속")
+    assert t["end"] == "done" and t["reply"].startswith("AI가 묻는 말을 비운 채")
+
+
 def test_is_preamble():
     from canon.agent import is_preamble
     assert is_preamble("아크 1(1~7화)의 기승전결 구조, 심리·감각의 점층성, 그리고 현재 화별 플롯의 보완 필요 지점을 분석해 작가님께 전달합니다.")

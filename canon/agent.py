@@ -38,6 +38,11 @@ STEP_OUT_TOKENS = 16384  # 가장 긴 단계 출력은 생각 포함 약 9,100�
 PREAMBLE_END = re.compile(r"(겠습니다|겠어요|드릴게요|할게요|드립니다|전달합니다|정리합니다|분석합니다|살펴봅니다|짚어 봅니다)[.!…\s]*$")
 PREAMBLE_LIMIT = 300  # 이보다 긴 답은 내용이 있다고 본다
 PREAMBLE_TOOL = "reply"  # 되돌린 단계의 도구 칸. 한 턴에 한 번만 되돌린다
+EMPTY_ASK_TOOL = "ask_empty"  # 묻는 말도 방향 안도 없는 ask 를 되돌린 단계의 도구 칸. 한 턴에 한 번만
+# 2026-11-04 같은 세션 다음 턴은 question · options · reply 가 모두 빈 ask 로 끝나(출력 86토큰), 작가는 답할 것이 없는 '되물음' 줄만 봤다
+EMPTY_ASK_NOTE = ("방금 ask 에 묻는 말(question)도 방향 안(options)도 없어 작가에게 보일 것이 없어요. "
+                  "물을 것이 있으면 question 을 채워 다시 ask 를 부르고, 없으면 tool 을 비우고 reply 에 답을 바로 다 쓰세요")
+EMPTY_ASK_REPLY = "AI가 묻는 말을 비운 채 멈췄어요. 같은 요청을 다시 보내거나 더 구체적으로 말해 주세요."
 PREAMBLE_NOTE = ("방금 reply 는 할 일을 예고만 했어요. 작가는 그 내용을 기다리고, 이 답이 턴의 마지막 말이 됩니다. "
                  "분석 · 검토 · 답을 reply 에 바로 다 쓰세요. 더 읽을 것이 있으면 읽기 도구를 먼저 부르세요")
 
@@ -351,6 +356,14 @@ def _step(p: Project, sid: str, t: int, step: PlotAgentStep) -> str:
         if not _preamble_retry(turn, reply):
             turn.reply = reply
             end = "done"
+    elif tool == "ask" and not step.question.strip() and not step.options:
+        reply = step.reply.strip()
+        if reply and not is_preamble(reply):
+            turn.reply, end = reply, "done"  # 묻는 꼴만 빌린 답이다
+        elif not any(x.tool == EMPTY_ASK_TOOL for x in turn.steps):
+            turn.steps.append(StepRecord(kind="note", tool=EMPTY_ASK_TOOL, why="묻는 말이 비어 다시 청했어요", result=EMPTY_ASK_NOTE))
+        else:
+            turn.reply, end = reply or EMPTY_ASK_REPLY, "done"
     elif tool == "ask":
         turn.ask = AskCard(question=step.question.strip(), options=step.options[:4])
         turn.reply = step.reply.strip() or step.question.strip()
