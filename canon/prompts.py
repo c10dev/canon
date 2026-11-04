@@ -2120,7 +2120,7 @@ def passage_prompt(p: Project, n: int, sel: Selection, message: str, preset: str
 {dump(states) or "1화 시작 시점, 설정 그대로"}
 
 # 이번 화 플롯
-{dump(ep.plot)}{f"{chr(10)}{chr(10)}# 이번 화 서술 시점 (스타일 프로필보다 우선){chr(10)}{pov}" if (pov := pov_block(p, n)) else ""}
+{dump(write_plot(ep.plot))}{f"{chr(10)}{chr(10)}# 이번 화 서술 시점 (스타일 프로필보다 우선){chr(10)}{pov}" if (pov := pov_block(p, n)) else ""}
 
 # {n}화 본문{cut}. 【고칠 부분】부터 【여기까지】를 고칩니다
 {before}【고칠 부분】{sel.text}【여기까지】{after}
@@ -2661,7 +2661,8 @@ def shift_label(text: str) -> bool:
 
 
 def write_plot(plot):
-    """쓰기 요청에 넣는 플롯. 라벨 모양이 아닌 emotional_shift(예전 플롯의 행동 문장)는 뺀다. 검수 · 플롯 화면은 그대로 본다."""
+    """쓰기 요청에 넣는 플롯. 라벨 모양이 아닌 emotional_shift(예전 플롯의 행동 문장)는 뺀다. 플롯 화면은 그대로 본다.
+    검수 · 상태 변경안 · 부분 수정도 이것을 넣는다: 쓰기가 받지 않은 문장을 '플롯 누락'으로 짚지 않게 (2026-11-04, 84화 고정점만 쓴 판 셋이 모두 이 지적을 받았다)."""
     return plot if shift_label(plot.emotional_shift) else plot.model_copy(update={"emotional_shift": ""})
 
 
@@ -3221,7 +3222,7 @@ def state_prompt(p: Project, n: int) -> str:
 [열린 복선]
 {dump(fs) or "없음"}
 [이번 화 플롯]
-{dump(ep.plot)}
+{dump(write_plot(ep.plot))}
 [이미 있는 장소]
 {places_line(p, ep.text)}
 {f"[작품 속 시간]{chr(10)}{timeline.state_block(p, n)}{chr(10)}" if timeline.enabled(p) else ""}
@@ -3472,7 +3473,7 @@ def check_material(p: Project, n: int, mode: str = "", sized: bool = False) -> s
 {past or "없음 (첫 화)"}
 
 # {n}화 플롯
-{dump(ep.plot)}{line}{pov}{protect_block(ep)}
+{dump(write_plot(ep.plot))}{line}{pov}{protect_block(ep)}
 
 # {n}화 본문 (검수 대상)
 {ep.text}"""
