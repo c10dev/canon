@@ -1,7 +1,8 @@
-"""JSON 파일 저장소. projects/<이름>/project.json 하나에 모든 상태를 보관하고,
+"""JSON 파일 저장소. projects/<이름>/project.json 에 상태를 보관하고(스냅샷만 snapshots/ 에 따로),
 본문은 읽기 편하도록 episodes/NN.md 로도 내보낸다 (화가 100화를 넘으면 NNN.md, ep_file)."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -13,7 +14,7 @@ from pathlib import Path
 
 from . import cancel
 from .dynamics import seed_ties
-from .schema import BranchInfo, CueLab, PlayInfo, Project
+from .schema import BranchInfo, CueLab, PlayInfo, Project, Snapshot
 
 ROOT = Path(os.environ.get("CANON_HOME", "projects"))
 
@@ -75,10 +76,85 @@ def load_view(name: str) -> Project:
         hit = _views.get(name)
     if hit and hit[0] == _key(st):
         return hit[1]
-    p = Project.model_validate_json(path.read_text(encoding="utf-8"))
+    p = read_disk(path)
     seed_ties(p)  # 관계 역학 이전의 project.json 은 affinity 로 방향 관계를 만든다
     _keep(name, _key(st), p)
     return p
+
+
+# ---------- 스냅샷 파일 ----------
+# 스냅샷은 작품의 절반 가까이라(장편) project.json 이 아니라 snapshots/<화>-<내용 해시>.json 에 하나씩 둔다.
+# project.json 맨 앞의 "snapshot_files" 가 차례대로 파일 이름을 적는다. 내용이 같으면 이름도 같아 다시 쓰지 않는다.
+# 새 파일을 먼저 쓰고 project.json 을 바꾼 뒤, 어느 판(project.json · prev · backups)도 적지 않은 파일만 지운다.
+# "snapshot_files" 가 없는 옛 project.json 은 안에 든 snapshots 를 그대로 읽는다. Project 는 모르는 칸을 버리므로 이 칸은 store 만 본다.
+SNAP_DIR = "snapshots"
+_SNAP_HEAD = re.compile(r'^\{"snapshot_files":(\[[^\]]*\])')
+
+
+def _snap_refs(path: Path) -> list[str] | None:
+    """project.json 맨 앞의 스냅샷 파일 목록. 옛 모양이면 None."""
+    try:
+        with path.open("rb") as f:
+            head = f.read(64 * 1024).decode("utf-8", errors="ignore")
+    except OSError:
+        return None
+    m = _SNAP_HEAD.match(head)
+    return json.loads(m.group(1)) if m else None
+
+
+def read_disk(path: Path, tries: int = 3) -> Project:
+    """디스크의 project.json 을 스냅샷 파일과 함께 읽는다 (캐시를 거치지 않음)."""
+    for left in range(tries, 0, -1):
+        text = path.read_text(encoding="utf-8")
+        p = Project.model_validate_json(text)
+        m = _SNAP_HEAD.match(text[:64 * 1024])
+        if not m:
+            return p
+        sdir = path.parent / SNAP_DIR
+        try:
+            p.snapshots = [Snapshot.model_validate_json((sdir / f).read_text(encoding="utf-8")) for f in json.loads(m.group(1))]
+            return p
+        except FileNotFoundError:  # 읽는 사이 다른 저장이 project.json 을 바꾸고 옛 파일을 지웠다. 새 판을 다시 읽는다
+            if left == 1:
+                raise
+    raise AssertionError("unreachable")
+
+
+# 지난 저장의 스냅샷과 파일 이름 {작품 폴더: {화: [(스냅샷, 이름)]}}. 스냅샷은 캐시에 둔 검증 사본(_remember)이라 아무도 고치지 않는다.
+# 같은 스냅샷이면(비교는 직렬화보다 열 배쯤 빠르다) 다시 직렬화하지 않고 이름을 그대로 쓴다
+_snap_written: dict[Path, dict[int, list[tuple[Snapshot, str]]]] = {}
+
+
+def _write_snapshots(d: Path, p: Project) -> list[str]:
+    sdir = d / SNAP_DIR
+    seen = _snap_written.get(d, {})
+    refs = []
+    for s in p.snapshots:
+        f = next((ref for old, ref in seen.get(s.episode, ()) if old == s and (sdir / ref).exists()), None)
+        if f:
+            refs.append(f)
+            continue
+        body = s.model_dump_json()
+        f = f"{s.episode}-{hashlib.sha1(body.encode()).hexdigest()[:12]}.json"
+        refs.append(f)
+        if not (sdir / f).exists():
+            sdir.mkdir(exist_ok=True)
+            tmp = sdir / f"{f}.{os.getpid()}.{threading.get_ident()}.tmp"
+            tmp.write_text(body, encoding="utf-8")
+            os.replace(tmp, sdir / f)
+    return refs
+
+
+def _drop_old_snapshots(d: Path) -> None:
+    sdir = d / SNAP_DIR
+    if not sdir.is_dir():
+        return
+    keep: set[str] = set()
+    for f in [d / "project.json", d / "project.prev.json", *(d / BACKUP_DIR).glob("project.*.json")]:
+        keep |= set(_snap_refs(f) or ())
+    for f in sdir.glob("*.json"):
+        if f.name not in keep:
+            f.unlink(missing_ok=True)
 
 
 def load(name: str) -> Project:
@@ -86,12 +162,13 @@ def load(name: str) -> Project:
     return load_view(name).model_copy(deep=True)
 
 
-def _remember(name: str, st: os.stat_result, p: Project) -> None:
+def _remember(name: str, st: os.stat_result, p: Project) -> Project:
     """방금 저장한 작품을 캐시에 둔다 (저장 직후 첫 읽기도 JSON 을 다시 검증하지 않게).
     디스크에서 읽은 것과 같도록 저장한 값을 다시 검증하고 seed_ties 를 거친다 (검증기가 범위를 자르는 칸 등)."""
     fresh = Project.model_validate(p.model_dump())
     seed_ties(fresh)
     _keep(name, _key(st), fresh)
+    return fresh
 
 
 # 내보낸 본문 파일 {경로: (내용 해시, 수정 시각)}. 작가가 파일을 고쳤거나 지웠으면 시각이 달라 다시 쓴다
@@ -244,10 +321,17 @@ def save(name: str, p: Project) -> Path:
     # 다른 스레드(자동 집필, 백그라운드 작업)가 쓰는 도중에 읽어도 빈 파일을 보지 않게 바꿔치기로 쓴다
     # 들여쓰기 없이 쓴다: 장편은 들여쓰기만으로 1MB 넘게 커지고 저장마다 0.015초 더 걸린다 (2026-11-02 실측)
     tmp = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
-    tmp.write_text(p.model_dump_json(), encoding="utf-8")
+    refs = _write_snapshots(d, p)  # 스냅샷 파일을 먼저 쓴다. project.json 이 바뀌기 전에는 아무도 새 파일을 적지 않는다
+    body = p.model_dump_json(exclude={"snapshots"})
+    tmp.write_text('{"snapshot_files":' + json.dumps(refs) + "," + body[1:], encoding="utf-8")
     st = tmp.stat()  # 바꿔치기는 inode 와 수정 시각을 그대로 옮긴다. 바꾼 뒤 다른 스레드가 또 써도 이 판은 이 내용이다
     os.replace(tmp, path)
-    _remember(name, st, p)
+    _drop_old_snapshots(d)
+    fresh = _remember(name, st, p)
+    memo: dict[int, list[tuple[Snapshot, str]]] = {}
+    for s, ref in zip(fresh.snapshots, refs):
+        memo.setdefault(s.episode, []).append((s, ref))
+    _snap_written[d] = memo
     if (got := saved.get()) is not None:
         got[name] = _tag(st)
 

@@ -88,3 +88,51 @@ def test_usage_read_picks_up_appended_lines(tmp_path):
     f.write_text(json.dumps({"n": 9}) + "\n", encoding="utf-8")  # 새 파일로 바뀜
     assert usage.read(f) == [{"n": 9}]
 
+
+
+def test_snapshots_live_in_their_own_files(home):
+    from canon.schema import Snapshot
+    p = _proj()
+    p.snapshots = [Snapshot(episode=0, facts=["처음"]), Snapshot(episode=1, facts=["하나"])]
+    store.save("s", p)
+    raw = (home / "s" / "project.json").read_text(encoding="utf-8")
+    assert raw.startswith('{"snapshot_files":[') and '"facts":["처음"]' not in raw
+    files = sorted(f.name for f in (home / "s" / "snapshots").glob("*.json"))
+    assert len(files) == 2
+    store._views.clear()
+    assert [s.facts for s in store.load("s").snapshots] == [["처음"], ["하나"]]
+    mtimes = {f.name: f.stat().st_mtime_ns for f in (home / "s" / "snapshots").glob("*.json")}
+    p.snapshots[1] = Snapshot(episode=1, facts=["바뀜"])
+    store.save("s", p)
+    store.save("s", p)
+    now = {f.name: f.stat().st_mtime_ns for f in (home / "s" / "snapshots").glob("*.json")}
+    zero = next(k for k in mtimes if k.startswith("0-"))
+    assert now[zero] == mtimes[zero]  # 바뀌지 않은 스냅샷은 다시 쓰지 않는다
+    # 옛 1화 파일은 직전 판(prev)이나 백업이 적고 있으면 남고, 아무도 적지 않으면 지운다
+    store._views.clear()
+    assert [s.facts for s in store.load("s").snapshots] == [["처음"], ["바뀜"]]
+    assert all(f in now for f in store._snap_refs(home / "s" / "project.prev.json"))
+
+
+def test_old_inline_snapshots_still_load(home):
+    from canon.schema import Snapshot
+    p = _proj()
+    p.snapshots = [Snapshot(episode=0, facts=["옛"])]
+    (home / "o").mkdir()
+    (home / "o" / "project.json").write_text(p.model_dump_json(), encoding="utf-8")
+    assert store.load("o").snapshots[0].facts == ["옛"]
+    store.save("o", store.load("o"))
+    store._views.clear()
+    assert store.load("o").snapshots[0].facts == ["옛"]
+    assert (home / "o" / "project.json").read_text(encoding="utf-8").startswith('{"snapshot_files":')
+
+
+def test_snapshot_changed_in_place_is_written(home):
+    from canon.schema import Snapshot
+    p = _proj()
+    p.snapshots = [Snapshot(episode=0, facts=["처음"])]
+    store.save("m", p)
+    p.snapshots[0].facts.append("더함")  # 저장한 객체를 그 자리에서 고친다
+    store.save("m", p)
+    store._views.clear()
+    assert store.load("m").snapshots[0].facts == ["처음", "더함"]

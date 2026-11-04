@@ -1067,7 +1067,7 @@ canon/research.py  연구 화면 로직: 서버 점검, 샘플 비교, 단계 �
 canon/judge.py     판단기: 선택지 확률만 내는 판단 (로컬 서버 logprobs, mock). 두 걸음 검수가 쓴다
 canon/context.py   장편 프롬프트 크기 관리: 블록 재기, 블록 예산, 관련 사실 · 비밀 · 떡밥 고르기, 옛 본문 단락 찾기
 canon/usage.py     AI 호출 기록, 가격표, 비용 추정과 사용량 모아 보기
-canon/store.py     project.json 저장, 본문을 episodes/NN.md 로 내보내기
+canon/store.py     project.json 저장(스냅샷은 snapshots/, 시간별 백업은 backups/), 본문을 episodes/NN.md 로 내보내기
 canon/publish.py   다른 사이트에 붙여 넣을 본문 다듬기 (줄바꿈 형식, HTML, 여러 화 잇기)
 canon/illust.py    NovelAI 삽화 프롬프트 조립 (인물 외형 태그, 인물 수, 등급, 모델별 품질 태그; LLM 없이)
 canon/library.py   문체 라이브러리 (작품과 따로 저장하는 문체 항목, 버전 · 비교 · 되돌리기)
