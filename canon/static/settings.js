@@ -59,7 +59,8 @@ const SET_CATS = [['ai', 'AI 연결', 'pc', '이 컴퓨터의 모든 작품에 �
   ['advanced', '고급', 'pc', '환경 변수와 설정 파일이 정한 값이에요. 여기서는 보기만 해요.'],
   ['preset', 'AI 프리셋', 'project', '이 작품의 AI 호출만 바꿔요. 고르면 바로 작품에 저장해요.'],
   ['writing', '집필 · 검수', 'project', '이 작품에만 적용돼요. 자동 집필도 이 값을 따라요. 바꾸면 바로 저장해요.'],
-  ['screen', '화면', 'browser', '이 브라우저에만 기억해요. 다른 기기에는 따라가지 않아요.']];
+  ['screen', '화면', 'browser', '이 브라우저에만 기억해요. 다른 기기에는 따라가지 않아요.'],
+  ['notify', '알림', 'browser', 'AI 작업이 끝나면 알려요. 이 브라우저에만 기억해요. 다른 기기에서 받으려면 그 기기에서도 켜세요.']];
 const setCat = (id) => SET_CATS.find((x) => x[0] === id);
 
 /** 찾기 색인: 줄마다 갈래 · 묶음 · 이름 · 찾을 말. 화면에 그리는 글은 setRowHtml 이 만든다 */
@@ -101,6 +102,9 @@ const SET_ROWS = [
   { id: 'mentions', cat: 'screen', sec: '집필 화면', label: '이름 표시', words: '이름 밑줄 인물 장소' },
   { id: 'copy-fmt', cat: 'screen', sec: '복사', label: '복사 줄바꿈 형식', words: '복사 내보내기 줄바꿈 형식' },
   { id: 'copy-title', cat: 'screen', sec: '복사', label: '복사할 때 제목 줄 넣기', words: '복사 제목 줄' },
+  { id: 'notify-on', cat: 'notify', sec: '알림', label: '작업이 끝나면 알리기', words: '알림 브라우저 알림 끝나면 완료 탭 권한 notification' },
+  { id: 'notify-test', cat: 'notify', sec: '알림', label: '시험 알림', words: '알림 시험 확인' },
+  ...NOTIFY_GROUPS.map(([g, label, desc]) => ({ id: `notify-${g}`, cat: 'notify', sec: '알릴 작업', label, words: `알림 ${desc}` })),
 ];
 
 const setNorm = (s) => String(s || '').toLowerCase().replace(/\s+/g, '');
@@ -353,7 +357,19 @@ function setRowHtml(id) {
     }
     case 'copy-title':
       return setRow(id, '복사할 때 제목 줄 넣기', "맨 위에 'N화. 제목' 줄을 넣어요.", SW(id, !!S.copyTitle, '복사할 때 제목 줄 넣기'), { wide: false });
+    case 'notify-on': {
+      const perm = notifyPermission();
+      const how = { granted: '브라우저 알림을 허용했어요.', denied: '브라우저가 알림을 막았어요. 주소창의 사이트 설정에서 허용하세요.',
+        default: '켜면 브라우저가 알림을 허용할지 물어요.', unsupported: '이 주소(https나 localhost가 아님)에서는 브라우저 알림을 쓸 수 없어요.' }[perm];
+      return setRow(id, '작업이 끝나면 알리기', `탭이 뒤에 있을 때 브라우저 알림을 보내고 탭 제목 앞에 끝난 수를 붙여요. ${how}`, SW(id, notifyPref.on, '작업이 끝나면 알리기'), { wide: false });
+    }
+    case 'notify-test':
+      return setRow(id, '시험 알림', '지금 알림 하나를 보내 보여요.', '<button type="button" class="btn" data-action="setNotifyTest">보내 보기</button>', { wide: false });
     default:
+      if (id.startsWith('notify-')) {
+        const g = NOTIFY_GROUPS.find(([x]) => `notify-${x}` === id);
+        return g ? setRow(id, esc(g[1]), `${esc(g[2])} 알려요.`, SW(id, !!notifyPref.kinds[g[0]], g[1]), { wide: false }) : '';
+      }
       return STAGES.some(([s]) => id === `stage-${s}`) ? stageRow(id.slice(6), c) : '';
   }
 }
@@ -734,6 +750,19 @@ Object.assign(actions, {
       mentions: () => { mentionsOn = !mentionsOn; lsKeep('canon.mentions', mentionsOn ? '1' : '0'); },
       'copy-title': () => { S.copyTitle = !S.copyTitle; lsKeep('canon.copyTitle', S.copyTitle ? '1' : '0'); },
     }[key];
+    if (key === 'notify-on') {
+      if (notifyPref.on) { notifySave({ ...notifyPref, on: false }); SET.note[key] = { text: '껐어요', kind: 'ok' }; }
+      else { setNote(key, '켜는 중…'); SET.note[key] = await notifyTurnOn(); }
+      setPaint();
+      return;
+    }
+    if (key.startsWith('notify-')) {
+      const g = key.slice(7);
+      notifySave({ ...notifyPref, kinds: { ...notifyPref.kinds, [g]: !notifyPref.kinds[g] } });
+      SET.note[key] = { text: notifyPref.on ? '저장했어요' : '저장했어요. 위의 알리기를 켜야 알려요', kind: 'ok' };
+      setPaint();
+      return;
+    }
     if (!flip) return;
     if (['marks', 'mentions', 'copy-title'].includes(key)) {
       flip();
@@ -742,6 +771,10 @@ Object.assign(actions, {
       return;
     }
     if (p) await flip();
+  },
+  async setNotifyTest() {
+    SET.note['notify-test'] = await notifyTest();
+    setPaint();
   },
   async setPresetSave() {
     const el = $('#set-preset-name');

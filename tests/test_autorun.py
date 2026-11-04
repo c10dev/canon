@@ -92,6 +92,15 @@ def test_full_run_with_review_stop(demo):
     assert any("자동으로 반영" in e.message for e in run.log)
 
 
+def test_job_tells_last_applied_episode(demo):
+    # 화면은 자동 집필 작업의 step_ep 가 바뀔 때마다 'n화를 반영했어요'를 알린다 (static/notify.js)
+    autorun.start(demo, 1, False, Policy())
+    wait_until(idle(demo))
+    job = next(j for j in jobs.listing(demo) if j.kind == "auto")
+    assert job.public()["step_ep"] == 1 and job.status == "done"
+    assert job.public()["result"]["status"] == "done"
+
+
 def test_user_applies_in_review_screen_then_resume(demo):
     autorun.start(demo, 3, False, Policy(), foreground=True)
     run = autorun.get_run(demo)
