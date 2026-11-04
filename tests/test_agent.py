@@ -131,6 +131,24 @@ def test_end_name_as_tool_ends_the_turn(client):
     assert t["reply"] == "읽어 보니 고칠 곳이 없어요."
 
 
+def test_preamble_reply_is_sent_back_once(client):
+    """예고만 한 답("…분석해 전달합니다")은 한 번 되돌려 내용을 쓰게 한다 (2026-11-04 서버 턴)."""
+    _project(client)
+    sid = _session(client)
+    t = _say(client, sid, "아크 1을 서사 분석")
+    assert [(s["kind"], s["tool"]) for s in t["steps"]] == [("note", "reply")] and t["end"] == "done"
+    assert t["reply"].startswith("기(1~2화)")
+
+
+def test_is_preamble():
+    from canon.agent import is_preamble
+    assert is_preamble("아크 1(1~7화)의 기승전결 구조, 심리·감각의 점층성, 그리고 현재 화별 플롯의 보완 필요 지점을 분석해 작가님께 전달합니다.")
+    assert is_preamble("먼저 1~3화 줄거리를 살펴보겠습니다.")
+    assert not is_preamble("3화 플롯의 갈등을 앞당겼어요. 4화는 그대로 뒀어요.")
+    assert not is_preamble("가" * 301 + "하겠습니다.")
+    assert not is_preamble("")
+
+
 def test_step_tool_names():
     import pytest
     from pydantic import ValidationError
