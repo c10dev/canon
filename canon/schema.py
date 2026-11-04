@@ -1186,7 +1186,7 @@ class TextEdit(BaseModel):
     undone: bool = False
 
 
-RewriteMode = Literal["fresh", "revise"]
+RewriteMode = Literal["fresh", "revise", "polish"]
 RewriteMaterial = Literal["issues", "hook", "style", "edits"]
 
 
@@ -1195,7 +1195,7 @@ class RewriteRequest(BaseModel):
     feedback: str = Field("", description="작가가 적은 피드백")
     presets: list[str] = Field(default_factory=list, description="빠른 요청 id (prompts.REWRITE_PRESETS)")
     materials: list[RewriteMaterial] = Field(default_factory=list, description="함께 넣을 것: 검수 결과, 흡입력 판정, 문체 지표 경고, 작가가 고친 곳")
-    mode: RewriteMode = Field("fresh", description="fresh: 처음부터 새로 / revise: 지난 판을 넣고 고쳐 쓰기")
+    mode: RewriteMode = Field("fresh", description="fresh: 처음부터 새로 / revise: 지난 판을 넣고 고쳐 쓰기 / polish: 대사 · 사건은 그대로 두고 서술 문장만 다듬기")
     keep: list[str] = Field(default_factory=list, description="살릴 부분 (지난 판에서 고른 글 그대로)")
 
 

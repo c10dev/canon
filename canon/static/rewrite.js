@@ -1,5 +1,6 @@
 /* 다시 생성 (집필 화면). app.js 의 S, actions, api, render, startJob, jobBtn 과 passage.js 의 wordDiff, flushText 를 그대로 쓴다.
-   '다시 생성'을 누르면 패널이 열려 피드백, 빠른 요청, 함께 넣을 재료(검수 결과 등), 방식(처음부터 / 고쳐 쓰기), 살릴 부분을 고른다.
+   '다시 생성'을 누르면 패널이 열려 피드백, 빠른 요청, 함께 넣을 재료(검수 결과 등), 방식(처음부터 / 고쳐 쓰기 / 서술만 다듬기), 살릴 부분을 고른다.
+   서술만 다듬기는 다른 칸을 보이지 않고 정해진 규칙(prompts.polish_prompt)만 보낸다.
    새 판은 본문을 덮지 않고 Episode.candidate 에 와서 지금 판과 나란히 또는 바뀐 곳으로 비교해 고른다.
    바꾸기 전 판과 고르지 않은 판은 Episode.versions 에 남아 되돌릴 수 있다. 서버는 web.py 의 '4-0. 다시 생성'. */
 'use strict';
@@ -20,6 +21,7 @@ JOB_DONE_MSG.write = (j) => (j.result && j.result.candidate ? `${j.ep}화 새 �
 const RW_MODES = [
   ['fresh', '처음부터 새로', '지난 판은 보내지 않고 같은 플롯으로 새로 써요. 전개를 크게 바꾸고 싶을 때.'],
   ['revise', '지난 판 고쳐 쓰기', '지난 판 전문을 함께 보내 흐름과 좋은 문장은 살리고 고쳐요. 대체로 괜찮고 몇 군데만 아쉬울 때.'],
+  ['polish', '서술만 다듬기', "대사와 사건은 그대로 두고 서술 문장만 다듬어요. '~다.'로만 끝나거나 한 줄씩 끊겨 일기처럼 읽힐 때. 설정의 '본문 부분 수정' 단계 모델이 써요."],
 ];
 const RW_KIND = { previous: '바꾸기 전', rejected: '고르지 않은 새 판' };
 
@@ -47,6 +49,7 @@ function rwReqLabel(n, r) {
   if (!r) return '';
   const bits = r.presets.map((id) => `<span class="chip ai">${esc(rwPresetLabel(n, id))}</span>`);
   if (r.mode === 'revise') bits.push('<span class="chip">고쳐 쓰기</span>');
+  if (r.mode === 'polish') bits.push('<span class="chip">서술 다듬기</span>');
   if (r.feedback) bits.push(`<span class="small">${esc(clip(r.feedback, 60))}</span>`);
   return bits.join(' ');
 }
@@ -125,21 +128,27 @@ function rewritePanel(n) {
         ${none ? '' : `<details><summary class="small">넣을 내용 보기</summary><div class="small rw-lines">${m.lines.map(esc).join('<br>')}</div></details>`}</span></label>`;
   }).join('');
   const modes = RW_MODES.map(([id, label]) => `<button type="button" aria-pressed="${r.mode === id}" data-action="rwMode" data-arg="${id}">${label}</button>`).join('');
+  const polish = r.mode === 'polish';  // 서술 다듬기는 규칙이 정해져 있어 피드백 · 빠른 요청 · 재료 · 살릴 부분을 받지 않는다
   const keep = r.keep.map((k, i) => `<li class="between" style="gap:8px;align-items:flex-start"><blockquote>${esc(clip(k, 200))}</blockquote><button type="button" class="btn small" data-action="rwDropKeep" data-arg="${i}" aria-label="살릴 부분 빼기">빼기</button></li>`).join('');
-  return rwColumn(n, `<p class="small" style="margin:0">무엇이 아쉬웠는지 알려 주면 새 판을 쓸 때 참고해요. 지금 본문은 그대로 두고, 새 판이 오면 비교해서 골라요.</p>
+  const howTo = `<div class="field"><span class="small">방식</span><div class="seg" role="group" aria-label="다시 쓰는 방식">${modes}</div>
+      <span class="small">${RW_MODES.find((m) => m[0] === r.mode)[2]}</span></div>`;
+  const fields = polish
+    ? `<p class="small" style="margin:0">지금 본문은 그대로 두고, 다듬은 판이 오면 비교해서 골라요. 대사나 효과음 줄이 바뀐 판은 쓰지 않고 다시 불러요.</p>
+    ${howTo}`
+    : `<p class="small" style="margin:0">무엇이 아쉬웠는지 알려 주면 새 판을 쓸 때 참고해요. 지금 본문은 그대로 두고, 새 판이 오면 비교해서 골라요.</p>
     <div class="field"><span class="small">빠른 요청 (여러 개 고를 수 있어요)</span><div class="row rw-chips" style="gap:6px">${chips}</div></div>
     <div class="field"><label class="small" for="rw-feedback">피드백</label>
       <textarea id="rw-feedback" data-rw-feedback="${n}" rows="3" placeholder="예: ${esc(exName(0))}이(가) 너무 빨리 마음을 연다. 중간에 한 번 더 밀어내게 해 줘">${esc(r.feedback)}</textarea></div>
     <div class="field"><span class="small">함께 넣을 것</span><div class="grid-2">${mats}</div></div>
-    <div class="field"><span class="small">방식</span><div class="seg" role="group" aria-label="다시 쓰는 방식">${modes}</div>
-      <span class="small">${RW_MODES.find((m) => m[0] === r.mode)[2]}</span></div>
+    ${howTo}
     <div class="field"><span class="small">살릴 부분 ${r.keep.length}/${info.keep_max}</span>
       ${keep ? `<ol class="rw-keep">${keep}</ol>` : ''}
-      <span class="small">마음에 드는 문장이나 장면은 본문에서 드래그한 뒤 '살리기'를 누르면 담겨요. 새 판에 거의 그대로 들어가요.</span></div>
+      <span class="small">마음에 드는 문장이나 장면은 본문에서 드래그한 뒤 '살리기'를 누르면 담겨요. 새 판에 거의 그대로 들어가요.</span></div>`;
+  return rwColumn(n, `${fields}
     ${busy ? '<div class="small">다른 화면으로 옮겨 가도 계속 써요. 끝나면 알려 드려요.</div>' : ''}
     ${S.rwPrompt ? `<pre class="brief mono" style="max-height:420px">${esc(S.rwPrompt)}</pre>` : ''}`,
     `<button type="button" class="btn small" data-action="rwShowPrompt" data-arg="${n}">${S.rwPrompt ? '프롬프트 닫기' : '보낼 프롬프트 보기'}</button>
-      ${((b) => `<button type="button" class="btn primary" data-action="rwSubmit" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('write', n, '새 판 만들기'))}`);
+      ${((b) => `<button type="button" class="btn primary" data-action="rwSubmit" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('write', n, polish ? '다듬은 판 만들기' : '새 판 만들기'))}`);
 }
 
 /** 다시 생성 열: 대화 패널 자리(오른쪽, 휴대폰은 아래 시트)에 뜬다. 본문을 아래로 밀지 않아 고르며 '살리기'를 담을 수 있다. */

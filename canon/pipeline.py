@@ -2910,6 +2910,8 @@ def clean_rewrite(req: RewriteRequest) -> RewriteRequest:
     bad = [x for x in req.presets if x not in prompts.REWRITE_PRESETS]
     if bad:
         raise ValueError(f"모르는 빠른 요청이에요: {', '.join(bad)}")
+    if req.mode == "polish":  # 서술 다듬기는 규칙이 정해져 있어 피드백 · 빠른 요청 · 재료 · 살릴 부분을 받지 않는다
+        return RewriteRequest(mode="polish")
     keep = [k.strip()[:prompts.REWRITE_KEEP_LIMIT] for k in req.keep if k.strip()]
     return RewriteRequest(feedback=req.feedback.strip(), presets=list(dict.fromkeys(req.presets)),
                           materials=list(dict.fromkeys(req.materials)), mode=req.mode,
@@ -2947,6 +2949,8 @@ def rewrite_materials(p: Project, n: int) -> dict[str, list[str]]:
 
 
 def rewrite_prompt(p: Project, n: int, req: RewriteRequest) -> str:
+    if req.mode == "polish":
+        return prompts.polish_prompt(p, n, p.episode(n).text)
     return prompts.rewrite_prompt(p, n, req, rewrite_materials(p, n), p.episode(n).text)
 
 
@@ -2956,7 +2960,49 @@ def rewrite_episode(llm: LLM, p: Project, n: int, req: RewriteRequest, cut: list
     require_previous(p, n)
     if req.mode == "revise" and not ep.text.strip():
         raise ValueError("고쳐 쓸 지난 판이 없어요")
+    if req.mode == "polish":
+        return polish_episode(llm, p, n, cut)
     return _write(llm, p, n, rewrite_prompt(p, n, clean_rewrite(req)), cut)
+
+
+POLISH_TRIES = 2
+POLISH_SPAN = (0.85, 1.15)  # 다듬은 글 / 지금 본문 글자 수. 밖이면 내용을 더하거나 뺀 것으로 본다
+_FIXED_OPEN = ("\"", "“", "「", "『", "‘", "'", "─", "—")
+
+
+def fixed_lines(text: str) -> list[str]:
+    """서술 다듬기가 바꾸면 안 되는 줄: 따옴표로 여는 대사 줄과 줄표로 여는 효과음 줄 (앞뒤 공백 뺌, 차례대로)."""
+    return [x.strip() for x in text.split("\n") if x.strip().startswith(_FIXED_OPEN)]
+
+
+def polish_problem(old: str, new: str) -> str:
+    """다듬은 글을 쓰지 않을 까닭. 대사 · 효과음 줄이 하나라도 바뀌거나 빠지거나 늘었거나, 글자 수가 POLISH_SPAN 밖이면. 괜찮으면 빈 글."""
+    a, b = fixed_lines(old), fixed_lines(new)
+    if a != b:
+        gone = len([x for x in a if x not in b])
+        return f"대사 · 효과음 줄이 바뀌었어요 ({len(a)}줄 중 {gone}줄 다름, 다듬은 글 {len(b)}줄)"
+    ratio = len(new.strip()) / max(len(old.strip()), 1)
+    if not POLISH_SPAN[0] <= ratio <= POLISH_SPAN[1]:
+        return f"글자 수가 {len(old.strip()):,}자에서 {len(new.strip()):,}자로 너무 바뀌었어요"
+    return ""
+
+
+def polish_episode(llm: LLM, p: Project, n: int, cut: list[MetaCut] | None = None) -> str:
+    """지금 본문의 서술 문장만 다듬는다 (prompts.polish_prompt). 저장하지 않는다 (set_candidate 로 새 판에 둔다).
+    대사 · 효과음 줄이 바뀐 글은 POLISH_TRIES 번까지 다시 부르고, 그래도 바뀌면 멈춘다. 다듬기 모델은 revise 단계를 부른 쪽이 고른다."""
+    ep = _editable(p, n)
+    old = ep.text.strip()
+    if not old:
+        raise ValueError(f"{n}화에 다듬을 본문이 없어요")
+    prompt = prompts.polish_prompt(p, n, old)
+    why = ""
+    for _ in range(POLISH_TRIES):
+        new = _write(llm, p, n, prompt, cut)
+        why = polish_problem(old, new)
+        if not why:
+            return new
+        logging.getLogger("canon").warning("%s화 서술 다듬기를 다시 불러요: %s", n, why)
+    raise ValueError(f"{n}화 서술 다듬기를 쓰지 않았어요. {why}. 다시 시도해 주세요")
 
 
 def _version_id(ep: Episode) -> str:

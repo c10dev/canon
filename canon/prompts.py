@@ -2661,20 +2661,63 @@ ENDING_SHARE = (0.5, 0.7)  # 열에 다섯~일곱. 사람 웹소설 4편이 45~7
 PRESENT_SHARE_MAX = 0.3
 
 
-def ending_line(p: Project, n: int) -> str:
-    """쓰기 요청 끝의 문장 끝 섞기 줄. 몫은 문체 기준(정착 문체 → 원문 기준값 → 예시 문단)에서, 서술 문장이 모자라면 사람 웹소설 중앙값.
-    시점 인물의 서술 말투로 쓰는 화는 어미가 따로 정해져 있어 넣지 않는다."""
-    c = pov_character(p, n)
-    if c is not None and c.narration_voice.strip():
-        return ""
+def ending_counts(p: Project) -> tuple[str, str]:
+    """('~다.' 몫, 현재형 몫) 을 '열에 k' 의 k 말로. 문체 기준(정착 문체 → 원문 기준값 → 예시 문단)에서, 서술 문장이 모자라면 사람 웹소설 중앙값.
+    현재형 몫은 기준의 현재형이 20% 아래면 빈 글."""
     base = (p.anchor.metrics if p.anchor and p.anchor.metrics else None) or p.style_baseline or metrics.measure("\n\n".join(p.style.sample_passages))
     da = base.da_ending_ratio if base.da_ending_ratio is not None else metrics.ENDING_DEFAULTS["da_ending_ratio"]
     k = round(min(max(da, ENDING_SHARE[0]), ENDING_SHARE[1]) * 10)
     present = 1 - base.past_tense_ratio if base.past_tense_ratio is not None else 0
-    tense = (f"'~다.' 끝 가운데 열에 {_COUNT[round(min(present, PRESENT_SHARE_MAX) * 10)]}쯤은 '~한다', '~느껴진다' 같은 현재형으로 씁니다. "
-             if present >= 0.2 else "")
-    return (f"\n\n서술 문장의 끝을 섞습니다. 서술 문장 열에 {_COUNT[k]}쯤만 '~다.'로 맺고, 나머지는 명사 끝, 말줄임(…), 시점 인물이 스스로 묻는 물음, "
+    return _COUNT[k], (_COUNT[round(min(present, PRESENT_SHARE_MAX) * 10)] if present >= 0.2 else "")
+
+
+def voiced(p: Project, n: int) -> bool:
+    """시점 인물의 서술 말투로 쓰는 화인지. 어미가 따로 정해져 있어 문장 끝 몫을 주지 않는다."""
+    c = pov_character(p, n)
+    return c is not None and bool(c.narration_voice.strip())
+
+
+def ending_rule(p: Project) -> str:
+    """서술 문장 끝 몫 한 문단. 쓰기 요청(ending_line)과 서술 다듬기(polish_prompt)가 같은 글을 쓴다."""
+    da, present = ending_counts(p)
+    tense = f"'~다.' 끝 가운데 열에 {present}쯤은 '~한다', '~느껴진다' 같은 현재형으로 씁니다. " if present else ""
+    return (f"서술 문장 열에 {da}쯤만 '~다.'로 맺고, 나머지는 명사 끝, 말줄임(…), 시점 인물이 스스로 묻는 물음, "
             f"말을 도중에 끊은 연결 끝(-고, -는데, -지만)으로 맺습니다. {tense}'~다.'로 끝나는 서술 문장을 {_LINES[metrics.ENDING_RUN]} 줄 넘게 잇지 않습니다.")
+
+
+def ending_line(p: Project, n: int) -> str:
+    """쓰기 요청 끝의 문장 끝 섞기 줄. 시점 인물의 서술 말투로 쓰는 화는 넣지 않는다."""
+    return "" if voiced(p, n) else "\n\n서술 문장의 끝을 섞습니다. " + ending_rule(p)
+
+
+# ---------- 서술 다듬기 ----------
+# 쓴 본문의 서술 문장만 두 번째 호출로 다듬는다 (다시 생성의 방식 polish, pipeline.polish_episode). 대사 · 효과음 줄과 사건은 그대로.
+# 실측(2026-11-04, 장편 84화, reports/고정점만 쓰기 실험): 쓰기 요청에 지시를 더하는 것보다 '~다.' 나열 · 관찰 보고 · '나는' 반복을 크게 줄였다.
+# Claude 가 다듬은 판이 Claude 판정에서 이겼고, Gemini 가 자기 글을 다듬은 판은 졌다(억지 연결 · 어긋난 인과). 작가 블라인드 3쌍 중 2쌍.
+# 진 판은 말줄임 끝이 많아, 말줄임 · 물음 · 명사 끝에 상한을 둔다(상한을 둔 이 판은 실측하지 않았다).
+POLISH_RULES = """# 할 일
+위 [다듬을 본문]의 서술 문장만 다듬어, 본문 전체를 다시 냅니다.
+
+지킬 것:
+- 따옴표로 여는 대사 줄과 '─'로 여는 효과음 줄은 한 글자도 바꾸지 않고, 자리도 옮기지 않습니다.
+- 사건, 순서, 사실, 인물의 행동과 위치는 바꾸지 않습니다. 새 정보를 더하거나 있던 정보를 빼지 않습니다.
+- 스타일 프로필의 문단 규칙과 어휘 규칙은 그대로 따릅니다.
+
+서술 문장에서 고칠 것:
+1. 같은 순간의 동작이나 감각을 따로 끊어 쓴 줄은 '-며', '-면서', '-는데', '-다가', '-자'로 한 문장에 잇습니다. 서술 문장 열에 셋쯤이 이렇게 이어진 문장이 되게 합니다. 두 줄까지만 잇고 세 줄 이상을 한 문장에 몰지 않습니다. 서술 문장 수가 처음의 4분의 3 아래로 줄지 않게 하고, 서술 문장 평균은 30~40자에 둡니다.
+2. 시점 인물이 본 것을 '~을 봤다', '~이 보였다', '~가 있었다', '~이 느껴졌다'로 보고하는 문장은, 본 것 자체를 주어로 다시 씁니다.
+3. '나는', '내가'로 여는 문장이 두 줄 넘게 이어질 때만 뒤 줄의 주어를 뺍니다. 누가 하는 일인지 흐려지면 주어를 남깁니다.
+4. 설명하듯 정리한 추론 문장('그렇다면 ~다', '~인 셈이다')은 시점 인물의 짧은 생각으로 바꿉니다.
+{ending}
+다듬은 본문만 냅니다. 머리말, 설명, 바꾼 목록은 쓰지 않습니다."""
+POLISH_ENDING = "5. {rule} 말줄임으로 끝내는 서술과 시점 인물이 스스로 묻는 물음은 각각 화에 셋까지, 명사로 끝내는 문장은 장면에 하나까지만 씁니다.\n"
+
+
+def polish_prompt(p: Project, n: int, text: str) -> str:
+    """서술 다듬기 요청. 앞은 작품 고정 블록(static_context, 쓰기와 같아 캐시가 맞는다), 다듬을 본문, 규칙 순서.
+    시점 인물의 서술 말투로 쓰는 화는 문장 끝 몫(5번)을 넣지 않는다."""
+    ending = "" if voiced(p, n) else POLISH_ENDING.format(rule=ending_rule(p))
+    return static_context(p) + "\n\n# 다듬을 본문\n" + text.strip() + "\n\n" + POLISH_RULES.format(ending=ending)
 
 
 # 사건을 차례로 처리하느라 요약처럼 흐르지 않게, 한 장면에 머물 자리를 준다 (서술 단조로움 개선, 2026-11-03).

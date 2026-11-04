@@ -901,6 +901,9 @@ def _write(name: str, p: Project, n: int) -> None:
     _print_opening(p, n)
 
 
+REWRITE_MODE_LABEL = {"fresh": "처음부터 새로", "revise": "지난 판 고쳐 쓰기", "polish": "서술만 다듬기"}
+
+
 def cmd_rewrite(a: argparse.Namespace) -> None:
     """다시 생성: 피드백 · 빠른 요청 · 재료로 새 판을 만들고, 지금 본문과 바꿀지 고른다. 이전 판도 보고 되돌린다."""
     p = store.load(a.name)
@@ -921,10 +924,10 @@ def cmd_rewrite(a: argparse.Namespace) -> None:
         print(f"{a.n}화 새 판을 {'본문으로 썼어요' if a.adopt else '버렸어요'}. 저장: {store.save(a.name, p)}")
         return
     req = RewriteRequest(feedback=a.ask or "", presets=_csv(a.preset), materials=_csv(a.use),  # type: ignore[arg-type]
-                         mode="revise" if a.revise else "fresh", keep=a.keep or [])
+                         mode="polish" if a.polish else "revise" if a.revise else "fresh", keep=a.keep or [])
     req = pipeline.clean_rewrite(req)
-    print(f"{a.n}화 다시 생성 중... ({'지난 판 고쳐 쓰기' if req.mode == 'revise' else '처음부터 새로'})")
-    llm, cut = get_llm("write"), []
+    print(f"{a.n}화 다시 생성 중... ({REWRITE_MODE_LABEL[req.mode]})")
+    llm, cut = get_llm("revise" if req.mode == "polish" else "write"), []
     text = pipeline.rewrite_episode(llm, p, a.n, req, cut)
     pipeline.set_candidate(p, a.n, text, req, pipeline.writer_of(llm), cut)
     print(f"\n{text[:600]}{'…' if len(text) > 600 else ''}\n\n지금 판 {len(ep.text):,}자 → 새 판 {len(text):,}자")
@@ -2506,6 +2509,7 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--preset", help="빠른 요청, 쉼표로: " + ", ".join(prompts.REWRITE_PRESETS))
     sp.add_argument("--use", help="함께 넣을 것, 쉼표로: " + ", ".join(prompts.REWRITE_MATERIALS))
     sp.add_argument("--revise", action="store_true", help="처음부터 새로 쓰지 않고 지난 판을 넣어 고쳐 쓰기")
+    sp.add_argument("--polish", action="store_true", help="대사 · 사건은 그대로 두고 서술 문장만 다듬기 (revise 단계 모델)")
     sp.add_argument("--keep", action="append", help="살릴 부분 (본문 글 그대로, 여러 번)")
     sp.add_argument("--adopt", action="store_true", help="고르기 대기 중인 새 판을 본문으로")
     sp.add_argument("--drop", action="store_true", help="고르기 대기 중인 새 판을 버림")

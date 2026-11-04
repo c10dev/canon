@@ -6,7 +6,7 @@
 // ----- 단계 (settings.STAGES 와 같은 순서) -----
 
 const STAGES = [['plan', '계획', '설정 제안 · 문체 분석 · 기승전결 · 화별 플롯'], ['write', '본문 쓰기', '화 본문'], ['check', '검수', '모순 찾기'],
-  ['state', '상태 변경안', '본문에서 바뀐 상태 뽑기'], ['name', '이름 · 지명 추천', ''], ['revise', '본문 부분 수정', ''],
+  ['state', '상태 변경안', '본문에서 바뀐 상태 뽑기'], ['name', '이름 · 지명 추천', ''], ['revise', '본문 부분 수정', '고른 부분 고치기 · 서술 다듬기'],
   ['illustration', '삽화 프롬프트', ''], ['play', '플레이 장면', '플레이 모드']];
 // 백엔드를 비우면 따르는 단계 (settings.STAGE_PARENT 와 같다)
 const STAGE_PARENT = { name: 'plan', revise: 'write', illustration: 'plan', play: 'write' };
