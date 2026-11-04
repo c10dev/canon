@@ -134,7 +134,21 @@
 - 쓰기 작업의 `cues`(none)
 - `…/episodes/{n}/cue-sheet`
 - `…/cue-setting`
+- `…/recent-echoes`(`Settings.recent_echoes`, 블록 `prompts.echo_block`)
 - `…/write-material`
+
+### `canon/echoes.py`
+
+- 최근 화에서 되풀이한 구절(`recent`): 본문이 있는 직전 `WINDOW`(5)화에서 `MIN_EPISODES`(3)개 화 이상에 그대로 나온 서술 구절과 그 화 번호
+- 쓰기 요청은 앞 화 본문 전체를 넣지 않아, 모델이 지난 화 비유를 보지 못하고 다시 만든다. `metrics.measure` 의 반복 구는 한 화 안만 센다
+- 3어절(`SEED`)에서 시작해 앞뒤로 늘린다(`_grow`, `MAX_WORDS` 까지, 나온 곳의 `GROW_SHARE` 이상에서 같은 어절일 때만)
+- 대사(따옴표 안)는 세지 않는다
+- 인물 이름(성을 뗀 이름 포함) · 부르는 말 · 이야기 요소 이름이 든 구절은 뺀다(`_names`)
+- 확정 사실 · 세계관 · 인물 설정 · 상태 · 이야기 요소에 조사만 다르게 적힌 3어절 묶음이 든 구절은 뺀다(`_in_canon`)
+- 짧은 구절(`MIN_CHARS`)은 빼고, 많이 나온 화부터 `LIMIT`(10)개
+- 블록은 `prompts.echo_block`, 켜기는 `Settings.recent_echoes`
+- LLM 호출 없음
+- `tests/test_echoes.py`
 
 ### `canon/features.py`
 
@@ -239,6 +253,7 @@
 - 예시 문단이 있는 작품의 스타일 프로필 `style_rules_view`(칸마다 `STYLE_FIELD_LIMIT`, 예시 문단이 앞)
 - 스토리보드 깨지 않을 것을 검수에 `protect_block` · `protect_check_rule`
 - 지시 수 · 크기 상한 시험 `tests/test_write_budget.py`
+- 장편 본문 쓰기 요청(`build_episode_context(write=True)`)의 뒤쪽, 가끔 쓰는 장치 뒤에 '최근 화에서 되풀이한 구절' 블록 `echo_block`(`echoes.recent`, `Settings.recent_echoes`, 단편 · 스토리보드 만들기에는 넣지 않음)
 - 화에 큐 시트가 있으면 `episode_prompt` 맨 끝에 `cue_write_block`(실험의 조건 score 와 같은 글, `use_cues=False` 면 뺌)
 - `episode_prompt` 끝(큐 시트 블록 앞)의 문장 끝 섞기 줄 `ending_line`('~다.' 몫과 현재형 몫은 문체 기준에서 `ENDING_SHARE` · `PRESENT_SHARE_MAX` 안으로, 서술 말투가 있는 화는 뺌)
 - 화별 플롯 초안(`plot_prompt` · `serial_plot_prompt`)은 범위 안 · 범위 뒤 3화(`PLAN_AHEAD`)의 이미 정해진 화를 `fixed_plots` · `fixed_block` 으로 넣고 요구사항에 `fixed_rule` 을 붙인다(장편은 `context.BUDGET["plan_fixed"]`, 한 화 초안은 `ahead=False`)
@@ -275,6 +290,7 @@
 - 쓰기 재료는 `Settings.write_material`(fixed 면 고정점만: `board.fixed_only`, 장면 목록 · 큐 시트를 쓰기 요청에서 뺌, `cue.on` 끔)
 - 화별 큐 시트(`Episode.cue_sheet`, `CueSheet`)도 상태 승인 대상이 아니다
 - 큐 시트 켜기는 `Settings.cue_sheet`(비우면 장편 켬 · 단편 끔)
+- 되풀이한 구절 블록 켜기는 `Settings.recent_echoes`(기본 켬, 장편에만 넣음)
 
 ### `canon/settings.py`
 
