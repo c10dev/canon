@@ -40,15 +40,20 @@
 - 설정 화면의 Gemini 연결 방식은 `static/vertex.js`
 - 환경 변수
   - `ANTHROPIC_API_KEY`: Claude API 키(`claude-api` 만 키를 씀)
+  - `CANON_BATCH_POLL`: 배치 결과를 묻는 간격 초(기본 30, `llm.BatchLLM`)
   - `CANON_CLAUDE_BIN` · `CANON_CLAUDE_MODEL` · `CANON_CLAUDE_TIMEOUT`: Claude
   - `CANON_GEMINI_AUTH`: Gemini 연결 방식(key | vertex)
   - `CANON_GEMINI_TIMEOUT`: Gemini 응답을 기다리는 초(기본 600)
   - `CANON_HOME`: 프로젝트 저장 위치(기본 `projects/`)
   - `CANON_LLM`: gemini | local | claude | claude-api | mock
-  - `CANON_LLM_<단계>`: 단계별 백엔드(`CANON_LLM_PLAN` · `_WRITE` · `_CHECK` · `_STATE` · `_NAME` · `_REVISE` · `_ILLUSTRATION` · `_PLAY`, 이름은 `settings.stage_env`)
+  - `CANON_LLM_<단계>`: 단계별 백엔드(`CANON_LLM_PLAN` · `_WRITE` · `_CHECK` · `_STATE` · `_NAME` · `_REVISE` · `_ILLUSTRATION` · `_PLAY` · `_CHAT`, 이름은 `settings.stage_env`)
   - `CANON_LOCAL_KEY` · `CANON_LOCAL_MODEL` · `CANON_LOCAL_URL`: 로컬 서버
+  - `CANON_LOCAL_TIMEOUT`: 로컬 서버 응답을 기다리는 초(기본 900)
+  - `CANON_MOCK_BATCH_POLLS`: 가짜 배치가 끝나기 전에 물어볼 횟수(기본 0)
+  - `CANON_MOCK_DELAY`: 가짜 응답이 기다리는 초(기본 0, 화면 진행 표시 확인용)
   - `CANON_MODEL`: Gemini 모델(기본 `gemini-4-argon`)
-  - `CANON_MODEL_<단계>`: 단계별 모델(`CANON_MODEL_PLAN` · `_WRITE` · `_CHECK` · `_STATE` · `_NAME` · `_REVISE` · `_ILLUSTRATION` · `_PLAY`)
+  - `CANON_MODEL_<단계>`: 단계별 모델(`CANON_MODEL_PLAN` · `_WRITE` · `_CHECK` · `_STATE` · `_NAME` · `_REVISE` · `_ILLUSTRATION` · `_PLAY` · `_CHAT`)
+  - `CANON_PORT`: `scripts/canon-mac.command` 가 띄우는 웹 포트(기본 8000)
   - `CANON_USAGE`: 사용량 기록 파일(기본 `projects/.usage/usage.jsonl`)
   - `CANON_VERTEX_CREDENTIALS` · `GOOGLE_CLOUD_LOCATION` · `GOOGLE_CLOUD_PROJECT`: Vertex AI 서비스 계정
   - `GEMINI_API_KEY`: Gemini API 키
