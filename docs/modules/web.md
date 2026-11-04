@@ -151,6 +151,7 @@
 - 마법사 · 기획서 칸에는 `input()` 의 `aside` · `beside` · `after` 로 붙인다
 - 고르기 전에는 칸을 바꾸지 않는다
 - 칸 목록 `IDEA_FIELDS` 는 `prompts.FIELD_IDEAS` 와 같다(`tests/test_ideas_js.py`)
+- 목록 칸 `IDEA_LISTS`(숨기는 것)는 고른 후보를 목록에 한 줄 더한다(`prompts.IDEA_LISTS` 와 같다)
 - 인물 칸(성격 · 배경 · 외모 · 아크)은 경로 번호를 `*` 로 찾는다(`ideaKey`, 이름 붙은 칸 이름 `ideaLabel`)
 - 받은 때의 인물 id 가 다르면 넣지 않는다(`tests/test_setup_fill.py`)
 - 서버는 `pipeline.suggest_field`

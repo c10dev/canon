@@ -4246,7 +4246,13 @@ FIELD_IDEAS: dict[str, tuple[str, str]] = {
     "characters.*.background": ("배경", "이 인물이 이야기 시작 전까지 살아온 과거를 1~3문장으로. 지금의 원하는 것이나 약점을 만든 사건 하나와 그 사건이 남긴 것을 적음"),
     "characters.*.appearance": ("외모", "독자가 한눈에 알아볼 특징 2~3가지를 한 문장으로. 나이 · 하는 일 · 세계관에 맞게 체격, 머리, 옷차림, 눈에 띄는 표식 중에서 고름"),
     "characters.*.arc": ("아크", "'시작 상태 → 결말 상태' 형식 한 줄. 약점이나 두려운 것이 이야기를 거쳐 어떻게 바뀌는지가 보이게"),
+    "characters.*.goal": ("원하는 것", "작품 전체에서 이 인물이 이루거나 지키려는 것 한 문장. 눈에 보이는 목표와 그 밑의 속마음이 함께 보이게 하고, 로그라인 · 역할과 이어지게"),
+    "characters.*.wound": ("두려운 것 · 약점", "이 인물이 가장 두려워하는 것이나 약점 한 문장. 그것을 만든 과거 일이 짐작되게 하고, 원하는 것을 가로막는 쪽으로"),
+    "characters.*.secrets": ("숨기는 것", "이 인물이 다른 인물이나 독자에게 숨기는 것 하나를 한 문장으로. 드러나면 관계나 이야기가 흔들리는 것. 후보는 목록에 한 줄로 더해진다"),
+    "characters.*.speech_style": ("말투", "어미(반말 · 해요체 · 하십시오체 등), 상대를 부르는 호칭, 말버릇을 적고 끝에 대사 예시 한 줄을 붙임. 예: 짧은 반말, 상대를 성으로 부른다. 예: \"그만해. 거기까지.\""),
 }
+# 목록 칸: 후보 하나가 목록에 한 줄로 더해진다 (화면 ideas.js 의 IDEA_LISTS 와 같다)
+IDEA_LISTS = {"characters.*.secrets"}
 
 
 def idea_key(field: str) -> str:
@@ -4276,6 +4282,12 @@ def field_prompt(p: Project, field: str, n: int = 3) -> str:
 """
     else:
         person = ""
+    if idea_key(field) in IDEA_LISTS:
+        now_text = ("\n" + "\n".join(f"- {x}" for x in now.splitlines())) if now else "비어 있음"
+        keep = "- 후보 하나하나가 목록에 한 줄로 더해지는 새 항목입니다. 지금 목록에 있는 항목이나 그 말바꿈은 내지 않습니다."
+    else:
+        now_text = now or "비어 있음"
+        keep = "- 지금 값이 있으면 그 생각을 살리되 더 좋게 고친 후보를 하나 이상 넣고, 지금 값과 똑같은 후보는 내지 않습니다."
     exs = [getattr(x, field.rsplit(".", 1)[1]) for g in p.meta.genres if g in genres.BY_ID
            for x in genres.BY_ID[g].logline] if field.startswith("meta.logline_parts.") else []
     return f"""아래 작품의 설정 칸 '{label}'에 넣을 후보를 {n}개 제안하세요. 작가가 하나를 골라 칸에 넣습니다.
@@ -4295,21 +4307,24 @@ def field_prompt(p: Project, field: str, n: int = 3) -> str:
 {person}
 [채울 칸] {label}
 쓰는 법: {how}
-지금 값: {now or "비어 있음"}
+지금 값: {now_text}
 {("이 장르의 예시 (형식만 참고하고 내용은 베끼지 않습니다): " + " / ".join(exs[:4])) if exs else ""}
 요구사항:
 - options 에 서로 분명히 다른 후보 {n}개를 넣습니다. 같은 생각의 말바꿈이 아니라 방향이 다르게 합니다.
 - 다른 칸에 이미 적힌 설정(장르, 로그라인, 세계관, 인물)과 어긋나지 않게 합니다. 비어 있는 칸은 자유롭게 상상해도 됩니다.
-- 지금 값이 있으면 그 생각을 살리되 더 좋게 고친 후보를 하나 이상 넣고, 지금 값과 똑같은 후보는 내지 않습니다.
+{keep}
 - text 에는 칸에 그대로 넣을 값만 적습니다. 따옴표, 번호, 칸 이름을 붙이지 않습니다.
 - reason 에는 이 후보가 작품에 맞는 이유를 한 줄로 적습니다."""
 
 
 def field_value(p: Project, field: str) -> str:
-    """칸 경로가 가리키는 지금 값 (meta.logline_parts.who → p.meta.logline_parts.who, characters.0.arc → p.characters[0].arc)."""
+    """칸 경로가 가리키는 지금 값 (meta.logline_parts.who → p.meta.logline_parts.who, characters.0.arc → p.characters[0].arc).
+    목록 칸은 한 줄에 하나로 잇는다."""
     obj = p
     for k in field.split("."):
         obj = obj[int(k)] if k.isdigit() else getattr(obj, k)
+    if isinstance(obj, list):  # 목록 칸 (숨기는 것): 한 줄에 하나
+        return "\n".join(t for t in (str(x).strip() for x in obj) if t)
     return str(obj or "").strip()
 
 # ---------- 삽화 프롬프트 (NovelAI) ----------
