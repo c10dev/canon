@@ -2422,10 +2422,23 @@ def dismiss_impact(p: Project, eid: str) -> None:
 # 화 번호를 품은 곳(구간 · 아크 · 부 범위, 총 화수, 복선, 인과율 요소, 이야기 줄기, 인물 첫 등장 화)도 함께 옮긴다 (renumber.py).
 # 본문이 있거나 상태를 반영한 화는 번호를 바꾸지 않는다: 본문 파일, 스냅샷, 사건 로그까지 바꿔야 해서다.
 
-def insert_range(p: Project) -> tuple[int, int]:
-    """새 화를 넣을 수 있는 자리 (그 화 앞에 넣는다). 처음 > 끝이면 넣을 수 없다."""
+def insert_range(p: Project, move_text: bool = False) -> tuple[int, int]:
+    """새 화를 넣을 수 있는 자리 (그 화 앞에 넣는다). 처음 > 끝이면 넣을 수 없다. move_text 는 renumber.last_fixed 와 같다."""
     last = max((e.plot.number for e in p.episodes), default=0)
-    return renumber.last_fixed(p) + 1, last + 1
+    return renumber.last_fixed(p, move_text) + 1, last + 1
+
+
+def _fixed_why(move_text: bool) -> str:
+    return "상태를 반영했거나 연재처에 올려" if move_text else "본문이 있거나 상태를 반영해"
+
+
+def _text_note(p: Project, moved: list[int], f) -> list[str]:
+    """본문이 있는 화를 옮겼으면 어디로 갔는지와 다시 볼 것을 알린다."""
+    pairs = [(n, f(n)) for n in moved if renumber.has_text(p.episode(n))]
+    if not pairs:
+        return []
+    return [f"본문이 있는 {' · '.join(f'{a}화' for a, _ in pairs)}는 {' · '.join(f'{b}화' for _, b in pairs)}가 됐어요. "
+            "본문은 그대로라 본문 속 화 번호나 앞 화와 잇는 문장은 바뀌지 않아요. 검수로 다시 보세요."]
 
 
 def _ranges_text(p: Project) -> dict[str, tuple[int, int]]:
@@ -2488,13 +2501,14 @@ def _renumbered(p: Project, change) -> list[str]:
     return notes
 
 
-def insert_episode(p: Project, at: int, title: str = "", summary: str = "", storyline: str = "") -> list[str]:
+def insert_episode(p: Project, at: int, title: str = "", summary: str = "", storyline: str = "", move_text: bool = False) -> list[str]:
     """at 화 자리에 빈 플롯(제목 · 요약만)의 새 화를 넣고, 지금 at 화부터 뒤 화를 한 칸씩 민다.
-    새 화는 바로 뒤 화가 든 구간 · 아크 · 부에 들어가고, 맨 끝에 붙이면 마지막 범위가 늘어난다. 반영한 내용 설명을 돌려준다."""
-    lo, hi = insert_range(p)
+    새 화는 바로 뒤 화가 든 구간 · 아크 · 부에 들어가고, 맨 끝에 붙이면 마지막 범위가 늘어난다. 반영한 내용 설명을 돌려준다.
+    move_text 면 본문만 있고 반영하지 않은 화도 함께 민다 (renumber.last_fixed)."""
+    lo, hi = insert_range(p, move_text)
     if not lo <= at <= hi:
         if at < lo:
-            raise ValueError(f"{at}화 앞에는 넣을 수 없어요. {lo - 1}화까지는 본문이 있거나 상태를 반영해 번호를 옮기지 않아요. "
+            raise ValueError(f"{at}화 앞에는 넣을 수 없어요. {lo - 1}화까지는 {_fixed_why(move_text)} 번호를 옮기지 않아요. "
                              f"{lo}화부터 넣을 수 있어요")
         raise ValueError(f"{at}화 자리가 없어요. {hi}화(마지막 화 뒤)까지 넣을 수 있어요")
     if storyline:
@@ -2518,19 +2532,23 @@ def insert_episode(p: Project, at: int, title: str = "", summary: str = "", stor
         q.episodes = sorted([*q.episodes, Episode(plot=plot)], key=lambda e: e.plot.number)
         return counts
 
+    texts = _text_note(p, moved, lambda x: x + 1)
     notes = _renumbered(p, change)
     head = f"{at}화에 새 화를 넣었어요."
     if moved:
         head += f" 원래 {moved[0]}~{moved[-1]}화는 {moved[0] + 1}~{moved[-1] + 1}화가 됐어요 (확정 상태 그대로)."
-    return [head, *notes]
+    return [head, *texts, *notes]
 
 
-def remove_episode(p: Project, n: int) -> list[str]:
-    """아직 안 쓴 n 화를 빼고 뒤 화를 한 칸씩 당긴다. n 화를 가리키던 복선 · 요소 · 줄기 번호는 그 자리에 온 다음 화를 가리킨다."""
+def remove_episode(p: Project, n: int, move_text: bool = False) -> list[str]:
+    """아직 안 쓴 n 화를 빼고 뒤 화를 한 칸씩 당긴다. n 화를 가리키던 복선 · 요소 · 줄기 번호는 그 자리에 온 다음 화를 가리킨다.
+    move_text 면 뒤에 본문만 있고 반영하지 않은 화가 있어도 당긴다. 본문이 있는 n 화 자신은 빼지 않는다 (delete_last)."""
     ep = p.episode(n)
-    lo, _ = insert_range(p)
+    lo, _ = insert_range(p, move_text)
     if n < lo:
-        raise ValueError(f"{n}화는 뺄 수 없어요. {lo - 1}화까지는 본문이 있거나 상태를 반영해 번호를 옮기지 않아요")
+        raise ValueError(f"{n}화는 뺄 수 없어요. {lo - 1}화까지는 {_fixed_why(move_text)} 번호를 옮기지 않아요")
+    if renumber.has_text(ep):
+        raise ValueError(f"{n}화는 본문이 있어 뺄 수 없어요. 마지막으로 쓴 화라면 '이 화 지우기'로 지우세요")
     moved = [e.plot.number for e in p.episodes if e.plot.number > n]
 
     def change(q: Project) -> dict[str, int]:
@@ -2548,11 +2566,12 @@ def remove_episode(p: Project, n: int) -> list[str]:
         sync_candidates(q)
         return counts
 
+    texts = _text_note(p, moved, lambda x: x - 1)
     notes = _renumbered(p, change)
     head = f"{n}화 '{ep.plot.title or '제목 없음'}'을(를) 뺐어요."
     if moved:
         head += f" 원래 {moved[0]}~{moved[-1]}화는 {moved[0] - 1}~{moved[-1] - 1}화가 됐어요."
-    return [head, *notes]
+    return [head, *texts, *notes]
 
 
 def delete_last(p: Project, n: int, keep_plot: bool = False) -> list[str]:

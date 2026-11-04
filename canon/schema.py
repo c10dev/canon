@@ -985,9 +985,9 @@ AGENT_END_TOOLS = ("done", "end", "finish", "none", "reply")  # 모델이 턴 �
 class PlotAgentStep(BaseModel):
     """플롯 대화 에이전트의 한 단계. 도구 하나를 부르거나, tool 을 비우고 reply 로 턴을 끝낸다 (agent.run_turn)."""
     thought: str = Field("", description="작가에게 보일 한 줄: 이 단계에서 무엇을 왜 하는지")
-    tool: Literal["", "read_plots", "read_summaries", "find_text", "read_cast", "edit_plot", "ask"] = Field(
+    tool: Literal["", "read_plots", "read_summaries", "find_text", "read_cast", "edit_plot", "insert_episodes", "remove_episode", "ask"] = Field(
         "", description="부를 도구 이름 ([도구] 목록에 있는 것). 턴을 끝낼 때는 빈 글로 두고 reply 칸에 답을 쓴다. reply 는 도구 이름이 아니다")
-    args: list[ToolArg] = Field(default_factory=list, description="읽기 도구의 인자")
+    args: list[ToolArg] = Field(default_factory=list, description="읽기 도구와 insert_episodes · remove_episode 의 인자")
     edit: PlotRevision = Field(default_factory=lambda: PlotRevision(reply=""),
                                description="edit_plot 일 때만: 바꿀 것만 채운 변경안. reply 는 한 줄 설명. 다른 도구면 비워 둔다")
     question: str = Field("", description="ask 일 때만: 작가에게 묻는 말")
@@ -1014,8 +1014,20 @@ class StepRecord(BaseModel):
     result: str = ""
 
 
+class RenumberOp(BaseModel):
+    """대화 에이전트의 화 넣기 · 빼기 (agent.RENUMBER_TOOLS). 늘 작가에게 묻고, 승인하면 pipeline.insert_episode · remove_episode 로 쓴다."""
+    kind: Literal["insert", "remove"] = "insert"
+    at: int = Field(0, description="insert: 이 화 앞에 넣는다 / remove: 뺄 화")
+    titles: list[str] = Field(default_factory=list, description="insert: 새 화마다 제목 (수가 넣을 화 수)")
+    summaries: list[str] = Field(default_factory=list, description="insert: 새 화마다 한 줄 요약")
+    notes: list[str] = Field(default_factory=list, description="무엇이 어떻게 옮겨 가는지 (승인 카드에 보임, 쓴 뒤에는 쓴 결과)")
+    removed: Optional[EpisodePlot] = Field(None, description="remove: 뺀 화의 플롯 (되돌리기용)")
+    removed_status: str = Field("", description="remove: 뺀 화의 상태 (되돌리기용)")
+    after_total: int = Field(0, description="쓴 직후 화 수. 되돌릴 때 이와 다르면 그 뒤에 화 번호가 바뀐 것으로 보고 되돌리지 않는다")
+
+
 class WriteItem(BaseModel):
-    """바로 쓴 것 한 부분. key 는 'parts' · 'arc' · 'acts' · 'draft'(다음 아크 초안) · 화 번호."""
+    """바로 쓴 것 한 부분. key 는 'parts' · 'arc' · 'acts' · 'draft'(다음 아크 초안) · 화 번호 · 'renumber'(화 넣기 · 빼기)."""
     key: str
     label: str = ""
     state: Literal["done", "reverted", "kept"] = "done"
@@ -1030,6 +1042,7 @@ class WriteRecord(BaseModel):
     items: list[WriteItem] = Field(default_factory=list)
     before: Optional[PlotUndo] = None
     after: Optional[PlotUndo] = None
+    op: Optional[RenumberOp] = Field(None, description="화 넣기 · 빼기를 쓴 기록. 되돌리기는 반대 동작(agent.inverse)")
 
 
 class Approval(BaseModel):
@@ -1037,10 +1050,11 @@ class Approval(BaseModel):
     tool: str = "edit_plot"
     target: str = ""
     revision: Optional[PlotRevision] = None
-    keys: list[str] = Field(default_factory=list, description="묻는 부분 ('parts' · 'arc' · 'acts' · 화 번호)")
+    keys: list[str] = Field(default_factory=list, description="묻는 부분 ('parts' · 'arc' · 'acts' · 화 번호 · 'renumber')")
     kinds: list[str] = Field(default_factory=list, description="묻는 까닭이 된 종류 (agent.KIND_LABELS). '이 세션에서 묻지 않기'가 auto_kinds 에 더한다")
     state: Literal["wait", "approved", "denied"] = "wait"
     picked: list[str] = Field(default_factory=list)
+    op: Optional[RenumberOp] = Field(None, description="화 넣기 · 빼기를 묻는 카드 (tool 이 insert_episodes · remove_episode)")
 
 
 class AskCard(BaseModel):

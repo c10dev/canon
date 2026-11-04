@@ -319,7 +319,7 @@ def _agent_step(hint: dict) -> PlotAgentStep:
     """대화 에이전트 흉내. 처음엔 플롯을 읽고, 다음 단계에 플롯 대화 흉내(_revision)로 고치고, 쓴 결과를 보면 끝낸다.
     '여러 안' 요청은 되묻고, '?' 로 끝나면 답만 하고, '끝없이' 는 상한 시험으로 늘 읽는다.
     '끝 이름' 은 읽은 뒤 칸 이름 reply 를 도구로 적어 끝낸다 (모델이 실제로 낸 응답 모양).
-    '빈 물음' 은 묻는 말 없는 ask 를 내고, '분석' 은 처음에 예고만 하고, 되돌림 단계(tool 'reply')를 보면 내용을 쓴다."""
+    'N화 앞에 M화' 는 화 넣기, 'N화 빼' 는 화 빼기를 묻고, '빈 물음' 은 묻는 말 없는 ask 를 내고, '분석' 은 처음에 예고만 하고, 되돌림 단계(tool 'reply')를 보면 내용을 쓴다."""
     msg, steps, tools = hint["message"], hint.get("steps", []), hint.get("tools", [])
     if "끝없이" in msg:
         return PlotAgentStep(thought="더 읽어 봐요", tool="read_plots",
@@ -327,6 +327,15 @@ def _agent_step(hint: dict) -> PlotAgentStep:
     if hint.get("mode") == "options" and "ask" not in tools:
         rev = _revision({**hint, "mode": "options"})
         return PlotAgentStep(thought="방향을 먼저 물어요", tool="ask", question="어느 방향으로 갈까요?", options=rev.options, reply=rev.reply)
+    hit = re.search(r"(\d+)화 앞에 (\d+)화", msg)
+    if hit and "approval" not in tools and not any(t in tools for t in ("insert_episodes", "remove_episode")):
+        at, c = int(hit.group(1)), int(hit.group(2))
+        return PlotAgentStep(thought="화를 넣어요", tool="insert_episodes", reply="화를 넣어도 될지 물어요.",
+                             args=[ToolArg(name="at", value=str(at)), ToolArg(name="count", value=str(c)),
+                                   ToolArg(name="titles", value=" | ".join(f"새 화 {k + 1}" for k in range(c)))])
+    hit = re.search(r"(\d+)화 빼", msg)
+    if hit and "approval" not in tools and "remove_episode" not in tools:
+        return PlotAgentStep(thought="화를 빼요", tool="remove_episode", args=[ToolArg(name="n", value=hit.group(1))])
     if "빈 물음" in msg:  # 묻는 말 · 안 · 답이 모두 빈 ask (2026-11-04 실제 응답 모양). '계속' 이면 되돌려도 또 빈 ask
         if "ask_empty" in tools and "계속" not in msg:
             return PlotAgentStep(reply="1~7화를 보면 승 구간의 감각 묘사가 4화에서 끊겨요.")

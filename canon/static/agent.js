@@ -7,7 +7,8 @@
 const AGENT_MODES = { ask: ['물어보기', '쓰기마다 그 자리에서 승인해요.'],
   draft: ['빈 곳 · 초안만 자동', '초안 화 · 새 화 · 다음 아크 초안은 바로 쓰고, 확정한 화와 범위는 물어요.'],
   all: ['모두 자동', '막힌 것 말고는 묻지 않고 써요. 턴마다 되돌릴 수 있어요.'] };
-const AGENT_KINDS = { draft: '초안 화', next: '다음 아크 초안', confirmed: '확정한 화', arc: '아크 칸', acts: '구간 · 범위', parts: '부 구성' };
+const AGENT_KINDS = { draft: '초안 화', next: '다음 아크 초안', confirmed: '확정한 화', arc: '아크 칸', acts: '구간 · 범위', parts: '부 구성',
+  renumber: '화 넣기 · 빼기' };
 const AGENT_CMDS = [['/여러안', '바꾸기 전에 방향 여러 안으로 물어요'], ['/대상', '이 세션의 대상을 지금 보는 곳으로'],
   ['/새세션', '지금 보는 곳으로 새 세션'], ['/되돌리기', '마지막으로 바꾼 턴 되돌리기']];
 const AGENT_STEP_ICON = { read: '읽', write: '씀', wait: '물', block: '막', ask: '?', note: '·' };
@@ -186,7 +187,7 @@ function agentTurn(s, t, i) {
 
 function agentToolName(tool) {
   return { read_plots: '화 플롯 읽기', read_summaries: '화 요약 목록', find_text: '본문 단락 찾기', read_cast: '인물 읽기',
-    edit_plot: '플롯 고치기', ask: '되묻기', approval: '작가의 답' }[tool] || tool;
+    edit_plot: '플롯 고치기', insert_episodes: '화 넣기', remove_episode: '화 빼기', ask: '되묻기', approval: '작가의 답' }[tool] || tool;
 }
 
 /** 바로 쓴 것 한 부분의 바뀐 칸. 쓰기 전 · 뒤 값(before · after)으로 비교한다 (지금 값은 이미 바뀌었다). */
@@ -205,7 +206,29 @@ function agentItemDiff(w, item) {
   if (item.key === 'acts') return actsDiff({ acts: a.arc ? a.arc.acts : a.acts, total_episodes: 0 }, b.arc ? b.arc.acts : b.acts || []);
   if (item.key === 'parts') return (a.parts || []).map((x) => `<div class="diff-row"><span class="act-label">${x.number}부</span><ins>${esc(x.title)} · ${epRange(x.start_ep, x.end_ep)}</ins></div>`).join('');
   if (item.key === 'draft' && w.revision) return arcDiff(w.revision, null, plannedUntil() + 1);
+  if (item.key === 'renumber' && w.op) return agentOpNotes(w.op);
   return '';
+}
+
+/** 화 넣기 · 빼기의 안내 줄 (agent.apply_op 이 낸 notes, 새 화 제목) */
+function agentOpNotes(op) {
+  const titles = op.kind === 'insert' ? op.titles.map((t, k) => `<li>${op.at + k}화 ${esc(t || '제목 없음')}${op.summaries[k] ? ` · <span class="small">${esc(op.summaries[k])}</span>` : ''}</li>`).join('') : '';
+  return `${titles ? `<ul class="option-changes">${titles}</ul>` : ''}${op.notes.map((x) => `<div class="small">${esc(x)}</div>`).join('')}`;
+}
+
+/** 화 넣기 · 빼기 승인 카드: 고를 부분 없이 통째로 승인 · 거절한다. 권한 모드와 상관없이 늘 묻는다 */
+function agentOpApproval(t, i, last) {
+  const a = t.approval;
+  const wait = a.state === 'wait' && t.end === 'wait' && last;
+  const head = { wait: '<span class="chip warn">승인 기다림</span>', approved: '<span class="chip ok">승인함</span>', denied: '<span class="chip">거절함</span>' }[a.state];
+  const name = a.op.kind === 'remove' ? `${a.op.at}화 빼기` : `${a.op.at}화 앞에 새 화 ${a.op.titles.length}개 넣기`;
+  return `<div class="approval${wait ? '' : ' settled'}">
+    <div class="row">${head}<strong>${esc(name)}</strong></div>
+    ${wait ? `<span class="small">뒤 화 번호가 바뀌어 권한 모드와 상관없이 물어봐요. 상태를 반영한 화는 옮기지 않아요.</span>
+      <div class="small"><strong>승인하면 이렇게 돼요</strong></div>${agentOpNotes(a.op)}
+      <div class="row proposal-actions"><button type="button" class="btn small" data-action="agentDecide" data-arg="${i}|0">거절</button>
+        <button type="button" class="btn small primary" data-action="agentDecide" data-arg="${i}|1">승인하고 이어 하기</button></div>` : ''}
+  </div>`;
 }
 
 function agentWrites(s, t, i) {
@@ -229,6 +252,7 @@ function agentWrites(s, t, i) {
 
 function agentApproval(t, i, last) {
   const a = t.approval;
+  if (a.op) return agentOpApproval(t, i, last);
   const wait = a.state === 'wait' && t.end === 'wait' && last;
   const rev = a.revision;
   const base = revBase({ target: a.target });

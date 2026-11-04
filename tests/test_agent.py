@@ -297,3 +297,62 @@ def test_turn_uses_chat_stage(client, monkeypatch):
     asked.clear()  # 작품 만들기는 계획 단계를 쓴다
     _say(client, _session(client), "3화 고쳐 줘")
     assert set(asked) == {"chat"}  # 턴과 패널 상태 줄의 모델 이름 모두
+
+
+def _with_text(client, n=5):
+    """n 화에 본문만 있다 (반영 전). 서버 subway-1-수정본처럼 재구성으로 옮겨 온 본문."""
+    from canon import store
+    _project(client)
+    p = store.load("lh")
+    p.episode(n).text, p.episode(n).status = "옮겨 온 본문", "written"
+    store.save("lh", p)
+
+
+def test_insert_episodes_always_asks_then_moves_written(client):
+    _with_text(client)
+    sid = _session(client, mode="all")  # '모두 자동'이어도 묻는다
+    t = _say(client, sid, "5화 본문을 7화로 옮기게 5화 앞에 2화 넣어 줘")
+    a = t["approval"]
+    assert t["end"] == "wait" and a["keys"] == ["renumber"] and a["op"]["at"] == 5 and len(a["op"]["titles"]) == 2
+    assert any("본문이 있는 5화는 7화" in x for x in a["op"]["notes"])
+    assert _ep(client, 5)["text"] == "옮겨 온 본문"  # 묻는 동안은 그대로
+
+    r = client.post(f"/api/projects/lh/sessions/{sid}/turns/0/approval", json={"approve": True})
+    assert r.status_code == 200, r.text
+    assert _wait(client, r.json()["job"]["id"])["status"] == "done"
+    assert _ep(client, 7)["text"] == "옮겨 온 본문" and _ep(client, 5)["plot"]["title"] == "새 화 1"
+    t = _turn(client, sid)
+    assert t["writes"][0]["items"][0]["key"] == "renumber" and t["end"] == "done"
+
+    r = client.post(f"/api/projects/lh/sessions/{sid}/turns/0/undo", json={}).json()
+    assert r["restored"] == ["5화 앞에 새 화 2개 넣기"]
+    assert _ep(client, 5)["text"] == "옮겨 온 본문" and len(client.get("/api/projects/lh").json()["episodes"]) == 10
+
+
+def test_remove_episode_blocks_text_and_asks_for_empty(client):
+    _with_text(client)
+    sid = _session(client)
+    t = _say(client, sid, "5화 빼 줘")
+    assert t["steps"][0]["kind"] == "block" and "본문이 있어" in t["steps"][0]["why"] and not t["approval"]
+    t = _say(client, sid, "4화 빼 줘")
+    assert t["end"] == "wait" and t["approval"]["op"]["kind"] == "remove"
+    title = _ep(client, 4)["plot"]["title"]
+    r = client.post(f"/api/projects/lh/sessions/{sid}/turns/1/approval", json={"approve": True})
+    _wait(client, r.json()["job"]["id"])
+    assert _ep(client, 4)["text"] == "옮겨 온 본문"
+    client.post(f"/api/projects/lh/sessions/{sid}/turns/1/undo", json={})
+    assert _ep(client, 4)["plot"]["title"] == title and _ep(client, 5)["text"] == "옮겨 온 본문"
+
+
+def test_op_from_and_shift():
+    import pytest
+    from canon import agent
+    op = agent.op_from("insert_episodes", {"at": "8화", "titles": "가 | 나 | 다"})
+    assert (op.at, op.titles, op.summaries) == (8, ["가", "나", "다"], ["", "", ""])
+    assert agent.shift(op)(8) == 11 and agent.shift(op)(7) == 7 and agent.shift(op, inverse=True)(11) == 8
+    rm = agent.op_from("remove_episode", {"n": "4"})
+    assert agent.shift(rm)(5) == 4 and agent.shift(rm, inverse=True)(4) == 5
+    with pytest.raises(ValueError):
+        agent.op_from("insert_episodes", {"at": "3", "count": "11"})
+    with pytest.raises(ValueError):
+        agent.op_from("remove_episode", {})

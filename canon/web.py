@@ -1829,11 +1829,19 @@ class InsertIn(BaseModel):
     storyline: str = ""
 
 
-def _renumber_ready(name: str) -> None:
+def _renumber_ready(name: str, first: int = 0) -> None:
+    """번호를 옮기기 전에: 자동 집필 · 돌고 있는 AI 작업, first 화부터 검토를 기다리는 결과 · 실패한 작업이 있으면 막는다."""
     autorun.check_renumber(name)
     busy = [j.label for j in jobs.listing(name) if j.status == "running"]
     if busy:
         raise ValueError(f"AI 작업({', '.join(busy)})이 끝난 뒤에 하세요. 화 번호가 바뀌면 작업 결과가 엉뚱한 화에 들어가요")
+    if first:
+        held = store.pending_eps(name, first)
+        if held:
+            raise ValueError(f"{', '.join(f'{n}화' for n in held)}에 검토를 기다리는 AI 결과나 실패한 작업이 있어요. "
+                             "먼저 확인하거나 버린 뒤에 하세요. 화 번호가 바뀌면 결과가 엉뚱한 화에 들어가요")
+
+
 
 
 class Renumbered(BaseModel):
@@ -1845,11 +1853,11 @@ class Renumbered(BaseModel):
 @app.post("/api/projects/{name}/episodes/insert")
 def insert_episode(name: str, body: InsertIn) -> Renumbered:
     """새 화를 넣고 뒤 화를 한 칸씩 민다. 무엇을 옮겼는지(notes)를 함께 돌려준다."""
-    _renumber_ready(name)
     at = body.at
+    _renumber_ready(name, at)
     with jobs.project_lock(name):
         p = _load(name)
-        notes = pipeline.insert_episode(p, at, body.title, body.summary, body.storyline)
+        notes = pipeline.insert_episode(p, at, body.title, body.summary, body.storyline, not store.shares_text(name))
         store.save(name, p)
     autorun.renumber(name, lambda x: x + 1 if x >= at else x)
     return {"project": p, "notes": notes}
@@ -1858,10 +1866,10 @@ def insert_episode(name: str, body: InsertIn) -> Renumbered:
 @app.delete("/api/projects/{name}/episodes/{n}")
 def remove_episode(name: str, n: int) -> Renumbered:
     """아직 안 쓴 화를 빼고 뒤 화를 한 칸씩 당긴다."""
-    _renumber_ready(name)
+    _renumber_ready(name, n)
     with jobs.project_lock(name):
         p = _load(name)
-        notes = pipeline.remove_episode(p, n)
+        notes = pipeline.remove_episode(p, n, not store.shares_text(name))
         store.save(name, p)
     autorun.renumber(name, lambda x: x - 1 if x >= n else x)
     return {"project": p, "notes": notes}
@@ -2165,9 +2173,16 @@ class ApprovalIn(BaseModel):
 
 @app.post("/api/projects/{name}/sessions/{sid}/turns/{t}/approval")
 def agent_approval(name: str, sid: str, t: int, body: ApprovalIn) -> dict:
-    """승인 카드에 답하고 같은 턴을 이어 돌린다. 쓴 작품을 함께 돌려준다."""
+    """승인 카드에 답하고 같은 턴을 이어 돌린다. 쓴 작품을 함께 돌려준다.
+    화 넣기 · 빼기 카드는 화 끼워 넣기 화면과 같은 검사(_renumber_ready)를 거치고 자동 집필 기록의 화 번호도 옮긴다."""
     _need(name)
-    p = _edit(name, lambda q: agent.decide(q, sid, t, body.approve, body.picked, body.remember))
+    _, turn = agent.turn_of(_load(name), sid, t)
+    op = turn.approval.op if body.approve and turn.approval else None
+    if op:
+        _renumber_ready(name, op.at)
+    p = _edit(name, lambda q: agent.decide(q, sid, t, body.approve, body.picked, body.remember, not store.shares_text(name)))
+    if op:
+        autorun.renumber(name, agent.shift(op))
     return {"project": p, "job": _run_agent(name, sid, t)}
 
 
@@ -2188,8 +2203,14 @@ class AgentUndoIn(BaseModel):
 def agent_undo(name: str, sid: str, t: int, body: AgentUndoIn) -> dict:
     """바로 쓴 것을 되돌린다. 그 뒤에 다시 고치거나 확정한 것은 남기고 까닭을 돌려준다."""
     _need(name)
+    ops = agent.undo_ops(_load(name), sid, t, body.write, body.key)
+    if ops:
+        _renumber_ready(name, min(op.at for op in ops))
     out: list = []
-    p = _edit(name, lambda q: out.append(agent.undo(q, sid, t, body.write, body.key)))
+    done: list = []
+    p = _edit(name, lambda q: out.append(agent.undo(q, sid, t, body.write, body.key, not store.shares_text(name), done)))
+    for op in done:
+        autorun.renumber(name, agent.shift(op, inverse=True))
     restored, kept, reasons = out[0]
     return {"project": p, "restored": restored, "kept": kept, "reasons": reasons}
 

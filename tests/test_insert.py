@@ -196,3 +196,57 @@ def test_web_insert_draft_and_remove(client):
     assert client.post("/api/projects/ins/episodes/insert", json={"at": 3}).status_code == 400
     r = client.delete("/api/projects/ins/episodes/6")
     assert r.status_code == 200 and len(r.json()["project"]["episodes"]) == 12
+
+
+def _with_text(written=2, text_ep=5) -> Project:
+    """written 화까지 반영했고, text_ep 화는 본문만 있다 (반영 전). 단편을 재구성해 옮긴 본문이 이렇다."""
+    from canon.schema import ConsistencyIssue, ForeshadowClue
+    p = _short(written=written)
+    e = p.episode(text_ep)
+    e.text, e.status = "옮겨 온 본문", "written"
+    e.issues = [ConsistencyIssue(type="사실", description="어긋남", source_episode=text_ep, source_quote="가", current_quote="나")]
+    p.foreshadow_clues.append(ForeshadowClue(foreshadow="fs-1", quote="옮겨 온", episode=text_ep, by="author"))
+    return p
+
+
+def test_move_text_pushes_written_episode():
+    p = _with_text()
+    assert pipeline.insert_range(p) == (6, 13) and pipeline.insert_range(p, move_text=True) == (3, 13)
+    with pytest.raises(ValueError, match="본문이 있거나"):
+        pipeline.insert_episode(p, 4)
+    notes = pipeline.insert_episode(p, 4, "새 화", move_text=True)
+    e = p.episode(6)
+    assert e.text == "옮겨 온 본문" and e.status == "written" and p.episode(5).text == ""
+    assert e.issues[0].source_episode == 6 and p.foreshadow_clues[-1].episode == 6
+    assert any("본문이 있는 5화는 6화가 됐어요" in x for x in notes)
+    assert p.episode(2).status == "finalized" and p.history[-1].episode == 2  # 반영한 화는 그대로
+
+
+def test_move_text_keeps_released_and_never_removes_text():
+    p = _with_text()
+    p.release.released = 4
+    assert pipeline.insert_range(p, move_text=True)[0] == 5
+    with pytest.raises(ValueError, match="연재처에 올려"):
+        pipeline.insert_episode(p, 4, move_text=True)
+    p.release.released = 0
+    with pytest.raises(ValueError, match="본문이 있어 뺄 수 없어요"):
+        pipeline.remove_episode(p, 5, move_text=True)
+    pipeline.remove_episode(p, 4, move_text=True)  # 앞의 안 쓴 화를 빼면 본문이 있는 화가 당겨진다
+    assert p.episode(4).text == "옮겨 온 본문" and p.foreshadow_clues[-1].episode == 4
+
+
+def test_web_moves_text_unless_branch_or_pending(client):
+    from canon import store
+    from canon.schema import BranchInfo
+
+    store.save("mv", _with_text())
+    store.edit_pending("mv", lambda d: d["results"].__setitem__("check:5", {"key": "check:5", "kind": "check", "ep": 5}))
+    r = client.post("/api/projects/mv/episodes/insert", json={"at": 4})
+    assert r.status_code == 400 and "5화에 검토를 기다리는" in r.text
+    store.edit_pending("mv", lambda d: d["results"].clear())
+    store.save_branch("mv", BranchInfo(id="a", family="f"))
+    assert client.post("/api/projects/mv/episodes/insert", json={"at": 4}).status_code == 400  # 갈래 집안은 옮기지 않는다
+    store.drop_branch("mv")
+    r = client.post("/api/projects/mv/episodes/insert", json={"at": 4})
+    assert r.status_code == 200, r.text
+    assert r.json()["project"]["episodes"][5]["text"] == "옮겨 온 본문"
