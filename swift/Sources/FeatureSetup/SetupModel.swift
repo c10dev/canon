@@ -91,6 +91,8 @@ public final class SetupModel {
         self.document = document
         self.jobs = jobs
         self.service = service
+        wizard = Self.memory[document.name]
+        openMode()  // 작품을 이미 받아 뒀으면 첫 화면부터 맞는 보기로 연다
     }
 
     public var project: Project? { document.project }
@@ -99,6 +101,7 @@ public final class SetupModel {
     /// 화면을 열 때: 작품, 장르 목록, 보는 방식, 이름 스타일, 이름 점검.
     public func load() async {
         await document.load()
+        openMode()
         async let g = try? service.genres()
         async let v = try? service.relationViews()
         async let s = try? service.namingStyles()
@@ -109,6 +112,79 @@ public final class SetupModel {
     }
 
     public func dismissNotice() { notice = nil }
+
+    // MARK: 새 작품 마법사 (웹 `setupMode` · `wizState` · `wizGo`)
+
+    /// 설정 화면 보기: 마법사, 기획서.
+    public enum Mode: Equatable, Sendable { case wizard, doc }
+
+    /// 마법사 상태: 보기, 지금 걸음, 들른 걸음.
+    public struct Wizard: Equatable, Sendable {
+        public var mode: Mode
+        public var step: Int
+        public var seen: [Int]
+    }
+
+    /// 작품마다 고른 보기와 걸음. 화면을 다시 열어도 앱을 끄기 전까지는 그대로다 (웹 `S.setupModes` · `S.wiz`).
+    private static var memory: [String: Wizard] = [:]
+
+    public private(set) var wizard: Wizard? {
+        didSet { Self.memory[name] = wizard }
+    }
+
+    public var mode: Mode { wizard?.mode ?? .doc }
+
+    /// 마법사 규칙에 넘길 작품 값.
+    public var wizardInput: SetupWizard.Input {
+        let p = project
+        return SetupWizard.Input(
+            title: p?.meta?.title ?? "", genres: p?.meta?.genres ?? [], logline: p?.meta?.logline ?? "",
+            setting: p?.world?.setting ?? "",
+            characters: (p?.characters ?? []).map { .init(id: $0.id, name: $0.name) },
+            relationships: (p?.relationships ?? []).map { .init(a: $0.a, b: $0.b, type: $0._type) })
+    }
+
+    /// 처음 열 때 보기를 정한다: 반영을 시작했거나 필수를 다 채웠으면 기획서, 아니면 마법사.
+    /// 정한 뒤에는 바꾸지 않는다 (다 채워도 마법사가 갑자기 닫히지 않게).
+    func openMode() {
+        guard wizard == nil, project != nil else { return }
+        let input = wizardInput
+        let doc = SetupRules.started(project) || SetupWizard.complete(input)
+        let step = SetupWizard.firstGap(input)
+        wizard = Wizard(mode: doc ? .doc : .wizard, step: step, seen: [step])
+    }
+
+    /// 마법사 · 기획서를 오간다. 마법사를 다시 열면 필수 칸이 빈 첫 걸음부터.
+    public func setMode(_ mode: Mode) {
+        let step = SetupWizard.firstGap(wizardInput)
+        wizard = mode == .wizard ? Wizard(mode: .wizard, step: step, seen: [step]) : Wizard(mode: .doc, step: wizard?.step ?? step, seen: wizard?.seen ?? [step])
+    }
+
+    /// 걸음 `i` 의 상태.
+    public func stepState(_ i: Int) -> SetupWizard.StepState {
+        SetupWizard.stepState(wizardInput, i, seen: wizard?.seen ?? [])
+    }
+
+    /// 걸음을 옮긴다. 앞으로 갈 때 저장하고, 저장하지 못하면 그 걸음에 남는다.
+    public func go(step i: Int) async {
+        guard var w = wizard, (0...SetupWizard.finish).contains(i), i != w.step else { return }
+        if i > w.step, document.dirty, await document.save() == false, document.dirty { return }
+        w.step = i
+        if !w.seen.contains(i) { w.seen.append(i) }
+        wizard = w
+    }
+
+    /// 세계 종류 칩: 배경 첫 문장만 바꾸고 뒤 글은 둔다.
+    public func pickWorldKind(_ label: String) {
+        editWorld { $0.setting = SetupWizard.withWorldKind($0.setting ?? "", label) }
+        Task { await checkNames() }  // 배경도 자동 이름 스타일을 정한다
+    }
+
+    /// 시대 칩: 고른 시대를 다시 누르면 비운다.
+    public func pickEra(_ label: String) {
+        editWorld { $0.era = SetupWizard.withEra($0.era ?? "", label) }
+        Task { await checkNames() }
+    }
 
     // MARK: 고치기
 

@@ -5,7 +5,7 @@ import CanonStore
 import CanonUI
 import SwiftUI
 
-/// 설정 도우미 (웹 `viewSetup`): 기본 정보, 세계관, 인물, 관계, AI 설정 제안.
+/// 설정 도우미 (웹 `viewSetup`): 필수 칸이 빈 새 작품은 마법사(`WizardContent`), 그 밖은 기획서(기본 정보, 세계관, 인물, 관계, AI 설정 제안).
 public struct SetupView: View {
     @State private var model: SetupModel
     let go: (Screen) -> Void
@@ -18,7 +18,7 @@ public struct SetupView: View {
     public var body: some View {
         Group {
             if model.project != nil {
-                content
+                if model.mode == .wizard { WizardContent(model: model, go: go) } else { content }
             } else if let error = model.document.error {
                 ContentUnavailableView("작품을 불러오지 못했어요", systemImage: "exclamationmark.triangle", description: Text(error))
             } else {
@@ -56,10 +56,11 @@ public struct SetupView: View {
     private var header: some View {
         let first = (model.project?.characters ?? []).isEmpty
         return VStack(alignment: .leading, spacing: 8) {
-            Text("1단계").font(.caption).foregroundStyle(.secondary)
+            Text("1단계 · 기획서").font(.caption).foregroundStyle(.secondary)
             Text("설정 도우미").font(.largeTitle.bold())
             Text("채운 칸은 그대로 두고, 빈칸만 AI가 제안해요. 제안에서 원하는 인물과 관계만 골라 적용하세요.").foregroundStyle(.secondary)
             HStack {
+                Button("마법사로 보기") { model.setMode(.wizard) }.buttonStyle(.bordered)
                 // 인물이 없으면 첫 할 일은 AI 제안이다. 인물이 생기면 다음 단계(문체)를 앞세운다
                 if first {
                     Button(model.suggestLabel) { Task { await model.suggest() } }.buttonStyle(.borderedProminent).disabled(model.suggesting)
@@ -110,7 +111,6 @@ struct Card<Content: View>: View {
 
 struct BasicSection: View {
     let model: SetupModel
-    @State private var customGenre = ""
 
     private var meta: Meta? { model.project?.meta }
 
@@ -125,24 +125,55 @@ struct BasicSection: View {
     var body: some View {
         Card("기본 정보") {
             LabeledText("제목", text: text(\.title))
-            genrePicker
-            Toggle(isOn: binding({ meta?.adult ?? false }, { v in model.editMeta { $0.adult = v } })) {
-                VStack(alignment: .leading) {
-                    Text("성인물").bold()
-                    Text("성인 독자 대상. 끄면 노골적인 성적 묘사와 과도한 잔혹 묘사를 피하도록 지시해요").font(.caption).foregroundStyle(.secondary)
-                }
-            }
-            numberField("총 화수", number(\.targetEpisodes, 16),
-                        hint: model.document.serial ? "늘리거나 줄이면 마지막 부 끝 화가 따라가요" : "단편은 10~20화를 권해요 · 4~40화")
+            GenrePicker(model: model)
+            AdultToggle(model: model)
+            EpisodeCountField(model: model)
             LoglineBox(model: model)
             LabeledText("주제", text: text(\.theme), hint: "이 이야기가 끝까지 묻는 질문 하나", placeholder: "예: 떠난 사람을 이해하면 용서할 수 있나?")
             ToneBox(model: model)
-            numberField("화당 분량", number(\.wordsPerEpisode, 5000), hint: "공백 포함 글자 수")
+            NumberField("화당 분량", number(\.wordsPerEpisode, 5000), hint: "공백 포함 글자 수")
             LabeledText("메모", text: text(\.notes), lines: 2)
         }
     }
+}
 
-    private func numberField(_ label: String, _ value: Binding<Int>, hint: String) -> some View {
+/// 성인물 켜기.
+struct AdultToggle: View {
+    let model: SetupModel
+
+    var body: some View {
+        Toggle(isOn: binding({ model.project?.meta?.adult ?? false }, { v in model.editMeta { $0.adult = v } })) {
+            VStack(alignment: .leading) {
+                Text("성인물").bold()
+                Text("성인 독자 대상. 끄면 노골적인 성적 묘사와 과도한 잔혹 묘사를 피하도록 지시해요").font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+/// 총 화수.
+struct EpisodeCountField: View {
+    let model: SetupModel
+
+    var body: some View {
+        NumberField("총 화수", binding({ model.project?.meta?.targetEpisodes ?? 16 }, { v in model.editMeta { $0.targetEpisodes = v } }),
+                    hint: model.document.serial ? "늘리거나 줄이면 마지막 부 끝 화가 따라가요" : "단편은 10~20화를 권해요 · 4~40화")
+    }
+}
+
+/// 숫자 칸.
+struct NumberField: View {
+    let label: String
+    let value: Binding<Int>
+    let hint: String
+
+    init(_ label: String, _ value: Binding<Int>, hint: String) {
+        self.label = label
+        self.value = value
+        self.hint = hint
+    }
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             FieldLabel(label, hint: hint)
             TextField(label, value: value, format: .number)
@@ -153,9 +184,15 @@ struct BasicSection: View {
             #endif
         }
     }
+}
 
-    private var genrePicker: some View {
-        let picked = meta?.genres ?? []
+/// 장르 칩, 직접 적기, 고른 장르의 안내 (웹 `genrePicker`).
+struct GenrePicker: View {
+    let model: SetupModel
+    @State private var customGenre = ""
+
+    var body: some View {
+        let picked = model.project?.meta?.genres ?? []
         let catalog = model.genres
         let custom = picked.filter { id in !catalog.contains { $0.id == id } }
         let isOn = { (name: String) in picked.contains(catalog.first { $0.name == name }?.id ?? name) }
@@ -566,10 +603,12 @@ struct RelationsSection: View {
 }
 
 /// 관계 한 줄 (웹 `relRow`): 두 인물, 어떤 사이, 서로 보는 방식(첫 반영 전), 목표 충돌, 숫자로 정하기.
+/// 마법사(`compact`, 웹 `wizRel`)는 숫자로 정하기를 빼고, 숫자는 기획서에서 고친다.
 struct RelationRow: View {
     let model: SetupModel
     let index: Int
     let started: Bool
+    var compact = false
 
     private var rel: Relationship? {
         guard let rs = model.project?.relationships, rs.indices.contains(index) else { return nil }
@@ -604,7 +643,7 @@ struct RelationRow: View {
                         model.editRelationship(index) { $0.goalConflict = v }
                     }
                 }
-                if !started {
+                if !started, !compact {
                     DisclosureGroup("숫자로 직접 정하기") {
                         VStack(alignment: .leading) {
                             Text("시작 호감 \(r.affinity ?? 0)  ").font(.caption) + Text("보는 방식을 고른 방향은 고른 말이 우선").font(.caption2).foregroundStyle(.secondary)
