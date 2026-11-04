@@ -27,6 +27,13 @@ def on(p: Project) -> bool:
     return p.serial if v is None else v
 
 
+def fixed_only(p: Project) -> bool:
+    """쓰기 재료가 '고정점만'인지 (Settings.write_material). 그러면 쓰기 요청에 스토리보드 장면을 넣지 않고 큐 시트를 쓰지 않는다.
+    실측(2026-11-04, 장편 84화): Claude 는 고정점만 준 판이 블라인드 비교를 모두 이겼고, Gemini 4 Argon 은 장면 · 큐 시트를 준 판이 이겼다.
+    두 모델 모두 고정점 어김은 0이었다. 그래서 기본값은 지금처럼 장면까지 넣는다."""
+    return p.settings.write_material == "fixed"
+
+
 def _episode(p: Project, n: int) -> Episode | None:
     return next((e for e in p.episodes if e.plot.number == n), None)
 

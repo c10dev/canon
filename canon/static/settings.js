@@ -85,6 +85,7 @@ const SET_ROWS = [
   { id: 'path', cat: 'advanced', sec: '고급', label: '설정 파일', words: '경로 config.json' },
   { id: 'project-preset', cat: 'preset', sec: '이 작품', label: '이 작품의 프리셋', words: '프리셋 작품 모델 단계' },
   { id: 'storyboard', cat: 'writing', sec: '집필', label: '화별 스토리보드', words: '스토리보드 장면 순서 직전 화' },
+  { id: 'write-material', cat: 'writing', sec: '집필', label: '쓰기 재료', words: '고정점 장면 큐 시트 재료 스토리보드' },
   { id: 'timeline', cat: 'writing', sec: '집필', label: '작품 속 시간 기록', words: '시간 날짜 기한 타임라인' },
   { id: 'travel', cat: 'writing', sec: '집필', label: '이동 시간 검사', words: '지도 이동 거리 탈것' },
   { id: 'stat-prompt', cat: 'writing', sec: '집필', label: '상태창 수치 넣기', words: '상태창 수치 프롬프트 json lines' },
@@ -302,6 +303,12 @@ function setRowHtml(id) {
     case 'storyboard':
       return p ? setRow(id, '화별 스토리보드', `쓰기 전에 장면 순서와 이번 화 확정 값(시간 · 상태창 수치 · 차림)을 정해요. 화당 AI 호출이 하나 늘어요.${p.settings.storyboard == null ? ` 정하지 않아 ${p.meta.form === 'serial' ? '장편이라 켜져' : '단편이라 꺼져'} 있어요.` : ''}`,
         SW(id, boardOn(), '화별 스토리보드'), { wide: false }) : '';
+    case 'write-material': {
+      if (!p || !boardOn()) return '';
+      const v = p.settings.write_material === 'fixed' ? 'fixed' : '';
+      return setRow(id, '쓰기 재료', '쓰기 요청에 스토리보드 장면 목록과 큐 시트까지 넣을지, 고정점(시간 · 기한 · 이어받을 것 · 상태창 · 이동 · 끝 차림 · 깨지 않을 것)만 넣을지 정해요. 고정점만이면 장면 나눔과 연출을 AI가 정하고, 큐 시트를 만들지 않아 화당 AI 호출이 하나 줄어요. 실측에서 Claude로 쓰면 고정점만, Gemini로 쓰면 장면까지 넣은 글이 나았어요.',
+        `<select class="set-inp" data-setfield="write_material" aria-labelledby="rn-${id}">${[['', '장면 · 큐 시트까지 (기본)'], ['fixed', '고정점만']].map(([k, l]) => `<option value="${k}"${v === k ? ' selected' : ''}>${l}</option>`).join('')}</select>`);
+    }
     case 'timeline':
       return p ? setRow(id, '작품 속 시간 기록', '끄면 상태 변경안에 시점을 적지 않고, 쓰기 · 검수에 시간 블록을 넣지 않아요.',
         SW(id, !!(p.timeline || {}).enabled, '작품 속 시간 기록'), { wide: false }) : '';
@@ -601,6 +608,7 @@ async function setChange(e) {
     if (S.dirty) { setNote(row, '저장하지 않은 작품 수정이 있어요. 작품을 먼저 저장하세요', 'err'); setPaint(); return; }
     return setProjectSave(row, 'model-preset', { preset: el.value }, (p) => { p.settings.model_preset = el.value; });
   }
+  if (f === 'write_material') return setProjectSave(row, 'write-material', { mode: el.value }, (p) => { p.settings.write_material = el.value; });
   if (f === 'stat_prompt') return setProjectSave(row, 'stat-prompt', { mode: el.value }, (p) => { p.stat_window.prompt = el.value; });
   if (f === 'copy_fmt') {
     S.copyFmt = el.value;

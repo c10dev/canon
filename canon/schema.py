@@ -258,6 +258,7 @@ class Settings(BaseModel):
     stage_extract: bool = Field(True, description="검수 때 본문에서 장면 연출을 함께 뽑는다 (계획 장면이 있는 사건마다 check 호출 1번 더, 본문이 그대로인 사건은 건너뜀)")
     storyboard: Optional[bool] = Field(None, description="화마다 쓰기 전에 스토리보드를 만들고, 쓰기 프롬프트에 직전 화 본문 전체를 넣는다. 비우면 장편 켬 · 단편 끔 (board.on)")
     cue_sheet: Optional[bool] = Field(None, description="화마다 쓰기 전에 큐 시트(큐마다 기능 · 긴장 · 템포 · 편성 · 핵심 대사 · 분량)를 만들어 쓰기 프롬프트 끝에 넣는다. 비우면 장편 켬 · 단편 끔 (cue.on)")
+    write_material: Literal["", "scenes", "fixed"] = Field("", description="쓰기 재료의 양. fixed(고정점만)면 스토리보드의 장면 목록을 쓰기 요청에서 빼고 고정점(시간 · 기한 · 이어받을 것 · 상태창 · 이동 · 끝 차림 · 깨지 않을 것)만 넣으며, 큐 시트를 만들거나 넣지 않는다. scenes 와 비움은 지금처럼 장면까지 넣는다 (board.fixed_only)")
     keep_snapshots: bool = Field(False, description="장편에서도 화별 스냅샷을 지우지 않고 모두 남긴다 (연구용 작품: 어느 화로든 되돌릴 수 있다). 끄면 0화 · 아크 끝 · 최근 20화만 남긴다 (pipeline.prune_snapshots)")
     model_preset: str = Field("", description="이 작품이 쓰는 단계 프리셋 id (settings.presets: 단계별 백엔드 · 모델 묶음). 비우면 전체 설정을 따른다. 고른 프리셋이 지워졌으면 전체 설정을 따른다 (settings.project_preset)")
 

@@ -5512,6 +5512,18 @@ def set_storyboard_setting(name: str, body: BoardSetting) -> Project:
     return _save(name, p)
 
 
+class WriteMaterial(BaseModel):
+    mode: Literal["", "scenes", "fixed"]
+
+
+@app.put("/api/projects/{name}/write-material")
+def set_write_material(name: str, body: WriteMaterial) -> Project:
+    """쓰기 재료의 양 (Settings.write_material). fixed 면 스토리보드 장면 · 큐 시트를 빼고 고정점만 넣는다 (board.fixed_only)."""
+    p = _load(name)
+    p.settings.write_material = body.mode
+    return _save(name, p)
+
+
 @app.put("/api/projects/{name}/cue-setting")
 def set_cue_setting(name: str, body: BoardSetting) -> Project:
     """화별 큐 시트 켜기 · 끄기 (Settings.cue_sheet). 켜면 쓰기 전에 큐 시트를 만들어 쓰기 프롬프트 끝에 넣는다."""

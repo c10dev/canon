@@ -66,6 +66,12 @@ _WRITER = (
     "본문만 출력하고 제목, 해설, 메모는 붙이지 않습니다.\n\n"
 )
 SYSTEM_WRITER = _WRITER + PROSE_RULES
+# 쓰기 재료가 고정점만일 때 (board.fixed_only). 사건을 차례로 처리하지 않고 한 순간에 머무르게 한다. 실측 글 그대로 (2026-11-04 고정점만 쓰기 실험).
+_EVENTS_LINE = ("플롯의 사건은 모두 다루되, 비중과 처리 방식은 장면에 맞게 조절합니다. "
+                "중요한 사건은 장면으로 풀어 쓰고, 어떤 사건은 대사나 짧은 회상으로 처리해도 됩니다. ")
+_FIXED_LINE = ("자료는 두 층입니다. 고정점(확정 값, 직전 화에서 이어받을 것, 끝 차림, 이번 화에서 깨지 않을 것, 플롯의 ending_hook)은 반드시 지킵니다. "
+               "연출(플롯 사건의 순서와 처리)은 출발점이라, 사건을 차례로 처리하지 말고 이 화에서 가장 살아 있는 순간에 머무르며 더 나은 전개가 있으면 바꿉니다. ")
+assert _EVENTS_LINE in _WRITER
 
 
 def styled(p: Project) -> bool:
@@ -74,8 +80,10 @@ def styled(p: Project) -> bool:
 
 
 def writer_system(p: Project) -> str:
-    """본문 쓰기 시스템 프롬프트. 문체 원문이 있는 작품은 원문과 부딪히는 기본 규칙을 뺀다."""
-    return _WRITER + prose_rules(styled(p))
+    """본문 쓰기 시스템 프롬프트. 문체 원문이 있는 작품은 원문과 부딪히는 기본 규칙을 뺀다.
+    쓰기 재료가 고정점만이면 '사건을 모두 다루되' 문장을 고정점 · 연출 두 층 문장으로 바꾼다."""
+    head = _WRITER.replace(_EVENTS_LINE, _FIXED_LINE) if board.fixed_only(p) else _WRITER
+    return head + prose_rules(styled(p))
 
 
 SYSTEM_EDITOR = (
@@ -1163,7 +1171,8 @@ def attire_write_rule(p: Project, board: bool = False) -> str:
     if not has_attire(p):
         return ""
     if board:
-        return "\n\n차림: [인물 현재 상태]의 attire 와 스토리보드의 끝 차림을 지키고, 차림은 장면마다 묘사하지 않고 필요할 때만 씁니다."
+        src = "고정점" if p.settings.write_material == "fixed" else "스토리보드"  # 인자 board 가 모듈 이름을 가려 board.fixed_only 대신 칸을 본다
+        return f"\n\n차림: [인물 현재 상태]의 attire 와 {src}의 끝 차림을 지키고, 차림은 장면마다 묘사하지 않고 필요할 때만 씁니다."
     return ("\n\n차림: [인물 현재 상태]의 attire 는 직전 화가 끝났을 때 그 인물의 옷, 몸에 남은 상처 · 얼룩, 지닌 물건입니다. "
             "장면이 이어지면 그대로 지키고, 달라지려면 갈아입거나 다치거나 물건을 잃는 행동을 본문에 보여 줍니다. "
             "날이 바뀌면 옷은 갈아입었을 수 있지만 상처와 지닌 물건은 이어집니다. 차림을 장면마다 묘사하지 않고 필요할 때만 씁니다.")
@@ -2636,10 +2645,10 @@ def _anchor_markers(p: Project) -> list:
 def episode_prompt(p: Project, n: int, approach: str = "", use_board: bool = True, use_cues: bool = True) -> str:
     """approach 는 1~3화를 여러 안으로 쓸 때 안마다 다르게 주는 여는 방식(OPENING_APPROACHES).
     use_board 를 끄면 스토리보드가 있어도 넣지 않는다 (스토리보드 없이 쓰기).
-    그 화에 큐 시트(Episode.cue_sheet)가 있으면 맨 끝에 붙인다. use_cues 를 끄면 넣지 않는다 (큐 시트 없이 쓰기, 실험의 조건)."""
+    그 화에 큐 시트(Episode.cue_sheet)가 있으면 맨 끝에 붙인다. use_cues 를 끄거나 쓰기 재료가 고정점만이면 넣지 않는다 (큐 시트 없이 쓰기)."""
     rules = opening_rules(p, n, approach)
     ep = p.episode(n)
-    sheet = ep.cue_sheet if use_cues else None
+    sheet = ep.cue_sheet if use_cues and not board.fixed_only(p) else None  # 고정점만이면 시트가 있어도 넣지 않는다
     sb = ep.storyboard if use_board else None
     windows = sb is not None and any(x["window"] for x in board.steps(p, sb))
     flow = ("첫 화이므로 앞 이야기를 요약하거나 설명으로 깔지 않고 장면으로 시작하고, " if n == 1
@@ -2747,7 +2756,7 @@ def write_plot(plot):
 def priority_line(p: Project, n: int, has_board: bool) -> str:
     """쓰기 자료가 서로 부딪힐 때 따를 차례를 한 줄로. 블록 머리마다 '…보다 우선'을 흩어 두지 않는다 (쇠맛 연구, 2026-10-30).
     차례를 정할 블록이 하나뿐이면 빈 글."""
-    order = (["스토리보드"] if has_board else []) + ["이번 화 플롯"]
+    order = ([("고정점" if board.fixed_only(p) else "스토리보드")] if has_board else []) + ["이번 화 플롯"]
     near = [x for x, on in (("서술 시점", pov_block(p, n)), ("가끔 쓰는 장치", device_block(p, n))) if on]
     if near:
         order += [" · ".join(near), "스타일 프로필과 문체 예시"]
@@ -2762,21 +2771,24 @@ def priority_line(p: Project, n: int, has_board: bool) -> str:
 # 경고와 근거(warnings, stat_basis, checks)는 쓰기에 넣지 않는다.
 
 def board_block(p: Project, n: int) -> str:
-    """쓰기 프롬프트의 스토리보드 블록: 직전 화 본문 뒤, 이번 화 플롯 바로 앞. 스토리보드가 없으면 빈 글."""
+    """쓰기 프롬프트의 스토리보드 블록: 직전 화 본문 뒤, 이번 화 플롯 바로 앞. 스토리보드가 없으면 빈 글.
+    쓰기 재료가 고정점만이면(board.fixed_only) 장면 목록과 장면 번호를 빼고 고정점만 넣는다. 장면 메모가 본문에 옮겨지는 것을 막는다."""
     b = p.episode(n).storyboard
     if b is None:
         return ""
+    fixed = board.fixed_only(p)
     name = {c.id: c.name or c.id for c in p.characters}
     who = lambda ids: ", ".join(name.get(x, x) for x in ids)  # noqa: E731
-    out = ["# 이번 화 스토리보드 (장면 순서와 확정 값. 대사와 문장은 정하지 않았으니 직접 씁니다)",
-           f"시간: {board.time_line(p, n, b)}"]
+    head = ("# 이번 화 고정점 (반드시 지킬 것. 장면 나눔과 대사, 문장은 직접 씁니다)" if fixed
+            else "# 이번 화 스토리보드 (장면 순서와 확정 값. 대사와 문장은 정하지 않았으니 직접 씁니다)")
+    out = [head, f"시간: {board.time_line(p, n, b)}"]
     dl = board.deadline_rows(p, n, b)
     if dl:
         out += ["열린 기한:"] + dl
     if b.handover:
         out.append("직전 화에서 이어받을 것:")
         out += [f"- {f'[{h.kind}] ' if h.kind.strip() else ''}{h.text.strip()}" for h in b.handover if h.text.strip()]
-    if b.scenes:
+    if b.scenes and not fixed:
         out.append("장면:")
         for k, sc in enumerate(b.scenes, 1):
             head = " · ".join(x for x in (sc.place.strip(), sc.spot.strip(), sc.time.strip(), who(sc.present)) if x)
@@ -2789,7 +2801,7 @@ def board_block(p: Project, n: int) -> str:
     if st:
         out.append("상태창 (값은 Canon 이 센 것입니다. 본문에 보일 때는 이 값을 그대로 쓰고 셈하지 않습니다):")
         for x in st:
-            at = f"{x['scene']}장면" if x["scene"] else "화 끝"
+            at = ("화 중간" if fixed else f"{x['scene']}장면") if x["scene"] else "화 끝"
             rows = ", ".join(f"{r['name']} {r['before'] or '(없음)'} → {r['after'] or '(없앰)'}" for r in x["rows"])
             if x["window"]:
                 out.append(f"- 상태창 {x['window']} ({at}, {name.get(x['character_id'], x['character_id'])}): {rows}")
@@ -2798,15 +2810,20 @@ def board_block(p: Project, n: int) -> str:
                 out.append(f"- {at}에 바뀜, 창은 뜨지 않음 ({name.get(x['character_id'], x['character_id'])}): {rows}")
     if b.moves:
         out.append("이동:")
-        out += [f"- {name.get(m.character_id, m.character_id)}: {f'{m.scene}장면에서 ' if m.scene else '장면 사이에 '}{m.to}(으)로" for m in b.moves]
+        where = (lambda m: "") if fixed else (lambda m: f"{m.scene}장면에서 " if m.scene else "장면 사이에 ")
+        out += [f"- {name.get(m.character_id, m.character_id)}: {where(m)}{m.to}(으)로" for m in b.moves]
     if b.attire:
         out.append("끝 차림 (바뀐 인물만):")
         out += [f"- {name.get(a.character_id, a.character_id)} = {a.end.strip()}" for a in b.attire if a.end.strip()]
     if b.protect:
         out.append("이번 화에서 깨지 않을 것 (다음 화가 전제함):")
         out += [f"- {x.strip()}" for x in b.protect if x.strip()]
-    out.append("위 장면 순서와 값을 따릅니다. 날짜 · 상태창 수치 · 차림은 스스로 셈하지 않고 위 값을 씁니다. "
-               "장면의 목표 · 전환 · 끝은 설계 메모이니 그 글을 본문에 옮기지 않습니다.")
+    if fixed:
+        out.append("위 값은 고정점이라 반드시 지킵니다. 날짜 · 상태창 수치 · 차림은 스스로 셈하지 않고 위 값을 씁니다. "
+                   "장면을 어떻게 나누고 무엇에 오래 머물지는 직접 정합니다.")
+    else:
+        out.append("위 장면 순서와 값을 따릅니다. 날짜 · 상태창 수치 · 차림은 스스로 셈하지 않고 위 값을 씁니다. "
+                   "장면의 목표 · 전환 · 끝은 설계 메모이니 그 글을 본문에 옮기지 않습니다.")
     return "\n".join(out)
 
 
