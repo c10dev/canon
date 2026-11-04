@@ -171,7 +171,8 @@ def test_context_stays_bounded_at_300():
     flat = sum(len(e.summary) for e in p.episodes)
     assert flat > 80_000
     last = sizes[max(sizes)]
-    assert max(sizes) > 260 and last < 6_000 and last < sizes[25] * 1.5
+    # 다음 아크 시작 화의 줄거리에는 직전 아크 화를 따로 넣지 않아 접은 요약만 남는다 (화별 요약 전부의 1% 아래)
+    assert max(sizes) > 260 and last < 6_000 and last * 100 < flat
 
     # 마지막 아크 안에서 본문 프롬프트를 만들어도 크기가 일정하다
     a = _plan_arc(p, length=11)
@@ -200,6 +201,22 @@ def test_story_so_far_falls_back_to_episode_summaries():
     assert "첫 시험을 넘겼다" in text and "1화 요약" not in text
     text = prompts.story_so_far(p, b.start_ep)  # 아크 첫머리에는 직전 아크 마지막 화도 본다
     assert "12화 요약" in text
+
+
+def test_next_arc_prompt_keeps_prev_arc_out_of_current_arc():
+    """다음 아크 기획: 직전 아크 화를 '이번 아크'로 넣지 않고, 아크 끝은 직전 아크 화 블록에 쓴 본문 요약으로 본다."""
+    p = _serial(300)
+    a = _plan_arc(p)
+    _finish(p, a)
+    start = pipeline.next_arc_start(p)
+    text = prompts.next_arc_prompt(p, start, 0, "")
+    assert "[이번 아크" not in text
+    assert text.count("12화 요약") == 2  # 줄거리의 아크 1 블록과 직전 아크 화 블록 한 번씩
+    assert "짧고 세게" not in text  # 첫 아크에만 붙는 길이 안내
+    pipeline.apply_recap(p, "arc", 1, "첫 시험을 넘겼다")
+    text = prompts.next_arc_prompt(p, start, 0, "")
+    assert "첫 시험을 넘겼다" in text and text.count("12화 요약") == 1  # 아크 요약을 승인해도 아크 끝 화는 남는다
+    assert "짧고 세게" in prompts.next_arc_prompt(_serial(300), 1, 0, "")
 
 
 def test_part_summary_covers_its_arcs():
