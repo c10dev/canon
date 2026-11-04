@@ -87,3 +87,4 @@ def test_usage_read_picks_up_appended_lines(tmp_path):
     assert usage.read(f) == [{"n": 1}, {"n": 2}, {"n": 3}]
     f.write_text(json.dumps({"n": 9}) + "\n", encoding="utf-8")  # 새 파일로 바뀜
     assert usage.read(f) == [{"n": 9}]
+

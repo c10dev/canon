@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import contextvars
+import logging
 import threading
 import time
 import uuid
@@ -117,7 +118,8 @@ def start(project: str, kind: str, ep: int | None, label: str, fn: Callable[[Job
                 job.result = out
         except cancel.Cancelled:
             job.status, job.error = "cancelled", "멈췄어요"
-        except Exception as e:  # 화면에 그대로 보여 준다
+        except Exception as e:  # 화면에 그대로 보여 준다. 원인을 찾을 수 있게 호출 경로는 서버 로그에 남긴다
+            logging.getLogger("canon").exception("작업 %s(%s, %s) 실패", job.kind, job.project, job.id)
             if job.status == "running":
                 job.error = getattr(e, "message", None) or str(e) or type(e).__name__
                 job.status = "error"
