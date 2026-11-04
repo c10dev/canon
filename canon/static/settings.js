@@ -89,6 +89,7 @@ const SET_ROWS = [
   { id: 'project-preset', cat: 'preset', sec: '이 작품', label: '이 작품의 프리셋', words: '프리셋 작품 모델 단계' },
   { id: 'storyboard', cat: 'writing', sec: '집필', label: '화별 스토리보드', words: '스토리보드 장면 순서 직전 화' },
   { id: 'write-material', cat: 'writing', sec: '집필', label: '쓰기 재료', words: '고정점 장면 큐 시트 재료 스토리보드' },
+  { id: 'echoes', cat: 'writing', sec: '집필', label: '되풀이한 구절 피하기', words: '반복 구절 비유 되풀이 최근 화 장편' },
   { id: 'timeline', cat: 'writing', sec: '집필', label: '작품 속 시간 기록', words: '시간 날짜 기한 타임라인' },
   { id: 'travel', cat: 'writing', sec: '집필', label: '이동 시간 검사', words: '지도 이동 거리 탈것' },
   { id: 'stat-prompt', cat: 'writing', sec: '집필', label: '상태창 수치 넣기', words: '상태창 수치 프롬프트 json lines' },
@@ -315,6 +316,9 @@ function setRowHtml(id) {
       return setRow(id, '쓰기 재료', '쓰기 요청에 스토리보드 장면 목록과 큐 시트까지 넣을지, 고정점(시간 · 기한 · 이어받을 것 · 상태창 · 이동 · 끝 차림 · 깨지 않을 것)만 넣을지 정해요. 고정점만이면 장면 나눔과 연출을 AI가 정하고, 큐 시트를 만들지 않아 화당 AI 호출이 하나 줄어요. 실측에서 Claude로 쓰면 고정점만, Gemini로 쓰면 장면까지 넣은 글이 나았어요.',
         `<select class="set-inp" data-setfield="write_material" aria-labelledby="rn-${id}">${[['', '장면 · 큐 시트까지 (기본)'], ['fixed', '고정점만']].map(([k, l]) => `<option value="${k}"${v === k ? ' selected' : ''}>${l}</option>`).join('')}</select>`);
     }
+    case 'echoes':
+      return serialOn() ? setRow(id, `되풀이한 구절 피하기 ${SET_CHIP('장편')}`, '직전 5화 본문에서 3개 화 이상에 그대로 나온 서술 구절을 찾아, 쓰기 요청에 이번 화에는 다른 말로 쓰라고 넣어요. 이름 · 호칭 · 확정 사실에 적힌 말과 대사는 빼요. AI 호출은 늘지 않아요.',
+        SW(id, p.settings.recent_echoes !== false, '되풀이한 구절 피하기'), { wide: false }) : '';
     case 'timeline':
       return p ? setRow(id, '작품 속 시간 기록', '끄면 상태 변경안에 시점을 적지 않고, 쓰기 · 검수에 시간 블록을 넣지 않아요.',
         SW(id, !!(p.timeline || {}).enabled, '작품 속 시간 기록'), { wide: false }) : '';
@@ -752,6 +756,7 @@ Object.assign(actions, {
         const on = !t.enabled;
         return setProjectSave(key, 'atlas/travel', { enabled: on, mode: t.mode, kmh: t.kmh, day_km: t.day_km, span_km: p.atlas.span_km }, (x) => { x.atlas.travel.enabled = on; });
       },
+      echoes: () => { const on = p.settings.recent_echoes === false; return setProjectSave(key, 'recent-echoes', { on }, (x) => { x.settings.recent_echoes = on; }); },
       motion: () => { const on = p.settings.check_motion === false; return setProjectSave(key, 'check-motion', { on }, (x) => { x.settings.check_motion = on; }); },
       widen: () => { const on = !p.settings.check_widen; return setProjectSave(key, 'check-widen', { on }, (x) => { x.settings.check_widen = on; }); },
       numbers: () => { const on = !p.settings.show_numbers; return setProjectSave(key, 'view', { show_numbers: on }, (x) => { x.settings.show_numbers = on; }); },

@@ -5542,6 +5542,14 @@ def set_cue_setting(name: str, body: BoardSetting) -> Project:
     return _save(name, p)
 
 
+@app.put("/api/projects/{name}/recent-echoes")
+def set_recent_echoes(name: str, body: BoardSetting) -> Project:
+    """장편 쓰기 요청의 '최근 화에서 되풀이한 구절' 블록 켜기 · 끄기 (Settings.recent_echoes, prompts.echo_block)."""
+    p = _load(name)
+    p.settings.recent_echoes = body.on
+    return _save(name, p)
+
+
 class KeepSnapshots(BaseModel):
     on: bool
 
