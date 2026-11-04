@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Callable
 
-from . import address, cast, charlog, elements, foreshadows, knows, naming, pace, statwin, timeline
+from . import address, attire, cast, charlog, elements, foreshadows, knows, naming, pace, statwin, timeline
 from .maps import travel
 from .schema import Project, Snapshot, StateDelta
 
@@ -58,6 +58,7 @@ CLEAN: tuple[Callable[[Project, StateDelta], list[str] | None], ...] = (
     charlog.clean_delta,
     address.clean_delta,       # 호칭 · 말씨 바뀜: 있는 인물 사이의 지금 값과 다른 칸만
     knows.clean_delta,         # 프롬프트가 아는 정보 앞에 붙인 '(n화)' 표시를 뗀다
+    attire.clean_delta,        # 차림의 '가방' · '옷'처럼 종류를 모르는 물건
     _clean_places,
     _new_cast_gaps,            # 말투가 빈 새 인물
     _new_cast_names,           # 새 인물 이름 점검 · 한 화의 새 인물 수

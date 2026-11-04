@@ -45,3 +45,28 @@ def test_cast_replays_attire_without_snapshot():
     p.snapshots = [s for s in p.snapshots if s.episode in (0, 3)]  # 장편처럼 지워진 화는 변경안으로 다시 계산한다
     rows = {r["n"]: r["changes"] for r in cast.timeline(p, "hero")}
     assert rows[1]["attire"] == "젖은 회색 코트, 손전등"
+
+
+def test_rules_ask_for_kind_of_bag():
+    p = _play(_short(8), 1, 2)
+    assert "백팩 · 숄더백 · 핸드백" in prompts.ATTIRE_STATE_RULE and "메는 자리" in prompts.ATTIRE_STATE_RULE
+    assert "백팩을 핸드백 · 숄더백으로" in prompts.episode_prompt(p, 3)
+    assert "백팩이 핸드백 · 숄더백으로" in prompts.check_prompt(p, 3)
+
+
+def test_vague_items():
+    from canon import attire
+    assert attire.vague("검은 가방(지퍼 고장), 젖은 옷 · 신발") == ["검은 가방(지퍼 고장)", "젖은 옷", "신발"]
+    for ok in ("남색 백팩", "등에 멘 가방", "가방(등에 멤)", "서류 가방", "책가방", "잠옷", "젖은 회색 코트, 손전등"):
+        assert attire.vague(ok) == [], ok
+
+
+def test_clean_delta_warns_vague_bag():
+    p = _play(_short(8), 1, 2)
+    d = StateDelta(episode=3, summary="3화", character_updates=[CharacterState(character_id="hero", attire="젖은 코트, 검은 가방")])
+    pipeline.clean_delta(p, d)
+    name = next(c.name for c in p.characters if c.id == "hero")
+    assert any(w.startswith(f"{name}의 차림 '검은 가방'") for w in d.warnings)
+    d = StateDelta(episode=3, summary="3화", character_updates=[CharacterState(character_id="hero", attire="젖은 코트, 등에 멘 검은 백팩")])
+    pipeline.clean_delta(p, d)
+    assert not any("차림" in w for w in d.warnings)

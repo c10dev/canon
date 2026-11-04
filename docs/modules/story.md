@@ -83,6 +83,13 @@
 - 화면은 `static/archetypes.js` (설정 도우미의 도감 주사위만, `dexRemember` 는 `remember` 와 같은 규칙, `tests/test_archetypes_js.py`)
 - 글은 새로 쓴다(TV Tropes · 나무위키 옮기지 않음)
 
+### `canon/attire.py`
+
+- 지금 차림(`CharacterState.attire`) 점검. 규칙 글은 `prompts.ATTIRE_STATE_RULE` · `attire_write_rule` · `attire_check_rule`
+- 끝 낱말이 '가방' · '옷' · '겉옷' · '신발'인 조각 찾기(`vague`, 이름 `VAGUE`). 앞 낱말이 쓰임(`KIND_WORDS`)이거나 가방의 메는 자리(`CARRY`, 괄호 안 포함)를 말하면 넘어간다. 색 · 재질은 종류로 보지 않는다
+- 상태 변경안 정리 훅(`clean_delta`, `features.CLEAN`): 인물 이름으로 시작하는 경고
+- LLM 호출 없음
+
 ### `canon/birth.py`
 
 - 무작위 출생과 새 세계
