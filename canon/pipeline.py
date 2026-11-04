@@ -3379,7 +3379,8 @@ def revise_passage(llm: LLM, p: Project, n: int, sel: Selection, message: str = 
             seen.add(c.text)
             keep.append(c)
     rev.candidates = keep[:3]
-    if not keep:
+    fix = not preset and message.strip().startswith(prompts.PASSAGE_FIX_HEADS)
+    if not keep and not (fix and rev.reply.strip()):  # 고치기 요청은 '본문이 맞다'는 답일 수 있다 (prompts.TEXT_RIGHT_RULE)
         rev.reply = rev.reply.rstrip() + "\n\n※ 원문과 다른 후보가 없었어요. 요청을 조금 더 구체적으로 적어 주세요."
     return rev
 
@@ -4027,6 +4028,8 @@ def propose_fixes(llm: LLM, p: Project, n: int, fid: str) -> list[FixOption]:
     fs = llm.json(prompts.reviser_system(p), prompts.fix_prompt(p, n, f, _decided(ep)), FixSet,
                   hint={"episode": n, "quote": f.current_quote, "text": ep.text})
     opts = clean_fixes(ep, f, fs)
+    if not opts and not fs.options and fs.reply.strip():  # 본문이 맞다는 답 (prompts.TEXT_RIGHT_RULE)
+        raise ValueError(f"AI가 본문은 고치지 않았어요. {fs.reply.strip()}")
     if not opts:
         raise ValueError("쓸 수 있는 고침안이 없었어요. 다시 받거나 직접 고치세요")
     return opts
