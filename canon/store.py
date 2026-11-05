@@ -31,6 +31,36 @@ writer: ContextVar[str] = ContextVar("writer", default="")
 saved: ContextVar[dict | None] = ContextVar("saved", default=None)
 
 
+def write_atomic(path: Path, text: str, mode: int | None = None, fsync: bool = False) -> os.stat_result:
+    """text 를 path 에 바꿔치기로 쓴다: 이 프로세스 · 스레드만 쓰는 tmp 파일에 다 쓴 뒤 os.replace 로 바꿔 넣는다.
+    중간에 멈춰도 path 는 옛 내용 그대로다. mode 를 주면 tmp 를 처음부터 그 권한으로 만든다 (키 파일).
+    fsync 면 내용과 폴더를 디스크에 내린다 (전원이 끊겨도 빈 파일이 남지 않게). 돌려주는 것: 바꿔 넣기 직전 tmp 의 stat (판)."""
+    path = Path(path)
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    try:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o666 if mode is None else mode)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            if mode is not None:
+                os.fchmod(f.fileno(), mode)  # 죽은 프로세스가 남긴 같은 이름의 tmp 는 만들 때의 권한을 따르지 않는다
+            f.write(text)
+            if fsync:
+                f.flush()
+                os.fsync(f.fileno())
+        st = tmp.stat()
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    if fsync:
+        with contextlib.suppress(OSError):
+            dfd = os.open(path.parent, os.O_RDONLY)
+            try:
+                os.fsync(dfd)
+            finally:
+                os.close(dfd)
+    return st
+
+
 def project_dir(name: str) -> Path:
     return ROOT / name
 
@@ -156,9 +186,7 @@ def _write_snapshots(d: Path, p: Project) -> list[str]:
         refs.append(f)
         if not (sdir / f).exists():
             sdir.mkdir(exist_ok=True)
-            tmp = sdir / f"{f}.{os.getpid()}.{threading.get_ident()}.tmp"
-            tmp.write_text(body, encoding="utf-8")
-            os.replace(tmp, sdir / f)
+            write_atomic(sdir / f, body, fsync=True)  # project.json 이 이 파일을 적기 전에 디스크까지 내린다
     return refs
 
 
@@ -450,10 +478,7 @@ def edit_pending(name: str, fn) -> dict:
     with _pending_lock:
         d = load_pending(name)
         fn(d)
-        path = _pending_path(name)
-        tmp = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
-        tmp.write_text(json.dumps(d, ensure_ascii=False, indent=1), encoding="utf-8")
-        os.replace(tmp, path)
+        write_atomic(_pending_path(name), json.dumps(d, ensure_ascii=False, indent=1))
         return d
 
 
@@ -474,12 +499,11 @@ def save(name: str, p: Project) -> Path:
             _backup(d, path)  # 직전 판과 시간별 백업을 남긴다
         # 다른 스레드(자동 집필, 백그라운드 작업)가 쓰는 도중에 읽어도 빈 파일을 보지 않게 바꿔치기로 쓴다
         # 들여쓰기 없이 쓴다: 장편은 들여쓰기만으로 1MB 넘게 커지고 저장마다 0.015초 더 걸린다 (2026-11-02 실측)
-        tmp = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
         refs = _write_snapshots(d, p)  # 스냅샷 파일을 먼저 쓴다. project.json 이 바뀌기 전에는 아무도 새 파일을 적지 않는다
         body = p.model_dump_json(exclude={"snapshots"})
-        tmp.write_text('{"snapshot_files":' + json.dumps(refs) + "," + body[1:], encoding="utf-8")
-        st = tmp.stat()  # 바꿔치기는 inode 와 수정 시각을 그대로 옮긴다. 바꾼 뒤 다른 스레드가 또 써도 이 판은 이 내용이다
-        os.replace(tmp, path)
+        # 바꿔치기 직전 tmp 의 판을 받는다. 바꿔치기는 inode 와 수정 시각을 그대로 옮기므로 바꾼 뒤 다른 스레드가 또 써도 이 판은 이 내용이다
+        # fsync 는 3MB 에 1.4ms 쯤 더 든다 (2026-11-05 실측). 전원이 끊겨도 빈 project.json 이 남지 않게 한다
+        st = write_atomic(path, '{"snapshot_files":' + json.dumps(refs) + "," + body[1:], fsync=True)
         _drop_old_snapshots(d)
     fresh = _remember(name, st, p)
     memo: dict[int, list[tuple[Snapshot, str]]] = {}
@@ -497,7 +521,7 @@ def save(name: str, p: Project) -> Path:
             f = ep_file(d, ep.plot.number, last)
             body = f"# {ep.plot.number}화. {ep.plot.title}\n\n{ep.text}\n"
             if _md_written.get(f) != (hash(body), _mtime(f)):  # 지난번에 쓴 그대로면 다시 쓰지 않는다
-                f.write_text(body, encoding="utf-8")
+                write_atomic(f, body)
                 _md_written[f] = (hash(body), _mtime(f))
     if ep_dir.is_dir():  # 본문을 지운 화나 빠진 화, 자릿수가 바뀐 옛 이름의 내보낸 파일은 지운다 (숫자.md 만, 작가가 둔 다른 파일은 그대로)
         have = {ep_file(d, e.plot.number, last).name for e in p.episodes if e.text}
@@ -527,9 +551,7 @@ def load_branch(name: str) -> BranchInfo | None:
 
 def save_branch(name: str, b: BranchInfo) -> Path:
     path = _branch_path(name)
-    tmp = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
-    tmp.write_text(b.model_dump_json(indent=2), encoding="utf-8")
-    os.replace(tmp, path)
+    write_atomic(path, b.model_dump_json(indent=2))
     return path
 
 
@@ -562,9 +584,7 @@ def load_play(name: str) -> PlayInfo | None:
 
 def save_play(name: str, info: PlayInfo) -> Path:
     path = _play_path(name)
-    tmp = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
-    tmp.write_text(info.model_dump_json(indent=2), encoding="utf-8")
-    os.replace(tmp, path)
+    write_atomic(path, info.model_dump_json(indent=2))
     return path
 
 
@@ -594,9 +614,7 @@ def load_cuelab(name: str, n: int) -> CueLab:
 def save_cuelab(name: str, lab: CueLab) -> Path:
     path = _cuelab_path(name, lab.episode)
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
-    tmp.write_text(lab.model_dump_json(indent=2), encoding="utf-8")
-    os.replace(tmp, path)
+    write_atomic(path, lab.model_dump_json(indent=2))
     return path
 
 
@@ -613,7 +631,7 @@ def save_backup(name: str, tag: str, p: Project) -> Path:
     """되돌리기용으로 작품 전체를 따로 남긴다 (예: 단편 → 장편 전환 직전, tag='before-serial')."""
     path = backup_path(name, tag)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(p.model_dump_json(indent=2), encoding="utf-8")
+    write_atomic(path, p.model_dump_json(indent=2), fsync=True)  # 되돌리기의 유일한 판이라 디스크까지 내린다
     return path
 
 

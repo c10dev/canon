@@ -5,7 +5,6 @@ import json
 import os
 import tempfile
 import time
-from pathlib import Path
 
 import pytest
 
@@ -652,14 +651,14 @@ def test_request_and_record_use_separate_temp_files(demo, monkeypatch):
     """다른 프로세스의 요청(autorun.want)과 주인의 기록(autorun.json)은 서로 다른 임시 파일에 쓴다."""
     d = store.project_dir(demo)
     seen = []
-    real = Path.write_text
+    real = os.replace
 
-    def spy(self, *a, **kw):
-        if self.name.endswith(".tmp"):
-            seen.append(self.name)
-        return real(self, *a, **kw)
+    def spy(src, dst):
+        if str(src).endswith(".tmp"):
+            seen.append(os.path.basename(src))
+        return real(src, dst)
 
-    monkeypatch.setattr(Path, "write_text", spy)
+    monkeypatch.setattr(os, "replace", spy)
     autorun._ask(demo, "pause")
     autorun._write(demo, autorun.Run(target=1))
     assert len(seen) == 2 and seen[0] != seen[1]

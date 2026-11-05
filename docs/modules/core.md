@@ -24,7 +24,7 @@
 - 다른 프로세스(명령줄 `canon auto` 나 다른 서버)가 잠금을 쥐면 `elsewhere` 가 참이고 `active` 도 참이다(화면 저장 보호가 켜진다)
 - 그동안 `start` · `resume` · `set_batch` · `set_policy` 는 `ELSEWHERE` 로 거절하고, `resume_all` 은 그 작품을 건너뛴다
 - 그동안 `request` 는 상태를 쓰거나 배치를 취소하지 않고 `autorun.want` 에 요청만 남긴다(중지를 일시정지로 낮추지 않는다)
-- `autorun.want` 의 임시 파일 이름에는 pid 와 스레드 id 를 붙여 주인이 `autorun.json` 을 쓰는 임시 파일(`autorun.json.tmp`)과 겹치지 않게 한다
+- `autorun.json` 과 `autorun.want` 는 `store.write_atomic` 으로 쓴다. 임시 파일 이름에 pid 와 스레드 id 가 들어가 주인의 기록과 다른 요청이 서로 겹치지 않는다
 - 러너는 `_checkpoint` 와 배치 대기(`Control.wait`)에서 `autorun.want` 를 읽는다(`Control.poll_want`). 주인이 된 실행은 남은 요청을 버린다
 - `get_run` · `set_batch` · `set_policy` · `renumber` 는 이 프로세스의 실행이 끝났으면 메모리 값 대신 `autorun.json` 을 읽고 쓴다(다른 프로세스가 그 뒤에 이어 간 기록을 덮지 않게)
 - 화를 반영할 때마다 작업의 `step_ep` 를 그 화로 고친다(화면 알림 `notify.js`)
@@ -357,6 +357,7 @@
 
 - 사용자 설정(LLM 프로바이더, 모델, API 키, 로컬 서버, 단계별 백엔드)
 - 웹 설정 화면에서 저장하면 `~/.canon/config.json` 에 들어간다(`CANON_CONFIG` 로 경로 변경)
+- `_write` 는 `store.write_atomic(mode=0o600, fsync=True)` 로 쓴다. 키가 든 임시 파일도 처음부터 본인만 읽고, 쓰다 멈춰도 옛 설정이 그대로 남는다
 - 환경 변수가 있으면 파일보다 우선한다
 - 단계 이름 목록은 `STAGES`
 - 단계별 환경 변수 이름은 `stage_env`
@@ -389,6 +390,7 @@
 - 저장 전 직전 판을 `project.prev.json` 으로, 시간마다 첫 저장 직전 판을 `backups/project.<날짜-시>.json` 으로 남긴다(하드 링크라 복사하지 않음)
 - 시간별 백업은 최근 `BACKUP_HOURS`(24) 개를 모두 남기고, 그 전은 `BACKUP_DAYS`(14) 일 동안 하루에 그날 마지막 하나만 남긴다(`backup_prune`, 시간별 이름만 지움)
 - `backup_list` 는 시간별 · 직전 판 · `before-delete-<화>.json` · `before-serial.json` · 되돌리기 전 판을 새것부터 준다(UTC 시각 · 화 수 · 반영한 마지막 화, 판마다 기억)
+- `save_backup`(장편 전환 · 화 지우기 직전 판)은 바꿔치기로 쓰고 fsync 한다. 쓰다 멈춰도 옛 백업이 남는다
 - `restore_backup` 은 `backup_list` 의 id 만 받는다. 지금 판을 `backups/before-restore.<시각>.json`(최근 `RESTORE_KEEP` 개)으로 남긴 뒤 저장한다
 - `backups/` 안 판의 스냅샷 파일은 작품 폴더의 `snapshots/` 에서 읽는다(`read_disk` 의 `home`)
 - 갈래 · 복제 · 플레이 사본은 `backups/` 를 옮기지 않는다(`branches.COPY_SKIP`)
@@ -400,6 +402,9 @@
 - `backups/` 의 모든 `.json`(되돌리기 전 판 포함)이 적은 스냅샷 파일을 남긴다
 - 아무 판도 적지 않아도 `SNAP_GRACE`(60초) 안에 쓴 스냅샷 파일은 지우지 않는다
 - `save` 는 판 기록 읽기부터 옛 스냅샷 지우기까지 작품 폴더의 `.lock` 에 `fcntl.flock` 을 잡는다(`_disk_lock`). 명령줄과 웹 서버가 함께 저장해도 서로의 새 스냅샷 파일을 지우지 않는다
+- 파일 저장은 모두 `write_atomic` 하나로 한다: pid · 스레드 id 가 붙은 tmp 파일에 다 쓴 뒤 `os.replace` 로 바꿔 넣고, 바꾸기 직전 tmp 의 stat(판)을 돌려준다
+- `write_atomic` 의 `mode` 는 tmp 를 처음부터 그 권한으로 만든다. `fsync` 는 내용과 폴더를 디스크에 내린다
+- fsync 는 project.json · 스냅샷 파일 · `save_backup` · 설정 파일에만 켠다(3MB 에 1.4ms 쯤). 내보낸 본문 `episodes/*.md` 와 pending · 갈래 · 플레이 · 큐 시트 실험은 바꿔치기만 한다
 - 화면 저장 기록(`writer`, `edit_rev` · `saved_by`, 파일 끝만 읽음)
 - 파일 끝에서 두 칸을 찾지 못하면 파일 전체를 읽는다. 두 칸은 `Project` 의 마지막 필드여야 한다(`tests/test_store_backup.py`)
 - 검토를 기다리는 AI 결과와 실패한 작업(`pending.json`, `load_pending` / `edit_pending`)

@@ -18,6 +18,8 @@ import json
 import os
 from pathlib import Path
 
+from . import store
+
 DEFAULT_MODEL = "gemini-4-argon"
 DEFAULT_VERTEX_LOCATION = "global"  # 새 Gemini 모델은 global 엔드포인트에 먼저 나온다
 DEFAULT_LOCAL_URL = "http://localhost:11434/v1"  # Ollama. llama.cpp 는 :8080/v1, vLLM 은 :8000/v1
@@ -70,8 +72,8 @@ def _read() -> dict:
 def _write(data: dict) -> None:
     path = config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    path.chmod(0o600)  # 키가 들어 있으므로 본인만 읽게 한다
+    # 키가 들어 있으므로 처음부터 본인만 읽는 tmp 파일에 써서 바꿔 넣는다. 중간에 멈춰도 옛 설정이 그대로 남는다
+    store.write_atomic(path, json.dumps(data, ensure_ascii=False, indent=2), mode=0o600, fsync=True)
 
 
 def _pick(env_names: tuple[str, ...], file_value: str | None, default: str = "") -> tuple[str, str]:

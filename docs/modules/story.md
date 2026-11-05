@@ -212,6 +212,7 @@
 
 - 문체 라이브러리
 - 작품과 따로 `projects/.styles/<id>.json` 에 문체(원문, 프로필, 기준 지표)를 저장
+- `save` 는 `store.write_atomic` 으로 바꿔치기해 쓴다. 쓰다 멈춰도 옛 항목이 남는다
 - 작품에 적용하면 복사하고 `Project.style_id` · `style_version` 으로 출처만 기억
 - 저장마다 버전(`StyleVersion`)
 - 칸별 비교(`diff`)
