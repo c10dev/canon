@@ -77,3 +77,35 @@ def test_revert_defends_old_history_with_existing_id():
     pipeline.revert(p, 1)
     assert any(c.id == "hero" for c in p.characters) and p.state_of("hero") is not None
     assert [(r.episode, r.source) for r in p.setting_log if r.character_id == "hero"] == [(1, "author")]
+
+
+def test_author_relationship_updated_by_later_delta_survives():
+    p = _play(_short(8), 1, 1)
+    p.relationships.append(Relationship(a="ally", b="innkeeper", type="작가 관계"))  # 1화 스냅샷 뒤, 2화 반영 전
+    p.facts.append("작가 사실")
+    d = _extract(p, 2)
+    d.relationship_updates.append(Relationship(a="ally", b="innkeeper", type="AI 관계"))
+    d.new_facts.append("작가 사실")
+    pipeline.apply_delta(p, d)
+    assert p.history[-1].added is not None and ["ally", "innkeeper"] not in p.history[-1].added.relationships
+    pipeline.revert(p, 1)
+    assert any({r.a, r.b} == {"ally", "innkeeper"} for r in p.relationships)
+    assert "작가 사실" in p.facts
+
+
+def test_ai_character_with_low_first_ep_is_still_removed():
+    p = _play(_short(8), 1, 1)
+    d = _extract(p, 2)
+    d.new_characters.append(Character(id="zz", name="새사람", role="행인", first_ep=1))  # AI 가 처음 나온 화를 잘못 적음
+    pipeline.apply_delta(p, d)
+    pipeline.revert(p, 1)
+    assert not any(c.id == "zz" for c in p.characters)
+
+
+def test_restate_facts_are_removed_by_revert():
+    p = _play(_short(8), 1, 2)
+    d = p.history[-1].model_copy(deep=True, update={"new_facts": ["고친 2화 사실"], "foreshadow_planted": [], "new_places": []})
+    pipeline.apply_restate(p, d)
+    assert "고친 2화 사실" in p.history[-1].added.facts
+    pipeline.revert(p, 1)
+    assert "고친 2화 사실" not in p.facts

@@ -1475,7 +1475,9 @@ const actions = {
     n = Number(n);
     const fin = P().episodes.filter((e) => e.status === 'finalized' && e.plot.number >= n).map((e) => e.plot.number);
     const h = [...P().history].reverse().find((d) => d.episode === n);
-    const was = new Set(P().characters.filter((c) => (c.first_ep || 0) < n).map((c) => c.id));  // 그때 이미 있던 인물은 빠지지 않는다 (pipeline.revert)
+    // 그때 이미 있던 인물(설정 단계 인물 · 앞 화 반영이 더한 인물)은 빠지지 않는다 (pipeline.revert)
+    const was = new Set([...P().characters.filter((c) => !c.first_ep).map((c) => c.id),
+      ...P().history.filter((d) => d.episode < n).flatMap((d) => d.new_characters || []).map((c) => c.id)]);
     const added = P().history.filter((d) => d.episode >= n).flatMap((d) => d.new_characters || []).filter((c) => !was.has(c.id)).map((c) => c.name || c.id);
     const places = (P().elements || []).filter((el) => el.found_in === '본문' && el.found_ep >= n).map((el) => el.name);
     if (!(await askConfirm(`${rangeText(fin)}화의 상태 반영을 취소할까요? ${n - 1 ? `${n - 1}화 반영 직후` : '1화 시작 전'} 상태로 돌아가고, 본문은 남아 상태 승인을 다시 하게 돼요.${added.length ? ` 그 반영이 더한 인물(${added.join(', ')})도 빠져요.` : ''}${places.length ? ` 본문에서 등록한 장소(${places.join(', ')})도 빠져요. 아직 안 쓴 화 플롯에 나오거나 직접 고친 장소는 남아요.` : ''}${S.dirty ? '\n저장하지 않은 변경은 먼저 저장해요.' : ''}`, { ok: S.dirty ? '저장하고 반영 취소' : '반영 취소', cancel: '닫기', danger: true }))) return false;

@@ -1862,6 +1862,14 @@ class DismissedItems(BaseModel):
     deadlines_done: list[str] = Field(default_factory=list)
 
 
+class AddedItems(BaseModel):
+    """반영할 때 실제로 새로 더해진 항목 (pipeline.apply_delta · apply_restate 가 적는다). 반영 취소가 이것만 뺀다."""
+    relationships: list[list[str]] = Field(default_factory=list, description="새로 더한 관계 쌍 [a, b]")
+    secrets: list[str] = Field(default_factory=list, description="새로 더한 비밀 id")
+    facts: list[str] = Field(default_factory=list)
+    foreshadows: list[str] = Field(default_factory=list, description="새로 심은 복선 id")
+
+
 class StateDelta(BaseModel):
     """한 화를 쓴 뒤 AI 가 제안하는 상태 변경안. 사용자가 승인하면 반영된다."""
     episode: int
@@ -1896,6 +1904,9 @@ class StateDelta(BaseModel):
     # 프로그램이 채운다 (상태 승인 화면 pickedDelta · pace.hold). AI 응답 형식에서 뺀다. 반영 기록(history)에 남고 반영 취소하면 그 화 기록과 함께 빠진다
     dismissed: SkipJsonSchema[DismissedItems] = Field(
         default_factory=DismissedItems, description="작가가 체크를 풀었거나 자동 반영이 뺀 항목. 반영하지 않고 기록으로만 남긴다")
+    # 프로그램이 채운다 (pipeline.apply_delta). AI 응답 형식에서 뺀다. None 이면 이 칸이 생기기 전 기록이라 반영 취소가 스냅샷으로 짐작한다
+    added: SkipJsonSchema[Optional[AddedItems]] = Field(
+        None, description="반영할 때 실제로 새로 더해진 관계 쌍 · 비밀 · 사실 · 복선. 반영 뒤 작가가 더한 같은 항목과 가려 반영 취소가 이것만 뺀다")
 
 
 class NameOption(BaseModel):

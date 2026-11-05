@@ -14,6 +14,7 @@ from . import anchor, board, cancel, charlog, context, features, findings, knows
 from .schema import CueSheet, CueSheetDraft, Finding, MetaCut, FindingRecheck, FixOption, FixPatch, FixSet, RevArcSet, RevEpisodeDraft, RevLineSet
 from .schema import ParagraphAnatomy, ReaderCheck, SceneCard, SceneVariant, SceneVariants, StudioCandidate, StudioDraft
 from .schema import (
+    AddedItems,
     Act,
     ArcEdit,
     ArcPlan,
@@ -3834,6 +3835,7 @@ def apply_delta(p: Project, d: StateDelta) -> list[str]:
         d.dismissed.new_characters += dup
         dropped.append(f"이미 있는 인물이라 새 인물에서 뺐어요: {', '.join(c.id for c in dup)}")
     _add_characters(p, d.new_characters, d.episode)
+    added = AddedItems()
     features.apply(features.APPLY_FIRST, p, d)  # 설정 바꾸기 제안 · 새 장소
     ep.auto = False  # 자동 집필은 반영한 뒤 True 로 표시한다
 
@@ -3865,22 +3867,29 @@ def apply_delta(p: Project, d: StateDelta) -> list[str]:
                 break
         else:
             p.relationships.append(upd)
+            added.relationships.append([upd.a, upd.b])
             dynamics.seed_ties(p)
 
     known_secrets = {s.id for s in p.secrets}
     # 복사해 넣는다. 사건이 비밀을 드러내 hidden_from 을 줄여도 기록(history)의 처음 모습은 남아야 다시 계산할 수 있다
-    p.secrets += [s.model_copy(deep=True) for s in d.secrets_added if s.id not in known_secrets]
+    new_secrets = [s.model_copy(deep=True) for s in d.secrets_added if s.id not in known_secrets]
+    p.secrets += new_secrets
+    added.secrets = [s.id for s in new_secrets]
     events = [e.model_copy(update={"episode": d.episode}) for e in d.events if e.kind != "수동보정"]
     dynamics.run_episode(p, d.episode, events, ep.plot.characters)
     p.events += events
 
-    p.facts += [f for f in d.new_facts if f not in p.facts]
+    added.facts = list(dict.fromkeys(f for f in d.new_facts if f not in p.facts))
+    p.facts += added.facts
     known = {f.id for f in p.foreshadows}
-    p.foreshadows += [f for f in d.foreshadow_planted if f.id not in known]
+    plants = [f for f in d.foreshadow_planted if f.id not in known]
+    p.foreshadows += plants
+    added.foreshadows = [f.id for f in plants]
     for f in p.foreshadows:
         if f.id in d.foreshadow_resolved:
             f.status, f.payoff_ep = "resolved", d.episode
     features.apply(features.APPLY_LAST, p, d)  # 복선 문장 · 작품 속 시간
+    d.added = added  # 반영 취소가 이 반영이 실제로 더한 것만 뺀다 (_undo_later)
     p.history.append(d)
     dynamics.take_snapshot(p, d.episode)
     if p.serial:
@@ -3918,7 +3927,7 @@ def _undo_later(p: Project, n: int, snap: Snapshot) -> None:
     """revert 가 부른다 (반영 기록 · 사건을 자르기 전). n화 뒤 반영(history)이 한 일만 되돌리고, n화 뒤 작가가 더하거나 고친 것은 둔다.
     - 관계 간선(Tie)은 사건이 움직이므로 n화 스냅샷으로 덮고, 작가가 더한 관계의 간선은 지금 관계 값으로 다시 만든다(seed_ties)
     - 인물 상태는 n화 스냅샷으로 덮는다. 스냅샷에 상태가 없는 인물(n화 뒤 작가가 더함)은 지금 상태를 두고, 뒤 반영이 그 상태를 바꿨으면 처음 상태로 만든다
-    - 관계 · 비밀 · 사실 · 복선은 뒤 반영이 더한 것만 뺀다. 뒤 반영 직전 스냅샷에 없던 것을 그 반영이 더한 것으로 본다
+    - 관계 · 비밀 · 사실 · 복선은 뒤 반영이 더한 것만 뺀다. 반영 기록의 added 를 보고, 그 칸이 없는 예전 기록은 반영 직전 스냅샷에 없던 것을 그 반영이 더한 것으로 본다
     - 뒤 반영이 유형 · 설명을 바꾼 관계는 스냅샷 값으로, 남은 관계의 수치는 스냅샷 값으로 돌린다
     - 뒤 사건이 드러낸 비밀은 스냅샷의 모르는 인물로, 뒤 반영이 회수한 그대로인 복선은 스냅샷의 상태 · 회수 화로 돌린다"""
     later = [d for d in p.history if d.episode > n]
@@ -3932,7 +3941,13 @@ def _undo_later(p: Project, n: int, snap: Snapshot) -> None:
     born_fact: set[str] = set()
     born_fs: set[str] = set()
     for d in later:
-        b = before(d.episode)
+        if d.added is not None:  # 반영할 때 적은 기록: 그 반영이 실제로 더한 것
+            born_rel |= {pair(*x) for x in d.added.relationships if len(x) == 2}
+            born_sec |= set(d.added.secrets)
+            born_fact |= set(d.added.facts)
+            born_fs |= set(d.added.foreshadows)
+            continue
+        b = before(d.episode)  # 예전 기록: 반영 직전 스냅샷에 없던 것을 그 반영이 더한 것으로 본다
         born_rel |= {pair(r.a, r.b) for r in d.relationship_updates} - {pair(r.a, r.b) for r in b.relationships}
         born_sec |= {s.id for s in d.secrets_added} - {s.id for s in b.secrets}
         born_fact |= set(d.new_facts) - set(b.facts)
@@ -3986,8 +4001,9 @@ def revert(p: Project, n: int) -> None:
     if snap is None:
         raise ValueError(f"{n}화 스냅샷이 없어요 (있는 화: {[s.episode for s in p.snapshots]})")
     # 되돌리는 반영이 더한 인물(new_characters)도 되돌린다. 뒤 화 플롯에 나오면 지우지 않고 인물 후보로 돌린다
-    # n화 때 이미 있던 인물(스냅샷에 상태가 있거나 처음 나온 화가 n화 이전)은 지우지 않는다: 예전 기록에 이미 있는 id 가 새 인물로 남아 있을 수 있다
-    was = {s.character_id for s in snap.states} | {c.id for c in p.characters if c.first_ep <= n}
+    # n화 때 이미 있던 인물(n화 스냅샷에 상태가 있거나 설정 단계 인물)은 지우지 않는다: 예전 기록에 이미 있는 id 가 새 인물로 남아 있을 수 있다.
+    # first_ep 는 AI 가 채울 수 있는 칸이라 '처음 나온 화 <= n' 으로는 가리지 않는다
+    was = {s.character_id for s in snap.states} | {c.id for c in p.characters if not c.first_ep}
     added = {c.id for d in p.history if d.episode > n for c in d.new_characters} - was
     if added:
         back = [c for c in p.characters if c.id in added]
@@ -4035,6 +4051,9 @@ def apply_restate(p: Project, d: StateDelta) -> dict:
         rec.summary = summary or rec.summary
         rec.new_facts += facts
         rec.foreshadow_planted += [f.model_copy(deep=True) for f in plants]
+        if rec.added is not None:  # 반영 취소가 고친 화에서 더한 것도 뺀다
+            rec.added.facts += facts
+            rec.added.foreshadows += [f.id for f in plants]
         rec.new_places += [x.model_copy(deep=True) for x in places]
     ep.final_text = ""
     return {"summary": bool(summary), "facts": len(facts), "foreshadows": len(plants), "places": len(places)}

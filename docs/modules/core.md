@@ -260,9 +260,13 @@
   - `drop_invalid` 가 뺀 항목은 `d.dismissed` 의 같은 칸에 남는다(반영 기록에서 보이고 반영 취소로 돌아오면 체크를 푼 채 다시 놓인다)
   - `apply_delta` 는 새 인물(`new_characters`)에 온 이미 있는 인물 id 를 `d.dismissed.new_characters` 로 옮기고 그 문구를 돌려준다(기록에 남으면 반영 취소가 그 인물을 지운다)
   - 반영 취소 `revert` 는 n화 뒤 반영(history)이 한 일만 되돌린다(`_undo_later`): 그 반영이 더한 관계 · 비밀 · 사실 · 복선을 빼고 바꾼 칸만 n화 스냅샷 값으로 돌린다
-  - n화 뒤 작가가 더하거나 고친 관계 · 비밀 · 사실 · 복선(회수 예정 화 포함)은 남는다. 뒤 반영 직전 스냅샷에 없던 항목을 그 반영이 더한 것으로 본다
+  - n화 뒤 작가가 더하거나 고친 관계 · 비밀 · 사실 · 복선(회수 예정 화 포함)은 남는다
+  - 반영이 실제로 새로 더한 관계 쌍 · 비밀 · 사실 · 복선은 `apply_delta` 가 반영 기록의 `StateDelta.added`(`AddedItems`, AI 응답 형식 밖)에 적고 `_undo_later` 가 그것만 뺀다
+  - `apply_restate` 가 고친 화 기록에 더한 사실 · 복선도 `added` 에 적는다
+  - `added` 가 없는 예전 기록은 뒤 반영 직전 스냅샷에 없던 항목을 그 반영이 더한 것으로 본다
   - 인물 상태 · 관계 간선은 n화 스냅샷으로 덮는다. 스냅샷에 상태가 없는 인물은 지금 상태를 두고(뒤 반영이 바꿨으면 처음 상태), 작가가 더한 관계의 간선은 `seed_ties` 로 다시 만든다
-  - `revert` 는 n화 때 이미 있던 인물(스냅샷에 상태가 있거나 `first_ep` 가 n 이하)을 예전 기록의 새 인물 칸에 있어도 지우지 않는다
+  - `revert` 는 n화 때 이미 있던 인물(n화 스냅샷에 상태가 있거나 `first_ep` 가 0인 설정 단계 인물)을 예전 기록의 새 인물 칸에 있어도 지우지 않는다
+  - `first_ep` 는 AI 가 채울 수 있는 칸이라 '처음 나온 화가 n 이하'로는 가리지 않는다
   - 상태 변경안의 본문 지문 `StateDelta.basis`(`text_basis`)는 `extract_state` · `carried_delta` 가 채운다
   - 반영 `apply_delta` 는 인물 상태의 빈 칸을 그대로 두고, `CharacterState.cleared` 에 적힌 칸(목표 · 위치 · 메모 · 차림 · 감정)은 비운다
   - 설정 칸 하나 AI 후보 `suggest_field` · 단계 `field_stage`
@@ -336,6 +340,7 @@
 - 인물 프롬프트 넣기를 고르는 규칙은 `context.core_ids` · `off_ids` · `without_off`(모두 auto 면 예전 규칙과 같다)
 - 상태 변경안의 본문 지문(`StateDelta.basis`)도 프로그램이 채워 AI 응답 형식에서 빠진다(`SkipJsonSchema`). 비면 모름
 - 상태 승인에서 반영하지 않은 항목(`StateDelta.dismissed`, `DismissedItems`)은 AI 응답 형식에서 빠지고 반영 기록(`Project.history`)에만 남는다
+- 반영이 실제로 새로 더한 항목(`StateDelta.added`, `AddedItems`)도 AI 응답 형식에서 빠진다. 없으면(None) 이 칸이 생기기 전 기록이다
 - 반영 취소는 그 화 기록과 함께 빼 둔 항목도 지운다
 - 지운 기록은 `_revert_kept` 가 pending.json 에 남기고, 상태 승인 화면이 빼 둔 항목을 체크를 푼 채 다시 놓는다
 - 화별 쓴 사건 체크(`Episode.events_done`, 사건 글 목록)는 집필 화면 표시용이라 `EpisodePlot` 밖에 두어 프롬프트에 들어가지 않는다
