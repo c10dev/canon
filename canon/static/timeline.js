@@ -32,7 +32,8 @@ Object.assign(S, {
 .tl-days .now b { color: var(--accent-ink); }
 .tl-flag { padding: 2px 4px; border-radius: 4px; background: var(--chip); color: var(--text-2); font-weight: 700; line-height: 1.3; word-break: keep-all; overflow-wrap: anywhere; }
 .tl-flag.hot { background: var(--accent); color: var(--on-accent); }
-@container outline (max-width: 560px) { .tl-days { grid-template-columns: repeat(7, minmax(0, 1fr)); } .tl-days > div:nth-child(n+8) { display: none; } .tl-flag { font-size: 0.625rem; word-break: keep-all; } }
+/* 좁은 칸: 열흘을 모두 두고 옆으로 밀어 본다 (사흘을 숨기면 그 기한이 띠에서 빠진다). 칸은 56px 이상이라 기한 이름이 한두 글자씩 끊기지 않는다 */
+@container outline (max-width: 560px) { .tl-days { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(64px, 1fr); overflow-x: auto; overscroll-behavior-x: contain; } .tl-flag { font-size: 0.625rem; word-break: keep-all; } }
 .tl-dls { display: flex; flex-direction: column; }
 .tl-dl { min-height: 56px; padding: 8px 0; border-top: 1px solid var(--rule); display: grid; grid-template-columns: 56px minmax(0, 1fr) auto auto; gap: 12px; align-items: center; }
 .tl-dl:first-child { border-top: none; }

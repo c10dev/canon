@@ -575,7 +575,7 @@ def summary(days: Optional[int] = 30, project: Optional[str] = None, limit: int 
             b["in"] += r.get("in", 0)
             b["out"] += out
             b["cached"] += r.get("cached", 0)
-            b["resent"] += r.get("resent", 0)
+            b["resent"] += min(r.get("resent", 0), r.get("cached", 0))  # cache_rate 처럼 줄마다 캐시 안으로 자른다
             b["cost"] += c or 0.0
             b["saved"] += saved
             b["unpriced"] += c is None

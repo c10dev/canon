@@ -127,6 +127,7 @@ function hubButton(st = hubNow()) {
 /** 작업 한 줄의 덧붙임: 다른 작품 이름, 지금 보는 화면이면 '이 화면' */
 function hubWhere(j) {
   if (j.project === '.revlab') return S.route[0] === 'revlab' ? ' <span class="chip">이 화면</span>' : ' <span class="chip">역설계 실험</span>';  // revlab.JOBS
+  if (j.project === '.styles') return S.route[0] === 'styles' ? ' <span class="chip">이 화면</span>' : ' <span class="chip">문체 라이브러리</span>';  // web.LIB_JOBS
   if (j.project !== S.name) return ` <span class="chip">${esc(j.project)}</span>`;
   const link = JOB_LINK[j.kind] && JOB_LINK[j.kind](j);
   return link && location.hash.startsWith(link) ? ' <span class="chip">이 화면</span>' : '';
@@ -262,6 +263,7 @@ function placeHub() {
 
 function hubOpen() {
   S.hubOpen = true;
+  if (typeof panelOn === 'function') panelOn('hub', () => hubClose());  // 휴대폰 뒤로 가기가 창만 닫게 (app.js)
   S.hubSeen = Date.now();
   hubNow().finished.forEach((j) => S.hubSeenJobs.add(j.id));
   renderHub();
@@ -273,6 +275,7 @@ function hubOpen() {
 function hubClose(back = true) {
   if (!S.hubOpen) return;
   S.hubOpen = false;
+  if (typeof panelOff === 'function') panelOff('hub');
   S.hubSeen = Date.now();
   renderHub();
   if (!back) return;

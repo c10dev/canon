@@ -3801,7 +3801,8 @@ def recheck_fixed(llm: LLM, p: Project, n: int) -> FixRecheckReport:
         items = [(f, f.id, [(e.before, e.after) for e in groups[f.id]]) for f in ai]
         around = prompts.fix_around(ep.text, _fix_spots(ep, [e for f in ai for e in groups[f.id]]))
         rep = llm.json(prompts.SYSTEM_CHECKER, prompts.fix_recheck_prompt(p, n, items, around, _decided(ep)), FixRecheckReport,
-                       hint={"episode": n, "items": [{"id": f.id, "quote": f.current_quote} for f in ai], "text": ep.text})
+                       hint={"episode": n, "items": [{"id": f.id, "quote": f.current_quote} for f in ai], "text": ep.text,
+                             PREFIX_HINT: len(prompts.static_context(p))})  # 첫 호출부터 작품 고정 앞부분을 캐시에 넣는다
         want, seen = {f.id for f in ai}, set()
         for x in rep.results:  # 묻지 않은 id 와 같은 id 의 두 번째 답은 버린다
             if x.id in want and x.id not in seen:
@@ -3957,15 +3958,19 @@ def drop_invalid(p: Project, d: StateDelta) -> list[str]:
     뺀 항목은 d.dismissed 의 같은 칸에 남겨 반영 기록에서 보이고, 반영 취소로 돌아오면 체크를 푼 채 다시 놓인다."""
     out: list[str] = []
     for name, items, why in _delta_checks(p, d):
-        keep = []
-        for x in items:
+        keep, drop = [], []
+        for i, x in enumerate(items):
             m = why(x)
             if m:
                 out.append(m)
                 getattr(d.dismissed, name).append(x)
+                drop.append(i)
             else:
                 keep.append(x)
-        setattr(d, name, keep)
+        if name == "relationship_updates":
+            d.drop_rel_rows(drop)  # rel_flagged 도 남은 행의 차례로 다시 매긴다
+        else:
+            setattr(d, name, keep)
     known = {c.id for c in p.characters} | {c.id for c in d.new_characters}
     for e in d.events:
         e.witnesses = [w for w in e.witnesses if w in known]
@@ -4059,6 +4064,7 @@ def apply_delta(p: Project, d: StateDelta) -> list[str]:
     features.apply(features.APPLY_LAST, p, d)  # 복선 문장 · 작품 속 시간
     d.legacy_rel = False  # 다시 계산(dynamics.replay)이 이 기록의 관계 수치를 쓰지 않게 한다
     d.added = added  # 반영 취소가 이 반영이 실제로 더한 것만 뺀다 (_undo_later)
+    d.drop_rel_rows([])  # 기록의 rel_flagged 는 남은 행을 가리키는 차례만 둔다 (반영 취소로 다시 놓일 때 기본 체크)
     p.history.append(d)
     dynamics.take_snapshot(p, d.episode)
     if p.serial:

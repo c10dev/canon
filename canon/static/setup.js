@@ -1064,7 +1064,7 @@ function viewSuggestion() {
   const s = S.suggestion;
   const exists = (c) => sameChar(c);
   const clash = (c) => !sameChar(c) && P().characters.some((x) => x.id === c.id);
-  return `<section class="card" style="border:2px solid var(--accent)">
+  return `<section class="card proposal">
     <div class="between"><h2>AI 제안 <span class="chip ai">적용 전</span></h2>${proposalActions(['dropSuggestion'], ['applySuggestion'])}</div>
     <p class="small">주제, 톤, 세계관, 이미 있는 인물은 비어 있는 칸에만 들어가요. 적어 둔 칸은 그대로예요.</p>
     <div class="sug-fields">${SUG_FIELDS.map(([k, label]) => {
