@@ -30,6 +30,13 @@ def same_quote(a: str, b: str) -> bool:
     return a.strip() == b.strip() or (small > 0 and len(ga & gb) / small >= 0.5)
 
 
+def in_text(text: str, quote: str) -> bool:
+    """quote 가 본문에 있는지. 띄어쓰기 · 따옴표 · 문장 부호 차이는 무시한다 (AI 가 따옴표 모양만 바꿔 옮겨도 같은 문장)."""
+    from .foreshadows import found
+
+    return found(text, quote)
+
+
 def same(a: ConsistencyIssue, b: ConsistencyIssue) -> bool:
     """두 지적이 같은 문장을 짚는지. 문장이 없으면 설명이 같아야 같다."""
     qa, qb = a.current_quote.strip(), b.current_quote.strip()
@@ -89,7 +96,7 @@ def merge(ep: Episode, issues: list[ConsistencyIssue], at: str, basis: str,
         if f.id in taken or f.status != "open":
             continue
         quote = f.current_quote.strip()
-        if quote and quote not in ep.text:  # 문장을 고쳐 다시 검수에서 사라졌다
+        if quote and not in_text(ep.text, quote):  # 문장을 고쳐 다시 검수에서 사라졌다
             f.status, f.closed_by, f.decided_at = "fixed", "recheck", at
             log(f, at, "gone", f"{no}회차 · 문장이 사라져 고침")
             r.gone_ids.append(f.id)
@@ -159,7 +166,7 @@ def touches(ep: Episode, f: Finding, opt: FixOption) -> list[str]:
     out = []
     for g in ep.findings:
         q = g.current_quote.strip()
-        if g.id == f.id or not q or q not in ep.text:
+        if g.id == f.id or not q or not in_text(ep.text, q):
             continue
         if any(q in x or x in q or same_quote(q, x) for x in quotes if x.strip()):
             out.append(g.id)
@@ -174,7 +181,7 @@ def add_children(ep: Episode, parent: Finding, issues: list[ConsistencyIssue], a
     out = []
     for x in issues:
         q = x.current_quote.strip()
-        if not q or q not in ep.text or any(same(g, x) for g in [*keep, *out]):
+        if not q or not in_text(ep.text, q) or any(same(g, x) for g in [*keep, *out]):
             continue
         f = Finding(**x.model_dump(), id=_next_id(ep), first=no, last=no, parent=parent.id)
         log(f, at, "found", f"{parent.id} 지적을 고친 뒤 이 지적만 다시 검수에서 생김 · {SEVERITY[f.severity]}")
