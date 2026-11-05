@@ -9,6 +9,9 @@
 - 간격 · 모서리 · 크기 · 그림자 · 쌓는 층은 맨 위 `:root` 의 변수(`--space-*` · `--radius-*` · `--shadow-*` · `--z-*`)로 쓴다(같은 시험)
 - z-index 는 `--z-*` 사다리만 쓴다(`docs/design/layout.md` '쌓는 층')
 - 손가락 기기 · 640px 이하에서 작은 누름 영역을 44px 로 키우는 규칙은 '휴대폰' 절 바로 앞 한 블록에 모은다
+- 높이 500px 이하(가로 휴대폰) 규칙은 `@media (max-height: 500px)` 로 건다. 붙여 두는 칸을 풀고 대화 시트를 키운다(`docs/design/layout.md` '오른쪽 패널')
+- `html` 에 `text-size-adjust: 100%` 를 둔다. iOS Safari 가 가로 화면에서 글자를 키우지 않게 한다
+- 떠 있는 칸 · 시트 · 메뉴(대화 기록, 펼침 메뉴, 설정 대화상자, 목차 펼침 등)는 `overscroll-behavior: contain` 이다. 끝까지 굴려도 뒤 페이지가 구르지 않는다
 - 기능마다 `/* ----- 이름 (파일.js) ----- */` 절로 나눈다
 - 공용 목차 틀의 화면별 칸 규칙은 `@container outline` 으로 건다
 - 컴포넌트 규칙을 바꾸면 `docs/design/components/bundle.css` 의 그 줄도 같게 고친다
@@ -35,6 +38,7 @@
   - 900px 이하는 위쪽 띠와 왼쪽 서랍 `drawerHead`
 - 창 폭 경계 `BP`(phone 640 · narrow 900 · chatRail 1599)와 `mq(이름)`: app.css `@media` 와 같은 값이다. `hub.js` · `review.js` 도 이것을 쓴다
 - 휴대폰 키보드 높이 `--kb`(`visualViewport`, 80px 아래와 두 손가락 확대는 0): 아래 시트 · 찾기 팔레트가 키보드 위에 선다
+- 숫자 칸 자판 `numberKeypads`: `inputmode` 가 없는 `type=number` 칸에 붙인다(소수 `step` 은 decimal, 아니면 numeric). `MutationObserver` 로 그려질 때마다 한곳에서 붙인다
 - 사이드바 아이콘(`navItems` · `navMark`: 단계는 번호, 그 밖은 토스페이스 이모지 `.tf`, 출처 문구는 사이드바 아래, Swift `Screen.mark` 와 같은 글자)
 - 사이드바 작품 칸(`workCard`: 제목 · 갈래 · 플레이 사본(`play.js` `playSideTag`) · 장편은 지금 부 · 아크(`partOf` · `arcOf`), 화 칸 띠는 단편 전체 · 장편 지금 아크, 다음 할 일은 `home.js` `nextStep`, 좁은 폭 위쪽 띠 줄이기는 `app.css` `.work-card`)
 - 4 · 5 · 6 줄이 가리키는 화(`navEp`: 한 화 흐름 `FLOW_PAGES` · 작업지시서는 보는 화)

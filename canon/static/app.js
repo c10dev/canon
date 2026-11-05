@@ -484,6 +484,20 @@ function selecting() {
 document.addEventListener('focusout', () => setTimeout(() => { if (S.renderPending && !isTyping() && !selecting()) render(); }));
 // 글자 선택을 풀면 선택 중이라 미뤄 둔 다시 그리기를 한다
 document.addEventListener('selectionchange', () => setTimeout(() => { if (S.renderPending && !isTyping() && !selecting()) render(); }));
+
+/** 숫자 칸에 휴대폰 숫자 자판을 붙인다. inputmode 가 없는 type=number 칸은 iOS 에서 글자 자판이 뜬다.
+    칸이 화면 파일 여기저기에 있어 그려질 때마다 한곳에서 붙인다. step 이 소수면 decimal, 아니면 numeric */
+function numberKeypads(root) {
+  for (const el of root.querySelectorAll('input[type=number]:not([inputmode])')) {
+    const step = el.getAttribute('step') || '';
+    el.setAttribute('inputmode', step.includes('.') || (el.min && el.min.includes('.')) ? 'decimal' : 'numeric');
+  }
+}
+if (window.MutationObserver && document.body) {
+  new window.MutationObserver((list) => {
+    for (const m of list) for (const n of m.addedNodes) if (n.nodeType === 1) { if (n.matches('input[type=number]')) numberKeypads(n.parentElement || n); else numberKeypads(n); }
+  }).observe(document.body, { childList: true, subtree: true });
+}
 // 휴대폰 키보드 높이를 --kb 로 둔다. 아래에 붙는 대화 시트 · 다시 생성 열과 찾기 팔레트가 키보드 위에 선다 (app.css 900px 이하)
 if (window.visualViewport && typeof window.visualViewport.addEventListener === 'function') {
   const fitKeyboard = () => {
