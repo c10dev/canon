@@ -1575,9 +1575,10 @@ document.addEventListener('change', (e) => {
     const wa = (stageResolve(g.room).anchors || []).find((x) => x.id === id);
     const a = g.room.anchors.find((x) => x.id === id);
     if (!a || !wa) return;
+    if (String(t.value).trim() === '') { render(); return; }  // 비운 칸은 옮기지 않고 지금 자리로 되돌려 보인다
     const x = d.stgAnchorX !== undefined ? Number(t.value) : wa.x;
     const y = d.stgAnchorY !== undefined ? Number(t.value) : wa.y;
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) { render(); return; }
     Object.assign(a, stageDragTo(g.room, id, x, y));
     stgTouch();
   } else if (d.stgAnchorName !== undefined || d.stgAnchorKind !== undefined) {

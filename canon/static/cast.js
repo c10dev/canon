@@ -929,7 +929,7 @@ function castTable() {
       const x = left + (n - 1) * step;
       if (!a) continue;
       const e = ep(n);
-      out.push(`<rect class="cs-on ${a.status}" data-action="castStripGo" data-arg="${n}" x="${x + 0.5}" y="${y + 5}" width="${Math.max(1.5, step - 1.5)}" height="${rowH - 10}" rx="${step > 8 ? 3 : 1}"><title>${esc(`${c.name} · ${n}화 ${e ? e.plot.title : ''} · ${STATUS[a.status]}${a.pov ? ' · 시점 인물' : ''}`)}</title></rect>`);
+      out.push(`<rect class="cs-on ${a.status}" data-action="castStripGo" data-arg="${n}:open" x="${x + 0.5}" y="${y + 5}" width="${Math.max(1.5, step - 1.5)}" height="${rowH - 10}" rx="${step > 8 ? 3 : 1}"><title>${esc(`${c.name} · ${n}화 ${e ? e.plot.title : ''} · ${STATUS[a.status]}${a.pov ? ' · 시점 인물' : ''}`)}</title></rect>`);
       if (a.pov) out.push(`<circle class="ct-pov" cx="${x + step / 2}" cy="${y + rowH / 2}" r="${Math.max(1.5, Math.min(4, step / 4))}"></circle>`);
     }
     out.push(`<text class="ct-count" x="${left + total * step + 8}" y="${y + 18}">${rows.length}화</text>`);
@@ -1024,10 +1024,14 @@ Object.assign(actions, {
   castOpen(id) { actions.castShow('c:' + id); },
   /** 등장 띠 · 등장표의 칸을 누르면: 그 화를 반영한 시점이 있으면 관계도 시점을 옮기고, 없으면 그 화에서 할 일 화면으로 간다.
       화 번호 · 상태는 title(마우스)에만 있어 손가락 기기에서는 누르는 것이 유일한 길이다 */
-  castStripGo(n) {
-    n = Number(n);
+  castStripGo(arg) {
+    const [ns, how] = String(arg).split(':');
+    const n = Number(ns);
+    // 등장표(여러 인물 한눈에)의 칸은 그 화를 연다: 표에는 시점에 따라 바뀌는 것이 없어 시점만 옮기면 보이는 변화가 없다
+    if (how === 'open') { location.hash = typeof epGo === 'function' ? epGo(n)[0] : `${base()}/write/${n}`; return; }
     const i = (S.cast.frames || []).findIndex((f) => f.episode === n);
     if (i >= 0) {
+      if (typeof castStop === 'function') castStop();  // 재생 중이면 멈추고 옮긴다
       S.castFrame = i;
       castRefresh();
       return toast(`${n}화 반영 뒤 시점으로 옮겼어요`);

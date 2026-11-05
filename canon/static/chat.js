@@ -455,7 +455,7 @@ function syncChat() {
 Object.assign(actions, {
   toggleChat() {
     S.chatOpen = !S.chatOpen;
-    if (typeof panelOn === 'function') { if (S.chatOpen) panelOn('chat', () => actions.toggleChat()); else panelOff('chat'); }  // 휴대폰 뒤로 가기가 시트만 닫게
+    if (typeof panelOn === 'function') { if (S.chatOpen) panelOn('chat', chatCloseIfOpen); else panelOff('chat'); }  // 휴대폰 뒤로 가기가 시트만 닫게 (닫힌 시트를 다시 열지 않는다)
     if (S.chatOpen) S.rwOpen = null;  // 집필 화면: 다시 생성 열(rewrite.js)과 같은 자리라 하나만 연다
     S.chatScroll = true;
     try { localStorage.setItem('canon.chat', S.chatOpen ? '1' : '0'); } catch { /* 저장 못 해도 동작에는 상관없다 */ }

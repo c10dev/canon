@@ -101,8 +101,13 @@ Object.defineProperty(S, 'project', { enumerable: true, get: () => projectNow, s
 
 /** 저장하기 전 목록에서 지운 것을 되살릴 수 있게, 지우기 직전 그 칸들을 쌓아 둔다(최근 10개). 저장 띠의 '되살리기'는 가장 최근 것부터 하나씩 되살린다. */
 const REMOVED_MAX = 10;
+// 기록은 그 칸들의 지우기 직전 통째 값이라, 사이에 다른 고침이 있으면 오래된 기록을 되살릴 때 그 고침을 덮는다.
+// 그래서 지우기 사이에 다른 고침(markDirty)이 있었으면 앞 기록을 버리고 새로 쌓는다 (S.editSeq: markDirty 마다 1씩)
 function rememberRemoved(label, paths) {
-  S.removed = [...(S.removed || []), { label, saved: paths.map((k) => [k, structuredClone(getPath(P(), k))]) }].slice(-REMOVED_MAX);
+  const prev = lastRemoved();
+  const seq = S.editSeq || 0;
+  const keep = prev && seq <= prev.seq + 1 ? S.removed : [];  // 앞 지우기 바로 뒤의 markDirty 하나만 허용한다
+  S.removed = [...keep, { label, seq, saved: paths.map((k) => [k, structuredClone(getPath(P(), k))]) }].slice(-REMOVED_MAX);
 }
 const lastRemoved = () => (S.removed && S.removed.length ? S.removed[S.removed.length - 1] : null);
 
@@ -809,7 +814,7 @@ function applyJobResult(j) {
 const JOB_LINK = {
   suggest: (j) => `#/p/${enc(j.project)}/setup`,
   style: (j) => `#/p/${enc(j.project)}/style`,
-  lib_style: (j) => `#/styles/${enc(S.libJobFor[j.id] || 'new')}`,
+  lib_style: (j) => `#/styles/${enc((j.result && j.result.lib && j.result.lib !== 'new' ? j.result.lib : S.libJobFor[j.id]) || 'new')}`,
   arc: (j) => `#/p/${enc(j.project)}/arc`,
   plots: (j) => `#/p/${enc(j.project)}/arc`,
   plot_one: (j) => `#/p/${enc(j.project)}/arc`,
@@ -1232,6 +1237,7 @@ document.addEventListener('keydown', (e) => {
 
 function markDirty() {
   S.gen++;
+  S.editSeq = (S.editSeq || 0) + 1;  // 되살리기 기록이 사이의 고침을 덮지 않게 센다 (rememberRemoved)
   if (!S.dirty) {
     S.dirty = true;
     renderSavebar();
@@ -1508,7 +1514,7 @@ const actions = {
   },
   toggleMenu() {
     S.menuOpen = !S.menuOpen;  // 900px 이하 위쪽 띠의 버튼. 서랍의 메뉴를 고르면 화면 이동 때 닫힌다
-    if (S.menuOpen) panelOn('menu', () => { S.menuOpen = false; render(); }); else panelOff('menu');
+    if (S.menuOpen) panelOn('menu', () => { if (S.menuOpen) { S.menuOpen = false; render(); } }); else panelOff('menu');
     S.focusTarget = S.menuOpen ? '#side-menu .drawer-head .side-ico' : '#app .side-top .menu-toggle';
     render();
   },
@@ -1949,29 +1955,48 @@ document.addEventListener('click', async (e) => {
 const navScroll = { idx: 0, max: 0, at: new Map(), restore: null };
 let navAsk = 0;
 
-// 900px 이하에서 떠 있는 창(알림 창 · 찾기 팔레트 · 대화 시트 · 서랍 메뉴)을 열면 기록을 하나 더한다. 휴대폰의 뒤로 가기가
-// 화면을 떠나지 않고 그 창만 닫는다. 창을 버튼으로 닫으면 더한 기록을 되돌린다 (popstate 는 건너뛴다). 창은 한 번에 하나로 센다
+// 900px 이하에서 떠 있는 창(알림 창 · 찾기 팔레트 · 대화 시트 · 서랍 메뉴)을 열면 기록을 하나 더한다(state.panel). 휴대폰의
+// 뒤로 가기가 화면을 떠나지 않고 그 창만 닫는다. 창은 한 번에 하나로 센다.
+// - 창을 버튼 · Esc 로 닫으면 더한 기록을 되돌린다. 되돌리기는 한 박자 미뤄, 같은 흐름에서 다른 창을 열면 그 기록을 그대로 쓴다
+// - 링크로 화면을 옮기면 popstate 가 hashchange 보다 먼저 온다. 주소가 바뀐 popstate 는 창을 닫지 않는다
+// - 창 없이 남은 panel 기록(화면을 옮겨 창이 닫힌 뒤 뒤로 돌아온 경우)에 닿으면 한 번 더 뒤로 가 헛누름을 없앤다
 const PANEL_MQ = typeof matchMedia === 'function' ? matchMedia('(max-width: 900px)') : { matches: false };
-let panelCur = null;   // { id, close }
-let panelSkip = false; // 창을 버튼으로 닫으며 부른 history.back() 의 popstate
+let panelCur = null;    // { id, close, hash }
+let panelSkip = 0;      // 우리가 부른 history.back() 의 popstate 수
+let panelBack = null;   // 미룬 되돌리기 타이머
 function panelOn(id, close) {
   if (!PANEL_MQ.matches) return;
-  if (panelCur) { panelCur = { id, close }; return; }  // 이미 더한 기록이 있으면 닫는 법만 바꾼다
-  panelCur = { id, close };
+  if (panelBack) { clearTimeout(panelBack); panelBack = null; }  // 막 닫은 창의 기록을 새 창이 이어 쓴다
+  const onEntry = history.state && history.state.panel;
+  panelCur = { id, close, hash: location.hash };
+  if (onEntry) return;  // 이미 더한 기록 위다: 닫는 법만 바꾼다
   try { history.pushState({ ...(history.state || {}), panel: 1 }, '', location.hash); } catch { panelCur = null; }
 }
 function panelOff(id) {
   if (!panelCur || panelCur.id !== id) return;
   panelCur = null;
-  if (history.state && history.state.panel) { panelSkip = true; history.back(); }
+  if (panelBack) return;
+  panelBack = setTimeout(() => {
+    panelBack = null;
+    if (!panelCur && history.state && history.state.panel) { panelSkip += 1; history.back(); }
+  }, 0);
 }
 window.addEventListener('popstate', () => {
-  if (panelSkip) { panelSkip = false; return; }
-  if (!panelCur) return;
-  const p = panelCur;
-  panelCur = null;  // close 가 panelOff 를 불러도 다시 되돌리지 않게 먼저 비운다
-  p.close();
-});  // 저장하지 않은 변경을 묻는 이동마다 1씩. '저장하고 이동'이 저장하는 사이 다른 이동이 왔는지 본다
+  if (panelSkip) { panelSkip -= 1; return; }
+  if (panelCur && location.hash !== panelCur.hash) return;  // 링크 이동: hashchange 가 이어서 처리한다
+  if (panelCur) {
+    const p = panelCur;
+    panelCur = null;  // close 가 panelOff 를 불러도 다시 되돌리지 않게 먼저 비운다
+    p.close();
+    return;
+  }
+  if (history.state && history.state.panel) { panelSkip += 1; history.back(); }  // 창 없이 남은 기록: 건너뛴다
+});
+/** 그린 뒤: 휴대폰에서 열린 채로 그려진 대화 시트(새로고침 · 화면 이동 뒤)에 기록을 붙인다 */
+function panelSync() {
+  if (S.chatOpen && !panelCur && PANEL_MQ.matches && document.querySelector('.chat-panel')) panelOn('chat', chatCloseIfOpen);
+}
+const chatCloseIfOpen = () => { if (S.chatOpen && actions.toggleChat) actions.toggleChat(); };  // 저장하지 않은 변경을 묻는 이동마다 1씩. '저장하고 이동'이 저장하는 사이 다른 이동이 왔는지 본다
 try { history.replaceState({ idx: 0 }, '', location.hash || '#/'); } catch { /* 기록을 못 고치면 위치 되살리기만 빠진다 */ }
 
 window.addEventListener('hashchange', async () => {
@@ -2286,6 +2311,7 @@ function focusEl(el) {
 }
 
 function afterDraw(f) {
+  if (typeof panelSync === 'function') panelSync();  // 열린 채로 그려진 대화 시트에 뒤로 가기 기록을 붙인다
   const main = $('#app main');
   if (main) { main.id = 'main'; main.tabIndex = -1; }
   // 화마다 한 열인 넓은 표(지도 '어디에 있었나', 상태창 화별 변화)는 1화부터 그린다. 지금 화(.cur) 또는 마지막 열이 보이게 옆으로 굴려 둔다
@@ -2455,6 +2481,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || e.isComposing || !S.menuOpen || S.popMenu) return;
   e.preventDefault();
   S.menuOpen = false;
+  panelOff('menu');
   S.focusTarget = '#app .side-top .menu-toggle';
   render();
 });

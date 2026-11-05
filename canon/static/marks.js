@@ -262,11 +262,17 @@ document.addEventListener('click', (e) => {
   const ta = e.target;
   if (!(ta.matches && ta.matches('.hl-wrap textarea[data-draft]')) || !editableEp(ep(Number(ta.dataset.draft)))) return;
   setTimeout(() => {  // passage.js 가 고른 것 없는 클릭으로 도구를 닫은 뒤에
-    if (ta.selectionStart !== ta.selectionEnd || (S.selTool && S.selTool.mode === 'edit')) return;
-    const p = ta.selectionStart;
-    if (typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches) {
-      const n0 = ta.dataset.draft;
-      const again = markTap && markTap.n === n0 && Math.abs(markTap.p - p) <= 3 && Date.now() - markTap.t < 2000;
+    if (S.selTool && S.selTool.mode === 'edit') return;
+    const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+    const n0 = ta.dataset.draft;
+    const recent = coarse && markTap && markTap.n === n0 && Date.now() - markTap.t < 2000;
+    // 휴대폰에서 빠르게 두 번 누르면 브라우저가 낱말을 고른다. 첫 누름 자리가 든 짧은 고름이면 두 번째 누름으로 친다
+    const wordPick = recent && ta.selectionStart !== ta.selectionEnd && ta.selectionEnd - ta.selectionStart <= 20 && ta.selectionStart <= markTap.p && markTap.p <= ta.selectionEnd;
+    if (ta.selectionStart !== ta.selectionEnd && !wordPick) return;
+    const p = wordPick ? markTap.p : ta.selectionStart;
+    if (wordPick) ta.setSelectionRange(p, p);
+    if (coarse) {
+      const again = wordPick || (recent && Math.abs(markTap.p - p) <= 3);
       markTap = again ? null : { n: n0, p, t: Date.now() };
       if (!again) return;
     }
