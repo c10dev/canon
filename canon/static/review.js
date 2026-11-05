@@ -3,19 +3,21 @@
 'use strict';
 
 
-/** 체크한 항목만 남긴 변경안. 반영과 관계 미리 보기에 같이 쓴다. */
+/** 체크한 항목만 남긴 변경안 (체크를 푼 항목은 dismissed 에). 반영과 관계 미리 보기에 같이 쓴다. */
 function pickedDelta(n) {
   const d = S.deltas[n];
   const pick = (prefix, list) => list.filter((_, i) => S.picks[prefix + i]);
-  // 화면에서 고친 글은 앞뒤 공백을 지우고, 비운 사실 · 알게 된 정보는 뺀다 (빈 감정은 서버가 지금 감정을 그대로 둔다)
+  // 화면에서 고친 글은 앞뒤 공백을 지우고, 비운 사실 · 알게 된 정보는 뺀다 (빈 감정 · 목표 · 위치 · 메모는 서버가 그대로 두고, 지우기는 cleared 로 간다)
+  const drop = (prefix, list) => (list || []).filter((_, i) => !S.picks[prefix + i]);
   const clean = (list) => list.map((x) => x.trim()).filter(Boolean);
   return {
     ...d,
-    character_updates: pick('c', d.character_updates).map((u) => ({ ...u, emotional_state: u.emotional_state.trim(), knows: clean(u.knows) })),
+    character_updates: pick('c', d.character_updates).map((u) => ({ ...u, emotional_state: u.emotional_state.trim(), current_goal: (u.current_goal || '').trim(), location: (u.location || '').trim(), notes: (u.notes || '').trim(), knows: clean(u.knows) })),
     events: pick('e', d.events),
     secrets_added: pick('s', d.secrets_added),
     relationship_updates: pick('r', d.relationship_updates),
     rel_flagged: [],  // 작가가 고른 뒤라 기본 체크 표시는 필요 없다 (차례도 고른 목록과 맞지 않는다)
+    reoffer: undefined,  // 화면 전용 표시 (reofferDismissed). 서버에 보내지 않는다
     new_facts: clean(pick('f', d.new_facts)),
     foreshadow_planted: pick('p', d.foreshadow_planted),
     foreshadow_resolved: pick('x', d.foreshadow_resolved),
@@ -27,6 +29,21 @@ function pickedDelta(n) {
     setting_changes: pick('t', d.setting_changes || []),
     cast_added: pick('a', d.cast_added || []),
     address_changes: pick('h', d.address_changes || []),
+    // 체크를 푼 항목은 버리지 않고 반영 기록에 남긴다 (StateDelta.dismissed). 설정 바꾸기 · 호칭 · 등장 인물 붙이기는 빼 둔다
+    dismissed: {
+      character_updates: drop('c', d.character_updates),
+      events: drop('e', d.events),
+      secrets_added: drop('s', d.secrets_added),
+      relationship_updates: drop('r', d.relationship_updates),
+      new_facts: clean(drop('f', d.new_facts)),
+      foreshadow_planted: drop('p', d.foreshadow_planted),
+      foreshadow_resolved: drop('x', d.foreshadow_resolved),
+      foreshadow_clues: drop('q', d.foreshadow_clues),
+      new_characters: drop('n', d.new_characters),
+      new_places: drop('l', d.new_places),
+      deadlines_added: drop('k', d.deadlines_added),
+      deadlines_done: drop('o', d.deadlines_done),
+    },
   };
 }
 
@@ -68,8 +85,70 @@ const DELTA_LISTS = ['character_updates', 'events', 'secrets_added', 'relationsh
 const deltaCount = (d) => DELTA_LISTS.reduce((s, k) => s + (d[k] || []).length, 0);
 const deltaPicked = () => Object.entries(S.picks).filter(([k, v]) => v && DELTA_PICK.test(k)).length;
 
+/** 빼 둘 수 있는 목록과 체크 키 앞글자 (StateDelta.dismissed 의 칸, pickedDelta 와 같다) */
+const DISMISS_LISTS = [['character_updates', 'c'], ['events', 'e'], ['secrets_added', 's'], ['relationship_updates', 'r'], ['new_facts', 'f'], ['foreshadow_planted', 'p'], ['foreshadow_resolved', 'x'], ['foreshadow_clues', 'q'], ['new_characters', 'n'], ['new_places', 'l'], ['deadlines_added', 'k'], ['deadlines_done', 'o']];
+
+/** 반영 기록에서 돌아온 변경안(반영 취소 web._revert_kept, 단편 다시 쓰기 pipeline.carried_delta)의 빼 둔 항목을 목록 끝에 다시 놓는다.
+ * 기본 체크는 풀어 둔다(d.reoffer 의 차례, defaultPicks). 그대로 반영하면 pickedDelta 가 다시 dismissed 로 보낸다. 두 번 불러도 한 번만 놓는다 */
+function reofferDismissed(d) {
+  const x = d.dismissed || {};
+  for (const [k, p] of DISMISS_LISTS) {
+    const items = x[k] || [];
+    if (!items.length) continue;
+    d[k] = d[k] || [];
+    const r = (d.reoffer ||= {});
+    r[p] = [...(r[p] || []), ...items.map((_, j) => d[k].length + j)];
+    d[k].push(...items);
+  }
+  d.dismissed = {};
+}
+
+/** 변경안 n건의 기본 체크 (지금 작품 기준). setDelta 와 다른 화로 옮길 때(pickEp) 같이 쓴다 */
+function defaultPicks(d) {
+  const o = {};
+  // 설정에도 이번 새 인물에도 없는 id 의 상태는 기본으로 빼 둔다. 반영하면 누구의 것도 아닌 상태가 남는다
+  const known = new Set([...P().characters.map((c) => c.id), ...(d.new_characters || []).map((c) => c.id)]);
+  d.character_updates.forEach((u, i) => { o['c' + i] = known.has(u.character_id); });
+  // 설정에 없는 인물이 끼었거나 같은 인물끼리인 관계 사건 · 관계 바뀜도 기본으로 빼 둔다. 서버 반영이 막는다 (pipeline.validate_delta)
+  const pairOk = (a, b) => a !== b && known.has(a) && known.has(b);
+  d.events.forEach((e, i) => { o['e' + i] = pairOk(e.actor, e.target); });
+  d.secrets_added.forEach((_, i) => { o['s' + i] = true; });
+  // 유형 · 설명이 반영 뒤 관계 단계와 반대인 바뀜은 기본으로 빼 둔다 (pace.clean_delta). 맞으면 작가가 체크한다
+  d.relationship_updates.forEach((r, i) => { o['r' + i] = !(d.rel_flagged || []).includes(i) && pairOk(r.a, r.b); });
+  d.new_facts.forEach((_, i) => { o['f' + i] = true; });
+  d.foreshadow_planted.forEach((_, i) => { o['p' + i] = true; });
+  d.foreshadow_resolved.forEach((id, i) => { o['x' + i] = P().foreshadows.some((f) => f.id === id); });
+  (d.new_characters || []).forEach((_, i) => { o['n' + i] = true; });
+  (d.new_places || []).forEach((_, i) => { o['l' + i] = true; });
+  (d.foreshadow_clues || []).forEach((_, i) => { o['q' + i] = true; });
+  (d.deadlines_added || []).forEach((_, i) => { o['k' + i] = true; });
+  (d.deadlines_done || []).forEach((id, i) => { o['o' + i] = P().timeline.deadlines.some((x) => x.id === id) || (d.deadlines_added || []).some((x) => x.id === id); });
+  (d.setting_changes || []).forEach((_, i) => { o['t' + i] = false; });  // 인물 설정은 작가가 직접 골라야 바뀐다
+  (d.cast_added || []).forEach((_, i) => { o['a' + i] = true; });  // 본문에 나온 인물은 기본으로 그 화 등장 인물에 붙인다
+  (d.address_changes || []).forEach((_, i) => { o['h' + i] = false; });  // 호칭 · 말씨도 작가가 직접 골라야 바뀐다
+  // 지난번 반영에서 작가가 체크를 풀었던 항목은 다시 놓아도 체크하지 않는다 (reofferDismissed)
+  Object.entries(d.reoffer || {}).forEach(([p, idx]) => idx.forEach((i) => { if (p + i in o) o[p + i] = false; }));
+  return o;
+}
+
+/** S.picks 의 변경안 체크(DELTA_PICK 키)만 */
+const deltaPicks = () => Object.fromEntries(Object.entries(S.picks).filter(([k]) => DELTA_PICK.test(k)));
+
+/** S.picks 는 한 화 것이다 (S.picksEp). 다른 화로 옮기기 전에 작가가 고친 체크만 S.picksKept 에 맡긴다.
+ * 고치지 않은 기본 체크는 맡기지 않는다: 돌아올 때 지금 작품 기준으로 다시 센다 (pickEp) */
+function stashPicks() {
+  const n = S.picksEp;
+  if (n == null || !S.deltas[n]) return;
+  const now = deltaPicks();
+  const orig = (S.deltaOrig[n] || {}).picks || {};
+  if (Object.keys(now).some((k) => now[k] !== orig[k])) (S.picksKept ||= {})[n] = now;  // 시험 틀처럼 S 를 일부만 채운 곳에서도 돈다
+}
+
 /** source: 변경안을 어디서 받았나 ('chat' 이면 채팅 앱에서 가져온 JSON). 상태 승인 화면 설명에 쓴다 */
 function setDelta(n, d, source = 'ai') {
+  if (S.picksEp !== n) stashPicks();  // 다른 화를 보던 중에 이 화 변경안이 오면 보던 화의 체크를 맡겨 둔다
+  if (S.picksKept) delete S.picksKept[n];
+  reofferDismissed(d);
   S.deltas[n] = d;
   S.deltaBase[n] = ep(n) ? ep(n).text : '';
   // S.picks 는 설정 제안(sc · sr · sf: 키)과 같이 쓴다. 변경안 키만 지워 설정 화면의 체크를 남긴다
@@ -77,26 +156,47 @@ function setDelta(n, d, source = 'ai') {
   S.preview = null;
   S.rvOpen = {};  // 펼친 인물 칸과 본문 근거는 닫는다
   S.rvQuote = null;
-  // 설정에도 이번 새 인물에도 없는 id 의 상태는 기본으로 빼 둔다. 반영하면 누구의 것도 아닌 상태가 남는다
-  const known = new Set([...P().characters.map((c) => c.id), ...(d.new_characters || []).map((c) => c.id)]);
-  d.character_updates.forEach((u, i) => { S.picks['c' + i] = known.has(u.character_id); });
-  d.events.forEach((_, i) => { S.picks['e' + i] = true; });
-  d.secrets_added.forEach((_, i) => { S.picks['s' + i] = true; });
-  // 유형 · 설명이 반영 뒤 관계 단계와 반대인 바뀜은 기본으로 빼 둔다 (pace.clean_delta). 맞으면 작가가 체크한다
-  d.relationship_updates.forEach((_, i) => { S.picks['r' + i] = !(d.rel_flagged || []).includes(i); });
-  d.new_facts.forEach((_, i) => { S.picks['f' + i] = true; });
-  d.foreshadow_planted.forEach((_, i) => { S.picks['p' + i] = true; });
-  d.foreshadow_resolved.forEach((id, i) => { S.picks['x' + i] = P().foreshadows.some((f) => f.id === id); });
-  (d.new_characters || []).forEach((_, i) => { S.picks['n' + i] = true; });
-  (d.new_places || []).forEach((_, i) => { S.picks['l' + i] = true; });
-  (d.foreshadow_clues || []).forEach((_, i) => { S.picks['q' + i] = true; });
-  (d.deadlines_added || []).forEach((_, i) => { S.picks['k' + i] = true; });
-  (d.deadlines_done || []).forEach((id, i) => { S.picks['o' + i] = P().timeline.deadlines.some((x) => x.id === id) || (d.deadlines_added || []).some((x) => x.id === id); });
-  (d.setting_changes || []).forEach((_, i) => { S.picks['t' + i] = false; });  // 인물 설정은 작가가 직접 골라야 바뀐다
-  (d.cast_added || []).forEach((_, i) => { S.picks['a' + i] = true; });  // 본문에 나온 인물은 기본으로 그 화 등장 인물에 붙인다
-  (d.address_changes || []).forEach((_, i) => { S.picks['h' + i] = false; });  // 호칭 · 말씨도 작가가 직접 골라야 바뀐다
+  Object.assign(S.picks, defaultPicks(d));
   // 받은 그대로의 요약과 체크. 다시 만들 때 고친 것을 버리는지 묻는다 (기본으로 뺀 항목은 고친 것이 아니다)
-  S.deltaOrig[n] = { summary: d.summary, picks: Object.fromEntries(Object.entries(S.picks).filter(([k]) => DELTA_PICK.test(k))), source, delta: structuredClone(d) };
+  S.deltaOrig[n] = { summary: d.summary, picks: deltaPicks(), source, delta: structuredClone(d) };
+  S.picksEp = n;  // S.picks 의 변경안 체크가 어느 화 것인가 (pickEp)
+}
+
+/** S.picks 의 변경안 체크를 n화 것으로 맞춘다. 반영 취소로 여러 화 변경안이 한꺼번에 놓이면 체크는 마지막 화 것이다.
+ * 그 화에서 고친 체크가 맡겨져 있으면 되살리고, 없으면 지금 작품 기준 기본 체크로 다시 센다(앞 화를 반영해 인물 · 복선 · 기한이 생겼을 수 있다) */
+function pickEp(n) {
+  if (S.picksEp === n || !S.deltas[n] || !S.deltaOrig[n]) return;
+  stashPicks();
+  for (const k of Object.keys(S.picks)) if (DELTA_PICK.test(k)) delete S.picks[k];
+  const kept = (S.picksKept || {})[n];
+  if (!kept) S.deltaOrig[n].picks = defaultPicks(S.deltas[n]);
+  Object.assign(S.picks, kept || S.deltaOrig[n].picks);
+  if (S.picksKept) delete S.picksKept[n];
+  S.picksEp = n;
+}
+
+// ---------- 고르던 체크 · 고친 칸 초안 (서버 pending.json 의 state:<화> 결과에 붙는다, web.save_state_draft) ----------
+let draftTimer = null;
+/** 상태 승인 화면에서 체크나 칸을 바꾸면 잠시 뒤 초안으로 남긴다. 결과가 pending.json 에 없는 변경안(채팅 앱 JSON 등)은 남기지 않는다 */
+function saveDeltaDraft(n) {
+  clearTimeout(draftTimer);
+  draftTimer = setTimeout(() => {
+    const r = S.pending.name === S.name && S.pending.results[`state:${n}`];
+    if (!r || !S.deltas[n]) return;
+    const picks = S.picksEp === n ? Object.fromEntries(Object.entries(S.picks).filter(([k]) => DELTA_PICK.test(k))) : null;
+    api('PUT', `/projects/${enc(S.name)}/pending/${enc(r.key)}/draft`, { delta: S.deltas[n], picks, id: r.id ?? null }).catch(() => { /* 다음에 바꿀 때 다시 */ });
+  }, 600);
+}
+
+/** loadPending 이 setDelta 로 받은 그대로를 놓은 뒤 부른다: 초안의 변경안과 체크로 바꾼다. 받은 그대로(S.deltaOrig)는 두어 '고침' 표시가 맞는다 */
+function restoreDeltaDraft(n, draft) {
+  if (!draft || !draft.delta || !S.deltas[n]) return;
+  reofferDismissed(draft.delta);  // 빼 둔 항목을 아직 목록에 놓지 않은 초안도 맞춘다 (두 번 불러도 한 번만 놓는다)
+  S.deltas[n] = draft.delta;
+  if (!draft.picks) return;  // 체크 없이 남긴 초안(다른 화의 체크가 놓여 있을 때)은 받은 그대로의 기본 체크를 둔다
+  for (const k of Object.keys(S.picks)) if (DELTA_PICK.test(k)) delete S.picks[k];
+  Object.entries(draft.picks).forEach(([k, v]) => { if (DELTA_PICK.test(k)) S.picks[k] = !!v; });
+  S.picksEp = n;
 }
 
 /** 사건 종류 (schema.EventKind). 수동보정은 작가가 관계를 직접 고칠 때만 쓰고 반영에서 빠져 고르지 않는다 (tests/test_delta_count.py 가 맞춰 본다) */
@@ -105,18 +205,21 @@ const EVENT_KINDS = ['도움', '희생', '약속이행', '칭찬', '진심고백
 /** 상태 승인 화면에서 고칠 수 있는 칸만 모은 모양. 받은 그대로(S.deltaOrig[n].delta)와 비교해 다시 만들기 전에 묻는다 */
 const deltaEditable = (d) => JSON.stringify([
   d.events.map((e) => [e.kind, e.intensity]), d.new_facts,
-  d.character_updates.map((u) => [u.emotional_state, u.attire, u.knows]),
+  d.character_updates.map((u) => [u.emotional_state, u.current_goal, u.location, u.notes, u.attire, u.knows, u.cleared || []]),
   d.time ? [d.time.day || 0, d.time.part || '', d.time.label || ''] : [0, '', ''],  // tlDeltaCard 가 빈 시점을 채워도 고친 것이 아니다
   (d.setting_changes || []).map((x) => x.value),
 ]);
 const deltaEdited = (n) => !!(S.deltas[n] && S.deltaOrig[n] && S.deltaOrig[n].delta) && deltaEditable(S.deltas[n]) !== deltaEditable(S.deltaOrig[n].delta);
 
-/** 항목 하나의 고칠 수 있는 값. 키: e0 사건 종류 · 강도, f0 사실, em0 감정, at0 차림, kn0.1 알게 된 정보 */
+/** 인물 상태의 글 칸과 '고침' 키 앞글자. 이 칸은 상태 승인 화면에서 고치거나 지울 수 있다 (지우기는 CharacterState.cleared) */
+const STATE_TEXT = [['감정', 'emotional_state', 'em', '감정을'], ['목표', 'current_goal', 'go', '목표를'], ['위치', 'location', 'lo', '위치를'], ['메모', 'notes', 'no', '메모를'], ['차림', 'attire', 'at', '차림을']];
+/** 항목 하나의 고칠 수 있는 값. 키: e0 사건 종류 · 강도, f0 사실, em0 감정, go0 목표, lo0 위치, no0 메모, at0 차림 (글과 지우기), kn0.1 알게 된 정보 */
 function editValue(d, key) {
   const [, k, i, j] = key.match(/^([a-z]+)(\d+)(?:\.(\d+))?$/);
   const ev = d.events[i];
   const u = d.character_updates[i] || {};
-  return JSON.stringify({ e: ev && [ev.kind, ev.intensity], f: d.new_facts[i], em: u.emotional_state, at: u.attire, kn: (u.knows || [])[j] }[k]);
+  const text = Object.fromEntries(STATE_TEXT.map(([, f, p]) => [p, [u[f], (u.cleared || []).includes(f)]]));
+  return JSON.stringify({ e: ev && [ev.kind, ev.intensity], f: d.new_facts[i], ...text, kn: (u.knows || [])[j] }[k]);
 }
 const itemEdited = (n, key) => !!(S.deltaOrig[n] && S.deltaOrig[n].delta) && editValue(S.deltas[n], key) !== editValue(S.deltaOrig[n].delta, key);
 /** '고침' 표시. 입력 중에는 다시 그리지 않으니 showEdited 가 그 자리에서 켜고 끈다 */
@@ -142,14 +245,16 @@ const statLink = (updates) => (updates.some((u) => (u.stats || []).length) || P(
 /** 본문을 옆에 두는 폭 (901px 이상). 좁으면 근거 문장은 오른쪽 칸 위 근거 카드로 보인다 */
 const rvWide = () => !(typeof window !== 'undefined' && window.matchMedia && mq('narrow').matches);
 
-/** 경고를 인물 줄에 붙인다. names: character_updates 순서의 인물 이름. 경고 글이 인물 이름으로 시작하면 그 인물 줄(by[i]),
-    아니면 '본문 점검'(rest). 상태창 · 이동 시간 경고는 '이름 상태창:' · '이름이 너무 빨리'로 시작한다 (statwin · travel). 값은 경고 번호 */
-function rvWarnSplit(warnings, names) {
+/** 경고를 인물 줄에 붙인다. names · ids: character_updates 순서의 인물 이름 · id. 값은 경고 번호.
+    프로그램 경고는 대상 인물 id 를 warnTo(StateDelta.warn_to, warnings 와 같은 차례)에 적는다 (statwin · travel · attire, features.clean).
+    대상이 없거나 그 인물 줄이 없으면(AI 경고, 예전 변경안) 경고 글이 인물 이름으로 시작할 때 그 인물 줄(by[i]), 아니면 '본문 점검'(rest) */
+function rvWarnSplit(warnings, names, warnTo = [], ids = []) {
   const order = names.map((nm, i) => [String(nm || '').trim(), i]).filter(([nm]) => nm.length >= 2).sort((a, b) => b[0].length - a[0].length);
   const by = {};
   const rest = [];
   (warnings || []).forEach((w, k) => {
-    const hit = order.find(([nm]) => String(w).trim().startsWith(nm));
+    const to = (warnTo || [])[k] ? ids.indexOf(warnTo[k]) : -1;
+    const hit = to >= 0 ? [null, to] : order.find(([nm]) => String(w).trim().startsWith(nm));
     if (hit) (by[hit[1]] = by[hit[1]] || []).push(k);
     else rest.push(k);
   });
@@ -174,6 +279,14 @@ function rvMenu(n) {
     <div class="pop-sep" role="separator"></div><div class="pop-sec pop-danger"><button type="button" class="pop-item" data-action="dropDelta" data-arg="${n}">변경안 버리기</button></div>`, { cls: 'btn icon-btn', aria: `${n}화 변경안 더보기` });
 }
 
+/** 반영 취소에 쓸 n-1화 스냅샷이 없을 때 버튼 자리에 쓰는 까닭. 장편은 0화 · 아크 끝 · 최근 20화 스냅샷만 남긴다 (pipeline.prune_snapshots).
+ * 지운 스냅샷을 반영 기록으로 다시 만들지 않는다: 기능 훅(features.APPLY_*)이 스냅샷 밖 데이터도 바꿔 재생이 정확하지 않다 */
+function revertGone() {
+  return P().meta.form === 'serial' && !P().settings.keep_snapshots
+    ? '장편은 최근 20화와 각 아크 첫 화부터만 반영을 취소할 수 있어요. 더 앞 화는 화별 상태 기록을 지웠어요'
+    : '이 화 앞의 화별 상태 기록이 없어 반영을 취소할 수 없어요';
+}
+
 function viewReview(n) {
   const e = ep(n);
   if (!e) return header('6단계', '상태 승인', '') + noEpisode(n);
@@ -184,7 +297,7 @@ function viewReview(n) {
     const canRevert = P().snapshots.some((s) => s.episode === n - 1);
     // 반영 취소는 n화와 그 뒤 반영한 화를 모두 되돌린다. 되돌리는 범위를 버튼에 적는다 (revertFrom 과 같은 셈)
     const undo = P().episodes.filter((x) => x.status === 'finalized' && x.plot.number >= n).map((x) => x.plot.number);
-    return top('이 화는 상태 반영이 끝났어요. 반영된 내용이에요.', `<button class="btn" data-action="branchOpen" data-arg="${n}" title="이 작품은 그대로 두고, 사본에서 ${n}화부터 다른 전개를 써요">${n}화부터 갈래 만들기</button>${canRevert ? `<button class="btn danger" data-action="revertFrom" data-arg="${n}">${rangeText(undo)}화 반영 취소</button>` : ''}${nextStepBtn()}`) + restateCard(n) + (h ? historyView(h) : '<div class="note plain">반영 기록이 없어요.</div>');
+    return top('이 화는 상태 반영이 끝났어요. 반영된 내용이에요.', `<button class="btn" data-action="branchOpen" data-arg="${n}" title="이 작품은 그대로 두고, 사본에서 ${n}화부터 다른 전개를 써요">${n}화부터 갈래 만들기</button>${canRevert ? `<button class="btn danger" data-action="revertFrom" data-arg="${n}">${rangeText(undo)}화 반영 취소</button>` : `<span class="small">${revertGone()}</span>`}${nextStepBtn()}`) + restateCard(n) + (h ? historyView(h) : '<div class="note plain">반영 기록이 없어요.</div>');
   }
   if (e.status !== 'written') {
     const [href, label] = epGo(n);  // 플롯 초안이면 플롯 확정으로 바로
@@ -203,6 +316,7 @@ function viewReview(n) {
        <section class="card col"><h2>채팅 앱에서 받은 JSON</h2><p class="desc">상태 승인 지시서를 채팅 앱에 붙여 넣고 받은 JSON을 가져와요.</p><div><a class="btn" href="${base()}/brief/${n}" data-action="openStateBrief" data-arg="${n}">상태 승인 지시서 열기</a></div></section></div>`;
   }
 
+  pickEp(n);
   const p = P();
   const remake = ((b) => `<button class="btn small" data-action="extractState" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('state', n, '변경안 다시 만들기'));
   const stale = textUnsaved(n)
@@ -225,7 +339,7 @@ function viewReview(n) {
     ? `<div class="row"><span class="before">${esc(before)}</span><span class="small">→</span><span class="after">${esc(after)}</span></div>`
     : `<div class="row"><span class="after">${esc(after)}</span></div>`;
   const chip = (k, v) => `<span class="rv-chip"><span class="k">${k}</span> ${v}</span>`;
-  const warns = rvWarnSplit(d.warnings, d.character_updates.map((u) => charName(u.character_id)));
+  const warns = rvWarnSplit(d.warnings, d.character_updates.map((u) => charName(u.character_id)), d.warn_to, d.character_updates.map((u) => u.character_id));
   const unknownChar = (u) => !p.characters.some((c) => c.id === u.character_id) && !(d.new_characters || []).some((c) => c.id === u.character_id);
 
   // 인물 상태: 바뀐 칸을 한 줄 칩으로 접어 보이고, '고치기'를 누르면 그 자리에서 칸을 편다. 붙은 경고는 줄 아래
@@ -238,15 +352,24 @@ function viewReview(n) {
     const knowIdx = u.knows.map((k, j) => [k, j]).filter(([k, j]) => !(cur.knows || []).includes((ou.knows || [])[j] ?? k));
     const stats = (u.stats || []).filter((s) => s.name && s.name.trim());
     const open = !!(S.rvOpen && S.rvOpen[`${n}:c${i}`]);
-    const fields = [['목표', 'current_goal'], ['위치', 'location'], ['메모', 'notes']].filter(([, f]) => u[f]);
+    const cleared = u.cleared || [];
+    const fields = [['목표', 'current_goal'], ['위치', 'location'], ['메모', 'notes']].filter(([, f]) => u[f] && !cleared.includes(f));
     let inner;
     if (open) {
-      // 감정 · 알게 된 정보 · 차림은 AI 가 틀리게 적었으면 여기서 고쳐 반영한다. 받은 변경안에 있던 칸만 보인다
-      const emotion = ou.emotional_state || u.emotional_state ? `<div class="small"><label for="em-${i}">감정</label> ${editMark(n, 'em' + i)}</div>${cur.emotional_state !== u.emotional_state ? was(cur.emotional_state) : ''}<input id="em-${i}" ${edit(`character_updates.${i}.emotional_state`, 'em' + i)} value="${esc(u.emotional_state)}" placeholder="비우면 지금 감정을 그대로 둬요">` : '';
-      const rows = fields.map(([k, f]) => `<div class="small">${k}</div>${diff(cur[f], u[f])}`).join('');
+      // 감정 · 목표 · 위치 · 메모 · 차림은 AI 가 틀리게 적었으면 여기서 고치고, 더는 맞지 않는 지금 값은 '지우기'로 비운다.
+      // 받은 변경안에 있던 칸과 지금 값이 있는 칸만 보인다. 빈 칸은 지금 값을 그대로 둔다
+      const textRow = ([k, f, pre, obj]) => {
+        const id = `${pre}-${i}`, key = pre + i, off = cleared.includes(f);
+        if (!(ou[f] || u[f] || cur[f] || off)) return '';
+        // 차림 칸은 app.js 의 data-attire 처리가 값을 넣는다
+        const bind = f === 'attire' ? `data-attire="${i}" data-attire-ep="${n}" data-dmark="${key}"` : edit(`character_updates.${i}.${f}`, key);
+        const clear = cur[f] || off ? `<label class="row small" style="gap:6px"><input type="checkbox" data-dclear="${n}:${i}:${f}" aria-label="${esc(name)} ${k} 지우기"${off ? ' checked' : ''}> 지우기</label>` : '';
+        const before = off ? `<div class="row"><span class="before">${esc(cur[f] || '')}</span><span class="small">→ 지움</span></div>`
+          : !u[f] ? (cur[f] ? `<div class="small">지금: ${esc(cur[f])}</div>` : '') : cur[f] !== u[f] ? was(cur[f]) : '';
+        return `<div class="row" style="gap:6px"><span class="small"><label for="${id}">${k}</label></span>${editMark(n, key)}${clear}</div>${before}<input id="${id}" ${bind} value="${esc(u[f])}"${off ? ' disabled' : ''} placeholder="비우면 지금 ${obj} 그대로 둬요">`;
+      };
       const knows = knowIdx.map(([k, j]) => `<div class="row" style="gap:6px;flex-wrap:nowrap"><span class="after">+</span><input id="kn-${i}-${j}" aria-label="${esc(name)}이 알게 된 정보 ${j + 1}" ${edit(`character_updates.${i}.knows.${j}`, `kn${i}.${j}`)} value="${esc(k)}" placeholder="비우면 빼요" style="flex:1;min-width:0">${editMark(n, `kn${i}.${j}`)}</div>`).join('');
-      const attire = u.attire || ou.attire ? `<div class="small"><label for="at-${i}">차림</label> ${editMark(n, 'at' + i)}</div>${cur.attire !== u.attire ? was(cur.attire) : ''}<input id="at-${i}" data-attire="${i}" data-attire-ep="${n}" data-dmark="at${i}" value="${esc(u.attire)}">` : '';
-      inner = `<div class="rv-editor" id="rv-ed-c${i}">${emotion}${rows}${attire}${swDeltaRows(u, cur)}${knows ? `<div class="small">알게 된 정보</div>${knows}` : ''}</div>`;
+      inner = `<div class="rv-editor" id="rv-ed-c${i}">${STATE_TEXT.map(textRow).join('')}${swDeltaRows(u, cur)}${knows ? `<div class="small">알게 된 정보</div>${knows}` : ''}</div>`;
     } else {
       const now = Object.fromEntries((cur.stats || []).map((s) => [s.name, s.value]));
       const statText = stats.slice(0, 2).map((s) => {
@@ -255,9 +378,10 @@ function viewReview(n) {
         return `${esc(s.name)} ${b ? `${esc(b)} → ` : ''}${esc(a)}`;
       }).join(' · ') + (stats.length > 2 ? ` 외 ${stats.length - 2}` : '');
       const chips = [
-        u.emotional_state && chip('감정', `${cur.emotional_state && cur.emotional_state !== u.emotional_state ? `${esc(cur.emotional_state)} → ` : ''}${esc(u.emotional_state)}`),
+        u.emotional_state && !cleared.includes('emotional_state') && chip('감정', `${cur.emotional_state && cur.emotional_state !== u.emotional_state ? `${esc(cur.emotional_state)} → ` : ''}${esc(u.emotional_state)}`),
         ...fields.map(([k, f]) => chip(k, `${cur[f] && cur[f] !== u[f] && f === 'location' ? `${esc(cur[f])} → ` : ''}${esc(u[f])}`)),
-        u.attire && chip('차림', esc(u.attire)),
+        u.attire && !cleared.includes('attire') && chip('차림', esc(u.attire)),
+        ...STATE_TEXT.filter(([, f]) => cleared.includes(f) && cur[f]).map(([k]) => chip(k, '지움')),
         stats.length && chip('상태창', statText),
         knowIdx.length && chip('알게 된', `+${knowIdx.length}`),
       ].filter(Boolean).join('');
@@ -367,10 +491,10 @@ function viewReview(n) {
     (wide ? '' : `<div class="apply-bar rv-deck-bar" role="region" aria-label="반영"><span class="small"><strong class="pick-count" style="color:var(--text)">${picked}</strong>/${total} 고름</span>${applyBtn(`반영하고 ${n}화 완료`)}</div>`);
 }
 
-/** 인물 i 의 감정 · 차림 · 알게 된 정보 중 고친 칸이 있다 */
+/** 인물 i 의 감정 · 목표 · 위치 · 메모 · 차림 · 알게 된 정보 중 고치거나 지운 칸이 있다 */
 const charEdited = (n, i) => {
   const u = S.deltas[n].character_updates[i];
-  return ['em' + i, 'at' + i, ...(u.knows || []).map((_, j) => `kn${i}.${j}`)].some((k) => itemEdited(n, k));
+  return [...STATE_TEXT.map(([, , p]) => p + i), ...(u.knows || []).map((_, j) => `kn${i}.${j}`)].some((k) => itemEdited(n, k));
 };
 
 /** 체크가 바뀌면 갈래의 고른 수만 그 자리에서 바꾼다 (다시 그리지 않는다). 전체 고른 수 .pick-count 는 app.js 가 맞춘다 */
@@ -531,7 +655,32 @@ function historyView(h) {
       ${withFoot(tlHistory(h), toolLink('timeline', '작품 속 시간'))}${withFoot(scHistory(h), cast)}${withFoot(addressHistory(h), cast)}
       ${(h.secrets_added || []).length ? `<section class="card"><h2>새로 생긴 비밀</h2>${li(h.secrets_added.map((x) => `<strong>${esc(charName(x.owner))}</strong> ${esc(x.content)}`))}</section>` : ''}
       ${(h.relationship_updates || []).length ? `<section class="card"><h2>관계 유형 · 설명 변경</h2>${li(h.relationship_updates.map((r) => `${esc(charName(r.a))} ↔ ${esc(charName(r.b))} · ${esc(r.type)}${r.description ? ` · ${esc(r.description)}` : ''}`))}</section>` : ''}
-    </div>`;
+    </div>${dismissedView(h)}`;
+}
+
+/** 반영하지 않고 빼 둔 항목 (StateDelta.dismissed). 상태 승인 화면에서 체크를 풀었거나 자동 반영이 뺀 것. 접어 둔다 */
+function dismissedView(h) {
+  const x = h.dismissed || {};
+  const n = deltaCount(x);
+  if (!n) return '';
+  const fs = (id) => { const f = P().foreshadows.find((y) => y.id === id); return f ? f.description : id; };
+  const dl = (id) => { const y = (P().timeline.deadlines || []).find((z) => z.id === id); return y ? y.what || id : id; };
+  const rows = [
+    ...(x.character_updates || []).map((u) => `인물 상태 · <strong>${esc(charName(u.character_id))}</strong> ${esc([u.emotional_state, u.current_goal, u.location].filter(Boolean).join(' / '))}`),
+    ...(x.events || []).map((ev) => `관계 사건 · ${esc(charName(ev.actor))} → ${esc(charName(ev.target))} · ${esc(ev.kind)} ${INTENSITY[ev.intensity] || ''}`),
+    ...(x.relationship_updates || []).map((r) => `관계 유형 · ${esc(charName(r.a))} ↔ ${esc(charName(r.b))} · ${esc(r.type)}`),
+    ...(x.secrets_added || []).map((s) => `비밀 · <strong>${esc(charName(s.owner))}</strong> ${esc(s.content)}`),
+    ...(x.new_facts || []).map((f) => `사실 · ${esc(f)}`),
+    ...(x.foreshadow_planted || []).map((f) => `복선 심음 · ${esc(f.description)}`),
+    ...(x.foreshadow_resolved || []).map((id) => `복선 회수 · ${esc(fs(id))}`),
+    ...(x.foreshadow_clues || []).map((q) => `복선 문장 · ${esc(fs(q.foreshadow))} “${esc(q.quote)}”`),
+    ...(x.new_characters || []).map((c) => `새 인물 · <strong>${esc(c.name || c.id)}</strong>`),
+    ...(x.new_places || []).map((p) => `새 장소 · ${placeLabel(p)}`),
+    ...(x.deadlines_added || []).map((k) => `기한 · ${esc(k.what || k.id)}`),
+    ...(x.deadlines_done || []).map((id) => `기한 닫힘 · ${esc(dl(id))}`),
+  ];
+  return `<details class="card"><summary>빼 둔 항목 ${n}개</summary><div class="small" style="margin:6px 0">반영하지 않은 항목이에요. 기록으로만 남아요.</div>
+    <ul style="padding-left:18px;display:flex;flex-direction:column;gap:6px;font-size:0.8125rem;line-height:1.5">${rows.map((r) => `<li>${r}</li>`).join('')}</ul></details>`;
 }
 
 // ----- 관계 표시 (숫자/말) -----
@@ -597,15 +746,25 @@ Object.assign(actions, {
     const out = pickedDelta(n);
     // 평소에는 바로 반영한다. 고른 항목이 없거나, 경고가 남았거나, 변경안을 만든 뒤 본문을 고쳤으면 한 번 묻는다
     const count = deltaCount(out);
+    const edited = S.deltaBase[n] !== undefined && ep(n) && S.deltaBase[n] !== ep(n).text;
     const why = [
       count ? '' : '고른 항목이 0건이에요. 요약만 저장하고',
       (out.warnings || []).length ? `경고 ${out.warnings.length}건이 남아 있어요.` : '',
-      S.deltaBase[n] !== undefined && ep(n) && S.deltaBase[n] !== ep(n).text ? '변경안을 만든 뒤 본문을 고쳤어요.' : '',
+      edited ? '변경안을 만든 뒤 본문을 고쳤어요.' : '',
     ].filter(Boolean);
     if (why.length && !(await askConfirm(`${why.join(' ')} ${n}화를 마칠까요? 반영하면 반영 취소로만 돌아갈 수 있어요.`, { ok: '마치기' }))) return;
-    await run('반영하는 중', async () => {
+    // 서버도 변경안을 만든 본문(out.basis)과 지금 본문을 맞춰 본다 (409 stale_delta). 위에서 본문을 고친 것을 확인했으면 force 로 보낸다
+    let stale = null;
+    const go = (force) => run('반영하는 중', async () => {
       await saveIfDirty();
-      S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/apply`, out);
+      try {
+        S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/apply${force ? '?force=1' : ''}`, out);
+        clearTimeout(draftTimer);
+      } catch (e) {
+        if (e.code !== 'stale_delta' || force) throw e;
+        stale = e;  // 다른 탭에서 고쳤거나 저장하지 않은 본문을 방금 저장했다: 기다림 상자를 닫은 뒤 묻는다
+        return;
+      }
       delete S.deltas[n];
       const r = S.auto && S.auto.run;
       const forAuto = r && r.status === 'review' && r.ep === n;
@@ -617,6 +776,8 @@ Object.assign(actions, {
       const next = ep(n + 1);
       location.hash = forAuto ? `${base()}/auto` : next && ['confirmed', 'draft'].includes(next.status) ? nextStep()[1] : base();
     });
+    await go(edited);
+    if (stale && (await askConfirm(`${stale.message}. 그래도 ${n}화를 마칠까요? 반영하면 반영 취소로만 돌아갈 수 있어요.`, { ok: '마치기' }))) await go(true);
   },
   async toggleNumbers(v) {
     const show = v === 'numbers';
@@ -679,6 +840,7 @@ Object.assign(actions, {
   },
   async dropDelta(n) {
     if (!(await askConfirm('이 변경안을 버릴까요?', { ok: '버리기', danger: true }))) return;
+    clearTimeout(draftTimer);
     delete S.deltas[n];
     render();
   },
@@ -711,8 +873,22 @@ document.addEventListener('input', (e) => {
 // 체크를 바꾸면 갈래의 고른 수를 맞춘다 (전체 고른 수 .pick-count 는 app.js 가 맞춘다)
 document.addEventListener('change', (e) => {
   const el = e.target;
+  if (el.dataset && el.dataset.dclear) {  // 인물 상태 칸 '지우기': cleared 에 칸 이름을 넣고 빼며, 지울 칸의 입력은 막는다
+    const [n, i, f] = el.dataset.dclear.split(':');
+    const u = S.deltas[n] && S.deltas[n].character_updates[+i];
+    if (!u) return;
+    u.cleared = el.checked ? [...new Set([...(u.cleared || []), f])] : (u.cleared || []).filter((x) => x !== f);
+    S.focusTarget = `#app [data-dclear="${el.dataset.dclear}"]`;
+    render();
+    return;
+  }
   if (el.dataset && el.dataset.pick && DELTA_PICK.test(el.dataset.pick) && S.route[2] === 'review') rvCountRefresh();
 });
+
+// 상태 승인 화면의 체크 · 칸을 바꾸면 초안을 남긴다. 칸마다 값을 넣는 곳(app.js · charlog.js · timeline.js)이 달라 한 곳에서 받는다 (값은 저장할 때 읽는다)
+['input', 'change'].forEach((t) => document.addEventListener(t, () => {
+  if (S.route && S.route[2] === 'review' && S.deltas[S.route[3]]) saveDeltaDraft(Number(S.route[3]));
+}));
 
 // 펴 둔 갈래는 다시 그려도 펴 둔다 (toggle 은 거품이 일지 않아 잡는 단계에서 받는다)
 document.addEventListener('toggle', (e) => {

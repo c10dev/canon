@@ -41,13 +41,13 @@ def vague(text: str) -> list[str]:
     return out
 
 
-def clean_delta(p: Project, d: StateDelta) -> list[str]:
-    """상태 변경안 정리 훅(features.CLEAN): 인물 이름으로 시작해 그 인물 줄 아래에 붙는다."""
+def clean_delta(p: Project, d: StateDelta) -> list[tuple[str, str]]:
+    """상태 변경안 정리 훅(features.CLEAN): (경고 글, 인물 id). 상태 승인 화면이 그 인물 줄 아래에 붙인다."""
     names = {c.id: c.name or c.id for c in p.characters} | {c.id: c.name or c.id for c in d.new_characters}
     out = []
     for u in d.character_updates:
         for part in vague(u.attire):
             head = _PAREN.sub(" ", part).split()[-1]
-            out.append(f"{names.get(u.character_id, u.character_id)}의 차림 '{part}'은 무슨 {head}인지 몰라요. "
-                       f"{VAGUE[head]}처럼 종류를 적어 주세요. 종류가 없으면 다음 화가 다른 {head}로 쓸 수 있어요.")
+            out.append((f"{names.get(u.character_id, u.character_id)}의 차림 '{part}'은 무슨 {head}인지 몰라요. "
+                        f"{VAGUE[head]}처럼 종류를 적어 주세요. 종류가 없으면 다음 화가 다른 {head}로 쓸 수 있어요.", u.character_id))
     return out

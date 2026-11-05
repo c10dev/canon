@@ -21,6 +21,7 @@
 
 - 웹 화면의 뼈대
 - 반영 취소(`revertFrom`) 확인은 저장하지 않은 변경이 있으면 먼저 저장한다고 말하고 버튼을 '저장하고 반영 취소'로 쓴다
+- 반영 취소(`revertFrom`)는 뒤 화들의 반영 기록이 검토를 기다리는 변경안으로 남으니(`web._revert_kept`) 취소 뒤 `loadPending` 으로 받는다
 - 서버 오류 문구 `fmtErr`: 검증 오류(detail 이 목록)는 영어 원문 대신 `VALIDATION_REASON`(web.py `_VALIDATION_REASON` 과 같음, `tests/test_fmterr_js.py`)과 칸 이름 `FIELD_NAME` 으로 쓴다
 - 저장하지 않고 이동하면 묻는 창은 작품 변경만 있을 때 '저장하고 이동'(askConfirm 의 `alt`)을 주 버튼으로 준다
 - `showError` 는 키 없음(`no_key`)과 키 틀림(`bad_key`) 모두 설정을 열지 묻는다
@@ -53,6 +54,8 @@
 - 서랍을 연 동안 뒤는 `inert`(`syncRail`)
 - body 바로 아래 층(칸 밖 저장 띠 `#savebar`, 알림 창 `#hub-pop`)도 서랍을 연 동안 `inert`다. 알림 말풍선 `#toast`는 낭독 영역이라 뺀다
 - 백그라운드 작업 · 검토 대기 결과
+- 검토 대기 상태 변경안에 초안이 있으면 `loadPending` 이 받은 그대로를 놓은 뒤 초안의 변경안 · 체크로 바꾼다(`restoreDeltaDraft`)
+- 초안을 되살려도 본문을 고쳤다는 알림은 그대로 뜬다
 - 멈췄지만 AI 응답을 기다리는 작업(`S.jobsHeld`)이 있는 화는 `jobBtn` 이 `EP_AI_KINDS` 버튼을 '응답 기다리는 중'으로 잠근다(`epWaiting` · `epWaitNote`, 서버 `jobs.waiting_on` 과 같은 셈)
 - 멈춘 스토리보드 작업의 응답이 오면 `JOB_LATE.board` 가 남겼는지 알리고, 남겼으면 그 화를 다시 받는다
 - 짧은 기다림 가림막 `run`(`#busy`): 상자 이름은 작업 이름(`#busy-label`)이고, 1초마다 바뀌는 경과 초(`#busy-sec`)는 낭독하지 않는다
@@ -330,11 +333,28 @@
 - 6단계 상태 승인 · 관계 표시
   - `DELTA_LISTS`
   - `setDelta`
+  - `setDelta` 는 설정에 없는 인물이 끼었거나 같은 인물끼리인 관계 사건 · 관계 바뀜을 기본으로 체크하지 않는다(서버 `validate_delta` 와 같은 규칙)
+  - 체크를 푼 항목은 `pickedDelta` 가 `dismissed` 로 보낸다(설정 바꾸기 · 호칭 · 등장 인물 붙이기는 빼고)
+  - 반영 기록에서 돌아온 변경안(반영 취소 · 단편 다시 쓰기)의 `dismissed` 는 `setDelta` 가 목록 끝에 다시 놓고(`reofferDismissed`) 기본 체크를 풀어 둔다(`d.reoffer`, 화면 전용)
+  - 반영이 끝난 화 기록(`historyView`) 아래 접힌 '빼 둔 항목 N개'(`dismissedView`)
+  - 변경안 체크 `S.picks` 는 한 화 것이다(`S.picksEp`, 작품마다 따로 둔다)
+  - 다른 화 변경안을 열면 `pickEp` 가 그 화에서 고친 체크(`S.picksKept`)를 되살린다
+  - 고친 체크가 없으면 `pickEp` 가 지금 작품 기준 기본 체크(`defaultPicks`)로 다시 센다
+  - 반영 취소에 쓸 앞 화 스냅샷이 없으면 버튼 자리에 까닭을 쓴다(`revertGone`)
+  - 장편이 지운 스냅샷은 반영 기록으로 다시 만들지 않는다(기능 훅이 스냅샷 밖 데이터도 바꿔 재생이 정확하지 않다)
+  - 체크 · 칸을 바꾸면 잠시 뒤 초안을 서버에 남긴다(`saveDeltaDraft`, `PUT /pending/{key}/draft`)
+  - pending.json 에 결과가 없는 변경안은 초안을 남기지 않는다
+  - 체크가 다른 화의 것이면(`S.picksEp`) 초안에 체크를 보내지 않는다
   - 머리 버튼 줄의 반영 버튼 · ⋯ `rvMenu` · `.savebar-slot`
+  - 반영 `applyDelta`: 본문을 고친 것을 확인창에서 받았으면 `?force=1` 로 보낸다. 서버가 409(`stale_delta`)를 주면 기다림 상자를 닫고 한 번 더 묻는다
   - 왼쪽 읽기 전용 본문과 근거 밑줄 `rvRanges`
   - 오른쪽 직접 정할 것 · 요약 · 그대로 반영할 것(갈래 접기 `S.rvOpen`, 고른 수 `rvKeyCount`) · 관계 계산
   - 경고를 인물 줄에 붙이기 `rvWarnSplit`
+  - 대상 인물 id(`StateDelta.warn_to`)가 있으면 그 인물 줄, 없으면(AI 경고 · 예전 변경안) 인물 이름으로 시작하는지로 붙인다
   - 인물 칸 그 자리에서 펴기 `rvOpen`
+  - 편 인물 칸은 감정 · 목표 · 위치 · 메모 · 차림을 고친다(`STATE_TEXT`). 빈 칸은 지금 값을 그대로 둔다
+  - 지금 값이 있는 칸의 '지우기'(`data-dclear`)는 `CharacterState.cleared` 에 칸 이름을 넣어 반영 때 그 칸을 비운다
+  - `tests/test_state_clear.py`
   - 본문 근거 `rvQuote` · `rvGoItem`
   - 900px 이하는 변경안 먼저 `rvWide`
 - 줄 안 고르기 · 확정 사실 칸(`.rv-inp`)은 13px, 손가락 기기에서 16px 다(iOS 확대 막기)

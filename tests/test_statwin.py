@@ -82,10 +82,11 @@ def test_range_warnings_reach_clean_delta():
     d = _delta(1, StatValue(name="연료", value="-0.7"), StatValue(name="물 저장", value="+3"), StatValue(name="내구도", value="+3"))
     name = p.characters[0].name
     assert statwin.range_warnings(p, d) == [
-        f"{name} 상태창: 반영하면 연료 -0.4/60L, 0보다 작아요. 본문과 맞는지 확인하세요.",
-        f"{name} 상태창: 반영하면 물 저장 42/40L, 한도 40L보다 커요. 본문과 맞는지 확인하세요."]
+        (f"{name} 상태창: 반영하면 연료 -0.4/60L, 0보다 작아요. 본문과 맞는지 확인하세요.", "hero"),
+        (f"{name} 상태창: 반영하면 물 저장 42/40L, 한도 40L보다 커요. 본문과 맞는지 확인하세요.", "hero")]
     pipeline.clean_delta(p, d)
     assert sum("연료 -0.4/60L" in x for x in d.warnings) == 1
+    assert len(d.warn_to) == len(d.warnings) and d.warn_to[d.warnings.index(statwin.range_warnings(p, d)[0][0])] == "hero"
     assert statwin.range_warnings(p, _delta(1, StatValue(name="연료", value="+1"))) == []
 
 
@@ -298,8 +299,8 @@ def test_window_warnings_compare_last_window_after_delta():
     p = _win_project()
     p.episode(1).text = WIN_TEXT.format(first=4, last=6, gold="900 골드")  # 앞 상태창은 오르기 전 값이라 보지 않는다
     w = statwin.window_warnings(p, _delta(1, StatValue(name="레벨", value="+1"), StatValue(name="골드", value="-300")))
-    assert w == ["서윤 상태창: 본문은 «레벨: 6»인데 반영하면 레벨이 5예요.",
-                 "서윤 상태창: 본문 «경지: 일류»의 '경지' 항목은 상태창 기록에 없어요. 이 화에 생긴 항목이면 변경안에 넣으세요."]
+    assert w == [("서윤 상태창: 본문은 «레벨: 6»인데 반영하면 레벨이 5예요.", "hero"),
+                 ("서윤 상태창: 본문 «경지: 일류»의 '경지' 항목은 상태창 기록에 없어요. 이 화에 생긴 항목이면 변경안에 넣으세요.", "hero")]
     w = statwin.window_warnings(p, _delta(1, StatValue(name="레벨", value="6"), StatValue(name="골드", value="900골드"), StatValue(name="경지", value="일류")))
     assert w == []
     p.stat_window.template = "【 상태창 】\n{rows}"  # 서식에 이름이 없으면 상태창이 있는 인물 하나로 본다

@@ -88,6 +88,7 @@
 - 지금 차림(`CharacterState.attire`) 점검. 규칙 글은 `prompts.ATTIRE_STATE_RULE` · `attire_write_rule` · `attire_check_rule`
 - 끝 낱말이 '가방' · '옷' · '겉옷' · '신발'인 조각 찾기(`vague`, 이름 `VAGUE`). 앞 낱말이 쓰임(`KIND_WORDS`)이거나 가방의 메는 자리(`CARRY`, 괄호 안 포함)를 말하면 넘어간다. 색 · 재질은 종류로 보지 않는다
 - 상태 변경안 정리 훅(`clean_delta`, `features.CLEAN`): 인물 이름으로 시작하는 경고
+- 그 경고는 (글, 인물 id) 로 돌려줘 상태 승인 화면이 그 인물 줄에 붙인다(`StateDelta.warn_to`)
 - LLM 호출 없음
 
 ### `canon/birth.py`
@@ -126,6 +127,7 @@
 
 - 인물 화면 계산
 - 화별 관계 프레임(스냅샷, 지워진 화는 사건 로그로 다시 계산)
+- 지워진 화의 상태 재계산 `_apply_gap` 은 `pipeline.apply_delta` 처럼 `cleared` 칸을 비운다
 - 인물별 등장 화
 - 화별 타임라인
 - 명령줄 `cast` 출력
@@ -235,6 +237,7 @@
 - 사건을 사본에 돌린 반영 뒤 단계(`_after`, `dynamics.run_episode`), 두 방향 단계의 극성(`STAGE_SIGN`, 엇갈리면 0)
 - 글 극성(`polarity`: 낱말 사전 `POSITIVE` · `NEGATIVE`, 바로 뒤 '않 · 못 · 없'은 뒤집음), 관계 극성(`rel_polarity`: 유형 먼저, 중립이면 대사와 두 사람 밖 인물이 나온 문장을 뺀 설명 `_others`)
 - 반대인 유형 바뀜의 차례 `StateDelta.rel_flagged` → 상태 승인 화면 기본 체크 해제(`review.js` `setDelta`), 사람 검토 없이 반영할 때는 빼기(`hold`, 남긴 개수로 세지 않음)
+- `hold` 가 뺀 유형 바뀜은 반영 기록의 빼 둔 항목(`StateDelta.dismissed.relationship_updates`)에 남는다
 - 두 층 감정(`prompts.LAYER`)으로 상대를 적은 쌍은 빼기(`_masked`)
 - 한 쌍 한 화 결정적(3) 사건 `BIG`(3)개 이상 경고
 - 쓰기 전 플롯: 화 플롯이 바라는 관계 바뀜(`plot_shifts`: 바뀜 말 `SHIFTS` · 가장 뒤 말 `_last_shift` · 이름 `name_forms`)
@@ -549,6 +552,7 @@
 - 본문 상태창 글(`render`, 서식 `Project.stat_window`)
 - 본문 상태창 읽기 · 대조(`read_windows`, `window_warnings`: 반영하면 될 값 `after_delta` 와 다르면 변경안 정리 `pipeline.clean_delta` 가 경고로)
 - 0 아래 · 한도 위 경고(`out_of_range`, `range_warnings`)
+- 두 경고는 (글, 인물 id) 로 돌려준다(`features.clean` 이 `StateDelta.warn_to` 에 넣는다)
 - 처음 수치 AI 제안 정리(`clean_init`, AI 호출은 `pipeline.suggest_initial_stats`, 1화 반영 뒤에는 막음, 프롬프트 `prompts.stat_init_prompt`)
 - 꾸미기(AI 안 정리 `clean_options`, 화면 스킨 `SKINS`, 창 이름 · 작품 틀은 `StatWindow.title` · `names`, AI 호출은 `pipeline.suggest_stat_window`, 프롬프트 `prompts.stat_window_prompt`)
 - 프롬프트 규칙

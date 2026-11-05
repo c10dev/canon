@@ -64,6 +64,19 @@ def test_policy_reasons(demo):
     assert "설정에 없는 인물" in autorun.review_reasons(p, d, None, Policy(max_shift=0))[0]
 
 
+def test_policy_reasons_skip_held(demo):
+    """자동 반영이 hold 로 빼는 제안(반대 유형 표시가 붙은 관계 바뀜)은 정책 흉내에도 넣지 않는다."""
+    p = store.load(demo)
+    r = p.relationships[0]
+    upd = r.model_copy(update={"affinity": -5 if r.affinity >= 0 else 5, "type": "적대"})
+    d = StateDelta(episode=1, summary="s", relationship_updates=[upd])  # 사건 없는 예전 형식: 온기를 affinity 에 맞춘다
+    pol = Policy(max_shift=0.1, stop_on_stage=True)
+    assert any("관계가" in x for x in autorun.review_reasons(p, d, None, pol))
+    d.rel_flagged = [0]
+    assert autorun.review_reasons(p, d, None, pol) == []
+    assert d.relationship_updates == [upd] and d.rel_flagged == [0] and not d.warnings  # 받은 변경안은 그대로 둔다
+
+
 def test_full_run_with_review_stop(demo):
     run = autorun.start(demo, 4, True, Policy(), foreground=True)
     # mock 은 2화 검수에서 말투 문제를 낸다

@@ -549,9 +549,9 @@ def _who(p: Project, name: str, have: dict[str, dict[str, str]]) -> str:
     return c.id if c else ""
 
 
-def window_warnings(p: Project, d: StateDelta) -> list[str]:
+def window_warnings(p: Project, d: StateDelta) -> list[tuple[str, str]]:
     """본문 상태창과 변경안을 반영한 값이 다른 곳. 인물마다 이 화의 마지막 상태창만 본다 (앞 상태창은 오르기 전 값일 수 있다).
-    문장은 «» 에 본문 줄을 그대로 넣어 승인 화면이 그 줄을 찾게 한다."""
+    문장은 «» 에 본문 줄을 그대로 넣어 승인 화면이 그 줄을 찾게 한다. 항목은 (경고 글, 인물 id) (features.CLEAN)."""
     if not enabled(p) and not any(u.stats for u in d.character_updates):
         return []
     have = after_delta(p, d)
@@ -569,14 +569,14 @@ def window_warnings(p: Project, d: StateDelta) -> list[str]:
             k = keys.get(_canon(key))
             if k is None:
                 if vals:
-                    out.append(f"{name} 상태창: 본문 «{line}»의 '{key}' 항목은 상태창 기록에 없어요. 이 화에 생긴 항목이면 변경안에 넣으세요.")
+                    out.append((f"{name} 상태창: 본문 «{line}»의 '{key}' 항목은 상태창 기록에 없어요. 이 화에 생긴 항목이면 변경안에 넣으세요.", cid))
             elif not same(shown, vals[k]):
-                out.append(f"{name} 상태창: 본문은 «{line}»인데 반영하면 {k}{logline.josa(k, '이', '가')} {vals[k]}{logline.josa(vals[k], '이에요', '예요')}.")
+                out.append((f"{name} 상태창: 본문은 «{line}»인데 반영하면 {k}{logline.josa(k, '이', '가')} {vals[k]}{logline.josa(vals[k], '이에요', '예요')}.", cid))
     return out
 
 
-def range_warnings(p: Project, d: StateDelta) -> list[str]:
-    """변경안을 반영하면 0 아래로 가거나 한도를 넘는 '지금/한도' 수치. 값은 자르지 않고 작가에게 알린다."""
+def range_warnings(p: Project, d: StateDelta) -> list[tuple[str, str]]:
+    """변경안을 반영하면 0 아래로 가거나 한도를 넘는 '지금/한도' 수치. 값은 자르지 않고 작가에게 알린다. 항목은 (경고 글, 인물 id)."""
     if not any(u.stats for u in d.character_updates):
         return []
     have = after_delta(p, d)
@@ -589,7 +589,7 @@ def range_warnings(p: Project, d: StateDelta) -> list[str]:
             why = out_of_range(v) if v and (u.character_id, k) not in seen else ""
             seen.add((u.character_id, k))
             if why:
-                out.append(f"{name} 상태창: 반영하면 {k} {v}, {why}. 본문과 맞는지 확인하세요.")
+                out.append((f"{name} 상태창: 반영하면 {k} {v}, {why}. 본문과 맞는지 확인하세요.", u.character_id))
     return out
 
 

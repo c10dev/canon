@@ -2758,6 +2758,27 @@ def drop_pending(name: str, key: str, failure: bool = False, id: str = "") -> di
     return store.edit_pending(name, drop)
 
 
+class StateDraftIn(BaseModel):
+    """상태 승인 화면에서 고르던 체크와 고친 변경안. 화면이 보내는 값이라 LLM 스키마가 아니다."""
+    delta: dict
+    picks: dict[str, bool] | None = None  # None: 화면의 체크가 다른 화의 것이라 보내지 않았다. 남긴 체크를 그대로 둔다
+    id: str | None = None  # 받은 결과의 작업 id. 그사이 새 변경안으로 바뀌었으면 남기지 않는다
+
+
+@app.put("/api/projects/{name}/pending/{key}/draft")
+def save_state_draft(name: str, key: str, body: StateDraftIn) -> dict:
+    """상태 변경안 결과(state:<화>)에 작가가 고르던 체크와 고친 칸을 초안으로 붙인다. 새로고침 · 다른 탭이 이어 받는다.
+    pending.json 만 고치고 작품은 저장하지 않는다. 결과가 없거나(반영 · 버림 뒤 늦게 온 저장) 다른 결과로 바뀌었으면 그대로 둔다."""
+    _need(name)
+
+    def put(d: dict) -> None:
+        rec = d["results"].get(key)
+        if rec and rec.get("kind") == "state" and (body.id is None or body.id == rec.get("id")):
+            picks = body.picks if body.picks is not None else (rec.get("draft") or {}).get("picks")
+            rec["draft"] = {"delta": body.delta, "picks": picks, "at": _now()}
+    return store.edit_pending(name, put)
+
+
 @app.post("/api/jobs/{jid}/stop")
 def stop_job(jid: str) -> dict:
     """작업을 멈춘다. 이미 보낸 AI 호출의 응답은 버린다. 자동 집필은 그 화면의 일시정지 · 중지를 쓴다."""
@@ -3488,6 +3509,7 @@ def parse_state(name: str, n: int, body: Raw) -> StateDelta:
     except ValidationError as e:
         raise HTTPException(400, _validation_text(e))
     pipeline.clean_delta(p, delta)
+    delta.basis = pipeline.text_basis(p.episode(n).text)
     return delta
 
 
@@ -3671,8 +3693,10 @@ def _json_reason(raw: str, pos: int, msg: str) -> str:
 
 
 @app.post("/api/projects/{name}/episodes/{n}/apply")
-def apply_state(name: str, n: int, d: StateDelta) -> Project:
-    """화면에서 고른 항목만 담긴 변경안을 반영하고 그 화를 끝낸다."""
+def apply_state(name: str, n: int, d: StateDelta, force: bool = False) -> Project:
+    """화면에서 고른 항목만 담긴 변경안을 반영하고 그 화를 끝낸다.
+    누구의 것도 아닌 데이터가 남는 항목(pipeline.validate_delta)이 있으면 400 으로 막는다.
+    변경안을 만든 본문(d.basis)이 지금 본문과 다르면 409(code stale_delta)로 막는다. 작가가 확인하면 force 로 다시 보낸다."""
     p = _load(name)
     _not_auto(name)
     ep = p.episode(n)
@@ -3680,6 +3704,12 @@ def apply_state(name: str, n: int, d: StateDelta) -> Project:
         raise ValueError(f"{n}화는 본문이 작성된 상태가 아니에요 (현재: {ep.status})")
     pipeline.require_previous(p, n)
     d.episode = n
+    bad = pipeline.validate_delta(p, d)
+    if bad:
+        raise ValueError(f"반영할 수 없는 항목이 {len(bad)}개 있어요. 체크를 빼고 다시 반영하세요\n" + "\n".join(f"- {m}" for m in bad))
+    if d.basis and not force and d.basis != pipeline.text_basis(ep.text):
+        return JSONResponse({"detail": f"변경안을 만든 뒤 {n}화 본문을 고쳤어요. 옛 본문 기준의 요약 · 인물 상태 · 사건이 들어가요",
+                             "code": "stale_delta"}, status_code=409)
     pipeline.apply_delta(p, d)
     return _save(name, p)
 
@@ -3708,9 +3738,33 @@ def revert(name: str, n: int) -> Project:
     """n화 반영 직후로 되돌린다. 뒤 화의 본문은 남기고 반영만 취소한다 (0 이면 1화 시작 전)."""
     p = _load(name)
     _not_auto(name)
+    kept = _revert_kept(p, n)
+    edited = {f"state:{e.plot.number}" for e in p.episodes if e.plot.number > n and pipeline.edited_after_final(e)}
     pipeline.revert(p, n)
     out = _save(name, p)
+
+    def put(d: dict) -> None:
+        for key, rec in kept.items():
+            # 반영 뒤 고친 화를 다시 맞추려고 뽑아 둔 변경안은 지금 본문에서 뽑은 것이라 그대로 둔다 (화면도 그것을 보고 있다)
+            if not (key in edited and key in d["results"]):
+                d["results"][key] = rec
+    store.edit_pending(name, put)
     autorun.after_revert(name, n + 1)  # 자동 집필 실행 기록(자동 반영 목록, 로그, 끝남 상태)도 n+1화부터 맞춘다
+    return out
+
+
+def _revert_kept(p: Project, n: int) -> dict:
+    """반영 취소로 지울 n+1화부터의 반영 기록을 검토를 기다리는 상태 변경안(pending.json 의 state:<화>)으로 바꾼다.
+    상태 승인 화면이 다시 고를 수 있게 놓아, AI로 다시 뽑지 않아도 된다. base 는 반영할 때의 본문(반영 뒤 고쳤으면 고치기 전)이다."""
+    last = {d.episode: d for d in p.history if d.episode > n}
+    at, out = _now(), {}
+    for m, d in sorted(last.items()):
+        e = next((x for x in p.episodes if x.plot.number == m and x.status == "finalized"), None)
+        if e is None:
+            continue
+        key = f"state:{m}"
+        out[key] = {"key": key, "id": f"revert:{at}:{m}", "kind": "state", "ep": m, "label": f"{m}화 상태 변경안",
+                    "result": d.model_dump(), "base": e.final_text or e.text, "at": at}
     return out
 
 
