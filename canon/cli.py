@@ -1201,9 +1201,8 @@ def _print_delta(d: StateDelta) -> None:
         extra = f" (목격: {', '.join(e.witnesses)})" if e.witnesses else ""
         secret = f" [비밀 {e.reveals_secret} 드러남]" if e.reveals_secret else ""
         print(f"- 사건 {e.actor} → {e.target}: {e.kind} 강도 {e.intensity}{extra}{secret}  \"{e.quote}\"")
-    for r in d.relationship_updates:
-        nums = "" if d.events else f": 호감 {r.affinity}, 긴장 {r.tension}"
-        print(f"- 관계 {r.a}↔{r.b} ({r.type}){nums}  {r.description}")
+    for r in d.relationship_updates:  # 관계 수치는 반영이 쓰지 않으므로 보이지 않는다 (사건으로 계산)
+        print(f"- 관계 {r.a}↔{r.b} ({r.type})  {r.description}")
     for s in d.secrets_added:
         print(f"- 새 비밀 {s.id} ({s.owner}): {s.content} / 모르는 인물 {s.hidden_from}")
     for f in d.new_facts:
