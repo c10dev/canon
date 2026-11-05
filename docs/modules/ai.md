@@ -12,6 +12,16 @@
 - `start_login` 은 그 폴더로 `claude auth login --claudeai` 를 띄우기만 한다(입출력을 잇지 않음, 10분 뒤 끝냄). 웹 `POST /api/claude/login` 은 Canon 을 실행하는 컴퓨터에서 온 요청만 받는다
 - `logout` 은 전용 폴더를 쓸 때만 `claude auth logout` 을 부른다(평소 Claude Code 로그인은 건드리지 않음)
 - 단계별 추론 강도(`settings.stage_effort`)를 구독은 `--effort`(모르는 버전이면 뺌), API 는 `output_config.effort` 로 넘긴다. 비우면 모델 기본값. 사용량 기록 줄의 `effort`
+- 프롬프트 캐시는 두 백엔드가 같은 `shared_cut`(같은 모델 · 시스템 · 스키마의 직전 요청과 겹치는 앞부분, 단락 경계, 2,000자 이상)으로 자른다
+- API 는 그 끝에 `cache_control` 을 단다(`cache_blocks`)
+- 구독은 캐시 표시를 고를 수 없어 그 앞부분을 시스템 프롬프트 뒤로 옮겨 `--system-prompt-file` 로 넘긴다(`ClaudeCodeLLM._split`)
+- Claude Code 는 시스템 프롬프트 끝에 캐시 표시를 단다
+- 형식 고치기 재시도는 첫 시도와 같은 자리에서 자른다(`last_cut`). 처음 요청 뒤에 덧붙이므로 첫 시도의 캐시를 읽는다
+- `--system-prompt-file` 은 2.1.x `--help` 에 `--system-prompt[-file]` 로만 나온다. 모르는 버전이면 예전처럼 사용자 메시지에 둔다
+- 같은 시스템 프롬프트를 동시에 보내면 먼저 보낸 호출이 끝나거나 보낸 지 `CACHE_PREFILL_SECONDS`(30초)가 지날 때까지 뒤 호출이 기다린다(`_claim` · `_release`). 고침안 받기(`FIX_WORKERS` 3)가 모두 캐시를 새로 쓰지 않게 하려는 것
+- 모델까지 간 호출은 보낸 시각부터 `CACHE_WARM_SECONDS`(300초) 동안 캐시에 있다고 보고 기다리지 않는다
+- 기다린 시간은 사용량 기록의 `seconds` 에 넣지 않는다
+- 사용량 기록의 글자 수 · 블록 크기는 옮기기 전 원래 프롬프트 기준이다
 - 두 백엔드도 `llm.wait_cap` · `llm.out_cap` 을 따른다(`llm.caps` 로 읽음)
 - 구독은 제한 시간을 `min(CANON_CLAUDE_TIMEOUT, wait_cap)` 으로 둔다. 넘기면 다시 부르지 않고 `ClaudeCodeError`
 - API 는 `max_tokens` 를 `min(MAX_TOKENS, out_cap)` 으로, SDK 요청 옵션 `timeout` 을 `wait_cap` 으로 보낸다
