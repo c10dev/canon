@@ -49,7 +49,7 @@ def test_cli_update_refuses_finalized(home):
     p = _play(_short(4), 1, 1)
     store.save("g", p)
     out = _run(["update", "g", "1", "-y"])
-    assert "이미 상태를 반영했어요" in out and "revert g 1" in out
+    assert "이미 상태를 반영했어요" in out and "revert g 0" in out
     assert len(store.load("g").history) == len(p.history)
 
 
@@ -75,8 +75,9 @@ def _flagged(home):
 
 def test_cli_update_asks_flagged_default_no(home):
     f = _flagged(home)
-    out = _run(["update", "g", "2", "--from-json", f], ["y", ""])
+    out = _run(["update", "g", "2", "--from-json", f], ["", "y"])
     assert "기본으로 빼 둔 관계 바뀜" in out and "서로 믿는 친구" in out
+    assert "서로 믿는 친구" not in out.split("기본으로 빼 둔 관계 바뀜")[1].split("관계 바뀜 1개도")[1]  # 미리 보기 · 확인도 뺀 결과로
     q = store.load("g")
     assert q.episode(2).status == "finalized"
     assert next(r for r in q.relationships if {r.a, r.b} == {"hero", "ally"}).type != "서로 믿는 친구"

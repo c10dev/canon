@@ -1249,7 +1249,8 @@ def _update(name: str, p: Project, n: int, yes: bool, from_json: str | None = No
     except ValueError as e:
         print(e)
         if p.episode(n).status == "finalized":
-            print(f"다시 반영하려면 먼저 반영을 취소하세요: revert {name} {n}. 본문만 고쳤으면 웹의 상태 승인 화면에서 고친 본문 기준으로 다시 반영할 수 있어요")
+            print(f"{n}화부터 다시 반영하려면 앞 화 반영 직후로 되돌리세요: revert {name} {n - 1} (뒤 화의 반영도 함께 취소돼요)")
+            print("본문만 고쳤으면 웹의 상태 승인 화면에서 고친 본문 기준으로 다시 반영할 수 있어요")
         return False
     if from_json:
         delta = StateDelta.model_validate_json(_strip_fence(Path(from_json).read_text(encoding="utf-8")))
@@ -1259,6 +1260,8 @@ def _update(name: str, p: Project, n: int, yes: bool, from_json: str | None = No
         print(f"{n}화 상태 추출 중...")
         delta = pipeline.extract_state(get_llm("state"), p, n)
     _print_delta(delta)
+    if not yes:  # 미리 보기가 반영 결과와 같도록 먼저 묻는다
+        _ask_flagged(p, delta)
     _print_relation_preview(p, delta, hold=yes)
     if findings.open_findings(p.episode(n)):
         _print_issues(p, n, closed=False)
@@ -1271,7 +1274,6 @@ def _update(name: str, p: Project, n: int, yes: bool, from_json: str | None = No
     if yes:  # -y 는 자동 집필처럼 인물 설정 · 호칭을 바꾸지 않고 남겨 둔다
         held = features.hold(p, delta)
     else:
-        _ask_flagged(p, delta)
         if delta.setting_changes and not confirm(f"설정 바꾸기 제안 {len(delta.setting_changes)}개도 인물 설정에 반영할까요? (아니오면 빼고 반영해요)", False):
             delta.setting_changes = []
         if delta.address_changes and not confirm(f"호칭 · 말씨 바뀜 제안 {len(delta.address_changes)}개도 반영할까요? (아니오면 빼고 반영해요)", False):
