@@ -590,6 +590,9 @@ def test_state_draft_kept_with_pending_result(client):
     # 그사이 새 변경안으로 바뀐 결과 · 상태 변경안이 아닌 결과 · 없는 결과에는 남기지 않는다
     client.put("/api/projects/dr/pending/state:1/draft", json={**body, "id": "old", "picks": {"f0": True}})
     assert store.load_pending("dr")["results"]["state:1"]["draft"]["picks"]["f0"] is False
+    client.put("/api/projects/dr/pending/state:1/draft", json={**body, "picks": None, "delta": {"episode": 1, "summary": "또"}})
+    draft = store.load_pending("dr")["results"]["state:1"]["draft"]
+    assert draft["delta"]["summary"] == "또" and draft["picks"] == {"f0": False, "c0": True}  # 체크를 보내지 않으면 남긴 체크를 둔다
     client.put("/api/projects/dr/pending/suggest:/draft", json=body)
     assert "draft" not in store.load_pending("dr")["results"]["suggest:"]
     client.delete("/api/projects/dr/pending/state:1")

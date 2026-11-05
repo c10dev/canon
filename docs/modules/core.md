@@ -356,7 +356,8 @@
 - 화면 저장 기록(`writer`, `edit_rev` · `saved_by`, 파일 끝만 읽음)
 - 파일 끝에서 두 칸을 찾지 못하면 파일 전체를 읽는다. 두 칸은 `Project` 의 마지막 필드여야 한다(`tests/test_store_backup.py`)
 - 검토를 기다리는 AI 결과와 실패한 작업(`pending.json`, `load_pending` / `edit_pending`)
-- 상태 변경안 결과(`state:<화>`)는 작가가 고르던 체크와 고친 변경안을 `draft` 칸에 함께 둔다. 결과를 지우거나 바꾸면 초안도 사라진다
+- 상태 변경안 결과(`state:<화>`)는 작가가 고르던 체크와 고친 변경안을 `draft` 칸에 함께 둔다
+- 결과를 지우거나 새 결과로 바꾸면 초안도 사라진다
 
 ### `canon/updater.py`
 
@@ -391,7 +392,9 @@
 - `start_job` 은 같은 화에서 멈춘 작업이 AI 응답을 기다리면 `EP_AI_KINDS` 작업을 409 로 막는다(`_waiting_409`, 역설계 실험 `rev_job` 과 같은 문구)
 - 멈춘 스토리보드 작업의 늦은 응답은 그 화에 스토리보드 · 본문이 없고 플롯이 확정돼 있으면 남긴다(`_keep_late_board`, 결과 `{kept}`)
 - `_keep_pending` 은 멈춘 작업의 결과를 pending.json 에 남기지 않고 지난 실패도 지우지 않는다
-- `PUT /api/projects/{name}/pending/{key}/draft`(`save_state_draft`)는 상태 변경안 결과에 초안을 붙인다. pending.json 만 고쳐 작품 저장으로 치지 않는다
+- `PUT /api/projects/{name}/pending/{key}/draft`(`save_state_draft`)는 상태 변경안 결과에 초안을 붙인다
+- 초안 저장은 pending.json 만 고쳐 작품 저장으로 치지 않는다
+- 초안 저장 본문의 `picks` 가 null 이면 남긴 체크를 그대로 둔다(화면의 체크가 다른 화의 것일 때)
 - 초안 저장은 결과가 없거나 상태 변경안이 아니거나 보낸 `id` 가 결과의 작업 id 와 다르면 아무것도 바꾸지 않는다(반영 · 버림 · 다시 만들기 뒤 늦게 온 저장)
 - 읽기 전용 GET 은 `_view`(`store.load_view`)로 작품을 읽는다
 - 작품 전체 저장은 `put_project`

@@ -97,17 +97,20 @@ function setDelta(n, d, source = 'ai') {
   (d.address_changes || []).forEach((_, i) => { S.picks['h' + i] = false; });  // 호칭 · 말씨도 작가가 직접 골라야 바뀐다
   // 받은 그대로의 요약과 체크. 다시 만들 때 고친 것을 버리는지 묻는다 (기본으로 뺀 항목은 고친 것이 아니다)
   S.deltaOrig[n] = { summary: d.summary, picks: Object.fromEntries(Object.entries(S.picks).filter(([k]) => DELTA_PICK.test(k))), source, delta: structuredClone(d) };
+  picksEp = n;
 }
 
 // ---------- 고르던 체크 · 고친 칸 초안 (서버 pending.json 의 state:<화> 결과에 붙는다, web.save_state_draft) ----------
 let draftTimer = null;
+/** S.picks 의 변경안 체크가 어느 화의 것인지. 변경안이 둘이면 체크는 마지막에 놓은 화의 것이라, 다른 화의 초안에는 체크를 보내지 않는다 */
+let picksEp = null;
 /** 상태 승인 화면에서 체크나 칸을 바꾸면 잠시 뒤 초안으로 남긴다. 결과가 pending.json 에 없는 변경안(채팅 앱 JSON 등)은 남기지 않는다 */
 function saveDeltaDraft(n) {
   clearTimeout(draftTimer);
   draftTimer = setTimeout(() => {
     const r = S.pending.name === S.name && S.pending.results[`state:${n}`];
     if (!r || !S.deltas[n]) return;
-    const picks = Object.fromEntries(Object.entries(S.picks).filter(([k]) => DELTA_PICK.test(k)));
+    const picks = picksEp === n ? Object.fromEntries(Object.entries(S.picks).filter(([k]) => DELTA_PICK.test(k))) : null;
     api('PUT', `/projects/${enc(S.name)}/pending/${enc(r.key)}/draft`, { delta: S.deltas[n], picks, id: r.id ?? null }).catch(() => { /* 다음에 바꿀 때 다시 */ });
   }, 600);
 }
@@ -116,8 +119,10 @@ function saveDeltaDraft(n) {
 function restoreDeltaDraft(n, draft) {
   if (!draft || !draft.delta || !S.deltas[n]) return;
   S.deltas[n] = draft.delta;
+  if (!draft.picks) return;  // 체크 없이 남긴 초안(다른 화의 체크가 놓여 있을 때)은 받은 그대로의 기본 체크를 둔다
   for (const k of Object.keys(S.picks)) if (DELTA_PICK.test(k)) delete S.picks[k];
-  Object.entries(draft.picks || {}).forEach(([k, v]) => { if (DELTA_PICK.test(k)) S.picks[k] = !!v; });
+  Object.entries(draft.picks).forEach(([k, v]) => { if (DELTA_PICK.test(k)) S.picks[k] = !!v; });
+  picksEp = n;
 }
 
 /** 사건 종류 (schema.EventKind). 수동보정은 작가가 관계를 직접 고칠 때만 쓰고 반영에서 빠져 고르지 않는다 (tests/test_delta_count.py 가 맞춰 본다) */

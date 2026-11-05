@@ -55,3 +55,21 @@ def test_save_delta_draft_sends_picks_and_skips_unknown():
     method, path, body = got[0]
     assert method == "PUT" and path == "/projects/t/pending/state%3A1/draft" and body["id"] == "j1"
     assert body["picks"] == {"f0": False, "f1": True} and body["delta"]["summary"] == "받은 요약"
+
+
+@needs_node
+def test_save_delta_draft_skips_picks_of_other_episode():
+    """S.picks 는 화마다 나뉘지 않는다. 체크가 다른 화의 것이면 그 화의 초안에 체크를 보내지 않는다 (picks null)."""
+    got = run_js(["app.js", "review.js"], """(async () => {
+      S.project = data.project; S.name = 't';
+      await loadPending(Promise.resolve(data.pending));
+      S.pending.results['state:2'] = { key: 'state:2', id: 'j2', kind: 'state', ep: 2 };
+      S.deltas[2] = structuredClone(S.deltas[1]);
+      const calls = [];
+      setTimeout = (f) => f();
+      api = async (...a) => { calls.push(a); };
+      saveDeltaDraft(2);
+      saveDeltaDraft(1);
+      return calls.map((c) => c[2].picks);
+    })()""", _data(True))
+    assert got[0] is None and got[1] == {"f0": False, "f1": True}
