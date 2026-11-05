@@ -153,7 +153,8 @@
 - 관계 역학
 - 사건(`StoryEvent`)으로 방향 관계(`Tie`)를 계산
 - 긴장도
-- 스냅샷 재생(`replay`, 다시 계산 `pipeline.recalc` 가 씀): 1화 뒤에 생긴 관계(작가가 설정 화면에서 더한 관계, 상태 변경안이 더한 새 쌍)는 그 화 스냅샷이 있으면 그 화를 돌린 뒤 스냅샷 값으로 잇고, 스냅샷이 지워졌으면 지금 반영과 같은 차례로 만든다(`_late_relations` · `seed_ties`). 사건 없이 수치만 온 예전 변경안도 반영과 같게 다룬다. 계수를 바꾸지 않았으면 다시 계산이 지금 관계를 그대로 내야 한다(단계 그래프 고침 같은 규칙 변화만 다르게)
+- 스냅샷 재생(`replay`, 다시 계산 `pipeline.recalc` 가 씀): 1화 뒤에 생긴 관계(작가가 설정 화면에서 더한 관계, 상태 변경안이 더한 새 쌍)는 그 화 스냅샷이 있으면 그 화를 돌린 뒤 스냅샷 값으로 잇고, 스냅샷이 지워졌으면 지금 반영과 같은 차례로 만든다(`_late_relations` · `seed_ties`). 사건 없이 수치만 온 예전 변경안도 그때 반영과 같게 다룬다. 계수를 바꾸지 않았으면 다시 계산이 지금 관계를 그대로 내야 한다(단계 그래프 고침 같은 규칙 변화만 다르게)
+- 예전 방식(사건이 없으면 관계 바뀜의 affinity 로 온기를 맞춤)은 `StateDelta.legacy_rel` 이 참인 기록(2026-11-05 전 반영)에만 쓴다. 지금 반영은 수치를 쓰지 않으므로 기록을 거짓으로 남긴다
 - 숫자를 말로 바꾸기
 - 단계에 들어온 화(`Tie.stage_since`, `run_episode` 가 적고 `replay` 가 다시 채움)를 관계 줄에 '(n화부터)'로(`since`)
 - 말로 고른 보는 방식(`VIEWS`)으로 시작 관계 만들기
@@ -176,6 +177,7 @@
 - 복선 센터
 - 복선을 본문 문장에 건다(`ForeshadowClue`, `Project.foreshadow_clues`, 본문은 바꾸지 않음)
 - AI 문장 정리(`clean_delta`)와 반영 · 되돌리기
+- 이미 회수한 복선을 또 회수하는 제안의 경고(`resolved_warnings`, features 정리 훅)
 - 작가가 걸기 · 복선 고치기(그 화 이후 스냅샷도)
 - 센터 계산(`center`: 회수율, 끊어진 연결, 예정 지남, 오래 묵음, 플롯 회수 계획)
 - 명령줄 `foreshadows`
@@ -274,6 +276,7 @@
 - 플레이어가 닿은 구간(`see`, `PlayInfo.seen`)보다 한 구간 넘게 앞서 쓰지 않는다(비용 상한)
 - 흐르는 중 행동하면 보지 않은 구간을 버린다(`drop_unseen`)
 - 상태 반영(`settle`, `prompts.play_state_prompt`, `clean_delta` → `charlog.hold` → `apply_delta` → `Episode.auto`, 실패는 `PlayTurn.state` failed 로 두고 다시)
+- `settle` 은 변경안을 만들기 전에 반영 전제 `pipeline.check_applicable` 을 본다
 - 장(StoryArc)은 다음 구간을 덮게 미리 연다(`open_chapter`, `CHAPTER_LEN` 20, 세계에 부가 있으면 '플레이' 부)
 - 장을 다 반영하면 요약으로 접는다(`fold`, `pipeline.recap`)
 - 되감기(`rewind` · `trim_after`)

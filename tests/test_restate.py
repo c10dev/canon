@@ -89,3 +89,48 @@ def test_rewrite_and_revert_on_finalized(client):
     ep.text = "또 고침."
     pipeline.revert(p, 0)
     assert ep.status == "written" and ep.final_text == ""
+
+
+def test_restate_keeps_clues_of_new_plants_and_dedupes_ids(client):
+    """다시 맞추기도 상태 승인처럼 새로 심은 복선의 근거 문장(plant)을 붙이고, 변경안 안의 같은 복선 id 는 한 번만 넣는다."""
+    _two_done(client)
+    p = client.post("/api/projects/lh/episodes/1/edits", json={"selection": {"start": 0, "text": "바람이 불었다."}, "after": "비가 왔다."}).json()
+    clues_before = p["foreshadow_clues"]
+    d = client.post("/api/projects/lh/episodes/1/state").json()
+    d["foreshadow_planted"] = [{"id": "fs-01-rain", "description": "비 냄새", "planted_ep": 1},
+                               {"id": "fs-01-rain", "description": "두 번째 비", "planted_ep": 1}]
+    d["foreshadow_clues"] = [
+        {"foreshadow": "fs-01-rain", "kind": "plant", "quote": "비가 왔다."},
+        {"foreshadow": "fs-01-rain", "kind": "plant", "quote": "비가 왔다."},  # 같은 문장은 한 번만
+        {"foreshadow": "fs-01-rain", "kind": "payoff", "quote": "비가 그쳤다."},  # 다시 맞추기는 회수하지 않는다
+        {"foreshadow": "fs-01-key", "kind": "plant", "quote": "열쇠가 있었다."},  # 이미 있던 복선
+    ]
+    p = client.post("/api/projects/lh/episodes/1/restate", json=d).json()
+    rain = [f for f in p["foreshadows"] if f["id"] == "fs-01-rain"]
+    assert len(rain) == 1 and rain[0]["description"] == "비 냄새"
+    added = [c for c in p["foreshadow_clues"] if c not in clues_before]
+    assert added == [{**added[0], "foreshadow": "fs-01-rain", "kind": "plant", "quote": "비가 왔다.", "episode": 1, "by": "ai"}]
+    h = next(x for x in reversed(p["history"]) if x["episode"] == 1)
+    assert [f["id"] for f in h["foreshadow_planted"]].count("fs-01-rain") == 1
+    assert [c["quote"] for c in h["foreshadow_clues"] if c["foreshadow"] == "fs-01-rain"] == ["비가 왔다."]
+
+    # 1화 반영 뒤로 되돌리면 남고, 1화 전으로 되돌리면 복선과 함께 지운다
+    p = client.post("/api/projects/lh/revert/1").json()
+    assert any(c["foreshadow"] == "fs-01-rain" for c in p["foreshadow_clues"])
+    p = client.post("/api/projects/lh/revert/0").json()
+    assert not any(c["foreshadow"] == "fs-01-rain" for c in p["foreshadow_clues"])
+
+
+def test_restate_stale_basis_needs_force(client):
+    """변경안을 뽑은 뒤 본문을 또 고쳤으면 상태 승인처럼 409 stale_delta 로 막고, force 로 다시 보내면 반영한다."""
+    _two_done(client)
+    p = client.post("/api/projects/lh/episodes/1/edits", json={"selection": {"start": 0, "text": "바람이 불었다."}, "after": "비가 왔다."}).json()
+    d = client.post("/api/projects/lh/episodes/1/state").json()
+    assert d["basis"]
+    d["summary"] = "고친 1화 요약"
+    client.put("/api/projects/lh/episodes/1/text", json={"text": _ep(p)["text"] + "\n\n또 고친 줄."})
+    r = client.post("/api/projects/lh/episodes/1/restate", json=d)
+    assert r.status_code == 409 and r.json()["code"] == "stale_delta"
+    assert _ep(client.get("/api/projects/lh").json())["summary"] != "고친 1화 요약"  # 막으면 아무것도 바꾸지 않는다
+    p = client.post("/api/projects/lh/episodes/1/restate?force=1", json=d).json()
+    assert _ep(p)["summary"] == "고친 1화 요약" and _ep(p)["final_text"] == ""
