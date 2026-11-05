@@ -1297,8 +1297,7 @@ def _ask_flagged(p: Project, d: StateDelta) -> None:
         r = d.relationship_updates[i]
         print(f"- {name.get(r.a, r.a)} ↔ {name.get(r.b, r.b)}: {r.type}{f' ({r.description})' if r.description else ''}")
     if not confirm(f"관계 바뀜 {len(flagged)}개도 반영할까요? (아니오면 빼고 반영해요)", False):
-        d.dismissed.relationship_updates += [d.relationship_updates[i] for i in flagged]
-        d.relationship_updates = [r for i, r in enumerate(d.relationship_updates) if i not in flagged]
+        d.dismissed.relationship_updates += d.drop_rel_rows(flagged)
     d.rel_flagged = []
 
 

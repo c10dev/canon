@@ -1924,6 +1924,17 @@ class StateDelta(BaseModel):
     added: SkipJsonSchema[Optional[AddedItems]] = Field(
         None, description="반영할 때 실제로 새로 더해진 관계 쌍 · 비밀 · 사실 · 복선. 반영 뒤 작가가 더한 같은 항목과 가려 반영 취소가 이것만 뺀다")
 
+    def drop_rel_rows(self, drop) -> list[Relationship]:
+        """relationship_updates 에서 drop 차례의 행을 빼고 뺀 행을 돌려준다. 범위 밖 차례는 무시한다.
+        rel_flagged 는 남은 행의 새 차례로 다시 매기고, 뺀 행 · 범위 밖의 차례는 버린다 (같은 행을 기본으로 체크하지 않게)."""
+        drop = set(drop)
+        flagged = set(self.rel_flagged)
+        keep = [i for i in range(len(self.relationship_updates)) if i not in drop]
+        gone = [r for i, r in enumerate(self.relationship_updates) if i in drop]
+        self.rel_flagged = [j for j, i in enumerate(keep) if i in flagged]
+        self.relationship_updates = [self.relationship_updates[i] for i in keep]
+        return gone
+
 
 def _no_manual(s: dict) -> None:
     s["enum"] = [k for k in s.get("enum", []) if k != "수동보정"]

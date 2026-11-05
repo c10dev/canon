@@ -288,6 +288,8 @@
   - `apply_delta` 는 검사에 걸린 항목과 설정에 없는 사건 목격자를 빼고(`drop_invalid`) 반영한 뒤 뺀 항목 문구를 돌려준다
   - `drop_invalid` 는 비밀의 `hidden_from` 중 설정에 없는 인물과 없는 비밀 id 를 가리키는 사건의 `reveals_secret` 을 지우고 그 문구를 더한다(비밀 · 사건은 남긴다)
   - `drop_invalid` 가 뺀 항목은 `d.dismissed` 의 같은 칸에 남는다(반영 기록에서 보이고 반영 취소로 돌아오면 체크를 푼 채 다시 놓인다)
+  - 관계 바뀜 행을 빼는 곳(`drop_invalid` · `pace.hold` · `_ask_flagged`)은 `StateDelta.drop_rel_rows` 를 써서 `rel_flagged` 를 남은 행의 차례로 다시 매긴다
+  - `apply_delta` 는 기록(history)에 넣기 전 `rel_flagged` 에서 범위 밖 · 겹친 차례를 버린다(반영 취소로 다시 놓일 때 맞는 행을 기본으로 빼 둔다)
   - `apply_delta` 는 새 관계 · 심은 복선 · 비밀을 복사해 넣는다(반영 뒤 계산이 바꿔도 반영 기록의 값은 보낸 그대로 남아 다시 계산할 때 두 번 세지 않는다)
   - `apply_delta` 는 한 변경안 안에서 같은 사실 · 같은 복선 id · 같은 비밀 id 가 또 오면 처음 것만 반영한다(`_first_new`)
   - `apply_delta` 는 심은 복선을 `apply_restate` 처럼 이번 화에 심은 열린 복선(`planted_ep` 이번 화, `status` open, `payoff_ep` 없음)으로 맞춘다
