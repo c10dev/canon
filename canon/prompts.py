@@ -3041,14 +3041,15 @@ def cue_sheet_prompt(p: Project, n: int, lead: str = "") -> str:
     긴장 · 템포 · 편성 · 분량 · 종지 지시는 레퍼런스 원고 역설계와 견준 실측(2026-11-03, DESIGN.md '화별 큐 시트')에 맞췄다.
     예전 지시는 모든 화를 긴장 5 · 반종지로 끝내고, 느린 큐 57% · 대사 큐 21% · 큐 길이를 거의 고르게 나눴다.
     lead 는 방금 이 화 스토리보드를 만든 요청 글(storyboard_prompt) 그대로다 (pipeline.cue_lead 가 고른다).
-    주면 그 글을 맨 앞에 두고 만든 스토리보드와 큐 시트 요청을 뒤에 붙인다. 앞 요청을 통째로 품어야
-    Gemini 암묵적 캐시와 Claude 앞부분 캐시가 맞는다 (DESIGN.md 4장). 응답 형식(CueSheetDraft)은 같다."""
+    주면 그 글을 맨 앞에 두고 만든 스토리보드(board_block)와 큐 시트 요청을 뒤에 붙인다. Gemini 암묵적 캐시는
+    앞 요청을 통째로 품은 요청에만 맞는다 (DESIGN.md 4장). 응답 형식이 달라도 맞는지는 실측하지 않았다.
+    Claude 캐시 자리(claude.shared_cut)는 같은 응답 형식의 직전 요청으로 정해져 이 모양으로 더 맞지 않는다.
+    장면 연출은 lead 에 이미 있어 다시 넣지 않는다. lead 의 다음 화 플롯 · 시간 · 이동 블록은 지울 수 없어 첫 줄에서 쓰임을 정한다."""
     if lead:
-        stg = stage_block(p, n, board=True)
-        stg = f"\n\n# 장면 연출 (작가가 짠 자리 · 자세 · 접촉)\n{stg}" if stg else ""
         return (lead + "\n\n아래는 위 요청으로 만든 스토리보드를 Canon 이 값을 세어 적은 글입니다. 스토리보드 JSON 을 다시 만들지 않습니다.\n\n"
-                + board_block(p, n) + stg + "\n\n"
-                + _cue_request(p, n, f"위 자료와 바로 위 스토리보드로 {n}화의 큐 시트(악보)를 JSON 으로 만듭니다. 본문을 쓰지 않습니다."))
+                + board_block(p, n) + "\n\n"
+                + _cue_request(p, n, f"위 자료와 바로 위 스토리보드로 {n}화의 큐 시트(악보)를 JSON 으로 만듭니다. 본문을 쓰지 않습니다.\n"
+                               f"[다음 화 플롯]의 사건은 큐에 넣지 않습니다. 시간 · 이동 · 장면 순서는 바로 위 스토리보드를 따릅니다."))
     return build_episode_context(p, n) + "\n\n" + _cue_request(
         p, n, f"위 자료로 {n}화의 큐 시트(악보)를 JSON 으로 만듭니다. 본문을 쓰지 않습니다.")
 
