@@ -126,6 +126,7 @@ Object.assign(actions, {
     // 서버는 변경안을 만든 본문(d.basis)과 지금 본문을 맞춰 본다 (409 stale_delta, review.js applyDelta 와 같음). 확인하면 force 로 다시 보낸다
     let stale = null;
     const go = (force) => run('반영하는 중', async () => {
+      await saveIfDirty();
       try {
         S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/restate${force ? '?force=1' : ''}`, body);
       } catch (e) {
