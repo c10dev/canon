@@ -31,11 +31,15 @@
 - 저장하지 않고 이동하면 묻는 창은 작품 변경만 있을 때 '저장하고 이동'(askConfirm 의 `alt`)을 주 버튼으로 준다
 - 화면 이동 확인은 `leaveUnsaved`(작품 · 라이브러리 · 장면 연출 변경, `S.editDrafts`)를 본다
 - 새로고침 · 탭 닫기(`beforeunload`)는 `hasUnsaved` 를 본다: `leaveUnsaved` 에 본문 초안 · 지시서 결과 · 상태 변경안 · 문체 예시 · 가격표(`S.priceDirty`)를 더한다
+- `hasUnsaved` 는 화면을 옮겨도 S 에 남는 고치던 입력도 더한다: 모듈이 `onKeptDraft(함수)` 로 맡긴 검사가 하나라도 true 면 묻는다(`keptDraftOpen`)
+- `onKeptDraft` 검사는 화면 이동 확인에 넣지 않는다. 그 입력은 화면을 옮겨도 사라지지 않는다
+- 큐 시트 고침(`S.cueEdits` 의 `dirty`)은 `app.js` 가 직접 `onKeptDraft` 에 맡긴다. 집필 · 실험 · 역설계가 함께 쓴다
 - 가격표는 화면을 옮겨도 남아(`pricesLoad`) 화면 이동 확인에는 넣지 않는다
 - `S.editDrafts` 약속: 인라인 편집기를 가진 모듈은 저장하지 않은 입력이 생기면 `S.editDrafts.<키>` 를 true 로, 저장 · 버리기 · 닫기 때 false 로 둔다
 - `S.editDrafts` 의 키는 그 모듈이 정한다. `app.js` 는 키를 쓰지 않고 true 인 값이 있는지만 본다(`editDraftOpen`)
 - 화면 이동이 이어지면(버리고 이동을 골랐거나 남은 입력이 없음) `app.js` 가 `S.editDrafts` 를 `{}` 로 비운다. 떠난 화면의 편집기는 이미 사라졌다
 - 버리고 이동을 고르면 true 인 키마다 그 모듈이 `onEditDiscard(키, 함수)` 로 맡긴 함수를 불러 초안도 버린다(`discardEditDrafts`). 돌아왔을 때 버린 글이 되살아나지 않는다
+- 시작할 때 읽는 집필 방식(`S.mode`, localStorage `canon.mode`)은 try 로 감싼다. 저장소를 막은 브라우저도 기본값 api 로 연다(`tests/test_app_core_js.py`)
 - `showError` 는 키 없음(`no_key`)과 키 틀림(`bad_key`) 모두 설정을 열지 묻는다
 - `run` 이 실패를 알릴 때 다시 시도할 만한 실패(`retryable`: status 0 · 429 · 5xx)면 같은 `run(label, fn, opt)` 을 다시 부르는 '다시 시도'를 붙인다
 - `run` 의 `opt.retry: false` 는 '다시 시도'를 붙이지 않는다. 저장하고 이동(hashchange)이 쓴다: 저장만 되풀이하면 이동이 이어지지 않는다
@@ -112,6 +116,7 @@
 - 본문 없는 화의 만들기 · 바로 쓰기 · 스토리보드 없이 쓰기(`boardStart`)
 - 만든 카드(`boardCard`: 어긋남 · 확정 값 · 넘겨받을 것 · 깨지 않을 것 · 장면, 낡음 표시, 다시 만들기 · 이대로 쓰기)
 - 고치기(`boardForm`, 칸 글 읽기 `boardParse`, `tests/test_storyboard.py`)
+- 저장한 것과 다른 고치기 칸과 보내지 않은 'AI에게 고치기' 요청은 페이지를 떠날 때 묻는다(`boardUnsaved`, `app.js` `onKeptDraft`)
 - 쓴 화의 접은 카드(`boardPanel`)
 - 계산 값은 `GET …/storyboard`(`board.view`)
 
@@ -156,6 +161,7 @@
 
 - 단편 → 장편 전환 화면
 - 이어 쓰기(총 화수 · 결말 처리, AI 전환 계획에서 항목 골라 반영)와 재구성(화 지도 고치기, 반영)
+- 받은 그대로의 계획을 `S.convOrig` · `S.rbOrig` 에 둔다. 칸이나 체크를 고친 뒤 '다시 받기'를 누르면 먼저 묻는다(`planEdited` · `planRefetchOk`, `tests/test_convert_js.py`)
 - 되돌리기
 - 집필 화면의 재구성 안내 · 다듬기 비교(`rebuildNote`)도 여기 있다
 
@@ -384,6 +390,8 @@
 - 반영 뒤 고친 화
 - 반영이 끝난 화를 고쳤을 때 집필 화면 알림(`restateNote`, 뒤 화 검수 권유)
 - 상태 승인 화면의 다시 맞추기 카드(`restateCard`: 요약 · 새 사실 · 새 복선만 고르기, 그대로 두기)
+- '다시 뽑기'(`restateEp`)는 바꾼 체크 · 고친 요약이 있으면 먼저 묻는다(`rsEdited`, 요약은 `S.deltaOrig` 와 견줌)
+- '다시 뽑기'는 작품을 말없이 저장하지 않는다. 저장하지 않은 변경은 `startJob` 이 묻고 저장한다(`tests/test_restate_js.py`)
 - 서버는 `pipeline.apply_restate` · `keep_state`
 - 표시는 `Episode.final_text` (`edited_after_final` 과 같은 규칙, `tests/test_restate_js.py`)
 
@@ -512,6 +520,7 @@
 - k화로 가는 링크 `epGo(k)`: 플롯 초안이면 플롯 페이지(플롯 확정), 본문이 있으면 검수 · 상태 승인, 나머지는 집필. 순서 안내(`orderNote`)와 검수 · 상태 승인의 빈 화면이 쓴다
 - 본문 다시 생성 확인은 지금 본문이 이전 판으로 남는다고 말하고 위험 버튼으로 두지 않는다
 - 저장 띠의 '고친 것 버리기'(`dropText`)는 묻고 나서 그 화의 저장하지 않은 본문과 임시 보관 초안을 지운다
+- 생성 방식 바꾸기(`setMode`)는 localStorage 에 못 적어도 이번 화면에서는 바꾼다
 - 작업지시서(본문 · 검수 · 상태 승인 걸음, `viewBrief`)
 - 작업지시서는 화 머리와 공용 목차 틀이다(걸음 목차 `briefToc`: 끝남 ✓ · 지금 · 본문 뒤, 4번째는 상태 승인 화면으로 가는 줄)
 - 작업지시서 머리 주 버튼은 그 걸음의 가져오기(n화 본문으로 저장 · 가져오고 검수로 · 확인하고 변경안 검토로)

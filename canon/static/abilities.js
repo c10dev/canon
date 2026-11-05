@@ -71,7 +71,7 @@ async function abLoad(sel) {
   let opened = S.abSel === '_new' && prev !== '_new';
   if (S.abOpenId) {  // 도감 카드의 '도감에서 고치기'
     const r = rows.find((x) => x.ability.id === S.abOpenId);
-    if (r) { S.abEdit = { card: 'base', a: JSON.parse(JSON.stringify(r.ability)) }; opened = true; }
+    if (r) { S.abEdit = abEditOf('base', r.ability); opened = true; }
     S.abOpenId = null;
   }
   // 고치는 칸을 열고 들어오면(도감 카드의 '도감에서 고치기', '도감에 만들기') 라우터가 정한 제목 대신 이름 칸으로
@@ -279,6 +279,7 @@ function abNewPage() {
 }
 
 function viewAbilities() {
+  abDraftMark();  // 다시 그릴 때마다 고치는 카드의 상태를 알린다 (열기 · 닫기 · 저장 · 등급 더하기가 모두 다시 그린다)
   const head = header('작품 도구', '스킬 도감', '상태창의 스킬 · 특성 · 칭호마다 설명 · 효과 · 대가를 적어요. 같은 이름(Lv3 · B급 같은 등급 꼬리를 뗀 이름)이면 모든 인물에 한 설명을 써요. 가진 인물과 얻은 화는 상태창 기록에서 계산해요.',
     '<button type="button" class="btn" data-action="abNew" data-arg="">+ 항목 더하기</button>');
   const d = S.ab;
@@ -301,6 +302,26 @@ function abChip(cid, stat, item, cls) {
   return `<button type="button" class="${cls} ab-chip${no ? ' nodoc' : ''}" data-action="abShow" data-arg="${esc([cid, stat, item].map(encodeURIComponent).join('|'))}" aria-haspopup="dialog">${esc(item)}${no ? '<span class="sr-only"> (도감에 설명 없음)</span>' : ''}</button>`;
 }
 
+/** 고치는 카드 { card, a, orig }. orig 는 연 때의 값(JSON)이라 고쳤는지 abDirty 가 견준다 */
+function abEditOf(card, a) {
+  const copy = JSON.parse(JSON.stringify(a));
+  return { card, a: copy, orig: JSON.stringify(copy) };
+}
+
+/** 고치는 카드에 저장하지 않은 글이 있다 */
+const abDirty = () => !!(S.abEdit && JSON.stringify(S.abEdit.a) !== S.abEdit.orig);
+
+/** 고치는 카드에 저장하지 않은 글이 있으면 S.editDrafts.ab 를 켠다. 다른 항목으로 가거나 화면을 떠나면 app.js 가 묻는다 */
+function abDraftMark() {
+  (S.editDrafts ||= {}).ab = abDirty();
+}
+
+// 버리고 이동을 고르면 고치던 카드를 닫는다 (app.js onEditDiscard)
+if (typeof onEditDiscard === 'function') onEditDiscard('ab', () => { S.abEdit = null; });
+
+/** 같은 화면에서 다른 카드 · 새 항목 칸을 열 때 고치던 글을 버릴지 묻는다 */
+const abDropOk = () => askConfirm('고치던 도감 칸의 글을 저장하지 않고 닫을까요?', { ok: '닫고 열기', danger: true });
+
 document.addEventListener('input', (e) => {
   const d = e.target.dataset || {};
   if (d.abQuery) {
@@ -312,10 +333,11 @@ document.addEventListener('input', (e) => {
   if (!S.abEdit) return;
   if (d.abField) S.abEdit.a[d.abField] = d.abField === 'aliases' ? e.target.value.split(/\s*,\s*/).filter(Boolean) : e.target.value;
   if (d.abGrade !== undefined) S.abEdit.a.grades[Number(d.abGrade)][d.abGkey] = e.target.value;
+  abDraftMark();
 });
 document.addEventListener('change', (e) => {
   const d = e.target.dataset || {};
-  if (S.abEdit && d.abField === 'stat') S.abEdit.a.stat = e.target.value;
+  if (S.abEdit && d.abField === 'stat') { S.abEdit.a.stat = e.target.value; abDraftMark(); }
 });
 
 async function abReload(sel) {
@@ -334,9 +356,10 @@ function abSyncUrl() {
 }
 
 Object.assign(actions, {
-  abNew(arg) {
+  async abNew(arg) {
     const [stat, ...rest] = String(arg || '').split('|');
-    S.abEdit = { card: 'new', a: abBlank(rest.join('|'), arg ? stat : '') };
+    if (abDirty() && !(await abDropOk())) return;
+    S.abEdit = abEditOf('new', abBlank(rest.join('|'), arg ? stat : ''));
     S.abOwner = S.name;
     S.focusTarget = '#ab-name';
     if (location.hash.split('/')[3] !== 'abilities') { location.hash = abHref('_new'); return; }
@@ -345,11 +368,12 @@ Object.assign(actions, {
     render();
   },
   /** 'id|card': 그 항목의 카드 하나를 고치는 칸으로 편다 */
-  abEditOpen(arg) {
+  async abEditOpen(arg) {
     const [id, card] = String(arg).split('|');
     const row = ((S.ab || {}).abilities || []).find((x) => x.ability.id === id);
     if (!row) return;
-    S.abEdit = { card: card || 'base', a: JSON.parse(JSON.stringify(row.ability)) };
+    if (abDirty() && !(await abDropOk())) return;  // 같은 항목의 다른 카드를 열어도 고치던 칸은 하나라 버려진다
+    S.abEdit = abEditOf(card || 'base', row.ability);
     S.focusTarget = card === 'grades' ? '#app [data-ab-grade="0"], #app [data-action="abGradeAdd"]' : '#ab-name';
     if (S.abSel !== id) { S.abSel = id; abSyncUrl(); }
     render();

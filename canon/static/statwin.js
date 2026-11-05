@@ -447,6 +447,7 @@ function swDecorPage() {
 // ----- 화면 -----
 
 function viewStatwin() {
+  swDraftMark();  // 다시 그릴 때마다 고치기 칸의 상태를 알린다 (더하기 · 빼기 · 옮기기 · 저장 · 취소가 모두 다시 그린다)
   const p = P();
   const head = header('작품 도구', '상태창 수치', '본문 상태창에 나오는 레벨 · 능력치 · 스킬 · 돈을 인물마다 화별로 기록해요. 항목을 하나라도 정하면 AI가 본문을 쓸 때 이 값을 따르고, 바뀐 값만 상태 변경안에 적어요. 반영은 승인한 뒤에만 돼요.');
   if (!p.characters.length) {
@@ -469,9 +470,19 @@ document.addEventListener('input', (e) => {
   }
 });
 
+// 버리고 이동을 고르면 지금 상태창 고치기 칸을 닫고 적던 항목을 버린다 (app.js onEditDiscard). 돌아오면 swLoad 가 저장된 값을 다시 읽는다
+if (typeof onEditDiscard === 'function') onEditDiscard('sw', () => { S.swEdit = false; S.swDirty = false; });
+
+/** 지금 상태창 고치기 칸에 저장하지 않은 항목이 있으면 S.editDrafts.sw 를 켠다.
+    다른 인물 · 쪽으로 가거나 화면을 떠나면 app.js 가 묻는다 (swLoad 는 쪽이 바뀌면 고치던 칸을 닫는다) */
+function swDraftMark() {
+  (S.editDrafts ||= {}).sw = !!(S.swEdit && S.swDirty);
+}
+
 function swTouch() {
   if (S.swDirty) return;
   S.swDirty = true;
+  swDraftMark();
   const b = document.querySelector('[data-action="swSave"]');
   if (b) b.disabled = false;
 }

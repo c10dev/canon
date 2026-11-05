@@ -35,6 +35,8 @@ Object.assign(S, {
   rbDraft: null,      // AI 재구성 계획 (반영 전)
   rbNotes: [],        // 재구성 반영 뒤 서버가 알려 준 옮기지 못한 것
   reworks: {},        // 화 번호 → AI 다듬기 제안 { text, reply }
+  convOrig: null,     // 받은 그대로의 전환 계획과 체크 (JSON). 다시 받기 전에 고친 계획을 버리는지 묻는다 (planEdited)
+  rbOrig: null,       // 받은 그대로의 재구성 계획 (JSON)
 });
 
 // app.js 의 작업 표와 입력 바인딩에 이 화면을 붙인다
@@ -62,6 +64,8 @@ async function convertLoad() {
 function convertResult(j) {
   if (j.kind === 'rebuild') {
     S.rbDraft = j.result;
+    S.rbOrig = JSON.stringify(j.result);
+    for (const k of Object.keys(S.convPicks)) if (k.startsWith('rb')) delete S.convPicks[k];  // 새 계획의 체크는 모두 켠 채로 시작한다
     S.rbBad = {};
     S.convMode = 'rebuild';
   } else if (j.kind === 'rework') {
@@ -69,8 +73,32 @@ function convertResult(j) {
   } else {
     S.convDraft = j.result;
     // 확정한 화의 플롯 수정은 작가가 고를 때만 넣는다 (확정된 것은 덮어쓰지 않는다)
-    S.convPicks = Object.fromEntries((j.result.episodes || []).filter((e) => ep(e.number) && ep(e.number).status === 'confirmed').map((e) => ['ep:' + e.number, false]));
+    const picks = Object.fromEntries((j.result.episodes || []).filter((e) => ep(e.number) && ep(e.number).status === 'confirmed').map((e) => ['ep:' + e.number, false]));
+    // 재구성 계획의 체크(rb…)는 남긴다
+    S.convPicks = { ...Object.fromEntries(Object.entries(S.convPicks).filter(([k]) => k.startsWith('rb'))), ...picks };
+    S.convOrig = { plan: JSON.stringify(j.result), picks };
   }
+}
+
+/** 받은 뒤 작가가 고친 계획: 칸을 고쳤거나 체크를 바꿨다. 다시 받으면 새 계획이 덮으므로 먼저 묻는다.
+    kind 는 'convert' 전환 계획 · 'rebuild' 재구성 계획. 받은 그대로를 모르면(옛 화면 상태) 고친 것으로 본다 */
+function planEdited(kind) {
+  if (kind === 'rebuild') {
+    if (!S.rbDraft) return false;
+    return JSON.stringify(S.rbDraft) !== S.rbOrig || Object.entries(S.convPicks).some(([k, v]) => k.startsWith('rb') && v === false);
+  }
+  if (!S.convDraft) return false;
+  const o = S.convOrig;
+  if (!o || JSON.stringify(S.convDraft) !== o.plan) return true;
+  const keys = new Set([...Object.keys(S.convPicks), ...Object.keys(o.picks)].filter((k) => !k.startsWith('rb')));
+  return [...keys].some((k) => convPicked(k) !== (o.picks[k] !== false));
+}
+
+/** 고친 계획이 있으면 다시 받기 전에 묻는다. 계속하면 true */
+async function planRefetchOk(kind) {
+  if (!planEdited(kind)) return true;
+  const what = kind === 'rebuild' ? '재구성 계획' : '전환 계획';
+  return !!(await askConfirm(`고친 ${what}을 버리고 새 계획을 받을까요? 새 계획이 오면 고친 칸과 체크가 사라져요.`, { ok: '다시 받기', danger: true }));
 }
 
 function convPicked(key) {
@@ -204,6 +232,7 @@ Object.assign(actions, {
     const total = Number(S.convForm.total) || 0;
     const st = S.convStatus;
     if (st && (total < st.min || total > st.max)) return toast(`장편 총 화수는 ${st.min}~${st.max}화로 정하세요`, true);
+    if (!(await planRefetchOk('convert'))) return;
     await startJob('convert', null, { length: total, ending: S.convForm.ending, note: S.convForm.note || '' });
   },
   async convertDrop() {
@@ -415,6 +444,7 @@ Object.assign(actions, {
     const span = Number(f.span) || 0;
     if (st && (total < st.min || total > st.max)) return toast(`장편 총 화수는 ${st.min}~${st.max}화로 정하세요`, true);
     if (st && st.rebuild && (span < st.rebuild.min || span > Math.min(st.rebuild.max, total))) return toast(`다시 짤 앞부분은 ${st.rebuild.min}~${Math.min(st.rebuild.max, total)}화로 정하세요`, true);
+    if (!(await planRefetchOk('rebuild'))) return;
     await startJob('rebuild', null, { length: total, span, ending: f.ending_at, note: f.note || '' });
   },
   async rebuildDrop() {

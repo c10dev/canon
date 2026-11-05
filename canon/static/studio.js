@@ -13,7 +13,7 @@ async function stuLoad(id) {
   S.stuLength = home.length;
   S.stuMax = home.max_tries;
   if (!id) { S.stu = null; S.stuForm = null; return; }
-  if (!S.stu || S.stu.id !== id) { S.stuWrite = ''; S.stuBase = 0; S.stuEdit = 0; }
+  if (!S.stu || S.stu.id !== id) { S.stuWrite = ''; S.stuBase = 0; S.stuEdit = 0; S.stuEditText = ''; }
   stuSet(await api('GET', `/studio/${enc(id)}`));
 }
 
@@ -23,6 +23,15 @@ function stuSet(s) {
   S.stuForm = { title: s.title, card: JSON.parse(JSON.stringify(s.card)) };
   S.stuDirty = false;
 }
+
+/** 고치는 시도 칸의 글이 저장한 글과 다르다 (S.stuEditText 는 data-local 로 묶인다) */
+function stuEditDirty() {
+  const t = S.stu && S.stuEdit ? S.stu.tries.find((x) => x.no === S.stuEdit) : null;
+  return !!t && (S.stuEditText ?? t.text) !== t.text;
+}
+
+// 페이지를 떠나면 직접 쓰기 칸과 고치는 시도 칸의 글이 사라진다. 새로고침 · 탭 닫기에서 묻는다 (app.js onKeptDraft)
+if (typeof onKeptDraft === 'function') onKeptDraft(() => !!(S.stuWrite || '').trim() || stuEditDirty());
 
 function viewStudio() {
   return S.stu ? stuSession() : stuHome();
@@ -254,7 +263,7 @@ function stuTryCard(t) {
   const base = t.base ? `<span class="small">${t.base}번을 고쳐 씀</span>` : '';
   const editing = S.stuEdit === t.no;
   const body = editing
-    ? `<div class="field"><label for="stu-edit-${t.no}" class="sr-only">${t.no}번 고치기</label><textarea id="stu-edit-${t.no}" rows="6" data-autogrow>${esc(t.text)}</textarea></div>
+    ? `<div class="field"><label for="stu-edit-${t.no}" class="sr-only">${t.no}번 고치기</label><textarea id="stu-edit-${t.no}" rows="6" data-autogrow data-local="stuEditText">${esc(S.stuEditText ?? t.text)}</textarea></div>
        <div class="row"><button type="button" class="btn small primary" data-action="stuEditSave" data-arg="${t.no}">저장</button><button type="button" class="btn small" data-action="stuEditCancel">그만두기</button></div>`
     : `<div class="rw-text">${esc(t.text)}</div>`;
   const btns = editing ? '' : `<div class="row">
@@ -413,20 +422,25 @@ Object.assign(actions, {
     S.focusTarget = '#stu-text';
     render();
   },
-  stuEditOpen(no) {
+  async stuEditOpen(no) {
+    if (S.stuEdit !== no && stuEditDirty() && !(await askConfirm(`고치던 ${S.stuEdit}번 글을 버리고 ${no}번을 고칠까요?`, { ok: '버리고 열기', danger: true }))) return;
     S.stuEdit = no;
+    S.stuEditText = S.stu.tries.find((x) => x.no === no).text;  // 칸의 글을 S 에 둔다. 다른 버튼으로 다시 그려도 고친 글이 남는다
     S.focusTarget = `#stu-edit-${no}`;
     render();
   },
-  stuEditCancel() {
+  async stuEditCancel() {
+    if (stuEditDirty() && !(await askConfirm('고친 글을 버리고 그만둘까요?', { ok: '버리기', danger: true }))) return;
     S.stuEdit = 0;
+    S.stuEditText = '';
     render();
   },
   async stuEditSave(no) {
-    const el = $(`#stu-edit-${no}`);
+    const text = S.stuEdit === no ? S.stuEditText : '';
     await run('고친 글을 저장하는 중', async () => {
-      stuSet(await api('PUT', `/studio/${enc(S.stu.id)}/tries/${no}`, { text: el ? el.value : '' }));
+      stuSet(await api('PUT', `/studio/${enc(S.stu.id)}/tries/${no}`, { text }));
       S.stuEdit = 0;
+      S.stuEditText = '';
     });
   },
   async stuStar(no) {

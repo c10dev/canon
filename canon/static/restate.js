@@ -1,4 +1,4 @@
-/* 반영 뒤 고친 화 (집필 · 상태 승인 화면). app.js 의 S, P, ep, actions, api, render, run, startJob, jobBtn, saveIfDirty, rangeText 와
+/* 반영 뒤 고친 화 (집필 · 상태 승인 화면). app.js 의 S, P, ep, actions, api, render, run, startJob, jobBtn, saveIfDirty, askConfirm, rangeText 와
    passage.js 의 textNow 를 그대로 쓴다.
    반영이 끝난 화도 본문을 고칠 수 있다. 반영된 요약 · 인물 상태 · 관계 · 복선은 그대로 두고(뒤 화가 그 위에 쌓였다),
    서버가 처음 고치기 전 본문을 Episode.final_text 에 남긴다. 작가는 '그대로 두기'를 고르거나, 고친 본문에서 변경안을 다시 뽑아
@@ -97,10 +97,20 @@ document.addEventListener('input', (e) => {
   if (d) d.summary = t.value;
 });
 
+/** 다시 뽑으면 사라지는 작가의 고침: 기본(모두 체크)에서 바꾼 체크, 받은 것과 다른 요약 (S.deltaOrig, review.js extractState 와 같은 기준) */
+function rsEdited(n) {
+  const d = S.deltas[n];
+  if (!d) return false;
+  const o = S.deltaOrig[n];
+  if (o && d.summary !== o.summary) return true;
+  return S.rsFor[n] === d && Object.values(S.rsPick[n] || {}).some((v) => !v);
+}
+
 Object.assign(actions, {
   async restateEp(n) {
     n = Number(n);
-    await saveIfDirty();
+    if (rsEdited(n) && !(await askConfirm('고른 항목과 고친 요약을 버리고 변경안을 다시 뽑을까요?', { ok: '다시 뽑기', danger: true }))) return;
+    // 저장하지 않은 작품 변경은 startJob 이 먼저 묻고 저장한다. 여기서 말없이 저장하지 않는다
     await startJob('state', n);
   },
   async applyRestate(n) {

@@ -26,12 +26,15 @@ Object.assign(S, {
   revEsts: {},     // 비용 추정 { 열쇠(revEstKey): 값 | null(묻는 중) | { error } }
   revSel: 0,       // 원문에서 밝힌 큐 번호 (1부터)
   revEdit: false,  // 실험 글 고치기 칸을 열었는지
+  revEditDraft: null, // 글 · 이름 고치기 칸에 적던 값 { title, first, text, title0, first0 } (title0 · first0 은 연 때의 값)
+  revFor: null,    // 고치던 글(revEdit · revAdd · revEpEdit)이 어느 실험 것인가
+  revKept: {},     // 다른 실험으로 옮길 때 맡겨 둔 고치던 글. 실험 번호 → { edit, editDraft, add, epEdit } (revKeep · revRestore)
   revAdd: null,    // 화 이어 붙이기 칸에 붙여 넣은 글 (null 이면 닫힘)
   revAddFrom: 'text', // 이어 붙일 곳: text(붙여 넣기) · ref(레퍼런스 원고에서)
   revRefs: null,   // 레퍼런스 원고 목록 (GET /refs, 처음 열 때 받는다)
   revRefBook: null, // 고른 원고 (GET /refs/<id>: episodes 에 차례 · 이름 · 제목 · 종류 · 글자 수)
   revRefPick: new Set(), // 고른 원고 화 차례
-  revEpEdit: null, // 고치는 화 { n, head, text } (null 이면 닫힘)
+  revEpEdit: null, // 고치는 화 { n, head, text, head0, text0 } (null 이면 닫힘. head0 · text0 은 연 때의 값)
   revStyle: false, // 되돌려 쓰기에 문체 프로필을 넣을지
   revPace: null, // 구조 · 호흡 칸의 값 { id, rows, summary } (GET /revlab/<번호>/pace)
   revArcEdit: null, // 아크 · 부 고치는 중인 값 { id, parts, arcs } (PUT /revlab/<번호>/arcs)
@@ -176,13 +179,51 @@ async function revFetch(id) {
   }
   if (!old || old.id !== id) {
     S.revPick = new Set(S.revLab.items.filter((e) => !e.sheet && e.chars >= S.rev.min_chars).map((e) => e.number));
-    S.revSel = 0; S.revEdit = false; S.revAdd = null; S.revEpEdit = null; S.revRedo = false; S.revTab = 'text'; S.revEp = null;
+    S.revSel = 0; S.revRedo = false; S.revTab = 'text'; S.revEp = null;
+    // 다른 실험으로 옮기면 고치던 글은 버리지 않고 그 실험 몫으로 맡겨 둔다. 돌아오면 되살린다
+    if (S.revFor !== id) { revKeep(S.revFor); revRestore(id); }
   } else if (S.revPick && !S.revRedo) {
     for (const e of S.revLab.items) if (e.sheet) S.revPick.delete(e.number);  // 다 푼 화는 다음 역설계에서 뺀다
     if (!S.revPick.size) S.revPick = new Set(S.revLab.items.filter((e) => !e.sheet && e.chars >= S.rev.min_chars).map((e) => e.number));
   }
+  S.revFor = id;
   S.revEsts = {};
 }
+
+/** 고친 화 글 칸이 연 때와 다르다 */
+const revEpDirty = (d) => !!d && (d.text !== d.text0 || d.head !== d.head0);
+/** 글 · 이름 고치기 칸에 연 때와 다른 값이 있다 */
+const revEditDirty = (d) => !!d && (!!d.text.trim() || d.title !== d.title0 || String(d.first) !== String(d.first0));
+
+/** 지금 화면의 고치던 글을 실험 id 몫으로 맡긴다. 버릴 것이 없으면 맡기지 않는다 */
+function revKeep(id) {
+  if (!id) return;
+  const k = {
+    edit: S.revEdit && revEditDirty(S.revEditDraft) ? S.revEditDraft : null,
+    add: S.revAdd && S.revAdd.trim() ? S.revAdd : null,
+    epEdit: revEpDirty(S.revEpEdit) ? S.revEpEdit : null,
+  };
+  if (k.edit || k.add !== null || k.epEdit) S.revKept[id] = k;
+  else delete S.revKept[id];
+}
+
+/** 실험 id 에 맡겨 둔 고치던 글을 되살린다. 없으면 고치는 칸을 모두 닫는다 */
+function revRestore(id) {
+  const k = S.revKept[id] || {};
+  delete S.revKept[id];
+  S.revEdit = !!k.edit;
+  S.revEditDraft = k.edit || null;
+  S.revAdd = k.add ?? null;
+  if (S.revAdd !== null) S.revAddFrom = 'text';  // 맡긴 것은 붙여 넣은 글이다
+  S.revEpEdit = k.epEdit || null;
+}
+
+/** 페이지를 떠나면 사라지는 역설계 입력: 지금 실험의 고치던 글과 다른 실험에 맡겨 둔 글 (app.js onKeptDraft) */
+function revUnsaved() {
+  return (S.revEdit && revEditDirty(S.revEditDraft)) || !!(S.revAdd && S.revAdd.trim()) || revEpDirty(S.revEpEdit)
+    || Object.keys(S.revKept || {}).length > 0;
+}
+if (typeof onKeptDraft === 'function') onKeptDraft(revUnsaved);
 
 /* ----- 단계 · 다음 할 일 · 진행 줄 · 지표 줄: DOM 없는 순수 함수 (tests/test_revlab.py) ----- */
 
@@ -577,16 +618,25 @@ function revMain() {
   return parts.join('');
 }
 
+/** 글 · 이름 고치기 칸을 연다. 적던 값이 있으면 그대로 둔다 */
+function revEditOpen() {
+  const L = S.revLab;
+  if (!S.revEditDraft) S.revEditDraft = { title: L.title, first: L.first, text: '', title0: L.title, first0: L.first };
+  S.revEdit = true;
+}
+
 function revEditCard() {
   const L = S.revLab;
+  if (!S.revEditDraft) revEditOpen();
+  const D = S.revEditDraft;
   return `<section class="card"><div class="between"><h2>글 · 이름 고치기</h2><button type="button" class="btn small ghost" data-action="revEditToggle">닫기</button></div>
     <div class="rev-fields">
-      <div class="field rev-f-title"><label for="rev-etitle">이름</label><input id="rev-etitle" type="text" data-rev-edit="title" value="${esc(L.title)}"></div>
-      <div class="field rev-f-first"><label for="rev-efirst">첫 화 번호</label><input id="rev-efirst" type="number" min="1" max="9999" data-rev-edit="first" value="${L.first}"></div>
+      <div class="field rev-f-title"><label for="rev-etitle">이름</label><input id="rev-etitle" type="text" data-rev-edit="title" value="${esc(D.title)}"></div>
+      <div class="field rev-f-first"><label for="rev-efirst">첫 화 번호</label><input id="rev-efirst" type="number" min="1" max="9999" data-rev-edit="first" value="${esc(String(D.first))}"></div>
     </div>
     ${L.first <= 3 ? '<div class="note warn small">1~3화로 잡혀 되돌려 쓰기에 초반 규칙(첫 화 쓰는 법)이 붙어요. 소설 중간이면 첫 화 번호를 바꾸세요.</div>' : ''}
     ${L.preface ? `<div class="small">앞머리(역설계하지 않음): ${esc(L.preface.slice(0, 120))}</div>` : ''}
-    <div class="field"><label for="rev-etext">글 <span class="small">(비우면 글은 그대로 두고 이름 · 번호만 바꿔요)</span></label><textarea id="rev-etext" rows="8" data-rev-edit="text" placeholder="새 글을 붙여 넣으면 다시 나누고 역설계 결과를 모두 지워요"></textarea></div>
+    <div class="field"><label for="rev-etext">글 <span class="small">(비우면 글은 그대로 두고 이름 · 번호만 바꿔요)</span></label><textarea id="rev-etext" rows="8" data-rev-edit="text" placeholder="새 글을 붙여 넣으면 다시 나누고 역설계 결과를 모두 지워요">${esc(D.text)}</textarea></div>
     <div class="row"><button type="button" class="btn primary" data-action="revSaveEdit">저장</button></div></section>`;
 }
 
@@ -1472,6 +1522,7 @@ document.addEventListener('input', (e) => {
     S.revDraft[d.revNew] = e.target.value;
     revNewRefresh();
   }
+  if (d.revEdit && S.revEditDraft) S.revEditDraft[d.revEdit] = e.target.value;  // 다시 그려도 칸이 비지 않게 S 에 둔다
   if (d.revEp && S.revEpEdit) {
     S.revEpEdit[d.revEp] = e.target.value;
     const count = document.getElementById('rev-epcount');
@@ -1649,11 +1700,18 @@ Object.assign(actions, {
       location.hash = `#/revlab/${v.id}`;
     });
   },
-  revEditToggle() { S.revEdit = !S.revEdit; render(); },
+  async revEditToggle() {
+    if (!S.revEdit) { revEditOpen(); render(); return; }
+    if (revEditDirty(S.revEditDraft) && !(await askConfirm('적던 글 · 이름을 버리고 닫을까요?', { ok: '버리기', danger: true }))) return;
+    S.revEdit = false;
+    S.revEditDraft = null;
+    render();
+  },
   async revSaveEdit() {
-    const title = (document.querySelector('[data-rev-edit="title"]') || {}).value || '';
-    const text = (document.querySelector('[data-rev-edit="text"]') || {}).value || '';
-    const first = Number((document.querySelector('[data-rev-edit="first"]') || {}).value) || null;
+    const D = S.revEditDraft || {};
+    const title = D.title || '';
+    const text = D.text || '';
+    const first = Number(D.first) || null;
     if (text.trim() && S.revLab.done && !(await askConfirm('글을 바꾸면 다시 나누고 역설계 결과를 모두 지워요. 바꿀까요?', { ok: '바꾸기', danger: true }))) return;
     const id = S.revLab.id;
     await run('저장하는 중', async () => {
@@ -1661,6 +1719,7 @@ Object.assign(actions, {
       S.revLab = null;
       await revLoad(id, null);
       S.revEdit = false;
+      S.revEditDraft = null;
     });
   },
   async revAddToggle() {
@@ -1724,10 +1783,12 @@ Object.assign(actions, {
     });
   },
   /** 목차 ⋯ 메뉴의 글 고치기: 그 화를 열고 위에 고치기 칸을 편다. */
-  revEpEdit(n) {
+  async revEpEdit(n) {
     const e = revItem(Number(n));
     if (!e) return;
-    S.revEpEdit = { n: e.number, head: e.head, text: e.text };
+    if (S.revEpEdit && S.revEpEdit.n === e.number && revEpDirty(S.revEpEdit)) { S.focusTarget = '#rev-eptext'; render(); return; }  // 고치던 글을 덮지 않는다
+    if (revEpDirty(S.revEpEdit) && !(await askConfirm(`고치던 ${S.revEpEdit.n}화 글을 버리고 ${e.number}화를 고칠까요?`, { ok: '버리고 열기', danger: true }))) return;
+    S.revEpEdit = { n: e.number, head: e.head, text: e.text, head0: e.head, text0: e.text };
     S.focusTarget = '#rev-eptext';
     if (!S.revPane && S.revEp === e.number) render(); else revNav(e.number);
   },
@@ -1778,9 +1839,13 @@ Object.assign(actions, {
   },
   async revDelete() {
     if (!(await askConfirm(`'${S.revLab.title || `실험 ${S.revLab.id}`}' 실험을 지울까요? 넣은 글과 역설계 결과가 모두 사라져요.`, { ok: '지우기', danger: true }))) return;
+    const id = S.revLab.id;
     await run('지우는 중', async () => {
-      await api('DELETE', `/revlab/${S.revLab.id}`);
+      await api('DELETE', `/revlab/${id}`);
       S.revLab = null;
+      // 지운 실험의 고치던 글은 돌아갈 곳이 없다
+      delete S.revKept[id];
+      if (S.revFor === id) Object.assign(S, { revFor: null, revEdit: false, revEditDraft: null, revAdd: null, revEpEdit: null });
       location.hash = `#/revlab`;
     });
   },
@@ -1975,7 +2040,7 @@ Object.assign(actions, {
     const L = S.revLab;
     const items = L.items;
     const min = S.rev.min_chars;
-    if (id === 'edit') { S.revEdit = true; S.focusTarget = '#rev-etitle'; render(); return; }
+    if (id === 'edit') { revEditOpen(); S.focusTarget = '#rev-etitle'; render(); return; }
     if (id === 'style') { revNav('style'); return; }
     if (id === 'parse' && items.some((e) => e.chars >= min && !e.sheet)) { revNav(''); return; }
     const find = {

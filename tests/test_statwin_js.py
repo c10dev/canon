@@ -126,3 +126,41 @@ def test_ab_find_local_matches_server():
     got = _run(["statwin.js", "abilities.js"], "(globalThis.P = () => data.p, data.cases.map(([i, s]) => (abFindLocal(i, s) || {}).id || null))",
                {"cases": cases, "p": p.model_dump(mode="json")})
     assert got == [(abilities.find(p, i, s) or Ability(id="", name="")).id or None for i, s in cases]
+
+
+@pytest.mark.skipif(not shutil.which("node"), reason="node 없음")
+def test_unsaved_stat_rows_and_dex_card_ask_before_leaving():
+    """지금 상태창 고치기 칸과 도감 고치기 칸에 저장하지 않은 글이 있으면 S.editDrafts 를 켜고(떠나기 전에 묻는다),
+    버리고 이동을 고르면 칸을 닫는다. 같은 도감 화면에서 다른 카드를 열 때도 먼저 묻는다."""
+    from .jsvm import run_js
+    got = run_js(["app.js", "statwin.js", "abilities.js"], """(async () => {
+      const asks = [];
+      render = () => {};
+      askConfirm = async (msg, o) => { asks.push(o.ok); return false; };
+      const out = {};
+      S.swEdit = true; S.swDirty = false; swDraftMark();
+      out.swOpen = leaveUnsaved();
+      swTouch();
+      out.swTyped = [S.editDrafts.sw, leaveUnsaved(), hasUnsaved()];
+      discardEditDrafts();
+      out.swDiscarded = [S.swEdit, S.swDirty, leaveUnsaved()];
+      S.ab = { abilities: [{ ability: { id: 'a1', name: '화염구', description: '', grades: [], aliases: [] } }] };
+      await actions.abEditOpen('a1|base');
+      abDraftMark();
+      out.abOpen = [S.abEdit.card, leaveUnsaved()];
+      S.abEdit.a.description = '불덩이를 던진다';
+      abDraftMark();
+      out.abTyped = leaveUnsaved();
+      await actions.abEditOpen('a1|grades');  // 거절하면 고치던 카드가 그대로다
+      out.abOther = [asks, S.abEdit.card, S.abEdit.a.description];
+      discardEditDrafts();
+      out.abDiscarded = [S.abEdit, leaveUnsaved()];
+      return out;
+    })()""", {})
+    assert got["swOpen"] is False
+    assert got["swTyped"] == [True, True, True]
+    assert got["swDiscarded"] == [False, False, False]
+    assert got["abOpen"] == ["base", False]
+    assert got["abTyped"] is True
+    assert got["abOther"] == [["닫고 열기"], "base", "불덩이를 던진다"]
+    assert got["abDiscarded"] == [None, False]

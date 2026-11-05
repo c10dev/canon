@@ -184,3 +184,49 @@ def test_confirmed_leave_clears_edit_drafts():
     assert "if (leaveUnsaved())" in body
     tail = body[body.index("lastHash = location.hash;"):]
     assert "S.libDirty = false;" in tail and "discardEditDrafts();" in tail
+
+
+@needs_node
+def test_leave_guard_counts_storyboard_and_cue_edits():
+    # 스토리보드 · 큐 시트 고침은 화면을 옮겨도 S 에 남는다. 새로고침 · 탭 닫기(hasUnsaved)에서만 묻는다
+    got = run_js(["app.js", "board.js"], """(() => {
+      S.name = 'w';
+      S.project = { episodes: [{ plot: { number: 3 }, storyboard: { scenes: [], time: '아침' } }] };
+      const out = {};
+      const both = () => [hasUnsaved(), leaveUnsaved()];
+      S.boardEdit = { key: 'w:3', draft: { scenes: [], time: '아침' } };
+      out.opened = both();  // 열기만 하고 고치지 않았다
+      S.boardEdit.draft.time = '밤';
+      out.edited = both();
+      S.boardEdit = { key: 'other:3', draft: { scenes: [], time: '아침' } };
+      out.other = both();  // 다른 작품의 칸은 견줄 저장본이 없어 남은 것으로 센다
+      S.boardEdit = null;
+      S.boardAsk = { key: 'w:3', text: '  ' };
+      out.blankAsk = both();
+      S.boardAsk.text = '2장을 더 짧게';
+      out.ask = both();
+      S.boardAsk = null;
+      S.cueEdits = { 'ep:3:w': { draft: {}, dirty: false } };
+      out.cueClean = both();
+      S.cueEdits['ep:3:w'].dirty = true;
+      out.cue = both();
+      return out;
+    })()""", {})
+    assert got == {"opened": [False, False], "edited": [True, False], "other": [True, False], "blankAsk": [False, False],
+                   "ask": [True, False], "cueClean": [False, False], "cue": [True, False]}
+
+
+@needs_node
+def test_app_starts_when_storage_is_blocked():
+    # 저장소를 막은 브라우저도 앱 전체를 읽고 기본값으로 연다. 집필 방식 바꾸기도 이번 화면에서는 된다
+    import re
+
+    from .jsvm import STATIC
+    files = re.findall(r'src="/static/([a-z0-9-]+\.js)"', (STATIC / "index.html").read_text(encoding="utf-8"))
+    got = run_js(files, """(() => {
+      const start = S.mode;
+      render = () => {};
+      actions.setMode('brief');
+      return [start, S.mode];
+    })()""", {}, block_storage=True)
+    assert got == ["api", "brief"]

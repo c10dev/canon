@@ -233,6 +233,19 @@ document.addEventListener('input', (e) => {
 document.addEventListener('change', (e) => {
   if (e.target.dataset && e.target.dataset.bdType === 'bool' && S.boardEdit) boardSet(S.boardEdit.draft, e.target.dataset.bd, e.target.checked);
 });
+/** 페이지를 떠나면 사라지는 스토리보드 입력: 저장한 것과 다른 고치기 칸, 보내지 않은 'AI에게 고치기' 요청 (app.js onKeptDraft).
+    고치기 칸은 화면을 옮겨도 S 에 남으므로 화면 이동에서는 묻지 않는다. 다른 작품의 칸은 비교할 저장본이 없어 남은 것으로 센다 */
+function boardUnsaved() {
+  const ed = S.boardEdit;
+  if (ed) {
+    const at = ed.key.lastIndexOf(':');
+    const e = ed.key.slice(0, at) === S.name && P() ? ep(Number(ed.key.slice(at + 1))) : null;
+    if (!e || JSON.stringify(ed.draft) !== JSON.stringify(e.storyboard)) return true;
+  }
+  return !!(S.boardAsk && S.boardAsk.text.trim());
+}
+if (typeof onKeptDraft === 'function') onKeptDraft(boardUnsaved);
+
 document.addEventListener('input', (e) => {
   const n = e.target.dataset && e.target.dataset.bdAsk;
   if (n) S.boardAsk = { key: `${S.name}:${n}`, text: e.target.value };
