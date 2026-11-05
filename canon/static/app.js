@@ -330,7 +330,7 @@ function jobFor(kind, ep = null, name = S.name) {
 }
 
 // 한 화를 두고 AI 를 부르는 작업. 같은 화에서 멈춘 작업이 아직 응답을 기다리면 새로 시작하지 않는다 (서버 jobs.EP_AI_KINDS, 409)
-const EP_AI_KINDS = new Set(['board', 'check', 'cues', 'fixes', 'plot_one', 'state', 'write']);
+const EP_AI_KINDS = new Set(['board', 'check', 'cues', 'fixes', 'plot_one', 'recheck', 'state', 'write']);
 const EP_WAIT_TIP = '앞에서 멈춘 작업이 아직 AI 응답을 기다려요. 이미 보낸 호출은 끊을 수 없어요. 응답이 오면 다시 시작할 수 있어요';
 
 /** n 화의 EP_AI_KINDS 작업 가운데 멈췄지만 아직 AI 응답을 기다리는 것. 서버 jobs.waiting_on 과 같은 셈 */
@@ -517,6 +517,7 @@ async function pollJobs(soon = false) {
     }
     if (j.kind === 'impact' && j.status === 'done') await mergeImpacts();
     if (j.kind === 'check' && j.status === 'done') await mergeEpisodes((e) => e.plot.number === j.ep, [j.ep]);  // 검수 결과는 그 화에 붙었다
+    if (j.kind === 'recheck' && j.status === 'done') await mergeEpisodes((e) => e.plot.number === j.ep, [j.ep]);  // 고친 곳만 다시 보기 결과는 그 화 지적에 붙었다
     if (j.kind === 'fixes' && j.status !== 'running') await mergeEpisodes((e) => e.plot.number === j.ep, [j.ep]);  // 받은 고침안은 그 화 지적에 붙었다 (실패해도 앞서 받은 것은 남았다)
     if (j.kind === 'auto') {
       // 다른 탭이나 명령줄에서 시작했어도 잠금(autoOn)이 걸리고, 끝나면 풀리게 실행 상태를 받아 온다. autoPoll 이 이어서 지켜본다
@@ -1143,7 +1144,7 @@ document.addEventListener('change', (e) => {
   if (el.dataset.pick) {
     S.picks[el.dataset.pick] = el.checked;
     document.querySelectorAll('#app .pick-count').forEach((c) => { c.textContent = deltaPicked(); });
-    if (S.route[2] === 'review' && /^[ers]\d/.test(el.dataset.pick)) refreshPreview(Number(S.route[3]));
+    if (S.route[2] === 'review' && /^[ersn]\d/.test(el.dataset.pick)) refreshPreview(Number(S.route[3]));
     if (S.route[2] === 'setup' && /^sc\d/.test(el.dataset.pick)) render();  // 고른 인물에 따라 넣을 수 있는 관계가 바뀐다
   }
   if (el.name === 'np-form') {  // 형식을 바꾸면 총 화수 기본값도 바꾼다
@@ -1534,7 +1535,10 @@ const actions = {
     n = Number(n);
     const fin = P().episodes.filter((e) => e.status === 'finalized' && e.plot.number >= n).map((e) => e.plot.number);
     const h = [...P().history].reverse().find((d) => d.episode === n);
-    const added = P().history.filter((d) => d.episode >= n).flatMap((d) => d.new_characters || []).map((c) => c.name || c.id);
+    // 그때 이미 있던 인물(설정 단계 인물 · 앞 화 반영이 더한 인물)은 빠지지 않는다 (pipeline.revert)
+    const was = new Set([...P().characters.filter((c) => !c.first_ep).map((c) => c.id),
+      ...P().history.filter((d) => d.episode < n).flatMap((d) => d.new_characters || []).map((c) => c.id)]);
+    const added = P().history.filter((d) => d.episode >= n).flatMap((d) => d.new_characters || []).filter((c) => !was.has(c.id)).map((c) => c.name || c.id);
     const places = (P().elements || []).filter((el) => el.found_in === '본문' && el.found_ep >= n).map((el) => el.name);
     if (!(await askConfirm(`${rangeText(fin)}화의 상태 반영을 취소할까요? ${n - 1 ? `${n - 1}화 반영 직후` : '1화 시작 전'} 상태로 돌아가고, 본문은 남아 상태 승인을 다시 하게 돼요.${added.length ? ` 그 반영이 더한 인물(${added.join(', ')})도 빠져요.` : ''}${places.length ? ` 본문에서 등록한 장소(${places.join(', ')})도 빠져요. 아직 안 쓴 화 플롯에 나오거나 직접 고친 장소는 남아요.` : ''}${S.dirty ? '\n저장하지 않은 변경은 먼저 저장해요.' : ''}`, { ok: S.dirty ? '저장하고 반영 취소' : '반영 취소', cancel: '닫기', danger: true }))) return false;
     return run('반영을 취소하는 중', async () => {

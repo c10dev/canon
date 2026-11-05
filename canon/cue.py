@@ -411,18 +411,22 @@ def estimate(p: Project, n: int, sheet: CueSheet | None, conditions: list[str] |
     q = before(p, n)
     model = model or settings.stage_model("write")[0] or settings.model()[0]
     price = usage.rate(model, date.today().isoformat())
-    out_tokens = p.meta.words_per_episode / CHARS_PER_TOKEN
+    backend, stage_model = usage.stage_llm("write")
+    rate = usage.token_rate(backend if model == stage_model else "", model)  # 고른 모델이 단계 모델과 다르면 이름으로 백엔드를 고른다
+    out_tokens = usage.est_output(p.meta.words_per_episode, rate)
     rows, total = [], 0.0
     for cond in conds:
-        tin = prompt_chars(q, n, cond, sheet) / CHARS_PER_TOKEN
         calls = len(sheet.cues) if cond == "cues" and sheet else 1
+        # prompt_chars 는 호출마다 시스템 지시를 품는다. 직선의 붙는 토큰이 시스템 지시를 세므로 빼고 호출 수만큼 붙인다
+        sys = len(prompts.writer_system(q))
+        tin = usage.est_input(prompt_chars(q, n, cond, sheet) - sys * calls, rate, sys, calls)
         c = usage.cost(price, tin, out_tokens, 0, False) if price else None
         total += c or 0
         rows.append({"condition": cond, "label": CONDITIONS[cond], "calls": calls, "input_tokens": round(tin),
                      "output_tokens": round(out_tokens), "usd": round(c, 3) if c is not None else None})
     return {"model": model, "priced": price is not None, "calls": sum(r["calls"] for r in rows),
             "usd": round(total, 3) if price else None, "rows": rows,
-            "note": "입력은 실제 요청 글자 수, 출력은 화당 분량을 글자당 토큰 추정값으로 나눠 셌어요. 캐시와 생각 토큰은 넣지 않았어요."}
+            "note": "입력은 실제 요청 글자 수, 출력은 화당 분량에 백엔드 · 모델별 글자당 토큰 추정값을 곱해 셌어요. 캐시와 생각 토큰은 넣지 않았어요."}
 
 
 def run(name: str, p: Project, llm, n: int, conditions: list[str] | None = None, progress=None) -> dict:

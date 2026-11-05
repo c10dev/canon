@@ -4,6 +4,7 @@
    (passage.js 의 떠 있는 도구, mode 'finding'): AI 고침안 비교와 적용(딸린 곳 포함), 묶음 되돌리기, 이 지적만 다시 검수, 다른 처리 길.
    지적과 회차는 서버 findings.merge 가 만든다 (Episode.findings · rounds). 상태 · 심각도 바꾸기는 PUT …/findings/{id},
    고침안 POST …/findings/{id}/fixes · …/fixes/{k}/apply, 되돌리기 POST …/fix-groups/{묶음}/undo, 다시 검수 POST …/findings/{id}/recheck,
+   고친 곳만 다시 보기(작업 'recheck', 지난 검수 뒤 수정이 모두 고침안일 때 머리의 주 버튼, home.js 의 fixRecheckTargets),
    한꺼번에: 열린 지적 모두 고침안 받기(작업 'fixes') → 고침안 한꺼번에 검토(지적마다 고르고 고른 것만 POST …/fixes/apply),
    문체 지표는 GET …/style. app.js 의 S, P, actions, api, render, run, home.js 의 checkState, write.js 의 epNav · nextStepBtn,
    marks.js 의 draftBox · readHtml, passage.js 의 textNow · editableEp · passageNotes · editTime · wordDiff · flushText · focusText · showTool,
@@ -32,6 +33,13 @@ JOB_DONE_MSG.fixes = (j) => {
 };
 JOB_PAGES.fixes = ['check'];
 JOB_LINK.fixes = (j) => `#/p/${enc(j.project)}/check/${j.ep}`;
+JOB_DONE_MSG.recheck = (j) => {
+  const r = j.result || {};
+  const miss = (r.missing || []).length;
+  return `${j.ep}화 고친 곳만 다시 봤어요: 지적 ${r.asked || 0}개 중 ${r.resolved || 0}개가 풀렸어요${r.open ? `, ${r.open}개는 아직 어긋나요` : ''}${r.added ? `, 고친 문장 때문에 새로 어긋난 곳 ${r.added}개` : ''}${miss ? ` (${miss}개는 AI가 답하지 않았어요)` : ''}`;
+};
+JOB_PAGES.recheck = ['check'];
+JOB_LINK.recheck = (j) => `#/p/${enc(j.project)}/check/${j.ep}`;
 
 // 서버 schema.FINDING_STATUS · SEVERITY 와 같은 이름
 const FINDING_STATUS = { open: '열림', fixed: '고침', kept: '그대로 둠', wrong: '잘못 짚음' };
@@ -231,7 +239,7 @@ function takeCheck(n, pj) {
   if (src) Object.assign(ep(n), { findings: src.findings, rounds: src.rounds, issues: src.issues, checked_at: src.checked_at });
 }
 
-function chkStrip(n, e, st) {
+function chkStrip(n, e, st, fast = []) {
   const rounds = e.rounds || [];
   if (!rounds.length) return '';
   const last = rounds[rounds.length - 1];
@@ -251,6 +259,7 @@ function chkStrip(n, e, st) {
       <span class="small chk-strip-hint">회차를 누르면 그 회차에 바뀐 지적만 봐요</span>
       <div class="seg chk-filters" role="group" aria-label="처리 상태로 거르기">${filters}</div></div>
     ${fresh ? `<div class="note">${last.no}회차 뒤에 본문을 새 판으로 바꿨어요. 그대로 둠 · 잘못 짚음으로 정한 지적만 남겼어요. 새 판을 검수하세요.</div>`
+    : st.stale && fast.length ? `<div class="note warn">${last.no}회차 뒤에 고침안만 넣었어요. '고친 곳만 다시 보기'는 고친 문장과 앞뒤 문단만 보내 지적 ${fast.length}개를 한 번에 다시 봐요. 고친 곳이 멀리 떨어진 문장과 어긋나는지까지 보려면 다시 검수하세요.</div>`
     : st.stale ? `<div class="note warn">${last.no}회차 뒤에 본문을 고쳤어요. 고친 문장의 지적은 '문장 바뀜'으로 보여요. 고친 곳이 다른 곳과 어긋나지 않는지 보려면 다시 검수하세요.</div>` : ''}`;
 }
 
@@ -500,7 +509,7 @@ function fbView(n, e, text) {
       <span class="small">지적마다 고침안을 보고 넣을 것만 고르세요. 고른 것만 본문에 들어가고, 지적마다 한 묶음이라 하나씩 되돌릴 수 있어요.</span></div>
       <div class="row" style="gap:6px">${need ? `<button type="button" class="btn small" data-action="fixAll" data-arg="${n}"${b.attr}>${b.label}</button>` : ''}<button type="button" class="btn small ghost" data-action="fbClose">닫기</button></div></div>
     <ol class="fb-list">${rows}</ol>
-    <div class="between fb-foot"><span class="small">고른 ${picked}개 / 넣을 수 있는 ${pickable}개 · 넣은 뒤에는 고친 곳이 다른 곳과 어긋나지 않는지 다시 검수하세요</span>
+    <div class="between fb-foot"><span class="small">고른 ${picked}개 / 넣을 수 있는 ${pickable}개 · 넣은 뒤에는 고친 곳만 다시 보기로 풀렸는지 확인하세요</span>
       <div class="row" style="gap:6px"><button type="button" class="btn small" data-action="fbAll" data-arg="1"${pickable ? '' : ' disabled'}>모두 고르기</button><button type="button" class="btn small" data-action="fbAll" data-arg="0"${picked ? '' : ' disabled'}>모두 풀기</button>
         <button type="button" class="btn primary" data-action="fbApply"${picked ? '' : ' disabled'}>고른 ${picked}개 넣기</button></div></div>
   </section>`;
@@ -520,15 +529,20 @@ function viewCheck(n) {
   const rounds = e.rounds || [];
   const last = rounds[rounds.length - 1];
   const b = jobBtn('check', n, last ? `다시 검수 · ${last.no + 1}회차` : '검수하기');
+  // 지난 검수 뒤 고침안만 넣었으면 '고친 곳만 다시 보기'가 주 버튼이다 (findings.fix_recheck_targets). 다시 검수는 옆에 그대로 둔다
+  const fast = last && e.text && editableEp(e) && !autoOn() ? fixRecheckTargets(e) : [];
   // 주 버튼은 한 화면에 하나, 머리 줄 오른쪽 끝에 둔다 (디자인 시스템 Button). 검수 전에는 빈 목록의 '검수하기'가 주 버튼이라 머리에 두지 않는다
-  const checkPrimary = !last || st.stale || !st.checked;
+  const checkPrimary = !fast.length && (!last || st.stale || !st.checked);
+  const reviewPrimary = !fast.length && !checkPrimary;
+  const fb = jobBtn('recheck', n, `고친 곳만 다시 보기 · 지적 ${fast.length}`);
+  const fastBtn = fast.length ? `<button class="btn primary" data-action="fixRecheck" data-arg="${n}"${fb.attr}>${fb.label}</button>` : '';
   // 첫 검수는 flow.js flowCheck: 상태 변경안도 함께 만든다 (켰을 때). 다시 검수는 검수만
   const checkBtn = `<button class="btn${checkPrimary ? ' primary' : ''}" data-action="${last ? 'checkEp' : 'flowCheck'}" data-arg="${n}"${e.text && !autoOn() ? b.attr : ' disabled'}>${b.label}</button>`;
   const toReview = e.status === 'written'
-    ? `<a class="btn${checkPrimary ? '' : ' primary'}" href="${base()}/review/${n}">상태 승인으로${st.open ? ` · 열린 지적 ${st.open}` : ''}</a>`
-    : e.status === 'finalized' && !checkPrimary ? nextStepBtn() : '';  // 반영 끝난 화도 검수가 지금 할 일이면 다음 할 일 버튼은 두지 않는다
+    ? `<a class="btn${reviewPrimary ? ' primary' : ''}" href="${base()}/review/${n}">상태 승인으로${st.open ? ` · 열린 지적 ${st.open}` : ''}</a>`
+    : e.status === 'finalized' && reviewPrimary ? nextStepBtn() : '';  // 반영 끝난 화도 검수가 지금 할 일이면 다음 할 일 버튼은 두지 않는다
   const lead = `${checkOptsMenu()}${S.mode === 'brief' ? `<a class="btn" href="${base()}/brief/${n}" data-action="openCheckBrief" data-arg="${n}">검수 지시서</a>` : ''}`;
-  const right = !e.text ? '' : !last ? lead + toReview : checkPrimary ? lead + toReview + checkBtn : lead + checkBtn + toReview;
+  const right = !e.text ? '' : !last ? lead + toReview : fast.length ? lead + toReview + checkBtn + fastBtn : checkPrimary ? lead + toReview + checkBtn : lead + checkBtn + toReview;
   const head = `<header class="page-head"><div class="row" style="gap:12px">${epNav('check', n)}<div class="lead" style="gap:2px"><div class="eyebrow">${flowEyebrow(n)}</div><h1 style="font-size:1.5rem">${n}화 ${esc(e.plot.title)}</h1></div><span class="chip ${e.status}">${STATUS[e.status]}</span></div><div class="row">${right}</div></header>
     ${flowBar(n, 'check')}${autoLockNote()}`;
   if (!e.text) {
@@ -539,10 +553,10 @@ function viewCheck(n) {
   const sel = chkSelected(n);
   const editable = editableEp(e);
   const center = editable ? draftBox(n, text) : `<div class="read" data-read="${n}">${readHtml(n, text)}</div>`;
-  if (S.fbOpen === n && editable && !autoOn() && (e.rounds || []).length) return head + chkStrip(n, e, st) + fbView(n, e, text);
+  if (S.fbOpen === n && editable && !autoOn() && (e.rounds || []).length) return head + chkStrip(n, e, st, fast) + fbView(n, e, text);
   const notes = passageNotes(n);
   // 본문이 왼쪽 넓은 칸, 지적 목록과 상세는 오른쪽 칸에 쌓는다 (집필 · 상태 승인 단계와 같은 자리). 좁은 폭은 목록 → 상세 → 본문 순서
-  return head + chkStrip(n, e, st) + `<div class="check-cols">
+  return head + chkStrip(n, e, st, fast) + `<div class="check-cols">
       <div class="c-side">${chkList(n, e, text, sel, checkBtn)}
       ${chkDetail(n, e, text, sel)}</div>
       <section class="card w-body c-body" style="padding:0;gap:0" aria-label="본문">
@@ -767,6 +781,13 @@ Object.assign(actions, {
       return;
     }
     await startJob('fixes', n);
+  },
+  /** 고친 곳만 다시 보기 (작업 'recheck'). 검수하기와 같이 저장하지 않은 작품 변경은 묻고, 본문은 먼저 저장한다 (app.js checkReady).
+      직접 고친 곳이 생기면 서버가 다시 검수하라고 알린다 */
+  async fixRecheck(n) {
+    n = Number(n);
+    if (!(await checkReady(n))) return;
+    await startJob('recheck', n);
   },
   fbOpen(n) {
     S.fbOpen = Number(n);

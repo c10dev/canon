@@ -57,7 +57,7 @@ def _open_objects(node, path, out):
 
 def test_finds_response_schemas():
     names = _response_names()
-    assert {"StateDelta", "PlotBatch", "EpisodeDraft", "ConsistencyReport"} <= names
+    assert {"StateDeltaAI", "PlotBatch", "EpisodeDraft", "ConsistencyReport"} <= names
     assert len(names) >= 40
 
 

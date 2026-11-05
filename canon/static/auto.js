@@ -49,6 +49,7 @@ function autoDefaults() {
     policy: last ? { cue_sheet: true, ...last.policy } : {
       check: true, max_issues: 0, ignore_minor: false, stop_on_critical: true, max_shift: 0.3, stop_on_stage: false, stop_on_warnings: false, confirm_plots: false, review_every: 0, hand_pick_opening: true,
       storyboard: true, stop_on_board_warnings: true, cue_sheet: true, polish: false, max_style_distance: 0,
+      stop_on_new_characters: false, stop_on_secrets: false, stop_on_resolve: false, stop_on_early_resolve: false, stop_on_deadline_done: false, max_time_jump_days: 0, stop_on_clear: false,
     },
   };
 }
@@ -252,6 +253,15 @@ function autoPolicyForm(f, disabled, bind = 'auto') {
       ${chk('hand_pick_opening', '1~3화는 반영하기 전에 멈추기', '독자가 계속 읽을지 정하는 초반 화라 직접 읽고, 필요하면 여는 방식을 비교해 고르세요')}
       ${p.storyboard ? chk('stop_on_board_warnings', '스토리보드가 이번 화 플롯과 어긋나면 멈추기', '플롯 숫자가 지금 상태에서 닿을 수 없을 때처럼. 다음 화 플롯 경고는 기록만 해요') : ''}
     </div>
+    <div class="grid-2">
+      ${chk('stop_on_new_characters', '새 인물이 나오면 멈추기', 'AI가 인물 목록에 더하려는 인물이 있을 때')}
+      ${chk('stop_on_secrets', '새 비밀이 생기면 멈추기', '누가 무엇을 숨기는지 직접 보고 반영해요')}
+      ${chk('stop_on_resolve', '복선을 회수하면 멈추기', '열린 복선을 하나라도 회수했다고 적었을 때')}
+      ${chk('stop_on_early_resolve', '일찍 회수하거나 큰 복선을 회수하면 멈추기', '회수 예정 화보다 앞이거나, 부 · 작품 전체를 끌고 가는 복선일 때')}
+      ${chk('stop_on_deadline_done', '기한이 닫히면 멈추기', '축제 날이 오거나 빚을 갚아 기한이 끝났다고 적었을 때')}
+      ${chk('stop_on_clear', '인물 상태 칸을 지우면 멈추기', '목표 · 위치 · 메모 · 차림 · 감정을 비우려 할 때')}
+    </div>
+    ${P().timeline?.enabled ?? true ? `<div class="grid-2"><div class="field"><label for="${id('jump')}">작품 속 시간이 크게 건너뛰면 멈추기</label><select id="${id('jump')}" data-${bind}="policy.max_time_jump_days"${dis}>${opts([[0, '보지 않음'], [7, '7일 넘게'], [30, '30일 넘게'], [90, '90일 넘게'], [365, '1년 넘게']], p.max_time_jump_days || 0)}</select><span class="small">직전 화가 끝난 날에서 이번 화가 끝난 날까지로 봐요</span></div></div>` : ''}
     <div class="field" style="max-width:360px"><label for="${id('every')}">몇 화마다 멈춰서 읽어 볼까요</label><select id="${id('every')}" data-${bind}="policy.review_every"${dis}>${opts([[0, '멈추지 않음'], [1, '매 화'], [2, '2화마다'], [3, '3화마다'], [5, '5화마다']], p.review_every)}</select></div>
   </div>`;
 }
@@ -298,6 +308,13 @@ function autoPolicySummary(p) {
   (p.stop_on_warnings ? on : off).push('변경안 경고');
   (p.hand_pick_opening ? on : off).push('1~3화 직접 고름');
   (p.review_every ? on : off).push(p.review_every ? `${p.review_every}화마다 읽기` : 'n화마다 읽기');
+  (p.stop_on_new_characters ? on : off).push('새 인물');
+  (p.stop_on_secrets ? on : off).push('새 비밀');
+  if (p.stop_on_resolve) on.push('복선 회수');
+  else (p.stop_on_early_resolve ? on : off).push(p.stop_on_early_resolve ? '이르거나 큰 복선 회수' : '복선 회수');
+  (p.stop_on_deadline_done ? on : off).push('기한 닫힘');
+  if (P().timeline?.enabled ?? true) (p.max_time_jump_days ? on : off).push(p.max_time_jump_days ? `시간 ${p.max_time_jump_days}일 넘게 건너뜀` : '시간 건너뜀');
+  (p.stop_on_clear ? on : off).push('상태 칸 지움');
   return [['진행', go.join(' · ')], ['멈추는 때', on.join(' · ') || '없음'], ['멈추지 않음', off.join(' · ') || '없음']];
 }
 

@@ -414,6 +414,22 @@ function checkState(e) {
   return { checked, stale, open, done: checked && !stale && !open };
 }
 
+/** 고친 곳만 다시 보기로 볼 지적 (서버 findings.fix_recheck_targets 와 같은 셈). 마지막 검수 뒤 되돌리지 않은 수정이 모두
+    열린 지적에 넣은 고침안 묶음(source fix)일 때 그 지적들. 직접 고친 곳이 하나라도 있으면 빈 목록이다. 묶음을 넣은 뒤 이미 다시 본 지적은 뺀다. */
+function fixRecheckTargets(e) {
+  if (!e.checked_at) return [];
+  const all = e.findings || [];
+  const seen = new Set(all.filter((f) => f.closed_by === 'one' && f.fix_group).map((f) => f.fix_group));
+  const edits = (e.edits || []).filter((x) => !x.undone && x.at > e.checked_at && !(x.group && seen.has(x.group)));
+  if (!edits.length) return [];
+  const open = all.filter((f) => f.status === 'open');
+  const groups = new Set(open.filter((f) => f.fix_group).map((f) => f.fix_group));
+  if (edits.some((x) => x.source !== 'fix' || !groups.has(x.group))) return [];
+  const last = new Map();
+  for (const x of edits) if (!last.has(x.group) || x.at > last.get(x.group)) last.set(x.group, x.at);
+  return open.filter((f) => last.has(f.fix_group) && !(f.log || []).some((ev) => ev.kind === 'recheck' && ev.at >= last.get(f.fix_group)));
+}
+
 /** 화 하나의 네 단계: 플롯 확정 · 집필 · 검수 · 상태 승인 (이름은 사이드바 · 한 화 흐름 띠와 같다). 검수는 마지막 검수 뒤에 본문을 고치지 않았고 열린 지적이 없을 때 끝난 것으로 본다
     (checkState). 검수 없이, 또는 열린 지적을 두고 반영한 화는 검수 칸이 빈 채로 남는다. */
 function epSteps(e) {
