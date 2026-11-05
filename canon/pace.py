@@ -133,8 +133,10 @@ def hold(p: Project, d: StateDelta) -> int:
     if not drop:
         return 0
     nm = _names(p)
+    d.warn_to += [""] * (len(d.warnings) - len(d.warn_to))  # 경고와 같은 차례를 지킨다 (features.clean)
     for i in sorted(drop):
         r = d.relationship_updates[i]
+        d.warn_to.append("")
         d.warnings.append(f"관계 유형: 자동 반영에서 뺐어요: {nm.get(r.a, r.a)} ↔ {nm.get(r.b, r.b)} '{r.type}'")
     d.relationship_updates = [r for i, r in enumerate(d.relationship_updates) if i not in drop]
     d.rel_flagged = []
