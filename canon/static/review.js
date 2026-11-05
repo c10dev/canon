@@ -7,11 +7,11 @@
 function pickedDelta(n) {
   const d = S.deltas[n];
   const pick = (prefix, list) => list.filter((_, i) => S.picks[prefix + i]);
-  // 화면에서 고친 글은 앞뒤 공백을 지우고, 비운 사실 · 알게 된 정보는 뺀다 (빈 감정은 서버가 지금 감정을 그대로 둔다)
+  // 화면에서 고친 글은 앞뒤 공백을 지우고, 비운 사실 · 알게 된 정보는 뺀다 (빈 감정 · 목표 · 위치 · 메모는 서버가 그대로 두고, 지우기는 cleared 로 간다)
   const clean = (list) => list.map((x) => x.trim()).filter(Boolean);
   return {
     ...d,
-    character_updates: pick('c', d.character_updates).map((u) => ({ ...u, emotional_state: u.emotional_state.trim(), knows: clean(u.knows) })),
+    character_updates: pick('c', d.character_updates).map((u) => ({ ...u, emotional_state: u.emotional_state.trim(), current_goal: (u.current_goal || '').trim(), location: (u.location || '').trim(), notes: (u.notes || '').trim(), knows: clean(u.knows) })),
     events: pick('e', d.events),
     secrets_added: pick('s', d.secrets_added),
     relationship_updates: pick('r', d.relationship_updates),
@@ -107,18 +107,21 @@ const EVENT_KINDS = ['도움', '희생', '약속이행', '칭찬', '진심고백
 /** 상태 승인 화면에서 고칠 수 있는 칸만 모은 모양. 받은 그대로(S.deltaOrig[n].delta)와 비교해 다시 만들기 전에 묻는다 */
 const deltaEditable = (d) => JSON.stringify([
   d.events.map((e) => [e.kind, e.intensity]), d.new_facts,
-  d.character_updates.map((u) => [u.emotional_state, u.attire, u.knows]),
+  d.character_updates.map((u) => [u.emotional_state, u.current_goal, u.location, u.notes, u.attire, u.knows, u.cleared || []]),
   d.time ? [d.time.day || 0, d.time.part || '', d.time.label || ''] : [0, '', ''],  // tlDeltaCard 가 빈 시점을 채워도 고친 것이 아니다
   (d.setting_changes || []).map((x) => x.value),
 ]);
 const deltaEdited = (n) => !!(S.deltas[n] && S.deltaOrig[n] && S.deltaOrig[n].delta) && deltaEditable(S.deltas[n]) !== deltaEditable(S.deltaOrig[n].delta);
 
-/** 항목 하나의 고칠 수 있는 값. 키: e0 사건 종류 · 강도, f0 사실, em0 감정, at0 차림, kn0.1 알게 된 정보 */
+/** 인물 상태의 글 칸과 '고침' 키 앞글자. 이 칸은 상태 승인 화면에서 고치거나 지울 수 있다 (지우기는 CharacterState.cleared) */
+const STATE_TEXT = [['감정', 'emotional_state', 'em', '감정을'], ['목표', 'current_goal', 'go', '목표를'], ['위치', 'location', 'lo', '위치를'], ['메모', 'notes', 'no', '메모를'], ['차림', 'attire', 'at', '차림을']];
+/** 항목 하나의 고칠 수 있는 값. 키: e0 사건 종류 · 강도, f0 사실, em0 감정, go0 목표, lo0 위치, no0 메모, at0 차림 (글과 지우기), kn0.1 알게 된 정보 */
 function editValue(d, key) {
   const [, k, i, j] = key.match(/^([a-z]+)(\d+)(?:\.(\d+))?$/);
   const ev = d.events[i];
   const u = d.character_updates[i] || {};
-  return JSON.stringify({ e: ev && [ev.kind, ev.intensity], f: d.new_facts[i], em: u.emotional_state, at: u.attire, kn: (u.knows || [])[j] }[k]);
+  const text = Object.fromEntries(STATE_TEXT.map(([, f, p]) => [p, [u[f], (u.cleared || []).includes(f)]]));
+  return JSON.stringify({ e: ev && [ev.kind, ev.intensity], f: d.new_facts[i], ...text, kn: (u.knows || [])[j] }[k]);
 }
 const itemEdited = (n, key) => !!(S.deltaOrig[n] && S.deltaOrig[n].delta) && editValue(S.deltas[n], key) !== editValue(S.deltaOrig[n].delta, key);
 /** '고침' 표시. 입력 중에는 다시 그리지 않으니 showEdited 가 그 자리에서 켜고 끈다 */
@@ -240,15 +243,24 @@ function viewReview(n) {
     const knowIdx = u.knows.map((k, j) => [k, j]).filter(([k, j]) => !(cur.knows || []).includes((ou.knows || [])[j] ?? k));
     const stats = (u.stats || []).filter((s) => s.name && s.name.trim());
     const open = !!(S.rvOpen && S.rvOpen[`${n}:c${i}`]);
-    const fields = [['목표', 'current_goal'], ['위치', 'location'], ['메모', 'notes']].filter(([, f]) => u[f]);
+    const cleared = u.cleared || [];
+    const fields = [['목표', 'current_goal'], ['위치', 'location'], ['메모', 'notes']].filter(([, f]) => u[f] && !cleared.includes(f));
     let inner;
     if (open) {
-      // 감정 · 알게 된 정보 · 차림은 AI 가 틀리게 적었으면 여기서 고쳐 반영한다. 받은 변경안에 있던 칸만 보인다
-      const emotion = ou.emotional_state || u.emotional_state ? `<div class="small"><label for="em-${i}">감정</label> ${editMark(n, 'em' + i)}</div>${cur.emotional_state !== u.emotional_state ? was(cur.emotional_state) : ''}<input id="em-${i}" ${edit(`character_updates.${i}.emotional_state`, 'em' + i)} value="${esc(u.emotional_state)}" placeholder="비우면 지금 감정을 그대로 둬요">` : '';
-      const rows = fields.map(([k, f]) => `<div class="small">${k}</div>${diff(cur[f], u[f])}`).join('');
+      // 감정 · 목표 · 위치 · 메모 · 차림은 AI 가 틀리게 적었으면 여기서 고치고, 더는 맞지 않는 지금 값은 '지우기'로 비운다.
+      // 받은 변경안에 있던 칸과 지금 값이 있는 칸만 보인다. 빈 칸은 지금 값을 그대로 둔다
+      const textRow = ([k, f, pre, obj]) => {
+        const id = `${pre}-${i}`, key = pre + i, off = cleared.includes(f);
+        if (!(ou[f] || u[f] || cur[f] || off)) return '';
+        // 차림 칸은 app.js 의 data-attire 처리가 값을 넣는다
+        const bind = f === 'attire' ? `data-attire="${i}" data-attire-ep="${n}" data-dmark="${key}"` : edit(`character_updates.${i}.${f}`, key);
+        const clear = cur[f] || off ? `<label class="row small" style="gap:6px"><input type="checkbox" data-dclear="${n}:${i}:${f}" aria-label="${esc(name)} ${k} 지우기"${off ? ' checked' : ''}> 지우기</label>` : '';
+        const before = off ? `<div class="row"><span class="before">${esc(cur[f] || '')}</span><span class="small">→ 지움</span></div>`
+          : !u[f] ? (cur[f] ? `<div class="small">지금: ${esc(cur[f])}</div>` : '') : cur[f] !== u[f] ? was(cur[f]) : '';
+        return `<div class="row" style="gap:6px"><span class="small"><label for="${id}">${k}</label></span>${editMark(n, key)}${clear}</div>${before}<input id="${id}" ${bind} value="${esc(u[f])}"${off ? ' disabled' : ''} placeholder="비우면 지금 ${obj} 그대로 둬요">`;
+      };
       const knows = knowIdx.map(([k, j]) => `<div class="row" style="gap:6px;flex-wrap:nowrap"><span class="after">+</span><input id="kn-${i}-${j}" aria-label="${esc(name)}이 알게 된 정보 ${j + 1}" ${edit(`character_updates.${i}.knows.${j}`, `kn${i}.${j}`)} value="${esc(k)}" placeholder="비우면 빼요" style="flex:1;min-width:0">${editMark(n, `kn${i}.${j}`)}</div>`).join('');
-      const attire = u.attire || ou.attire ? `<div class="small"><label for="at-${i}">차림</label> ${editMark(n, 'at' + i)}</div>${cur.attire !== u.attire ? was(cur.attire) : ''}<input id="at-${i}" data-attire="${i}" data-attire-ep="${n}" data-dmark="at${i}" value="${esc(u.attire)}">` : '';
-      inner = `<div class="rv-editor" id="rv-ed-c${i}">${emotion}${rows}${attire}${swDeltaRows(u, cur)}${knows ? `<div class="small">알게 된 정보</div>${knows}` : ''}</div>`;
+      inner = `<div class="rv-editor" id="rv-ed-c${i}">${STATE_TEXT.map(textRow).join('')}${swDeltaRows(u, cur)}${knows ? `<div class="small">알게 된 정보</div>${knows}` : ''}</div>`;
     } else {
       const now = Object.fromEntries((cur.stats || []).map((s) => [s.name, s.value]));
       const statText = stats.slice(0, 2).map((s) => {
@@ -257,9 +269,10 @@ function viewReview(n) {
         return `${esc(s.name)} ${b ? `${esc(b)} → ` : ''}${esc(a)}`;
       }).join(' · ') + (stats.length > 2 ? ` 외 ${stats.length - 2}` : '');
       const chips = [
-        u.emotional_state && chip('감정', `${cur.emotional_state && cur.emotional_state !== u.emotional_state ? `${esc(cur.emotional_state)} → ` : ''}${esc(u.emotional_state)}`),
+        u.emotional_state && !cleared.includes('emotional_state') && chip('감정', `${cur.emotional_state && cur.emotional_state !== u.emotional_state ? `${esc(cur.emotional_state)} → ` : ''}${esc(u.emotional_state)}`),
         ...fields.map(([k, f]) => chip(k, `${cur[f] && cur[f] !== u[f] && f === 'location' ? `${esc(cur[f])} → ` : ''}${esc(u[f])}`)),
-        u.attire && chip('차림', esc(u.attire)),
+        u.attire && !cleared.includes('attire') && chip('차림', esc(u.attire)),
+        ...STATE_TEXT.filter(([, f]) => cleared.includes(f) && cur[f]).map(([k]) => chip(k, '지움')),
         stats.length && chip('상태창', statText),
         knowIdx.length && chip('알게 된', `+${knowIdx.length}`),
       ].filter(Boolean).join('');
@@ -369,10 +382,10 @@ function viewReview(n) {
     (wide ? '' : `<div class="apply-bar rv-deck-bar" role="region" aria-label="반영"><span class="small"><strong class="pick-count" style="color:var(--text)">${picked}</strong>/${total} 고름</span>${applyBtn(`반영하고 ${n}화 완료`)}</div>`);
 }
 
-/** 인물 i 의 감정 · 차림 · 알게 된 정보 중 고친 칸이 있다 */
+/** 인물 i 의 감정 · 목표 · 위치 · 메모 · 차림 · 알게 된 정보 중 고치거나 지운 칸이 있다 */
 const charEdited = (n, i) => {
   const u = S.deltas[n].character_updates[i];
-  return ['em' + i, 'at' + i, ...(u.knows || []).map((_, j) => `kn${i}.${j}`)].some((k) => itemEdited(n, k));
+  return [...STATE_TEXT.map(([, , p]) => p + i), ...(u.knows || []).map((_, j) => `kn${i}.${j}`)].some((k) => itemEdited(n, k));
 };
 
 /** 체크가 바뀌면 갈래의 고른 수만 그 자리에서 바꾼다 (다시 그리지 않는다). 전체 고른 수 .pick-count 는 app.js 가 맞춘다 */
@@ -724,6 +737,15 @@ document.addEventListener('input', (e) => {
 // 체크를 바꾸면 갈래의 고른 수를 맞춘다 (전체 고른 수 .pick-count 는 app.js 가 맞춘다)
 document.addEventListener('change', (e) => {
   const el = e.target;
+  if (el.dataset && el.dataset.dclear) {  // 인물 상태 칸 '지우기': cleared 에 칸 이름을 넣고 빼며, 지울 칸의 입력은 막는다
+    const [n, i, f] = el.dataset.dclear.split(':');
+    const u = S.deltas[n] && S.deltas[n].character_updates[+i];
+    if (!u) return;
+    u.cleared = el.checked ? [...new Set([...(u.cleared || []), f])] : (u.cleared || []).filter((x) => x !== f);
+    S.focusTarget = `#app [data-dclear="${el.dataset.dclear}"]`;
+    render();
+    return;
+  }
   if (el.dataset && el.dataset.pick && DELTA_PICK.test(el.dataset.pick) && S.route[2] === 'review') rvCountRefresh();
 });
 

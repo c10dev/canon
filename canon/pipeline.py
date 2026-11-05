@@ -3829,11 +3829,13 @@ def apply_delta(p: Project, d: StateDelta) -> list[str]:
     for upd in d.character_updates:
         cur = p.state_of(upd.character_id)
         if cur is None:
-            cur = upd.model_copy(deep=True, update={"stats": []})
+            cur = upd.model_copy(deep=True, update={"stats": [], "cleared": []})
             p.states.append(cur)
         else:
             for field in ("emotional_state", "current_goal", "location", "attire", "notes"):
-                if getattr(upd, field):
+                if field in upd.cleared:  # 지우기는 빈 칸('그대로')과 달리 칸을 비운다
+                    setattr(cur, field, "")
+                elif getattr(upd, field):
                     setattr(cur, field, getattr(upd, field))
             cur.knows += [k for k in upd.knows if k not in cur.knows]
         statwin.merge(p, cur, upd.stats, d.episode)  # +3 같은 바뀐 양은 여기서 값으로 바꾸고 기록한다
