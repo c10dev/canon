@@ -56,6 +56,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--
 .nav a[aria-current="page"] { background: var(--accent-soft); color: var(--accent-ink); font-weight: 700; }
 .nav a[aria-current="page"] .num { background: var(--accent); color: var(--on-accent); }
 .side-foot { position: sticky; bottom: 0; z-index: 1; margin: auto -12px 0; padding: 8px 12px 10px; background: var(--surface); border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; font-size: 0.75rem; }
+@media (max-height: 500px) { .side-foot { position: static; } }
 .side-foot-row { display: flex; align-items: center; gap: 4px; }
 .side-set { flex: 1 1 auto; min-width: 0; min-height: 44px; padding: 0 8px; border-radius: 8px; display: flex; align-items: center; gap: 10px; color: var(--text); text-decoration: none; }
 @media (hover: hover) { .side-set:hover { background: var(--bg); color: var(--text); } }

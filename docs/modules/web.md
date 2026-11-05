@@ -9,6 +9,7 @@
 - 간격 · 모서리 · 크기 · 그림자 · 쌓는 층은 맨 위 `:root` 의 변수(`--space-*` · `--radius-*` · `--shadow-*` · `--z-*`)로 쓴다(같은 시험)
 - z-index 는 `--z-*` 사다리만 쓴다(`docs/design/layout.md` '쌓는 층')
 - 손가락 기기 · 640px 이하에서 작은 누름 영역을 44px 로 키우는 규칙은 '휴대폰' 절 바로 앞 한 블록에 모은다
+- 높이 500px 이하(가로 휴대폰) 규칙은 `@media (max-height: 500px)` 로 건다. 붙여 두는 칸을 풀고 대화 시트를 키운다(`docs/design/layout.md` '오른쪽 패널')
 - 기능마다 `/* ----- 이름 (파일.js) ----- */` 절로 나눈다
 - 공용 목차 틀의 화면별 칸 규칙은 `@container outline` 으로 건다
 - 컴포넌트 규칙을 바꾸면 `docs/design/components/bundle.css` 의 그 줄도 같게 고친다
