@@ -1860,6 +1860,8 @@ class StateDelta(BaseModel):
     # 프로그램이 채운다 (pace.clean_delta). AI 응답 형식에서 뺀다. 상태 승인 화면이 이 차례의 relationship_updates 를 기본으로 체크하지 않는다
     rel_flagged: SkipJsonSchema[list[int]] = Field(
         default_factory=list, description="relationship_updates 가운데 유형 · 설명의 극성이 반영 뒤 관계 단계와 반대인 것의 차례")
+    # 프로그램이 채운다 (pipeline.extract_state). AI 응답 형식에서 뺀다. 반영할 때 지금 본문과 다르면 web 반영이 막는다
+    basis: SkipJsonSchema[str] = Field("", description="변경안을 만든 본문의 지문 (pipeline.text_basis). 비면 모름")
 
 
 class NameOption(BaseModel):

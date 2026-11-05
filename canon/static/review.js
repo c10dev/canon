@@ -80,10 +80,12 @@ function setDelta(n, d, source = 'ai') {
   // 설정에도 이번 새 인물에도 없는 id 의 상태는 기본으로 빼 둔다. 반영하면 누구의 것도 아닌 상태가 남는다
   const known = new Set([...P().characters.map((c) => c.id), ...(d.new_characters || []).map((c) => c.id)]);
   d.character_updates.forEach((u, i) => { S.picks['c' + i] = known.has(u.character_id); });
-  d.events.forEach((_, i) => { S.picks['e' + i] = true; });
+  // 설정에 없는 인물이 끼었거나 같은 인물끼리인 관계 사건 · 관계 바뀜도 기본으로 빼 둔다. 서버 반영이 막는다 (pipeline.validate_delta)
+  const pairOk = (a, b) => a !== b && known.has(a) && known.has(b);
+  d.events.forEach((e, i) => { S.picks['e' + i] = pairOk(e.actor, e.target); });
   d.secrets_added.forEach((_, i) => { S.picks['s' + i] = true; });
   // 유형 · 설명이 반영 뒤 관계 단계와 반대인 바뀜은 기본으로 빼 둔다 (pace.clean_delta). 맞으면 작가가 체크한다
-  d.relationship_updates.forEach((_, i) => { S.picks['r' + i] = !(d.rel_flagged || []).includes(i); });
+  d.relationship_updates.forEach((r, i) => { S.picks['r' + i] = !(d.rel_flagged || []).includes(i) && pairOk(r.a, r.b); });
   d.new_facts.forEach((_, i) => { S.picks['f' + i] = true; });
   d.foreshadow_planted.forEach((_, i) => { S.picks['p' + i] = true; });
   d.foreshadow_resolved.forEach((id, i) => { S.picks['x' + i] = P().foreshadows.some((f) => f.id === id); });
@@ -597,15 +599,24 @@ Object.assign(actions, {
     const out = pickedDelta(n);
     // 평소에는 바로 반영한다. 고른 항목이 없거나, 경고가 남았거나, 변경안을 만든 뒤 본문을 고쳤으면 한 번 묻는다
     const count = deltaCount(out);
+    const edited = S.deltaBase[n] !== undefined && ep(n) && S.deltaBase[n] !== ep(n).text;
     const why = [
       count ? '' : '고른 항목이 0건이에요. 요약만 저장하고',
       (out.warnings || []).length ? `경고 ${out.warnings.length}건이 남아 있어요.` : '',
-      S.deltaBase[n] !== undefined && ep(n) && S.deltaBase[n] !== ep(n).text ? '변경안을 만든 뒤 본문을 고쳤어요.' : '',
+      edited ? '변경안을 만든 뒤 본문을 고쳤어요.' : '',
     ].filter(Boolean);
     if (why.length && !(await askConfirm(`${why.join(' ')} ${n}화를 마칠까요? 반영하면 반영 취소로만 돌아갈 수 있어요.`, { ok: '마치기' }))) return;
-    await run('반영하는 중', async () => {
+    // 서버도 변경안을 만든 본문(out.basis)과 지금 본문을 맞춰 본다 (409 stale_delta). 위에서 본문을 고친 것을 확인했으면 force 로 보낸다
+    let stale = null;
+    const go = (force) => run('반영하는 중', async () => {
       await saveIfDirty();
-      S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/apply`, out);
+      try {
+        S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/apply${force ? '?force=1' : ''}`, out);
+      } catch (e) {
+        if (e.code !== 'stale_delta' || force) throw e;
+        stale = e;  // 다른 탭에서 고쳤거나 저장하지 않은 본문을 방금 저장했다: 기다림 상자를 닫은 뒤 묻는다
+        return;
+      }
       delete S.deltas[n];
       const r = S.auto && S.auto.run;
       const forAuto = r && r.status === 'review' && r.ep === n;
@@ -617,6 +628,8 @@ Object.assign(actions, {
       const next = ep(n + 1);
       location.hash = forAuto ? `${base()}/auto` : next && ['confirmed', 'draft'].includes(next.status) ? nextStep()[1] : base();
     });
+    await go(edited);
+    if (stale && (await askConfirm(`${stale.message}. 그래도 ${n}화를 마칠까요? 반영하면 반영 취소로만 돌아갈 수 있어요.`, { ok: '마치기' }))) await go(true);
   },
   async toggleNumbers(v) {
     const show = v === 'numbers';

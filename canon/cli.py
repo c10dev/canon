@@ -1259,7 +1259,8 @@ def _update(name: str, p: Project, n: int, yes: bool, from_json: str | None = No
             delta.setting_changes = []
         if delta.address_changes and not confirm(f"호칭 · 말씨 바뀜 제안 {len(delta.address_changes)}개도 반영할까요? (아니오면 빼고 반영해요)", False):
             delta.address_changes = []
-    pipeline.apply_delta(p, delta)
+    for m in pipeline.apply_delta(p, delta):
+        print(f"! 반영에서 뺐어요: {m}")
     store.save(name, p)
     print(f"{n}화 확정 완료")
     if held:
