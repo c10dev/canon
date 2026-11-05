@@ -30,6 +30,8 @@
 - 비용 · 시간 추정(`_measured`)은 지난 로그의 출력 토큰을 호출 수로 나눠 호출 하나의 평균으로 쓴다
 - 정착 문체 흐름 멈춤(`Policy.max_style_distance`, 0 이면 끔, `anchor.rolling`)
 - `autorun.json` 에 진행 기록
+- 변경안 반영(`_review` 의 put)은 반영 전제 `pipeline.check_applicable` 에 걸리면 반영하지 않고 paused 로 멈춘다
+- 검토 대기의 그대로 반영(`resume` 의 take)도 `check_applicable` 에 걸리면 반영하지 않고 오류를 낸다
 - 서버 재시작 후 이어 가기
 - 도는 실행은 작품 폴더의 `.autorun.lock` 에 flock 을 쥔다(`_take`, `Control.owner`). 프로세스가 죽으면 OS 가 푼다
 - 다른 프로세스(명령줄 `canon auto` 나 다른 서버)가 잠금을 쥐면 `elsewhere` 가 참이고 `active` 도 참이다(화면 저장 보호가 켜진다)
@@ -74,6 +76,8 @@
 - 단편 흐름: `new` → `style` → `arc` → `plot` → (사용자 수정) → `confirm` → (스토리보드 → 큐 시트, 웹 집필 화면 · 자동 집필) → `write` → `check` → `update` 반복
 - `run` 이 쓰기 · 검수 · 반영을 자동으로 되풀이한다
 - `update -y` 의 관계 미리 보기는 반영처럼 `features.hold` 로 뺀 제안을 빼고 계산한다(`_print_relation_preview`)
+- `update` 는 반영 전제(`pipeline.check_applicable`)에 걸리면 변경안을 만들지 않고 까닭을 알린다. 반영 완료한 화는 앞 화로 되돌리는 `revert <작품> <n-1>` 을 알려 준다
+- `update`(`-y` 없이)는 관계 미리 보기 전에 관계 단계와 반대인 관계 바뀜(`StateDelta.rel_flagged`)을 따로 보여 주고 묻는다. 기본은 빼고, 뺀 것은 `d.dismissed` 에 남긴다(`_ask_flagged`)
 - 장편(`new --serial`)은 `arc` 대신 `series` 를 한 번 부른다
 - 장편은 아크마다 `nextarc` → `plot` → `confirm` → `run` → `recap` 을 되풀이한다
 - `auto --stop` 은 다른 곳(웹 서버)에서 도는 실행이면 중지를 청했다고 알린다(`autorun.elsewhere`)
@@ -265,6 +269,8 @@
   - 작품 전체 저장에서 본문이 있는 화의 플롯은 디스크 것으로 둔다(`keep_locked_plots`, 줄기 표시 `LOCKED_FREE` 만 받음, `web.put_project`)
   - 상태 변경안 정리 `clean_delta`
   - 반영 전 검사 `validate_delta`: 설정에 없는 인물 id(이번 새 인물은 앎) · 같은 인물끼리이거나 설정에 없는 인물의 관계 사건과 관계 바뀜 · 없는 복선 id 회수(이번에 심는 복선은 앎)
+  - 반영 전제 `check_applicable`: 본문이 쓰인(written) 화만, 앞 화가 모두 반영됐을 때만(`require_previous`) 반영한다. 반영 완료한 화는 "이미 상태를 반영했어요"로 막는다
+  - 웹 반영 `apply_state` · 명령줄 `update` · 플레이 `settle` · 자동 집필 반영(`_review` 의 put · `resume` 의 take)이 `check_applicable` 을 부른다. 복사본에 해 보는 미리 보기는 부르지 않는다
   - `apply_delta` 는 검사에 걸린 항목과 설정에 없는 사건 목격자를 빼고(`drop_invalid`) 반영한 뒤 뺀 항목 문구를 돌려준다
   - `drop_invalid` 가 뺀 항목은 `d.dismissed` 의 같은 칸에 남는다(반영 기록에서 보이고 반영 취소로 돌아오면 체크를 푼 채 다시 놓인다)
   - 상태 변경안의 본문 지문 `StateDelta.basis`(`text_basis`)는 `extract_state` · `carried_delta` 가 채운다

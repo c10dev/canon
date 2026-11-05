@@ -1244,6 +1244,14 @@ def cmd_update(a: argparse.Namespace) -> None:
 
 
 def _update(name: str, p: Project, n: int, yes: bool, from_json: str | None = None) -> bool:
+    try:
+        pipeline.check_applicable(p, n)
+    except ValueError as e:
+        print(e)
+        if p.episode(n).status == "finalized":
+            print(f"{n}화부터 다시 반영하려면 앞 화 반영 직후로 되돌리세요: revert {name} {n - 1} (뒤 화의 반영도 함께 취소돼요)")
+            print("본문만 고쳤으면 웹의 상태 승인 화면에서 고친 본문 기준으로 다시 반영할 수 있어요")
+        return False
     if from_json:
         delta = StateDelta.model_validate_json(_strip_fence(Path(from_json).read_text(encoding="utf-8")))
         delta.episode = n
@@ -1252,6 +1260,8 @@ def _update(name: str, p: Project, n: int, yes: bool, from_json: str | None = No
         print(f"{n}화 상태 추출 중...")
         delta = pipeline.extract_state(get_llm("state"), p, n)
     _print_delta(delta)
+    if not yes:  # 미리 보기가 반영 결과와 같도록 먼저 묻는다
+        _ask_flagged(p, delta)
     _print_relation_preview(p, delta, hold=yes)
     if findings.open_findings(p.episode(n)):
         _print_issues(p, n, closed=False)
@@ -1275,6 +1285,23 @@ def _update(name: str, p: Project, n: int, yes: bool, from_json: str | None = No
     if held:
         print(f"설정 바꾸기 · 호칭 제안 {held}개는 반영하지 않고 남겨 뒀어요. 웹의 인물 · 관계도 화면에서 적용하거나 버리세요")
     return True
+
+
+def _ask_flagged(p: Project, d: StateDelta) -> None:
+    """관계 단계와 반대인 관계 바뀜(pace 가 d.rel_flagged 에 적은 것)을 보여 주고 따로 묻는다.
+    웹 상태 승인 화면처럼 기본은 빼고, 빼면 반영 기록의 빼 둔 항목에 남긴다."""
+    flagged = [i for i in d.rel_flagged if i < len(d.relationship_updates)]
+    if not flagged:
+        return
+    name = {c.id: c.name for c in p.characters} | {c.id: c.name for c in d.new_characters}
+    print("\n--- 관계 단계와 반대라 기본으로 빼 둔 관계 바뀜 ---")
+    for i in flagged:
+        r = d.relationship_updates[i]
+        print(f"- {name.get(r.a, r.a)} ↔ {name.get(r.b, r.b)}: {r.type}{f' ({r.description})' if r.description else ''}")
+    if not confirm(f"관계 바뀜 {len(flagged)}개도 반영할까요? (아니오면 빼고 반영해요)", False):
+        d.dismissed.relationship_updates += [d.relationship_updates[i] for i in flagged]
+        d.relationship_updates = [r for i, r in enumerate(d.relationship_updates) if i not in flagged]
+    d.rel_flagged = []
 
 
 def _print_address(p: Project, d: StateDelta) -> None:

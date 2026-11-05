@@ -177,6 +177,20 @@ def require_previous(p: Project, n: int) -> None:
         raise ValueError(f"이전 화({', '.join(map(str, unfinished))}화)의 상태 반영이 끝나지 않았어요")
 
 
+APPLY_STATUS = {"draft": "초안", "confirmed": "확정", "written": "작성됨", "finalized": "반영 완료"}
+
+
+def check_applicable(p: Project, n: int) -> None:
+    """n화 상태 변경안을 반영해도 되는지 본다. 본문이 쓰인(written) 화만, 이전 화가 모두 반영됐을 때만 된다.
+    웹 반영 · 명령줄 update · 플레이 · 자동 집필이 같은 규칙을 쓴다. 복사본에 해 보는 미리 보기는 부르지 않는다."""
+    st = p.episode(n).status
+    if st == "finalized":
+        raise ValueError(f"{n}화는 이미 상태를 반영했어요")
+    if st != "written":
+        raise ValueError(f"{n}화는 본문이 작성된 상태가 아니에요 (현재: {APPLY_STATUS.get(st, st)})")
+    require_previous(p, n)
+
+
 # 설정 제안이 이미 있는 인물에게 채우는 칸 (비어 있을 때만). 이름 · id · 비중 · 서술 말투 · 작가 전용 칸은 건드리지 않는다
 FILL_CHAR_FIELDS = ("role", "age", "gender", "appearance", "personality", "background", "goal", "wound", "speech_style", "secrets", "arc")
 

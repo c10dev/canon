@@ -3964,9 +3964,7 @@ def apply_state(name: str, n: int, d: StateDelta, force: bool = False) -> Projec
     p = _load(name)
     _not_auto(name)
     ep = p.episode(n)
-    if ep.status != "written":
-        raise ValueError(f"{n}화는 본문이 작성된 상태가 아니에요 (현재: {ep.status})")
-    pipeline.require_previous(p, n)
+    pipeline.check_applicable(p, n)
     d.episode = n
     bad = pipeline.validate_delta(p, d)
     if bad:
