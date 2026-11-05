@@ -350,8 +350,19 @@ def _since(days: Optional[int]) -> str:
     return (date.today() - timedelta(days=days - 1)).isoformat() if days else ""
 
 
+EFFORT_DEFAULT = "기본"  # 추론 강도를 정하지 않은 호출(모델 기본값)의 묶음 이름
+
+
+def _rates(b: dict) -> dict:
+    """묶음의 캐시 비율(캐시 / 입력, 0~1, 입력이 없으면 0)과 호출당 평균 초."""
+    return {"cache_rate": round(b["cached"] / b["in"], 4) if b["in"] else 0.0,
+            "seconds_avg": round(b["seconds"] / b["calls"], 1) if b["calls"] else 0.0}
+
+
 def summary(days: Optional[int] = 30, project: Optional[str] = None, limit: int = 60) -> dict:
-    """기간(최근 days 일, None 이면 전체)과 작품으로 거른 기록을 날짜, 작품, 화, 단계, 모델, 용도별로 모은다."""
+    """기간(최근 days 일, None 이면 전체)과 작품으로 거른 기록을 날짜, 작품, 화, 단계, 모델, 용도, 작업, 추론 강도별로 모은다.
+
+    묶음마다 캐시 비율(`cache_rate` = 캐시 토큰 / 입력 토큰)과 호출당 평균 시간(`seconds_avg`)을 붙인다."""
     table = prices()
     start = _since(days)
     rows = read()
@@ -363,7 +374,7 @@ def summary(days: Optional[int] = 30, project: Optional[str] = None, limit: int 
                 "saved": 0.0, "unpriced": 0, "seconds": 0.0, "batch": 0}
 
     total = bucket()
-    groups: dict[str, dict[Any, dict]] = {k: defaultdict(bucket) for k in ("day", "project", "episode", "stage", "model", "source")}
+    groups: dict[str, dict[Any, dict]] = {k: defaultdict(bucket) for k in ("day", "project", "episode", "stage", "model", "source", "task", "effort")}
     unpriced: set[str] = set()
     wasted = 0.0
     trouble, recent = [], []
@@ -377,6 +388,8 @@ def summary(days: Optional[int] = 30, project: Optional[str] = None, limit: int 
             "stage": r.get("stage") or "",
             "model": (r.get("backend", ""), r.get("model", "")),
             "source": r.get("source") or "",
+            "task": r.get("task") or "",
+            "effort": r.get("effort") or EFFORT_DEFAULT,
         }
         for b in [total] + [groups[k][v] for k, v in keys.items() if v is not None]:
             b["calls"] += 1
@@ -401,7 +414,7 @@ def summary(days: Optional[int] = 30, project: Optional[str] = None, limit: int 
     def listing(name: str, sort: str = "cost") -> list[dict]:
         out = []
         for k, b in groups[name].items():
-            row = {**b, "cost": round(b["cost"], 6), "saved": round(b["saved"], 6), "seconds": round(b["seconds"], 1)}
+            row = {**b, "cost": round(b["cost"], 6), "saved": round(b["saved"], 6), "seconds": round(b["seconds"], 1), **_rates(b)}
             if name == "episode":
                 row["project"], row["episode"] = k
             elif name == "model":
@@ -418,9 +431,10 @@ def summary(days: Optional[int] = 30, project: Optional[str] = None, limit: int 
     return {
         "days": days, "since": start, "project": project, "projects": projects,
         "total": {**total, "cost": round(total["cost"], 6), "saved": round(total["saved"], 6),
-                  "wasted": round(wasted, 6), "seconds": round(total["seconds"], 1)},
+                  "wasted": round(wasted, 6), "seconds": round(total["seconds"], 1), **_rates(total)},
         "by_day": listing("day", "key"), "by_project": listing("project"), "by_episode": listing("episode"),
         "by_stage": listing("stage"), "by_model": listing("model"), "by_source": listing("source"),
+        "by_task": listing("task"), "by_effort": listing("effort"),
         "unpriced": sorted(unpriced),
         "trouble": trouble[::-1][:limit], "recent": recent[::-1][:limit],
         "trouble_total": len(trouble), "limit": limit,

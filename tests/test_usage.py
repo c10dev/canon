@@ -69,6 +69,35 @@ def test_records_calls_with_scope_and_cost():
     assert len(short["recent"]) == 1 and short["total"]["calls"] == 2 and short["trouble_total"] == 1
 
 
+def test_summary_groups_by_task_and_effort_with_cache_rate():
+    """작업 · 추론 강도로도 묶고, 묶음마다 캐시 비율(캐시 / 입력)과 호출당 평균 시간을 준다."""
+    import json
+    from datetime import datetime
+    now = datetime.now().isoformat(timespec="seconds")
+    base = {"at": now, "project": "지하철", "backend": "gemini", "model": "gemini-4-argon", "out": 10, "ok": True}
+    rows = [
+        {**base, "stage": "revise", "task": "fixes", "effort": "high", "in": 1000, "cached": 200, "seconds": 10.0},
+        {**base, "stage": "revise", "task": "fixes", "effort": "high", "in": 1000, "cached": 0, "seconds": 20.0},
+        {**base, "stage": "write", "task": "write", "in": 2000, "cached": 1000, "seconds": 3.0},
+        {**base, "stage": "check", "in": 0, "cached": 0, "seconds": 1.0},
+    ]
+    usage.log_path().parent.mkdir(parents=True, exist_ok=True)
+    usage.log_path().write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
+    s = usage.summary(30)
+    task = {r["task"]: r for r in s["by_task"]}
+    assert set(task) == {"fixes", "write", ""}
+    assert task["fixes"]["in"] == 2000 and task["fixes"]["cache_rate"] == pytest.approx(0.1)
+    assert task["fixes"]["seconds_avg"] == pytest.approx(15.0)
+    assert task["write"]["cache_rate"] == pytest.approx(0.5)
+    assert task[""]["cache_rate"] == 0.0  # 입력이 없으면 0
+    effort = {r["effort"]: r for r in s["by_effort"]}
+    assert set(effort) == {"high", "기본"}  # 정하지 않은 호출은 '기본'
+    assert effort["high"]["calls"] == 2 and effort["기본"]["calls"] == 2
+    assert s["total"]["cache_rate"] == pytest.approx(1200 / 4000)
+    assert s["total"]["seconds_avg"] == pytest.approx(8.5)
+    assert all("cache_rate" in r and "seconds_avg" in r for k in ("by_stage", "by_model", "by_day") for r in s[k])
+
+
 def test_schema_retry_is_recorded_as_failed_then_retry():
     good = StyleProfile().model_dump_json()
     llm = fake_gemini(["{\"narration\": 3", good])

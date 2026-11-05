@@ -28,6 +28,8 @@ class UsageBucket(_Out):
     unpriced: int = 0
     seconds: float = 0.0
     batch: int = 0
+    cache_rate: float = Field(0.0, description="캐시 토큰 / 입력 토큰 (0~1). 입력이 없으면 0")
+    seconds_avg: float = Field(0.0, description="호출당 평균 초")
 
 
 class UsageTotal(UsageBucket):
@@ -35,7 +37,7 @@ class UsageTotal(UsageBucket):
 
 
 class UsageGroup(UsageBucket):
-    """날짜 · 작품 · 화 · 단계 · 모델 · 부른 곳별 줄. 그 묶음의 열쇠 칸만 값이 있다."""
+    """날짜 · 작품 · 화 · 단계 · 모델 · 부른 곳 · 작업 · 추론 강도별 줄. 그 묶음의 열쇠 칸만 값이 있다."""
     day: str | None = None
     project: str | None = None
     episode: int | None = None
@@ -43,6 +45,8 @@ class UsageGroup(UsageBucket):
     backend: str | None = None
     model: str | None = None
     source: str | None = None
+    task: str | None = None
+    effort: str | None = Field(None, description="추론 강도. 정하지 않은 호출은 '기본'")
 
 
 class UsageCall(_Out):
@@ -82,6 +86,8 @@ class UsageSummary(_Out):
     by_stage: list[UsageGroup]
     by_model: list[UsageGroup]
     by_source: list[UsageGroup]
+    by_task: list[UsageGroup] = []
+    by_effort: list[UsageGroup] = []
     unpriced: list[str]
     trouble: list[UsageCall]
     recent: list[UsageCall]
