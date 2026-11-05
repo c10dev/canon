@@ -509,6 +509,8 @@
   - 프로필 카드 `pfCard`: 읽는 모양 `pfRead` 이 기본
   - '고치기'로 그 카드만 `pfEdit`(기억 `S.styleOpen`, 빈 카드 `styleCardEmpty` 는 바로 고치는 칸)
   - 목차 수 `styleCount`
+  - 서술 카드 칸은 `NARR_KEYS`(효과음 표기 포함). 목차 수는 채운 칸 / 전체 칸
+  - 기준 지표 `baselineItems` 에 효과음 줄(`sfxRate`: 1,000자당 수와 가장 많은 끝 표시) · '소리' 낱말 밀도
   - 빈 문체는 세 갈래 `stylePickCard` · `styleManual`
   - 프로필 카드 뒤에 작품 정착 문체 카드(`static/anchor.js` 의 `anchorCard`)
   - 라이브러리 항목도 같은 카드

@@ -16,10 +16,10 @@ from pydantic import BaseModel, Field
 
 from .style_background import FEATURES
 
-# 지표 판. 상수(AI_PATTERNS · DEFAULT_CLICHES · THRESHOLDS · UPPER_ONLY · COPY_SPAN · STYLE_DISTANCE_WARN · _SENT_END · ENDING_*)나
+# 지표 판. 상수(AI_PATTERNS · DEFAULT_CLICHES · THRESHOLDS · UPPER_ONLY · COPY_SPAN · STYLE_DISTANCE_WARN · _SENT_END · ENDING_* · SFX_*)나
 # 셈 로직을 바꿔 같은 글의 값이 달라지면 올린다. tests/test_metrics_version.py 가 상수 해시와 결과 스냅샷으로 막는다.
 # 쇠맛 실험실(soelab)은 판이 다른 보고서끼리 숫자를 섞지 않는다.
-METRICS_VERSION = "2026-11-b"
+METRICS_VERSION = "2026-11-c"
 
 # 한국어 소설 생성에서 자주 보이는 상투 표현. 작품별 금지 표현은 StyleProfile.banned_phrases 에 더한다.
 DEFAULT_CLICHES = [
@@ -89,6 +89,9 @@ class StyleMetrics(BaseModel):
     style_centroid: list[float] = Field(default_factory=list, description="2,000자 조각 3개 이상일 때 어절 끝 특징의 정규화 중심 (문체 거리 기준)")
     style_spread: Optional[float] = Field(None, description="원문 조각들이 서로의 중심에서 떨어진 거리의 중앙값. 문체 거리 1.0 의 기준")
     style_distance: Optional[float] = Field(None, description="기준 원문 대비 문체 거리 (style_spread 의 몇 배). 비교할 때만 채운다")
+    sfx_per_1k: Optional[float] = Field(None, description="1,000자당 효과음 줄(소리나 몸짓만 적은 한 줄 문단, is_sfx_line) 수")
+    sfx_marks: dict[str, float] = Field(default_factory=dict, description="효과음 줄 끝 표시('-!' · '-' · '…' · '!' · '.' · ',' · '없음')별 몫. 효과음 줄이 SFX_MARK_MIN 줄 미만이면 비운다")
+    sound_word_per_1k: Optional[float] = Field(None, description="1,000자당 낱말 '소리' 수 (목소리 · 숨소리 같은 합성어와 '소리치다 · 소리 지르다'는 뺌). 보기만 하고 경고하지 않는다: 소리의 결을 풀어 쓰는 문장도 이 낱말을 쓴다")
 
 
 def sentences(text: str) -> list[str]:
@@ -163,17 +166,100 @@ def _endings(text: str) -> tuple[Optional[float], Optional[float]]:
 
 
 _TRAIL = re.compile(r"(?:…|\.{2,})$")  # 말줄임으로 끝남
-_FX_OPEN = ("─", "—")  # 효과음 줄
+_FX_OPEN = ("─", "—")  # 효과음 줄을 여는 줄표
+
+# ---------- 효과음 줄 ----------
+# 인물 행동이 내는 소리나 몸짓을 한 줄 문단으로 세운 줄: '콰앙-!' · '터벅, 터벅.' · '─스윽.' · '움찔.'.
+# 레퍼런스 웹소설 5권(1,859화)은 1,000자당 0.36~0.94줄을 쓰고, 다음 줄은 대개 그 소리를 낸 움직임이나 결과를 적는 서술이다.
+# 작품마다 끝 표시 한두 개를 끝까지 지킨다 (reports/소리 표현 실측 2026-11-05.md).
+# 판별은 낱말 꼴로만 한다: 된소리 · 거센소리가 든 짧은 낱말, 같은 마디 되풀이, 모음 늘이기, 흔한 부드러운 소리 목록(SFX_SOFT).
+# 레퍼런스 무작위 14줄 확인에서 대부분 13~14줄이 맞았고, 짧은 서술 조각을 한 줄 문단으로 자주 쓰는 원고는 9줄이었다.
+SFX_MAX_LEN = 24     # 효과음 줄 최대 글자 (앞뒤 공백 뺌)
+SFX_MAX_WORDS = 6    # 효과음 줄 최대 낱말 수 ('쿵, 쿵, 쿵!' 은 셋)
+SFX_MARK_MIN = 3     # 끝 표시 몫을 재는 최소 효과음 줄 수
+SFX_SOFT = frozenset(
+    "스윽 슥 스르륵 스륵 스르르 드르륵 드륵 부르릉 부르르 우르르 우웅 우우웅 위잉 위이잉 지잉 두근 부스럭 바스락 사락 "
+    "주르륵 주륵 부들 덜덜 덜덜덜 휘익 휙 후웅 화악 화아악 슬쩍 움찔 흠칫 꾹 꾸욱 꿀꺽 벌컥 울컥 덜컥 덜컹 뚝 툭 탁 쿵 쾅".split())
+SFX_STOP = frozenset(
+    "하지만 그리고 다만 그러나 그런데 그래서 그러자 그때 그리곤 물론 마치 어쩌면 대신 어차피 결국 역시 계속 그저 아주 "
+    "정말 진짜 이제 바로 다시 또 아까 지금 오늘 내일 아침 저녁 점심 다음날 순간 잠깐 일단 차라리 제발 젠장 제길 씨발 "
+    "빌어먹을 아니 그래 그럼 응 뭐 왜 아 어 네 예".split())
+_SFX_STRIP = re.compile(r"[-—─~…⋯·.,!?\s]+")
+_SFX_TAIL = re.compile(r"(다|요|죠|니다|네|군|지만|고|며|면|게|도|만|이|가|은|는|을|를|께|에|의)$")
+_SFX_REPEAT = re.compile(r"(.{1,3})\1")
+_SFX_STRETCH = re.compile(r"[아어오우으이]{2,}")
+_SFX_STRONG = frozenset((1, 4, 8, 10, 13, 14, 15, 16, 17))  # 첫소리 ㄲ ㄸ ㅃ ㅆ ㅉ ㅊ ㅋ ㅌ ㅍ
+_SFX_MARKS = (("-!", re.compile(r"[-—─~]+!+$")), ("-", re.compile(r"[-—─~]+$")), ("…", re.compile(r"(?:…|\.{2,}|⋯)!?$")),
+              ("!", re.compile(r"!+$")), (".", re.compile(r"\.$")), (",", re.compile(r",$")))
+# 낱말 '소리'는 재기만 한다. 2026-11-05 실험(캠핑카 13화, Claude 6판)에서 '소리가 났다'로 알리지 말라는 쓰기 규칙이
+# 이 값을 1.18~1.78 → 0.79~1.27 로 낮췄지만, 블라인드 판정 6번 중 5번이 옛 판을 골랐다. 옛 판은 이 낱말로 소리의 결을 풀어 썼다.
+_SOUND_WORD = re.compile(r"(?<![가-힣])소리(?!치|쳐|쳤|칠|지르|질러|질렀)")
+
+
+def _sfx_word(w: str) -> bool:
+    """의성어 · 의태어 꼴 낱말: 부드러운 소리 목록, 마디 되풀이, 모음 늘이기, 된소리 · 거센소리가 든 네 글자 이하 낱말."""
+    if w in SFX_SOFT or _SFX_REPEAT.search(w):
+        return True
+    if len(w) >= 3 and _SFX_STRETCH.search(w):
+        return True
+    return len(w) <= 4 and any((ord(c) - _HANGUL_BASE) // 588 in _SFX_STRONG for c in w)
+
+
+def is_sfx_line(line: str) -> bool:
+    """소리나 몸짓만 적은 한 줄 문단('콰앙-!', '터벅, 터벅.', '─찌걱, 찌걱…!', '움찔.')인가. 따옴표로 여는 줄, 물음으로 끝나는 줄은 아니다."""
+    line = line.strip()
+    if not line or len(line) > SFX_MAX_LEN or line.startswith(_QUOTE_OPEN) or line.endswith("?"):
+        return False
+    if line.startswith(("-", *_FX_OPEN)) and not re.match(r"^[-—─]+\s*[가-힣]", line):
+        return False
+    words = _SFX_STRIP.sub(" ", line).split()
+    if not words or len(words) > SFX_MAX_WORDS:
+        return False
+    for w in words:
+        if not re.fullmatch(r"[가-힣]{1,9}", w) or w in SFX_STOP or not _sfx_word(w):
+            return False
+        if _SFX_TAIL.search(w) and w not in SFX_SOFT and not _SFX_REPEAT.search(w):
+            return False
+    return True
+
+
+def sfx_lines(text: str) -> list[str]:
+    """본문의 효과음 줄 (앞뒤 공백 뺌, 차례대로)."""
+    return [x.strip() for x in text.split("\n") if is_sfx_line(x)]
+
+
+def sfx_mark(line: str) -> str:
+    """효과음 줄의 끝 표시: '-!' · '-' · '…' · '!' · '.' · ',' · '없음'."""
+    line = line.strip()
+    return next((name for name, rx in _SFX_MARKS if rx.search(line)), "없음")
+
+
+def sfx_marks(lines: list[str]) -> dict[str, float]:
+    """끝 표시별 몫 (많은 것부터). 줄이 SFX_MARK_MIN 미만이면 빈 dict."""
+    if len(lines) < SFX_MARK_MIN:
+        return {}
+    return {k: round(v / len(lines), 2) for k, v in Counter(sfx_mark(x) for x in lines).most_common()}
+
+
+def sfx_summary(text: str, examples: int = 6) -> str:
+    """문체 분석 프롬프트에 넣는 원문 효과음 줄 요약 한 줄. 효과음 줄이 SFX_MARK_MIN 줄 미만이면 빈 글."""
+    lines = sfx_lines(text)
+    if len(lines) < SFX_MARK_MIN or not text.strip():
+        return ""
+    marks = " · ".join(f"'{k}' {v:.0%}" for k, v in sfx_marks(lines).items())
+    seen = list(dict.fromkeys(lines))[:examples]
+    return (f"효과음 줄 {len(lines)}개 (1,000자당 {len(lines) * 1000 / len(text.strip()):.2f}줄), 끝 표시 {marks}, "
+            f"예: {' / '.join(seen)}")
 
 
 def narration_tics(text: str) -> dict[str, int]:
     """서술 다듬기가 새로 만들기 쉬운 버릇을 센다: 말줄임으로 끊는 서술 문장(trail)과 서술 속 물음(question).
     문장은 sentences 로 나누니 말줄임 뒤를 띄어 쓴 곳('누군가… 손을 댔다')도 한 번 끊긴 것으로 센다.
-    따옴표로 여는 대사 줄, 효과음 줄, 따옴표뿐인 문장은 세지 않는다 (_endings 와 같은 서술 문장)."""
+    따옴표로 여는 대사 줄, 효과음 줄(줄표로 여는 줄과 is_sfx_line), 따옴표뿐인 문장은 세지 않는다 (_endings 와 같은 서술 문장)."""
     trail = question = 0
     for line in text.split("\n"):
         line = line.strip()
-        if not line or line.startswith(_QUOTE_OPEN) or line.startswith(_FX_OPEN):
+        if not line or line.startswith(_QUOTE_OPEN) or line.startswith(_FX_OPEN) or is_sfx_line(line):
             continue
         for x in sentences(line):
             if _QUOTE.fullmatch(x):
@@ -295,6 +381,7 @@ def measure(text: str, banned: list[str] | None = None) -> StyleMetrics:
     phrases = list(dict.fromkeys(DEFAULT_CLICHES + (banned or [])))
     avg = mean(lens)
     da, run = _endings(text)
+    fx = sfx_lines(text)
     return StyleMetrics(
         chars=len(text),
         sentences=len(sents),
@@ -313,6 +400,9 @@ def measure(text: str, banned: list[str] | None = None) -> StyleMetrics:
         da_run_ratio=run,
         ai_pattern_hits=_over_cap(text),
         pattern_per_1k={k: round(v * 1000 / len(text), 2) for k, v in pattern_counts(text).items()},
+        sfx_per_1k=round(len(fx) * 1000 / len(text), 2),
+        sfx_marks=sfx_marks(fx),
+        sound_word_per_1k=round(len(_SOUND_WORD.findall(text)) * 1000 / len(text), 2),
         **_style_reference(text),
     )
 
@@ -511,6 +601,9 @@ THRESHOLDS: dict[str, tuple[str, float, bool]] = {
 }
 # 쇠맛 지표는 기준보다 높을 때만 문제라서 낮아진 쪽은 경고하지 않는다.
 UPPER_ONLY = {"comma_sentence_ratio", "short_ending_ratio", "pronoun_per_1k", "da_ending_ratio", "da_run_ratio"}
+# 효과음 끝 표시: 원문이 이 몫 미만으로 쓰는 표시를 이번 화 효과음 줄의 SFX_MARK_NEW 이상에 쓰면 경고한다
+SFX_MARK_RARE = 0.05
+SFX_MARK_NEW = 0.3
 
 
 def drift(base: StyleMetrics, cur: StyleMetrics) -> list[str]:
@@ -533,9 +626,21 @@ def drift(base: StyleMetrics, cur: StyleMetrics) -> list[str]:
     hits = _over_base_cap(base, cur) if cur.pattern_per_1k else cur.ai_pattern_hits
     if hits:
         out.append(f"쇠맛 패턴: {', '.join(hits)}")
+    out += sfx_mark_drift(base, cur)
     if cur.style_distance is not None and cur.style_distance > STYLE_DISTANCE_WARN:
         out.append(f"문체 거리: {cur.style_distance} (원문 대목끼리 1.0, {STYLE_DISTANCE_WARN} 넘으면 다른 작가 글 수준)")
     return out
+
+
+def sfx_mark_drift(base: StyleMetrics, cur: StyleMetrics) -> list[str]:
+    """원문이 거의 쓰지 않는 효과음 끝 표시를 이번 화가 많이 쓰면 경고 한 줄. 둘 다 효과음 줄이 SFX_MARK_MIN 줄 이상일 때만 본다."""
+    if not base.sfx_marks or not cur.sfx_marks:
+        return []
+    new = [f"'{k}' {v:.0%}" for k, v in cur.sfx_marks.items() if v >= SFX_MARK_NEW and base.sfx_marks.get(k, 0) < SFX_MARK_RARE]
+    if not new:
+        return []
+    used = " · ".join(f"'{k}'" for k, v in base.sfx_marks.items() if v >= SFX_MARK_RARE)
+    return [f"효과음 끝 표시: 원문은 {used}를 쓰는데 이번 화는 {', '.join(new)}"]
 
 
 def _over_base_cap(base: StyleMetrics, cur: StyleMetrics) -> list[str]:

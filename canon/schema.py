@@ -292,6 +292,7 @@ class StyleProfile(BaseModel):
     pacing: str = Field("", description="전개 속도, 장면 길이")
     scene_transition: str = Field("", description="장면 전환 방식")
     vocabulary: str = Field("", description="어휘 수준, 한자어/외래어, 비유 경향")
+    sound_effects: str = Field("", description="인물 행동이 내는 소리 · 몸짓을 적는 법: 한 줄 문단으로 세우는지 문장 안에 붙이는지, 앞 기호, 끝 표시와 세기의 짝, 모음 늘이기, 화당 빈도, 다음 줄에 무엇을 적는지")
     dos: list[str] = Field(default_factory=list, description="반드시 지킬 문체 규칙")
     donts: list[str] = Field(default_factory=list, description="피해야 할 습관. 항목마다 대신 할 것을 함께 적는다 (예: 감정을 이름으로 설명하지 않고, 손이나 시선의 움직임으로 보여 준다). 대신 할 것은 원문이나 작가가 고친 글이 실제로 쓰는 방식에서 가져오고, 찾지 못하면 피할 것만 적는다")
     banned_phrases: list[str] = Field(default_factory=list, description="본문에 나오면 안 되는 구체적 표현 (문자열 그대로 검사)")
@@ -436,14 +437,14 @@ class StyleLearning(BaseModel):
 # (pipeline.revise_style · apply_style_chat). 대표 문단은 원문 발췌라 AI 가 고치지 않는다.
 
 StyleKey = Literal["narration_pov", "tense", "sentence_rhythm", "description_density", "dialogue_ratio", "dialogue_style",
-                   "inner_monologue", "pacing", "scene_transition", "vocabulary", "dos", "donts", "banned_phrases",
+                   "inner_monologue", "pacing", "scene_transition", "vocabulary", "sound_effects", "dos", "donts", "banned_phrases",
                    "markers", "devices"]
 
 
 class StyleEdit(BaseModel):
     """스타일 프로필 한 칸의 바뀐 뒤 값. 칸 종류에 맞는 자리 하나만 채운다."""
     key: StyleKey = Field(description="바꿀 칸 이름")
-    text: str = Field("", description="글 칸(narration_pov ~ vocabulary)일 때: 바뀐 뒤 글 전체")
+    text: str = Field("", description="글 칸(narration_pov ~ sound_effects)일 때: 바뀐 뒤 글 전체")
     items: list[str] = Field(default_factory=list, description="dos · donts · banned_phrases 일 때: 바뀐 뒤 목록 전체 (그대로 둘 항목도 모두 넣는다)")
     markers: list[StyleMarker] = Field(default_factory=list, description="markers 일 때: 바뀐 뒤 표지 목록 전체. per_1k 는 지금 값 그대로, 새 표지는 0")
     devices: list[StyleDevice] = Field(default_factory=list, description="devices 일 때: 바뀐 뒤 장치 목록 전체")

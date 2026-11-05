@@ -38,6 +38,8 @@ def constants() -> dict:
         "STYLE_DISTANCE_WARN": metrics.STYLE_DISTANCE_WARN,
         "_SENT_END": metrics._SENT_END.pattern,
         "ENDING": [metrics.ENDING_RUN, metrics.ENDING_MIN, metrics.ENDING_DEFAULTS],
+        "SFX": [metrics.SFX_MAX_LEN, metrics.SFX_MAX_WORDS, metrics.SFX_MARK_MIN, sorted(metrics.SFX_SOFT), sorted(metrics.SFX_STOP),
+                metrics._SFX_TAIL.pattern, metrics._SOUND_WORD.pattern, metrics.SFX_MARK_RARE, metrics.SFX_MARK_NEW],
     }
 
 

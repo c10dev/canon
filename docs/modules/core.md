@@ -376,6 +376,7 @@
 - 장편은 스토리보드가 없을 때만 넣는 시간 · 이동 · 장면 연출 블록과 `pre`(스토리보드 만들기의 Canon 값 · 장소 목록)를 직전 화 본문 뒤에 둔다. 단편 차례는 그대로다
 - 장편 쓰기 가족 앞부분 `write_head`: 작품 고정 블록부터 직전 화 본문 원문까지(`build_episode_context(head_only=True)`). 스토리보드 만들기 · 큐 시트 · 스토리보드로 본문 쓰기가 이 글로 시작한다. 단편은 빈 글
 - 쇠맛을 줄이는 쓰기 규칙: 블록 차례 한 줄 `priority_line`
+- 문체 분석 요청 `style_prompt` 은 효과음 표기 칸(`sound_effects`)을 묻고, 원문에서 센 효과음 줄 요약(`sfx_note`)을 붙인다
 - 이번 화 플롯은 쓰기 · 검수(`check_material`) · 상태 변경안(`state_prompt`) · 부분 수정(`passage_prompt`)이 모두 `write_plot` 으로 넣는다(라벨 모양이 아닌 예전 `emotional_shift` 를 뺌). 플롯 화면 · 흡입력 판정은 그대로
 - 상태 변경안 요구사항은 빈 칸이 '그대로 둠'이라 지울 칸 이름을 `cleared` 에 넣게 한다(`state_prompt`)
 - 장편 관계 줄 `serial_relations` · 인물 상태 `fit_states`(예산 `context.BUDGET` 의 `relations` · `states`)
@@ -410,6 +411,7 @@
 
 - pydantic 데이터 스키마
 - 모든 상태는 `Project` 하나(`project.json`)에 저장
+- 스타일 프로필 효과음 표기(`StyleProfile.sound_effects`)는 글 칸이다. 대화 변경안 칸(`StyleKey`)과 `pipeline.STYLE_TEXT_KEYS` 에도 있다
 - 인물 신체 프로필(`Character.body`)은 작가 메모라 AI 응답 형식(`SkipJsonSchema`)과 프롬프트(`llm.dump` 의 context `prompt`)에서 빠진다
 - 이 칸을 다루는 AI 호출은 신체 프로필 제안(`pipeline.suggest_body`)뿐이다
 - 미성년(`cast.is_minor_age`)이면 쓰리사이즈를 제안하지 않는다
@@ -434,6 +436,7 @@
 - 뗀 문단은 `write_episode(cut=)` · `rewrite_episode(cut)` 에 빈 목록을 주고 받아 `replace_text(meta_cut=)` · `set_candidate(meta_cut=)` 로 저장한다(웹 쓰기 작업 · 동기 쓰기 · 다시 생성 작업, 명령줄 `write` · `run` · `rewrite`, 자동 집필). 실험 · 비교 쓰기는 받지 않는다
 - 서술 다듬기 `polish_episode`(다시 생성의 방식 `polish`, 프롬프트 `prompts.polish_prompt` · `POLISH_RULES`, 문장 끝 몫은 쓰기와 같은 `ending_rule`)
 - 다듬은 글은 대사 · 효과음 줄(`fixed_lines`)이 같고 글자 수가 `POLISH_SPAN` 안이어야 쓴다(`polish_problem`, `POLISH_TRIES` 번까지 다시 부름)
+- 효과음 줄은 줄표로 여는 줄과 줄표 없이 소리나 몸짓만 적은 한 줄 문단(`metrics.is_sfx_line`)이다
 - 말줄임으로 끊는 서술 · 서술 물음(`metrics.narration_tics`)이 종류마다 `POLISH_TIC_RETRY` 를 넘고 늘면 다시 부르고(`polish_tics`), 끝내 넘으면 덜 늘린 판을 낸다
 - 웹 쓰기 작업과 명령줄은 `polish` 일 때 revise 단계 모델을 부른다
 - AI 가 본문 전체를 쓰는 호출자가 `pipeline.writer_of(llm)` 을 `replace_text(written_by=)` · `set_candidate(model=)` · `research.save_compare(models=)` 로 넘긴다. 작가 수정은 바꾸지 않는다(수정 기록 `edits`)

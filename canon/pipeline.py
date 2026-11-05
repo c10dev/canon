@@ -446,7 +446,7 @@ def apply_learning(p: Project, picks: list[int]) -> tuple[list[StyleRuleSuggesti
 # 모르는 칸을 빼고, 작가가 고른 칸만 작품 문체에 넣는다. 적용하기 전 문체를 메시지에 남겨 그 변경안 단위로 취소할 수 있다.
 
 STYLE_TEXT_KEYS = ("narration_pov", "tense", "sentence_rhythm", "description_density", "dialogue_ratio", "dialogue_style",
-                   "inner_monologue", "pacing", "scene_transition", "vocabulary")
+                   "inner_monologue", "pacing", "scene_transition", "vocabulary", "sound_effects")
 STYLE_LIST_KEYS = ("dos", "donts", "banned_phrases")
 STYLE_KEYS = STYLE_TEXT_KEYS + STYLE_LIST_KEYS + ("markers", "devices")
 STYLE_RECENT = 3  # 문체 대화에 지표와 경고를 넣는 최근 화 수
@@ -2658,8 +2658,9 @@ _FIXED_OPEN = ("\"", "“", "「", "『", "‘", "'", "─", "—")
 
 
 def fixed_lines(text: str) -> list[str]:
-    """서술 다듬기가 바꾸면 안 되는 줄: 따옴표로 여는 대사 줄과 줄표로 여는 효과음 줄 (앞뒤 공백 뺌, 차례대로)."""
-    return [x.strip() for x in text.split("\n") if x.strip().startswith(_FIXED_OPEN)]
+    """서술 다듬기가 바꾸면 안 되는 줄: 따옴표로 여는 대사 줄, 줄표로 여는 효과음 줄, 줄표 없이 소리나 몸짓만 적은 효과음 줄
+    ('콰앙-!', '터벅, 터벅.', metrics.is_sfx_line) (앞뒤 공백 뺌, 차례대로)."""
+    return [x.strip() for x in text.split("\n") if x.strip().startswith(_FIXED_OPEN) or metrics.is_sfx_line(x)]
 
 
 def polish_problem(old: str, new: str) -> str:
