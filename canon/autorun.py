@@ -27,7 +27,7 @@ from typing import Any, Callable, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from . import anchor, atlas, board, cue, dynamics, features, findings, jobs, pipeline, prompts, settings, store, usage
+from . import anchor, atlas, board, cue, dynamics, features, findings, jobs, pipeline, prompts, settings, store, timeline, usage
 from . import stage as stage_mod
 from .llm import BatchLLM, Interrupted, SchemaMismatch, get_llm
 from .research import CHARS_PER_TOKEN, JSON_OUTPUT_RESERVE, _filler
@@ -39,6 +39,8 @@ LOG_KEEP = 500
 STEP_NAMES = {"plan": "스토리보드", "write": "본문", "revise": "서술 다듬기", "check": "검수", "state": "상태 변경안"}
 # 루프 단계(Run.step) 이름: 서버 재시작 뒤 어느 단계를 다시 하는지 알릴 때
 RUN_STEPS = {"board": "스토리보드 만들기", "cues": "큐 시트 만들기", "write": "본문 쓰기", "polish": "서술 다듬기", "review": "검수와 상태 변경안 만들기", "confirm": "플롯 확정"}
+# 지울 수 있는 인물 상태 칸 이름 (CharacterState.cleared, Policy.stop_on_clear 의 멈춘 이유)
+CLEAR_NAMES = {"current_goal": "목표", "location": "위치", "notes": "메모", "attire": "차림", "emotional_state": "감정"}
 # 화 상태 이름 (화면 STATUS 와 같은 말)
 EP_STATUS = {"draft": "초안", "confirmed": "확정", "written": "작성됨", "finalized": "반영 완료"}
 # 측정값이 없을 때 쓰는 단계별 소요 시간 추정 (초, 일반 호출)
@@ -73,6 +75,14 @@ class Policy(BaseModel):
                          "쓴 판은 이전 판으로 남는다. 다듬기가 대사 줄을 바꿔 멈추면 쓴 글로 이어 간다. 검수와 상태 변경안은 다듬은 글을 본다")
     max_style_distance: float = Field(0, description="작품 정착 문체에서 최근 화 평균 문체 거리(anchor.rolling)가 이만큼 넘으면 멈춤. "
                                      "0 이면 보지 않음. 정착 문체가 없으면 보지 않음")
+    # 아래 칸은 모두 기본으로 꺼 둔다 (켜기 전 동작과 같게). 기본값을 조이는 것은 작가와 정한다
+    stop_on_new_characters: bool = Field(False, description="상태 변경안에 새 인물(new_characters)이 있으면 멈춤")
+    stop_on_secrets: bool = Field(False, description="상태 변경안에 새 비밀(secrets_added)이 있으면 멈춤")
+    stop_on_resolve: bool = Field(False, description="상태 변경안이 열린 복선을 하나라도 회수하면 멈춤")
+    stop_on_early_resolve: bool = Field(False, description="회수 예정 화(due_ep)보다 일찍 회수하거나 범위가 부 · 작품 전체(part · series)인 복선을 회수하면 멈춤")
+    stop_on_deadline_done: bool = Field(False, description="상태 변경안이 열린 기한을 닫으면(deadlines_done) 멈춤")
+    max_time_jump_days: int = Field(0, description="작품 속 시간이 직전 화 끝보다 이 날수를 넘게 앞으로 가면 멈춤. 0 이면 보지 않음. 어느 쪽 날수든 모르면 보지 않음")
+    stop_on_clear: bool = Field(False, description="상태 변경안이 인물 상태 칸을 지우면(CharacterState.cleared) 멈춤")
 
 
 class LogEntry(BaseModel):
@@ -325,6 +335,49 @@ def review_reasons(p: Project, delta: StateDelta, report: Optional[ConsistencyRe
             out.append("관계가 크게 움직였어요: " + "; ".join(s for _, s in sorted(big, reverse=True)[:3]))
         if stages:
             out.append("관계 단계가 바뀌었어요: " + ", ".join(stages[:3]))
+    out += _story_reasons(p, delta, policy, names)
+    return out
+
+
+def _story_reasons(p: Project, delta: StateDelta, policy: Policy, names: dict[str, str]) -> list[str]:
+    """새 인물 · 비밀 · 복선 회수 · 기한 닫힘 · 시간 건너뜀 · 지운 칸 정책. 모두 기본으로 꺼져 있다."""
+    out: list[str] = []
+    n = delta.episode
+    if policy.stop_on_new_characters and delta.new_characters:
+        who = ", ".join(c.name or c.id for c in delta.new_characters[:3])
+        out.append(f"새 인물 {len(delta.new_characters)}명이 나왔어요: {who}")
+    if policy.stop_on_secrets and delta.secrets_added:
+        out.append(f"새 비밀 {len(delta.secrets_added)}개가 생겼어요: {delta.secrets_added[0].content}")
+    if policy.stop_on_resolve or policy.stop_on_early_resolve:
+        fs = {f.id: f for f in p.foreshadows if f.status == "open"}
+        hits: list[str] = []
+        for fid in delta.foreshadow_resolved:
+            f = fs.get(fid)
+            if f is None:  # 없는 복선은 반영할 때 버린다 (pipeline.drop_invalid)
+                continue
+            why = []
+            if f.due_ep and n < f.due_ep:
+                why.append(f"예정 {f.due_ep}화보다 일찍")
+            if f.scope != "arc":
+                why.append("부 범위" if f.scope == "part" else "작품 전체 범위")
+            if policy.stop_on_resolve or why:
+                hits.append(f.description + (f" ({', '.join(why)})" if why else ""))
+        if hits:
+            out.append(f"복선을 회수했어요 {len(hits)}개: " + "; ".join(hits[:3]))
+    if policy.stop_on_deadline_done and delta.deadlines_done:
+        dl = {d.id: d for d in p.timeline.deadlines if not d.done_ep}
+        done = [dl[i].what or i for i in delta.deadlines_done if i in dl]
+        if done:
+            out.append(f"기한이 닫혔어요 {len(done)}개: " + ", ".join(done[:3]))
+    if policy.max_time_jump_days > 0 and timeline.enabled(p) and delta.time.day > 0:
+        cur = timeline.current_day(p, n)
+        if cur > 0 and delta.time.day - cur > policy.max_time_jump_days:
+            out.append(f"작품 속 시간이 {delta.time.day - cur}일 건너뛰었어요: {cur}일째 → {delta.time.day}일째 (멈춤 기준 {policy.max_time_jump_days}일)")
+    if policy.stop_on_clear:
+        cleared = [f"{names.get(u.character_id, u.character_id)} {', '.join(CLEAR_NAMES.get(x, x) for x in u.cleared)}"
+                   for u in delta.character_updates if u.cleared]
+        if cleared:
+            out.append("지운 상태 칸이 있어요: " + "; ".join(cleared[:3]))
     return out
 
 

@@ -10,6 +10,14 @@
 - 목표 화까지 (스토리보드 `_board`, `Policy.storyboard` · `stop_on_board_warnings`) → (큐 시트 `_cues`, `Policy.cue_sheet`) → write → (서술 다듬기 `_polish`, `Policy.polish`, 다듬을 화 `Run.polish_due`) → check + state → 정책(`Policy`) 통과 시 반영을 반복
 - 관계 정책(`max_shift` · `stop_on_stage`)은 작품 복사본에 `features.hold` 로 뺀 변경안을 반영해 본다(`review_reasons`)
 - 그래서 관계 정책은 실제 반영(`put`)과 같은 제안만 센다
+- 이야기 데이터 정책은 `_story_reasons` 가 본다. 모두 기본으로 꺼져 있어(0 · false) 켜기 전과 같이 돈다
+- 새 인물 멈춤(`Policy.stop_on_new_characters`, `StateDelta.new_characters`)
+- 새 비밀 멈춤(`Policy.stop_on_secrets`, `StateDelta.secrets_added`)
+- 복선 회수 멈춤(`Policy.stop_on_resolve`): 작품에 열려 있는 복선만 센다
+- 이르거나 큰 복선 회수 멈춤(`Policy.stop_on_early_resolve`): 이번 화가 `due_ep` 보다 앞이거나 `scope` 가 part · series 인 복선
+- 기한 닫힘 멈춤(`Policy.stop_on_deadline_done`): 작품에 열려 있는 기한만 센다
+- 시간 건너뜀 멈춤(`Policy.max_time_jump_days`, 0 이면 끔): `timeline.current_day` 에서 `StateDelta.time.day` 까지 앞으로 간 날수. 어느 쪽이든 날수를 모르거나 시간 기록을 껐으면 보지 않고, 거슬러 가는 것도 보지 않는다
+- 지운 칸 멈춤(`Policy.stop_on_clear`, `CharacterState.cleared`). 칸 이름은 `CLEAR_NAMES` 로 상태 승인 화면과 같은 말로 적는다
 - 배치(`llm.BatchLLM`) 켜고 끄기
 - 배치를 취소하지 못하면 배치 이름을 서버 로그(`canon` 로거)에 경고로 남긴다(`_cancel_batches`)
 - 오류로 멈추면 호출 경로를 서버 로그에 남긴다
