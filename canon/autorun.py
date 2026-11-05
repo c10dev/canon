@@ -181,6 +181,8 @@ def _take(name: str) -> Optional[int]:
 def elsewhere(name: str) -> bool:
     """다른 프로세스가 이 작품의 자동 집필을 돌리는가 (잠금 파일을 쥔 프로세스가 있는데 이 프로세스의 실행이 아니다)."""
     with _lock:
+        if name in _taking:  # 이 프로세스의 _control 이 잠금 파일을 잡는 중이다 (Control 등록 전)
+            return False
         ctl = _controls.get(name)
     if ctl and ctl.owner is not None:
         return False

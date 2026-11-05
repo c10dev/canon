@@ -798,6 +798,43 @@ def test_second_request_in_same_process_gets_starting_message(demo, monkeypatch)
     assert calls.count(2) == 1  # 검토 대기 2화 변경안은 한 번만 반영한다 (3화는 러너가 이어서 반영)
 
 
+def test_elsewhere_false_while_this_process_takes_lock(demo, monkeypatch):
+    """_take 가 잠금 파일을 잡은 뒤 Control 을 등록하기 전에도 이 프로세스의 실행은 '다른 곳' 이 아니다."""
+    import threading
+    real = autorun._take
+    entered, go = threading.Event(), threading.Event()
+
+    def take(name):
+        fd = real(name)
+        entered.set()
+        assert go.wait(10)
+        return fd
+
+    monkeypatch.setattr(autorun, "_take", take)
+    first: dict = {}
+
+    def body():
+        try:
+            first["run"] = autorun.start(demo, 1, False, Policy(), foreground=True)
+        except BaseException as e:  # 시험이 실패하면 원인을 보인다
+            first["error"] = e
+
+    t = threading.Thread(target=body)
+    t.start()
+    try:
+        assert entered.wait(10)
+        assert demo not in autorun._controls or autorun._controls[demo].owner is None
+        assert not autorun.elsewhere(demo)  # 고치기 전에는 잠금을 쥔 이 프로세스를 다른 곳으로 보았다
+        assert not autorun.active(demo)
+        with pytest.raises(ValueError) as e:
+            autorun.start(demo, 1, False, Policy())
+        assert str(e.value) == autorun.STARTING
+    finally:
+        go.set()
+        t.join(30)
+    assert "error" not in first and first["run"].status == "done"
+
+
 def test_take_waits_outside_global_lock(demo, monkeypatch):
     """잠금 파일을 다시 잡아 보는 대기는 전역 _lock 밖에서 해서 다른 작품의 요청을 막지 않는다."""
     real = autorun._take

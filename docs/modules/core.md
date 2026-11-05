@@ -43,6 +43,7 @@
 - 다른 프로세스(명령줄 `canon auto` 나 다른 서버)가 잠금을 쥐면 `elsewhere` 가 참이고 `active` 도 참이다(화면 저장 보호가 켜진다)
 - 그동안 `start` · `resume` · `set_batch` · `set_policy` 는 `ELSEWHERE` 로 거절하고, `resume_all` 은 그 작품을 건너뛴다
 - 같은 프로세스의 다른 스레드가 시작 · 이어 가기를 준비하는 중(`_taking` 이나 `Control.owner` 가 있고 러너는 아직 없음)이면 `_control` 은 잠금 파일을 보기 전에 `STARTING` 으로 거절한다
+- `_control` 이 잠금 파일을 잡았지만 `Control` 을 아직 등록하지 않은 동안에도 `elsewhere` 는 `_taking` 을 보고 거짓을 돌려준다(이 프로세스의 실행을 다른 곳으로 보지 않는다)
 - `_take` 의 flock 재시도 대기는 전역 `_lock` 밖에서 한다. 다른 작품의 요청을 막지 않는다
 - 그동안 `request` 는 상태를 쓰거나 배치를 취소하지 않고 `autorun.want` 에 요청만 남긴다(중지를 일시정지로 낮추지 않는다)
 - `autorun.json` 과 `autorun.want` 는 `store.write_atomic` 으로 쓴다. 임시 파일 이름에 pid 와 스레드 id 가 들어가 주인의 기록과 다른 요청이 서로 겹치지 않는다
