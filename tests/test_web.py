@@ -462,6 +462,9 @@ def test_usage_page_records_web_calls(client, monkeypatch):
     assert s["total"]["calls"] == 1
     assert s["by_episode"] == [dict(s["by_episode"][0], project="lh", episode=1)]
     assert s["by_stage"][0]["stage"] == "state" and s["recent"][0]["source"] == "web"
+    # 작업 · 추론 강도 묶음과 캐시 비율 · 평균 시간도 응답 모델을 지나 나온다
+    assert s["by_effort"][0]["effort"] == "기본" and s["by_task"][0]["calls"] == 1
+    assert s["total"]["cache_rate"] == 0.0 and "seconds_avg" in s["by_stage"][0]
     assert s["total"]["cost"] == round((5000 * 0.75 + 800 * 3.75) / 1e6, 6)
     assert client.get("/api/usage?project=없음").json()["total"]["calls"] == 0
 
