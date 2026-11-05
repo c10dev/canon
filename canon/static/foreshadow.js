@@ -16,7 +16,9 @@ Object.assign(S, {
   fsScope: '',        // '' 이면 범위 전체
   fsDoneOpen: false,  // 목차의 회수한 복선 펼침
   fsAdd: false,       // 직접 더하기 칸 열림
+  fsAddDraft: null,   // 직접 더하기 칸에 적던 값 { d, s, u, e }. 다시 그려도 칸을 채운다
   fsEdit: '',         // 회수 계획을 고치는 복선 id
+  fsEditDraft: null,  // 회수 계획 칸에 적던 값 { id, d, s, u }
   fsResolving: '',    // 회수한 화를 고르는 복선 id
   fsOwner: '',        // fsEdit · fsResolving · fsScope 를 정한 작품. 작품이 바뀌면 지운다
 });
@@ -149,14 +151,39 @@ async function fsLoad(sel) {
   const prev = S.fsSel;
   S.fsSel = sel || '';  // 라우터가 주소 조각을 이미 풀었다
   if (prev !== S.fsSel && !S.focusTarget) S.focusTarget = '#app main h1';  // 개요 ↔ 복선 하나, 복선끼리 옮길 때도 제목으로 (동작이 정한 칸이 있으면 그 칸)
-  if (S.fsOwner !== S.name) { S.fsEdit = ''; S.fsResolving = ''; S.fsScope = ''; S.fsOwner = S.name; }
+  if (S.fsOwner !== S.name) { S.fsEdit = ''; S.fsResolving = ''; S.fsScope = ''; S.fsAdd = false; S.fsAddDraft = null; S.fsOwner = S.name; }
   S.fs = await api('GET', `/projects/${enc(S.name)}/foreshadows`).catch((e) => ({ error: e.message, items: [] }));
   if (S.fsScope && !(S.fs.items || []).some((x) => x.scope === S.fsScope)) S.fsScope = '';  // 거르기를 풀 버튼이 없는 범위는 푼다
   // 작가가 거르기를 고르기 전이면, 열린 복선이 없을 때 빈 지도 대신 전체를 보인다
   if (S.fsTabPicked !== S.name && S.fsTab === 'open' && !S.fs.error && !S.fs.open && S.fs.total) S.fsTab = 'all';
   if (S.fsEdit && S.fsEdit !== S.fsSel) S.fsEdit = '';
   if (S.fsResolving && S.fsResolving !== S.fsSel) S.fsResolving = '';
+  if (!S.fsEdit) S.fsEditDraft = null;
+  fsDraftMark();
 }
+
+/** 고치는 칸에 저장하지 않은 글이 있으면 S.editDrafts.fs 를 켠다 (app.js hasUnsaved 가 떠나기 전에 묻는다) */
+function fsDraftMark() {
+  const ed = S.fsEditDraft;
+  const x = ed && S.fsEdit === ed.id && S.fs && (S.fs.items || []).find((y) => y.id === ed.id);
+  const editing = !!x && (ed.d !== x.description || ed.s !== x.scope || String(ed.u) !== String(x.due_ep || ''));
+  const f = S.fsAddDraft;
+  const adding = !!(S.fsAdd && f && (f.d.trim() || f.u));
+  (S.editDrafts ||= {}).fs = editing || adding;
+}
+
+// 고치는 칸의 글을 S 에 둔다. 거르기를 바꾸거나 다른 이유로 다시 그려도 칸이 비지 않는다
+function fsDraftInput(e) {
+  const id = (e.target && e.target.id) || '';
+  const add = /^fs-new-([dseu])$/.exec(id);
+  const edit = /^fs-([dsu])-(.+)$/.exec(id);
+  if (add && S.fsAddDraft) S.fsAddDraft[add[1]] = e.target.value;
+  else if (edit && S.fsEditDraft && edit[2] === S.fsEditDraft.id) S.fsEditDraft[edit[1]] = e.target.value;
+  else return;
+  fsDraftMark();
+}
+document.addEventListener('input', fsDraftInput);
+document.addEventListener('change', fsDraftInput);
 
 const fsHref = (id) => `${base()}/foreshadow${id ? `/${encodeURIComponent(id)}` : ''}`;
 
@@ -416,13 +443,14 @@ function fsAheadCard(c) {
 
 function fsAddForm(c) {
   if (!S.fsAdd) return '';
+  const f = S.fsAddDraft || (S.fsAddDraft = { d: '', s: Object.keys(FS_SCOPE)[0], u: '', e: String(Math.max(c.done, 1)) });
   return `<section class="card pf-sec editing" id="fs-add" tabindex="-1">
     <div class="pf-head"><h2>복선 직접 더하기 <span class="small pf-state">고치는 중</span></h2></div>
     <p class="small">본문 문장 없이 계획만 적어 둘 수도 있어요. 문장을 함께 걸려면 집필 화면에서 문장을 골라 '복선으로 걸기'를 누르세요.</p>
-    <div class="fs-edit"><div class="field"><label for="fs-new-d">내용</label><input id="fs-new-d" type="text" placeholder="예: 서윤의 목걸이에 새겨진 문양"></div>
-      <div class="field"><label for="fs-new-s">회수 범위</label><select id="fs-new-s">${Object.entries(FS_SCOPE).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></div>
-      <div class="field"><label for="fs-new-u">회수 예정 화</label><input id="fs-new-u" type="number" min="1" placeholder="미정"></div></div>
-    <div class="row"><div class="field"><label for="fs-new-e">심은 화</label><input id="fs-new-e" type="number" min="1" value="${Math.max(c.done, 1)}"></div></div>
+    <div class="fs-edit"><div class="field"><label for="fs-new-d">내용</label><input id="fs-new-d" type="text" value="${esc(f.d)}" placeholder="예: 서윤의 목걸이에 새겨진 문양"></div>
+      <div class="field"><label for="fs-new-s">회수 범위</label><select id="fs-new-s">${Object.entries(FS_SCOPE).map(([k, v]) => `<option value="${k}"${f.s === k ? ' selected' : ''}>${v}</option>`).join('')}</select></div>
+      <div class="field"><label for="fs-new-u">회수 예정 화</label><input id="fs-new-u" type="number" min="1" value="${esc(f.u)}" placeholder="미정"></div></div>
+    <div class="row"><div class="field"><label for="fs-new-e">심은 화</label><input id="fs-new-e" type="number" min="1" value="${esc(f.e)}"></div></div>
     <div class="row"><button type="button" class="btn small" data-action="fsAddToggle">취소</button><button type="button" class="btn small primary" data-action="fsCreate">더하기</button></div></section>`;
 }
 
@@ -438,15 +466,17 @@ function fsScopeText(x) {
 function fsPlanCard(x, c) {
   const id = esc(x.id);
   const editing = S.fsEdit === x.id;
+  const f = !editing ? null : S.fsEditDraft && S.fsEditDraft.id === x.id ? S.fsEditDraft
+    : (S.fsEditDraft = { id: x.id, d: x.description, s: x.scope, u: x.due_ep ? String(x.due_ep) : '' });
   const plans = x.planned.map((n) => { const e = P().episodes.find((y) => y.plot.number === n); return `<a href="${base()}/arc/${n}">${n}화${e && e.plot.title ? ` ${esc(e.plot.title)}` : ''}</a>`; });
   const resolving = S.fsResolving === x.id
     ? `<div class="note plain row" role="group" aria-label="회수로 표시"><div class="field"><label for="fs-r-${id}">회수한 화</label><input id="fs-r-${id}" type="number" min="${x.planted_ep}" value="${Math.max(c.done, x.planted_ep)}"></div>
         <button type="button" class="btn small" data-action="fsResolveCancel">취소</button><button type="button" class="btn small primary" data-action="fsResolve" data-arg="${id}">회수로 표시</button></div>` : '';
   const body = editing
     ? `<div class="fs-edit">
-        <div class="field"><label for="fs-d-${id}">내용</label><input id="fs-d-${id}" type="text" value="${esc(x.description)}"></div>
-        <div class="field"><label for="fs-s-${id}">회수 범위</label><select id="fs-s-${id}">${Object.entries(FS_SCOPE).map(([k, v]) => `<option value="${k}"${x.scope === k ? ' selected' : ''}>${v}</option>`).join('')}</select></div>
-        <div class="field"><label for="fs-u-${id}">회수 예정 화</label><input id="fs-u-${id}" type="number" min="${x.planted_ep}" value="${x.due_ep || ''}" placeholder="미정"></div></div>
+        <div class="field"><label for="fs-d-${id}">내용</label><input id="fs-d-${id}" type="text" value="${esc(f.d)}"></div>
+        <div class="field"><label for="fs-s-${id}">회수 범위</label><select id="fs-s-${id}">${Object.entries(FS_SCOPE).map(([k, v]) => `<option value="${k}"${f.s === k ? ' selected' : ''}>${v}</option>`).join('')}</select></div>
+        <div class="field"><label for="fs-u-${id}">회수 예정 화</label><input id="fs-u-${id}" type="number" min="${x.planted_ep}" value="${esc(f.u)}" placeholder="미정"></div></div>
       <div class="row"><button type="button" class="btn small" data-action="fsEditGo" data-arg="">취소</button><button type="button" class="btn small primary" data-action="fsSave" data-arg="${id}">저장</button></div>`
     : `<dl class="pf-dl"><dt>내용</dt><dd>${esc(x.description)}</dd><dt>회수 범위</dt><dd>${fsScopeText(x)}</dd>
         <dt>${x.status === 'resolved' ? '회수한 화' : '회수 예정 화'}</dt><dd>${x.status === 'resolved' ? `${x.payoff_ep}화` : x.due_ep ? `${x.due_ep}화${x.overdue ? ' <span class="chip warn">지남</span>' : ''}` : '<span class="small">미정</span>'}</dd>
@@ -658,6 +688,7 @@ async function fsLinkSave() {
   if (!pick && !t.desc.trim()) return toast('새 복선 내용을 적어 주세요', true);
   const body = { episode: t.n, quote: t.text, foreshadow: pick ? t.fid : '', description: pick ? '' : t.desc.trim(),
     kind: pick ? t.kind : 'plant', scope: t.scope, due_ep: !pick && Number(t.due) ? Number(t.due) : null };
+  if (!(await fsAskSave(['복선에 걸까요?', '걸기']))) return;  // 취소하면 칸과 쓰던 글이 남는다
   await run('복선에 거는 중', async () => {
     await saveIfDirty();
     if (typeof flushText === 'function' && !t.read) await flushText(body.episode);
@@ -668,12 +699,21 @@ async function fsLinkSave() {
   });
 }
 
-async function fsCall(label, method, path, body) {
-  await run(label, async () => {
+/** 저장하지 않은 변경이 있으면 먼저 묻는다 (app.js startJob 과 같은 규칙). ask: [질문 뒷말, 확인 버튼 동사]. 저장해도 되면 true */
+async function fsAskSave(ask) {
+  return !S.dirty || askConfirm(`저장하지 않은 변경이 있어요. 저장하고 ${ask[0]}`, { ok: `저장하고 ${ask[1]}` });
+}
+
+/** 복선 API 호출. opt.ask 는 fsAskSave 의 질문, opt.done 은 서버가 받은 뒤에만 부른다(칸 닫기).
+    done 이 있으면 실패할 때 다시 그리지 않아 고치던 칸이 그대로 남는다. 성공하면 true */
+async function fsCall(label, method, path, body, opt = {}) {
+  if (!(await fsAskSave(opt.ask || ['계속할까요?', '계속하기']))) return false;
+  return run(label, async () => {
     await saveIfDirty();
     S.project = await api(method, `/projects/${enc(S.name)}/foreshadows${path}`, body);
+    if (opt.done) opt.done();
     await fsLoad(S.fsSel);
-  });
+  }, { render: opt.done ? 'success' : 'always' });
 }
 
 Object.assign(actions, {
@@ -713,12 +753,16 @@ Object.assign(actions, {
   },
   fsAddToggle() {
     S.fsAdd = !S.fsAdd;
+    S.fsAddDraft = null;  // 열 때는 빈 칸, 취소하면 적던 글을 버린다
+    fsDraftMark();
     if (S.fsAdd) S.focusTarget = '#fs-new-d';
     render();
   },
   fsEditGo(id, field = 'd') {
     const prev = S.fsEdit;
     S.fsEdit = id;
+    S.fsEditDraft = null;
+    fsDraftMark();
     S.fsResolving = '';
     if (id) S.focusTarget = `#fs-${field}-${CSS.escape(id)}`;
     else if (prev) S.focusTarget = `#fs-plan [data-action="fsEditGo"][data-arg="${CSS.escape(prev)}"]`;  // 취소하면 '고치기'로
@@ -738,34 +782,39 @@ Object.assign(actions, {
     if (prev) S.focusTarget = `#app [data-action="fsResolveGo"][data-arg="${CSS.escape(prev)}"]`;
     render();
   },
+  // 더하기 · 저장 · 회수로 표시는 서버가 받은 뒤에만 칸을 닫는다. 실패하면 적던 글이 남는다
   fsCreate() {
-    const description = $('#fs-new-d').value.trim();
+    const f = S.fsAddDraft || {};
+    const description = (f.d || '').trim();
     if (!description) return toast('복선 내용을 적어 주세요', true);
-    const due = Number($('#fs-new-u').value);
-    const body = { description, episode: Number($('#fs-new-e').value) || 0, scope: $('#fs-new-s').value, due_ep: due || null };
-    S.fsAdd = false;
-    S.fsTab = 'open';
-    fsCall('복선 더하는 중', 'POST', '', body);
+    const body = { description, episode: Number(f.e) || 0, scope: f.s || Object.keys(FS_SCOPE)[0], due_ep: Number(f.u) || null };
+    return fsCall('복선 더하는 중', 'POST', '', body, { ask: ['복선을 더할까요?', '더하기'],
+      done() { S.fsAdd = false; S.fsAddDraft = null; S.fsTab = 'open'; } });
   },
   fsSave(id) {
-    const due = Number($(`#fs-u-${CSS.escape(id)}`).value);
-    const body = { description: $(`#fs-d-${CSS.escape(id)}`).value.trim(), scope: $(`#fs-s-${CSS.escape(id)}`).value, due_ep: due || null, clear_due: !due };
-    S.fsEdit = '';
-    fsCall('저장하는 중', 'PUT', `/${enc(id)}`, body);
+    const f = S.fsEditDraft && S.fsEditDraft.id === id ? S.fsEditDraft : null;
+    if (!f) return;
+    const due = Number(f.u);
+    const body = { description: f.d.trim(), scope: f.s, due_ep: due || null, clear_due: !due };
+    return fsCall('저장하는 중', 'PUT', `/${enc(id)}`, body, { ask: ['회수 계획을 고칠까요?', '고치기'],
+      done() { S.fsEdit = ''; S.fsEditDraft = null; } });
   },
   fsResolve(id) {
     const n = Number($(`#fs-r-${CSS.escape(id)}`).value);
-    S.fsResolving = '';
-    fsCall('회수로 표시하는 중', 'POST', `/${enc(id)}/resolve`, { episode: n });
+    return fsCall('회수로 표시하는 중', 'POST', `/${enc(id)}/resolve`, { episode: n }, { ask: ['회수로 표시할까요?', '표시하기'],
+      done() { S.fsResolving = ''; } });
   },
-  fsReopen(id) { fsCall('다시 여는 중', 'POST', `/${enc(id)}/reopen`); },
+  fsReopen(id) { return fsCall('다시 여는 중', 'POST', `/${enc(id)}/reopen`, undefined, { ask: ['복선을 다시 열까요?', '다시 열기'] }); },
   async fsDelete(id) {
-    if (!(await askConfirm('이 복선과 걸어 둔 문장을 모두 지울까요? 플롯의 회수 계획에서도 빠져요.', { ok: '지우기', danger: true }))) return;
-    if (S.fsSel === id) location.hash = fsHref('');
-    fsCall('지우는 중', 'DELETE', `/${enc(id)}`);
+    if (!(await askConfirm('이 복선과 걸어 둔 문장을 모두 지울까요? 플롯의 회수 계획에서도 빠져요.', { ok: '지우기', danger: true }))) return false;
+    return fsCall('지우는 중', 'DELETE', `/${enc(id)}`, undefined, { ask: ['복선을 지울까요?', '지우기'],
+      done() { if (S.fsSel === id) { S.fsSel = ''; location.hash = fsHref(''); } } });
   },
-  fsClueDrop(raw) { fsCall('연결 지우는 중', 'POST', '/clues/remove', JSON.parse(raw)); },
-  fsPrune() { fsCall('끊어진 연결 정리하는 중', 'POST', '/prune'); },
+  async fsClueDrop(raw) {
+    if (!(await askConfirm('이 문장과 복선의 연결을 지울까요? 본문은 그대로 두고 이 복선의 흐름에서만 빠져요.', { ok: '연결 지우기', danger: true }))) return false;
+    return fsCall('연결 지우는 중', 'POST', '/clues/remove', JSON.parse(raw), { ask: ['연결을 지울까요?', '지우기'] });
+  },
+  fsPrune() { return fsCall('끊어진 연결 정리하는 중', 'POST', '/prune', undefined, { ask: ['끊어진 연결을 정리할까요?', '정리하기'] }); },
 });
 
 // ----- 상태 승인 화면 -----

@@ -432,6 +432,11 @@
   - 줄마다 `fsTrack`
   - 거르기는 Seg `S.fsTab` · `S.fsScope` → 앞으로 회수할 것 `fsAheadCard`
 - 복선 하나(`fsDetail`: 축 → 본문에 걸린 문장과 흐름 `fsFlowCard` → 회수 계획 읽기 카드 `fsPlanCard`, 고치기 `S.fsEdit`, 회수로 표시 `S.fsResolving`)
+- 더하기 칸과 회수 계획 칸에 적던 값은 `S.fsAddDraft` · `S.fsEditDraft` 에 두어 다시 그려도 남는다(`fsDraftInput`)
+- 그 칸에 저장하지 않은 글이 있으면 `S.editDrafts.fs` 를 켠다(`fsDraftMark`)
+- 더하기 · 저장 · 회수로 표시는 서버가 받은 뒤에만 칸을 닫는다(`fsCall` 의 `done`, 실패하면 다시 그리지 않음)
+- `fsCall` 과 `fsLinkSave` 는 저장하지 않은 변경이 있으면 먼저 묻는다(`fsAskSave`, 취소하면 보내지 않음)
+- 연결 지우기(`fsClueDrop`)는 먼저 묻는다
 - 본문에서 고른 문장을 거는 칸은 본문 부분 수정 도구(`passage.js` `#sel-tool`)의 mode 'foreshadow'
   - `fsLinkShow` · `fsLinkHtml`: 이미 있는 복선 찾기 · 이 화 가까이 나온 후보 `fsCandidates` / 새 복선
   - 고치는 본문은 메뉴에 '복선으로 걸기'
@@ -523,6 +528,11 @@
 - 공용 목차 틀(`outline.js`, 목차 `tlTocHtml`: 지금 · 기한 · 시간 흐름 묶음 · 설정, 스크롤로 `S.tlCur`)
 - 지금 `tlNowCard`: 마지막 반영 화 끝 시점과 앞으로 열흘 띠
 - 기한 `tlDlCard`: 나눔 버튼 `S.tlDlTab`, 줄마다 ⋯ 메뉴, 지난 기한은 닫기 · 날 바꾸기
+- 기한 칸에 적던 값은 `S.tlDraft` 에 두어 다시 그려도 남는다
+- 기한 칸에 저장하지 않은 글이 있으면 `S.editDrafts.tl` 을 켠다(`tlDraftMark`)
+- 기한 칸은 서버가 받은 뒤에만 닫는다(`tlPut` 의 `form`, 실패하면 다시 그리지 않음)
+- 다른 기한의 닫기 · 다시 열기는 열린 기한 칸을 닫지 않는다
+- 기한 저장(`tlPut`)과 지우기는 저장하지 않은 변경이 있으면 먼저 묻는다(`tlAskSave`, 취소하면 보내지 않음)
 - 시간 흐름 `tlGroupCard`: 아크 · 기승전결 구간마다 읽기 카드, 고치기 `S.tlEditGroup`, 접기 `S.tlFold`
 - 설정 `tlSetCard`: 읽기 카드, 고치기 `S.tlSetEdit`
 - `tlGroups` · `tlDeadlineRows` · `tlShort` 는 순수 함수(`tests/test_timeline_js.py`)
@@ -535,6 +545,9 @@
 - 거르기는 머리의 나눔 버튼(Seg)이다
 - 줄은 앞뒤 문맥과 함께 보인다(`tofixContext`)
 - 메모는 읽는 글이고 ⋯ '메모 고치기'로 그 줄만 칸을 편다(`S.tofixEdit`, Ctrl+Enter 저장 · Esc 취소)
+- 고치던 메모는 `S.tofixEdit.note` 에 두어 다시 그려도 남는다
+- 고치던 메모가 원래 메모와 다르면 `S.editDrafts.tofix` 를 켠다(`tofixDraftMark`)
+- 지우기(`tofixDelete`)는 메모가 없어도 먼저 묻는다
 - 본문 도구의 '나중에 고치기'와 메모 칸(`showTool` 을 감싼다, mode `tofix`)
 - 밑줄(`tofixRanges` 를 `marks.js` `allRanges` 가 함께 그림)
 - 집필 화면 본문 띠의 '고칠 곳 N'(`tofixBtn`, `tofixNext`)

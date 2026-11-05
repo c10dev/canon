@@ -259,3 +259,70 @@ def test_toc_opens_resolved_group_for_current_and_todo_due_button():
     toc, todo = got
     assert 'data-action="fsDoneToggle" data-outline-keep aria-expanded="true"' in toc and 'href="#/p/w/foreshadow/fs-key" aria-current="page"' in toc
     assert 'data-action="fsDueGo" data-arg="fs-door"' in todo
+
+
+# 저장 · 확인 흐름 시험용 대역: 서버(api) · 확인 상자(askConfirm) · 다시 그리기(render)를 바꾸고 부른 것을 적는다
+STUBS = """
+  globalThis.clearInterval = () => {}; globalThis.AbortController = class { abort() {} }; globalThis.CSS = { escape: (x) => x };
+  const calls = [], asks = [];
+  let renders = 0;
+  render = () => { renders += 1; };
+  saveIfDirty = async () => { calls.push(['save']); };
+  api = async (m, path) => { calls.push([m, path]); if (m !== 'GET' && data.fail) throw new Error('서버 오류'); return m === 'GET' ? data.c : data.p; };
+  askConfirm = async (q, o) => { asks.push([q, o.ok, !!o.danger]); return data.yes; };
+"""
+
+
+@needs_node
+def test_add_form_keeps_text_until_server_accepts():
+    """더하기 칸: 적던 글은 다시 그려도 남고, 저장하지 않은 변경이 있으면 먼저 묻고, 실패하면 칸이 열린 채 남는다."""
+    got = run_js(FILES, """(async () => {""" + STUBS + """
+      S.name = 'w'; S.project = data.p; S.fs = data.c; S.fsSel = ''; S.fsOwner = 'w';
+      actions.fsAddToggle();
+      viewForeshadow();
+      fsDraftInput({ target: { id: 'fs-new-d', value: '새 복선' } });
+      const marked = S.editDrafts.fs;
+      actions.fsTab('all');
+      const view = viewForeshadow();
+      S.dirty = true; data.yes = false;
+      const cancel = await actions.fsCreate();
+      const afterCancel = [S.fsAdd, calls.length, asks[0]];
+      S.dirty = false; data.fail = true;
+      const failed = await actions.fsCreate();
+      const afterFail = [S.fsAdd, S.fsAddDraft.d, S.editDrafts.fs];
+      data.fail = false;
+      const ok = await actions.fsCreate();
+      return { marked, view, cancel, afterCancel, failed, afterFail, ok, afterOk: [S.fsAdd, S.fsAddDraft, S.editDrafts.fs, S.fsTab], calls };
+    })()""", {"p": dump(_project()), "c": _center(_project())})
+    assert got["marked"] is True and 'id="fs-new-d" type="text" value="새 복선"' in got["view"]
+    assert got["cancel"] is False
+    assert got["afterCancel"] == [True, 0, ["저장하지 않은 변경이 있어요. 저장하고 복선을 더할까요?", "저장하고 더하기", False]]
+    assert got["failed"] is False and got["afterFail"] == [True, "새 복선", True]
+    assert got["ok"] is True and got["afterOk"] == [False, None, False, "open"]
+    assert ["POST", "/projects/w/foreshadows"] in got["calls"]
+
+
+@needs_node
+def test_plan_edit_keeps_text_and_clue_drop_asks():
+    """회수 계획 칸: 저장이 실패해도 적던 글이 남는다. 연결 지우기는 먼저 묻고, 취소하면 서버에 보내지 않는다."""
+    got = run_js(FILES, """(async () => {""" + STUBS + """
+      S.name = 'w'; S.project = data.p; S.fs = data.c; S.fsSel = 'fs-lamp'; S.fsOwner = 'w';
+      actions.fsEditGo('fs-lamp');
+      viewForeshadow();
+      fsDraftInput({ target: { id: 'fs-d-fs-lamp', value: '바뀐 등불' } });
+      const marked = S.editDrafts.fs;
+      data.fail = true;
+      const failed = await actions.fsSave('fs-lamp');
+      const view = viewForeshadow();
+      data.fail = false; data.yes = false;
+      const n = calls.length;
+      const drop = await actions.fsClueDrop(JSON.stringify({ foreshadow: 'fs-lamp', episode: 5, quote: '등불이 다시 흔들렸다.' }));
+      const dropCalls = calls.length - n;
+      actions.fsEditGo('');
+      return { marked, failed, view, drop, asks, dropCalls, after: [S.fsEditDraft, S.editDrafts.fs] };
+    })()""", {"p": dump(_project()), "c": _center(_project())})
+    assert got["marked"] is True and got["failed"] is False
+    assert 'id="fs-d-fs-lamp" type="text" value="바뀐 등불"' in got["view"]
+    assert got["drop"] is False and got["dropCalls"] == 0
+    assert got["asks"][-1][1:] == ["연결 지우기", True]
+    assert got["after"] == [None, False]
