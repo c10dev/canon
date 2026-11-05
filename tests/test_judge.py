@@ -99,6 +99,38 @@ class JudgeTest(unittest.TestCase):
         self.assertEqual({(r["backend"], r["stage"], r["model"], r["in"], r["cached"]) for r in rows},
                          {("local", "judge", "gemma-judge", 120, 40)})
 
+    def test_local_judge_stops_at_the_first_failure_and_on_cancel(self):
+        """질문 하나가 실패하면 남은 질문을 보내지 않고 바로 오류를 낸다. 멈춘 작업은 질문을 보내지 않는다."""
+        import threading
+        import time
+
+        from canon import cancel
+
+        j = LocalJudge(base_url=self.url, model="gemma-judge", workers=2)
+        sent = []
+
+        def fail(system, q):
+            sent.append(q.id)
+            time.sleep(0.05)
+            raise RuntimeError("로컬 서버 오류 500")
+
+        j._one = fail
+        qs = [Question(id=str(i), text="진술", options=["예", "아니오"]) for i in range(40)]
+        with self.assertRaises(RuntimeError):
+            j.decide("", qs)
+        time.sleep(0.2)
+        self.assertLessEqual(len(sent), 4)
+        sent.clear()
+        stop = threading.Event()
+        stop.set()
+        token = cancel.current.set(stop)
+        try:
+            with self.assertRaises(cancel.Cancelled):
+                j.decide("", qs)
+        finally:
+            cancel.current.reset(token)
+        self.assertEqual(sent, [])
+
     def test_local_judge_without_logprobs_uses_the_letter(self):
         LogprobServer.plain = True
         a = LocalJudge(base_url=self.url, model="gemma-judge").decide("", [Question(id="x", text="틀린 진술", options=["예", "아니오"])])
