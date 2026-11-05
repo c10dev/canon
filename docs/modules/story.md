@@ -274,6 +274,7 @@
 - 플레이어가 닿은 구간(`see`, `PlayInfo.seen`)보다 한 구간 넘게 앞서 쓰지 않는다(비용 상한)
 - 흐르는 중 행동하면 보지 않은 구간을 버린다(`drop_unseen`)
 - 상태 반영(`settle`, `prompts.play_state_prompt`, `clean_delta` → `charlog.hold` → `apply_delta` → `Episode.auto`, 실패는 `PlayTurn.state` failed 로 두고 다시)
+- `settle` 은 변경안을 만들기 전에 반영 전제 `pipeline.check_applicable` 을 본다
 - 장(StoryArc)은 다음 구간을 덮게 미리 연다(`open_chapter`, `CHAPTER_LEN` 20, 세계에 부가 있으면 '플레이' 부)
 - 장을 다 반영하면 요약으로 접는다(`fold`, `pipeline.recap`)
 - 되감기(`rewind` · `trim_after`)

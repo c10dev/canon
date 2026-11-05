@@ -20,6 +20,8 @@
 - 비용 · 시간 추정(`_measured`)은 지난 로그의 출력 토큰을 호출 수로 나눠 호출 하나의 평균으로 쓴다
 - 정착 문체 흐름 멈춤(`Policy.max_style_distance`, 0 이면 끔, `anchor.rolling`)
 - `autorun.json` 에 진행 기록
+- 변경안 반영(`_review` 의 put)은 반영 전제 `pipeline.check_applicable` 에 걸리면 반영하지 않고 paused 로 멈춘다
+- 검토 대기의 그대로 반영(`resume` 의 take)도 `check_applicable` 에 걸리면 반영하지 않고 오류를 낸다
 - 서버 재시작 후 이어 가기
 - 도는 실행은 작품 폴더의 `.autorun.lock` 에 flock 을 쥔다(`_take`, `Control.owner`). 프로세스가 죽으면 OS 가 푼다
 - 다른 프로세스(명령줄 `canon auto` 나 다른 서버)가 잠금을 쥐면 `elsewhere` 가 참이고 `active` 도 참이다(화면 저장 보호가 켜진다)
