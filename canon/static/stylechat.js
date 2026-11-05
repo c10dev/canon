@@ -14,7 +14,7 @@ Object.assign(S, {
 const STYLE_KEYS = [
   ['narration_pov', '시점'], ['tense', '시제'], ['sentence_rhythm', '문장 리듬'], ['description_density', '묘사 밀도'],
   ['dialogue_ratio', '대사 비율'], ['dialogue_style', '대사 방식'], ['inner_monologue', '내면 독백'], ['pacing', '전개 속도'],
-  ['scene_transition', '장면 전환'], ['vocabulary', '어휘'], ['dos', '지킬 것'], ['donts', '피할 것'],
+  ['scene_transition', '장면 전환'], ['vocabulary', '어휘'], ['sound_effects', '효과음 표기'], ['dos', '지킬 것'], ['donts', '피할 것'],
   ['banned_phrases', '금지 표현'], ['markers', '문체 표지'], ['devices', '가끔 쓰는 장치'],
 ];
 const STYLE_LABEL = Object.fromEntries(STYLE_KEYS);

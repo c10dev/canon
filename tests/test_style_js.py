@@ -31,9 +31,9 @@ def test_counts_and_empty_cards():
     got = js(project(profile()), """const st = P().style;
       return [STYLE_CARDS.map(([id]) => styleCount(id, st)), STYLE_CARDS.map(([id]) => styleCardEmpty(id, st)),
               styleCardEmpty('narr', emptyProfile()), styleCount('narr', emptyProfile())];""")
-    assert got[0] == ["2/10", "4", "1", "1", "1"]
+    assert got[0] == ["2/11", "4", "1", "1", "1"]
     assert got[1] == [False] * 5
-    assert got[2] is True and got[3] == "0/10"
+    assert got[2] is True and got[3] == "0/11"
 
 
 @needs_node
