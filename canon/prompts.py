@@ -767,6 +767,10 @@ def serial_plot_prompt(p: Project, start: int, end: int, ahead: bool = True, red
     fixed, more = fixed_plots(p, start, end, context.BUDGET["plan_fixed"], skip) if ahead else ([], 0)
     ids = context.without_off(p, set(arc.cast if arc else []) | {c for e in near for c in e.characters})
     fs, fs_more = relevant_foreshadows(p, start)
+    # 사실 · 상태의 순서: 이 아크의 목표 · 갈등 · 구간, 바로 앞 화와 이미 정해진 화 플롯과 겹치는 것부터
+    query = "\n".join([arc.goal, arc.conflict, arc.payoff, *(x.goal for x in arc.acts)] if arc else [])
+    query += "\n" + "\n".join(elements.plot_text(p.episode(x.number)) for x in near + fixed)
+    known = plot_facts_states(p, ids, start, query, [x.number for x in near] + list(range(start, end + 1)))
     return f"""{start}화부터 {end}화까지 화별 플롯을 작성하세요.
 
 [작품]
@@ -787,7 +791,7 @@ def serial_plot_prompt(p: Project, start: int, end: int, ahead: bool = True, red
 {structure_text(p, start)}
 
 [지금까지의 줄거리]
-{story_so_far(p, start, plans=True) or "없음 (첫 화)"}
+{story_so_far(p, start, plans=True) or "없음 (첫 화)"}{known}
 [바로 앞 화 플롯 (확정 또는 초안, 이어지게 쓸 것)]
 {dump(near) if near else "없음"}{fixed_block(fixed, more)}{candidates_block(p)}
 [열린 복선]{f" (그 밖에 {fs_more}개는 이번 아크와 거리가 멀어 뺐습니다)" if fs_more else ""}
@@ -1409,18 +1413,20 @@ def series_prompt(p: Project) -> str:
 ARC_TIME_RULE = "- 열린 기한이 이 아크 범위에 들면 그 날에 맞게 conflict 와 acts 를 놓습니다. 기한을 넘기는 전개면 reply 에 어떻게 다루는지 적습니다."
 
 
-def plan_facts(p: Project, ids: set[str], query: str, terms: list[str]) -> tuple[list[str], int]:
+def plan_facts(p: Project, ids: set[str], query: str, terms: list[str], key: str = "plan_facts") -> tuple[list[str], int]:
     """다음 아크 기획의 확정 사실: 적으면 전부. 많으면 기획 인물(ids, 조연 이름이 가장 무겁다)이나 직전 아크 끝 플롯의
     이야기 요소 · 장소(terms)가 나오는 옛 사실을 query(부 목표 · 아크 아이디어 · 직전 아크 플롯 · 작가 요청)와 겹치는 순서로
-    예산(context.BUDGET["plan_facts"])만큼. 최근 FACTS_RECENT 개는 늘 넣는다 (context.pick_facts)."""
+    예산(context.BUDGET[key], 기본 plan_facts)만큼. 최근 FACTS_RECENT 개는 늘 넣는다 (context.pick_facts).
+    화별 플롯 초안 · 플롯 대화는 key="plot_facts" 로 부른다 (plot_facts_states)."""
     if len(p.facts) <= FACTS_FILTER_FROM:
         return p.facts, 0
-    return context.pick_facts(p, ids, query, context.BUDGET["plan_facts"], terms)
+    return context.pick_facts(p, ids, query, context.BUDGET[key], terms)
 
 
-def plan_side_states(p: Project, ids: set[str], start: int, query: str) -> tuple[list, int, int]:
+def plan_side_states(p: Project, ids: set[str], start: int, query: str, key: str = "plan_states") -> tuple[list, int, int]:
     """다음 아크 기획에 넣는 주역 밖 인물(관계를 보는 planning_cast)의 지금 상태: start 전에 가장 최근 나온 인물부터
-    예산(context.BUDGET["plan_states"])만큼. 알게 된 정보는 state_view 로 고른다. (상태 사본, 뺀 인물 수, 뺀 정보 수)"""
+    예산(context.BUDGET[key], 기본 plan_states)만큼. 알게 된 정보는 state_view 로 고른다. (상태 사본, 뺀 인물 수, 뺀 정보 수)
+    화별 플롯 초안 · 플롯 대화는 key="plot_states" 로 부른다 (plot_facts_states)."""
     main = {c.id for c in static_characters(p)}
     last = {e_id: 0 for e_id in ids - main}
     for e in p.episodes:
@@ -1433,11 +1439,30 @@ def plan_side_states(p: Project, ids: set[str], start: int, query: str) -> tuple
     out, used = [], 0
     for s in view:
         size = len(dump([s]))
-        if used + size > context.BUDGET["plan_states"]:
+        if used + size > context.BUDGET[key]:
             break
         out.append(s)
         used += size
     return out, len(view) - len(out), knows_cut
+
+
+def plot_facts_states(p: Project, ids: set[str], start: int, query: str, numbers) -> str:
+    """장편 화별 플롯 초안 · 플롯 대화에 넣는 확정 사실과 인물 현재 상태 블록 (단편은 부르지 않는다).
+    사실은 기획 인물(ids)과 numbers 화의 이야기 요소 · 장소가 나오는 것을 query(아크 · 앞뒤 화 플롯)와 겹치는 순서로
+    BUDGET["plot_facts"] 만큼(최근 FACTS_RECENT 개는 늘), 주역 밖 인물 상태는 start 전에 최근 나온 인물부터 BUDGET["plot_states"] 만큼.
+    주역 상태는 아는 정보만 고른다 (state_view). 뺀 수는 머리글에 적는다."""
+    main = {c.id for c in static_characters(p)}
+    terms = list(dict.fromkeys(t for n in numbers for t in context.query_terms(p, n)))
+    main_states, knows_cut = state_view(p, [s for s in p.states if s.character_id in main], query=query)
+    facts, facts_cut = plan_facts(p, ids, query, terms, "plot_facts")
+    side, side_cut, side_knows_cut = plan_side_states(p, ids, start, query, "plot_states")
+    return f"""
+[확정된 사실 (어기지 않음. 이번 범위와 관련된 것과 최근 것)]{f" (그 밖에 {facts_cut}개는 관련이 적어 뺐습니다)" if facts_cut else ""}
+{chr(10).join("- " + f for f in facts) or "없음"}
+[인물 현재 상태 (위치 · 부상 · 목표 · 아는 정보. 플롯이 어기지 않게)]{knows_note(knows_cut)}
+{dump(main_states) or "설정 그대로"}
+[조연 · 최근 인물 현재 상태 (최근에 나온 순서)]{f" (그 밖에 {side_cut}명은 예산을 넘겨 뺐습니다)" if side_cut else ""}{knows_note(side_knows_cut)}
+{dump(side) or "없음"}"""
 
 
 def next_arc_prompt(p: Project, start: int, length: int, note: str) -> str:
@@ -1924,6 +1949,10 @@ def _serial_plot_parts(p: Project, scope) -> tuple[str, str, str]:
     arcs = [a.model_dump(exclude={"summary"}) for a in p.story_arcs if a.end_ep >= lo - 1 and a.start_ep <= hi]
     ids = context.without_off(p, context.planning_cast(p, lo) | {c for e in p.episodes if lo - 2 <= e.plot.number <= hi for c in e.plot.characters})
     limit = chat_next_limit(p) if start <= p.meta.target_episodes else 0
+    near_arcs = [a for a in p.story_arcs if a.end_ep >= lo - 1 and a.start_ep <= hi]
+    query = "\n".join([*(t for a in near_arcs for t in (a.goal, a.conflict, a.payoff, *(x.goal for x in a.acts))),
+                        *(elements.plot_text(e) for e in p.episodes if lo - 2 <= e.plot.number <= hi)])
+    known = plot_facts_states(p, ids, lo, query, [e.plot.number for e in p.episodes if lo - 2 <= e.plot.number <= hi])
     if focus:
         last = focus.start_ep == max(a.start_ep for a in p.story_arcs)
         part = p.part_for(focus.start_ep)
@@ -1969,7 +1998,7 @@ def _serial_plot_parts(p: Project, scope) -> tuple[str, str, str]:
 {dump(p.parts) if p.parts else "부 구성 없음"}
 
 [지금까지의 줄거리]
-{story_so_far(p, lo, plans=True) or "없음"}
+{story_so_far(p, lo, plans=True) or "없음"}{known}
 {target_block}
 [가까운 아크]
 {dump(arcs) if arcs else "아직 없음"}
