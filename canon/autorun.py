@@ -363,12 +363,12 @@ def _story_reasons(p: Project, delta: StateDelta, policy: Policy, names: dict[st
             if policy.stop_on_resolve or why:
                 hits.append(f.description + (f" ({', '.join(why)})" if why else ""))
         if hits:
-            out.append(f"복선을 회수했어요 {len(hits)}개: " + "; ".join(hits[:3]))
+            out.append(f"복선 {len(hits)}개를 회수했어요: " + "; ".join(hits[:3]))
     if policy.stop_on_deadline_done and delta.deadlines_done:
         dl = {d.id: d for d in p.timeline.deadlines if not d.done_ep}
         done = [dl[i].what or i for i in delta.deadlines_done if i in dl]
         if done:
-            out.append(f"기한이 닫혔어요 {len(done)}개: " + ", ".join(done[:3]))
+            out.append(f"기한 {len(done)}개가 닫혔어요: " + ", ".join(done[:3]))
     if policy.max_time_jump_days > 0 and timeline.enabled(p) and delta.time.day > 0:
         cur = timeline.current_day(p, n)
         if cur > 0 and delta.time.day - cur > policy.max_time_jump_days:

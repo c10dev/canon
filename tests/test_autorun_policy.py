@@ -78,11 +78,11 @@ def test_resolve(demo):
                      Foreshadow(id="fs-d", description="닫힌 것", planted_ep=1, status="resolved")]
     plain = StateDelta(episode=3, summary="s", foreshadow_resolved=["fs-a", "ghost", "fs-d"])
     assert reasons(p, plain, stop_on_early_resolve=True) == []
-    assert reasons(p, plain, stop_on_resolve=True) == ["복선을 회수했어요 1개: 낡은 열쇠"]
+    assert reasons(p, plain, stop_on_resolve=True) == ["복선 1개를 회수했어요: 낡은 열쇠"]
     early = StateDelta(episode=3, summary="s", foreshadow_resolved=["fs-a", "fs-b", "fs-c"])
     assert reasons(p, early, stop_on_early_resolve=True) == [
-        "복선을 회수했어요 2개: 등대지기의 편지 (예정 6화보다 일찍); 왕가의 피 (작품 전체 범위)"]
-    assert reasons(p, early, stop_on_resolve=True, stop_on_early_resolve=True)[0].startswith("복선을 회수했어요 3개")
+        "복선 2개를 회수했어요: 등대지기의 편지 (예정 6화보다 일찍); 왕가의 피 (작품 전체 범위)"]
+    assert reasons(p, early, stop_on_resolve=True, stop_on_early_resolve=True)[0].startswith("복선 3개를 회수했어요")
     on_time = StateDelta(episode=6, summary="s", foreshadow_resolved=["fs-b"])
     assert reasons(p, on_time, stop_on_early_resolve=True) == []
 
@@ -92,7 +92,7 @@ def test_deadline_done(demo):
     p.timeline.deadlines = [Deadline(id="dl-a", what="축제 첫날", day=3, set_ep=1),
                             Deadline(id="dl-b", what="이미 닫힘", set_ep=1, done_ep=1)]
     d = StateDelta(episode=2, summary="s", deadlines_done=["dl-a", "dl-b", "ghost"])
-    assert reasons(p, d, stop_on_deadline_done=True) == ["기한이 닫혔어요 1개: 축제 첫날"]
+    assert reasons(p, d, stop_on_deadline_done=True) == ["기한 1개가 닫혔어요: 축제 첫날"]
     assert reasons(p, d) == []
 
 
