@@ -8,6 +8,7 @@
 - 버튼은 `aria-expanded`와 `aria-controls`를 단다. 열린 버튼은 `accent` 테두리와 `accent-soft` 면(켜진 토글과 같다).
 - 창(`.pop-panel`): 버튼 오른쪽 끝에 맞춰 6px 아래, 폭 `min(320px, 100vw - 32px)`, 높이 `min(70vh, 560px)`까지(넘으면 안에서 굴림), 안쪽 8px, `surface` 면, `line-strong` 테두리, `radius-12`, `shadow-float`, 글자 13px. 왼쪽 밖으로 나가면 앱이 버튼 왼쪽 끝에 다시 맞춘다(`fitMenus`).
 - 버튼이 줄 가운데에 있어 양쪽 어느 끝에 맞춰도 화면 밖으로 나가면, 앱이 창을 화면 안(좌우 8px)으로 옆으로 민다(`fitMenus`, `.fit-shift`).
+- 창 아래가 화면 밖으로 나가면(가로 휴대폰, 화면 아래쪽 버튼) 앱이 위 · 아래 중 넓은 쪽으로 펼치고 그쪽 남은 높이 안에서 굴린다(`fitMenus`, `.pop-panel.up`). 쓴 사람이 정한 위로 펼침은 그대로 둔다.
 - 창 안의 부품:
   - 동작 줄 `.pop-item`: 44px, `radius-8`, 마우스를 올리면 `bg` 면. 덧붙임은 오른쪽 끝 `.small`. 위험한 동작은 `.pop-item.danger`.
   - 고르기 줄 `.pop-radio` · `.pop-check`: 40px, 20px 라디오 · 체크박스(`accent` 색), 이름 아래 설명. 손가락 기기와 640px 이하에서는 44px.

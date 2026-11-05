@@ -116,7 +116,7 @@ function viewUsage() {
   const tiles = `<div class="usage-tiles">
       <div class="usage-tile hero"><span class="k">${span}추정 비용</span><span class="usage-num">${usd(t.cost)}</span><span class="small">${t.unpriced ? `가격 모르는 호출 ${t.unpriced}번 빠짐` : '가격표 기준'}</span></div>
       <div class="usage-tile"><span class="k">호출</span><span class="usage-num">${t.calls.toLocaleString()}번</span><span class="small">${t.failed ? `실패 ${t.failed}` : '실패 없음'}${t.retries ? ` · 다시 요청 ${t.retries}` : ''}</span></div>
-      <div class="usage-tile"><span class="k">토큰 입력 · 출력</span><span class="usage-num">${tok(t.in)} · ${tok(t.out)}</span><span class="small">${t.cached ? `캐시 ${usagePct(t.cache_rate)} · ${tok(t.cached)} (싸게 매겨짐)` : '캐시 없음'} · 출력은 생각 토큰 포함</span></div>
+      <div class="usage-tile"><span class="k">토큰 입력 · 출력</span><span class="usage-num">${tok(t.in)} · ${tok(t.out)}</span><span class="small">${t.cached ? `캐시 ${usagePct(t.cache_rate)} · ${tok(t.cached)} (싸게 매겨짐)` : '캐시 없음'}${t.resent ? ` · 다시 보낸 입력 ${tok(t.resent)}은 비율에서 뺐어요` : ''} · 출력은 생각 토큰 포함</span></div>
       <div class="usage-tile"><span class="k">아낀 · 버린 비용</span><span class="usage-num">${usd(t.saved)} · ${usd(t.wasted)}</span><span class="small">${t.batch ? `배치 ${t.batch}번` : '배치 안 씀'} · 실패와 다시 요청</span></div>
     </div>`;
   return `${head}<div class="usage-wrap">${filters}

@@ -95,6 +95,16 @@ def collect() -> Iterator[list[dict]]:
         _acc.reset(token)
 
 
+def cache_rate(rows: list[dict]) -> float | None:
+    """캐시로 읽은 입력의 비율. 한 호출 안에서 다시 보낸 입력(resent)은 캐시로 읽혔다고 보고 입력과 캐시 양쪽에서 뺀다.
+    실측(2026-11, 서버 기록 Claude 842번): 그대로 세면 캐시 비율이 14.7%, 다시 보낸 것으로 보이는 호출(캐시가 입력의 절반)을 빼면 8~10%.
+    입력이 없으면 None."""
+    tin = sum(r.get("in", 0) for r in rows)
+    cached = sum(r.get("cached", 0) for r in rows)
+    resent = sum(min(r.get("resent", 0), r.get("cached", 0)) for r in rows)
+    return (cached - resent) / (tin - resent) if tin - resent > 0 else None
+
+
 def totals(rows: list[dict]) -> tuple[int, int, Optional[float]]:
     """collect 로 모은 줄의 (입력 토큰, 출력 + 생각 토큰, 비용). 비용은 사용량 화면과 같은 row_cost 로 센다.
     가격을 모르는 줄이 하나라도 있으면 비용은 None."""
@@ -127,6 +137,11 @@ def backend_of(llm: Any) -> Optional[str]:
             "LocalJudge": "local"}.get(name)
 
 
+# 있을 때만 남기는 칸. turns 턴 수, stop 멈춘 이유, api_seconds 모델 API 시간, models 모델별 토큰,
+# resent 한 호출 안에서 다시 보낸 입력 어림값 (in 에 들어 있음. 캐시 비율을 셀 때 in · cached 에서 뺀다). 옛 줄에는 없다.
+EXTRA = ("turns", "stop", "api_seconds", "models", "resent")
+
+
 def record(llm: Any, tokens: Optional[dict], started: Optional[float] = None, *, ok: bool = True,
            error: Any = None, attempt: Optional[int] = None, batch: bool = False, prompt: str = "") -> None:
     """호출 하나를 기록한다. 기록이 실패해도 생성은 계속돼야 하므로 오류를 내지 않는다.
@@ -156,6 +171,9 @@ def record(llm: Any, tokens: Optional[dict], started: Optional[float] = None, *,
         "ok": ok,
         "error": _error_text(error) if error is not None else "",
     }
+    for k in EXTRA:  # 백엔드가 더 알려 준 값(Claude Code 의 턴 수 · 멈춘 이유 등). 없으면 칸이 없다
+        if u.get(k) not in (None, "", {}):
+            row[k] = u[k]
     if getattr(llm, "effort", ""):
         row["effort"] = llm.effort  # 넘긴 추론 강도(Claude · Gemini). 정하지 않았으면 칸이 없다 (모델 기본값)
     if prompt:
@@ -354,8 +372,11 @@ EFFORT_DEFAULT = "기본"  # 추론 강도를 정하지 않은 호출(모델 기
 
 
 def _rates(b: dict) -> dict:
-    """묶음의 캐시 비율(캐시 / 입력, 0~1, 입력이 없으면 0)과 호출당 평균 초."""
-    return {"cache_rate": round(b["cached"] / b["in"], 4) if b["in"] else 0.0,
+    """묶음의 캐시 비율(캐시 / 입력, 0~1, 입력이 없으면 0)과 호출당 평균 초.
+    한 호출 안에서 다시 보낸 입력(resent)은 cache_rate 처럼 입력과 캐시 양쪽에서 뺀다."""
+    resent = min(b.get("resent", 0), b["cached"])
+    tin, cached = b["in"] - resent, b["cached"] - resent
+    return {"cache_rate": round(cached / tin, 4) if tin > 0 else 0.0,
             "seconds_avg": round(b["seconds"] / b["calls"], 1) if b["calls"] else 0.0}
 
 
@@ -370,7 +391,7 @@ def summary(days: Optional[int] = 30, project: Optional[str] = None, limit: int 
     rows = [r for r in rows if r.get("at", "")[:10] >= start and (project is None or r.get("project", "") == project)]
 
     def bucket() -> dict:
-        return {"calls": 0, "failed": 0, "retries": 0, "in": 0, "out": 0, "cached": 0, "cost": 0.0,
+        return {"calls": 0, "failed": 0, "retries": 0, "in": 0, "out": 0, "cached": 0, "resent": 0, "cost": 0.0,
                 "saved": 0.0, "unpriced": 0, "seconds": 0.0, "batch": 0}
 
     total = bucket()
@@ -398,6 +419,7 @@ def summary(days: Optional[int] = 30, project: Optional[str] = None, limit: int 
             b["in"] += r.get("in", 0)
             b["out"] += out
             b["cached"] += r.get("cached", 0)
+            b["resent"] += r.get("resent", 0)
             b["cost"] += c or 0.0
             b["saved"] += saved
             b["unpriced"] += c is None

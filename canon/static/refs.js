@@ -637,7 +637,7 @@ document.addEventListener('dragleave', (e) => { const z = e.target.closest && e.
 
 (() => {
   const css = `
-.ref-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--space-16); }
+.ref-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); gap: var(--space-16); }
 .ref-card { color: inherit; text-decoration: none; gap: var(--space-6); }
 .ref-card:hover { border-color: var(--line-strong); }
 .ref-card h3 { margin: 0; }
@@ -676,11 +676,14 @@ document.addEventListener('dragleave', (e) => { const z = e.target.closest && e.
 .ref-bar.k-skip { background: var(--line-strong); }
 .ref-bar.on { outline: 2px solid var(--text); }
 .ref-table-wrap { overflow-x: auto; max-height: 70vh; }
+.ref-table-wrap thead th { position: sticky; top: 0; z-index: var(--z-raise); background: var(--surface); }  /* 안에서 굴려도 머리 줄이 보인다 */
+@media (max-width: 640px) { .ref-table-wrap { max-height: none; } }  /* 휴대폰: 안쪽 스크롤에 갇히지 않고 페이지와 함께 구른다 */
 .ref-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
 .ref-table th, .ref-table td { padding: var(--space-6) var(--space-8); border-bottom: 1px solid var(--line); text-align: left; }
 .ref-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .ref-table tr.off td { color: var(--muted); }
 .ref-sort { background: none; border: 0; font: inherit; font-weight: 700; color: var(--text-2); cursor: pointer; padding: 0; }
+@media (pointer: coarse) { .ref-sort { min-height: var(--touch-min); } }  /* 정렬 머리 버튼 누름 영역 */
 .ref-sort.on { color: var(--text); text-decoration: underline; }
 .ref-made { margin: 0; padding-left: var(--space-20); }
 .ref-body { font-family: var(--serif); line-height: 1.9; max-width: 720px; }

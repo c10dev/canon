@@ -44,7 +44,7 @@ def rows(**opt):
 @needs_node
 def test_status_matches_project_next():
     got = run_js(FILES, "data.list.map((x) => [plStatus(x), projectNext(x)])", {"list": LIST[:4] + [LIST[6]]})
-    assert got == [["writing", "4화 쓰기 대기"], ["fresh", "1화 쓰기 대기"], ["writing", "6화 쓰기 대기"], ["done", "완결"], ["fresh", "플롯 없음"]]
+    assert got == [["writing", "4화 집필 대기"], ["fresh", "1화 집필 대기"], ["writing", "6화 집필 대기"], ["done", "완결"], ["fresh", "플롯 없음"]]
     # 본문을 쓴 화: 검수가 끝나야 상태 승인 차례 (사이드바 · 작품 홈의 다음 할 일과 같다)
     written = [{**LIST[0], "open_status": "written", "open_checked": c} for c in (False, True)]
     assert run_js(FILES, "data.list.map(projectNext)", {"list": written}) == ["4화 검수 대기", "4화 상태 승인 대기"]
@@ -81,7 +81,7 @@ def test_project_go_links_to_step_screen():
     got = run_js(FILES, "data.list.map((x) => { const g = projectGo(x); return [g.label, g.href, g.done]; })", {"list": xs})
     assert got == [
         ["4화 플롯 확정", "#/p/sea/arc/4", False],
-        ["4화 쓰기", "#/p/sea/write/4", False],
+        ["4화 집필", "#/p/sea/write/4", False],
         ["4화 검수하기", "#/p/sea/check/4", False],
         ["4화 상태 승인", "#/p/sea/review/4", False],
         ["완결", "#/p/fog", True],

@@ -391,6 +391,127 @@ def test_fix_targets_and_batch_apply(demo):
     assert done == ["f2"] and failed == [] and "서윤은 등대 뒤에 섰다." in ep.text
 
 
+def test_fixes_batch_one_call(demo):
+    """열린 지적 여러 개의 고침안을 한 번에 묻는다 (propose_fixes_batch): 검수 자료가 앞, id 를 단 지적 목록, 규칙 한 번, 요청은 맨 뒤.
+    답은 id 로 맞추고, 요청에 없는 id · 겹친 id 는 버리고, 답에서 빠진 지적은 결과에 없다."""
+    from canon import prompts
+    from canon.llm import PREFIX_HINT
+    from canon.mock import MockLLM
+    from canon.schema import FixBatch, FixItem, FixOption, FixSet
+    p = store.load(demo)
+    q1, q2 = "바람이 불었다.", "서윤은 등대 앞에 섰다."
+    pipeline.apply_check(p, ConsistencyReport(episode=1, issues=[issue(q1), issue(q2, "동선"), issue("본문에 없는 문장.", "말투")]))
+    calls = []
+
+    class Spy(MockLLM):
+        def json(self, system, prompt, schema, hint=None):
+            calls.append((prompt, schema, hint))
+            return super().json(system, prompt, schema, hint)
+
+    got = pipeline.propose_fixes_batch(Spy(), p, 1, ["f1", "f2", "f3"])
+    assert len(calls) == 1 and calls[0][1] is FixBatch
+    prompt, _, hint = calls[0]
+    material = prompts.check_material(p, 1)
+    assert prompt.startswith(material + "\n\n# 고칠 지적 (2개)\n## 지적 f1\n")  # 문장이 없는 f3 은 묻지 않는다
+    assert hint[PREFIX_HINT] == len(material)  # 캐시 경계: 검수 자료 끝
+    assert prompt.count(prompts.MINIMAL_FIX_RULES) == 1 and "## 지적 f2" in prompt and "갈래가 동선인 지적" in prompt
+    assert [o.label for o in got["f1"]] == ["짧게 고치기", "뒤 문장까지"] and len(got["f2"]) == 2
+    assert "찾을 수 없어요" in got["f3"]
+
+    class Partial:  # f2 만 답하고, 없는 id 와 겹친 id 를 섞는다. f1 은 본문이 맞다는 답
+        def json(self, system, prompt, schema, hint=None):
+            opt = FixOption(label="고침", text="서윤은 등대 뒤에 섰다.")
+            return FixBatch(items=[FixItem(finding="f9", options=[opt]), FixItem(finding="f2", options=[opt]),
+                                   FixItem(finding="f2", options=[]), FixItem(finding="f1", reply="본문이 맞아요.")])
+    got = pipeline.propose_fixes_batch(Partial(), p, 1, ["f1", "f2"])
+    assert set(got) == {"f1", "f2"} and [o.text for o in got["f2"]] == ["서윤은 등대 뒤에 섰다."]
+    assert "본문은 고치지 않았어요. 본문이 맞아요." in got["f1"]
+    assert pipeline.propose_fixes_batch(type("Empty", (), {"json": lambda *a, **k: FixBatch()})(), p, 1, ["f1"]) == {}
+    blank = type("Blank", (), {"json": lambda *a, **k: FixBatch(items=[FixItem(finding="f1"), FixItem(finding="f2", reply=" ")])})()
+    assert pipeline.propose_fixes_batch(blank, p, 1, ["f1", "f2"]) == {}  # 고침안도 답도 빈 항목은 답이 없는 것 (따로 묻는다)
+
+    calls.clear()  # 한 지적 고침안 · 다시 검수도 검수 자료 끝을 캐시 경계로 알린다
+    pipeline.propose_fixes(Spy(), p, 1, "f1")
+    pipeline.recheck_finding(Spy(), p, 1, "f1")
+    assert [(c[1], c[2][PREFIX_HINT]) for c in calls] == [(FixSet, len(material)), (pipeline.FindingRecheck, len(material))]
+    assert all(c[0].startswith(material + "\n\n# ") for c in calls)
+
+
+def test_web_fixes_job_batches_and_falls_back(demo, monkeypatch):
+    """작업 fixes 는 지적을 FIX_BATCH 개씩 한 번에 묻고, 답에서 빠진 지적만 지적 하나씩 다시 묻는다."""
+    import time
+
+    from canon import web
+    importlib.reload(web)
+    c = TestClient(web.app)
+    p = store.load(demo)
+    pipeline.apply_check(p, ConsistencyReport(episode=1, issues=[issue("바람이 불었다."), issue("서윤은 등대 앞에 섰다.", "동선"),
+                                                                 issue("\"됐어, 내가 할게.\"", "말투")]))
+    store.save(demo, p)
+    batches, singles = [], []
+    real_batch, real_one = pipeline.propose_fixes_batch, pipeline.propose_fixes
+
+    def batch(llm, q, n, ids):
+        batches.append(list(ids))
+        got = real_batch(llm, q, n, ids)
+        got.pop("f3", None)  # 답에서 빠진 지적
+        return got
+
+    def one(llm, q, n, fid):
+        singles.append(fid)
+        return real_one(llm, q, n, fid)
+    monkeypatch.setattr(pipeline, "propose_fixes_batch", batch)
+    monkeypatch.setattr(pipeline, "propose_fixes", one)
+    monkeypatch.setattr(pipeline, "FIX_BATCH", 2)
+    j = c.post(f"/api/projects/{demo}/jobs", json={"kind": "fixes", "ep": 1}).json()
+    assert j["total"] == 3
+    for _ in range(100):
+        j = next(x for x in c.get("/api/jobs").json() if x["id"] == j["id"])
+        if j["status"] != "running":
+            break
+        time.sleep(0.05)
+    assert (j["status"], j["done"], j["result"]) == ("done", 3, {"done": 3, "failed": []})
+    assert sorted(batches) == [["f1", "f2"], ["f3"]] and singles == ["f3"]
+    assert all(len(f.fixes) == 2 for f in store.load(demo).episode(1).findings)
+
+
+def test_web_fixes_job_batch_failure_falls_back(demo, monkeypatch):
+    """묶음 호출이 통째로 실패하면 (거절 · 시간 초과) 그 묶음의 지적을 하나씩 다시 묻는다. 지적 하나뿐인 묶음은 다시 묻지 않는다."""
+    import time
+
+    from canon import web
+    importlib.reload(web)
+    c = TestClient(web.app)
+    p = store.load(demo)
+    pipeline.apply_check(p, ConsistencyReport(episode=1, issues=[issue("바람이 불었다."), issue("서윤은 등대 앞에 섰다.", "동선"),
+                                                                 issue("\"됐어, 내가 할게.\"", "말투")]))
+    store.save(demo, p)
+    singles = []
+    real_one = pipeline.propose_fixes
+
+    def batch(llm, q, n, ids):
+        raise RuntimeError("AI가 이 요청을 거절했어요")
+
+    def one(llm, q, n, fid):
+        singles.append(fid)
+        if fid == "f2":
+            raise RuntimeError("f2 만 거절")
+        return real_one(llm, q, n, fid)
+    monkeypatch.setattr(pipeline, "propose_fixes_batch", batch)
+    monkeypatch.setattr(pipeline, "propose_fixes", one)
+    monkeypatch.setattr(pipeline, "FIX_BATCH", 2)
+    j = c.post(f"/api/projects/{demo}/jobs", json={"kind": "fixes", "ep": 1}).json()
+    for _ in range(100):
+        j = next(x for x in c.get("/api/jobs").json() if x["id"] == j["id"])
+        if j["status"] != "running":
+            break
+        time.sleep(0.05)
+    assert (j["status"], j["done"]) == ("done", 3)
+    assert sorted(singles) == ["f1", "f2"]  # f3 혼자인 묶음은 다시 묻지 않는다
+    assert sorted((x["id"], x["error"]) for x in j["result"]["failed"]) == [("f2", "f2 만 거절"), ("f3", "AI가 이 요청을 거절했어요")]
+    assert [len(f.fixes) for f in store.load(demo).episode(1).findings] == [2, 0, 0]
+
+
 def test_web_fixes_job_and_batch_apply(demo):
     import time
 

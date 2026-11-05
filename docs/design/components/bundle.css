@@ -156,6 +156,7 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 .menu { position: relative; display: inline-flex; }
 .menu > .btn[aria-expanded="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); }
 .pop-panel { position: absolute; right: 0; top: calc(100% + 6px); z-index: 12; width: min(320px, calc(100vw - 32px)); max-height: min(70vh, 560px); overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 2px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,0.16); color: var(--text); font-size: 0.8125rem; text-align: left; white-space: normal; }
+.pop-panel.up { top: auto; bottom: calc(100% + 6px); }
 .pop-panel.left { right: auto; left: 0; }
 .pop-sec { margin: 0; padding: 8px; border: none; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .pop-sep { margin: 4px 0; border: 0; border-top: 1px solid var(--rule); }
