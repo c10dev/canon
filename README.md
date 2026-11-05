@@ -926,6 +926,8 @@ AI Studio 의 `AIza…` 키 대신 Google Cloud 에서 받은 서비스 계정 J
 
 설정 파일에는 경로만 들어가고 키 내용은 옮기지 않는다. 키 파일 경로를 비우면 `gcloud auth application-default login` 으로 만든 기본 자격 증명을 쓴다. 환경 변수로는 `CANON_GEMINI_AUTH=vertex`(또는 `GOOGLE_GENAI_USE_VERTEXAI=true`), `CANON_VERTEX_CREDENTIALS`(또는 `GOOGLE_APPLICATION_CREDENTIALS`), `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`. Vertex AI 배치는 요청을 Cloud Storage · BigQuery 로만 받아서, 자동 집필에서 배치를 켜도 Vertex 로 부르는 단계는 일반 호출로 진행한다(시작할 때 알린다).
 
+Gemini 로 플롯 대화를 하면 한 턴의 여러 단계가 같은 앞부분(작품 설정 · 플롯)을 보낸다. 그래서 Canon 은 그 앞부분을 Gemini 명시 캐시에 10분 동안 넣고, 다음 단계는 나머지 글만 보낸다(캐시된 입력은 싸게 매겨진다). 캐시를 만드는 호출은 사용량 화면에 '캐시 만들기'로 따로 잡힌다. 캐시 저장 요금이 따로 붙고 사용량 화면 비용에는 들어가지 않는다. 끄려면 `CANON_GEMINI_CACHE=0` 이나 설정 파일의 `"gemini_cache": "off"`. 캐시를 만들거나 쓰다 오류가 나면 일반 호출로 넘어간다. Vertex AI 에서도 같은 방식을 쓰고, 안 되면 한 시간씩 꺼진다.
+
 ## Claude (구독 로그인 또는 API 키)
 
 Claude 는 두 가지 방식으로 쓴다. 설정의 **기본 AI**나 **단계별 모델**에서 고른다.

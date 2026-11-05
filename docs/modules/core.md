@@ -414,6 +414,7 @@
 - 작품별 단계 프리셋은 `project_preset` · `stage_provider` · `stage_model`
 - 단계별 추론 강도는 `stage_effort`(설정 파일 `stage_efforts`, `CANON_EFFORT_<단계>`)
 - 백엔드에 넘길 강도는 `provider_effort`(Claude `EFFORTS`, Gemini `GEMINI_EFFORTS`, Gemini 는 xhigh · max 를 high 로)
+- Gemini 명시 캐시를 쓸 곳은 `gemini_cache`(설정 파일 `gemini_cache`, `CANON_GEMINI_CACHE`). agent(기본, 플롯 대화 단계만) | off
 
 ### `canon/static/auto.js`
 
