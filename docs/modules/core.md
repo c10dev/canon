@@ -265,7 +265,11 @@
 - 중복 실행 막기
 - 자동 업데이트가 다시 시작하려고 기다리는 동안(`draining`) 새 작업은 `Draining`(400, '서버를 곧 다시 시작해요')으로 거절한다. 자동 집필(`auto`)은 받아서 첫 단계 전에 멈춘다
 - `running()` 은 다른 스레드가 작업을 더해도 깨지지 않게 잠금 안에서 센다
-- `project_lock(name)` 은 프로세스 안 잠금(재진입하지 않음)을 잡은 뒤 작품 폴더의 `.edit.lock` 에 `fcntl.flock` 을 건다. 명령줄과 웹 서버가 같은 작품을 함께 읽고 고쳐 저장해도 서로 덮지 않는다
+- `project_lock(name)` 은 프로세스 안 잠금(재진입하지 않음)을 잡은 뒤 작품 폴더의 `.edit.lock` 에 `fcntl.flock` 을 건다
+- `project_lock` 을 거치는 경로끼리만 프로세스가 달라도 서로 덮지 않는다
+- `project_lock` 을 거치는 경로: 웹 저장(`web._save` · `put_project` 등), 자동 집필(`autorun._edit`, 명령줄 `run` 포함), 대화 에이전트(`agent._edit`), 큐 시트 실험(`cue.with_lock`), 명령줄 `tofix`
+- 명령줄의 다른 명령(`write` · `check` · `update` · `confirm` · `plot` 등)은 아직 잠금 없이 `store.load` → AI 호출 → `store.save` 로 작품 전체를 저장한다
+- 그래서 그 명령이 도는 동안 웹 서버가 저장한 내용은 아직 덮일 수 있다(2026-11-05 확인, `cli.py` 의 `store.save(` 65곳)
 - `project_lock` 은 다른 프로세스가 쥐고 있으면 `LOCK_WAIT`(30초)까지 기다리고, 넘기면 `Locked`(400, '다른 프로그램(명령줄 등)이 이 작품을 고치고 있어요')를 낸다
 - `project_lock` 의 flock 은 `store.save` 의 `.lock` 과 다른 파일이라 잠금 안에서 저장해도 막히지 않는다. 점으로 시작하는 열쇠(`revlab.lock_key`)와 폴더가 없는 작품은 프로세스 안에서만 잠근다
 - `project_lock` 을 쥐는 구간은 읽고 고쳐 저장하는 짧은 구간이다. AI 호출은 그 밖에서 한다
