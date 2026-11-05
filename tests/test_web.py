@@ -1,6 +1,5 @@
 """웹 API 전체 흐름 테스트 (mock LLM). 실행: python -m pytest tests"""
 import copy
-import importlib
 import os
 
 import pytest
@@ -14,9 +13,26 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
     from canon import store, web
 
-    importlib.reload(store)
-    importlib.reload(web)
-    return TestClient(web.app)
+    # Do not reload web: one reload takes 1 to 2.5 s. The app reads store.ROOT at request time.
+    # Point store.ROOT at tmp_path and clear the caches that a reload clears.
+    # A separate MonkeyPatch keeps store.ROOT when a test calls monkeypatch.undo().
+    for cache in (store._views, store._snap_written, store._md_written, store._preset_seen, store._brief_seen,
+                  web._cards, web._rests, web._json_views):
+        cache.clear()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(store, "ROOT", tmp_path)
+        yield TestClient(web.app)
+
+
+def test_client_fixture_keeps_app(client, tmp_path):
+    """client fixture 는 web 을 다시 불러오지 않고 같은 app 에 store.ROOT 만 시험 폴더로 바꾼다."""
+    from canon import store, web
+
+    assert client.app is web.app and store.ROOT == tmp_path
+    meta = {"title": "등대", "genre": "미스터리", "logline": "x", "target_episodes": 10}
+    assert client.post("/api/projects", json={"name": "fx", "meta": meta}).status_code == 200
+    assert (tmp_path / "fx" / "project.json").exists()
+    assert [x["name"] for x in client.get("/api/projects").json()] == ["fx"]
 
 
 def test_full_flow(client):

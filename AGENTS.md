@@ -58,6 +58,8 @@ ruff check canon tests scripts      # 정적 검사 (쓰지 않는 import · 변
 - 시험은 `CANON_HOME` 을 임시 폴더로 두고 돌린다. `tests/conftest.py` 도 값이 없으면 임시 폴더를 정하므로, 이 값은 덤 안전장치다.
 - `tests/conftest.py` 는 `CANON_CONFIG` 를 `CANON_HOME` 안으로 돌리고 `CANON_USAGE` · `CANON_STYLES` · `CANON_REFS` · `CANON_STUDIO` 를 지운다.
 - 저장 위치가 저장소의 `projects/` 이면 `tests/conftest.py` 가 시험을 시작하지 않는다(`tests/test_conftest_isolation.py`).
+- `tests/test_web.py` 의 `client` fixture 는 `canon.web` 을 다시 불러오지 않는다. `store.ROOT` 만 시험 폴더로 바꾸고 작품 이름으로 찾는 캐시를 비운다.
+- `store` · `web` 에 작품 이름으로 찾는 모듈 캐시를 더하면 `client` fixture 의 비우기 목록에도 더한다.
 - `python -m unittest` 는 쓰지 않는다. 시험 대부분(pytest 형식 함수)을 건너뛴다.
 - 스키마나 파이프라인을 바꾸면 `canon/mock.py`(새 기능은 `mock_<기능>.py`)도 맞춰 고치고 전체 시험이 통과하는지 확인한다.
 - 실제 Gemini 호출은 키가 있을 때만 확인할 수 있다. 확인하지 못했다면 그렇다고 밝힌다.
