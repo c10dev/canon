@@ -135,17 +135,21 @@ def prompt_size(q: Project, n: int) -> int:
 
 def estimate(p: Project, episodes: list[int], repeats: int = 1, conditions: list[str] | None = None,
              model: str = "", batch: bool = False) -> dict:
-    """쓰기 호출 수와 비용 추정. 입력은 조건마다 실제 요청 글자 수로, 출력은 화당 분량으로 잰다(글자 ÷ CHARS_PER_TOKEN)."""
+    """쓰기 호출 수와 비용 추정. 입력은 조건마다 실제 요청 글자 수로, 출력은 화당 분량으로 잰다(usage.token_rate 의 글자 → 토큰 직선)."""
     conditions = conditions or list(CONDITIONS)
     from . import settings
 
     model = model or settings.stage_model("write")[0] or settings.model()[0]
     price = usage.rate(model, date.today().isoformat())
-    out_tokens = p.meta.words_per_episode / CHARS_PER_TOKEN
+    backend, stage_model = usage.stage_llm("write")
+    rate = usage.token_rate(backend if model == stage_model else "", model)  # 고른 모델이 단계 모델과 다르면 이름으로 백엔드를 고른다
+    out_tokens = usage.est_output(p.meta.words_per_episode, rate)
     rows, total = [], 0.0
     for cond in conditions:
-        sizes = [prompt_size(variant(before(p, n), cond), n) for n in episodes]
-        tin = sum(sizes) / CHARS_PER_TOKEN * repeats
+        qs = [(variant(before(p, n), cond), n) for n in episodes]
+        # prompt_size 는 시스템 지시를 품는다. 직선의 붙는 토큰이 시스템 지시를 이미 세므로 빼고 넘긴다
+        tin = sum(usage.est_input(prompt_size(q, n) - (sys := len(prompts.writer_system(q))), rate, sys)
+                  for q, n in qs) * repeats
         tout = out_tokens * len(episodes) * repeats
         c = usage.cost(price, tin, tout, 0, batch) if price else None
         total += c or 0
@@ -153,7 +157,7 @@ def estimate(p: Project, episodes: list[int], repeats: int = 1, conditions: list
                      "input_tokens": round(tin), "output_tokens": round(tout), "usd": round(c, 3) if c is not None else None})
     return {"model": model, "priced": price is not None, "batch": batch, "writes": sum(r["writes"] for r in rows),
             "usd": round(total, 3) if price else None, "rows": rows,
-            "note": "입력은 실제 요청 글자 수, 출력은 화당 분량을 글자당 토큰 추정값으로 나눠 셌어요. 생각 토큰과 캐시는 넣지 않았어요."}
+            "note": "입력은 실제 요청 글자 수, 출력은 화당 분량에 백엔드 · 모델별 글자당 토큰 추정값을 곱해 셌어요. 생각 토큰과 캐시는 넣지 않았어요."}
 
 
 def run(name: str, p: Project, llm, episodes: list[int], repeats: int = 1, conditions: list[str] | None = None,

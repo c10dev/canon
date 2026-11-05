@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from canon import autorun, cue, jobs, prompts, revlab, store
+from canon import autorun, cue, jobs, prompts, revlab, store, usage
 from canon.cli import main
 from canon.mock import MockLLM
 from canon.mock_revlab import FAKE_LINE
@@ -614,7 +614,8 @@ def test_estimate(home):
     lab = revlab.load(lab.id)
     assert lab.episodes[1].sheet is None and lab.lines_at == ""
     w = revlab.estimate(lab, "write", [1])
-    assert w["kind"] == "write" and w["rows"][0]["output_tokens"] == round(len(lab.episodes[0].text) / revlab.CHARS_PER_TOKEN)
+    rate = usage.token_rate("", w["model"])  # mock 설정이면 모델 이름(Gemini 기본 모델)으로 직선을 고른다
+    assert w["kind"] == "write" and w["rows"][0]["output_tokens"] == round(usage.est_output(len(lab.episodes[0].text), rate))
     with pytest.raises(ValueError, match="없는 화"):
         revlab.estimate(lab, "parse", [7])
 

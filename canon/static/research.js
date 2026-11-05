@@ -329,7 +329,7 @@ function rsBudgetOut(r) {
   const cell = (c) => `<td class="${c.over ? 'over' : c.tight ? 'tight' : ''}" title="${esc(parts(c))}">${c.exact ? '' : '~'}${rsNum(c.tokens)}<span class="small"> / ${rsNum(c.total)}</span>${parts(c) ? `<span class="small rs-parts">${esc(parts(c))}</span>` : ''}</td>`;
   const rows = r.rows.map((x) => `<tr><td>${x.episode}화</td><td><span class="chip ${x.status}">${STATUS[x.status]}</span>${x.measured ? '' : ' <span class="small">가정</span>'}</td>${cell(x.write)}${cell(x.check)}${cell(x.state)}</tr>`).join('');
   return `<section class="card" aria-labelledby="rs-res-h">${head}${notes}
-      <div class="rs-scroll"><table class="rs-table"><thead><tr><th>화</th><th>상태</th><th>본문 쓰기</th><th>검수</th><th>상태 변경안</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <div class="rs-scroll"><table class="rs-table rs-pin"><thead><tr><th>화</th><th>상태</th><th>본문 쓰기</th><th>검수</th><th>상태 변경안</th></tr></thead><tbody>${rows}</tbody></table></div>
       <div class="small">칸마다 '입력 / 입력+출력 여유' 토큰이에요. 출력 여유는 본문 ${rsNum(r.write_reserve)}, 검수 · 상태 ${rsNum(r.json_reserve)} 토큰으로 잡았어요. ${r.tokenizer ? '서버 토크나이저로 셌어요.' : '~ 표시는 글자 수로 어림한 값이에요.'} '가정'인 화는 앞선 화가 모두 목표 분량으로 쓰였다고 보고 쟀어요. ${typeof matchMedia === 'function' && matchMedia('(hover: hover)').matches ? '칸에 올리면 큰 블록 비중이 보여요.' : '칸 아래에 큰 블록 비중을 적었어요.'}</div>
     </section>`;
 }
@@ -627,7 +627,7 @@ function rsToc() {
 }
 
 function viewResearch() {
-  if (!S.rs) return header('본편과 분리', '연구 · 모델 실험', '') + '<div class="note plain">불러오는 중…</div>';
+  if (!S.rs) return header('실험 · 본편과 분리', '연구 · 모델 실험', '') + '<div class="note plain">불러오는 중…</div>';
   const t = S.rs.tab;
   const views = { home: rsHome, probe: rsProbeView, sample: rsSampleView, stage: rsStageView, budget: rsBudgetView, check: rsCheckView, compare: rsCompareView, stattrial: stView, log: rsLogView };
   const title = t === 'home' ? '연구 · 모델 실험' : t === 'log' ? '실험 기록' : RS_SEC[t].label;

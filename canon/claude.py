@@ -138,10 +138,10 @@ def login_command() -> str:
     return f"CLAUDE_CONFIG_DIR={shlex.quote(d)} claude auth login" if d else "claude auth login"
 
 
-def child_env() -> dict:
+def child_env(extra: dict | None = None) -> dict:
     """claude 를 부를 때의 환경. API 키를 빼야 구독으로 호출한다 (-p 에서는 키가 있으면 늘 키를 쓴다).
     사용자 CLAUDE.md 와 자동 메모리는 소설 프롬프트에 섞이지 않게 끈다. CLAUDE_CODE_OAUTH_TOKEN 은 그대로 둔다.
-    Canon 전용 폴더를 쓰면 CLAUDE_CONFIG_DIR 로 넘긴다 (없으면 만든다)."""
+    Canon 전용 폴더를 쓰면 CLAUDE_CONFIG_DIR 로 넘긴다 (없으면 만든다). extra 는 이 호출에만 더할 값이다."""
     env = {k: v for k, v in os.environ.items() if k not in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")}
     env["CLAUDE_CODE_DISABLE_CLAUDE_MDS"] = "1"
     env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1"
@@ -149,6 +149,7 @@ def child_env() -> dict:
     if d:
         Path(d).mkdir(parents=True, exist_ok=True, mode=0o700)
         env["CLAUDE_CONFIG_DIR"] = d
+    env.update(extra or {})
     return env
 
 
@@ -166,11 +167,14 @@ def _probe(binary: str, real: str) -> frozenset[str]:
     out = _run([binary, "--help"], 30)
     text = out.stdout + out.stderr
     known = ("--safe-mode", "--tools", "--strict-mcp-config", "--no-session-persistence", "--json-schema", "--effort")
-    return frozenset(f for f in known if f in text)
+    found = {f for f in known if f in text}
+    if "--system-prompt-file" in text or "--system-prompt[-file]" in text:  # 2.1.x 는 옵션 목록에 따로 싣지 않는다
+        found.add("--system-prompt-file")
+    return frozenset(found)
 
 
 def _run(args: list[str], timeout: float, stdin: str | None = None,
-         stop: threading.Event | None = None) -> subprocess.CompletedProcess:
+         stop: threading.Event | None = None, env: dict | None = None) -> subprocess.CompletedProcess:
     """args 를 실행하고 끝날 때까지 기다린다. timeout 초를 넘기면 하위 프로세스를 끝내고 TimeoutExpired 를 낸다.
     stop 이 서면(웹 작업의 멈추기) STOP_POLL 초 안에 하위 프로세스를 끝내고 cancel.Cancelled 를 낸다."""
     # 작업 폴더를 빈 임시 폴더로 둬서 Canon 저장소의 CLAUDE.md, 훅, MCP 설정을 읽지 않게 한다.
@@ -183,7 +187,7 @@ def _run(args: list[str], timeout: float, stdin: str | None = None,
         inp.write(stdin or "")
         inp.flush()
         inp.seek(0)
-        proc = subprocess.Popen(args, stdin=inp, stdout=out, stderr=err, cwd=cwd, env=child_env())
+        proc = subprocess.Popen(args, stdin=inp, stdout=out, stderr=err, cwd=cwd, env=child_env(env))
         deadline = time.monotonic() + timeout
         try:
             while True:
@@ -308,14 +312,39 @@ def _explain(text: str) -> str:
 
 
 def _cli_usage(d: dict) -> dict | None:
+    """JSON 결과의 토큰 수. 있으면 turns(num_turns) · stop(stop_reason) · api_seconds(duration_api_ms) ·
+    models(modelUsage 의 모델별 입력 · 출력 · 캐시)도 담는다. 사용량 기록 줄의 같은 이름 칸이 된다.
+    turns 가 2 이상이면 CLI 가 한 호출 안에서 요청을 다시 보낸 것이다. 턴마다 같은 요청을 보냈다고 보고
+    다시 보낸 입력을 in × (turns-1)/turns 로 어림해 resent 에 둔다. 캐시 비율을 셀 때 빼려는 값이다."""
     u = d.get("usage")
     if not isinstance(u, dict):
         return None
     cached = int(u.get("cache_read_input_tokens") or 0)
     prompt = int(u.get("input_tokens") or 0) + int(u.get("cache_creation_input_tokens") or 0) + cached
     # 생각 토큰은 output_tokens 에 들어 있어 따로 세지 않는다 (사용량 화면이 출력에 더한다)
-    return {"prompt_tokens": prompt, "completion_tokens": int(u.get("output_tokens") or 0),
-            "thought_tokens": 0, "cached_tokens": cached}
+    out = {"prompt_tokens": prompt, "completion_tokens": int(u.get("output_tokens") or 0),
+           "thought_tokens": 0, "cached_tokens": cached}
+    turns = d.get("num_turns")
+    if isinstance(turns, int) and turns > 0:
+        out["turns"] = turns
+        if turns > 1:
+            out["resent"] = round(prompt * (turns - 1) / turns)
+    if isinstance(d.get("stop_reason"), str) and d["stop_reason"]:
+        out["stop"] = d["stop_reason"]
+    if isinstance(d.get("duration_api_ms"), (int, float)):
+        out["api_seconds"] = round(d["duration_api_ms"] / 1000, 2)
+    mu = d.get("modelUsage")
+    if isinstance(mu, dict) and mu:
+        models = {}
+        for name, m in mu.items():
+            if not isinstance(m, dict):
+                continue
+            read = int(m.get("cacheReadInputTokens") or 0)
+            models[name] = {"in": int(m.get("inputTokens") or 0) + int(m.get("cacheCreationInputTokens") or 0) + read,
+                            "out": int(m.get("outputTokens") or 0), "cached": read}
+        if models:
+            out["models"] = models
+    return out
 
 
 def _served(d: dict) -> str:
@@ -323,7 +352,7 @@ def _served(d: dict) -> str:
     mu = d.get("modelUsage")
     if not isinstance(mu, dict) or not mu:
         return ""
-    return max(mu, key=lambda k: (mu[k] or {}).get("outputTokens") or 0)
+    return max(mu, key=lambda k: (mu[k] if isinstance(mu[k], dict) else {}).get("outputTokens") or 0)
 
 
 class ClaudeCodeLLM:
@@ -368,14 +397,16 @@ class ClaudeCodeLLM:
     def count_tokens(self, text: str) -> int | None:
         return None
 
-    def _args(self, system: str, schema: dict | None) -> list[str]:
+    def _args(self, system: str, schema: dict | None, system_file: str | None = None) -> list[str]:
+        """system_file 을 주면 시스템 프롬프트를 글 대신 그 파일로 넘긴다 (_call 이 앞부분을 시스템 프롬프트로 옮긴 때)."""
         binary = self._bin()
         flags = _flags(binary)
         if schema is not None and "--json-schema" not in flags:
             raise ClaudeCodeError("이 Claude Code 버전은 구조화 출력(--json-schema)을 몰라요. `claude update` 로 올리세요.")
         if "--tools" not in flags:  # 도구를 끄지 못하면 부르지 않는다 (옵션 목록을 읽지 못한 때도)
             raise ClaudeCodeError("이 Claude Code 버전에서 도구 끄기(--tools)를 확인하지 못했어요. `claude update` 로 올리세요.")
-        args = [binary, "-p", "--output-format", "json", "--system-prompt", system,
+        sp = ["--system-prompt-file", system_file] if system_file else ["--system-prompt", system]
+        args = [binary, "-p", "--output-format", "json", *sp,
                 "--tools", ""]  # 파일 읽기, 명령 실행, 웹 검색을 모두 끈다
         for f in ("--safe-mode", "--strict-mcp-config", "--no-session-persistence"):
             if f in flags:
@@ -391,20 +422,38 @@ class ClaudeCodeLLM:
             args += ["--json-schema", json.dumps(schema, ensure_ascii=False)]
         return args
 
-    def _call(self, system: str, prompt: str, schema: type[BaseModel] | None = None, attempt: int = 1) -> Any:
+    def _call(self, system: str, prompt: str, schema: type[BaseModel] | None = None, attempt: int = 1,
+              cut: int | None = None, prefix: int | None = None) -> Any:
         """한 번 부르고 사용량을 기록한다. 프롬프트는 표준 입력으로 넘긴다 (인자 길이 한도를 피한다).
-        schema 가 있으면 검증한 값을, 없으면 글을 돌려준다."""
+        schema 가 있으면 검증한 값을, 없으면 글을 돌려준다. cut 을 주면 그 자리에서 앞부분을 옮긴다 (_split).
+        prefix 는 부른 쪽이 아는 공통 앞부분의 글자 수다 (llm.prefix_of)."""
         from .llm import caps, with_note
 
         cancel.check()  # 멈춘 작업은 다음 호출을 보내지 않는다 (형식 고치기 재시도도)
-        wait = caps()[1]
+        cap, wait = caps()
+        # 출력 한도는 CLI 옵션이 없어 이 호출의 환경 변수로만 넘긴다. 한도가 없으면 넣지 않는다 (Claude Code 기본값)
+        env = {"CLAUDE_CODE_MAX_OUTPUT_TOKENS": str(cap)} if cap else None
         timeout = min(self.timeout, wait) if wait else self.timeout
         t, tokens = time.time(), None
         self.last_raw = self.last_note = ""
+        gate, claim, reached, sent = None, None, False, 0.0
+        self.last_cut = 0
         try:
-            args = self._args(system, strict_schema(schema) if schema else None)
+            sch = strict_schema(schema) if schema else None
+            head, ask, self.last_cut = self._split(system, prompt, schema, cut, prefix)
+            if head != system:
+                gate = ("cli", self.requested, schema and schema.__name__, len(head), hash(head))
+                claim = _claim(gate)
+                t = time.time()  # 앞 호출을 기다린 시간은 이 호출의 시간에 넣지 않는다
+            sent = time.time()
             try:
-                proc = _run(args, timeout, stdin=with_note(prompt), stop=cancel.current.get())
+                with tempfile.TemporaryDirectory(prefix="canon-claude-sys-") as tmp:
+                    system_file = None
+                    if head != system:
+                        system_file = os.path.join(tmp, "system.txt")
+                        Path(system_file).write_text(head, encoding="utf-8")
+                    proc = _run(self._args(head, sch, system_file), timeout, stdin=with_note(ask),
+                                stop=cancel.current.get(), env=env)
             except subprocess.TimeoutExpired as e:
                 raise ClaudeCodeError(f"Claude Code 응답이 {timeout:g}초 안에 오지 않았어요"
                                       + ("" if wait and wait < self.timeout else " (CANON_CLAUDE_TIMEOUT)")) from e
@@ -416,6 +465,7 @@ class ClaudeCodeLLM:
                 raise ClaudeCodeError(f"Claude Code 실행 실패 (종료 코드 {proc.returncode}): "
                                       f"{_explain((proc.stderr or proc.stdout).strip() or '출력 없음')}")
             tokens = self.last_usage = _cli_usage(d)
+            reached = bool(tokens and tokens["prompt_tokens"])  # 요청이 모델까지 갔으면 앞부분이 캐시에 들어갔다
             self.served = _served(d) or self.served
             if d.get("is_error") or d.get("subtype") not in (None, "success"):
                 raise ClaudeCodeError(f"Claude Code 오류: {_explain(str(d.get('result') or d.get('subtype') or d))}")
@@ -431,23 +481,43 @@ class ClaudeCodeLLM:
             self.last_raw = raw if isinstance(raw, str) else json.dumps(raw, ensure_ascii=False)
             out = _parse(schema, raw) if schema is not None else raw
         except Exception as e:
-            usage.record(self, tokens, t, ok=False, error=e, attempt=attempt, prompt=prompt)
+            if sent or not isinstance(e, cancel.Cancelled):  # 앞 호출을 기다리다 멈췄으면 보내지 않았으니 기록하지 않는다
+                usage.record(self, tokens, t, ok=False, error=e, attempt=attempt, prompt=prompt)
             raise
+        finally:
+            if gate is not None:
+                _release(gate, claim, reached, sent)
         usage.record(self, tokens, t, attempt=attempt, prompt=prompt)
         return out
 
-    def json(self, system: str, prompt: str, schema: type[T], hint: dict | None = None) -> T:
-        from .llm import SchemaMismatch, repair_prompt
+    def _split(self, system: str, prompt: str, schema: type[BaseModel] | None,
+               cut: int | None = None, prefix: int | None = None) -> tuple[str, str, int]:
+        """(시스템 프롬프트, 사용자 메시지, 옮긴 글자 수). Claude Code 는 시스템 프롬프트 끝에 캐시 표시를 달고, 사용자 메시지는
+        통째로 같을 때만 캐시가 맞는다. 그래서 같은 종류 직전 요청과 겹치는 앞부분(shared_cut)을 시스템 프롬프트 뒤로 옮긴다.
+        cut 을 주면 그 자리를 쓴다 (형식 고치기 재시도가 첫 시도와 같은 시스템 프롬프트로 캐시를 읽게).
+        prefix 를 주면 직전 요청과 견주지 않고 그 자리(단락 경계로 맞춤)에서 옮긴다. 같은 앞부분의 첫 호출부터 캐시에 넣는다.
+        겹침이 짧거나 이 버전이 --system-prompt-file 을 모르면 그대로 둔다 (긴 글을 인자로 넘기면 Linux 한도 128KB 에 걸린다)."""
+        if "--system-prompt-file" not in _flags(self._bin()):
+            return system, prompt, 0
+        if cut is None:
+            cut = shared_cut(("cli", self.requested, system, schema and schema.__name__), prompt, prefix)
+        if not cut:
+            return system, prompt, 0
+        return f"{system.rstrip()}\n\n{prompt[:cut]}", prompt[cut:].lstrip("\n"), cut
 
-        ask = prompt
+    def json(self, system: str, prompt: str, schema: type[T], hint: dict | None = None) -> T:
+        from .llm import SchemaMismatch, prefix_of, repair_prompt
+
+        ask, cut, prefix = prompt, None, prefix_of(hint)
         for attempt in range(2):
             self.last_attempts = attempt + 1
             try:
-                return self._call(system, ask, schema, attempt + 1)
+                return self._call(system, ask, schema, attempt + 1, cut, prefix)
             except ValidationError as e:
                 if attempt:
                     raise SchemaMismatch(schema, e, "Claude") from e
-                ask = repair_prompt(prompt, self.last_raw, schema, e)
+                ask = repair_prompt(prompt, self.last_raw, schema, e)  # 처음 요청 뒤에 덧붙이므로 같은 자리에서 자른다
+                cut = self.last_cut
         raise AssertionError("unreachable")
 
     def text(self, system: str, prompt: str) -> str:
@@ -473,13 +543,67 @@ _SEEN_LOCK = threading.Lock()
 CACHE_MIN_CHARS = 2_000  # 겹치는 앞부분이 이보다 짧으면 표시하지 않는다 (최소 캐시 길이 아래)
 
 
-def cache_blocks(key: tuple, prompt: str) -> str | list[dict]:
-    """직전 같은 종류 요청과 겹치는 앞부분을 단락 경계에서 잘라 캐시 표시를 단 블록으로 나눈다. 겹침이 짧으면 글 그대로."""
+def shared_cut(key: tuple, prompt: str, prefix: int | None = None) -> int:
+    """직전 같은 종류 요청과 겹치는 앞부분이 끝나는 단락 경계. 겹침이 CACHE_MIN_CHARS 보다 짧으면 0. 이 요청을 직전 요청으로 기억한다.
+    prefix 를 주면 직전 요청 대신 그 글자 수를 앞부분 끝으로 본다 (부른 쪽이 공통 자료가 끝나는 곳을 안다: llm.prefix_of).
+    그 자리 바로 뒤의 단락 구분까지 앞부분에 넣어, 자료 뒤에 '\n\n'으로 요청을 붙인 프롬프트는 자료 끝에서 자른다."""
     with _SEEN_LOCK:
         prev = _SEEN.get(key, "")
         _SEEN[key] = prompt
-    cut = prompt.rfind("\n\n", 0, len(os.path.commonprefix([prev, prompt])))
-    if cut < CACHE_MIN_CHARS:
+    end = min(prefix, len(prompt)) + 2 if prefix else len(os.path.commonprefix([prev, prompt]))
+    cut = prompt.rfind("\n\n", 0, end)
+    return cut if cut >= CACHE_MIN_CHARS else 0
+
+
+# 구독(Claude Code)은 앞부분을 시스템 프롬프트로 옮겨 캐시한다(ClaudeCodeLLM._split). 고침안 받기처럼 같은 앞부분 요청을
+# 동시에 여럿 보내면 모두 캐시를 새로 쓰므로, 같은 시스템 프롬프트를 먼저 보낸 호출이 앞부분을 읽어 캐시에 넣을 동안
+# (CACHE_PREFILL_SECONDS, 그 전에 끝나면 끝날 때까지) 뒤 호출을 기다리게 한다. 캐시는 응답이 나오기 시작하면 읽을 수 있어
+# 앞 호출의 응답이 끝날 때까지 기다리지 않는다. 보낸 뒤 CACHE_WARM_SECONDS 동안은 기다리지 않는다 (이미 캐시에 있다).
+_WRITING: dict[tuple, tuple[threading.Event, float]] = {}  # 캐시를 쓰는 중인 시스템 프롬프트 → (끝나면 세우는 신호, 보낸 시각)
+_WARM: dict[tuple, float] = {}  # 캐시에 들어간 시스템 프롬프트 → 마지막으로 보낸 시각
+CACHE_WARM_SECONDS = 300  # 캐시 유지 시간 (짧은 쪽 5분)
+CACHE_PREFILL_SECONDS = 30  # 앞 호출을 보낸 뒤 이만큼만 기다린다 (실행 준비와 앞부분 읽기)
+
+
+def _claim(gate: tuple) -> threading.Event | None:
+    """캐시를 쓸 차례면 신호를 돌려준다(끝나면 _release). 다른 호출이 같은 앞부분을 쓰는 중이면 그 호출이 끝나거나
+    보낸 지 CACHE_PREFILL_SECONDS 가 지나기를 기다려 None 을 돌려준다. 이미 캐시에 있어도 None 이다. 기다리는 동안 작업 멈추기를 본다."""
+    while True:
+        with _SEEN_LOCK:
+            if time.time() - _WARM.get(gate, 0.0) < CACHE_WARM_SECONDS:
+                return None
+            writing = _WRITING.get(gate)
+            if writing is None:
+                ev = threading.Event()
+                _WRITING[gate] = (ev, time.time())
+                return ev
+        ev, started = writing
+        left = started + CACHE_PREFILL_SECONDS - time.time()
+        if left <= 0:
+            return None
+        cancel.check()
+        ev.wait(min(left, 1.0))  # 앞 호출이 끝나면 다시 본다. 모델까지 갔으면 None, 못 갔으면 이 호출이 대신 쓴다
+
+
+def _release(gate: tuple, claim: threading.Event | None, reached: bool, sent: float = 0.0) -> None:
+    """호출이 끝났다. 모델까지 간 요청이면 보낸 시각(sent)부터 그 앞부분이 캐시에 있다고 기억하고, 쓰던 차례를 놓는다."""
+    now = time.time()
+    with _SEEN_LOCK:
+        if reached:
+            _WARM[gate] = max(_WARM.get(gate, 0.0), sent or now)
+            for k in [k for k, at in _WARM.items() if now - at >= CACHE_WARM_SECONDS]:
+                del _WARM[k]
+        if claim is not None and _WRITING.get(gate, (None,))[0] is claim:
+            del _WRITING[gate]
+    if claim is not None:
+        claim.set()
+
+
+def cache_blocks(key: tuple, prompt: str, prefix: int | None = None) -> str | list[dict]:
+    """직전 같은 종류 요청과 겹치는 앞부분을 단락 경계에서 잘라 캐시 표시를 단 블록으로 나눈다. 겹침이 짧으면 글 그대로.
+    prefix 를 주면 그 자리에서 자른다 (shared_cut)."""
+    cut = shared_cut(key, prompt, prefix)
+    if not cut:
         return prompt
     return [{"type": "text", "text": prompt[:cut], "cache_control": {"type": "ephemeral"}},
             {"type": "text", "text": prompt[cut:]}]
@@ -526,7 +650,8 @@ class ClaudeAPILLM:
     def count_tokens(self, text: str) -> int | None:
         return self.client.messages.count_tokens(model=self.model, messages=[{"role": "user", "content": text}]).input_tokens
 
-    def _call(self, system: str, prompt: str, schema: type[BaseModel] | None = None, attempt: int = 1) -> Any:
+    def _call(self, system: str, prompt: str, schema: type[BaseModel] | None = None, attempt: int = 1,
+              prefix: int | None = None) -> Any:
         from .llm import caps, with_note
 
         cancel.check()  # 멈춘 작업은 다음 호출을 보내지 않는다 (형식 고치기 재시도도)
@@ -535,7 +660,7 @@ class ClaudeAPILLM:
         t, tokens = time.time(), None
         self.last_raw = ""
         req: dict[str, Any] = {"model": self.model, "max_tokens": limit, "system": system,
-                               "messages": [{"role": "user", "content": cache_blocks((self.model, system, schema and schema.__name__), with_note(prompt))}]}
+                               "messages": [{"role": "user", "content": cache_blocks((self.model, system, schema and schema.__name__), with_note(prompt), prefix)}]}
         if schema is not None:
             req["output_config"] = {"format": {"type": "json_schema", "schema": strict_schema(schema)}}
         if self.effort:
@@ -566,13 +691,13 @@ class ClaudeAPILLM:
         return out
 
     def json(self, system: str, prompt: str, schema: type[T], hint: dict | None = None) -> T:
-        from .llm import SchemaMismatch, repair_prompt
+        from .llm import SchemaMismatch, prefix_of, repair_prompt
 
-        ask = prompt
+        ask, prefix = prompt, prefix_of(hint)
         for attempt in range(2):
             self.last_attempts = attempt + 1
             try:
-                return self._call(system, ask, schema, attempt + 1)
+                return self._call(system, ask, schema, attempt + 1, prefix)
             except ValidationError as e:
                 if attempt:
                     raise SchemaMismatch(schema, e, "Claude API") from e

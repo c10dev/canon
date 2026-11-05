@@ -423,7 +423,9 @@ function syncPassage() {
   const f = S.selFocus;
   if (f && String(f.n) === n) {
     S.selFocus = null;
-    ta.focus({ preventScroll: true });
+    // 손가락 기기에서 검수 지적을 열 때는 본문 칸에 포커스하지 않는다: 키보드가 올라와 고치는 창을 덮는다. 문장 자리만 고르고 옮긴다
+    const quiet = S.selTool && S.selTool.mode === 'finding' && typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+    if (!quiet) ta.focus({ preventScroll: true });
     ta.setSelectionRange(f.start, f.end);
     let c = caretXY(ta, f.start);
     if (c.y < c.r.top || c.y > c.r.bottom - c.h) scrollTa(ta, ta.scrollTop + c.y - c.r.top - c.r.height / 3);

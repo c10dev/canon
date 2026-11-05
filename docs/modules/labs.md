@@ -10,6 +10,7 @@
 - 사본은 `stattrial.before`
 - LLM 없는 채점(`score`: 쇠맛 · 상투 · 쉼표 · 문장 길이 · 반복 구 · 문체 거리 · 설계 메모 옮김 `pipeline.memo_copied` · 예시 옮김)
 - 비용 추정(`estimate`)
+- 비용 추정의 토큰은 본문 단계 백엔드 · 모델의 `usage.token_rate` 로 센다
 - 실행(`run`: 실험 기록 · 블라인드 비교본 kind blocks)
 - 작품은 저장하지 않는다
 - 웹 화면은 아직 없음
@@ -143,6 +144,7 @@
 - 실험별 AI(`RevLab.ai`, `RevAI`): 단계 `AI_STAGES`(plan 역설계 · 줄기 · 문체, write 되돌려 쓰기)마다 프리셋 id 또는 백엔드 `AI_PROVIDERS` + 모델
 - 쓸 AI 풀기 `ai_choice`(mock 설정 → 프리셋 → 직접 고름 → 설정 단계 칸, 작품 프리셋은 보지 않음) · LLM 만들기 `llm_for` · 고르기 `set_ai`(웹 `PUT /api/revlab/{번호}/ai`) · 화면 값 `ai_view` · 기본 모델 이름 `default_model`
 - 비용 추정 모델도 `ai_choice` 로 고른다
+- 비용 추정의 토큰은 고른 백엔드 · 모델의 `usage.token_rate` 로 센다
 - 역설계 실행(`run_parse`)
 - 화면 값(`view`, 고르기 전에는 차례를 뺌)
 - AI 호출은 `pipeline.reverse_episode` · `reverse_lines`(plan 단계, 응답 칸은 모두 required, 사건 · 장면 · 큐가 비면 한 번 더 묻고 그래도 비면 저장하지 않음 `rev_empty`)
@@ -221,6 +223,7 @@
   - 작품 밖 `#/refs` 목록 · `#/refs/new` 넣기 · `#/refs/<id>` 개요 · `#/refs/<id>/<차례>` 화 읽기 · `#/refs/<id>/cuts` 경계 고치기
   - `app.js` 라우팅이 `refLoad` 를 부르고 `viewRefs` 를 그림
   - 작품 밖 사이드바 도구 줄(`outNav`, 원고 수 `S.refList`)과 작품 사이드바 ⋯ 메뉴의 링크
+- 화 표는 머리 줄이 위에 붙고(`thead th` sticky), 640px 이하에서는 안쪽 높이 제한(70vh)을 풀어 페이지와 함께 구른다
 - 넣기: 파일 고르기 · 끌어 놓기(여러 파일은 이름 차례로 잇고 파일마다 시작 줄 `fileLines`) · 붙여 넣기
 - 손가락 기기에서는 끌어 놓기 안내 대신 '파일 고르기'만 안내한다(`REF_TOUCH`)
 - 인코딩은 브라우저가 푼다(`refDecode`: BOM → UTF-8 엄격 → CP949, 깨진 글자 수 `bad`, 고르기 칸)
@@ -320,6 +323,7 @@
 - 원래 반영의 바뀐 항목(`changes`)
 - LLM 없는 채점(`score`: 바뀌지 않을 값 · 바뀔 값 오류, 없던 항목, 플롯에 없던 상태창)
 - 비용 추정(`estimate`, 실제 요청 글자 수와 `usage` 가격표)
+- 비용 추정의 토큰은 본문 단계 백엔드 · 모델의 `usage.token_rate` 로 센다
 - 실행(`run`: 실험 기록 kind statwin, 조건마다 첫 안을 블라인드 비교본 kind statwin 으로)
 - 작품은 저장하지 않는다
 - 화면은 `static/stattrial.js`

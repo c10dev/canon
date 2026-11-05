@@ -40,7 +40,7 @@ from . import abilities, anchor, atlas, findings, foreshadows, setupchat, stattr
 from .schema import AgentSession, ChatScope, KnowsFoldSet, Deadline, Storyboard, StoryTime, Foreshadow, StatValue
 from .metrics import StyleMetrics
 from .schema import CharacterState, ConsistencyReport, FindingStatus, Severity, StoryEvent
-from .schema import FieldIdeas, NameOption, Recap
+from .schema import FieldIdeas, NameOption, Recap, StateDeltaAI, to_delta
 from . import branches
 from .schema import BranchDiff, BranchInfo, ForkMode, Snapshot
 from . import play
@@ -208,7 +208,7 @@ async def _server_error(_: Request, e: Exception) -> JSONResponse:
 def _need(name: str) -> None:
     """작품이 있는지만 본다. 없으면 404."""
     if not NAME_RE.match(name) or not store.exists(name):
-        raise HTTPException(404, f"프로젝트가 없어요: {name}")
+        raise HTTPException(404, f"작품을 찾을 수 없어요: {name}. 작품 목록에서 다시 골라 주세요")
 
 
 def _load(name: str) -> Project:
@@ -964,7 +964,7 @@ def create_project(body: NewProject) -> Project:
     if not NAME_RE.match(name):
         raise HTTPException(400, NAME_ERR)
     if store.exists(name):
-        raise HTTPException(409, f"이미 있는 프로젝트예요: {name}")
+        raise HTTPException(409, f"이미 있는 폴더 이름이에요: {name}. 폴더 이름을 바꿔 주세요")
     if not 1 <= body.meta.target_episodes <= 1000:
         raise HTTPException(400, "총 화수는 1~1000 사이로 적으세요")
     p = Project(meta=body.meta)
@@ -2558,25 +2558,83 @@ def _job_fixes(name: str, body: "JobIn", p: Project, kind: str, n: int | None, l
     label, total, owned = f"{n}화 지적 {len(todo)}개 고침안", len(todo), set()
 
     def fn(job: jobs.Job):
+        # 지적을 FIX_BATCH 개씩 묶어 한 번에 묻는다 (같은 검수 자료를 지적마다 보내지 않는다). 답에서 빠진 지적만 따로 묻는다
         q0 = store.load(name)
         failed: list[dict] = []
-        with ThreadPoolExecutor(max_workers=min(pipeline.FIX_WORKERS, len(todo))) as pool:
-            futures = {pool.submit(contextvars.copy_context().run, pipeline.propose_fixes, llm, q0, n, fid): fid for fid in todo}
+        missing: list[str] = []
+        why = lambda e: getattr(e, "message", None) or str(e) or type(e).__name__
+
+        def keep(fid: str, got) -> None:
+            if isinstance(got, str):
+                failed.append({"id": fid, "error": got})
+            else:
+                cancel.check()
+                _edit(name, lambda q: pipeline.store_fixes(q, n, fid, got))
+            job.done += 1
+
+        groups = [todo[i:i + pipeline.FIX_BATCH] for i in range(0, len(todo), pipeline.FIX_BATCH)]
+        with ThreadPoolExecutor(max_workers=min(pipeline.FIX_WORKERS, len(groups))) as pool:
+            futures = {pool.submit(contextvars.copy_context().run, pipeline.propose_fixes_batch, llm, q0, n, ids): ids for ids in groups}
             for fut in as_completed(futures):
-                fid = futures[fut]
+                ids = futures[fut]
                 try:
-                    opts = fut.result()
+                    got = fut.result()
                 except cancel.Cancelled:
                     raise
-                except Exception as e:  # 한 지적이 실패해도 나머지는 남긴다
-                    failed.append({"id": fid, "error": getattr(e, "message", None) or str(e) or type(e).__name__})
-                else:
-                    cancel.check()
-                    _edit(name, lambda q: pipeline.store_fixes(q, n, fid, opts))
-                job.done += 1
+                except Exception as e:  # 한 묶음이 실패하면 (거절, 시간 초과, 형식 오류) 그 묶음의 지적을 하나씩 다시 묻는다. 지적 하나뿐인 묶음은 같은 호출이라 다시 묻지 않는다
+                    if len(ids) > 1:
+                        missing.extend(ids)
+                    else:
+                        keep(ids[0], why(e))
+                    continue
+                for fid in ids:
+                    if fid in got:
+                        keep(fid, got[fid])
+                    else:
+                        missing.append(fid)
+        if missing:
+            with ThreadPoolExecutor(max_workers=min(pipeline.FIX_WORKERS, len(missing))) as pool:
+                futures = {pool.submit(contextvars.copy_context().run, pipeline.propose_fixes, llm, q0, n, fid): fid for fid in missing}
+                for fut in as_completed(futures):
+                    fid = futures[fut]
+                    try:
+                        opts = fut.result()
+                    except cancel.Cancelled:
+                        raise
+                    except Exception as e:  # 한 지적이 실패해도 나머지는 남긴다
+                        keep(fid, why(e))
+                    else:
+                        keep(fid, opts)
         if len(failed) == len(todo):
             raise ValueError(f"고침안을 하나도 받지 못했어요: {failed[0]['error']}")
         return {"done": len(todo) - len(failed), "failed": failed}
+    return label, total, owned, fn
+
+
+def _job_recheck(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 recheck: (이름표, 전체 걸음, 맡은 화, 할 일)."""
+    # 고친 곳만 다시 보기: 지난 검수 뒤 수정이 모두 고침안이면 그 지적들을 한 번에 다시 본다. 회차는 늘지 않는다
+    if n is None or not p.episode(n).text:
+        raise ValueError("본문이 있는 화만 다시 봐요")
+    pipeline._editable(p, n)
+    todo = findings.fix_recheck_targets(p.episode(n))
+    if not todo:
+        raise ValueError("고친 곳만 다시 볼 지적이 없어요. 지난 검수 뒤 고침안 말고도 고친 곳이 있으면 다시 검수하세요")
+    label, total, owned = f"{n}화 고친 곳만 다시 보기 · 지적 {len(todo)}개", 1, set()
+    want = [f.id for f in todo]
+
+    def fn(job: jobs.Job):
+        p0 = store.load(name)
+        basis = pipeline.fix_recheck_basis(p0.episode(n))  # 늦게 온 결과가 그사이 한 검수 · 되돌리기를 덮지 않게 본 상태를 남긴다
+        rep = pipeline.recheck_fixed(llm, p0, n)
+        cancel.check()
+        kids: list = []
+        settled: list = []
+        _edit(name, lambda q: kids.extend(pipeline.apply_fix_recheck(q, n, rep, basis, settled)))
+        got = {x.id for x in rep.results}
+        done = sum(1 for x in settled if x.resolved)  # 실제로 넣은 결과만 센다 (그사이 작가가 닫은 지적은 빼고)
+        return {"asked": len(want), "resolved": done, "open": len(settled) - done, "added": len(kids),
+                "missing": [i for i in want if i not in got]}
     return label, total, owned, fn
 
 
@@ -2708,14 +2766,18 @@ def _job_write(name: str, body: "JobIn", p: Project, kind: str, n: int | None, l
 
             def fn(job: jobs.Job):
                 _fill_old_spots(name)
+                lead: list[str] = []
+                made_at = ""
                 if make:
                     job.note = f"{n}화 스토리보드 만드는 중"
-                    b = pipeline.make_storyboard(plan, store.load(name), n)
+                    b = pipeline.make_storyboard(plan, store.load(name), n, lead=lead)
                     _edit(name, lambda q: pipeline.set_storyboard(q, n, b, by="ai"))
+                    made_at = b.made_at
                     job.done = 1
                 if make_cues:  # 스토리보드 다음: 큐 시트는 스토리보드 장면 순서를 받아 만든다
                     job.note = f"{n}화 큐 시트 만드는 중"
-                    s = pipeline.make_cue_sheet(plan, store.load(name), n)
+                    q = store.load(name)  # 방금 만든 스토리보드면 그 요청 글로 시작해 캐시가 맞게 한다 (pipeline.cue_lead)
+                    s = pipeline.make_cue_sheet(plan, q, n, lead=pipeline.cue_lead(q, n, lead, made_at))
                     _edit(name, lambda q: cue.set_episode(q, n, s, by="ai"))
                     job.done += 1
                 job.note = f"{n}화 본문 쓰는 중"
@@ -2903,6 +2965,7 @@ JOB_MAKERS: dict[str, Callable] = {
     "rework": _job_rework,
     "check": _job_check,
     "fixes": _job_fixes,
+    "recheck": _job_recheck,
     "stage_draft": _job_stage_draft,
     "stage_extract": _job_stage_draft,
     "storyline": _job_storyline,
@@ -2930,12 +2993,12 @@ def start_job(name: str, body: JobIn) -> dict:
     """오래 걸리는 AI 작업을 시작하고 바로 돌아온다. 결과는 GET /api/jobs 로 본다."""
     p = _load(name)
     kind, n = body.kind, body.ep
-    if kind in ("write", "state", "plots", "plot_one", "check", "board"):
+    if kind in ("write", "state", "plots", "plot_one", "check", "board", "recheck"):
         _not_auto(name)
     if kind in jobs.EP_AI_KINDS and (old := jobs.waiting_on(name, n)):  # 같은 화에 호출이 겹치면 요청 한도(429)에 더 걸린다
         _waiting_409(old)
     stage = {"write": "write", "state": "state", "recap_arc": "state", "recap_part": "state", "fold_knows": "state", "rework": "revise", "fixes": "revise",
-             "hook": "check", "check": "check", "opening_drafts": "write", "stattrial": "write", "stage_extract": "check", "cue_run": "write",
+             "hook": "check", "check": "check", "recheck": "check", "opening_drafts": "write", "stattrial": "write", "stage_extract": "check", "cue_run": "write",
              }.get(kind, "plan")  # 나머지는 plan
     llm = get_llm(stage)  # 키가 없으면 여기서 바로 오류를 보여 준다
 
@@ -2945,7 +3008,7 @@ def start_job(name: str, body: JobIn) -> dict:
     label, total, owned, fn = maker(name, body, p, kind, n, llm)
 
     try:
-        with usage.scope(episode=n if kind in ("write", "board", "state", "check", "fixes", "rework", "hook", "openings", "opening_drafts", "plot_one", "cue_sheet", "cue_run", "cues") else None, task=kind):
+        with usage.scope(episode=n if kind in ("write", "board", "state", "check", "fixes", "recheck", "rework", "hook", "openings", "opening_drafts", "plot_one", "cue_sheet", "cue_run", "cues") else None, task=kind):
             job = jobs.start(name, kind, n, label, _keep_pending(name, kind, n, label, fn), total=total, owned=owned)
     except jobs.Busy as b:
         return {**b.job.public(), "already": True}
@@ -3769,7 +3832,7 @@ def parse_state(name: str, n: int, body: Raw) -> StateDelta:
     data = _json_object(body.raw)
     data["episode"] = n
     try:
-        delta = StateDelta.model_validate(data)
+        delta = to_delta(StateDeltaAI.model_validate(data), n)  # 예전 JSON 의 관계 수치 칸은 버린다
     except ValidationError as e:
         raise HTTPException(400, _validation_text(e))
     pipeline.clean_delta(p, delta)
@@ -3964,9 +4027,7 @@ def apply_state(name: str, n: int, d: StateDelta, force: bool = False) -> Projec
     p = _load(name)
     _not_auto(name)
     ep = p.episode(n)
-    if ep.status != "written":
-        raise ValueError(f"{n}화는 본문이 작성된 상태가 아니에요 (현재: {ep.status})")
-    pipeline.require_previous(p, n)
+    pipeline.check_applicable(p, n)
     d.episode = n
     bad = pipeline.validate_delta(p, d)
     if bad:
@@ -3979,10 +4040,15 @@ def apply_state(name: str, n: int, d: StateDelta, force: bool = False) -> Projec
 
 
 @app.post("/api/projects/{name}/episodes/{n}/restate")
-def apply_restate(name: str, n: int, d: StateDelta) -> Project:
-    """반영 뒤 고친 화: 고친 본문에서 다시 뽑은 변경안 중 고른 요약 · 새 사실 · 새 복선만 반영한다."""
+def apply_restate(name: str, n: int, d: StateDelta, force: bool = False) -> Project:
+    """반영 뒤 고친 화: 고친 본문에서 다시 뽑은 변경안 중 고른 요약 · 새 사실 · 새 복선만 반영한다.
+    변경안을 만든 본문(d.basis)이 지금 본문과 다르면 apply_state 처럼 409(code stale_delta)로 막는다. 작가가 확인하면 force 로 다시 보낸다."""
     p = _load(name)
     _not_auto(name)
+    ep = p.episode(n)
+    if ep.status == "finalized" and d.basis and not force and d.basis != pipeline.text_basis(ep.text):
+        return JSONResponse({"detail": f"변경안을 만든 뒤 {n}화 본문을 또 고쳤어요. 옛 본문 기준의 요약 · 사실 · 복선이 들어가요",
+                             "code": "stale_delta"}, status_code=409)
     d.episode = n
     pipeline.apply_restate(p, d)
     return _save(name, p)

@@ -65,13 +65,14 @@ def test_policy_reasons(demo):
 
 
 def test_policy_reasons_skip_held(demo):
-    """자동 반영이 hold 로 빼는 제안(반대 유형 표시가 붙은 관계 바뀜)은 정책 흉내에도 넣지 않는다."""
+    """자동 반영이 hold 로 빼는 제안(반대 유형 표시가 붙은 관계 바뀜)은 정책 흉내에도 넣지 않는다.
+    관계 바뀜의 수치는 반영이 쓰지 않으므로(사건 없는 예전 형식이어도) 관계를 움직이지 않는다."""
     p = store.load(demo)
     r = p.relationships[0]
     upd = r.model_copy(update={"affinity": -5 if r.affinity >= 0 else 5, "type": "적대"})
-    d = StateDelta(episode=1, summary="s", relationship_updates=[upd])  # 사건 없는 예전 형식: 온기를 affinity 에 맞춘다
+    d = StateDelta(episode=1, summary="s", relationship_updates=[upd])
     pol = Policy(max_shift=0.1, stop_on_stage=True)
-    assert any("관계가" in x for x in autorun.review_reasons(p, d, None, pol))
+    assert autorun.review_reasons(p, d, None, pol) == []
     d.rel_flagged = [0]
     assert autorun.review_reasons(p, d, None, pol) == []
     assert d.relationship_updates == [upd] and d.rel_flagged == [0] and not d.warnings  # 받은 변경안은 그대로 둔다
@@ -224,6 +225,28 @@ def test_estimate(demo, monkeypatch):
     assert autorun.estimate(p, 6, True, Policy())["batch_rounds"] == 6  # 본문은 로컬이라 배치 없음
 
 
+def test_estimate_tokens_follow_stage_backend(demo, monkeypatch):
+    """글자 → 토큰 직선은 단계 백엔드 · 모델마다 다르다. Claude 단계는 같은 요청도 Gemini 보다 입력 토큰을 더 많이 센다."""
+    p = store.load(demo)
+    p.settings.check_motion = False
+    p.settings.stage_extract = False
+    monkeypatch.setenv("CANON_LLM", "gemini")
+    monkeypatch.setenv("CANON_MODEL", "gemini-4-argon")
+    gem = autorun.estimate(p, 6, False, Policy(check=False))
+    assert gem["token_rates"]["write"]["slope"] == 0.568 and gem["token_rates"]["write"]["source"] == "default"
+    monkeypatch.setenv("CANON_LLM_WRITE", "claude")
+    monkeypatch.setenv("CANON_MODEL_WRITE", "claude-opus-5-5")
+    cl = autorun.estimate(p, 6, False, Policy(check=False))
+    assert cl["token_rates"]["write"]["slope"] == 1.035 and cl["token_rates"]["state"]["slope"] == 0.568
+    words = p.meta.words_per_episode
+    # 본문 6화: 출력은 기울기 차이만큼, 입력은 기울기 차이 × 글자 수 + 붙는 토큰 차이만큼 는다
+    assert cl["tokens_out"] - gem["tokens_out"] == pytest.approx(6 * (1.035 - 0.568) * words, abs=2)
+    assert cl["tokens_in"] - gem["tokens_in"] > 6 * (3805 - 1579)
+    assert cl["cost"] < gem["cost"]  # Claude 구독 본문은 0원으로 센다
+    monkeypatch.setenv("CANON_LLM", "mock")  # mock 은 예전처럼 1.7자당 1토큰
+    assert autorun.estimate(p, 6, False, Policy(check=False))["token_rates"]["write"]["source"] == "fallback"
+
+
 def test_estimate_divides_measured_output_by_calls(demo, monkeypatch):
     """로그의 tokens_out 은 단계 안 모든 호출의 합이다. 추정은 호출 하나의 평균으로 나눠 호출마다 더한다."""
     p = store.load(demo)
@@ -329,7 +352,7 @@ def test_web_api(demo, monkeypatch):
 
 
 def test_batch_schema_mismatch_is_repaired(demo):
-    mock.BAD_JSON[:] = ["StateDelta"]  # 실제 배치에서 본 것처럼 summary 가 빠지고 항목이 문자열
+    mock.BAD_JSON[:] = ["StateDeltaAI"]  # 실제 배치에서 본 것처럼 summary 가 빠지고 항목이 문자열
     p = store.load(demo)
     ep = p.episode(1)
     ep.stage = [StageScene(id=f"p{i}", event=i, event_text=x, role="plan") for i, x in enumerate(ep.plot.events)]
@@ -345,7 +368,7 @@ def test_batch_schema_mismatch_is_repaired(demo):
 
 
 def test_batch_schema_mismatch_twice_pauses_and_keeps_text(demo):
-    mock.BAD_JSON[:] = ["StateDelta", "StateDelta"]
+    mock.BAD_JSON[:] = ["StateDeltaAI", "StateDeltaAI"]
     run = autorun.start(demo, 2, True, Policy(), foreground=True)
     assert run.status == "paused" and run.ep == 1 and "형식에 맞지 않아" in run.log[-1].message
     assert "StateDelta" in run.reasons[0] and "본문은 그대로" in run.reasons[1]
@@ -628,6 +651,91 @@ def test_other_process_run_blocks_start_resume_and_restart(demo, monkeypatch):
     assert autorun.resume_all() == [demo]
     wait_until(idle(demo))
     assert not (store.project_dir(demo) / autorun.WANT_FILE).exists()  # 주인이 된 실행은 지난 요청을 버린다
+
+
+def _paused_on_state_batch(demo, monkeypatch):
+    """1화 본문은 받아 쓰고, 상태 변경안 배치를 기다리는 사이 일시정지한다. 그 배치 이름을 돌려준다."""
+    monkeypatch.setenv("CANON_MOCK_BATCH_POLLS", "100000")
+    autorun.start(demo, 1, True, Policy(check=False))
+    wait_until(lambda: "1:write" in autorun.get_run(demo).batches)
+    mock.BATCHES[autorun.get_run(demo).batches["1:write"]]["polls"] = 0
+    wait_until(lambda: "1:state" in autorun.get_run(demo).batches)
+    name = autorun.get_run(demo).batches["1:state"]
+    autorun.request(demo, "pause")
+    wait_until(idle(demo))
+    run = autorun.load_run(demo)
+    assert run.status == "paused" and run.batch_keys.keys() == {"1:state"}
+    for b in mock.BATCHES.values():
+        b["polls"] = 0
+    monkeypatch.setenv("CANON_MOCK_BATCH_POLLS", "0")
+    return name
+
+
+def _state_batches():
+    return [k for k, b in mock.BATCHES.items() if b["label"].endswith(" 1:state")]
+
+
+def test_resume_after_text_edit_resubmits_state_batch(demo, monkeypatch):
+    """일시정지 중 본문을 고치고 이어 가면 옛 본문으로 보낸 상태 변경안 배치를 버리고 지금 본문으로 다시 보낸다."""
+    old = _paused_on_state_batch(demo, monkeypatch)
+    p = store.load(demo)
+    p.episode(1).text = "작가가 멈춘 사이 고친 1화 본문"
+    store.save(demo, p)
+    before = set(_state_batches())
+    run = autorun.resume(demo, foreground=True)
+    assert run.status == "done" and not run.batches and not run.batch_keys
+    assert mock.BATCHES[old]["cancelled"]
+    assert len(set(_state_batches()) - before) == 1  # 지금 본문으로 새로 보냈다
+    assert any("다시 요청해요" in e.message for e in run.log)
+    p = store.load(demo)
+    assert p.history[-1].basis == pipeline.text_basis("작가가 멈춘 사이 고친 1화 본문")
+
+
+def test_resume_without_edit_reattaches_state_batch(demo, monkeypatch):
+    """본문을 고치지 않았으면 기다리던 배치에 그대로 다시 붙는다 (같은 프롬프트는 같은 지문)."""
+    old = _paused_on_state_batch(demo, monkeypatch)
+    before = set(_state_batches())
+    run = autorun.resume(demo, foreground=True)
+    assert run.status == "done"
+    assert not mock.BATCHES[old]["cancelled"] and set(_state_batches()) == before
+
+
+def test_resume_after_plot_edit_resubmits_write_batch(demo, monkeypatch):
+    """일시정지 중 플롯을 고치고 이어 가면 옛 플롯으로 보낸 본문 배치를 버리고 지금 플롯으로 다시 보낸다."""
+    monkeypatch.setenv("CANON_MOCK_BATCH_POLLS", "100000")
+    autorun.start(demo, 1, True, Policy(check=False))
+    wait_until(lambda: "1:write" in autorun.get_run(demo).batches)
+    old = autorun.get_run(demo).batches["1:write"]
+    autorun.request(demo, "pause")
+    wait_until(idle(demo))
+    assert autorun.load_run(demo).batch_keys.keys() == {"1:write"}
+    p = store.load(demo)
+    p.episode(1).plot.summary = "작가가 멈춘 사이 고친 1화 줄거리"
+    store.save(demo, p)
+    for b in mock.BATCHES.values():
+        b["polls"] = 0
+    monkeypatch.setenv("CANON_MOCK_BATCH_POLLS", "0")
+    writes = lambda: {k for k, b in mock.BATCHES.items() if b["label"].endswith(" 1:write")}  # noqa: E731
+    before = writes()
+    run = autorun.resume(demo, foreground=True)
+    assert run.status == "done" and mock.BATCHES[old]["cancelled"]
+    assert len(writes() - before) == 1  # 지금 플롯으로 새로 보냈다
+
+
+def test_stale_delta_is_not_auto_applied(demo, monkeypatch):
+    """변경안의 본문 지문이 지금 본문과 다르면 자동 반영하지 않고 'changed' 로 멈춘다."""
+    real = pipeline.extract_state
+
+    def stale(llm, p, n):
+        d = real(llm, p, n)
+        d.basis = "0" * 12  # 다른 본문으로 만든 변경안
+        return d
+
+    monkeypatch.setattr(pipeline, "extract_state", stale)
+    run = autorun.start(demo, 1, False, Policy(check=False), foreground=True)
+    assert run.status == "paused" and run.halt == "changed" and "본문이 바뀌어" in run.reasons[0]
+    ep = store.load(demo).episode(1)
+    assert ep.status == "written" and not ep.auto and run.applied == []
 
 
 def test_runner_reads_request_left_by_other_process(demo, monkeypatch):

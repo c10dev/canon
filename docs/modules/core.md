@@ -8,18 +8,34 @@
 - `wanted(name)`: 도는 실행에 받아 둔 일시정지 · 중지 요청. 웹 `AutoView.want` 로 보내 화면이 지금 단계가 끝날 때까지 '멈추는 중'을 보인다
 - 다른 프로세스가 쥔 실행이면 `wanted` 는 주인이 아직 읽지 않은 `autorun.want` 를 돌려준다. 주인이 읽어 지우면 빈 값으로 돌아간다
 - 목표 화까지 (스토리보드 `_board`, `Policy.storyboard` · `stop_on_board_warnings`) → (큐 시트 `_cues`, `Policy.cue_sheet`) → write → (서술 다듬기 `_polish`, `Policy.polish`, 다듬을 화 `Run.polish_due`) → check + state → 정책(`Policy`) 통과 시 반영을 반복
+- `_cues` 는 같은 실행의 `_board` 가 방금 만든 스토리보드(`Runner.board_lead`: 화 · made_at · 요청 글)면 그 요청 글로 시작하는 큐 시트 요청을 보낸다(`pipeline.cue_lead`)
 - 관계 정책(`max_shift` · `stop_on_stage`)은 작품 복사본에 `features.hold` 로 뺀 변경안을 반영해 본다(`review_reasons`)
 - 그래서 관계 정책은 실제 반영(`put`)과 같은 제안만 센다
+- 이야기 데이터 정책은 `_story_reasons` 가 본다. 모두 기본으로 꺼져 있어(0 · false) 켜기 전과 같이 돈다
+- 새 인물 멈춤(`Policy.stop_on_new_characters`, `StateDelta.new_characters`)
+- 새 비밀 멈춤(`Policy.stop_on_secrets`, `StateDelta.secrets_added`)
+- 새 인물 · 새 비밀 멈춤은 반영(`pipeline.apply_delta`)이 빼는 항목을 세지 않는다: 이미 있는 인물 id, 이미 있거나 겹친 비밀 id, 설정에 없는 인물의 비밀
+- 복선 회수 멈춤(`Policy.stop_on_resolve`): 작품에 열려 있는 복선만 센다
+- 이르거나 큰 복선 회수 멈춤(`Policy.stop_on_early_resolve`): 이번 화가 `due_ep` 보다 앞이거나 `scope` 가 part · series 인 복선
+- 기한 닫힘 멈춤(`Policy.stop_on_deadline_done`): 작품에 열려 있는 기한만 센다
+- 시간 건너뜀 멈춤(`Policy.max_time_jump_days`, 0 이면 끔): `timeline.current_day` 에서 `StateDelta.time.day` 까지 앞으로 간 날수. 어느 쪽이든 날수를 모르거나 시간 기록을 껐으면 보지 않고, 거슬러 가는 것도 보지 않는다
+- 지운 칸 멈춤(`Policy.stop_on_clear`, `CharacterState.cleared`). 칸 이름은 `CLEAR_NAMES` 로 상태 승인 화면과 같은 말로 적는다
+- 상태 변경안의 본문 지문(`StateDelta.basis`)이 지금 본문과 다르면 검토 대기로 두지도 반영하지도 않고 `paused` · `changed` 로 멈춘다(`_same_text`)
 - 배치(`llm.BatchLLM`) 켜고 끄기
 - 배치를 취소하지 못하면 배치 이름을 서버 로그(`canon` 로거)에 경고로 남긴다(`_cancel_batches`)
+- 기다리는 배치마다 보낸 프롬프트 지문을 `Run.batch_keys` 에 남긴다. 이어 갈 때 다르면 `BatchLLM` 이 그 배치를 취소하고 다시 보낸다(일시정지 중 본문 · 플롯을 고친 경우)
 - 오류로 멈추면 호출 경로를 서버 로그에 남긴다
 - 비용·시간 추정
 - 실행 중 토큰 · 비용(`Run.tokens_in` · `cost`)은 `Runner._call` 이 `usage.collect()` 로 모은 단계 안의 모든 호출을 더한다(형식 고치기 재시도, 검수의 여러 호출, 다른 스레드의 동작 검사)
 - 실행 중 비용은 `usage.totals` 로 사용량 화면과 같은 값(캐시 · 배치 요금)이다. 기록하지 않는 LLM(mock)은 마지막 호출의 `last_usage` 로 짐작한다
 - 로그 줄(`LogEntry`)의 `tokens_out` 은 단계 안 호출의 합이고 `calls` 에 호출 수를 남긴다. 옛 기록은 호출 하나로 읽는다
 - 비용 · 시간 추정(`_measured`)은 지난 로그의 출력 토큰을 호출 수로 나눠 호출 하나의 평균으로 쓴다
+- 추정의 입력 · 출력 토큰은 단계 백엔드 · 모델의 글자 → 토큰 직선(`usage.stage_rate`)으로 센다
+- 추정 결과의 `token_rates` 는 단계마다 쓴 기울기 · 붙는 토큰 · 출처(default · measured · fallback)다
 - 정착 문체 흐름 멈춤(`Policy.max_style_distance`, 0 이면 끔, `anchor.rolling`)
 - `autorun.json` 에 진행 기록
+- 변경안 반영(`_review` 의 put)은 반영 전제 `pipeline.check_applicable` 에 걸리면 반영하지 않고 paused 로 멈춘다
+- 검토 대기의 그대로 반영(`resume` 의 take)도 `check_applicable` 에 걸리면 반영하지 않고 오류를 낸다
 - 서버 재시작 후 이어 가기
 - 도는 실행은 작품 폴더의 `.autorun.lock` 에 flock 을 쥔다(`_take`, `Control.owner`). 프로세스가 죽으면 OS 가 푼다
 - 다른 프로세스(명령줄 `canon auto` 나 다른 서버)가 잠금을 쥐면 `elsewhere` 가 참이고 `active` 도 참이다(화면 저장 보호가 켜진다)
@@ -46,6 +62,7 @@
 - 화면 값(`view`)
 - LLM 호출 없음
 - AI 호출은 `pipeline.make_storyboard`, 작가 요청대로 고치기는 `pipeline.revise_storyboard`
+- 두 호출 모두 `pipeline._board_draft` 안에서 출력을 `out_cap(BOARD_OUT_TOKENS)`(16,384토큰)로 막는다
 - 화면은 `static/board.js`
 
 ### `canon/cancel.py`
@@ -64,6 +81,8 @@
 - 단편 흐름: `new` → `style` → `arc` → `plot` → (사용자 수정) → `confirm` → (스토리보드 → 큐 시트, 웹 집필 화면 · 자동 집필) → `write` → `check` → `update` 반복
 - `run` 이 쓰기 · 검수 · 반영을 자동으로 되풀이한다
 - `update -y` 의 관계 미리 보기는 반영처럼 `features.hold` 로 뺀 제안을 빼고 계산한다(`_print_relation_preview`)
+- `update` 는 반영 전제(`pipeline.check_applicable`)에 걸리면 변경안을 만들지 않고 까닭을 알린다. 반영 완료한 화는 앞 화로 되돌리는 `revert <작품> <n-1>` 을 알려 준다
+- `update`(`-y` 없이)는 관계 미리 보기 전에 관계 단계와 반대인 관계 바뀜(`StateDelta.rel_flagged`)을 따로 보여 주고 묻는다. 기본은 빼고, 뺀 것은 `d.dismissed` 에 남긴다(`_ask_flagged`)
 - 장편(`new --serial`)은 `arc` 대신 `series` 를 한 번 부른다
 - 장편은 아크마다 `nextarc` → `plot` → `confirm` → `run` → `recap` 을 되풀이한다
 - `auto --stop` 은 다른 곳(웹 서버)에서 도는 실행이면 중지를 청했다고 알린다(`autorun.elsewhere`)
@@ -142,6 +161,7 @@
 - 조건(`CONDITIONS`: oneshot · score · cues)
 - LLM 없는 채점(`score`: 핵심 대사 `line_hits` · 되풀이 `repeats` · 이음매 `seams` · 여운 닫기 `closing` · 정지 장면 끝 `still` · 줄표로 자른 끝 `cut` · 큐별 `cue_rows` · `tempo_order`)
 - 비용 추정(`estimate`)
+- 비용 추정의 토큰은 본문 단계 백엔드 · 모델의 `usage.token_rate` 로 센다. 큐마다 쓰기는 붙는 토큰을 큐 수만큼 더한다
 - 실행(`run`, 실험 기록 · 블라인드 비교본 kind cue)
 - AI 호출은 `pipeline.make_cue_sheet` · `write_scored` · `play_cues`
 - 프롬프트 `prompts.cue_sheet_prompt`(대사 큐 몫은 작품 문체 기준에서 `cue_dialogue_share`) · `cue_sheet_block` · `cue_score_prompt` · `cue_head` · `cue_step` · `cue_play_prompt`(k번째 요청이 앞 요청과 응답을 통째로 품음)
@@ -181,6 +201,7 @@
 - 정리(`CLEAN`) · 반영(`APPLY_FIRST` 새 인물 직후, `APPLY_LAST` 기록 전) · 되돌리기(`REVERT_FIRST` 스냅샷으로 덮기 전, `REVERT_LAST` 뒤) 목록
 - `pipeline.clean_delta` · `apply_delta` · `revert` 가 목록을 차례로 부른다
 - 정리 훅은 한 인물에 대한 경고를 (글, 인물 id) 로 돌려준다(`Warn`)
+- `_new_cast_known` 은 새 인물에 온 이미 있는 인물 id 를 그 인물 경고로 알린다(반영은 새로 더하지 않음)
 - `clean` 이 그 id 를 `StateDelta.warn_to` 의 같은 차례에 넣는다
 - 글만 돌려준 경고, 훅이 `d.warnings` 에 바로 붙인 경고, AI 경고는 대상이 "" 다
 - `align_warn_to` 가 `warn_to` 길이를 `warnings` 에 맞춘다
@@ -198,15 +219,31 @@
 - 검수가 끝났는지(`check_done`, `home.js` `checkState` 의 done 과 같은 규칙, 작품 목록 `open_checked`)
 - 자동 집필이 세는 지적(`counted`, 사소 빼기)
 - 작가가 정하기(`set_status` · `set_severity`, 웹 `set_finding`, 명령줄 `check --keep` · `--sev`)
+- 명령줄 `check --recheck-fixed` 는 고친 곳만 다시 보기(`pipeline.recheck_fixed`)
 - 고침안이 건드리는 다른 지적(`touches`)
 - 지적 하나 다시 검수 결과 넣기(`settle`: 고침으로 닫기, 딸린 지적 `add_children`)
+- 마지막 검수 뒤 되돌리지 않은 수정(`edits_since_check`, `check_done` 과 같은 셈)
+- 고친 곳만 다시 볼 지적(`fix_recheck_targets`): 검수 뒤 수정이 모두 열린 지적의 고침안 묶음(source fix)일 때 그 지적들. 직접 고친 곳이 하나라도 있으면 빈 목록
+- 묶음을 넣은 뒤 이미 다시 본(기록 `recheck`) 지적은 `fix_recheck_targets` 에서 뺀다. `home.js` `fixRecheckTargets` 와 같은 셈
 - 새 판(`new_version`: 결정한 지적만 남김)
 - 세션 비우기(`clear`)
 - 합치기는 출처(`ConsistencyIssue.origin`: ai · rule)가 같은 지적끼리
 - 규칙 지적의 다시 검수는 `pipeline.recheck_finding` 이 LLM 없이 판정만
 - 고침안 · 다시 검수의 AI 호출은 `pipeline.propose_fixes` · `apply_fix` · `undo_fix` · `recheck_finding`
 - 고침안 한꺼번에: 받을 지적 `pipeline.fix_targets`(넣을 수 있는 안 `fix_usable` 이 없는 열린 지적, `check.js` `fbNeed` 와 같은 셈), 웹 작업 `fixes`(`FIX_WORKERS` 개씩 동시에, 받는 대로 `store_fixes`), 고른 안 넣기 `apply_fixes`(웹 `POST …/fixes/apply`, 못 넣은 것은 까닭과 함께)
+- 웹 작업 `fixes` 는 지적을 `FIX_BATCH`(8)개씩 묶어 `pipeline.propose_fixes_batch` 로 한 번에 묻는다(LLM `FixBatch` → `FixItem`, 지적 id 로 맞춤)
+- 묶음 답에서 빠진 지적만 `propose_fixes` 로 하나씩 다시 묻는다. 고침안도 답도 빈 항목은 빠진 것으로 본다
+- 묶음 호출 자체가 실패하면(거절 · 시간 초과 · 형식 오류) 그 묶음의 지적을 `propose_fixes` 로 하나씩 다시 묻는다. 지적 하나뿐인 묶음은 다시 묻지 않고 실패에 싣는다
+- 묶음 답의 지적마다 `clean_fixes` 를 거친다(`_fix_result`, 한 지적 고침안과 같은 셈). 요청에 없는 id 와 겹친 id 는 버린다
 - 프롬프트 `prompts.fix_prompt` · `recheck_prompt`(앞부분은 검수와 같은 `check_material`)
+- 고친 곳만 다시 보기: `pipeline.recheck_fixed` 가 대상 지적을 한 번의 호출(LLM `FixRecheckReport`, 단계 check)로 다시 묻고 `apply_fix_recheck` 가 지적마다 `settle` 한다. 회차는 늘지 않는다
+- 고친 곳만 다시 보기 프롬프트 `prompts.fix_recheck_prompt` 는 검수 자료 전체 대신 `static_context`(검수와 같은 앞부분)와 고친 곳 둘레 문단(`fix_around`, 앞뒤 `FIX_AROUND` 문단)만 넣는다
+- `recheck_fixed` 는 묻지 않은 id 와 같은 id 의 두 번째 답을 버린다. 규칙 지적은 LLM 없이 `recheck_finding` 으로 판정만
+- 고친 곳 둘레(`_fix_spots`)는 고친 글이 본문에 여러 번 나오면 기록한 자리(`TextEdit.start`)에 가장 가까운 곳을 고른다
+- 웹 작업 `recheck` 는 묻기 전 상태(`fix_recheck_basis`: 검수 시각 · 본문 · 지적별 묶음)를 남긴다. 그사이 검수나 되돌리기로 바뀌었으면 `apply_fix_recheck` 가 아무것도 넣지 않고 오류로 끝낸다
+- 묶음이 바뀌었거나 그사이 닫힌 지적은 건너뛴다. 작업 결과의 풀림 · 아직 어긋남 수는 실제로 넣은 결과만 센다
+- 묶음 프롬프트 `prompts.fix_batch_prompt`: 검수 자료, id 를 단 지적 목록, 결정한 문장, 규칙 한 번, 요청은 맨 뒤
+- 고침안(한 지적 · 묶음) · 다시 검수는 `check_material` 길이를 캐시 경계(`llm.PREFIX_HINT`)로 넘긴다. 세 프롬프트 함수는 미리 만든 자료를 `material` 로 받는다
 - 결정은 검수 프롬프트에 넣지 않는다
 - LLM 호출 없음
 
@@ -223,6 +260,7 @@
 - 실패한 작업의 호출 경로를 서버 로그(`canon` 로거)에 남긴다. 화면에는 오류 문구만 보인다
 - 멈췄지만 AI 응답을 기다리는 같은 작업 찾기(`lingering`)
 - 같은 화의 AI 작업(`EP_AI_KINDS`) 가운데 응답을 기다리는 것 찾기(`waiting_on`). 종류가 달라도 같은 화면 호출이 겹친다
+- `EP_AI_KINDS` 에는 고친 곳만 다시 보기 작업 `recheck` 도 든다
 - 단계 하나가 마지막으로 끝낸 화(`Job.step_ep`). 화면 `notify.js` 가 바뀔 때마다 알린다
 
 ### `canon/metatail.py`
@@ -255,16 +293,40 @@
   - 작품 전체 저장에서 본문이 있는 화의 플롯은 디스크 것으로 둔다(`keep_locked_plots`, 줄기 표시 `LOCKED_FREE` 만 받음, `web.put_project`)
   - 상태 변경안 정리 `clean_delta`
   - 반영 전 검사 `validate_delta`: 설정에 없는 인물 id(이번 새 인물은 앎) · 같은 인물끼리이거나 설정에 없는 인물의 관계 사건과 관계 바뀜 · 없는 복선 id 회수(이번에 심는 복선은 앎)
+  - 반영 전제 `check_applicable`: 본문이 쓰인(written) 화만, 앞 화가 모두 반영됐을 때만(`require_previous`) 반영한다. 반영 완료한 화는 "이미 상태를 반영했어요"로 막는다
+  - 웹 반영 `apply_state` · 명령줄 `update` · 플레이 `settle` · 자동 집필 반영(`_review` 의 put · `resume` 의 take)이 `check_applicable` 을 부른다. 복사본에 해 보는 미리 보기는 부르지 않는다
+  - `validate_delta` 는 설정에 없는 인물이 주인인 비밀(`secrets_added` 의 `owner`)도 막는다
   - `apply_delta` 는 검사에 걸린 항목과 설정에 없는 사건 목격자를 빼고(`drop_invalid`) 반영한 뒤 뺀 항목 문구를 돌려준다
+  - `drop_invalid` 는 비밀의 `hidden_from` 중 설정에 없는 인물과 없는 비밀 id 를 가리키는 사건의 `reveals_secret` 을 지우고 그 문구를 더한다(비밀 · 사건은 남긴다)
   - `drop_invalid` 가 뺀 항목은 `d.dismissed` 의 같은 칸에 남는다(반영 기록에서 보이고 반영 취소로 돌아오면 체크를 푼 채 다시 놓인다)
+  - `apply_delta` 는 새 관계 · 심은 복선 · 비밀을 복사해 넣는다(반영 뒤 계산이 바꿔도 반영 기록의 값은 보낸 그대로 남아 다시 계산할 때 두 번 세지 않는다)
+  - `apply_delta` 는 한 변경안 안에서 같은 사실 · 같은 복선 id · 같은 비밀 id 가 또 오면 처음 것만 반영한다(`_first_new`)
+  - `apply_delta` 는 심은 복선을 `apply_restate` 처럼 이번 화에 심은 열린 복선(`planted_ep` 이번 화, `status` open, `payoff_ep` 없음)으로 맞춘다
+  - `apply_delta` 는 이미 회수한 복선의 회수를 반영하지 않는다(회수 화를 덮지 않음, 경고는 `foreshadows.resolved_warnings`)
+  - 뺀 회수에 걸린 회수 문장(`payoff`)은 다시 떠올린 문장(`plant`)으로 바꿔 남긴다(`foreshadows.clean_delta` 와 같은 규칙)
+  - `apply_delta` 가 이미 있거나 겹쳐서 뺀 복선 · 비밀 · 회수 id 는 `d.dismissed` 의 같은 칸에 남고, 반영 기록의 목록은 실제로 반영한 것만 남긴다
+  - `apply_delta` 는 관계 바뀜의 수치 · 보는 방식 · 가 닿을 곳을 비우고 유형 · 설명만 반영한다. 새 쌍은 중립 간선으로 시작한다(`seed_ties`). 비운 값이 반영 기록에 남는다
+  - `apply_delta` 는 반영 기록에 `legacy_rel = False` 를 적어 다시 계산이 그 기록의 관계 수치를 쓰지 않게 한다
+  - `apply_delta` 는 새 인물(`new_characters`)에 온 이미 있는 인물 id 를 `d.dismissed.new_characters` 로 옮기고 그 문구를 돌려준다(기록에 남으면 반영 취소가 그 인물을 지운다)
+  - 반영 취소 `revert` 는 n화 뒤 반영(history)이 한 일만 되돌린다(`_undo_later`): 그 반영이 더한 관계 · 비밀 · 사실 · 복선을 빼고 바꾼 칸만 n화 스냅샷 값으로 돌린다
+  - n화 뒤 작가가 더하거나 고친 관계 · 비밀 · 사실 · 복선(회수 예정 화 포함)은 남는다
+  - 반영이 실제로 새로 더한 관계 쌍 · 비밀 · 사실 · 복선은 `apply_delta` 가 반영 기록의 `StateDelta.added`(`AddedItems`, AI 응답 형식 밖)에 적고 `_undo_later` 가 그것만 뺀다
+  - `apply_restate` 가 고친 화 기록에 더한 사실 · 복선도 `added` 에 적는다
+  - `added` 가 없는 예전 기록은 뒤 반영 직전 스냅샷에 없던 항목을 그 반영이 더한 것으로 본다
+  - 인물 상태 · 관계 간선은 n화 스냅샷으로 덮는다. 스냅샷에 상태가 없는 인물은 지금 상태를 두고(뒤 반영이 바꿨으면 처음 상태), 작가가 더한 관계의 간선은 `seed_ties` 로 다시 만든다
+  - `revert` 는 n화 때 이미 있던 인물(n화 스냅샷에 상태가 있거나 `first_ep` 가 0인 설정 단계 인물)을 예전 기록의 새 인물 칸에 있어도 지우지 않는다
+  - `first_ep` 는 AI 가 채울 수 있는 칸이라 '처음 나온 화가 n 이하'로는 가리지 않는다
   - 상태 변경안의 본문 지문 `StateDelta.basis`(`text_basis`)는 `extract_state` · `carried_delta` 가 채운다
+  - `extract_state` 는 LLM 을 부르기 전에 프롬프트에 넣은 본문으로 지문을 잰다
   - 반영 `apply_delta` 는 인물 상태의 빈 칸을 그대로 두고, `CharacterState.cleared` 에 적힌 칸(목표 · 위치 · 메모 · 차림 · 감정)은 비운다
+  - 다시 맞추기 `apply_restate` 는 변경안 안의 같은 복선 id 를 한 번만 심고, 새로 심은 복선의 plant 근거 문장만 `foreshadow_clues` 와 그 화 반영 기록에 넣는다
   - 설정 칸 하나 AI 후보 `suggest_field` · 단계 `field_stage`
   - 칸 목록 `prompts.FIELD_IDEAS`, 목록 칸 `prompts.IDEA_LISTS`(후보는 한 줄, 있는 항목은 뺌)
   - 인물 칸 키 `prompts.idea_key`
   - 빈칸 제안은 이미 있는 인물도 빈 칸만 `fill_character`
 - 스토리보드: `make_storyboard` · `set_storyboard` · 낡음 지문 `board_basis`, `write_episode(use_board=)`, AI 고치기 `revise_storyboard` → `apply_storyboard_revision`(고치기 전 것은 `Episode.storyboard_prev`) · 적용 취소 `undo_storyboard`
 - 큐 시트: `make_cue_sheet`, 넣기는 `cue.set_episode`, `write_episode(use_cues=)`
+- 방금 만든 스토리보드 다음의 큐 시트: `make_storyboard(lead=)` 가 보낸 요청 글을 채우고, `cue_lead` 가 그 스토리보드가 AI 가 만든 그대로 · 낡지 않음일 때만 그 글을 돌려준다. `make_cue_sheet(lead=)` 는 그 글로 시작하는 요청을 보낸다(자동 집필 `_cues`, 웹 쓰기 작업 `board: make`)
 - 문체 분석 `analyze_style` 뒤 `count_markers` 가 표지 · 장치 단서를 거른다: 원문에 없는 것, 한글 2자 미만(`MARKER_MIN_HANGUL`), 인물 이름(2자 이상)이 든 것
 - `count_markers` 는 원문 표본에 없는(공백 빼고 견줌) 장치 예시를 비운다
 - 검수
@@ -289,6 +351,8 @@
 - 장편은 플롯 인물 목록 밖이라도 이름이 나온 조연을 넣는다(쓰기 `named_block`, 검수 `check_cast`, 상태 변경안)
 - 오랜만에 나오는 인물은 `return_block`
 - 스토리보드 만들기 `storyboard_prompt`(Canon 이 센 값 `canon_values_block`), 고치기 `storyboard_revise_prompt`(만들기 프롬프트 뒤에 지금 스토리보드와 요청)
+- 큐 시트 만들기 `cue_sheet_prompt(lead=)`: lead 를 주면 스토리보드 요청 글 그대로 + `board_block` + 큐 시트 요구사항(`_cue_request`). 응답 형식은 같다
+- lead 안에 장면 연출이 이미 있어 다시 넣지 않는다. 요구사항 첫 줄이 다음 화 플롯 사건을 큐에 넣지 말고 시간 · 이동 · 장면 순서는 스토리보드를 따르라고 적는다
 - 쓰기에 넣는 `board_block`(직전 화 본문 뒤, 이번 화 플롯 바로 앞, 시간 · 이동 블록을 대신함)
 - 직전 화 블록 `prev_block`(스토리보드를 넣는 화와 스토리보드 만들기만 원문 전체, `build_episode_context(full_prev=)`)
 - 쇠맛을 줄이는 쓰기 규칙: 블록 차례 한 줄 `priority_line`
@@ -329,7 +393,12 @@
 - 지울 칸에 값이 함께 오면 검증(`_blank_cleared`)이 그 칸을 비워 차림 · 이동 거리 경고가 새 값으로 보지 않는다
 - 인물 프롬프트 넣기를 고르는 규칙은 `context.core_ids` · `off_ids` · `without_off`(모두 auto 면 예전 규칙과 같다)
 - 상태 변경안의 본문 지문(`StateDelta.basis`)도 프로그램이 채워 AI 응답 형식에서 빠진다(`SkipJsonSchema`). 비면 모름
+- 상태 변경안의 AI 응답 형식은 `StateDeltaAI` 다(`extract_state` · `play.settle` · `state_brief`). 관계 바뀜 `RelationshipChange` 와 사건 `AIStoryEvent` 에 관계 수치 · 보는 방식 · 가 닿을 곳 · 화 번호 · 수동보정 칸이 없다
+- `to_delta` 가 받은 `StateDeltaAI`(또는 `StateDelta` 를 돌려주는 가짜 LLM)를 n화 `StateDelta` 로 바꾸며 그 칸들을 버린다. 채팅 앱 JSON 가져오기(`web.parse_state`, 명령줄 `update --from-json`)도 거친다
+- 사건 종류 목록에서 수동보정은 응답 형식에서만 빠지고 읽기는 한다(예전 JSON). 반영이 뺀다
+- 반영 기록의 `StateDelta.legacy_rel` 은 프로그램 칸이다(`SkipJsonSchema`). 칸이 없던 예전 기록은 참으로 읽히고 지금 반영은 거짓으로 남긴다
 - 상태 승인에서 반영하지 않은 항목(`StateDelta.dismissed`, `DismissedItems`)은 AI 응답 형식에서 빠지고 반영 기록(`Project.history`)에만 남는다
+- 반영이 실제로 새로 더한 항목(`StateDelta.added`, `AddedItems`)도 AI 응답 형식에서 빠진다. 없으면(None) 이 칸이 생기기 전 기록이다
 - 반영 취소는 그 화 기록과 함께 빼 둔 항목도 지운다
 - 지운 기록은 `_revert_kept` 가 pending.json 에 남기고, 상태 승인 화면이 빼 둔 항목을 체크를 푼 채 다시 놓는다
 - 화별 쓴 사건 체크(`Episode.events_done`, 사건 글 목록)는 집필 화면 표시용이라 `EpisodePlot` 밖에 두어 프롬프트에 들어가지 않는다
@@ -370,6 +439,7 @@
 - 작품별 단계 프리셋은 `project_preset` · `stage_provider` · `stage_model`
 - 단계별 추론 강도는 `stage_effort`(설정 파일 `stage_efforts`, `CANON_EFFORT_<단계>`)
 - 백엔드에 넘길 강도는 `provider_effort`(Claude `EFFORTS`, Gemini `GEMINI_EFFORTS`, Gemini 는 xhigh · max 를 high 로)
+- Gemini 명시 캐시를 쓸 곳은 `gemini_cache`(설정 파일 `gemini_cache`, `CANON_GEMINI_CACHE`). agent(기본, 플롯 대화 단계만) | off
 
 ### `canon/static/auto.js`
 
@@ -466,6 +536,7 @@
 - 사용자가 화면에서 고르거나 고친 뒤 저장 요청을 보낼 때 반영한다
 - 상태 반영 `POST …/apply` 는 `pipeline.validate_delta` 에 걸린 항목이 있으면 400 으로 막고 항목을 줄마다 적는다
 - 상태 반영은 변경안 지문(`basis`)이 지금 본문과 다르면 409(`code` `stale_delta`)로 막는다. `?force=1` 이면 반영한다
+- 다시 맞추기(`POST …/restate`)도 변경안 지문이 반영 뒤 고친 지금 본문과 다르면 같은 409(`stale_delta`)로 막는다. `?force=1` 이면 반영한다
 - 빈 지문(옛 결과 · 손으로 만든 변경안)은 맞춰 보지 않는다. 채팅 앱 변경안 가져오기 `state/parse` 도 지문을 채운다
 - 오래 걸리는 AI 작업은 `jobs.start` 로 돌린다
 - `start_job` 은 작업 종류마다 `JOB_MAKERS` 의 준비 함수(`_job_<종류>`)를 부른다. 함수는 (이름표, 전체 걸음, 맡은 화, 할 일)을 돌려준다. 새 작업은 함수를 더하고 `JOB_MAKERS` 에 넣는다

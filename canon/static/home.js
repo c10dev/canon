@@ -21,7 +21,7 @@ function aiWarning() {
 function projectNext(x) {
   if (!x.open_ep) return x.planned && x.finalized >= x.episodes ? '완결' : x.planned ? `${x.planned + 1}화부터 플롯 만들기` : '플롯 없음';
   const written = x.open_checked ? '상태 승인 대기' : '검수 대기';
-  return `${x.open_ep}화 ${{ draft: '플롯 확정 대기', confirmed: '쓰기 대기', written }[x.open_status] || ''}`;
+  return `${x.open_ep}화 ${{ draft: '플롯 확정 대기', confirmed: '집필 대기', written }[x.open_status] || ''}`;
 }
 
 // 새 작품 폼: 다른 화면에 다녀와도 모든 칸을 함께 남기고, 만들면 함께 비운다 (장르는 genreTarget 이 같은 S.newMeta 에 둔다)
@@ -69,7 +69,7 @@ function projectGo(x) {
   const n = x.open_ep;
   if (x.open_status === 'draft') return { label: `${n}화 플롯 확정`, href: at(`/arc/${n}`), done: false };
   if (x.open_status === 'written') return x.open_checked ? { label: `${n}화 상태 승인`, href: at(`/review/${n}`), done: false } : { label: `${n}화 검수하기`, href: at(`/check/${n}`), done: false };
-  return { label: `${n}화 쓰기`, href: at(`/write/${n}`), done: false };
+  return { label: `${n}화 집필`, href: at(`/write/${n}`), done: false };
 }
 
 /** 확인할 것 한 줄이 가는 곳: 멈춘 작업은 그 작업의 화면(JOB_LINK), 결과는 알림 창과 같은 화면(HUB_RESULT). 모르면 작품 홈 */
@@ -367,7 +367,7 @@ function nextStep() {
   if (!beats().length || !p.episodes.length) return [`${stepLabel('arc')} 만들기`, base() + '/arc'];
   const e = ep(currentEp());
   if (e.status === 'draft') return [`${e.plot.number}화 플롯 확정`, base() + '/arc'];
-  if (e.status === 'confirmed') return [`${e.plot.number}화 쓰기`, `${base()}/write/${e.plot.number}`];
+  if (e.status === 'confirmed') return [`${e.plot.number}화 ${stepLabel('write')}`, `${base()}/write/${e.plot.number}`];
   if (e.status === 'written') return [`${e.plot.number}화 ${stepLabel(epStage(e))}`, `${base()}/${epStage(e)}/${e.plot.number}`];
   return ['완결 원고 보기', `${base()}/write/${e.plot.number}`];
 }
@@ -396,6 +396,22 @@ function checkState(e) {
   const stale = checked && !!(lastEdit && lastEdit.at > e.checked_at);
   const open = (e.findings || []).filter((f) => f.status === 'open').length;
   return { checked, stale, open, done: checked && !stale && !open };
+}
+
+/** 고친 곳만 다시 보기로 볼 지적 (서버 findings.fix_recheck_targets 와 같은 셈). 마지막 검수 뒤 되돌리지 않은 수정이 모두
+    열린 지적에 넣은 고침안 묶음(source fix)일 때 그 지적들. 직접 고친 곳이 하나라도 있으면 빈 목록이다. 묶음을 넣은 뒤 이미 다시 본 지적은 뺀다. */
+function fixRecheckTargets(e) {
+  if (!e.checked_at) return [];
+  const all = e.findings || [];
+  const seen = new Set(all.filter((f) => f.closed_by === 'one' && f.fix_group).map((f) => f.fix_group));
+  const edits = (e.edits || []).filter((x) => !x.undone && x.at > e.checked_at && !(x.group && seen.has(x.group)));
+  if (!edits.length) return [];
+  const open = all.filter((f) => f.status === 'open');
+  const groups = new Set(open.filter((f) => f.fix_group).map((f) => f.fix_group));
+  if (edits.some((x) => x.source !== 'fix' || !groups.has(x.group))) return [];
+  const last = new Map();
+  for (const x of edits) if (!last.has(x.group) || x.at > last.get(x.group)) last.set(x.group, x.at);
+  return open.filter((f) => last.has(f.fix_group) && !(f.log || []).some((ev) => ev.kind === 'recheck' && ev.at >= last.get(f.fix_group)));
 }
 
 /** 화 하나의 네 단계: 플롯 확정 · 집필 · 검수 · 상태 승인 (이름은 사이드바 · 한 화 흐름 띠와 같다). 검수는 마지막 검수 뒤에 본문을 고치지 않았고 열린 지적이 없을 때 끝난 것으로 본다
