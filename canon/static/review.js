@@ -744,7 +744,7 @@ Object.assign(actions, {
     if (edited && !(await askConfirm('고친 요약 · 항목과 체크를 버리고 변경안을 다시 만들까요?', { ok: '다시 만들기', danger: true }))) return;
     if (S.textDraft[n] !== undefined) {
       try {
-        S.project = await api('PUT', `/projects/${enc(S.name)}/episodes/${n}/text`, { text: S.textDraft[n] });
+        S.project = await api('PUT', `/projects/${enc(S.name)}/episodes/${n}/text`, textBody(n, S.textDraft[n]));
         delete S.textDraft[n];
       } catch (e) {
         return toast(e.message, true);

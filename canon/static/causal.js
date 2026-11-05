@@ -31,6 +31,7 @@ Object.assign(S, {
   causalLinks: {},    // 요소 id → 관련 화 지도
   causalPicks: {},    // '요소:분석시각:ep:3' 같은 키 → 반영할지
   causalLinkTab: 'bad', // 관련 화 줄 목록: bad(어긋남 · 고칠 화) | rel(이름이 나옴 · 나올 화) | char(관련 인물만)
+  causalLinkAll: '',    // 줄 목록을 모두 펼친 '요소 id:거르기'. 다른 요소 · 거르기는 다시 12줄까지
 });
 
 (function causalStyle() {
@@ -284,7 +285,7 @@ function causalLinksCard(el) {
     const part = cells.slice(a, a + per);
     const ticks = part.map((c) => `<span>${c.n === 1 || c.n % 10 === 0 ? c.n : ''}</span>`).join('');
     chunks.push(`<div class="cz-chunk"><span class="small">${a + 1}~${a + part.length}화</span>
-      <div class="cz-cells" style="--cz-n:${per}">${part.map((c) => { const say = esc(`${c.n}화${c.tag ? ` · ${c.tag}` : ''}`); return `<button type="button" class="${c.cls}" data-action="causalCell" data-arg="${c.n}" title="${say}" aria-label="${say}"></button>`; }).join('')}</div>
+      <div class="cz-cells" style="--cz-n:${per}">${part.map((c) => { const say = esc(`${c.n}화${c.tag ? ` · ${c.tag}` : ''}`); return `<button type="button" class="${c.cls}" data-action="causalCell" data-arg="${c.n}" title="${say}" aria-label="${say}" tabindex="-1"></button>`; }).join('')}</div>
       <div class="cz-ticks" style="--cz-n:${per}" aria-hidden="true">${ticks}</div></div>`);
   }
   const groups = { bad: cells.filter((c) => c.group === 'bad'), rel: cells.filter((c) => c.group === 'rel'), char: cells.filter((c) => c.group === 'char') };
@@ -292,7 +293,9 @@ function causalLinksCard(el) {
   const seg = `<div class="seg" role="group" aria-label="관련 화 거르기">${[['bad', '어긋남 · 고칠 화'], ['rel', '이름이 나옴'], ['char', '인물만']].map(([k, l]) => `<button type="button" aria-pressed="${tab === k}" data-action="causalLinkTab" data-arg="${k}">${l} ${groups[k].length}</button>`).join('')}</div>`;
   const byLink = new Map(links.map((l) => [l.episode, l]));
   const r = el.impact && el.impact.outcome !== 'dismissed' ? el.impact.report : null;
-  const shown = groups[tab].slice(0, 12);
+  // 칸 상자는 화면 읽기 · Tab 에서 빠지므로(aria-hidden, 칸 tabindex -1) 줄 목록이 키보드로 모든 화에 닿는 길이다. 12줄이 넘으면 '모두 보기'로 편다
+  const all = S.causalLinkAll === `${el.id}:${tab}`;
+  const shown = all ? groups[tab] : groups[tab].slice(0, 12);
   const rows = shown.map((c) => {
     const e = ep(c.n);
     const l = byLink.get(c.n);
@@ -303,7 +306,7 @@ function causalLinksCard(el) {
     return `<div class="cz-row"><button type="button" class="btn small ghost" data-action="causalCell" data-arg="${c.n}">${c.n}화</button>
       <div><div class="s">${esc(where)}</div>${quote ? `<div class="q">“${esc(quote)}”</div>` : ''}</div><span class="chip${cls ? ` ${cls}` : ''}">${esc(c.tag)}</span></div>`;
   }).join('');
-  const more = groups[tab].length > shown.length ? `<p class="small">${groups[tab].length - shown.length}개 더 있어요. 칸을 눌러 그 화로 가요.</p>` : '';
+  const more = groups[tab].length > shown.length ? `<p class="small">${groups[tab].length - shown.length}개 더 있어요. <button type="button" class="btn small ghost" data-action="causalLinkAll" data-arg="${esc(el.id)}">모두 보기</button></p>` : '';
   const legend = `<div class="legend"><span><i style="background:var(--red-soft);border:1px solid var(--red)"></i>모순</span><span><i style="background:var(--amber-soft);border:1px solid var(--amber)"></i>고칠 화</span><span><i style="background:var(--green-soft);border:1px solid var(--green)"></i>적용함</span><span><i style="background:var(--accent-soft);border:1px solid var(--accent)"></i>이름이 나옴 · 나올 화</span><span><i style="border:1px dashed var(--accent)"></i>관련 인물만</span><span><i style="border-bottom:3px solid var(--text-2)"></i>본문 있음</span>${el.since_ep > 0 ? '<span><i style="border-left:3px solid var(--accent)"></i>생기는 화</span>' : ''}${el.reveal_ep ? '<span><i style="outline:2px dashed var(--accent)"></i>드러나는 화</span>' : ''}</div>`;
   return `<section class="card" id="cz-links"><div class="pf-head"><h2>관련 화</h2><span class="small">이름 · 다른 이름 · 관련 인물로 찾았어요 (AI 없이)</span></div>
     <div class="cz-chunks" aria-hidden="true">${chunks.join('')}</div>${legend}${seg}
@@ -451,6 +454,12 @@ Object.assign(actions, {
   },
   causalLinkTab(k) {
     S.causalLinkTab = k;
+    render();
+  },
+  /** 관련 화 줄 목록을 모두 편다. 포커스는 새로 보인 첫 줄의 화 버튼으로 */
+  causalLinkAll(id) {
+    S.causalLinkAll = `${id}:${S.causalLinkTab}`;
+    S.focusTarget = '#cz-links .cz-row:nth-child(13) [data-action="causalCell"]';
     render();
   },
   /** 관련 화 칸 · 줄: 분석에 그 화가 있으면 그 칸으로, 없으면 그 화로 간다 (본문이 있으면 집필, 플롯만 있으면 플롯, 없으면 보드) */

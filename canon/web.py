@@ -3083,15 +3083,20 @@ def write_episode(name: str, n: int) -> Project:
 
 class Text(BaseModel):
     text: str
+    base: str | None = None  # 이 고침을 시작한 저장 본문. 주면 지금 저장 본문과 맞춰 보고, 없으면(옛 화면 · 명령줄) 맞춰 보지 않는다
 
 
 @app.put("/api/projects/{name}/episodes/{n}/text")
-def put_text(name: str, n: int, body: Text) -> Project:
+def put_text(name: str, n: int, body: Text, force: bool = False) -> Project:
     """직접 고친 본문이나 채팅 앱에서 받은 본문을 저장한다. 그 화를 쓰는 작업이나 자동 집필이 도는 중이면 막는다
-    (작업이 끝나며 쓰는 본문과 서로 덮지 않게, 고친 본문에 옛 본문 기준 변경안이 반영되지 않게)."""
+    (작업이 끝나며 쓰는 본문과 서로 덮지 않게, 고친 본문에 옛 본문 기준 변경안이 반영되지 않게).
+    base 가 지금 저장 본문과 다르면(다른 탭 · 기기가 먼저 저장) 덮지 않고 409(code stale_text)를 돌려준다. force 면 그래도 덮는다."""
     _text_guard(name, n)
     p = _load(name)
     ep = p.episode(n)
+    if body.base is not None and not force and body.base.strip() != ep.text.strip():
+        return JSONResponse({"detail": f"다른 탭이나 기기에서 {n}화 본문을 먼저 저장했어요. 다시 불러와 그 본문을 보거나, 내 고침으로 덮어쓰세요",
+                             "code": "stale_text"}, status_code=409)
     if ep.status == "draft":
         raise ValueError(f"{n}화 플롯을 먼저 확정하세요")
     text = body.text.strip()

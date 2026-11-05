@@ -50,7 +50,7 @@ function curSel() {
 /** 본문 칸에서 고친 내용이 저장 전이면 먼저 저장한다. 고른 위치는 서버가 원문으로 다시 찾는다. */
 async function flushText(n) {
   if (S.textDraft[n] === undefined) return;
-  S.project = await api('PUT', `/projects/${enc(S.name)}/episodes/${n}/text`, { text: S.textDraft[n] });
+  S.project = await api('PUT', `/projects/${enc(S.name)}/episodes/${n}/text`, textBody(n, S.textDraft[n]));  // 다른 곳이 먼저 저장했으면 409(stale_text)로 멈춘다
   delete S.textDraft[n];
 }
 

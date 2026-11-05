@@ -340,6 +340,8 @@
 - 누른 건물은 '장소' 칸(`atlasBldPanel`)에 보이고 지도에는 테두리(`at-bld-sel`)로 보인다
 - 지도 · 그림 · 놓은 장소가 없으면 빈 화면(`atlasEmptyNow` · `atlasEmpty`), '빈 판 열기'는 `S.atlasBlank`
 - 다시 그리기(`atlasRefresh`): 지도 · 살펴보기 칸 · 아래 줄, 메뉴가 열려 있지 않으면 도구 줄도(`atlasPaint` 가 포커스를 돌린다)
+- `atlasPaint` 는 포커스가 있던 글 칸의 값과 커서도 되살린다
+- 재생 중 살펴보기 칸의 글 칸에 포커스가 가면 재생을 멈춘다(1초마다 다시 그려 쓰던 글이 지워지지 않게)
 - 이동 경고(`atlasTvLive`)를 지도 선 위 점선 · ! 표(`at-tv-mark`)와 화 칸 점으로 그린다(토글 `S.atlasTvMarks`)
 - 저장(`atlasSavePins`)
 - 장소 이동 되돌리기

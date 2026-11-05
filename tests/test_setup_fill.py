@@ -96,26 +96,28 @@ def test_js_fill_fields_match_server():
 
 @needs_node
 def test_js_character_ideas():
-    """인물 칸 ✦: 키는 번호를 * 로, 이름이 붙은 칸 이름, 그사이 인물이 바뀌면 칸에 넣지 않는다."""
-    expr = """(() => {
+    """인물 칸 ✦: 키는 번호를 * 로, 이름이 붙은 칸 이름, 그사이 인물이 바뀌면 칸에 넣지 않는다. 쓴 칸은 묻고 바꾼다."""
+    expr = """(async () => {
       S.project = data.project;
       S.name = 'demo';
       render = () => {};
       toast = (m) => { S.lastToast = m; };
+      const asked = [];
+      askConfirm = async (q) => { asked.push(q); return true; };
       const btn = ideaBtn('characters.1.personality');
       const none = ideaBtn('characters.1.name');
       S.ideas = { 'characters.1.personality': { cid: 'ally', options: [{ text: '고집이 세다', reason: '' }] } };
-      actions.useIdea('characters.1.personality|0');
-      const ok = P().characters[1].personality;
+      await actions.useIdea('characters.1.personality|0');
+      const ok = [P().characters[1].personality, asked.length];
       S.ideas = { 'characters.1.arc': { cid: 'gone', options: [{ text: 'A → B', reason: '' }] } };
-      actions.useIdea('characters.1.arc|0');
+      await actions.useIdea('characters.1.arc|0');
       return { key: ideaKey('characters.3.arc'), btn, none, ok, stale: [P().characters[1].arc, 'characters.1.arc' in S.ideas, S.lastToast] };
     })()"""
     got = run_js(FILES, expr, {"project": dump(cast())})
     assert got["key"] == "characters.*.arc"
     assert 'aria-label="도현 성격 AI 후보 세 개 받기"' in got["btn"] and 'aria-controls="ideas-characters-1-personality"' in got["btn"]
     assert got["none"] == ""
-    assert got["ok"] == "고집이 세다"
+    assert got["ok"] == ["고집이 세다", 1]  # 쓴 칸('느긋하다')은 묻고 바꾼다
     assert got["stale"][:2] == ["", False] and "다시" in got["stale"][2]
 
 

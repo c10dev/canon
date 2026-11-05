@@ -68,15 +68,20 @@ async function autoLoad(withEstimate = true, pre) {
   autoPoll();
 }
 
+// 추정 요청 순번. 목표 · 정책을 빠르게 바꾸면 앞 요청이 늦게 올 수 있어, 마지막 요청의 답만 받는다
+let autoEstSeq = 0;
+
 async function autoEstimate() {
   const f = S.autoForm;
   const body = (batch) => ({ target: f.target, batch, policy: f.policy });
   const name = S.name;
+  const seq = ++autoEstSeq;
+  const mine = () => seq === autoEstSeq && name === S.name;  // 기다리는 사이 다시 추정했거나 다른 작품으로 옮겼으면 버린다
   try {
     const [off, on] = await Promise.all([false, true].map((b) => api('POST', `/projects/${enc(name)}/auto/estimate`, body(b))));
-    if (name === S.name && f === S.autoForm) S.autoEst = { off, on };  // 기다리는 사이 다른 작품으로 옮겼으면 버린다
+    if (mine()) S.autoEst = { off, on };
   } catch (e) {
-    if (name === S.name && f === S.autoForm) S.autoEst = { error: e.message };
+    if (mine()) S.autoEst = { error: e.message };
   }
 }
 
@@ -477,7 +482,7 @@ function autoStartCard(r, f, primary) {
       ${autoPolicyForm(f, false)}
       <h3>예상 비용과 시간</h3>
       <div id="auto-est">${autoEstCard()}</div>
-      ${primary ? '' : `<div class="row"><button type="button" class="btn" data-action="autoStart"${nothingLeft ? ' disabled aria-describedby="auto-est"' : ''}>${f.target}화까지 새로 시작</button><button type="button" class="btn ghost" data-action="autoFormClose">닫기</button></div>`}
+      ${primary ? '' : `<div class="row"><button type="button" class="btn" data-action="autoStart"${nothingLeft ? ' disabled aria-describedby="auto-est"' : S.autoEst ? '' : ' aria-disabled="true"'}>${f.target}화까지 새로 시작</button><button type="button" class="btn ghost" data-action="autoFormClose">닫기</button></div>`}
     </section>`;
 }
 
@@ -586,6 +591,8 @@ document.addEventListener('change', (e) => {
   const v = el.type === 'checkbox' ? el.checked : Number(el.value);
   if (key === 'target') S.autoForm.target = v;
   else S.autoForm.policy[key.split('.')[1]] = v;
+  S.autoEst = null;  // 옛 목표 · 정책의 추정을 지운다. 시작 확인창에 옛 비용이 나오지 않게, 다시 추정할 때까지 시작을 막는다
+  render();
   autoEstimate().then(render);
 });
 
@@ -642,6 +649,7 @@ Object.assign(actions, {
   },
   async autoStart() {
     const f = S.autoForm;
+    if (!S.autoEst) return toast('남은 화와 비용을 추정하는 중이에요. 끝나면 시작할 수 있어요', true);
     if (!(await autoFlushDrafts(f.target))) return;
     const est = S.autoEst && (f.batch ? S.autoEst.on : S.autoEst.off);
     const lines = [`${f.target}화까지 자동으로 써요.`];
@@ -690,11 +698,21 @@ Object.assign(actions, {
       autoPoll(1000);
     });
   },
-  autoOpenReview() {
+  async autoOpenReview() {
     const r = S.auto.run;
-    setDelta(r.ep, structuredClone(r.pending));
-    // 변경안을 만든 본문을 기준으로 둔다. 그 뒤 본문을 고쳤으면 상태 승인 화면이 '이 변경안을 만든 뒤 본문을 고쳤어요'를 알린다
-    if (r.pending_text) S.deltaBase[r.ep] = r.pending_text;
+    // 이미 놓인 변경안은 덮지 않는다. 고른 체크 · 고친 칸이 사라지지 않게 같은 변경안이면 이동만 하고, 다른 변경안인데 고친 것이 있으면 묻는다
+    const have = S.deltas[r.ep];
+    const o = S.deltaOrig[r.ep];
+    const key = JSON.stringify(r.pending);
+    const same = have && o && o.auto === key;  // 받은 그대로의 변경안(o.delta)은 setDelta 가 다듬어 놓으므로, 받은 원본 글로 맞춘다
+    const edited = have && (!o || have.summary !== o.summary || Object.entries(o.picks).some(([k, v]) => S.picks[k] !== v) || deltaEdited(r.ep));
+    const replace = !have || (!same && (!edited || await askConfirm(`${r.ep}화 변경안에서 고른 체크와 고친 칸이 있어요. 버리고 자동 집필이 남긴 변경안으로 바꿀까요?`, { ok: '버리고 바꾸기', danger: true, cancel: '지금 것 두기' })));
+    if (replace) {
+      setDelta(r.ep, structuredClone(r.pending));
+      S.deltaOrig[r.ep].auto = key;
+      // 변경안을 만든 본문을 기준으로 둔다. 그 뒤 본문을 고쳤으면 상태 승인 화면이 '이 변경안을 만든 뒤 본문을 고쳤어요'를 알린다
+      if (r.pending_text) S.deltaBase[r.ep] = r.pending_text;
+    }
     // 상태 승인 화면의 '불러오기'는 이미 그 주소라 hashchange 가 생기지 않는다. 그때는 여기서 다시 그린다
     const was = location.hash;
     location.hash = `${base()}/review/${r.ep}`;

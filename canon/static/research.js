@@ -800,6 +800,8 @@ Object.assign(actions, {
     const adopt = S.rs.adopt && ep(n).status !== 'finalized';  // 반영이 끝난 화는 고른 기록만 남긴다
     if (!(await blindPickOk(S.rs.compare, k))) return;
     if (adopt && ep(n).text && !(await askConfirm(`${k}번을 ${n}화 본문으로 바꿀까요?`, { ok: '바꾸기' }))) return;
+    // 집필 화면에 저장하지 않은 본문 고침이 있으면 채택하면 그 글이 사라진다. 따로 묻는다
+    if (adopt && textUnsaved(n) && !(await askConfirm(`${n}화 본문에 저장하지 않은 고침이 있어요. ${k}번으로 바꾸면 그 고침은 사라져요. 계속할까요?`, { ok: '고침 버리고 바꾸기', danger: true }))) return;
     await run('공개하는 중', async () => {
       await saveIfDirty();
       const r = await api('POST', `/projects/${enc(S.name)}/research/compare/${n}/pick`, { k, adopt });
@@ -807,8 +809,10 @@ Object.assign(actions, {
       S.rs.pickResult = r.result;
       S.project = r.project;
       await rsLoadLog();
-      delete S.textDraft[n];
-      delete S.deltas[n];
+      if (r.result.adopted) {  // 본문이 바뀐 때만 쓰던 초안과 옛 본문 기준 변경안을 거둔다. 고르기만 했으면 그대로 둔다
+        delete S.textDraft[n];
+        delete S.deltas[n];
+      }
       toast(`${k}번은 ${r.result.picked} 였어요${r.result.adopted ? `. ${n}화 본문으로 저장했어요` : ''}`);
     });
   },

@@ -518,7 +518,7 @@ Object.assign(actions, {
   },
   async cueSave() {
     const c = cueCtx();
-    await run('큐 시트 저장하는 중', async () => {
+    const ok = await run('큐 시트 저장하는 중', async () => {
       if (c.kind === 'ep') {
         await saveIfDirty();
         S.project = await api('PUT', `/projects/${enc(S.name)}/episodes/${c.n}/cue-sheet`, cueEd().draft);
@@ -526,7 +526,7 @@ Object.assign(actions, {
       else S.cueLab = await api('PUT', `/projects/${enc(S.name)}/cue/${c.n}/sheet`, cueEd().draft);
       cueSynced();
     });
-    toast('큐 시트를 저장했어요');
+    if (ok) toast('큐 시트를 저장했어요');  // 실패는 run 이 알린다
   },
   cueReset() { cueSynced(); render(); },
   async cueClear(n) {
