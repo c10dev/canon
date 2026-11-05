@@ -287,7 +287,7 @@ _out_cap: ContextVar[int | None] = ContextVar("out_cap", default=None)
 
 @contextmanager
 def out_cap(tokens: int) -> Iterator[None]:
-    """이 안의 Gemini · 로컬 호출은 출력을 tokens 토큰까지만 받는다 (생각 토큰 포함). 모델이 같은 글을
+    """이 안의 LLM 호출(Gemini · 로컬 · Claude 두 백엔드)은 출력을 tokens 토큰까지만 받는다 (생각 토큰 포함). 모델이 같은 글을
     되풀이하면 기본 한도(65,536)까지 13분 넘게 쓴다. 2026-11-03 큐 시트 호출이 그랬고, 응답이 계속 흘러
     들어와 응답 시간 초과(gemini_timeout)도 걸리지 않았다. 한도에 걸린 JSON 은 형식 고치기 재시도로 넘어간다."""
     token = _out_cap.set(tokens)
@@ -303,14 +303,19 @@ _wait_cap: ContextVar[float | None] = ContextVar("wait_cap", default=None)
 
 @contextmanager
 def wait_cap(seconds: float) -> Iterator[None]:
-    """이 안의 Gemini · 로컬 호출은 응답을 seconds 초까지만 기다린다. 넘기면 한 번 다시 부르고(TIMEOUT_RETRIES),
-    또 넘기면 TimedOut 이다. 2026-11-03 플롯 대화 한 단계가 응답 없이 8분 넘게 멈춰 있었다.
+    """이 안의 LLM 호출(Gemini · 로컬 · Claude 두 백엔드)은 응답을 seconds 초까지만 기다린다. Gemini 는 넘기면
+    한 번 다시 부르고(TIMEOUT_RETRIES), 또 넘기면 TimedOut 이다. Claude 는 다시 부르지 않고 오류를 낸다. 2026-11-03 플롯 대화 한 단계가 응답 없이 8분 넘게 멈춰 있었다.
     기본 한도(600초)면 오류가 뜨기까지 20분이다."""
     token = _wait_cap.set(seconds)
     try:
         yield
     finally:
         _wait_cap.reset(token)
+
+
+def caps() -> tuple[int | None, float | None]:
+    """지금 걸린 (출력 토큰 한도, 응답 기다림 한도). 없으면 None. LLM 구현이 요청을 보내기 전에 읽는다 (claude.py)."""
+    return _out_cap.get(), _wait_cap.get()
 
 
 def _pause(seconds: float) -> None:

@@ -12,6 +12,12 @@
 - `start_login` 은 그 폴더로 `claude auth login --claudeai` 를 띄우기만 한다(입출력을 잇지 않음, 10분 뒤 끝냄). 웹 `POST /api/claude/login` 은 Canon 을 실행하는 컴퓨터에서 온 요청만 받는다
 - `logout` 은 전용 폴더를 쓸 때만 `claude auth logout` 을 부른다(평소 Claude Code 로그인은 건드리지 않음)
 - 단계별 추론 강도(`settings.stage_effort`)를 구독은 `--effort`(모르는 버전이면 뺌), API 는 `output_config.effort` 로 넘긴다. 비우면 모델 기본값. 사용량 기록 줄의 `effort`
+- 두 백엔드도 `llm.wait_cap` · `llm.out_cap` 을 따른다(`llm.caps` 로 읽음)
+- 구독은 제한 시간을 `min(CANON_CLAUDE_TIMEOUT, wait_cap)` 으로 둔다. 넘기면 다시 부르지 않고 `ClaudeCodeError`
+- API 는 `max_tokens` 를 `min(MAX_TOKENS, out_cap)` 으로, SDK 요청 옵션 `timeout` 을 `wait_cap` 으로 보낸다
+- 두 백엔드는 호출마다(형식 고치기 재시도도) 보내기 전에 `cancel.check()` 를 부른다
+- 구독은 `_run` 이 `Popen` 으로 띄우고 `STOP_POLL`(0.25초)마다 멈추기 신호를 보다가 서면 하위 프로세스를 끝내고 `cancel.Cancelled`
+- API 는 스트림 조각마다 `cancel.check()` 를 불러 멈추면 스트림을 닫는다
 - 화면은 `static/claude.js`
 
 ### `canon/judge.py`
