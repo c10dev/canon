@@ -38,7 +38,7 @@ const S = {
   popMenu: null,     // 열린 펼침 메뉴 id (menuBtn). 다시 그려도 열려 있고, 화면을 옮기면 닫는다
   briefTab: 'episode',
   briefText: null,
-  mode: localStorage.getItem('canon.mode') || 'api',
+  mode: (() => { try { return localStorage.getItem('canon.mode') || 'api'; } catch { return 'api'; } })(),  // 저장소를 막은 브라우저도 기본값으로 연다
   jobs: [],          // 서버에서 돌고 있거나 막 끝난 AI 작업
   jobsSeen: null,    // 화면을 연 시점에 이미 끝나 있던 작업 id (결과를 다시 적용하지 않는다)
   jobsApplied: new Set(),  // 결과를 이미 화면에 적용한 작업 id. 폴링이 작업 객체를 새로 받아 오므로 id 로 기억한다
@@ -1467,10 +1467,19 @@ function leaveUnsaved() {
   return S.dirty || S.libDirty || S.stgDirty || editDraftOpen();
 }
 
+// 화면을 옮겨도 S 에 남지만 페이지를 떠나면 사라지는 입력(스토리보드 · 큐 시트 고침, 역설계 고치던 글 등).
+// 모듈이 onKeptDraft 로 검사 함수를 맡긴다. 화면 이동에서는 묻지 않고 새로고침 · 탭 닫기(beforeunload)에서만 묻는다
+const keptDraftChecks = [];
+function onKeptDraft(fn) { keptDraftChecks.push(fn); }
+const keptDraftOpen = () => keptDraftChecks.some((fn) => fn());
+// 큐 시트 편집기(cue.js)는 열쇠마다 고치는 시트를 S.cueEdits 에 둔다. 집필 · 실험 · 역설계가 함께 쓴다
+onKeptDraft(() => Object.values(S.cueEdits || {}).some((c) => c && c.dirty));
+
 /** 페이지를 떠나면 사라지는 입력: 저장하지 않은 작품 · 문체 · 설정 변경, 본문 초안, 붙여 넣은 지시서 결과, 반영하지 않은 상태 변경안,
-    분석 전 문체 예시 원문, 저장하지 않은 가격표, 인라인 편집기 입력(S.editDrafts). 본문 초안은 브라우저에도 임시 보관하지만, 막힌 브라우저가 있어 여기서도 묻는다 */
+    분석 전 문체 예시 원문, 저장하지 않은 가격표, 인라인 편집기 입력(S.editDrafts), 화면을 옮겨도 남는 고치던 입력(onKeptDraft).
+    본문 초안은 브라우저에도 임시 보관하지만, 막힌 브라우저가 있어 여기서도 묻는다 */
 function hasUnsaved() {
-  return leaveUnsaved() || S.priceDirty
+  return leaveUnsaved() || S.priceDirty || keptDraftOpen()
     || (S.styleSampleDirty && S.styleSample.trim() !== '')
     || Object.keys(S.textDraft).some(textUnsaved)
     || Object.entries(S.briefDraft).some(([k, v]) => briefPending(k, v))

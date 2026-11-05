@@ -580,7 +580,7 @@ Object.assign(actions, {
   // 집필
   setMode(m) {
     S.mode = m;
-    localStorage.setItem('canon.mode', m);
+    try { localStorage.setItem('canon.mode', m); } catch { /* 저장소를 막은 브라우저: 이번 화면에서만 바꾼다 */ }
     render();
   },
   async writeEp(n) {

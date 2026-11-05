@@ -1,4 +1,4 @@
-/* 반영 뒤 고친 화 (집필 · 상태 승인 화면). app.js 의 S, P, ep, actions, api, render, run, startJob, jobBtn, saveIfDirty, rangeText 와
+/* 반영 뒤 고친 화 (집필 · 상태 승인 화면). app.js 의 S, P, ep, actions, api, render, run, startJob, jobBtn, saveIfDirty, askConfirm, rangeText 와
    passage.js 의 textNow 를 그대로 쓴다.
    반영이 끝난 화도 본문을 고칠 수 있다. 반영된 요약 · 인물 상태 · 관계 · 복선은 그대로 두고(뒤 화가 그 위에 쌓였다),
    서버가 처음 고치기 전 본문을 Episode.final_text 에 남긴다. 작가는 '그대로 두기'를 고르거나, 고친 본문에서 변경안을 다시 뽑아
@@ -105,6 +105,16 @@ document.addEventListener('input', (e) => {
   if (d) d.summary = t.value;
 });
 
+/** 다시 뽑으면 사라지는 작가의 고침: 기본(모두 체크)에서 바꾼 체크, 받은 것과 다른 요약 (S.deltaOrig, review.js extractState 와 같은 기준).
+    카드에 보인 다시 맞추기 후보(restateDelta)만 본다. 후보가 없으면 고를 칸도 없다 */
+function rsEdited(n) {
+  const d = restateDelta(n);
+  if (!d) return false;
+  const o = S.deltaOrig[n];
+  if (o && d.summary !== o.summary) return true;
+  return S.rsFor[n] === d && Object.values(S.rsPick[n] || {}).some((v) => !v);
+}
+
 // 다시 맞추기로 보낼 변경안: 고른 요약 · 새 사실 · 새 복선 · 새 장소만, 복선 근거 문장은 고른 새 복선의 plant 문장만 (pipeline.apply_restate 와 같은 규칙)
 function restateBody(d, pk) {
   const plants = d.foreshadow_planted.filter((_, i) => pk['p' + i]);
@@ -122,7 +132,8 @@ function restateBody(d, pk) {
 Object.assign(actions, {
   async restateEp(n) {
     n = Number(n);
-    await saveIfDirty();
+    if (rsEdited(n) && !(await askConfirm('고른 항목과 고친 요약을 버리고 변경안을 다시 뽑을까요?', { ok: '다시 뽑기', danger: true }))) return;
+    // 저장하지 않은 작품 변경은 startJob 이 먼저 묻고 저장한다. 여기서 말없이 저장하지 않는다
     await startJob('state', n);
   },
   async applyRestate(n) {

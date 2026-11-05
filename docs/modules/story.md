@@ -344,6 +344,8 @@
 - 도감에 없는 조각 쪽 `abMissingPage`(상태창 항목 거르기, 가진 인물, '도감에 만들기')
 - 항목 쪽 `abItemPage`: 머리(⋯ 메뉴에 지우기) · 설명 · 효과 · 대가 · 등급별 효과 · 가진 인물(바뀐 걸음 `abSteps`) · AI 에게 보이는 줄
 - 카드는 읽기 먼저이고 '고치기'로 그 카드만 편다(`S.abEdit`: base · grades · new)
+- 고치는 카드는 연 때의 값(`S.abEdit.orig`)과 견줘 다르면 `S.editDrafts.ab` 를 켠다(`abDraftMark`). 다른 항목 · 화면으로 가면 `app.js` 가 묻는다
+- 같은 화면에서 다른 카드나 새 항목 칸을 열 때 고치던 글이 있으면 먼저 묻는다(`abDropOk`, `tests/test_statwin_js.py`)
 - 넣기 방식 `context` 는 나눔 버튼으로 바로 저장한다(`abContext`)
 - 넣는 방식 `stat_window.prompt` 가 lines 가 아니면 AI 에게 보이는 줄 카드가 알린다
 - 인물 카드 · 상태창 수치의 상태창 칩(`abChip`)을 누르면 뜨는 도감 카드(`abShow`, 공통 대화상자 `showDialog`)
@@ -538,6 +540,7 @@
   - 왼쪽 목차 `swToc`(작품 틀 · 처음 수치, 꾸미기, 비중별 인물, 상태창 없는 인물 접음, 스킬 도감)
   - 인물 쪽 `swPersonPage`: 머리 `swHead` · 지금 상태창 `swNowCard` · 본문에 넣을 상태창 `swTextCard` · 화별 변화 `swLogCard`
   - 지금 상태창은 읽기 먼저이고 '고치기'로 이 카드만 편다(`S.swEdit`, `swEditor`)
+  - 고치기 칸에 저장하지 않은 항목이 있으면 `S.editDrafts.sw` 를 켠다(`swDraftMark`). 다른 인물 · 쪽 · 화면으로 가면 `app.js` 가 묻고, 버리면 칸을 닫는다
   - 고치는 칸 옆 계산 값 `swCalc`
   - 항목 고치기 · 순서 `swMove`
   - 틀 · 작품 틀

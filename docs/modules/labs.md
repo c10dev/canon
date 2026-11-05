@@ -263,6 +263,9 @@
   - 역설계할 화 표 · 문체 프로필 · 되돌려 쓰기 칸 아래 '쓸 AI' 줄 `revAiLine`(글은 `revAiText`, `app.js` `writerLabel` 재사용)
 - 목차의 화 줄마다 ⋯ 메뉴(`revEpMenu`): 글 고치기 칸 `revEpEditCard` · 지우기(위험한 묶음에 접음)
 - 머리 주 버튼은 다음 할 일(`revNext`, `revGoBtn`) · ⋯ 메뉴(글 · 이름 고치기 `revEditCard` · 다시 역설계 `revRedo`(개요의 풀 화 표) · 지우기)
+- 글 · 이름 고치기 칸의 값은 `S.revEditDraft` 에 묶여 다시 그려도 남는다. 고친 것이 있으면 닫기 전에 묻는다
+- 다른 실험으로 옮기면 고치던 글(글 · 이름 고치기 · 화 글 고치기 · 이어 붙일 글)을 그 실험 몫으로 맡기고(`revKeep`, `S.revKept`) 돌아오면 되살린다(`revRestore`)
+- 고치던 글과 맡겨 둔 글은 페이지를 떠날 때 묻는다(`revUnsaved`, `app.js` `onKeptDraft`, `tests/test_revlab_js.py`)
 - 오른쪽 맨 위 도는 작업 카드(`revRunCard`: 화별 줄 `revRunRows`, 작업의 `pending` · `done`, 한 화가 끝날 때마다 다시 받기 `revJobStep`)
 - 화 탭 셋
   - 원문 · 큐 `revTextTab`: 큐 띠로 나눈 원문 `revText` · `revSegments`
@@ -308,6 +311,8 @@
 - AI 호출 전 카드 저장 `stuCall`. CSS 는 JS 에서 주입(`STU_CSS`)
 - 시도 카드: 지표 칩(`stuChecks`: 지켰나 ✓ · 못 지킴 ✕ · 읽고 판단 ?), 글자 · 문장 · 대사 비율, 걸린 곳 «인용», 문체 표지 횟수
 - 고쳐 쓰기(`stuRewrite`)는 그 시도 글을 직접 쓰기 칸에 옮기고 `base` 로 남긴다. AI 안은 고치지 않고 작가 글만 고친다(`stuEditOpen`)
+- 시도 고치기 칸의 글은 `S.stuEditText`(`data-local`)에 두어 다른 버튼으로 다시 그려도 남는다. 다른 시도를 열거나 그만둘 때 고친 것이 있으면 묻는다(`tests/test_studio_js.py`)
+- 직접 쓰기 칸과 고친 시도 글은 페이지를 떠날 때 묻는다(`app.js` `onKeptDraft`)
 - 머리 주 버튼은 'AI 안 n개 쓰기'(n 은 카드 아래 고르기 `S.stuN`, 1~4). 시도가 꽉 차면 막는다
 - 공용 클래스(`.cols` · `.card` · `.chip.ok` · `.chip.bad` · `.check-row` · `.rw-text` · `.rs-table`)에 구조 · 상황 목록 칸만 `STU_CSS` 로 더한다
 
