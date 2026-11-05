@@ -204,3 +204,18 @@ def test_serial_prompts_pick_knows_and_note_cut_short_unchanged():
     p.meta.form = "short"
     assert prompts.state_view(p, p.states, n, "") == (p.states, 0)
     assert "아는 정보는" not in prompts.build_episode_context(p, n)
+
+
+def test_passage_index_is_reused_until_the_text_changes():
+    """검수와 검수 넓히기는 같은 원고의 단락 색인을 한 번만 만든다. 본문이 바뀌면 새로 만든다."""
+    p = _serial(300)
+    a = _plan_arc(p, length=12)
+    _finish(p, a)
+    n = a.end_ep
+    skip = {n - 1}
+    first = context.passage_index(p, n, skip)
+    assert context.passage_index(p, n + 5, skip | set(range(n, n + 5))) is first  # 넣을 화가 같으면 n · skip 이 달라도 같은 색인
+    assert context.passage_index(p.model_copy(deep=True), n, skip) is first  # 다시 읽은 작품도
+    p.episode(a.start_ep).text += " 새 문장."
+    assert context.passage_index(p, n, skip) is not first
+    assert context.recall(p, n, "문장", 500, skip) == context.PassageIndex(p, n, skip).find("문장", 500)
