@@ -271,7 +271,7 @@ const JOB_LATE = {};
 const JOB_STOP_NOTE = {};  // 작업 종류별 멈추기 확인 문구. 없으면 응답을 버린다는 기본 문구
 const JOB_DONE_MSG = {
   suggest: '설정 제안이 도착했어요. 설정 도우미에서 확인하세요.',
-  style: '문체 분석이 끝났어요. 문체 레퍼런스에서 확인하고 저장하세요.',
+  style: '문체 분석 결과가 도착했어요. 문체 레퍼런스에서 확인하고 바꿀지 고르세요.',
   arc: '기승전결 구조 제안이 도착했어요. 확인하고 저장하세요.',
   plots: '화별 플롯 초안을 만들었어요. 확정된 화는 그대로예요.',
   plot_one: (j) => (j.result && j.result.realign ? `${j.ep}화 플롯을 요약대로 채웠어요. ${j.result.realign}화와 어긋난 점은 ${j.result.realign}화에 '다시 맞추기'로 표시했어요.` : `${j.ep}화 플롯을 채웠어요. 다듬은 뒤 확정하세요.`),
@@ -644,6 +644,7 @@ function pendingShown(r) {
     case 'state': return S.deltas[r.ep] !== undefined;
     case 'arc': return !!S.arcProposal;
     case 'suggest': return !!S.suggestion;
+    case 'style': return !!S.styleDraft;
     case 'series': return !!S.seriesDraft;
     case 'nextarc': return !!S.arcDraft;
     case 'recap_arc': return !!S.recapDrafts['arc' + r.ep];
@@ -698,14 +699,9 @@ function applyJobResult(j) {
     S.suggestion.characters.forEach((c, i) => { S.picks['sc' + i] = !sameChar(c); });
     S.suggestion.relationships.forEach((r, i) => { S.picks['sr' + i] = true; });
   } else if (j.kind === 'style' && j.result && j.result.profile) {
-    // 문체 분석(style.js analyzeStyle): 시작할 때 바꿀지 물었다. 작품 문체에 넣고 작가가 확인해 저장한다 (저장 전에는 '변경 모두 버리기')
-    P().style = j.result.profile;
-    if (typeof styleCloseCards === 'function') styleCloseCards();
-    P().style_baseline = j.result.baseline;  // stats 가 원문 전체와 비교하도록
-    P().style_id = '';  // 새로 분석한 문체는 라이브러리 항목과 연결을 끊는다
-    P().style_version = 0;
-    S.styleLink = { state: 'none' };
-    S.dirty = true;
+    // 문체 분석 결과는 바로 넣지 않고 문체 화면의 제안 카드로 둔다(style.js styleDraftCard). 작가가 '바꾸기'를 눌러야 작품 문체에 들어간다.
+    // 그동안 고친 문체 칸을 덮지 않고, 다른 화면 · 새로고침에서도 pending 에서 다시 놓인다
+    S.styleDraft = j.result;
   } else if (j.kind === 'arc' && j.result) {
     S.arcProposal = j.result.acts;  // 바로 바꾸지 않고 지금 구조와 비교해 고르게 한다 (arcProposalCard)
   } else if (j.kind === 'write' && !(j.result && j.result.candidate)) {
@@ -1806,7 +1802,7 @@ Object.assign(actions, {
 // 작품마다 따로 두는 화면 상태와 빈 값. 화 번호로 잡거나 반영 전 AI 제안이라, 다른 작품에 보이거나 반영되면 안 된다
 const PER_PROJECT = {
   textDraft: () => ({}), deltas: () => ({}), deltaBase: () => ({}), deltaOrig: () => ({}),
-  suggestion: () => null, picks: () => ({}), seriesDraft: () => null, arcDraft: () => null, arcProposal: () => null, recapDrafts: () => ({}), foldDrafts: () => ({}),
+  suggestion: () => null, styleDraft: () => null, picks: () => ({}), seriesDraft: () => null, arcDraft: () => null, arcProposal: () => null, recapDrafts: () => ({}), foldDrafts: () => ({}),
   lineDraft: () => null, convDraft: () => null, rbDraft: () => null, reworks: () => ({}),
   openingData: () => ({}), openingPlots: () => ({}), openingUsed: () => ({}), openingPrev: () => ({}), rw: () => ({}), rwInfo: () => ({}), looks: () => ({}),
   causalLinks: () => ({}), causalPicks: () => ({}), causalGone: () => null, chatPicks: () => ({}),

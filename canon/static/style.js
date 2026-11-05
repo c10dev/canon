@@ -268,6 +268,18 @@ document.addEventListener('input', (e) => {
 /** 스타일 프로필 칸이 모두 비었다 (library.blank 와 같은 규칙) */
 const styleBlank = (st) => !Object.values(st || {}).some((v) => (typeof v === 'string' ? v.trim() : Array.isArray(v) ? v.length : v));
 
+/** 도착한 문체 분석 결과(S.styleDraft). 무엇이 바뀌는지 짧게 보이고 [버리기] [바꾸기] 를 준다 (디자인 시스템 AI 제안 카드) */
+function styleDraftCard() {
+  const d = S.styleDraft;
+  if (!d || !d.profile) return '';
+  const p = d.profile;
+  const bits = [p.narration_pov && `시점 ${p.narration_pov}`, p.tense && `시제 ${p.tense}`, p.dialogue_ratio && `대화 비중 ${p.dialogue_ratio}`,
+    (p.markers || []).length && `문체 표지 ${p.markers.length}개`, (p.sample_passages || []).length && `대표 문단 ${p.sample_passages.length}개`, (p.devices || []).length && `장치 ${p.devices.length}개`].filter(Boolean);
+  return `<section class="card proposal" aria-labelledby="sty-draft-h"><h2 id="sty-draft-h">문체 분석 결과가 도착했어요</h2>
+    <p class="small">${esc(bits.join(' · ') || '뽑은 칸이 적어요')}. 바꾸면 지금 스타일 프로필 대신 이 결과가 들어가요. 저장하기 전에는 되돌릴 수 있어요.</p>
+    ${proposalActions(['styleDraftDrop'], ['styleDraftApply'], '이 결과로 바꾸기')}</section>`;
+}
+
 /** 예시 원문 칸과 '문체 분석'. 빈 작품은 이 버튼이 화면의 주 버튼이다 */
 function styleSampleBox(blank) {
   return `<textarea id="sample" class="sty-sample" rows="${blank ? 14 : 10}" data-local="styleSample" aria-describedby="sample-why" oninput="document.getElementById('sample-count').textContent=this.value.length.toLocaleString()" placeholder="닮고 싶은 소설 본문을 붙여 넣으세요. 대사와 서술이 섞인 장면이 좋아요.">${esc(S.styleSample)}</textarea>
@@ -310,7 +322,7 @@ function viewStyle() {
     const rows = [['source', '원문 붙여 넣기', '', ''], ['pick', '라이브러리에서 고르기', String((S.libs || []).length), ''], ['manual', '직접 채우기', '', '']];
     return `${header('2단계', stepLabel('style'), '닮고 싶은 소설 문단을 붙여 넣으면 문체 규칙을 뽑아요. 규칙과 대표 문단이 매 화 본문 생성에 함께 들어가요.', go(false))}
     <div class="outline-wrap style-page"><div class="outline-doc">${styleToc(rows, '문체 시작하기')}<div class="sty-secs">
-      <section class="card pf-sec" id="pf-source" tabindex="-1"><div class="pf-head"><h2><label for="sample">예시 원문</label></h2>${sampleCount()}</div>${styleSampleBox(true)}</section>
+      ${styleDraftCard()}<section class="card pf-sec" id="pf-source" tabindex="-1"><div class="pf-head"><h2><label for="sample">예시 원문</label></h2>${sampleCount()}</div>${styleSampleBox(true)}</section>
       ${stylePickCard()}
       <section class="card tight pf-sec" id="pf-manual" tabindex="-1"><div class="sty-row"><div><h3>직접 채우기</h3><p class="small pf-sub">원문 없이 시점 · 시제부터 카드를 하나씩 채워요. 대화로 다듬기에서 말로 시작해도 돼요.</p></div>
         <span class="sty-acts"><button type="button" class="btn small" data-action="styleManual">빈 카드 열기</button></span></div></section>
@@ -323,7 +335,7 @@ function viewStyle() {
   const rows = styleTocItems(st, { hot, todo, example: ex ? (exampleStale(ex) ? '바뀜' : '있음') : '', link: styleLinkWord(S.styleLink), learn: S.editStats ? `${S.editStats.usable}건` : '' });
   return `${header('2단계', stepLabel('style'), '이 규칙과 대표 문단이 매 화 본문 생성에 함께 들어가요. 카드의 \'고치기\'로 그 카드만 고쳐요.', go(true))}
     <div class="outline-wrap style-page"><div class="outline-doc">${styleToc(rows)}<div class="sty-secs">
-      ${styleStatus()}${todo ? learnTodoCard() : ''}${styleExampleCard()}${profileCards('style', '', hot)}${anchorCard()}${styleSourceCard()}${learnCard()}
+      ${styleDraftCard()}${styleStatus()}${todo ? learnTodoCard() : ''}${styleExampleCard()}${profileCards('style', '', hot)}${anchorCard()}${styleSourceCard()}${learnCard()}
     </div></div></div>${chatPanel('style')}`;
 }
 
@@ -505,12 +517,32 @@ Object.assign(actions, {
   async analyzeStyle() {
     if (jobFor('style', null)) return;  // 이미 분석하는 중이다 (버튼은 aria-disabled 로 진행을 보인다)
     if (S.styleSample.trim().length < 200) { focusEl($('#sample')); return toast('예시 원문을 200자 이상 넣어 주세요', true); }  // 서버(web.analyze_style)와 같은 기준
-    const has = P().style.narration_pov || P().style.sample_passages.length;
+    // 백그라운드 작업이라 화면을 막지 않는다. 결과는 문체 화면 맨 위 제안 카드로 오고, 작가가 '바꾸기'를 눌러야 들어간다
+    await startJob('style', null, { text: S.styleSample });
+  },
+  /** 문체 분석 결과를 작품 문체로 바꾼다. 지금 문체가 있거나 라이브러리와 이어져 있으면 묻는다 */
+  async styleDraftApply() {
+    const d = S.styleDraft;
+    if (!d) return;
+    const has = !styleBlank(P().style);
     const l = S.styleLink || {};
     const unlink = ['same', 'changed'].includes(l.state) ? `\n라이브러리 '${l.name}' 연결도 끊겨요. 라이브러리 항목은 그대로예요.` : '';
     if ((has || unlink) && !(await askConfirm(`분석 결과로 지금 스타일 프로필을 바꿀까요? 저장하기 전에는 '변경 모두 버리기'로 되돌릴 수 있어요.${unlink}`, { ok: '바꾸기' }))) return;
-    // 백그라운드 작업이라 화면을 막지 않는다. 끝나면 applyJobResult 가 작품 문체에 넣고, 다른 화면에 있으면 '가서 보기'가 붙는다
-    await startJob('style', null, { text: S.styleSample });
+    P().style = d.profile;
+    styleCloseCards();
+    P().style_baseline = d.baseline;  // stats 가 원문 전체와 비교하도록
+    P().style_id = '';  // 새로 분석한 문체는 라이브러리 항목과 연결을 끊는다
+    P().style_version = 0;
+    S.styleLink = { state: 'none' };
+    S.styleDraft = null;
+    S.dirty = true;
+    render();
+    toast('분석 결과로 바꿨어요. 확인하고 저장하세요.');
+  },
+  async styleDraftDrop() {
+    if (!(await askConfirm('문체 분석 결과를 버릴까요? 다시 받으려면 분석을 다시 해야 해요.', { ok: '버리기', danger: true }))) return;
+    S.styleDraft = null;
+    render();
   },
   addPassage(root) {
     styleProf(root).sample_passages.push('');
