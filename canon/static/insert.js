@@ -75,7 +75,7 @@ function deleteBlock(e) {
       <div class="row">
         <button type="button" class="btn small danger" data-action="delLast" data-arg="${n}"${dis}>${n}화 지우기</button>
         <button type="button" class="btn small" data-action="delLastText" data-arg="${n}"${dis}>본문만 지우고 플롯 남기기</button>
-      </div></details>`;
+      </div>${why ? `<div class="small">${why}</div>` : ''}</details>`;
 }
 
 function insertForm(f) {

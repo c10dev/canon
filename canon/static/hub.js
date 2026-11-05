@@ -188,7 +188,7 @@ function hubPopHtml(st) {
         ${st.finished.length ? `<ul class="hub-list">${st.finished.map(hubFinished).join('')}</ul>` : ''}
         ${st.older.length ? `<ul class="hub-list notes">${st.older.map((n) => hubNoteRow(n, now)).join('')}</ul>` : ''}</details>` : ''}
     </div>
-    <div class="hub-foot"><span class="small">Esc로 닫아요</span>${more || st.recent.length ? '<button type="button" class="btn small ghost" data-hub-clear>끝난 것 지우기</button>' : ''}</div>`;
+    <div class="hub-foot"><span class="small">${(typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches) ? '' : 'Esc로 닫아요'}</span>${more || st.recent.length ? '<button type="button" class="btn small ghost" data-hub-clear>끝난 것 지우기</button>' : ''}</div>`;
 }
 
 /** 버튼 · 창 · 말풍선을 지금 상태로 맞춘다. 작업을 물을 때마다(1.5초) 부르므로 바뀐 것만 다시 그린다. */

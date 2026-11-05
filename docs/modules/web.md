@@ -141,6 +141,7 @@
 ### `canon/static/hub.js`
 
 - 알림
+- 손가락 기기에서는 알림 창 아래 'Esc로 닫아요' 안내를 비운다
 - AI 작업과 알림을 버튼 하나에 모은다
 - 버튼(`hubButton`, 사이드바 · 작품 밖 사이드바의 `#hub-slot`)
 - 버튼 아래 창(`#hub-pop`: 확인할 것 · 진행 중 · 최근 알림 · 접힌 끝난 작업과 지난 알림, `hubOpen` · `hubClose`)
@@ -181,6 +182,7 @@
 ### `canon/static/mentions.js`
 
 - 집필 화면 본문 속 이름
+- 손가락 기기에서는 이름 목록 안내에서 Alt+Enter 를 빼고 '본문의 이름을 누르면 떠요' 만 보인다
 - 인물 이름 · 장소(`atlas.places` 와 같은 목록 `mentionPlaces`)를 정규식 하나로 찾기(`mentionRanges`, 조사 · 긴 낱말 규칙, 치는 중에는 자리 옮기기 `mentionShift`)
 - 밑줄은 `marks.js` 의 `markHtml` 이 함께 그림
 - 이름 카드 자리 `mnPlace` 도 왼쪽을 0으로 두고 너비를 잰다(`passage.js` 의 `placeTool` 과 같은 규칙)
@@ -269,6 +271,7 @@
   - 구간 한 줄 머리 + 화 카드 격자 `actBoard`
   - 구간 · 아크 · 부 고치기는 서랍 없이 그 자리에서 `actEditor` · `arcEditor` · `partEditor`
   - 아크 주요 인물 이름 체크 `arcCastField`
+- 손가락 기기에서는 사건 순서의 'Enter로 다음 사건' 안내를 숨긴다
 - 장편(목차가 부 › 아크 › 구간 나무 `serialTree` · `serialTocRow`, 부 펼치기 `S.tocParts`, 부 구성 카드 펼침 `S.arcFull`, 다음 아크 기획 칸의 경고 `planAhead` 는 `pipeline.plan_ahead` 와 같은 규칙 `tests/test_plan_ahead_js.py`)
 - 서술 시점
 - 화 플롯 페이지
@@ -284,6 +287,7 @@
 ### `canon/static/research.js`
 
 - 연구 화면
+- 마우스가 없으면(`hover: none`) 표 칸 아래에 큰 블록 비중(`.rs-parts`)을 적는다
 - 공용 목차 틀 위의 카드 한 열(`.rs-wrap`, 오른쪽 열은 960px 까지)
 - 주소 `#/p/<이름>/research[/<쪽>]`(`rsLoad(쪽)` · `rsUrl`)
 - 목차: 개요 · 준비(서버 점검) · 실험 여섯(샘플 생성 · 단계 시험 · 컨텍스트 크기 · 검수 시험 · 블라인드 비교 · 상태창 시험) · 기록
@@ -320,6 +324,7 @@
   - 인물 칸 그 자리에서 펴기 `rvOpen`
   - 본문 근거 `rvQuote` · `rvGoItem`
   - 900px 이하는 변경안 먼저 `rvWide`
+- 줄 안 고르기 · 확정 사실 칸(`.rv-inp`)은 13px, 손가락 기기에서 16px 다(iOS 확대 막기)
 
 ### `canon/static/rewrite.js`
 

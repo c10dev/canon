@@ -306,6 +306,7 @@
 ### `canon/static/atlas.js`
 
 - 지도 화면 뼈대
+- 손가락 기기에서는 보기 메뉴의 단축키 글자(`.at-key`)를 숨긴다
 - 상태 · 불러오기(`atlasLoad`, 미리보기 · 자리 찾기 상태 `atlasGenPreview` · `atlasFindNow`)
 - 지도 그림(`atlasSvg`, 마을 `atlasVillageSvg`)
 - 장소 핀 누름 원 `.at-hit`은 손가락 기기(`ATLAS_COARSE`)에서 화면 반지름 22px보다 작지 않다

@@ -806,6 +806,8 @@ body.chat-open .savebar { left: calc(50% - 220px); }
 .rs-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
 .rs-table th { text-align: left; font-weight: 500; color: var(--muted); font-size: 0.75rem; padding: var(--space-6) var(--space-8); border-bottom: 1px solid var(--line); white-space: nowrap; }
 .rs-table td { padding: var(--space-6) var(--space-8); border-bottom: 1px solid var(--rule); white-space: nowrap; }
+.rs-table .rs-parts { display: block; max-width: 14em; white-space: normal; }  /* 큰 블록 비중: 마우스가 없으면 칸 아래에 적는다 */
+@media (hover: hover) { .rs-table .rs-parts { display: none; } }  /* 마우스는 칸에 올리면(title) 보인다 */
 .rs-table td.over { background: var(--red-soft); color: var(--red); font-weight: 700; }
 .rs-table td.tight { background: var(--amber-soft); color: var(--amber-ink); font-weight: 700; }
 .rs-prose { max-height: 480px; overflow: auto; padding: var(--space-12) var(--space-14); border-radius: var(--radius-8); background: var(--bg); font-family: var(--serif); font-size: 0.9375rem; line-height: 1.9; white-space: pre-wrap; word-break: break-word; }
@@ -1770,6 +1772,8 @@ a.fl-cell:hover { background: var(--bg); color: var(--text); }
 .rv-lead { margin: 0; }
 .rv-lead kbd { font-family: inherit; border: 1px solid var(--line-strong); border-radius: var(--radius-4); padding: 0 var(--space-4); }
 @media (pointer: coarse) { #review-keys { display: none; } }
+select.rv-inp, input.rv-inp { font-size: 0.8125rem; }  /* 상태 승인 줄 안 고르기 · 확정 사실 칸 */
+@media (pointer: coarse) { select.rv-inp, input.rv-inp { font-size: 1rem; } }  /* 손가락 기기: 16px 아래면 iOS 가 칸을 누를 때 화면을 확대한다 */
 .rv-grid { display: flex; flex-direction: column; gap: var(--gap-stack); }
 .rv-panel { display: flex; flex-direction: column; gap: var(--gap-stack); min-width: 0; }
 @media (min-width: 901px) {

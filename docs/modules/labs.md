@@ -269,6 +269,7 @@
 ### `canon/static/soelab.js`
 
 - 쇠맛 실험실 화면(작품 밖 `#/soelab[/corpus | judge | redo | metrics[/<지표 id>] | patterns[/check] | log]`)
+- 손가락 기기에서 '끌어 고르기' 를 고르면 길게 눌러 고른 뒤 손을 뗄 때(`touchend`) 문장을 고른다(`soeDragPick`)
 - `app.js` 라우팅이 작품 밖 사이드바(`outSidebar`) 옆에 `viewSoe` 를 그린다(불러오기 `soeLoad`)
 - 작품 사이드바 '실험' 묶음 🧪 · ⋯ 메뉴 · 작품 밖 도구에서 들어온다
 - 공용 목차 틀(`outline.js`)의 목차 `soeToc`(개요 · 단계 넷 `soeSteps` · 지표 14줄 · 전체), 판정하는 동안은 지표 · 전체를 접음

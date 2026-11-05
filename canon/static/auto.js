@@ -333,7 +333,7 @@ function autoRunCard(r, active) {
       <div><span class="small">반영</span><b>${done} / ${total}화</b></div>
       <div><span class="small">이번 실행 자동 반영</span><b>${r.applied.length}화</b></div>
       <div><span class="small">토큰 입력 / 출력</span><b>${autoMan(r.tokens_in)} / ${autoMan(r.tokens_out)}</b></div>
-      <div><span class="small">비용</span><b>약 ${autoCost(r.cost)}</b>${r.restarts ? `<span class="small" title="서버가 다시 시작돼 하던 단계를 처음부터 다시 했어요. 끊긴 호출 비용은 여기에 없어요">서버 재시작 ${r.restarts}번</span>` : ''}</div>
+      <div><span class="small">비용</span><b>약 ${autoCost(r.cost)}</b>${r.restarts ? `<span class="small">서버 재시작 ${r.restarts}번 · 끊긴 호출 비용은 빠졌어요</span>` : ''}</div>
     </div>`;
   return `<section class="card" id="au-run" aria-labelledby="au-run-h">
     <div class="between"><h2 id="au-run-h" tabindex="-1">${total}화까지 자동 집필 <span class="chip ${cls}">${label}</span></h2>${autoBatchToggle(r.batch, r.status === 'done' || r.status === 'stopped' ? ' disabled' : '')}</div>

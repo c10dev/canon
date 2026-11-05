@@ -296,6 +296,7 @@
 - 화 번호를 품은 칸을 새로 만들면 `move_points` 에도 넣는다
 - 정착 문체 화 번호도 옮긴다(`anchor.move`)
 - 화면은 `static/insert.js` (넣을 수 있는 자리 `lastFixed` 는 `last_fixed` 와 같은 규칙, `tests/test_insert_js.py`)
+- `insert.js` 의 화 지우기 버튼을 막은 이유(AI 작업 중, 자동 집필 중, 스냅샷 없음)를 버튼 아래 글로도 보인다
 
 ### `canon/routes/play.py`
 
@@ -463,6 +464,7 @@
 ### `canon/static/play.js`
 
 - 플레이 화면(DESIGN.md 10.4, 시안 안 A)
+- 멈춘 상태 글은 손가락 기기에서 '▶를 누르면 다시' 다(`playKeys`)
 - 손가락 기기(`pointer: coarse`)에서는 숫자 키 · Ctrl+Enter · 아무 키 안내를 숨긴다(`playKeys`)
 - 새 플레이(`#/play/new[/세계]`, 출생 카드 · 새 세계)
 - 플레이(`#/play/<폴더>`: 시간 흐름 막대, 흘러간 일, 결정 장면, 끼어들기, 옆 패널)
