@@ -101,3 +101,18 @@ def test_opening_options_do_not_freeze_the_episode_they_replan():
     assert "1화는 이미 정해진 화라 고쳐 쓰지 않습니다" not in text
     block = text[text.index(HEAD):text.index("요구사항:")]
     assert "정해진화표지2끝" in block and "정해진화표지1끝" not in block
+
+
+def test_redraft_keeps_author_material():
+    """초안 플롯을 다시 받아도(여러 화 · 한 화) 작가가 짠 장면 연출 · 고칠 곳 · 다 쓴 사건 체크는 남는다."""
+    from canon.schema import StageScene, ToFix
+    p = _short()
+    e = p.episode(2)
+    e.stage = [StageScene(id="s1", event=0, event_text=e.plot.events[0])]
+    e.to_fix = [ToFix.model_construct(id="t1")]
+    e.events_done = [e.plot.events[0]]
+    pipeline.apply_plots(p, pipeline.draft_plots(L, p, 1, 3))
+    e = p.episode(2)
+    assert [s.id for s in e.stage] == ["s1"] and len(e.to_fix) == 1 and len(e.events_done) == 1
+    pipeline.apply_draft(p, pipeline.draft_episode(L, p, 2))
+    assert [s.id for s in p.episode(2).stage] == ["s1"]
