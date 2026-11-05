@@ -33,12 +33,18 @@ FAKE = textwrap.dedent('''\
     if args == ["--version"]:
         print("9.9.9 (Claude Code)")
         sys.exit(0)
+    if args[:2] in (["auth", "login"], ["auth", "logout"]):
+        with open(os.path.join(d, "auth_calls.jsonl"), "a") as f:
+            f.write(json.dumps({{"args": args, "dir": os.environ.get("CLAUDE_CONFIG_DIR"),
+                                 "stdin_tty": sys.stdin.isatty()}}) + "\\n")
+        sys.exit(0)
     if args[:2] == ["auth", "status"]:
         p = os.path.join(d, "auth.json")
         print(open(p).read() if os.path.exists(p) else json.dumps({{"loggedIn": True, "authMethod": "claude.ai"}}))
         sys.exit(0)
     stdin = sys.stdin.read()
-    env = {{k: os.environ.get(k) for k in ("ANTHROPIC_API_KEY", "CLAUDE_CODE_DISABLE_CLAUDE_MDS", "CLAUDE_CODE_OAUTH_TOKEN")}}
+    env = {{k: os.environ.get(k) for k in ("ANTHROPIC_API_KEY", "CLAUDE_CODE_DISABLE_CLAUDE_MDS", "CLAUDE_CODE_OAUTH_TOKEN",
+                                       "CLAUDE_CONFIG_DIR")}}
     with open(os.path.join(d, "calls.jsonl"), "a") as f:
         f.write(json.dumps({{"args": args, "stdin": stdin, "env": env, "cwd": os.getcwd()}}, ensure_ascii=False) + "\\n")
     p = os.path.join(d, "replies.json")
@@ -189,6 +195,67 @@ class ClaudeCodeTest(unittest.TestCase):
             self.assertFalse(st["installed"])
             with self.assertRaisesRegex(claude.ClaudeCodeError, "설치"):
                 claude.ClaudeCodeLLM().text("s", "p")
+
+    def auth_calls(self):
+        path = self.dir / "auth_calls.jsonl"
+        return [json.loads(x) for x in path.read_text(encoding="utf-8").splitlines()] if path.exists() else []
+
+    def test_separate_config_dir(self):
+        os.environ.pop("CLAUDE_CONFIG_DIR", None)
+        self.assertEqual(settings.claude_config_dir(), ("", "default"))
+        self.assertEqual(claude.login_command(), "claude auth login")
+        st = claude.status()
+        self.assertFalse(st["separate"])
+        claude.ClaudeCodeLLM().text("s", "p")
+        self.assertIsNone(self.calls()[-1]["env"]["CLAUDE_CONFIG_DIR"])  # 끄면 평소 Claude Code 로그인
+        self.assertFalse(claude.logout()["ok"])  # 평소 로그인은 Canon 에서 끝내지 않는다
+        self.assertEqual(self.auth_calls(), [])
+
+        settings.update(claude_separate=True)
+        want = str(self.dir / "claude-code")
+        self.assertEqual(settings.claude_config_dir(), (want, "file"))
+        self.assertEqual(settings.public()["claude_config_dir"], want)
+        st = claude.status()
+        self.assertTrue(st["separate"])
+        self.assertIn(f"CLAUDE_CONFIG_DIR={want} claude auth login", st["login_command"])
+        claude.ClaudeCodeLLM().text("s", "p")
+        self.assertEqual(self.calls()[-1]["env"]["CLAUDE_CONFIG_DIR"], want)
+        self.assertTrue(Path(want).is_dir())
+
+        r = claude.start_login()
+        self.assertTrue(r["started"])
+        claude._login.wait(10)
+        self.assertFalse(claude.login_running())
+        self.assertEqual(self.auth_calls()[-1], {"args": ["auth", "login", "--claudeai"], "dir": want, "stdin_tty": False})
+        self.assertTrue(claude.logout()["ok"])
+        self.assertEqual(self.auth_calls()[-1]["args"], ["auth", "logout"])
+        self.assertEqual(self.auth_calls()[-1]["dir"], want)
+
+        with mock.patch.dict(os.environ, {"CANON_CLAUDE_CONFIG_DIR": str(self.dir / "env-dir")}):
+            self.assertEqual(settings.claude_config_dir(), (str(self.dir / "env-dir"), "env"))
+        settings.update(claude_separate=False)
+        self.assertNotIn("claude_separate", json.loads((self.dir / "config.json").read_text()))
+        self.assertEqual(settings.claude_config_dir()[0], "")
+
+    def test_login_route_only_from_same_machine(self):
+        from fastapi.testclient import TestClient
+        from canon import web
+
+        c = TestClient(web.app)  # 테스트 클라이언트의 주소는 testclient: 다른 컴퓨터로 본다
+        r = c.post("/api/claude/login")
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("claude setup-token", r.json()["detail"])
+        self.assertEqual(self.auth_calls(), [])
+        r = c.put("/api/config", json={"claude_separate": True})
+        self.assertEqual(r.json()["claude_config_dir"], str(self.dir / "claude-code"))
+        with mock.patch.object(web, "_same_machine", return_value=True):
+            r = c.post("/api/claude/login")
+        self.assertTrue(r.json()["ok"])
+        claude._login.wait(10)
+        self.assertEqual(self.auth_calls()[-1]["dir"], str(self.dir / "claude-code"))
+        self.assertTrue(c.post("/api/claude/logout").json()["ok"])
+        self.assertTrue(c.get("/api/claude/status").json()["separate"])
+        c.put("/api/config", json={"claude_separate": False})
 
     def test_effort_flag_and_usage(self):
         (self.dir / "help.txt").write_text("--safe-mode --tools <t> --strict-mcp-config --no-session-persistence "

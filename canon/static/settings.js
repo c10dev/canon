@@ -73,7 +73,8 @@ const SET_ROWS = [
   { id: 'vertex-project', cat: 'ai', sec: 'Gemini', label: 'Google Cloud 프로젝트 ID', words: 'vertex project' },
   { id: 'vertex-location', cat: 'ai', sec: 'Gemini', label: 'Vertex AI 리전', words: 'vertex location global us-central1' },
   { id: 'gemini-model', cat: 'ai', sec: 'Gemini', label: 'Gemini 모델', words: '모델 gemini-4-argon flash' },
-  { id: 'claude-login', cat: 'ai', sec: 'Claude', label: 'Claude 구독 로그인', words: 'claude code pro max 로그인 구독' },
+  { id: 'claude-account', cat: 'ai', sec: 'Claude', label: 'Claude 구독 계정', words: 'claude code 계정 전용 따로 다른 계정 로그인 config' },
+  { id: 'claude-login', cat: 'ai', sec: 'Claude', label: 'Claude 구독 로그인', words: 'claude code pro max 로그인 로그아웃 구독' },
   { id: 'anthropic-key', cat: 'ai', sec: 'Claude', label: 'Anthropic API 키', words: '키 key claude console sk-ant' },
   { id: 'claude-model', cat: 'ai', sec: 'Claude', label: 'Claude 모델', words: '모델 opus sonnet haiku' },
   { id: 'claude-bin', cat: 'ai', sec: 'Claude', label: 'claude 실행 파일', words: 'path 경로 bin' },
@@ -254,6 +255,8 @@ function setRowHtml(id) {
       return (c.gemini_auth || 'key') === 'vertex' ? vertexRow(id, c) : '';
     case 'gemini-model':
       return textRow(id, 'model', '모델', `목록에서 고르거나 이름을 적어요. 칸을 떠나면 저장해요. ${modelCount('gemini')}`, c.model_setting, c.model_source, 'CANON_MODEL', { list: 'model-options' });
+    case 'claude-account':
+      return claudeAccountRow(id, c);
     case 'claude-login':
       return claudeLoginRow(id);
     case 'anthropic-key':
@@ -740,6 +743,10 @@ Object.assign(actions, {
   async setSeg(arg) {
     const [k, v] = String(arg).split(':');
     if (k === 'gemini_auth') return setSave('gemini-auth', { gemini_auth: v });
+    if (k === 'claude_separate') {
+      await setSave('claude-account', { claude_separate: v === 'canon' });
+      return claudeStatusLoad();
+    }
     if (k === 'mode') {
       S.mode = v;
       lsKeep('canon.mode', v);
