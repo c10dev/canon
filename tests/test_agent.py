@@ -416,3 +416,38 @@ def test_episode_focus_asks_outside_even_in_all_mode(client):
 
 def _turn_session(client, sid, name="lh"):
     return next(x for x in client.get(f"/api/projects/{name}/sessions?topic=plot").json()["sessions"] if x["id"] == sid)
+
+
+def test_step_prompt_extends_the_previous_step_prompt(client, monkeypatch):
+    """단계 k+1 요청은 단계 k 요청(끝 줄 '남은 단계는 N개입니다.' 뺀 것)으로 시작한다. 서버 캐시가 앞 요청을 다시 쓰게 한다."""
+    from canon import agent, prompts
+    seen = []
+    real = prompts.agent_plot_prompt
+
+    def spy(*a, **kw):
+        seen.append(real(*a, **kw))
+        return seen[-1]
+    monkeypatch.setattr(agent.prompts, "agent_plot_prompt", spy)
+    _project(client)
+    sid = _session(client)
+    t = _say(client, sid, "끝없이 읽어 줘")  # 쓰기 없이 8단계를 읽는다
+    assert t["end"] == "cap" and len(seen) == 8
+    for k, (a, b) in enumerate(zip(seen, seen[1:])):
+        head, last = a.rsplit("\n", 1)
+        assert last == f"남은 단계는 {8 - k}개입니다."
+        assert b.startswith(head) and len(b) > len(a)
+    at = [seen[0].index(x) for x in ("요구사항:", "\n[작가의 새 말]\n", "\n[이번 턴 방식]\n", "\n[이번 턴에 한 일]")]
+    assert at == sorted(at)  # 세션 안에서 바뀌지 않는 요구사항이 앞, 턴마다 바뀌는 블록이 뒤
+    seen.clear()
+    _say(client, sid, "다른 방향 몇 가지 보여 줘", mode="options")
+    assert "작가가 방향 여러 안을 청했습니다" in seen[0].split("\n[이번 턴 방식]\n", 1)[1]
+
+
+def test_plot_chat_parts_names_follow_the_given_rng():
+    """대화 에이전트는 세션 id 로 이름 후보를 고정한다. 같은 난수면 장편 앞부분도 글자까지 같다."""
+    import random
+    from canon import prompts
+    from canon.schema import ChatScope
+    p = _three_arcs()[0]
+    one, two = (prompts.plot_chat_parts(p, ChatScope(), random.Random("s1")) for _ in range(2))
+    assert one == two and "[이름 후보]" in one[1]

@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import random
 import re
 
 from pydantic import BaseModel
@@ -1341,8 +1342,9 @@ def places_line(p: Project, text: str = "") -> str:
     return (", ".join(names) or "없음") + (f" (그 밖에 {more}곳은 이번 화와 멀어 뺐습니다)" if more else "")
 
 
-def new_cast_rule(p: Project) -> str:
-    """플롯 초안과 플롯 대화가 새 인물을 들일 때의 규칙 (new_characters 칸이 있는 스키마에만 붙인다)."""
+def new_cast_rule(p: Project, rng: random.Random | None = None) -> str:
+    """플롯 초안과 플롯 대화가 새 인물을 들일 때의 규칙 (new_characters 칸이 있는 스키마에만 붙인다).
+    rng 를 주면 이름 후보를 그 난수로 뽑는다 (대화 에이전트는 세션마다 같은 후보를 내 단계 요청의 앞부분이 같게 한다)."""
     return f"""
 - 인물 목록에 없는 인물이 꼭 필요하면 new_characters 에 전체 설정(이름, 역할, 나이, 성별, 성격, 원하는 것, 말투 speech_style)을 넣고, 나오는 화의 characters 에 그 id 를 넣습니다. 여러 화에 걸쳐 나오면 tier 를 support, 한두 화 나오고 마는 인물이면 minor 로 둡니다.
 - 이미 있는 인물과 새 인물 후보는 다시 만들지 않습니다. 이름 없는 행인이나 군중은 인물로 만들지 않습니다. 인물 목록에 없는 id 를 characters 에 쓰면 반드시 new_characters 에도 넣습니다.
@@ -1350,7 +1352,7 @@ def new_cast_rule(p: Project) -> str:
 - 이름을 붙인 새 장소(지형, 마을, 건물, 가게 등)가 필요하면 new_places 에 플롯에 쓴 이름 그대로, kind 에 종류 한 단어, description 에 어떤 곳인지 한 줄을 넣습니다.
 - 새 인물 이름은 아래 후보에서 고르거나 같은 결로 짓고, 있는 인물과 이름이 같거나 첫 글자나 끝 글자가 겹치지 않게 합니다.
 [이름 후보]
-{naming.new_cast_hint(p)}"""
+{naming.new_cast_hint(p, rng)}"""
 
 
 def relevant_foreshadows(p: Project, n: int) -> tuple[list[Foreshadow], int]:
@@ -1877,13 +1879,13 @@ def plot_chat_prompt(p: Project, message: str, scope=None) -> str:
     return body + _chat_tail(p, message, scope, rules, label)
 
 
-def plot_chat_parts(p: Project, scope) -> tuple[str, str, str]:
+def plot_chat_parts(p: Project, scope, rng: random.Random | None = None) -> tuple[str, str, str]:
     """플롯 대화의 앞부분(작품 · 구조 · 플롯 블록), 변경안 규칙, 방향 안이 다룰 범위 이름.
-    단발 대화(plot_chat_prompt)와 대화 에이전트(agent_plot_prompt)가 함께 쓴다."""
-    return _serial_plot_parts(p, scope) if p.serial else _short_plot_parts(p, scope)
+    단발 대화(plot_chat_prompt)와 대화 에이전트(agent_plot_prompt)가 함께 쓴다. rng 는 이름 후보를 뽑는 난수 (new_cast_rule)."""
+    return _serial_plot_parts(p, scope, rng) if p.serial else _short_plot_parts(p, scope, rng)
 
 
-def _short_plot_parts(p: Project, scope) -> tuple[str, str, str]:
+def _short_plot_parts(p: Project, scope, rng: random.Random | None = None) -> tuple[str, str, str]:
     eps = [{"status": e.status, **e.plot.model_dump()} for e in p.episodes]
     done = [e for e in p.episodes if e.summary]
     locked = [e.plot.number for e in p.episodes if e.status in ("written", "finalized")]
@@ -1897,7 +1899,7 @@ def _short_plot_parts(p: Project, scope) -> tuple[str, str, str]:
 - 총 화수를 바꿔야 하면 total_episodes 에 새 화수를 넣고, acts 를 새 화수에 맞추고, 새로 생기거나 내용이 밀리는 화를 episodes 에 모두 넣습니다. 화수를 바꾸지 않으면 0 입니다.
 - 구간은 기, 승, 전, 결 순서로 1화부터 마지막 화까지 빈틈없이 이어집니다.
 - arc 와 parts 는 장편에서만 씁니다. arc.title 은 비우고 parts 는 빈 목록입니다.
-{plot_rules(p, opening_pending(p))}{new_cast_rule(p)}"""
+{plot_rules(p, opening_pending(p))}{new_cast_rule(p, rng)}"""
     return f"""[작품]
 {meta_text(p)}
 [세계관]
@@ -1931,7 +1933,7 @@ def serial_plot_chat_prompt(p: Project, message: str, scope=None) -> str:
     return body + _chat_tail(p, message, scope, rules, label)
 
 
-def _serial_plot_parts(p: Project, scope) -> tuple[str, str, str]:
+def _serial_plot_parts(p: Project, scope, rng: random.Random | None = None) -> tuple[str, str, str]:
     """장편: 고칠 대상은 화면에서 고른 아크(없으면 pipeline.focus_arc)나 다음 아크 초안, 그리고 부 구성이다.
     앞선 내용은 접은 줄거리로 보고, 화별 플롯은 대상 아크부터 기획한 끝까지만 넣는다 (옛 아크를 고르면 그 아크 범위만)."""
     from .pipeline import ARC_MAX, ARC_MIN, chat_next_limit, chat_target, focus_arc, next_arc_start
@@ -1981,7 +1983,7 @@ def _serial_plot_parts(p: Project, scope) -> tuple[str, str, str]:
 - 본문이 있는 화({", ".join(map(str, locked)) or "없음"})는 바꾸지 않습니다.
 - 작가가 확정한 화({", ".join(map(str, confirmed)) or "없음"})는 작가가 그 화를 바꿔 달라고 했을 때만 바꿉니다.
 - 한 화를 바꾸면 앞뒤 화의 엔딩 훅, 복선 심기와 회수가 어긋나지 않게 이어지는 화도 함께 고칩니다.
-{plot_rules(p, opening_pending(p))}{new_cast_rule(p)}"""
+{plot_rules(p, opening_pending(p))}{new_cast_rule(p, rng)}"""
     return f"""[작품]
 {meta_text(p)}
 [세계관]
@@ -2071,21 +2073,35 @@ def agent_focus_block(p: Project, focus: str) -> str:
 
 
 def agent_plot_prompt(p: Project, session, turn, scope, left: int) -> str:
-    """대화 에이전트 한 단계의 프롬프트. 앞은 플롯 대화와 같은 작품 · 구조 블록, 그 뒤 도구와 규칙(바뀌지 않음),
-    세션의 지난 턴, 새 말, 이번 턴에 한 단계 순서다. 단계마다 앞 요청을 통째로 품고 끝에만 덧붙인다."""
+    """대화 에이전트 한 단계의 프롬프트. 앞은 플롯 대화와 같은 작품 · 구조 블록, 그 뒤 도구 · 변경안 규칙 · 요구사항
+    (세션 안에서 바뀌지 않음), 다듬을 곳, 세션의 지난 턴, 보던 곳, 새 말과 이번 턴 방식(턴 안에서 바뀌지 않음),
+    이번 턴에 한 단계 순서다. 남은 단계 수만 맨 끝 한 줄에 둔다. 그래서 단계 k+1 요청은 단계 k 요청에서
+    끝 줄을 뺀 글로 시작하고, 서버 캐시가 앞 단계 요청을 거의 통째로 다시 쓴다."""
     from .pipeline import chat_where
 
-    body, rules, label = plot_chat_parts(p, scope)
+    body, rules, label = plot_chat_parts(p, scope, random.Random(session.id))  # 이름 후보를 세션마다 고정한다
     past = [t for t in session.turns if t is not turn][-CHAT_HISTORY_LIMIT:]
     where = turn.where or chat_where(p, scope)
-    steps = "\n".join(
-        f"{i}. {s.tool or s.kind}{f' ({s.label})' if s.label else ''}{f' - {s.why}' if s.why else ''}" + (f"\n결과:\n{s.result}" if s.result else "")
+    steps = "".join(
+        f"{i}. {s.tool or s.kind}{f' ({s.label})' if s.label else ''}{f' - {s.why}' if s.why else ''}" + (f"\n결과:\n{s.result}" if s.result else "") + "\n"
         for i, s in enumerate(turn.steps, 1))
     options = turn.mode == "options"
+    how = ("작가가 방향 여러 안을 청했습니다. 고치지 말고 ask 를 불러 options 에 서로 분명히 다른 방향 2~3개를 넣습니다. 같은 방향의 강약이 아니라 갈등, "
+           "인물의 선택, 사건 순서, 결말처럼 줄기가 갈라지게 합니다. 각 안의 changes 에는 바뀌는 " + label + "을(를) 한 줄씩 씁니다." if options else
+           "작가가 앞서 낸 방향 안 중 하나를 고르거나 섞어 달라고 하면 그 방향으로 고칩니다. 요청이 모호해 고치면 안 될 것 같으면 ask 로 묻습니다.")
     return body + f"""{AGENT_PLOT_TOOLS}
 
 [변경안 규칙 (edit_plot 의 edit)]
 {rules}
+
+요구사항:
+- 한 단계에 도구 하나만 부릅니다. 아래 블록과 [이번 턴에 한 일]에 이미 있는 내용은 다시 읽지 않고, 같은 도구를 같은 인자로 두 번 부르지 않습니다. 남은 단계 수는 맨 끝 줄에 있습니다.
+- 쓸 것이 정해지면 edit_plot 을 부르고, 결과를 본 뒤 tool 을 비우고 reply 로 끝냅니다. 작가에게 물은 부분이 있으면 그 답을 기다려야 하므로 바로 끝냅니다.
+- 화를 늘리거나 줄여 뒤 화(본문이 있는 화 포함)의 번호를 옮겨야 하면 insert_episodes · remove_episode 를 먼저 부르고, 승인된 뒤 새 화 플롯을 edit_plot 으로 채웁니다. "N화 본문을 M화로 옮긴다"는 N화 앞에 M-N 화를 넣는 것입니다.
+- 막힌 부분은 다시 시도하지 말고, 왜 막혔는지와 대신 할 수 있는 일을 reply 에 씁니다.
+- [이번 턴 방식]을 따릅니다.
+- 작가가 고치기가 아니라 분석 · 검토 · 질문을 청하면 edit_plot 을 부르지 않습니다. 필요한 것을 읽은 뒤 tool 을 비우고 reply 에 분석 내용 자체를 씁니다. 길이는 내용에 맞추고(항목마다 근거 화를 붙임), "분석해 전달합니다", "살펴보겠습니다" 같은 예고만 쓰지 않습니다. reply 가 이 턴의 마지막 말이라 그 뒤에 이어 쓸 기회가 없습니다.
+- 고쳤을 때 reply 에는 무엇을 바꿨고, 무엇을 물었고, 무엇이 막혔는지 2~5문장으로 씁니다. thought 에는 이 단계에서 하는 일을 한 줄로 씁니다.
 
 {agent_focus_block(p, scope.focus)}[이 세션의 지난 대화]
 {chr(10).join(_agent_turn_line(t) for t in past) or "없음 (첫 턴)"}
@@ -2093,17 +2109,12 @@ def agent_plot_prompt(p: Project, session, turn, scope, left: int) -> str:
 [작가의 새 말]
 {turn.user}
 
-[이번 턴에 한 일]
-{steps or "아직 없음"}
+[이번 턴 방식]
+{how}
 
-요구사항:
-- 한 단계에 도구 하나만 부릅니다. 위 블록에 이미 있는 내용은 다시 읽지 않고, 같은 도구를 같은 인자로 두 번 부르지 않습니다. 남은 단계는 {left}개입니다.
-- 쓸 것이 정해지면 edit_plot 을 부르고, 결과를 본 뒤 tool 을 비우고 reply 로 끝냅니다. 작가에게 물은 부분이 있으면 그 답을 기다려야 하므로 바로 끝냅니다.
-- 화를 늘리거나 줄여 뒤 화(본문이 있는 화 포함)의 번호를 옮겨야 하면 insert_episodes · remove_episode 를 먼저 부르고, 승인된 뒤 새 화 플롯을 edit_plot 으로 채웁니다. "N화 본문을 M화로 옮긴다"는 N화 앞에 M-N 화를 넣는 것입니다.
-- 막힌 부분은 다시 시도하지 말고, 왜 막혔는지와 대신 할 수 있는 일을 reply 에 씁니다.
-{"- 작가가 방향 여러 안을 청했습니다. 고치지 말고 ask 를 불러 options 에 서로 분명히 다른 방향 2~3개를 넣습니다. 같은 방향의 강약이 아니라 갈등, 인물의 선택, 사건 순서, 결말처럼 줄기가 갈라지게 합니다. 각 안의 changes 에는 바뀌는 " + label + "을(를) 한 줄씩 씁니다." if options else "- 작가가 앞서 낸 방향 안 중 하나를 고르거나 섞어 달라고 하면 그 방향으로 고칩니다. 요청이 모호해 고치면 안 될 것 같으면 ask 로 묻습니다."}
-- 작가가 고치기가 아니라 분석 · 검토 · 질문을 청하면 edit_plot 을 부르지 않습니다. 필요한 것을 읽은 뒤 tool 을 비우고 reply 에 분석 내용 자체를 씁니다. 길이는 내용에 맞추고(항목마다 근거 화를 붙임), "분석해 전달합니다", "살펴보겠습니다" 같은 예고만 쓰지 않습니다. reply 가 이 턴의 마지막 말이라 그 뒤에 이어 쓸 기회가 없습니다.
-- 고쳤을 때 reply 에는 무엇을 바꿨고, 무엇을 물었고, 무엇이 막혔는지 2~5문장으로 씁니다. thought 에는 이 단계에서 하는 일을 한 줄로 씁니다."""
+[이번 턴에 한 일] (비었으면 이번 턴의 첫 단계입니다)
+{steps}
+남은 단계는 {left}개입니다."""
 
 
 # ---------- 본문 부분 수정 (집필 화면에서 고른 부분) ----------
