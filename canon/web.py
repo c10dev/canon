@@ -537,6 +537,7 @@ class ProjectCard(BaseModel):
     open_ep: int
     open_status: str
     open_checked: bool = Field(False, description="다음에 할 화가 본문을 쓴 화(written)일 때 검수가 끝났는지 (findings.check_done). 화면은 검수 대기 · 상태 승인 대기를 가른다")
+    setup_ready: bool = Field(True, description="설정 도우미 필수 칸(제목 · 장르 · 한 줄 소개 · 세계 · 인물 둘 · 관계 하나)이 다 찼는지 (setup.js setupReqs 와 같은 규칙). 플롯 전 작품의 다음 할 일을 고른다")
     updated_at: str
     branch: BranchInfo | None = Field(None, description="갈래 정보. 갈래가 없는 작품이면 비움 (같은 family 끼리 묶어 보인다)")
     play: PlayCard | None = Field(None, description="플레이 정보. 플레이 사본이 아니면 비움 (화면은 세계 작품 카드 안에 묶는다)")
@@ -564,6 +565,7 @@ def list_projects() -> list[ProjectCard]:
                             "episodes": p.meta.target_episodes, "finalized": done, "planned": len(p.episodes),
                             "open_ep": todo.plot.number if todo else 0, "open_status": todo.status if todo else "",
                             "open_checked": bool(todo and todo.status == "written" and findings.check_done(todo)),
+                            "setup_ready": _setup_ready(p),
                             "updated_at": datetime.fromtimestamp(mtime, timezone.utc).isoformat(), "_mtime": mtime,
                             "branch": tree.get(d.name), "play": (_play_card(p, info) if (info := store.load_play(d.name)) else None),
                             "alerts": _card_alerts(d.name), **_card_strip(p, todo)})
@@ -572,6 +574,14 @@ def list_projects() -> list[ProjectCard]:
 
 
 STRIP_MAX = 40  # 화 칸 띠에 그리는 가장 많은 화 (app.js WORK_STRIP_MAX 와 같다)
+
+
+def _setup_ready(p: Project) -> bool:
+    """설정 도우미 필수 칸이 다 찼는가. static/setup.js 의 setupReqs 와 같은 규칙 (tests/test_web.py)."""
+    ids = {c.id for c in p.characters}
+    return bool(p.meta.title.strip() and p.meta.genres and p.meta.logline.strip() and p.world.setting.strip()
+                and sum(1 for c in p.characters if (c.name or "").strip()) >= 2
+                and any(r.a != r.b and r.a in ids and r.b in ids for r in p.relationships))
 
 
 def _card_alerts(name: str) -> list[dict]:
@@ -3710,6 +3720,7 @@ class AutoView(BaseModel):
     model_config = _AUTO_OUT
     run: AutoRun | None = None
     active: bool
+    want: str = Field("", description="도는 실행에 받아 둔 요청(pause | stop). 지금 단계가 끝날 때까지 화면이 '멈추는 중'을 보인다")
     batch_stages: list[str]
     policy_defaults: autorun.Policy = Field(default_factory=autorun.Policy)
 
@@ -3744,7 +3755,7 @@ def _auto(name: str) -> dict:
     out = run.model_dump() if run else None
     if out and run.pending and (run.status != "review" or p.episode(run.ep).status != "written"):
         out["pending"] = None  # 사용자가 검토 화면에서 이미 반영했다
-    return {"run": out, "active": autorun.active(name),
+    return {"run": out, "active": autorun.active(name), "want": autorun.wanted(name),
             "batch_stages": [s for s in ("write", "check", "state") if autorun.batchable(s)], "policy_defaults": autorun.Policy()}
 
 

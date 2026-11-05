@@ -986,3 +986,19 @@ def test_session_edit_is_not_a_screen_save(client):
     after = client.get("/api/projects/ss").json()
     assert (after["edit_rev"], after["saved_by"]) == (before["edit_rev"], before["saved_by"])
     assert any(x["title"] == "새 이름" for x in after["agent_sessions"])
+
+
+def test_card_setup_ready(client):
+    """작품 카드의 setup_ready: 설정 도우미 필수 칸이 다 차야 참이다 (setup.js setupReqs 와 같은 규칙). 플롯 전이면 다음 할 일이 설정이다."""
+    meta = {"title": "등대", "genre": "미스터리", "logline": "x", "target_episodes": 10}
+    client.post("/api/projects", json={"name": "sr", "meta": meta})
+    card = next(x for x in client.get("/api/projects").json() if x["name"] == "sr")
+    assert card["setup_ready"] is False
+    p = client.get("/api/projects/sr").json()
+    p["meta"]["genres"] = p["meta"]["genres"] or ["mystery"]
+    p["world"]["setting"] = "바닷가 마을"
+    p["characters"] = [{"id": "a", "name": "서윤", "role": "주인공"}, {"id": "b", "name": "도현", "role": "오빠"}]
+    p["relationships"] = [{"a": "a", "b": "b", "type": "남매"}]
+    assert client.put("/api/projects/sr", json=p).status_code == 200
+    card = next(x for x in client.get("/api/projects").json() if x["name"] == "sr")
+    assert card["setup_ready"] is True

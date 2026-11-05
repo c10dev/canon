@@ -63,6 +63,7 @@ function projectGo(x) {
   }
   if (!x.open_ep) {
     if (x.planned && x.finalized >= x.episodes) return { label: '완결', href: at(''), done: true };
+    if (!x.planned && x.setup_ready === false) return { label: '설정 마저 채우기', href: at('/setup'), done: false };  // 플롯 전: 설정 필수 칸부터
     return { label: x.planned ? `${x.planned + 1}화부터 플롯 만들기` : '플롯 만들기', href: at('/arc'), done: false };
   }
   const n = x.open_ep;
@@ -137,7 +138,7 @@ function plManage(x, label) {
       <button type="button" class="pop-item" data-action="dupProject" data-arg="${esc(x.name)}">복제</button>
       <button type="button" class="pop-item" data-action="renameProject" data-arg="${esc(x.name)}">폴더 이름 바꾸기</button>
       <div class="pop-sep" role="separator"></div>
-      <button type="button" class="pop-item danger" data-action="deleteProject" data-arg="${esc(x.name)}">삭제</button>`, { cls: 'btn icon-btn', aria: `${label} 관리` });
+      <button type="button" class="pop-item danger" data-action="deleteProject" data-arg="${esc(x.name)}">지우기</button>`, { cls: 'btn icon-btn', aria: `${label} 관리` });
 }
 
 const plBar = (fin, total) => `<span class="pl-prog"><i role="img" aria-label="${total}화 중 ${fin}화 반영"><b style="width:${total ? Math.min(100, Math.round((fin / total) * 100)) : 0}%"></b></i><span>${fin} / ${total}화</span></span>`;
@@ -356,6 +357,9 @@ function nextStep() {
   if (autoOn()) return [`자동 집필 진행 중${autoEp() ? ` (${autoEp()}화)` : ''}`, base() + '/auto'];
   if (typeof playCopy === 'function' && playCopy()) return ['플레이로 돌아가기', `#/play/${enc(S.name)}`];  // 플레이 사본은 구간을 플레이 화면에서 이어 간다
   if (!p.characters.length) return ['설정 시작', base() + '/setup'];
+  // 플롯 전: 설정 필수 칸이 비면 설정부터, 문체를 정하지 않았고 문체 화면에 아직 안 들렀으면 문체 (들렀다 나가면 건너뛴 것으로 본다)
+  if (!p.episodes.length && typeof setupReqs === 'function' && !setupReqs(p).every(Boolean)) return ['설정 마저 채우기', base() + '/setup'];
+  if (!p.episodes.length && !(p.style.narration_pov || p.style.sample_passages.length) && !styleVisited()) return [`${stepLabel('style')} 정하기`, base() + '/style'];
   if (serial()) {
     const open = p.episodes.find((e) => e.status !== 'finalized');
     if (!open && plannedUntil() < p.meta.target_episodes) return [`다음 아크 기획 (${plannedUntil() + 1}화부터)`, base() + '/arc'];
@@ -366,6 +370,12 @@ function nextStep() {
   if (e.status === 'confirmed') return [`${e.plot.number}화 쓰기`, `${base()}/write/${e.plot.number}`];
   if (e.status === 'written') return [`${e.plot.number}화 ${stepLabel(epStage(e))}`, `${base()}/${epStage(e)}/${e.plot.number}`];
   return ['완결 원고 보기', `${base()}/write/${e.plot.number}`];
+}
+
+/** 이 작품의 문체 화면에 들른 적이 있는가 (이 브라우저). 다음 할 일이 문체를 한 번만 권하게 */
+const STYLE_VISITED = (name) => `canon.styleVisited.${name}`;
+function styleVisited() {
+  try { return !!localStorage.getItem(STYLE_VISITED(S.name)); } catch { return true; }  // 기억하지 못하면 권하지 않는다
 }
 
 /** 한 화를 열 때 갈 화면: 플롯 초안은 플롯(arc), 본문을 쓴 화는 검수가 끝났으면 상태 승인(review) 아니면 검수(check), 그 밖은 집필(write).

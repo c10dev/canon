@@ -140,6 +140,8 @@
   - ⋯ 메뉴 `plManage`(폴더 이름)
   - 작품 없음은 `plStepsCard`
   - 서버 카드의 확인할 것 `alerts` · 부 · 아크 `where` · 화 칸 띠 `strip`(`web.list_projects`)
+- 다음 할 일 `nextStep`: 플롯 전이면 설정 필수 칸(`setupReqs`)이 빌 때 '설정 마저 채우기', 문체를 정하지 않았고 문체 화면에 안 들렀으면(`styleVisited`, localStorage `canon.styleVisited.<작품>`) 문체 정하기를 먼저 권한다
+- 작품 목록 `projectGo` 는 플롯 전 작품의 설정 필수 칸이 비면(`setup_ready` false) '설정 마저 채우기'로 보낸다
 - `aiWarning` 은 Anthropic 키가 없거나(`claude_api` false) Claude 구독을 쓸 수 없으면(`claude` install · login · error) 첫 작업 전에 알린다
 - 작품 홈
   - 지금 화 `homeNowCard` · 확인할 것 `homeTodos`(말투 빈 인물 `homeSpeechGaps`, 시점 인물 서술 말투 빈칸 `homeVoiceGap`) · 전 화수 막대 `homeProgress` · 줄인 목록 `homeCast` · `homeForeshadows`
@@ -210,6 +212,8 @@
 ### `canon/static/notify.js`
 
 - 작업이 끝나면 알리기
+- 알림을 꺼 두어도 탭이 뒤에 있으면 탭 제목 앞에 끝난 수를 붙인다(`notifyWays`). 브라우저 알림은 켰을 때만
+- 처음 AI 작업을 시작할 때 한 번만 시작 말풍선에 '브라우저 알림 켜기'를 붙인다(`notifyOffer`, localStorage `canon.notify.asked`)
 - 탭이 뒤에 있거나 창에 포커스가 없을 때 브라우저 알림(Notification API)을 보내고 탭 제목 앞에 수를 붙인다
 - 탭을 보고 있으면 `app.js` 의 말풍선이 이미 알리므로 보내지 않는다
 - 자동 집필의 화별 반영(서버 `Job.step_ep`)은 말풍선이 없어 탭을 보고 있으면 말풍선을 띄운다

@@ -366,7 +366,7 @@ function setRowHtml(id) {
       const perm = notifyPermission();
       const how = { granted: '브라우저 알림을 허용했어요.', denied: '브라우저가 알림을 막았어요. 주소창의 사이트 설정에서 허용하세요.',
         default: '켜면 브라우저가 알림을 허용할지 물어요.', unsupported: '이 주소(https나 localhost가 아님)에서는 브라우저 알림을 쓸 수 없어요.' }[perm];
-      return setRow(id, '작업이 끝나면 알리기', `탭이 뒤에 있을 때 브라우저 알림을 보내고 탭 제목 앞에 끝난 수를 붙여요. ${how}`, SW(id, notifyPref.on, '작업이 끝나면 알리기'), { wide: false });
+      return setRow(id, '작업이 끝나면 알리기', `탭이 뒤에 있을 때 브라우저 알림을 보내요. 꺼 두어도 탭 제목 앞에는 끝난 수를 붙여요. ${how}`, SW(id, notifyPref.on, '작업이 끝나면 알리기'), { wide: false });
     }
     case 'notify-test':
       return setRow(id, '시험 알림', '지금 알림 하나를 보내 보여요.', '<button type="button" class="btn" data-action="setNotifyTest">보내 보기</button>', { wide: false });

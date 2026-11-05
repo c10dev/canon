@@ -60,8 +60,10 @@ function notifyEvent(j, old) {
 /** 알릴 길. env: { visible(탭을 보고 있고 창에 포커스), permission('granted' | 'denied' | 'default' | 'unsupported') }.
     돌려주는 목록: 'toast'(화면 말풍선) · 'system'(브라우저 알림) · 'title'(탭 제목에 수 붙이기) */
 function notifyWays(ev, pref, env) {
-  if (!ev || !pref.on || !pref.kinds[ev.group]) return [];
-  if (env.visible) return ev.toast ? ['toast'] : [];
+  if (!ev || !pref.kinds[ev.group]) return [];
+  if (env.visible) return pref.on && ev.toast ? ['toast'] : [];
+  // 알림을 꺼 두어도 탭 제목에는 끝난 수를 붙인다. 작업을 시작할 때 '끝나면 알려 드릴게요'라고 한 것을 지킨다
+  if (!pref.on) return ['title'];
   return env.permission === 'granted' ? ['system', 'title'] : ['title'];
 }
 
@@ -107,7 +109,6 @@ function notifyMarkTitle() {
 
 /** pollJobs 가 받은 작업 목록과 지난번 목록(id → 작업)으로 알린다 */
 function notifyJobs(list, before) {
-  if (!notifyPref.on) return;
   const env = { visible: notifyVisible(), permission: notifyPermission() };
   for (const j of list) {
     const ev = notifyEvent(j, before.get(j.id));
@@ -131,6 +132,17 @@ window.addEventListener('focus', notifySeen);
 setInterval(() => {
   if (notifyPref.on && typeof pollJobs === 'function' && !S.jobs.some((j) => j.status === 'running')) pollJobs();
 }, 30000);
+
+/** 처음 긴 작업을 시작할 때 한 번만 '브라우저 알림 켜기'를 권한다. 꺼져 있고, 브라우저가 알림을 쓸 수 있고, 아직 권하지 않았을 때 */
+const NOTIFY_ASKED_KEY = 'canon.notify.asked';
+function notifyOffer() {
+  if (notifyPref.on || !['default', 'granted'].includes(notifyPermission())) return null;
+  try {
+    if (localStorage.getItem(NOTIFY_ASKED_KEY)) return null;
+    localStorage.setItem(NOTIFY_ASKED_KEY, '1');
+  } catch { return null; }  // 기억하지 못하는 브라우저에서는 매번 권하지 않게 아예 권하지 않는다
+  return { label: '브라우저 알림 켜기', run: async () => { const r = await notifyTurnOn(); toast(r.text, r.kind === 'err'); } };
+}
 
 /** 설정의 '켜기': 권한을 아직 묻지 않았으면 이때 묻는다. 돌려주는 값은 줄 아래 알림 글 */
 async function notifyTurnOn() {

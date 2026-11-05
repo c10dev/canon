@@ -37,7 +37,7 @@ function deviceFields(base, root) {
       </div>
       <div class="row" style="align-items:flex-start;flex-wrap:nowrap">
         <div style="flex:1">${input('예시 (써도 되는 화에만 보여 줘요)', b + '.example', o({ rows: 2 }))}</div>
-        <button class="btn icon-btn danger" style="margin-top:26px" data-action="deviceRemove" data-arg="${root || ''}|${i}" aria-label="장치 ${i + 1} 삭제">✕</button>
+        <button class="btn icon-btn danger" style="margin-top:26px" data-action="deviceRemove" data-arg="${root || ''}|${i}" aria-label="장치 ${i + 1} 지우기">✕</button>
       </div></div>`;
   }).join('');
   return rows || '<div class="small">아직 없어요. 레퍼런스의 버릇이 매 화 반복되면 규칙이나 대표 문단에서 빼고 여기에 적으세요.</div>';

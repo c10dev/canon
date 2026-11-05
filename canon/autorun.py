@@ -168,6 +168,13 @@ def get_run(name: str) -> Optional[Run]:
     return ctl.run if ctl else load_run(name)
 
 
+def wanted(name: str) -> str:
+    """도는 실행에 받아 둔 요청(pause | stop). 지금 단계가 끝나야 멈추므로 화면이 '멈추는 중'을 보인다. 없으면 빈 글."""
+    with _lock:
+        ctl = _controls.get(name)
+    return ctl.want if ctl and ctl.thread_alive else ""
+
+
 def active(name: str) -> bool:
     """자동 집필이 이 작품을 고치고 있는가 (화면 저장이 진행 상태를 덮으면 안 되는 동안)."""
     with _lock:

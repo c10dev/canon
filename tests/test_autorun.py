@@ -534,3 +534,18 @@ def test_save_keeps_plot_of_written_episode(demo):
     p.characters = [x for x in p.characters if x.id != gone]
     p.episode(1).plot.characters.remove(gone)
     assert pipeline.keep_locked_plots(old, p) == [] and gone not in p.episode(1).plot.characters
+
+
+def test_wanted_shows_pending_pause(monkeypatch):
+    """도는 실행에 일시정지 · 중지를 요청하면 wanted 가 그 요청을 돌려준다 (화면이 지금 단계가 끝날 때까지 '멈추는 중'을 보인다)."""
+    from canon import autorun
+
+    run = autorun.Run(target=3)
+    ctl = autorun.Control("w", run)
+    monkeypatch.setitem(autorun._controls, "w", ctl)
+    assert autorun.wanted("w") == ""
+    ctl.want = "pause"
+    assert autorun.wanted("w") == ""  # 스레드가 없으면 받아 둔 요청도 없다
+    ctl.thread_alive = True
+    assert autorun.wanted("w") == "pause"
+    assert autorun.wanted("없는 작품") == ""

@@ -530,7 +530,9 @@ function viewAuto() {
   // 머리 주 버튼: 그 실행에서 지금 할 일 하나
   let primary = '';
   if (r && !S.autoOffline) {
-    if (active) primary = '<button type="button" class="btn" data-action="autoPause">일시정지</button>';
+    // 일시정지 · 중지를 눌렀으면 지금 단계가 끝날 때까지 '멈추는 중'으로 둔다 (서버 want). 다시 눌러도 같은 요청이다
+    if (active && a.want) primary = `<button type="button" class="btn" aria-disabled="true" aria-busy="true"><span class="spinner small" aria-hidden="true"></span> ${a.want === 'stop' ? '중지하는 중' : '멈추는 중'}…</button>`;
+    else if (active) primary = '<button type="button" class="btn" data-action="autoPause">일시정지</button>';
     else if (r.status === 'review' && r.pending) primary = `<button type="button" class="btn primary" data-action="autoOpenReview">${r.ep}화 변경안 검토하기</button>`;
     else if (['paused', 'review', 'error'].includes(r.status)) primary = '<button type="button" class="btn primary" data-action="autoResume">이어 가기</button>';
   }
