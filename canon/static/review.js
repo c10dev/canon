@@ -80,10 +80,12 @@ function setDelta(n, d, source = 'ai') {
   // 설정에도 이번 새 인물에도 없는 id 의 상태는 기본으로 빼 둔다. 반영하면 누구의 것도 아닌 상태가 남는다
   const known = new Set([...P().characters.map((c) => c.id), ...(d.new_characters || []).map((c) => c.id)]);
   d.character_updates.forEach((u, i) => { S.picks['c' + i] = known.has(u.character_id); });
-  d.events.forEach((_, i) => { S.picks['e' + i] = true; });
+  // 설정에 없는 인물이 끼었거나 같은 인물끼리인 관계 사건 · 관계 바뀜도 기본으로 빼 둔다. 서버 반영이 막는다 (pipeline.validate_delta)
+  const pairOk = (a, b) => a !== b && known.has(a) && known.has(b);
+  d.events.forEach((e, i) => { S.picks['e' + i] = pairOk(e.actor, e.target); });
   d.secrets_added.forEach((_, i) => { S.picks['s' + i] = true; });
   // 유형 · 설명이 반영 뒤 관계 단계와 반대인 바뀜은 기본으로 빼 둔다 (pace.clean_delta). 맞으면 작가가 체크한다
-  d.relationship_updates.forEach((_, i) => { S.picks['r' + i] = !(d.rel_flagged || []).includes(i); });
+  d.relationship_updates.forEach((r, i) => { S.picks['r' + i] = !(d.rel_flagged || []).includes(i) && pairOk(r.a, r.b); });
   d.new_facts.forEach((_, i) => { S.picks['f' + i] = true; });
   d.foreshadow_planted.forEach((_, i) => { S.picks['p' + i] = true; });
   d.foreshadow_resolved.forEach((id, i) => { S.picks['x' + i] = P().foreshadows.some((f) => f.id === id); });
