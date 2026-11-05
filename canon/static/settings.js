@@ -134,7 +134,7 @@ function settingsCat(hash) {
 
 // ----- 대화상자 상태 -----
 
-const SET = { cat: 'ai', view: 'detail', q: '', note: {}, open: {}, test: null };
+const SET = { cat: 'ai', view: 'detail', q: '', note: {}, open: {}, test: null, undo: null };
 
 /** 줄 아래 한 줄 알림: 저장 중 · 저장했어요 · 오류 */
 function setNote(id, text, kind = '') {
@@ -280,8 +280,10 @@ function setRowHtml(id) {
       const cur = presetOf(list, { stages: c.stage_settings, stage_models: c.stage_model_settings });
       const opt = (x) => `<option value="${esc(x.id)}"${cur && cur.id === x.id ? ' selected' : ''}>${esc(x.name)}</option>`;
       const mine = list.filter((x) => !x.builtin);
+      // 방금 프리셋으로 채웠으면 고르기 전 칸으로 '되돌리기' (SET.undo, 단계 칸을 손으로 고치거나 대화상자를 다시 열면 사라진다)
+      const undo = SET.undo ? '<button type="button" class="btn ghost" data-action="setPresetUndo">되돌리기</button>' : '';
       return setRow(id, '프리셋으로 채우기', cur ? `지금 칸은 '${esc(cur.name)}' 프리셋과 같아요. 고르면 아래 칸을 바꾸고 바로 저장해요.` : '지금 칸은 어느 프리셋과도 달라요. 고르면 아래 칸을 바꾸고 바로 저장해요.',
-        `<select class="set-inp" data-setfield="preset" aria-labelledby="rn-${id}">${cur ? '' : '<option value="" selected>직접 고른 조합</option>'}<optgroup label="기본">${list.filter((x) => x.builtin).map(opt).join('')}</optgroup>${mine.length ? `<optgroup label="내 프리셋">${mine.map(opt).join('')}</optgroup>` : ''}</select>`);
+        `<select class="set-inp" data-setfield="preset" aria-labelledby="rn-${id}">${cur ? '' : '<option value="" selected>직접 고른 조합</option>'}<optgroup label="기본">${list.filter((x) => x.builtin).map(opt).join('')}</optgroup>${mine.length ? `<optgroup label="내 프리셋">${mine.map(opt).join('')}</optgroup>` : ''}</select>${undo}`);
     }
     case 'preset-save': {
       const mine = (c.stage_presets || []).filter((x) => !x.builtin);
@@ -547,6 +549,7 @@ async function openSettings(cat) {
   let dlg = document.getElementById('set-dlg');
   SET.q = '';
   SET.note = {};
+  SET.undo = null;
   SET.cat = cat && setCats().some(([id]) => id === cat) ? cat : SET.cat && setCats().some(([id]) => id === SET.cat) ? SET.cat : 'ai';
   SET.view = cat || !narrowScreen() ? 'detail' : 'list';
   if (!dlg) {
@@ -637,6 +640,7 @@ async function setChange(e) {
   const el = e.target;
   const v = (el.value || '').trim();
   const row = (el.closest('.set-row') || { id: '' }).id.replace(/^row-/, '');
+  if (el.dataset.setstage || el.dataset.setstagemodel) SET.undo = null;  // 손으로 고친 뒤에는 프리셋 되돌리기가 그 칸까지 덮으므로 거둔다
   if (el.dataset.setstage) return setSave(row, { stages: { [el.dataset.setstage]: v } });
   if (el.dataset.setstagemodel) return setSave(row, { stage_models: { [el.dataset.setstagemodel]: v } });
   if (el.dataset.setstageeffort) return setSave(row, { stage_efforts: { [el.dataset.setstageeffort]: v } });
@@ -652,8 +656,18 @@ async function setChange(e) {
     if (!pre) return;
     const kept = STAGES.filter(([s]) => ((c.stages || {})[s] || {}).env === `CANON_LLM_${s.toUpperCase()}`).map(([, l]) => l);
     const all = (m) => Object.fromEntries(STAGES.map(([s]) => [s, (m || {})[s] || '']));
+    const prev = { stages: all(c.stage_settings), stage_models: all(c.stage_model_settings) };
+    // 어느 프리셋과도 다른 조합은 덮으면 목록에서 사라져 다시 고를 수 없으니 먼저 묻는다. 그만두면 고른 값을 되돌린다
+    const was = presetOf(c.stage_presets, { stages: c.stage_settings, stage_models: c.stage_model_settings });
+    if (!was && !(await askConfirm(`지금 단계 칸은 어느 프리셋과도 다른 직접 고른 조합이에요. '${pre.name}' 프리셋으로 바꾸면 직접 고른 조합은 사라져요. 바꿀까요?`, { ok: '바꾸기', danger: true }))) {
+      el.value = '';
+      return;
+    }
     await setSave(row, { stages: all(pre.stages), stage_models: all(pre.stage_models) },
       `'${pre.name}' 프리셋으로 채웠어요${kept.length ? `. 환경 변수로 정한 ${kept.join(', ')} 칸은 그대로예요` : ''}`);
+    if (SET.note[row]?.kind !== 'ok') return;
+    SET.undo = { row, ...prev };
+    setPaint();
     const used = new Set(Object.values(pre.stages || {}));
     const c2 = S.config || {};
     if (used.has('claude-api') && c2.anthropic_key_source === 'none') setNote(row, `${SET.note[row].text}. Anthropic API 키를 넣어야 써요`, 'ok');
@@ -695,6 +709,15 @@ Object.assign(actions, {
   },
   setClose() {
     $('#set-dlg')?.close();
+  },
+  /** 프리셋으로 채우기 전 단계 칸(설정 파일 값)으로 되돌린다 */
+  async setPresetUndo() {
+    const u = SET.undo;
+    if (!u) return;
+    SET.undo = null;
+    await setSave(u.row, { stages: u.stages, stage_models: u.stage_models }, '프리셋을 고르기 전 칸으로 되돌렸어요');
+    if (SET.note[u.row]?.kind === 'err') { SET.undo = u; setPaint(); }  // 못 되돌렸으면 다시 누를 수 있게 둔다
+    $('#set-dlg [data-setfield="preset"]')?.focus({ preventScroll: true });
   },
   setOpenSec(sec) {
     SET.open[sec] = true;
