@@ -80,13 +80,8 @@ Object.assign(actions, {
   /** 검수하기: 검수 단계로 옮겨 검수를 시작하고, 첫 검수면 상태 변경안도 함께 만든다 */
   async flowCheck(n) {
     n = Number(n);
-    // 검수는 저장된 본문을 읽는다. 저장하지 않은 본문 초안을 먼저 저장한다 (check.js fixAll 과 같다)
-    try {
-      await flushText(n);
-    } catch (err) {
-      showError(err);
-      return;
-    }
+    // 검수는 저장된 작품과 본문을 읽는다. 저장하지 않은 변경과 본문 초안을 먼저 저장한다 (app.js checkReady)
+    if (!(await checkReady(n))) return;
     const both = flowStateToo(n);
     if (S.route[2] !== 'check') location.hash = `${base()}/check/${n}`;
     await startJob('check', n);

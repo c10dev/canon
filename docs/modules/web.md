@@ -27,12 +27,15 @@
 - 화면 이동 확인은 `leaveUnsaved`(작품 · 라이브러리 · 장면 연출 변경, `S.editDrafts`)를 본다
 - 새로고침 · 탭 닫기(`beforeunload`)는 `hasUnsaved` 를 본다: `leaveUnsaved` 에 본문 초안 · 지시서 결과 · 상태 변경안 · 문체 예시 · 가격표(`S.priceDirty`)를 더한다
 - 가격표는 화면을 옮겨도 남아(`pricesLoad`) 화면 이동 확인에는 넣지 않는다
-- `S.editDrafts` 약속: 인라인 편집기를 가진 모듈은 저장하지 않은 입력이 생기면 `S.editDrafts.<키>` 를 true 로, 저장 · 버리기 · 닫기 · 그 화면을 떠날 때 false 로 둔다
+- `S.editDrafts` 약속: 인라인 편집기를 가진 모듈은 저장하지 않은 입력이 생기면 `S.editDrafts.<키>` 를 true 로, 저장 · 버리기 · 닫기 때 false 로 둔다
 - `S.editDrafts` 의 키는 그 모듈이 정한다. `app.js` 는 키를 쓰지 않고 true 인 값이 있는지만 본다(`editDraftOpen`)
+- 화면 이동이 이어지면(버리고 이동을 골랐거나 남은 입력이 없음) `app.js` 가 `S.editDrafts` 를 `{}` 로 비운다. 떠난 화면의 편집기는 이미 사라졌다
 - `showError` 는 키 없음(`no_key`)과 키 틀림(`bad_key`) 모두 설정을 열지 묻는다
 - `run` 이 실패를 알릴 때 다시 시도할 만한 실패(`retryable`: status 0 · 429 · 5xx)면 같은 `run(label, fn, opt)` 을 다시 부르는 '다시 시도'를 붙인다
+- `run` 의 `opt.retry: false` 는 '다시 시도'를 붙이지 않는다. 저장하고 이동(hashchange)이 쓴다: 저장만 되풀이하면 이동이 이어지지 않는다
 - 기다리지 않기(`aborted`) · 입력 확인(4xx) · 화면 안에서 던진 오류에는 '다시 시도'를 붙이지 않는다
 - `showError` 는 글에 API 키 · 연결이 있으면 '설정'을 붙인다(`hub.js` `hubAttention` 과 같은 기준)
+- 서버에 닿지 못한 실패(status 0)에는 '설정'을 붙이지 않는다. AI 설정으로 고칠 수 없다
 - 보통 알림 `toast` 는 글 길이만큼(`toastLife`, 최대 10초) 남고 마우스 · 포커스가 있으면 멈춘다. 동작 버튼(`.t.act`)을 붙일 수 있고, AI 작업이 끝나면 결과 화면이 아닐 때 '가서 보기'를 붙인다
 - `proposalActions(drop, apply, label, disabled)` 는 AI 제안 버튼 줄 하나뿐이다. 인물 설정 · 신체 · 호칭 · 설정 기록 · 장면 연출 비교도 이것을 쓴다
 - 상태 `S`
@@ -69,6 +72,8 @@
 - 짧은 기다림 가림막 `run`(`#busy`): 상자 이름은 작업 이름(`#busy-label`)이고, 1초마다 바뀌는 경과 초(`#busy-sec`)는 낭독하지 않는다
 - 알림 말풍선(`toast`, 작업 실패는 '다시 시도' · '설정' 버튼, 기록과 자리는 `hub.js`)
 - 말풍선 글은 `toastSay` 가 숨은 낭독 칸에 넣는다: 오류는 `#sr-alert`(`role=alert`), 보통 알림은 `#sr-live`(polite)
+- `toastSay` 는 글마다 새 줄을 덧붙이고 8초 뒤 지운다. 이어 온 알림도 모두 읽힌다
+- 저장 띠의 '저장하지 않은 변경이 있어요' 안내도 `toastSay` 로 덧붙인다
 - `#toast` 는 낭독 칸이 아니다. 알림 창이 열려 말풍선을 숨겨도 낭독은 들린다
 - 작업 목록을 받을 때마다 `notify.js` 의 `notifyJobs` 를 부르고, 탭 제목에 안 본 알림 수를 붙인다(`notifyTitle`)
 - 입력 바인딩(`data-bind`)
@@ -140,6 +145,7 @@
 - 집필 · 검수 · 상태 승인 세 화면(주소 `write` · `check` · `review/<화>`)의 머리 아래 단계 띠(`flowBar`, 단계 글은 순수 함수 `flowSteps`, 이름 · 번호는 사이드바와 같음 `FLOW_STAGES`, 위치 줄 `flowEyebrow`)
 - '검수하기'(`flowCheck`: 검수 단계로 옮겨 검수, 첫 검수면 상태 변경안도 함께 `flowStateToo`, 끄기 `flowStateToggle` · localStorage `canon.flowState`)
 - `flowCheck` 와 `app.js` `checkEp`(다시 검수)는 검수를 시작하기 전에 저장하지 않은 본문 초안을 저장한다(`passage.js` `flushText`, `check.js` `fixAll` 과 같다)
+- 둘 다 `app.js` `checkReady` 를 쓴다: 저장하지 않은 작품 변경이 있으면 `startJob` 과 같은 물음으로 먼저 저장한 뒤 본문을 저장한다. 본문 저장이 `S.project` 를 서버 것으로 바꾸기 때문이다
 - `tests/test_flow_js.py`
 - `index.html` 에서 `check.js` 바로 뒤에 읽는다
 

@@ -41,7 +41,7 @@ def test_error_toast_offers_retry_only_when_it_can_help():
     })()""", {})
     assert got == [
         {"msg": "AI 응답이 비었어요", "err": True, "acts": ["다시 시도"]},
-        {"msg": "서버에 연결하지 못했어요", "err": True, "acts": ["다시 시도", "설정"]},
+        {"msg": "서버에 연결하지 못했어요", "err": True, "acts": ["다시 시도"]},  # 서버가 꺼졌으면 AI 설정으로 못 고친다
         {"msg": "제목을 적으세요", "err": True, "acts": []},
         {"msg": "기다리지 않기로 했어요", "err": False, "acts": []},
         {"msg": "화면 안 오류", "err": True, "acts": []},
@@ -68,6 +68,20 @@ def test_run_retry_reruns_same_action():
 
 
 @needs_node
+def test_run_retry_false_offers_no_retry():
+    got = run_js(["app.js"], """(async () => {
+      const acts = [];
+      toast = (msg, err, opt = {}) => acts.push(...(opt.actions || []).map((a) => a.label));
+      render = () => {};
+      clearInterval = () => {};
+      AbortController = class { constructor() { this.signal = {}; } abort() {} };
+      await run('저장하는 중', async () => { throw Object.assign(new Error('저장 실패'), { status: 500 }); }, { render: 'never', retry: false });
+      return acts;
+    })()""", {})
+    assert got == []
+
+
+@needs_node
 def test_leave_guard_counts_inline_editors_and_prices():
     got = run_js(["app.js"], """(() => {
       const out = { fresh: [hasUnsaved(), leaveUnsaved()] };
@@ -84,14 +98,21 @@ def test_leave_guard_counts_inline_editors_and_prices():
 @needs_node
 def test_toast_text_goes_to_live_regions():
     got = run_js(["app.js"], """(() => {
-      const boxes = { '#sr-live': { textContent: '' }, '#sr-alert': { textContent: '' } };
-      document = { querySelector: (q) => boxes[q] || null };
-      setTimeout = (f) => f();
+      const box = () => { const b = { kids: [], appendChild(n) { b.kids.push(n); n.remove = () => { b.kids = b.kids.filter((x) => x !== n); }; } }; return b; };
+      const boxes = { '#sr-live': box(), '#sr-alert': box() };
+      const later = [];
+      document = { querySelector: (q) => boxes[q] || null, createElement: () => ({ textContent: '' }) };
+      setTimeout = (f) => later.push(f);
       toastSay('저장했어요', false);
+      toastSay('저장했어요', false);  // 같은 글이 이어 와도 줄을 따로 덧붙여 둘 다 읽힌다
       toastSay('저장하지 못했어요', true);
-      return { live: boxes['#sr-live'].textContent, alert: boxes['#sr-alert'].textContent };
+      const read = (b) => b.kids.map((n) => n.textContent);
+      const out = { live: read(boxes['#sr-live']), alert: read(boxes['#sr-alert']) };
+      later.forEach((f) => f());
+      out.after = read(boxes['#sr-live']).length;
+      return out;
     })()""", {})
-    assert got == {"live": "저장했어요", "alert": "저장하지 못했어요"}
+    assert got == {"live": ["저장했어요", "저장했어요"], "alert": ["저장하지 못했어요"], "after": 0}
 
 
 @needs_node
@@ -114,3 +135,38 @@ def test_check_saves_body_draft_first():
         ["PUT", "/projects/t/episodes/1/text", "또 고침"], ["job", "check", 1],
     ]
     assert got["left"] == ["2"]
+
+
+@needs_node
+def test_check_saves_dirty_project_before_body_draft():
+    got = run_js(["app.js", "chat.js", "passage.js", "flow.js"], """(async () => {
+      const calls = [];
+      S.name = 't';
+      S.route = ['p', 't', 'check', '1'];
+      S.textDraft = { 1: '고친 본문' };
+      S.dirty = true;
+      askConfirm = async (msg, o) => { calls.push(['ask', o.ok]); return false; };
+      save = async () => { calls.push(['save']); S.dirty = false; };
+      api = async (m, path) => { calls.push([m, path]); return { episodes: [], relationships: [] }; };
+      startJob = async (kind, n) => { calls.push(['job', kind, n, S.dirty]); };
+      flowStateToo = () => false;
+      await actions.checkEp('1');  // 저장을 거절하면 본문도 작품도 건드리지 않는다
+      const refused = calls.splice(0);
+      askConfirm = async (msg, o) => { calls.push(['ask', o.ok]); return true; };
+      await actions.flowCheck('1');
+      return { refused, calls, left: Object.keys(S.textDraft) };
+    })()""", {})
+    assert got["refused"] == [["ask", "저장하고 시작하기"]]
+    assert got["calls"] == [["ask", "저장하고 시작하기"], ["save"], ["PUT", "/projects/t/episodes/1/text"], ["job", "check", 1, False]]
+    assert got["left"] == []
+
+
+def test_confirmed_leave_clears_edit_drafts():
+    # 화면 이동 처리기는 vm 대역 window 에 걸려 직접 부를 수 없다. 이동이 이어지는 자리에서 키를 모두 비우는지 글로 본다
+    from .jsvm import STATIC
+    src = (STATIC / "app.js").read_text(encoding="utf-8")
+    body = src[src.index("window.addEventListener('hashchange'"):]
+    body = body[:body.index("await route();")]
+    assert "if (leaveUnsaved())" in body
+    tail = body[body.index("lastHash = location.hash;"):]
+    assert "S.libDirty = false;" in tail and "S.editDrafts = {};" in tail
