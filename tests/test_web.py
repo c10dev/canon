@@ -944,6 +944,18 @@ def test_health_tells_claude_setup(client, monkeypatch):
     pub["stages"] = {"plan": {"provider": "gemini"}}
     h = client.get("/api/config/health").json()
     assert h["claude_api"] is None and h["claude"] is None
+    # 설정 화면의 Claude 상태 확인은 새로 읽고 그 결과로 기억을 바꾼다. 상태를 못 읽은 결과(error)는 기억하지 않는다
+    pub["stages"] = {"write": {"provider": "claude"}}
+    ok = {"installed": True, "path": "/x/claude", "version": "1", "logged_in": True, "env_token": False, "api_key_ignored": False,
+          "message": "로그인돼 있어요.", "reason": "ok", "login_command": "claude auth login", "token_command": "claude setup-token"}
+    monkeypatch.setattr(web.claude, "status", lambda: ok)
+    client.get("/api/claude/status")
+    assert client.get("/api/config/health").json()["claude"] == "ok"
+    monkeypatch.setattr(web, "_claude_seen", None)
+    monkeypatch.setattr(web.claude, "status", lambda: calls.append(2) or {"reason": "error", "message": "x"})
+    client.get("/api/config/health")
+    client.get("/api/config/health")
+    assert calls.count(2) == 2
 
 
 def test_missing_anthropic_key_is_no_key(client, monkeypatch):

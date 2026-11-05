@@ -351,6 +351,8 @@ class SettingsIn(BaseModel):
 
 @app.put("/api/config")
 def put_config(body: SettingsIn) -> ConfigView:
+    global _claude_seen
+    _claude_seen = None  # claude 실행 파일 · 백엔드가 바뀌었을 수 있다. 상태 확인이 다시 읽게 한다
     choices = settings.PROVIDERS
     if body.provider is not None and body.provider not in choices:
         raise HTTPException(400, f"provider는 {' / '.join(choices)} 중 하나예요")
@@ -463,10 +465,13 @@ CLAUDE_STATUS_TTL = 60  # 초. 화면을 옮길 때마다 claude 를 다시 띄�
 
 
 def _claude_status_cached() -> dict:
+    """claude.status 를 잠시 기억한다. 설정을 바꾸면(put_config) 지우고, 상태를 못 읽은 결과(error)는 기억하지 않는다."""
     global _claude_seen
     now = time.time()
     if _claude_seen is None or now - _claude_seen[0] > CLAUDE_STATUS_TTL:
-        _claude_seen = (now, claude.status())
+        st = claude.status()
+        _claude_seen = (now, st) if st.get("reason") != "error" else None
+        return st
     return _claude_seen[1]
 
 
@@ -490,8 +495,12 @@ def update_check() -> UpdateCheck:
 
 @app.get("/api/claude/status")
 def claude_status() -> ClaudeStatus:
-    """Claude Code 설치와 구독 로그인 상태. 로그인은 Claude Code 가 하고 Canon 은 상태만 본다 (claude.py)."""
-    return claude.status()
+    """Claude Code 설치와 구독 로그인 상태. 로그인은 Claude Code 가 하고 Canon 은 상태만 본다 (claude.py).
+    새로 읽은 상태로 상태 확인(config_health)의 기억도 바꾼다 (로그인한 뒤 '확인'을 누르면 경고가 바로 사라지게)."""
+    global _claude_seen
+    st = claude.status()
+    _claude_seen = (time.time(), st) if st.get("reason") != "error" else None
+    return st
 
 
 class PlayCard(_Out):

@@ -66,7 +66,7 @@ function checkOptsMenu() {
   ].filter(Boolean);
   const on = opts.filter((o) => o[1]).length;
   const body = () => `<div class="pop-sec"><div class="pop-legend">검수할 때 함께 할 것 · 작품 설정이라 자동 집필도 따라요</div>
-    ${opts.map(([act, v, name, desc]) => `<label class="pop-check"><input type="checkbox" data-check-opt="${act}"${v ? ' checked' : ''}><span>${name}<span class="small">${desc}</span></span></label>`).join('')}</div>`;
+    ${opts.map(([act, v, name, desc]) => `<label class="pop-check"><input type="checkbox" id="co-${act}" data-check-opt="${act}"${v ? ' checked' : ''}><span>${name}<span class="small">${desc}</span></span></label>`).join('')}</div>`;
   return menuBtn('check-opts', `검수 옵션 ${on}/${opts.length} <span aria-hidden="true">▾</span>`, body, { title: '검수할 때 함께 할 것을 켜고 꺼요' });
 }
 
