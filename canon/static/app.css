@@ -1166,12 +1166,13 @@ body.chat-open .savebar { left: calc(50% - 220px); }
 .usage-x { grid-column: 2; display: flex; justify-content: space-between; padding-top: 6px; font-size: 0.6875rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 .usage-pick { min-height: 1.5em; }
 @media (max-width: 640px) { .usage-chart { gap: 1px; touch-action: pan-y; } }  /* 단계 밖 1px: 좁은 폭 막대 사이 */
-/* '어디에 썼나' 막대 목록: 이름 · 비중 막대 · 비용 · 호출 · 토큰 */
+/* '어디에 썼나' 막대 목록: 이름 · 비중 막대 · 비용 · 호출 · 캐시 비율 · 평균 시간 · 토큰. 기준 단추가 여섯이라 줄을 바꾼다 */
+.usage-by .seg { flex-wrap: wrap; }
 .usage-bars { display: flex; flex-direction: column; }
-.usage-br { min-height: var(--touch-min); border-top: 1px solid var(--rule); display: grid; grid-template-columns: minmax(120px, 220px) minmax(60px, 1fr) 84px 64px 112px; gap: var(--space-4) var(--space-14); align-items: center; font-size: 0.8125rem; }
+.usage-br { min-height: var(--touch-min); border-top: 1px solid var(--rule); display: grid; grid-template-columns: minmax(120px, 220px) minmax(60px, 1fr) 84px 64px 56px 72px 112px; gap: var(--space-4) var(--space-14); align-items: center; font-size: 0.8125rem; }
 .usage-br.hd { min-height: 28px; border-top: none; font-size: 0.75rem; font-weight: 700; color: var(--muted); }
 .usage-br .lb { min-width: 0; overflow-wrap: anywhere; }
-.usage-br .bar { height: 12px; display: flex; align-items: center; }
+.usage-br .bar { height: 12px; display: flex; flex-direction: row; gap: 0; align-items: center; }  /* 방향 · 틈은 soelab.js 가 주입하는 전역 .bar 를 덮는다 */
 .usage-br .bar b { display: block; height: 12px; min-width: 2px; border-radius: 0 var(--radius-4) var(--radius-4) 0; background: var(--accent); }
 .usage-br .v { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
 .usage-br .m { text-align: right; font-size: 0.75rem; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -1196,7 +1197,7 @@ body.chat-open .savebar { left: calc(50% - 220px); }
   .usage-tile.hero { grid-column: 1 / -1; }
   .usage-br { grid-template-columns: minmax(0, 1fr) 84px 64px; }
   .usage-br .bar { grid-column: 1 / -1; grid-row: 2; }
-  .usage-br > .m:last-child, .usage-br.hd > span:nth-child(2), .usage-br.hd > span:last-child { display: none; }
+  .usage-br > .m:last-child, .usage-br .c, .usage-br .sec, .usage-br.hd > span:nth-child(2), .usage-br.hd > span:last-child { display: none; }
   /* 좁은 칸의 호출 한 줄: 작업 · 비용 위, 시각 · 작품 · 모델 · 토큰 · 결과는 아래 작은 글 */
   .usage-call { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2) var(--space-10); padding: var(--space-10) 0; }
   .usage-call.hd { display: none; }
