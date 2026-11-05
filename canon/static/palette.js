@@ -33,7 +33,7 @@ const PAL_CHO = 'ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ';
 .pal { width: min(560px, 100%); max-height: 70vh; display: flex; flex-direction: column; background: var(--surface); color: var(--text); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: var(--shadow-dialog); overflow: hidden; }
 .pal input#pal-q { min-height: 52px; border: none; border-bottom: 1px solid var(--line); border-radius: 0; padding: 0 16px; font-size: 1rem; }
 .pal input#pal-q:focus { outline: none; box-shadow: inset 0 -3px 0 var(--accent); }
-.pal ul { list-style: none; margin: 0; padding: 6px; overflow-y: auto; }
+.pal ul { list-style: none; margin: 0; padding: 6px; overflow-y: auto; overscroll-behavior: contain; }
 .pal li[role="option"] { min-height: var(--touch-min); padding: 8px 12px; border-radius: 8px; display: flex; align-items: center; gap: 10px; cursor: pointer; }
 .pal li[role="option"][aria-selected="true"] { background: var(--accent-soft); color: var(--accent-ink); }
 .pal .pal-label { flex: 1 1 auto; min-width: 0; font-weight: 500; }

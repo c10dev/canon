@@ -86,6 +86,7 @@
 }
 
 * { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }  /* iOS Safari 가 가로로 돌린 화면에서 글자를 멋대로 키우지 않게 */
 html { scroll-padding-top: var(--band, 0px); }  /* 900px 이하: 칸으로 옮기거나 포커스할 때 위에 붙은 띠 아래에 보이게 */
 body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 0.875rem; }
 a { color: var(--link); }
@@ -702,6 +703,8 @@ body.chat-open .savebar { left: calc(50% - 220px); }
 .chat-panel > .chat-head, .chat-panel > .chat-input { flex: none; }  /* 시트가 낮아도 머리와 입력칸은 줄지 않는다 */
 .chat-panel > .sel-target { min-height: 0; overflow-y: auto; }  /* 고른 글 · 빠른 요청이 길면 이 칸만 굴린다 */
 .chat-panel > .chat-log { min-height: 48px; }
+/* 떠 있는 칸 · 시트 · 메뉴를 끝까지 굴려도 뒤 페이지가 따라 구르지 않게 */
+.chat-log, .chat-panel > .sel-target, .tool-col .tool-body, .pop, .pop-panel, .target-menu, .set-main, .set-nav, .sel-tool.finding, .outline-now + .outline-list { overscroll-behavior: contain; }
 .sel-target blockquote { margin: 0; padding: var(--space-6) var(--space-10); border-left: 3px solid var(--accent); background: var(--accent-soft); border-radius: 0 var(--radius-6) var(--radius-6) 0; font-family: var(--serif); font-size: 0.8125rem; line-height: 1.7; white-space: pre-wrap; max-height: 120px; overflow-y: auto; }
 .msg-quote { display: block; margin-bottom: var(--space-4); padding-left: var(--space-8); border-left: 2px solid currentColor; font-size: 0.75rem; opacity: 0.85; }
 .cand { padding: var(--space-10) var(--space-12); border-radius: var(--radius-8); background: var(--surface); border: 1px solid var(--line); display: flex; flex-direction: column; gap: var(--space-8); }

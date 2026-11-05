@@ -12,6 +12,7 @@
 - 입력칸 묶음 ↔ 묶음은 `gap-group`(12px)이다. 카드 안에 바로 놓으면 카드 간격이 그 값이고, 두 칸은 `.grid-2`(사이 12px).
 - 읽기 전용은 `readonly`: `bg` 면, `muted` 글자, 점선 테두리.
 - 체크박스는 `checkbox`(20px), `accent` 색.
+- 숫자 칸(`type=number`)은 휴대폰 숫자 자판을 띄운다. 앱이 `inputmode` 를 붙인다(소수 칸은 `decimal`, 나머지는 `numeric`).
 - 켜기 · 끄기는 스위치(`.set-sw`, `role="switch"`, `aria-checked`)다. 누름 영역 52 × 44px, 막대 44 × 26px. 꺼지면 `line-strong`, 켜지면 `accent` 막대, 손잡이는 흰색. 설정 대화상자가 쓴다.
 - 설정 대화상자의 줄 안 입력칸(`.set-inp`)은 38px다. 줄(64px) 안에 나란히 놓여 나눔 버튼(38px)과 높이를 맞춘다.
 
