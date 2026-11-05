@@ -103,8 +103,9 @@ function reofferDismissed(d) {
   d.dismissed = {};
 }
 
-/** 변경안 n건의 기본 체크 (지금 작품 기준). setDelta 와 다른 화로 옮길 때(pickEp) 같이 쓴다 */
-function defaultPicks(d) {
+/** 변경안 n건의 기본 체크 (지금 작품 기준). setDelta 와 다른 화로 옮길 때(pickEp) 같이 쓴다.
+ * over 는 새 인물 · 심는 복선 체크(n · p)의 지금 값이다. 주면 그 값을 기준으로 가리키는 항목을 맞춘다 (newCharCascade · plantedCascade) */
+function defaultPicks(d, over = {}) {
   const o = {};
   // 설정에도 이번 새 인물에도 없는 id 의 상태는 기본으로 빼 둔다. 반영하면 누구의 것도 아닌 상태가 남는다
   const known = new Set([...P().characters.map((c) => c.id), ...(d.new_characters || []).map((c) => c.id)]);
@@ -129,6 +130,12 @@ function defaultPicks(d) {
   (d.address_changes || []).forEach((_, i) => { o['h' + i] = false; });  // 호칭 · 말씨도 작가가 직접 골라야 바뀐다
   // 지난번 반영에서 작가가 체크를 풀었던 항목은 다시 놓아도 체크하지 않는다 (reofferDismissed)
   Object.entries(d.reoffer || {}).forEach(([p, idx]) => idx.forEach((i) => { if (p + i in o) o[p + i] = false; }));
+  Object.assign(o, over);
+  // 체크를 푼 채 다시 놓인 새 인물 · 심는 복선을 가리키는 항목도 빼 둔다. 남기면 서버 반영이 막는다
+  (d.new_characters || []).forEach((_, i) => { if (!o['n' + i]) newCharDeps(d, i).forEach((k) => { o[k] = false; }); });
+  d.foreshadow_resolved.forEach((id, i) => {
+    if (o['x' + i] && !P().foreshadows.some((f) => f.id === id)) o['x' + i] = d.foreshadow_planted.some((f, j) => f.id === id && o['p' + j]);
+  });
   return o;
 }
 
@@ -159,7 +166,7 @@ function newCharCascade(n, i, on) {
   const d = S.deltas[n];
   if (!d) return 0;
   S.picks['n' + i] = on;
-  const base = on ? defaultPicks(d) : {};
+  const base = on ? defaultPicks(d, npPicks()) : {};
   const off = new Set((d.new_characters || []).flatMap((_, j) => (j !== i && !S.picks['n' + j] ? newCharDeps(d, j) : [])));
   let changed = 0;
   for (const k of newCharDeps(d, i)) {
@@ -178,7 +185,7 @@ function plantedCascade(n, i, on) {
   if (!f) return 0;
   S.picks['p' + i] = on;
   if (P().foreshadows.some((x) => x.id === f.id)) return 0;
-  const base = on ? defaultPicks(d) : {};
+  const base = on ? defaultPicks(d, npPicks()) : {};
   let changed = 0;
   d.foreshadow_resolved.forEach((id, j) => {
     if (id !== f.id) return;
@@ -188,6 +195,9 @@ function plantedCascade(n, i, on) {
   });
   return changed;
 }
+
+/** S.picks 의 새 인물 · 심는 복선 체크(n · p)만 (defaultPicks 의 over) */
+const npPicks = () => Object.fromEntries(Object.entries(S.picks).filter(([k]) => /^[np]\d+$/.test(k)));
 
 /** S.picks 의 변경안 체크(DELTA_PICK 키)만 */
 const deltaPicks = () => Object.fromEntries(Object.entries(S.picks).filter(([k]) => DELTA_PICK.test(k)));

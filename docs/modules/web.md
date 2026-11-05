@@ -349,6 +349,7 @@
   - 새 인물 체크를 바꿔도 관계 미리 보기를 다시 계산한다(`app.js` 의 `[ersn]` 키)
   - 체크를 푼 항목은 `pickedDelta` 가 `dismissed` 로 보낸다(설정 바꾸기 · 호칭 · 등장 인물 붙이기는 빼고)
   - 반영 기록에서 돌아온 변경안(반영 취소 · 단편 다시 쓰기)의 `dismissed` 는 `setDelta` 가 목록 끝에 다시 놓고(`reofferDismissed`) 기본 체크를 풀어 둔다(`d.reoffer`, 화면 전용)
+  - 체크를 푼 채 다시 놓인 새 인물 · 심는 복선을 가리키는 항목도 `defaultPicks` 가 기본으로 빼 둔다(`over` 로 지금 `n` · `p` 체크를 주면 그 값을 기준으로 맞춘다)
   - 반영이 끝난 화 기록(`historyView`) 아래 접힌 '빼 둔 항목 N개'(`dismissedView`)
   - 변경안 체크 `S.picks` 는 한 화 것이다(`S.picksEp`, 작품마다 따로 둔다)
   - 다른 화 변경안을 열면 `pickEp` 가 그 화에서 고친 체크(`S.picksKept`)를 되살린다
