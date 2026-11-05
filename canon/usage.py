@@ -168,10 +168,12 @@ def _error_text(e: Any) -> str:
     if getattr(e, "code", None) == 429 or getattr(e, "status", None) == "RESOURCE_EXHAUSTED":
         text = f"요청 한도 (429): {text}"
     else:
-        from .llm import is_timeout
+        from .llm import is_timeout, is_transient
 
         if isinstance(e, BaseException) and is_timeout(e):
             text = f"응답 시간 초과: {text}"
+        elif isinstance(e, BaseException) and is_transient(e):
+            text = f"서버 오류 ({getattr(e, 'code', None) or getattr(e, 'status', '')}): {text}"
     return text[:300]
 
 

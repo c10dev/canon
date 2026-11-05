@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import copy
 import json
+import math
 import os
 import re
 import time
@@ -150,8 +151,9 @@ def _usage(u: Any) -> dict | None:
             "cached_tokens": getattr(u, "cached_content_token_count", None) or 0}
 
 
-# 429(요청 한도) 뒤 다시 부르기 전 기다리는 초. 합은 5분을 넘지 않는다. SDK 는 Client 에 retry_options 를
-# 주지 않으면 다시 부르지 않고, Canon 은 주지 않으므로 다시 부르기는 여기 한 곳뿐이다.
+# 429(요청 한도) 뒤 다시 부르기 전 기다리는 초. 합은 5분을 넘지 않는다. 서버가 retryDelay 를 주면 rate_pause 가
+# 그 값을 쓴다. SDK 는 Client 에 retry_options 를 주지 않으면 다시 부르지 않고, Canon 은 주지 않으므로
+# 다시 부르기는 여기 한 곳뿐이다.
 RATE_WAITS = (30, 60, 120)
 RATE_HINT = "AI 서비스의 요청 한도에 걸렸어요 (429). 몇 분 뒤 다시 시도해 주세요."
 
@@ -180,6 +182,51 @@ def is_bad_key(e: BaseException) -> bool:
 def is_rate_limit(e: BaseException) -> bool:
     """google-genai 의 429 RESOURCE_EXHAUSTED 오류인가."""
     return getattr(e, "code", None) == 429 or getattr(e, "status", None) == "RESOURCE_EXHAUSTED"
+
+
+def retry_delay(e: BaseException) -> float | None:
+    """429 오류의 details 에 서버가 적은 RetryInfo.retryDelay(예: '37s')의 초. 없거나 읽지 못하면 None."""
+    body = getattr(e, "details", None)
+    if isinstance(body, dict) and isinstance(body.get("error"), dict):
+        body = body["error"]
+    items = body.get("details") if isinstance(body, dict) else None
+    for d in items if isinstance(items, list) else []:
+        if not isinstance(d, dict) or not str(d.get("@type", "")).endswith("RetryInfo"):
+            continue
+        raw = d.get("retryDelay")
+        try:
+            v = float(raw["seconds"]) + float(raw.get("nanos", 0)) / 1e9 if isinstance(raw, dict) \
+                else float(str(raw).removesuffix("s"))
+        except (TypeError, ValueError, KeyError):
+            return None
+        return v if v > 0 else None
+    return None
+
+
+def rate_pause(e: BaseException, default: float) -> float:
+    """429 뒤 기다릴 초. 서버가 retryDelay 를 주면 그 값(올림, RATE_WAITS 의 가장 긴 값까지), 아니면 default."""
+    v = retry_delay(e)
+    return min(math.ceil(v), max(RATE_WAITS)) if v else default
+
+
+# 500 · 502 · 503(서버 과부하 · 내부 오류) 뒤 다시 부르기 전 기다리는 초. 'The model is overloaded' 같은 일시 오류다.
+# 504 는 시간 초과(is_timeout)로 따로 다룬다.
+SERVER_WAITS = (5, 15, 45)
+SERVER_HINT = "AI 서비스가 잠시 응답하지 못해요"
+
+
+class ServerBusy(RuntimeError):
+    """기다려 다시 불러도 500 · 502 · 503 이 풀리지 않았다. 화면에는 SERVER_HINT 가 보인다."""
+
+    def __init__(self, code: Any, waited: int):
+        super().__init__(f"{SERVER_HINT} ({code}). 잠시 뒤 다시 시도해 주세요. "
+                         f"{waited}초 기다리며 {len(SERVER_WAITS)}번 다시 불렀어요.")
+        self.message = str(self)
+
+
+def is_transient(e: BaseException) -> bool:
+    """google-genai 의 일시 서버 오류(500 INTERNAL · 502 · 503 UNAVAILABLE)인가."""
+    return getattr(e, "code", None) in (500, 502, 503) or getattr(e, "status", None) in ("UNAVAILABLE", "INTERNAL")
 
 
 # 응답을 기다리는 가장 긴 초. 넘으면 SDK 가 시간 초과 오류를 낸다. 2026-10-30 실제 기획 호출(입력 약 17k 토큰)이
@@ -347,10 +394,12 @@ class GeminiLLM:
         return self.client.models.count_tokens(model=self.model, contents=text).total_tokens
 
     def _call(self, system: str, prompt: str, attempt: int = 1, parse: Any = None, **config: Any) -> Any:
-        """부르고 사용량을 기록한다. 429(요청 한도)면 RATE_WAITS 만큼 기다려 다시 부르고, 끝내 풀리지 않으면
+        """부르고 사용량을 기록한다. 429(요청 한도)면 RATE_WAITS(서버가 retryDelay 를 주면 그 값) 만큼 기다려 다시 부르고, 끝내 풀리지 않으면
         RateLimited 를 낸다. 응답 시간을 넘기면(gemini_timeout) 바로 TIMEOUT_RETRIES 번 다시 부르고, 또 넘기면
-        TimedOut 을 낸다. 실패한 시도는 하나씩 실패로 기록한다."""
+        TimedOut 을 낸다. 500 · 502 · 503(is_transient)이면 SERVER_WAITS 만큼 기다려 다시 부르고, 끝내 풀리지 않으면
+        ServerBusy 를 낸다. 셋은 따로 센다. 실패한 시도는 하나씩 실패로 기록한다."""
         waited, timeouts, rate, tries = 0, 0, iter(RATE_WAITS), 0
+        busy, busy_waited, busy_tries = iter(SERVER_WAITS), 0, 0
         try:
             while True:
                 try:
@@ -368,16 +417,24 @@ class GeminiLLM:
                         pause = next(rate, None)
                         if pause is None:
                             raise RateLimited(waited) from e
+                        pause = rate_pause(e, pause)
+                        waited += pause
                         tries += 1
                         cancel.say(f"AI 요청 한도에 걸려 {pause}초 기다려요 ({tries}/{len(RATE_WAITS)})")
+                    elif is_transient(e):
+                        pause = next(busy, None)
+                        if pause is None:
+                            raise ServerBusy(getattr(e, "code", None) or getattr(e, "status", ""), busy_waited) from e
+                        busy_waited += pause
+                        busy_tries += 1
+                        cancel.say(f"AI 서버가 바빠 {pause}초 기다려요 ({busy_tries}/{len(SERVER_WAITS)})")
                     else:
                         raise
                 cancel.check()
                 if pause is not None:
                     _pause(pause)
-                    waited += pause
         finally:
-            if tries or timeouts:
+            if tries or timeouts or busy_tries:
                 cancel.say("")  # 다시 부른 호출이 끝났다 (성공이든 실패든)
 
     def _once(self, system: str, prompt: str, attempt: int = 1, parse: Any = None, **config: Any) -> Any:

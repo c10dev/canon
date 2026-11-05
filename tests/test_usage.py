@@ -341,6 +341,69 @@ def test_server_deadline_counts_as_timeout(pauses):
     assert usage.read()[0]["error"].startswith("응답 시간 초과")
 
 
+def _overloaded(code=503, status="UNAVAILABLE"):
+    from google.genai import errors
+
+    return errors.ServerError(code, {"error": {"code": code, "message": "The model is overloaded. Please try again later.",
+                                               "status": status}})
+
+
+def test_server_overload_waits_and_calls_again(pauses):
+    """503 UNAVAILABLE · 500 INTERNAL 은 SERVER_WAITS 만큼 기다려 다시 부른다. 실패한 시도는 '서버 오류'로 남는다."""
+    from canon.llm import SERVER_WAITS
+
+    llm = fake_gemini([_overloaded(), _overloaded(500, "INTERNAL"), "본문"])
+    assert llm.text("s", "p") == "본문"
+    assert pauses == list(SERVER_WAITS[:2])
+    rows = usage.read()
+    assert [r["ok"] for r in rows] == [False, False, True]
+    assert rows[0]["error"].startswith("서버 오류 (503)") and rows[1]["error"].startswith("서버 오류 (500)")
+
+
+def test_server_overload_gives_up_with_clear_message(pauses):
+    """끝내 503 이면 해요체 안내 ServerBusy 로 멈춘다. 429 와 따로 센다. 400 같은 다른 오류는 다시 부르지 않는다."""
+    from google.genai import errors
+
+    from canon.llm import RATE_WAITS, SERVER_HINT, SERVER_WAITS, ServerBusy
+
+    llm = fake_gemini([_overloaded() for _ in range(len(SERVER_WAITS) + 1)] + ["본문"])
+    with pytest.raises(ServerBusy) as e:
+        llm.text("s", "p")
+    assert str(e.value).startswith(SERVER_HINT) and "(503)" in str(e.value) and "다시 시도해 주세요" in str(e.value)
+    assert pauses == list(SERVER_WAITS) and llm.client.models.replies == ["본문"]
+
+    pauses.clear()
+    llm = fake_gemini([_overloaded(), _limited(), _overloaded(), "본문"])
+    assert llm.text("s", "p") == "본문"
+    assert pauses == [SERVER_WAITS[0], RATE_WAITS[0], SERVER_WAITS[1]]
+
+    pauses.clear()
+    bad = errors.ClientError(400, {"error": {"code": 400, "message": "bad", "status": "INVALID_ARGUMENT"}})
+    llm = fake_gemini([bad, "본문"])
+    with pytest.raises(errors.ClientError):
+        llm.text("s", "p")
+    assert pauses == []
+
+
+def test_rate_limit_uses_server_retry_delay(pauses):
+    """429 의 RetryInfo.retryDelay 가 있으면 그 값(올림)을 기다린다. RATE_WAITS 의 가장 긴 값을 넘지 않는다."""
+    from google.genai import errors
+
+    from canon.llm import RATE_WAITS, retry_delay
+
+    def limited(delay):
+        return errors.ClientError(429, {"error": {"code": 429, "message": "Resource exhausted.", "status": "RESOURCE_EXHAUSTED",
+                                                  "details": [{"@type": "type.googleapis.com/google.rpc.RetryInfo",
+                                                               "retryDelay": delay}]}})
+
+    assert retry_delay(limited("37s")) == 37 and retry_delay(_limited()) is None
+    assert retry_delay(limited({"seconds": 4, "nanos": 500_000_000})) == 4.5
+    assert retry_delay(limited("abc")) is None
+    llm = fake_gemini([limited("7.2s"), limited("900s"), _limited(), "본문"])
+    assert llm.text("s", "p") == "본문"
+    assert pauses == [8, max(RATE_WAITS), RATE_WAITS[2]]
+
+
 def test_timeout_twice_gives_clear_message(pauses):
     """두 번 다 넘기면 해요체 안내로 멈춘다. 웹 작업 오류도 같은 글이다."""
     from canon.llm import TIMEOUT_HINT, TimedOut

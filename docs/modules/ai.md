@@ -34,12 +34,16 @@
 - 단계별 선택(`get_llm(stage)`)
 - 단계 이름은 `settings.STAGES` 다
 - Gemini 429 요청 한도는 `GeminiLLM._call` 이 `RATE_WAITS`(30 · 60 · 120초)만큼 기다려 다시 부른다(기다리기 전 `cancel.check`, 실패한 시도는 하나씩 사용량에 실패로)
+- 429 오류에 서버가 `RetryInfo.retryDelay` 를 주면 `rate_pause` 가 그 값(올림, `RATE_WAITS` 의 가장 긴 값까지)을 기다린다(`retry_delay`)
 - 끝내 막히면 해요체 안내 `RateLimited`(`RATE_HINT`)
+- 500 · 502 · 503(`is_transient`: 과부하 UNAVAILABLE · INTERNAL)은 `SERVER_WAITS`(5 · 15 · 45초)만큼 기다려 다시 부른다
+- 끝내 풀리지 않으면 해요체 안내 `ServerBusy`(`SERVER_HINT`)
+- 429 · 서버 오류 · 시간 초과는 따로 센다
 - 응답 시간 한도는 요청마다 SDK `HttpOptions(timeout)` 로 준다(`GEMINI_TIMEOUT` 600초, `CANON_GEMINI_TIMEOUT` 초로 바꿈, `gemini_timeout`)
 - 시간 한도를 넘기면(`is_timeout`) `cancel.check` 뒤 한 번 더 부른다
 - 또 넘기면 해요체 안내 `TimedOut`(`TIMEOUT_HINT`)
 - 넘긴 시도도 사용량에 실패로
-- 배치는 429 · 시간 한도 경로 밖
+- 배치는 429 · 서버 오류 · 시간 한도 경로 밖
 - 모든 요청 맨 끝(사용자 메시지)에 `POLICY_NOTE` 한 줄(`with_note`, Gemini · 배치 · 로컬 · `claude.py` 두 백엔드가 보내기 직전에). 수위 지시는 프롬프트에 두지 않는다
 - 응답 읽기 `_validate`: 통째로 읽히지 않으면 글 속 최상위 JSON 객체(`_json_objects`)를 뒤에서부터 읽는다(생각 글이 앞에 새는 응답, Gemini · 배치 · Claude 공통)
 - 형식 고치기 `repair_prompt`: 응답에 JSON 객체가 없으면 처음 요청을 그대로 다시 보낸다
