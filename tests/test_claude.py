@@ -171,9 +171,11 @@ class ClaudeCodeTest(unittest.TestCase):
         self.replies({"result": "글", "usage": {"input_tokens": 1, "output_tokens": 1}})
         with mock.patch.dict(os.environ, {"CANON_CLAUDE_CACHE_1H": ""}):
             self.assertNotIn("ENABLE_PROMPT_CACHING_1H", claude.child_env())
+            self.assertEqual(claude.child_env()["FORCE_PROMPT_CACHING_5M"], "1")  # 구독 기본인 1시간 캐시를 막는다
             self.assertEqual(claude._warm_seconds(), claude.CACHE_WARM_SECONDS)
-        with mock.patch.dict(os.environ, {"CANON_CLAUDE_CACHE_1H": "1"}):
+        with mock.patch.dict(os.environ, {"CANON_CLAUDE_CACHE_1H": "1", "FORCE_PROMPT_CACHING_5M": "1"}):
             self.assertEqual(claude.child_env()["ENABLE_PROMPT_CACHING_1H"], "1")
+            self.assertNotIn("FORCE_PROMPT_CACHING_5M", claude.child_env())
             self.assertEqual(claude._warm_seconds(), claude.CACHE_WARM_SECONDS_1H)
             claude._SEEN.clear()
             blocks = claude.cache_blocks(("k1h",), "가" * 3000 + "\n\n끝", 3000)

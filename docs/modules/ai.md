@@ -32,6 +32,8 @@
 - 모델까지 간 호출은 보낸 시각부터 `CACHE_WARM_SECONDS`(300초) 동안 캐시에 있다고 보고 기다리지 않는다
 - `CANON_CLAUDE_CACHE_1H` 를 켜면(`cache_1h`) 이 시간이 `CACHE_WARM_SECONDS_1H`(3600초)다
 - `CANON_CLAUDE_CACHE_1H` 를 켜면 `child_env` 가 `ENABLE_PROMPT_CACHING_1H=1` 을 넣는다. Claude Code 가 구독 초과 사용 중에도 1시간 캐시를 쓴다
+- `CANON_CLAUDE_CACHE_1H` 가 꺼져 있으면 `child_env` 가 `FORCE_PROMPT_CACHING_5M=1` 을 넣는다. 구독 로그인에서 Claude Code 는 스스로 1시간 캐시를 쓴다(2026-11-05 서버 실측: 쓰기 26건 모두 1시간)
+- 같은 실측에서 캐시 읽기는 모두 쓰고 2~4분 뒤에 왔다. 1시간 캐시로는 총비용이 캐시 없을 때의 약 1.08배였다
 - `CANON_CLAUDE_CACHE_1H` 를 켜면 API 경로의 캐시 표시(`cache_blocks`)에 `ttl: "1h"` 를 단다
 - 기다린 시간은 사용량 기록의 `seconds` 에 넣지 않는다
 - 사용량 기록의 글자 수 · 블록 크기는 옮기기 전 원래 프롬프트 기준이다
@@ -118,7 +120,7 @@
   - `CANON_ALLOWED_HOSTS`: 웹 서버가 더 받을 Host 이름(쉼표로 나눔, `web._host_allowed`). IP 주소 · localhost · `*.ts.net` · 이 컴퓨터 이름은 늘 받는다
   - `CANON_BATCH_POLL`: 배치 결과를 묻는 간격 초(기본 30, `llm.BatchLLM`)
   - `CANON_CLAUDE_BIN` · `CANON_CLAUDE_MODEL` · `CANON_CLAUDE_TIMEOUT`: Claude
-  - `CANON_CLAUDE_CACHE_1H`: 1 · true · on 이면 Claude 프롬프트 캐시를 1시간으로 쓴다(기본 끔, `claude.cache_1h`). 쓰기 값이 5분 캐시의 1.25배에서 2배로 오른다
+  - `CANON_CLAUDE_CACHE_1H`: 1 · true · on 이면 Claude 프롬프트 캐시를 1시간으로 쓴다(기본 끔, `claude.cache_1h`). 쓰기 값이 5분 캐시의 1.25배에서 2배로 오른다. 끄면 Claude Code 에 5분 캐시를 강제한다
   - `CANON_CLAUDE_CONFIG_DIR`: Canon 전용 Claude Code 설정 폴더(구독 계정을 따로 로그인)
   - `CANON_CONFIG`: 설정 파일 위치(기본 `~/.canon/config.json`, `settings.path`)
   - `CANON_EFFORT_<단계>`: 단계별 추론 강도(low · medium · high · xhigh · max, `settings.stage_effort`). Claude · Gemini 만 쓴다
