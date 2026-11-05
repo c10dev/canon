@@ -278,6 +278,9 @@
 - 이번 화 플롯은 쓰기 · 검수(`check_material`) · 상태 변경안(`state_prompt`) · 부분 수정(`passage_prompt`)이 모두 `write_plot` 으로 넣는다(라벨 모양이 아닌 예전 `emotional_shift` 를 뺌). 플롯 화면 · 흡입력 판정은 그대로
 - 상태 변경안 요구사항은 빈 칸이 '그대로 둠'이라 지울 칸 이름을 `cleared` 에 넣게 한다(`state_prompt`)
 - 장편 관계 줄 `serial_relations` · 인물 상태 `fit_states`(예산 `context.BUDGET` 의 `relations` · `states`)
+- 예산으로 뺀 비밀 · 복선 수는 장편 쓰기(관계 머리글) · 상태 변경안 · 검수 비밀 칸 · 다음 아크 기획(관계 머리글)에 `cut_note` 로 적는다
+- 상태 변경안의 뺀 수 안내에는 '목록에 없는 비밀 · 복선의 id 는 쓰지 않습니다'를 붙인다
+- 플레이는 `state_prompt(cuts=)` 로 `play_view` 의 뺀 수를 넘겨 머리글이 원래 작품 기준 수를 적는다
 - 예시 문단이 있는 작품의 스타일 프로필 `style_rules_view`(칸마다 `STYLE_FIELD_LIMIT`, 예시 문단이 앞)
 - 스토리보드 깨지 않을 것을 검수에 `protect_block` · `protect_check_rule`
 - 지시 수 · 크기 상한 시험 `tests/test_write_budget.py`

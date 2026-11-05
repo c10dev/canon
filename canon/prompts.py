@@ -1159,6 +1159,11 @@ def knows_note(cut: int) -> str:
     return f" (아는 정보는 이번 화와 관련된 것부터, {cut}개 생략)" if cut else ""
 
 
+def cut_note(cut: int, what: str = "이번 화와 관련된 것만", tail: str = "") -> str:
+    """머리글에 붙이는 예산으로 뺀 수 (비밀 · 복선). 뺀 것이 없으면 빈 글. tail 은 뺀 것이 있을 때만 붙이는 안내."""
+    return f" ({what}, {cut}개 생략{'. ' + tail if tail else ''})" if cut else ""
+
+
 # ---------- 지금 차림 (CharacterState.attire) ----------
 # 옷 · 상처 · 지닌 물건은 화가 넘어가면 요약에서 빠진다. 지금 값만 상태에 덮어써 두고(기록은 화별 스냅샷),
 # 쓰기 · 검수 규칙은 차림이 하나라도 기록된 작품에만 붙인다. 상태 변경안은 늘 차림을 적게 한다.
@@ -1450,7 +1455,7 @@ def next_arc_prompt(p: Project, start: int, length: int, note: str) -> str:
     # 실제로 쓰인 아크 끝을 여기서 본다 (story_parts 는 다음 아크 기획 때 직전 아크 화를 따로 넣지 않는다)
     prev_eps = [e.plot.model_copy(update={"summary": e.summary or e.plot.summary}) for e in p.episodes
                 if prev and prev.start_ep <= e.plot.number <= prev.end_ep][-3:]
-    plan_secrets, _ = context.pick_secrets(p, ids, note + "\n" + "\n".join(x.summary for x in prev_eps),
+    plan_secrets, plan_secrets_cut = context.pick_secrets(p, ids, note + "\n" + "\n".join(x.summary for x in prev_eps),
                                            context.BUDGET["state_secrets"])
     size = f"{length}화 안팎" if length else "내용에 맞게 5~30화 (보통 10~25화)" + (
         ". 첫 아크는 25화 안에 큰 보상이 오도록 짧고 세게" if start == 1 else "")
@@ -1472,7 +1477,7 @@ def next_arc_prompt(p: Project, start: int, length: int, note: str) -> str:
 {dump(static_characters(p))}
 [다른 인물 (id: 이름, 역할)]
 {roster_line(p, set()) or "없음"}
-[관계 (주역 · 조연 · 최근 아크 인물)]
+[관계 (주역 · 조연 · 최근 아크 인물)]{cut_note(plan_secrets_cut, "숨긴 비밀은 이 아크와 관련된 것만")}
 {describe_relations(p, ids, secrets=plan_secrets) or rels(p, ids)}{destination_block(p, ids)}
 [이야기 요소 (작가가 더한 설정과 사건, 시점 포함)]
 {elements.plan_block(p) or "없음"}{lines_block(p)}
@@ -2443,7 +2448,7 @@ def serial_episode_context(p: Project, n: int, *, where: str, act_line: str, lin
     """장편 본문 쓰기 컨텍스트. 바뀌는 빈도 순서로 놓는다: 작품 고정(static_context) → 아크 동안 그대로인 것
     (부 · 아크 구조, 끝난 아크의 접은 줄거리) → 화마다 바뀌는 것(아크 안 구간 act_line 부터). 앞부분이 같을수록 캐시가 길게 맞는다."""
     past, cur = story_parts(p, n)
-    secrets, _ = context.pick_secrets(p, cast_ids, elements.plot_text(p.episode(n)), context.BUDGET["secrets"])
+    secrets, secrets_cut = context.pick_secrets(p, cast_ids, elements.plot_text(p.episode(n)), context.BUDGET["secrets"])
     states, knows_cut = state_view(p, states, n, elements.plot_text(p.episode(n)))
     plot_ids = set(p.episode(n).plot.characters)
     shown = {s.character_id for s in states}
@@ -2470,7 +2475,7 @@ def serial_episode_context(p: Project, n: int, *, where: str, act_line: str, lin
 # 인물 현재 상태 ({n - 1}화 종료 시점){knows_note(knows_cut)}{states_cut}
 {dump(states) or "1화 시작 시점, 설정 그대로"}{return_block(p, cast_ids, n)}
 
-# 관계 현재 상태
+# 관계 현재 상태{cut_note(secrets_cut, "숨긴 비밀은 이번 화와 관련된 것만")}
 {relations}{address.block(p, cast_ids)}{pairlog.write_block(p, n, plot_ids & cast_ids, context.BUDGET["pairs"])}
 
 # 열린 복선{f" (이번 아크와 관련된 것만, {fs_cut}개 생략)" if fs_cut else ""}
@@ -3338,17 +3343,19 @@ def rewrite_prompt(p: Project, n: int, req, materials: dict[str, list[str]], old
     return episode_prompt(p, n, use_cues=not (s and s.skipped)) + "\n\n" + rewrite_block(p, n, req, materials, old)
 
 
-def state_prompt(p: Project, n: int) -> str:
+def state_prompt(p: Project, n: int, cuts: tuple[int, int] | None = None) -> str:
+    """상태 변경안. cuts 는 (뺀 비밀 수, 뺀 복선 수)로 머리글의 뺀 수를 바꾼다: 미리 거른 보기를 넘기는 플레이(play_view)가 원래 작품 기준 수를 준다."""
     ep = p.episode(n)
+    secrets_cut = fs_cut = 0
     if p.serial:  # 장편: 이번 화 플롯 인물 · 본문에 이름이 나온 인물과 주역만 자세히, 나머지는 한 줄 목록으로 ('넣지 않음' 인물은 한 줄 목록에)
         ids = context.without_off(p, set(ep.plot.characters) | {c.id for c in static_characters(p)} | context.named_ids(p, ep.text))
         chars = [c for c in p.characters if c.id in ids]
         states, knows_cut = state_view(p, [s for s in p.states if s.character_id in ids], n, ep.text + "\n" + elements.plot_text(ep))
         relations = rels(p, ids, plan=False)
-        fs, _ = relevant_foreshadows(p, n)
+        fs, fs_cut = relevant_foreshadows(p, n)
         others = roster_line(p, ids)
         # 드러난 비밀, 이번 화 인물과 상관없는 비밀은 빼고 본문과 겹치는 것부터
-        secrets, _ = context.pick_secrets(p, ids, ep.text + "\n" + elements.plot_text(ep), context.BUDGET["state_secrets"])
+        secrets, secrets_cut = context.pick_secrets(p, ids, ep.text + "\n" + elements.plot_text(ep), context.BUDGET["state_secrets"])
     else:
         chars, states, relations, knows_cut = p.characters, p.states, rels(p, plan=False), 0
         fs, others = [f for f in p.foreshadows if f.status == "open"], ""
@@ -3358,6 +3365,8 @@ def state_prompt(p: Project, n: int) -> str:
             states = [s for s in p.states if s.character_id not in off]
             relations = rels(p, context.without_off(p, None), plan=False)
             others = ", ".join(f"{c.id}: {c.name}({c.role})" for c in p.characters if c.id in off)
+    if cuts is not None:
+        secrets_cut, fs_cut = cuts
     return f"""{n}화 본문을 읽고 상태 변경안을 작성하세요.
 
 [인물 설정]
@@ -3366,9 +3375,9 @@ def state_prompt(p: Project, n: int) -> str:
 {dump(states) or "설정 그대로"}
 [이전 관계]
 {relations}{address.block(p, ids if p.serial else context.without_off(p, None), "[호칭 · 말씨]")}
-[현재 비밀]
+[현재 비밀]{cut_note(secrets_cut, "이번 화 인물과 관련된 것만", "목록에 없는 비밀의 id 는 쓰지 않습니다")}
 {dump(secrets) or "없음"}
-[열린 복선]
+[열린 복선]{cut_note(fs_cut, "이번 아크와 관련된 것만", "목록에 없는 복선의 id 는 쓰지 않습니다")}
 {dump(fs) or "없음"}
 [이번 화 플롯]
 {dump(write_plot(ep.plot))}
@@ -3463,8 +3472,8 @@ def _check_budget(p: Project, n: int, sized: bool = False) -> tuple[str, str, st
     picked, knows_cut = state_view(p, [s for s in p.states if s.character_id in ids], n, ep.text + "\n" + elements.plot_text(ep))
     states = (f"(아는 정보는 이번 화와 관련된 것부터, {knows_cut}개 생략)\n" if knows_cut else "") + (dump(picked) or "1화 시작 시점, 설정 그대로")
     relations = describe_relations(p, ids, secrets=[]) or rels(p, ids, plan=False) or "없음"  # 비밀은 아래 비밀 칸에
-    picked, _ = context.pick_secrets(p, ids, ep.text + "\n" + elements.plot_text(ep), context.BUDGET["state_secrets"])
-    secrets = dump(picked) or "없음"
+    picked, secrets_cut = context.pick_secrets(p, ids, ep.text + "\n" + elements.plot_text(ep), context.BUDGET["state_secrets"])
+    secrets = (cut_note(secrets_cut).lstrip() + "\n" if secrets_cut else "") + (dump(picked) or "없음")
     note = (" (직전 화는 원문, 그보다 앞은 줄거리 요약과 이번 화와 겹치는 단락 발췌. 발췌에서 인용할 때 source_episode 는 그 발췌의 화)"
             if found or story else "")
     return facts_text, states, relations, secrets, "\n\n".join(parts), note
@@ -5093,4 +5102,4 @@ def play_state_prompt(p: Project, n: int) -> str:
     view, secrets_cut, fs_cut = play_view(p, n, play_state_cast(p, n))
     cut = (f"\n- [현재 비밀]과 [열린 복선]은 이번 구간 인물과 관련된 것만 넣었습니다 (비밀 {secrets_cut}개, 복선 {fs_cut}개 생략). "
            "목록에 없는 비밀 · 복선의 id 는 쓰지 않습니다.") if secrets_cut or fs_cut else ""
-    return state_prompt(view, n) + PLAY_STATE_RULE + cut
+    return state_prompt(view, n, (secrets_cut, fs_cut)) + PLAY_STATE_RULE + cut
