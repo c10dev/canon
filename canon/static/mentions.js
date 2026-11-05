@@ -138,7 +138,7 @@ function mentionBox(n) {
     const list = [...count.values()].sort((x, y) => (x.r.kind === y.r.kind ? y.k - x.k : x.r.kind === 'person' ? -1 : 1));
     body = list.length
       ? `<div class="mn-list">${list.map(({ r, k }) => `<button type="button" class="btn small mn-pick ${r.kind}" data-action="mentionPick" data-arg="${esc(r.id)}" aria-haspopup="dialog">${esc(r.name)} <span class="small">${k}</span></button>`).join('')}</div>
-        <div class="small">본문의 이름을 누르거나, 본문 칸에서 이름에 커서를 두고 Alt+Enter를 눌러도 떠요.</div>`
+        <div class="small">${(typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches) ? '본문의 이름을 누르면 떠요.' : '본문의 이름을 누르거나, 본문 칸에서 이름에 커서를 두고 Alt+Enter를 눌러도 떠요.'}</div>`
       : '<div class="small">이번 화 본문에 나온 인물 · 장소 이름이 없어요.</div>';
   }
   return `<div class="field" id="name-marks"><div class="between"><span class="small">본문 속 이름</span>${toggle}</div>${body}</div>`;

@@ -112,6 +112,7 @@
   - 이름표 겹침은 순수 함수 `stageLabelPlace`(평면도 · 3D `s3PlaceTags` 가 함께 씀, 앞 프레임 자리 `stgLabelMem`, `tests/test_stage_labels.py`)
   - 끌어 놓기 → `stageSnap`
   - 끌기가 끊기면(`pointercancel`) 끌던 것을 놓고 다시 그린다
+- 평면도는 `touch-action: pan-x pan-y` 이고 끄는 것(인물, 방 고치기의 기준점)만 `none` 이다. 빈 바닥을 쓸면 페이지가 구른다
 - 화면 틀은 공용 목차 틀(`outlineDoc` · `outlineNav`, 틀 클래스 `.stg-wrap`)
 - 목차 `stgToc`: 화 고르기 · 사건(상태 글 계획 · 본문 · 없음) · 지금 사건의 박자(지적 수 · 본문과 달라요 · 계획과 달라요)
 - 무대 카드: 평면도(또는 3D)와 그 박자 칸 `stgNow`(박자 글 · 바뀐 것 `stgChange` · 그 박자의 지적과 안내)
@@ -153,6 +154,7 @@
 ### `canon/static/stage3d.js`
 
 - 장면 연출 3D 보기(설계 `docs/stage/3d/specs/05-render.md`)
+- 손가락 기기에서는 3D 안내가 휠 대신 '두 손가락으로 벌려 확대' 를 말한다
 - `stage.js` · `stage3d-load.js` 와 `app.js` 의 `S` · `actions` · `api` · `render` 를 쓴다
 - 읽기 전용이다: 고치기는 평면도에서만 한다
 - 3D 로 바꾸면 방 고치기 · 인물 줄 · 박자 글 고치기를 닫고 그 버튼을 숨긴다(`stgView`)

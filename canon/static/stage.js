@@ -1136,7 +1136,8 @@ function stgCss() {
 .stg-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px 20px; align-items: start; }
 @container stgcol (min-width: 760px) { .stg-grid { grid-template-columns: minmax(0, 1fr) 300px; } }
 .stg-pic { min-width: 0; }
-.stg-plan { width: 100%; height: auto; max-height: min(72vh, 680px); display: block; background: var(--canvas); border-radius: 8px; touch-action: none; user-select: none; }
+.stg-plan { width: 100%; height: auto; max-height: min(72vh, 680px); display: block; background: var(--canvas); border-radius: 8px; touch-action: pan-x pan-y; user-select: none; }
+.stg-plan [data-stg-who], .stg-plan .stg-anchor.edit { touch-action: none; }  /* 끄는 것(인물 · 방 고치기의 기준점)에서만 스크롤을 막는다. 빈 바닥을 쓸면 페이지가 구른다 */
 .stg-now { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .stg-now p { margin: 0; }
 .stg-now-t { font-weight: 700; line-height: 1.5; }

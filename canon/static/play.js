@@ -373,7 +373,7 @@ function playStatusText(ph) {
   const last = p.turns[p.turns.length - 1];
   return {
     decide: '결정을 기다리고 있어요', ended: '이야기가 끝났어요', failed: `${last ? last.number : ''}구간 상태를 반영하지 못했어요`,
-    error: '앞날을 쓰지 못했어요', paused: '멈췄어요 · 스페이스로 다시', writing: p.turns.length ? '앞날을 쓰는 중이에요' : '첫 구간을 쓰는 중이에요',
+    error: '앞날을 쓰지 못했어요', paused: playKeys() ? '멈췄어요 · 스페이스로 다시' : '멈췄어요 · ▶를 누르면 다시', writing: p.turns.length ? '앞날을 쓰는 중이에요' : '첫 구간을 쓰는 중이에요',
     flowing: `흐르는 중 · ${S.playClock.speed}×`,
   }[ph] || '';
 }

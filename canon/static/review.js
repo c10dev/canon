@@ -276,7 +276,7 @@ function viewReview(n) {
     const sec = ev.reveals_secret ? `드러난 비밀: ${esc(secretLabel(ev.reveals_secret, d))}` : '';
     const kinds = EVENT_KINDS.includes(ev.kind) ? EVENT_KINDS : [ev.kind, ...EVENT_KINDS];
     const who = `${esc(charName(ev.actor))} → ${esc(charName(ev.target))}`;
-    const sel = (id, label, path, opts, val, style = '') => `<select id="${id}" aria-label="${who} ${label}" ${edit(path, 'e' + i)} style="width:auto;font-size:0.8125rem;font-weight:700;padding:4px 8px;${style}">${opts.map(([v, t]) => `<option value="${esc(v)}"${String(v) === String(val) ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select>`;
+    const sel = (id, label, path, opts, val, style = '') => `<select id="${id}" aria-label="${who} ${label}" ${edit(path, 'e' + i)} class="rv-inp" style="width:auto;font-weight:700;padding:4px 8px;${style}">${opts.map(([v, t]) => `<option value="${esc(v)}"${String(v) === String(val) ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select>`;
     return `<div class="change">${box('e' + i)}<div class="body"><div class="rv-row-head"><label for="pk-e${i}" class="rv-name">${who}</label>${sel(`ek-${i}`, '사건 종류', `events.${i}.kind`, kinds.map((k) => [k, k]), ev.kind, kindStyle(ev.kind))}${sel(`ei-${i}`, '강도', `events.${i}.intensity`, [1, 2, 3].map((v) => [v, INTENSITY[v]]), ev.intensity)}${editMark(n, 'e' + i)}${rvQuoteBtn(n, ev.quote, `${charName(ev.actor)} → ${charName(ev.target)} ${ev.kind}`)}</div>
       ${wit || sec ? `<div class="small">${[wit, sec].filter(Boolean).join(' · ')}</div>` : ''}
       ${ev.quote ? `<div class="rv-quote">${quoted(ev.quote)}</div>` : ''}</div></div>`;
@@ -292,7 +292,7 @@ function viewReview(n) {
     return `<div class="change">${box('r' + i)}<div class="body"><label for="pk-r${i}" style="font-size:0.875rem;font-weight:700">${esc(charName(r.a))} ↔ ${esc(charName(r.b))}</label>
       ${diff(cur && cur.type, r.type)}${r.description ? diff(cur && cur.description, r.description) : ''}${(d.rel_flagged || []).includes(i) ? '<div class="small">관계 단계와 반대라 기본으로 빼 두었어요. 맞으면 체크하세요.</div>' : ''}</div></div>`;
   }).join('');
-  const facts = d.new_facts.map((f, i) => `<div class="change">${box('f' + i, `확정 사실 ${i + 1} 반영`)}<div class="body"><div class="row" style="gap:6px;flex-wrap:nowrap"><input id="fv-${i}" aria-label="확정 사실 ${i + 1}" ${edit(`new_facts.${i}`, 'f' + i)} value="${esc(f)}" placeholder="비우면 빼요" style="flex:1;min-width:0;font-size:0.8125rem">${editMark(n, 'f' + i)}</div></div></div>`).join('');
+  const facts = d.new_facts.map((f, i) => `<div class="change">${box('f' + i, `확정 사실 ${i + 1} 반영`)}<div class="body"><div class="row" style="gap:6px;flex-wrap:nowrap"><input id="fv-${i}" aria-label="확정 사실 ${i + 1}" ${edit(`new_facts.${i}`, 'f' + i)} value="${esc(f)}" placeholder="비우면 빼요" class="rv-inp" style="flex:1;min-width:0">${editMark(n, 'f' + i)}</div></div></div>`).join('');
   // 회수한다는 복선 id 를 모르면 '직접 정할 것'으로 (기본으로 빼 둔다, setDelta)
   const resolvedRow = (id, i) => {
     const f = p.foreshadows.find((x) => x.id === id);

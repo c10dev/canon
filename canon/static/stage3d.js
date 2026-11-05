@@ -163,7 +163,7 @@ function s3Pane() {
   return `<div class="s3-view">
       <div id="stg-3d" class="s3-slot">${s3.loading ? '<p class="s3-wait small">3D를 불러오는 중이에요…</p>' : ''}</div>
       <div class="between"><div class="seg" role="group" aria-label="카메라">${cams.map(([k, t]) => `<button type="button" aria-pressed="${s3.cam === k}" data-action="s3Cam" data-arg="${k}">${t}</button>`).join('')}</div>
-        <span class="small">끌어서 돌리고 휠로 확대해요. 고치기는 평면도에서 해요</span></div>
+        <span class="small">${(typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches) ? '끌어서 돌리고 두 손가락으로 벌려 확대해요' : '끌어서 돌리고 휠로 확대해요'}. 고치기는 평면도에서 해요</span></div>
       <p class="sr-only" id="s3-live" aria-live="polite">${esc(s3.said || '')}</p>
       ${notes.join('')}
       <div class="stg-legend"><span>점선 = 접촉(손 → 부위)</span><span>회색 점선 = 손이 닿지 않은 틈</span><span>빨강 = 지적</span></div>
