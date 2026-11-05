@@ -493,7 +493,7 @@ function fixesJobResult(j) {
 
 function viewCheck(n) {
   const e = ep(n);
-  if (!e) return header('5단계', stepLabel('check'), '') + noEpisode();
+  if (!e) return header('5단계', stepLabel('check'), '') + noEpisode(n);
   const st = checkState(e);
   const rounds = e.rounds || [];
   const last = rounds[rounds.length - 1];
@@ -510,7 +510,8 @@ function viewCheck(n) {
   const head = `<header class="page-head"><div class="row" style="gap:12px">${epNav('check', n)}<div class="lead" style="gap:2px"><div class="eyebrow">${flowEyebrow(n)}</div><h1 style="font-size:1.5rem">${n}화 ${esc(e.plot.title)}</h1></div><span class="chip ${e.status}">${STATUS[e.status]}</span></div><div class="row">${right}</div></header>
     ${flowBar(n, 'check')}${autoLockNote()}`;
   if (!e.text) {
-    return head + `<div class="card empty"><p>${n}화 본문이 아직 없어요. 본문을 쓴 뒤 검수해요.</p><a class="btn primary" href="${base()}/write/${n}">${n}화 집필로</a></div>`;
+    const [href, label] = epGo(n);  // 플롯 초안이면 플롯 확정으로 바로
+    return head + `<div class="card empty"><p>${n}화 본문이 아직 없어요. 본문을 쓴 뒤 검수해요.</p><a class="btn primary" href="${href}">${label}</a></div>`;
   }
   const text = textNow(n);
   const sel = chkSelected(n);

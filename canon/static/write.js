@@ -11,17 +11,31 @@ function epNav(page, n) {
   return `<nav class="row" aria-label="회차 이동" style="gap:4px">${arrow(prev, '이전 화', 'M10 3 5 8l5 5')}${arrow(next, '다음 화', 'm6 3 5 5-5 5')}</nav>`;
 }
 
-function noEpisode() {
-  return `<div class="card empty"><p>아직 화별 플롯이 없어요.</p><a class="btn primary" href="${base()}/arc">${stepLabel('arc')} 만들기</a></div>`;
+/** 그 화 플롯이 없을 때. 다른 화 플롯이 있으면 '없다'고 하지 않고 몇 화까지 있는지와 마지막 화로 가는 길을 준다 */
+function noEpisode(n) {
+  const nums = P().episodes.map((e) => e.plot.number);
+  if (!nums.length) return `<div class="card empty"><p>아직 화별 플롯이 없어요.</p><a class="btn primary" href="${base()}/arc">${stepLabel('arc')} 만들기</a></div>`;
+  const last = Math.max(...nums);
+  const what = n ? `${n}화 플롯은 아직 없어요` : '그 화 플롯은 아직 없어요';
+  return `<div class="card empty"><p>${what}. 플롯은 ${last}화까지 있어요.</p><div class="row"><a class="btn primary" href="${base()}/${S.route[2] || 'write'}/${last}">${last}화로</a><a class="btn" href="${base()}/arc">${stepLabel('arc')}에서 더 만들기</a></div></div>`;
 }
 
 /** n화보다 앞인데 상태 반영이 끝나지 않은 화. 있으면 n화 본문을 저장하거나 반영할 수 없다 (서버 pipeline.require_previous). */
 const blockedBefore = (n) => P().episodes.filter((x) => x.plot.number < n && x.status !== 'finalized').map((x) => x.plot.number);
 
+/** k화에서 지금 할 일로 가는 [주소, 글]. 플롯 초안이면 플롯 페이지로 바로 보낸다(집필 화면을 거치지 않게).
+    본문을 썼으면 epStage 처럼 검수가 끝났는지에 따라 검수 · 상태 승인으로 */
+function epGo(k) {
+  const e = ep(k);
+  if (!e || e.status === 'draft') return [`${base()}/arc/${k}`, `${k}화 플롯 확정하러 가기`];
+  if (e.status === 'written') return epStage(e) === 'review' ? [`${base()}/review/${k}`, `${k}화 상태 승인으로`] : [`${base()}/check/${k}`, `${k}화 검수로`];
+  return [`${base()}/write/${k}`, `${k}화 집필로`];
+}
+
 function orderNote(blocked) {
   if (!blocked.length) return '';
-  const first = ep(blocked[0]);
-  return `<div class="note warn">이전 화(${rangeText(blocked)}화)의 상태 반영이 끝나야 쓸 수 있어요. 인물 상태가 꼬이지 않게 하는 규칙이에요. <a href="${base()}/${first.status === 'written' ? 'review' : 'write'}/${blocked[0]}">${blocked[0]}화 ${first.status === 'written' ? '상태 승인으로' : '집필로'}</a></div>`;
+  const [href, label] = epGo(blocked[0]);
+  return `<div class="note warn">이전 화(${rangeText(blocked)}화)의 상태 반영이 끝나야 쓸 수 있어요. 인물 상태가 꼬이지 않게 하는 규칙이에요. <a href="${href}">${label}</a></div>`;
 }
 
 /** 반영이 끝난 화의 머리 primary: 다음 할 일 (nextStep). 지금 보는 화면으로 가는 일이면 두지 않는다 */
@@ -268,7 +282,7 @@ function manualNote(n) {
 
 function viewWrite(n) {
   const e = ep(n);
-  if (!e) return header('4단계', '집필', '') + noEpisode();
+  if (!e) return header('4단계', '집필', '') + noEpisode(n);
   const act = actOf(n);
   const blocked = blockedBefore(n);
   const editable = editableEp(e);  // 반영이 끝난 화도 고친다 (restate.js 가 반영 뒤 고침을 알린다)
@@ -434,7 +448,7 @@ function briefToc(n, e) {
 
 function viewBrief(n) {
   const e = ep(n);
-  if (!e) return header('작품 도구', '채팅 앱 작업지시서', '') + noEpisode();
+  if (!e) return header('작품 도구', '채팅 앱 작업지시서', '') + noEpisode(n);
   const tab = S.briefTab;
   const body = tab === 'episode';
   const check = tab === 'check';
@@ -522,7 +536,8 @@ Object.assign(actions, {
     render();
   },
   async writeEp(n) {
-    if (ep(n).text && !(await askConfirm(`${n}화 본문을 새로 생성할까요? 지금 본문은 사라져요.`, { ok: '새로 생성하기', danger: true }))) return;
+    // 지금 본문은 지우지 않고 이전 판으로 남긴다(pipeline.replace_text). 이전 판에서 다시 고를 수 있어 위험 버튼으로 두지 않는다
+    if (ep(n).text && !(await askConfirm(`${n}화 본문을 새로 생성할까요? 지금 본문은 이전 판으로 남아 다시 고를 수 있어요.`, { ok: '새로 생성하기' }))) return;
     await startJob('write', n, cueWriteArg(n));
   },
   async saveText(n) {
@@ -536,6 +551,20 @@ Object.assign(actions, {
   startManual(n) {
     S.textDraft[n] = '';
     render();
+  },
+  /** 저장하지 않은 본문 고침을 버리고 저장된 본문으로 돌아간다 (저장 띠의 '고친 것 버리기'). 임시 보관 초안도 지운다 */
+  async dropText(n) {
+    n = Number(n);
+    if (!(await askConfirm(`${n}화 본문에서 저장하지 않은 고침을 버리고 저장된 본문으로 돌아갈까요? 되돌릴 수 없어요.`, { ok: '고친 것 버리기', danger: true }))) return;
+    delete S.textDraft[n];
+    // 고친 글에서 고른 부분(대화 패널의 고칠 곳 · 고른 부분 도구)은 저장된 본문에 없을 수 있다. 그 화의 것은 거둔다
+    if (S.sel && Number(S.sel.n) === n) S.sel = null;
+    if (S.selTool && Number(S.selTool.n) === n && typeof hideTool === 'function') hideTool();
+    const k = DRAFT_PREFIX(S.name) + n;  // 남기면 다시 열 때 '저장하지 않은 초안'으로 뜬다 (backToStart 와 같다)
+    draftStore.del(k);
+    draftKept.delete(k);
+    render();
+    toast(`${n}화 본문을 저장된 판으로 되돌렸어요`);
   },
   /** '직접 쓰기'를 거둔다: 빈 칸을 닫고 쓰기 시작 칸(스토리보드 · AI 본문 생성)으로 돌아간다. 그 화의 스토리보드 · 큐 시트는 둔다 */
   async backToStart(n) {

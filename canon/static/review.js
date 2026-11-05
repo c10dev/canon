@@ -176,7 +176,7 @@ function rvMenu(n) {
 
 function viewReview(n) {
   const e = ep(n);
-  if (!e) return header('6단계', '상태 승인', '') + noEpisode();
+  if (!e) return header('6단계', '상태 승인', '') + noEpisode(n);
   const top = (desc, right = '') => `<header class="page-head"><div class="row" style="gap:12px">${epNav('review', n)}<div class="lead" style="gap:2px"><div class="eyebrow">${flowEyebrow(n)}</div><h1 style="font-size:1.5rem">${n}화 ${esc(e.plot.title)}</h1></div><span class="chip ${e.status}">${STATUS[e.status]}</span></div><div class="row">${right}</div></header>${flowBar(n, 'review')}${autoLockNote()}${desc ? `<p class="desc">${desc}</p>` : ''}`;
 
   if (e.status === 'finalized') {
@@ -187,7 +187,8 @@ function viewReview(n) {
     return top('이 화는 상태 반영이 끝났어요. 반영된 내용이에요.', `<button class="btn" data-action="branchOpen" data-arg="${n}" title="이 작품은 그대로 두고, 사본에서 ${n}화부터 다른 전개를 써요">${n}화부터 갈래 만들기</button>${canRevert ? `<button class="btn danger" data-action="revertFrom" data-arg="${n}">${rangeText(undo)}화 반영 취소</button>` : ''}${nextStepBtn()}`) + restateCard(n) + (h ? historyView(h) : '<div class="note plain">반영 기록이 없어요.</div>');
   }
   if (e.status !== 'written') {
-    return top('') + `<div class="card empty"><p>${n}화 본문이 아직 없어요. 본문을 쓴 뒤 상태를 정리해요.</p><a class="btn primary" href="${base()}/write/${n}">${n}화 집필로</a></div>`;
+    const [href, label] = epGo(n);  // 플롯 초안이면 플롯 확정으로 바로
+    return top('') + `<div class="card empty"><p>${n}화 본문이 아직 없어요. 본문을 쓴 뒤 상태를 정리해요.</p><a class="btn primary" href="${href}">${label}</a></div>`;
   }
   const d = S.deltas[n];
   const ar = S.auto && S.auto.run;

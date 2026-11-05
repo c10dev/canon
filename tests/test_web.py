@@ -973,3 +973,16 @@ def test_missing_anthropic_key_is_no_key(client, monkeypatch):
     r = asyncio.run(web._no_key(None, e.value))
     body = _json.loads(r.body)
     assert body["code"] == "no_key" and body["detail"].startswith("Anthropic API 키가 없어요")
+
+
+def test_session_edit_is_not_a_screen_save(client):
+    """대화 세션만 고치면 화면 저장 기록(edit_rev · saved_by)을 바꾸지 않는다. 저장하지 않은 변경이 있는 탭이
+    세션 이름만 바꿔도, 다른 탭이 먼저 저장한 것은 그 탭의 다음 저장에서 충돌로 잡힌다."""
+    meta = {"title": "등대", "genre": "미스터리", "logline": "x", "target_episodes": 10}
+    client.post("/api/projects", json={"name": "ss", "meta": meta}, headers={"X-Canon-Client": "B"})
+    before = client.get("/api/projects/ss").json()
+    s = client.post("/api/projects/ss/sessions", json={"topic": "plot"}, headers={"X-Canon-Client": "A"}).json()
+    client.patch(f"/api/projects/ss/sessions/{s['id']}", json={"title": "새 이름"}, headers={"X-Canon-Client": "A"})
+    after = client.get("/api/projects/ss").json()
+    assert (after["edit_rev"], after["saved_by"]) == (before["edit_rev"], before["saved_by"])
+    assert any(x["title"] == "새 이름" for x in after["agent_sessions"])
