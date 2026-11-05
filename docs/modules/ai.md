@@ -24,6 +24,8 @@
 ### `canon/llm.py`
 
 - LLM 프로바이더 인터페이스(`json`, `text`)와 Gemini(API 키 또는 Vertex AI 서비스 계정 `_vertex_client`)
+- 키 · 권한 오류(401, 403, 400 API_KEY_INVALID, `is_bad_key`)는 다시 부르지 않고 `BadKey`(`KEY_HINT`)를 낸다. 웹은 code `bad_key` 로 답한다
+- 요청 한도로 기다리거나 응답 지연으로 다시 부를 때 `cancel.say` 로 작업 진행 줄에 알리고, 그 호출이 끝나면 비운다
 - 로컬(OpenAI 호환) 구현
 - 단계별 선택(`get_llm(stage)`)
 - 단계 이름은 `settings.STAGES` 다

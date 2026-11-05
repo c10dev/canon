@@ -126,9 +126,29 @@ const enc = encodeURIComponent;
 const P = () => S.project;
 const base = () => `#/p/${enc(S.name)}`;
 
+// pydantic 검증 오류 종류 → 화면 문구 ('… 칸이' 뒤에 붙는다). web.py 의 _VALIDATION_REASON 과 같다 (tests/test_fmterr_js.py)
+const VALIDATION_REASON = {
+  missing: '없어요', string_type: '글자여야 해요', int_type: '정수여야 해요', int_parsing: '정수여야 해요',
+  float_type: '숫자여야 해요', float_parsing: '숫자여야 해요', bool_type: 'true나 false여야 해요',
+  bool_parsing: 'true나 false여야 해요', list_type: '목록([ ])이어야 해요', model_type: '{ } 로 묶인 객체여야 해요',
+  dict_type: '{ } 로 묶인 객체여야 해요', literal_error: '정해진 값 중 하나여야 해요', enum: '정해진 값 중 하나여야 해요',
+  extra_forbidden: '필요 없는 칸이에요',
+};
+// 검증 오류가 가리키는 칸 이름 → 화면 이름. 없으면 칸 이름을 그대로 쓴다
+const FIELD_NAME = { title: '제목', name: '이름', summary: '요약', text: '본문', genre: '장르', logline: '한 줄 소개', description: '설명', note: '메모', number: '화 번호', target_episodes: '화 수', target_length: '화당 분량' };
+
+/** 서버 오류 응답을 화면 문구로. 검증 오류(detail 이 목록)는 영어 원문과 칸 경로 대신 '제목 칸이 글자여야 해요' 처럼 쓴다 */
 function fmtErr(data, status) {
   const d = data && data.detail;
-  if (Array.isArray(d)) return d.map((x) => { const at = (x.loc || []).slice(1).join('.'); return `입력 형식이 맞지 않아요${at ? ` (칸: ${at})` : ''}: ${x.msg}`; }).join('\n');
+  if (Array.isArray(d)) {
+    const lines = d.map((x) => {
+      const keys = (x.loc || []).slice(1).filter((k) => typeof k === 'string');
+      const key = keys[keys.length - 1];
+      const where = key ? `'${FIELD_NAME[key] || key}' 칸이 ` : '';
+      return `입력 형식이 맞지 않아요: ${where}${VALIDATION_REASON[x.type] || '형식에 맞지 않아요'}. 고친 뒤 다시 해 보세요`;
+    });
+    return [...new Set(lines)].join('\n');
+  }
   return d || `서버가 요청을 처리하지 못했어요 (${status}). 잠시 뒤 다시 해 보세요`;
 }
 
@@ -154,6 +174,7 @@ async function api(method, path, body, meta) {
   }
   let r;
   if (runAbort && method !== 'GET') opt.signal = runAbort.signal;  // run() 이 기다리는 요청만 '기다리지 않기'로 끊는다
+  if (meta && meta.signal) opt.signal = meta.signal;  // 화면이 따로 끊는 요청 (대화 패널의 '기다리지 않기')
   try {
     r = await fetch('/api' + path, opt);
   } catch (e) {
@@ -782,8 +803,8 @@ document.addEventListener('click', (e) => {
     opt.render: 'always'(기본) | 'success'(실패하면 다시 그리지 않아 화면에만 있는 입력을 남긴다) | 'never' */
 /** 실패를 알린다. API 키가 없으면(첫 실행에 흔하다) 설정 대화상자를 열지 묻는다. */
 function showError(e) {
-  if (e.code === 'no_key') {
-    askConfirm(`${e.message}\n\n설정을 열까요?`, { title: 'API 키가 없어요', ok: '설정 열기' }).then((ok) => ok && openSettings('ai'));
+  if (e.code === 'no_key' || e.code === 'bad_key') {
+    askConfirm(`${e.message}\n\n설정을 열까요?`, { title: e.code === 'no_key' ? 'API 키가 없어요' : 'API 키를 확인하세요', ok: '설정 열기' }).then((ok) => ok && openSettings('ai'));
     return;
   }
   toast(e.message, true);
@@ -1657,7 +1678,7 @@ let askPending = null;
 function askFinish(value) {
   const p = askPending;
   askPending = null;
-  if (p) p.resolve(value === 'ok' ? (p.input ? p.read() : true) : (p.input ? null : false));
+  if (p) p.resolve(value === 'ok' ? (p.input ? p.read() : true) : value === 'alt' && !p.input ? 'alt' : (p.input ? null : false));
 }
 
 /** 닫은 뒤 포커스를 돌릴 곳(showDialog 의 back). 연 버튼은 다시 그리면 사라질 수 있어 같은 동작의 버튼을 찾게 둔다.
@@ -1682,7 +1703,7 @@ function askOpen(text, o, input) {
     <h2 id="${id}-title">${esc(title)}</h2>
     ${body.map((p) => `<p>${esc(p)}</p>`).join('')}
     ${field}
-    <div class="row dlg-foot"><button type="button" class="btn" data-ask="">${esc(o.cancel || '취소')}</button><button type="button" class="btn ${o.danger ? 'danger' : 'primary'}" data-ask="ok">${esc(o.ok || '확인')}</button></div>
+    <div class="row dlg-foot"><button type="button" class="btn" data-ask="">${esc(o.cancel || '취소')}</button><button type="button" class="btn ${o.danger ? 'danger' : 'primary'}" data-ask="ok">${esc(o.ok || '확인')}</button>${o.alt ? `<button type="button" class="btn primary" data-ask="alt">${esc(o.alt)}</button>` : ''}</div>
   </div>`;
   return new Promise((resolve) => {
     const el = showDialog(id, html, askBack(document.activeElement));
@@ -1702,13 +1723,14 @@ function askOpen(text, o, input) {
     el.returnValue = '';
     const inp = input ? el.querySelector(`#${id}-in`) : null;
     askPending = { resolve, input, read: () => (inp ? inp.value : '') };
-    const to = inp || el.querySelector('[data-ask="ok"]');
+    const to = inp || el.querySelector('[data-ask="alt"]') || el.querySelector('[data-ask="ok"]');  // 세 번째 버튼(alt)이 있으면 그것이 주 버튼이다
     if (to) { to.focus(); if (inp && inp.select) inp.select(); }
   });
 }
 
 /** 브라우저 confirm 대신. 고르면 true, 취소 · Esc · 바깥 누르기는 false.
-    o: { title, ok = '확인', cancel = '취소', danger }. 위험한 동작(지우기 · 버리기 · 덮어쓰기)은 danger 와 동사 ok 를 준다 */
+    o: { title, ok = '확인', cancel = '취소', danger, alt }. 위험한 동작(지우기 · 버리기 · 덮어쓰기)은 danger 와 동사 ok 를 준다.
+    alt 를 주면 오른쪽 끝에 주 버튼을 하나 더 두고, 그것을 고르면 'alt' 를 돌려준다 (예: 저장하고 이동) */
 function askConfirm(text, o = {}) {
   return askOpen(text, o, false);
 }
@@ -1819,8 +1841,19 @@ window.addEventListener('hashchange', async () => {
     const to = location.hash;
     const st = history.state;
     history.replaceState({ idx: navScroll.idx }, '', lastHash);
-    const go = await askConfirm('저장하지 않고 이동하면 그 변경은 사라져요. 이동할까요?', { title: '저장하지 않은 변경이 있어요', ok: '이동하기', danger: true });
+    // 작품 변경만 있으면 '저장하고 이동'을 주 버튼으로 준다. 라이브러리 · 장면 연출은 저장하는 곳이 달라 버리고 갈지만 묻는다
+    const canSave = S.dirty && !S.libDirty && !S.stgDirty && !S.conflict;
+    const go = await askConfirm(canSave ? '저장하지 않고 이동하면 그 변경은 사라져요.' : '저장하지 않고 이동하면 그 변경은 사라져요. 이동할까요?',
+      { title: '저장하지 않은 변경이 있어요', ok: canSave ? '저장하지 않고 이동' : '이동하기', danger: true, alt: canSave ? '저장하고 이동' : '' });
     if (!go || location.hash !== lastHash) return;  // 묻는 사이 다른 이동이 왔으면 그 이동이 다시 묻는다
+    if (go === 'alt') {
+      try {
+        if (await save() === false) return;  // 서버가 일부를 지켰다. 토스트를 읽게 이 화면에 남는다
+      } catch (err) {
+        return showError(err);
+      }
+      if (location.hash !== lastHash) return;
+    }
     history.replaceState(st, '', to);
   }
   // 기록 칸마다 번호를 붙여 둔다. 번호가 이미 있으면 뒤로 · 앞으로 가기다 (링크로 온 새 칸은 번호가 없다)

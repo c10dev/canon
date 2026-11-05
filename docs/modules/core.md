@@ -35,6 +35,7 @@
 ### `canon/cancel.py`
 
 - 웹 작업 멈추기 신호
+- `notice` · `say`: 작업 진행 줄에 잠깐 띄울 글. `jobs.start` 가 `Job.retry` 에 쓰게 둔다
 - `jobs.start` 가 스레드마다 둔다
 - LLM 호출 전과 저장 전에 `check()` 로 확인해 멈춘 작업이 결과를 저장하지 못하게 한다
 - 멈춘 뒤 온 응답을 남기는 곳은 `ignored()` 안에서 저장한다(스토리보드 `_keep_late_board`)
@@ -187,6 +188,7 @@
 ### `canon/jobs.py`
 
 - 웹의 오래 걸리는 AI 작업을 스레드로 돌리는 메모리 작업 목록
+- `Job.retry`: AI 호출이 기다리거나 다시 부르는 중인 사정(`cancel.say`). `public()` 에 싣는다
 - 중복 실행 막기
 - 진행률
 - 작업이 맡은 화를 저장 덮어쓰기에서 지키기(`owned_episodes`)

@@ -34,6 +34,10 @@ class MissingKey(RuntimeError):
     """API 키가 없다. 웹은 서버 오류가 아니라 설정 안내로 보인다 (code no_key)."""
 
 
+class BadKey(MissingKey):
+    """AI 서비스가 키를 받지 않았다(틀림 · 만료 · 권한 없음). 웹은 영어 원문 대신 설정 안내로 보인다 (code bad_key)."""
+
+
 class LLM(Protocol):
     def json(self, system: str, prompt: str, schema: type[T], hint: dict | None = None) -> T: ...
     def text(self, system: str, prompt: str) -> str: ...
@@ -158,6 +162,18 @@ class RateLimited(RuntimeError):
     def __init__(self, waited: int):
         super().__init__(f"{RATE_HINT} {waited}초 기다리며 {len(RATE_WAITS)}번 다시 불렀어요.")
         self.message = str(self)
+
+
+KEY_HINT = "AI 서비스가 API 키를 받지 않았어요. 키가 틀렸거나 만료됐거나 권한이 없어요. 설정의 AI 연결에서 키를 확인하세요."
+
+
+def is_bad_key(e: BaseException) -> bool:
+    """google-genai 의 키 · 권한 오류인가: 401, 403(PERMISSION_DENIED), 키가 틀린 400(API_KEY_INVALID)."""
+    code, status = getattr(e, "code", None), getattr(e, "status", None)
+    if code in (401, 403) or status in ("PERMISSION_DENIED", "UNAUTHENTICATED"):
+        return True
+    text = f"{getattr(e, 'message', '') or ''} {e}"
+    return code == 400 and ("API_KEY_INVALID" in text or "API key not valid" in text or "API key expired" in text)
 
 
 def is_rate_limit(e: BaseException) -> bool:
@@ -333,26 +349,35 @@ class GeminiLLM:
         """부르고 사용량을 기록한다. 429(요청 한도)면 RATE_WAITS 만큼 기다려 다시 부르고, 끝내 풀리지 않으면
         RateLimited 를 낸다. 응답 시간을 넘기면(gemini_timeout) 바로 TIMEOUT_RETRIES 번 다시 부르고, 또 넘기면
         TimedOut 을 낸다. 실패한 시도는 하나씩 실패로 기록한다."""
-        waited, timeouts, rate = 0, 0, iter(RATE_WAITS)
-        while True:
-            try:
-                return self._once(system, prompt, attempt, parse, **config)
-            except Exception as e:
-                if is_timeout(e):
-                    timeouts += 1
-                    if timeouts > TIMEOUT_RETRIES:
-                        raise TimedOut(gemini_timeout()) from e
-                    pause = None
-                elif is_rate_limit(e):
-                    pause = next(rate, None)
-                    if pause is None:
-                        raise RateLimited(waited) from e
-                else:
-                    raise
-            cancel.check()
-            if pause is not None:
-                _pause(pause)
-                waited += pause
+        waited, timeouts, rate, tries = 0, 0, iter(RATE_WAITS), 0
+        try:
+            while True:
+                try:
+                    return self._once(system, prompt, attempt, parse, **config)
+                except Exception as e:
+                    if is_timeout(e):
+                        timeouts += 1
+                        if timeouts > TIMEOUT_RETRIES:
+                            raise TimedOut(gemini_timeout()) from e
+                        pause = None
+                        cancel.say("AI 응답이 늦어 다시 불러요")
+                    elif is_bad_key(e):
+                        raise BadKey(KEY_HINT) from e  # 다시 불러도 같다
+                    elif is_rate_limit(e):
+                        pause = next(rate, None)
+                        if pause is None:
+                            raise RateLimited(waited) from e
+                        tries += 1
+                        cancel.say(f"AI 요청 한도에 걸려 {pause}초 기다려요 ({tries}/{len(RATE_WAITS)})")
+                    else:
+                        raise
+                cancel.check()
+                if pause is not None:
+                    _pause(pause)
+                    waited += pause
+        finally:
+            if tries or timeouts:
+                cancel.say("")  # 다시 부른 호출이 끝났다 (성공이든 실패든)
 
     def _once(self, system: str, prompt: str, attempt: int = 1, parse: Any = None, **config: Any) -> Any:
         """한 번 부르고 사용량을 기록한다. parse 가 있으면 응답 글을 parse 한 값을 돌려주고, parse 가 실패해도

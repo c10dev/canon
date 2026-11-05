@@ -176,7 +176,7 @@ Object.assign(actions, {
     });
   },
   async styleExampleWrite() {
-    await run('지금 문체로 예시를 쓰는 중… (최대 1분)', async () => {
+    await run('지금 문체로 예시를 쓰는 중…', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/style/example`, { scene: S.styleExScene || '', episode: Number(S.styleExEp) || 0 });
       toast('예시를 썼어요');

@@ -20,6 +20,9 @@
 ### `canon/static/app.js`
 
 - 웹 화면의 뼈대
+- 서버 오류 문구 `fmtErr`: 검증 오류(detail 이 목록)는 영어 원문 대신 `VALIDATION_REASON`(web.py `_VALIDATION_REASON` 과 같음, `tests/test_fmterr_js.py`)과 칸 이름 `FIELD_NAME` 으로 쓴다
+- 저장하지 않고 이동하면 묻는 창은 작품 변경만 있을 때 '저장하고 이동'(askConfirm 의 `alt`)을 주 버튼으로 준다
+- `showError` 는 키 없음(`no_key`)과 키 틀림(`bad_key`) 모두 설정을 열지 묻는다
 - 상태 `S`
 - 서버 호출 `api`
 - 작품 저장 `save` 는 받은 판(`projectBase` 의 `keys` · `eps`)과 달라진 칸 · 화만 `PATCH` 로 보낸다(`patchBody`)
@@ -80,6 +83,7 @@
 ### `canon/static/chat.js`
 
 - 화면에 붙는 AI 대화 패널(플롯 대화는 `agent.js` 가 그린다)(901~1599px 은 사이드바를 레일로 접고 400px, 900px 이하는 아래 시트, 규칙은 `app.css` 의 `body.chat-open`. 기승전결 · 플롯 화면 `plot`, 집필 화면 `text:<화>`)
+- 답을 기다리는 줄은 경과 초를 1초마다 고치고(`chatWaitTick`), 5초가 지나면 '기다리지 않기'(`chatStop`, AbortController)를 보인다. 기다리지 않기는 오류가 아닌 보통 알림이다
 - 변경안을 칸별로 지금 값과 비교해 보여 주고 고른 것만 반영 요청
 - 주제마다 요청 내용과 변경안 그리기를 `CHAT_TOPICS` 에서 바꿔 끼운다
 - 플롯 대화는 대상(`plotScope`: 고른 아크 · 다음 아크 초안, 연 구간 · 화)을 함께 보낸다
@@ -141,6 +145,7 @@
 ### `canon/static/hub.js`
 
 - 알림
+- 진행 줄은 AI 호출이 기다리거나 다시 부르는 중이면 `Job.retry` 를 note 대신 보이고 남은 시간 어림을 뺀다
 - 손가락 기기에서는 알림 창 아래 'Esc로 닫아요' 안내를 비운다
 - AI 작업과 알림을 버튼 하나에 모은다
 - 버튼(`hubButton`, 사이드바 · 작품 밖 사이드바의 `#hub-slot`)

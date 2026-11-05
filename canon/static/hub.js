@@ -155,7 +155,7 @@ function hubAttention(a) {
 }
 
 function hubRunning(j) {
-  const sub = [j.total > 1 ? `${j.done}/${j.total}단계` : '', j.note, `경과 ${elapsed(j)}`, jobLeft(j, Date.now() / 1000)].filter(Boolean).join(' · ');
+  const sub = [j.total > 1 ? `${j.done}/${j.total}단계` : '', j.retry || j.note, `경과 ${elapsed(j)}`, j.retry ? '' : jobLeft(j, Date.now() / 1000)].filter(Boolean).join(' · ');  // 다시 부르는 중이면 그 사정을 앞에 두고 남은 시간 어림은 뺀다
   const bar = j.total > 1 ? `<div class="hub-bar" role="progressbar" aria-label="${esc(j.label)} 진행" aria-valuemin="0" aria-valuemax="${j.total}" aria-valuenow="${j.done}"><i style="width:${Math.round((j.done / j.total) * 100)}%"></i></div>` : '';
   const act = j.kind === 'auto' ? `<a class="btn small" href="${JOB_LINK.auto(j)}">자동 집필로</a>` : `<button type="button" class="btn small" data-job-stop="${j.id}">멈추기</button>`;
   return `<li class="hub-item"><div class="hub-t"><strong>${esc(j.label)}</strong>${hubWhere(j)}<div class="small">${esc(sub)}</div>${bar}</div>${act}</li>`;

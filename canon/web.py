@@ -28,7 +28,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from . import address, agent, archetypes, autorun, board, cancel, cast, charlog, dynamics, elements, genres, illust, jobs, knows, library, metrics, naming, pipeline, prompts, publish, refs, research, settings, store, usage
-from .llm import GeminiLLM, LocalLLM, MissingKey, get_llm, make_llm
+from .llm import BadKey, GeminiLLM, LocalLLM, MissingKey, get_llm, make_llm
 from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록)
 from .schema import (Ability, ArcPlan, BodySuggestion, StatInitSuggestion, StatSkin, StatWindowSuggestion, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
@@ -107,6 +107,12 @@ async def _count_active(request: Request, call_next):
 async def _bad_request(_: Request, e: Exception) -> JSONResponse:
     msg = e.args[0] if isinstance(e, KeyError) and e.args else str(e)
     return JSONResponse({"detail": str(msg)}, status_code=400)
+
+
+@app.exception_handler(BadKey)
+async def _bad_key(_: Request, e: BadKey) -> JSONResponse:
+    # 키가 틀리거나 만료됐다: 영어 원문 대신 설정으로 가는 안내 (화면 showError 가 설정을 열지 묻는다)
+    return JSONResponse({"detail": str(e), "code": "bad_key"}, status_code=400)
 
 
 @app.exception_handler(MissingKey)
@@ -3578,8 +3584,8 @@ _JSON_REASON = {
 # pydantic 검증 오류 종류 → 화면 문구 ('… 칸이' 뒤에 붙는다)
 _VALIDATION_REASON = {
     "missing": "없어요", "string_type": "글자여야 해요", "int_type": "정수여야 해요", "int_parsing": "정수여야 해요",
-    "float_type": "숫자여야 해요", "float_parsing": "숫자여야 해요", "bool_type": "true 나 false 여야 해요",
-    "bool_parsing": "true 나 false 여야 해요", "list_type": "목록([ ])이어야 해요", "model_type": "{ } 로 묶인 객체여야 해요",
+    "float_type": "숫자여야 해요", "float_parsing": "숫자여야 해요", "bool_type": "true나 false여야 해요",
+    "bool_parsing": "true나 false여야 해요", "list_type": "목록([ ])이어야 해요", "model_type": "{ } 로 묶인 객체여야 해요",
     "dict_type": "{ } 로 묶인 객체여야 해요", "literal_error": "정해진 값 중 하나여야 해요", "enum": "정해진 값 중 하나여야 해요",
     "extra_forbidden": "필요 없는 칸이에요",
 }

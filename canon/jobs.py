@@ -33,6 +33,7 @@ class Job:
     total: int = 1
     done: int = 0
     note: str = ""
+    retry: str = ""  # AI 호출이 기다리거나 다시 부르는 중이면 그 사정 (cancel.say). 다음 호출이 되면 비운다
     status: str = "running"  # running | done | error | cancelled
     result: Any = None
     error: str = ""
@@ -49,7 +50,7 @@ class Job:
     def public(self) -> dict:
         return {
             "id": self.id, "project": self.project, "kind": self.kind, "ep": self.ep, "label": self.label,
-            "total": self.total, "done": self.done, "note": self.note, "status": self.status,
+            "total": self.total, "done": self.done, "note": self.note, "retry": self.retry, "status": self.status,
             "result": self.result, "error": self.error, "started": self.started, "step_at": self.step_at or self.started, "finished": self.finished,
             "pending": sorted(self.pending), "waiting": self.waiting, "step_ep": self.step_ep,
         }
@@ -110,6 +111,7 @@ def start(project: str, kind: str, ep: int | None, label: str, fn: Callable[[Job
     def run() -> None:
         store.writer.set("")  # 작업의 저장은 시작한 화면의 저장이 아니다 (다른 화면에 충돌로 보이지 않게)
         cancel.current.set(job.stop)
+        cancel.notice.set(lambda text: setattr(job, "retry", text))
         try:
             out = fn(job)
             if job.status == "running":

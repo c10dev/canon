@@ -508,7 +508,7 @@ Object.assign(actions, {
     const l = S.styleLink || {};
     const unlink = ['same', 'changed'].includes(l.state) ? `\n라이브러리 '${l.name}' 연결도 끊겨요. 라이브러리 항목은 그대로예요.` : '';
     if ((has || unlink) && !(await askConfirm(`분석 결과로 지금 스타일 프로필을 바꿀까요? 저장하기 전에는 '변경 모두 버리기'로 되돌릴 수 있어요.${unlink}`, { ok: '바꾸기' }))) return;
-    await run('문체를 분석하는 중… (최대 1분)', async () => {
+    await run('문체를 분석하는 중…', async () => {
       await saveIfDirty();
       const prof = await api('POST', `/projects/${enc(S.name)}/style`, { text: S.styleSample });
       P().style = prof;
@@ -612,7 +612,7 @@ Object.assign(actions, {
     if ((S.lib.sample || '').trim().length < 200) return toast('원문을 200자 이상 넣어 주세요', true);
     const has = S.lib.profile.narration_pov || S.lib.profile.sample_passages.length;
     if (has && !(await askConfirm('분석 결과로 지금 프로필을 바꿀까요? 저장 전까지는 되돌릴 수 있어요.', { ok: '바꾸기' }))) return;
-    await run('문체를 분석하는 중… (최대 1분)', async () => {
+    await run('문체를 분석하는 중…', async () => {
       S.lib.profile = await api('POST', '/styles/analyze', { text: S.lib.sample });
       S.libDirty = true;
       toast('분석 결과를 불러왔어요. 확인하고 저장하세요.');
