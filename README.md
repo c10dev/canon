@@ -1006,6 +1006,7 @@ python -m canon brief 등대 3 --check    # 검수 지시서 → 받은 JSON 은
 canon/schema.py    데이터 스키마
 canon/prompts.py   프롬프트와 컨텍스트 조립, 작업지시서
 canon/pipeline.py  단계별 생성/검증/반영 로직
+canon/serialize.py · reshape.py · opening.py  pipeline 에서 따로 둔 구역 (장편 전환 · 재구성 · 초반 1~3화)
 canon/metrics.py   문체 지표 (LLM 없이 계산)
 canon/genres.py    장르 목록과 장르별 안내
 canon/elements.py  인과율: 이야기 요소의 관련 화 찾기, 화별로 넣을 요소 고르기, 본문 · 플롯에서 나온 장소 등록 (LLM 없이)
