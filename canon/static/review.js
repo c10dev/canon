@@ -288,6 +288,15 @@ const deltaEditable = (d) => JSON.stringify([
   (d.setting_changes || []).map((x) => x.value),
 ]);
 const deltaEdited = (n) => !!(S.deltas[n] && S.deltaOrig[n] && S.deltaOrig[n].delta) && deltaEditable(S.deltas[n]) !== deltaEditable(S.deltaOrig[n].delta);
+/** n화 변경안을 받은 그대로에서 바꿨다: 요약, 체크(받을 때 있던 칸만, 다른 화를 보는 중이면 맡겨 둔 체크), 고칠 수 있는 칸.
+ * 다시 만들기(extractState)와 자동 집필의 '그대로 반영'(auto.js autoResume)이 버리기 전에 묻는 기준이다 */
+function deltaTouched(n) {
+  const d = S.deltas[n];
+  const o = S.deltaOrig[n];
+  if (!d || !o) return false;
+  const picks = S.picksEp === n ? S.picks : (S.picksKept || {})[n] || o.picks;
+  return d.summary !== o.summary || Object.entries(o.picks).some(([k, v]) => picks[k] !== v) || deltaEdited(n);
+}
 
 /** 인물 상태의 글 칸과 '고침' 키 앞글자. 이 칸은 상태 승인 화면에서 고치거나 지울 수 있다 (지우기는 CharacterState.cleared) */
 const STATE_TEXT = [['감정', 'emotional_state', 'em', '감정을'], ['목표', 'current_goal', 'go', '목표를'], ['위치', 'location', 'lo', '위치를'], ['메모', 'notes', 'no', '메모를'], ['차림', 'attire', 'at', '차림을']];
@@ -807,11 +816,8 @@ function relationLines(rel, fold = false) {
 Object.assign(actions, {
   // 상태 변경안
   async extractState(n) {
-    const d = S.deltas[n];
-    const o = S.deltaOrig[n];
     // S.picks 는 설정 제안 화면과 같이 쓴다. 변경안을 받을 때 있던 칸만 비교한다
-    const edited = d && o && (d.summary !== o.summary || Object.entries(o.picks).some(([k, v]) => S.picks[k] !== v) || deltaEdited(n));
-    if (edited && !(await askConfirm('고친 요약 · 항목과 체크를 버리고 변경안을 다시 만들까요?', { ok: '다시 만들기', danger: true }))) return;
+    if (deltaTouched(n) && !(await askConfirm('고친 요약 · 항목과 체크를 버리고 변경안을 다시 만들까요?', { ok: '다시 만들기', danger: true }))) return;
     if (S.textDraft[n] !== undefined) {
       try {
         S.project = await api('PUT', `/projects/${enc(S.name)}/episodes/${n}/text`, { text: S.textDraft[n] });

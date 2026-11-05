@@ -617,6 +617,31 @@ def test_state_draft_kept_with_pending_result(client):
     assert client.put("/api/projects/nope/pending/state:1/draft", json=body).status_code == 404
 
 
+def test_auto_review_keeps_draft_of_same_pending(client, monkeypatch):
+    """자동 집필 검토 대기 변경안을 state:<화> 결과로 두면 id 가 변경안마다 같다. 다시 불러도 작가가 남긴 초안을 지키고, 다시 쓰기로 바뀐 변경안은 새로 둔다."""
+    from canon import autorun, store
+    from canon.schema import StateDelta
+
+    meta = {"title": "등대", "genre": "미스터리", "logline": "x", "target_episodes": 3}
+    client.post("/api/projects", json={"name": "ar", "meta": meta})
+    from .jsvm import episode
+    p = store.load("ar")
+    p.episodes = [episode(1, status="written", text="본문")]
+    store.save("ar", p)
+    run = autorun.Run(target=3, status="review", ep=1, pending=StateDelta(episode=1, summary="받은"), pending_text="본문", started="t0")
+    monkeypatch.setattr(autorun, "get_run", lambda name: run)
+    assert client.post("/api/projects/ar/auto/review").status_code == 200
+    rec = store.load_pending("ar")["results"]["state:1"]
+    assert rec["id"].startswith("auto:t0:1:") and rec["base"] == "본문" and rec["result"]["summary"] == "받은"
+    client.put("/api/projects/ar/pending/state:1/draft", json={"delta": {"episode": 1, "summary": "고친"}, "picks": {"f0": False}, "id": rec["id"]})
+    client.post("/api/projects/ar/auto/review")  # 새로고침 · 다른 기기에서 다시 검토하기
+    again = store.load_pending("ar")["results"]["state:1"]
+    assert again["id"] == rec["id"] and again["draft"]["delta"]["summary"] == "고친"
+    run.pending = StateDelta(episode=1, summary="다시 쓴")  # 다시 쓰기로 변경안이 바뀌었다
+    client.post("/api/projects/ar/auto/review")
+    fresh = store.load_pending("ar")["results"]["state:1"]
+    assert fresh["id"] != rec["id"] and "draft" not in fresh and fresh["result"]["summary"] == "다시 쓴"
+
 def test_stop_job_discards_result(client, monkeypatch):
     """멈춘 작업은 바로 cancelled 로 보이고, 늦게 온 AI 응답을 저장하지 않으며 실패로도 남기지 않는다."""
     import time
