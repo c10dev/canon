@@ -1050,6 +1050,8 @@ def story_so_far(p: Project, n: int, plans: bool = False) -> str:
 
 
 PLAN_ONLY = "(아직 안 씀, 플롯) "
+PAST_DROPPED = "(오래된 줄거리 {}묶음은 분량 때문에 뺐습니다)"
+_PAST_DROPPED_RE = re.compile(r"^\(오래된 줄거리 (\d+)묶음은 분량 때문에 뺐습니다\)$")
 
 
 def story_parts(p: Project, n: int, plans: bool = False) -> tuple[str, str]:
@@ -1105,7 +1107,12 @@ def story_parts(p: Project, n: int, plans: bool = False) -> tuple[str, str]:
             if size() <= context.BUDGET["story_past"]:
                 break
             level[i] = max(level[i], target)
-    past = "\n\n".join(e[k] for e, k in zip(entries, level))
+    dropped = 0  # 한 줄로 접어도 넘치면 오래된 묶음부터 빼고 뺀 수를 적는다 (마지막 묶음은 남긴다)
+    while len(entries) > 1 and size() > context.BUDGET["story_past"]:
+        entries.pop(0)
+        level.pop(0)
+        dropped += 1
+    past = "\n\n".join(([PAST_DROPPED.format(dropped)] if dropped else []) + [e[k] for e, k in zip(entries, level)])
 
     tail = [e for e in eps if e.plot.number >= arc_start]
     # 아크 첫머리에는 직전 아크의 마지막 화들도 이어서 본다. n 이 아직 아크가 없는 화(다음 아크 기획)면 이번 아크가 없으니
@@ -4880,13 +4887,16 @@ def play_story(p: Project, n: int) -> str:
     뺀 수를 적는다. 소설의 story_parts · 예산은 그대로다."""
     past, cur = story_parts(p, n)
     entries = [x for x in past.split("\n\n") if x.strip()]
+    dropped = 0
+    if entries and (m := _PAST_DROPPED_RE.match(entries[0])):  # story_parts 가 이미 뺀 묶음도 함께 센다
+        dropped = int(m.group(1))
+        entries.pop(0)
     size = lambda xs: sum(len(x) + 2 for x in xs)  # noqa: E731
     for i, e in enumerate(entries):
         if size(entries) <= context.BUDGET["play_story_past"]:
             break
         head, _, body = e.partition("]")
         entries[i] = f"{head}] {context.first_sentence(body.strip(), 120)}" if body else e
-    dropped = 0
     while entries and size(entries) > context.BUDGET["play_story_past"]:
         entries.pop(0)
         dropped += 1
@@ -4903,7 +4913,7 @@ def play_story(p: Project, n: int) -> str:
         shown += 1
     out = []
     if dropped:
-        out.append(f"(오래된 줄거리 {dropped}묶음은 분량 때문에 뺐습니다)")
+        out.append(PAST_DROPPED.format(dropped))
     out += entries
     if rows or shown:
         out.append("\n".join(([head] if head else []) + ([f"(앞 {shown}화는 분량 때문에 뺐습니다)"] if shown else []) + rows))
