@@ -86,7 +86,7 @@ from . import (address, archetypes, autorun, branches, cast, charlog, dynamics, 
 from .llm import dump, get_llm
 from .schema import FINDING_STATUS, SEVERITY, ConsistencyReport, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
 from . import abilities, anchor, atlas, blocktrial, findings, stattrial, foreshadows, setupchat, statwin, timeline
-from . import birth, cue, labstats, play, soelab, tofix
+from . import birth, cue, jobs, labstats, play, soelab, tofix
 from .schema import ArcProposal, ChatScope, Deadline, MapPlace, StatValue, StateDeltaAI, StoryArc, to_delta
 from .maps import kinds as placekinds
 from .maps import travel
@@ -2282,27 +2282,30 @@ def cmd_foreshadows(a: argparse.Namespace) -> None:
 
 def cmd_tofix(a: argparse.Namespace) -> None:
     """고칠 곳: 본문 문장에 단 '나중에 고칠 곳' 표시 보기 · 달기 · 고침으로 · 지우기."""
-    p = store.load(a.name)
     at = pipeline._now()
     if a.add:
         n, quote = int(a.add[0]), a.add[1]
-        m = tofix.add(p.episode(n), quote, a.note, 0, at)
-        store.save(a.name, p)
+        with jobs.project_lock(a.name):  # 웹 서버 · 자동 집필의 저장과 섞이지 않게 잠근 뒤 읽고 고쳐 저장한다
+            p = store.load(a.name)
+            m = tofix.add(p.episode(n), quote, a.note, 0, at)
+            store.save(a.name, p)
         print(f"{n}화에 고칠 곳 {m.id}을 달았어요.")
         return
     for flag, how in ((a.done, "done"), (a.reopen, "open"), (a.rm, "rm")):
         if not flag:
             continue
         num, _, mid = flag.partition(":")
-        ep = p.episode(int(num))
-        if how == "rm":
-            tofix.remove(ep, mid)
-        else:
-            tofix.update(ep, mid, at, a.note or None, how)
-        store.save(a.name, p)
+        with jobs.project_lock(a.name):
+            p = store.load(a.name)
+            ep = p.episode(int(num))
+            if how == "rm":
+                tofix.remove(ep, mid)
+            else:
+                tofix.update(ep, mid, at, a.note or None, how)
+            store.save(a.name, p)
         print(f"{num}화 고칠 곳 {mid}: {'지웠어요' if how == 'rm' else tofix.STATUS[how] + '으로 바꿨어요'}.")
         return
-    rows = tofix.collect(p, "all" if a.all else "open")
+    rows = tofix.collect(store.load(a.name), "all" if a.all else "open")
     if not rows:
         print("고칠 곳이 없어요." if a.all else "남은 고칠 곳이 없어요. --all로 고친 것도 볼 수 있어요.")
         return

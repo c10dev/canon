@@ -265,6 +265,10 @@
 - 중복 실행 막기
 - 자동 업데이트가 다시 시작하려고 기다리는 동안(`draining`) 새 작업은 `Draining`(400, '서버를 곧 다시 시작해요')으로 거절한다. 자동 집필(`auto`)은 받아서 첫 단계 전에 멈춘다
 - `running()` 은 다른 스레드가 작업을 더해도 깨지지 않게 잠금 안에서 센다
+- `project_lock(name)` 은 프로세스 안 잠금(재진입하지 않음)을 잡은 뒤 작품 폴더의 `.edit.lock` 에 `fcntl.flock` 을 건다. 명령줄과 웹 서버가 같은 작품을 함께 읽고 고쳐 저장해도 서로 덮지 않는다
+- `project_lock` 은 다른 프로세스가 쥐고 있으면 `LOCK_WAIT`(30초)까지 기다리고, 넘기면 `Locked`(400, '다른 프로그램(명령줄 등)이 이 작품을 고치고 있어요')를 낸다
+- `project_lock` 의 flock 은 `store.save` 의 `.lock` 과 다른 파일이라 잠금 안에서 저장해도 막히지 않는다. 점으로 시작하는 열쇠(`revlab.lock_key`)와 폴더가 없는 작품은 프로세스 안에서만 잠근다
+- `project_lock` 을 쥐는 구간은 읽고 고쳐 저장하는 짧은 구간이다. AI 호출은 그 밖에서 한다
 - 진행률
 - 작업이 맡은 화를 저장 덮어쓰기에서 지키기(`owned_episodes`)
 - 멈추기(`stop`)
@@ -513,6 +517,7 @@
 - `backups/` 의 모든 `.json`(되돌리기 전 판 포함)이 적은 스냅샷 파일을 남긴다
 - 아무 판도 적지 않아도 `SNAP_GRACE`(60초) 안에 쓴 스냅샷 파일은 지우지 않는다
 - `save` 는 판 기록 읽기부터 옛 스냅샷 지우기까지 작품 폴더의 `.lock` 에 `fcntl.flock` 을 잡는다(`_disk_lock`). 명령줄과 웹 서버가 함께 저장해도 서로의 새 스냅샷 파일을 지우지 않는다
+- 읽고 고쳐 저장하는 구간 전체의 프로세스 사이 잠금은 `jobs.project_lock`(`.edit.lock`)이 맡는다
 - `write_atomic` 은 pid · 스레드 id 가 붙은 tmp 파일에 다 쓴 뒤 `os.replace` 로 바꿔 넣고, 바꾸기 직전 tmp 의 stat(판)을 돌려준다
 - `write_atomic` 을 쓰는 곳: store · settings · refs · library · studio · autorun · revlab · soelab · maps/layout
 - `_hold` 는 하드 링크로 남기므로 `write_atomic` 대신 자기 tmp 와 `os.replace` 를 쓴다
