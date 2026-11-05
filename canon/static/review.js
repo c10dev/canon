@@ -142,14 +142,16 @@ const statLink = (updates) => (updates.some((u) => (u.stats || []).length) || P(
 /** 본문을 옆에 두는 폭 (901px 이상). 좁으면 근거 문장은 오른쪽 칸 위 근거 카드로 보인다 */
 const rvWide = () => !(typeof window !== 'undefined' && window.matchMedia && mq('narrow').matches);
 
-/** 경고를 인물 줄에 붙인다. names: character_updates 순서의 인물 이름. 경고 글이 인물 이름으로 시작하면 그 인물 줄(by[i]),
-    아니면 '본문 점검'(rest). 상태창 · 이동 시간 경고는 '이름 상태창:' · '이름이 너무 빨리'로 시작한다 (statwin · travel). 값은 경고 번호 */
-function rvWarnSplit(warnings, names) {
+/** 경고를 인물 줄에 붙인다. names · ids: character_updates 순서의 인물 이름 · id. 값은 경고 번호.
+    프로그램 경고는 대상 인물 id 를 warnTo(StateDelta.warn_to, warnings 와 같은 차례)에 적는다 (statwin · travel · attire, features.clean).
+    대상이 없거나 그 인물 줄이 없으면(AI 경고, 예전 변경안) 경고 글이 인물 이름으로 시작할 때 그 인물 줄(by[i]), 아니면 '본문 점검'(rest) */
+function rvWarnSplit(warnings, names, warnTo = [], ids = []) {
   const order = names.map((nm, i) => [String(nm || '').trim(), i]).filter(([nm]) => nm.length >= 2).sort((a, b) => b[0].length - a[0].length);
   const by = {};
   const rest = [];
   (warnings || []).forEach((w, k) => {
-    const hit = order.find(([nm]) => String(w).trim().startsWith(nm));
+    const to = (warnTo || [])[k] ? ids.indexOf(warnTo[k]) : -1;
+    const hit = to >= 0 ? [null, to] : order.find(([nm]) => String(w).trim().startsWith(nm));
     if (hit) (by[hit[1]] = by[hit[1]] || []).push(k);
     else rest.push(k);
   });
@@ -225,7 +227,7 @@ function viewReview(n) {
     ? `<div class="row"><span class="before">${esc(before)}</span><span class="small">→</span><span class="after">${esc(after)}</span></div>`
     : `<div class="row"><span class="after">${esc(after)}</span></div>`;
   const chip = (k, v) => `<span class="rv-chip"><span class="k">${k}</span> ${v}</span>`;
-  const warns = rvWarnSplit(d.warnings, d.character_updates.map((u) => charName(u.character_id)));
+  const warns = rvWarnSplit(d.warnings, d.character_updates.map((u) => charName(u.character_id)), d.warn_to, d.character_updates.map((u) => u.character_id));
   const unknownChar = (u) => !p.characters.some((c) => c.id === u.character_id) && !(d.new_characters || []).some((c) => c.id === u.character_id);
 
   // 인물 상태: 바뀐 칸을 한 줄 칩으로 접어 보이고, '고치기'를 누르면 그 자리에서 칸을 편다. 붙은 경고는 줄 아래
