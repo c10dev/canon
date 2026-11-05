@@ -1,20 +1,13 @@
 """작품 목록 카드 캐시 (web._cards · store.peek). 실행: python -m pytest tests"""
-import importlib
 
 import pytest
-from fastapi.testclient import TestClient
 
 
 @pytest.fixture()
-def env(tmp_path, monkeypatch):
-    monkeypatch.setenv("CANON_LLM", "mock")
-    monkeypatch.setenv("CANON_HOME", str(tmp_path))
-    monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
+def env(client):
     from canon import store, web
 
-    importlib.reload(store)
-    importlib.reload(web)
-    return store, web, TestClient(web.app)
+    return store, web, client
 
 
 def test_cards_read_each_project_once_until_it_changes(env, monkeypatch):

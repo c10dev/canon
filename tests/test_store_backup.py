@@ -125,13 +125,11 @@ def test_backup_list_has_prev_and_before_delete(home):
 
 
 def test_web_backups_list_and_restore(tmp_path, monkeypatch):
-    import importlib
-
     from fastapi.testclient import TestClient
     monkeypatch.setenv("CANON_HOME", str(tmp_path))
     monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
     from canon import web
-    importlib.reload(store)
+    monkeypatch.setattr(store, "ROOT", tmp_path)
     p = _proj(1)
     store.save("w", p)
     p.meta.logline = "나중"
@@ -179,7 +177,6 @@ def test_usage_read_picks_up_appended_lines(tmp_path):
     assert usage.read(f) == [{"n": 1}, {"n": 2}, {"n": 3}]
     f.write_text(json.dumps({"n": 9}) + "\n", encoding="utf-8")  # 새 파일로 바뀜
     assert usage.read(f) == [{"n": 9}]
-
 
 
 def test_snapshots_live_in_their_own_files(home):

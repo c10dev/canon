@@ -2,7 +2,6 @@
 from canon import store
 
 from .test_restate import _two_done
-from .test_web import client  # noqa: F401  (pytest fixture)
 
 
 def test_revert_keeps_deltas_as_pending(client):

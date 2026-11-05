@@ -375,8 +375,6 @@ def test_cli_serial_flow(tmp_path, monkeypatch, capsys):
 
 
 def test_web_serial_flow(tmp_path, monkeypatch):
-    import importlib
-
     from fastapi.testclient import TestClient
 
     from .test_web import _wait
@@ -386,8 +384,7 @@ def test_web_serial_flow(tmp_path, monkeypatch):
     monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
     from canon import store, web
 
-    importlib.reload(store)
-    importlib.reload(web)
+    monkeypatch.setattr(store, "ROOT", tmp_path)
     c = TestClient(web.app)
     meta = {"title": "탑", "target_episodes": 200, "form": "serial"}
     assert c.post("/api/projects", json={"name": "t", "meta": meta}).status_code == 200

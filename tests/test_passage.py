@@ -3,7 +3,6 @@ from canon import pipeline, prompts
 from canon.schema import ConsistencyIssue, EpisodePlot, Episode, Project, Selection
 
 from .test_plot_chat import _project
-from .test_web import client  # noqa: F401  (pytest fixture)
 
 TEXT = "바람이 불었다. 서윤은 등대 앞에 섰다.\n\n\"됐어, 내가 할게.\"\n\n도현은 대답하지 않았다."
 

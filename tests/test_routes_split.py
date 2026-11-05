@@ -1,8 +1,6 @@
 """canon/routes/ 로 옮긴 라우트: 앱에 붙고, 작품을 돌려주는 응답도 스냅샷을 화 번호만 보낸다."""
 from fastapi.routing import APIRoute
 
-from .test_web import client  # noqa: F401  (pytest fixture)
-
 
 def _all_routes(web):
     out = [r for r in web.app.routes if isinstance(r, APIRoute)]

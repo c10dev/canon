@@ -9,6 +9,7 @@ from __future__ import annotations
 import atexit
 import os
 import shutil
+import sys
 import tempfile
 from pathlib import Path
 
@@ -52,3 +53,37 @@ def _fresh_jobs(monkeypatch):
     from canon import jobs
 
     monkeypatch.setattr(jobs, "_jobs", {})
+
+
+@pytest.fixture(autouse=True)
+def _fresh_caches(monkeypatch):
+    """store · web 의 모듈 전역 캐시를 시험마다 비운다.
+
+    예전 시험은 importlib.reload(store) · reload(web) 로 이것을 비웠다. reload 한 번에 1~2.5초가 든다.
+    canon 은 store.ROOT 를 요청 · 호출 때 읽으므로, 저장 위치는 monkeypatch.setattr(store, "ROOT", tmp_path) 로 바꾼다.
+    """
+    from canon import store
+
+    for cache in (store._views, store._snap_written, store._md_written, store._preset_seen, store._brief_seen):
+        cache.clear()
+    web = sys.modules.get("canon.web")
+    if web is not None:
+        for cache in (web._cards, web._rests, web._json_views):
+            cache.clear()
+        monkeypatch.setattr(web, "_claude_seen", None)
+
+
+@pytest.fixture()
+def client(tmp_path, monkeypatch):
+    """mock LLM 과 tmp_path 저장 위치로 띄운 웹 앱의 TestClient. web 을 다시 불러오지 않는다."""
+    monkeypatch.setenv("CANON_LLM", "mock")
+    monkeypatch.setenv("CANON_HOME", str(tmp_path))
+    monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
+    from fastapi.testclient import TestClient
+
+    from canon import store, web
+
+    # 따로 둔 MonkeyPatch 라서, 시험이 monkeypatch.undo() 를 불러도 store.ROOT 는 남는다
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(store, "ROOT", tmp_path)
+        yield TestClient(web.app)

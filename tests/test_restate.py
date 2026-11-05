@@ -3,7 +3,6 @@ from canon import pipeline
 from canon.schema import Project, RewriteRequest
 
 from .test_passage import TEXT, _ep, _written
-from .test_web import client  # noqa: F401  (pytest fixture)
 
 
 def _two_done(client):

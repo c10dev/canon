@@ -6,7 +6,6 @@ from canon.mock import MockLLM
 from canon.schema import ArcProposal, ChatScope, StoryArc
 
 from .test_serial import LLM, _plan_arc, _serial
-from .test_web import client  # noqa: F401  (pytest fixture)
 
 
 def _three_arcs():

@@ -1,5 +1,4 @@
 """복선 센터(canon/foreshadows.py) 테스트 (mock LLM): 문장 걸기, 변경안 정리, 반영, 되돌리기, 끊어진 연결, 센터 계산, CLI, 웹. 실행: python -m pytest tests"""
-import importlib
 
 from fastapi.testclient import TestClient
 
@@ -102,7 +101,7 @@ def test_cli_and_web(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("CANON_LLM", "mock")
     monkeypatch.setenv("CANON_HOME", str(tmp_path))
     monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
-    importlib.reload(store)
+    monkeypatch.setattr(store, "ROOT", tmp_path)
     p = _play(_short(8), 2)
     store.save("fs", p)
     cli.main(["foreshadows", "fs", "--all"])
@@ -110,7 +109,6 @@ def test_cli_and_web(tmp_path, monkeypatch, capsys):
     assert "회수율 100%" in out and LINE in out
 
     from canon import web
-    importlib.reload(web)
     c = TestClient(web.app)
     r = c.post("/api/projects/fs/foreshadows/clues", json={"episode": 2, "quote": LINE, "description": "등대 앞 발자국"})
     assert r.status_code == 200

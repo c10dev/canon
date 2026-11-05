@@ -154,15 +154,12 @@ def test_big_road_corner_blocks_stay_empty():
 
 
 def test_web_and_cli_fill(tmp_path, monkeypatch, capsys):
-    import importlib
-
     monkeypatch.setenv("CANON_HOME", str(tmp_path))
     monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
     from canon import cli, store, web
 
     from .test_mapgen import _project
-    importlib.reload(store)
-    importlib.reload(web)
+    monkeypatch.setattr(store, "ROOT", tmp_path)
     store.save("o", _project())
     c = TestClient(web.app)
     pr = c.put("/api/projects/o/atlas/layout", json={"data": _xml()}).json()

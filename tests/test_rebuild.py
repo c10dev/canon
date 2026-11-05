@@ -1,8 +1,6 @@
 """단편 → 장편 재구성 테스트 (mock LLM). 실행: python -m pytest tests"""
-import importlib
 
 import pytest
-from fastapi.testclient import TestClient
 
 from canon import pipeline, prompts
 from canon.schema import RebuildEpisode, Storyline
@@ -175,15 +173,10 @@ def test_undo_right_after_rebuild():
 
 
 @pytest.fixture()
-def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("CANON_LLM", "mock")
-    monkeypatch.setenv("CANON_HOME", str(tmp_path))
-    monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
-    from canon import store, web
+def client(client):
+    from canon import store
 
-    importlib.reload(store)
-    importlib.reload(web)
-    return TestClient(web.app), store
+    return client, store
 
 
 def test_web_rebuild_flow(client):

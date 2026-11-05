@@ -8,7 +8,6 @@ from canon import pipeline
 from canon.schema import Chat, ChatMessage, Foreshadow, ForeshadowClue, Project
 
 from .test_restate import _two_done
-from .test_web import client  # noqa: F401  (pytest fixture)
 
 
 def _dir() -> Path:

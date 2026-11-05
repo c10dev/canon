@@ -4,6 +4,7 @@
 그 저장소 루트를 지금 폴더로 두어 pytest 를 따로 띄운다. 실패해도 실제 projects/ 는 건드리지 않는다.
 """
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -26,11 +27,28 @@ def test_probe():
 '''
 
 
-def _run(tmp_path, **env):
+# 앞 시험이 채운 store · web 캐시를 다음 시험이 보지 않는다 (conftest._fresh_caches). 같은 프로세스에서 차례로 돈다
+CACHE_PROBE = '''
+def test_a_fill():
+    from canon import store, web
+
+    store._views["x"] = None
+    web._cards["x"] = None
+    web._json_views[("x", "y")] = None
+
+
+def test_b_empty():
+    from canon import store, web
+
+    assert store._views == {} and web._cards == {} and web._json_views == {}
+'''
+
+
+def _run(tmp_path, probe=PROBE, **env):
     repo = tmp_path / "repo"
     (repo / "tests").mkdir(parents=True)
     shutil.copy(TESTS / "conftest.py", repo / "tests" / "conftest.py")
-    (repo / "tests" / "test_probe.py").write_text(PROBE, encoding="utf-8")
+    (repo / "tests" / "test_probe.py").write_text(probe, encoding="utf-8")
     home = tmp_path / "home"
     home.mkdir()
     clean = {k: v for k, v in os.environ.items() if not k.startswith(("CANON_", "PYTEST_"))}
@@ -61,3 +79,17 @@ def test_repo_projects_folder_is_refused(tmp_path):
     assert r.returncode != 0
     assert "실제 작품 폴더" in r.stdout + r.stderr
     assert not (real / "probe").exists()
+
+
+def test_caches_are_cleared_between_tests(tmp_path):
+    r, _, _ = _run(tmp_path, probe=CACHE_PROBE)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "2 passed" in r.stdout
+
+
+def test_no_test_reloads_store_or_web():
+    """importlib.reload(store) · reload(web) 는 한 번에 1~2.5초가 든다. 시험은 store.ROOT 를 monkeypatch 로 바꾼다."""
+    pat = re.compile(r"reload\((?:canon\.)?(?:st|store|web|library)\)")
+    hits = [f"{f.name}:{i}" for f in TESTS.glob("test_*.py") if f.name != Path(__file__).name
+            for i, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1) if pat.search(line)]
+    assert hits == []

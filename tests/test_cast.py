@@ -1,5 +1,4 @@
 """인물 화면(canon/cast.py) 테스트 (mock LLM): 화별 관계 프레임, 지워진 스냅샷 채우기, 등장, 타임라인, CLI, 웹. 실행: python -m pytest tests"""
-import importlib
 
 from fastapi.testclient import TestClient
 
@@ -88,8 +87,7 @@ def test_web_cast(tmp_path, monkeypatch):
     monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
     from canon import store as st, web
 
-    importlib.reload(st)
-    importlib.reload(web)
+    monkeypatch.setattr(st, "ROOT", tmp_path)
     st.save("w", _played(2))
     r = TestClient(web.app).get("/api/projects/w/cast").json()
     assert [f["episode"] for f in r["frames"]] == [0, 1, 2]

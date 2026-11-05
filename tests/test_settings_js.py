@@ -1,10 +1,8 @@
 """설정 대화상자(static/settings.js): 찾기 · 주소 · 프리셋 맞춤 · 환경 변수 목록은 node 로, 바로 저장하는 작품 설정 API 는 서버로 맞춰 본다."""
-import importlib
 import re
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 
 from canon.schema import Meta, Project
 from .jsvm import needs_node, run_js
@@ -151,13 +149,11 @@ def test_no_old_settings_route_left():
 
 
 @pytest.fixture()
-def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("CANON_HOME", str(tmp_path))
-    monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
-    from canon import store, web
-    importlib.reload(store)
+def client(client):
+    from canon import store
+
     store.save("a", Project(meta=Meta(title="가", form="serial")))
-    return TestClient(web.app), store
+    return client, store
 
 
 def test_timeline_and_stat_prompt_save_right_away(client):

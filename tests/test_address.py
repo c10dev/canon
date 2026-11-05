@@ -20,7 +20,6 @@ from .test_delta_count import APP, EDIT_HARNESS
 from .test_serial import _plan_arc, _serial
 from .test_storylines import _short
 from .test_timeline import LLM, _play
-from .test_web import client  # noqa: F401  (pytest fixture)
 
 STATIC = Path(__file__).resolve().parent.parent / "canon" / "static"
 

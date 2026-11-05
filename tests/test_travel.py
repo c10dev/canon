@@ -1,6 +1,5 @@
 """이동 시간 검사 테스트 (canon/maps/travel.py): 시간대 읽기, 걸리는 시간, 반영한 화의 이동 판정, 상태 변경안 경고,
 '괜찮아요', 쓰기 · 검수 프롬프트의 이동 거리, 웹 · 명령줄. 실행: python -m pytest tests/test_travel.py"""
-import importlib
 import os
 import tempfile
 
@@ -134,8 +133,7 @@ def test_web_and_cli(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
     from canon import store as st, web
 
-    importlib.reload(st)
-    importlib.reload(web)
+    monkeypatch.setattr(st, "ROOT", tmp_path)
     st.save("t", _mapped(span=0))
     c = TestClient(web.app)
     v = c.get("/api/projects/t/atlas").json()["travel"]

@@ -4,7 +4,6 @@
     python -m pytest tests/test_findings.py
 """
 import contextlib
-import importlib
 import io
 import json
 import os
@@ -162,7 +161,6 @@ def test_pipeline_apply_check_and_consumers(demo):
 
 def test_web_endpoints(demo):
     from canon import web
-    importlib.reload(web)
     c = TestClient(web.app)
     text = store.load(demo).episode(1).text
     q = text.split(".")[0].strip() + "."
@@ -324,7 +322,6 @@ def test_autorun_severity_policy(demo):
 
 def test_web_fix_endpoints(demo):
     from canon import web
-    importlib.reload(web)
     c = TestClient(web.app)
     p = store.load(demo)
     pipeline.apply_check(p, ConsistencyReport(episode=1, issues=[issue("바람이 불었다.")]))
@@ -454,7 +451,6 @@ def test_web_fixes_job_batches_and_falls_back(demo, monkeypatch):
     import time
 
     from canon import web
-    importlib.reload(web)
     c = TestClient(web.app)
     p = store.load(demo)
     pipeline.apply_check(p, ConsistencyReport(episode=1, issues=[issue("바람이 불었다."), issue("서윤은 등대 앞에 섰다.", "동선"),
@@ -492,7 +488,6 @@ def test_web_fixes_job_batch_failure_falls_back(demo, monkeypatch):
     import time
 
     from canon import web
-    importlib.reload(web)
     c = TestClient(web.app)
     p = store.load(demo)
     pipeline.apply_check(p, ConsistencyReport(episode=1, issues=[issue("바람이 불었다."), issue("서윤은 등대 앞에 섰다.", "동선"),
@@ -528,7 +523,6 @@ def test_web_fixes_job_and_batch_apply(demo):
     import time
 
     from canon import web
-    importlib.reload(web)
     c = TestClient(web.app)
     p = store.load(demo)
     pipeline.apply_check(p, ConsistencyReport(episode=1, issues=[issue("바람이 불었다."), issue("서윤은 등대 앞에 섰다.", "동선")]))
@@ -561,7 +555,6 @@ def test_stale_screen_save_keeps_check_job_results(demo):
     import time
 
     from canon import web
-    importlib.reload(web)
     c = TestClient(web.app)
     stale = c.get(f"/api/projects/{demo}").json()  # 검수 전에 읽은 화면
     assert stale["episodes"][0]["findings"] == []
@@ -728,7 +721,6 @@ def test_web_recheck_job(demo):
 
     from canon import jobs, web
     from canon.mock import MockLLM
-    importlib.reload(web)
     assert "recheck" in jobs.EP_AI_KINDS
     c = TestClient(web.app)
     p = store.load(demo)

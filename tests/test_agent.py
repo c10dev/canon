@@ -1,7 +1,7 @@
 """대화 에이전트 테스트 (mock LLM). 실행: python -m pytest tests"""
 from .test_arc_chat import _three_arcs
 from .test_plot_chat import _project
-from .test_web import _wait, client  # noqa: F401  (pytest fixture)
+from .test_web import _wait
 
 
 def _session(client, name="lh", **kw):

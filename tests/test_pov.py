@@ -3,7 +3,6 @@ from canon import cli, prompts
 from canon.schema import ConsistencyIssue, Project
 
 from .test_storylines import _short
-from .test_web import client  # noqa: F401  (pytest fixture)
 
 
 def _pov(p: Project, nums, who="ally", mode="1인칭"):

@@ -10,7 +10,6 @@ from canon.mock_knows import MOCK_FOLD
 from canon.schema import CharacterState, KnowsFold, KnowsFoldSet, StateDelta
 
 from .test_serial import LLM, _plan_arc, _serial
-from .test_web import client  # noqa: F401  (pytest fixture)
 
 STATIC = Path(__file__).resolve().parent.parent / "canon" / "static"
 

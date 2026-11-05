@@ -1,8 +1,6 @@
 """문단 연습장 (canon/studio.py, mock LLM). 실행: python -m pytest tests/test_studio.py"""
-import importlib
 
 import pytest
-from fastapi.testclient import TestClient
 
 from canon import pipeline, prompts, studio
 from canon.mock import MockLLM
@@ -17,18 +15,10 @@ def home(tmp_path, monkeypatch):
 
 
 @pytest.fixture()
-def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("CANON_LLM", "mock")
-    monkeypatch.setenv("CANON_HOME", str(tmp_path))
-    monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
+def client(client, monkeypatch):
     monkeypatch.delenv("CANON_STYLES", raising=False)
     monkeypatch.delenv("CANON_STUDIO", raising=False)
-    from canon import library, store, web
-
-    importlib.reload(store)
-    importlib.reload(library)
-    importlib.reload(web)
-    return TestClient(web.app)
+    return client
 
 
 def card(**kw) -> SceneCard:

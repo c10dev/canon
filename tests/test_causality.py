@@ -2,7 +2,7 @@
 from canon import elements, prompts
 from canon.schema import Episode, EpisodePlot, Project, StoryElement
 
-from .test_web import _wait, client  # noqa: F401  (pytest fixture)
+from .test_web import _wait
 
 
 def _plot(n, chars=("hero",), summary="요약"):

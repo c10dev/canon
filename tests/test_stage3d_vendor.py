@@ -4,7 +4,6 @@ import hashlib
 import re
 from pathlib import Path
 
-from .test_web import client  # noqa: F401  (pytest fixture)
 
 STATIC = Path(__file__).resolve().parent.parent / "canon" / "static"
 VENDOR = STATIC / "vendor" / "three"

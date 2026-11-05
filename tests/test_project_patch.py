@@ -1,6 +1,5 @@
 """작품 저장 PATCH: 바뀐 칸만 받고, 고치지 않은 화는 {"$same": 화} 로 디스크 것을 쓴다. 화면의 patchBody 도 본다."""
 from .jsvm import needs_node, run_js
-from .test_web import client  # noqa: F401  (pytest fixture)
 
 META = {"title": "등대", "genre": "미스터리", "logline": "오빠를 찾는다", "target_episodes": 10}
 

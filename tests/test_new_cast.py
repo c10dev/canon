@@ -4,7 +4,6 @@ from canon.mock import NEW_CAST, NEW_CAST_EP
 from canon.schema import Character, EpisodePlot, PlotBatch, Project
 
 from .test_plot_chat import _last, _project
-from .test_web import client  # noqa: F401  (pytest fixture)
 
 
 def _ids(xs):

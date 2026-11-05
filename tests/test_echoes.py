@@ -3,10 +3,8 @@
 
     python -m pytest tests/test_echoes.py
 """
-import importlib
 
 import pytest
-from fastapi.testclient import TestClient
 
 from canon import echoes, prompts
 from canon.schema import AddressForm, Character, Episode, EpisodePlot, Meta, Project, StoryArc
@@ -96,13 +94,11 @@ def test_default_on_and_old_files_read():
 
 
 @pytest.fixture()
-def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("CANON_HOME", str(tmp_path))
-    monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
-    from canon import store, web
-    importlib.reload(store)
+def client(client):
+    from canon import store
+
     store.save("a", Project(meta=Meta(title="가", form="serial")))
-    return TestClient(web.app), store
+    return client, store
 
 
 def test_web_setting_saves(client):

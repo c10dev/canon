@@ -1,6 +1,5 @@
 """지도 만들기 테스트: 기하 도구(canon/maps/geom.py), 마을 생성기(canon/maps/gen/towngen.py), 미리보기 · 적용(atlas), 웹, 명령줄.
 실행: python -m pytest tests/test_mapgen.py. 성능은 CANON_PERF=1 일 때만 잰다."""
-import importlib
 import json
 import math
 import os
@@ -205,8 +204,7 @@ def test_web_generate(tmp_path, monkeypatch):
     monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
     from canon import store as st, web
 
-    importlib.reload(st)
-    importlib.reload(web)
+    monkeypatch.setattr(st, "ROOT", tmp_path)
     st.save("g", _project())
     c = TestClient(web.app)
     v = c.get("/api/projects/g/atlas").json()
@@ -299,8 +297,7 @@ def test_web_and_cli_city(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
     from canon import store as st, web
 
-    importlib.reload(st)
-    importlib.reload(web)
+    monkeypatch.setattr(st, "ROOT", tmp_path)
     st.save("c", _project())
     c = TestClient(web.app)
     spec = {**c.get("/api/projects/c/atlas").json()["gen"]["spec"], "kind": "city", "seed": 9, "size": "small"}
@@ -409,8 +406,7 @@ def test_web_suggest_and_cli_ai(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
     from canon import store as st, web
 
-    importlib.reload(st)
-    importlib.reload(web)
+    monkeypatch.setattr(st, "ROOT", tmp_path)
     st.save("s", _project())
     c = TestClient(web.app)
     spec = c.get("/api/projects/s/atlas").json()["gen"]["spec"]
@@ -522,8 +518,7 @@ def test_web_title_places_ideas(tmp_path, monkeypatch):
     monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
     from canon import store as st, web
 
-    importlib.reload(st)
-    importlib.reload(web)
+    monkeypatch.setattr(st, "ROOT", tmp_path)
     st.save("t", _project())
     c = TestClient(web.app)
     assert c.post("/api/projects/t/atlas/generate", json={"spec": {"seed": 5, "water": "river"}, "pins": []}).status_code == 200

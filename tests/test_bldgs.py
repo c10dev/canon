@@ -1,6 +1,5 @@
 """건물 정보 테스트 (canon/maps/buildings.py, atlas.enrich · building · set_building): 재현성, 결과 모양, 주소, 쓰임 수, 이야기 장소,
 작가가 고친 값, 옛 지도 파일 채우기, 웹 · 명령줄."""
-import importlib
 import json
 import os
 from collections import Counter
@@ -126,8 +125,7 @@ def test_web_and_cli(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
     from canon import store as st, web
 
-    importlib.reload(st)
-    importlib.reload(web)
+    monkeypatch.setattr(st, "ROOT", tmp_path)
     p = _project()
     p.characters.append(Character(id="hero", name="윤서", role="주인공"))
     st.save("b", p)

@@ -1,21 +1,5 @@
 """상태 반영 전 서버 검사: 누구의 것도 아닌 항목(설정에 없는 인물 · 같은 인물끼리 · 없는 복선)과 본문 지문(basis)."""
 import copy
-import importlib
-
-import pytest
-from fastapi.testclient import TestClient
-
-
-@pytest.fixture()
-def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("CANON_LLM", "mock")
-    monkeypatch.setenv("CANON_HOME", str(tmp_path))
-    monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
-    from canon import store, web
-
-    importlib.reload(store)
-    importlib.reload(web)
-    return TestClient(web.app)
 
 
 def _written(client, name="sv"):

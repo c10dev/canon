@@ -5,7 +5,6 @@ import pytest
 from canon.stage3d import fake, postures, rooms
 
 from .test_stage_web import _make
-from .test_web import client  # noqa: F401  (pytest fixture)
 
 
 @pytest.fixture

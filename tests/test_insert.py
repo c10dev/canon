@@ -6,7 +6,7 @@ from canon.mock import MockLLM
 from canon.schema import Chat, Foreshadow, Project, StoryElement, Storyline
 
 from .test_serial import _finish, _plan_arc, _serial
-from .test_web import _wait, client  # noqa: F401  (pytest fixture)
+from .test_web import _wait
 
 LLM = MockLLM()
 

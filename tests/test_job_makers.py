@@ -1,5 +1,4 @@
 """작업 종류 등록표: 모든 이름이 준비 함수로 이어지고, 모르는 종류는 400 으로 막는다."""
-from .test_web import client  # noqa: F401  (pytest fixture)
 from canon import web
 
 
