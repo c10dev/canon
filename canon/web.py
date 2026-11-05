@@ -208,7 +208,7 @@ async def _server_error(_: Request, e: Exception) -> JSONResponse:
 def _need(name: str) -> None:
     """작품이 있는지만 본다. 없으면 404."""
     if not NAME_RE.match(name) or not store.exists(name):
-        raise HTTPException(404, f"프로젝트가 없어요: {name}")
+        raise HTTPException(404, f"작품을 찾을 수 없어요: {name}. 작품 목록에서 다시 골라 주세요")
 
 
 def _load(name: str) -> Project:
@@ -964,7 +964,7 @@ def create_project(body: NewProject) -> Project:
     if not NAME_RE.match(name):
         raise HTTPException(400, NAME_ERR)
     if store.exists(name):
-        raise HTTPException(409, f"이미 있는 프로젝트예요: {name}")
+        raise HTTPException(409, f"이미 있는 폴더 이름이에요: {name}. 폴더 이름을 바꿔 주세요")
     if not 1 <= body.meta.target_episodes <= 1000:
         raise HTTPException(400, "총 화수는 1~1000 사이로 적으세요")
     p = Project(meta=body.meta)

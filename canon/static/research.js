@@ -605,7 +605,7 @@ function rsToc() {
 }
 
 function viewResearch() {
-  if (!S.rs) return header('본편과 분리', '연구 · 모델 실험', '') + '<div class="note plain">불러오는 중…</div>';
+  if (!S.rs) return header('실험 · 본편과 분리', '연구 · 모델 실험', '') + '<div class="note plain">불러오는 중…</div>';
   const t = S.rs.tab;
   const views = { home: rsHome, probe: rsProbeView, sample: rsSampleView, stage: rsStageView, budget: rsBudgetView, check: rsCheckView, compare: rsCompareView, stattrial: stView, log: rsLogView };
   const title = t === 'home' ? '연구 · 모델 실험' : t === 'log' ? '실험 기록' : RS_SEC[t].label;
