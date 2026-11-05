@@ -177,15 +177,25 @@ function pickEp(n) {
 
 // ---------- 고르던 체크 · 고친 칸 초안 (서버 pending.json 의 state:<화> 결과에 붙는다, web.save_state_draft) ----------
 let draftTimer = null;
+/** 서버에 아직 남기지 못한 초안이 있는 화 (기다리는 중이거나 저장이 실패함). 페이지를 떠날 때 묻는 기준이다 (app.js hasUnsaved) */
+const draftWaiting = new Set();
 /** 상태 승인 화면에서 체크나 칸을 바꾸면 잠시 뒤 초안으로 남긴다. 결과가 pending.json 에 없는 변경안(채팅 앱 JSON 등)은 남기지 않는다 */
 function saveDeltaDraft(n) {
   clearTimeout(draftTimer);
+  draftWaiting.add(n);
   draftTimer = setTimeout(() => {
     const r = S.pending.name === S.name && S.pending.results[`state:${n}`];
     if (!r || !S.deltas[n]) return;
     const picks = S.picksEp === n ? Object.fromEntries(Object.entries(S.picks).filter(([k]) => DELTA_PICK.test(k))) : null;
-    api('PUT', `/projects/${enc(S.name)}/pending/${enc(r.key)}/draft`, { delta: S.deltas[n], picks, id: r.id ?? null }).catch(() => { /* 다음에 바꿀 때 다시 */ });
+    api('PUT', `/projects/${enc(S.name)}/pending/${enc(r.key)}/draft`, { delta: S.deltas[n], picks, id: r.id ?? null })
+      .then(() => draftWaiting.delete(n))
+      .catch(() => { /* 다음에 바꿀 때 다시. 그때까지 떠나면 묻는다 */ });
   }, 600);
+}
+
+/** n화 변경안이 서버에 남아 있어 새로 고쳐도 되살아난다: pending.json 에 결과가 있고 남기지 못한 초안이 없다 */
+function deltaKept(n) {
+  return S.pending.name === S.name && !!S.pending.results[`state:${n}`] && !draftWaiting.has(Number(n));
 }
 
 /** loadPending 이 setDelta 로 받은 그대로를 놓은 뒤 부른다: 초안의 변경안과 체크로 바꾼다. 받은 그대로(S.deltaOrig)는 두어 '고침' 표시가 맞는다 */
@@ -760,6 +770,7 @@ Object.assign(actions, {
       try {
         S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/apply${force ? '?force=1' : ''}`, out);
         clearTimeout(draftTimer);
+        draftWaiting.delete(n);
       } catch (e) {
         if (e.code !== 'stale_delta' || force) throw e;
         stale = e;  // 다른 탭에서 고쳤거나 저장하지 않은 본문을 방금 저장했다: 기다림 상자를 닫은 뒤 묻는다
@@ -841,6 +852,7 @@ Object.assign(actions, {
   async dropDelta(n) {
     if (!(await askConfirm('이 변경안을 버릴까요?', { ok: '버리기', danger: true }))) return;
     clearTimeout(draftTimer);
+    draftWaiting.delete(n);
     delete S.deltas[n];
     render();
   },
