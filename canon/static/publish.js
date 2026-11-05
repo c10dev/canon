@@ -127,6 +127,15 @@ Object.assign(actions, {
   openExport() {
     showDialog('w-export', exportDialogHtml(), '[data-action="menuToggle"][data-arg="copy"]');
   },
+  /** 다음 할 일 '완결 원고 내보내기'(home.js nextStep): 범위를 본문이 있는 첫 화 ~ 마지막 화로 두고 같은 대화상자를 연다.
+      작품 홈처럼 형식 목록을 아직 받지 않은 화면이면 먼저 받는다 */
+  async exportAll() {
+    const nums = writtenNums();
+    if (!nums.length) return toast('본문이 있는 화가 없어요', true);
+    S.copyRange[S.name] = { from: nums[0], to: nums[nums.length - 1] };
+    if (!S.copyFormats) S.copyFormats = await api('GET', '/publish/formats').catch(() => null);
+    showDialog('w-export', exportDialogHtml(), '[data-action="exportAll"]');
+  },
   copyRange() {
     const nums = writtenNums();
     const r = copyRangeOf(nums);

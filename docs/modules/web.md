@@ -144,12 +144,18 @@
   - 작품 없음은 `plStepsCard`
   - 서버 카드의 확인할 것 `alerts` · 부 · 아크 `where` · 화 칸 띠 `strip`(`web.list_projects`)
 - 다음 할 일 `nextStep`: 플롯 전이면 설정 필수 칸(`setupReqs`)이 빌 때 '설정 마저 채우기', 문체를 정하지 않았고 문체 화면에 안 들렀으면(`styleVisited`, localStorage `canon.styleVisited.<작품>`) 문체 정하기를 먼저 권한다
+- `nextStep` 은 [글, 주소, 동작]을 돌려준다. 글은 버튼 이름이라 동사이거나 화면으로 가는 '~로'다(자동 집필이 돌면 '자동 집필로')
+- 플롯 초안 화의 다음 할 일 'n화 플롯 확정'은 그 화 플롯 페이지(`/arc/n`)로 간다
+- 모든 화를 반영하면 다음 할 일은 '완결 원고 내보내기'다. 동작 `exportAll`(`publish.js`)이 전체 범위로 '여러 화 내보내기' 대화상자를 연다. 주소만 쓰는 곳(사이드바 · 팔레트)은 마지막 화 집필 화면으로 간다
+- 다음 할 일 버튼 `nextStepHtml`: 동작이 있으면 `data-action` button, 없으면 a. 작품 홈 머리와 집필 머리(`write.js` `nextStepBtn`)가 쓴다
+- 사이드바 자동 집필 메뉴 이름 `autoMenuLabel`: 돌면 '자동 집필 · 쓰는 중', 멈추면 그 까닭
 - 작품 목록 `projectGo` 는 플롯 전 작품의 설정 필수 칸이 비면(`setup_ready` false) '설정 마저 채우기'로 보낸다
 - `aiWarning` 은 Anthropic 키가 없거나(`claude_api` false) Claude 구독을 쓸 수 없으면(`claude` install · login · error) 첫 작업 전에 알린다
 - 작품 홈
   - 지금 화 `homeNowCard` · 확인할 것 `homeTodos`(말투 빈 인물 `homeSpeechGaps`, 시점 인물 서술 말투 빈칸 `homeVoiceGap`) · 전 화수 막대 `homeProgress` · 줄인 목록 `homeCast` · `homeForeshadows`
   - 계산 함수는 작품을 받는 순수 함수 `tests/test_home_js.py`
 - 장르 · 화 진행 막대와 연재 일정(`epSteps`, 검수 칸 `checkState`, 화를 열 단계 화면 `epStage`: 다음 할 일 · 화 칸 · 팔레트, 작품 목록 다음 할 일 `projectNext` 는 서버 `findings.check_done`, `releasePlan`, `Project.release`)
+- 연재 일정 줄의 'n화 올림으로 표시'(`releaseOne`)는 올린 화를 하나 늘려 저장하고, 알림의 '되돌리기'(`releaseUndo`)는 그사이 값이 바뀌지 않았을 때만 하나 줄여 다시 저장한다
 
 ### `canon/static/hub.js`
 
@@ -432,11 +438,13 @@
   - 머리 높이 `syncWriteTop`
   - 머리 줄에 지금 본문을 쓴 모델(`.w-model`, `writerLabel`). 기록이 없는 화는 보이지 않는다
   - 머리 ⋯ 메뉴 `writeMenu`: 생성 방식 · 컨텍스트 대화상자 · 채팅 앱 작업지시서 .md 내려받기(`briefDownload`) · 화 지우기
+  - 640px 이하 머리(`.w-head`)는 ⋯ 메뉴와 primary 만 남긴다. 대화 · 다시 생성은 ⋯ 메뉴 맨 위(`.w-narrow`)로 옮기고, 위치 줄 · 쓴 모델을 숨기고, 단계 띠를 한 줄로, 반영 끝난 화 알림(`.w-fin`)을 두 줄로 줄인다(app.css)
+  - 반영이 끝난 화의 머리 primary `nextStepBtn` 은 지금 보는 화면으로 가는 일이면 두지 않는다. 동작이 있는 다음 할 일(완결 원고 내보내기)은 늘 둔다
   - 본문 없는 화는 AI로 쓰기가 기본이고 머리 primary(`writeGo`, 스토리보드를 만든 화는 `boardGo`, 작업이 돌면 진행 줄 `wsBusy`)와 그 아래 쓰기 시작 칸(`writeStart`: 스토리보드 고르기 `S.wsBoard` · 직접 쓰기 · 컨텍스트)
   - 직접 쓰기(`startManual`)로 빈 칸을 연 화는 본문 칸 위 `manualNote` 의 'AI로 쓰기로 돌아가기'(`backToStart`)로 쓰기 시작 칸에 돌아간다. 쓴 글이 있으면 묻고 임시 보관 초안도 지운다. 그 화에 AI 작업이 돌면 끈다
   - 멈춘 작업이 그 화에서 AI 응답을 기다리면 `writeGo` 가 primary 를 잠그고 쓰기 시작 칸과 만든 스토리보드 칸이 `epWaitNote` 로 까닭을 보인다
   - 본문 띠의 저장 칸 `.savebar-slot`
-  - 쓰기가 본문 앞뒤에서 뗀 작업 설명(`Episode.meta_cut`)은 접은 알림 `metaCutNote`: 문단마다 '본문에 되살리기'(`metaCutRestore`, 수정 기록에 남음) · '지우기'(`metaCutDrop`). 자동 집필 중이거나 고칠 수 없는 화는 버튼 없이 보기만(`tests/test_meta_cut.py`)
+  - 쓰기가 본문 앞뒤에서 뗀 작업 설명(`Episode.meta_cut`)은 접은 알림 `metaCutNote`: 문단마다 '본문에 되살리기'(`metaCutRestore`, 수정 기록에 남음) · '지우기'(`metaCutDrop`, 되살릴 수 없다고 위험 확인을 묻는다). 자동 집필 중이거나 고칠 수 없는 화는 버튼 없이 보기만(`tests/test_meta_cut.py`)
 - 그 화 플롯이 없으면 `noEpisode(n)` 이 몇 화까지 있는지와 마지막 화 · 플롯 만들기로 가는 길을 보인다. 플롯이 하나도 없을 때만 '아직 화별 플롯이 없어요'
 - k화로 가는 링크 `epGo(k)`: 플롯 초안이면 플롯 페이지(플롯 확정), 본문이 있으면 검수 · 상태 승인, 나머지는 집필. 순서 안내(`orderNote`)와 검수 · 상태 승인의 빈 화면이 쓴다
 - 본문 다시 생성 확인은 지금 본문이 이전 판으로 남는다고 말하고 위험 버튼으로 두지 않는다

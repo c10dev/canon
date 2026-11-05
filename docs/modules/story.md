@@ -487,6 +487,7 @@
 - 집필 화면 본문 띠의 분할 복사 버튼(`copySplit`: 복사 + ▾ 메뉴 `copyMenu` 의 줄바꿈 형식 · 제목 줄 · .txt)과 '여러 화 내보내기' 대화상자(`exportDialogHtml`)
 - 텍스트와 HTML 을 함께 클립보드에 넣는다(보안 연결이 아니면 복사 이벤트로)
 - 클립보드가 막히면 .txt 내려받기
+- `exportAll`: 다음 할 일 '완결 원고 내보내기'(`home.js` `nextStep`)가 부른다. 범위를 본문이 있는 첫 화 ~ 마지막 화로 두고 형식 목록이 없으면 받아 같은 대화상자를 연다
 
 ### `canon/static/setupchat.js`
 

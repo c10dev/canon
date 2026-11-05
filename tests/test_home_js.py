@@ -76,3 +76,35 @@ def test_home_todos():
     q = project(episodes=eps(2, 4))
     q.timeline.enabled = False
     assert js(q, "homeTodos(data.p, '#/p/x')") == []
+
+
+def _next(p: Project, expr: str = "nextStep()"):
+    return js(p, f"(() => {{ S.project = data.p; S.name = 't'; S.route = ['p', 't']; const next = {expr}; return {{ next, html: nextStepHtml(nextStep()) }}; }})()")
+
+
+@needs_node
+def test_next_step_finished_opens_export():
+    from canon.schema import Act
+    p = project(episodes=eps(3, 3, text="본문"), characters=[Character(id="c1", name="가", role="")],
+                arc=[Act(name="기", start_ep=1, end_ep=3, goal="")])
+    p.meta.target_episodes = 3
+    got = _next(p)
+    assert got["next"] == ["완결 원고 내보내기", "#/p/t/write/3", "exportAll"]
+    assert 'data-action="exportAll"' in got["html"] and got["html"].startswith("<button")
+
+
+@needs_node
+def test_next_step_draft_links_episode_plot():
+    from canon.schema import Act
+    p = project(episodes=eps(1, 3), characters=[Character(id="c1", name="가", role="")],
+                arc=[Act(name="기", start_ep=1, end_ep=3, goal="")])
+    got = _next(p)
+    assert got["next"] == ["2화 플롯 확정", "#/p/t/arc/2"]
+    assert got["html"] == '<a class="btn primary" href="#/p/t/arc/2">2화 플롯 확정</a>'
+
+
+@needs_node
+def test_next_step_auto_is_navigation_label():
+    p = project(episodes=eps(1, 3), characters=[Character(id="c1", name="가", role="")])
+    got = js(p, "(() => { S.project = data.p; S.name = 't'; S.route = ['p', 't']; S.auto = { active: true, run: { ep: 2 } }; return [nextStep(), autoMenuLabel()]; })()")
+    assert got == [["자동 집필로", "#/p/t/auto"], "자동 집필 · 쓰는 중"]
