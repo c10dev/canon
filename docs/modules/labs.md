@@ -183,6 +183,7 @@
   - `app.js` 라우팅이 `refLoad` 를 부르고 `viewRefs` 를 그림
   - 작품 밖 사이드바 도구 줄(`outNav`, 원고 수 `S.refList`)과 작품 사이드바 ⋯ 메뉴의 링크
 - 넣기: 파일 고르기 · 끌어 놓기(여러 파일은 이름 차례로 잇고 파일마다 시작 줄 `fileLines`) · 붙여 넣기
+- 손가락 기기에서는 끌어 놓기 안내 대신 '파일 고르기'만 안내한다(`REF_TOUCH`)
 - 인코딩은 브라우저가 푼다(`refDecode`: BOM → UTF-8 엄격 → CP949, 깨진 글자 수 `bad`, 고르기 칸)
 - 화 나누기는 서버(`POST /api/refs/split`)에 묻고, 켠 경계로 화를 자르고 글자 수를 세는 일은 화면이 한다(`refAssemble`, `refs.assemble` 과 같은 규칙)
 - 경계 고치기(`refDraftView`): 규칙 줄(단위 칩 · 다른 규칙 · 직접 패턴 · 작가의 말 떼기 · 되돌리기) · 경계 목록(거르기 모두 · 확인할 것 · 끈 줄) · 원문 보기(줄을 눌러 여기서 나누기)
@@ -202,6 +203,7 @@
   - 작품 사이드바 · ⋯ 메뉴의 링크
   - 작품 밖 사이드바(`outSidebar`)
   - 작품에서 들어왔으면 머리에 그 작품으로 가는 버튼 `revBackBtns`(`S.revFrom`, `routeNow` 가 적음)
+- 원문에서 고르면 뜨는 '문단 연습장으로' 도구도 왼쪽을 0으로 두고 너비를 잰다(`passage.js` 의 `placeTool` 과 같은 규칙)
 - 처음 화면(`revHome`)은 이어 하기 카드(목록 값 `revlab.summary` 의 `steps` · `updated` → `revLabLite` · `revHomeCard`)와 머리 '+ 새 실험 만들기'으로 펴는 새 실험 칸(`revNewToggle`, 붙여 넣기 · 첫 화 번호 짐작 `revGuessFirst` · 나누기 미리보기 `revPreview`, `revNewCard`)
 - 나누기 미리보기는 서버(`POST /api/revlab/split`, 화 글 대신 글자 수)에 묻는다(`revSplitOf`, 잠깐 기다려 한 번, 받으면 `revSplitDone`)
 - 실험 화면은 다른 단계 화면과 같은 공용 목차 틀(`outline.js`)의 왼쪽 목차 + 오른쪽 칸(`revLayout` · `revToc`, 칸은 남은 폭을 다 씀 `wide`)

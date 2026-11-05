@@ -109,7 +109,7 @@ function paletteItems(ctx) {
   if (!ctx.inProject) return [{ kind: 'screen', label: '작품 목록', hint: '', words: '', href: '#/' }, settings, hub, ...rows];
   const out = [];
   if (ctx.next) out.push({ kind: 'act', label: `다음 할 일 · ${ctx.next[0]}`, hint: '', words: ctx.next[0], href: ctx.next[1] });
-  if (ctx.canSave) out.push({ kind: 'act', label: '저장', hint: 'Ctrl+S', words: '', act: 'save' });
+  if (ctx.canSave) out.push({ kind: 'act', label: '저장', hint: typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches ? '' : 'Ctrl+S', words: '', act: 'save' });
   out.push(hub);
   const { steps, auto, tools, apart, foot } = ctx.nav;
   steps.forEach(([, href, num, label]) => out.push({ kind: 'screen', label, hint: /\d/.test(num) ? `단계 ${num}` : '', words: '', href }));

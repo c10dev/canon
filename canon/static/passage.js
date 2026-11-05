@@ -268,6 +268,7 @@ function placeTool(ta, t) {
     const top = caretXY(ta, t.start).y - el.offsetHeight - 4;
     if (top >= 0) y = top;
   }
+  el.style.left = '0px';  // 옛 자리에서 재면 오른쪽 남은 폭만큼 줄어든 너비가 나온다
   const w = el.offsetWidth || 240;
   const left = t.mode !== 'menu' ? Math.max(c.r.left, Math.min(caretXY(ta, t.start).x, c.x) - 12) : c.x - 40;
   const x = Math.min(Math.max(8, left), document.documentElement.clientWidth - w - 8);

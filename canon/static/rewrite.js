@@ -143,7 +143,7 @@ function rewritePanel(n) {
     ${howTo}
     <div class="field"><span class="small">살릴 부분 ${r.keep.length}/${info.keep_max}</span>
       ${keep ? `<ol class="rw-keep">${keep}</ol>` : ''}
-      <span class="small">마음에 드는 문장이나 장면은 본문에서 드래그한 뒤 '살리기'를 누르면 담겨요. 새 판에 거의 그대로 들어가요.</span></div>`;
+      <span class="small">마음에 드는 문장이나 장면은 본문에서 드래그하거나 길게 눌러 고른 뒤 '살리기'를 누르면 담겨요. 새 판에 거의 그대로 들어가요.</span></div>`;
   return rwColumn(n, `${fields}
     ${busy ? '<div class="small">다른 화면으로 옮겨 가도 계속 써요. 끝나면 알려 드려요.</div>' : ''}
     ${S.rwPrompt ? `<pre class="brief mono" style="max-height:420px">${esc(S.rwPrompt)}</pre>` : ''}`,

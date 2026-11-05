@@ -252,9 +252,9 @@ main:focus, h1[tabindex="-1"]:focus, h2[tabindex="-1"]:focus { outline: none; } 
 .field { display: flex; flex-direction: column; gap: var(--gap-label); min-width: 0; }
 .field > label, .label { font-size: 0.8125rem; font-weight: 500; }
 .field .hint { font-weight: 400; color: var(--muted); }
-input[type=text], input[type=search], input[type=number], input[type=password], textarea, select { width: 100%; min-height: 42px; padding: 0 var(--space-12); border: 1px solid var(--line-strong); border-radius: var(--radius-8); background: var(--surface); color: var(--text); font: inherit; font-size: 0.875rem; }
+input[type=text], input:not([type]), input[type=search], input[type=number], input[type=password], textarea, select { width: 100%; min-height: 42px; padding: 0 var(--space-12); border: 1px solid var(--line-strong); border-radius: var(--radius-8); background: var(--surface); color: var(--text); font: inherit; font-size: 0.875rem; }
 /* 손가락으로 쓰는 기기: 16px 보다 작으면 iOS 가 초점 때 화면을 확대한다 */
-@media (pointer: coarse) { input[type=text], input[type=search], input[type=number], input[type=password], textarea, select { font-size: 1rem; } }
+@media (pointer: coarse) { input[type=text], input:not([type]), input[type=search], input[type=number], input[type=password], textarea, select { font-size: 1rem; } }
 #f-sample { font-size: 0.9375rem; }  /* 문체 라이브러리 원문 칸 (style.js) */
 /* 손가락 기기: 16px 보다 작은 입력칸은 iOS 가 누를 때 화면을 확대한다. 글자 크기를 따로 정한 칸과 type 없는 칸도 16px 로 */
 @media (pointer: coarse) { .sel-tool.edit textarea, .cand textarea, .field.passage textarea, .pfree textarea, input[type=number].pnum, input:not([type]), input[type=date], #f-sample { font-size: 1rem; } }

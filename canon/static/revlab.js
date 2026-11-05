@@ -1227,7 +1227,7 @@ function revEpisode() {
   const head = `<div class="between rev-ep-head"><div class="row"><h2>${e.number}화${revEpTitle(e) ? ` ${esc(revEpTitle(e))}` : ''}</h2>${chip}${src}<span class="small">${facts.join(' · ')}</span></div>${nav}</div>`;
   if (!e.sheet) {
     const go = short ? `${S.rev.min_chars}자보다 짧아 역설계하지 않아요.` : jobFor('rev_parse', L.id, REV_JOBS) ? '역설계하는 중이에요. 끝나면 이 화가 바로 열려요.' : '역설계 전이에요. 풀 화는 개요에서 고르고 비용을 봐요.';
-    return `${head}<div class="note plain between"><span>${go}</span>${short ? '' : `<a class="btn small" href="#/revlab/${L.id}">개요로</a>`}</div><section class="card rev-src"><div class="between"><h3>원문</h3><span class="small">글을 드래그해 고르면 문단 연습장으로 보낼 수 있어요</span></div><div class="cue-text rev-raw">${esc(e.text)}</div></section>`;
+    return `${head}<div class="note plain between"><span>${go}</span>${short ? '' : `<a class="btn small" href="#/revlab/${L.id}">개요로</a>`}</div><section class="card rev-src"><div class="between"><h3>원문</h3><span class="small">글을 드래그하거나 길게 눌러 고르면 문단 연습장으로 보낼 수 있어요</span></div><div class="cue-text rev-raw">${esc(e.text)}</div></section>`;
   }
   cueBind(revCueKey(e.number), e.sheet);
   const tab = REV_TABS.some(([k]) => k === S.revTab) ? S.revTab : 'text';
@@ -1245,7 +1245,7 @@ function revTextTab(e) {
   if (e.dropped.length) notes.push(`원문에 없어 뺀 핵심 대사: ${e.dropped.map((x) => `«${esc(x)}»`).join(' · ')}`);
   if (orig && orig.tempo_order === false) notes.push('빠른 큐의 문장이 느린 큐보다 길어요. 템포 표시가 원문과 어긋나요.');
   return `${notes.map((x) => `<div class="note warn small">${x}</div>`).join('')}
-    <div class="rev-cols"><section class="card rev-src" aria-label="${e.number}화 원문"><div class="between"><h3>원문</h3><span class="small">위쪽 띠를 누르면 그 큐를 열어요 · 글을 드래그해 고르면 문단 연습장으로 보낼 수 있어요</span></div>${revText(e)}</section>
+    <div class="rev-cols"><section class="card rev-src" aria-label="${e.number}화 원문"><div class="between"><h3>원문</h3><span class="small">위쪽 띠를 누르면 그 큐를 열어요 · 글을 드래그하거나 길게 눌러 고르면 문단 연습장으로 보낼 수 있어요</span></div>${revText(e)}</section>
     <aside class="rev-side"><section class="card tight">${cueScore(cueEd().draft, false)}</section>${revCueCard(e, orig)}</aside></div>`;
 }
 
@@ -2203,6 +2203,7 @@ function onRevParaSelect(e, showOnly = false) {
     S.revParaPending = s;
     const t = revParaTool();
     t.hidden = false;
+    t.style.left = '0px';  // 옛 자리에서 재면 오른쪽 남은 폭만큼 줄어든 너비가 나온다
     const w = t.offsetWidth || 140;
     t.style.left = `${Math.min(Math.max(8, s.rect.right - w), document.documentElement.clientWidth - w - 8) + window.scrollX}px`;
     t.style.top = `${s.rect.bottom + 6 + window.scrollY}px`;

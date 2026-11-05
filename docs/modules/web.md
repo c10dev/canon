@@ -178,6 +178,7 @@
 - 집필 화면 본문 속 이름
 - 인물 이름 · 장소(`atlas.places` 와 같은 목록 `mentionPlaces`)를 정규식 하나로 찾기(`mentionRanges`, 조사 · 긴 낱말 규칙, 치는 중에는 자리 옮기기 `mentionShift`)
 - 밑줄은 `marks.js` 의 `markHtml` 이 함께 그림
+- 이름 카드 자리 `mnPlace` 도 왼쪽을 0으로 두고 너비를 잰다(`passage.js` 의 `placeTool` 과 같은 규칙)
 - 이름 카드(이 화 시작 시점 `/cast` 프레임을 `S.mnCast` 에 따로 받아 `cast.js` 함수로 읽음, 장소는 설명과 지도)
 - 켜기 · 끄기(localStorage)
 - 규칙은 `tests/test_mentions_js.py` 가 node 로 맞춰 본다
@@ -238,12 +239,14 @@
 - 검색 `paletteItems` · `paletteMatch` 는 순수 함수(`tests/test_palette_js.py` 가 node 로 맞춰 본다)
 - 640px 이하는 찾기 칸 오른쪽에 닫기 버튼 `.pal-x`(화면을 거의 다 덮고 Esc 가 없다)
 - 찾기 칸은 휴대폰 키보드 Enter 가 '이동'(`enterkeyhint="go"`)
+- 손가락 기기에서는 '저장' 줄의 Ctrl+S 안내를 숨긴다
 - CSS 는 JS 에서 주입
 
 ### `canon/static/passage.js`
 
 - 본문 부분 수정
 - 본문에서 고르면 뜨는 도구(직접 수정, AI에게 고치기)
+- 도구 자리 `placeTool` 은 왼쪽을 0으로 두고 너비를 잰다. 옛 자리에서 재면 남은 폭만큼 줄어 화면 오른쪽 끝에 붙는다
 - 후보를 원문과 단어 단위로 비교
 - 수정 기록과 되돌리기
 - 고친 뒤 다시 할 단계 알림
