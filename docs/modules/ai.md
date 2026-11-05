@@ -68,16 +68,22 @@
 - Gemini 추론 강도(`GeminiLLM.effort`, `settings.GEMINI_EFFORTS`)는 `thinking_config.thinking_level` 로 넘긴다(일반 호출과 배치)
 - 강도를 비우면 `thinking_config` 를 보내지 않는다(모델 기본값)
 - Gemini 명시 캐시(`GeminiLLM._cached`)는 플롯 대화 단계(`stage == "chat"`)에서 `settings.gemini_cache` 가 켜져 있을 때만 쓴다
-- 같은 종류 직전 요청과 겹치는 앞부분은 `claude.shared_cut` 으로 찾는다(열쇠 `("gemini", vertex, 모델, 시스템)`, 단락 경계)
+- 같은 종류 직전 요청과 겹치는 앞부분은 `claude.shared_cut` 으로 찾는다(열쇠 `("gemini", vertex, 모델, 시스템, 작품)`, 단락 경계)
+- 열쇠에 작품(`usage.context()` 의 project)을 넣는다. 두 작품의 대화가 번갈아 와도 서로의 겹침을 지우지 않는다
 - 겹치는 앞부분이 `GEMINI_CACHE_MIN_CHARS`(16,000자) 이상이고 덮는 캐시가 없으면 `client.caches.create`(시스템 프롬프트 + 앞부분, `GEMINI_CACHE_TTL` 600초)로 만든다
-- 만든 캐시는 `(vertex, 모델, 시스템 해시)` 별로 앞부분 길이 · 해시 · 이름 · 만료 시각으로 기억한다(`_GEM_CACHES`, `_cache_find`)
+- 캐시 만들기는 `GEMINI_CACHE_CREATE_TIMEOUT`(120초)까지만 기다린다. 늦으면 일반 호출로 넘어가고, 그 전에 작업 멈추기(`cancel.check`)를 본다
+- 캐시 만들기도 사용량에 따로 기록한다(작업 이름 뒤에 '캐시 만들기', 입력은 응답의 `total_token_count`). 보통 입력 요금으로 매긴다(가정)
+- 만든 캐시는 `(vertex, 모델, 시스템 해시, 계정)` 별로 앞부분 길이 · 해시 · 이름 · 만료 시각으로 기억한다(`_GEM_CACHES`, `_cache_find`)
+- 계정(`GeminiLLM.cache_owner`)은 API 키나 Vertex 서비스 계정 · 프로젝트 · 위치의 해시다. 키를 바꾸면 앞 키로 만든 캐시를 보내지 않는다
 - 살아 있는 캐시가 겹치는 앞부분의 절반 이상을 덮으면 그것을 다시 쓴다. 만료 `GEMINI_CACHE_MARGIN`(60초) 전부터는 쓰지 않는다
 - 캐시를 쓰는 요청은 `GenerateContentConfig(cached_content=이름)` 과 나머지 글만 보낸다. 시스템 프롬프트는 넣지 않는다(API 가 거절한다)
 - 캐시를 만들거나 쓰다 난 오류는 모두 일반 호출로 넘어간다(`_cache_failed`). 넘어간 호출 하나만 사용량에 기록한다
-- 429 · 시간 초과 · 서버 오류가 아닌 캐시 오류는 그 모델의 캐시를 `GEMINI_CACHE_BACKOFF`(1시간) 동안 끈다. 404(먼저 만료된 캐시)는 그 캐시만 잊는다
+- 429 · 시간 초과 · 서버 오류가 아닌 캐시 오류는 그 모델의 캐시를 `GEMINI_CACHE_BACKOFF`(1시간) 동안 끈다
+- 캐시를 쓰다 난 403 · 404(만료되거나 다른 키로 만든 캐시)는 그 캐시만 잊는다
+- 캐시 만들기의 400(앞부분이 최소 캐시 크기보다 작을 수 있다)은 그 길이 이하만 피한다(`_GEM_CACHE_FLOOR`). `GEMINI_CACHE_BAD_SIZE`(3)번 잇따르면 모델을 끈다
 - 캐시를 쓰는 요청이 429 · 시간 초과 · 서버 오류면 일반 호출로 넘어가지 않고 `_call` 의 다시 부르기에 맡긴다
 - Vertex AI 도 같은 경로다. SDK 가 Vertex 캐시를 지원하지만 실제 Vertex(`global` 위치)에서 되는지는 재지 않았다. 안 되면 첫 오류 뒤 1시간씩 꺼진다
-- 캐시 저장 요금은 사용량 비용 추정에 넣지 않는다. 기본값 근거(저장 요금 가정)는 `llm.py` 의 `GEMINI_CACHE_TTL` 위 주석
+- 캐시 저장 요금은 사용량 비용 추정에 넣지 않는다. 기본값 근거(저장 · 만들기 요금 가정)는 `llm.py` 의 `GEMINI_CACHE_TTL` 위 주석
 - 시험은 `tests/test_gemini_cache.py`(가짜 google-genai 클라이언트)
 - 생각 토큰도 출력 한도(`out_cap`)에 든다
 - 설정 화면의 Gemini 연결 방식은 `static/vertex.js`

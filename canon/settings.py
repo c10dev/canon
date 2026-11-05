@@ -111,10 +111,13 @@ def gemini_auth() -> tuple[str, str]:
 
 def gemini_cache() -> tuple[str, str]:
     """Gemini 명시 캐시(llm.GeminiLLM 의 caches.create)를 쓸 곳. agent: 플롯 대화 단계(chat)만 / off: 쓰지 않는다.
-    기본은 agent 다. 대화 한 턴은 몇 분 안에 같은 앞부분(약 10만 토큰)으로 여러 단계를 부르므로 캐시를 한 번 다시 써도
-    저장 요금(10분)보다 아끼는 입력 요금이 크다. 다른 단계는 같은 앞부분을 몇 분 안에 다시 부르는 일이 적어 켜지 않는다.
+    기본은 agent 다. 대화 한 턴은 몇 분 안에 같은 앞부분(약 10만 토큰)으로 여러 단계를 부르므로 캐시를 두 번 다시 쓰면
+    캐시를 만드는 요금과 저장 요금(10분)보다 아끼는 입력 요금이 크다. 다른 단계는 같은 앞부분을 몇 분 안에 다시 부르는 일이 적어 켜지 않는다.
     환경 변수 CANON_GEMINI_CACHE=0 (또는 off) 로 끈다."""
-    value, src = _pick(("CANON_GEMINI_CACHE",), _read().get("gemini_cache"), "agent")
+    raw = _read().get("gemini_cache")
+    if raw is False or raw == 0:  # JSON 의 false · 0 도 끈다 (bool 은 int 라 0 과 같이 본다)
+        raw = "off"
+    value, src = _pick(("CANON_GEMINI_CACHE",), None if raw is None else str(raw), "agent")
     value = value.strip().lower()
     if value in ("0", "off", "false", "no"):
         return "off", src

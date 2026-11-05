@@ -46,7 +46,8 @@ def _fake(stage: str = "chat", vertex: bool = False):
         if g.fail_create is not None:
             raise g.fail_create
         made.append((model, config))
-        return SimpleNamespace(name=f"cachedContents/c{len(made)}", expire_time=None)
+        return SimpleNamespace(name=f"cachedContents/c{len(made)}", expire_time=None,
+                               usage_metadata=SimpleNamespace(total_token_count=7000))
 
     g.client = SimpleNamespace(models=SimpleNamespace(generate_content=generate), caches=SimpleNamespace(create=create))
     return g, sent, made
@@ -76,8 +77,10 @@ def test_agent_steps_create_one_cache_and_send_only_the_rest():
     assert g.text("시스템", _step(3)) == "답"
     assert len(made) == 1 and sent[-1][1].cached_content == "cachedContents/c1"  # 같은 캐시를 다시 쓴다
     rows = usage.read()
-    assert [r["cached"] for r in rows] == [0, 9000, 9000]  # 사용량은 평소대로 기록한다
+    assert [r["cached"] for r in rows] == [0, 0, 9000, 9000]  # 사용량은 평소대로 기록한다
     assert rows[-1]["in"] == 10000
+    # 캐시 만들기도 입력 요금이 붙는 호출이라 따로 기록한다
+    assert rows[1]["in"] == 7000 and rows[1]["task"] == "캐시 만들기" and rows[1]["ok"]
 
 
 def test_other_stages_and_setting_off_do_not_cache(monkeypatch):
@@ -96,6 +99,9 @@ def test_setting_values(monkeypatch):
     assert settings.gemini_cache() == ("agent", "default")
     settings.config_path().write_text('{"gemini_cache": "off"}', encoding="utf-8")
     assert settings.gemini_cache() == ("off", "file")
+    for raw, want in (("false", "off"), ("0", "off"), ("true", "agent"), ("1", "agent")):
+        settings.config_path().write_text(f'{{"gemini_cache": {raw}}}', encoding="utf-8")
+        assert settings.gemini_cache() == (want, "file")  # JSON 의 참거짓 · 숫자도 받는다
     for v, want in (("0", "off"), ("off", "off"), ("false", "off"), ("1", "agent"), ("agent", "agent")):
         monkeypatch.setenv("CANON_GEMINI_CACHE", v)
         assert settings.gemini_cache() == (want, "env")
@@ -110,13 +116,57 @@ def test_short_prefix_is_not_cached():
 
 def test_create_error_falls_back_and_backs_off():
     g, sent, made = _fake()
-    g.fail_create = Err(400, "INVALID_ARGUMENT")
+    g.fail_create = Err(403, "PERMISSION_DENIED")
     g.text("시스템", _step(1))
     assert g.text("시스템", _step(2)) == "답"
     assert sent[-1][1].cached_content is None and sent[-1][1].system_instruction == "시스템"
     g.fail_create = None
     g.text("시스템", _step(3))
     assert not made  # 한 번 실패한 모델은 GEMINI_CACHE_BACKOFF 동안 다시 만들지 않는다
+    rows = usage.read()
+    assert [r["ok"] for r in rows] == [True, False, True, True] and rows[1]["task"] == "캐시 만들기"
+
+
+def test_create_400_skips_only_that_size(monkeypatch):
+    # 앞부분이 API 최소 캐시 크기보다 작아 400 이 나도 그 모델 전체를 끄지 않는다
+    g, sent, made = _fake()
+    g.fail_create = Err(400, "INVALID_ARGUMENT")
+    g.text("시스템", _step(1))
+    g.text("시스템", _step(2))
+    g.fail_create = None
+    g.text("시스템", _step(3))
+    assert not made  # 같은 길이는 다시 만들지 않는다
+    with usage.scope(project="b"):
+        g.text("시스템", "긴 앞부분\n\n" + PREFIX + "\n\n하나")
+        g.text("시스템", "긴 앞부분\n\n" + PREFIX + "\n\n둘")
+    assert len(made) == 1  # 더 긴 앞부분은 만든다
+    assert llm._GEM_CACHE_OFF == {} and llm._GEM_CACHE_FLOOR == {}  # 성공하면 기록을 지운다
+
+
+def test_create_400_repeated_backs_off():
+    g, sent, made = _fake()
+    g.fail_create = Err(400, "INVALID_ARGUMENT")
+    head = ""
+    for i in range(llm.GEMINI_CACHE_BAD_SIZE):
+        head += "더 " * 10 + "\n\n"
+        with usage.scope(project=f"p{i}"):
+            g.text("시스템", head + PREFIX + "\n\n하나")
+            g.text("시스템", head + PREFIX + "\n\n둘")
+    assert llm._GEM_CACHE_OFF  # 잇따라 실패하면 지원하지 않는 모델로 보고 끈다
+
+
+def test_create_timeout_is_bounded_and_checks_cancel(monkeypatch):
+    from canon import cancel
+
+    g, sent, made = _fake()
+    monkeypatch.setattr(llm, "gemini_timeout", lambda: 600)
+    g.text("시스템", _step(1))
+    g.text("시스템", _step(2))
+    assert made[0][1].http_options.timeout == llm.GEMINI_CACHE_CREATE_TIMEOUT * 1000
+    calls = []
+    monkeypatch.setattr(cancel, "check", lambda: calls.append(1))
+    g._once("시스템", _step(3))
+    assert len(calls) == 2  # 보내기 전, 그리고 캐시를 고른 뒤 생성 호출 전
 
 
 def test_create_rate_limit_does_not_back_off():
@@ -137,18 +187,41 @@ def test_cached_call_error_falls_back_to_the_normal_call():
     assert g.text("시스템", _step(3)) == "답"
     contents, config = sent[-1]
     assert config.cached_content is None and contents.startswith(PREFIX)
-    assert [r["ok"] for r in usage.read()] == [True, True, True]  # 넘어간 호출 하나만 기록한다
+    assert [r["ok"] for r in usage.read()] == [True, True, True, True]  # 캐시 만들기 + 넘어간 호출 하나만 기록한다
 
 
-def test_expired_cache_404_is_forgotten_without_back_off():
+@pytest.mark.parametrize("err", [Err(404, "NOT_FOUND"), Err(403, "PERMISSION_DENIED")])
+def test_expired_cache_is_forgotten_without_back_off(err):
+    # 없어진 캐시는 403 PERMISSION_DENIED 로 올 수 있다
     g, sent, made = _fake()
     g.text("시스템", _step(1))
     g.text("시스템", _step(2))
-    g.fail_cached = Err(404, "NOT_FOUND")
+    g.fail_cached = err
     assert g.text("시스템", _step(3)) == "답"
     g.fail_cached = None
     g.text("시스템", _step(4))
     assert len(made) == 2 and sent[-1][1].cached_content == "cachedContents/c2"
+
+
+def test_cache_from_another_key_is_not_used():
+    g, sent, made = _fake()
+    g.cache_owner = "a"
+    g.text("시스템", _step(1))
+    g.text("시스템", _step(2))
+    g.cache_owner = "b"  # 작가가 API 키를 바꿨다
+    g.text("시스템", _step(3))
+    assert len(made) == 2 and sent[-1][1].cached_content == "cachedContents/c2"
+
+
+def test_two_projects_in_turn_still_create_caches():
+    g, sent, made = _fake()
+    other = "\n\n".join(f"다른 작품 {i} " + "나" * 2000 for i in range(10))
+    for i in range(3):
+        with usage.scope(project="a"):
+            g.text("시스템", _step(i))
+        with usage.scope(project="b"):
+            g.text("시스템", f"{other}\n\n한 일 {i}\n\n요청")
+    assert len(made) == 2  # 작품마다 직전 요청을 따로 기억해 둘 다 캐시를 만든다
 
 
 def test_cached_call_rate_limit_is_left_to_the_retry_loop():

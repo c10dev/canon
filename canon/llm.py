@@ -360,14 +360,19 @@ def _vertex_client() -> Any:
 # 암묵적 캐시는 18% 만 맞았다. 그래서 같은 종류 직전 요청과 겹치는 앞부분(claude.shared_cut)을 캐시에 넣고, 다음
 # 요청은 cached_content 이름과 나머지 글만 보낸다. 캐시 오류는 모두 일반 호출로 넘어간다.
 # 저장 요금은 사용량 비용 추정에 넣지 않는다. 가정: 저장 요금은 100만 토큰 · 1시간에 4.5달러(Gemini Pro 급 가격표)이고,
-# 10만 토큰을 10분 두면 약 0.075달러다. gemini-4-argon 은 캐시된 입력이 100만 토큰에 2.0 대신 0.10달러라 한 번 다시
-# 쓸 때 약 0.19달러를 아낀다. 한 번만 다시 써도 남는다.
+# 10만 토큰을 10분 두면 약 0.075달러다. 캐시를 만드는 호출(caches.create)은 앞부분을 보통 입력 요금으로 낸다고 보고
+# 사용량에 따로 기록한다 (가정. 가격표에서 확인하지 않았다). 그러면 캐시를 만드는 단계는 앞부분을 한 번 더 내는 셈이라
+# 약 0.20달러를 더 쓴다. gemini-4-argon 은 캐시된 입력이 100만 토큰에 2.0 대신 0.10달러라 한 번 다시 쓸 때 약 0.19달러를
+# 아낀다. 그래서 두 번 다시 쓰면 남는다 (서버 기록에서 한 턴은 보통 3단계 이상이다).
 GEMINI_CACHE_TTL = 600  # 캐시 유지 초. 턴 안의 단계 사이는 대부분 5분 안이다 (35/40 이 10분 안)
 GEMINI_CACHE_MARGIN = 60  # 만료 이만큼 전부터는 그 캐시를 쓰지 않는다 (보내는 사이 만료되지 않게)
-GEMINI_CACHE_MIN_CHARS = 16_000  # 겹치는 앞부분이 이보다 짧으면 만들지 않는다 (API 최소 캐시 크기 4096 토큰 위)
+GEMINI_CACHE_MIN_CHARS = 16_000  # 겹치는 앞부분이 이보다 짧으면 만들지 않는다 (서버 기록의 대화 요청은 토큰당 1.5~1.8자라 약 9천 토큰)
 GEMINI_CACHE_BACKOFF = 3600  # 캐시 오류가 나면 그 모델은 이만큼 캐시를 쓰지 않는다 (지원하지 않는 모델 · Vertex 위치)
+GEMINI_CACHE_BAD_SIZE = 3  # 캐시 만들기가 400 으로 이만큼 잇따라 실패해야 그 모델을 끈다. 그 전에는 그 길이 이하만 피한다
+GEMINI_CACHE_CREATE_TIMEOUT = 120  # 캐시 만들기는 이 초까지만 기다린다 (늦으면 일반 호출로. 한 단계가 응답 시간의 두 배를 기다리지 않게)
 _GEM_CACHES: dict[tuple, list[tuple[int, str, str, float]]] = {}  # (vertex, 모델, 시스템 해시) → [(앞부분 길이, 해시, 캐시 이름, 만료 시각)]
 _GEM_CACHE_OFF: dict[tuple, float] = {}  # (vertex, 모델) → 캐시를 다시 써 볼 시각
+_GEM_CACHE_FLOOR: dict[tuple, tuple[int, int]] = {}  # (vertex, 모델) → (400 으로 실패한 가장 긴 앞부분 길이, 잇따라 실패한 수)
 _GEM_LOCK = threading.Lock()
 
 
@@ -395,6 +400,7 @@ def gemini_cache_reset() -> None:
     with _GEM_LOCK:
         _GEM_CACHES.clear()
         _GEM_CACHE_OFF.clear()
+        _GEM_CACHE_FLOOR.clear()
 
 
 class GeminiLLM:
@@ -412,11 +418,14 @@ class GeminiLLM:
         self.vertex = not api_key and settings.gemini_auth()[0] == "vertex"
         if self.vertex:
             self.client = _vertex_client()
+            # 캐시 이름은 만든 계정에서만 쓸 수 있다. 계정이 바뀌면 기억한 캐시를 쓰지 않게 열쇠에 넣는다
+            self.cache_owner = _sha(f"vertex {settings.vertex_credentials()[0]} {settings.vertex_project()[0]} {settings.vertex_location()[0]}")[:16]
         else:
             key = api_key or settings.api_key()[0]
             if not key:
                 raise MissingKey("Gemini API 키가 없어요. 웹 설정의 AI 연결에서 넣거나 GEMINI_API_KEY를 설정하세요.")
             self.client = genai.Client(api_key=key)
+            self.cache_owner = _sha(f"key {key}")[:16]
         self.model = model or settings.model()[0]
         self.last_usage: dict | None = None  # 연구 화면에서 보여 줄 마지막 호출의 토큰 수
         self.last_attempts = 0
@@ -497,14 +506,18 @@ class GeminiLLM:
         if getattr(self, "stage", "") != "chat" or settings.gemini_cache()[0] == "off":
             return None
         vertex = bool(getattr(self, "vertex", False))
-        cut = shared_cut(("gemini", vertex, self.model, system), prompt)  # 이 요청을 직전 요청으로 기억한다
+        owner = getattr(self, "cache_owner", "")
+        # 작품마다 직전 요청을 따로 기억한다. 두 작품의 대화가 번갈아 오면 서로의 겹침을 지우지 않게
+        project = usage.context().get("project") or ""
+        cut = shared_cut(("gemini", vertex, self.model, system, project), prompt)  # 이 요청을 직전 요청으로 기억한다
         if time.time() < _GEM_CACHE_OFF.get((vertex, self.model), 0.0):
             return None
-        key = (vertex, self.model, _sha(system))
+        key = (vertex, self.model, _sha(system), owner)
+        floor = max(GEMINI_CACHE_MIN_CHARS, _GEM_CACHE_FLOOR.get((vertex, self.model), (0, 0))[0] + 1)
         best = _cache_find(key, prompt)
-        if best and (best[0] * 2 >= cut or cut < GEMINI_CACHE_MIN_CHARS):
+        if best and (best[0] * 2 >= cut or cut < floor):
             return best[1], prompt[best[0]:]
-        if cut < GEMINI_CACHE_MIN_CHARS:
+        if cut < floor:
             return None
         name = self._cache_create(key, system, prompt[:cut])
         return (name, prompt[cut:]) if name else None
@@ -513,20 +526,32 @@ class GeminiLLM:
         """시스템 프롬프트와 앞부분으로 캐시를 만들고 이름을 돌려준다. 실패하면 빈 글 (일반 호출로 간다)."""
         from google.genai import types
 
+        t = time.time()
+        wait = min(gemini_timeout(), GEMINI_CACHE_CREATE_TIMEOUT)
+        task = usage.context().get("task") or ""
         try:
             made = self.client.caches.create(model=self.model, config=types.CreateCachedContentConfig(
                 contents=[types.Content(role="user", parts=[types.Part(text=prefix)])],
                 system_instruction=system or None,
                 ttl=f"{GEMINI_CACHE_TTL}s",
                 display_name="canon chat",
-                http_options=types.HttpOptions(timeout=int(gemini_timeout() * 1000))))
+                http_options=types.HttpOptions(timeout=int(wait * 1000))))
             name = str(getattr(made, "name", "") or "")
         except Exception as e:
-            self._cache_failed(e)
+            with usage.scope(task=f"{task} 캐시 만들기".strip()):
+                usage.record(self, None, t, ok=False, error=e, prompt=prefix)
+            self._cache_failed(e, size=len(prefix))
             return ""
+        # 앞부분을 보내 캐시에 넣는 호출도 입력 요금이 붙는다고 보고 따로 기록한다 (caches.create 응답의 토큰 수)
+        meta = getattr(made, "usage_metadata", None)
+        n = int(getattr(meta, "total_token_count", None) or 0)
+        with usage.scope(task=f"{task} 캐시 만들기".strip()):
+            usage.record(self, {"prompt_tokens": n}, t, ok=bool(name), prompt=prefix)
         if not name:
             self._cache_failed(None)
             return ""
+        with _GEM_LOCK:
+            _GEM_CACHE_FLOOR.pop((bool(getattr(self, "vertex", False)), self.model), None)
         until = time.time() + GEMINI_CACHE_TTL
         expire = getattr(made, "expire_time", None)
         if expire is not None and hasattr(expire, "timestamp"):
@@ -535,19 +560,29 @@ class GeminiLLM:
             _GEM_CACHES.setdefault(key, []).append((len(prefix), _sha(prefix), name, until))
         return name
 
-    def _cache_failed(self, e: BaseException | None, name: str = "") -> None:
+    def _cache_failed(self, e: BaseException | None, name: str = "", size: int = 0) -> None:
         """캐시를 만들거나 쓰다 실패했다. 그 캐시를 잊고, 요청 한도 · 시간 초과 · 서버 오류가 아니면
-        GEMINI_CACHE_BACKOFF 동안 그 모델의 캐시를 쓰지 않는다 (지원하지 않는 모델이나 Vertex 위치에 매번 묻지 않게)."""
+        GEMINI_CACHE_BACKOFF 동안 그 모델의 캐시를 쓰지 않는다 (지원하지 않는 모델이나 Vertex 위치에 매번 묻지 않게).
+        캐시를 쓰다 난 403 · 404 는 그 캐시만 잊는다 (만료된 캐시나 다른 키로 만든 캐시는 403 을 낼 수 있다).
+        캐시 만들기의 400 은 앞부분이 너무 짧아서일 수 있어, 그 길이 이하만 피하고 GEMINI_CACHE_BAD_SIZE 번 잇따르면 끈다."""
+        model = (bool(getattr(self, "vertex", False)), self.model)
         if name:
             with _GEM_LOCK:
                 for k, entries in list(_GEM_CACHES.items()):
                     _GEM_CACHES[k] = [x for x in entries if x[2] != name]
         if e is not None and (is_rate_limit(e) or is_timeout(e) or is_transient(e)):
             return
-        if name and getattr(e, "code", None) == 404:
-            return  # 그 캐시만 없어졌다 (먼저 만료됨). 다음 요청은 새로 만든다
+        code = getattr(e, "code", None)
+        if name and code in (403, 404):
+            return  # 그 캐시만 쓸 수 없다. 다음 요청은 새로 만든다
         with _GEM_LOCK:
-            _GEM_CACHE_OFF[(bool(getattr(self, "vertex", False)), self.model)] = time.time() + GEMINI_CACHE_BACKOFF
+            if size and code == 400:
+                longest, fails = _GEM_CACHE_FLOOR.get(model, (0, 0))
+                _GEM_CACHE_FLOOR[model] = (max(longest, size), fails + 1)
+                if fails + 1 < GEMINI_CACHE_BAD_SIZE:
+                    return
+                _GEM_CACHE_FLOOR.pop(model, None)
+            _GEM_CACHE_OFF[model] = time.time() + GEMINI_CACHE_BACKOFF
 
     def _once(self, system: str, prompt: str, attempt: int = 1, parse: Any = None, **config: Any) -> Any:
         """한 번 부르고 사용량을 기록한다. parse 가 있으면 응답 글을 parse 한 값을 돌려주고, parse 가 실패해도
@@ -562,6 +597,7 @@ class GeminiLLM:
         if self.effort:
             config.setdefault("thinking_config", types.ThinkingConfig(thinking_level=self.effort.upper()))
         hit = self._cached(system, prompt)
+        cancel.check()  # 캐시를 만드는 사이 작업을 멈췄으면 생성 호출을 보내지 않는다
         try:
             resp = None
             if hit:
