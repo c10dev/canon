@@ -1498,3 +1498,23 @@ def test_web_paragraph_to_studio(home):
     assert c.post(f"/api/revlab/{lab.id}/episodes/{e.number}/studio", json={"text": "없는 글"}).status_code == 400
     assert c.post(f"/api/revlab/{lab.id}/episodes/99/studio", json={"text": para}).status_code == 404
     assert c.post("/api/revlab/999/episodes/1/studio", json={"text": para}).status_code == 404
+
+
+def test_apply_lines_detaches_old_storyline_ids(tmp_path, monkeypatch):
+    """줄기를 다시 뽑으면 앞 답이 붙인 id 를 떼고 이번 답대로만 붙인다 (같은 번호가 다른 줄기를 가리키지 않게)."""
+    from canon import revlab, store
+    from canon.mock import MockLLM
+    from canon.schema import RevLine, RevLineSet
+    monkeypatch.setattr(store, "ROOT", tmp_path)
+    lab = revlab.create("t", STORY)
+    revlab.run_parse(lab.id, MockLLM())
+    lab = revlab.load(lab.id)
+    a, b = lab.episodes[0].number, lab.episodes[1].number
+
+    def line(t, eps, th):
+        return RevLine(kind="서브플롯", title=t, focus=[], goal="g", when="", episodes=eps, threads=th, rejoin="")
+
+    revlab.apply_lines(lab, RevLineSet(main="m", lines=[line("A", [a], []), line("B", [b], [a])]))
+    revlab.apply_lines(lab, RevLineSet(main="m", lines=[line("C", [b], [a])]))
+    got = {e.number: (e.plot.storyline, e.plot.threads) for e in lab.episodes[:2]}
+    assert got == {a: ("", ["sl-01"]), b: ("sl-01", [])}

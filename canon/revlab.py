@@ -434,6 +434,9 @@ def apply_lines(lab: RevLab, d: RevLineSet) -> None:
     have = {e.number for e in lab.episodes}
     lab.main = d.main.strip()
     lab.lines = []
+    for e in lab.episodes:  # 줄기 id 는 이번 답의 번호다. 앞 답이 붙인 id 는 다른 줄기를 가리키므로 먼저 뗀다
+        if e.plot:
+            e.plot.storyline, e.plot.threads = "", []
     for i, x in enumerate([x for x in d.lines if x.title.strip() or x.goal.strip()][:4], 1):
         eps = sorted({n for n in x.episodes if n in have})
         th = sorted({n for n in x.threads if n in have} - set(eps))
