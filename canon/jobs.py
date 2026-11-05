@@ -109,8 +109,10 @@ def project_lock(name: str) -> threading.Lock:
 
 
 def _prune() -> None:
+    """KEEP_SECONDS 전에 끝난 작업을 목록에서 뺀다. 멈췄지만 아직 AI 응답을 기다리는 작업(waiting)은 남긴다:
+    빼면 waiting_on · lingering 이 못 찾아 같은 화의 호출이 겹친다 (Claude · 로컬은 900초까지 기다린다)."""
     now = time.time()
-    for jid in [j.id for j in _jobs.values() if j.finished and now - j.finished > KEEP_SECONDS]:
+    for jid in [j.id for j in _jobs.values() if j.finished and not j.waiting and now - j.finished > KEEP_SECONDS]:
         del _jobs[jid]
 
 
