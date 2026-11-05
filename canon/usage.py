@@ -18,7 +18,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any, Iterator, Optional
+from typing import Any, Iterator, NamedTuple, Optional
 
 from pydantic import BaseModel, Field
 
@@ -95,6 +95,16 @@ def collect() -> Iterator[list[dict]]:
         _acc.reset(token)
 
 
+def cache_rate(rows: list[dict]) -> float | None:
+    """캐시로 읽은 입력의 비율. 한 호출 안에서 다시 보낸 입력(resent)은 캐시로 읽혔다고 보고 입력과 캐시 양쪽에서 뺀다.
+    실측(2026-11, 서버 기록 Claude 842번): 그대로 세면 캐시 비율이 14.7%, 다시 보낸 것으로 보이는 호출(캐시가 입력의 절반)을 빼면 8~10%.
+    입력이 없으면 None."""
+    tin = sum(r.get("in", 0) for r in rows)
+    cached = sum(r.get("cached", 0) for r in rows)
+    resent = sum(min(r.get("resent", 0), r.get("cached", 0)) for r in rows)
+    return (cached - resent) / (tin - resent) if tin - resent > 0 else None
+
+
 def totals(rows: list[dict]) -> tuple[int, int, Optional[float]]:
     """collect 로 모은 줄의 (입력 토큰, 출력 + 생각 토큰, 비용). 비용은 사용량 화면과 같은 row_cost 로 센다.
     가격을 모르는 줄이 하나라도 있으면 비용은 None."""
@@ -127,6 +137,11 @@ def backend_of(llm: Any) -> Optional[str]:
             "LocalJudge": "local"}.get(name)
 
 
+# 있을 때만 남기는 칸. turns 턴 수, stop 멈춘 이유, api_seconds 모델 API 시간, models 모델별 토큰,
+# resent 한 호출 안에서 다시 보낸 입력 어림값 (in 에 들어 있음. 캐시 비율을 셀 때 in · cached 에서 뺀다). 옛 줄에는 없다.
+EXTRA = ("turns", "stop", "api_seconds", "models", "resent")
+
+
 def record(llm: Any, tokens: Optional[dict], started: Optional[float] = None, *, ok: bool = True,
            error: Any = None, attempt: Optional[int] = None, batch: bool = False, prompt: str = "") -> None:
     """호출 하나를 기록한다. 기록이 실패해도 생성은 계속돼야 하므로 오류를 내지 않는다.
@@ -156,6 +171,9 @@ def record(llm: Any, tokens: Optional[dict], started: Optional[float] = None, *,
         "ok": ok,
         "error": _error_text(error) if error is not None else "",
     }
+    for k in EXTRA:  # 백엔드가 더 알려 준 값(Claude Code 의 턴 수 · 멈춘 이유 등). 없으면 칸이 없다
+        if u.get(k) not in (None, "", {}):
+            row[k] = u[k]
     if getattr(llm, "effort", ""):
         row["effort"] = llm.effort  # 넘긴 추론 강도(Claude · Gemini). 정하지 않았으면 칸이 없다 (모델 기본값)
     if prompt:
@@ -242,6 +260,162 @@ def _row(line: bytes) -> Optional[dict]:
         return json.loads(line)
     except (json.JSONDecodeError, UnicodeDecodeError):
         return None  # 쓰다 끊긴 줄
+
+
+# ---------- 입력 토큰 추정 ----------
+
+class TokenRate(NamedTuple):
+    """호출 하나의 입력 토큰 ≈ slope × 요청 글자 수 + intercept. 출력 본문은 slope × 글자 수로 센다."""
+    slope: float
+    intercept: float
+    source: str = "default"  # default: 아래 기본값 / measured: 최근 사용량 기록에서 잰 값 / fallback: 기본값이 없는 백엔드
+    rows: int = 0  # measured 일 때 잰 기록 줄 수
+
+
+# 백엔드별 (모델 이름에 든 낱말, 토큰/글자, 호출마다 붙는 토큰). 낱말이 빈 줄은 그 백엔드의 기본값이다.
+# 2026-11 서버 사용량 기록(성공한 호출 중 글자 수가 있는 줄)의 최소제곱 직선. 기록의 글자 수는 시스템 프롬프트를 뺀 요청이고,
+# 시스템 프롬프트와 Claude Code 가 더하는 앞부분은 붙는 토큰에 들어간다.
+# Opus(Claude Code) 654줄 1.035/3805, Sonnet 77줄 0.995/5793, argon 709줄 0.568/1579, flash 238줄 0.599/2508.
+# claude-api 는 기록이 없어 같은 토크나이저의 기울기만 쓰고 붙는 토큰은 0으로 둔다.
+TOKEN_RATES: dict[str, list[tuple[str, float, float]]] = {
+    "claude": [("opus", 1.035, 3805), ("sonnet", 0.995, 5793), ("", 1.035, 3805)],
+    "claude-api": [("opus", 1.035, 0), ("sonnet", 0.995, 0), ("", 1.035, 0)],
+    "gemini": [("flash", 0.599, 2508), ("argon", 0.568, 1579), ("", 0.568, 1579)],
+}
+FALLBACK_CHARS_PER_TOKEN = 1.7  # 기본값이 없는 백엔드(로컬, mock). context.CHARS_PER_TOKEN 과 같은 값
+REFINE_ROWS = 200  # 다시 잴 때 보는 최근 기록 줄 수
+REFINE_MIN = 20  # 쓸 수 있는 기록이 이보다 적으면 기본값을 쓴다
+REFINE_SPAN = 5_000  # 가장 짧은 요청과 가장 긴 요청의 글자 수 차이가 이보다 작으면 직선을 긋지 않는다
+REFINE_SLOPE = (0.2, 3.0)  # 잰 기울기가 이 밖이면 버리고 기본값을 쓴다
+_rate_cache: dict[tuple, TokenRate] = {}
+
+
+def backend_for(model: str) -> str:
+    """백엔드를 모를 때 모델 이름으로 고른다. Claude 는 구독(claude)으로 본다."""
+    low = (model or "").lower()
+    if "claude" in low or low in ("opus", "sonnet", "haiku"):
+        return "claude"
+    return "gemini" if "gemini" in low else ""
+
+
+def default_rate(backend: str, model: str = "") -> TokenRate:
+    low = (model or "").lower()
+    for word, slope, intercept in TOKEN_RATES.get(backend, []):
+        if word in low:
+            return TokenRate(slope, intercept)
+    return TokenRate(1 / FALLBACK_CHARS_PER_TOKEN, 0.0, "fallback")
+
+
+CLI_ALIASES = ("opus", "sonnet", "haiku")  # Claude Code 가 받는 모델 별칭. 기록에는 실제로 답한 모델 이름이 남는다
+DOUBLED = 1.5  # 기본 직선보다 이만큼 넘게 많고 캐시가 입력의 절반쯤이면 캐시 읽기를 두 번 센 기록으로 본다
+
+
+def _same_model(row_model: str, model: str, backend: str) -> bool:
+    """기록의 모델이 고른 모델인지. Claude Code 는 별칭(opus)을 넘겨도 기록에 실제 이름(claude-opus-5-5)이 남는다."""
+    if row_model == model:
+        return True
+    return backend == "claude" and model in CLI_ALIASES and model in (row_model or "").lower()
+
+
+def _usable(r: dict, backend: str, model: str, base: TokenRate) -> bool:
+    if r.get("backend") != backend or not r.get("ok") or not _same_model(r.get("model") or "", model, backend):
+        return False
+    chars, tin = r.get("chars") or 0, r.get("in") or 0
+    if chars <= 0 or tin <= 0:
+        return False
+    if backend != "claude":
+        return True
+    # 예전 Claude Code 기록 가운데 캐시 읽기를 입력에 두 번 센 줄은 뺀다: 캐시가 입력의 절반쯤 이상이고 입력이 직선의 1.5배를 넘는다.
+    # 앞부분을 시스템 프롬프트로 옮겨 캐시가 맞은 정상 기록(캐시가 입력 대부분, 입력은 직선 근처)은 남긴다
+    return not ((r.get("cached") or 0) * 2 >= 0.9 * tin and tin > DOUBLED * est_input(chars, base))
+
+
+def _fit(pairs: list[tuple[float, float]], base: TokenRate) -> TokenRate:
+    xs = [x for x, _ in pairs]
+    if len(pairs) < REFINE_MIN or max(xs) - min(xs) < REFINE_SPAN:
+        return base
+    mx = sum(xs) / len(xs)
+    my = sum(y for _, y in pairs) / len(pairs)
+    sxx = sum((x - mx) ** 2 for x in xs)
+    slope = sum((x - mx) * (y - my) for x, y in pairs) / sxx
+    intercept = my - slope * mx
+    if intercept < 0:  # 붙는 토큰이 음수면 원점을 지나는 비율로 센다
+        slope, intercept = sum(y for _, y in pairs) / sum(xs), 0.0
+    if not REFINE_SLOPE[0] <= slope <= REFINE_SLOPE[1]:
+        return base
+    return TokenRate(round(slope, 4), round(intercept), "measured", len(pairs))
+
+
+def _pairs(rows: list[dict], backend: str, model: str, base: TokenRate) -> list[tuple[float, float]]:
+    return [(r["chars"], r["in"]) for r in rows if _usable(r, backend, model, base)][-REFINE_ROWS:]
+
+
+def _default_model(rows: list[dict], backend: str) -> str:
+    """Claude Code 기본 모델(설정이 빔)은 이름을 몰라 최근 성공 기록에 가장 많이 남은 모델로 본다."""
+    if backend != "claude":
+        return ""
+    recent = [r.get("model") for r in rows if r.get("backend") == backend and r.get("ok") and r.get("chars")][-REFINE_ROWS:]
+    names = [m for m in recent if m and m != "claude-code"]
+    return max(set(names), key=names.count) if names else ""
+
+
+def token_rate(backend: str, model: str = "", rows: Optional[list[dict]] = None) -> TokenRate:
+    """백엔드 · 모델의 입력 토큰 추정 직선. 같은 백엔드 · 모델의 최근 성공 기록이 REFINE_MIN 줄 이상이면 그 기록으로 다시 잰다.
+    backend 가 비면 모델 이름으로 고른다(backend_for). rows 를 주지 않으면 사용량 기록(read)을 읽는다.
+    Claude Code 별칭(opus)은 그 이름이 든 기록과, 빈 모델(기본 모델)은 최근 기록에 가장 많은 모델과 맞춘다."""
+    backend = backend or backend_for(model)
+    if rows is None:
+        rows = read()
+        key = (backend, model, str(log_path()), len(rows))
+        if key not in _rate_cache:
+            _rate_cache[key] = _refit(rows, backend, model)
+        return _rate_cache[key]
+    return _refit(rows, backend, model)
+
+
+def _refit(rows: list[dict], backend: str, model: str) -> TokenRate:
+    model = model or _default_model(rows, backend)
+    base = default_rate(backend, model)
+    if not model:
+        return base  # 이름도 기록도 없으면 기록과 맞춰 볼 수 없다
+    return _fit(_pairs(rows, backend, model, base), base)
+
+
+def est_input(chars: float, rate: TokenRate, system: float = 0, calls: int = 1) -> float:
+    """요청(chars 글자, 시스템 프롬프트 뺌)의 입력 토큰 추정. 호출마다 붙는 토큰(intercept)에 시스템 프롬프트가 이미 들어 있다.
+    붙는 토큰을 모르는 백엔드(0)나 시스템 프롬프트(system 글자)가 그보다 길면 시스템 프롬프트를 기울기로 센다. calls 는 호출 수."""
+    return rate.slope * chars + calls * max(rate.intercept, rate.slope * system)
+
+
+def est_output(chars: float, rate: TokenRate) -> float:
+    """chars 글자를 내는 출력 토큰 추정. 붙는 토큰은 입력 쪽에만 있다."""
+    return rate.slope * chars
+
+
+def stage_llm(stage: str) -> tuple[str, str]:
+    """단계가 쓰는 (백엔드, 모델). 단계 모델이 비면 그 백엔드의 기본 모델. Claude Code 기본 모델은 이름을 몰라 비운다."""
+    from . import settings
+
+    backend = settings.stage_provider(stage)[0]
+    model = settings.stage_model(stage)[0]
+    if model:
+        return backend, model
+    if backend == "gemini":
+        model = settings.model()[0]
+    elif backend in ("claude", "claude-api"):
+        model = settings.claude_model()[0]
+        if not model and backend == "claude-api":
+            from .claude import DEFAULT_API_MODEL
+
+            model = DEFAULT_API_MODEL
+    elif backend == "local":
+        model = settings.local_model()[0]
+    return backend, model
+
+
+def stage_rate(stage: str) -> TokenRate:
+    """단계 백엔드 · 모델의 입력 토큰 추정 직선 (token_rate)."""
+    return token_rate(*stage_llm(stage))
 
 
 # ---------- 가격표 ----------
@@ -359,7 +533,7 @@ def summary(days: Optional[int] = 30, project: Optional[str] = None, limit: int 
     rows = [r for r in rows if r.get("at", "")[:10] >= start and (project is None or r.get("project", "") == project)]
 
     def bucket() -> dict:
-        return {"calls": 0, "failed": 0, "retries": 0, "in": 0, "out": 0, "cached": 0, "cost": 0.0,
+        return {"calls": 0, "failed": 0, "retries": 0, "in": 0, "out": 0, "cached": 0, "resent": 0, "cost": 0.0,
                 "saved": 0.0, "unpriced": 0, "seconds": 0.0, "batch": 0}
 
     total = bucket()
@@ -385,6 +559,7 @@ def summary(days: Optional[int] = 30, project: Optional[str] = None, limit: int 
             b["in"] += r.get("in", 0)
             b["out"] += out
             b["cached"] += r.get("cached", 0)
+            b["resent"] += r.get("resent", 0)
             b["cost"] += c or 0.0
             b["saved"] += saved
             b["unpriced"] += c is None
@@ -417,7 +592,7 @@ def summary(days: Optional[int] = 30, project: Optional[str] = None, limit: int 
 
     return {
         "days": days, "since": start, "project": project, "projects": projects,
-        "total": {**total, "cost": round(total["cost"], 6), "saved": round(total["saved"], 6),
+        "total": {**total, "cache_rate": cache_rate(rows), "cost": round(total["cost"], 6), "saved": round(total["saved"], 6),
                   "wasted": round(wasted, 6), "seconds": round(total["seconds"], 1)},
         "by_day": listing("day", "key"), "by_project": listing("project"), "by_episode": listing("episode"),
         "by_stage": listing("stage"), "by_model": listing("model"), "by_source": listing("source"),

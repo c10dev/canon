@@ -9,11 +9,12 @@ from concurrent.futures import ThreadPoolExecutor
 
 from . import dynamics, elements, illust, metrics, naming, prompts, renumber, setupchat, storylines
 from .judge import Judge, Question
-from .llm import LLM, Interrupted, dump, out_cap
-from . import anchor, board, cancel, charlog, context, features, findings, knows, metatail, stage, statwin, usage
-from .schema import CueSheet, CueSheetDraft, Finding, MetaCut, FindingRecheck, FixOption, FixPatch, FixRecheckItem, FixRecheckReport, FixSet, RevArcSet, RevEpisodeDraft, RevLineSet
+from .llm import LLM, PREFIX_HINT, Interrupted, dump, out_cap
+from . import anchor, board, cancel, charlog, context, features, findings, foreshadows, knows, metatail, stage, statwin, usage
+from .schema import CueSheet, CueSheetDraft, Finding, MetaCut, FindingRecheck, FixBatch, FixOption, FixPatch, FixRecheckItem, FixRecheckReport, FixSet, RevArcSet, RevEpisodeDraft, RevLineSet
 from .schema import ParagraphAnatomy, ReaderCheck, SceneCard, SceneVariant, SceneVariants, StudioCandidate, StudioDraft
 from .schema import (
+    AddedItems,
     Act,
     ArcEdit,
     ArcPlan,
@@ -63,7 +64,9 @@ from .schema import (
     SeriesPlan,
     SetupRevision,
     SetupSuggestion,
+    Snapshot,
     StateDelta,
+    StateDeltaAI,
     StoryArc,
     StoryEvent,
     Storyline,
@@ -83,6 +86,7 @@ from .schema import (
     RewriteRequest,
     TextEdit,
     TextVersion,
+    to_delta,
 )
 
 
@@ -175,6 +179,20 @@ def require_previous(p: Project, n: int) -> None:
     unfinished = [e.plot.number for e in p.episodes if e.plot.number < n and e.status != "finalized"]
     if unfinished:
         raise ValueError(f"이전 화({', '.join(map(str, unfinished))}화)의 상태 반영이 끝나지 않았어요")
+
+
+APPLY_STATUS = {"draft": "초안", "confirmed": "확정", "written": "작성됨", "finalized": "반영 완료"}
+
+
+def check_applicable(p: Project, n: int) -> None:
+    """n화 상태 변경안을 반영해도 되는지 본다. 본문이 쓰인(written) 화만, 이전 화가 모두 반영됐을 때만 된다.
+    웹 반영 · 명령줄 update · 플레이 · 자동 집필이 같은 규칙을 쓴다. 복사본에 해 보는 미리 보기는 부르지 않는다."""
+    st = p.episode(n).status
+    if st == "finalized":
+        raise ValueError(f"{n}화는 이미 상태를 반영했어요")
+    if st != "written":
+        raise ValueError(f"{n}화는 본문이 작성된 상태가 아니에요 (현재: {APPLY_STATUS.get(st, st)})")
+    require_previous(p, n)
 
 
 # 설정 제안이 이미 있는 인물에게 채우는 칸 (비어 있을 때만). 이름 · id · 비중 · 서술 말투 · 작가 전용 칸은 건드리지 않는다
@@ -2292,13 +2310,17 @@ def board_basis(p: Project, n: int) -> str:
     return board.basis(p, n)
 
 
-def make_storyboard(llm: LLM, p: Project, n: int) -> Storyboard:
-    """n화 스토리보드를 만든다. 저장하지 않는다 (호출자가 set_storyboard 로 넣는다)."""
+def make_storyboard(llm: LLM, p: Project, n: int, lead: list[str] | None = None) -> Storyboard:
+    """n화 스토리보드를 만든다. 저장하지 않는다 (호출자가 set_storyboard 로 넣는다).
+    lead 목록을 주면 보낸 요청 글을 채운다. 바로 이어 큐 시트를 만들 때 그 글을 앞에 둔다 (cue_lead, make_cue_sheet)."""
     ep = p.episode(n)
     if ep.status == "draft":
         raise ValueError(f"{n}화 플롯이 아직 확정되지 않았어요 (confirm 먼저)")
     require_previous(p, n)
-    d = _board_draft(llm, n, len(ep.plot.events), prompts.storyboard_prompt(p, n),
+    prompt = prompts.storyboard_prompt(p, n)
+    if lead is not None:
+        lead[:] = [prompt]
+    d = _board_draft(llm, n, len(ep.plot.events), prompt,
                      {"episode": n, "events": len(ep.plot.events), "characters": ep.plot.characters,
                       "stats": {s.character_id: [x.name for x in s.stats] for s in p.states if s.stats}})
     b = Storyboard(**d.model_dump(), made_at=_now(), made_by="ai", basis=board_basis(p, n))
@@ -2346,14 +2368,22 @@ def undo_storyboard(p: Project, n: int) -> None:
     ep.storyboard, ep.storyboard_prev = prev, None
 
 
+# 스토리보드 한 번의 출력 토큰 한도 (생각 토큰 포함). 서버 기록(2026-11): Gemini 는 보통 1,800토큰(가장 많이 2,200),
+# Claude 는 보통 6,700토큰(가장 많이 11,100). 같은 글을 되풀이한 응답은 65,536토큰을 780초 동안 내고 형식 불일치로 실패했다.
+BOARD_OUT_TOKENS = 16384
+
+
 def _board_draft(llm: LLM, n: int, events: int, prompt: str, hint: dict) -> StoryboardDraft:
     """스토리보드 응답을 받아 정리한다. 플롯에 사건이 있는데 장면이 하나도 없으면 한 번 더 묻고, 그래도 없으면 저장하지 않게 오류를 낸다.
-    실측(2026-11-04, gemini-4-argon): 성인 장면이 많은 플롯에서 다른 칸은 채우고 scenes 만 비운 응답(finish STOP)을 연달아 냈다."""
-    d = clean_storyboard(llm.json(prompts.SYSTEM_PLANNER, prompt, StoryboardDraft, hint=hint))
+    실측(2026-11-04, gemini-4-argon): 성인 장면이 많은 플롯에서 다른 칸은 채우고 scenes 만 비운 응답(finish STOP)을 연달아 냈다.
+    출력은 BOARD_OUT_TOKENS 로 막는다."""
+    with out_cap(BOARD_OUT_TOKENS):
+        d = clean_storyboard(llm.json(prompts.SYSTEM_PLANNER, prompt, StoryboardDraft, hint=hint))
     if d.scenes or not events:
         return d
-    d = clean_storyboard(llm.json(prompts.SYSTEM_PLANNER, prompt + prompts.board_scenes_retry(events), StoryboardDraft,
-                                  hint={**hint, "retry": True}))
+    with out_cap(BOARD_OUT_TOKENS):
+        d = clean_storyboard(llm.json(prompts.SYSTEM_PLANNER, prompt + prompts.board_scenes_retry(events), StoryboardDraft,
+                                      hint={**hint, "retry": True}))
     if d.scenes:
         return d
     raise RuntimeError(f"AI가 {n}화 스토리보드의 장면을 하나도 만들지 않았어요 (두 번 물었어요). "
@@ -2435,8 +2465,18 @@ def _write(llm: LLM, p: Project, n: int, prompt: str, cut: list[MetaCut] | None 
 CUE_OUT_TOKENS = 16384
 
 
-def make_cue_sheet(llm: LLM, p: Project, n: int) -> CueSheet:
-    """n화 큐 시트를 만든다 (plan 단계). 저장은 호출자가 한다."""
+def cue_lead(p: Project, n: int, lead: list[str], made_at: str) -> str:
+    """큐 시트 요청 앞에 둘 스토리보드 요청 글. 지금 n화 스토리보드가 방금 그 글로 AI 가 만든 것(made_at 이 같고 made_by 가 ai)이고
+    낡지 않았을 때만 그 글을, 아니면 빈 글을 돌려준다. 작가가 고쳤거나 낡은 스토리보드는 예전 큐 시트 요청을 쓴다."""
+    b = p.episode(n).storyboard
+    if not lead or not made_at or b is None or b.made_by != "ai" or b.made_at != made_at or board.stale(p, n):
+        return ""
+    return lead[0]
+
+
+def make_cue_sheet(llm: LLM, p: Project, n: int, lead: str = "") -> CueSheet:
+    """n화 큐 시트를 만든다 (plan 단계). 저장은 호출자가 한다.
+    lead 는 cue_lead 가 고른 스토리보드 요청 글이다. 주면 그 글로 시작하는 요청을 보낸다 (prompts.cue_sheet_prompt)."""
     from . import cue
 
     ep = p.episode(n)
@@ -2444,7 +2484,7 @@ def make_cue_sheet(llm: LLM, p: Project, n: int) -> CueSheet:
         raise ValueError(f"{n}화 플롯이 아직 확정되지 않았어요 (confirm 먼저)")
     require_previous(p, n)
     with out_cap(CUE_OUT_TOKENS):
-        d = llm.json(prompts.SYSTEM_PLANNER, prompts.cue_sheet_prompt(p, n), CueSheetDraft,
+        d = llm.json(prompts.SYSTEM_PLANNER, prompts.cue_sheet_prompt(p, n, lead=lead), CueSheetDraft,
                      hint={"episode": n, "events": len(ep.plot.events), "characters": ep.plot.characters,
                            "scenes": len(ep.storyboard.scenes) if ep.storyboard else 0, "size": p.meta.words_per_episode})
     return CueSheet(**cue.clean(p, d).model_dump(), made_at=_now(), made_by="ai")
@@ -3550,19 +3590,64 @@ def clean_fixes(ep: Episode, f: Finding, fs: FixSet) -> list[FixOption]:
     return out[:FIX_OPTIONS]
 
 
-def propose_fixes(llm: LLM, p: Project, n: int, fid: str) -> list[FixOption]:
-    """열린 지적 하나의 고침안을 받는다. 저장하지 않는다 (store_fixes 가 지적에 남긴다)."""
+def _fixable(p: Project, n: int, fid: str) -> tuple[Episode, Finding]:
+    """고침안을 받을 수 있는 열린 지적: 지적한 문장이 지금 본문에 있다."""
     ep, f = _open_finding(p, n, fid)
     if not f.current_quote.strip() or f.current_quote.strip() not in ep.text:
         raise ValueError("지적한 문장을 지금 본문에서 찾을 수 없어요. 이미 고쳤으면 이 지적만 다시 검수하세요")
-    fs = llm.json(prompts.reviser_system(p), prompts.fix_prompt(p, n, f, _decided(ep)), FixSet,
-                  hint={"episode": n, "quote": f.current_quote, "text": ep.text})
+    return ep, f
+
+
+def _fix_result(ep: Episode, f: Finding, fs: FixSet) -> list[FixOption]:
+    """AI 답 하나를 쓸 수 있는 고침안으로. 하나도 없으면 까닭을 담아 ValueError."""
     opts = clean_fixes(ep, f, fs)
     if not opts and not fs.options and fs.reply.strip():  # 본문이 맞다는 답 (prompts.TEXT_RIGHT_RULE)
         raise ValueError(f"AI가 본문은 고치지 않았어요. {fs.reply.strip()}")
     if not opts:
         raise ValueError("쓸 수 있는 고침안이 없었어요. 다시 받거나 직접 고치세요")
     return opts
+
+
+def propose_fixes(llm: LLM, p: Project, n: int, fid: str) -> list[FixOption]:
+    """열린 지적 하나의 고침안을 받는다. 저장하지 않는다 (store_fixes 가 지적에 남긴다).
+    공통 자료(check_material)가 끝나는 곳을 캐시 경계로 알려, 같은 화의 첫 호출부터 그 앞부분을 캐시에 넣는다."""
+    ep, f = _fixable(p, n, fid)
+    material = prompts.check_material(p, n)
+    fs = llm.json(prompts.reviser_system(p), prompts.fix_prompt(p, n, f, _decided(ep), material), FixSet,
+                  hint={"episode": n, "quote": f.current_quote, "text": ep.text, PREFIX_HINT: len(material)})
+    return _fix_result(ep, f, fs)
+
+
+FIX_BATCH = 8  # 고침안을 한 번에 묻는 지적 수 (웹 작업 'fixes'). 지적마다 따로 물으면 같은 검수 자료를 지적 수만큼 보낸다
+
+
+def propose_fixes_batch(llm: LLM, p: Project, n: int, fids: list[str]) -> dict[str, list[FixOption] | str]:
+    """열린 지적 여러 개의 고침안을 한 번에 받는다. 저장하지 않는다. {지적 id: 고침안 또는 못 받은 까닭}.
+    답에 없는 지적과 고침안도 답도 빈 항목은 결과에도 없다 (부른 쪽이 propose_fixes 로 따로 묻는다). 답의 id 가 요청에 없으면 버리고, 같은 id 는 처음 것만 쓴다."""
+    out: dict[str, list[FixOption] | str] = {}
+    ask: list[tuple[Episode, Finding]] = []
+    for fid in fids:
+        try:
+            ask.append(_fixable(p, n, fid))
+        except (ValueError, KeyError) as e:
+            out[fid] = str(e.args[0]) if e.args else type(e).__name__
+    if not ask:
+        return out
+    ep = ask[0][0]
+    material = prompts.check_material(p, n)
+    fb = llm.json(prompts.reviser_system(p), prompts.fix_batch_prompt(p, n, [f for _, f in ask], _decided(ep), material), FixBatch,
+                  hint={"episode": n, "text": ep.text, "findings": [{"id": f.id, "quote": f.current_quote} for _, f in ask],
+                        PREFIX_HINT: len(material)})
+    by_id = {f.id: f for _, f in ask}
+    for item in fb.items:
+        fid = item.finding.strip()
+        if fid not in by_id or fid in out or (not item.options and not item.reply.strip()):  # 빈 항목은 답이 없는 것으로 본다
+            continue
+        try:
+            out[fid] = _fix_result(ep, by_id[fid], FixSet(reply=item.reply, options=item.options))
+        except ValueError as e:
+            out[fid] = str(e.args[0])
+    return out
 
 
 def store_fixes(p: Project, n: int, fid: str, opts: list[FixOption]) -> Finding:
@@ -3574,7 +3659,7 @@ def store_fixes(p: Project, n: int, fid: str, opts: list[FixOption]) -> Finding:
     return f
 
 
-FIX_WORKERS = 3  # 열린 지적 고침안을 한꺼번에 받을 때 동시에 부르는 수 (web 작업 'fixes')
+FIX_WORKERS = 3  # 열린 지적 고침안을 한꺼번에 받을 때 동시에 부르는 수 (web 작업 'fixes': FIX_BATCH 개씩 묶은 호출과, 답에서 빠진 지적의 따로 묻기)
 
 
 def fix_usable(ep: Episode, f: Finding, opt: FixOption) -> bool:
@@ -3671,8 +3756,9 @@ def recheck_finding(llm: LLM, p: Project, n: int, fid: str) -> FindingRecheck:
             return FindingRecheck(resolved=True, reason="짚은 문장이 본문에서 바뀌었어요")
         return FindingRecheck(resolved=not still, reason=still[0].description if still else "장면 연출 규칙 판정에 더 걸리지 않아요")
     changes = [(e.before, e.after) for e in ep.edits if f.fix_group and e.group == f.fix_group and not e.undone]
-    return llm.json(prompts.SYSTEM_CHECKER, prompts.recheck_prompt(p, n, f, changes, _decided(ep)), FindingRecheck,
-                    hint={"episode": n, "quote": f.current_quote, "text": ep.text})
+    material = prompts.check_material(p, n)  # 검수와 같은 앞부분. 끝나는 곳을 캐시 경계로 알린다
+    return llm.json(prompts.SYSTEM_CHECKER, prompts.recheck_prompt(p, n, f, changes, _decided(ep), material), FindingRecheck,
+                    hint={"episode": n, "quote": f.current_quote, "text": ep.text, PREFIX_HINT: len(material)})
 
 
 def apply_recheck(p: Project, n: int, fid: str, res: FindingRecheck) -> list[Finding]:
@@ -3820,11 +3906,12 @@ def extract_state(llm: LLM, p: Project, n: int) -> StateDelta:
     carried = carried_delta(p, n)
     if carried is not None:
         return carried
-    delta = llm.json(prompts.SYSTEM_EDITOR, prompts.state_prompt(p, n), StateDelta,
-                     hint={"episode": n, "stats": statwin.enabled(p)})
-    delta.episode = n
+    basis = text_basis(p.episode(n).text)  # 프롬프트에 넣은 본문의 지문. 부르는 사이 p 가 바뀌어도 이 본문 기준이다
+    raw = llm.json(prompts.SYSTEM_EDITOR, prompts.state_prompt(p, n), StateDeltaAI,
+                   hint={"episode": n, "stats": statwin.enabled(p)})
+    delta = to_delta(raw, n)  # 관계 수치 칸은 응답 형식에 없고, 있어도 버린다
     clean_delta(p, delta)
-    delta.basis = text_basis(p.episode(n).text)
+    delta.basis = basis
     return delta
 
 
@@ -3851,19 +3938,22 @@ def _delta_checks(p: Project, d: StateDelta) -> list[tuple]:
         ("events", d.events,
          lambda e: "" if e.kind == "수동보정" else pair(e.actor, e.target, f"관계 사건({e.actor}→{e.target})")),
         ("relationship_updates", d.relationship_updates, lambda r: pair(r.a, r.b, f"관계 바뀜({r.a}↔{r.b})")),
+        ("secrets_added", d.secrets_added,
+         lambda s: "" if s.owner in known else f"설정에 없는 인물의 비밀이에요: {s.owner}"),
         ("foreshadow_resolved", d.foreshadow_resolved,
          lambda x: "" if x in shadows else f"없는 복선을 회수했어요: {x}"),
     ]
 
 
 def validate_delta(p: Project, d: StateDelta) -> list[str]:
-    """반영하면 누구의 것도 아닌 데이터가 남는 항목 (설정에 없는 인물 id, 같은 인물끼리의 관계, 없는 복선 id).
+    """반영하면 누구의 것도 아닌 데이터가 남는 항목 (설정에 없는 인물 id, 같은 인물끼리의 관계, 설정에 없는 인물의 비밀, 없는 복선 id).
     새 인물(d.new_characters)과 이번에 심는 복선은 아는 것으로 센다. p 와 d 를 바꾸지 않는다. web 반영은 이것이 있으면 막는다."""
     return [m for _, items, why in _delta_checks(p, d) for m in map(why, items) if m]
 
 
 def drop_invalid(p: Project, d: StateDelta) -> list[str]:
     """validate_delta 에 걸린 항목을 d 에서 빼고 그 문구를 돌려준다. 사건 목격자 중 설정에 없는 인물도 뺀다(사건은 남긴다).
+    비밀을 모르는 인물(hidden_from) 중 설정에 없는 인물과 없는 비밀 id 를 가리키는 사건의 reveals_secret 도 빼고(비밀 · 사건은 남긴다) 그 문구를 더한다.
     뺀 항목은 d.dismissed 의 같은 칸에 남겨 반영 기록에서 보이고, 반영 취소로 돌아오면 체크를 푼 채 다시 놓인다."""
     out: list[str] = []
     for name, items, why in _delta_checks(p, d):
@@ -3879,6 +3969,15 @@ def drop_invalid(p: Project, d: StateDelta) -> list[str]:
     known = {c.id for c in p.characters} | {c.id for c in d.new_characters}
     for e in d.events:
         e.witnesses = [w for w in e.witnesses if w in known]
+    for s in d.secrets_added:
+        if (gone := [x for x in s.hidden_from if x not in known]):
+            out.append(f"비밀({s.id})을 모르는 인물에서 설정에 없는 인물을 뺐어요: {', '.join(gone)}")
+            s.hidden_from = [x for x in s.hidden_from if x in known]
+    secrets = {s.id for s in p.secrets} | {s.id for s in d.secrets_added}
+    for e in d.events:
+        if e.reveals_secret and e.reveals_secret not in secrets:
+            out.append(f"관계 사건({e.actor}→{e.target})이 드러낸 비밀이 없는 비밀이라 지웠어요: {e.reveals_secret}")
+            e.reveals_secret = ""
     return out
 
 
@@ -3890,7 +3989,15 @@ def apply_delta(p: Project, d: StateDelta) -> list[str]:
     dynamics.ensure_initial(p)
     ep.summary = d.summary
     ep.status, ep.final_text = "finalized", ""
+    # 이미 있는 인물은 새 인물로 더하지 않는다. 기록(history)에 남으면 반영 취소가 그 인물을 지운다
+    have = {c.id for c in p.characters}
+    dup = [c for c in d.new_characters if c.id in have]
+    if dup:
+        d.new_characters = [c for c in d.new_characters if c.id not in have]
+        d.dismissed.new_characters += dup
+        dropped.append(f"이미 있는 인물이라 새 인물에서 뺐어요: {', '.join(c.id for c in dup)}")
     _add_characters(p, d.new_characters, d.episode)
+    added = AddedItems()
     features.apply(features.APPLY_FIRST, p, d)  # 설정 바꾸기 제안 · 새 장소
     ep.auto = False  # 자동 집필은 반영한 뒤 True 로 표시한다
 
@@ -3908,6 +4015,8 @@ def apply_delta(p: Project, d: StateDelta) -> list[str]:
             cur.knows += [k for k in upd.knows if k not in cur.knows]
         statwin.merge(p, cur, upd.stats, d.episode)  # +3 같은 바뀐 양은 여기서 값으로 바꾸고 기록한다
 
+    for upd in d.relationship_updates:  # 관계 수치는 AI 가 적지 않는다: 사건으로 dynamics 가 계산하고, 새 쌍은 중립에서 시작한다
+        upd.affinity, upd.tension, upd.goal_conflict, upd.a_view, upd.b_view, upd.destination = 0, 0, 0.0, [], [], ""
     for upd in d.relationship_updates:
         if upd.a == upd.b:  # 같은 인물끼리의 관계는 두지 않는다 (화면 저장이 막는 관계, validate_relationships)
             continue
@@ -3915,34 +4024,58 @@ def apply_delta(p: Project, d: StateDelta) -> list[str]:
         for r in p.relationships:
             if frozenset((r.a, r.b)) == key:
                 r.type, r.description = upd.type or r.type, upd.description or r.description
-                if not d.events:  # 사건 없이 수치만 온 예전 형식: 양방향 온기를 affinity 에 맞춘다
-                    r.affinity, r.tension = upd.affinity, upd.tension
-                    for s, t in ((r.a, r.b), (r.b, r.a)):
-                        dynamics.get_tie(p.ties, s, t).warmth = dynamics.clip(upd.affinity / 5)
                 break
         else:
-            p.relationships.append(upd)
+            p.relationships.append(upd.model_copy(deep=True))  # 복사해 넣는다. sync_relationships 가 바꿔도 기록(history)의 값은 보낸 그대로 남는다
+            added.relationships.append([upd.a, upd.b])
             dynamics.seed_ties(p)
 
-    known_secrets = {s.id for s in p.secrets}
     # 복사해 넣는다. 사건이 비밀을 드러내 hidden_from 을 줄여도 기록(history)의 처음 모습은 남아야 다시 계산할 수 있다
-    p.secrets += [s.model_copy(deep=True) for s in d.secrets_added if s.id not in known_secrets]
+    d.secrets_added = _first_new(d.secrets_added, {s.id for s in p.secrets}, d.dismissed.secrets_added)
+    p.secrets += [s.model_copy(deep=True) for s in d.secrets_added]
+    added.secrets = [s.id for s in d.secrets_added]
     events = [e.model_copy(update={"episode": d.episode}) for e in d.events if e.kind != "수동보정"]
     dynamics.run_episode(p, d.episode, events, ep.plot.characters)
     p.events += events
 
-    p.facts += [f for f in d.new_facts if f not in p.facts]
-    known = {f.id for f in p.foreshadows}
-    p.foreshadows += [f for f in d.foreshadow_planted if f.id not in known]
+    d.new_facts = list(dict.fromkeys(f for f in d.new_facts if f not in p.facts))
+    p.facts += d.new_facts
+    was_resolved = {f.id for f in p.foreshadows if f.status == "resolved"}
+    # 심은 복선은 apply_restate 와 같게 이번 화에 심은 열린 복선으로 맞춘다. AI 가 적은 심은 화 · 상태 · 회수 화는 믿지 않는다
+    plants = _first_new(d.foreshadow_planted, {f.id for f in p.foreshadows}, d.dismissed.foreshadow_planted)
+    d.foreshadow_planted = [f.model_copy(deep=True, update={"planted_ep": d.episode, "status": "open", "payoff_ep": None}) for f in plants]
+    p.foreshadows += [f.model_copy(deep=True) for f in d.foreshadow_planted]
+    resolved = list(dict.fromkeys(d.foreshadow_resolved))
+    d.dismissed.foreshadow_resolved += [x for x in resolved if x in was_resolved]  # 이미 회수한 복선의 회수 화를 덮지 않는다
+    d.foreshadow_resolved = [x for x in resolved if x not in was_resolved]
+    for c in d.foreshadow_clues:  # 뺀 회수의 회수 문장은 다시 떠올린 문장으로 남긴다 (foreshadows.clean_delta 와 같은 규칙)
+        if c.kind == "payoff" and c.foreshadow in was_resolved:
+            c.kind = "plant"
+    added.facts = list(d.new_facts)
+    added.foreshadows = [f.id for f in d.foreshadow_planted]
     for f in p.foreshadows:
         if f.id in d.foreshadow_resolved:
             f.status, f.payoff_ep = "resolved", d.episode
     features.apply(features.APPLY_LAST, p, d)  # 복선 문장 · 작품 속 시간
+    d.legacy_rel = False  # 다시 계산(dynamics.replay)이 이 기록의 관계 수치를 쓰지 않게 한다
+    d.added = added  # 반영 취소가 이 반영이 실제로 더한 것만 뺀다 (_undo_later)
     p.history.append(d)
     dynamics.take_snapshot(p, d.episode)
     if p.serial:
         prune_snapshots(p)
     return dropped
+
+
+def _first_new(items: list, known: set[str], skipped: list) -> list:
+    """id 가 known 에 없는 항목만 차례대로 남긴다. 한 변경안 안에서 같은 id 가 또 오면 처음 것만 남긴다. 뺀 항목은 skipped 에 넣는다."""
+    seen, out = set(known), []
+    for x in items:
+        if x.id in seen:
+            skipped.append(x)
+        else:
+            seen.add(x.id)
+            out.append(x)
+    return out
 
 
 SNAPSHOT_KEEP = 20  # 장편에서 남기는 최근 스냅샷 수. 시작점과 아크가 끝난 화는 늘 남긴다
@@ -3971,25 +4104,95 @@ def adjust_tie(p: Project, source: str, target: str, warmth: float | None, trust
     dynamics.take_snapshot(p, n)
 
 
+def _undo_later(p: Project, n: int, snap: Snapshot) -> None:
+    """revert 가 부른다 (반영 기록 · 사건을 자르기 전). n화 뒤 반영(history)이 한 일만 되돌리고, n화 뒤 작가가 더하거나 고친 것은 둔다.
+    - 관계 간선(Tie)은 사건이 움직이므로 n화 스냅샷으로 덮고, 작가가 더한 관계의 간선은 지금 관계 값으로 다시 만든다(seed_ties)
+    - 인물 상태는 n화 스냅샷으로 덮는다. 스냅샷에 상태가 없는 인물(n화 뒤 작가가 더함)은 지금 상태를 두고, 뒤 반영이 그 상태를 바꿨으면 처음 상태로 만든다
+    - 관계 · 비밀 · 사실 · 복선은 뒤 반영이 더한 것만 뺀다. 반영 기록의 added 를 보고, 그 칸이 없는 예전 기록은 반영 직전 스냅샷에 없던 것을 그 반영이 더한 것으로 본다
+    - 뒤 반영이 유형 · 설명을 바꾼 관계는 스냅샷 값으로, 남은 관계의 수치는 스냅샷 값으로 돌린다
+    - 뒤 사건이 드러낸 비밀은 스냅샷의 모르는 인물로, 뒤 반영이 회수한 그대로인 복선은 스냅샷의 상태 · 회수 화로 돌린다"""
+    later = [d for d in p.history if d.episode > n]
+    pair = lambda a, b: frozenset((a, b))  # noqa: E731
+
+    def before(m: int) -> Snapshot:  # m화 반영 직전에 가장 가까운 스냅샷 (n화 스냅샷은 늘 있다)
+        return max((s for s in p.snapshots if n <= s.episode < m), key=lambda s: s.episode, default=snap)
+
+    born_rel: set[frozenset] = set()
+    born_sec: set[str] = set()
+    born_fact: set[str] = set()
+    born_fs: set[str] = set()
+    for d in later:
+        if d.added is not None:  # 반영할 때 적은 기록: 그 반영이 실제로 더한 것
+            born_rel |= {pair(*x) for x in d.added.relationships if len(x) == 2}
+            born_sec |= set(d.added.secrets)
+            born_fact |= set(d.added.facts)
+            born_fs |= set(d.added.foreshadows)
+            continue
+        b = before(d.episode)  # 예전 기록: 반영 직전 스냅샷에 없던 것을 그 반영이 더한 것으로 본다
+        born_rel |= {pair(r.a, r.b) for r in d.relationship_updates} - {pair(r.a, r.b) for r in b.relationships}
+        born_sec |= {s.id for s in d.secrets_added} - {s.id for s in b.secrets}
+        born_fact |= set(d.new_facts) - set(b.facts)
+        born_fs |= {f.id for f in d.foreshadow_planted} - {f.id for f in b.foreshadows}
+    ids = {c.id for c in p.characters}
+
+    had = {s.character_id for s in snap.states}
+    moved = {u.character_id for d in later for u in d.character_updates}
+    p.states = [s.model_copy(deep=True) for s in snap.states if s.character_id in ids] + [
+        s for s in p.states if s.character_id in ids and s.character_id not in had and s.character_id not in moved]
+    _init_states(p)
+
+    snap_rel = {pair(r.a, r.b): r for r in snap.relationships}
+    touched = {pair(r.a, r.b) for d in later for r in d.relationship_updates}
+    rels = []
+    for r in p.relationships:
+        k = pair(r.a, r.b)
+        if k in born_rel or r.a not in ids or r.b not in ids:
+            continue
+        old = snap_rel.get(k)
+        if old is not None and k in touched:
+            r = old.model_copy(deep=True)
+        elif old is not None:
+            r.affinity, r.tension = old.affinity, old.tension
+        rels.append(r)
+    p.relationships = rels
+    p.ties = [t.model_copy(deep=True) for t in snap.ties if t.source in ids and t.target in ids]
+    dynamics.seed_ties(p)
+
+    snap_sec = {s.id: s for s in snap.secrets}
+    revealed = {e.reveals_secret for e in p.events if e.episode > n and e.reveals_secret}
+    p.secrets = [s for s in p.secrets if s.id not in born_sec]
+    for s in p.secrets:
+        if s.id in revealed and s.id in snap_sec:
+            s.hidden_from = list(snap_sec[s.id].hidden_from)
+
+    p.facts = [f for f in p.facts if f not in born_fact]
+
+    snap_fs = {f.id: f for f in snap.foreshadows}
+    paid = {x: d.episode for d in later for x in d.foreshadow_resolved}
+    p.foreshadows = [f for f in p.foreshadows if f.id not in born_fs]
+    for f in p.foreshadows:
+        if f.id in paid and f.status == "resolved" and f.payoff_ep == paid[f.id]:
+            old = snap_fs.get(f.id)
+            f.status, f.payoff_ep = (old.status, old.payoff_ep) if old else ("open", None)
+
+
 def revert(p: Project, n: int) -> None:
     """n화 상태 반영 직후로 되돌린다. 이후 화의 본문은 남기고 상태 반영만 취소한다."""
     snap = p.snapshot(n)
     if snap is None:
         raise ValueError(f"{n}화 스냅샷이 없어요 (있는 화: {[s.episode for s in p.snapshots]})")
     # 되돌리는 반영이 더한 인물(new_characters)도 되돌린다. 뒤 화 플롯에 나오면 지우지 않고 인물 후보로 돌린다
-    added = {c.id for d in p.history if d.episode > n for c in d.new_characters}
+    # n화 때 이미 있던 인물(n화 스냅샷에 상태가 있거나 설정 단계 인물)은 지우지 않는다: 예전 기록에 이미 있는 id 가 새 인물로 남아 있을 수 있다.
+    # first_ep 는 AI 가 채울 수 있는 칸이라 '처음 나온 화 <= n' 으로는 가리지 않는다
+    was = {s.character_id for s in snap.states} | {c.id for c in p.characters if not c.first_ep}
+    added = {c.id for d in p.history if d.episode > n for c in d.new_characters} - was
     if added:
         back = [c for c in p.characters if c.id in added]
         p.characters = [c for c in p.characters if c.id not in added]
         have = {c.id for c in p.cast_candidates}
         p.cast_candidates += [c for c in back if c.id not in have]
     features.revert(features.REVERT_FIRST, p, n, snap)  # 뒤 반영이 본문에서 등록한 장소
-    p.states = [s.model_copy(deep=True) for s in snap.states]
-    p.relationships = [r.model_copy(deep=True) for r in snap.relationships]
-    p.ties = [t.model_copy(deep=True) for t in snap.ties]
-    p.secrets = [s.model_copy(deep=True) for s in snap.secrets]
-    p.facts = list(snap.facts)
-    p.foreshadows = [f.model_copy(deep=True) for f in snap.foreshadows]
+    _undo_later(p, n, snap)
     p.events = [e for e in p.events if e.episode <= n]
     p.history = [d for d in p.history if d.episode <= n]
     p.snapshots = [s for s in p.snapshots if s.episode <= n]
@@ -4013,11 +4216,22 @@ def apply_restate(p: Project, d: StateDelta) -> dict:
     summary = d.summary.strip()
     facts = list(dict.fromkeys(f for f in d.new_facts if f.strip() and f not in p.facts))
     known = {f.id for f in p.foreshadows}
-    plants = [f.model_copy(update={"planted_ep": n, "status": "open", "payoff_ep": None}) for f in d.foreshadow_planted if f.id not in known]
+    plants = [f.model_copy(update={"planted_ep": n, "status": "open", "payoff_ep": None}) for f in d.foreshadow_planted
+              if f.id not in known and not known.add(f.id)]  # 변경안 안에서 같은 id 가 두 번 오면 앞의 것만
+    # 복선 근거 문장은 이번에 새로 심은 복선의 plant 문장만 붙인다 (상태 승인의 foreshadows.apply_delta 와 같은 모양)
+    new_ids = {f.id for f in plants}
+    seen = {foreshadows._key(c) for c in p.foreshadow_clues}
+    clues = []
+    for c in d.foreshadow_clues:
+        c = c.model_copy(update={"episode": n, "by": "ai"})
+        if c.kind == "plant" and c.foreshadow in new_ids and foreshadows._key(c) not in seen:
+            seen.add(foreshadows._key(c))
+            clues.append(c)
     if summary:
         ep.summary = summary
     p.facts += facts
     p.foreshadows += plants
+    p.foreshadow_clues += clues
     added = elements.add_places(p, d.new_places, n, "본문")
     places = [x for x in d.new_places if x.name.strip() in added]
     for snap in p.snapshots:
@@ -4029,9 +4243,13 @@ def apply_restate(p: Project, d: StateDelta) -> dict:
         rec.summary = summary or rec.summary
         rec.new_facts += facts
         rec.foreshadow_planted += [f.model_copy(deep=True) for f in plants]
+        rec.foreshadow_clues += [c.model_copy(deep=True) for c in clues]
+        if rec.added is not None:  # 반영 취소가 고친 화에서 더한 것도 뺀다
+            rec.added.facts += facts
+            rec.added.foreshadows += [f.id for f in plants]
         rec.new_places += [x.model_copy(deep=True) for x in places]
     ep.final_text = ""
-    return {"summary": bool(summary), "facts": len(facts), "foreshadows": len(plants), "places": len(places)}
+    return {"summary": bool(summary), "facts": len(facts), "foreshadows": len(plants), "clues": len(clues), "places": len(places)}
 
 
 def keep_state(p: Project, n: int) -> None:

@@ -68,7 +68,7 @@ function deleteBlock(e) {
   const applied = e.status === 'finalized' || [...(p.history || []), ...(p.snapshots || []), ...(p.events || [])].some((x) => x.episode >= n);
   const why = projectBusy() ? 'AI 작업이 끝난 뒤에 할 수 있어요'
     : autoOn() ? '자동 집필을 일시정지한 뒤에 할 수 있어요'
-      : applied && !(p.snapshots || []).some((s) => s.episode === n - 1) ? `${n - 1}화 스냅샷이 없어 반영을 취소할 수 없어요` : '';
+      : applied && !(p.snapshots || []).some((s) => s.episode === n - 1) ? `${n - 1}화 반영 직후의 상태 기록(스냅샷)이 없어 반영을 취소할 수 없어요.${serial() ? ' 장편은 0화 · 아크 끝 · 최근 20화만 남겨요. 설정의 \'스냅샷 모두 남기기\'를 켜면 다음 반영부터 남아요' : ''}` : '';
   const dis = why ? ` disabled title="${why}"` : '';
   return `<details class="field delete-tools"><summary class="small">이 화 지우기</summary>
       <div class="small" style="margin:6px 0">마지막으로 쓴 화만 지울 수 있어요. ${applied ? '상태 반영을 취소하고 ' : ''}본문 · 수정 기록 · 이전 판 · 삽화 프롬프트를 지워요. 지우기 전 작품 전체는 백업 파일로 남겨요.</div>

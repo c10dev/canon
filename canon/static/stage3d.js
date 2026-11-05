@@ -517,7 +517,7 @@ function s3CssOnce() {
 .s3-tag.ghost { color: var(--muted); }
 .s3-tag.bad { color: var(--red); }
 .s3-band { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-@container stgcol (max-width: 480px) { .s3-slot { aspect-ratio: 1 / 1; } }
+@container stgcol (max-width: 480px) { .s3-slot { aspect-ratio: 1 / 1; max-height: 55svh; } }  /* 손가락 회전 칸이 화면을 다 덮어 페이지를 내릴 자리가 없지 않게 */
 `;
   document.head.appendChild(st);
 }

@@ -22,6 +22,8 @@ from .schema import (
     ConsistencyIssue,
     ConsistencyReport,
     FindingRecheck,
+    FixBatch,
+    FixItem,
     FixOption,
     FixPatch,
     FixSet,
@@ -77,6 +79,7 @@ from .schema import (
     Deadline,
     SettingChange,
     StateDelta,
+    StateDeltaAI,
     StatValue,
     StoryTime,
     StoryArc,
@@ -736,6 +739,7 @@ def _r_agent_ask(prompt: str, hint: dict):
     return AgentAsk(question="몇 화로 갈까요?", options=[Direction(title=t, idea=f"{t}로 간다.") for t in ("7화", "15화")])
 
 
+@responds(StateDeltaAI)
 @responds(StateDelta)
 def _r_state_delta(prompt: str, hint: dict):
     n = hint["episode"]
@@ -908,6 +912,14 @@ def _r_passage_revision(prompt: str, hint: dict):
 @responds(FixSet)
 def _r_fix_set(prompt: str, hint: dict):
     return _fixes(hint)
+
+
+@responds(FixBatch)
+def _r_fix_batch(prompt: str, hint: dict):
+    # 지적마다 한 지적 고침안(_fixes)과 같은 답을 id 를 달아 낸다
+    text = hint.get("text", "")
+    return FixBatch(items=[FixItem(finding=x["id"], **_fixes({"quote": x["quote"], "text": text}).model_dump())
+                           for x in hint.get("findings", [])])
 
 
 @responds(FindingRecheck)

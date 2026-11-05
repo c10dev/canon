@@ -11,6 +11,7 @@
 - 손가락 기기 · 640px 이하에서 작은 누름 영역을 44px 로 키우는 규칙은 '휴대폰' 절 바로 앞 한 블록에 모은다
 - 높이 500px 이하(가로 휴대폰) 규칙은 `@media (max-height: 500px)` 로 건다. 붙여 두는 칸을 풀고 대화 시트를 키운다(`docs/design/layout.md` '오른쪽 패널')
 - `html` 에 `text-size-adjust: 100%` 를 둔다. iOS Safari 가 가로 화면에서 글자를 키우지 않게 한다
+- 첫 칸이 짧은 행 이름인 연구 표(`.rs-table.rs-pin`, 연구 화별 표)는 옆으로 굴려도 첫 칸이 왼쪽에 붙어 있다
 - 떠 있는 칸 · 시트 · 메뉴(대화 기록, 펼침 메뉴, 설정 대화상자, 목차 펼침 등)는 `overscroll-behavior: contain` 이다. 끝까지 굴려도 뒤 페이지가 구르지 않는다
 - 기능마다 `/* ----- 이름 (파일.js) ----- */` 절로 나눈다
 - 공용 목차 틀의 화면별 칸 규칙은 `@container outline` 으로 건다
@@ -20,7 +21,12 @@
 ### `canon/static/app.js`
 
 - 웹 화면의 뼈대
+- 휴대폰 키보드가 열리면 html 에 `kb-open` 을 단다(`--kb` 80px 이상). 640px 이하에서 집필 머리를 붙여 두지 않는다
+- 글 칸(`DIALOG_TEXT`)이 있는 대화상자는 바깥(배경)을 눌러도 닫지 않는다. Esc · 취소는 닫는다
+- 그린 뒤 화마다 한 열인 넓은 표(`.at-table-wrap`, 상태창 화별 `.sw-table-wrap`)를 지금 화(`.cur`) 또는 마지막 열로 옆으로 굴려 둔다
+- 작품 안 모르는 화면 이름(옛 북마크, 손으로 친 주소)은 작품 홈을 그리고 위에 "'이름' 화면은 없어요" 안내와 작품 홈 주소로 가는 버튼을 둔다
 - 반영 취소(`revertFrom`) 확인은 저장하지 않은 변경이 있으면 먼저 저장한다고 말하고 버튼을 '저장하고 반영 취소'로 쓴다
+- 반영 취소(`revertFrom`) 확인이 '빠지는 인물'로 적는 새 인물은 그 화 전에 이미 있던 인물(`first_ep` 가 0인 설정 단계 인물과 앞 화 반영 기록의 새 인물)을 뺀다(`pipeline.revert` 와 거의 같다)
 - 반영 취소(`revertFrom`)는 뒤 화들의 반영 기록이 검토를 기다리는 변경안으로 남으니(`web._revert_kept`) 취소 뒤 `loadPending` 으로 받는다
 - 서버 오류 문구 `fmtErr`: 검증 오류(detail 이 목록)는 영어 원문 대신 `VALIDATION_REASON`(web.py `_VALIDATION_REASON` 과 같음, `tests/test_fmterr_js.py`)과 칸 이름 `FIELD_NAME` 으로 쓴다
 - 저장하지 않고 이동하면 묻는 창은 작품 변경만 있을 때 '저장하고 이동'(askConfirm 의 `alt`)을 주 버튼으로 준다
@@ -278,6 +284,7 @@
 ### `canon/static/passage.js`
 
 - 본문 부분 수정
+- 손가락 기기에서 검수 지적을 열면 본문 칸에 포커스하지 않는다(키보드가 고치는 창을 덮지 않게). 문장 자리만 고른다
 - 본문에서 고르면 뜨는 도구(직접 수정, AI에게 고치기)
 - 도구 자리 `placeTool` 은 왼쪽을 0으로 두고 너비를 잰다. 옛 자리에서 재면 남은 폭만큼 줄어 화면 오른쪽 끝에 붙는다
 - 후보를 원문과 단어 단위로 비교
@@ -297,6 +304,7 @@
   - 구간 한 줄 머리 + 화 카드 격자 `actBoard`
   - 구간 · 아크 · 부 고치기는 서랍 없이 그 자리에서 `actEditor` · `arcEditor` · `partEditor`
   - 아크 주요 인물 이름 체크 `arcCastField`
+- 640px 이하 사건 줄의 도구(연출 · 위로 · 아래로 · 빼기)는 숨기지 않고 사건 글 아래 줄 오른쪽에 둔다
 - 손가락 기기에서는 사건 순서의 'Enter로 다음 사건' 안내를 숨긴다
 - 장편(목차가 부 › 아크 › 구간 나무 `serialTree` · `serialTocRow`, 부 펼치기 `S.tocParts`, 부 구성 카드 펼침 `S.arcFull`, 다음 아크 기획 칸의 경고 `planAhead` 는 `pipeline.plan_ahead` 와 같은 규칙 `tests/test_plan_ahead_js.py`)
 - 서술 시점
@@ -336,6 +344,9 @@
 - 반영이 끝난 화를 고쳤을 때 집필 화면 알림(`restateNote`, 뒤 화 검수 권유)
 - 상태 승인 화면의 다시 맞추기 카드(`restateCard`: 요약 · 새 사실 · 새 복선만 고르기, 그대로 두기)
 - 서버는 `pipeline.apply_restate` · `keep_state`
+- 보내는 변경안(`restateBody`)은 고른 새 복선의 plant 근거 문장만 담는다 (`pipeline.apply_restate` 와 같은 규칙)
+- 고르기 칸(`rsItems`)은 변경안 안에서 같은 복선 id 가 두 번 오면 앞의 것만 보인다
+- 서버가 409(`stale_delta`)를 주면 기다림 상자를 닫고 묻는다. 확인하면 `?force=1` 로 다시 보낸다
 - 표시는 `Episode.final_text` (`edited_after_final` 과 같은 규칙, `tests/test_restate_js.py`)
 
 ### `canon/static/review.js`
@@ -344,8 +355,15 @@
   - `DELTA_LISTS`
   - `setDelta`
   - `setDelta` 는 설정에 없는 인물이 끼었거나 같은 인물끼리인 관계 사건 · 관계 바뀜을 기본으로 체크하지 않는다(서버 `validate_delta` 와 같은 규칙)
+  - `setDelta` 는 설정에 없는 인물이 주인인 비밀도 기본으로 체크하지 않는다
+  - 같은 변경안에서 심고 회수한 복선은 아는 복선으로 세어 기본으로 체크하고 심은 복선 설명으로 보인다(`fsKnown`)
+  - 그 심는 복선(`p`) 체크를 풀면 같은 화 회수(`x`)도 풀고 다시 고르면 되돌린다(`plantedCascade`)
+  - 새 인물(`n`) 체크를 풀면 그 인물을 다룬 `c` · `e` · `r` · `s` · `t` · `h` · `a` 항목도 풀고 몇 개 풀었는지 알린다(`newCharCascade` · `newCharDeps`)
+  - 새 인물을 다시 고르면 그 항목을 기본 체크로 되돌린다(다른 빠진 새 인물도 다룬 항목은 빼 둔다)
+  - 새 인물 체크를 바꿔도 관계 미리 보기를 다시 계산한다(`app.js` 의 `[ersn]` 키)
   - 체크를 푼 항목은 `pickedDelta` 가 `dismissed` 로 보낸다(설정 바꾸기 · 호칭 · 등장 인물 붙이기는 빼고)
   - 반영 기록에서 돌아온 변경안(반영 취소 · 단편 다시 쓰기)의 `dismissed` 는 `setDelta` 가 목록 끝에 다시 놓고(`reofferDismissed`) 기본 체크를 풀어 둔다(`d.reoffer`, 화면 전용)
+  - 체크를 푼 채 다시 놓인 새 인물 · 심는 복선을 가리키는 항목도 `defaultPicks` 가 기본으로 빼 둔다(`over` 로 지금 `n` · `p` 체크를 주면 그 값을 기준으로 맞춘다)
   - 반영이 끝난 화 기록(`historyView`) 아래 접힌 '빼 둔 항목 N개'(`dismissedView`)
   - 변경안 체크 `S.picks` 는 한 화 것이다(`S.picksEp`, 작품마다 따로 둔다)
   - 다른 화 변경안을 열면 `pickEp` 가 그 화에서 고친 체크(`S.picksKept`)를 되살린다
