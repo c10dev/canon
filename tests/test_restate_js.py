@@ -55,3 +55,11 @@ def test_apply_restate_resends_with_force_after_stale_confirm():
     got = run_js(["app.js", "restate.js"], expr, DELTA)
     assert got["true"] == {"calls": ["/projects/t/episodes/1/restate", "/projects/t/episodes/1/restate?force=1"], "asks": 1, "kept": False}
     assert got["false"] == {"calls": ["/projects/t/episodes/1/restate"], "asks": 1, "kept": True}
+
+
+@needs_node
+def test_restate_items_show_repeated_plant_id_once():
+    """변경안 안에서 같은 복선 id 가 두 번 오면 고르기 칸은 앞의 것 하나만 보인다 (서버도 앞의 것만 심는다)."""
+    d = {**DELTA, "foreshadow_planted": DELTA["foreshadow_planted"] + [{"id": "fs-a", "description": "가 다시"}]}
+    expr = "S.project = {episodes: [], foreshadows: [{id: 'fs-b'}], facts: []}; S.deltas = {1: data}; rsItems(1).plants.map((x) => x.i)"
+    assert run_js(["app.js", "restate.js"], expr, d) == [0]

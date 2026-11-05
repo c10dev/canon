@@ -334,6 +334,7 @@
 - 상태 승인 화면의 다시 맞추기 카드(`restateCard`: 요약 · 새 사실 · 새 복선만 고르기, 그대로 두기)
 - 서버는 `pipeline.apply_restate` · `keep_state`
 - 보내는 변경안(`restateBody`)은 고른 새 복선의 plant 근거 문장만 담는다 (`pipeline.apply_restate` 와 같은 규칙)
+- 고르기 칸(`rsItems`)은 변경안 안에서 같은 복선 id 가 두 번 오면 앞의 것만 보인다
 - 서버가 409(`stale_delta`)를 주면 기다림 상자를 닫고 묻는다. 확인하면 `?force=1` 로 다시 보낸다
 - 표시는 `Episode.final_text` (`edited_after_final` 과 같은 규칙, `tests/test_restate_js.py`)
 

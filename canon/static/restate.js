@@ -23,7 +23,7 @@ function rsItems(n) {
   const fs = new Set(P().foreshadows.map((f) => f.id));
   return {
     facts: d.new_facts.map((f, i) => ({ f, i })).filter((x) => x.f.trim() && !facts.has(x.f)),
-    plants: d.foreshadow_planted.map((f, i) => ({ f, i })).filter((x) => !fs.has(x.f.id)),
+    plants: d.foreshadow_planted.map((f, i) => ({ f, i })).filter((x) => !fs.has(x.f.id) && fs.add(x.f.id)),  // 같은 id 는 앞의 것만 (pipeline.apply_restate 와 같음)
     places: (d.new_places || []).map((f, i) => ({ f, i })),
   };
 }
