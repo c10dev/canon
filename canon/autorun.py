@@ -76,8 +76,8 @@ class Policy(BaseModel):
     max_style_distance: float = Field(0, description="작품 정착 문체에서 최근 화 평균 문체 거리(anchor.rolling)가 이만큼 넘으면 멈춤. "
                                      "0 이면 보지 않음. 정착 문체가 없으면 보지 않음")
     # 아래 칸은 모두 기본으로 꺼 둔다 (켜기 전 동작과 같게). 기본값을 조이는 것은 작가와 정한다
-    stop_on_new_characters: bool = Field(False, description="상태 변경안에 새 인물(new_characters)이 있으면 멈춤")
-    stop_on_secrets: bool = Field(False, description="상태 변경안에 새 비밀(secrets_added)이 있으면 멈춤")
+    stop_on_new_characters: bool = Field(False, description="상태 변경안에 새 인물(new_characters)이 있으면 멈춤. 이미 있는 인물 id 는 세지 않음")
+    stop_on_secrets: bool = Field(False, description="상태 변경안에 새 비밀(secrets_added)이 있으면 멈춤. 이미 있거나 겹친 비밀 id, 설정에 없는 인물의 비밀은 세지 않음")
     stop_on_resolve: bool = Field(False, description="상태 변경안이 열린 복선을 하나라도 회수하면 멈춤")
     stop_on_early_resolve: bool = Field(False, description="회수 예정 화(due_ep)보다 일찍 회수하거나 범위가 부 · 작품 전체(part · series)인 복선을 회수하면 멈춤")
     stop_on_deadline_done: bool = Field(False, description="상태 변경안이 열린 기한을 닫으면(deadlines_done) 멈춤")
@@ -345,11 +345,16 @@ def _story_reasons(p: Project, delta: StateDelta, policy: Policy, names: dict[st
     """새 인물 · 비밀 · 복선 회수 · 기한 닫힘 · 시간 건너뜀 · 지운 칸 정책. 모두 기본으로 꺼져 있다."""
     out: list[str] = []
     n = delta.episode
-    if policy.stop_on_new_characters and delta.new_characters:
-        who = ", ".join(c.name or c.id for c in delta.new_characters[:3])
-        out.append(f"새 인물 {len(delta.new_characters)}명이 나왔어요: {who}")
-    if policy.stop_on_secrets and delta.secrets_added:
-        out.append(f"새 비밀 {len(delta.secrets_added)}개가 생겼어요: {delta.secrets_added[0].content}")
+    # 반영(pipeline.apply_delta)이 더하지 않고 빼는 항목은 세지 않는다: 이미 있는 인물 id, 이미 있거나 같은 변경안에서 겹친 비밀 id, 설정에 없는 인물의 비밀
+    fresh = [c for c in delta.new_characters if c.id not in names]
+    if policy.stop_on_new_characters and fresh:
+        who = ", ".join(c.name or c.id for c in fresh[:3])
+        out.append(f"새 인물 {len(fresh)}명이 나왔어요: {who}")
+    owners = set(names) | {c.id for c in fresh}
+    seen = {s.id for s in p.secrets}
+    secrets = [s for s in delta.secrets_added if s.owner in owners and s.id not in seen and not seen.add(s.id)]
+    if policy.stop_on_secrets and secrets:
+        out.append(f"새 비밀 {len(secrets)}개가 생겼어요: {secrets[0].content}")
     if policy.stop_on_resolve or policy.stop_on_early_resolve:
         fs = {f.id: f for f in p.foreshadows if f.status == "open"}
         hits: list[str] = []

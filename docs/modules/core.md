@@ -13,6 +13,7 @@
 - 이야기 데이터 정책은 `_story_reasons` 가 본다. 모두 기본으로 꺼져 있어(0 · false) 켜기 전과 같이 돈다
 - 새 인물 멈춤(`Policy.stop_on_new_characters`, `StateDelta.new_characters`)
 - 새 비밀 멈춤(`Policy.stop_on_secrets`, `StateDelta.secrets_added`)
+- 새 인물 · 새 비밀 멈춤은 반영(`pipeline.apply_delta`)이 빼는 항목을 세지 않는다: 이미 있는 인물 id, 이미 있거나 겹친 비밀 id, 설정에 없는 인물의 비밀
 - 복선 회수 멈춤(`Policy.stop_on_resolve`): 작품에 열려 있는 복선만 센다
 - 이르거나 큰 복선 회수 멈춤(`Policy.stop_on_early_resolve`): 이번 화가 `due_ep` 보다 앞이거나 `scope` 가 part · series 인 복선
 - 기한 닫힘 멈춤(`Policy.stop_on_deadline_done`): 작품에 열려 있는 기한만 센다

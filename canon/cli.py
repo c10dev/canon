@@ -1227,9 +1227,9 @@ def _print_delta(d: StateDelta) -> None:
 
 def _print_relation_preview(p: Project, d: StateDelta, hold: bool = False) -> None:
     """변경안을 복사본에 반영해 계산된 관계를 미리 보여 준다. hold 면 -y 반영처럼 features.hold 로 뺀 제안은 빼고 계산한다."""
-    sim = p.model_copy(deep=True)
+    # 변경안도 복사한다. apply_delta 가 변경안을 고치므로(뺀 항목을 dismissed 로) 그대로 쓰면 실제 반영이 뺀 항목을 알리지 못한다
+    sim, d = p.model_copy(deep=True), d.model_copy(deep=True)
     if hold:
-        d = d.model_copy(deep=True)
         features.hold(sim, d)
     pipeline.apply_delta(sim, d)
     text = dynamics.describe_relations(sim, numbers=p.settings.show_numbers)
