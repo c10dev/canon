@@ -158,7 +158,7 @@ Object.assign(actions, {
     render();
   },
   async learnRun() {
-    await run('수정 기록에서 규칙을 찾는 중… (최대 1분)', async () => {
+    await run('수정 기록에서 규칙을 찾는 중…', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/style/learn`);
       S.learnPicks = {};

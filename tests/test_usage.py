@@ -183,6 +183,77 @@ def test_rate_limit_waits_and_calls_again(pauses):
     assert isinstance(llm.json("s", "p", StyleProfile), StyleProfile) and llm.last_attempts == 1
 
 
+def test_retry_wait_is_told_to_job_line(pauses):
+    """요청 한도로 기다리거나 응답 지연으로 다시 부르면 작업 진행 줄(cancel.say → Job.retry)에 알리고, 받으면 비운다."""
+    from canon import cancel
+
+    said = []
+    tok = cancel.notice.set(said.append)
+    try:
+        assert fake_gemini([_limited(), _limited(), "본문"]).text("s", "p") == "본문"
+        assert said == ["AI 요청 한도에 걸려 30초 기다려요 (1/3)", "AI 요청 한도에 걸려 60초 기다려요 (2/3)", ""]
+        said.clear()
+        assert fake_gemini([_timed_out(), "본문"]).text("s", "p") == "본문"
+        assert said == ["AI 응답이 늦어 다시 불러요", ""]
+        said.clear()
+        assert fake_gemini(["본문"]).text("s", "p") == "본문"
+        assert said == []  # 다시 부르지 않은 호출은 진행 줄을 건드리지 않는다
+    finally:
+        cancel.notice.reset(tok)
+
+
+def test_bad_key_is_korean_and_not_retried(pauses):
+    """키가 틀리면(400 API_KEY_INVALID, 403) 다시 부르지 않고 영어 원문 대신 설정 안내(BadKey)를 낸다."""
+    from google.genai import errors
+
+    from canon.llm import KEY_HINT, BadKey
+
+    bad = errors.ClientError(400, {"error": {"code": 400, "message": "API key not valid. Please pass a valid API key.",
+                                             "status": "INVALID_ARGUMENT", "details": [{"reason": "API_KEY_INVALID"}]}})
+    denied = errors.ClientError(403, {"error": {"code": 403, "message": "Permission denied", "status": "PERMISSION_DENIED"}})
+    for e in (bad, denied):
+        llm = fake_gemini([e, "본문"])
+        with pytest.raises(BadKey) as got:
+            llm.text("s", "p")
+        assert str(got.value) == KEY_HINT and "API 키" in KEY_HINT
+        assert pauses == [] and llm.client.models.replies == ["본문"]
+    from canon.llm import VERTEX_HINT
+
+    llm = fake_gemini([denied])
+    llm.vertex = True  # Vertex 는 키가 아니라 서비스 계정 권한을 말한다
+    with pytest.raises(BadKey) as got:
+        llm.text("s", "p")
+    assert str(got.value) == VERTEX_HINT
+
+
+def test_bad_key_web_answer():
+    """웹은 BadKey 를 code bad_key 와 한국어 안내로 돌려준다 (화면이 설정을 열지 묻는다)."""
+    import asyncio
+    import json as _json
+
+    from canon import web
+    from canon.llm import KEY_HINT, BadKey
+
+    r = asyncio.run(web._bad_key(None, BadKey(KEY_HINT)))
+    assert r.status_code == 400 and _json.loads(r.body) == {"detail": KEY_HINT, "code": "bad_key"}
+
+
+def test_job_public_has_retry():
+    from canon import jobs
+
+    job = jobs.Job(id="x", project="p", kind="write", ep=1, label="1화 집필")
+    job.say("AI 응답이 늦어 다시 불러요")
+    assert job.public()["retry"] == "AI 응답이 늦어 다시 불러요"
+    # 다른 스레드(함께 부르는 검수 뽑기)가 비워도 이 스레드의 사정은 남는다
+    import threading as _t
+    w = _t.Thread(target=lambda: (job.say("AI 요청 한도에 걸려 30초 기다려요 (1/3)"), job.say("")))
+    w.start()
+    w.join()
+    assert job.retry == "AI 응답이 늦어 다시 불러요"
+    job.say("")
+    assert job.retry == "" and job.retries == {}
+
+
 def test_rate_limit_gives_up_with_clear_message(pauses):
     """끝내 429 면 5분 안에서 기다린 뒤 해요체 안내로 멈춘다. 웹 작업 오류도 같은 글이다."""
     from canon.llm import RATE_HINT, RATE_WAITS, RateLimited
