@@ -216,3 +216,60 @@ def test_fix_batch_view():
     assert "고른 2개 넣기" in got["all"]  # 넣을 수 있는 f1 · f2 만
     assert got["clash"] == {"f2": "f1"} and "같은 문장을 바꿔요" in got["clashView"]
     assert got["on"] == ["1:f1"] and "고른 1개 넣기" in got["after"] and "같은 문장을 바꿔요" not in got["after"]
+
+
+CHK_FILES = ["app.js", "home.js", "branches.js", "style.js", "plot.js", "write.js", "review.js", "chat.js", "passage.js", "rewrite.js",
+             "restate.js", "opening.js", "auto.js", "marks.js", "check.js", "flow.js"]
+CHK_SETUP = """S.project = data; S.name = 't'; S.route = ['p', 't', 'check', '1'];
+  render = () => {};
+  const toasts = [];
+  toast = (m, err, opt) => toasts.push([m, !!err, ((opt || {}).actions || []).map((a) => a.label)]);"""
+
+
+def check_project():
+    from canon.schema import Meta, Project
+    return dump(Project(meta=Meta(title="t", target_episodes=3), episodes=[session()]))
+
+
+@needs_node
+def test_note_draft_kept_until_saved():
+    """메모 초안은 지적마다 남는다. 저장이 실패하면 초안을 그대로 두고 저장했다고 알리지 않는다. 성공하면 그 지적의 초안만 지운다."""
+    got = run_js(CHK_FILES, """(async () => {
+      %s
+      const e = ep(1);
+      S.chkNotes = { '1:f2': '새 메모', '1:f3': '다른 메모' }; S.chkNotesOf = 't';
+      syncNoteDraft();  // 메모 칸 입력이 하는 일
+      const html = chkDetail(1, e, e.text, 'f2');
+      api = async () => { throw new Error('저장하지 못했어요'); };
+      await actions.saveFindingNote('f2');
+      const failed = { notes: { ...S.chkNotes }, draft: !!S.editDrafts.chkNote, toasts: toasts.splice(0) };
+      api = async (m, path, body) => { const pj = structuredClone(data); pj.episodes[0].findings[1].note = body.note; return pj; };
+      await actions.saveFindingNote('f2');
+      const saved = { notes: { ...S.chkNotes }, draft: !!S.editDrafts.chkNote, note: ep(1).findings[1].note, toasts: toasts.splice(0) };
+      await actions.saveFindingNote('f3');
+      return { html, failed, saved, last: { notes: S.chkNotes, draft: 'chkNote' in S.editDrafts } };
+    })()""" % CHK_SETUP, check_project())
+    assert 'data-chk-note="1:f2">새 메모</textarea>' in got["html"]
+    assert got["failed"]["notes"]["1:f2"] == "새 메모" and got["failed"]["draft"] is True
+    assert got["failed"]["toasts"] == [["저장하지 못했어요", True, []]]
+    assert "1:f2" not in got["saved"]["notes"] and got["saved"]["note"] == "새 메모"
+    assert got["saved"]["draft"] is True  # f3 초안이 아직 남았다
+    assert got["saved"]["toasts"] == [["메모를 저장했어요", False, []]]
+    assert got["last"] == {"notes": {}, "draft": False}
+
+
+@needs_node
+def test_recheck_outcome_is_not_error():
+    """이 지적만 다시 검수의 보통 결과(아직 어긋남 · 딸린 지적 더함)는 오류 알림이 아니다."""
+    got = run_js(CHK_FILES, """(async () => {
+      %s
+      saveIfDirty = async () => {}; flushText = async () => {};
+      run = async (label, fn) => fn();
+      api = async () => structuredClone(data);
+      await actions.chkRecheck('f4');
+      api = async () => { const pj = structuredClone(data); pj.episodes[0].findings.push({ ...pj.episodes[0].findings[3], id: 'f5', parent: 'f4' }); return pj; };
+      await actions.chkRecheck('f4');
+      return toasts;
+    })()""" % CHK_SETUP, check_project())
+    assert got[0] == ["아직 어긋나요. 처리 기록에 까닭을 남겼어요", False, ["처리 기록 보기"]]
+    assert got[1] == ["고친 문장 때문에 새로 어긋난 곳 1개를 딸린 지적으로 더했어요", False, []]
