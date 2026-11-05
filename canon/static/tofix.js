@@ -132,6 +132,29 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+// 버리고 이동을 고르면 메모 칸을 닫고 적던 글을 버린다 (app.js onEditDiscard)
+if (typeof onEditDiscard === 'function') onEditDiscard('tofix', () => { S.tofixEdit = null; });
+
+/** 고칠 곳 화면의 메모 칸에 저장하지 않은 글이 있으면 S.editDrafts.tofix 를 켠다 (app.js hasUnsaved 가 떠나기 전에 묻는다) */
+function tofixDraftMark() {
+  const t = S.tofixEdit;
+  let on = false;
+  if (t && t.name === S.name && t.note != null) {
+    const { n, id } = tofixArg(t.key);
+    const m = ((ep(n) && ep(n).to_fix) || []).find((x) => x.id === id);
+    on = t.note.trim() !== ((m && m.note) || '').trim();
+  }
+  (S.editDrafts ||= {}).tofix = on;
+}
+
+// 고칠 곳 화면의 메모 칸: 적는 글을 S.tofixEdit 에 둔다. 거르기를 바꿔 다시 그려도 칸이 비지 않는다
+document.addEventListener('input', (e) => {
+  const k = e.target.dataset && e.target.dataset.tofixNote;
+  if (k === undefined || !S.tofixEdit || S.tofixEdit.key !== k) return;
+  S.tofixEdit.note = e.target.value;
+  tofixDraftMark();
+});
+
 // 고칠 곳 화면의 메모 칸: Ctrl+Enter 저장, Esc 취소
 document.addEventListener('keydown', (e) => {
   const k = e.target.dataset && e.target.dataset.tofixNote;
@@ -310,8 +333,8 @@ Object.assign(actions, {
   async tofixDelete(arg) {
     const { n, id } = tofixArg(arg);
     const m = (ep(n).to_fix || []).find((x) => x.id === id);
-    if (m && m.note && !(await askConfirm('메모가 있는 고칠 곳이에요. 지울까요?', { ok: '지우기', danger: true }))) return;
-    tofixCall('DELETE', n, `/${enc(id)}`, undefined, '지웠어요');
+    if (!(await askConfirm(m && m.note ? '메모가 있는 고칠 곳이에요. 지울까요?' : '이 고칠 곳을 지울까요? 본문은 그대로예요.', { ok: '지우기', danger: true }))) return false;
+    return tofixCall('DELETE', n, `/${enc(id)}`, undefined, '지웠어요');
   },
   tofixFilter(k) {
     S.tofixFilter = k;
@@ -330,11 +353,13 @@ Object.assign(actions, {
   /** 고칠 곳 화면: 그 줄만 메모 칸을 편다 (Card 읽기 먼저) */
   tofixNoteEdit(arg) {
     S.tofixEdit = { name: S.name, key: String(arg), note: null };
+    tofixDraftMark();
     S.focusTarget = `[data-tofix-note="${CSS.escape(String(arg))}"]`;
     render();
   },
   tofixNoteCancel(arg) {
     S.tofixEdit = null;
+    tofixDraftMark();
     S.focusTarget = `[data-action="menuToggle"][data-arg="tf-${CSS.escape(String(arg))}"]`;
     render();
   },
@@ -345,6 +370,7 @@ Object.assign(actions, {
     if (S.tofixEdit) S.tofixEdit.note = el ? el.value : null;  // 저장이 실패하면 고치던 글을 남긴다
     if (!(await tofixCall('PUT', n, `/${enc(id)}`, { note }, '메모를 저장했어요'))) return;
     S.tofixEdit = null;
+    tofixDraftMark();
     S.focusTarget = `[data-action="menuToggle"][data-arg="tf-${CSS.escape(String(arg))}"]`;
     render();
   },

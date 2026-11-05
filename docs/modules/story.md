@@ -359,6 +359,7 @@
 - 턴마다 단계 줄 · 바로 쓴 것(항목 · 턴 되돌리기) · 승인 카드 · 되묻기 카드
 - 입력 상자(+ 재료, `/` 빠른 요청 `AGENT_CMDS`, 보내기 · 멈추기)와 상태 줄(권한 모드 · 대상 · 모델 · 단계 상한)
 - 진행은 `pollJobs` 가 `agentJobUpdate` 로 알린다
+- 화면 낭독기에 알릴 새 답은 `agentLastReply`(끝났거나 묻는 중인 턴의 답)이고 `chat.js` `chatAnnounce` 가 알린다
 - 권한 이름 `AGENT_MODES` · `AGENT_KINDS` 는 `agent.MODE_LABELS` · `KIND_LABELS` 와 같다(`tests/test_agent_js.py`)
 
 ### `canon/static/anchor.js`
@@ -400,6 +401,9 @@
 - 시점 띠가 400px 이하 칸이면 글에서 '반영 뒤'(`.cast-bar-after`)를 빼 화 번호가 잘리지 않게 한다
 - 관계도 `castMapPage`(SVG, 화별 재생, 칸 폭에 맞추고 크게 보기 `CAST_ZOOM`, 누르면 고르기만 `castMapPick` · 고른 줄 `castMapSel`, 끌어 옮긴 배치는 localStorage)
 - 인물 끌기가 끊기면(`pointercancel`) `castDrag` 를 지운다
+- 관계도 선(`.cg-edge`) · 긴장 점(`.cg-tension`) · 추이 그래프 칸(`.cc-col`)도 `tabindex="0"` · `role="button"` · `aria-label` 을 달고 Enter · Space 로 누른다
+- 추이 그래프 SVG 는 안에 버튼이 있어서 `role="group"` 이다
+- 시점 · 크기를 바꿔 관계도나 쪽을 다시 그리면 포커스를 같은 `data-action` · `data-arg` 요소로 돌린다(`castSwap`)
 - 640px 이하 관계도는 600px보다 좁게 줄이지 않고 옆으로 굴린다(이름이 5px로 줄지 않게, app.css)
 - 관계도 온기 다섯 단계 선 색은 `WARMTH_BANDS`(적대 `--warm-hostile`, 반감 `--bad`, 무덤덤 `--warm-mid`, 호감 `--good`, 아낌 `--warm-deep`)
 - 인물 쪽 `castCharPage`
@@ -409,6 +413,7 @@
     - AI 제안 동작은 `research.js` `bodyAI`
   - 타임라인(앞뒤 `CAST_TL_NEAR` 화)
 - 두 사람 쪽 `castPairDetail`(추이 그래프 · 보정 · 호칭)
+- 관계 보정 `tieFix` 는 저장하지 않은 변경이 있으면 저장하고 보정할지 먼저 묻는다
 - 등장표
 - 인물 원은 목차 24 · 줄 36 · 머리 64px(`castAva`)
 - 온기 색 구간은 `dynamics.warmth_word` 경계와 같다(`tests/test_labels_js.py`)
@@ -448,6 +453,11 @@
   - 줄마다 `fsTrack`
   - 거르기는 Seg `S.fsTab` · `S.fsScope` → 앞으로 회수할 것 `fsAheadCard`
 - 복선 하나(`fsDetail`: 축 → 본문에 걸린 문장과 흐름 `fsFlowCard` → 회수 계획 읽기 카드 `fsPlanCard`, 고치기 `S.fsEdit`, 회수로 표시 `S.fsResolving`)
+- 더하기 칸과 회수 계획 칸에 적던 값은 `S.fsAddDraft` · `S.fsEditDraft` 에 두어 다시 그려도 남는다(`fsDraftInput`)
+- 그 칸에 저장하지 않은 글이 있으면 `S.editDrafts.fs` 를 켠다(`fsDraftMark`)
+- 더하기 · 저장 · 회수로 표시는 서버가 받은 뒤에만 칸을 닫는다(`fsCall` 의 `done`, 실패하면 다시 그리지 않음)
+- `fsCall` 과 `fsLinkSave` 는 저장하지 않은 변경이 있으면 먼저 묻는다(`fsAskSave`, 취소하면 보내지 않음)
+- 연결 지우기(`fsClueDrop`)는 먼저 묻는다
 - 본문에서 고른 문장을 거는 칸은 본문 부분 수정 도구(`passage.js` `#sel-tool`)의 mode 'foreshadow'
   - `fsLinkShow` · `fsLinkHtml`: 이미 있는 복선 찾기 · 이 화 가까이 나온 후보 `fsCandidates` / 새 복선
   - 고치는 본문은 메뉴에 '복선으로 걸기'
@@ -476,6 +486,7 @@
 - 칸 폭 560px 아래는 세로 노선도 `lineMapTall`
 - 줄기 하나(`lineDetail`): 앞뒤만 크게 그린 노선도 `lineZoomMap`(한 화 44) → 줄기 내용 읽기 카드 `lineInfoCard`(고치기 `S.lineEdit`) → 붙은 화 `lineEpsCard`
 - 화 붙이기는 붙은 화 카드의 메뉴: 붙이는 방식 `S.lineTagRole`, 가까운 화 후보 `lineCandidates`, 번호 칸
+- 줄기 지우기 `lineDelete` 는 저장하지 않은 변경이 있으면 지우기 확인 뒤 저장하고 지울지 한 번 더 묻는다
 - 쪽을 옮길 때 해시 대신 `history.replaceState`(`lineGoTo`)라 저장하지 않은 고침을 묻지 않는다
 - `lineOrder` · `lineTodo` 는 순수 함수(`tests/test_lines_js.py`)
 - CSS 는 JS 에서 주입(노선도 기본 모양 `.line-map` · `.lm-*` 은 app.css, 인물 화면 등장표도 쓴다)
@@ -504,6 +515,8 @@
 - 집필 화면 본문 띠의 분할 복사 버튼(`copySplit`: 복사 + ▾ 메뉴 `copyMenu` 의 줄바꿈 형식 · 제목 줄 · .txt)과 '여러 화 내보내기' 대화상자(`exportDialogHtml`)
 - 텍스트와 HTML 을 함께 클립보드에 넣는다(보안 연결이 아니면 복사 이벤트로)
 - 클립보드가 막히면 .txt 내려받기
+- `exportAll`: 다음 할 일 '완결 원고 내보내기'(`home.js` `nextStep`)가 부른다. 범위를 본문이 있는 첫 화 ~ 마지막 화로 두고 형식 목록이 없으면 받아 같은 대화상자를 연다
+- 집필 화면 밖(작품 홈)에서 연 '여러 화 내보내기' 대화상자는 형식을 '집필 화면의 복사 ▾ 메뉴'에서 바꾼다고 알린다
 
 ### `canon/static/setupchat.js`
 
@@ -541,6 +554,11 @@
 - 공용 목차 틀(`outline.js`, 목차 `tlTocHtml`: 지금 · 기한 · 시간 흐름 묶음 · 설정, 스크롤로 `S.tlCur`)
 - 지금 `tlNowCard`: 마지막 반영 화 끝 시점과 앞으로 열흘 띠
 - 기한 `tlDlCard`: 나눔 버튼 `S.tlDlTab`, 줄마다 ⋯ 메뉴, 지난 기한은 닫기 · 날 바꾸기
+- 기한 칸에 적던 값은 `S.tlDraft` 에 두어 다시 그려도 남는다
+- 기한 칸에 저장하지 않은 글이 있으면 `S.editDrafts.tl` 을 켠다(`tlDraftMark`)
+- 기한 칸은 서버가 받은 뒤에만 닫는다(`tlPut` 의 `form`, 실패하면 다시 그리지 않음)
+- 다른 기한의 닫기 · 다시 열기는 열린 기한 칸을 닫지 않는다
+- 기한 저장(`tlPut`)과 지우기는 저장하지 않은 변경이 있으면 먼저 묻는다(`tlAskSave`, 취소하면 보내지 않음)
 - 시간 흐름 `tlGroupCard`: 아크 · 기승전결 구간마다 읽기 카드, 고치기 `S.tlEditGroup`, 접기 `S.tlFold`
 - 설정 `tlSetCard`: 읽기 카드, 고치기 `S.tlSetEdit`
 - `tlGroups` · `tlDeadlineRows` · `tlShort` 는 순수 함수(`tests/test_timeline_js.py`)
@@ -553,6 +571,9 @@
 - 거르기는 머리의 나눔 버튼(Seg)이다
 - 줄은 앞뒤 문맥과 함께 보인다(`tofixContext`)
 - 메모는 읽는 글이고 ⋯ '메모 고치기'로 그 줄만 칸을 편다(`S.tofixEdit`, Ctrl+Enter 저장 · Esc 취소)
+- 고치던 메모는 `S.tofixEdit.note` 에 두어 다시 그려도 남는다
+- 고치던 메모가 원래 메모와 다르면 `S.editDrafts.tofix` 를 켠다(`tofixDraftMark`)
+- 지우기(`tofixDelete`)는 메모가 없어도 먼저 묻는다
 - 본문 도구의 '나중에 고치기'와 메모 칸(`showTool` 을 감싼다, mode `tofix`)
 - 밑줄(`tofixRanges` 를 `marks.js` `allRanges` 가 함께 그림)
 - 집필 화면 본문 띠의 '고칠 곳 N'(`tofixBtn`, `tofixNext`)

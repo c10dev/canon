@@ -28,7 +28,8 @@ class UsageBucket(_Out):
     unpriced: int = 0
     seconds: float = 0.0
     batch: int = 0
-    cache_rate: float = Field(0.0, description="캐시 토큰 / 입력 토큰 (0~1). 입력이 없으면 0")
+    resent: int = Field(0, description="한 호출 안에서 다시 보낸 입력 어림값. cache_rate 를 셀 때 in · cached 에서 뺐다")
+    cache_rate: float = Field(0.0, description="캐시 토큰 / 입력 토큰 (0~1, 다시 보낸 입력은 뺌). 입력이 없으면 0")
     seconds_avg: float = Field(0.0, description="호출당 평균 초")
 
 

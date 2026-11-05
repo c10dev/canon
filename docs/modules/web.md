@@ -32,7 +32,19 @@
 - 반영 취소(`revertFrom`)는 뒤 화들의 반영 기록이 검토를 기다리는 변경안으로 남으니(`web._revert_kept`) 취소 뒤 `loadPending` 으로 받는다
 - 서버 오류 문구 `fmtErr`: 검증 오류(detail 이 목록)는 영어 원문 대신 `VALIDATION_REASON`(web.py `_VALIDATION_REASON` 과 같음, `tests/test_fmterr_js.py`)과 칸 이름 `FIELD_NAME` 으로 쓴다
 - 저장하지 않고 이동하면 묻는 창은 작품 변경만 있을 때 '저장하고 이동'(askConfirm 의 `alt`)을 주 버튼으로 준다
+- 화면 이동 확인은 `leaveUnsaved`(작품 · 라이브러리 · 장면 연출 변경, `S.editDrafts`)를 본다
+- 새로고침 · 탭 닫기(`beforeunload`)는 `hasUnsaved` 를 본다: `leaveUnsaved` 에 본문 초안 · 지시서 결과 · 상태 변경안 · 문체 예시 · 가격표(`S.priceDirty`)를 더한다
+- 가격표는 화면을 옮겨도 남아(`pricesLoad`) 화면 이동 확인에는 넣지 않는다
+- `S.editDrafts` 약속: 인라인 편집기를 가진 모듈은 저장하지 않은 입력이 생기면 `S.editDrafts.<키>` 를 true 로, 저장 · 버리기 · 닫기 때 false 로 둔다
+- `S.editDrafts` 의 키는 그 모듈이 정한다. `app.js` 는 키를 쓰지 않고 true 인 값이 있는지만 본다(`editDraftOpen`)
+- 화면 이동이 이어지면(버리고 이동을 골랐거나 남은 입력이 없음) `app.js` 가 `S.editDrafts` 를 `{}` 로 비운다. 떠난 화면의 편집기는 이미 사라졌다
+- 버리고 이동을 고르면 true 인 키마다 그 모듈이 `onEditDiscard(키, 함수)` 로 맡긴 함수를 불러 초안도 버린다(`discardEditDrafts`). 돌아왔을 때 버린 글이 되살아나지 않는다
 - `showError` 는 키 없음(`no_key`)과 키 틀림(`bad_key`) 모두 설정을 열지 묻는다
+- `run` 이 실패를 알릴 때 다시 시도할 만한 실패(`retryable`: status 0 · 429 · 5xx)면 같은 `run(label, fn, opt)` 을 다시 부르는 '다시 시도'를 붙인다
+- `run` 의 `opt.retry: false` 는 '다시 시도'를 붙이지 않는다. 저장하고 이동(hashchange)이 쓴다: 저장만 되풀이하면 이동이 이어지지 않는다
+- 기다리지 않기(`aborted`) · 입력 확인(4xx) · 화면 안에서 던진 오류에는 '다시 시도'를 붙이지 않는다
+- `showError` 는 글에 API 키 · 연결이 있으면 '설정'을 붙인다(`hub.js` `hubAttention` 과 같은 기준)
+- 서버에 닿지 못한 실패(status 0)에는 '설정'을 붙이지 않는다. AI 설정으로 고칠 수 없다
 - 보통 알림 `toast` 는 글 길이만큼(`toastLife`, 최대 10초) 남고 마우스 · 포커스가 있으면 멈춘다. 동작 버튼(`.t.act`)을 붙일 수 있고, AI 작업이 끝나면 결과 화면이 아닐 때 '가서 보기'를 붙인다
 - `proposalActions(drop, apply, label, disabled)` 는 AI 제안 버튼 줄 하나뿐이다. 인물 설정 · 신체 · 호칭 · 설정 기록 · 장면 연출 비교도 이것을 쓴다
 - 상태 `S`
@@ -67,7 +79,7 @@
 - 4 · 5 · 6 줄이 가리키는 화(`navEp`: 한 화 흐름 `FLOW_PAGES` · 작업지시서는 보는 화)
 - 900px 이하 위쪽 띠는 화면 위에 붙고 높이 `--band` 만큼 본문의 붙는 칸을 내린다
 - 서랍을 연 동안 뒤는 `inert`(`syncRail`)
-- body 바로 아래 층(칸 밖 저장 띠 `#savebar`, 알림 창 `#hub-pop`)도 서랍을 연 동안 `inert`다. 알림 말풍선 `#toast`는 낭독 영역이라 뺀다
+- body 바로 아래 층(칸 밖 저장 띠 `#savebar`, 알림 창 `#hub-pop`)도 서랍을 연 동안 `inert`다. 알림 말풍선 `#toast`(닫기 · 할 일 버튼)는 뺀다
 - 백그라운드 작업 · 검토 대기 결과
 - 검토 대기 상태 변경안에 초안이 있으면 `loadPending` 이 받은 그대로를 놓은 뒤 초안의 변경안 · 체크로 바꾼다(`restoreDeltaDraft`)
 - 초안을 되살려도 본문을 고쳤다는 알림은 그대로 뜬다
@@ -75,12 +87,17 @@
 - 멈춘 스토리보드 작업의 응답이 오면 `JOB_LATE.board` 가 남겼는지 알리고, 남겼으면 그 화를 다시 받는다
 - 짧은 기다림 가림막 `run`(`#busy`): 상자 이름은 작업 이름(`#busy-label`)이고, 1초마다 바뀌는 경과 초(`#busy-sec`)는 낭독하지 않는다
 - 알림 말풍선(`toast`, 작업 실패는 '다시 시도' · '설정' 버튼, 기록과 자리는 `hub.js`)
+- 말풍선 글은 `toastSay` 가 숨은 낭독 칸에 넣는다: 오류는 `#sr-alert`(`role=alert`), 보통 알림은 `#sr-live`(polite)
+- `toastSay` 는 글마다 새 줄을 덧붙이고 8초 뒤 지운다. 이어 온 알림도 모두 읽힌다
+- 저장 띠의 '저장하지 않은 변경이 있어요' 안내도 `toastSay` 로 덧붙인다
+- `#toast` 는 낭독 칸이 아니다. 알림 창이 열려 말풍선을 숨겨도 낭독은 들린다
 - 작업 목록을 받을 때마다 `notify.js` 의 `notifyJobs` 를 부르고, 탭 제목에 안 본 알림 수를 붙인다(`notifyTitle`)
 - 입력 바인딩(`data-bind`)
 - 공통 동작(`actions` 의 저장 · 되돌리기 · 작품 관리)
 - 펼침 메뉴(`menuBtn`, 열린 메뉴 `S.popMenu`, Esc · 바깥 누르기로 닫기)와 `#app` 밖 대화상자(`showDialog`)
 - 확인 대화상자 `askConfirm`(Promise<boolean>) · `askText`(Promise<string|null>): 브라우저 `confirm` · `prompt` 대신 쓴다(디자인 시스템 Dialog)
 - 확인 대화상자를 부르는 동작은 `async` 로 두고 `await` 로 답을 기다린다
+- `danger` 이고 `alt` · 입력칸이 없으면 첫 포커스는 취소 버튼이다. 열자마자 Enter 로 위험한 동작을 고르지 않게 한다
 - `confirmDrop` · `confirmRedraft` 도 Promise 를 돌려준다
 - 화면 이동 확인(저장하지 않은 변경): 묻는 동안 주소를 이전 주소로 되돌려 두고, 이동을 고르면 새 주소로 바꿔 이어 간다
 - 화면 파일에 브라우저 `confirm` · `prompt` 가 남지 않았는지 `tests/test_ask_js.py` 가 본다
@@ -105,6 +122,9 @@
 
 - 화면에 붙는 AI 대화 패널(플롯 대화는 `agent.js` 가 그린다)(901~1599px 은 사이드바를 레일로 접고 400px, 900px 이하는 아래 시트, 규칙은 `app.css` 의 `body.chat-open`. 기승전결 · 플롯 화면 `plot`, 집필 화면 `text:<화>`)
 - 답을 기다리는 줄은 경과 초를 1초마다 고치고(`chatWaitTick`), 5초가 지나면 '기다리지 않기'(`chatStop`, AbortController)를 보인다. 기다리지 않기는 오류가 아닌 보통 알림이다. 초는 알림 칸(role=status) 밖에 둔다
+- 보내기(`chatSend`)는 저장하지 않은 변경이 있으면 기다림 줄을 놓기 전에 묻는다. 취소하면 보내지 않고 쓴 글은 입력칸에 남는다
+- `#chat-log` 는 `role="log"` 이지만 패널을 통째로 다시 그려서 `aria-live="off"` 다
+- 새 AI 답만 패널 밖 숨은 알림 칸 `#chat-live`(role=status)에 넣는다(`chatAnnounce`, 처음 연 패널 · 다른 대화의 옛 답은 알리지 않음)
 - 변경안을 칸별로 지금 값과 비교해 보여 주고 고른 것만 반영 요청
 - 주제마다 요청 내용과 변경안 그리기를 `CHAT_TOPICS` 에서 바꿔 끼운다
 - 플롯 대화는 대상(`plotScope`: 고른 아크 · 다음 아크 초안, 연 구간 · 화)을 함께 보낸다
@@ -120,13 +140,18 @@
 - 지적 목록(탭: 모순 지적 · 초반 점검 `openingChecks` · 문체 지표 `GET …/style`, 심각도 순 · 딸린 지적은 부모 아래 `findingOrder`)
 - 본문(`draftBox` · `readHtml`, 지적 문장 밑줄 `findingRanges` 를 `marks.js` 의 `allRanges` 가 함께 그림, 바뀐 문장은 비슷한 문장 `nearQuote`)
 - 지적 상세(심각도 `setSeverity`, 처리 상태 `setFinding`, 메모, 처리 기록)
+- 메모 초안은 지적마다(`S.chkNotes`, 키 '화:id') 남아 다른 지적을 골라도 잃지 않는다
+- 저장한 메모와 다른 초안이 있으면 `S.editDrafts.chkNote` 를 켠다
+- `chkPut` 은 성공 여부를 돌려준다. 메모 저장이 실패하면 초안을 그대로 두고 저장했다고 알리지 않는다
 - 문장에서 뜨는 고치는 창(`fixPanel`, `passage.js` 떠 있는 도구 mode `finding`: 고침안 `fixGet` · 딸린 곳 빼기 `fixSkip` · 적용 `fixApply` · 묶음 되돌리기 `fixUndo` · 이 지적만 다시 검수 `chkRecheck` · 다른 처리 길)
+- 이 지적만 다시 검수의 결과(아직 어긋남 · 딸린 지적 더함)는 보통 알림이다. 아직 어긋나면 '처리 기록 보기' 버튼을 붙인다
 - 고침안 한꺼번에의 띠(`fbBar`): 열린 지적 모두 고침안 받기 `fixAll`(작업 `fixes`), 한꺼번에 검토 열기 `fbOpen`
 - 한꺼번에 검토 화면(`fbView`): 지적마다 고르기 `fbPick` · 안 고르기 `fbOpt` · 딸린 곳 `fbSkip` · 모두 고르기 `fbAll`
 - 같은 문장을 바꾸는 안 표시(`fbClash`), 넣기 `fbApply`(`POST …/fixes/apply`), 되돌리기 `fbUndo`
 - 고르기는 기본으로 켜지 않는다. 작업이 끝나면 `fixesJobResult` 가 검토 화면을 연다
 - `fbNeed` 는 서버 `pipeline.fix_targets` 와 같은 셈
 - 지난 검수 뒤 수정이 모두 고침안이면 머리의 주 버튼은 '고친 곳만 다시 보기 · 지적 N'(`fixRecheck`, 작업 `recheck`, 대상 `home.js` `fixRecheckTargets`)이고 다시 검수 버튼은 보조 버튼으로 남는다
+- `fixRecheck` 도 `app.js` `checkReady` 로 저장하지 않은 작품 변경을 먼저 묻고 본문을 저장한 뒤 작업을 시작한다
 - 그때 회차 띠 아래 안내(`chkStrip` 의 `fast`)는 고친 문장과 앞뒤 문단만 보낸다고 알린다. 작업 결과 알림은 `JOB_DONE_MSG.recheck`
 - 장면 연출 규칙 지적은 '규칙' 표시(`ruleChip`)와 '장면 연출에서 보기'(`stageLink`, `stgGo`)
 - 다시 검수 버튼은 '판정 다시 보기'(LLM 없음)
@@ -145,6 +170,8 @@
 - 한 화 흐름
 - 집필 · 검수 · 상태 승인 세 화면(주소 `write` · `check` · `review/<화>`)의 머리 아래 단계 띠(`flowBar`, 단계 글은 순수 함수 `flowSteps`, 이름 · 번호는 사이드바와 같음 `FLOW_STAGES`, 위치 줄 `flowEyebrow`)
 - '검수하기'(`flowCheck`: 검수 단계로 옮겨 검수, 첫 검수면 상태 변경안도 함께 `flowStateToo`, 끄기 `flowStateToggle` · localStorage `canon.flowState`)
+- `flowCheck` 와 `app.js` `checkEp`(다시 검수)는 검수를 시작하기 전에 저장하지 않은 본문 초안을 저장한다(`passage.js` `flushText`, `check.js` `fixAll` 과 같다)
+- 둘 다 `app.js` `checkReady` 를 쓴다: 저장하지 않은 작품 변경이 있으면 `startJob` 과 같은 물음으로 먼저 저장한 뒤 본문을 저장한다. 본문 저장이 `S.project` 를 서버 것으로 바꾸기 때문이다
 - `tests/test_flow_js.py`
 - `index.html` 에서 `check.js` 바로 뒤에 읽는다
 
@@ -161,12 +188,29 @@
   - 작품 없음은 `plStepsCard`
   - 서버 카드의 확인할 것 `alerts` · 부 · 아크 `where` · 화 칸 띠 `strip`(`web.list_projects`)
 - 다음 할 일 `nextStep`: 플롯 전이면 설정 필수 칸(`setupReqs`)이 빌 때 '설정 마저 채우기', 문체를 정하지 않았고 문체 화면에 안 들렀으면(`styleVisited`, localStorage `canon.styleVisited.<작품>`) 문체 정하기를 먼저 권한다
+- `nextStep` 은 [글, 주소, 동작, 동작 글]을 돌려준다. 동작과 동작 글은 있을 때만 붙는다
+- `nextStep` 의 글은 버튼 이름이라 동사이거나 화면으로 가는 '~로'다(자동 집필이 돌면 '자동 집필로')
+- 주소만 읽는 곳(사이드바 `workCard` · 팔레트 · 장편 플롯 머리 `serialHead`)은 [글, 주소]만 쓴다. 그래서 글은 그 주소로 가는 일에 맞춘다
+- 단편의 플롯 초안 화에서 다음 할 일 'n화 플롯 확정'은 그 화 플롯 페이지(`/arc/n`)로 간다
+- 장편의 플롯 초안 화에서 'n화 플롯 확정'은 아크 화면(`/arc`)으로 간다. `plot.js` `serialHead` 가 이 주소를 보고 '아크 N 초안 k화 모두 확정'을 primary 로 둔다
+- 모든 화를 반영하면 다음 할 일 버튼은 '완결 원고 내보내기'다(동작 글)
+- '완결 원고 내보내기'는 동작 `exportAll`(`publish.js`)을 부른다. 이 동작이 전체 범위로 '여러 화 내보내기' 대화상자를 연다
+- 모든 화를 반영했을 때 주소만 읽는 곳은 글 '완결 원고 보기'로 마지막 화 집필 화면에 간다
+- 버튼에 쓰는 글 `nextStepLabel`: 동작이 있으면 동작 글, 없으면 글
+- 다음 할 일 버튼 `nextStepHtml`: 동작이 있으면 `data-action` button, 없으면 a
+- `nextStepHtml` 은 작품 홈 머리와 집필 머리(`write.js` `nextStepBtn`)가 쓴다
+- 작품 홈 머리는 다음 할 일이 이야기 구조 화면(`/arc`, `/arc/n`, `isArcHref`)이면 이야기 구조 보조 버튼을 두지 않는다
+- 작품 홈 '다음 할 일' 카드는 자동 집필이 돌 때 제목을 '자동 집필이 n화를 쓰는 중이에요'로 쓴다. '자동 집필로'는 버튼과 링크에만 쓴다
+- 사이드바 자동 집필 메뉴 이름 `autoMenuLabel`: 돌면 '자동 집필 · 쓰는 중', 멈추면 그 까닭
 - 작품 목록 `projectGo` 는 플롯 전 작품의 설정 필수 칸이 비면(`setup_ready` false) '설정 마저 채우기'로 보낸다
 - `aiWarning` 은 Anthropic 키가 없거나(`claude_api` false) Claude 구독을 쓸 수 없으면(`claude` install · login · error) 첫 작업 전에 알린다
 - 작품 홈
   - 지금 화 `homeNowCard` · 확인할 것 `homeTodos`(말투 빈 인물 `homeSpeechGaps`, 시점 인물 서술 말투 빈칸 `homeVoiceGap`) · 전 화수 막대 `homeProgress` · 줄인 목록 `homeCast` · `homeForeshadows`
   - 계산 함수는 작품을 받는 순수 함수 `tests/test_home_js.py`
 - 장르 · 화 진행 막대와 연재 일정(`epSteps`, 검수 칸 `checkState`, 화를 열 단계 화면 `epStage`: 다음 할 일 · 화 칸 · 팔레트, 작품 목록 다음 할 일 `projectNext` 는 서버 `findings.check_done`, `releasePlan`, `Project.release`)
+- 연재 일정 줄의 'n화 올림으로 표시'(`releaseOne`)는 올린 화를 하나 늘려 저장한다
+- 저장한 뒤 알림에 '되돌리기'(`releaseUndo`)를 둔다
+- `releaseUndo` 는 같은 작품이 열려 있고 올린 화 값이 그사이 바뀌지 않았을 때만 하나 줄여 다시 저장한다
 - 고친 곳만 다시 볼 지적 `fixRecheckTargets`(서버 `findings.fix_recheck_targets` 와 같은 셈, `check.js` 머리 버튼이 쓴다)
 
 ### `canon/static/hub.js`
@@ -176,8 +220,9 @@
 - 손가락 기기에서는 알림 창 아래 'Esc로 닫아요' 안내를 비운다
 - AI 작업과 알림을 버튼 하나에 모은다
 - 버튼(`hubButton`, 사이드바 · 작품 밖 사이드바의 `#hub-slot`)
-- 버튼 아래 창(`#hub-pop`: 확인할 것 · 진행 중 · 최근 알림 · 접힌 끝난 작업과 지난 알림, `hubOpen` · `hubClose`)
+- 버튼 아래 창(`#hub-pop`: 확인할 것 · 진행하는 중 · 최근 알림 · 접힌 끝난 작업과 지난 알림, `hubOpen` · `hubClose`)
 - 말풍선과 창 자리(`placeHub`, `#toast`)
+- 실패한 작업 줄 제목은 '<작업> · 끝내지 못했어요'다(끝내지 못한 지난 시도 줄과 같은 꼴)
 - 알림 기록(`hubNote`, `S.notes`)
 - 버튼 모양과 창에 넣을 것은 순수 함수 `hubState`(`tests/test_hub_js.py` 가 node 로 맞춰 본다)
 - 검토 대기 결과 이름 · 화면 `HUB_RESULT` 는 `app.js` `PENDING_KINDS` 와 함께 고친다
@@ -318,6 +363,7 @@
   - 목차는 이웃 화 목록 `epTocItems`
   - 카드 한 열: 이어받는 것 · 줄거리 · 인물 · 시점 · 끝과 이음 · 복선 · 접은 화 도구
   - 사건마다 한 칸 `eventsField`
+  - 글이 있는 사건을 빼면(`dropEvent`) 저장 띠의 '방금 지운 n화 사건 k 되살리기'로 그 화 사건 목록을 빼기 전으로 돌린다(`rememberRemoved`)
   - 옮기기 전 저장 `openPlot` · `closePlot`
   - 저장 띠는 아래 붙는 버튼 줄의 `.savebar-slot`
 - 플롯 편집기 등장 인물(목차 계산 `tests/test_plot_js.py`)
@@ -385,6 +431,7 @@
   - 반영 `applyDelta`: 본문을 고친 것을 확인창에서 받았으면 `?force=1` 로 보낸다. 서버가 409(`stale_delta`)를 주면 기다림 상자를 닫고 한 번 더 묻는다
   - 왼쪽 읽기 전용 본문과 근거 밑줄 `rvRanges`
   - 오른쪽 직접 정할 것 · 요약 · 그대로 반영할 것(갈래 접기 `S.rvOpen`, 고른 수 `rvKeyCount`) · 관계 계산
+  - 관계 사건 종류 고르기는 색(`kindStyle`) 옆에 칩 `kindTag`(＋ 좋은 사건 · － 나쁜 사건, 기호는 `aria-hidden`)을 둔다. 종류를 바꾸면 칩도 맞춘다
   - 경고를 인물 줄에 붙이기 `rvWarnSplit`
   - 대상 인물 id(`StateDelta.warn_to`)가 있으면 그 인물 줄, 없으면(AI 경고 · 예전 변경안) 인물 이름으로 시작하는지로 붙인다
   - 인물 칸 그 자리에서 펴기 `rvOpen`
@@ -419,6 +466,8 @@
   - 키만 줄 안 '키 저장'
   - 글 칸 `textRow`(모델 이름 · 주소 · 경로)는 휴대폰 키보드 자동 대문자 · 고치기를 끈다
   - 작품별 단계 값 `projectStage`
+  - '프리셋으로 채우기'는 지금 칸이 어느 프리셋과도 다르면(직접 고른 조합) 덮기 전에 묻고, 그만두면 고른 값을 되돌린다
+  - 프리셋으로 채운 뒤 그 줄에 '되돌리기'(`setPresetUndo`, `SET.undo`)가 생겨 고르기 전 단계 칸을 다시 저장한다. 단계 칸을 손으로 고치거나 대화상자를 다시 열면 사라진다
   - 단계 줄의 추론 강도 칸 `effortSelect`: Claude · Gemini 단계에만, 목록은 백엔드가 받는 값(`effortOptions`)
   - Claude 로그인 줄 `claude.js` · Vertex 줄 `vertex.js`
   - Claude 구독 계정 줄(`claudeAccountRow`, 같이 · Canon 전용)과 '로그인 시작' · '로그아웃'(`claude.js`, 띄운 뒤 3초마다 상태를 다시 봄)
@@ -469,11 +518,19 @@
   - 머리 높이 `syncWriteTop`
   - 머리 줄에 지금 본문을 쓴 모델(`.w-model`, `writerLabel`). 기록이 없는 화는 보이지 않는다
   - 머리 ⋯ 메뉴 `writeMenu`: 생성 방식 · 컨텍스트 대화상자 · 채팅 앱 작업지시서 .md 내려받기(`briefDownload`) · 화 지우기
+  - 640px 이하 머리(`.w-head`)는 ⋯ 메뉴와 primary 만 남긴다(app.css)
+  - 640px 이하에서 대화 · 다시 생성 버튼은 ⋯ 메뉴 맨 위(`.w-narrow`)로 옮긴다
+  - 640px 이하에서 머리의 위치 줄과 쓴 모델은 숨긴다
+  - 640px 이하에서 단계 띠는 한 줄 칸이다
+  - 640px 이하에서 안내만 하는 반영 끝난 화 알림은 첫 문장을 요약으로 둔 접은 칸(`finNote`, `.w-fin-s`)이다
+  - 640px 이하에서 Esc 로 대화를 닫아 포커스가 비면 ⋯ 메뉴 버튼으로 돌린다(머리 줄의 대화 버튼이 숨어 있어서)
+  - 반영이 끝난 화의 머리 primary `nextStepBtn` 은 지금 보는 화면으로 가는 일이면 두지 않는다
+  - 동작이 있는 다음 할 일(완결 원고 내보내기)은 `nextStepBtn` 이 늘 둔다
   - 본문 없는 화는 AI로 쓰기가 기본이고 머리 primary(`writeGo`, 스토리보드를 만든 화는 `boardGo`, 작업이 돌면 진행 줄 `wsBusy`)와 그 아래 쓰기 시작 칸(`writeStart`: 스토리보드 고르기 `S.wsBoard` · 직접 쓰기 · 컨텍스트)
   - 직접 쓰기(`startManual`)로 빈 칸을 연 화는 본문 칸 위 `manualNote` 의 'AI로 쓰기로 돌아가기'(`backToStart`)로 쓰기 시작 칸에 돌아간다. 쓴 글이 있으면 묻고 임시 보관 초안도 지운다. 그 화에 AI 작업이 돌면 끈다
   - 멈춘 작업이 그 화에서 AI 응답을 기다리면 `writeGo` 가 primary 를 잠그고 쓰기 시작 칸과 만든 스토리보드 칸이 `epWaitNote` 로 까닭을 보인다
   - 본문 띠의 저장 칸 `.savebar-slot`
-  - 쓰기가 본문 앞뒤에서 뗀 작업 설명(`Episode.meta_cut`)은 접은 알림 `metaCutNote`: 문단마다 '본문에 되살리기'(`metaCutRestore`, 수정 기록에 남음) · '지우기'(`metaCutDrop`). 자동 집필 중이거나 고칠 수 없는 화는 버튼 없이 보기만(`tests/test_meta_cut.py`)
+  - 쓰기가 본문 앞뒤에서 뗀 작업 설명(`Episode.meta_cut`)은 접은 알림 `metaCutNote`: 문단마다 '본문에 되살리기'(`metaCutRestore`, 수정 기록에 남음) · '지우기'(`metaCutDrop`, 되살릴 수 없다고 위험 확인을 묻는다). 자동 집필 중이거나 고칠 수 없는 화는 버튼 없이 보기만(`tests/test_meta_cut.py`)
 - 그 화 플롯이 없으면 `noEpisode(n)` 이 몇 화까지 있는지와 마지막 화 · 플롯 만들기로 가는 길을 보인다. 플롯이 하나도 없을 때만 '아직 화별 플롯이 없어요'
 - k화로 가는 링크 `epGo(k)`: 플롯 초안이면 플롯 페이지(플롯 확정), 본문이 있으면 검수 · 상태 승인, 나머지는 집필. 순서 안내(`orderNote`)와 검수 · 상태 승인의 빈 화면이 쓴다
 - 본문 다시 생성 확인은 지금 본문이 이전 판으로 남는다고 말하고 위험 버튼으로 두지 않는다

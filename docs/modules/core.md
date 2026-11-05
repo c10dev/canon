@@ -239,6 +239,7 @@
 - 프롬프트 `prompts.fix_prompt` · `recheck_prompt`(앞부분은 검수와 같은 `check_material`)
 - 고친 곳만 다시 보기: `pipeline.recheck_fixed` 가 대상 지적을 한 번의 호출(LLM `FixRecheckReport`, 단계 check)로 다시 묻고 `apply_fix_recheck` 가 지적마다 `settle` 한다. 회차는 늘지 않는다
 - 고친 곳만 다시 보기 프롬프트 `prompts.fix_recheck_prompt` 는 검수 자료 전체 대신 `static_context`(검수와 같은 앞부분)와 고친 곳 둘레 문단(`fix_around`, 앞뒤 `FIX_AROUND` 문단)만 넣는다
+- `recheck_fixed` 는 `static_context` 길이를 캐시 경계(`llm.PREFIX_HINT`)로 넘긴다. 검수 호출과 스키마가 달라 검수의 캐시는 읽지 못한다
 - `recheck_fixed` 는 묻지 않은 id 와 같은 id 의 두 번째 답을 버린다. 규칙 지적은 LLM 없이 `recheck_finding` 으로 판정만
 - 고친 곳 둘레(`_fix_spots`)는 고친 글이 본문에 여러 번 나오면 기록한 자리(`TextEdit.start`)에 가장 가까운 곳을 고른다
 - 웹 작업 `recheck` 는 묻기 전 상태(`fix_recheck_basis`: 검수 시각 · 본문 · 지적별 묶음)를 남긴다. 그사이 검수나 되돌리기로 바뀌었으면 `apply_fix_recheck` 가 아무것도 넣지 않고 오류로 끝낸다

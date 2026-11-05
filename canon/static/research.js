@@ -177,11 +177,11 @@ function rsUsage(u, seconds) {
 
 /** 기록 한 줄 요약 */
 function rsLogLine(x, stages = {}) {
-  if (x.kind === 'sample') return (x.rows || []).map((r) => `${r.backend} ${r.ok ? `${rsNum(r.chars)}자 ${r.seconds}초` : '실패'}`).join(' · ');
-  if (x.kind === 'stage') return `${stages[x.stage] || x.stage} · ${x.backend} · ${x.ok ? `빈 칸 ${x.empty.length}/${x.fields}, 범위 밖 ${x.out_of_range.length}, 시도 ${x.attempts}번` : '실패'} · ${x.seconds}초`;
+  if (x.kind === 'sample') return (x.rows || []).map((r) => `${r.backend} ${r.ok ? `${rsNum(r.chars)}자 ${r.seconds}초` : '끝내지 못함'}`).join(' · ');
+  if (x.kind === 'stage') return `${stages[x.stage] || x.stage} · ${x.backend} · ${x.ok ? `빈 칸 ${x.empty.length}/${x.fields}, 범위 밖 ${x.out_of_range.length}, 시도 ${x.attempts}번` : '끝내지 못함'} · ${x.seconds}초`;
   if (x.kind === 'budget') return `${x.backend} · 한도 ${x.limit ? rsNum(x.limit) : '알 수 없음'} · ${x.first_over ? `${x.first_over}화부터 넘침` : x.first_tight ? `${x.first_tight}화부터 빠듯함` : '넘침 없음'}`;
   if (x.kind === 'compare') return `${x.episode}화 · ${(x.backends || []).join(' · ')}`;
-  if (x.kind === 'check') return `${x.episode}화 · ${x.backend} · ${(x.runs || []).map((m) => `${rsRunName(x, m)} ${m.ok ? `${m.found}/${(x.planted || []).length}` : '실패'}`).join(' · ')}`;
+  if (x.kind === 'check') return `${x.episode}화 · ${x.backend} · ${(x.runs || []).map((m) => `${rsRunName(x, m)} ${m.ok ? `${m.found}/${(x.planted || []).length}` : '끝내지 못함'}`).join(' · ')}`;
   if (x.kind === 'cue') return `${x.episode}화 · 큐 ${x.cues}개 · ${(x.summary || []).map((s) => `${s.label} ${rsNum(s.chars)}자`).join(' · ')}`;
   if (x.kind === 'pick') return `${x.episode}화 · ${x.picked} 고름${x.adopted ? ' (본문 채택)' : ''}`;
   if (x.kind === 'statwin') return `${(x.episodes || []).join(' · ')}화 × ${(x.summary || []).length}방식 · 틀린 값 ${(x.summary || []).map((s) => (s.error_rate == null ? '-' : `${Math.round(s.error_rate * 100)}%`)).join(' · ')}`;
@@ -217,10 +217,10 @@ function rsBrief(k, { latest = {}, openCmp = [], probe = null, probeError = null
   }
   if (k === 'sample') {
     const fail = (y.rows || []).filter((r) => !r.ok).length;
-    return { st: day, chip: fail ? ['bad', `실패 ${fail}`] : null, line: `${at} · 백엔드 ${(y.rows || []).length}개`, warn: false };
+    return { st: day, chip: fail ? ['bad', `끝내지 못함 ${fail}`] : null, line: `${at} · 백엔드 ${(y.rows || []).length}개`, warn: false };
   }
   if (k === 'stage') {
-    const chip = !y.ok ? ['bad', '실패'] : y.empty.length ? ['warn', `빈 칸 ${y.empty.length}`] : ['ok', '모두 채움'];
+    const chip = !y.ok ? ['bad', '끝내지 못함'] : y.empty.length ? ['warn', `빈 칸 ${y.empty.length}`] : ['ok', '모두 채움'];
     return { st: day, chip, line: `${at} · ${stages[y.stage] || y.stage} · 시도 ${y.attempts || 1}번`, warn: false };
   }
   if (k === 'compare') return { st: day, chip: null, line: `${at} · ${rsLogLine(y)}`, warn: false };
@@ -381,12 +381,12 @@ function rsTallyCard() {
 function rsCheckOut(r) {
   if (!r) return '';
   const n = (r.planted || []).length;
-  const stats = r.runs.map((m) => `<div class="rs-stat"><span class="k">${esc(rsRunName(r, m))}</span><span class="v">${m.ok ? `${m.found}/${n}` : '실패'}</span>
+  const stats = r.runs.map((m) => `<div class="rs-stat"><span class="k">${esc(rsRunName(r, m))}</span><span class="v">${m.ok ? `${m.found}/${n}` : '끝내지 못함'}</span>
       <span class="k">${m.ok ? `다른 지적 ${m.other.length}개 · ${m.seconds}초` : esc(m.error)}</span></div>`).join('');
   const head = r.runs.map((x) => `<th>${esc(rsRunName(r, x))}${x.tokens == null ? '' : `<div class="small">~${rsNum(x.tokens)} 토큰</div>`}</th>`).join('');
   const rows = r.planted.map((x, i) => `<tr><td class="rs-k"><div class="row" style="gap:6px"><span class="chip">${esc(x.kind || x.type)}</span><span class="small">근거: ${!x.source_episode ? '설정이나 확정 사실' : x.distance ? `${x.source_episode}화 (${x.distance}화 전)` : '같은 화 앞 문장'}</span></div>
         <div class="rs-quote"><del>${esc(x.quote)}</del><br><ins>${esc(x.replacement)}</ins></div></td>
-        ${r.runs.map((m) => `<td data-label="${esc(rsRunName(r, m))}">${!m.ok ? '<span class="chip bad">실패</span>' : m.hits[i] ? '<span class="chip ok">찾음</span>' : '<span class="chip bad">놓침</span>'}${m.ok && m.raised && !m.hits[i] ? `<div class="small">${m.mode === 'widen' ? (m.raised[i] ? '다시 물었지만 놓침' : '넓혀 찾지 못함') : m.raised[i] ? '판단기는 올림' : '판단기가 놓침'}</div>` : ''}${m.ok && m.first_found && m.hits[i] && !m.first_found[i] ? '<div class="small">넓혀 찾아서 찾음</div>' : ''}</td>`).join('')}</tr>`).join('');
+        ${r.runs.map((m) => `<td data-label="${esc(rsRunName(r, m))}">${!m.ok ? '<span class="chip bad">끝내지 못함</span>' : m.hits[i] ? '<span class="chip ok">찾음</span>' : '<span class="chip bad">놓침</span>'}${m.ok && m.raised && !m.hits[i] ? `<div class="small">${m.mode === 'widen' ? (m.raised[i] ? '다시 물었지만 놓침' : '넓혀 찾지 못함') : m.raised[i] ? '판단기는 올림' : '판단기가 놓침'}</div>` : ''}${m.ok && m.first_found && m.hits[i] && !m.first_found[i] ? '<div class="small">넓혀 찾아서 찾음</div>' : ''}</td>`).join('')}</tr>`).join('');
   const extra = (m) => [
     m.mode === 'twostep' && m.ok ? `판단기 ~${rsNum(m.judge_tokens)} 토큰 · 진술 ${m.claims}개 중 ${m.flagged}개 의심` : '',
     m.mode === 'widen' && m.ok ? `진술 ${m.claims}개 중 ${m.widened}개 다시 물음 · 더한 지적 ${m.added}개` : '',

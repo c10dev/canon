@@ -27,7 +27,7 @@ def test_hub_button_faces():
     # 진행 중: 수와 함께, 실패가 같이 있으면 빨간 배지
     s = state(jobs=[job("a", "running"), job("b", "running", ep=4), job("c", "error", ep=5)])
     assert (s["face"], s["label"], s["badge"], s["red"]) == ("running", "AI 2", 1, True)
-    assert s["aria"] == "알림: AI 작업 2개 진행 중, 확인할 것 1개"
+    assert s["aria"] == "알림: AI 작업 2개 진행하는 중, 확인할 것 1개"
 
     # 도는 작업 없이 실패만: 확인 n
     s = state(jobs=[job("c", "error")])

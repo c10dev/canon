@@ -89,3 +89,29 @@ def test_context_and_note_edit():
     assert got["short"] == {"pre": "", "q": "짧은", "post": " 글"}
     assert 'data-tofix-note="1:x1"' in got["view"] and "말투가 딱딱함</textarea>" in got["view"]
     assert got["view"].count("data-tofix-note=") == 1  # 고치는 줄만 칸을 편다
+
+
+@needs_node
+def test_note_draft_survives_render_and_delete_always_asks():
+    """메모 칸의 고치던 글은 거르기를 바꿔도 남고 S.editDrafts.tofix 를 켠다. 지우기는 메모가 없어도 먼저 묻는다."""
+    got = run_js(FILES, """(async () => {
+      const calls = [], asks = [];
+      render = () => {};
+      api = async (m, path) => { calls.push([m, path]); return data; };
+      askConfirm = async (q, o) => { asks.push([q, o.ok, !!o.danger]); return false; };
+      S.project = data; S.name = 't'; S.route = ['p', 't', 'tofix'];
+      S.tofixEdit = { name: 't', key: '1:x1', note: '바뀐 메모' };
+      tofixDraftMark();
+      const marked = S.editDrafts.tofix;
+      actions.tofixFilter('all');
+      const view = viewToFix();
+      S.tofixEdit.note = '말투가 딱딱함';
+      tofixDraftMark();
+      const same = S.editDrafts.tofix;
+      const del = await actions.tofixDelete('2:x1');
+      return { marked, view, same, del, asks, calls };
+    })()""", dump(project()))
+    assert got["marked"] is True and "바뀐 메모</textarea>" in got["view"]
+    assert got["same"] is False  # 원래 메모와 같으면 저장하지 않은 글이 아니다
+    assert got["del"] is False and got["calls"] == []
+    assert got["asks"] == [["이 고칠 곳을 지울까요? 본문은 그대로예요.", "지우기", True]]

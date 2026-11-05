@@ -193,3 +193,43 @@ def test_timeline_js_short_label():
                    ["12월 30일 월", "2025년 1월 1일 수", "2025년 1월 16일 목", ""],
                    ["1일째 · 수", "3일째 · 금", "18일째 · 토", ""],
                    ["1일째", "3일째", "18일째", ""]]
+
+
+@needs_node
+def test_timeline_js_deadline_form_keeps_text_and_asks_before_save():
+    """기한 칸: 적던 글은 거르기를 바꿔 다시 그려도 남고, 저장하지 않은 변경이 있으면 먼저 묻고, 실패하면 칸이 열린 채 남는다."""
+    p = Project(episodes=[episode(1, status="finalized", time=StoryTime(day=1))])
+    p.timeline.deadlines = [Deadline(id="a", what="축제", day=5, set_ep=1)]
+    got = run_js(["app.js", "timeline.js"], """(async () => {
+      globalThis.clearInterval = () => {}; globalThis.AbortController = class { abort() {} };
+      const calls = [], asks = [];
+      render = () => {};
+      saveIfDirty = async () => { calls.push(['save']); };
+      api = async (m, path) => { calls.push([m, path]); if (data.fail) throw new Error('서버 오류'); return data.p; };
+      askConfirm = async (q, o) => { asks.push([q, o.ok]); return data.yes; };
+      S.name = 'w'; S.project = data.p;
+      actions.tlEditOpen('new');
+      S.tlDraft = { ...tlDraftOf('new'), what: '결혼식' };
+      tlDraftMark();
+      const marked = S.editDrafts.tl;
+      actions.tlDlTab('closed');
+      const view = viewTimeline();
+      const body = { id: '', what: '결혼식', day: 0, note: '', done_ep: 0 };
+      S.dirty = true; data.yes = false;
+      const cancel = await tlPut(body, '기한을 더했어요', ['기한을 더할까요?', '더하기'], true);
+      const afterCancel = [S.tlEdit, calls.length, asks[0]];
+      S.dirty = false; data.fail = true;
+      const failed = await tlPut(body, '기한을 더했어요', ['기한을 더할까요?', '더하기'], true);
+      const afterFail = [S.tlEdit, S.tlDraft.what, S.editDrafts.tl];
+      data.fail = false;
+      const closeOther = await actions.tlClose('a');  // 다른 기한을 닫아도 적던 칸은 남는다
+      const afterClose = [S.tlEdit, S.tlDraft.what];
+      const ok = await tlPut(body, '기한을 더했어요', ['기한을 더할까요?', '더하기'], true);
+      return { marked, view, cancel, afterCancel, failed, afterFail, afterClose, ok, afterOk: [S.tlEdit, S.tlDraft, S.editDrafts.tl] };
+    })()""", {"p": dump(p)})
+    assert got["marked"] is True and 'id="tl-what" type="text" value="결혼식"' in got["view"]
+    assert got["cancel"] is False
+    assert got["afterCancel"] == ["new", 0, ["저장하지 않은 변경이 있어요. 저장하고 기한을 더할까요?", "저장하고 더하기"]]
+    assert got["failed"] is False and got["afterFail"] == ["new", "결혼식", True]
+    assert got["afterClose"] == ["new", "결혼식"]
+    assert got["ok"] is True and got["afterOk"] == ["", None, False]

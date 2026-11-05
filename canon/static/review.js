@@ -318,6 +318,10 @@ function showEdited(n, key) {
   if (m) m.style.display = itemEdited(n, key) ? '' : 'none';
 }
 const kindStyle = (kind) => GOOD_EVENTS.includes(kind) ? 'background:var(--green-soft);color:var(--green)' : 'background:var(--red-soft);color:var(--red)';
+/** 사건 종류 고르기 옆 칩. 어두운 테마의 빨강 · 초록은 밝기로 갈리지 않아 기호와 글자로도 좋은 · 나쁜 사건을 알린다 (docs/design/README.md) */
+const kindTagInner = (kind) => GOOD_EVENTS.includes(kind) ? '<span aria-hidden="true">＋</span> 좋은 사건' : '<span aria-hidden="true">－</span> 나쁜 사건';
+const kindTagClass = (kind) => `chip ${GOOD_EVENTS.includes(kind) ? 'ok' : 'bad'}`;
+const kindTag = (id, kind) => `<span class="${kindTagClass(kind)}" data-kind-tag="${id}">${kindTagInner(kind)}</span>`;
 
 /** 승인한 값이 쌓이는 도구로 가는 링크. 카드 아래 오른쪽에 둔다 */
 const toolLink = (page, label) => `<a class="small" href="${base()}/${page}">${label}에서 보기 →</a>`;
@@ -491,7 +495,7 @@ function viewReview(n) {
     const kinds = EVENT_KINDS.includes(ev.kind) ? EVENT_KINDS : [ev.kind, ...EVENT_KINDS];
     const who = `${esc(charName(ev.actor))} → ${esc(charName(ev.target))}`;
     const sel = (id, label, path, opts, val, style = '') => `<select id="${id}" aria-label="${who} ${label}" ${edit(path, 'e' + i)} class="rv-inp" style="width:auto;font-weight:700;padding:4px 8px;${style}">${opts.map(([v, t]) => `<option value="${esc(v)}"${String(v) === String(val) ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select>`;
-    return `<div class="change">${box('e' + i)}<div class="body"><div class="rv-row-head"><label for="pk-e${i}" class="rv-name">${who}</label>${sel(`ek-${i}`, '사건 종류', `events.${i}.kind`, kinds.map((k) => [k, k]), ev.kind, kindStyle(ev.kind))}${sel(`ei-${i}`, '강도', `events.${i}.intensity`, [1, 2, 3].map((v) => [v, INTENSITY[v]]), ev.intensity)}${editMark(n, 'e' + i)}${rvQuoteBtn(n, ev.quote, `${charName(ev.actor)} → ${charName(ev.target)} ${ev.kind}`)}</div>
+    return `<div class="change">${box('e' + i)}<div class="body"><div class="rv-row-head"><label for="pk-e${i}" class="rv-name">${who}</label>${sel(`ek-${i}`, '사건 종류', `events.${i}.kind`, kinds.map((k) => [k, k]), ev.kind, kindStyle(ev.kind))}${kindTag(`ek-${i}`, ev.kind)}${sel(`ei-${i}`, '강도', `events.${i}.intensity`, [1, 2, 3].map((v) => [v, INTENSITY[v]]), ev.intensity)}${editMark(n, 'e' + i)}${rvQuoteBtn(n, ev.quote, `${charName(ev.actor)} → ${charName(ev.target)} ${ev.kind}`)}</div>
       ${wit || sec ? `<div class="small">${[wit, sec].filter(Boolean).join(' · ')}</div>` : ''}
       ${ev.quote ? `<div class="rv-quote">${quoted(ev.quote)}</div>` : ''}</div></div>`;
   }).join('');
@@ -952,10 +956,15 @@ document.addEventListener('input', (e) => {
     const at = keys.reduce((o, k) => o && o[k], d);
     if (!at) return;
     at[last] = last === 'intensity' ? Number(el.value) : el.value;
-    if (last === 'kind') {  // 좋은 사건은 초록, 나쁜 사건은 빨강 (kindStyle)
+    if (last === 'kind') {  // 좋은 사건은 초록, 나쁜 사건은 빨강 (kindStyle). 옆 칩의 기호 · 글자도 맞춘다 (kindTag)
       const good = GOOD_EVENTS.includes(el.value);
       el.style.background = good ? 'var(--green-soft)' : 'var(--red-soft)';
       el.style.color = good ? 'var(--green)' : 'var(--red)';
+      const tag = document.querySelector(`#app [data-kind-tag="${CSS.escape(el.id)}"]`);
+      if (tag) {
+        tag.className = kindTagClass(el.value);
+        tag.innerHTML = kindTagInner(el.value);
+      }
     }
     if (keys[0] === 'events') refreshPreview(Number(n));
   }
