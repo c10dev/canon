@@ -990,6 +990,15 @@ def cmd_check(a: argparse.Namespace) -> None:
             f = findings.set_severity(p.episode(a.n), fid, level, pipeline._now())
             print(f"{f.id}: 심각도를 {SEVERITY[level]}으로 정했어요")
         store.save(a.name, p)
+    elif a.recheck_fixed:
+        print(f"{a.n}화 고친 곳만 다시 보는 중...")
+        rep = pipeline.recheck_fixed(get_llm("check"), p, a.n)
+        kids = pipeline.apply_fix_recheck(p, a.n, rep)
+        store.save(a.name, p)
+        for x in rep.results:
+            print(f"{x.id}: {'풀렸어요. 고침으로 닫았어요' if x.resolved else '아직 어긋나요'}" + (f" ({x.reason})" if x.reason else ""))
+        for k in kids:
+            print(f"  새로 어긋난 곳: {findings.line(p.episode(a.n), k)}\n    {a.n}화: {k.current_quote}")
     elif a.recheck:
         print(f"{a.n}화 {a.recheck} 지적만 다시 검수 중...")
         res = pipeline.recheck_finding(get_llm("check"), p, a.n, a.recheck)
@@ -1041,7 +1050,7 @@ def _print_issues(p: Project, n: int, closed: bool = True) -> None:
             print(f"  {findings.line(ep, f)}" + (f" (메모: {f.note})" if f.note else ""))
     if opened:
         print(f"정하기: python -m canon check <작품> {n} --keep <id> | --wrong <id> | --fixed <id> | --reopen <id> [--note 메모]"
-              f" | --sev <id> 치명|보통|사소 | --recheck <id>")
+              f" | --sev <id> 치명|보통|사소 | --recheck <id> | --recheck-fixed")
 
 
 def _num(v: float | None) -> str:
@@ -2629,6 +2638,8 @@ def _write_commands(sub, add) -> None:
     sp.add_argument("--note", default=None, help="--keep · --wrong 과 함께: 왜 그런지 메모")
     sp.add_argument("--sev", nargs=2, metavar=("ID", "LEVEL"), help="이 지적의 심각도: 치명 | 보통 | 사소 (crit | mid | low)")
     sp.add_argument("--recheck", metavar="ID", help="이 지적만 다시 검수 (회차는 늘지 않음)")
+    sp.add_argument("--recheck-fixed", action="store_true",
+                    help="지난 검수 뒤 고침안만 넣었으면 그 지적들을 고친 곳 둘레만 보내 한 번에 다시 봄 (회차는 늘지 않음)")
     sp = add("stats", cmd_stats, yes=False)
     sp.add_argument("n", type=int, nargs="?")
     sp = add("run", cmd_run)

@@ -28,8 +28,9 @@ def test_groups():
         job("c", "error", label="3화 서술 다듬기"),
         job("d", "done", kind="check"), job("e", "done", kind="fixes"), job("f", "done", kind="state"),
         job("g", "running", kind="auto", ep=None), job("h", "done", kind="plots", ep=None),
+        job("i", "done", kind="recheck"),
     ]})
-    assert got == ["write", "rewrite", "rewrite", "check", "check", "state", "auto", "other"]
+    assert got == ["write", "rewrite", "rewrite", "check", "check", "state", "auto", "other", "check"]
 
 
 @needs_node

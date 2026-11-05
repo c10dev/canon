@@ -7,6 +7,7 @@
 - 작가가 바꾼 심각도는 AI 값으로 덮지 않는다.
 지적 하나만 다시 검수하면(settle) 회차는 늘지 않는다. 풀렸으면 고침으로 닫고, 고친 문장 때문에 새로 어긋난 곳은
 그 지적에 딸린 지적(Finding.parent)으로 더한다.
+고친 곳만 다시 보기(fix_recheck_targets)는 지난 검수 뒤 수정이 모두 고침안일 때 그 지적들을 한 번에 다시 보고 같은 settle 로 넣는다.
 그대로 둠 · 잘못 짚음은 검수 프롬프트에 넣지 않는다(합치기에서만 거른다). LLM 호출 없음.
 """
 from __future__ import annotations
@@ -14,7 +15,7 @@ from __future__ import annotations
 from typing import Optional
 
 from .schema import (FINDING_STATUS, SEVERITY, CheckRound, CheckSource, ConsistencyIssue, Episode, Finding, FindingEvent,
-                     FindingRecheck, FixOption)
+                     FindingRecheck, FixOption, TextEdit)
 
 ROUNDS_KEEP = 10  # 남기는 회차 수
 LOG_KEEP = 20  # 지적마다 남기는 처리 기록 수
@@ -110,6 +111,32 @@ def check_done(ep: Episode) -> bool:
     seen = {f.fix_group for f in ep.findings if f.closed_by == "one" and f.fix_group}
     last = next((x for x in reversed(ep.edits) if not x.undone and not (x.group and x.group in seen)), None)
     return not (last and last.at > ep.checked_at) and not open_findings(ep)
+
+
+def edits_since_check(ep: Episode) -> list[TextEdit]:
+    """마지막 검수 뒤의 되돌리지 않은 수정. '이 지적만 다시 검수'로 풀린 묶음은 그 검수가 본 수정이라 뺀다 (check_done 과 같은 셈)."""
+    if not ep.checked_at:
+        return []
+    seen = {f.fix_group for f in ep.findings if f.closed_by == "one" and f.fix_group}
+    return [x for x in ep.edits if not x.undone and x.at > ep.checked_at and not (x.group and x.group in seen)]
+
+
+def fix_recheck_targets(ep: Episode) -> list[Finding]:
+    """고친 곳만 다시 보기로 볼 지적: 마지막 검수 뒤의 수정이 모두 열린 지적에 넣은 고침안 묶음일 때 그 지적들.
+    직접 고친 곳, 다른 AI 수정, 닫힌 지적의 묶음이 하나라도 있으면 빈 목록이다 (그때는 다시 검수).
+    묶음을 넣은 뒤 이미 다시 본 지적은 뺀다. home.js fixRecheckTargets 와 같은 셈."""
+    edits = edits_since_check(ep)
+    if not edits:
+        return []
+    groups = {f.fix_group for f in open_findings(ep) if f.fix_group}
+    if any(x.source != "fix" or x.group not in groups for x in edits):
+        return []
+    last: dict[str, str] = {}
+    for x in edits:
+        last[x.group] = max(last.get(x.group, ""), x.at)
+    # 그 묶음을 넣은 뒤 이미 다시 보고 아직 어긋난다고 한 지적은 다시 부르지 않는다 (그때는 다시 검수)
+    return [f for f in open_findings(ep) if f.fix_group in last
+            and not any(ev.kind == "recheck" and ev.at >= last[f.fix_group] for ev in f.log)]
 
 
 def counted(ep: Episode, issues: list[ConsistencyIssue], ignore_minor: bool = False) -> list[ConsistencyIssue]:

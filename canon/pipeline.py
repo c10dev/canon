@@ -11,7 +11,7 @@ from . import dynamics, elements, illust, metrics, naming, prompts, renumber, se
 from .judge import Judge, Question
 from .llm import LLM, PREFIX_HINT, Interrupted, dump, out_cap
 from . import anchor, board, cancel, charlog, context, features, findings, foreshadows, knows, metatail, stage, statwin, usage
-from .schema import CueSheet, CueSheetDraft, Finding, MetaCut, FindingRecheck, FixBatch, FixOption, FixPatch, FixSet, RevArcSet, RevEpisodeDraft, RevLineSet
+from .schema import CueSheet, CueSheetDraft, Finding, MetaCut, FindingRecheck, FixBatch, FixOption, FixPatch, FixRecheckItem, FixRecheckReport, FixSet, RevArcSet, RevEpisodeDraft, RevLineSet
 from .schema import ParagraphAnatomy, ReaderCheck, SceneCard, SceneVariant, SceneVariants, StudioCandidate, StudioDraft
 from .schema import (
     AddedItems,
@@ -3765,6 +3765,71 @@ def apply_recheck(p: Project, n: int, fid: str, res: FindingRecheck) -> list[Fin
     """지적 하나만 다시 검수한 결과를 넣는다 (findings.settle). 새로 생긴 딸린 지적을 돌려준다."""
     ep = p.episode(n)
     return findings.settle(ep, findings.find(ep, fid), res, _now())
+
+
+def _fix_spots(ep: Episode, es: list[TextEdit]) -> list[tuple[int, int]]:
+    """고침안 수정들이 지금 본문에 놓인 자리 [시작, 끝]. 고친 글이 여러 곳에 있으면 기록한 자리(e.start)에 가장 가까운 곳을 고른다.
+    고친 글을 못 찾으면 기록한 자리로 본다 (지우기만 한 수정)."""
+    out = []
+    for e in es:
+        hits, at = [], ep.text.find(e.after) if e.after.strip() else -1
+        while at >= 0:
+            hits.append(at)
+            at = ep.text.find(e.after, at + 1)
+        at = min(hits, key=lambda h: abs(h - e.start)) if hits else min(e.start, len(ep.text))
+        out.append((at, at + len(e.after)))
+    return out
+
+
+def fix_recheck_basis(ep: Episode) -> tuple[str, str, dict[str, str]]:
+    """고친 곳만 다시 보기가 본 상태: (마지막 검수 시각, 본문, 대상 지적 id → 고침안 묶음). apply_fix_recheck 가 그사이 바뀌었는지 본다."""
+    return ep.checked_at, ep.text, {f.id: f.fix_group for f in findings.fix_recheck_targets(ep)}
+
+
+def recheck_fixed(llm: LLM, p: Project, n: int) -> FixRecheckReport:
+    """고친 곳만 다시 보기: 지난 검수 뒤 고침안을 넣은 열린 지적들을 한 번의 호출로 다시 본다 (findings.fix_recheck_targets).
+    검수 자료 전체 대신 작품 설정과 고친 곳 둘레 문단만 보낸다. 저장하지 않는다 (apply_fix_recheck).
+    장면 연출 규칙 지적은 LLM 없이 판정만 다시 한다 (recheck_finding). 돌려준 결과가 없는 지적은 결과에 없다."""
+    ep = _editable(p, n)
+    targets = findings.fix_recheck_targets(ep)
+    if not targets:
+        raise ValueError("고친 곳만 다시 볼 지적이 없어요. 지난 검수 뒤 고침안 말고도 고친 곳이 있으면 다시 검수하세요")
+    out = [FixRecheckItem(id=f.id, **recheck_finding(llm, p, n, f.id).model_dump()) for f in targets if f.origin == "rule"]
+    ai = [f for f in targets if f.origin != "rule"]
+    if ai:
+        groups = {f.id: [e for e in ep.edits if e.group == f.fix_group and not e.undone] for f in ai}
+        items = [(f, f.id, [(e.before, e.after) for e in groups[f.id]]) for f in ai]
+        around = prompts.fix_around(ep.text, _fix_spots(ep, [e for f in ai for e in groups[f.id]]))
+        rep = llm.json(prompts.SYSTEM_CHECKER, prompts.fix_recheck_prompt(p, n, items, around, _decided(ep)), FixRecheckReport,
+                       hint={"episode": n, "items": [{"id": f.id, "quote": f.current_quote} for f in ai], "text": ep.text})
+        want, seen = {f.id for f in ai}, set()
+        for x in rep.results:  # 묻지 않은 id 와 같은 id 의 두 번째 답은 버린다
+            if x.id in want and x.id not in seen:
+                seen.add(x.id)
+                out.append(x)
+    return FixRecheckReport(results=out)
+
+
+def apply_fix_recheck(p: Project, n: int, rep: FixRecheckReport, basis: tuple[str, str, dict[str, str]] | None = None,
+                      settled: list[FixRecheckItem] | None = None) -> list[Finding]:
+    """고친 곳만 다시 보기 결과를 지적마다 넣는다 (findings.settle). 그사이 닫힌 지적은 건너뛴다. 새로 생긴 딸린 지적을 돌려준다.
+    basis(fix_recheck_basis)를 주면, 묻는 사이 검수를 다시 했거나 본문이 바뀌었을 때 아무것도 넣지 않고 ValueError 를 낸다.
+    묶음이 바뀐 지적도 건너뛴다. settled 를 주면 실제로 넣은 결과를 거기에 더한다."""
+    ep = p.episode(n)
+    groups = None
+    if basis is not None:
+        checked_at, text, groups = basis
+        if ep.checked_at != checked_at or ep.text != text:
+            raise ValueError("다시 보는 사이 본문이나 검수 결과가 바뀌어서 결과를 넣지 않았어요. 다시 해 주세요")
+    at, kids = _now(), []
+    for x in rep.results:
+        f = next((g for g in ep.findings if g.id == x.id), None)
+        if f is None or f.status != "open" or (groups is not None and groups.get(f.id) != f.fix_group):
+            continue
+        kids += findings.settle(ep, f, x, at)
+        if settled is not None:
+            settled.append(x)
+    return kids
 
 
 def style_baseline(p: Project) -> metrics.StyleMetrics:

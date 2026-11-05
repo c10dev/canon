@@ -219,8 +219,12 @@
 - 검수가 끝났는지(`check_done`, `home.js` `checkState` 의 done 과 같은 규칙, 작품 목록 `open_checked`)
 - 자동 집필이 세는 지적(`counted`, 사소 빼기)
 - 작가가 정하기(`set_status` · `set_severity`, 웹 `set_finding`, 명령줄 `check --keep` · `--sev`)
+- 명령줄 `check --recheck-fixed` 는 고친 곳만 다시 보기(`pipeline.recheck_fixed`)
 - 고침안이 건드리는 다른 지적(`touches`)
 - 지적 하나 다시 검수 결과 넣기(`settle`: 고침으로 닫기, 딸린 지적 `add_children`)
+- 마지막 검수 뒤 되돌리지 않은 수정(`edits_since_check`, `check_done` 과 같은 셈)
+- 고친 곳만 다시 볼 지적(`fix_recheck_targets`): 검수 뒤 수정이 모두 열린 지적의 고침안 묶음(source fix)일 때 그 지적들. 직접 고친 곳이 하나라도 있으면 빈 목록
+- 묶음을 넣은 뒤 이미 다시 본(기록 `recheck`) 지적은 `fix_recheck_targets` 에서 뺀다. `home.js` `fixRecheckTargets` 와 같은 셈
 - 새 판(`new_version`: 결정한 지적만 남김)
 - 세션 비우기(`clear`)
 - 합치기는 출처(`ConsistencyIssue.origin`: ai · rule)가 같은 지적끼리
@@ -232,6 +236,12 @@
 - 묶음 호출 자체가 실패하면(거절 · 시간 초과 · 형식 오류) 그 묶음의 지적을 `propose_fixes` 로 하나씩 다시 묻는다. 지적 하나뿐인 묶음은 다시 묻지 않고 실패에 싣는다
 - 묶음 답의 지적마다 `clean_fixes` 를 거친다(`_fix_result`, 한 지적 고침안과 같은 셈). 요청에 없는 id 와 겹친 id 는 버린다
 - 프롬프트 `prompts.fix_prompt` · `recheck_prompt`(앞부분은 검수와 같은 `check_material`)
+- 고친 곳만 다시 보기: `pipeline.recheck_fixed` 가 대상 지적을 한 번의 호출(LLM `FixRecheckReport`, 단계 check)로 다시 묻고 `apply_fix_recheck` 가 지적마다 `settle` 한다. 회차는 늘지 않는다
+- 고친 곳만 다시 보기 프롬프트 `prompts.fix_recheck_prompt` 는 검수 자료 전체 대신 `static_context`(검수와 같은 앞부분)와 고친 곳 둘레 문단(`fix_around`, 앞뒤 `FIX_AROUND` 문단)만 넣는다
+- `recheck_fixed` 는 묻지 않은 id 와 같은 id 의 두 번째 답을 버린다. 규칙 지적은 LLM 없이 `recheck_finding` 으로 판정만
+- 고친 곳 둘레(`_fix_spots`)는 고친 글이 본문에 여러 번 나오면 기록한 자리(`TextEdit.start`)에 가장 가까운 곳을 고른다
+- 웹 작업 `recheck` 는 묻기 전 상태(`fix_recheck_basis`: 검수 시각 · 본문 · 지적별 묶음)를 남긴다. 그사이 검수나 되돌리기로 바뀌었으면 `apply_fix_recheck` 가 아무것도 넣지 않고 오류로 끝낸다
+- 묶음이 바뀌었거나 그사이 닫힌 지적은 건너뛴다. 작업 결과의 풀림 · 아직 어긋남 수는 실제로 넣은 결과만 센다
 - 묶음 프롬프트 `prompts.fix_batch_prompt`: 검수 자료, id 를 단 지적 목록, 결정한 문장, 규칙 한 번, 요청은 맨 뒤
 - 고침안(한 지적 · 묶음) · 다시 검수는 `check_material` 길이를 캐시 경계(`llm.PREFIX_HINT`)로 넘긴다. 세 프롬프트 함수는 미리 만든 자료를 `material` 로 받는다
 - 결정은 검수 프롬프트에 넣지 않는다
@@ -250,6 +260,7 @@
 - 실패한 작업의 호출 경로를 서버 로그(`canon` 로거)에 남긴다. 화면에는 오류 문구만 보인다
 - 멈췄지만 AI 응답을 기다리는 같은 작업 찾기(`lingering`)
 - 같은 화의 AI 작업(`EP_AI_KINDS`) 가운데 응답을 기다리는 것 찾기(`waiting_on`). 종류가 달라도 같은 화면 호출이 겹친다
+- `EP_AI_KINDS` 에는 고친 곳만 다시 보기 작업 `recheck` 도 든다
 - 단계 하나가 마지막으로 끝낸 화(`Job.step_ep`). 화면 `notify.js` 가 바뀔 때마다 알린다
 
 ### `canon/metatail.py`

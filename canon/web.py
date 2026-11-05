@@ -2611,6 +2611,33 @@ def _job_fixes(name: str, body: "JobIn", p: Project, kind: str, n: int | None, l
     return label, total, owned, fn
 
 
+def _job_recheck(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 recheck: (이름표, 전체 걸음, 맡은 화, 할 일)."""
+    # 고친 곳만 다시 보기: 지난 검수 뒤 수정이 모두 고침안이면 그 지적들을 한 번에 다시 본다. 회차는 늘지 않는다
+    if n is None or not p.episode(n).text:
+        raise ValueError("본문이 있는 화만 다시 봐요")
+    pipeline._editable(p, n)
+    todo = findings.fix_recheck_targets(p.episode(n))
+    if not todo:
+        raise ValueError("고친 곳만 다시 볼 지적이 없어요. 지난 검수 뒤 고침안 말고도 고친 곳이 있으면 다시 검수하세요")
+    label, total, owned = f"{n}화 고친 곳만 다시 보기 · 지적 {len(todo)}개", 1, set()
+    want = [f.id for f in todo]
+
+    def fn(job: jobs.Job):
+        p0 = store.load(name)
+        basis = pipeline.fix_recheck_basis(p0.episode(n))  # 늦게 온 결과가 그사이 한 검수 · 되돌리기를 덮지 않게 본 상태를 남긴다
+        rep = pipeline.recheck_fixed(llm, p0, n)
+        cancel.check()
+        kids: list = []
+        settled: list = []
+        _edit(name, lambda q: kids.extend(pipeline.apply_fix_recheck(q, n, rep, basis, settled)))
+        got = {x.id for x in rep.results}
+        done = sum(1 for x in settled if x.resolved)  # 실제로 넣은 결과만 센다 (그사이 작가가 닫은 지적은 빼고)
+        return {"asked": len(want), "resolved": done, "open": len(settled) - done, "added": len(kids),
+                "missing": [i for i in want if i not in got]}
+    return label, total, owned, fn
+
+
 def _job_stage_draft(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
     """작업 stage_draft · stage_extract: (이름표, 전체 걸음, 맡은 화, 할 일)."""
     # 장면 연출 AI: 플롯 사건에서 계획 장면 초안, 본문에서 본문 장면 뽑기. 결과는 장면 연출 화면이 비교한 뒤 적용한다
@@ -2938,6 +2965,7 @@ JOB_MAKERS: dict[str, Callable] = {
     "rework": _job_rework,
     "check": _job_check,
     "fixes": _job_fixes,
+    "recheck": _job_recheck,
     "stage_draft": _job_stage_draft,
     "stage_extract": _job_stage_draft,
     "storyline": _job_storyline,
@@ -2965,12 +2993,12 @@ def start_job(name: str, body: JobIn) -> dict:
     """오래 걸리는 AI 작업을 시작하고 바로 돌아온다. 결과는 GET /api/jobs 로 본다."""
     p = _load(name)
     kind, n = body.kind, body.ep
-    if kind in ("write", "state", "plots", "plot_one", "check", "board"):
+    if kind in ("write", "state", "plots", "plot_one", "check", "board", "recheck"):
         _not_auto(name)
     if kind in jobs.EP_AI_KINDS and (old := jobs.waiting_on(name, n)):  # 같은 화에 호출이 겹치면 요청 한도(429)에 더 걸린다
         _waiting_409(old)
     stage = {"write": "write", "state": "state", "recap_arc": "state", "recap_part": "state", "fold_knows": "state", "rework": "revise", "fixes": "revise",
-             "hook": "check", "check": "check", "opening_drafts": "write", "stattrial": "write", "stage_extract": "check", "cue_run": "write",
+             "hook": "check", "check": "check", "recheck": "check", "opening_drafts": "write", "stattrial": "write", "stage_extract": "check", "cue_run": "write",
              }.get(kind, "plan")  # 나머지는 plan
     llm = get_llm(stage)  # 키가 없으면 여기서 바로 오류를 보여 준다
 
@@ -2980,7 +3008,7 @@ def start_job(name: str, body: JobIn) -> dict:
     label, total, owned, fn = maker(name, body, p, kind, n, llm)
 
     try:
-        with usage.scope(episode=n if kind in ("write", "board", "state", "check", "fixes", "rework", "hook", "openings", "opening_drafts", "plot_one", "cue_sheet", "cue_run", "cues") else None, task=kind):
+        with usage.scope(episode=n if kind in ("write", "board", "state", "check", "fixes", "recheck", "rework", "hook", "openings", "opening_drafts", "plot_one", "cue_sheet", "cue_run", "cues") else None, task=kind):
             job = jobs.start(name, kind, n, label, _keep_pending(name, kind, n, label, fn), total=total, owned=owned)
     except jobs.Busy as b:
         return {**b.job.public(), "already": True}

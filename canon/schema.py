@@ -1288,6 +1288,16 @@ class FindingRecheck(BaseModel):
     new_issues: list[ConsistencyIssue] = Field(default_factory=list, description="작가가 고친 문장 때문에 새로 어긋난 곳만. 원래 있던 다른 어긋남은 넣지 않는다")
 
 
+class FixRecheckItem(FindingRecheck):
+    """고친 곳만 다시 보기에서 지적 하나를 다시 본 결과 (pipeline.recheck_fixed)."""
+    id: str = Field(description="다시 본 지적 id. 요청에 적은 그대로")
+
+
+class FixRecheckReport(BaseModel):
+    """고친 곳만 다시 보기: 지난 검수 뒤 고침안을 넣은 지적들을 한 번에 다시 본 결과. 회차를 늘리지 않는다."""
+    results: list[FixRecheckItem] = Field(default_factory=list, description="요청한 지적마다 하나씩")
+
+
 FindingEventKind = Literal["found", "again", "gone", "author", "fix", "undo", "recheck"]
 
 

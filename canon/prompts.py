@@ -3672,6 +3672,63 @@ def recheck_prompt(p: Project, n: int, f: ConsistencyIssue, changes: list[tuple[
 {SEVERITY_RULE}"""
 
 
+FIX_AROUND = 1  # 고친 곳만 다시 보기: 고친 문단 앞뒤로 함께 넣는 문단 수
+
+
+def fix_around(text: str, spots: list[tuple[int, int]], k: int = FIX_AROUND) -> list[str]:
+    """본문에서 spots(글자 자리 [시작, 끝])가 든 문단과 그 앞뒤 k 문단. 겹치거나 이웃한 둘레는 하나로 합친다."""
+    paras, at = [], 0
+    for line in text.split("\n"):
+        if line.strip():
+            paras.append((at, at + len(line), line))
+        at += len(line) + 1
+    if not paras:
+        return []
+    hit = set()
+    for a, b in spots:
+        for i, (s, e, _) in enumerate(paras):
+            if s <= b and a <= e:
+                hit.add(i)
+    spans: list[list[int]] = []
+    for i in sorted(hit):
+        lo, hi = max(0, i - k), min(len(paras) - 1, i + k)
+        if spans and lo <= spans[-1][1] + 1:
+            spans[-1][1] = max(spans[-1][1], hi)
+        else:
+            spans.append([lo, hi])
+    return ["\n".join(paras[i][2] for i in range(lo, hi + 1)) for lo, hi in spans]
+
+
+def fix_recheck_prompt(p: Project, n: int, items: list[tuple[ConsistencyIssue, str, list[tuple[str, str]]]],
+                       excerpts: list[str], decided: list[ConsistencyIssue]) -> str:
+    """고친 곳만 다시 보기: 지난 검수 뒤 고침안을 넣은 지적들을 한 번에 다시 묻는다. 검수 자료 전체 대신
+    작품 설정(static_context, 검수와 같은 앞부분이라 캐시가 맞는다)과 고친 곳 둘레 문단만 넣는다.
+    items: (지적, 지적 id, (고치기 전, 고친 뒤) 쌍). excerpts: 지금 본문에서 고친 곳 둘레 (fix_around)."""
+    rows = []
+    for f, fid, changes in items:
+        fixed = "\n".join(f"- 「{a}」 → 「{b}」" for a, b in changes) or "없음"
+        rows.append(f"## 지적 {fid}\n{_finding_text(n, f)}\n- 작가가 넣은 고침:\n{fixed}")
+    around = "\n\n…\n\n".join(excerpts) or "없음"
+    return f"""{static_context(p)}
+
+# {n}화에서 고친 곳 둘레 (지금 본문)
+{around}
+
+# 다시 볼 지적 (지난 검수가 짚은 것과 작가가 넣은 고침)
+{chr(10).join(rows)}
+
+# 작가가 일부러 그대로 둔 문장 (다시 짚지 않음)
+{_decided_text(decided)}
+
+위 지적들만 다시 보세요. 고친 곳과 상관없는 어긋남을 새로 찾지 않습니다.
+- results 에 지적마다 하나씩 넣습니다. id 는 '## 지적' 뒤에 적은 id 그대로입니다.
+- resolved: 지금 본문에서 그 지적의 어긋남이 풀렸으면 true 입니다. 지적의 근거 문장과 고친 뒤 문장을 맞대어 봅니다.
+- reason: 그렇게 본 까닭을 한두 문장으로 씁니다. 풀리지 않았으면 무엇이 아직 어긋나는지 씁니다.
+- new_issues: 고친 문장 때문에 새로 어긋난 곳만 넣습니다. 근거는 위 자료(설정, 고친 곳 둘레 문단, 지적의 근거)에서 원문 그대로 인용합니다. 작가가 그대로 둔 문장은 넣지 않습니다. 없으면 빈 목록입니다.
+- new_issues 의 current_quote 는 위 둘레 문단에 있는 지금 {n}화 본문 원문 그대로입니다.
+{SEVERITY_RULE}"""
+
+
 def check_material(p: Project, n: int, mode: str = "", sized: bool = False) -> str:
     """검수 · 고침안 · 다시 검수가 함께 쓰는 자료: 작품 설정부터 검수할 본문까지. 요청은 뒤에 붙인다 (캐시)."""
     mode = mode or ("budget" if p.serial else "full")
