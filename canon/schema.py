@@ -1269,6 +1269,18 @@ class FixSet(BaseModel):
     options: list[FixOption] = Field(default_factory=list, description="2~3개, 서로 다른 방향으로 고친 안")
 
 
+class FixItem(BaseModel):
+    """여러 지적을 한 번에 물을 때 지적 하나의 답. finding 으로 요청한 지적에 맞춘다 (pipeline.propose_fixes_batch)."""
+    finding: str = Field(description="고친 지적의 id. 요청 목록의 id 를 그대로 옮긴다")
+    reply: str = Field("", description="작가에게 하는 짧은 답 1~2문장. 고침안들이 어떻게 다른지")
+    options: list[FixOption] = Field(default_factory=list, description="2~3개, 서로 다른 방향으로 고친 안")
+
+
+class FixBatch(BaseModel):
+    """한 화의 열린 지적 여러 개의 AI 고침안. 지적마다 FixItem 하나. 작가가 하나를 골라야 본문에 들어간다."""
+    items: list[FixItem] = Field(default_factory=list, description="요청한 지적마다 하나씩, 요청 순서대로")
+
+
 class FindingRecheck(BaseModel):
     """지적 하나만 다시 검수한 결과. 회차를 늘리지 않는다 (pipeline.recheck_finding)."""
     resolved: bool = Field(description="지적한 어긋남이 지금 본문에서 풀렸는지")

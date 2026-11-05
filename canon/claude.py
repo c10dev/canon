@@ -397,9 +397,10 @@ class ClaudeCodeLLM:
         return args
 
     def _call(self, system: str, prompt: str, schema: type[BaseModel] | None = None, attempt: int = 1,
-              cut: int | None = None) -> Any:
+              cut: int | None = None, prefix: int | None = None) -> Any:
         """한 번 부르고 사용량을 기록한다. 프롬프트는 표준 입력으로 넘긴다 (인자 길이 한도를 피한다).
-        schema 가 있으면 검증한 값을, 없으면 글을 돌려준다. cut 을 주면 그 자리에서 앞부분을 옮긴다 (_split)."""
+        schema 가 있으면 검증한 값을, 없으면 글을 돌려준다. cut 을 주면 그 자리에서 앞부분을 옮긴다 (_split).
+        prefix 는 부른 쪽이 아는 공통 앞부분의 글자 수다 (llm.prefix_of)."""
         from .llm import caps, with_note
 
         cancel.check()  # 멈춘 작업은 다음 호출을 보내지 않는다 (형식 고치기 재시도도)
@@ -411,7 +412,7 @@ class ClaudeCodeLLM:
         self.last_cut = 0
         try:
             sch = strict_schema(schema) if schema else None
-            head, ask, self.last_cut = self._split(system, prompt, schema, cut)
+            head, ask, self.last_cut = self._split(system, prompt, schema, cut, prefix)
             if head != system:
                 gate = ("cli", self.requested, schema and schema.__name__, len(head), hash(head))
                 claim = _claim(gate)
@@ -462,27 +463,28 @@ class ClaudeCodeLLM:
         return out
 
     def _split(self, system: str, prompt: str, schema: type[BaseModel] | None,
-               cut: int | None = None) -> tuple[str, str, int]:
+               cut: int | None = None, prefix: int | None = None) -> tuple[str, str, int]:
         """(시스템 프롬프트, 사용자 메시지, 옮긴 글자 수). Claude Code 는 시스템 프롬프트 끝에 캐시 표시를 달고, 사용자 메시지는
         통째로 같을 때만 캐시가 맞는다. 그래서 같은 종류 직전 요청과 겹치는 앞부분(shared_cut)을 시스템 프롬프트 뒤로 옮긴다.
         cut 을 주면 그 자리를 쓴다 (형식 고치기 재시도가 첫 시도와 같은 시스템 프롬프트로 캐시를 읽게).
+        prefix 를 주면 직전 요청과 견주지 않고 그 자리(단락 경계로 맞춤)에서 옮긴다. 같은 앞부분의 첫 호출부터 캐시에 넣는다.
         겹침이 짧거나 이 버전이 --system-prompt-file 을 모르면 그대로 둔다 (긴 글을 인자로 넘기면 Linux 한도 128KB 에 걸린다)."""
         if "--system-prompt-file" not in _flags(self._bin()):
             return system, prompt, 0
         if cut is None:
-            cut = shared_cut(("cli", self.requested, system, schema and schema.__name__), prompt)
+            cut = shared_cut(("cli", self.requested, system, schema and schema.__name__), prompt, prefix)
         if not cut:
             return system, prompt, 0
         return f"{system.rstrip()}\n\n{prompt[:cut]}", prompt[cut:].lstrip("\n"), cut
 
     def json(self, system: str, prompt: str, schema: type[T], hint: dict | None = None) -> T:
-        from .llm import SchemaMismatch, repair_prompt
+        from .llm import SchemaMismatch, prefix_of, repair_prompt
 
-        ask, cut = prompt, None
+        ask, cut, prefix = prompt, None, prefix_of(hint)
         for attempt in range(2):
             self.last_attempts = attempt + 1
             try:
-                return self._call(system, ask, schema, attempt + 1, cut)
+                return self._call(system, ask, schema, attempt + 1, cut, prefix)
             except ValidationError as e:
                 if attempt:
                     raise SchemaMismatch(schema, e, "Claude") from e
@@ -513,12 +515,15 @@ _SEEN_LOCK = threading.Lock()
 CACHE_MIN_CHARS = 2_000  # 겹치는 앞부분이 이보다 짧으면 표시하지 않는다 (최소 캐시 길이 아래)
 
 
-def shared_cut(key: tuple, prompt: str) -> int:
-    """직전 같은 종류 요청과 겹치는 앞부분이 끝나는 단락 경계. 겹침이 CACHE_MIN_CHARS 보다 짧으면 0. 이 요청을 직전 요청으로 기억한다."""
+def shared_cut(key: tuple, prompt: str, prefix: int | None = None) -> int:
+    """직전 같은 종류 요청과 겹치는 앞부분이 끝나는 단락 경계. 겹침이 CACHE_MIN_CHARS 보다 짧으면 0. 이 요청을 직전 요청으로 기억한다.
+    prefix 를 주면 직전 요청 대신 그 글자 수를 앞부분 끝으로 본다 (부른 쪽이 공통 자료가 끝나는 곳을 안다: llm.prefix_of).
+    그 자리 바로 뒤의 단락 구분까지 앞부분에 넣어, 자료 뒤에 '\n\n'으로 요청을 붙인 프롬프트는 자료 끝에서 자른다."""
     with _SEEN_LOCK:
         prev = _SEEN.get(key, "")
         _SEEN[key] = prompt
-    cut = prompt.rfind("\n\n", 0, len(os.path.commonprefix([prev, prompt])))
+    end = min(prefix, len(prompt)) + 2 if prefix else len(os.path.commonprefix([prev, prompt]))
+    cut = prompt.rfind("\n\n", 0, end)
     return cut if cut >= CACHE_MIN_CHARS else 0
 
 
@@ -566,9 +571,10 @@ def _release(gate: tuple, claim: threading.Event | None, reached: bool, sent: fl
         claim.set()
 
 
-def cache_blocks(key: tuple, prompt: str) -> str | list[dict]:
-    """직전 같은 종류 요청과 겹치는 앞부분을 단락 경계에서 잘라 캐시 표시를 단 블록으로 나눈다. 겹침이 짧으면 글 그대로."""
-    cut = shared_cut(key, prompt)
+def cache_blocks(key: tuple, prompt: str, prefix: int | None = None) -> str | list[dict]:
+    """직전 같은 종류 요청과 겹치는 앞부분을 단락 경계에서 잘라 캐시 표시를 단 블록으로 나눈다. 겹침이 짧으면 글 그대로.
+    prefix 를 주면 그 자리에서 자른다 (shared_cut)."""
+    cut = shared_cut(key, prompt, prefix)
     if not cut:
         return prompt
     return [{"type": "text", "text": prompt[:cut], "cache_control": {"type": "ephemeral"}},
@@ -616,7 +622,8 @@ class ClaudeAPILLM:
     def count_tokens(self, text: str) -> int | None:
         return self.client.messages.count_tokens(model=self.model, messages=[{"role": "user", "content": text}]).input_tokens
 
-    def _call(self, system: str, prompt: str, schema: type[BaseModel] | None = None, attempt: int = 1) -> Any:
+    def _call(self, system: str, prompt: str, schema: type[BaseModel] | None = None, attempt: int = 1,
+              prefix: int | None = None) -> Any:
         from .llm import caps, with_note
 
         cancel.check()  # 멈춘 작업은 다음 호출을 보내지 않는다 (형식 고치기 재시도도)
@@ -625,7 +632,7 @@ class ClaudeAPILLM:
         t, tokens = time.time(), None
         self.last_raw = ""
         req: dict[str, Any] = {"model": self.model, "max_tokens": limit, "system": system,
-                               "messages": [{"role": "user", "content": cache_blocks((self.model, system, schema and schema.__name__), with_note(prompt))}]}
+                               "messages": [{"role": "user", "content": cache_blocks((self.model, system, schema and schema.__name__), with_note(prompt), prefix)}]}
         if schema is not None:
             req["output_config"] = {"format": {"type": "json_schema", "schema": strict_schema(schema)}}
         if self.effort:
@@ -656,13 +663,13 @@ class ClaudeAPILLM:
         return out
 
     def json(self, system: str, prompt: str, schema: type[T], hint: dict | None = None) -> T:
-        from .llm import SchemaMismatch, repair_prompt
+        from .llm import SchemaMismatch, prefix_of, repair_prompt
 
-        ask = prompt
+        ask, prefix = prompt, prefix_of(hint)
         for attempt in range(2):
             self.last_attempts = attempt + 1
             try:
-                return self._call(system, ask, schema, attempt + 1)
+                return self._call(system, ask, schema, attempt + 1, prefix)
             except ValidationError as e:
                 if attempt:
                     raise SchemaMismatch(schema, e, "Claude API") from e

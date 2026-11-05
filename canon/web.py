@@ -2558,22 +2558,51 @@ def _job_fixes(name: str, body: "JobIn", p: Project, kind: str, n: int | None, l
     label, total, owned = f"{n}화 지적 {len(todo)}개 고침안", len(todo), set()
 
     def fn(job: jobs.Job):
+        # 지적을 FIX_BATCH 개씩 묶어 한 번에 묻는다 (같은 검수 자료를 지적마다 보내지 않는다). 답에서 빠진 지적만 따로 묻는다
         q0 = store.load(name)
         failed: list[dict] = []
-        with ThreadPoolExecutor(max_workers=min(pipeline.FIX_WORKERS, len(todo))) as pool:
-            futures = {pool.submit(contextvars.copy_context().run, pipeline.propose_fixes, llm, q0, n, fid): fid for fid in todo}
+        missing: list[str] = []
+        why = lambda e: getattr(e, "message", None) or str(e) or type(e).__name__
+
+        def keep(fid: str, got) -> None:
+            if isinstance(got, str):
+                failed.append({"id": fid, "error": got})
+            else:
+                cancel.check()
+                _edit(name, lambda q: pipeline.store_fixes(q, n, fid, got))
+            job.done += 1
+
+        groups = [todo[i:i + pipeline.FIX_BATCH] for i in range(0, len(todo), pipeline.FIX_BATCH)]
+        with ThreadPoolExecutor(max_workers=min(pipeline.FIX_WORKERS, len(groups))) as pool:
+            futures = {pool.submit(contextvars.copy_context().run, pipeline.propose_fixes_batch, llm, q0, n, ids): ids for ids in groups}
             for fut in as_completed(futures):
-                fid = futures[fut]
+                ids = futures[fut]
                 try:
-                    opts = fut.result()
+                    got = fut.result()
                 except cancel.Cancelled:
                     raise
-                except Exception as e:  # 한 지적이 실패해도 나머지는 남긴다
-                    failed.append({"id": fid, "error": getattr(e, "message", None) or str(e) or type(e).__name__})
-                else:
-                    cancel.check()
-                    _edit(name, lambda q: pipeline.store_fixes(q, n, fid, opts))
-                job.done += 1
+                except Exception as e:  # 한 묶음이 실패해도 나머지 묶음은 남긴다. 같은 까닭으로 다시 실패할 따로 묻기는 하지 않는다
+                    for fid in ids:
+                        keep(fid, why(e))
+                    continue
+                for fid in ids:
+                    if fid in got:
+                        keep(fid, got[fid])
+                    else:
+                        missing.append(fid)
+        if missing:
+            with ThreadPoolExecutor(max_workers=min(pipeline.FIX_WORKERS, len(missing))) as pool:
+                futures = {pool.submit(contextvars.copy_context().run, pipeline.propose_fixes, llm, q0, n, fid): fid for fid in missing}
+                for fut in as_completed(futures):
+                    fid = futures[fut]
+                    try:
+                        opts = fut.result()
+                    except cancel.Cancelled:
+                        raise
+                    except Exception as e:  # 한 지적이 실패해도 나머지는 남긴다
+                        keep(fid, why(e))
+                    else:
+                        keep(fid, opts)
         if len(failed) == len(todo):
             raise ValueError(f"고침안을 하나도 받지 못했어요: {failed[0]['error']}")
         return {"done": len(todo) - len(failed), "failed": failed}

@@ -3579,9 +3579,10 @@ def _decided_text(decided: list[ConsistencyIssue]) -> str:
 MOTION_FIX_RULE = "- 동선 지적입니다. 어긋난 자리 · 손 · 향한 쪽을 가리키는 낱말만 바꿉니다. 동작을 설명하는 새 문장이나 구절을 더하지 않습니다.\n"
 
 
-def fix_prompt(p: Project, n: int, f: ConsistencyIssue, decided: list[ConsistencyIssue]) -> str:
-    """검수 지적 하나의 고침안. 앞은 검수와 같은 자료(캐시), 뒤에 지적과 요청. decided: 작가가 그대로 두기로 한 지적."""
-    return f"""{check_material(p, n)}
+def fix_prompt(p: Project, n: int, f: ConsistencyIssue, decided: list[ConsistencyIssue], material: str | None = None) -> str:
+    """검수 지적 하나의 고침안. 앞은 검수와 같은 자료(캐시), 뒤에 지적과 요청. decided: 작가가 그대로 두기로 한 지적.
+    material: 부른 쪽이 이미 만든 check_material (캐시 경계를 알려 주려고 먼저 만든다)."""
+    return f"""{check_material(p, n) if material is None else material}
 
 # 고칠 지적
 {_finding_text(n, f)}
@@ -3598,12 +3599,36 @@ def fix_prompt(p: Project, n: int, f: ConsistencyIssue, decided: list[Consistenc
 - label 은 고침안 이름 2~8자입니다. reply 는 안들이 어떻게 다른지 한두 문장입니다."""
 
 
+def fix_batch_prompt(p: Project, n: int, fs: list, decided: list[ConsistencyIssue], material: str | None = None) -> str:
+    """검수 지적 여러 개의 고침안을 한 번에 묻는다. 앞은 검수와 같은 자료(캐시), 다음에 id 를 단 지적 목록, 규칙은 한 번, 요청은 맨 뒤.
+    fs: 고칠 지적(Finding, id 가 있다). decided: 작가가 그대로 두기로 한 지적. material: 부른 쪽이 만든 check_material."""
+    listed = "\n\n".join(f"## 지적 {f.id}\n{_finding_text(n, f)}" for f in fs)
+    motion = ("- 갈래가 동선인 지적은 어긋난 자리 · 손 · 향한 쪽을 가리키는 낱말만 바꿉니다. 동작을 설명하는 새 문장이나 구절을 더하지 않습니다.\n"
+              if any(f.type == "동선" for f in fs) else "")
+    return f"""{check_material(p, n) if material is None else material}
+
+# 고칠 지적 ({len(fs)}개)
+{listed}
+
+# 작가가 일부러 그대로 둔 문장 (바꾸지 않음)
+{_decided_text(decided)}
+
+위 지적마다 고침안을 2~3개 내세요. 지적은 서로 따로 고칩니다.
+- items 에 지적마다 하나씩, 위 차례대로 넣습니다. finding 은 '## 지적' 뒤의 id 를 그대로 옮깁니다.
+- text 에는 그 지적의 '이번 화 문장' 자리에 들어갈 글만 씁니다. 앞뒤 본문은 되풀이하지 않습니다.
+{MINIMAL_FIX_RULES}
+{motion}- 이 고침 때문에 {n}화 안의 다른 문장도 함께 바꿔야 어긋나지 않으면 extra 에 넣습니다. quote 는 {n}화 본문 원문 그대로, replacement 는 최소로 고친 문장, reason 은 왜 함께 바꾸는지 한 문장입니다. 바꿀 곳이 없으면 extra 는 빈 목록입니다.
+{TEXT_RIGHT_RULE.format(field='그 지적의 options')}
+- 그 지적의 '이번 화 문장'은 extra 에 다시 넣지 않습니다. 다른 지적의 '이번 화 문장'도 extra 에 넣지 않습니다. 작가가 그대로 둔 문장은 바꾸지 않습니다. 다른 화와 설정은 바꿀 수 없습니다.
+- label 은 고침안 이름 2~8자입니다. reply 는 그 지적의 안들이 어떻게 다른지 한두 문장입니다."""
+
+
 def recheck_prompt(p: Project, n: int, f: ConsistencyIssue, changes: list[tuple[str, str]],
-                   decided: list[ConsistencyIssue]) -> str:
+                   decided: list[ConsistencyIssue], material: str | None = None) -> str:
     """검수 지적 하나만 다시 묻는다. 앞은 검수와 같은 자료(캐시), 뒤에 지적과 작가가 고친 곳.
-    changes: (고치기 전, 고친 뒤) 쌍. decided: 작가가 그대로 두기로 한 지적."""
+    changes: (고치기 전, 고친 뒤) 쌍. decided: 작가가 그대로 두기로 한 지적. material: 부른 쪽이 만든 check_material."""
     fixed = "\n".join(f"- 「{a}」 → 「{b}」" for a, b in changes) or "없음 (작가가 직접 고쳤거나 고친 곳을 모름)"
-    return f"""{check_material(p, n)}
+    return f"""{check_material(p, n) if material is None else material}
 
 # 다시 볼 지적 (지난 검수가 짚은 것)
 {_finding_text(n, f)}

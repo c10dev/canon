@@ -9,9 +9,9 @@ from concurrent.futures import ThreadPoolExecutor
 
 from . import dynamics, elements, illust, metrics, naming, prompts, renumber, setupchat, storylines
 from .judge import Judge, Question
-from .llm import LLM, Interrupted, dump, out_cap
+from .llm import LLM, PREFIX_HINT, Interrupted, dump, out_cap
 from . import anchor, board, cancel, charlog, context, features, findings, knows, metatail, stage, statwin, usage
-from .schema import CueSheet, CueSheetDraft, Finding, MetaCut, FindingRecheck, FixOption, FixPatch, FixSet, RevArcSet, RevEpisodeDraft, RevLineSet
+from .schema import CueSheet, CueSheetDraft, Finding, MetaCut, FindingRecheck, FixBatch, FixOption, FixPatch, FixSet, RevArcSet, RevEpisodeDraft, RevLineSet
 from .schema import ParagraphAnatomy, ReaderCheck, SceneCard, SceneVariant, SceneVariants, StudioCandidate, StudioDraft
 from .schema import (
     Act,
@@ -3550,19 +3550,64 @@ def clean_fixes(ep: Episode, f: Finding, fs: FixSet) -> list[FixOption]:
     return out[:FIX_OPTIONS]
 
 
-def propose_fixes(llm: LLM, p: Project, n: int, fid: str) -> list[FixOption]:
-    """열린 지적 하나의 고침안을 받는다. 저장하지 않는다 (store_fixes 가 지적에 남긴다)."""
+def _fixable(p: Project, n: int, fid: str) -> tuple[Episode, Finding]:
+    """고침안을 받을 수 있는 열린 지적: 지적한 문장이 지금 본문에 있다."""
     ep, f = _open_finding(p, n, fid)
     if not f.current_quote.strip() or f.current_quote.strip() not in ep.text:
         raise ValueError("지적한 문장을 지금 본문에서 찾을 수 없어요. 이미 고쳤으면 이 지적만 다시 검수하세요")
-    fs = llm.json(prompts.reviser_system(p), prompts.fix_prompt(p, n, f, _decided(ep)), FixSet,
-                  hint={"episode": n, "quote": f.current_quote, "text": ep.text})
+    return ep, f
+
+
+def _fix_result(ep: Episode, f: Finding, fs: FixSet) -> list[FixOption]:
+    """AI 답 하나를 쓸 수 있는 고침안으로. 하나도 없으면 까닭을 담아 ValueError."""
     opts = clean_fixes(ep, f, fs)
     if not opts and not fs.options and fs.reply.strip():  # 본문이 맞다는 답 (prompts.TEXT_RIGHT_RULE)
         raise ValueError(f"AI가 본문은 고치지 않았어요. {fs.reply.strip()}")
     if not opts:
         raise ValueError("쓸 수 있는 고침안이 없었어요. 다시 받거나 직접 고치세요")
     return opts
+
+
+def propose_fixes(llm: LLM, p: Project, n: int, fid: str) -> list[FixOption]:
+    """열린 지적 하나의 고침안을 받는다. 저장하지 않는다 (store_fixes 가 지적에 남긴다).
+    공통 자료(check_material)가 끝나는 곳을 캐시 경계로 알려, 같은 화의 첫 호출부터 그 앞부분을 캐시에 넣는다."""
+    ep, f = _fixable(p, n, fid)
+    material = prompts.check_material(p, n)
+    fs = llm.json(prompts.reviser_system(p), prompts.fix_prompt(p, n, f, _decided(ep), material), FixSet,
+                  hint={"episode": n, "quote": f.current_quote, "text": ep.text, PREFIX_HINT: len(material)})
+    return _fix_result(ep, f, fs)
+
+
+FIX_BATCH = 8  # 고침안을 한 번에 묻는 지적 수 (웹 작업 'fixes'). 지적마다 따로 물으면 같은 검수 자료를 지적 수만큼 보낸다
+
+
+def propose_fixes_batch(llm: LLM, p: Project, n: int, fids: list[str]) -> dict[str, list[FixOption] | str]:
+    """열린 지적 여러 개의 고침안을 한 번에 받는다. 저장하지 않는다. {지적 id: 고침안 또는 못 받은 까닭}.
+    답에 없는 지적은 결과에도 없다 (부른 쪽이 propose_fixes 로 따로 묻는다). 답의 id 가 요청에 없으면 버리고, 같은 id 는 처음 것만 쓴다."""
+    out: dict[str, list[FixOption] | str] = {}
+    ask: list[tuple[Episode, Finding]] = []
+    for fid in fids:
+        try:
+            ask.append(_fixable(p, n, fid))
+        except (ValueError, KeyError) as e:
+            out[fid] = str(e.args[0]) if e.args else type(e).__name__
+    if not ask:
+        return out
+    ep = ask[0][0]
+    material = prompts.check_material(p, n)
+    fb = llm.json(prompts.reviser_system(p), prompts.fix_batch_prompt(p, n, [f for _, f in ask], _decided(ep), material), FixBatch,
+                  hint={"episode": n, "text": ep.text, "findings": [{"id": f.id, "quote": f.current_quote} for _, f in ask],
+                        PREFIX_HINT: len(material)})
+    by_id = {f.id: f for _, f in ask}
+    for item in fb.items:
+        fid = item.finding.strip()
+        if fid not in by_id or fid in out:
+            continue
+        try:
+            out[fid] = _fix_result(ep, by_id[fid], FixSet(reply=item.reply, options=item.options))
+        except ValueError as e:
+            out[fid] = str(e.args[0])
+    return out
 
 
 def store_fixes(p: Project, n: int, fid: str, opts: list[FixOption]) -> Finding:
@@ -3574,7 +3619,7 @@ def store_fixes(p: Project, n: int, fid: str, opts: list[FixOption]) -> Finding:
     return f
 
 
-FIX_WORKERS = 3  # 열린 지적 고침안을 한꺼번에 받을 때 동시에 부르는 수 (web 작업 'fixes')
+FIX_WORKERS = 3  # 열린 지적 고침안을 한꺼번에 받을 때 동시에 부르는 수 (web 작업 'fixes': FIX_BATCH 개씩 묶은 호출과, 답에서 빠진 지적의 따로 묻기)
 
 
 def fix_usable(ep: Episode, f: Finding, opt: FixOption) -> bool:
@@ -3671,8 +3716,9 @@ def recheck_finding(llm: LLM, p: Project, n: int, fid: str) -> FindingRecheck:
             return FindingRecheck(resolved=True, reason="짚은 문장이 본문에서 바뀌었어요")
         return FindingRecheck(resolved=not still, reason=still[0].description if still else "장면 연출 규칙 판정에 더 걸리지 않아요")
     changes = [(e.before, e.after) for e in ep.edits if f.fix_group and e.group == f.fix_group and not e.undone]
-    return llm.json(prompts.SYSTEM_CHECKER, prompts.recheck_prompt(p, n, f, changes, _decided(ep)), FindingRecheck,
-                    hint={"episode": n, "quote": f.current_quote, "text": ep.text})
+    material = prompts.check_material(p, n)  # 검수와 같은 앞부분. 끝나는 곳을 캐시 경계로 알린다
+    return llm.json(prompts.SYSTEM_CHECKER, prompts.recheck_prompt(p, n, f, changes, _decided(ep), material), FindingRecheck,
+                    hint={"episode": n, "quote": f.current_quote, "text": ep.text, PREFIX_HINT: len(material)})
 
 
 def apply_recheck(p: Project, n: int, fid: str, res: FindingRecheck) -> list[Finding]:

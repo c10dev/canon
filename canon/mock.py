@@ -22,6 +22,8 @@ from .schema import (
     ConsistencyIssue,
     ConsistencyReport,
     FindingRecheck,
+    FixBatch,
+    FixItem,
     FixOption,
     FixPatch,
     FixSet,
@@ -908,6 +910,14 @@ def _r_passage_revision(prompt: str, hint: dict):
 @responds(FixSet)
 def _r_fix_set(prompt: str, hint: dict):
     return _fixes(hint)
+
+
+@responds(FixBatch)
+def _r_fix_batch(prompt: str, hint: dict):
+    # 지적마다 한 지적 고침안(_fixes)과 같은 답을 id 를 달아 낸다
+    text = hint.get("text", "")
+    return FixBatch(items=[FixItem(finding=x["id"], **_fixes({"quote": x["quote"], "text": text}).model_dump())
+                           for x in hint.get("findings", [])])
 
 
 @responds(FindingRecheck)

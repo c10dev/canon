@@ -13,6 +13,9 @@
 - `logout` 은 전용 폴더를 쓸 때만 `claude auth logout` 을 부른다(평소 Claude Code 로그인은 건드리지 않음)
 - 단계별 추론 강도(`settings.stage_effort`)를 구독은 `--effort`(모르는 버전이면 뺌), API 는 `output_config.effort` 로 넘긴다. 비우면 모델 기본값. 사용량 기록 줄의 `effort`
 - 프롬프트 캐시는 두 백엔드가 같은 `shared_cut`(같은 모델 · 시스템 · 스키마의 직전 요청과 겹치는 앞부분, 단락 경계, 2,000자 이상)으로 자른다
+- 부른 쪽이 공통 앞부분의 끝을 알면 `hint[llm.PREFIX_HINT]`(`prefix_chars`, 글자 수)로 넘긴다. 읽는 함수는 `llm.prefix_of`
+- 경계를 받으면 `shared_cut` 은 직전 요청과 견주지 않고 그 자리(뒤따르는 단락 구분까지 보고 단락 경계로 맞춤)에서 자른다. 같은 앞부분의 첫 호출부터 캐시에 넣는다
+- 경계는 Claude 두 백엔드만 쓴다. Gemini · 로컬 · mock 은 hint 의 이 키를 쓰지 않는다
 - API 는 그 끝에 `cache_control` 을 단다(`cache_blocks`)
 - 구독은 캐시 표시를 고를 수 없어 그 앞부분을 시스템 프롬프트 뒤로 옮겨 `--system-prompt-file` 로 넘긴다(`ClaudeCodeLLM._split`)
 - Claude Code 는 시스템 프롬프트 끝에 캐시 표시를 단다
