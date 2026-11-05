@@ -1560,6 +1560,8 @@ class CharacterState(BaseModel):
     knows: list[str] = Field(default_factory=list, description="이 인물이 알게 된 핵심 정보")
     notes: str = ""
     stats: list[StatValue] = Field(default_factory=list, description="상태창 수치. 작가가 상태창을 만든 인물만. 변경안에는 바뀐 항목만 넣는다")
+    # 변경안 전용: 빈 칸은 '그대로'라서 지울 칸을 따로 적는다 (pipeline.apply_delta). 저장한 상태와 프롬프트에는 비었을 때 넣지 않는다
+    cleared: list[str] = Field(default_factory=list, description="변경안에서 이번 화로 지울 칸 이름 (current_goal, location, notes, attire, emotional_state). 목표를 이뤘거나 버렸는데 새 목표가 없을 때처럼 이전 값이 더는 맞지 않고 새로 적을 값도 없을 때만")
     # 아크 요약 뒤 오래된 knows 를 접은 줄 (canon/knows.py). 작가가 고른 AI 제안만 들어온다. AI 응답 형식과 프롬프트 직렬화에서는 뺀다
     knows_folded: SkipJsonSchema[list[str]] = Field(default_factory=list, description="접은 아는 정보 (knows.apply_fold)")
 
@@ -1567,6 +1569,8 @@ class CharacterState(BaseModel):
     def _prompt_view(self, handler: SerializerFunctionWrapHandler, info: SerializationInfo):
         """프롬프트용 직렬화(llm.dump 의 context prompt)에서는 접은 줄 칸을 뺀다. 프롬프트는 knows.view 가 접은 줄을 knows 앞에 붙인다."""
         data = handler(self)
+        if isinstance(data, dict) and not data.get("cleared", True):
+            data.pop("cleared")  # 지울 칸이 없으면 저장 · 프롬프트에 넣지 않는다
         if isinstance(data, dict) and info.context and info.context.get("prompt"):
             data.pop("knows_folded", None)
         return data

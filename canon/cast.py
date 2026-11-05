@@ -70,10 +70,12 @@ def _apply_gap(sim: Project, p: Project, n: int, delta: Optional[StateDelta]) ->
         for upd in delta.character_updates:
             cur = next((s for s in sim.states if s.character_id == upd.character_id), None)
             if cur is None:
-                sim.states.append(upd.model_copy(deep=True))
+                sim.states.append(upd.model_copy(deep=True, update={"cleared": []}))
                 continue
             for f in (*STATE_FIELDS, "notes"):
-                if getattr(upd, f):
+                if f in upd.cleared:
+                    setattr(cur, f, "")
+                elif getattr(upd, f):
                     setattr(cur, f, getattr(upd, f))
             cur.knows += [k for k in upd.knows if k not in cur.knows]
         for upd in delta.relationship_updates:
@@ -159,7 +161,7 @@ def appearances(p: Project) -> dict[str, list[dict]]:
 # 이름만 나온 회상 · 언급은 등장이 아니다: 실제 장편에서 이름이 나온 대목을 읽어 본 표본에서 이름이 1번 나온 화 11곳 중 10곳, 2~3번 나온 화 8곳 모두가
 # 언급이었다 (2026-10-30). 그래서 이름 수가 아니라, 본문을 읽은 상태 변경안이 그 인물의 상태나 관계 사건을 다뤘는지를 본다.
 
-STATE_UPDATE_FIELDS = ("emotional_state", "current_goal", "location", "attire", "notes", "knows", "stats")
+STATE_UPDATE_FIELDS = ("emotional_state", "current_goal", "location", "attire", "notes", "knows", "stats", "cleared")
 SHORT_NAME_HITS = 2  # 한 글자 이름('톰')은 다른 말 속에 우연히 들기 쉬워 본문에 이만큼 나와야 붙인다
 
 

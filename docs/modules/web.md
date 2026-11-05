@@ -335,6 +335,9 @@
   - 오른쪽 직접 정할 것 · 요약 · 그대로 반영할 것(갈래 접기 `S.rvOpen`, 고른 수 `rvKeyCount`) · 관계 계산
   - 경고를 인물 줄에 붙이기 `rvWarnSplit`
   - 인물 칸 그 자리에서 펴기 `rvOpen`
+  - 편 인물 칸은 감정 · 목표 · 위치 · 메모 · 차림을 고친다(`STATE_TEXT`). 빈 칸은 지금 값을 그대로 둔다
+  - 지금 값이 있는 칸의 '지우기'(`data-dclear`)는 `CharacterState.cleared` 에 칸 이름을 넣어 반영 때 그 칸을 비운다
+  - `tests/test_state_clear.py`
   - 본문 근거 `rvQuote` · `rvGoItem`
   - 900px 이하는 변경안 먼저 `rvWide`
 - 줄 안 고르기 · 확정 사실 칸(`.rv-inp`)은 13px, 손가락 기기에서 16px 다(iOS 확대 막기)
