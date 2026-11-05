@@ -1033,6 +1033,8 @@ class RenumberOp(BaseModel):
     notes: list[str] = Field(default_factory=list, description="무엇이 어떻게 옮겨 가는지 (승인 카드에 보임, 쓴 뒤에는 쓴 결과)")
     removed: Optional[EpisodePlot] = Field(None, description="remove: 뺀 화의 플롯 (되돌리기용)")
     removed_status: str = Field("", description="remove: 뺀 화의 상태 (되돌리기용)")
+    removed_ep: Optional["Episode"] = Field(None, description="remove: 뺀 화 전체. 되돌릴 때 스토리보드 · 큐 시트 · 장면 연출 · 고칠 곳까지 살린다. 없으면(옛 기록) removed 만")
+    inserted: list["Episode"] = Field(default_factory=list, description="insert: 넣은 직후의 화들. 되돌릴 때 지금 화와 다르면 그 사이 고친 것으로 보고 되돌리지 않는다")
     after_total: int = Field(0, description="쓴 직후 화 수. 되돌릴 때 이와 다르면 그 뒤에 화 번호가 바뀐 것으로 보고 되돌리지 않는다")
 
 
@@ -3026,6 +3028,7 @@ StageScene.model_rebuild()
 Episode.model_rebuild()
 PlotUndo.model_rebuild()
 ChatMessage.model_rebuild()
+RenumberOp.model_rebuild()
 WriteRecord.model_rebuild()
 AgentTurn.model_rebuild()
 AgentSession.model_rebuild()

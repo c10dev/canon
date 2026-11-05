@@ -369,6 +369,52 @@ def test_remove_episode_blocks_text_and_asks_for_empty(client):
     assert _ep(client, 4)["plot"]["title"] == title and _ep(client, 5)["text"] == "옮겨 온 본문"
 
 
+def test_undo_remove_brings_back_the_whole_episode_and_insert_undo_keeps_edits(client):
+    """화 빼기를 되돌리면 스토리보드 · 큐 시트 · 다 쓴 사건 체크까지 살린다. 넣은 화를 그 뒤 고쳤으면 넣기를 되돌리지 않는다."""
+    import pytest
+
+    from canon import agent, store
+    from canon.schema import CueSheet, Storyboard
+    _project(client)
+    p = store.load("lh")
+    e = p.episode(4)
+    e.status, e.storyboard, e.cue_sheet, e.events_done = "confirmed", Storyboard(made_by="author"), CueSheet(key="불안"), ["x"]
+    op = agent.op_from("remove_episode", {"n": "4"})
+    agent.apply_op(p, op, True)
+    agent.inverse(p, op, True)
+    e = p.episode(4)
+    assert (e.status, e.storyboard.made_by, e.cue_sheet.key, e.events_done) == ("confirmed", "author", "불안", ["x"])
+    op = agent.op_from("insert_episodes", {"at": "5", "titles": "새 화"})
+    agent.apply_op(p, op, True)
+    p.episode(5).plot.summary = "작가가 쓴 요약"
+    with pytest.raises(ValueError, match="5화를 그 뒤에 고쳐서"):
+        agent.inverse(p, op, True)
+    assert p.episode(5).plot.summary == "작가가 쓴 요약"
+    p.episode(5).plot.summary = op.inserted[0].plot.summary
+    total = len(p.episodes)
+    agent.inverse(p, op, True)
+    assert len(p.episodes) == total - 1
+
+
+def test_old_turns_drop_undo_data(client, monkeypatch):
+    """최근 UNDO_TURNS 턴보다 오래된 턴은 쓰기 전 · 뒤 값을 지워 project.json 이 끝없이 커지지 않는다. 턴 번호는 그대로다."""
+    from canon import agent, store
+    monkeypatch.setattr(agent, "UNDO_TURNS", 2)
+    _project(client)
+    sid = _session(client)
+    for _ in range(5):
+        _say(client, sid, "3화 전개가 너무 빨라")
+    turns = next(s for s in store.load("lh").agent_sessions if s.id == sid).turns
+    assert len(turns) == 5
+    old, recent = turns[:2], turns[-2:]
+    assert all(w.before is None and w.after is None for t in old for w in t.writes)
+    assert all(i.state != "done" for t in old for w in t.writes for i in w.items)
+    assert any(i.reason == agent.OLD_UNDO for t in old for w in t.writes for i in w.items)
+    assert any(w.before is not None for t in recent for w in t.writes)
+    r = client.post(f"/api/projects/lh/sessions/{sid}/turns/0/undo", json={})
+    assert r.status_code == 400
+
+
 def test_op_from_and_shift():
     import pytest
     from canon import agent
