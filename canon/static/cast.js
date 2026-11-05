@@ -292,7 +292,7 @@ function castGraph() {
     const band = WARMTH_BANDS.findIndex(([cut]) => t.warmth < cut);
     const title = `${nm(t.source)} → ${nm(t.target)}: ${t.warmth_word}, ${t.trust_word} · 단계 ${t.stage}${P().settings.show_numbers ? ` (온기 ${t.warmth.toFixed(2)}, 신뢰 ${t.trust.toFixed(2)}, 친숙 ${t.familiarity.toFixed(2)})` : ''}`;
     const arg = [t.source, t.target].sort().join('|');
-    out.push(`<g class="cg-edge${hot(t.source, t.target) ? '' : ' dim'}" data-action="castMapPick" data-arg="${esc('p:' + arg)}"><title>${esc(title)}</title>
+    out.push(`<g class="cg-edge${hot(t.source, t.target) ? '' : ' dim'}" data-action="castMapPick" data-arg="${esc('p:' + arg)}" tabindex="0" role="button" aria-label="${esc(`${nm(t.source)} → ${nm(t.target)}: ${t.warmth_word}, ${t.trust_word} · 두 사람 자세히 보기`)}"><title>${esc(title)}</title>
       <path class="cg-hit" d="M${sx} ${sy} Q${qx} ${qy} ${ex} ${ey}"></path>
       <path d="M${sx} ${sy} Q${qx} ${qy} ${ex} ${ey}" style="stroke:${WARMTH_BANDS[band][1]}" stroke-width="${(1.5 + 3.5 * t.familiarity).toFixed(2)}" marker-end="url(#cg-arrow-${band})"></path></g>`);
   });
@@ -304,7 +304,7 @@ function castGraph() {
     const [x2, y2] = pos[pr.b];
     const r = 4 + pr.tension * 0.55;
     const arg = [pr.a, pr.b].sort().join('|');
-    out.push(`<g class="cg-tension${hot(pr.a, pr.b) ? '' : ' dim'}" data-action="castMapPick" data-arg="${esc('p:' + arg)}"><title>${esc(`${nm(pr.a)} ↔ ${nm(pr.b)}${pr.type ? ' (' + pr.type + ')' : ''}: 긴장 ${pr.tension_word} (${pr.tension.toFixed(1)}/10)`)}</title>
+    out.push(`<g class="cg-tension${hot(pr.a, pr.b) ? '' : ' dim'}" data-action="castMapPick" data-arg="${esc('p:' + arg)}" tabindex="0" role="button" aria-label="${esc(`${nm(pr.a)} ↔ ${nm(pr.b)} 긴장 ${pr.tension_word} · 두 사람 자세히 보기`)}"><title>${esc(`${nm(pr.a)} ↔ ${nm(pr.b)}${pr.type ? ' (' + pr.type + ')' : ''}: 긴장 ${pr.tension_word} (${pr.tension.toFixed(1)}/10)`)}</title>
       <circle cx="${(x1 + x2) / 2}" cy="${(y1 + y2) / 2}" r="${r.toFixed(1)}" style="fill:${TENSION_FILL[pr.tension_word]}"></circle></g>`);
   });
 
@@ -717,10 +717,10 @@ function castChart(series, lo, hi, opts = {}) {
   const colW = fs.length < 2 ? pw : pw / (fs.length - 1);
   fs.forEach((f, i) => {
     const tip = `${frameLabel(f)}\n` + series.map((s) => `${s.label}: ${s.values[i] === null ? '-' : (opts.fmt ? opts.fmt(s.values[i]) : s.values[i].toFixed(2))}`).join('\n') + (opts.notes && opts.notes[i] ? '\n' + opts.notes[i] : '');
-    out.push(`<rect class="cc-col" x="${X(i) - colW / 2}" y="${T}" width="${colW}" height="${ph}" data-action="castGo" data-arg="${i + a0}"><title>${esc(tip)}</title></rect>`);
+    out.push(`<rect class="cc-col" x="${X(i) - colW / 2}" y="${T}" width="${colW}" height="${ph}" data-action="castGo" data-arg="${i + a0}" tabindex="0" role="button" aria-label="${esc(`${tip.replace(/\n/g, ', ')} · 이 시점으로 옮기기`)}"><title>${esc(tip)}</title></rect>`);
   });
   const range = all.length > 40 ? `<div class="small">${S.castChartAll ? `전체 ${all.length}개 시점` : `${frameLabel(fs[0])} ~ ${frameLabel(fs[fs.length - 1])}`} <button type="button" class="link-btn" data-action="castChartAll">${S.castChartAll ? '고른 시점 주변만' : '전체 보기'}</button></div>` : '';
-  return `<svg class="cast-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(opts.label || '')}">${out.join('')}</svg>${range}`;
+  return `<svg class="cast-chart" viewBox="0 0 ${W} ${H}" role="group" aria-label="${esc(opts.label || '')}">${out.join('')}</svg>${range}`;
 }
 
 /** 관계 수치 직접 보정. AI가 아니라 '수동보정' 사건으로 기록해 재생할 수 있다 (POST /ties/adjust, pipeline.adjust_tie). */
@@ -872,12 +872,24 @@ function castToc() {
   return outlineNav({ id: 'cast-toc', label: '인물 목차', now, body: out.join('') });
 }
 
+/** el 안을 html 로 바꾼다. 포커스가 el 안 조작 요소에 있었으면 다시 그린 뒤 같은 data-action · data-arg 요소로 돌려준다 (키보드 포커스가 body 로 떨어지지 않게) */
+function castSwap(el, html) {
+  const a = document.activeElement;
+  const act = a && el.contains(a) && a.getAttribute('data-action');
+  const arg = act ? a.getAttribute('data-arg') : null;
+  el.innerHTML = html;
+  if (!act) return;
+  const same = [...el.querySelectorAll(`[data-action="${CSS.escape(act)}"]`)].filter((x) => !x.disabled);
+  const to = same.find((x) => x.getAttribute('data-arg') === arg) || same[0];  // 크기 버튼이 끝에 닿아 꺼지면 남은 쪽으로
+  if (to) to.focus({ preventScroll: true });
+}
+
 /** 시점만 바뀌면 시점 띠는 두고 지금 쪽과 목차만 다시 그린다 (끄는 중인 막대를 지우지 않게) */
 function castRefresh() {
   const page = document.getElementById('cast-page');
   if (!page) return;
-  if (S.castView === 'map' && document.getElementById('cast-stage')) document.getElementById('cast-stage').innerHTML = castStage();
-  else page.innerHTML = castPage();
+  if (S.castView === 'map' && document.getElementById('cast-stage')) castSwap(document.getElementById('cast-stage'), castStage());
+  else castSwap(page, castPage());
   outlineRefresh('cast-toc', castToc());
   const label = document.getElementById('cast-frame-label');
   if (label) label.innerHTML = castBarLabel(castFrameNow());
@@ -969,6 +981,7 @@ Object.assign(actions, {
     const warmth = Number($(`#tf-w${k}`).value);
     const trust = Number($(`#tf-t${k}`).value);
     if (!(await askConfirm(`${charName(source)} → ${charName(target)} 관계를 온기 ${warmth.toFixed(2)}, 신뢰 ${trust.toFixed(2)} 값으로 보정할까요?`, { ok: '보정하기' }))) return;
+    if (S.dirty && !(await askConfirm('저장하지 않은 변경이 있어요. 저장하고 관계를 보정할까요?', { ok: '저장하고 보정하기' }))) return;
     await run('보정하는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/ties/adjust`, { source, target, warmth, trust });
@@ -1002,7 +1015,7 @@ Object.assign(actions, {
   castZoom(d) {
     S.castZoom = Math.min(CAST_ZOOM.length - 1, Math.max(0, S.castZoom + Number(d)));
     const stage = document.getElementById('cast-stage');
-    if (stage) stage.innerHTML = castStage();
+    if (stage) castSwap(stage, castStage());
   },
   castEditToggle(id) {
     S.castEdit = S.castEdit === id ? '' : id;
@@ -1091,7 +1104,7 @@ document.addEventListener('change', (e) => {
 });
 
 document.addEventListener('keydown', (e) => {
-  const g = e.target.closest && e.target.closest('[data-cast-node], .ct-row');
+  const g = e.target.closest && e.target.closest('[data-cast-node], .ct-row, .cg-edge, .cg-tension, .cc-col');
   if (!g || (e.key !== 'Enter' && e.key !== ' ')) return;
   e.preventDefault();
   const fn = actions[g.dataset.action];

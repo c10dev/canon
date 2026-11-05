@@ -1333,6 +1333,10 @@ details.vis summary .small { margin-left: var(--space-6); font-weight: 400; }
 .cast-graph .cg-name { font-size: 0.8125rem; font-weight: 700; fill: var(--text); paint-order: stroke; stroke: var(--canvas); stroke-width: 4px; stroke-linejoin: round; pointer-events: none; }
 .cast-graph [data-action] { cursor: pointer; }
 .cast-graph .cg-node[data-action] { cursor: grab; }
+.cast-graph .cg-edge:focus, .cast-graph .cg-tension:focus { outline: none; }  /* SVG 안 링은 선 · 점에 직접 그린다 (줄기 지도 .line-map 과 같은 방식) */
+.cast-graph .cg-edge:focus-visible .cg-hit { stroke: color-mix(in srgb, var(--accent) 45%, transparent); }
+.cast-graph .cg-tension:focus-visible circle { stroke: var(--accent); stroke-width: 3; }
+.cast-graph .dim:focus-visible { opacity: 1; }
 .link-btn { padding: 0; border: none; background: none; font: inherit; color: var(--link); cursor: pointer; text-align: left; }
 .link-btn:hover { text-decoration: underline; }
 .cast-ul { padding-left: 18px; margin: 0; display: flex; flex-direction: column; gap: var(--space-6); font-size: 0.8125rem; line-height: 1.55; }  /* 단계 밖 18px: 목록 들여쓰기 */
@@ -1524,6 +1528,8 @@ a.ab-tile:hover { border-color: var(--line-strong); }
 .cast-chart .cc-now { stroke: var(--accent); stroke-width: 1; stroke-dasharray: 3 3; }
 .cast-chart .cc-col { fill: transparent; cursor: pointer; }
 .cast-chart .cc-col:hover { fill: color-mix(in srgb, var(--accent) 7%, transparent); }
+.cast-chart .cc-col:focus { outline: none; }
+.cast-chart .cc-col:focus-visible { fill: color-mix(in srgb, var(--accent) 12%, transparent); stroke: var(--accent); stroke-width: 2; }
 ul.cast-ul:has(> .cast-ev) { list-style: none; padding-left: 0; }
 /* 집필 화면 문체 표시 (marks.js): 장치 배지, 본문 밑줄 */
 .dev-list { list-style: none; padding: 0; display: flex; flex-direction: column; gap: var(--space-8); }
