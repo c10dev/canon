@@ -181,6 +181,7 @@
 - 정리(`CLEAN`) · 반영(`APPLY_FIRST` 새 인물 직후, `APPLY_LAST` 기록 전) · 되돌리기(`REVERT_FIRST` 스냅샷으로 덮기 전, `REVERT_LAST` 뒤) 목록
 - `pipeline.clean_delta` · `apply_delta` · `revert` 가 목록을 차례로 부른다
 - 정리 훅은 한 인물에 대한 경고를 (글, 인물 id) 로 돌려준다(`Warn`)
+- `_new_cast_known` 은 새 인물에 온 이미 있는 인물 id 를 그 인물 경고로 알린다(반영은 새로 더하지 않음)
 - `clean` 이 그 id 를 `StateDelta.warn_to` 의 같은 차례에 넣는다
 - 글만 돌려준 경고, 훅이 `d.warnings` 에 바로 붙인 경고, AI 경고는 대상이 "" 다
 - `align_warn_to` 가 `warn_to` 길이를 `warnings` 에 맞춘다
@@ -257,6 +258,11 @@
   - 반영 전 검사 `validate_delta`: 설정에 없는 인물 id(이번 새 인물은 앎) · 같은 인물끼리이거나 설정에 없는 인물의 관계 사건과 관계 바뀜 · 없는 복선 id 회수(이번에 심는 복선은 앎)
   - `apply_delta` 는 검사에 걸린 항목과 설정에 없는 사건 목격자를 빼고(`drop_invalid`) 반영한 뒤 뺀 항목 문구를 돌려준다
   - `drop_invalid` 가 뺀 항목은 `d.dismissed` 의 같은 칸에 남는다(반영 기록에서 보이고 반영 취소로 돌아오면 체크를 푼 채 다시 놓인다)
+  - `apply_delta` 는 새 인물(`new_characters`)에 온 이미 있는 인물 id 를 `d.dismissed.new_characters` 로 옮기고 그 문구를 돌려준다(기록에 남으면 반영 취소가 그 인물을 지운다)
+  - 반영 취소 `revert` 는 n화 뒤 반영(history)이 한 일만 되돌린다(`_undo_later`): 그 반영이 더한 관계 · 비밀 · 사실 · 복선을 빼고 바꾼 칸만 n화 스냅샷 값으로 돌린다
+  - n화 뒤 작가가 더하거나 고친 관계 · 비밀 · 사실 · 복선(회수 예정 화 포함)은 남는다. 뒤 반영 직전 스냅샷에 없던 항목을 그 반영이 더한 것으로 본다
+  - 인물 상태 · 관계 간선은 n화 스냅샷으로 덮는다. 스냅샷에 상태가 없는 인물은 지금 상태를 두고(뒤 반영이 바꿨으면 처음 상태), 작가가 더한 관계의 간선은 `seed_ties` 로 다시 만든다
+  - `revert` 는 n화 때 이미 있던 인물(스냅샷에 상태가 있거나 `first_ep` 가 n 이하)을 예전 기록의 새 인물 칸에 있어도 지우지 않는다
   - 상태 변경안의 본문 지문 `StateDelta.basis`(`text_basis`)는 `extract_state` · `carried_delta` 가 채운다
   - 반영 `apply_delta` 는 인물 상태의 빈 칸을 그대로 두고, `CharacterState.cleared` 에 적힌 칸(목표 · 위치 · 메모 · 차림 · 감정)은 비운다
   - 설정 칸 하나 AI 후보 `suggest_field` · 단계 `field_stage`
