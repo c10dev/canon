@@ -19,8 +19,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from canon import autorun, findings, pipeline, store  # noqa: E402
 from canon.cli import main  # noqa: E402
-from canon.schema import (ConsistencyIssue, ConsistencyReport, Episode, EpisodePlot, Meta, Project,  # noqa: E402
-                          StateDelta)
+from canon.schema import (ConsistencyIssue, ConsistencyReport, Episode, EpisodePlot, StateDelta)
 
 Q1 = "도현은 오른손에 남은 흉터를 엄지로 문질렀다."
 Q2 = "서윤은 눈앞의 문손잡이를 두 손으로 붙잡았다."

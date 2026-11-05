@@ -24,7 +24,7 @@ from pathlib import Path
 from . import cancel, context, cue, metrics, pipeline, prompts, store, usage
 from .context import CHARS_PER_TOKEN
 from .schema import (Act, AddressForm, BoardHandover, BoardScene, BoardTime, Character, CueLine, CueSheet, CueSheetDraft, CueTake, Episode, EpisodePlot, Meta, Project,
-                     Relationship, RevAI, RevBlind, RevBound, RevCastSaved, RevEpisode, RevEpisodeDraft, RevArc, RevArcPlan, RevArcSet, RevLab, RevLineSet, RevPart, RevPerson, RevSource, RevStyle, RevTake, Storyboard,
+                     Relationship, RevAI, RevBlind, RevBound, RevCastSaved, RevEpisode, RevEpisodeDraft, RevArc, RevArcPlan, RevArcSet, RevLab, RevLineSet, RevPart, RevPerson, RevStyle, RevTake, Storyboard,
                      StoryboardDraft, StyleProfile, WorldSetting,
                      Storyline)
 

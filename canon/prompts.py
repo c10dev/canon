@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from . import context, elements, genres, metrics, naming, storylines
 from .dynamics import VIEWS, describe_relations
 from .llm import _inline_refs, dump
-from .schema import Birth, Character, ChatMessage, Claim, ConsistencyIssue, ConsistencyReport, Foreshadow, ImpactReport, PlayInfo, Project, Selection, StateDelta, StoryElement
+from .schema import Birth, Character, ChatMessage, Claim, ConsistencyIssue, ConsistencyReport, Foreshadow, PlayInfo, Project, Selection, StateDelta, StoryElement
 from . import address, board, charlog, echoes, foreshadows, knows, pairlog, stage, statwin, timeline
 from .maps import prompt as mapprompt
 
@@ -3755,7 +3755,7 @@ def _stage_people_block(p: Project, n: int, names: list[str], prev_lines: list[s
     if minors:
         out.append(f"미성년 인물: {', '.join(minors)}. 이 인물이 낀 성적 접촉(성적 부위에 닿는 친밀한 동작, 핥다 · 애무하다)은 적지 않습니다.")
     if attire:
-        out += ["", f"[직전 화가 끝났을 때 차림] 손에 든 물건을 정할 때만 참고합니다", *attire]
+        out += ["", "[직전 화가 끝났을 때 차림] 손에 든 물건을 정할 때만 참고합니다", *attire]
     if prev_lines:
         out += ["", "[같은 화 앞 장면이 끝난 상태] 이 장면 시작 상태의 실마리입니다 (방이 바뀌었으면 자리는 새로 정합니다)", *prev_lines]
     return "\n".join(out)

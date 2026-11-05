@@ -1,3 +1,4 @@
+# 범위만 적는다. 설치는 버전을 고정한 requirements.lock 으로 한다 (다시 만드는 명령은 AGENTS.md '개발 명령')
 google-genai>=1.0
 pydantic>=2.7
 shapely>=2.0  # 장면 연출 이동 경로 (canon/stagepath.py)
@@ -5,4 +6,6 @@ networkx>=3.0  # 장면 연출 이동 경로의 가장 짧은 길
 fastapi>=0.110
 uvicorn>=0.29
 anthropic>=1.0  # Claude API 키(claude-api) 백엔드
-pytest>=7  # 시험: python -m pytest -q tests
+pytest>=7  # 시험: python -m pytest -q -n auto tests
+pytest-xdist>=3  # 시험을 CPU 수만큼 나눠 돌린다 (-n auto)
+ruff>=0.6  # 정적 검사: ruff check canon tests scripts (설정은 pyproject.toml)

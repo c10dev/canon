@@ -330,7 +330,8 @@
 
 - 코드 자동 업데이트
 - `origin/main` fast-forward
-- 의존성 설치
+- 의존성 설치(`requirements.lock` 이 있으면 그것대로)
+- 다시 시작하기 전에 새 프로세스에서 `canon.web` 을 불러 보고, 불러지지 않으면 이전 커밋으로 돌린다(`_smoke`)
 - 프로세스 재시작
 - `serve` 가 시작 때와 주기적으로 부른다
 - `POST /api/update/check`(머지 때 GitHub Actions `notify-server.yml`)는 `wake` 로 바로 부르게 한다

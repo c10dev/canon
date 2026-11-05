@@ -1,6 +1,5 @@
 """설정 대화상자(static/settings.js): 찾기 · 주소 · 프리셋 맞춤 · 환경 변수 목록은 node 로, 바로 저장하는 작품 설정 API 는 서버로 맞춰 본다."""
 import importlib
-import json
 import re
 from pathlib import Path
 
@@ -16,11 +15,11 @@ ROWS = "SET_ROWS.map((r) => ({ cat: r.cat, label: r.label, sec: r.sec, words: r.
 
 @needs_node
 def test_settings_match():
-    got = run_js(FILES, f"""(() => {{
+    got = run_js(FILES, """(() => {
       const ids = (q) => settingsMatch(SET_ROWS, q).map((r) => r.id);
-      return {{ key: ids('키'), apiKey: ids('API 키'), stage: ids('검수'), none: ids('없는말'), blank: ids('  '),
-        spaced: ids('스냅 샷'), cat: ids('이 브라우저'), group: ids('고급') }};
-    }})()""", {})
+      return { key: ids('키'), apiKey: ids('API 키'), stage: ids('검수'), none: ids('없는말'), blank: ids('  '),
+        spaced: ids('스냅 샷'), cat: ids('이 브라우저'), group: ids('고급') };
+    })()""", {})
     # 이름에 든 줄이 앞, 찾을 말에만 든 줄이 뒤
     assert got["key"][:4] == ["gemini-key", "vertex-cred", "anthropic-key", "local-key"]
     assert {"gemini-auth", "test", "env"} <= set(got["key"][4:])

@@ -12,7 +12,7 @@ from canon import atlas  # noqa: E402
 from canon.maps import blocks, fill, geom  # noqa: E402
 from canon.maps import buildings as bldgs  # noqa: E402
 from canon.maps.sources import osm  # noqa: E402
-from canon.schema import BuildingNote, StoryElement  # noqa: E402
+from canon.schema import StoryElement  # noqa: E402
 
 S, N, W, E = 37.500, 37.504, 127.000, 127.005  # 범위 (약 442 × 442m), tests/test_osm.py 와 같은 꼴
 MX = 111320.0 * math.cos(math.radians((S + N) / 2))

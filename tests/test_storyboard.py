@@ -13,7 +13,7 @@ from canon import autorun, board, branches, jobs, pipeline, prompts, store
 from canon.cli import main
 from canon.mock import MockLLM
 from canon.mock_board import CONFLICT
-from canon.schema import BoardStat, BoardWarning, CharacterState, Episode, StatValue, Storyboard, StoryTime
+from canon.schema import BoardStat, BoardWarning, CharacterState, StatValue, Storyboard, StoryTime
 
 from .jsvm import STATIC, needs_node, run_js
 from .test_web import _wait

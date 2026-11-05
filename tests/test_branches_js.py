@@ -1,6 +1,5 @@
 """갈래 화면(static/branches.js · home.js)이 서버와 같은 규칙을 쓰는지. node 가 있을 때만 돈다.
 branchName ↔ 명령줄 branches 의 이름, folderOf · branchFolder 가 만드는 폴더 이름 ↔ web.NAME_RE."""
-import pytest
 
 from canon import web
 
@@ -23,8 +22,6 @@ def test_folder_names_pass_server_check():
 
 
 @needs_node
-@pytest.mark.xfail(strict=True, reason="어긋남: folderOf 는 64 UTF-16 단위로 잘라 이모지 가운데를 끊을 수 있다. "
-                   "끊긴 반쪽 글자는 NAME_RE 를 지나도 폴더를 만들 때 깨진다")
 def test_folder_name_cut_keeps_whole_characters():
     title = "a" + "🗡" * 40
     folder = run_js(["app.js", "home.js"], "folderOf(data)", title)

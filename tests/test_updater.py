@@ -31,6 +31,7 @@ class UpdaterTest(unittest.TestCase):
 
     def commit(self, name: str, text: str, msg: str, repo: Path = None) -> None:
         repo = repo or self.dev
+        (repo / name).parent.mkdir(parents=True, exist_ok=True)
         (repo / name).write_text(text)
         git(repo, "add", name)
         git(repo, "commit", "-q", "-m", msg)
@@ -71,6 +72,20 @@ class UpdaterTest(unittest.TestCase):
         r = updater.update(self.clone, install=False)
         self.assertFalse(r.updated)
         self.assertIn("로컬 커밋", r.message)
+
+    def test_rolls_back_code_that_does_not_import(self):
+        self.commit("canon/__init__.py", "", "패키지")
+        self.commit("canon/web.py", "x = 1\n", "웹")
+        git(self.dev, "push", "-q", "origin", "HEAD:main")
+        self.assertTrue(updater.update(self.clone, install=False).updated)
+        good = git(self.clone, "rev-parse", "HEAD")
+        self.commit("canon/web.py", "def broken(:\n", "깨진 커밋")
+        git(self.dev, "push", "-q", "origin", "HEAD:main")
+        r = updater.update(self.clone, install=False)
+        self.assertFalse(r.updated)
+        self.assertIn("이전 버전으로 돌렸어요", r.message)
+        self.assertEqual(git(self.clone, "rev-parse", "HEAD"), good)
+        self.assertEqual((self.clone / "canon" / "web.py").read_text(), "x = 1\n")
 
     def test_not_a_repo(self):
         self.assertFalse(updater.update(Path(self.tmp.name), install=False).updated)

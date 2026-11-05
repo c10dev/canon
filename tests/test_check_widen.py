@@ -10,7 +10,6 @@ import os
 import tempfile
 from types import SimpleNamespace
 
-import pytest
 
 os.environ.setdefault("CANON_LLM", "mock")
 os.environ.setdefault("CANON_HOME", tempfile.mkdtemp())

@@ -48,16 +48,18 @@ AI 로 소설을 길게 쓸수록 인물 관계, 심리, 말투, 복선, 문체�
 ## 개발 명령
 
 ```bash
-pip install -r requirements.txt
-CANON_HOME=$(mktemp -d) python -m pytest -q tests        # 전체 시험 (mock LLM, API 키 불필요, 1~2분)
+pip install -r requirements.lock   # 검증한 버전으로 고정한 목록
+CANON_HOME=$(mktemp -d) python -m pytest -q -n auto tests  # 전체 시험 (mock LLM, API 키 불필요, 9코어에서 약 2분, -n 없이 약 6분)
 CANON_HOME=$(mktemp -d) python -m pytest -q tests/test_timeline.py  # 고친 기능의 시험만 빠르게
 CANON_LLM=mock python -m canon ...  # 수동 확인
+ruff check canon tests scripts      # 정적 검사 (쓰지 않는 import · 변수, 정의 안 된 이름, 설정은 pyproject.toml)
 ```
 
 - 시험은 `CANON_HOME` 을 임시 폴더로 두고 돌린다. 몇몇 시험이 `canon` 을 먼저 불러 실제 `projects/` 에 작품을 만들 수 있다.
 - `python -m unittest` 는 쓰지 않는다. 시험 대부분(pytest 형식 함수)을 건너뛴다.
 - 스키마나 파이프라인을 바꾸면 `canon/mock.py`(새 기능은 `mock_<기능>.py`)도 맞춰 고치고 전체 시험이 통과하는지 확인한다.
 - 실제 Gemini 호출은 키가 있을 때만 확인할 수 있다. 확인하지 못했다면 그렇다고 밝힌다.
+- 의존성은 `requirements.txt` 에 범위로 적고, 바꾸면 `uv pip compile --universal --python-version 3.12 requirements.txt -o requirements.lock` 으로 잠금 파일을 다시 만든다(`tests/test_requirements_lock.py`).
 - 환경 변수 목록은 [docs/modules/ai.md](docs/modules/ai.md) 의 `canon/llm.py` 절.
 
 ## 규칙
