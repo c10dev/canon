@@ -61,3 +61,19 @@ def test_pick_ep_recounts_defaults():
       return [before, S.picks.c0, S.deltaOrig[3].picks.c0];
     })()""", {"p": dump(p), "b": dump(b), "c": dump(c)})
     assert out == [False, True, True]
+
+
+@needs_node
+def test_event_kind_tag_text():
+    # 좋은 · 나쁜 사건은 색만으로 갈리지 않게 고르기 옆 칩에 기호(읽지 않음)와 글자를 둔다
+    p = project("short")
+    p.episodes[0].status = "written"
+    d = StateDelta.model_validate({"episode": 1, "summary": "", "events": [
+        {"episode": 1, "actor": "a", "target": "b", "kind": "도움", "intensity": 1}, {"episode": 1, "actor": "a", "target": "b", "kind": "배신", "intensity": 2}]})
+    html = run_js(FILES, """(() => {
+      S.project = data.p; S.name = 't'; S.route = ['p', 't', 'review', '1'];
+      setDelta(1, data.d);
+      return viewReview(1);
+    })()""", {"p": dump(p), "d": dump(d)})
+    assert '<span class="chip ok" data-kind-tag="ek-0"><span aria-hidden="true">＋</span> 좋은 사건</span>' in html
+    assert '<span class="chip bad" data-kind-tag="ek-1"><span aria-hidden="true">－</span> 나쁜 사건</span>' in html

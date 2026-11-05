@@ -336,6 +336,7 @@
   - 목차는 이웃 화 목록 `epTocItems`
   - 카드 한 열: 이어받는 것 · 줄거리 · 인물 · 시점 · 끝과 이음 · 복선 · 접은 화 도구
   - 사건마다 한 칸 `eventsField`
+  - 글이 있는 사건을 빼면(`dropEvent`) 저장 띠의 '방금 지운 n화 사건 k 되살리기'로 그 화 사건 목록을 빼기 전으로 돌린다(`rememberRemoved`)
   - 옮기기 전 저장 `openPlot` · `closePlot`
   - 저장 띠는 아래 붙는 버튼 줄의 `.savebar-slot`
 - 플롯 편집기 등장 인물(목차 계산 `tests/test_plot_js.py`)
@@ -390,6 +391,7 @@
   - 반영 `applyDelta`: 본문을 고친 것을 확인창에서 받았으면 `?force=1` 로 보낸다. 서버가 409(`stale_delta`)를 주면 기다림 상자를 닫고 한 번 더 묻는다
   - 왼쪽 읽기 전용 본문과 근거 밑줄 `rvRanges`
   - 오른쪽 직접 정할 것 · 요약 · 그대로 반영할 것(갈래 접기 `S.rvOpen`, 고른 수 `rvKeyCount`) · 관계 계산
+  - 관계 사건 종류 고르기는 색(`kindStyle`) 옆에 칩 `kindTag`(＋ 좋은 사건 · － 나쁜 사건, 기호는 `aria-hidden`)을 둔다. 종류를 바꾸면 칩도 맞춘다
   - 경고를 인물 줄에 붙이기 `rvWarnSplit`
   - 대상 인물 id(`StateDelta.warn_to`)가 있으면 그 인물 줄, 없으면(AI 경고 · 예전 변경안) 인물 이름으로 시작하는지로 붙인다
   - 인물 칸 그 자리에서 펴기 `rvOpen`
