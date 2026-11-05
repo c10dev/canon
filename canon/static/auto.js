@@ -4,7 +4,7 @@
 'use strict';
 
 const AUTO_STATUS = {
-  running: ['진행 중', 'confirmed'], paused: ['일시정지', 'written'], review: ['검토 대기', 'written'],
+  running: ['진행하는 중', 'confirmed'], paused: ['일시정지', 'written'], review: ['검토 대기', 'written'],
   stopped: ['중지됨', 'draft'], done: ['끝남', 'finalized'], error: ['오류로 멈춤', 'written'],
 };
 const AUTO_STEP = { board: '스토리보드 만드는 중', cues: '큐 시트 만드는 중', write: '본문 쓰는 중', polish: '서술 다듬는 중', review: '검수와 상태 변경안 만드는 중', confirm: '플롯 확정', applied: '반영 완료' };
@@ -318,7 +318,7 @@ function autoBatchToggle(on, attrs = '') {
 const autoMan = (x) => new Intl.NumberFormat('ko-KR', { notation: 'compact', maximumFractionDigits: 1 }).format(x || 0);
 
 function autoRunCard(r, active) {
-  // 서버와 연결이 끊기면 마지막 상태를 '진행 중'으로 두지 않는다 (autoPoll 이 S.autoOffline 을 정한다)
+  // 서버와 연결이 끊기면 마지막 상태를 '진행하는 중'으로 두지 않는다 (autoPoll 이 S.autoOffline 을 정한다)
   const [label, cls] = S.autoOffline ? ['연결 끊김', 'draft'] : AUTO_STATUS[r.status] || [r.status, ''];
   const p = P();
   const total = r.target;
