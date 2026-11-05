@@ -1366,7 +1366,14 @@ const deltaPending = (n) => { const e = P() && ep(Number(n)); return (!e || e.st
 // 저장 · 버리기 · 편집기 닫기 때 false 로 둔다. 키 이름은 모듈이 정하고, app.js 는 키를 켜지 않고 값만 본다.
 // true 인 키가 하나라도 있으면 화면 이동(hashchange)과 새로고침 · 탭 닫기(beforeunload)에서 묻는다.
 // 화면 이동이 이어지면(버리고 이동을 골랐거나 남은 입력이 없음) app.js 가 S.editDrafts 를 {} 로 비운다
+// 버리고 이동을 고른 키는 onEditDiscard 로 맡긴 함수를 불러 그 모듈의 초안도 비운다. 돌아왔을 때 버린 글이 되살아나지 않게
 const editDraftOpen = () => Object.values(S.editDrafts || {}).some(Boolean);
+const editDraftResets = {};
+function onEditDiscard(key, fn) { editDraftResets[key] = fn; }
+function discardEditDrafts() {
+  Object.entries(S.editDrafts || {}).forEach(([k, on]) => { if (on && editDraftResets[k]) editDraftResets[k](); });
+  S.editDrafts = {};
+}
 
 /** 화면을 옮기면 사라지는 입력: 저장하지 않은 작품 · 라이브러리 · 장면 연출 변경과 인라인 편집기 입력.
     본문 초안 · 상태 변경안 · 가격표처럼 화면을 옮겨도 남는 것은 세지 않는다 (hashchange 확인이 쓴다) */
@@ -1962,7 +1969,7 @@ window.addEventListener('hashchange', async () => {
   navScroll.idx = history.state.idx;
   lastHash = location.hash;
   S.libDirty = false;
-  S.editDrafts = {};  // 버리고 이동을 골랐거나 남은 입력이 없었다. 떠난 화면의 편집기는 사라졌으니 모든 키를 지운다 (S.editDrafts 약속)
+  discardEditDrafts();  // 버리고 이동을 골랐거나 남은 입력이 없었다. 버린 초안을 비우고 모든 키를 지운다 (S.editDrafts 약속)
   await route();
 });
 

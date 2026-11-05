@@ -30,6 +30,7 @@
 - `S.editDrafts` 약속: 인라인 편집기를 가진 모듈은 저장하지 않은 입력이 생기면 `S.editDrafts.<키>` 를 true 로, 저장 · 버리기 · 닫기 때 false 로 둔다
 - `S.editDrafts` 의 키는 그 모듈이 정한다. `app.js` 는 키를 쓰지 않고 true 인 값이 있는지만 본다(`editDraftOpen`)
 - 화면 이동이 이어지면(버리고 이동을 골랐거나 남은 입력이 없음) `app.js` 가 `S.editDrafts` 를 `{}` 로 비운다. 떠난 화면의 편집기는 이미 사라졌다
+- 버리고 이동을 고르면 true 인 키마다 그 모듈이 `onEditDiscard(키, 함수)` 로 맡긴 함수를 불러 초안도 버린다(`discardEditDrafts`). 돌아왔을 때 버린 글이 되살아나지 않는다
 - `showError` 는 키 없음(`no_key`)과 키 틀림(`bad_key`) 모두 설정을 열지 묻는다
 - `run` 이 실패를 알릴 때 다시 시도할 만한 실패(`retryable`: status 0 · 429 · 5xx)면 같은 `run(label, fn, opt)` 을 다시 부르는 '다시 시도'를 붙인다
 - `run` 의 `opt.retry: false` 는 '다시 시도'를 붙이지 않는다. 저장하고 이동(hashchange)이 쓴다: 저장만 되풀이하면 이동이 이어지지 않는다

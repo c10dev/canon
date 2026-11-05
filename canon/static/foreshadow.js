@@ -162,6 +162,9 @@ async function fsLoad(sel) {
   fsDraftMark();
 }
 
+// 버리고 이동을 고르면 더하기 · 고치는 칸을 닫고 적던 값을 버린다 (app.js onEditDiscard)
+if (typeof onEditDiscard === 'function') onEditDiscard('fs', () => { S.fsAdd = false; S.fsAddDraft = null; S.fsEdit = ''; S.fsEditDraft = null; });
+
 /** 고치는 칸에 저장하지 않은 글이 있으면 S.editDrafts.fs 를 켠다 (app.js hasUnsaved 가 떠나기 전에 묻는다) */
 function fsDraftMark() {
   const ed = S.fsEditDraft;

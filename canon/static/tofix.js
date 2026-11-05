@@ -132,6 +132,9 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+// 버리고 이동을 고르면 메모 칸을 닫고 적던 글을 버린다 (app.js onEditDiscard)
+if (typeof onEditDiscard === 'function') onEditDiscard('tofix', () => { S.tofixEdit = null; });
+
 /** 고칠 곳 화면의 메모 칸에 저장하지 않은 글이 있으면 S.editDrafts.tofix 를 켠다 (app.js hasUnsaved 가 떠나기 전에 묻는다) */
 function tofixDraftMark() {
   const t = S.tofixEdit;

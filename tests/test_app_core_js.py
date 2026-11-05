@@ -96,6 +96,20 @@ def test_leave_guard_counts_inline_editors_and_prices():
 
 
 @needs_node
+def test_discard_resets_only_open_editor_drafts():
+    # 버리고 이동을 고른 편집기만 초안을 비운다. 저장하지 않은 입력이 없던 편집기는 그대로 둔다
+    got = run_js(["app.js"], """(() => {
+      const calls = [];
+      onEditDiscard('a', () => calls.push('a'));
+      onEditDiscard('b', () => calls.push('b'));
+      S.editDrafts = { a: true, b: false };
+      discardEditDrafts();
+      return { calls, left: S.editDrafts };
+    })()""", {})
+    assert got == {"calls": ["a"], "left": {}}
+
+
+@needs_node
 def test_toast_text_goes_to_live_regions():
     got = run_js(["app.js"], """(() => {
       const box = () => { const b = { kids: [], appendChild(n) { b.kids.push(n); n.remove = () => { b.kids = b.kids.filter((x) => x !== n); }; } }; return b; };
@@ -169,4 +183,4 @@ def test_confirmed_leave_clears_edit_drafts():
     body = body[:body.index("await route();")]
     assert "if (leaveUnsaved())" in body
     tail = body[body.index("lastHash = location.hash;"):]
-    assert "S.libDirty = false;" in tail and "S.editDrafts = {};" in tail
+    assert "S.libDirty = false;" in tail and "discardEditDrafts();" in tail

@@ -353,6 +353,9 @@ function tlDraftOf(key) {
   return { key, what: x.what || '', day: x.day > 0 ? String(x.day) : '', date: tlISO(x.day), note: x.note || '' };
 }
 
+// 버리고 이동을 고르면 기한 칸을 닫고 적던 값을 버린다 (app.js onEditDiscard)
+if (typeof onEditDiscard === 'function') onEditDiscard('tl', () => { S.tlEdit = ''; S.tlDraft = null; });
+
 /** 기한 칸에 저장하지 않은 글이 있으면 S.editDrafts.tl 을 켠다 (app.js hasUnsaved 가 떠나기 전에 묻는다) */
 function tlDraftMark() {
   const f = S.tlDraft;

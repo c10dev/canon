@@ -70,6 +70,9 @@ function checkOptsMenu() {
   return menuBtn('check-opts', `검수 옵션 ${on}/${opts.length} <span aria-hidden="true">▾</span>`, body, { title: '검수할 때 함께 할 것을 켜고 꺼요' });
 }
 
+// 버리고 이동을 고르면 메모 초안도 버린다 (app.js onEditDiscard)
+if (typeof onEditDiscard === 'function') onEditDiscard('chkNote', () => { S.chkNotes = {}; });
+
 /** 메모 초안이 하나라도 남았는지 S.editDrafts.chkNote 에 알린다 */
 function syncNoteDraft() {
   S.editDrafts = S.editDrafts || {};
