@@ -107,6 +107,53 @@ class LocalLLMTest(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             LocalLLM().json("시스템", "분석", StyleProfile)
 
+    def test_json_reads_object_after_a_lead_in(self):
+        """response_format 을 무시하고 JSON 앞에 말을 붙이는 서버도 다른 백엔드처럼 읽는다 (llm._validate)."""
+        good = StyleProfile(narration_pov="3인칭 제한", tense="과거형").model_dump_json()
+        FakeServer.replies = ["네, JSON 입니다:\n" + good]
+        self.assertEqual(LocalLLM().json("시스템", "분석", StyleProfile).tense, "과거형")
+        self.assertEqual(len(FakeServer.requests), 1)
+
+    def test_bad_timeout_env_and_readable_errors(self):
+        import socket
+
+        from canon import llm as llm_mod
+        with mock.patch.dict(os.environ, {"CANON_LOCAL_TIMEOUT": "15m"}):
+            self.assertEqual(LocalLLM(model="m").timeout, llm_mod.LOCAL_TIMEOUT)
+        with mock.patch.dict(os.environ, {"CANON_LOCAL_TIMEOUT": "2.5"}):
+            self.assertEqual(LocalLLM(model="m").timeout, 2.5)
+        silent = socket.socket()
+        silent.bind(("127.0.0.1", 0))
+        silent.listen(4)  # 연결은 받지만 답하지 않는 서버
+        try:
+            url = f"http://127.0.0.1:{silent.getsockname()[1]}/v1"
+            with self.assertRaises(RuntimeError) as e:
+                LocalLLM(base_url=url, model="m", timeout=0.3).text("시스템", "써라")
+            self.assertIn("0.3초 안에 응답하지 않았어요", str(e.exception))
+            with mock.patch.object(llm_mod, "LOCAL_LIST_TIMEOUT", 0.2), self.assertRaises(RuntimeError) as e:
+                LocalLLM(base_url=url, timeout=600).models()  # 모델 목록은 짧게만 기다린다
+            self.assertIn("0.2초 안에", str(e.exception))
+        finally:
+            silent.close()
+
+        class Html(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"<html>login</html>")
+
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), Html)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            with self.assertRaises(RuntimeError) as e:
+                LocalLLM(base_url=f"http://127.0.0.1:{srv.server_port}", model="m").models()
+            self.assertIn("JSON이 아닌 응답", str(e.exception))
+        finally:
+            srv.shutdown()
+
     def test_out_cap_sends_max_tokens_only_inside(self):
         from canon.llm import out_cap
 

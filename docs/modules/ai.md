@@ -41,6 +41,7 @@
 - 판단기
 - 글을 쓰지 않고 선택지 확률만 낸다(Jev 의 System One 방식)
 - `LocalJudge`(OpenAI 호환 서버 logprobs, 출력 1토큰)
+- `LocalJudge.decide` 는 질문 하나가 실패하거나 작업을 멈추면 바로 끝낸다. 남은 질문은 보내지 않고, 보낸 질문의 응답은 기다리지 않는다
 - `MockJudge`
 - `make_judge` / `get_judge`(`CANON_JUDGE`)
 - 환경 변수 값은 `env_choice` 로 읽는다. 연구 화면 검수 시험도 판단기를 고르지 않았거나 모델 · 주소가 비면 이 값을 쓴다(`research.judge_backend`)
@@ -54,6 +55,9 @@
 - 키 · 권한 오류(401, 403, 400 API_KEY_INVALID, `is_bad_key`)는 다시 부르지 않고 `BadKey`(`KEY_HINT`, Vertex 는 `VERTEX_HINT`)를 낸다. 웹은 code `bad_key` 로 답한다
 - 요청 한도로 기다리거나 응답 지연으로 다시 부를 때 `cancel.say` 로 작업 진행 줄에 알리고, 그 호출이 끝나면 비운다
 - 로컬(OpenAI 호환) 구현
+- 로컬 `json` 은 다른 백엔드처럼 `_validate` 로 읽는다. 앞뒤에 말이 붙은 JSON 도 받는다
+- 로컬 시간 초과와 JSON 이 아닌 응답은 주소를 담은 해요체 `RuntimeError` 로 낸다(`LocalLLM._request`)
+- 로컬 모델 목록은 `LOCAL_LIST_TIMEOUT`(30초)까지만 기다린다. 멈춘 서버에서 모델 이름을 찾느라 본 호출만큼 더 기다리지 않게
 - 단계별 선택(`get_llm(stage)`)
 - 단계 이름은 `settings.STAGES` 다
 - Gemini 429 요청 한도는 `GeminiLLM._call` 이 `RATE_WAITS`(30 · 60 · 120초)만큼 기다려 다시 부른다(기다리기 전 `cancel.check`, 실패한 시도는 하나씩 사용량에 실패로)
@@ -113,7 +117,7 @@
   - `CANON_LLM`: gemini | local | claude | claude-api | mock
   - `CANON_LLM_<단계>`: 단계별 백엔드(`CANON_LLM_PLAN` · `_WRITE` · `_CHECK` · `_STATE` · `_NAME` · `_REVISE` · `_ILLUSTRATION` · `_PLAY` · `_CHAT`, 이름은 `settings.stage_env`)
   - `CANON_LOCAL_KEY` · `CANON_LOCAL_MODEL` · `CANON_LOCAL_URL`: 로컬 서버
-  - `CANON_LOCAL_TIMEOUT`: 로컬 서버 응답을 기다리는 초(기본 900)
+  - `CANON_LOCAL_TIMEOUT`: 로컬 서버 응답을 기다리는 초(기본 900, 숫자가 아니거나 0 이하면 기본값, `llm.local_timeout`)
   - `CANON_MOCK_BATCH_POLLS`: 가짜 배치가 끝나기 전에 물어볼 횟수(기본 0)
   - `CANON_MOCK_DELAY`: 가짜 응답이 기다리는 초(기본 0, 화면 진행 표시 확인용)
   - `CANON_MODEL`: Gemini 모델(기본 `gemini-4-argon`)

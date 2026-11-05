@@ -76,3 +76,33 @@ def test_score_estimate_and_run_record():
             raise AssertionError("막혀야 한다")
         except ValueError:
             pass
+
+
+def test_run_keeps_drafts_written_before_a_failure(monkeypatch):
+    """도중에 한 번 실패하거나 멈춰도 그때까지 쓴 본문은 기록에 남기고, 멈춘 까닭을 적는다."""
+    import pytest
+
+    from canon import research, store
+    from canon.cancel import Cancelled
+
+    p = _trial()
+    store.save("bt2", p)
+    real, calls = pipeline.write_episode, []
+
+    def flaky(llm, q, n, **kw):
+        calls.append(n)
+        if len(calls) == 3:
+            raise RuntimeError("quota")
+        return real(llm, q, n, **kw)
+
+    monkeypatch.setattr(pipeline, "write_episode", flaky)
+    with pytest.raises(RuntimeError):
+        blocktrial.run("bt2", store.load("bt2"), LLM, [2, 3], conditions=["base", "no_profile"])
+    row = research.history("bt2")[0]
+    assert row["kind"] == "blocks" and len(row["drafts"]) == 2 and "4개 가운데 2개를 쓰고 멈춤: quota" == row["stopped"]
+    assert research.load_compare("bt2", 2)["kind"] == "blocks"  # 끝난 화의 비교본도 남는다
+    calls.clear()
+    monkeypatch.setattr(pipeline, "write_episode", lambda *a, **k: (_ for _ in ()).throw(Cancelled()))
+    with pytest.raises(Cancelled):
+        blocktrial.run("bt2", store.load("bt2"), LLM, [2])
+    assert research.history("bt2")[0]["stopped"].startswith("4개")  # 쓴 본문이 없으면 새 기록을 남기지 않는다

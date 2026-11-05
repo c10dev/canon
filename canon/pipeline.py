@@ -818,8 +818,11 @@ def apply_plots(p: Project, batch: PlotBatch) -> None:
             plot.act = act.name
         if cur and (cur.plot.storyline or cur.plot.threads) and not (plot.storyline or plot.threads):
             plot.storyline, plot.threads = cur.plot.storyline, list(cur.plot.threads)  # 작가가 붙인 줄기는 AI 초안이 지우지 않는다
-        by_no[plot.number] = Episode(plot=plot)
-        storylines.clean_plot(p, by_no[plot.number])
+        new = Episode(plot=plot)
+        if cur:  # 작가 자료는 플롯을 다시 받아도 남긴다. 장면 연출은 사건 글로 사건을 다시 찾는다 (stage.find_event)
+            new.stage, new.to_fix, new.events_done = cur.stage, cur.to_fix, cur.events_done
+        by_no[plot.number] = new
+        storylines.clean_plot(p, new)
         applied.append(plot)
     p.episodes = [by_no[k] for k in sorted(by_no)]
     add_candidates(p, clean_new_characters(p, batch.new_characters, applied))

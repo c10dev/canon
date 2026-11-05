@@ -62,6 +62,17 @@ def test_merge_rules():
     assert "이번 회차에서 안 짚음" in findings.line(ep, f["f4"]) and "안 짚음" not in findings.line(ep, f["f3"])
 
 
+def test_quote_with_other_marks_stays_open():
+    """AI 가 따옴표 모양이나 띄어쓰기만 바꿔 옮긴 문장은 본문에 그대로 있는 것으로 본다. 고침으로 닫지 않는다."""
+    ep = episode()
+    findings.merge(ep, [issue('"그만해.  네가 뭘 안다고."', "말투")], "t1", "b1")
+    findings.merge(ep, [], "t2", "b2")
+    assert (ep.findings[0].status, ep.findings[0].closed_by) == ("open", "")
+    ep.text = ep.text.replace(Q3, "“알았어.”")
+    findings.merge(ep, [], "t3", "b3")
+    assert (ep.findings[0].status, ep.findings[0].closed_by) == ("fixed", "recheck")
+
+
 def test_same_sentence_prefers_same_type_and_keeps_rounds():
     ep = episode()
     findings.merge(ep, [issue(Q1, "사실"), issue(Q1, "시점")], "t1", "b")

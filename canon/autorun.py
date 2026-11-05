@@ -548,6 +548,7 @@ def _edit(name: str, fn: Callable[[Project], Any]) -> Project:
 class Runner:
     def __init__(self, ctl: Control, job: Optional[jobs.Job] = None, echo: Callable[[str], None] | None = None):
         self.ctl, self.name, self.job, self.echo = ctl, ctl.name, job, echo
+        self.no_cues: set[int] = set()  # 낡은 큐 시트를 다시 받았는데 비어 온 화: 낡은 시트를 넣지 않고 쓴다 (_cues, _write)
         self.board_lead: tuple[int, str, list[str]] | None = None  # 방금 만든 스토리보드 (화, made_at, 보낸 요청 글). _cues 가 앞에 둔다
 
     @property
@@ -744,6 +745,7 @@ class Runner:
         made, use = self.call("plan", n, lambda llm: pipeline.make_cue_sheet(llm, p, n, lead=lead))
         if not made.cues:
             self.log(f"{n}화 큐 시트가 비어 왔어요. 큐 시트 없이 써요", "warn", **use)
+            self.no_cues.add(n)
             return False
 
         def put(q: Project) -> None:
@@ -761,7 +763,9 @@ class Runner:
         self._set(n, "write")
         self.log(f"{n}화 본문을 쓰는 중" + (" (배치)" if self.run.batch and batchable("write") else ""))
         cut: list = []
-        (text, model), usage = self.call("write", n, lambda llm: (pipeline.write_episode(llm, p, n, cut=cut), pipeline.writer_of(llm)))
+        use_cues = n not in self.no_cues
+        (text, model), usage = self.call("write", n, lambda llm: (pipeline.write_episode(llm, p, n, use_cues=use_cues, cut=cut),
+                                                                  pipeline.writer_of(llm)))
 
         def put(q: Project) -> None:
             ep = q.episode(n)
@@ -769,7 +773,7 @@ class Runner:
                 raise _Halt("paused", f"{n}화 상태가 '{EP_STATUS.get(ep.status, ep.status)}'(으)로 바뀌어 멈췄어요",
                             _changed_while_writing(n, ep.status), kind="changed")
             ep.text, ep.status, ep.written_by, ep.meta_cut = text, "written", model, cut
-            cue.mark_used(q, n, True)  # 자동 집필은 있는 큐 시트를 넣어 쓴다 (prompts.episode_prompt)
+            cue.mark_used(q, n, use_cues)  # 자동 집필은 있는 큐 시트를 넣어 쓴다. 다시 받은 시트가 비어 왔으면 빼고 쓴다
             anchor.stamp(q, n)
         q = _edit(self.name, put)
         if self.run.policy.polish:

@@ -13,12 +13,12 @@ import math
 import os
 import re
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import FIRST_EXCEPTION, ThreadPoolExecutor, wait
 from typing import Protocol
 
 from pydantic import BaseModel, Field
 
-from . import prompts, usage
+from . import cancel, prompts, usage
 
 LABELS = "ABCDEFGH"
 
@@ -135,9 +135,24 @@ class LocalJudge:
     def decide(self, system: str, questions: list[Question]) -> list[Answer]:
         self.calls += len(questions)
         self.model  # noqa: B018  모델 이름을 스레드 전에 정한다
-        with ThreadPoolExecutor(max_workers=max(1, self.workers)) as ex:
-            futs = [ex.submit(contextvars.copy_context().run, self._one, system, q) for q in questions]
+        def one(q: Question) -> Answer:
+            cancel.check()  # 멈춘 뒤 차례가 온 질문은 보내지 않는다
+            return self._one(system, q)
+
+        # 질문 하나가 실패하거나 작업을 멈추면 바로 끝낸다. 남은 질문은 보내지 않고, 보낸 질문의 응답은 기다리지 않는다
+        # (with 블록은 남은 질문을 모두 보내고 기다려서, 멈춘 서버에서는 timeout 을 여러 번 기다렸다)
+        ex = ThreadPoolExecutor(max_workers=max(1, self.workers))
+        try:
+            futs = [ex.submit(contextvars.copy_context().run, one, q) for q in questions]
+            pending = set(futs)
+            while pending:
+                cancel.check()
+                done, pending = wait(pending, timeout=0.5, return_when=FIRST_EXCEPTION)
+                for f in done:
+                    f.result()  # 실패한 질문의 오류를 낸다
             return [f.result() for f in futs]
+        finally:
+            ex.shutdown(wait=False, cancel_futures=True)
 
 
 def make_judge(provider: str, model: str | None = None, url: str | None = None, contradicts: list[str] | None = None) -> Judge:

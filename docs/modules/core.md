@@ -8,6 +8,7 @@
 - `wanted(name)`: 도는 실행에 받아 둔 일시정지 · 중지 요청. 웹 `AutoView.want` 로 보내 화면이 지금 단계가 끝날 때까지 '멈추는 중'을 보인다
 - 다른 프로세스가 쥔 실행이면 `wanted` 는 주인이 아직 읽지 않은 `autorun.want` 를 돌려준다. 주인이 읽어 지우면 빈 값으로 돌아간다
 - 목표 화까지 (스토리보드 `_board`, `Policy.storyboard` · `stop_on_board_warnings`) → (큐 시트 `_cues`, `Policy.cue_sheet`) → write → (서술 다듬기 `_polish`, `Policy.polish`, 다듬을 화 `Run.polish_due`) → check + state → 정책(`Policy`) 통과 시 반영을 반복
+- 낡은 AI 큐 시트를 다시 받았는데 비어 오면 그 화는 낡은 시트를 넣지 않고 쓰고 `CueSheet.skipped` 로 적는다(`Runner.no_cues`)
 - `_cues` 는 같은 실행의 `_board` 가 방금 만든 스토리보드(`Runner.board_lead`: 화 · made_at · 요청 글)면 그 요청 글로 시작하는 큐 시트 요청을 보낸다(`pipeline.cue_lead`)
 - 관계 정책(`max_shift` · `stop_on_stage`)은 작품 복사본에 `features.hold` 로 뺀 변경안을 반영해 본다(`review_reasons`)
 - 그래서 관계 정책은 실제 반영(`put`)과 같은 제안만 센다
@@ -220,6 +221,8 @@
 - 회차(`Episode.rounds`, `CheckRound`: 새로 · 다시 · 사라진 지적 id)마다 검수 결과를 지적 목록(`Episode.findings`)에 합친다(`merge`, `pipeline.apply_check` 가 부름)
 - 지적 `Finding`: 상태 open · fixed · kept · wrong, 메모, 심각도 crit · mid · low, 처리 기록 `log`
 - 같은 문장(`same_quote`)이면 이어 붙이고 kept · wrong 과 작가가 정한 심각도는 지키며 fixed 가 다시 나오면 연다
+- 문장이 본문에 있는지(`in_text`)는 띄어쓰기 · 따옴표 · 문장 부호를 빼고 본다(`foreshadows.found`)
+- 그래서 따옴표 모양만 바꿔 옮긴 지적을 '문장이 사라졌다'며 고침으로 닫지 않는다
 - 열린 지적(`open_findings`)
 - 검수가 끝났는지(`check_done`, `home.js` `checkState` 의 done 과 같은 규칙, 작품 목록 `open_checked`)
 - 자동 집필이 세는 지적(`counted`, 사소 빼기)
@@ -265,6 +268,8 @@
 - 멈추기(`stop`)
 - 실패한 작업의 호출 경로를 서버 로그(`canon` 로거)에 남긴다. 화면에는 오류 문구만 보인다
 - 멈췄지만 AI 응답을 기다리는 같은 작업 찾기(`lingering`)
+- 끝난 작업은 `KEEP_SECONDS` 뒤 목록에서 뺀다(`_prune`)
+- 멈췄지만 아직 응답을 기다리는 작업은 응답이 끝날 때까지 빼지 않는다. 빼면 `lingering` · `waiting_on` 이 못 찾아 호출이 겹친다
 - 같은 화의 AI 작업(`EP_AI_KINDS`) 가운데 응답을 기다리는 것 찾기(`waiting_on`). 종류가 달라도 같은 화면 호출이 겹친다
 - `EP_AI_KINDS` 에는 고친 곳만 다시 보기 작업 `recheck` 도 든다
 - 단계 하나가 마지막으로 끝낸 화(`Job.step_ep`). 화면 `notify.js` 가 바뀔 때마다 알린다
@@ -296,6 +301,7 @@
   - 방향 여러 안
   - 플롯 · 다음 아크(`apply_arc`)가 데려온 새 인물은 후보 `Project.cast_candidates`(아크 주요 인물에 있으면 플롯에 없어도 남김 `sync_candidates`)
   - 새 장소는 `Project.place_candidates` 로 두고 화 확정 `confirm_plot` 때 등록
+  - 초안 플롯을 다시 받으면(`apply_plots`, 여러 화 · 한 화) 작가 자료인 장면 연출 · 고칠 곳 · 다 쓴 사건 체크는 남긴다
   - 작품 전체 저장에서 본문이 있는 화의 플롯은 디스크 것으로 둔다(`keep_locked_plots`, 줄기 표시 `LOCKED_FREE` 만 받음, `web.put_project`)
   - 상태 변경안 정리 `clean_delta`
   - 반영 전 검사 `validate_delta`: 설정에 없는 인물 id(이번 새 인물은 앎) · 같은 인물끼리이거나 설정에 없는 인물의 관계 사건과 관계 바뀜 · 없는 복선 id 회수(이번에 심는 복선은 앎)
@@ -379,6 +385,8 @@
 - 화별 플롯 초안(`plot_prompt` · `serial_plot_prompt`)은 범위 안 · 범위 뒤 3화(`PLAN_AHEAD`)의 이미 정해진 화를 `fixed_plots` · `fixed_block` 으로 넣고 요구사항에 `fixed_rule` 을 붙인다(장편은 `context.BUDGET["plan_fixed"]`, 한 화 초안은 `ahead=False`)
 - 장편 화별 플롯 초안은 `[관계]` 뒤에 지금 관계 단계 라벨(`plan_stage_block`, 예산 `context.BUDGET["plan_stages"]`), 장편 `plot_rules` 에 '단계는 한 화에 한 칸' 한 줄
 - 장편 화별 플롯 초안(`serial_plot_prompt`)과 장편 플롯 대화(`_serial_plot_parts`)는 접은 줄거리 뒤에 확정 사실 · 주역 상태 · 주역 밖 인물 상태를 넣는다(`plot_facts_states`)
+- 장편 접은 줄거리(`story_parts`)는 한 줄로 접어도 예산(`story_past`)을 넘으면 오래된 묶음부터 빼고 뺀 수를 적는다(`PAST_DROPPED`)
+- 플레이 줄거리(`play_story`)는 `story_parts` 가 뺀 수를 이어 센다
 - `plot_facts_states` 는 `plan_facts` · `plan_side_states` 를 예산 키 `plot_facts` · `plot_states` 로 부르고, 뺀 수를 머리글에 적는다. 단편 플롯 경로는 부르지 않는다
 - 검수 요구사항의 관계 단계 한 줄(`stage_check_rule`, 관계 수치가 있을 때만)
 - 관계 설정 `rels(plan=)`: 가 닿을 곳(`Relationship.destination`)은 기획 프롬프트에만, 말로 넣는 기획은 `destination_block`

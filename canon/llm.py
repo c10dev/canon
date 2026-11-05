@@ -264,6 +264,19 @@ def gemini_timeout() -> float:
     return min(v, cap) if cap else v
 
 
+LOCAL_TIMEOUT = 900  # 로컬 서버 응답을 기다리는 기본 초 (CANON_LOCAL_TIMEOUT)
+LOCAL_LIST_TIMEOUT = 30  # 로컬 서버의 모델 목록을 기다리는 초. 멈춘 서버에서 모델 이름을 찾느라 본 호출만큼 더 기다리지 않게
+
+
+def local_timeout() -> float:
+    """로컬 서버 응답을 기다리는 초. 환경 변수가 없거나 0 이하이거나 숫자가 아니면(예: 15m) LOCAL_TIMEOUT."""
+    try:
+        v = float(os.environ.get("CANON_LOCAL_TIMEOUT", ""))
+    except ValueError:
+        v = 0
+    return v if v > 0 else LOCAL_TIMEOUT
+
+
 class TimedOut(RuntimeError):
     """다시 불러도 응답 시간을 넘겼다. 화면에는 TIMEOUT_HINT 가 보인다."""
 
@@ -923,23 +936,25 @@ class LocalLLM:
         self.base_url = (base_url or settings.local_url()[0]).rstrip("/")
         self.api_key = api_key if api_key is not None else settings.local_key()[0]
         self.sampling = sampling if sampling is not None else settings.local_sampling()
-        self.timeout = timeout or float(os.environ.get("CANON_LOCAL_TIMEOUT", "900"))
+        self.timeout = timeout or local_timeout()
         self._model = model or settings.local_model()[0]
         self.last_usage: dict | None = None  # 연구 화면에서 보여 줄 마지막 호출의 토큰 수
         self.last_attempts = 0
         self.last_raw = ""
 
-    def _request(self, method: str, path: str, body: dict | None = None) -> dict:
-        """path 가 http 로 시작하면 그 주소를 그대로 쓴다 (/v1 밖의 /tokenize, /version)."""
+    def _request(self, method: str, path: str, body: dict | None = None, timeout: float | None = None) -> dict:
+        """path 가 http 로 시작하면 그 주소를 그대로 쓴다 (/v1 밖의 /tokenize, /version). timeout 은 self.timeout 보다 짧게만 준다.
+        시간 초과와 JSON 이 아닌 응답도 주소와 함께 한국어 오류(RuntimeError)로 바꾼다."""
         headers = {"Content-Type": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
         data = json.dumps(body, ensure_ascii=False).encode() if body is not None else None
         url = path if path.startswith("http") else self.base_url + path
         req = urllib.request.Request(url, data=data, headers=headers, method=method)
+        wait = min(self.timeout, timeout or self.timeout, _wait_cap.get() or self.timeout)
         try:
-            with urllib.request.urlopen(req, timeout=min(self.timeout, _wait_cap.get() or self.timeout)) as resp:
-                return json.loads(resp.read().decode("utf-8"))
+            with urllib.request.urlopen(req, timeout=wait) as resp:
+                raw = resp.read().decode("utf-8", "replace")
         except urllib.error.HTTPError as e:
             detail = e.read().decode("utf-8", "replace")[:500]
             hint = ""
@@ -948,10 +963,24 @@ class LocalLLM:
                         " (vLLM --max-model-len, llama.cpp -c) 검수처럼 긴 단계는 Gemini 로 돌리세요 (CANON_LLM_CHECK=gemini).")
             raise RuntimeError(f"로컬 서버 오류 {e.code} ({url}): {detail}{hint}") from e
         except urllib.error.URLError as e:
+            if isinstance(e.reason, TimeoutError):
+                raise RuntimeError(self._slow(url, wait)) from e
             raise RuntimeError(f"로컬 서버에 연결하지 못했어요 ({self.base_url}): {e.reason}") from e
+        except TimeoutError as e:
+            raise RuntimeError(self._slow(url, wait)) from e
+        try:
+            return json.loads(raw)
+        except ValueError as e:
+            raise RuntimeError(f"로컬 서버가 JSON이 아닌 응답을 보냈어요 ({url}): {' '.join(raw.split())[:200]!r}."
+                               " 주소가 OpenAI 호환 API(보통 …/v1)인지 확인해 주세요") from e
+
+    @staticmethod
+    def _slow(url: str, wait: float) -> str:
+        return (f"로컬 서버가 {wait:g}초 안에 응답하지 않았어요 ({url}). 서버가 돌고 있는지 확인하거나"
+                " 기다리는 시간(CANON_LOCAL_TIMEOUT)을 늘려 주세요")
 
     def models(self) -> list[str]:
-        return [m["id"] for m in self._request("GET", "/models").get("data", [])]
+        return [m["id"] for m in self._request("GET", "/models", timeout=LOCAL_LIST_TIMEOUT).get("data", [])]
 
     def _root(self) -> str:
         return re.sub(r"/v1$", "", self.base_url)
@@ -1035,7 +1064,7 @@ class LocalLLM:
 
         def parse(raw: str) -> T:
             self.last_raw = _FENCE_RE.sub("", raw)  # 연구 화면이 검증 전 값을 본다
-            return schema.model_validate_json(self.last_raw)
+            return _validate(schema, self.last_raw)  # 다른 백엔드처럼 앞뒤 말이 붙은 JSON 도 읽는다
 
         for attempt in range(2):
             self.last_attempts = attempt + 1

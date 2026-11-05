@@ -68,6 +68,25 @@ def test_unrecapped_arcs_fold_to_first_sentences():
     assert len(text) < sum(len(e.summary) for e in p.episodes) / 3
 
 
+def test_story_past_drops_oldest_arcs_and_says_how_many(monkeypatch):
+    """아크 요약을 한 줄로 접어도 예산을 넘으면 오래된 아크부터 빼고 뺀 수를 적는다. 플레이 줄거리도 그 수를 이어 센다."""
+    p = _serial(300)
+    for _ in range(6):
+        a = _plan_arc(p, length=12)
+        _finish(p, a)
+        a.summary = "요약 " + "가" * 250 + ". 뒤 문장."
+    nxt = _plan_arc(p, length=12)
+    monkeypatch.setitem(context.BUDGET, "story_past", 300)
+    past, _ = prompts.story_parts(p, nxt.start_ep + 1)
+    note, *rest = past.split("\n\n")
+    m = prompts._PAST_DROPPED_RE.match(note)
+    assert m and int(m.group(1)) + len(rest) == 6 and "[아크 6 " in rest[-1]
+    assert sum(len(x) + 2 for x in rest) <= 300
+    monkeypatch.setitem(context.BUDGET, "play_story_past", 100)
+    play = prompts.play_story(p, nxt.start_ep + 1)
+    assert prompts.PAST_DROPPED.format(6) in play or prompts.PAST_DROPPED.format(5) in play
+
+
 def test_serial_write_context_order_and_size():
     p = _serial(300)
     for _ in range(5):

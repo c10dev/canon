@@ -174,23 +174,29 @@ def run(name: str, p: Project, llm, episodes: list[int], repeats: int = 1, condi
     if not total or total > MAX_WRITES:
         raise ValueError(f"한 번에 쓰는 본문은 1~{MAX_WRITES}개예요 (지금 {total}개)")
     drafts, done = [], 0
-    for n in episodes:
-        base = before(p, n)
-        ref = changes(p, n)
-        first: dict[str, str] = {}
-        for cond in conditions:
-            q = variant(base, cond)
-            size = prompt_size(q, n)
-            for r in range(repeats):
-                cancel.check()
-                if progress:
-                    progress(done, total, f"{n}화 · {CONDITIONS[cond]} · {r + 1}번")
-                text = pipeline.write_episode(llm, q, n)
-                first.setdefault(cond, text)
-                drafts.append({"episode": n, "condition": cond, "repeat": r + 1, "prompt_chars": size,
-                               "prompt_tokens": round(size / CHARS_PER_TOKEN), **score(q, n, text, ref)})
-                done += 1
-        research.save_compare(name, n, first, kind="statwin", models=dict.fromkeys(first, pipeline.writer_of(llm)))
+    try:
+        for n in episodes:
+            base = before(p, n)
+            ref = changes(p, n)
+            first: dict[str, str] = {}
+            for cond in conditions:
+                q = variant(base, cond)
+                size = prompt_size(q, n)
+                for r in range(repeats):
+                    cancel.check()
+                    if progress:
+                        progress(done, total, f"{n}화 · {CONDITIONS[cond]} · {r + 1}번")
+                    text = pipeline.write_episode(llm, q, n)
+                    first.setdefault(cond, text)
+                    drafts.append({"episode": n, "condition": cond, "repeat": r + 1, "prompt_chars": size,
+                                   "prompt_tokens": round(size / CHARS_PER_TOKEN), **score(q, n, text, ref)})
+                    done += 1
+            research.save_compare(name, n, first, kind="statwin", models=dict.fromkeys(first, pipeline.writer_of(llm)))
+    except BaseException as e:  # 멈추거나 한 번 실패해도 그때까지 쓴 본문(돈 든 결과)은 남긴다
+        if drafts:
+            research.record(name, "statwin", {"episodes": episodes, "repeats": repeats, "conditions": conditions, "drafts": drafts,
+                                            "summary": summary(drafts), "stopped": research.stopped_note(done, total, e)})
+        raise
     res = {"episodes": episodes, "repeats": repeats, "conditions": conditions, "drafts": drafts, "summary": summary(drafts)}
     return research.record(name, "statwin", res)
 

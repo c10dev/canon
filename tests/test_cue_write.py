@@ -202,6 +202,20 @@ def test_js_card_and_panel(demo):
     assert got["off"] == ""  # 끈 작품 · 시트 없는 화는 카드가 없다
 
 
+def test_autorun_empty_remake_writes_without_stale_sheet(demo, monkeypatch):
+    """낡은 AI 시트를 다시 받았는데 비어 오면 '큐 시트 없이 써요'대로 낡은 시트를 빼고 쓰고, 넣지 않았다고 적는다."""
+    p = store.load(demo)
+    cue.set_episode(p, 1, _sheet("옛 AI 대사."), by="ai")
+    p.episode(1).cue_sheet.basis = "old"
+    store.save(demo, p)
+    monkeypatch.setattr(pipeline, "make_cue_sheet", lambda llm, p, n, **kw: _sheet().model_copy(update={"cues": []}))
+    run = autorun.start(demo, 1, False, autorun.Policy(hand_pick_opening=False, check=False), foreground=True)
+    assert run.status == "done", run.reasons
+    e = store.load(demo).episode(1)
+    assert any("비어 왔어요" in x.message for x in run.log)
+    assert "옛 AI 대사." not in e.text and e.cue_sheet.skipped
+
+
 def test_web_write_remakes_stale_ai_sheet_but_keeps_author_sheet(demo):
     """쓰기 작업은 낡은 AI · 뼈대 시트를 새로 만든다 (자동 집필 _cues 와 같은 규칙 cue.remake). 작가가 고친 시트는 그대로 쓴다."""
     from canon import web
