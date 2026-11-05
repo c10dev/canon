@@ -73,3 +73,28 @@ def test_save_delta_draft_skips_picks_of_other_episode():
       return calls.map((c) => c[2].picks);
     })()""", _data(True))
     assert got[0] is None and got[1] == {"f0": False, "f1": True}
+
+
+@needs_node
+def test_leave_prompt_only_while_draft_unsaved():
+    """서버 pending.json 에 남은 변경안은 떠날 때 묻지 않는다. 초안을 아직 남기지 못했거나 저장이 실패하면 묻는다.
+    pending.json 에 결과가 없는 변경안(채팅 앱 JSON)은 새로 고치면 사라지니 묻는다."""
+    got = run_js(["app.js", "review.js"], """(async () => {
+      S.project = data.project; S.name = 't';
+      await loadPending(Promise.resolve(data.pending));
+      const out = { fresh: hasUnsaved() };
+      let later = null;
+      setTimeout = (f) => { later = f; };
+      saveDeltaDraft(1);
+      out.waiting = hasUnsaved();
+      api = async () => { throw new Error('x'); };
+      later(); await new Promise((r) => r());
+      out.failed = hasUnsaved();
+      api = async () => ({});
+      saveDeltaDraft(1); later(); await new Promise((r) => r()); await new Promise((r) => r());
+      out.saved = hasUnsaved();
+      delete S.pending.results['state:1'];
+      out.chat = hasUnsaved();
+      return out;
+    })()""", _data(False))
+    assert got == {"fresh": False, "waiting": True, "failed": True, "saved": False, "chat": True}

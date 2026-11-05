@@ -13,7 +13,7 @@ from . import dynamics, findings, pipeline, store, timeline
 from .schema import (BranchDiff, BranchDiffRow, BranchEpisode, BranchInfo, BranchSide, Episode, ForkMode, Project,
                      Snapshot, TextVersion)
 
-COPY_SKIP = ("autorun.json", "pending.json", "*.tmp", "backups")  # 갈래와 복제(web.duplicate_project)가 옮기지 않는 파일
+COPY_SKIP = ("autorun.json", ".autorun.lock", "autorun.want", "pending.json", "*.tmp", "backups")  # 갈래와 복제(web.duplicate_project)가 옮기지 않는 파일
 
 
 def _new_id() -> str:

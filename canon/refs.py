@@ -459,9 +459,9 @@ def _write(b: RefBook, text: Optional[str] = None) -> RefBook:
     d = _dir(b.id)
     d.mkdir(parents=True, exist_ok=True)
     if text is not None:
-        (d / "source.txt").write_text(text, encoding="utf-8")
+        store.write_atomic(d / "source.txt", text)
     b.updated_at = _now()
-    (d / "ref.json").write_text(b.model_dump_json(indent=2), encoding="utf-8")
+    store.write_atomic(d / "ref.json", b.model_dump_json(indent=2))
     return b
 
 

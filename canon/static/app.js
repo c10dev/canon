@@ -158,7 +158,10 @@ function fmtErr(data, status) {
 const CLIENT = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 
 // 마지막으로 받은 작품 JSON과 그 판(ETag). 같은 판이면 서버가 304 로 본문 없이 답하고 이것을 복사해 쓴다 (장편은 수 MB)
-let projectCache = null;  // { path, tag, data }
+let projectCache = null;  // { path, tag, data, rest }
+// 작품 GET 이 돌려준 작품 객체 → 화를 뺀 나머지의 판(X-Project-Rest). 한 화 작업이 끝날 때 화만 받아도 되는지 본다 (mergeEpisodes)
+const restOf = new WeakMap();
+const cloneWhole = (c) => { const d = structuredClone(c.data); if (c.rest) restOf.set(d, c.rest); return d; };
 // 작품 전체 JSON 인가. 본문이 빈 응답(304 를 바꿔 넘기는 브라우저 · 프록시, 끊긴 응답)을 작품으로 받거나 보관하지 않게 본다
 const isProjectJson = (d) => !!(d && d.meta && Array.isArray(d.episodes));
 
@@ -185,7 +188,7 @@ async function api(method, path, body, meta) {
     throw Object.assign(new Error('서버에 연결하지 못했어요. 서버가 켜져 있는지, 네트워크가 연결됐는지 확인하세요'), { status: 0 });
   }
   const asked = whole && 'If-None-Match' in opt.headers;
-  if (whole && r.status === 304 && projectCache && projectCache.path === path && isProjectJson(projectCache.data)) return structuredClone(projectCache.data);
+  if (whole && r.status === 304 && projectCache && projectCache.path === path && isProjectJson(projectCache.data)) return cloneWhole(projectCache);
   const data = await r.json().catch(() => ({}));
   if (whole && (r.ok || r.status === 304) && !isProjectJson(data)) {
     // 보관한 판으로 물었는데 작품이 아닌 답이 왔다: 보관한 것을 버리고 조건 없이 한 번 더 받는다 (한 번 받은 빈 답이 새로고침 전까지 남지 않게)
@@ -198,15 +201,15 @@ async function api(method, path, body, meta) {
   // 문체를 분석했거나 라이브러리에 저장했으면 붙여 넣은 원문은 더 잃을 것이 없다 (hasUnsaved)
   if (method === 'POST' && /^\/projects\/[^/]+\/style(\/library)?$/.test(path)) S.styleSampleDirty = false;
   if (whole && r.headers.get('ETag')) {
-    projectCache = { path, tag: r.headers.get('ETag'), data };
-    return structuredClone(data);  // 화면은 받은 작품을 고쳐 쓰므로 보관한 것과 나눈다
+    projectCache = { path, tag: r.headers.get('ETag'), data, rest: r.headers.get('X-Project-Rest') || '' };
+    return cloneWhole(projectCache);  // 화면은 받은 작품을 고쳐 쓰므로 보관한 것과 나눈다
   }
   // 저장한 요청(반영 등)이 작품 전체를 돌려주면 그 판으로 보관한다. 다음 화면 이동의 작품 GET 이 다시 받지 않고 304 로 끝난다
   const saved = !whole && r.headers.get('X-Project-ETag');
   const own = saved && path.match(/^\/projects\/[^/?]+/);
   if (own && isProjectJson(data)) {
-    projectCache = { path: own[0], tag: saved, data };
-    return structuredClone(data);
+    projectCache = { path: own[0], tag: saved, data, rest: r.headers.get('X-Project-Rest') || '' };
+    return cloneWhole(projectCache);
   }
   return data;
 }
@@ -303,7 +306,7 @@ JOB_LATE.board = async (j) => {
   }
   toast(`멈춘 '${j.label}'의 응답이 와서 ${j.ep}화에 남겼어요. 필요 없으면 스토리보드 지우기를 누르세요.`);
   if (j.project !== S.name) return false;
-  await mergeEpisodes((e) => e.plot.number === j.ep);
+  await mergeEpisodes((e) => e.plot.number === j.ep, [j.ep]);
   return true;
 };
 let jobTimer = null;
@@ -490,23 +493,25 @@ async function pollJobs(soon = false) {
       await mergeEpisodes((cur, e) => cur.status === 'draft' && (!was || was.has(e.plot.number)));
       S.jobsMerged[j.id] = j.done;  // 저장할 때 이 단계까지 받아 왔다고 알린다 (save)
     }
-    if (j.kind === 'write' && j.status !== 'running') await mergeEpisodes((e) => e.plot.number === j.ep);
-    if (j.kind === 'board' && j.status !== 'running') await mergeEpisodes((e) => e.plot.number === j.ep);  // 스토리보드는 그 화에 붙었다 (board.js)
-    if (j.kind === 'cues' && j.status !== 'running') await mergeEpisodes((e) => e.plot.number === j.ep);  // 큐 시트도 그 화에 붙었다 (cue.js)
+    if (j.kind === 'write' && j.status !== 'running') await mergeEpisodes((e) => e.plot.number === j.ep, [j.ep]);
+    if (j.kind === 'board' && j.status !== 'running') await mergeEpisodes((e) => e.plot.number === j.ep, [j.ep]);  // 스토리보드는 그 화에 붙었다 (board.js)
+    if (j.kind === 'cues' && j.status !== 'running') await mergeEpisodes((e) => e.plot.number === j.ep, [j.ep]);  // 큐 시트도 그 화에 붙었다 (cue.js)
     if (j.kind === 'plot_one' && j.status !== 'running') {
-      await mergeEpisodes((e) => e.plot.number === j.ep);
+      await mergeEpisodes((e) => e.plot.number === j.ep, [j.ep, j.result && j.result.realign]);
       const r = j.result && j.result.realign && ep(j.result.realign);  // 뒤 화에 남긴 표시는 고치던 그 화 플롯을 덮지 않고 표시만 받는다
       if (r) r.realign = j.result.gap;
     }
     if (j.kind === 'impact' && j.status === 'done') await mergeImpacts();
-    if (j.kind === 'check' && j.status === 'done') await mergeEpisodes((e) => e.plot.number === j.ep);  // 검수 결과는 그 화에 붙었다
-    if (j.kind === 'fixes' && j.status !== 'running') await mergeEpisodes((e) => e.plot.number === j.ep);  // 받은 고침안은 그 화 지적에 붙었다 (실패해도 앞서 받은 것은 남았다)
+    if (j.kind === 'check' && j.status === 'done') await mergeEpisodes((e) => e.plot.number === j.ep, [j.ep]);  // 검수 결과는 그 화에 붙었다
+    if (j.kind === 'fixes' && j.status !== 'running') await mergeEpisodes((e) => e.plot.number === j.ep, [j.ep]);  // 받은 고침안은 그 화 지적에 붙었다 (실패해도 앞서 받은 것은 남았다)
     if (j.kind === 'auto') {
       // 다른 탭이나 명령줄에서 시작했어도 잠금(autoOn)이 걸리고, 끝나면 풀리게 실행 상태를 받아 온다. autoPoll 이 이어서 지켜본다
       if ((j.status === 'running') !== autoOn() && typeof autoLoad === 'function') await autoLoad(false);
       // 자동 집필이 실제로 바꾼 화(상태나 본문)만 받아 온다. 저장하지 않은 다른 화 플롯 수정은 그대로 둔다
       const dirty = S.dirty;
-      const changed = await mergeEpisodes((cur, e) => cur.status !== e.status || cur.text !== e.text || !!cur.auto !== !!e.auto);
+      // 도는 동안은 단계가 끝낸 화와 지금 화만 받는다. 끝나면 마지막 반영(관계 · 인물 상태)까지 받게 작품 전체를 받는다
+      const nums = j.status === 'running' ? [j.step_ep, S.auto && S.auto.run && S.auto.run.ep] : null;
+      const changed = await mergeEpisodes((cur, e) => cur.status !== e.status || cur.text !== e.text || !!cur.auto !== !!e.auto, nums);
       if (dirty && changed.includes(S.selEp)) toast(`자동 집필이 ${S.selEp}화를 바꿨어요. 열린 플롯은 서버에 있는 것으로 바뀌어요`, true);
     }
     if (j.status !== 'running' && !(old && old.status !== 'running')) await finishJob(j);
@@ -581,28 +586,80 @@ const JOB_PAGES = { check: ['check', 'write', 'review'], suggest: ['setup'], sty
 
 // 작업이 project.json 에 쓴 화만 받아 온다 (mine(화면 화, 서버 화) 이 true 인 화와 새로 생긴 화). 저장하지 않은 다른 입력은 그대로 둔다.
 // 저장하지 않은 입력이 있을 때 서버 것으로 바꾼 화 번호를 돌려준다.
-async function mergeEpisodes(mine) {
+// nums(작업이 쓴 화 번호)를 주면 그 화만 받는다 (touchedEpisodes). 화만 받아 맞출 수 없으면 작품 전체를 받는다.
+async function mergeEpisodes(mine, nums) {
   if (!S.name || !P()) return [];
+  const gen = S.gen;
+  const name = S.name;
+  const part = nums && nums.length ? await touchedEpisodes(name, nums) : null;
+  if (part) {
+    if (S.name !== name || !P() || P() !== part.base) return [];  // 받는 사이 작품이 바뀌었다. 다음 확인 때 다시
+    // 받는 사이 입력이나 저장이 없었으면 받은 화를 그대로 둔다. 있었으면 작업이 쓴 화만 맞춘다
+    const clean = !S.dirty && gen === S.gen;
+    const changed = putEpisodes(part.episodes, clean ? () => true : mine);
+    return clean ? [] : changed;
+  }
   try {
-    const gen = S.gen;
-    const name = S.name;
     const fresh = await api('GET', `/projects/${enc(name)}`);
     // 받는 사이 작품 목록이나 다른 작품으로 옮겼으면 버린다 (닫은 작품을 다시 열거나 없는 작품을 읽지 않게)
     if (S.name !== name || !P()) return [];
     // 받는 사이 저장 · 반영 응답이나 입력이 있었으면 이 응답이 더 오래됐을 수 있다. 통째로 바꾸지 않고 작업이 쓴 화만 맞춘다
     if (!S.dirty && gen === S.gen) { S.project = fresh; return []; }
-    const local = new Map(P().episodes.map((e) => [e.plot.number, e]));
-    const changed = [];
-    for (const e of fresh.episodes) {
-      const cur = local.get(e.plot.number);
-      if (cur && !mine(cur, e)) continue;
-      local.set(e.plot.number, e);
-      if (projectBase) { projectBase.plots.set(e.plot.number, JSON.stringify(e.plot)); projectBase.eps.set(e.plot.number, JSON.stringify(e)); }
-      if (cur) changed.push(e.plot.number);
-    }
-    P().episodes = [...local.keys()].sort((a, b) => a - b).map((k) => local.get(k));
-    return changed;
+    return putEpisodes(fresh.episodes, mine);
   } catch { return []; /* 다음 확인 때 다시 */ }
+}
+
+/** 서버 화(eps)를 화면 작품에 넣는다. mine(화면 화, 서버 화) 이 false 인 화는 두고, 화면에 없던 화는 더한다. 바꾼 (있던) 화 번호를 돌려준다. */
+function putEpisodes(eps, mine) {
+  const local = new Map(P().episodes.map((e) => [e.plot.number, e]));
+  const changed = [];
+  for (const e of eps) {
+    const cur = local.get(e.plot.number);
+    if (cur && !mine(cur, e)) continue;
+    local.set(e.plot.number, e);
+    if (projectBase) { projectBase.plots.set(e.plot.number, JSON.stringify(e.plot)); projectBase.eps.set(e.plot.number, JSON.stringify(e)); }
+    if (cur) changed.push(e.plot.number);
+  }
+  P().episodes = [...local.keys()].sort((a, b) => a - b).map((k) => local.get(k));
+  return changed;
+}
+
+/** nums 화만 서버에서 받는다 (GET /episodes). 작품 전체(장편은 수 MB)를 다시 받지 않으려고 쓴다.
+    화면 작품이 작품 GET 으로 받은 것이고, 화를 뺀 나머지의 판(rest) · 저장 횟수 · 화 번호 목록이 서버와 같을 때만 { base, episodes } 를 돌려준다.
+    하나라도 다르거나 요청이 실패하면 null (부르는 쪽이 작품 전체를 받는다). */
+async function touchedEpisodes(name, nums) {
+  const base = P();
+  const rest = base && restOf.get(base);
+  if (!rest) return null;
+  const want = [...new Set(nums.map(Number).filter((n) => Number.isInteger(n) && n > 0))];
+  if (!want.length) return null;
+  try {
+    const r = await api('GET', `/projects/${enc(name)}/episodes?nums=${want.join(',')}`);
+    if (!r || r.rest !== rest || (r.edit_rev || 0) !== (base.edit_rev || 0) || (r.saved_by || '') !== (base.saved_by || '')) return null;
+    if (!Array.isArray(r.episodes) || !Array.isArray(r.numbers)) return null;
+    // 요청하지 않은 화가 생기거나 없어졌으면(플롯 여러 화 만들기, 지우기) 화만으로는 맞출 수 없다
+    const ask = new Set(want);
+    const server = new Set(r.numbers);
+    const local = new Set(base.episodes.map((e) => e.plot.number));
+    if ([...server].some((n) => !local.has(n) && !ask.has(n)) || [...local].some((n) => !server.has(n))) return null;
+    if (r.episodes.some((e) => !ask.has(e.plot.number))) return null;
+    patchCache(name, r);
+    return { base, episodes: r.episodes };
+  } catch { return null; }
+}
+
+/** 화 GET 답(r)으로 보관한 작품(projectCache)의 화를 고치고 판을 r.etag 로 올린다. 다음 화면 이동의 작품 GET 이 304 로 끝난다.
+    보관한 것의 나머지 판 · 저장 횟수 · 화 번호 목록이 서버와 같을 때만 고친다. 아니면 그대로 둬서 다음 작품 GET 이 전체를 받는다. */
+function patchCache(name, r) {
+  const c = projectCache;
+  if (!c || c.path !== `/projects/${enc(name)}` || !c.rest || c.rest !== r.rest || !r.etag || !isProjectJson(c.data)) return;
+  if ((c.data.edit_rev || 0) !== (r.edit_rev || 0) || (c.data.saved_by || '') !== (r.saved_by || '')) return;
+  const local = new Map(c.data.episodes.map((e) => [e.plot.number, e]));
+  for (const e of r.episodes) local.set(e.plot.number, structuredClone(e));  // 화면은 받은 화를 고쳐 쓰므로 보관한 것과 나눈다
+  const server = new Set(r.numbers);
+  if (local.size !== server.size || [...local.keys()].some((n) => !server.has(n))) return;
+  c.data.episodes = [...local.keys()].sort((a, b) => a - b).map((k) => local.get(k));
+  c.tag = r.etag;
 }
 
 async function finishJob(j) {
@@ -1335,7 +1392,8 @@ function briefPending(key, v) {
 }
 
 /** 반영하지 않은 상태 변경안. 변경안은 본문이 작성된 화에만 반영하므로 이미 반영이 끝난 화의 것은 세지 않는다. */
-const deltaPending = (n) => { const e = P() && ep(Number(n)); return !e || e.status === 'written'; };
+// 서버 pending.json 에 남아 새로 고쳐도 되살아나는 변경안은 묻지 않는다 (review.js deltaKept)
+const deltaPending = (n) => { const e = P() && ep(Number(n)); return (!e || e.status === 'written') && !(typeof deltaKept === 'function' && deltaKept(n)); };
 
 /** 페이지를 떠나면 사라지는 입력: 저장하지 않은 작품 · 문체 · 설정 변경, 본문 초안, 붙여 넣은 지시서 결과, 반영하지 않은 상태 변경안,
     분석 전 문체 예시 원문. 본문 초안은 브라우저에도 임시 보관하지만, 막힌 브라우저가 있어 여기서도 묻는다 */

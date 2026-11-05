@@ -1,6 +1,5 @@
 """웹 API 전체 흐름 테스트 (mock LLM). 실행: python -m pytest tests"""
 import copy
-import importlib
 import os
 
 import pytest
@@ -14,9 +13,26 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
     from canon import store, web
 
-    importlib.reload(store)
-    importlib.reload(web)
-    return TestClient(web.app)
+    # Do not reload web: one reload takes 1 to 2.5 s. The app reads store.ROOT at request time.
+    # Point store.ROOT at tmp_path and clear the caches that a reload clears.
+    # A separate MonkeyPatch keeps store.ROOT when a test calls monkeypatch.undo().
+    for cache in (store._views, store._snap_written, store._md_written, store._preset_seen, store._brief_seen,
+                  web._cards, web._rests, web._json_views):
+        cache.clear()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(store, "ROOT", tmp_path)
+        yield TestClient(web.app)
+
+
+def test_client_fixture_keeps_app(client, tmp_path):
+    """client fixture 는 web 을 다시 불러오지 않고 같은 app 에 store.ROOT 만 시험 폴더로 바꾼다."""
+    from canon import store, web
+
+    assert client.app is web.app and store.ROOT == tmp_path
+    meta = {"title": "등대", "genre": "미스터리", "logline": "x", "target_episodes": 10}
+    assert client.post("/api/projects", json={"name": "fx", "meta": meta}).status_code == 200
+    assert (tmp_path / "fx" / "project.json").exists()
+    assert [x["name"] for x in client.get("/api/projects").json()] == ["fx"]
 
 
 def test_full_flow(client):
@@ -892,6 +908,44 @@ def test_apply_edited_delta(client):
     st = next(s for s in p["states"] if s["character_id"] == edited["character_updates"][0]["character_id"])
     assert st["emotional_state"] == "작가가 고친 감정" and "작가가 고친 정보" in st["knows"]
     assert client.get("/api/projects/ed/relations").json()["numbers"] == after["numbers"]
+
+
+def test_episodes_route_returns_only_asked_episodes(client):
+    """화 GET 은 고른 화만 돌려준다. rest 는 작품 GET 의 X-Project-Rest 와 같고, 화만 바뀌면 그대로, 화 밖이 바뀌면 달라진다."""
+    from canon import store
+    from .jsvm import episode
+    meta = {"title": "등대", "genre": "미스터리", "logline": "x", "target_episodes": 10}
+    client.post("/api/projects", json={"name": "eg", "meta": meta})
+    p = store.load("eg")
+    p.episodes = [episode(n, plot={"title": f"{n}화"}) for n in (1, 2, 3)]
+    store.save("eg", p)
+    whole = client.get("/api/projects/eg")
+    r = client.get("/api/projects/eg/episodes?nums=3,1,9")
+    got = r.json()
+    assert r.status_code == 200 and got["etag"] == whole.headers["etag"] == r.headers["etag"]
+    assert [e["plot"]["number"] for e in got["episodes"]] == [1, 3]  # 없는 9화는 빼고 답한다
+    assert got["episodes"][1] == whole.json()["episodes"][2]
+    assert got["numbers"] == [1, 2, 3] and got["edit_rev"] == whole.json()["edit_rev"]
+    assert got["rest"] == whole.headers["x-project-rest"]
+    # 화 하나만 바꾸면 rest 는 그대로다 (화면이 그 화만 받아 맞춘다)
+    p = store.load("eg")
+    p.episode(2).text = "본문"
+    store.save("eg", p)
+    assert client.get("/api/projects/eg/episodes?nums=2").json()["rest"] == got["rest"]
+    # 화 밖(사실 목록)이 바뀌면 rest 가 달라진다 (화면이 작품 전체를 받는다)
+    p = store.load("eg")
+    p.facts.append("새 사실")
+    store.save("eg", p)
+    after = client.get("/api/projects/eg/episodes?nums=2").json()["rest"]
+    assert after != got["rest"] and after == client.get("/api/projects/eg").headers["x-project-rest"]
+    # 저장한 요청도 같은 나머지 판을 붙인다 (화면이 저장 응답으로 보관한 뒤에도 화만 받는다)
+    saved = client.patch("/api/projects/eg", json={"edit_rev": client.get("/api/projects/eg").json()["edit_rev"], "fields": {"facts": ["새 사실", "둘째 사실"]}})
+    assert saved.status_code == 200 and "x-project-etag" in saved.headers
+    assert saved.headers["x-project-rest"] == client.get("/api/projects/eg").headers["x-project-rest"]
+    assert saved.headers["x-project-rest"] == client.get("/api/projects/eg/episodes?nums=2").json()["rest"] != after
+    assert client.get("/api/projects/eg/episodes?nums=a").status_code == 400
+    assert client.get("/api/projects/eg/episodes").status_code == 400
+    assert client.get("/api/projects/nope/episodes?nums=1").status_code == 404
 
 
 def test_save_response_carries_project_tag(client):

@@ -8,6 +8,7 @@ import stat
 import sys
 import tempfile
 import textwrap
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -17,14 +18,14 @@ from unittest import mock
 os.environ["CANON_LLM"] = "mock"
 os.environ["CANON_HOME"] = tempfile.mkdtemp()
 
-from canon import claude, settings, usage  # noqa: E402
-from canon.llm import SchemaMismatch, get_llm, with_note  # noqa: E402
+from canon import cancel, claude, settings, usage  # noqa: E402
+from canon.llm import SchemaMismatch, get_llm, out_cap, wait_cap, with_note  # noqa: E402
 from canon.schema import NameOptions  # noqa: E402
 
 FAKE = textwrap.dedent('''\
     #!{python}
     """가짜 claude. FAKE_CLAUDE_DIR 의 replies.json 을 차례로 내고, 부른 모양을 calls.jsonl 에 남긴다."""
-    import json, os, sys
+    import json, os, sys, time
     d = os.environ["FAKE_CLAUDE_DIR"]
     args = sys.argv[1:]
     if args == ["--help"]:
@@ -54,6 +55,7 @@ FAKE = textwrap.dedent('''\
     replies = json.load(open(p)) if os.path.exists(p) else []
     reply = replies.pop(0) if replies else {{"result": "바다가 울었다."}}
     json.dump(replies, open(p, "w"))
+    time.sleep(reply.pop("sleep", 0))
     out = {{"type": "result", "subtype": "success", "is_error": False, "result": "",
            "usage": {{"input_tokens": 10, "cache_creation_input_tokens": 1500, "cache_read_input_tokens": 20,
                      "output_tokens": 30}},
@@ -137,6 +139,31 @@ class ClaudeCodeTest(unittest.TestCase):
         with self.assertRaises(SchemaMismatch):
             claude.ClaudeCodeLLM().json("s", "p", NameOptions)
 
+    def test_wait_cap_ends_slow_call(self):
+        self.replies({"sleep": 10})
+        t = time.monotonic()
+        with wait_cap(0.5), self.assertRaisesRegex(claude.ClaudeCodeError, "0.5초"):
+            claude.ClaudeCodeLLM().text("s", "p")  # 플롯 대화 한 단계의 한도가 Claude Code 에도 걸린다
+        self.assertLess(time.monotonic() - t, 5)
+        self.assertFalse(usage.read()[-1]["ok"])
+
+    def test_stop_kills_running_call(self):
+        self.replies({"sleep": 10})
+        ev = threading.Event()
+        tok = cancel.current.set(ev)
+        try:
+            threading.Timer(0.5, ev.set).start()
+            t = time.monotonic()
+            with self.assertRaises(cancel.Cancelled):
+                claude.ClaudeCodeLLM().text("s", "p")
+            self.assertLess(time.monotonic() - t, 5)  # 하위 프로세스를 끝내고 바로 돌아온다
+            n = len(self.calls())
+            with self.assertRaises(cancel.Cancelled):
+                claude.ClaudeCodeLLM().text("s", "p")  # 멈춘 작업은 다음 호출을 보내지 않는다
+            self.assertEqual(len(self.calls()), n)
+        finally:
+            cancel.current.reset(tok)
+
     def test_login_and_limit_errors(self):
         self.replies({"is_error": True, "subtype": "success", "result": "Not logged in · Please run /login"},
                      {"is_error": True, "result": "Claude AI usage limit reached|1792830000"})
@@ -198,7 +225,6 @@ class ClaudeCodeTest(unittest.TestCase):
         self.assertEqual(self.calls()[-1]["stdin"], with_note(head + "\n\n# 이번 화 플롯\n2화"))
 
     def test_same_prefix_waits_for_first_writer(self):
-        import threading
 
         from canon import cancel
 
@@ -427,6 +453,8 @@ class StrictSchemaTest(unittest.TestCase):
 
 
 class FakeStream:
+    on_event = None  # 조각마다 부를 함수 (멈추기 시험)
+
     def __init__(self, msg, log, req):
         self.msg = msg
         log.append(req)
@@ -436,6 +464,12 @@ class FakeStream:
 
     def __exit__(self, *a):
         return False
+
+    def __iter__(self):
+        for _ in range(3):
+            if self.on_event:
+                self.on_event()
+            yield SimpleNamespace(type="content_block_delta")
 
     def get_final_message(self):
         return self.msg
@@ -494,6 +528,33 @@ class ClaudeAPITest(unittest.TestCase):
         plain = self.make(_msg("글"))
         plain.text("s", "p")
         self.assertNotIn("output_config", self.reqs[0])  # 비우면 모델 기본값 (Opus 5.5 는 medium)
+
+    def test_out_cap_and_wait_cap_reach_request(self):
+        llm = self.make(_msg("글"), _msg("글"), _msg("", "max_tokens"))
+        llm.text("s", "p")
+        self.assertEqual(self.reqs[0]["max_tokens"], claude.MAX_TOKENS)
+        self.assertNotIn("timeout", self.reqs[0])
+        with wait_cap(300), out_cap(16384):
+            llm.text("s", "p")
+            with self.assertRaisesRegex(RuntimeError, "16384 토큰"):
+                llm.text("s", "p")
+        self.assertEqual((self.reqs[1]["max_tokens"], self.reqs[1]["timeout"]), (16384, 300))
+
+    def test_stop_before_and_during_stream(self):
+        ev = threading.Event()
+        tok = cancel.current.set(ev)
+        try:
+            llm = self.make(_msg("글"))
+            FakeStream.on_event = ev.set
+            with self.assertRaises(cancel.Cancelled):
+                llm.text("s", "p")  # 스트림 조각 사이에 멈추면 끝까지 받지 않는다
+            FakeStream.on_event = None
+            with self.assertRaises(cancel.Cancelled):
+                llm.text("s", "p")
+            self.assertEqual(len(self.reqs), 1)  # 멈춘 뒤에는 요청을 보내지 않는다
+        finally:
+            FakeStream.on_event = None
+            cancel.current.reset(tok)
 
     def test_refusal_and_haiku_without_fallback(self):
         llm = self.make(_msg("", "refusal"), model="claude-haiku-5-5")

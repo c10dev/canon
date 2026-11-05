@@ -593,3 +593,52 @@ def test_part_arc_titles_drop_number_prefix():
     p = Project.model_validate({**Project(meta={"title": "t"}).model_dump(),
                                 "parts": [{"number": 1, "title": "1부: 첫 부", "start_ep": 1, "end_ep": 10, "goal": ""}]})
     assert p.parts[0].title == "첫 부"
+
+
+def test_serial_plot_draft_and_chat_see_facts_and_states(monkeypatch):
+    """장편 화별 플롯 초안과 플롯 대화는 관련 확정 사실과 인물 현재 상태를 본다 (prompts.plot_facts_states).
+    블록은 접은 줄거리 뒤에 오고, 예산(plot_facts · plot_states)을 넘기면 뺀 수를 적는다. 단편 플롯 초안은 그대로다."""
+    from canon import context
+    from canon.schema import CharacterState
+
+    p = _serial()
+    a = _plan_arc(p)
+    _finish(p, a)
+    b = _plan_arc(p)
+    hero = next(c for c in p.characters if c.tier == "main")
+    side = Character(id="smith", name="대장장이", role="조연", tier="support")
+    p.characters.append(side)
+    p.episode(a.end_ep).plot.characters.append("smith")
+    old = "대장장이는 첫 화에서 왼손을 다쳤다"
+    p.facts = [old] + [f"잡일{i}번째 기록" for i in range(120)]
+    p.states = [s for s in p.states if s.character_id != hero.id]
+    p.states.append(CharacterState(character_id=hero.id, location="주역만의위치", current_goal="주역만의목표"))
+    p.states.append(CharacterState(character_id="smith", emotional_state="조연만의감정"))
+    draft = prompts.serial_plot_prompt(p, b.start_ep, b.end_ep)
+    chat = prompts.plot_chat_prompt(p, "더 빠르게")
+    for pr in (draft, chat):
+        assert old in pr and "잡일119번째 기록" in pr  # 기획 인물 이름이 나오는 옛 사실과 최근 사실
+        assert "잡일0번째 기록" not in pr and "관련이 적어 뺐습니다" in pr
+        assert "주역만의위치" in pr and "주역만의목표" in pr and "조연만의감정" in pr
+        assert pr.index("[지금까지의 줄거리]") < pr.index("[확정된 사실") < pr.index("[인물 현재 상태")
+    assert draft.index("[조연 · 최근 인물 현재 상태") < draft.index("[바로 앞 화 플롯")
+    # 예산: 옛 사실은 plot_facts 안에서만, 넘긴 조연 상태는 빼고 뺀 수를 적는다
+    facts, _ = prompts.plan_facts(p, context.planning_cast(p, b.start_ep), "", [], "plot_facts")
+    old_part = facts[:-context.FACTS_RECENT]
+    assert sum(len(f) for f in old_part) <= context.BUDGET["plot_facts"]
+    monkeypatch.setitem(context.BUDGET, "plot_states", 1)
+    pr = prompts.serial_plot_prompt(p, b.start_ep, b.end_ep)
+    assert "조연만의감정" not in pr and "명은 예산을 넘겨 뺐습니다" in pr
+
+
+def test_short_plot_prompt_has_no_facts_states_block():
+    from canon.schema import CharacterState
+
+    p = Project()
+    p.meta.title, p.meta.target_episodes = "단편", 10
+    pipeline.apply_setup(p, pipeline.suggest_setup(LLM, p))
+    p.facts = ["단편사실하나"]
+    p.states.append(CharacterState(character_id=p.characters[0].id, location="단편위치"))
+    pr = prompts.plot_prompt(p, 1, 3)
+    assert "단편사실하나" not in pr and "단편위치" not in pr
+    assert "단편사실하나" not in prompts.plot_chat_prompt(p, "더 빠르게")

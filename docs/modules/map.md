@@ -153,6 +153,7 @@
 
 - 지도 데이터 형식
 - 올린 파일 가르기(`parse_upload`) · 읽기(`read_layout`) · 불러오기(`load_layout`, 옛 건물 정보는 다시 채운다) · 넓히기(`enrich`)
+- `load_layout` 이 옛 건물 정보를 채워 다시 쓸 때는 `store.write_atomic` 으로 바꿔치기한다
 - 마을 데이터(Watabou 생성기 JSON `read_layout`, OpenStreetMap 은 `osm.parse`, 가르기는 `parse_upload`)
 - `travel` · `context` 를 가져오지 않는다(지도 화면의 이동 시간 칸은 `web.atlas_view` 가 붙인다)
 - LLM 호출 없음

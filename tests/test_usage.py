@@ -1,6 +1,8 @@
 """사용량 기록과 비용 추정 (canon/usage.py) 테스트. 실제 API 대신 가짜 Gemini 클라이언트를 쓴다."""
+import contextvars
 import os
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
 import pytest
@@ -80,6 +82,39 @@ def test_schema_retry_is_recorded_as_failed_then_retry():
     llm = fake_gemini(["{", "{"])
     with pytest.raises(SchemaMismatch):
         llm.json("s", "p", StyleProfile)
+
+
+ONE_CALL = (600 * 2 + 400 * 0.1 + 250 * 10) / 1e6  # fake_gemini 한 번: 입력 600 + 캐시 400 + 출력·생각 250 (gemini-4-argon)
+
+
+def test_collect_sums_every_call_including_threads():
+    good = StyleProfile().model_dump_json()
+    llm = fake_gemini(["{\"narration\": 3", good, "본문", "본문"])
+    with usage.collect() as rows:
+        llm.json("s", "p", StyleProfile)  # 형식 고치기 재시도로 두 번 부른다
+        with ThreadPoolExecutor(1) as pool:  # 검수의 동작 검사처럼 다른 스레드에서 부른 것도 모인다
+            pool.submit(contextvars.copy_context().run, llm.text, "s", "p").result()
+    assert len(rows) == 3
+    tin, tout, cost = usage.totals(rows)
+    assert (tin, tout) == (3000, 750)
+    assert cost == pytest.approx(3 * ONE_CALL)  # 캐시 할인도 사용량 화면과 같게 든다
+    assert usage.summary(30)["total"]["cost"] == pytest.approx(cost)
+    llm.text("s", "p")  # collect 밖의 호출은 더하지 않는다
+    assert len(rows) == 3
+
+
+def test_autorun_stage_counts_retry_tokens(monkeypatch):
+    good = StyleProfile().model_dump_json()
+    llm = fake_gemini(["{\"narration\": 3", good])
+    monkeypatch.setattr(autorun, "get_llm", lambda stage: llm)
+    store.project_dir("등대").mkdir(parents=True, exist_ok=True)
+    runner = autorun.Runner(autorun.Control("등대", autorun.Run(target=1)))
+    out, info = runner.call("check", 1, lambda m: m.json("s", "p", StyleProfile))
+    assert isinstance(out, StyleProfile)
+    assert (info["tokens_in"], info["tokens_out"], info["calls"]) == (2000, 500, 2)
+    assert (runner.run.tokens_in, runner.run.tokens_out) == (2000, 500)
+    assert runner.run.cost == pytest.approx(round(2 * ONE_CALL, 4))
+    assert {r["source"] for r in usage.read()} == {"autorun"}
 
 
 def test_mock_is_not_recorded(monkeypatch):
@@ -339,6 +374,69 @@ def test_server_deadline_counts_as_timeout(pauses):
     llm = fake_gemini([late, "본문"])
     assert llm.text("s", "p") == "본문"
     assert usage.read()[0]["error"].startswith("응답 시간 초과")
+
+
+def _overloaded(code=503, status="UNAVAILABLE"):
+    from google.genai import errors
+
+    return errors.ServerError(code, {"error": {"code": code, "message": "The model is overloaded. Please try again later.",
+                                               "status": status}})
+
+
+def test_server_overload_waits_and_calls_again(pauses):
+    """503 UNAVAILABLE · 500 INTERNAL 은 SERVER_WAITS 만큼 기다려 다시 부른다. 실패한 시도는 '서버 오류'로 남는다."""
+    from canon.llm import SERVER_WAITS
+
+    llm = fake_gemini([_overloaded(), _overloaded(500, "INTERNAL"), "본문"])
+    assert llm.text("s", "p") == "본문"
+    assert pauses == list(SERVER_WAITS[:2])
+    rows = usage.read()
+    assert [r["ok"] for r in rows] == [False, False, True]
+    assert rows[0]["error"].startswith("서버 오류 (503)") and rows[1]["error"].startswith("서버 오류 (500)")
+
+
+def test_server_overload_gives_up_with_clear_message(pauses):
+    """끝내 503 이면 해요체 안내 ServerBusy 로 멈춘다. 429 와 따로 센다. 400 같은 다른 오류는 다시 부르지 않는다."""
+    from google.genai import errors
+
+    from canon.llm import RATE_WAITS, SERVER_HINT, SERVER_WAITS, ServerBusy
+
+    llm = fake_gemini([_overloaded() for _ in range(len(SERVER_WAITS) + 1)] + ["본문"])
+    with pytest.raises(ServerBusy) as e:
+        llm.text("s", "p")
+    assert str(e.value).startswith(SERVER_HINT) and "(503)" in str(e.value) and "다시 시도해 주세요" in str(e.value)
+    assert pauses == list(SERVER_WAITS) and llm.client.models.replies == ["본문"]
+
+    pauses.clear()
+    llm = fake_gemini([_overloaded(), _limited(), _overloaded(), "본문"])
+    assert llm.text("s", "p") == "본문"
+    assert pauses == [SERVER_WAITS[0], RATE_WAITS[0], SERVER_WAITS[1]]
+
+    pauses.clear()
+    bad = errors.ClientError(400, {"error": {"code": 400, "message": "bad", "status": "INVALID_ARGUMENT"}})
+    llm = fake_gemini([bad, "본문"])
+    with pytest.raises(errors.ClientError):
+        llm.text("s", "p")
+    assert pauses == []
+
+
+def test_rate_limit_uses_server_retry_delay(pauses):
+    """429 의 RetryInfo.retryDelay 가 있으면 그 값(올림)을 기다린다. RATE_WAITS 의 가장 긴 값을 넘지 않는다."""
+    from google.genai import errors
+
+    from canon.llm import RATE_WAITS, retry_delay
+
+    def limited(delay):
+        return errors.ClientError(429, {"error": {"code": 429, "message": "Resource exhausted.", "status": "RESOURCE_EXHAUSTED",
+                                                  "details": [{"@type": "type.googleapis.com/google.rpc.RetryInfo",
+                                                               "retryDelay": delay}]}})
+
+    assert retry_delay(limited("37s")) == 37 and retry_delay(_limited()) is None
+    assert retry_delay(limited({"seconds": 4, "nanos": 500_000_000})) == 4.5
+    assert retry_delay(limited("abc")) is None
+    llm = fake_gemini([limited("7.2s"), limited("900s"), _limited(), "본문"])
+    assert llm.text("s", "p") == "본문"
+    assert pauses == [8, max(RATE_WAITS), RATE_WAITS[2]]
 
 
 def test_timeout_twice_gives_clear_message(pauses):

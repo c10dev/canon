@@ -141,5 +141,10 @@ def test_serve_checks_at_once_when_woken(monkeypatch):
         time.sleep(0.01)
     assert updater.watching and calls == []  # 간격을 기다리는 중
     updater.wake.set()
-    assert restarted.wait(5) and calls == [1]
-    t.join(5)
+    try:
+        assert restarted.wait(5) and calls == [1]
+        t.join(5)
+    finally:
+        # 다시 시작 전 표시(draining)가 남으면 같은 일꾼의 다음 시험이 새 작업을 시작하지 못한다(jobs.Draining)
+        from canon import jobs
+        jobs.draining.clear()

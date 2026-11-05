@@ -32,6 +32,13 @@
 - 작품 저장 `save` 는 받은 판(`projectBase` 의 `keys` · `eps`)과 달라진 칸 · 화만 `PATCH` 로 보낸다(`patchBody`)
 - 작품 전체 GET 은 받은 판을 `projectCache` 에 두고 304 면 그 복사본을 쓴다
 - `isProjectJson`(`meta` 와 `episodes` 배열)인 답만 작품으로 받고 보관한다. 보관한 판으로 물었는데 아니면 보관한 것을 버리고 조건 없이 다시 받는다(`tests/test_project_cache_js.py`)
+- 작품 GET 이 돌려준 작품 객체는 화를 뺀 나머지의 판(`X-Project-Rest`)을 `restOf` 에 둔다
+- 한 화 작업(본문 쓰기 · 스토리보드 · 큐 시트 · 한 화 플롯 · 검수 · 고침안)이 끝나면 `mergeEpisodes` 가 그 화만 받는다(`touchedEpisodes`, `GET /episodes`)
+- 화만 받기는 나머지 판 · `edit_rev` · `saved_by` · 화 번호 목록이 서버와 같을 때만 쓴다. 하나라도 다르거나 요청이 실패하면 작품 전체를 받는다(`tests/test_merge_episodes_js.py`)
+- 저장 응답(`X-Project-ETag`)으로 보관할 때도 `X-Project-Rest` 를 함께 보관한다. 반영 → 304 → 한 화 작업 끝에서도 화만 받는다
+- 화만 받으면 `patchCache` 가 `projectCache` 의 그 화를 고치고 판을 화 GET 의 `etag` 로 올린다. 다음 화면 이동의 작품 GET 이 304 로 끝난다
+- `patchCache` 는 보관한 것의 나머지 판 · `edit_rev` · `saved_by` · 화 번호 목록이 화 GET 답과 같을 때만 고친다. 아니면 옛 판을 둬서 다음 작품 GET 이 전체를 받는다
+- 화만 받기는 요청하지 않은 화를 맞춰 보지 않는다. 저장 기록을 올리지 않는 쓰기(명령줄)가 다른 화를 바꾸면 그 화는 다음 파일 변경까지 옛것이다
 - 화 상태 칩 · 범례 · 툴팁 글자 `STATUS`(초안 · 확정 · 작성됨 · 반영 완료). 서버 `autorun.EP_STATUS` 와 같은 글자
 - 본문을 쓴 모델 글자 `writerLabel`(`Episode.written_by` · `TextVersion.model` → '모델 · 백엔드', 백엔드 이름 `WRITER_BACKEND`, `tests/test_write_js.py`)
 - 단계 이름 `stepLabel`(사이드바와 같은 이름, 다른 화면 문구도 이것을 쓴다)
@@ -343,6 +350,7 @@
   - 반영 취소에 쓸 앞 화 스냅샷이 없으면 버튼 자리에 까닭을 쓴다(`revertGone`)
   - 장편이 지운 스냅샷은 반영 기록으로 다시 만들지 않는다(기능 훅이 스냅샷 밖 데이터도 바꿔 재생이 정확하지 않다)
   - 체크 · 칸을 바꾸면 잠시 뒤 초안을 서버에 남긴다(`saveDeltaDraft`, `PUT /pending/{key}/draft`)
+  - pending.json 에 남아 남기지 못한 초안이 없는 변경안은 페이지를 떠날 때 묻지 않는다(`deltaKept`, app.js `hasUnsaved`)
   - pending.json 에 결과가 없는 변경안은 초안을 남기지 않는다
   - 체크가 다른 화의 것이면(`S.picksEp`) 초안에 체크를 보내지 않는다
   - 머리 버튼 줄의 반영 버튼 · ⋯ `rvMenu` · `.savebar-slot`
@@ -388,6 +396,7 @@
   - Claude 구독 계정 줄(`claudeAccountRow`, 같이 · Canon 전용)과 '로그인 시작' · '로그아웃'(`claude.js`, 띄운 뒤 3초마다 상태를 다시 봄)
   - 이 브라우저 › 알림 갈래의 줄은 `notify.js` 의 값을 그리고 고친다(`notifyPref` · `notifyTurnOn` · `notifyTest`)
   - 집필 묶음의 '되풀이한 구절 피하기' 줄(`echoes`, 장편만, `PUT …/recent-echoes`)
+  - 이 작품 › 백업 갈래(`backup-list`): 백업마다 한 줄(`backupRows` · `backupDesc`), 열 때 `GET …/backups` 로 받고 되돌리기는 `setRestore`(되돌린 뒤 `PER_PROJECT` 초안 · 변경안을 비움)
   - `tests/test_settings_js.py` · `tests/test_model_preset.py`
 
 ### `canon/static/setup.js`

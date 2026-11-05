@@ -109,9 +109,7 @@ def save_json(path: Path, data) -> Path:
     """잠금을 잡고 tmp 파일에 쓴 뒤 바꿔 넣는다."""
     with _lock():
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
-        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
-        os.replace(tmp, path)
+        store.write_atomic(path, json.dumps(data, ensure_ascii=False, indent=1))
     return path
 
 
