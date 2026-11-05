@@ -370,6 +370,8 @@
 ### `canon/web.py`
 
 - 웹 UI 서버(`python -m canon serve`)
+- 작품 문체 분석은 작업 `style`(`_job_style`, `JobIn.text` 200자 이상): 프로필과 원문 전체 기준 지표를 돌려주고 결과는 pending 에 남는다(`PENDING_KINDS`). 옛 `POST …/style` 은 그대로 둔다
+- 결과 지우기 `DELETE …/pending/{key}?id=` 는 id 가 같을 때만 지운다. 화면이 옛 결과를 반영하는 사이 같은 키에 새 결과가 들어왔으면 남긴다(`syncPending` 이 id 를 보낸다)
 - 작품 카드 `setup_ready`: 설정 도우미 필수 칸이 다 찼는지(`_setup_ready`, setup.js `setupReqs` 와 같은 규칙)
 - `/api/config/health` 는 Claude 단계가 있으면 `claude_api`(Anthropic 키 유무)와 `claude` · `claude_message`(구독 설치 · 로그인, `claude.status` 를 60초 기억)를 싣는다. 설정 저장은 기억을 지우고, `/api/claude/status` 는 새로 읽은 값으로 바꾸고, error 는 기억하지 않는다
 - 키 없음(`MissingKey`) 답의 문구는 낸 백엔드의 것(Gemini · Vertex · Anthropic)을 쓴다

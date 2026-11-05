@@ -14,6 +14,7 @@ const HUB_RESULT = {
   state: (r) => [`${r.ep}화 상태 변경안`, `/review/${r.ep}`],
   arc: () => ['기승전결 구조 제안', '/arc'],
   suggest: () => ['설정 제안', '/setup'],
+  style: () => ['문체 분석 결과', '/style'],
   series: () => ['부 구성 제안', '/arc'],
   nextarc: () => ['다음 아크 제안', '/arc'],
   recap_arc: (r) => [`아크 ${r.ep} 요약 제안`, '/arc'],

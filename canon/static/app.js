@@ -271,6 +271,7 @@ const JOB_LATE = {};
 const JOB_STOP_NOTE = {};  // 작업 종류별 멈추기 확인 문구. 없으면 응답을 버린다는 기본 문구
 const JOB_DONE_MSG = {
   suggest: '설정 제안이 도착했어요. 설정 도우미에서 확인하세요.',
+  style: '문체 분석 결과가 도착했어요. 문체 레퍼런스에서 확인하고 바꿀지 고르세요.',
   arc: '기승전결 구조 제안이 도착했어요. 확인하고 저장하세요.',
   plots: '화별 플롯 초안을 만들었어요. 확정된 화는 그대로예요.',
   plot_one: (j) => (j.result && j.result.realign ? `${j.ep}화 플롯을 요약대로 채웠어요. ${j.result.realign}화와 어긋난 점은 ${j.result.realign}화에 '다시 맞추기'로 표시했어요.` : `${j.ep}화 플롯을 채웠어요. 다듬은 뒤 확정하세요.`),
@@ -574,7 +575,7 @@ if (window.visualViewport && typeof window.visualViewport.addEventListener === '
 
 // 작업 결과가 보이는 화면
 JOB_DONE_MSG.check = (j) => `${j.ep}화 검수가 끝났어요${j.result && j.result.round ? ` (${j.result.round}회차)` : ''}: 짚은 곳 ${j.result ? j.result.issues : 0}개${j.result && j.result.round > 1 ? `, 새 지적 ${j.result.added}개` : ''}`;
-const JOB_PAGES = { check: ['check', 'write', 'review'], suggest: ['setup'], arc: ['arc'], plots: ['arc', 'home', 'causal'], plot_one: ['arc', 'lines'], write: ['write', 'home', 'causal'], state: ['review'], auto: ['auto', 'home', 'write', 'causal', 'arc', 'setup'], impact: ['causal'], series: ['arc'], nextarc: ['arc'], recap_arc: ['arc'], recap_part: ['arc'], fold_knows: ['arc'], storyline: ['lines'] };
+const JOB_PAGES = { check: ['check', 'write', 'review'], suggest: ['setup'], style: ['style'], arc: ['arc'], plots: ['arc', 'home', 'causal'], plot_one: ['arc', 'lines'], write: ['write', 'home', 'causal'], state: ['review'], auto: ['auto', 'home', 'write', 'causal', 'arc', 'setup'], impact: ['causal'], series: ['arc'], nextarc: ['arc'], recap_arc: ['arc'], recap_part: ['arc'], fold_knows: ['arc'], storyline: ['lines'] };
 
 // 작업이 project.json 에 쓴 화만 받아 온다 (mine(화면 화, 서버 화) 이 true 인 화와 새로 생긴 화). 저장하지 않은 다른 입력은 그대로 둔다.
 // 저장하지 않은 입력이 있을 때 서버 것으로 바꾼 화 번호를 돌려준다.
@@ -635,7 +636,7 @@ async function finishJob(j) {
 }
 
 // ---------- 검토를 기다리는 결과 · 실패 (서버 pending.json, web.PENDING_KINDS 와 같은 목록) ----------
-const PENDING_KINDS = ['arc', 'suggest', 'series', 'nextarc', 'convert', 'rebuild', 'rework', 'storyline', 'recap_arc', 'recap_part', 'fold_knows', 'state', 'openings'];
+const PENDING_KINDS = ['arc', 'suggest', 'style', 'series', 'nextarc', 'convert', 'rebuild', 'rework', 'storyline', 'recap_arc', 'recap_part', 'fold_knows', 'state', 'openings'];
 
 /** 그 결과가 아직 화면에 제안으로 남아 있다. 반영하거나 버리면 false 가 된다. */
 function pendingShown(r) {
@@ -643,6 +644,7 @@ function pendingShown(r) {
     case 'state': return S.deltas[r.ep] !== undefined;
     case 'arc': return !!S.arcProposal;
     case 'suggest': return !!S.suggestion;
+    case 'style': return !!S.styleDraft;
     case 'series': return !!S.seriesDraft;
     case 'nextarc': return !!S.arcDraft;
     case 'recap_arc': return !!S.recapDrafts['arc' + r.ep];
@@ -678,7 +680,7 @@ function syncPending() {
   for (const r of Object.values(S.pending.results)) {
     if (pendingShown(r)) continue;
     delete S.pending.results[r.key];
-    api('DELETE', `/projects/${enc(S.name)}/pending/${enc(r.key)}`).catch(() => { /* 다음에 다시 */ });
+    api('DELETE', `/projects/${enc(S.name)}/pending/${enc(r.key)}${r.id ? `?id=${enc(r.id)}` : ''}`).catch(() => { /* 다음에 다시 */ });  // 그사이 새 결과가 들어왔으면 서버가 남긴다
   }
 }
 
@@ -696,6 +698,10 @@ function applyJobResult(j) {
     S.suggestion = j.result;
     S.suggestion.characters.forEach((c, i) => { S.picks['sc' + i] = !sameChar(c); });
     S.suggestion.relationships.forEach((r, i) => { S.picks['sr' + i] = true; });
+  } else if (j.kind === 'style' && j.result && j.result.profile) {
+    // 문체 분석 결과는 바로 넣지 않고 문체 화면의 제안 카드로 둔다(style.js styleDraftCard). 작가가 '바꾸기'를 눌러야 작품 문체에 들어간다.
+    // 그동안 고친 문체 칸을 덮지 않고, 다른 화면 · 새로고침에서도 pending 에서 다시 놓인다
+    S.styleDraft = j.result;
   } else if (j.kind === 'arc' && j.result) {
     S.arcProposal = j.result.acts;  // 바로 바꾸지 않고 지금 구조와 비교해 고르게 한다 (arcProposalCard)
   } else if (j.kind === 'write' && !(j.result && j.result.candidate)) {
@@ -734,6 +740,7 @@ function applyJobResult(j) {
 
 const JOB_LINK = {
   suggest: (j) => `#/p/${enc(j.project)}/setup`,
+  style: (j) => `#/p/${enc(j.project)}/style`,
   arc: (j) => `#/p/${enc(j.project)}/arc`,
   plots: (j) => `#/p/${enc(j.project)}/arc`,
   plot_one: (j) => `#/p/${enc(j.project)}/arc`,
@@ -1795,7 +1802,7 @@ Object.assign(actions, {
 // 작품마다 따로 두는 화면 상태와 빈 값. 화 번호로 잡거나 반영 전 AI 제안이라, 다른 작품에 보이거나 반영되면 안 된다
 const PER_PROJECT = {
   textDraft: () => ({}), deltas: () => ({}), deltaBase: () => ({}), deltaOrig: () => ({}),
-  suggestion: () => null, picks: () => ({}), seriesDraft: () => null, arcDraft: () => null, arcProposal: () => null, recapDrafts: () => ({}), foldDrafts: () => ({}),
+  suggestion: () => null, styleDraft: () => null, picks: () => ({}), seriesDraft: () => null, arcDraft: () => null, arcProposal: () => null, recapDrafts: () => ({}), foldDrafts: () => ({}),
   lineDraft: () => null, convDraft: () => null, rbDraft: () => null, reworks: () => ({}),
   openingData: () => ({}), openingPlots: () => ({}), openingUsed: () => ({}), openingPrev: () => ({}), rw: () => ({}), rwInfo: () => ({}), looks: () => ({}),
   causalLinks: () => ({}), causalPicks: () => ({}), causalGone: () => null, chatPicks: () => ({}),
