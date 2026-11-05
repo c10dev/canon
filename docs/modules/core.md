@@ -195,6 +195,7 @@
 - 정리(`CLEAN`) · 반영(`APPLY_FIRST` 새 인물 직후, `APPLY_LAST` 기록 전) · 되돌리기(`REVERT_FIRST` 스냅샷으로 덮기 전, `REVERT_LAST` 뒤) 목록
 - `pipeline.clean_delta` · `apply_delta` · `revert` 가 목록을 차례로 부른다
 - 정리 훅은 한 인물에 대한 경고를 (글, 인물 id) 로 돌려준다(`Warn`)
+- `_new_cast_known` 은 새 인물에 온 이미 있는 인물 id 를 그 인물 경고로 알린다(반영은 새로 더하지 않음)
 - `clean` 이 그 id 를 `StateDelta.warn_to` 의 같은 차례에 넣는다
 - 글만 돌려준 경고, 훅이 `d.warnings` 에 바로 붙인 경고, AI 경고는 대상이 "" 다
 - `align_warn_to` 가 `warn_to` 길이를 `warnings` 에 맞춘다
@@ -283,6 +284,15 @@
   - `apply_delta` 가 이미 있거나 겹쳐서 뺀 복선 · 비밀 · 회수 id 는 `d.dismissed` 의 같은 칸에 남고, 반영 기록의 목록은 실제로 반영한 것만 남긴다
   - `apply_delta` 는 관계 바뀜의 수치 · 보는 방식 · 가 닿을 곳을 비우고 유형 · 설명만 반영한다. 새 쌍은 중립 간선으로 시작한다(`seed_ties`). 비운 값이 반영 기록에 남는다
   - `apply_delta` 는 반영 기록에 `legacy_rel = False` 를 적어 다시 계산이 그 기록의 관계 수치를 쓰지 않게 한다
+  - `apply_delta` 는 새 인물(`new_characters`)에 온 이미 있는 인물 id 를 `d.dismissed.new_characters` 로 옮기고 그 문구를 돌려준다(기록에 남으면 반영 취소가 그 인물을 지운다)
+  - 반영 취소 `revert` 는 n화 뒤 반영(history)이 한 일만 되돌린다(`_undo_later`): 그 반영이 더한 관계 · 비밀 · 사실 · 복선을 빼고 바꾼 칸만 n화 스냅샷 값으로 돌린다
+  - n화 뒤 작가가 더하거나 고친 관계 · 비밀 · 사실 · 복선(회수 예정 화 포함)은 남는다
+  - 반영이 실제로 새로 더한 관계 쌍 · 비밀 · 사실 · 복선은 `apply_delta` 가 반영 기록의 `StateDelta.added`(`AddedItems`, AI 응답 형식 밖)에 적고 `_undo_later` 가 그것만 뺀다
+  - `apply_restate` 가 고친 화 기록에 더한 사실 · 복선도 `added` 에 적는다
+  - `added` 가 없는 예전 기록은 뒤 반영 직전 스냅샷에 없던 항목을 그 반영이 더한 것으로 본다
+  - 인물 상태 · 관계 간선은 n화 스냅샷으로 덮는다. 스냅샷에 상태가 없는 인물은 지금 상태를 두고(뒤 반영이 바꿨으면 처음 상태), 작가가 더한 관계의 간선은 `seed_ties` 로 다시 만든다
+  - `revert` 는 n화 때 이미 있던 인물(n화 스냅샷에 상태가 있거나 `first_ep` 가 0인 설정 단계 인물)을 예전 기록의 새 인물 칸에 있어도 지우지 않는다
+  - `first_ep` 는 AI 가 채울 수 있는 칸이라 '처음 나온 화가 n 이하'로는 가리지 않는다
   - 상태 변경안의 본문 지문 `StateDelta.basis`(`text_basis`)는 `extract_state` · `carried_delta` 가 채운다
   - `extract_state` 는 LLM 을 부르기 전에 프롬프트에 넣은 본문으로 지문을 잰다
   - 반영 `apply_delta` 는 인물 상태의 빈 칸을 그대로 두고, `CharacterState.cleared` 에 적힌 칸(목표 · 위치 · 메모 · 차림 · 감정)은 비운다
@@ -362,6 +372,7 @@
 - 사건 종류 목록에서 수동보정은 응답 형식에서만 빠지고 읽기는 한다(예전 JSON). 반영이 뺀다
 - 반영 기록의 `StateDelta.legacy_rel` 은 프로그램 칸이다(`SkipJsonSchema`). 칸이 없던 예전 기록은 참으로 읽히고 지금 반영은 거짓으로 남긴다
 - 상태 승인에서 반영하지 않은 항목(`StateDelta.dismissed`, `DismissedItems`)은 AI 응답 형식에서 빠지고 반영 기록(`Project.history`)에만 남는다
+- 반영이 실제로 새로 더한 항목(`StateDelta.added`, `AddedItems`)도 AI 응답 형식에서 빠진다. 없으면(None) 이 칸이 생기기 전 기록이다
 - 반영 취소는 그 화 기록과 함께 빼 둔 항목도 지운다
 - 지운 기록은 `_revert_kept` 가 pending.json 에 남기고, 상태 승인 화면이 빼 둔 항목을 체크를 푼 채 다시 놓는다
 - 화별 쓴 사건 체크(`Episode.events_done`, 사건 글 목록)는 집필 화면 표시용이라 `EpisodePlot` 밖에 두어 프롬프트에 들어가지 않는다

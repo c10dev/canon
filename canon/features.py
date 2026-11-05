@@ -34,6 +34,13 @@ def _new_cast_gaps(p: Project, d: StateDelta) -> list[Warn]:
             for c in d.new_characters if not c.speech_style.strip() and c.id not in {x.id for x in p.characters}]
 
 
+def _new_cast_known(p: Project, d: StateDelta) -> list[Warn]:
+    """새 인물에 이미 있는 인물 id 가 온 것. 반영할 때 새 인물에서 빼고(pipeline.apply_delta) 기록에 남지 않게 한다."""
+    have = {c.id for c in p.characters}
+    return [(f"새 인물 {c.name or c.id}({c.id}): 이미 있는 인물이라 반영해도 새로 더하지 않아요.", c.id)
+            for c in d.new_characters if c.id in have]
+
+
 def _new_cast_names(p: Project, d: StateDelta) -> list[str]:
     """새 인물 이름이 이미 있는 인물 · 후보와 같거나 헷갈리면, 한 화에 새 인물이 너무 많으면 알린다 (naming.new_cast_warnings)."""
     return naming.new_cast_warnings(p, d.new_characters)
@@ -66,6 +73,7 @@ CLEAN: tuple[Callable[[Project, StateDelta], list[Warn] | None], ...] = (
     attire.clean_delta,        # 차림의 '가방' · '옷'처럼 종류를 모르는 물건
     _clean_places,
     _new_cast_gaps,            # 말투가 빈 새 인물
+    _new_cast_known,           # 새 인물에 온 이미 있는 인물 id
     _new_cast_names,           # 새 인물 이름 점검 · 한 화의 새 인물 수
     cast.clean_delta,          # 본문에 나와 변경안이 다룬 인물을 그 화 등장 인물에 붙일 목록 (경고 없음)
     pace.clean_delta,          # 관계 유형 · 감정 글이 반영 뒤 관계 단계와 반대인지, 한 쌍의 결정적 사건 남발 (등장 인물 붙이기 뒤)
