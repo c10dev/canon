@@ -250,6 +250,12 @@
 - `places` · `makers` 사이의 import 고리를 피하려고 따로 둔다
 - LLM 호출 없음
 
+### `canon/routes/atlas.py`
+
+- 지도 웹 라우트(`/api/projects/{name}/atlas/...`)
+- `web.py` 맨 끝의 `_attach_routes` 가 `router` 를 앱에 붙이고 `EXPORTS` 의 이름을 `web` 에도 둔다
+- 공용 도우미(`_load` · `_save` · `_edit` 등)는 `..web` 에서 불러 쓴다
+
 ### `canon/static/atlas-export.js`
 
 - 지도 화면 기능 파일
