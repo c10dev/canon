@@ -26,7 +26,8 @@
 - 기다린 시간은 사용량 기록의 `seconds` 에 넣지 않는다
 - 사용량 기록의 글자 수 · 블록 크기는 옮기기 전 원래 프롬프트 기준이다
 - `_cli_usage` 는 JSON 결과의 `num_turns` · `stop_reason` · `duration_api_ms` · `modelUsage` 를 사용량 칸 `turns` · `stop` · `api_seconds` · `models` 로 넘긴다
-- `turns` 가 2 이상이면 다시 보낸 입력 어림값 `resent` = `in × (turns-1)/turns` 도 넘긴다
+- 다시 보낸 입력 어림값 `resent`(`_resent`)는 요청 수로 `in × (요청 수-1)/요청 수` 다. 요청 수는 구조화 출력이면 `turns-1`(답을 도구로 내 한 번이어도 2턴), 아니면 `turns`
+- `modelUsage` 에 모델이 둘 이상이면(거절 뒤 대체 모델) 가장 작은 모델 입력을 한 번 크기로 보고 넘친 몫도 `resent` 로 본다. 두 값 가운데 큰 쪽
 - 두 백엔드도 `llm.wait_cap` · `llm.out_cap` 을 따른다(`llm.caps` 로 읽음)
 - 구독은 제한 시간을 `min(CANON_CLAUDE_TIMEOUT, wait_cap)` 으로 둔다. 넘기면 다시 부르지 않고 `ClaudeCodeError`
 - API 는 `max_tokens` 를 `min(MAX_TOKENS, out_cap)` 으로, SDK 요청 옵션 `timeout` 을 `wait_cap` 으로 보낸다

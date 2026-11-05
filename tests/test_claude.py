@@ -150,6 +150,29 @@ class ClaudeCodeTest(unittest.TestCase):
         self.assertNotIn("resent", row)
         self.assertEqual(row["models"], {"claude-test-model": {"in": 0, "out": 30, "cached": 0}})
 
+    def test_resent_counts_requests_not_turns(self):
+        # 구조화 출력은 답을 도구로 내므로 요청이 한 번이어도 2턴이다: 다시 보낸 입력이 없다 (2026-11-05 서버 실측)
+        one = {"input_tokens": 1000, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0, "output_tokens": 5}
+        self.replies({"structured_output": {"options": []}, "num_turns": 2, "stop_reason": "tool_use", "usage": one},
+                     {"structured_output": {"options": []}, "num_turns": 3, "stop_reason": "tool_use",
+                      "usage": {**one, "input_tokens": 1000, "cache_read_input_tokens": 1000}})
+        llm = claude.ClaudeCodeLLM()
+        llm.json("s", "p", NameOptions)
+        self.assertNotIn("resent", usage.read()[-1])
+        llm.json("s", "p", NameOptions)  # 3턴 = 요청 두 번
+        self.assertEqual(usage.read()[-1]["resent"], 1000)
+
+        # 거절 뒤 대체 모델: num_turns 는 1 이지만 큰 모델 입력이 한 번 크기(작은 모델 입력)의 두 배다
+        self.replies({"result": "글", "num_turns": 1, "stop_reason": "end_turn",
+                      "usage": {"input_tokens": 2000, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 1000,
+                                "output_tokens": 9},
+                      "modelUsage": {"claude-opus-5-5": {"inputTokens": 2000, "cacheReadInputTokens": 1000, "outputTokens": 9},
+                                     "claude-fable-5-1": {"inputTokens": 1500, "outputTokens": 7}}})
+        llm.text("s", "p")
+        row = usage.read()[-1]
+        self.assertEqual((row["in"], row["resent"]), (3000, 1500))
+        self.assertEqual(usage.cache_rate([row]), 0.0)  # 캐시 1000은 모두 같은 호출 안의 재전송이다
+
     def test_json_schema_and_repair(self):
         good = {"options": [{"name": "정하윤", "reason": "부드럽다"}]}
         self.replies({"structured_output": {"options": "이름들"}}, {"structured_output": good})
