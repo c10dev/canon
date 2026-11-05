@@ -1688,11 +1688,24 @@ function fitMenus() {
     const r = p.getBoundingClientRect();
     const shift = r.right > W - 8 ? Math.max(8 - r.left, W - 8 - r.right) : r.left < 8 ? 8 - r.left : 0;
     if (shift) { p.style.translate = `${Math.round(shift)}px 0`; p.classList.add('fit-shift'); }
+    // 아래가 모자라면(가로 휴대폰 · 화면 아래쪽 버튼) 위 · 아래 중 넓은 쪽으로 펼치고, 그쪽 남은 높이 안에서 굴린다.
+    // 쓴 사람이 정한 위로 펼침(align 'up', 쇠맛 판정 띠)은 건드리지 않는다. 앱이 바꾼 것은 fit-up · fit-max 로 표시해 크기가 바뀌면 되돌린다
+    const H = window.innerHeight;
+    if (r.bottom > H - 8 && !p.classList.contains('up')) {
+      const btn = p.parentElement && p.parentElement.querySelector(':scope > button');
+      const btop = btn ? btn.getBoundingClientRect().top : r.top;
+      const above = btop - 6 - 8;
+      const below = H - r.top - 8;
+      if (above > below) p.classList.add('up', 'fit-up');
+      if (Math.max(above, below) < r.height) { p.style.maxHeight = `${Math.max(0, Math.round(Math.max(above, below)))}px`; p.classList.add('fit-max'); }
+    }
   });
 }
 window.addEventListener('resize', () => {
   document.querySelectorAll('#app .pop-panel.fit-left').forEach((p) => p.classList.remove('left', 'fit-left'));
   document.querySelectorAll('#app .pop-panel.fit-shift').forEach((p) => { p.classList.remove('fit-shift'); p.style.translate = ''; });
+  document.querySelectorAll('#app .pop-panel.fit-up').forEach((p) => p.classList.remove('up', 'fit-up'));
+  document.querySelectorAll('#app .pop-panel.fit-max').forEach((p) => { p.classList.remove('fit-max'); p.style.maxHeight = ''; });
   fitMenus();
 });
 
@@ -2238,6 +2251,13 @@ function focusEl(el) {
 function afterDraw(f) {
   const main = $('#app main');
   if (main) { main.id = 'main'; main.tabIndex = -1; }
+  // 화마다 한 열인 넓은 표(지도 '어디에 있었나', 상태창 화별 변화)는 1화부터 그린다. 지금 화(.cur) 또는 마지막 열이 보이게 옆으로 굴려 둔다
+  document.querySelectorAll('#app .at-table-wrap, #app .sw-table-wrap').forEach((w) => {
+    if (w.scrollWidth <= w.clientWidth + 1 || w.querySelector('.sw-init')) return;
+    const cur = w.querySelector('th.cur, td.cur');
+    if (!cur) { w.scrollLeft = w.scrollWidth; return; }
+    w.scrollLeft += cur.getBoundingClientRect().left - w.getBoundingClientRect().left - w.clientWidth / 2 + cur.offsetWidth / 2;
+  });
   document.title = typeof notifyTitle === 'function' ? notifyTitle(pageTitle(), notifyUnseen) : pageTitle();  // 안 본 알림 수 (notify.js)
   // 탭 묶음: 고른 탭만 Tab 으로 들어가고 나머지는 화살표로 옮긴다 (아래 keydown)
   document.querySelectorAll('#app [role="tablist"]').forEach((list) => {

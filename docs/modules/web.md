@@ -11,6 +11,7 @@
 - 손가락 기기 · 640px 이하에서 작은 누름 영역을 44px 로 키우는 규칙은 '휴대폰' 절 바로 앞 한 블록에 모은다
 - 높이 500px 이하(가로 휴대폰) 규칙은 `@media (max-height: 500px)` 로 건다. 붙여 두는 칸을 풀고 대화 시트를 키운다(`docs/design/layout.md` '오른쪽 패널')
 - `html` 에 `text-size-adjust: 100%` 를 둔다. iOS Safari 가 가로 화면에서 글자를 키우지 않게 한다
+- 첫 칸이 짧은 행 이름인 연구 표(`.rs-table.rs-pin`, 연구 화별 표)는 옆으로 굴려도 첫 칸이 왼쪽에 붙어 있다
 - 떠 있는 칸 · 시트 · 메뉴(대화 기록, 펼침 메뉴, 설정 대화상자, 목차 펼침 등)는 `overscroll-behavior: contain` 이다. 끝까지 굴려도 뒤 페이지가 구르지 않는다
 - 기능마다 `/* ----- 이름 (파일.js) ----- */` 절로 나눈다
 - 공용 목차 틀의 화면별 칸 규칙은 `@container outline` 으로 건다
@@ -22,6 +23,7 @@
 - 웹 화면의 뼈대
 - 휴대폰 키보드가 열리면 html 에 `kb-open` 을 단다(`--kb` 80px 이상). 640px 이하에서 집필 머리를 붙여 두지 않는다
 - 글 칸(`DIALOG_TEXT`)이 있는 대화상자는 바깥(배경)을 눌러도 닫지 않는다. Esc · 취소는 닫는다
+- 그린 뒤 화마다 한 열인 넓은 표(`.at-table-wrap`, 상태창 화별 `.sw-table-wrap`)를 지금 화(`.cur`) 또는 마지막 열로 옆으로 굴려 둔다
 - 반영 취소(`revertFrom`) 확인은 저장하지 않은 변경이 있으면 먼저 저장한다고 말하고 버튼을 '저장하고 반영 취소'로 쓴다
 - 반영 취소(`revertFrom`)는 뒤 화들의 반영 기록이 검토를 기다리는 변경안으로 남으니(`web._revert_kept`) 취소 뒤 `loadPending` 으로 받는다
 - 서버 오류 문구 `fmtErr`: 검증 오류(detail 이 목록)는 영어 원문 대신 `VALIDATION_REASON`(web.py `_VALIDATION_REASON` 과 같음, `tests/test_fmterr_js.py`)과 칸 이름 `FIELD_NAME` 으로 쓴다

@@ -156,6 +156,7 @@
 ### `canon/static/stage3d.js`
 
 - 장면 연출 3D 보기(설계 `docs/stage/3d/specs/05-render.md`)
+- 칸 폭 480px 이하 3D 칸은 정사각형이되 높이 55svh 를 넘지 않는다(페이지를 내릴 자리를 남김)
 - 손가락 기기에서는 3D 안내가 휠 대신 '두 손가락으로 벌려 확대' 를 말한다
 - `stage.js` · `stage3d-load.js` 와 `app.js` 의 `S` · `actions` · `api` · `render` 를 쓴다
 - 읽기 전용이다: 고치기는 평면도에서만 한다

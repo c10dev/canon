@@ -113,6 +113,8 @@ const FS_PICK_MAX = 6;    // 걸기 칸에 찾기 없이 보이는 복선 수
   .fs-row .fs-trk, .fs-axis .fs-scale { grid-column: 1 / -1; grid-row: 2; }
   .fs-axis > .lb, .fs-axis > .fs-fl { display: none; }
 }
+/* 휴대폰 폭: 눈금 간격(fsTicks)은 화 수로만 정해져 좁은 축에서 이름표가 겹친다. 첫 화 · 지금 · 마지막 눈금만 남긴다 */
+@container fscol (max-width: 480px) { .fs-axis .fs-scale .tk:not(.now):not(.first):not(.last) { display: none; } }  /* 복선 지도 축만. 복선 하나의 축은 눈금이 적어 모두 둔다 */
 @container outline (max-width: 720px) {
   .fs-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 14px; }
   .fs-stats > div:nth-child(odd) { padding-left: 0; border-left: none; }

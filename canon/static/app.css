@@ -806,6 +806,7 @@ body.chat-open .savebar { left: calc(50% - 220px); }
 .rs-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
 .rs-table th { text-align: left; font-weight: 500; color: var(--muted); font-size: 0.75rem; padding: var(--space-6) var(--space-8); border-bottom: 1px solid var(--line); white-space: nowrap; }
 .rs-table td { padding: var(--space-6) var(--space-8); border-bottom: 1px solid var(--rule); white-space: nowrap; }
+.rs-table.rs-pin th:first-child, .rs-table.rs-pin td:first-child { position: sticky; left: 0; z-index: var(--z-raise); background: var(--surface); }  /* 첫 칸이 짧은 행 이름(화)인 표만: 옆으로 굴려도 보인다 */
 .rs-table .rs-parts { display: block; max-width: 14em; white-space: normal; }  /* 큰 블록 비중: 마우스가 없으면 칸 아래에 적는다 */
 @media (hover: hover) { .rs-table .rs-parts { display: none; } }  /* 마우스는 칸에 올리면(title) 보인다 */
 .rs-table td.over { background: var(--red-soft); color: var(--red); font-weight: 700; }
@@ -1896,6 +1897,7 @@ body.routing::before { content: ''; position: fixed; top: 0; left: 0; height: 3p
 .menu { position: relative; display: inline-flex; }
 .menu > .btn[aria-expanded="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); }
 .pop-panel { position: absolute; right: 0; top: calc(100% + 6px); z-index: var(--z-pop); width: min(320px, calc(100vw - 32px)); max-height: min(70vh, 560px); overflow-y: auto; padding: var(--space-8); display: flex; flex-direction: column; gap: var(--space-2); background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-12); box-shadow: var(--shadow-float); color: var(--text); font-size: 0.8125rem; text-align: left; white-space: normal; }
+.pop-panel.up { top: auto; bottom: calc(100% + 6px); }  /* 아래 자리가 모자라면 위로 펼친다 (app.js fitMenus) */
 .pop-panel.left { right: auto; left: 0; }
 .pop-sec { margin: 0; padding: var(--space-8); border: none; display: flex; flex-direction: column; gap: var(--space-8); min-width: 0; }
 .pop-sep { margin: var(--space-4) 0; border: 0; border-top: 1px solid var(--rule); }
@@ -2442,6 +2444,7 @@ dialog.set-dlg::backdrop { background: var(--overlay); }
 .pbirth-name { font-family: var(--serif); font-size: 1.75rem; font-weight: 600; }
 input[type=number].pnum { width: 80px; min-height: 36px; padding: 0 var(--space-8); border: 1px solid var(--line-strong); border-radius: var(--radius-8); font: inherit; background: var(--surface); color: var(--text); }
 @media (max-width: 1100px) { .play-cols { grid-template-columns: minmax(0, 1fr); gap: var(--space-24); } .play-flow-col { max-width: none; } }
+@media (max-width: 1100px) and (min-height: 501px) { .pclock { position: sticky; top: var(--band, 0px); z-index: var(--z-sticky); } }  /* 한 열일 때 흐름을 읽으며 내려가도 멈추기 · 배속이 보인다. 높이 500px 이하(가로 휴대폰)는 붙이지 않는다 */
 @media (max-width: 640px) {
   .pclock { gap: var(--space-10); }
   .pclock > span.small { display: none; }
@@ -2710,3 +2713,5 @@ details[open] > .row-sum { background: var(--sel-bg); }
 .cue-curve-bar { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 0.5; }
 .cue-curve-cut { stroke: var(--line-strong); stroke-width: 1; stroke-dasharray: 3 3; }
 .row-inline { display: inline-flex; gap: var(--space-4); flex-wrap: wrap; }
+/* 좁은 폭의 세 버튼 확인 창(저장하고 이동): 한 줄에 다 못 들어가 주 버튼만 둘째 줄로 떨어진다. 위에서부터 주 버튼 · 위험 버튼 · 취소로 쌓는다 */
+@media (max-width: 420px) { #ask-dlg .dlg-foot:has([data-ask="alt"]) { flex-direction: column-reverse; align-items: stretch; } }

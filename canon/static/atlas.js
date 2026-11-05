@@ -2535,7 +2535,8 @@ document.addEventListener('keydown', (e) => {
 .at-undo { display: flex; flex-direction: column; gap: var(--space-6); margin-top: var(--space-6); }
 .at-title-add { position: absolute; top: var(--space-12); left: var(--space-12); background: color-mix(in srgb, var(--surface) 92%, transparent); box-shadow: var(--shadow-seg); }
 .at-title-edit { position: absolute; top: var(--space-12); left: var(--space-12); display: flex; gap: var(--space-6); padding: var(--space-6); border: 1px solid var(--line); border-radius: var(--radius-8); background: var(--surface); box-shadow: var(--shadow-float); }
-.at-title-edit input { width: 180px; }
+.at-title-edit input { width: 180px; flex: 1 1 auto; min-width: 0; }
+.at-title-edit { right: calc(var(--touch-min) + var(--space-24)); max-width: max-content; }  /* 좁은 지도에서 오른쪽 위 확대 버튼과 겹치지 않고 줄어든다 */
 .at-bld .row.at-nowrap select, .at-bld .row.at-nowrap input { flex: 1; min-width: 0; }
 .at-map .at-bld-sel { stroke-linejoin: round; }
 .at-map .at-tv-mark polyline { fill: none; stroke-linecap: round; }
@@ -2862,6 +2863,7 @@ document.addEventListener('keydown', (e) => {
 .at-um-note { color: var(--muted); }
 @media (max-width: 640px) { .at-um { grid-template-columns: auto minmax(0, 1fr); } .at-um select { grid-column: 2; max-width: 100%; } .at-um-bar #at-um-apply { margin-left: 0; } }
 .at-table-wrap { overflow-x: auto; }
+@media (hover: none) { .at-table-wrap .at-table td { white-space: normal; min-width: 6em; max-width: 9em; } }  /* 마우스가 없으면 위치 글을 자르지 않고 줄바꿈한다 (title 을 볼 수 없다) */
 .at-table { border-collapse: collapse; font-size: 0.8125rem; }
 .at-table th, .at-table td { padding: var(--space-8) var(--space-10); border-bottom: 1px solid var(--rule); white-space: nowrap; text-align: left; vertical-align: top; }
 .at-table th:first-child { position: sticky; left: 0; background: var(--surface); }
