@@ -31,15 +31,15 @@ writer: ContextVar[str] = ContextVar("writer", default="")
 saved: ContextVar[dict | None] = ContextVar("saved", default=None)
 
 
-def write_atomic(path: Path, text: str, mode: int | None = None, fsync: bool = False) -> os.stat_result:
-    """text 를 path 에 바꿔치기로 쓴다: 이 프로세스 · 스레드만 쓰는 tmp 파일에 다 쓴 뒤 os.replace 로 바꿔 넣는다.
+def write_atomic(path: Path, text: str | bytes, mode: int | None = None, fsync: bool = False) -> os.stat_result:
+    """text(글 또는 바이트) 를 path 에 바꿔치기로 쓴다: 이 프로세스 · 스레드만 쓰는 tmp 파일에 다 쓴 뒤 os.replace 로 바꿔 넣는다.
     중간에 멈춰도 path 는 옛 내용 그대로다. mode 를 주면 tmp 를 처음부터 그 권한으로 만든다 (키 파일).
     fsync 면 내용과 폴더를 디스크에 내린다 (전원이 끊겨도 빈 파일이 남지 않게). 돌려주는 것: 바꿔 넣기 직전 tmp 의 stat (판)."""
     path = Path(path)
     tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
     try:
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o666 if mode is None else mode)
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
+        with (os.fdopen(fd, "wb") if isinstance(text, bytes) else os.fdopen(fd, "w", encoding="utf-8")) as f:
             if mode is not None:
                 os.fchmod(f.fileno(), mode)  # 죽은 프로세스가 남긴 같은 이름의 tmp 는 만들 때의 권한을 따르지 않는다
             f.write(text)

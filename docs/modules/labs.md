@@ -90,6 +90,7 @@
   - 한국어판 · 영어판 짝 누적 `lang_tally`(두 판 모두 성공한 줄만). `check_totals` 는 한국어판만 센다
 - 블라인드 비교
 - 비교본 폴더 `compare/<화 두 자리>/` 는 `store.compare_dir` 가 정한다. 화를 넣고 빼면 `store.renumber_side_files` 가 옮긴다
+- 비교본(`<번호>.md`) · `key.json` · hook 보고서는 `store.write_atomic` 으로 바꿔치기해 쓴다. `log.jsonl` 은 덧붙인다
 - 고르지 않은 비교본 목록 `open_compares`
 - `open_compares` 는 폴더 이름이 아니라 화 번호 차례로 준다(100화가 99화 앞에 오지 않게)
 - 작품 데이터와 분리해 `research/log.jsonl` 에 기록

@@ -1479,7 +1479,7 @@ def cmd_openings(a: argparse.Namespace) -> None:
         print(f"{a.n}화 플롯을 여는 방식별로 만드는 중...")
         out = pipeline.suggest_openings(get_llm("plan"), p, a.n, ways)
         saved.parent.mkdir(parents=True, exist_ok=True)
-        saved.write_text(out.model_dump_json(), encoding="utf-8")
+        store.write_atomic(saved, out.model_dump_json())
         for i, o in enumerate(out.options, 1):
             e = o.plot
             print(f"\n[{i}] {prompts.OPENING_APPROACHES[o.approach][0]} · {e.title}\n  {o.pitch}\n  여는 장면: {e.opening}"
@@ -1526,7 +1526,7 @@ def cmd_brief(a: argparse.Namespace) -> None:
     text = {"state": prompts.state_brief, "check": prompts.check_brief, "episode": prompts.episode_brief}[kind](p, a.n)
     out = store.project_dir(a.name) / "briefs" / f"{a.n:02d}-{kind}.md"
     out.parent.mkdir(exist_ok=True)
-    out.write_text(text, encoding="utf-8")
+    store.write_atomic(out, text)
     print(f"작업지시서 저장: {out}\n(Claude / Gemini / ChatGPT 채팅에 그대로 붙여 넣으세요)")
 
 
@@ -1589,13 +1589,23 @@ def cmd_edits(a: argparse.Namespace) -> None:
             print(f"{e.plot.number}화 {x.id} [{how}]{mark} {x.instruction}\n  - {x.before[:80]}\n  + {x.after[:80]}")
 
 
+def _write_out(path: Path, text: str) -> None:
+    """작가가 고른 출력 파일을 바꿔치기로 쓴다 (중간에 멈춰도 잘린 파일이 남지 않게).
+    링크는 가리키는 파일을 바꾸고, 보통 파일이 아닌 곳(/dev/stdout, 파이프)은 바꿔 넣을 수 없어 바로 쓴다."""
+    real = path.resolve()
+    if real.exists() and not real.is_file():
+        real.write_text(text, encoding="utf-8")
+    else:
+        store.write_atomic(real, text)
+
+
 def cmd_export(a: argparse.Namespace) -> None:
     p = store.load(a.name)
     nums = [e.plot.number for e in p.episodes if e.text and (not a.start or e.plot.number >= a.start)
             and (not a.end or e.plot.number <= a.end)]
     out = publish.export(p, nums, a.format, not a.no_title)
     if a.output:
-        Path(a.output).write_text(out["text"], encoding="utf-8")
+        _write_out(Path(a.output), out["text"])
         print(f"{', '.join(map(str, out['episodes']))}화를 저장했어요: {a.output}")
     else:
         sys.stdout.write(out["text"])
@@ -2493,7 +2503,7 @@ def cmd_soelab(a: argparse.Namespace) -> None:
     else:
         out = json.dumps(soelab.export(include_hidden=a.all), ensure_ascii=False, indent=1)
         if a.out:
-            Path(a.out).expanduser().write_text(out + "\n", encoding="utf-8")
+            _write_out(Path(a.out).expanduser(), out + "\n")
             print(f"내보냈어요: {a.out} (원문 · 표시한 글 · 메모는 넣지 않았어요)")
         else:
             print(out)

@@ -165,6 +165,7 @@
 - 지도 종류마다 종류 목록(`gen_info` 의 `kinds` · `eras` · `kind_to`)
 - 미리보기(`generate`, 저장 안 함)
 - 적용(`apply_generated`, `Atlas.spec`)
+- 만든 마을 파일과 빈 블록 채우기로 고친 파일은 `store.write_atomic` 으로 바꿔치기해 쓴다
 - 옛 그림 · 마을 파일 지우기(`drop_old_file`: map/ 안의 맨 파일 이름만, web · cli 가 함께 씀)
 - 마을 이름 · 인구(`village_title`, `Atlas.title`)
 - 만들 수 있는 지도 종류와 생성기(`MAKERS`: 마을 `towngen`, 도시 `citygen`, 현대 동네 `moderngen`. 설정 칸 `OPTIONS` · 버전 · 구역 이름 `ZONES` 는 이것으로만 읽는다)
@@ -257,6 +258,7 @@
 - 지도 웹 라우트(`/api/projects/{name}/atlas/...`)
 - `web.py` 맨 끝의 `_attach_routes` 가 `router` 를 앱에 붙이고 `EXPORTS` 의 이름을 `web` 에도 둔다
 - 공용 도우미(`_load` · `_save` · `_edit` 등)는 `..web` 에서 불러 쓴다
+- 올린 지도 그림(바이트)과 마을 데이터 파일은 `store.write_atomic` 으로 바꿔치기해 쓴다
 
 ### `canon/static/atlas-export.js`
 

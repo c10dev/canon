@@ -104,6 +104,7 @@
   - `dex`: 원형 도감 보기 · 인물 빈 칸 채우기 · 주사위
   - `edits`: 수정 기록 보기 · 되돌리기 · 내보내기
   - `export`: 다른 사이트에 붙여 넣을 본문 내보내기
+    - 작가가 고른 출력 파일(`export -o` · `soelab --out`)은 `_write_out` 이 바꿔치기로 쓴다. 링크는 가리키는 파일을 바꾸고, 보통 파일이 아닌 곳(`/dev/stdout` · 파이프)은 바로 쓴다
   - `fix`: 본문 일부를 AI 후보로 고치기
   - `hook`: 1~3화 흡입력 판정
   - `illust`: NovelAI 삽화 프롬프트
@@ -523,9 +524,10 @@
 - `save` 는 판 기록 읽기부터 옛 스냅샷 지우기까지 작품 폴더의 `.lock` 에 `fcntl.flock` 을 잡는다(`_disk_lock`). 명령줄과 웹 서버가 함께 저장해도 서로의 새 스냅샷 파일을 지우지 않는다
 - 읽고 고쳐 저장하는 구간 전체의 프로세스 사이 잠금은 `jobs.project_lock`(`.edit.lock`)이 맡는다
 - `write_atomic` 은 pid · 스레드 id 가 붙은 tmp 파일에 다 쓴 뒤 `os.replace` 로 바꿔 넣고, 바꾸기 직전 tmp 의 stat(판)을 돌려준다
-- `write_atomic` 을 쓰는 곳: store · settings · refs · library · studio · autorun · revlab · soelab · maps/layout
+- `write_atomic` 은 글(utf-8)과 바이트(올린 지도 그림)를 함께 받는다
+- 덧붙이는 기록 파일(`usage` · research · 비교 `log.jsonl` · soelab 표시)은 바꿔치기하지 않고 `open("a")` 로 덧붙인다
+- `write_atomic` 을 쓰는 곳: store · settings · refs · library · studio · autorun · revlab · soelab · research 비교본 · maps/layout · maps/makers · routes/atlas · cli
 - `_hold` 는 하드 링크로 남기므로 `write_atomic` 대신 자기 tmp 와 `os.replace` 를 쓴다
-- 아직 대상 파일에 바로 쓰는 곳: research 비교본(`key.json` · 안 · hook 보고서), 지도 그림 · layout 올리기(routes/atlas), maps/makers 의 layout 파일, 명령줄 출력 파일
 - `write_atomic` 의 `mode` 는 tmp 를 처음부터 그 권한으로 만든다. `fsync` 는 내용과 폴더를 디스크에 내린다
 - fsync 는 project.json · 스냅샷 파일 · `save_backup` · 설정 파일에만 켠다(3MB 에 1.4ms 쯤). 내보낸 본문 `episodes/*.md` 와 pending · 갈래 · 플레이 · 큐 시트 실험은 바꿔치기만 한다
 - 화면 저장 기록(`writer`, `edit_rev` · `saved_by`, 파일 끝만 읽음)

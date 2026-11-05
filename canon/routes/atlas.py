@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from .. import atlas, pipeline
+from .. import atlas, pipeline, store
 from ..llm import get_llm
 from ..maps import travel
 from ..schema import MapPin, MapSpec, NewPlace, Project
@@ -199,7 +199,7 @@ def atlas_image_set(name: str, body: MapImageIn) -> Project:
     d = _map_dir(name)
     d.mkdir(parents=True, exist_ok=True)
     fname = f"map-{int(time.time())}.{atlas.IMAGE_TYPES[m.group(1)]}"
-    (d / fname).write_bytes(raw)
+    store.write_atomic(d / fname, raw)
     old = p.atlas.image
     p.atlas.image, p.atlas.aspect = fname, round(body.aspect, 4)
     out = _save(name, p)
@@ -245,7 +245,7 @@ def atlas_layout_set(name: str, body: LayoutIn) -> Project:
     d.mkdir(parents=True, exist_ok=True)
     fname = f"layout-{int(time.time())}.json"
     atlas.enrich(p, layout, fname)
-    (d / fname).write_text(json.dumps(layout, ensure_ascii=False), encoding="utf-8")
+    store.write_atomic(d / fname, json.dumps(layout, ensure_ascii=False))
     old = p.atlas.layout
     p.atlas.layout, p.atlas.spec, p.atlas.buildings, p.atlas.layout_size, p.atlas.fill = fname, None, [], [layout["w"], layout["h"]], None
     atlas.fill_spots(p, layout)

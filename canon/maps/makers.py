@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import Optional
 
-from .. import naming
+from .. import naming, store
 from ..schema import MapFill, MapPin, MapSpec, Project
 from . import buildings as bldgs
 from . import fill, geom
@@ -155,7 +155,7 @@ def apply_generated(folder: Path, p: Project, spec: MapSpec, take: list[str]) ->
     out = generate(p, spec)
     folder.mkdir(parents=True, exist_ok=True)
     fname = f"gen-{spec.kind}-{spec.seed}.json"
-    (folder / fname).write_text(json.dumps(out["layout"], ensure_ascii=False), encoding="utf-8")
+    store.write_atomic(folder / fname, json.dumps(out["layout"], ensure_ascii=False))
     old = p.atlas.layout
     if old != fname:
         p.atlas.buildings = []  # 건물 번호가 바뀌므로 고친 건물도 비운다
@@ -211,6 +211,6 @@ def clear_fill(folder: Path, p: Project, layout: dict) -> int:
 
 def _write_fill(folder: Path, p: Project, lo: dict, base: int) -> None:
     enrich(p, lo, p.atlas.layout)  # 올릴 때와 같은 시드 (파일 이름)
-    (folder / p.atlas.layout).write_text(json.dumps(lo, ensure_ascii=False), encoding="utf-8")
+    store.write_atomic(folder / p.atlas.layout, json.dumps(lo, ensure_ascii=False))
     p.atlas.buildings = [x for x in p.atlas.buildings if x.i < base]
     fill_spots(p, lo)
