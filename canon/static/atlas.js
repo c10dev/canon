@@ -1213,6 +1213,7 @@ function atlasRedraw() {
 
 let atlasStageW = 0;        // 마지막으로 잰 지도 화면 폭 (px)
 const ATLAS_COARSE = window.matchMedia('(pointer: coarse)');  // 손가락 기기 (장소 핀 누름 영역)
+const ATLAS_HOLD_MS = 350;  // 손가락으로 핀을 끌기 전 길게 누르는 시간
 let atlasExporting = false;  // 내보낼 때는 화면 폭과 상관없이 지도 단위 15
 let atlasMeasureQueued = false;
 /** 이름표 글자 크기(지도 단위): 화면에서 13px(폭 480px 아래는 12px)이 되게 화면 폭과 확대 배율로 정한다.
@@ -2153,6 +2154,12 @@ document.addEventListener('pointerdown', (e) => {
   const g = e.target.closest && e.target.closest('[data-atlas-pin]');
   if (g && e.button === 0) {
     atlasDrag = { key: g.dataset.atlasPin, x: e.clientX, y: e.clientY, moved: false, before: atlasPinMap() };
+    // 손가락은 길게 눌러야(350ms) 핀을 끈다. 그 전에 움직이면 지도를 쓴 것으로 보고 끌기를 버린다 (쓸다가 핀이 옮겨져 저장되지 않게)
+    if (e.pointerType === 'touch') {
+      const d = atlasDrag;
+      d.touch = true;
+      d.timer = setTimeout(() => { if (atlasDrag === d && !d.moved) { d.armed = true; if (navigator.vibrate) navigator.vibrate(10); } }, ATLAS_HOLD_MS);
+    }
     return;
   }
   if (onMap && e.button === 0 && atlasViewNow().z > 1) {
@@ -2314,6 +2321,19 @@ document.addEventListener('keydown', (e) => {
 
 document.addEventListener('pointermove', (e) => {
   if (!atlasDrag) return;
+  if (atlasDrag.touch && !atlasDrag.armed) {
+    if (Math.hypot(e.clientX - atlasDrag.x, e.clientY - atlasDrag.y) < 8) return;
+    // 길게 누르기 전에 움직였다: 끌기를 버린다. 확대한 지도면 그 손가락으로 지도를 옮긴다 (빈 곳에서 누른 것과 같다)
+    const d = atlasDrag;
+    clearTimeout(d.timer);
+    atlasDrag = null;
+    if (atlasViewNow().z > 1) {
+      atlasFollowStop();
+      const v = S.atlasView;
+      atlasPan = { x: d.x, y: d.y, vx: v.x, vy: v.y, moved: false };
+    }
+    return;
+  }
   if (!atlasDrag.moved && Math.hypot(e.clientX - atlasDrag.x, e.clientY - atlasDrag.y) < 4) return;
   const pt = atlasPoint(e);
   const pl = atlasPlace(atlasDrag.key);
@@ -2325,9 +2345,18 @@ document.addEventListener('pointermove', (e) => {
   if (stage) stage.innerHTML = atlasStage();
 });
 
+// 시스템 몸짓 · 스크롤로 끊기면 끌기를 버린다 (옮긴 자리는 저장하지 않는다)
+document.addEventListener('pointercancel', () => {
+  if (!atlasDrag) return;
+  clearTimeout(atlasDrag.timer);
+  if (atlasDrag.moved) { const pl = atlasPlace(atlasDrag.key); if (pl && atlasDrag.before) { pl.pin = atlasDrag.before[atlasDrag.key] || pl.pin; } atlasRedraw(); }
+  atlasDrag = null;
+});
+
 document.addEventListener('pointerup', async () => {
   if (!atlasDrag) return;
   const d = atlasDrag;
+  clearTimeout(d.timer);
   atlasDrag = null;
   if (!d.moved) return;
   atlasDragged = true;
@@ -2793,7 +2822,8 @@ document.addEventListener('keydown', (e) => {
 .at-map .at-epdot circle { fill: var(--v-halo); }
 .at-map .at-epdot text { font-weight: 700; }
 .at-map .dim { opacity: .18; }
-.at-map .at-pin { cursor: grab; touch-action: none; }
+.at-map .at-pin { cursor: grab; }
+.at-map-wrap.zoomed .at-map .at-pin { touch-action: none; }  /* 처음 보기에서는 핀 위에서도 쓸어 페이지를 내린다. 끌기는 길게 누른 뒤 */
 .at-map .at-pin:focus { outline: none; }
 .at-map .at-pin:focus-visible .at-dot { stroke: var(--accent); stroke-width: 4; }
 .at-map .at-hit { fill: transparent; }

@@ -570,6 +570,7 @@ if (window.visualViewport && typeof window.visualViewport.addEventListener === '
     const vv = window.visualViewport;
     const kb = vv.scale > 1.01 ? 0 : Math.max(0, Math.round(innerHeight - vv.height - vv.offsetTop));  // 두 손가락으로 확대한 동안은 키보드가 아니다
     document.documentElement.style.setProperty('--kb', `${kb < 80 ? 0 : kb}px`);  // 80px 아래는 주소창이 접히고 펴지는 것이라 키보드로 보지 않는다
+    document.documentElement.classList.toggle('kb-open', kb >= 80);  // CSS 가 키보드가 열린 동안 붙여 둔 칸을 푼다 (집필 머리)
   };
   window.visualViewport.addEventListener('resize', fitKeyboard);
   window.visualViewport.addEventListener('scroll', fitKeyboard);
@@ -1671,6 +1672,8 @@ document.addEventListener('keydown', (e) => {
   closeMenu(true);
 }, true);
 
+const DIALOG_TEXT = 'input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=hidden]), textarea';
+
 /** #app 밖의 <dialog>. 화면을 다시 그려도 열려 있다. 닫으면 열기 전 포커스로 돌아간다.
     연 요소가 그사이 사라졌으면(메뉴 항목) back 선택자로 찾은 곳으로 */
 function showDialog(id, html, back = '') {
@@ -1680,7 +1683,8 @@ function showDialog(id, html, back = '') {
     el.id = id;
     el.className = 'w-dialog';
     el.setAttribute('aria-labelledby', `${id}-title`);
-    el.addEventListener('click', (e) => { if (e.target === el) el.close(); });  // 바깥(배경)을 누르면 닫는다
+    // 바깥(배경)을 누르면 닫는다. 글을 적는 칸이 있는 대화상자는 닫지 않는다 (휴대폰에서 키보드를 내리려다 적던 글을 잃지 않게). Esc · 취소는 닫는다
+    el.addEventListener('click', (e) => { if (e.target === el && !el.querySelector(DIALOG_TEXT)) el.close(); });
     document.body.appendChild(el);
   }
   const f = document.activeElement;
@@ -1748,7 +1752,7 @@ function askOpen(text, o, input) {
       el.dataset.ask = '1';
       // 답은 누른 때 바로 정한다. close 이벤트는 뒤에 오므로, 이어서 연 다음 물음을 앞 close 가 취소하지 않게 열린 동안은 무시한다
       el.addEventListener('click', (e) => {
-        if (e.target === el) return askFinish('');  // 바깥(배경) 누르기. 닫기는 showDialog 가 한다
+        if (e.target === el) return el.querySelector(DIALOG_TEXT) ? undefined : askFinish('');  // 바깥(배경) 누르기. 닫기는 showDialog 가 한다. 글 칸이 있으면 둘 다 하지 않는다
         const b = e.target.closest && e.target.closest('[data-ask]');
         if (!b) return;
         askFinish(b.dataset.ask);

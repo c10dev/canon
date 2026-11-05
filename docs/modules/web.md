@@ -20,6 +20,8 @@
 ### `canon/static/app.js`
 
 - 웹 화면의 뼈대
+- 휴대폰 키보드가 열리면 html 에 `kb-open` 을 단다(`--kb` 80px 이상). 640px 이하에서 집필 머리를 붙여 두지 않는다
+- 글 칸(`DIALOG_TEXT`)이 있는 대화상자는 바깥(배경)을 눌러도 닫지 않는다. Esc · 취소는 닫는다
 - 반영 취소(`revertFrom`) 확인은 저장하지 않은 변경이 있으면 먼저 저장한다고 말하고 버튼을 '저장하고 반영 취소'로 쓴다
 - 반영 취소(`revertFrom`)는 뒤 화들의 반영 기록이 검토를 기다리는 변경안으로 남으니(`web._revert_kept`) 취소 뒤 `loadPending` 으로 받는다
 - 서버 오류 문구 `fmtErr`: 검증 오류(detail 이 목록)는 영어 원문 대신 `VALIDATION_REASON`(web.py `_VALIDATION_REASON` 과 같음, `tests/test_fmterr_js.py`)과 칸 이름 `FIELD_NAME` 으로 쓴다
@@ -268,6 +270,7 @@
 ### `canon/static/passage.js`
 
 - 본문 부분 수정
+- 손가락 기기에서 검수 지적을 열면 본문 칸에 포커스하지 않는다(키보드가 고치는 창을 덮지 않게). 문장 자리만 고른다
 - 본문에서 고르면 뜨는 도구(직접 수정, AI에게 고치기)
 - 도구 자리 `placeTool` 은 왼쪽을 0으로 두고 너비를 잰다. 옛 자리에서 재면 남은 폭만큼 줄어 화면 오른쪽 끝에 붙는다
 - 후보를 원문과 단어 단위로 비교
@@ -287,6 +290,7 @@
   - 구간 한 줄 머리 + 화 카드 격자 `actBoard`
   - 구간 · 아크 · 부 고치기는 서랍 없이 그 자리에서 `actEditor` · `arcEditor` · `partEditor`
   - 아크 주요 인물 이름 체크 `arcCastField`
+- 640px 이하 사건 줄의 도구(연출 · 위로 · 아래로 · 빼기)는 숨기지 않고 사건 글 아래 줄 오른쪽에 둔다
 - 손가락 기기에서는 사건 순서의 'Enter로 다음 사건' 안내를 숨긴다
 - 장편(목차가 부 › 아크 › 구간 나무 `serialTree` · `serialTocRow`, 부 펼치기 `S.tocParts`, 부 구성 카드 펼침 `S.arcFull`, 다음 아크 기획 칸의 경고 `planAhead` 는 `pipeline.plan_ahead` 와 같은 규칙 `tests/test_plan_ahead_js.py`)
 - 서술 시점
