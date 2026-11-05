@@ -1713,8 +1713,10 @@ mark.hl.flash { outline: 2px solid currentColor; outline-offset: 2px; }
 .w-bar .w-hint { flex: 1 1 100%; margin: 0; }
 @media (max-width: 640px) { .w-bar .w-hint { display: none; } }
 /* 집필 머리 (write.js .w-head): 640px 이하는 본문이 첫 화면에 들어오게 줄인다. 위치 줄 · 쓴 모델은 숨기고(위쪽 띠에 n/N화가 있다) 제목을 줄이고,
-   보조 버튼(대화 · 다시 생성 · 작업지시서)은 ⋯ 메뉴(.w-narrow)로 옮겨 ⋯ 와 primary 만 남긴다. 단계 띠는 한 줄 칸으로, 반영 끝난 화 알림은 두 줄로 */
-.w-narrow { display: none; }
+   보조 버튼(대화 · 다시 생성 · 작업지시서)은 ⋯ 메뉴(.w-narrow)로 옮겨 ⋯ 와 primary 만 남긴다. 단계 띠는 한 줄 칸으로, 안내만 하는 반영 끝난 화 알림은 첫 문장만 보이는 접은 칸(.w-fin-s)으로 */
+.w-narrow, .w-fin-s { display: none; }
+.w-fin-s > summary { display: flex; align-items: center; min-height: var(--touch-min); cursor: pointer; font-size: inherit; color: inherit; }
+.w-fin-s > p { margin: 0 0 var(--space-8); }
 @media (max-width: 640px) {
   .w-head { gap: var(--space-8); --w-h1: 1.125rem; }
   .w-head .eyebrow, .w-head .w-model { display: none; }
@@ -1722,7 +1724,8 @@ mark.hl.flash { outline: 2px solid currentColor; outline-offset: 2px; }
   .w-narrow { display: block; }
   .w-head + .flow-bar .fl-cell { flex-direction: row; gap: var(--space-6); min-height: var(--touch-min); padding: var(--space-4); }
   .w-head + .flow-bar .fl-sub:not(.warn) { display: none; }
-  .w-fin > .note.plain { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; padding-top: var(--space-8); padding-bottom: var(--space-8); }
+  .w-fin.has-short > .note.plain:not(.w-fin-s) { display: none; }
+  .w-fin-s { display: block; padding-top: 0; padding-bottom: 0; }
 }
 /* 다시 생성 열 (rewrite.js rwColumn): 대화 패널과 같은 자리 · 폭 */
 .tool-col { position: fixed; top: 0; right: 0; bottom: 0; width: min(440px, 100vw); z-index: var(--z-panel); gap: 0; margin: 0; background: var(--surface); border-left: 1px solid var(--line); display: flex; flex-direction: column; }

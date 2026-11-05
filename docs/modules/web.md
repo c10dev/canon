@@ -144,10 +144,19 @@
   - 작품 없음은 `plStepsCard`
   - 서버 카드의 확인할 것 `alerts` · 부 · 아크 `where` · 화 칸 띠 `strip`(`web.list_projects`)
 - 다음 할 일 `nextStep`: 플롯 전이면 설정 필수 칸(`setupReqs`)이 빌 때 '설정 마저 채우기', 문체를 정하지 않았고 문체 화면에 안 들렀으면(`styleVisited`, localStorage `canon.styleVisited.<작품>`) 문체 정하기를 먼저 권한다
-- `nextStep` 은 [글, 주소, 동작]을 돌려준다. 글은 버튼 이름이라 동사이거나 화면으로 가는 '~로'다(자동 집필이 돌면 '자동 집필로')
-- 플롯 초안 화의 다음 할 일 'n화 플롯 확정'은 그 화 플롯 페이지(`/arc/n`)로 간다
-- 모든 화를 반영하면 다음 할 일은 '완결 원고 내보내기'다. 동작 `exportAll`(`publish.js`)이 전체 범위로 '여러 화 내보내기' 대화상자를 연다. 주소만 쓰는 곳(사이드바 · 팔레트)은 마지막 화 집필 화면으로 간다
-- 다음 할 일 버튼 `nextStepHtml`: 동작이 있으면 `data-action` button, 없으면 a. 작품 홈 머리와 집필 머리(`write.js` `nextStepBtn`)가 쓴다
+- `nextStep` 은 [글, 주소, 동작, 동작 글]을 돌려준다. 동작과 동작 글은 있을 때만 붙는다
+- `nextStep` 의 글은 버튼 이름이라 동사이거나 화면으로 가는 '~로'다(자동 집필이 돌면 '자동 집필로')
+- 주소만 읽는 곳(사이드바 `workCard` · 팔레트 · 장편 플롯 머리 `serialHead`)은 [글, 주소]만 쓴다. 그래서 글은 그 주소로 가는 일에 맞춘다
+- 단편의 플롯 초안 화에서 다음 할 일 'n화 플롯 확정'은 그 화 플롯 페이지(`/arc/n`)로 간다
+- 장편의 플롯 초안 화에서 'n화 플롯 확정'은 아크 화면(`/arc`)으로 간다. `plot.js` `serialHead` 가 이 주소를 보고 '아크 N 초안 k화 모두 확정'을 primary 로 둔다
+- 모든 화를 반영하면 다음 할 일 버튼은 '완결 원고 내보내기'다(동작 글)
+- '완결 원고 내보내기'는 동작 `exportAll`(`publish.js`)을 부른다. 이 동작이 전체 범위로 '여러 화 내보내기' 대화상자를 연다
+- 모든 화를 반영했을 때 주소만 읽는 곳은 글 '완결 원고 보기'로 마지막 화 집필 화면에 간다
+- 버튼에 쓰는 글 `nextStepLabel`: 동작이 있으면 동작 글, 없으면 글
+- 다음 할 일 버튼 `nextStepHtml`: 동작이 있으면 `data-action` button, 없으면 a
+- `nextStepHtml` 은 작품 홈 머리와 집필 머리(`write.js` `nextStepBtn`)가 쓴다
+- 작품 홈 머리는 다음 할 일이 이야기 구조 화면(`/arc`, `/arc/n`, `isArcHref`)이면 이야기 구조 보조 버튼을 두지 않는다
+- 작품 홈 '다음 할 일' 카드는 자동 집필이 돌 때 제목을 '자동 집필이 n화를 쓰는 중이에요'로 쓴다. '자동 집필로'는 버튼과 링크에만 쓴다
 - 사이드바 자동 집필 메뉴 이름 `autoMenuLabel`: 돌면 '자동 집필 · 쓰는 중', 멈추면 그 까닭
 - 작품 목록 `projectGo` 는 플롯 전 작품의 설정 필수 칸이 비면(`setup_ready` false) '설정 마저 채우기'로 보낸다
 - `aiWarning` 은 Anthropic 키가 없거나(`claude_api` false) Claude 구독을 쓸 수 없으면(`claude` install · login · error) 첫 작업 전에 알린다
@@ -155,7 +164,9 @@
   - 지금 화 `homeNowCard` · 확인할 것 `homeTodos`(말투 빈 인물 `homeSpeechGaps`, 시점 인물 서술 말투 빈칸 `homeVoiceGap`) · 전 화수 막대 `homeProgress` · 줄인 목록 `homeCast` · `homeForeshadows`
   - 계산 함수는 작품을 받는 순수 함수 `tests/test_home_js.py`
 - 장르 · 화 진행 막대와 연재 일정(`epSteps`, 검수 칸 `checkState`, 화를 열 단계 화면 `epStage`: 다음 할 일 · 화 칸 · 팔레트, 작품 목록 다음 할 일 `projectNext` 는 서버 `findings.check_done`, `releasePlan`, `Project.release`)
-- 연재 일정 줄의 'n화 올림으로 표시'(`releaseOne`)는 올린 화를 하나 늘려 저장하고, 알림의 '되돌리기'(`releaseUndo`)는 그사이 값이 바뀌지 않았을 때만 하나 줄여 다시 저장한다
+- 연재 일정 줄의 'n화 올림으로 표시'(`releaseOne`)는 올린 화를 하나 늘려 저장한다
+- 저장한 뒤 알림에 '되돌리기'(`releaseUndo`)를 둔다
+- `releaseUndo` 는 같은 작품이 열려 있고 올린 화 값이 그사이 바뀌지 않았을 때만 하나 줄여 다시 저장한다
 
 ### `canon/static/hub.js`
 
@@ -438,8 +449,14 @@
   - 머리 높이 `syncWriteTop`
   - 머리 줄에 지금 본문을 쓴 모델(`.w-model`, `writerLabel`). 기록이 없는 화는 보이지 않는다
   - 머리 ⋯ 메뉴 `writeMenu`: 생성 방식 · 컨텍스트 대화상자 · 채팅 앱 작업지시서 .md 내려받기(`briefDownload`) · 화 지우기
-  - 640px 이하 머리(`.w-head`)는 ⋯ 메뉴와 primary 만 남긴다. 대화 · 다시 생성은 ⋯ 메뉴 맨 위(`.w-narrow`)로 옮기고, 위치 줄 · 쓴 모델을 숨기고, 단계 띠를 한 줄로, 반영 끝난 화 알림(`.w-fin`)을 두 줄로 줄인다(app.css)
-  - 반영이 끝난 화의 머리 primary `nextStepBtn` 은 지금 보는 화면으로 가는 일이면 두지 않는다. 동작이 있는 다음 할 일(완결 원고 내보내기)은 늘 둔다
+  - 640px 이하 머리(`.w-head`)는 ⋯ 메뉴와 primary 만 남긴다(app.css)
+  - 640px 이하에서 대화 · 다시 생성 버튼은 ⋯ 메뉴 맨 위(`.w-narrow`)로 옮긴다
+  - 640px 이하에서 머리의 위치 줄과 쓴 모델은 숨긴다
+  - 640px 이하에서 단계 띠는 한 줄 칸이다
+  - 640px 이하에서 안내만 하는 반영 끝난 화 알림은 첫 문장을 요약으로 둔 접은 칸(`finNote`, `.w-fin-s`)이다
+  - 640px 이하에서 Esc 로 대화를 닫아 포커스가 비면 ⋯ 메뉴 버튼으로 돌린다(머리 줄의 대화 버튼이 숨어 있어서)
+  - 반영이 끝난 화의 머리 primary `nextStepBtn` 은 지금 보는 화면으로 가는 일이면 두지 않는다
+  - 동작이 있는 다음 할 일(완결 원고 내보내기)은 `nextStepBtn` 이 늘 둔다
   - 본문 없는 화는 AI로 쓰기가 기본이고 머리 primary(`writeGo`, 스토리보드를 만든 화는 `boardGo`, 작업이 돌면 진행 줄 `wsBusy`)와 그 아래 쓰기 시작 칸(`writeStart`: 스토리보드 고르기 `S.wsBoard` · 직접 쓰기 · 컨텍스트)
   - 직접 쓰기(`startManual`)로 빈 칸을 연 화는 본문 칸 위 `manualNote` 의 'AI로 쓰기로 돌아가기'(`backToStart`)로 쓰기 시작 칸에 돌아간다. 쓴 글이 있으면 묻고 임시 보관 초안도 지운다. 그 화에 AI 작업이 돌면 끈다
   - 멈춘 작업이 그 화에서 AI 응답을 기다리면 `writeGo` 가 primary 를 잠그고 쓰기 시작 칸과 만든 스토리보드 칸이 `epWaitNote` 로 까닭을 보인다

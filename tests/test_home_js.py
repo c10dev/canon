@@ -89,8 +89,9 @@ def test_next_step_finished_opens_export():
                 arc=[Act(name="기", start_ep=1, end_ep=3, goal="")])
     p.meta.target_episodes = 3
     got = _next(p)
-    assert got["next"] == ["완결 원고 내보내기", "#/p/t/write/3", "exportAll"]
-    assert 'data-action="exportAll"' in got["html"] and got["html"].startswith("<button")
+    # 주소만 읽는 곳(사이드바 · 팔레트 · serialHead)은 [글, 주소]로 마지막 화에 가니 글은 '보기', 버튼은 동작 글
+    assert got["next"] == ["완결 원고 보기", "#/p/t/write/3", "exportAll", "완결 원고 내보내기"]
+    assert got["html"] == '<button type="button" class="btn primary" data-action="exportAll">완결 원고 내보내기</button>'
 
 
 @needs_node
@@ -108,3 +109,26 @@ def test_next_step_auto_is_navigation_label():
     p = project(episodes=eps(1, 3), characters=[Character(id="c1", name="가", role="")])
     got = js(p, "(() => { S.project = data.p; S.name = 't'; S.route = ['p', 't']; S.auto = { active: true, run: { ep: 2 } }; return [nextStep(), autoMenuLabel()]; })()")
     assert got == [["자동 집필로", "#/p/t/auto"], "자동 집필 · 쓰는 중"]
+
+
+@needs_node
+def test_next_step_serial_draft_keeps_arc_screen():
+    """장편 초안 화는 '/arc' 로 둔다: plot.js serialHead 가 이 주소를 보고 '아크 N 초안 k화 모두 확정'을 primary 로 둔다."""
+    from canon.schema import Act
+    p = project(form="serial", episodes=eps(1, 3), characters=[Character(id="c1", name="가", role="")],
+                parts=[Part(number=1, title="", start_ep=1, end_ep=12, goal="")],
+                story_arcs=[StoryArc(number=1, title="", start_ep=1, end_ep=12, goal="", acts=[Act(name="기", start_ep=1, end_ep=12, goal="")])])
+    got = _next(p)
+    assert got["next"] == ["2화 플롯 확정", "#/p/t/arc"]
+    got = js(p, "(() => { S.project = data.p; S.name = 't'; S.route = ['p', 't']; return [isArcHref('#/p/t/arc'), isArcHref('#/p/t/arc/2'), isArcHref('#/p/t/write/2')]; })()")
+    assert got == [True, True, False]
+    # plot.js serialHead 는 이 주소를 보고 아크 초안 모두 확정을 primary 로 둔다
+    head = run_js(["app.js", "home.js", "plot.js"], "(() => { S.project = data.p; S.name = 't'; S.route = ['p', 't', 'arc', '2']; return serialHead([], []); })()", {"p": dump(p)})
+    assert head["kind"] == "confirm" and 'data-action="confirmAll"' in head["html"]
+
+
+@needs_node
+def test_home_now_card_auto_heading_is_status():
+    p = project(episodes=eps(1, 3), characters=[Character(id="c1", name="가", role="")])
+    got = js(p, "(() => { S.project = data.p; S.name = 't'; S.route = ['p', 't']; S.auto = { active: true, run: { ep: 2 } }; const [l, h] = nextStep(); return homeNowCard(l, h); })()")
+    assert '<h2 id="home-now-h">자동 집필이 2화를 쓰는 중이에요</h2>' in got

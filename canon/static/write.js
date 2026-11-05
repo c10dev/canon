@@ -38,6 +38,15 @@ function orderNote(blocked) {
   return `<div class="note warn">이전 화(${rangeText(blocked)}화)의 상태 반영이 끝나야 쓸 수 있어요. 인물 상태가 꼬이지 않게 하는 규칙이에요. <a href="${href}">${label}</a></div>`;
 }
 
+/** 반영이 끝난 화 알림(restate.js restateNote) 감싸기. 안내만 하는 .note.plain 은 640px 이하에서 첫 문장을 요약으로 둔
+    접은 칸(.w-fin-s)으로 바꿔 보인다 (app.css). 넓은 폭은 그대로. 버튼이 있는 경고(.note.warn)는 줄이지 않는다 */
+function finNote(html) {
+  if (!html) return '';
+  const m = /^<div class="note plain">([^<]*?요\.)\s*([^<]*)<\/div>$/.exec(html);
+  const short = m && m[2] ? `<details class="note plain w-fin-s"><summary>${m[1]}</summary><p>${m[2]}</p></details>` : '';
+  return `<div class="w-fin${short ? ' has-short' : ''}">${html}${short}</div>`;
+}
+
 /** 반영이 끝난 화의 머리 primary: 다음 할 일 (nextStep, 그리기는 home.js nextStepHtml). 지금 보는 화면으로 가는 일이면 두지 않는다.
     동작이 있는 다음 할 일(완결 원고 내보내기)은 이 화면에서 부르므로 늘 둔다 */
 function nextStepBtn() {
@@ -347,13 +356,13 @@ function viewWrite(n) {
   const edits = (e.edits || []).length;
   const goal = Number(P().meta.words_per_episode).toLocaleString();
 
-  const fin = e.text ? restateNote(n) : '';  // 반영이 끝난 화 알림. 640px 이하는 두 줄로 줄인다 (.w-fin)
+  const fin = finNote(e.text ? restateNote(n) : '');  // 반영이 끝난 화 알림. 640px 이하는 첫 문장만 보이고 펼쳐 읽는다 (.w-fin)
 
   return `<header class="page-head w-head"><div class="row" style="gap:12px">${epNav('write', n)}<div class="lead" style="gap:2px"><div class="eyebrow">${act ? actLabel(act.name) + ' 구간 · ' : ''}${n} / ${P().meta.target_episodes}화</div><h1 style="font-size:var(--w-h1, 1.5rem)">${n}화 ${esc(e.plot.title)}</h1></div>${povBadge(n)}<span class="chip ${e.status}">${STATUS[e.status]}</span>${e.auto ? '<span class="chip ai">자동 반영</span>' : ''}${e.text && writerLabel(e.written_by) ? `<span class="small w-model" title="이 본문을 쓴 모델이에요. 직접 고쳐도 바뀌지 않아요">쓴 모델 · ${esc(writerLabel(e.written_by))}</span>` : ''}</div><div class="row">${right}</div></header>
     ${flowBar(n, 'write')}
     ${e.auto ? `<div class="note info">이 화는 자동 집필이 검토 없이 반영했어요. 읽어 보고 문제가 있으면 <a href="${base()}/auto">자동 집필</a>에서 이 화부터 되돌릴 수 있어요.</div>` : ''}
     ${rebuildNote(n)}
-    ${fin ? `<div class="w-fin">${fin}</div>` : ''}
+    ${fin}
     ${e.text ? metaCutNote(n, editable && !autoOn()) : ''}
     ${orphan ? `<div class="note warn">저장하지 않은 ${n}화 초고가 남아 있어요. 이 화는 상태 반영이 끝나 본문으로 저장할 수 없어서, 아래에는 반영된 본문을 보여요.
       <details><summary>남은 초고 보기 (${S.textDraft[n].length.toLocaleString()}자)</summary><textarea readonly id="orphan-${n}" aria-label="${n}화 남은 초고" style="width:100%;min-height:160px;margin-top:6px">${esc(S.textDraft[n])}</textarea></details>
@@ -509,6 +518,20 @@ function viewBrief(n) {
   }
   return head + outlineDoc(briefToc(n, e), `<div class="brief-col">${main}</div>`, { cls: 'brief-wrap' });
 }
+
+// 640px 이하는 머리 줄의 대화 버튼이 숨어(app.css .w-head) chat.js 의 Esc 가 포커스를 돌려줄 곳이 없다.
+// Esc 로 대화를 닫은 뒤 포커스가 비면 ⋯ 메뉴 버튼(대화를 다시 여는 곳)으로 돌린다. window capture 가 document 의 chat.js 보다 먼저 연 상태를 본다
+let escFromChat = false;
+window.addEventListener('keydown', (e) => { escFromChat = e.key === 'Escape' && !!S.chatOpen; }, true);
+document.addEventListener('keydown', () => {
+  if (!escFromChat) return;
+  escFromChat = false;
+  if (S.chatOpen || S.route[2] !== 'write') return;
+  const a = document.activeElement;
+  if (a && a !== document.body) return;
+  const b = document.querySelector('#app [data-action="menuToggle"][data-arg="write"]');
+  if (b && b.offsetParent !== null) b.focus();
+});
 
 Object.assign(actions, {
   async metaCutRestore(arg) {
