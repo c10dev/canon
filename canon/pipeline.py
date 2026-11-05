@@ -1134,9 +1134,9 @@ def carried_delta(p: Project, n: int) -> StateDelta | None:
     if src is None or old is None or src.text != p.episode(n).text:
         return None
     d = old.model_copy(deep=True, update={"episode": n})
-    for e in d.events:
+    for e in [*d.events, *d.dismissed.events]:  # 빼 둔 항목(dismissed)도 번호를 맞춘다
         e.episode = n
-    for f in d.foreshadow_planted:
+    for f in [*d.foreshadow_planted, *d.dismissed.foreshadow_planted]:
         f.planted_ep = n
     d.warnings = [f"단편 {x.sources[0]}화 때 승인한 변경안을 다시 써요. 앞 화가 바뀌었으니 확인하고 반영하세요."] + d.warnings
     return d

@@ -68,3 +68,19 @@ process.stdout.write(JSON.stringify(vm.runInContext('pickedDelta(1)', ctx)));
     assert x["new_facts"] == ["등대는 북쪽에 있다"] and [e["kind"] for e in x["events"]] == ["도움"]
     assert x["character_updates"] == [] and x["new_places"] == []
     assert "setting_changes" not in x and "address_changes" not in x  # 설정 바꾸기 · 호칭은 기록하지 않는다
+
+
+def test_carried_delta_renumbers_dismissed():
+    from .test_rebuild import _rebuilt
+
+    p, *_ = _rebuilt()
+    e1 = p.episode(1)
+    e1.text, e1.status = "새 1화 본문", "written"
+    pipeline.apply_delta(p, pipeline.extract_state(LLM, p, 1))
+    old = next(d for d in p.archive.history if d.episode == 1)
+    old.dismissed.events = [e.model_copy() for e in old.events]
+    old.dismissed.foreshadow_planted = [f.model_copy() for f in old.foreshadow_planted]
+    d = pipeline.carried_delta(p, 2)
+    assert d is not None and d.dismissed.events
+    assert all(e.episode == 2 for e in d.dismissed.events)
+    assert all(f.planted_ep == 2 for f in d.dismissed.foreshadow_planted)
