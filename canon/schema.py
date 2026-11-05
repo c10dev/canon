@@ -1269,11 +1269,33 @@ class FixSet(BaseModel):
     options: list[FixOption] = Field(default_factory=list, description="2~3개, 서로 다른 방향으로 고친 안")
 
 
+class FixItem(BaseModel):
+    """여러 지적을 한 번에 물을 때 지적 하나의 답. finding 으로 요청한 지적에 맞춘다 (pipeline.propose_fixes_batch)."""
+    finding: str = Field(description="고친 지적의 id. 요청 목록의 id 를 그대로 옮긴다")
+    reply: str = Field("", description="작가에게 하는 짧은 답 1~2문장. 고침안들이 어떻게 다른지")
+    options: list[FixOption] = Field(default_factory=list, description="2~3개, 서로 다른 방향으로 고친 안")
+
+
+class FixBatch(BaseModel):
+    """한 화의 열린 지적 여러 개의 AI 고침안. 지적마다 FixItem 하나. 작가가 하나를 골라야 본문에 들어간다."""
+    items: list[FixItem] = Field(default_factory=list, description="요청한 지적마다 하나씩, 요청 순서대로")
+
+
 class FindingRecheck(BaseModel):
     """지적 하나만 다시 검수한 결과. 회차를 늘리지 않는다 (pipeline.recheck_finding)."""
     resolved: bool = Field(description="지적한 어긋남이 지금 본문에서 풀렸는지")
     reason: str = Field(description="그렇게 본 까닭 한두 문장. 풀리지 않았으면 무엇이 아직 어긋나는지")
     new_issues: list[ConsistencyIssue] = Field(default_factory=list, description="작가가 고친 문장 때문에 새로 어긋난 곳만. 원래 있던 다른 어긋남은 넣지 않는다")
+
+
+class FixRecheckItem(FindingRecheck):
+    """고친 곳만 다시 보기에서 지적 하나를 다시 본 결과 (pipeline.recheck_fixed)."""
+    id: str = Field(description="다시 본 지적 id. 요청에 적은 그대로")
+
+
+class FixRecheckReport(BaseModel):
+    """고친 곳만 다시 보기: 지난 검수 뒤 고침안을 넣은 지적들을 한 번에 다시 본 결과. 회차를 늘리지 않는다."""
+    results: list[FixRecheckItem] = Field(default_factory=list, description="요청한 지적마다 하나씩")
 
 
 FindingEventKind = Literal["found", "again", "gone", "author", "fix", "undo", "recheck"]
@@ -1860,6 +1882,17 @@ class DismissedItems(BaseModel):
     new_places: list[NewPlace] = Field(default_factory=list)
     deadlines_added: list[Deadline] = Field(default_factory=list)
     deadlines_done: list[str] = Field(default_factory=list)
+    # 작가가 체크를 푼 설정 바꾸기 · 호칭 제안. 반영하지 않고, 반영 취소로 돌아오면 체크를 푼 채 다시 놓인다. 자동 집필은 여기 말고 setting_held · address_held 에 남긴다
+    setting_changes: list[SettingChange] = Field(default_factory=list)
+    address_changes: list[AddressChange] = Field(default_factory=list)
+
+
+class AddedItems(BaseModel):
+    """반영할 때 실제로 새로 더해진 항목 (pipeline.apply_delta · apply_restate 가 적는다). 반영 취소가 이것만 뺀다."""
+    relationships: list[list[str]] = Field(default_factory=list, description="새로 더한 관계 쌍 [a, b]")
+    secrets: list[str] = Field(default_factory=list, description="새로 더한 비밀 id")
+    facts: list[str] = Field(default_factory=list)
+    foreshadows: list[str] = Field(default_factory=list, description="새로 심은 복선 id")
 
 
 class StateDelta(BaseModel):
@@ -1868,7 +1901,7 @@ class StateDelta(BaseModel):
     summary: str = Field(description="이번 화 요약 (다음 화 생성용, 5~8문장)")
     character_updates: list[CharacterState] = Field(default_factory=list, description="변화가 있는 인물만")
     events: list[StoryEvent] = Field(default_factory=list, description="인물 사이에 일어난 관계 사건, 일어난 순서대로")
-    relationship_updates: list[Relationship] = Field(default_factory=list, description="관계 유형이나 설명이 바뀐 쌍만. 수치는 사건으로 계산하므로 events 가 있으면 무시")
+    relationship_updates: list[Relationship] = Field(default_factory=list, description="관계 유형이나 설명이 바뀐 쌍만. 수치는 사건으로 계산하므로 반영(apply_delta)이 쓰지 않는다")
     secrets_added: list[Secret] = Field(default_factory=list, description="이번 화에 새로 생긴 비밀")
     new_facts: list[str] = Field(default_factory=list, description="본문에서 새로 확정된 사실 (이름, 장소, 과거사 등)")
     foreshadow_planted: list[Foreshadow] = Field(default_factory=list)
@@ -1896,6 +1929,69 @@ class StateDelta(BaseModel):
     # 프로그램이 채운다 (상태 승인 화면 pickedDelta · pace.hold). AI 응답 형식에서 뺀다. 반영 기록(history)에 남고 반영 취소하면 그 화 기록과 함께 빠진다
     dismissed: SkipJsonSchema[DismissedItems] = Field(
         default_factory=DismissedItems, description="작가가 체크를 풀었거나 자동 반영이 뺀 항목. 반영하지 않고 기록으로만 남긴다")
+    # 프로그램이 채운다 (pipeline.apply_delta). AI 응답 형식에서 뺀다. 예전 project.json 의 반영 기록은 칸이 없어 True 로 읽힌다
+    legacy_rel: SkipJsonSchema[bool] = Field(
+        True, description="예전 반영 기록: 사건이 없으면 relationship_updates 의 affinity · tension 으로 관계 수치를 맞췄다. "
+                          "지금 반영은 False 로 남기고, 다시 계산(dynamics.replay)이 True 인 기록만 예전 방식으로 돌린다")
+    # 프로그램이 채운다 (pipeline.apply_delta). AI 응답 형식에서 뺀다. None 이면 이 칸이 생기기 전 기록이라 반영 취소가 스냅샷으로 짐작한다
+    added: SkipJsonSchema[Optional[AddedItems]] = Field(
+        None, description="반영할 때 실제로 새로 더해진 관계 쌍 · 비밀 · 사실 · 복선. 반영 뒤 작가가 더한 같은 항목과 가려 반영 취소가 이것만 뺀다")
+
+    def drop_rel_rows(self, drop) -> list[Relationship]:
+        """relationship_updates 에서 drop 차례의 행을 빼고 뺀 행을 돌려준다. 범위 밖 차례는 무시한다.
+        rel_flagged 는 남은 행의 새 차례로 다시 매기고, 뺀 행 · 범위 밖의 차례는 버린다 (같은 행을 기본으로 체크하지 않게)."""
+        drop = set(drop)
+        flagged = set(self.rel_flagged)
+        keep = [i for i in range(len(self.relationship_updates)) if i not in drop]
+        gone = [r for i, r in enumerate(self.relationship_updates) if i in drop]
+        self.rel_flagged = [j for j, i in enumerate(keep) if i in flagged]
+        self.relationship_updates = [self.relationship_updates[i] for i in keep]
+        return gone
+
+
+def _no_manual(s: dict) -> None:
+    s["enum"] = [k for k in s.get("enum", []) if k != "수동보정"]
+
+
+# 아래 셋은 LLM 응답 형식과 작업지시서 스키마 전용이다 (pipeline.extract_state · play.settle · prompts.state_brief).
+# 관계 수치 · 보는 방식 · 가 닿을 곳 · 화 번호 · 수동보정 칸이 없다. 받은 뒤 to_delta 로 StateDelta 로 바꾼다.
+# 예전 JSON 의 그런 칸은 읽으면서 버린다. docstring 은 응답 형식의 설명으로 AI 에게 보인다.
+class AIStoryEvent(BaseModel):
+    """본문에서 일어난 관계 사건. 수치 변화는 프로그램이 사건으로 계산한다."""
+    actor: str = Field(description="행동한 인물 id")
+    target: str = Field(description="행동을 받은 인물 id")
+    # 예전 채팅 앱 JSON 의 수동보정도 읽기는 한다 (반영이 뺀다). 응답 형식의 목록에서만 뺀다
+    kind: EventKind = Field(json_schema_extra=_no_manual)
+    intensity: int = Field(2, description="1(가벼움) ~ 3(결정적)", json_schema_extra=_range(1, 3))
+    witnesses: list[str] = Field(default_factory=list, description="현장에서 본 다른 인물 id")
+    reveals_secret: str = Field("", description="이 사건으로 드러난 비밀 id")
+    quote: str = Field("", description="근거가 되는 본문 한 문장")
+
+
+class RelationshipChange(BaseModel):
+    """유형이나 설명이 바뀐 관계. 수치는 프로그램이 사건으로 계산한다."""
+    a: str = Field(description="인물 id")
+    b: str = Field(description="인물 id")
+    type: str = Field(description="연인, 라이벌, 사제, 가족 등")
+    description: str = ""
+
+
+class StateDeltaAI(StateDelta):
+    """한 화를 쓴 뒤 AI 가 제안하는 상태 변경안. 사용자가 승인하면 반영된다."""
+    events: list[AIStoryEvent] = Field(default_factory=list, description="인물 사이에 일어난 관계 사건, 일어난 순서대로")
+    relationship_updates: list[RelationshipChange] = Field(default_factory=list, description="관계 유형이나 설명이 바뀐 쌍만")
+
+
+def to_delta(raw: BaseModel, n: int) -> StateDelta:
+    """LLM · 채팅 앱이 낸 변경안(StateDeltaAI, 또는 StateDelta 를 돌려주는 가짜 LLM)을 n화 StateDelta 로 바꾼다.
+    관계 수치 · 수동보정 칸은 버린다."""
+    data = raw.model_dump()
+    data["episode"] = n
+    keep_ev = set(AIStoryEvent.model_fields)
+    data["events"] = [{**{k: v for k, v in e.items() if k in keep_ev}, "episode": n} for e in data.get("events", [])]
+    keep_rel = set(RelationshipChange.model_fields)
+    data["relationship_updates"] = [{k: v for k, v in r.items() if k in keep_rel} for r in data.get("relationship_updates", [])]
+    return StateDelta.model_validate(data)
 
 
 class NameOption(BaseModel):

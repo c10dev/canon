@@ -393,7 +393,8 @@ def replay(p: Project) -> list[Tie]:
                 if upd.a != upd.b and pair(upd.a, upd.b) not in {pair(r.a, r.b) for r in sim.relationships}:
                     sim.relationships.append(upd.model_copy(deep=True))
                     seed_ties(sim)
-        if delta and delta.relationship_updates and not delta.events:  # 사건 없이 수치만 온 예전 변경안 (apply_delta 와 같게)
+        # 사건 없이 수치만 온 예전 변경안: 그때 반영(apply_delta)이 수치를 맞췄으므로 다시 계산도 같게 한다. 지금 반영한 기록(legacy_rel False)은 수치를 쓰지 않는다
+        if delta and delta.legacy_rel and delta.relationship_updates and not delta.events:
             for upd in delta.relationship_updates:
                 for r in sim.relationships:
                     if pair(r.a, r.b) == pair(upd.a, upd.b):

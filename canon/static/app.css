@@ -1166,12 +1166,13 @@ body.chat-open .savebar { left: calc(50% - 220px); }
 .usage-x { grid-column: 2; display: flex; justify-content: space-between; padding-top: 6px; font-size: 0.6875rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 .usage-pick { min-height: 1.5em; }
 @media (max-width: 640px) { .usage-chart { gap: 1px; touch-action: pan-y; } }  /* 단계 밖 1px: 좁은 폭 막대 사이 */
-/* '어디에 썼나' 막대 목록: 이름 · 비중 막대 · 비용 · 호출 · 토큰 */
+/* '어디에 썼나' 막대 목록: 이름 · 비중 막대 · 비용 · 호출 · 캐시 비율 · 평균 시간 · 토큰. 기준 단추가 여섯이라 줄을 바꾼다 */
+.usage-by .seg { flex-wrap: wrap; }
 .usage-bars { display: flex; flex-direction: column; }
-.usage-br { min-height: var(--touch-min); border-top: 1px solid var(--rule); display: grid; grid-template-columns: minmax(120px, 220px) minmax(60px, 1fr) 84px 64px 112px; gap: var(--space-4) var(--space-14); align-items: center; font-size: 0.8125rem; }
+.usage-br { min-height: var(--touch-min); border-top: 1px solid var(--rule); display: grid; grid-template-columns: minmax(120px, 220px) minmax(60px, 1fr) 84px 64px 56px 72px 112px; gap: var(--space-4) var(--space-14); align-items: center; font-size: 0.8125rem; }
 .usage-br.hd { min-height: 28px; border-top: none; font-size: 0.75rem; font-weight: 700; color: var(--muted); }
 .usage-br .lb { min-width: 0; overflow-wrap: anywhere; }
-.usage-br .bar { height: 12px; display: flex; align-items: center; }
+.usage-br .bar { height: 12px; display: flex; flex-direction: row; gap: 0; align-items: center; }  /* 방향 · 틈은 soelab.js 가 주입하는 전역 .bar 를 덮는다 */
 .usage-br .bar b { display: block; height: 12px; min-width: 2px; border-radius: 0 var(--radius-4) var(--radius-4) 0; background: var(--accent); }
 .usage-br .v { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
 .usage-br .m { text-align: right; font-size: 0.75rem; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -1196,7 +1197,7 @@ body.chat-open .savebar { left: calc(50% - 220px); }
   .usage-tile.hero { grid-column: 1 / -1; }
   .usage-br { grid-template-columns: minmax(0, 1fr) 84px 64px; }
   .usage-br .bar { grid-column: 1 / -1; grid-row: 2; }
-  .usage-br > .m:last-child, .usage-br.hd > span:nth-child(2), .usage-br.hd > span:last-child { display: none; }
+  .usage-br > .m:last-child, .usage-br .c, .usage-br .sec, .usage-br.hd > span:nth-child(2), .usage-br.hd > span:last-child { display: none; }
   /* 좁은 칸의 호출 한 줄: 작업 · 비용 위, 시각 · 작품 · 모델 · 토큰 · 결과는 아래 작은 글 */
   .usage-call { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2) var(--space-10); padding: var(--space-10) 0; }
   .usage-call.hd { display: none; }
@@ -1335,6 +1336,10 @@ details.vis summary .small { margin-left: var(--space-6); font-weight: 400; }
 .cast-graph .cg-name { font-size: 0.8125rem; font-weight: 700; fill: var(--text); paint-order: stroke; stroke: var(--canvas); stroke-width: 4px; stroke-linejoin: round; pointer-events: none; }
 .cast-graph [data-action] { cursor: pointer; }
 .cast-graph .cg-node[data-action] { cursor: grab; }
+.cast-graph .cg-edge:focus, .cast-graph .cg-tension:focus { outline: none; }  /* SVG 안 링은 선 · 점에 직접 그린다 (줄기 지도 .line-map 과 같은 방식) */
+.cast-graph .cg-edge:focus-visible .cg-hit { stroke: color-mix(in srgb, var(--accent) 45%, transparent); }
+.cast-graph .cg-tension:focus-visible circle { stroke: var(--accent); stroke-width: 3; }
+.cast-graph .dim:focus-visible { opacity: 1; }
 .link-btn { padding: 0; border: none; background: none; font: inherit; color: var(--link); cursor: pointer; text-align: left; }
 .link-btn:hover { text-decoration: underline; }
 .cast-ul { padding-left: 18px; margin: 0; display: flex; flex-direction: column; gap: var(--space-6); font-size: 0.8125rem; line-height: 1.55; }  /* 단계 밖 18px: 목록 들여쓰기 */
@@ -1347,7 +1352,7 @@ details.vis summary .small { margin-left: var(--space-6); font-weight: 400; }
 .cast-strip-wrap { overflow-x: auto; }
 .cast-strip { display: block; }
 .cs-off { fill: var(--chip); }
-.cs-on { stroke-width: 1; }
+.cs-on { stroke-width: 1; cursor: pointer; }  /* 누르면 그 화 시점으로 (cast.js castStripGo) */
 .cs-on.draft { fill: var(--surface); stroke: var(--text-2); }
 .cs-on.confirmed { fill: var(--accent-soft); stroke: var(--accent); }
 .cs-on.written { fill: var(--amber-soft); stroke: var(--amber); }
@@ -1526,6 +1531,8 @@ a.ab-tile:hover { border-color: var(--line-strong); }
 .cast-chart .cc-now { stroke: var(--accent); stroke-width: 1; stroke-dasharray: 3 3; }
 .cast-chart .cc-col { fill: transparent; cursor: pointer; }
 .cast-chart .cc-col:hover { fill: color-mix(in srgb, var(--accent) 7%, transparent); }
+.cast-chart .cc-col:focus { outline: none; }
+.cast-chart .cc-col:focus-visible { fill: color-mix(in srgb, var(--accent) 12%, transparent); stroke: var(--accent); stroke-width: 2; }
 ul.cast-ul:has(> .cast-ev) { list-style: none; padding-left: 0; }
 /* 집필 화면 문체 표시 (marks.js): 장치 배지, 본문 밑줄 */
 .dev-list { list-style: none; padding: 0; display: flex; flex-direction: column; gap: var(--space-8); }
@@ -1716,6 +1723,21 @@ mark.hl.flash { outline: 2px solid currentColor; outline-offset: 2px; }
 .w-bar .savebar-slot, .w-bar .w-fill { flex: 1 1 auto; min-width: 0; }
 .w-bar .w-hint { flex: 1 1 100%; margin: 0; }
 @media (max-width: 640px) { .w-bar .w-hint { display: none; } }
+/* 집필 머리 (write.js .w-head): 640px 이하는 본문이 첫 화면에 들어오게 줄인다. 위치 줄 · 쓴 모델은 숨기고(위쪽 띠에 n/N화가 있다) 제목을 줄이고,
+   보조 버튼(대화 · 다시 생성 · 작업지시서)은 ⋯ 메뉴(.w-narrow)로 옮겨 ⋯ 와 primary 만 남긴다. 단계 띠는 한 줄 칸으로, 안내만 하는 반영 끝난 화 알림은 첫 문장만 보이는 접은 칸(.w-fin-s)으로 */
+.w-narrow, .w-fin-s { display: none; }
+.w-fin-s > summary { display: flex; align-items: center; min-height: var(--touch-min); cursor: pointer; font-size: inherit; color: inherit; }
+.w-fin-s > p { margin: 0 0 var(--space-8); }
+@media (max-width: 640px) {
+  .w-head { gap: var(--space-8); --w-h1: 1.125rem; }
+  .w-head .eyebrow, .w-head .w-model { display: none; }
+  .w-head > .row > [data-action="toggleChat"], .w-head > .row > [data-action="rwOpen"], .w-head > .row > a[href*="/brief/"] { display: none; }
+  .w-narrow { display: block; }
+  .w-head + .flow-bar .fl-cell { flex-direction: row; gap: var(--space-6); min-height: var(--touch-min); padding: var(--space-4); }
+  .w-head + .flow-bar .fl-sub:not(.warn) { display: none; }
+  .w-fin.has-short > .note.plain:not(.w-fin-s) { display: none; }
+  .w-fin-s { display: block; padding-top: 0; padding-bottom: 0; }
+}
 /* 다시 생성 열 (rewrite.js rwColumn): 대화 패널과 같은 자리 · 폭 */
 .tool-col { position: fixed; top: 0; right: 0; bottom: 0; width: min(440px, 100vw); z-index: var(--z-panel); gap: 0; margin: 0; background: var(--surface); border-left: 1px solid var(--line); display: flex; flex-direction: column; }
 .tool-col .tool-body { flex: 1; min-height: 0; overflow-y: auto; padding: var(--space-16) var(--space-20); display: flex; flex-direction: column; gap: var(--space-12); }

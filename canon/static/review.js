@@ -29,7 +29,7 @@ function pickedDelta(n) {
     setting_changes: pick('t', d.setting_changes || []),
     cast_added: pick('a', d.cast_added || []),
     address_changes: pick('h', d.address_changes || []),
-    // 체크를 푼 항목은 버리지 않고 반영 기록에 남긴다 (StateDelta.dismissed). 설정 바꾸기 · 호칭 · 등장 인물 붙이기는 빼 둔다
+    // 체크를 푼 항목은 버리지 않고 반영 기록에 남긴다 (StateDelta.dismissed). 등장 인물 붙이기는 빼 둔다
     dismissed: {
       character_updates: drop('c', d.character_updates),
       events: drop('e', d.events),
@@ -43,6 +43,8 @@ function pickedDelta(n) {
       new_places: drop('l', d.new_places),
       deadlines_added: drop('k', d.deadlines_added),
       deadlines_done: drop('o', d.deadlines_done),
+      setting_changes: drop('t', d.setting_changes),
+      address_changes: drop('h', d.address_changes),
     },
   };
 }
@@ -86,7 +88,7 @@ const deltaCount = (d) => DELTA_LISTS.reduce((s, k) => s + (d[k] || []).length, 
 const deltaPicked = () => Object.entries(S.picks).filter(([k, v]) => v && DELTA_PICK.test(k)).length;
 
 /** 빼 둘 수 있는 목록과 체크 키 앞글자 (StateDelta.dismissed 의 칸, pickedDelta 와 같다) */
-const DISMISS_LISTS = [['character_updates', 'c'], ['events', 'e'], ['secrets_added', 's'], ['relationship_updates', 'r'], ['new_facts', 'f'], ['foreshadow_planted', 'p'], ['foreshadow_resolved', 'x'], ['foreshadow_clues', 'q'], ['new_characters', 'n'], ['new_places', 'l'], ['deadlines_added', 'k'], ['deadlines_done', 'o']];
+const DISMISS_LISTS = [['character_updates', 'c'], ['events', 'e'], ['secrets_added', 's'], ['relationship_updates', 'r'], ['new_facts', 'f'], ['foreshadow_planted', 'p'], ['foreshadow_resolved', 'x'], ['foreshadow_clues', 'q'], ['new_characters', 'n'], ['new_places', 'l'], ['deadlines_added', 'k'], ['deadlines_done', 'o'], ['setting_changes', 't'], ['address_changes', 'h']];
 
 /** 반영 기록에서 돌아온 변경안(반영 취소 web._revert_kept, 단편 다시 쓰기 pipeline.carried_delta)의 빼 둔 항목을 목록 끝에 다시 놓는다.
  * 기본 체크는 풀어 둔다(d.reoffer 의 차례, defaultPicks). 그대로 반영하면 pickedDelta 가 다시 dismissed 로 보낸다. 두 번 불러도 한 번만 놓는다 */
@@ -103,8 +105,9 @@ function reofferDismissed(d) {
   d.dismissed = {};
 }
 
-/** 변경안 n건의 기본 체크 (지금 작품 기준). setDelta 와 다른 화로 옮길 때(pickEp) 같이 쓴다 */
-function defaultPicks(d) {
+/** 변경안 n건의 기본 체크 (지금 작품 기준). setDelta 와 다른 화로 옮길 때(pickEp) 같이 쓴다.
+ * over 는 새 인물 · 심는 복선 체크(n · p)의 지금 값이다. 주면 그 값을 기준으로 가리키는 항목을 맞춘다 (newCharCascade · plantedCascade) */
+function defaultPicks(d, over = {}) {
   const o = {};
   // 설정에도 이번 새 인물에도 없는 id 의 상태는 기본으로 빼 둔다. 반영하면 누구의 것도 아닌 상태가 남는다
   const known = new Set([...P().characters.map((c) => c.id), ...(d.new_characters || []).map((c) => c.id)]);
@@ -112,12 +115,13 @@ function defaultPicks(d) {
   // 설정에 없는 인물이 끼었거나 같은 인물끼리인 관계 사건 · 관계 바뀜도 기본으로 빼 둔다. 서버 반영이 막는다 (pipeline.validate_delta)
   const pairOk = (a, b) => a !== b && known.has(a) && known.has(b);
   d.events.forEach((e, i) => { o['e' + i] = pairOk(e.actor, e.target); });
-  d.secrets_added.forEach((_, i) => { o['s' + i] = true; });
+  d.secrets_added.forEach((x, i) => { o['s' + i] = known.has(x.owner); });  // 설정에 없는 인물의 비밀도 서버 반영이 막는다
   // 유형 · 설명이 반영 뒤 관계 단계와 반대인 바뀜은 기본으로 빼 둔다 (pace.clean_delta). 맞으면 작가가 체크한다
   d.relationship_updates.forEach((r, i) => { o['r' + i] = !(d.rel_flagged || []).includes(i) && pairOk(r.a, r.b); });
   d.new_facts.forEach((_, i) => { o['f' + i] = true; });
   d.foreshadow_planted.forEach((_, i) => { o['p' + i] = true; });
-  d.foreshadow_resolved.forEach((id, i) => { o['x' + i] = P().foreshadows.some((f) => f.id === id); });
+  // 이번에 심고 같은 화에 회수한 복선도 아는 복선이다 (서버 validate_delta 와 같다)
+  d.foreshadow_resolved.forEach((id, i) => { o['x' + i] = fsKnown(d, id); });
   (d.new_characters || []).forEach((_, i) => { o['n' + i] = true; });
   (d.new_places || []).forEach((_, i) => { o['l' + i] = true; });
   (d.foreshadow_clues || []).forEach((_, i) => { o['q' + i] = true; });
@@ -128,8 +132,74 @@ function defaultPicks(d) {
   (d.address_changes || []).forEach((_, i) => { o['h' + i] = false; });  // 호칭 · 말씨도 작가가 직접 골라야 바뀐다
   // 지난번 반영에서 작가가 체크를 풀었던 항목은 다시 놓아도 체크하지 않는다 (reofferDismissed)
   Object.entries(d.reoffer || {}).forEach(([p, idx]) => idx.forEach((i) => { if (p + i in o) o[p + i] = false; }));
+  Object.assign(o, over);
+  // 체크를 푼 채 다시 놓인 새 인물 · 심는 복선을 가리키는 항목도 빼 둔다. 남기면 서버 반영이 막는다
+  (d.new_characters || []).forEach((_, i) => { if (!o['n' + i]) newCharDeps(d, i).forEach((k) => { o[k] = false; }); });
+  d.foreshadow_resolved.forEach((id, i) => {
+    if (o['x' + i] && !P().foreshadows.some((f) => f.id === id)) o['x' + i] = d.foreshadow_planted.some((f, j) => f.id === id && o['p' + j]);
+  });
   return o;
 }
+
+/** 회수한다는 복선 id 가 작품의 복선이거나 이번 변경안에서 심는 복선인가 (서버 validate_delta 와 같은 셈) */
+const fsKnown = (d, id) => P().foreshadows.some((f) => f.id === id) || d.foreshadow_planted.some((f) => f.id === id);
+
+/** 새 인물 i 를 가리키는 항목의 체크 키: 상태 c · 관계 사건 e · 관계 바뀜 r · 비밀 주인 s · 설정 바꾸기 t · 호칭 h · 등장 인물 붙이기 a.
+ * 그 id 가 이미 설정에 있으면 빈 목록이다 (새 인물을 빼도 서버가 아는 인물로 센다) */
+function newCharDeps(d, i) {
+  const c = (d.new_characters || [])[i];
+  if (!c || P().characters.some((x) => x.id === c.id)) return [];
+  const id = c.id;
+  const hit = (letter, list, f) => (list || []).flatMap((x, j) => (f(x) ? [letter + j] : []));
+  return [
+    ...hit('c', d.character_updates, (u) => u.character_id === id),
+    ...hit('e', d.events, (e) => e.kind !== '수동보정' && (e.actor === id || e.target === id)),
+    ...hit('r', d.relationship_updates, (r) => r.a === id || r.b === id),
+    ...hit('s', d.secrets_added, (x) => x.owner === id),
+    ...hit('t', d.setting_changes, (x) => x.character_id === id),
+    ...hit('h', d.address_changes, (x) => x.speaker === id || x.listener === id),
+    ...hit('a', d.cast_added, (x) => x === id),
+  ];
+}
+
+/** 새 인물 i 의 체크를 on 으로 바꾼 뒤 그 인물을 가리키는 항목을 맞춘다. 빼면 함께 빼고(반영하면 서버가 막는다),
+ * 다시 고르면 기본 체크로 되돌린다. 다른 빠진 새 인물도 가리키는 항목은 빼 둔다. 바꾼 키 수를 돌려준다 */
+function newCharCascade(n, i, on) {
+  const d = S.deltas[n];
+  if (!d) return 0;
+  S.picks['n' + i] = on;
+  const base = on ? defaultPicks(d, npPicks()) : {};
+  const off = new Set((d.new_characters || []).flatMap((_, j) => (j !== i && !S.picks['n' + j] ? newCharDeps(d, j) : [])));
+  let changed = 0;
+  for (const k of newCharDeps(d, i)) {
+    const v = on ? !!base[k] && !off.has(k) : false;
+    if (!!S.picks[k] !== v) changed++;
+    S.picks[k] = v;
+  }
+  return changed;
+}
+
+/** 심는 복선 i 의 체크를 on 으로 바꾼 뒤 같은 변경안에서 그 복선을 회수하는 항목(x)을 맞춘다. 작품에 없는 복선이면
+ * 빼면 회수도 빼고(반영하면 서버가 막는다), 다시 고르면 기본 체크로 되돌린다. 바꾼 키 수를 돌려준다 */
+function plantedCascade(n, i, on) {
+  const d = S.deltas[n];
+  const f = d && d.foreshadow_planted[i];
+  if (!f) return 0;
+  S.picks['p' + i] = on;
+  if (P().foreshadows.some((x) => x.id === f.id)) return 0;
+  const base = on ? defaultPicks(d, npPicks()) : {};
+  let changed = 0;
+  d.foreshadow_resolved.forEach((id, j) => {
+    if (id !== f.id) return;
+    const v = on ? !!base['x' + j] : false;
+    if (!!S.picks['x' + j] !== v) changed++;
+    S.picks['x' + j] = v;
+  });
+  return changed;
+}
+
+/** S.picks 의 새 인물 · 심는 복선 체크(n · p)만 (defaultPicks 의 over) */
+const npPicks = () => Object.fromEntries(Object.entries(S.picks).filter(([k]) => /^[np]\d+$/.test(k)));
 
 /** S.picks 의 변경안 체크(DELTA_PICK 키)만 */
 const deltaPicks = () => Object.fromEntries(Object.entries(S.picks).filter(([k]) => DELTA_PICK.test(k)));
@@ -220,6 +290,15 @@ const deltaEditable = (d) => JSON.stringify([
   (d.setting_changes || []).map((x) => x.value),
 ]);
 const deltaEdited = (n) => !!(S.deltas[n] && S.deltaOrig[n] && S.deltaOrig[n].delta) && deltaEditable(S.deltas[n]) !== deltaEditable(S.deltaOrig[n].delta);
+/** n화 변경안을 받은 그대로에서 바꿨다: 요약, 체크(받을 때 있던 칸만, 다른 화를 보는 중이면 맡겨 둔 체크), 고칠 수 있는 칸.
+ * 다시 만들기(extractState)와 자동 집필의 '그대로 반영'(auto.js autoResume)이 버리기 전에 묻는 기준이다 */
+function deltaTouched(n) {
+  const d = S.deltas[n];
+  const o = S.deltaOrig[n];
+  if (!d || !o) return false;
+  const picks = S.picksEp === n ? S.picks : (S.picksKept || {})[n] || o.picks;
+  return d.summary !== o.summary || Object.entries(o.picks).some(([k, v]) => picks[k] !== v) || deltaEdited(n);
+}
 
 /** 인물 상태의 글 칸과 '고침' 키 앞글자. 이 칸은 상태 승인 화면에서 고치거나 지울 수 있다 (지우기는 CharacterState.cleared) */
 const STATE_TEXT = [['감정', 'emotional_state', 'em', '감정을'], ['목표', 'current_goal', 'go', '목표를'], ['위치', 'location', 'lo', '위치를'], ['메모', 'notes', 'no', '메모를'], ['차림', 'attire', 'at', '차림을']];
@@ -239,6 +318,10 @@ function showEdited(n, key) {
   if (m) m.style.display = itemEdited(n, key) ? '' : 'none';
 }
 const kindStyle = (kind) => GOOD_EVENTS.includes(kind) ? 'background:var(--green-soft);color:var(--green)' : 'background:var(--red-soft);color:var(--red)';
+/** 사건 종류 고르기 옆 칩. 어두운 테마의 빨강 · 초록은 밝기로 갈리지 않아 기호와 글자로도 좋은 · 나쁜 사건을 알린다 (docs/design/README.md) */
+const kindTagInner = (kind) => GOOD_EVENTS.includes(kind) ? '<span aria-hidden="true">＋</span> 좋은 사건' : '<span aria-hidden="true">－</span> 나쁜 사건';
+const kindTagClass = (kind) => `chip ${GOOD_EVENTS.includes(kind) ? 'ok' : 'bad'}`;
+const kindTag = (id, kind) => `<span class="${kindTagClass(kind)}" data-kind-tag="${id}">${kindTagInner(kind)}</span>`;
 
 /** 승인한 값이 쌓이는 도구로 가는 링크. 카드 아래 오른쪽에 둔다 */
 const toolLink = (page, label) => `<a class="small" href="${base()}/${page}">${label}에서 보기 →</a>`;
@@ -412,7 +495,7 @@ function viewReview(n) {
     const kinds = EVENT_KINDS.includes(ev.kind) ? EVENT_KINDS : [ev.kind, ...EVENT_KINDS];
     const who = `${esc(charName(ev.actor))} → ${esc(charName(ev.target))}`;
     const sel = (id, label, path, opts, val, style = '') => `<select id="${id}" aria-label="${who} ${label}" ${edit(path, 'e' + i)} class="rv-inp" style="width:auto;font-weight:700;padding:4px 8px;${style}">${opts.map(([v, t]) => `<option value="${esc(v)}"${String(v) === String(val) ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select>`;
-    return `<div class="change">${box('e' + i)}<div class="body"><div class="rv-row-head"><label for="pk-e${i}" class="rv-name">${who}</label>${sel(`ek-${i}`, '사건 종류', `events.${i}.kind`, kinds.map((k) => [k, k]), ev.kind, kindStyle(ev.kind))}${sel(`ei-${i}`, '강도', `events.${i}.intensity`, [1, 2, 3].map((v) => [v, INTENSITY[v]]), ev.intensity)}${editMark(n, 'e' + i)}${rvQuoteBtn(n, ev.quote, `${charName(ev.actor)} → ${charName(ev.target)} ${ev.kind}`)}</div>
+    return `<div class="change">${box('e' + i)}<div class="body"><div class="rv-row-head"><label for="pk-e${i}" class="rv-name">${who}</label>${sel(`ek-${i}`, '사건 종류', `events.${i}.kind`, kinds.map((k) => [k, k]), ev.kind, kindStyle(ev.kind))}${kindTag(`ek-${i}`, ev.kind)}${sel(`ei-${i}`, '강도', `events.${i}.intensity`, [1, 2, 3].map((v) => [v, INTENSITY[v]]), ev.intensity)}${editMark(n, 'e' + i)}${rvQuoteBtn(n, ev.quote, `${charName(ev.actor)} → ${charName(ev.target)} ${ev.kind}`)}</div>
       ${wit || sec ? `<div class="small">${[wit, sec].filter(Boolean).join(' · ')}</div>` : ''}
       ${ev.quote ? `<div class="rv-quote">${quoted(ev.quote)}</div>` : ''}</div></div>`;
   }).join('');
@@ -421,7 +504,7 @@ function viewReview(n) {
   const castAdd = (d.cast_added || []).map((id, i) => `<div class="change">${box('a' + i)}<label for="pk-a${i}" style="font-size:0.8125rem;line-height:1.55"><strong>${esc(charName(id))}</strong> <span class="small">${n}화 등장 인물에 붙여요</span></label></div>`).join('');
   const castAddBox = castAdd ? `<h3>본문에 나와 등장 인물에 붙일 인물</h3><p class="small">플롯 등장 인물에는 없지만 본문에 이름이 나오고 이번 변경안이 상태나 관계 사건을 다룬 인물이에요. 붙이면 등장 화와 다음 기획에 잡혀요. 이름만 나온 회상이면 체크를 푸세요.</p>${castAdd}` : '';
   const newPlaces = (d.new_places || []).map((x, i) => `<div class="change">${box('l' + i)}<label for="pk-l${i}" style="font-size:0.8125rem;line-height:1.55">${placeLabel(x)}</label></div>`).join('');
-  const secrets = d.secrets_added.map((x, i) => `<div class="change">${box('s' + i)}<label for="pk-s${i}" style="font-size:0.8125rem;line-height:1.55"><strong>${esc(charName(x.owner))}</strong> ${esc(x.content)}<br><span class="small">모르는 인물: ${x.hidden_from.map(charName).map(esc).join(', ') || '없음'}</span></label></div>`).join('');
+  const secrets = d.secrets_added.map((x, i) => `<div class="change">${box('s' + i)}<label for="pk-s${i}" style="font-size:0.8125rem;line-height:1.55"><strong>${esc(charName(x.owner))}</strong>${unknownChar({ character_id: x.owner }) ? ' <span class="chip draft">설정에 없는 인물</span>' : ''} ${esc(x.content)}<br><span class="small">모르는 인물: ${x.hidden_from.map(charName).map(esc).join(', ') || '없음'}</span></label></div>`).join('');
   const rels = d.relationship_updates.map((r, i) => {
     const cur = p.relationships.find((x) => (x.a === r.a && x.b === r.b) || (x.a === r.b && x.b === r.a));
     return `<div class="change">${box('r' + i)}<div class="body"><label for="pk-r${i}" style="font-size:0.875rem;font-weight:700">${esc(charName(r.a))} ↔ ${esc(charName(r.b))}</label>
@@ -431,9 +514,11 @@ function viewReview(n) {
   // 회수한다는 복선 id 를 모르면 '직접 정할 것'으로 (기본으로 빼 둔다, setDelta)
   const resolvedRow = (id, i) => {
     const f = p.foreshadows.find((x) => x.id === id);
-    return `<div class="change">${box('x' + i)}<label for="pk-x${i}" style="font-size:0.8125rem;line-height:1.55"><span class="chip finalized">회수</span> ${esc(f ? f.description : id)} ${f ? `<span class="small">${f.planted_ep}화에 심음</span>` : '<span class="small">알 수 없는 복선 id 예요. 고르지 않으면 회수하지 않아요</span>'}</label></div>`;
+    const here = !f && d.foreshadow_planted.find((x) => x.id === id);  // 이번 화에 심고 바로 회수한 복선
+    const where = f ? `<span class="small">${f.planted_ep}화에 심음</span>` : here ? '<span class="small">이번 화에 심음</span>' : '<span class="small">알 수 없는 복선 id 예요. 고르지 않으면 회수하지 않아요</span>';
+    return `<div class="change">${box('x' + i)}<label for="pk-x${i}" style="font-size:0.8125rem;line-height:1.55"><span class="chip finalized">회수</span> ${esc(f ? f.description : here ? here.description : id)} ${where}</label></div>`;
   };
-  const knownFs = (id) => p.foreshadows.some((x) => x.id === id);
+  const knownFs = (id) => fsKnown(d, id);
   const fs = [
     ...d.foreshadow_planted.map((f, i) => `<div class="change">${box('p' + i)}<label for="pk-p${i}" style="font-size:0.8125rem;line-height:1.55"><span class="chip confirmed">심음</span> ${esc(f.description)} <span class="small">${esc(f.id)}</span></label></div>`),
     ...d.foreshadow_resolved.map((id, i) => (knownFs(id) ? resolvedRow(id, i) : '')),
@@ -470,7 +555,7 @@ function viewReview(n) {
       [...d.secrets_added.map((x) => short(x.content)), ...d.relationship_updates.map((r) => `${charName(r.a)} ↔ ${charName(r.b)}`)].join(' · '), toolFoot(castLink)],
     ['facts', '확정 사실', facts, keys('f', d.new_facts), d.new_facts.map((f) => short(f)).join(' · '), ''],
     ['fs', '복선', fs, [...keys('p', d.foreshadow_planted), ...keys('x', d.foreshadow_resolved, (i) => knownFs(d.foreshadow_resolved[i])), ...keys('q', d.foreshadow_clues)],
-      [...d.foreshadow_planted.map((f) => `심음 ${short(f.description, 12)}`), ...d.foreshadow_resolved.filter(knownFs).map((id) => `회수 ${short(p.foreshadows.find((x) => x.id === id).description, 12)}`)].join(' · '), toolFoot(toolLink('foreshadow', '복선 센터'))],
+      [...d.foreshadow_planted.map((f) => `심음 ${short(f.description, 12)}`), ...d.foreshadow_resolved.filter(knownFs).map((id) => `회수 ${short([...p.foreshadows, ...d.foreshadow_planted].find((x) => x.id === id).description, 12)}`)].join(' · '), toolFoot(toolLink('foreshadow', '복선 센터'))],
     ['places', '새로 나온 장소', newPlaces ? `<p class="small">반영하면 인과율에 장소로 등록돼요. 그 뒤로는 이 장소가 나오는 화를 쓸 때 설명이 함께 들어가요.</p>${newPlaces}` : '', keys('l', d.new_places), (d.new_places || []).map((x) => x.name).join(', '), ''],
     ['time', '작품 속 시간', tl, [...keys('k', d.deadlines_added), ...keys('o', d.deadlines_done)], d.time && d.time.day > 0 ? `${d.time.day}일째${d.time.part ? ` ${d.time.part}` : ''}` : '', toolFoot(toolLink('timeline', '작품 속 시간'))],
   ];
@@ -688,6 +773,8 @@ function dismissedView(h) {
     ...(x.new_places || []).map((p) => `새 장소 · ${placeLabel(p)}`),
     ...(x.deadlines_added || []).map((k) => `기한 · ${esc(k.what || k.id)}`),
     ...(x.deadlines_done || []).map((id) => `기한 닫힘 · ${esc(dl(id))}`),
+    ...(x.setting_changes || []).map((s) => `설정 바꾸기 · <strong>${esc(charName(s.character_id))}</strong> ${scLabel(s.field)}: ${esc(s.value)}`),
+    ...(x.address_changes || []).map((a) => `호칭 · 말씨 · <strong>${esc(charName(a.speaker))} → ${esc(charName(a.listener))}</strong> ${esc([a.calls && `부르는 말 ${a.calls}`, a.speech && `말씨 ${a.speech}`].filter(Boolean).join(' · '))}`),
   ];
   return `<details class="card"><summary>빼 둔 항목 ${n}개</summary><div class="small" style="margin:6px 0">반영하지 않은 항목이에요. 기록으로만 남아요.</div>
     <ul style="padding-left:18px;display:flex;flex-direction:column;gap:6px;font-size:0.8125rem;line-height:1.5">${rows.map((r) => `<li>${r}</li>`).join('')}</ul></details>`;
@@ -737,11 +824,8 @@ function relationLines(rel, fold = false) {
 Object.assign(actions, {
   // 상태 변경안
   async extractState(n) {
-    const d = S.deltas[n];
-    const o = S.deltaOrig[n];
     // S.picks 는 설정 제안 화면과 같이 쓴다. 변경안을 받을 때 있던 칸만 비교한다
-    const edited = d && o && (d.summary !== o.summary || Object.entries(o.picks).some(([k, v]) => S.picks[k] !== v) || deltaEdited(n));
-    if (edited && !(await askConfirm('고친 요약 · 항목과 체크를 버리고 변경안을 다시 만들까요?', { ok: '다시 만들기', danger: true }))) return;
+    if (deltaTouched(n) && !(await askConfirm('고친 요약 · 항목과 체크를 버리고 변경안을 다시 만들까요?', { ok: '다시 만들기', danger: true }))) return;
     if (S.textDraft[n] !== undefined) {
       try {
         S.project = await api('PUT', `/projects/${enc(S.name)}/episodes/${n}/text`, textBody(n, S.textDraft[n]));
@@ -872,10 +956,15 @@ document.addEventListener('input', (e) => {
     const at = keys.reduce((o, k) => o && o[k], d);
     if (!at) return;
     at[last] = last === 'intensity' ? Number(el.value) : el.value;
-    if (last === 'kind') {  // 좋은 사건은 초록, 나쁜 사건은 빨강 (kindStyle)
+    if (last === 'kind') {  // 좋은 사건은 초록, 나쁜 사건은 빨강 (kindStyle). 옆 칩의 기호 · 글자도 맞춘다 (kindTag)
       const good = GOOD_EVENTS.includes(el.value);
       el.style.background = good ? 'var(--green-soft)' : 'var(--red-soft)';
       el.style.color = good ? 'var(--green)' : 'var(--red)';
+      const tag = document.querySelector(`#app [data-kind-tag="${CSS.escape(el.id)}"]`);
+      if (tag) {
+        tag.className = kindTagClass(el.value);
+        tag.innerHTML = kindTagInner(el.value);
+      }
     }
     if (keys[0] === 'events') refreshPreview(Number(n));
   }
@@ -891,6 +980,23 @@ document.addEventListener('change', (e) => {
     if (!u) return;
     u.cleared = el.checked ? [...new Set([...(u.cleared || []), f])] : (u.cleared || []).filter((x) => x !== f);
     S.focusTarget = `#app [data-dclear="${el.dataset.dclear}"]`;
+    render();
+    return;
+  }
+  const nc = el.dataset && S.route[2] === 'review' && /^n(\d+)$/.exec(el.dataset.pick || '');
+  if (nc) {  // 새 인물을 빼면 그 인물을 다룬 항목도 뺀다. 남기면 반영이 막힌다 (pipeline.validate_delta)
+    const k = newCharCascade(S.route[3], Number(nc[1]), el.checked);
+    if (k) {
+      toast(el.checked ? `새 인물을 다시 골라 그 인물을 다룬 항목 ${k}개를 처음 체크대로 되돌렸어요` : `새 인물을 빼서 그 인물을 다룬 항목 ${k}개도 뺐어요`);
+      S.focusTarget = `#app [data-pick="${el.dataset.pick}"]`;
+      render();
+      return;
+    }
+  }
+  const pf = el.dataset && S.route[2] === 'review' && /^p(\d+)$/.exec(el.dataset.pick || '');
+  if (pf && plantedCascade(S.route[3], Number(pf[1]), el.checked)) {  // 심지 않는 복선은 같은 화에 회수할 수도 없다
+    toast(el.checked ? '복선을 다시 골라 이 화의 회수도 다시 골랐어요' : '복선을 빼서 이 화의 회수도 뺐어요');
+    S.focusTarget = `#app [data-pick="${el.dataset.pick}"]`;
     render();
     return;
   }

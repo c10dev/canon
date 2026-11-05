@@ -50,6 +50,8 @@
 - 되돌리기(`undo`)는 `pipeline.plot_undo`
 - 멈추거나 실패한 턴은 `reconcile`
 - 프롬프트 `prompts.agent_plot_prompt`
+- 단계 프롬프트는 바뀌지 않는 블록(도구 · 규칙 · 요구사항)이 앞, 턴 블록과 이번 턴 단계가 뒤, 남은 단계 수가 맨 끝 한 줄이다(단계 k+1 요청이 단계 k 요청을 품음)
+- 이름 후보는 `random.Random(session.id)` 로 뽑아 단계마다 같다(`plot_chat_parts` 의 rng)
 
 ### `canon/anchor.py`
 
@@ -153,7 +155,8 @@
 - 관계 역학
 - 사건(`StoryEvent`)으로 방향 관계(`Tie`)를 계산
 - 긴장도
-- 스냅샷 재생(`replay`, 다시 계산 `pipeline.recalc` 가 씀): 1화 뒤에 생긴 관계(작가가 설정 화면에서 더한 관계, 상태 변경안이 더한 새 쌍)는 그 화 스냅샷이 있으면 그 화를 돌린 뒤 스냅샷 값으로 잇고, 스냅샷이 지워졌으면 지금 반영과 같은 차례로 만든다(`_late_relations` · `seed_ties`). 사건 없이 수치만 온 예전 변경안도 반영과 같게 다룬다. 계수를 바꾸지 않았으면 다시 계산이 지금 관계를 그대로 내야 한다(단계 그래프 고침 같은 규칙 변화만 다르게)
+- 스냅샷 재생(`replay`, 다시 계산 `pipeline.recalc` 가 씀): 1화 뒤에 생긴 관계(작가가 설정 화면에서 더한 관계, 상태 변경안이 더한 새 쌍)는 그 화 스냅샷이 있으면 그 화를 돌린 뒤 스냅샷 값으로 잇고, 스냅샷이 지워졌으면 지금 반영과 같은 차례로 만든다(`_late_relations` · `seed_ties`). 사건 없이 수치만 온 예전 변경안도 그때 반영과 같게 다룬다. 계수를 바꾸지 않았으면 다시 계산이 지금 관계를 그대로 내야 한다(단계 그래프 고침 같은 규칙 변화만 다르게)
+- 예전 방식(사건이 없으면 관계 바뀜의 affinity 로 온기를 맞춤)은 `StateDelta.legacy_rel` 이 참인 기록(2026-11-05 전 반영)에만 쓴다. 지금 반영은 수치를 쓰지 않으므로 기록을 거짓으로 남긴다
 - 숫자를 말로 바꾸기
 - 단계에 들어온 화(`Tie.stage_since`, `run_episode` 가 적고 `replay` 가 다시 채움)를 관계 줄에 '(n화부터)'로(`since`)
 - 말로 고른 보는 방식(`VIEWS`)으로 시작 관계 만들기
@@ -176,6 +179,7 @@
 - 복선 센터
 - 복선을 본문 문장에 건다(`ForeshadowClue`, `Project.foreshadow_clues`, 본문은 바꾸지 않음)
 - AI 문장 정리(`clean_delta`)와 반영 · 되돌리기
+- 이미 회수한 복선을 또 회수하는 제안의 경고(`resolved_warnings`, features 정리 훅)
 - 작가가 걸기 · 복선 고치기(그 화 이후 스냅샷도)
 - 센터 계산(`center`: 회수율, 끊어진 연결, 예정 지남, 오래 묵음, 플롯 회수 계획)
 - 명령줄 `foreshadows`
@@ -240,6 +244,7 @@
 - 사건을 사본에 돌린 반영 뒤 단계(`_after`, `dynamics.run_episode`), 두 방향 단계의 극성(`STAGE_SIGN`, 엇갈리면 0)
 - 글 극성(`polarity`: 낱말 사전 `POSITIVE` · `NEGATIVE`, 바로 뒤 '않 · 못 · 없'은 뒤집음), 관계 극성(`rel_polarity`: 유형 먼저, 중립이면 대사와 두 사람 밖 인물이 나온 문장을 뺀 설명 `_others`)
 - 반대인 유형 바뀜의 차례 `StateDelta.rel_flagged` → 상태 승인 화면 기본 체크 해제(`review.js` `setDelta`), 사람 검토 없이 반영할 때는 빼기(`hold`, 남긴 개수로 세지 않음)
+- `hold` 는 `StateDelta.drop_rel_rows` 로 뺀다. 범위 밖 차례(옛 변경안)는 무시한다
 - `hold` 가 뺀 유형 바뀜은 반영 기록의 빼 둔 항목(`StateDelta.dismissed.relationship_updates`)에 남는다
 - 두 층 감정(`prompts.LAYER`)으로 상대를 적은 쌍은 빼기(`_masked`)
 - 한 쌍 한 화 결정적(3) 사건 `BIG`(3)개 이상 경고
@@ -274,6 +279,7 @@
 - 플레이어가 닿은 구간(`see`, `PlayInfo.seen`)보다 한 구간 넘게 앞서 쓰지 않는다(비용 상한)
 - 흐르는 중 행동하면 보지 않은 구간을 버린다(`drop_unseen`)
 - 상태 반영(`settle`, `prompts.play_state_prompt`, `clean_delta` → `charlog.hold` → `apply_delta` → `Episode.auto`, 실패는 `PlayTurn.state` failed 로 두고 다시)
+- `settle` 은 변경안을 만들기 전에 반영 전제 `pipeline.check_applicable` 을 본다
 - 장(StoryArc)은 다음 구간을 덮게 미리 연다(`open_chapter`, `CHAPTER_LEN` 20, 세계에 부가 있으면 '플레이' 부)
 - 장을 다 반영하면 요약으로 접는다(`fold`, `pipeline.recap`)
 - 되감기(`rewind` · `trim_after`)
@@ -353,6 +359,7 @@
 - 턴마다 단계 줄 · 바로 쓴 것(항목 · 턴 되돌리기) · 승인 카드 · 되묻기 카드
 - 입력 상자(+ 재료, `/` 빠른 요청 `AGENT_CMDS`, 보내기 · 멈추기)와 상태 줄(권한 모드 · 대상 · 모델 · 단계 상한)
 - 진행은 `pollJobs` 가 `agentJobUpdate` 로 알린다
+- 화면 낭독기에 알릴 새 답은 `agentLastReply`(끝났거나 묻는 중인 턴의 답)이고 `chat.js` `chatAnnounce` 가 알린다
 - 권한 이름 `AGENT_MODES` · `AGENT_KINDS` 는 `agent.MODE_LABELS` · `KIND_LABELS` 와 같다(`tests/test_agent_js.py`)
 
 ### `canon/static/anchor.js`
@@ -387,6 +394,8 @@
 ### `canon/static/cast.js`
 
 - 인물 · 관계도 화면(공용 목차 틀 `outline.js`)
+- 인물 카드의 등장 띠 칸을 누르면(`castStripGo`) 그 화를 반영한 시점으로 옮기고(재생은 멈춤), 없으면 그 화에서 할 일 화면(`epGo`)으로 간다. 등장표 칸은 그 화를 연다
+- 추이 그래프는 둘째 선부터 점선으로도 가르고, 그래프 아래에 고른 시점 값과 사건을 글로 보인다(`.cc-read`)
 - 인물 쪽 `castCharPage` 는 남겨 둔 설정 바꾸기 제안이 있으면 설정 카드를, 남겨 둔 호칭이 있으면 그 카드를 머리 바로 아래에 둔다
 - 왼쪽 목차 `castToc`(관계도 · 등장표 · 비중별 인물, 단역이 많으면 접음 `castMinorFold`)
 - 오른쪽 한 열의 쪽 `castPage`(`S.castView`: map · table · char · pair, 옮기기 `castShow`, 주소 `cast/<map · table · c:id · p:a|b>?f=` 와 옛 `?tab=` 은 `castParse`)
@@ -394,6 +403,9 @@
 - 시점 띠가 400px 이하 칸이면 글에서 '반영 뒤'(`.cast-bar-after`)를 빼 화 번호가 잘리지 않게 한다
 - 관계도 `castMapPage`(SVG, 화별 재생, 칸 폭에 맞추고 크게 보기 `CAST_ZOOM`, 누르면 고르기만 `castMapPick` · 고른 줄 `castMapSel`, 끌어 옮긴 배치는 localStorage)
 - 인물 끌기가 끊기면(`pointercancel`) `castDrag` 를 지운다
+- 관계도 선(`.cg-edge`) · 긴장 점(`.cg-tension`) · 추이 그래프 칸(`.cc-col`)도 `tabindex="0"` · `role="button"` · `aria-label` 을 달고 Enter · Space 로 누른다
+- 추이 그래프 SVG 는 안에 버튼이 있어서 `role="group"` 이다
+- 시점 · 크기를 바꿔 관계도나 쪽을 다시 그리면 포커스를 같은 `data-action` · `data-arg` 요소로 돌린다(`castSwap`)
 - 640px 이하 관계도는 600px보다 좁게 줄이지 않고 옆으로 굴린다(이름이 5px로 줄지 않게, app.css)
 - 관계도 온기 다섯 단계 선 색은 `WARMTH_BANDS`(적대 `--warm-hostile`, 반감 `--bad`, 무덤덤 `--warm-mid`, 호감 `--good`, 아낌 `--warm-deep`)
 - 인물 쪽 `castCharPage`
@@ -403,6 +415,7 @@
     - AI 제안 동작은 `research.js` `bodyAI`
   - 타임라인(앞뒤 `CAST_TL_NEAR` 화)
 - 두 사람 쪽 `castPairDetail`(추이 그래프 · 보정 · 호칭)
+- 관계 보정 `tieFix` 는 저장하지 않은 변경이 있으면 저장하고 보정할지 먼저 묻는다
 - 등장표
 - 인물 원은 목차 24 · 줄 36 · 머리 64px(`castAva`)
 - 온기 색 구간은 `dynamics.warmth_word` 경계와 같다(`tests/test_labels_js.py`)
@@ -444,6 +457,11 @@
   - 줄마다 `fsTrack`
   - 거르기는 Seg `S.fsTab` · `S.fsScope` → 앞으로 회수할 것 `fsAheadCard`
 - 복선 하나(`fsDetail`: 축 → 본문에 걸린 문장과 흐름 `fsFlowCard` → 회수 계획 읽기 카드 `fsPlanCard`, 고치기 `S.fsEdit`, 회수로 표시 `S.fsResolving`)
+- 더하기 칸과 회수 계획 칸에 적던 값은 `S.fsAddDraft` · `S.fsEditDraft` 에 두어 다시 그려도 남는다(`fsDraftInput`)
+- 그 칸에 저장하지 않은 글이 있으면 `S.editDrafts.fs` 를 켠다(`fsDraftMark`)
+- 더하기 · 저장 · 회수로 표시는 서버가 받은 뒤에만 칸을 닫는다(`fsCall` 의 `done`, 실패하면 다시 그리지 않음)
+- `fsCall` 과 `fsLinkSave` 는 저장하지 않은 변경이 있으면 먼저 묻는다(`fsAskSave`, 취소하면 보내지 않음)
+- 연결 지우기(`fsClueDrop`)는 먼저 묻는다
 - 본문에서 고른 문장을 거는 칸은 본문 부분 수정 도구(`passage.js` `#sel-tool`)의 mode 'foreshadow'
   - `fsLinkShow` · `fsLinkHtml`: 이미 있는 복선 찾기 · 이 화 가까이 나온 후보 `fsCandidates` / 새 복선
   - 고치는 본문은 메뉴에 '복선으로 걸기'
@@ -472,6 +490,7 @@
 - 칸 폭 560px 아래는 세로 노선도 `lineMapTall`
 - 줄기 하나(`lineDetail`): 앞뒤만 크게 그린 노선도 `lineZoomMap`(한 화 44) → 줄기 내용 읽기 카드 `lineInfoCard`(고치기 `S.lineEdit`) → 붙은 화 `lineEpsCard`
 - 화 붙이기는 붙은 화 카드의 메뉴: 붙이는 방식 `S.lineTagRole`, 가까운 화 후보 `lineCandidates`, 번호 칸
+- 줄기 지우기 `lineDelete` 는 저장하지 않은 변경이 있으면 지우기 확인 뒤 저장하고 지울지 한 번 더 묻는다
 - 쪽을 옮길 때 해시 대신 `history.replaceState`(`lineGoTo`)라 저장하지 않은 고침을 묻지 않는다
 - `lineOrder` · `lineTodo` 는 순수 함수(`tests/test_lines_js.py`)
 - CSS 는 JS 에서 주입(노선도 기본 모양 `.line-map` · `.lm-*` 은 app.css, 인물 화면 등장표도 쓴다)
@@ -500,6 +519,8 @@
 - 집필 화면 본문 띠의 분할 복사 버튼(`copySplit`: 복사 + ▾ 메뉴 `copyMenu` 의 줄바꿈 형식 · 제목 줄 · .txt)과 '여러 화 내보내기' 대화상자(`exportDialogHtml`)
 - 텍스트와 HTML 을 함께 클립보드에 넣는다(보안 연결이 아니면 복사 이벤트로)
 - 클립보드가 막히면 .txt 내려받기
+- `exportAll`: 다음 할 일 '완결 원고 내보내기'(`home.js` `nextStep`)가 부른다. 범위를 본문이 있는 첫 화 ~ 마지막 화로 두고 형식 목록이 없으면 받아 같은 대화상자를 연다
+- 집필 화면 밖(작품 홈)에서 연 '여러 화 내보내기' 대화상자는 형식을 '집필 화면의 복사 ▾ 메뉴'에서 바꾼다고 알린다
 
 ### `canon/static/setupchat.js`
 
@@ -533,9 +554,15 @@
 ### `canon/static/timeline.js`
 
 - 작품 속 시간 화면(`viewTimeline`)
+- 칸 폭 560px 이하 열흘 띠는 열흘을 모두 두고 옆으로 밀어 본다(칸 64px 이상)
 - 공용 목차 틀(`outline.js`, 목차 `tlTocHtml`: 지금 · 기한 · 시간 흐름 묶음 · 설정, 스크롤로 `S.tlCur`)
 - 지금 `tlNowCard`: 마지막 반영 화 끝 시점과 앞으로 열흘 띠
 - 기한 `tlDlCard`: 나눔 버튼 `S.tlDlTab`, 줄마다 ⋯ 메뉴, 지난 기한은 닫기 · 날 바꾸기
+- 기한 칸에 적던 값은 `S.tlDraft` 에 두어 다시 그려도 남는다
+- 기한 칸에 저장하지 않은 글이 있으면 `S.editDrafts.tl` 을 켠다(`tlDraftMark`)
+- 기한 칸은 서버가 받은 뒤에만 닫는다(`tlPut` 의 `form`, 실패하면 다시 그리지 않음)
+- 다른 기한의 닫기 · 다시 열기는 열린 기한 칸을 닫지 않는다
+- 기한 저장(`tlPut`)과 지우기는 저장하지 않은 변경이 있으면 먼저 묻는다(`tlAskSave`, 취소하면 보내지 않음)
 - 시간 흐름 `tlGroupCard`: 아크 · 기승전결 구간마다 읽기 카드, 고치기 `S.tlEditGroup`, 접기 `S.tlFold`
 - 설정 `tlSetCard`: 읽기 카드, 고치기 `S.tlSetEdit`
 - `tlGroups` · `tlDeadlineRows` · `tlShort` 는 순수 함수(`tests/test_timeline_js.py`)
@@ -548,6 +575,9 @@
 - 거르기는 머리의 나눔 버튼(Seg)이다
 - 줄은 앞뒤 문맥과 함께 보인다(`tofixContext`)
 - 메모는 읽는 글이고 ⋯ '메모 고치기'로 그 줄만 칸을 편다(`S.tofixEdit`, Ctrl+Enter 저장 · Esc 취소)
+- 고치던 메모는 `S.tofixEdit.note` 에 두어 다시 그려도 남는다
+- 고치던 메모가 원래 메모와 다르면 `S.editDrafts.tofix` 를 켠다(`tofixDraftMark`)
+- 지우기(`tofixDelete`)는 메모가 없어도 먼저 묻는다
 - 본문 도구의 '나중에 고치기'와 메모 칸(`showTool` 을 감싼다, mode `tofix`)
 - 밑줄(`tofixRanges` 를 `marks.js` `allRanges` 가 함께 그림)
 - 집필 화면 본문 띠의 '고칠 곳 N'(`tofixBtn`, `tofixNext`)

@@ -4,6 +4,7 @@
    (passage.js 의 떠 있는 도구, mode 'finding'): AI 고침안 비교와 적용(딸린 곳 포함), 묶음 되돌리기, 이 지적만 다시 검수, 다른 처리 길.
    지적과 회차는 서버 findings.merge 가 만든다 (Episode.findings · rounds). 상태 · 심각도 바꾸기는 PUT …/findings/{id},
    고침안 POST …/findings/{id}/fixes · …/fixes/{k}/apply, 되돌리기 POST …/fix-groups/{묶음}/undo, 다시 검수 POST …/findings/{id}/recheck,
+   고친 곳만 다시 보기(작업 'recheck', 지난 검수 뒤 수정이 모두 고침안일 때 머리의 주 버튼, home.js 의 fixRecheckTargets),
    한꺼번에: 열린 지적 모두 고침안 받기(작업 'fixes') → 고침안 한꺼번에 검토(지적마다 고르고 고른 것만 POST …/fixes/apply),
    문체 지표는 GET …/style. app.js 의 S, P, actions, api, render, run, home.js 의 checkState, write.js 의 epNav · nextStepBtn,
    marks.js 의 draftBox · readHtml, passage.js 의 textNow · editableEp · passageNotes · editTime · wordDiff · flushText · focusText · showTool,
@@ -16,8 +17,8 @@ Object.assign(S, {
   chkRound: {},        // 화 → 고른 회차 번호 (그 회차가 바꾼 지적만 본다). 비면 처리 상태로 거른다
   chkTab: 'issues',    // 왼쪽 칸 탭: issues · opening · style
   chkStyle: {},        // 화 → 문체 지표 { metrics, warnings } 또는 { error }
-  chkNote: '',         // 고른 지적의 메모 칸 (저장 전)
-  chkNoteFor: '',      // chkNote 가 어느 지적('화:id')의 메모인지
+  chkNotes: {},        // '화:id' → 저장 전 메모 초안 (저장한 메모와 다를 때만 둔다)
+  chkNotesOf: '',      // chkNotes 가 어느 작품의 초안인지
   fixSkip: {},         // '화:id:고침안 번호' → 빼고 넣을 딸린 곳 번호 목록
   fbOpen: 0,           // 고침안 한꺼번에 검토를 연 화 (0 이면 닫힘)
   fbOn: {},            // '화:id' → 작가가 넣기로 고른 지적 (보이는 고침안을 넣는다)
@@ -32,6 +33,13 @@ JOB_DONE_MSG.fixes = (j) => {
 };
 JOB_PAGES.fixes = ['check'];
 JOB_LINK.fixes = (j) => `#/p/${enc(j.project)}/check/${j.ep}`;
+JOB_DONE_MSG.recheck = (j) => {
+  const r = j.result || {};
+  const miss = (r.missing || []).length;
+  return `${j.ep}화 고친 곳만 다시 봤어요: 지적 ${r.asked || 0}개 중 ${r.resolved || 0}개가 풀렸어요${r.open ? `, ${r.open}개는 아직 어긋나요` : ''}${r.added ? `, 고친 문장 때문에 새로 어긋난 곳 ${r.added}개` : ''}${miss ? ` (${miss}개는 AI가 답하지 않았어요)` : ''}`;
+};
+JOB_PAGES.recheck = ['check'];
+JOB_LINK.recheck = (j) => `#/p/${enc(j.project)}/check/${j.ep}`;
 
 // 서버 schema.FINDING_STATUS · SEVERITY 와 같은 이름
 const FINDING_STATUS = { open: '열림', fixed: '고침', kept: '그대로 둠', wrong: '잘못 짚음' };
@@ -69,6 +77,27 @@ function checkOptsMenu() {
     ${opts.map(([act, v, name, desc]) => `<label class="pop-check"><input type="checkbox" id="co-${act}" data-check-opt="${act}"${v ? ' checked' : ''}><span>${name}<span class="small">${desc}</span></span></label>`).join('')}</div>`;
   return menuBtn('check-opts', `검수 옵션 ${on}/${opts.length} <span aria-hidden="true">▾</span>`, body, { title: '검수할 때 함께 할 것을 켜고 꺼요' });
 }
+
+// 버리고 이동을 고르면 메모 초안도 버린다 (app.js onEditDiscard)
+if (typeof onEditDiscard === 'function') onEditDiscard('chkNote', () => { S.chkNotes = {}; });
+
+/** 메모 초안이 하나라도 남았는지 S.editDrafts.chkNote 에 알린다 */
+function syncNoteDraft() {
+  S.editDrafts = S.editDrafts || {};
+  if (Object.keys(S.chkNotes).length) S.editDrafts.chkNote = true;
+  else delete S.editDrafts.chkNote;
+}
+
+/** 메모 칸 입력: 지적마다 초안을 따로 두어 다른 지적을 골라도 잃지 않는다. 저장한 메모와 같아지면 초안을 지운다 */
+document.addEventListener('input', (e) => {
+  const key = e.target && e.target.dataset && e.target.dataset.chkNote;
+  if (!key) return;
+  const [n, id] = key.split(':');
+  const f = ((ep(+n) || {}).findings || []).find((x) => x.id === id);
+  if (f && e.target.value === (f.note || '')) delete S.chkNotes[key];
+  else S.chkNotes[key] = e.target.value;
+  syncNoteDraft();
+});
 
 document.addEventListener('change', (e) => {
   const act = e.target && e.target.dataset && e.target.dataset.checkOpt;
@@ -210,7 +239,7 @@ function takeCheck(n, pj) {
   if (src) Object.assign(ep(n), { findings: src.findings, rounds: src.rounds, issues: src.issues, checked_at: src.checked_at });
 }
 
-function chkStrip(n, e, st) {
+function chkStrip(n, e, st, fast = []) {
   const rounds = e.rounds || [];
   if (!rounds.length) return '';
   const last = rounds[rounds.length - 1];
@@ -230,6 +259,7 @@ function chkStrip(n, e, st) {
       <span class="small chk-strip-hint">회차를 누르면 그 회차에 바뀐 지적만 봐요</span>
       <div class="seg chk-filters" role="group" aria-label="처리 상태로 거르기">${filters}</div></div>
     ${fresh ? `<div class="note">${last.no}회차 뒤에 본문을 새 판으로 바꿨어요. 그대로 둠 · 잘못 짚음으로 정한 지적만 남겼어요. 새 판을 검수하세요.</div>`
+    : st.stale && fast.length ? `<div class="note warn">${last.no}회차 뒤에 고침안만 넣었어요. '고친 곳만 다시 보기'는 고친 문장과 앞뒤 문단만 보내 지적 ${fast.length}개를 한 번에 다시 봐요. 고친 곳이 멀리 떨어진 문장과 어긋나는지까지 보려면 다시 검수하세요.</div>`
     : st.stale ? `<div class="note warn">${last.no}회차 뒤에 본문을 고쳤어요. 고친 문장의 지적은 '문장 바뀜'으로 보여요. 고친 곳이 다른 곳과 어긋나지 않는지 보려면 다시 검수하세요.</div>` : ''}`;
 }
 
@@ -292,7 +322,8 @@ function chkDetail(n, e, text, sel) {
   const spot = findingSpot(text, f);
   const can = editableEp(e) && !autoOn();
   const key = `${n}:${f.id}`;
-  if (S.chkNoteFor !== key) { S.chkNoteFor = key; S.chkNote = f.note || ''; }
+  if (S.chkNotesOf !== S.name) { S.chkNotesOf = S.name; S.chkNotes = {}; syncNoteDraft(); }
+  const note = key in S.chkNotes ? S.chkNotes[key] : (f.note || '');
   const seg = Object.entries(FINDING_STATUS).map(([k, l]) => `<button type="button" aria-pressed="${f.status === k}" data-action="setFinding" data-arg="${esc(f.id)}:${k}"${autoOn() ? ' disabled' : ''}>${l}</button>`).join('');
   const sev = Object.entries(SEVERITY).map(([k, l]) => `<button type="button" aria-pressed="${(f.severity || 'mid') === k}" data-action="setSeverity" data-arg="${esc(f.id)}:${k}"${autoOn() ? ' disabled' : ''}>${l}</button>`).join('');
   const src = f.source_episode && f.source_episode !== n ? `<a href="${base()}/write/${f.source_episode}">${f.source_episode}화</a>` : esc(srcLabel(n, f));
@@ -312,7 +343,7 @@ function chkDetail(n, e, text, sel) {
     <div class="field"><span class="small">심각도 · AI가 정하고 작가가 바꿔요</span><div class="seg chk-seg3" role="group" aria-label="심각도">${sev}</div></div>
     <div class="field"><span class="small">처리</span><div class="seg chk-seg" role="group" aria-label="처리 상태">${seg}</div></div>
     ${decided ? `<div class="field"><label class="small" for="chk-note">왜 ${FINDING_STATUS[f.status]}인지 적어 두면 다시 나와도 바로 알아볼 수 있어요</label>
-      <textarea id="chk-note" rows="2" data-local="chkNote">${esc(S.chkNote)}</textarea>
+      <textarea id="chk-note" rows="2" data-chk-note="${esc(key)}">${esc(note)}</textarea>
       <div><button type="button" class="btn small" data-action="saveFindingNote" data-arg="${esc(f.id)}">메모 저장</button></div></div>` : ''}
     ${f.status === 'fixed' && f.closed_by === 'recheck' ? '<div class="small">다시 검수에서 문장이 사라져 고침으로 바꿨어요.</div>' : ''}
     ${f.status === 'fixed' && f.closed_by === 'one' ? '<div class="small">이 지적만 다시 검수해 풀려서 고침으로 바꿨어요. 아니라고 보면 열림으로 되돌리세요.</div>' : ''}
@@ -478,7 +509,7 @@ function fbView(n, e, text) {
       <span class="small">지적마다 고침안을 보고 넣을 것만 고르세요. 고른 것만 본문에 들어가고, 지적마다 한 묶음이라 하나씩 되돌릴 수 있어요.</span></div>
       <div class="row" style="gap:6px">${need ? `<button type="button" class="btn small" data-action="fixAll" data-arg="${n}"${b.attr}>${b.label}</button>` : ''}<button type="button" class="btn small ghost" data-action="fbClose">닫기</button></div></div>
     <ol class="fb-list">${rows}</ol>
-    <div class="between fb-foot"><span class="small">고른 ${picked}개 / 넣을 수 있는 ${pickable}개 · 넣은 뒤에는 고친 곳이 다른 곳과 어긋나지 않는지 다시 검수하세요</span>
+    <div class="between fb-foot"><span class="small">고른 ${picked}개 / 넣을 수 있는 ${pickable}개 · 넣은 뒤에는 고친 곳만 다시 보기로 풀렸는지 확인하세요</span>
       <div class="row" style="gap:6px"><button type="button" class="btn small" data-action="fbAll" data-arg="1"${pickable ? '' : ' disabled'}>모두 고르기</button><button type="button" class="btn small" data-action="fbAll" data-arg="0"${picked ? '' : ' disabled'}>모두 풀기</button>
         <button type="button" class="btn primary" data-action="fbApply"${picked ? '' : ' disabled'}>고른 ${picked}개 넣기</button></div></div>
   </section>`;
@@ -498,15 +529,20 @@ function viewCheck(n) {
   const rounds = e.rounds || [];
   const last = rounds[rounds.length - 1];
   const b = jobBtn('check', n, last ? `다시 검수 · ${last.no + 1}회차` : '검수하기');
+  // 지난 검수 뒤 고침안만 넣었으면 '고친 곳만 다시 보기'가 주 버튼이다 (findings.fix_recheck_targets). 다시 검수는 옆에 그대로 둔다
+  const fast = last && e.text && editableEp(e) && !autoOn() ? fixRecheckTargets(e) : [];
   // 주 버튼은 한 화면에 하나, 머리 줄 오른쪽 끝에 둔다 (디자인 시스템 Button). 검수 전에는 빈 목록의 '검수하기'가 주 버튼이라 머리에 두지 않는다
-  const checkPrimary = !last || st.stale || !st.checked;
+  const checkPrimary = !fast.length && (!last || st.stale || !st.checked);
+  const reviewPrimary = !fast.length && !checkPrimary;
+  const fb = jobBtn('recheck', n, `고친 곳만 다시 보기 · 지적 ${fast.length}`);
+  const fastBtn = fast.length ? `<button class="btn primary" data-action="fixRecheck" data-arg="${n}"${fb.attr}>${fb.label}</button>` : '';
   // 첫 검수는 flow.js flowCheck: 상태 변경안도 함께 만든다 (켰을 때). 다시 검수는 검수만
   const checkBtn = `<button class="btn${checkPrimary ? ' primary' : ''}" data-action="${last ? 'checkEp' : 'flowCheck'}" data-arg="${n}"${e.text && !autoOn() ? b.attr : ' disabled'}>${b.label}</button>`;
   const toReview = e.status === 'written'
-    ? `<a class="btn${checkPrimary ? '' : ' primary'}" href="${base()}/review/${n}">상태 승인으로${st.open ? ` · 열린 지적 ${st.open}` : ''}</a>`
-    : e.status === 'finalized' && !checkPrimary ? nextStepBtn() : '';  // 반영 끝난 화도 검수가 지금 할 일이면 다음 할 일 버튼은 두지 않는다
+    ? `<a class="btn${reviewPrimary ? ' primary' : ''}" href="${base()}/review/${n}">상태 승인으로${st.open ? ` · 열린 지적 ${st.open}` : ''}</a>`
+    : e.status === 'finalized' && reviewPrimary ? nextStepBtn() : '';  // 반영 끝난 화도 검수가 지금 할 일이면 다음 할 일 버튼은 두지 않는다
   const lead = `${checkOptsMenu()}${S.mode === 'brief' ? `<a class="btn" href="${base()}/brief/${n}" data-action="openCheckBrief" data-arg="${n}">검수 지시서</a>` : ''}`;
-  const right = !e.text ? '' : !last ? lead + toReview : checkPrimary ? lead + toReview + checkBtn : lead + checkBtn + toReview;
+  const right = !e.text ? '' : !last ? lead + toReview : fast.length ? lead + toReview + checkBtn + fastBtn : checkPrimary ? lead + toReview + checkBtn : lead + checkBtn + toReview;
   const head = `<header class="page-head"><div class="row" style="gap:12px">${epNav('check', n)}<div class="lead" style="gap:2px"><div class="eyebrow">${flowEyebrow(n)}</div><h1 style="font-size:1.5rem">${n}화 ${esc(e.plot.title)}</h1></div><span class="chip ${e.status}">${STATUS[e.status]}</span></div><div class="row">${right}</div></header>
     ${flowBar(n, 'check')}${autoLockNote()}`;
   if (!e.text) {
@@ -517,10 +553,10 @@ function viewCheck(n) {
   const sel = chkSelected(n);
   const editable = editableEp(e);
   const center = editable ? draftBox(n, text) : `<div class="read" data-read="${n}">${readHtml(n, text)}</div>`;
-  if (S.fbOpen === n && editable && !autoOn() && (e.rounds || []).length) return head + chkStrip(n, e, st) + fbView(n, e, text);
+  if (S.fbOpen === n && editable && !autoOn() && (e.rounds || []).length) return head + chkStrip(n, e, st, fast) + fbView(n, e, text);
   const notes = passageNotes(n);
   // 본문이 왼쪽 넓은 칸, 지적 목록과 상세는 오른쪽 칸에 쌓는다 (집필 · 상태 승인 단계와 같은 자리). 좁은 폭은 목록 → 상세 → 본문 순서
-  return head + chkStrip(n, e, st) + `<div class="check-cols">
+  return head + chkStrip(n, e, st, fast) + `<div class="check-cols">
       <div class="c-side">${chkList(n, e, text, sel, checkBtn)}
       ${chkDetail(n, e, text, sel)}</div>
       <section class="card w-body c-body" style="padding:0;gap:0" aria-label="본문">
@@ -557,11 +593,14 @@ function findingAnchor(n, f) {
   return findingSpot(text, f);
 }
 
+/** 지적 하나를 고친다. 실패하면 오류를 알리고 false 를 돌려준다 */
 async function chkPut(n, id, body) {
   try {
     takeCheck(n, await api('PUT', `/projects/${enc(S.name)}/episodes/${n}/findings/${enc(id)}`, body));
+    return true;
   } catch (err) {
     toast(err.message, true);
+    return false;
   }
 }
 
@@ -574,6 +613,12 @@ function afterFix(n, fid, pj) {
     S.selFocus = { n, start: spot.a, end: spot.b };
     S.selTool = { n, start: spot.a, text: textNow(n).slice(spot.a, spot.b), mode: 'finding', fid };
   }
+}
+
+/** 지적 상세의 처리 기록으로 화면을 옮긴다 */
+function showFindingLog() {
+  const el = document.querySelector('.c-detail .chk-log');
+  if (el) el.scrollIntoView({ block: 'nearest' });
 }
 
 Object.assign(actions, {
@@ -662,8 +707,8 @@ Object.assign(actions, {
     if (!f || f.status === status) return;
     // 고침으로 닫으면 다음 열린 지적으로 넘어간다. 그대로 둠 · 잘못 짚음은 메모를 적을 수 있게 남는다
     const next = status === 'fixed' ? findingOrder(ep(n).findings).find((x) => x.status === 'open' && x.id !== id) : null;
-    await chkPut(n, id, { status });
-    if (next) S.chkSel[n] = next.id;
+    const ok = await chkPut(n, id, { status });
+    if (ok && next) S.chkSel[n] = next.id;
     if (S.selTool && S.selTool.mode === 'finding' && S.selTool.fid === id && status !== 'open') hideTool();
     render();
   },
@@ -679,8 +724,11 @@ Object.assign(actions, {
     const n = chkEp();
     const f = ep(n).findings.find((x) => x.id === id);
     if (!f) return;
-    await chkPut(n, id, { note: S.chkNote });
-    S.chkNoteFor = '';
+    const key = `${n}:${id}`;
+    const note = key in S.chkNotes ? S.chkNotes[key] : (f.note || '');
+    if (!await chkPut(n, id, { note })) return;  // 실패하면 초안을 그대로 둔다
+    delete S.chkNotes[key];
+    syncNoteDraft();
     toast('메모를 저장했어요');
     render();
   },
@@ -733,6 +781,13 @@ Object.assign(actions, {
       return;
     }
     await startJob('fixes', n);
+  },
+  /** 고친 곳만 다시 보기 (작업 'recheck'). 검수하기와 같이 저장하지 않은 작품 변경은 묻고, 본문은 먼저 저장한다 (app.js checkReady).
+      직접 고친 곳이 생기면 서버가 다시 검수하라고 알린다 */
+  async fixRecheck(n) {
+    n = Number(n);
+    if (!(await checkReady(n))) return;
+    await startJob('recheck', n);
   },
   fbOpen(n) {
     S.fbOpen = Number(n);
@@ -837,9 +892,12 @@ Object.assign(actions, {
         S.chkSel[n] = kids[0].id;
         S.chkFilter = 'open';
         afterFix(n, kids[0].id, S.project);  // 고치는 창을 새로 생긴 딸린 지적으로 옮긴다
-        toast(`${f.status === 'fixed' ? '풀렸어요. ' : ''}고친 문장 때문에 새로 어긋난 곳 ${kids.length}개를 딸린 지적으로 더했어요`, true);
+        toast(`${f.status === 'fixed' ? '풀렸어요. ' : ''}고친 문장 때문에 새로 어긋난 곳 ${kids.length}개를 딸린 지적으로 더했어요`);
+      } else if (f.status === 'fixed') {
+        toast('풀렸어요. 고침으로 닫았어요');
       } else {
-        toast(f.status === 'fixed' ? '풀렸어요. 고침으로 닫았어요' : '아직 어긋나요. 처리 기록에서 까닭을 보세요', f.status !== 'fixed');
+        // 다시 검수의 보통 결과라 오류로 띄우지 않는다. 처리 기록으로 가는 버튼을 붙인다
+        toast('아직 어긋나요. 처리 기록에 까닭을 남겼어요', false, { actions: [{ label: '처리 기록 보기', run: showFindingLog }] });
       }
     });
   },

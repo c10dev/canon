@@ -4,7 +4,7 @@
 'use strict';
 
 const AUTO_STATUS = {
-  running: ['진행 중', 'confirmed'], paused: ['일시정지', 'written'], review: ['검토 대기', 'written'],
+  running: ['진행하는 중', 'confirmed'], paused: ['일시정지', 'written'], review: ['검토 대기', 'written'],
   stopped: ['중지됨', 'draft'], done: ['끝남', 'finalized'], error: ['오류로 멈춤', 'written'],
 };
 const AUTO_STEP = { board: '스토리보드 만드는 중', cues: '큐 시트 만드는 중', write: '본문 쓰는 중', polish: '서술 다듬는 중', review: '검수와 상태 변경안 만드는 중', confirm: '플롯 확정', applied: '반영 완료' };
@@ -49,6 +49,7 @@ function autoDefaults() {
     policy: last ? { cue_sheet: true, ...last.policy } : {
       check: true, max_issues: 0, ignore_minor: false, stop_on_critical: true, max_shift: 0.3, stop_on_stage: false, stop_on_warnings: false, confirm_plots: false, review_every: 0, hand_pick_opening: true,
       storyboard: true, stop_on_board_warnings: true, cue_sheet: true, polish: false, max_style_distance: 0,
+      stop_on_new_characters: false, stop_on_secrets: false, stop_on_resolve: false, stop_on_early_resolve: false, stop_on_deadline_done: false, max_time_jump_days: 0, stop_on_clear: false,
     },
   };
 }
@@ -257,6 +258,15 @@ function autoPolicyForm(f, disabled, bind = 'auto') {
       ${chk('hand_pick_opening', '1~3화는 반영하기 전에 멈추기', '독자가 계속 읽을지 정하는 초반 화라 직접 읽고, 필요하면 여는 방식을 비교해 고르세요')}
       ${p.storyboard ? chk('stop_on_board_warnings', '스토리보드가 이번 화 플롯과 어긋나면 멈추기', '플롯 숫자가 지금 상태에서 닿을 수 없을 때처럼. 다음 화 플롯 경고는 기록만 해요') : ''}
     </div>
+    <div class="grid-2">
+      ${chk('stop_on_new_characters', '새 인물이 나오면 멈추기', 'AI가 인물 목록에 더하려는 인물이 있을 때')}
+      ${chk('stop_on_secrets', '새 비밀이 생기면 멈추기', '누가 무엇을 숨기는지 직접 보고 반영해요')}
+      ${chk('stop_on_resolve', '복선을 회수하면 멈추기', '열린 복선을 하나라도 회수했다고 적었을 때')}
+      ${chk('stop_on_early_resolve', '일찍 회수하거나 큰 복선을 회수하면 멈추기', '회수 예정 화보다 앞이거나, 부 · 작품 전체를 끌고 가는 복선일 때')}
+      ${chk('stop_on_deadline_done', '기한이 닫히면 멈추기', '축제 날이 오거나 빚을 갚아 기한이 끝났다고 적었을 때')}
+      ${chk('stop_on_clear', '인물 상태 칸을 지우면 멈추기', '목표 · 위치 · 메모 · 차림 · 감정을 비우려 할 때')}
+    </div>
+    ${P().timeline?.enabled ?? true ? `<div class="grid-2"><div class="field"><label for="${id('jump')}">작품 속 시간이 크게 건너뛰면 멈추기</label><select id="${id('jump')}" data-${bind}="policy.max_time_jump_days"${dis}>${opts([[0, '보지 않음'], [7, '7일 넘게'], [30, '30일 넘게'], [90, '90일 넘게'], [365, '1년 넘게']], p.max_time_jump_days || 0)}</select><span class="small">직전 화가 끝난 날에서 이번 화가 끝난 날까지로 봐요</span></div></div>` : ''}
     <div class="field" style="max-width:360px"><label for="${id('every')}">몇 화마다 멈춰서 읽어 볼까요</label><select id="${id('every')}" data-${bind}="policy.review_every"${dis}>${opts([[0, '멈추지 않음'], [1, '매 화'], [2, '2화마다'], [3, '3화마다'], [5, '5화마다']], p.review_every)}</select></div>
   </div>`;
 }
@@ -303,6 +313,13 @@ function autoPolicySummary(p) {
   (p.stop_on_warnings ? on : off).push('변경안 경고');
   (p.hand_pick_opening ? on : off).push('1~3화 직접 고름');
   (p.review_every ? on : off).push(p.review_every ? `${p.review_every}화마다 읽기` : 'n화마다 읽기');
+  (p.stop_on_new_characters ? on : off).push('새 인물');
+  (p.stop_on_secrets ? on : off).push('새 비밀');
+  if (p.stop_on_resolve) on.push('복선 회수');
+  else (p.stop_on_early_resolve ? on : off).push(p.stop_on_early_resolve ? '이르거나 큰 복선 회수' : '복선 회수');
+  (p.stop_on_deadline_done ? on : off).push('기한 닫힘');
+  if (P().timeline?.enabled ?? true) (p.max_time_jump_days ? on : off).push(p.max_time_jump_days ? `시간 ${p.max_time_jump_days}일 넘게 건너뜀` : '시간 건너뜀');
+  (p.stop_on_clear ? on : off).push('상태 칸 지움');
   return [['진행', go.join(' · ')], ['멈추는 때', on.join(' · ') || '없음'], ['멈추지 않음', off.join(' · ') || '없음']];
 }
 
@@ -330,7 +347,7 @@ function autoBatchToggle(on, attrs = '') {
 const autoMan = (x) => new Intl.NumberFormat('ko-KR', { notation: 'compact', maximumFractionDigits: 1 }).format(x || 0);
 
 function autoRunCard(r, active) {
-  // 서버와 연결이 끊기면 마지막 상태를 '진행 중'으로 두지 않는다 (autoPoll 이 S.autoOffline 을 정한다)
+  // 서버와 연결이 끊기면 마지막 상태를 '진행하는 중'으로 두지 않는다 (autoPoll 이 S.autoOffline 을 정한다)
   const [label, cls] = S.autoOffline ? ['연결 끊김', 'draft'] : AUTO_STATUS[r.status] || [r.status, ''];
   const p = P();
   const total = r.target;
@@ -686,36 +703,56 @@ Object.assign(actions, {
   async autoResume(how) {
     const body = { approve: how === 'approve', rewrite: how === 'rewrite' };
     const r = S.auto.run;
-    if (how === 'approve' && !(await askConfirm(`${r.ep}화 변경안을 보지 않고 그대로 반영할까요?`, { ok: '반영하기' }))) return;
+    if (how === 'approve') {
+      // 그대로 반영은 서버의 Run.pending 을 반영한다. 상태 승인 화면에서 고르거나 고친 것(이 탭의 화면, 다른 탭 · 기기가 남긴 초안)은 버리니 알린다
+      const kept = await api('GET', `/projects/${enc(S.name)}/pending`).then((d) => !!((d.results || {})[`state:${r.ep}`] || {}).draft).catch(() => false);
+      const ok = kept || deltaTouched(r.ep)
+        ? await askConfirm(`${r.ep}화 변경안을 상태 승인 화면에서 고르거나 고친 것이 있어요. 그대로 반영하면 고친 것은 버리고 AI가 만든 변경안을 그대로 반영해요.\n고친 대로 반영하려면 취소하고 검토하기에서 반영하세요.`, { title: '고친 것을 버리고 반영할까요?', ok: '고친 것 버리고 반영하기', danger: true })
+        : await askConfirm(`${r.ep}화 변경안을 보지 않고 그대로 반영할까요?`, { ok: '반영하기' });
+      if (!ok) return;
+    }
     if (how === 'rewrite' && !(await askConfirm(`${r.ep}화를 다시 쓸까요? 지금 본문은 이전 판으로 남아 집필 화면에서 되돌릴 수 있어요.`, { ok: '다시 쓰기' }))) return;
     if (!(await autoFlushDrafts(r.target))) return;
     await run('이어 가는 중', async () => {
       await saveIfDirty();
       S.auto = await api('POST', `/projects/${enc(S.name)}/auto/resume`, body);
       S.project = await api('GET', `/projects/${enc(S.name)}`);
+      if ((body.approve || body.rewrite) && r.ep != null) {  // 그 화는 반영했거나 다시 썼다. 화면에 남은 변경안을 내려 syncPending 이 서버 결과도 지우게 한다
+        delete S.deltas[r.ep];
+        draftWaiting.delete(r.ep);
+      }
       S.autoRunPolicyOpen = false;
       pollJobs(true);
       autoPoll(1000);
     });
   },
   async autoOpenReview() {
-    const r = S.auto.run;
-    // 이미 놓인 변경안은 덮지 않는다. 고른 체크 · 고친 칸이 사라지지 않게 같은 변경안이면 이동만 하고, 다른 변경안인데 고친 것이 있으면 묻는다
-    const have = S.deltas[r.ep];
-    const o = S.deltaOrig[r.ep];
-    const key = JSON.stringify(r.pending);
-    const same = have && o && o.auto === key;  // 받은 그대로의 변경안(o.delta)은 setDelta 가 다듬어 놓으므로, 받은 원본 글로 맞춘다
-    const edited = have && (!o || have.summary !== o.summary || Object.entries(o.picks).some(([k, v]) => S.picks[k] !== v) || deltaEdited(r.ep));
-    const replace = !have || (!same && (!edited || await askConfirm(`${r.ep}화 변경안에서 고른 체크와 고친 칸이 있어요. 버리고 자동 집필이 남긴 변경안으로 바꿀까요?`, { ok: '버리고 바꾸기', danger: true, cancel: '지금 것 두기' })));
-    if (replace) {
-      setDelta(r.ep, structuredClone(r.pending));
-      S.deltaOrig[r.ep].auto = key;
-      // 변경안을 만든 본문을 기준으로 둔다. 그 뒤 본문을 고쳤으면 상태 승인 화면이 '이 변경안을 만든 뒤 본문을 고쳤어요'를 알린다
-      if (r.pending_text) S.deltaBase[r.ep] = r.pending_text;
+    const n = S.auto.run.ep;
+    // 서버가 검토 대기 변경안을 pending.json 의 state:<화> 결과로 둔다(web.auto_review). 작업 결과처럼 받아야 고르던 체크 · 고친 칸이 초안으로 남고(saveDeltaDraft)
+    // 새로고침 · 다른 기기에서도 이어 고친다. 만든 본문(base)도 함께 받아, 그 뒤 본문을 고쳤으면 상태 승인 화면이 알린다
+    const before = S.pending.name === S.name ? (S.pending.results[`state:${n}`] || {}).id : undefined;
+    let d;
+    try {
+      S.auto = await api('POST', `/projects/${enc(S.name)}/auto/review`);
+      d = await api('GET', `/projects/${enc(S.name)}/pending`);
+    } catch (e) {
+      return toast(e.message, true);
     }
+    const rec = d.results[`state:${n}`];
+    // 화면의 변경안이 이 결과가 아니면(다른 작업 · 다시 쓰기 전 변경안) 내리고 이 결과를 놓는다. 같은 결과를 이미 보고 있으면 고친 것을 둔다.
+    // 내릴 변경안에 고른 체크 · 고친 칸이 있으면 먼저 묻는다. 그만두면 지금 것을 둔다(loadPending 은 화면에 놓인 변경안을 덮지 않는다)
+    const have = S.deltas[n];
+    const o = S.deltaOrig[n];
+    const edited = have && (!o || have.summary !== o.summary || Object.entries(o.picks).some(([k, v]) => S.picks[k] !== v) || deltaEdited(n));
+    if (rec && (have === undefined || (before !== rec.id
+      && (!edited || await askConfirm(`${n}화 변경안에서 고른 체크와 고친 칸이 있어요. 버리고 자동 집필이 남긴 변경안으로 바꿀까요?`, { ok: '버리고 바꾸기', danger: true, cancel: '지금 것 두기' }))))) {
+      delete S.deltas[n];
+      S.jobsApplied.delete(rec.id);
+    }
+    await loadPending(Promise.resolve(d));
     // 상태 승인 화면의 '불러오기'는 이미 그 주소라 hashchange 가 생기지 않는다. 그때는 여기서 다시 그린다
     const was = location.hash;
-    location.hash = `${base()}/review/${r.ep}`;
+    location.hash = `${base()}/review/${n}`;
     if (location.hash === was) render();
   },
   async autoRevert(n) {

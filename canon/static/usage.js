@@ -14,7 +14,7 @@ Object.assign(S, {
   usageBar: null,   // 차트에서 고른 막대 (날짜 키)
   usageMetric: 'cost', // 막대 값: cost 비용 | calls 호출 수 (축은 하나만)
   usageTable: false,   // 막대 아래 날짜별 표를 폄
-  usageBy: 'stage',    // '어디에 썼나' 나누는 기준: stage · model · project(작품을 고르면 화) · source
+  usageBy: 'stage',    // '어디에 썼나' 나누는 기준: stage · model · project(작품을 고르면 화) · source · task · effort
   usageByAll: false,   // 그 목록을 8줄 넘게 폄
   priceOpen: false,    // 가격표를 고치는 칸으로 폄
   prices: null,     // GET /usage/prices 결과
@@ -29,9 +29,27 @@ const USAGE_TASK = {
   suggest: '설정 제안', arc: '기승전결 구조', series: '부 구성', nextarc: '다음 아크', convert: '장편 전환', rebuild: '장편 재구성 계획', rework: '재구성 다듬기', storyline: '이야기 줄기',
   recap_arc: '아크 요약', recap_part: '부 요약', fold_knows: '아는 정보 접기', plots: '화별 플롯', write: '본문', state: '상태 변경안', impact: '인과율 영향 분석',
   hook: '흡입력 판정', openings: '여는 방식 안', opening_drafts: '여러 안으로 쓰기',
-  names: '이름 추천', style: '문체 분석', chat: 'AI 대화', edits: '부분 수정', auto: '자동 집필', sample: '샘플 비교',
+  names: '이름 추천', style: '문체 분석', lib_style: '문체 분석 (라이브러리)', chat: 'AI 대화', edits: '부분 수정', auto: '자동 집필', sample: '샘플 비교',
   stage: '단계 시험', compare: '가려 비교', budget: '컨텍스트 크기', probe: '서버 점검', check: '검수', update: '상태 변경안', run: '연속 실행', fix: '부분 수정',
+  fixes: '지적 고치기', recheck: '고친 곳만 다시 보기', board: '스토리보드', cues: '큐 시트', cue_sheet: '큐 시트', cue_run: '큐 시트로 쓰기', plot_one: '한 화 플롯', agent: 'AI 대화 에이전트', play: '플레이', studio: '문단 연습장',
 };
+// 추론 강도 이름 (settings.js EFFORT_LABEL 과 같다). '기본'은 강도를 정하지 않은 호출(usage.EFFORT_DEFAULT)
+const USAGE_EFFORT = { low: '낮음', medium: '보통', high: '높음', xhigh: '아주 높음', max: '최대', 기본: '기본 (모델 기본값)' };
+
+/** 작업 이름표. Gemini 명시적 캐시를 만든 호출은 '<작업> 캐시 만들기' 로 기록된다(llm.py). 순수 함수 */
+function usageTaskLabel(t) {
+  if (!t) return '';
+  const m = /^(.*?)\s*캐시 만들기$/.exec(t);
+  if (m) return `${m[1] ? (USAGE_TASK[m[1]] || m[1]) + ' ' : ''}캐시 만들기`;
+  return USAGE_TASK[t] || t;
+}
+
+/** 캐시 비율(0~1)을 '13%' · '5.9%' 로. 10% 밑은 소수 첫째 자리까지. 순수 함수(tests/test_research_js.py) */
+function usagePct(rate) {
+  const v = (Number(rate) || 0) * 100;
+  if (!v) return '0%';
+  return `${v < 10 ? Number(v.toFixed(1)) : Math.round(v)}%`;
+}
 
 async function usageLoad(project) {
   if (project !== undefined) S.usageProject = project || '';
@@ -106,7 +124,7 @@ function viewUsage() {
   const tiles = `<div class="usage-tiles">
       <div class="usage-tile hero"><span class="k">${span}추정 비용</span><span class="usage-num">${usd(t.cost)}</span><span class="small">${t.unpriced ? `가격 모르는 호출 ${t.unpriced}번 빠짐` : '가격표 기준'}</span></div>
       <div class="usage-tile"><span class="k">호출</span><span class="usage-num">${t.calls.toLocaleString()}번</span><span class="small">${t.failed ? `실패 ${t.failed}` : '실패 없음'}${t.retries ? ` · 다시 요청 ${t.retries}` : ''}</span></div>
-      <div class="usage-tile"><span class="k">토큰 입력 · 출력</span><span class="usage-num">${tok(t.in)} · ${tok(t.out)}</span><span class="small">${t.cached ? `캐시 ${tok(t.cached)} (싸게 매겨짐)` : '캐시 없음'} · 출력은 생각 토큰 포함</span></div>
+      <div class="usage-tile"><span class="k">토큰 입력 · 출력</span><span class="usage-num">${tok(t.in)} · ${tok(t.out)}</span><span class="small">${t.cached ? `캐시 ${usagePct(t.cache_rate)} · ${tok(t.cached)} (싸게 매겨짐)` : '캐시 없음'}${t.resent ? ` · 다시 보낸 입력 ${tok(t.resent)}은 비율에서 뺐어요` : ''} · 출력은 생각 토큰 포함</span></div>
       <div class="usage-tile"><span class="k">아낀 · 버린 비용</span><span class="usage-num">${usd(t.saved)} · ${usd(t.wasted)}</span><span class="small">${t.batch ? `배치 ${t.batch}번` : '배치 안 씀'} · 실패와 다시 요청</span></div>
     </div>`;
   return `${head}<div class="usage-wrap">${filters}
@@ -224,25 +242,27 @@ document.addEventListener('keydown', (e) => {
 function usageBreakdown(u) {
   const one = !!S.usageProject;
   const by = S.usageBy === 'project' && one ? 'episode' : S.usageBy;
-  const opts = [['stage', '단계'], ['model', '모델'], one ? ['episode', '화'] : ['project', '작품'], ['source', '어디서']];
-  const rows = { stage: u.by_stage, model: u.by_model, project: u.by_project, episode: u.by_episode, source: u.by_source }[by] || [];
+  const opts = [['stage', '단계'], ['task', '작업'], ['model', '모델'], ['effort', '추론 강도'], one ? ['episode', '화'] : ['project', '작품'], ['source', '어디서']];
+  const rows = { stage: u.by_stage, task: u.by_task, model: u.by_model, effort: u.by_effort, project: u.by_project, episode: u.by_episode, source: u.by_source }[by] || [];
   const label = {
     stage: (r) => esc(USAGE_STAGE[r.stage] || r.stage || '기타'),
     model: (r) => `${esc(r.model || '(이름 없음)')} <span class="small">${USAGE_BACKEND[r.backend] || 'Gemini'}</span>`,
     project: (r) => (r.project ? `<a href="#/p/${enc(r.project)}/usage">${esc(usageName(r.project))}</a>` : '<span class="small">작품 밖 (연구 서버 점검 등)</span>'),
     episode: (r) => `<a href="#/p/${enc(r.project)}/write/${r.episode}">${r.episode}화</a>`,
     source: (r) => esc(USAGE_SOURCE[r.source] || r.source || '기타'),
+    task: (r) => esc(usageTaskLabel(r.task) || '기타'),
+    effort: (r) => esc(USAGE_EFFORT[r.effort] || r.effort || '기본'),
   }[by];
   const byCost = rows.some((r) => r.cost > 0);
   const max = Math.max(...rows.map((r) => (byCost ? r.cost : r.calls)), 0) || 1;
   const shown = S.usageByAll ? rows : rows.slice(0, 8);
   const list = shown.map((r) => `<div class="usage-br"><span class="lb">${label(r)}${r.failed ? ` <span class="chip usage-fail">실패 ${r.failed}</span>` : ''}${r.batch ? ` <span class="chip">배치 ${r.batch}</span>` : ''}</span>
       <span class="bar" aria-hidden="true"><b style="width:${Math.round(((byCost ? r.cost : r.calls) / max) * 100)}%"></b></span>
-      <span class="v">${r.unpriced && !r.cost ? '가격 모름' : usd(r.cost)}</span><span class="m">${r.calls.toLocaleString()}번</span><span class="m">${tok(r.in)} · ${tok(r.out)}</span></div>`).join('');
-  return `<section class="card" aria-labelledby="usage-by-h">
+      <span class="v">${r.unpriced && !r.cost ? '가격 모름' : usd(r.cost)}</span><span class="m">${r.calls.toLocaleString()}번</span><span class="m c">${r.in ? usagePct(r.cache_rate) : '-'}</span><span class="m sec">${r.seconds_avg ? `${r.seconds_avg.toFixed(1)}초` : '-'}</span><span class="m">${tok(r.in)} · ${tok(r.out)}</span></div>`).join('');
+  return `<section class="card usage-by" aria-labelledby="usage-by-h">
     <div class="between"><h2 id="usage-by-h">어디에 썼나</h2>
       <div class="seg" role="group" aria-label="나누는 기준">${opts.map(([k, l]) => `<button type="button" data-action="usageBy" data-arg="${k === 'episode' ? 'project' : k}" aria-pressed="${by === k}">${l}</button>`).join('')}</div></div>
-    ${rows.length ? `<div class="usage-bars"><div class="usage-br hd" aria-hidden="true"><span>${opts.find(([k]) => k === by)[1]}</span><span>${byCost ? '비용 비중' : '호출 비중'}</span><span class="v">추정 비용</span><span class="m">호출</span><span class="m">입력 · 출력</span></div>${list}</div>
+    ${rows.length ? `<div class="usage-bars"><div class="usage-br hd" aria-hidden="true"><span>${opts.find(([k]) => k === by)[1]}</span><span>${byCost ? '비용 비중' : '호출 비중'}</span><span class="v">추정 비용</span><span class="m">호출</span><span class="m c">캐시</span><span class="m sec">평균 시간</span><span class="m">입력 · 출력</span></div>${list}</div>
       ${rows.length > shown.length ? `<div><button type="button" class="btn small ghost" data-action="usageByAll">${rows.length - shown.length}개 더 보기</button></div>` : ''}`
       : `<div class="small">${by === 'episode' ? '화가 정해지지 않은 호출(설정, 기획 등)은 빠져요.' : '기록 없음'}</div>`}
   </section>`;
@@ -271,7 +291,7 @@ function usageCalls(u) {
     return `<div class="usage-call">
       <span class="when">${esc(fmtWhen(r.at))}</span>
       <span class="where">${esc(where || '-')}</span>
-      <span class="task">${esc(USAGE_TASK[r.task] || USAGE_STAGE[r.stage] || r.task || '-')}<span class="s2">${esc(USAGE_STAGE[r.stage] || r.stage || '')} · ${esc(USAGE_SOURCE[r.source] || r.source || '')}</span></span>
+      <span class="task">${esc(usageTaskLabel(r.task) || USAGE_STAGE[r.stage] || '-')}<span class="s2">${esc(USAGE_STAGE[r.stage] || r.stage || '')} · ${esc(USAGE_SOURCE[r.source] || r.source || '')}</span></span>
       <span class="model">${esc(r.model)}${r.batch ? ' <span class="chip">배치</span>' : ''}</span>
       <span class="r tokens">${tok(r.in)} → ${tok(r.out + (r.thought || 0))}${r.cached ? `<span class="s2">캐시 ${tok(r.cached)}</span>` : ''}${r.thought ? `<span class="s2">생각 ${tok(r.thought)}</span>` : ''}${usageBlocks(r)}</span>
       <span class="r secs">${r.seconds != null ? `${r.seconds.toFixed(1)}초` : '-'}</span>
@@ -315,20 +335,13 @@ function priceRedraw() {
   render();
 }
 
+/** 가격표 저장 · 되돌리기: run() 으로 보내 기다리는 동안 뒤 화면을 막고 포커스를 상자로 옮긴다 (다시 누르지 못하게) */
 async function priceSend(label, fn, done) {
-  $('#busy-label').textContent = label;
-  $('#busy-sec').textContent = '';
-  $('#busy').hidden = false;
-  try {
+  await run(label, async () => {
     pricesSet(await fn());
     if (S.usage) await usageLoad();
     toast(done);
-  } catch (e) {
-    toast(e.message, true);
-  } finally {
-    $('#busy').hidden = true;
-    priceRedraw();
-  }
+  });
 }
 
 function viewPrices() {
@@ -351,7 +364,7 @@ function viewPrices() {
       <thead><tr><th>모델</th><th>적용 시작일</th>${PRICE_COLS.map(([, l]) => `<th>${l}</th>`).join('')}<th><span class="sr-only">줄 조작</span></th></tr></thead>
       <tbody>${rows}</tbody></table></div>
     <div class="row">
-      <button class="btn" data-action="priceAdd">줄 추가</button>
+      <button class="btn" data-action="priceAdd">줄 더하기</button>
       <button class="btn primary" data-action="priceSave"${S.priceDirty ? '' : ' disabled'}>가격표 저장</button>
       ${S.priceDirty ? '<button class="btn" data-action="priceCancel">고친 것 버리기</button>' : ''}
       ${S.prices.rows.some((r) => r.custom) ? '<button class="btn danger" data-action="priceReset">기본값으로 되돌리기</button>' : ''}

@@ -64,6 +64,14 @@ def clean_delta(p: Project, d: StateDelta) -> None:
     d.foreshadow_clues = out
 
 
+def resolved_warnings(p: Project, d: StateDelta) -> list[str]:
+    """이미 회수한 복선을 또 회수한다는 제안. pipeline.apply_delta 는 회수 화를 덮지 않고 뺀다(d.dismissed)."""
+    done = {f.id: f.payoff_ep for f in p.foreshadows if f.status == "resolved"}
+    return [f"이미 {done[x]}화에 회수한 복선을 다시 회수했어요: {x}. 반영하면 빼요" if done[x] else
+            f"이미 회수한 복선을 다시 회수했어요: {x}. 반영하면 빼요"
+            for x in dict.fromkeys(d.foreshadow_resolved) if x in done]
+
+
 def apply_delta(p: Project, d: StateDelta) -> None:
     """pipeline.apply_delta 가 복선을 심고 회수한 뒤 부른다. 고른 복선에 걸린 문장만 남긴다."""
     have = {f.id for f in p.foreshadows}

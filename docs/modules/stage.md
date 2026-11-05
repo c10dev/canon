@@ -112,6 +112,7 @@
   - 이름표 겹침은 순수 함수 `stageLabelPlace`(평면도 · 3D `s3PlaceTags` 가 함께 씀, 앞 프레임 자리 `stgLabelMem`, `tests/test_stage_labels.py`)
   - 끌어 놓기 → `stageSnap`
   - 끌기가 끊기면(`pointercancel`) 끌던 것을 놓고 다시 그린다
+- 방 고치기의 기준점 줄에 가로 · 세로 자리(m) 칸이 있다. 숫자로 옮기면 끌기와 같은 규칙(`stageDragTo`)을 따른다
 - 평면도 끌기는 손가락 10px · 마우스 4px 움직인 뒤에 시작한다. 그 전에 떼면 누르기(인물 줄 펴기)다
 - 손가락 기기에서 접촉 부위 도식은 두 배(112 × 240px)이고 이마 점은 도식에서 빼 목록에서 고른다
 - 평면도는 `touch-action: pan-x pan-y` 이고 끄는 것(인물, 방 고치기의 기준점)만 `none` 이다. 빈 바닥을 쓸면 페이지가 구른다

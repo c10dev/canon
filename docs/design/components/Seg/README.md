@@ -4,7 +4,8 @@
 
 ## 쓰는 법
 
-- 쓰는 쪽이 줄 것: 묶음 이름(`aria-label`), 두세 개의 버튼, 고른 버튼에 `aria-pressed="true"`.
+- 쓰는 쪽이 줄 것: 묶음 이름(`aria-label`), 버튼(보통 두세 개), 고른 버튼에 `aria-pressed="true"`.
+- 버튼이 넷 이상이면 그 화면에서 `.seg` 에 `flex-wrap: wrap` 을 줘 좁은 폭에서 줄을 바꾼다(사용량 '어디에 썼나' 여섯 개, 팝업 패널, 플레이 목록).
 - 받침 `seg` 면, `radius-10`, 버튼 높이 `control-seg`(38px). 고른 칸은 `surface` 면 · `text` 글자 · 700 · `shadow-seg`.
 - 손가락 기기(`pointer: coarse`)와 640px 이하에서 버튼 높이는 `touch-min`(44px)이다.
 - 고대비 모드(`forced-colors`)에서 고른 칸은 `Highlight` 테두리로 보인다.

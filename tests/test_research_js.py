@@ -76,3 +76,48 @@ def test_stattrial_bars_scale_to_largest():
 def test_usage_ticks_cover_max():
     got = run_js(FILES, "[usageTicks(0.52), usageTicks(82), usageTicks(0), usageTicks(0.004), usageTicks(3)]", {})
     assert got == [[0, 0.2, 0.4, 0.6], [0, 50, 100, 150], [0, 1, 2, 3], [0, 0.002, 0.004, 0.006], [0, 1, 2, 3]]
+
+
+@needs_node
+def test_usage_pct_formats_cache_rate():
+    got = run_js(FILES, "[usagePct(0.134), usagePct(0.059), usagePct(0.011), usagePct(0), usagePct(undefined), usagePct(1)]", {})
+    assert got == ["13%", "5.9%", "1.1%", "0%", "0%", "100%"]
+
+
+@needs_node
+def test_usage_task_label_names_new_tasks():
+    got = run_js(FILES, "[usageTaskLabel('recheck'), usageTaskLabel('agent 캐시 만들기'), usageTaskLabel('캐시 만들기'), usageTaskLabel('zzz'), usageTaskLabel('')]", {})
+    assert got == ["고친 곳만 다시 보기", "AI 대화 에이전트 캐시 만들기", "캐시 만들기", "zzz", ""]
+
+
+@needs_node
+def test_usage_breakdown_by_task_and_effort_shows_cache_and_seconds():
+    row = {"calls": 2, "failed": 0, "batch": 0, "in": 2000, "out": 20, "cached": 200, "cost": 0.01, "unpriced": 0,
+           "cache_rate": 0.1, "seconds_avg": 15.0}
+    u = {"by_task": [{**row, "task": "fixes"}],
+         "by_effort": [{**row, "effort": "high"}, {**row, "effort": "기본", "in": 0, "cache_rate": 0, "seconds_avg": 0}]}
+    task, effort = run_js(FILES, """(() => {
+      S.usageProject = '';
+      S.usageBy = 'task'; const task = usageBreakdown(data.u);
+      S.usageBy = 'effort'; const effort = usageBreakdown(data.u);
+      return [task, effort];
+    })()""", {"u": u})
+    assert "지적 고치기" in task and "10%" in task and "15.0초" in task and 'aria-pressed="true">작업' in task
+    assert "평균 시간" in task and "캐시" in task
+    assert "높음" in effort and "기본 (모델 기본값)" in effort and 'aria-pressed="true">추론 강도' in effort
+
+
+def test_usage_task_labels_cover_scoped_tasks():
+    # usage.scope(task="...") 로 적는 작업 이름마다 사용량 화면의 한국어 이름이 있다 (영어 키가 화면에 보이지 않게)
+    import re
+    from pathlib import Path
+    root = Path(__file__).resolve().parent.parent / "canon"
+    tasks = set()
+    for f in root.rglob("*.py"):
+        tasks |= set(re.findall(r'usage\.scope\([^)]*task="([a-z_]+)"', f.read_text(encoding="utf-8")))
+    js = (root / "static" / "usage.js").read_text(encoding="utf-8")
+    block = js[js.index("const USAGE_TASK = {"):]
+    block = block[:block.index("};")]
+    labeled = set(re.findall(r"\b([a-z_]+): '", block))
+    assert {"play", "studio"} <= tasks
+    assert tasks <= labeled, tasks - labeled

@@ -70,6 +70,48 @@ def test_preset_of_and_env_list(tmp_path, monkeypatch):
 
 
 @needs_node
+def test_preset_asks_before_replacing_hand_picked_and_can_undo(tmp_path, monkeypatch):
+    """직접 고른 조합을 프리셋으로 덮기 전에 묻고, 그만두면 고른 값을 되돌린다. 채운 뒤에는 '되돌리기'로 앞 칸을 다시 저장한다"""
+    monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
+    monkeypatch.setenv("CANON_LLM", "gemini")
+    from canon import settings
+    settings.update(stages={"write": "local"}, stage_models={"write": "my-model"})
+    c = settings.public()
+    got = run_js(FILES, """(async () => {
+      setPaint = () => {};
+      const puts = [];
+      const asked = [];
+      let yes = false;
+      api = async (m, u, b) => {
+        if (m !== 'PUT') return {};
+        puts.push(b);
+        return { ...data.config, stage_settings: b.stages, stage_model_settings: b.stage_models };
+      };
+      askConfirm = async (msg) => { asked.push(msg); return yes; };
+      S.config = data.config;
+      const el = { value: 'gemini', dataset: { setfield: 'preset' }, closest: () => ({ id: 'row-preset-pick' }) };
+      await setChange({ target: el });
+      const cancel = { value: el.value, puts: puts.length, asked: asked.length, undo: SET.undo };
+      yes = true;
+      el.value = 'gemini';
+      await setChange({ target: el });
+      const filled = { puts: puts.length, asked: asked.length, undo: !!SET.undo, html: setRowHtml('preset-pick').includes('setPresetUndo') };
+      await actions.setPresetUndo();
+      const back = puts[puts.length - 1];
+      // 프리셋과 같은 칸에서 다른 프리셋을 고르면 묻지 않는다
+      S.config = { ...data.config, stage_settings: puts[0].stages, stage_model_settings: puts[0].stage_models };
+      el.value = 'anthropic';
+      await setChange({ target: el });
+      return { cancel, filled, back: [back.stages.write, back.stage_models.write], undoAfter: SET.undo && SET.undo.row,
+        asked: asked.length, note: SET.note['preset-pick'].text };
+    })()""", {"config": c})
+    assert got["cancel"] == {"value": "", "puts": 0, "asked": 1, "undo": None}
+    assert got["filled"] == {"puts": 1, "asked": 2, "undo": True, "html": True}
+    assert got["back"] == ["local", "my-model"]
+    assert got["asked"] == 2 and got["undoAfter"] == "preset-pick"
+
+
+@needs_node
 def test_effort_select_lists_what_the_backend_takes(tmp_path, monkeypatch):
     monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
     monkeypatch.setenv("CANON_LLM", "gemini")

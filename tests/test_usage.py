@@ -1,5 +1,6 @@
 """사용량 기록과 비용 추정 (canon/usage.py) 테스트. 실제 API 대신 가짜 Gemini 클라이언트를 쓴다."""
 import contextvars
+import json
 import os
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
@@ -67,6 +68,35 @@ def test_records_calls_with_scope_and_cost():
     # 최근 호출 목록은 limit 까지만, 실패 목록의 전체 수는 따로 준다
     short = usage.summary(30, limit=1)
     assert len(short["recent"]) == 1 and short["total"]["calls"] == 2 and short["trouble_total"] == 1
+
+
+def test_summary_groups_by_task_and_effort_with_cache_rate():
+    """작업 · 추론 강도로도 묶고, 묶음마다 캐시 비율(캐시 / 입력)과 호출당 평균 시간을 준다."""
+    import json
+    from datetime import datetime
+    now = datetime.now().isoformat(timespec="seconds")
+    base = {"at": now, "project": "지하철", "backend": "gemini", "model": "gemini-4-argon", "out": 10, "ok": True}
+    rows = [
+        {**base, "stage": "revise", "task": "fixes", "effort": "high", "in": 1000, "cached": 200, "seconds": 10.0},
+        {**base, "stage": "revise", "task": "fixes", "effort": "high", "in": 1000, "cached": 0, "seconds": 20.0},
+        {**base, "stage": "write", "task": "write", "in": 2000, "cached": 1000, "seconds": 3.0},
+        {**base, "stage": "check", "in": 0, "cached": 0, "seconds": 1.0},
+    ]
+    usage.log_path().parent.mkdir(parents=True, exist_ok=True)
+    usage.log_path().write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
+    s = usage.summary(30)
+    task = {r["task"]: r for r in s["by_task"]}
+    assert set(task) == {"fixes", "write", ""}
+    assert task["fixes"]["in"] == 2000 and task["fixes"]["cache_rate"] == pytest.approx(0.1)
+    assert task["fixes"]["seconds_avg"] == pytest.approx(15.0)
+    assert task["write"]["cache_rate"] == pytest.approx(0.5)
+    assert task[""]["cache_rate"] == 0.0  # 입력이 없으면 0
+    effort = {r["effort"]: r for r in s["by_effort"]}
+    assert set(effort) == {"high", "기본"}  # 정하지 않은 호출은 '기본'
+    assert effort["high"]["calls"] == 2 and effort["기본"]["calls"] == 2
+    assert s["total"]["cache_rate"] == pytest.approx(1200 / 4000)
+    assert s["total"]["seconds_avg"] == pytest.approx(8.5)
+    assert all("cache_rate" in r and "seconds_avg" in r for k in ("by_stage", "by_model", "by_day") for r in s[k])
 
 
 def test_schema_retry_is_recorded_as_failed_then_retry():
@@ -170,6 +200,105 @@ def test_local_is_free_and_unknown_model_flagged():
     at = "2026-10-22T10:00:00+09:00"
     assert usage.row_cost({"backend": "local", "model": "gemma-4-31b", "in": 10, "out": 10, "at": at}, usage.prices())[0] == 0.0
     assert usage.row_cost({"backend": "gemini", "model": "gemini-9", "in": 10, "out": 10, "at": at}, usage.prices())[0] is None
+
+
+def _rows(backend, model, slope, intercept, n=30, **extra):
+    return [{"backend": backend, "model": model, "ok": True, "chars": 2_000 + 1_000 * i,
+             "in": round(slope * (2_000 + 1_000 * i) + intercept), **extra} for i in range(n)]
+
+
+def test_token_rate_defaults_by_backend_and_model():
+    opus = usage.token_rate("claude", "claude-opus-5-5", rows=[])
+    assert (opus.slope, opus.intercept, opus.source) == (1.035, 3805, "default")
+    assert usage.token_rate("claude", "sonnet", rows=[]).slope == 0.995  # Claude Code 별칭도 고른다
+    assert usage.token_rate("claude", "", rows=[]).slope == 1.035  # 기본 모델은 이름을 몰라 Opus 로 본다
+    assert usage.token_rate("claude-api", "claude-opus-5-5", rows=[]).intercept == 0
+    assert usage.token_rate("gemini", "models/gemini-3.8-flash-001", rows=[]).slope == 0.599
+    assert usage.token_rate("gemini", "gemini-4-argon", rows=[]).slope == 0.568
+    assert usage.token_rate("", "gemini-4-argon", rows=[]).slope == 0.568  # 백엔드를 모르면 모델 이름으로
+    local = usage.token_rate("local", "gemma-4-31b", rows=[])
+    assert local.source == "fallback" and local.slope == pytest.approx(1 / 1.7) and local.intercept == 0
+    assert usage.est_input(10_000, opus) == pytest.approx(10_350 + 3805)
+    assert usage.est_output(10_000, opus) == pytest.approx(10_350)
+
+
+def test_token_rate_refines_from_recent_rows():
+    rows = _rows("gemini", "gemini-4-argon", 0.7, 900)
+    r = usage.token_rate("gemini", "gemini-4-argon", rows=rows)
+    assert r.source == "measured" and r.rows == 30
+    assert r.slope == pytest.approx(0.7, abs=1e-3) and r.intercept == pytest.approx(900, abs=2)
+    assert usage.token_rate("gemini", "gemini-3.8-flash", rows=rows).source == "default"  # 다른 모델 기록은 보지 않는다
+    assert usage.token_rate("gemini", "gemini-4-argon", rows=rows[:usage.REFINE_MIN - 1]).source == "default"  # 줄이 적으면 기본값
+    failed = [{**x, "ok": False} for x in rows]
+    assert usage.token_rate("gemini", "gemini-4-argon", rows=failed).source == "default"
+    flat = [{**x, "chars": 5_000} for x in rows]  # 글자 수가 모두 같으면 직선을 긋지 않는다
+    assert usage.token_rate("gemini", "gemini-4-argon", rows=flat).source == "default"
+    wild = _rows("gemini", "gemini-4-argon", 9.0, 0)  # 말이 안 되는 기울기는 버린다
+    assert usage.token_rate("gemini", "gemini-4-argon", rows=wild).source == "default"
+    neg = _rows("gemini", "gemini-4-argon", 0.8, -500)  # 붙는 토큰이 음수면 원점을 지나는 비율
+    r = usage.token_rate("gemini", "gemini-4-argon", rows=neg)
+    assert r.intercept == 0
+    assert r.slope == pytest.approx(sum(x["in"] for x in neg) / sum(x["chars"] for x in neg), abs=1e-3)
+
+
+def test_token_rate_skips_doubled_claude_rows():
+    good = _rows("claude", "claude-opus-5-5", 1.0, 3000, cached=0)
+    doubled = _rows("claude", "claude-opus-5-5", 2.0, 6000)
+    for x in doubled:
+        x["cached"] = x["in"] // 2  # 캐시 읽기를 입력에 두 번 센 기록
+    r = usage.token_rate("claude", "claude-opus-5-5", rows=good + doubled)
+    assert r.source == "measured" and r.rows == 30 and r.slope == pytest.approx(1.0, abs=1e-3)
+    assert usage.token_rate("claude", "claude-opus-5-5", rows=doubled).source == "default"
+    # 앞부분을 시스템 프롬프트로 옮겨 캐시가 입력 대부분인 정상 기록은 남긴다
+    hits = _rows("claude", "claude-opus-5-5", 1.0, 3000)
+    for x in hits:
+        x["cached"] = round(x["in"] * 0.85)
+    r = usage.token_rate("claude", "claude-opus-5-5", rows=hits)
+    assert r.source == "measured" and r.rows == 30 and r.slope == pytest.approx(1.0, abs=1e-3)
+
+
+def test_token_rate_matches_claude_code_aliases():
+    """Claude Code 기록에는 실제로 답한 모델 이름이 남는다. 설정의 별칭(opus)이나 빈 기본 모델도 그 기록으로 다시 잰다."""
+    rows = _rows("claude", "claude-opus-5-5", 1.1, 2500) + _rows("claude", "claude-sonnet-5-5", 0.9, 5000, n=5)
+    alias = usage.token_rate("claude", "opus", rows=rows)
+    assert alias.source == "measured" and alias.rows == 30 and alias.slope == pytest.approx(1.1, abs=1e-3)
+    default = usage.token_rate("claude", "", rows=rows)  # 기본 모델은 최근 기록에 가장 많은 모델로 본다
+    assert default.source == "measured" and default.slope == pytest.approx(1.1, abs=1e-3)
+    assert usage.token_rate("claude", "sonnet", rows=rows).source == "default"  # Sonnet 기록은 5줄뿐
+    assert usage.token_rate("gemini", "flash", rows=_rows("gemini", "gemini-3.8-flash", 0.7, 900)).source == "default"
+
+
+def test_est_input_counts_system_prompt_once():
+    """붙는 토큰에 시스템 프롬프트가 이미 들어 있다. 붙는 토큰을 모르는 백엔드만 시스템 프롬프트를 기울기로 센다."""
+    opus = usage.token_rate("claude", "claude-opus-5-5", rows=[])
+    assert usage.est_input(10_000, opus, 1_200) == pytest.approx(10_350 + 3805)
+    assert usage.est_input(10_000, opus, 8_000) == pytest.approx(10_350 + 8_280)  # 시스템 프롬프트가 더 길면 그것을 센다
+    assert usage.est_input(10_000, opus, 1_200, calls=3) == pytest.approx(10_350 + 3 * 3805)
+    api = usage.token_rate("claude-api", "claude-opus-5-5", rows=[])
+    assert usage.est_input(10_000, api, 1_000) == pytest.approx(10_350 + 1_035)
+
+
+def test_token_rate_reads_usage_log(home):
+    import json
+
+    path = home / ".usage" / "usage.jsonl"
+    path.parent.mkdir(parents=True)
+    path.write_text("".join(json.dumps(x) + "\n" for x in _rows("gemini", "gemini-4-argon", 0.65, 1200)), encoding="utf-8")
+    r = usage.token_rate("gemini", "gemini-4-argon")
+    assert r.source == "measured" and r.slope == pytest.approx(0.65, abs=1e-3)
+
+
+def test_stage_rate_follows_stage_backend(monkeypatch):
+    monkeypatch.setenv("CANON_LLM", "gemini")
+    monkeypatch.setenv("CANON_MODEL", "gemini-4-argon")
+    monkeypatch.setenv("CANON_LLM_STATE", "claude")
+    monkeypatch.setenv("CANON_MODEL_STATE", "claude-sonnet-5-5")
+    monkeypatch.setenv("CANON_LLM_CHECK", "claude-api")
+    monkeypatch.delenv("CANON_CLAUDE_MODEL", raising=False)
+    assert usage.stage_llm("write") == ("gemini", "gemini-4-argon")
+    assert usage.stage_llm("state") == ("claude", "claude-sonnet-5-5")
+    assert usage.stage_llm("check")[0] == "claude-api" and usage.stage_llm("check")[1].startswith("claude-")
+    assert usage.stage_rate("write").slope == 0.568 and usage.stage_rate("state").slope == 0.995
 
 
 def test_jobs_thread_keeps_scope():
@@ -504,3 +633,27 @@ def test_other_errors_are_not_retried(pauses):
     with pytest.raises(RuntimeError, match="503"):
         llm.text("s", "p")
     assert pauses == [] and llm.client.models.replies == ["본문"]
+
+
+def test_old_rows_read_and_cache_rate_drops_resent(home):
+    old = {"at": "2026-11-01T10:00:00+09:00", "backend": "claude", "model": "x", "in": 1000, "out": 10, "cached": 200, "ok": True}
+    new = {**old, "in": 2000, "cached": 1200, "turns": 2, "resent": 1000, "stop": "end_turn"}
+    path = usage.log_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(json.dumps(r) for r in (old, new)) + "\n", encoding="utf-8")
+    t = usage.summary(0)["total"]
+    assert (t["in"], t["cached"], t["resent"]) == (3000, 1400, 1000)  # 비용 칸(in · cached)은 그대로 더한다
+    assert t["cache_rate"] == pytest.approx(400 / 2000)  # 다시 보낸 입력은 입력과 캐시 양쪽에서 뺀다
+    assert usage.cache_rate([old]) == pytest.approx(0.2)
+    assert usage.cache_rate([]) is None
+    from fastapi.testclient import TestClient
+    from canon.web import app
+    assert TestClient(app).get("/api/usage?days=0").json()["total"]["resent"] == 1000  # 응답 모델이 칸을 지우지 않는다
+
+    # 캐시가 없는 줄의 resent 가 다른 줄의 캐시를 지우지 않는다 (cache_rate 와 같게 줄마다 자른다)
+    odd = {**old, "in": 4000, "cached": 0, "turns": 2, "resent": 2000}
+    path.unlink()  # 읽기 캐시는 같은 파일의 늘어난 끝만 읽으므로 새 파일로 쓴다
+    path.write_text("\n".join(json.dumps(r) for r in (old, odd)) + "\n", encoding="utf-8")
+    usage._read_cache.clear()
+    t = usage.summary(0)["total"]
+    assert t["cache_rate"] == pytest.approx(usage.cache_rate([old, odd])) == pytest.approx(200 / 5000)

@@ -14,7 +14,7 @@ const NOTIFY_GROUPS = [
   ['auto', '자동 집필', '화 하나를 반영하거나 멈추면', true],
   ['other', '그 밖의 AI 작업', '플롯 초안 · 설정 제안 · 대화 등', false],
 ];
-const NOTIFY_KIND = { write: 'write', check: 'check', fixes: 'check', state: 'state', auto: 'auto' };
+const NOTIFY_KIND = { write: 'write', check: 'check', fixes: 'check', recheck: 'check', state: 'state', auto: 'auto' };
 
 /** 저장한 값을 읽어 빈 칸을 기본값으로 채운다. 망가진 값은 기본값 */
 function notifyPrefs(raw) {
@@ -45,7 +45,7 @@ function notifyDoneText(j) {
 function notifyEvent(j, old) {
   if (!j || (typeof QUIET_JOBS !== 'undefined' && QUIET_JOBS.has(j.kind))) return null;
   const href = (typeof JOB_LINK !== 'undefined' && JOB_LINK[j.kind] ? JOB_LINK[j.kind](j) : `#/p/${enc(j.project)}`);
-  const base = { group: notifyGroup(j), title: j.project, href, err: false, toast: false };
+  const base = { group: notifyGroup(j), title: ({ '.revlab': '역설계 실험', '.styles': '문체 라이브러리' })[j.project] || j.project, href, err: false, toast: false };
   const ended = ['done', 'error'].includes(j.status) && (!old || old.status === 'running');
   // 자동 집필이 화 하나를 반영했다 (서버 Job.step_ep). 처음 본 작업은 이미 지난 일이라 알리지 않는다.
   // 마지막 화 반영과 실행 끝이 한 번에 보이면 끝 알림 하나로 알린다 (끝 글이 '모두 반영했어요'를 말한다)

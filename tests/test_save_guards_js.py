@@ -89,14 +89,17 @@ def test_auto_open_review_keeps_edited_delta():
       S.project = data.project; S.name = 'lh'; S.route = ['p', 'lh', 'auto'];
       const asked = []; let yes = false;
       askConfirm = async (q) => { asked.push(q); return yes; };
-      S.auto = { run: { ep: 1, pending: data.pending, pending_text: '옛 본문' } };
+      let rec = { id: 'r1', key: 'state:1', kind: 'state', ep: 1, label: '1화 상태 변경안', result: data.pending };
+      api = async (m, path) => (path.endsWith('/auto/review') ? S.auto : { results: { 'state:1': rec }, failures: {} });
+      S.auto = { run: { ep: 1 } };
       await actions.autoOpenReview();
       S.deltas[1].summary = '작가가 고친 요약';
-      await actions.autoOpenReview();  // 같은 변경안: 묻지 않고 이동만
+      await actions.autoOpenReview();  // 같은 결과: 묻지 않고 이동만
       const same = [S.deltas[1].summary, asked.length];
-      S.auto.run.pending = { ...data.pending, summary: '새 자동 요약' };
-      await actions.autoOpenReview();  // 다른 변경안 · 고친 것 있음: 묻고, 그만두면 둔다
+      rec = { ...rec, id: 'r2', result: { ...data.pending, summary: '새 자동 요약' } };
+      await actions.autoOpenReview();  // 다른 결과 · 고친 것 있음: 묻고, 그만두면 둔다
       const kept = [S.deltas[1].summary, asked.length];
+      rec = { ...rec, id: 'r3' };
       yes = true;
       await actions.autoOpenReview();
       return { same, kept, replaced: S.deltas[1].summary, asked };
@@ -104,7 +107,7 @@ def test_auto_open_review_keeps_edited_delta():
     got = run_js(FILES, expr, {"project": _project(), "pending": pending})
     assert got["same"] == ["작가가 고친 요약", 0]
     assert got["kept"] == ["작가가 고친 요약", 1] and "고친 칸" in got["asked"][0]
-    assert got["replaced"] == "새 자동 요약"
+    assert got["replaced"] == "새 자동 요약" and len(got["asked"]) == 2
 
 
 @needs_node

@@ -707,6 +707,7 @@ Object.assign(actions, {
   async lineDelete(id) {
     const s = lineOf(id || S.lineSel);
     if (!s || !(await askConfirm(`'${s.title || '이름 없음'}' 줄기를 지울까요? 붙은 화는 메인으로 돌아가고, 플롯과 본문은 그대로예요.`, { ok: '지우기', danger: true }))) return;
+    if (S.dirty && !(await askConfirm('저장하지 않은 변경이 있어요. 저장하고 줄기를 지울까요?', { ok: '저장하고 지우기' }))) return;
     await run('지우는 중', async () => {
       await saveIfDirty();
       S.project = await api('DELETE', `/projects/${enc(S.name)}/storylines/${enc(s.id)}`);

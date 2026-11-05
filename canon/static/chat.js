@@ -402,7 +402,7 @@ function chatPanel(topic) {
     <div class="chat-head"><h2>${esc(t.title)}</h2><div class="row" style="gap:4px">
       ${msgs.length ? '<button type="button" class="btn small" data-action="chatClear">기록 지우기</button>' : ''}
       <button type="button" class="btn icon-btn" data-action="toggleChat" aria-label="닫기">✕</button></div></div>
-    <div class="chat-log" id="chat-log">${empty}${list}${pending}</div>
+    <div class="chat-log" id="chat-log" role="log" aria-live="off">${empty}${list}${pending}</div>
     ${t.inputExtra ? t.inputExtra(topic) : ''}
     <div class="chat-input">
       <textarea id="chat-input" rows="2" data-local="chatDraft" aria-label="AI에게 할 말" enterkeyhint="${touchFirst() ? 'enter' : 'send'}" placeholder="${esc(t.placeholder)}"${S.chatPending ? ' disabled' : ''}>${esc(S.chatDraft)}</textarea>
@@ -440,12 +440,41 @@ function redrawChat() {
   syncChat();
 }
 
+// 화면 낭독기에 새 AI 답만 알린다. 대화 패널은 통째로 다시 그려서 #chat-log 를 알림 칸으로 두면 기록 전체를 다시 읽거나 아예 읽지 않는다.
+// 그래서 #chat-log 는 role=log 로 이름만 주고(aria-live=off), 패널 밖에 한 번 만든 숨은 알림 칸 #chat-live 에 가장 새 답만 넣는다
+let chatHeard = null;  // 마지막으로 본 답 { scope, id, text }. 패널을 처음 열거나 대화를 바꾸면 옛 답은 알리지 않고 기억만 한다
+function chatLastReply() {
+  if (S.chatTopic === 'plot' && typeof agentLastReply === 'function') return agentLastReply();
+  const msgs = chatMessages(S.chatTopic);
+  let i = msgs.length - 1;
+  while (i >= 0 && msgs[i].role === 'user') i -= 1;
+  return { scope: `${S.name}|${S.chatTopic}`, id: String(i), text: i >= 0 ? msgs[i].text || '' : '' };
+}
+function chatAnnounce() {
+  let live = document.getElementById('chat-live');
+  if (!live) {
+    live = document.createElement('div');
+    live.id = 'chat-live';
+    live.className = 'sr-only';
+    live.setAttribute('role', 'status');
+    live.setAttribute('aria-live', 'polite');
+    document.body.appendChild(live);
+  }
+  if (!document.querySelector('.chat-panel #chat-log')) { chatHeard = null; return; }
+  const r = chatLastReply();
+  const was = chatHeard;
+  chatHeard = r;
+  if (!was || was.scope !== r.scope || !r.text || (was.id === r.id && was.text === r.text)) return;
+  live.textContent = `AI 답: ${r.text}`;
+}
+
 /** render() 직후에 부른다: 패널이 있으면 본문 자리를 비우고, 새 메시지가 오면 맨 아래로 내린다. */
 function syncChat() {
   const open = !!document.querySelector('.chat-panel, .tool-col');  // 집필 화면의 다시 생성 열(rewrite.js)도 같은 자리를 쓴다
   document.body.classList.toggle('chat-open', open);
   syncRail();  // 901~1599px 에서 패널을 열면 사이드바를 레일로 접는다 (app.js)
   stackBottom();
+  chatAnnounce();
   const log = $('#chat-log');
   if (!log) return;
   log.scrollTop = S.chatScroll ? log.scrollHeight : S.chatScrollTop;
@@ -455,6 +484,7 @@ function syncChat() {
 Object.assign(actions, {
   toggleChat() {
     S.chatOpen = !S.chatOpen;
+    if (typeof panelOn === 'function') { if (S.chatOpen) panelOn('chat', chatCloseIfOpen); else panelOff('chat'); }  // 휴대폰 뒤로 가기가 시트만 닫게 (닫힌 시트를 다시 열지 않는다)
     if (S.chatOpen) S.rwOpen = null;  // 집필 화면: 다시 생성 열(rewrite.js)과 같은 자리라 하나만 연다
     S.chatScroll = true;
     try { localStorage.setItem('canon.chat', S.chatOpen ? '1' : '0'); } catch { /* 저장 못 해도 동작에는 상관없다 */ }
@@ -477,6 +507,8 @@ Object.assign(actions, {
     const text = preset ? '' : (S.chatDraft || '').trim();
     if ((!text && !preset) || S.chatPending) return;
     if (t.ready && !t.ready()) return;
+    // 대화는 저장된 작품을 읽는다. 저장하지 않은 변경은 보내기 전에 묻는다 (startJob 과 같다). 취소하면 아무것도 보내지 않고 쓴 글은 칸에 남는다
+    if (S.dirty && !(await askConfirm('저장하지 않은 변경이 있어요. 저장하고 보낼까요?', { ok: '저장하고 보내기' }))) return;
     S.chatPending = text || (t.presetLabel ? t.presetLabel(preset) : preset);
     if (!preset) S.chatDraft = '';
     S.chatScroll = true;

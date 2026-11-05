@@ -87,7 +87,7 @@ from .llm import dump, get_llm
 from .schema import FINDING_STATUS, SEVERITY, ConsistencyReport, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
 from . import abilities, anchor, atlas, blocktrial, findings, stattrial, foreshadows, setupchat, statwin, timeline
 from . import birth, cue, labstats, play, soelab, tofix
-from .schema import ArcProposal, ChatScope, Deadline, MapPlace, StatValue, StoryArc
+from .schema import ArcProposal, ChatScope, Deadline, MapPlace, StatValue, StateDeltaAI, StoryArc, to_delta
 from .maps import kinds as placekinds
 from .maps import travel
 
@@ -990,6 +990,15 @@ def cmd_check(a: argparse.Namespace) -> None:
             f = findings.set_severity(p.episode(a.n), fid, level, pipeline._now())
             print(f"{f.id}: 심각도를 {SEVERITY[level]}으로 정했어요")
         store.save(a.name, p)
+    elif a.recheck_fixed:
+        print(f"{a.n}화 고친 곳만 다시 보는 중...")
+        rep = pipeline.recheck_fixed(get_llm("check"), p, a.n)
+        kids = pipeline.apply_fix_recheck(p, a.n, rep)
+        store.save(a.name, p)
+        for x in rep.results:
+            print(f"{x.id}: {'풀렸어요. 고침으로 닫았어요' if x.resolved else '아직 어긋나요'}" + (f" ({x.reason})" if x.reason else ""))
+        for k in kids:
+            print(f"  새로 어긋난 곳: {findings.line(p.episode(a.n), k)}\n    {a.n}화: {k.current_quote}")
     elif a.recheck:
         print(f"{a.n}화 {a.recheck} 지적만 다시 검수 중...")
         res = pipeline.recheck_finding(get_llm("check"), p, a.n, a.recheck)
@@ -1041,7 +1050,7 @@ def _print_issues(p: Project, n: int, closed: bool = True) -> None:
             print(f"  {findings.line(ep, f)}" + (f" (메모: {f.note})" if f.note else ""))
     if opened:
         print(f"정하기: python -m canon check <작품> {n} --keep <id> | --wrong <id> | --fixed <id> | --reopen <id> [--note 메모]"
-              f" | --sev <id> 치명|보통|사소 | --recheck <id>")
+              f" | --sev <id> 치명|보통|사소 | --recheck <id> | --recheck-fixed")
 
 
 def _num(v: float | None) -> str:
@@ -1201,9 +1210,8 @@ def _print_delta(d: StateDelta) -> None:
         extra = f" (목격: {', '.join(e.witnesses)})" if e.witnesses else ""
         secret = f" [비밀 {e.reveals_secret} 드러남]" if e.reveals_secret else ""
         print(f"- 사건 {e.actor} → {e.target}: {e.kind} 강도 {e.intensity}{extra}{secret}  \"{e.quote}\"")
-    for r in d.relationship_updates:
-        nums = "" if d.events else f": 호감 {r.affinity}, 긴장 {r.tension}"
-        print(f"- 관계 {r.a}↔{r.b} ({r.type}){nums}  {r.description}")
+    for r in d.relationship_updates:  # 관계 수치는 반영이 쓰지 않으므로 보이지 않는다 (사건으로 계산)
+        print(f"- 관계 {r.a}↔{r.b} ({r.type})  {r.description}")
     for s in d.secrets_added:
         print(f"- 새 비밀 {s.id} ({s.owner}): {s.content} / 모르는 인물 {s.hidden_from}")
     for f in d.new_facts:
@@ -1228,9 +1236,9 @@ def _print_delta(d: StateDelta) -> None:
 
 def _print_relation_preview(p: Project, d: StateDelta, hold: bool = False) -> None:
     """변경안을 복사본에 반영해 계산된 관계를 미리 보여 준다. hold 면 -y 반영처럼 features.hold 로 뺀 제안은 빼고 계산한다."""
-    sim = p.model_copy(deep=True)
+    # 변경안도 복사한다. apply_delta 가 변경안을 고치므로(뺀 항목을 dismissed 로) 그대로 쓰면 실제 반영이 뺀 항목을 알리지 못한다
+    sim, d = p.model_copy(deep=True), d.model_copy(deep=True)
     if hold:
-        d = d.model_copy(deep=True)
         features.hold(sim, d)
     pipeline.apply_delta(sim, d)
     text = dynamics.describe_relations(sim, numbers=p.settings.show_numbers)
@@ -1244,14 +1252,23 @@ def cmd_update(a: argparse.Namespace) -> None:
 
 
 def _update(name: str, p: Project, n: int, yes: bool, from_json: str | None = None) -> bool:
+    try:
+        pipeline.check_applicable(p, n)
+    except ValueError as e:
+        print(e)
+        if p.episode(n).status == "finalized":
+            print(f"{n}화부터 다시 반영하려면 앞 화 반영 직후로 되돌리세요: revert {name} {n - 1} (뒤 화의 반영도 함께 취소돼요)")
+            print("본문만 고쳤으면 웹의 상태 승인 화면에서 고친 본문 기준으로 다시 반영할 수 있어요")
+        return False
     if from_json:
-        delta = StateDelta.model_validate_json(_strip_fence(Path(from_json).read_text(encoding="utf-8")))
-        delta.episode = n
+        delta = to_delta(StateDeltaAI.model_validate_json(_strip_fence(Path(from_json).read_text(encoding="utf-8"))), n)
         pipeline.clean_delta(p, delta)
     else:
         print(f"{n}화 상태 추출 중...")
         delta = pipeline.extract_state(get_llm("state"), p, n)
     _print_delta(delta)
+    if not yes:  # 미리 보기가 반영 결과와 같도록 먼저 묻는다
+        _ask_flagged(p, delta)
     _print_relation_preview(p, delta, hold=yes)
     if findings.open_findings(p.episode(n)):
         _print_issues(p, n, closed=False)
@@ -1275,6 +1292,22 @@ def _update(name: str, p: Project, n: int, yes: bool, from_json: str | None = No
     if held:
         print(f"설정 바꾸기 · 호칭 제안 {held}개는 반영하지 않고 남겨 뒀어요. 웹의 인물 · 관계도 화면에서 적용하거나 버리세요")
     return True
+
+
+def _ask_flagged(p: Project, d: StateDelta) -> None:
+    """관계 단계와 반대인 관계 바뀜(pace 가 d.rel_flagged 에 적은 것)을 보여 주고 따로 묻는다.
+    웹 상태 승인 화면처럼 기본은 빼고, 빼면 반영 기록의 빼 둔 항목에 남긴다."""
+    flagged = [i for i in d.rel_flagged if i < len(d.relationship_updates)]
+    if not flagged:
+        return
+    name = {c.id: c.name for c in p.characters} | {c.id: c.name for c in d.new_characters}
+    print("\n--- 관계 단계와 반대라 기본으로 빼 둔 관계 바뀜 ---")
+    for i in flagged:
+        r = d.relationship_updates[i]
+        print(f"- {name.get(r.a, r.a)} ↔ {name.get(r.b, r.b)}: {r.type}{f' ({r.description})' if r.description else ''}")
+    if not confirm(f"관계 바뀜 {len(flagged)}개도 반영할까요? (아니오면 빼고 반영해요)", False):
+        d.dismissed.relationship_updates += d.drop_rel_rows(flagged)
+    d.rel_flagged = []
 
 
 def _print_address(p: Project, d: StateDelta) -> None:
@@ -2604,6 +2637,8 @@ def _write_commands(sub, add) -> None:
     sp.add_argument("--note", default=None, help="--keep · --wrong 과 함께: 왜 그런지 메모")
     sp.add_argument("--sev", nargs=2, metavar=("ID", "LEVEL"), help="이 지적의 심각도: 치명 | 보통 | 사소 (crit | mid | low)")
     sp.add_argument("--recheck", metavar="ID", help="이 지적만 다시 검수 (회차는 늘지 않음)")
+    sp.add_argument("--recheck-fixed", action="store_true",
+                    help="지난 검수 뒤 고침안만 넣었으면 그 지적들을 고친 곳 둘레만 보내 한 번에 다시 봄 (회차는 늘지 않음)")
     sp = add("stats", cmd_stats, yes=False)
     sp.add_argument("n", type=int, nargs="?")
     sp = add("run", cmd_run)

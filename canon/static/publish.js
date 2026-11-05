@@ -40,7 +40,8 @@ function copyMenu(n) {
     ${nums.length ? `<button type="button" class="pop-item" data-action="openExport" aria-haspopup="dialog">여러 화 내보내기…<span class="small">${r.from}~${r.to}화</span></button>` : ''}`;
 }
 
-/** '여러 화 내보내기' 대화상자. 형식과 제목 줄은 복사 메뉴와 같은 값을 쓴다. */
+/** '여러 화 내보내기' 대화상자. 형식과 제목 줄은 복사 메뉴와 같은 값을 쓴다.
+    작품 홈(exportAll)처럼 복사 ▾ 메뉴가 없는 화면에서 열면 형식을 바꾸는 곳을 '집필 화면의 복사 ▾ 메뉴'로 알린다 */
 function exportDialogHtml() {
   const nums = writtenNums();
   const r = copyRangeOf(nums);
@@ -54,7 +55,7 @@ function exportDialogHtml() {
       <input type="number" id="copy-from" class="ep-num" min="1" max="${last}" value="${r.from}" data-copy="from" aria-label="시작 화"${inv}>~
       <input type="number" id="copy-to" class="ep-num" min="1" max="${last}" value="${r.to}" data-copy="to" aria-label="끝 화"${inv}>화</div>
     ${bad ? `<span class="small warn-text" id="copy-range-err">시작 화가 끝 화보다 커요. ${r.to}~${r.from}화로 바꿔 보세요</span>` : ''}
-    <div class="note plain">줄바꿈 형식은 <strong>${esc(fmt)}</strong>예요. 화마다 제목 줄을 넣어 잇고, 본문이 없는 화는 건너뛰어요. 형식은 복사 ▾ 메뉴에서 바꿔요.</div>
+    <div class="note plain">줄바꿈 형식은 <strong>${esc(fmt)}</strong>예요. 화마다 제목 줄을 넣어 잇고, 본문이 없는 화는 건너뛰어요. 형식은 ${S.route[2] === 'write' ? '' : '집필 화면의 '}복사 ▾ 메뉴에서 바꿔요.</div>
     <div class="row" style="justify-content:flex-end;gap:8px">
       <button type="button" class="btn" data-action="downloadTxt" data-arg="${r.from}-${r.to}"${bad ? ' disabled' : ''}>.txt 내려받기</button>
       <button type="button" class="btn primary" data-action="copyRange"${bad ? ' disabled' : ''}>한꺼번에 복사</button></div>
@@ -126,6 +127,15 @@ Object.assign(actions, {
   },
   openExport() {
     showDialog('w-export', exportDialogHtml(), '[data-action="menuToggle"][data-arg="copy"]');
+  },
+  /** 다음 할 일 '완결 원고 내보내기'(home.js nextStep): 범위를 본문이 있는 첫 화 ~ 마지막 화로 두고 같은 대화상자를 연다.
+      작품 홈처럼 형식 목록을 아직 받지 않은 화면이면 먼저 받는다 */
+  async exportAll() {
+    const nums = writtenNums();
+    if (!nums.length) return toast('본문이 있는 화가 없어요', true);
+    S.copyRange[S.name] = { from: nums[0], to: nums[nums.length - 1] };
+    if (!S.copyFormats) S.copyFormats = await api('GET', '/publish/formats').catch(() => null);
+    showDialog('w-export', exportDialogHtml(), '[data-action="exportAll"]');
   },
   copyRange() {
     const nums = writtenNums();
