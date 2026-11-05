@@ -875,6 +875,7 @@ class Runner:
         held = [0]
         dropped: list[str] = []
         _edit(self.name, put)
+        _drop_pending_state(self.name, n)
         with self.ctl.lock:
             run.applied.append(n)
         self._set(n, "applied")
@@ -997,6 +998,7 @@ def resume(name: str, approve: bool = False, rewrite: bool = False, *, foregroun
                 held = [0]
                 dropped: list[str] = []
                 _edit(name, take)
+                _drop_pending_state(name, n)
                 r.log(f"{n}화 변경안을 검토 화면 없이 그대로 반영했어요 (사용자 승인)")
                 for m in dropped:
                     r.log(f"{n}화 반영에서 뺐어요: {m}", "warn")
@@ -1138,6 +1140,13 @@ def _changed_while_writing(n: int, status: str) -> list[str]:
                 f"플롯을 확정한 뒤 이어 가면 {n}화를 새로 써요"]
     return [f"{n}화가 '{EP_STATUS.get(status, status)}' 상태로 바뀌어 AI가 쓴 본문은 버렸어요",
             f"이어 가면 {n}화의 지금 상태에서 다시 시작해요"]
+
+
+def _drop_pending_state(name: str, n: int) -> None:
+    """자동으로 반영한 화의 검토 대기 변경안(pending.json 의 state:<화>, web.auto_review · 반영 취소가 둔 것)을 지운다.
+    남겨 두면 작품 목록이 반영한 화의 변경안을 알리고, 반영 뒤 고친 화의 다시 맞추기 후보로 옛 변경안이 놓인다."""
+    if f"state:{n}" in store.load_pending(name)["results"]:
+        store.edit_pending(name, lambda d: d["results"].pop(f"state:{n}", None))
 
 
 def _same_text(p: Project, n: int, delta: StateDelta) -> None:

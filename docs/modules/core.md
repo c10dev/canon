@@ -34,6 +34,7 @@
 - `autorun.json` 에 진행 기록
 - 변경안 반영(`_review` 의 put)은 반영 전제 `pipeline.check_applicable` 에 걸리면 반영하지 않고 paused 로 멈춘다
 - 검토 대기의 그대로 반영(`resume` 의 take)도 `check_applicable` 에 걸리면 반영하지 않고 오류를 낸다
+- 자동 반영(`_review` 의 put)과 그대로 반영(take)이 끝나면 pending.json 의 그 화 상태 변경안(`state:<화>`)을 지운다(`_drop_pending_state`)
 - 서버 재시작 후 이어 가기
 - 도는 실행은 작품 폴더의 `.autorun.lock` 에 flock 을 쥔다(`_take`, `Control.owner`). 프로세스가 죽으면 OS 가 푼다
 - 다른 프로세스(명령줄 `canon auto` 나 다른 서버)가 잠금을 쥐면 `elsewhere` 가 참이고 `active` 도 참이다(화면 저장 보호가 켜진다)
@@ -526,6 +527,8 @@
 - 반영 취소(`POST …/revert/{n}`)는 n+1화부터의 반영 기록을 pending.json 의 상태 변경안(`state:<화>`)으로 남긴다(`_revert_kept`)
 - 남긴 변경안의 base 는 반영 때 본문이다(반영 뒤 고쳤으면 `final_text`)
 - 반영 뒤 고친 화에서 이미 뽑아 둔 상태 변경안은 반영 기록으로 덮지 않는다
+- `GET …/pending` 은 쓸 수 없게 된 상태 변경안을 지운다(`_stale_state`): 본문 작성 상태도 반영 뒤 고친 화도 아닌 화의 것
+- 반영 뒤 고친 화는 고치기 전 본문(`final_text`)에서 뽑은 변경안도 지운다. 다시 맞추기 후보는 고친 본문에서 뽑은 것만이다. base 가 없는 옛 기록은 변경안의 `basis` 로 본다
 - `PUT /api/projects/{name}/pending/{key}/draft`(`save_state_draft`)는 상태 변경안 결과에 초안을 붙인다
 - 초안 저장은 pending.json 만 고쳐 작품 저장으로 치지 않는다
 - 초안 저장 본문의 `picks` 가 null 이면 남긴 체크를 그대로 둔다(화면의 체크가 다른 화의 것일 때)
@@ -533,6 +536,7 @@
 - 읽기 전용 GET 은 `_view`(`store.load_view`)로 작품을 읽는다
 - `GET /api/projects`(`list_projects`)는 카드의 project.json 몫을 파일 판(수정 시각 · 크기 · inode)마다 `_cards` 에 둔다. 판이 바뀐 작품만 `store.peek` 으로 다시 읽는다
 - 작품 목록의 play.json · pending.json · 갈래 정보는 요청마다 읽는다
+- 작품 목록 카드의 확인할 것(`_card_alerts`)은 `GET …/pending` 이 지우는 상태 변경안(`_stale_state`)을 빼고 보인다. 쓸 수 있는 화(`_state_live`)는 `_cards` 에 함께 둔다
 - 화 넣기 · 빼기 · 지우기와 대화 에이전트의 화 넣기 · 빼기 승인 · 되돌리기는 저장한 뒤 `store.renumber_side_files` 로 큐 시트 실험 · 비교본을 옮긴다. 넣기 · 빼기 · 지우기 응답의 notes 에 옮긴 설명이 붙는다
 - `GET …/backups` · `POST …/backups/restore` 는 백업 목록과 되돌리기(`store.restore_backup`). 자동 집필 · 돌고 있는 AI 작업 · 검토를 기다리는 결과가 있으면 막고, 반영한 화가 줄면 `autorun.after_revert` 를 부른다
 - 작품 전체 저장은 `put_project`

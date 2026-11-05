@@ -50,11 +50,19 @@ function restateNote(n) {
     <div class="row" style="margin-top:6px"><a class="btn small primary" href="${base()}/review/${n}">상태 다시 맞추기</a><button type="button" class="btn small" data-action="keepState" data-arg="${n}"${autoOn() ? ' disabled' : ''}>그대로 두기</button></div></div>`;
 }
 
+/** 다시 맞추기 후보 변경안. 고친 본문에서 뽑은 것만 쓴다: 고치기 전 본문(final_text)에서 뽑은 변경안
+    (자동 반영 전에 받아 둔 검토 대기 변경안 같은 것)은 이미 반영한 것이라 후보로 두지 않는다 (서버 web._stale_state 와 같은 규칙). */
+function restateDelta(n) {
+  const e = ep(n);
+  const b = S.deltaBase[n];
+  return b !== undefined && e && b.trim() === (e.final_text || '').trim() ? null : S.deltas[n];
+}
+
 /** 상태 승인 화면(반영 완료 화) 위 카드. 변경안이 없으면 다시 뽑기, 있으면 요약 · 새 사실 · 새 복선을 골라 반영. */
 function restateCard(n) {
   const e = ep(n);
   if (!editedAfterFinal(e)) return '';
-  const d = S.deltas[n];
+  const d = restateDelta(n);
   const later = laterWritten(n);
   const intro = `<p class="desc">${n}화는 반영한 뒤 본문을 고쳤어요. 인물 상태 · 관계 · 비밀은 ${later.length ? `뒤 화(${rangeText(later)}화)가 그 위에 쌓아서 ` : ''}여기서 바꾸지 않아요. 고친 본문에서 변경안을 다시 뽑아 요약 · 새 사실 · 새 복선 · 새 장소만 골라 반영할 수 있어요. 인물 상태까지 바꿔야 하면 아래 '${n}화부터 반영 취소'를 쓰세요.</p>`;
   if (!d) {
@@ -119,7 +127,7 @@ Object.assign(actions, {
   },
   async applyRestate(n) {
     n = Number(n);
-    const d = S.deltas[n];
+    const d = restateDelta(n);
     if (!d) return;
     const pk = rsPicks(n);
     const body = restateBody(d, pk);
