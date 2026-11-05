@@ -3702,7 +3702,7 @@ def fix_around(text: str, spots: list[tuple[int, int]], k: int = FIX_AROUND) -> 
 def fix_recheck_prompt(p: Project, n: int, items: list[tuple[ConsistencyIssue, str, list[tuple[str, str]]]],
                        excerpts: list[str], decided: list[ConsistencyIssue]) -> str:
     """고친 곳만 다시 보기: 지난 검수 뒤 고침안을 넣은 지적들을 한 번에 다시 묻는다. 검수 자료 전체 대신
-    작품 설정(static_context, 검수와 같은 앞부분이라 캐시가 맞는다)과 고친 곳 둘레 문단만 넣는다.
+    작품 설정(static_context, 그 끝을 캐시 경계로 넘긴다. 검수 호출의 캐시는 스키마가 달라 읽지 못한다)과 고친 곳 둘레 문단만 넣는다.
     items: (지적, 지적 id, (고치기 전, 고친 뒤) 쌍). excerpts: 지금 본문에서 고친 곳 둘레 (fix_around)."""
     rows = []
     for f, fid, changes in items:
