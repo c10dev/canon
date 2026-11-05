@@ -1338,6 +1338,10 @@ def cmd_auto(a: argparse.Namespace) -> None:
 
     p = store.load(a.name)
     if a.stop:
+        if autorun.elsewhere(a.name):
+            autorun.request(a.name, "stop")
+            print("다른 곳(웹 서버나 다른 명령줄)에서 도는 자동 집필에 중지를 청했어요. 지금 단계가 끝나면 멈추고 기다리던 배치 작업을 취소해요.")
+            return
         autorun.request(a.name, "stop")
         print("자동 집필을 중지했어요. 기다리던 배치 작업이 있으면 취소했어요.")
         return

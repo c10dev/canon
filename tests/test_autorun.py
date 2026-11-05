@@ -570,6 +570,100 @@ def test_save_keeps_plot_of_written_episode(demo):
     assert pipeline.keep_locked_plots(old, p) == [] and gone not in p.episode(1).plot.characters
 
 
+@contextlib.contextmanager
+def other_process_runs(name):
+    """다른 프로세스(명령줄 canon auto)가 이 작품의 실행 주인 잠금을 쥐고 있다."""
+    import subprocess
+    import sys
+    path = store.project_dir(name) / autorun.OWNER_FILE
+    code = ("import fcntl, os, sys, time\n"
+            "fd = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT, 0o644)\n"
+            "fcntl.flock(fd, fcntl.LOCK_EX)\nprint('held', flush=True)\ntime.sleep(60)\n")
+    proc = subprocess.Popen([sys.executable, "-c", code, str(path)], stdout=subprocess.PIPE, text=True)
+    try:
+        assert proc.stdout.readline().strip() == "held"
+        yield proc
+    finally:
+        proc.kill()
+        proc.wait()
+
+
+def test_other_process_run_blocks_start_resume_and_restart(demo, monkeypatch):
+    """명령줄 실행이 도는 동안 웹 서버는 같은 작품을 시작 · 이어 가기 · 재시작 이어 가기 하지 않고, 화면 저장 보호를 켠다."""
+    monkeypatch.setenv("CANON_MOCK_BATCH_POLLS", "100000")
+    autorun.start(demo, 1, True, Policy())
+    wait_until(lambda: autorun.get_run(demo).batches)
+    autorun.request(demo, "pause")
+    wait_until(idle(demo))
+    run = autorun.load_run(demo)
+    run.status = "running"  # 다른 프로세스가 이어 가는 중
+    autorun._write(demo, run)
+    batches = dict(run.batches)
+    monkeypatch.setattr(autorun, "_controls", {})
+    with other_process_runs(demo) as proc:
+        assert autorun.active(demo) and autorun.elsewhere(demo)
+        with pytest.raises(ValueError, match="다른 곳"):
+            autorun.start(demo, 1, False, Policy())
+        with pytest.raises(ValueError, match="다른 곳"):
+            autorun.resume(demo)
+        with pytest.raises(ValueError, match="다른 곳"):
+            autorun.set_batch(demo, False)
+        assert autorun.resume_all() == []  # 서버가 다시 시작해도 두 번째 러너를 띄우지 않는다
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            main(["auto", demo, "--stop"])
+        assert "중지를 청했어요" in out.getvalue()
+        assert autorun.request(demo, "stop").status == "running"  # 상태는 주인이 쓴다
+        run = autorun.load_run(demo)
+        assert run.batches == batches and run.restarts == 0  # 주인이 기다리는 배치를 취소하지 않는다
+        assert (store.project_dir(demo) / autorun.WANT_FILE).read_text() == "stop"
+        autorun.request(demo, "pause")
+        assert (store.project_dir(demo) / autorun.WANT_FILE).read_text() == "stop"  # 중지를 일시정지로 낮추지 않는다
+        proc.kill()
+        proc.wait()
+        assert not autorun.active(demo)  # 주인 프로세스가 죽으면 OS 가 잠금을 푼다
+    for b in mock.BATCHES.values():
+        b["polls"] = 0
+    monkeypatch.setenv("CANON_MOCK_BATCH_POLLS", "0")
+    assert autorun.resume_all() == [demo]
+    wait_until(idle(demo))
+    assert not (store.project_dir(demo) / autorun.WANT_FILE).exists()  # 주인이 된 실행은 지난 요청을 버린다
+
+
+def test_runner_reads_request_left_by_other_process(demo, monkeypatch):
+    """다른 프로세스가 autorun.want 에 남긴 일시정지를 러너가 배치를 기다리다 읽고 멈춘다. 끝나면 잠금을 푼다."""
+    monkeypatch.setenv("CANON_MOCK_BATCH_POLLS", "100000")
+    autorun.start(demo, 1, True, Policy())
+    wait_until(lambda: autorun.get_run(demo).batches)
+    mine = autorun._controls
+    monkeypatch.setattr(autorun, "_controls", {})  # 다른 프로세스에서 본다
+    assert autorun.elsewhere(demo)
+    autorun.request(demo, "pause")
+    monkeypatch.setattr(autorun, "_controls", mine)
+    wait_until(idle(demo))
+    run = autorun.load_run(demo)
+    assert run.status == "paused" and run.batches  # 일시정지는 배치를 남긴다
+    assert not (store.project_dir(demo) / autorun.WANT_FILE).exists()
+    assert not autorun.elsewhere(demo) and mine[demo].owner is None
+
+
+def test_ended_run_reads_record_left_by_other_process(demo, monkeypatch):
+    """이 프로세스의 실행이 멈춘 뒤 다른 프로세스가 이어 가 남긴 기록을 옛 메모리 값으로 덮지 않는다."""
+    monkeypatch.setenv("CANON_MOCK_BATCH_POLLS", "100000")
+    autorun.start(demo, 1, True, Policy())
+    wait_until(lambda: autorun.get_run(demo).batches)
+    autorun.request(demo, "pause")
+    wait_until(idle(demo))
+    assert demo in autorun._controls  # 멈춘 실행의 Control 은 남아 있다
+    run = autorun.load_run(demo)
+    run.restarts, run.batches = 7, {**run.batches, "1:check": "other-batch"}  # 다른 프로세스가 이어 가다 멈췄다
+    autorun._write(demo, run)
+    assert autorun.get_run(demo).restarts == 7
+    autorun.set_policy(demo, Policy(review_every=2))
+    autorun.set_batch(demo, True)
+    disk = autorun.load_run(demo)
+    assert disk.restarts == 7 and disk.batches["1:check"] == "other-batch" and disk.policy.review_every == 2
+
 def test_wanted_shows_pending_pause(monkeypatch):
     """도는 실행에 일시정지 · 중지를 요청하면 wanted 가 그 요청을 돌려준다 (화면이 지금 단계가 끝날 때까지 '멈추는 중'을 보인다)."""
     from canon import autorun

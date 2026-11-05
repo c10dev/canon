@@ -120,6 +120,7 @@
 - 합치기는 없다
 - 원본 `project.json` 은 바꾸지 않는다
 - 작품 복제는 `branch.json` 을 옮기지 않는다
+- 갈래 · 복제 · 플레이 사본은 자동 집필 기록과 실행 주인 파일(`autorun.json` · `.autorun.lock` · `autorun.want`)을 옮기지 않는다(`COPY_SKIP`)
 - 명령줄 `branch` · `branches` · `branch-compare` · `promote`
 - LLM 호출 없음
 
