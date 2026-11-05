@@ -255,13 +255,21 @@ function markHint(r) {
   return r.kind === 'banned' ? `${r.title} · 이 문장을` : `${r.title.split(' · ')[0]} · 이 문장을`;
 }
 
-/** 고치는 본문에서 밑줄 친 곳을 누르면 (고른 것 없이) 그 문장으로 부분 수정 도구를 띄운다. 글자를 치면 도구는 닫힌다. */
+/** 고치는 본문에서 밑줄 친 곳을 누르면 (고른 것 없이) 그 문장으로 부분 수정 도구를 띄운다. 글자를 치면 도구는 닫힌다.
+    손가락 기기는 커서를 두려고 누를 때마다 카드가 뜨지 않게, 같은 자리를 2초 안에 한 번 더 눌러야 띄운다 (markTap) */
+let markTap = null;  // { n, p, t } 손가락 기기에서 마지막으로 누른 자리
 document.addEventListener('click', (e) => {
   const ta = e.target;
   if (!(ta.matches && ta.matches('.hl-wrap textarea[data-draft]')) || !editableEp(ep(Number(ta.dataset.draft)))) return;
   setTimeout(() => {  // passage.js 가 고른 것 없는 클릭으로 도구를 닫은 뒤에
     if (ta.selectionStart !== ta.selectionEnd || (S.selTool && S.selTool.mode === 'edit')) return;
     const p = ta.selectionStart;
+    if (typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches) {
+      const n0 = ta.dataset.draft;
+      const again = markTap && markTap.n === n0 && Math.abs(markTap.p - p) <= 3 && Date.now() - markTap.t < 2000;
+      markTap = again ? null : { n: n0, p, t: Date.now() };
+      if (!again) return;
+    }
     const name = typeof mentionAt === 'function' && mentionAt(ta, p);
     if (name) return mentionFromTa(ta, name);  // 이름을 누르면 이름 카드가 먼저다. 그 문장을 고치려면 드래그해 고른다
     const n = Number(ta.dataset.draft);

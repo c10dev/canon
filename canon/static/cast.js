@@ -380,7 +380,7 @@ function castStrip(cid, opts = {}) {
     const x = (n - 1) * step;
     if (!a) { cells.push(`<rect x="${x}" y="6" width="${Math.max(1, step - 1)}" height="6" class="cs-off"></rect>`); continue; }
     const e = ep(n);
-    cells.push(`<rect x="${x}" y="1" width="${Math.max(1, step - 1)}" height="${h - 2}" class="cs-on ${a.status}"><title>${esc(`${n}화 ${e ? e.plot.title : ''} · ${STATUS[a.status]}${a.pov ? ' · 시점 인물' : ''}`)}</title></rect>`);
+    cells.push(`<rect x="${x}" y="1" width="${Math.max(1, step - 1)}" height="${h - 2}" class="cs-on ${a.status}" data-action="castStripGo" data-arg="${n}"><title>${esc(`${n}화 ${e ? e.plot.title : ''} · ${STATUS[a.status]}${a.pov ? ' · 시점 인물' : ''}`)}</title></rect>`);
     if (a.pov) cells.push(`<rect x="${x}" y="${h + 1}" width="${Math.max(1, step - 1)}" height="3" class="cs-pov"></rect>`);
   }
   if (opts.mark && opts.mark <= total) cells.push(`<rect x="${(opts.mark - 1) * step - 1}" y="0" width="${step + 1}" height="${h}" class="cs-mark"></rect>`);
@@ -594,7 +594,7 @@ function bodySuggestCard(c) {
     return `<label class="body-sug"><input type="checkbox" data-body-pick="${esc(c.id)}" value="${k}"${now || same ? '' : ' checked'}${same ? ' disabled' : ''}>
       <span><strong>${label}</strong> ${now ? `<span class="before">${esc(now)}</span> → ` : ''}<span class="after">${esc(s[k])}</span>${same ? ' <span class="small">지금과 같아요</span>' : ''}</span></label>`;
   }).join('');
-  return `<div class="note info" style="display:flex;flex-direction:column;gap:8px"><strong>AI 제안</strong>${s.note ? `<span>${esc(s.note)}</span>` : ''}
+  return `<div class="proposal" aria-label="AI 신체 프로필 제안"><strong>AI 제안</strong>${s.note ? `<span>${esc(s.note)}</span>` : ''}
     ${rows || '<span>제안한 칸이 없어요</span>'}
     ${proposalActions(['bodyDismiss', c.id], ['bodyApply', c.id], '고른 칸 적용', !rows)}</div>`;
 }
@@ -701,11 +701,12 @@ function castChart(series, lo, hi, opts = {}) {
   const out = [];
   (opts.grid || [lo, hi]).forEach((g) => out.push(`<line class="cc-grid${g === 0 && lo < 0 ? ' zero' : ''}" x1="${L}" x2="${L + pw}" y1="${Y(g)}" y2="${Y(g)}"></line><text class="cc-tick" x="${L - 5}" y="${Y(g) + 3}" text-anchor="end">${opts.fmt ? opts.fmt(g) : g}</text>`));
   out.push(`<line class="cc-now" x1="${X(at)}" x2="${X(at)}" y1="${T}" y2="${T + ph}"></line>`);
-  series.forEach((s) => {
+  series.forEach((s, si) => {
     const pts = s.values.map((v, i) => (v === null ? null : [X(i), Y(v)]));
     let d = '';
     pts.forEach((pt, i) => { if (pt) d += `${d && pts[i - 1] ? 'L' : 'M'}${pt[0].toFixed(1)} ${pt[1].toFixed(1)} `; });
-    if (d) out.push(`<path class="cc-line" d="${d}" style="stroke:${s.color}"></path>`);
+    // 둘째 선부터는 점선 · 짧은 점선으로도 가른다 (색만으로 가르지 않게)
+    if (d) out.push(`<path class="cc-line" d="${d}" style="stroke:${s.color}${si ? `;stroke-dasharray:${si === 1 ? '6 4' : '2 3'}` : ''}"></path>`);
     const cur = pts[at];
     if (cur) out.push(`<circle cx="${cur[0]}" cy="${cur[1]}" r="4" style="fill:${s.color}" class="cc-dot"></circle>`);
   });
@@ -720,7 +721,10 @@ function castChart(series, lo, hi, opts = {}) {
     out.push(`<rect class="cc-col" x="${X(i) - colW / 2}" y="${T}" width="${colW}" height="${ph}" data-action="castGo" data-arg="${i + a0}"><title>${esc(tip)}</title></rect>`);
   });
   const range = all.length > 40 ? `<div class="small">${S.castChartAll ? `전체 ${all.length}개 시점` : `${frameLabel(fs[0])} ~ ${frameLabel(fs[fs.length - 1])}`} <button type="button" class="link-btn" data-action="castChartAll">${S.castChartAll ? '고른 시점 주변만' : '전체 보기'}</button></div>` : '';
-  return `<svg class="cast-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(opts.label || '')}">${out.join('')}</svg>${range}`;
+  // 고른 시점의 값을 글로도 보인다. 마우스가 없으면 칸을 눌러 시점을 옮기며 읽는다 (title 은 손가락 기기에서 보이지 않는다)
+  const fmtV = (v) => (v === null ? '-' : (opts.fmt ? opts.fmt(v) : v.toFixed(2)));
+  const now = fs[at] ? `<div class="small cc-read" aria-live="polite">${esc(frameLabel(fs[at]))} · ${series.map((s, si) => `${esc(s.label)}${si ? (si === 1 ? ' (점선)' : ' (짧은 점선)') : ''} ${esc(fmtV(s.values[at]))}`).join(' · ')}${opts.notes && opts.notes[at] ? ` · ${esc(opts.notes[at])}` : ''}</div>` : '';
+  return `<svg class="cast-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(opts.label || '')}">${out.join('')}</svg>${now}${range}`;
 }
 
 /** 관계 수치 직접 보정. AI가 아니라 '수동보정' 사건으로 기록해 재생할 수 있다 (POST /ties/adjust, pipeline.adjust_tie). */
@@ -768,7 +772,7 @@ function castPairDetail(a, b) {
     ${multi ? `<h3>온기</h3>${castChart(two((t) => t.warmth), -1, 1, { grid: [-1, 0, 1], notes, label: '온기 추이' })}
     <h3>신뢰</h3>${castChart(two((t) => t.trust), 0, 1, { grid: [0, 0.5, 1], notes, label: '신뢰 추이' })}
     <h3>긴장 <span class="small" style="font-weight:400">0~10, 3 · 5 · 7에서 보통 · 높음 · 매우 높음</span></h3>${castChart([{ label: '긴장', color: 'var(--text-2)', values: tension }], 0, 10, { grid: [0, 3, 5, 7, 10], fmt: (v) => (Number.isInteger(v) ? String(v) : v.toFixed(1)), notes, label: '긴장 추이', h: 110 })}
-    <div class="small">칸에 올리면 그 시점 값과 사건, 누르면 보는 시점이 그 화로 가요.</div>` : '<div class="small">1화를 반영하면 화별 추이 그래프가 나와요.</div>'}
+    <div class="small">칸을 누르면 보는 시점이 그 화로 가고, 그래프 아래에 그 시점 값과 사건이 적혀요.</div>` : '<div class="small">1화를 반영하면 화별 추이 그래프가 나와요.</div>'}
   </section>
   <section class="card"><h2>두 사람 사이 관계 사건 <span class="small" style="font-weight:400">${evs.length}개</span></h2>
     ${evList ? `<ul class="cast-ul">${evList}</ul>` : '<div class="small">아직 없어요</div>'}
@@ -925,7 +929,7 @@ function castTable() {
       const x = left + (n - 1) * step;
       if (!a) continue;
       const e = ep(n);
-      out.push(`<rect class="cs-on ${a.status}" x="${x + 0.5}" y="${y + 5}" width="${Math.max(1.5, step - 1.5)}" height="${rowH - 10}" rx="${step > 8 ? 3 : 1}"><title>${esc(`${c.name} · ${n}화 ${e ? e.plot.title : ''} · ${STATUS[a.status]}${a.pov ? ' · 시점 인물' : ''}`)}</title></rect>`);
+      out.push(`<rect class="cs-on ${a.status}" data-action="castStripGo" data-arg="${n}" x="${x + 0.5}" y="${y + 5}" width="${Math.max(1.5, step - 1.5)}" height="${rowH - 10}" rx="${step > 8 ? 3 : 1}"><title>${esc(`${c.name} · ${n}화 ${e ? e.plot.title : ''} · ${STATUS[a.status]}${a.pov ? ' · 시점 인물' : ''}`)}</title></rect>`);
       if (a.pov) out.push(`<circle class="ct-pov" cx="${x + step / 2}" cy="${y + rowH / 2}" r="${Math.max(1.5, Math.min(4, step / 4))}"></circle>`);
     }
     out.push(`<text class="ct-count" x="${left + total * step + 8}" y="${y + 18}">${rows.length}화</text>`);
@@ -1018,6 +1022,18 @@ Object.assign(actions, {
   // 다른 화면(address.js 남겨 둔 호칭 줄, 등장표 줄)이 부르는 옛 이름
   castPick(v) { actions.castShow(v); },
   castOpen(id) { actions.castShow('c:' + id); },
+  /** 등장 띠 · 등장표의 칸을 누르면: 그 화를 반영한 시점이 있으면 관계도 시점을 옮기고, 없으면 그 화에서 할 일 화면으로 간다.
+      화 번호 · 상태는 title(마우스)에만 있어 손가락 기기에서는 누르는 것이 유일한 길이다 */
+  castStripGo(n) {
+    n = Number(n);
+    const i = (S.cast.frames || []).findIndex((f) => f.episode === n);
+    if (i >= 0) {
+      S.castFrame = i;
+      castRefresh();
+      return toast(`${n}화 반영 뒤 시점으로 옮겼어요`);
+    }
+    location.hash = typeof epGo === 'function' ? epGo(n)[0] : `${base()}/write/${n}`;
+  },
   castStep(d) {
     castStop();
     S.castFrame = Math.min(S.cast.frames.length - 1, Math.max(0, S.castFrame + Number(d)));

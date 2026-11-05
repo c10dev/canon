@@ -1633,6 +1633,26 @@ def analyze_library_style(body: Sample) -> StyleProfile:
     return pipeline.analyze_style(get_llm("plan"), body.text)
 
 
+LIB_JOBS = ".styles"  # 문체 라이브러리 분석 작업의 project 자리 (작품 폴더는 점으로 시작하지 않아 겹치지 않는다)
+
+
+@app.post("/api/styles/analyze/job")
+def analyze_library_style_job(body: Sample) -> dict:
+    """문체 라이브러리 분석을 화면을 막지 않는 작업(lib_style)으로 돌린다. 결과(profile)는 화면이 그 항목에 제안으로 놓는다."""
+    if len(body.text.strip()) < 200:
+        raise HTTPException(400, "예시 원문은 200자 이상 넣어 주세요")
+    llm, text = get_llm("plan"), body.text
+
+    def fn(job: jobs.Job):
+        return {"profile": pipeline.analyze_style(llm, text).model_dump()}
+    try:
+        with usage.scope(project="", episode=None, task="lib_style"):
+            job = jobs.start(LIB_JOBS, "lib_style", None, "문체 분석 (라이브러리)", fn)
+    except jobs.Busy as b:
+        return {**b.job.public(), "already": True}
+    return job.public()
+
+
 @app.post("/api/styles")
 def create_style(body: StyleIn) -> StyleEntry:
     e = library.create(body.name, body.profile, body.sample, body.source, body.notes)

@@ -21,6 +21,8 @@
 ### `canon/static/app.js`
 
 - 웹 화면의 뼈대
+- 900px 이하에서 알림 창 · 찾기 팔레트 · 대화 시트 · 서랍 메뉴를 열면 기록을 하나 더해(`panelOn` · `panelOff`, `popstate`) 뒤로 가기가 그 창만 닫는다. 화면을 옮기면 기록은 남기고 상태만 비운다
+- 지운 것 되살리기는 최근 10개까지 쌓는다(`rememberRemoved`, `S.removed`). 저장 띠의 '되살리기'는 가장 최근 것부터 하나씩
 - 휴대폰 키보드가 열리면 html 에 `kb-open` 을 단다(`--kb` 80px 이상). 640px 이하에서 집필 머리를 붙여 두지 않는다
 - 글 칸(`DIALOG_TEXT`)이 있는 대화상자는 바깥(배경)을 눌러도 닫지 않는다. Esc · 취소는 닫는다
 - 그린 뒤 화마다 한 열인 넓은 표(`.at-table-wrap`, 상태창 화별 `.sw-table-wrap`)를 지금 화(`.cur`) 또는 마지막 열로 옆으로 굴려 둔다
@@ -204,6 +206,7 @@
 ### `canon/static/marks.js`
 
 - 집필 화면 문체 표시
+- 손가락 기기에서 밑줄 친 곳은 같은 자리를 2초 안에 한 번 더 눌러야 이름 카드 · 도구를 띄운다(`markTap`). 커서를 두려고 누를 때마다 뜨지 않게
 - 장치마다 이번 화 배지(`deviceBadges`, 본문 띠의 '문체 장치' 메뉴 `styleMenu`)
 - 본문에서 장치 글자 · 금지 표현 밑줄(고치는 본문은 textarea 뒤에 깐 칸 `hl-layer`, 스크롤은 CSS 스크롤 타임라인 `hl-follow` 로 따라가고 안 되는 브라우저만 `scrollTop`, 읽기 전용은 `<mark>`)
 - 밑줄에서 부분 수정 도구 띄우기
@@ -445,6 +448,7 @@
   - 라이브러리 항목도 같은 카드
   - 목차 틀은 공용 `outline.js`(`styleToc`)
   - `tests/test_style_js.py`
+- 문체 라이브러리 분석도 작업(`lib_style`, project `.styles`, `POST /api/styles/analyze/job`)이다. 결과는 그 항목 화면 맨 위 제안 카드(`libDraftCard`, `S.libDraft`)로 오고 이 탭이 열려 있는 동안 남는다
 - '문체 분석'(`analyzeStyle`)은 화면을 막지 않는 작업 `style` 을 시작한다. 버튼은 `jobBtn` 으로 진행을 보이고, 결과는 문체 화면 맨 위 제안 카드(`styleDraftCard`, `S.styleDraft`)로 온다. '이 결과로 바꾸기'(`styleDraftApply`)를 눌러야 작품 문체 · 기준 지표에 들어가고 라이브러리 연결을 끊는다. 문체 라이브러리의 분석은 작품 밖이라 아직 가림막(run)이다
 
 ### `canon/static/stylechat.js`

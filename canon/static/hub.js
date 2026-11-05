@@ -262,6 +262,7 @@ function placeHub() {
 
 function hubOpen() {
   S.hubOpen = true;
+  if (typeof panelOn === 'function') panelOn('hub', () => hubClose());  // 휴대폰 뒤로 가기가 창만 닫게 (app.js)
   S.hubSeen = Date.now();
   hubNow().finished.forEach((j) => S.hubSeenJobs.add(j.id));
   renderHub();
@@ -273,6 +274,7 @@ function hubOpen() {
 function hubClose(back = true) {
   if (!S.hubOpen) return;
   S.hubOpen = false;
+  if (typeof panelOff === 'function') panelOff('hub');
   S.hubSeen = Date.now();
   renderHub();
   if (!back) return;

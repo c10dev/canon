@@ -21,6 +21,8 @@ const S = {
   libs: null,       // 문체 라이브러리 목록
   lib: null,         // 라이브러리에서 보고 있는 항목 (편집 중)
   libDirty: false,
+  libJobFor: {},   // 라이브러리 분석 작업 id → 결과를 놓을 항목 id (style.js libAnalyze)
+  libDraft: null,  // 도착한 라이브러리 분석 결과 { lib, profile, job } (style.js libDraftCard)
   styleLink: null,   // 작품 문체와 라이브러리 항목의 관계
   selEp: null,       // 플롯 보드에서 고른 화
   deltas: {},        // 화별 상태 변경안 (반영 전)
@@ -95,12 +97,14 @@ function patchBody(p, base) {
 }
 let projectNow = S.project;
 delete S.project;
-Object.defineProperty(S, 'project', { enumerable: true, get: () => projectNow, set: (v) => { projectNow = v; projectBase = baseOf(v); S.gen++; S.lastRemoved = null; } });
+Object.defineProperty(S, 'project', { enumerable: true, get: () => projectNow, set: (v) => { projectNow = v; projectBase = baseOf(v); S.gen++; S.removed = []; } });
 
-/** 저장하기 전 목록에서 지운 것을 하나 되살릴 수 있게, 지우기 직전 그 칸들을 둔다. 저장 띠에 '되살리기'가 뜬다. */
+/** 저장하기 전 목록에서 지운 것을 되살릴 수 있게, 지우기 직전 그 칸들을 쌓아 둔다(최근 10개). 저장 띠의 '되살리기'는 가장 최근 것부터 하나씩 되살린다. */
+const REMOVED_MAX = 10;
 function rememberRemoved(label, paths) {
-  S.lastRemoved = { label, saved: paths.map((k) => [k, structuredClone(getPath(P(), k))]) };
+  S.removed = [...(S.removed || []), { label, saved: paths.map((k) => [k, structuredClone(getPath(P(), k))]) }].slice(-REMOVED_MAX);
 }
+const lastRemoved = () => (S.removed && S.removed.length ? S.removed[S.removed.length - 1] : null);
 
 // 화 상태 칩 · 범례 글자. 칩과 범례는 이 한 곳에서 글자를 가져온다 (docs/design/README.md '화 상태 칩')
 const STATUS = { draft: '초안', confirmed: '확정', written: '작성됨', finalized: '반영 완료' };
@@ -277,6 +281,7 @@ const JOB_STOP_NOTE = {};  // 작업 종류별 멈추기 확인 문구. 없으�
 const JOB_DONE_MSG = {
   suggest: '설정 제안이 도착했어요. 설정 도우미에서 확인하세요.',
   style: '문체 분석 결과가 도착했어요. 문체 레퍼런스에서 확인하고 바꿀지 고르세요.',
+  lib_style: '문체 분석 결과가 도착했어요. 문체 라이브러리에서 확인하고 바꿀지 고르세요.',
   arc: '기승전결 구조 제안이 도착했어요. 확인하고 저장하세요.',
   plots: '화별 플롯 초안을 만들었어요. 확정된 화는 그대로예요.',
   plot_one: (j) => (j.result && j.result.realign ? `${j.ep}화 플롯을 요약대로 채웠어요. ${j.result.realign}화와 어긋난 점은 ${j.result.realign}화에 '다시 맞추기'로 표시했어요.` : `${j.ep}화 플롯을 채웠어요. 다듬은 뒤 확정하세요.`),
@@ -479,7 +484,7 @@ async function pollJobs(soon = false) {
   for (const j of S.jobs) {
     const old = before.get(j.id);
     const progressed = !old || old.done !== j.done || old.status !== j.status;
-    const mine = j.project === S.name || j.project === REV_JOBS;  // 역설계 실험 작업은 작품 밖이라 어느 화면에서든 제 알림을 낸다 (revlab.js)
+    const mine = j.project === S.name || j.project === REV_JOBS || (typeof LIB_JOBS !== 'undefined' && j.project === LIB_JOBS);  // 문체 라이브러리 분석도 작품 밖이다 (style.js)  // 역설계 실험 작업은 작품 밖이라 어느 화면에서든 제 알림을 낸다 (revlab.js)
     if (progressed && !mine && old && old.status === 'running' && j.status !== 'running') {
       // 다른 작품을 보는 동안 끝났다. 결과는 그 작품을 열면 다시 놓인다 (pending.json)
       toast(j.status === 'error' ? `${j.project} · ${j.label}${josa(j.label, '을', '를')} 끝내지 못했어요: ${j.error}. 그 작품을 열면 다시 시도할 수 있어요` : `${j.project} · ${j.label}${josa(j.label, '이', '가')} 끝났어요. 그 작품을 열면 결과가 보여요`, j.status === 'error');
@@ -517,7 +522,7 @@ async function pollJobs(soon = false) {
     }
     if (j.status !== 'running' && !(old && old.status !== 'running')) await finishJob(j);
     // 설정 · 사용량 · 문체 라이브러리처럼 작품 밖 화면은 S.name 이 남아 있어도 다시 그리지 않는다
-    if ((S.route[0] === 'p' && (JOB_PAGES[j.kind] || []).includes(S.route[2] || 'home')) || (S.route[0] === 'revlab' && j.project === REV_JOBS)) {
+    if ((S.route[0] === 'p' && (JOB_PAGES[j.kind] || []).includes(S.route[2] || 'home')) || (S.route[0] === 'revlab' && j.project === REV_JOBS) || (S.route[0] === 'styles' && j.kind === 'lib_style')) {
       redraw = true;
       if (j.status === 'done') resultFocus = RESULT_FOCUS[j.kind] || '#app .proposal button, #app .proposal input';
     }
@@ -681,6 +686,7 @@ async function finishJob(j) {
     delete S.pending.failures[key];
     if (PENDING_KINDS.includes(j.kind) && j.result) S.pending.results[key] = { key, id: j.id, kind: j.kind, ep: j.ep };
   }
+  if (j.kind === 'lib_style' && typeof libStyleResult === 'function') libStyleResult(j);  // 작품 밖: 결과를 그 라이브러리 항목의 제안으로 둔다
   const msg = JOB_DONE_MSG[j.kind];
   // 결과를 보는 화면이 따로 있고 지금 그 화면이 아니면 '가서 보기'를 붙인다 (알림 창의 같은 버튼과 같은 곳)
   const link = JOB_LINK[j.kind] ? JOB_LINK[j.kind](j) : '';
@@ -803,6 +809,7 @@ function applyJobResult(j) {
 const JOB_LINK = {
   suggest: (j) => `#/p/${enc(j.project)}/setup`,
   style: (j) => `#/p/${enc(j.project)}/style`,
+  lib_style: (j) => `#/styles/${enc(S.libJobFor[j.id] || 'new')}`,
   arc: (j) => `#/p/${enc(j.project)}/arc`,
   plots: (j) => `#/p/${enc(j.project)}/arc`,
   plot_one: (j) => `#/p/${enc(j.project)}/arc`,
@@ -1374,12 +1381,12 @@ function renderSavebar() {
     stackBottom();
     return;
   }
-  const sig = `${S.dirty}:${text}:${autoOn()}:${S.conflict}:${S.lastRemoved ? S.lastRemoved.label : ''}`;
+  const sig = `${S.dirty}:${text}:${autoOn()}:${S.conflict}:${lastRemoved() ? `${lastRemoved().label}:${S.removed.length}` : ''}`;
   if (bar && bar.dataset.sig === sig) return;
   if (!bar) bar = newSavebar();
   bar.dataset.sig = sig;
   bar.innerHTML = (S.dirty && S.conflict ? '<span>다른 탭이나 기기에서 먼저 저장해 이 변경을 저장하지 못했어요</span><button class="btn small" data-action="revert">다시 불러오기 (이 변경 버림)</button><button class="btn small danger" data-action="saveForce">내 변경으로 덮기</button>'
-    : S.dirty ? `<span>저장하지 않은 변경이 있어요</span>${S.lastRemoved ? `<button class="btn small" data-action="restoreRemoved">방금 지운 ${esc(S.lastRemoved.label)} 되살리기</button>` : ''}<button class="btn small" data-action="revert">변경 모두 버리기</button><button class="btn small primary" data-action="save" title="저장 (Ctrl+S)">저장</button>` : '')
+    : S.dirty ? `<span>저장하지 않은 변경이 있어요</span>${lastRemoved() ? `<button class="btn small" data-action="restoreRemoved">방금 지운 ${esc(lastRemoved().label)}${S.removed.length > 1 ? ` (${S.removed.length - 1}개 더)` : ''} 되살리기</button>` : ''}<button class="btn small" data-action="revert">변경 모두 버리기</button><button class="btn small primary" data-action="save" title="저장 (Ctrl+S)">저장</button>` : '')
     + (text !== null ? `<span>${text}화 본문을 저장하지 않았어요 · <span id="draft-stamp" data-ep="${text}">${esc(draftStamp(text))}</span></span><button class="btn small" data-action="dropText" data-arg="${text}">고친 것 버리기</button><button class="btn small primary" data-action="saveText" data-arg="${text}"${autoOn() ? ' disabled title="자동 집필이 도는 동안은 본문을 저장할 수 없어요"' : ' title="본문 저장 (Ctrl+S)"'}>본문 저장</button>` : '');
   stackBottom();
 }
@@ -1501,6 +1508,7 @@ const actions = {
   },
   toggleMenu() {
     S.menuOpen = !S.menuOpen;  // 900px 이하 위쪽 띠의 버튼. 서랍의 메뉴를 고르면 화면 이동 때 닫힌다
+    if (S.menuOpen) panelOn('menu', () => { S.menuOpen = false; render(); }); else panelOff('menu');
     S.focusTarget = S.menuOpen ? '#side-menu .drawer-head .side-ico' : '#app .side-top .menu-toggle';
     render();
   },
@@ -1565,14 +1573,14 @@ const actions = {
     await api('DELETE', `/projects/${enc(S.name)}/pending/${enc(key)}?failure=true`).catch(() => {});
   },
   restoreRemoved() {
-    const r = S.lastRemoved;
+    const r = lastRemoved();
     if (!r) return;
+    S.removed = S.removed.slice(0, -1);
     for (const [k, v] of r.saved) {
       const parts = k.split('.');
       const last = parts.pop();
       parts.reduce((o, x) => o[x], P())[last] = v;
     }
-    S.lastRemoved = null;
     markDirty();
     render();
     toast(`${r.label}을(를) 되살렸어요`);
@@ -1939,10 +1947,35 @@ document.addEventListener('click', async (e) => {
 });
 
 const navScroll = { idx: 0, max: 0, at: new Map(), restore: null };
-let navAsk = 0;  // 저장하지 않은 변경을 묻는 이동마다 1씩. '저장하고 이동'이 저장하는 사이 다른 이동이 왔는지 본다
+let navAsk = 0;
+
+// 900px 이하에서 떠 있는 창(알림 창 · 찾기 팔레트 · 대화 시트 · 서랍 메뉴)을 열면 기록을 하나 더한다. 휴대폰의 뒤로 가기가
+// 화면을 떠나지 않고 그 창만 닫는다. 창을 버튼으로 닫으면 더한 기록을 되돌린다 (popstate 는 건너뛴다). 창은 한 번에 하나로 센다
+const PANEL_MQ = typeof matchMedia === 'function' ? matchMedia('(max-width: 900px)') : { matches: false };
+let panelCur = null;   // { id, close }
+let panelSkip = false; // 창을 버튼으로 닫으며 부른 history.back() 의 popstate
+function panelOn(id, close) {
+  if (!PANEL_MQ.matches) return;
+  if (panelCur) { panelCur = { id, close }; return; }  // 이미 더한 기록이 있으면 닫는 법만 바꾼다
+  panelCur = { id, close };
+  try { history.pushState({ ...(history.state || {}), panel: 1 }, '', location.hash); } catch { panelCur = null; }
+}
+function panelOff(id) {
+  if (!panelCur || panelCur.id !== id) return;
+  panelCur = null;
+  if (history.state && history.state.panel) { panelSkip = true; history.back(); }
+}
+window.addEventListener('popstate', () => {
+  if (panelSkip) { panelSkip = false; return; }
+  if (!panelCur) return;
+  const p = panelCur;
+  panelCur = null;  // close 가 panelOff 를 불러도 다시 되돌리지 않게 먼저 비운다
+  p.close();
+});  // 저장하지 않은 변경을 묻는 이동마다 1씩. '저장하고 이동'이 저장하는 사이 다른 이동이 왔는지 본다
 try { history.replaceState({ idx: 0 }, '', location.hash || '#/'); } catch { /* 기록을 못 고치면 위치 되살리기만 빠진다 */ }
 
 window.addEventListener('hashchange', async () => {
+  panelCur = null;  // 화면을 옮기면 떠 있던 창은 저마다 닫힌다. 더한 기록은 남겨 둔다 (되돌리면 이동이 꼬인다)
   // 설정 주소는 화면을 옮기지 않고 지금 화면 위에 설정 대화상자를 연다 (settings.js)
   const setTo = settingsCat(location.hash);
   if (setTo !== null) {

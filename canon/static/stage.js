@@ -960,12 +960,13 @@ function stgRoomPanel() {
       <label for="stg-rw">크기 (m)</label><span class="row"><input id="stg-rw" class="stg-num" type="number" min="1" max="40" step="0.1" data-stg-room="w" value="${r.w}" aria-label="가로"> × <input class="stg-num" type="number" min="1" max="40" step="0.1" data-stg-room="h" value="${r.h}" aria-label="세로"></span>
     </div>
     <datalist id="stg-places">${stgPlaces().map((x) => `<option value="${esc(x)}">`).join('')}</datalist>
-    <p class="small">평면도에서 기준점을 끌어 옮겨요. 짧은 선이 기준점의 앞쪽이에요. 붙은 기준점은 부모를 따라 움직이고, 붙은 면을 따라서만 끌려요.</p>
-    <ul class="stg-anchors">${r.anchors.map((a) => `<li class="row"><input class="stg-aname" data-stg-anchor-name="${esc(a.id)}" value="${esc(a.name)}" aria-label="기준점 이름">
+    <p class="small">평면도에서 기준점을 끌어 옮기거나, 줄의 가로 · 세로 칸(m)에 자리를 적어요. 짧은 선이 기준점의 앞쪽이에요. 붙은 기준점은 부모를 따라 움직이고, 붙은 면을 따라서만 끌려요.</p>
+    <ul class="stg-anchors">${r.anchors.map((a) => { const wa = (stageResolve(r).anchors || []).find((x) => x.id === a.id) || a; return `<li class="row"><input class="stg-aname" data-stg-anchor-name="${esc(a.id)}" value="${esc(a.name)}" aria-label="기준점 이름">
+      <span class="row stg-axy"><input class="stg-num" type="number" step="0.1" data-stg-anchor-x="${esc(a.id)}" value="${Number(wa.x || 0).toFixed(1)}" aria-label="${esc(a.name)} 가로 자리 (m)"><input class="stg-num" type="number" step="0.1" data-stg-anchor-y="${esc(a.id)}" value="${Number(wa.y || 0).toFixed(1)}" aria-label="${esc(a.name)} 세로 자리 (m)"></span>
       <select data-stg-anchor-kind="${esc(a.id)}" aria-label="종류">${Object.entries(kinds).map(([k, l]) => stgOpt(k, l, a.kind)).join('')}</select>
       <select data-stg-anchor-on="${esc(a.id)}" aria-label="붙은 곳" title="붙은 곳: 부모를 옮기거나 돌리면 함께 움직여요">${stageAttachOptions(r, a.id).map(([k, l]) => stgOpt(k, k ? `붙음: ${l}` : '붙지 않음', a.parent ? `${a.parent}|${a.face}` : '')).join('')}</select>
       <button type="button" class="btn small ghost" data-action="stgRotate" data-arg="${esc(a.id)}" title="상자를 90도 돌려요. 붙은 기준점도 함께 돌아요">↻ 돌리기</button>
-      <button type="button" class="btn small ghost danger" data-action="stgAnchorDrop" data-arg="${esc(a.id)}">빼기</button>${stgDropNote(r, a.id)}</li>`).join('')}</ul>
+      <button type="button" class="btn small ghost danger" data-action="stgAnchorDrop" data-arg="${esc(a.id)}">빼기</button>${stgDropNote(r, a.id)}</li>`; }).join('')}</ul>
     <div class="row"><button type="button" class="btn small" data-action="stgAnchorAdd">+ 기준점 더하기</button></div>`;
 }
 
@@ -1567,6 +1568,17 @@ document.addEventListener('change', (e) => {
     const a = g.room.anchors.find((x) => x.id === d.stgAnchorOn);
     if (!a) return;
     Object.assign(a, stageAttach(g.room, a.id, t.value));
+    stgTouch();
+  } else if (d.stgAnchorX !== undefined || d.stgAnchorY !== undefined) {
+    // 기준점 자리를 숫자로 옮긴다 (키보드 · 손가락으로 평면도에서 끌기 어려울 때). 끌기와 같은 규칙(stageDragTo: 붙은 면을 따라서만)
+    const id = d.stgAnchorX || d.stgAnchorY;
+    const wa = (stageResolve(g.room).anchors || []).find((x) => x.id === id);
+    const a = g.room.anchors.find((x) => x.id === id);
+    if (!a || !wa) return;
+    const x = d.stgAnchorX !== undefined ? Number(t.value) : wa.x;
+    const y = d.stgAnchorY !== undefined ? Number(t.value) : wa.y;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    Object.assign(a, stageDragTo(g.room, id, x, y));
     stgTouch();
   } else if (d.stgAnchorName !== undefined || d.stgAnchorKind !== undefined) {
     const a = g.room.anchors.find((x) => x.id === (d.stgAnchorName || d.stgAnchorKind));
