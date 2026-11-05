@@ -3,7 +3,7 @@
 pipeline 이 맨 끝에서 이 모듈을 불러 여기서 정한 이름(EXPORTS)을 pipeline 에도 둔다 (pipeline.<이름> 으로 부르는 코드가 그대로 돈다)."""
 from __future__ import annotations
 
-from . import charlog, prompts, statwin, storylines
+from . import address, charlog, prompts, statwin, storylines
 from .llm import LLM
 from .schema import ArcPlan, Conversion, Episode, EpisodePlot, Project, RebuildEpisode, Rework, SerialRebuild, ShortArchive, TextEdit
 from .pipeline import (  # pipeline 의 공용 도우미
@@ -180,6 +180,7 @@ def apply_rebuild(p: Project, prop: SerialRebuild, at: str = "") -> tuple[Projec
     p.foreshadow_clues = []  # 화 번호가 바뀌어 걸어 둔 문장 자리도 맞지 않는다
     statwin.revert(p, 0)
     charlog.revert(p, 0)  # 그대로 둔 화는 옛 변경안을 다시 반영하며 설정 바꾸기도 새 화 번호로 다시 들어간다
+    address.revert(p, 0)  # 호칭 · 말씨도 1화 전으로. 남겨 두면 옛 화 번호 기록이 남고 다시 반영할 때 기록이 생기지 않아 되돌릴 수 없다
     p.timeline.deadlines = []  # 그대로 둔 화는 옛 변경안을 다시 반영하며 기한도 새 화 번호로 생긴다
     p.foreshadows += prop.foreshadows
     tiers = {t.id: t.tier for t in prop.tiers}
