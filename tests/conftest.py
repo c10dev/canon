@@ -43,3 +43,12 @@ def pytest_sessionstart(session) -> None:
     real = (REPO / "projects").resolve()
     if root == real or real in root.parents:
         raise pytest.UsageError(f"시험이 실제 작품 폴더({real})를 쓰려고 해요. CANON_HOME 을 임시 폴더로 두세요.")
+
+
+@pytest.fixture(autouse=True)
+def _fresh_jobs(monkeypatch):
+    """작업 목록(jobs._jobs)은 프로세스 전역이다. 앞 시험이 같은 작품 이름(예: demo)으로 돌린 작업이 남으면
+    그 작업이 맡은 화(owned_episodes, OWN_GRACE 30초)가 다음 시험의 화면 저장을 막는다. 시험마다 빈 목록으로 시작한다."""
+    from canon import jobs
+
+    monkeypatch.setattr(jobs, "_jobs", {})
