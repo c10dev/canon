@@ -220,35 +220,40 @@ def _save(name: str, p: Project, merged: set[str] | None = None, kept: list[dict
     """저장한다. 화면이 보낸 작품 전체를 저장할 때(merged 를 넘길 때)는 백그라운드 작업이 맡은 화를
     디스크에 있는 내용(작업 결과)으로 지킨다. 다른 엔드포인트는 방금 읽은 디스크 내용을 고쳐 저장하므로 그대로 쓴다.
     kept 를 넘기면 화면 값 대신 디스크 것으로 둔 칸을 담는다 (autorun.protected 와 같은 모양)."""
-    kept = kept if kept is not None else []
     with jobs.project_lock(name):
-        owned = jobs.owned_episodes(name, merged) if merged is not None else set()
-        disk = store.load(name) if merged is not None and store.exists(name) else None  # 잠근 뒤 한 번만 읽는다
-        if owned and disk:
-            have = {e.plot.number: e for e in disk.episodes}
-            mine = {e.plot.number: e for e in p.episodes}
-            for n in owned:
-                if n in have:
-                    if n in mine and mine[n].plot != have[n].plot:
-                        kept.append({"field": "plot", "ep": n})
-                    mine[n] = have[n]
-            p.episodes = [mine[k] for k in sorted(mine)]
-        if disk:
-            # 스냅샷은 화면이 고치지 않고, 작품 응답은 화 번호만 보낸다 (_SNAPSHOT_LIGHT)
-            p.snapshots = disk.snapshots
-            # 자동 집필이 반영한 진행을 오래된 화면이 덮지 않게
-            kept += [k for k in autorun.protected(name, disk, p) if k not in kept]
-            # 본문이 있는 화의 플롯은 화면이 막아도 서버에서 한 번 더 지킨다 (줄기 표시만 받는다)
-            kept += [{"field": "plot", "ep": n, "why": "locked"} for n in pipeline.keep_locked_plots(disk, p)]
-            # 화면이 열린 동안 플롯 작업이 더한 새 인물 후보도 지킨다. 안 쓰이거나 등록된 후보는 sync 가 지운다
-            have = {c.id for c in p.cast_candidates}
-            p.cast_candidates += [c for c in disk.cast_candidates if c.id not in have]
-            have = {x.name for x in p.place_candidates}
-            p.place_candidates += [x for x in disk.place_candidates if x.name not in have]
-            pipeline.sync_candidates(p)
-            _keep_job_fields(disk, p)
-            p.rooms = disk.rooms
-        store.save(name, p)
+        return _save_locked(name, p, merged, kept)
+
+
+def _save_locked(name: str, p: Project, merged: set[str] | None = None, kept: list[dict] | None = None) -> Project:
+    """_save 의 몸통. 부르는 쪽이 jobs.project_lock(name) 을 이미 잡았을 때 쓴다 (잠금은 재진입하지 않는다)."""
+    kept = kept if kept is not None else []
+    owned = jobs.owned_episodes(name, merged) if merged is not None else set()
+    disk = store.load(name) if merged is not None and store.exists(name) else None  # 잠근 뒤 한 번만 읽는다
+    if owned and disk:
+        have = {e.plot.number: e for e in disk.episodes}
+        mine = {e.plot.number: e for e in p.episodes}
+        for n in owned:
+            if n in have:
+                if n in mine and mine[n].plot != have[n].plot:
+                    kept.append({"field": "plot", "ep": n})
+                mine[n] = have[n]
+        p.episodes = [mine[k] for k in sorted(mine)]
+    if disk:
+        # 스냅샷은 화면이 고치지 않고, 작품 응답은 화 번호만 보낸다 (_SNAPSHOT_LIGHT)
+        p.snapshots = disk.snapshots
+        # 자동 집필이 반영한 진행을 오래된 화면이 덮지 않게
+        kept += [k for k in autorun.protected(name, disk, p) if k not in kept]
+        # 본문이 있는 화의 플롯은 화면이 막아도 서버에서 한 번 더 지킨다 (줄기 표시만 받는다)
+        kept += [{"field": "plot", "ep": n, "why": "locked"} for n in pipeline.keep_locked_plots(disk, p)]
+        # 화면이 열린 동안 플롯 작업이 더한 새 인물 후보도 지킨다. 안 쓰이거나 등록된 후보는 sync 가 지운다
+        have = {c.id for c in p.cast_candidates}
+        p.cast_candidates += [c for c in disk.cast_candidates if c.id not in have]
+        have = {x.name for x in p.place_candidates}
+        p.place_candidates += [x for x in disk.place_candidates if x.name not in have]
+        pipeline.sync_candidates(p)
+        _keep_job_fields(disk, p)
+        p.rooms = disk.rooms
+    store.save(name, p)
     return p
 
 
@@ -963,8 +968,15 @@ def get_project(name: str, request: Request) -> Response:
 def put_project(name: str, p: Project, response: Response, merged: str = "", force: bool = False) -> Project:
     """화면에서 고친 프로젝트 전체를 저장한다. 구조(arc)가 있으면 화수와 맞는지 검사한다.
     장편은 부 구성과 아크(아크 안 기승전결 포함)가 이어지는지 검사한다.
-    다른 화면(탭 · 기기)이 이 화면이 읽은 뒤에 저장했으면 덮지 않고 409 를 돌려준다. force 면 그래도 덮는다."""
-    disk = _load(name)
+    다른 화면(탭 · 기기)이 이 화면이 읽은 뒤에 저장했으면 덮지 않고 409 를 돌려준다. force 면 그래도 덮는다.
+    디스크 읽기 · 충돌 검사 · 저장을 한 잠금 안에서 해서, 그 사이 다른 저장이나 작업이 끼어 서로 덮지 않게 한다."""
+    _need(name)
+    with jobs.project_lock(name):
+        return _put_locked(name, p, store.load(name), response, merged, force)
+
+
+def _put_locked(name: str, p: Project, disk: Project, response: Response, merged: str, force: bool) -> Project:
+    """put_project 의 몸통. disk 는 jobs.project_lock(name) 을 잡은 뒤 읽은 작품이다."""
     # 장편 총 화수를 바꾸면 마지막 부 끝 화도 따라간다 (둘은 다른 화면에서 고치지만 한 번에 맞아야 저장된다)
     last = p.parts[-1] if p.serial and p.parts else None
     if last and last.end_ep == disk.meta.target_episodes != p.meta.target_episodes and p.meta.target_episodes >= last.start_ep:
@@ -995,7 +1007,7 @@ def put_project(name: str, p: Project, response: Response, merged: str = "", for
     charlog.record_author(disk, p)
     archetypes.prune(p)
     kept: list[dict] = []
-    out = _save(name, p, merged={m for m in merged.split(",") if m}, kept=kept)
+    out = _save_locked(name, p, merged={m for m in merged.split(",") if m}, kept=kept)
     if kept:  # 화면이 '저장했습니다' 대신 무엇을 저장하지 않았는지 알린다
         response.headers["X-Canon-Kept"] = quote(json.dumps(kept, ensure_ascii=False))
     return out
@@ -1015,8 +1027,14 @@ _PATCH_SKIP = {"snapshots", "edit_rev", "saved_by"}
 @app.patch("/api/projects/{name}")
 def patch_project(name: str, body: ProjectPatch, response: Response, merged: str = "", force: bool = False) -> Project:
     """작품 저장(PUT)과 같지만 바뀐 칸만 받는다. 보내지 않은 칸은 디스크 것을 그대로 쓰고, 그 뒤 검사와 지키기는 PUT 과 같다.
-    장편은 작품이 수 MB 라 칸 하나를 고칠 때마다 통째로 올리지 않게 한다."""
-    disk = _load(name)
+    장편은 작품이 수 MB 라 칸 하나를 고칠 때마다 통째로 올리지 않게 한다.
+    보내지 않은 칸을 채울 디스크도 잠근 뒤 읽는다. 그 사이 작업이 쓴 칸을 옛 사본으로 되돌리지 않게."""
+    _need(name)
+    with jobs.project_lock(name):
+        return _patch_locked(name, body, store.load(name), response, merged, force)
+
+
+def _patch_locked(name: str, body: ProjectPatch, disk: Project, response: Response, merged: str, force: bool) -> Project:
     data = disk.model_dump(mode="json")
     for k, v in body.fields.items():
         if k not in Project.model_fields:
@@ -1038,7 +1056,7 @@ def patch_project(name: str, body: ProjectPatch, response: Response, merged: str
     except ValidationError as e:
         from fastapi.exceptions import RequestValidationError
         raise RequestValidationError(e.errors(include_url=False)) from None
-    return put_project(name, p, response, merged=merged, force=force)
+    return _put_locked(name, p, disk, response, merged, force)
 
 
 def _keep_spots(disk: Project, p: Project) -> None:

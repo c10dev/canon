@@ -421,6 +421,8 @@
 - `GET /` 는 index.html 의 `/static/*.js` 태그를 내용 해시가 붙은 묶음 하나(`/bundle/<해시>.js`, 오래 캐시)로 바꿔 보낸다(`_bundle`). 파일을 고치면 해시가 바뀐다
 - 화면의 작품 저장은 `PATCH /api/projects/{name}`(`ProjectPatch`): 바뀐 최상위 칸만 받고 보내지 않은 칸은 디스크 것을 쓴다. 그 뒤는 `put_project` 와 같다
 - PATCH 의 `episodes` 에서 `{"$same": 화}` 는 디스크의 그 화다. 디스크에 없는 화면 409
+- 작품 저장(PUT · PATCH)은 디스크 읽기 · `edit_rev` 충돌 검사 · 디스크 칸 지키기 · 저장을 한 번의 `jobs.project_lock` 안에서 한다(`_put_locked` · `_patch_locked`)
+- 잠금은 재진입하지 않는다. 잠금을 잡은 채 저장하는 코드는 `_save` 대신 `_save_locked` 를 부른다
 - 작품 저장(PUT · PATCH)은 디스크에도 있는 화의 `JOB_EP_FIELDS` 칸(검수 결과 · 흡입력 판정 · 다시 맞추기 표시 · 고칠 곳 · 장면 연출)을 디스크 값으로 둔다(`_keep_job_fields`)
 - 작업이나 전용 엔드포인트만 쓰는 화의 칸을 새로 만들면 `JOB_EP_FIELDS` 에 더한다. 그래야 작업 전에 읽은 화면의 저장이 작업 결과를 덮지 않는다
 - 인물 · 관계도와 지도 응답은 작품 판으로 JSON 을 기억하고 ETag 를 붙인다(`_json_view`)
