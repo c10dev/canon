@@ -38,10 +38,20 @@ function orderNote(blocked) {
   return `<div class="note warn">이전 화(${rangeText(blocked)}화)의 상태 반영이 끝나야 쓸 수 있어요. 인물 상태가 꼬이지 않게 하는 규칙이에요. <a href="${href}">${label}</a></div>`;
 }
 
-/** 반영이 끝난 화의 머리 primary: 다음 할 일 (nextStep). 지금 보는 화면으로 가는 일이면 두지 않는다 */
+/** 반영이 끝난 화 알림(restate.js restateNote) 감싸기. 안내만 하는 .note.plain 은 640px 이하에서 첫 문장을 요약으로 둔
+    접은 칸(.w-fin-s)으로 바꿔 보인다 (app.css). 넓은 폭은 그대로. 버튼이 있는 경고(.note.warn)는 줄이지 않는다 */
+function finNote(html) {
+  if (!html) return '';
+  const m = /^<div class="note plain">([^<]*?요\.)\s*([^<]*)<\/div>$/.exec(html);
+  const short = m && m[2] ? `<details class="note plain w-fin-s"><summary>${m[1]}</summary><p>${m[2]}</p></details>` : '';
+  return `<div class="w-fin${short ? ' has-short' : ''}">${html}${short}</div>`;
+}
+
+/** 반영이 끝난 화의 머리 primary: 다음 할 일 (nextStep, 그리기는 home.js nextStepHtml). 지금 보는 화면으로 가는 일이면 두지 않는다.
+    동작이 있는 다음 할 일(완결 원고 내보내기)은 이 화면에서 부르므로 늘 둔다 */
 function nextStepBtn() {
-  const [label, href] = nextStep();
-  return href === `${base()}/${S.route.slice(2).map(enc).join('/')}` ? '' : `<a class="btn primary" href="${href}">${esc(label)}</a>`;
+  const next = nextStep();
+  return !next[2] && next[1] === `${base()}/${S.route.slice(2).map(enc).join('/')}` ? '' : nextStepHtml(next);
 }
 
 // 이번 화 플롯 띠 (본문 칸 머리). 본문이 있는 화는 마지막으로 고른 펼침을 브라우저에 기억하고, 본문이 없는 화는 펼쳐서 시작한다
@@ -184,7 +194,7 @@ function metaCutNote(n, can) {
     <ul style="list-style:none;padding:0;margin:8px 0 0;display:grid;gap:8px">${rows}</ul></details>`;
 }
 
-function writeMenu(n, starting, seg) {
+function writeMenu(n, starting, seg, narrow = '') {
   const e = ep(n);
   const parts = [];
   if (seg && !starting) parts.push(`<div class="pop-sec"><span class="pop-legend">생성 방식</span>${seg}</div>`);
@@ -198,7 +208,9 @@ function writeMenu(n, starting, seg) {
   if (del) parts.push(`<div class="pop-sec pop-danger">${del}</div>`);
   if (!parts.length) return '';
   const dots = '<svg width="18" height="18" viewBox="0 0 18 18" fill="currentColor" aria-hidden="true"><circle cx="4" cy="9" r="1.6"></circle><circle cx="9" cy="9" r="1.6"></circle><circle cx="14" cy="9" r="1.6"></circle></svg>';
-  return menuBtn('write', dots, () => parts.join('<div class="pop-sep" role="separator"></div>'), { cls: 'btn icon-btn', aria: `${n}화 더보기` });
+  // narrow: 640px 이하에서 머리 줄에서 뺀 보조 버튼(대화 · 다시 생성). 넓은 폭에서는 .w-narrow 를 숨긴다 (app.css)
+  const head = narrow ? `<div class="w-narrow"><div class="pop-sec">${narrow}</div><div class="pop-sep" role="separator"></div></div>` : '';
+  return menuBtn('write', dots, () => head + parts.join('<div class="pop-sep" role="separator"></div>'), { cls: 'btn icon-btn', aria: `${n}화 더보기` });
 }
 
 const ACT_HANJA = { 기: '起', 승: '承', 전: '轉', 결: '結' };
@@ -330,21 +342,27 @@ function viewWrite(n) {
     : `<button type="button" class="btn primary" data-action="flowCheck" data-arg="${n}"${chk.attr}>${cs.stale ? '다시 검수하기' : chk.label}</button>`)
     : e.status === 'written' ? `<a class="btn primary" href="${base()}/review/${n}">상태 승인으로</a>`
       : e.status === 'finalized' ? nextStepBtn() : fresh ? writeGo(n, blocked).primary : starting && e.storyboard ? boardGo(n, blocked) : '';
-  const right = `${e.text && editable ? chatButton(`text:${n}`) : ''}
-    ${e.text && editable && (isApi || e.status === 'finalized') ? `${((b) => `<button class="btn${S.rwOpen === n ? ' on' : ''}" data-action="rwOpen" data-arg="${n}" aria-expanded="${S.rwOpen === n}"${b.attr}>${b.label}</button>`)(jobBtn('write', n, '다시 생성'))}` : ''}
+  // 640px 이하는 보조 버튼(대화 · 다시 생성 · 작업지시서)을 머리 줄에서 숨기고 ⋯ 메뉴에 같은 동작을 둔다 (작업지시서는 메뉴에 이미 있다, app.css .w-head)
+  const chatOn = e.text && editable;
+  const rw = e.text && editable && (isApi || e.status === 'finalized') ? jobBtn('write', n, '다시 생성') : null;
+  const narrow = `${chatOn ? `<button type="button" class="pop-item" data-action="toggleChat" aria-pressed="${S.chatOpen}">${chatConf(`text:${n}`).title}</button>` : ''}${rw ? `<button type="button" class="pop-item" data-action="rwOpen" data-arg="${n}" aria-expanded="${S.rwOpen === n}"${rw.attr}>${rw.label}</button>` : ''}`;
+  const right = `${chatOn ? chatButton(`text:${n}`) : ''}
+    ${rw ? `<button class="btn${S.rwOpen === n ? ' on' : ''}" data-action="rwOpen" data-arg="${n}" aria-expanded="${S.rwOpen === n}"${rw.attr}>${rw.label}</button>` : ''}
     ${editable && !isApi && e.status !== 'finalized' ? `<a class="btn" href="${base()}/brief/${n}">작업지시서</a>` : ''}
-    ${writeMenu(n, starting, seg)}
+    ${writeMenu(n, starting, seg, narrow)}
     ${primary}`;
 
   const strip = plotStrip(n, act);
   const edits = (e.edits || []).length;
   const goal = Number(P().meta.words_per_episode).toLocaleString();
 
-  return `<header class="page-head"><div class="row" style="gap:12px">${epNav('write', n)}<div class="lead" style="gap:2px"><div class="eyebrow">${act ? actLabel(act.name) + ' 구간 · ' : ''}${n} / ${P().meta.target_episodes}화</div><h1 style="font-size:1.5rem">${n}화 ${esc(e.plot.title)}</h1></div>${povBadge(n)}<span class="chip ${e.status}">${STATUS[e.status]}</span>${e.auto ? '<span class="chip ai">자동 반영</span>' : ''}${e.text && writerLabel(e.written_by) ? `<span class="small w-model" title="이 본문을 쓴 모델이에요. 직접 고쳐도 바뀌지 않아요">쓴 모델 · ${esc(writerLabel(e.written_by))}</span>` : ''}</div><div class="row">${right}</div></header>
+  const fin = finNote(e.text ? restateNote(n) : '');  // 반영이 끝난 화 알림. 640px 이하는 첫 문장만 보이고 펼쳐 읽는다 (.w-fin)
+
+  return `<header class="page-head w-head"><div class="row" style="gap:12px">${epNav('write', n)}<div class="lead" style="gap:2px"><div class="eyebrow">${act ? actLabel(act.name) + ' 구간 · ' : ''}${n} / ${P().meta.target_episodes}화</div><h1 style="font-size:var(--w-h1, 1.5rem)">${n}화 ${esc(e.plot.title)}</h1></div>${povBadge(n)}<span class="chip ${e.status}">${STATUS[e.status]}</span>${e.auto ? '<span class="chip ai">자동 반영</span>' : ''}${e.text && writerLabel(e.written_by) ? `<span class="small w-model" title="이 본문을 쓴 모델이에요. 직접 고쳐도 바뀌지 않아요">쓴 모델 · ${esc(writerLabel(e.written_by))}</span>` : ''}</div><div class="row">${right}</div></header>
     ${flowBar(n, 'write')}
     ${e.auto ? `<div class="note info">이 화는 자동 집필이 검토 없이 반영했어요. 읽어 보고 문제가 있으면 <a href="${base()}/auto">자동 집필</a>에서 이 화부터 되돌릴 수 있어요.</div>` : ''}
     ${rebuildNote(n)}
-    ${e.text ? restateNote(n) : ''}
+    ${fin}
     ${e.text ? metaCutNote(n, editable && !autoOn()) : ''}
     ${orphan ? `<div class="note warn">저장하지 않은 ${n}화 초고가 남아 있어요. 이 화는 상태 반영이 끝나 본문으로 저장할 수 없어서, 아래에는 반영된 본문을 보여요.
       <details><summary>남은 초고 보기 (${S.textDraft[n].length.toLocaleString()}자)</summary><textarea readonly id="orphan-${n}" aria-label="${n}화 남은 초고" style="width:100%;min-height:160px;margin-top:6px">${esc(S.textDraft[n])}</textarea></details>
@@ -501,6 +519,20 @@ function viewBrief(n) {
   return head + outlineDoc(briefToc(n, e), `<div class="brief-col">${main}</div>`, { cls: 'brief-wrap' });
 }
 
+// 640px 이하는 머리 줄의 대화 버튼이 숨어(app.css .w-head) chat.js 의 Esc 가 포커스를 돌려줄 곳이 없다.
+// Esc 로 대화를 닫은 뒤 포커스가 비면 ⋯ 메뉴 버튼(대화를 다시 여는 곳)으로 돌린다. window capture 가 document 의 chat.js 보다 먼저 연 상태를 본다
+let escFromChat = false;
+window.addEventListener('keydown', (e) => { escFromChat = e.key === 'Escape' && !!S.chatOpen; }, true);
+document.addEventListener('keydown', () => {
+  if (!escFromChat) return;
+  escFromChat = false;
+  if (S.chatOpen || S.route[2] !== 'write') return;
+  const a = document.activeElement;
+  if (a && a !== document.body) return;
+  const b = document.querySelector('#app [data-action="menuToggle"][data-arg="write"]');
+  if (b && b.offsetParent !== null) b.focus();
+});
+
 Object.assign(actions, {
   async metaCutRestore(arg) {
     const [n, k] = arg.split(':').map(Number);
@@ -514,6 +546,8 @@ Object.assign(actions, {
   },
   async metaCutDrop(arg) {
     const [n, k] = arg.split(':').map(Number);
+    // 서버(drop_cut)는 지운 문단을 남기지 않는다. 되살리기와 달리 되돌릴 수 없어 묻는다
+    if (!(await askConfirm('뗀 문단을 지울까요? 지우면 되살릴 수 없어요. 본문에 다시 넣으려면 \'본문에 되살리기\'를 누르세요.', { ok: '지우기', danger: true }))) return;
     await run('지우는 중', async () => {
       S.project = await api('DELETE', `/projects/${enc(S.name)}/episodes/${n}/meta-cut/${k}`);
       toast('뗀 문단을 지웠어요');
