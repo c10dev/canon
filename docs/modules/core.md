@@ -214,6 +214,8 @@
 - 웹의 오래 걸리는 AI 작업을 스레드로 돌리는 메모리 작업 목록
 - `Job.retry`: AI 호출이 기다리거나 다시 부르는 중인 사정(`cancel.say` → `Job.say`). 스레드마다 `retries` 에 두고 남은 하나를 보인다. `public()` 에 싣는다
 - 중복 실행 막기
+- 자동 업데이트가 다시 시작하려고 기다리는 동안(`draining`) 새 작업은 `Draining`(400, '서버를 곧 다시 시작해요')으로 거절한다. 자동 집필(`auto`)은 받아서 첫 단계 전에 멈춘다
+- `running()` 은 다른 스레드가 작업을 더해도 깨지지 않게 잠금 안에서 센다
 - 진행률
 - 작업이 맡은 화를 저장 덮어쓰기에서 지키기(`owned_episodes`)
 - 멈추기(`stop`)
@@ -426,6 +428,8 @@
 - 다시 시작하기 전에 새 프로세스에서 `canon.web` 을 불러 보고, 불러지지 않으면 이전 커밋으로 돌린다(`_smoke`)
 - 프로세스 재시작
 - `serve` 가 시작 때와 주기적으로 부른다
+- 받은 뒤 `web._drain` 이 요청 · 작업이 끝나기를 기다린다. `jobs.DRAIN_LIMIT`(30분)을 넘기면 로그를 남기고 그대로 다시 시작한다
+- `serve` 의 감시 스레드(`watch_safely`)는 확인 중 오류가 나도 로그를 남기고 감시를 이어 간다
 - `POST /api/update/check`(머지 때 GitHub Actions `notify-server.yml`)는 `wake` 로 바로 부르게 한다
 
 ### `canon/web.py`

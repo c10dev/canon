@@ -5144,6 +5144,29 @@ for _route in [*app.routes, *(r for rt in _ROUTERS for r in rt.routes)]:
         _route.app = request_response(_route.get_route_handler())
 
 
+
+def _drain(should_exit: Callable[[], bool], limit: float | None = None, tick: float = 1) -> bool:
+    """다시 시작하기 전에 처리 중인 요청과 도는 작업이 끝나기를 기다린다. 그동안 새 작업은 받지 않는다(jobs.Draining).
+    자동 집필은 다음 단계 전에 멈추고 다시 시작한 서버가 이어 간다. 다 끝났으면 True,
+    jobs.DRAIN_LIMIT 초를 넘겨 그대로 다시 시작하면 False."""
+    log = logging.getLogger("canon")
+    jobs.draining.set()
+    limit = jobs.DRAIN_LIMIT if limit is None else limit
+    deadline = time.monotonic() + limit
+    while not should_exit():
+        try:
+            left = _active + jobs.running()
+        except Exception:  # 세다 오류가 나도 기다림은 이어 간다 (기한은 지킨다)
+            log.exception("[업데이트] 도는 작업을 세다 오류가 났어요")
+            left = 1
+        if not left:
+            return True
+        if time.monotonic() >= deadline:
+            log.warning("[업데이트] %d분을 기다려도 요청 · 작업 %d개가 끝나지 않아 그대로 다시 시작해요", round(limit / 60), left)
+            return False
+        time.sleep(tick)
+    return True
+
 def serve(host: str = "127.0.0.1", port: int = 8000, open_browser: bool = False,
           update_interval: float = 0) -> None:
     """update_interval(초)이 0보다 크면 그 간격으로 origin/main 을 확인하고,
@@ -5186,17 +5209,25 @@ def serve(host: str = "127.0.0.1", port: int = 8000, open_browser: bool = False,
                 last = r.message
                 continue
             log.info("[업데이트] %s. 진행 중인 작업이 끝나면 다시 시작해요", r.message)
-            jobs.draining.set()  # 자동 집필은 다음 단계 전에 멈추고, 다시 시작한 서버가 이어 간다
-            while (_active or jobs.running()) and not server.should_exit:
-                time.sleep(1)
+            _drain(lambda: server.should_exit)
             restart.set()
             server.should_exit = True
             return
 
+    def watch_safely() -> None:
+        # 확인 중 오류가 나도 감시를 이어 간다. 스레드가 끝나면 다시 시작하지 못하고 draining 이 남는다
+        while not server.should_exit:
+            try:
+                watch_updates()
+                return
+            except Exception:
+                log.exception("[업데이트] 새 코드를 확인하다 오류가 났어요")
+                time.sleep(1)
+
     if open_browser:
         threading.Thread(target=open_when_ready, daemon=True).start()
     if update_interval > 0:
-        threading.Thread(target=watch_updates, daemon=True).start()
+        threading.Thread(target=watch_safely, daemon=True).start()
     for name in autorun.resume_all():
         log.info("[자동 집필] %s 을(를) 이어 가요", name)
     server.run()

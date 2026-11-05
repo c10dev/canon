@@ -109,7 +109,7 @@ python -m canon serve --no-browser     # 브라우저는 열지 않기
 CANON_LLM=mock python -m canon serve   # API 키 없이 화면만 둘러보기
 ```
 
-`serve` 는 시작할 때와 실행 중 10분마다 GitHub `main` 의 새 코드를 확인해 받는다(`git pull` 과 같다). 실행 중에 받으면 진행 중인 요청과 백그라운드 AI 작업(Gemini 호출 등)이 끝난 뒤 스스로 다시 시작하고, `requirements.txt` 나 `requirements.lock` 이 바뀌었으면 잠금 파일(`requirements.lock`)대로 의존성도 설치한다. `main` 브랜치가 아니거나, 고친 파일이나 올리지 않은 커밋이 있으면 받지 않고 이유만 출력한다. 작품(`projects/`)과 설정(`~/.canon/config.json`)은 git 이 다루지 않으므로 그대로다. 끄려면 `--no-update`, 간격은 `--update-interval 30`(분). 손으로 받으려면 `python -m canon upgrade`. `POST /api/update/check` 를 부르면 간격을 기다리지 않고 바로 확인한다([docs/server.md](docs/server.md) '머지하면 바로 받기').
+`serve` 는 시작할 때와 실행 중 10분마다 GitHub `main` 의 새 코드를 확인해 받는다(`git pull` 과 같다). 실행 중에 받으면 진행 중인 요청과 백그라운드 AI 작업(Gemini 호출 등)이 끝난 뒤 스스로 다시 시작하고(기다리는 동안 새 AI 작업은 받지 않고, 30분이 지나도 끝나지 않으면 그대로 다시 시작한다), `requirements.txt` 나 `requirements.lock` 이 바뀌었으면 잠금 파일(`requirements.lock`)대로 의존성도 설치한다. `main` 브랜치가 아니거나, 고친 파일이나 올리지 않은 커밋이 있으면 받지 않고 이유만 출력한다. 작품(`projects/`)과 설정(`~/.canon/config.json`)은 git 이 다루지 않으므로 그대로다. 끄려면 `--no-update`, 간격은 `--update-interval 30`(분). 손으로 받으려면 `python -m canon upgrade`. `POST /api/update/check` 를 부르면 간격을 기다리지 않고 바로 확인한다([docs/server.md](docs/server.md) '머지하면 바로 받기').
 
 macOS 에서는 Finder 로 `scripts/canon-mac.command` 를 더블클릭해도 된다. 저장소의 `.venv` 를 켜고 서버를 띄운 뒤 브라우저를 연다(이미 켜져 있으면 브라우저만 연다). 처음 한 번은 우클릭 → 열기로 실행 허용이 필요할 수 있다. Dock 에 끌어 두면 앱처럼 쓸 수 있다.
 
