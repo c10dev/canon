@@ -342,19 +342,22 @@ document.addEventListener('submit', (e) => {
 
 // ----- 작품 홈 -----
 
-/** 사이드바 자동 집필 메뉴: 진행 중이거나 사람을 기다리면 다른 화면에서도 보이게 상태를 붙인다. */
+/** 사이드바 자동 집필 메뉴: 쓰는 중이거나 사람을 기다리면 다른 화면에서도 보이게 상태를 붙인다. */
 function autoMenuLabel() {
   const r = S.auto && S.auto.run;
-  if (S.auto && S.auto.active) return '자동 집필 · 진행 중';
+  if (S.auto && S.auto.active) return '자동 집필 · 쓰는 중';
   const wait = r && { review: '검토 대기', paused: '일시정지', error: '오류로 멈춤' }[r.status];
   return wait ? `자동 집필 · ${wait}` : '자동 집필';
 }
 
+/** 다음 할 일 [글, 주소, 동작, 동작 글]. 글은 버튼에 그대로 쓰므로 동사이거나 화면으로 가는 '~로'다.
+    동작(셋째 값)이 있으면 nextStepHtml 이 actions[동작] 을 부르는 버튼을 동작 글로 그린다.
+    주소만 읽는 곳(사이드바 workCard · 팔레트 · 장편 플롯 머리 serialHead)은 [글, 주소]만 쓰므로 글은 그 주소로 가는 일에 맞춘다 */
 function nextStep() {
   const p = P();
   const r = S.auto && S.auto.run;
   if (r && r.status === 'review' && r.pending && !S.deltas[r.ep]) return [`${r.ep}화 자동 집필 변경안 검토`, base() + '/auto'];
-  if (autoOn()) return [`자동 집필 진행 중${autoEp() ? ` (${autoEp()}화)` : ''}`, base() + '/auto'];
+  if (autoOn()) return ['자동 집필로', base() + '/auto'];
   if (typeof playCopy === 'function' && playCopy()) return ['플레이로 돌아가기', `#/play/${enc(S.name)}`];  // 플레이 사본은 구간을 플레이 화면에서 이어 간다
   if (!p.characters.length) return ['설정 시작', base() + '/setup'];
   // 플롯 전: 설정 필수 칸이 비면 설정부터, 문체를 정하지 않았고 문체 화면에 아직 안 들렀으면 문체 (들렀다 나가면 건너뛴 것으로 본다)
@@ -366,10 +369,23 @@ function nextStep() {
   }
   if (!beats().length || !p.episodes.length) return [`${stepLabel('arc')} 만들기`, base() + '/arc'];
   const e = ep(currentEp());
-  if (e.status === 'draft') return [`${e.plot.number}화 플롯 확정`, base() + '/arc'];
+  // 플롯 초안: 그 화 플롯 페이지로 (write.js epGo 와 같다). 장편은 아크 화면으로 둔다: plot.js serialHead 가 주소 '/arc' 를 보고 '아크 N 초안 k화 모두 확정'을 primary 로 둔다
+  if (e.status === 'draft') return [`${e.plot.number}화 플롯 확정`, serial() ? `${base()}/arc` : `${base()}/arc/${e.plot.number}`];
   if (e.status === 'confirmed') return [`${e.plot.number}화 ${stepLabel('write')}`, `${base()}/write/${e.plot.number}`];
   if (e.status === 'written') return [`${e.plot.number}화 ${stepLabel(epStage(e))}`, `${base()}/${epStage(e)}/${e.plot.number}`];
-  return ['완결 원고 보기', `${base()}/write/${e.plot.number}`];
+  // 모두 반영했다: 버튼은 전체 화 범위로 '여러 화 내보내기' 대화상자를 연다 (publish.js exportAll). 주소만 읽는 곳은 마지막 화 집필 화면으로 가니 글도 '보기'다
+  return ['완결 원고 보기', `${base()}/write/${e.plot.number}`, 'exportAll', '완결 원고 내보내기'];
+}
+
+/** 다음 할 일을 버튼에 쓰는 글. 동작이 있으면 동작 글 */
+function nextStepLabel(next) {
+  return next[2] ? next[3] || next[0] : next[0];
+}
+
+/** 다음 할 일 버튼. 동작이 있으면 그 동작을 부르는 button, 없으면 주소로 가는 a */
+function nextStepHtml(next, cls = 'btn primary') {
+  const [, href, action] = next;
+  return action ? `<button type="button" class="${cls}" data-action="${action}">${esc(nextStepLabel(next))}</button>` : `<a class="${cls}" href="${href}">${esc(next[0])}</a>`;
 }
 
 /** 이 작품의 문체 화면에 들른 적이 있는가 (이 브라우저). 다음 할 일이 문체를 한 번만 권하게 */
@@ -474,7 +490,7 @@ function releaseRow(p) {
       <span><strong>올린 화</strong> ${r.released ? `${r.released}화까지` : '없음'}</span>
       <span><strong>비축</strong> ${r.buffer}화${days}</span>
       <span class="small">${goal}</span>
-      <button type="button" class="btn small" data-action="releaseOne"${r.released >= p.episodes.length ? ' disabled' : ''}>${r.released + 1}화를 올렸어요</button>
+      <button type="button" class="btn small" data-action="releaseOne"${r.released >= p.episodes.length ? ' disabled' : ''}>${r.released + 1}화 올림으로 표시</button>
     </div>
     <details class="release-edit"><summary class="small">연재 일정 고치기</summary><div class="row" style="align-items:flex-end">
       ${input('일주일에 올리는 화 수', 'release.per_week', { type: 'number', min: 0, max: 70, hint: '0이면 정하지 않음' })}
@@ -590,6 +606,11 @@ function homeTodos(p, home, povOf = null) {
   return out;
 }
 
+/** 주소가 이야기 구조(플롯) 화면인가: '/arc' 또는 그 화 플롯 페이지 '/arc/n' */
+function isArcHref(href) {
+  return href === `${base()}/arc` || href.startsWith(`${base()}/arc/`);
+}
+
 /** 머리 아래 '지금 화' 카드: 다음 할 일이 한 화의 단계면 그 화의 네 단계와 바로 가는 링크, 아니면 다음 할 일 한 줄 */
 function homeNowCard(nextLabel, nextHref) {
   const p = P();
@@ -599,9 +620,11 @@ function homeNowCard(nextLabel, nextHref) {
   if (!onEp) {
     const why = nextHref.endsWith('/setup') ? '인물과 세계를 정하면 이야기 구조를 짤 수 있어요.'
       : nextHref.endsWith('/auto') ? (autoOn() ? '자동 집필이 쓰는 동안에는 손으로 쓰거나 반영하지 않아요.' : '자동 집필이 사람의 검토를 기다려요.')
-      : nextHref.endsWith('/arc') ? (serial() && p.story_arcs.length ? `${plannedUntil()}화까지 기획했어요. 다음 아크를 기획하면 이어서 쓸 수 있어요.` : '구조를 짜면 화별 플롯을 만들 수 있어요.')
-      : `${p.meta.target_episodes}화를 모두 반영했어요.`;
-    return `<section class="card home-now" aria-labelledby="home-now-h"><span class="eyebrow">다음 할 일</span><h2 id="home-now-h">${esc(nextLabel)}</h2><p class="desc">${why}</p></section>`;
+      : isArcHref(nextHref) ? (serial() && p.story_arcs.length ? `${plannedUntil()}화까지 기획했어요. 다음 아크를 기획하면 이어서 쓸 수 있어요.` : '구조를 짜면 화별 플롯을 만들 수 있어요.')
+      : `${p.meta.target_episodes}화를 모두 반영했어요. 전체 원고를 한꺼번에 복사하거나 .txt로 내려받을 수 있어요.`;
+    // 자동 집필이 돌 때 다음 할 일 글은 버튼용 '자동 집필로'라 제목은 상태로 쓴다
+    const head = autoOn() && nextHref.endsWith('/auto') ? `자동 집필이 ${autoEp() ? `${autoEp()}화를 ` : ''}쓰는 중이에요` : nextLabel;
+    return `<section class="card home-now" aria-labelledby="home-now-h"><span class="eyebrow">다음 할 일</span><h2 id="home-now-h">${esc(head)}</h2><p class="desc">${why}</p></section>`;
   }
   const t = e.plot.title;
   const arc = serial() ? arcOf(cur) : null;
@@ -651,7 +674,9 @@ function viewHome() {
   const eps = p.episodes;
   const fin = eps.filter((e) => e.status === 'finalized').length;
   const cur = currentEp();
-  const [nextLabel, nextHref] = nextStep();
+  const next = nextStep();
+  const nextHref = next[1];
+  const nextLabel = nextStepLabel(next);
 
   // 단편 기승전결: 칸 폭을 지키려고 칸은 장편처럼 줄을 바꿔 놓고, 구간은 칸 위 띠 대신 칸 아래 테두리 색과 이 머리 줄로 보인다
   const actBand = p.arc.length && !serial() ? `<div class="act-rail">${actGroups(p.arc).map((g) => `<span class="act-chip ${actClass(g.names[0])}">${g.names.join('·')} ${epRange(g.start, g.end)}</span>`).join('')}</div>` : '';
@@ -683,7 +708,7 @@ function viewHome() {
   const fsRows = openFs.slice(0, HOME_FS).map((f) => `<li><span class="chip">${f.planted_ep}화</span><span class="home-fs-d">${esc(f.description)}</span><span class="small${f.overdue ? ' home-late' : ''}">${f.overdue ? `${f.due_ep}화 예정 지남` : f.due_ep ? `${f.due_ep}화 회수 예정` : `${f.age}화째`}</span></li>`).join('');
   const facts = [...p.facts].reverse();
 
-  return `${header(`${esc(m.genre || '장르 미정')}${m.adult ? ' · 성인' : ''} · ${serial() ? '장편 연재 · ' : ''}전 ${m.target_episodes}화 · 화당 ${Number(m.words_per_episode).toLocaleString()}자`, m.title || S.name, m.logline ? `<span class="home-logline" title="${esc(m.logline)}">${esc(m.logline)}</span>` : '', `${!serial() && fin && fin === m.target_episodes ? `<a class="btn" href="${base()}/convert">장편으로 늘리기</a>` : ''}${nextHref === `${base()}/arc` ? '' : `<a class="btn" href="${base()}/arc">${stepLabel('arc')}</a>`}${fin ? '<button type="button" class="btn" data-action="branchOpen" title="이 작품은 그대로 두고, 사본에서 다른 전개를 써요">갈래 만들기</button>' : ''}<a class="btn primary" href="${nextHref}">${esc(nextLabel)}</a>`)}
+  return `${header(`${esc(m.genre || '장르 미정')}${m.adult ? ' · 성인' : ''} · ${serial() ? '장편 연재 · ' : ''}전 ${m.target_episodes}화 · 화당 ${Number(m.words_per_episode).toLocaleString()}자`, m.title || S.name, m.logline ? `<span class="home-logline" title="${esc(m.logline)}">${esc(m.logline)}</span>` : '', `${!serial() && fin && fin === m.target_episodes ? `<a class="btn" href="${base()}/convert">장편으로 늘리기</a>` : ''}${isArcHref(nextHref) ? '' : `<a class="btn" href="${base()}/arc">${stepLabel('arc')}</a>`}${fin ? '<button type="button" class="btn" data-action="branchOpen" title="이 작품은 그대로 두고, 사본에서 다른 전개를 써요">갈래 만들기</button>' : ''}${nextStepHtml(next)}`)}
     ${autoLockNote()}
     ${aiNote()}
     <div class="home-top">${homeNowCard(nextLabel, nextHref)}${homeTodoCard()}</div>
@@ -772,11 +797,27 @@ Object.assign(actions, {
       toast(e.message, true);
     }
   },
-  /** 연재처에 다음 화를 올렸다고 적고 바로 저장한다 (작품 홈의 연재 일정 줄) */
+  /** 연재처에 다음 화를 올렸다고 적고 바로 저장한다 (작품 홈의 연재 일정 줄). 알림의 '되돌리기'는 하나 줄여 다시 저장한다 */
   async releaseOne() {
     const r = P().release;
-    r.released = Math.min((Number(r.released) || 0) + 1, P().episodes.length);
+    const n = Math.min((Number(r.released) || 0) + 1, P().episodes.length);
+    r.released = n;
     markDirty();
-    await actions.save();
+    await run('저장하는 중', async () => {
+      if (await save() === false) return;
+      const name = S.name;  // 알림은 몇 초 남는다. 그사이 다른 작품을 열었으면 되돌리지 않는다
+      toast(`${n}화를 올린 화로 표시했어요`, false, { actions: [{ label: '되돌리기', run: () => actions.releaseUndo(n, name) }] });
+    });
+  },
+  /** releaseOne 되돌리기: 같은 작품이 열려 있고 그 뒤에 올린 화를 다시 고치지 않았을 때만 하나 줄인다 */
+  async releaseUndo(n, name = S.name) {
+    if (S.name !== name || !P()) return toast(`다른 작품을 열어 ${n}화 올림 표시를 되돌리지 않았어요`, true);
+    const r = P().release;
+    if ((Number(r.released) || 0) !== n) return toast('올린 화가 그사이 바뀌어 되돌리지 않았어요', true);
+    r.released = n - 1;
+    markDirty();
+    await run('되돌리는 중', async () => {
+      if (await save() !== false) toast(`${n}화 올림 표시를 되돌렸어요`);
+    });
   },
 });

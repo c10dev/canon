@@ -128,3 +128,21 @@ def test_views_render_toc_and_board():
     assert "4화 엔딩 훅" in page and "6화 (다음 화)" in page
     assert 'data-action="tocPart" data-arg="1"' in ser and 'data-action="selectArc" data-arg="3" aria-current="true"' in ser
     assert 'class="arc-bar"' not in ser and "부 · 아크 전체 보기" not in ser
+
+
+@needs_node
+def test_drop_event_restores_only_with_text():
+    # 글이 있는 사건을 빼면 저장 띠의 '되살리기'로 그 사건을 돌려놓는다. 빈 칸을 빼면 되살리기를 남기지 않는다
+    p = _short()
+    p.episodes[4].plot.events = ["가", "", "다"]
+    out = run_js(FILES, """(() => {
+      S.project = data; render = () => {};
+      actions.dropEvent('5:1');
+      const blank = lastRemoved();
+      actions.dropEvent('5:0');
+      const label = lastRemoved().label;
+      const after = [...ep(5).plot.events];
+      actions.restoreRemoved();
+      return [blank, label, after, ep(5).plot.events, lastRemoved()];
+    })()""", dump(p))
+    assert out == [None, "5화 사건 1", ["다"], ["가", "다"], None]

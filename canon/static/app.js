@@ -32,6 +32,7 @@ const S = {
   picksEp: null,     // S.picks 의 변경안 체크가 어느 화 것인가 (review.js pickEp)
   picksKept: {},     // 다른 화로 옮길 때 맡겨 둔 화별 변경안 체크
   textDraft: {},     // 화별 본문 편집 중인 값
+  editDrafts: {},    // 화면에만 있는 인라인 편집기의 저장하지 않은 입력. 키 → true/false (hasUnsaved 의 약속)
   context: null,
   promptText: null,
   popMenu: null,     // 열린 펼침 메뉴 id (menuBtn). 다시 그려도 열려 있고, 화면을 옮기면 닫는다
@@ -230,7 +231,20 @@ function toastLife(msg, acts) {
   return acts ? 10000 : Math.min(10000, 3500 + String(msg).length * 60);
 }
 
+/** 말풍선 글을 화면 낭독기에 알린다. 오류는 #sr-alert(바로 읽음), 보통 알림은 #sr-live(하던 낭독 뒤).
+    #toast 는 낭독 칸이 아니다: 알림 창이 열리면 숨기므로(hub.js drawHubPop) 거기 두면 읽히지 않는다.
+    글마다 새 줄로 덧붙이고 8초 뒤 지운다: 이어 온 알림과 같은 글도 하나씩 모두 읽힌다 (저장 띠 안내도 이것을 쓴다) */
+function toastSay(msg, err) {
+  const box = $(err ? '#sr-alert' : '#sr-live');
+  if (!box) return;
+  const line = document.createElement('div');
+  line.textContent = String(msg);
+  box.appendChild(line);
+  setTimeout(() => line.remove(), 8000);
+}
+
 function toast(msg, err = false, opt = {}) {
+  toastSay(msg, err);
   const el = document.createElement('div');
   const acts = (opt.actions || []).length;
   el.className = 't' + (err ? ' err' : acts ? ' act' : '');
@@ -904,16 +918,27 @@ document.addEventListener('click', (e) => {
 });
 
 /** 버튼 동작 공통 처리: 진행 표시, 오류 알림, 다시 그리기. 성공하면 true.
-    opt.render: 'always'(기본) | 'success'(실패하면 다시 그리지 않아 화면에만 있는 입력을 남긴다) | 'never' */
-/** 실패를 알린다. API 키가 없으면(첫 실행에 흔하다) 설정 대화상자를 열지 묻는다. */
-function showError(e) {
+    opt.render: 'always'(기본) | 'success'(실패하면 다시 그리지 않아 화면에만 있는 입력을 남긴다) | 'never'
+    opt.retry: false 면 실패 말풍선에 '다시 시도'를 붙이지 않는다 (같은 run 을 되풀이해도 뒤 단계가 이어지지 않을 때) */
+/** 다시 시도할 만한 실패: 서버에 닿지 못함(status 0), 너무 많은 요청(429), 서버 · AI 호출 실패(5xx).
+    입력 확인(4xx)과 '기다리지 않기'(aborted), 화면 안에서 던진 오류(status 없음)는 다시 해도 같다 */
+const retryable = (e) => !!e && e.code !== 'aborted' && (e.status === 0 || e.status === 429 || e.status >= 500);
+
+/** 실패를 알린다. API 키가 없으면(첫 실행에 흔하다) 설정 대화상자를 열지 묻는다.
+    opt.retry: 다시 시도할 함수. 다시 시도할 만한 실패면 오류 말풍선에 '다시 시도'를 붙인다.
+    글에 API 키 · 연결이 있으면 '설정'도 붙인다 (알림 창 hubAttention 과 같은 기준).
+    서버에 닿지 못한 실패(status 0)는 뺀다: AI 설정으로 고칠 수 없고 그 대화상자도 서버가 있어야 열린다 */
+function showError(e, opt = {}) {
   if (e.code === 'no_key' || e.code === 'bad_key') {
     askConfirm(`${e.message}\n\n설정을 열까요?`, { title: e.code === 'no_key' ? 'API 키가 없어요' : 'API 키를 확인하세요', ok: '설정 열기' }).then((ok) => ok && openSettings('ai'));
     return;
   }
   // '기다리지 않기'는 작가가 고른 것이라 빨간 오류가 아닌 보통 알림으로 알린다 (디자인 시스템 Busy)
   if (e.code === 'aborted') return toast(e.message);
-  toast(e.message, true);
+  const acts = [];
+  if (opt.retry && retryable(e)) acts.push({ label: '다시 시도', run: opt.retry });
+  if (e.status !== 0 && /API 키|연결/.test(e.message || '')) acts.push({ label: '설정', run: () => openSettings('ai') });
+  toast(e.message, true, { actions: acts });
 }
 
 // run() 이 기다리는 요청. 5초가 넘으면 화면 가운데 상자에 경과 시간과 '기다리지 않기'를 보인다 (api 가 이 신호를 쓴다)
@@ -942,7 +967,7 @@ async function run(label, fn, opt = {}) {
     await fn();
     ok = true;
   } catch (e) {
-    showError(e);
+    showError(e, opt.retry === false ? {} : { retry: () => run(label, fn, opt) });  // 같은 동작을 같은 방식으로 한 번 더
   } finally {
     clearInterval(tick);
     runAbort = null;
@@ -1355,8 +1380,7 @@ function newSavebar(shortcut = true) {
   const slot = $('#app .savebar-slot');
   if (slot) bar.classList.add('inline');
   (slot || document.body).appendChild(bar);
-  const live = $('#sr-live');
-  if (live) live.textContent = `저장하지 않은 변경이 있어요.${shortcut ? ' Ctrl+S로 저장할 수 있어요.' : ''}`;
+  toastSay(`저장하지 않은 변경이 있어요.${shortcut ? ' Ctrl+S로 저장할 수 있어요.' : ''}`, false);  // 덧붙여 알린다: 같은 때 뜬 말풍선 낭독을 지우지 않게
   return bar;
 }
 
@@ -1410,10 +1434,29 @@ function briefPending(key, v) {
 // 서버 pending.json 에 남아 새로 고쳐도 되살아나는 변경안은 묻지 않는다 (review.js deltaKept)
 const deltaPending = (n) => { const e = P() && ep(Number(n)); return (!e || e.status === 'written') && !(typeof deltaKept === 'function' && deltaKept(n)); };
 
+// S.editDrafts 약속: 인라인 편집기를 가진 모듈은 저장하지 않은 입력이 생기면 S.editDrafts.<키> = true,
+// 저장 · 버리기 · 편집기 닫기 때 false 로 둔다. 키 이름은 모듈이 정하고, app.js 는 키를 켜지 않고 값만 본다.
+// true 인 키가 하나라도 있으면 화면 이동(hashchange)과 새로고침 · 탭 닫기(beforeunload)에서 묻는다.
+// 화면 이동이 이어지면(버리고 이동을 골랐거나 남은 입력이 없음) app.js 가 S.editDrafts 를 {} 로 비운다
+// 버리고 이동을 고른 키는 onEditDiscard 로 맡긴 함수를 불러 그 모듈의 초안도 비운다. 돌아왔을 때 버린 글이 되살아나지 않게
+const editDraftOpen = () => Object.values(S.editDrafts || {}).some(Boolean);
+const editDraftResets = {};
+function onEditDiscard(key, fn) { editDraftResets[key] = fn; }
+function discardEditDrafts() {
+  Object.entries(S.editDrafts || {}).forEach(([k, on]) => { if (on && editDraftResets[k]) editDraftResets[k](); });
+  S.editDrafts = {};
+}
+
+/** 화면을 옮기면 사라지는 입력: 저장하지 않은 작품 · 라이브러리 · 장면 연출 변경과 인라인 편집기 입력.
+    본문 초안 · 상태 변경안 · 가격표처럼 화면을 옮겨도 남는 것은 세지 않는다 (hashchange 확인이 쓴다) */
+function leaveUnsaved() {
+  return S.dirty || S.libDirty || S.stgDirty || editDraftOpen();
+}
+
 /** 페이지를 떠나면 사라지는 입력: 저장하지 않은 작품 · 문체 · 설정 변경, 본문 초안, 붙여 넣은 지시서 결과, 반영하지 않은 상태 변경안,
-    분석 전 문체 예시 원문. 본문 초안은 브라우저에도 임시 보관하지만, 막힌 브라우저가 있어 여기서도 묻는다 */
+    분석 전 문체 예시 원문, 저장하지 않은 가격표, 인라인 편집기 입력(S.editDrafts). 본문 초안은 브라우저에도 임시 보관하지만, 막힌 브라우저가 있어 여기서도 묻는다 */
 function hasUnsaved() {
-  return S.dirty || S.libDirty || S.stgDirty
+  return leaveUnsaved() || S.priceDirty
     || (S.styleSampleDirty && S.styleSample.trim() !== '')
     || Object.keys(S.textDraft).some(textUnsaved)
     || Object.entries(S.briefDraft).some(([k, v]) => briefPending(k, v))
@@ -1473,6 +1516,21 @@ async function loadStyleLink() {
 
 async function saveIfDirty() {
   if (S.dirty) await save();
+}
+
+/** 검수를 시작하기 전 준비 (checkEp · flow.js flowCheck). 검수는 저장된 작품과 본문을 읽는다.
+    본문 저장(flushText)은 서버 작품으로 S.project 를 바꾸므로, 저장하지 않은 작품 변경을 먼저 startJob 과 같은 물음으로 저장한다.
+    물음을 거절하거나 저장에 실패하면 false */
+async function checkReady(n) {
+  if (S.dirty && !(await askConfirm('저장하지 않은 변경이 있어요. 저장하고 작업을 시작할까요?', { ok: '저장하고 시작하기' }))) return false;
+  try {
+    await saveIfDirty();
+    await flushText(n);
+  } catch (err) {
+    showError(err);
+    return false;
+  }
+  return true;
 }
 
 // ---------- 동작 ----------
@@ -1559,8 +1617,10 @@ const actions = {
       toast('작품을 지웠어요. 서버의 projects/.trash에 남아 있어요');
     });
   },
+  /** 다시 검수하기. 검수는 저장된 본문을 읽으므로 저장하지 않은 변경과 본문 초안을 먼저 저장한다 (checkReady) */
   async checkEp(n) {
-    await startJob('check', Number(n));
+    n = Number(n);
+    if (await checkReady(n)) await startJob('check', n);
   },
   /** 긴 화면의 구역으로 간다. 해시를 바꾸면 화면 이동이 되므로 스크롤과 포커스만 옮긴다. */
   jumpTo(id) {
@@ -1854,7 +1914,9 @@ function askOpen(text, o, input) {
     el.returnValue = '';
     const inp = input ? el.querySelector(`#${id}-in`) : null;
     askPending = { resolve, input, read: () => (inp ? inp.value : '') };
-    const to = inp || el.querySelector('[data-ask="alt"]') || el.querySelector('[data-ask="ok"]');  // 세 번째 버튼(alt)이 있으면 그것이 주 버튼이다
+    // 세 번째 버튼(alt)이 있으면 그것이 주 버튼이다. 위험한 동작만 있으면 취소에 둔다: 열자마자 Enter 로 지우지 않게
+    const safe = o.danger && !o.alt && !inp;
+    const to = inp || el.querySelector('[data-ask="alt"]') || el.querySelector(safe ? '[data-ask=""]' : '[data-ask="ok"]');
     if (to) { to.focus(); if (inp && inp.select) inp.select(); }
   });
 }
@@ -2020,21 +2082,22 @@ window.addEventListener('hashchange', async () => {
   }
   const setDlg = document.getElementById('set-dlg');
   if (setDlg && setDlg.open) setDlg.close();
-  if (S.dirty || S.libDirty || S.stgDirty) {
+  if (leaveUnsaved()) {
     // 주소는 이미 바뀌었다. 묻는 동안 이전 주소로 되돌려 두고, 이동을 고르면 그 주소로 다시 바꿔 이어 간다
     const to = location.hash;
     const st = history.state;
     const ask = ++navAsk;
     history.replaceState({ idx: navScroll.idx }, '', lastHash);
     // 작품 변경만 있으면 '저장하고 이동'을 주 버튼으로 준다. 라이브러리 · 장면 연출은 저장하는 곳이 달라 버리고 갈지만 묻는다
-    const canSave = S.dirty && !S.libDirty && !S.stgDirty && !S.conflict;
+    const canSave = S.dirty && !S.libDirty && !S.stgDirty && !editDraftOpen() && !S.conflict;
     const go = await askConfirm(canSave ? '저장하지 않고 이동하면 그 변경은 사라져요.' : '저장하지 않고 이동하면 그 변경은 사라져요. 이동할까요?',
       { title: '저장하지 않은 변경이 있어요', ok: canSave ? '저장하지 않고 이동' : '이동하기', danger: true, alt: canSave ? '저장하고 이동' : '' });
     if (!go || location.hash !== lastHash) return;  // 묻는 사이 다른 이동이 왔으면 그 이동이 다시 묻는다
     if (go === 'alt') {
       // run() 으로 감싸 저장하는 동안 화면 입력을 막는다 (저장 뒤 받은 작품이 그사이 친 글을 덮지 않게). 실패는 run 이 알린다
       let kept = false;
-      const ok = await run('저장하는 중', async () => { kept = await save() === false; }, { render: 'never' });
+      // 다시 시도는 저장만 되풀이하고 이동은 잇지 못하므로 붙이지 않는다 (retry: false)
+      const ok = await run('저장하는 중', async () => { kept = await save() === false; }, { render: 'never', retry: false });
       if (!ok || kept) { render(); return; }  // 실패했거나 서버가 일부를 지켰다: 받은 작품으로 다시 그리고 이 화면에 남는다
       if (ask !== navAsk || location.hash !== lastHash) return;  // 저장하는 사이 다른 이동이 왔다. 그 이동이 다시 물었다
     }
@@ -2052,6 +2115,7 @@ window.addEventListener('hashchange', async () => {
   navScroll.idx = history.state.idx;
   lastHash = location.hash;
   S.libDirty = false;
+  discardEditDrafts();  // 버리고 이동을 골랐거나 남은 입력이 없었다. 버린 초안을 비우고 모든 키를 지운다 (S.editDrafts 약속)
   await route();
 });
 
@@ -2715,7 +2779,7 @@ function outSidebar(active) {
     r.fail ? navBadge(r.fail, `멈춘 작업 ${r.fail}개`, 'red') : r.result ? navBadge('결과', '검토를 기다리는 결과가 있어요', 'amber') : '')).join('');
   const toolLinks = tools.map(([id, href, mark, label, badge]) => (href
     ? link([id, href, mark, label], badge ? navBadge(badge, `${badge}개`) : '')
-    : `<span class="nav-off" title="${esc(label)} · 아직 열지 않았어요" aria-disabled="true">${navMark(mark)}<span class="nav-label">${label}</span>${navBadge(badge, '준비 중')}</span>`)).join('');
+    : `<span class="nav-off" title="${esc(label)} · 아직 열지 않았어요" aria-disabled="true">${navMark(mark)}<span class="nav-label">${label}</span>${navBadge(badge, '준비하는 중')}</span>`)).join('');
   return `<nav class="side side-out${S.menuOpen ? ' open' : ''}" aria-label="작품 밖 메뉴">
     ${sideTop()}
     <div class="side-menu" id="side-menu">

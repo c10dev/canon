@@ -335,20 +335,13 @@ function priceRedraw() {
   render();
 }
 
+/** 가격표 저장 · 되돌리기: run() 으로 보내 기다리는 동안 뒤 화면을 막고 포커스를 상자로 옮긴다 (다시 누르지 못하게) */
 async function priceSend(label, fn, done) {
-  $('#busy-label').textContent = label;
-  $('#busy-sec').textContent = '';
-  $('#busy').hidden = false;
-  try {
+  await run(label, async () => {
     pricesSet(await fn());
     if (S.usage) await usageLoad();
     toast(done);
-  } catch (e) {
-    toast(e.message, true);
-  } finally {
-    $('#busy').hidden = true;
-    priceRedraw();
-  }
+  });
 }
 
 function viewPrices() {
@@ -371,7 +364,7 @@ function viewPrices() {
       <thead><tr><th>모델</th><th>적용 시작일</th>${PRICE_COLS.map(([, l]) => `<th>${l}</th>`).join('')}<th><span class="sr-only">줄 조작</span></th></tr></thead>
       <tbody>${rows}</tbody></table></div>
     <div class="row">
-      <button class="btn" data-action="priceAdd">줄 추가</button>
+      <button class="btn" data-action="priceAdd">줄 더하기</button>
       <button class="btn primary" data-action="priceSave"${S.priceDirty ? '' : ' disabled'}>가격표 저장</button>
       ${S.priceDirty ? '<button class="btn" data-action="priceCancel">고친 것 버리기</button>' : ''}
       ${S.prices.rows.some((r) => r.custom) ? '<button class="btn danger" data-action="priceReset">기본값으로 되돌리기</button>' : ''}
