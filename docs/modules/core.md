@@ -86,6 +86,7 @@
   - `illust`: NovelAI 삽화 프롬프트
   - `insert`: 짜 둔 플롯 사이에 외전이나 새 화 넣기 · 안 쓴 화 빼기(뒤 화 번호와 범위 · 복선 · 요소 · 줄기를 함께 옮김)
   - `insert --delete`: 마지막으로 쓴 화 지우기
+  - `insert` 는 저장한 뒤 큐 시트 실험 · 블라인드 비교본도 새 화 번호로 옮긴다(`store.renumber_side_files`)
   - `learn`: 수정 기록에서 문체 규칙 후보 찾기
   - `lines`: 서브플롯 · 과거 회상 · 외전 이야기 줄기를 만들고 화에 붙이기
   - `look`: 인물 외형 태그
@@ -144,6 +145,7 @@
 - AI 호출은 `pipeline.make_cue_sheet` · `write_scored` · `play_cues`
 - 프롬프트 `prompts.cue_sheet_prompt`(대사 큐 몫은 작품 문체 기준에서 `cue_dialogue_share`) · `cue_sheet_block` · `cue_score_prompt` · `cue_head` · `cue_step` · `cue_play_prompt`(k번째 요청이 앞 요청과 응답을 통째로 품음)
 - 작품에 저장하지 않고 `cuelab/<화>.json`(`store.load_cuelab` · `save_cuelab`)
+- 화를 넣고 빼면 실험 파일도 새 화 번호로 옮긴다(`store.renumber_side_files`)
 - 화면은 `static/cue.js`
   - 실험 화면과 집필 화면의 큐 시트 카드 `cueCard`
   - 역설계 실험도 편집기를 함께 씀(열쇠 `rev:<화>`) · 쓴 화의 접은 카드 `cuePanel` · 켜기 `cueToggle`
@@ -412,7 +414,9 @@
 - 파일 끝에서 두 칸을 찾지 못하면 파일 전체를 읽는다. 두 칸은 `Project` 의 마지막 필드여야 한다(`tests/test_store_backup.py`)
 - 검토를 기다리는 AI 결과와 실패한 작업(`pending.json`, `load_pending` / `edit_pending`)
 - 상태 변경안 결과(`state:<화>`)는 작가가 고르던 체크와 고친 변경안을 `draft` 칸에 함께 둔다
-- 결과를 지우거나 새 결과로 바꾸면 초안도 사라진다
+- 결과를 지우거나 새 결과로 바꾸면 초안도 사라진다- 화 번호로 이름 붙인 바깥 파일(큐 시트 실험 `cuelab/<화>.json` · 블라인드 비교본 `compare/<화>/`, `compare_dir`)은 화를 넣고 뺄 때 `renumber_side_files` 로 옮긴다
+- `renumber_side_files` 는 옮길 파일을 임시 이름(`.renum-<화>`)으로 먼저 옮겨 서로 덮지 않고, 큐 시트 실험 안의 `episode` 도 새 번호로 고친다
+- 뺀 화(`gone`)의 바깥 파일은 지우지 않고 `cuelab/removed/` · `compare/removed/` 에 `<화>.<시각>` 으로 남긴다(`SIDE_REMOVED`)
 
 ### `canon/updater.py`
 
@@ -471,5 +475,6 @@
 - 읽기 전용 GET 은 `_view`(`store.load_view`)로 작품을 읽는다
 - `GET /api/projects`(`list_projects`)는 카드의 project.json 몫을 파일 판(수정 시각 · 크기 · inode)마다 `_cards` 에 둔다. 판이 바뀐 작품만 `store.peek` 으로 다시 읽는다
 - 작품 목록의 play.json · pending.json · 갈래 정보는 요청마다 읽는다
+- 화 넣기 · 빼기 · 지우기와 대화 에이전트의 화 넣기 · 빼기 승인 · 되돌리기는 저장한 뒤 `store.renumber_side_files` 로 큐 시트 실험 · 비교본을 옮긴다. 넣기 · 빼기 · 지우기 응답의 notes 에 옮긴 설명이 붙는다
 - `GET …/backups` · `POST …/backups/restore` 는 백업 목록과 되돌리기(`store.restore_backup`). 자동 집필 · 돌고 있는 AI 작업 · 검토를 기다리는 결과가 있으면 막고, 반영한 화가 줄면 `autorun.after_revert` 를 부른다
 - 작품 전체 저장은 `put_project`

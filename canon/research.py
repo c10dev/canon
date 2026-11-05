@@ -100,9 +100,8 @@ def open_compares(name: str) -> list[dict]:
     if not root.exists():
         return []
     out = []
-    for key in sorted(root.glob("*/key.json")):
-        if not key.parent.name.isdigit():
-            continue
+    keys = [k for k in root.glob("*/key.json") if k.parent.name.isdigit()]
+    for key in sorted(keys, key=lambda k: int(k.parent.name)):  # 이름 차례면 100화가 99화 앞에 온다
         k = json.loads(key.read_text(encoding="utf-8"))
         if not k.get("picked"):
             out.append({"episode": int(key.parent.name), "kind": k.get("kind", "backend"), "created": k.get("created"),
@@ -513,7 +512,7 @@ def _two_step_run(llm: LLM, jb: Backend, q: Project, n: int, used: list) -> dict
 # ---------- 블라인드 비교 ----------
 
 def compare_dir(name: str, n: int) -> Path:
-    return store.project_dir(name) / "compare" / f"{n:02d}"
+    return store.compare_dir(name, n)
 
 
 def run_compare(name: str, p: Project, n: int, a: Backend, b: Backend) -> dict:

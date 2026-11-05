@@ -1899,6 +1899,7 @@ def insert_episode(name: str, body: InsertIn) -> Renumbered:
         p = _load(name)
         notes = pipeline.insert_episode(p, at, body.title, body.summary, body.storyline, not store.shares_text(name))
         store.save(name, p)
+        notes += store.renumber_side_files(name, lambda x: x + 1 if x >= at else x)
     autorun.renumber(name, lambda x: x + 1 if x >= at else x)
     return {"project": p, "notes": notes}
 
@@ -1911,6 +1912,7 @@ def remove_episode(name: str, n: int) -> Renumbered:
         p = _load(name)
         notes = pipeline.remove_episode(p, n, not store.shares_text(name))
         store.save(name, p)
+        notes += store.renumber_side_files(name, lambda x: x - 1 if x >= n else x, [n])
     autorun.renumber(name, lambda x: x - 1 if x >= n else x)
     return {"project": p, "notes": notes}
 
@@ -1930,6 +1932,8 @@ def delete_episode(name: str, n: int, body: DeleteIn) -> dict:
         notes = pipeline.delete_last(p, n, body.keep_plot)
         path = store.save_backup(name, f"before-delete-{n}", before)
         store.save(name, p)
+        if not body.keep_plot:
+            notes = [*notes, *store.renumber_side_files(name, lambda x: x - 1 if x >= n else x, [n])]
     if before.episode(n).status == "finalized":
         autorun.after_revert(name, n)
     if not body.keep_plot:
@@ -2266,6 +2270,7 @@ def agent_approval(name: str, sid: str, t: int, body: ApprovalIn) -> dict:
         _renumber_ready(name, op.at)
     p = _edit(name, lambda q: agent.decide(q, sid, t, body.approve, body.picked, body.remember, not store.shares_text(name)))
     if op:
+        store.renumber_side_files(name, agent.shift(op), agent.dropped(op))
         autorun.renumber(name, agent.shift(op))
     return {"project": p, "job": _run_agent(name, sid, t)}
 
@@ -2294,6 +2299,7 @@ def agent_undo(name: str, sid: str, t: int, body: AgentUndoIn) -> dict:
     done: list = []
     p = _edit(name, lambda q: out.append(agent.undo(q, sid, t, body.write, body.key, not store.shares_text(name), done)))
     for op in done:
+        store.renumber_side_files(name, agent.shift(op, inverse=True), agent.dropped(op, inverse=True))
         autorun.renumber(name, agent.shift(op, inverse=True))
     restored, kept, reasons = out[0]
     return {"project": p, "restored": restored, "kept": kept, "reasons": reasons}

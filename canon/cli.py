@@ -856,6 +856,7 @@ def cmd_insert(a: argparse.Namespace) -> None:
         if p.episode(n).status == "finalized":
             autorun.after_revert(a.name, n)
         if end:
+            _print_side(store.renumber_side_files(a.name, end, [n]))
             autorun.renumber(a.name, end)
         return
     if end:
@@ -868,6 +869,13 @@ def cmd_insert(a: argparse.Namespace) -> None:
         pipeline.apply_plots(p, batch)
         _print_candidates(p)
     print(f"저장: {store.save(a.name, p)}" + ("" if a.remove else f"  ({n}화는 초안이에요. 다듬은 뒤 confirm {a.name} {n})"))
+    _print_side(store.renumber_side_files(a.name, end, [n] if a.remove else []))  # 저장한 뒤에 옮긴다 (AI 초안이 실패하면 그대로)
+
+
+def _print_side(notes: list[str]) -> None:
+    """화 번호로 이름 붙인 바깥 파일(큐 시트 실험 · 블라인드 비교본)을 옮긴 설명."""
+    if notes:
+        print("\n".join(notes))
 
 
 def cmd_confirm(a: argparse.Namespace) -> None:

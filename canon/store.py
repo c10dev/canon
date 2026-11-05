@@ -623,6 +623,82 @@ def cuelab_episodes(name: str) -> list[int]:
     d = project_dir(name) / "cuelab"
     return sorted(int(x.stem) for x in d.glob("*.json") if x.stem.isdigit()) if d.exists() else []
 
+
+def compare_dir(name: str, n: int) -> Path:
+    """n화 블라인드 비교본 폴더 (research.compare_dir). projects/<이름>/compare/<화 두 자리>/."""
+    return project_dir(name) / "compare" / f"{n:02d}"
+
+
+# 화 번호로 이름 붙인 바깥 파일: 큐 시트 실험 cuelab/<화>.json, 블라인드 비교본 compare/<화>/.
+# 화를 넣거나 빼면 project.json 안의 번호와 함께 옮겨야 다른 화의 실험 · 비교본이 새 번호의 화에 붙지 않는다.
+SIDE_REMOVED = "removed"
+_SIDE_LABEL = {"cuelab": "큐 시트 실험", "compare": "블라인드 비교본"}
+
+
+def _side_files(name: str) -> list[tuple[str, int, Path]]:
+    """(종류, 화, 경로). cuelab 은 <화>.json 파일, compare 는 <화> 폴더."""
+    d = project_dir(name)
+    out = []
+    if (d / "cuelab").is_dir():
+        out += [("cuelab", int(f.stem), f) for f in (d / "cuelab").glob("*.json") if f.stem.isdigit()]
+    if (d / "compare").is_dir():
+        out += [("compare", int(f.name), f) for f in (d / "compare").iterdir() if f.is_dir() and f.name.isdigit()]
+    return out
+
+
+def _side_path(name: str, kind: str, n: int) -> Path:
+    return _cuelab_path(name, n) if kind == "cuelab" else compare_dir(name, n)
+
+
+def _set_aside(f: Path, n: int, stamp: str) -> Path:
+    """f 를 같은 폴더의 removed/<화>.<시각>(.json) 으로 옮긴다. 지우지 않는다."""
+    root = f.parent / SIDE_REMOVED
+    root.mkdir(exist_ok=True)
+    dest, i = root / f"{n}.{stamp}{f.suffix}", 1
+    while dest.exists():
+        dest, i = root / f"{n}.{stamp}-{i}{f.suffix}", i + 1
+    os.replace(f, dest)
+    return dest
+
+
+def renumber_side_files(name: str, shift, gone=()) -> list[str]:
+    """화를 넣거나 뺀 뒤 큐 시트 실험 · 블라인드 비교본을 새 화 번호로 옮긴다. shift 는 옛 번호 → 새 번호(autorun.renumber 와 같은 규칙).
+    gone 화(뺀 화)의 파일은 지우지 않고 removed/<화>.<시각> 으로 남긴다. 옮기는 파일은 임시 이름을 거쳐 서로 덮어쓰지 않는다.
+    큐 시트 실험 파일 안의 episode 도 고친다 (save_cuelab 이 그 번호로 쓴다). 무엇을 옮겼는지 설명을 돌려준다."""
+    gone = set(gone)
+    stamp = f"{datetime.now():%Y%m%d-%H%M%S}"
+    notes: list[str] = []
+    moving = []
+    for kind, n, f in sorted(_side_files(name), key=lambda x: (x[0], x[1])):
+        if n in gone:
+            dest = _set_aside(f, n, stamp)
+            notes.append(f"뺀 {n}화의 {_SIDE_LABEL[kind]}은 {kind}/{SIDE_REMOVED}/{dest.name} 으로 남겨 뒀어요.")
+            continue
+        new = shift(n)
+        if new != n:
+            tmp = f.with_name(f".renum-{n}{f.suffix}")
+            os.replace(f, tmp)
+            moving.append((kind, n, new, tmp))
+    for kind, n, new, tmp in moving:
+        dest = _side_path(name, kind, new)
+        if dest.exists():  # 옮길 자리에 남은 파일이 있으면 덮지 않고 따로 둔다
+            _set_aside(dest, new, stamp)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(tmp, dest)
+        if kind == "cuelab":
+            try:
+                data = json.loads(dest.read_text(encoding="utf-8"))
+            except ValueError:
+                continue
+            if isinstance(data, dict):
+                data["episode"] = new
+                write_atomic(dest, json.dumps(data, ensure_ascii=False, indent=2))
+    for kind in ("cuelab", "compare"):
+        pairs = [f"{n}→{new}화" for k, n, new, _ in moving if k == kind]
+        if pairs:
+            notes.append(f"{_SIDE_LABEL[kind]}도 새 화 번호로 옮겼어요({', '.join(pairs)}).")
+    return notes
+
 def backup_path(name: str, tag: str) -> Path:
     return project_dir(name) / f"{tag}.json"
 

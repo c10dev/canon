@@ -76,7 +76,9 @@
   - `_stage_run`
   - 갈래별 찾은 수 `by_kind` · 기록 합계 `check_totals`
 - 블라인드 비교
+- 비교본 폴더 `compare/<화 두 자리>/` 는 `store.compare_dir` 가 정한다. 화를 넣고 빼면 `store.renumber_side_files` 가 옮긴다
 - 고르지 않은 비교본 목록 `open_compares`
+- `open_compares` 는 폴더 이름이 아니라 화 번호 차례로 준다(100화가 99화 앞에 오지 않게)
 - 작품 데이터와 분리해 `research/log.jsonl` 에 기록
 - 갈래마다 마지막 기록 `latest`(연구 개요가 `history` 30개 밖의 실험도 보인다)
 
