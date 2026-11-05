@@ -88,6 +88,7 @@
 - 지금 차림(`CharacterState.attire`) 점검. 규칙 글은 `prompts.ATTIRE_STATE_RULE` · `attire_write_rule` · `attire_check_rule`
 - 끝 낱말이 '가방' · '옷' · '겉옷' · '신발'인 조각 찾기(`vague`, 이름 `VAGUE`). 앞 낱말이 쓰임(`KIND_WORDS`)이거나 가방의 메는 자리(`CARRY`, 괄호 안 포함)를 말하면 넘어간다. 색 · 재질은 종류로 보지 않는다
 - 상태 변경안 정리 훅(`clean_delta`, `features.CLEAN`): 인물 이름으로 시작하는 경고
+- 그 경고는 (글, 인물 id) 로 돌려줘 상태 승인 화면이 그 인물 줄에 붙인다(`StateDelta.warn_to`)
 - LLM 호출 없음
 
 ### `canon/birth.py`
@@ -550,6 +551,7 @@
 - 본문 상태창 글(`render`, 서식 `Project.stat_window`)
 - 본문 상태창 읽기 · 대조(`read_windows`, `window_warnings`: 반영하면 될 값 `after_delta` 와 다르면 변경안 정리 `pipeline.clean_delta` 가 경고로)
 - 0 아래 · 한도 위 경고(`out_of_range`, `range_warnings`)
+- 두 경고는 (글, 인물 id) 로 돌려준다(`features.clean` 이 `StateDelta.warn_to` 에 넣는다)
 - 처음 수치 AI 제안 정리(`clean_init`, AI 호출은 `pipeline.suggest_initial_stats`, 1화 반영 뒤에는 막음, 프롬프트 `prompts.stat_init_prompt`)
 - 꾸미기(AI 안 정리 `clean_options`, 화면 스킨 `SKINS`, 창 이름 · 작품 틀은 `StatWindow.title` · `names`, AI 호출은 `pipeline.suggest_stat_window`, 프롬프트 `prompts.stat_window_prompt`)
 - 프롬프트 규칙

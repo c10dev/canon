@@ -1874,6 +1874,9 @@ class StateDelta(BaseModel):
         default_factory=list, description="relationship_updates 가운데 유형 · 설명의 극성이 반영 뒤 관계 단계와 반대인 것의 차례")
     # 프로그램이 채운다 (pipeline.extract_state). AI 응답 형식에서 뺀다. 반영할 때 지금 본문과 다르면 web 반영이 막는다
     basis: SkipJsonSchema[str] = Field("", description="변경안을 만든 본문의 지문 (pipeline.text_basis). 비면 모름")
+    # 프로그램이 채운다 (features.clean). AI 응답 형식에서 뺀다. warnings 와 같은 차례이고, 짧으면 모자란 칸은 "" 로 본다
+    warn_to: SkipJsonSchema[list[str]] = Field(
+        default_factory=list, description="warnings 와 같은 차례의 인물 id: 그 경고가 한 인물에 대한 것이면 id, 아니면 \"\". 상태 승인 화면이 그 인물 줄에 붙인다")
 
 
 class NameOption(BaseModel):

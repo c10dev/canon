@@ -1140,6 +1140,7 @@ def carried_delta(p: Project, n: int) -> StateDelta | None:
         f.planted_ep = n
     d.warnings = [f"단편 {x.sources[0]}화 때 승인한 변경안을 다시 써요. 앞 화가 바뀌었으니 확인하고 반영하세요."] + d.warnings
     d.basis = text_basis(p.episode(n).text)
+    d.warn_to = [""] + d.warn_to if d.warn_to else []  # 경고와 같은 차례를 지킨다
     return d
 
 

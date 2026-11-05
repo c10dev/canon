@@ -237,6 +237,7 @@
 - 대중교통(`mode` `transit`)은 장소 사이마다 걸어서만과 지하철(`rail`: 작품 사본 `Atlas.transit` 위 (역, 노선) 최단 경로, 표정속도 `RAIL_KMH` · 기다림 · 갈아타기 · 역 안 걷기 분, 출처는 `docs/map/specs/06-subway.md`) 가운데 짧은 쪽(`trip`, 글 `rail_text`)
 - 반영한 화의 이동(`moves`, 지도 화면 `view`: 지하철로 센 이동 `rail`)
 - 상태 변경안 경고(`delta_warnings`, `pipeline.clean_delta`)
+- 경고는 (글, 인물 id) 로 돌려준다(`features.clean` 이 `StateDelta.warn_to` 에 넣는다)
 - '괜찮아요'(`accept`)
 - 쓰기 · 검수 프롬프트의 이동 거리 줄 데이터(`episode_moves`, 글과 검수 줄은 `prompt.travel_block` · `travel_check_rule`)
 - 명령줄 `map <작품> travel`

@@ -336,6 +336,7 @@
   - 왼쪽 읽기 전용 본문과 근거 밑줄 `rvRanges`
   - 오른쪽 직접 정할 것 · 요약 · 그대로 반영할 것(갈래 접기 `S.rvOpen`, 고른 수 `rvKeyCount`) · 관계 계산
   - 경고를 인물 줄에 붙이기 `rvWarnSplit`
+  - 대상 인물 id(`StateDelta.warn_to`)가 있으면 그 인물 줄, 없으면(AI 경고 · 예전 변경안) 인물 이름으로 시작하는지로 붙인다
   - 인물 칸 그 자리에서 펴기 `rvOpen`
   - 편 인물 칸은 감정 · 목표 · 위치 · 메모 · 차림을 고친다(`STATE_TEXT`). 빈 칸은 지금 값을 그대로 둔다
   - 지금 값이 있는 칸의 '지우기'(`data-dclear`)는 `CharacterState.cleared` 에 칸 이름을 넣어 반영 때 그 칸을 비운다

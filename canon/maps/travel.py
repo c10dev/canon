@@ -362,8 +362,8 @@ def _last_places(p: Project, n: int, pls: list[dict]) -> dict[str, tuple[str, in
     return last
 
 
-def delta_warnings(p: Project, d: StateDelta) -> list[str]:
-    """상태 변경안대로 반영하면 서둘러도 못 갈 만큼 빨리 옮겨 간 인물. 꺼졌거나 축척 · 시점을 모르면 빈 목록."""
+def delta_warnings(p: Project, d: StateDelta) -> list[tuple[str, str]]:
+    """상태 변경안대로 반영하면 서둘러도 못 갈 만큼 빨리 옮겨 간 인물. 꺼졌거나 축척 · 시점을 모르면 빈 목록. 항목은 (경고 글, 인물 id)."""
     if not enabled(p) or scale(p) is None or d.time.day <= 0:
         return []
     pls = places(p)
@@ -383,8 +383,8 @@ def delta_warnings(p: Project, d: StateDelta) -> list[str]:
         m = {"cid": u.character_id, "stops": stops, **judge(p, t, window(p, before[1], d.episode, d.time))}
         if m["level"] == FAST:
             who = names(p).get(u.character_id, u.character_id)
-            out.append(f"{who}{logline.josa(who, '이', '가')} 너무 빨리 옮겨 갔어요: {path_text(p, m, pnames)}. "
-                       "작품 속 시간이나 위치가 맞는지 보세요 (순간 이동 같은 설정이면 반영한 뒤 지도 화면의 이동 시간 검사에서 '괜찮아요'로 둘 수 있어요)")
+            out.append((f"{who}{logline.josa(who, '이', '가')} 너무 빨리 옮겨 갔어요: {path_text(p, m, pnames)}. "
+                        "작품 속 시간이나 위치가 맞는지 보세요 (순간 이동 같은 설정이면 반영한 뒤 지도 화면의 이동 시간 검사에서 '괜찮아요'로 둘 수 있어요)", u.character_id))
     return out
 
 
