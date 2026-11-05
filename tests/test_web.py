@@ -571,6 +571,33 @@ def test_pending_results_and_failures_survive_reload(client, monkeypatch):
     assert d["failures"] == {} and "suggest:" in d["results"]  # 같은 작업이 성공하면 지난 실패를 지운다
 
 
+def test_state_draft_kept_with_pending_result(client):
+    """상태 승인 화면 초안(고르던 체크 · 고친 변경안)은 pending.json 의 state:<화> 결과에 붙고, 결과를 지우면 함께 사라진다. 작품은 저장하지 않는다."""
+    from canon import store
+
+    meta = {"title": "등대", "genre": "미스터리", "logline": "x", "target_episodes": 10}
+    client.post("/api/projects", json={"name": "dr", "meta": meta})
+    rec = {"key": "state:1", "id": "j1", "kind": "state", "ep": 1, "label": "1화 상태 변경안", "result": {"episode": 1, "summary": "받은"}, "base": "본문"}
+    store.edit_pending("dr", lambda d: d["results"].update({"state:1": rec, "suggest:": {"key": "suggest:", "kind": "suggest", "ep": None}}))
+    pj = store.project_dir("dr") / "project.json"
+    before = (pj.stat().st_mtime_ns, pj.read_bytes())
+    body = {"delta": {"episode": 1, "summary": "고친"}, "picks": {"f0": False, "c0": True}, "id": "j1"}
+    r = client.put("/api/projects/dr/pending/state%3A1/draft", json=body)
+    assert r.status_code == 200
+    draft = store.load_pending("dr")["results"]["state:1"]["draft"]
+    assert draft["delta"]["summary"] == "고친" and draft["picks"] == {"f0": False, "c0": True}
+    assert (pj.stat().st_mtime_ns, pj.read_bytes()) == before  # 초안은 작품 저장이 아니다
+    # 그사이 새 변경안으로 바뀐 결과 · 상태 변경안이 아닌 결과 · 없는 결과에는 남기지 않는다
+    client.put("/api/projects/dr/pending/state:1/draft", json={**body, "id": "old", "picks": {"f0": True}})
+    assert store.load_pending("dr")["results"]["state:1"]["draft"]["picks"]["f0"] is False
+    client.put("/api/projects/dr/pending/suggest:/draft", json=body)
+    assert "draft" not in store.load_pending("dr")["results"]["suggest:"]
+    client.delete("/api/projects/dr/pending/state:1")
+    client.put("/api/projects/dr/pending/state:1/draft", json=body)  # 반영 · 버린 뒤 늦게 온 저장
+    assert "state:1" not in store.load_pending("dr")["results"]
+    assert client.put("/api/projects/nope/pending/state:1/draft", json=body).status_code == 404
+
+
 def test_stop_job_discards_result(client, monkeypatch):
     """멈춘 작업은 바로 cancelled 로 보이고, 늦게 온 AI 응답을 저장하지 않으며 실패로도 남기지 않는다."""
     import time
