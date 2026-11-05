@@ -21,6 +21,8 @@
 ### `canon/static/app.js`
 
 - 웹 화면의 뼈대
+- 900px 이하에서 알림 창 · 찾기 팔레트 · 대화 시트 · 서랍 메뉴를 열면 기록을 하나 더해(`panelOn` · `panelOff`, state.panel) 뒤로 가기가 그 창만 닫는다. 닫을 때 되돌리기는 한 박자 미뤄 다른 창이 이어 쓰고, 주소가 바뀐 popstate 는 창을 닫지 않고, 창 없이 남은 기록은 움직인 쪽(뒤 · 앞)으로 건너뛰고, 저장하지 않은 변경이 있으면 건너뛰지 않는다. 열린 채 그려진 대화 시트는 그 시트를 처음 누를 때 `panelSync` 가 기록을 붙인다
+- 지운 것 되살리기는 최근 10개까지 쌓는다(`rememberRemoved`, `S.removed`). 지우기 사이에 다른 고침(`S.editSeq`)이 있으면 앞 기록을 버린다. 저장 띠의 '되살리기'는 가장 최근 것부터 하나씩
 - 휴대폰 키보드가 열리면 html 에 `kb-open` 을 단다(`--kb` 80px 이상). 640px 이하에서 집필 머리를 붙여 두지 않는다
 - 글 칸(`DIALOG_TEXT`)이 있는 대화상자는 바깥(배경)을 눌러도 닫지 않는다. Esc · 취소는 닫는다
 - 그린 뒤 화마다 한 열인 넓은 표(`.at-table-wrap`, 상태창 화별 `.sw-table-wrap`)를 지금 화(`.cur`) 또는 마지막 열로 옆으로 굴려 둔다
@@ -204,6 +206,7 @@
 ### `canon/static/marks.js`
 
 - 집필 화면 문체 표시
+- 손가락 기기에서 밑줄 친 곳은 같은 자리를 2초 안에 한 번 더 눌러야 이름 카드 · 도구를 띄운다(`markTap`). 빠른 두 번 누름으로 낱말이 골라지면 그것도 두 번째 누름으로 친다
 - 장치마다 이번 화 배지(`deviceBadges`, 본문 띠의 '문체 장치' 메뉴 `styleMenu`)
 - 본문에서 장치 글자 · 금지 표현 밑줄(고치는 본문은 textarea 뒤에 깐 칸 `hl-layer`, 스크롤은 CSS 스크롤 타임라인 `hl-follow` 로 따라가고 안 되는 브라우저만 `scrollTop`, 읽기 전용은 `<mark>`)
 - 밑줄에서 부분 수정 도구 띄우기
@@ -344,6 +347,7 @@
 - 반영 뒤 고친 화
 - 반영이 끝난 화를 고쳤을 때 집필 화면 알림(`restateNote`, 뒤 화 검수 권유)
 - 상태 승인 화면의 다시 맞추기 카드(`restateCard`: 요약 · 새 사실 · 새 복선만 고르기, 그대로 두기)
+- 다시 맞추기 후보(`restateDelta`)는 고친 본문에서 뽑은 변경안만이다. 변경안을 만든 본문(`S.deltaBase`)이 `final_text` 와 같으면 다시 뽑기를 보인다(서버 `_stale_state` 와 같은 규칙)
 - 서버는 `pipeline.apply_restate` · `keep_state`
 - 보내는 변경안(`restateBody`)은 고른 새 복선의 plant 근거 문장만 담는다 (`pipeline.apply_restate` 와 같은 규칙)
 - 고르기 칸(`rsItems`)은 변경안 안에서 같은 복선 id 가 두 번 오면 앞의 것만 보인다
@@ -362,7 +366,8 @@
   - 새 인물(`n`) 체크를 풀면 그 인물을 다룬 `c` · `e` · `r` · `s` · `t` · `h` · `a` 항목도 풀고 몇 개 풀었는지 알린다(`newCharCascade` · `newCharDeps`)
   - 새 인물을 다시 고르면 그 항목을 기본 체크로 되돌린다(다른 빠진 새 인물도 다룬 항목은 빼 둔다)
   - 새 인물 체크를 바꿔도 관계 미리 보기를 다시 계산한다(`app.js` 의 `[ersn]` 키)
-  - 체크를 푼 항목은 `pickedDelta` 가 `dismissed` 로 보낸다(설정 바꾸기 · 호칭 · 등장 인물 붙이기는 빼고)
+  - 체크를 푼 항목은 `pickedDelta` 가 `dismissed` 로 보낸다(등장 인물 붙이기는 빼고)
+  - 체크를 푼 설정 바꾸기(`t`) · 호칭(`h`)도 `dismissed` 로 가서 반영 취소 뒤 체크를 푼 채 다시 놓인다
   - 반영 기록에서 돌아온 변경안(반영 취소 · 단편 다시 쓰기)의 `dismissed` 는 `setDelta` 가 목록 끝에 다시 놓고(`reofferDismissed`) 기본 체크를 풀어 둔다(`d.reoffer`, 화면 전용)
   - 체크를 푼 채 다시 놓인 새 인물 · 심는 복선을 가리키는 항목도 `defaultPicks` 가 기본으로 빼 둔다(`over` 로 지금 `n` · `p` 체크를 주면 그 값을 기준으로 맞춘다)
   - 반영이 끝난 화 기록(`historyView`) 아래 접힌 '빼 둔 항목 N개'(`dismissedView`)
@@ -375,6 +380,7 @@
   - pending.json 에 남아 남기지 못한 초안이 없는 변경안은 페이지를 떠날 때 묻지 않는다(`deltaKept`, app.js `hasUnsaved`)
   - pending.json 에 결과가 없는 변경안은 초안을 남기지 않는다
   - 체크가 다른 화의 것이면(`S.picksEp`) 초안에 체크를 보내지 않는다
+  - 받은 그대로에서 바꾼 것(요약 · 체크 · 고칠 수 있는 칸)은 `deltaTouched` 로 센다. 다시 만들기와 자동 집필의 그대로 반영이 버리기 전에 묻는 기준이다
   - 머리 버튼 줄의 반영 버튼 · ⋯ `rvMenu` · `.savebar-slot`
   - 반영 `applyDelta`: 본문을 고친 것을 확인창에서 받았으면 `?force=1` 로 보낸다. 서버가 409(`stale_delta`)를 주면 기다림 상자를 닫고 한 번 더 묻는다
   - 왼쪽 읽기 전용 본문과 근거 밑줄 `rvRanges`
@@ -446,6 +452,7 @@
   - 라이브러리 항목도 같은 카드
   - 목차 틀은 공용 `outline.js`(`styleToc`)
   - `tests/test_style_js.py`
+- 문체 라이브러리 분석도 작업(`lib_style`, project `.styles`, `POST /api/styles/analyze/job` 의 `lib`)이다. 결과(`profile`, `lib`)는 그 항목 화면 맨 위 제안 카드(`libDraftCard`, `S.libDraft`)로 오고 새 항목은 저장하면 그 id 로 옮긴다. 이 탭이 열려 있는 동안 남는다
 - '문체 분석'(`analyzeStyle`)은 화면을 막지 않는 작업 `style` 을 시작한다. 버튼은 `jobBtn` 으로 진행을 보이고, 결과는 문체 화면 맨 위 제안 카드(`styleDraftCard`, `S.styleDraft`)로 온다. '이 결과로 바꾸기'(`styleDraftApply`)를 눌러야 작품 문체 · 기준 지표에 들어가고 라이브러리 연결을 끊는다. 문체 라이브러리의 분석은 작품 밖이라 아직 가림막(run)이다
 
 ### `canon/static/stylechat.js`

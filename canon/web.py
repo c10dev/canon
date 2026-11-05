@@ -702,7 +702,8 @@ def list_projects() -> list[ProjectCard]:
                 key = (st.st_mtime_ns, st.st_size, st.st_ino)
                 hit = _cards.get(d.name)
                 if not hit or hit[0] != key:
-                    hit = (key, *_card_base(store.peek(d.name)))
+                    q = store.peek(d.name)
+                    hit = (key, *_card_base(q), _state_live(q))
                     _cards[d.name] = hit
             except (FileNotFoundError, NotADirectoryError):  # 지우는 중이거나 작품 폴더가 아니다
                 continue
@@ -712,7 +713,7 @@ def list_projects() -> list[ProjectCard]:
             out.append({"name": d.name, **base,
                         "updated_at": datetime.fromtimestamp(mtime, timezone.utc).isoformat(), "_mtime": mtime,
                         "branch": tree.get(d.name), "play": (_play_card(basis, info) if (info := store.load_play(d.name)) else None),
-                        "alerts": _card_alerts(d.name)})
+                        "alerts": _card_alerts(d.name, hit[3])})
     for gone in set(_cards) - seen:
         _cards.pop(gone, None)
     out.sort(key=lambda x: -x["_mtime"])
@@ -721,7 +722,8 @@ def list_projects() -> list[ProjectCard]:
 
 # 작품 목록 카드의 project.json 몫 {이름: (파일 판, 칸, 플레이 카드 재료)}. 판(수정 시각 · 크기 · inode)이 같으면 다시 읽지 않는다.
 # store 캐시는 작품 4개까지라 작품이 많으면 목록 요청마다 모든 작품을 다시 검증했다. play.json · pending.json · 갈래는 요청마다 읽는다
-_cards: dict[str, tuple[tuple[int, int, int], dict, PlayBasis]] = {}
+# 마지막 칸은 상태 변경안을 아직 쓸 수 있는 화(_state_live)다
+_cards: dict[str, tuple[tuple[int, int, int], dict, PlayBasis, dict[int, str]]] = {}
 
 
 class PlayBasis(NamedTuple):
@@ -753,12 +755,15 @@ def _setup_ready(p: Project) -> bool:
                 and any(r.a != r.b and r.a in ids and r.b in ids for r in p.relationships))
 
 
-def _card_alerts(name: str) -> list[dict]:
-    """작품 목록의 확인할 것: pending.json 의 실패와 결과. 실패가 앞."""
+def _card_alerts(name: str, live: dict[int, str]) -> list[dict]:
+    """작품 목록의 확인할 것: pending.json 의 실패와 결과. 실패가 앞.
+    이미 쓸 수 없게 된 상태 변경안(get_pending 이 지우는 것, _stale_state)은 작품을 열기 전에도 보이지 않는다."""
     pend = store.load_pending(name)
+    stale = set(_stale_state(pend["results"], live))
     fails = [{"kind": "fail", "job": f.get("kind", ""), "ep": f.get("ep"), "label": f.get("label", ""), "error": f.get("error", "")}
              for f in pend["failures"].values()]
-    results = [{"kind": "result", "job": r.get("kind", ""), "ep": r.get("ep"), "label": r.get("label", "")} for r in pend["results"].values()]
+    results = [{"kind": "result", "job": r.get("kind", ""), "ep": r.get("ep"), "label": r.get("label", "")}
+               for k, r in pend["results"].items() if k not in stale]
     return fails + results
 
 
@@ -1631,6 +1636,31 @@ def analyze_library_style(body: Sample) -> StyleProfile:
     if len(body.text.strip()) < 200:
         raise HTTPException(400, "예시 원문은 200자 이상 넣어 주세요")
     return pipeline.analyze_style(get_llm("plan"), body.text)
+
+
+LIB_JOBS = ".styles"  # 문체 라이브러리 분석 작업의 project 자리 (작품 폴더는 점으로 시작하지 않아 겹치지 않는다)
+
+
+class LibAnalyzeIn(BaseModel):
+    text: str
+    lib: str = ""  # 결과를 놓을 라이브러리 항목 id. 새 항목은 비운다 (화면이 'new' 로 받는다)
+
+
+@app.post("/api/styles/analyze/job")
+def analyze_library_style_job(body: LibAnalyzeIn) -> dict:
+    """문체 라이브러리 분석을 화면을 막지 않는 작업(lib_style)으로 돌린다. 결과(profile, lib)는 화면이 그 항목에 제안으로 놓는다."""
+    if len(body.text.strip()) < 200:
+        raise HTTPException(400, "예시 원문은 200자 이상 넣어 주세요")
+    llm, text, lib = get_llm("plan"), body.text, body.lib or "new"
+
+    def fn(job: jobs.Job):
+        return {"profile": pipeline.analyze_style(llm, text).model_dump(), "lib": lib}
+    try:
+        with usage.scope(project="", episode=None, task="lib_style"):
+            job = jobs.start(LIB_JOBS, "lib_style", None, "문체 분석 (라이브러리)", fn)
+    except jobs.Busy as b:
+        return {**b.job.public(), "already": True}
+    return job.public()
 
 
 @app.post("/api/styles")
@@ -3058,12 +3088,41 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _state_live(p: Project) -> dict[int, str]:
+    """상태 변경안을 아직 쓸 수 있는 화 → 쓸 수 없는 변경안의 본문 지문.
+    본문 작성 상태인 화는 ''(어느 변경안이든 쓴다), 반영 뒤 고친 화는 고치기 전 본문(final_text)의 지문이다."""
+    out: dict[int, str] = {}
+    for e in p.episodes:
+        if e.status == "written":
+            out[e.plot.number] = ""
+        elif pipeline.edited_after_final(e):
+            out[e.plot.number] = pipeline.text_basis(e.final_text)
+    return out
+
+
+def _stale_state(results: dict, live: dict[int, str]) -> list[str]:
+    """이미 쓸 수 없게 된 상태 변경안(state:<화>)의 키. 본문 작성 상태도, 반영 뒤 고친 화도 아닌 화의 변경안이다.
+    반영 뒤 고친 화는 고치기 전 본문에서 뽑은 변경안도 낡았다. 다시 맞추기 후보는 고친 본문에서 뽑은 것만 둔다 (restate.js restateCard)."""
+    out = []
+    for k, r in results.items():
+        if r.get("kind") != "state":
+            continue
+        n = r.get("ep")
+        if n not in live:
+            out.append(k)
+            continue
+        base = r.get("base")
+        made = pipeline.text_basis(base) if base is not None else (r.get("result") or {}).get("basis") or ""
+        if live[n] and made == live[n]:
+            out.append(k)
+    return out
+
+
 @app.get("/api/projects/{name}/pending")
 def get_pending(name: str) -> dict:
-    """검토를 기다리는 AI 결과와 실패한 작업. 이미 쓸 수 없게 된 상태 변경안(본문 작성 상태도, 반영 뒤 고친 화도 아닌 화)은 지운다."""
+    """검토를 기다리는 AI 결과와 실패한 작업. 이미 쓸 수 없게 된 상태 변경안(_stale_state)은 지운다."""
     p = _view(name)
-    written = {e.plot.number for e in p.episodes if e.status == "written" or pipeline.edited_after_final(e)}
-    stale = [k for k, r in store.load_pending(name)["results"].items() if r["kind"] == "state" and r["ep"] not in written]
+    stale = _stale_state(store.load_pending(name)["results"], _state_live(p))
 
     def prune(d: dict) -> None:
         for k in stale:
@@ -4189,22 +4248,38 @@ class AutoResume(BaseModel):
 @app.post("/api/projects/{name}/auto/resume")
 def auto_resume(name: str, body: AutoResume) -> AutoView:
     _need(name)
+    run = autorun.get_run(name)
+    n = run.ep if run and run.status == "review" and (body.approve or body.rewrite) else None
     autorun.resume(name, approve=body.approve, rewrite=body.rewrite)
+    if n is not None:  # 그 화는 반영했거나 다시 쓴다. 검토하기로 둔 결과(auto_review)는 쓸 데가 없으니 지운다
+        def drop(d: dict) -> None:
+            if str((d["results"].get(f"state:{n}") or {}).get("id", "")).startswith("auto:"):
+                d["results"].pop(f"state:{n}")
+        store.edit_pending(name, drop)
     return _auto(name)
 
 
 @app.post("/api/projects/{name}/auto/review")
 def auto_review(name: str) -> AutoView:
     """검토 대기 변경안을 검토를 기다리는 결과(pending.json 의 state:<화>)로 둔다. 상태 승인 화면이 작업 결과처럼 읽는다.
-    웹은 화면 메모리로 넘기고(auto.js autoOpenReview), 앱은 이것을 부른 뒤 상태 승인 화면으로 간다."""
+    웹(auto.js autoOpenReview)과 앱 모두 이것을 부른 뒤 상태 승인 화면으로 간다. 그래서 고르던 체크 · 고친 칸이 초안으로 남는다.
+    id 는 실행 · 화 · 변경안 내용으로 정해 같은 변경안이면 같다. 같은 변경안을 다시 두면 작가가 남긴 초안을 지키고, 다시 쓰기로 바뀐 변경안은 새로 둔다."""
     p = _load(name)
     run = autorun.get_run(name)
     if run is None or run.status != "review" or run.pending is None or run.ep is None or p.episode(run.ep).status != "written":
         raise ValueError("검토를 기다리는 변경안이 없어요")
     n, key = run.ep, f"state:{run.ep}"
-    rec = {"key": key, "id": f"auto:{run.started}:{n}", "kind": "state", "ep": n, "label": f"{n}화 상태 변경안",
-           "result": run.pending.model_dump(), "base": run.pending_text or None, "at": _now()}
-    store.edit_pending(name, lambda d: d["results"].__setitem__(key, rec))
+    result = run.pending.model_dump()
+    tag = hashlib.sha1(json.dumps(result, ensure_ascii=False, sort_keys=True).encode()).hexdigest()[:10]
+    rec = {"key": key, "id": f"auto:{run.started}:{n}:{tag}", "kind": "state", "ep": n, "label": f"{n}화 상태 변경안",
+           "result": result, "base": run.pending_text or None, "at": _now()}
+
+    def put(d: dict) -> None:
+        old = d["results"].get(key)
+        if old and old.get("id") == rec["id"]:
+            return  # 이미 둔 같은 변경안: 초안(draft)을 지킨다
+        d["results"][key] = rec
+    store.edit_pending(name, put)
     return _auto(name)
 
 

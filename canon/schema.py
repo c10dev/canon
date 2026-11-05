@@ -1903,6 +1903,9 @@ class DismissedItems(BaseModel):
     new_places: list[NewPlace] = Field(default_factory=list)
     deadlines_added: list[Deadline] = Field(default_factory=list)
     deadlines_done: list[str] = Field(default_factory=list)
+    # 작가가 체크를 푼 설정 바꾸기 · 호칭 제안. 반영하지 않고, 반영 취소로 돌아오면 체크를 푼 채 다시 놓인다. 자동 집필은 여기 말고 setting_held · address_held 에 남긴다
+    setting_changes: list[SettingChange] = Field(default_factory=list)
+    address_changes: list[AddressChange] = Field(default_factory=list)
 
 
 class AddedItems(BaseModel):
@@ -1954,6 +1957,17 @@ class StateDelta(BaseModel):
     # 프로그램이 채운다 (pipeline.apply_delta). AI 응답 형식에서 뺀다. None 이면 이 칸이 생기기 전 기록이라 반영 취소가 스냅샷으로 짐작한다
     added: SkipJsonSchema[Optional[AddedItems]] = Field(
         None, description="반영할 때 실제로 새로 더해진 관계 쌍 · 비밀 · 사실 · 복선. 반영 뒤 작가가 더한 같은 항목과 가려 반영 취소가 이것만 뺀다")
+
+    def drop_rel_rows(self, drop) -> list[Relationship]:
+        """relationship_updates 에서 drop 차례의 행을 빼고 뺀 행을 돌려준다. 범위 밖 차례는 무시한다.
+        rel_flagged 는 남은 행의 새 차례로 다시 매기고, 뺀 행 · 범위 밖의 차례는 버린다 (같은 행을 기본으로 체크하지 않게)."""
+        drop = set(drop)
+        flagged = set(self.rel_flagged)
+        keep = [i for i in range(len(self.relationship_updates)) if i not in drop]
+        gone = [r for i, r in enumerate(self.relationship_updates) if i in drop]
+        self.rel_flagged = [j for j, i in enumerate(keep) if i in flagged]
+        self.relationship_updates = [self.relationship_updates[i] for i in keep]
+        return gone
 
 
 def _no_manual(s: dict) -> None:
