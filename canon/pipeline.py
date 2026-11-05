@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from . import dynamics, elements, illust, metrics, naming, prompts, renumber, setupchat, storylines
 from .judge import Judge, Question
 from .llm import LLM, Interrupted, dump, out_cap
-from . import anchor, board, cancel, charlog, context, features, findings, knows, metatail, stage, statwin, usage
+from . import anchor, board, cancel, charlog, context, features, findings, foreshadows, knows, metatail, stage, statwin, usage
 from .schema import CueSheet, CueSheetDraft, Finding, MetaCut, FindingRecheck, FixOption, FixPatch, FixSet, RevArcSet, RevEpisodeDraft, RevLineSet
 from .schema import ParagraphAnatomy, ReaderCheck, SceneCard, SceneVariant, SceneVariants, StudioCandidate, StudioDraft
 from .schema import (
@@ -3948,11 +3948,22 @@ def apply_restate(p: Project, d: StateDelta) -> dict:
     summary = d.summary.strip()
     facts = list(dict.fromkeys(f for f in d.new_facts if f.strip() and f not in p.facts))
     known = {f.id for f in p.foreshadows}
-    plants = [f.model_copy(update={"planted_ep": n, "status": "open", "payoff_ep": None}) for f in d.foreshadow_planted if f.id not in known]
+    plants = [f.model_copy(update={"planted_ep": n, "status": "open", "payoff_ep": None}) for f in d.foreshadow_planted
+              if f.id not in known and not known.add(f.id)]  # 변경안 안에서 같은 id 가 두 번 오면 앞의 것만
+    # 복선 근거 문장은 이번에 새로 심은 복선의 plant 문장만 붙인다 (상태 승인의 foreshadows.apply_delta 와 같은 모양)
+    new_ids = {f.id for f in plants}
+    seen = {foreshadows._key(c) for c in p.foreshadow_clues}
+    clues = []
+    for c in d.foreshadow_clues:
+        c = c.model_copy(update={"episode": n, "by": "ai"})
+        if c.kind == "plant" and c.foreshadow in new_ids and foreshadows._key(c) not in seen:
+            seen.add(foreshadows._key(c))
+            clues.append(c)
     if summary:
         ep.summary = summary
     p.facts += facts
     p.foreshadows += plants
+    p.foreshadow_clues += clues
     added = elements.add_places(p, d.new_places, n, "본문")
     places = [x for x in d.new_places if x.name.strip() in added]
     for snap in p.snapshots:
@@ -3964,9 +3975,10 @@ def apply_restate(p: Project, d: StateDelta) -> dict:
         rec.summary = summary or rec.summary
         rec.new_facts += facts
         rec.foreshadow_planted += [f.model_copy(deep=True) for f in plants]
+        rec.foreshadow_clues += [c.model_copy(deep=True) for c in clues]
         rec.new_places += [x.model_copy(deep=True) for x in places]
     ep.final_text = ""
-    return {"summary": bool(summary), "facts": len(facts), "foreshadows": len(plants), "places": len(places)}
+    return {"summary": bool(summary), "facts": len(facts), "foreshadows": len(plants), "clues": len(clues), "places": len(places)}
 
 
 def keep_state(p: Project, n: int) -> None:

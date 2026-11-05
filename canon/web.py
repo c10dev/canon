@@ -3979,10 +3979,15 @@ def apply_state(name: str, n: int, d: StateDelta, force: bool = False) -> Projec
 
 
 @app.post("/api/projects/{name}/episodes/{n}/restate")
-def apply_restate(name: str, n: int, d: StateDelta) -> Project:
-    """반영 뒤 고친 화: 고친 본문에서 다시 뽑은 변경안 중 고른 요약 · 새 사실 · 새 복선만 반영한다."""
+def apply_restate(name: str, n: int, d: StateDelta, force: bool = False) -> Project:
+    """반영 뒤 고친 화: 고친 본문에서 다시 뽑은 변경안 중 고른 요약 · 새 사실 · 새 복선만 반영한다.
+    변경안을 만든 본문(d.basis)이 지금 본문과 다르면 apply_state 처럼 409(code stale_delta)로 막는다. 작가가 확인하면 force 로 다시 보낸다."""
     p = _load(name)
     _not_auto(name)
+    ep = p.episode(n)
+    if ep.status == "finalized" and d.basis and not force and d.basis != pipeline.text_basis(ep.text):
+        return JSONResponse({"detail": f"변경안을 만든 뒤 {n}화 본문을 또 고쳤어요. 옛 본문 기준의 요약 · 사실 · 복선이 들어가요",
+                             "code": "stale_delta"}, status_code=409)
     d.episode = n
     pipeline.apply_restate(p, d)
     return _save(name, p)
