@@ -373,6 +373,8 @@
 - 파일 판(`tag`, 작품 GET 의 ETag). 웹 요청이 저장한 판은 `saved` 에 남아 응답의 `X-Project-ETag` 가 된다
 - 스냅샷은 `snapshots/<화>-<내용 해시>.json` 에 하나씩 두고 project.json 맨 앞 `snapshot_files` 가 차례대로 적는다(`read_disk`). 옛 project.json 안의 스냅샷도 읽는다
 - 지난 저장과 같은 스냅샷은 다시 직렬화하지 않는다(`_snap_written`). 어느 판(project.json · prev · backups)도 적지 않은 스냅샷 파일은 지운다
+- 아무 판도 적지 않아도 `SNAP_GRACE`(60초) 안에 쓴 스냅샷 파일은 지우지 않는다
+- `save` 는 판 기록 읽기부터 옛 스냅샷 지우기까지 작품 폴더의 `.lock` 에 `fcntl.flock` 을 잡는다(`_disk_lock`). 명령줄과 웹 서버가 함께 저장해도 서로의 새 스냅샷 파일을 지우지 않는다
 - 화면 저장 기록(`writer`, `edit_rev` · `saved_by`, 파일 끝만 읽음)
 - 파일 끝에서 두 칸을 찾지 못하면 파일 전체를 읽는다. 두 칸은 `Project` 의 마지막 필드여야 한다(`tests/test_store_backup.py`)
 - 검토를 기다리는 AI 결과와 실패한 작업(`pending.json`, `load_pending` / `edit_pending`)

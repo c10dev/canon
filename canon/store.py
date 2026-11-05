@@ -2,15 +2,19 @@
 본문은 읽기 편하도록 episodes/NN.md 로도 내보낸다 (화가 100화를 넘으면 NNN.md, ep_file)."""
 from __future__ import annotations
 
+import contextlib
+import fcntl
 import hashlib
 import json
 import os
 import re
 import shutil
 import threading
+import time
 from contextvars import ContextVar
 from datetime import datetime
 from pathlib import Path
+from typing import Iterator
 
 from . import cancel
 from .dynamics import seed_ties
@@ -145,6 +149,11 @@ def _write_snapshots(d: Path, p: Project) -> list[str]:
     return refs
 
 
+# 이 시간(초) 안에 쓴 스냅샷 파일은 아무 판도 적지 않아도 지우지 않는다.
+# 잠금(_disk_lock)을 쓰지 않는 옛 프로세스가 막 쓰고 아직 project.json 에 적지 않은 파일을 지키는 두 번째 울타리다
+SNAP_GRACE = 60.0
+
+
 def _drop_old_snapshots(d: Path) -> None:
     sdir = d / SNAP_DIR
     if not sdir.is_dir():
@@ -152,9 +161,42 @@ def _drop_old_snapshots(d: Path) -> None:
     keep: set[str] = set()
     for f in [d / "project.json", d / "project.prev.json", *(d / BACKUP_DIR).glob("project.*.json")]:
         keep |= set(_snap_refs(f) or ())
+    fresh = time.time() - SNAP_GRACE
     for f in sdir.glob("*.json"):
-        if f.name not in keep:
-            f.unlink(missing_ok=True)
+        if f.name in keep:
+            continue
+        try:
+            if f.stat().st_mtime > fresh:
+                continue
+        except FileNotFoundError:
+            continue
+        f.unlink(missing_ok=True)
+
+
+_held = threading.local()
+
+
+@contextlib.contextmanager
+def _disk_lock(d: Path) -> Iterator[None]:
+    """작품 폴더의 .lock 에 거는 프로세스 사이 잠금 (명령줄과 웹 서버가 같은 작품을 함께 저장해도 섞이지 않게).
+    flock 은 연 파일마다 걸려서 같은 프로세스의 다른 스레드도 기다린다. 한 스레드 안에서는 다시 잡아도 된다."""
+    held: set[Path] = getattr(_held, "dirs", None) or set()
+    _held.dirs = held
+    if d in held:
+        yield
+        return
+    d.mkdir(parents=True, exist_ok=True)
+    fd = os.open(d / ".lock", os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        held.add(d)
+        try:
+            yield
+        finally:
+            held.discard(d)
+            fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
 
 
 def load(name: str) -> Project:
@@ -311,22 +353,25 @@ def save(name: str, p: Project) -> Path:
     d = project_dir(name)
     d.mkdir(parents=True, exist_ok=True)
     path = d / "project.json"
-    if path.exists():
-        rev, by = _saved_mark(path)
-        if writer.get():
-            p.edit_rev, p.saved_by = rev + 1, writer.get()
-        else:  # 작업이 오래전에 읽은 사본을 저장해도 화면 저장 기록은 디스크 것을 잇는다
-            p.edit_rev, p.saved_by = rev, by
-        _backup(d, path)  # 직전 판과 시간별 백업을 남긴다
-    # 다른 스레드(자동 집필, 백그라운드 작업)가 쓰는 도중에 읽어도 빈 파일을 보지 않게 바꿔치기로 쓴다
-    # 들여쓰기 없이 쓴다: 장편은 들여쓰기만으로 1MB 넘게 커지고 저장마다 0.015초 더 걸린다 (2026-11-02 실측)
-    tmp = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
-    refs = _write_snapshots(d, p)  # 스냅샷 파일을 먼저 쓴다. project.json 이 바뀌기 전에는 아무도 새 파일을 적지 않는다
-    body = p.model_dump_json(exclude={"snapshots"})
-    tmp.write_text('{"snapshot_files":' + json.dumps(refs) + "," + body[1:], encoding="utf-8")
-    st = tmp.stat()  # 바꿔치기는 inode 와 수정 시각을 그대로 옮긴다. 바꾼 뒤 다른 스레드가 또 써도 이 판은 이 내용이다
-    os.replace(tmp, path)
-    _drop_old_snapshots(d)
+    # 판 기록 읽기부터 옛 스냅샷 지우기까지 한 잠금 안에서 한다. 다른 프로세스의 저장이 사이에 끼면
+    # 그 저장이 이쪽이 막 쓴(아직 project.json 에 적지 않은) 스냅샷 파일을 지워 작품을 못 읽게 된다
+    with _disk_lock(d):
+        if path.exists():
+            rev, by = _saved_mark(path)
+            if writer.get():
+                p.edit_rev, p.saved_by = rev + 1, writer.get()
+            else:  # 작업이 오래전에 읽은 사본을 저장해도 화면 저장 기록은 디스크 것을 잇는다
+                p.edit_rev, p.saved_by = rev, by
+            _backup(d, path)  # 직전 판과 시간별 백업을 남긴다
+        # 다른 스레드(자동 집필, 백그라운드 작업)가 쓰는 도중에 읽어도 빈 파일을 보지 않게 바꿔치기로 쓴다
+        # 들여쓰기 없이 쓴다: 장편은 들여쓰기만으로 1MB 넘게 커지고 저장마다 0.015초 더 걸린다 (2026-11-02 실측)
+        tmp = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
+        refs = _write_snapshots(d, p)  # 스냅샷 파일을 먼저 쓴다. project.json 이 바뀌기 전에는 아무도 새 파일을 적지 않는다
+        body = p.model_dump_json(exclude={"snapshots"})
+        tmp.write_text('{"snapshot_files":' + json.dumps(refs) + "," + body[1:], encoding="utf-8")
+        st = tmp.stat()  # 바꿔치기는 inode 와 수정 시각을 그대로 옮긴다. 바꾼 뒤 다른 스레드가 또 써도 이 판은 이 내용이다
+        os.replace(tmp, path)
+        _drop_old_snapshots(d)
     fresh = _remember(name, st, p)
     memo: dict[int, list[tuple[Snapshot, str]]] = {}
     for s, ref in zip(fresh.snapshots, refs):
