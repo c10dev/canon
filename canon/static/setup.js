@@ -1073,7 +1073,7 @@ function viewSuggestion() {
     const have = sugValue(P(), k).length > 0;
     return `<label class="row sug-field${have ? ' skip' : ''}"><input type="checkbox" data-pick="sf:${k}"${!have && S.picks['sf:' + k] !== false ? ' checked' : ''}${have ? ' disabled' : ''}><strong>${label}</strong> <span>${esc(v)}</span>${have ? ' <span class="small">이미 있음 · 건너뜀</span>' : ''}</label>`;
   }).join('')}</div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px">
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(min(260px,100%),1fr));gap:12px">
       ${s.characters.map((c, i) => exists(c) ? sugFillCard(c, i) : `<div class="char-card suggested"><label class="row" style="cursor:pointer"><input type="checkbox" data-pick="sc${i}"${S.picks['sc' + i] ? ' checked' : ''}><strong>${esc(c.name)}</strong><span class="small">${esc(c.role)} · ${esc(c.id)}${clash(c) ? ' · 이미 있는 다른 인물과 겹쳐 따로 넣어요' : ''}</span></label>
         <span style="font-size:0.8125rem;line-height:1.5">목표: ${esc(c.goal)}<br>말투: ${esc(c.speech_style)}</span>${sugCharDetails(c)}</div>`).join('')}
     </div>

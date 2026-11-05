@@ -308,6 +308,10 @@
 ### `canon/static/atlas.js`
 
 - 지도 화면 뼈대
+- 손가락으로 장소 핀을 끌려면 길게 누른다(`ATLAS_HOLD_MS` 350ms). 그 전에 움직이면 끌기를 버리고, 확대한 지도면 그 손가락으로 지도를 옮긴다. 끊기면(pointercancel) 옮긴 자리를 되돌린다
+- 처음 보기(확대 전)에서는 핀 위에서도 쓸어 페이지를 내린다(핀 `touch-action` 은 확대했을 때만 none). 길게 눌러 끌기가 시작된 뒤에는 touchmove 를 막아 페이지가 구르지 않는다
+- 마우스가 없으면(`hover: none`) '어디에 있었나' 표의 위치 글을 10자로 자르지 않고 줄바꿈한다
+- 이름 고치기 칸은 오른쪽 위 확대 버튼 자리를 비우고 줄어든다
 - 손가락 기기에서는 보기 메뉴의 단축키 글자(`.at-key`)를 숨긴다
 - 상태 · 불러오기(`atlasLoad`, 미리보기 · 자리 찾기 상태 `atlasGenPreview` · `atlasFindNow`)
 - 지도 그림(`atlasSvg`, 마을 `atlasVillageSvg`)

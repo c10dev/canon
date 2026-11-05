@@ -575,6 +575,7 @@ if (window.visualViewport && typeof window.visualViewport.addEventListener === '
     const vv = window.visualViewport;
     const kb = vv.scale > 1.01 ? 0 : Math.max(0, Math.round(innerHeight - vv.height - vv.offsetTop));  // 두 손가락으로 확대한 동안은 키보드가 아니다
     document.documentElement.style.setProperty('--kb', `${kb < 80 ? 0 : kb}px`);  // 80px 아래는 주소창이 접히고 펴지는 것이라 키보드로 보지 않는다
+    document.documentElement.classList.toggle('kb-open', kb >= 80);  // CSS 가 키보드가 열린 동안 붙여 둔 칸을 푼다 (집필 머리)
   };
   window.visualViewport.addEventListener('resize', fitKeyboard);
   window.visualViewport.addEventListener('scroll', fitKeyboard);
@@ -1690,11 +1691,24 @@ function fitMenus() {
     const r = p.getBoundingClientRect();
     const shift = r.right > W - 8 ? Math.max(8 - r.left, W - 8 - r.right) : r.left < 8 ? 8 - r.left : 0;
     if (shift) { p.style.translate = `${Math.round(shift)}px 0`; p.classList.add('fit-shift'); }
+    // 아래가 모자라면(가로 휴대폰 · 화면 아래쪽 버튼) 위 · 아래 중 넓은 쪽으로 펼치고, 그쪽 남은 높이 안에서 굴린다.
+    // 쓴 사람이 정한 위로 펼침(align 'up', 쇠맛 판정 띠)은 건드리지 않는다. 앱이 바꾼 것은 fit-up · fit-max 로 표시해 크기가 바뀌면 되돌린다
+    const H = window.innerHeight;
+    if (r.bottom > H - 8 && !p.classList.contains('up')) {
+      const btn = p.parentElement && p.parentElement.querySelector(':scope > button');
+      const btop = btn ? btn.getBoundingClientRect().top : r.top;
+      const above = btop - 6 - 8;
+      const below = H - r.top - 8;
+      if (above > below) p.classList.add('up', 'fit-up');
+      if (Math.max(above, below) < r.height) { p.style.maxHeight = `${Math.max(0, Math.round(Math.max(above, below)))}px`; p.classList.add('fit-max'); }
+    }
   });
 }
 window.addEventListener('resize', () => {
   document.querySelectorAll('#app .pop-panel.fit-left').forEach((p) => p.classList.remove('left', 'fit-left'));
   document.querySelectorAll('#app .pop-panel.fit-shift').forEach((p) => { p.classList.remove('fit-shift'); p.style.translate = ''; });
+  document.querySelectorAll('#app .pop-panel.fit-up').forEach((p) => p.classList.remove('up', 'fit-up'));
+  document.querySelectorAll('#app .pop-panel.fit-max').forEach((p) => { p.classList.remove('fit-max'); p.style.maxHeight = ''; });
   fitMenus();
 });
 
@@ -1731,6 +1745,8 @@ document.addEventListener('keydown', (e) => {
   closeMenu(true);
 }, true);
 
+const DIALOG_TEXT = 'input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=hidden]), textarea';
+
 /** #app 밖의 <dialog>. 화면을 다시 그려도 열려 있다. 닫으면 열기 전 포커스로 돌아간다.
     연 요소가 그사이 사라졌으면(메뉴 항목) back 선택자로 찾은 곳으로 */
 function showDialog(id, html, back = '') {
@@ -1740,7 +1756,8 @@ function showDialog(id, html, back = '') {
     el.id = id;
     el.className = 'w-dialog';
     el.setAttribute('aria-labelledby', `${id}-title`);
-    el.addEventListener('click', (e) => { if (e.target === el) el.close(); });  // 바깥(배경)을 누르면 닫는다
+    // 바깥(배경)을 누르면 닫는다. 글을 적는 칸이 있는 대화상자는 닫지 않는다 (휴대폰에서 키보드를 내리려다 적던 글을 잃지 않게). Esc · 취소는 닫는다
+    el.addEventListener('click', (e) => { if (e.target === el && !el.querySelector(DIALOG_TEXT)) el.close(); });
     document.body.appendChild(el);
   }
   const f = document.activeElement;
@@ -1808,7 +1825,7 @@ function askOpen(text, o, input) {
       el.dataset.ask = '1';
       // 답은 누른 때 바로 정한다. close 이벤트는 뒤에 오므로, 이어서 연 다음 물음을 앞 close 가 취소하지 않게 열린 동안은 무시한다
       el.addEventListener('click', (e) => {
-        if (e.target === el) return askFinish('');  // 바깥(배경) 누르기. 닫기는 showDialog 가 한다
+        if (e.target === el) return el.querySelector(DIALOG_TEXT) ? undefined : askFinish('');  // 바깥(배경) 누르기. 닫기는 showDialog 가 한다. 글 칸이 있으면 둘 다 하지 않는다
         const b = e.target.closest && e.target.closest('[data-ask]');
         if (!b) return;
         askFinish(b.dataset.ask);
@@ -2237,6 +2254,13 @@ function focusEl(el) {
 function afterDraw(f) {
   const main = $('#app main');
   if (main) { main.id = 'main'; main.tabIndex = -1; }
+  // 화마다 한 열인 넓은 표(지도 '어디에 있었나', 상태창 화별 변화)는 1화부터 그린다. 지금 화(.cur) 또는 마지막 열이 보이게 옆으로 굴려 둔다
+  document.querySelectorAll('#app .at-table-wrap, #app .sw-table-wrap').forEach((w) => {
+    if (w.scrollWidth <= w.clientWidth + 1 || w.querySelector('.sw-init')) return;
+    const cur = w.querySelector('th.cur, td.cur');
+    if (!cur) { w.scrollLeft = w.scrollWidth; return; }
+    w.scrollLeft += cur.getBoundingClientRect().left - w.getBoundingClientRect().left - w.clientWidth / 2 + cur.offsetWidth / 2;
+  });
   document.title = typeof notifyTitle === 'function' ? notifyTitle(pageTitle(), notifyUnseen) : pageTitle();  // 안 본 알림 수 (notify.js)
   // 탭 묶음: 고른 탭만 Tab 으로 들어가고 나머지는 화살표로 옮긴다 (아래 keydown)
   document.querySelectorAll('#app [role="tablist"]').forEach((list) => {
@@ -2309,8 +2333,11 @@ function drawApp() {
   if (p !== 'p' || !P()) return outside(p === 'new' ? 'new' : 'projects', 1180, viewProjects());
   const n = Number(arg) || currentEp();
   const views = { setup: viewSetup, style: viewStyle, arc: () => (plotPageN() ? viewPlotPage(plotPageN()) : serial() ? viewSerial() : viewArc()), write: viewWrite, check: viewCheck, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, cast: viewCast, atlas: viewAtlas, convert: viewConvert, foreshadow: viewForeshadow, tofix: viewToFix, stage: viewStage, statwin: viewStatwin, abilities: viewAbilities, timeline: viewTimeline, branches: viewBranches, cue: viewCue };
+  // 모르는 화면 이름(옛 북마크, 손으로 친 주소)은 말없이 홈을 그리지 않고 알린다. 사이드바는 홈을 고른 채로 둔다
+  const unknown = page && !views[page];
   const body = (views[page] || viewHome)(n);
-  $('#app').innerHTML = `<div class="shell">${sidebar(page === 'convert' ? 'home' : page || 'home')}<main class="main">${failStrip(page, n)}${draftStrip(page, n)}${branchPlace(page, body)}</main></div>`;
+  const miss = unknown ? `<div class="note warn between" role="status"><span>'${esc(page)}' 화면은 없어요. 작품 홈을 보여 드려요.</span><a class="btn small" href="${base()}">작품 홈 주소로</a></div>` : '';
+  $('#app').innerHTML = `<div class="shell">${sidebar(page === 'convert' || unknown ? 'home' : page || 'home')}<main class="main">${miss}${failStrip(page, n)}${draftStrip(page, n)}${branchPlace(page, body)}</main></div>`;
   syncPending();
   keepDrafts();  // 저장 · 버리기 · AI 본문으로 초안이 사라졌으면 임시본도 바로 지운다
   syncChat();
