@@ -138,3 +138,28 @@ def test_blank_style_not_kept(client):
     assert r.status_code == 400 and "비어" in r.json()["detail"]
     assert client.get("/api/styles").json() == []
     assert client.post("/api/projects/n/style/library", json={"name": "원문만", "sample": SAMPLE}).status_code == 200
+
+
+def test_push_merges_a_newer_push_from_another_project(tmp_path, monkeypatch):
+    """두 작품이 같은 문체를 쓸 때 늦게 올린 쪽이 먼저 올린 쪽의 변경을 덮지 않는다. 같은 글 칸을 다르게 고쳤으면 올리지 않는다."""
+    monkeypatch.setattr("canon.store.ROOT", tmp_path)
+    monkeypatch.delenv("CANON_STYLES", raising=False)
+    from canon import library
+    from canon.schema import Meta, Project, StyleProfile
+    e = library.create("공용 문체", StyleProfile(tense="과거형", dos=["짧게 쓴다", "옛 규칙"]))
+    a, b = Project(meta=Meta(title="A")), Project(meta=Meta(title="B"))
+    library.apply(a, library.load(e.id))
+    library.apply(b, library.load(e.id))
+    b.style.dos = ["짧게 쓴다", "B가 더한 규칙"]  # B 는 옛 규칙을 빼고 하나 더한다
+    library.push_project(b, "B 올림")
+    a.style.donts.append("A가 더한 금지")
+    a.style.dos.append("A가 더한 규칙")
+    library.push_project(a, "A 올림")
+    got = library.load(e.id).profile
+    assert got.dos == ["짧게 쓴다", "A가 더한 규칙", "B가 더한 규칙"] and got.donts == ["A가 더한 금지"]
+    assert a.style == got and library.link_state(a)["state"] == "same"
+    b.style.tense, a.style.tense = "현재형", "미래형"
+    library.push_project(b)
+    with pytest.raises(ValueError, match="시제 칸을 양쪽에서 다르게 고쳤어요"):
+        library.push_project(a)
+    assert library.load(e.id).profile.tense == "현재형"
