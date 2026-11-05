@@ -7,6 +7,8 @@
 - 자동 집필
 - 목표 화까지 (스토리보드 `_board`, `Policy.storyboard` · `stop_on_board_warnings`) → (큐 시트 `_cues`, `Policy.cue_sheet`) → write → (서술 다듬기 `_polish`, `Policy.polish`, 다듬을 화 `Run.polish_due`) → check + state → 정책(`Policy`) 통과 시 반영을 반복
 - 배치(`llm.BatchLLM`) 켜고 끄기
+- 배치를 취소하지 못하면 배치 이름을 서버 로그(`canon` 로거)에 경고로 남긴다(`_cancel_batches`)
+- 오류로 멈추면 호출 경로를 서버 로그에 남긴다
 - 비용·시간 추정
 - 정착 문체 흐름 멈춤(`Policy.max_style_distance`, 0 이면 끔, `anchor.rolling`)
 - `autorun.json` 에 진행 기록
@@ -188,6 +190,7 @@
 - 진행률
 - 작업이 맡은 화를 저장 덮어쓰기에서 지키기(`owned_episodes`)
 - 멈추기(`stop`)
+- 실패한 작업의 호출 경로를 서버 로그(`canon` 로거)에 남긴다. 화면에는 오류 문구만 보인다
 - 멈췄지만 AI 응답을 기다리는 같은 작업 찾기(`lingering`)
 - 같은 화의 AI 작업(`EP_AI_KINDS`) 가운데 응답을 기다리는 것 찾기(`waiting_on`). 종류가 달라도 같은 화면 호출이 겹친다
 - 단계 하나가 마지막으로 끝낸 화(`Job.step_ep`). 화면 `notify.js` 가 바뀔 때마다 알린다
@@ -321,9 +324,15 @@
 
 - `projects/<이름>/project.json` 저장
 - 본문을 `episodes/NN.md` 로 내보내기(바뀐 화만 다시 씀), project.json 은 들여쓰기 없이
+- 마지막 화가 100화 이상이면 본문 파일 이름을 세 자리(`NNN.md`)로 쓰고 옛 두 자리 파일은 지운다(`ep_file`)
+- 저장 전 직전 판을 `project.prev.json` 으로, 시간마다 첫 저장 직전 판을 `backups/project.<날짜-시>.json` 으로 남긴다(최근 `BACKUP_KEEP` 개, 하드 링크라 복사하지 않음)
+- 갈래 · 복제 · 플레이 사본은 `backups/` 를 옮기지 않는다(`branches.COPY_SKIP`)
 - 작품 캐시: 같은 판이면 검증을 건너뜀. `load_view` 는 캐시 것(고치지 않음, 웹은 `web._view`), `load` 는 깊은 복사본. 저장하면 저장한 내용을 바로 캐시에 둠(`_remember`)
 - 파일 판(`tag`, 작품 GET 의 ETag). 웹 요청이 저장한 판은 `saved` 에 남아 응답의 `X-Project-ETag` 가 된다
+- 스냅샷은 `snapshots/<화>-<내용 해시>.json` 에 하나씩 두고 project.json 맨 앞 `snapshot_files` 가 차례대로 적는다(`read_disk`). 옛 project.json 안의 스냅샷도 읽는다
+- 지난 저장과 같은 스냅샷은 다시 직렬화하지 않는다(`_snap_written`). 어느 판(project.json · prev · backups)도 적지 않은 스냅샷 파일은 지운다
 - 화면 저장 기록(`writer`, `edit_rev` · `saved_by`, 파일 끝만 읽음)
+- 파일 끝에서 두 칸을 찾지 못하면 파일 전체를 읽는다. 두 칸은 `Project` 의 마지막 필드여야 한다(`tests/test_store_backup.py`)
 - 검토를 기다리는 AI 결과와 실패한 작업(`pending.json`, `load_pending` / `edit_pending`)
 
 ### `canon/updater.py`
@@ -339,6 +348,7 @@
 ### `canon/web.py`
 
 - 웹 UI 서버(`python -m canon serve`)
+- `serve` 는 로깅 설정이 없으면 INFO 수준, 시각 · 수준 · 로거 이름을 붙인 형식으로 정한다. 업데이트 · 자동 집필 이어 가기 안내도 이 로그로 낸다
 - 작품 GET 과 작품을 돌려주는 응답은 스냅샷을 화 번호만 보낸다(`_SNAPSHOT_LIGHT`). 작품 저장(PUT)은 디스크 스냅샷을 지킨다
 - 인물 · 관계도와 지도 응답은 작품 판으로 JSON 을 기억하고 ETag 를 붙인다(`_json_view`)
 - CLI 와 같은 store · pipeline · prompts 를 쓰고 화면은 `canon/static/` 의 정적 파일이다

@@ -6556,6 +6556,9 @@ def serve(host: str = "127.0.0.1", port: int = 8000, open_browser: bool = False,
 
     from . import updater
 
+    log = logging.getLogger("canon")
+    if not logging.getLogger().handlers:  # 서버 로그(journalctl)에 시각과 수준을 붙인다. 시험 · 다른 프로그램이 정한 설정은 그대로 둔다
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     shown = "127.0.0.1" if host in ("0.0.0.0", "::", "") else host
     url = f"http://{shown}:{port}"
     print(f"Canon 웹 UI: {url}")
@@ -6579,10 +6582,10 @@ def serve(host: str = "127.0.0.1", port: int = 8000, open_browser: bool = False,
             r = updater.update()
             if not r.updated:
                 if r.message != last:  # 같은 사유를 매번 찍지 않는다
-                    print(f"[업데이트] {r.message}")
+                    log.info("[업데이트] %s", r.message)
                 last = r.message
                 continue
-            print(f"[업데이트] {r.message}. 진행 중인 작업이 끝나면 다시 시작해요")
+            log.info("[업데이트] %s. 진행 중인 작업이 끝나면 다시 시작해요", r.message)
             jobs.draining.set()  # 자동 집필은 다음 단계 전에 멈추고, 다시 시작한 서버가 이어 간다
             while (_active or jobs.running()) and not server.should_exit:
                 time.sleep(1)
@@ -6595,7 +6598,7 @@ def serve(host: str = "127.0.0.1", port: int = 8000, open_browser: bool = False,
     if update_interval > 0:
         threading.Thread(target=watch_updates, daemon=True).start()
     for name in autorun.resume_all():
-        print(f"[자동 집필] {name} 을(를) 이어 가요")
+        log.info("[자동 집필] %s 을(를) 이어 가요", name)
     server.run()
     if restart.is_set():
         updater.restart(no_browser=True)

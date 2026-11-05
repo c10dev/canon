@@ -13,6 +13,7 @@ mock 제외)는 켜 둬도 일반 호출로 돈다.
 """
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -26,6 +27,8 @@ from . import stage as stage_mod
 from .llm import BatchLLM, Interrupted, SchemaMismatch, get_llm
 from .research import CHARS_PER_TOKEN, JSON_OUTPUT_RESERVE, _filler
 from .schema import ConsistencyReport, Project, RewriteRequest, StateDelta, TextVersion
+
+_log = logging.getLogger("canon")
 
 LOG_KEEP = 500
 STEP_NAMES = {"plan": "스토리보드", "write": "본문", "revise": "서술 다듬기", "check": "검수", "state": "상태 변경안"}
@@ -489,6 +492,7 @@ class Runner:
         except _Halt as h:
             self._finish(h)
         except Exception as e:  # 화면과 로그에 그대로 보여 준다
+            _log.exception("자동 집필이 오류로 멈췄어요 (%s)", self.name)
             msg = getattr(e, "message", None) or str(e) or type(e).__name__
             hint = " 배치를 끄고 이어 가 보세요." if run.batch and "batch" in msg.lower() else ""
             # 이유 칸에도 남겨 자동 집필 카드가 무엇 때문에 멈췄는지 보인다
@@ -930,8 +934,8 @@ def _cancel_batches(run: Run) -> None:
     for slot, bname in list(run.batches.items()):
         try:
             get_llm(slot.split(":")[1]).batch_cancel(bname)  # type: ignore[attr-defined]  # "<화>:<단계>[:fix]"
-        except Exception:
-            pass
+        except Exception as e:  # 취소하지 못한 배치는 서비스 쪽에서 계속 돌아 요금이 나갈 수 있다. 콘솔에서 지울 수 있게 이름을 남긴다
+            _log.warning("배치 %s(%s)를 취소하지 못했어요: %s", bname, slot, getattr(e, "message", None) or e)
     run.batches = {}
 
 

@@ -81,6 +81,7 @@
 
 - AI 사용량과 비용
 - LLM 구현이 실제 호출마다 `record` 로 `projects/.usage/usage.jsonl` 에 남긴다
+- `read` 는 읽은 끝 위치를 기억하고 다음에는 늘어난 줄만 읽는다(`_read_cache`)
 - 작품 · 화 · 작업은 `scope(...)` 로 붙인다(웹 미들웨어, `jobs.start`, 자동 집필, CLI)
 - 가격표(`DEFAULT_PRICES` + 설정의 `prices`, 날짜별 `since`)로 볼 때 비용을 계산한다
 - 자동 집필 추정도 같은 가격표를 쓴다
