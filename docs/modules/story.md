@@ -311,6 +311,7 @@
 - 작품 목록 카드의 플레이 요약(`_play_card` · `_play_days`)은 `web.py` 에 남는다
 - `web.py` 맨 끝의 `_attach_routes` 가 `router` 를 앱에 붙이고 `EXPORTS` 의 이름을 `web` 에도 둔다
 - 공용 도우미(`_load` · `_save` · `_edit` 등)는 `..web` 에서 불러 쓴다
+- 다음 구간 미리 쓰기(`_play_continue`)는 서버가 다시 시작하려고 기다리는 중(`jobs.Draining`)이면 쓰지 않고 넘어간다. 끝난 구간 작업과 `play/see` 저장은 성공으로 남는다
 
 ### `canon/setupchat.py`
 
