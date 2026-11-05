@@ -2581,9 +2581,11 @@ def _job_fixes(name: str, body: "JobIn", p: Project, kind: str, n: int | None, l
                     got = fut.result()
                 except cancel.Cancelled:
                     raise
-                except Exception as e:  # 한 묶음이 실패해도 나머지 묶음은 남긴다. 같은 까닭으로 다시 실패할 따로 묻기는 하지 않는다
-                    for fid in ids:
-                        keep(fid, why(e))
+                except Exception as e:  # 한 묶음이 실패하면 (거절, 시간 초과, 형식 오류) 그 묶음의 지적을 하나씩 다시 묻는다. 지적 하나뿐인 묶음은 같은 호출이라 다시 묻지 않는다
+                    if len(ids) > 1:
+                        missing.extend(ids)
+                    else:
+                        keep(ids[0], why(e))
                     continue
                 for fid in ids:
                     if fid in got:

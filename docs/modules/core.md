@@ -207,7 +207,8 @@
 - 고침안 · 다시 검수의 AI 호출은 `pipeline.propose_fixes` · `apply_fix` · `undo_fix` · `recheck_finding`
 - 고침안 한꺼번에: 받을 지적 `pipeline.fix_targets`(넣을 수 있는 안 `fix_usable` 이 없는 열린 지적, `check.js` `fbNeed` 와 같은 셈), 웹 작업 `fixes`(`FIX_WORKERS` 개씩 동시에, 받는 대로 `store_fixes`), 고른 안 넣기 `apply_fixes`(웹 `POST …/fixes/apply`, 못 넣은 것은 까닭과 함께)
 - 웹 작업 `fixes` 는 지적을 `FIX_BATCH`(8)개씩 묶어 `pipeline.propose_fixes_batch` 로 한 번에 묻는다(LLM `FixBatch` → `FixItem`, 지적 id 로 맞춤)
-- 묶음 답에서 빠진 지적만 `propose_fixes` 로 하나씩 다시 묻는다. 묶음 호출 자체가 실패하면 그 묶음의 지적은 같은 까닭으로 실패에 싣는다
+- 묶음 답에서 빠진 지적만 `propose_fixes` 로 하나씩 다시 묻는다. 고침안도 답도 빈 항목은 빠진 것으로 본다
+- 묶음 호출 자체가 실패하면(거절 · 시간 초과 · 형식 오류) 그 묶음의 지적을 `propose_fixes` 로 하나씩 다시 묻는다. 지적 하나뿐인 묶음은 다시 묻지 않고 실패에 싣는다
 - 묶음 답의 지적마다 `clean_fixes` 를 거친다(`_fix_result`, 한 지적 고침안과 같은 셈). 요청에 없는 id 와 겹친 id 는 버린다
 - 프롬프트 `prompts.fix_prompt` · `recheck_prompt`(앞부분은 검수와 같은 `check_material`)
 - 묶음 프롬프트 `prompts.fix_batch_prompt`: 검수 자료, id 를 단 지적 목록, 결정한 문장, 규칙 한 번, 요청은 맨 뒤

@@ -3583,7 +3583,7 @@ FIX_BATCH = 8  # 고침안을 한 번에 묻는 지적 수 (웹 작업 'fixes').
 
 def propose_fixes_batch(llm: LLM, p: Project, n: int, fids: list[str]) -> dict[str, list[FixOption] | str]:
     """열린 지적 여러 개의 고침안을 한 번에 받는다. 저장하지 않는다. {지적 id: 고침안 또는 못 받은 까닭}.
-    답에 없는 지적은 결과에도 없다 (부른 쪽이 propose_fixes 로 따로 묻는다). 답의 id 가 요청에 없으면 버리고, 같은 id 는 처음 것만 쓴다."""
+    답에 없는 지적과 고침안도 답도 빈 항목은 결과에도 없다 (부른 쪽이 propose_fixes 로 따로 묻는다). 답의 id 가 요청에 없으면 버리고, 같은 id 는 처음 것만 쓴다."""
     out: dict[str, list[FixOption] | str] = {}
     ask: list[tuple[Episode, Finding]] = []
     for fid in fids:
@@ -3601,7 +3601,7 @@ def propose_fixes_batch(llm: LLM, p: Project, n: int, fids: list[str]) -> dict[s
     by_id = {f.id: f for _, f in ask}
     for item in fb.items:
         fid = item.finding.strip()
-        if fid not in by_id or fid in out:
+        if fid not in by_id or fid in out or (not item.options and not item.reply.strip()):  # 빈 항목은 답이 없는 것으로 본다
             continue
         try:
             out[fid] = _fix_result(ep, by_id[fid], FixSet(reply=item.reply, options=item.options))

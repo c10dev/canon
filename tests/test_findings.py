@@ -427,6 +427,8 @@ def test_fixes_batch_one_call(demo):
     assert set(got) == {"f1", "f2"} and [o.text for o in got["f2"]] == ["서윤은 등대 뒤에 섰다."]
     assert "본문은 고치지 않았어요. 본문이 맞아요." in got["f1"]
     assert pipeline.propose_fixes_batch(type("Empty", (), {"json": lambda *a, **k: FixBatch()})(), p, 1, ["f1"]) == {}
+    blank = type("Blank", (), {"json": lambda *a, **k: FixBatch(items=[FixItem(finding="f1"), FixItem(finding="f2", reply=" ")])})()
+    assert pipeline.propose_fixes_batch(blank, p, 1, ["f1", "f2"]) == {}  # 고침안도 답도 빈 항목은 답이 없는 것 (따로 묻는다)
 
     calls.clear()  # 한 지적 고침안 · 다시 검수도 검수 자료 끝을 캐시 경계로 알린다
     pipeline.propose_fixes(Spy(), p, 1, "f1")
@@ -471,6 +473,43 @@ def test_web_fixes_job_batches_and_falls_back(demo, monkeypatch):
     assert (j["status"], j["done"], j["result"]) == ("done", 3, {"done": 3, "failed": []})
     assert sorted(batches) == [["f1", "f2"], ["f3"]] and singles == ["f3"]
     assert all(len(f.fixes) == 2 for f in store.load(demo).episode(1).findings)
+
+
+def test_web_fixes_job_batch_failure_falls_back(demo, monkeypatch):
+    """묶음 호출이 통째로 실패하면 (거절 · 시간 초과) 그 묶음의 지적을 하나씩 다시 묻는다. 지적 하나뿐인 묶음은 다시 묻지 않는다."""
+    import time
+
+    from canon import web
+    importlib.reload(web)
+    c = TestClient(web.app)
+    p = store.load(demo)
+    pipeline.apply_check(p, ConsistencyReport(episode=1, issues=[issue("바람이 불었다."), issue("서윤은 등대 앞에 섰다.", "동선"),
+                                                                 issue("\"됐어, 내가 할게.\"", "말투")]))
+    store.save(demo, p)
+    singles = []
+    real_one = pipeline.propose_fixes
+
+    def batch(llm, q, n, ids):
+        raise RuntimeError("AI가 이 요청을 거절했어요")
+
+    def one(llm, q, n, fid):
+        singles.append(fid)
+        if fid == "f2":
+            raise RuntimeError("f2 만 거절")
+        return real_one(llm, q, n, fid)
+    monkeypatch.setattr(pipeline, "propose_fixes_batch", batch)
+    monkeypatch.setattr(pipeline, "propose_fixes", one)
+    monkeypatch.setattr(pipeline, "FIX_BATCH", 2)
+    j = c.post(f"/api/projects/{demo}/jobs", json={"kind": "fixes", "ep": 1}).json()
+    for _ in range(100):
+        j = next(x for x in c.get("/api/jobs").json() if x["id"] == j["id"])
+        if j["status"] != "running":
+            break
+        time.sleep(0.05)
+    assert (j["status"], j["done"]) == ("done", 3)
+    assert sorted(singles) == ["f1", "f2"]  # f3 혼자인 묶음은 다시 묻지 않는다
+    assert sorted((x["id"], x["error"]) for x in j["result"]["failed"]) == [("f2", "f2 만 거절"), ("f3", "AI가 이 요청을 거절했어요")]
+    assert [len(f.fixes) for f in store.load(demo).episode(1).findings] == [2, 0, 0]
 
 
 def test_web_fixes_job_and_batch_apply(demo):
