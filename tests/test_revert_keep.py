@@ -24,8 +24,10 @@ def test_revert_keeps_deltas_as_pending(client):
     assert res["state:2"]["base"] == "2화 본문."
     assert res["state:1"]["id"] != res["state:2"]["id"]
 
-    # 남긴 변경안을 그대로 다시 반영할 수 있다 (AI로 다시 뽑지 않는다)
-    p = client.post("/api/projects/lh/episodes/1/apply", json=res["state:1"]["result"]).json()
+    # 남긴 변경안을 그대로 다시 반영할 수 있다 (AI로 다시 뽑지 않는다). 1화는 반영 뒤 고쳐 본문 지문이 달라 작가 확인(force)이 필요하다
+    r = client.post("/api/projects/lh/episodes/1/apply", json=res["state:1"]["result"])
+    assert r.status_code == 409 and r.json()["code"] == "stale_delta"
+    p = client.post("/api/projects/lh/episodes/1/apply?force=1", json=res["state:1"]["result"]).json()
     assert p["episodes"][0]["status"] == "finalized"
     assert set(client.get("/api/projects/lh/pending").json()["results"]) == {"state:2"}  # 반영한 화의 변경안은 지운다
 
