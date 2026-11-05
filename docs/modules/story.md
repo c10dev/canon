@@ -347,6 +347,7 @@
 - 턴마다 단계 줄 · 바로 쓴 것(항목 · 턴 되돌리기) · 승인 카드 · 되묻기 카드
 - 입력 상자(+ 재료, `/` 빠른 요청 `AGENT_CMDS`, 보내기 · 멈추기)와 상태 줄(권한 모드 · 대상 · 모델 · 단계 상한)
 - 진행은 `pollJobs` 가 `agentJobUpdate` 로 알린다
+- 화면 낭독기에 알릴 새 답은 `agentLastReply`(끝났거나 묻는 중인 턴의 답)이고 `chat.js` `chatAnnounce` 가 알린다
 - 권한 이름 `AGENT_MODES` · `AGENT_KINDS` 는 `agent.MODE_LABELS` · `KIND_LABELS` 와 같다(`tests/test_agent_js.py`)
 
 ### `canon/static/anchor.js`
@@ -386,6 +387,9 @@
 - 시점 띠가 400px 이하 칸이면 글에서 '반영 뒤'(`.cast-bar-after`)를 빼 화 번호가 잘리지 않게 한다
 - 관계도 `castMapPage`(SVG, 화별 재생, 칸 폭에 맞추고 크게 보기 `CAST_ZOOM`, 누르면 고르기만 `castMapPick` · 고른 줄 `castMapSel`, 끌어 옮긴 배치는 localStorage)
 - 인물 끌기가 끊기면(`pointercancel`) `castDrag` 를 지운다
+- 관계도 선(`.cg-edge`) · 긴장 점(`.cg-tension`) · 추이 그래프 칸(`.cc-col`)도 `tabindex="0"` · `role="button"` · `aria-label` 을 달고 Enter · Space 로 누른다
+- 추이 그래프 SVG 는 안에 버튼이 있어서 `role="group"` 이다
+- 시점 · 크기를 바꿔 관계도나 쪽을 다시 그리면 포커스를 같은 `data-action` · `data-arg` 요소로 돌린다(`castSwap`)
 - 640px 이하 관계도는 600px보다 좁게 줄이지 않고 옆으로 굴린다(이름이 5px로 줄지 않게, app.css)
 - 관계도 온기 다섯 단계 선 색은 `WARMTH_BANDS`(적대 `--warm-hostile`, 반감 `--bad`, 무덤덤 `--warm-mid`, 호감 `--good`, 아낌 `--warm-deep`)
 - 인물 쪽 `castCharPage`
@@ -395,6 +399,7 @@
     - AI 제안 동작은 `research.js` `bodyAI`
   - 타임라인(앞뒤 `CAST_TL_NEAR` 화)
 - 두 사람 쪽 `castPairDetail`(추이 그래프 · 보정 · 호칭)
+- 관계 보정 `tieFix` 는 저장하지 않은 변경이 있으면 저장하고 보정할지 먼저 묻는다
 - 등장표
 - 인물 원은 목차 24 · 줄 36 · 머리 64px(`castAva`)
 - 온기 색 구간은 `dynamics.warmth_word` 경계와 같다(`tests/test_labels_js.py`)
@@ -460,6 +465,7 @@
 - 칸 폭 560px 아래는 세로 노선도 `lineMapTall`
 - 줄기 하나(`lineDetail`): 앞뒤만 크게 그린 노선도 `lineZoomMap`(한 화 44) → 줄기 내용 읽기 카드 `lineInfoCard`(고치기 `S.lineEdit`) → 붙은 화 `lineEpsCard`
 - 화 붙이기는 붙은 화 카드의 메뉴: 붙이는 방식 `S.lineTagRole`, 가까운 화 후보 `lineCandidates`, 번호 칸
+- 줄기 지우기 `lineDelete` 는 저장하지 않은 변경이 있으면 지우기 확인 뒤 저장하고 지울지 한 번 더 묻는다
 - 쪽을 옮길 때 해시 대신 `history.replaceState`(`lineGoTo`)라 저장하지 않은 고침을 묻지 않는다
 - `lineOrder` · `lineTodo` 는 순수 함수(`tests/test_lines_js.py`)
 - CSS 는 JS 에서 주입(노선도 기본 모양 `.line-map` · `.lm-*` 은 app.css, 인물 화면 등장표도 쓴다)

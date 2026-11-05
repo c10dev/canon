@@ -105,7 +105,7 @@ function agentSelect(sid) {
 function agentPanel() {
   if (!S.agent || S.agent.name !== S.name) {
     agentLoad().then(() => redrawChat()).catch((e) => toast(e.message, true));
-    return `<aside class="chat-panel" aria-label="대화로 다듬기"><div class="chat-log" id="chat-log"><div class="msg ai pending" role="status"><span class="spinner small" aria-hidden="true"></span>대화 세션을 불러오는 중…</div></div></aside>`;
+    return `<aside class="chat-panel" aria-label="대화로 다듬기"><div class="chat-log" id="chat-log" role="log" aria-live="off"><div class="msg ai pending" role="status"><span class="spinner small" aria-hidden="true"></span>대화 세션을 불러오는 중…</div></div></aside>`;
   }
   const s = agentSession();
   const legacy = S.agentSid === AGENT_LEGACY;
@@ -120,7 +120,7 @@ function agentPanel() {
         <button type="button" class="btn icon-btn" data-action="toggleChat" aria-label="닫기">✕</button></div>
       ${S.agentMenu ? agentMenu() : ''}
     </div>
-    <div class="chat-log" id="chat-log">${agentLog()}</div>
+    <div class="chat-log" id="chat-log" role="log" aria-live="off">${agentLog()}</div>
     ${agentComposer()}
   </aside>`;
 }
@@ -160,6 +160,15 @@ function agentLog() {
       <div class="row">${t.examples.map((x) => `<button type="button" class="btn small" data-action="agentExample" data-arg="${esc(x)}">${esc(x)}</button>`).join('')}</div>`;
   }
   return s.turns.map((t, i) => agentTurn(s, t, i)).join('');
+}
+
+/** 화면 낭독기에 알릴 가장 새 답(chat.js chatAnnounce). 끝났거나 묻는 중인 턴의 답만 친다 */
+function agentLastReply() {
+  const s = S.agentSid === AGENT_LEGACY ? null : agentSession();
+  const turns = s ? s.turns : [];
+  let i = turns.length - 1;
+  while (i >= 0 && !(turns[i].reply && turns[i].end !== '')) i -= 1;
+  return { scope: `${S.name}|agent:${S.agentSid || ''}`, id: String(i), text: i >= 0 ? turns[i].reply : '' };
 }
 
 function agentTurn(s, t, i) {
@@ -391,6 +400,7 @@ function agentRedraw() {
     const atEnd = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
     log.innerHTML = agentLog();
     if (atEnd) log.scrollTop = log.scrollHeight;
+    chatAnnounce();
   }
   const btn = $('.composer .comp-send');
   const job = agentRunningJob();
