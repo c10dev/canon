@@ -1592,11 +1592,11 @@ def cmd_edits(a: argparse.Namespace) -> None:
 def _write_out(path: Path, text: str) -> None:
     """작가가 고른 출력 파일을 바꿔치기로 쓴다 (중간에 멈춰도 잘린 파일이 남지 않게).
     링크는 가리키는 파일을 바꾸고, 보통 파일이 아닌 곳(/dev/stdout, 파이프)은 바꿔 넣을 수 없어 바로 쓴다."""
-    real = path.resolve()
-    if real.exists() and not real.is_file():
-        real.write_text(text, encoding="utf-8")
+    # resolve 전에 본다: /dev/stdout 이 파이프면 resolve 가 없는 '/proc/<pid>/fd/pipe:[N]' 을 돌려준다.
+    if path.exists() and not path.is_file():
+        path.write_text(text, encoding="utf-8")
     else:
-        store.write_atomic(real, text)
+        store.write_atomic(path.resolve(), text)
 
 
 def cmd_export(a: argparse.Namespace) -> None:

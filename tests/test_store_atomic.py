@@ -119,6 +119,16 @@ def test_cli_output_file_is_atomic_and_follows_links(tmp_path, monkeypatch):
     cli._write_out(link, "새")
     assert link.is_symlink() and real.read_text(encoding="utf-8") == "새"
     cli._write_out(Path(os.devnull), "버림")  # 보통 파일이 아닌 곳은 바로 쓴다
+    r, w = os.pipe()  # 파이프는 resolve 하면 없는 경로가 되므로 그 전에 보고 바로 쓴다
+    try:
+        cli._write_out(Path(f"/dev/fd/{w}"), "관")
+        os.close(w)
+        w = -1
+        assert os.read(r, 100).decode("utf-8") == "관"
+    finally:
+        os.close(r)
+        if w >= 0:
+            os.close(w)
     _fail_replace(monkeypatch)
     with pytest.raises(OSError):
         cli._write_out(real, "잘린")

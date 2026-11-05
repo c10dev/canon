@@ -105,6 +105,7 @@
   - `edits`: 수정 기록 보기 · 되돌리기 · 내보내기
   - `export`: 다른 사이트에 붙여 넣을 본문 내보내기
     - 작가가 고른 출력 파일(`export -o` · `soelab --out`)은 `_write_out` 이 바꿔치기로 쓴다. 링크는 가리키는 파일을 바꾸고, 보통 파일이 아닌 곳(`/dev/stdout` · 파이프)은 바로 쓴다
+    - `_write_out` 은 보통 파일인지를 `resolve` 전에 본다. 파이프인 `/dev/stdout` 은 `resolve` 하면 없는 `/proc/<pid>/fd/pipe:[N]` 이 되기 때문이다
   - `fix`: 본문 일부를 AI 후보로 고치기
   - `hook`: 1~3화 흡입력 판정
   - `illust`: NovelAI 삽화 프롬프트
