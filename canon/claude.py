@@ -311,11 +311,10 @@ def _explain(text: str) -> str:
     return text[:500]
 
 
-def _cli_usage(d: dict) -> dict | None:
+def _cli_usage(d: dict, structured: bool = False) -> dict | None:
     """JSON 결과의 토큰 수. 있으면 turns(num_turns) · stop(stop_reason) · api_seconds(duration_api_ms) ·
     models(modelUsage 의 모델별 입력 · 출력 · 캐시)도 담는다. 사용량 기록 줄의 같은 이름 칸이 된다.
-    turns 가 2 이상이면 CLI 가 한 호출 안에서 요청을 다시 보낸 것이다. 턴마다 같은 요청을 보냈다고 보고
-    다시 보낸 입력을 in × (turns-1)/turns 로 어림해 resent 에 둔다. 캐시 비율을 셀 때 빼려는 값이다."""
+    resent 는 CLI 가 한 호출 안에서 같은 요청을 다시 보낸 입력의 어림값이다. 캐시 비율을 셀 때 빼려는 값이다 (_resent)."""
     u = d.get("usage")
     if not isinstance(u, dict):
         return None
@@ -327,8 +326,6 @@ def _cli_usage(d: dict) -> dict | None:
     turns = d.get("num_turns")
     if isinstance(turns, int) and turns > 0:
         out["turns"] = turns
-        if turns > 1:
-            out["resent"] = round(prompt * (turns - 1) / turns)
     if isinstance(d.get("stop_reason"), str) and d["stop_reason"]:
         out["stop"] = d["stop_reason"]
     if isinstance(d.get("duration_api_ms"), (int, float)):
@@ -344,7 +341,29 @@ def _cli_usage(d: dict) -> dict | None:
                             "out": int(m.get("outputTokens") or 0), "cached": read}
         if models:
             out["models"] = models
+    resent = _resent(prompt, out.get("turns"), out.get("models"), structured)
+    if resent:
+        out["resent"] = resent
     return out
+
+
+def _resent(prompt: int, turns: int | None, models: dict | None, structured: bool) -> int:
+    """한 호출 안에서 다시 보낸 입력의 어림값. 두 신호 가운데 큰 쪽을 쓴다.
+    - 턴: 구조화 출력(--json-schema)은 답을 도구로 내므로 요청이 한 번이어도 num_turns 가 2 다. 그래서 요청 수는
+      구조화 출력이면 turns-1, 아니면 turns 로 보고 in × (요청 수-1)/요청 수 를 다시 보낸 몫으로 본다.
+    - 대체 모델: modelUsage 에 모델이 둘 이상이면 (안전 분류기 거절 뒤 다른 모델로 이어 받음) 가장 작은 모델 입력을
+      요청 한 번의 크기로 보고, in 이 그보다 큰 몫을 다시 보낸 몫으로 본다. 이때 num_turns 는 1 로 온다.
+    실측(2026-11-05 서버, Opus 구독): 구조화 출력 11건은 모두 turns 2 · stop tool_use 인데 입력은 글자 수의 약 1.07배(한 번),
+    turns 3 인 검수 1건은 2.16배(두 번). 대체 모델이 낀 쓰기 2건은 turns 1 인데 Opus 입력이 Fable 입력의 2배였다."""
+    by_turns = 0
+    if isinstance(turns, int) and turns > 0:
+        sends = max(1, turns - 1 if structured else turns)
+        by_turns = round(prompt * (sends - 1) / sends)
+    by_models = 0
+    ins = [m["in"] for m in (models or {}).values() if m.get("in")]
+    if len(ins) > 1:
+        by_models = max(0, prompt - min(ins))
+    return max(by_turns, by_models)
 
 
 def _served(d: dict) -> str:
@@ -464,7 +483,7 @@ class ClaudeCodeLLM:
             if not isinstance(d, dict):
                 raise ClaudeCodeError(f"Claude Code 실행 실패 (종료 코드 {proc.returncode}): "
                                       f"{_explain((proc.stderr or proc.stdout).strip() or '출력 없음')}")
-            tokens = self.last_usage = _cli_usage(d)
+            tokens = self.last_usage = _cli_usage(d, structured=schema is not None)
             reached = bool(tokens and tokens["prompt_tokens"])  # 요청이 모델까지 갔으면 앞부분이 캐시에 들어갔다
             self.served = _served(d) or self.served
             if d.get("is_error") or d.get("subtype") not in (None, "success"):
