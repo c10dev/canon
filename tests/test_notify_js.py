@@ -90,7 +90,8 @@ def test_ways():
         titles: [notifyTitle('3화 · 등대', 0), notifyTitle('3화 · 등대', 2)],
       };
     })()""", {})
-    assert got["off"] == got["kindOff"] == got["none"] == []
+    assert got["off"] == ["title"]  # 알림을 꺼 두어도 탭 제목에는 끝난 수를 붙인다
+    assert got["kindOff"] == got["none"] == []
     assert got["hidden"] == ["system", "title"]
     assert got["denied"] == got["insecure"] == ["title"]
     assert got["visible"] == []  # 보고 있으면 화면 말풍선이 이미 알린다

@@ -27,6 +27,8 @@ const S = {
   deltaBase: {},     // 변경안을 만들 때의 본문. 그 뒤에 본문을 고치면 다시 만들라고 알린다
   deltaOrig: {},     // 변경안을 받았을 때의 요약. 다시 만들기 전에 고친 요약을 버리는지 묻는다
   picks: {},         // 변경안 항목 선택 여부
+  picksEp: null,     // S.picks 의 변경안 체크가 어느 화 것인가 (review.js pickEp)
+  picksKept: {},     // 다른 화로 옮길 때 맡겨 둔 화별 변경안 체크
   textDraft: {},     // 화별 본문 편집 중인 값
   context: null,
   promptText: null,
@@ -126,9 +128,29 @@ const enc = encodeURIComponent;
 const P = () => S.project;
 const base = () => `#/p/${enc(S.name)}`;
 
+// pydantic 검증 오류 종류 → 화면 문구 ('… 칸이' 뒤에 붙는다). web.py 의 _VALIDATION_REASON 과 같다 (tests/test_fmterr_js.py)
+const VALIDATION_REASON = {
+  missing: '없어요', string_type: '글자여야 해요', int_type: '정수여야 해요', int_parsing: '정수여야 해요',
+  float_type: '숫자여야 해요', float_parsing: '숫자여야 해요', bool_type: 'true나 false여야 해요',
+  bool_parsing: 'true나 false여야 해요', list_type: '목록([ ])이어야 해요', model_type: '{ } 로 묶인 객체여야 해요',
+  dict_type: '{ } 로 묶인 객체여야 해요', literal_error: '정해진 값 중 하나여야 해요', enum: '정해진 값 중 하나여야 해요',
+  extra_forbidden: '필요 없는 칸이에요',
+};
+// 검증 오류가 가리키는 칸 이름 → 화면 이름. 없으면 칸 이름을 그대로 쓴다
+const FIELD_NAME = { title: '제목', name: '이름', summary: '요약', text: '본문', genre: '장르', logline: '한 줄 소개', description: '설명', note: '메모', number: '화 번호', target_episodes: '화 수', target_length: '화당 분량' };
+
+/** 서버 오류 응답을 화면 문구로. 검증 오류(detail 이 목록)는 영어 원문과 칸 경로 대신 '제목 칸이 글자여야 해요' 처럼 쓴다 */
 function fmtErr(data, status) {
   const d = data && data.detail;
-  if (Array.isArray(d)) return d.map((x) => { const at = (x.loc || []).slice(1).join('.'); return `입력 형식이 맞지 않아요${at ? ` (칸: ${at})` : ''}: ${x.msg}`; }).join('\n');
+  if (Array.isArray(d)) {
+    const lines = d.map((x) => {
+      const keys = (x.loc || []).slice(1).filter((k) => typeof k === 'string');
+      const key = keys[keys.length - 1];
+      const where = key ? `'${FIELD_NAME[key] || key}' 칸이 ` : '';
+      return `입력 형식이 맞지 않아요: ${where}${VALIDATION_REASON[x.type] || '형식에 맞지 않아요'}. 고친 뒤 다시 해 보세요`;
+    });
+    return [...new Set(lines)].join('\n');
+  }
   return d || `서버가 요청을 처리하지 못했어요 (${status}). 잠시 뒤 다시 해 보세요`;
 }
 
@@ -136,7 +158,10 @@ function fmtErr(data, status) {
 const CLIENT = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 
 // 마지막으로 받은 작품 JSON과 그 판(ETag). 같은 판이면 서버가 304 로 본문 없이 답하고 이것을 복사해 쓴다 (장편은 수 MB)
-let projectCache = null;  // { path, tag, data }
+let projectCache = null;  // { path, tag, data, rest }
+// 작품 GET 이 돌려준 작품 객체 → 화를 뺀 나머지의 판(X-Project-Rest). 한 화 작업이 끝날 때 화만 받아도 되는지 본다 (mergeEpisodes)
+const restOf = new WeakMap();
+const cloneWhole = (c) => { const d = structuredClone(c.data); if (c.rest) restOf.set(d, c.rest); return d; };
 // 작품 전체 JSON 인가. 본문이 빈 응답(304 를 바꿔 넘기는 브라우저 · 프록시, 끊긴 응답)을 작품으로 받거나 보관하지 않게 본다
 const isProjectJson = (d) => !!(d && d.meta && Array.isArray(d.episodes));
 
@@ -154,6 +179,7 @@ async function api(method, path, body, meta) {
   }
   let r;
   if (runAbort && method !== 'GET') opt.signal = runAbort.signal;  // run() 이 기다리는 요청만 '기다리지 않기'로 끊는다
+  if (meta && meta.signal) opt.signal = meta.signal;  // 화면이 따로 끊는 요청 (대화 패널의 '기다리지 않기')
   try {
     r = await fetch('/api' + path, opt);
   } catch (e) {
@@ -162,7 +188,7 @@ async function api(method, path, body, meta) {
     throw Object.assign(new Error('서버에 연결하지 못했어요. 서버가 켜져 있는지, 네트워크가 연결됐는지 확인하세요'), { status: 0 });
   }
   const asked = whole && 'If-None-Match' in opt.headers;
-  if (whole && r.status === 304 && projectCache && projectCache.path === path && isProjectJson(projectCache.data)) return structuredClone(projectCache.data);
+  if (whole && r.status === 304 && projectCache && projectCache.path === path && isProjectJson(projectCache.data)) return cloneWhole(projectCache);
   const data = await r.json().catch(() => ({}));
   if (whole && (r.ok || r.status === 304) && !isProjectJson(data)) {
     // 보관한 판으로 물었는데 작품이 아닌 답이 왔다: 보관한 것을 버리고 조건 없이 한 번 더 받는다 (한 번 받은 빈 답이 새로고침 전까지 남지 않게)
@@ -175,26 +201,32 @@ async function api(method, path, body, meta) {
   // 문체를 분석했거나 라이브러리에 저장했으면 붙여 넣은 원문은 더 잃을 것이 없다 (hasUnsaved)
   if (method === 'POST' && /^\/projects\/[^/]+\/style(\/library)?$/.test(path)) S.styleSampleDirty = false;
   if (whole && r.headers.get('ETag')) {
-    projectCache = { path, tag: r.headers.get('ETag'), data };
-    return structuredClone(data);  // 화면은 받은 작품을 고쳐 쓰므로 보관한 것과 나눈다
+    projectCache = { path, tag: r.headers.get('ETag'), data, rest: r.headers.get('X-Project-Rest') || '' };
+    return cloneWhole(projectCache);  // 화면은 받은 작품을 고쳐 쓰므로 보관한 것과 나눈다
   }
   // 저장한 요청(반영 등)이 작품 전체를 돌려주면 그 판으로 보관한다. 다음 화면 이동의 작품 GET 이 다시 받지 않고 304 로 끝난다
   const saved = !whole && r.headers.get('X-Project-ETag');
   const own = saved && path.match(/^\/projects\/[^/?]+/);
   if (own && isProjectJson(data)) {
-    projectCache = { path: own[0], tag: saved, data };
-    return structuredClone(data);
+    projectCache = { path: own[0], tag: saved, data, rest: r.headers.get('X-Project-Rest') || '' };
+    return cloneWhole(projectCache);
   }
   return data;
 }
 
 /** 알림 말풍선. 알림 버튼 바로 아래(#toast, hub.js placeHub)에 뜨고 알림 창의 '최근 알림'에 남는다.
     opt.actions: 오류 말풍선에 붙일 할 일 버튼 [{ label, run }] (다시 시도 · 설정). 누르면 말풍선을 닫고 run 을 부른다. */
+/** 보통 알림이 남는 시간(ms). 글이 길수록 오래(글자당 60ms, 최대 10초), 동작 버튼이 있으면 10초 */
+function toastLife(msg, acts) {
+  return acts ? 10000 : Math.min(10000, 3500 + String(msg).length * 60);
+}
+
 function toast(msg, err = false, opt = {}) {
   const el = document.createElement('div');
-  el.className = 't' + (err ? ' err' : '');
-  if (err) {
-    // 오류는 읽을 때까지 남긴다. 닫기 버튼으로 지운다
+  const acts = (opt.actions || []).length;
+  el.className = 't' + (err ? ' err' : acts ? ' act' : '');
+  if (err || acts) {
+    // 오류는 읽을 때까지 남긴다. 닫기 버튼으로 지운다. 동작이 붙은 보통 알림('가서 보기')도 같은 모양이다
     const t = document.createElement('span');
     t.textContent = msg;
     el.append(t);
@@ -221,7 +253,17 @@ function toast(msg, err = false, opt = {}) {
   const box = $('#toast');
   while (box.children.length > 3 && box.querySelector('.t:not(.err)')) box.querySelector('.t:not(.err)').remove();
   while (box.querySelectorAll('.t.err').length > 5) box.querySelector('.t.err').remove();
-  if (!err) setTimeout(() => el.remove(), 3500);
+  if (!err) {
+    // 마우스를 올리거나 포커스가 있는 동안은 닫지 않는다 (되돌리기 말풍선 rvUndoShow 와 같다)
+    const life = toastLife(msg, acts);
+    let timer = setTimeout(() => el.remove(), life);
+    const hold = () => clearTimeout(timer);
+    const arm = () => { clearTimeout(timer); timer = setTimeout(() => el.remove(), life); };
+    el.addEventListener('mouseenter', hold);
+    el.addEventListener('focusin', hold);
+    el.addEventListener('mouseleave', () => { if (!el.contains(document.activeElement)) arm(); });
+    el.addEventListener('focusout', (e) => { if (!el.contains(e.relatedTarget) && !el.matches(':hover')) arm(); });
+  }
   if (typeof hubNote === 'function') { hubNote(msg, err); renderHub(); }
 }
 
@@ -234,6 +276,7 @@ const JOB_LATE = {};
 const JOB_STOP_NOTE = {};  // 작업 종류별 멈추기 확인 문구. 없으면 응답을 버린다는 기본 문구
 const JOB_DONE_MSG = {
   suggest: '설정 제안이 도착했어요. 설정 도우미에서 확인하세요.',
+  style: '문체 분석 결과가 도착했어요. 문체 레퍼런스에서 확인하고 바꿀지 고르세요.',
   arc: '기승전결 구조 제안이 도착했어요. 확인하고 저장하세요.',
   plots: '화별 플롯 초안을 만들었어요. 확정된 화는 그대로예요.',
   plot_one: (j) => (j.result && j.result.realign ? `${j.ep}화 플롯을 요약대로 채웠어요. ${j.result.realign}화와 어긋난 점은 ${j.result.realign}화에 '다시 맞추기'로 표시했어요.` : `${j.ep}화 플롯을 채웠어요. 다듬은 뒤 확정하세요.`),
@@ -263,7 +306,7 @@ JOB_LATE.board = async (j) => {
   }
   toast(`멈춘 '${j.label}'의 응답이 와서 ${j.ep}화에 남겼어요. 필요 없으면 스토리보드 지우기를 누르세요.`);
   if (j.project !== S.name) return false;
-  await mergeEpisodes((e) => e.plot.number === j.ep);
+  await mergeEpisodes((e) => e.plot.number === j.ep, [j.ep]);
   return true;
 };
 let jobTimer = null;
@@ -312,9 +355,9 @@ const autoOn = () => !!(S.auto && S.auto.active);
 const autoEp = () => (autoOn() && S.auto.run ? S.auto.run.ep : null);
 
 /** AI 제안 카드의 버튼 줄. 모든 제안 카드가 같은 순서([버리기] [반영], 오른쪽)와 같은 말을 쓴다. 각 버튼은 [action, arg]. */
-function proposalActions(drop, apply, label = '고른 것 적용') {
-  const b = ([action, arg], cls, text) => `<button type="button" class="btn small${cls}" data-action="${action}"${arg != null ? ` data-arg="${esc(String(arg))}"` : ''}>${text}</button>`;
-  return `<div class="row proposal-actions">${b(drop, '', '버리기')}${b(apply, ' primary', label)}</div>`;
+function proposalActions(drop, apply, label = '고른 것 적용', disabled = false) {
+  const b = ([action, arg], cls, text, off = false) => `<button type="button" class="btn small${cls}" data-action="${action}"${arg != null ? ` data-arg="${esc(String(arg))}"` : ''}${off ? ' disabled' : ''}>${text}</button>`;
+  return `<div class="row proposal-actions">${b(drop, '', '버리기')}${b(apply, ' primary', label, disabled)}</div>`;
 }
 
 /** AI 제안을 버리기 전에 묻는다. 버린 제안은 되살릴 수 없고 다시 받으려면 AI를 다시 불러야 한다. Promise<boolean> */
@@ -386,7 +429,10 @@ async function startJob(kind, ep = null, extra = {}) {
     const j = await api('POST', `/projects/${enc(S.name)}/jobs`, { kind, ep, ...extra });
     S.starting.delete(key);
     // 이미 도는 작업이면 버튼이 진행 상황을 보여 주므로 따로 알리지 않는다
-    if (!j.already) toast(`${j.label}${josa(j.label, '을', '를')} 시작했어요. 끝나면 알려 드릴게요. 그동안 다른 작업을 해도 돼요.`);
+    if (!j.already) {
+      const offer = typeof notifyOffer === 'function' ? notifyOffer() : null;  // 처음 한 번: 탭이 뒤에 있어도 알 수 있게
+      toast(`${j.label}${josa(j.label, '을', '를')} 시작했어요. 끝나면 알려 드릴게요. 그동안 다른 작업을 해도 돼요.`, false, { actions: offer ? [offer] : [] });
+    }
     S.jobs = S.jobs.filter((x) => x.id !== j.id).concat(j);
     S.jobArgs[j.id] = { kind, ep, extra };  // 실패하면 작업 목록의 '다시 시도'가 같은 작업을 다시 시작한다
     renderHub();  // 작업 목록이 바뀌었다: 알림 버튼과 열린 알림 창 (hub.js)
@@ -447,23 +493,25 @@ async function pollJobs(soon = false) {
       await mergeEpisodes((cur, e) => cur.status === 'draft' && (!was || was.has(e.plot.number)));
       S.jobsMerged[j.id] = j.done;  // 저장할 때 이 단계까지 받아 왔다고 알린다 (save)
     }
-    if (j.kind === 'write' && j.status !== 'running') await mergeEpisodes((e) => e.plot.number === j.ep);
-    if (j.kind === 'board' && j.status !== 'running') await mergeEpisodes((e) => e.plot.number === j.ep);  // 스토리보드는 그 화에 붙었다 (board.js)
-    if (j.kind === 'cues' && j.status !== 'running') await mergeEpisodes((e) => e.plot.number === j.ep);  // 큐 시트도 그 화에 붙었다 (cue.js)
+    if (j.kind === 'write' && j.status !== 'running') await mergeEpisodes((e) => e.plot.number === j.ep, [j.ep]);
+    if (j.kind === 'board' && j.status !== 'running') await mergeEpisodes((e) => e.plot.number === j.ep, [j.ep]);  // 스토리보드는 그 화에 붙었다 (board.js)
+    if (j.kind === 'cues' && j.status !== 'running') await mergeEpisodes((e) => e.plot.number === j.ep, [j.ep]);  // 큐 시트도 그 화에 붙었다 (cue.js)
     if (j.kind === 'plot_one' && j.status !== 'running') {
-      await mergeEpisodes((e) => e.plot.number === j.ep);
+      await mergeEpisodes((e) => e.plot.number === j.ep, [j.ep, j.result && j.result.realign]);
       const r = j.result && j.result.realign && ep(j.result.realign);  // 뒤 화에 남긴 표시는 고치던 그 화 플롯을 덮지 않고 표시만 받는다
       if (r) r.realign = j.result.gap;
     }
     if (j.kind === 'impact' && j.status === 'done') await mergeImpacts();
-    if (j.kind === 'check' && j.status === 'done') await mergeEpisodes((e) => e.plot.number === j.ep);  // 검수 결과는 그 화에 붙었다
-    if (j.kind === 'fixes' && j.status !== 'running') await mergeEpisodes((e) => e.plot.number === j.ep);  // 받은 고침안은 그 화 지적에 붙었다 (실패해도 앞서 받은 것은 남았다)
+    if (j.kind === 'check' && j.status === 'done') await mergeEpisodes((e) => e.plot.number === j.ep, [j.ep]);  // 검수 결과는 그 화에 붙었다
+    if (j.kind === 'fixes' && j.status !== 'running') await mergeEpisodes((e) => e.plot.number === j.ep, [j.ep]);  // 받은 고침안은 그 화 지적에 붙었다 (실패해도 앞서 받은 것은 남았다)
     if (j.kind === 'auto') {
       // 다른 탭이나 명령줄에서 시작했어도 잠금(autoOn)이 걸리고, 끝나면 풀리게 실행 상태를 받아 온다. autoPoll 이 이어서 지켜본다
       if ((j.status === 'running') !== autoOn() && typeof autoLoad === 'function') await autoLoad(false);
       // 자동 집필이 실제로 바꾼 화(상태나 본문)만 받아 온다. 저장하지 않은 다른 화 플롯 수정은 그대로 둔다
       const dirty = S.dirty;
-      const changed = await mergeEpisodes((cur, e) => cur.status !== e.status || cur.text !== e.text || !!cur.auto !== !!e.auto);
+      // 도는 동안은 단계가 끝낸 화와 지금 화만 받는다. 끝나면 마지막 반영(관계 · 인물 상태)까지 받게 작품 전체를 받는다
+      const nums = j.status === 'running' ? [j.step_ep, S.auto && S.auto.run && S.auto.run.ep] : null;
+      const changed = await mergeEpisodes((cur, e) => cur.status !== e.status || cur.text !== e.text || !!cur.auto !== !!e.auto, nums);
       if (dirty && changed.includes(S.selEp)) toast(`자동 집필이 ${S.selEp}화를 바꿨어요. 열린 플롯은 서버에 있는 것으로 바뀌어요`, true);
     }
     if (j.status !== 'running' && !(old && old.status !== 'running')) await finishJob(j);
@@ -534,32 +582,84 @@ if (window.visualViewport && typeof window.visualViewport.addEventListener === '
 
 // 작업 결과가 보이는 화면
 JOB_DONE_MSG.check = (j) => `${j.ep}화 검수가 끝났어요${j.result && j.result.round ? ` (${j.result.round}회차)` : ''}: 짚은 곳 ${j.result ? j.result.issues : 0}개${j.result && j.result.round > 1 ? `, 새 지적 ${j.result.added}개` : ''}`;
-const JOB_PAGES = { check: ['check', 'write', 'review'], suggest: ['setup'], arc: ['arc'], plots: ['arc', 'home', 'causal'], plot_one: ['arc', 'lines'], write: ['write', 'home', 'causal'], state: ['review'], auto: ['auto', 'home', 'write', 'causal', 'arc', 'setup'], impact: ['causal'], series: ['arc'], nextarc: ['arc'], recap_arc: ['arc'], recap_part: ['arc'], fold_knows: ['arc'], storyline: ['lines'] };
+const JOB_PAGES = { check: ['check', 'write', 'review'], suggest: ['setup'], style: ['style'], arc: ['arc'], plots: ['arc', 'home', 'causal'], plot_one: ['arc', 'lines'], write: ['write', 'home', 'causal'], state: ['review'], auto: ['auto', 'home', 'write', 'causal', 'arc', 'setup'], impact: ['causal'], series: ['arc'], nextarc: ['arc'], recap_arc: ['arc'], recap_part: ['arc'], fold_knows: ['arc'], storyline: ['lines'] };
 
 // 작업이 project.json 에 쓴 화만 받아 온다 (mine(화면 화, 서버 화) 이 true 인 화와 새로 생긴 화). 저장하지 않은 다른 입력은 그대로 둔다.
 // 저장하지 않은 입력이 있을 때 서버 것으로 바꾼 화 번호를 돌려준다.
-async function mergeEpisodes(mine) {
+// nums(작업이 쓴 화 번호)를 주면 그 화만 받는다 (touchedEpisodes). 화만 받아 맞출 수 없으면 작품 전체를 받는다.
+async function mergeEpisodes(mine, nums) {
   if (!S.name || !P()) return [];
+  const gen = S.gen;
+  const name = S.name;
+  const part = nums && nums.length ? await touchedEpisodes(name, nums) : null;
+  if (part) {
+    if (S.name !== name || !P() || P() !== part.base) return [];  // 받는 사이 작품이 바뀌었다. 다음 확인 때 다시
+    // 받는 사이 입력이나 저장이 없었으면 받은 화를 그대로 둔다. 있었으면 작업이 쓴 화만 맞춘다
+    const clean = !S.dirty && gen === S.gen;
+    const changed = putEpisodes(part.episodes, clean ? () => true : mine);
+    return clean ? [] : changed;
+  }
   try {
-    const gen = S.gen;
-    const name = S.name;
     const fresh = await api('GET', `/projects/${enc(name)}`);
     // 받는 사이 작품 목록이나 다른 작품으로 옮겼으면 버린다 (닫은 작품을 다시 열거나 없는 작품을 읽지 않게)
     if (S.name !== name || !P()) return [];
     // 받는 사이 저장 · 반영 응답이나 입력이 있었으면 이 응답이 더 오래됐을 수 있다. 통째로 바꾸지 않고 작업이 쓴 화만 맞춘다
     if (!S.dirty && gen === S.gen) { S.project = fresh; return []; }
-    const local = new Map(P().episodes.map((e) => [e.plot.number, e]));
-    const changed = [];
-    for (const e of fresh.episodes) {
-      const cur = local.get(e.plot.number);
-      if (cur && !mine(cur, e)) continue;
-      local.set(e.plot.number, e);
-      if (projectBase) { projectBase.plots.set(e.plot.number, JSON.stringify(e.plot)); projectBase.eps.set(e.plot.number, JSON.stringify(e)); }
-      if (cur) changed.push(e.plot.number);
-    }
-    P().episodes = [...local.keys()].sort((a, b) => a - b).map((k) => local.get(k));
-    return changed;
+    return putEpisodes(fresh.episodes, mine);
   } catch { return []; /* 다음 확인 때 다시 */ }
+}
+
+/** 서버 화(eps)를 화면 작품에 넣는다. mine(화면 화, 서버 화) 이 false 인 화는 두고, 화면에 없던 화는 더한다. 바꾼 (있던) 화 번호를 돌려준다. */
+function putEpisodes(eps, mine) {
+  const local = new Map(P().episodes.map((e) => [e.plot.number, e]));
+  const changed = [];
+  for (const e of eps) {
+    const cur = local.get(e.plot.number);
+    if (cur && !mine(cur, e)) continue;
+    local.set(e.plot.number, e);
+    if (projectBase) { projectBase.plots.set(e.plot.number, JSON.stringify(e.plot)); projectBase.eps.set(e.plot.number, JSON.stringify(e)); }
+    if (cur) changed.push(e.plot.number);
+  }
+  P().episodes = [...local.keys()].sort((a, b) => a - b).map((k) => local.get(k));
+  return changed;
+}
+
+/** nums 화만 서버에서 받는다 (GET /episodes). 작품 전체(장편은 수 MB)를 다시 받지 않으려고 쓴다.
+    화면 작품이 작품 GET 으로 받은 것이고, 화를 뺀 나머지의 판(rest) · 저장 횟수 · 화 번호 목록이 서버와 같을 때만 { base, episodes } 를 돌려준다.
+    하나라도 다르거나 요청이 실패하면 null (부르는 쪽이 작품 전체를 받는다). */
+async function touchedEpisodes(name, nums) {
+  const base = P();
+  const rest = base && restOf.get(base);
+  if (!rest) return null;
+  const want = [...new Set(nums.map(Number).filter((n) => Number.isInteger(n) && n > 0))];
+  if (!want.length) return null;
+  try {
+    const r = await api('GET', `/projects/${enc(name)}/episodes?nums=${want.join(',')}`);
+    if (!r || r.rest !== rest || (r.edit_rev || 0) !== (base.edit_rev || 0) || (r.saved_by || '') !== (base.saved_by || '')) return null;
+    if (!Array.isArray(r.episodes) || !Array.isArray(r.numbers)) return null;
+    // 요청하지 않은 화가 생기거나 없어졌으면(플롯 여러 화 만들기, 지우기) 화만으로는 맞출 수 없다
+    const ask = new Set(want);
+    const server = new Set(r.numbers);
+    const local = new Set(base.episodes.map((e) => e.plot.number));
+    if ([...server].some((n) => !local.has(n) && !ask.has(n)) || [...local].some((n) => !server.has(n))) return null;
+    if (r.episodes.some((e) => !ask.has(e.plot.number))) return null;
+    patchCache(name, r);
+    return { base, episodes: r.episodes };
+  } catch { return null; }
+}
+
+/** 화 GET 답(r)으로 보관한 작품(projectCache)의 화를 고치고 판을 r.etag 로 올린다. 다음 화면 이동의 작품 GET 이 304 로 끝난다.
+    보관한 것의 나머지 판 · 저장 횟수 · 화 번호 목록이 서버와 같을 때만 고친다. 아니면 그대로 둬서 다음 작품 GET 이 전체를 받는다. */
+function patchCache(name, r) {
+  const c = projectCache;
+  if (!c || c.path !== `/projects/${enc(name)}` || !c.rest || c.rest !== r.rest || !r.etag || !isProjectJson(c.data)) return;
+  if ((c.data.edit_rev || 0) !== (r.edit_rev || 0) || (c.data.saved_by || '') !== (r.saved_by || '')) return;
+  const local = new Map(c.data.episodes.map((e) => [e.plot.number, e]));
+  for (const e of r.episodes) local.set(e.plot.number, structuredClone(e));  // 화면은 받은 화를 고쳐 쓰므로 보관한 것과 나눈다
+  const server = new Set(r.numbers);
+  if (local.size !== server.size || [...local.keys()].some((n) => !server.has(n))) return;
+  c.data.episodes = [...local.keys()].sort((a, b) => a - b).map((k) => local.get(k));
+  c.tag = r.etag;
 }
 
 async function finishJob(j) {
@@ -580,7 +680,11 @@ async function finishJob(j) {
     if (PENDING_KINDS.includes(j.kind) && j.result) S.pending.results[key] = { key, id: j.id, kind: j.kind, ep: j.ep };
   }
   const msg = JOB_DONE_MSG[j.kind];
-  toast(typeof msg === 'function' ? msg(j) : msg);
+  // 결과를 보는 화면이 따로 있고 지금 그 화면이 아니면 '가서 보기'를 붙인다 (알림 창의 같은 버튼과 같은 곳)
+  const link = JOB_LINK[j.kind] ? JOB_LINK[j.kind](j) : '';
+  const onIt = here && (JOB_PAGES[j.kind] || []).includes(S.route[2] || 'home') && (j.ep == null || Number(S.route[3]) === j.ep || !S.route[3]);
+  const go = link && !onIt && location.hash !== link ? [{ label: '가서 보기', run: () => { location.hash = link; } }] : [];
+  toast(typeof msg === 'function' ? msg(j) : msg, false, { actions: go });
   setTimeout(() => {  // 끝난 작업은 잠시 뒤 목록에서 내린다 (실패는 직접 닫을 때까지 남긴다)
     S.jobsSeen.add(j.id);
     S.jobs = S.jobs.filter((x) => x.id !== j.id || x.status === 'running');
@@ -591,7 +695,7 @@ async function finishJob(j) {
 }
 
 // ---------- 검토를 기다리는 결과 · 실패 (서버 pending.json, web.PENDING_KINDS 와 같은 목록) ----------
-const PENDING_KINDS = ['arc', 'suggest', 'series', 'nextarc', 'convert', 'rebuild', 'rework', 'storyline', 'recap_arc', 'recap_part', 'fold_knows', 'state', 'openings'];
+const PENDING_KINDS = ['arc', 'suggest', 'style', 'series', 'nextarc', 'convert', 'rebuild', 'rework', 'storyline', 'recap_arc', 'recap_part', 'fold_knows', 'state', 'openings'];
 
 /** 그 결과가 아직 화면에 제안으로 남아 있다. 반영하거나 버리면 false 가 된다. */
 function pendingShown(r) {
@@ -599,6 +703,7 @@ function pendingShown(r) {
     case 'state': return S.deltas[r.ep] !== undefined;
     case 'arc': return !!S.arcProposal;
     case 'suggest': return !!S.suggestion;
+    case 'style': return !!S.styleDraft;
     case 'series': return !!S.seriesDraft;
     case 'nextarc': return !!S.arcDraft;
     case 'recap_arc': return !!S.recapDrafts['arc' + r.ep];
@@ -623,6 +728,7 @@ async function loadPending(pre) {
   for (const r of Object.values(d.results)) {
     if (pendingShown(r) || S.jobsApplied.has(r.id)) continue;
     applyJobResult({ id: r.id, kind: r.kind, ep: r.ep, label: r.label, status: 'done', result: r.result, project: S.name });
+    if (r.kind === 'state' && r.draft) restoreDeltaDraft(r.ep, r.draft);  // 고르던 체크와 고친 칸 (review.js saveDeltaDraft)
     if (r.kind === 'state' && r.base != null) S.deltaBase[r.ep] = r.base;  // 변경안을 만든 본문. 그 뒤 고쳤으면 승인 화면이 알린다
   }
   Object.assign(S, keep);
@@ -634,7 +740,7 @@ function syncPending() {
   for (const r of Object.values(S.pending.results)) {
     if (pendingShown(r)) continue;
     delete S.pending.results[r.key];
-    api('DELETE', `/projects/${enc(S.name)}/pending/${enc(r.key)}`).catch(() => { /* 다음에 다시 */ });
+    api('DELETE', `/projects/${enc(S.name)}/pending/${enc(r.key)}${r.id ? `?id=${enc(r.id)}` : ''}`).catch(() => { /* 다음에 다시 */ });  // 그사이 새 결과가 들어왔으면 서버가 남긴다
   }
 }
 
@@ -652,6 +758,10 @@ function applyJobResult(j) {
     S.suggestion = j.result;
     S.suggestion.characters.forEach((c, i) => { S.picks['sc' + i] = !sameChar(c); });
     S.suggestion.relationships.forEach((r, i) => { S.picks['sr' + i] = true; });
+  } else if (j.kind === 'style' && j.result && j.result.profile) {
+    // 문체 분석 결과는 바로 넣지 않고 문체 화면의 제안 카드로 둔다(style.js styleDraftCard). 작가가 '바꾸기'를 눌러야 작품 문체에 들어간다.
+    // 그동안 고친 문체 칸을 덮지 않고, 다른 화면 · 새로고침에서도 pending 에서 다시 놓인다
+    S.styleDraft = j.result;
   } else if (j.kind === 'arc' && j.result) {
     S.arcProposal = j.result.acts;  // 바로 바꾸지 않고 지금 구조와 비교해 고르게 한다 (arcProposalCard)
   } else if (j.kind === 'write' && !(j.result && j.result.candidate)) {
@@ -690,6 +800,7 @@ function applyJobResult(j) {
 
 const JOB_LINK = {
   suggest: (j) => `#/p/${enc(j.project)}/setup`,
+  style: (j) => `#/p/${enc(j.project)}/style`,
   arc: (j) => `#/p/${enc(j.project)}/arc`,
   plots: (j) => `#/p/${enc(j.project)}/arc`,
   plot_one: (j) => `#/p/${enc(j.project)}/arc`,
@@ -782,10 +893,12 @@ document.addEventListener('click', (e) => {
     opt.render: 'always'(기본) | 'success'(실패하면 다시 그리지 않아 화면에만 있는 입력을 남긴다) | 'never' */
 /** 실패를 알린다. API 키가 없으면(첫 실행에 흔하다) 설정 대화상자를 열지 묻는다. */
 function showError(e) {
-  if (e.code === 'no_key') {
-    askConfirm(`${e.message}\n\n설정을 열까요?`, { title: 'API 키가 없어요', ok: '설정 열기' }).then((ok) => ok && openSettings('ai'));
+  if (e.code === 'no_key' || e.code === 'bad_key') {
+    askConfirm(`${e.message}\n\n설정을 열까요?`, { title: e.code === 'no_key' ? 'API 키가 없어요' : 'API 키를 확인하세요', ok: '설정 열기' }).then((ok) => ok && openSettings('ai'));
     return;
   }
+  // '기다리지 않기'는 작가가 고른 것이라 빨간 오류가 아닌 보통 알림으로 알린다 (디자인 시스템 Busy)
+  if (e.code === 'aborted') return toast(e.message);
   toast(e.message, true);
 }
 
@@ -1265,7 +1378,7 @@ function renderSavebar() {
   bar.dataset.sig = sig;
   bar.innerHTML = (S.dirty && S.conflict ? '<span>다른 탭이나 기기에서 먼저 저장해 이 변경을 저장하지 못했어요</span><button class="btn small" data-action="revert">다시 불러오기 (이 변경 버림)</button><button class="btn small danger" data-action="saveForce">내 변경으로 덮기</button>'
     : S.dirty ? `<span>저장하지 않은 변경이 있어요</span>${S.lastRemoved ? `<button class="btn small" data-action="restoreRemoved">방금 지운 ${esc(S.lastRemoved.label)} 되살리기</button>` : ''}<button class="btn small" data-action="revert">변경 모두 버리기</button><button class="btn small primary" data-action="save" title="저장 (Ctrl+S)">저장</button>` : '')
-    + (text !== null ? `<span>${text}화 본문을 저장하지 않았어요 · <span id="draft-stamp" data-ep="${text}">${esc(draftStamp(text))}</span></span><button class="btn small primary" data-action="saveText" data-arg="${text}"${autoOn() ? ' disabled title="자동 집필이 도는 동안은 본문을 저장할 수 없어요"' : ' title="본문 저장 (Ctrl+S)"'}>본문 저장</button>` : '');
+    + (text !== null ? `<span>${text}화 본문을 저장하지 않았어요 · <span id="draft-stamp" data-ep="${text}">${esc(draftStamp(text))}</span></span><button class="btn small" data-action="dropText" data-arg="${text}">고친 것 버리기</button><button class="btn small primary" data-action="saveText" data-arg="${text}"${autoOn() ? ' disabled title="자동 집필이 도는 동안은 본문을 저장할 수 없어요"' : ' title="본문 저장 (Ctrl+S)"'}>본문 저장</button>` : '');
   stackBottom();
 }
 
@@ -1279,7 +1392,8 @@ function briefPending(key, v) {
 }
 
 /** 반영하지 않은 상태 변경안. 변경안은 본문이 작성된 화에만 반영하므로 이미 반영이 끝난 화의 것은 세지 않는다. */
-const deltaPending = (n) => { const e = P() && ep(Number(n)); return !e || e.status === 'written'; };
+// 서버 pending.json 에 남아 새로 고쳐도 되살아나는 변경안은 묻지 않는다 (review.js deltaKept)
+const deltaPending = (n) => { const e = P() && ep(Number(n)); return (!e || e.status === 'written') && !(typeof deltaKept === 'function' && deltaKept(n)); };
 
 /** 페이지를 떠나면 사라지는 입력: 저장하지 않은 작품 · 문체 · 설정 변경, 본문 초안, 붙여 넣은 지시서 결과, 반영하지 않은 상태 변경안,
     분석 전 문체 예시 원문. 본문 초안은 브라우저에도 임시 보관하지만, 막힌 브라우저가 있어 여기서도 묻는다 */
@@ -1363,11 +1477,12 @@ const actions = {
     const h = [...P().history].reverse().find((d) => d.episode === n);
     const added = P().history.filter((d) => d.episode >= n).flatMap((d) => d.new_characters || []).map((c) => c.name || c.id);
     const places = (P().elements || []).filter((el) => el.found_in === '본문' && el.found_ep >= n).map((el) => el.name);
-    if (!(await askConfirm(`${rangeText(fin)}화의 상태 반영을 취소할까요? ${n - 1 ? `${n - 1}화 반영 직후` : '1화 시작 전'} 상태로 돌아가고, 본문은 남아 상태 승인을 다시 하게 돼요.${added.length ? ` 그 반영이 더한 인물(${added.join(', ')})도 빠져요.` : ''}${places.length ? ` 본문에서 등록한 장소(${places.join(', ')})도 빠져요. 아직 안 쓴 화 플롯에 나오거나 직접 고친 장소는 남아요.` : ''}`, { ok: '반영 취소', cancel: '닫기', danger: true }))) return false;
+    if (!(await askConfirm(`${rangeText(fin)}화의 상태 반영을 취소할까요? ${n - 1 ? `${n - 1}화 반영 직후` : '1화 시작 전'} 상태로 돌아가고, 본문은 남아 상태 승인을 다시 하게 돼요.${added.length ? ` 그 반영이 더한 인물(${added.join(', ')})도 빠져요.` : ''}${places.length ? ` 본문에서 등록한 장소(${places.join(', ')})도 빠져요. 아직 안 쓴 화 플롯에 나오거나 직접 고친 장소는 남아요.` : ''}${S.dirty ? '\n저장하지 않은 변경은 먼저 저장해요.' : ''}`, { ok: S.dirty ? '저장하고 반영 취소' : '반영 취소', cancel: '닫기', danger: true }))) return false;
     return run('반영을 취소하는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/revert/${n - 1}`);
-      if (h) setDelta(n, structuredClone(h));  // 반영했던 변경안을 다시 고를 수 있게 둔다
+      await loadPending();  // 서버가 뒤 화들의 반영 기록을 검토를 기다리는 변경안으로 남겼다 (web._revert_kept)
+      if (h && S.deltas[n] === undefined) setDelta(n, structuredClone(h));  // 반영했던 변경안을 다시 고를 수 있게 둔다
       toast(`${rangeText(fin)}화의 반영을 취소했어요. ${n}화 변경안을 다시 골라 반영하세요`);
     });
   },
@@ -1657,7 +1772,7 @@ let askPending = null;
 function askFinish(value) {
   const p = askPending;
   askPending = null;
-  if (p) p.resolve(value === 'ok' ? (p.input ? p.read() : true) : (p.input ? null : false));
+  if (p) p.resolve(value === 'ok' ? (p.input ? p.read() : true) : value === 'alt' && !p.input ? 'alt' : (p.input ? null : false));
 }
 
 /** 닫은 뒤 포커스를 돌릴 곳(showDialog 의 back). 연 버튼은 다시 그리면 사라질 수 있어 같은 동작의 버튼을 찾게 둔다.
@@ -1682,7 +1797,7 @@ function askOpen(text, o, input) {
     <h2 id="${id}-title">${esc(title)}</h2>
     ${body.map((p) => `<p>${esc(p)}</p>`).join('')}
     ${field}
-    <div class="row dlg-foot"><button type="button" class="btn" data-ask="">${esc(o.cancel || '취소')}</button><button type="button" class="btn ${o.danger ? 'danger' : 'primary'}" data-ask="ok">${esc(o.ok || '확인')}</button></div>
+    <div class="row dlg-foot"><button type="button" class="btn" data-ask="">${esc(o.cancel || '취소')}</button><button type="button" class="btn ${o.danger ? 'danger' : 'primary'}" data-ask="ok">${esc(o.ok || '확인')}</button>${o.alt ? `<button type="button" class="btn primary" data-ask="alt">${esc(o.alt)}</button>` : ''}</div>
   </div>`;
   return new Promise((resolve) => {
     const el = showDialog(id, html, askBack(document.activeElement));
@@ -1702,13 +1817,14 @@ function askOpen(text, o, input) {
     el.returnValue = '';
     const inp = input ? el.querySelector(`#${id}-in`) : null;
     askPending = { resolve, input, read: () => (inp ? inp.value : '') };
-    const to = inp || el.querySelector('[data-ask="ok"]');
+    const to = inp || el.querySelector('[data-ask="alt"]') || el.querySelector('[data-ask="ok"]');  // 세 번째 버튼(alt)이 있으면 그것이 주 버튼이다
     if (to) { to.focus(); if (inp && inp.select) inp.select(); }
   });
 }
 
 /** 브라우저 confirm 대신. 고르면 true, 취소 · Esc · 바깥 누르기는 false.
-    o: { title, ok = '확인', cancel = '취소', danger }. 위험한 동작(지우기 · 버리기 · 덮어쓰기)은 danger 와 동사 ok 를 준다 */
+    o: { title, ok = '확인', cancel = '취소', danger, alt }. 위험한 동작(지우기 · 버리기 · 덮어쓰기)은 danger 와 동사 ok 를 준다.
+    alt 를 주면 오른쪽 끝에 주 버튼을 하나 더 두고, 그것을 고르면 'alt' 를 돌려준다 (예: 저장하고 이동) */
 function askConfirm(text, o = {}) {
   return askOpen(text, o, false);
 }
@@ -1748,7 +1864,7 @@ Object.assign(actions, {
 // 작품마다 따로 두는 화면 상태와 빈 값. 화 번호로 잡거나 반영 전 AI 제안이라, 다른 작품에 보이거나 반영되면 안 된다
 const PER_PROJECT = {
   textDraft: () => ({}), deltas: () => ({}), deltaBase: () => ({}), deltaOrig: () => ({}),
-  suggestion: () => null, picks: () => ({}), seriesDraft: () => null, arcDraft: () => null, arcProposal: () => null, recapDrafts: () => ({}), foldDrafts: () => ({}),
+  suggestion: () => null, styleDraft: () => null, picks: () => ({}), picksEp: () => null, picksKept: () => ({}), seriesDraft: () => null, arcDraft: () => null, arcProposal: () => null, recapDrafts: () => ({}), foldDrafts: () => ({}),
   lineDraft: () => null, convDraft: () => null, rbDraft: () => null, reworks: () => ({}),
   openingData: () => ({}), openingPlots: () => ({}), openingUsed: () => ({}), openingPrev: () => ({}), rw: () => ({}), rwInfo: () => ({}), looks: () => ({}),
   causalLinks: () => ({}), causalPicks: () => ({}), causalGone: () => null, chatPicks: () => ({}),
@@ -1802,6 +1918,7 @@ document.addEventListener('click', async (e) => {
 });
 
 const navScroll = { idx: 0, max: 0, at: new Map(), restore: null };
+let navAsk = 0;  // 저장하지 않은 변경을 묻는 이동마다 1씩. '저장하고 이동'이 저장하는 사이 다른 이동이 왔는지 본다
 try { history.replaceState({ idx: 0 }, '', location.hash || '#/'); } catch { /* 기록을 못 고치면 위치 되살리기만 빠진다 */ }
 
 window.addEventListener('hashchange', async () => {
@@ -1818,9 +1935,20 @@ window.addEventListener('hashchange', async () => {
     // 주소는 이미 바뀌었다. 묻는 동안 이전 주소로 되돌려 두고, 이동을 고르면 그 주소로 다시 바꿔 이어 간다
     const to = location.hash;
     const st = history.state;
+    const ask = ++navAsk;
     history.replaceState({ idx: navScroll.idx }, '', lastHash);
-    const go = await askConfirm('저장하지 않고 이동하면 그 변경은 사라져요. 이동할까요?', { title: '저장하지 않은 변경이 있어요', ok: '이동하기', danger: true });
+    // 작품 변경만 있으면 '저장하고 이동'을 주 버튼으로 준다. 라이브러리 · 장면 연출은 저장하는 곳이 달라 버리고 갈지만 묻는다
+    const canSave = S.dirty && !S.libDirty && !S.stgDirty && !S.conflict;
+    const go = await askConfirm(canSave ? '저장하지 않고 이동하면 그 변경은 사라져요.' : '저장하지 않고 이동하면 그 변경은 사라져요. 이동할까요?',
+      { title: '저장하지 않은 변경이 있어요', ok: canSave ? '저장하지 않고 이동' : '이동하기', danger: true, alt: canSave ? '저장하고 이동' : '' });
     if (!go || location.hash !== lastHash) return;  // 묻는 사이 다른 이동이 왔으면 그 이동이 다시 묻는다
+    if (go === 'alt') {
+      // run() 으로 감싸 저장하는 동안 화면 입력을 막는다 (저장 뒤 받은 작품이 그사이 친 글을 덮지 않게). 실패는 run 이 알린다
+      let kept = false;
+      const ok = await run('저장하는 중', async () => { kept = await save() === false; }, { render: 'never' });
+      if (!ok || kept) { render(); return; }  // 실패했거나 서버가 일부를 지켰다: 받은 작품으로 다시 그리고 이 화면에 남는다
+      if (ask !== navAsk || location.hash !== lastHash) return;  // 저장하는 사이 다른 이동이 왔다. 그 이동이 다시 물었다
+    }
     history.replaceState(st, '', to);
   }
   // 기록 칸마다 번호를 붙여 둔다. 번호가 이미 있으면 뒤로 · 앞으로 가기다 (링크로 온 새 칸은 번호가 없다)
@@ -1964,6 +2092,7 @@ async function routeNow() {
         S.nameCheck = await api('POST', `/projects/${enc(S.name)}/names/check`, nameCheckBody()).catch(() => null);
       }
       if (parts[2] === 'style') {
+        try { localStorage.setItem(STYLE_VISITED(S.name), '1'); } catch { /* 다음 할 일이 문체를 다시 권할 수 있다 */ }
         S.libs = await api('GET', '/styles').catch(() => []);
         await loadStyleLink();
         await learnLoad();

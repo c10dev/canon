@@ -179,7 +179,7 @@ function usageChart(u) {
       <div class="usage-chart" tabindex="0" role="group" aria-label="${weekly ? '주별' : '날짜별'} ${byCost ? '비용' : '호출 수'} 막대. ←/→ 키로 옮겨 값을 봐요" aria-describedby="usage-pick">${bars}</div>
       <div class="usage-x" aria-hidden="true">${[days[0], ...mid, days[days.length - 1]].map((d) => `<span>${lab(d)}</span>`).join('')}</div>
     </div>
-    <div class="small usage-pick" id="usage-pick" aria-live="polite">${picked ? esc(picked) : '막대를 누르거나, 차트에 초점을 두고 ←/→ 키로 날짜별 값을 봐요.'}</div>
+    <div class="small usage-pick" id="usage-pick" aria-live="polite">${picked ? esc(picked) : ((typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches) ? '막대를 누르면 날짜별 값을 봐요.' : '막대를 누르거나, 차트에 초점을 두고 ←/→ 키로 날짜별 값을 봐요.')}</div>
     ${S.usageTable ? `<div class="rs-scroll"><table class="rs-table"><thead><tr><th>${weekly ? '주' : '날'}</th><th>추정 비용</th><th>호출</th><th>입력</th><th>출력</th><th>실패</th></tr></thead><tbody>
       ${days.filter((d) => byDay[d]).reverse().map((d) => { const r = byDay[d]; return `<tr><td>${lab(d)}</td><td>${usd(r.cost)}</td><td>${r.calls}</td><td>${tok(r.in)}</td><td>${tok(r.out)}</td><td>${r.failed || ''}</td></tr>`; }).join('')}</tbody></table></div>` : ''}`;
 }

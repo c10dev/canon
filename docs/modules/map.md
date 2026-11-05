@@ -153,6 +153,7 @@
 
 - 지도 데이터 형식
 - 올린 파일 가르기(`parse_upload`) · 읽기(`read_layout`) · 불러오기(`load_layout`, 옛 건물 정보는 다시 채운다) · 넓히기(`enrich`)
+- `load_layout` 이 옛 건물 정보를 채워 다시 쓸 때는 `store.write_atomic` 으로 바꿔치기한다
 - 마을 데이터(Watabou 생성기 JSON `read_layout`, OpenStreetMap 은 `osm.parse`, 가르기는 `parse_upload`)
 - `travel` · `context` 를 가져오지 않는다(지도 화면의 이동 시간 칸은 `web.atlas_view` 가 붙인다)
 - LLM 호출 없음
@@ -237,6 +238,7 @@
 - 대중교통(`mode` `transit`)은 장소 사이마다 걸어서만과 지하철(`rail`: 작품 사본 `Atlas.transit` 위 (역, 노선) 최단 경로, 표정속도 `RAIL_KMH` · 기다림 · 갈아타기 · 역 안 걷기 분, 출처는 `docs/map/specs/06-subway.md`) 가운데 짧은 쪽(`trip`, 글 `rail_text`)
 - 반영한 화의 이동(`moves`, 지도 화면 `view`: 지하철로 센 이동 `rail`)
 - 상태 변경안 경고(`delta_warnings`, `pipeline.clean_delta`)
+- 경고는 (글, 인물 id) 로 돌려준다(`features.clean` 이 `StateDelta.warn_to` 에 넣는다)
 - '괜찮아요'(`accept`)
 - 쓰기 · 검수 프롬프트의 이동 거리 줄 데이터(`episode_moves`, 글과 검수 줄은 `prompt.travel_block` · `travel_check_rule`)
 - 명령줄 `map <작품> travel`
@@ -306,6 +308,7 @@
 ### `canon/static/atlas.js`
 
 - 지도 화면 뼈대
+- 손가락 기기에서는 보기 메뉴의 단축키 글자(`.at-key`)를 숨긴다
 - 상태 · 불러오기(`atlasLoad`, 미리보기 · 자리 찾기 상태 `atlasGenPreview` · `atlasFindNow`)
 - 지도 그림(`atlasSvg`, 마을 `atlasVillageSvg`)
 - 장소 핀 누름 원 `.at-hit`은 손가락 기기(`ATLAS_COARSE`)에서 화면 반지름 22px보다 작지 않다

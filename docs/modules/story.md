@@ -41,6 +41,7 @@
 - 도구는 읽기(`read_plots` · `read_summaries` · `find_text`(`context.recall`) · `read_cast`, 결과 `RESULT_LIMIT` 자)와 쓰기 `edit_plot`
 - 되묻기 `ask`
 - 화 넣기 · 빼기 `insert_episodes` · `remove_episode`(`RENUMBER_TOOLS`, `RenumberOp`): 복사본에 해 보고(`preview`) 늘 승인 카드로 묻는다(`permit` 의 `renumber`). 쓰기 `apply_op`, 되돌리기 반대 동작 `inverse`, 자동 집필 번호 `shift`. 번호를 옮긴 뒤에는 턴을 다시 찾는다(작품 칸이 통째로 바뀜)
+- 화 넣기 · 빼기가 빼는 옛 화 번호 `dropped`(되돌리기면 넣었던 화들): 웹이 `store.renumber_side_files` 의 `gone` 으로 넘긴다
 - 쓰기는 `clean_revision` 으로 거른다(본문이 있는 화는 막힘)
 - 쓰기 부분마다 종류(`KIND_LABELS`)를 매긴다
 - 권한(`permit`) 안이면 `pipeline.plot_apply` 로 바로 쓴다(`WriteRecord`)
@@ -88,6 +89,7 @@
 - 지금 차림(`CharacterState.attire`) 점검. 규칙 글은 `prompts.ATTIRE_STATE_RULE` · `attire_write_rule` · `attire_check_rule`
 - 끝 낱말이 '가방' · '옷' · '겉옷' · '신발'인 조각 찾기(`vague`, 이름 `VAGUE`). 앞 낱말이 쓰임(`KIND_WORDS`)이거나 가방의 메는 자리(`CARRY`, 괄호 안 포함)를 말하면 넘어간다. 색 · 재질은 종류로 보지 않는다
 - 상태 변경안 정리 훅(`clean_delta`, `features.CLEAN`): 인물 이름으로 시작하는 경고
+- 그 경고는 (글, 인물 id) 로 돌려줘 상태 승인 화면이 그 인물 줄에 붙인다(`StateDelta.warn_to`)
 - LLM 호출 없음
 
 ### `canon/birth.py`
@@ -119,6 +121,7 @@
 - 합치기는 없다
 - 원본 `project.json` 은 바꾸지 않는다
 - 작품 복제는 `branch.json` 을 옮기지 않는다
+- 갈래 · 복제 · 플레이 사본은 자동 집필 기록과 실행 주인 파일(`autorun.json` · `.autorun.lock` · `autorun.want`)을 옮기지 않는다(`COPY_SKIP`)
 - 명령줄 `branch` · `branches` · `branch-compare` · `promote`
 - LLM 호출 없음
 
@@ -126,6 +129,7 @@
 
 - 인물 화면 계산
 - 화별 관계 프레임(스냅샷, 지워진 화는 사건 로그로 다시 계산)
+- 지워진 화의 상태 재계산 `_apply_gap` 은 `pipeline.apply_delta` 처럼 `cleared` 칸을 비운다
 - 인물별 등장 화
 - 화별 타임라인
 - 명령줄 `cast` 출력
@@ -209,6 +213,7 @@
 
 - 문체 라이브러리
 - 작품과 따로 `projects/.styles/<id>.json` 에 문체(원문, 프로필, 기준 지표)를 저장
+- `save` 는 `store.write_atomic` 으로 바꿔치기해 쓴다. 쓰다 멈춰도 옛 항목이 남는다
 - 작품에 적용하면 복사하고 `Project.style_id` · `style_version` 으로 출처만 기억
 - 저장마다 버전(`StyleVersion`)
 - 칸별 비교(`diff`)
@@ -235,6 +240,7 @@
 - 사건을 사본에 돌린 반영 뒤 단계(`_after`, `dynamics.run_episode`), 두 방향 단계의 극성(`STAGE_SIGN`, 엇갈리면 0)
 - 글 극성(`polarity`: 낱말 사전 `POSITIVE` · `NEGATIVE`, 바로 뒤 '않 · 못 · 없'은 뒤집음), 관계 극성(`rel_polarity`: 유형 먼저, 중립이면 대사와 두 사람 밖 인물이 나온 문장을 뺀 설명 `_others`)
 - 반대인 유형 바뀜의 차례 `StateDelta.rel_flagged` → 상태 승인 화면 기본 체크 해제(`review.js` `setDelta`), 사람 검토 없이 반영할 때는 빼기(`hold`, 남긴 개수로 세지 않음)
+- `hold` 가 뺀 유형 바뀜은 반영 기록의 빼 둔 항목(`StateDelta.dismissed.relationship_updates`)에 남는다
 - 두 층 감정(`prompts.LAYER`)으로 상대를 적은 쌍은 빼기(`_masked`)
 - 한 쌍 한 화 결정적(3) 사건 `BIG`(3)개 이상 경고
 - 쓰기 전 플롯: 화 플롯이 바라는 관계 바뀜(`plot_shifts`: 바뀜 말 `SHIFTS` · 가장 뒤 말 `_last_shift` · 이름 `name_forms`)
@@ -296,6 +302,8 @@
 - 화 번호를 품은 칸을 새로 만들면 `move_points` 에도 넣는다
 - 정착 문체 화 번호도 옮긴다(`anchor.move`)
 - 화면은 `static/insert.js` (넣을 수 있는 자리 `lastFixed` 는 `last_fixed` 와 같은 규칙, `tests/test_insert_js.py`)
+- `insert.js` 의 화 지우기 버튼을 막은 이유(AI 작업 중, 자동 집필 중, 스냅샷 없음)를 버튼 아래 글로도 보인다
+- 화 지우기 확인 창은 지우기 전 작품을 설정 › 백업에서 되돌릴 수 있다고 알린다
 
 ### `canon/routes/play.py`
 
@@ -303,6 +311,7 @@
 - 작품 목록 카드의 플레이 요약(`_play_card` · `_play_days`)은 `web.py` 에 남는다
 - `web.py` 맨 끝의 `_attach_routes` 가 `router` 를 앱에 붙이고 `EXPORTS` 의 이름을 `web` 에도 둔다
 - 공용 도우미(`_load` · `_save` · `_edit` 등)는 `..web` 에서 불러 쓴다
+- 다음 구간 미리 쓰기(`_play_continue`)는 서버가 다시 시작하려고 기다리는 중(`jobs.Draining`)이면 쓰지 않고 넘어간다. 끝난 구간 작업과 `play/see` 저장은 성공으로 남는다
 
 ### `canon/setupchat.py`
 
@@ -338,6 +347,7 @@
 ### `canon/static/agent.js`
 
 - 대화 에이전트 패널(`chat.js` 의 `chatPanel('plot')` 이 부른다)
+- 세션 동작 `agentAct(fn, { save })` 와 말 보내기 `agentStartTurn`: AI가 작품을 읽거나 고치는 동작은 저장하지 않은 변경이 있으면 저장할지 묻는다. 세션 만들기 · 대상 · 권한 모드 · 이름 · 보관은 `save: false` 로 묻지도 저장하지도 않는다
 - 세션 머리와 목록(보관함, '이전 대화'는 옛 `Project.chats` 를 `chatLog` 로)
 - 턴마다 단계 줄 · 바로 쓴 것(항목 · 턴 되돌리기) · 승인 카드 · 되묻기 카드
 - 입력 상자(+ 재료, `/` 빠른 요청 `AGENT_CMDS`, 보내기 · 멈추기)와 상태 줄(권한 모드 · 대상 · 모델 · 단계 상한)
@@ -374,9 +384,11 @@
 ### `canon/static/cast.js`
 
 - 인물 · 관계도 화면(공용 목차 틀 `outline.js`)
+- 인물 쪽 `castCharPage` 는 남겨 둔 설정 바꾸기 제안이 있으면 설정 카드를, 남겨 둔 호칭이 있으면 그 카드를 머리 바로 아래에 둔다
 - 왼쪽 목차 `castToc`(관계도 · 등장표 · 비중별 인물, 단역이 많으면 접음 `castMinorFold`)
 - 오른쪽 한 열의 쪽 `castPage`(`S.castView`: map · table · char · pair, 옮기기 `castShow`, 주소 `cast/<map · table · c:id · p:a|b>?f=` 와 옛 `?tab=` 은 `castParse`)
 - 열 맨 위 시점 띠 `castBar`(좁은 칸은 아래에 붙음)
+- 시점 띠가 400px 이하 칸이면 글에서 '반영 뒤'(`.cast-bar-after`)를 빼 화 번호가 잘리지 않게 한다
 - 관계도 `castMapPage`(SVG, 화별 재생, 칸 폭에 맞추고 크게 보기 `CAST_ZOOM`, 누르면 고르기만 `castMapPick` · 고른 줄 `castMapSel`, 끌어 옮긴 배치는 localStorage)
 - 인물 끌기가 끊기면(`pointercancel`) `castDrag` 를 지운다
 - 640px 이하 관계도는 600px보다 좁게 줄이지 않고 옆으로 굴린다(이름이 5px로 줄지 않게, app.css)
@@ -400,6 +412,7 @@
 - 개요: 손볼 것 `causalTodoCard` → 모든 요소 `causalListCard`
 - 요소 하나(`causalDetail`): 요소 내용 읽기 카드 `causalInfoCard`(고치기 `S.causalEdit`) → 관련 화 `causalLinksCard` → 영향 분석 `causalImpact`
 - 관련 화는 30화씩 칸 줄(`CZ_CHUNK`)과 나눔 버튼 `S.causalLinkTab` 으로 거른 줄 목록
+- 640px 이하는 칸 줄이 한 줄 10화다(`czChunk`). 칸은 버튼이고 화 번호 · 표시를 `aria-label` 로 읽는다. 손가락 기기 · 640px 이하에서 높이 32px
 - 칸 · 줄을 누르면(`causalCell`) 영향 분석의 그 화 칸으로, 없으면 그 화로 간다
 - 영향 분석은 화별로 어긋나는 곳과 고칠 것을 묶는다(`causalImpactBody`, 고르기 키 `pickId` 는 그대로)
 - 쪽을 옮길 때 해시 대신 `history.replaceState`(`causalGoTo`)라 저장하지 않은 고침을 묻지 않는다
@@ -461,6 +474,7 @@
 ### `canon/static/play.js`
 
 - 플레이 화면(DESIGN.md 10.4, 시안 안 A)
+- 멈춘 상태 글은 손가락 기기에서 '▶를 누르면 다시' 다(`playKeys`)
 - 손가락 기기(`pointer: coarse`)에서는 숫자 키 · Ctrl+Enter · 아무 키 안내를 숨긴다(`playKeys`)
 - 새 플레이(`#/play/new[/세계]`, 출생 카드 · 새 세계)
 - 플레이(`#/play/<폴더>`: 시간 흐름 막대, 흘러간 일, 결정 장면, 끼어들기, 옆 패널)
@@ -543,6 +557,7 @@
 - 본문 상태창 글(`render`, 서식 `Project.stat_window`)
 - 본문 상태창 읽기 · 대조(`read_windows`, `window_warnings`: 반영하면 될 값 `after_delta` 와 다르면 변경안 정리 `pipeline.clean_delta` 가 경고로)
 - 0 아래 · 한도 위 경고(`out_of_range`, `range_warnings`)
+- 두 경고는 (글, 인물 id) 로 돌려준다(`features.clean` 이 `StateDelta.warn_to` 에 넣는다)
 - 처음 수치 AI 제안 정리(`clean_init`, AI 호출은 `pipeline.suggest_initial_stats`, 1화 반영 뒤에는 막음, 프롬프트 `prompts.stat_init_prompt`)
 - 꾸미기(AI 안 정리 `clean_options`, 화면 스킨 `SKINS`, 창 이름 · 작품 틀은 `StatWindow.title` · `names`, AI 호출은 `pipeline.suggest_stat_window`, 프롬프트 `prompts.stat_window_prompt`)
 - 프롬프트 규칙

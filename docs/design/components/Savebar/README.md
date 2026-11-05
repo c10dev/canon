@@ -6,6 +6,7 @@
 
 - 앱이 만든다(`newSavebar`, `renderSavebar`): `id="savebar"`, `role="region"`, `aria-label="저장하지 않은 변경"`. 처음 뜰 때 화면 읽기에 "저장하지 않은 변경이 있어요. Ctrl+S로 저장할 수 있어요."를 한 번 알린다.
 - 내용: 상황 문장 `<span>`("저장하지 않은 변경이 있어요"), `.btn.small` `변경 모두 버리기`, `.btn.small.primary` `저장`(본문이면 `본문 저장`). 띠 안 버튼 높이는 40px.
+- 본문 띠는 `.btn.small` `고친 것 버리기`(묻고 나서 저장된 본문으로 돌아감)와 `.btn.small.primary` `본문 저장`을 둔다.
 - `inverse-bg` 면, `inverse-ink` 글자, `radius-12`, `shadow-toast`.
 - 화면에 `.savebar-slot`이 있으면 띠를 그 안에 넣는다(`.savebar.inline`: 그림자 · 면 없이 `written-ink` 글자). 떠 있는 띠가 확정 버튼을 가리지 않게 한다.
 

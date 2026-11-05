@@ -6,6 +6,7 @@ pipeline.clean_delta · apply_delta · revert 가 아래 목록을 차례로 부
 
 훅 모양:
 - 정리 (p, d) -> 경고 목록 또는 None. 변경안 d 를 고쳐도 된다. 돌려준 경고는 d.warnings 끝에 겹치지 않게 붙는다.
+  한 인물에 대한 경고는 (글, 인물 id) 로 돌려준다. id 는 d.warn_to 의 같은 차례에 들어가 상태 승인 화면이 그 인물 줄에 붙인다.
 - 반영 (p, d) -> None.
 - 되돌리기 (p, n, snap) -> None. snap 은 되돌아갈 n화 스냅샷.
 """
@@ -17,6 +18,9 @@ from . import address, attire, cast, charlog, elements, foreshadows, knows, nami
 from .maps import travel
 from .schema import Project, Snapshot, StateDelta
 
+# 정리 훅이 돌려주는 경고 한 줄: 글, 또는 (글, 그 경고가 다루는 인물 id)
+Warn = str | tuple[str, str]
+
 
 def _clean_places(p: Project, d: StateDelta) -> list[str]:
     """새 장소는 본문에 나오고 아직 없는 것만 남기고, 이미 있는 장소와 비슷한 이름은 경고로."""
@@ -24,9 +28,9 @@ def _clean_places(p: Project, d: StateDelta) -> list[str]:
     return warns
 
 
-def _new_cast_gaps(p: Project, d: StateDelta) -> list[str]:
+def _new_cast_gaps(p: Project, d: StateDelta) -> list[Warn]:
     """새 인물 가운데 말투가 빈 인물. 상태 변경안은 본문에서 드러난 것만 적어 말투가 비기 쉽고, 비면 다음 화부터 기본 말투로 흐른다."""
-    return [f"새 인물 {c.name or c.id}의 말투(speech_style)가 비었어요. 반영한 뒤 인물 화면에서 채워 주세요."
+    return [(f"새 인물 {c.name or c.id}의 말투(speech_style)가 비었어요. 반영한 뒤 인물 화면에서 채워 주세요.", c.id)
             for c in d.new_characters if not c.speech_style.strip() and c.id not in {x.id for x in p.characters}]
 
 
@@ -52,7 +56,7 @@ def _revert_timeline(p: Project, n: int, snap: Snapshot) -> None:
 
 
 # 상태 변경안 정리 (pipeline.clean_delta)
-CLEAN: tuple[Callable[[Project, StateDelta], list[str] | None], ...] = (
+CLEAN: tuple[Callable[[Project, StateDelta], list[Warn] | None], ...] = (
     foreshadows.clean_delta,   # 복선 문장을 본문에 맞춘다
     timeline.clean_delta,
     charlog.clean_delta,
@@ -83,11 +87,21 @@ REVERT_LAST: tuple[Callable[[Project, int, Snapshot], None], ...] = (
 HOLD: tuple[Callable[[Project, StateDelta], int], ...] = (charlog.hold, address.hold, pace.hold)
 
 
+def align_warn_to(d: StateDelta) -> None:
+    """d.warn_to 를 d.warnings 와 같은 길이로 맞춘다. 훅이 d.warnings 에 바로 붙인 경고(charlog)와 AI 경고는 대상이 "" 다."""
+    d.warn_to = (d.warn_to + [""] * len(d.warnings))[:len(d.warnings)]
+
+
 def clean(p: Project, d: StateDelta) -> None:
-    warns: list[str] = []
+    warns: list[Warn] = []
     for hook in CLEAN:
         warns += hook(p, d) or []
-    d.warnings += [w for w in warns if w not in d.warnings]
+    align_warn_to(d)
+    for w in warns:
+        text, to = (w, "") if isinstance(w, str) else w
+        if text not in d.warnings:
+            d.warnings.append(text)
+            d.warn_to.append(to)
 
 
 def apply(hooks: tuple[Callable[[Project, StateDelta], None], ...], p: Project, d: StateDelta) -> None:

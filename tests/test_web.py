@@ -1,6 +1,5 @@
 """웹 API 전체 흐름 테스트 (mock LLM). 실행: python -m pytest tests"""
 import copy
-import importlib
 import os
 
 import pytest
@@ -14,9 +13,26 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
     from canon import store, web
 
-    importlib.reload(store)
-    importlib.reload(web)
-    return TestClient(web.app)
+    # Do not reload web: one reload takes 1 to 2.5 s. The app reads store.ROOT at request time.
+    # Point store.ROOT at tmp_path and clear the caches that a reload clears.
+    # A separate MonkeyPatch keeps store.ROOT when a test calls monkeypatch.undo().
+    for cache in (store._views, store._snap_written, store._md_written, store._preset_seen, store._brief_seen,
+                  web._cards, web._rests, web._json_views):
+        cache.clear()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(store, "ROOT", tmp_path)
+        yield TestClient(web.app)
+
+
+def test_client_fixture_keeps_app(client, tmp_path):
+    """client fixture 는 web 을 다시 불러오지 않고 같은 app 에 store.ROOT 만 시험 폴더로 바꾼다."""
+    from canon import store, web
+
+    assert client.app is web.app and store.ROOT == tmp_path
+    meta = {"title": "등대", "genre": "미스터리", "logline": "x", "target_episodes": 10}
+    assert client.post("/api/projects", json={"name": "fx", "meta": meta}).status_code == 200
+    assert (tmp_path / "fx" / "project.json").exists()
+    assert [x["name"] for x in client.get("/api/projects").json()] == ["fx"]
 
 
 def test_full_flow(client):
@@ -571,6 +587,36 @@ def test_pending_results_and_failures_survive_reload(client, monkeypatch):
     assert d["failures"] == {} and "suggest:" in d["results"]  # 같은 작업이 성공하면 지난 실패를 지운다
 
 
+def test_state_draft_kept_with_pending_result(client):
+    """상태 승인 화면 초안(고르던 체크 · 고친 변경안)은 pending.json 의 state:<화> 결과에 붙고, 결과를 지우면 함께 사라진다. 작품은 저장하지 않는다."""
+    from canon import store
+
+    meta = {"title": "등대", "genre": "미스터리", "logline": "x", "target_episodes": 10}
+    client.post("/api/projects", json={"name": "dr", "meta": meta})
+    rec = {"key": "state:1", "id": "j1", "kind": "state", "ep": 1, "label": "1화 상태 변경안", "result": {"episode": 1, "summary": "받은"}, "base": "본문"}
+    store.edit_pending("dr", lambda d: d["results"].update({"state:1": rec, "suggest:": {"key": "suggest:", "kind": "suggest", "ep": None}}))
+    pj = store.project_dir("dr") / "project.json"
+    before = (pj.stat().st_mtime_ns, pj.read_bytes())
+    body = {"delta": {"episode": 1, "summary": "고친"}, "picks": {"f0": False, "c0": True}, "id": "j1"}
+    r = client.put("/api/projects/dr/pending/state%3A1/draft", json=body)
+    assert r.status_code == 200
+    draft = store.load_pending("dr")["results"]["state:1"]["draft"]
+    assert draft["delta"]["summary"] == "고친" and draft["picks"] == {"f0": False, "c0": True}
+    assert (pj.stat().st_mtime_ns, pj.read_bytes()) == before  # 초안은 작품 저장이 아니다
+    # 그사이 새 변경안으로 바뀐 결과 · 상태 변경안이 아닌 결과 · 없는 결과에는 남기지 않는다
+    client.put("/api/projects/dr/pending/state:1/draft", json={**body, "id": "old", "picks": {"f0": True}})
+    assert store.load_pending("dr")["results"]["state:1"]["draft"]["picks"]["f0"] is False
+    client.put("/api/projects/dr/pending/state:1/draft", json={**body, "picks": None, "delta": {"episode": 1, "summary": "또"}})
+    draft = store.load_pending("dr")["results"]["state:1"]["draft"]
+    assert draft["delta"]["summary"] == "또" and draft["picks"] == {"f0": False, "c0": True}  # 체크를 보내지 않으면 남긴 체크를 둔다
+    client.put("/api/projects/dr/pending/suggest:/draft", json=body)
+    assert "draft" not in store.load_pending("dr")["results"]["suggest:"]
+    client.delete("/api/projects/dr/pending/state:1")
+    client.put("/api/projects/dr/pending/state:1/draft", json=body)  # 반영 · 버린 뒤 늦게 온 저장
+    assert "state:1" not in store.load_pending("dr")["results"]
+    assert client.put("/api/projects/nope/pending/state:1/draft", json=body).status_code == 404
+
+
 def test_stop_job_discards_result(client, monkeypatch):
     """멈춘 작업은 바로 cancelled 로 보이고, 늦게 온 AI 응답을 저장하지 않으며 실패로도 남기지 않는다."""
     import time
@@ -864,6 +910,44 @@ def test_apply_edited_delta(client):
     assert client.get("/api/projects/ed/relations").json()["numbers"] == after["numbers"]
 
 
+def test_episodes_route_returns_only_asked_episodes(client):
+    """화 GET 은 고른 화만 돌려준다. rest 는 작품 GET 의 X-Project-Rest 와 같고, 화만 바뀌면 그대로, 화 밖이 바뀌면 달라진다."""
+    from canon import store
+    from .jsvm import episode
+    meta = {"title": "등대", "genre": "미스터리", "logline": "x", "target_episodes": 10}
+    client.post("/api/projects", json={"name": "eg", "meta": meta})
+    p = store.load("eg")
+    p.episodes = [episode(n, plot={"title": f"{n}화"}) for n in (1, 2, 3)]
+    store.save("eg", p)
+    whole = client.get("/api/projects/eg")
+    r = client.get("/api/projects/eg/episodes?nums=3,1,9")
+    got = r.json()
+    assert r.status_code == 200 and got["etag"] == whole.headers["etag"] == r.headers["etag"]
+    assert [e["plot"]["number"] for e in got["episodes"]] == [1, 3]  # 없는 9화는 빼고 답한다
+    assert got["episodes"][1] == whole.json()["episodes"][2]
+    assert got["numbers"] == [1, 2, 3] and got["edit_rev"] == whole.json()["edit_rev"]
+    assert got["rest"] == whole.headers["x-project-rest"]
+    # 화 하나만 바꾸면 rest 는 그대로다 (화면이 그 화만 받아 맞춘다)
+    p = store.load("eg")
+    p.episode(2).text = "본문"
+    store.save("eg", p)
+    assert client.get("/api/projects/eg/episodes?nums=2").json()["rest"] == got["rest"]
+    # 화 밖(사실 목록)이 바뀌면 rest 가 달라진다 (화면이 작품 전체를 받는다)
+    p = store.load("eg")
+    p.facts.append("새 사실")
+    store.save("eg", p)
+    after = client.get("/api/projects/eg/episodes?nums=2").json()["rest"]
+    assert after != got["rest"] and after == client.get("/api/projects/eg").headers["x-project-rest"]
+    # 저장한 요청도 같은 나머지 판을 붙인다 (화면이 저장 응답으로 보관한 뒤에도 화만 받는다)
+    saved = client.patch("/api/projects/eg", json={"edit_rev": client.get("/api/projects/eg").json()["edit_rev"], "fields": {"facts": ["새 사실", "둘째 사실"]}})
+    assert saved.status_code == 200 and "x-project-etag" in saved.headers
+    assert saved.headers["x-project-rest"] == client.get("/api/projects/eg").headers["x-project-rest"]
+    assert saved.headers["x-project-rest"] == client.get("/api/projects/eg/episodes?nums=2").json()["rest"] != after
+    assert client.get("/api/projects/eg/episodes?nums=a").status_code == 400
+    assert client.get("/api/projects/eg/episodes").status_code == 400
+    assert client.get("/api/projects/nope/episodes?nums=1").status_code == 404
+
+
 def test_save_response_carries_project_tag(client):
     """저장한 요청은 저장한 판(X-Project-ETag)을 붙이고, 그 판으로 묻는 작품 GET 은 304 다. 응답 본문은 작품 GET 과 같다."""
     meta = {"title": "등대", "genre": "미스터리", "logline": "x", "target_episodes": 10}
@@ -925,3 +1009,108 @@ def test_cast_and_atlas_views_are_tagged(client):
     p["meta"]["title"] = "등대 2"
     client.put("/api/projects/cv", json=p)
     assert client.get("/api/projects/cv/cast", headers={"If-None-Match": tag}).status_code == 200
+
+
+def test_health_tells_claude_setup(client, monkeypatch):
+    """Claude 단계를 고르면 상태 확인이 Anthropic 키 유무와 Claude Code 설치 · 로그인을 알린다 (첫 작업이 실패하기 전에)."""
+    from canon import web
+
+    pub = {"has_key": True, "stages": {"plan": {"provider": "claude-api"}, "write": {"provider": "claude"}}}
+    monkeypatch.setattr(web.settings, "public", lambda: pub)
+    monkeypatch.setattr(web.settings, "anthropic_key", lambda: ("", ""))
+    calls = []
+    monkeypatch.setattr(web.claude, "status", lambda: calls.append(1) or {"reason": "login", "message": "로그인하세요"})
+    monkeypatch.setattr(web, "_claude_seen", None)
+    h = client.get("/api/config/health").json()
+    assert h["claude_api"] is False and h["claude"] == "login" and h["claude_message"] == "로그인하세요"
+    client.get("/api/config/health")
+    assert calls == [1]  # claude 상태는 잠시 기억해 다시 띄우지 않는다
+    pub["stages"] = {"plan": {"provider": "gemini"}}
+    h = client.get("/api/config/health").json()
+    assert h["claude_api"] is None and h["claude"] is None
+    # 설정 화면의 Claude 상태 확인은 새로 읽고 그 결과로 기억을 바꾼다. 상태를 못 읽은 결과(error)는 기억하지 않는다
+    pub["stages"] = {"write": {"provider": "claude"}}
+    ok = {"installed": True, "path": "/x/claude", "version": "1", "logged_in": True, "env_token": False, "api_key_ignored": False,
+          "message": "로그인돼 있어요.", "reason": "ok", "login_command": "claude auth login", "token_command": "claude setup-token"}
+    monkeypatch.setattr(web.claude, "status", lambda: ok)
+    client.get("/api/claude/status")
+    assert client.get("/api/config/health").json()["claude"] == "ok"
+    monkeypatch.setattr(web, "_claude_seen", None)
+    monkeypatch.setattr(web.claude, "status", lambda: calls.append(2) or {"reason": "error", "message": "x"})
+    client.get("/api/config/health")
+    client.get("/api/config/health")
+    assert calls.count(2) == 2
+
+
+def test_missing_anthropic_key_is_no_key(client, monkeypatch):
+    """claude-api 키가 없으면 그 백엔드의 문구로 설정 안내(code no_key)를 돌려준다 (Gemini 문구가 아니라)."""
+    import asyncio
+    import json as _json
+
+    from canon import web
+    from canon.claude import ClaudeAPILLM
+    from canon.llm import MissingKey
+
+    monkeypatch.setattr(web.settings, "anthropic_key", lambda: ("", ""))
+    with pytest.raises(MissingKey) as e:
+        ClaudeAPILLM()
+    r = asyncio.run(web._no_key(None, e.value))
+    body = _json.loads(r.body)
+    assert body["code"] == "no_key" and body["detail"].startswith("Anthropic API 키가 없어요")
+
+
+def test_session_edit_is_not_a_screen_save(client):
+    """대화 세션만 고치면 화면 저장 기록(edit_rev · saved_by)을 바꾸지 않는다. 저장하지 않은 변경이 있는 탭이
+    세션 이름만 바꿔도, 다른 탭이 먼저 저장한 것은 그 탭의 다음 저장에서 충돌로 잡힌다."""
+    meta = {"title": "등대", "genre": "미스터리", "logline": "x", "target_episodes": 10}
+    client.post("/api/projects", json={"name": "ss", "meta": meta}, headers={"X-Canon-Client": "B"})
+    before = client.get("/api/projects/ss").json()
+    s = client.post("/api/projects/ss/sessions", json={"topic": "plot"}, headers={"X-Canon-Client": "A"}).json()
+    client.patch(f"/api/projects/ss/sessions/{s['id']}", json={"title": "새 이름"}, headers={"X-Canon-Client": "A"})
+    after = client.get("/api/projects/ss").json()
+    assert (after["edit_rev"], after["saved_by"]) == (before["edit_rev"], before["saved_by"])
+    assert any(x["title"] == "새 이름" for x in after["agent_sessions"])
+
+
+def test_card_setup_ready(client):
+    """작품 카드의 setup_ready: 설정 도우미 필수 칸이 다 차야 참이다 (setup.js setupReqs 와 같은 규칙). 플롯 전이면 다음 할 일이 설정이다."""
+    meta = {"title": "등대", "genre": "미스터리", "logline": "x", "target_episodes": 10}
+    client.post("/api/projects", json={"name": "sr", "meta": meta})
+    card = next(x for x in client.get("/api/projects").json() if x["name"] == "sr")
+    assert card["setup_ready"] is False
+    p = client.get("/api/projects/sr").json()
+    p["meta"]["genres"] = p["meta"]["genres"] or ["mystery"]
+    p["world"]["setting"] = "바닷가 마을"
+    p["characters"] = [{"id": "a", "name": "서윤", "role": "주인공"}, {"id": "b", "name": "도현", "role": "오빠"}]
+    p["relationships"] = [{"a": "a", "b": "b", "type": "남매"}]
+    assert client.put("/api/projects/sr", json=p).status_code == 200
+    card = next(x for x in client.get("/api/projects").json() if x["name"] == "sr")
+    assert card["setup_ready"] is True
+
+
+def test_style_job(client):
+    """문체 분석은 화면을 막지 않는 작업(style)이다. 결과(프로필 · 원문 기준 지표)는 화면이 넣을 때까지 pending 에 남는다.
+    원문이 200자보다 짧으면 작업을 시작하지 않는다."""
+    meta = {"title": "등대", "genre": "미스터리", "logline": "x", "target_episodes": 10}
+    client.post("/api/projects", json={"name": "sj", "meta": meta})
+    assert client.post("/api/projects/sj/jobs", json={"kind": "style", "text": "짧은 글"}).status_code == 400
+    text = "바람이 불었다. 서윤은 등대 앞에 섰다. 오래된 계단이 발밑에서 삐걱였다. " * 8
+    j = client.post("/api/projects/sj/jobs", json={"kind": "style", "text": text}).json()
+    assert j["label"] == "문체 분석"
+    done = _wait(client, j["id"])
+    assert done["status"] == "done" and "narration_pov" in done["result"]["profile"]
+    assert "sentence_len" in done["result"]["baseline"] or done["result"]["baseline"]
+    assert "style:" in client.get("/api/projects/sj/pending").json()["results"]
+
+
+def test_drop_pending_keeps_newer_result(client):
+    """화면이 옛 결과를 반영하고 지울 때 id 를 함께 보낸다. 그사이 같은 키에 새 결과가 들어왔으면 서버는 새 결과를 남긴다."""
+    from canon import store
+
+    meta = {"title": "등대", "genre": "미스터리", "logline": "x", "target_episodes": 10}
+    client.post("/api/projects", json={"name": "dp", "meta": meta})
+    store.edit_pending("dp", lambda d: d["results"].update({"style:": {"key": "style:", "id": "new", "kind": "style", "result": {}}}))
+    client.delete("/api/projects/dp/pending/style:?id=old")
+    assert "style:" in client.get("/api/projects/dp/pending").json()["results"]
+    client.delete("/api/projects/dp/pending/style:?id=new")
+    assert "style:" not in client.get("/api/projects/dp/pending").json()["results"]

@@ -92,6 +92,7 @@ function autoPoll(delay = 3000) {
     const before = sig(S.auto && S.auto.run);
     const wasActive = !!(S.auto && S.auto.active);
     const restarts = S.auto && S.auto.run ? S.auto.run.restarts || 0 : null;
+    const prevEp = S.auto && S.auto.run ? S.auto.run.ep : null;  // 지난번에 하던 화. 그사이 끝냈으면 그 화도 바뀌었다
     const name = S.name;
     let fresh;
     try {
@@ -115,9 +116,15 @@ function autoPoll(delay = 3000) {
     const changed = fresh && fresh.run && (sig(fresh.run) !== before || !!fresh.active !== wasActive);
     if (changed && !S.dirty) {
       const gen = S.gen;
-      const p = await api('GET', `/projects/${enc(name)}`).catch(() => null);
-      // 받는 사이 입력 · 저장이 있었으면 이 작품이 더 오래됐을 수 있다. 화는 작업 폴링(mergeEpisodes)이 맞춘다
-      if (p && name === S.name && !S.dirty && gen === S.gen) S.project = p;
+      // 도는 동안은 하던 화와 지금 화만 받는다 (touchedEpisodes). 반영으로 관계 · 인물 상태가 바뀌었거나 멈추거나 끝나면 작품 전체를 받는다
+      const nums = fresh.active && fresh.run ? [prevEp, fresh.run.ep] : [];
+      const part = nums.length ? await touchedEpisodes(name, nums) : null;
+      if (part && name === S.name && P() === part.base && !S.dirty && gen === S.gen) putEpisodes(part.episodes, () => true);
+      else if (!part) {
+        const p = await api('GET', `/projects/${enc(name)}`).catch(() => null);
+        // 받는 사이 입력 · 저장이 있었으면 이 작품이 더 오래됐을 수 있다. 화는 작업 폴링(mergeEpisodes)이 맞춘다
+        if (p && name === S.name && !S.dirty && gen === S.gen) S.project = p;
+      }
     }
     if (changed && !fresh.active && S.route[2] === 'auto') await autoEstimate();  // 멈추거나 끝나면 남은 화 추정을 새로
     if (changed && !isTyping() && S.route[0] === 'p' && ['auto', 'home', ''].includes(S.route[2] || '')) render();
@@ -333,7 +340,7 @@ function autoRunCard(r, active) {
       <div><span class="small">반영</span><b>${done} / ${total}화</b></div>
       <div><span class="small">이번 실행 자동 반영</span><b>${r.applied.length}화</b></div>
       <div><span class="small">토큰 입력 / 출력</span><b>${autoMan(r.tokens_in)} / ${autoMan(r.tokens_out)}</b></div>
-      <div><span class="small">비용</span><b>약 ${autoCost(r.cost)}</b>${r.restarts ? `<span class="small" title="서버가 다시 시작돼 하던 단계를 처음부터 다시 했어요. 끊긴 호출 비용은 여기에 없어요">서버 재시작 ${r.restarts}번</span>` : ''}</div>
+      <div><span class="small">비용</span><b>약 ${autoCost(r.cost)}</b>${r.restarts ? `<span class="small">서버 재시작 ${r.restarts}번 · 끊긴 호출 비용은 빠졌어요</span>` : ''}</div>
     </div>`;
   return `<section class="card" id="au-run" aria-labelledby="au-run-h">
     <div class="between"><h2 id="au-run-h" tabindex="-1">${total}화까지 자동 집필 <span class="chip ${cls}">${label}</span></h2>${autoBatchToggle(r.batch, r.status === 'done' || r.status === 'stopped' ? ' disabled' : '')}</div>
@@ -530,7 +537,9 @@ function viewAuto() {
   // 머리 주 버튼: 그 실행에서 지금 할 일 하나
   let primary = '';
   if (r && !S.autoOffline) {
-    if (active) primary = '<button type="button" class="btn" data-action="autoPause">일시정지</button>';
+    // 일시정지 · 중지를 눌렀으면 지금 단계가 끝날 때까지 '멈추는 중'으로 둔다 (서버 want). 다시 눌러도 같은 요청이다
+    if (active && a.want) primary = `<button type="button" class="btn" aria-disabled="true" aria-busy="true"><span class="spinner small" aria-hidden="true"></span> ${a.want === 'stop' ? '중지하는 중' : '멈추는 중'}…</button>`;
+    else if (active) primary = '<button type="button" class="btn" data-action="autoPause">일시정지</button>';
     else if (r.status === 'review' && r.pending) primary = `<button type="button" class="btn primary" data-action="autoOpenReview">${r.ep}화 변경안 검토하기</button>`;
     else if (['paused', 'review', 'error'].includes(r.status)) primary = '<button type="button" class="btn primary" data-action="autoResume">이어 가기</button>';
   }

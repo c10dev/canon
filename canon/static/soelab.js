@@ -1139,8 +1139,9 @@ document.addEventListener('change', (e) => {
   if (d.soeJ === 'clean' && S.soeJ) { S.soeJ.clean = e.target.checked; render(); }
 });
 
-/** 끌어 고르기: 원고에서 글을 고르면 그 문장들을 고르고(문장 단위) 시스템 선택은 지운다 */
-document.addEventListener('mouseup', () => {
+/** 끌어 고르기: 원고에서 글을 고르면 그 문장들을 고르고(문장 단위) 시스템 선택은 지운다.
+    손가락 기기에서 '끌어 고르기'를 고르면 길게 눌러 고른 뒤 손을 뗄 때(touchend) 같은 처리를 탄다 */
+function soeDragPick() {
   if (S.route[0] !== 'soelab' || !S.soeJ || soeTapOn()) return;
   const sel = document.getSelection();
   if (!sel || sel.isCollapsed || !sel.rangeCount) return;
@@ -1156,7 +1157,9 @@ document.addEventListener('mouseup', () => {
   S.soeJ.sel = [Math.min(i, k), Math.max(i, k)];
   S.soeJ.menu = -1;
   render();
-});
+}
+document.addEventListener('mouseup', soeDragPick);
+document.addEventListener('touchend', () => setTimeout(soeDragPick, 0));  // 고른 범위가 손을 뗀 뒤에 정해진다
 
 /** 문장 누르기: 누른 문장을 고르고, 옆 문장을 누르면 이어 고르고, 고른 문장을 다시 누르면 푼다 */
 document.addEventListener('click', (e) => {

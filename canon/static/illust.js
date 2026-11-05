@@ -170,7 +170,7 @@ function ilCard(n, x) {
       <select aria-label="다시 조립할 모델" data-ill-rebuild="${esc(x.id)}">${(S.illModels || []).map((o) => `<option value="${esc(o.id)}"${o.id === pick ? ' selected' : ''}>${esc(o.label)}</option>`).join('')}</select>
       <button type="button" class="btn small" data-action="illRebuild" data-arg="${esc(x.id)}">다시 조립</button>
       <span class="small" style="flex:1 1 200px">AI를 다시 부르지 않고 고른 모델과 지금 외형 태그 · 화풍으로 다시 맞춰요</span>
-      <button type="button" class="btn small danger" data-action="illDelete" data-arg="${esc(x.id)}">삭제</button></div>
+      <button type="button" class="btn small danger" data-action="illDelete" data-arg="${esc(x.id)}">지우기</button></div>
   </article>`;
 }
 

@@ -59,6 +59,7 @@ const SET_CATS = [['ai', 'AI 연결', 'pc', '이 컴퓨터의 모든 작품에 �
   ['advanced', '고급', 'pc', '환경 변수와 설정 파일이 정한 값이에요. 여기서는 보기만 해요.'],
   ['preset', 'AI 프리셋', 'project', '이 작품의 AI 호출만 바꿔요. 고르면 바로 작품에 저장해요.'],
   ['writing', '집필 · 검수', 'project', '이 작품에만 적용돼요. 자동 집필도 이 값을 따라요. 바꾸면 바로 저장해요.'],
+  ['backup', '백업', 'project', '저장할 때 남긴 이전 판이에요. 시간별 백업은 최근 24개를 모두, 그 전 14일은 하루에 하나씩 남겨요.'],
   ['screen', '화면', 'browser', '이 브라우저에만 기억해요. 다른 기기에는 따라가지 않아요.'],
   ['notify', '알림', 'browser', 'AI 작업이 끝나면 알려요. 이 브라우저에만 기억해요. 다른 기기에서 받으려면 그 기기에서도 켜세요.']];
 const setCat = (id) => SET_CATS.find((x) => x[0] === id);
@@ -73,7 +74,8 @@ const SET_ROWS = [
   { id: 'vertex-project', cat: 'ai', sec: 'Gemini', label: 'Google Cloud 프로젝트 ID', words: 'vertex project' },
   { id: 'vertex-location', cat: 'ai', sec: 'Gemini', label: 'Vertex AI 리전', words: 'vertex location global us-central1' },
   { id: 'gemini-model', cat: 'ai', sec: 'Gemini', label: 'Gemini 모델', words: '모델 gemini-4-argon flash' },
-  { id: 'claude-login', cat: 'ai', sec: 'Claude', label: 'Claude 구독 로그인', words: 'claude code pro max 로그인 구독' },
+  { id: 'claude-account', cat: 'ai', sec: 'Claude', label: 'Claude 구독 계정', words: 'claude code 계정 전용 따로 다른 계정 로그인 config' },
+  { id: 'claude-login', cat: 'ai', sec: 'Claude', label: 'Claude 구독 로그인', words: 'claude code pro max 로그인 로그아웃 구독' },
   { id: 'anthropic-key', cat: 'ai', sec: 'Claude', label: 'Anthropic API 키', words: '키 key claude console sk-ant' },
   { id: 'claude-model', cat: 'ai', sec: 'Claude', label: 'Claude 모델', words: '모델 opus sonnet haiku' },
   { id: 'claude-bin', cat: 'ai', sec: 'Claude', label: 'claude 실행 파일', words: 'path 경로 bin' },
@@ -97,6 +99,7 @@ const SET_ROWS = [
   { id: 'widen', cat: 'writing', sec: '검수', label: '넓혀 찾기', words: '검수 넓히기 옛 화 장편' },
   { id: 'numbers', cat: 'writing', sec: '보기 · 보관', label: '관계를 숫자로 보기', words: '관계 숫자 말' },
   { id: 'snapshots', cat: 'writing', sec: '보기 · 보관', label: '스냅샷 모두 남기기', words: '스냅샷 되돌리기 장편 보관' },
+  { id: 'backup-list', cat: 'backup', sec: '백업에서 되돌리기', label: '백업에서 되돌리기', words: '백업 되돌리기 복원 이전 판 시간별 지우기 전 실수' },
   { id: 'elsewhere', cat: 'writing', sec: '다른 화면에서 정해요', label: '작품 정보 · 연재 일정 · 자동 집필', words: '제목 장르 화수 분량 연재 일정 자동 집필 멈춤 정책' },
   { id: 'write-mode', cat: 'screen', sec: '집필 화면', label: '집필 생성 방식', words: 'AI로 쓰기 채팅 앱 작업지시서 생성 방식' },
   { id: 'marks', cat: 'screen', sec: '집필 화면', label: '문체 밑줄', words: '밑줄 문체 장치 금지 표현' },
@@ -254,6 +257,8 @@ function setRowHtml(id) {
       return (c.gemini_auth || 'key') === 'vertex' ? vertexRow(id, c) : '';
     case 'gemini-model':
       return textRow(id, 'model', '모델', `목록에서 고르거나 이름을 적어요. 칸을 떠나면 저장해요. ${modelCount('gemini')}`, c.model_setting, c.model_source, 'CANON_MODEL', { list: 'model-options' });
+    case 'claude-account':
+      return claudeAccountRow(id, c);
     case 'claude-login':
       return claudeLoginRow(id);
     case 'anthropic-key':
@@ -343,6 +348,8 @@ function setRowHtml(id) {
     case 'snapshots':
       return serialOn() ? setRow(id, `스냅샷 모두 남기기 ${SET_CHIP('장편')}`, `지금 ${p.snapshots.length}개 · ${p.settings.keep_snapshots ? '모두 남겨요. 끄면 다음 반영 때 0화 · 아크 끝 · 최근 20화만 남기고 지워요.' : '0화 · 아크 끝 · 최근 20화만 남겨요. 지운 화는 되살리지 못해요.'}`,
         SW(id, !!p.settings.keep_snapshots, '스냅샷 모두 남기기'), { wide: false }) : '';
+    case 'backup-list':
+      return p ? backupRows() : '';
     case 'elsewhere':
       return p ? setRow(id, '다른 화면에서 정해요', '작품 정보(제목 · 장르 · 총 화수 · 화당 분량), 연재 일정, 자동 집필 멈춤 조건은 그 화면에 있어요.',
         `<a class="btn" href="${base()}/setup">설정 도우미</a><a class="btn" href="${base()}">작품 홈</a><a class="btn" href="${base()}/auto">자동 집필</a>`) : '';
@@ -366,7 +373,7 @@ function setRowHtml(id) {
       const perm = notifyPermission();
       const how = { granted: '브라우저 알림을 허용했어요.', denied: '브라우저가 알림을 막았어요. 주소창의 사이트 설정에서 허용하세요.',
         default: '켜면 브라우저가 알림을 허용할지 물어요.', unsupported: '이 주소(https나 localhost가 아님)에서는 브라우저 알림을 쓸 수 없어요.' }[perm];
-      return setRow(id, '작업이 끝나면 알리기', `탭이 뒤에 있을 때 브라우저 알림을 보내고 탭 제목 앞에 끝난 수를 붙여요. ${how}`, SW(id, notifyPref.on, '작업이 끝나면 알리기'), { wide: false });
+      return setRow(id, '작업이 끝나면 알리기', `탭이 뒤에 있을 때 브라우저 알림을 보내요. 꺼 두어도 탭 제목 앞에는 끝난 수를 붙여요. ${how}`, SW(id, notifyPref.on, '작업이 끝나면 알리기'), { wide: false });
     }
     case 'notify-test':
       return setRow(id, '시험 알림', '지금 알림 하나를 보내 보여요.', '<button type="button" class="btn" data-action="setNotifyTest">보내 보기</button>', { wide: false });
@@ -377,6 +384,39 @@ function setRowHtml(id) {
       }
       return STAGES.some(([s]) => id === `stage-${s}`) ? stageRow(id.slice(6), c) : '';
   }
+}
+
+const BACKUP_KINDS = { hourly: '시간별', prev: '직전 판', delete: '화 지우기 전', serial: '장편 전환 전', restore: '되돌리기 전' };
+
+/** 백업 한 줄의 설명: 종류 · 화 수 · 반영한 마지막 화 */
+function backupDesc(b) {
+  const what = b.ep ? `${b.ep}화 지우기 전` : BACKUP_KINDS[b.kind] || b.kind;
+  if (b.episodes < 0) return `${what} · 읽지 못하는 파일이에요`;
+  return `${what} · ${b.episodes}화 · ${b.finalized ? `${b.finalized}화까지 반영` : '반영한 화 없음'}`;
+}
+
+/** 백업에서 되돌리기 줄들 (SET.backups 는 GET …/backups 로 받은 목록) */
+function backupRows() {
+  const got = SET.backups;
+  if (!got || got.name !== S.name) return setRow('backup-list', '백업 목록', '목록을 불러오는 중이에요.', '');
+  const head = setRow('backup-list', '백업에서 되돌리기', `지금 ${P().episodes.length}화 · ${lastFinalized() ? `${lastFinalized()}화까지 반영` : '반영한 화 없음'}이에요. 되돌리면 지금 판도 '되돌리기 전' 백업으로 남아서 다시 돌아올 수 있어요.`, '');
+  if (!got.rows.length) return head + setRow('backup-none', '아직 백업이 없어요', '작품을 한 번 더 저장하면 생겨요.', '');
+  return head + got.rows.map((b, i) => setRow(`backup-${i}`, fmtDateTime(b.at), backupDesc(b),
+    b.episodes < 0 ? '' : `<button type="button" class="btn" data-action="setRestore" data-arg="${esc(b.id)}">되돌리기</button>`, { wide: false })).join('');
+}
+
+const lastFinalized = () => Math.max(0, ...P().episodes.filter((e) => e.status === 'finalized').map((e) => e.plot.number));
+
+async function loadBackups() {
+  if (!inProject()) return;
+  const name = S.name;
+  try {
+    SET.backups = { name, rows: await api('GET', `/projects/${enc(name)}/backups`) };
+  } catch (e) {
+    SET.backups = { name, rows: [] };
+    setNote('backup-list', e.message, 'err');
+  }
+  setPaint();
 }
 
 function stageRow(s, c) {
@@ -593,6 +633,8 @@ async function openSettings(cat) {
   api('GET', '/config').then((c) => { S.config = c; setPaint(); }).catch((e) => toast(e.message, true));
   loadModelList();
   claudeStatusLoad();
+  SET.backups = null;
+  loadBackups();
   if (!S.copyFormats) api('GET', '/publish/formats').then((f) => { S.copyFormats = f; setPaint(); }).catch(() => {});
 }
 let setOpener = null;
@@ -740,6 +782,10 @@ Object.assign(actions, {
   async setSeg(arg) {
     const [k, v] = String(arg).split(':');
     if (k === 'gemini_auth') return setSave('gemini-auth', { gemini_auth: v });
+    if (k === 'claude_separate') {
+      await setSave('claude-account', { claude_separate: v === 'canon' });
+      return claudeStatusLoad();
+    }
     if (k === 'mode') {
       S.mode = v;
       lsKeep('canon.mode', v);
@@ -787,6 +833,23 @@ Object.assign(actions, {
       return;
     }
     if (p) await flip();
+  },
+  async setRestore(id) {
+    const b = ((SET.backups || {}).rows || []).find((x) => x.id === String(id));
+    if (!b || !(await askConfirm(`${fmtDateTime(b.at)} 백업(${backupDesc(b)})으로 되돌릴까요?\n\n지금 작품은 '되돌리기 전' 백업으로 먼저 남겨요.${S.dirty ? ' 저장하지 않은 변경도 저장한 뒤 함께 남겨요.' : ''} 화면에만 있는 본문 초안과 상태 변경안은 버려요.`, { ok: '되돌리기', danger: true }))) return;
+    setNote('backup-list', '되돌리는 중…');
+    try {
+      await saveIfDirty();
+      S.project = await api('POST', `/projects/${enc(S.name)}/backups/restore`, { id: b.id });
+      S.dirty = false;
+      S.conflict = false;
+      // 작품이 통째로 바뀌므로 옛 판에 맞춘 초안 · 변경안 · 제안(PER_PROJECT)은 버린다. 남기면 다음 저장이 되돌린 작품을 덮는다
+      Object.entries(PER_PROJECT).forEach(([k, empty]) => { S[k] = empty(); });
+      SET.note['backup-list'] = { text: `${fmtDateTime(b.at)} 판으로 되돌렸어요`, kind: 'ok' };
+    } catch (e) {
+      SET.note['backup-list'] = { text: e.message, kind: 'err' };
+    }
+    await loadBackups();
   },
   async setNotifyTest() {
     SET.note['notify-test'] = await notifyTest();

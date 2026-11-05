@@ -250,3 +250,61 @@ def test_web_moves_text_unless_branch_or_pending(client):
     r = client.post("/api/projects/mv/episodes/insert", json={"at": 4})
     assert r.status_code == 200, r.text
     assert r.json()["project"]["episodes"][5]["text"] == "옮겨 온 본문"
+
+
+def _side(name: str, eps: list[int]) -> None:
+    """큐 시트 실험 cuelab/<화>.json 과 블라인드 비교본 compare/<화>/ 를 화마다 하나씩 둔다. 비교본 글에 화 번호를 적는다."""
+    from canon import research, store
+    from canon.schema import CueLab
+    for n in eps:
+        store.save_cuelab(name, CueLab(episode=n, model=f"m{n}"))
+        research.save_compare(name, n, {"a": f"{n}화 안 가", "b": f"{n}화 안 나"})
+
+
+def test_web_insert_and_remove_move_side_files(client):
+    """화를 넣고 빼면 화 번호로 이름 붙인 큐 시트 실험과 비교본도 따라 옮긴다. 뺀 화의 것은 removed/ 에 남긴다."""
+    from canon import research, store
+
+    store.save("side", _short())
+    _side("side", [6, 7, 9])
+    r = client.post("/api/projects/side/episodes/insert", json={"at": 7})
+    assert r.status_code == 200, r.text
+    assert any("큐 시트 실험도 새 화 번호로" in x and "7→8화" in x for x in r.json()["notes"])
+    assert store.cuelab_episodes("side") == [6, 8, 10]
+    assert store.load_cuelab("side", 8).model == "m7" and store.load_cuelab("side", 8).episode == 8
+    assert store.load_cuelab("side", 7).model == ""  # 새 화에는 실험이 없다
+    assert research.load_compare("side", 7) is None
+    assert "7화 안" in research.compare_text("side", 8, 1) and "9화 안" in research.compare_text("side", 10, 1)
+    assert [x["episode"] for x in research.open_compares("side")] == [6, 8, 10]
+
+    r = client.delete("/api/projects/side/episodes/8")  # 옛 7화를 뺀다
+    assert r.status_code == 200, r.text
+    assert any("뺀 8화의 큐 시트 실험" in x for x in r.json()["notes"])
+    assert store.cuelab_episodes("side") == [6, 9]
+    assert store.load_cuelab("side", 9).model == "m9" and store.load_cuelab("side", 9).episode == 9
+    assert "9화 안" in research.compare_text("side", 9, 1) and research.load_compare("side", 10) is None
+    kept = store.project_dir("side") / "cuelab" / store.SIDE_REMOVED
+    assert [f.name.split(".")[0] for f in kept.glob("*.json")] == ["8"]
+    assert "7화 안" in next((store.project_dir("side") / "compare" / store.SIDE_REMOVED).glob("8.*/1.md")).read_text(encoding="utf-8")
+    assert [x["episode"] for x in research.open_compares("side")] == [6, 9]
+
+
+def test_open_compares_follow_episode_order():
+    """비교본 폴더 이름은 두 자리라 100화가 99화보다 이름 차례로 앞이다. 목록은 화 차례로 준다."""
+    from canon import research, store
+
+    store.save("cmp100", _short())
+    for n in (100, 99, 7):
+        research.save_compare("cmp100", n, {"a": "가", "b": "나"})
+    assert [x["episode"] for x in research.open_compares("cmp100")] == [7, 99, 100]
+
+
+def test_agent_dropped_episodes():
+    from canon import agent
+    from canon.schema import RenumberOp
+
+    ins = RenumberOp(kind="insert", at=4, titles=["가", "나"])
+    rm = RenumberOp(kind="remove", at=6)
+    assert agent.dropped(ins) == [] and agent.dropped(ins, inverse=True) == [4, 5]
+    assert agent.dropped(rm) == [6] and agent.dropped(rm, inverse=True) == []
+    assert agent.shift(ins, inverse=True)(6) == 4

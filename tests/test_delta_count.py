@@ -23,7 +23,8 @@ def _source(name):
 def test_delta_lists_cover_state_delta():
     lists = re.findall(r"'(\w+)'", _source("DELTA_LISTS"))
     # rel_flagged 는 고르는 항목이 아니라 relationship_updates 의 기본 체크를 정하는 차례 목록이다 (pace.clean_delta)
-    want = {k for k, f in StateDelta.model_fields.items() if typing.get_origin(f.annotation) is list} - {"warnings", "rel_flagged"}
+    # warn_to 는 고르는 항목이 아니라 warnings 와 같은 차례의 대상 인물 id 다 (features.clean)
+    want = {k for k, f in StateDelta.model_fields.items() if typing.get_origin(f.annotation) is list} - {"warnings", "rel_flagged", "warn_to"}
     assert set(lists) == want
     assert len(lists) == len(set(lists))
 
@@ -95,3 +96,22 @@ def test_review_edits_reach_picked_delta():
     assert picked["character_updates"][0]["emotional_state"] == "분노"
     assert picked["character_updates"][0]["knows"] == ["열쇠가 있다"]
     assert out["orig"] == {"actor": "a", "target": "b", "kind": "도움", "intensity": 2, "witnesses": []}  # 받은 그대로는 따로 남는다
+
+
+@pytest.mark.skipif(not shutil.which("node"), reason="node 없음")
+def test_set_delta_unchecks_invalid_pairs():
+    """서버 반영이 막는 관계 사건 · 관계 바뀜(설정에 없는 인물, 같은 인물끼리)은 기본으로 체크하지 않는다 (pipeline.validate_delta)."""
+    head = EDIT_HARNESS.split("const d = {")[0]
+    js = head + """
+const ev = (actor, target) => ({ actor, target, kind: '도움', intensity: 1, witnesses: [] });
+const rel = (a, b) => ({ a, b, type: '친구', description: '', affinity: 0, tension: 0 });
+const d = { summary: '', character_updates: [], secrets_added: [], new_facts: [], foreshadow_planted: [], foreshadow_resolved: [],
+  new_characters: [{ id: 'n' }], warnings: [],
+  events: [ev('a', 'b'), ev('a', 'zz'), ev('a', 'a'), ev('n', 'b')],
+  relationship_updates: [rel('a', 'b'), rel('zz', 'b'), rel('b', 'b'), rel('a', 'n')] };
+vm.runInContext('setDelta(1, ' + JSON.stringify(d) + ')', ctx);
+process.stdout.write(JSON.stringify(vm.runInContext("[0,1,2,3].map((i) => [S.picks['e' + i], S.picks['r' + i]])", ctx)));
+"""
+    run = subprocess.run(["node", "-e", js, str(APP)], capture_output=True, text=True, encoding="utf-8")
+    assert run.returncode == 0, run.stderr
+    assert json.loads(run.stdout) == [[True, True], [False, False], [False, False], [True, True]]

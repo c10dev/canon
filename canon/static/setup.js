@@ -254,7 +254,7 @@ function relRow(r, i) {
       <div class="field"><label for="ra${i}">인물 A</label><select id="ra${i}" data-bind="${b}.a">${opts(r.a)}</select></div>
       <div class="field"><label for="rb${i}">인물 B</label><select id="rb${i}" data-bind="${b}.b">${opts(r.b)}</select></div>
       ${input('어떤 사이', b + '.type', { placeholder: '오빠의 친구, 남매…' })}
-      <button class="btn icon-btn danger" data-action="removeRelationship" data-arg="${i}" aria-label="관계 삭제">✕</button>
+      <button class="btn icon-btn danger" data-action="removeRelationship" data-arg="${i}" aria-label="관계 지우기">✕</button>
     </div>${relProblem(r, i)}
     <div class="genre-opts ex-opts" role="group" aria-label="어떤 사이 예시">${chips(REL_TYPES.map((t) => [t, t]), (t) => r.type === t, 'setRelType')}</div>
     ${relDestNote(r)}
@@ -632,7 +632,7 @@ function wizPerson(c, i) {
   return `<div class="wiz-person" id="wiz-char-${i}">
     <div class="between"><strong data-char-head="${i}">${esc(c.name || '이름 없음')}</strong>
       <div class="row"><button type="button" class="btn small" data-action="nameCandidates" data-arg="${esc(c.id)}">이름 후보 뽑기</button><button type="button" class="ai-mini" data-action="nameAI" data-arg="${esc(c.id)}" title="AI가 이 인물 이름을 골라요">✦ AI 이름 추천 받기</button>
-      <button type="button" class="btn small danger" data-action="removeCharacter" data-arg="${i}" aria-label="${who} 빼기">빼기</button></div></div>
+      <button type="button" class="btn small danger" data-action="removeCharacter" data-arg="${i}" aria-label="${who} 지우기">지우기</button></div></div>
     ${namePicks('c:' + c.id, 'useName', (n) => `${c.id}|${n}`)}
     <div class="wiz-row3">${input('이름', b + '.name')}${input('나이', b + '.age', { placeholder: '예: 22' })}${input('성별', b + '.gender', { placeholder: '여' })}</div>
     ${nameIssuesFor(c.id)}
@@ -901,7 +901,7 @@ function charRow(c, i) {
         ${charIdeaInput('아크', b + '.arc', { hint: '시작 → 결말' })}${input('id', b + '.id', { hint: '관계와 플롯이 인물을 찾는 값이라 바꿀 수 없어요', readonly: true })}
       </div></details>
       <div class="between"><span class="small">AI에 넣기, 서술 말투, 신체 프로필, 삽화 외형 태그는 <a href="${base()}/cast/${enc(c.id)}?tab=sheet">인물 카드</a>에서 고쳐요.</span>
-        <button type="button" class="btn small danger" data-action="removeCharacter" data-arg="${i}" aria-label="${esc(c.name || c.id)} 삭제">삭제</button></div>
+        <button type="button" class="btn small danger" data-action="removeCharacter" data-arg="${i}" aria-label="${esc(c.name || c.id)} 지우기">지우기</button></div>
     </div>
   </details>`;
 }
@@ -1261,7 +1261,7 @@ Object.assign(actions, {
     const inHistory = [...new Set(P().history.filter((h) => (h.events || []).some((ev) => ev.actor === c.id || ev.target === c.id) || h.character_updates.some((u) => u.character_id === c.id)).map((h) => h.episode))];
     const used = [inPlots.length ? `${rangeText(inPlots)}화 플롯의 등장 인물` : '', inHistory.length ? `${rangeText(inHistory)}화 반영 기록` : ''].filter(Boolean);
     const warn = used.length ? `\n이 인물은 ${used.join('과 ')}에 남아 있어요. 그곳에는 이름 대신 id(${c.id})로 보여요.${inHistory.length ? ' 이미 반영한 화에 나온 인물이면 지우기보다 비중을 단역으로 낮추는 편이 안전해요.' : ''}` : '';
-    if (!(await askConfirm(`${c.name || c.id} 인물을 삭제할까요? 관계와 지금 상태도 함께 삭제돼요. 저장하기 전에는 아래 띠에서 되살릴 수 있어요.${warn}`, { ok: '삭제하기', danger: true }))) return;
+    if (!(await askConfirm(`${c.name || c.id} 인물을 지울까요? 관계와 지금 상태도 함께 지워져요. 저장하기 전에는 아래 띠에서 되살릴 수 있어요.${warn}`, { ok: '지우기', danger: true }))) return;
     rememberRemoved(`인물 ${c.name || c.id}`, ['characters', 'relationships', 'states']);
     P().characters.splice(i, 1);
     // 인물 칸 ✦ 후보는 번호로 칸을 찾아서, 번호가 밀리면 다른 인물 칸 아래에 뜬다

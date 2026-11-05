@@ -20,7 +20,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from . import context, metrics, pipeline, prompts, settings, store
-from .judge import make_judge
+from .judge import env_choice, make_judge
 from .llm import LLM, GeminiLLM, LocalLLM, make_llm
 from .schema import ConsistencyReport, ConsistencyReportEn, PlantSet, Project, plant_kind
 
@@ -100,9 +100,8 @@ def open_compares(name: str) -> list[dict]:
     if not root.exists():
         return []
     out = []
-    for key in sorted(root.glob("*/key.json")):
-        if not key.parent.name.isdigit():
-            continue
+    keys = [k for k in root.glob("*/key.json") if k.parent.name.isdigit()]
+    for key in sorted(keys, key=lambda k: int(k.parent.name)):  # 이름 차례면 100화가 99화 앞에 온다
         k = json.loads(key.read_text(encoding="utf-8"))
         if not k.get("picked"):
             out.append({"episode": int(key.parent.name), "kind": k.get("kind", "backend"), "created": k.get("created"),
@@ -364,8 +363,8 @@ def check_trial(p: Project, n: int, b: Backend, plants: int = 3, modes: list[str
     bad = [x for x in langs if x not in TRIAL_LANGS]
     if bad:
         raise ValueError(f"알 수 없는 지시문 언어: {', '.join(bad)} ({' | '.join(TRIAL_LANGS)})")
-    if "twostep" in modes and judge is None:
-        judge = Backend(provider="mock" if b.provider == "mock" else "local")
+    if "twostep" in modes:
+        judge = judge_backend(judge, b)
     seed = random.randrange(1 << 30) if seed is None else seed
     llm = make_backend(b)
     t = time.perf_counter()
@@ -532,6 +531,17 @@ def _stage_run(llm: LLM, q: Project, n: int, used: list) -> dict:
     return row
 
 
+def judge_backend(judge: Backend | None, b: Backend) -> Backend:
+    """두 걸음 검수의 판단기. 화면에서 고르지 않았으면 CANON_JUDGE(없으면 검수 백엔드가 mock 일 때 mock, 아니면 local).
+    로컬 판단기의 비어 있는 모델 · 주소는 CANON_JUDGE_MODEL · CANON_JUDGE_URL 로 채운다. 그것도 비면 로컬 서버 설정."""
+    provider, model, url = env_choice()
+    if judge is None:
+        judge = Backend(provider=provider or ("mock" if b.provider == "mock" else "local"))
+    if judge.provider == "local" and (not judge.model or not judge.url):
+        judge = judge.model_copy(update={"model": judge.model or model, "url": judge.url or url})
+    return judge
+
+
 def _two_step_run(llm: LLM, jb: Backend, q: Project, n: int, used: list) -> dict:
     """두 걸음 검수 한 번. tokens 는 검수 모델 입력(진술 뽑기 + 의심 판정), judge_tokens 는 판단기 입력 (모두 추정)."""
     row: dict[str, Any] = {"mode": "twostep", "judge": label(jb)}
@@ -554,7 +564,7 @@ def _two_step_run(llm: LLM, jb: Backend, q: Project, n: int, used: list) -> dict
 # ---------- 블라인드 비교 ----------
 
 def compare_dir(name: str, n: int) -> Path:
-    return store.project_dir(name) / "compare" / f"{n:02d}"
+    return store.compare_dir(name, n)
 
 
 def run_compare(name: str, p: Project, n: int, a: Backend, b: Backend) -> dict:

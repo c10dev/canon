@@ -550,7 +550,7 @@ function eventsField(e, b, locked) {
   const rows = evs.map((x, k) => `<li class="ev-row"><span class="ev-no" aria-hidden="true">${k + 1}</span>
       <textarea id="ev-${n}-${k}" rows="1" data-autogrow data-bind="${b}.events.${k}" data-kind="text" data-event="${n}:${k}" aria-label="사건 ${k + 1}"${locked ? ' readonly' : ''}>${esc(x)}</textarea>
       <span class="ev-tools"><a class="btn icon-btn small" href="${base()}/stage/${n}/${k + 1}" aria-label="사건 ${k + 1} 장면 연출" title="장면 연출: 자리 · 자세 · 접촉 짜기">${(e.stage || []).some((s) => s.event_text === x) ? '🎬' : '<span aria-hidden="true">＋</span>🎬'}</a>${locked ? '' : `${tool(k, 'moveEvent', ':-1', '위로', '↑', k === 0)}${tool(k, 'moveEvent', ':1', '아래로', '↓', k === evs.length - 1)}${tool(k, 'dropEvent', '', '빼기', '✕', false)}`}</span></li>`).join('');
-  return `<fieldset class="field ev-field"><legend class="label">사건 순서 <span class="hint">${locked ? '' : 'Enter로 다음 사건'}</span></legend>
+  return `<fieldset class="field ev-field"><legend class="label">사건 순서 <span class="hint">${locked || (typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches) ? '' : 'Enter로 다음 사건'}</span></legend>
     ${evs.length ? `<ol class="ev-list">${rows}</ol>` : `<span class="small">${locked ? '사건이 없어요' : '아직 사건이 없어요'}</span>`}
     ${locked ? '' : `<button type="button" class="btn small ghost ev-add" data-action="addEvent" data-arg="${n}">+ 사건 더하기</button>`}</fieldset>`;
 }

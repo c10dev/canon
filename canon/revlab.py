@@ -105,14 +105,9 @@ def load(lab_id: int) -> RevLab:
 
 
 def save(lab: RevLab) -> Path:
-    import os
-    import threading
-
     path = _path(lab.id)
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
-    tmp.write_text(lab.model_dump_json(indent=2), encoding="utf-8")
-    os.replace(tmp, path)
+    store.write_atomic(path, lab.model_dump_json(indent=2))
     return path
 
 

@@ -2415,6 +2415,7 @@ document.addEventListener('keydown', (e) => {
 .at-bar-info { min-width: 0; }
 .at-grow { flex: 1; }
 .at-key { margin-left: auto; font-family: var(--mono); }
+@media (pointer: coarse) { .at-key { display: none; } }  /* 손가락 기기: 누를 수 없는 단축키 글자를 숨긴다 */
 .at-pop-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: var(--space-8); }
 .at-pop-note { margin: 0; padding: var(--space-4) var(--space-8) var(--space-6); }
 .at-foot { display: flex; align-items: center; gap: var(--space-8); padding: var(--space-10) var(--space-12); border-top: 1px solid var(--line); }

@@ -444,6 +444,8 @@ async function agentEnsureSession() {
 
 async function agentStartTurn(text, mode = '') {
   if (S.agentBusy || agentRunningJob()) return toast('지금 턴이 끝난 뒤 보내세요. 멈추려면 ■ 를 누르세요', true);
+  // 턴은 AI가 작품을 읽고 고친다. 저장하지 않은 변경은 묻고 나서 저장한다 (agentAct · startJob 과 같다). 취소하면 쓴 글은 칸에 남는다
+  if (S.dirty && !(await askConfirm('저장하지 않은 변경이 있어요. 저장하고 이어갈까요?', { ok: '저장하고 이어가기' }))) return;
   S.agentBusy = true;
   const keep = S.agentDraft;
   S.agentDraft = '';
@@ -468,9 +470,12 @@ async function agentStartTurn(text, mode = '') {
   }
 }
 
-async function agentAct(fn) {
+/** 세션 동작 공통. save: AI가 작품을 읽거나 고치는 동작이면 저장하지 않은 변경을 먼저 저장한다 (묻고 나서).
+    세션 이름 · 대상 · 권한 모드 · 보관처럼 작품과 상관없는 동작은 save: false 로 묻지도 저장하지도 않는다 */
+async function agentAct(fn, { save = true } = {}) {
+  if (save && S.dirty && !(await askConfirm('저장하지 않은 변경이 있어요. 저장하고 이어갈까요?', { ok: '저장하고 이어가기' }))) return null;
   try {
-    await saveIfDirty();
+    if (save) await saveIfDirty();
     const res = await fn();
     if (res && res.project && !S.dirty) S.project = res.project;
     if (res && res.job) { S.jobs = [...S.jobs.filter((x) => x.id !== res.job.id), res.job]; pollJobs(true); }
@@ -516,7 +521,7 @@ Object.assign(actions, {
     const s = agentSession();
     if (cmd === '/대상') {
       if (!s) return toast('세션이 없어요. 말을 보내면 지금 보는 곳으로 세션이 생겨요');
-      await agentAct(() => api('PATCH', `/projects/${enc(S.name)}/sessions/${s.id}`, { target: plotScope().target }));
+      await agentAct(() => api('PATCH', `/projects/${enc(S.name)}/sessions/${s.id}`, { target: plotScope().target }), { save: false });
       S.agentDraft = '';
       return toast(`대상을 바꿨어요: ${agentTargetText(plotScope().target)}`);
     }
@@ -533,7 +538,7 @@ Object.assign(actions, {
       const s = await api('POST', `/projects/${enc(S.name)}/sessions`, { topic: 'plot', target: plotScope().target });
       agentSelect(s.id);
       return s;
-    });
+    }, { save: false });
     $('#chat-input')?.focus();
   },
   agentPick(sid) {
@@ -563,7 +568,7 @@ Object.assign(actions, {
       const made = await api('POST', `/projects/${enc(S.name)}/sessions`, { topic: 'plot', target });
       agentSelect(made.id);
       return made;
-    });
+    }, { save: false });
     if (res) toast(`다듬을 곳을 바꿨어요: ${agentTargetText(target)}`);
   },
   agentTargetEp() {
@@ -587,7 +592,7 @@ Object.assign(actions, {
     S.agentModeMenu = false;
     const s = agentSession();
     if (!s) { redrawChat(); return toast('세션이 없어요. 말을 보내면 세션이 생기고, 그 뒤 모드를 고를 수 있어요'); }
-    await agentAct(() => api('PATCH', `/projects/${enc(S.name)}/sessions/${s.id}`, { mode }));
+    await agentAct(() => api('PATCH', `/projects/${enc(S.name)}/sessions/${s.id}`, { mode }), { save: false });
   },
   async agentRename() {
     const s = agentSession();
@@ -595,13 +600,13 @@ Object.assign(actions, {
     const title = await askText('', { title: '세션 이름', value: s.title || '', ok: '이름 바꾸기' });
     if (title == null) return;
     S.agentMenu = false;
-    await agentAct(() => api('PATCH', `/projects/${enc(S.name)}/sessions/${s.id}`, { title }));
+    await agentAct(() => api('PATCH', `/projects/${enc(S.name)}/sessions/${s.id}`, { title }), { save: false });
   },
   async agentArchive(arg) {
     const [sid, on] = String(arg).split('|');
     S.agentMenu = false;
     if (sid === S.agentSid && on === '1') S.agentSid = null;
-    await agentAct(() => api('PATCH', `/projects/${enc(S.name)}/sessions/${sid}`, { archived: on === '1' }));
+    await agentAct(() => api('PATCH', `/projects/${enc(S.name)}/sessions/${sid}`, { archived: on === '1' }), { save: false });
     if (on === '0') agentSelect(sid);
   },
   async agentStop() {

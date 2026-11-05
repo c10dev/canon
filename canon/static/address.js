@@ -29,7 +29,7 @@ function addressHeldRow(x, i) {
   const bits = Object.entries(ADDRESS_FIELDS).filter(([k]) => x[k]).map(([k, label]) => `${label} ${esc(cur[k] || '(비어 있음)')} → <strong>${esc(x[k])}</strong>`);
   return `<div class="change"><div class="body"><div style="font-size:0.875rem;font-weight:700">${x.episode}화 · ${esc(charName(x.speaker))} → ${esc(charName(x.listener))}</div>
     <div class="small">${bits.join(' · ')}</div>${x.reason ? `<div class="small">${esc(x.reason)}</div>` : ''}${x.quote ? `<div class="small">“${esc(x.quote)}”</div>` : ''}
-    <div class="row"><button type="button" class="btn small primary" data-action="addrTake" data-arg="${i}">적용</button><button type="button" class="btn small" data-action="addrDrop" data-arg="${i}">버리기</button></div></div></div>`;
+    ${proposalActions(['addrDrop', i], ['addrTake', i], '적용')}</div></div>`;
 }
 
 /** 두 사람 상세의 호칭 · 말씨 카드: 두 방향 칸, 이 쌍의 남겨 둔 제안, 바뀐 기록 */

@@ -174,7 +174,7 @@ function pfEdit(id, base, root, hot) {
         <div class="mk-text">${bareInput(`${base}.markers.${i}.text`, `표지 ${i + 1}`, { root, cls: 'pf-quote', placeholder: '원문에 적힌 그대로, 예: 것이었다' })}</div>
         <div class="mk-note">${bareInput(`${base}.markers.${i}.note`, `표지 ${i + 1} 쓰임`, { root, placeholder: '어디에 어떻게 쓰는지' })}</div>
         <div class="mk-rate">${bareInput(`${base}.markers.${i}.per_1k`, `표지 ${i + 1} 1,000자당`, { root, kind: 'float' })}</div>
-        <button type="button" class="btn icon-btn danger mk-del" data-action="removeMarker" data-arg="${root}|${i}" aria-label="표지 ${i + 1} 삭제">✕</button></div>`).join('');
+        <button type="button" class="btn icon-btn danger mk-del" data-action="removeMarker" data-arg="${root}|${i}" aria-label="표지 ${i + 1} 지우기">✕</button></div>`).join('');
     return rows ? `<div class="mk-grid"><div class="mk-row mk-th" aria-hidden="true"><span class="mk-text">표지 (원문 그대로)</span><span class="mk-note">쓰임</span><span class="mk-rate">1,000자당</span><span class="mk-del"></span></div>${rows}</div>
         <p class="small">빈도는 저장할 때 원문에서 다시 세요.</p>`
       : '<div class="small">아직 없어요. 문체 분석을 하면 원문에서 골라 빈도를 세어요.</div>';
@@ -189,7 +189,7 @@ function passageFields(base, root) {
   const prof = getPath(bindRoot(root), base);
   const passages = prof.sample_passages.map((_, i) => `<div class="field-row">
       <div class="fr-grow">${input(`대표 문단 ${i + 1}`, `${base}.sample_passages.${i}`, o({ rows: 3, autogrow: true, cls: 'passage' }))}</div>
-      <button class="btn icon-btn danger" data-action="removePassage" data-arg="${root}|${i}" aria-label="대표 문단 ${i + 1} 삭제">✕</button></div>`).join('');
+      <button class="btn icon-btn danger" data-action="removePassage" data-arg="${root}|${i}" aria-label="대표 문단 ${i + 1} 지우기">✕</button></div>`).join('');
   return passages || '<div class="small">아직 없어요. 문체 분석을 하면 원문에서 골라 넣어요.</div>';
 }
 
@@ -268,11 +268,23 @@ document.addEventListener('input', (e) => {
 /** 스타일 프로필 칸이 모두 비었다 (library.blank 와 같은 규칙) */
 const styleBlank = (st) => !Object.values(st || {}).some((v) => (typeof v === 'string' ? v.trim() : Array.isArray(v) ? v.length : v));
 
+/** 도착한 문체 분석 결과(S.styleDraft). 무엇이 바뀌는지 짧게 보이고 [버리기] [바꾸기] 를 준다 (디자인 시스템 AI 제안 카드) */
+function styleDraftCard() {
+  const d = S.styleDraft;
+  if (!d || !d.profile) return '';
+  const p = d.profile;
+  const bits = [p.narration_pov && `시점 ${p.narration_pov}`, p.tense && `시제 ${p.tense}`, p.dialogue_ratio && `대화 비중 ${p.dialogue_ratio}`,
+    (p.markers || []).length && `문체 표지 ${p.markers.length}개`, (p.sample_passages || []).length && `대표 문단 ${p.sample_passages.length}개`, (p.devices || []).length && `장치 ${p.devices.length}개`].filter(Boolean);
+  return `<section class="card proposal" aria-labelledby="sty-draft-h"><h2 id="sty-draft-h">문체 분석 결과가 도착했어요</h2>
+    <p class="small">${esc(bits.join(' · ') || '뽑은 칸이 적어요')}. 바꾸면 지금 스타일 프로필 대신 이 결과가 들어가요. 저장하기 전에는 되돌릴 수 있어요.</p>
+    ${proposalActions(['styleDraftDrop'], ['styleDraftApply'], '이 결과로 바꾸기')}</section>`;
+}
+
 /** 예시 원문 칸과 '문체 분석'. 빈 작품은 이 버튼이 화면의 주 버튼이다 */
 function styleSampleBox(blank) {
   return `<textarea id="sample" class="sty-sample" rows="${blank ? 14 : 10}" data-local="styleSample" aria-describedby="sample-why" oninput="document.getElementById('sample-count').textContent=this.value.length.toLocaleString()" placeholder="닮고 싶은 소설 본문을 붙여 넣으세요. 대사와 서술이 섞인 장면이 좋아요.">${esc(S.styleSample)}</textarea>
       <div class="sty-row"><span class="small" id="sample-why">원문은 작품에 저장되지 않고 고른 대표 문단만 남아요. 내용과 인물은 가져오지 않아요. 이 칸에 원문이 남아 있을 때 라이브러리에 저장하면 원문도 함께 보관해요.</span>
-        <span class="sty-acts"><button class="btn${blank ? ' primary' : ''}" data-action="analyzeStyle">문체 분석</button></span></div>`;
+        <span class="sty-acts">${(() => { const b = jobBtn('style', null, '문체 분석'); return `<button class="btn${blank ? ' primary' : ''}" data-action="analyzeStyle"${b.attr}>${b.label}</button>`; })()}</span></div>`;
 }
 
 const sampleCount = () => `<span class="small"><span id="sample-count">${S.styleSample.length.toLocaleString()}</span>자 · 2,000자 이상 권장</span>`;
@@ -310,7 +322,7 @@ function viewStyle() {
     const rows = [['source', '원문 붙여 넣기', '', ''], ['pick', '라이브러리에서 고르기', String((S.libs || []).length), ''], ['manual', '직접 채우기', '', '']];
     return `${header('2단계', stepLabel('style'), '닮고 싶은 소설 문단을 붙여 넣으면 문체 규칙을 뽑아요. 규칙과 대표 문단이 매 화 본문 생성에 함께 들어가요.', go(false))}
     <div class="outline-wrap style-page"><div class="outline-doc">${styleToc(rows, '문체 시작하기')}<div class="sty-secs">
-      <section class="card pf-sec" id="pf-source" tabindex="-1"><div class="pf-head"><h2><label for="sample">예시 원문</label></h2>${sampleCount()}</div>${styleSampleBox(true)}</section>
+      ${styleDraftCard()}<section class="card pf-sec" id="pf-source" tabindex="-1"><div class="pf-head"><h2><label for="sample">예시 원문</label></h2>${sampleCount()}</div>${styleSampleBox(true)}</section>
       ${stylePickCard()}
       <section class="card tight pf-sec" id="pf-manual" tabindex="-1"><div class="sty-row"><div><h3>직접 채우기</h3><p class="small pf-sub">원문 없이 시점 · 시제부터 카드를 하나씩 채워요. 대화로 다듬기에서 말로 시작해도 돼요.</p></div>
         <span class="sty-acts"><button type="button" class="btn small" data-action="styleManual">빈 카드 열기</button></span></div></section>
@@ -323,7 +335,7 @@ function viewStyle() {
   const rows = styleTocItems(st, { hot, todo, example: ex ? (exampleStale(ex) ? '바뀜' : '있음') : '', link: styleLinkWord(S.styleLink), learn: S.editStats ? `${S.editStats.usable}건` : '' });
   return `${header('2단계', stepLabel('style'), '이 규칙과 대표 문단이 매 화 본문 생성에 함께 들어가요. 카드의 \'고치기\'로 그 카드만 고쳐요.', go(true))}
     <div class="outline-wrap style-page"><div class="outline-doc">${styleToc(rows)}<div class="sty-secs">
-      ${styleStatus()}${todo ? learnTodoCard() : ''}${styleExampleCard()}${profileCards('style', '', hot)}${anchorCard()}${styleSourceCard()}${learnCard()}
+      ${styleDraftCard()}${styleStatus()}${todo ? learnTodoCard() : ''}${styleExampleCard()}${profileCards('style', '', hot)}${anchorCard()}${styleSourceCard()}${learnCard()}
     </div></div></div>${chatPanel('style')}`;
 }
 
@@ -387,7 +399,7 @@ function viewLibrary() {
       </div>
       ${x.notes ? `<div class="small" style="white-space:pre-line">${esc(x.notes)}</div>` : ''}
       <div class="small">${x.used_by.length ? `쓰는 작품: ${x.used_by.map((n) => `<a href="#/p/${enc(n)}/style">${esc(n)}</a>`).join(', ')}` : '아직 쓰는 작품이 없어요'}</div>
-      <div class="row"><a class="btn small" href="#/styles/${esc(x.id)}">열기</a><button class="btn small" data-action="libDuplicate" data-arg="${esc(x.id)}">복제</button><button class="btn small danger" data-action="libDelete" data-arg="${esc(x.id)}">삭제</button></div>
+      <div class="row"><a class="btn small" href="#/styles/${esc(x.id)}">열기</a><button class="btn small" data-action="libDuplicate" data-arg="${esc(x.id)}">복제</button><button class="btn small danger" data-action="libDelete" data-arg="${esc(x.id)}">지우기</button></div>
     </article>`).join('');
   // 비었을 때는 빈 카드의 버튼 하나만 주 버튼으로 둔다
   return `${header('Canon', '문체 라이브러리', '붙여 넣은 원문에서 뽑은 문체를 작품과 따로 모아 둬요. 작품에 적용하면 그 시점의 문체가 작품에 복사되고, 라이브러리를 고쳐도 쓰고 있는 작품은 다시 적용하기 전까지 그대로예요.', `${libBackBtn()}${list.length ? '<a class="btn primary" href="#/styles/new">+ 새 문체</a>' : ''}`)}
@@ -422,7 +434,7 @@ function viewLibEntry() {
   const isNew = !e.id;
   const used = e.used_by || [];
   const others = (S.projects || []).filter((x) => !used.includes(x.name));
-  const right = `${libBackBtn()}<a class="btn" href="#/styles">목록으로</a>${isNew ? '' : `<button class="btn" data-action="libDuplicate" data-arg="${esc(e.id)}">복제</button><button class="btn danger" data-action="libDelete" data-arg="${esc(e.id)}">삭제</button><button class="btn" data-action="libRevert"${S.libDirty ? '' : ' disabled'}>저장 전으로</button>`}<button class="btn primary" data-action="libSave">저장</button>`;
+  const right = `${libBackBtn()}<a class="btn" href="#/styles">목록으로</a>${isNew ? '' : `<button class="btn" data-action="libDuplicate" data-arg="${esc(e.id)}">복제</button><button class="btn danger" data-action="libDelete" data-arg="${esc(e.id)}">지우기</button><button class="btn" data-action="libRevert"${S.libDirty ? '' : ' disabled'}>저장 전으로</button>`}<button class="btn primary" data-action="libSave">저장</button>`;
   const prof = e.profile;
   const rows = [['info', '이름 · 출처', '', ''], ['source', '원문 · 기준 지표', e.sample ? `${e.sample.length.toLocaleString()}자` : '', ''],
     ['-', '스타일 프로필', '', ''], ...STYLE_CARDS.map(([id, label]) => [id, label, styleCount(id, prof), '']),
@@ -503,23 +515,37 @@ Object.assign(actions, {
     if (S.styleSampleOpen) focusEl($('#sample'));
   },
   async analyzeStyle() {
+    if (jobFor('style', null)) return;  // 이미 분석하는 중이다 (버튼은 aria-disabled 로 진행을 보인다)
     if (S.styleSample.trim().length < 200) { focusEl($('#sample')); return toast('예시 원문을 200자 이상 넣어 주세요', true); }  // 서버(web.analyze_style)와 같은 기준
-    const has = P().style.narration_pov || P().style.sample_passages.length;
+    // 백그라운드 작업이라 화면을 막지 않는다. 결과는 문체 화면 맨 위 제안 카드로 오고, 작가가 '바꾸기'를 눌러야 들어간다
+    await startJob('style', null, { text: S.styleSample });
+  },
+  /** 문체 분석 결과를 작품 문체로 바꾼다. 지금 문체가 있거나 라이브러리와 이어져 있으면 묻는다 */
+  async styleDraftApply() {
+    const d = S.styleDraft;
+    if (!d) return;
+    const has = !styleBlank(P().style);
     const l = S.styleLink || {};
     const unlink = ['same', 'changed'].includes(l.state) ? `\n라이브러리 '${l.name}' 연결도 끊겨요. 라이브러리 항목은 그대로예요.` : '';
     if ((has || unlink) && !(await askConfirm(`분석 결과로 지금 스타일 프로필을 바꿀까요? 저장하기 전에는 '변경 모두 버리기'로 되돌릴 수 있어요.${unlink}`, { ok: '바꾸기' }))) return;
-    await run('문체를 분석하는 중… (최대 1분)', async () => {
-      await saveIfDirty();
-      const prof = await api('POST', `/projects/${enc(S.name)}/style`, { text: S.styleSample });
-      P().style = prof;
-      styleCloseCards();
-      P().style_baseline = await api('POST', '/metrics', { text: S.styleSample });  // stats 가 원문 전체와 비교하도록
-      P().style_id = '';  // 새로 분석한 문체는 라이브러리 항목과 연결을 끊는다
-      P().style_version = 0;
-      S.styleLink = { state: 'none' };  // 저장하면 서버도 같은 상태가 된다. 그 전에도 카드가 끊긴 연결을 그대로 보이지 않게
-      S.dirty = true;
-      toast('분석 결과를 불러왔어요. 확인하고 저장하세요.');
-    });
+    if (S.styleDraft !== d) { render(); return toast('묻는 사이 새 분석 결과가 도착했어요. 카드를 다시 확인하세요'); }
+    P().style = d.profile;
+    styleCloseCards();
+    P().style_baseline = d.baseline;  // stats 가 원문 전체와 비교하도록
+    P().style_id = '';  // 새로 분석한 문체는 라이브러리 항목과 연결을 끊는다
+    P().style_version = 0;
+    S.styleLink = { state: 'none' };
+    S.styleDraft = null;
+    S.dirty = true;
+    S.focusTarget = '#app main h1';  // 누른 버튼은 카드와 함께 사라진다. 포커스를 화면 머리로 옮긴다
+    render();
+    toast('분석 결과로 바꿨어요. 확인하고 저장하세요.');
+  },
+  async styleDraftDrop() {
+    if (!(await askConfirm('문체 분석 결과를 버릴까요? 다시 받으려면 분석을 다시 해야 해요.', { ok: '버리기', danger: true }))) return;
+    S.styleDraft = null;
+    S.focusTarget = '#app main h1';  // 누른 버튼은 카드와 함께 사라진다
+    render();
   },
   addPassage(root) {
     styleProf(root).sample_passages.push('');
@@ -612,7 +638,7 @@ Object.assign(actions, {
     if ((S.lib.sample || '').trim().length < 200) return toast('원문을 200자 이상 넣어 주세요', true);
     const has = S.lib.profile.narration_pov || S.lib.profile.sample_passages.length;
     if (has && !(await askConfirm('분석 결과로 지금 프로필을 바꿀까요? 저장 전까지는 되돌릴 수 있어요.', { ok: '바꾸기' }))) return;
-    await run('문체를 분석하는 중… (최대 1분)', async () => {
+    await run('문체를 분석하는 중…', async () => {
       S.lib.profile = await api('POST', '/styles/analyze', { text: S.lib.sample });
       S.libDirty = true;
       toast('분석 결과를 불러왔어요. 확인하고 저장하세요.');

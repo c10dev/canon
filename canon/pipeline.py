@@ -1134,11 +1134,13 @@ def carried_delta(p: Project, n: int) -> StateDelta | None:
     if src is None or old is None or src.text != p.episode(n).text:
         return None
     d = old.model_copy(deep=True, update={"episode": n})
-    for e in d.events:
+    for e in [*d.events, *d.dismissed.events]:  # 빼 둔 항목(dismissed)도 번호를 맞춘다
         e.episode = n
-    for f in d.foreshadow_planted:
+    for f in [*d.foreshadow_planted, *d.dismissed.foreshadow_planted]:
         f.planted_ep = n
     d.warnings = [f"단편 {x.sources[0]}화 때 승인한 변경안을 다시 써요. 앞 화가 바뀌었으니 확인하고 반영하세요."] + d.warnings
+    d.basis = text_basis(p.episode(n).text)
+    d.warn_to = [""] + d.warn_to if d.warn_to else []  # 경고와 같은 차례를 지킨다
     return d
 
 
@@ -3757,6 +3759,7 @@ def extract_state(llm: LLM, p: Project, n: int) -> StateDelta:
                      hint={"episode": n, "stats": statwin.enabled(p)})
     delta.episode = n
     clean_delta(p, delta)
+    delta.basis = text_basis(p.episode(n).text)
     return delta
 
 
@@ -3766,7 +3769,58 @@ def clean_delta(p: Project, d: StateDelta) -> None:
     features.clean(p, d)
 
 
-def apply_delta(p: Project, d: StateDelta) -> None:
+def _delta_checks(p: Project, d: StateDelta) -> list[tuple]:
+    """변경안 목록마다 (칸 이름, 목록, 항목 → 문제 문구 또는 ''). validate_delta 와 drop_invalid 가 같이 쓴다."""
+    known = {c.id for c in p.characters} | {c.id for c in d.new_characters}
+    shadows = {f.id for f in p.foreshadows} | {f.id for f in d.foreshadow_planted}
+
+    def pair(a: str, b: str, what: str) -> str:
+        bad = sorted({x for x in (a, b) if x not in known})
+        if bad:
+            return f"{what}에 설정에 없는 인물이 있어요: {', '.join(bad)}"
+        return f"{what}이 같은 인물끼리예요: {a}" if a == b else ""
+
+    return [
+        ("character_updates", d.character_updates,
+         lambda u: "" if u.character_id in known else f"설정에 없는 인물의 상태예요: {u.character_id}"),
+        ("events", d.events,
+         lambda e: "" if e.kind == "수동보정" else pair(e.actor, e.target, f"관계 사건({e.actor}→{e.target})")),
+        ("relationship_updates", d.relationship_updates, lambda r: pair(r.a, r.b, f"관계 바뀜({r.a}↔{r.b})")),
+        ("foreshadow_resolved", d.foreshadow_resolved,
+         lambda x: "" if x in shadows else f"없는 복선을 회수했어요: {x}"),
+    ]
+
+
+def validate_delta(p: Project, d: StateDelta) -> list[str]:
+    """반영하면 누구의 것도 아닌 데이터가 남는 항목 (설정에 없는 인물 id, 같은 인물끼리의 관계, 없는 복선 id).
+    새 인물(d.new_characters)과 이번에 심는 복선은 아는 것으로 센다. p 와 d 를 바꾸지 않는다. web 반영은 이것이 있으면 막는다."""
+    return [m for _, items, why in _delta_checks(p, d) for m in map(why, items) if m]
+
+
+def drop_invalid(p: Project, d: StateDelta) -> list[str]:
+    """validate_delta 에 걸린 항목을 d 에서 빼고 그 문구를 돌려준다. 사건 목격자 중 설정에 없는 인물도 뺀다(사건은 남긴다).
+    뺀 항목은 d.dismissed 의 같은 칸에 남겨 반영 기록에서 보이고, 반영 취소로 돌아오면 체크를 푼 채 다시 놓인다."""
+    out: list[str] = []
+    for name, items, why in _delta_checks(p, d):
+        keep = []
+        for x in items:
+            m = why(x)
+            if m:
+                out.append(m)
+                getattr(d.dismissed, name).append(x)
+            else:
+                keep.append(x)
+        setattr(d, name, keep)
+    known = {c.id for c in p.characters} | {c.id for c in d.new_characters}
+    for e in d.events:
+        e.witnesses = [w for w in e.witnesses if w in known]
+    return out
+
+
+def apply_delta(p: Project, d: StateDelta) -> list[str]:
+    """변경안을 반영한다. 반영하면 누구의 것도 아닌 데이터가 남는 항목은 빼고(drop_invalid) 뺀 항목의 문구를 돌려준다.
+    작가가 고르는 web 반영은 그 전에 validate_delta 로 막는다. 자동 집필 · 명령줄은 돌려받은 문구를 경고로 남기고, 플레이는 버린다."""
+    dropped = drop_invalid(p, d)
     ep = p.episode(d.episode)
     dynamics.ensure_initial(p)
     ep.summary = d.summary
@@ -3778,11 +3832,13 @@ def apply_delta(p: Project, d: StateDelta) -> None:
     for upd in d.character_updates:
         cur = p.state_of(upd.character_id)
         if cur is None:
-            cur = upd.model_copy(deep=True, update={"stats": []})
+            cur = upd.model_copy(deep=True, update={"stats": [], "cleared": []})
             p.states.append(cur)
         else:
             for field in ("emotional_state", "current_goal", "location", "attire", "notes"):
-                if getattr(upd, field):
+                if field in upd.cleared:  # 지우기는 빈 칸('그대로')과 달리 칸을 비운다
+                    setattr(cur, field, "")
+                elif getattr(upd, field):
                     setattr(cur, field, getattr(upd, field))
             cur.knows += [k for k in upd.knows if k not in cur.knows]
         statwin.merge(p, cur, upd.stats, d.episode)  # +3 같은 바뀐 양은 여기서 값으로 바꾸고 기록한다
@@ -3821,6 +3877,7 @@ def apply_delta(p: Project, d: StateDelta) -> None:
     dynamics.take_snapshot(p, d.episode)
     if p.serial:
         prune_snapshots(p)
+    return dropped
 
 
 SNAPSHOT_KEEP = 20  # 장편에서 남기는 최근 스냅샷 수. 시작점과 아크가 끝난 화는 늘 남긴다

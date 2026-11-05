@@ -84,6 +84,7 @@ def test_hold_drops_flagged():
     held = features.hold(p, d)
     assert d.relationship_updates == [] and d.rel_flagged == [] and held == 0  # 인물 화면에 남기지 않으니 세지 않는다
     assert any("자동 반영에서 뺐어요" in w for w in d.warnings)
+    assert len(d.warn_to) == len(d.warnings)  # 대상 인물 id 의 차례가 어긋나지 않는다
 
 
 def test_state_prompt_rules():

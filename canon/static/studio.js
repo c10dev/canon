@@ -297,7 +297,7 @@ async function stuCall(label, path, body) {
 
 Object.assign(actions, {
   async stuAnatomy() {
-    await stuCall('본보기 문장마다 박자를 짚는 중… (최대 1분)', '/anatomy');
+    await stuCall('본보기 문장마다 박자를 짚는 중…', '/anatomy');
   },
   async stuAnatomyApply() {
     const c = S.stu.card;
@@ -306,7 +306,7 @@ Object.assign(actions, {
     toast('구조를 카드에 적용했어요. AI 안이 이 문장 차례를 따라요');
   },
   async stuVariants() {
-    await stuCall('같은 구조로 쓸 다른 상황을 받는 중… (최대 1분)', '/variants', { k: Number(S.stuK) || 4 });
+    await stuCall('같은 구조로 쓸 다른 상황을 받는 중…', '/variants', { k: Number(S.stuK) || 4 });
   },
   async stuFromVariant(i) {
     await run('새 연습을 만드는 중', async () => {
@@ -318,7 +318,7 @@ Object.assign(actions, {
   },
   async stuReader(no) {
     S.stuReaderOpen = no;
-    await stuCall('처음 읽는 독자로 읽는 중… (최대 1분)', `/tries/${no}/reader`);
+    await stuCall('처음 읽는 독자로 읽는 중…', `/tries/${no}/reader`);
   },
   stuBeatAdd() {
     const c = S.stuForm.card;
@@ -382,7 +382,7 @@ Object.assign(actions, {
   },
   async stuDraft() {
     const n = Number(S.stuN) || 3;
-    await run(`AI 안 ${n}개를 쓰는 중… (최대 1분)`, async () => {
+    await run(`AI 안 ${n}개를 쓰는 중…`, async () => {
       if (S.stuDirty) stuSet(await api('PUT', `/studio/${enc(S.stu.id)}`, S.stuForm));
       const before = S.stu.tries.length;
       stuSet(await api('POST', `/studio/${enc(S.stu.id)}/draft`, { n }));

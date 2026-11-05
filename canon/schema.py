@@ -1581,13 +1581,25 @@ class CharacterState(BaseModel):
     knows: list[str] = Field(default_factory=list, description="이 인물이 알게 된 핵심 정보")
     notes: str = ""
     stats: list[StatValue] = Field(default_factory=list, description="상태창 수치. 작가가 상태창을 만든 인물만. 변경안에는 바뀐 항목만 넣는다")
+    # 변경안 전용: 빈 칸은 '그대로'라서 지울 칸을 따로 적는다 (pipeline.apply_delta). 저장한 상태와 프롬프트에는 비었을 때 넣지 않는다
+    cleared: list[str] = Field(default_factory=list, description="변경안에서 이번 화로 지울 칸 이름 (current_goal, location, notes, attire, emotional_state). 목표를 이뤘거나 버렸는데 새 목표가 없을 때처럼 이전 값이 더는 맞지 않고 새로 적을 값도 없을 때만")
     # 아크 요약 뒤 오래된 knows 를 접은 줄 (canon/knows.py). 작가가 고른 AI 제안만 들어온다. AI 응답 형식과 프롬프트 직렬화에서는 뺀다
     knows_folded: SkipJsonSchema[list[str]] = Field(default_factory=list, description="접은 아는 정보 (knows.apply_fold)")
+
+    @model_validator(mode="after")
+    def _blank_cleared(self):
+        """지울 칸에 값이 함께 와도 비운다. 차림 · 이동 거리 경고처럼 변경안 값을 읽는 곳이 지울 칸을 새 값으로 보지 않게 한다."""
+        for f in self.cleared:
+            if f in ("emotional_state", "current_goal", "location", "attire", "notes"):
+                setattr(self, f, "")
+        return self
 
     @model_serializer(mode="wrap")
     def _prompt_view(self, handler: SerializerFunctionWrapHandler, info: SerializationInfo):
         """프롬프트용 직렬화(llm.dump 의 context prompt)에서는 접은 줄 칸을 뺀다. 프롬프트는 knows.view 가 접은 줄을 knows 앞에 붙인다."""
         data = handler(self)
+        if isinstance(data, dict) and not data.get("cleared", True):
+            data.pop("cleared")  # 지울 칸이 없으면 저장 · 프롬프트에 넣지 않는다
         if isinstance(data, dict) and info.context and info.context.get("prompt"):
             data.pop("knows_folded", None)
         return data
@@ -1855,6 +1867,22 @@ class AddressRecord(BaseModel):
     quote: str = ""
 
 
+class DismissedItems(BaseModel):
+    """상태 승인 화면에서 작가가 체크를 풀어 반영하지 않은 항목. StateDelta 와 같은 이름의 칸만 둔다 (반영 기록에서 다시 볼 수 있게)."""
+    character_updates: list[CharacterState] = Field(default_factory=list)
+    events: list[StoryEvent] = Field(default_factory=list)
+    relationship_updates: list[Relationship] = Field(default_factory=list)
+    secrets_added: list[Secret] = Field(default_factory=list)
+    new_facts: list[str] = Field(default_factory=list)
+    foreshadow_planted: list[Foreshadow] = Field(default_factory=list)
+    foreshadow_resolved: list[str] = Field(default_factory=list)
+    foreshadow_clues: list[ForeshadowClue] = Field(default_factory=list)
+    new_characters: list[Character] = Field(default_factory=list)
+    new_places: list[NewPlace] = Field(default_factory=list)
+    deadlines_added: list[Deadline] = Field(default_factory=list)
+    deadlines_done: list[str] = Field(default_factory=list)
+
+
 class StateDelta(BaseModel):
     """한 화를 쓴 뒤 AI 가 제안하는 상태 변경안. 사용자가 승인하면 반영된다."""
     episode: int
@@ -1881,6 +1909,14 @@ class StateDelta(BaseModel):
     # 프로그램이 채운다 (pace.clean_delta). AI 응답 형식에서 뺀다. 상태 승인 화면이 이 차례의 relationship_updates 를 기본으로 체크하지 않는다
     rel_flagged: SkipJsonSchema[list[int]] = Field(
         default_factory=list, description="relationship_updates 가운데 유형 · 설명의 극성이 반영 뒤 관계 단계와 반대인 것의 차례")
+    # 프로그램이 채운다 (pipeline.extract_state). AI 응답 형식에서 뺀다. 반영할 때 지금 본문과 다르면 web 반영이 막는다
+    basis: SkipJsonSchema[str] = Field("", description="변경안을 만든 본문의 지문 (pipeline.text_basis). 비면 모름")
+    # 프로그램이 채운다 (features.clean). AI 응답 형식에서 뺀다. warnings 와 같은 차례이고, 짧으면 모자란 칸은 "" 로 본다
+    warn_to: SkipJsonSchema[list[str]] = Field(
+        default_factory=list, description="warnings 와 같은 차례의 인물 id: 그 경고가 한 인물에 대한 것이면 id, 아니면 \"\". 상태 승인 화면이 그 인물 줄에 붙인다")
+    # 프로그램이 채운다 (상태 승인 화면 pickedDelta · pace.hold). AI 응답 형식에서 뺀다. 반영 기록(history)에 남고 반영 취소하면 그 화 기록과 함께 빠진다
+    dismissed: SkipJsonSchema[DismissedItems] = Field(
+        default_factory=DismissedItems, description="작가가 체크를 풀었거나 자동 반영이 뺀 항목. 반영하지 않고 기록으로만 남긴다")
 
 
 class NameOption(BaseModel):

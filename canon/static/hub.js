@@ -14,6 +14,7 @@ const HUB_RESULT = {
   state: (r) => [`${r.ep}화 상태 변경안`, `/review/${r.ep}`],
   arc: () => ['기승전결 구조 제안', '/arc'],
   suggest: () => ['설정 제안', '/setup'],
+  style: () => ['문체 분석 결과', '/style'],
   series: () => ['부 구성 제안', '/arc'],
   nextarc: () => ['다음 아크 제안', '/arc'],
   recap_arc: (r) => [`아크 ${r.ep} 요약 제안`, '/arc'],
@@ -155,7 +156,7 @@ function hubAttention(a) {
 }
 
 function hubRunning(j) {
-  const sub = [j.total > 1 ? `${j.done}/${j.total}단계` : '', j.note, `경과 ${elapsed(j)}`, jobLeft(j, Date.now() / 1000)].filter(Boolean).join(' · ');
+  const sub = [j.total > 1 ? `${j.done}/${j.total}단계` : '', j.retry || j.note, `경과 ${elapsed(j)}`, j.retry ? '' : jobLeft(j, Date.now() / 1000)].filter(Boolean).join(' · ');  // 다시 부르는 중이면 그 사정을 앞에 두고 남은 시간 어림은 뺀다
   const bar = j.total > 1 ? `<div class="hub-bar" role="progressbar" aria-label="${esc(j.label)} 진행" aria-valuemin="0" aria-valuemax="${j.total}" aria-valuenow="${j.done}"><i style="width:${Math.round((j.done / j.total) * 100)}%"></i></div>` : '';
   const act = j.kind === 'auto' ? `<a class="btn small" href="${JOB_LINK.auto(j)}">자동 집필로</a>` : `<button type="button" class="btn small" data-job-stop="${j.id}">멈추기</button>`;
   return `<li class="hub-item"><div class="hub-t"><strong>${esc(j.label)}</strong>${hubWhere(j)}<div class="small">${esc(sub)}</div>${bar}</div>${act}</li>`;
@@ -188,7 +189,7 @@ function hubPopHtml(st) {
         ${st.finished.length ? `<ul class="hub-list">${st.finished.map(hubFinished).join('')}</ul>` : ''}
         ${st.older.length ? `<ul class="hub-list notes">${st.older.map((n) => hubNoteRow(n, now)).join('')}</ul>` : ''}</details>` : ''}
     </div>
-    <div class="hub-foot"><span class="small">Esc로 닫아요</span>${more || st.recent.length ? '<button type="button" class="btn small ghost" data-hub-clear>끝난 것 지우기</button>' : ''}</div>`;
+    <div class="hub-foot"><span class="small">${(typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches) ? '' : 'Esc로 닫아요'}</span>${more || st.recent.length ? '<button type="button" class="btn small ghost" data-hub-clear>끝난 것 지우기</button>' : ''}</div>`;
 }
 
 /** 버튼 · 창 · 말풍선을 지금 상태로 맞춘다. 작업을 물을 때마다(1.5초) 부르므로 바뀐 것만 다시 그린다. */

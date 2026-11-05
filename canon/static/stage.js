@@ -1064,7 +1064,7 @@ function stgCompare(prop) {
   (prop.moves || []).forEach((m) => notes.push(`${m.beat}박자 빠진 이동: ${m.text}`));
   prop.notes.filter((x) => !/성적 접촉/.test(x)).forEach((x) => notes.push(x));
   return `<section class="card stg-cmp" aria-label="AI 장면 비교"><div class="between"><h2>${from} 비교</h2>
-      <div class="row"><button type="button" class="btn small primary" data-action="stgApply">${cur ? '이 장면으로 바꾸기' : '적용'}</button><button type="button" class="btn small ghost" data-action="stgDiscard">버리기</button></div></div>
+      ${proposalActions(['stgDiscard'], ['stgApply'], cur ? '이 장면으로 바꾸기' : '적용')}</div>
     <p class="small">장면을 통째로 바꿔요. 바꾼 뒤에도 '적용 취소'로 한 번 되돌릴 수 있어요.${prop.room ? ` 새 방 '${esc(prop.room.name)}'도 만들어요.` : ''}</p>
     ${stgAddList(prop)}
     ${notes.length ? `<ul class="stg-viol small">${notes.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
@@ -1136,7 +1136,8 @@ function stgCss() {
 .stg-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px 20px; align-items: start; }
 @container stgcol (min-width: 760px) { .stg-grid { grid-template-columns: minmax(0, 1fr) 300px; } }
 .stg-pic { min-width: 0; }
-.stg-plan { width: 100%; height: auto; max-height: min(72vh, 680px); display: block; background: var(--canvas); border-radius: 8px; touch-action: none; user-select: none; }
+.stg-plan { width: 100%; height: auto; max-height: min(72vh, 680px); display: block; background: var(--canvas); border-radius: 8px; touch-action: pan-x pan-y; user-select: none; }
+.stg-plan [data-stg-who], .stg-plan .stg-anchor.edit { touch-action: none; }  /* 끄는 것(인물 · 방 고치기의 기준점)에서만 스크롤을 막는다. 빈 바닥을 쓸면 페이지가 구른다 */
 .stg-now { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .stg-now p { margin: 0; }
 .stg-now-t { font-weight: 700; line-height: 1.5; }

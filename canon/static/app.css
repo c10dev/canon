@@ -499,9 +499,9 @@ pre.brief.fold { max-height: 240px; overflow: hidden; -webkit-mask-image: linear
 #toast[hidden] { display: none; }
 #toast .t { padding: var(--space-12) var(--space-16); border-radius: var(--radius-10); background: var(--inverse-bg); color: var(--inverse-ink); font-size: 0.8125rem; line-height: 1.5; box-shadow: var(--shadow-toast); }
 #toast .t.err { background: var(--red); }
-#toast .t.err { display: flex; flex-wrap: wrap; gap: var(--space-8) var(--space-10); align-items: flex-start; white-space: pre-line; }
+#toast .t.err, #toast .t.act { display: flex; flex-wrap: wrap; gap: var(--space-8) var(--space-10); align-items: flex-start; white-space: pre-line; }
 #toast .t .t-act { min-height: 36px; border-color: currentColor; background: transparent; color: inherit; font-weight: 700; }
-#toast .t.err span { flex: 1; }
+#toast .t.err span, #toast .t.act span { flex: 1; }
 #toast .t .x { border: none; background: transparent; color: inherit; cursor: pointer; font-size: 0.875rem; min-width: 32px; min-height: 32px; margin: calc(-1 * var(--space-6)) calc(-1 * var(--space-8)) calc(-1 * var(--space-6)) 0; }
 #busy { position: fixed; inset: 0; background: var(--overlay); display: flex; align-items: center; justify-content: center; z-index: var(--z-busy); }
 #busy[hidden] { display: none; }
@@ -806,6 +806,8 @@ body.chat-open .savebar { left: calc(50% - 220px); }
 .rs-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
 .rs-table th { text-align: left; font-weight: 500; color: var(--muted); font-size: 0.75rem; padding: var(--space-6) var(--space-8); border-bottom: 1px solid var(--line); white-space: nowrap; }
 .rs-table td { padding: var(--space-6) var(--space-8); border-bottom: 1px solid var(--rule); white-space: nowrap; }
+.rs-table .rs-parts { display: block; max-width: 14em; white-space: normal; }  /* 큰 블록 비중: 마우스가 없으면 칸 아래에 적는다 */
+@media (hover: hover) { .rs-table .rs-parts { display: none; } }  /* 마우스는 칸에 올리면(title) 보인다 */
 .rs-table td.over { background: var(--red-soft); color: var(--red); font-weight: 700; }
 .rs-table td.tight { background: var(--amber-soft); color: var(--amber-ink); font-weight: 700; }
 .rs-prose { max-height: 480px; overflow: auto; padding: var(--space-12) var(--space-14); border-radius: var(--radius-8); background: var(--bg); font-family: var(--serif); font-size: 0.9375rem; line-height: 1.9; white-space: pre-wrap; word-break: break-word; }
@@ -1266,6 +1268,7 @@ details.vis summary .small { margin-left: var(--space-6); font-weight: 400; }
   .cast-bar .icon-btn { width: 44px; }
   .cast-bar-label { flex: 1; text-align: center; }
 }
+@container outline (max-width: 400px) { .cast-bar-after { display: none; } }  /* 320px 폭: '처음부터 재생' 옆에서 화 번호가 잘리지 않게 '반영 뒤'를 뺀다 */
 /* 인물 원: 목차 24px(.s) · 목록 줄 36px · 인물 머리 64px(.l). 주역 · 조연 · 단역 색, 흰 글자는 두 테마 모두 4.5:1 이상 */
 .cast-ava { flex: none; width: 36px; height: 36px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: var(--on-accent); font-size: 0.9375rem; font-weight: 800; forced-color-adjust: none; background: var(--ava-main); }
 .cast-ava.s { width: 24px; height: 24px; font-size: 0.6875rem; }
@@ -1769,6 +1772,8 @@ a.fl-cell:hover { background: var(--bg); color: var(--text); }
 .rv-lead { margin: 0; }
 .rv-lead kbd { font-family: inherit; border: 1px solid var(--line-strong); border-radius: var(--radius-4); padding: 0 var(--space-4); }
 @media (pointer: coarse) { #review-keys { display: none; } }
+select.rv-inp, input.rv-inp { font-size: 0.8125rem; }  /* 상태 승인 줄 안 고르기 · 확정 사실 칸 */
+@media (pointer: coarse) { select.rv-inp, input.rv-inp { font-size: 1rem; } }  /* 손가락 기기: 16px 아래면 iOS 가 칸을 누를 때 화면을 확대한다 */
 .rv-grid { display: flex; flex-direction: column; gap: var(--gap-stack); }
 .rv-panel { display: flex; flex-direction: column; gap: var(--gap-stack); min-width: 0; }
 @media (min-width: 901px) {
@@ -1899,6 +1904,7 @@ body.routing::before { content: ''; position: fixed; top: 0; left: 0; height: 3p
 .pop-radio input { width: 20px; height: 20px; margin: 0; flex: none; accent-color: var(--accent); }
 .pop-radio > span { display: flex; flex-direction: column; gap: var(--space-2); line-height: 1.45; }
 .pop-check { min-height: 40px; padding: 0 var(--space-2); display: flex; gap: var(--space-10); align-items: center; cursor: pointer; }
+.pop-check > span > .small { display: block; }  /* 고르기 줄의 이름 아래 설명 (Menu) */
 .pop-danger summary { color: var(--red); }
 .pop-panel .seg { flex-wrap: wrap; }
 .pop-panel .dev-list { max-height: none; }

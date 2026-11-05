@@ -7,13 +7,14 @@
   CANON_GEMINI_AUTH=vertex  키 대신 Google Cloud 서비스 계정으로 Vertex AI 의 Gemini 를 부른다
     (CANON_VERTEX_CREDENTIALS 또는 GOOGLE_APPLICATION_CREDENTIALS, GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION)
   CANON_LOCAL_URL / CANON_LOCAL_MODEL / CANON_LOCAL_KEY  로컬 서버 (Ollama, llama.cpp, vLLM, LM Studio)
-  CANON_LLM_PLAN / _WRITE / _CHECK / _STATE / _NAME / _REVISE / _CHAT  단계별 백엔드 (예: CANON_LLM_WRITE=local)
-  CANON_MODEL_PLAN / _WRITE / _CHECK / _STATE / _NAME / _REVISE  단계별 모델 (예: CANON_MODEL_STATE=gemini-3.8-flash)
+  CANON_LLM_<단계>  단계별 백엔드 (예: CANON_LLM_WRITE=local). 단계 이름은 settings.STAGES
+  CANON_MODEL_<단계>  단계별 모델 (예: CANON_MODEL_STATE=gemini-3.8-flash)
 """
 from __future__ import annotations
 
 import copy
 import json
+import math
 import os
 import re
 import time
@@ -32,6 +33,10 @@ T = TypeVar("T", bound=BaseModel)
 
 class MissingKey(RuntimeError):
     """API 키가 없다. 웹은 서버 오류가 아니라 설정 안내로 보인다 (code no_key)."""
+
+
+class BadKey(MissingKey):
+    """AI 서비스가 키를 받지 않았다(틀림 · 만료 · 권한 없음). 웹은 영어 원문 대신 설정 안내로 보인다 (code bad_key)."""
 
 
 class LLM(Protocol):
@@ -146,8 +151,9 @@ def _usage(u: Any) -> dict | None:
             "cached_tokens": getattr(u, "cached_content_token_count", None) or 0}
 
 
-# 429(요청 한도) 뒤 다시 부르기 전 기다리는 초. 합은 5분을 넘지 않는다. SDK 는 Client 에 retry_options 를
-# 주지 않으면 다시 부르지 않고, Canon 은 주지 않으므로 다시 부르기는 여기 한 곳뿐이다.
+# 429(요청 한도) 뒤 다시 부르기 전 기다리는 초. 합은 5분을 넘지 않는다. 서버가 retryDelay 를 주면 rate_pause 가
+# 그 값을 쓴다. SDK 는 Client 에 retry_options 를 주지 않으면 다시 부르지 않고, Canon 은 주지 않으므로
+# 다시 부르기는 여기 한 곳뿐이다.
 RATE_WAITS = (30, 60, 120)
 RATE_HINT = "AI 서비스의 요청 한도에 걸렸어요 (429). 몇 분 뒤 다시 시도해 주세요."
 
@@ -160,9 +166,67 @@ class RateLimited(RuntimeError):
         self.message = str(self)
 
 
+KEY_HINT = "AI 서비스가 API 키를 받지 않았어요. 키가 틀렸거나 만료됐거나 권한이 없어요. 설정의 AI 연결에서 키를 확인하세요."
+VERTEX_HINT = "Vertex AI가 요청 권한을 받지 않았어요. 서비스 계정 권한과 Vertex AI API 사용 설정을 확인하세요. 연결 방식은 설정의 AI 연결에서 바꿀 수 있어요."
+
+
+def is_bad_key(e: BaseException) -> bool:
+    """google-genai 의 키 · 권한 오류인가: 401, 403(PERMISSION_DENIED), 키가 틀린 400(API_KEY_INVALID)."""
+    code, status = getattr(e, "code", None), getattr(e, "status", None)
+    if code in (401, 403) or status in ("PERMISSION_DENIED", "UNAUTHENTICATED"):
+        return True
+    text = f"{getattr(e, 'message', '') or ''} {e}"
+    return code == 400 and ("API_KEY_INVALID" in text or "API key not valid" in text or "API key expired" in text)
+
+
 def is_rate_limit(e: BaseException) -> bool:
     """google-genai 의 429 RESOURCE_EXHAUSTED 오류인가."""
     return getattr(e, "code", None) == 429 or getattr(e, "status", None) == "RESOURCE_EXHAUSTED"
+
+
+def retry_delay(e: BaseException) -> float | None:
+    """429 오류의 details 에 서버가 적은 RetryInfo.retryDelay(예: '37s')의 초. 없거나 읽지 못하면 None."""
+    body = getattr(e, "details", None)
+    if isinstance(body, dict) and isinstance(body.get("error"), dict):
+        body = body["error"]
+    items = body.get("details") if isinstance(body, dict) else None
+    for d in items if isinstance(items, list) else []:
+        if not isinstance(d, dict) or not str(d.get("@type", "")).endswith("RetryInfo"):
+            continue
+        raw = d.get("retryDelay")
+        try:
+            v = float(raw["seconds"]) + float(raw.get("nanos", 0)) / 1e9 if isinstance(raw, dict) \
+                else float(str(raw).removesuffix("s"))
+        except (TypeError, ValueError, KeyError):
+            return None
+        return v if v > 0 else None
+    return None
+
+
+def rate_pause(e: BaseException, default: float) -> float:
+    """429 뒤 기다릴 초. 서버가 retryDelay 를 주면 그 값(올림, RATE_WAITS 의 가장 긴 값까지), 아니면 default."""
+    v = retry_delay(e)
+    return min(math.ceil(v), max(RATE_WAITS)) if v else default
+
+
+# 500 · 502 · 503(서버 과부하 · 내부 오류) 뒤 다시 부르기 전 기다리는 초. 'The model is overloaded' 같은 일시 오류다.
+# 504 는 시간 초과(is_timeout)로 따로 다룬다.
+SERVER_WAITS = (5, 15, 45)
+SERVER_HINT = "AI 서비스가 잠시 응답하지 못해요"
+
+
+class ServerBusy(RuntimeError):
+    """기다려 다시 불러도 500 · 502 · 503 이 풀리지 않았다. 화면에는 SERVER_HINT 가 보인다."""
+
+    def __init__(self, code: Any, waited: int):
+        super().__init__(f"{SERVER_HINT} ({code}). 잠시 뒤 다시 시도해 주세요. "
+                         f"{waited}초 기다리며 {len(SERVER_WAITS)}번 다시 불렀어요.")
+        self.message = str(self)
+
+
+def is_transient(e: BaseException) -> bool:
+    """google-genai 의 일시 서버 오류(500 INTERNAL · 502 · 503 UNAVAILABLE)인가."""
+    return getattr(e, "code", None) in (500, 502, 503) or getattr(e, "status", None) in ("UNAVAILABLE", "INTERNAL")
 
 
 # 응답을 기다리는 가장 긴 초. 넘으면 SDK 가 시간 초과 오류를 낸다. 2026-10-30 실제 기획 호출(입력 약 17k 토큰)이
@@ -223,7 +287,7 @@ _out_cap: ContextVar[int | None] = ContextVar("out_cap", default=None)
 
 @contextmanager
 def out_cap(tokens: int) -> Iterator[None]:
-    """이 안의 Gemini · 로컬 호출은 출력을 tokens 토큰까지만 받는다 (생각 토큰 포함). 모델이 같은 글을
+    """이 안의 LLM 호출(Gemini · 로컬 · Claude 두 백엔드)은 출력을 tokens 토큰까지만 받는다 (생각 토큰 포함). 모델이 같은 글을
     되풀이하면 기본 한도(65,536)까지 13분 넘게 쓴다. 2026-11-03 큐 시트 호출이 그랬고, 응답이 계속 흘러
     들어와 응답 시간 초과(gemini_timeout)도 걸리지 않았다. 한도에 걸린 JSON 은 형식 고치기 재시도로 넘어간다."""
     token = _out_cap.set(tokens)
@@ -239,14 +303,19 @@ _wait_cap: ContextVar[float | None] = ContextVar("wait_cap", default=None)
 
 @contextmanager
 def wait_cap(seconds: float) -> Iterator[None]:
-    """이 안의 Gemini · 로컬 호출은 응답을 seconds 초까지만 기다린다. 넘기면 한 번 다시 부르고(TIMEOUT_RETRIES),
-    또 넘기면 TimedOut 이다. 2026-11-03 플롯 대화 한 단계가 응답 없이 8분 넘게 멈춰 있었다.
+    """이 안의 LLM 호출(Gemini · 로컬 · Claude 두 백엔드)은 응답을 seconds 초까지만 기다린다. Gemini 는 넘기면
+    한 번 다시 부르고(TIMEOUT_RETRIES), 또 넘기면 TimedOut 이다. Claude 는 다시 부르지 않고 오류를 낸다. 2026-11-03 플롯 대화 한 단계가 응답 없이 8분 넘게 멈춰 있었다.
     기본 한도(600초)면 오류가 뜨기까지 20분이다."""
     token = _wait_cap.set(seconds)
     try:
         yield
     finally:
         _wait_cap.reset(token)
+
+
+def caps() -> tuple[int | None, float | None]:
+    """지금 걸린 (출력 토큰 한도, 응답 기다림 한도). 없으면 None. LLM 구현이 요청을 보내기 전에 읽는다 (claude.py)."""
+    return _out_cap.get(), _wait_cap.get()
 
 
 def _pause(seconds: float) -> None:
@@ -330,29 +399,48 @@ class GeminiLLM:
         return self.client.models.count_tokens(model=self.model, contents=text).total_tokens
 
     def _call(self, system: str, prompt: str, attempt: int = 1, parse: Any = None, **config: Any) -> Any:
-        """부르고 사용량을 기록한다. 429(요청 한도)면 RATE_WAITS 만큼 기다려 다시 부르고, 끝내 풀리지 않으면
+        """부르고 사용량을 기록한다. 429(요청 한도)면 RATE_WAITS(서버가 retryDelay 를 주면 그 값) 만큼 기다려 다시 부르고, 끝내 풀리지 않으면
         RateLimited 를 낸다. 응답 시간을 넘기면(gemini_timeout) 바로 TIMEOUT_RETRIES 번 다시 부르고, 또 넘기면
-        TimedOut 을 낸다. 실패한 시도는 하나씩 실패로 기록한다."""
-        waited, timeouts, rate = 0, 0, iter(RATE_WAITS)
-        while True:
-            try:
-                return self._once(system, prompt, attempt, parse, **config)
-            except Exception as e:
-                if is_timeout(e):
-                    timeouts += 1
-                    if timeouts > TIMEOUT_RETRIES:
-                        raise TimedOut(gemini_timeout()) from e
-                    pause = None
-                elif is_rate_limit(e):
-                    pause = next(rate, None)
-                    if pause is None:
-                        raise RateLimited(waited) from e
-                else:
-                    raise
-            cancel.check()
-            if pause is not None:
-                _pause(pause)
-                waited += pause
+        TimedOut 을 낸다. 500 · 502 · 503(is_transient)이면 SERVER_WAITS 만큼 기다려 다시 부르고, 끝내 풀리지 않으면
+        ServerBusy 를 낸다. 셋은 따로 센다. 실패한 시도는 하나씩 실패로 기록한다."""
+        waited, timeouts, rate, tries = 0, 0, iter(RATE_WAITS), 0
+        busy, busy_waited, busy_tries = iter(SERVER_WAITS), 0, 0
+        try:
+            while True:
+                try:
+                    return self._once(system, prompt, attempt, parse, **config)
+                except Exception as e:
+                    if is_timeout(e):
+                        timeouts += 1
+                        if timeouts > TIMEOUT_RETRIES:
+                            raise TimedOut(gemini_timeout()) from e
+                        pause = None
+                        cancel.say("AI 응답이 늦어 다시 불러요")
+                    elif is_bad_key(e):
+                        raise BadKey(VERTEX_HINT if getattr(self, "vertex", False) else KEY_HINT) from e  # 다시 불러도 같다
+                    elif is_rate_limit(e):
+                        pause = next(rate, None)
+                        if pause is None:
+                            raise RateLimited(waited) from e
+                        pause = rate_pause(e, pause)
+                        waited += pause
+                        tries += 1
+                        cancel.say(f"AI 요청 한도에 걸려 {pause}초 기다려요 ({tries}/{len(RATE_WAITS)})")
+                    elif is_transient(e):
+                        pause = next(busy, None)
+                        if pause is None:
+                            raise ServerBusy(getattr(e, "code", None) or getattr(e, "status", ""), busy_waited) from e
+                        busy_waited += pause
+                        busy_tries += 1
+                        cancel.say(f"AI 서버가 바빠 {pause}초 기다려요 ({busy_tries}/{len(SERVER_WAITS)})")
+                    else:
+                        raise
+                cancel.check()
+                if pause is not None:
+                    _pause(pause)
+        finally:
+            if tries or timeouts or busy_tries:
+                cancel.say("")  # 다시 부른 호출이 끝났다 (성공이든 실패든)
 
     def _once(self, system: str, prompt: str, attempt: int = 1, parse: Any = None, **config: Any) -> Any:
         """한 번 부르고 사용량을 기록한다. parse 가 있으면 응답 글을 parse 한 값을 돌려주고, parse 가 실패해도

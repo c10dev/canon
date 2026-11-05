@@ -8,6 +8,8 @@ import stat
 import sys
 import tempfile
 import textwrap
+import threading
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -16,14 +18,14 @@ from unittest import mock
 os.environ["CANON_LLM"] = "mock"
 os.environ["CANON_HOME"] = tempfile.mkdtemp()
 
-from canon import claude, settings, usage  # noqa: E402
-from canon.llm import SchemaMismatch, get_llm, with_note  # noqa: E402
+from canon import cancel, claude, settings, usage  # noqa: E402
+from canon.llm import SchemaMismatch, get_llm, out_cap, wait_cap, with_note  # noqa: E402
 from canon.schema import NameOptions  # noqa: E402
 
 FAKE = textwrap.dedent('''\
     #!{python}
     """가짜 claude. FAKE_CLAUDE_DIR 의 replies.json 을 차례로 내고, 부른 모양을 calls.jsonl 에 남긴다."""
-    import json, os, sys
+    import json, os, sys, time
     d = os.environ["FAKE_CLAUDE_DIR"]
     args = sys.argv[1:]
     if args == ["--help"]:
@@ -33,18 +35,25 @@ FAKE = textwrap.dedent('''\
     if args == ["--version"]:
         print("9.9.9 (Claude Code)")
         sys.exit(0)
+    if args[:2] in (["auth", "login"], ["auth", "logout"]):
+        with open(os.path.join(d, "auth_calls.jsonl"), "a") as f:
+            f.write(json.dumps({{"args": args, "dir": os.environ.get("CLAUDE_CONFIG_DIR"),
+                                 "stdin_tty": sys.stdin.isatty()}}) + "\\n")
+        sys.exit(0)
     if args[:2] == ["auth", "status"]:
         p = os.path.join(d, "auth.json")
         print(open(p).read() if os.path.exists(p) else json.dumps({{"loggedIn": True, "authMethod": "claude.ai"}}))
         sys.exit(0)
     stdin = sys.stdin.read()
-    env = {{k: os.environ.get(k) for k in ("ANTHROPIC_API_KEY", "CLAUDE_CODE_DISABLE_CLAUDE_MDS", "CLAUDE_CODE_OAUTH_TOKEN")}}
+    env = {{k: os.environ.get(k) for k in ("ANTHROPIC_API_KEY", "CLAUDE_CODE_DISABLE_CLAUDE_MDS", "CLAUDE_CODE_OAUTH_TOKEN",
+                                       "CLAUDE_CONFIG_DIR")}}
     with open(os.path.join(d, "calls.jsonl"), "a") as f:
         f.write(json.dumps({{"args": args, "stdin": stdin, "env": env, "cwd": os.getcwd()}}, ensure_ascii=False) + "\\n")
     p = os.path.join(d, "replies.json")
     replies = json.load(open(p)) if os.path.exists(p) else []
     reply = replies.pop(0) if replies else {{"result": "바다가 울었다."}}
     json.dump(replies, open(p, "w"))
+    time.sleep(reply.pop("sleep", 0))
     out = {{"type": "result", "subtype": "success", "is_error": False, "result": "",
            "usage": {{"input_tokens": 10, "cache_creation_input_tokens": 1500, "cache_read_input_tokens": 20,
                      "output_tokens": 30}},
@@ -128,6 +137,31 @@ class ClaudeCodeTest(unittest.TestCase):
         with self.assertRaises(SchemaMismatch):
             claude.ClaudeCodeLLM().json("s", "p", NameOptions)
 
+    def test_wait_cap_ends_slow_call(self):
+        self.replies({"sleep": 10})
+        t = time.monotonic()
+        with wait_cap(0.5), self.assertRaisesRegex(claude.ClaudeCodeError, "0.5초"):
+            claude.ClaudeCodeLLM().text("s", "p")  # 플롯 대화 한 단계의 한도가 Claude Code 에도 걸린다
+        self.assertLess(time.monotonic() - t, 5)
+        self.assertFalse(usage.read()[-1]["ok"])
+
+    def test_stop_kills_running_call(self):
+        self.replies({"sleep": 10})
+        ev = threading.Event()
+        tok = cancel.current.set(ev)
+        try:
+            threading.Timer(0.5, ev.set).start()
+            t = time.monotonic()
+            with self.assertRaises(cancel.Cancelled):
+                claude.ClaudeCodeLLM().text("s", "p")
+            self.assertLess(time.monotonic() - t, 5)  # 하위 프로세스를 끝내고 바로 돌아온다
+            n = len(self.calls())
+            with self.assertRaises(cancel.Cancelled):
+                claude.ClaudeCodeLLM().text("s", "p")  # 멈춘 작업은 다음 호출을 보내지 않는다
+            self.assertEqual(len(self.calls()), n)
+        finally:
+            cancel.current.reset(tok)
+
     def test_login_and_limit_errors(self):
         self.replies({"is_error": True, "subtype": "success", "result": "Not logged in · Please run /login"},
                      {"is_error": True, "result": "Claude AI usage limit reached|1792830000"})
@@ -189,6 +223,67 @@ class ClaudeCodeTest(unittest.TestCase):
             self.assertFalse(st["installed"])
             with self.assertRaisesRegex(claude.ClaudeCodeError, "설치"):
                 claude.ClaudeCodeLLM().text("s", "p")
+
+    def auth_calls(self):
+        path = self.dir / "auth_calls.jsonl"
+        return [json.loads(x) for x in path.read_text(encoding="utf-8").splitlines()] if path.exists() else []
+
+    def test_separate_config_dir(self):
+        os.environ.pop("CLAUDE_CONFIG_DIR", None)
+        self.assertEqual(settings.claude_config_dir(), ("", "default"))
+        self.assertEqual(claude.login_command(), "claude auth login")
+        st = claude.status()
+        self.assertFalse(st["separate"])
+        claude.ClaudeCodeLLM().text("s", "p")
+        self.assertIsNone(self.calls()[-1]["env"]["CLAUDE_CONFIG_DIR"])  # 끄면 평소 Claude Code 로그인
+        self.assertFalse(claude.logout()["ok"])  # 평소 로그인은 Canon 에서 끝내지 않는다
+        self.assertEqual(self.auth_calls(), [])
+
+        settings.update(claude_separate=True)
+        want = str(self.dir / "claude-code")
+        self.assertEqual(settings.claude_config_dir(), (want, "file"))
+        self.assertEqual(settings.public()["claude_config_dir"], want)
+        st = claude.status()
+        self.assertTrue(st["separate"])
+        self.assertIn(f"CLAUDE_CONFIG_DIR={want} claude auth login", st["login_command"])
+        claude.ClaudeCodeLLM().text("s", "p")
+        self.assertEqual(self.calls()[-1]["env"]["CLAUDE_CONFIG_DIR"], want)
+        self.assertTrue(Path(want).is_dir())
+
+        r = claude.start_login()
+        self.assertTrue(r["started"])
+        claude._login.wait(10)
+        self.assertFalse(claude.login_running())
+        self.assertEqual(self.auth_calls()[-1], {"args": ["auth", "login", "--claudeai"], "dir": want, "stdin_tty": False})
+        self.assertTrue(claude.logout()["ok"])
+        self.assertEqual(self.auth_calls()[-1]["args"], ["auth", "logout"])
+        self.assertEqual(self.auth_calls()[-1]["dir"], want)
+
+        with mock.patch.dict(os.environ, {"CANON_CLAUDE_CONFIG_DIR": str(self.dir / "env-dir")}):
+            self.assertEqual(settings.claude_config_dir(), (str(self.dir / "env-dir"), "env"))
+        settings.update(claude_separate=False)
+        self.assertNotIn("claude_separate", json.loads((self.dir / "config.json").read_text()))
+        self.assertEqual(settings.claude_config_dir()[0], "")
+
+    def test_login_route_only_from_same_machine(self):
+        from fastapi.testclient import TestClient
+        from canon import web
+
+        c = TestClient(web.app)  # 테스트 클라이언트의 주소는 testclient: 다른 컴퓨터로 본다
+        r = c.post("/api/claude/login")
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("claude setup-token", r.json()["detail"])
+        self.assertEqual(self.auth_calls(), [])
+        r = c.put("/api/config", json={"claude_separate": True})
+        self.assertEqual(r.json()["claude_config_dir"], str(self.dir / "claude-code"))
+        with mock.patch.object(web, "_same_machine", return_value=True):
+            r = c.post("/api/claude/login")
+        self.assertTrue(r.json()["ok"])
+        claude._login.wait(10)
+        self.assertEqual(self.auth_calls()[-1]["dir"], str(self.dir / "claude-code"))
+        self.assertTrue(c.post("/api/claude/logout").json()["ok"])
+        self.assertTrue(c.get("/api/claude/status").json()["separate"])
+        c.put("/api/config", json={"claude_separate": False})
 
     def test_effort_flag_and_usage(self):
         (self.dir / "help.txt").write_text("--safe-mode --tools <t> --strict-mcp-config --no-session-persistence "
@@ -267,6 +362,8 @@ class StrictSchemaTest(unittest.TestCase):
 
 
 class FakeStream:
+    on_event = None  # 조각마다 부를 함수 (멈추기 시험)
+
     def __init__(self, msg, log, req):
         self.msg = msg
         log.append(req)
@@ -276,6 +373,12 @@ class FakeStream:
 
     def __exit__(self, *a):
         return False
+
+    def __iter__(self):
+        for _ in range(3):
+            if self.on_event:
+                self.on_event()
+            yield SimpleNamespace(type="content_block_delta")
 
     def get_final_message(self):
         return self.msg
@@ -334,6 +437,33 @@ class ClaudeAPITest(unittest.TestCase):
         plain = self.make(_msg("글"))
         plain.text("s", "p")
         self.assertNotIn("output_config", self.reqs[0])  # 비우면 모델 기본값 (Opus 5.5 는 medium)
+
+    def test_out_cap_and_wait_cap_reach_request(self):
+        llm = self.make(_msg("글"), _msg("글"), _msg("", "max_tokens"))
+        llm.text("s", "p")
+        self.assertEqual(self.reqs[0]["max_tokens"], claude.MAX_TOKENS)
+        self.assertNotIn("timeout", self.reqs[0])
+        with wait_cap(300), out_cap(16384):
+            llm.text("s", "p")
+            with self.assertRaisesRegex(RuntimeError, "16384 토큰"):
+                llm.text("s", "p")
+        self.assertEqual((self.reqs[1]["max_tokens"], self.reqs[1]["timeout"]), (16384, 300))
+
+    def test_stop_before_and_during_stream(self):
+        ev = threading.Event()
+        tok = cancel.current.set(ev)
+        try:
+            llm = self.make(_msg("글"))
+            FakeStream.on_event = ev.set
+            with self.assertRaises(cancel.Cancelled):
+                llm.text("s", "p")  # 스트림 조각 사이에 멈추면 끝까지 받지 않는다
+            FakeStream.on_event = None
+            with self.assertRaises(cancel.Cancelled):
+                llm.text("s", "p")
+            self.assertEqual(len(self.reqs), 1)  # 멈춘 뒤에는 요청을 보내지 않는다
+        finally:
+            FakeStream.on_event = None
+            cancel.current.reset(tok)
 
     def test_refusal_and_haiku_without_fallback(self):
         llm = self.make(_msg("", "refusal"), model="claude-haiku-5-5")

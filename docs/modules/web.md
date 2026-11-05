@@ -20,11 +20,25 @@
 ### `canon/static/app.js`
 
 - 웹 화면의 뼈대
+- 반영 취소(`revertFrom`) 확인은 저장하지 않은 변경이 있으면 먼저 저장한다고 말하고 버튼을 '저장하고 반영 취소'로 쓴다
+- 반영 취소(`revertFrom`)는 뒤 화들의 반영 기록이 검토를 기다리는 변경안으로 남으니(`web._revert_kept`) 취소 뒤 `loadPending` 으로 받는다
+- 서버 오류 문구 `fmtErr`: 검증 오류(detail 이 목록)는 영어 원문 대신 `VALIDATION_REASON`(web.py `_VALIDATION_REASON` 과 같음, `tests/test_fmterr_js.py`)과 칸 이름 `FIELD_NAME` 으로 쓴다
+- 저장하지 않고 이동하면 묻는 창은 작품 변경만 있을 때 '저장하고 이동'(askConfirm 의 `alt`)을 주 버튼으로 준다
+- `showError` 는 키 없음(`no_key`)과 키 틀림(`bad_key`) 모두 설정을 열지 묻는다
+- 보통 알림 `toast` 는 글 길이만큼(`toastLife`, 최대 10초) 남고 마우스 · 포커스가 있으면 멈춘다. 동작 버튼(`.t.act`)을 붙일 수 있고, AI 작업이 끝나면 결과 화면이 아닐 때 '가서 보기'를 붙인다
+- `proposalActions(drop, apply, label, disabled)` 는 AI 제안 버튼 줄 하나뿐이다. 인물 설정 · 신체 · 호칭 · 설정 기록 · 장면 연출 비교도 이것을 쓴다
 - 상태 `S`
 - 서버 호출 `api`
 - 작품 저장 `save` 는 받은 판(`projectBase` 의 `keys` · `eps`)과 달라진 칸 · 화만 `PATCH` 로 보낸다(`patchBody`)
 - 작품 전체 GET 은 받은 판을 `projectCache` 에 두고 304 면 그 복사본을 쓴다
 - `isProjectJson`(`meta` 와 `episodes` 배열)인 답만 작품으로 받고 보관한다. 보관한 판으로 물었는데 아니면 보관한 것을 버리고 조건 없이 다시 받는다(`tests/test_project_cache_js.py`)
+- 작품 GET 이 돌려준 작품 객체는 화를 뺀 나머지의 판(`X-Project-Rest`)을 `restOf` 에 둔다
+- 한 화 작업(본문 쓰기 · 스토리보드 · 큐 시트 · 한 화 플롯 · 검수 · 고침안)이 끝나면 `mergeEpisodes` 가 그 화만 받는다(`touchedEpisodes`, `GET /episodes`)
+- 화만 받기는 나머지 판 · `edit_rev` · `saved_by` · 화 번호 목록이 서버와 같을 때만 쓴다. 하나라도 다르거나 요청이 실패하면 작품 전체를 받는다(`tests/test_merge_episodes_js.py`)
+- 저장 응답(`X-Project-ETag`)으로 보관할 때도 `X-Project-Rest` 를 함께 보관한다. 반영 → 304 → 한 화 작업 끝에서도 화만 받는다
+- 화만 받으면 `patchCache` 가 `projectCache` 의 그 화를 고치고 판을 화 GET 의 `etag` 로 올린다. 다음 화면 이동의 작품 GET 이 304 로 끝난다
+- `patchCache` 는 보관한 것의 나머지 판 · `edit_rev` · `saved_by` · 화 번호 목록이 화 GET 답과 같을 때만 고친다. 아니면 옛 판을 둬서 다음 작품 GET 이 전체를 받는다
+- 화만 받기는 요청하지 않은 화를 맞춰 보지 않는다. 저장 기록을 올리지 않는 쓰기(명령줄)가 다른 화를 바꾸면 그 화는 다음 파일 변경까지 옛것이다
 - 화 상태 칩 · 범례 · 툴팁 글자 `STATUS`(초안 · 확정 · 작성됨 · 반영 완료). 서버 `autorun.EP_STATUS` 와 같은 글자
 - 본문을 쓴 모델 글자 `writerLabel`(`Episode.written_by` · `TextVersion.model` → '모델 · 백엔드', 백엔드 이름 `WRITER_BACKEND`, `tests/test_write_js.py`)
 - 단계 이름 `stepLabel`(사이드바와 같은 이름, 다른 화면 문구도 이것을 쓴다)
@@ -47,6 +61,8 @@
 - 서랍을 연 동안 뒤는 `inert`(`syncRail`)
 - body 바로 아래 층(칸 밖 저장 띠 `#savebar`, 알림 창 `#hub-pop`)도 서랍을 연 동안 `inert`다. 알림 말풍선 `#toast`는 낭독 영역이라 뺀다
 - 백그라운드 작업 · 검토 대기 결과
+- 검토 대기 상태 변경안에 초안이 있으면 `loadPending` 이 받은 그대로를 놓은 뒤 초안의 변경안 · 체크로 바꾼다(`restoreDeltaDraft`)
+- 초안을 되살려도 본문을 고쳤다는 알림은 그대로 뜬다
 - 멈췄지만 AI 응답을 기다리는 작업(`S.jobsHeld`)이 있는 화는 `jobBtn` 이 `EP_AI_KINDS` 버튼을 '응답 기다리는 중'으로 잠근다(`epWaiting` · `epWaitNote`, 서버 `jobs.waiting_on` 과 같은 셈)
 - 멈춘 스토리보드 작업의 응답이 오면 `JOB_LATE.board` 가 남겼는지 알리고, 남겼으면 그 화를 다시 받는다
 - 짧은 기다림 가림막 `run`(`#busy`): 상자 이름은 작업 이름(`#busy-label`)이고, 1초마다 바뀌는 경과 초(`#busy-sec`)는 낭독하지 않는다
@@ -80,6 +96,7 @@
 ### `canon/static/chat.js`
 
 - 화면에 붙는 AI 대화 패널(플롯 대화는 `agent.js` 가 그린다)(901~1599px 은 사이드바를 레일로 접고 400px, 900px 이하는 아래 시트, 규칙은 `app.css` 의 `body.chat-open`. 기승전결 · 플롯 화면 `plot`, 집필 화면 `text:<화>`)
+- 답을 기다리는 줄은 경과 초를 1초마다 고치고(`chatWaitTick`), 5초가 지나면 '기다리지 않기'(`chatStop`, AbortController)를 보인다. 기다리지 않기는 오류가 아닌 보통 알림이다. 초는 알림 칸(role=status) 밖에 둔다
 - 변경안을 칸별로 지금 값과 비교해 보여 주고 고른 것만 반영 요청
 - 주제마다 요청 내용과 변경안 그리기를 `CHAT_TOPICS` 에서 바꿔 끼운다
 - 플롯 대화는 대상(`plotScope`: 고른 아크 · 다음 아크 초안, 연 구간 · 화)을 함께 보낸다
@@ -103,7 +120,7 @@
 - `fbNeed` 는 서버 `pipeline.fix_targets` 와 같은 셈
 - 장면 연출 규칙 지적은 '규칙' 표시(`ruleChip`)와 '장면 연출에서 보기'(`stageLink`, `stgGo`)
 - 다시 검수 버튼은 '판정 다시 보기'(LLM 없음)
-- 머리의 '연출 함께 뽑기'(`stageToggle`, `Settings.stage_extract`)
+- 머리의 '검수 옵션 ▾' 메뉴(`checkOptsMenu`): 넓혀 찾기(장편, `Settings.check_widen`) · 동선 따로 보기(`Settings.check_motion`) · 연출 함께 뽑기(`Settings.stage_extract`)를 체크 줄과 설명으로 모은다. 머리 줄에는 검수 · 상태 승인 버튼만 둔다
 - 표시 `findingFlag` · 밑줄 `findingMarks` · `findingOrder` · `roundChanges` · `nearQuote` · `fixMissing` 은 순수 함수(`tests/test_check_js.py`)
 
 ### `canon/static/convert.js`
@@ -133,6 +150,9 @@
   - ⋯ 메뉴 `plManage`(폴더 이름)
   - 작품 없음은 `plStepsCard`
   - 서버 카드의 확인할 것 `alerts` · 부 · 아크 `where` · 화 칸 띠 `strip`(`web.list_projects`)
+- 다음 할 일 `nextStep`: 플롯 전이면 설정 필수 칸(`setupReqs`)이 빌 때 '설정 마저 채우기', 문체를 정하지 않았고 문체 화면에 안 들렀으면(`styleVisited`, localStorage `canon.styleVisited.<작품>`) 문체 정하기를 먼저 권한다
+- 작품 목록 `projectGo` 는 플롯 전 작품의 설정 필수 칸이 비면(`setup_ready` false) '설정 마저 채우기'로 보낸다
+- `aiWarning` 은 Anthropic 키가 없거나(`claude_api` false) Claude 구독을 쓸 수 없으면(`claude` install · login · error) 첫 작업 전에 알린다
 - 작품 홈
   - 지금 화 `homeNowCard` · 확인할 것 `homeTodos`(말투 빈 인물 `homeSpeechGaps`, 시점 인물 서술 말투 빈칸 `homeVoiceGap`) · 전 화수 막대 `homeProgress` · 줄인 목록 `homeCast` · `homeForeshadows`
   - 계산 함수는 작품을 받는 순수 함수 `tests/test_home_js.py`
@@ -141,6 +161,8 @@
 ### `canon/static/hub.js`
 
 - 알림
+- 진행 줄은 AI 호출이 기다리거나 다시 부르는 중이면 `Job.retry` 를 note 대신 보이고 남은 시간 어림을 뺀다
+- 손가락 기기에서는 알림 창 아래 'Esc로 닫아요' 안내를 비운다
 - AI 작업과 알림을 버튼 하나에 모은다
 - 버튼(`hubButton`, 사이드바 · 작품 밖 사이드바의 `#hub-slot`)
 - 버튼 아래 창(`#hub-pop`: 확인할 것 · 진행 중 · 최근 알림 · 접힌 끝난 작업과 지난 알림, `hubOpen` · `hubClose`)
@@ -181,6 +203,7 @@
 ### `canon/static/mentions.js`
 
 - 집필 화면 본문 속 이름
+- 손가락 기기에서는 이름 목록 안내에서 Alt+Enter 를 빼고 '본문의 이름을 누르면 떠요' 만 보인다
 - 인물 이름 · 장소(`atlas.places` 와 같은 목록 `mentionPlaces`)를 정규식 하나로 찾기(`mentionRanges`, 조사 · 긴 낱말 규칙, 치는 중에는 자리 옮기기 `mentionShift`)
 - 밑줄은 `marks.js` 의 `markHtml` 이 함께 그림
 - 이름 카드 자리 `mnPlace` 도 왼쪽을 0으로 두고 너비를 잰다(`passage.js` 의 `placeTool` 과 같은 규칙)
@@ -199,6 +222,8 @@
 ### `canon/static/notify.js`
 
 - 작업이 끝나면 알리기
+- 알림을 꺼 두어도 탭이 뒤에 있으면 탭 제목 앞에 끝난 수를 붙인다(`notifyWays`). 브라우저 알림은 켰을 때만
+- 처음 AI 작업을 시작할 때 한 번만 시작 말풍선에 '브라우저 알림 켜기'를 붙인다(`notifyOffer`, localStorage `canon.notify.asked`)
 - 탭이 뒤에 있거나 창에 포커스가 없을 때 브라우저 알림(Notification API)을 보내고 탭 제목 앞에 수를 붙인다
 - 탭을 보고 있으면 `app.js` 의 말풍선이 이미 알리므로 보내지 않는다
 - 자동 집필의 화별 반영(서버 `Job.step_ep`)은 말풍선이 없어 탭을 보고 있으면 말풍선을 띄운다
@@ -270,6 +295,7 @@
   - 구간 한 줄 머리 + 화 카드 격자 `actBoard`
   - 구간 · 아크 · 부 고치기는 서랍 없이 그 자리에서 `actEditor` · `arcEditor` · `partEditor`
   - 아크 주요 인물 이름 체크 `arcCastField`
+- 손가락 기기에서는 사건 순서의 'Enter로 다음 사건' 안내를 숨긴다
 - 장편(목차가 부 › 아크 › 구간 나무 `serialTree` · `serialTocRow`, 부 펼치기 `S.tocParts`, 부 구성 카드 펼침 `S.arcFull`, 다음 아크 기획 칸의 경고 `planAhead` 는 `pipeline.plan_ahead` 와 같은 규칙 `tests/test_plan_ahead_js.py`)
 - 서술 시점
 - 화 플롯 페이지
@@ -285,6 +311,7 @@
 ### `canon/static/research.js`
 
 - 연구 화면
+- 마우스가 없으면(`hover: none`) 표 칸 아래에 큰 블록 비중(`.rs-parts`)을 적는다
 - 공용 목차 틀 위의 카드 한 열(`.rs-wrap`, 오른쪽 열은 960px 까지)
 - 주소 `#/p/<이름>/research[/<쪽>]`(`rsLoad(쪽)` · `rsUrl`)
 - 목차: 개요 · 준비(서버 점검) · 실험 여섯(샘플 생성 · 단계 시험 · 컨텍스트 크기 · 검수 시험 · 블라인드 비교 · 상태창 시험) · 기록
@@ -314,13 +341,32 @@
 - 6단계 상태 승인 · 관계 표시
   - `DELTA_LISTS`
   - `setDelta`
+  - `setDelta` 는 설정에 없는 인물이 끼었거나 같은 인물끼리인 관계 사건 · 관계 바뀜을 기본으로 체크하지 않는다(서버 `validate_delta` 와 같은 규칙)
+  - 체크를 푼 항목은 `pickedDelta` 가 `dismissed` 로 보낸다(설정 바꾸기 · 호칭 · 등장 인물 붙이기는 빼고)
+  - 반영 기록에서 돌아온 변경안(반영 취소 · 단편 다시 쓰기)의 `dismissed` 는 `setDelta` 가 목록 끝에 다시 놓고(`reofferDismissed`) 기본 체크를 풀어 둔다(`d.reoffer`, 화면 전용)
+  - 반영이 끝난 화 기록(`historyView`) 아래 접힌 '빼 둔 항목 N개'(`dismissedView`)
+  - 변경안 체크 `S.picks` 는 한 화 것이다(`S.picksEp`, 작품마다 따로 둔다)
+  - 다른 화 변경안을 열면 `pickEp` 가 그 화에서 고친 체크(`S.picksKept`)를 되살린다
+  - 고친 체크가 없으면 `pickEp` 가 지금 작품 기준 기본 체크(`defaultPicks`)로 다시 센다
+  - 반영 취소에 쓸 앞 화 스냅샷이 없으면 버튼 자리에 까닭을 쓴다(`revertGone`)
+  - 장편이 지운 스냅샷은 반영 기록으로 다시 만들지 않는다(기능 훅이 스냅샷 밖 데이터도 바꿔 재생이 정확하지 않다)
+  - 체크 · 칸을 바꾸면 잠시 뒤 초안을 서버에 남긴다(`saveDeltaDraft`, `PUT /pending/{key}/draft`)
+  - pending.json 에 남아 남기지 못한 초안이 없는 변경안은 페이지를 떠날 때 묻지 않는다(`deltaKept`, app.js `hasUnsaved`)
+  - pending.json 에 결과가 없는 변경안은 초안을 남기지 않는다
+  - 체크가 다른 화의 것이면(`S.picksEp`) 초안에 체크를 보내지 않는다
   - 머리 버튼 줄의 반영 버튼 · ⋯ `rvMenu` · `.savebar-slot`
+  - 반영 `applyDelta`: 본문을 고친 것을 확인창에서 받았으면 `?force=1` 로 보낸다. 서버가 409(`stale_delta`)를 주면 기다림 상자를 닫고 한 번 더 묻는다
   - 왼쪽 읽기 전용 본문과 근거 밑줄 `rvRanges`
   - 오른쪽 직접 정할 것 · 요약 · 그대로 반영할 것(갈래 접기 `S.rvOpen`, 고른 수 `rvKeyCount`) · 관계 계산
   - 경고를 인물 줄에 붙이기 `rvWarnSplit`
+  - 대상 인물 id(`StateDelta.warn_to`)가 있으면 그 인물 줄, 없으면(AI 경고 · 예전 변경안) 인물 이름으로 시작하는지로 붙인다
   - 인물 칸 그 자리에서 펴기 `rvOpen`
+  - 편 인물 칸은 감정 · 목표 · 위치 · 메모 · 차림을 고친다(`STATE_TEXT`). 빈 칸은 지금 값을 그대로 둔다
+  - 지금 값이 있는 칸의 '지우기'(`data-dclear`)는 `CharacterState.cleared` 에 칸 이름을 넣어 반영 때 그 칸을 비운다
+  - `tests/test_state_clear.py`
   - 본문 근거 `rvQuote` · `rvGoItem`
   - 900px 이하는 변경안 먼저 `rvWide`
+- 줄 안 고르기 · 확정 사실 칸(`.rv-inp`)은 13px, 손가락 기기에서 16px 다(iOS 확대 막기)
 
 ### `canon/static/rewrite.js`
 
@@ -348,8 +394,10 @@
   - 작품별 단계 값 `projectStage`
   - 단계 줄의 추론 강도 칸 `effortSelect`: Claude · Gemini 단계에만, 목록은 백엔드가 받는 값(`effortOptions`)
   - Claude 로그인 줄 `claude.js` · Vertex 줄 `vertex.js`
+  - Claude 구독 계정 줄(`claudeAccountRow`, 같이 · Canon 전용)과 '로그인 시작' · '로그아웃'(`claude.js`, 띄운 뒤 3초마다 상태를 다시 봄)
   - 이 브라우저 › 알림 갈래의 줄은 `notify.js` 의 값을 그리고 고친다(`notifyPref` · `notifyTurnOn` · `notifyTest`)
   - 집필 묶음의 '되풀이한 구절 피하기' 줄(`echoes`, 장편만, `PUT …/recent-echoes`)
+  - 이 작품 › 백업 갈래(`backup-list`): 백업마다 한 줄(`backupRows` · `backupDesc`), 열 때 `GET …/backups` 로 받고 되돌리기는 `setRestore`(되돌린 뒤 `PER_PROJECT` 초안 · 변경안을 비움)
   - `tests/test_settings_js.py` · `tests/test_model_preset.py`
 
 ### `canon/static/setup.js`
@@ -377,6 +425,7 @@
   - 라이브러리 항목도 같은 카드
   - 목차 틀은 공용 `outline.js`(`styleToc`)
   - `tests/test_style_js.py`
+- '문체 분석'(`analyzeStyle`)은 화면을 막지 않는 작업 `style` 을 시작한다. 버튼은 `jobBtn` 으로 진행을 보이고, 결과는 문체 화면 맨 위 제안 카드(`styleDraftCard`, `S.styleDraft`)로 온다. '이 결과로 바꾸기'(`styleDraftApply`)를 눌러야 작품 문체 · 기준 지표에 들어가고 라이브러리 연결을 끊는다. 문체 라이브러리의 분석은 작품 밖이라 아직 가림막(run)이다
 
 ### `canon/static/stylechat.js`
 
@@ -397,6 +446,10 @@
   - 멈춘 작업이 그 화에서 AI 응답을 기다리면 `writeGo` 가 primary 를 잠그고 쓰기 시작 칸과 만든 스토리보드 칸이 `epWaitNote` 로 까닭을 보인다
   - 본문 띠의 저장 칸 `.savebar-slot`
   - 쓰기가 본문 앞뒤에서 뗀 작업 설명(`Episode.meta_cut`)은 접은 알림 `metaCutNote`: 문단마다 '본문에 되살리기'(`metaCutRestore`, 수정 기록에 남음) · '지우기'(`metaCutDrop`). 자동 집필 중이거나 고칠 수 없는 화는 버튼 없이 보기만(`tests/test_meta_cut.py`)
+- 그 화 플롯이 없으면 `noEpisode(n)` 이 몇 화까지 있는지와 마지막 화 · 플롯 만들기로 가는 길을 보인다. 플롯이 하나도 없을 때만 '아직 화별 플롯이 없어요'
+- k화로 가는 링크 `epGo(k)`: 플롯 초안이면 플롯 페이지(플롯 확정), 본문이 있으면 검수 · 상태 승인, 나머지는 집필. 순서 안내(`orderNote`)와 검수 · 상태 승인의 빈 화면이 쓴다
+- 본문 다시 생성 확인은 지금 본문이 이전 판으로 남는다고 말하고 위험 버튼으로 두지 않는다
+- 저장 띠의 '고친 것 버리기'(`dropText`)는 묻고 나서 그 화의 저장하지 않은 본문과 임시 보관 초안을 지운다
 - 작업지시서(본문 · 검수 · 상태 승인 걸음, `viewBrief`)
 - 작업지시서는 화 머리와 공용 목차 틀이다(걸음 목차 `briefToc`: 끝남 ✓ · 지금 · 본문 뒤, 4번째는 상태 승인 화면으로 가는 줄)
 - 작업지시서 머리 주 버튼은 그 걸음의 가져오기(n화 본문으로 저장 · 가져오고 검수로 · 확인하고 변경안 검토로)

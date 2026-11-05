@@ -10,10 +10,15 @@ mock 제외)는 켜 둬도 일반 호출로 돈다.
 
 진행 상태와 로그는 projects/<이름>/autorun.json 에 따로 둔다 (project.json 저장과 부딪치지 않게).
 서버가 다시 시작돼도 진행 중이던 실행은 이어서 돌고, 기다리던 배치 작업에는 다시 붙는다.
+도는 실행은 작품 폴더의 .autorun.lock 에 flock 을 쥔다. 명령줄과 웹 서버가 같은 작품을 함께 돌리지 않게 하고,
+다른 프로세스가 쥔 실행에 보내는 일시정지 · 중지는 autorun.want 파일로 넘긴다.
 """
 from __future__ import annotations
 
+import fcntl
 import logging
+import os
+import socket
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -78,6 +83,7 @@ class LogEntry(BaseModel):
     message: str
     tokens_in: int = 0
     tokens_out: int = 0
+    calls: int = Field(1, description="이 단계에서 부른 LLM 호출 수. tokens_out 은 그 합이다 (추정은 호출 하나의 평균으로 나눠 쓴다)")
     seconds: float = 0.0
     batch: bool = False
 
@@ -130,9 +136,64 @@ def load_run(name: str) -> Optional[Run]:
 def _write(name: str, run: Run) -> None:
     run.updated = _now()
     path = _path(name)
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(run.model_dump_json(indent=2), encoding="utf-8")
-    tmp.replace(path)
+    store.write_atomic(path, run.model_dump_json(indent=2))  # tmp 이름에 프로세스 · 스레드가 들어가 autorun.want 의 tmp 와 겹치지 않는다
+
+
+# ---------- 실행 주인 (프로세스 사이) ----------
+
+OWNER_FILE = ".autorun.lock"  # 도는 실행이 flock 을 쥔다. 프로세스가 죽으면 OS 가 푼다
+WANT_FILE = "autorun.want"  # 다른 프로세스가 쥔 실행에 보내는 요청 (pause | stop)
+ELSEWHERE = "다른 곳(명령줄 canon auto 나 다른 서버)에서 이 작품의 자동 집필이 돌고 있어요. 그곳에서 멈춘 뒤 다시 하세요"
+
+
+def _take(name: str) -> Optional[int]:
+    """이 프로세스가 실행 주인이 된다. 잠금 파일의 fd 를 돌려주고, 다른 프로세스가 쥐고 있으면 None."""
+    d = store.project_dir(name)
+    d.mkdir(parents=True, exist_ok=True)
+    fd = os.open(d / OWNER_FILE, os.O_RDWR | os.O_CREAT, 0o644)
+    for _ in range(5):  # elsewhere() 가 잠깐 잡아 보는 동안이면 기다렸다 다시 잡는다
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            time.sleep(0.05)
+            continue
+        os.ftruncate(fd, 0)
+        os.write(fd, f"{os.getpid()} {socket.gethostname()} {_now()}\n".encode())
+        (d / WANT_FILE).unlink(missing_ok=True)  # 지난 실행에 남은 요청은 버린다
+        return fd
+    os.close(fd)
+    return None
+
+
+def elsewhere(name: str) -> bool:
+    """다른 프로세스가 이 작품의 자동 집필을 돌리는가 (잠금 파일을 쥔 프로세스가 있는데 이 프로세스의 실행이 아니다)."""
+    with _lock:
+        ctl = _controls.get(name)
+    if ctl and ctl.owner is not None:
+        return False
+    path = store.project_dir(name) / OWNER_FILE
+    if not path.exists():
+        return False
+    fd = os.open(path, os.O_RDONLY)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        return False
+    except BlockingIOError:
+        return True
+    finally:
+        os.close(fd)
+
+
+def _ask(name: str, what: str) -> None:
+    """다른 프로세스가 쥔 실행에 일시정지 · 중지를 청한다. 중지를 청했으면 일시정지로 낮추지 않는다."""
+    path = store.project_dir(name) / WANT_FILE
+    try:
+        if path.read_text(encoding="utf-8").strip() == "stop":
+            return
+    except OSError:
+        pass
+    store.write_atomic(path, what)  # tmp 이름이 주인의 _write · 다른 요청과 겹치지 않는다
 
 
 # ---------- 실행 제어 (프로세스 안) ----------
@@ -144,6 +205,25 @@ class Control:
         self.want = ""  # "" | pause | stop
         self.wake = threading.Event()
         self.thread_alive = False
+        self.owner: Optional[int] = None  # 쥔 잠금 파일의 fd (_take)
+
+    def release(self) -> None:
+        """실행 주인 잠금을 푼다. 여러 번 불러도 된다."""
+        fd, self.owner = self.owner, None
+        if fd is not None:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            os.close(fd)
+
+    def poll_want(self) -> None:
+        """다른 프로세스가 남긴 요청(autorun.want)을 읽어 want 에 둔다."""
+        path = store.project_dir(self.name) / WANT_FILE
+        try:
+            what = path.read_text(encoding="utf-8").strip()
+        except OSError:
+            return
+        path.unlink(missing_ok=True)
+        if what in ("pause", "stop") and self.want != "stop":
+            self.want = what
 
     def save(self) -> None:
         with self.lock:
@@ -153,6 +233,7 @@ class Control:
         """배치 결과를 기다린다. 멈추라는 요청이 오면 바로 깬다."""
         self.wake.wait(seconds)
         self.wake.clear()
+        self.poll_want()
         if self.want:
             return self.want
         return "pause" if jobs.draining.is_set() else ""
@@ -165,14 +246,31 @@ _lock = threading.Lock()
 def get_run(name: str) -> Optional[Run]:
     with _lock:
         ctl = _controls.get(name)
-    return ctl.run if ctl else load_run(name)
+    # 끝난 실행의 메모리 값은 다른 프로세스가 그 뒤에 이어 간 기록보다 오래됐을 수 있어 파일을 읽는다
+    return ctl.run if ctl and ctl.thread_alive else load_run(name)
+
+
+def wanted(name: str) -> str:
+    """도는 실행에 받아 둔 요청(pause | stop). 지금 단계가 끝나야 멈추므로 화면이 '멈추는 중'을 보인다. 없으면 빈 글.
+    다른 프로세스가 쥔 실행이면 그 주인이 아직 읽지 않은 요청 파일(autorun.want)을 본다."""
+    with _lock:
+        ctl = _controls.get(name)
+    if ctl and ctl.thread_alive:
+        return ctl.want
+    if not elsewhere(name):
+        return ""
+    try:
+        what = (store.project_dir(name) / WANT_FILE).read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+    return what if what in ("pause", "stop") else ""
 
 
 def active(name: str) -> bool:
-    """자동 집필이 이 작품을 고치고 있는가 (화면 저장이 진행 상태를 덮으면 안 되는 동안)."""
+    """자동 집필이 이 작품을 고치고 있는가 (화면 저장이 진행 상태를 덮으면 안 되는 동안). 다른 프로세스의 실행도 본다."""
     with _lock:
         ctl = _controls.get(name)
-    return bool(ctl and ctl.thread_alive)
+    return bool(ctl and ctl.thread_alive) or elsewhere(name)
 
 
 # ---------- 승인 정책 ----------
@@ -207,8 +305,10 @@ def review_reasons(p: Project, delta: StateDelta, report: Optional[ConsistencyRe
     if unknown:
         out.append(f"설정에 없는 인물의 상태가 나왔어요: {', '.join(unknown)}")
     if policy.max_shift > 0 or policy.stop_on_stage:
-        sim = p.model_copy(deep=True)
-        pipeline.apply_delta(sim, delta.model_copy(deep=True))
+        # 실제 반영(put)처럼 hold 로 뺀 제안은 빼고 흉내 낸다. apply_delta 가 여러 칸을 고쳐 작품 전체를 복사한다
+        sim, sd = p.model_copy(deep=True), delta.model_copy(deep=True)
+        features.hold(sim, sd)
+        pipeline.apply_delta(sim, sd)
         big: list[tuple[float, str]] = []
         stages: list[str] = []
         for t in sim.ties:
@@ -260,7 +360,8 @@ def _measured(name: str | None) -> dict[str, dict[str, float]]:
     for e in (run.log if run else []):
         if e.step in SECONDS and e.seconds and e.level == "info":
             acc.setdefault(e.step + (":batch" if e.batch else ""), []).append(e)
-    return {k: {"out": sum(x.tokens_out for x in v) / len(v), "seconds": sum(x.seconds for x in v) / len(v)}
+    # tokens_out 은 단계 안 모든 호출의 합이라 호출 수로 나눠 호출 하나의 평균을 낸다 (estimate 가 호출마다 더한다)
+    return {k: {"out": sum(x.tokens_out for x in v) / max(1, sum(x.calls for x in v)), "seconds": sum(x.seconds for x in v) / len(v)}
             for k, v in acc.items()}
 
 
@@ -404,6 +505,7 @@ class Runner:
             self.ctl.save()
 
     def _checkpoint(self) -> None:
+        self.ctl.poll_want()
         if self.ctl.want == "stop":
             raise _Halt("stopped", "중지했어요")
         if self.ctl.want == "pause":
@@ -425,7 +527,8 @@ class Runner:
                            label=f"canon {self.name}", note=lambda m: self.log(f"{n}화 {STEP_NAMES[stage]}: {m}", "warn"))
         t = time.time()
         try:
-            out = fn(llm)
+            with usage.collect() as rows:
+                out = fn(llm)
         except SchemaMismatch as e:
             # 본문은 그대로 두고 이 화에서 멈춘다. 이어 가면 이 단계만 새로 요청한다
             raise _Halt("paused", f"{n}화 {STEP_NAMES[stage]} 응답이 형식에 맞지 않아 멈췄어요", kind="schema", reasons=[
@@ -439,16 +542,20 @@ class Runner:
             if self.ctl.want == "pause":
                 raise _Halt("paused", "일시정지했어요. 배치 작업은 계속 돌고, 이어 가면 결과를 받아 와요")
             raise _Halt(None, "서버를 다시 시작한 뒤 배치 결과를 이어 받아요")
-        u = getattr(llm, "last_usage", None) or {}
-        tin = int(u.get("prompt_tokens") or 0)
-        tout = int(u.get("completion_tokens") or 0) + int(u.get("thought_tokens") or 0)
-        c = stage_cost(stage, tin, tout, use_batch)
+        if rows:  # 단계 안의 모든 호출(형식 고치기 재시도, 검수의 여러 호출)을 사용량 화면과 같은 값으로 더한다
+            tin, tout, c = usage.totals(rows)
+        else:  # 기록하지 않는 LLM(mock 등)은 마지막 호출 값으로 짐작한다
+            u = getattr(llm, "last_usage", None) or {}
+            tin = int(u.get("prompt_tokens") or 0)
+            tout = int(u.get("completion_tokens") or 0) + int(u.get("thought_tokens") or 0)
+            c = stage_cost(stage, tin, tout, use_batch)
         with self.ctl.lock:
             self.run.tokens_in += tin
             self.run.tokens_out += tout
             if c:
                 self.run.cost = round(self.run.cost + c, 4)
-        return out, dict(step=stage, tokens_in=tin, tokens_out=tout, seconds=round(time.time() - t, 1), batch=use_batch)
+        return out, dict(step=stage, tokens_in=tin, tokens_out=tout, calls=max(1, len(rows)),
+                         seconds=round(time.time() - t, 1), batch=use_batch)
 
     def loop(self) -> None:
         run = self.run
@@ -689,9 +796,10 @@ class Runner:
                     f"상태 변경안을 만드는 사이 {n}화가 '{EP_STATUS.get(st, st)}' 상태로 바뀌어 만든 변경안은 버렸어요",
                     f"이어 가면 {n}화의 지금 상태에서 다시 시작해요"], kind="changed")
             held[0] = features.hold(q, delta)  # 인물 설정 · 호칭은 작가가 골라야 바뀐다. 인물 화면에 남겨 둔다
-            pipeline.apply_delta(q, delta)
+            dropped[:] = pipeline.apply_delta(q, delta)
             q.episode(n).auto = True
         held = [0]
+        dropped: list[str] = []
         _edit(self.name, put)
         with self.ctl.lock:
             run.applied.append(n)
@@ -699,6 +807,8 @@ class Runner:
         if self.job is not None:
             self.job.step_ep = n  # 화면이 'n화를 반영했어요' 알림을 보낸다 (notify.js)
         self.log(f"{n}화를 자동으로 반영했어요")
+        for m in dropped:
+            self.log(f"{n}화 반영에서 뺐어요: {m}", "warn")
         if held[0]:
             self.log(f"{n}화 설정 바꾸기 · 호칭 제안 {held[0]}개는 반영하지 않고 인물 · 관계도 화면에 남겨 뒀어요", "warn")
         every = run.policy.review_every
@@ -728,6 +838,7 @@ def _launch(name: str, ctl: Control, echo: Callable[[str], None] | None = None, 
         finally:
             with _lock:
                 ctl.thread_alive = False
+                ctl.release()
         if job is not None:
             job.total, job.done = 1, 0  # 끝나도 'n/n 완료'로 보이지 않게 (멈춘 이유는 note 에 있다)
         return {"status": ctl.run.status, "reasons": ctl.run.reasons, "ep": ctl.run.ep}
@@ -742,6 +853,7 @@ def _launch(name: str, ctl: Control, echo: Callable[[str], None] | None = None, 
                    total=max(1, len(_todo(p, ctl.run.target)) + len(ctl.run.applied)))
     except jobs.Busy:
         ctl.thread_alive = False
+        ctl.release()
         raise ValueError("자동 집필이 이미 돌고 있어요")
 
 
@@ -750,7 +862,11 @@ def _control(name: str, run: Run) -> Control:
         ctl = _controls.get(name)
         if ctl and ctl.thread_alive:
             raise ValueError("자동 집필이 이미 돌고 있어요. 일시정지나 중지 후 다시 시작하세요")
+        fd = _take(name)
+        if fd is None:
+            raise ValueError(ELSEWHERE)
         ctl = Control(name, run)
+        ctl.owner = fd
         _controls[name] = ctl
     return ctl
 
@@ -761,6 +877,8 @@ def start(name: str, target: int, batch: bool, policy: Policy, *, foreground: bo
     p = store.load(name)
     if not 1 <= target <= max(p.meta.target_episodes, 1):
         raise ValueError(f"목표 화수는 1~{p.meta.target_episodes}화 사이여야 해요")
+    if elsewhere(name):
+        raise ValueError(ELSEWHERE)
     if active(name):
         raise ValueError("자동 집필이 이미 돌고 있어요. 일시정지나 중지 후 다시 시작하세요")
     old = load_run(name)
@@ -768,10 +886,14 @@ def start(name: str, target: int, batch: bool, policy: Policy, *, foreground: bo
         _cancel_batches(old)
     run = Run(target=target, batch=batch, policy=policy, started=_now(), log=old.log if old else [])
     ctl = _control(name, run)
-    ctl.save()
-    Runner(ctl).log(f"{target}화까지 자동 집필을 시작해요 (배치 {'켬' if batch else '끔'})", step="start")
-    if batch and any(settings.stage_provider(s)[0] == "gemini" and not batchable(s) for s in STEP_NAMES):
-        Runner(ctl).log("Vertex AI 로 부르는 Gemini 는 배치를 지원하지 않아 그 단계는 일반 호출로 진행해요", "warn")
+    try:
+        ctl.save()
+        Runner(ctl).log(f"{target}화까지 자동 집필을 시작해요 (배치 {'켬' if batch else '끔'})", step="start")
+        if batch and any(settings.stage_provider(s)[0] == "gemini" and not batchable(s) for s in STEP_NAMES):
+            Runner(ctl).log("Vertex AI 로 부르는 Gemini 는 배치를 지원하지 않아 그 단계는 일반 호출로 진행해요", "warn")
+    except BaseException:
+        ctl.release()
+        raise
     _launch(name, ctl, echo, foreground)
     return ctl.run
 
@@ -785,38 +907,45 @@ def resume(name: str, approve: bool = False, rewrite: bool = False, *, foregroun
         raise ValueError("이어 갈 자동 집필이 없어요")
     ctl = _control(name, run)
     r = Runner(ctl)
-    if run.status == "review" and run.ep is not None:
-        n = run.ep
-        status = store.load(name).episode(n).status
-        if status == "written" and approve and run.pending is not None:
-            d = run.pending
-            if run.pending_text and store.load(name).episode(n).text.strip() != run.pending_text.strip():
-                raise ValueError(f"변경안을 만든 뒤 {n}화 본문을 고쳤어요. 그대로 반영하면 옛 본문 기준의 요약 · 인물 상태 · 사건이 들어가요. "
-                                 "검토하기에서 변경안을 다시 만들거나, 다시 쓰기를 고르세요")
-            def take(q: Project) -> None:
-                held[0] = features.hold(q, d)  # 검토 화면 없이 반영하면 설정 바꾸기 · 호칭 제안은 고르지 않은 것으로 남겨 둔다
-                pipeline.apply_delta(q, d)
-            held = [0]
-            _edit(name, take)
-            r.log(f"{n}화 변경안을 검토 화면 없이 그대로 반영했어요 (사용자 승인)")
-            if held[0]:
-                r.log(f"{n}화 설정 바꾸기 · 호칭 제안 {held[0]}개는 반영하지 않고 인물 · 관계도 화면에 남겨 뒀어요", "warn")
-        elif status == "written" and rewrite:
-            def back(q: Project) -> None:
-                ep = q.episode(n)
-                if ep.text:  # 집필 화면의 다시 생성처럼 지금 본문을 이전 판으로 남긴다
-                    pipeline._keep_version(ep, TextVersion(id=pipeline._version_id(ep), at=pipeline._now(), text=ep.text, kind="previous",
-                                                           model=ep.written_by, meta_cut=ep.meta_cut))
-                ep.text, ep.status, ep.written_by, ep.meta_cut = "", "confirmed", "", []
-                findings.clear(ep)
-            _edit(name, back)
-            r.log(f"{n}화를 다시 써요")
-        elif status == "written":
-            raise ValueError(f"{n}화 변경안이 검토 대기 중이에요. 검토 화면에서 반영하거나, 그대로 반영 또는 다시 쓰기를 고르세요")
-    with ctl.lock:
-        run.status, run.reasons, run.pending, run.pending_text, run.halt = "running", [], None, "", ""
-        ctl.save()
-    r.log("이어 가요")
+    try:
+        if run.status == "review" and run.ep is not None:
+            n = run.ep
+            status = store.load(name).episode(n).status
+            if status == "written" and approve and run.pending is not None:
+                d = run.pending
+                if run.pending_text and store.load(name).episode(n).text.strip() != run.pending_text.strip():
+                    raise ValueError(f"변경안을 만든 뒤 {n}화 본문을 고쳤어요. 그대로 반영하면 옛 본문 기준의 요약 · 인물 상태 · 사건이 들어가요. "
+                                     "검토하기에서 변경안을 다시 만들거나, 다시 쓰기를 고르세요")
+                def take(q: Project) -> None:
+                    held[0] = features.hold(q, d)  # 검토 화면 없이 반영하면 설정 바꾸기 · 호칭 제안은 고르지 않은 것으로 남겨 둔다
+                    dropped[:] = pipeline.apply_delta(q, d)
+                held = [0]
+                dropped: list[str] = []
+                _edit(name, take)
+                r.log(f"{n}화 변경안을 검토 화면 없이 그대로 반영했어요 (사용자 승인)")
+                for m in dropped:
+                    r.log(f"{n}화 반영에서 뺐어요: {m}", "warn")
+                if held[0]:
+                    r.log(f"{n}화 설정 바꾸기 · 호칭 제안 {held[0]}개는 반영하지 않고 인물 · 관계도 화면에 남겨 뒀어요", "warn")
+            elif status == "written" and rewrite:
+                def back(q: Project) -> None:
+                    ep = q.episode(n)
+                    if ep.text:  # 집필 화면의 다시 생성처럼 지금 본문을 이전 판으로 남긴다
+                        pipeline._keep_version(ep, TextVersion(id=pipeline._version_id(ep), at=pipeline._now(), text=ep.text, kind="previous",
+                                                               model=ep.written_by, meta_cut=ep.meta_cut))
+                    ep.text, ep.status, ep.written_by, ep.meta_cut = "", "confirmed", "", []
+                    findings.clear(ep)
+                _edit(name, back)
+                r.log(f"{n}화를 다시 써요")
+            elif status == "written":
+                raise ValueError(f"{n}화 변경안이 검토 대기 중이에요. 검토 화면에서 반영하거나, 그대로 반영 또는 다시 쓰기를 고르세요")
+        with ctl.lock:
+            run.status, run.reasons, run.pending, run.pending_text, run.halt = "running", [], None, "", ""
+            ctl.save()
+        r.log("이어 가요")
+    except BaseException:
+        ctl.release()
+        raise
     _launch(name, ctl, echo, foreground)
     return run
 
@@ -834,7 +963,7 @@ def renumber(name: str, end: Callable[[int], int]) -> None:
     """화를 끼워 넣거나 뺀 뒤 멈춘 실행의 목표 화를 옮긴다. end 는 '몇 화까지'를 옮기는 규칙이다."""
     with _lock:
         ctl = _controls.get(name)
-    run = ctl.run if ctl else load_run(name)
+    run = ctl.run if ctl and ctl.thread_alive else load_run(name)
     if run is None or run.status in ("done", "stopped"):
         return
     target = max(1, end(run.target))
@@ -857,6 +986,9 @@ def request(name: str, what: str) -> Run:
     run = get_run(name)
     if run is None:
         raise ValueError("자동 집필이 없어요")
+    if elsewhere(name):  # 그 프로세스의 러너가 다음 확인 때 읽는다. 배치 취소와 상태 쓰기도 그쪽이 한다
+        _ask(name, what)
+        return run
     if what == "stop":
         _cancel_batches(run)
         run.status, run.pending, run.pending_text, run.reasons, run.halt = "stopped", None, "", [], ""
@@ -869,10 +1001,12 @@ def set_batch(name: str, on: bool) -> Run:
     run = get_run(name)
     if run is None:
         raise ValueError("자동 집필이 없어요")
+    if elsewhere(name):
+        raise ValueError(ELSEWHERE)
     with _lock:
         ctl = _controls.get(name)
     run.batch = on
-    if ctl:
+    if ctl and ctl.thread_alive:
         ctl.save()
         Runner(ctl).log(f"배치를 {'켰' if on else '껐'}어요. 다음 단계부터 적용돼요")
     else:
@@ -887,12 +1021,14 @@ def set_policy(name: str, policy: Policy) -> Run:
         raise ValueError("자동 집필이 없어요")
     if run.status in ("done", "stopped"):
         raise ValueError("끝나거나 중지한 자동 집필이에요. 새로 시작할 때 정하세요")
+    if elsewhere(name):
+        raise ValueError(ELSEWHERE)
     with _lock:
         ctl = _controls.get(name)
     run.policy = policy
     # 화 번호 없이 남긴다 (멈춘 화는 정책 변경과 상관없다)
     run.log = (run.log + [LogEntry(at=_now(), step="policy", message="승인 정책을 바꿨어요. 다음 판정부터 적용돼요")])[-LOG_KEEP:]
-    if ctl:
+    if ctl and ctl.thread_alive:
         ctl.save()
     else:
         _write(name, run)
@@ -947,8 +1083,12 @@ def resume_all() -> list[str]:
     for d in sorted(store.ROOT.iterdir()):
         run = load_run(d.name) if (d / "autorun.json").exists() else None
         if run and run.status == "running" and store.exists(d.name):
+            try:
+                ctl = _control(d.name, run)
+            except ValueError:  # 명령줄 canon auto 같은 다른 프로세스가 돌리고 있다
+                _log.info("자동 집필 %s 은(는) 다른 프로세스가 돌리고 있어 이어 가지 않아요", d.name)
+                continue
             run.restarts += 1
-            ctl = _control(d.name, run)
             # 기다리던 배치는 다시 붙어 결과를 받는다. 일반 호출은 끊긴 호출을 버리고 그 단계를 처음부터 다시 한다
             redo = "" if run.batches or not run.ep or run.step not in RUN_STEPS else \
                 f". {run.ep}화 {RUN_STEPS[run.step]}를 처음부터 다시 해요 (끊긴 호출은 버려요)"

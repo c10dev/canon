@@ -39,6 +39,7 @@
 - 작가가 넣은 다른 소설 원고 txt 를 화 표시로 화 단위로 나눠 작품 밖에 둔다
 - 작품에는 연결하지 않는다. 고른 화로 문체 라이브러리 항목이나 역설계 실험을 만들고 그 결과물만 작품에 들어간다
 - 작품 밖 `<CANON_HOME>/.refs/<id>/`(`CANON_REFS` 로 경로 변경): 정규화한 원문 `source.txt` 와 `ref.json`(`RefBook`)
+- `source.txt` 와 `ref.json` 은 `store.write_atomic` 으로 바꿔치기해 쓴다
 - 경계는 줄 번호(`RefCut.line` · 본문 시작 `body`)로만 적는다. 합치기 · 나누기를 다시 해도 원문은 그대로다
 - 화 글은 읽을 때 켠 경계로 잘라 낸다(`assemble`, 화 끝 작가의 말 떼기 `_tail` · `strip_tails`)
 - 나누기 규칙은 여기 한 곳이다(`detect` · `preview` · 역설계용 `split`): 화 표시 줄 → 기호 줄 → 빈 줄 셋 넘게 → 한 화
@@ -71,6 +72,7 @@
   - `check_trial`
   - 장편은 검수 넓히기 `widen`
   - 판단기를 주면 두 걸음 검수 `twostep`도
+  - 판단기를 고르지 않았거나 모델 · 주소가 비면 `judge_backend` 가 `CANON_JUDGE` · `_MODEL` · `_URL` 로 채운다
   - 장면 연출 규칙 검수 `stage` 는 고르면: 사건마다 `pipeline.extract_stage` → `stage.episode_issues`
   - `_stage_run`
   - 갈래별 찾은 수 `by_kind` · 기록 합계 `check_totals`
@@ -78,7 +80,9 @@
   - 영어판은 시스템 프롬프트 `prompts.checker_system` · 자료 칸 제목 · 요구사항 · 응답 설명 `schema.ConsistencyReportEn` 만 영어다. 작품 자료 · 인용 · 기능별 검수 규칙은 한국어 그대로
   - 한국어판 · 영어판 짝 누적 `lang_tally`(두 판 모두 성공한 줄만). `check_totals` 는 한국어판만 센다
 - 블라인드 비교
+- 비교본 폴더 `compare/<화 두 자리>/` 는 `store.compare_dir` 가 정한다. 화를 넣고 빼면 `store.renumber_side_files` 가 옮긴다
 - 고르지 않은 비교본 목록 `open_compares`
+- `open_compares` 는 폴더 이름이 아니라 화 번호 차례로 준다(100화가 99화 앞에 오지 않게)
 - 작품 데이터와 분리해 `research/log.jsonl` 에 기록
 - 갈래마다 마지막 기록 `latest`(연구 개요가 `history` 30개 밖의 실험도 보인다)
 
@@ -88,6 +92,7 @@
 - 작가가 넣은 소설을 거꾸로 화별 플롯 · 스토리보드 · 큐 시트 · 이야기 줄기로 푼다
 - 그 큐 시트로 같은 화를 다시 써서(되돌려 쓰기) 원문과 견준다
 - 작품 밖 `<CANON_HOME>/.revlab/<번호>.json`(`RevLab`, `load` · `save` · `with_lock` · `create` · `replace_text`, 화 이어 붙이기 `append_text`: 마지막 화 + 1 부터, 앞 화 결과는 그대로)
+- `save` 는 `store.write_atomic` 으로 바꿔치기해 쓴다
 - 화 하나 고치기(`edit_episode`, 웹 `PUT /api/revlab/{번호}/episodes/{n}`): 글이 바뀌면 그 화의 결과 · 되돌려 쓴 판만 지운다. 제목 줄만 바뀌면 결과는 그대로
 - 화 빼기(`drop_episode`, 웹 `DELETE /api/revlab/{번호}/episodes/{n}`): 뒤 화 번호와 줄기의 `branch_ep` · `join_ep` 를 하나씩 당긴다. 마지막 남은 화는 빼지 않는다
 - 화 고치기 · 빼기는 그 실험의 작업이 도는 동안 409(`web._rev_idle`, 작업이 화 번호로 결과를 넣는다)
@@ -183,6 +188,7 @@
 - 쇠맛 실험실(작품 밖 `<CANON_HOME>/.soelab/`, 화면은 `static/soelab.js`, 웹 `/api/soelab/...`)
 - 쇠맛 지표가 사람 글과 AI 글 · 작가 판정을 가르는지 잰다
 - 프로세스 사이 잠금 `_lock`(`fcntl.flock`) · `save_json` · `append_label`(labels.jsonl 덧붙이기)
+- `save_json` 은 잠금 안에서 `store.write_atomic` 으로 바꿔치기해 쓴다
 - 정규화 `normalize` · `chunks`(2,000자 문장 끝)
 - 모으기 `collect_revlab`(판마다 원천 take 't<판 번호>', 모델은 판의 백엔드 기록이 있으면 그것) · `collect_episodes`(모델은 `Episode.written_by` 가 있으면 record, 없으면 `write_models`: usage.jsonl 마지막 성공한 write) · `collect_edits` · `collect_research` · `collect_paste` → `add`(같은 글 한 번 · 원천 상한 `CAP`)
 - 대기열 `extend_queue`(판정한 자리 · 다시 읽기 예정 · 예비는 고정, 1차 `FIRST` 묶음마다 한 조각)
@@ -272,6 +278,7 @@
 ### `canon/static/soelab.js`
 
 - 쇠맛 실험실 화면(작품 밖 `#/soelab[/corpus | judge | redo | metrics[/<지표 id>] | patterns[/check] | log]`)
+- 손가락 기기에서 '끌어 고르기' 를 고르면 길게 눌러 고른 뒤 손을 뗄 때(`touchend`) 문장을 고른다(`soeDragPick`)
 - `app.js` 라우팅이 작품 밖 사이드바(`outSidebar`) 옆에 `viewSoe` 를 그린다(불러오기 `soeLoad`)
 - 작품 사이드바 '실험' 묶음 🧪 · ⋯ 메뉴 · 작품 밖 도구에서 들어온다
 - 공용 목차 틀(`outline.js`)의 목차 `soeToc`(개요 · 단계 넷 `soeSteps` · 지표 14줄 · 전체), 판정하는 동안은 지표 · 전체를 접음
@@ -327,6 +334,7 @@
 - 본보기 문단은 역설계 실험에서 가져온다(`revlab.paragraph_card`). 프롬프트에는 넣지 않고, `view` 가 시도와 같은 지표로 잰 `model_measure` 를 붙인다
 - 세션 `StudioSession` 은 카드 하나와 시도 `StudioTry`(AI 안 · 작가 글, 고쳐 쓴 시도 번호 `base`, 고름 `star`)
 - 저장 `load` · `save`(임시 파일 뒤 바꿔 넣기) · `sessions` · `create` · `update` · `delete` · `duplicate`(카드만 복사)
+- `save` 는 `store.write_atomic` 으로 쓴다. 임시 파일 이름에 pid 와 스레드 id 가 들어가 두 스레드가 함께 저장해도 섞이지 않는다
 - 카드 정리 `clean_card`: 빈 인물 · 모르는 연습을 빼고 길이를 `LENGTH` 로 맞추고, 문체 라이브러리에 없는 문체는 막는다
 - 시도 `add_ai` · `add_author`(고친 곳이 없으면 막음) · `edit`(작가 글만 고침, 고르기는 모두) · `remove`(그 시도를 고쳐 쓴 글은 `base` 0)
 - 세션마다 시도 `MAX_TRIES` 개까지. 저절로 지우지 않고 막는다(`room`)

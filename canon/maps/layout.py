@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Optional
 
-from .. import naming
+from .. import naming, store
 from ..schema import Project
 from . import buildings as bldgs
 from . import fill
@@ -118,7 +118,7 @@ def load_layout(folder: Path, p: Project) -> Optional[dict]:
     if lo is not None and lo.get("bver") != bldgs.VERSION:
         enrich(p, lo, p.atlas.spec.seed if p.atlas.spec else p.atlas.layout)
         try:
-            path.write_text(json.dumps(lo, ensure_ascii=False), encoding="utf-8")
+            store.write_atomic(path, json.dumps(lo, ensure_ascii=False))  # 고쳐 쓰는 중에 멈춰도 옛 지도가 남게
         except OSError:
             pass
     return lo
