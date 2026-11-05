@@ -64,6 +64,7 @@ from .schema import (
     SetupRevision,
     SetupSuggestion,
     StateDelta,
+    StateDeltaAI,
     StoryArc,
     StoryEvent,
     Storyline,
@@ -83,6 +84,7 @@ from .schema import (
     RewriteRequest,
     TextEdit,
     TextVersion,
+    to_delta,
 )
 
 
@@ -3755,9 +3757,9 @@ def extract_state(llm: LLM, p: Project, n: int) -> StateDelta:
     carried = carried_delta(p, n)
     if carried is not None:
         return carried
-    delta = llm.json(prompts.SYSTEM_EDITOR, prompts.state_prompt(p, n), StateDelta,
-                     hint={"episode": n, "stats": statwin.enabled(p)})
-    delta.episode = n
+    raw = llm.json(prompts.SYSTEM_EDITOR, prompts.state_prompt(p, n), StateDeltaAI,
+                   hint={"episode": n, "stats": statwin.enabled(p)})
+    delta = to_delta(raw, n)  # 관계 수치 칸은 응답 형식에 없고, 있어도 버린다
     clean_delta(p, delta)
     delta.basis = text_basis(p.episode(n).text)
     return delta
@@ -3843,6 +3845,8 @@ def apply_delta(p: Project, d: StateDelta) -> list[str]:
             cur.knows += [k for k in upd.knows if k not in cur.knows]
         statwin.merge(p, cur, upd.stats, d.episode)  # +3 같은 바뀐 양은 여기서 값으로 바꾸고 기록한다
 
+    for upd in d.relationship_updates:  # 관계 수치는 AI 가 적지 않는다: 사건으로 dynamics 가 계산하고, 새 쌍은 중립에서 시작한다
+        upd.affinity, upd.tension, upd.goal_conflict, upd.a_view, upd.b_view, upd.destination = 0, 0, 0.0, [], [], ""
     for upd in d.relationship_updates:
         if upd.a == upd.b:  # 같은 인물끼리의 관계는 두지 않는다 (화면 저장이 막는 관계, validate_relationships)
             continue
@@ -3850,10 +3854,6 @@ def apply_delta(p: Project, d: StateDelta) -> list[str]:
         for r in p.relationships:
             if frozenset((r.a, r.b)) == key:
                 r.type, r.description = upd.type or r.type, upd.description or r.description
-                if not d.events:  # 사건 없이 수치만 온 예전 형식: 양방향 온기를 affinity 에 맞춘다
-                    r.affinity, r.tension = upd.affinity, upd.tension
-                    for s, t in ((r.a, r.b), (r.b, r.a)):
-                        dynamics.get_tie(p.ties, s, t).warmth = dynamics.clip(upd.affinity / 5)
                 break
         else:
             p.relationships.append(upd)
@@ -3873,6 +3873,7 @@ def apply_delta(p: Project, d: StateDelta) -> list[str]:
         if f.id in d.foreshadow_resolved:
             f.status, f.payoff_ep = "resolved", d.episode
     features.apply(features.APPLY_LAST, p, d)  # 복선 문장 · 작품 속 시간
+    d.legacy_rel = False  # 다시 계산(dynamics.replay)이 이 기록의 관계 수치를 쓰지 않게 한다
     p.history.append(d)
     dynamics.take_snapshot(p, d.episode)
     if p.serial:

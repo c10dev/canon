@@ -40,7 +40,7 @@ from . import abilities, anchor, atlas, findings, foreshadows, setupchat, stattr
 from .schema import AgentSession, ChatScope, KnowsFoldSet, Deadline, Storyboard, StoryTime, Foreshadow, StatValue
 from .metrics import StyleMetrics
 from .schema import CharacterState, ConsistencyReport, FindingStatus, Severity, StoryEvent
-from .schema import FieldIdeas, NameOption, Recap
+from .schema import FieldIdeas, NameOption, Recap, StateDeltaAI, to_delta
 from . import branches
 from .schema import BranchDiff, BranchInfo, ForkMode, Snapshot
 from . import play
@@ -3769,7 +3769,7 @@ def parse_state(name: str, n: int, body: Raw) -> StateDelta:
     data = _json_object(body.raw)
     data["episode"] = n
     try:
-        delta = StateDelta.model_validate(data)
+        delta = to_delta(StateDeltaAI.model_validate(data), n)  # 예전 JSON 의 관계 수치 칸은 버린다
     except ValidationError as e:
         raise HTTPException(400, _validation_text(e))
     pipeline.clean_delta(p, delta)

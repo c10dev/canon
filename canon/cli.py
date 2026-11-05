@@ -87,7 +87,7 @@ from .llm import dump, get_llm
 from .schema import FINDING_STATUS, SEVERITY, ConsistencyReport, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
 from . import abilities, anchor, atlas, blocktrial, findings, stattrial, foreshadows, setupchat, statwin, timeline
 from . import birth, cue, labstats, play, soelab, tofix
-from .schema import ArcProposal, ChatScope, Deadline, MapPlace, StatValue, StoryArc
+from .schema import ArcProposal, ChatScope, Deadline, MapPlace, StatValue, StateDeltaAI, StoryArc, to_delta
 from .maps import kinds as placekinds
 from .maps import travel
 
@@ -1245,8 +1245,7 @@ def cmd_update(a: argparse.Namespace) -> None:
 
 def _update(name: str, p: Project, n: int, yes: bool, from_json: str | None = None) -> bool:
     if from_json:
-        delta = StateDelta.model_validate_json(_strip_fence(Path(from_json).read_text(encoding="utf-8")))
-        delta.episode = n
+        delta = to_delta(StateDeltaAI.model_validate_json(_strip_fence(Path(from_json).read_text(encoding="utf-8"))), n)
         pipeline.clean_delta(p, delta)
     else:
         print(f"{n}화 상태 추출 중...")

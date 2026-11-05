@@ -65,13 +65,14 @@ def test_policy_reasons(demo):
 
 
 def test_policy_reasons_skip_held(demo):
-    """자동 반영이 hold 로 빼는 제안(반대 유형 표시가 붙은 관계 바뀜)은 정책 흉내에도 넣지 않는다."""
+    """자동 반영이 hold 로 빼는 제안(반대 유형 표시가 붙은 관계 바뀜)은 정책 흉내에도 넣지 않는다.
+    관계 바뀜의 수치는 반영이 쓰지 않으므로(사건 없는 예전 형식이어도) 관계를 움직이지 않는다."""
     p = store.load(demo)
     r = p.relationships[0]
     upd = r.model_copy(update={"affinity": -5 if r.affinity >= 0 else 5, "type": "적대"})
-    d = StateDelta(episode=1, summary="s", relationship_updates=[upd])  # 사건 없는 예전 형식: 온기를 affinity 에 맞춘다
+    d = StateDelta(episode=1, summary="s", relationship_updates=[upd])
     pol = Policy(max_shift=0.1, stop_on_stage=True)
-    assert any("관계가" in x for x in autorun.review_reasons(p, d, None, pol))
+    assert autorun.review_reasons(p, d, None, pol) == []
     d.rel_flagged = [0]
     assert autorun.review_reasons(p, d, None, pol) == []
     assert d.relationship_updates == [upd] and d.rel_flagged == [0] and not d.warnings  # 받은 변경안은 그대로 둔다
@@ -329,7 +330,7 @@ def test_web_api(demo, monkeypatch):
 
 
 def test_batch_schema_mismatch_is_repaired(demo):
-    mock.BAD_JSON[:] = ["StateDelta"]  # 실제 배치에서 본 것처럼 summary 가 빠지고 항목이 문자열
+    mock.BAD_JSON[:] = ["StateDeltaAI"]  # 실제 배치에서 본 것처럼 summary 가 빠지고 항목이 문자열
     p = store.load(demo)
     ep = p.episode(1)
     ep.stage = [StageScene(id=f"p{i}", event=i, event_text=x, role="plan") for i, x in enumerate(ep.plot.events)]
@@ -345,7 +346,7 @@ def test_batch_schema_mismatch_is_repaired(demo):
 
 
 def test_batch_schema_mismatch_twice_pauses_and_keeps_text(demo):
-    mock.BAD_JSON[:] = ["StateDelta", "StateDelta"]
+    mock.BAD_JSON[:] = ["StateDeltaAI", "StateDeltaAI"]
     run = autorun.start(demo, 2, True, Policy(), foreground=True)
     assert run.status == "paused" and run.ep == 1 and "형식에 맞지 않아" in run.log[-1].message
     assert "StateDelta" in run.reasons[0] and "본문은 그대로" in run.reasons[1]
