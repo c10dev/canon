@@ -4195,22 +4195,38 @@ class AutoResume(BaseModel):
 @app.post("/api/projects/{name}/auto/resume")
 def auto_resume(name: str, body: AutoResume) -> AutoView:
     _need(name)
+    run = autorun.get_run(name)
+    n = run.ep if run and run.status == "review" and (body.approve or body.rewrite) else None
     autorun.resume(name, approve=body.approve, rewrite=body.rewrite)
+    if n is not None:  # 그 화는 반영했거나 다시 쓴다. 검토하기로 둔 결과(auto_review)는 쓸 데가 없으니 지운다
+        def drop(d: dict) -> None:
+            if str((d["results"].get(f"state:{n}") or {}).get("id", "")).startswith("auto:"):
+                d["results"].pop(f"state:{n}")
+        store.edit_pending(name, drop)
     return _auto(name)
 
 
 @app.post("/api/projects/{name}/auto/review")
 def auto_review(name: str) -> AutoView:
     """검토 대기 변경안을 검토를 기다리는 결과(pending.json 의 state:<화>)로 둔다. 상태 승인 화면이 작업 결과처럼 읽는다.
-    웹은 화면 메모리로 넘기고(auto.js autoOpenReview), 앱은 이것을 부른 뒤 상태 승인 화면으로 간다."""
+    웹(auto.js autoOpenReview)과 앱 모두 이것을 부른 뒤 상태 승인 화면으로 간다. 그래서 고르던 체크 · 고친 칸이 초안으로 남는다.
+    id 는 실행 · 화 · 변경안 내용으로 정해 같은 변경안이면 같다. 같은 변경안을 다시 두면 작가가 남긴 초안을 지키고, 다시 쓰기로 바뀐 변경안은 새로 둔다."""
     p = _load(name)
     run = autorun.get_run(name)
     if run is None or run.status != "review" or run.pending is None or run.ep is None or p.episode(run.ep).status != "written":
         raise ValueError("검토를 기다리는 변경안이 없어요")
     n, key = run.ep, f"state:{run.ep}"
-    rec = {"key": key, "id": f"auto:{run.started}:{n}", "kind": "state", "ep": n, "label": f"{n}화 상태 변경안",
-           "result": run.pending.model_dump(), "base": run.pending_text or None, "at": _now()}
-    store.edit_pending(name, lambda d: d["results"].__setitem__(key, rec))
+    result = run.pending.model_dump()
+    tag = hashlib.sha1(json.dumps(result, ensure_ascii=False, sort_keys=True).encode()).hexdigest()[:10]
+    rec = {"key": key, "id": f"auto:{run.started}:{n}:{tag}", "kind": "state", "ep": n, "label": f"{n}화 상태 변경안",
+           "result": result, "base": run.pending_text or None, "at": _now()}
+
+    def put(d: dict) -> None:
+        old = d["results"].get(key)
+        if old and old.get("id") == rec["id"]:
+            return  # 이미 둔 같은 변경안: 초안(draft)을 지킨다
+        d["results"][key] = rec
+    store.edit_pending(name, put)
     return _auto(name)
 
 

@@ -443,6 +443,10 @@
 - 실행이 없으면 시작 칸 하나이고, 쓸 화가 없으면 빈 화면(`autoEmpty`)
 - `autoPoll` 은 실행이 도는 동안 지난번 화와 지금 화만 받는다(`touchedEpisodes`). 맞출 수 없거나 멈추거나 끝나면 작품 전체를 받는다
 - 머리 주 버튼은 그때 할 일 하나(n화 변경안 검토하기 · 이어 가기 · n화까지 자동 집필 시작)
+- 검토하기(`autoOpenReview`)는 `POST /auto/review` 로 서버에 결과를 두게 한 뒤 `loadPending` 으로 상태 승인 화면에 놓는다. 그래서 고르던 체크 · 고친 칸이 초안으로 남고 새로고침 · 다른 기기에서 이어 고친다
+- 검토하기를 다시 눌러도 화면의 변경안이 같은 결과(같은 id)면 고친 것을 둔다. 다른 결과(다른 작업 · 다시 쓰기 전)면 내리고 새 결과를 놓는다
+- 그대로 반영(`autoResume('approve')`)은 서버의 `Run.pending` 을 반영한다. 상태 승인 화면에서 고친 것(`deltaTouched`)이나 서버 초안이 있으면 고친 것을 버린다고 알리고 검토하기에서 반영하라고 묻는다
+- 그대로 반영 · 다시 쓰기 뒤에는 그 화의 화면 변경안을 내려 `syncPending` 이 서버 결과도 지운다
 - 중지 · 설정을 바꿔 새로 시작은 머리 '실행 ▾' 메뉴
 - 지금 실행 카드는 화 칸 띠(`autoCells`, 40칸까지)와 수 칸 넷
 - 멈춘 이유마다 갈 곳 버튼(`autoReasonLink`: 검수 결과 · 관계도 · 그 화 읽기)
@@ -546,6 +550,9 @@
 - 초안 저장은 pending.json 만 고쳐 작품 저장으로 치지 않는다
 - 초안 저장 본문의 `picks` 가 null 이면 남긴 체크를 그대로 둔다(화면의 체크가 다른 화의 것일 때)
 - 초안 저장은 결과가 없거나 상태 변경안이 아니거나 보낸 `id` 가 결과의 작업 id 와 다르면 아무것도 바꾸지 않는다(반영 · 버림 · 다시 만들기 뒤 늦게 온 저장)
+- `POST /api/projects/{name}/auto/review`(`auto_review`)는 자동 집필 검토 대기 변경안(`Run.pending`)을 pending.json 의 `state:<화>` 결과로 둔다(만든 본문은 `base`)
+- `auto_review` 결과의 id 는 `auto:<실행 시작>:<화>:<변경안 지문>` 이다. 같은 변경안을 다시 두면 기록을 그대로 둬 초안을 지키고, 다시 쓰기로 바뀐 변경안은 새로 둔다
+- `POST /api/projects/{name}/auto/resume`(`auto_resume`)은 그대로 반영 · 다시 쓰기가 성공하면 그 화의 `auto:` 결과(`auto_review` 가 둔 것)를 pending.json 에서 지운다
 - 읽기 전용 GET 은 `_view`(`store.load_view`)로 작품을 읽는다
 - `GET /api/projects`(`list_projects`)는 카드의 project.json 몫을 파일 판(수정 시각 · 크기 · inode)마다 `_cards` 에 둔다. 판이 바뀐 작품만 `store.peek` 으로 다시 읽는다
 - 작품 목록의 play.json · pending.json · 갈래 정보는 요청마다 읽는다
