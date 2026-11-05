@@ -641,6 +641,10 @@ def test_auto_review_keeps_draft_of_same_pending(client, monkeypatch):
     client.post("/api/projects/ar/auto/review")
     fresh = store.load_pending("ar")["results"]["state:1"]
     assert fresh["id"] != rec["id"] and "draft" not in fresh and fresh["result"]["summary"] == "다시 쓴"
+    monkeypatch.setattr(autorun, "resume", lambda name, approve=False, rewrite=False: run)
+    client.post("/api/projects/ar/auto/resume", json={"rewrite": True})  # 다시 쓰면 검토하기로 둔 결과는 지운다
+    assert "state:1" not in store.load_pending("ar")["results"]
+
 
 def test_stop_job_discards_result(client, monkeypatch):
     """멈춘 작업은 바로 cancelled 로 보이고, 늦게 온 AI 응답을 저장하지 않으며 실패로도 남기지 않는다."""

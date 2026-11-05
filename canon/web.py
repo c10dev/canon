@@ -4130,7 +4130,14 @@ class AutoResume(BaseModel):
 @app.post("/api/projects/{name}/auto/resume")
 def auto_resume(name: str, body: AutoResume) -> AutoView:
     _need(name)
+    run = autorun.get_run(name)
+    n = run.ep if run and run.status == "review" and (body.approve or body.rewrite) else None
     autorun.resume(name, approve=body.approve, rewrite=body.rewrite)
+    if n is not None:  # 그 화는 반영했거나 다시 쓴다. 검토하기로 둔 결과(auto_review)는 쓸 데가 없으니 지운다
+        def drop(d: dict) -> None:
+            if str((d["results"].get(f"state:{n}") or {}).get("id", "")).startswith("auto:"):
+                d["results"].pop(f"state:{n}")
+        store.edit_pending(name, drop)
     return _auto(name)
 
 

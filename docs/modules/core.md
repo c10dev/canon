@@ -536,6 +536,7 @@
 - 초안 저장은 결과가 없거나 상태 변경안이 아니거나 보낸 `id` 가 결과의 작업 id 와 다르면 아무것도 바꾸지 않는다(반영 · 버림 · 다시 만들기 뒤 늦게 온 저장)
 - `POST /api/projects/{name}/auto/review`(`auto_review`)는 자동 집필 검토 대기 변경안(`Run.pending`)을 pending.json 의 `state:<화>` 결과로 둔다(만든 본문은 `base`)
 - `auto_review` 결과의 id 는 `auto:<실행 시작>:<화>:<변경안 지문>` 이다. 같은 변경안을 다시 두면 기록을 그대로 둬 초안을 지키고, 다시 쓰기로 바뀐 변경안은 새로 둔다
+- `POST /api/projects/{name}/auto/resume`(`auto_resume`)은 그대로 반영 · 다시 쓰기가 성공하면 그 화의 `auto:` 결과(`auto_review` 가 둔 것)를 pending.json 에서 지운다
 - 읽기 전용 GET 은 `_view`(`store.load_view`)로 작품을 읽는다
 - `GET /api/projects`(`list_projects`)는 카드의 project.json 몫을 파일 판(수정 시각 · 크기 · inode)마다 `_cards` 에 둔다. 판이 바뀐 작품만 `store.peek` 으로 다시 읽는다
 - 작품 목록의 play.json · pending.json · 갈래 정보는 요청마다 읽는다
