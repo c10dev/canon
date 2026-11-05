@@ -79,6 +79,7 @@ from .schema import (
     Deadline,
     SettingChange,
     StateDelta,
+    StateDeltaAI,
     StatValue,
     StoryTime,
     StoryArc,
@@ -738,6 +739,7 @@ def _r_agent_ask(prompt: str, hint: dict):
     return AgentAsk(question="몇 화로 갈까요?", options=[Direction(title=t, idea=f"{t}로 간다.") for t in ("7화", "15화")])
 
 
+@responds(StateDeltaAI)
 @responds(StateDelta)
 def _r_state_delta(prompt: str, hint: dict):
     n = hint["episode"]

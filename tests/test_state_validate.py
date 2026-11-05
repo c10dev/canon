@@ -122,3 +122,43 @@ def test_apply_without_basis_is_not_checked(client):
     client.put("/api/projects/sv/episodes/1/text", json={"text": store.load("sv").episode(1).text + " 덧붙임."})
     d["basis"] = ""
     assert client.post("/api/projects/sv/episodes/1/apply", json=d).status_code == 200
+
+
+def test_apply_refuses_secret_of_unknown_owner(client):
+    """설정에 없는 인물의 비밀은 누구의 것도 아니라 web 반영이 막는다. 모르는 인물 · 드러낸 비밀의 없는 id 는 막지 않고 뺀다."""
+    from canon import store
+
+    d = _written(client)
+    a = d["character_updates"][0]["character_id"]
+    bad = copy.deepcopy(d)
+    bad["secrets_added"].append({"id": "sec-ghost", "owner": "ghost", "content": "숨긴 일"})
+    r = client.post("/api/projects/sv/episodes/1/apply", json=bad)
+    assert r.status_code == 400 and "ghost" in r.json()["detail"] and "비밀" in r.json()["detail"]
+    assert store.load("sv").episode(1).status == "written"
+    ok = copy.deepcopy(d)
+    ok["secrets_added"].append({"id": "sec-x", "owner": a, "content": "숨긴 일", "hidden_from": ["nobody", a]})
+    ok["events"].append({**d["events"][0], "reveals_secret": "sec-none"})
+    r = client.post("/api/projects/sv/episodes/1/apply", json=ok)
+    assert r.status_code == 200, r.json()
+    p = store.load("sv")
+    assert next(s for s in p.secrets if s.id == "sec-x").hidden_from == [a]
+    assert all(e.reveals_secret != "sec-none" for e in p.events)
+
+
+def test_apply_delta_drops_bad_secret_refs(client):
+    """자동 집필 · 명령줄 경로: 주인이 없는 비밀은 빼서 dismissed 에 두고, 모르는 인물 · 드러낸 비밀의 없는 id 는 지우고 문구를 돌려준다."""
+    from canon import pipeline, store
+    from canon.schema import Secret, StateDelta
+
+    d = StateDelta.model_validate(_written(client))
+    p = store.load("sv")
+    a = d.character_updates[0].character_id
+    d.secrets_added = [Secret(id="sec-ghost", owner="ghost", content="숨긴 일"),
+                       Secret(id="sec-ok", owner=a, content="편지", hidden_from=["nobody"])]
+    d.events[0].reveals_secret = "sec-ghost"  # 빠진 비밀을 가리키면 지운다
+    assert len(pipeline.validate_delta(p, d)) == 1
+    dropped = pipeline.apply_delta(p, d)
+    assert len(dropped) == 3 and any("nobody" in m for m in dropped) and any("sec-ghost" in m and "지웠어요" in m for m in dropped)
+    assert "sec-ghost" not in {s.id for s in p.secrets} and next(s for s in p.secrets if s.id == "sec-ok").hidden_from == []
+    assert [s.id for s in p.history[-1].dismissed.secrets_added] == ["sec-ghost"]
+    assert all(e.reveals_secret != "sec-ghost" for e in p.events)

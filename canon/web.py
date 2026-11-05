@@ -40,7 +40,7 @@ from . import abilities, anchor, atlas, findings, foreshadows, setupchat, stattr
 from .schema import AgentSession, ChatScope, KnowsFoldSet, Deadline, Storyboard, StoryTime, Foreshadow, StatValue
 from .metrics import StyleMetrics
 from .schema import CharacterState, ConsistencyReport, FindingStatus, Severity, StoryEvent
-from .schema import FieldIdeas, NameOption, Recap
+from .schema import FieldIdeas, NameOption, Recap, StateDeltaAI, to_delta
 from . import branches
 from .schema import BranchDiff, BranchInfo, ForkMode, Snapshot
 from . import play
@@ -208,7 +208,7 @@ async def _server_error(_: Request, e: Exception) -> JSONResponse:
 def _need(name: str) -> None:
     """작품이 있는지만 본다. 없으면 404."""
     if not NAME_RE.match(name) or not store.exists(name):
-        raise HTTPException(404, f"프로젝트가 없어요: {name}")
+        raise HTTPException(404, f"작품을 찾을 수 없어요: {name}. 작품 목록에서 다시 골라 주세요")
 
 
 def _load(name: str) -> Project:
@@ -964,7 +964,7 @@ def create_project(body: NewProject) -> Project:
     if not NAME_RE.match(name):
         raise HTTPException(400, NAME_ERR)
     if store.exists(name):
-        raise HTTPException(409, f"이미 있는 프로젝트예요: {name}")
+        raise HTTPException(409, f"이미 있는 폴더 이름이에요: {name}. 폴더 이름을 바꿔 주세요")
     if not 1 <= body.meta.target_episodes <= 1000:
         raise HTTPException(400, "총 화수는 1~1000 사이로 적으세요")
     p = Project(meta=body.meta)
@@ -3800,7 +3800,7 @@ def parse_state(name: str, n: int, body: Raw) -> StateDelta:
     data = _json_object(body.raw)
     data["episode"] = n
     try:
-        delta = StateDelta.model_validate(data)
+        delta = to_delta(StateDeltaAI.model_validate(data), n)  # 예전 JSON 의 관계 수치 칸은 버린다
     except ValidationError as e:
         raise HTTPException(400, _validation_text(e))
     pipeline.clean_delta(p, delta)
@@ -3995,9 +3995,7 @@ def apply_state(name: str, n: int, d: StateDelta, force: bool = False) -> Projec
     p = _load(name)
     _not_auto(name)
     ep = p.episode(n)
-    if ep.status != "written":
-        raise ValueError(f"{n}화는 본문이 작성된 상태가 아니에요 (현재: {ep.status})")
-    pipeline.require_previous(p, n)
+    pipeline.check_applicable(p, n)
     d.episode = n
     bad = pipeline.validate_delta(p, d)
     if bad:
@@ -4010,10 +4008,15 @@ def apply_state(name: str, n: int, d: StateDelta, force: bool = False) -> Projec
 
 
 @app.post("/api/projects/{name}/episodes/{n}/restate")
-def apply_restate(name: str, n: int, d: StateDelta) -> Project:
-    """반영 뒤 고친 화: 고친 본문에서 다시 뽑은 변경안 중 고른 요약 · 새 사실 · 새 복선만 반영한다."""
+def apply_restate(name: str, n: int, d: StateDelta, force: bool = False) -> Project:
+    """반영 뒤 고친 화: 고친 본문에서 다시 뽑은 변경안 중 고른 요약 · 새 사실 · 새 복선만 반영한다.
+    변경안을 만든 본문(d.basis)이 지금 본문과 다르면 apply_state 처럼 409(code stale_delta)로 막는다. 작가가 확인하면 force 로 다시 보낸다."""
     p = _load(name)
     _not_auto(name)
+    ep = p.episode(n)
+    if ep.status == "finalized" and d.basis and not force and d.basis != pipeline.text_basis(ep.text):
+        return JSONResponse({"detail": f"변경안을 만든 뒤 {n}화 본문을 또 고쳤어요. 옛 본문 기준의 요약 · 사실 · 복선이 들어가요",
+                             "code": "stale_delta"}, status_code=409)
     d.episode = n
     pipeline.apply_restate(p, d)
     return _save(name, p)

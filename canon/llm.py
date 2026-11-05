@@ -13,7 +13,9 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
+import logging
 import math
 import os
 import re
@@ -29,6 +31,7 @@ from pydantic import BaseModel, ValidationError
 from . import cancel, usage
 
 T = TypeVar("T", bound=BaseModel)
+_log = logging.getLogger(__name__)
 
 
 class MissingKey(RuntimeError):
@@ -587,14 +590,18 @@ class BatchLLM:
     """LLM 인터페이스 그대로 배치를 쓴다. 호출 하나가 배치 작업 하나이고, 결과가 올 때까지 기다린다.
 
     names 는 slot -> 배치 작업 이름. 호출자가 저장해 두면 프로세스가 다시 시작해도 같은 slot 으로
-    부를 때 새 작업을 만들지 않고 기다리던 작업에 다시 붙는다 (프롬프트가 같다는 전제).
+    부를 때 새 작업을 만들지 않고 기다리던 작업에 다시 붙는다.
+    keys 는 slot -> 보낸 프롬프트의 지문. 다시 붙을 때 지금 프롬프트의 지문과 다르면 (멈춘 사이 본문이나 플롯을 고쳤다)
+    기다리던 작업을 취소하고 지금 프롬프트로 새로 보낸다. 지문이 없는 예전 기록은 그대로 다시 붙는다.
     wait(초) 는 기다리고 나서 'stop'(작업 취소) | 'pause'(작업은 두고 멈춤) | '' 를 돌려준다.
     json 응답이 스키마와 맞지 않으면 오류를 붙여 '<slot>:fix' 로 한 번 더 배치를 보내고, note(글) 로 알린다.
     """
 
     def __init__(self, inner: Any, slot: str, names: dict[str, str], on_change: Any, wait: Any,
-                 label: str = "canon", interval: float | None = None, note: Any = None):
+                 label: str = "canon", interval: float | None = None, note: Any = None,
+                 keys: dict[str, str] | None = None):
         self.inner, self.slot, self.names, self.on_change, self.wait = inner, slot, names, on_change, wait
+        self.keys = keys if keys is not None else {}
         self.label, self.note = label, note
         self.interval = interval if interval is not None else float(os.environ.get("CANON_BATCH_POLL", "30"))
         self.last_usage: dict | None = None
@@ -602,22 +609,46 @@ class BatchLLM:
         self.last_prompt = ""  # 사용량 기록에 블록 크기를 남기려고
         self.model = getattr(inner, "model", "")
 
+    @staticmethod
+    def key(system: str, prompt: str) -> str:
+        return hashlib.sha1(f"{system}\0{prompt}".encode("utf-8")).hexdigest()[:12]
+
+    def _forget(self, slot: str) -> None:
+        self.names.pop(slot, None)
+        self.keys.pop(slot, None)
+        self.on_change()
+
+    def _drop_stale(self, slot: str, key: str) -> None:
+        """slot 에 기다리던 작업이 지금과 다른 프롬프트로 보낸 것이면 취소하고 이름을 버린다."""
+        name, old = self.names.get(slot), self.keys.get(slot)
+        if not name or not old or old == key:
+            return
+        try:
+            self.inner.batch_cancel(name)
+        except Exception as e:  # 이미 끝났거나 취소하지 못해도 옛 결과는 쓰지 않는다
+            _log.warning("배치 %s(%s)를 취소하지 못했어요: %s", name, slot, getattr(e, "message", None) or e)
+        self._forget(slot)
+        if self.note:
+            self.note("기다리던 배치를 보낸 뒤 본문이나 플롯이 바뀌어, 그 배치는 취소하고 지금 내용으로 다시 요청해요")
+
     def _run(self, system: str, prompt: str, schema: type[BaseModel] | None, hint: dict | None = None,
-             slot: str | None = None) -> str:
+             slot: str | None = None, key: str = "") -> str:
         slot = slot or self.slot
         self.last_prompt = prompt
+        key = key or self.key(system, prompt)
+        self._drop_stale(slot, key)
         name = self.names.get(slot)
         if not name:
             name = self.inner.batch_submit(system, prompt, schema, f"{self.label} {slot}", hint=hint)
             self.names[slot] = name
+            self.keys[slot] = key
             self.on_change()
         fails = 0
         while True:
             try:
                 raw = self.inner.batch_poll(name)
             except BatchGone as e:
-                self.names.pop(slot, None)  # 끝난 작업에 다시 붙지 않게 한다
-                self.on_change()
+                self._forget(slot)  # 끝난 작업에 다시 붙지 않게 한다
                 usage.record(self.inner, None, ok=False, error=e, attempt=self.last_attempts, batch=True, prompt=prompt)
                 raise
             except Exception as e:
@@ -631,8 +662,7 @@ class BatchLLM:
                 continue
             fails = 0
             if raw is not None:
-                self.names.pop(slot, None)
-                self.on_change()
+                self._forget(slot)
                 self.last_usage = getattr(self.inner, "last_usage", None)
                 return raw
             why = self.wait(self.interval)
@@ -640,8 +670,7 @@ class BatchLLM:
                 try:
                     self.inner.batch_cancel(name)
                 finally:
-                    self.names.pop(slot, None)
-                    self.on_change()
+                    self._forget(slot)
                 raise Interrupted(cancelled=True)
             if why:
                 raise Interrupted(cancelled=False)
@@ -656,9 +685,11 @@ class BatchLLM:
     def json(self, system: str, prompt: str, schema: type[T], hint: dict | None = None) -> T:
         fix = f"{self.slot}:fix"
         ask = prompt  # 고쳐 달라는 작업을 기다리던 중이면 (서버 재시작) 프롬프트는 쓰이지 않는다
+        key = self.key(system, prompt)  # 고쳐 달라는 작업도 처음 프롬프트의 지문으로 맞춰 본다
+        self._drop_stale(fix, key)
         if fix not in self.names:
             self.last_attempts = 1
-            raw = self._run(system, prompt, schema, hint)
+            raw = self._run(system, prompt, schema, hint, key=key)
             try:
                 return self._done(_validate(schema, raw))
             except ValidationError as e:
@@ -667,7 +698,7 @@ class BatchLLM:
                     self.note(f"응답이 형식과 맞지 않아 ({_brief(e, 3)}) 오류를 알려 주고 한 번 더 배치로 요청해요")
                 ask = repair_prompt(prompt, raw, schema, e)
         self.last_attempts = 2
-        raw = self._run(system, ask, schema, hint, slot=fix)
+        raw = self._run(system, ask, schema, hint, slot=fix, key=key)
         try:
             return self._done(_validate(schema, raw))
         except ValidationError as e:
