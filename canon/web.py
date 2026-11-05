@@ -2708,14 +2708,18 @@ def _job_write(name: str, body: "JobIn", p: Project, kind: str, n: int | None, l
 
             def fn(job: jobs.Job):
                 _fill_old_spots(name)
+                lead: list[str] = []
+                made_at = ""
                 if make:
                     job.note = f"{n}화 스토리보드 만드는 중"
-                    b = pipeline.make_storyboard(plan, store.load(name), n)
+                    b = pipeline.make_storyboard(plan, store.load(name), n, lead=lead)
                     _edit(name, lambda q: pipeline.set_storyboard(q, n, b, by="ai"))
+                    made_at = b.made_at
                     job.done = 1
                 if make_cues:  # 스토리보드 다음: 큐 시트는 스토리보드 장면 순서를 받아 만든다
                     job.note = f"{n}화 큐 시트 만드는 중"
-                    s = pipeline.make_cue_sheet(plan, store.load(name), n)
+                    q = store.load(name)  # 방금 만든 스토리보드면 그 요청 글로 시작해 캐시가 맞게 한다 (pipeline.cue_lead)
+                    s = pipeline.make_cue_sheet(plan, q, n, lead=pipeline.cue_lead(q, n, lead, made_at))
                     _edit(name, lambda q: cue.set_episode(q, n, s, by="ai"))
                     job.done += 1
                 job.note = f"{n}화 본문 쓰는 중"

@@ -405,8 +405,9 @@ def estimate(p: Project, target: int, batch: bool, policy: Policy, name: str | N
             if made:  # 스토리보드 만들기 한 번 + 쓰기 프롬프트에 들어갈 스토리보드 블록
                 calls.append(("plan", prompts.SYSTEM_PLANNER + prompts.storyboard_prompt(sim, n), BOARD_OUT))
             sheet = cues and e.cue_sheet is None
-            if sheet:  # 큐 시트 만들기 한 번 + 쓰기 프롬프트 끝에 붙는 큐 시트 블록
-                calls.append(("plan", prompts.SYSTEM_PLANNER + prompts.cue_sheet_prompt(sim, n) + " " * (BOARD_CHARS if made else 0), CUE_OUT))
+            if sheet:  # 큐 시트 만들기 한 번 (방금 만든 스토리보드가 있으면 그 요청 글 + 스토리보드 블록이 앞에 온다) + 쓰기 프롬프트 끝에 붙는 큐 시트 블록
+                lead = prompts.storyboard_prompt(sim, n) if made else ""
+                calls.append(("plan", prompts.SYSTEM_PLANNER + prompts.cue_sheet_prompt(sim, n, lead=lead) + " " * (BOARD_CHARS if made else 0), CUE_OUT))
             calls.append(("write", prompts.writer_system(sim) + prompts.episode_prompt(sim, n)
                           + " " * ((BOARD_CHARS if made else 0) + (CUE_CHARS if sheet else 0)), write_out))
             if policy.polish:  # 서술 다듬기 한 번: 작품 고정 블록 + 쓴 본문(목표 분량) + 규칙, 본문 전체를 다시 낸다
@@ -483,6 +484,7 @@ def _edit(name: str, fn: Callable[[Project], Any]) -> Project:
 class Runner:
     def __init__(self, ctl: Control, job: Optional[jobs.Job] = None, echo: Callable[[str], None] | None = None):
         self.ctl, self.name, self.job, self.echo = ctl, ctl.name, job, echo
+        self.board_lead: tuple[int, str, list[str]] | None = None  # 방금 만든 스토리보드 (화, made_at, 보낸 요청 글). _cues 가 앞에 둔다
 
     @property
     def run(self) -> Run:
@@ -641,7 +643,8 @@ class Runner:
                 kind="board_stale")
         self._set(n, "board")
         self.log(f"{n}화 스토리보드를 만드는 중")
-        made, use = self.call("plan", n, lambda llm: pipeline.make_storyboard(llm, p, n))
+        lead: list[str] = []
+        made, use = self.call("plan", n, lambda llm: pipeline.make_storyboard(llm, p, n, lead=lead))
 
         def put(q: Project) -> None:
             st = q.episode(n).status
@@ -651,6 +654,7 @@ class Runner:
                     f"이어 가면 {n}화의 지금 상태에서 다시 시작해요"], kind="changed")
             pipeline.set_storyboard(q, n, made, by="ai")
         _edit(self.name, put)
+        self.board_lead = (n, made.made_at, lead)
         self.log(f"{n}화 스토리보드: 장면 {len(made.scenes)}개", **use)
         for w in made.warnings:
             if w.target == "next" or w.kind not in board.STOP_KINDS:
@@ -669,7 +673,10 @@ class Runner:
             return False
         self._set(n, "cues")
         self.log(f"{n}화 큐 시트를 만드는 중")
-        made, use = self.call("plan", n, lambda llm: pipeline.make_cue_sheet(llm, p, n))
+        # 방금 만든 스토리보드 요청 글로 시작하게 보내 캐시가 맞게 한다. 작가가 고쳤거나 낡았으면 예전 요청 (pipeline.cue_lead)
+        bl = self.board_lead if self.board_lead and self.board_lead[0] == n else None
+        lead = pipeline.cue_lead(p, n, bl[2], bl[1]) if bl else ""
+        made, use = self.call("plan", n, lambda llm: pipeline.make_cue_sheet(llm, p, n, lead=lead))
         if not made.cues:
             self.log(f"{n}화 큐 시트가 비어 왔어요. 큐 시트 없이 써요", "warn", **use)
             return False

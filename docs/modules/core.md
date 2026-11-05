@@ -8,6 +8,7 @@
 - `wanted(name)`: 도는 실행에 받아 둔 일시정지 · 중지 요청. 웹 `AutoView.want` 로 보내 화면이 지금 단계가 끝날 때까지 '멈추는 중'을 보인다
 - 다른 프로세스가 쥔 실행이면 `wanted` 는 주인이 아직 읽지 않은 `autorun.want` 를 돌려준다. 주인이 읽어 지우면 빈 값으로 돌아간다
 - 목표 화까지 (스토리보드 `_board`, `Policy.storyboard` · `stop_on_board_warnings`) → (큐 시트 `_cues`, `Policy.cue_sheet`) → write → (서술 다듬기 `_polish`, `Policy.polish`, 다듬을 화 `Run.polish_due`) → check + state → 정책(`Policy`) 통과 시 반영을 반복
+- `_cues` 는 같은 실행의 `_board` 가 방금 만든 스토리보드(`Runner.board_lead`: 화 · made_at · 요청 글)면 그 요청 글로 시작하는 큐 시트 요청을 보낸다(`pipeline.cue_lead`)
 - 관계 정책(`max_shift` · `stop_on_stage`)은 작품 복사본에 `features.hold` 로 뺀 변경안을 반영해 본다(`review_reasons`)
 - 그래서 관계 정책은 실제 반영(`put`)과 같은 제안만 센다
 - 배치(`llm.BatchLLM`) 켜고 끄기
@@ -265,6 +266,7 @@
   - 빈칸 제안은 이미 있는 인물도 빈 칸만 `fill_character`
 - 스토리보드: `make_storyboard` · `set_storyboard` · 낡음 지문 `board_basis`, `write_episode(use_board=)`, AI 고치기 `revise_storyboard` → `apply_storyboard_revision`(고치기 전 것은 `Episode.storyboard_prev`) · 적용 취소 `undo_storyboard`
 - 큐 시트: `make_cue_sheet`, 넣기는 `cue.set_episode`, `write_episode(use_cues=)`
+- 방금 만든 스토리보드 다음의 큐 시트: `make_storyboard(lead=)` 가 보낸 요청 글을 채우고, `cue_lead` 가 그 스토리보드가 AI 가 만든 그대로 · 낡지 않음일 때만 그 글을 돌려준다. `make_cue_sheet(lead=)` 는 그 글로 시작하는 요청을 보낸다(자동 집필 `_cues`, 웹 쓰기 작업 `board: make`)
 - 문체 분석 `analyze_style` 뒤 `count_markers` 가 표지 · 장치 단서를 거른다: 원문에 없는 것, 한글 2자 미만(`MARKER_MIN_HANGUL`), 인물 이름(2자 이상)이 든 것
 - `count_markers` 는 원문 표본에 없는(공백 빼고 견줌) 장치 예시를 비운다
 - 검수
@@ -289,6 +291,7 @@
 - 장편은 플롯 인물 목록 밖이라도 이름이 나온 조연을 넣는다(쓰기 `named_block`, 검수 `check_cast`, 상태 변경안)
 - 오랜만에 나오는 인물은 `return_block`
 - 스토리보드 만들기 `storyboard_prompt`(Canon 이 센 값 `canon_values_block`), 고치기 `storyboard_revise_prompt`(만들기 프롬프트 뒤에 지금 스토리보드와 요청)
+- 큐 시트 만들기 `cue_sheet_prompt(lead=)`: lead 를 주면 스토리보드 요청 글 그대로 + `board_block` · 장면 연출 + 큐 시트 요구사항(`_cue_request`). 응답 형식은 같다
 - 쓰기에 넣는 `board_block`(직전 화 본문 뒤, 이번 화 플롯 바로 앞, 시간 · 이동 블록을 대신함)
 - 직전 화 블록 `prev_block`(스토리보드를 넣는 화와 스토리보드 만들기만 원문 전체, `build_episode_context(full_prev=)`)
 - 쇠맛을 줄이는 쓰기 규칙: 블록 차례 한 줄 `priority_line`
