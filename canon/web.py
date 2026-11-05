@@ -118,7 +118,8 @@ async def _bad_key(_: Request, e: BadKey) -> JSONResponse:
 @app.exception_handler(MissingKey)
 async def _no_key(_: Request, e: MissingKey) -> JSONResponse:
     # 첫 실행에 흔한 상황이라 서버 오류가 아니라 설정 안내로 보인다
-    return JSONResponse({"detail": "Gemini API 키가 없어요. 설정의 AI 연결에서 넣으세요", "code": "no_key"}, status_code=400)
+    # 백엔드마다 없는 키가 다르다(Gemini · Vertex · Anthropic). 문구는 낸 곳의 것을 쓴다
+    return JSONResponse({"detail": str(e) or "API 키가 없어요. 설정의 AI 연결에서 넣으세요", "code": "no_key"}, status_code=400)
 
 
 @app.exception_handler(Exception)
@@ -289,6 +290,9 @@ class ConfigHealth(_Out):
     has_key: bool
     local: bool | None = None
     local_error: str = ""
+    claude_api: bool | None = Field(None, description="claude-api 단계가 있으면 Anthropic API 키가 있는지. 쓰지 않으면 null")
+    claude: str | None = Field(None, description="claude(구독) 단계가 있으면 claude.status 의 reason (ok | login | metered | install | error). 쓰지 않으면 null")
+    claude_message: str = ""
 
 
 class ClaudeAccount(_Out):
@@ -347,6 +351,8 @@ class SettingsIn(BaseModel):
 
 @app.put("/api/config")
 def put_config(body: SettingsIn) -> ConfigView:
+    global _claude_seen
+    _claude_seen = None  # claude 실행 파일 · 백엔드가 바뀌었을 수 있다. 상태 확인이 다시 읽게 한다
     choices = settings.PROVIDERS
     if body.provider is not None and body.provider not in choices:
         raise HTTPException(400, f"provider는 {' / '.join(choices)} 중 하나예요")
@@ -446,7 +452,27 @@ def config_health() -> ConfigHealth:
             out["local"] = True
         except Exception as e:  # 꺼져 있거나 주소가 틀렸다
             out["local"], out["local_error"] = False, str(getattr(e, "message", None) or e)
+    if "claude-api" in provs:
+        out["claude_api"] = bool(settings.anthropic_key()[0])
+    if "claude" in provs:  # 첫 작업이 실패하기 전에 설치 · 로그인을 알린다. claude 를 띄우는 확인이라 잠시 기억해 둔다
+        st = _claude_status_cached()
+        out["claude"], out["claude_message"] = st["reason"], st["message"]
     return out
+
+
+_claude_seen: tuple[float, dict] | None = None
+CLAUDE_STATUS_TTL = 60  # 초. 화면을 옮길 때마다 claude 를 다시 띄우지 않는다
+
+
+def _claude_status_cached() -> dict:
+    """claude.status 를 잠시 기억한다. 설정을 바꾸면(put_config) 지우고, 상태를 못 읽은 결과(error)는 기억하지 않는다."""
+    global _claude_seen
+    now = time.time()
+    if _claude_seen is None or now - _claude_seen[0] > CLAUDE_STATUS_TTL:
+        st = claude.status()
+        _claude_seen = (now, st) if st.get("reason") != "error" else None
+        return st
+    return _claude_seen[1]
 
 
 class UpdateCheck(_Out):
@@ -469,8 +495,12 @@ def update_check() -> UpdateCheck:
 
 @app.get("/api/claude/status")
 def claude_status() -> ClaudeStatus:
-    """Claude Code 설치와 구독 로그인 상태. 로그인은 Claude Code 가 하고 Canon 은 상태만 본다 (claude.py)."""
-    return claude.status()
+    """Claude Code 설치와 구독 로그인 상태. 로그인은 Claude Code 가 하고 Canon 은 상태만 본다 (claude.py).
+    새로 읽은 상태로 상태 확인(config_health)의 기억도 바꾼다 (로그인한 뒤 '확인'을 누르면 경고가 바로 사라지게)."""
+    global _claude_seen
+    st = claude.status()
+    _claude_seen = (time.time(), st) if st.get("reason") != "error" else None
+    return st
 
 
 class PlayCard(_Out):

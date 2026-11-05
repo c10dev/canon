@@ -396,7 +396,9 @@ class ClaudeAPILLM:
 
         key = api_key or settings.anthropic_key()[0]
         if not key:
-            raise RuntimeError("Anthropic API 키가 없어요. 웹 설정의 AI 연결에서 넣거나 ANTHROPIC_API_KEY를 설정하세요.")
+            from .llm import MissingKey  # 웹이 설정 안내(code no_key)로 보인다
+
+            raise MissingKey("Anthropic API 키가 없어요. 웹 설정의 AI 연결에서 넣거나 ANTHROPIC_API_KEY를 설정하세요.")
         self.client = anthropic.Anthropic(api_key=key, max_retries=3)
         self.model = model or settings.claude_model()[0] or DEFAULT_API_MODEL
         self.effort = effort if effort in settings.EFFORTS else ""

@@ -487,13 +487,6 @@ function viewBrief(n) {
   return head + outlineDoc(briefToc(n, e), `<div class="brief-col">${main}</div>`, { cls: 'brief-wrap' });
 }
 
-/** 장편 검수 넓히기 켜기 · 끄기 (Settings.check_widen). 작품 설정이라 자동 집필 검수도 따른다.
-    켜지면 `.btn.on` (디자인 시스템 Button). small 이 아니면 머리 줄의 다른 버튼과 같은 높이다 */
-function widenToggle(small = true) {
-  const on = !!P().settings.check_widen;
-  return `<button type="button" class="btn${small ? ' small' : ''}${on ? ' on' : ''}" aria-pressed="${on}" data-action="toggleWiden" title="검수 뒤 이번 화 진술마다 옛 화를 더 찾아, 처음 검수에 넣지 못한 근거가 나온 진술만 다시 물어요. 검수 호출이 2번 늘어요">넓혀 찾기 ${on ? '켜짐' : '꺼짐'}</button>`;
-}
-
 Object.assign(actions, {
   async metaCutRestore(arg) {
     const [n, k] = arg.split(':').map(Number);

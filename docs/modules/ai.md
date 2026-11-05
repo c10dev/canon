@@ -5,6 +5,7 @@
 ### `canon/claude.py`
 
 - Claude 백엔드
+- `ClaudeAPILLM` 은 Anthropic 키가 없으면 `MissingKey` 를 낸다(웹은 설정 안내 code `no_key`)
 - 구독 로그인(`claude`, 설치된 Claude Code 를 `claude -p` 로 부름, 로그인 상태 `status`)과 API 키(`claude-api`, Anthropic SDK)
 - Canon 은 Claude 계정 로그인을 직접 받거나 토큰을 저장하지 않는다(Anthropic 정책)
 - 단계별 추론 강도(`settings.stage_effort`)를 구독은 `--effort`(모르는 버전이면 뺌), API 는 `output_config.effort` 로 넘긴다. 비우면 모델 기본값. 사용량 기록 줄의 `effort`

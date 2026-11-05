@@ -925,3 +925,51 @@ def test_cast_and_atlas_views_are_tagged(client):
     p["meta"]["title"] = "등대 2"
     client.put("/api/projects/cv", json=p)
     assert client.get("/api/projects/cv/cast", headers={"If-None-Match": tag}).status_code == 200
+
+
+def test_health_tells_claude_setup(client, monkeypatch):
+    """Claude 단계를 고르면 상태 확인이 Anthropic 키 유무와 Claude Code 설치 · 로그인을 알린다 (첫 작업이 실패하기 전에)."""
+    from canon import web
+
+    pub = {"has_key": True, "stages": {"plan": {"provider": "claude-api"}, "write": {"provider": "claude"}}}
+    monkeypatch.setattr(web.settings, "public", lambda: pub)
+    monkeypatch.setattr(web.settings, "anthropic_key", lambda: ("", ""))
+    calls = []
+    monkeypatch.setattr(web.claude, "status", lambda: calls.append(1) or {"reason": "login", "message": "로그인하세요"})
+    monkeypatch.setattr(web, "_claude_seen", None)
+    h = client.get("/api/config/health").json()
+    assert h["claude_api"] is False and h["claude"] == "login" and h["claude_message"] == "로그인하세요"
+    client.get("/api/config/health")
+    assert calls == [1]  # claude 상태는 잠시 기억해 다시 띄우지 않는다
+    pub["stages"] = {"plan": {"provider": "gemini"}}
+    h = client.get("/api/config/health").json()
+    assert h["claude_api"] is None and h["claude"] is None
+    # 설정 화면의 Claude 상태 확인은 새로 읽고 그 결과로 기억을 바꾼다. 상태를 못 읽은 결과(error)는 기억하지 않는다
+    pub["stages"] = {"write": {"provider": "claude"}}
+    ok = {"installed": True, "path": "/x/claude", "version": "1", "logged_in": True, "env_token": False, "api_key_ignored": False,
+          "message": "로그인돼 있어요.", "reason": "ok", "login_command": "claude auth login", "token_command": "claude setup-token"}
+    monkeypatch.setattr(web.claude, "status", lambda: ok)
+    client.get("/api/claude/status")
+    assert client.get("/api/config/health").json()["claude"] == "ok"
+    monkeypatch.setattr(web, "_claude_seen", None)
+    monkeypatch.setattr(web.claude, "status", lambda: calls.append(2) or {"reason": "error", "message": "x"})
+    client.get("/api/config/health")
+    client.get("/api/config/health")
+    assert calls.count(2) == 2
+
+
+def test_missing_anthropic_key_is_no_key(client, monkeypatch):
+    """claude-api 키가 없으면 그 백엔드의 문구로 설정 안내(code no_key)를 돌려준다 (Gemini 문구가 아니라)."""
+    import asyncio
+    import json as _json
+
+    from canon import web
+    from canon.claude import ClaudeAPILLM
+    from canon.llm import MissingKey
+
+    monkeypatch.setattr(web.settings, "anthropic_key", lambda: ("", ""))
+    with pytest.raises(MissingKey) as e:
+        ClaudeAPILLM()
+    r = asyncio.run(web._no_key(None, e.value))
+    body = _json.loads(r.body)
+    assert body["code"] == "no_key" and body["detail"].startswith("Anthropic API 키가 없어요")

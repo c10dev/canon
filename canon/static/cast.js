@@ -551,7 +551,7 @@ function castSheetSettings(c, f, at) {
   const heldBox = ([x, i]) => `<div class="csh-held"><div class="small"><strong>${x.episode}화 설정 바꾸기 제안</strong> · 자동 집필이 남겨 둠</div>
     <textarea id="sch-${i}" rows="2" data-autogrow aria-label="${esc(scLabel(x.field))} 바꾼 뒤">${esc(x.value)}</textarea>
     ${x.reason ? `<div class="small">${esc(x.reason)}</div>` : ''}${x.quote ? `<div class="small">“${esc(x.quote)}”</div>` : ''}
-    <div class="row"><button type="button" class="btn small primary" data-action="scTake" data-arg="${i}">적용</button><button type="button" class="btn small" data-action="scDrop" data-arg="${i}">버리기</button></div></div>`;
+    ${proposalActions(['scDrop', i], ['scTake', i], '적용')}</div>`;
   const fields = [...SHEET_SETTING, ...held.map(([x]) => x.field).filter((fl) => !SHEET_SETTING.includes(fl))];
   const rows = [...new Set(fields)].map((fl) => {
     const v = at.c[fl];
@@ -596,7 +596,7 @@ function bodySuggestCard(c) {
   }).join('');
   return `<div class="note info" style="display:flex;flex-direction:column;gap:8px"><strong>AI 제안</strong>${s.note ? `<span>${esc(s.note)}</span>` : ''}
     ${rows || '<span>제안한 칸이 없어요</span>'}
-    <div class="row"><button type="button" class="btn small primary" data-action="bodyApply" data-arg="${esc(c.id)}"${rows ? '' : ' disabled'}>고른 칸 적용</button><button type="button" class="btn small" data-action="bodyDismiss" data-arg="${esc(c.id)}">닫기</button></div></div>`;
+    ${proposalActions(['bodyDismiss', c.id], ['bodyApply', c.id], '고른 칸 적용', !rows)}</div>`;
 }
 
 // 인물을 AI에 넣는 방식 (Character.context). 인과율 요소 화면(causal.js)의 'AI에 넣기'와 같은 고르기이고,
@@ -661,17 +661,21 @@ function castHead(c, f, at) {
     <div class="cast-head-id">
       <div class="between"><div class="row" style="align-items:baseline"><h2>${esc(c.name || c.id)}</h2><span class="small">${[c.age, c.gender].filter(Boolean).map(esc).join(' · ')}</span></div>
         <a class="btn small" href="${base()}/setup/${enc(c.id)}">설정 도우미에서 고치기</a></div>
-      <div class="row" style="gap:6px"><span class="chip confirmed">${TIER_NAME[c.tier || 'main']}</span>${c.role ? `<span class="chip">${esc(c.role)}</span>` : ''}${at.c.arc ? `<span class="chip csh-arc">아크 · ${esc(at.c.arc)}</span>` : ''}${held ? `<span class="chip warn" title="남겨 둔 설정 바꾸기 제안. 아래 설정 카드에서 골라요">제안 ${held}</span>` : ''}</div>
+      <div class="row" style="gap:6px"><span class="chip confirmed">${TIER_NAME[c.tier || 'main']}</span>${c.role ? `<span class="chip">${esc(c.role)}</span>` : ''}${at.c.arc ? `<span class="chip csh-arc">아크 · ${esc(at.c.arc)}</span>` : ''}${held ? `<span class="chip warn">설정 바꾸기 제안 ${held}</span>` : ''}</div>
       <div class="small">${facts}</div>
       ${apps.length ? `<div class="cast-strip-wrap">${castStrip(c.id, { mark: f && f.episode })}</div>` : ''}
     </div></section>`;
 }
 
-/** 인물 쪽: 보는 시점의 인물 하나를 한 열에. 위에서부터 자주 보는 것 → 고치는 것 → 기록 */
+/** 인물 쪽: 보는 시점의 인물 하나를 한 열에. 위에서부터 자주 보는 것 → 고치는 것 → 기록.
+    작가가 정해야 할 것(자동 집필이 남겨 둔 설정 바꾸기 · 호칭 제안)이 있으면 그 카드를 머리 바로 아래로 올린다 */
 function castCharPage(c) {
   const f = castFrameNow();
   const at = scAt(c, f ? f.episode : Infinity);
-  return `${castHead(c, f, at)}${castSheetState(c, f)}${castSheetStats(c, f)}${castSheetRels(c, f)}${castSheetSecrets(c, f)}${castSheetSettings(c, f, at)}${castEditCard(c)}${castTimeline(c)}${scLogCard(c)}${addressHeldCard(c)}`;
+  const heldSet = (P().setting_held || []).some((x) => x.character_id === c.id);
+  const settings = castSheetSettings(c, f, at);
+  const address = addressHeldCard(c);
+  return `${castHead(c, f, at)}${heldSet ? settings : ''}${address}${castSheetState(c, f)}${castSheetStats(c, f)}${castSheetRels(c, f)}${castSheetSecrets(c, f)}${heldSet ? '' : settings}${castEditCard(c)}${castTimeline(c)}${scLogCard(c)}`;
 }
 
 // ----- 쌍 상세 -----

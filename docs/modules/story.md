@@ -375,6 +375,7 @@
 ### `canon/static/cast.js`
 
 - 인물 · 관계도 화면(공용 목차 틀 `outline.js`)
+- 인물 쪽 `castCharPage` 는 남겨 둔 설정 바꾸기 제안이 있으면 설정 카드를, 남겨 둔 호칭이 있으면 그 카드를 머리 바로 아래에 둔다
 - 왼쪽 목차 `castToc`(관계도 · 등장표 · 비중별 인물, 단역이 많으면 접음 `castMinorFold`)
 - 오른쪽 한 열의 쪽 `castPage`(`S.castView`: map · table · char · pair, 옮기기 `castShow`, 주소 `cast/<map · table · c:id · p:a|b>?f=` 와 옛 `?tab=` 은 `castParse`)
 - 열 맨 위 시점 띠 `castBar`(좁은 칸은 아래에 붙음)

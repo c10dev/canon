@@ -499,9 +499,9 @@ pre.brief.fold { max-height: 240px; overflow: hidden; -webkit-mask-image: linear
 #toast[hidden] { display: none; }
 #toast .t { padding: var(--space-12) var(--space-16); border-radius: var(--radius-10); background: var(--inverse-bg); color: var(--inverse-ink); font-size: 0.8125rem; line-height: 1.5; box-shadow: var(--shadow-toast); }
 #toast .t.err { background: var(--red); }
-#toast .t.err { display: flex; flex-wrap: wrap; gap: var(--space-8) var(--space-10); align-items: flex-start; white-space: pre-line; }
+#toast .t.err, #toast .t.act { display: flex; flex-wrap: wrap; gap: var(--space-8) var(--space-10); align-items: flex-start; white-space: pre-line; }
 #toast .t .t-act { min-height: 36px; border-color: currentColor; background: transparent; color: inherit; font-weight: 700; }
-#toast .t.err span { flex: 1; }
+#toast .t.err span, #toast .t.act span { flex: 1; }
 #toast .t .x { border: none; background: transparent; color: inherit; cursor: pointer; font-size: 0.875rem; min-width: 32px; min-height: 32px; margin: calc(-1 * var(--space-6)) calc(-1 * var(--space-8)) calc(-1 * var(--space-6)) 0; }
 #busy { position: fixed; inset: 0; background: var(--overlay); display: flex; align-items: center; justify-content: center; z-index: var(--z-busy); }
 #busy[hidden] { display: none; }
@@ -1904,6 +1904,7 @@ body.routing::before { content: ''; position: fixed; top: 0; left: 0; height: 3p
 .pop-radio input { width: 20px; height: 20px; margin: 0; flex: none; accent-color: var(--accent); }
 .pop-radio > span { display: flex; flex-direction: column; gap: var(--space-2); line-height: 1.45; }
 .pop-check { min-height: 40px; padding: 0 var(--space-2); display: flex; gap: var(--space-10); align-items: center; cursor: pointer; }
+.pop-check > span > .small { display: block; }  /* 고르기 줄의 이름 아래 설명 (Menu) */
 .pop-danger summary { color: var(--red); }
 .pop-panel .seg { flex-wrap: wrap; }
 .pop-panel .dev-list { max-height: none; }
