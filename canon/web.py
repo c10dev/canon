@@ -176,17 +176,34 @@ def _save(name: str, p: Project, merged: set[str] | None = None, kept: list[dict
             have = {x.name for x in p.place_candidates}
             p.place_candidates += [x for x in disk.place_candidates if x.name not in have]
             pipeline.sync_candidates(p)
-            # 고칠 곳은 전용 엔드포인트로만 바꾼다. 화면이 들고 있던 옛 목록이 자동 집필 중에 단 표시를 덮지 않게
-            marks = {e.plot.number: e.to_fix for e in disk.episodes}
-            for e in p.episodes:
-                e.to_fix = marks.get(e.plot.number, [])
-            # 장면 연출도 전용 엔드포인트로만 바꾼다 (stage.py)
-            scenes = {e.plot.number: e.stage for e in disk.episodes}
-            for e in p.episodes:
-                e.stage = scenes.get(e.plot.number, [])
+            _keep_job_fields(disk, p)
             p.rooms = disk.rooms
         store.save(name, p)
     return p
+
+
+# 화의 칸 중 작업 · 전용 엔드포인트만 쓰고 화면의 작품 저장(PUT · PATCH)은 바꾸지 않는 칸.
+# 화면이 작업 전에 읽은 화를 통째로 보내도 이 칸은 디스크 값을 둔다. 작업이 화에 새 칸을 쓰면 여기에 더한다
+JOB_EP_FIELDS = (
+    "checked_at",  # 검수 작업 (pipeline.apply_check)
+    "findings",  # 검수 · 고침안 작업, 지적 라우트
+    "hook",  # 흡입력 판정 작업
+    "issues",  # 검수 작업
+    "realign",  # 플롯 작업이 쓰고 clear_realign 만 지운다
+    "rounds",  # 검수 작업
+    "stage",  # 장면 연출 라우트 (stage.py)
+    "to_fix",  # 고칠 곳 라우트. 자동 집필 중에 단 표시를 옛 목록이 덮지 않게
+)
+
+
+def _keep_job_fields(disk: Project, p: Project) -> None:
+    """화면이 보낸 화 중 디스크에도 있는 화는 JOB_EP_FIELDS 칸을 디스크 값으로 둔다. 화면에만 있는 새 화는 그대로 둔다."""
+    have = {e.plot.number: e for e in disk.episodes}
+    for e in p.episodes:
+        d = have.get(e.plot.number)
+        if d is not None:
+            for f in JOB_EP_FIELDS:
+                setattr(e, f, getattr(d, f))
 
 
 def _not_auto(name: str) -> None:
@@ -900,8 +917,6 @@ def put_project(name: str, p: Project, response: Response, merged: str = "", for
         dynamics.seed_ties(p)
     elements.stamp(p)
     _keep_impacts(disk, p)
-    _keep_hooks(disk, p)
-    _keep_realign(disk, p)
     _keep_spots(disk, p)
     # 설정 변경 기록과 남겨 둔 제안은 화면이 직접 고치지 않는다. 디스크 것에 이번 저장이 고친 인물 설정만 작가 기록으로 더한다
     p.setting_log, p.setting_held = disk.setting_log, disk.setting_held
@@ -954,22 +969,6 @@ def patch_project(name: str, body: ProjectPatch, response: Response, merged: str
         from fastapi.exceptions import RequestValidationError
         raise RequestValidationError(e.errors(include_url=False)) from None
     return put_project(name, p, response, merged=merged, force=force)
-
-
-def _keep_hooks(saved: Project, p: Project) -> None:
-    """흡입력 판정도 백그라운드 작업이 디스크에 쓴다. 화면이 그 전에 읽은 작품을 저장해도 새 판정을 덮지 않게 한다. saved 는 디스크 작품."""
-    disk = {e.plot.number: e.hook for e in saved.episodes if e.hook}
-    for e in p.episodes:
-        d = disk.get(e.plot.number)
-        if d and (e.hook is None or e.hook.checked_at < d.checked_at):
-            e.hook = d
-
-
-def _keep_realign(saved: Project, p: Project) -> None:
-    """뒤 화의 '다시 맞추기' 표시는 플롯 작업이 디스크에 쓰고 지우기는 clear_realign 으로만 한다. 화면 저장이 덮지 않는다."""
-    disk = {e.plot.number: e.realign for e in saved.episodes}
-    for e in p.episodes:
-        e.realign = disk.get(e.plot.number, "")
 
 
 def _keep_spots(disk: Project, p: Project) -> None:
