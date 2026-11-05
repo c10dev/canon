@@ -423,7 +423,10 @@ async function startJob(kind, ep = null, extra = {}) {
     const j = await api('POST', `/projects/${enc(S.name)}/jobs`, { kind, ep, ...extra });
     S.starting.delete(key);
     // 이미 도는 작업이면 버튼이 진행 상황을 보여 주므로 따로 알리지 않는다
-    if (!j.already) toast(`${j.label}${josa(j.label, '을', '를')} 시작했어요. 끝나면 알려 드릴게요. 그동안 다른 작업을 해도 돼요.`);
+    if (!j.already) {
+      const offer = typeof notifyOffer === 'function' ? notifyOffer() : null;  // 처음 한 번: 탭이 뒤에 있어도 알 수 있게
+      toast(`${j.label}${josa(j.label, '을', '를')} 시작했어요. 끝나면 알려 드릴게요. 그동안 다른 작업을 해도 돼요.`, false, { actions: offer ? [offer] : [] });
+    }
     S.jobs = S.jobs.filter((x) => x.id !== j.id).concat(j);
     S.jobArgs[j.id] = { kind, ep, extra };  // 실패하면 작업 목록의 '다시 시도'가 같은 작업을 다시 시작한다
     renderHub();  // 작업 목록이 바뀌었다: 알림 버튼과 열린 알림 창 (hub.js)
@@ -827,6 +830,8 @@ function showError(e) {
     askConfirm(`${e.message}\n\n설정을 열까요?`, { title: e.code === 'no_key' ? 'API 키가 없어요' : 'API 키를 확인하세요', ok: '설정 열기' }).then((ok) => ok && openSettings('ai'));
     return;
   }
+  // '기다리지 않기'는 작가가 고른 것이라 빨간 오류가 아닌 보통 알림으로 알린다 (디자인 시스템 Busy)
+  if (e.code === 'aborted') return toast(e.message);
   toast(e.message, true);
 }
 
@@ -2018,6 +2023,7 @@ async function routeNow() {
         S.nameCheck = await api('POST', `/projects/${enc(S.name)}/names/check`, nameCheckBody()).catch(() => null);
       }
       if (parts[2] === 'style') {
+        try { localStorage.setItem(STYLE_VISITED(S.name), '1'); } catch { /* 다음 할 일이 문체를 다시 권할 수 있다 */ }
         S.libs = await api('GET', '/styles').catch(() => []);
         await loadStyleLink();
         await learnLoad();
