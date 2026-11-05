@@ -346,7 +346,7 @@ function castTriads(f) {
 function castBarLabel(f) {
   if (!f || !f.episode) return `<strong>${esc(frameLabel(f))}</strong>`;
   const e = ep(f.episode);
-  return `<strong>${f.episode}화 반영 뒤</strong>${e && e.plot.title ? `<span class="cast-bar-title"> · ${esc(e.plot.title)}</span>` : ''}`;
+  return `<strong>${f.episode}화<span class="cast-bar-after"> 반영 뒤</span></strong>${e && e.plot.title ? `<span class="cast-bar-title"> · ${esc(e.plot.title)}</span>` : ''}`;
 }
 
 /** 시점 띠: 관계도 · 인물 · 두 사람 쪽 맨 위에 붙어 있다(좁은 칸은 아래). 시점이 하나뿐이면 안내 한 줄 */
