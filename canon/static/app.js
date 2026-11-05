@@ -1688,20 +1688,24 @@ function fitMenus() {
     const r = p.getBoundingClientRect();
     const shift = r.right > W - 8 ? Math.max(8 - r.left, W - 8 - r.right) : r.left < 8 ? 8 - r.left : 0;
     if (shift) { p.style.translate = `${Math.round(shift)}px 0`; p.classList.add('fit-shift'); }
-    // 아래가 모자라면(가로 휴대폰 · 화면 아래쪽 버튼) 위로 펼친다. 위도 모자라면 남은 높이 안에서 굴린다
+    // 아래가 모자라면(가로 휴대폰 · 화면 아래쪽 버튼) 위 · 아래 중 넓은 쪽으로 펼치고, 그쪽 남은 높이 안에서 굴린다.
+    // 쓴 사람이 정한 위로 펼침(align 'up', 쇠맛 판정 띠)은 건드리지 않는다. 앱이 바꾼 것은 fit-up · fit-max 로 표시해 크기가 바뀌면 되돌린다
     const H = window.innerHeight;
-    if (r.bottom > H - 8) {
+    if (r.bottom > H - 8 && !p.classList.contains('up')) {
       const btn = p.parentElement && p.parentElement.querySelector(':scope > button');
-      const top = btn ? btn.getBoundingClientRect().top : r.top;
-      if (top - 6 - r.height >= 8) p.classList.add('up');
-      else p.style.maxHeight = `${Math.max(160, Math.round(H - r.top - 8))}px`;
+      const btop = btn ? btn.getBoundingClientRect().top : r.top;
+      const above = btop - 6 - 8;
+      const below = H - r.top - 8;
+      if (above > below) p.classList.add('up', 'fit-up');
+      if (Math.max(above, below) < r.height) { p.style.maxHeight = `${Math.max(0, Math.round(Math.max(above, below)))}px`; p.classList.add('fit-max'); }
     }
   });
 }
 window.addEventListener('resize', () => {
   document.querySelectorAll('#app .pop-panel.fit-left').forEach((p) => p.classList.remove('left', 'fit-left'));
   document.querySelectorAll('#app .pop-panel.fit-shift').forEach((p) => { p.classList.remove('fit-shift'); p.style.translate = ''; });
-  document.querySelectorAll('#app .pop-panel').forEach((p) => { p.classList.remove('up'); p.style.maxHeight = ''; });
+  document.querySelectorAll('#app .pop-panel.fit-up').forEach((p) => p.classList.remove('up', 'fit-up'));
+  document.querySelectorAll('#app .pop-panel.fit-max').forEach((p) => { p.classList.remove('fit-max'); p.style.maxHeight = ''; });
   fitMenus();
 });
 
