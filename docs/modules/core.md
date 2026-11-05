@@ -59,6 +59,7 @@
 ### `canon/cli.py`
 
 - 명령줄 (`python -m canon ...`)
+- `import` 는 웹 본문 저장과 같은 규칙을 따른다: 초안 화는 거절하고, 확정 화는 앞 화가 모두 반영돼야 넣는다(`pipeline.require_previous`)
 - 전체 명령 목록은 `python -m canon --help`
 - 해석기는 `build_parser` 가 만들고, 명령은 갈래 함수(`_plan_commands` · `_write_commands` · `_tool_commands` · `_app_commands` · `_data_commands` · `_lab_commands`)가 더한다. 새 명령은 맞는 갈래 함수에 넣는다
 - 단편 흐름: `new` → `style` → `arc` → `plot` → (사용자 수정) → `confirm` → (스토리보드 → 큐 시트, 웹 집필 화면 · 자동 집필) → `write` → `check` → `update` 반복
@@ -121,6 +122,7 @@
 - 인물 이름(`names_of`: 세 글자 이름은 성을 뗀 이름도, `metrics.name_forms`)
 - 이름으로 켜는 인물(`named_ids` · `name_pattern`, 남은 예산 `fit_named`) · 마지막으로 나온 화(`last_seen`)
 - 검수용 옛 본문 단락 찾기(`recall`, 질문 여러 개는 색인 `PassageIndex` 하나로, 검수 넓히기도 이 색인)
+- 단락 색인은 `passage_index` 로 만든다. 넣을 화와 본문이 같으면 최근 `INDEX_KEEP` 개 가운데 만든 것을 다시 써서, 검수와 검수 넓히기가 색인을 한 번만 만든다
 - 진술과 겹치는 줄 · 사실(`related_lines` · `related_facts`, 셈이 있는 진술은 셈이 있는 줄을 앞세움 `has_count`)
 - LLM 호출 없음
 - 단편 경로는 쓰지 않는다
@@ -138,6 +140,7 @@
 - 큐 시트 집필 실험(사이드바 '본편과 분리', 주소 `cue/<화>`, 실험 사본은 화의 큐 시트를 지움 `before`): 한 화를 악보처럼 큐로 나눈 큐 시트(`CueSheet`: 조성 · 끝 종지, 큐 `Cue`: 기능 T · S · D · 긴장도 · 템포 · 편성 · 일 · 핵심 대사 `CueLine` · 끝 상태 · 글자 수)
 - AI 없는 뼈대(`from_board`)
 - 정리(`clean`) · 지문(`basis`) · 넣기(`set_sheet`)
+- 화에 넣을 때(`set_episode`) 스토리보드 장면 수보다 큰 장면 번호는 0(장면 모름)으로 둔다. 스토리보드가 없으면 모두 0
 - 시험할 화(`candidates`, 반영 끝난 화는 사본을 되돌림 `before`)
 - 조건(`CONDITIONS`: oneshot · score · cues)
 - LLM 없는 채점(`score`: 핵심 대사 `line_hits` · 되풀이 `repeats` · 이음매 `seams` · 여운 닫기 `closing` · 정지 장면 끝 `still` · 줄표로 자른 끝 `cut` · 큐별 `cue_rows` · `tempo_order`)
@@ -315,6 +318,7 @@
 ### `canon/reshape.py`
 
 - 단편을 씨앗으로 장편 앞부분을 다시 짜는 재구성(웹 `rebuild` 작업)
+- 재구성은 상태 · 관계와 함께 상태창 · 설정 바꾸기 · 호칭 · 말씨 기록도 1화 전으로 돌린다(`statwin` · `charlog` · `address.revert(p, 0)`)
 - `pipeline.py` 에서 옮긴 구역이다. `pipeline` 맨 끝의 `_attach_split` 이 `EXPORTS` 의 이름을 `pipeline` 에도 둬서 `pipeline.<이름>` 으로 그대로 부른다
 
 ### `canon/schema.py`

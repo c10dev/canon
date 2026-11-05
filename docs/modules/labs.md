@@ -101,6 +101,7 @@
 - 큐 경계(`locate`: AI 가 원문 글자 그대로 인용한 시작 문장 `RevCue.start` 를 차례로 찾음, 글자 수는 `measured`)
 - 원문에 없는 핵심 대사 빼기(`keep_lines`, `cue._flat`)
 - 응답 넣기(`apply_episode` · 줄기 `apply_lines` · 인물 `merge_cast`, 화마다 배경 · 사실 · 관계 · 호칭)
+- 줄기를 다시 넣으면(`apply_lines`) 앞 답이 화에 붙인 줄기 id 를 먼저 뗀다
 - 첫 화 번호(`guess_first` · `renumber`)
 - 작가 고침(`set_sheet`, 큐 수가 바뀌면 경계를 지움)
 - 되돌려 쓰기 사본
