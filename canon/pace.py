@@ -136,6 +136,7 @@ def hold(p: Project, d: StateDelta) -> int:
     for i in sorted(drop):
         r = d.relationship_updates[i]
         d.warnings.append(f"관계 유형: 자동 반영에서 뺐어요: {nm.get(r.a, r.a)} ↔ {nm.get(r.b, r.b)} '{r.type}'")
+    d.dismissed.relationship_updates += [r for i, r in enumerate(d.relationship_updates) if i in drop]  # 반영 기록의 빼 둔 항목에 남긴다
     d.relationship_updates = [r for i, r in enumerate(d.relationship_updates) if i not in drop]
     d.rel_flagged = []
     return 0
