@@ -24,6 +24,7 @@
 - 다른 프로세스(명령줄 `canon auto` 나 다른 서버)가 잠금을 쥐면 `elsewhere` 가 참이고 `active` 도 참이다(화면 저장 보호가 켜진다)
 - 그동안 `start` · `resume` · `set_batch` · `set_policy` 는 `ELSEWHERE` 로 거절하고, `resume_all` 은 그 작품을 건너뛴다
 - 그동안 `request` 는 상태를 쓰거나 배치를 취소하지 않고 `autorun.want` 에 요청만 남긴다(중지를 일시정지로 낮추지 않는다)
+- `autorun.want` 의 임시 파일 이름에는 pid 와 스레드 id 를 붙여 주인이 `autorun.json` 을 쓰는 임시 파일(`autorun.json.tmp`)과 겹치지 않게 한다
 - 러너는 `_checkpoint` 와 배치 대기(`Control.wait`)에서 `autorun.want` 를 읽는다(`Control.poll_want`). 주인이 된 실행은 남은 요청을 버린다
 - `get_run` · `set_batch` · `set_policy` · `renumber` 는 이 프로세스의 실행이 끝났으면 메모리 값 대신 `autorun.json` 을 읽고 쓴다(다른 프로세스가 그 뒤에 이어 간 기록을 덮지 않게)
 - 화를 반영할 때마다 작업의 `step_ep` 를 그 화로 고친다(화면 알림 `notify.js`)

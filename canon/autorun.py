@@ -136,7 +136,7 @@ def load_run(name: str) -> Optional[Run]:
 def _write(name: str, run: Run) -> None:
     run.updated = _now()
     path = _path(name)
-    tmp = path.with_suffix(".tmp")
+    tmp = path.with_name(path.name + ".tmp")  # autorun.want 의 임시 파일과 이름이 겹치지 않게
     tmp.write_text(run.model_dump_json(indent=2), encoding="utf-8")
     tmp.replace(path)
 
@@ -195,7 +195,7 @@ def _ask(name: str, what: str) -> None:
             return
     except OSError:
         pass
-    tmp = path.with_suffix(".tmp")
+    tmp = path.with_name(f"{WANT_FILE}.{os.getpid()}.{threading.get_ident()}.tmp")  # 주인의 _write · 다른 요청과 겹치지 않게
     tmp.write_text(what, encoding="utf-8")
     tmp.replace(path)
 

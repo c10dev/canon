@@ -5,6 +5,7 @@ import json
 import os
 import tempfile
 import time
+from pathlib import Path
 
 import pytest
 
@@ -645,6 +646,26 @@ def test_runner_reads_request_left_by_other_process(demo, monkeypatch):
     assert run.status == "paused" and run.batches  # 일시정지는 배치를 남긴다
     assert not (store.project_dir(demo) / autorun.WANT_FILE).exists()
     assert not autorun.elsewhere(demo) and mine[demo].owner is None
+
+
+def test_request_and_record_use_separate_temp_files(demo, monkeypatch):
+    """다른 프로세스의 요청(autorun.want)과 주인의 기록(autorun.json)은 서로 다른 임시 파일에 쓴다."""
+    d = store.project_dir(demo)
+    seen = []
+    real = Path.write_text
+
+    def spy(self, *a, **kw):
+        if self.name.endswith(".tmp"):
+            seen.append(self.name)
+        return real(self, *a, **kw)
+
+    monkeypatch.setattr(Path, "write_text", spy)
+    autorun._ask(demo, "pause")
+    autorun._write(demo, autorun.Run(target=1))
+    assert len(seen) == 2 and seen[0] != seen[1]
+    assert (d / autorun.WANT_FILE).read_text() == "pause"
+    assert autorun.load_run(demo) is not None
+    assert not list(d.glob("*.tmp"))
 
 
 def test_ended_run_reads_record_left_by_other_process(demo, monkeypatch):
