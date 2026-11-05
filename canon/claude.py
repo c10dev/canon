@@ -138,6 +138,12 @@ def login_command() -> str:
     return f"CLAUDE_CONFIG_DIR={shlex.quote(d)} claude auth login" if d else "claude auth login"
 
 
+def cache_1h() -> bool:
+    """CANON_CLAUDE_CACHE_1H 가 켜져 있으면 프롬프트 캐시를 1시간으로 쓴다. 쓰기 값이 5분 캐시의 1.25배에서 2배로 오르므로
+    한 시간 안에 같은 앞부분을 세 번 이상 읽을 때 이득이다. 기본은 끔이다 (구독은 Claude Code 가 스스로 1시간을 고르기도 한다)."""
+    return os.environ.get("CANON_CLAUDE_CACHE_1H", "").strip().lower() in ("1", "true", "yes", "on")
+
+
 def child_env(extra: dict | None = None) -> dict:
     """claude 를 부를 때의 환경. API 키를 빼야 구독으로 호출한다 (-p 에서는 키가 있으면 늘 키를 쓴다).
     사용자 CLAUDE.md 와 자동 메모리는 소설 프롬프트에 섞이지 않게 끈다. CLAUDE_CODE_OAUTH_TOKEN 은 그대로 둔다.
@@ -145,6 +151,8 @@ def child_env(extra: dict | None = None) -> dict:
     env = {k: v for k, v in os.environ.items() if k not in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")}
     env["CLAUDE_CODE_DISABLE_CLAUDE_MDS"] = "1"
     env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1"
+    if cache_1h():
+        env["ENABLE_PROMPT_CACHING_1H"] = "1"  # Claude Code 가 구독 초과 사용 중에도 1시간 캐시를 쓰게 한다
     d = config_dir()
     if d:
         Path(d).mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -323,6 +331,7 @@ def _cli_usage(d: dict, structured: bool = False) -> dict | None:
     # 생각 토큰은 output_tokens 에 들어 있어 따로 세지 않는다 (사용량 화면이 출력에 더한다)
     out = {"prompt_tokens": prompt, "completion_tokens": int(u.get("output_tokens") or 0),
            "thought_tokens": 0, "cached_tokens": cached}
+    out |= _written(int(u.get("cache_creation_input_tokens") or 0), u.get("cache_creation"))
     turns = d.get("num_turns")
     if isinstance(turns, int) and turns > 0:
         out["turns"] = turns
@@ -344,6 +353,18 @@ def _cli_usage(d: dict, structured: bool = False) -> dict | None:
     resent = _resent(prompt, out.get("turns"), out.get("models"), structured)
     if resent:
         out["resent"] = resent
+    return out
+
+
+def _written(total: int, split: Any) -> dict:
+    """캐시에 새로 쓴 입력. written 은 쓴 토큰 수, written_1h 는 그 가운데 1시간 캐시로 쓴 몫이다 (응답의 cache_creation 내역).
+    쓰지 않았으면 빈 dict 다. 쓰기는 읽기보다 비싸므로(5분 1.25배, 1시간 2배) 사용량 화면이 따로 보려는 값이다."""
+    if total <= 0:
+        return {}
+    out = {"written": total}
+    long = split.get("ephemeral_1h_input_tokens") if isinstance(split, dict) else getattr(split, "ephemeral_1h_input_tokens", None)
+    if isinstance(long, int) and long > 0:
+        out["written_1h"] = long
     return out
 
 
@@ -581,7 +602,12 @@ def shared_cut(key: tuple, prompt: str, prefix: int | None = None) -> int:
 _WRITING: dict[tuple, tuple[threading.Event, float]] = {}  # 캐시를 쓰는 중인 시스템 프롬프트 → (끝나면 세우는 신호, 보낸 시각)
 _WARM: dict[tuple, float] = {}  # 캐시에 들어간 시스템 프롬프트 → 마지막으로 보낸 시각
 CACHE_WARM_SECONDS = 300  # 캐시 유지 시간 (짧은 쪽 5분)
+CACHE_WARM_SECONDS_1H = 3600  # CANON_CLAUDE_CACHE_1H 를 켰을 때의 유지 시간
 CACHE_PREFILL_SECONDS = 30  # 앞 호출을 보낸 뒤 이만큼만 기다린다 (실행 준비와 앞부분 읽기)
+
+
+def _warm_seconds() -> int:
+    return CACHE_WARM_SECONDS_1H if cache_1h() else CACHE_WARM_SECONDS
 
 
 def _claim(gate: tuple) -> threading.Event | None:
@@ -589,7 +615,7 @@ def _claim(gate: tuple) -> threading.Event | None:
     보낸 지 CACHE_PREFILL_SECONDS 가 지나기를 기다려 None 을 돌려준다. 이미 캐시에 있어도 None 이다. 기다리는 동안 작업 멈추기를 본다."""
     while True:
         with _SEEN_LOCK:
-            if time.time() - _WARM.get(gate, 0.0) < CACHE_WARM_SECONDS:
+            if time.time() - _WARM.get(gate, 0.0) < _warm_seconds():
                 return None
             writing = _WRITING.get(gate)
             if writing is None:
@@ -610,7 +636,7 @@ def _release(gate: tuple, claim: threading.Event | None, reached: bool, sent: fl
     with _SEEN_LOCK:
         if reached:
             _WARM[gate] = max(_WARM.get(gate, 0.0), sent or now)
-            for k in [k for k, at in _WARM.items() if now - at >= CACHE_WARM_SECONDS]:
+            for k in [k for k, at in _WARM.items() if now - at >= _warm_seconds()]:
                 del _WARM[k]
         if claim is not None and _WRITING.get(gate, (None,))[0] is claim:
             del _WRITING[gate]
@@ -624,7 +650,8 @@ def cache_blocks(key: tuple, prompt: str, prefix: int | None = None) -> str | li
     cut = shared_cut(key, prompt, prefix)
     if not cut:
         return prompt
-    return [{"type": "text", "text": prompt[:cut], "cache_control": {"type": "ephemeral"}},
+    mark = {"type": "ephemeral", "ttl": "1h"} if cache_1h() else {"type": "ephemeral"}
+    return [{"type": "text", "text": prompt[:cut], "cache_control": mark},
             {"type": "text", "text": prompt[cut:]}]
 
 
@@ -632,8 +659,10 @@ def _api_usage(u: Any) -> dict | None:
     if u is None:
         return None
     cached = getattr(u, "cache_read_input_tokens", None) or 0
-    prompt = (u.input_tokens or 0) + (getattr(u, "cache_creation_input_tokens", None) or 0) + cached
-    return {"prompt_tokens": prompt, "completion_tokens": u.output_tokens or 0, "thought_tokens": 0, "cached_tokens": cached}
+    written = getattr(u, "cache_creation_input_tokens", None) or 0
+    prompt = (u.input_tokens or 0) + written + cached
+    out = {"prompt_tokens": prompt, "completion_tokens": u.output_tokens or 0, "thought_tokens": 0, "cached_tokens": cached}
+    return out | _written(written, getattr(u, "cache_creation", None))
 
 
 class ClaudeAPILLM:

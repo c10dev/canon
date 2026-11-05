@@ -150,6 +150,35 @@ class ClaudeCodeTest(unittest.TestCase):
         self.assertNotIn("resent", row)
         self.assertEqual(row["models"], {"claude-test-model": {"in": 0, "out": 30, "cached": 0}})
 
+    def test_usage_keeps_cache_writes_and_1h_share(self):
+        self.replies({"result": "글", "num_turns": 1, "stop_reason": "end_turn",
+                      "usage": {"input_tokens": 10, "cache_creation_input_tokens": 900, "cache_read_input_tokens": 0,
+                                "output_tokens": 3,
+                                "cache_creation": {"ephemeral_5m_input_tokens": 0, "ephemeral_1h_input_tokens": 900}}},
+                     {"result": "글", "num_turns": 1, "stop_reason": "end_turn",
+                      "usage": {"input_tokens": 10, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 900,
+                                "output_tokens": 3}})
+        llm = claude.ClaudeCodeLLM()
+        llm.text("s", "p")
+        row = usage.read()[-1]
+        self.assertEqual((row["in"], row["written"], row["written_1h"]), (910, 900, 900))
+        llm.text("s", "p")
+        row = usage.read()[-1]
+        self.assertNotIn("written", row)  # 캐시를 읽기만 했으면 칸이 없다
+        self.assertNotIn("written_1h", row)
+
+    def test_cache_1h_option(self):
+        self.replies({"result": "글", "usage": {"input_tokens": 1, "output_tokens": 1}})
+        with mock.patch.dict(os.environ, {"CANON_CLAUDE_CACHE_1H": ""}):
+            self.assertNotIn("ENABLE_PROMPT_CACHING_1H", claude.child_env())
+            self.assertEqual(claude._warm_seconds(), claude.CACHE_WARM_SECONDS)
+        with mock.patch.dict(os.environ, {"CANON_CLAUDE_CACHE_1H": "1"}):
+            self.assertEqual(claude.child_env()["ENABLE_PROMPT_CACHING_1H"], "1")
+            self.assertEqual(claude._warm_seconds(), claude.CACHE_WARM_SECONDS_1H)
+            claude._SEEN.clear()
+            blocks = claude.cache_blocks(("k1h",), "가" * 3000 + "\n\n끝", 3000)
+            self.assertEqual(blocks[0]["cache_control"], {"type": "ephemeral", "ttl": "1h"})
+
     def test_resent_counts_requests_not_turns(self):
         # 구조화 출력은 답을 도구로 내므로 요청이 한 번이어도 2턴이다: 다시 보낸 입력이 없다 (2026-11-05 서버 실측)
         one = {"input_tokens": 1000, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0, "output_tokens": 5}

@@ -138,8 +138,9 @@ def backend_of(llm: Any) -> Optional[str]:
 
 
 # 있을 때만 남기는 칸. turns 턴 수, stop 멈춘 이유, api_seconds 모델 API 시간, models 모델별 토큰,
-# resent 한 호출 안에서 다시 보낸 입력 어림값 (in 에 들어 있음. 캐시 비율을 셀 때 in · cached 에서 뺀다). 옛 줄에는 없다.
-EXTRA = ("turns", "stop", "api_seconds", "models", "resent")
+# resent 한 호출 안에서 다시 보낸 입력 어림값 (in 에 들어 있음. 캐시 비율을 셀 때 in · cached 에서 뺀다).
+# written 캐시에 새로 쓴 입력 (in 에 들어 있음), written_1h 그 가운데 1시간 캐시 몫. 옛 줄에는 없다.
+EXTRA = ("turns", "stop", "api_seconds", "models", "resent", "written", "written_1h")
 
 
 def record(llm: Any, tokens: Optional[dict], started: Optional[float] = None, *, ok: bool = True,

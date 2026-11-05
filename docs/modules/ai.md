@@ -23,11 +23,15 @@
 - `--system-prompt-file` 은 2.1.x `--help` 에 `--system-prompt[-file]` 로만 나온다. 모르는 버전이면 예전처럼 사용자 메시지에 둔다
 - 같은 시스템 프롬프트를 동시에 보내면 먼저 보낸 호출이 끝나거나 보낸 지 `CACHE_PREFILL_SECONDS`(30초)가 지날 때까지 뒤 호출이 기다린다(`_claim` · `_release`). 고침안 받기(`FIX_WORKERS` 3)가 모두 캐시를 새로 쓰지 않게 하려는 것
 - 모델까지 간 호출은 보낸 시각부터 `CACHE_WARM_SECONDS`(300초) 동안 캐시에 있다고 보고 기다리지 않는다
+- `CANON_CLAUDE_CACHE_1H` 를 켜면(`cache_1h`) 이 시간이 `CACHE_WARM_SECONDS_1H`(3600초)다
+- `CANON_CLAUDE_CACHE_1H` 를 켜면 `child_env` 가 `ENABLE_PROMPT_CACHING_1H=1` 을 넣는다. Claude Code 가 구독 초과 사용 중에도 1시간 캐시를 쓴다
+- `CANON_CLAUDE_CACHE_1H` 를 켜면 API 경로의 캐시 표시(`cache_blocks`)에 `ttl: "1h"` 를 단다
 - 기다린 시간은 사용량 기록의 `seconds` 에 넣지 않는다
 - 사용량 기록의 글자 수 · 블록 크기는 옮기기 전 원래 프롬프트 기준이다
 - `_cli_usage` 는 JSON 결과의 `num_turns` · `stop_reason` · `duration_api_ms` · `modelUsage` 를 사용량 칸 `turns` · `stop` · `api_seconds` · `models` 로 넘긴다
 - 다시 보낸 입력 어림값 `resent`(`_resent`)는 요청 수로 `in × (요청 수-1)/요청 수` 다. 요청 수는 구조화 출력이면 `turns-1`(답을 도구로 내 한 번이어도 2턴), 아니면 `turns`
 - `modelUsage` 에 모델이 둘 이상이면(거절 뒤 대체 모델) 가장 작은 모델 입력을 한 번 크기로 보고 넘친 몫도 `resent` 로 본다. 두 값 가운데 큰 쪽
+- 캐시에 새로 쓴 입력은 `written`, 그 가운데 1시간 캐시 몫은 `written_1h` 다(`_written`, 응답의 `cache_creation_input_tokens` · `cache_creation.ephemeral_1h_input_tokens`). 구독과 API 경로가 같다
 - 두 백엔드도 `llm.wait_cap` · `llm.out_cap` 을 따른다(`llm.caps` 로 읽음)
 - 구독은 제한 시간을 `min(CANON_CLAUDE_TIMEOUT, wait_cap)` 으로 둔다. 넘기면 다시 부르지 않고 `ClaudeCodeError`
 - API 는 `max_tokens` 를 `min(MAX_TOKENS, out_cap)` 으로, SDK 요청 옵션 `timeout` 을 `wait_cap` 으로 보낸다
@@ -105,6 +109,7 @@
   - `CANON_ALLOWED_HOSTS`: 웹 서버가 더 받을 Host 이름(쉼표로 나눔, `web._host_allowed`). IP 주소 · localhost · `*.ts.net` · 이 컴퓨터 이름은 늘 받는다
   - `CANON_BATCH_POLL`: 배치 결과를 묻는 간격 초(기본 30, `llm.BatchLLM`)
   - `CANON_CLAUDE_BIN` · `CANON_CLAUDE_MODEL` · `CANON_CLAUDE_TIMEOUT`: Claude
+  - `CANON_CLAUDE_CACHE_1H`: 1 · true · on 이면 Claude 프롬프트 캐시를 1시간으로 쓴다(기본 끔, `claude.cache_1h`). 쓰기 값이 5분 캐시의 1.25배에서 2배로 오른다
   - `CANON_CLAUDE_CONFIG_DIR`: Canon 전용 Claude Code 설정 폴더(구독 계정을 따로 로그인)
   - `CANON_CONFIG`: 설정 파일 위치(기본 `~/.canon/config.json`, `settings.path`)
   - `CANON_EFFORT_<단계>`: 단계별 추론 강도(low · medium · high · xhigh · max, `settings.stage_effort`). Claude · Gemini 만 쓴다
@@ -176,7 +181,7 @@
 - 단계의 백엔드 · 모델은 `stage_llm`, 그 직선은 `stage_rate` 다
 - 자동 집필 · 큐 시트 · 블록 시험 · 상태창 시험 · 역설계 실험의 비용 추정이 이 직선을 쓴다
 - 장편 블록 예산(`context.BUDGET`)과 `context.est_tokens` 는 이 직선을 쓰지 않는다
-- 백엔드가 더 준 칸(`EXTRA`: turns · stop · api_seconds · models · resent)은 있을 때만 줄에 남는다. 옛 줄에는 없다
+- 백엔드가 더 준 칸(`EXTRA`: turns · stop · api_seconds · models · resent · written · written_1h)은 있을 때만 줄에 남는다. 옛 줄에는 없다
 - `cache_rate(rows)` 는 캐시 비율이다. `resent` 를 입력과 캐시 양쪽에서 뺀다. 비용 계산은 `resent` 를 보지 않는다
 - `summary` 의 합계는 `resent` 합과 `cache_rate` 를 준다. 화면 토큰 타일이 다시 보낸 입력이 있을 때 뺀 캐시 비율을 보인다
 - 화면은 `static/usage.js`
