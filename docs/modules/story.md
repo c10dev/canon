@@ -371,6 +371,8 @@
 - 오른쪽 한 열의 쪽 `castPage`(`S.castView`: map · table · char · pair, 옮기기 `castShow`, 주소 `cast/<map · table · c:id · p:a|b>?f=` 와 옛 `?tab=` 은 `castParse`)
 - 열 맨 위 시점 띠 `castBar`(좁은 칸은 아래에 붙음)
 - 관계도 `castMapPage`(SVG, 화별 재생, 칸 폭에 맞추고 크게 보기 `CAST_ZOOM`, 누르면 고르기만 `castMapPick` · 고른 줄 `castMapSel`, 끌어 옮긴 배치는 localStorage)
+- 인물 끌기가 끊기면(`pointercancel`) `castDrag` 를 지운다
+- 640px 이하 관계도는 600px보다 좁게 줄이지 않고 옆으로 굴린다(이름이 5px로 줄지 않게, app.css)
 - 관계도 온기 다섯 단계 선 색은 `WARMTH_BANDS`(적대 `--warm-hostile`, 반감 `--bad`, 무덤덤 `--warm-mid`, 호감 `--good`, 아낌 `--warm-deep`)
 - 인물 쪽 `castCharPage`
   - 머리 `castHead` · 보는 시점의 상태 · 상태창 수치(바뀐 양 `castStatDelta`, 카드 | 시스템 창 보기는 localStorage, 창 모양은 작품 스킨 `stat_window.skin`) · 관계 줄 `castSheetRels`(온기 막대 `castMeter`) · 비밀 · 설정과 남겨 둔 제안 · 읽기 먼저인 'AI · 서술 · 신체 · 삽화' 카드 `castEditCard`
@@ -428,6 +430,7 @@
 
 - 집필 화면 삽화 프롬프트 카드(칸별 복사, 다시 조립, 외형 고정)
 - 읽기 전용 본문에서 고르는 도구
+- 도구 자리도 왼쪽을 0으로 두고 너비를 잰다(`passage.js` 의 `placeTool` 과 같은 규칙)
 - 인물 화면 인물 카드의 삽화 외형 태그(`visualFields`)
 - 고치는 본문의 도구 버튼은 `passage.js`
 
@@ -451,6 +454,7 @@
 ### `canon/static/play.js`
 
 - 플레이 화면(DESIGN.md 10.4, 시안 안 A)
+- 손가락 기기(`pointer: coarse`)에서는 숫자 키 · Ctrl+Enter · 아무 키 안내를 숨긴다(`playKeys`)
 - 새 플레이(`#/play/new[/세계]`, 출생 카드 · 새 세계)
 - 플레이(`#/play/<폴더>`: 시간 흐름 막대, 흘러간 일, 결정 장면, 끼어들기, 옆 패널)
 - 지난 일 · 되감기(`/past`, `<dialog>`)

@@ -23,6 +23,7 @@ const PAL_CHAR_FIELDS = [
   ['role', '역할'], ['age', '나이'], ['goal', '원하는 것'], ['wound', '두려운 것 · 약점'], ['secrets', '숨기는 것'], ['speech_style', '말투 (대사)'],
   ['personality', '성격'], ['background', '배경'], ['appearance', '외모'], ['arc', '아크'],
 ];
+const PAL_X = '<svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m4.5 4.5 9 9m0-9-9 9"></path></svg>';  // 휴대폰 닫기 버튼
 const PAL_HINT = 40;  // 칸 값을 보이는 글자 수
 const PAL_CHO = 'ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ';
 
@@ -40,7 +41,14 @@ const PAL_CHO = 'ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ';
 .pal .pal-kind { flex: none; padding: 2px 8px; border-radius: 999px; background: var(--chip); color: var(--text-2); font-size: 0.6875rem; }
 .pal .pal-empty { padding: 16px 12px; color: var(--muted); }
 .pal .pal-foot { padding: 8px 16px; border-top: 1px solid var(--line); }
-@media (max-width: 640px) { .pal-back { padding-top: 16px; } .pal { max-height: calc(100vh - 32px); } .pal .pal-foot { display: none; } }
+@media (max-width: 640px) { .pal-back { padding-top: 16px; } .pal { max-height: calc(100dvh - 32px - var(--kb, 0px)); } .pal .pal-foot { display: none; } }
+.pal .pal-x { display: none; }
+/* 휴대폰: 팔레트가 화면을 거의 다 덮어 바깥을 누르기 어렵고 Esc 도 없다. 찾기 칸 오른쪽에 닫기 버튼을 둔다 */
+@media (max-width: 640px) {
+  .pal { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto minmax(0, 1fr); }
+  .pal > ul, .pal > .pal-foot { grid-column: 1 / -1; }
+  .pal .pal-x { display: inline-flex; align-self: stretch; width: 52px; min-height: 52px; border: none; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; }
+}
 `;
   const el = document.createElement('style');
   el.textContent = css;
@@ -101,7 +109,7 @@ function paletteItems(ctx) {
   if (!ctx.inProject) return [{ kind: 'screen', label: '작품 목록', hint: '', words: '', href: '#/' }, settings, hub, ...rows];
   const out = [];
   if (ctx.next) out.push({ kind: 'act', label: `다음 할 일 · ${ctx.next[0]}`, hint: '', words: ctx.next[0], href: ctx.next[1] });
-  if (ctx.canSave) out.push({ kind: 'act', label: '저장', hint: 'Ctrl+S', words: '', act: 'save' });
+  if (ctx.canSave) out.push({ kind: 'act', label: '저장', hint: typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches ? '' : 'Ctrl+S', words: '', act: 'save' });
   out.push(hub);
   const { steps, auto, tools, apart, foot } = ctx.nav;
   steps.forEach(([, href, num, label]) => out.push({ kind: 'screen', label, hint: /\d/.test(num) ? `단계 ${num}` : '', words: '', href }));
@@ -174,7 +182,8 @@ function paletteOpen() {
   const where = pal.items.some((it) => it.kind === 'field') ? '화면 · 화 번호 · 인물 이름 · 설정 칸 · 설정' : '화면 · 설정';
   box.innerHTML = `<div class="pal" role="dialog" aria-modal="true" aria-labelledby="pal-title">
     <h2 id="pal-title" class="sr-only">찾기</h2>
-    <input id="pal-q" type="text" role="combobox" aria-expanded="true" aria-controls="pal-list" aria-autocomplete="list" aria-describedby="pal-help" autocomplete="off" spellcheck="false" placeholder="${where} 찾기">
+    <input id="pal-q" type="text" role="combobox" aria-expanded="true" aria-controls="pal-list" aria-autocomplete="list" aria-describedby="pal-help" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="go" placeholder="${where} 찾기">
+    <button type="button" class="pal-x icon-btn btn ghost" aria-label="찾기 닫기">${PAL_X}</button>
     <ul id="pal-list" role="listbox" aria-label="찾은 항목"></ul>
     <div id="pal-help" class="pal-foot small">↑↓ 고르기 · Enter 이동 · Esc 닫기</div>
     <div id="pal-count" class="sr-only" role="status"></div>
@@ -184,6 +193,7 @@ function paletteOpen() {
   const input = document.getElementById('pal-q');
   input.addEventListener('input', () => { pal.sel = 0; palDraw(); });
   input.addEventListener('keydown', palKey);
+  box.querySelector('.pal-x').addEventListener('click', () => paletteClose());
   const list = document.getElementById('pal-list');
   list.addEventListener('mousedown', (e) => e.preventDefault());  // 누르는 동안 포커스를 검색 칸에 둔다
   list.addEventListener('click', (e) => {

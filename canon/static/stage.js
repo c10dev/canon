@@ -1173,7 +1173,7 @@ function stgCss() {
 .stg-room.editing { border-color: var(--sel-line); }
 .stg-room-sum { margin: 0; font-size: 0.8125rem; color: var(--text-2); }
 .stg-num { width: 80px; }
-.stg-aname { width: 120px; }
+input.stg-aname { width: 120px; }
 .stg-empty { border-style: dashed; }
 .stg-pick { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .stg-pick legend { padding: 0; margin-bottom: 8px; font-weight: 700; }
@@ -1634,6 +1634,8 @@ document.addEventListener('pointermove', (e) => {
     stgDrag.svg.innerHTML = stgPlanSvg(t.pos, t.ang, g.beat);
   }
 });
+// 시스템 몸짓 등으로 끌기가 끊기면 pointerup 이 오지 않는다. 끌던 것을 놓고 화면을 다시 그린다
+document.addEventListener('pointercancel', () => { if (stgDrag) { stgDrag = null; render(); } });
 document.addEventListener('pointerup', (e) => {
   if (!stgDrag) return;
   const d = stgDrag;

@@ -240,7 +240,7 @@ function viewToFix() {
   if (!rows.length) {
     if (!all.length) {
       const w = tofixWriteHref();
-      return `${head}<div class="card empty"><p>아직 담은 곳이 없어요. 집필 화면에서 어색한 글을 드래그해 고른 뒤 '나중에 고치기'를 누르면 여기 모여요.</p><div><a class="btn primary" href="${w.href}">${w.n}화 집필 화면으로</a></div></div>`;
+      return `${head}<div class="card empty"><p>아직 담은 곳이 없어요. 집필 화면에서 어색한 글을 드래그하거나 길게 눌러 고른 뒤 '나중에 고치기'를 누르면 여기 모여요.</p><div><a class="btn primary" href="${w.href}">${w.n}화 집필 화면으로</a></div></div>`;
     }
     return S.tofixFilter === 'open'
       ? `${head}<div class="card empty"><p>남은 고칠 곳이 없어요. 담은 ${count.done}곳을 모두 고쳤어요.</p><div><button type="button" class="btn primary" data-action="tofixFilter" data-arg="done">고친 곳 보기</button></div></div>`

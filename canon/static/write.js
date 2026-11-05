@@ -351,7 +351,7 @@ function viewWrite(n) {
             ${editable ? tofixBtn(n) : ''}
             ${edits ? `<button type="button" class="btn small" data-action="openEdits" title="수정 기록을 펼쳐요" aria-label="수정 기록 ${edits}개"><span class="lbl-l">수정 기록</span><span class="lbl-s">기록</span> ${edits}</button>` : ''}
             ${text ? copySplit(n) : ''}`}
-            <p class="small w-hint">${e.status === 'draft' ? '플롯을 확정하면 본문을 쓸 수 있어요' : e.text ? '고칠 부분을 드래그하면 직접 고치거나 AI에게 맡기거나 나중에 고칠 곳으로 담을 수 있어요' : '본문을 직접 고친 뒤 저장할 수 있어요'}</p>
+            <p class="small w-hint">${e.status === 'draft' ? '플롯을 확정하면 본문을 쓸 수 있어요' : e.text ? '고칠 부분을 드래그하거나 길게 누르면 직접 고치거나 AI에게 맡기거나 나중에 고칠 곳으로 담을 수 있어요' : '본문을 직접 고친 뒤 저장할 수 있어요'}</p>
           </div>`}
           ${strip.row}
         </div>

@@ -175,11 +175,12 @@ function keyRow(id, kind, name, hint, src, placeholder, help) {
       <button type="button" class="btn" data-action="setKeySave" data-arg="${kind}">키 저장</button>${clear}`);
 }
 
-/** 글 칸: 칸을 떠나거나 Enter 를 누르면 저장한다 (change). 환경 변수가 정했으면 읽기만 */
+/** 글 칸: 칸을 떠나거나 Enter 를 누르면 저장한다 (change). 환경 변수가 정했으면 읽기만.
+    모델 이름 · 주소 · 경로만 받으므로 휴대폰 키보드가 첫 글자를 대문자로 바꾸지 않게 한다 */
 function textRow(id, field, name, desc, value, src, envName, { placeholder = '', list = '', mono = false } = {}) {
   const locked = src === 'env';
   return setRow(id, name, `${desc}${locked ? ` ${envLine(src, envName)}` : ''}`,
-    `<input class="set-inp${mono ? ' mono' : ''}" type="text" data-setfield="${field}" aria-labelledby="rn-${id}" value="${esc(value || '')}"${placeholder ? ` placeholder="${esc(placeholder)}"` : ''}${list ? ` list="${list}"` : ''}${locked ? ' readonly' : ''}>`);
+    `<input class="set-inp${mono ? ' mono' : ''}" type="text" data-setfield="${field}" aria-labelledby="rn-${id}" autocapitalize="off" autocorrect="off" spellcheck="false" value="${esc(value || '')}"${placeholder ? ` placeholder="${esc(placeholder)}"` : ''}${list ? ` list="${list}"` : ''}${locked ? ' readonly' : ''}>`);
 }
 
 /** 모델 칸 추천 목록: Gemini API 와 로컬 서버 · Claude 에 실제로 있는 모델. 없으면 직접 적는다 */

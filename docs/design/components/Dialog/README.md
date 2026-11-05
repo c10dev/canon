@@ -6,7 +6,7 @@
 
 - 쓰는 쪽이 줄 것: 대화상자 id, 제목(`<h2 id="<id>-title">`, 대화상자의 `aria-labelledby`), 내용, 아래 버튼 줄(`.row`, 주 버튼 오른쪽 끝).
 - 공통 대화상자(`dialog.w-dialog`): 폭 `min(560px, 100vw - 32px)`, 높이는 화면 높이 - 48px까지, 안쪽 `space-20` · `space-24`, `surface` 면, `line` 테두리, `radius-12`, `shadow-dialog`. 배경(`::backdrop`)은 `overlay`.
-- 설정 대화상자(`dialog.set-dlg`): `min(980px, 100vw - 48px)` × `min(760px, 100vh - 48px)`, `bg` 면, `radius-12`.
+- 설정 대화상자(`dialog.set-dlg`): `min(980px, 100vw - 48px)` × `min(760px, 100dvh - 48px)`, `bg` 면, `radius-12`.
   - 왼쪽 갈래 목록(`.set-nav`, 240px, `surface` 면): 제목, 찾기 칸, 갈래 이름(이 컴퓨터 · 이 작품 · 이 브라우저), 갈래 줄 38px. 지금 갈래는 `btn` 면 700.
   - 오른쪽 내용(`.set-main`, 최대 720px): 구역마다 `h3` 제목과 줄 묶음(`.set-rows`: `surface` 면, `line` 테두리, `radius-12`).
   - 줄(`.set-row`): 64px 이상, 왼쪽 이름 · 설명, 오른쪽 조작(입력칸 · 나눔 버튼 · 스위치). 줄 사이는 `rule` 선. 바꾸면 바로 저장하고 줄 안에 결과를 짧게 쓴다(`.set-note`). 저장 띠를 쓰지 않는다.

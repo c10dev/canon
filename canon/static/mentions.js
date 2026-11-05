@@ -253,6 +253,7 @@ function mnPlace() {
   const r = mnAnchorRect(mnOpen.anchor);
   if (!r) return mentionClose();
   const vw = document.documentElement.clientWidth;
+  el.style.left = '0px';  // 옛 자리에서 재면 오른쪽 남은 폭만큼 줄어든 너비가 나온다
   const w = el.offsetWidth;
   const h = el.offsetHeight;
   let y = r.bottom + 6;

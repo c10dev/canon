@@ -172,11 +172,14 @@ function refHome() {
 
 // ----- 넣기 · 경계 고치기 -----
 
+/** 손가락 기기: 파일을 끌어 놓기 어려우니 '파일 고르기'만 안내한다 */
+const REF_TOUCH = () => matchMedia('(pointer: coarse)').matches;
+
 function refDraftView() {
   const d = S.refDraft || (S.refDraft = refBlank());
   const back = d.edit ? `<a class="btn" href="#/refs/${d.edit}">원고로</a>` : '<a class="btn" href="#/refs">목록으로</a>';
   if (!d.preview) {
-    return `${header('레퍼런스 원고', '원고 넣기', 'txt 파일을 고르거나 끌어 놓으세요. 여러 파일은 이름 차례로 이어요.', back)}${refFileCard(d)}`;
+    return `${header('레퍼런스 원고', '원고 넣기', `txt 파일을 고르${REF_TOUCH() ? '세요' : '거나 끌어 놓으세요'}. 여러 파일은 이름 차례로 이어요.`, back)}${refFileCard(d)}`;
   }
   const title = d.edit ? `경계 고치기 · ${d.name}` : '화 나누기 확인';
   const v = refEpRows(d, refLines());
@@ -201,7 +204,7 @@ function refFileCard(d) {
     <span class="small">${d.bad > 1 ? `<span class="ref-bad">깨진 글자가 많아요 (1,000자당 ${d.bad}개). 다른 인코딩을 골라 보세요.</span>` : `${esc((REF_ENCODINGS.find(([k]) => k === d.encoding) || [0, d.encoding])[1])}로 읽었어요. 글자가 깨져 보이면 바꾸세요.`}</span></div>` : '';
   const ok = d.text.trim() && d.name.trim() && d.rights;
   return `<section class="card ref-file">
-    <div class="ref-drop" data-ref-drop="1"><p>txt 파일을 여기에 끌어 놓으세요</p><label class="btn" for="ref-file-in">파일 고르기</label>
+    <div class="ref-drop" data-ref-drop="1"><p>${REF_TOUCH() ? '아래 버튼으로 txt 파일을 고르세요' : 'txt 파일을 여기에 끌어 놓으세요'}</p><label class="btn" for="ref-file-in">파일 고르기</label>
       <input id="ref-file-in" type="file" accept=".txt,text/plain" multiple hidden data-ref-file="1"></div>
     ${files}${enc2}${head}
     <details class="ref-paste"${!d.files.length && d.text ? ' open' : ''}><summary class="small">파일 대신 붙여 넣기</summary>

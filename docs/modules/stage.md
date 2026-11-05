@@ -111,6 +111,7 @@
   - 막힌 이동은 빨간 점선과 '막힌 이동' 안내
   - 이름표 겹침은 순수 함수 `stageLabelPlace`(평면도 · 3D `s3PlaceTags` 가 함께 씀, 앞 프레임 자리 `stgLabelMem`, `tests/test_stage_labels.py`)
   - 끌어 놓기 → `stageSnap`
+  - 끌기가 끊기면(`pointercancel`) 끌던 것을 놓고 다시 그린다
 - 화면 틀은 공용 목차 틀(`outlineDoc` · `outlineNav`, 틀 클래스 `.stg-wrap`)
 - 목차 `stgToc`: 화 고르기 · 사건(상태 글 계획 · 본문 · 없음) · 지금 사건의 박자(지적 수 · 본문과 달라요 · 계획과 달라요)
 - 무대 카드: 평면도(또는 3D)와 그 박자 칸 `stgNow`(박자 글 · 바뀐 것 `stgChange` · 그 박자의 지적과 안내)

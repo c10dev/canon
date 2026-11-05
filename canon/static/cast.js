@@ -1116,6 +1116,9 @@ document.addEventListener('pointermove', (e) => {
   if (stage) stage.querySelector('.cast-graph-wrap').innerHTML = castGraph();
 });
 
+// 시스템 몸짓 등으로 끌기가 끊기면 pointerup 이 오지 않는다. 남은 castDrag 가 다음 움직임을 끌지 않게 지운다
+document.addEventListener('pointercancel', () => { castDrag = null; });
+
 document.addEventListener('pointerup', () => {
   if (!castDrag) return;
   if (castDrag.moved) {
