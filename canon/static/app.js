@@ -1117,7 +1117,7 @@ document.addEventListener('change', (e) => {
   if (el.dataset.pick) {
     S.picks[el.dataset.pick] = el.checked;
     document.querySelectorAll('#app .pick-count').forEach((c) => { c.textContent = deltaPicked(); });
-    if (S.route[2] === 'review' && /^[ers]\d/.test(el.dataset.pick)) refreshPreview(Number(S.route[3]));
+    if (S.route[2] === 'review' && /^[ersn]\d/.test(el.dataset.pick)) refreshPreview(Number(S.route[3]));
     if (S.route[2] === 'setup' && /^sc\d/.test(el.dataset.pick)) render();  // 고른 인물에 따라 넣을 수 있는 관계가 바뀐다
   }
   if (el.name === 'np-form') {  // 형식을 바꾸면 총 화수 기본값도 바꾼다

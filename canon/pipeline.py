@@ -3786,19 +3786,22 @@ def _delta_checks(p: Project, d: StateDelta) -> list[tuple]:
         ("events", d.events,
          lambda e: "" if e.kind == "수동보정" else pair(e.actor, e.target, f"관계 사건({e.actor}→{e.target})")),
         ("relationship_updates", d.relationship_updates, lambda r: pair(r.a, r.b, f"관계 바뀜({r.a}↔{r.b})")),
+        ("secrets_added", d.secrets_added,
+         lambda s: "" if s.owner in known else f"설정에 없는 인물의 비밀이에요: {s.owner}"),
         ("foreshadow_resolved", d.foreshadow_resolved,
          lambda x: "" if x in shadows else f"없는 복선을 회수했어요: {x}"),
     ]
 
 
 def validate_delta(p: Project, d: StateDelta) -> list[str]:
-    """반영하면 누구의 것도 아닌 데이터가 남는 항목 (설정에 없는 인물 id, 같은 인물끼리의 관계, 없는 복선 id).
+    """반영하면 누구의 것도 아닌 데이터가 남는 항목 (설정에 없는 인물 id, 같은 인물끼리의 관계, 설정에 없는 인물의 비밀, 없는 복선 id).
     새 인물(d.new_characters)과 이번에 심는 복선은 아는 것으로 센다. p 와 d 를 바꾸지 않는다. web 반영은 이것이 있으면 막는다."""
     return [m for _, items, why in _delta_checks(p, d) for m in map(why, items) if m]
 
 
 def drop_invalid(p: Project, d: StateDelta) -> list[str]:
     """validate_delta 에 걸린 항목을 d 에서 빼고 그 문구를 돌려준다. 사건 목격자 중 설정에 없는 인물도 뺀다(사건은 남긴다).
+    비밀을 모르는 인물(hidden_from) 중 설정에 없는 인물과 없는 비밀 id 를 가리키는 사건의 reveals_secret 도 빼고(비밀 · 사건은 남긴다) 그 문구를 더한다.
     뺀 항목은 d.dismissed 의 같은 칸에 남겨 반영 기록에서 보이고, 반영 취소로 돌아오면 체크를 푼 채 다시 놓인다."""
     out: list[str] = []
     for name, items, why in _delta_checks(p, d):
@@ -3814,6 +3817,15 @@ def drop_invalid(p: Project, d: StateDelta) -> list[str]:
     known = {c.id for c in p.characters} | {c.id for c in d.new_characters}
     for e in d.events:
         e.witnesses = [w for w in e.witnesses if w in known]
+    for s in d.secrets_added:
+        if (gone := [x for x in s.hidden_from if x not in known]):
+            out.append(f"비밀({s.id})을 모르는 인물에서 설정에 없는 인물을 뺐어요: {', '.join(gone)}")
+            s.hidden_from = [x for x in s.hidden_from if x in known]
+    secrets = {s.id for s in p.secrets} | {s.id for s in d.secrets_added}
+    for e in d.events:
+        if e.reveals_secret and e.reveals_secret not in secrets:
+            out.append(f"관계 사건({e.actor}→{e.target})이 드러낸 비밀이 없는 비밀이라 지웠어요: {e.reveals_secret}")
+            e.reveals_secret = ""
     return out
 
 

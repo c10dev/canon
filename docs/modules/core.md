@@ -255,7 +255,9 @@
   - 작품 전체 저장에서 본문이 있는 화의 플롯은 디스크 것으로 둔다(`keep_locked_plots`, 줄기 표시 `LOCKED_FREE` 만 받음, `web.put_project`)
   - 상태 변경안 정리 `clean_delta`
   - 반영 전 검사 `validate_delta`: 설정에 없는 인물 id(이번 새 인물은 앎) · 같은 인물끼리이거나 설정에 없는 인물의 관계 사건과 관계 바뀜 · 없는 복선 id 회수(이번에 심는 복선은 앎)
+  - `validate_delta` 는 설정에 없는 인물이 주인인 비밀(`secrets_added` 의 `owner`)도 막는다
   - `apply_delta` 는 검사에 걸린 항목과 설정에 없는 사건 목격자를 빼고(`drop_invalid`) 반영한 뒤 뺀 항목 문구를 돌려준다
+  - `drop_invalid` 는 비밀의 `hidden_from` 중 설정에 없는 인물과 없는 비밀 id 를 가리키는 사건의 `reveals_secret` 을 지우고 그 문구를 더한다(비밀 · 사건은 남긴다)
   - `drop_invalid` 가 뺀 항목은 `d.dismissed` 의 같은 칸에 남는다(반영 기록에서 보이고 반영 취소로 돌아오면 체크를 푼 채 다시 놓인다)
   - 상태 변경안의 본문 지문 `StateDelta.basis`(`text_basis`)는 `extract_state` · `carried_delta` 가 채운다
   - 반영 `apply_delta` 는 인물 상태의 빈 칸을 그대로 두고, `CharacterState.cleared` 에 적힌 칸(목표 · 위치 · 메모 · 차림 · 감정)은 비운다
