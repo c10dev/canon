@@ -174,6 +174,7 @@ function paletteOpen() {
   if (busy && !busy.hidden) return;  // 작업 중 창이 떠 있으면 열지 않는다
   pal.opener = document.activeElement;
   pal.mark = focusMark();
+  if (typeof panelOn === 'function') panelOn('pal', paletteClose);  // 휴대폰 뒤로 가기가 팔레트만 닫게 (app.js)
   pal.items = paletteItems(palContext());
   pal.sel = 0;
   const box = document.createElement('div');
@@ -259,6 +260,7 @@ function paletteClose() {
   const box = document.getElementById('palette');
   if (!box) return;
   box.remove();
+  if (typeof panelOff === 'function') panelOff('pal');
   PAL_BEHIND.forEach((sel) => { const el = document.querySelector(sel); if (el) el.inert = false; });
   const back = pal.opener && pal.opener.isConnected ? pal.opener : pal.mark && findMark(pal.mark);
   if (back && back !== document.body) focusEl(back);

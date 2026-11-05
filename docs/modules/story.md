@@ -244,6 +244,7 @@
 - 사건을 사본에 돌린 반영 뒤 단계(`_after`, `dynamics.run_episode`), 두 방향 단계의 극성(`STAGE_SIGN`, 엇갈리면 0)
 - 글 극성(`polarity`: 낱말 사전 `POSITIVE` · `NEGATIVE`, 바로 뒤 '않 · 못 · 없'은 뒤집음), 관계 극성(`rel_polarity`: 유형 먼저, 중립이면 대사와 두 사람 밖 인물이 나온 문장을 뺀 설명 `_others`)
 - 반대인 유형 바뀜의 차례 `StateDelta.rel_flagged` → 상태 승인 화면 기본 체크 해제(`review.js` `setDelta`), 사람 검토 없이 반영할 때는 빼기(`hold`, 남긴 개수로 세지 않음)
+- `hold` 는 `StateDelta.drop_rel_rows` 로 뺀다. 범위 밖 차례(옛 변경안)는 무시한다
 - `hold` 가 뺀 유형 바뀜은 반영 기록의 빼 둔 항목(`StateDelta.dismissed.relationship_updates`)에 남는다
 - 두 층 감정(`prompts.LAYER`)으로 상대를 적은 쌍은 빼기(`_masked`)
 - 한 쌍 한 화 결정적(3) 사건 `BIG`(3)개 이상 경고
@@ -391,6 +392,8 @@
 ### `canon/static/cast.js`
 
 - 인물 · 관계도 화면(공용 목차 틀 `outline.js`)
+- 인물 카드의 등장 띠 칸을 누르면(`castStripGo`) 그 화를 반영한 시점으로 옮기고(재생은 멈춤), 없으면 그 화에서 할 일 화면(`epGo`)으로 간다. 등장표 칸은 그 화를 연다
+- 추이 그래프는 둘째 선부터 점선으로도 가르고, 그래프 아래에 고른 시점 값과 사건을 글로 보인다(`.cc-read`)
 - 인물 쪽 `castCharPage` 는 남겨 둔 설정 바꾸기 제안이 있으면 설정 카드를, 남겨 둔 호칭이 있으면 그 카드를 머리 바로 아래에 둔다
 - 왼쪽 목차 `castToc`(관계도 · 등장표 · 비중별 인물, 단역이 많으면 접음 `castMinorFold`)
 - 오른쪽 한 열의 쪽 `castPage`(`S.castView`: map · table · char · pair, 옮기기 `castShow`, 주소 `cast/<map · table · c:id · p:a|b>?f=` 와 옛 `?tab=` 은 `castParse`)
@@ -547,6 +550,7 @@
 ### `canon/static/timeline.js`
 
 - 작품 속 시간 화면(`viewTimeline`)
+- 칸 폭 560px 이하 열흘 띠는 열흘을 모두 두고 옆으로 밀어 본다(칸 64px 이상)
 - 공용 목차 틀(`outline.js`, 목차 `tlTocHtml`: 지금 · 기한 · 시간 흐름 묶음 · 설정, 스크롤로 `S.tlCur`)
 - 지금 `tlNowCard`: 마지막 반영 화 끝 시점과 앞으로 열흘 띠
 - 기한 `tlDlCard`: 나눔 버튼 `S.tlDlTab`, 줄마다 ⋯ 메뉴, 지난 기한은 닫기 · 날 바꾸기

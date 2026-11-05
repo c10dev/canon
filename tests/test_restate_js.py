@@ -63,3 +63,22 @@ def test_restate_items_show_repeated_plant_id_once():
     d = {**DELTA, "foreshadow_planted": DELTA["foreshadow_planted"] + [{"id": "fs-a", "description": "가 다시"}]}
     expr = "S.project = {episodes: [], foreshadows: [{id: 'fs-b'}], facts: []}; S.deltas = {1: data}; rsItems(1).plants.map((x) => x.i)"
     assert run_js(["app.js", "restate.js"], expr, d) == [0]
+
+
+@needs_node
+def test_restate_card_skips_delta_from_text_before_edit():
+    """다시 맞추기 후보는 고친 본문에서 뽑은 변경안만이다. 고치기 전 본문(final_text)에서 뽑은 변경안
+    (자동 반영 전에 받아 둔 검토 대기 변경안)은 후보로 두지 않고 다시 뽑기를 보인다 (web._stale_state 와 같은 규칙)."""
+    e = episode(1, status="finalized", text="고친 본문", final_text="본문")
+    expr = """(() => {
+      S.name = 't'; S.project = {episodes: [data.e], foreshadows: [], facts: [], history: []};
+      const out = {};
+      for (const b of ['본문', '고친 본문']) {
+        S.deltas = {1: structuredClone(data.d)}; S.deltaBase = {1: b};
+        out[b] = restateCard(1).includes('data-action="applyRestate"');
+      }
+      return out;
+    })()"""
+    d = {**DELTA, **{k: [] for k in ("character_updates", "events", "relationship_updates", "secrets_added", "foreshadow_resolved")}}
+    got = run_js(["app.js", "restate.js"], expr, {"e": dump(e), "d": d})
+    assert got == {"본문": False, "고친 본문": True}

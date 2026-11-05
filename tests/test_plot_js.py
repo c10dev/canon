@@ -138,11 +138,11 @@ def test_drop_event_restores_only_with_text():
     out = run_js(FILES, """(() => {
       S.project = data; render = () => {};
       actions.dropEvent('5:1');
-      const blank = S.lastRemoved;
+      const blank = lastRemoved();
       actions.dropEvent('5:0');
-      const label = S.lastRemoved.label;
+      const label = lastRemoved().label;
       const after = [...ep(5).plot.events];
       actions.restoreRemoved();
-      return [blank, label, after, ep(5).plot.events, S.lastRemoved];
+      return [blank, label, after, ep(5).plot.events, lastRemoved()];
     })()""", dump(p))
     assert out == [None, "5화 사건 1", ["다"], ["가", "다"], None]

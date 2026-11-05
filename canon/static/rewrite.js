@@ -275,6 +275,7 @@ Object.assign(actions, {
     S.rwOpen = n;
     S.rwPrompt = null;
     S.chatOpen = false;  // 다시 생성 열은 대화 패널 자리에 뜬다. 하나만 연다
+    if (typeof panelOff === 'function') panelOff('chat');  // 시트의 뒤로 가기 기록도 거둔다
     render();
     await rwLoad(n);  // 재료는 본문과 수정 기록에 따라 바뀌니 열 때마다 새로 받는다
     render();

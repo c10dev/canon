@@ -695,26 +695,51 @@ Object.assign(actions, {
   async autoResume(how) {
     const body = { approve: how === 'approve', rewrite: how === 'rewrite' };
     const r = S.auto.run;
-    if (how === 'approve' && !(await askConfirm(`${r.ep}화 변경안을 보지 않고 그대로 반영할까요?`, { ok: '반영하기' }))) return;
+    if (how === 'approve') {
+      // 그대로 반영은 서버의 Run.pending 을 반영한다. 상태 승인 화면에서 고르거나 고친 것(이 탭의 화면, 다른 탭 · 기기가 남긴 초안)은 버리니 알린다
+      const kept = await api('GET', `/projects/${enc(S.name)}/pending`).then((d) => !!((d.results || {})[`state:${r.ep}`] || {}).draft).catch(() => false);
+      const ok = kept || deltaTouched(r.ep)
+        ? await askConfirm(`${r.ep}화 변경안을 상태 승인 화면에서 고르거나 고친 것이 있어요. 그대로 반영하면 고친 것은 버리고 AI가 만든 변경안을 그대로 반영해요.\n고친 대로 반영하려면 취소하고 검토하기에서 반영하세요.`, { title: '고친 것을 버리고 반영할까요?', ok: '고친 것 버리고 반영하기', danger: true })
+        : await askConfirm(`${r.ep}화 변경안을 보지 않고 그대로 반영할까요?`, { ok: '반영하기' });
+      if (!ok) return;
+    }
     if (how === 'rewrite' && !(await askConfirm(`${r.ep}화를 다시 쓸까요? 지금 본문은 이전 판으로 남아 집필 화면에서 되돌릴 수 있어요.`, { ok: '다시 쓰기' }))) return;
     if (!(await autoFlushDrafts(r.target))) return;
     await run('이어 가는 중', async () => {
       await saveIfDirty();
       S.auto = await api('POST', `/projects/${enc(S.name)}/auto/resume`, body);
       S.project = await api('GET', `/projects/${enc(S.name)}`);
+      if ((body.approve || body.rewrite) && r.ep != null) {  // 그 화는 반영했거나 다시 썼다. 화면에 남은 변경안을 내려 syncPending 이 서버 결과도 지우게 한다
+        delete S.deltas[r.ep];
+        draftWaiting.delete(r.ep);
+      }
       S.autoRunPolicyOpen = false;
       pollJobs(true);
       autoPoll(1000);
     });
   },
-  autoOpenReview() {
-    const r = S.auto.run;
-    setDelta(r.ep, structuredClone(r.pending));
-    // 변경안을 만든 본문을 기준으로 둔다. 그 뒤 본문을 고쳤으면 상태 승인 화면이 '이 변경안을 만든 뒤 본문을 고쳤어요'를 알린다
-    if (r.pending_text) S.deltaBase[r.ep] = r.pending_text;
+  async autoOpenReview() {
+    const n = S.auto.run.ep;
+    // 서버가 검토 대기 변경안을 pending.json 의 state:<화> 결과로 둔다(web.auto_review). 작업 결과처럼 받아야 고르던 체크 · 고친 칸이 초안으로 남고(saveDeltaDraft)
+    // 새로고침 · 다른 기기에서도 이어 고친다. 만든 본문(base)도 함께 받아, 그 뒤 본문을 고쳤으면 상태 승인 화면이 알린다
+    const before = S.pending.name === S.name ? (S.pending.results[`state:${n}`] || {}).id : undefined;
+    let d;
+    try {
+      S.auto = await api('POST', `/projects/${enc(S.name)}/auto/review`);
+      d = await api('GET', `/projects/${enc(S.name)}/pending`);
+    } catch (e) {
+      return toast(e.message, true);
+    }
+    const rec = d.results[`state:${n}`];
+    if (rec && (before !== rec.id || S.deltas[n] === undefined)) {
+      // 화면의 변경안이 이 결과가 아니면(다른 작업 · 다시 쓰기 전 변경안) 내리고 이 결과를 놓는다. 같은 결과를 이미 보고 있으면 고친 것을 둔다
+      delete S.deltas[n];
+      S.jobsApplied.delete(rec.id);
+    }
+    await loadPending(Promise.resolve(d));
     // 상태 승인 화면의 '불러오기'는 이미 그 주소라 hashchange 가 생기지 않는다. 그때는 여기서 다시 그린다
     const was = location.hash;
-    location.hash = `${base()}/review/${r.ep}`;
+    location.hash = `${base()}/review/${n}`;
     if (location.hash === was) render();
   },
   async autoRevert(n) {

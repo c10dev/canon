@@ -1352,7 +1352,7 @@ details.vis summary .small { margin-left: var(--space-6); font-weight: 400; }
 .cast-strip-wrap { overflow-x: auto; }
 .cast-strip { display: block; }
 .cs-off { fill: var(--chip); }
-.cs-on { stroke-width: 1; }
+.cs-on { stroke-width: 1; cursor: pointer; }  /* 누르면 그 화 시점으로 (cast.js castStripGo) */
 .cs-on.draft { fill: var(--surface); stroke: var(--text-2); }
 .cs-on.confirmed { fill: var(--accent-soft); stroke: var(--accent); }
 .cs-on.written { fill: var(--amber-soft); stroke: var(--amber); }
