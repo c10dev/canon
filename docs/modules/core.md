@@ -36,6 +36,7 @@
 - `autorun.json` 에 진행 기록
 - 변경안 반영(`_review` 의 put)은 반영 전제 `pipeline.check_applicable` 에 걸리면 반영하지 않고 paused 로 멈춘다
 - 검토 대기의 그대로 반영(`resume` 의 take)도 `check_applicable` 에 걸리면 반영하지 않고 오류를 낸다
+- 자동 반영(`_review` 의 put)과 그대로 반영(take)이 끝나면 pending.json 의 그 화 상태 변경안(`state:<화>`)을 지운다(`_drop_pending_state`)
 - 서버 재시작 후 이어 가기
 - 도는 실행은 작품 폴더의 `.autorun.lock` 에 flock 을 쥔다(`_take`, `Control.owner`). 프로세스가 죽으면 OS 가 푼다
 - 다른 프로세스(명령줄 `canon auto` 나 다른 서버)가 잠금을 쥐면 `elsewhere` 가 참이고 `active` 도 참이다(화면 저장 보호가 켜진다)
@@ -299,6 +300,8 @@
   - `apply_delta` 는 검사에 걸린 항목과 설정에 없는 사건 목격자를 빼고(`drop_invalid`) 반영한 뒤 뺀 항목 문구를 돌려준다
   - `drop_invalid` 는 비밀의 `hidden_from` 중 설정에 없는 인물과 없는 비밀 id 를 가리키는 사건의 `reveals_secret` 을 지우고 그 문구를 더한다(비밀 · 사건은 남긴다)
   - `drop_invalid` 가 뺀 항목은 `d.dismissed` 의 같은 칸에 남는다(반영 기록에서 보이고 반영 취소로 돌아오면 체크를 푼 채 다시 놓인다)
+  - 관계 바뀜 행을 빼는 곳(`drop_invalid` · `pace.hold` · `_ask_flagged`)은 `StateDelta.drop_rel_rows` 를 써서 `rel_flagged` 를 남은 행의 차례로 다시 매긴다
+  - `apply_delta` 는 기록(history)에 넣기 전 `rel_flagged` 에서 범위 밖 · 겹친 차례를 버린다(반영 취소로 다시 놓일 때 맞는 행을 기본으로 빼 둔다)
   - `apply_delta` 는 새 관계 · 심은 복선 · 비밀을 복사해 넣는다(반영 뒤 계산이 바꿔도 반영 기록의 값은 보낸 그대로 남아 다시 계산할 때 두 번 세지 않는다)
   - `apply_delta` 는 한 변경안 안에서 같은 사실 · 같은 복선 id · 같은 비밀 id 가 또 오면 처음 것만 반영한다(`_first_new`)
   - `apply_delta` 는 심은 복선을 `apply_restate` 처럼 이번 화에 심은 열린 복선(`planted_ep` 이번 화, `status` open, `payoff_ep` 없음)으로 맞춘다
@@ -398,6 +401,7 @@
 - 사건 종류 목록에서 수동보정은 응답 형식에서만 빠지고 읽기는 한다(예전 JSON). 반영이 뺀다
 - 반영 기록의 `StateDelta.legacy_rel` 은 프로그램 칸이다(`SkipJsonSchema`). 칸이 없던 예전 기록은 참으로 읽히고 지금 반영은 거짓으로 남긴다
 - 상태 승인에서 반영하지 않은 항목(`StateDelta.dismissed`, `DismissedItems`)은 AI 응답 형식에서 빠지고 반영 기록(`Project.history`)에만 남는다
+- `DismissedItems.setting_changes` · `address_changes` 는 작가가 체크를 푼 설정 바꾸기 · 호칭이다. 반영하지 않는다. 자동 집필은 여기 말고 `setting_held` · `address_held` 에 남긴다
 - 반영이 실제로 새로 더한 항목(`StateDelta.added`, `AddedItems`)도 AI 응답 형식에서 빠진다. 없으면(None) 이 칸이 생기기 전 기록이다
 - 반영 취소는 그 화 기록과 함께 빼 둔 항목도 지운다
 - 지운 기록은 `_revert_kept` 가 pending.json 에 남기고, 상태 승인 화면이 빼 둔 항목을 체크를 푼 채 다시 놓는다
@@ -450,6 +454,10 @@
 - 실행이 없으면 시작 칸 하나이고, 쓸 화가 없으면 빈 화면(`autoEmpty`)
 - `autoPoll` 은 실행이 도는 동안 지난번 화와 지금 화만 받는다(`touchedEpisodes`). 맞출 수 없거나 멈추거나 끝나면 작품 전체를 받는다
 - 머리 주 버튼은 그때 할 일 하나(n화 변경안 검토하기 · 이어 가기 · n화까지 자동 집필 시작)
+- 검토하기(`autoOpenReview`)는 `POST /auto/review` 로 서버에 결과를 두게 한 뒤 `loadPending` 으로 상태 승인 화면에 놓는다. 그래서 고르던 체크 · 고친 칸이 초안으로 남고 새로고침 · 다른 기기에서 이어 고친다
+- 검토하기를 다시 눌러도 화면의 변경안이 같은 결과(같은 id)면 고친 것을 둔다. 다른 결과(다른 작업 · 다시 쓰기 전)면 내리고 새 결과를 놓는다
+- 그대로 반영(`autoResume('approve')`)은 서버의 `Run.pending` 을 반영한다. 상태 승인 화면에서 고친 것(`deltaTouched`)이나 서버 초안이 있으면 고친 것을 버린다고 알리고 검토하기에서 반영하라고 묻는다
+- 그대로 반영 · 다시 쓰기 뒤에는 그 화의 화면 변경안을 내려 `syncPending` 이 서버 결과도 지운다
 - 중지 · 설정을 바꿔 새로 시작은 머리 '실행 ▾' 메뉴
 - 지금 실행 카드는 화 칸 띠(`autoCells`, 40칸까지)와 수 칸 넷
 - 멈춘 이유마다 갈 곳 버튼(`autoReasonLink`: 검수 결과 · 관계도 · 그 화 읽기)
@@ -546,13 +554,21 @@
 - 반영 취소(`POST …/revert/{n}`)는 n+1화부터의 반영 기록을 pending.json 의 상태 변경안(`state:<화>`)으로 남긴다(`_revert_kept`)
 - 남긴 변경안의 base 는 반영 때 본문이다(반영 뒤 고쳤으면 `final_text`)
 - 반영 뒤 고친 화에서 이미 뽑아 둔 상태 변경안은 반영 기록으로 덮지 않는다
+- `GET …/pending` 은 쓸 수 없게 된 상태 변경안을 지운다(`_stale_state`): 본문 작성 상태도 반영 뒤 고친 화도 아닌 화의 것
+- 반영 뒤 고친 화는 고치기 전 본문(`final_text`)에서 뽑은 변경안도 지운다. 다시 맞추기 후보는 고친 본문에서 뽑은 것만이다
+- `_stale_state` 는 base 가 없는 옛 기록을 변경안의 `basis` 로 본다. 둘 다 없으면 남긴다
 - `PUT /api/projects/{name}/pending/{key}/draft`(`save_state_draft`)는 상태 변경안 결과에 초안을 붙인다
 - 초안 저장은 pending.json 만 고쳐 작품 저장으로 치지 않는다
 - 초안 저장 본문의 `picks` 가 null 이면 남긴 체크를 그대로 둔다(화면의 체크가 다른 화의 것일 때)
 - 초안 저장은 결과가 없거나 상태 변경안이 아니거나 보낸 `id` 가 결과의 작업 id 와 다르면 아무것도 바꾸지 않는다(반영 · 버림 · 다시 만들기 뒤 늦게 온 저장)
+- `POST /api/projects/{name}/auto/review`(`auto_review`)는 자동 집필 검토 대기 변경안(`Run.pending`)을 pending.json 의 `state:<화>` 결과로 둔다(만든 본문은 `base`)
+- `auto_review` 결과의 id 는 `auto:<실행 시작>:<화>:<변경안 지문>` 이다. 같은 변경안을 다시 두면 기록을 그대로 둬 초안을 지키고, 다시 쓰기로 바뀐 변경안은 새로 둔다
+- `POST /api/projects/{name}/auto/resume`(`auto_resume`)은 그대로 반영 · 다시 쓰기가 성공하면 그 화의 `auto:` 결과(`auto_review` 가 둔 것)를 pending.json 에서 지운다
 - 읽기 전용 GET 은 `_view`(`store.load_view`)로 작품을 읽는다
 - `GET /api/projects`(`list_projects`)는 카드의 project.json 몫을 파일 판(수정 시각 · 크기 · inode)마다 `_cards` 에 둔다. 판이 바뀐 작품만 `store.peek` 으로 다시 읽는다
 - 작품 목록의 play.json · pending.json · 갈래 정보는 요청마다 읽는다
+- 작품 목록 카드의 확인할 것(`_card_alerts`)은 `GET …/pending` 이 지우는 상태 변경안(`_stale_state`)을 빼고 보인다
+- 상태 변경안을 쓸 수 있는 화(`_state_live`)는 카드 몫과 함께 `_cards` 에 둔다
 - 화 넣기 · 빼기 · 지우기와 대화 에이전트의 화 넣기 · 빼기 승인 · 되돌리기는 저장한 뒤 `store.renumber_side_files` 로 큐 시트 실험 · 비교본을 옮긴다. 넣기 · 빼기 · 지우기 응답의 notes 에 옮긴 설명이 붙는다
 - `GET …/backups` · `POST …/backups/restore` 는 백업 목록과 되돌리기(`store.restore_backup`). 자동 집필 · 돌고 있는 AI 작업 · 검토를 기다리는 결과가 있으면 막고, 반영한 화가 줄면 `autorun.after_revert` 를 부른다
 - 작품 전체 저장은 `put_project`

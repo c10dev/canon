@@ -343,6 +343,7 @@
 - 반영 뒤 고친 화
 - 반영이 끝난 화를 고쳤을 때 집필 화면 알림(`restateNote`, 뒤 화 검수 권유)
 - 상태 승인 화면의 다시 맞추기 카드(`restateCard`: 요약 · 새 사실 · 새 복선만 고르기, 그대로 두기)
+- 다시 맞추기 후보(`restateDelta`)는 고친 본문에서 뽑은 변경안만이다. 변경안을 만든 본문(`S.deltaBase`)이 `final_text` 와 같으면 다시 뽑기를 보인다(서버 `_stale_state` 와 같은 규칙)
 - 서버는 `pipeline.apply_restate` · `keep_state`
 - 보내는 변경안(`restateBody`)은 고른 새 복선의 plant 근거 문장만 담는다 (`pipeline.apply_restate` 와 같은 규칙)
 - 고르기 칸(`rsItems`)은 변경안 안에서 같은 복선 id 가 두 번 오면 앞의 것만 보인다
@@ -361,7 +362,8 @@
   - 새 인물(`n`) 체크를 풀면 그 인물을 다룬 `c` · `e` · `r` · `s` · `t` · `h` · `a` 항목도 풀고 몇 개 풀었는지 알린다(`newCharCascade` · `newCharDeps`)
   - 새 인물을 다시 고르면 그 항목을 기본 체크로 되돌린다(다른 빠진 새 인물도 다룬 항목은 빼 둔다)
   - 새 인물 체크를 바꿔도 관계 미리 보기를 다시 계산한다(`app.js` 의 `[ersn]` 키)
-  - 체크를 푼 항목은 `pickedDelta` 가 `dismissed` 로 보낸다(설정 바꾸기 · 호칭 · 등장 인물 붙이기는 빼고)
+  - 체크를 푼 항목은 `pickedDelta` 가 `dismissed` 로 보낸다(등장 인물 붙이기는 빼고)
+  - 체크를 푼 설정 바꾸기(`t`) · 호칭(`h`)도 `dismissed` 로 가서 반영 취소 뒤 체크를 푼 채 다시 놓인다
   - 반영 기록에서 돌아온 변경안(반영 취소 · 단편 다시 쓰기)의 `dismissed` 는 `setDelta` 가 목록 끝에 다시 놓고(`reofferDismissed`) 기본 체크를 풀어 둔다(`d.reoffer`, 화면 전용)
   - 체크를 푼 채 다시 놓인 새 인물 · 심는 복선을 가리키는 항목도 `defaultPicks` 가 기본으로 빼 둔다(`over` 로 지금 `n` · `p` 체크를 주면 그 값을 기준으로 맞춘다)
   - 반영이 끝난 화 기록(`historyView`) 아래 접힌 '빼 둔 항목 N개'(`dismissedView`)
@@ -374,6 +376,7 @@
   - pending.json 에 남아 남기지 못한 초안이 없는 변경안은 페이지를 떠날 때 묻지 않는다(`deltaKept`, app.js `hasUnsaved`)
   - pending.json 에 결과가 없는 변경안은 초안을 남기지 않는다
   - 체크가 다른 화의 것이면(`S.picksEp`) 초안에 체크를 보내지 않는다
+  - 받은 그대로에서 바꾼 것(요약 · 체크 · 고칠 수 있는 칸)은 `deltaTouched` 로 센다. 다시 만들기와 자동 집필의 그대로 반영이 버리기 전에 묻는 기준이다
   - 머리 버튼 줄의 반영 버튼 · ⋯ `rvMenu` · `.savebar-slot`
   - 반영 `applyDelta`: 본문을 고친 것을 확인창에서 받았으면 `?force=1` 로 보낸다. 서버가 409(`stale_delta`)를 주면 기다림 상자를 닫고 한 번 더 묻는다
   - 왼쪽 읽기 전용 본문과 근거 밑줄 `rvRanges`

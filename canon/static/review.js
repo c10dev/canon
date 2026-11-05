@@ -29,7 +29,7 @@ function pickedDelta(n) {
     setting_changes: pick('t', d.setting_changes || []),
     cast_added: pick('a', d.cast_added || []),
     address_changes: pick('h', d.address_changes || []),
-    // 체크를 푼 항목은 버리지 않고 반영 기록에 남긴다 (StateDelta.dismissed). 설정 바꾸기 · 호칭 · 등장 인물 붙이기는 빼 둔다
+    // 체크를 푼 항목은 버리지 않고 반영 기록에 남긴다 (StateDelta.dismissed). 등장 인물 붙이기는 빼 둔다
     dismissed: {
       character_updates: drop('c', d.character_updates),
       events: drop('e', d.events),
@@ -43,6 +43,8 @@ function pickedDelta(n) {
       new_places: drop('l', d.new_places),
       deadlines_added: drop('k', d.deadlines_added),
       deadlines_done: drop('o', d.deadlines_done),
+      setting_changes: drop('t', d.setting_changes),
+      address_changes: drop('h', d.address_changes),
     },
   };
 }
@@ -86,7 +88,7 @@ const deltaCount = (d) => DELTA_LISTS.reduce((s, k) => s + (d[k] || []).length, 
 const deltaPicked = () => Object.entries(S.picks).filter(([k, v]) => v && DELTA_PICK.test(k)).length;
 
 /** 빼 둘 수 있는 목록과 체크 키 앞글자 (StateDelta.dismissed 의 칸, pickedDelta 와 같다) */
-const DISMISS_LISTS = [['character_updates', 'c'], ['events', 'e'], ['secrets_added', 's'], ['relationship_updates', 'r'], ['new_facts', 'f'], ['foreshadow_planted', 'p'], ['foreshadow_resolved', 'x'], ['foreshadow_clues', 'q'], ['new_characters', 'n'], ['new_places', 'l'], ['deadlines_added', 'k'], ['deadlines_done', 'o']];
+const DISMISS_LISTS = [['character_updates', 'c'], ['events', 'e'], ['secrets_added', 's'], ['relationship_updates', 'r'], ['new_facts', 'f'], ['foreshadow_planted', 'p'], ['foreshadow_resolved', 'x'], ['foreshadow_clues', 'q'], ['new_characters', 'n'], ['new_places', 'l'], ['deadlines_added', 'k'], ['deadlines_done', 'o'], ['setting_changes', 't'], ['address_changes', 'h']];
 
 /** 반영 기록에서 돌아온 변경안(반영 취소 web._revert_kept, 단편 다시 쓰기 pipeline.carried_delta)의 빼 둔 항목을 목록 끝에 다시 놓는다.
  * 기본 체크는 풀어 둔다(d.reoffer 의 차례, defaultPicks). 그대로 반영하면 pickedDelta 가 다시 dismissed 로 보낸다. 두 번 불러도 한 번만 놓는다 */
@@ -288,6 +290,15 @@ const deltaEditable = (d) => JSON.stringify([
   (d.setting_changes || []).map((x) => x.value),
 ]);
 const deltaEdited = (n) => !!(S.deltas[n] && S.deltaOrig[n] && S.deltaOrig[n].delta) && deltaEditable(S.deltas[n]) !== deltaEditable(S.deltaOrig[n].delta);
+/** n화 변경안을 받은 그대로에서 바꿨다: 요약, 체크(받을 때 있던 칸만, 다른 화를 보는 중이면 맡겨 둔 체크), 고칠 수 있는 칸.
+ * 다시 만들기(extractState)와 자동 집필의 '그대로 반영'(auto.js autoResume)이 버리기 전에 묻는 기준이다 */
+function deltaTouched(n) {
+  const d = S.deltas[n];
+  const o = S.deltaOrig[n];
+  if (!d || !o) return false;
+  const picks = S.picksEp === n ? S.picks : (S.picksKept || {})[n] || o.picks;
+  return d.summary !== o.summary || Object.entries(o.picks).some(([k, v]) => picks[k] !== v) || deltaEdited(n);
+}
 
 /** 인물 상태의 글 칸과 '고침' 키 앞글자. 이 칸은 상태 승인 화면에서 고치거나 지울 수 있다 (지우기는 CharacterState.cleared) */
 const STATE_TEXT = [['감정', 'emotional_state', 'em', '감정을'], ['목표', 'current_goal', 'go', '목표를'], ['위치', 'location', 'lo', '위치를'], ['메모', 'notes', 'no', '메모를'], ['차림', 'attire', 'at', '차림을']];
@@ -758,6 +769,8 @@ function dismissedView(h) {
     ...(x.new_places || []).map((p) => `새 장소 · ${placeLabel(p)}`),
     ...(x.deadlines_added || []).map((k) => `기한 · ${esc(k.what || k.id)}`),
     ...(x.deadlines_done || []).map((id) => `기한 닫힘 · ${esc(dl(id))}`),
+    ...(x.setting_changes || []).map((s) => `설정 바꾸기 · <strong>${esc(charName(s.character_id))}</strong> ${scLabel(s.field)}: ${esc(s.value)}`),
+    ...(x.address_changes || []).map((a) => `호칭 · 말씨 · <strong>${esc(charName(a.speaker))} → ${esc(charName(a.listener))}</strong> ${esc([a.calls && `부르는 말 ${a.calls}`, a.speech && `말씨 ${a.speech}`].filter(Boolean).join(' · '))}`),
   ];
   return `<details class="card"><summary>빼 둔 항목 ${n}개</summary><div class="small" style="margin:6px 0">반영하지 않은 항목이에요. 기록으로만 남아요.</div>
     <ul style="padding-left:18px;display:flex;flex-direction:column;gap:6px;font-size:0.8125rem;line-height:1.5">${rows.map((r) => `<li>${r}</li>`).join('')}</ul></details>`;
@@ -807,11 +820,8 @@ function relationLines(rel, fold = false) {
 Object.assign(actions, {
   // 상태 변경안
   async extractState(n) {
-    const d = S.deltas[n];
-    const o = S.deltaOrig[n];
     // S.picks 는 설정 제안 화면과 같이 쓴다. 변경안을 받을 때 있던 칸만 비교한다
-    const edited = d && o && (d.summary !== o.summary || Object.entries(o.picks).some(([k, v]) => S.picks[k] !== v) || deltaEdited(n));
-    if (edited && !(await askConfirm('고친 요약 · 항목과 체크를 버리고 변경안을 다시 만들까요?', { ok: '다시 만들기', danger: true }))) return;
+    if (deltaTouched(n) && !(await askConfirm('고친 요약 · 항목과 체크를 버리고 변경안을 다시 만들까요?', { ok: '다시 만들기', danger: true }))) return;
     if (S.textDraft[n] !== undefined) {
       try {
         S.project = await api('PUT', `/projects/${enc(S.name)}/episodes/${n}/text`, { text: S.textDraft[n] });
