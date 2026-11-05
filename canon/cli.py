@@ -1217,9 +1217,12 @@ def _print_delta(d: StateDelta) -> None:
         print(f"! 경고: {w}")
 
 
-def _print_relation_preview(p: Project, d: StateDelta) -> None:
-    """변경안을 복사본에 반영해 계산된 관계를 미리 보여 준다."""
+def _print_relation_preview(p: Project, d: StateDelta, hold: bool = False) -> None:
+    """변경안을 복사본에 반영해 계산된 관계를 미리 보여 준다. hold 면 -y 반영처럼 features.hold 로 뺀 제안은 빼고 계산한다."""
     sim = p.model_copy(deep=True)
+    if hold:
+        d = d.model_copy(deep=True)
+        features.hold(sim, d)
     pipeline.apply_delta(sim, d)
     text = dynamics.describe_relations(sim, numbers=p.settings.show_numbers)
     if text:
@@ -1240,7 +1243,7 @@ def _update(name: str, p: Project, n: int, yes: bool, from_json: str | None = No
         print(f"{n}화 상태 추출 중...")
         delta = pipeline.extract_state(get_llm("state"), p, n)
     _print_delta(delta)
-    _print_relation_preview(p, delta)
+    _print_relation_preview(p, delta, hold=yes)
     if findings.open_findings(p.episode(n)):
         _print_issues(p, n, closed=False)
     for w in pipeline.style_drift(p, n)[1]:

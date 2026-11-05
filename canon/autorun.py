@@ -214,8 +214,10 @@ def review_reasons(p: Project, delta: StateDelta, report: Optional[ConsistencyRe
     if unknown:
         out.append(f"설정에 없는 인물의 상태가 나왔어요: {', '.join(unknown)}")
     if policy.max_shift > 0 or policy.stop_on_stage:
-        sim = p.model_copy(deep=True)
-        pipeline.apply_delta(sim, delta.model_copy(deep=True))
+        # 실제 반영(put)처럼 hold 로 뺀 제안은 빼고 흉내 낸다. apply_delta 가 여러 칸을 고쳐 작품 전체를 복사한다
+        sim, sd = p.model_copy(deep=True), delta.model_copy(deep=True)
+        features.hold(sim, sd)
+        pipeline.apply_delta(sim, sd)
         big: list[tuple[float, str]] = []
         stages: list[str] = []
         for t in sim.ties:
