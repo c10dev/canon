@@ -20,7 +20,9 @@ from .schema import (
     Claim,
     ClaimSet,
     ConsistencyIssue,
+    ConsistencyIssueEn,
     ConsistencyReport,
+    ConsistencyReportEn,
     FindingRecheck,
     FixBatch,
     FixItem,
@@ -966,6 +968,14 @@ def _r_consistency_report(prompt: str, hint: dict):
         suggestion="도현의 대사를 존댓말로 바꾼다",
     )] if n == 2 else []
     return ConsistencyReport(episode=n, issues=issues)
+
+
+@responds(ConsistencyReportEn)
+def _r_consistency_report_en(prompt: str, hint: dict):
+    # 검수 시험의 영어 지시문판: 한국어판과 같이 프롬프트에 들어간 심은 문장을 짚는다
+    return ConsistencyReportEn(episode=hint["episode"], issues=[ConsistencyIssueEn(
+        type="사실", description="심은 모순", source_episode=0, source_quote="설정", current_quote=x)
+        for x in hint.get("plants", []) if x in prompt])
 
 
 BATCHES: dict[str, dict] = {}  # 프로세스 안에서만 유지되는 가짜 배치 작업

@@ -179,6 +179,55 @@ class ResearchTest(unittest.TestCase):
                       self.c.get(f"{self.api}/research").json()["check_totals"])
         self.assertEqual(store.load(self.name).episode(1).stage, [])  # 시험은 작품에 장면을 넣지 않는다
 
+    def test_check_trial_english_instructions(self):
+        p = store.load(self.name)
+        e = p.episode(1)
+        e.text, e.status = "서윤은 등대 문을 열었다. 바람이 거셌다. 도현이 뒤에서 불렀다. 둘은 계단을 올랐다.", "written"
+        store.save(self.name, p)
+        self.assertEqual(self.c.get(f"{self.api}/research").json()["check_lang_tally"], [])
+        r = self.c.post(f"{self.api}/research/check", json={"backend": {"provider": "mock"}, "episode": 1, "plants": 2,
+                                                             "langs": ["ko", "en"]}).json()
+        # 영어판은 full · budget 에만 붙고, 동선 따로 보기는 한국어로 한 번만 돈다
+        self.assertEqual([(m["mode"], m.get("lang", "ko")) for m in r["runs"]],
+                         [("full", "ko"), ("full", "en"), ("budget", "ko"), ("budget", "en"), ("motion", "ko")])
+        self.assertTrue(all(m["ok"] and m["found"] == 2 for m in r["runs"]))
+        self.assertEqual(r["langs"], ["ko", "en"])
+        g = self.c.get(f"{self.api}/research").json()
+        self.assertIn("en", g["check_langs"])
+        self.assertEqual([(x["mode"], x["trials"], x["planted"], x["ko_found"], x["en_found"], x["only_ko"], x["only_en"])
+                          for x in g["check_lang_tally"]], [("full", 1, 2, 2, 2, 0, 0), ("budget", 1, 2, 2, 2, 0, 0)])
+        # 갈래별 합계(check_totals)는 한국어판만 센다
+        self.assertEqual({x["trials"] for x in g["check_totals"] if x["mode"] == "full"}, {1})
+        bad = self.c.post(f"{self.api}/research/check", json={"backend": {"provider": "mock"}, "episode": 1, "langs": ["jp"]})
+        self.assertEqual(bad.status_code, 400)
+
+    def test_lang_tally_counts_one_side_hits_and_skips_failed_runs(self):
+        def run(lang, hits, ok=True, other=0):
+            return {"mode": "full", "lang": lang, "ok": ok, "hits": hits, "found": sum(hits), "other": ["x"] * other}
+        research.record(self.name, "check", {"langs": ["ko", "en"], "runs": [run("ko", [True, False, True]), run("en", [False, True, False], other=1)]})
+        research.record(self.name, "check", {"langs": ["ko", "en"], "runs": [run("ko", [True, True]), run("en", [], ok=False)]})
+        research.record(self.name, "check", {"langs": ["ko"], "runs": [run("ko", [True])]})  # 영어판이 없는 시험은 넣지 않는다
+        t = next(x for x in research.lang_tally(self.name) if x["mode"] == "full")
+        self.assertEqual((t["trials"], t["planted"], t["ko_found"], t["en_found"], t["only_ko"], t["only_en"], t["ko_other"], t["en_other"]),
+                         (1, 3, 2, 1, 2, 1, 0, 1))  # 영어판이 실패한 둘째 시험은 세지 않는다
+
+    def test_check_prompt_english_keeps_korean_data(self):
+        from canon import prompts
+        p = store.load(self.name)
+        e = p.episode(1)
+        e.text, e.status = "서윤은 등대 문을 열었다.", "written"
+        ko, en = prompts.check_prompt(p, 1, "full"), prompts.check_prompt(p, 1, "full", lang="en")
+        self.assertEqual(ko, prompts.check_prompt(p, 1, "full", lang="ko"))
+        self.assertIn("1화 본문에서 위 자료와 어긋나는 곳을 찾으세요.", ko)
+        self.assertNotIn("Find the places", ko)
+        self.assertIn("# Text of episode 1 (under review)\n서윤은 등대 문을 열었다.", en)
+        self.assertIn("Do not translate them", en)
+        self.assertIn("severity: crit", en)
+        self.assertNotIn("어긋나는 곳을 찾으세요", en)
+        self.assertTrue(en.startswith(prompts.static_context(p)))  # 작품 데이터 칸은 한국어 그대로
+        self.assertEqual(prompts.checker_system("en"), prompts.SYSTEM_CHECKER_EN)
+        self.assertEqual(prompts.checker_system(), prompts.SYSTEM_CHECKER)
+
     def test_budget_flags_first_episode_over_limit(self):
         VllmLike.max_len = 3000
         r = self.c.post(f"{self.api}/research/budget", json={"provider": "local", "model": "base-12b"}).json()
