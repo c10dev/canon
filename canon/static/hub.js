@@ -1,7 +1,7 @@
 /* 알림: AI 작업과 알림(toast)을 버튼 하나에 모은다.
    버튼은 사이드바 이름 옆 '찾기' 앞(900px 이하는 위쪽 띠, 레일은 찾기 위, 작품 밖 화면은 본문 맨 위 오른쪽)에 있다.
    사이드바와 휴대폰 폭은 글자 없이 기호와 수 배지만 보인다.
-   누르면 버튼 아래에 창(#hub-pop)이 열린다: 확인할 것 · 진행 중 · 최근 알림, 접힌 끝난 작업 · 지난 알림.
+   누르면 버튼 아래에 창(#hub-pop)이 열린다: 확인할 것 · 진행하는 중 · 최근 알림, 접힌 끝난 작업 · 지난 알림.
    알림은 버튼 바로 아래 말풍선(#toast)으로 뜨고 기록(S.notes)에 남는다 (app.js toast).
    보이는 상태 계산(hubState · hubAgo)은 순수 함수라 node 로 맞춰 본다 (tests/test_hub_js.py). */
 'use strict';
@@ -68,7 +68,7 @@ function hubState(input) {
     done: `끝남 ${finished.length}`, note: '알림', none: '알림' }[face];
   const parts = [
     input.offline && '서버 연결 끊김',
-    running.length && `AI 작업 ${running.length}개 진행 중`,
+    running.length && `AI 작업 ${running.length}개 진행하는 중`,
     attention.length && `확인할 것 ${attention.length}개`,
     face === 'done' && `끝난 작업 ${finished.length}개`,
     unseen && `새 알림 ${unseen}개`,
@@ -137,7 +137,7 @@ function hubAttention(a) {
     const j = a.job;
     const retry = S.jobArgs[j.id] ? `<button type="button" class="btn small" data-job-retry="${j.id}">다시 시도</button>` : '';
     const keyHelp = /API 키|연결/.test(j.error || '') ? '<a class="btn small" href="#/settings/ai">설정</a>' : '';
-    return `<li class="hub-item err"><div class="hub-t"><strong>${esc(j.label)}${josa(j.label, '이', '가')} 실패했어요</strong>${hubWhere(j)}<div class="small">${esc(j.error || '')}</div></div>
+    return `<li class="hub-item err"><div class="hub-t"><strong>${esc(j.label)} · 끝내지 못했어요</strong>${hubWhere(j)}<div class="small">${esc(j.error || '')}</div></div>
       <div class="row">${retry}${keyHelp}<button type="button" class="btn small ghost" data-job-dismiss="${j.id}">닫기</button></div></li>`;
   }
   if (a.type === 'auto') {
@@ -182,7 +182,7 @@ function hubPopHtml(st) {
     <div class="hub-body">
       ${S.jobsOffline ? '<p class="note warn">서버 연결이 끊겼어요. 다시 연결하는 중…</p>' : ''}
       ${st.attention.length ? `<h3 class="hub-h">확인할 것 ${st.attention.length}</h3><ul class="hub-list">${st.attention.map(hubAttention).join('')}</ul>` : ''}
-      ${st.running.length ? `<h3 class="hub-h">진행 중 ${st.running.length}</h3><ul class="hub-list">${st.running.map(hubRunning).join('')}</ul>` : ''}
+      ${st.running.length ? `<h3 class="hub-h">진행하는 중 ${st.running.length}</h3><ul class="hub-list">${st.running.map(hubRunning).join('')}</ul>` : ''}
       ${st.recent.length ? `<h3 class="hub-h">최근 알림</h3><ul class="hub-list notes">${st.recent.map((n) => hubNoteRow(n, now)).join('')}</ul>` : ''}
       ${any ? '' : '<p class="hub-empty">새 알림이 없어요. 시작한 AI 작업과 알림이 여기에 모여요.</p>'}
       ${more ? `<details class="hub-more" id="hub-more"${S.hubMore ? ' open' : ''}><summary>${moreLabel}</summary>
@@ -212,7 +212,7 @@ function renderHub() {
 function drawHubPop(st) {
   let pop = $('#hub-pop');
   const toasts = $('#toast');
-  if (toasts) toasts.hidden = !!S.hubOpen;  // 창이 열린 동안 말풍선은 창 안 '최근 알림'으로 본다
+  if (toasts) toasts.hidden = !!S.hubOpen;  // 창이 열린 동안 말풍선은 창 안 '최근 알림'으로 본다. 낭독은 #sr-live · #sr-alert 가 맡아 그대로 들린다 (app.js toastSay)
   if (!S.hubOpen) { if (pop) pop.remove(); return; }
   if (!pop) {
     pop = document.createElement('section');

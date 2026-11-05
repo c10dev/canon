@@ -24,7 +24,18 @@
 - 반영 취소(`revertFrom`)는 뒤 화들의 반영 기록이 검토를 기다리는 변경안으로 남으니(`web._revert_kept`) 취소 뒤 `loadPending` 으로 받는다
 - 서버 오류 문구 `fmtErr`: 검증 오류(detail 이 목록)는 영어 원문 대신 `VALIDATION_REASON`(web.py `_VALIDATION_REASON` 과 같음, `tests/test_fmterr_js.py`)과 칸 이름 `FIELD_NAME` 으로 쓴다
 - 저장하지 않고 이동하면 묻는 창은 작품 변경만 있을 때 '저장하고 이동'(askConfirm 의 `alt`)을 주 버튼으로 준다
+- 화면 이동 확인은 `leaveUnsaved`(작품 · 라이브러리 · 장면 연출 변경, `S.editDrafts`)를 본다
+- 새로고침 · 탭 닫기(`beforeunload`)는 `hasUnsaved` 를 본다: `leaveUnsaved` 에 본문 초안 · 지시서 결과 · 상태 변경안 · 문체 예시 · 가격표(`S.priceDirty`)를 더한다
+- 가격표는 화면을 옮겨도 남아(`pricesLoad`) 화면 이동 확인에는 넣지 않는다
+- `S.editDrafts` 약속: 인라인 편집기를 가진 모듈은 저장하지 않은 입력이 생기면 `S.editDrafts.<키>` 를 true 로, 저장 · 버리기 · 닫기 때 false 로 둔다
+- `S.editDrafts` 의 키는 그 모듈이 정한다. `app.js` 는 키를 쓰지 않고 true 인 값이 있는지만 본다(`editDraftOpen`)
+- 화면 이동이 이어지면(버리고 이동을 골랐거나 남은 입력이 없음) `app.js` 가 `S.editDrafts` 를 `{}` 로 비운다. 떠난 화면의 편집기는 이미 사라졌다
 - `showError` 는 키 없음(`no_key`)과 키 틀림(`bad_key`) 모두 설정을 열지 묻는다
+- `run` 이 실패를 알릴 때 다시 시도할 만한 실패(`retryable`: status 0 · 429 · 5xx)면 같은 `run(label, fn, opt)` 을 다시 부르는 '다시 시도'를 붙인다
+- `run` 의 `opt.retry: false` 는 '다시 시도'를 붙이지 않는다. 저장하고 이동(hashchange)이 쓴다: 저장만 되풀이하면 이동이 이어지지 않는다
+- 기다리지 않기(`aborted`) · 입력 확인(4xx) · 화면 안에서 던진 오류에는 '다시 시도'를 붙이지 않는다
+- `showError` 는 글에 API 키 · 연결이 있으면 '설정'을 붙인다(`hub.js` `hubAttention` 과 같은 기준)
+- 서버에 닿지 못한 실패(status 0)에는 '설정'을 붙이지 않는다. AI 설정으로 고칠 수 없다
 - 보통 알림 `toast` 는 글 길이만큼(`toastLife`, 최대 10초) 남고 마우스 · 포커스가 있으면 멈춘다. 동작 버튼(`.t.act`)을 붙일 수 있고, AI 작업이 끝나면 결과 화면이 아닐 때 '가서 보기'를 붙인다
 - `proposalActions(drop, apply, label, disabled)` 는 AI 제안 버튼 줄 하나뿐이다. 인물 설정 · 신체 · 호칭 · 설정 기록 · 장면 연출 비교도 이것을 쓴다
 - 상태 `S`
@@ -52,7 +63,7 @@
 - 4 · 5 · 6 줄이 가리키는 화(`navEp`: 한 화 흐름 `FLOW_PAGES` · 작업지시서는 보는 화)
 - 900px 이하 위쪽 띠는 화면 위에 붙고 높이 `--band` 만큼 본문의 붙는 칸을 내린다
 - 서랍을 연 동안 뒤는 `inert`(`syncRail`)
-- body 바로 아래 층(칸 밖 저장 띠 `#savebar`, 알림 창 `#hub-pop`)도 서랍을 연 동안 `inert`다. 알림 말풍선 `#toast`는 낭독 영역이라 뺀다
+- body 바로 아래 층(칸 밖 저장 띠 `#savebar`, 알림 창 `#hub-pop`)도 서랍을 연 동안 `inert`다. 알림 말풍선 `#toast`(닫기 · 할 일 버튼)는 뺀다
 - 백그라운드 작업 · 검토 대기 결과
 - 검토 대기 상태 변경안에 초안이 있으면 `loadPending` 이 받은 그대로를 놓은 뒤 초안의 변경안 · 체크로 바꾼다(`restoreDeltaDraft`)
 - 초안을 되살려도 본문을 고쳤다는 알림은 그대로 뜬다
@@ -60,12 +71,17 @@
 - 멈춘 스토리보드 작업의 응답이 오면 `JOB_LATE.board` 가 남겼는지 알리고, 남겼으면 그 화를 다시 받는다
 - 짧은 기다림 가림막 `run`(`#busy`): 상자 이름은 작업 이름(`#busy-label`)이고, 1초마다 바뀌는 경과 초(`#busy-sec`)는 낭독하지 않는다
 - 알림 말풍선(`toast`, 작업 실패는 '다시 시도' · '설정' 버튼, 기록과 자리는 `hub.js`)
+- 말풍선 글은 `toastSay` 가 숨은 낭독 칸에 넣는다: 오류는 `#sr-alert`(`role=alert`), 보통 알림은 `#sr-live`(polite)
+- `toastSay` 는 글마다 새 줄을 덧붙이고 8초 뒤 지운다. 이어 온 알림도 모두 읽힌다
+- 저장 띠의 '저장하지 않은 변경이 있어요' 안내도 `toastSay` 로 덧붙인다
+- `#toast` 는 낭독 칸이 아니다. 알림 창이 열려 말풍선을 숨겨도 낭독은 들린다
 - 작업 목록을 받을 때마다 `notify.js` 의 `notifyJobs` 를 부르고, 탭 제목에 안 본 알림 수를 붙인다(`notifyTitle`)
 - 입력 바인딩(`data-bind`)
 - 공통 동작(`actions` 의 저장 · 되돌리기 · 작품 관리)
 - 펼침 메뉴(`menuBtn`, 열린 메뉴 `S.popMenu`, Esc · 바깥 누르기로 닫기)와 `#app` 밖 대화상자(`showDialog`)
 - 확인 대화상자 `askConfirm`(Promise<boolean>) · `askText`(Promise<string|null>): 브라우저 `confirm` · `prompt` 대신 쓴다(디자인 시스템 Dialog)
 - 확인 대화상자를 부르는 동작은 `async` 로 두고 `await` 로 답을 기다린다
+- `danger` 이고 `alt` · 입력칸이 없으면 첫 포커스는 취소 버튼이다. 열자마자 Enter 로 위험한 동작을 고르지 않게 한다
 - `confirmDrop` · `confirmRedraft` 도 Promise 를 돌려준다
 - 화면 이동 확인(저장하지 않은 변경): 묻는 동안 주소를 이전 주소로 되돌려 두고, 이동을 고르면 새 주소로 바꿔 이어 간다
 - 화면 파일에 브라우저 `confirm` · `prompt` 가 남지 않았는지 `tests/test_ask_js.py` 가 본다
@@ -128,6 +144,8 @@
 - 한 화 흐름
 - 집필 · 검수 · 상태 승인 세 화면(주소 `write` · `check` · `review/<화>`)의 머리 아래 단계 띠(`flowBar`, 단계 글은 순수 함수 `flowSteps`, 이름 · 번호는 사이드바와 같음 `FLOW_STAGES`, 위치 줄 `flowEyebrow`)
 - '검수하기'(`flowCheck`: 검수 단계로 옮겨 검수, 첫 검수면 상태 변경안도 함께 `flowStateToo`, 끄기 `flowStateToggle` · localStorage `canon.flowState`)
+- `flowCheck` 와 `app.js` `checkEp`(다시 검수)는 검수를 시작하기 전에 저장하지 않은 본문 초안을 저장한다(`passage.js` `flushText`, `check.js` `fixAll` 과 같다)
+- 둘 다 `app.js` `checkReady` 를 쓴다: 저장하지 않은 작품 변경이 있으면 `startJob` 과 같은 물음으로 먼저 저장한 뒤 본문을 저장한다. 본문 저장이 `S.project` 를 서버 것으로 바꾸기 때문이다
 - `tests/test_flow_js.py`
 - `index.html` 에서 `check.js` 바로 뒤에 읽는다
 
@@ -158,8 +176,9 @@
 - 손가락 기기에서는 알림 창 아래 'Esc로 닫아요' 안내를 비운다
 - AI 작업과 알림을 버튼 하나에 모은다
 - 버튼(`hubButton`, 사이드바 · 작품 밖 사이드바의 `#hub-slot`)
-- 버튼 아래 창(`#hub-pop`: 확인할 것 · 진행 중 · 최근 알림 · 접힌 끝난 작업과 지난 알림, `hubOpen` · `hubClose`)
+- 버튼 아래 창(`#hub-pop`: 확인할 것 · 진행하는 중 · 최근 알림 · 접힌 끝난 작업과 지난 알림, `hubOpen` · `hubClose`)
 - 말풍선과 창 자리(`placeHub`, `#toast`)
+- 실패한 작업 줄 제목은 '<작업> · 끝내지 못했어요'다(끝내지 못한 지난 시도 줄과 같은 꼴)
 - 알림 기록(`hubNote`, `S.notes`)
 - 버튼 모양과 창에 넣을 것은 순수 함수 `hubState`(`tests/test_hub_js.py` 가 node 로 맞춰 본다)
 - 검토 대기 결과 이름 · 화면 `HUB_RESULT` 는 `app.js` `PENDING_KINDS` 와 함께 고친다
