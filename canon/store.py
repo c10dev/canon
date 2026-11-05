@@ -86,6 +86,18 @@ def load_view(name: str) -> Project:
     return p
 
 
+def peek(name: str) -> Project:
+    """작품 목록 카드용 가벼운 읽기. 캐시에 같은 판이 있으면 그것, 없으면 스냅샷 파일 없이 project.json 만 검증한다.
+    스냅샷이 빠진 Project 라 캐시에 두지 않고, 고치거나 저장하지 않는다. seed_ties 도 거치지 않는다."""
+    path = project_dir(name) / "project.json"
+    st = path.stat()
+    with _view_lock:
+        hit = _views.get(name)
+    if hit and hit[0] == _key(st):
+        return hit[1]
+    return Project.model_validate_json(path.read_text(encoding="utf-8"))
+
+
 # ---------- 스냅샷 파일 ----------
 # 스냅샷은 작품의 절반 가까이라(장편) project.json 이 아니라 snapshots/<화>-<내용 해시>.json 에 하나씩 둔다.
 # project.json 맨 앞의 "snapshot_files" 가 차례대로 파일 이름을 적는다. 내용이 같으면 이름도 같아 다시 쓰지 않는다.

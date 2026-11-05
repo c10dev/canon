@@ -20,7 +20,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Callable, Literal, NoReturn
+from typing import Any, Callable, Literal, NamedTuple, NoReturn
 from urllib.parse import quote, unquote, urlsplit
 
 from fastapi import FastAPI, HTTPException, Request
@@ -686,25 +686,54 @@ def list_projects() -> list[ProjectCard]:
     """작품 카드: 형식, 다음에 할 화(open_ep · open_status, 없으면 0 · ''), 고친 시각, 갈래 정보. 최근에 고친 작품부터."""
     from datetime import datetime, timezone
     out = []
+    seen: set[str] = set()
     tree = branches.infos()
     if store.ROOT.exists():
         for d in sorted(store.ROOT.iterdir()):
             f = d / "project.json"
-            if f.exists():
-                p = store.load(d.name)
-                done = sum(e.status == "finalized" for e in p.episodes)
-                todo = next((e for e in sorted(p.episodes, key=lambda e: e.plot.number) if e.status != "finalized"), None)
-                mtime = f.stat().st_mtime
-                out.append({"name": d.name, "title": p.meta.title, "genre": p.meta.genre, "form": p.meta.form,
-                            "episodes": p.meta.target_episodes, "finalized": done, "planned": len(p.episodes),
-                            "open_ep": todo.plot.number if todo else 0, "open_status": todo.status if todo else "",
-                            "open_checked": bool(todo and todo.status == "written" and findings.check_done(todo)),
-                            "setup_ready": _setup_ready(p),
-                            "updated_at": datetime.fromtimestamp(mtime, timezone.utc).isoformat(), "_mtime": mtime,
-                            "branch": tree.get(d.name), "play": (_play_card(p, info) if (info := store.load_play(d.name)) else None),
-                            "alerts": _card_alerts(d.name), **_card_strip(p, todo)})
+            try:
+                st = f.stat()
+                key = (st.st_mtime_ns, st.st_size, st.st_ino)
+                hit = _cards.get(d.name)
+                if not hit or hit[0] != key:
+                    hit = (key, *_card_base(store.peek(d.name)))
+                    _cards[d.name] = hit
+            except (FileNotFoundError, NotADirectoryError):  # 지우는 중이거나 작품 폴더가 아니다
+                continue
+            seen.add(d.name)
+            base, basis = hit[1], hit[2]
+            mtime = st.st_mtime
+            out.append({"name": d.name, **base,
+                        "updated_at": datetime.fromtimestamp(mtime, timezone.utc).isoformat(), "_mtime": mtime,
+                        "branch": tree.get(d.name), "play": (_play_card(basis, info) if (info := store.load_play(d.name)) else None),
+                        "alerts": _card_alerts(d.name)})
+    for gone in set(_cards) - seen:
+        _cards.pop(gone, None)
     out.sort(key=lambda x: -x["_mtime"])
     return [{k: v for k, v in x.items() if k != "_mtime"} for x in out]  # play.json 은 project.json 보다 자주 바뀌지만 고친 때는 작품 기준
+
+
+# 작품 목록 카드의 project.json 몫 {이름: (파일 판, 칸, 플레이 카드 재료)}. 판(수정 시각 · 크기 · inode)이 같으면 다시 읽지 않는다.
+# store 캐시는 작품 4개까지라 작품이 많으면 목록 요청마다 모든 작품을 다시 검증했다. play.json · pending.json · 갈래는 요청마다 읽는다
+_cards: dict[str, tuple[tuple[int, int, int], dict, PlayBasis]] = {}
+
+
+class PlayBasis(NamedTuple):
+    """플레이 카드가 쓰는 작품 몫: 인물 id → 이름, (화 번호, 작품 속 날) 목록."""
+    names: dict[str, str]
+    days: list[tuple[int, int]]
+
+
+def _card_base(p: Project) -> tuple[dict, PlayBasis]:
+    """작품 카드에서 project.json 으로만 정해지는 칸과 플레이 카드 재료."""
+    done = sum(e.status == "finalized" for e in p.episodes)
+    todo = next((e for e in sorted(p.episodes, key=lambda e: e.plot.number) if e.status != "finalized"), None)
+    base = {"title": p.meta.title, "genre": p.meta.genre, "form": p.meta.form,
+            "episodes": p.meta.target_episodes, "finalized": done, "planned": len(p.episodes),
+            "open_ep": todo.plot.number if todo else 0, "open_status": todo.status if todo else "",
+            "open_checked": bool(todo and todo.status == "written" and findings.check_done(todo)), "setup_ready": _setup_ready(p),
+            **_card_strip(p, todo)}
+    return base, _play_basis(p)
 
 
 STRIP_MAX = 40  # 화 칸 띠에 그리는 가장 많은 화 (app.js WORK_STRIP_MAX 와 같다)
@@ -4906,13 +4935,26 @@ def set_model_preset(name: str, body: ModelPresetIn) -> Project:
     return _save(name, p)
 
 
+def _play_basis(p: Project) -> PlayBasis:
+    names: dict[str, str] = {}
+    for c in p.characters:
+        names.setdefault(c.id, c.name)
+    return PlayBasis(names=names, days=[(e.plot.number, e.time.day) for e in p.episodes])
+
+
 def _play_days(p: Project, info: PlayInfo) -> int:
-    day = max((e.time.day for e in p.episodes if e.plot.number > info.world_ep), default=0)
+    return _days_after(_play_basis(p).days, info)
+
+
+def _days_after(days: list[tuple[int, int]], info: PlayInfo) -> int:
+    day = max((d for n, d in days if n > info.world_ep), default=0)
     return max(0, day - info.start_day) if day else 0
-def _play_card(p: Project, info: PlayInfo) -> PlayCard:
-    who = next((c.name for c in p.characters if c.id == info.player), info.player)
+
+
+def _play_card(b: PlayBasis, info: PlayInfo) -> PlayCard:
+    who = b.names.get(info.player, info.player)
     return PlayCard(world=info.world, title=info.title or f"{who}의 삶", player=who, origin=info.origin, ending=info.ending,
-                    turns=len(info.turns), decisions=sum(t.kind in play.DECIDED for t in info.turns), days=_play_days(p, info),
+                    turns=len(info.turns), decisions=sum(t.kind in play.DECIDED for t in info.turns), days=_days_after(b.days, info),
                     waiting=play.waiting(info) and not info.ending)
 
 
