@@ -136,3 +136,30 @@ def test_plot_chat_keeps_storyline_tags():
     assert rev.episodes[0].storyline == s.id  # AI 가 줄기를 빠뜨려도 작가가 붙인 줄기는 남는다
     pipeline.apply_revision(p, rev, False, [4])
     assert p.episode(4).plot.storyline == s.id and p.episode(4).plot.summary == "더 천천히"
+
+
+def test_serial_storyline_block_stays_bounded(monkeypatch):
+    """장편 기획의 줄기 블록은 화수만큼 커지지 않는다: 붙은 화는 최근 EPS_KEEP 개만, 넘치면 합류가 끝난 줄기부터 빼고 수를 적는다."""
+    from canon import context, prompts
+    from canon.schema import Episode, EpisodePlot, Meta, Project, Storyline
+
+    def plot(n):
+        return EpisodePlot(number=n, act="기", title=f"t{n}", summary="s", events=["e"], characters=[], emotional_shift="", ending_hook="")
+
+    def make(total, form="serial"):
+        p = Project(meta=Meta(title="x", genre="g", logline="l", form=form, target_episodes=total),
+                    storylines=[Storyline(id=f"sl-{i:02d}", title=f"줄기{i}", goal="풀 것") for i in range(1, 7)],
+                    episodes=[Episode(plot=plot(n)) for n in range(1, total + 1)])
+        for e in p.episodes:
+            e.plot.threads = [f"sl-{(e.plot.number % 6) + 1:02d}"]
+        return p
+
+    sizes = [len(prompts.lines_block(make(n))) for n in (120, 300)]
+    assert abs(sizes[1] - sizes[0]) < 100 and "앞 " in prompts.lines_block(make(300))
+    assert "생략" not in prompts.lines_block(make(120, "short"))  # 단편은 그대로
+    p = make(300)
+    p.storylines[0].join_ep = 10
+    p.episode(10).text = "본문"
+    monkeypatch.setitem(context.BUDGET, "storylines", 400)
+    b = storylines.plan_block(p)
+    assert "합류가 끝난 줄기 1개는 분량 때문에 뺐습니다" in b and "sl-01" not in b

@@ -99,7 +99,11 @@ def untag_all(p: Project, sid: str) -> None:
 
 # ---------- 프롬프트 블록 ----------
 
-def describe(p: Project, s: Storyline) -> str:
+EPS_KEEP = 10  # 장편 프롬프트에서 줄기마다 '지금 붙은 화'를 적는 최근 화 수. 앞 화는 수와 첫 화만 적는다
+
+
+def describe(p: Project, s: Storyline, keep: int = 0) -> str:
+    """줄기 한 덩어리. keep 을 주면 붙은 화는 최근 keep 개만 적고 앞 화는 수와 첫 화로 줄인다 (장편 프롬프트)."""
     names = {c.id: c.name for c in p.characters}
     lo, hi = span(p, s)
     eps = episodes_of(p, s.id)
@@ -122,13 +126,35 @@ def describe(p: Project, s: Storyline) -> str:
     if s.rejoin:
         line += f"\n  합류 때 메인에 남기는 것: {s.rejoin}"
     if eps:
-        line += "\n  지금 붙은 화: " + ", ".join(f"{n}화" + ("(장면)" if r == "thread" else "") for n, r in eps)
+        shown = eps[-keep:] if keep and len(eps) > keep else eps
+        cut = len(eps) - len(shown)
+        line += "\n  지금 붙은 화: " + (f"(앞 {cut}개 생략, 처음 {eps[0][0]}화) " if cut else "") \
+            + ", ".join(f"{n}화" + ("(장면)" if r == "thread" else "") for n, r in shown)
     return line
 
 
+def _keep(p: Project) -> int:
+    return EPS_KEEP if p.serial else 0  # 단편 프롬프트는 그대로
+
+
 def plan_block(p: Project) -> str:
-    """기획용(화별 플롯, 플롯 대화, 다음 아크): 모든 줄기. 줄기가 없으면 빈 문자열."""
-    return "\n".join(describe(p, s) for s in p.storylines)
+    """기획용(화별 플롯, 플롯 대화, 다음 아크): 모든 줄기. 줄기가 없으면 빈 문자열.
+    장편은 줄기마다 붙은 화를 줄이고, 블록이 예산(context.BUDGET["storylines"])을 넘으면 합류가 끝난 줄기를 합류가 이른 것부터 빼고 뺀 수를 적는다."""
+    rows = [(s, describe(p, s, _keep(p))) for s in p.storylines]
+    if not p.serial:
+        return "\n".join(x for _, x in rows)
+    from .context import BUDGET
+
+    size = lambda: sum(len(x) + 1 for _, x in rows)  # noqa: E731
+    closed = sorted((s for s, _ in rows if not is_open(p, s)), key=lambda s: s.join_ep)
+    cut = 0
+    for s in closed:
+        if size() <= BUDGET["storylines"]:
+            break
+        rows = [r for r in rows if r[0] is not s]
+        cut += 1
+    note = [f"(합류가 끝난 줄기 {cut}개는 분량 때문에 뺐습니다)"] if cut else []
+    return "\n".join(note + [x for _, x in rows])
 
 
 def plan_rule(p: Project) -> str:
@@ -147,14 +173,14 @@ def episode_block(p: Project, n: int) -> str:
     lines = []
     s = p.storyline(e.plot.storyline)
     if s:
-        lines.append("이번 화는 메인이 아니라 아래 줄기를 따라간다.\n" + describe(p, s) + _recent(p, s, n))
+        lines.append("이번 화는 메인이 아니라 아래 줄기를 따라간다.\n" + describe(p, s, _keep(p)) + _recent(p, s, n))
         if past(s):
             lines.append(f"※ 이번 화는 '{s.when or '과거'}' 시점이다. 그 시점에 아직 일어나지 않은 일이나 인물이 아직 몰랐던 것을 알고 있는 듯 쓰지 않는다. "
                          "아래 '인물 현재 상태'와 관계는 지금(메인) 기준이므로 그 시점에 맞게 거슬러 올라가 쓴다. 나이, 외모, 호칭도 그 시점에 맞춘다.")
     threads = [t for t in (p.storyline(x) for x in e.plot.threads) if t]
     if threads:
         lines.append("이번 화 안에 장면으로 끼어드는 줄기 (짧게, 메인 흐름을 끊지 않게):\n"
-                     + "\n".join(describe(p, t) + _recent(p, t, n) for t in threads))
+                     + "\n".join(describe(p, t, _keep(p)) + _recent(p, t, n) for t in threads))
     return "\n\n".join(lines)
 
 
