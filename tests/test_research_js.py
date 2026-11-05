@@ -85,6 +85,12 @@ def test_usage_pct_formats_cache_rate():
 
 
 @needs_node
+def test_usage_task_label_names_new_tasks():
+    got = run_js(FILES, "[usageTaskLabel('recheck'), usageTaskLabel('agent 캐시 만들기'), usageTaskLabel('캐시 만들기'), usageTaskLabel('zzz'), usageTaskLabel('')]", {})
+    assert got == ["고친 곳만 다시 보기", "AI 대화 에이전트 캐시 만들기", "캐시 만들기", "zzz", ""]
+
+
+@needs_node
 def test_usage_breakdown_by_task_and_effort_shows_cache_and_seconds():
     row = {"calls": 2, "failed": 0, "batch": 0, "in": 2000, "out": 20, "cached": 200, "cost": 0.01, "unpriced": 0,
            "cache_rate": 0.1, "seconds_avg": 15.0}

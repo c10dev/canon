@@ -31,10 +31,18 @@ const USAGE_TASK = {
   hook: '흡입력 판정', openings: '여는 방식 안', opening_drafts: '여러 안으로 쓰기',
   names: '이름 추천', style: '문체 분석', lib_style: '문체 분석 (라이브러리)', chat: 'AI 대화', edits: '부분 수정', auto: '자동 집필', sample: '샘플 비교',
   stage: '단계 시험', compare: '가려 비교', budget: '컨텍스트 크기', probe: '서버 점검', check: '검수', update: '상태 변경안', run: '연속 실행', fix: '부분 수정',
-  fixes: '지적 고치기', board: '스토리보드', cues: '큐 시트', cue_sheet: '큐 시트', cue_run: '큐 시트로 쓰기', plot_one: '한 화 플롯', agent: 'AI 대화 에이전트', play: '플레이', studio: '문단 연습장',
+  fixes: '지적 고치기', recheck: '고친 곳만 다시 보기', board: '스토리보드', cues: '큐 시트', cue_sheet: '큐 시트', cue_run: '큐 시트로 쓰기', plot_one: '한 화 플롯', agent: 'AI 대화 에이전트', play: '플레이', studio: '문단 연습장',
 };
 // 추론 강도 이름 (settings.js EFFORT_LABEL 과 같다). '기본'은 강도를 정하지 않은 호출(usage.EFFORT_DEFAULT)
 const USAGE_EFFORT = { low: '낮음', medium: '보통', high: '높음', xhigh: '아주 높음', max: '최대', 기본: '기본 (모델 기본값)' };
+
+/** 작업 이름표. Gemini 명시적 캐시를 만든 호출은 '<작업> 캐시 만들기' 로 기록된다(llm.py). 순수 함수 */
+function usageTaskLabel(t) {
+  if (!t) return '';
+  const m = /^(.*?)\s*캐시 만들기$/.exec(t);
+  if (m) return `${m[1] ? (USAGE_TASK[m[1]] || m[1]) + ' ' : ''}캐시 만들기`;
+  return USAGE_TASK[t] || t;
+}
 
 /** 캐시 비율(0~1)을 '13%' · '5.9%' 로. 10% 밑은 소수 첫째 자리까지. 순수 함수(tests/test_research_js.py) */
 function usagePct(rate) {
@@ -242,7 +250,7 @@ function usageBreakdown(u) {
     project: (r) => (r.project ? `<a href="#/p/${enc(r.project)}/usage">${esc(usageName(r.project))}</a>` : '<span class="small">작품 밖 (연구 서버 점검 등)</span>'),
     episode: (r) => `<a href="#/p/${enc(r.project)}/write/${r.episode}">${r.episode}화</a>`,
     source: (r) => esc(USAGE_SOURCE[r.source] || r.source || '기타'),
-    task: (r) => esc(USAGE_TASK[r.task] || r.task || '기타'),
+    task: (r) => esc(usageTaskLabel(r.task) || '기타'),
     effort: (r) => esc(USAGE_EFFORT[r.effort] || r.effort || '기본'),
   }[by];
   const byCost = rows.some((r) => r.cost > 0);
@@ -283,7 +291,7 @@ function usageCalls(u) {
     return `<div class="usage-call">
       <span class="when">${esc(fmtWhen(r.at))}</span>
       <span class="where">${esc(where || '-')}</span>
-      <span class="task">${esc(USAGE_TASK[r.task] || USAGE_STAGE[r.stage] || r.task || '-')}<span class="s2">${esc(USAGE_STAGE[r.stage] || r.stage || '')} · ${esc(USAGE_SOURCE[r.source] || r.source || '')}</span></span>
+      <span class="task">${esc(usageTaskLabel(r.task) || USAGE_STAGE[r.stage] || '-')}<span class="s2">${esc(USAGE_STAGE[r.stage] || r.stage || '')} · ${esc(USAGE_SOURCE[r.source] || r.source || '')}</span></span>
       <span class="model">${esc(r.model)}${r.batch ? ' <span class="chip">배치</span>' : ''}</span>
       <span class="r tokens">${tok(r.in)} → ${tok(r.out + (r.thought || 0))}${r.cached ? `<span class="s2">캐시 ${tok(r.cached)}</span>` : ''}${r.thought ? `<span class="s2">생각 ${tok(r.thought)}</span>` : ''}${usageBlocks(r)}</span>
       <span class="r secs">${r.seconds != null ? `${r.seconds.toFixed(1)}초` : '-'}</span>

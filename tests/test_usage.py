@@ -646,3 +646,14 @@ def test_old_rows_read_and_cache_rate_drops_resent(home):
     assert t["cache_rate"] == pytest.approx(400 / 2000)  # 다시 보낸 입력은 입력과 캐시 양쪽에서 뺀다
     assert usage.cache_rate([old]) == pytest.approx(0.2)
     assert usage.cache_rate([]) is None
+    from fastapi.testclient import TestClient
+    from canon.web import app
+    assert TestClient(app).get("/api/usage?days=0").json()["total"]["resent"] == 1000  # 응답 모델이 칸을 지우지 않는다
+
+    # 캐시가 없는 줄의 resent 가 다른 줄의 캐시를 지우지 않는다 (cache_rate 와 같게 줄마다 자른다)
+    odd = {**old, "in": 4000, "cached": 0, "turns": 2, "resent": 2000}
+    path.unlink()  # 읽기 캐시는 같은 파일의 늘어난 끝만 읽으므로 새 파일로 쓴다
+    path.write_text("\n".join(json.dumps(r) for r in (old, odd)) + "\n", encoding="utf-8")
+    usage._read_cache.clear()
+    t = usage.summary(0)["total"]
+    assert t["cache_rate"] == pytest.approx(usage.cache_rate([old, odd])) == pytest.approx(200 / 5000)
