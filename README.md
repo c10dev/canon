@@ -347,8 +347,9 @@ python -m canon check 등대 3 --keep f2 --note "일부러"  # 검수 지적을 
   - 열린 지적이 남아도 **상태 승인으로** 갈 수 있다(버튼에 수를 적고, 상태 승인 화면 위에 알린다). 검수는 경고다.
 - 채팅 앱으로 쓸 때는 작업지시서의 **검수** 걸음에서 지시서를 복사하고, 받은 JSON 을 붙여 넣으면 회차 하나로 합쳐 검수 화면으로 간다.
 - 자동 집필 화면의 '검토 없이 반영한 화' 목록은 화마다 '열린 지적 n' 버튼(누르면 검수 화면)을 달고, 나눔 버튼 **열린 지적**으로 거른다.
-- 명령줄은 `check 등대 3` 결과에 지적 id 와 심각도를 보이고, `--keep` · `--wrong` · `--fixed` · `--reopen` 으로 정한다(`--note` 로 메모). `--sev f3 치명` 으로 심각도를 정하고, `--recheck f3` 으로 그 지적만 다시 검수한다. 고침안은 웹 화면에만 있다(명령줄은 `fix`). 자동 집필(`auto`)은 `--ignore-minor` · `--no-stop-critical` 로 심각도 정책을 바꾼다.
-- 웹 API: 지적 상태 · 메모 · 심각도 `PUT …/findings/{id}`, 고침안 받기 `POST …/findings/{id}/fixes`, 넣기 `POST …/findings/{id}/fixes/{k}/apply`(`skip`: 뺄 딸린 곳, `confirm`), 묶음 되돌리기 `POST …/fix-groups/{묶음}/undo`, 이 지적만 다시 검수 `POST …/findings/{id}/recheck`, 열린 지적 모두 고침안 받기는 작업 `fixes`(`POST /api/projects/{이름}/jobs`), 고른 고침안 한꺼번에 넣기 `POST …/fixes/apply`(`items`: 지적 · 고침안 번호 · 뺄 딸린 곳, 넣지 못한 것은 `failed` 로 까닭과 함께).
+- **고친 곳만 다시 보기**: 지난 검수 뒤에 고침안만 넣었으면 검수 화면 머리의 주 버튼이 된다. 고침안을 넣은 지적들을 한 번의 AI 호출로 다시 본다. 검수 자료 전체 대신 작품 설정과 고친 문장 · 앞뒤 문단만 보낸다. 결과는 이 지적만 다시 검수와 같이 넣는다(풀리면 고침, 새로 어긋난 곳은 딸린 지적). 회차는 늘지 않는다. 직접 고친 곳이 하나라도 있으면 다시 검수가 주 버튼이고, 다시 검수는 언제나 옆에 있다.
+- 명령줄은 `check 등대 3` 결과에 지적 id 와 심각도를 보이고, `--keep` · `--wrong` · `--fixed` · `--reopen` 으로 정한다(`--note` 로 메모). `--sev f3 치명` 으로 심각도를 정하고, `--recheck f3` 으로 그 지적만 다시 검수하고, `--recheck-fixed` 로 고친 곳만 다시 본다. 고침안은 웹 화면에만 있다(명령줄은 `fix`). 자동 집필(`auto`)은 `--ignore-minor` · `--no-stop-critical` 로 심각도 정책을 바꾼다.
+- 웹 API: 지적 상태 · 메모 · 심각도 `PUT …/findings/{id}`, 고침안 받기 `POST …/findings/{id}/fixes`, 넣기 `POST …/findings/{id}/fixes/{k}/apply`(`skip`: 뺄 딸린 곳, `confirm`), 묶음 되돌리기 `POST …/fix-groups/{묶음}/undo`, 이 지적만 다시 검수 `POST …/findings/{id}/recheck`, 고친 곳만 다시 보기는 작업 `recheck`, 열린 지적 모두 고침안 받기는 작업 `fixes`(`POST /api/projects/{이름}/jobs`), 고른 고침안 한꺼번에 넣기 `POST …/fixes/apply`(`items`: 지적 · 고침안 번호 · 뺄 딸린 곳, 넣지 못한 것은 `failed` 로 까닭과 함께).
 - 자동 집필 화면의 '이럴 때는 멈추고 기다려요'에 **치명적인 어긋남이 있으면 멈추기**(기본 켬)와 **사소한 어긋남은 세지 않기**(기본 끔)가 있다.
 
 ## 장편 연재 (200~300화)

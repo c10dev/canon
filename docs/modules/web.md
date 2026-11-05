@@ -118,6 +118,8 @@
 - 같은 문장을 바꾸는 안 표시(`fbClash`), 넣기 `fbApply`(`POST …/fixes/apply`), 되돌리기 `fbUndo`
 - 고르기는 기본으로 켜지 않는다. 작업이 끝나면 `fixesJobResult` 가 검토 화면을 연다
 - `fbNeed` 는 서버 `pipeline.fix_targets` 와 같은 셈
+- 지난 검수 뒤 수정이 모두 고침안이면 머리의 주 버튼은 '고친 곳만 다시 보기 · 지적 N'(`fixRecheck`, 작업 `recheck`, 대상 `home.js` `fixRecheckTargets`)이고 다시 검수 버튼은 보조 버튼으로 남는다
+- 그때 회차 띠 아래 안내(`chkStrip` 의 `fast`)는 고친 문장과 앞뒤 문단만 보낸다고 알린다. 작업 결과 알림은 `JOB_DONE_MSG.recheck`
 - 장면 연출 규칙 지적은 '규칙' 표시(`ruleChip`)와 '장면 연출에서 보기'(`stageLink`, `stgGo`)
 - 다시 검수 버튼은 '판정 다시 보기'(LLM 없음)
 - 머리의 '검수 옵션 ▾' 메뉴(`checkOptsMenu`): 넓혀 찾기(장편, `Settings.check_widen`) · 동선 따로 보기(`Settings.check_motion`) · 연출 함께 뽑기(`Settings.stage_extract`)를 체크 줄과 설명으로 모은다. 머리 줄에는 검수 · 상태 승인 버튼만 둔다
@@ -157,6 +159,7 @@
   - 지금 화 `homeNowCard` · 확인할 것 `homeTodos`(말투 빈 인물 `homeSpeechGaps`, 시점 인물 서술 말투 빈칸 `homeVoiceGap`) · 전 화수 막대 `homeProgress` · 줄인 목록 `homeCast` · `homeForeshadows`
   - 계산 함수는 작품을 받는 순수 함수 `tests/test_home_js.py`
 - 장르 · 화 진행 막대와 연재 일정(`epSteps`, 검수 칸 `checkState`, 화를 열 단계 화면 `epStage`: 다음 할 일 · 화 칸 · 팔레트, 작품 목록 다음 할 일 `projectNext` 는 서버 `findings.check_done`, `releasePlan`, `Project.release`)
+- 고친 곳만 다시 볼 지적 `fixRecheckTargets`(서버 `findings.fix_recheck_targets` 와 같은 셈, `check.js` 머리 버튼이 쓴다)
 
 ### `canon/static/hub.js`
 

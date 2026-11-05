@@ -216,3 +216,36 @@ def test_fix_batch_view():
     assert "고른 2개 넣기" in got["all"]  # 넣을 수 있는 f1 · f2 만
     assert got["clash"] == {"f2": "f1"} and "같은 문장을 바꿔요" in got["clashView"]
     assert got["on"] == ["1:f1"] and "고른 1개 넣기" in got["after"] and "같은 문장을 바꿔요" not in got["after"]
+
+
+@needs_node
+def test_fix_recheck_button_matches_server():
+    """지난 검수 뒤 수정이 모두 고침안이면 '고친 곳만 다시 보기'가 주 버튼이고 다시 검수는 옆에 남는다.
+    직접 고친 곳이 있으면 다시 검수가 주 버튼이다. home.js fixRecheckTargets 는 서버 findings.fix_recheck_targets 와 같은 셈."""
+    from canon.schema import FindingEvent, Meta, Project
+    e = episode(1, status="written", text=TEXT)
+    findings.merge(e, [issue(Q1), issue(Q2, "동선"), issue(Q3, "말투")], "2026-10-28T10:00:00", "b")
+    e.findings[0].fix_group, e.findings[1].fix_group = "x1", "x2"
+    e.edits = [TextEdit(id="e1", at="2026-10-28T11:00:00", source="fix", group="x1", before=Q1, after="a"),
+               TextEdit(id="e2", at="2026-10-28T11:00:00", source="fix", group="x2", before=Q2, after="b")]
+    typed = e.model_copy(deep=True)
+    typed.edits.append(TextEdit(id="e3", at="2026-10-28T12:00:00", source="typed", before="c", after="d"))
+    seen = e.model_copy(deep=True)  # f1 은 묶음을 넣은 뒤 이미 다시 봤다
+    seen.findings[0].log.append(FindingEvent(at="2026-10-28T11:30:00", kind="recheck", text="아직 어긋남"))
+    cases = [e, typed, seen]
+    files = ["app.js", "home.js", "branches.js", "style.js", "plot.js", "write.js", "review.js", "chat.js", "passage.js", "rewrite.js",
+             "restate.js", "opening.js", "auto.js", "marks.js", "check.js", "flow.js"]
+    got = run_js(files, """(() => {
+      const ids = data.cases.map((x) => fixRecheckTargets(x).map((f) => f.id));
+      const views = data.cases.map((x) => {
+        S.project = Object.assign({}, data.p, { episodes: [x] }); S.name = 't'; S.route = ['p', 't', 'check', '1'];
+        return viewCheck(1);
+      });
+      return { ids, views };
+    })()""", {"cases": [dump(x) for x in cases], "p": dump(Project(meta=Meta(title="t", target_episodes=3), episodes=[e]))})
+    assert got["ids"] == [[f.id for f in findings.fix_recheck_targets(x)] for x in cases] == [["f1", "f2"], [], ["f2"]]
+    fast, slow, one = got["views"]
+    assert 'class="btn primary" data-action="fixRecheck" data-arg="1">고친 곳만 다시 보기 · 지적 2' in fast
+    assert 'class="btn" data-action="checkEp"' in fast and "고침안만 넣었어요" in fast  # 다시 검수는 주 버튼이 아닌 채 남는다
+    assert 'data-action="fixRecheck"' not in slow and 'class="btn primary" data-action="checkEp"' in slow
+    assert "고친 곳만 다시 보기 · 지적 1" in one

@@ -110,6 +110,7 @@
   - `mock_birth.py` 출생 배경
   - `mock_board.py` 스토리보드
   - `mock_cue.py` 큐 시트와 큐 본문
+  - `mock_fixrecheck.py` 고친 곳만 다시 보기
   - `mock_knows.py` 아는 정보 접기
   - `mock_play.py` 장면
   - `mock_revlab.py` 역설계

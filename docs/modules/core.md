@@ -198,8 +198,12 @@
 - 검수가 끝났는지(`check_done`, `home.js` `checkState` 의 done 과 같은 규칙, 작품 목록 `open_checked`)
 - 자동 집필이 세는 지적(`counted`, 사소 빼기)
 - 작가가 정하기(`set_status` · `set_severity`, 웹 `set_finding`, 명령줄 `check --keep` · `--sev`)
+- 명령줄 `check --recheck-fixed` 는 고친 곳만 다시 보기(`pipeline.recheck_fixed`)
 - 고침안이 건드리는 다른 지적(`touches`)
 - 지적 하나 다시 검수 결과 넣기(`settle`: 고침으로 닫기, 딸린 지적 `add_children`)
+- 마지막 검수 뒤 되돌리지 않은 수정(`edits_since_check`, `check_done` 과 같은 셈)
+- 고친 곳만 다시 볼 지적(`fix_recheck_targets`): 검수 뒤 수정이 모두 열린 지적의 고침안 묶음(source fix)일 때 그 지적들. 직접 고친 곳이 하나라도 있으면 빈 목록
+- 묶음을 넣은 뒤 이미 다시 본(기록 `recheck`) 지적은 `fix_recheck_targets` 에서 뺀다. `home.js` `fixRecheckTargets` 와 같은 셈
 - 새 판(`new_version`: 결정한 지적만 남김)
 - 세션 비우기(`clear`)
 - 합치기는 출처(`ConsistencyIssue.origin`: ai · rule)가 같은 지적끼리
@@ -207,6 +211,9 @@
 - 고침안 · 다시 검수의 AI 호출은 `pipeline.propose_fixes` · `apply_fix` · `undo_fix` · `recheck_finding`
 - 고침안 한꺼번에: 받을 지적 `pipeline.fix_targets`(넣을 수 있는 안 `fix_usable` 이 없는 열린 지적, `check.js` `fbNeed` 와 같은 셈), 웹 작업 `fixes`(`FIX_WORKERS` 개씩 동시에, 받는 대로 `store_fixes`), 고른 안 넣기 `apply_fixes`(웹 `POST …/fixes/apply`, 못 넣은 것은 까닭과 함께)
 - 프롬프트 `prompts.fix_prompt` · `recheck_prompt`(앞부분은 검수와 같은 `check_material`)
+- 고친 곳만 다시 보기: `pipeline.recheck_fixed` 가 대상 지적을 한 번의 호출(LLM `FixRecheckReport`, 단계 check)로 다시 묻고 `apply_fix_recheck` 가 지적마다 `settle` 한다. 회차는 늘지 않는다
+- 고친 곳만 다시 보기 프롬프트 `prompts.fix_recheck_prompt` 는 검수 자료 전체 대신 `static_context`(검수와 같은 앞부분)와 고친 곳 둘레 문단(`fix_around`, 앞뒤 `FIX_AROUND` 문단)만 넣는다
+- `recheck_fixed` 는 묻지 않은 id 와 같은 id 의 두 번째 답을 버린다. 규칙 지적은 LLM 없이 `recheck_finding` 으로 판정만
 - 결정은 검수 프롬프트에 넣지 않는다
 - LLM 호출 없음
 
@@ -223,6 +230,7 @@
 - 실패한 작업의 호출 경로를 서버 로그(`canon` 로거)에 남긴다. 화면에는 오류 문구만 보인다
 - 멈췄지만 AI 응답을 기다리는 같은 작업 찾기(`lingering`)
 - 같은 화의 AI 작업(`EP_AI_KINDS`) 가운데 응답을 기다리는 것 찾기(`waiting_on`). 종류가 달라도 같은 화면 호출이 겹친다
+- `EP_AI_KINDS` 에는 고친 곳만 다시 보기 작업 `recheck` 도 든다
 - 단계 하나가 마지막으로 끝낸 화(`Job.step_ep`). 화면 `notify.js` 가 바뀔 때마다 알린다
 
 ### `canon/metatail.py`
