@@ -288,14 +288,28 @@ def default_rate(backend: str, model: str = "") -> TokenRate:
     return TokenRate(1 / FALLBACK_CHARS_PER_TOKEN, 0.0, "fallback")
 
 
-def _usable(r: dict, backend: str, model: str) -> bool:
-    if r.get("backend") != backend or r.get("model") != model or not r.get("ok"):
+CLI_ALIASES = ("opus", "sonnet", "haiku")  # Claude Code 가 받는 모델 별칭. 기록에는 실제로 답한 모델 이름이 남는다
+DOUBLED = 1.5  # 기본 직선보다 이만큼 넘게 많고 캐시가 입력의 절반쯤이면 캐시 읽기를 두 번 센 기록으로 본다
+
+
+def _same_model(row_model: str, model: str, backend: str) -> bool:
+    """기록의 모델이 고른 모델인지. Claude Code 는 별칭(opus)을 넘겨도 기록에 실제 이름(claude-opus-5-5)이 남는다."""
+    if row_model == model:
+        return True
+    return backend == "claude" and model in CLI_ALIASES and model in (row_model or "").lower()
+
+
+def _usable(r: dict, backend: str, model: str, base: TokenRate) -> bool:
+    if r.get("backend") != backend or not r.get("ok") or not _same_model(r.get("model") or "", model, backend):
         return False
     chars, tin = r.get("chars") or 0, r.get("in") or 0
     if chars <= 0 or tin <= 0:
         return False
-    # Claude Code 가 캐시 읽기를 입력에 두 번 센 기록(캐시가 입력의 거의 절반 이상)은 뺀다
-    return not (backend == "claude" and (r.get("cached") or 0) * 2 >= 0.9 * tin)
+    if backend != "claude":
+        return True
+    # 예전 Claude Code 기록 가운데 캐시 읽기를 입력에 두 번 센 줄은 뺀다: 캐시가 입력의 절반쯤 이상이고 입력이 직선의 1.5배를 넘는다.
+    # 앞부분을 시스템 프롬프트로 옮겨 캐시가 맞은 정상 기록(캐시가 입력 대부분, 입력은 직선 근처)은 남긴다
+    return not ((r.get("cached") or 0) * 2 >= 0.9 * tin and tin > DOUBLED * est_input(chars, base))
 
 
 def _fit(pairs: list[tuple[float, float]], base: TokenRate) -> TokenRate:
@@ -314,29 +328,45 @@ def _fit(pairs: list[tuple[float, float]], base: TokenRate) -> TokenRate:
     return TokenRate(round(slope, 4), round(intercept), "measured", len(pairs))
 
 
-def _pairs(rows: list[dict], backend: str, model: str) -> list[tuple[float, float]]:
-    return [(r["chars"], r["in"]) for r in rows if _usable(r, backend, model)][-REFINE_ROWS:]
+def _pairs(rows: list[dict], backend: str, model: str, base: TokenRate) -> list[tuple[float, float]]:
+    return [(r["chars"], r["in"]) for r in rows if _usable(r, backend, model, base)][-REFINE_ROWS:]
+
+
+def _default_model(rows: list[dict], backend: str) -> str:
+    """Claude Code 기본 모델(설정이 빔)은 이름을 몰라 최근 성공 기록에 가장 많이 남은 모델로 본다."""
+    if backend != "claude":
+        return ""
+    recent = [r.get("model") for r in rows if r.get("backend") == backend and r.get("ok") and r.get("chars")][-REFINE_ROWS:]
+    names = [m for m in recent if m and m != "claude-code"]
+    return max(set(names), key=names.count) if names else ""
 
 
 def token_rate(backend: str, model: str = "", rows: Optional[list[dict]] = None) -> TokenRate:
     """백엔드 · 모델의 입력 토큰 추정 직선. 같은 백엔드 · 모델의 최근 성공 기록이 REFINE_MIN 줄 이상이면 그 기록으로 다시 잰다.
-    backend 가 비면 모델 이름으로 고른다(backend_for). rows 를 주지 않으면 사용량 기록(read)을 읽는다."""
+    backend 가 비면 모델 이름으로 고른다(backend_for). rows 를 주지 않으면 사용량 기록(read)을 읽는다.
+    Claude Code 별칭(opus)은 그 이름이 든 기록과, 빈 모델(기본 모델)은 최근 기록에 가장 많은 모델과 맞춘다."""
     backend = backend or backend_for(model)
+    if rows is None:
+        rows = read()
+        key = (backend, model, str(log_path()), len(rows))
+        if key not in _rate_cache:
+            _rate_cache[key] = _refit(rows, backend, model)
+        return _rate_cache[key]
+    return _refit(rows, backend, model)
+
+
+def _refit(rows: list[dict], backend: str, model: str) -> TokenRate:
+    model = model or _default_model(rows, backend)
     base = default_rate(backend, model)
     if not model:
-        return base  # Claude Code 기본 모델처럼 이름을 모르면 기록과 맞춰 볼 수 없다
-    if rows is not None:
-        return _fit(_pairs(rows, backend, model), base)
-    all_rows = read()
-    key = (backend, model, str(log_path()), len(all_rows))
-    if key not in _rate_cache:
-        _rate_cache[key] = _fit(_pairs(all_rows, backend, model), base)
-    return _rate_cache[key]
+        return base  # 이름도 기록도 없으면 기록과 맞춰 볼 수 없다
+    return _fit(_pairs(rows, backend, model, base), base)
 
 
-def est_input(chars: float, rate: TokenRate) -> float:
-    """요청 하나(chars 글자)의 입력 토큰 추정."""
-    return rate.slope * chars + rate.intercept
+def est_input(chars: float, rate: TokenRate, system: float = 0, calls: int = 1) -> float:
+    """요청(chars 글자, 시스템 프롬프트 뺌)의 입력 토큰 추정. 호출마다 붙는 토큰(intercept)에 시스템 프롬프트가 이미 들어 있다.
+    붙는 토큰을 모르는 백엔드(0)나 시스템 프롬프트(system 글자)가 그보다 길면 시스템 프롬프트를 기울기로 센다. calls 는 호출 수."""
+    return rate.slope * chars + calls * max(rate.intercept, rate.slope * system)
 
 
 def est_output(chars: float, rate: TokenRate) -> float:

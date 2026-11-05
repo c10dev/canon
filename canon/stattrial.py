@@ -146,8 +146,10 @@ def estimate(p: Project, episodes: list[int], repeats: int = 1, conditions: list
     out_tokens = usage.est_output(p.meta.words_per_episode, rate)
     rows, total = [], 0.0
     for cond in conditions:
-        sizes = [prompt_size(variant(before(p, n), cond), n) for n in episodes]
-        tin = sum(usage.est_input(size, rate) for size in sizes) * repeats
+        qs = [(variant(before(p, n), cond), n) for n in episodes]
+        # prompt_size 는 시스템 지시를 품는다. 직선의 붙는 토큰이 시스템 지시를 이미 세므로 빼고 넘긴다
+        tin = sum(usage.est_input(prompt_size(q, n) - (sys := len(prompts.writer_system(q))), rate, sys)
+                  for q, n in qs) * repeats
         tout = out_tokens * len(episodes) * repeats
         c = usage.cost(price, tin, tout, 0, batch) if price else None
         total += c or 0

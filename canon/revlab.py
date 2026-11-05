@@ -1204,31 +1204,31 @@ def estimate(lab: RevLab, kind: str, numbers: list[int] | None = None, model: st
     price = usage.rate(model, date.today().isoformat())
     rate = usage.token_rate(c["provider"] if c["provider"] != "mock" else "", model)
 
-    def tok(chars: float) -> float:
-        return usage.est_input(chars, rate)
+    def tok(chars: float, system: int) -> float:
+        return usage.est_input(chars, rate, system)
 
     rows = []
     if kind == "style":
-        tin = tok(len(prompts.SYSTEM_PLANNER) + len(prompts.style_prompt(style_sample(lab), passages=False)))
+        tin = tok(len(prompts.style_prompt(style_sample(lab), passages=False)), len(prompts.SYSTEM_PLANNER))
         rows.append({"label": "문체 프로필", "calls": 1, "input_tokens": round(tin), "output_tokens": STYLE_OUT_TOKENS,
                      "usd": round(usage.cost(price, tin, STYLE_OUT_TOKENS, 0, False), 3) if price else None})
     if kind == "arcs":
         can_arcs(lab)
-        tin = tok(len(prompts.SYSTEM_REVERSE) + len(prompts.rev_arcs_prompt(lab)))
+        tin = tok(len(prompts.rev_arcs_prompt(lab)), len(prompts.SYSTEM_REVERSE))
         rows.append({"label": "아크 · 부", "calls": 1, "input_tokens": round(tin), "output_tokens": ARCS_OUT_TOKENS,
                      "usd": round(usage.cost(price, tin, ARCS_OUT_TOKENS, 0, False), 3) if price else None})
     for n in nums:
         if kind == "parse":
-            tin = tok(len(prompts.SYSTEM_REVERSE) + len(prompts.rev_prompt(lab, n)))
+            tin = tok(len(prompts.rev_prompt(lab, n)), len(prompts.SYSTEM_REVERSE))
             tout = PARSE_OUT_TOKENS
         else:
             q = world(lab, n, use_style)
-            tin = tok(len(prompts.writer_system(q)) + len(prompts.cue_score_prompt(q, n, episode(lab, n).sheet)))
+            tin = tok(len(prompts.cue_score_prompt(q, n, episode(lab, n).sheet)), len(prompts.writer_system(q)))
             tout = usage.est_output(len(episode(lab, n).text), rate)
         rows.append({"label": f"{n}화", "calls": 1, "input_tokens": round(tin), "output_tokens": round(tout),
                      "usd": round(usage.cost(price, tin, tout, 0, False), 3) if price else None})
     if kind == "parse" and wants_lines(lab, nums):
-        tin = tok(len(prompts.SYSTEM_REVERSE) + 600 + min(LINES_IN_CHARS * len(lab.episodes), context.BUDGET["rev_lines"]))
+        tin = tok(600 + min(LINES_IN_CHARS * len(lab.episodes), context.BUDGET["rev_lines"]), len(prompts.SYSTEM_REVERSE))
         rows.append({"label": "이야기 줄기", "calls": 1, "input_tokens": round(tin), "output_tokens": LINES_OUT_TOKENS,
                      "usd": round(usage.cost(price, tin, LINES_OUT_TOKENS, 0, False), 3) if price else None})
     total = sum(r["usd"] or 0 for r in rows)

@@ -219,6 +219,33 @@ def test_token_rate_skips_doubled_claude_rows():
     r = usage.token_rate("claude", "claude-opus-5-5", rows=good + doubled)
     assert r.source == "measured" and r.rows == 30 and r.slope == pytest.approx(1.0, abs=1e-3)
     assert usage.token_rate("claude", "claude-opus-5-5", rows=doubled).source == "default"
+    # 앞부분을 시스템 프롬프트로 옮겨 캐시가 입력 대부분인 정상 기록은 남긴다
+    hits = _rows("claude", "claude-opus-5-5", 1.0, 3000)
+    for x in hits:
+        x["cached"] = round(x["in"] * 0.85)
+    r = usage.token_rate("claude", "claude-opus-5-5", rows=hits)
+    assert r.source == "measured" and r.rows == 30 and r.slope == pytest.approx(1.0, abs=1e-3)
+
+
+def test_token_rate_matches_claude_code_aliases():
+    """Claude Code 기록에는 실제로 답한 모델 이름이 남는다. 설정의 별칭(opus)이나 빈 기본 모델도 그 기록으로 다시 잰다."""
+    rows = _rows("claude", "claude-opus-5-5", 1.1, 2500) + _rows("claude", "claude-sonnet-5-5", 0.9, 5000, n=5)
+    alias = usage.token_rate("claude", "opus", rows=rows)
+    assert alias.source == "measured" and alias.rows == 30 and alias.slope == pytest.approx(1.1, abs=1e-3)
+    default = usage.token_rate("claude", "", rows=rows)  # 기본 모델은 최근 기록에 가장 많은 모델로 본다
+    assert default.source == "measured" and default.slope == pytest.approx(1.1, abs=1e-3)
+    assert usage.token_rate("claude", "sonnet", rows=rows).source == "default"  # Sonnet 기록은 5줄뿐
+    assert usage.token_rate("gemini", "flash", rows=_rows("gemini", "gemini-3.8-flash", 0.7, 900)).source == "default"
+
+
+def test_est_input_counts_system_prompt_once():
+    """붙는 토큰에 시스템 프롬프트가 이미 들어 있다. 붙는 토큰을 모르는 백엔드만 시스템 프롬프트를 기울기로 센다."""
+    opus = usage.token_rate("claude", "claude-opus-5-5", rows=[])
+    assert usage.est_input(10_000, opus, 1_200) == pytest.approx(10_350 + 3805)
+    assert usage.est_input(10_000, opus, 8_000) == pytest.approx(10_350 + 8_280)  # 시스템 프롬프트가 더 길면 그것을 센다
+    assert usage.est_input(10_000, opus, 1_200, calls=3) == pytest.approx(10_350 + 3 * 3805)
+    api = usage.token_rate("claude-api", "claude-opus-5-5", rows=[])
+    assert usage.est_input(10_000, api, 1_000) == pytest.approx(10_350 + 1_035)
 
 
 def test_token_rate_reads_usage_log(home):

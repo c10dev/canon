@@ -417,8 +417,9 @@ def estimate(p: Project, n: int, sheet: CueSheet | None, conditions: list[str] |
     rows, total = [], 0.0
     for cond in conds:
         calls = len(sheet.cues) if cond == "cues" and sheet else 1
-        # 큐마다 쓰기는 글자 수를 합쳐 재므로 호출마다 붙는 토큰은 호출 수만큼 더한다
-        tin = usage.est_input(prompt_chars(q, n, cond, sheet), rate) + rate.intercept * (calls - 1)
+        # prompt_chars 는 호출마다 시스템 지시를 품는다. 직선의 붙는 토큰이 시스템 지시를 세므로 빼고 호출 수만큼 붙인다
+        sys = len(prompts.writer_system(q))
+        tin = usage.est_input(prompt_chars(q, n, cond, sheet) - sys * calls, rate, sys, calls)
         c = usage.cost(price, tin, out_tokens, 0, False) if price else None
         total += c or 0
         rows.append({"condition": cond, "label": CONDITIONS[cond], "calls": calls, "input_tokens": round(tin),

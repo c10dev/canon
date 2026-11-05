@@ -389,35 +389,35 @@ def estimate(p: Project, target: int, batch: bool, policy: Policy, name: str | N
         if e is None:
             missing.append(n)
             continue
-        calls = [("state", prompts.SYSTEM_EDITOR + prompts.state_prompt(sim, n), JSON_OUTPUT_RESERVE)]
+        calls = [("state", prompts.SYSTEM_EDITOR, prompts.state_prompt(sim, n), JSON_OUTPUT_RESERVE)]
         if policy.check:
-            calls.append(("check", prompts.SYSTEM_CHECKER + prompts.check_prompt(sim, n, sized=True), JSON_OUTPUT_RESERVE))
+            calls.append(("check", prompts.SYSTEM_CHECKER, prompts.check_prompt(sim, n, sized=True), JSON_OUTPUT_RESERVE))
             if sim.serial and sim.settings.check_widen:  # 검수 넓히기: 진술 뽑기 + 다시 묻기 (근거는 진술마다 다 찬다고 본다)
-                calls.append(("check", prompts.SYSTEM_CLAIMS + prompts.claims_prompt(sim, n), JSON_OUTPUT_RESERVE))
-                calls.append(("check", prompts.SYSTEM_CHECKER + prompts.widen_prompt(sim, n, [], []) + " " * (
+                calls.append(("check", prompts.SYSTEM_CLAIMS, prompts.claims_prompt(sim, n), JSON_OUTPUT_RESERVE))
+                calls.append(("check", prompts.SYSTEM_CHECKER, prompts.widen_prompt(sim, n, [], []) + " " * (
                     prompts.WIDEN_MAX * prompts.TWOSTEP_EVIDENCE), JSON_OUTPUT_RESERVE))
             if sim.settings.check_motion:  # 동선 따로 보기: 본 검수와 동시에 부르므로 시간은 늘지 않는다
-                calls.append(("check", prompts.SYSTEM_MOTION + prompts.motion_prompt(sim, n), JSON_OUTPUT_RESERVE))
+                calls.append(("check", prompts.SYSTEM_MOTION, prompts.motion_prompt(sim, n), JSON_OUTPUT_RESERVE))
             if sim.settings.stage_extract:  # 검수 때 함께 뽑기: 계획 장면이 있는 사건마다 본문 장면 뽑기 (본문이 새로 쓰이므로 모두 돈다)
                 planned = [i for i in range(len(e.plot.events)) if stage_mod.scenes_of(e, i)[0] is not None]
                 for i in planned:
-                    calls.append(("check", prompts.SYSTEM_STAGE + prompts.stage_extract_prompt(sim, n, i), JSON_OUTPUT_RESERVE))
+                    calls.append(("check", prompts.SYSTEM_STAGE, prompts.stage_extract_prompt(sim, n, i), JSON_OUTPUT_RESERVE))
                 stage_waves += -(-len(planned) // pipeline.STAGE_EXTRACT_WORKERS)
         if e.status in ("draft", "confirmed"):
             made = boards and e.storyboard is None
             if made:  # 스토리보드 만들기 한 번 + 쓰기 프롬프트에 들어갈 스토리보드 블록
-                calls.append(("plan", prompts.SYSTEM_PLANNER + prompts.storyboard_prompt(sim, n), BOARD_OUT))
+                calls.append(("plan", prompts.SYSTEM_PLANNER, prompts.storyboard_prompt(sim, n), BOARD_OUT))
             sheet = cues and e.cue_sheet is None
             if sheet:  # 큐 시트 만들기 한 번 + 쓰기 프롬프트 끝에 붙는 큐 시트 블록
-                calls.append(("plan", prompts.SYSTEM_PLANNER + prompts.cue_sheet_prompt(sim, n) + " " * (BOARD_CHARS if made else 0), CUE_OUT))
-            calls.append(("write", prompts.writer_system(sim) + prompts.episode_prompt(sim, n)
+                calls.append(("plan", prompts.SYSTEM_PLANNER, prompts.cue_sheet_prompt(sim, n) + " " * (BOARD_CHARS if made else 0), CUE_OUT))
+            calls.append(("write", prompts.writer_system(sim), prompts.episode_prompt(sim, n)
                           + " " * ((BOARD_CHARS if made else 0) + (CUE_CHARS if sheet else 0)), write_out))
             if policy.polish:  # 서술 다듬기 한 번: 작품 고정 블록 + 쓴 본문(목표 분량) + 규칙, 본문 전체를 다시 낸다
-                calls.append(("revise", prompts.writer_system(sim) + prompts.polish_prompt(sim, n, sim.episode(n).text), revise_out))
-        for step, text, out in calls:
+                calls.append(("revise", prompts.writer_system(sim), prompts.polish_prompt(sim, n, sim.episode(n).text), revise_out))
+        for step, system, text, out in calls:
             m = measured.get(step + (":batch" if batch and batchable(step) else "")) or measured.get(step)
             steps[step] += 1
-            tokens[step][0] += usage.est_input(len(text), rates[step])
+            tokens[step][0] += usage.est_input(len(text), rates[step], len(system))
             tokens[step][1] += m["out"] if m and m["out"] else out
     cost: Optional[float] = 0.0
     unpriced = []
