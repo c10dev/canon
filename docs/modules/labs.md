@@ -72,6 +72,7 @@
   - `check_trial`
   - 장편은 검수 넓히기 `widen`
   - 판단기를 주면 두 걸음 검수 `twostep`도
+  - 판단기를 고르지 않았거나 모델 · 주소가 비면 `judge_backend` 가 `CANON_JUDGE` · `_MODEL` · `_URL` 로 채운다
   - 장면 연출 규칙 검수 `stage` 는 고르면: 사건마다 `pipeline.extract_stage` → `stage.episode_issues`
   - `_stage_run`
   - 갈래별 찾은 수 `by_kind` · 기록 합계 `check_totals`

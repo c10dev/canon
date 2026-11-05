@@ -20,7 +20,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from . import context, metrics, pipeline, prompts, settings, store
-from .judge import make_judge
+from .judge import env_choice, make_judge
 from .llm import LLM, GeminiLLM, LocalLLM, make_llm
 from .schema import ConsistencyReport, PlantSet, Project, plant_kind
 
@@ -358,8 +358,8 @@ def check_trial(p: Project, n: int, b: Backend, plants: int = 3, modes: list[str
     bad = [m for m in modes if m not in TRIAL_MODES]
     if bad:
         raise ValueError(f"알 수 없는 검수 방식: {', '.join(bad)} ({' | '.join(TRIAL_MODES)})")
-    if "twostep" in modes and judge is None:
-        judge = Backend(provider="mock" if b.provider == "mock" else "local")
+    if "twostep" in modes:
+        judge = judge_backend(judge, b)
     seed = random.randrange(1 << 30) if seed is None else seed
     llm = make_backend(b)
     t = time.perf_counter()
@@ -488,6 +488,17 @@ def _stage_run(llm: LLM, q: Project, n: int, used: list) -> dict:
         row.update(ok=False, error=f"{type(e).__name__}: {e}")
     row["seconds"] = round(time.perf_counter() - t1, 2)
     return row
+
+
+def judge_backend(judge: Backend | None, b: Backend) -> Backend:
+    """두 걸음 검수의 판단기. 화면에서 고르지 않았으면 CANON_JUDGE(없으면 검수 백엔드가 mock 일 때 mock, 아니면 local).
+    로컬 판단기의 비어 있는 모델 · 주소는 CANON_JUDGE_MODEL · CANON_JUDGE_URL 로 채운다. 그것도 비면 로컬 서버 설정."""
+    provider, model, url = env_choice()
+    if judge is None:
+        judge = Backend(provider=provider or ("mock" if b.provider == "mock" else "local"))
+    if judge.provider == "local" and (not judge.model or not judge.url):
+        judge = judge.model_copy(update={"model": judge.model or model, "url": judge.url or url})
+    return judge
 
 
 def _two_step_run(llm: LLM, jb: Backend, q: Project, n: int, used: list) -> dict:
