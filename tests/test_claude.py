@@ -19,7 +19,7 @@ os.environ["CANON_LLM"] = "mock"
 os.environ["CANON_HOME"] = tempfile.mkdtemp()
 
 from canon import cancel, claude, settings, usage  # noqa: E402
-from canon.llm import SchemaMismatch, get_llm, out_cap, wait_cap, with_note  # noqa: E402
+from canon.llm import PREFIX_HINT, SchemaMismatch, get_llm, out_cap, wait_cap, with_note  # noqa: E402
 from canon.schema import NameOptions  # noqa: E402
 
 FAKE = textwrap.dedent('''\
@@ -46,7 +46,7 @@ FAKE = textwrap.dedent('''\
         sys.exit(0)
     stdin = sys.stdin.read()
     env = {{k: os.environ.get(k) for k in ("ANTHROPIC_API_KEY", "CLAUDE_CODE_DISABLE_CLAUDE_MDS", "CLAUDE_CODE_OAUTH_TOKEN",
-                                       "CLAUDE_CONFIG_DIR")}}
+                                       "CLAUDE_CONFIG_DIR", "CLAUDE_CODE_MAX_OUTPUT_TOKENS")}}
     system = open(args[args.index("--system-prompt-file") + 1], encoding="utf-8").read() if "--system-prompt-file" in args else None
     with open(os.path.join(d, "calls.jsonl"), "a") as f:
         f.write(json.dumps({{"args": args, "stdin": stdin, "env": env, "cwd": os.getcwd(), "system_file": system}},
@@ -108,6 +108,47 @@ class ClaudeCodeTest(unittest.TestCase):
         row = usage.read()[-1]
         self.assertEqual((row["backend"], row["in"], row["out"], row["cached"]), ("claude", 1530, 30, 20))
         self.assertEqual(usage.row_cost(row, usage.prices())[0], 0.0)  # 구독은 요금제에 포함
+
+    def test_out_cap_goes_to_env_only_when_set(self):
+        os.environ.pop("CLAUDE_CODE_MAX_OUTPUT_TOKENS", None)  # 사용자 셸이 내보낸 값은 빼고 본다 (setUp 의 patch.dict 가 되돌린다)
+        llm = claude.ClaudeCodeLLM()
+        with out_cap(16384):
+            llm.text("s", "p")
+        llm.text("s", "p")
+        first, second = self.calls()
+        self.assertEqual(first["env"]["CLAUDE_CODE_MAX_OUTPUT_TOKENS"], "16384")  # 출력 한도 옵션이 없어 환경 변수로
+        self.assertIsNone(second["env"]["CLAUDE_CODE_MAX_OUTPUT_TOKENS"])  # 한도가 없으면 넣지 않는다 (기본값)
+        self.assertNotIn("CLAUDE_CODE_MAX_OUTPUT_TOKENS", os.environ)  # 이 호출의 하위 환경에만
+
+    def test_out_cap_keeps_user_env_when_unset(self):
+        os.environ["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] = "8000"  # 사용자가 Claude Code 설정으로 내보낸 값
+        llm = claude.ClaudeCodeLLM()
+        llm.text("s", "p")
+        with out_cap(16384):
+            llm.text("s", "p")
+        first, second = self.calls()
+        self.assertEqual(first["env"]["CLAUDE_CODE_MAX_OUTPUT_TOKENS"], "8000")  # 한도가 없으면 사용자 값을 그대로 둔다
+        self.assertEqual(second["env"]["CLAUDE_CODE_MAX_OUTPUT_TOKENS"], "16384")
+        self.assertEqual(os.environ["CLAUDE_CODE_MAX_OUTPUT_TOKENS"], "8000")
+
+    def test_usage_keeps_turns_stop_and_models(self):
+        self.replies({"result": "글", "num_turns": 2, "stop_reason": "end_turn", "duration_api_ms": 12345,
+                      "usage": {"input_tokens": 10, "cache_creation_input_tokens": 990, "cache_read_input_tokens": 1000,
+                                "output_tokens": 30},
+                      "modelUsage": {"claude-test-model": {"inputTokens": 10, "cacheCreationInputTokens": 990,
+                                                           "cacheReadInputTokens": 1000, "outputTokens": 30},
+                                     "claude-haiku": "?"}})
+        claude.ClaudeCodeLLM().text("s", "p")
+        row = usage.read()[-1]
+        self.assertEqual((row["in"], row["cached"]), (2000, 1000))  # 비용 계산에 쓰는 칸은 그대로
+        self.assertEqual((row["turns"], row["stop"], row["api_seconds"], row["resent"]), (2, "end_turn", 12.35, 1000))
+        self.assertEqual(row["models"], {"claude-test-model": {"in": 2000, "out": 30, "cached": 1000}})
+        self.assertEqual(usage.cache_rate([row]), 0.0)  # 다시 보낸 입력을 빼면 이 호출은 캐시를 읽지 않았다
+        claude.ClaudeCodeLLM().text("s", "p")
+        row = usage.read()[-1]
+        self.assertNotIn("turns", row)  # 결과에 없으면 칸도 없다
+        self.assertNotIn("resent", row)
+        self.assertEqual(row["models"], {"claude-test-model": {"in": 0, "out": 30, "cached": 0}})
 
     def test_json_schema_and_repair(self):
         good = {"options": [{"name": "정하윤", "reason": "부드럽다"}]}
@@ -223,6 +264,30 @@ class ClaudeCodeTest(unittest.TestCase):
         llm.text("쓰기", head + "\n\n# 이번 화 플롯\n2화")
         self.assertIsNone(self.calls()[-1]["system_file"])  # 이 옵션을 모르는 버전은 예전처럼 사용자 메시지에 둔다
         self.assertEqual(self.calls()[-1]["stdin"], with_note(head + "\n\n# 이번 화 플롯\n2화"))
+
+    def test_prefix_hint_moves_prefix_on_first_call(self):
+        # 부른 쪽이 공통 자료의 끝(hint prefix_chars)을 알려 주면 직전 요청이 없어도 첫 호출부터 시스템 프롬프트로 옮긴다
+        (self.dir / "help.txt").write_text("--safe-mode --tools <t> --strict-mcp-config --no-session-persistence "
+                                           "--json-schema <s> via: --system-prompt[-file], --append-system-prompt[-file]",
+                                           encoding="utf-8")
+        claude._SEEN.clear()
+        claude._WARM.clear()
+        material = "# 작품 정보\n" + "가" * 3000 + "\n\n# 3화 본문 (검수 대상)\n" + "나" * 500
+        llm = claude.ClaudeCodeLLM()
+        out = {"structured_output": {"options": [{"name": "윤채린", "reason": "맑다"}]}}
+        self.replies(out, out, out, out)
+        llm.json("고침", f"{material}\n\n# 고칠 지적\n- f1", NameOptions, hint={"episode": 3, PREFIX_HINT: len(material)})
+        llm.json("고침", f"{material}\n\n# 고칠 지적\n- f2", NameOptions, hint={PREFIX_HINT: len(material)})
+        first, second = self.calls()
+        self.assertNotIn("--system-prompt", first["args"])
+        self.assertEqual(first["system_file"], f"고침\n\n{material}")  # 앞 요청이 없어도 자료 끝에서 옮긴다
+        self.assertEqual(first["stdin"], with_note("# 고칠 지적\n- f1"))
+        self.assertEqual(second["system_file"], first["system_file"])  # 둘째 호출은 첫 호출이 쓴 캐시를 읽는다
+        # 경계가 단락 가운데면 그 앞 단락 경계로 맞추고, 앞부분이 너무 짧으면 옮기지 않는다
+        llm.json("고침2", f"{material}\n\n# 고칠 지적\n- f3", NameOptions, hint={PREFIX_HINT: len(material) - 10})
+        self.assertEqual(self.calls()[-1]["system_file"], "고침2\n\n# 작품 정보\n" + "가" * 3000)
+        llm.json("고침3", "짧은 자료\n\n# 고칠 지적", NameOptions, hint={PREFIX_HINT: 5})
+        self.assertIsNone(self.calls()[-1]["system_file"])
 
     def test_same_prefix_waits_for_first_writer(self):
 
@@ -579,6 +644,16 @@ class ClaudeAPITest(unittest.TestCase):
         self.assertEqual("".join(b["text"] for b in third), with_note(head + "\n\n# 이번 화 플롯\n3화"))
         self.assertIsInstance(other, str)  # 시스템 프롬프트가 다르면 따로 센다
         self.assertEqual(claude.cache_blocks(("k",), "짧은 글\n\n끝"), "짧은 글\n\n끝")
+
+    def test_cache_mark_at_prefix_hint_on_first_request(self):
+        # API 경로도 부른 쪽이 알려 준 경계에서 첫 요청부터 캐시 표시를 단다
+        claude._SEEN.clear()
+        material = "# 작품 정보\n" + "가" * 3000
+        llm = self.make(_msg('{"options": []}'))
+        llm.json("고침", material + "\n\n# 고칠 지적\n- f1", NameOptions, hint={PREFIX_HINT: len(material)})
+        blocks = self.reqs[0]["messages"][0]["content"]
+        self.assertEqual(blocks[0], {"type": "text", "text": material, "cache_control": {"type": "ephemeral"}})
+        self.assertEqual(blocks[1]["text"], with_note("\n\n# 고칠 지적\n- f1"))
 
     def test_stage_cost_uses_claude_price(self):
         self.assertAlmostEqual(usage.stage_cost("claude-api", "gemini-4-argon", 1e6, 0), 4.0)

@@ -115,3 +115,99 @@ process.stdout.write(JSON.stringify(vm.runInContext("[0,1,2,3].map((i) => [S.pic
     run = subprocess.run(["node", "-e", js, str(APP)], capture_output=True, text=True, encoding="utf-8")
     assert run.returncode == 0, run.stderr
     assert json.loads(run.stdout) == [[True, True], [False, False], [False, False], [True, True]]
+
+
+@pytest.mark.skipif(not shutil.which("node"), reason="node 없음")
+def test_unpicking_new_character_unpicks_its_items():
+    """새 인물의 체크를 풀면 그 인물을 다룬 상태 · 사건 · 관계 바뀜 · 비밀 · 설정 바꾸기 · 호칭 · 등장 인물 붙이기도 푼다.
+    남기면 서버 반영이 400 으로 막는다 (pipeline.validate_delta). 다시 고르면 처음 체크로 되돌린다."""
+    head = EDIT_HARNESS.split("const d = {")[0]
+    js = head + """
+const toasts = [];
+ctx.toast = (m) => toasts.push(m);
+ctx.render = () => {};
+const ev = (actor, target) => ({ actor, target, kind: '도움', intensity: 1, witnesses: [] });
+const d = { summary: '', new_facts: [], foreshadow_planted: [], foreshadow_resolved: [], warnings: [],
+  new_characters: [{ id: 'n' }, { id: 'm' }],
+  character_updates: [{ character_id: 'a', emotional_state: '', knows: [] }, { character_id: 'n', emotional_state: '', knows: [] }],
+  events: [ev('a', 'b'), ev('n', 'a'), ev('n', 'm')],
+  relationship_updates: [{ a: 'b', b: 'n', type: '친구' }],
+  secrets_added: [{ id: 's1', owner: 'n', content: 'x', hidden_from: [] }, { id: 's2', owner: 'a', content: 'y', hidden_from: ['n'] }],
+  setting_changes: [{ character_id: 'n', field: 'speech_style', value: 'v' }],
+  address_changes: [{ speaker: 'a', listener: 'n', calls: '형', speech: '' }],
+  cast_added: ['n', 'a'] };
+vm.runInContext('setDelta(1, ' + JSON.stringify(d) + ')', ctx);
+const keys = ['c0', 'c1', 'e0', 'e1', 'e2', 'r0', 's0', 's1', 't0', 'h0', 'a0', 'a1'];
+const snap = () => vm.runInContext('S.picks', ctx);
+const pick = (key, on) => { vm.runInContext(`S.picks.${key} = ${on}`, ctx); listeners.change.forEach((f) => f({ target: { dataset: { pick: key }, checked: on } })); };
+const before = keys.map((k) => snap()[k]);
+pick('n0', false);
+const off = keys.map((k) => snap()[k]);
+pick('n1', false);
+pick('n0', true);
+const back = keys.map((k) => snap()[k]);
+process.stdout.write(JSON.stringify({ before, off, back, toasts }));
+"""
+    run = subprocess.run(["node", "-e", js, str(APP)], capture_output=True, text=True, encoding="utf-8")
+    assert run.returncode == 0, run.stderr
+    out = json.loads(run.stdout)
+    # 설정 바꾸기 · 호칭은 처음부터 고르지 않는다
+    assert out["before"] == [True, True, True, True, True, True, True, True, False, False, True, True]
+    assert out["off"] == [True, False, True, False, False, False, False, True, False, False, False, True]
+    # 새 인물 m 을 뺀 채라 n · m 사이 사건(e2)은 되돌리지 않는다
+    assert out["back"] == [True, True, True, True, False, True, True, True, False, False, True, True]
+    assert out["toasts"][0] == "새 인물을 빼서 그 인물을 다룬 항목 6개도 뺐어요"
+    assert len(out["toasts"]) == 2 and "5개" in out["toasts"][1] and "되돌렸어요" in out["toasts"][1]
+
+
+@pytest.mark.skipif(not shutil.which("node"), reason="node 없음")
+def test_planted_and_resolved_foreshadow_is_picked():
+    """같은 변경안에서 심고 회수한 복선은 서버가 받아 준다. 기본으로 체크하고 설정에 없는 주인의 비밀은 빼 둔다."""
+    head = EDIT_HARNESS.split("const d = {")[0]
+    js = head + """
+const d = { summary: '', character_updates: [], events: [], relationship_updates: [], new_facts: [], warnings: [],
+  secrets_added: [{ id: 's1', owner: 'a', content: 'x', hidden_from: [] }, { id: 's2', owner: 'zz', content: 'y', hidden_from: [] }],
+  foreshadow_planted: [{ id: 'fs-new', description: '새 복선' }], foreshadow_resolved: ['fs-new', 'fs-none'] };
+ctx.toast = () => {};
+ctx.render = () => {};
+vm.runInContext('setDelta(1, ' + JSON.stringify(d) + ')', ctx);
+const now = () => vm.runInContext("['x0', 'x1', 's0', 's1'].map((k) => S.picks[k])", ctx);
+const pick = (on) => listeners.change.forEach((f) => f({ target: { dataset: { pick: 'p0' }, checked: on } }));
+const out = [now()];
+pick(false);  // 심지 않으면 같은 화 회수도 뺀다 (서버가 막는다)
+out.push(now());
+pick(true);
+out.push(now());
+process.stdout.write(JSON.stringify(out));
+"""
+    run = subprocess.run(["node", "-e", js, str(APP)], capture_output=True, text=True, encoding="utf-8")
+    assert run.returncode == 0, run.stderr
+    assert json.loads(run.stdout) == [[True, False, True, False], [False, False, True, False], [True, False, True, False]]
+
+
+@pytest.mark.skipif(not shutil.which("node"), reason="node 없음")
+def test_reoffered_new_character_and_planted_unpick_their_items():
+    """반영 취소로 체크를 푼 채 다시 놓인 새 인물 · 심는 복선을 가리키는 항목도 기본으로 빼 둔다 (남기면 서버 반영이 막는다).
+    그 새 인물 · 복선을 다시 고르면 가리키는 항목도 처음 체크로 돌아온다."""
+    head = EDIT_HARNESS.split("const d = {")[0]
+    js = head + """
+ctx.toast = () => {};
+ctx.render = () => {};
+const d = { summary: '', character_updates: [], relationship_updates: [], new_facts: [], warnings: [], secrets_added: [],
+  events: [{ actor: 'a', target: 'b', kind: '도움', intensity: 1, witnesses: [] }],
+  foreshadow_planted: [], foreshadow_resolved: ['fs-new'],
+  dismissed: { new_characters: [{ id: 'n' }], foreshadow_planted: [{ id: 'fs-new', description: '새 복선' }],
+    character_updates: [], events: [] } };
+d.events.push({ actor: 'n', target: 'a', kind: '도움', intensity: 1, witnesses: [] });
+vm.runInContext('setDelta(1, ' + JSON.stringify(d) + ')', ctx);
+const now = () => vm.runInContext("['n0', 'e0', 'e1', 'p0', 'x0'].map((k) => S.picks[k])", ctx);
+const pick = (key, on) => { vm.runInContext(`S.picks.${key} = ${on}`, ctx); listeners.change.forEach((f) => f({ target: { dataset: { pick: key }, checked: on } })); };
+const out = [now()];
+pick('n0', true);
+pick('p0', true);
+out.push(now());
+process.stdout.write(JSON.stringify(out));
+"""
+    run = subprocess.run(["node", "-e", js, str(APP)], capture_output=True, text=True, encoding="utf-8")
+    assert run.returncode == 0, run.stderr
+    assert json.loads(run.stdout) == [[False, True, False, False, False], [True, True, True, True, True]]

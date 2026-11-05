@@ -6,7 +6,8 @@ CANON_LOCAL_URL, CANON_LOCAL_MODEL, CANON_LOCAL_KEY, CANON_LLM_<단계> (단계 
 CANON_MODEL_<단계> (단계별 모델, 예: CANON_MODEL_STATE), CANON_EFFORT_<단계> (예: CANON_EFFORT_CHECK)
 (단계별 Claude 추론 강도), CANON_CLAUDE_MODEL, CANON_CLAUDE_BIN, CANON_CLAUDE_CONFIG_DIR,
 ANTHROPIC_API_KEY (Claude 백엔드, claude.py), CANON_GEMINI_AUTH(key | vertex, 또는 GOOGLE_GENAI_USE_VERTEXAI=true),
-CANON_VERTEX_CREDENTIALS(또는 GOOGLE_APPLICATION_CREDENTIALS), GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION (Vertex AI). prices 는 AI 요금 가격표에서 고친 줄 (usage.py).
+CANON_VERTEX_CREDENTIALS(또는 GOOGLE_APPLICATION_CREDENTIALS), GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION (Vertex AI),
+CANON_GEMINI_CACHE(0 이면 Gemini 명시 캐시를 끈다, gemini_cache). prices 는 AI 요금 가격표에서 고친 줄 (usage.py).
 작품이 단계 프리셋을 고르면(Settings.model_preset) 그 작품의 호출에서는 프리셋이 설정 파일의 단계 칸을 대신한다 (project_preset).
 Claude 구독 로그인은 Claude Code 가 직접 관리하므로 여기에 계정 정보나 토큰을 두지 않는다.
 claude_separate 는 Canon 전용 Claude Code 설정 폴더를 쓸지만 적는다 (claude_config_dir).
@@ -106,6 +107,21 @@ def gemini_auth() -> tuple[str, str]:
         value, src = "vertex", "env"  # google-genai 가 쓰는 환경 변수도 따른다
     value = value.lower()
     return (value if value in ("key", "vertex") else "key"), src
+
+
+def gemini_cache() -> tuple[str, str]:
+    """Gemini 명시 캐시(llm.GeminiLLM 의 caches.create)를 쓸 곳. agent: 플롯 대화 단계(chat)만 / off: 쓰지 않는다.
+    기본은 agent 다. 대화 한 턴은 몇 분 안에 같은 앞부분(약 10만 토큰)으로 여러 단계를 부르므로 캐시를 두 번 다시 쓰면
+    캐시를 만드는 요금과 저장 요금(10분)보다 아끼는 입력 요금이 크다. 다른 단계는 같은 앞부분을 몇 분 안에 다시 부르는 일이 적어 켜지 않는다.
+    환경 변수 CANON_GEMINI_CACHE=0 (또는 off) 로 끈다."""
+    raw = _read().get("gemini_cache")
+    if raw is False or raw == 0:  # JSON 의 false · 0 도 끈다 (bool 은 int 라 0 과 같이 본다)
+        raw = "off"
+    value, src = _pick(("CANON_GEMINI_CACHE",), None if raw is None else str(raw), "agent")
+    value = value.strip().lower()
+    if value in ("0", "off", "false", "no"):
+        return "off", src
+    return "agent", src
 
 
 def vertex_credentials() -> tuple[str, str]:

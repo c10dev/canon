@@ -26,6 +26,7 @@
 - 그린 뒤 화마다 한 열인 넓은 표(`.at-table-wrap`, 상태창 화별 `.sw-table-wrap`)를 지금 화(`.cur`) 또는 마지막 열로 옆으로 굴려 둔다
 - 작품 안 모르는 화면 이름(옛 북마크, 손으로 친 주소)은 작품 홈을 그리고 위에 "'이름' 화면은 없어요" 안내와 작품 홈 주소로 가는 버튼을 둔다
 - 반영 취소(`revertFrom`) 확인은 저장하지 않은 변경이 있으면 먼저 저장한다고 말하고 버튼을 '저장하고 반영 취소'로 쓴다
+- 반영 취소(`revertFrom`) 확인이 '빠지는 인물'로 적는 새 인물은 그 화 전에 이미 있던 인물(`first_ep` 가 0인 설정 단계 인물과 앞 화 반영 기록의 새 인물)을 뺀다(`pipeline.revert` 와 거의 같다)
 - 반영 취소(`revertFrom`)는 뒤 화들의 반영 기록이 검토를 기다리는 변경안으로 남으니(`web._revert_kept`) 취소 뒤 `loadPending` 으로 받는다
 - 서버 오류 문구 `fmtErr`: 검증 오류(detail 이 목록)는 영어 원문 대신 `VALIDATION_REASON`(web.py `_VALIDATION_REASON` 과 같음, `tests/test_fmterr_js.py`)과 칸 이름 `FIELD_NAME` 으로 쓴다
 - 저장하지 않고 이동하면 묻는 창은 작품 변경만 있을 때 '저장하고 이동'(askConfirm 의 `alt`)을 주 버튼으로 준다
@@ -152,6 +153,9 @@
 - 같은 문장을 바꾸는 안 표시(`fbClash`), 넣기 `fbApply`(`POST …/fixes/apply`), 되돌리기 `fbUndo`
 - 고르기는 기본으로 켜지 않는다. 작업이 끝나면 `fixesJobResult` 가 검토 화면을 연다
 - `fbNeed` 는 서버 `pipeline.fix_targets` 와 같은 셈
+- 지난 검수 뒤 수정이 모두 고침안이면 머리의 주 버튼은 '고친 곳만 다시 보기 · 지적 N'(`fixRecheck`, 작업 `recheck`, 대상 `home.js` `fixRecheckTargets`)이고 다시 검수 버튼은 보조 버튼으로 남는다
+- `fixRecheck` 도 `app.js` `checkReady` 로 저장하지 않은 작품 변경을 먼저 묻고 본문을 저장한 뒤 작업을 시작한다
+- 그때 회차 띠 아래 안내(`chkStrip` 의 `fast`)는 고친 문장과 앞뒤 문단만 보낸다고 알린다. 작업 결과 알림은 `JOB_DONE_MSG.recheck`
 - 장면 연출 규칙 지적은 '규칙' 표시(`ruleChip`)와 '장면 연출에서 보기'(`stageLink`, `stgGo`)
 - 다시 검수 버튼은 '판정 다시 보기'(LLM 없음)
 - 머리의 '검수 옵션 ▾' 메뉴(`checkOptsMenu`): 넓혀 찾기(장편, `Settings.check_widen`) · 동선 따로 보기(`Settings.check_motion`) · 연출 함께 뽑기(`Settings.stage_extract`)를 체크 줄과 설명으로 모은다. 머리 줄에는 검수 · 상태 승인 버튼만 둔다
@@ -211,6 +215,7 @@
 - 연재 일정 줄의 'n화 올림으로 표시'(`releaseOne`)는 올린 화를 하나 늘려 저장한다
 - 저장한 뒤 알림에 '되돌리기'(`releaseUndo`)를 둔다
 - `releaseUndo` 는 같은 작품이 열려 있고 올린 화 값이 그사이 바뀌지 않았을 때만 하나 줄여 다시 저장한다
+- 고친 곳만 다시 볼 지적 `fixRecheckTargets`(서버 `findings.fix_recheck_targets` 와 같은 셈, `check.js` 머리 버튼이 쓴다)
 
 ### `canon/static/hub.js`
 
@@ -393,6 +398,9 @@
 - '다시 뽑기'(`restateEp`)는 바꾼 체크 · 고친 요약이 있으면 먼저 묻는다(`rsEdited`, 요약은 `S.deltaOrig` 와 견줌)
 - '다시 뽑기'는 작품을 말없이 저장하지 않는다. 저장하지 않은 변경은 `startJob` 이 묻고 저장한다(`tests/test_restate_js.py`)
 - 서버는 `pipeline.apply_restate` · `keep_state`
+- 보내는 변경안(`restateBody`)은 고른 새 복선의 plant 근거 문장만 담는다 (`pipeline.apply_restate` 와 같은 규칙)
+- 고르기 칸(`rsItems`)은 변경안 안에서 같은 복선 id 가 두 번 오면 앞의 것만 보인다
+- 서버가 409(`stale_delta`)를 주면 기다림 상자를 닫고 묻는다. 확인하면 `?force=1` 로 다시 보낸다
 - 표시는 `Episode.final_text` (`edited_after_final` 과 같은 규칙, `tests/test_restate_js.py`)
 
 ### `canon/static/review.js`
@@ -401,8 +409,15 @@
   - `DELTA_LISTS`
   - `setDelta`
   - `setDelta` 는 설정에 없는 인물이 끼었거나 같은 인물끼리인 관계 사건 · 관계 바뀜을 기본으로 체크하지 않는다(서버 `validate_delta` 와 같은 규칙)
+  - `setDelta` 는 설정에 없는 인물이 주인인 비밀도 기본으로 체크하지 않는다
+  - 같은 변경안에서 심고 회수한 복선은 아는 복선으로 세어 기본으로 체크하고 심은 복선 설명으로 보인다(`fsKnown`)
+  - 그 심는 복선(`p`) 체크를 풀면 같은 화 회수(`x`)도 풀고 다시 고르면 되돌린다(`plantedCascade`)
+  - 새 인물(`n`) 체크를 풀면 그 인물을 다룬 `c` · `e` · `r` · `s` · `t` · `h` · `a` 항목도 풀고 몇 개 풀었는지 알린다(`newCharCascade` · `newCharDeps`)
+  - 새 인물을 다시 고르면 그 항목을 기본 체크로 되돌린다(다른 빠진 새 인물도 다룬 항목은 빼 둔다)
+  - 새 인물 체크를 바꿔도 관계 미리 보기를 다시 계산한다(`app.js` 의 `[ersn]` 키)
   - 체크를 푼 항목은 `pickedDelta` 가 `dismissed` 로 보낸다(설정 바꾸기 · 호칭 · 등장 인물 붙이기는 빼고)
   - 반영 기록에서 돌아온 변경안(반영 취소 · 단편 다시 쓰기)의 `dismissed` 는 `setDelta` 가 목록 끝에 다시 놓고(`reofferDismissed`) 기본 체크를 풀어 둔다(`d.reoffer`, 화면 전용)
+  - 체크를 푼 채 다시 놓인 새 인물 · 심는 복선을 가리키는 항목도 `defaultPicks` 가 기본으로 빼 둔다(`over` 로 지금 `n` · `p` 체크를 주면 그 값을 기준으로 맞춘다)
   - 반영이 끝난 화 기록(`historyView`) 아래 접힌 '빼 둔 항목 N개'(`dismissedView`)
   - 변경안 체크 `S.picks` 는 한 화 것이다(`S.picksEp`, 작품마다 따로 둔다)
   - 다른 화 변경안을 열면 `pickEp` 가 그 화에서 고친 체크(`S.picksKept`)를 되살린다

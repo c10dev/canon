@@ -273,3 +273,58 @@ def test_recheck_outcome_is_not_error():
     })()""" % CHK_SETUP, check_project())
     assert got[0] == ["아직 어긋나요. 처리 기록에 까닭을 남겼어요", False, ["처리 기록 보기"]]
     assert got[1] == ["고친 문장 때문에 새로 어긋난 곳 1개를 딸린 지적으로 더했어요", False, []]
+
+
+@needs_node
+def test_fix_recheck_button_matches_server():
+    """지난 검수 뒤 수정이 모두 고침안이면 '고친 곳만 다시 보기'가 주 버튼이고 다시 검수는 옆에 남는다.
+    직접 고친 곳이 있으면 다시 검수가 주 버튼이다. home.js fixRecheckTargets 는 서버 findings.fix_recheck_targets 와 같은 셈."""
+    from canon.schema import FindingEvent, Meta, Project
+    e = episode(1, status="written", text=TEXT)
+    findings.merge(e, [issue(Q1), issue(Q2, "동선"), issue(Q3, "말투")], "2026-10-28T10:00:00", "b")
+    e.findings[0].fix_group, e.findings[1].fix_group = "x1", "x2"
+    e.edits = [TextEdit(id="e1", at="2026-10-28T11:00:00", source="fix", group="x1", before=Q1, after="a"),
+               TextEdit(id="e2", at="2026-10-28T11:00:00", source="fix", group="x2", before=Q2, after="b")]
+    typed = e.model_copy(deep=True)
+    typed.edits.append(TextEdit(id="e3", at="2026-10-28T12:00:00", source="typed", before="c", after="d"))
+    seen = e.model_copy(deep=True)  # f1 은 묶음을 넣은 뒤 이미 다시 봤다
+    seen.findings[0].log.append(FindingEvent(at="2026-10-28T11:30:00", kind="recheck", text="아직 어긋남"))
+    cases = [e, typed, seen]
+    files = ["app.js", "home.js", "branches.js", "style.js", "plot.js", "write.js", "review.js", "chat.js", "passage.js", "rewrite.js",
+             "restate.js", "opening.js", "auto.js", "marks.js", "check.js", "flow.js"]
+    got = run_js(files, """(() => {
+      const ids = data.cases.map((x) => fixRecheckTargets(x).map((f) => f.id));
+      const views = data.cases.map((x) => {
+        S.project = Object.assign({}, data.p, { episodes: [x] }); S.name = 't'; S.route = ['p', 't', 'check', '1'];
+        return viewCheck(1);
+      });
+      return { ids, views };
+    })()""", {"cases": [dump(x) for x in cases], "p": dump(Project(meta=Meta(title="t", target_episodes=3), episodes=[e]))})
+    assert got["ids"] == [[f.id for f in findings.fix_recheck_targets(x)] for x in cases] == [["f1", "f2"], [], ["f2"]]
+    fast, slow, one = got["views"]
+    assert 'class="btn primary" data-action="fixRecheck" data-arg="1">고친 곳만 다시 보기 · 지적 2' in fast
+    assert 'class="btn" data-action="checkEp"' in fast and "고침안만 넣었어요" in fast  # 다시 검수는 주 버튼이 아닌 채 남는다
+    assert 'data-action="fixRecheck"' not in slow and 'class="btn primary" data-action="checkEp"' in slow
+    assert "고친 곳만 다시 보기 · 지적 1" in one
+
+
+@needs_node
+def test_fix_recheck_asks_before_saving_project():
+    """고친 곳만 다시 보기도 검수하기와 같이 저장하지 않은 작품 변경을 묻고, 거절하면 아무것도 저장 · 시작하지 않는다 (app.js checkReady)."""
+    got = run_js(CHK_FILES, """(async () => {
+      %s
+      const calls = [];
+      S.textDraft = { 1: '고친 본문' };
+      S.dirty = true;
+      askConfirm = async (msg, o) => { calls.push(['ask', o.ok]); return false; };
+      save = async () => { calls.push(['save']); S.dirty = false; };
+      api = async (m, path) => { calls.push([m, path]); return structuredClone(data); };
+      startJob = async (kind, n) => { calls.push(['job', kind, n]); };
+      await actions.fixRecheck('1');
+      const refused = calls.splice(0);
+      askConfirm = async (msg, o) => { calls.push(['ask', o.ok]); return true; };
+      await actions.fixRecheck('1');
+      return { refused, calls };
+    })()""" % CHK_SETUP, check_project())
+    assert got["refused"] == [["ask", "저장하고 시작하기"]]
+    assert got["calls"] == [["ask", "저장하고 시작하기"], ["save"], ["PUT", "/projects/t/episodes/1/text"], ["job", "recheck", 1]]

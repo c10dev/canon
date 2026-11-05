@@ -9,6 +9,7 @@ import io
 import json
 import os
 import tempfile
+from types import SimpleNamespace
 
 import pytest
 
@@ -391,6 +392,127 @@ def test_fix_targets_and_batch_apply(demo):
     assert done == ["f2"] and failed == [] and "서윤은 등대 뒤에 섰다." in ep.text
 
 
+def test_fixes_batch_one_call(demo):
+    """열린 지적 여러 개의 고침안을 한 번에 묻는다 (propose_fixes_batch): 검수 자료가 앞, id 를 단 지적 목록, 규칙 한 번, 요청은 맨 뒤.
+    답은 id 로 맞추고, 요청에 없는 id · 겹친 id 는 버리고, 답에서 빠진 지적은 결과에 없다."""
+    from canon import prompts
+    from canon.llm import PREFIX_HINT
+    from canon.mock import MockLLM
+    from canon.schema import FixBatch, FixItem, FixOption, FixSet
+    p = store.load(demo)
+    q1, q2 = "바람이 불었다.", "서윤은 등대 앞에 섰다."
+    pipeline.apply_check(p, ConsistencyReport(episode=1, issues=[issue(q1), issue(q2, "동선"), issue("본문에 없는 문장.", "말투")]))
+    calls = []
+
+    class Spy(MockLLM):
+        def json(self, system, prompt, schema, hint=None):
+            calls.append((prompt, schema, hint))
+            return super().json(system, prompt, schema, hint)
+
+    got = pipeline.propose_fixes_batch(Spy(), p, 1, ["f1", "f2", "f3"])
+    assert len(calls) == 1 and calls[0][1] is FixBatch
+    prompt, _, hint = calls[0]
+    material = prompts.check_material(p, 1)
+    assert prompt.startswith(material + "\n\n# 고칠 지적 (2개)\n## 지적 f1\n")  # 문장이 없는 f3 은 묻지 않는다
+    assert hint[PREFIX_HINT] == len(material)  # 캐시 경계: 검수 자료 끝
+    assert prompt.count(prompts.MINIMAL_FIX_RULES) == 1 and "## 지적 f2" in prompt and "갈래가 동선인 지적" in prompt
+    assert [o.label for o in got["f1"]] == ["짧게 고치기", "뒤 문장까지"] and len(got["f2"]) == 2
+    assert "찾을 수 없어요" in got["f3"]
+
+    class Partial:  # f2 만 답하고, 없는 id 와 겹친 id 를 섞는다. f1 은 본문이 맞다는 답
+        def json(self, system, prompt, schema, hint=None):
+            opt = FixOption(label="고침", text="서윤은 등대 뒤에 섰다.")
+            return FixBatch(items=[FixItem(finding="f9", options=[opt]), FixItem(finding="f2", options=[opt]),
+                                   FixItem(finding="f2", options=[]), FixItem(finding="f1", reply="본문이 맞아요.")])
+    got = pipeline.propose_fixes_batch(Partial(), p, 1, ["f1", "f2"])
+    assert set(got) == {"f1", "f2"} and [o.text for o in got["f2"]] == ["서윤은 등대 뒤에 섰다."]
+    assert "본문은 고치지 않았어요. 본문이 맞아요." in got["f1"]
+    assert pipeline.propose_fixes_batch(type("Empty", (), {"json": lambda *a, **k: FixBatch()})(), p, 1, ["f1"]) == {}
+    blank = type("Blank", (), {"json": lambda *a, **k: FixBatch(items=[FixItem(finding="f1"), FixItem(finding="f2", reply=" ")])})()
+    assert pipeline.propose_fixes_batch(blank, p, 1, ["f1", "f2"]) == {}  # 고침안도 답도 빈 항목은 답이 없는 것 (따로 묻는다)
+
+    calls.clear()  # 한 지적 고침안 · 다시 검수도 검수 자료 끝을 캐시 경계로 알린다
+    pipeline.propose_fixes(Spy(), p, 1, "f1")
+    pipeline.recheck_finding(Spy(), p, 1, "f1")
+    assert [(c[1], c[2][PREFIX_HINT]) for c in calls] == [(FixSet, len(material)), (pipeline.FindingRecheck, len(material))]
+    assert all(c[0].startswith(material + "\n\n# ") for c in calls)
+
+
+def test_web_fixes_job_batches_and_falls_back(demo, monkeypatch):
+    """작업 fixes 는 지적을 FIX_BATCH 개씩 한 번에 묻고, 답에서 빠진 지적만 지적 하나씩 다시 묻는다."""
+    import time
+
+    from canon import web
+    importlib.reload(web)
+    c = TestClient(web.app)
+    p = store.load(demo)
+    pipeline.apply_check(p, ConsistencyReport(episode=1, issues=[issue("바람이 불었다."), issue("서윤은 등대 앞에 섰다.", "동선"),
+                                                                 issue("\"됐어, 내가 할게.\"", "말투")]))
+    store.save(demo, p)
+    batches, singles = [], []
+    real_batch, real_one = pipeline.propose_fixes_batch, pipeline.propose_fixes
+
+    def batch(llm, q, n, ids):
+        batches.append(list(ids))
+        got = real_batch(llm, q, n, ids)
+        got.pop("f3", None)  # 답에서 빠진 지적
+        return got
+
+    def one(llm, q, n, fid):
+        singles.append(fid)
+        return real_one(llm, q, n, fid)
+    monkeypatch.setattr(pipeline, "propose_fixes_batch", batch)
+    monkeypatch.setattr(pipeline, "propose_fixes", one)
+    monkeypatch.setattr(pipeline, "FIX_BATCH", 2)
+    j = c.post(f"/api/projects/{demo}/jobs", json={"kind": "fixes", "ep": 1}).json()
+    assert j["total"] == 3
+    for _ in range(100):
+        j = next(x for x in c.get("/api/jobs").json() if x["id"] == j["id"])
+        if j["status"] != "running":
+            break
+        time.sleep(0.05)
+    assert (j["status"], j["done"], j["result"]) == ("done", 3, {"done": 3, "failed": []})
+    assert sorted(batches) == [["f1", "f2"], ["f3"]] and singles == ["f3"]
+    assert all(len(f.fixes) == 2 for f in store.load(demo).episode(1).findings)
+
+
+def test_web_fixes_job_batch_failure_falls_back(demo, monkeypatch):
+    """묶음 호출이 통째로 실패하면 (거절 · 시간 초과) 그 묶음의 지적을 하나씩 다시 묻는다. 지적 하나뿐인 묶음은 다시 묻지 않는다."""
+    import time
+
+    from canon import web
+    importlib.reload(web)
+    c = TestClient(web.app)
+    p = store.load(demo)
+    pipeline.apply_check(p, ConsistencyReport(episode=1, issues=[issue("바람이 불었다."), issue("서윤은 등대 앞에 섰다.", "동선"),
+                                                                 issue("\"됐어, 내가 할게.\"", "말투")]))
+    store.save(demo, p)
+    singles = []
+    real_one = pipeline.propose_fixes
+
+    def batch(llm, q, n, ids):
+        raise RuntimeError("AI가 이 요청을 거절했어요")
+
+    def one(llm, q, n, fid):
+        singles.append(fid)
+        if fid == "f2":
+            raise RuntimeError("f2 만 거절")
+        return real_one(llm, q, n, fid)
+    monkeypatch.setattr(pipeline, "propose_fixes_batch", batch)
+    monkeypatch.setattr(pipeline, "propose_fixes", one)
+    monkeypatch.setattr(pipeline, "FIX_BATCH", 2)
+    j = c.post(f"/api/projects/{demo}/jobs", json={"kind": "fixes", "ep": 1}).json()
+    for _ in range(100):
+        j = next(x for x in c.get("/api/jobs").json() if x["id"] == j["id"])
+        if j["status"] != "running":
+            break
+        time.sleep(0.05)
+    assert (j["status"], j["done"]) == ("done", 3)
+    assert sorted(singles) == ["f1", "f2"]  # f3 혼자인 묶음은 다시 묻지 않는다
+    assert sorted((x["id"], x["error"]) for x in j["result"]["failed"]) == [("f2", "f2 만 거절"), ("f3", "AI가 이 요청을 거절했어요")]
+    assert [len(f.fixes) for f in store.load(demo).episode(1).findings] == [2, 0, 0]
+
+
 def test_web_fixes_job_and_batch_apply(demo):
     import time
 
@@ -455,3 +577,179 @@ def test_stale_screen_save_keeps_check_job_results(demo):
     assert r.status_code == 200 and r.json()["episodes"][0]["summary"] == "PATCH 로 고친 요약"
     e = store.load(demo).episode(1)
     assert (e.model_dump(include=set(web.JOB_EP_FIELDS)), e.rounds[-1].no) == want
+
+
+OLD = "2000-01-01T00:00:00+00:00"  # 검수 시각을 앞으로 당겨, 같은 초에 넣은 고침안도 '검수 뒤 수정'으로 센다
+
+
+def test_fix_recheck_targets_and_pipeline(demo):
+    """고친 곳만 다시 보기: 지난 검수 뒤 수정이 모두 고침안이면 그 지적들만, 한 번의 호출로 다시 보고 settle 로 넣는다."""
+    from canon import prompts
+    from canon.mock import MockLLM
+    from canon.schema import FixRecheckItem, FixRecheckReport
+    p = store.load(demo)
+    ep = p.episode(1)
+    q1, q2 = "바람이 불었다.", "서윤은 등대 앞에 섰다."
+    pipeline.apply_check(p, ConsistencyReport(episode=1, issues=[issue(q1), issue(q2, "동선"), issue("본문에 없는 문장.", "말투")]))
+    ep.checked_at = OLD
+    assert findings.fix_recheck_targets(ep) == []  # 검수 뒤 고친 곳이 없다
+    for fid in ("f1", "f2"):
+        pipeline.store_fixes(p, 1, fid, pipeline.propose_fixes(MockLLM(), p, 1, fid))
+    pipeline.apply_fixes(p, 1, [("f1", 0, []), ("f2", 0, [])])
+    assert [f.id for f in findings.fix_recheck_targets(ep)] == ["f1", "f2"]
+
+    # 직접 고친 곳이 하나라도 있으면 다시 검수해야 한다
+    typed = pipeline.record_typed(p, 1, ep.text, ep.text + " 덧붙임.")
+    assert findings.fix_recheck_targets(ep) == []
+    typed.undone = True
+    assert len(findings.fix_recheck_targets(ep)) == 2
+
+    # 프롬프트: 검수 자료 전체가 아니라 작품 설정(검수와 같은 앞부분)과 고친 곳 둘레 문단만
+    calls = []
+
+    class Spy(MockLLM):
+        def json(self, system, prompt, schema, hint=None, **kw):
+            calls.append((prompt, schema))
+            return super().json(system, prompt, schema, hint=hint, **kw)
+    rep = pipeline.recheck_fixed(Spy(), p, 1)
+    assert len(calls) == 1 and calls[0][1] is FixRecheckReport
+    prompt = calls[0][0]
+    assert prompt.startswith(prompts.static_context(p)) and prompts.check_material(p, 1).startswith(prompts.static_context(p))
+    assert "## 지적 f1" in prompt and "## 지적 f2" in prompt and "## 지적 f3" not in prompt
+    assert f"「{q1}」 →" in prompt and "# 확정된 사실" not in prompt
+    assert len(prompt) < len(prompts.check_material(p, 1))
+    assert [(x.id, x.resolved) for x in rep.results] == [("f1", True), ("f2", True)]
+    assert pipeline.apply_fix_recheck(p, 1, rep) == []
+    f = {x.id: x for x in ep.findings}
+    assert [(f[i].status, f[i].closed_by) for i in ("f1", "f2", "f3")] == [("fixed", "one"), ("fixed", "one"), ("open", "")]
+    assert len(ep.rounds) == 1 and findings.fix_recheck_targets(ep) == []  # 회차는 늘지 않고, 본 묶음은 다시 부르지 않는다
+    with pytest.raises(ValueError, match="고친 곳만 다시 볼 지적이 없어요"):
+        pipeline.recheck_fixed(MockLLM(), p, 1)
+
+    # 작가가 다시 열어도 이미 다시 본 묶음은 다시 부르지 않는다. 기록을 지우면 다시 대상이 된다
+    findings.set_status(ep, "f1", "open", None, pipeline._now())
+    assert findings.fix_recheck_targets(ep) == []
+    f["f1"].log = []
+    assert [x.id for x in findings.fix_recheck_targets(ep)] == ["f1"]
+    fixed_text = f["f1"].fixes[0].text.strip()
+    assert fixed_text in ep.text
+
+    class Odd:  # 묻지 않은 id · 같은 id 의 두 번째 답은 버리고, 새로 어긋난 곳은 딸린 지적이 된다
+        def json(self, system, prompt, schema, hint=None, **kw):
+            return FixRecheckReport(results=[FixRecheckItem(id="f9", resolved=True, reason="x"),
+                                             FixRecheckItem(id="f1", resolved=False, reason="아직", new_issues=[issue(fixed_text)]),
+                                             FixRecheckItem(id="f1", resolved=True, reason="두 번째")])
+    rep = pipeline.recheck_fixed(Odd(), p, 1)
+    assert [(x.id, x.resolved) for x in rep.results] == [("f1", False)]
+    kids = pipeline.apply_fix_recheck(p, 1, rep)
+    assert [(k.parent, k.current_quote) for k in kids] == [("f1", fixed_text)]
+    assert (f["f1"].status, f["f1"].log[-1].kind) == ("open", "recheck")
+    assert findings.fix_recheck_targets(ep) == []  # 아직 어긋난다고 본 지적은 다시 검수로
+
+
+def test_fix_recheck_late_result_does_not_override(demo):
+    """늦게 온 고친 곳만 다시 보기 결과: 그사이 검수를 다시 했거나 되돌려 본문이 바뀌었으면 넣지 않는다.
+    그사이 작가가 닫은 지적은 건너뛰고, 실제로 넣은 결과만 settled 에 남는다."""
+    from canon.mock import MockLLM
+    from canon.schema import FixRecheckItem, FixRecheckReport
+    p = store.load(demo)
+    ep = p.episode(1)
+    pipeline.apply_check(p, ConsistencyReport(episode=1, issues=[issue("바람이 불었다."), issue("서윤은 등대 앞에 섰다.", "동선")]))
+    ep.checked_at = OLD
+    for fid in ("f1", "f2"):
+        pipeline.store_fixes(p, 1, fid, pipeline.propose_fixes(MockLLM(), p, 1, fid))
+    pipeline.apply_fixes(p, 1, [("f1", 0, []), ("f2", 0, [])])
+    basis = pipeline.fix_recheck_basis(ep)
+    assert set(basis[2]) == {"f1", "f2"}
+    rep = FixRecheckReport(results=[FixRecheckItem(id="f1", resolved=True, reason="풀림"),
+                                    FixRecheckItem(id="f2", resolved=False, reason="아직")])
+
+    # 그사이 검수를 다시 했다
+    q = p.model_copy(deep=True)
+    q.episode(1).checked_at = "2100-01-01T00:00:00+00:00"
+    with pytest.raises(ValueError, match="바뀌어서 결과를 넣지 않았어요"):
+        pipeline.apply_fix_recheck(q, 1, rep, basis)
+    assert [f.status for f in q.episode(1).findings] == ["open", "open"]
+
+    # 그사이 f1 의 고침안을 되돌렸다 (본문이 지적한 문장으로 돌아왔다)
+    q = p.model_copy(deep=True)
+    pipeline.undo_fix(q, 1, q.episode(1).findings[0].fix_group)
+    with pytest.raises(ValueError, match="바뀌어서 결과를 넣지 않았어요"):
+        pipeline.apply_fix_recheck(q, 1, rep, basis)
+    assert q.episode(1).findings[0].status == "open"
+
+    # 그사이 작가가 f2 를 손으로 고침으로 닫았다: f2 는 건너뛰고 세지 않는다
+    findings.set_status(ep, "f2", "fixed", None, pipeline._now())
+    settled: list = []
+    assert pipeline.apply_fix_recheck(p, 1, rep, basis, settled) == []
+    assert [x.id for x in settled] == ["f1"]
+    assert [(f.status, f.closed_by) for f in ep.findings] == [("fixed", "one"), ("fixed", "author")]
+
+
+def test_fix_spots_picks_match_nearest_recorded_start():
+    """고친 글이 본문에 여러 번 나오면 기록한 자리에 가장 가까운 곳을 고친 곳으로 본다."""
+    from canon.schema import TextEdit
+    s = "그는 고개를 끄덕였다."
+    text = f"{s}\n\n가운데 문단.\n\n{s}"
+    ep = SimpleNamespace(text=text)
+    late = text.rindex(s)
+    assert pipeline._fix_spots(ep, [TextEdit(id="e", before="x", after=s, start=late)]) == [(late, late + len(s))]
+    assert pipeline._fix_spots(ep, [TextEdit(id="e", before="x", after=s, start=0)]) == [(0, len(s))]
+    assert pipeline._fix_spots(ep, [TextEdit(id="e", before="x", after="", start=999)]) == [(len(text), len(text))]
+
+
+def test_fix_around_merges_neighbour_paragraphs():
+    from canon import prompts
+    text = "가.\n\n나.\n다.\n라.\n마.\n바."
+    at = text.index("다.")
+    assert prompts.fix_around(text, [(at, at + 2)]) == ["나.\n다.\n라."]
+    at2 = text.index("마.")
+    assert prompts.fix_around(text, [(at, at + 2), (at2, at2 + 2)]) == ["나.\n다.\n라.\n마.\n바."]  # 이웃한 둘레는 합친다
+    assert prompts.fix_around(text, [(0, 1)], k=0) == ["가."]
+    assert prompts.fix_around("", [(0, 0)]) == []
+
+
+def test_web_recheck_job(demo):
+    """웹 작업 recheck: 고침안만 넣었으면 한 번에 다시 보고, 고친 곳이 없거나 직접 고쳤으면 400 으로 알린다."""
+    import time
+
+    from canon import jobs, web
+    from canon.mock import MockLLM
+    importlib.reload(web)
+    assert "recheck" in jobs.EP_AI_KINDS
+    c = TestClient(web.app)
+    p = store.load(demo)
+    pipeline.apply_check(p, ConsistencyReport(episode=1, issues=[issue("바람이 불었다."), issue("서윤은 등대 앞에 섰다.", "동선")]))
+    p.episode(1).checked_at = OLD
+    store.save(demo, p)
+    r = c.post(f"/api/projects/{demo}/jobs", json={"kind": "recheck", "ep": 1})
+    assert r.status_code == 400 and "고친 곳만 다시 볼 지적이 없어요" in r.text
+    p = store.load(demo)
+    pipeline.store_fixes(p, 1, "f1", pipeline.propose_fixes(MockLLM(), p, 1, "f1"))
+    pipeline.apply_fix(p, 1, "f1", 0)
+    store.save(demo, p)
+    j = c.post(f"/api/projects/{demo}/jobs", json={"kind": "recheck", "ep": 1}).json()
+    assert "고친 곳만 다시 보기 · 지적 1개" in j["label"]
+    for _ in range(100):
+        j = next(x for x in c.get("/api/jobs").json() if x["id"] == j["id"])
+        if j["status"] != "running":
+            break
+        time.sleep(0.05)
+    assert (j["status"], j["result"]) == ("done", {"asked": 1, "resolved": 1, "open": 0, "added": 0, "missing": []})
+    e = store.load(demo).episode(1)
+    assert [(f.status, f.closed_by) for f in e.findings] == [("fixed", "one"), ("open", "")] and len(e.rounds) == 1
+
+
+def test_cli_recheck_fixed(demo):
+    from canon.mock import MockLLM
+    p = store.load(demo)
+    pipeline.apply_check(p, ConsistencyReport(episode=1, issues=[issue("바람이 불었다.")]))
+    p.episode(1).checked_at = OLD
+    pipeline.store_fixes(p, 1, "f1", pipeline.propose_fixes(MockLLM(), p, 1, "f1"))
+    pipeline.apply_fix(p, 1, "f1", 0)
+    store.save(demo, p)
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        main(["check", demo, "1", "--recheck-fixed"])
+    assert "f1: 풀렸어요. 고침으로 닫았어요" in out.getvalue()
+    assert store.load(demo).episode(1).findings[0].closed_by == "one"
