@@ -1824,6 +1824,7 @@ document.addEventListener('click', async (e) => {
 });
 
 const navScroll = { idx: 0, max: 0, at: new Map(), restore: null };
+let navAsk = 0;  // 저장하지 않은 변경을 묻는 이동마다 1씩. '저장하고 이동'이 저장하는 사이 다른 이동이 왔는지 본다
 try { history.replaceState({ idx: 0 }, '', location.hash || '#/'); } catch { /* 기록을 못 고치면 위치 되살리기만 빠진다 */ }
 
 window.addEventListener('hashchange', async () => {
@@ -1840,6 +1841,7 @@ window.addEventListener('hashchange', async () => {
     // 주소는 이미 바뀌었다. 묻는 동안 이전 주소로 되돌려 두고, 이동을 고르면 그 주소로 다시 바꿔 이어 간다
     const to = location.hash;
     const st = history.state;
+    const ask = ++navAsk;
     history.replaceState({ idx: navScroll.idx }, '', lastHash);
     // 작품 변경만 있으면 '저장하고 이동'을 주 버튼으로 준다. 라이브러리 · 장면 연출은 저장하는 곳이 달라 버리고 갈지만 묻는다
     const canSave = S.dirty && !S.libDirty && !S.stgDirty && !S.conflict;
@@ -1847,12 +1849,11 @@ window.addEventListener('hashchange', async () => {
       { title: '저장하지 않은 변경이 있어요', ok: canSave ? '저장하지 않고 이동' : '이동하기', danger: true, alt: canSave ? '저장하고 이동' : '' });
     if (!go || location.hash !== lastHash) return;  // 묻는 사이 다른 이동이 왔으면 그 이동이 다시 묻는다
     if (go === 'alt') {
-      try {
-        if (await save() === false) return;  // 서버가 일부를 지켰다. 토스트를 읽게 이 화면에 남는다
-      } catch (err) {
-        return showError(err);
-      }
-      if (location.hash !== lastHash) return;
+      // run() 으로 감싸 저장하는 동안 화면 입력을 막는다 (저장 뒤 받은 작품이 그사이 친 글을 덮지 않게). 실패는 run 이 알린다
+      let kept = false;
+      const ok = await run('저장하는 중', async () => { kept = await save() === false; }, { render: 'never' });
+      if (!ok || kept) { render(); return; }  // 실패했거나 서버가 일부를 지켰다: 받은 작품으로 다시 그리고 이 화면에 남는다
+      if (ask !== navAsk || location.hash !== lastHash) return;  // 저장하는 사이 다른 이동이 왔다. 그 이동이 다시 물었다
     }
     history.replaceState(st, '', to);
   }

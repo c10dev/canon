@@ -397,7 +397,7 @@ function chatPanel(topic) {
   const list = chatLog(topic);
   const empty = msgs.length || S.chatPending ? '' : `<div class="note info">${esc(t.intro)}</div>
     ${t.examples.length ? `<div class="row">${t.examples.map((x) => `<button type="button" class="btn small" data-action="chatExample" data-arg="${esc(x)}">${esc(x)}</button>`).join('')}</div>` : ''}`;
-  const pending = S.chatPending ? `<div class="msg user">${esc(S.chatPending)}</div><div class="msg ai pending" role="status"><span class="spinner small" aria-hidden="true"></span>${chatWaitText()}</div>` : '';
+  const pending = S.chatPending ? `<div class="msg user">${esc(S.chatPending)}</div><div class="msg ai pending"><span class="spinner small" aria-hidden="true"></span>${chatWaitText()}</div>` : '';
   return `<aside class="chat-panel" aria-label="${esc(t.title)}">
     <div class="chat-head"><h2>${esc(t.title)}</h2><div class="row" style="gap:4px">
       ${msgs.length ? '<button type="button" class="btn small" data-action="chatClear">기록 지우기</button>' : ''}
@@ -419,7 +419,8 @@ let chatWait = null;  // { at, abort, timer }
 const CHAT_STOP_AFTER = 5;
 function chatWaitText() {
   const sec = chatWait ? Math.floor((Date.now() - chatWait.at) / 1000) : 0;
-  return `<span class="chat-wait">생각하는 중… ${sec ? `${sec}초` : ''}</span>${sec >= CHAT_STOP_AFTER ? ' <button type="button" class="btn small" data-action="chatStop">기다리지 않기</button>' : ''}`;
+  // 화면 낭독기에는 '생각하는 중…'만 한 번 알린다. 초는 1초마다 바뀌므로 알림 칸(role=status) 밖에 둔다
+  return `<span role="status">생각하는 중…</span> <span class="chat-sec" aria-hidden="true">${sec ? `${sec}초` : ''}</span>${sec >= CHAT_STOP_AFTER ? ' <button type="button" class="btn small" data-action="chatStop">기다리지 않기</button>' : ''}`;
 }
 function chatWaitTick() {
   const el = document.querySelector('.chat-panel .msg.pending');
@@ -427,7 +428,7 @@ function chatWaitTick() {
   const had = !!el.querySelector('[data-action="chatStop"]');
   const sec = Math.floor((Date.now() - chatWait.at) / 1000);
   if (!had && sec >= CHAT_STOP_AFTER) el.innerHTML = `<span class="spinner small" aria-hidden="true"></span>${chatWaitText()}`;  // 버튼은 한 번만 넣는다 (누르는 중에 바뀌지 않게)
-  else { const t = el.querySelector('.chat-wait'); if (t) t.textContent = `생각하는 중… ${sec}초`; }
+  else { const t = el.querySelector('.chat-sec'); if (t) t.textContent = `${sec}초`; }
 }
 
 function redrawChat() {
@@ -485,6 +486,11 @@ Object.assign(actions, {
     try {
       await saveIfDirty();
       if (t.beforeSend) await t.beforeSend();
+      if (abort && abort.signal.aborted) {  // 저장 · 준비 중에 기다리지 않기를 눌렀다: 아직 보내지 않았다
+        toast('보내지 않았어요. 쓴 글은 입력칸에 남겨 뒀어요');
+        if (!preset) S.chatDraft = text;
+        return;
+      }
       const body = t.body ? t.body(text, preset) : { message: text };
       const name = S.name;
       const res = await api('POST', `/projects/${enc(name)}/chat/${enc(topic)}`, body, abort ? { signal: abort.signal } : undefined);

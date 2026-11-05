@@ -165,6 +165,7 @@ class RateLimited(RuntimeError):
 
 
 KEY_HINT = "AI 서비스가 API 키를 받지 않았어요. 키가 틀렸거나 만료됐거나 권한이 없어요. 설정의 AI 연결에서 키를 확인하세요."
+VERTEX_HINT = "Vertex AI가 요청 권한을 받지 않았어요. 서비스 계정 권한과 Vertex AI API 사용 설정을 확인하세요. 연결 방식은 설정의 AI 연결에서 바꿀 수 있어요."
 
 
 def is_bad_key(e: BaseException) -> bool:
@@ -362,7 +363,7 @@ class GeminiLLM:
                         pause = None
                         cancel.say("AI 응답이 늦어 다시 불러요")
                     elif is_bad_key(e):
-                        raise BadKey(KEY_HINT) from e  # 다시 불러도 같다
+                        raise BadKey(VERTEX_HINT if getattr(self, "vertex", False) else KEY_HINT) from e  # 다시 불러도 같다
                     elif is_rate_limit(e):
                         pause = next(rate, None)
                         if pause is None:

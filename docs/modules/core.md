@@ -188,7 +188,7 @@
 ### `canon/jobs.py`
 
 - 웹의 오래 걸리는 AI 작업을 스레드로 돌리는 메모리 작업 목록
-- `Job.retry`: AI 호출이 기다리거나 다시 부르는 중인 사정(`cancel.say`). `public()` 에 싣는다
+- `Job.retry`: AI 호출이 기다리거나 다시 부르는 중인 사정(`cancel.say` → `Job.say`). 스레드마다 `retries` 에 두고 남은 하나를 보인다. `public()` 에 싣는다
 - 중복 실행 막기
 - 진행률
 - 작업이 맡은 화를 저장 덮어쓰기에서 지키기(`owned_episodes`)

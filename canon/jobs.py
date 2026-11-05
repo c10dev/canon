@@ -34,6 +34,7 @@ class Job:
     done: int = 0
     note: str = ""
     retry: str = ""  # AI 호출이 기다리거나 다시 부르는 중이면 그 사정 (cancel.say). 다음 호출이 되면 비운다
+    retries: dict = field(default_factory=dict)  # 스레드마다의 사정. 함께 부르는 호출(검수 뽑기)이 서로 지우지 않게
     status: str = "running"  # running | done | error | cancelled
     result: Any = None
     error: str = ""
@@ -46,6 +47,15 @@ class Job:
     stop: threading.Event = field(default_factory=threading.Event)  # 멈추기 신호 (cancel.current)
     step_ep: int | None = None  # 단계 하나가 마지막으로 끝낸 화. 자동 집필이 화를 반영할 때마다 고친다 (화면이 화마다 알린다)
     alive: bool = True  # 스레드가 아직 돈다. 멈춘 작업도 이미 보낸 AI 호출의 응답을 기다리는 동안은 참 (waiting)
+
+    def say(self, text: str) -> None:
+        """이 스레드의 AI 호출 사정을 고친다(빈 글이면 지운다). 화면에는 남은 사정 하나를 보인다 (cancel.notice)."""
+        key = threading.get_ident()
+        if text:
+            self.retries[key] = text
+        else:
+            self.retries.pop(key, None)
+        self.retry = next(iter(self.retries.values()), "")
 
     def public(self) -> dict:
         return {
@@ -111,7 +121,7 @@ def start(project: str, kind: str, ep: int | None, label: str, fn: Callable[[Job
     def run() -> None:
         store.writer.set("")  # 작업의 저장은 시작한 화면의 저장이 아니다 (다른 화면에 충돌로 보이지 않게)
         cancel.current.set(job.stop)
-        cancel.notice.set(lambda text: setattr(job, "retry", text))
+        cancel.notice.set(job.say)
         try:
             out = fn(job)
             if job.status == "running":

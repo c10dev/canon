@@ -217,6 +217,13 @@ def test_bad_key_is_korean_and_not_retried(pauses):
             llm.text("s", "p")
         assert str(got.value) == KEY_HINT and "API 키" in KEY_HINT
         assert pauses == [] and llm.client.models.replies == ["본문"]
+    from canon.llm import VERTEX_HINT
+
+    llm = fake_gemini([denied])
+    llm.vertex = True  # Vertex 는 키가 아니라 서비스 계정 권한을 말한다
+    with pytest.raises(BadKey) as got:
+        llm.text("s", "p")
+    assert str(got.value) == VERTEX_HINT
 
 
 def test_bad_key_web_answer():
@@ -235,8 +242,16 @@ def test_job_public_has_retry():
     from canon import jobs
 
     job = jobs.Job(id="x", project="p", kind="write", ep=1, label="1화 집필")
-    job.retry = "AI 응답이 늦어 다시 불러요"
+    job.say("AI 응답이 늦어 다시 불러요")
     assert job.public()["retry"] == "AI 응답이 늦어 다시 불러요"
+    # 다른 스레드(함께 부르는 검수 뽑기)가 비워도 이 스레드의 사정은 남는다
+    import threading as _t
+    w = _t.Thread(target=lambda: (job.say("AI 요청 한도에 걸려 30초 기다려요 (1/3)"), job.say("")))
+    w.start()
+    w.join()
+    assert job.retry == "AI 응답이 늦어 다시 불러요"
+    job.say("")
+    assert job.retry == "" and job.retries == {}
 
 
 def test_rate_limit_gives_up_with_clear_message(pauses):
