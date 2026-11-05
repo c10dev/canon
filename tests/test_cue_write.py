@@ -208,7 +208,7 @@ def test_autorun_empty_remake_writes_without_stale_sheet(demo, monkeypatch):
     cue.set_episode(p, 1, _sheet("옛 AI 대사."), by="ai")
     p.episode(1).cue_sheet.basis = "old"
     store.save(demo, p)
-    monkeypatch.setattr(pipeline, "make_cue_sheet", lambda llm, p, n: _sheet().model_copy(update={"cues": []}))
+    monkeypatch.setattr(pipeline, "make_cue_sheet", lambda llm, p, n, **kw: _sheet().model_copy(update={"cues": []}))
     run = autorun.start(demo, 1, False, autorun.Policy(hand_pick_opening=False, check=False), foreground=True)
     assert run.status == "done", run.reasons
     e = store.load(demo).episode(1)

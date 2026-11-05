@@ -27,7 +27,9 @@ function atlasTable() {
       const m = S.atlasTvMarks && f.episode && tv[`${c.id}:${f.episode}`];
       const cls = [i === S.atlasFrame ? 'cur' : '', same ? 'same' : text ? 'moved' : '', pl ? '' : 'raw', m ? `tv ${m.level}` : ''].filter(Boolean).join(' ');
       const flag = m ? `<button type="button" class="at-tv-chip ${m.level}" data-action="atlasTravelShow" data-arg="${esc(c.id)}:${f.episode}" title="${esc(m.text)}">${m.level === 'fast' ? '너무 빨라요' : '빠듯해요'}</button>` : '';
-      return `<td class="${cls}" title="${esc(r && r.location ? r.location : '')}">${esc(shown.length > 10 ? shown.slice(0, 10) + '…' : shown)}${flag}</td>`;
+      // 마우스가 없으면(hover: none) 자르지 않는다: 전체 글은 title 에만 있어 손가락 기기에서는 읽을 길이 없다
+      const cut = shown.length > 10 && !(typeof matchMedia === 'function' && matchMedia('(hover: none)').matches);
+      return `<td class="${cls}" title="${esc(r && r.location ? r.location : '')}">${esc(cut ? shown.slice(0, 10) + '…' : shown)}${flag}</td>`;
     }).join('');
     return `<tr><th scope="row">${atlasSwatch(c.id)}${esc(c.name || c.id)}</th>${cells}</tr>`;
   }).join('');

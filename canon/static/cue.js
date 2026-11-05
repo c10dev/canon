@@ -149,7 +149,7 @@ const cueName = (id) => (((P() && P().characters) || []).find((c) => c.id === id
 const cueId = (s) => (((P() && P().characters) || []).find((c) => c.id === s || c.name === s) || {}).id || s;
 
 function viewCue() {
-  const head = header('본편과 분리', '큐 시트 집필 실험',
+  const head = header('실험 · 본편과 분리', '큐 시트 집필 실험',
     '한 화를 악보처럼 큐로 나눠 진행(안정 · 쌓기 · 긴장), 긴장도, 템포, 편성, 핵심 대사를 먼저 정하고, 같은 화를 세 방식으로 써서 견줘요. 작품 데이터는 바꾸지 않아요.');
   const d = S.cue;
   if (!d) return `${head}<div class="note plain">불러오는 중…</div>`;
