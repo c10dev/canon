@@ -109,6 +109,13 @@ function atlasStop() {
   atlasTimer = null;
 }
 window.addEventListener('hashchange', atlasStop);
+// 살펴보기 칸(건물 · 장소 입력)에 글을 쓰기 시작하면 재생을 멈춘다. 재생은 1초마다 그 칸을 다시 그려 쓰던 글이 지워진다
+document.addEventListener('focusin', (e) => {
+  const t = e.target;
+  if (!atlasTimer || !t || !t.closest || !t.closest('#atlas-side') || !t.matches('input, textarea, select')) return;
+  atlasStop();
+  atlasFootPaint();  // 재생 버튼을 '재생'으로 돌린다
+});
 
 /** 지도 만들기 미리보기 중이면 그 결과 ({ layout, pins, missing, blocked, info }) */
 const atlasGenPreview = () => (S.atlasGen && S.atlasGen.name === S.name && S.atlasGen.preview) || null;
@@ -1601,13 +1608,22 @@ function atlasPaint(id, html) {
   if (!el) return;
   const a = document.activeElement;
   let keep = '';
+  let typed = null;  // 포커스가 있던 글 칸의 값과 커서. 다시 그린 칸에 되살린다
   if (a && el.contains(a) && a !== el) {
     if (a.dataset && a.dataset.action) keep = `[data-action="${a.dataset.action}"]${a.dataset.arg != null ? `[data-arg="${CSS.escape(a.dataset.arg)}"]` : ''}`;
     else if (a.id) keep = `#${CSS.escape(a.id)}`;
+    if (a.id && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && a.type !== 'checkbox' && a.type !== 'radio') {
+      typed = { value: a.value, start: a.selectionStart, end: a.selectionEnd };
+    }
   }
   el.innerHTML = html;
   const again = keep && el.querySelector(keep);
-  if (again) again.focus();
+  if (!again) return;
+  if (typed && again.value !== typed.value) {
+    again.value = typed.value;
+    try { if (typed.start != null) again.setSelectionRange(typed.start, typed.end); } catch { /* select 칸은 커서가 없다 */ }
+  }
+  again.focus();
 }
 
 /** 아래 줄: 끄는 중인 막대는 지우지 않고 나머지만 고친다 */

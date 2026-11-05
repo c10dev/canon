@@ -89,7 +89,7 @@ Object.assign(actions, {
     }
     render();
   },
-  useIdea(arg) {
+  async useIdea(arg) {
     const i = arg.lastIndexOf('|');
     const path = arg.slice(0, i);
     const r = (S.ideas || {})[path] || {};
@@ -102,9 +102,13 @@ Object.assign(actions, {
       render();
       return;
     }
+    const list = IDEA_LISTS.has(ideaKey(path));
+    const now = list ? '' : String(getPath(P(), path) ?? '').trim();
+    // 작가가 쓴 글은 묻고 바꾼다 (setup.js fillSlot 과 같다). 비었거나 이 후보와 같으면 바로 넣는다. 목록 칸은 한 줄 더하기라 묻지 않는다
+    if (now && now !== o.text.trim() && !(await askConfirm(`칸에 쓴 글을 이 후보로 바꿀까요?\n지금: ${now}\n후보: ${o.text}`, { ok: '바꾸기' }))) return;
     const slot = path.startsWith('meta.logline_parts.');
     const prev = slot ? composeLogline(P().meta.logline_parts) : '';
-    if (IDEA_LISTS.has(ideaKey(path))) {  // 목록 칸은 한 줄 더하기 (이미 있으면 그대로)
+    if (list) {  // 목록 칸은 한 줄 더하기 (이미 있으면 그대로)
       const cur = (getPath(P(), path) || []).filter((x) => String(x).trim());
       setPath(P(), path, cur.includes(o.text) ? cur : [...cur, o.text]);
     } else setPath(P(), path, o.text);

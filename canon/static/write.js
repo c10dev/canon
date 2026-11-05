@@ -58,6 +58,20 @@ function nextStepBtn() {
 S.plotOpen = {};     // '작품:화' → 이 화에서 고른 펼침
 S.plotMore = false;  // 펼친 띠의 '더 보기'
 const plotPref = () => { try { return localStorage.getItem('canon.plotOpen') === '1'; } catch { return false; } };
+/** 본문 저장이 막혔다(409 stale_text): 다른 탭 · 기기가 이 고침을 시작한 뒤 그 화 본문을 먼저 저장했다.
+    작품 저장 충돌(저장 띠)처럼 다시 불러오기와 덮어쓰기 중에 고른다. 다시 불러와도 칸에 쓴 글은 버리지 않는다 */
+async function textConflict(n) {
+  const pick = await askConfirm(`다른 탭이나 기기에서 ${n}화 본문을 먼저 저장했어요.\n다시 불러오면 서버 본문을 받아 오고, 칸에 쓴 글은 그대로 두어요. 덮어쓰면 서버 본문 대신 내 글이 들어가요. 바뀐 부분은 수정 기록에 남아 되돌릴 수 있어요.`,
+    { title: '본문을 저장하지 못했어요', ok: '내 글로 덮어쓰기', danger: true, alt: '다시 불러오기' });
+  if (pick === 'alt') {
+    await run('불러오는 중', async () => {
+      S.project = await api('GET', `/projects/${enc(S.name)}`);
+      markTextBase(n);  // 이제 칸의 글은 방금 받은 본문을 보고 고친 것이다
+      toast(`${n}화 서버 본문을 불러왔어요. 칸의 글은 그대로 두었어요. '고친 것 버리기'를 누르면 불러온 본문이 보여요`);
+    });
+  } else if (pick === true) await actions.saveText(n, true);
+}
+
 const hasBody = (n) => !!(ep(n).text || (editableEp(ep(n)) && S.textDraft[n] !== undefined));
 function plotOpenOf(n) {
   const k = `${S.name}:${n}`;
@@ -574,15 +588,26 @@ Object.assign(actions, {
     if (ep(n).text && !(await askConfirm(`${n}화 본문을 새로 생성할까요? 지금 본문은 이전 판으로 남아 다시 고를 수 있어요.`, { ok: '새로 생성하기' }))) return;
     await startJob('write', n, cueWriteArg(n));
   },
-  async saveText(n) {
+  async saveText(n, force = false) {
+    let stale = null;
     await run('본문 저장하는 중', async () => {
       await saveIfDirty();
-      S.project = await api('PUT', `/projects/${enc(S.name)}/episodes/${n}/text`, { text: S.textDraft[n] ?? ep(n).text });
+      const body = textBody(n, S.textDraft[n] ?? ep(n).text);
+      try {
+        S.project = await api('PUT', `/projects/${enc(S.name)}/episodes/${n}/text${force === true ? '?force=true' : ''}`, body);
+      } catch (e) {
+        if (e.code !== 'stale_text') throw e;
+        stale = e;  // 다른 탭 · 기기가 먼저 저장했다. 대화상자는 run 밖에서 묻는다
+        return;
+      }
       delete S.textDraft[n];  // 만들어 둔 상태 변경안은 남기고, 본문이 바뀌었다고 알린다 (passageNotes)
+      delete TEXT_BASE[`${S.name}:${n}`];
       toast('본문을 저장했어요');
     });
+    if (stale) await textConflict(n);
   },
   startManual(n) {
+    markTextBase(n, '');
     S.textDraft[n] = '';
     render();
   },

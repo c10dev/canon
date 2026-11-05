@@ -64,7 +64,7 @@ function anchorChooser(v) {
   const chips = v.usable.map((n) => `<label class="chip-check"><input type="checkbox" data-anchor-ep="${n}"${pick.has(n) ? ' checked' : ''}><span>${n}화</span></label>`).join('');
   const c = S.anchorCands;
   const cands = c ? `<div class="anchor-cands"><p class="small">고른 화 ${c.chars.toLocaleString()}자${c.later != null ? ` · 그 뒤 화들이 이 기준에서 평균 ${anchorNum(c.later)} 떨어져 있어요${c.later > v.band[1] ? '. 고른 화가 뒤 화와 꽤 달라요. 다른 화를 고르는 것도 생각해 보세요' : ''}` : ''}. 대표 문단은 ${'4'}개까지 골라요. 고르면 쓰기 프롬프트의 문체 예시가 레퍼런스 대신 이 문단이 돼요.</p>
-      ${c.passages.map((t, i) => `<label class="anchor-cand"><input type="checkbox" data-anchor-pass="${i}"${S.anchorPass[i] ? ' checked' : ''}><span>${esc(t)}</span></label>`).join('') || '<p class="small">후보로 쓸 만한 문단 묶음이 없어요. 대표 문단 없이 저장하면 문체 예시는 레퍼런스 것을 그대로 써요.</p>'}</div>` : '';
+      ${c.passages.map((t, i) => `<label class="anchor-cand"><input type="checkbox" data-anchor-pass="${i}"${S.anchorPass[i] ? ' checked' : ''}><span>${anchorNow().includes(t) ? '<span class="chip">지금 문단</span> ' : ''}${esc(t)}</span></label>`).join('') || '<p class="small">후보로 쓸 만한 문단 묶음이 없어요. 대표 문단 없이 저장하면 문체 예시는 레퍼런스 것을 그대로 써요.</p>'}</div>` : '';
   return `<div class="anchor-pick">
       <p class="small">상태 반영이 끝난 화 가운데 이 작품의 목소리가 잘 굳은 화를 골라요. 서술 말투가 있는 시점 인물의 화는 고를 수 없어요. 합쳐 ${v.min_chars.toLocaleString()}자 넘게 골라야 문체 거리를 재요.</p>
       <div class="anchor-eps">${chips || '<span class="small">고를 수 있는 화가 아직 없어요</span>'}</div>
@@ -116,9 +116,13 @@ document.addEventListener('change', (e) => {
   }
 });
 
+/** 지금 저장된 대표 문단 (손으로 고른 것) */
+const anchorNow = () => ((S.anchorView && S.anchorView.anchor && S.anchorView.anchor.passages) || []);
+
+/** 저장할 몸. 후보를 열지 않았으면 지금 대표 문단을 그대로 둔다 (다시 고르기에서 화만 바꿔도 손으로 고른 문단이 빠지지 않게) */
 const anchorBody = () => ({
   episodes: S.anchorPick || [],
-  passages: S.anchorCands ? S.anchorCands.passages.filter((_, i) => S.anchorPass[i]) : [],
+  passages: S.anchorCands ? S.anchorCands.passages.filter((_, i) => S.anchorPass[i]) : anchorNow(),
 });
 
 Object.assign(actions, {
@@ -136,14 +140,21 @@ Object.assign(actions, {
   },
   async anchorCands() {
     await run('대표 문단 후보를 찾는 중', async () => {
-      S.anchorCands = await api('POST', `/projects/${enc(S.name)}/style/anchor/candidates`, { episodes: S.anchorPick, passages: [] });
-      S.anchorPass = {};
+      const c = await api('POST', `/projects/${enc(S.name)}/style/anchor/candidates`, { episodes: S.anchorPick, passages: [] });
+      // 지금 대표 문단을 맨 앞에 체크해 두고, 새 후보는 그 뒤에 둔다. 체크를 풀어야 빠진다
+      const now = anchorNow();
+      c.passages = [...now, ...c.passages.filter((t) => !now.includes(t))];
+      S.anchorCands = c;
+      S.anchorPass = Object.fromEntries(now.map((_, i) => [i, true]));
     });
   },
   async anchorSave() {
+    const body = anchorBody();
+    const lost = anchorNow().filter((t) => !body.passages.includes(t)).length;
+    if (lost && !(await askConfirm(`지금 대표 문단 ${anchorNow().length}개 중 ${lost}개가 빠져요. 이대로 저장할까요?`, { ok: '빼고 저장하기', danger: true }))) return;
     await run('정착 문체를 재는 중', async () => {
       await saveIfDirty();
-      S.project = await api('PUT', `/projects/${enc(S.name)}/style/anchor`, anchorBody());
+      S.project = await api('PUT', `/projects/${enc(S.name)}/style/anchor`, body);
       S.anchorPick = null;
       S.anchorCands = null;
       await anchorLoad();

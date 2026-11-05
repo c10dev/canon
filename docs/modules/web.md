@@ -50,6 +50,7 @@
 - 상태 `S`
 - 서버 호출 `api`
 - 작품 저장 `save` 는 받은 판(`projectBase` 의 `keys` · `eps`)과 달라진 칸 · 화만 `PATCH` 로 보낸다(`patchBody`)
+- 본문 고침을 시작한 저장 본문은 `TEXT_BASE`('작품:화')에 적는다(`markTextBase` · `textBase`). 본문 저장 요청 몸은 `textBody`(서버 `Text.base`)
 - 작품 전체 GET 은 받은 판을 `projectCache` 에 두고 304 면 그 복사본을 쓴다
 - `isProjectJson`(`meta` 와 `episodes` 배열)인 답만 작품으로 받고 보관한다. 보관한 판으로 물었는데 아니면 보관한 것을 버리고 조건 없이 다시 받는다(`tests/test_project_cache_js.py`)
 - 작품 GET 이 돌려준 작품 객체는 화를 뺀 나머지의 판(`X-Project-Rest`)을 `restOf` 에 둔다
@@ -235,6 +236,7 @@
 - 고르기(`useIdea`, 로그라인 칸이면 합친 문장도) · 다시 받기 · 닫기
 - 마법사 · 기획서 칸에는 `input()` 의 `aside` · `beside` · `after` 로 붙인다
 - 고르기 전에는 칸을 바꾸지 않는다
+- 작가가 쓴 칸을 다른 후보로 바꿀 때는 묻는다(목록 칸은 한 줄 더하기라 묻지 않음)
 - 칸 목록 `IDEA_FIELDS` 는 `prompts.FIELD_IDEAS` 와 같다(`tests/test_ideas_js.py`)
 - 목록 칸 `IDEA_LISTS`(숨기는 것)는 고른 후보를 목록에 한 줄 더한다(`prompts.IDEA_LISTS` 와 같다)
 - 인물 칸(성격 · 배경 · 외모 · 아크)은 경로 번호를 `*` 로 찾는다(`ideaKey`, 이름 붙은 칸 이름 `ideaLabel`)
@@ -385,6 +387,7 @@
 - 컨텍스트 크기의 화별 표는 기록에 남지 않아 방금 잰 결과(`S.rs.cur`)에만 있다
 - 칸 폭 560px 이하(`@container outline`)의 결과 표는 줄마다 칸을 쌓는다(`.rs-stack`, 칸 이름 `data-label`)
 - `rsCands` · `rsParse` · `rsBrief` · `rsLogLine` · `rsCheckCalls` 는 순수 함수(`tests/test_research_js.py`)
+- 블라인드 비교 고르기(`rsPickDraft`)는 본문으로 채택한 때만 그 화 초안 · 변경안을 거둔다. 채택 전에 저장하지 않은 본문 고침이 있으면 따로 묻는다
 - 인물 화면의 신체 프로필 · 서술 말투 AI 동작(`bodyAI` · `voiceAI`)도 이 파일에 있다
 
 ### `canon/static/restate.js`
@@ -461,6 +464,7 @@
   - 찾기 색인 `SET_ROWS` · `settingsMatch`
   - 줄 HTML `setRowHtml`
   - 바로 저장 `setSave`(바꾼 칸만 `PUT /config`) · `setProjectSave`(칸마다 작품 API)
+  - 대화상자를 닫으면 작품 밖(작품 목록)도 다시 그린다. `setSave` 뒤 키 점검(`/config/health`)이 닫은 뒤에 오면 그때 다시 그린다
   - 저장 띠 없음
   - 키만 줄 안 '키 저장'
   - 글 칸 `textRow`(모델 이름 · 주소 · 경로)는 휴대폰 키보드 자동 대문자 · 고치기를 끈다
@@ -534,6 +538,8 @@
 - k화로 가는 링크 `epGo(k)`: 플롯 초안이면 플롯 페이지(플롯 확정), 본문이 있으면 검수 · 상태 승인, 나머지는 집필. 순서 안내(`orderNote`)와 검수 · 상태 승인의 빈 화면이 쓴다
 - 본문 다시 생성 확인은 지금 본문이 이전 판으로 남는다고 말하고 위험 버튼으로 두지 않는다
 - 저장 띠의 '고친 것 버리기'(`dropText`)는 묻고 나서 그 화의 저장하지 않은 본문과 임시 보관 초안을 지운다
+- 본문 저장(`saveText`)은 고침을 시작한 저장 본문(`textBase`)을 함께 보낸다. 다른 탭 · 기기가 먼저 저장했으면(409 `stale_text`) `textConflict` 가 묻는다
+- `textConflict` 의 '다시 불러오기'는 작품을 다시 받고 칸의 글은 둔다. '내 글로 덮어쓰기'는 `force` 로 다시 보낸다
 - 작업지시서(본문 · 검수 · 상태 승인 걸음, `viewBrief`)
 - 작업지시서는 화 머리와 공용 목차 틀이다(걸음 목차 `briefToc`: 끝남 ✓ · 지금 · 본문 뒤, 4번째는 상태 승인 화면으로 가는 줄)
 - 작업지시서 머리 주 버튼은 그 걸음의 가져오기(n화 본문으로 저장 · 가져오고 검수로 · 확인하고 변경안 검토로)

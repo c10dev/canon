@@ -366,6 +366,8 @@
 
 - 문체 화면의 '작품 정착 문체' 카드(`anchorCard`, 목차 줄 `anchorTocWord`)
 - 화 칩으로 고르기 · 대표 문단 후보 고르기(4개까지) · 저장 · 다시 재기 · 지우기(`anchorChooser`)
+- 다시 고를 때 후보를 열지 않으면 지금 대표 문단을 그대로 저장한다(`anchorBody`)
+- 후보를 열면 지금 대표 문단을 맨 앞에 체크해 둔다. 저장할 때 지금 문단이 빠지면 묻는다
 - 정착 문체와 레퍼런스 기준 비교 표(`anchorCompare`)
 - 화별 문체 거리 추이 SVG(`anchorChart`: 사람 연재 띠 · 경고 점선 · 최근 5화 평균 선 · 문체를 바꾼 화 세로선)
 - 서버는 `web.py` 의 '2-0. 작품 정착 문체'
@@ -428,6 +430,8 @@
 - 관련 화는 30화씩 칸 줄(`CZ_CHUNK`)과 나눔 버튼 `S.causalLinkTab` 으로 거른 줄 목록
 - 640px 이하는 칸 줄이 한 줄 10화다(`czChunk`). 칸은 버튼이고 화 번호 · 표시를 `aria-label` 로 읽는다. 손가락 기기 · 640px 이하에서 높이 32px
 - 칸 · 줄을 누르면(`causalCell`) 영향 분석의 그 화 칸으로, 없으면 그 화로 간다
+- 칸 상자는 `aria-hidden` 이라 칸 버튼은 Tab 에서 뺀다(`tabindex=-1`). 키보드는 줄 목록으로 간다
+- 줄 목록은 12줄까지 보이고 '모두 보기'(`causalLinkAll`, `S.causalLinkAll`)로 편다
 - 영향 분석은 화별로 어긋나는 곳과 고칠 것을 묶는다(`causalImpactBody`, 고르기 키 `pickId` 는 그대로)
 - 쪽을 옮길 때 해시 대신 `history.replaceState`(`causalGoTo`)라 저장하지 않은 고침을 묻지 않는다
 - `causalStatus` · `causalCells` 는 순수 함수(`tests/test_causal_js.py`)

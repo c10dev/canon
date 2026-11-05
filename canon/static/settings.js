@@ -605,7 +605,7 @@ async function openSettings(cat) {
       <button type="button" class="btn set-close" data-action="setClose">닫기</button>`;
     dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close(); });  // 바깥(배경)을 누르면 닫는다
     dlg.addEventListener('close', () => {
-      if (S.route[0] === 'p' && !isTyping()) render();  // 바꾼 작품 설정 · 화면 설정을 뒤 화면에 맞춘다
+      if (!setTypingBehind()) render();  // 바꾼 작품 설정 · 화면 설정 · 키 경고를 뒤 화면에 맞춘다 (작품 목록도 '키가 없어요' 경고를 보인다)
       // 다시 그리면 연 버튼이 새로 생긴다. 같은 링크를 찾아 포커스를 돌려준다
       const href = setOpener && setOpener.getAttribute && setOpener.getAttribute('href');
       const to = setOpener && setOpener.isConnected ? setOpener : href ? document.querySelector(`a[href="${CSS.escape(href)}"]`) : null;
@@ -645,12 +645,19 @@ let setOpener = null;
 // ----- 저장 -----
 
 /** 설정 파일에 칸 하나를 저장한다 (PUT /config 는 보낸 칸만 바꾼다) */
+/** 뒤 화면 글 칸에 쓰는 중인가. 닫은 대화상자 안 칸(Esc 로 닫으면 포커스가 아직 키 칸에 있다)은 세지 않는다 */
+const setTypingBehind = () => isTyping() && !document.getElementById('set-dlg')?.contains(document.activeElement);
+
 async function setSave(row, body, done = '저장했어요') {
   setNote(row, '저장하는 중…');
   try {
     S.config = await api('PUT', '/config', body);
     SET.note[row] = { text: done, kind: 'ok' };
-    api('GET', '/config/health').then((h) => { S.health = h; }).catch(() => {});
+    api('GET', '/config/health').then((h) => {
+      S.health = h;
+      // 답이 오기 전에 대화상자를 닫았으면 닫을 때 그린 화면은 옛 경고다. 다시 그린다
+      if (!document.getElementById('set-dlg')?.open && !setTypingBehind()) render();
+    }).catch(() => {});
   } catch (e) {
     SET.note[row] = { text: e.message, kind: 'err' };
   }

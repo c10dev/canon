@@ -1124,6 +1124,7 @@ document.addEventListener('input', (e) => {
     if (rel) refreshRel(Number(rel[1]));
   }
   if (el.dataset.draft) {
+    if (S.textDraft[el.dataset.draft] === undefined) markTextBase(el.dataset.draft);  // 새 고침이 시작한 저장 본문
     S.textDraft[el.dataset.draft] = el.value;
     const c = $('#char-count');
     if (c) c.textContent = el.value.length.toLocaleString();
@@ -1276,6 +1277,19 @@ function textUnsaved(n) {
   const e = P() && ep(Number(n));
   return e ? d.trim() !== (e.text || '').trim() : d.trim() !== '';  // 서버는 앞뒤 공백을 지워 저장한다
 }
+
+/** 본문 고침을 시작한 저장 본문 (서버 put_text 의 base). 서버가 다른 탭 · 기기가 그 사이 먼저 저장했는지 맞춰 본다(409 stale_text).
+    고침을 시작할 때 적어 두고, 적은 것이 없으면 지금 화면이 아는 저장 본문을 쓴다. 키는 '작품:화' */
+const TEXT_BASE = {};
+function markTextBase(n, text) {
+  TEXT_BASE[`${S.name}:${n}`] = text ?? ((P() && ep(Number(n)) && ep(Number(n)).text) || '');
+}
+function textBase(n) {
+  const k = `${S.name}:${n}`;
+  return k in TEXT_BASE ? TEXT_BASE[k] : ((P() && ep(Number(n)) && ep(Number(n)).text) || '');
+}
+/** 본문 저장 요청 몸: 고친 글과 그 고침을 시작한 저장 본문 */
+const textBody = (n, text) => ({ text, base: textBase(n) });
 
 // ---------- 본문 초안 임시 보관 ----------
 // 저장하지 않은 본문 초안을 화마다 이 브라우저(localStorage)에 몇 초 간격으로 둔다. 탭이 죽거나 새로고침해도 다시 열면 되살린다.
@@ -1678,6 +1692,7 @@ const actions = {
     const v = S.draftFound[n];
     if (!v) return;
     if (textUnsaved(n) && !(await askConfirm(`${n}화 칸에 쓰던 글이 있어요. 임시 보관한 초안으로 바꿀까요?`, { ok: '바꾸기', danger: true }))) return;
+    if (S.textDraft[n] === undefined) markTextBase(n);
     S.textDraft[n] = v.text;
     delete S.draftFound[n];
     draftKept.delete(DRAFT_PREFIX(S.name) + n);  // 이 탭이 이어 맡는다. 다음 보관 때 이 탭 것으로 다시 쓴다

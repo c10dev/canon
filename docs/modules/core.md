@@ -175,6 +175,7 @@
   - 고치는 시트는 열쇠마다 `cueBind`(집필 · 실험 열쇠는 작품 이름을 붙인 `cueKeyOf`, '없이 쓰기' `S.cueSkip` 도)
   - 핵심 대사 칸은 인물 이름(`cueName` · `cueId`)
   - 순수 함수 `cueLinesParse` · `cueLinesText` · `cueBars` · `cueCurveOk` · 말투가 빈 핵심 대사 인물 `cueVoiceGaps`
+  - 저장(`cueSave`)은 성공한 때만 '큐 시트를 저장했어요'를 알린다
   - `tests/test_cue.py` · `test_cue_write.py`
 - 웹은 작업 `cues`
 - 쓰기 작업의 `cues`(none)
@@ -457,6 +458,7 @@
 - 머리 주 버튼은 그때 할 일 하나(n화 변경안 검토하기 · 이어 가기 · n화까지 자동 집필 시작)
 - 검토하기(`autoOpenReview`)는 `POST /auto/review` 로 서버에 결과를 두게 한 뒤 `loadPending` 으로 상태 승인 화면에 놓는다. 그래서 고르던 체크 · 고친 칸이 초안으로 남고 새로고침 · 다른 기기에서 이어 고친다
 - 검토하기를 다시 눌러도 화면의 변경안이 같은 결과(같은 id)면 고친 것을 둔다. 다른 결과(다른 작업 · 다시 쓰기 전)면 내리고 새 결과를 놓는다
+- 내릴 변경안에 고른 체크 · 고친 칸이 있으면 먼저 묻고, 그만두면 지금 것을 둔다
 - 그대로 반영(`autoResume('approve')`)은 서버의 `Run.pending` 을 반영한다. 상태 승인 화면에서 고친 것(`deltaTouched`)이나 서버 초안이 있으면 고친 것을 버린다고 알리고 검토하기에서 반영하라고 묻는다
 - 그대로 반영 · 다시 쓰기 뒤에는 그 화의 화면 변경안을 내려 `syncPending` 이 서버 결과도 지운다
 - 중지 · 설정을 바꿔 새로 시작은 머리 '실행 ▾' 메뉴
@@ -464,6 +466,8 @@
 - 멈춘 이유마다 갈 곳 버튼(`autoReasonLink`: 검수 결과 · 관계도 · 그 화 읽기)
 - 진행 기록은 이번 실행을 화별로 묶는다(`autoLogGroups`, '모든 줄'은 예전 표)
 - 승인 정책은 읽기 카드(`autoPolicySummary`)이고 멈춘 실행에서만 '고치기'로 칸을 편다
+- 목표 · 정책을 바꾸면 추정(`S.autoEst`)을 비우고 다시 잰다. 추정이 오기 전에는 시작 버튼을 막는다
+- 추정은 요청 순번(`autoEstSeq`)으로 마지막 요청의 답만 받는다
 - 시험은 `tests/test_tools_js.py`
 
 ### `canon/store.py`
@@ -548,6 +552,8 @@
 - 상태 반영은 변경안 지문(`basis`)이 지금 본문과 다르면 409(`code` `stale_delta`)로 막는다. `?force=1` 이면 반영한다
 - 다시 맞추기(`POST …/restate`)도 변경안 지문이 반영 뒤 고친 지금 본문과 다르면 같은 409(`stale_delta`)로 막는다. `?force=1` 이면 반영한다
 - 빈 지문(옛 결과 · 손으로 만든 변경안)은 맞춰 보지 않는다. 채팅 앱 변경안 가져오기 `state/parse` 도 지문을 채운다
+- 본문 저장 `PUT …/episodes/{n}/text` 는 고침을 시작한 저장 본문(`Text.base`)이 지금 본문과 다르면 409(`code` `stale_text`)로 막는다. `?force=true` 이면 저장한다
+- `base` 가 없는 요청(옛 화면 · 명령줄 · 시험)은 맞춰 보지 않는다(`tests/test_text_conflict.py`)
 - 오래 걸리는 AI 작업은 `jobs.start` 로 돌린다
 - `start_job` 은 작업 종류마다 `JOB_MAKERS` 의 준비 함수(`_job_<종류>`)를 부른다. 함수는 (이름표, 전체 걸음, 맡은 화, 할 일)을 돌려준다. 새 작업은 함수를 더하고 `JOB_MAKERS` 에 넣는다
 - `start_job` 은 같은 화에서 멈춘 작업이 AI 응답을 기다리면 `EP_AI_KINDS` 작업을 409 로 막는다(`_waiting_409`, 역설계 실험 `rev_job` 과 같은 문구)
