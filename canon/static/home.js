@@ -21,7 +21,7 @@ function aiWarning() {
 function projectNext(x) {
   if (!x.open_ep) return x.planned && x.finalized >= x.episodes ? '완결' : x.planned ? `${x.planned + 1}화부터 플롯 만들기` : '플롯 없음';
   const written = x.open_checked ? '상태 승인 대기' : '검수 대기';
-  return `${x.open_ep}화 ${{ draft: '플롯 확정 대기', confirmed: '쓰기 대기', written }[x.open_status] || ''}`;
+  return `${x.open_ep}화 ${{ draft: '플롯 확정 대기', confirmed: '집필 대기', written }[x.open_status] || ''}`;
 }
 
 // 새 작품 폼: 다른 화면에 다녀와도 모든 칸을 함께 남기고, 만들면 함께 비운다 (장르는 genreTarget 이 같은 S.newMeta 에 둔다)
@@ -69,7 +69,7 @@ function projectGo(x) {
   const n = x.open_ep;
   if (x.open_status === 'draft') return { label: `${n}화 플롯 확정`, href: at(`/arc/${n}`), done: false };
   if (x.open_status === 'written') return x.open_checked ? { label: `${n}화 상태 승인`, href: at(`/review/${n}`), done: false } : { label: `${n}화 검수하기`, href: at(`/check/${n}`), done: false };
-  return { label: `${n}화 쓰기`, href: at(`/write/${n}`), done: false };
+  return { label: `${n}화 집필`, href: at(`/write/${n}`), done: false };
 }
 
 /** 확인할 것 한 줄이 가는 곳: 멈춘 작업은 그 작업의 화면(JOB_LINK), 결과는 알림 창과 같은 화면(HUB_RESULT). 모르면 작품 홈 */
@@ -371,7 +371,7 @@ function nextStep() {
   const e = ep(currentEp());
   // 플롯 초안: 그 화 플롯 페이지로 (write.js epGo 와 같다). 장편은 아크 화면으로 둔다: plot.js serialHead 가 주소 '/arc' 를 보고 '아크 N 초안 k화 모두 확정'을 primary 로 둔다
   if (e.status === 'draft') return [`${e.plot.number}화 플롯 확정`, serial() ? `${base()}/arc` : `${base()}/arc/${e.plot.number}`];
-  if (e.status === 'confirmed') return [`${e.plot.number}화 쓰기`, `${base()}/write/${e.plot.number}`];
+  if (e.status === 'confirmed') return [`${e.plot.number}화 ${stepLabel('write')}`, `${base()}/write/${e.plot.number}`];
   if (e.status === 'written') return [`${e.plot.number}화 ${stepLabel(epStage(e))}`, `${base()}/${epStage(e)}/${e.plot.number}`];
   // 모두 반영했다: 버튼은 전체 화 범위로 '여러 화 내보내기' 대화상자를 연다 (publish.js exportAll). 주소만 읽는 곳은 마지막 화 집필 화면으로 가니 글도 '보기'다
   return ['완결 원고 보기', `${base()}/write/${e.plot.number}`, 'exportAll', '완결 원고 내보내기'];

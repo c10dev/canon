@@ -304,6 +304,7 @@
 - 화면은 `static/insert.js` (넣을 수 있는 자리 `lastFixed` 는 `last_fixed` 와 같은 규칙, `tests/test_insert_js.py`)
 - `insert.js` 의 화 지우기 버튼을 막은 이유(AI 작업 중, 자동 집필 중, 스냅샷 없음)를 버튼 아래 글로도 보인다
 - 화 지우기 확인 창은 지우기 전 작품을 설정 › 백업에서 되돌릴 수 있다고 알린다
+- 앞 화 스냅샷이 없어 막힌 경우는 '반영 직후의 상태 기록(스냅샷)'이라 풀어 쓰고, 장편이면 남기는 규칙과 설정의 '스냅샷 모두 남기기'를 알린다
 
 ### `canon/routes/play.py`
 
@@ -435,6 +436,8 @@
 ### `canon/static/foreshadow.js`
 
 - 복선 센터 화면(주소 `foreshadow[/<복선 id>]`, `viewForeshadow`, 불러오기 `fsLoad`)
+- 640px 이하 복선 걸기 시트는 키보드 위에 선다(`bottom: var(--kb)`, 높이 `85svh - --kb`)
+- 칸 폭 480px 이하 복선 지도 축(`.fs-axis`)은 첫 화 · 지금 · 마지막 눈금만 보인다(이름표 겹침 막기). 복선 하나의 축은 그대로
 - 공용 목차 틀(`outline.js`, 목차 `fsToc`: 개요 · 손볼 것 · 열린 복선 · 접은 회수한 복선 `S.fsDoneOpen`) 위에 쪽 셋: 개요 · 복선 하나 · 빈 화면
 - 개요
   - 수치 `fsStats` → 손볼 것 `fsTodoCard` → 복선 지도 `fsMapCard`: 화 축 하나
@@ -485,6 +488,7 @@
 ### `canon/static/play.js`
 
 - 플레이 화면(DESIGN.md 10.4, 시안 안 A)
+- 1100px 이하(한 열)에서 시계 줄(`.pclock`)은 위쪽 띠 아래에 붙는다. 높이 500px 이하(가로 휴대폰)에서는 붙이지 않는다
 - 멈춘 상태 글은 손가락 기기에서 '▶를 누르면 다시' 다(`playKeys`)
 - 손가락 기기(`pointer: coarse`)에서는 숫자 키 · Ctrl+Enter · 아무 키 안내를 숨긴다(`playKeys`)
 - 새 플레이(`#/play/new[/세계]`, 출생 카드 · 새 세계)
