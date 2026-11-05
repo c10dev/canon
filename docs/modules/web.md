@@ -21,6 +21,7 @@
 
 - 웹 화면의 뼈대
 - 반영 취소(`revertFrom`) 확인은 저장하지 않은 변경이 있으면 먼저 저장한다고 말하고 버튼을 '저장하고 반영 취소'로 쓴다
+- 반영 취소(`revertFrom`)는 뒤 화들의 반영 기록이 검토를 기다리는 변경안으로 남으니(`web._revert_kept`) 취소 뒤 `loadPending` 으로 받는다
 - 서버 오류 문구 `fmtErr`: 검증 오류(detail 이 목록)는 영어 원문 대신 `VALIDATION_REASON`(web.py `_VALIDATION_REASON` 과 같음, `tests/test_fmterr_js.py`)과 칸 이름 `FIELD_NAME` 으로 쓴다
 - 저장하지 않고 이동하면 묻는 창은 작품 변경만 있을 때 '저장하고 이동'(askConfirm 의 `alt`)을 주 버튼으로 준다
 - `showError` 는 키 없음(`no_key`)과 키 틀림(`bad_key`) 모두 설정을 열지 묻는다
@@ -333,6 +334,11 @@
   - `setDelta` 는 설정에 없는 인물이 끼었거나 같은 인물끼리인 관계 사건 · 관계 바뀜을 기본으로 체크하지 않는다(서버 `validate_delta` 와 같은 규칙)
   - 체크를 푼 항목은 `pickedDelta` 가 `dismissed` 로 보낸다(설정 바꾸기 · 호칭 · 등장 인물 붙이기는 빼고)
   - 반영이 끝난 화 기록(`historyView`) 아래 접힌 '빼 둔 항목 N개'(`dismissedView`)
+  - 변경안 체크 `S.picks` 는 한 화 것이다(`S.picksEp`, 작품마다 따로 둔다)
+  - 다른 화 변경안을 열면 `pickEp` 가 그 화에서 고친 체크(`S.picksKept`)를 되살린다
+  - 고친 체크가 없으면 `pickEp` 가 지금 작품 기준 기본 체크(`defaultPicks`)로 다시 센다
+  - 반영 취소에 쓸 앞 화 스냅샷이 없으면 버튼 자리에 까닭을 쓴다(`revertGone`)
+  - 장편이 지운 스냅샷은 반영 기록으로 다시 만들지 않는다(기능 훅이 스냅샷 밖 데이터도 바꿔 재생이 정확하지 않다)
   - 머리 버튼 줄의 반영 버튼 · ⋯ `rvMenu` · `.savebar-slot`
   - 반영 `applyDelta`: 본문을 고친 것을 확인창에서 받았으면 `?force=1` 로 보낸다. 서버가 409(`stale_delta`)를 주면 기다림 상자를 닫고 한 번 더 묻는다
   - 왼쪽 읽기 전용 본문과 근거 밑줄 `rvRanges`

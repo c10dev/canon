@@ -84,8 +84,49 @@ const DELTA_LISTS = ['character_updates', 'events', 'secrets_added', 'relationsh
 const deltaCount = (d) => DELTA_LISTS.reduce((s, k) => s + (d[k] || []).length, 0);
 const deltaPicked = () => Object.entries(S.picks).filter(([k, v]) => v && DELTA_PICK.test(k)).length;
 
+/** 변경안 n건의 기본 체크 (지금 작품 기준). setDelta 와 다른 화로 옮길 때(pickEp) 같이 쓴다 */
+function defaultPicks(d) {
+  const o = {};
+  // 설정에도 이번 새 인물에도 없는 id 의 상태는 기본으로 빼 둔다. 반영하면 누구의 것도 아닌 상태가 남는다
+  const known = new Set([...P().characters.map((c) => c.id), ...(d.new_characters || []).map((c) => c.id)]);
+  d.character_updates.forEach((u, i) => { o['c' + i] = known.has(u.character_id); });
+  // 설정에 없는 인물이 끼었거나 같은 인물끼리인 관계 사건 · 관계 바뀜도 기본으로 빼 둔다. 서버 반영이 막는다 (pipeline.validate_delta)
+  const pairOk = (a, b) => a !== b && known.has(a) && known.has(b);
+  d.events.forEach((e, i) => { o['e' + i] = pairOk(e.actor, e.target); });
+  d.secrets_added.forEach((_, i) => { o['s' + i] = true; });
+  // 유형 · 설명이 반영 뒤 관계 단계와 반대인 바뀜은 기본으로 빼 둔다 (pace.clean_delta). 맞으면 작가가 체크한다
+  d.relationship_updates.forEach((r, i) => { o['r' + i] = !(d.rel_flagged || []).includes(i) && pairOk(r.a, r.b); });
+  d.new_facts.forEach((_, i) => { o['f' + i] = true; });
+  d.foreshadow_planted.forEach((_, i) => { o['p' + i] = true; });
+  d.foreshadow_resolved.forEach((id, i) => { o['x' + i] = P().foreshadows.some((f) => f.id === id); });
+  (d.new_characters || []).forEach((_, i) => { o['n' + i] = true; });
+  (d.new_places || []).forEach((_, i) => { o['l' + i] = true; });
+  (d.foreshadow_clues || []).forEach((_, i) => { o['q' + i] = true; });
+  (d.deadlines_added || []).forEach((_, i) => { o['k' + i] = true; });
+  (d.deadlines_done || []).forEach((id, i) => { o['o' + i] = P().timeline.deadlines.some((x) => x.id === id) || (d.deadlines_added || []).some((x) => x.id === id); });
+  (d.setting_changes || []).forEach((_, i) => { o['t' + i] = false; });  // 인물 설정은 작가가 직접 골라야 바뀐다
+  (d.cast_added || []).forEach((_, i) => { o['a' + i] = true; });  // 본문에 나온 인물은 기본으로 그 화 등장 인물에 붙인다
+  (d.address_changes || []).forEach((_, i) => { o['h' + i] = false; });  // 호칭 · 말씨도 작가가 직접 골라야 바뀐다
+  return o;
+}
+
+/** S.picks 의 변경안 체크(DELTA_PICK 키)만 */
+const deltaPicks = () => Object.fromEntries(Object.entries(S.picks).filter(([k]) => DELTA_PICK.test(k)));
+
+/** S.picks 는 한 화 것이다 (S.picksEp). 다른 화로 옮기기 전에 작가가 고친 체크만 S.picksKept 에 맡긴다.
+ * 고치지 않은 기본 체크는 맡기지 않는다: 돌아올 때 지금 작품 기준으로 다시 센다 (pickEp) */
+function stashPicks() {
+  const n = S.picksEp;
+  if (n == null || !S.deltas[n]) return;
+  const now = deltaPicks();
+  const orig = (S.deltaOrig[n] || {}).picks || {};
+  if (Object.keys(now).some((k) => now[k] !== orig[k])) (S.picksKept ||= {})[n] = now;  // 시험 틀처럼 S 를 일부만 채운 곳에서도 돈다
+}
+
 /** source: 변경안을 어디서 받았나 ('chat' 이면 채팅 앱에서 가져온 JSON). 상태 승인 화면 설명에 쓴다 */
 function setDelta(n, d, source = 'ai') {
+  if (S.picksEp !== n) stashPicks();  // 다른 화를 보던 중에 이 화 변경안이 오면 보던 화의 체크를 맡겨 둔다
+  if (S.picksKept) delete S.picksKept[n];
   S.deltas[n] = d;
   S.deltaBase[n] = ep(n) ? ep(n).text : '';
   // S.picks 는 설정 제안(sc · sr · sf: 키)과 같이 쓴다. 변경안 키만 지워 설정 화면의 체크를 남긴다
@@ -93,28 +134,23 @@ function setDelta(n, d, source = 'ai') {
   S.preview = null;
   S.rvOpen = {};  // 펼친 인물 칸과 본문 근거는 닫는다
   S.rvQuote = null;
-  // 설정에도 이번 새 인물에도 없는 id 의 상태는 기본으로 빼 둔다. 반영하면 누구의 것도 아닌 상태가 남는다
-  const known = new Set([...P().characters.map((c) => c.id), ...(d.new_characters || []).map((c) => c.id)]);
-  d.character_updates.forEach((u, i) => { S.picks['c' + i] = known.has(u.character_id); });
-  // 설정에 없는 인물이 끼었거나 같은 인물끼리인 관계 사건 · 관계 바뀜도 기본으로 빼 둔다. 서버 반영이 막는다 (pipeline.validate_delta)
-  const pairOk = (a, b) => a !== b && known.has(a) && known.has(b);
-  d.events.forEach((e, i) => { S.picks['e' + i] = pairOk(e.actor, e.target); });
-  d.secrets_added.forEach((_, i) => { S.picks['s' + i] = true; });
-  // 유형 · 설명이 반영 뒤 관계 단계와 반대인 바뀜은 기본으로 빼 둔다 (pace.clean_delta). 맞으면 작가가 체크한다
-  d.relationship_updates.forEach((r, i) => { S.picks['r' + i] = !(d.rel_flagged || []).includes(i) && pairOk(r.a, r.b); });
-  d.new_facts.forEach((_, i) => { S.picks['f' + i] = true; });
-  d.foreshadow_planted.forEach((_, i) => { S.picks['p' + i] = true; });
-  d.foreshadow_resolved.forEach((id, i) => { S.picks['x' + i] = P().foreshadows.some((f) => f.id === id); });
-  (d.new_characters || []).forEach((_, i) => { S.picks['n' + i] = true; });
-  (d.new_places || []).forEach((_, i) => { S.picks['l' + i] = true; });
-  (d.foreshadow_clues || []).forEach((_, i) => { S.picks['q' + i] = true; });
-  (d.deadlines_added || []).forEach((_, i) => { S.picks['k' + i] = true; });
-  (d.deadlines_done || []).forEach((id, i) => { S.picks['o' + i] = P().timeline.deadlines.some((x) => x.id === id) || (d.deadlines_added || []).some((x) => x.id === id); });
-  (d.setting_changes || []).forEach((_, i) => { S.picks['t' + i] = false; });  // 인물 설정은 작가가 직접 골라야 바뀐다
-  (d.cast_added || []).forEach((_, i) => { S.picks['a' + i] = true; });  // 본문에 나온 인물은 기본으로 그 화 등장 인물에 붙인다
-  (d.address_changes || []).forEach((_, i) => { S.picks['h' + i] = false; });  // 호칭 · 말씨도 작가가 직접 골라야 바뀐다
+  Object.assign(S.picks, defaultPicks(d));
   // 받은 그대로의 요약과 체크. 다시 만들 때 고친 것을 버리는지 묻는다 (기본으로 뺀 항목은 고친 것이 아니다)
-  S.deltaOrig[n] = { summary: d.summary, picks: Object.fromEntries(Object.entries(S.picks).filter(([k]) => DELTA_PICK.test(k))), source, delta: structuredClone(d) };
+  S.deltaOrig[n] = { summary: d.summary, picks: deltaPicks(), source, delta: structuredClone(d) };
+  S.picksEp = n;  // S.picks 의 변경안 체크가 어느 화 것인가 (pickEp)
+}
+
+/** S.picks 의 변경안 체크를 n화 것으로 맞춘다. 반영 취소로 여러 화 변경안이 한꺼번에 놓이면 체크는 마지막 화 것이다.
+ * 그 화에서 고친 체크가 맡겨져 있으면 되살리고, 없으면 지금 작품 기준 기본 체크로 다시 센다(앞 화를 반영해 인물 · 복선 · 기한이 생겼을 수 있다) */
+function pickEp(n) {
+  if (S.picksEp === n || !S.deltas[n] || !S.deltaOrig[n]) return;
+  stashPicks();
+  for (const k of Object.keys(S.picks)) if (DELTA_PICK.test(k)) delete S.picks[k];
+  const kept = (S.picksKept || {})[n];
+  if (!kept) S.deltaOrig[n].picks = defaultPicks(S.deltas[n]);
+  Object.assign(S.picks, kept || S.deltaOrig[n].picks);
+  if (S.picksKept) delete S.picksKept[n];
+  S.picksEp = n;
 }
 
 /** 사건 종류 (schema.EventKind). 수동보정은 작가가 관계를 직접 고칠 때만 쓰고 반영에서 빠져 고르지 않는다 (tests/test_delta_count.py 가 맞춰 본다) */
@@ -197,6 +233,14 @@ function rvMenu(n) {
     <div class="pop-sep" role="separator"></div><div class="pop-sec pop-danger"><button type="button" class="pop-item" data-action="dropDelta" data-arg="${n}">변경안 버리기</button></div>`, { cls: 'btn icon-btn', aria: `${n}화 변경안 더보기` });
 }
 
+/** 반영 취소에 쓸 n-1화 스냅샷이 없을 때 버튼 자리에 쓰는 까닭. 장편은 0화 · 아크 끝 · 최근 20화 스냅샷만 남긴다 (pipeline.prune_snapshots).
+ * 지운 스냅샷을 반영 기록으로 다시 만들지 않는다: 기능 훅(features.APPLY_*)이 스냅샷 밖 데이터도 바꿔 재생이 정확하지 않다 */
+function revertGone() {
+  return P().meta.form === 'serial' && !P().settings.keep_snapshots
+    ? '장편은 최근 20화와 각 아크 첫 화부터만 반영을 취소할 수 있어요. 더 앞 화는 화별 상태 기록을 지웠어요'
+    : '이 화 앞의 화별 상태 기록이 없어 반영을 취소할 수 없어요';
+}
+
 function viewReview(n) {
   const e = ep(n);
   if (!e) return header('6단계', '상태 승인', '') + noEpisode(n);
@@ -207,7 +251,7 @@ function viewReview(n) {
     const canRevert = P().snapshots.some((s) => s.episode === n - 1);
     // 반영 취소는 n화와 그 뒤 반영한 화를 모두 되돌린다. 되돌리는 범위를 버튼에 적는다 (revertFrom 과 같은 셈)
     const undo = P().episodes.filter((x) => x.status === 'finalized' && x.plot.number >= n).map((x) => x.plot.number);
-    return top('이 화는 상태 반영이 끝났어요. 반영된 내용이에요.', `<button class="btn" data-action="branchOpen" data-arg="${n}" title="이 작품은 그대로 두고, 사본에서 ${n}화부터 다른 전개를 써요">${n}화부터 갈래 만들기</button>${canRevert ? `<button class="btn danger" data-action="revertFrom" data-arg="${n}">${rangeText(undo)}화 반영 취소</button>` : ''}${nextStepBtn()}`) + restateCard(n) + (h ? historyView(h) : '<div class="note plain">반영 기록이 없어요.</div>');
+    return top('이 화는 상태 반영이 끝났어요. 반영된 내용이에요.', `<button class="btn" data-action="branchOpen" data-arg="${n}" title="이 작품은 그대로 두고, 사본에서 ${n}화부터 다른 전개를 써요">${n}화부터 갈래 만들기</button>${canRevert ? `<button class="btn danger" data-action="revertFrom" data-arg="${n}">${rangeText(undo)}화 반영 취소</button>` : `<span class="small">${revertGone()}</span>`}${nextStepBtn()}`) + restateCard(n) + (h ? historyView(h) : '<div class="note plain">반영 기록이 없어요.</div>');
   }
   if (e.status !== 'written') {
     const [href, label] = epGo(n);  // 플롯 초안이면 플롯 확정으로 바로
@@ -226,6 +270,7 @@ function viewReview(n) {
        <section class="card col"><h2>채팅 앱에서 받은 JSON</h2><p class="desc">상태 승인 지시서를 채팅 앱에 붙여 넣고 받은 JSON을 가져와요.</p><div><a class="btn" href="${base()}/brief/${n}" data-action="openStateBrief" data-arg="${n}">상태 승인 지시서 열기</a></div></section></div>`;
   }
 
+  pickEp(n);
   const p = P();
   const remake = ((b) => `<button class="btn small" data-action="extractState" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('state', n, '변경안 다시 만들기'));
   const stale = textUnsaved(n)

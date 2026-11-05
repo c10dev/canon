@@ -3717,9 +3717,33 @@ def revert(name: str, n: int) -> Project:
     """n화 반영 직후로 되돌린다. 뒤 화의 본문은 남기고 반영만 취소한다 (0 이면 1화 시작 전)."""
     p = _load(name)
     _not_auto(name)
+    kept = _revert_kept(p, n)
+    edited = {f"state:{e.plot.number}" for e in p.episodes if e.plot.number > n and pipeline.edited_after_final(e)}
     pipeline.revert(p, n)
     out = _save(name, p)
+
+    def put(d: dict) -> None:
+        for key, rec in kept.items():
+            # 반영 뒤 고친 화를 다시 맞추려고 뽑아 둔 변경안은 지금 본문에서 뽑은 것이라 그대로 둔다 (화면도 그것을 보고 있다)
+            if not (key in edited and key in d["results"]):
+                d["results"][key] = rec
+    store.edit_pending(name, put)
     autorun.after_revert(name, n + 1)  # 자동 집필 실행 기록(자동 반영 목록, 로그, 끝남 상태)도 n+1화부터 맞춘다
+    return out
+
+
+def _revert_kept(p: Project, n: int) -> dict:
+    """반영 취소로 지울 n+1화부터의 반영 기록을 검토를 기다리는 상태 변경안(pending.json 의 state:<화>)으로 바꾼다.
+    상태 승인 화면이 다시 고를 수 있게 놓아, AI로 다시 뽑지 않아도 된다. base 는 반영할 때의 본문(반영 뒤 고쳤으면 고치기 전)이다."""
+    last = {d.episode: d for d in p.history if d.episode > n}
+    at, out = _now(), {}
+    for m, d in sorted(last.items()):
+        e = next((x for x in p.episodes if x.plot.number == m and x.status == "finalized"), None)
+        if e is None:
+            continue
+        key = f"state:{m}"
+        out[key] = {"key": key, "id": f"revert:{at}:{m}", "kind": "state", "ep": m, "label": f"{m}화 상태 변경안",
+                    "result": d.model_dump(), "base": e.final_text or e.text, "at": at}
     return out
 
 
