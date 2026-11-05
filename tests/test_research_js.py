@@ -99,3 +99,19 @@ def test_usage_breakdown_by_task_and_effort_shows_cache_and_seconds():
     assert "지적 고치기" in task and "10%" in task and "15.0초" in task and 'aria-pressed="true">작업' in task
     assert "평균 시간" in task and "캐시" in task
     assert "높음" in effort and "기본 (모델 기본값)" in effort and 'aria-pressed="true">추론 강도' in effort
+
+
+def test_usage_task_labels_cover_scoped_tasks():
+    # usage.scope(task="...") 로 적는 작업 이름마다 사용량 화면의 한국어 이름이 있다 (영어 키가 화면에 보이지 않게)
+    import re
+    from pathlib import Path
+    root = Path(__file__).resolve().parent.parent / "canon"
+    tasks = set()
+    for f in root.rglob("*.py"):
+        tasks |= set(re.findall(r'usage\.scope\([^)]*task="([a-z_]+)"', f.read_text(encoding="utf-8")))
+    js = (root / "static" / "usage.js").read_text(encoding="utf-8")
+    block = js[js.index("const USAGE_TASK = {"):]
+    block = block[:block.index("};")]
+    labeled = set(re.findall(r"\b([a-z_]+): '", block))
+    assert {"play", "studio"} <= tasks
+    assert tasks <= labeled, tasks - labeled
