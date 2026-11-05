@@ -182,7 +182,7 @@ function rsLogLine(x, stages = {}) {
   if (x.kind === 'check') return `${x.episode}화 · ${x.backend} · ${(x.runs || []).map((m) => `${m.mode} ${m.ok ? `${m.found}/${(x.planted || []).length}` : '실패'}`).join(' · ')}`;
   if (x.kind === 'cue') return `${x.episode}화 · 큐 ${x.cues}개 · ${(x.summary || []).map((s) => `${s.label} ${rsNum(s.chars)}자`).join(' · ')}`;
   if (x.kind === 'pick') return `${x.episode}화 · ${x.picked} 고름${x.adopted ? ' (본문 채택)' : ''}`;
-  if (x.kind === 'statwin') return `${(x.episodes || []).join(' · ')}화 × ${(x.summary || []).length}방식 · 틀린 값 ${(x.summary || []).map((s) => (s.error_rate == null ? '-' : `${Math.round(s.error_rate * 100)}%`)).join(' · ')}`;
+  if (x.kind === 'statwin') return `${(x.episodes || []).join(' · ')}화 × ${(x.summary || []).length}방식 · 틀린 값 ${(x.summary || []).map((s) => (s.error_rate == null ? '-' : `${Math.round(s.error_rate * 100)}%`)).join(' · ')}${x.stopped ? ` · ${x.stopped}` : ''}`;
   return '';
 }
 

@@ -77,8 +77,27 @@ def history(name: str, limit: int = 30) -> list[dict]:
     path = _log_path(name)
     if not path.exists():
         return []
-    lines = path.read_text(encoding="utf-8").splitlines()
-    return [json.loads(x) for x in reversed(lines[-limit:])]
+    rows = [x for x in map(_row, path.read_text(encoding="utf-8").splitlines()) if x is not None]
+    return rows[::-1][:limit]
+
+
+def _row(line: str) -> dict | None:
+    """기록 한 줄. 빈 줄이나 쓰다 끊긴 줄(프로세스가 죽었거나 두 작업이 함께 덧붙임)은 None 이라 건너뛴다."""
+    if not line.strip():
+        return None
+    try:
+        x = json.loads(line)
+    except ValueError:
+        return None
+    return x if isinstance(x, dict) else None
+
+
+def stopped_note(done: int, total: int, e: BaseException) -> str:
+    """시험이 도중에 멈췄을 때 기록에 남길 말 (stattrial · blocktrial 이 그때까지 쓴 본문을 남긴다)."""
+    from .cancel import Cancelled
+
+    why = "멈췄어요" if isinstance(e, (Cancelled, KeyboardInterrupt)) else " ".join(str(e).split())[:200] or type(e).__name__
+    return f"{total}개 가운데 {done}개를 쓰고 멈춤: {why}"
 
 
 def latest(name: str) -> dict[str, dict]:
@@ -87,9 +106,8 @@ def latest(name: str) -> dict[str, dict]:
     if not path.exists():
         return {}
     out: dict[str, dict] = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if line.strip():
-            x = json.loads(line)
+    for x in map(_row, path.read_text(encoding="utf-8").splitlines()):
+        if x is not None:
             out[x.get("kind", "")] = x
     return out
 

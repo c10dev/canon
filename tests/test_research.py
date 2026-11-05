@@ -229,5 +229,17 @@ class ResearchTest(unittest.TestCase):
             pipeline.require_previous(store.load(self.name), 2)
 
 
+def test_history_and_latest_skip_a_torn_line(tmp_path, monkeypatch):
+    """쓰다 끊긴 줄 하나가 연구 화면 전체를 막지 않는다: 그 줄만 건너뛴다."""
+    monkeypatch.setattr(store, "ROOT", tmp_path)
+    research.record("torn", "sample", {"a": 1})
+    with research._log_path("torn").open("a", encoding="utf-8") as f:
+        f.write('{"id": "ab", "kind": "samp\n\n[1, 2]\n')
+    research.record("torn", "budget", {"b": 2})
+    assert [x["kind"] for x in research.history("torn")] == ["budget", "sample"]
+    assert research.history("torn", limit=1)[0]["kind"] == "budget"
+    assert set(research.latest("torn")) == {"sample", "budget"}
+
+
 if __name__ == "__main__":
     unittest.main()
