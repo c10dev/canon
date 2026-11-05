@@ -30,7 +30,7 @@ def test_revert_reason_when_snapshot_gone():
 
 @needs_node
 def test_pick_ep_restores_own_picks():
-    # 반영 취소로 두 화 변경안이 놓이면 체크는 마지막 화 것이다. 다른 화를 열면 그 화의 받은 그대로 체크로 돌린다
+    # 반영 취소로 두 화 변경안이 놓이면 체크는 마지막 화 것이다. 다른 화를 열면 그 화 체크로 돌리고, 그 화에서 푼 체크도 남는다
     p = project("serial")
     a = StateDelta(episode=1, summary="", new_facts=["가", "나"])
     b = StateDelta(episode=2, summary="")
@@ -42,4 +42,22 @@ def test_pick_ep_restores_own_picks():
       pickEp(1);
       return [lost, S.picks.f0, S.picks.f1, S.picksEp];
     })()""", {"p": dump(p), "a": dump(a), "b": dump(b)})
-    assert out == [False, True, True, 1]
+    assert out == [False, True, False, 1]
+
+
+@needs_node
+def test_pick_ep_recounts_defaults():
+    # 반영 취소 직후에는 2화의 새 인물(ha)이 없어 3화 변경안의 그 인물 상태가 기본으로 빠진다. 2화를 반영해 인물이 생긴 뒤 3화를 열면 다시 센다
+    p = project("serial")
+    b = StateDelta.model_validate({"episode": 2, "summary": "", "new_characters": [{"id": "ha", "name": "하", "role": "조연"}]})
+    c = StateDelta.model_validate({"episode": 3, "summary": "", "character_updates": [{"character_id": "ha"}]})
+    out = run_js(FILES, """(() => {
+      S.project = data.p;
+      setDelta(3, data.c);
+      const before = S.picks.c0;
+      setDelta(2, data.b);
+      S.project.characters.push({ ...data.b.new_characters[0] });
+      pickEp(3);
+      return [before, S.picks.c0, S.deltaOrig[3].picks.c0];
+    })()""", {"p": dump(p), "b": dump(b), "c": dump(c)})
+    assert out == [False, True, True]

@@ -34,3 +34,15 @@ def test_revert_keeps_only_later_episodes(client):
     _two_done(client)
     client.post("/api/projects/lh/revert/1")
     assert set(client.get("/api/projects/lh/pending").json()["results"]) == {"state:2"}
+
+
+def test_revert_keeps_fresh_restate_delta(client):
+    # 반영 뒤 고친 2화에서 다시 맞추려고 뽑아 둔 변경안은 지금 본문에서 뽑은 것이라 반영 기록으로 덮지 않는다
+    _two_done(client)
+    client.put("/api/projects/lh/episodes/2/text", json={"text": "2화 고친 본문."})
+    fresh = {"key": "state:2", "id": "job-x", "kind": "state", "ep": 2, "label": "2화 상태 변경안",
+             "result": {"episode": 2, "summary": "고친 본문 요약"}, "base": "2화 고친 본문.", "at": "t"}
+    store.edit_pending("lh", lambda d: d["results"].__setitem__("state:2", fresh))
+    client.post("/api/projects/lh/revert/0")
+    res = client.get("/api/projects/lh/pending").json()["results"]
+    assert res["state:2"] == fresh and res["state:1"]["id"].startswith("revert:")

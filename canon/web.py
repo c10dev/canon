@@ -3688,9 +3688,16 @@ def revert(name: str, n: int) -> Project:
     p = _load(name)
     _not_auto(name)
     kept = _revert_kept(p, n)
+    edited = {f"state:{e.plot.number}" for e in p.episodes if e.plot.number > n and pipeline.edited_after_final(e)}
     pipeline.revert(p, n)
     out = _save(name, p)
-    store.edit_pending(name, lambda d: d["results"].update(kept))
+
+    def put(d: dict) -> None:
+        for key, rec in kept.items():
+            # 반영 뒤 고친 화를 다시 맞추려고 뽑아 둔 변경안은 지금 본문에서 뽑은 것이라 그대로 둔다 (화면도 그것을 보고 있다)
+            if not (key in edited and key in d["results"]):
+                d["results"][key] = rec
+    store.edit_pending(name, put)
     autorun.after_revert(name, n + 1)  # 자동 집필 실행 기록(자동 반영 목록, 로그, 끝남 상태)도 n+1화부터 맞춘다
     return out
 
