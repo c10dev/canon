@@ -1413,7 +1413,8 @@ const actions = {
     return run('반영을 취소하는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/revert/${n - 1}`);
-      if (h) setDelta(n, structuredClone(h));  // 반영했던 변경안을 다시 고를 수 있게 둔다
+      await loadPending();  // 서버가 뒤 화들의 반영 기록을 검토를 기다리는 변경안으로 남겼다 (web._revert_kept)
+      if (h && S.deltas[n] === undefined) setDelta(n, structuredClone(h));  // 반영했던 변경안을 다시 고를 수 있게 둔다
       toast(`${rangeText(fin)}화의 반영을 취소했어요. ${n}화 변경안을 다시 골라 반영하세요`);
     });
   },

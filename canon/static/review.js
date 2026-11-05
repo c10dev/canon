@@ -97,6 +97,15 @@ function setDelta(n, d, source = 'ai') {
   (d.address_changes || []).forEach((_, i) => { S.picks['h' + i] = false; });  // 호칭 · 말씨도 작가가 직접 골라야 바뀐다
   // 받은 그대로의 요약과 체크. 다시 만들 때 고친 것을 버리는지 묻는다 (기본으로 뺀 항목은 고친 것이 아니다)
   S.deltaOrig[n] = { summary: d.summary, picks: Object.fromEntries(Object.entries(S.picks).filter(([k]) => DELTA_PICK.test(k))), source, delta: structuredClone(d) };
+  S.picksEp = n;  // S.picks 의 변경안 체크가 어느 화 것인가. 다른 화 변경안을 열면 그 화의 받은 그대로 체크로 돌린다 (pickEp)
+}
+
+/** S.picks 의 변경안 체크를 n화 것으로 맞춘다. 반영 취소로 여러 화 변경안이 한꺼번에 놓이면 체크는 마지막 화 것이다 */
+function pickEp(n) {
+  if (S.picksEp === n || !S.deltaOrig[n]) return;
+  for (const k of Object.keys(S.picks)) if (DELTA_PICK.test(k)) delete S.picks[k];
+  Object.assign(S.picks, S.deltaOrig[n].picks);
+  S.picksEp = n;
 }
 
 /** 사건 종류 (schema.EventKind). 수동보정은 작가가 관계를 직접 고칠 때만 쓰고 반영에서 빠져 고르지 않는다 (tests/test_delta_count.py 가 맞춰 본다) */
@@ -174,6 +183,14 @@ function rvMenu(n) {
     <div class="pop-sep" role="separator"></div><div class="pop-sec pop-danger"><button type="button" class="pop-item" data-action="dropDelta" data-arg="${n}">변경안 버리기</button></div>`, { cls: 'btn icon-btn', aria: `${n}화 변경안 더보기` });
 }
 
+/** 반영 취소에 쓸 n-1화 스냅샷이 없을 때 버튼 자리에 쓰는 까닭. 장편은 0화 · 아크 끝 · 최근 20화 스냅샷만 남긴다 (pipeline.prune_snapshots).
+ * 지운 스냅샷을 반영 기록으로 다시 만들지 않는다: 기능 훅(features.APPLY_*)이 스냅샷 밖 데이터도 바꿔 재생이 정확하지 않다 */
+function revertGone() {
+  return P().meta.form === 'serial' && !P().settings.keep_snapshots
+    ? '장편은 최근 20화와 각 아크 첫 화부터만 반영을 취소할 수 있어요. 더 앞 화는 화별 상태 기록을 지웠어요'
+    : '이 화 앞의 화별 상태 기록이 없어 반영을 취소할 수 없어요';
+}
+
 function viewReview(n) {
   const e = ep(n);
   if (!e) return header('6단계', '상태 승인', '') + noEpisode(n);
@@ -184,7 +201,7 @@ function viewReview(n) {
     const canRevert = P().snapshots.some((s) => s.episode === n - 1);
     // 반영 취소는 n화와 그 뒤 반영한 화를 모두 되돌린다. 되돌리는 범위를 버튼에 적는다 (revertFrom 과 같은 셈)
     const undo = P().episodes.filter((x) => x.status === 'finalized' && x.plot.number >= n).map((x) => x.plot.number);
-    return top('이 화는 상태 반영이 끝났어요. 반영된 내용이에요.', `<button class="btn" data-action="branchOpen" data-arg="${n}" title="이 작품은 그대로 두고, 사본에서 ${n}화부터 다른 전개를 써요">${n}화부터 갈래 만들기</button>${canRevert ? `<button class="btn danger" data-action="revertFrom" data-arg="${n}">${rangeText(undo)}화 반영 취소</button>` : ''}${nextStepBtn()}`) + restateCard(n) + (h ? historyView(h) : '<div class="note plain">반영 기록이 없어요.</div>');
+    return top('이 화는 상태 반영이 끝났어요. 반영된 내용이에요.', `<button class="btn" data-action="branchOpen" data-arg="${n}" title="이 작품은 그대로 두고, 사본에서 ${n}화부터 다른 전개를 써요">${n}화부터 갈래 만들기</button>${canRevert ? `<button class="btn danger" data-action="revertFrom" data-arg="${n}">${rangeText(undo)}화 반영 취소</button>` : `<span class="small">${revertGone()}</span>`}${nextStepBtn()}`) + restateCard(n) + (h ? historyView(h) : '<div class="note plain">반영 기록이 없어요.</div>');
   }
   if (e.status !== 'written') {
     const [href, label] = epGo(n);  // 플롯 초안이면 플롯 확정으로 바로
@@ -203,6 +220,7 @@ function viewReview(n) {
        <section class="card col"><h2>채팅 앱에서 받은 JSON</h2><p class="desc">상태 승인 지시서를 채팅 앱에 붙여 넣고 받은 JSON을 가져와요.</p><div><a class="btn" href="${base()}/brief/${n}" data-action="openStateBrief" data-arg="${n}">상태 승인 지시서 열기</a></div></section></div>`;
   }
 
+  pickEp(n);
   const p = P();
   const remake = ((b) => `<button class="btn small" data-action="extractState" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('state', n, '변경안 다시 만들기'));
   const stale = textUnsaved(n)
