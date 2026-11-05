@@ -3,7 +3,6 @@ from canon import illust, prompts
 from canon.schema import Character, CharacterVisual, IllustCharacter, IllustDraft, Illustration, Meta, Project
 
 from .test_passage import TEXT, _written
-from .test_web import client  # noqa: F401  (pytest fixture)
 
 
 def test_clean_tags():

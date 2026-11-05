@@ -31,15 +31,15 @@ writer: ContextVar[str] = ContextVar("writer", default="")
 saved: ContextVar[dict | None] = ContextVar("saved", default=None)
 
 
-def write_atomic(path: Path, text: str, mode: int | None = None, fsync: bool = False) -> os.stat_result:
-    """text 를 path 에 바꿔치기로 쓴다: 이 프로세스 · 스레드만 쓰는 tmp 파일에 다 쓴 뒤 os.replace 로 바꿔 넣는다.
+def write_atomic(path: Path, text: str | bytes, mode: int | None = None, fsync: bool = False) -> os.stat_result:
+    """text(글 또는 바이트) 를 path 에 바꿔치기로 쓴다: 이 프로세스 · 스레드만 쓰는 tmp 파일에 다 쓴 뒤 os.replace 로 바꿔 넣는다.
     중간에 멈춰도 path 는 옛 내용 그대로다. mode 를 주면 tmp 를 처음부터 그 권한으로 만든다 (키 파일).
     fsync 면 내용과 폴더를 디스크에 내린다 (전원이 끊겨도 빈 파일이 남지 않게). 돌려주는 것: 바꿔 넣기 직전 tmp 의 stat (판)."""
     path = Path(path)
     tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
     try:
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o666 if mode is None else mode)
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
+        with (os.fdopen(fd, "wb") if isinstance(text, bytes) else os.fdopen(fd, "w", encoding="utf-8")) as f:
             if mode is not None:
                 os.fchmod(f.fileno(), mode)  # 죽은 프로세스가 남긴 같은 이름의 tmp 는 만들 때의 권한을 따르지 않는다
             f.write(text)
@@ -661,10 +661,11 @@ def _set_aside(f: Path, n: int, stamp: str) -> Path:
     return dest
 
 
-def renumber_side_files(name: str, shift, gone=()) -> list[str]:
+def renumber_side_files(name: str, shift, gone=(), aside: list[str] | None = None) -> list[str]:
     """화를 넣거나 뺀 뒤 큐 시트 실험 · 블라인드 비교본을 새 화 번호로 옮긴다. shift 는 옛 번호 → 새 번호(autorun.renumber 와 같은 규칙).
     gone 화(뺀 화)의 파일은 지우지 않고 removed/<화>.<시각> 으로 남긴다. 옮기는 파일은 임시 이름을 거쳐 서로 덮어쓰지 않는다.
-    큐 시트 실험 파일 안의 episode 도 고친다 (save_cuelab 이 그 번호로 쓴다). 무엇을 옮겼는지 설명을 돌려준다."""
+    큐 시트 실험 파일 안의 episode 도 고친다 (save_cuelab 이 그 번호로 쓴다). 무엇을 옮겼는지 설명을 돌려준다.
+    aside 를 주면 gone 화의 파일을 남긴 자리(작품 폴더 기준 경로)를 더한다 (restore_side_files 로 되돌린다)."""
     gone = set(gone)
     stamp = f"{datetime.now():%Y%m%d-%H%M%S}"
     notes: list[str] = []
@@ -672,6 +673,8 @@ def renumber_side_files(name: str, shift, gone=()) -> list[str]:
     for kind, n, f in sorted(_side_files(name), key=lambda x: (x[0], x[1])):
         if n in gone:
             dest = _set_aside(f, n, stamp)
+            if aside is not None:
+                aside.append(dest.relative_to(project_dir(name)).as_posix())
             notes.append(f"뺀 {n}화의 {_SIDE_LABEL[kind]}은 {kind}/{SIDE_REMOVED}/{dest.name} 으로 남겨 뒀어요.")
             continue
         new = shift(n)
@@ -697,6 +700,36 @@ def renumber_side_files(name: str, shift, gone=()) -> list[str]:
         pairs = [f"{n}→{new}화" for k, n, new, _ in moving if k == kind]
         if pairs:
             notes.append(f"{_SIDE_LABEL[kind]}도 새 화 번호로 옮겼어요({', '.join(pairs)}).")
+    return notes
+
+
+def restore_side_files(name: str, paths, n: int) -> list[str]:
+    """renumber_side_files 가 removed/ 에 남긴 파일(aside 경로)을 n화 자리로 되돌린다. 화 빼기를 되돌릴 때 쓴다.
+    그 자리에 이미 파일이 있거나 남긴 파일이 없으면 옮기지 않고 그대로 둔다. 무엇을 했는지 설명을 돌려준다."""
+    root = project_dir(name)
+    notes: list[str] = []
+    for rel in paths:
+        parts = Path(rel).parts
+        if len(parts) != 3 or parts[0] not in _SIDE_LABEL or parts[1] != SIDE_REMOVED or parts[2].startswith("."):
+            continue
+        kind, src = parts[0], root.joinpath(*parts)
+        dest = _side_path(name, kind, n)
+        if not src.exists():
+            continue
+        if dest.exists():
+            notes.append(f"{n}화 자리에 {_SIDE_LABEL[kind]}이 이미 있어서 {rel} 은 그대로 뒀어요.")
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(src, dest)
+        if kind == "cuelab":
+            try:
+                data = json.loads(dest.read_text(encoding="utf-8"))
+            except ValueError:
+                data = None
+            if isinstance(data, dict) and data.get("episode") != n:
+                data["episode"] = n
+                write_atomic(dest, json.dumps(data, ensure_ascii=False, indent=2))
+        notes.append(f"{n}화의 {_SIDE_LABEL[kind]}도 {rel} 에서 되돌렸어요.")
     return notes
 
 def backup_path(name: str, tag: str) -> Path:

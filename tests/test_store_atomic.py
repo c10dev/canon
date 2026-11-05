@@ -2,6 +2,7 @@
 import json
 import os
 import stat
+from pathlib import Path
 
 import pytest
 
@@ -75,3 +76,60 @@ def test_library_save_keeps_old_entry_on_failure(home, monkeypatch):
     with pytest.raises(OSError):
         library.save(e.model_copy(update={"name": "새 문체"}))
     assert json.loads((home / "library" / "0123abcd.json").read_text(encoding="utf-8"))["name"] == "옛 문체"
+
+
+def test_write_atomic_writes_bytes_and_keeps_old_on_failure(tmp_path, monkeypatch):
+    path = tmp_path / "map.png"
+    store.write_atomic(path, b"\x89PNG\x00old")
+    assert path.read_bytes() == b"\x89PNG\x00old"
+    _fail_replace(monkeypatch)
+    with pytest.raises(OSError):
+        store.write_atomic(path, b"\x89PNG\x00new")
+    assert path.read_bytes() == b"\x89PNG\x00old" and list(tmp_path.glob("*.tmp")) == []
+
+
+def test_compare_files_keep_old_content_on_failure(home, monkeypatch):
+    """비교본 · key.json · hook 보고서도 바꿔치기로 쓴다. 바로 쓰면 실패한 쓰기가 옛 파일을 덮는다."""
+    from canon import research
+    from canon.schema import HookReport
+
+    d = research.compare_dir("w", 1)
+    d.mkdir(parents=True)
+    research.save_compare_hook("w", 1, 1, HookReport(episode=1, reason="옛 판정"))
+    old = (d / "hook-1.json").read_text(encoding="utf-8")
+    (d / "key.json").write_text(json.dumps({"order": ["a", "b"]}), encoding="utf-8")
+    (d / "1.md").write_text("옛 안", encoding="utf-8")
+    _fail_replace(monkeypatch)
+    with pytest.raises(OSError):
+        research.save_compare_hook("w", 1, 1, HookReport(episode=1, reason="새 판정"))
+    with pytest.raises(OSError):
+        research.pick_compare("w", None, 1, 1, adopt=False)
+    assert (d / "hook-1.json").read_text(encoding="utf-8") == old
+    assert json.loads((d / "key.json").read_text(encoding="utf-8")) == {"order": ["a", "b"]}
+    assert list(d.glob("*.tmp")) == []
+
+
+def test_cli_output_file_is_atomic_and_follows_links(tmp_path, monkeypatch):
+    from canon import cli
+
+    real = tmp_path / "real.txt"
+    real.write_text("옛", encoding="utf-8")
+    link = tmp_path / "link.txt"
+    link.symlink_to(real)
+    cli._write_out(link, "새")
+    assert link.is_symlink() and real.read_text(encoding="utf-8") == "새"
+    cli._write_out(Path(os.devnull), "버림")  # 보통 파일이 아닌 곳은 바로 쓴다
+    r, w = os.pipe()  # 파이프는 resolve 하면 없는 경로가 되므로 그 전에 보고 바로 쓴다
+    try:
+        cli._write_out(Path(f"/dev/fd/{w}"), "관")
+        os.close(w)
+        w = -1
+        assert os.read(r, 100).decode("utf-8") == "관"
+    finally:
+        os.close(r)
+        if w >= 0:
+            os.close(w)
+    _fail_replace(monkeypatch)
+    with pytest.raises(OSError):
+        cli._write_out(real, "잘린")
+    assert real.read_text(encoding="utf-8") == "새" and list(tmp_path.glob("*.tmp")) == []

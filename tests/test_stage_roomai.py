@@ -10,7 +10,6 @@ from canon.mock import MockLLM
 from canon.schema import (BoardScene, Character, DraftAnchor, DraftBeat, DraftBody, Meta, Project, StageDraft, StageRoom, Storyboard)
 
 from .jsvm import episode
-from .test_web import client  # noqa: F401  (pytest fixture)
 
 EVENT = "예은이 정비차 배터리가 죽었다며 점프를 부탁한다. 건우는 차 안 충전 슬롯으로 연결하되 예은을 차에 타지 못하게 한다."
 

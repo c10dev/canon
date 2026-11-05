@@ -4,7 +4,7 @@ from canon.mock import MockLLM
 from canon.schema import EpisodePlot, HookItem, HookReport, Meta, Project
 
 from .test_plot_chat import _project
-from .test_web import _wait, client  # noqa: F401  (pytest fixture)
+from .test_web import _wait
 
 TEXT = "문이 부서졌다. 서윤은 등대 계단을 뛰어 올라갔다.\n\n\"오빠, 거기 있어?\"\n\n대답 대신 불빛이 꺼졌다."
 

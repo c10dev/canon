@@ -1,5 +1,4 @@
 """스킬 · 특성 도감(canon/abilities.py) 테스트: 조각 나누기, 상태창 잇기, 얻은 화 계산, 작가 편집, CLI, 웹. 실행: python -m pytest tests"""
-import importlib
 
 import pytest
 from fastapi.testclient import TestClient
@@ -91,7 +90,7 @@ def test_cli_and_web(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("CANON_LLM", "mock")
     monkeypatch.setenv("CANON_HOME", str(tmp_path))
     monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
-    importlib.reload(store)
+    monkeypatch.setattr(store, "ROOT", tmp_path)
     p = _project()
     abilities.upsert(p, _ab("화염구", effect="불덩이", grades=[AbilityGrade(grade="Lv3", effect="반경 3m")]))
     store.save("ab", p)
@@ -100,7 +99,6 @@ def test_cli_and_web(tmp_path, monkeypatch, capsys):
     assert "효과: 불덩이" in out and "서윤: 화염구 Lv3 (시작 때 얻음)" in out and "도감에 없는 항목: 은신(스킬), 강철 피부(특성)" in out
 
     from canon import web
-    importlib.reload(web)
     c = TestClient(web.app)
     v = c.get("/api/projects/ab/abilities").json()
     assert v["lists"] == ["스킬", "특성"] and v["abilities"][0]["owners"][0]["acquired"] == 0

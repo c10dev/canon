@@ -5,7 +5,7 @@ from canon import pipeline, prompts, storylines
 from canon.mock import MockLLM
 from canon.schema import PlotRevision, Project, Storyline, StorylineProposal
 
-from .test_web import _wait, client  # noqa: F401  (pytest fixture)
+from .test_web import _wait
 
 LLM = MockLLM()
 

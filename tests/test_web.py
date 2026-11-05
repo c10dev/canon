@@ -3,25 +3,6 @@ import copy
 import os
 
 import pytest
-from fastapi.testclient import TestClient
-
-
-@pytest.fixture()
-def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("CANON_LLM", "mock")
-    monkeypatch.setenv("CANON_HOME", str(tmp_path))
-    monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
-    from canon import store, web
-
-    # Do not reload web: one reload takes 1 to 2.5 s. The app reads store.ROOT at request time.
-    # Point store.ROOT at tmp_path and clear the caches that a reload clears.
-    # A separate MonkeyPatch keeps store.ROOT when a test calls monkeypatch.undo().
-    for cache in (store._views, store._snap_written, store._md_written, store._preset_seen, store._brief_seen,
-                  web._cards, web._rests, web._json_views):
-        cache.clear()
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(store, "ROOT", tmp_path)
-        yield TestClient(web.app)
 
 
 def test_client_fixture_keeps_app(client, tmp_path):
@@ -266,7 +247,6 @@ def test_names(client):
 
     w = client.post("/api/projects/wx/names/check", json=p).json()["warnings"]
     assert any("AI가 자주" in x for x in w)  # mock 제안의 '서윤', '도현'
-
 
 
 def test_field_ideas(client):

@@ -2,7 +2,6 @@
 from canon import publish
 
 from .test_plot_chat import _project
-from .test_web import client  # noqa: F401  (pytest fixture)
 
 TEXT = "## 1화\n비가 그친 오후였다.  서윤은 **등대** 앞에 섰다.​ \n\n\n\"여기서 뭐 해요?\"\r\n도현이 물었다.\n\n***\n\n바다가 울었다."
 

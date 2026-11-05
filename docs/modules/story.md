@@ -42,6 +42,7 @@
 - 되묻기 `ask`
 - 화 넣기 · 빼기 `insert_episodes` · `remove_episode`(`RENUMBER_TOOLS`, `RenumberOp`): 복사본에 해 보고(`preview`) 늘 승인 카드로 묻는다(`permit` 의 `renumber`). 쓰기 `apply_op`, 되돌리기 반대 동작 `inverse`, 자동 집필 번호 `shift`. 번호를 옮긴 뒤에는 턴을 다시 찾는다(작품 칸이 통째로 바뀜)
 - 화 넣기 · 빼기가 빼는 옛 화 번호 `dropped`(되돌리기면 넣었던 화들): 웹이 `store.renumber_side_files` 의 `gone` 으로 넘긴다
+- `RenumberOp.aside`: 화 빼기 승인 때 웹이 removed/ 에 남긴 큐 시트 실험 · 비교본 경로를 적는다. 빼기를 되돌리면 웹이 그 파일을 되돌린다
 - 쓰기는 `clean_revision` 으로 거른다(본문이 있는 화는 막힘)
 - 쓰기 부분마다 종류(`KIND_LABELS`)를 매긴다
 - 권한(`permit`) 안이면 `pipeline.plot_apply` 로 바로 쓴다(`WriteRecord`)
@@ -659,4 +660,5 @@
 - 화면의 작품 전체 저장(`_save`)은 디스크 표시를 지킨다
 - 프롬프트에 넣지 않는다
 - 명령줄 `tofix`
+- 명령줄 `tofix` 도 `jobs.project_lock` 안에서 다시 읽고 고쳐 저장한다. 웹 서버의 자동 집필이 도는 동안 달아도 서로 덮지 않는다
 - LLM 호출 없음

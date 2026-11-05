@@ -2,8 +2,6 @@
 from canon import pipeline, prompts
 from canon.schema import Act, EpisodePlot, PlotRevision, Project
 
-from .test_web import client  # noqa: F401  (pytest fixture)
-
 
 def _project(client, eps=10):
     meta = {"title": "등대", "target_episodes": eps}

@@ -1,7 +1,6 @@
 """지하철 노선과 역 사이 이동 시간 테스트 (docs/map/specs/06-subway.md): OpenStreetMap 의 역 · 노선 읽기(osm._transit),
 작품 사본(Atlas.transit), 대중교통 이동 시간(travel.rail · trip), 프롬프트 줄(mapprompt.travel_block), 지도 화면 역 표지 계산.
 실행: python -m pytest tests/test_subway.py"""
-import importlib
 import json
 import math
 import os
@@ -156,8 +155,7 @@ def test_web_upload_keeps_transit(tmp_path, monkeypatch):
     monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
     from canon import store as st, web
 
-    importlib.reload(st)
-    importlib.reload(web)
+    monkeypatch.setattr(st, "ROOT", tmp_path)
     st.save("t", _played())
     c = TestClient(web.app)
     r = c.put("/api/projects/t/atlas/layout", json={"data": _xml()})

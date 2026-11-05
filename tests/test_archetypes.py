@@ -1,10 +1,8 @@
 """원형 도감: 목록 점검, 빈 칸만 채우기, 비틀기 한 줄, 주사위, 고른 원형 기록, 웹 · 명령줄."""
-import importlib
 import random
 import typing
 
 import pytest
-from fastapi.testclient import TestClient
 
 from canon import archetypes, dynamics, genres, prompts
 from canon.schema import Character, Meta, Project
@@ -114,18 +112,6 @@ def test_new_character_from_roll():
 def test_old_project_loads_without_picks():
     p = Project.model_validate({"meta": {"title": "t"}})
     assert p.cast_archetypes == []
-
-
-@pytest.fixture()
-def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("CANON_LLM", "mock")
-    monkeypatch.setenv("CANON_HOME", str(tmp_path))
-    monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
-    from canon import store, web
-
-    importlib.reload(store)
-    importlib.reload(web)
-    return TestClient(web.app)
 
 
 def test_web_catalog_fill_roll_and_prune(client):

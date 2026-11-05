@@ -6,7 +6,6 @@ from canon import archetypes, birth, cast, mock, naming, prompts, store
 from canon.schema import Birth, Character, Meta, Project, StoryElement, WorldSetting
 
 from .test_restate import _two_done
-from .test_web import client  # noqa: F401  (pytest fixture)
 
 
 def _world() -> Project:

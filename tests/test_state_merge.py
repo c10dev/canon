@@ -6,7 +6,6 @@ from canon.schema import CharacterState, Meta, Project, StateDelta
 from .jsvm import dump, episode, needs_node, run_js
 from .test_restate import _two_done
 from .test_storylines import _short
-from .test_web import client  # noqa: F401  (pytest fixture)
 
 
 def test_drop_invalid_keeps_dropped_items_in_dismissed():

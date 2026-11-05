@@ -6,7 +6,6 @@ import time
 from canon import prompts, store
 
 from .test_restate import _two_done
-from .test_web import client  # noqa: F401  (pytest fixture)
 
 
 def _settled(client, name, timeout=10):

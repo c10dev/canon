@@ -1,26 +1,16 @@
 """문체 라이브러리 (mock LLM). 실행: python -m pytest tests"""
-import importlib
 import json
 import os
 
 import pytest
-from fastapi.testclient import TestClient
 
 SAMPLE = open(os.path.join(os.path.dirname(__file__), "..", "examples", "sample_style.txt"), encoding="utf-8").read()
 
 
 @pytest.fixture()
-def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("CANON_LLM", "mock")
-    monkeypatch.setenv("CANON_HOME", str(tmp_path))
-    monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
+def client(client, monkeypatch):
     monkeypatch.delenv("CANON_STYLES", raising=False)
-    from canon import library, store, web
-
-    importlib.reload(store)
-    importlib.reload(library)
-    importlib.reload(web)
-    return TestClient(web.app)
+    return client
 
 
 def test_library_crud_and_apply(client, tmp_path):

@@ -1,5 +1,4 @@
 """상태창 수치(canon/statwin.py) 테스트 (mock LLM): 상대값 계산, 변경안 반영, 작가 수정, 되돌리기, 화별 비교표, 프롬프트 규칙, CLI, 웹. 실행: python -m pytest tests"""
-import importlib
 
 from fastapi.testclient import TestClient
 
@@ -198,7 +197,7 @@ def test_cli_and_web(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("CANON_LLM", "mock")
     monkeypatch.setenv("CANON_HOME", str(tmp_path))
     monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
-    importlib.reload(store)
+    monkeypatch.setattr(store, "ROOT", tmp_path)
     store.save("sw", _short(8))
     cli.main(["statwin", "sw", "hero", "--set", "레벨=5", "--set", "HP=100"])
     cli.main(["statwin", "sw", "hero", "--set", "HP=-30"])
@@ -207,7 +206,6 @@ def test_cli_and_web(tmp_path, monkeypatch, capsys):
     assert _stats(store.load("sw")) == {"레벨": "5", "HP": "70"}
 
     from canon import web
-    importlib.reload(web)
     c = TestClient(web.app)
     r = c.get("/api/projects/sw/statwin/hero").json()
     assert r["names"] == ["레벨", "HP"] and "HP: 70" in r["text"] and "growth" in r["presets"]
@@ -235,10 +233,9 @@ def test_decor_web(tmp_path, monkeypatch):
     monkeypatch.setenv("CANON_LLM", "mock")
     monkeypatch.setenv("CANON_HOME", str(tmp_path))
     monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
-    importlib.reload(store)
+    monkeypatch.setattr(store, "ROOT", tmp_path)
     store.save("sw", _short(8))
     from canon import web
-    importlib.reload(web)
     c = TestClient(web.app)
     o = c.post("/api/projects/sw/statwin-suggest", json={"request": ""}).json()["options"][0]
     assert store.load("sw").stat_window.skin == "system"
@@ -344,10 +341,9 @@ def test_initial_stats_web(tmp_path, monkeypatch):
     monkeypatch.setenv("CANON_LLM", "mock")
     monkeypatch.setenv("CANON_HOME", str(tmp_path))
     monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
-    importlib.reload(store)
+    monkeypatch.setattr(store, "ROOT", tmp_path)
     store.save("sw", _short(8))
     from canon import web
-    importlib.reload(web)
     c = TestClient(web.app)
     w = c.put("/api/projects/sw/statwin-template", json={"template": "【 상태창 】\n{rows}", "names": ["레벨", " 레벨", "HP", ""]}).json()["stat_window"]
     assert w["names"] == ["레벨", "HP"]

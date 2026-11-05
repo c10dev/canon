@@ -4,8 +4,6 @@ import json
 from canon import prompts
 from canon.schema import Character, PlotBatch, Project, SetupRevision, SetupSuggestion
 
-from .test_web import client  # noqa: F401  (pytest fixture)
-
 
 def _hero(**body):
     return Character.model_validate({"id": "hero", "name": "서윤", "role": "주인공", "age": "24세", "body": body})

@@ -2,7 +2,6 @@
 import re
 
 from .jsvm import STATIC
-from .test_web import client  # noqa: F401  (pytest fixture)
 
 FILES = re.findall(r'src="/static/([A-Za-z0-9_./-]+\.js)"', (STATIC / "index.html").read_text(encoding="utf-8"))
 

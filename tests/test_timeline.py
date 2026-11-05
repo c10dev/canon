@@ -1,5 +1,4 @@
 """작품 속 시간(canon/timeline.py) 테스트 (mock LLM): 반영, 프롬프트 블록, 기한 남은 날 · 예산, 되돌리기, 작가 수정, 끄기, CLI, 웹. 실행: python -m pytest tests"""
-import importlib
 
 import pytest
 
@@ -139,14 +138,13 @@ def test_cli_and_web(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("CANON_LLM", "mock")
     monkeypatch.setenv("CANON_HOME", str(tmp_path))
     monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
-    importlib.reload(store)
+    monkeypatch.setattr(store, "ROOT", tmp_path)
     store.save("tl", _play(_short(8), 1, 2))
     cli.main(["time", "tl", "--start", "2024년 3월 2일 토요일", "--add", "빚 갚을 날@9", "--close", "dl-01-festival"])
     out = capsys.readouterr().out
     assert "기준: 1일째 = 2024년 3월 2일 토요일" in out and "빚 갚을 날 (3월 10일 일요일) · 7일 남음" in out and "2화에 닫힘" in out
 
     from canon import web
-    importlib.reload(web)
     c = TestClient(web.app)
     v = c.get("/api/projects/tl/timeline").json()
     assert v["day"] == 2 and v["rows"][1]["gap"] == 1 and v["deadlines"][0]["left"] == "7일 남음"
@@ -209,7 +207,7 @@ def test_cli_dates(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("CANON_LLM", "mock")
     monkeypatch.setenv("CANON_HOME", str(tmp_path))
     monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
-    importlib.reload(store)
+    monkeypatch.setattr(store, "ROOT", tmp_path)
     store.save("tl", _play(_short(8), 1, 2))
     cli.main(["time", "tl", "--date", "2024-03-04", "--start", "초봄", "--add", "결혼식@2024-03-16", "--add", "장날@3월 9일"])
     out = capsys.readouterr().out

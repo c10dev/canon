@@ -11,7 +11,6 @@ from canon.schema import SettingChange, StateDelta
 from .test_autorun import Policy, demo  # noqa: F401  (pytest fixture)
 from .test_storylines import _short
 from .test_timeline import LLM, _play
-from .test_web import client  # noqa: F401  (pytest fixture)
 
 
 def _written(p, n):

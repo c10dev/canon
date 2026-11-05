@@ -9,13 +9,16 @@
 """
 from __future__ import annotations
 
+import contextlib
 import contextvars
+import fcntl
 import logging
+import os
 import threading
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 from . import cancel, store
 
@@ -100,12 +103,48 @@ draining = threading.Event()
 DRAIN_LIMIT = 1800  # 이 시간(초)을 기다려도 작업이 끝나지 않으면 그대로 다시 시작한다 (canon/web.py _drain)
 _lock = threading.Lock()
 _project_locks: dict[str, threading.Lock] = {}
+EDIT_LOCK = ".edit.lock"  # project_lock 이 작품 폴더에 거는 flock 파일. store.save 의 .lock 과 따로 둬서 같은 스레드가 안에서 저장해도 막히지 않는다
+LOCK_WAIT = 30.0  # 다른 프로세스(명령줄 등)가 작품을 고치는 동안 기다리는 상한(초). 넘기면 Locked
 
 
-def project_lock(name: str) -> threading.Lock:
-    """project.json 을 읽고 고쳐 저장하는 동안 잡는 작품별 잠금."""
+class Locked(ValueError):
+    """다른 프로세스가 작품을 고치는 중이라 LOCK_WAIT 초를 기다려도 잠금을 잡지 못했다 (화면에는 400 으로 보인다)."""
+
+    def __init__(self):
+        super().__init__("다른 프로그램(명령줄 등)이 이 작품을 고치고 있어요. 잠시 뒤 다시 시도하세요")
+
+
+def _flock(path: str) -> int:
+    """path 에 flock 을 건다. 다른 프로세스가 쥐고 있으면 LOCK_WAIT 초까지 기다리고, 넘기면 Locked."""
+    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_CLOEXEC, 0o644)
+    deadline = time.monotonic() + LOCK_WAIT
+    while True:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return fd
+        except BlockingIOError:
+            if time.monotonic() >= deadline:
+                os.close(fd)
+                raise Locked() from None
+            time.sleep(0.05)
+
+
+@contextlib.contextmanager
+def project_lock(name: str) -> Iterator[None]:
+    """project.json 을 읽고 고쳐 저장하는 동안 잡는 작품별 잠금. 한 스레드 안에서 다시 잡으면 멈춘다(재진입하지 않는다).
+    프로세스 안 잠금을 잡은 뒤 작품 폴더의 EDIT_LOCK 에 flock 을 걸어 명령줄과 웹 서버 사이에서도 잠근다.
+    점으로 시작하는 열쇠(revlab.lock_key 등)와 폴더가 없는 작품은 프로세스 안에서만 잠근다."""
     with _lock:
-        return _project_locks.setdefault(name, threading.Lock())
+        lock = _project_locks.setdefault(name, threading.Lock())
+    with lock:
+        d = store.project_dir(name)
+        fd = _flock(str(d / EDIT_LOCK)) if not name.startswith(".") and d.is_dir() else None
+        try:
+            yield
+        finally:
+            if fd is not None:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+                os.close(fd)
 
 
 def _prune() -> None:

@@ -754,6 +754,102 @@ def test_stale_delta_is_not_auto_applied(demo, monkeypatch):
     assert ep.status == "written" and not ep.auto and run.applied == []
 
 
+def test_second_request_in_same_process_gets_starting_message(demo, monkeypatch):
+    """같은 프로세스에서 이어 가기를 준비하는 동안 온 두 번째 시작 · 이어 가기는 '다른 곳' 이 아닌 STARTING 으로 거절한다."""
+    import threading
+    autorun.start(demo, 3, False, Policy(), foreground=True)
+    assert autorun.get_run(demo).status == "review"
+    entered, go = threading.Event(), threading.Event()
+    calls = []
+    real = pipeline.apply_delta
+
+    def slow(q, d):
+        calls.append(d.episode)
+        if d.episode == 2:
+            entered.set()
+            assert go.wait(10)
+        return real(q, d)
+
+    monkeypatch.setattr(pipeline, "apply_delta", slow)
+    first: dict = {}
+
+    def body():
+        try:
+            first["run"] = autorun.resume(demo, approve=True, foreground=True)
+        except BaseException as e:  # 시험이 실패하면 원인을 보인다
+            first["error"] = e
+
+    t = threading.Thread(target=body)
+    t.start()
+    try:
+        assert entered.wait(10)
+        assert not autorun.elsewhere(demo)  # 이 프로세스의 실행이다
+        with pytest.raises(ValueError) as e:
+            autorun.resume(demo, approve=True)
+        assert "다른 곳" not in str(e.value)  # 고치기 전에는 다른 프로세스의 실행이라고 알렸다
+        assert str(e.value) == autorun.STARTING
+        with pytest.raises(ValueError) as e:
+            autorun.start(demo, 3, False, Policy())
+        assert str(e.value) == autorun.STARTING
+    finally:
+        go.set()
+        t.join(30)
+    assert "error" not in first and first["run"].status == "done"
+    assert calls.count(2) == 1  # 검토 대기 2화 변경안은 한 번만 반영한다 (3화는 러너가 이어서 반영)
+
+
+def test_elsewhere_false_while_this_process_takes_lock(demo, monkeypatch):
+    """_take 가 잠금 파일을 잡은 뒤 Control 을 등록하기 전에도 이 프로세스의 실행은 '다른 곳' 이 아니다."""
+    import threading
+    real = autorun._take
+    entered, go = threading.Event(), threading.Event()
+
+    def take(name):
+        fd = real(name)
+        entered.set()
+        assert go.wait(10)
+        return fd
+
+    monkeypatch.setattr(autorun, "_take", take)
+    first: dict = {}
+
+    def body():
+        try:
+            first["run"] = autorun.start(demo, 1, False, Policy(), foreground=True)
+        except BaseException as e:  # 시험이 실패하면 원인을 보인다
+            first["error"] = e
+
+    t = threading.Thread(target=body)
+    t.start()
+    try:
+        assert entered.wait(10)
+        assert demo not in autorun._controls or autorun._controls[demo].owner is None
+        assert not autorun.elsewhere(demo)  # 고치기 전에는 잠금을 쥔 이 프로세스를 다른 곳으로 보았다
+        assert not autorun.active(demo)
+        with pytest.raises(ValueError) as e:
+            autorun.start(demo, 1, False, Policy())
+        assert str(e.value) == autorun.STARTING
+    finally:
+        go.set()
+        t.join(30)
+    assert "error" not in first and first["run"].status == "done"
+
+
+def test_take_waits_outside_global_lock(demo, monkeypatch):
+    """잠금 파일을 다시 잡아 보는 대기는 전역 _lock 밖에서 해서 다른 작품의 요청을 막지 않는다."""
+    real = autorun._take
+    held = []
+
+    def take(name):
+        held.append(autorun._lock.locked())
+        return real(name)
+
+    monkeypatch.setattr(autorun, "_take", take)
+    autorun.start(demo, 1, False, Policy(), foreground=True)
+    assert held == [False]
+    assert autorun._taking == set() and autorun._controls[demo].owner is None
+
+
 def test_runner_reads_request_left_by_other_process(demo, monkeypatch):
     """다른 프로세스가 autorun.want 에 남긴 일시정지를 러너가 배치를 기다리다 읽고 멈춘다. 끝나면 잠금을 푼다."""
     monkeypatch.setenv("CANON_MOCK_BATCH_POLLS", "100000")

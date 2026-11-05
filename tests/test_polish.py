@@ -5,7 +5,7 @@ from canon import pipeline, prompts
 from canon.schema import RewriteRequest
 
 from .test_passage import TEXT, _ep, _written
-from .test_web import _wait, client  # noqa: F401  (pytest fixture)
+from .test_web import _wait
 
 JOB = "/api/projects/lh/jobs"
 

@@ -12,7 +12,7 @@ from .test_passage import _ep
 from .test_plot_chat import _project
 from .test_restate import _two_done
 from .jsvm import needs_node, run_js
-from .test_web import _wait, client  # noqa: F401  (pytest fixture)
+from .test_web import _wait
 
 HEAD = "네, 1화 본문입니다."
 BODY = SHORT + "\n\n" + SHORT.replace("코미", "미코")  # 뗀 문단이 본문보다 훨씬 적어야 응답 전체를 메타로 보지 않는다 (metatail.whole)

@@ -14,7 +14,7 @@ from .test_passage import TEXT, _ep, _written
 from .test_play import _step
 from .test_restate import _two_done
 from .test_soelab import _project, home, story  # noqa: F401  (pytest fixture)
-from .test_web import _wait, client  # noqa: F401  (pytest fixture)
+from .test_web import _wait
 
 
 class GeminiLLM:  # usage.backend_of 는 클래스 이름으로 백엔드를 고른다

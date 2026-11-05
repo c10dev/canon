@@ -609,9 +609,9 @@ def save_compare(name: str, n: int, drafts: dict[str, str], kind: str = "backend
     for old in [*out.glob("*.md"), *out.glob("hook-*.json")]:
         old.unlink()  # 앞 비교의 남은 안과 판정이 새 번호에 섞이지 않게
     for i, key in enumerate(order, 1):
-        (out / f"{i}.md").write_text(drafts[key], encoding="utf-8")
-    (out / "key.json").write_text(json.dumps({"order": order, "kind": kind, "created": datetime.now().isoformat(timespec="seconds"),
-                                              "models": models or {}}, ensure_ascii=False), encoding="utf-8")
+        store.write_atomic(out / f"{i}.md", drafts[key])
+    store.write_atomic(out / "key.json", json.dumps({"order": order, "kind": kind, "created": datetime.now().isoformat(timespec="seconds"),
+                                                     "models": models or {}}, ensure_ascii=False))
     return load_compare(name, n)
 
 
@@ -648,7 +648,7 @@ def compare_text(name: str, n: int, k: int) -> str:
 
 def save_compare_hook(name: str, n: int, k: int, report: BaseModel) -> None:
     """비교본 하나의 흡입력 판정. 다음 비교를 만들면 지운다."""
-    (compare_dir(name, n) / f"hook-{k}.json").write_text(report.model_dump_json(), encoding="utf-8")
+    store.write_atomic(compare_dir(name, n) / f"hook-{k}.json", report.model_dump_json())
 
 
 def pick_compare(name: str, p: Project, n: int, k: int, adopt: bool = True) -> dict:
@@ -664,7 +664,7 @@ def pick_compare(name: str, p: Project, n: int, k: int, adopt: bool = True) -> d
     if adopt:
         pipeline.adopt_draft(p, n, (out / f"{k}.md").read_text(encoding="utf-8"), key.get("models", {}).get(order[k - 1], ""))
     key["picked"] = k
-    key_path.write_text(json.dumps(key, ensure_ascii=False), encoding="utf-8")
+    store.write_atomic(key_path, json.dumps(key, ensure_ascii=False))
     log = out.parent / "log.jsonl"
     with log.open("a", encoding="utf-8") as f:
         f.write(json.dumps({"episode": n, "kind": key.get("kind", "backend"), "options": order, "picked": order[k - 1],

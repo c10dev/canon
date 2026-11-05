@@ -3,7 +3,6 @@ from canon import store
 from canon.schema import Project
 
 from .jsvm import episode
-from .test_web import client  # noqa: F401  (pytest fixture)
 
 
 def _demo() -> None:

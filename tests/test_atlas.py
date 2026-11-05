@@ -1,6 +1,5 @@
 """지도(canon/atlas.py · canon/maps/) 테스트 (mock LLM): 장소 목록, 위치 글 맞추기, 화별 자리, 맞지 않은 위치, 자리 저장, CLI, 웹. 실행: python -m pytest tests"""
 import base64
-import importlib
 import os
 import tempfile
 
@@ -144,8 +143,7 @@ def test_web_atlas(tmp_path, monkeypatch):
     monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
     from canon import store as st, web
 
-    importlib.reload(st)
-    importlib.reload(web)
+    monkeypatch.setattr(st, "ROOT", tmp_path)
     st.save("w", _played())
     c = TestClient(web.app)
     r = c.get("/api/projects/w/atlas").json()
@@ -241,8 +239,7 @@ def test_web_atlas_sort(tmp_path, monkeypatch):
     monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
     from canon import store as st, web
 
-    importlib.reload(st)
-    importlib.reload(web)
+    monkeypatch.setattr(st, "ROOT", tmp_path)
     p = _played()
     p.characters[0].name = p.characters[0].name or "서윤"
     st.save("s", p)
@@ -352,8 +349,7 @@ def test_web_atlas_layout(tmp_path, monkeypatch):
     monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
     from canon import store as st, web
 
-    importlib.reload(st)
-    importlib.reload(web)
+    monkeypatch.setattr(st, "ROOT", tmp_path)
     st.save("v", _played())
     c = TestClient(web.app)
     assert c.get("/api/projects/v/atlas/layout").status_code == 404

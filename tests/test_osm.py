@@ -176,15 +176,12 @@ def test_describe_real_map():
 
 
 def test_web_upload_osm(tmp_path, monkeypatch):
-    import importlib
-
     monkeypatch.setenv("CANON_HOME", str(tmp_path))
     monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
     from canon import store, web
 
     from .test_mapgen import _project
-    importlib.reload(store)
-    importlib.reload(web)
+    monkeypatch.setattr(store, "ROOT", tmp_path)
     store.save("o", _project())
     c = TestClient(web.app)
     pr = c.put("/api/projects/o/atlas/layout", json={"data": _xml()}).json()
@@ -266,7 +263,6 @@ def test_spot_lines_in_prompt():
 
 def test_old_pins_get_spots(tmp_path, monkeypatch):
     """건물 한 줄이 생기기 전에 놓은 핀: 지도 화면은 응답에만 싣고, 쓰기 · 검수 작업(웹 · 명령줄 · 자동 집필)은 채워 저장한다."""
-    import importlib
 
     monkeypatch.setenv("CANON_HOME", str(tmp_path))
     monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
@@ -275,8 +271,7 @@ def test_old_pins_get_spots(tmp_path, monkeypatch):
 
     from .test_mapgen import _project
     from .test_web import _wait
-    importlib.reload(store)
-    importlib.reload(web)
+    monkeypatch.setattr(store, "ROOT", tmp_path)
     p = _project()
     p.elements.append(StoryElement(id="t-1", kind="장소", name="테스트타워"))
     pipeline.confirm_plot(p, 4)

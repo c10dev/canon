@@ -4,7 +4,6 @@ from canon.schema import Project
 
 from .test_plot_chat import _project
 from .test_restate import _two_done
-from .test_web import client  # noqa: F401  (pytest fixture)
 
 
 def test_check_keeps_only_this_episode_events(client):

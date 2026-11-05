@@ -12,7 +12,6 @@ from canon.schema import (Character, ConsistencyReport, DraftBeat, DraftBody, Dr
                           StageBeat, StageBody, StageContact, StageDraft, StageScene, StageSpot)
 
 from .jsvm import episode
-from .test_web import client  # noqa: F401  (pytest fixture)
 
 TEXT = "도윤이 문을 열었다. 하린은 창가에 서 있었다. 도윤이 하린의 어깨를 잡았다."
 

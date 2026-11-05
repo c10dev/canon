@@ -7,7 +7,6 @@ from canon.schema import ChatScope
 from .test_arc_chat import _three_arcs
 from .test_plot_chat import _last, _project
 from .test_serial import LLM
-from .test_web import client  # noqa: F401  (pytest fixture)
 
 
 def _ask(client, message):

@@ -1,7 +1,7 @@
 """대화 에이전트 테스트 (mock LLM). 실행: python -m pytest tests"""
 from .test_arc_chat import _three_arcs
 from .test_plot_chat import _project
-from .test_web import _wait, client  # noqa: F401  (pytest fixture)
+from .test_web import _wait
 
 
 def _session(client, name="lh", **kw):
@@ -498,3 +498,62 @@ def test_plot_chat_parts_names_follow_the_given_rng():
     p = _three_arcs()[0]
     one, two = (prompts.plot_chat_parts(p, ChatScope(), random.Random("s1")) for _ in range(2))
     assert one == two and "[이름 후보]" in one[1]
+
+
+def test_agent_renumber_moves_side_files_under_lock_and_undo_restores_them(client, monkeypatch):
+    """대화 에이전트의 화 빼기 · 넣기도 큐 시트 실험 · 비교본을 잠금 안에서 옮기고, 빼기를 되돌리면 removed/ 의 파일을 되돌린다."""
+    from canon import jobs, research, store
+    from .test_insert import _side
+
+    _with_text(client)
+    _side("lh", [3, 4, 6])
+    locked: list[bool] = []
+    real_move, real_restore = store.renumber_side_files, store.restore_side_files
+
+    def held(fn):
+        def run(*a, **kw):
+            locked.append(jobs._project_locks["lh"].locked())
+            return fn(*a, **kw)
+        return run
+
+    monkeypatch.setattr(store, "renumber_side_files", held(real_move))
+    monkeypatch.setattr(store, "restore_side_files", held(real_restore))
+
+    sid = _session(client)
+    t = _say(client, sid, "4화 빼 줘")
+    assert t["approval"]["op"]["kind"] == "remove"
+    r = client.post(f"/api/projects/lh/sessions/{sid}/turns/0/approval", json={"approve": True})
+    assert r.status_code == 200, r.text
+    _wait(client, r.json()["job"]["id"])
+    assert store.cuelab_episodes("lh") == [3, 5]
+    assert store.load_cuelab("lh", 5).model == "m6" and research.load_compare("lh", 4) is None
+    op = _turn(client, sid, t=0)["writes"][0]["op"]
+    assert [x.split("/")[:2] for x in op["aside"]] == [["compare", "removed"], ["cuelab", "removed"]]
+
+    r = client.post(f"/api/projects/lh/sessions/{sid}/turns/0/undo", json={})
+    assert r.status_code == 200 and r.json()["restored"] == ["4화 빼기"], r.text
+    assert store.cuelab_episodes("lh") == [3, 4, 6]
+    assert store.load_cuelab("lh", 4).model == "m4" and store.load_cuelab("lh", 4).episode == 4
+    assert store.load_cuelab("lh", 6).model == "m6" and store.load_cuelab("lh", 6).episode == 6
+    assert "4화 안" in research.compare_text("lh", 4, 1) and "6화 안" in research.compare_text("lh", 6, 1)
+    assert not list((store.project_dir("lh") / "cuelab" / store.SIDE_REMOVED).glob("*.json"))
+    assert locked and all(locked)
+
+
+def test_restore_side_files_keeps_existing_and_skips_odd_paths():
+    from canon import store
+    from canon.schema import CueLab
+
+    store.save("rs", _short_project())
+    store.save_cuelab("rs", CueLab(episode=2, model="옛 실험"))
+    aside: list[str] = []
+    store.renumber_side_files("rs", lambda x: x - 1 if x >= 2 else x, [2], aside)
+    store.save_cuelab("rs", CueLab(episode=2, model="새 실험"))
+    notes = store.restore_side_files("rs", [*aside, "../project.json", "cuelab/2.json"], 2)
+    assert store.load_cuelab("rs", 2).model == "새 실험" and "그대로 뒀어요" in notes[0] and len(notes) == 1
+    assert (store.project_dir("rs") / aside[0]).exists()
+
+
+def _short_project():
+    from .test_insert import _short
+    return _short()

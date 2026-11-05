@@ -5,7 +5,6 @@ from canon import web
 
 from .jsvm import needs_node, run_js
 from .test_restate import _two_done
-from .test_web import client  # noqa: F401  (pytest fixture)
 
 TITLES = ["등대", "  밤의 등대  ", "a/b\\c:d*e?f\"g<h>i|j", "...숨은 폴더", ". 점 뒤 빈칸", "탭\t과\n줄바꿈", "가" * 80, "x" * 63 + " y",
           "", "   ", "///", "회귀한 S급 헌터의 두 번째 인생은 생각보다 조용하다 — 1부 · 겨울 편"]

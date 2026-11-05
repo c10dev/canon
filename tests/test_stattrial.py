@@ -108,8 +108,6 @@ def test_lines_budget_counts_cut(monkeypatch):
 
 
 def test_web(tmp_path, monkeypatch):
-    import importlib
-
     from fastapi.testclient import TestClient
 
     from canon import store
@@ -117,10 +115,9 @@ def test_web(tmp_path, monkeypatch):
     monkeypatch.setenv("CANON_LLM", "mock")
     monkeypatch.setenv("CANON_HOME", str(tmp_path))
     monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
-    importlib.reload(store)
+    monkeypatch.setattr(store, "ROOT", tmp_path)
     store.save("st", _trial())
     from canon import web
-    importlib.reload(web)
     c = TestClient(web.app)
     v = c.get("/api/projects/st/stattrial").json()
     assert [x["key"] for x in v["conditions"]] == ["none", "json", "lines"] and [x["episode"] for x in v["candidates"]] == [1, 2, 3]

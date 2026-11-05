@@ -7,7 +7,6 @@ from canon.mock import NEW_CAST_EP, NEW_PLACE, MockLLM
 from canon.schema import NewPlace, Project, StateDelta, StoryElement
 
 from .test_passage import _written
-from .test_web import client  # noqa: F401  (pytest fixture)
 
 LLM = MockLLM()
 TEXT = "서윤은 흑송마을 어귀에서 숨을 골랐다. 고개 너머로 백야천이 흘렀다. 등대 불빛이 멀리 보였다."

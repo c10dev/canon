@@ -2,7 +2,6 @@
 from canon.schema import Character, Meta, Project
 
 from .jsvm import episode
-from .test_web import client  # noqa: F401  (pytest fixture)
 
 
 def _make(minor: bool = False):

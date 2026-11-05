@@ -8,7 +8,6 @@ from canon.schema import Episode, EpisodePlot, Part, PlayInfo, Project, StoryArc
 
 from .test_passage import _written
 from .test_restate import _two_done
-from .test_web import client  # noqa: F401  (pytest fixture)
 
 LLM = mock.MockLLM()
 

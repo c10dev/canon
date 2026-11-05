@@ -42,6 +42,9 @@
 - 도는 실행은 작품 폴더의 `.autorun.lock` 에 flock 을 쥔다(`_take`, `Control.owner`). 프로세스가 죽으면 OS 가 푼다
 - 다른 프로세스(명령줄 `canon auto` 나 다른 서버)가 잠금을 쥐면 `elsewhere` 가 참이고 `active` 도 참이다(화면 저장 보호가 켜진다)
 - 그동안 `start` · `resume` · `set_batch` · `set_policy` 는 `ELSEWHERE` 로 거절하고, `resume_all` 은 그 작품을 건너뛴다
+- 같은 프로세스의 다른 스레드가 시작 · 이어 가기를 준비하는 중(`_taking` 이나 `Control.owner` 가 있고 러너는 아직 없음)이면 `_control` 은 잠금 파일을 보기 전에 `STARTING` 으로 거절한다
+- `_control` 이 잠금 파일을 잡았지만 `Control` 을 아직 등록하지 않은 동안에도 `elsewhere` 는 `_taking` 을 보고 거짓을 돌려준다(이 프로세스의 실행을 다른 곳으로 보지 않는다)
+- `_take` 의 flock 재시도 대기는 전역 `_lock` 밖에서 한다. 다른 작품의 요청을 막지 않는다
 - 그동안 `request` 는 상태를 쓰거나 배치를 취소하지 않고 `autorun.want` 에 요청만 남긴다(중지를 일시정지로 낮추지 않는다)
 - `autorun.json` 과 `autorun.want` 는 `store.write_atomic` 으로 쓴다. 임시 파일 이름에 pid 와 스레드 id 가 들어가 주인의 기록과 다른 요청이 서로 겹치지 않는다
 - 러너는 `_checkpoint` 와 배치 대기(`Control.wait`)에서 `autorun.want` 를 읽는다(`Control.poll_want`). 주인이 된 실행은 남은 요청을 버린다
@@ -104,6 +107,8 @@
   - `dex`: 원형 도감 보기 · 인물 빈 칸 채우기 · 주사위
   - `edits`: 수정 기록 보기 · 되돌리기 · 내보내기
   - `export`: 다른 사이트에 붙여 넣을 본문 내보내기
+    - 작가가 고른 출력 파일(`export -o` · `soelab --out`)은 `_write_out` 이 바꿔치기로 쓴다. 링크는 가리키는 파일을 바꾸고, 보통 파일이 아닌 곳(`/dev/stdout` · 파이프)은 바로 쓴다
+    - `_write_out` 은 보통 파일인지를 `resolve` 전에 본다. 파이프인 `/dev/stdout` 은 `resolve` 하면 없는 `/proc/<pid>/fd/pipe:[N]` 이 되기 때문이다
   - `fix`: 본문 일부를 AI 후보로 고치기
   - `hook`: 1~3화 흡입력 판정
   - `illust`: NovelAI 삽화 프롬프트
@@ -265,6 +270,14 @@
 - 중복 실행 막기
 - 자동 업데이트가 다시 시작하려고 기다리는 동안(`draining`) 새 작업은 `Draining`(400, '서버를 곧 다시 시작해요')으로 거절한다. 자동 집필(`auto`)은 받아서 첫 단계 전에 멈춘다
 - `running()` 은 다른 스레드가 작업을 더해도 깨지지 않게 잠금 안에서 센다
+- `project_lock(name)` 은 프로세스 안 잠금(재진입하지 않음)을 잡은 뒤 작품 폴더의 `.edit.lock` 에 `fcntl.flock` 을 건다
+- `project_lock` 을 거치는 경로끼리만 프로세스가 달라도 서로 덮지 않는다
+- `project_lock` 을 거치는 경로: 웹 저장(`web._save` · `put_project` 등), 자동 집필(`autorun._edit`, 명령줄 `run` 포함), 대화 에이전트(`agent._edit`), 큐 시트 실험(`cue.with_lock`), 명령줄 `tofix`
+- 명령줄의 다른 명령(`write` · `check` · `update` · `confirm` · `plot` 등)은 아직 잠금 없이 `store.load` → AI 호출 → `store.save` 로 작품 전체를 저장한다
+- 그래서 그 명령이 도는 동안 웹 서버가 저장한 내용은 아직 덮일 수 있다(2026-11-05 확인, `cli.py` 의 `store.save(` 65곳)
+- `project_lock` 은 다른 프로세스가 쥐고 있으면 `LOCK_WAIT`(30초)까지 기다리고, 넘기면 `Locked`(400, '다른 프로그램(명령줄 등)이 이 작품을 고치고 있어요')를 낸다
+- `project_lock` 의 flock 은 `store.save` 의 `.lock` 과 다른 파일이라 잠금 안에서 저장해도 막히지 않는다. 점으로 시작하는 열쇠(`revlab.lock_key`)와 폴더가 없는 작품은 프로세스 안에서만 잠근다
+- `project_lock` 을 쥐는 구간은 읽고 고쳐 저장하는 짧은 구간이다. AI 호출은 그 밖에서 한다
 - 진행률
 - 작업이 맡은 화를 저장 덮어쓰기에서 지키기(`owned_episodes`)
 - 멈추기(`stop`)
@@ -513,10 +526,12 @@
 - `backups/` 의 모든 `.json`(되돌리기 전 판 포함)이 적은 스냅샷 파일을 남긴다
 - 아무 판도 적지 않아도 `SNAP_GRACE`(60초) 안에 쓴 스냅샷 파일은 지우지 않는다
 - `save` 는 판 기록 읽기부터 옛 스냅샷 지우기까지 작품 폴더의 `.lock` 에 `fcntl.flock` 을 잡는다(`_disk_lock`). 명령줄과 웹 서버가 함께 저장해도 서로의 새 스냅샷 파일을 지우지 않는다
+- 읽고 고쳐 저장하는 구간 전체의 프로세스 사이 잠금은 `jobs.project_lock`(`.edit.lock`)이 맡는다
 - `write_atomic` 은 pid · 스레드 id 가 붙은 tmp 파일에 다 쓴 뒤 `os.replace` 로 바꿔 넣고, 바꾸기 직전 tmp 의 stat(판)을 돌려준다
-- `write_atomic` 을 쓰는 곳: store · settings · refs · library · studio · autorun · revlab · soelab · maps/layout
+- `write_atomic` 은 글(utf-8)과 바이트(올린 지도 그림)를 함께 받는다
+- 덧붙이는 기록 파일(`usage` · research · 비교 `log.jsonl` · soelab 표시)은 바꿔치기하지 않고 `open("a")` 로 덧붙인다
+- `write_atomic` 을 쓰는 곳: store · settings · refs · library · studio · autorun · revlab · soelab · research 비교본 · maps/layout · maps/makers · routes/atlas · cli
 - `_hold` 는 하드 링크로 남기므로 `write_atomic` 대신 자기 tmp 와 `os.replace` 를 쓴다
-- 아직 대상 파일에 바로 쓰는 곳: research 비교본(`key.json` · 안 · hook 보고서), 지도 그림 · layout 올리기(routes/atlas), maps/makers 의 layout 파일, 명령줄 출력 파일
 - `write_atomic` 의 `mode` 는 tmp 를 처음부터 그 권한으로 만든다. `fsync` 는 내용과 폴더를 디스크에 내린다
 - fsync 는 project.json · 스냅샷 파일 · `save_backup` · 설정 파일에만 켠다(3MB 에 1.4ms 쯤). 내보낸 본문 `episodes/*.md` 와 pending · 갈래 · 플레이 · 큐 시트 실험은 바꿔치기만 한다
 - 화면 저장 기록(`writer`, `edit_rev` · `saved_by`, 파일 끝만 읽음)
@@ -527,6 +542,8 @@
 - 화 번호로 이름 붙인 바깥 파일(큐 시트 실험 `cuelab/<화>.json` · 블라인드 비교본 `compare/<화>/`, `compare_dir`)은 화를 넣고 뺄 때 `renumber_side_files` 로 옮긴다
 - `renumber_side_files` 는 옮길 파일을 임시 이름(`.renum-<화>`)으로 먼저 옮겨 서로 덮지 않고, 큐 시트 실험 안의 `episode` 도 새 번호로 고친다
 - 뺀 화(`gone`)의 바깥 파일은 지우지 않고 `cuelab/removed/` · `compare/removed/` 에 `<화>.<시각>` 으로 남긴다(`SIDE_REMOVED`)
+- `renumber_side_files` 에 `aside` 목록을 주면 뺀 화의 파일을 남긴 경로(작품 폴더 기준)를 더한다
+- `restore_side_files` 는 그 경로의 파일을 n화 자리로 되돌린다. 그 자리에 파일이 있으면 덮지 않고, `<종류>/removed/<이름>` 꼴이 아닌 경로는 건너뛴다
 
 ### `canon/updater.py`
 
@@ -601,5 +618,7 @@
 - 작품 목록 카드의 확인할 것(`_card_alerts`)은 `GET …/pending` 이 지우는 상태 변경안(`_stale_state`)을 빼고 보인다
 - 상태 변경안을 쓸 수 있는 화(`_state_live`)는 카드 몫과 함께 `_cards` 에 둔다
 - 화 넣기 · 빼기 · 지우기와 대화 에이전트의 화 넣기 · 빼기 승인 · 되돌리기는 저장한 뒤 `store.renumber_side_files` 로 큐 시트 실험 · 비교본을 옮긴다. 넣기 · 빼기 · 지우기 응답의 notes 에 옮긴 설명이 붙는다
+- 대화 에이전트의 승인(`agent_approval`) · 되돌리기(`agent_undo`)도 작품 저장과 바깥 파일 옮기기를 한 `jobs.project_lock` 안에서 한다
+- 에이전트의 화 빼기 승인은 removed/ 에 남긴 경로를 `RenumberOp.aside` 에 적고, 그 빼기를 되돌리면 `store.restore_side_files` 로 그 파일을 원래 화 자리로 되돌린다
 - `GET …/backups` · `POST …/backups/restore` 는 백업 목록과 되돌리기(`store.restore_backup`). 자동 집필 · 돌고 있는 AI 작업 · 검토를 기다리는 결과가 있으면 막고, 반영한 화가 줄면 `autorun.after_revert` 를 부른다
 - 작품 전체 저장은 `put_project`

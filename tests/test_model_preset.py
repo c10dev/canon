@@ -1,5 +1,4 @@
 """작품별 단계 프리셋 (Settings.model_preset, settings.project_preset). 화면 계산(static/settings.js 의 projectStage)은 node 가 있을 때만 돈다."""
-import importlib
 import json
 import shutil
 import subprocess
@@ -25,7 +24,7 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setenv("CANON_HOME", str(tmp_path))
     monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
     from canon import store
-    importlib.reload(store)
+    monkeypatch.setattr(store, "ROOT", tmp_path)
     settings.update(provider="gemini", stages={"state": "local"})
     store.save("a", Project(meta=Meta(title="가")))
     store.save("b", Project(meta=Meta(title="나")))
@@ -118,7 +117,6 @@ def test_store_reads_preset_again_after_save(env):
 def test_web_sets_project_preset(env):
     settings, store = env
     from canon import web
-    importlib.reload(web)
     client = TestClient(web.app)
     assert client.put("/api/projects/a/model-preset", json={"preset": "없음"}).status_code == 404
     r = client.put("/api/projects/a/model-preset", json={"preset": "anthropic"})

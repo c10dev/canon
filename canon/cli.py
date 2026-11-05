@@ -86,7 +86,7 @@ from . import (address, archetypes, autorun, branches, cast, charlog, dynamics, 
 from .llm import dump, get_llm
 from .schema import FINDING_STATUS, SEVERITY, ConsistencyReport, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
 from . import abilities, anchor, atlas, blocktrial, findings, stattrial, foreshadows, setupchat, statwin, timeline
-from . import birth, cue, labstats, play, soelab, tofix
+from . import birth, cue, jobs, labstats, play, soelab, tofix
 from .schema import ArcProposal, ChatScope, Deadline, MapPlace, StatValue, StateDeltaAI, StoryArc, to_delta
 from .maps import kinds as placekinds
 from .maps import travel
@@ -1479,7 +1479,7 @@ def cmd_openings(a: argparse.Namespace) -> None:
         print(f"{a.n}화 플롯을 여는 방식별로 만드는 중...")
         out = pipeline.suggest_openings(get_llm("plan"), p, a.n, ways)
         saved.parent.mkdir(parents=True, exist_ok=True)
-        saved.write_text(out.model_dump_json(), encoding="utf-8")
+        store.write_atomic(saved, out.model_dump_json())
         for i, o in enumerate(out.options, 1):
             e = o.plot
             print(f"\n[{i}] {prompts.OPENING_APPROACHES[o.approach][0]} · {e.title}\n  {o.pitch}\n  여는 장면: {e.opening}"
@@ -1526,7 +1526,7 @@ def cmd_brief(a: argparse.Namespace) -> None:
     text = {"state": prompts.state_brief, "check": prompts.check_brief, "episode": prompts.episode_brief}[kind](p, a.n)
     out = store.project_dir(a.name) / "briefs" / f"{a.n:02d}-{kind}.md"
     out.parent.mkdir(exist_ok=True)
-    out.write_text(text, encoding="utf-8")
+    store.write_atomic(out, text)
     print(f"작업지시서 저장: {out}\n(Claude / Gemini / ChatGPT 채팅에 그대로 붙여 넣으세요)")
 
 
@@ -1589,13 +1589,23 @@ def cmd_edits(a: argparse.Namespace) -> None:
             print(f"{e.plot.number}화 {x.id} [{how}]{mark} {x.instruction}\n  - {x.before[:80]}\n  + {x.after[:80]}")
 
 
+def _write_out(path: Path, text: str) -> None:
+    """작가가 고른 출력 파일을 바꿔치기로 쓴다 (중간에 멈춰도 잘린 파일이 남지 않게).
+    링크는 가리키는 파일을 바꾸고, 보통 파일이 아닌 곳(/dev/stdout, 파이프)은 바꿔 넣을 수 없어 바로 쓴다."""
+    # resolve 전에 본다: /dev/stdout 이 파이프면 resolve 가 없는 '/proc/<pid>/fd/pipe:[N]' 을 돌려준다.
+    if path.exists() and not path.is_file():
+        path.write_text(text, encoding="utf-8")
+    else:
+        store.write_atomic(path.resolve(), text)
+
+
 def cmd_export(a: argparse.Namespace) -> None:
     p = store.load(a.name)
     nums = [e.plot.number for e in p.episodes if e.text and (not a.start or e.plot.number >= a.start)
             and (not a.end or e.plot.number <= a.end)]
     out = publish.export(p, nums, a.format, not a.no_title)
     if a.output:
-        Path(a.output).write_text(out["text"], encoding="utf-8")
+        _write_out(Path(a.output), out["text"])
         print(f"{', '.join(map(str, out['episodes']))}화를 저장했어요: {a.output}")
     else:
         sys.stdout.write(out["text"])
@@ -2282,27 +2292,30 @@ def cmd_foreshadows(a: argparse.Namespace) -> None:
 
 def cmd_tofix(a: argparse.Namespace) -> None:
     """고칠 곳: 본문 문장에 단 '나중에 고칠 곳' 표시 보기 · 달기 · 고침으로 · 지우기."""
-    p = store.load(a.name)
     at = pipeline._now()
     if a.add:
         n, quote = int(a.add[0]), a.add[1]
-        m = tofix.add(p.episode(n), quote, a.note, 0, at)
-        store.save(a.name, p)
+        with jobs.project_lock(a.name):  # 웹 서버 · 자동 집필의 저장과 섞이지 않게 잠근 뒤 읽고 고쳐 저장한다
+            p = store.load(a.name)
+            m = tofix.add(p.episode(n), quote, a.note, 0, at)
+            store.save(a.name, p)
         print(f"{n}화에 고칠 곳 {m.id}을 달았어요.")
         return
     for flag, how in ((a.done, "done"), (a.reopen, "open"), (a.rm, "rm")):
         if not flag:
             continue
         num, _, mid = flag.partition(":")
-        ep = p.episode(int(num))
-        if how == "rm":
-            tofix.remove(ep, mid)
-        else:
-            tofix.update(ep, mid, at, a.note or None, how)
-        store.save(a.name, p)
+        with jobs.project_lock(a.name):
+            p = store.load(a.name)
+            ep = p.episode(int(num))
+            if how == "rm":
+                tofix.remove(ep, mid)
+            else:
+                tofix.update(ep, mid, at, a.note or None, how)
+            store.save(a.name, p)
         print(f"{num}화 고칠 곳 {mid}: {'지웠어요' if how == 'rm' else tofix.STATUS[how] + '으로 바꿨어요'}.")
         return
-    rows = tofix.collect(p, "all" if a.all else "open")
+    rows = tofix.collect(store.load(a.name), "all" if a.all else "open")
     if not rows:
         print("고칠 곳이 없어요." if a.all else "남은 고칠 곳이 없어요. --all로 고친 것도 볼 수 있어요.")
         return
@@ -2490,7 +2503,7 @@ def cmd_soelab(a: argparse.Namespace) -> None:
     else:
         out = json.dumps(soelab.export(include_hidden=a.all), ensure_ascii=False, indent=1)
         if a.out:
-            Path(a.out).expanduser().write_text(out + "\n", encoding="utf-8")
+            _write_out(Path(a.out).expanduser(), out + "\n")
             print(f"내보냈어요: {a.out} (원문 · 표시한 글 · 메모는 넣지 않았어요)")
         else:
             print(out)
