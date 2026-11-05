@@ -19,7 +19,7 @@ os.environ["CANON_LLM"] = "mock"
 os.environ["CANON_HOME"] = tempfile.mkdtemp()
 
 from canon import cancel, claude, settings, usage  # noqa: E402
-from canon.llm import SchemaMismatch, get_llm, out_cap, wait_cap, with_note  # noqa: E402
+from canon.llm import PREFIX_HINT, SchemaMismatch, get_llm, out_cap, wait_cap, with_note  # noqa: E402
 from canon.schema import NameOptions  # noqa: E402
 
 FAKE = textwrap.dedent('''\
@@ -264,6 +264,30 @@ class ClaudeCodeTest(unittest.TestCase):
         llm.text("쓰기", head + "\n\n# 이번 화 플롯\n2화")
         self.assertIsNone(self.calls()[-1]["system_file"])  # 이 옵션을 모르는 버전은 예전처럼 사용자 메시지에 둔다
         self.assertEqual(self.calls()[-1]["stdin"], with_note(head + "\n\n# 이번 화 플롯\n2화"))
+
+    def test_prefix_hint_moves_prefix_on_first_call(self):
+        # 부른 쪽이 공통 자료의 끝(hint prefix_chars)을 알려 주면 직전 요청이 없어도 첫 호출부터 시스템 프롬프트로 옮긴다
+        (self.dir / "help.txt").write_text("--safe-mode --tools <t> --strict-mcp-config --no-session-persistence "
+                                           "--json-schema <s> via: --system-prompt[-file], --append-system-prompt[-file]",
+                                           encoding="utf-8")
+        claude._SEEN.clear()
+        claude._WARM.clear()
+        material = "# 작품 정보\n" + "가" * 3000 + "\n\n# 3화 본문 (검수 대상)\n" + "나" * 500
+        llm = claude.ClaudeCodeLLM()
+        out = {"structured_output": {"options": [{"name": "윤채린", "reason": "맑다"}]}}
+        self.replies(out, out, out, out)
+        llm.json("고침", f"{material}\n\n# 고칠 지적\n- f1", NameOptions, hint={"episode": 3, PREFIX_HINT: len(material)})
+        llm.json("고침", f"{material}\n\n# 고칠 지적\n- f2", NameOptions, hint={PREFIX_HINT: len(material)})
+        first, second = self.calls()
+        self.assertNotIn("--system-prompt", first["args"])
+        self.assertEqual(first["system_file"], f"고침\n\n{material}")  # 앞 요청이 없어도 자료 끝에서 옮긴다
+        self.assertEqual(first["stdin"], with_note("# 고칠 지적\n- f1"))
+        self.assertEqual(second["system_file"], first["system_file"])  # 둘째 호출은 첫 호출이 쓴 캐시를 읽는다
+        # 경계가 단락 가운데면 그 앞 단락 경계로 맞추고, 앞부분이 너무 짧으면 옮기지 않는다
+        llm.json("고침2", f"{material}\n\n# 고칠 지적\n- f3", NameOptions, hint={PREFIX_HINT: len(material) - 10})
+        self.assertEqual(self.calls()[-1]["system_file"], "고침2\n\n# 작품 정보\n" + "가" * 3000)
+        llm.json("고침3", "짧은 자료\n\n# 고칠 지적", NameOptions, hint={PREFIX_HINT: 5})
+        self.assertIsNone(self.calls()[-1]["system_file"])
 
     def test_same_prefix_waits_for_first_writer(self):
 
@@ -620,6 +644,16 @@ class ClaudeAPITest(unittest.TestCase):
         self.assertEqual("".join(b["text"] for b in third), with_note(head + "\n\n# 이번 화 플롯\n3화"))
         self.assertIsInstance(other, str)  # 시스템 프롬프트가 다르면 따로 센다
         self.assertEqual(claude.cache_blocks(("k",), "짧은 글\n\n끝"), "짧은 글\n\n끝")
+
+    def test_cache_mark_at_prefix_hint_on_first_request(self):
+        # API 경로도 부른 쪽이 알려 준 경계에서 첫 요청부터 캐시 표시를 단다
+        claude._SEEN.clear()
+        material = "# 작품 정보\n" + "가" * 3000
+        llm = self.make(_msg('{"options": []}'))
+        llm.json("고침", material + "\n\n# 고칠 지적\n- f1", NameOptions, hint={PREFIX_HINT: len(material)})
+        blocks = self.reqs[0]["messages"][0]["content"]
+        self.assertEqual(blocks[0], {"type": "text", "text": material, "cache_control": {"type": "ephemeral"}})
+        self.assertEqual(blocks[1]["text"], with_note("\n\n# 고칠 지적\n- f1"))
 
     def test_stage_cost_uses_claude_price(self):
         self.assertAlmostEqual(usage.stage_cost("claude-api", "gemini-4-argon", 1e6, 0), 4.0)
