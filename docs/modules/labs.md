@@ -55,7 +55,7 @@
 - 문체 만들기 원문 `sample`(고른 화를 이어 `SAMPLE_MAX` 자까지) · 역설계 실험 만들기 `to_revlab`(`revlab.create_episodes`, 화 수는 막지 않고 글자 수만 `revlab.MAX_CHARS`) · 있는 실험에 잇기 `to_lab`(`revlab.append_episodes`, 화마다 출처 `RevSource`) · 화 차례별 지금 글 `texts`(출처 상태용)
 - 이 원고로 만든 것 `made`(`RefMade`, 문체는 `POST /api/styles` 의 `ref` · `ref_eps` 로 남긴다)
 - 내 작품과 견주기 `compare`(본문 있는 화 지표, 작품에 쓰지 않음)
-- 웹은 `/api/refs…`(`web.py` '레퍼런스 원고' 절)
+- 웹은 `/api/refs…`(`routes/refs.py`)
 - 화면은 `static/refs.js`
 - 시험 `tests/test_refs.py`(원고는 `tests/fixtures/refs_story.txt`, 직접 지은 글)
 
@@ -144,6 +144,36 @@
 - 작업은 `POST /api/revlab/{번호}/jobs`(kind parse · write · style → 작업 `rev_parse` · `rev_write` · `rev_style`, ep 가 실험 번호, project 자리는 `JOBS`, 사용량 범위에 작품 없음)
 - 화면은 `static/revlab.js`
 - 시험 `tests/test_revlab.py`(글은 `tests/fixtures/revlab_story.txt`, 직접 지은 글)
+
+### `canon/routes/refs.py`
+
+- 레퍼런스 원고 웹 라우트(`/api/refs/...`)
+- `web.py` 맨 끝의 `_attach_routes` 가 `router` 를 앱에 붙이고 `EXPORTS` 의 이름을 `web` 에도 둔다
+- 공용 도우미(`_load` · `_save` · `_edit` 등)는 `..web` 에서 불러 쓴다
+
+### `canon/routes/research.py`
+
+- 연구 화면 웹 라우트(`/api/projects/{name}/research/...`)
+- `web.py` 맨 끝의 `_attach_routes` 가 `router` 를 앱에 붙이고 `EXPORTS` 의 이름을 `web` 에도 둔다
+- 공용 도우미(`_load` · `_save` · `_edit` 등)는 `..web` 에서 불러 쓴다
+
+### `canon/routes/revlab.py`
+
+- 역설계 실험 웹 라우트(`/api/revlab/...`)
+- `web.py` 맨 끝의 `_attach_routes` 가 `router` 를 앱에 붙이고 `EXPORTS` 의 이름을 `web` 에도 둔다
+- 공용 도우미(`_load` · `_save` · `_edit` 등)는 `..web` 에서 불러 쓴다
+
+### `canon/routes/soelab.py`
+
+- 쇠맛 실험실 웹 라우트(`/api/soelab/...`)
+- `web.py` 맨 끝의 `_attach_routes` 가 `router` 를 앱에 붙이고 `EXPORTS` 의 이름을 `web` 에도 둔다
+- 공용 도우미(`_load` · `_save` · `_edit` 등)는 `..web` 에서 불러 쓴다
+
+### `canon/routes/studio.py`
+
+- 문단 연습장 웹 라우트(`/api/studio/...`)
+- `web.py` 맨 끝의 `_attach_routes` 가 `router` 를 앱에 붙이고 `EXPORTS` 의 이름을 `web` 에도 둔다
+- 공용 도우미(`_load` · `_save` · `_edit` 등)는 `..web` 에서 불러 쓴다
 
 ### `canon/soelab.py`
 
