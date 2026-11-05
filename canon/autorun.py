@@ -27,7 +27,7 @@ from typing import Any, Callable, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from . import anchor, atlas, board, cue, dynamics, features, findings, jobs, pipeline, prompts, settings, store, usage
+from . import anchor, atlas, board, cue, dynamics, features, findings, jobs, pipeline, prompts, settings, store, timeline, usage
 from . import stage as stage_mod
 from .llm import BatchLLM, Interrupted, SchemaMismatch, get_llm
 from .research import JSON_OUTPUT_RESERVE, _filler
@@ -39,6 +39,8 @@ LOG_KEEP = 500
 STEP_NAMES = {"plan": "스토리보드", "write": "본문", "revise": "서술 다듬기", "check": "검수", "state": "상태 변경안"}
 # 루프 단계(Run.step) 이름: 서버 재시작 뒤 어느 단계를 다시 하는지 알릴 때
 RUN_STEPS = {"board": "스토리보드 만들기", "cues": "큐 시트 만들기", "write": "본문 쓰기", "polish": "서술 다듬기", "review": "검수와 상태 변경안 만들기", "confirm": "플롯 확정"}
+# 지울 수 있는 인물 상태 칸 이름 (CharacterState.cleared, Policy.stop_on_clear 의 멈춘 이유)
+CLEAR_NAMES = {"current_goal": "목표", "location": "위치", "notes": "메모", "attire": "차림", "emotional_state": "감정"}
 # 화 상태 이름 (화면 STATUS 와 같은 말)
 EP_STATUS = {"draft": "초안", "confirmed": "확정", "written": "작성됨", "finalized": "반영 완료"}
 # 측정값이 없을 때 쓰는 단계별 소요 시간 추정 (초, 일반 호출)
@@ -73,6 +75,14 @@ class Policy(BaseModel):
                          "쓴 판은 이전 판으로 남는다. 다듬기가 대사 줄을 바꿔 멈추면 쓴 글로 이어 간다. 검수와 상태 변경안은 다듬은 글을 본다")
     max_style_distance: float = Field(0, description="작품 정착 문체에서 최근 화 평균 문체 거리(anchor.rolling)가 이만큼 넘으면 멈춤. "
                                      "0 이면 보지 않음. 정착 문체가 없으면 보지 않음")
+    # 아래 칸은 모두 기본으로 꺼 둔다 (켜기 전 동작과 같게). 기본값을 조이는 것은 작가와 정한다
+    stop_on_new_characters: bool = Field(False, description="상태 변경안에 새 인물(new_characters)이 있으면 멈춤. 이미 있는 인물 id 는 세지 않음")
+    stop_on_secrets: bool = Field(False, description="상태 변경안에 새 비밀(secrets_added)이 있으면 멈춤. 이미 있거나 겹친 비밀 id, 설정에 없는 인물의 비밀은 세지 않음")
+    stop_on_resolve: bool = Field(False, description="상태 변경안이 열린 복선을 하나라도 회수하면 멈춤")
+    stop_on_early_resolve: bool = Field(False, description="회수 예정 화(due_ep)보다 일찍 회수하거나 범위가 부 · 작품 전체(part · series)인 복선을 회수하면 멈춤")
+    stop_on_deadline_done: bool = Field(False, description="상태 변경안이 열린 기한을 닫으면(deadlines_done) 멈춤")
+    max_time_jump_days: int = Field(0, description="작품 속 시간이 직전 화 끝보다 이 날수를 넘게 앞으로 가면 멈춤. 0 이면 보지 않음. 어느 쪽 날수든 모르면 보지 않음")
+    stop_on_clear: bool = Field(False, description="상태 변경안이 인물 상태 칸을 지우면(CharacterState.cleared) 멈춤")
 
 
 class LogEntry(BaseModel):
@@ -102,6 +112,8 @@ class Run(BaseModel):
     pending: Optional[StateDelta] = Field(None, description="검토 대기 중인 변경안")
     pending_text: str = Field("", description="검토 대기 변경안을 만든 본문. 그 뒤 본문을 고쳤으면 그대로 반영하지 않는다")
     batches: dict[str, str] = Field(default_factory=dict, description="기다리는 배치 작업 slot -> 이름")
+    batch_keys: dict[str, str] = Field(default_factory=dict, description="기다리는 배치 작업 slot -> 보낸 프롬프트 지문. "
+                                       "이어 갈 때 프롬프트가 달라졌으면 (멈춘 사이 본문 · 플롯을 고침) 그 배치는 취소하고 다시 보낸다")
     applied: list[int] = Field(default_factory=list, description="이번 실행에서 자동 반영한 화")
     polish_due: list[int] = Field(default_factory=list, description="이번 실행이 쓰고 아직 다듬지 않은 화 (Policy.polish). "
                                   "서버가 다시 시작해도 이어서 다듬는다. 작가가 쓴 본문은 넣지 않는다")
@@ -325,6 +337,54 @@ def review_reasons(p: Project, delta: StateDelta, report: Optional[ConsistencyRe
             out.append("관계가 크게 움직였어요: " + "; ".join(s for _, s in sorted(big, reverse=True)[:3]))
         if stages:
             out.append("관계 단계가 바뀌었어요: " + ", ".join(stages[:3]))
+    out += _story_reasons(p, delta, policy, names)
+    return out
+
+
+def _story_reasons(p: Project, delta: StateDelta, policy: Policy, names: dict[str, str]) -> list[str]:
+    """새 인물 · 비밀 · 복선 회수 · 기한 닫힘 · 시간 건너뜀 · 지운 칸 정책. 모두 기본으로 꺼져 있다."""
+    out: list[str] = []
+    n = delta.episode
+    # 반영(pipeline.apply_delta)이 더하지 않고 빼는 항목은 세지 않는다: 이미 있는 인물 id, 이미 있거나 같은 변경안에서 겹친 비밀 id, 설정에 없는 인물의 비밀
+    fresh = [c for c in delta.new_characters if c.id not in names]
+    if policy.stop_on_new_characters and fresh:
+        who = ", ".join(c.name or c.id for c in fresh[:3])
+        out.append(f"새 인물 {len(fresh)}명이 나왔어요: {who}")
+    owners = set(names) | {c.id for c in fresh}
+    seen = {s.id for s in p.secrets}
+    secrets = [s for s in delta.secrets_added if s.owner in owners and s.id not in seen and not seen.add(s.id)]
+    if policy.stop_on_secrets and secrets:
+        out.append(f"새 비밀 {len(secrets)}개가 생겼어요: {secrets[0].content}")
+    if policy.stop_on_resolve or policy.stop_on_early_resolve:
+        fs = {f.id: f for f in p.foreshadows if f.status == "open"}
+        hits: list[str] = []
+        for fid in delta.foreshadow_resolved:
+            f = fs.get(fid)
+            if f is None:  # 없는 복선은 반영할 때 버린다 (pipeline.drop_invalid)
+                continue
+            why = []
+            if f.due_ep and n < f.due_ep:
+                why.append(f"예정 {f.due_ep}화보다 일찍")
+            if f.scope != "arc":
+                why.append("부 범위" if f.scope == "part" else "작품 전체 범위")
+            if policy.stop_on_resolve or why:
+                hits.append(f.description + (f" ({', '.join(why)})" if why else ""))
+        if hits:
+            out.append(f"복선 {len(hits)}개를 회수했어요: " + "; ".join(hits[:3]))
+    if policy.stop_on_deadline_done and delta.deadlines_done:
+        dl = {d.id: d for d in p.timeline.deadlines if not d.done_ep}
+        done = [dl[i].what or i for i in delta.deadlines_done if i in dl]
+        if done:
+            out.append(f"기한 {len(done)}개가 닫혔어요: " + ", ".join(done[:3]))
+    if policy.max_time_jump_days > 0 and timeline.enabled(p) and delta.time.day > 0:
+        cur = timeline.current_day(p, n)
+        if cur > 0 and delta.time.day - cur > policy.max_time_jump_days:
+            out.append(f"작품 속 시간이 {delta.time.day - cur}일 건너뛰었어요: {cur}일째 → {delta.time.day}일째 (멈춤 기준 {policy.max_time_jump_days}일)")
+    if policy.stop_on_clear:
+        cleared = [f"{names.get(u.character_id, u.character_id)} {', '.join(CLEAR_NAMES.get(x, x) for x in u.cleared)}"
+                   for u in delta.character_updates if u.cleared]
+        if cleared:
+            out.append("지운 상태 칸이 있어요: " + "; ".join(cleared[:3]))
     return out
 
 
@@ -408,8 +468,9 @@ def estimate(p: Project, target: int, batch: bool, policy: Policy, name: str | N
             if made:  # 스토리보드 만들기 한 번 + 쓰기 프롬프트에 들어갈 스토리보드 블록
                 calls.append(("plan", prompts.SYSTEM_PLANNER, prompts.storyboard_prompt(sim, n), BOARD_OUT))
             sheet = cues and e.cue_sheet is None
-            if sheet:  # 큐 시트 만들기 한 번 + 쓰기 프롬프트 끝에 붙는 큐 시트 블록
-                calls.append(("plan", prompts.SYSTEM_PLANNER, prompts.cue_sheet_prompt(sim, n) + " " * (BOARD_CHARS if made else 0), CUE_OUT))
+            if sheet:  # 큐 시트 만들기 한 번 (방금 만든 스토리보드가 있으면 그 요청 글 + 스토리보드 블록이 앞에 온다) + 쓰기 프롬프트 끝에 붙는 큐 시트 블록
+                lead = prompts.storyboard_prompt(sim, n) if made else ""
+                calls.append(("plan", prompts.SYSTEM_PLANNER, prompts.cue_sheet_prompt(sim, n, lead=lead) + " " * (BOARD_CHARS if made else 0), CUE_OUT))
             calls.append(("write", prompts.writer_system(sim), prompts.episode_prompt(sim, n)
                           + " " * ((BOARD_CHARS if made else 0) + (CUE_CHARS if sheet else 0)), write_out))
             if policy.polish:  # 서술 다듬기 한 번: 작품 고정 블록 + 쓴 본문(목표 분량) + 규칙, 본문 전체를 다시 낸다
@@ -487,6 +548,7 @@ def _edit(name: str, fn: Callable[[Project], Any]) -> Project:
 class Runner:
     def __init__(self, ctl: Control, job: Optional[jobs.Job] = None, echo: Callable[[str], None] | None = None):
         self.ctl, self.name, self.job, self.echo = ctl, ctl.name, job, echo
+        self.board_lead: tuple[int, str, list[str]] | None = None  # 방금 만든 스토리보드 (화, made_at, 보낸 요청 글). _cues 가 앞에 둔다
 
     @property
     def run(self) -> Run:
@@ -528,7 +590,8 @@ class Runner:
         use_batch = self.run.batch and stage != "plan" and hasattr(llm, "batch_submit") and getattr(llm, "can_batch", True)
         if use_batch:
             llm = BatchLLM(llm, f"{n}:{stage}", self.run.batches, self.ctl.save, self.ctl.wait,
-                           label=f"canon {self.name}", note=lambda m: self.log(f"{n}화 {STEP_NAMES[stage]}: {m}", "warn"))
+                           label=f"canon {self.name}", note=lambda m: self.log(f"{n}화 {STEP_NAMES[stage]}: {m}", "warn"),
+                           keys=self.run.batch_keys)
         t = time.time()
         try:
             with usage.collect() as rows:
@@ -645,7 +708,8 @@ class Runner:
                 kind="board_stale")
         self._set(n, "board")
         self.log(f"{n}화 스토리보드를 만드는 중")
-        made, use = self.call("plan", n, lambda llm: pipeline.make_storyboard(llm, p, n))
+        lead: list[str] = []
+        made, use = self.call("plan", n, lambda llm: pipeline.make_storyboard(llm, p, n, lead=lead))
 
         def put(q: Project) -> None:
             st = q.episode(n).status
@@ -655,6 +719,7 @@ class Runner:
                     f"이어 가면 {n}화의 지금 상태에서 다시 시작해요"], kind="changed")
             pipeline.set_storyboard(q, n, made, by="ai")
         _edit(self.name, put)
+        self.board_lead = (n, made.made_at, lead)
         self.log(f"{n}화 스토리보드: 장면 {len(made.scenes)}개", **use)
         for w in made.warnings:
             if w.target == "next" or w.kind not in board.STOP_KINDS:
@@ -673,7 +738,10 @@ class Runner:
             return False
         self._set(n, "cues")
         self.log(f"{n}화 큐 시트를 만드는 중")
-        made, use = self.call("plan", n, lambda llm: pipeline.make_cue_sheet(llm, p, n))
+        # 방금 만든 스토리보드 요청 글로 시작하게 보내 캐시가 맞게 한다. 작가가 고쳤거나 낡았으면 예전 요청 (pipeline.cue_lead)
+        bl = self.board_lead if self.board_lead and self.board_lead[0] == n else None
+        lead = pipeline.cue_lead(p, n, bl[2], bl[1]) if bl else ""
+        made, use = self.call("plan", n, lambda llm: pipeline.make_cue_sheet(llm, p, n, lead=lead))
         if not made.cues:
             self.log(f"{n}화 큐 시트가 비어 왔어요. 큐 시트 없이 써요", "warn", **use)
             return False
@@ -787,6 +855,7 @@ class Runner:
             self.log(f"{n}화 검수: 어긋난 곳 {len(report.issues)}개", "warn" if report.issues else "info",
                      **results["check"][1])
         p = store.load(self.name)
+        _same_text(p, n, delta)
         reasons = review_reasons(p, delta, report, run.policy)
         if reasons:
             with self.ctl.lock:
@@ -799,6 +868,11 @@ class Runner:
                 raise _Halt("paused", f"{n}화 상태가 '{EP_STATUS.get(st, st)}'(으)로 바뀌어 멈췄어요", [
                     f"상태 변경안을 만드는 사이 {n}화가 '{EP_STATUS.get(st, st)}' 상태로 바뀌어 만든 변경안은 버렸어요",
                     f"이어 가면 {n}화의 지금 상태에서 다시 시작해요"], kind="changed")
+            _same_text(q, n, delta)
+            try:
+                pipeline.check_applicable(q, n)  # 그사이 앞 화를 반영 취소했으면 반영하지 않는다
+            except ValueError as e:
+                raise _Halt("paused", f"{n}화 상태 변경안을 반영하지 못해 멈췄어요", [str(e), "앞 화를 반영한 뒤 이어 가세요"], kind="changed")
             held[0] = features.hold(q, delta)  # 인물 설정 · 호칭은 작가가 골라야 바뀐다. 인물 화면에 남겨 둔다
             dropped[:] = pipeline.apply_delta(q, delta)
             q.episode(n).auto = True
@@ -921,6 +995,7 @@ def resume(name: str, approve: bool = False, rewrite: bool = False, *, foregroun
                     raise ValueError(f"변경안을 만든 뒤 {n}화 본문을 고쳤어요. 그대로 반영하면 옛 본문 기준의 요약 · 인물 상태 · 사건이 들어가요. "
                                      "검토하기에서 변경안을 다시 만들거나, 다시 쓰기를 고르세요")
                 def take(q: Project) -> None:
+                    pipeline.check_applicable(q, n)
                     held[0] = features.hold(q, d)  # 검토 화면 없이 반영하면 설정 바꾸기 · 호칭 제안은 고르지 않은 것으로 남겨 둔다
                     dropped[:] = pipeline.apply_delta(q, d)
                 held = [0]
@@ -1069,6 +1144,14 @@ def _changed_while_writing(n: int, status: str) -> list[str]:
             f"이어 가면 {n}화의 지금 상태에서 다시 시작해요"]
 
 
+def _same_text(p: Project, n: int, delta: StateDelta) -> None:
+    """변경안이 지금 본문으로 만든 것인지 본다. 만드는 사이 (일시정지 중 배치를 기다리는 동안) 본문을 고쳤으면 반영하지 않고 멈춘다."""
+    if delta.basis and delta.basis != pipeline.text_basis(p.episode(n).text):
+        raise _Halt("paused", f"{n}화 본문이 바뀌어 멈췄어요", [
+            f"상태 변경안을 만드는 사이 {n}화 본문이 바뀌어, 옛 본문으로 만든 변경안은 버렸어요",
+            "이어 가면 지금 본문으로 상태 변경안을 새로 만들어요"], kind="changed")
+
+
 def _cancel_batches(run: Run) -> None:
     """기다리던 배치 작업을 취소한다. 이미 끝났거나 키가 없어 취소하지 못해도 목록은 비운다."""
     for slot, bname in list(run.batches.items()):
@@ -1077,6 +1160,7 @@ def _cancel_batches(run: Run) -> None:
         except Exception as e:  # 취소하지 못한 배치는 서비스 쪽에서 계속 돌아 요금이 나갈 수 있다. 콘솔에서 지울 수 있게 이름을 남긴다
             _log.warning("배치 %s(%s)를 취소하지 못했어요: %s", bname, slot, getattr(e, "message", None) or e)
     run.batches = {}
+    run.batch_keys = {}
 
 
 def resume_all() -> list[str]:

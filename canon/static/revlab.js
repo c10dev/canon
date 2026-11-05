@@ -2037,7 +2037,7 @@ Object.assign(actions, {
 .rev-meter > i { display: block; height: 100%; background: var(--accent); }
 .rev-home { display: flex; flex-direction: column; gap: 22px; }
 .rev-home-sec { display: flex; flex-direction: column; gap: 12px; }
-.rev-labs { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+.rev-labs { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); gap: 16px; }
 .rev-lab { gap: 12px; color: inherit; text-decoration: none; }
 .rev-lab:hover { border-color: var(--sel-line); background: var(--sel-bg); }
 .rev-lab h3 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -2139,7 +2139,7 @@ Object.assign(actions, {
 .rev-kv dt { color: var(--muted); }
 .rev-kv dd { margin: 0; }
 .rev-ul { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
-.rev-two { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; align-items: start; }
+.rev-two { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 16px; align-items: start; }
 .rev-blind { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
 .rev-blind-read { max-height: 70vh; }  /* 가려 읽기는 한 쪽씩이라 길게 */
 .rev-blind-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }

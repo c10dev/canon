@@ -23,7 +23,7 @@ function rsItems(n) {
   const fs = new Set(P().foreshadows.map((f) => f.id));
   return {
     facts: d.new_facts.map((f, i) => ({ f, i })).filter((x) => x.f.trim() && !facts.has(x.f)),
-    plants: d.foreshadow_planted.map((f, i) => ({ f, i })).filter((x) => !fs.has(x.f.id)),
+    plants: d.foreshadow_planted.map((f, i) => ({ f, i })).filter((x) => !fs.has(x.f.id) && fs.add(x.f.id)),  // 같은 id 는 앞의 것만 (pipeline.apply_restate 와 같음)
     places: (d.new_places || []).map((f, i) => ({ f, i })),
   };
 }
@@ -97,6 +97,20 @@ document.addEventListener('input', (e) => {
   if (d) d.summary = t.value;
 });
 
+// 다시 맞추기로 보낼 변경안: 고른 요약 · 새 사실 · 새 복선 · 새 장소만, 복선 근거 문장은 고른 새 복선의 plant 문장만 (pipeline.apply_restate 와 같은 규칙)
+function restateBody(d, pk) {
+  const plants = d.foreshadow_planted.filter((_, i) => pk['p' + i]);
+  const ids = new Set(plants.map((f) => f.id));
+  return {
+    ...d,
+    summary: pk.sum ? d.summary : '',
+    new_facts: d.new_facts.filter((_, i) => pk['f' + i]),
+    foreshadow_planted: plants,
+    foreshadow_clues: (d.foreshadow_clues || []).filter((c) => c.kind === 'plant' && ids.has(c.foreshadow)),
+    new_places: (d.new_places || []).filter((_, i) => pk['l' + i]),
+  };
+}
+
 Object.assign(actions, {
   async restateEp(n) {
     n = Number(n);
@@ -108,20 +122,25 @@ Object.assign(actions, {
     const d = S.deltas[n];
     if (!d) return;
     const pk = rsPicks(n);
-    const body = {
-      ...d,
-      summary: pk.sum ? d.summary : '',
-      new_facts: d.new_facts.filter((_, i) => pk['f' + i]),
-      foreshadow_planted: d.foreshadow_planted.filter((_, i) => pk['p' + i]),
-      new_places: (d.new_places || []).filter((_, i) => pk['l' + i]),
-    };
-    return run('반영하는 중', async () => {
-      S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/restate`, body);
+    const body = restateBody(d, pk);
+    // 서버는 변경안을 만든 본문(d.basis)과 지금 본문을 맞춰 본다 (409 stale_delta, review.js applyDelta 와 같음). 확인하면 force 로 다시 보낸다
+    let stale = null;
+    const go = (force) => run('반영하는 중', async () => {
+      await saveIfDirty();
+      try {
+        S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/restate${force ? '?force=1' : ''}`, body);
+      } catch (e) {
+        if (e.code !== 'stale_delta' || force) throw e;
+        stale = e;  // 기다림 상자를 닫은 뒤 묻는다
+        return;
+      }
       delete S.deltas[n];
       delete S.deltaBase[n];
       const what = [pk.sum && d.summary.trim() ? '요약' : '', body.new_facts.length ? `새 사실 ${body.new_facts.length}건` : '', body.foreshadow_planted.length ? `새 복선 ${body.foreshadow_planted.length}건` : '', body.new_places.length ? `새 장소 ${body.new_places.length}곳` : ''].filter(Boolean);
       toast(what.length ? `${n}화 ${what.join(', ')}을 반영했어요` : `${n}화 반영 뒤 고침 표시를 지웠어요`);
     });
+    await go(false);
+    if (stale && await askConfirm(`${stale.message}. 그래도 반영할까요?`, { ok: '반영' })) await go(true);
   },
   async keepState(n) {
     n = Number(n);
