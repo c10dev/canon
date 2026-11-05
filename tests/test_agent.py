@@ -438,6 +438,7 @@ def test_step_prompt_extends_the_previous_step_prompt(client, monkeypatch):
         assert b.startswith(head) and len(b) > len(a)
     at = [seen[0].index(x) for x in ("요구사항:", "\n[작가의 새 말]\n", "\n[이번 턴 방식]\n", "\n[이번 턴에 한 일]")]
     assert at == sorted(at)  # 세션 안에서 바뀌지 않는 요구사항이 앞, 턴마다 바뀌는 블록이 뒤
+    assert "이 프롬프트의 위아래 블록과 [이번 턴에 한 일]에 이미 있는 내용은 다시 읽지 않고" in seen[0]  # 요구사항 위의 플롯 블록도 덮는다
     seen.clear()
     _say(client, sid, "다른 방향 몇 가지 보여 줘", mode="options")
     assert "작가가 방향 여러 안을 청했습니다" in seen[0].split("\n[이번 턴 방식]\n", 1)[1]
