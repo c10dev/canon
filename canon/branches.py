@@ -81,8 +81,11 @@ def fork(p: Project, n: int, mode: ForkMode = "clear") -> list[int]:
                                               meta_cut=e.meta_cut))
         e.text, e.status, e.made_by, e.written_by, e.meta_cut = "", "confirmed", None, "", []
         e.hook, e.final_text = None, ""
+        e.to_fix, e.events_done = [], []  # 본문에 단 '고칠 곳'과 다 쓴 사건 체크도 비운 본문과 함께 뺀다
         findings.clear(e)
         cleared.append(e.plot.number)
+    gone = set(cleared)  # 비운 본문에 걸어 둔 복선 문장(작가가 붙인 것도)은 가리킬 문장이 없다
+    p.foreshadow_clues = [c for c in p.foreshadow_clues if c.episode not in gone]
     return cleared
 
 
