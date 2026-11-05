@@ -92,6 +92,7 @@ function autoPoll(delay = 3000) {
     const before = sig(S.auto && S.auto.run);
     const wasActive = !!(S.auto && S.auto.active);
     const restarts = S.auto && S.auto.run ? S.auto.run.restarts || 0 : null;
+    const prevEp = S.auto && S.auto.run ? S.auto.run.ep : null;  // 지난번에 하던 화. 그사이 끝냈으면 그 화도 바뀌었다
     const name = S.name;
     let fresh;
     try {
@@ -115,9 +116,15 @@ function autoPoll(delay = 3000) {
     const changed = fresh && fresh.run && (sig(fresh.run) !== before || !!fresh.active !== wasActive);
     if (changed && !S.dirty) {
       const gen = S.gen;
-      const p = await api('GET', `/projects/${enc(name)}`).catch(() => null);
-      // 받는 사이 입력 · 저장이 있었으면 이 작품이 더 오래됐을 수 있다. 화는 작업 폴링(mergeEpisodes)이 맞춘다
-      if (p && name === S.name && !S.dirty && gen === S.gen) S.project = p;
+      // 도는 동안은 하던 화와 지금 화만 받는다 (touchedEpisodes). 반영으로 관계 · 인물 상태가 바뀌었거나 멈추거나 끝나면 작품 전체를 받는다
+      const nums = fresh.active && fresh.run ? [prevEp, fresh.run.ep] : [];
+      const part = nums.length ? await touchedEpisodes(name, nums) : null;
+      if (part && name === S.name && P() === part.base && !S.dirty && gen === S.gen) putEpisodes(part.episodes, () => true);
+      else if (!part) {
+        const p = await api('GET', `/projects/${enc(name)}`).catch(() => null);
+        // 받는 사이 입력 · 저장이 있었으면 이 작품이 더 오래됐을 수 있다. 화는 작업 폴링(mergeEpisodes)이 맞춘다
+        if (p && name === S.name && !S.dirty && gen === S.gen) S.project = p;
+      }
     }
     if (changed && !fresh.active && S.route[2] === 'auto') await autoEstimate();  // 멈추거나 끝나면 남은 화 추정을 새로
     if (changed && !isTyping() && S.route[0] === 'p' && ['auto', 'home', ''].includes(S.route[2] || '')) render();

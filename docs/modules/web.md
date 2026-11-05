@@ -32,6 +32,10 @@
 - 작품 저장 `save` 는 받은 판(`projectBase` 의 `keys` · `eps`)과 달라진 칸 · 화만 `PATCH` 로 보낸다(`patchBody`)
 - 작품 전체 GET 은 받은 판을 `projectCache` 에 두고 304 면 그 복사본을 쓴다
 - `isProjectJson`(`meta` 와 `episodes` 배열)인 답만 작품으로 받고 보관한다. 보관한 판으로 물었는데 아니면 보관한 것을 버리고 조건 없이 다시 받는다(`tests/test_project_cache_js.py`)
+- 작품 GET 이 돌려준 작품 객체는 화를 뺀 나머지의 판(`X-Project-Rest`)을 `restOf` 에 둔다
+- 한 화 작업(본문 쓰기 · 스토리보드 · 큐 시트 · 한 화 플롯 · 검수 · 고침안)이 끝나면 `mergeEpisodes` 가 그 화만 받는다(`touchedEpisodes`, `GET /episodes`)
+- 화만 받기는 나머지 판 · `edit_rev` · `saved_by` · 화 번호 목록이 서버와 같을 때만 쓴다. 하나라도 다르거나 요청이 실패하면 작품 전체를 받는다(`tests/test_merge_episodes_js.py`)
+- 화만 받은 뒤 `projectCache` 는 고치지 않는다. 옛 판으로 묻는 다음 작품 GET 이 전체를 다시 받는다
 - 화 상태 칩 · 범례 · 툴팁 글자 `STATUS`(초안 · 확정 · 작성됨 · 반영 완료). 서버 `autorun.EP_STATUS` 와 같은 글자
 - 본문을 쓴 모델 글자 `writerLabel`(`Episode.written_by` · `TextVersion.model` → '모델 · 백엔드', 백엔드 이름 `WRITER_BACKEND`, `tests/test_write_js.py`)
 - 단계 이름 `stepLabel`(사이드바와 같은 이름, 다른 화면 문구도 이것을 쓴다)

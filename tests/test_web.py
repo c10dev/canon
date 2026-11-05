@@ -894,6 +894,39 @@ def test_apply_edited_delta(client):
     assert client.get("/api/projects/ed/relations").json()["numbers"] == after["numbers"]
 
 
+def test_episodes_route_returns_only_asked_episodes(client):
+    """화 GET 은 고른 화만 돌려준다. rest 는 작품 GET 의 X-Project-Rest 와 같고, 화만 바뀌면 그대로, 화 밖이 바뀌면 달라진다."""
+    from canon import store
+    from .jsvm import episode
+    meta = {"title": "등대", "genre": "미스터리", "logline": "x", "target_episodes": 10}
+    client.post("/api/projects", json={"name": "eg", "meta": meta})
+    p = store.load("eg")
+    p.episodes = [episode(n, plot={"title": f"{n}화"}) for n in (1, 2, 3)]
+    store.save("eg", p)
+    whole = client.get("/api/projects/eg")
+    r = client.get("/api/projects/eg/episodes?nums=3,1,9")
+    got = r.json()
+    assert r.status_code == 200 and got["etag"] == whole.headers["etag"] == r.headers["etag"]
+    assert [e["plot"]["number"] for e in got["episodes"]] == [1, 3]  # 없는 9화는 빼고 답한다
+    assert got["episodes"][1] == whole.json()["episodes"][2]
+    assert got["numbers"] == [1, 2, 3] and got["edit_rev"] == whole.json()["edit_rev"]
+    assert got["rest"] == whole.headers["x-project-rest"]
+    # 화 하나만 바꾸면 rest 는 그대로다 (화면이 그 화만 받아 맞춘다)
+    p = store.load("eg")
+    p.episode(2).text = "본문"
+    store.save("eg", p)
+    assert client.get("/api/projects/eg/episodes?nums=2").json()["rest"] == got["rest"]
+    # 화 밖(사실 목록)이 바뀌면 rest 가 달라진다 (화면이 작품 전체를 받는다)
+    p = store.load("eg")
+    p.facts.append("새 사실")
+    store.save("eg", p)
+    after = client.get("/api/projects/eg/episodes?nums=2").json()["rest"]
+    assert after != got["rest"] and after == client.get("/api/projects/eg").headers["x-project-rest"]
+    assert client.get("/api/projects/eg/episodes?nums=a").status_code == 400
+    assert client.get("/api/projects/eg/episodes").status_code == 400
+    assert client.get("/api/projects/nope/episodes?nums=1").status_code == 404
+
+
 def test_save_response_carries_project_tag(client):
     """저장한 요청은 저장한 판(X-Project-ETag)을 붙이고, 그 판으로 묻는 작품 GET 은 304 다. 응답 본문은 작품 GET 과 같다."""
     meta = {"title": "등대", "genre": "미스터리", "logline": "x", "target_episodes": 10}

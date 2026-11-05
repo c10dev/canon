@@ -990,7 +990,39 @@ def get_project(name: str, request: Request) -> Response:
     p = _view(name)
     out = p.model_dump(mode="json", exclude={"snapshots"})
     out["snapshots"] = [{"episode": s.episode} for s in p.snapshots]
-    return JSONResponse(out, headers={"ETag": tag} if tag else None)
+    head = {"X-Project-Rest": _rest_tag({k: v for k, v in out.items() if k != "episodes"})}
+    if tag:
+        head["ETag"] = tag
+    return JSONResponse(out, headers=head)
+
+
+def _rest_tag(rest: dict) -> str:
+    """작품에서 화(episodes)를 뺀 나머지의 판. 화만 받아 맞출 때 나머지가 화면이 가진 것과 같은지 본다 (get_episodes)."""
+    body = json.dumps(rest, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.blake2b(body.encode("utf-8"), digest_size=12).hexdigest()
+
+
+@app.get("/api/projects/{name}/episodes")
+def get_episodes(name: str, nums: str = "") -> JSONResponse:
+    """고른 화만. 한 화 작업이 끝날 때 화면이 작품 전체(장편은 수 MB) 대신 받는다 (app.js mergeEpisodes).
+    rest 는 화를 뺀 나머지의 판(작품 GET 의 X-Project-Rest 와 같은 값), numbers 는 모든 화 번호다. 화면은 둘 중 하나라도 다르면 작품 전체를 받는다."""
+    try:
+        want = sorted({int(x) for x in nums.split(",") if x.strip()})
+    except ValueError:
+        raise HTTPException(400, "화 번호를 쉼표로 이어 적으세요 (예: 3,4)") from None
+    if not want or len(want) > 50:
+        raise HTTPException(400, "화 번호를 1~50개 적으세요")
+    _need(name)
+    path = store.project_dir(name) / "project.json"
+    tag = store.tag(path)
+    p = _view(name)
+    rest = p.model_dump(mode="json", exclude={"snapshots", "episodes"})
+    rest["snapshots"] = [{"episode": s.episode} for s in p.snapshots]
+    keep = set(want)
+    out = {"etag": tag, "edit_rev": p.edit_rev, "saved_by": p.saved_by, "rest": _rest_tag(rest),
+           "numbers": [e.plot.number for e in p.episodes],
+           "episodes": [e.model_dump(mode="json") for e in p.episodes if e.plot.number in keep]}
+    return JSONResponse(out, headers={"ETag": tag})
 
 
 @app.put("/api/projects/{name}")

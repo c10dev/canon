@@ -372,6 +372,7 @@
 - 서버 재시작 칸은 '끊긴 호출 비용은 빠졌어요' 를 글로 보인다(title 에만 두지 않음)
 - 실행이 있으면 공용 목차 틀이다(목차 `autoToc`: 지금 실행 · 멈춘 이유 · 검토 없이 반영한 화 · 진행 기록 · 승인 정책)
 - 실행이 없으면 시작 칸 하나이고, 쓸 화가 없으면 빈 화면(`autoEmpty`)
+- `autoPoll` 은 실행이 도는 동안 지난번 화와 지금 화만 받는다(`touchedEpisodes`). 맞출 수 없거나 멈추거나 끝나면 작품 전체를 받는다
 - 머리 주 버튼은 그때 할 일 하나(n화 변경안 검토하기 · 이어 가기 · n화까지 자동 집필 시작)
 - 중지 · 설정을 바꿔 새로 시작은 머리 '실행 ▾' 메뉴
 - 지금 실행 카드는 화 칸 띠(`autoCells`, 40칸까지)와 수 칸 넷
@@ -429,6 +430,8 @@
 - 붙인 라우트는 `app.routes` 에 감싼 모양으로만 들어가서, 응답 모양을 바꾸는 코드는 `_ROUTERS` 의 라우트도 함께 본다(`_SNAPSHOT_LIGHT`)
 - `serve` 는 로깅 설정이 없으면 INFO 수준, 시각 · 수준 · 로거 이름을 붙인 형식으로 정한다. 업데이트 · 자동 집필 이어 가기 안내도 이 로그로 낸다
 - 작품 GET 과 작품을 돌려주는 응답은 스냅샷을 화 번호만 보낸다(`_SNAPSHOT_LIGHT`). 작품 저장(PUT)은 디스크 스냅샷을 지킨다
+- 작품 GET 200 은 화를 뺀 나머지의 판(`_rest_tag`)을 `X-Project-Rest` 로 붙인다
+- `GET /api/projects/{name}/episodes?nums=3,4` 는 고른 화와 `etag` · `edit_rev` · `saved_by` · 나머지 판(`rest`) · 모든 화 번호(`numbers`)만 돌려준다(`get_episodes`, 50화까지)
 - `GET /` 는 index.html 의 `/static/*.js` 태그를 내용 해시가 붙은 묶음 하나(`/bundle/<해시>.js`, 오래 캐시)로 바꿔 보낸다(`_bundle`). 파일을 고치면 해시가 바뀐다
 - 화면의 작품 저장은 `PATCH /api/projects/{name}`(`ProjectPatch`): 바뀐 최상위 칸만 받고 보내지 않은 칸은 디스크 것을 쓴다. 그 뒤는 `put_project` 와 같다
 - PATCH 의 `episodes` 에서 `{"$same": 화}` 는 디스크의 그 화다. 디스크에 없는 화면 409
