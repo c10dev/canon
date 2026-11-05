@@ -1565,6 +1565,14 @@ class CharacterState(BaseModel):
     # 아크 요약 뒤 오래된 knows 를 접은 줄 (canon/knows.py). 작가가 고른 AI 제안만 들어온다. AI 응답 형식과 프롬프트 직렬화에서는 뺀다
     knows_folded: SkipJsonSchema[list[str]] = Field(default_factory=list, description="접은 아는 정보 (knows.apply_fold)")
 
+    @model_validator(mode="after")
+    def _blank_cleared(self):
+        """지울 칸에 값이 함께 와도 비운다. 차림 · 이동 거리 경고처럼 변경안 값을 읽는 곳이 지울 칸을 새 값으로 보지 않게 한다."""
+        for f in self.cleared:
+            if f in ("emotional_state", "current_goal", "location", "attire", "notes"):
+                setattr(self, f, "")
+        return self
+
     @model_serializer(mode="wrap")
     def _prompt_view(self, handler: SerializerFunctionWrapHandler, info: SerializationInfo):
         """프롬프트용 직렬화(llm.dump 의 context prompt)에서는 접은 줄 칸을 뺀다. 프롬프트는 knows.view 가 접은 줄을 knows 앞에 붙인다."""

@@ -34,6 +34,13 @@ def test_cleared_wins_over_value():
     assert p.state_of("hero").location == ""
 
 
+def test_cleared_blanks_value_on_parse():
+    d = StateDelta.model_validate({"episode": 4, "summary": "", "character_updates": [
+        {"character_id": "hero", "location": "시장", "attire": "외투", "cleared": ["location", "없는칸"]}]})
+    u = d.character_updates[0]
+    assert u.location == "" and u.attire == "외투"  # 경고 · 표시가 지울 칸을 새 값으로 읽지 않는다
+
+
 def test_new_state_does_not_keep_cleared():
     p = _goal_project()
     p.states = [s for s in p.states if s.character_id != "hero"]
