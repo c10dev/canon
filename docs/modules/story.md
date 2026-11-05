@@ -391,6 +391,8 @@
 ### `canon/static/cast.js`
 
 - 인물 · 관계도 화면(공용 목차 틀 `outline.js`)
+- 인물 카드의 등장 띠 칸을 누르면(`castStripGo`) 그 화를 반영한 시점으로 옮기고(재생은 멈춤), 없으면 그 화에서 할 일 화면(`epGo`)으로 간다. 등장표 칸은 그 화를 연다
+- 추이 그래프는 둘째 선부터 점선으로도 가르고, 그래프 아래에 고른 시점 값과 사건을 글로 보인다(`.cc-read`)
 - 인물 쪽 `castCharPage` 는 남겨 둔 설정 바꾸기 제안이 있으면 설정 카드를, 남겨 둔 호칭이 있으면 그 카드를 머리 바로 아래에 둔다
 - 왼쪽 목차 `castToc`(관계도 · 등장표 · 비중별 인물, 단역이 많으면 접음 `castMinorFold`)
 - 오른쪽 한 열의 쪽 `castPage`(`S.castView`: map · table · char · pair, 옮기기 `castShow`, 주소 `cast/<map · table · c:id · p:a|b>?f=` 와 옛 `?tab=` 은 `castParse`)
@@ -535,6 +537,7 @@
 ### `canon/static/timeline.js`
 
 - 작품 속 시간 화면(`viewTimeline`)
+- 칸 폭 560px 이하 열흘 띠는 열흘을 모두 두고 옆으로 밀어 본다(칸 64px 이상)
 - 공용 목차 틀(`outline.js`, 목차 `tlTocHtml`: 지금 · 기한 · 시간 흐름 묶음 · 설정, 스크롤로 `S.tlCur`)
 - 지금 `tlNowCard`: 마지막 반영 화 끝 시점과 앞으로 열흘 띠
 - 기한 `tlDlCard`: 나눔 버튼 `S.tlDlTab`, 줄마다 ⋯ 메뉴, 지난 기한은 닫기 · 날 바꾸기

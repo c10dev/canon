@@ -255,18 +255,32 @@ function markHint(r) {
   return r.kind === 'banned' ? `${r.title} · 이 문장을` : `${r.title.split(' · ')[0]} · 이 문장을`;
 }
 
-/** 고치는 본문에서 밑줄 친 곳을 누르면 (고른 것 없이) 그 문장으로 부분 수정 도구를 띄운다. 글자를 치면 도구는 닫힌다. */
+/** 고치는 본문에서 밑줄 친 곳을 누르면 (고른 것 없이) 그 문장으로 부분 수정 도구를 띄운다. 글자를 치면 도구는 닫힌다.
+    손가락 기기는 커서를 두려고 누를 때마다 카드가 뜨지 않게, 같은 자리를 2초 안에 한 번 더 눌러야 띄운다 (markTap) */
+let markTap = null;  // { n, p, t } 손가락 기기에서 마지막으로 누른 자리
 document.addEventListener('click', (e) => {
   const ta = e.target;
   if (!(ta.matches && ta.matches('.hl-wrap textarea[data-draft]')) || !editableEp(ep(Number(ta.dataset.draft)))) return;
   setTimeout(() => {  // passage.js 가 고른 것 없는 클릭으로 도구를 닫은 뒤에
-    if (ta.selectionStart !== ta.selectionEnd || (S.selTool && S.selTool.mode === 'edit')) return;
-    const p = ta.selectionStart;
+    if (S.selTool && S.selTool.mode === 'edit') return;
+    const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+    const n0 = ta.dataset.draft;
+    const recent = coarse && markTap && markTap.n === n0 && Date.now() - markTap.t < 2000;
+    // 휴대폰에서 빠르게 두 번 누르면 브라우저가 낱말을 고른다. 첫 누름 자리가 든 짧은 고름이면 두 번째 누름으로 친다
+    const wordPick = recent && ta.selectionStart !== ta.selectionEnd && ta.selectionEnd - ta.selectionStart <= 20 && ta.selectionStart <= markTap.p && markTap.p <= ta.selectionEnd;
+    if (ta.selectionStart !== ta.selectionEnd && !wordPick) return;
+    const p = wordPick ? markTap.p : ta.selectionStart;
+    if (coarse) {
+      const again = wordPick || (recent && Math.abs(markTap.p - p) <= 3);
+      markTap = again ? null : { n: n0, p, t: Date.now() };
+      if (!again) return;
+    }
     const name = typeof mentionAt === 'function' && mentionAt(ta, p);
-    if (name) return mentionFromTa(ta, name);  // 이름을 누르면 이름 카드가 먼저다. 그 문장을 고치려면 드래그해 고른다
     const n = Number(ta.dataset.draft);
-    const r = allRanges(n, ta.value).find((x) => x.a <= p && p <= x.b);
-    if (!r) return;
+    const r = name ? null : allRanges(n, ta.value).find((x) => x.a <= p && p <= x.b);
+    if (!name && !r) return;  // 밑줄 없는 낱말을 두 번 눌러 고른 것은 그대로 둔다
+    if (wordPick) ta.setSelectionRange(p, p);  // 카드 · 도구를 띄울 때만 낱말 고름을 그 자리 커서로 바꾼다
+    if (name) return mentionFromTa(ta, name);  // 이름을 누르면 이름 카드가 먼저다. 그 문장을 고치려면 드래그해 고른다
     if (r.key.startsWith('i:')) return actions.chkOpen(r.key.slice(2));  // 검수 화면: 그 지적을 고르고 문장에서 고치는 창을 띄운다 (check.js)
     if (r.key.startsWith('t:')) {  // 고칠 곳: 담은 글 그대로 고른다. tofix.js 가 메모 고치기 · 고침으로를 붙인다
       S.selTool = { n, start: r.a, text: ta.value.slice(r.a, r.b), mode: 'menu' };

@@ -429,6 +429,26 @@ function baselineItems(b, long = false) {
   return long ? rows : rows.map(([, v, why], i) => [short[i], v, why]);
 }
 
+const LIB_JOBS = '.styles';  // 문체 라이브러리 분석 작업의 project 자리 (web.LIB_JOBS)
+
+/** 라이브러리 분석 작업이 끝났다 (app.js finishJob). 결과는 그 항목의 제안 카드로 둔다. 화면을 떠나 있으면 그 항목을 다시 열 때 보인다 (이 탭이 열려 있는 동안) */
+function libStyleResult(j) {
+  if (j.status !== 'done' || !j.result || !j.result.profile) return;
+  const lib = j.result.lib && j.result.lib !== 'new' ? j.result.lib : (S.libJobFor[j.id] || 'new');  // 새 항목을 그사이 저장했으면 libSave 가 옮긴 id (JOB_LINK 와 같은 차례)
+  S.libDraft = { lib, profile: j.result.profile, job: j.id };  // 항목은 서버가 작업에 실은 것(다른 탭에서 시작해도 맞다)
+}
+
+/** 이 항목에 온 분석 결과(S.libDraft) 카드. 작품 문체의 styleDraftCard 와 같은 모양 */
+function libDraftCard() {
+  const d = S.libDraft;
+  if (!d || !S.lib || (S.lib.id || 'new') !== d.lib) return '';
+  const p = d.profile;
+  const bits = [p.narration_pov && `시점 ${p.narration_pov}`, p.tense && `시제 ${p.tense}`, (p.markers || []).length && `문체 표지 ${p.markers.length}개`, (p.sample_passages || []).length && `대표 문단 ${p.sample_passages.length}개`].filter(Boolean);
+  return `<section class="card proposal" aria-labelledby="lib-draft-h"><h2 id="lib-draft-h">문체 분석 결과가 도착했어요</h2>
+    <p class="small">${esc(bits.join(' · ') || '뽑은 칸이 적어요')}. 바꾸면 지금 프로필 대신 이 결과가 들어가요. 저장하기 전에는 되돌릴 수 있어요.</p>
+    ${proposalActions(['libDraftDrop'], ['libDraftApply'], '이 결과로 바꾸기')}</section>`;
+}
+
 function viewLibEntry() {
   const e = S.lib;
   const isNew = !e.id;
@@ -448,7 +468,7 @@ function viewLibEntry() {
     </section>`;
   return `${header('문체 라이브러리', isNew ? '새 문체' : e.name || '이름 없음', isNew ? '원문을 붙여 넣고 분석하거나, 카드를 직접 채운 뒤 저장하세요.' : `만든 날 ${fmtDate(e.created_at)} · 고친 날 ${fmtDate(e.updated_at)}`, right)}
     <div class="outline-wrap lib-page"><div class="outline-doc">${styleToc(rows, '문체 목차')}<div class="sty-secs">
-      <section class="card pf-sec" id="pf-info" tabindex="-1">
+      ${libDraftCard()}<section class="card pf-sec" id="pf-info" tabindex="-1">
         <div class="grid-2">${input('이름', 'name', { root: 'lib', placeholder: '예: 건조한 1인칭 하드보일드' })}
           ${input('출처', 'source', { root: 'lib', hint: '작가, 작품 등 메모', placeholder: '예: 직접 쓴 단편 「등대」' })}</div>
         ${input('메모', 'notes', { root: 'lib', rows: 1, autogrow: true, placeholder: '어떤 작품에 어울리는지 등' })}
@@ -457,7 +477,7 @@ function viewLibEntry() {
         <div class="pf-head"><h2>원문 · 기준 지표</h2><span class="small"><span id="lib-sample-count">${(e.sample || '').length.toLocaleString()}</span>자 · 2,000자 이상 권장</span></div>
         ${input('분석할 소설 본문', 'sample', { root: 'lib', rows: 10, style: 'font-family:var(--serif);line-height:1.9', hint: '이 컴퓨터의 라이브러리 폴더에만 저장돼요' })}
         <div class="sty-row">${b ? `<span class="metric-chips">${baselineItems(b).map(([k, v, why]) => `<span title="${esc(why)}">${k} <strong>${v}</strong></span>`).join('')}</span>` : '<span class="small">원문을 넣고 저장하면 문장 길이, 대사 비율 같은 기준 지표를 재요.</span>'}
-          <span class="sty-acts">${b ? menuBtn('lib-metrics', '지표 풀이', () => baselineRows(b), { cls: 'btn small ghost' }) : ''}<button class="btn small" data-action="libAnalyze">문체 분석</button></span></div>
+          <span class="sty-acts">${b ? menuBtn('lib-metrics', '지표 풀이', () => baselineRows(b), { cls: 'btn small ghost' }) : ''}${(() => { const lb = jobBtn('lib_style', null, '문체 분석', LIB_JOBS); return `<button class="btn small" data-action="libAnalyze"${lb.attr}>${lb.label}</button>`; })()}</span></div>
       </section>
       ${profileCards('profile', 'lib')}
       ${apply}
@@ -634,15 +654,39 @@ Object.assign(actions, {
   },
 
   // 문체 라이브러리
+  /** 라이브러리 문체 분석: 화면을 막지 않는 작업(lib_style)을 시작한다. 결과는 그 항목 화면 맨 위 제안 카드로 온다 (libDraftCard) */
   async libAnalyze() {
     if ((S.lib.sample || '').trim().length < 200) return toast('원문을 200자 이상 넣어 주세요', true);
-    const has = S.lib.profile.narration_pov || S.lib.profile.sample_passages.length;
+    if (jobFor('lib_style', null, LIB_JOBS)) return;
+    try {
+      const j = await api('POST', '/styles/analyze/job', { text: S.lib.sample, lib: S.lib.id || '' });
+      if (!j.already) S.libJobFor[j.id] = S.lib.id || 'new';  // 결과를 놓을 항목 (새 항목은 'new'). 이미 도는 작업이면 그 작업의 항목을 덮지 않는다
+      if (j.status !== 'running' && !j.already) { S.jobsSeen.add(j.id); await finishJob(j); render(); return; }  // 본 작업으로 둬 다음 pollJobs 가 다시 끝내지 않게  // 시작 응답에서 이미 끝났다 (짧은 원문 · 가짜 응답): 바로 결과를 놓는다
+      if (!j.already) toast('문체 분석을 시작했어요. 끝나면 알려 드릴게요. 그동안 다른 작업을 해도 돼요.');
+      S.jobs = S.jobs.filter((x) => x.id !== j.id).concat(j);
+      renderHub();
+      render();
+      pollJobs(true);
+    } catch (e) { showError(e); }
+  },
+  async libDraftApply() {
+    const d = S.libDraft;
+    if (!d || !S.lib || (S.lib.id || 'new') !== d.lib) return;
+    const has = !styleBlank(S.lib.profile);
     if (has && !(await askConfirm('분석 결과로 지금 프로필을 바꿀까요? 저장 전까지는 되돌릴 수 있어요.', { ok: '바꾸기' }))) return;
-    await run('문체를 분석하는 중…', async () => {
-      S.lib.profile = await api('POST', '/styles/analyze', { text: S.lib.sample });
-      S.libDirty = true;
-      toast('분석 결과를 불러왔어요. 확인하고 저장하세요.');
-    });
+    if (S.libDraft !== d) { render(); return toast('묻는 사이 새 분석 결과가 도착했어요. 카드를 다시 확인하세요'); }
+    S.lib.profile = d.profile;
+    S.libDraft = null;
+    S.libDirty = true;
+    S.focusTarget = '#app main h1';
+    render();
+    toast('분석 결과로 바꿨어요. 확인하고 저장하세요.');
+  },
+  async libDraftDrop() {
+    if (!(await askConfirm('문체 분석 결과를 버릴까요? 다시 받으려면 분석을 다시 해야 해요.', { ok: '버리기', danger: true }))) return;
+    S.libDraft = null;
+    S.focusTarget = '#app main h1';
+    render();
   },
   async libSave() {
     if (!S.lib.name.trim()) return toast('문체 이름을 입력하세요', true);
@@ -651,6 +695,8 @@ Object.assign(actions, {
     await run('저장하는 중', async () => {
       const isNew = !S.lib.id;
       S.lib = isNew ? await api('POST', '/styles', body) : await api('PUT', `/styles/${S.lib.id}`, body);
+      if (isNew && S.libDraft && S.libDraft.lib === 'new') S.libDraft.lib = S.lib.id;  // 새 항목에 온 분석 결과는 저장한 항목으로 옮긴다
+      if (isNew) Object.keys(S.libJobFor).forEach((k) => { if (S.libJobFor[k] === 'new') S.libJobFor[k] = S.lib.id; });
       S.lib.used_by = S.lib.used_by || [];
       S.libDirty = false;
       S.libNote = '';
