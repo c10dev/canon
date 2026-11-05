@@ -126,6 +126,15 @@
 - `totals(rows)` 는 모은 줄의 입력 · 출력(생각 포함) 토큰과 `row_cost` 비용 합이다. 가격을 모르는 줄이 있으면 비용은 None
 - 가격표(`DEFAULT_PRICES` + 설정의 `prices`, 날짜별 `since`)로 볼 때 비용을 계산한다
 - 자동 집필 추정도 같은 가격표를 쓴다
+- 입력 토큰 추정 `token_rate(백엔드, 모델)` 은 '기울기 × 요청 글자 수 + 호출마다 붙는 토큰' 직선(`TokenRate`)이다
+- 기본값 `TOKEN_RATES` 는 2026-11 서버 기록의 최소제곱 직선이다(Opus Claude Code 1.035/3805, Sonnet 0.995/5793, argon 0.568/1579, flash 0.599/2508)
+- `claude-api` 는 기록이 없어 같은 기울기에 붙는 토큰 0을 쓴다
+- 기본값이 없는 백엔드(로컬, mock)는 1.7자당 1토큰이다(`FALLBACK_CHARS_PER_TOKEN`)
+- 같은 백엔드 · 모델의 최근 성공 기록(글자 수 있음) `REFINE_MIN` 줄 이상이면 최근 `REFINE_ROWS` 줄로 다시 잰다
+- 다시 잴 때 Claude Code 가 캐시 읽기를 입력에 두 번 센 줄(cached × 2 ≥ 0.9 × in)은 뺀다
+- 단계의 백엔드 · 모델은 `stage_llm`, 그 직선은 `stage_rate` 다
+- 자동 집필 · 큐 시트 · 블록 시험 · 상태창 시험 · 역설계 실험의 비용 추정이 이 직선을 쓴다
+- 장편 블록 예산(`context.BUDGET`)과 `context.est_tokens` 는 이 직선을 쓰지 않는다
 - 화면은 `static/usage.js`
 - `usage.js` 는 손가락 기기에서 차트 안내를 '막대를 누르면 날짜별 값을 봐요' 로 보인다(←/→ 키 안내는 aria-label 에만)
 - 화면 차례: 기간 · 작품 거르기 → 비용 타일 → 날짜별 막대 → '어디에 썼나' 막대 목록 → 호출 목록 → 접힌 가격표

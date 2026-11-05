@@ -22,7 +22,6 @@ from datetime import date
 from pathlib import Path
 
 from . import cancel, context, cue, metrics, pipeline, prompts, store, usage
-from .context import CHARS_PER_TOKEN
 from .schema import (Act, AddressForm, BoardHandover, BoardScene, BoardTime, Character, CueLine, CueSheet, CueSheetDraft, CueTake, Episode, EpisodePlot, Meta, Project,
                      Relationship, RevAI, RevBlind, RevBound, RevCastSaved, RevEpisode, RevEpisodeDraft, RevArc, RevArcPlan, RevArcSet, RevLab, RevLineSet, RevPart, RevPerson, RevStyle, RevTake, Storyboard,
                      StoryboardDraft, StyleProfile, WorldSetting,
@@ -1203,32 +1202,37 @@ def estimate(lab: RevLab, kind: str, numbers: list[int] | None = None, model: st
     c = ai_choice(lab, stage_of(kind))
     model = model or c["model"] or default_model(c["provider"]) or settings.model()[0]
     price = usage.rate(model, date.today().isoformat())
+    rate = usage.token_rate(c["provider"] if c["provider"] != "mock" else "", model)
+
+    def tok(chars: float) -> float:
+        return usage.est_input(chars, rate)
+
     rows = []
     if kind == "style":
-        tin = (len(prompts.SYSTEM_PLANNER) + len(prompts.style_prompt(style_sample(lab), passages=False))) / CHARS_PER_TOKEN
+        tin = tok(len(prompts.SYSTEM_PLANNER) + len(prompts.style_prompt(style_sample(lab), passages=False)))
         rows.append({"label": "문체 프로필", "calls": 1, "input_tokens": round(tin), "output_tokens": STYLE_OUT_TOKENS,
                      "usd": round(usage.cost(price, tin, STYLE_OUT_TOKENS, 0, False), 3) if price else None})
     if kind == "arcs":
         can_arcs(lab)
-        tin = (len(prompts.SYSTEM_REVERSE) + len(prompts.rev_arcs_prompt(lab))) / CHARS_PER_TOKEN
+        tin = tok(len(prompts.SYSTEM_REVERSE) + len(prompts.rev_arcs_prompt(lab)))
         rows.append({"label": "아크 · 부", "calls": 1, "input_tokens": round(tin), "output_tokens": ARCS_OUT_TOKENS,
                      "usd": round(usage.cost(price, tin, ARCS_OUT_TOKENS, 0, False), 3) if price else None})
     for n in nums:
         if kind == "parse":
-            tin = (len(prompts.SYSTEM_REVERSE) + len(prompts.rev_prompt(lab, n))) / CHARS_PER_TOKEN
+            tin = tok(len(prompts.SYSTEM_REVERSE) + len(prompts.rev_prompt(lab, n)))
             tout = PARSE_OUT_TOKENS
         else:
             q = world(lab, n, use_style)
-            tin = (len(prompts.writer_system(q)) + len(prompts.cue_score_prompt(q, n, episode(lab, n).sheet))) / CHARS_PER_TOKEN
-            tout = len(episode(lab, n).text) / CHARS_PER_TOKEN
+            tin = tok(len(prompts.writer_system(q)) + len(prompts.cue_score_prompt(q, n, episode(lab, n).sheet)))
+            tout = usage.est_output(len(episode(lab, n).text), rate)
         rows.append({"label": f"{n}화", "calls": 1, "input_tokens": round(tin), "output_tokens": round(tout),
                      "usd": round(usage.cost(price, tin, tout, 0, False), 3) if price else None})
     if kind == "parse" and wants_lines(lab, nums):
-        tin = (len(prompts.SYSTEM_REVERSE) + 600 + min(LINES_IN_CHARS * len(lab.episodes), context.BUDGET["rev_lines"])) / CHARS_PER_TOKEN
+        tin = tok(len(prompts.SYSTEM_REVERSE) + 600 + min(LINES_IN_CHARS * len(lab.episodes), context.BUDGET["rev_lines"]))
         rows.append({"label": "이야기 줄기", "calls": 1, "input_tokens": round(tin), "output_tokens": LINES_OUT_TOKENS,
                      "usd": round(usage.cost(price, tin, LINES_OUT_TOKENS, 0, False), 3) if price else None})
     total = sum(r["usd"] or 0 for r in rows)
-    note = ("입력은 실제 요청 글자 수를 글자당 토큰 추정값으로 나눠 셌어요. 출력은 " + ("화마다 " if nums else "")
+    note = ("입력은 실제 요청 글자 수에 백엔드 · 모델별 글자당 토큰 추정값을 곱해 셌어요. 출력은 " + ("화마다 " if nums else "")
             + {"parse": f"약 {PARSE_OUT_TOKENS:,}토큰으로 잡았어요.", "write": "원문 분량만큼 잡았어요.",
                "style": f"약 {STYLE_OUT_TOKENS:,}토큰으로 잡았어요 (원문 앞 {STYLE_CHARS:,}자까지 넣어요).",
                "arcs": f"약 {ARCS_OUT_TOKENS:,}토큰으로 잡았어요."}[kind]

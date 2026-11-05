@@ -18,7 +18,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any, Iterator, Optional
+from typing import Any, Iterator, NamedTuple, Optional
 
 from pydantic import BaseModel, Field
 
@@ -242,6 +242,132 @@ def _row(line: bytes) -> Optional[dict]:
         return json.loads(line)
     except (json.JSONDecodeError, UnicodeDecodeError):
         return None  # 쓰다 끊긴 줄
+
+
+# ---------- 입력 토큰 추정 ----------
+
+class TokenRate(NamedTuple):
+    """호출 하나의 입력 토큰 ≈ slope × 요청 글자 수 + intercept. 출력 본문은 slope × 글자 수로 센다."""
+    slope: float
+    intercept: float
+    source: str = "default"  # default: 아래 기본값 / measured: 최근 사용량 기록에서 잰 값 / fallback: 기본값이 없는 백엔드
+    rows: int = 0  # measured 일 때 잰 기록 줄 수
+
+
+# 백엔드별 (모델 이름에 든 낱말, 토큰/글자, 호출마다 붙는 토큰). 낱말이 빈 줄은 그 백엔드의 기본값이다.
+# 2026-11 서버 사용량 기록(성공한 호출 중 글자 수가 있는 줄)의 최소제곱 직선. 기록의 글자 수는 시스템 프롬프트를 뺀 요청이고,
+# 시스템 프롬프트와 Claude Code 가 더하는 앞부분은 붙는 토큰에 들어간다.
+# Opus(Claude Code) 654줄 1.035/3805, Sonnet 77줄 0.995/5793, argon 709줄 0.568/1579, flash 238줄 0.599/2508.
+# claude-api 는 기록이 없어 같은 토크나이저의 기울기만 쓰고 붙는 토큰은 0으로 둔다.
+TOKEN_RATES: dict[str, list[tuple[str, float, float]]] = {
+    "claude": [("opus", 1.035, 3805), ("sonnet", 0.995, 5793), ("", 1.035, 3805)],
+    "claude-api": [("opus", 1.035, 0), ("sonnet", 0.995, 0), ("", 1.035, 0)],
+    "gemini": [("flash", 0.599, 2508), ("argon", 0.568, 1579), ("", 0.568, 1579)],
+}
+FALLBACK_CHARS_PER_TOKEN = 1.7  # 기본값이 없는 백엔드(로컬, mock). context.CHARS_PER_TOKEN 과 같은 값
+REFINE_ROWS = 200  # 다시 잴 때 보는 최근 기록 줄 수
+REFINE_MIN = 20  # 쓸 수 있는 기록이 이보다 적으면 기본값을 쓴다
+REFINE_SPAN = 5_000  # 가장 짧은 요청과 가장 긴 요청의 글자 수 차이가 이보다 작으면 직선을 긋지 않는다
+REFINE_SLOPE = (0.2, 3.0)  # 잰 기울기가 이 밖이면 버리고 기본값을 쓴다
+_rate_cache: dict[tuple, TokenRate] = {}
+
+
+def backend_for(model: str) -> str:
+    """백엔드를 모를 때 모델 이름으로 고른다. Claude 는 구독(claude)으로 본다."""
+    low = (model or "").lower()
+    if "claude" in low or low in ("opus", "sonnet", "haiku"):
+        return "claude"
+    return "gemini" if "gemini" in low else ""
+
+
+def default_rate(backend: str, model: str = "") -> TokenRate:
+    low = (model or "").lower()
+    for word, slope, intercept in TOKEN_RATES.get(backend, []):
+        if word in low:
+            return TokenRate(slope, intercept)
+    return TokenRate(1 / FALLBACK_CHARS_PER_TOKEN, 0.0, "fallback")
+
+
+def _usable(r: dict, backend: str, model: str) -> bool:
+    if r.get("backend") != backend or r.get("model") != model or not r.get("ok"):
+        return False
+    chars, tin = r.get("chars") or 0, r.get("in") or 0
+    if chars <= 0 or tin <= 0:
+        return False
+    # Claude Code 가 캐시 읽기를 입력에 두 번 센 기록(캐시가 입력의 거의 절반 이상)은 뺀다
+    return not (backend == "claude" and (r.get("cached") or 0) * 2 >= 0.9 * tin)
+
+
+def _fit(pairs: list[tuple[float, float]], base: TokenRate) -> TokenRate:
+    xs = [x for x, _ in pairs]
+    if len(pairs) < REFINE_MIN or max(xs) - min(xs) < REFINE_SPAN:
+        return base
+    mx = sum(xs) / len(xs)
+    my = sum(y for _, y in pairs) / len(pairs)
+    sxx = sum((x - mx) ** 2 for x in xs)
+    slope = sum((x - mx) * (y - my) for x, y in pairs) / sxx
+    intercept = my - slope * mx
+    if intercept < 0:  # 붙는 토큰이 음수면 원점을 지나는 비율로 센다
+        slope, intercept = sum(y for _, y in pairs) / sum(xs), 0.0
+    if not REFINE_SLOPE[0] <= slope <= REFINE_SLOPE[1]:
+        return base
+    return TokenRate(round(slope, 4), round(intercept), "measured", len(pairs))
+
+
+def _pairs(rows: list[dict], backend: str, model: str) -> list[tuple[float, float]]:
+    return [(r["chars"], r["in"]) for r in rows if _usable(r, backend, model)][-REFINE_ROWS:]
+
+
+def token_rate(backend: str, model: str = "", rows: Optional[list[dict]] = None) -> TokenRate:
+    """백엔드 · 모델의 입력 토큰 추정 직선. 같은 백엔드 · 모델의 최근 성공 기록이 REFINE_MIN 줄 이상이면 그 기록으로 다시 잰다.
+    backend 가 비면 모델 이름으로 고른다(backend_for). rows 를 주지 않으면 사용량 기록(read)을 읽는다."""
+    backend = backend or backend_for(model)
+    base = default_rate(backend, model)
+    if not model:
+        return base  # Claude Code 기본 모델처럼 이름을 모르면 기록과 맞춰 볼 수 없다
+    if rows is not None:
+        return _fit(_pairs(rows, backend, model), base)
+    all_rows = read()
+    key = (backend, model, str(log_path()), len(all_rows))
+    if key not in _rate_cache:
+        _rate_cache[key] = _fit(_pairs(all_rows, backend, model), base)
+    return _rate_cache[key]
+
+
+def est_input(chars: float, rate: TokenRate) -> float:
+    """요청 하나(chars 글자)의 입력 토큰 추정."""
+    return rate.slope * chars + rate.intercept
+
+
+def est_output(chars: float, rate: TokenRate) -> float:
+    """chars 글자를 내는 출력 토큰 추정. 붙는 토큰은 입력 쪽에만 있다."""
+    return rate.slope * chars
+
+
+def stage_llm(stage: str) -> tuple[str, str]:
+    """단계가 쓰는 (백엔드, 모델). 단계 모델이 비면 그 백엔드의 기본 모델. Claude Code 기본 모델은 이름을 몰라 비운다."""
+    from . import settings
+
+    backend = settings.stage_provider(stage)[0]
+    model = settings.stage_model(stage)[0]
+    if model:
+        return backend, model
+    if backend == "gemini":
+        model = settings.model()[0]
+    elif backend in ("claude", "claude-api"):
+        model = settings.claude_model()[0]
+        if not model and backend == "claude-api":
+            from .claude import DEFAULT_API_MODEL
+
+            model = DEFAULT_API_MODEL
+    elif backend == "local":
+        model = settings.local_model()[0]
+    return backend, model
+
+
+def stage_rate(stage: str) -> TokenRate:
+    """단계 백엔드 · 모델의 입력 토큰 추정 직선 (token_rate)."""
+    return token_rate(*stage_llm(stage))
 
 
 # ---------- 가격표 ----------

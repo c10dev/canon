@@ -172,6 +172,78 @@ def test_local_is_free_and_unknown_model_flagged():
     assert usage.row_cost({"backend": "gemini", "model": "gemini-9", "in": 10, "out": 10, "at": at}, usage.prices())[0] is None
 
 
+def _rows(backend, model, slope, intercept, n=30, **extra):
+    return [{"backend": backend, "model": model, "ok": True, "chars": 2_000 + 1_000 * i,
+             "in": round(slope * (2_000 + 1_000 * i) + intercept), **extra} for i in range(n)]
+
+
+def test_token_rate_defaults_by_backend_and_model():
+    opus = usage.token_rate("claude", "claude-opus-5-5", rows=[])
+    assert (opus.slope, opus.intercept, opus.source) == (1.035, 3805, "default")
+    assert usage.token_rate("claude", "sonnet", rows=[]).slope == 0.995  # Claude Code 별칭도 고른다
+    assert usage.token_rate("claude", "", rows=[]).slope == 1.035  # 기본 모델은 이름을 몰라 Opus 로 본다
+    assert usage.token_rate("claude-api", "claude-opus-5-5", rows=[]).intercept == 0
+    assert usage.token_rate("gemini", "models/gemini-3.8-flash-001", rows=[]).slope == 0.599
+    assert usage.token_rate("gemini", "gemini-4-argon", rows=[]).slope == 0.568
+    assert usage.token_rate("", "gemini-4-argon", rows=[]).slope == 0.568  # 백엔드를 모르면 모델 이름으로
+    local = usage.token_rate("local", "gemma-4-31b", rows=[])
+    assert local.source == "fallback" and local.slope == pytest.approx(1 / 1.7) and local.intercept == 0
+    assert usage.est_input(10_000, opus) == pytest.approx(10_350 + 3805)
+    assert usage.est_output(10_000, opus) == pytest.approx(10_350)
+
+
+def test_token_rate_refines_from_recent_rows():
+    rows = _rows("gemini", "gemini-4-argon", 0.7, 900)
+    r = usage.token_rate("gemini", "gemini-4-argon", rows=rows)
+    assert r.source == "measured" and r.rows == 30
+    assert r.slope == pytest.approx(0.7, abs=1e-3) and r.intercept == pytest.approx(900, abs=2)
+    assert usage.token_rate("gemini", "gemini-3.8-flash", rows=rows).source == "default"  # 다른 모델 기록은 보지 않는다
+    assert usage.token_rate("gemini", "gemini-4-argon", rows=rows[:usage.REFINE_MIN - 1]).source == "default"  # 줄이 적으면 기본값
+    failed = [{**x, "ok": False} for x in rows]
+    assert usage.token_rate("gemini", "gemini-4-argon", rows=failed).source == "default"
+    flat = [{**x, "chars": 5_000} for x in rows]  # 글자 수가 모두 같으면 직선을 긋지 않는다
+    assert usage.token_rate("gemini", "gemini-4-argon", rows=flat).source == "default"
+    wild = _rows("gemini", "gemini-4-argon", 9.0, 0)  # 말이 안 되는 기울기는 버린다
+    assert usage.token_rate("gemini", "gemini-4-argon", rows=wild).source == "default"
+    neg = _rows("gemini", "gemini-4-argon", 0.8, -500)  # 붙는 토큰이 음수면 원점을 지나는 비율
+    r = usage.token_rate("gemini", "gemini-4-argon", rows=neg)
+    assert r.intercept == 0
+    assert r.slope == pytest.approx(sum(x["in"] for x in neg) / sum(x["chars"] for x in neg), abs=1e-3)
+
+
+def test_token_rate_skips_doubled_claude_rows():
+    good = _rows("claude", "claude-opus-5-5", 1.0, 3000, cached=0)
+    doubled = _rows("claude", "claude-opus-5-5", 2.0, 6000)
+    for x in doubled:
+        x["cached"] = x["in"] // 2  # 캐시 읽기를 입력에 두 번 센 기록
+    r = usage.token_rate("claude", "claude-opus-5-5", rows=good + doubled)
+    assert r.source == "measured" and r.rows == 30 and r.slope == pytest.approx(1.0, abs=1e-3)
+    assert usage.token_rate("claude", "claude-opus-5-5", rows=doubled).source == "default"
+
+
+def test_token_rate_reads_usage_log(home):
+    import json
+
+    path = home / ".usage" / "usage.jsonl"
+    path.parent.mkdir(parents=True)
+    path.write_text("".join(json.dumps(x) + "\n" for x in _rows("gemini", "gemini-4-argon", 0.65, 1200)), encoding="utf-8")
+    r = usage.token_rate("gemini", "gemini-4-argon")
+    assert r.source == "measured" and r.slope == pytest.approx(0.65, abs=1e-3)
+
+
+def test_stage_rate_follows_stage_backend(monkeypatch):
+    monkeypatch.setenv("CANON_LLM", "gemini")
+    monkeypatch.setenv("CANON_MODEL", "gemini-4-argon")
+    monkeypatch.setenv("CANON_LLM_STATE", "claude")
+    monkeypatch.setenv("CANON_MODEL_STATE", "claude-sonnet-5-5")
+    monkeypatch.setenv("CANON_LLM_CHECK", "claude-api")
+    monkeypatch.delenv("CANON_CLAUDE_MODEL", raising=False)
+    assert usage.stage_llm("write") == ("gemini", "gemini-4-argon")
+    assert usage.stage_llm("state") == ("claude", "claude-sonnet-5-5")
+    assert usage.stage_llm("check")[0] == "claude-api" and usage.stage_llm("check")[1].startswith("claude-")
+    assert usage.stage_rate("write").slope == 0.568 and usage.stage_rate("state").slope == 0.995
+
+
 def test_jobs_thread_keeps_scope():
     seen = {}
 

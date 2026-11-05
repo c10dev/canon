@@ -30,7 +30,7 @@ from pydantic import BaseModel, Field
 from . import anchor, atlas, board, cue, dynamics, features, findings, jobs, pipeline, prompts, settings, store, usage
 from . import stage as stage_mod
 from .llm import BatchLLM, Interrupted, SchemaMismatch, get_llm
-from .research import CHARS_PER_TOKEN, JSON_OUTPUT_RESERVE, _filler
+from .research import JSON_OUTPUT_RESERVE, _filler
 from .schema import ConsistencyReport, Project, RewriteRequest, StateDelta, TextVersion
 
 _log = logging.getLogger("canon")
@@ -374,8 +374,11 @@ def estimate(p: Project, target: int, batch: bool, policy: Policy, name: str | N
         if not e.text:
             e.text = _filler(p, p.meta.words_per_episode)
     measured = _measured(name)
-    write_out = p.meta.words_per_episode / CHARS_PER_TOKEN
     steps = {"plan": 0, "write": 0, "revise": 0, "check": 0, "state": 0}
+    # 단계 백엔드 · 모델마다 글자 → 토큰 직선이 다르다 (Claude 는 Gemini 보다 글자당 토큰이 많다, usage.token_rate)
+    rates = {s: usage.stage_rate(s) for s in steps}
+    write_out = usage.est_output(p.meta.words_per_episode, rates["write"])
+    revise_out = usage.est_output(p.meta.words_per_episode, rates["revise"])
     boards = policy.storyboard and board.on(p)
     cues = policy.cue_sheet and cue.on(p)
     tokens = {s: [0.0, 0.0] for s in steps}
@@ -410,11 +413,11 @@ def estimate(p: Project, target: int, batch: bool, policy: Policy, name: str | N
             calls.append(("write", prompts.writer_system(sim) + prompts.episode_prompt(sim, n)
                           + " " * ((BOARD_CHARS if made else 0) + (CUE_CHARS if sheet else 0)), write_out))
             if policy.polish:  # 서술 다듬기 한 번: 작품 고정 블록 + 쓴 본문(목표 분량) + 규칙, 본문 전체를 다시 낸다
-                calls.append(("revise", prompts.writer_system(sim) + prompts.polish_prompt(sim, n, sim.episode(n).text), write_out))
+                calls.append(("revise", prompts.writer_system(sim) + prompts.polish_prompt(sim, n, sim.episode(n).text), revise_out))
         for step, text, out in calls:
             m = measured.get(step + (":batch" if batch and batchable(step) else "")) or measured.get(step)
             steps[step] += 1
-            tokens[step][0] += len(text) / CHARS_PER_TOKEN
+            tokens[step][0] += usage.est_input(len(text), rates[step])
             tokens[step][1] += m["out"] if m and m["out"] else out
     cost: Optional[float] = 0.0
     unpriced = []
@@ -459,6 +462,7 @@ def estimate(p: Project, target: int, batch: bool, policy: Policy, name: str | N
         "batch_avg_seconds": round(sum(waits) / len(waits)) if waits else None,
         "measured": bool(measured), "model": gemini_model("write"), "unpriced": sorted(set(unpriced)),
         "stages": {s: settings.stage_provider(s)[0] for s in steps},
+        "token_rates": {s: r._asdict() for s, r in rates.items()},
     }
 
 
