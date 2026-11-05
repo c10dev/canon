@@ -1335,7 +1335,8 @@ function briefPending(key, v) {
 }
 
 /** 반영하지 않은 상태 변경안. 변경안은 본문이 작성된 화에만 반영하므로 이미 반영이 끝난 화의 것은 세지 않는다. */
-const deltaPending = (n) => { const e = P() && ep(Number(n)); return !e || e.status === 'written'; };
+// 서버 pending.json 에 남아 새로 고쳐도 되살아나는 변경안은 묻지 않는다 (review.js deltaKept)
+const deltaPending = (n) => { const e = P() && ep(Number(n)); return (!e || e.status === 'written') && !(typeof deltaKept === 'function' && deltaKept(n)); };
 
 /** 페이지를 떠나면 사라지는 입력: 저장하지 않은 작품 · 문체 · 설정 변경, 본문 초안, 붙여 넣은 지시서 결과, 반영하지 않은 상태 변경안,
     분석 전 문체 예시 원문. 본문 초안은 브라우저에도 임시 보관하지만, 막힌 브라우저가 있어 여기서도 묻는다 */

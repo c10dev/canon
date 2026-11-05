@@ -343,6 +343,7 @@
   - 반영 취소에 쓸 앞 화 스냅샷이 없으면 버튼 자리에 까닭을 쓴다(`revertGone`)
   - 장편이 지운 스냅샷은 반영 기록으로 다시 만들지 않는다(기능 훅이 스냅샷 밖 데이터도 바꿔 재생이 정확하지 않다)
   - 체크 · 칸을 바꾸면 잠시 뒤 초안을 서버에 남긴다(`saveDeltaDraft`, `PUT /pending/{key}/draft`)
+  - pending.json 에 남아 남기지 못한 초안이 없는 변경안은 페이지를 떠날 때 묻지 않는다(`deltaKept`, app.js `hasUnsaved`)
   - pending.json 에 결과가 없는 변경안은 초안을 남기지 않는다
   - 체크가 다른 화의 것이면(`S.picksEp`) 초안에 체크를 보내지 않는다
   - 머리 버튼 줄의 반영 버튼 · ⋯ `rvMenu` · `.savebar-slot`
