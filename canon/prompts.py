@@ -3047,10 +3047,26 @@ def cue_dialogue_share(p: Project) -> float | None:
     return min(round(base.dialogue_ratio / CUE_DIALOGUE_SHARE, 2), 0.8)
 
 
-def cue_sheet_prompt(p: Project, n: int) -> str:
+def cue_sheet_prompt(p: Project, n: int, lead: str = "") -> str:
     """n화 큐 시트 만들기. 앞부분은 쓰기 프롬프트와 같은 컨텍스트(스토리보드가 있으면 그 장면 순서 포함), 요구사항은 맨 끝.
     긴장 · 템포 · 편성 · 분량 · 종지 지시는 레퍼런스 원고 역설계와 견준 실측(2026-11-03, DESIGN.md '화별 큐 시트')에 맞췄다.
-    예전 지시는 모든 화를 긴장 5 · 반종지로 끝내고, 느린 큐 57% · 대사 큐 21% · 큐 길이를 거의 고르게 나눴다."""
+    예전 지시는 모든 화를 긴장 5 · 반종지로 끝내고, 느린 큐 57% · 대사 큐 21% · 큐 길이를 거의 고르게 나눴다.
+    lead 는 방금 이 화 스토리보드를 만든 요청 글(storyboard_prompt) 그대로다 (pipeline.cue_lead 가 고른다).
+    주면 그 글을 맨 앞에 두고 만든 스토리보드(board_block)와 큐 시트 요청을 뒤에 붙인다. Gemini 암묵적 캐시는
+    앞 요청을 통째로 품은 요청에만 맞는다 (DESIGN.md 4장). 응답 형식이 달라도 맞는지는 실측하지 않았다.
+    Claude 캐시 자리(claude.shared_cut)는 같은 응답 형식의 직전 요청으로 정해져 이 모양으로 더 맞지 않는다.
+    장면 연출은 lead 에 이미 있어 다시 넣지 않는다. lead 의 다음 화 플롯 · 시간 · 이동 블록은 지울 수 없어 첫 줄에서 쓰임을 정한다."""
+    if lead:
+        return (lead + "\n\n아래는 위 요청으로 만든 스토리보드를 Canon 이 값을 세어 적은 글입니다. 스토리보드 JSON 을 다시 만들지 않습니다.\n\n"
+                + board_block(p, n) + "\n\n"
+                + _cue_request(p, n, f"위 자료와 바로 위 스토리보드로 {n}화의 큐 시트(악보)를 JSON 으로 만듭니다. 본문을 쓰지 않습니다.\n"
+                               f"[다음 화 플롯]의 사건은 큐에 넣지 않습니다. 시간 · 이동 · 장면 순서는 바로 위 스토리보드를 따릅니다."))
+    return build_episode_context(p, n) + "\n\n" + _cue_request(
+        p, n, f"위 자료로 {n}화의 큐 시트(악보)를 JSON 으로 만듭니다. 본문을 쓰지 않습니다.")
+
+
+def _cue_request(p: Project, n: int, first: str) -> str:
+    """큐 시트 만들기 요구사항 (cue_sheet_prompt 의 맨 끝). first 는 첫 줄."""
     size = p.meta.words_per_episode
     fn = "\n".join(f"  {k} {v[0]}: {v[1]}" for k, v in CUE_FUNCTIONS.items())
     cad = "\n".join(f"  {k} {v[0]}: {v[1]}" for k, v in CUE_CADENCES.items())
@@ -3058,9 +3074,7 @@ def cue_sheet_prompt(p: Project, n: int) -> str:
     dialogue = (f"  이 작품 문체 기준의 대사 비율은 {p.style_baseline.dialogue_ratio:.0%} 입니다. dialogue 큐의 length 합이 화 글자의 약 {share:.0%} 가 되게 합니다."
                 if share is not None else
                 "  인물이 둘 넘게 함께 있는 장면은 주고받는 대사로 끌고 가는 큐(dialogue)를 아끼지 않습니다.")
-    return build_episode_context(p, n) + f"""
-
-위 자료로 {n}화의 큐 시트(악보)를 JSON 으로 만듭니다. 본문을 쓰지 않습니다.
+    return f"""{first}
 큐는 본문을 나눠 쓰는 연주 단위입니다. 4~10개, 순서대로 적습니다.
 
 - function: 화성 기능.

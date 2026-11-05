@@ -2310,13 +2310,17 @@ def board_basis(p: Project, n: int) -> str:
     return board.basis(p, n)
 
 
-def make_storyboard(llm: LLM, p: Project, n: int) -> Storyboard:
-    """n화 스토리보드를 만든다. 저장하지 않는다 (호출자가 set_storyboard 로 넣는다)."""
+def make_storyboard(llm: LLM, p: Project, n: int, lead: list[str] | None = None) -> Storyboard:
+    """n화 스토리보드를 만든다. 저장하지 않는다 (호출자가 set_storyboard 로 넣는다).
+    lead 목록을 주면 보낸 요청 글을 채운다. 바로 이어 큐 시트를 만들 때 그 글을 앞에 둔다 (cue_lead, make_cue_sheet)."""
     ep = p.episode(n)
     if ep.status == "draft":
         raise ValueError(f"{n}화 플롯이 아직 확정되지 않았어요 (confirm 먼저)")
     require_previous(p, n)
-    d = _board_draft(llm, n, len(ep.plot.events), prompts.storyboard_prompt(p, n),
+    prompt = prompts.storyboard_prompt(p, n)
+    if lead is not None:
+        lead[:] = [prompt]
+    d = _board_draft(llm, n, len(ep.plot.events), prompt,
                      {"episode": n, "events": len(ep.plot.events), "characters": ep.plot.characters,
                       "stats": {s.character_id: [x.name for x in s.stats] for s in p.states if s.stats}})
     b = Storyboard(**d.model_dump(), made_at=_now(), made_by="ai", basis=board_basis(p, n))
@@ -2461,8 +2465,18 @@ def _write(llm: LLM, p: Project, n: int, prompt: str, cut: list[MetaCut] | None 
 CUE_OUT_TOKENS = 16384
 
 
-def make_cue_sheet(llm: LLM, p: Project, n: int) -> CueSheet:
-    """n화 큐 시트를 만든다 (plan 단계). 저장은 호출자가 한다."""
+def cue_lead(p: Project, n: int, lead: list[str], made_at: str) -> str:
+    """큐 시트 요청 앞에 둘 스토리보드 요청 글. 지금 n화 스토리보드가 방금 그 글로 AI 가 만든 것(made_at 이 같고 made_by 가 ai)이고
+    낡지 않았을 때만 그 글을, 아니면 빈 글을 돌려준다. 작가가 고쳤거나 낡은 스토리보드는 예전 큐 시트 요청을 쓴다."""
+    b = p.episode(n).storyboard
+    if not lead or not made_at or b is None or b.made_by != "ai" or b.made_at != made_at or board.stale(p, n):
+        return ""
+    return lead[0]
+
+
+def make_cue_sheet(llm: LLM, p: Project, n: int, lead: str = "") -> CueSheet:
+    """n화 큐 시트를 만든다 (plan 단계). 저장은 호출자가 한다.
+    lead 는 cue_lead 가 고른 스토리보드 요청 글이다. 주면 그 글로 시작하는 요청을 보낸다 (prompts.cue_sheet_prompt)."""
     from . import cue
 
     ep = p.episode(n)
@@ -2470,7 +2484,7 @@ def make_cue_sheet(llm: LLM, p: Project, n: int) -> CueSheet:
         raise ValueError(f"{n}화 플롯이 아직 확정되지 않았어요 (confirm 먼저)")
     require_previous(p, n)
     with out_cap(CUE_OUT_TOKENS):
-        d = llm.json(prompts.SYSTEM_PLANNER, prompts.cue_sheet_prompt(p, n), CueSheetDraft,
+        d = llm.json(prompts.SYSTEM_PLANNER, prompts.cue_sheet_prompt(p, n, lead=lead), CueSheetDraft,
                      hint={"episode": n, "events": len(ep.plot.events), "characters": ep.plot.characters,
                            "scenes": len(ep.storyboard.scenes) if ep.storyboard else 0, "size": p.meta.words_per_episode})
     return CueSheet(**cue.clean(p, d).model_dump(), made_at=_now(), made_by="ai")
