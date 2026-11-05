@@ -156,6 +156,7 @@ def _write(name: str, run: Run) -> None:
 OWNER_FILE = ".autorun.lock"  # 도는 실행이 flock 을 쥔다. 프로세스가 죽으면 OS 가 푼다
 WANT_FILE = "autorun.want"  # 다른 프로세스가 쥔 실행에 보내는 요청 (pause | stop)
 ELSEWHERE = "다른 곳(명령줄 canon auto 나 다른 서버)에서 이 작품의 자동 집필이 돌고 있어요. 그곳에서 멈춘 뒤 다시 하세요"
+STARTING = "이 서버에서 이 작품의 자동 집필을 이미 시작하고 있어요. 잠시 뒤에 다시 보세요"
 
 
 def _take(name: str) -> Optional[int]:
@@ -252,6 +253,7 @@ class Control:
 
 
 _controls: dict[str, Control] = {}
+_taking: set[str] = set()  # 이 프로세스에서 시작 · 이어 가기가 잠금 파일을 잡는 중인 작품 (_control)
 _lock = threading.Lock()
 
 
@@ -941,17 +943,28 @@ def _launch(name: str, ctl: Control, echo: Callable[[str], None] | None = None, 
 
 
 def _control(name: str, run: Run) -> Control:
+    """이 프로세스가 실행 주인이 되어 Control 을 등록한다.
+    같은 프로세스의 두 번째 시작 · 이어 가기는 잠금 파일을 보기 전에 STARTING 으로 거절한다.
+    잠금 파일을 다시 잡아 보는 대기(_take)는 전역 _lock 밖에서 해서 다른 작품의 요청을 막지 않는다."""
     with _lock:
         ctl = _controls.get(name)
         if ctl and ctl.thread_alive:
             raise ValueError("자동 집필이 이미 돌고 있어요. 일시정지나 중지 후 다시 시작하세요")
+        if name in _taking or (ctl and ctl.owner is not None):  # 다른 스레드가 시작 · 이어 가기를 준비하는 중이다
+            raise ValueError(STARTING)
+        _taking.add(name)
+    try:
         fd = _take(name)
         if fd is None:
             raise ValueError(ELSEWHERE)
         ctl = Control(name, run)
         ctl.owner = fd
-        _controls[name] = ctl
-    return ctl
+        with _lock:
+            _controls[name] = ctl
+        return ctl
+    finally:
+        with _lock:
+            _taking.discard(name)
 
 
 def start(name: str, target: int, batch: bool, policy: Policy, *, foreground: bool = False,
