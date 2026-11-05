@@ -281,6 +281,8 @@
   - `apply_delta` 는 이미 회수한 복선의 회수를 반영하지 않는다(회수 화를 덮지 않음, 경고는 `foreshadows.resolved_warnings`)
   - 뺀 회수에 걸린 회수 문장(`payoff`)은 다시 떠올린 문장(`plant`)으로 바꿔 남긴다(`foreshadows.clean_delta` 와 같은 규칙)
   - `apply_delta` 가 이미 있거나 겹쳐서 뺀 복선 · 비밀 · 회수 id 는 `d.dismissed` 의 같은 칸에 남고, 반영 기록의 목록은 실제로 반영한 것만 남긴다
+  - `apply_delta` 는 관계 바뀜의 수치 · 보는 방식 · 가 닿을 곳을 비우고 유형 · 설명만 반영한다. 새 쌍은 중립 간선으로 시작한다(`seed_ties`). 비운 값이 반영 기록에 남는다
+  - `apply_delta` 는 반영 기록에 `legacy_rel = False` 를 적어 다시 계산이 그 기록의 관계 수치를 쓰지 않게 한다
   - 상태 변경안의 본문 지문 `StateDelta.basis`(`text_basis`)는 `extract_state` · `carried_delta` 가 채운다
   - `extract_state` 는 LLM 을 부르기 전에 프롬프트에 넣은 본문으로 지문을 잰다
   - 반영 `apply_delta` 는 인물 상태의 빈 칸을 그대로 두고, `CharacterState.cleared` 에 적힌 칸(목표 · 위치 · 메모 · 차림 · 감정)은 비운다
@@ -355,6 +357,10 @@
 - 지울 칸에 값이 함께 오면 검증(`_blank_cleared`)이 그 칸을 비워 차림 · 이동 거리 경고가 새 값으로 보지 않는다
 - 인물 프롬프트 넣기를 고르는 규칙은 `context.core_ids` · `off_ids` · `without_off`(모두 auto 면 예전 규칙과 같다)
 - 상태 변경안의 본문 지문(`StateDelta.basis`)도 프로그램이 채워 AI 응답 형식에서 빠진다(`SkipJsonSchema`). 비면 모름
+- 상태 변경안의 AI 응답 형식은 `StateDeltaAI` 다(`extract_state` · `play.settle` · `state_brief`). 관계 바뀜 `RelationshipChange` 와 사건 `AIStoryEvent` 에 관계 수치 · 보는 방식 · 가 닿을 곳 · 화 번호 · 수동보정 칸이 없다
+- `to_delta` 가 받은 `StateDeltaAI`(또는 `StateDelta` 를 돌려주는 가짜 LLM)를 n화 `StateDelta` 로 바꾸며 그 칸들을 버린다. 채팅 앱 JSON 가져오기(`web.parse_state`, 명령줄 `update --from-json`)도 거친다
+- 사건 종류 목록에서 수동보정은 응답 형식에서만 빠지고 읽기는 한다(예전 JSON). 반영이 뺀다
+- 반영 기록의 `StateDelta.legacy_rel` 은 프로그램 칸이다(`SkipJsonSchema`). 칸이 없던 예전 기록은 참으로 읽히고 지금 반영은 거짓으로 남긴다
 - 상태 승인에서 반영하지 않은 항목(`StateDelta.dismissed`, `DismissedItems`)은 AI 응답 형식에서 빠지고 반영 기록(`Project.history`)에만 남는다
 - 반영 취소는 그 화 기록과 함께 빼 둔 항목도 지운다
 - 지운 기록은 `_revert_kept` 가 pending.json 에 남기고, 상태 승인 화면이 빼 둔 항목을 체크를 푼 채 다시 놓는다

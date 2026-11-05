@@ -22,7 +22,7 @@ from statistics import median
 from . import branches, cancel, dynamics, features, pipeline, prompts, statwin, store, timeline
 from .llm import LLM
 from .schema import (Act, Birth, Character, Episode, EpisodePlot, Part, PlayBeat, PlayInfo, PlayPerson, PlayScene,
-                     PlayTurn, PlayUnit, Project, StateDelta, StoryArc, TurnKind)
+                     PlayTurn, PlayUnit, Project, StateDelta, StateDeltaAI, StoryArc, TurnKind, to_delta)
 
 CHAPTER_LEN = 20  # 장 하나의 구간 수 (start 가 PlayInfo.chapter_len 에 넣는다)
 LUCK = (-2, -1, 0, 1, 2)
@@ -389,9 +389,8 @@ def settle(llm: LLM, p: Project, info: PlayInfo, n: int) -> StateDelta:
     pipeline.check_applicable(p, n)
     try:
         cancel.check()
-        d = llm.json(prompts.SYSTEM_EDITOR, prompts.play_state_prompt(p, n), StateDelta,
-                     hint={"episode": n, "stats": statwin.enabled(p)})
-        d.episode = n
+        d = to_delta(llm.json(prompts.SYSTEM_EDITOR, prompts.play_state_prompt(p, n), StateDeltaAI,
+                              hint={"episode": n, "stats": statwin.enabled(p)}), n)
         if not d.time.day and t.beats:  # 마지막 흘러간 일의 시점 (AI 가 적지 않았을 때)
             d.time = next((b.time for b in reversed(t.beats) if b.time.day), d.time)
         pipeline.clean_delta(p, d)

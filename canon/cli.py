@@ -87,7 +87,7 @@ from .llm import dump, get_llm
 from .schema import FINDING_STATUS, SEVERITY, ConsistencyReport, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
 from . import abilities, anchor, atlas, blocktrial, findings, stattrial, foreshadows, setupchat, statwin, timeline
 from . import birth, cue, labstats, play, soelab, tofix
-from .schema import ArcProposal, ChatScope, Deadline, MapPlace, StatValue, StoryArc
+from .schema import ArcProposal, ChatScope, Deadline, MapPlace, StatValue, StateDeltaAI, StoryArc, to_delta
 from .maps import kinds as placekinds
 from .maps import travel
 
@@ -1201,9 +1201,8 @@ def _print_delta(d: StateDelta) -> None:
         extra = f" (목격: {', '.join(e.witnesses)})" if e.witnesses else ""
         secret = f" [비밀 {e.reveals_secret} 드러남]" if e.reveals_secret else ""
         print(f"- 사건 {e.actor} → {e.target}: {e.kind} 강도 {e.intensity}{extra}{secret}  \"{e.quote}\"")
-    for r in d.relationship_updates:
-        nums = "" if d.events else f": 호감 {r.affinity}, 긴장 {r.tension}"
-        print(f"- 관계 {r.a}↔{r.b} ({r.type}){nums}  {r.description}")
+    for r in d.relationship_updates:  # 관계 수치는 반영이 쓰지 않으므로 보이지 않는다 (사건으로 계산)
+        print(f"- 관계 {r.a}↔{r.b} ({r.type})  {r.description}")
     for s in d.secrets_added:
         print(f"- 새 비밀 {s.id} ({s.owner}): {s.content} / 모르는 인물 {s.hidden_from}")
     for f in d.new_facts:
@@ -1253,8 +1252,7 @@ def _update(name: str, p: Project, n: int, yes: bool, from_json: str | None = No
             print("본문만 고쳤으면 웹의 상태 승인 화면에서 고친 본문 기준으로 다시 반영할 수 있어요")
         return False
     if from_json:
-        delta = StateDelta.model_validate_json(_strip_fence(Path(from_json).read_text(encoding="utf-8")))
-        delta.episode = n
+        delta = to_delta(StateDeltaAI.model_validate_json(_strip_fence(Path(from_json).read_text(encoding="utf-8"))), n)
         pipeline.clean_delta(p, delta)
     else:
         print(f"{n}화 상태 추출 중...")

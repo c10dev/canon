@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from . import context, elements, genres, metrics, naming, storylines
 from .dynamics import VIEWS, describe_relations
 from .llm import _inline_refs, dump
-from .schema import Birth, Character, ChatMessage, Claim, ConsistencyIssue, ConsistencyReport, Foreshadow, PlayInfo, Project, Selection, StateDelta, StoryElement
+from .schema import Birth, Character, ChatMessage, Claim, ConsistencyIssue, ConsistencyReport, Foreshadow, PlayInfo, Project, Selection, StateDeltaAI, StoryElement
 from . import address, board, charlog, echoes, foreshadows, knows, pairlog, stage, statwin, timeline
 from .maps import prompt as mapprompt
 
@@ -4250,7 +4250,7 @@ def state_brief(p: Project, n: int) -> str:
 ## 출력 형식
 아래 JSON 스키마를 따르는 JSON 하나만 코드 블록 없이 출력하세요.
 
-{_schema_text(StateDelta)}
+{_schema_text(StateDeltaAI)}
 """
 
 
