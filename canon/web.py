@@ -2758,6 +2758,27 @@ def drop_pending(name: str, key: str, failure: bool = False, id: str = "") -> di
     return store.edit_pending(name, drop)
 
 
+class StateDraftIn(BaseModel):
+    """상태 승인 화면에서 고르던 체크와 고친 변경안. 화면이 보내는 값이라 LLM 스키마가 아니다."""
+    delta: dict
+    picks: dict[str, bool] | None = None  # None: 화면의 체크가 다른 화의 것이라 보내지 않았다. 남긴 체크를 그대로 둔다
+    id: str | None = None  # 받은 결과의 작업 id. 그사이 새 변경안으로 바뀌었으면 남기지 않는다
+
+
+@app.put("/api/projects/{name}/pending/{key}/draft")
+def save_state_draft(name: str, key: str, body: StateDraftIn) -> dict:
+    """상태 변경안 결과(state:<화>)에 작가가 고르던 체크와 고친 칸을 초안으로 붙인다. 새로고침 · 다른 탭이 이어 받는다.
+    pending.json 만 고치고 작품은 저장하지 않는다. 결과가 없거나(반영 · 버림 뒤 늦게 온 저장) 다른 결과로 바뀌었으면 그대로 둔다."""
+    _need(name)
+
+    def put(d: dict) -> None:
+        rec = d["results"].get(key)
+        if rec and rec.get("kind") == "state" and (body.id is None or body.id == rec.get("id")):
+            picks = body.picks if body.picks is not None else (rec.get("draft") or {}).get("picks")
+            rec["draft"] = {"delta": body.delta, "picks": picks, "at": _now()}
+    return store.edit_pending(name, put)
+
+
 @app.post("/api/jobs/{jid}/stop")
 def stop_job(jid: str) -> dict:
     """작업을 멈춘다. 이미 보낸 AI 호출의 응답은 버린다. 자동 집필은 그 화면의 일시정지 · 중지를 쓴다."""

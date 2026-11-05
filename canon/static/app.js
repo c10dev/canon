@@ -671,6 +671,7 @@ async function loadPending(pre) {
   for (const r of Object.values(d.results)) {
     if (pendingShown(r) || S.jobsApplied.has(r.id)) continue;
     applyJobResult({ id: r.id, kind: r.kind, ep: r.ep, label: r.label, status: 'done', result: r.result, project: S.name });
+    if (r.kind === 'state' && r.draft) restoreDeltaDraft(r.ep, r.draft);  // 고르던 체크와 고친 칸 (review.js saveDeltaDraft)
     if (r.kind === 'state' && r.base != null) S.deltaBase[r.ep] = r.base;  // 변경안을 만든 본문. 그 뒤 고쳤으면 승인 화면이 알린다
   }
   Object.assign(S, keep);

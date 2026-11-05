@@ -153,6 +153,29 @@ function pickEp(n) {
   S.picksEp = n;
 }
 
+// ---------- 고르던 체크 · 고친 칸 초안 (서버 pending.json 의 state:<화> 결과에 붙는다, web.save_state_draft) ----------
+let draftTimer = null;
+/** 상태 승인 화면에서 체크나 칸을 바꾸면 잠시 뒤 초안으로 남긴다. 결과가 pending.json 에 없는 변경안(채팅 앱 JSON 등)은 남기지 않는다 */
+function saveDeltaDraft(n) {
+  clearTimeout(draftTimer);
+  draftTimer = setTimeout(() => {
+    const r = S.pending.name === S.name && S.pending.results[`state:${n}`];
+    if (!r || !S.deltas[n]) return;
+    const picks = S.picksEp === n ? Object.fromEntries(Object.entries(S.picks).filter(([k]) => DELTA_PICK.test(k))) : null;
+    api('PUT', `/projects/${enc(S.name)}/pending/${enc(r.key)}/draft`, { delta: S.deltas[n], picks, id: r.id ?? null }).catch(() => { /* 다음에 바꿀 때 다시 */ });
+  }, 600);
+}
+
+/** loadPending 이 setDelta 로 받은 그대로를 놓은 뒤 부른다: 초안의 변경안과 체크로 바꾼다. 받은 그대로(S.deltaOrig)는 두어 '고침' 표시가 맞는다 */
+function restoreDeltaDraft(n, draft) {
+  if (!draft || !draft.delta || !S.deltas[n]) return;
+  S.deltas[n] = draft.delta;
+  if (!draft.picks) return;  // 체크 없이 남긴 초안(다른 화의 체크가 놓여 있을 때)은 받은 그대로의 기본 체크를 둔다
+  for (const k of Object.keys(S.picks)) if (DELTA_PICK.test(k)) delete S.picks[k];
+  Object.entries(draft.picks).forEach(([k, v]) => { if (DELTA_PICK.test(k)) S.picks[k] = !!v; });
+  S.picksEp = n;
+}
+
 /** 사건 종류 (schema.EventKind). 수동보정은 작가가 관계를 직접 고칠 때만 쓰고 반영에서 빠져 고르지 않는다 (tests/test_delta_count.py 가 맞춰 본다) */
 const EVENT_KINDS = ['도움', '희생', '약속이행', '칭찬', '진심고백', '사과', '공동경험', '거짓말발각', '배신', '모욕', '위협', '거절', '경쟁승리', '비밀폭로'];
 
@@ -713,6 +736,7 @@ Object.assign(actions, {
       await saveIfDirty();
       try {
         S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/apply${force ? '?force=1' : ''}`, out);
+        clearTimeout(draftTimer);
       } catch (e) {
         if (e.code !== 'stale_delta' || force) throw e;
         stale = e;  // 다른 탭에서 고쳤거나 저장하지 않은 본문을 방금 저장했다: 기다림 상자를 닫은 뒤 묻는다
@@ -793,6 +817,7 @@ Object.assign(actions, {
   },
   async dropDelta(n) {
     if (!(await askConfirm('이 변경안을 버릴까요?', { ok: '버리기', danger: true }))) return;
+    clearTimeout(draftTimer);
     delete S.deltas[n];
     render();
   },
@@ -836,6 +861,11 @@ document.addEventListener('change', (e) => {
   }
   if (el.dataset && el.dataset.pick && DELTA_PICK.test(el.dataset.pick) && S.route[2] === 'review') rvCountRefresh();
 });
+
+// 상태 승인 화면의 체크 · 칸을 바꾸면 초안을 남긴다. 칸마다 값을 넣는 곳(app.js · charlog.js · timeline.js)이 달라 한 곳에서 받는다 (값은 저장할 때 읽는다)
+['input', 'change'].forEach((t) => document.addEventListener(t, () => {
+  if (S.route && S.route[2] === 'review' && S.deltas[S.route[3]]) saveDeltaDraft(Number(S.route[3]));
+}));
 
 // 펴 둔 갈래는 다시 그려도 펴 둔다 (toggle 은 거품이 일지 않아 잡는 단계에서 받는다)
 document.addEventListener('toggle', (e) => {
