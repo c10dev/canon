@@ -394,6 +394,7 @@
   - 라이브러리 항목도 같은 카드
   - 목차 틀은 공용 `outline.js`(`styleToc`)
   - `tests/test_style_js.py`
+- '문체 분석'(`analyzeStyle`)은 화면을 막지 않는 작업 `style` 을 시작한다. 버튼은 `jobBtn` 으로 진행을 보이고, 끝나면 `applyJobResult` 가 작품 문체 · 기준 지표에 넣고 라이브러리 연결을 끊는다(저장은 작가가). 문체 라이브러리의 분석은 작품 밖이라 아직 가림막(run)이다
 
 ### `canon/static/stylechat.js`
 

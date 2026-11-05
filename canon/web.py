@@ -2107,6 +2107,7 @@ class JobIn(BaseModel):
     stage_room: str = ""  # stage_draft: 아직 방이 없을 때 이 틀(보통 empty)로 새 방을 만들어 초안을 받는다 (AI 가 기준점을 더하자고 한다)
     board: Literal["", "make", "none"] = ""  # write: make 면 스토리보드를 새로 만든 뒤 쓴다(바로 쓰기), none 이면 스토리보드 없이 쓴다
     cues: Literal["", "none"] = ""  # write: 큐 시트를 쓰는 작품(cue.on)인데 그 화에 없으면 만든 뒤 쓴다. none 이면 큐 시트 없이 쓴다
+    text: str = ""  # style: 분석할 예시 원문 (200자 이상)
 
 
 def _edit(name: str, fn) -> Project:
@@ -2180,6 +2181,18 @@ def _job_suggest(name: str, body: "JobIn", p: Project, kind: str, n: int | None,
     def fn(job: jobs.Job):
         return pipeline.suggest_setup(llm, store.load(name)).model_dump()
     return label, total, owned, fn
+
+
+def _job_style(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 style: 예시 원문으로 문체 프로필을 뽑고 원문 전체의 기준 지표를 잰다. 결과는 화면이 작품 문체에 넣고 작가가 저장한다."""
+    if len(body.text.strip()) < 200:
+        raise HTTPException(400, "예시 원문은 200자 이상 넣어 주세요")
+    text, names = body.text, [c.name for c in p.characters]
+
+    def fn(job: jobs.Job):
+        prof = pipeline.analyze_style(llm, text, names)
+        return {"profile": prof.model_dump(), "baseline": metrics.measure(text).model_dump()}
+    return "문체 분석", 1, set(), fn
 
 
 def _job_arc(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
@@ -2617,6 +2630,7 @@ def _job_cue_run(name: str, body: "JobIn", p: Project, kind: str, n: int | None,
 
 JOB_MAKERS: dict[str, Callable] = {
     "suggest": _job_suggest,
+    "style": _job_style,
     "arc": _job_arc,
     "series": _job_series,
     "nextarc": _job_nextarc,
@@ -2676,7 +2690,7 @@ def start_job(name: str, body: JobIn) -> dict:
 
 # 결과가 반영 전 제안인 작업. 화면이 반영하거나 버릴 때까지 pending.json 에 둔다
 # (본문 · 플롯 · 판정 같은 작업은 서버가 이미 작품에 썼다)
-PENDING_KINDS = {"arc", "suggest", "series", "nextarc", "convert", "rebuild", "rework", "storyline", "recap_arc", "recap_part", "fold_knows", "state", "openings"}
+PENDING_KINDS = {"arc", "suggest", "style", "series", "nextarc", "convert", "rebuild", "rework", "storyline", "recap_arc", "recap_part", "fold_knows", "state", "openings"}
 
 
 def _keep_pending(name: str, kind: str, n: int | None, label: str, fn):

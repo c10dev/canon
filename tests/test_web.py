@@ -1002,3 +1002,18 @@ def test_card_setup_ready(client):
     assert client.put("/api/projects/sr", json=p).status_code == 200
     card = next(x for x in client.get("/api/projects").json() if x["name"] == "sr")
     assert card["setup_ready"] is True
+
+
+def test_style_job(client):
+    """문체 분석은 화면을 막지 않는 작업(style)이다. 결과(프로필 · 원문 기준 지표)는 화면이 넣을 때까지 pending 에 남는다.
+    원문이 200자보다 짧으면 작업을 시작하지 않는다."""
+    meta = {"title": "등대", "genre": "미스터리", "logline": "x", "target_episodes": 10}
+    client.post("/api/projects", json={"name": "sj", "meta": meta})
+    assert client.post("/api/projects/sj/jobs", json={"kind": "style", "text": "짧은 글"}).status_code == 400
+    text = "바람이 불었다. 서윤은 등대 앞에 섰다. 오래된 계단이 발밑에서 삐걱였다. " * 8
+    j = client.post("/api/projects/sj/jobs", json={"kind": "style", "text": text}).json()
+    assert j["label"] == "문체 분석"
+    done = _wait(client, j["id"])
+    assert done["status"] == "done" and "narration_pov" in done["result"]["profile"]
+    assert "sentence_len" in done["result"]["baseline"] or done["result"]["baseline"]
+    assert "style:" in client.get("/api/projects/sj/pending").json()["results"]

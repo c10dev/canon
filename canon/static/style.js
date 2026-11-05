@@ -272,7 +272,7 @@ const styleBlank = (st) => !Object.values(st || {}).some((v) => (typeof v === 's
 function styleSampleBox(blank) {
   return `<textarea id="sample" class="sty-sample" rows="${blank ? 14 : 10}" data-local="styleSample" aria-describedby="sample-why" oninput="document.getElementById('sample-count').textContent=this.value.length.toLocaleString()" placeholder="닮고 싶은 소설 본문을 붙여 넣으세요. 대사와 서술이 섞인 장면이 좋아요.">${esc(S.styleSample)}</textarea>
       <div class="sty-row"><span class="small" id="sample-why">원문은 작품에 저장되지 않고 고른 대표 문단만 남아요. 내용과 인물은 가져오지 않아요. 이 칸에 원문이 남아 있을 때 라이브러리에 저장하면 원문도 함께 보관해요.</span>
-        <span class="sty-acts"><button class="btn${blank ? ' primary' : ''}" data-action="analyzeStyle">문체 분석</button></span></div>`;
+        <span class="sty-acts">${(() => { const b = jobBtn('style', null, '문체 분석'); return `<button class="btn${blank ? ' primary' : ''}" data-action="analyzeStyle"${b.attr}>${b.label}</button>`; })()}</span></div>`;
 }
 
 const sampleCount = () => `<span class="small"><span id="sample-count">${S.styleSample.length.toLocaleString()}</span>자 · 2,000자 이상 권장</span>`;
@@ -503,23 +503,14 @@ Object.assign(actions, {
     if (S.styleSampleOpen) focusEl($('#sample'));
   },
   async analyzeStyle() {
+    if (jobFor('style', null)) return;  // 이미 분석하는 중이다 (버튼은 aria-disabled 로 진행을 보인다)
     if (S.styleSample.trim().length < 200) { focusEl($('#sample')); return toast('예시 원문을 200자 이상 넣어 주세요', true); }  // 서버(web.analyze_style)와 같은 기준
     const has = P().style.narration_pov || P().style.sample_passages.length;
     const l = S.styleLink || {};
     const unlink = ['same', 'changed'].includes(l.state) ? `\n라이브러리 '${l.name}' 연결도 끊겨요. 라이브러리 항목은 그대로예요.` : '';
     if ((has || unlink) && !(await askConfirm(`분석 결과로 지금 스타일 프로필을 바꿀까요? 저장하기 전에는 '변경 모두 버리기'로 되돌릴 수 있어요.${unlink}`, { ok: '바꾸기' }))) return;
-    await run('문체를 분석하는 중…', async () => {
-      await saveIfDirty();
-      const prof = await api('POST', `/projects/${enc(S.name)}/style`, { text: S.styleSample });
-      P().style = prof;
-      styleCloseCards();
-      P().style_baseline = await api('POST', '/metrics', { text: S.styleSample });  // stats 가 원문 전체와 비교하도록
-      P().style_id = '';  // 새로 분석한 문체는 라이브러리 항목과 연결을 끊는다
-      P().style_version = 0;
-      S.styleLink = { state: 'none' };  // 저장하면 서버도 같은 상태가 된다. 그 전에도 카드가 끊긴 연결을 그대로 보이지 않게
-      S.dirty = true;
-      toast('분석 결과를 불러왔어요. 확인하고 저장하세요.');
-    });
+    // 백그라운드 작업이라 화면을 막지 않는다. 끝나면 applyJobResult 가 작품 문체에 넣고, 다른 화면에 있으면 '가서 보기'가 붙는다
+    await startJob('style', null, { text: S.styleSample });
   },
   addPassage(root) {
     styleProf(root).sample_passages.push('');
