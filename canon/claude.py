@@ -138,10 +138,10 @@ def login_command() -> str:
     return f"CLAUDE_CONFIG_DIR={shlex.quote(d)} claude auth login" if d else "claude auth login"
 
 
-def child_env() -> dict:
+def child_env(extra: dict | None = None) -> dict:
     """claude 를 부를 때의 환경. API 키를 빼야 구독으로 호출한다 (-p 에서는 키가 있으면 늘 키를 쓴다).
     사용자 CLAUDE.md 와 자동 메모리는 소설 프롬프트에 섞이지 않게 끈다. CLAUDE_CODE_OAUTH_TOKEN 은 그대로 둔다.
-    Canon 전용 폴더를 쓰면 CLAUDE_CONFIG_DIR 로 넘긴다 (없으면 만든다)."""
+    Canon 전용 폴더를 쓰면 CLAUDE_CONFIG_DIR 로 넘긴다 (없으면 만든다). extra 는 이 호출에만 더할 값이다."""
     env = {k: v for k, v in os.environ.items() if k not in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")}
     env["CLAUDE_CODE_DISABLE_CLAUDE_MDS"] = "1"
     env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1"
@@ -149,6 +149,7 @@ def child_env() -> dict:
     if d:
         Path(d).mkdir(parents=True, exist_ok=True, mode=0o700)
         env["CLAUDE_CONFIG_DIR"] = d
+    env.update(extra or {})
     return env
 
 
@@ -173,7 +174,7 @@ def _probe(binary: str, real: str) -> frozenset[str]:
 
 
 def _run(args: list[str], timeout: float, stdin: str | None = None,
-         stop: threading.Event | None = None) -> subprocess.CompletedProcess:
+         stop: threading.Event | None = None, env: dict | None = None) -> subprocess.CompletedProcess:
     """args 를 실행하고 끝날 때까지 기다린다. timeout 초를 넘기면 하위 프로세스를 끝내고 TimeoutExpired 를 낸다.
     stop 이 서면(웹 작업의 멈추기) STOP_POLL 초 안에 하위 프로세스를 끝내고 cancel.Cancelled 를 낸다."""
     # 작업 폴더를 빈 임시 폴더로 둬서 Canon 저장소의 CLAUDE.md, 훅, MCP 설정을 읽지 않게 한다.
@@ -186,7 +187,7 @@ def _run(args: list[str], timeout: float, stdin: str | None = None,
         inp.write(stdin or "")
         inp.flush()
         inp.seek(0)
-        proc = subprocess.Popen(args, stdin=inp, stdout=out, stderr=err, cwd=cwd, env=child_env())
+        proc = subprocess.Popen(args, stdin=inp, stdout=out, stderr=err, cwd=cwd, env=child_env(env))
         deadline = time.monotonic() + timeout
         try:
             while True:
@@ -311,14 +312,39 @@ def _explain(text: str) -> str:
 
 
 def _cli_usage(d: dict) -> dict | None:
+    """JSON 결과의 토큰 수. 있으면 turns(num_turns) · stop(stop_reason) · api_seconds(duration_api_ms) ·
+    models(modelUsage 의 모델별 입력 · 출력 · 캐시)도 담는다. 사용량 기록 줄의 같은 이름 칸이 된다.
+    turns 가 2 이상이면 CLI 가 한 호출 안에서 요청을 다시 보낸 것이다. 턴마다 같은 요청을 보냈다고 보고
+    다시 보낸 입력을 in × (turns-1)/turns 로 어림해 resent 에 둔다. 캐시 비율을 셀 때 빼려는 값이다."""
     u = d.get("usage")
     if not isinstance(u, dict):
         return None
     cached = int(u.get("cache_read_input_tokens") or 0)
     prompt = int(u.get("input_tokens") or 0) + int(u.get("cache_creation_input_tokens") or 0) + cached
     # 생각 토큰은 output_tokens 에 들어 있어 따로 세지 않는다 (사용량 화면이 출력에 더한다)
-    return {"prompt_tokens": prompt, "completion_tokens": int(u.get("output_tokens") or 0),
-            "thought_tokens": 0, "cached_tokens": cached}
+    out = {"prompt_tokens": prompt, "completion_tokens": int(u.get("output_tokens") or 0),
+           "thought_tokens": 0, "cached_tokens": cached}
+    turns = d.get("num_turns")
+    if isinstance(turns, int) and turns > 0:
+        out["turns"] = turns
+        if turns > 1:
+            out["resent"] = round(prompt * (turns - 1) / turns)
+    if isinstance(d.get("stop_reason"), str) and d["stop_reason"]:
+        out["stop"] = d["stop_reason"]
+    if isinstance(d.get("duration_api_ms"), (int, float)):
+        out["api_seconds"] = round(d["duration_api_ms"] / 1000, 2)
+    mu = d.get("modelUsage")
+    if isinstance(mu, dict) and mu:
+        models = {}
+        for name, m in mu.items():
+            if not isinstance(m, dict):
+                continue
+            read = int(m.get("cacheReadInputTokens") or 0)
+            models[name] = {"in": int(m.get("inputTokens") or 0) + int(m.get("cacheCreationInputTokens") or 0) + read,
+                            "out": int(m.get("outputTokens") or 0), "cached": read}
+        if models:
+            out["models"] = models
+    return out
 
 
 def _served(d: dict) -> str:
@@ -326,7 +352,7 @@ def _served(d: dict) -> str:
     mu = d.get("modelUsage")
     if not isinstance(mu, dict) or not mu:
         return ""
-    return max(mu, key=lambda k: (mu[k] or {}).get("outputTokens") or 0)
+    return max(mu, key=lambda k: (mu[k] if isinstance(mu[k], dict) else {}).get("outputTokens") or 0)
 
 
 class ClaudeCodeLLM:
@@ -403,7 +429,9 @@ class ClaudeCodeLLM:
         from .llm import caps, with_note
 
         cancel.check()  # 멈춘 작업은 다음 호출을 보내지 않는다 (형식 고치기 재시도도)
-        wait = caps()[1]
+        cap, wait = caps()
+        # 출력 한도는 CLI 옵션이 없어 이 호출의 환경 변수로만 넘긴다. 한도가 없으면 넣지 않는다 (Claude Code 기본값)
+        env = {"CLAUDE_CODE_MAX_OUTPUT_TOKENS": str(cap)} if cap else None
         timeout = min(self.timeout, wait) if wait else self.timeout
         t, tokens = time.time(), None
         self.last_raw = self.last_note = ""
@@ -424,7 +452,7 @@ class ClaudeCodeLLM:
                         system_file = os.path.join(tmp, "system.txt")
                         Path(system_file).write_text(head, encoding="utf-8")
                     proc = _run(self._args(head, sch, system_file), timeout, stdin=with_note(ask),
-                                stop=cancel.current.get())
+                                stop=cancel.current.get(), env=env)
             except subprocess.TimeoutExpired as e:
                 raise ClaudeCodeError(f"Claude Code 응답이 {timeout:g}초 안에 오지 않았어요"
                                       + ("" if wait and wait < self.timeout else " (CANON_CLAUDE_TIMEOUT)")) from e

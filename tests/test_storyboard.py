@@ -157,6 +157,22 @@ def test_make_with_mock_and_author_edit(demo):
     assert p.episode(2).storyboard is None
 
 
+def test_storyboard_call_caps_output_tokens(demo):
+    from canon import llm as llm_mod
+
+    class Capped(MockLLM):
+        def json(self, system, prompt, schema, hint=None):
+            caps.append(llm_mod._out_cap.get())
+            return super().json(system, prompt, schema, hint)
+
+    caps: list = []
+    p = store.load(demo)
+    _written(p, 1)
+    pipeline.make_storyboard(Capped(), p, 2)
+    assert caps and set(caps) == {pipeline.BOARD_OUT_TOKENS}  # 되풀이하는 응답이 65,536토큰까지 가지 않게
+    assert llm_mod._out_cap.get() is None  # 끝나면 풀린다
+
+
 def test_storyboard_prompt_rules_and_blocks(demo):
     p = store.load(demo)
     _written(p, 1, "앞 화 끝 장면.")

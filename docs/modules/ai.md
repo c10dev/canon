@@ -22,9 +22,12 @@
 - 모델까지 간 호출은 보낸 시각부터 `CACHE_WARM_SECONDS`(300초) 동안 캐시에 있다고 보고 기다리지 않는다
 - 기다린 시간은 사용량 기록의 `seconds` 에 넣지 않는다
 - 사용량 기록의 글자 수 · 블록 크기는 옮기기 전 원래 프롬프트 기준이다
+- `_cli_usage` 는 JSON 결과의 `num_turns` · `stop_reason` · `duration_api_ms` · `modelUsage` 를 사용량 칸 `turns` · `stop` · `api_seconds` · `models` 로 넘긴다
+- `turns` 가 2 이상이면 다시 보낸 입력 어림값 `resent` = `in × (turns-1)/turns` 도 넘긴다
 - 두 백엔드도 `llm.wait_cap` · `llm.out_cap` 을 따른다(`llm.caps` 로 읽음)
 - 구독은 제한 시간을 `min(CANON_CLAUDE_TIMEOUT, wait_cap)` 으로 둔다. 넘기면 다시 부르지 않고 `ClaudeCodeError`
 - API 는 `max_tokens` 를 `min(MAX_TOKENS, out_cap)` 으로, SDK 요청 옵션 `timeout` 을 `wait_cap` 으로 보낸다
+- 구독은 `out_cap` 이 있을 때만 그 호출의 하위 환경에 `CLAUDE_CODE_MAX_OUTPUT_TOKENS` 를 넣는다(`child_env(extra)`). 없으면 넣지 않는다
 - 두 백엔드는 호출마다(형식 고치기 재시도도) 보내기 전에 `cancel.check()` 를 부른다
 - 구독은 `_run` 이 `Popen` 으로 띄우고 `STOP_POLL`(0.25초)마다 멈추기 신호를 보다가 서면 하위 프로세스를 끝내고 `cancel.Cancelled`
 - API 는 스트림 조각마다 `cancel.check()` 를 불러 멈추면 스트림을 닫는다
@@ -126,6 +129,9 @@
 - `totals(rows)` 는 모은 줄의 입력 · 출력(생각 포함) 토큰과 `row_cost` 비용 합이다. 가격을 모르는 줄이 있으면 비용은 None
 - 가격표(`DEFAULT_PRICES` + 설정의 `prices`, 날짜별 `since`)로 볼 때 비용을 계산한다
 - 자동 집필 추정도 같은 가격표를 쓴다
+- 백엔드가 더 준 칸(`EXTRA`: turns · stop · api_seconds · models · resent)은 있을 때만 줄에 남는다. 옛 줄에는 없다
+- `cache_rate(rows)` 는 캐시 비율이다. `resent` 를 입력과 캐시 양쪽에서 뺀다. 비용 계산은 `resent` 를 보지 않는다
+- `summary` 의 합계는 `resent` 합과 `cache_rate` 를 준다. 화면 토큰 타일이 다시 보낸 입력이 있을 때 뺀 캐시 비율을 보인다
 - 화면은 `static/usage.js`
 - `usage.js` 는 손가락 기기에서 차트 안내를 '막대를 누르면 날짜별 값을 봐요' 로 보인다(←/→ 키 안내는 aria-label 에만)
 - 화면 차례: 기간 · 작품 거르기 → 비용 타일 → 날짜별 막대 → '어디에 썼나' 막대 목록 → 호출 목록 → 접힌 가격표

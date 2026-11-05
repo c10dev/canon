@@ -1,5 +1,6 @@
 """사용량 기록과 비용 추정 (canon/usage.py) 테스트. 실제 API 대신 가짜 Gemini 클라이언트를 쓴다."""
 import contextvars
+import json
 import os
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
@@ -504,3 +505,16 @@ def test_other_errors_are_not_retried(pauses):
     with pytest.raises(RuntimeError, match="503"):
         llm.text("s", "p")
     assert pauses == [] and llm.client.models.replies == ["본문"]
+
+
+def test_old_rows_read_and_cache_rate_drops_resent(home):
+    old = {"at": "2026-11-01T10:00:00+09:00", "backend": "claude", "model": "x", "in": 1000, "out": 10, "cached": 200, "ok": True}
+    new = {**old, "in": 2000, "cached": 1200, "turns": 2, "resent": 1000, "stop": "end_turn"}
+    path = usage.log_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(json.dumps(r) for r in (old, new)) + "\n", encoding="utf-8")
+    t = usage.summary(0)["total"]
+    assert (t["in"], t["cached"], t["resent"]) == (3000, 1400, 1000)  # 비용 칸(in · cached)은 그대로 더한다
+    assert t["cache_rate"] == pytest.approx(400 / 2000)  # 다시 보낸 입력은 입력과 캐시 양쪽에서 뺀다
+    assert usage.cache_rate([old]) == pytest.approx(0.2)
+    assert usage.cache_rate([]) is None

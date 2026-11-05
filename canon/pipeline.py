@@ -2346,14 +2346,22 @@ def undo_storyboard(p: Project, n: int) -> None:
     ep.storyboard, ep.storyboard_prev = prev, None
 
 
+# 스토리보드 한 번의 출력 토큰 한도 (생각 토큰 포함). 서버 기록(2026-11): Gemini 는 보통 1,800토큰(가장 많이 2,200),
+# Claude 는 보통 6,700토큰(가장 많이 11,100). 같은 글을 되풀이한 응답은 65,536토큰을 780초 동안 내고 형식 불일치로 실패했다.
+BOARD_OUT_TOKENS = 16384
+
+
 def _board_draft(llm: LLM, n: int, events: int, prompt: str, hint: dict) -> StoryboardDraft:
     """스토리보드 응답을 받아 정리한다. 플롯에 사건이 있는데 장면이 하나도 없으면 한 번 더 묻고, 그래도 없으면 저장하지 않게 오류를 낸다.
-    실측(2026-11-04, gemini-4-argon): 성인 장면이 많은 플롯에서 다른 칸은 채우고 scenes 만 비운 응답(finish STOP)을 연달아 냈다."""
-    d = clean_storyboard(llm.json(prompts.SYSTEM_PLANNER, prompt, StoryboardDraft, hint=hint))
+    실측(2026-11-04, gemini-4-argon): 성인 장면이 많은 플롯에서 다른 칸은 채우고 scenes 만 비운 응답(finish STOP)을 연달아 냈다.
+    출력은 BOARD_OUT_TOKENS 로 막는다."""
+    with out_cap(BOARD_OUT_TOKENS):
+        d = clean_storyboard(llm.json(prompts.SYSTEM_PLANNER, prompt, StoryboardDraft, hint=hint))
     if d.scenes or not events:
         return d
-    d = clean_storyboard(llm.json(prompts.SYSTEM_PLANNER, prompt + prompts.board_scenes_retry(events), StoryboardDraft,
-                                  hint={**hint, "retry": True}))
+    with out_cap(BOARD_OUT_TOKENS):
+        d = clean_storyboard(llm.json(prompts.SYSTEM_PLANNER, prompt + prompts.board_scenes_retry(events), StoryboardDraft,
+                                      hint={**hint, "retry": True}))
     if d.scenes:
         return d
     raise RuntimeError(f"AI가 {n}화 스토리보드의 장면을 하나도 만들지 않았어요 (두 번 물었어요). "
