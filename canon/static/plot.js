@@ -1117,10 +1117,12 @@ Object.assign(actions, {
     S.focusTarget = `#ev-${n}-${k}`;
     render();
   },
-  /** 'n:k' 사건을 뺀다. back 이면 (빈 칸에서 Backspace) 앞 칸 끝으로 포커스를 옮긴다 */
+  /** 'n:k' 사건을 뺀다. back 이면 (빈 칸에서 Backspace) 앞 칸 끝으로 포커스를 옮긴다.
+      글이 있는 사건은 저장 띠의 '되살리기'로 그 사건만 돌려놓을 수 있게 빼기 전 사건 목록을 둔다 (rememberRemoved) */
   dropEvent(arg, back = false) {
     const [n, k] = String(arg).split(':').map(Number);
     const evs = ep(n).plot.events;
+    if (String(evs[k] || '').trim()) rememberRemoved(`${n}화 사건 ${k + 1}`, [`episodes.${epIndex(n)}.plot.events`]);
     evs.splice(k, 1);
     markDirty();
     const to = back ? k - 1 : Math.min(k, evs.length - 1);
