@@ -7,7 +7,12 @@ claude (구독 로그인)
   대신 호출하는 것을 허용하지 않기 때문이다 (Claude Code 문서 'Legal and compliance' 의
   Authentication and credential use). 그래서 Canon 화면에는 로그인 칸이 없고 상태 확인과 안내만 있다.
   서버처럼 브라우저가 없는 곳은 `claude setup-token` 으로 받은 토큰을 Canon 이 아니라 서버 환경의
-  CLAUDE_CODE_OAUTH_TOKEN 에 둔다. 구독 한도는 평범한 개인 사용을 전제로 하므로 긴 자동 집필은
+  CLAUDE_CODE_OAUTH_TOKEN 에 둔다.
+  Canon 전용 로그인: 설정의 claude_separate(또는 CANON_CLAUDE_CONFIG_DIR)를 켜면 Canon 이 부르는 claude 에
+  CLAUDE_CONFIG_DIR 로 Canon 전용 폴더를 넘긴다. 그러면 평소 쓰는 Claude Code 와 다른 계정으로 로그인할 수 있다.
+  설정 화면의 '로그인 시작'은 그 폴더로 `claude auth login` 을 띄울 뿐이고, 로그인 화면 · 코드 · 토큰은
+  Claude Code 와 Anthropic 이 다룬다. Canon 은 출력도 읽지 않는다. 브라우저가 Canon 을 실행하는 컴퓨터에서
+  열리므로 같은 컴퓨터에서 접속할 때만 받는다 (web.py). 구독 한도는 평범한 개인 사용을 전제로 하므로 긴 자동 집필은
   API 키 쪽이 맞다.
 
 claude-api (API 키)
@@ -16,6 +21,7 @@ claude-api (API 키)
 설정 (환경 변수가 설정 파일보다 우선):
   CANON_CLAUDE_MODEL  두 백엔드의 기본 모델. 비우면 구독은 Claude Code 기본 모델, API 는 DEFAULT_API_MODEL
   CANON_CLAUDE_BIN    claude 실행 파일 경로 (PATH 에 없을 때)
+  CANON_CLAUDE_CONFIG_DIR  Canon 전용 Claude Code 설정 폴더 (settings.claude_config_dir)
   ANTHROPIC_API_KEY   claude-api 의 키. 구독 호출에는 넘기지 않는다 (넘기면 Claude Code 가 키로 과금한다)
   CANON_CLAUDE_TIMEOUT  한 번 호출의 제한 시간(초, 기본 900)
   CANON_EFFORT_<단계>   단계별 추론 강도 (settings.stage_effort). 구독은 --effort, API 는 output_config.effort 로 넘긴다.
@@ -25,6 +31,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -117,12 +124,30 @@ def find_binary(path: str | None = None) -> str | None:
     return None
 
 
+def config_dir() -> str:
+    """Canon 전용 Claude Code 설정 폴더. 비우면 평소 Claude Code 로그인을 같이 쓴다 (settings.claude_config_dir)."""
+    from . import settings
+
+    return settings.claude_config_dir()[0]
+
+
+def login_command() -> str:
+    """사용자가 터미널에서 칠 로그인 명령. 전용 폴더를 쓰면 그 폴더를 앞에 붙인다."""
+    d = config_dir()
+    return f"CLAUDE_CONFIG_DIR={shlex.quote(d)} claude auth login" if d else "claude auth login"
+
+
 def child_env() -> dict:
     """claude 를 부를 때의 환경. API 키를 빼야 구독으로 호출한다 (-p 에서는 키가 있으면 늘 키를 쓴다).
-    사용자 CLAUDE.md 와 자동 메모리는 소설 프롬프트에 섞이지 않게 끈다. CLAUDE_CODE_OAUTH_TOKEN 은 그대로 둔다."""
+    사용자 CLAUDE.md 와 자동 메모리는 소설 프롬프트에 섞이지 않게 끈다. CLAUDE_CODE_OAUTH_TOKEN 은 그대로 둔다.
+    Canon 전용 폴더를 쓰면 CLAUDE_CONFIG_DIR 로 넘긴다 (없으면 만든다)."""
     env = {k: v for k, v in os.environ.items() if k not in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")}
     env["CLAUDE_CODE_DISABLE_CLAUDE_MDS"] = "1"
     env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1"
+    d = config_dir()
+    if d:
+        Path(d).mkdir(parents=True, exist_ok=True, mode=0o700)
+        env["CLAUDE_CONFIG_DIR"] = d
     return env
 
 
@@ -160,9 +185,11 @@ def status(binary: str | None = None) -> dict:
     """설치 여부, 버전, 로그인 상태. 생성 호출은 하지 않는다. 화면과 명령줄에서 쓴다."""
     path = find_binary(binary)
     env_token = bool(os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"))
+    d = config_dir()
     base = {"installed": bool(path), "path": path or "", "version": "", "logged_in": False, "account": {},
             "env_token": env_token, "api_key_ignored": bool(os.environ.get("ANTHROPIC_API_KEY")),
-            "message": "", "reason": "", "login_command": "claude auth login", "token_command": "claude setup-token"}
+            "message": "", "reason": "", "login_command": login_command(), "token_command": "claude setup-token",
+            "separate": bool(d), "config_dir": d, "login_running": login_running()}
     # reason: ok | login(로그인 필요) | metered(구독이 아닌 API 계정) | install(설치 안 됨) | error(상태를 못 읽음)
     if not path:
         return {**base, "reason": "install", "message": INSTALL_HINT}
@@ -181,13 +208,67 @@ def status(binary: str | None = None) -> dict:
     logged = bool(data.get("loggedIn"))
     method = str(data.get("authMethod") or "")
     paid = "api" in method.lower() and "oauth" not in method.lower()
-    msg = ("로그인돼 있어요." if logged else LOGIN_HINT)
+    msg = ("로그인돼 있어요." if logged else LOGIN_HINT.replace("`claude auth login`", f"`{login_command()}`"))
     if logged and paid:
         msg = ("Claude Code 가 구독이 아니라 Console API 계정으로 로그인돼 있어 종량제로 과금돼요. "
-               "구독으로 쓰려면 터미널에서 `claude auth logout` 후 `claude auth login` 으로 구독 계정을 고르세요.")
+               f"구독으로 쓰려면 터미널에서 `claude auth logout` 후 `{login_command()}` 으로 구독 계정을 고르세요.")
     reason = ("metered" if paid else "ok") if logged else "login"
     return {**base, "logged_in": logged, "account": account, "auth_method": method, "metered": paid,
             "reason": reason, "message": msg}
+
+
+_login: subprocess.Popen | None = None
+LOGIN_WAIT = 600  # 초. 브라우저에서 로그인을 마치지 않으면 띄운 claude auth login 을 끝낸다
+
+
+def login_running() -> bool:
+    return _login is not None and _login.poll() is None
+
+
+def start_login(binary: str | None = None) -> dict:
+    """`claude auth login --claudeai` 를 Canon 의 설정 폴더로 띄운다. 브라우저에 Anthropic 로그인 화면이 열린다.
+    Canon 은 출력을 읽지 않고 입력도 넘기지 않는다 (코드 붙여 넣기는 받지 않음). 상태는 status 로 다시 본다.
+    started: 지금 띄웠거나 이미 떠 있는지."""
+    global _login
+    path = find_binary(binary)
+    if not path:
+        return {"started": False, "message": INSTALL_HINT}
+    if login_running():
+        return {"started": True, "message": "로그인 창을 이미 열었어요. 브라우저에서 로그인을 마치세요."}
+    cwd = tempfile.mkdtemp(prefix="canon-claude-login-")
+    try:
+        proc = subprocess.Popen([path, "auth", "login", "--claudeai"], stdin=subprocess.DEVNULL,
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd=cwd, env=child_env(),
+                                start_new_session=True)
+    except OSError as e:
+        return {"started": False, "message": f"Claude Code 를 실행하지 못했어요: {e}"}
+    _login = proc
+
+    def stop() -> None:
+        if proc.poll() is None:
+            proc.terminate()
+        shutil.rmtree(cwd, ignore_errors=True)
+
+    t = threading.Timer(LOGIN_WAIT, stop)
+    t.daemon = True
+    t.start()
+    return {"started": True, "message": "브라우저에 Anthropic 로그인 화면을 열었어요. Pro 또는 Max 계정으로 로그인하세요."}
+
+
+def logout(binary: str | None = None) -> dict:
+    """Canon 전용 폴더의 로그인만 끝낸다. 평소 Claude Code 로그인은 건드리지 않게 전용 폴더가 아니면 거절한다."""
+    path = find_binary(binary)
+    if not path:
+        return {"ok": False, "message": INSTALL_HINT}
+    if not config_dir():
+        return {"ok": False, "message": "Canon 전용 로그인을 켰을 때만 여기서 로그아웃할 수 있어요."}
+    try:
+        out = _run([path, "auth", "logout"], 30)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return {"ok": False, "message": f"Claude Code 를 실행하지 못했어요: {e}"}
+    if out.returncode != 0:
+        return {"ok": False, "message": f"로그아웃하지 못했어요: {(out.stderr or out.stdout).strip()[:200]}"}
+    return {"ok": True, "message": "Canon 전용 계정에서 로그아웃했어요."}
 
 
 class ClaudeCodeError(RuntimeError):

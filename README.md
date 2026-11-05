@@ -927,6 +927,9 @@ Claude 는 두 가지 방식으로 쓴다. 설정의 **기본 AI**나 **단계�
 
 **로그인은 Canon 이 아니라 Claude Code 에서 한다.** Anthropic 은 다른 앱이 Claude 계정 로그인을 제공하거나, Pro · Max 로그인 토큰을 받아 보관하거나 대신 호출하는 것을 허용하지 않는다 ([Claude Code 법률 · 규정 문서](https://code.claude.com/docs/en/legal-and-compliance) 'Authentication and credential use'). 그래서 설정에는 로그인 칸이 없고, Claude Code 의 로그인 상태(`claude auth status`)를 확인해 보여 주고 방법을 안내한다. Canon 은 계정 정보나 토큰을 읽거나 저장하지 않는다.
 
+- **로그인 시작**: 설정 › AI 연결 › Claude 의 **로그인 시작**을 누르면 Canon 이 `claude auth login` 을 띄우고, Canon 을 실행하는 컴퓨터의 브라우저에 Anthropic 로그인 화면이 열린다. 로그인을 마치면 설정 줄이 저절로 '로그인됨'으로 바뀐다. 다른 컴퓨터(휴대폰, 원격 서버 접속)에서는 누를 수 없고 터미널 명령이나 `setup-token` 을 안내한다.
+- **Canon 전용 계정**: **구독 계정** 줄에서 'Canon 전용'을 고르면 Canon 이 부르는 Claude Code 가 따로 로그인한다. Canon 은 설정 파일 옆 `claude-code` 폴더(`~/.canon/claude-code`)를 Claude Code 의 `CLAUDE_CONFIG_DIR` 로 넘길 뿐이고, 로그인 정보는 그 폴더에서 Claude Code 가 관리한다. 평소 쓰는 Claude Code 와 다른 구독 계정을 Canon 에만 쓸 수 있고, 여기서 로그아웃해도 평소 로그인은 그대로다. 폴더는 `CANON_CLAUDE_CONFIG_DIR` 로 바꿀 수 있다. `CLAUDE_CODE_OAUTH_TOKEN` 이 있으면 그 토큰이 먼저 쓰인다.
+
 ```bash
 claude auth login                 # 한 번만. 브라우저에서 Anthropic 로그인 화면이 열린다 (Pro 또는 Max 계정)
 python -m canon claude            # 설치와 로그인 상태 보기 (웹 설정 › AI 연결 › Claude 에도 같은 내용)

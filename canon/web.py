@@ -258,6 +258,8 @@ class ConfigView(_Out):
     claude_model_source: str
     claude_bin: str
     claude_bin_source: str
+    claude_config_dir: str = Field("", description="Canon 전용 Claude Code 설정 폴더. 비우면 평소 Claude Code 로그인을 같이 쓴다")
+    claude_config_dir_source: str = Field("default", description="env(CANON_CLAUDE_CONFIG_DIR) | file(claude_separate) | default")
     anthropic_key_hint: str
     anthropic_key_source: str
     stages: dict[str, StageConfig]
@@ -321,6 +323,15 @@ class ClaudeStatus(_Out):
     token_command: str
     auth_method: str = ""
     metered: bool = False
+    separate: bool = Field(False, description="Canon 전용 Claude Code 설정 폴더로 로그인한다 (settings.claude_config_dir)")
+    config_dir: str = ""
+    login_running: bool = Field(False, description="'로그인 시작'으로 띄운 claude auth login 이 아직 기다리는 중")
+
+
+class ClaudeLoginResult(_Out):
+    """POST /api/claude/login · logout 결과. ok 는 띄웠거나(login) 끝냈는지(logout)."""
+    ok: bool
+    message: str
 
 
 @app.get("/api/config")
@@ -343,6 +354,7 @@ class SettingsIn(BaseModel):
     claude_bin: str | None = None
     anthropic_api_key: str | None = None  # Claude Console API 키. 구독 로그인은 Claude Code 가 따로 관리
     clear_anthropic_key: bool = False
+    claude_separate: bool | None = None  # Canon 전용 Claude Code 설정 폴더로 따로 로그인 (claude.py)
     gemini_auth: str | None = None  # key | vertex
     vertex_credentials: str | None = None  # 서비스 계정 JSON 키 파일 경로 (내용이 아니라 경로)
     vertex_project: str | None = None
@@ -375,7 +387,8 @@ def put_config(body: SettingsIn) -> ConfigView:
                     claude_bin=body.claude_bin, anthropic_api_key=body.anthropic_api_key,
                     clear_anthropic_key=body.clear_anthropic_key, gemini_auth=body.gemini_auth,
                     vertex_credentials=body.vertex_credentials, vertex_project=body.vertex_project,
-                    vertex_location=body.vertex_location, stage_efforts=body.stage_efforts)
+                    vertex_location=body.vertex_location, stage_efforts=body.stage_efforts,
+                    claude_separate=body.claude_separate)
     return settings.public()
 
 
@@ -501,6 +514,35 @@ def claude_status() -> ClaudeStatus:
     st = claude.status()
     _claude_seen = (time.time(), st) if st.get("reason") != "error" else None
     return st
+
+
+def _same_machine(request: Request) -> bool:
+    """Canon 을 실행하는 컴퓨터의 브라우저에서 온 요청인지. 프록시를 거친 요청(X-Forwarded-For)은 아니라고 본다."""
+    host = request.client.host if request.client else ""
+    return host in ("127.0.0.1", "::1", "localhost") and not request.headers.get("x-forwarded-for")
+
+
+@app.post("/api/claude/login")
+def claude_login(request: Request) -> ClaudeLoginResult:
+    """Claude Code 의 로그인(`claude auth login`)을 띄운다. 로그인 화면은 Canon 을 실행하는 컴퓨터의 브라우저에
+    열리므로 그 컴퓨터에서 접속했을 때만 받는다. Canon 은 계정 정보 · 코드 · 토큰을 받지 않는다 (claude.start_login)."""
+    global _claude_seen
+    if not _same_machine(request):
+        raise HTTPException(400, "로그인 화면은 Canon을 실행하는 컴퓨터에서 열려요. 그 컴퓨터의 터미널에서 "
+                                 f"`{claude.login_command()}` 을 실행하거나 `claude setup-token` 토큰을 서버 환경 변수 "
+                                 "CLAUDE_CODE_OAUTH_TOKEN에 두세요.")
+    _claude_seen = None
+    r = claude.start_login()
+    return ClaudeLoginResult(ok=r["started"], message=r["message"])
+
+
+@app.post("/api/claude/logout")
+def claude_logout() -> ClaudeLoginResult:
+    """Canon 전용 폴더의 Claude Code 로그인만 끝낸다. 평소 Claude Code 로그인은 건드리지 않는다."""
+    global _claude_seen
+    _claude_seen = None
+    r = claude.logout()
+    return ClaudeLoginResult(ok=r["ok"], message=r["message"])
 
 
 class PlayCard(_Out):

@@ -2132,6 +2132,8 @@ def cmd_claude(a: argparse.Namespace) -> None:
         print(st["message"])
         return
     print(f"Claude Code {st['version']} ({st['path']})")
+    if st["separate"]:
+        print(f"Canon 전용 계정 폴더: {st['config_dir']} (로그인: {st['login_command']})")
     acct = ", ".join(f"{k}={v}" for k, v in st["account"].items() if k != "loggedIn")
     print(f"로그인: {'됨' if st['logged_in'] else '안 됨'}{f' ({acct})' if acct else ''}")
     print(st["message"])

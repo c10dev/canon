@@ -4,11 +4,12 @@
 환경 변수가 있으면 파일보다 우선한다: CANON_LLM, CANON_MODEL, GEMINI_API_KEY(또는 GOOGLE_API_KEY),
 CANON_LOCAL_URL, CANON_LOCAL_MODEL, CANON_LOCAL_KEY, CANON_LLM_PLAN / _WRITE / _CHECK / _STATE / _NAME / _REVISE / _CHAT,
 CANON_MODEL_PLAN / _WRITE / _CHECK / _STATE / _NAME / _REVISE (단계별 모델), CANON_EFFORT_PLAN / _WRITE / _CHECK / ...
-(단계별 Claude 추론 강도), CANON_CLAUDE_MODEL, CANON_CLAUDE_BIN,
+(단계별 Claude 추론 강도), CANON_CLAUDE_MODEL, CANON_CLAUDE_BIN, CANON_CLAUDE_CONFIG_DIR,
 ANTHROPIC_API_KEY (Claude 백엔드, claude.py), CANON_GEMINI_AUTH(key | vertex, 또는 GOOGLE_GENAI_USE_VERTEXAI=true),
 CANON_VERTEX_CREDENTIALS(또는 GOOGLE_APPLICATION_CREDENTIALS), GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION (Vertex AI). prices 는 AI 요금 가격표에서 고친 줄 (usage.py).
 작품이 단계 프리셋을 고르면(Settings.model_preset) 그 작품의 호출에서는 프리셋이 설정 파일의 단계 칸을 대신한다 (project_preset).
 Claude 구독 로그인은 Claude Code 가 직접 관리하므로 여기에 계정 정보나 토큰을 두지 않는다.
+claude_separate 는 Canon 전용 Claude Code 설정 폴더를 쓸지만 적는다 (claude_config_dir).
 파일은 작품 폴더와 따로 두어 저장소나 project.json 에 키가 섞이지 않게 한다.
 """
 from __future__ import annotations
@@ -158,6 +159,18 @@ def claude_bin() -> tuple[str, str]:
     return _pick(("CANON_CLAUDE_BIN",), _read().get("claude_bin"))
 
 
+def claude_config_dir() -> tuple[str, str]:
+    """Canon 이 부르는 Claude Code 의 설정 폴더(CLAUDE_CONFIG_DIR). 비우면 이 컴퓨터의 Claude Code 로그인을 같이 쓴다.
+    설정 파일의 claude_separate 를 켜면 설정 파일 옆 claude-code 폴더를 써서 Canon 만 다른 계정으로 로그인한다.
+    로그인과 토큰 보관은 그 폴더에서 Claude Code 가 하고 Canon 은 폴더 경로만 넘긴다 (claude.py)."""
+    env = os.environ.get("CANON_CLAUDE_CONFIG_DIR", "").strip()
+    if env:
+        return str(Path(env).expanduser()), "env"
+    if _read().get("claude_separate"):
+        return str(config_path().parent / "claude-code"), "file"
+    return "", "default"
+
+
 def anthropic_key() -> tuple[str, str]:
     """claude-api 백엔드의 Anthropic API 키 (Claude Console 에서 발급). 구독 로그인 토큰이 아니다."""
     return _pick(("ANTHROPIC_API_KEY",), _read().get("anthropic_api_key"))
@@ -297,7 +310,8 @@ def update(*, provider: str | None = None, model: str | None = None,
            claude_bin: str | None = None, anthropic_api_key: str | None = None,
            clear_anthropic_key: bool = False, gemini_auth: str | None = None,
            vertex_credentials: str | None = None, vertex_project: str | None = None,
-           vertex_location: str | None = None, stage_efforts: dict[str, str] | None = None) -> None:
+           vertex_location: str | None = None, stage_efforts: dict[str, str] | None = None,
+           claude_separate: bool | None = None) -> None:
     """None 인 값은 그대로 둔다. 빈 문자열이면 파일에서 지운다."""
     bad = [f"{k}={v}" for k, v in (stage_efforts or {}).items() if (v or "").strip() and v.strip().lower() not in EFFORTS]
     if bad:
@@ -322,6 +336,11 @@ def update(*, provider: str | None = None, model: str | None = None,
         data.pop("gemini_api_key", None)
     if clear_anthropic_key:
         data.pop("anthropic_api_key", None)
+    if claude_separate is not None:  # 끄면 지운다. 전용 폴더의 로그인은 지우지 않아 다시 켜면 그대로 쓴다
+        if claude_separate:
+            data["claude_separate"] = True
+        else:
+            data.pop("claude_separate", None)
     if stages is not None:
         _set_stage_map(data, "stages", stages)  # 빈 값이면 전체 provider 를 따른다
     if stage_models is not None:
@@ -468,6 +487,8 @@ def public() -> dict:
         "claude_model_source": cmodel_src,
         "claude_bin": claude_bin()[0],
         "claude_bin_source": claude_bin()[1],
+        "claude_config_dir": claude_config_dir()[0],
+        "claude_config_dir_source": claude_config_dir()[1],
         "anthropic_key_hint": f"…{akey[-4:]}" if len(akey) >= 8 else ("설정됨" if akey else ""),
         "anthropic_key_source": akey_src if akey else "none",
         "stages": stages,
