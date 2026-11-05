@@ -680,7 +680,7 @@ function syncPending() {
   for (const r of Object.values(S.pending.results)) {
     if (pendingShown(r)) continue;
     delete S.pending.results[r.key];
-    api('DELETE', `/projects/${enc(S.name)}/pending/${enc(r.key)}`).catch(() => { /* 다음에 다시 */ });
+    api('DELETE', `/projects/${enc(S.name)}/pending/${enc(r.key)}${r.id ? `?id=${enc(r.id)}` : ''}`).catch(() => { /* 다음에 다시 */ });  // 그사이 새 결과가 들어왔으면 서버가 남긴다
   }
 }
 

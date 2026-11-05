@@ -528,6 +528,7 @@ Object.assign(actions, {
     const l = S.styleLink || {};
     const unlink = ['same', 'changed'].includes(l.state) ? `\n라이브러리 '${l.name}' 연결도 끊겨요. 라이브러리 항목은 그대로예요.` : '';
     if ((has || unlink) && !(await askConfirm(`분석 결과로 지금 스타일 프로필을 바꿀까요? 저장하기 전에는 '변경 모두 버리기'로 되돌릴 수 있어요.${unlink}`, { ok: '바꾸기' }))) return;
+    if (S.styleDraft !== d) { render(); return toast('묻는 사이 새 분석 결과가 도착했어요. 카드를 다시 확인하세요'); }
     P().style = d.profile;
     styleCloseCards();
     P().style_baseline = d.baseline;  // stats 가 원문 전체와 비교하도록
@@ -536,12 +537,14 @@ Object.assign(actions, {
     S.styleLink = { state: 'none' };
     S.styleDraft = null;
     S.dirty = true;
+    S.focusTarget = '#app main h1';  // 누른 버튼은 카드와 함께 사라진다. 포커스를 화면 머리로 옮긴다
     render();
     toast('분석 결과로 바꿨어요. 확인하고 저장하세요.');
   },
   async styleDraftDrop() {
     if (!(await askConfirm('문체 분석 결과를 버릴까요? 다시 받으려면 분석을 다시 해야 해요.', { ok: '버리기', danger: true }))) return;
     S.styleDraft = null;
+    S.focusTarget = '#app main h1';  // 누른 버튼은 카드와 함께 사라진다
     render();
   },
   addPassage(root) {

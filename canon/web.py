@@ -2745,10 +2745,17 @@ def get_pending(name: str) -> dict:
 
 
 @app.delete("/api/projects/{name}/pending/{key}")
-def drop_pending(name: str, key: str, failure: bool = False) -> dict:
-    """화면이 반영하거나 버린 결과(또는 닫은 실패)를 지운다."""
+def drop_pending(name: str, key: str, failure: bool = False, id: str = "") -> dict:
+    """화면이 반영하거나 버린 결과(또는 닫은 실패)를 지운다. id 를 주면 그 작업의 결과일 때만 지운다:
+    화면이 옛 결과를 반영하는 사이 같은 키에 새 결과가 들어왔으면 새 결과를 남긴다."""
     _need(name)
-    return store.edit_pending(name, lambda d: d["failures" if failure else "results"].pop(key, None))
+
+    def drop(d: dict) -> None:
+        box = d["failures" if failure else "results"]
+        if id and not failure and (box.get(key) or {}).get("id") not in (None, id):
+            return
+        box.pop(key, None)
+    return store.edit_pending(name, drop)
 
 
 @app.post("/api/jobs/{jid}/stop")

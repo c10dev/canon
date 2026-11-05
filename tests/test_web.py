@@ -1017,3 +1017,16 @@ def test_style_job(client):
     assert done["status"] == "done" and "narration_pov" in done["result"]["profile"]
     assert "sentence_len" in done["result"]["baseline"] or done["result"]["baseline"]
     assert "style:" in client.get("/api/projects/sj/pending").json()["results"]
+
+
+def test_drop_pending_keeps_newer_result(client):
+    """화면이 옛 결과를 반영하고 지울 때 id 를 함께 보낸다. 그사이 같은 키에 새 결과가 들어왔으면 서버는 새 결과를 남긴다."""
+    from canon import store
+
+    meta = {"title": "등대", "genre": "미스터리", "logline": "x", "target_episodes": 10}
+    client.post("/api/projects", json={"name": "dp", "meta": meta})
+    store.edit_pending("dp", lambda d: d["results"].update({"style:": {"key": "style:", "id": "new", "kind": "style", "result": {}}}))
+    client.delete("/api/projects/dp/pending/style:?id=old")
+    assert "style:" in client.get("/api/projects/dp/pending").json()["results"]
+    client.delete("/api/projects/dp/pending/style:?id=new")
+    assert "style:" not in client.get("/api/projects/dp/pending").json()["results"]
