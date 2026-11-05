@@ -246,13 +246,15 @@
 - 프롬프트 `prompts.fix_prompt` · `recheck_prompt`(앞부분은 검수와 같은 `check_material`)
 - 고친 곳만 다시 보기: `pipeline.recheck_fixed` 가 대상 지적을 한 번의 호출(LLM `FixRecheckReport`, 단계 check)로 다시 묻고 `apply_fix_recheck` 가 지적마다 `settle` 한다. 회차는 늘지 않는다
 - 고친 곳만 다시 보기 프롬프트 `prompts.fix_recheck_prompt` 는 검수 자료 전체 대신 `static_context`(검수와 같은 앞부분)와 고친 곳 둘레 문단(`fix_around`, 앞뒤 `FIX_AROUND` 문단)만 넣는다
-- `recheck_fixed` 는 `static_context` 길이를 캐시 경계(`llm.PREFIX_HINT`)로 넘긴다. 검수 호출과 스키마가 달라 검수의 캐시는 읽지 못한다
+- `recheck_fixed` 는 `static_context` 길이를 캐시 경계(`llm.PREFIX_HINT`)로 넘긴다. 고친 뒤라 본문이 달라 검수 자료의 캐시는 읽지 못한다
 - `recheck_fixed` 는 묻지 않은 id 와 같은 id 의 두 번째 답을 버린다. 규칙 지적은 LLM 없이 `recheck_finding` 으로 판정만
 - 고친 곳 둘레(`_fix_spots`)는 고친 글이 본문에 여러 번 나오면 기록한 자리(`TextEdit.start`)에 가장 가까운 곳을 고른다
 - 웹 작업 `recheck` 는 묻기 전 상태(`fix_recheck_basis`: 검수 시각 · 본문 · 지적별 묶음)를 남긴다. 그사이 검수나 되돌리기로 바뀌었으면 `apply_fix_recheck` 가 아무것도 넣지 않고 오류로 끝낸다
 - 묶음이 바뀌었거나 그사이 닫힌 지적은 건너뛴다. 작업 결과의 풀림 · 아직 어긋남 수는 실제로 넣은 결과만 센다
 - 묶음 프롬프트 `prompts.fix_batch_prompt`: 검수 자료, id 를 단 지적 목록, 결정한 문장, 규칙 한 번, 요청은 맨 뒤
 - 고침안(한 지적 · 묶음) · 다시 검수는 `check_material` 길이를 캐시 경계(`llm.PREFIX_HINT`)로 넘긴다. 세 프롬프트 함수는 미리 만든 자료를 `material` 로 받는다
+- 검수(`check_episode`)도 `check_material` 길이를 캐시 경계로 넘긴다. `check_prompt(material=)` 가 미리 만든 자료를 받는다
+- 상태 변경안(`extract_state`)은 백엔드가 `family_cache` 면 `state_prompt(head=check_material)` 로 검수 자료로 시작하고 그 길이를 캐시 경계로 넘긴다. 다른 백엔드는 예전 프롬프트다
 - 결정은 검수 프롬프트에 넣지 않는다
 - LLM 호출 없음
 
@@ -340,6 +342,8 @@
   - 빈칸 제안은 이미 있는 인물도 빈 칸만 `fill_character`
 - 스토리보드: `make_storyboard` · `set_storyboard` · 낡음 지문 `board_basis`, `write_episode(use_board=)`, AI 고치기 `revise_storyboard` → `apply_storyboard_revision`(고치기 전 것은 `Episode.storyboard_prev`) · 적용 취소 `undo_storyboard`
 - 큐 시트: `make_cue_sheet`, 넣기는 `cue.set_episode`, `write_episode(use_cues=)`
+- 쓰기 가족: 스토리보드 · 큐 시트 요청이 `prompts.write_head` 로 시작하면 `write_family` 가 그 길이를 캐시 경계 hint 로 준다
+- 쓰기 가족: `_write` 는 `llm.family_text` 로 부른다. 요청이 `write_head` 로 시작하면 본문 쓰기도 같은 캐시를 읽는다
 - 방금 만든 스토리보드 다음의 큐 시트: `make_storyboard(lead=)` 가 보낸 요청 글을 채우고, `cue_lead` 가 그 스토리보드가 AI 가 만든 그대로 · 낡지 않음일 때만 그 글을 돌려준다. `make_cue_sheet(lead=)` 는 그 글로 시작하는 요청을 보낸다(자동 집필 `_cues`, 웹 쓰기 작업 `board: make`)
 - 문체 분석 `analyze_style` 뒤 `count_markers` 가 표지 · 장치 단서를 거른다: 원문에 없는 것, 한글 2자 미만(`MARKER_MIN_HANGUL`), 인물 이름(2자 이상)이 든 것
 - `count_markers` 는 원문 표본에 없는(공백 빼고 견줌) 장치 예시를 비운다
@@ -369,6 +373,8 @@
 - lead 안에 장면 연출이 이미 있어 다시 넣지 않는다. 요구사항 첫 줄이 다음 화 플롯 사건을 큐에 넣지 말고 시간 · 이동 · 장면 순서는 스토리보드를 따르라고 적는다
 - 쓰기에 넣는 `board_block`(직전 화 본문 뒤, 이번 화 플롯 바로 앞, 시간 · 이동 블록을 대신함)
 - 직전 화 블록 `prev_block`(스토리보드를 넣는 화와 스토리보드 만들기만 원문 전체, `build_episode_context(full_prev=)`)
+- 장편은 스토리보드가 없을 때만 넣는 시간 · 이동 · 장면 연출 블록과 `pre`(스토리보드 만들기의 Canon 값 · 장소 목록)를 직전 화 본문 뒤에 둔다. 단편 차례는 그대로다
+- 장편 쓰기 가족 앞부분 `write_head`: 작품 고정 블록부터 직전 화 본문 원문까지(`build_episode_context(head_only=True)`). 스토리보드 만들기 · 큐 시트 · 스토리보드로 본문 쓰기가 이 글로 시작한다. 단편은 빈 글
 - 쇠맛을 줄이는 쓰기 규칙: 블록 차례 한 줄 `priority_line`
 - 문체 분석 요청 `style_prompt` 은 효과음 표기 칸(`sound_effects`)을 묻고, 원문에서 센 효과음 줄 요약(`sfx_note`)을 붙인다
 - 이번 화 플롯은 쓰기 · 검수(`check_material`) · 상태 변경안(`state_prompt`) · 부분 수정(`passage_prompt`)이 모두 `write_plot` 으로 넣는다(라벨 모양이 아닌 예전 `emotional_shift` 를 뺌). 플롯 화면 · 흡입력 판정은 그대로
@@ -377,6 +383,8 @@
 - 예산으로 뺀 비밀 · 복선 수는 장편 쓰기(관계 머리글) · 상태 변경안 · 검수 비밀 칸 · 다음 아크 기획(관계 머리글)에 `cut_note` 로 적는다
 - 상태 변경안의 뺀 수 안내에는 '목록에 없는 비밀 · 복선의 id 는 쓰지 않습니다'를 붙인다
 - 플레이는 `state_prompt(cuts=)` 로 `play_view` 의 뺀 수를 넘겨 머리글이 원래 작품 기준 수를 적는다
+- `state_prompt(head=)` 는 검수 자료 뒤에 상태 칸을 붙이고 본문 · 이번 화 플롯을 다시 넣지 않는다
+- 장편이고 상태 인물이 `check_cast` 와 같으면 인물 설정 · 이전 인물 상태 · 비밀 칸도 넣지 않고 검수 자료의 칸을 보라고 적는다(같은 함수로 고름)
 - 예시 문단이 있는 작품의 스타일 프로필 `style_rules_view`(칸마다 `STYLE_FIELD_LIMIT`, 예시 문단이 앞)
 - 스토리보드 깨지 않을 것을 검수에 `protect_block` · `protect_check_rule`
 - 지시 수 · 크기 상한 시험 `tests/test_write_budget.py`

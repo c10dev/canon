@@ -19,8 +19,8 @@ os.environ["CANON_LLM"] = "mock"
 os.environ["CANON_HOME"] = tempfile.mkdtemp()
 
 from canon import cancel, claude, settings, usage  # noqa: E402
-from canon.llm import PREFIX_HINT, SchemaMismatch, get_llm, out_cap, wait_cap, with_note  # noqa: E402
-from canon.schema import NameOptions  # noqa: E402
+from canon.llm import FAMILY_SYSTEM, PREFIX_HINT, SchemaMismatch, get_llm, out_cap, role_block, wait_cap, with_note  # noqa: E402
+from canon.schema import FindingRecheck, NameOptions  # noqa: E402
 
 FAKE = textwrap.dedent('''\
     #!{python}
@@ -149,6 +149,35 @@ class ClaudeCodeTest(unittest.TestCase):
         self.assertNotIn("turns", row)  # 결과에 없으면 칸도 없다
         self.assertNotIn("resent", row)
         self.assertEqual(row["models"], {"claude-test-model": {"in": 0, "out": 30, "cached": 0}})
+
+    def test_usage_keeps_cache_writes_and_1h_share(self):
+        self.replies({"result": "글", "num_turns": 1, "stop_reason": "end_turn",
+                      "usage": {"input_tokens": 10, "cache_creation_input_tokens": 900, "cache_read_input_tokens": 0,
+                                "output_tokens": 3,
+                                "cache_creation": {"ephemeral_5m_input_tokens": 0, "ephemeral_1h_input_tokens": 900}}},
+                     {"result": "글", "num_turns": 1, "stop_reason": "end_turn",
+                      "usage": {"input_tokens": 10, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 900,
+                                "output_tokens": 3}})
+        llm = claude.ClaudeCodeLLM()
+        llm.text("s", "p")
+        row = usage.read()[-1]
+        self.assertEqual((row["in"], row["written"], row["written_1h"]), (910, 900, 900))
+        llm.text("s", "p")
+        row = usage.read()[-1]
+        self.assertNotIn("written", row)  # 캐시를 읽기만 했으면 칸이 없다
+        self.assertNotIn("written_1h", row)
+
+    def test_cache_1h_option(self):
+        self.replies({"result": "글", "usage": {"input_tokens": 1, "output_tokens": 1}})
+        with mock.patch.dict(os.environ, {"CANON_CLAUDE_CACHE_1H": ""}):
+            self.assertNotIn("ENABLE_PROMPT_CACHING_1H", claude.child_env())
+            self.assertEqual(claude._warm_seconds(), claude.CACHE_WARM_SECONDS)
+        with mock.patch.dict(os.environ, {"CANON_CLAUDE_CACHE_1H": "1"}):
+            self.assertEqual(claude.child_env()["ENABLE_PROMPT_CACHING_1H"], "1")
+            self.assertEqual(claude._warm_seconds(), claude.CACHE_WARM_SECONDS_1H)
+            claude._SEEN.clear()
+            blocks = claude.cache_blocks(("k1h",), "가" * 3000 + "\n\n끝", 3000)
+            self.assertEqual(blocks[0]["cache_control"], {"type": "ephemeral", "ttl": "1h"})
 
     def test_resent_counts_requests_not_turns(self):
         # 구조화 출력은 답을 도구로 내므로 요청이 한 번이어도 2턴이다: 다시 보낸 입력이 없다 (2026-11-05 서버 실측)
@@ -297,18 +326,23 @@ class ClaudeCodeTest(unittest.TestCase):
         claude._WARM.clear()
         material = "# 작품 정보\n" + "가" * 3000 + "\n\n# 3화 본문 (검수 대상)\n" + "나" * 500
         llm = claude.ClaudeCodeLLM()
-        out = {"structured_output": {"options": [{"name": "윤채린", "reason": "맑다"}]}}
-        self.replies(out, out, out, out)
-        llm.json("고침", f"{material}\n\n# 고칠 지적\n- f1", NameOptions, hint={"episode": 3, PREFIX_HINT: len(material)})
-        llm.json("고침", f"{material}\n\n# 고칠 지적\n- f2", NameOptions, hint={PREFIX_HINT: len(material)})
+        out = {"result": '{"options": [{"name": "윤채린", "reason": "맑다"}]}', "num_turns": 1}
+        self.replies(out, {"result": '{"resolved": true, "reason": "풀림"}', "num_turns": 1}, out, out)
+        got = llm.json("고침", f"{material}\n\n# 고칠 지적\n- f1", NameOptions, hint={"episode": 3, PREFIX_HINT: len(material)})
+        self.assertEqual(got.options[0].name, "윤채린")  # 가족 호출은 구조화 출력 대신 글로 받은 JSON 을 검증한다
+        llm.json("검수", f"{material}\n\n# 다시 볼 지적\n- f2", FindingRecheck, hint={PREFIX_HINT: len(material)})
         first, second = self.calls()
         self.assertNotIn("--system-prompt", first["args"])
-        self.assertEqual(first["system_file"], f"고침\n\n{material}")  # 앞 요청이 없어도 자료 끝에서 옮긴다
-        self.assertEqual(first["stdin"], with_note("# 고칠 지적\n- f1"))
-        self.assertEqual(second["system_file"], first["system_file"])  # 둘째 호출은 첫 호출이 쓴 캐시를 읽는다
+        self.assertNotIn("--json-schema", first["args"])  # 스키마마다 다른 도구가 붙으면 캐시가 갈린다
+        self.assertEqual(first["system_file"], f"{FAMILY_SYSTEM}\n\n{material}")  # 앞 요청이 없어도 자료 끝에서 옮긴다
+        self.assertTrue(first["stdin"].startswith(role_block("고침") + "# 고칠 지적\n- f1\n\n응답 형식:"))
+        self.assertIn('"options"', first["stdin"])
+        self.assertEqual(second["system_file"], first["system_file"])  # 역할 · 스키마가 달라도 같은 캐시를 읽는다
+        self.assertTrue(second["stdin"].startswith(role_block("검수")))
+        self.assertNotIn("resent", usage.read()[-1])  # 구조화 출력이 아니라 1턴이 요청 한 번이다
         # 경계가 단락 가운데면 그 앞 단락 경계로 맞추고, 앞부분이 너무 짧으면 옮기지 않는다
         llm.json("고침2", f"{material}\n\n# 고칠 지적\n- f3", NameOptions, hint={PREFIX_HINT: len(material) - 10})
-        self.assertEqual(self.calls()[-1]["system_file"], "고침2\n\n# 작품 정보\n" + "가" * 3000)
+        self.assertEqual(self.calls()[-1]["system_file"], f"{FAMILY_SYSTEM}\n\n# 작품 정보\n" + "가" * 3000)
         llm.json("고침3", "짧은 자료\n\n# 고칠 지적", NameOptions, hint={PREFIX_HINT: 5})
         self.assertIsNone(self.calls()[-1]["system_file"])
 
@@ -676,7 +710,8 @@ class ClaudeAPITest(unittest.TestCase):
         llm.json("고침", material + "\n\n# 고칠 지적\n- f1", NameOptions, hint={PREFIX_HINT: len(material)})
         blocks = self.reqs[0]["messages"][0]["content"]
         self.assertEqual(blocks[0], {"type": "text", "text": material, "cache_control": {"type": "ephemeral"}})
-        self.assertEqual(blocks[1]["text"], with_note("\n\n# 고칠 지적\n- f1"))
+        self.assertEqual(blocks[1]["text"], role_block("고침") + with_note("# 고칠 지적\n- f1"))
+        self.assertEqual(self.reqs[0]["system"], FAMILY_SYSTEM)  # 캐시 가족: 시스템 프롬프트는 가족 공통 글
 
     def test_stage_cost_uses_claude_price(self):
         self.assertAlmostEqual(usage.stage_cost("claude-api", "gemini-4-argon", 1e6, 0), 4.0)

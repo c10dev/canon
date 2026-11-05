@@ -2393,16 +2393,17 @@ def pov_block(p: Project, n: int) -> str:
 
 
 def build_episode_context(p: Project, n: int, *, use_board: bool = True, pre: str = "", between: str = "",
-                          full_prev: bool | None = None, write: bool = False) -> str:
+                          full_prev: bool | None = None, write: bool = False, head_only: bool = False) -> str:
     """앞쪽은 화가 바뀌어도 그대로인 블록, 뒤쪽은 화마다 바뀌는 블록이다.
     Claude API 캐시는 앞부분이 같은 요청에 맞으므로(claude.cache_blocks) 이 순서를 지킨다.
     Gemini 4 암묵적 캐시는 화 사이 겹침을 쓰지 않고 앞 요청을 통째로 품은 요청에만 맞는다 (DESIGN.md 실측).
     장편은 줄거리를 부 → 아크 → 화로 접고, 인물·복선·사실을 이번 화에 관련된 것만 골라 크기를 일정하게 둔다.
     스토리보드가 있으면(use_board) 직전 화 본문 뒤, 이번 화 플롯 바로 앞에 넣고 시간 · 이동 블록은 그 안의 값으로 대신한다.
     그때 장면 연출 블록은 스토리보드 블록 바로 뒤로 옮기고 줄마다 스토리보드 장면 번호를 붙인다 (docs/stage/specs/08-board.md).
-    pre 는 직전 화 본문 바로 앞, between 은 이번 화 플롯 바로 앞에 넣는 블록 (스토리보드 만들기 프롬프트가 쓴다).
+    pre 는 직전 화 본문 바로 앞(장편은 바로 뒤), between 은 이번 화 플롯 바로 앞에 넣는 블록 (스토리보드 만들기 프롬프트가 쓴다).
     full_prev 는 직전 화 원문 전체를 넣을지. 비우면 넣는 스토리보드가 있을 때만 (prev_block).
-    write 는 본문을 쓰는 요청(episode_prompt · rework_prompt): 이번 화 플롯을 write_plot 으로 넣는다."""
+    write 는 본문을 쓰는 요청(episode_prompt · rework_prompt): 이번 화 플롯을 write_plot 으로 넣는다.
+    head_only 는 장편에서 직전 화 본문까지만 돌려준다 (write_head)."""
     ep = p.episode(n)
     sb = ep.storyboard if use_board else None
     act = p.act_for(n)
@@ -2446,15 +2447,17 @@ def build_episode_context(p: Project, n: int, *, use_board: bool = True, pre: st
     line = storylines.episode_block(p, n)
     line = f"\n\n# 이번 화의 이야기 줄기\n{line}" if line else ""
     tl = timeline.episode_block(p, n) if sb is None else ""  # 스토리보드가 있으면 그 시간 · 이동 값을 쓴다 (board_block)
-    line += f"\n\n# 작품 속 시간 (어기지 말 것)\n{tl}" if tl else ""
+    tl = f"\n\n# 작품 속 시간 (어기지 말 것)\n{tl}" if tl else ""
     tr = mapprompt.travel_block(p, n) if sb is None else ""
-    line += f"\n\n# 이동 거리 (지도 기준)\n{tr}" if tr else ""
+    tr = f"\n\n# 이동 거리 (지도 기준)\n{tr}" if tr else ""
     sp = mapprompt.spot_block(p, n)
-    line += f"\n\n# 장소가 놓인 건물 (지도 기준)\n{sp}" if sp else ""
+    sp = f"\n\n# 장소가 놓인 건물 (지도 기준)\n{sp}" if sp else ""
     stg = stage_block(p, n, board=sb is not None)
     stg = f"\n\n# 장면 연출 (작가가 짠 자리 · 자세 · 접촉)\n{stg}" if stg else ""
-    if sb is None:
-        line += stg
+    # 장편은 스토리보드가 없을 때만 들어가는 블록(시간 · 이동 · 연출, pre)을 직전 화 본문 뒤로 미룬다. 그러면 스토리보드 만들기 ·
+    # 큐 시트 · 스토리보드로 본문 쓰기가 직전 화 본문 끝까지 같은 앞부분(write_head)이 되어 캐시를 함께 쓴다 (쓰기 가족).
+    late = p.serial and sb is None
+    line += sp if late else tl + tr + sp + (stg if sb is None else "")
     pov = pov_block(p, n)
     pov = f"\n\n# 이번 화 서술 시점\n{pov}" if pov else ""  # 무엇이 먼저인지는 episode_prompt 의 priority_line 한 줄에
     dev = device_block(p, n)
@@ -2462,13 +2465,20 @@ def build_episode_context(p: Project, n: int, *, use_board: bool = True, pre: st
 
     facts_text = chr(10).join("- " + f for f in facts) or "없음"
     full = sb is not None if full_prev is None else full_prev
-    prev = pre + prev_block(p, n, last_text, full) + (f"\n\n{board_block(p, n)}{stg}" if sb is not None else "") + between
+    if late:
+        prev_head = prev_block(p, n, last_text, full)
+        prev_rest = tl + tr + stg + (f"\n\n{pre.rstrip()}" if pre else "") + between
+    else:
+        prev_head = pre + prev_block(p, n, last_text, full)
+        prev_rest = (f"\n\n{board_block(p, n)}{stg}" if sb is not None else "") + between
+    prev = prev_head + prev_rest
     if p.serial:
         act_line = f"현재 아크 안 구간: {act.name if act else '?'} ({act.start_ep if act else '?'}~{act.end_ep if act else '?'}화) 목표: {act.goal if act else ''}"
         return serial_episode_context(p, n, where=where, act_line=act_line, line=line, facts=facts_text, facts_cut=facts_cut, els=els, write=write,
                                       cast_names=cast_names, extra=extra_block(extra, extra_cut) + named_block(named, named_cut),
                                       states=states, rels=rels, cast_ids=cast_ids,
-                                      fs=fs, fs_cut=fs_cut, prev=prev, tail=f"{pov}{dev}{echo_block(p, n) if write else ''}{material_block(p, n)}")
+                                      fs=fs, fs_cut=fs_cut, prev=prev_head, prev_rest=prev_rest, head_only=head_only,
+                                      tail="" if head_only else f"{pov}{dev}{echo_block(p, n) if write else ''}{material_block(p, n)}")
 
     return f"""{static_context(p)}
 
@@ -2500,9 +2510,11 @@ def build_episode_context(p: Project, n: int, *, use_board: bool = True, pre: st
 
 def serial_episode_context(p: Project, n: int, *, where: str, act_line: str, line: str, facts: str, facts_cut: int, els: str,
                            cast_names: str, extra: str, states: list, rels: list, cast_ids: set[str],
-                           fs: list, fs_cut: int, prev: str, tail: str, write: bool = False) -> str:
+                           fs: list, fs_cut: int, prev: str, tail: str, write: bool = False, prev_rest: str = "",
+                           head_only: bool = False) -> str:
     """장편 본문 쓰기 컨텍스트. 바뀌는 빈도 순서로 놓는다: 작품 고정(static_context) → 아크 동안 그대로인 것
-    (부 · 아크 구조, 끝난 아크의 접은 줄거리) → 화마다 바뀌는 것(아크 안 구간 act_line 부터). 앞부분이 같을수록 캐시가 길게 맞는다."""
+    (부 · 아크 구조, 끝난 아크의 접은 줄거리) → 화마다 바뀌는 것(아크 안 구간 act_line 부터). 앞부분이 같을수록 캐시가 길게 맞는다.
+    prev 는 직전 화 본문, prev_rest 는 그 뒤에 붙일 블록이다. head_only 면 직전 화 본문까지만 돌려준다 (write_head)."""
     past, cur = story_parts(p, n)
     secrets, secrets_cut = context.pick_secrets(p, cast_ids, elements.plot_text(p.episode(n)), context.BUDGET["secrets"])
     states, knows_cut = state_view(p, states, n, elements.plot_text(p.episode(n)))
@@ -2512,7 +2524,7 @@ def serial_episode_context(p: Project, n: int, *, where: str, act_line: str, lin
     cast_ids = cast_ids - (shown - {s.character_id for s in states})  # 상태를 뺀 인물은 관계 · 호칭 · 다시 나옴에서도 뺀다
     rels = [r for r in rels if r.a in cast_ids and r.b in cast_ids]
     relations = serial_relations(p, cast_ids, plot_ids, secrets) or dump(rels) or "없음"
-    return f"""{static_context(p)}
+    head = f"""{static_context(p)}
 
 {where}
 
@@ -2540,10 +2552,21 @@ def serial_episode_context(p: Project, n: int, *, where: str, act_line: str, lin
 # 지금까지의 줄거리 (이번 아크)
 {cur or "없음 (첫 화)"}{line}
 
-{prev}
+{prev}"""
+    if head_only:
+        return head
+    return f"""{head}{prev_rest}
 
 # 이번 화 플롯
 {dump(write_plot(p.episode(n).plot) if write else p.episode(n).plot)}{tail}"""
+
+
+def write_head(p: Project, n: int) -> str:
+    """장편 쓰기 가족(스토리보드 만들기 · 큐 시트 · 본문 쓰기)이 함께 쓰는 앞부분: 작품 고정 블록부터 직전 화 본문 원문까지.
+    부르는 쪽이 요청이 이 글로 시작하면 그 길이를 캐시 경계(llm.PREFIX_HINT)로 넘긴다. 단편은 빈 글이다 (단편 경로는 그대로)."""
+    if not p.serial:
+        return ""
+    return build_episode_context(p, n, use_board=False, full_prev=True, head_only=True)
 
 
 STATES_KNOWS_SHORT = 3  # 상태 예산을 넘을 때 플롯 밖 인물에게 남기는 최근 아는 정보 수
@@ -2962,7 +2985,7 @@ def canon_values_block(p: Project, n: int) -> str:
 
 
 def storyboard_prompt(p: Project, n: int) -> str:
-    """n화 스토리보드 만들기. 앞부분은 쓰기 프롬프트와 같고, 직전 화 본문 앞에 Canon 이 센 값 · 장소 목록,
+    """n화 스토리보드 만들기. 앞부분은 쓰기 프롬프트와 같고, 직전 화 본문 앞(장편은 뒤)에 Canon 이 센 값 · 장소 목록,
     이번 화 플롯 앞에 다음 화 플롯을 넣는다. 요구사항은 맨 끝."""
     ep = p.episode(n)
     nxt = next((e for e in p.episodes if e.plot.number == n + 1), None)
@@ -3413,8 +3436,10 @@ def rewrite_prompt(p: Project, n: int, req, materials: dict[str, list[str]], old
     return episode_prompt(p, n, use_cues=not (s and s.skipped)) + "\n\n" + rewrite_block(p, n, req, materials, old)
 
 
-def state_prompt(p: Project, n: int, cuts: tuple[int, int] | None = None) -> str:
-    """상태 변경안. cuts 는 (뺀 비밀 수, 뺀 복선 수)로 머리글의 뺀 수를 바꾼다: 미리 거른 보기를 넘기는 플레이(play_view)가 원래 작품 기준 수를 준다."""
+def state_prompt(p: Project, n: int, cuts: tuple[int, int] | None = None, head: str = "") -> str:
+    """상태 변경안. cuts 는 (뺀 비밀 수, 뺀 복선 수)로 머리글의 뺀 수를 바꾼다: 미리 거른 보기를 넘기는 플레이(play_view)가 원래 작품 기준 수를 준다.
+    head 에 검수 자료(check_material, 끝이 n화 본문)를 주면 그 뒤에 상태 칸을 붙이고 본문은 다시 넣지 않는다. 검수 가족과 캐시를 함께 쓰려는
+    것이라 캐시 가족을 받는 백엔드만 준다 (pipeline.extract_state). 비우면 예전 모양이다 (다른 백엔드 · 작업지시서)."""
     ep = p.episode(n)
     secrets_cut = fs_cut = 0
     if p.serial:  # 장편: 이번 화 플롯 인물 · 본문에 이름이 나온 인물과 주역만 자세히, 나머지는 한 줄 목록으로 ('넣지 않음' 인물은 한 줄 목록에)
@@ -3437,26 +3462,34 @@ def state_prompt(p: Project, n: int, cuts: tuple[int, int] | None = None) -> str
             others = ", ".join(f"{c.id}: {c.name}({c.role})" for c in p.characters if c.id in off)
     if cuts is not None:
         secrets_cut, fs_cut = cuts
-    return f"""{n}화 본문을 읽고 상태 변경안을 작성하세요.
-
-[인물 설정]
+    lead = (f"{head}\n\n위 [{n}화 본문 (검수 대상)]을 읽고 상태 변경안을 작성하세요. 아래는 상태 변경안에 쓸 자료입니다."
+            if head else f"{n}화 본문을 읽고 상태 변경안을 작성하세요.")
+    text = "" if head else f"\n[{n}화 본문]\n{ep.text}\n"
+    # 장편 검수 자료(budget)는 같은 인물로 설정 · 이전 상태 · 비밀을 같은 방식으로 고른다 (_check_budget). 인물이 같으면 그 칸을 다시 넣지 않는다
+    shared = bool(head) and p.serial and ids == check_cast(p, n)
+    if shared:
+        cast = (f"[인물 설정] · [이전 인물 상태] · [현재 비밀]: 위 자료의 '인물 설정' · '조연 · 단역 설정', "
+                f"'인물 현재 상태 ({n - 1}화 종료 시점)', '비밀' 칸을 봅니다. 그 비밀 목록에 없는 비밀의 id 는 쓰지 않습니다.\n"
+                + (f"[다른 인물 (id: 이름, 역할) — 다시 만들지 않습니다]{chr(10)}{others}{chr(10)}" if others else ""))
+    else:
+        cast = f"""[인물 설정]
 {dump(chars)}
 {f"[다른 인물 (id: 이름, 역할) — 다시 만들지 않습니다]{chr(10)}{others}{chr(10)}" if others else ""}[이전 인물 상태]{knows_note(knows_cut)}
 {dump(states) or "설정 그대로"}
-[이전 관계]
-{relations}{address.block(p, ids if p.serial else context.without_off(p, None), "[호칭 · 말씨]")}
-[현재 비밀]{cut_note(secrets_cut, "이번 화 인물과 관련된 것만", "목록에 없는 비밀의 id 는 쓰지 않습니다")}
+"""
+    secret_block = "" if shared else f"""[현재 비밀]{cut_note(secrets_cut, "이번 화 인물과 관련된 것만", "목록에 없는 비밀의 id 는 쓰지 않습니다")}
 {dump(secrets) or "없음"}
-[열린 복선]{cut_note(fs_cut, "이번 아크와 관련된 것만", "목록에 없는 복선의 id 는 쓰지 않습니다")}
-{dump(fs) or "없음"}
-[이번 화 플롯]
-{dump(write_plot(ep.plot))}
-[이미 있는 장소]
-{places_line(p, ep.text)}
-{f"[작품 속 시간]{chr(10)}{timeline.state_block(p, n)}{chr(10)}" if timeline.enabled(p) else ""}
-[{n}화 본문]
-{ep.text}
+"""
+    plot = f"[이번 화 플롯]: 위 자료의 '{n}화 플롯' 칸을 봅니다.\n" if head else f"[이번 화 플롯]\n{dump(write_plot(ep.plot))}\n"
+    return f"""{lead}
 
+{cast}[이전 관계]
+{relations}{address.block(p, ids if p.serial else context.without_off(p, None), "[호칭 · 말씨]")}
+{secret_block}[열린 복선]{cut_note(fs_cut, "이번 아크와 관련된 것만", "목록에 없는 복선의 id 는 쓰지 않습니다")}
+{dump(fs) or "없음"}
+{plot}[이미 있는 장소]
+{places_line(p, ep.text)}
+{f"[작품 속 시간]{chr(10)}{timeline.state_block(p, n)}{chr(10)}" if timeline.enabled(p) else ""}{text}
 요구사항:
 - episode 는 {n} 입니다.
 - 변화가 있는 인물만 넣습니다.
@@ -3577,12 +3610,14 @@ def checker_system(lang: str = "ko") -> str:
     return SYSTEM_CHECKER_EN if lang == "en" else SYSTEM_CHECKER
 
 
-def check_prompt(p: Project, n: int, mode: str = "", sized: bool = False, lang: str = "ko") -> str:
+def check_prompt(p: Project, n: int, mode: str = "", sized: bool = False, lang: str = "ko", material: str = "") -> str:
     """검수 프롬프트. mode 를 비우면 장편은 budget, 단편은 full. 연구 화면 검수 시험이 두 방식을 견준다.
-    sized 는 옛 단락을 찾지 않고 같은 크기로 채운다 (길이만 재는 autorun.estimate). lang 이 en 이면 지시문만 영어판(CHECK_LANGS)이다."""
+    sized 는 옛 단락을 찾지 않고 같은 크기로 채운다 (길이만 재는 autorun.estimate). lang 이 en 이면 지시문만 영어판(CHECK_LANGS)이다.
+    material 에 같은 인자로 만든 check_material 을 주면 다시 만들지 않는다 (부른 쪽이 그 길이를 캐시 경계로 넘길 때)."""
+    material = material or check_material(p, n, mode, sized, lang)
     rules = f"{timeline.check_rule(p, n)}{mapprompt.travel_check_rule(p, n)}{attire_check_rule(p)}{stage_check_rule(p)}{layer_check_rule(p, check_cast(p, n) if (mode or ('budget' if p.serial else 'full')) == 'budget' else None)}{address.check_rule(p)}{statwin.check_rule(p)}{protect_check_rule(p.episode(n))}{pairlog.check_rule(pair_check_block(p, n, mode))}"
     if lang == "en":
-        return f"""{check_material(p, n, mode, sized, lang)}
+        return f"""{material}
 
 Find the places in the text of episode {n} that contradict the material above.
 - Check: confirmed facts; story elements and details (names, ages, appearance, places, objects); time order and causality; a character who acts as if they know information they do not know yet; speech (forms of address, 존댓말/반말, sentence endings); world rules; plot events that are missing.
@@ -3593,7 +3628,7 @@ Find the places in the text of episode {n} that contradict the material above.
 - Do not report a suspicion that you cannot support with a quote. If there is no contradiction, leave issues as an empty list.
 - Write description and suggestion in Korean.
 - episode is {n}."""
-    return f"""{check_material(p, n, mode, sized)}
+    return f"""{material}
 
 {n}화 본문에서 위 자료와 어긋나는 곳을 찾으세요.
 - 확인할 것: 확정 사실, 이야기 요소와 세부(이름, 나이, 외모, 장소, 물건), 시간 순서와 인과, 인물이 아직 모르는 정보를 아는 듯 행동하는지, 말투(호칭, 존댓말/반말, 어미), 세계관 규칙, 플롯 사건 누락.
@@ -3751,7 +3786,7 @@ def fix_around(text: str, spots: list[tuple[int, int]], k: int = FIX_AROUND) -> 
 def fix_recheck_prompt(p: Project, n: int, items: list[tuple[ConsistencyIssue, str, list[tuple[str, str]]]],
                        excerpts: list[str], decided: list[ConsistencyIssue]) -> str:
     """고친 곳만 다시 보기: 지난 검수 뒤 고침안을 넣은 지적들을 한 번에 다시 묻는다. 검수 자료 전체 대신
-    작품 설정(static_context, 그 끝을 캐시 경계로 넘긴다. 검수 호출의 캐시는 스키마가 달라 읽지 못한다)과 고친 곳 둘레 문단만 넣는다.
+    작품 설정(static_context, 그 끝을 캐시 경계로 넘긴다. 고친 뒤라 본문이 달라 검수 자료의 캐시는 읽지 못한다)과 고친 곳 둘레 문단만 넣는다.
     items: (지적, 지적 id, (고치기 전, 고친 뒤) 쌍). excerpts: 지금 본문에서 고친 곳 둘레 (fix_around)."""
     rows = []
     for f, fid, changes in items:

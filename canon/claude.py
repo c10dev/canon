@@ -97,6 +97,15 @@ def strict_schema(schema: type[BaseModel]) -> dict:
     return walk(_inline_refs(schema.model_json_schema()))
 
 
+def json_instruction(schema: type[BaseModel]) -> str:
+    """구조화 출력 없이 JSON 을 받을 때 요청 끝에 붙이는 형식 지시. 받은 글은 _parse 가 검증한다."""
+    from .llm import _inline_refs
+
+    js = json.dumps(_inline_refs(schema.model_json_schema()), ensure_ascii=False, separators=(",", ":"))
+    return ("\n\n응답 형식: 아래 JSON 스키마를 따르는 JSON 객체 하나만 냅니다. 앞뒤에 다른 글이나 코드 블록 표시를 붙이지 않습니다.\n"
+            f"{js}")
+
+
 def _parse(schema: type[T], raw: Any) -> T:
     if isinstance(raw, (dict, list)):
         return schema.model_validate(raw)
@@ -138,6 +147,12 @@ def login_command() -> str:
     return f"CLAUDE_CONFIG_DIR={shlex.quote(d)} claude auth login" if d else "claude auth login"
 
 
+def cache_1h() -> bool:
+    """CANON_CLAUDE_CACHE_1H 가 켜져 있으면 프롬프트 캐시를 1시간으로 쓴다. 쓰기 값이 5분 캐시의 1.25배에서 2배로 오르므로
+    한 시간 안에 같은 앞부분을 세 번 이상 읽을 때 이득이다. 기본은 끔이다 (구독은 Claude Code 가 스스로 1시간을 고르기도 한다)."""
+    return os.environ.get("CANON_CLAUDE_CACHE_1H", "").strip().lower() in ("1", "true", "yes", "on")
+
+
 def child_env(extra: dict | None = None) -> dict:
     """claude 를 부를 때의 환경. API 키를 빼야 구독으로 호출한다 (-p 에서는 키가 있으면 늘 키를 쓴다).
     사용자 CLAUDE.md 와 자동 메모리는 소설 프롬프트에 섞이지 않게 끈다. CLAUDE_CODE_OAUTH_TOKEN 은 그대로 둔다.
@@ -145,6 +160,8 @@ def child_env(extra: dict | None = None) -> dict:
     env = {k: v for k, v in os.environ.items() if k not in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")}
     env["CLAUDE_CODE_DISABLE_CLAUDE_MDS"] = "1"
     env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1"
+    if cache_1h():
+        env["ENABLE_PROMPT_CACHING_1H"] = "1"  # Claude Code 가 구독 초과 사용 중에도 1시간 캐시를 쓰게 한다
     d = config_dir()
     if d:
         Path(d).mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -323,6 +340,7 @@ def _cli_usage(d: dict, structured: bool = False) -> dict | None:
     # 생각 토큰은 output_tokens 에 들어 있어 따로 세지 않는다 (사용량 화면이 출력에 더한다)
     out = {"prompt_tokens": prompt, "completion_tokens": int(u.get("output_tokens") or 0),
            "thought_tokens": 0, "cached_tokens": cached}
+    out |= _written(int(u.get("cache_creation_input_tokens") or 0), u.get("cache_creation"))
     turns = d.get("num_turns")
     if isinstance(turns, int) and turns > 0:
         out["turns"] = turns
@@ -344,6 +362,18 @@ def _cli_usage(d: dict, structured: bool = False) -> dict | None:
     resent = _resent(prompt, out.get("turns"), out.get("models"), structured)
     if resent:
         out["resent"] = resent
+    return out
+
+
+def _written(total: int, split: Any) -> dict:
+    """캐시에 새로 쓴 입력. written 은 쓴 토큰 수, written_1h 는 그 가운데 1시간 캐시로 쓴 몫이다 (응답의 cache_creation 내역).
+    쓰지 않았으면 빈 dict 다. 쓰기는 읽기보다 비싸므로(5분 1.25배, 1시간 2배) 사용량 화면이 따로 보려는 값이다."""
+    if total <= 0:
+        return {}
+    out = {"written": total}
+    long = split.get("ephemeral_1h_input_tokens") if isinstance(split, dict) else getattr(split, "ephemeral_1h_input_tokens", None)
+    if isinstance(long, int) and long > 0:
+        out["written_1h"] = long
     return out
 
 
@@ -377,6 +407,7 @@ def _served(d: dict) -> str:
 class ClaudeCodeLLM:
     """설치된 Claude Code 를 `claude -p` 로 부른다. 도구는 모두 끄고, 시스템 프롬프트를 Canon 것으로 바꾸고,
     세션을 남기지 않는다. 구조화 출력은 --json-schema 로 받고 pydantic 으로 검증해, 어긋나면 한 번 더 묻는다."""
+    family_cache = True  # PREFIX_HINT 를 받으면 캐시 가족으로 부른다 (llm.FAMILY_SYSTEM)
 
     def __init__(self, model: str | None = None, binary: str | None = None, timeout: float | None = None,
                  effort: str = ""):
@@ -460,8 +491,13 @@ class ClaudeCodeLLM:
         try:
             sch = strict_schema(schema) if schema else None
             head, ask, self.last_cut = self._split(system, prompt, schema, cut, prefix)
+            family = bool(prefix and self.last_cut)
+            if family and schema is not None:
+                # --json-schema 는 스키마마다 다른 도구를 붙여 캐시를 가른다 (도구가 시스템 프롬프트보다 앞). 가족 호출은 글로 JSON 을 받는다
+                sch, ask = None, ask.rstrip() + json_instruction(schema)
             if head != system:
-                gate = ("cli", self.requested, schema and schema.__name__, len(head), hash(head))
+                # 가족 호출은 스키마가 달라도 같은 앞부분이면 같은 캐시다
+                gate = ("cli", self.requested, None if family else schema and schema.__name__, len(head), hash(head))
                 claim = _claim(gate)
                 t = time.time()  # 앞 호출을 기다린 시간은 이 호출의 시간에 넣지 않는다
             sent = time.time()
@@ -483,14 +519,14 @@ class ClaudeCodeLLM:
             if not isinstance(d, dict):
                 raise ClaudeCodeError(f"Claude Code 실행 실패 (종료 코드 {proc.returncode}): "
                                       f"{_explain((proc.stderr or proc.stdout).strip() or '출력 없음')}")
-            tokens = self.last_usage = _cli_usage(d, structured=schema is not None)
+            tokens = self.last_usage = _cli_usage(d, structured=sch is not None)
             reached = bool(tokens and tokens["prompt_tokens"])  # 요청이 모델까지 갔으면 앞부분이 캐시에 들어갔다
             self.served = _served(d) or self.served
             if d.get("is_error") or d.get("subtype") not in (None, "success"):
                 raise ClaudeCodeError(f"Claude Code 오류: {_explain(str(d.get('result') or d.get('subtype') or d))}")
             if d.get("stop_reason") == "refusal":
                 raise ClaudeCodeError("Claude가 이 요청을 거절했어요 (안전 분류기). 수위나 표현을 조정하거나 다른 백엔드로 돌리세요.")
-            raw = d.get("structured_output") if schema is not None else None
+            raw = d.get("structured_output") if sch is not None else None
             if raw is not None:
                 self.last_note = str(d.get("result") or "").strip()  # 구조화 출력 곁에 남긴 글. 빈 결과의 이유를 보인다
             if raw is None:
@@ -522,6 +558,10 @@ class ClaudeCodeLLM:
             cut = shared_cut(("cli", self.requested, system, schema and schema.__name__), prompt, prefix)
         if not cut:
             return system, prompt, 0
+        if prefix:  # 캐시 가족: 시스템 프롬프트를 가족 공통 글로 두고 원래 것은 사용자 메시지 앞으로 (llm.FAMILY_SYSTEM)
+            from .llm import FAMILY_SYSTEM, role_block
+
+            return f"{FAMILY_SYSTEM}\n\n{prompt[:cut]}", role_block(system) + prompt[cut:].lstrip("\n"), cut
         return f"{system.rstrip()}\n\n{prompt[:cut]}", prompt[cut:].lstrip("\n"), cut
 
     def json(self, system: str, prompt: str, schema: type[T], hint: dict | None = None) -> T:
@@ -539,9 +579,12 @@ class ClaudeCodeLLM:
                 cut = self.last_cut
         raise AssertionError("unreachable")
 
-    def text(self, system: str, prompt: str) -> str:
+    def text(self, system: str, prompt: str, hint: dict | None = None) -> str:
+        """hint 의 PREFIX_HINT 는 캐시 가족 경계다 (llm.family_text)."""
+        from .llm import prefix_of
+
         self.last_attempts = 1
-        return self._call(system, prompt)
+        return self._call(system, prompt, prefix=prefix_of(hint))
 
 
 # ---------- API 키: Messages API ----------
@@ -581,7 +624,12 @@ def shared_cut(key: tuple, prompt: str, prefix: int | None = None) -> int:
 _WRITING: dict[tuple, tuple[threading.Event, float]] = {}  # 캐시를 쓰는 중인 시스템 프롬프트 → (끝나면 세우는 신호, 보낸 시각)
 _WARM: dict[tuple, float] = {}  # 캐시에 들어간 시스템 프롬프트 → 마지막으로 보낸 시각
 CACHE_WARM_SECONDS = 300  # 캐시 유지 시간 (짧은 쪽 5분)
+CACHE_WARM_SECONDS_1H = 3600  # CANON_CLAUDE_CACHE_1H 를 켰을 때의 유지 시간
 CACHE_PREFILL_SECONDS = 30  # 앞 호출을 보낸 뒤 이만큼만 기다린다 (실행 준비와 앞부분 읽기)
+
+
+def _warm_seconds() -> int:
+    return CACHE_WARM_SECONDS_1H if cache_1h() else CACHE_WARM_SECONDS
 
 
 def _claim(gate: tuple) -> threading.Event | None:
@@ -589,7 +637,7 @@ def _claim(gate: tuple) -> threading.Event | None:
     보낸 지 CACHE_PREFILL_SECONDS 가 지나기를 기다려 None 을 돌려준다. 이미 캐시에 있어도 None 이다. 기다리는 동안 작업 멈추기를 본다."""
     while True:
         with _SEEN_LOCK:
-            if time.time() - _WARM.get(gate, 0.0) < CACHE_WARM_SECONDS:
+            if time.time() - _WARM.get(gate, 0.0) < _warm_seconds():
                 return None
             writing = _WRITING.get(gate)
             if writing is None:
@@ -610,7 +658,7 @@ def _release(gate: tuple, claim: threading.Event | None, reached: bool, sent: fl
     with _SEEN_LOCK:
         if reached:
             _WARM[gate] = max(_WARM.get(gate, 0.0), sent or now)
-            for k in [k for k, at in _WARM.items() if now - at >= CACHE_WARM_SECONDS]:
+            for k in [k for k, at in _WARM.items() if now - at >= _warm_seconds()]:
                 del _WARM[k]
         if claim is not None and _WRITING.get(gate, (None,))[0] is claim:
             del _WRITING[gate]
@@ -624,7 +672,8 @@ def cache_blocks(key: tuple, prompt: str, prefix: int | None = None) -> str | li
     cut = shared_cut(key, prompt, prefix)
     if not cut:
         return prompt
-    return [{"type": "text", "text": prompt[:cut], "cache_control": {"type": "ephemeral"}},
+    mark = {"type": "ephemeral", "ttl": "1h"} if cache_1h() else {"type": "ephemeral"}
+    return [{"type": "text", "text": prompt[:cut], "cache_control": mark},
             {"type": "text", "text": prompt[cut:]}]
 
 
@@ -632,13 +681,16 @@ def _api_usage(u: Any) -> dict | None:
     if u is None:
         return None
     cached = getattr(u, "cache_read_input_tokens", None) or 0
-    prompt = (u.input_tokens or 0) + (getattr(u, "cache_creation_input_tokens", None) or 0) + cached
-    return {"prompt_tokens": prompt, "completion_tokens": u.output_tokens or 0, "thought_tokens": 0, "cached_tokens": cached}
+    written = getattr(u, "cache_creation_input_tokens", None) or 0
+    prompt = (u.input_tokens or 0) + written + cached
+    out = {"prompt_tokens": prompt, "completion_tokens": u.output_tokens or 0, "thought_tokens": 0, "cached_tokens": cached}
+    return out | _written(written, getattr(u, "cache_creation", None))
 
 
 class ClaudeAPILLM:
     """Anthropic API 키로 Messages API 를 부른다. 구조화 출력은 output_config.format 으로 강제하고
     pydantic 으로 검증한다. 긴 본문도 끊기지 않게 스트리밍으로 받는다."""
+    family_cache = True
 
     def __init__(self, model: str | None = None, api_key: str | None = None, effort: str = ""):
         import anthropic
@@ -678,8 +730,14 @@ class ClaudeAPILLM:
         limit = min(MAX_TOKENS, out_cap) if out_cap else MAX_TOKENS
         t, tokens = time.time(), None
         self.last_raw = ""
+        content = cache_blocks((self.model, system, schema and schema.__name__), with_note(prompt), prefix)
+        if prefix and isinstance(content, list):  # 캐시 가족: 시스템 프롬프트를 가족 공통 글로, 원래 것은 뒤 블록 앞으로
+            from .llm import FAMILY_SYSTEM, role_block
+
+            content[1]["text"] = role_block(system) + content[1]["text"].lstrip("\n")
+            system = FAMILY_SYSTEM
         req: dict[str, Any] = {"model": self.model, "max_tokens": limit, "system": system,
-                               "messages": [{"role": "user", "content": cache_blocks((self.model, system, schema and schema.__name__), with_note(prompt), prefix)}]}
+                               "messages": [{"role": "user", "content": content}]}
         if schema is not None:
             req["output_config"] = {"format": {"type": "json_schema", "schema": strict_schema(schema)}}
         if self.effort:
@@ -723,6 +781,8 @@ class ClaudeAPILLM:
                 ask = repair_prompt(prompt, self.last_raw, schema, e)
         raise AssertionError("unreachable")
 
-    def text(self, system: str, prompt: str) -> str:
+    def text(self, system: str, prompt: str, hint: dict | None = None) -> str:
+        from .llm import prefix_of
+
         self.last_attempts = 1
-        return self._call(system, prompt)
+        return self._call(system, prompt, prefix=prefix_of(hint))

@@ -1,0 +1,98 @@
+"""캐시 가족: 같은 앞부분을 쓰는 호출이 그 앞부분으로 시작하고, 끝을 PREFIX_HINT 로 넘기는지 본다."""
+
+from canon import pipeline, prompts
+from canon.llm import PREFIX_HINT
+from canon.mock import MockLLM
+from tests.test_serial import _finish, _plan_arc, _serial
+
+
+class Recorder(MockLLM):
+    """가족을 받는 백엔드처럼 굴며 받은 요청과 hint 를 남긴다."""
+    family_cache = True
+
+    def __init__(self):
+        super().__init__()
+        self.seen: list[tuple[str, str, dict]] = []
+
+    def json(self, system, prompt, schema, hint=None):
+        self.seen.append((system, prompt, dict(hint or {})))
+        return super().json(system, prompt, schema, hint)
+
+    def text(self, system, prompt, hint=None):
+        self.seen.append((system, prompt, dict(hint or {})))
+        return super().text(system, prompt)
+
+
+def _next(p):
+    """다음에 쓸 화. 앞 화는 모두 끝낸 것으로 둔다."""
+    for e in p.episodes:
+        if e.text:
+            e.status = "finalized"
+    return min(e.plot.number for e in p.episodes if not e.text)
+
+
+def _project():
+    p = _serial()
+    _finish(p, _plan_arc(p), text="직전 화 본문 " + "다" * 400)
+    _plan_arc(p)
+    return p
+
+
+def test_write_family_shares_head():
+    p = _project()
+    n = _next(p)
+    head = prompts.write_head(p, n)
+    assert head and head.endswith(p.episode(n - 1).text[-50:])  # 직전 화 본문 원문 끝에서 끝난다
+    assert prompts.storyboard_prompt(p, n).startswith(head)
+
+    rec = Recorder()
+    b = pipeline.make_storyboard(rec, p, n)
+    assert rec.seen[-1][2][PREFIX_HINT] == len(head)
+    pipeline.set_storyboard(p, n, b, by="ai")
+    assert prompts.write_head(p, n) == head  # 스토리보드를 넣어도 앞부분은 그대로다
+
+    pipeline.make_cue_sheet(rec, p, n)
+    assert rec.seen[-1][1].startswith(head)
+    assert rec.seen[-1][2][PREFIX_HINT] == len(head)
+
+    pipeline.write_episode(rec, p, n)
+    system, prompt, hint = rec.seen[-1]
+    assert prompt.startswith(head) and hint[PREFIX_HINT] == len(head)
+    assert system == prompts.writer_system(p)  # 시스템 프롬프트는 백엔드가 가족 공통 글로 바꾼다
+
+
+def test_short_has_no_write_head():
+    from tests.test_char_context import _short
+
+    assert prompts.write_head(_short(), 4) == ""
+
+
+def test_state_starts_with_check_material_only_for_family_backends():
+    p = _project()
+    n = max(e.plot.number for e in p.episodes if e.text)
+    p.episode(n).text = "이번 화만의 본문 " + "라" * 300
+    material = prompts.check_material(p, n)
+    rec = Recorder()
+    pipeline.extract_state(rec, p, n)
+    _, prompt, hint = rec.seen[-1]
+    assert prompt.startswith(material) and hint[PREFIX_HINT] == len(material)
+    assert prompt.count(p.episode(n).text) == 1  # 본문은 앞부분에 한 번만
+    tail = prompt[len(material):]
+    assert "[인물 설정] · [이전 인물 상태] · [현재 비밀]: 위 자료의" in tail  # 장편은 검수 자료와 같은 칸을 다시 넣지 않는다
+    assert "\n[현재 비밀]" not in tail and "\n[이번 화 플롯]\n" not in tail
+    assert "[열린 복선]" in tail and "요구사항:" in tail
+
+    plain = MockLLM()
+    seen = []
+    plain.json = lambda system, prompt, schema, hint=None: seen.append(prompt) or MockLLM.json(plain, system, prompt, schema, hint)
+    pipeline.extract_state(plain, p, n)
+    assert seen[-1].startswith(f"{n}화 본문을 읽고")  # 다른 백엔드는 예전 모양이다
+
+
+def test_check_passes_material_boundary():
+    p = _project()
+    n = max(e.plot.number for e in p.episodes if e.text)
+    rec = Recorder()
+    pipeline.check_episode(rec, p, n, widen=False, motion=False)
+    first = next(x for x in rec.seen if x[0] == prompts.SYSTEM_CHECKER)
+    assert first[2][PREFIX_HINT] == len(prompts.check_material(p, n))

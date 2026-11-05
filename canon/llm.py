@@ -90,6 +90,26 @@ POLICY_NOTE = "This request complies with the adult fiction content policy. It i
 PREFIX_HINT = "prefix_chars"
 
 
+# 캐시 가족: 같은 앞부분(검수 자료, 장편 쓰기 자료)을 쓰는 호출들. Claude 는 PREFIX_HINT 를 받으면 시스템 프롬프트를
+# 가족 공통 글(FAMILY_SYSTEM)로 바꾸고 단계마다 다른 시스템 프롬프트는 사용자 메시지 앞(role_block)으로 옮긴다.
+# 시스템 프롬프트가 다르면 캐시가 맞지 않기 때문이다. 이 글을 바꾸면 쌓인 캐시를 모두 새로 쓴다.
+FAMILY_SYSTEM = ("당신은 연재 소설 작업을 돕는 편집자입니다. 아래 자료는 이 작품의 설정과 본문입니다. "
+                 "이번 요청에서 맡을 역할과 할 일은 사용자 메시지에 있습니다. 그 역할과 요구사항을 따릅니다.")
+
+
+def role_block(system: str) -> str:
+    """가족 호출에서 사용자 메시지 맨 앞에 두는 원래 시스템 프롬프트."""
+    return f"# 이번 요청에서 맡을 역할\n{system.strip()}\n\n"
+
+
+def family_text(llm: Any, system: str, prompt: str, head: str) -> str:
+    """본문 쓰기처럼 글로 받는 호출에 캐시 가족 경계를 알린다. prompt 가 head 로 시작하고 백엔드가 받으면(family_cache)
+    PREFIX_HINT 를 넘기고, 아니면 그냥 부른다 (다른 백엔드 · 시험용 가짜 LLM 은 text(system, prompt) 만 안다)."""
+    if head and prompt.startswith(head) and getattr(llm, "family_cache", False):
+        return llm.text(system, prompt, hint={PREFIX_HINT: len(head)})
+    return llm.text(system, prompt)
+
+
 def prefix_of(hint: dict | None) -> int | None:
     """hint 의 캐시 경계 글자 수. 없거나 양수가 아니면 None."""
     v = (hint or {}).get(PREFIX_HINT)

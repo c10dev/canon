@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from . import dynamics, elements, illust, metrics, naming, prompts, renumber, setupchat, storylines
 from .judge import Judge, Question
-from .llm import LLM, PREFIX_HINT, Interrupted, dump, out_cap
+from .llm import LLM, PREFIX_HINT, Interrupted, dump, family_text, out_cap
 from . import anchor, board, cancel, charlog, context, features, findings, foreshadows, knows, metatail, stage, statwin, usage
 from .schema import CueSheet, CueSheetDraft, Finding, MetaCut, FindingRecheck, FixBatch, FixOption, FixPatch, FixRecheckItem, FixRecheckReport, FixSet, RevArcSet, RevEpisodeDraft, RevLineSet
 from .schema import ParagraphAnatomy, ReaderCheck, SceneCard, SceneVariant, SceneVariants, StudioCandidate, StudioDraft
@@ -2313,6 +2313,12 @@ def board_basis(p: Project, n: int) -> str:
     return board.basis(p, n)
 
 
+def write_family(p: Project, n: int, prompt: str) -> dict:
+    """쓰기 가족 경계 hint: 요청이 장편 쓰기 앞부분(prompts.write_head)으로 시작하면 그 길이. 아니면 빈 dict (단편 · 스토리보드 없이 쓰기)."""
+    head = prompts.write_head(p, n)
+    return {PREFIX_HINT: len(head)} if head and prompt.startswith(head) else {}
+
+
 def make_storyboard(llm: LLM, p: Project, n: int, lead: list[str] | None = None) -> Storyboard:
     """n화 스토리보드를 만든다. 저장하지 않는다 (호출자가 set_storyboard 로 넣는다).
     lead 목록을 주면 보낸 요청 글을 채운다. 바로 이어 큐 시트를 만들 때 그 글을 앞에 둔다 (cue_lead, make_cue_sheet)."""
@@ -2325,7 +2331,8 @@ def make_storyboard(llm: LLM, p: Project, n: int, lead: list[str] | None = None)
         lead[:] = [prompt]
     d = _board_draft(llm, n, len(ep.plot.events), prompt,
                      {"episode": n, "events": len(ep.plot.events), "characters": ep.plot.characters,
-                      "stats": {s.character_id: [x.name for x in s.stats] for s in p.states if s.stats}})
+                      "stats": {s.character_id: [x.name for x in s.stats] for s in p.states if s.stats},
+                      **write_family(p, n, prompt)})
     b = Storyboard(**d.model_dump(), made_at=_now(), made_by="ai", basis=board_basis(p, n))
     b.checks = board.checks(p, n, b)
     return b
@@ -2439,9 +2446,10 @@ def _write(llm: LLM, p: Project, n: int, prompt: str, cut: list[MetaCut] | None 
     덜 확실한 것은 떼지 않고 검수 화면의 문체 경고(style_drift)로 알린다.
     cut 목록을 주면 뗀 문단을 앞 · 뒤 자리와 함께 채운다. 본문만 돌려주는 모양은 실험 · 비교 호출자가 그대로 쓰게 둔다."""
     system = prompts.writer_system(p)
+    head = prompts.write_head(p, n)  # 장편 쓰기 가족: 스토리보드 · 큐 시트와 같은 앞부분이면 그 캐시를 읽는다
     bad = {"thought": 0, "meta": 0}
     for _ in range(WRITE_TRIES):
-        text = llm.text(system, prompt)
+        text = family_text(llm, system, prompt, head)
         if metrics.hangul_ratio(text) < HANGUL_MIN:
             bad["thought"] += 1
             continue
@@ -2487,9 +2495,11 @@ def make_cue_sheet(llm: LLM, p: Project, n: int, lead: str = "") -> CueSheet:
         raise ValueError(f"{n}화 플롯이 아직 확정되지 않았어요 (confirm 먼저)")
     require_previous(p, n)
     with out_cap(CUE_OUT_TOKENS):
-        d = llm.json(prompts.SYSTEM_PLANNER, prompts.cue_sheet_prompt(p, n, lead=lead), CueSheetDraft,
+        prompt = prompts.cue_sheet_prompt(p, n, lead=lead)
+        d = llm.json(prompts.SYSTEM_PLANNER, prompt, CueSheetDraft,
                      hint={"episode": n, "events": len(ep.plot.events), "characters": ep.plot.characters,
-                           "scenes": len(ep.storyboard.scenes) if ep.storyboard else 0, "size": p.meta.words_per_episode})
+                           "scenes": len(ep.storyboard.scenes) if ep.storyboard else 0, "size": p.meta.words_per_episode,
+                           **write_family(p, n, prompt)})
     return CueSheet(**cue.clean(p, d).model_dump(), made_at=_now(), made_by="ai")
 
 
@@ -3195,7 +3205,9 @@ def check_episode(llm: LLM, p: Project, n: int, widen: bool | None = None, motio
     with ThreadPoolExecutor(max_workers=1) as pool:
         side = (pool.submit(contextvars.copy_context().run, motion_check, part("motion") if part else llm, p, n)
                 if (p.settings.check_motion if motion is None else motion) else None)
-        report = llm.json(prompts.SYSTEM_CHECKER, prompts.check_prompt(p, n), ConsistencyReport, hint={"episode": n})
+        material = prompts.check_material(p, n)  # 검수 가족(고침안 · 다시 검수 · 상태)과 같은 앞부분. 끝을 캐시 경계로 알린다
+        report = llm.json(prompts.SYSTEM_CHECKER, prompts.check_prompt(p, n, material=material), ConsistencyReport,
+                          hint={"episode": n, PREFIX_HINT: len(material)})
         report.episode = n
         if widen_on(p, widen):
             report, _ = widen_check(llm, p, n, report)
@@ -3912,8 +3924,13 @@ def extract_state(llm: LLM, p: Project, n: int) -> StateDelta:
     if carried is not None:
         return carried
     basis = text_basis(p.episode(n).text)  # 프롬프트에 넣은 본문의 지문. 부르는 사이 p 가 바뀌어도 이 본문 기준이다
-    raw = llm.json(prompts.SYSTEM_EDITOR, prompts.state_prompt(p, n), StateDeltaAI,
-                   hint={"episode": n, "stats": statwin.enabled(p)})
+    hint = {"episode": n, "stats": statwin.enabled(p)}
+    if getattr(llm, "family_cache", False):  # 캐시 가족을 받는 백엔드(Claude)는 검수 자료로 시작해 검수가 쓴 캐시를 읽는다
+        material = prompts.check_material(p, n)
+        prompt, hint[PREFIX_HINT] = prompts.state_prompt(p, n, head=material), len(material)
+    else:
+        prompt = prompts.state_prompt(p, n)
+    raw = llm.json(prompts.SYSTEM_EDITOR, prompt, StateDeltaAI, hint=hint)
     delta = to_delta(raw, n)  # 관계 수치 칸은 응답 형식에 없고, 있어도 버린다
     clean_delta(p, delta)
     delta.basis = basis
