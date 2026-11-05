@@ -557,6 +557,9 @@ Object.assign(actions, {
     n = Number(n);
     if (!(await askConfirm(`${n}화 본문에서 저장하지 않은 고침을 버리고 저장된 본문으로 돌아갈까요? 되돌릴 수 없어요.`, { ok: '고친 것 버리기', danger: true }))) return;
     delete S.textDraft[n];
+    // 고친 글에서 고른 부분(대화 패널의 고칠 곳 · 고른 부분 도구)은 저장된 본문에 없을 수 있다. 그 화의 것은 거둔다
+    if (S.sel && Number(S.sel.n) === n) S.sel = null;
+    if (S.selTool && Number(S.selTool.n) === n && typeof hideTool === 'function') hideTool();
     const k = DRAFT_PREFIX(S.name) + n;  // 남기면 다시 열 때 '저장하지 않은 초안'으로 뜬다 (backToStart 와 같다)
     draftStore.del(k);
     draftKept.delete(k);

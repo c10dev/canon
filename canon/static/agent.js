@@ -444,6 +444,8 @@ async function agentEnsureSession() {
 
 async function agentStartTurn(text, mode = '') {
   if (S.agentBusy || agentRunningJob()) return toast('지금 턴이 끝난 뒤 보내세요. 멈추려면 ■ 를 누르세요', true);
+  // 턴은 AI가 작품을 읽고 고친다. 저장하지 않은 변경은 묻고 나서 저장한다 (agentAct · startJob 과 같다). 취소하면 쓴 글은 칸에 남는다
+  if (S.dirty && !(await askConfirm('저장하지 않은 변경이 있어요. 저장하고 이어갈까요?', { ok: '저장하고 이어가기' }))) return;
   S.agentBusy = true;
   const keep = S.agentDraft;
   S.agentDraft = '';

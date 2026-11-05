@@ -1919,8 +1919,18 @@ class SessionIn(BaseModel):
 def agent_session_new(name: str, body: SessionIn) -> AgentSession:
     _need(name)
     out: list[AgentSession] = []
-    _edit(name, lambda p: out.append(agent.new_session(p, body.topic, body.target, body.title)))
+    _session_edit(name, lambda p: out.append(agent.new_session(p, body.topic, body.target, body.title)))
     return out[0]
+
+
+def _session_edit(name: str, fn) -> None:
+    """대화 세션 칸(만들기 · 이름 · 대상 · 권한 모드 · 보관)만 바꾼다. 화면 저장으로 치지 않는다(store.writer 를 비움):
+    저장하지 않은 변경이 있는 탭이 세션만 고쳐도 다른 탭이 먼저 저장한 것을 덮지 않고 충돌(409)을 그대로 받게"""
+    tok = store.writer.set("")
+    try:
+        _edit(name, fn)
+    finally:
+        store.writer.reset(tok)
 
 
 class SessionPatch(BaseModel):
@@ -1934,7 +1944,7 @@ class SessionPatch(BaseModel):
 def agent_session_update(name: str, sid: str, body: SessionPatch) -> AgentSession:
     _need(name)
     out: list[AgentSession] = []
-    _edit(name, lambda p: out.append(agent.update_session(p, sid, **body.model_dump())))
+    _session_edit(name, lambda p: out.append(agent.update_session(p, sid, **body.model_dump())))
     return out[0]
 
 
