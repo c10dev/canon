@@ -5,7 +5,7 @@
    지적과 회차는 서버 findings.merge 가 만든다 (Episode.findings · rounds). 상태 · 심각도 바꾸기는 PUT …/findings/{id},
    고침안 POST …/findings/{id}/fixes · …/fixes/{k}/apply, 되돌리기 POST …/fix-groups/{묶음}/undo, 다시 검수 POST …/findings/{id}/recheck,
    한꺼번에: 열린 지적 모두 고침안 받기(작업 'fixes') → 고침안 한꺼번에 검토(지적마다 고르고 고른 것만 POST …/fixes/apply),
-   문체 지표는 GET …/style. app.js 의 S, P, actions, api, render, run, home.js 의 checkState, write.js 의 epNav · widenToggle · nextStepBtn,
+   문체 지표는 GET …/style. app.js 의 S, P, actions, api, render, run, home.js 의 checkState, write.js 의 epNav · nextStepBtn,
    marks.js 의 draftBox · readHtml, passage.js 의 textNow · editableEp · passageNotes · editTime · wordDiff · flushText · focusText · showTool,
    opening.js 의 openingChecks 를 그대로 쓴다. */
 'use strict';
@@ -54,17 +54,26 @@ function stageLink(n, f) {
   return `<div class="row"><a class="btn small ghost" href="${base()}/stage/${n}/${ev}" data-action="stgGo" data-arg="${n}:${ev}:${f.stage_beat || 0}">장면 연출에서 보기 · 사건 ${ev}${f.stage_beat ? ` · ${f.stage_beat}박자` : ''}</a></div>`;
 }
 
-/** 검수 때 함께 뽑기 켜기 · 끄기 (Settings.stage_extract, 기본 켬, 계획 장면이 있는 사건만). 작품 설정이라 자동 집필 검수도 따른다. */
-function stageToggle() {
-  const on = P().settings.stage_extract !== false;
-  return `<button type="button" class="btn${on ? ' on' : ''}" aria-pressed="${on}" data-action="toggleStageExtract" title="검수할 때 계획 장면이 있는 사건마다 본문에서 장면 연출(자리 · 자세 · 손 · 접촉)을 뽑아 규칙으로 판정해요. 본문이 바뀐 사건만 뽑고, 그런 사건마다 검수 호출이 1번 늘어요. 다른 사건은 장면 연출의 '본문에서 뽑기'로 뽑아요">연출 함께 뽑기 ${on ? '켜짐' : '꺼짐'}</button>`;
+/** 검수 머리의 '검수 옵션' 메뉴: 넓혀 찾기(장편) · 동선 따로 보기 · 연출 함께 뽑기를 체크 줄로 모은다.
+    머리 줄에는 지금 할 일(검수 · 상태 승인)만 남기고, 켜고 끄는 설명은 title 대신 줄 아래 글로 보인다.
+    체크는 같은 이름의 토글 동작을 부른다(data-check-opt). 고른 뒤에도 메뉴는 열려 있다 (디자인 시스템 Menu) */
+function checkOptsMenu() {
+  const s = P().settings;
+  const opts = [
+    serial() && ['toggleWiden', !!s.check_widen, '넓혀 찾기', '검수 뒤 이번 화 진술마다 옛 화를 더 찾아, 처음 검수에 넣지 못한 근거가 나온 진술만 다시 물어요. 검수 호출이 2번 늘어요'],
+    ['toggleCheckMotion', s.check_motion !== false, '동선 따로 보기', '이번 화 본문만 넣고 인물의 자리 · 향한 쪽 · 손 · 물건이 어긋난 곳을 한 번 더 찾아요. 본 검수와 동시에 불러 기다리는 시간은 그대로고, 검수 호출이 1번 늘어요'],
+    ['toggleStageExtract', s.stage_extract !== false, '연출 함께 뽑기', '계획 장면이 있는 사건마다 본문에서 장면 연출을 뽑아 규칙으로 판정해요. 본문이 바뀐 사건만 뽑고, 그런 사건마다 검수 호출이 1번 늘어요'],
+  ].filter(Boolean);
+  const on = opts.filter((o) => o[1]).length;
+  const body = () => `<div class="pop-sec"><div class="pop-legend">검수할 때 함께 할 것 · 작품 설정이라 자동 집필도 따라요</div>
+    ${opts.map(([act, v, name, desc]) => `<label class="pop-check"><input type="checkbox" data-check-opt="${act}"${v ? ' checked' : ''}><span>${name}<span class="small">${desc}</span></span></label>`).join('')}</div>`;
+  return menuBtn('check-opts', `검수 옵션 ${on}/${opts.length} <span aria-hidden="true">▾</span>`, body, { title: '검수할 때 함께 할 것을 켜고 꺼요' });
 }
 
-/** 동선 따로 보기 켜기 · 끄기 (Settings.check_motion, 기본 켬). 작품 설정이라 자동 집필 검수도 따른다. */
-function motionToggle() {
-  const on = P().settings.check_motion !== false;
-  return `<button type="button" class="btn${on ? ' on' : ''}" aria-pressed="${on}" data-action="toggleCheckMotion" title="검수할 때 이번 화 본문만 넣고 인물의 자리 · 향한 쪽 · 손 · 물건이 어긋난 곳을 한 번 더 찾아요. 본 검수와 동시에 불러서 기다리는 시간은 그대로고, 검수 호출이 1번 늘어요">동선 따로 보기 ${on ? '켜짐' : '꺼짐'}</button>`;
-}
+document.addEventListener('change', (e) => {
+  const act = e.target && e.target.dataset && e.target.dataset.checkOpt;
+  if (act && actions[act]) actions[act]();
+});
 
 function findingFlag(e, f, text) {
   const rounds = e.rounds || [];
@@ -496,7 +505,7 @@ function viewCheck(n) {
   const toReview = e.status === 'written'
     ? `<a class="btn${checkPrimary ? '' : ' primary'}" href="${base()}/review/${n}">상태 승인으로${st.open ? ` · 열린 지적 ${st.open}` : ''}</a>`
     : e.status === 'finalized' && !checkPrimary ? nextStepBtn() : '';  // 반영 끝난 화도 검수가 지금 할 일이면 다음 할 일 버튼은 두지 않는다
-  const lead = `${serial() ? widenToggle(false) : ''}${motionToggle()}${stageToggle()}${S.mode === 'brief' ? `<a class="btn" href="${base()}/brief/${n}" data-action="openCheckBrief" data-arg="${n}">검수 지시서</a>` : ''}`;
+  const lead = `${checkOptsMenu()}${S.mode === 'brief' ? `<a class="btn" href="${base()}/brief/${n}" data-action="openCheckBrief" data-arg="${n}">검수 지시서</a>` : ''}`;
   const right = !e.text ? '' : !last ? lead + toReview : checkPrimary ? lead + toReview + checkBtn : lead + checkBtn + toReview;
   const head = `<header class="page-head"><div class="row" style="gap:12px">${epNav('check', n)}<div class="lead" style="gap:2px"><div class="eyebrow">${flowEyebrow(n)}</div><h1 style="font-size:1.5rem">${n}화 ${esc(e.plot.title)}</h1></div><span class="chip ${e.status}">${STATUS[e.status]}</span></div><div class="row">${right}</div></header>
     ${flowBar(n, 'check')}${autoLockNote()}`;

@@ -211,11 +211,17 @@ async function api(method, path, body, meta) {
 
 /** 알림 말풍선. 알림 버튼 바로 아래(#toast, hub.js placeHub)에 뜨고 알림 창의 '최근 알림'에 남는다.
     opt.actions: 오류 말풍선에 붙일 할 일 버튼 [{ label, run }] (다시 시도 · 설정). 누르면 말풍선을 닫고 run 을 부른다. */
+/** 보통 알림이 남는 시간(ms). 글이 길수록 오래(글자당 60ms, 최대 10초), 동작 버튼이 있으면 10초 */
+function toastLife(msg, acts) {
+  return acts ? 10000 : Math.min(10000, 3500 + String(msg).length * 60);
+}
+
 function toast(msg, err = false, opt = {}) {
   const el = document.createElement('div');
-  el.className = 't' + (err ? ' err' : '');
-  if (err) {
-    // 오류는 읽을 때까지 남긴다. 닫기 버튼으로 지운다
+  const acts = (opt.actions || []).length;
+  el.className = 't' + (err ? ' err' : acts ? ' act' : '');
+  if (err || acts) {
+    // 오류는 읽을 때까지 남긴다. 닫기 버튼으로 지운다. 동작이 붙은 보통 알림('가서 보기')도 같은 모양이다
     const t = document.createElement('span');
     t.textContent = msg;
     el.append(t);
@@ -242,7 +248,17 @@ function toast(msg, err = false, opt = {}) {
   const box = $('#toast');
   while (box.children.length > 3 && box.querySelector('.t:not(.err)')) box.querySelector('.t:not(.err)').remove();
   while (box.querySelectorAll('.t.err').length > 5) box.querySelector('.t.err').remove();
-  if (!err) setTimeout(() => el.remove(), 3500);
+  if (!err) {
+    // 마우스를 올리거나 포커스가 있는 동안은 닫지 않는다 (되돌리기 말풍선 rvUndoShow 와 같다)
+    const life = toastLife(msg, acts);
+    let timer = setTimeout(() => el.remove(), life);
+    const hold = () => clearTimeout(timer);
+    const arm = () => { clearTimeout(timer); timer = setTimeout(() => el.remove(), life); };
+    el.addEventListener('mouseenter', hold);
+    el.addEventListener('focusin', hold);
+    el.addEventListener('mouseleave', () => { if (!el.contains(document.activeElement)) arm(); });
+    el.addEventListener('focusout', (e) => { if (!el.contains(e.relatedTarget) && !el.matches(':hover')) arm(); });
+  }
   if (typeof hubNote === 'function') { hubNote(msg, err); renderHub(); }
 }
 
@@ -333,9 +349,9 @@ const autoOn = () => !!(S.auto && S.auto.active);
 const autoEp = () => (autoOn() && S.auto.run ? S.auto.run.ep : null);
 
 /** AI 제안 카드의 버튼 줄. 모든 제안 카드가 같은 순서([버리기] [반영], 오른쪽)와 같은 말을 쓴다. 각 버튼은 [action, arg]. */
-function proposalActions(drop, apply, label = '고른 것 적용') {
-  const b = ([action, arg], cls, text) => `<button type="button" class="btn small${cls}" data-action="${action}"${arg != null ? ` data-arg="${esc(String(arg))}"` : ''}>${text}</button>`;
-  return `<div class="row proposal-actions">${b(drop, '', '버리기')}${b(apply, ' primary', label)}</div>`;
+function proposalActions(drop, apply, label = '고른 것 적용', disabled = false) {
+  const b = ([action, arg], cls, text, off = false) => `<button type="button" class="btn small${cls}" data-action="${action}"${arg != null ? ` data-arg="${esc(String(arg))}"` : ''}${off ? ' disabled' : ''}>${text}</button>`;
+  return `<div class="row proposal-actions">${b(drop, '', '버리기')}${b(apply, ' primary', label, disabled)}</div>`;
 }
 
 /** AI 제안을 버리기 전에 묻는다. 버린 제안은 되살릴 수 없고 다시 받으려면 AI를 다시 불러야 한다. Promise<boolean> */
@@ -601,7 +617,11 @@ async function finishJob(j) {
     if (PENDING_KINDS.includes(j.kind) && j.result) S.pending.results[key] = { key, id: j.id, kind: j.kind, ep: j.ep };
   }
   const msg = JOB_DONE_MSG[j.kind];
-  toast(typeof msg === 'function' ? msg(j) : msg);
+  // 결과를 보는 화면이 따로 있고 지금 그 화면이 아니면 '가서 보기'를 붙인다 (알림 창의 같은 버튼과 같은 곳)
+  const link = JOB_LINK[j.kind] ? JOB_LINK[j.kind](j) : '';
+  const onIt = here && (JOB_PAGES[j.kind] || []).includes(S.route[2] || 'home') && (j.ep == null || Number(S.route[3]) === j.ep || !S.route[3]);
+  const go = link && !onIt && location.hash !== link ? [{ label: '가서 보기', run: () => { location.hash = link; } }] : [];
+  toast(typeof msg === 'function' ? msg(j) : msg, false, { actions: go });
   setTimeout(() => {  // 끝난 작업은 잠시 뒤 목록에서 내린다 (실패는 직접 닫을 때까지 남긴다)
     S.jobsSeen.add(j.id);
     S.jobs = S.jobs.filter((x) => x.id !== j.id || x.status === 'running');

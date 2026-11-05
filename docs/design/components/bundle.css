@@ -146,9 +146,9 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 #toast[hidden] { display: none; }
 #toast .t { padding: 12px 16px; border-radius: 10px; background: var(--inverse-bg); color: var(--inverse-ink); font-size: 0.8125rem; line-height: 1.5; box-shadow: 0 6px 24px rgba(0,0,0,0.2); }
 #toast .t.err { background: var(--red); }
-#toast .t.err { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: flex-start; white-space: pre-line; }
+#toast .t.err, #toast .t.act { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: flex-start; white-space: pre-line; }
 #toast .t .t-act { min-height: 36px; border-color: currentColor; background: transparent; color: inherit; font-weight: 700; }
-#toast .t.err span { flex: 1; }
+#toast .t.err span, #toast .t.act span { flex: 1; }
 #toast .t .x { border: none; background: transparent; color: inherit; cursor: pointer; font-size: 0.875rem; min-width: 32px; min-height: 32px; margin: -6px -8px -6px 0; }
 .savebar, #toast .t { border: 1px solid transparent; }
 

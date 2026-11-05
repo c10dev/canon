@@ -72,7 +72,7 @@ function scHeldCard(c) {
   const rows = held.map(([x, i]) => `<div class="change"><div class="body"><div style="font-size:0.875rem;font-weight:700">${x.episode}화 · ${scLabel(x.field)}</div>
       ${scBeforeAfter(c[x.field], `<textarea id="sch-${i}" rows="2" data-autogrow aria-label="${scLabel(x.field)} 바꾼 뒤">${esc(x.value)}</textarea>`)}
       ${x.reason ? `<div class="small">${esc(x.reason)}</div>` : ''}${x.quote ? `<div class="small">“${esc(x.quote)}”</div>` : ''}
-      <div class="row"><button type="button" class="btn small primary" data-action="scTake" data-arg="${i}">적용</button><button type="button" class="btn small" data-action="scDrop" data-arg="${i}">버리기</button></div></div></div>`).join('');
+      ${proposalActions(['scDrop', i], ['scTake', i], '적용')}</div></div>`).join('');
   return `<section class="card"><div class="between"><h2>남겨 둔 설정 바꾸기</h2><span class="small">${held.length}개</span></div>
     <div class="small">자동 집필은 인물 설정을 바꾸지 않아요. AI가 본문에서 찾은 설정 변화를 여기 남겨 뒀어요. 적용하면 다음 화부터 바뀐 설정으로 써요.</div>${rows}</section>`;
 }
