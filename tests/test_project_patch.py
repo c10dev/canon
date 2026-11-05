@@ -54,3 +54,91 @@ def test_patch_body_sends_changed_fields_only():
     assert got["fields"]["episodes"][0] == {"$same": 1} and got["fields"]["episodes"][1]["plot"]["title"] == "고침"
     unchanged = run_js(["app.js"], "patchBody(data, baseOf(structuredClone(data)))", proj)
     assert unchanged["fields"] == {}
+
+
+def _hold_first_save(monkeypatch):
+    """첫 작품 저장이 검사 도중(validate_storylines)에 멈추게 한다. (들어옴, 풀기) 신호를 돌려준다."""
+    import threading
+
+    from canon import web
+    entered, release = threading.Event(), threading.Event()
+    real = web.pipeline.validate_storylines
+
+    def slow(p):
+        if not entered.is_set():
+            entered.set()
+            assert release.wait(5)
+        return real(p)
+    monkeypatch.setattr(web.pipeline, "validate_storylines", slow)
+    return entered, release
+
+
+def _put_in_thread(name, p, who, out):
+    import threading
+
+    from fastapi import HTTPException, Response
+
+    from canon import store, web
+
+    def run():
+        store.writer.set(who)
+        try:
+            web.put_project(name, p, Response())
+            out[who] = 200
+        except HTTPException as e:
+            out[who] = e.status_code
+    t = threading.Thread(target=run)
+    t.start()
+    return t
+
+
+def test_racing_saves_from_two_screens_conflict(client, monkeypatch):  # noqa: F811
+    """두 화면이 같은 판을 거의 동시에 저장하면 하나만 저장하고 다른 하나는 409. 충돌 검사를 저장과 같은 잠금 안에서 한다."""
+    import time
+
+    from canon import store
+    _new(client)
+    a, b = store.load("pt"), store.load("pt")
+    a.meta.logline, b.meta.logline = "A 로그라인", "B 로그라인"
+    entered, release = _hold_first_save(monkeypatch)
+    out: dict[str, int] = {}
+    ta = _put_in_thread("pt", a, "a", out)
+    assert entered.wait(5)
+    tb = _put_in_thread("pt", b, "b", out)
+    time.sleep(0.2)  # b 가 잠금 앞에서 기다리게 한다 (고치기 전에는 여기서 a 보다 먼저 저장했다)
+    release.set()
+    ta.join(5)
+    tb.join(5)
+    assert sorted(out.values()) == [200, 409], out
+    assert out["a"] == 200 and store.load("pt").meta.logline == "A 로그라인"
+
+
+def test_save_keeps_log_written_during_save(client, monkeypatch):  # noqa: F811
+    """작품 저장이 도는 동안 작업이 잠금을 잡고 더한 설정 변경 기록은 저장 뒤에도 남는다."""
+    import threading
+    import time
+
+    from canon import jobs, store
+    from canon.schema import SettingRecord
+    _new(client)
+    a = store.load("pt")
+    a.meta.logline = "A 로그라인"
+    entered, release = _hold_first_save(monkeypatch)
+    out: dict[str, int] = {}
+    ta = _put_in_thread("pt", a, "a", out)
+    assert entered.wait(5)
+
+    def job():
+        with jobs.project_lock("pt"):
+            p = store.load("pt")
+            p.setting_log.append(SettingRecord(character_id="c1", field="말투", before="반말", after="존댓말", episode=1))
+            store.save("pt", p)
+    tj = threading.Thread(target=job)
+    tj.start()
+    time.sleep(0.2)
+    release.set()
+    ta.join(5)
+    tj.join(5)
+    q = store.load("pt")
+    assert out["a"] == 200 and q.meta.logline == "A 로그라인"
+    assert [r.after for r in q.setting_log] == ["존댓말"]

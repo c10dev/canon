@@ -2,8 +2,8 @@
 
 웹 설정 화면에서 저장하면 ~/.canon/config.json 에 들어간다 (CANON_CONFIG 로 경로 변경).
 환경 변수가 있으면 파일보다 우선한다: CANON_LLM, CANON_MODEL, GEMINI_API_KEY(또는 GOOGLE_API_KEY),
-CANON_LOCAL_URL, CANON_LOCAL_MODEL, CANON_LOCAL_KEY, CANON_LLM_PLAN / _WRITE / _CHECK / _STATE / _NAME / _REVISE / _CHAT,
-CANON_MODEL_PLAN / _WRITE / _CHECK / _STATE / _NAME / _REVISE (단계별 모델), CANON_EFFORT_PLAN / _WRITE / _CHECK / ...
+CANON_LOCAL_URL, CANON_LOCAL_MODEL, CANON_LOCAL_KEY, CANON_LLM_<단계> (단계 이름은 STAGES, 예: CANON_LLM_WRITE),
+CANON_MODEL_<단계> (단계별 모델, 예: CANON_MODEL_STATE), CANON_EFFORT_<단계> (예: CANON_EFFORT_CHECK)
 (단계별 Claude 추론 강도), CANON_CLAUDE_MODEL, CANON_CLAUDE_BIN, CANON_CLAUDE_CONFIG_DIR,
 ANTHROPIC_API_KEY (Claude 백엔드, claude.py), CANON_GEMINI_AUTH(key | vertex, 또는 GOOGLE_GENAI_USE_VERTEXAI=true),
 CANON_VERTEX_CREDENTIALS(또는 GOOGLE_APPLICATION_CREDENTIALS), GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION (Vertex AI). prices 는 AI 요금 가격표에서 고친 줄 (usage.py).
@@ -17,6 +17,8 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+
+from . import store
 
 DEFAULT_MODEL = "gemini-4-argon"
 DEFAULT_VERTEX_LOCATION = "global"  # 새 Gemini 모델은 global 엔드포인트에 먼저 나온다
@@ -70,8 +72,8 @@ def _read() -> dict:
 def _write(data: dict) -> None:
     path = config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    path.chmod(0o600)  # 키가 들어 있으므로 본인만 읽게 한다
+    # 키가 들어 있으므로 처음부터 본인만 읽는 tmp 파일에 써서 바꿔 넣는다. 중간에 멈춰도 옛 설정이 그대로 남는다
+    store.write_atomic(path, json.dumps(data, ensure_ascii=False, indent=2), mode=0o600, fsync=True)
 
 
 def _pick(env_names: tuple[str, ...], file_value: str | None, default: str = "") -> tuple[str, str]:

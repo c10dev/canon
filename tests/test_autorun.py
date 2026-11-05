@@ -224,6 +224,27 @@ def test_estimate(demo, monkeypatch):
     assert autorun.estimate(p, 6, True, Policy())["batch_rounds"] == 6  # 본문은 로컬이라 배치 없음
 
 
+def test_estimate_divides_measured_output_by_calls(demo, monkeypatch):
+    """로그의 tokens_out 은 단계 안 모든 호출의 합이다. 추정은 호출 하나의 평균으로 나눠 호출마다 더한다."""
+    p = store.load(demo)
+    p.settings.check_motion = False
+    p.settings.stage_extract = False
+    monkeypatch.setenv("CANON_LLM", "gemini")
+    log = [autorun.LogEntry(at="t", step="check", message="m", tokens_out=4000, calls=4, seconds=10),
+           autorun.LogEntry(at="t", step="check", message="m", tokens_out=4000, calls=4, seconds=10)]
+    autorun._write(demo, autorun.Run(target=6, log=log))
+    assert autorun._measured(demo)["check"]["out"] == 1000
+    est = autorun.estimate(p, 6, False, Policy(), name=demo)
+    assert est["calls"]["check"] == 6
+    base = autorun.estimate(p, 6, False, Policy(check=False), name=demo)
+    assert est["tokens_out"] - base["tokens_out"] == 6 * 1000  # 호출 수만큼 부풀지 않는다
+    old = json.loads(autorun._path(demo).read_text(encoding="utf-8"))
+    for e in old["log"]:
+        del e["calls"]  # 호출 수가 없는 옛 기록은 호출 하나로 읽는다
+    autorun._path(demo).write_text(json.dumps(old), encoding="utf-8")
+    assert autorun._measured(demo)["check"]["out"] == 4000
+
+
 def test_serial_estimate_sizes_old_passages_without_search(demo, monkeypatch):
     """장편 추정은 검수의 옛 단락을 찾지 않고(context.recall) 예산 크기로 센다. 찾아서 잰 길이와 거의 같다."""
     from canon import context, prompts
@@ -547,6 +568,122 @@ def test_save_keeps_plot_of_written_episode(demo):
     p.characters = [x for x in p.characters if x.id != gone]
     p.episode(1).plot.characters.remove(gone)
     assert pipeline.keep_locked_plots(old, p) == [] and gone not in p.episode(1).plot.characters
+
+
+@contextlib.contextmanager
+def other_process_runs(name):
+    """다른 프로세스(명령줄 canon auto)가 이 작품의 실행 주인 잠금을 쥐고 있다."""
+    import subprocess
+    import sys
+    path = store.project_dir(name) / autorun.OWNER_FILE
+    code = ("import fcntl, os, sys, time\n"
+            "fd = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT, 0o644)\n"
+            "fcntl.flock(fd, fcntl.LOCK_EX)\nprint('held', flush=True)\ntime.sleep(60)\n")
+    proc = subprocess.Popen([sys.executable, "-c", code, str(path)], stdout=subprocess.PIPE, text=True)
+    try:
+        assert proc.stdout.readline().strip() == "held"
+        yield proc
+    finally:
+        proc.kill()
+        proc.wait()
+
+
+def test_other_process_run_blocks_start_resume_and_restart(demo, monkeypatch):
+    """명령줄 실행이 도는 동안 웹 서버는 같은 작품을 시작 · 이어 가기 · 재시작 이어 가기 하지 않고, 화면 저장 보호를 켠다."""
+    monkeypatch.setenv("CANON_MOCK_BATCH_POLLS", "100000")
+    autorun.start(demo, 1, True, Policy())
+    wait_until(lambda: autorun.get_run(demo).batches)
+    autorun.request(demo, "pause")
+    wait_until(idle(demo))
+    run = autorun.load_run(demo)
+    run.status = "running"  # 다른 프로세스가 이어 가는 중
+    autorun._write(demo, run)
+    batches = dict(run.batches)
+    monkeypatch.setattr(autorun, "_controls", {})
+    with other_process_runs(demo) as proc:
+        assert autorun.active(demo) and autorun.elsewhere(demo)
+        with pytest.raises(ValueError, match="다른 곳"):
+            autorun.start(demo, 1, False, Policy())
+        with pytest.raises(ValueError, match="다른 곳"):
+            autorun.resume(demo)
+        with pytest.raises(ValueError, match="다른 곳"):
+            autorun.set_batch(demo, False)
+        assert autorun.resume_all() == []  # 서버가 다시 시작해도 두 번째 러너를 띄우지 않는다
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            main(["auto", demo, "--stop"])
+        assert "중지를 청했어요" in out.getvalue()
+        assert autorun.request(demo, "stop").status == "running"  # 상태는 주인이 쓴다
+        run = autorun.load_run(demo)
+        assert run.batches == batches and run.restarts == 0  # 주인이 기다리는 배치를 취소하지 않는다
+        assert (store.project_dir(demo) / autorun.WANT_FILE).read_text() == "stop"
+        autorun.request(demo, "pause")
+        assert (store.project_dir(demo) / autorun.WANT_FILE).read_text() == "stop"  # 중지를 일시정지로 낮추지 않는다
+        proc.kill()
+        proc.wait()
+        assert not autorun.active(demo)  # 주인 프로세스가 죽으면 OS 가 잠금을 푼다
+    for b in mock.BATCHES.values():
+        b["polls"] = 0
+    monkeypatch.setenv("CANON_MOCK_BATCH_POLLS", "0")
+    assert autorun.resume_all() == [demo]
+    wait_until(idle(demo))
+    assert not (store.project_dir(demo) / autorun.WANT_FILE).exists()  # 주인이 된 실행은 지난 요청을 버린다
+
+
+def test_runner_reads_request_left_by_other_process(demo, monkeypatch):
+    """다른 프로세스가 autorun.want 에 남긴 일시정지를 러너가 배치를 기다리다 읽고 멈춘다. 끝나면 잠금을 푼다."""
+    monkeypatch.setenv("CANON_MOCK_BATCH_POLLS", "100000")
+    autorun.start(demo, 1, True, Policy())
+    wait_until(lambda: autorun.get_run(demo).batches)
+    mine = autorun._controls
+    monkeypatch.setattr(autorun, "_controls", {})  # 다른 프로세스에서 본다
+    assert autorun.elsewhere(demo) and autorun.wanted(demo) == ""
+    autorun.request(demo, "pause")
+    assert autorun.wanted(demo) == "pause"  # 다른 프로세스의 화면도 '멈추는 중'을 보인다
+    monkeypatch.setattr(autorun, "_controls", mine)
+    wait_until(idle(demo))
+    run = autorun.load_run(demo)
+    assert run.status == "paused" and run.batches  # 일시정지는 배치를 남긴다
+    assert not (store.project_dir(demo) / autorun.WANT_FILE).exists()
+    assert not autorun.elsewhere(demo) and mine[demo].owner is None
+
+
+def test_request_and_record_use_separate_temp_files(demo, monkeypatch):
+    """다른 프로세스의 요청(autorun.want)과 주인의 기록(autorun.json)은 서로 다른 임시 파일에 쓴다."""
+    d = store.project_dir(demo)
+    seen = []
+    real = os.replace
+
+    def spy(src, dst):
+        if str(src).endswith(".tmp"):
+            seen.append(os.path.basename(src))
+        return real(src, dst)
+
+    monkeypatch.setattr(os, "replace", spy)
+    autorun._ask(demo, "pause")
+    autorun._write(demo, autorun.Run(target=1))
+    assert len(seen) == 2 and seen[0] != seen[1]
+    assert (d / autorun.WANT_FILE).read_text() == "pause"
+    assert autorun.load_run(demo) is not None
+    assert not list(d.glob("*.tmp"))
+
+
+def test_ended_run_reads_record_left_by_other_process(demo, monkeypatch):
+    """이 프로세스의 실행이 멈춘 뒤 다른 프로세스가 이어 가 남긴 기록을 옛 메모리 값으로 덮지 않는다."""
+    monkeypatch.setenv("CANON_MOCK_BATCH_POLLS", "100000")
+    autorun.start(demo, 1, True, Policy())
+    wait_until(lambda: autorun.get_run(demo).batches)
+    autorun.request(demo, "pause")
+    wait_until(idle(demo))
+    assert demo in autorun._controls  # 멈춘 실행의 Control 은 남아 있다
+    run = autorun.load_run(demo)
+    run.restarts, run.batches = 7, {**run.batches, "1:check": "other-batch"}  # 다른 프로세스가 이어 가다 멈췄다
+    autorun._write(demo, run)
+    assert autorun.get_run(demo).restarts == 7
+    autorun.set_policy(demo, Policy(review_every=2))
+    autorun.set_batch(demo, True)
+    disk = autorun.load_run(demo)
+    assert disk.restarts == 7 and disk.batches["1:check"] == "other-batch" and disk.policy.review_every == 2
 
 
 def test_wanted_shows_pending_pause(monkeypatch):

@@ -148,7 +148,13 @@ def make_judge(provider: str, model: str | None = None, url: str | None = None, 
     raise ValueError(f"알 수 없는 판단기: {provider} (local | mock)")
 
 
+def env_choice() -> tuple[str, str, str]:
+    """환경 변수로 고른 판단기: (CANON_JUDGE, CANON_JUDGE_MODEL, CANON_JUDGE_URL). 없는 값은 빈 글자."""
+    return (os.environ.get("CANON_JUDGE", "").strip(), os.environ.get("CANON_JUDGE_MODEL", "").strip(),
+            os.environ.get("CANON_JUDGE_URL", "").strip())
+
+
 def get_judge() -> Judge:
     """CANON_JUDGE(local | mock, 기본 local), CANON_JUDGE_URL / CANON_JUDGE_MODEL (비면 로컬 서버 설정)."""
-    return make_judge(os.environ.get("CANON_JUDGE", "local"), os.environ.get("CANON_JUDGE_MODEL"),
-                      os.environ.get("CANON_JUDGE_URL"))
+    provider, model, url = env_choice()
+    return make_judge(provider or "local", model or None, url or None)

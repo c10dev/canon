@@ -7,24 +7,28 @@ AI 가 만든 제안(설정, 문체, 구조, 상태 변경안)은 바로 저장�
 from __future__ import annotations
 
 import contextvars
+import functools
 import hashlib
+import ipaddress
 import json
 import logging
 import os
 import random
 import re
+import socket
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Callable, Literal, NoReturn
-from urllib.parse import quote, unquote
+from typing import Any, Callable, Literal, NamedTuple, NoReturn
+from urllib.parse import quote, unquote, urlsplit
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.routing import APIRoute, request_response
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from . import address, agent, archetypes, autorun, board, cancel, cast, charlog, dynamics, elements, genres, illust, jobs, knows, library, metrics, naming, pipeline, prompts, publish, refs, research, settings, store, usage
@@ -94,12 +98,84 @@ async def _count_active(request: Request, call_next):
         m = _PROJECT_PATH.match(request.url.path)
         got = store.saved.get()
         if m and response.status_code == 200 and unquote(m[1]) in got:
-            response.headers["X-Project-ETag"] = got[unquote(m[1])]
+            name = unquote(m[1])
+            response.headers["X-Project-ETag"] = got[name]
+            # 응답이 작품 전체면 화면이 이 판으로 보관하고, 한 화 작업이 끝날 때 화만 받는다 (app.js touchedEpisodes)
+            rest = await run_in_threadpool(_saved_rest, name, got[name])
+            if rest:
+                response.headers["X-Project-Rest"] = rest
         return response
     finally:
         store.saved.reset(saved_tok)
         store.writer.reset(tok)
         _active -= 1
+
+
+_UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+
+def _split_host(value: str) -> str:
+    """Host 헤더 값(이름[:포트], [IPv6][:포트])에서 포트를 떼고 소문자 이름만 돌려준다."""
+    value = value.strip().lower()
+    if value.startswith("["):
+        return value[1:value.find("]")] if "]" in value else value[1:]
+    if value.count(":") == 1:
+        value = value.split(":", 1)[0]
+    return value.rstrip(".")
+
+
+@functools.lru_cache(maxsize=1)
+def _machine_names() -> frozenset[str]:
+    try:
+        name = socket.gethostname().lower().rstrip(".")
+    except OSError:
+        return frozenset()
+    short = name.split(".", 1)[0]
+    return frozenset(n for n in (name, short, f"{short}.local") if n)
+
+
+def _host_allowed(host: str) -> bool:
+    """DNS 리바인딩은 공격자의 도메인 이름으로 들어온다. 그래서 IP 주소 · localhost · Tailscale(*.ts.net) ·
+    이 컴퓨터 이름 · CANON_ALLOWED_HOSTS(쉼표로 나눔) 의 이름만 받는다."""
+    if not host:
+        return False
+    if host == "localhost" or host.endswith(".localhost") or host.endswith(".ts.net"):
+        return True
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        pass
+    if host in _machine_names():
+        return True
+    extra = {_split_host(h) for h in os.environ.get("CANON_ALLOWED_HOSTS", "").split(",") if h.strip()}
+    return host in extra
+
+
+def _origin_ok(request: Request) -> bool:
+    """쓰기 요청에 Origin 이 있으면 그 이름이 요청의 Host(프록시 뒤면 X-Forwarded-Host)와 같아야 한다.
+    Origin 이 없는 요청(명령줄, curl, 시험)은 받는다. 포트는 프록시가 바꿀 수 있어 보지 않는다."""
+    origin = request.headers.get("origin")
+    if origin is None or request.method not in _UNSAFE_METHODS:
+        return True
+    name = (urlsplit(origin).hostname or "").lower().rstrip(".")
+    if not name:  # "null"(샌드박스 iframe, file://) 같은 값
+        return False
+    same = {_split_host(request.headers.get("host", ""))}
+    same.update(_split_host(h) for h in request.headers.get("x-forwarded-host", "").split(",") if h.strip())
+    return name in same
+
+
+@app.middleware("http")
+async def _guard_host(request: Request, call_next):
+    # 맨 바깥 미들웨어(마지막에 붙임). 로그인이 없으니 DNS 리바인딩과 다른 사이트의 쓰기 요청(CSRF)을 여기서 막는다
+    host = _split_host(request.headers.get("host", ""))
+    if not _host_allowed(host):
+        return JSONResponse({"detail": f"허용하지 않은 주소({host or '빈 Host'})로 들어온 요청이에요. "
+                                       "이 이름으로 열려면 CANON_ALLOWED_HOSTS 에 더해 주세요"}, status_code=403)
+    if not _origin_ok(request):
+        return JSONResponse({"detail": "다른 사이트에서 보낸 쓰기 요청은 받지 않아요"}, status_code=403)
+    return await call_next(request)
 
 
 @app.exception_handler(ValueError)
@@ -150,43 +226,65 @@ def _save(name: str, p: Project, merged: set[str] | None = None, kept: list[dict
     """저장한다. 화면이 보낸 작품 전체를 저장할 때(merged 를 넘길 때)는 백그라운드 작업이 맡은 화를
     디스크에 있는 내용(작업 결과)으로 지킨다. 다른 엔드포인트는 방금 읽은 디스크 내용을 고쳐 저장하므로 그대로 쓴다.
     kept 를 넘기면 화면 값 대신 디스크 것으로 둔 칸을 담는다 (autorun.protected 와 같은 모양)."""
-    kept = kept if kept is not None else []
     with jobs.project_lock(name):
-        owned = jobs.owned_episodes(name, merged) if merged is not None else set()
-        disk = store.load(name) if merged is not None and store.exists(name) else None  # 잠근 뒤 한 번만 읽는다
-        if owned and disk:
-            have = {e.plot.number: e for e in disk.episodes}
-            mine = {e.plot.number: e for e in p.episodes}
-            for n in owned:
-                if n in have:
-                    if n in mine and mine[n].plot != have[n].plot:
-                        kept.append({"field": "plot", "ep": n})
-                    mine[n] = have[n]
-            p.episodes = [mine[k] for k in sorted(mine)]
-        if disk:
-            # 스냅샷은 화면이 고치지 않고, 작품 응답은 화 번호만 보낸다 (_SNAPSHOT_LIGHT)
-            p.snapshots = disk.snapshots
-            # 자동 집필이 반영한 진행을 오래된 화면이 덮지 않게
-            kept += [k for k in autorun.protected(name, disk, p) if k not in kept]
-            # 본문이 있는 화의 플롯은 화면이 막아도 서버에서 한 번 더 지킨다 (줄기 표시만 받는다)
-            kept += [{"field": "plot", "ep": n, "why": "locked"} for n in pipeline.keep_locked_plots(disk, p)]
-            # 화면이 열린 동안 플롯 작업이 더한 새 인물 후보도 지킨다. 안 쓰이거나 등록된 후보는 sync 가 지운다
-            have = {c.id for c in p.cast_candidates}
-            p.cast_candidates += [c for c in disk.cast_candidates if c.id not in have]
-            have = {x.name for x in p.place_candidates}
-            p.place_candidates += [x for x in disk.place_candidates if x.name not in have]
-            pipeline.sync_candidates(p)
-            # 고칠 곳은 전용 엔드포인트로만 바꾼다. 화면이 들고 있던 옛 목록이 자동 집필 중에 단 표시를 덮지 않게
-            marks = {e.plot.number: e.to_fix for e in disk.episodes}
-            for e in p.episodes:
-                e.to_fix = marks.get(e.plot.number, [])
-            # 장면 연출도 전용 엔드포인트로만 바꾼다 (stage.py)
-            scenes = {e.plot.number: e.stage for e in disk.episodes}
-            for e in p.episodes:
-                e.stage = scenes.get(e.plot.number, [])
-            p.rooms = disk.rooms
-        store.save(name, p)
+        return _save_locked(name, p, merged, kept)
+
+
+def _save_locked(name: str, p: Project, merged: set[str] | None = None, kept: list[dict] | None = None) -> Project:
+    """_save 의 몸통. 부르는 쪽이 jobs.project_lock(name) 을 이미 잡았을 때 쓴다 (잠금은 재진입하지 않는다)."""
+    kept = kept if kept is not None else []
+    owned = jobs.owned_episodes(name, merged) if merged is not None else set()
+    disk = store.load(name) if merged is not None and store.exists(name) else None  # 잠근 뒤 한 번만 읽는다
+    if owned and disk:
+        have = {e.plot.number: e for e in disk.episodes}
+        mine = {e.plot.number: e for e in p.episodes}
+        for n in owned:
+            if n in have:
+                if n in mine and mine[n].plot != have[n].plot:
+                    kept.append({"field": "plot", "ep": n})
+                mine[n] = have[n]
+        p.episodes = [mine[k] for k in sorted(mine)]
+    if disk:
+        # 스냅샷은 화면이 고치지 않고, 작품 응답은 화 번호만 보낸다 (_SNAPSHOT_LIGHT)
+        p.snapshots = disk.snapshots
+        # 자동 집필이 반영한 진행을 오래된 화면이 덮지 않게
+        kept += [k for k in autorun.protected(name, disk, p) if k not in kept]
+        # 본문이 있는 화의 플롯은 화면이 막아도 서버에서 한 번 더 지킨다 (줄기 표시만 받는다)
+        kept += [{"field": "plot", "ep": n, "why": "locked"} for n in pipeline.keep_locked_plots(disk, p)]
+        # 화면이 열린 동안 플롯 작업이 더한 새 인물 후보도 지킨다. 안 쓰이거나 등록된 후보는 sync 가 지운다
+        have = {c.id for c in p.cast_candidates}
+        p.cast_candidates += [c for c in disk.cast_candidates if c.id not in have]
+        have = {x.name for x in p.place_candidates}
+        p.place_candidates += [x for x in disk.place_candidates if x.name not in have]
+        pipeline.sync_candidates(p)
+        _keep_job_fields(disk, p)
+        p.rooms = disk.rooms
+    store.save(name, p)
     return p
+
+
+# 화의 칸 중 작업 · 전용 엔드포인트만 쓰고 화면의 작품 저장(PUT · PATCH)은 바꾸지 않는 칸.
+# 화면이 작업 전에 읽은 화를 통째로 보내도 이 칸은 디스크 값을 둔다. 작업이 화에 새 칸을 쓰면 여기에 더한다
+JOB_EP_FIELDS = (
+    "checked_at",  # 검수 작업 (pipeline.apply_check)
+    "findings",  # 검수 · 고침안 작업, 지적 라우트
+    "hook",  # 흡입력 판정 작업
+    "issues",  # 검수 작업
+    "realign",  # 플롯 작업이 쓰고 clear_realign 만 지운다
+    "rounds",  # 검수 작업
+    "stage",  # 장면 연출 라우트 (stage.py)
+    "to_fix",  # 고칠 곳 라우트. 자동 집필 중에 단 표시를 옛 목록이 덮지 않게
+)
+
+
+def _keep_job_fields(disk: Project, p: Project) -> None:
+    """화면이 보낸 화 중 디스크에도 있는 화는 JOB_EP_FIELDS 칸을 디스크 값으로 둔다. 화면에만 있는 새 화는 그대로 둔다."""
+    have = {e.plot.number: e for e in disk.episodes}
+    for e in p.episodes:
+        d = have.get(e.plot.number)
+        if d is not None:
+            for f in JOB_EP_FIELDS:
+                setattr(e, f, getattr(d, f))
 
 
 def _not_auto(name: str) -> None:
@@ -594,25 +692,54 @@ def list_projects() -> list[ProjectCard]:
     """작품 카드: 형식, 다음에 할 화(open_ep · open_status, 없으면 0 · ''), 고친 시각, 갈래 정보. 최근에 고친 작품부터."""
     from datetime import datetime, timezone
     out = []
+    seen: set[str] = set()
     tree = branches.infos()
     if store.ROOT.exists():
         for d in sorted(store.ROOT.iterdir()):
             f = d / "project.json"
-            if f.exists():
-                p = store.load(d.name)
-                done = sum(e.status == "finalized" for e in p.episodes)
-                todo = next((e for e in sorted(p.episodes, key=lambda e: e.plot.number) if e.status != "finalized"), None)
-                mtime = f.stat().st_mtime
-                out.append({"name": d.name, "title": p.meta.title, "genre": p.meta.genre, "form": p.meta.form,
-                            "episodes": p.meta.target_episodes, "finalized": done, "planned": len(p.episodes),
-                            "open_ep": todo.plot.number if todo else 0, "open_status": todo.status if todo else "",
-                            "open_checked": bool(todo and todo.status == "written" and findings.check_done(todo)),
-                            "setup_ready": _setup_ready(p),
-                            "updated_at": datetime.fromtimestamp(mtime, timezone.utc).isoformat(), "_mtime": mtime,
-                            "branch": tree.get(d.name), "play": (_play_card(p, info) if (info := store.load_play(d.name)) else None),
-                            "alerts": _card_alerts(d.name), **_card_strip(p, todo)})
+            try:
+                st = f.stat()
+                key = (st.st_mtime_ns, st.st_size, st.st_ino)
+                hit = _cards.get(d.name)
+                if not hit or hit[0] != key:
+                    hit = (key, *_card_base(store.peek(d.name)))
+                    _cards[d.name] = hit
+            except (FileNotFoundError, NotADirectoryError):  # 지우는 중이거나 작품 폴더가 아니다
+                continue
+            seen.add(d.name)
+            base, basis = hit[1], hit[2]
+            mtime = st.st_mtime
+            out.append({"name": d.name, **base,
+                        "updated_at": datetime.fromtimestamp(mtime, timezone.utc).isoformat(), "_mtime": mtime,
+                        "branch": tree.get(d.name), "play": (_play_card(basis, info) if (info := store.load_play(d.name)) else None),
+                        "alerts": _card_alerts(d.name)})
+    for gone in set(_cards) - seen:
+        _cards.pop(gone, None)
     out.sort(key=lambda x: -x["_mtime"])
     return [{k: v for k, v in x.items() if k != "_mtime"} for x in out]  # play.json 은 project.json 보다 자주 바뀌지만 고친 때는 작품 기준
+
+
+# 작품 목록 카드의 project.json 몫 {이름: (파일 판, 칸, 플레이 카드 재료)}. 판(수정 시각 · 크기 · inode)이 같으면 다시 읽지 않는다.
+# store 캐시는 작품 4개까지라 작품이 많으면 목록 요청마다 모든 작품을 다시 검증했다. play.json · pending.json · 갈래는 요청마다 읽는다
+_cards: dict[str, tuple[tuple[int, int, int], dict, PlayBasis]] = {}
+
+
+class PlayBasis(NamedTuple):
+    """플레이 카드가 쓰는 작품 몫: 인물 id → 이름, (화 번호, 작품 속 날) 목록."""
+    names: dict[str, str]
+    days: list[tuple[int, int]]
+
+
+def _card_base(p: Project) -> tuple[dict, PlayBasis]:
+    """작품 카드에서 project.json 으로만 정해지는 칸과 플레이 카드 재료."""
+    done = sum(e.status == "finalized" for e in p.episodes)
+    todo = next((e for e in sorted(p.episodes, key=lambda e: e.plot.number) if e.status != "finalized"), None)
+    base = {"title": p.meta.title, "genre": p.meta.genre, "form": p.meta.form,
+            "episodes": p.meta.target_episodes, "finalized": done, "planned": len(p.episodes),
+            "open_ep": todo.plot.number if todo else 0, "open_status": todo.status if todo else "",
+            "open_checked": bool(todo and todo.status == "written" and findings.check_done(todo)), "setup_ready": _setup_ready(p),
+            **_card_strip(p, todo)}
+    return base, _play_basis(p)
 
 
 STRIP_MAX = 40  # 화 칸 띠에 그리는 가장 많은 화 (app.js WORK_STRIP_MAX 와 같다)
@@ -869,15 +996,82 @@ def get_project(name: str, request: Request) -> Response:
     p = _view(name)
     out = p.model_dump(mode="json", exclude={"snapshots"})
     out["snapshots"] = [{"episode": s.episode} for s in p.snapshots]
-    return JSONResponse(out, headers={"ETag": tag} if tag else None)
+    head = {"X-Project-Rest": _rest_tag(name, tag, p)}
+    if tag:
+        head["ETag"] = tag
+    return JSONResponse(out, headers=head)
+
+
+# 작품 이름 → (파일 판, 화를 뺀 나머지의 판). 저장 응답 · 작품 GET · 화 GET 이 같은 판을 한 번만 계산한다
+_rests: dict[str, tuple[str, str]] = {}
+_rests_lock = threading.Lock()
+
+
+def _rest_tag(name: str, tag: str | None, p: Project) -> str:
+    """작품에서 화(episodes)를 뺀 나머지의 판. 화만 받아 맞출 때 나머지가 화면이 가진 것과 같은지 본다 (get_episodes).
+    작품 GET 이 보내는 모양(스냅샷은 화 번호만)으로 계산한다. tag 는 p 를 읽은 파일 판이다."""
+    with _rests_lock:
+        hit = _rests.get(name)
+    if tag and hit and hit[0] == tag:
+        return hit[1]
+    rest = p.model_dump(mode="json", exclude={"snapshots", "episodes"})
+    rest["snapshots"] = [{"episode": s.episode} for s in p.snapshots]
+    body = json.dumps(rest, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    out = hashlib.blake2b(body.encode("utf-8"), digest_size=12).hexdigest()
+    if tag:
+        with _rests_lock:
+            _rests[name] = (tag, out)
+    return out
+
+
+def _saved_rest(name: str, tag: str) -> str:
+    """저장한 요청이 남긴 판(tag)의 나머지 판. 그사이 다른 저장이 끼어 파일 판이 달라졌으면 빈 값 (화면은 작품 전체를 받는다)."""
+    path = store.project_dir(name) / "project.json"
+    try:
+        if store.tag(path) != tag:
+            return ""
+        p = store.load_view(name)
+        if store.tag(path) != tag:
+            return ""
+    except (OSError, ValueError):
+        return ""
+    return _rest_tag(name, tag, p)
+
+
+@app.get("/api/projects/{name}/episodes")
+def get_episodes(name: str, nums: str = "") -> JSONResponse:
+    """고른 화만. 한 화 작업이 끝날 때 화면이 작품 전체(장편은 수 MB) 대신 받는다 (app.js mergeEpisodes).
+    rest 는 화를 뺀 나머지의 판(작품 GET 의 X-Project-Rest 와 같은 값), numbers 는 모든 화 번호다. 화면은 둘 중 하나라도 다르면 작품 전체를 받는다."""
+    try:
+        want = sorted({int(x) for x in nums.split(",") if x.strip()})
+    except ValueError:
+        raise HTTPException(400, "화 번호를 쉼표로 이어 적으세요 (예: 3,4)") from None
+    if not want or len(want) > 50:
+        raise HTTPException(400, "화 번호를 1~50개 적으세요")
+    _need(name)
+    path = store.project_dir(name) / "project.json"
+    tag = store.tag(path)
+    p = _view(name)
+    keep = set(want)
+    out = {"etag": tag, "edit_rev": p.edit_rev, "saved_by": p.saved_by, "rest": _rest_tag(name, tag, p),
+           "numbers": [e.plot.number for e in p.episodes],
+           "episodes": [e.model_dump(mode="json") for e in p.episodes if e.plot.number in keep]}
+    return JSONResponse(out, headers={"ETag": tag})
 
 
 @app.put("/api/projects/{name}")
 def put_project(name: str, p: Project, response: Response, merged: str = "", force: bool = False) -> Project:
     """화면에서 고친 프로젝트 전체를 저장한다. 구조(arc)가 있으면 화수와 맞는지 검사한다.
     장편은 부 구성과 아크(아크 안 기승전결 포함)가 이어지는지 검사한다.
-    다른 화면(탭 · 기기)이 이 화면이 읽은 뒤에 저장했으면 덮지 않고 409 를 돌려준다. force 면 그래도 덮는다."""
-    disk = _load(name)
+    다른 화면(탭 · 기기)이 이 화면이 읽은 뒤에 저장했으면 덮지 않고 409 를 돌려준다. force 면 그래도 덮는다.
+    디스크 읽기 · 충돌 검사 · 저장을 한 잠금 안에서 해서, 그 사이 다른 저장이나 작업이 끼어 서로 덮지 않게 한다."""
+    _need(name)
+    with jobs.project_lock(name):
+        return _put_locked(name, p, store.load(name), response, merged, force)
+
+
+def _put_locked(name: str, p: Project, disk: Project, response: Response, merged: str, force: bool) -> Project:
+    """put_project 의 몸통. disk 는 jobs.project_lock(name) 을 잡은 뒤 읽은 작품이다."""
     # 장편 총 화수를 바꾸면 마지막 부 끝 화도 따라간다 (둘은 다른 화면에서 고치지만 한 번에 맞아야 저장된다)
     last = p.parts[-1] if p.serial and p.parts else None
     if last and last.end_ep == disk.meta.target_episodes != p.meta.target_episodes and p.meta.target_episodes >= last.start_ep:
@@ -900,8 +1094,6 @@ def put_project(name: str, p: Project, response: Response, merged: str = "", for
         dynamics.seed_ties(p)
     elements.stamp(p)
     _keep_impacts(disk, p)
-    _keep_hooks(disk, p)
-    _keep_realign(disk, p)
     _keep_spots(disk, p)
     # 설정 변경 기록과 남겨 둔 제안은 화면이 직접 고치지 않는다. 디스크 것에 이번 저장이 고친 인물 설정만 작가 기록으로 더한다
     p.setting_log, p.setting_held = disk.setting_log, disk.setting_held
@@ -910,7 +1102,7 @@ def put_project(name: str, p: Project, response: Response, merged: str = "", for
     charlog.record_author(disk, p)
     archetypes.prune(p)
     kept: list[dict] = []
-    out = _save(name, p, merged={m for m in merged.split(",") if m}, kept=kept)
+    out = _save_locked(name, p, merged={m for m in merged.split(",") if m}, kept=kept)
     if kept:  # 화면이 '저장했습니다' 대신 무엇을 저장하지 않았는지 알린다
         response.headers["X-Canon-Kept"] = quote(json.dumps(kept, ensure_ascii=False))
     return out
@@ -930,8 +1122,14 @@ _PATCH_SKIP = {"snapshots", "edit_rev", "saved_by"}
 @app.patch("/api/projects/{name}")
 def patch_project(name: str, body: ProjectPatch, response: Response, merged: str = "", force: bool = False) -> Project:
     """작품 저장(PUT)과 같지만 바뀐 칸만 받는다. 보내지 않은 칸은 디스크 것을 그대로 쓰고, 그 뒤 검사와 지키기는 PUT 과 같다.
-    장편은 작품이 수 MB 라 칸 하나를 고칠 때마다 통째로 올리지 않게 한다."""
-    disk = _load(name)
+    장편은 작품이 수 MB 라 칸 하나를 고칠 때마다 통째로 올리지 않게 한다.
+    보내지 않은 칸을 채울 디스크도 잠근 뒤 읽는다. 그 사이 작업이 쓴 칸을 옛 사본으로 되돌리지 않게."""
+    _need(name)
+    with jobs.project_lock(name):
+        return _patch_locked(name, body, store.load(name), response, merged, force)
+
+
+def _patch_locked(name: str, body: ProjectPatch, disk: Project, response: Response, merged: str, force: bool) -> Project:
     data = disk.model_dump(mode="json")
     for k, v in body.fields.items():
         if k not in Project.model_fields:
@@ -953,23 +1151,7 @@ def patch_project(name: str, body: ProjectPatch, response: Response, merged: str
     except ValidationError as e:
         from fastapi.exceptions import RequestValidationError
         raise RequestValidationError(e.errors(include_url=False)) from None
-    return put_project(name, p, response, merged=merged, force=force)
-
-
-def _keep_hooks(saved: Project, p: Project) -> None:
-    """흡입력 판정도 백그라운드 작업이 디스크에 쓴다. 화면이 그 전에 읽은 작품을 저장해도 새 판정을 덮지 않게 한다. saved 는 디스크 작품."""
-    disk = {e.plot.number: e.hook for e in saved.episodes if e.hook}
-    for e in p.episodes:
-        d = disk.get(e.plot.number)
-        if d and (e.hook is None or e.hook.checked_at < d.checked_at):
-            e.hook = d
-
-
-def _keep_realign(saved: Project, p: Project) -> None:
-    """뒤 화의 '다시 맞추기' 표시는 플롯 작업이 디스크에 쓰고 지우기는 clear_realign 으로만 한다. 화면 저장이 덮지 않는다."""
-    disk = {e.plot.number: e.realign for e in saved.episodes}
-    for e in p.episodes:
-        e.realign = disk.get(e.plot.number, "")
+    return _put_locked(name, p, disk, response, merged, force)
 
 
 def _keep_spots(disk: Project, p: Project) -> None:
@@ -1717,6 +1899,7 @@ def insert_episode(name: str, body: InsertIn) -> Renumbered:
         p = _load(name)
         notes = pipeline.insert_episode(p, at, body.title, body.summary, body.storyline, not store.shares_text(name))
         store.save(name, p)
+        notes += store.renumber_side_files(name, lambda x: x + 1 if x >= at else x)
     autorun.renumber(name, lambda x: x + 1 if x >= at else x)
     return {"project": p, "notes": notes}
 
@@ -1729,6 +1912,7 @@ def remove_episode(name: str, n: int) -> Renumbered:
         p = _load(name)
         notes = pipeline.remove_episode(p, n, not store.shares_text(name))
         store.save(name, p)
+        notes += store.renumber_side_files(name, lambda x: x - 1 if x >= n else x, [n])
     autorun.renumber(name, lambda x: x - 1 if x >= n else x)
     return {"project": p, "notes": notes}
 
@@ -1748,11 +1932,47 @@ def delete_episode(name: str, n: int, body: DeleteIn) -> dict:
         notes = pipeline.delete_last(p, n, body.keep_plot)
         path = store.save_backup(name, f"before-delete-{n}", before)
         store.save(name, p)
+        if not body.keep_plot:
+            notes = [*notes, *store.renumber_side_files(name, lambda x: x - 1 if x >= n else x, [n])]
     if before.episode(n).status == "finalized":
         autorun.after_revert(name, n)
     if not body.keep_plot:
         autorun.renumber(name, lambda x: x - 1 if x >= n else x)
-    return {"project": p, "notes": [*notes, f"지우기 전 작품은 {path.name} 으로 남겨 뒀어요."]}
+    return {"project": p, "notes": [*notes, f"지우기 전 작품은 {path.name} 으로 남겨 뒀어요. 설정 › 백업에서 되돌릴 수 있어요."]}
+
+
+# ---------- 백업에서 되돌리기 ----------
+# store.backup_list: 시간별 백업 · 직전 판 · 화를 지우기 전 · 장편 전환 전 · 되돌리기 전 판.
+
+@app.get("/api/projects/{name}/backups")
+def list_backups(name: str) -> list[dict]:
+    _need(name)
+    return store.backup_list(name)
+
+
+class RestoreIn(BaseModel):
+    id: str  # backup_list 의 id
+
+
+@app.post("/api/projects/{name}/backups/restore")
+def restore_backup(name: str, body: RestoreIn) -> Project:
+    """백업으로 작품을 되돌린다. 지금 판은 먼저 backups/before-restore.<시각>.json 으로 남겨 다시 되돌릴 수 있다.
+    자동 집필 · AI 작업이 도는 중이거나 검토를 기다리는 결과(pending.json)가 있으면 막는다. 반영한 화가 줄면 자동 집필 기록을 화 지우기처럼 맞춘다(autorun.after_revert)."""
+    autorun.check_renumber(name)
+    busy = [j.label for j in jobs.listing(name) if j.status == "running"]
+    if busy:
+        raise ValueError(f"AI 작업({', '.join(busy)})이 끝난 뒤에 되돌리세요. 작업 결과가 되돌린 작품을 덮어요")
+    if held := store.pending_eps(name):
+        raise ValueError(f"{', '.join(f'{n}화' for n in held)}에 검토를 기다리는 AI 결과나 실패한 작업이 있어요. 먼저 확인하거나 버린 뒤에 되돌리세요")
+    with jobs.project_lock(name):
+        before = branches.last_finalized(_load(name))
+        try:
+            p = store.restore_backup(name, body.id)
+        except FileNotFoundError as e:
+            raise HTTPException(404, str(e)) from None
+    if branches.last_finalized(p) < before:
+        autorun.after_revert(name, branches.last_finalized(p) + 1)
+    return p
 
 
 # ---------- 3-1. 대화로 다듬기 ----------
@@ -2050,6 +2270,7 @@ def agent_approval(name: str, sid: str, t: int, body: ApprovalIn) -> dict:
         _renumber_ready(name, op.at)
     p = _edit(name, lambda q: agent.decide(q, sid, t, body.approve, body.picked, body.remember, not store.shares_text(name)))
     if op:
+        store.renumber_side_files(name, agent.shift(op), agent.dropped(op))
         autorun.renumber(name, agent.shift(op))
     return {"project": p, "job": _run_agent(name, sid, t)}
 
@@ -2078,6 +2299,7 @@ def agent_undo(name: str, sid: str, t: int, body: AgentUndoIn) -> dict:
     done: list = []
     p = _edit(name, lambda q: out.append(agent.undo(q, sid, t, body.write, body.key, not store.shares_text(name), done)))
     for op in done:
+        store.renumber_side_files(name, agent.shift(op, inverse=True), agent.dropped(op, inverse=True))
         autorun.renumber(name, agent.shift(op, inverse=True))
     restored, kept, reasons = out[0]
     return {"project": p, "restored": restored, "kept": kept, "reasons": reasons}
@@ -4785,13 +5007,26 @@ def set_model_preset(name: str, body: ModelPresetIn) -> Project:
     return _save(name, p)
 
 
+def _play_basis(p: Project) -> PlayBasis:
+    names: dict[str, str] = {}
+    for c in p.characters:
+        names.setdefault(c.id, c.name)
+    return PlayBasis(names=names, days=[(e.plot.number, e.time.day) for e in p.episodes])
+
+
 def _play_days(p: Project, info: PlayInfo) -> int:
-    day = max((e.time.day for e in p.episodes if e.plot.number > info.world_ep), default=0)
+    return _days_after(_play_basis(p).days, info)
+
+
+def _days_after(days: list[tuple[int, int]], info: PlayInfo) -> int:
+    day = max((d for n, d in days if n > info.world_ep), default=0)
     return max(0, day - info.start_day) if day else 0
-def _play_card(p: Project, info: PlayInfo) -> PlayCard:
-    who = next((c.name for c in p.characters if c.id == info.player), info.player)
+
+
+def _play_card(b: PlayBasis, info: PlayInfo) -> PlayCard:
+    who = b.names.get(info.player, info.player)
     return PlayCard(world=info.world, title=info.title or f"{who}의 삶", player=who, origin=info.origin, ending=info.ending,
-                    turns=len(info.turns), decisions=sum(t.kind in play.DECIDED for t in info.turns), days=_play_days(p, info),
+                    turns=len(info.turns), decisions=sum(t.kind in play.DECIDED for t in info.turns), days=_days_after(b.days, info),
                     waiting=play.waiting(info) and not info.ending)
 
 
@@ -4909,6 +5144,29 @@ for _route in [*app.routes, *(r for rt in _ROUTERS for r in rt.routes)]:
         _route.app = request_response(_route.get_route_handler())
 
 
+
+def _drain(should_exit: Callable[[], bool], limit: float | None = None, tick: float = 1) -> bool:
+    """다시 시작하기 전에 처리 중인 요청과 도는 작업이 끝나기를 기다린다. 그동안 새 작업은 받지 않는다(jobs.Draining).
+    자동 집필은 다음 단계 전에 멈추고 다시 시작한 서버가 이어 간다. 다 끝났으면 True,
+    jobs.DRAIN_LIMIT 초를 넘겨 그대로 다시 시작하면 False."""
+    log = logging.getLogger("canon")
+    jobs.draining.set()
+    limit = jobs.DRAIN_LIMIT if limit is None else limit
+    deadline = time.monotonic() + limit
+    while not should_exit():
+        try:
+            left = _active + jobs.running()
+        except Exception:  # 세다 오류가 나도 기다림은 이어 간다 (기한은 지킨다)
+            log.exception("[업데이트] 도는 작업을 세다 오류가 났어요")
+            left = 1
+        if not left:
+            return True
+        if time.monotonic() >= deadline:
+            log.warning("[업데이트] %d분을 기다려도 요청 · 작업 %d개가 끝나지 않아 그대로 다시 시작해요", round(limit / 60), left)
+            return False
+        time.sleep(tick)
+    return True
+
 def serve(host: str = "127.0.0.1", port: int = 8000, open_browser: bool = False,
           update_interval: float = 0) -> None:
     """update_interval(초)이 0보다 크면 그 간격으로 origin/main 을 확인하고,
@@ -4951,17 +5209,25 @@ def serve(host: str = "127.0.0.1", port: int = 8000, open_browser: bool = False,
                 last = r.message
                 continue
             log.info("[업데이트] %s. 진행 중인 작업이 끝나면 다시 시작해요", r.message)
-            jobs.draining.set()  # 자동 집필은 다음 단계 전에 멈추고, 다시 시작한 서버가 이어 간다
-            while (_active or jobs.running()) and not server.should_exit:
-                time.sleep(1)
+            _drain(lambda: server.should_exit)
             restart.set()
             server.should_exit = True
             return
 
+    def watch_safely() -> None:
+        # 확인 중 오류가 나도 감시를 이어 간다. 스레드가 끝나면 다시 시작하지 못하고 draining 이 남는다
+        while not server.should_exit:
+            try:
+                watch_updates()
+                return
+            except Exception:
+                log.exception("[업데이트] 새 코드를 확인하다 오류가 났어요")
+                time.sleep(1)
+
     if open_browser:
         threading.Thread(target=open_when_ready, daemon=True).start()
     if update_interval > 0:
-        threading.Thread(target=watch_updates, daemon=True).start()
+        threading.Thread(target=watch_safely, daemon=True).start()
     for name in autorun.resume_all():
         log.info("[자동 집필] %s 을(를) 이어 가요", name)
     server.run()

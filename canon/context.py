@@ -34,6 +34,8 @@ BUDGET = {
     "deadlines": 1_200,     # 쓰기 · 검수 · 기획 · 상태 변경안의 작품 속 열린 기한 (timeline.deadline_lines, 단편도)
     "plan_facts": 6_000,    # 다음 아크 기획: 부 목표 · 아크 아이디어 · 직전 아크 플롯과 관련된 확정 사실 (최근 FACTS_RECENT 개는 늘)
     "plan_states": 6_000,   # 다음 아크 기획: 주역 밖 기획 인물(planning_cast)의 지금 상태, 최근에 나온 인물부터
+    "plot_facts": 4_000,    # 장편 화별 플롯 초안 · 플롯 대화: 아크 · 앞뒤 화 플롯과 관련된 확정 사실 (최근 FACTS_RECENT 개는 늘, prompts.plot_facts_states)
+    "plot_states": 4_000,   # 장편 화별 플롯 초안 · 플롯 대화: 주역 밖 인물의 지금 상태, 최근에 나온 인물부터 (prompts.plot_facts_states)
     "cast": 8_000,          # 본문 쓰기: '항상' 넣는 조연 · 단역과 이번 화 조연 · 단역의 설정. '항상' 조연 · 단역이 있을 때만 센다 (fit_cast)
     "travel": 800,          # 쓰기 · 검수의 이동 거리 (mapprompt.travel_block, 지도 크기를 알 때만)
     "spots": 600,           # 쓰기 · 검수: 플롯에 나온 장소가 놓인 건물 한 줄 (mapprompt.spot_block, MapPin.spot)

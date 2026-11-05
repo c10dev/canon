@@ -50,3 +50,12 @@ def test_module_doc_lines():
                 heads.append(line)
         assert heads == sorted(heads), f"{doc.name} 의 절(### 경로)이 차례대로가 아니에요"
         assert len(heads) == len(set(heads)), f"{doc.name} 에 같은 절이 둘 있어요"
+
+
+def test_env_vars_are_listed():
+    """코드가 os.environ 으로 읽는 CANON_* 이름은 ai.md 의 환경 변수 목록에 있어야 한다."""
+    pat = re.compile(r"environ(?:\.get|\.pop|\.setdefault)?\(?\[?\"(CANON_[A-Z0-9_]+)\"")
+    names = {m for p in (ROOT / "canon").rglob("*.py") for m in pat.findall(p.read_text(encoding="utf-8"))}
+    doc = (MODULES / "ai.md").read_text(encoding="utf-8")
+    missing = sorted(n for n in names if not re.search(rf"`{n}`", doc))
+    assert not missing, f"docs/modules/ai.md 의 환경 변수 목록에 없는 이름: {missing}"

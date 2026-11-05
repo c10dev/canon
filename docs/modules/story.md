@@ -41,6 +41,7 @@
 - 도구는 읽기(`read_plots` · `read_summaries` · `find_text`(`context.recall`) · `read_cast`, 결과 `RESULT_LIMIT` 자)와 쓰기 `edit_plot`
 - 되묻기 `ask`
 - 화 넣기 · 빼기 `insert_episodes` · `remove_episode`(`RENUMBER_TOOLS`, `RenumberOp`): 복사본에 해 보고(`preview`) 늘 승인 카드로 묻는다(`permit` 의 `renumber`). 쓰기 `apply_op`, 되돌리기 반대 동작 `inverse`, 자동 집필 번호 `shift`. 번호를 옮긴 뒤에는 턴을 다시 찾는다(작품 칸이 통째로 바뀜)
+- 화 넣기 · 빼기가 빼는 옛 화 번호 `dropped`(되돌리기면 넣었던 화들): 웹이 `store.renumber_side_files` 의 `gone` 으로 넘긴다
 - 쓰기는 `clean_revision` 으로 거른다(본문이 있는 화는 막힘)
 - 쓰기 부분마다 종류(`KIND_LABELS`)를 매긴다
 - 권한(`permit`) 안이면 `pipeline.plot_apply` 로 바로 쓴다(`WriteRecord`)
@@ -120,6 +121,7 @@
 - 합치기는 없다
 - 원본 `project.json` 은 바꾸지 않는다
 - 작품 복제는 `branch.json` 을 옮기지 않는다
+- 갈래 · 복제 · 플레이 사본은 자동 집필 기록과 실행 주인 파일(`autorun.json` · `.autorun.lock` · `autorun.want`)을 옮기지 않는다(`COPY_SKIP`)
 - 명령줄 `branch` · `branches` · `branch-compare` · `promote`
 - LLM 호출 없음
 
@@ -211,6 +213,7 @@
 
 - 문체 라이브러리
 - 작품과 따로 `projects/.styles/<id>.json` 에 문체(원문, 프로필, 기준 지표)를 저장
+- `save` 는 `store.write_atomic` 으로 바꿔치기해 쓴다. 쓰다 멈춰도 옛 항목이 남는다
 - 작품에 적용하면 복사하고 `Project.style_id` · `style_version` 으로 출처만 기억
 - 저장마다 버전(`StyleVersion`)
 - 칸별 비교(`diff`)
@@ -300,6 +303,7 @@
 - 정착 문체 화 번호도 옮긴다(`anchor.move`)
 - 화면은 `static/insert.js` (넣을 수 있는 자리 `lastFixed` 는 `last_fixed` 와 같은 규칙, `tests/test_insert_js.py`)
 - `insert.js` 의 화 지우기 버튼을 막은 이유(AI 작업 중, 자동 집필 중, 스냅샷 없음)를 버튼 아래 글로도 보인다
+- 화 지우기 확인 창은 지우기 전 작품을 설정 › 백업에서 되돌릴 수 있다고 알린다
 
 ### `canon/routes/play.py`
 
@@ -307,6 +311,7 @@
 - 작품 목록 카드의 플레이 요약(`_play_card` · `_play_days`)은 `web.py` 에 남는다
 - `web.py` 맨 끝의 `_attach_routes` 가 `router` 를 앱에 붙이고 `EXPORTS` 의 이름을 `web` 에도 둔다
 - 공용 도우미(`_load` · `_save` · `_edit` 등)는 `..web` 에서 불러 쓴다
+- 다음 구간 미리 쓰기(`_play_continue`)는 서버가 다시 시작하려고 기다리는 중(`jobs.Draining`)이면 쓰지 않고 넘어간다. 끝난 구간 작업과 `play/see` 저장은 성공으로 남는다
 
 ### `canon/setupchat.py`
 

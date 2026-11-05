@@ -151,3 +151,24 @@ def test_play_new_world(client):  # noqa: F811
     assert j["status"] == "done" and j["result"] == {"name": "fog"}
     assert store.exists("fog") and store.load_play("fog") is None
     assert client.post("/api/play/worlds", json={"name": "fog", "logline": "x"}).status_code == 409
+
+
+def test_play_continue_skips_while_draining(client):  # noqa: F811
+    # 다시 시작하려고 기다리는 중: 닿음(see) 저장은 성공하고, 미리 쓰기만 건너뛴다 (Draining 이 새지 않는다)
+    from canon import jobs
+    from canon.routes import play as play_routes
+    _two_done(client)
+    _random_play(client, to="pd")
+    v = _settled(client, "pd")
+    assert [t["number"] for t in v["turns"]] == [3]
+    jobs.draining.set()
+    try:
+        r = client.post("/api/projects/pd/play/see", json={"n": 3})
+        assert r.status_code == 200 and r.json() == {"seen": 3}
+        play_routes._play_continue("pd")  # 구간 작업이 끝난 뒤 부르는 경로와 같다
+        v = client.get("/api/projects/pd/play").json()
+        assert [t["number"] for t in v["turns"]] == [3] and v["job"] is None
+    finally:
+        jobs.draining.clear()
+    client.post("/api/projects/pd/play/see", json={"n": 3})  # 다시 닿으면 이어 쓴다
+    assert [t["number"] for t in _settled(client, "pd")["turns"]] == [3, 4]

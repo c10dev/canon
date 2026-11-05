@@ -390,7 +390,7 @@ def _play_continue(name: str, exclude: str = "") -> None:
         return
     try:
         _play_start_job(name, info)
-    except (jobs.Busy, MissingKey):
+    except (jobs.Busy, jobs.Draining, MissingKey):  # 다시 시작하려고 기다리는 중이면 미리 쓰지 않는다. 화면이 다시 닿으면 이어 쓴다
         pass
 
 

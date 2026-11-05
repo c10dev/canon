@@ -141,6 +141,33 @@ def test_usage_record_keeps_prompt_blocks(tmp_path, monkeypatch):
     assert "blocks" not in usage.read()[-1]
 
 
+def test_serial_prompts_note_cut_secrets_and_foreshadows():
+    """예산으로 뺀 비밀 · 복선 수를 장편 쓰기 · 상태 변경안 · 검수 · 다음 아크 기획의 머리글에 적는다. 단편은 그대로."""
+    p = _serial(300)
+    a = _plan_arc(p, length=12)
+    n = a.start_ep + 1
+    e = p.episode(n - 1)
+    e.text, e.status = "본문", "finalized"
+    hero, other = p.characters[0].id, p.characters[1].id
+    p.secrets = [Secret(id=f"s{i}", owner=hero, content=f"숨긴 일 {i} " + "가" * 300, hidden_from=[other]) for i in range(40)]
+    p.foreshadows = [Foreshadow(id=f"fs-{i}", description=f"떡밥 {i}", planted_ep=1) for i in range(60)]
+    p.episode(n).text = "그는 우물 바닥에서 열쇠를 찾았다."
+    _, fs_cut = prompts.relevant_foreshadows(p, n)
+    assert fs_cut > 0
+    ctx = prompts.build_episode_context(p, n)
+    assert "# 관계 현재 상태 (숨긴 비밀은 이번 화와 관련된 것만, " in ctx and "개 생략)" in ctx
+    state = prompts.state_prompt(p, n)
+    _, s_cut = context.pick_secrets(p, {hero, other}, "", context.BUDGET["state_secrets"])
+    assert "[현재 비밀] (이번 화 인물과 관련된 것만, " in state and "목록에 없는 비밀의 id 는 쓰지 않습니다)" in state
+    assert f"[열린 복선] (이번 아크와 관련된 것만, {fs_cut}개 생략. 목록에 없는 복선의 id 는 쓰지 않습니다)" in state
+    assert "# 비밀 (hidden_from 의 인물은 아직 모른다)\n(이번 화와 관련된 것만, " in prompts.check_prompt(p, n, "budget")
+    assert "[관계 (주역 · 조연 · 최근 아크 인물)] (숨긴 비밀은 이 아크와 관련된 것만, " in prompts.next_arc_prompt(p, a.end_ep + 1, 0, "")
+    assert s_cut > 0
+    p.meta.form = "short"
+    state = prompts.state_prompt(p, n)
+    assert "[현재 비밀]\n" in state and "[열린 복선]\n" in state and "생략. 목록에 없는" not in state
+
+
 def test_pick_knows_relevant_first_then_recent():
     knows = [f"옛 정보 {i} 아무 상관 없는 일" for i in range(30)]
     knows[2] = "도윤이 왕비의 편지를 숨겼다는 것을 안다"  # 이번 화 인물 이름

@@ -385,6 +385,13 @@ def shift(op: RenumberOp, inverse: bool = False):
     return lambda x: x + c if x >= at else x
 
 
+def dropped(op: RenumberOp, inverse: bool = False) -> list[int]:
+    """이 동작이 빼는 옛 화 번호 (store.renumber_side_files 의 gone). 빼기는 그 화, 넣기를 되돌리면 넣었던 화들."""
+    if op.kind == "remove":
+        return [] if inverse else [op.at]
+    return list(range(op.at, op.at + len(op.titles))) if inverse else []
+
+
 def apply_op(p: Project, op: RenumberOp, move: bool) -> list[str]:
     """화를 넣거나 뺀다 (pipeline.insert_episode · remove_episode). 무엇을 옮겼는지 돌려준다. 못 하면 ValueError 로 p 는 그대로다."""
     if op.kind == "remove":
