@@ -305,3 +305,107 @@ def test_cue_sheet_call_caps_output_tokens(demo):
     pipeline.make_cue_sheet(llm, store.load(demo), 1)
     llm.text("", "다른 요청")
     assert caps == [pipeline.CUE_OUT_TOKENS, None]  # 큐 시트 호출 안에서만, 끝나면 풀린다
+
+
+def test_sheet_prompt_after_fresh_board_starts_with_board_request(demo):
+    """방금 만든 스토리보드면 큐 시트 요청이 스토리보드 요청 글 전체로 시작한다 (Gemini 암묵적 캐시)."""
+    p = store.load(demo)
+    lead: list[str] = []
+    b = pipeline.make_storyboard(MockLLM(), p, 1, lead=lead)
+    assert lead == [prompts.storyboard_prompt(p, 1)]
+    pipeline.set_storyboard(p, 1, b, by="ai")
+    plain = prompts.cue_sheet_prompt(p, 1)
+    text = prompts.cue_sheet_prompt(p, 1, lead=pipeline.cue_lead(p, 1, lead, b.made_at))
+    assert text.startswith(lead[0]) and prompts.board_block(p, 1) in text[len(lead[0]):]
+    req = plain[plain.index("큐는 본문을 나눠 쓰는 연주 단위"):]
+    assert text.endswith(req)  # 큐 시트 요구사항과 응답 형식은 그대로
+    assert "위 자료와 바로 위 스토리보드로 1화의 큐 시트" in text and "스토리보드 JSON 을 다시 만들지 않습니다" in text
+    assert plain.startswith(prompts.build_episode_context(p, 1))  # lead 가 없으면 예전 요청 그대로
+    assert pipeline.make_cue_sheet(MockLLM(), p, 1, lead=lead[0]).cues
+
+
+def test_sheet_prompt_with_lead_has_stage_block_once(demo, monkeypatch):
+    """장면 연출은 스토리보드 요청 글에 이미 있어 다시 넣지 않는다. 다음 화 플롯의 쓰임은 요구사항 첫 줄이 정한다."""
+    monkeypatch.setattr(prompts, "stage_block", lambda p, n, budget=0, board=False: f"연출표지-{board}")
+    p = store.load(demo)
+    lead: list[str] = []
+    b = pipeline.make_storyboard(MockLLM(), p, 1, lead=lead)
+    pipeline.set_storyboard(p, 1, b, by="ai")
+    assert "# 다음 화 플롯" in lead[0] and lead[0].count("연출표지") == 1
+    text = prompts.cue_sheet_prompt(p, 1, lead=pipeline.cue_lead(p, 1, lead, b.made_at))
+    assert text.count("연출표지") == 1
+    assert "[다음 화 플롯]의 사건은 큐에 넣지 않습니다" in text[len(lead[0]):]
+    assert "[다음 화 플롯]" not in prompts.cue_sheet_prompt(p, 1)  # 예전 요청은 그대로
+
+
+def test_web_write_job_cue_request_starts_with_board_request(demo, monkeypatch):
+    """웹 쓰기 작업(board: make)도 방금 만든 스토리보드 요청 글로 큐 시트 요청을 시작한다."""
+    from canon import web
+    from canon.schema import StoryboardDraft
+
+    p = store.load(demo)
+    p.settings.cue_sheet = True
+    store.save(demo, p)
+    sent: list = []
+    orig = MockLLM.json
+
+    def json_(self, system, prompt, schema, hint=None):
+        if schema in (StoryboardDraft, CueSheetDraft):
+            sent.append((schema, prompt))
+        return orig(self, system, prompt, schema, hint)
+    monkeypatch.setattr(MockLLM, "json", json_)
+    c = TestClient(web.app)
+    r = c.post(f"/api/projects/{demo}/jobs", json={"kind": "write", "ep": 1, "board": "make"})
+    assert r.status_code == 200 and r.json()["total"] == 3, r.text
+    assert _wait(c, r.json()["id"])["status"] == "done"
+    (s1, board_req), (s2, cue_req) = sent
+    assert (s1, s2) == (StoryboardDraft, CueSheetDraft)
+    assert cue_req.startswith(board_req) and "스토리보드 JSON 을 다시 만들지 않습니다" in cue_req
+    e = store.load(demo).episode(1)
+    assert e.text and e.storyboard.made_by == "ai" and e.cue_sheet.made_by == "ai"
+
+
+def test_cue_lead_only_for_fresh_ai_board(demo):
+    p = store.load(demo)
+    lead: list[str] = []
+    b = pipeline.make_storyboard(MockLLM(), p, 1, lead=lead)
+    assert pipeline.cue_lead(p, 1, lead, b.made_at) == ""  # 아직 넣지 않았다
+    pipeline.set_storyboard(p, 1, b, by="ai")
+    assert pipeline.cue_lead(p, 1, lead, b.made_at) == lead[0]
+    assert pipeline.cue_lead(p, 1, lead, "다른 때") == "" and pipeline.cue_lead(p, 1, [], b.made_at) == ""
+    p.episode(1).storyboard.basis = "old"  # 낡았다
+    assert pipeline.cue_lead(p, 1, lead, b.made_at) == ""
+    pipeline.set_storyboard(p, 1, b, by="author")  # 작가가 고쳤다
+    assert p.episode(1).storyboard.made_by == "both" and pipeline.cue_lead(p, 1, lead, b.made_at) == ""
+
+
+def test_autorun_cue_request_starts_with_board_request(demo, monkeypatch):
+    from canon.schema import StoryboardDraft
+
+    p = store.load(demo)
+    p.settings.storyboard, p.settings.cue_sheet = True, True
+    store.save(demo, p)
+    sent: list = []
+    orig = MockLLM.json
+
+    def json_(self, system, prompt, schema, hint=None):
+        if schema in (StoryboardDraft, CueSheetDraft):
+            sent.append((schema, system, prompt))
+        return orig(self, system, prompt, schema, hint)
+    monkeypatch.setattr(MockLLM, "json", json_)
+    run = autorun.start(demo, 1, False, autorun.Policy(hand_pick_opening=False, check=False), foreground=True)
+    assert run.status == "done"
+    (s1, sys1, board_req), (s2, sys2, cue_req) = sent
+    assert (s1, s2) == (StoryboardDraft, CueSheetDraft) and sys1 == sys2
+    assert cue_req.startswith(board_req) and len(cue_req) > len(board_req)
+    # 작가가 고친 스토리보드 다음의 큐 시트는 예전 요청
+    p = store.load(demo)
+    sent.clear()
+    pipeline.set_storyboard(p, 2, pipeline.make_storyboard(MockLLM(), p, 2), by="author")
+    store.save(demo, p)
+    sent.clear()
+    run = autorun.start(demo, 2, False, autorun.Policy(hand_pick_opening=False, check=False), foreground=True)
+    assert run.status == "done"
+    assert [s for s, _, _ in sent] == [CueSheetDraft]
+    assert sent[0][2].startswith(prompts.build_episode_context(store.load(demo), 2)[:2000])
+    assert "스토리보드 JSON 을 다시 만들지 않습니다" not in sent[0][2]

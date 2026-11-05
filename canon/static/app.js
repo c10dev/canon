@@ -1118,7 +1118,7 @@ document.addEventListener('change', (e) => {
   if (el.dataset.pick) {
     S.picks[el.dataset.pick] = el.checked;
     document.querySelectorAll('#app .pick-count').forEach((c) => { c.textContent = deltaPicked(); });
-    if (S.route[2] === 'review' && /^[ers]\d/.test(el.dataset.pick)) refreshPreview(Number(S.route[3]));
+    if (S.route[2] === 'review' && /^[ersn]\d/.test(el.dataset.pick)) refreshPreview(Number(S.route[3]));
     if (S.route[2] === 'setup' && /^sc\d/.test(el.dataset.pick)) render();  // 고른 인물에 따라 넣을 수 있는 관계가 바뀐다
   }
   if (el.name === 'np-form') {  // 형식을 바꾸면 총 화수 기본값도 바꾼다
@@ -1476,7 +1476,10 @@ const actions = {
     n = Number(n);
     const fin = P().episodes.filter((e) => e.status === 'finalized' && e.plot.number >= n).map((e) => e.plot.number);
     const h = [...P().history].reverse().find((d) => d.episode === n);
-    const added = P().history.filter((d) => d.episode >= n).flatMap((d) => d.new_characters || []).map((c) => c.name || c.id);
+    // 그때 이미 있던 인물(설정 단계 인물 · 앞 화 반영이 더한 인물)은 빠지지 않는다 (pipeline.revert)
+    const was = new Set([...P().characters.filter((c) => !c.first_ep).map((c) => c.id),
+      ...P().history.filter((d) => d.episode < n).flatMap((d) => d.new_characters || []).map((c) => c.id)]);
+    const added = P().history.filter((d) => d.episode >= n).flatMap((d) => d.new_characters || []).filter((c) => !was.has(c.id)).map((c) => c.name || c.id);
     const places = (P().elements || []).filter((el) => el.found_in === '본문' && el.found_ep >= n).map((el) => el.name);
     if (!(await askConfirm(`${rangeText(fin)}화의 상태 반영을 취소할까요? ${n - 1 ? `${n - 1}화 반영 직후` : '1화 시작 전'} 상태로 돌아가고, 본문은 남아 상태 승인을 다시 하게 돼요.${added.length ? ` 그 반영이 더한 인물(${added.join(', ')})도 빠져요.` : ''}${places.length ? ` 본문에서 등록한 장소(${places.join(', ')})도 빠져요. 아직 안 쓴 화 플롯에 나오거나 직접 고친 장소는 남아요.` : ''}${S.dirty ? '\n저장하지 않은 변경은 먼저 저장해요.' : ''}`, { ok: S.dirty ? '저장하고 반영 취소' : '반영 취소', cancel: '닫기', danger: true }))) return false;
     return run('반영을 취소하는 중', async () => {
@@ -2330,8 +2333,11 @@ function drawApp() {
   if (p !== 'p' || !P()) return outside(p === 'new' ? 'new' : 'projects', 1180, viewProjects());
   const n = Number(arg) || currentEp();
   const views = { setup: viewSetup, style: viewStyle, arc: () => (plotPageN() ? viewPlotPage(plotPageN()) : serial() ? viewSerial() : viewArc()), write: viewWrite, check: viewCheck, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, cast: viewCast, atlas: viewAtlas, convert: viewConvert, foreshadow: viewForeshadow, tofix: viewToFix, stage: viewStage, statwin: viewStatwin, abilities: viewAbilities, timeline: viewTimeline, branches: viewBranches, cue: viewCue };
+  // 모르는 화면 이름(옛 북마크, 손으로 친 주소)은 말없이 홈을 그리지 않고 알린다. 사이드바는 홈을 고른 채로 둔다
+  const unknown = page && !views[page];
   const body = (views[page] || viewHome)(n);
-  $('#app').innerHTML = `<div class="shell">${sidebar(page === 'convert' ? 'home' : page || 'home')}<main class="main">${failStrip(page, n)}${draftStrip(page, n)}${branchPlace(page, body)}</main></div>`;
+  const miss = unknown ? `<div class="note warn between" role="status"><span>'${esc(page)}' 화면은 없어요. 작품 홈을 보여 드려요.</span><a class="btn small" href="${base()}">작품 홈 주소로</a></div>` : '';
+  $('#app').innerHTML = `<div class="shell">${sidebar(page === 'convert' || unknown ? 'home' : page || 'home')}<main class="main">${miss}${failStrip(page, n)}${draftStrip(page, n)}${branchPlace(page, body)}</main></div>`;
   syncPending();
   keepDrafts();  // 저장 · 버리기 · AI 본문으로 초안이 사라졌으면 임시본도 바로 지운다
   syncChat();

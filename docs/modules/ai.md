@@ -22,9 +22,12 @@
 - 모델까지 간 호출은 보낸 시각부터 `CACHE_WARM_SECONDS`(300초) 동안 캐시에 있다고 보고 기다리지 않는다
 - 기다린 시간은 사용량 기록의 `seconds` 에 넣지 않는다
 - 사용량 기록의 글자 수 · 블록 크기는 옮기기 전 원래 프롬프트 기준이다
+- `_cli_usage` 는 JSON 결과의 `num_turns` · `stop_reason` · `duration_api_ms` · `modelUsage` 를 사용량 칸 `turns` · `stop` · `api_seconds` · `models` 로 넘긴다
+- `turns` 가 2 이상이면 다시 보낸 입력 어림값 `resent` = `in × (turns-1)/turns` 도 넘긴다
 - 두 백엔드도 `llm.wait_cap` · `llm.out_cap` 을 따른다(`llm.caps` 로 읽음)
 - 구독은 제한 시간을 `min(CANON_CLAUDE_TIMEOUT, wait_cap)` 으로 둔다. 넘기면 다시 부르지 않고 `ClaudeCodeError`
 - API 는 `max_tokens` 를 `min(MAX_TOKENS, out_cap)` 으로, SDK 요청 옵션 `timeout` 을 `wait_cap` 으로 보낸다
+- 구독은 `out_cap` 이 있을 때만 그 호출의 하위 환경에 `CLAUDE_CODE_MAX_OUTPUT_TOKENS` 를 넣는다(`child_env(extra)`). 없으면 넣지 않는다
 - 두 백엔드는 호출마다(형식 고치기 재시도도) 보내기 전에 `cancel.check()` 를 부른다
 - 구독은 `_run` 이 `Popen` 으로 띄우고 `STOP_POLL`(0.25초)마다 멈추기 신호를 보다가 서면 하위 프로세스를 끝내고 `cancel.Cancelled`
 - API 는 스트림 조각마다 `cancel.check()` 를 불러 멈추면 스트림을 닫는다
@@ -61,12 +64,32 @@
 - 또 넘기면 해요체 안내 `TimedOut`(`TIMEOUT_HINT`)
 - 넘긴 시도도 사용량에 실패로
 - 배치는 429 · 서버 오류 · 시간 한도 경로 밖
+- `BatchLLM` 은 slot 마다 보낸 프롬프트 지문(`keys`, `BatchLLM.key`)을 남긴다. 다시 붙을 때 지문이 다르면 기다리던 작업을 취소하고 새로 보낸다
+- 형식 고치기 slot(`<slot>:fix`)도 처음 프롬프트의 지문으로 맞춰 본다. 지문이 없는 예전 기록은 그대로 다시 붙는다
 - 모든 요청 맨 끝(사용자 메시지)에 `POLICY_NOTE` 한 줄(`with_note`, Gemini · 배치 · 로컬 · `claude.py` 두 백엔드가 보내기 직전에). 수위 지시는 프롬프트에 두지 않는다
 - 응답 읽기 `_validate`: 통째로 읽히지 않으면 글 속 최상위 JSON 객체(`_json_objects`)를 뒤에서부터 읽는다(생각 글이 앞에 새는 응답, Gemini · 배치 · Claude 공통)
 - 형식 고치기 `repair_prompt`: 응답에 JSON 객체가 없으면 처음 요청을 그대로 다시 보낸다
 - Gemini 응답이 끝난 이유는 `last_finish`(두 번째도 실패하고 `MAX_TOKENS` 면 `SchemaMismatch` 글에 길이 한도를 적는다)
 - Gemini 추론 강도(`GeminiLLM.effort`, `settings.GEMINI_EFFORTS`)는 `thinking_config.thinking_level` 로 넘긴다(일반 호출과 배치)
 - 강도를 비우면 `thinking_config` 를 보내지 않는다(모델 기본값)
+- Gemini 명시 캐시(`GeminiLLM._cached`)는 플롯 대화 단계(`stage == "chat"`)에서 `settings.gemini_cache` 가 켜져 있을 때만 쓴다
+- 같은 종류 직전 요청과 겹치는 앞부분은 `claude.shared_cut` 으로 찾는다(열쇠 `("gemini", vertex, 모델, 시스템, 작품)`, 단락 경계)
+- 열쇠에 작품(`usage.context()` 의 project)을 넣는다. 두 작품의 대화가 번갈아 와도 서로의 겹침을 지우지 않는다
+- 겹치는 앞부분이 `GEMINI_CACHE_MIN_CHARS`(16,000자) 이상이고 덮는 캐시가 없으면 `client.caches.create`(시스템 프롬프트 + 앞부분, `GEMINI_CACHE_TTL` 600초)로 만든다
+- 캐시 만들기는 `GEMINI_CACHE_CREATE_TIMEOUT`(120초)까지만 기다린다. 늦으면 일반 호출로 넘어가고, 그 전에 작업 멈추기(`cancel.check`)를 본다
+- 캐시 만들기도 사용량에 따로 기록한다(작업 이름 뒤에 '캐시 만들기', 입력은 응답의 `total_token_count`). 보통 입력 요금으로 매긴다(가정)
+- 만든 캐시는 `(vertex, 모델, 시스템 해시, 계정)` 별로 앞부분 길이 · 해시 · 이름 · 만료 시각으로 기억한다(`_GEM_CACHES`, `_cache_find`)
+- 계정(`GeminiLLM.cache_owner`)은 API 키나 Vertex 서비스 계정 · 프로젝트 · 위치의 해시다. 키를 바꾸면 앞 키로 만든 캐시를 보내지 않는다
+- 살아 있는 캐시가 겹치는 앞부분의 절반 이상을 덮으면 그것을 다시 쓴다. 만료 `GEMINI_CACHE_MARGIN`(60초) 전부터는 쓰지 않는다
+- 캐시를 쓰는 요청은 `GenerateContentConfig(cached_content=이름)` 과 나머지 글만 보낸다. 시스템 프롬프트는 넣지 않는다(API 가 거절한다)
+- 캐시를 만들거나 쓰다 난 오류는 모두 일반 호출로 넘어간다(`_cache_failed`). 넘어간 호출 하나만 사용량에 기록한다
+- 429 · 시간 초과 · 서버 오류가 아닌 캐시 오류는 그 모델의 캐시를 `GEMINI_CACHE_BACKOFF`(1시간) 동안 끈다
+- 캐시를 쓰다 난 403 · 404(만료되거나 다른 키로 만든 캐시)는 그 캐시만 잊는다
+- 캐시 만들기의 400(앞부분이 최소 캐시 크기보다 작을 수 있다)은 그 길이 이하만 피한다(`_GEM_CACHE_FLOOR`). `GEMINI_CACHE_BAD_SIZE`(3)번 잇따르면 모델을 끈다
+- 캐시를 쓰는 요청이 429 · 시간 초과 · 서버 오류면 일반 호출로 넘어가지 않고 `_call` 의 다시 부르기에 맡긴다
+- Vertex AI 도 같은 경로다. SDK 가 Vertex 캐시를 지원하지만 실제 Vertex(`global` 위치)에서 되는지는 재지 않았다. 안 되면 첫 오류 뒤 1시간씩 꺼진다
+- 캐시 저장 요금은 사용량 비용 추정에 넣지 않는다. 기본값 근거(저장 · 만들기 요금 가정)는 `llm.py` 의 `GEMINI_CACHE_TTL` 위 주석
+- 시험은 `tests/test_gemini_cache.py`(가짜 google-genai 클라이언트)
 - 생각 토큰도 출력 한도(`out_cap`)에 든다
 - 설정 화면의 Gemini 연결 방식은 `static/vertex.js`
 - 환경 변수
@@ -78,6 +101,7 @@
   - `CANON_CONFIG`: 설정 파일 위치(기본 `~/.canon/config.json`, `settings.path`)
   - `CANON_EFFORT_<단계>`: 단계별 추론 강도(low · medium · high · xhigh · max, `settings.stage_effort`). Claude · Gemini 만 쓴다
   - `CANON_GEMINI_AUTH`: Gemini 연결 방식(key | vertex)
+  - `CANON_GEMINI_CACHE`: 0 · off 면 Gemini 명시 캐시를 끈다(기본 agent: 플롯 대화 단계만, `settings.gemini_cache`)
   - `CANON_GEMINI_TIMEOUT`: Gemini 응답을 기다리는 초(기본 600)
   - `CANON_HOME`: 프로젝트 저장 위치(기본 `projects/`)
   - `CANON_JUDGE`: 판단기(local | mock, `judge.env_choice`)
@@ -126,6 +150,9 @@
 - `totals(rows)` 는 모은 줄의 입력 · 출력(생각 포함) 토큰과 `row_cost` 비용 합이다. 가격을 모르는 줄이 있으면 비용은 None
 - 가격표(`DEFAULT_PRICES` + 설정의 `prices`, 날짜별 `since`)로 볼 때 비용을 계산한다
 - 자동 집필 추정도 같은 가격표를 쓴다
+- 백엔드가 더 준 칸(`EXTRA`: turns · stop · api_seconds · models · resent)은 있을 때만 줄에 남는다. 옛 줄에는 없다
+- `cache_rate(rows)` 는 캐시 비율이다. `resent` 를 입력과 캐시 양쪽에서 뺀다. 비용 계산은 `resent` 를 보지 않는다
+- `summary` 의 합계는 `resent` 합과 `cache_rate` 를 준다. 화면 토큰 타일이 다시 보낸 입력이 있을 때 뺀 캐시 비율을 보인다
 - 화면은 `static/usage.js`
 - `usage.js` 는 손가락 기기에서 차트 안내를 '막대를 누르면 날짜별 값을 봐요' 로 보인다(←/→ 키 안내는 aria-label 에만)
 - 화면 차례: 기간 · 작품 거르기 → 비용 타일 → 날짜별 막대 → '어디에 썼나' 막대 목록 → 호출 목록 → 접힌 가격표
