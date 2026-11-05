@@ -78,6 +78,7 @@ class LogEntry(BaseModel):
     message: str
     tokens_in: int = 0
     tokens_out: int = 0
+    calls: int = Field(1, description="이 단계에서 부른 LLM 호출 수. tokens_out 은 그 합이다 (추정은 호출 하나의 평균으로 나눠 쓴다)")
     seconds: float = 0.0
     batch: bool = False
 
@@ -269,7 +270,8 @@ def _measured(name: str | None) -> dict[str, dict[str, float]]:
     for e in (run.log if run else []):
         if e.step in SECONDS and e.seconds and e.level == "info":
             acc.setdefault(e.step + (":batch" if e.batch else ""), []).append(e)
-    return {k: {"out": sum(x.tokens_out for x in v) / len(v), "seconds": sum(x.seconds for x in v) / len(v)}
+    # tokens_out 은 단계 안 모든 호출의 합이라 호출 수로 나눠 호출 하나의 평균을 낸다 (estimate 가 호출마다 더한다)
+    return {k: {"out": sum(x.tokens_out for x in v) / max(1, sum(x.calls for x in v)), "seconds": sum(x.seconds for x in v) / len(v)}
             for k, v in acc.items()}
 
 
@@ -461,7 +463,8 @@ class Runner:
             self.run.tokens_out += tout
             if c:
                 self.run.cost = round(self.run.cost + c, 4)
-        return out, dict(step=stage, tokens_in=tin, tokens_out=tout, seconds=round(time.time() - t, 1), batch=use_batch)
+        return out, dict(step=stage, tokens_in=tin, tokens_out=tout, calls=max(1, len(rows)),
+                         seconds=round(time.time() - t, 1), batch=use_batch)
 
     def loop(self) -> None:
         run = self.run

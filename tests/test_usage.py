@@ -111,7 +111,7 @@ def test_autorun_stage_counts_retry_tokens(monkeypatch):
     runner = autorun.Runner(autorun.Control("등대", autorun.Run(target=1)))
     out, info = runner.call("check", 1, lambda m: m.json("s", "p", StyleProfile))
     assert isinstance(out, StyleProfile)
-    assert (info["tokens_in"], info["tokens_out"]) == (2000, 500)
+    assert (info["tokens_in"], info["tokens_out"], info["calls"]) == (2000, 500, 2)
     assert (runner.run.tokens_in, runner.run.tokens_out) == (2000, 500)
     assert runner.run.cost == pytest.approx(round(2 * ONE_CALL, 4))
     assert {r["source"] for r in usage.read()} == {"autorun"}

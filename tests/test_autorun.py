@@ -224,6 +224,27 @@ def test_estimate(demo, monkeypatch):
     assert autorun.estimate(p, 6, True, Policy())["batch_rounds"] == 6  # 본문은 로컬이라 배치 없음
 
 
+def test_estimate_divides_measured_output_by_calls(demo, monkeypatch):
+    """로그의 tokens_out 은 단계 안 모든 호출의 합이다. 추정은 호출 하나의 평균으로 나눠 호출마다 더한다."""
+    p = store.load(demo)
+    p.settings.check_motion = False
+    p.settings.stage_extract = False
+    monkeypatch.setenv("CANON_LLM", "gemini")
+    log = [autorun.LogEntry(at="t", step="check", message="m", tokens_out=4000, calls=4, seconds=10),
+           autorun.LogEntry(at="t", step="check", message="m", tokens_out=4000, calls=4, seconds=10)]
+    autorun._write(demo, autorun.Run(target=6, log=log))
+    assert autorun._measured(demo)["check"]["out"] == 1000
+    est = autorun.estimate(p, 6, False, Policy(), name=demo)
+    assert est["calls"]["check"] == 6
+    base = autorun.estimate(p, 6, False, Policy(check=False), name=demo)
+    assert est["tokens_out"] - base["tokens_out"] == 6 * 1000  # 호출 수만큼 부풀지 않는다
+    old = json.loads(autorun._path(demo).read_text(encoding="utf-8"))
+    for e in old["log"]:
+        del e["calls"]  # 호출 수가 없는 옛 기록은 호출 하나로 읽는다
+    autorun._path(demo).write_text(json.dumps(old), encoding="utf-8")
+    assert autorun._measured(demo)["check"]["out"] == 4000
+
+
 def test_serial_estimate_sizes_old_passages_without_search(demo, monkeypatch):
     """장편 추정은 검수의 옛 단락을 찾지 않고(context.recall) 예산 크기로 센다. 찾아서 잰 길이와 거의 같다."""
     from canon import context, prompts
