@@ -1846,6 +1846,22 @@ class AddressRecord(BaseModel):
     quote: str = ""
 
 
+class DismissedItems(BaseModel):
+    """상태 승인 화면에서 작가가 체크를 풀어 반영하지 않은 항목. StateDelta 와 같은 이름의 칸만 둔다 (반영 기록에서 다시 볼 수 있게)."""
+    character_updates: list[CharacterState] = Field(default_factory=list)
+    events: list[StoryEvent] = Field(default_factory=list)
+    relationship_updates: list[Relationship] = Field(default_factory=list)
+    secrets_added: list[Secret] = Field(default_factory=list)
+    new_facts: list[str] = Field(default_factory=list)
+    foreshadow_planted: list[Foreshadow] = Field(default_factory=list)
+    foreshadow_resolved: list[str] = Field(default_factory=list)
+    foreshadow_clues: list[ForeshadowClue] = Field(default_factory=list)
+    new_characters: list[Character] = Field(default_factory=list)
+    new_places: list[NewPlace] = Field(default_factory=list)
+    deadlines_added: list[Deadline] = Field(default_factory=list)
+    deadlines_done: list[str] = Field(default_factory=list)
+
+
 class StateDelta(BaseModel):
     """한 화를 쓴 뒤 AI 가 제안하는 상태 변경안. 사용자가 승인하면 반영된다."""
     episode: int
@@ -1877,6 +1893,9 @@ class StateDelta(BaseModel):
     # 프로그램이 채운다 (features.clean). AI 응답 형식에서 뺀다. warnings 와 같은 차례이고, 짧으면 모자란 칸은 "" 로 본다
     warn_to: SkipJsonSchema[list[str]] = Field(
         default_factory=list, description="warnings 와 같은 차례의 인물 id: 그 경고가 한 인물에 대한 것이면 id, 아니면 \"\". 상태 승인 화면이 그 인물 줄에 붙인다")
+    # 프로그램이 채운다 (상태 승인 화면 pickedDelta · pace.hold). AI 응답 형식에서 뺀다. 반영 기록(history)에 남고 반영 취소하면 그 화 기록과 함께 빠진다
+    dismissed: SkipJsonSchema[DismissedItems] = Field(
+        default_factory=DismissedItems, description="작가가 체크를 풀었거나 자동 반영이 뺀 항목. 반영하지 않고 기록으로만 남긴다")
 
 
 class NameOption(BaseModel):

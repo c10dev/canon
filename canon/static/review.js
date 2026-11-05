@@ -3,11 +3,12 @@
 'use strict';
 
 
-/** 체크한 항목만 남긴 변경안. 반영과 관계 미리 보기에 같이 쓴다. */
+/** 체크한 항목만 남긴 변경안 (체크를 푼 항목은 dismissed 에). 반영과 관계 미리 보기에 같이 쓴다. */
 function pickedDelta(n) {
   const d = S.deltas[n];
   const pick = (prefix, list) => list.filter((_, i) => S.picks[prefix + i]);
   // 화면에서 고친 글은 앞뒤 공백을 지우고, 비운 사실 · 알게 된 정보는 뺀다 (빈 감정 · 목표 · 위치 · 메모는 서버가 그대로 두고, 지우기는 cleared 로 간다)
+  const drop = (prefix, list) => (list || []).filter((_, i) => !S.picks[prefix + i]);
   const clean = (list) => list.map((x) => x.trim()).filter(Boolean);
   return {
     ...d,
@@ -27,6 +28,21 @@ function pickedDelta(n) {
     setting_changes: pick('t', d.setting_changes || []),
     cast_added: pick('a', d.cast_added || []),
     address_changes: pick('h', d.address_changes || []),
+    // 체크를 푼 항목은 버리지 않고 반영 기록에 남긴다 (StateDelta.dismissed). 설정 바꾸기 · 호칭 · 등장 인물 붙이기는 빼 둔다
+    dismissed: {
+      character_updates: drop('c', d.character_updates),
+      events: drop('e', d.events),
+      secrets_added: drop('s', d.secrets_added),
+      relationship_updates: drop('r', d.relationship_updates),
+      new_facts: clean(drop('f', d.new_facts)),
+      foreshadow_planted: drop('p', d.foreshadow_planted),
+      foreshadow_resolved: drop('x', d.foreshadow_resolved),
+      foreshadow_clues: drop('q', d.foreshadow_clues),
+      new_characters: drop('n', d.new_characters),
+      new_places: drop('l', d.new_places),
+      deadlines_added: drop('k', d.deadlines_added),
+      deadlines_done: drop('o', d.deadlines_done),
+    },
   };
 }
 
@@ -548,7 +564,32 @@ function historyView(h) {
       ${withFoot(tlHistory(h), toolLink('timeline', '작품 속 시간'))}${withFoot(scHistory(h), cast)}${withFoot(addressHistory(h), cast)}
       ${(h.secrets_added || []).length ? `<section class="card"><h2>새로 생긴 비밀</h2>${li(h.secrets_added.map((x) => `<strong>${esc(charName(x.owner))}</strong> ${esc(x.content)}`))}</section>` : ''}
       ${(h.relationship_updates || []).length ? `<section class="card"><h2>관계 유형 · 설명 변경</h2>${li(h.relationship_updates.map((r) => `${esc(charName(r.a))} ↔ ${esc(charName(r.b))} · ${esc(r.type)}${r.description ? ` · ${esc(r.description)}` : ''}`))}</section>` : ''}
-    </div>`;
+    </div>${dismissedView(h)}`;
+}
+
+/** 반영하지 않고 빼 둔 항목 (StateDelta.dismissed). 상태 승인 화면에서 체크를 풀었거나 자동 반영이 뺀 것. 접어 둔다 */
+function dismissedView(h) {
+  const x = h.dismissed || {};
+  const n = deltaCount(x);
+  if (!n) return '';
+  const fs = (id) => { const f = P().foreshadows.find((y) => y.id === id); return f ? f.description : id; };
+  const dl = (id) => { const y = (P().timeline.deadlines || []).find((z) => z.id === id); return y ? y.what || id : id; };
+  const rows = [
+    ...(x.character_updates || []).map((u) => `인물 상태 · <strong>${esc(charName(u.character_id))}</strong> ${esc([u.emotional_state, u.current_goal, u.location].filter(Boolean).join(' / '))}`),
+    ...(x.events || []).map((ev) => `관계 사건 · ${esc(charName(ev.actor))} → ${esc(charName(ev.target))} · ${esc(ev.kind)} ${INTENSITY[ev.intensity] || ''}`),
+    ...(x.relationship_updates || []).map((r) => `관계 유형 · ${esc(charName(r.a))} ↔ ${esc(charName(r.b))} · ${esc(r.type)}`),
+    ...(x.secrets_added || []).map((s) => `비밀 · <strong>${esc(charName(s.owner))}</strong> ${esc(s.content)}`),
+    ...(x.new_facts || []).map((f) => `사실 · ${esc(f)}`),
+    ...(x.foreshadow_planted || []).map((f) => `복선 심음 · ${esc(f.description)}`),
+    ...(x.foreshadow_resolved || []).map((id) => `복선 회수 · ${esc(fs(id))}`),
+    ...(x.foreshadow_clues || []).map((q) => `복선 문장 · ${esc(fs(q.foreshadow))} “${esc(q.quote)}”`),
+    ...(x.new_characters || []).map((c) => `새 인물 · <strong>${esc(c.name || c.id)}</strong>`),
+    ...(x.new_places || []).map((p) => `새 장소 · ${placeLabel(p)}`),
+    ...(x.deadlines_added || []).map((k) => `기한 · ${esc(k.what || k.id)}`),
+    ...(x.deadlines_done || []).map((id) => `기한 닫힘 · ${esc(dl(id))}`),
+  ];
+  return `<details class="card"><summary>빼 둔 항목 ${n}개</summary><div class="small" style="margin:6px 0">반영하지 않은 항목이에요. 기록으로만 남아요.</div>
+    <ul style="padding-left:18px;display:flex;flex-direction:column;gap:6px;font-size:0.8125rem;line-height:1.5">${rows.map((r) => `<li>${r}</li>`).join('')}</ul></details>`;
 }
 
 // ----- 관계 표시 (숫자/말) -----
