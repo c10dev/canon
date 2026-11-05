@@ -599,7 +599,9 @@ class MockLLM:
             return cue
         if "\n# 다듬을 본문\n" in prompt:  # 서술 다듬기: 대사 · 효과음 줄은 그대로, 서술 줄 끝만 바꾼다
             body = prompt.split("\n# 다듬을 본문\n", 1)[1].split("\n\n# 할 일\n", 1)[0]
-            return "\n".join(x if not x.strip() or x.strip().startswith(("\"", "“", "─")) else x.rstrip(".") + "…" for x in body.split("\n"))
+            from .pipeline import fixed_lines
+            keep = set(fixed_lines(body))
+            return "\n".join(x if not x.strip() or x.strip() in keep else x.rstrip(".") + "…" for x in body.split("\n"))
         if "화 다시 쓰기\n" in prompt:  # 다시 생성: 지난 판과 다른 글을 낸다
             return "바람이 멎었다. 서윤은 등대 문을 밀었다.\n\n\"이번엔 내가 먼저 갈게.\"\n\n(mock 다시 쓴 본문)"
         return "바람이 불었다. 서윤은 등대 앞에 섰다.\n\n\"됐어, 내가 할게.\"\n\n(mock 본문)"

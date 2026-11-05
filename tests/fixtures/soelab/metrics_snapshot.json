@@ -1,5 +1,5 @@
 {
- "current": "2026-11-b",
+ "current": "2026-11-c",
  "results": {
   "01": {
    "copied": [],
@@ -42,7 +42,10 @@
     "sentence_len_cv": 0.56,
     "sentence_len_mean": 22.9,
     "sentences": 53,
+    "sfx_marks": {},
+    "sfx_per_1k": 0.0,
     "short_ending_ratio": 0.0,
+    "sound_word_per_1k": 4.68,
     "style_distance": 1.01,
     "style_spread": null
    },
@@ -80,7 +83,10 @@
     "sentence_len_cv": 0.48,
     "sentence_len_mean": 18.9,
     "sentences": 54,
+    "sfx_marks": {},
+    "sfx_per_1k": 0.0,
     "short_ending_ratio": 0.18,
+    "sound_word_per_1k": 2.73,
     "style_distance": 1.13,
     "style_spread": null
    },
@@ -121,7 +127,10 @@
     "sentence_len_cv": 0.55,
     "sentence_len_mean": 15.5,
     "sentences": 63,
+    "sfx_marks": {},
+    "sfx_per_1k": 0.0,
     "short_ending_ratio": 0.42,
+    "sound_word_per_1k": 0.0,
     "style_distance": 1.11,
     "style_spread": null
    },
@@ -167,7 +176,10 @@
     "sentence_len_cv": 0.51,
     "sentence_len_mean": 39.1,
     "sentences": 30,
+    "sfx_marks": {},
+    "sfx_per_1k": 0.0,
     "short_ending_ratio": 0.0,
+    "sound_word_per_1k": 0.0,
     "style_distance": 1.17,
     "style_spread": null
    },
@@ -212,7 +224,10 @@
     "sentence_len_cv": 0.51,
     "sentence_len_mean": 14.1,
     "sentences": 68,
+    "sfx_marks": {},
+    "sfx_per_1k": 0.0,
     "short_ending_ratio": 0.21,
+    "sound_word_per_1k": 1.89,
     "style_distance": 1.64,
     "style_spread": null
    },
@@ -265,7 +280,10 @@
    "sentence_len_cv": 0.67,
    "sentence_len_mean": 19.9,
    "sentences": 536,
+   "sfx_marks": {},
+   "sfx_per_1k": 0.0,
    "short_ending_ratio": 0.17,
+   "sound_word_per_1k": 1.92,
    "style_distance": null,
    "style_spread": 0.3556
   },
@@ -279,6 +297,10 @@
   "2026-11-b": {
    "constants": "440dc8b158ad882e5333a5dc5439d0c594e3ca3702a11357e87cbc451056ce07",
    "results": "311c8b63699fbdad838ee92baee6b06a39e633ee5cb28db62b8cae1887ea6def"
+  },
+  "2026-11-c": {
+   "constants": "4d34dbbf2437225638daf815f59074b0d2628cfb849e2374d7c2655e4f2bc37e",
+   "results": "02c23b9120963da2eddb0764a28746d11efa456b48a5514ca1b67c225cd217ad"
   }
  }
 }

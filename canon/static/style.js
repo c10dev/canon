@@ -6,7 +6,7 @@
 function emptyProfile() {
   return {
     narration_pov: '', tense: '', sentence_rhythm: '', description_density: '', dialogue_ratio: '', dialogue_style: '',
-    inner_monologue: '', pacing: '', scene_transition: '', vocabulary: '', dos: [], donts: [], banned_phrases: [], markers: [], devices: [], sample_passages: [],
+    inner_monologue: '', pacing: '', scene_transition: '', vocabulary: '', sound_effects: '', dos: [], donts: [], banned_phrases: [], markers: [], devices: [], sample_passages: [],
   };
 }
 
@@ -14,7 +14,7 @@ function emptyProfile() {
 // 작품 화면(base 'style')과 라이브러리 항목(base 'profile', root 'lib')이 같은 카드를 쓴다
 const STYLE_CARDS = [['narr', '서술'], ['rules', '지킬 · 피할 것'], ['markers', '문체 표지'], ['devices', '가끔 쓰는 장치'], ['passages', '대표 문단']];
 const NARR_KEYS = ['narration_pov', 'tense', 'sentence_rhythm', 'description_density', 'dialogue_ratio', 'dialogue_style',
-  'inner_monologue', 'pacing', 'scene_transition', 'vocabulary'];
+  'inner_monologue', 'pacing', 'scene_transition', 'vocabulary', 'sound_effects'];
 
 /** 카드에 든 프로필 칸 (목차 수 · 빈 카드 · 대화 변경안 표시). */
 const styleCardKeys = (id) => (id === 'narr' ? NARR_KEYS
@@ -25,9 +25,9 @@ function styleCardEmpty(id, st) {
   return !styleCardKeys(id).some((k) => (Array.isArray(st[k]) ? st[k].length > 0 : String(st[k] || '').trim() !== ''));
 }
 
-/** 목차에 보일 수: 서술은 채운 칸/10, 나머지는 항목 수. */
+/** 목차에 보일 수: 서술은 채운 칸/전체 칸, 나머지는 항목 수. */
 function styleCount(id, st) {
-  if (id === 'narr') return `${NARR_KEYS.filter((k) => String(st[k] || '').trim()).length}/10`;
+  if (id === 'narr') return `${NARR_KEYS.filter((k) => String(st[k] || '').trim()).length}/${NARR_KEYS.length}`;
   return String(styleCardKeys(id).reduce((s, k) => s + (st[k] || []).length, 0));
 }
 
@@ -125,7 +125,7 @@ const pfNone = '<span class="muted">비어 있음</span>';
 function pfRead(id, prof, root, hot) {
   const list = (xs) => (xs || []).length ? `<ul class="pf-list">${xs.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : `<div class="small">${pfNone}</div>`;
   if (id === 'narr') {
-    return `<dl class="pf-dl">${STYLE_KEYS.slice(0, 10).map(([k, l]) => `<dt${hot.has(k) ? ' class="hot"' : ''}>${l}${hot.has(k) ? ' <span class="chip hot">변경안</span>' : ''}</dt><dd>${String(prof[k] || '').trim() ? esc(prof[k]) : pfNone}</dd>`).join('')}</dl>`;
+    return `<dl class="pf-dl">${STYLE_KEYS.slice(0, NARR_KEYS.length).map(([k, l]) => `<dt${hot.has(k) ? ' class="hot"' : ''}>${l}${hot.has(k) ? ' <span class="chip hot">변경안</span>' : ''}</dt><dd>${String(prof[k] || '').trim() ? esc(prof[k]) : pfNone}</dd>`).join('')}</dl>`;
   }
   if (id === 'rules') {
     const tag = (k) => (hot.has(k) ? ' <span class="chip hot">변경안</span>' : '');
@@ -160,7 +160,7 @@ function pfEdit(id, base, root, hot) {
   const prof = getPath(bindRoot(root), base);
   const f = (label, key, x = {}) => input(hot.has(key) ? `${label} · 대화 변경안` : label, `${base}.${key}`,
     o({ rows: 1, autogrow: true, ...x, cls: hot.has(key) ? 'chat-target' : '' }));
-  if (id === 'narr') return `<div class="grid-2">${STYLE_KEYS.slice(0, 10).map(([key, label]) => f(label, key)).join('')}</div>`;
+  if (id === 'narr') return `<div class="grid-2">${STYLE_KEYS.slice(0, NARR_KEYS.length).map(([key, label]) => f(label, key)).join('')}</div>`;
   if (id === 'rules') {
     return `<div class="grid-2">
         <div class="note ok">${f('지킬 것', 'dos', { kind: 'list', rows: 3 })}</div>
@@ -414,6 +414,13 @@ function baselineRows(b, when = '문체 분석을 하면') {
 }
 
 /** 기준 지표 [이름, 값, 풀이]. long 이면 표의 긴 이름, 아니면 띠 칩의 짧은 이름. */
+/** 효과음 줄 기준 값: '0.52 (-! 40%)'. 끝 표시 몫(sfx_marks)이 없으면 수만, 옛 기준이면 '–' (metrics.measure). */
+function sfxRate(b) {
+  if (b.sfx_per_1k == null) return '–';
+  const top = Object.entries(b.sfx_marks || {})[0];
+  return `${b.sfx_per_1k.toFixed(2)}${top ? ` (${top[0]} ${Math.round(top[1] * 100)}%)` : ''}`;
+}
+
 function baselineItems(b, long = false) {
   const pct = (v) => (v == null ? '–' : `${Math.round(v * 100)}%`);
   const rows = [
@@ -424,8 +431,10 @@ function baselineItems(b, long = false) {
     ['과거형 비율', pct(b.past_tense_ratio), "'~다'로 끝나는 서술 문장 중 '~했다', '~었다'처럼 과거형으로 끝나는 비율이에요. 그런 문장이 없으면 –로 보여요."],
     ['어휘 다양도', b.mattr == null ? '–' : b.mattr.toFixed(2), '어절 100개씩 창을 옮기며 잰 서로 다른 어절의 비율이에요(0~1). 높을수록 같은 말을 덜 되풀이해요. 100어절보다 짧으면 재지 않아요.'],
     ['쉼표 문장 비율', pct(b.comma_sentence_ratio), '대사를 뺀 서술 문장 중 쉼표가 들어간 문장의 비율이에요. AI가 쓴 한국어 글은 사람 글보다 높은 편이에요.'],
+    ['효과음 줄 (1,000자당)', sfxRate(b), "'쾅!', '터벅, 터벅.'처럼 소리나 몸짓만 적은 한 줄 문단의 수예요. 괄호 안은 가장 많이 쓴 끝 표시예요. 다시 분석하기 전에 잰 기준이면 –로 보여요."],
+    ["'소리' 낱말 (1,000자당)", b.sound_word_per_1k == null ? '–' : b.sound_word_per_1k.toFixed(2), "'소리가 났다'처럼 소리를 적지 않고 알리는 낱말이에요. 목소리 · 숨소리와 '소리치다'는 세지 않아요. 레퍼런스 웹소설은 0.3~0.6, AI 글은 1 안팎이었어요. 소리의 결을 풀어 쓰는 문장도 이 낱말을 써서, 낮을수록 좋은 건 아니에요."],
   ];
-  const short = ['문장 평균', '길이 변화폭', '문단 평균', '대사', '과거형', '어휘 다양도', '쉼표 문장'];
+  const short = ['문장 평균', '길이 변화폭', '문단 평균', '대사', '과거형', '어휘 다양도', '쉼표 문장', '효과음 줄', "'소리'"];
   return long ? rows : rows.map(([, v, why], i) => [short[i], v, why]);
 }
 

@@ -899,7 +899,7 @@ function revStyleCard() {
   const busy = !!revRunning();
   const kv = (k, v) => (v ? `<dt>${k}</dt><dd>${esc(v)}</dd>` : '');
   const body = st ? `<dl class="rev-kv">${kv('시점', st.narration_pov)}${kv('시제', st.tense)}${kv('문장 리듬', st.sentence_rhythm)}${kv('묘사 밀도', st.description_density)}
-      ${kv('대사 비중', st.dialogue_ratio)}${kv('대사 방식', st.dialogue_style)}${kv('속생각', st.inner_monologue)}${kv('속도', st.pacing)}${kv('장면 전환', st.scene_transition)}${kv('어휘', st.vocabulary)}</dl>
+      ${kv('대사 비중', st.dialogue_ratio)}${kv('대사 방식', st.dialogue_style)}${kv('속생각', st.inner_monologue)}${kv('속도', st.pacing)}${kv('장면 전환', st.scene_transition)}${kv('어휘', st.vocabulary)}${kv('효과음 표기', st.sound_effects)}</dl>
       ${(st.markers || []).length ? `<div class="small">표지: ${st.markers.map((m) => `«${esc(m.text)}»`).join(' · ')}</div>` : ''}
       <div class="small">${esc(L.style_model)} · ${esc(fmtDateTime(L.style_at))}${cur && !cur.basis_ok ? ' <span class="chip">원문 앞부분이 바뀌었어요</span>' : ''}</div>`
     : list.length ? '<p class="small">지금 고른 프로필이 없어요. 아래 기록에서 고르거나 새로 만드세요.</p>'

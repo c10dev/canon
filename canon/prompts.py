@@ -358,6 +358,12 @@ def setup_chat_prompt(p: Project, message: str, mode: str = "") -> str:
 {"- 이미 쓴 화의 본문은 바뀌지 않습니다. 쓴 내용과 어긋나는 설정 변경이면 reply 에서 어느 화와 어긋나는지 알립니다." + chr(10) if written else ""}- options 는 비웁니다."""
 
 
+def sfx_note(sample: str) -> str:
+    """문체 분석 요청에 붙이는 원문 효과음 줄 실측 한 줄 (metrics.sfx_summary). 효과음 줄이 적으면 빈 글."""
+    line = metrics.sfx_summary(sample)
+    return f"\n프로그램이 원문에서 센 값: {line}\n빈도와 끝 표시는 이 값을 따릅니다." if line else ""
+
+
 def style_prompt(sample: str, passages: bool = True) -> str:
     """문체 프로필 요청. passages 가 거짓이면 대표 문단을 받지 않는다 (역설계 실험은 받은 문단을 버린다.
     장치가 없는 문단을 고르느라 생각이 길어지고, 그 생각이 본문에 새어 응답이 깨진 일이 있었다)."""
@@ -374,6 +380,9 @@ per_1k 는 0 으로 두세요. 원문에서 직접 셉니다.
 devices 에는 원문에서 특정 상황에만 쓰는 장면 장치(예: 자문자답으로 꼬리를 무는 망상, 장면 끝 독백 한 줄)를 0~3개 적습니다.
 매 화 넣으면 버릇이 되는 것들이라 dos 나 inner_monologue 같은 칸에 규칙으로 적지 말고 devices 에만 적습니다.
 when 은 쓰는 상황, cues 는 그 장치를 알아보는 글자 1~3개(원문에 적힌 그대로), every 는 원문에서 나온 빈도로 짐작한 최소 간격(화), example 은 원문 한두 줄입니다.{skip}
+sound_effects 에는 인물 행동이 내는 소리와 몸짓을 원문이 적는 법을 씁니다: '쾅!' 같은 한 줄 문단으로 세우는지 문장 안에 붙이는지,
+앞 기호, 끝 표시(-! · - · … · ! · .)를 어떤 소리에 쓰는지, 모음을 늘여 세기를 나타내는지, 소리 줄 다음 줄에 무엇을 적는지,
+'소리가 났다'처럼 소리를 알리는 문장을 쓰는지. 예는 원문에 적힌 소리 낱말 그대로 듭니다. 원문에 그런 소리가 거의 없으면 그렇다고 한 줄만 씁니다.{sfx_note(sample)}
 
 [예시 텍스트]
 {sample}"""
@@ -452,7 +461,7 @@ STYLE_REF_LIMIT = 4000    # 참고할 화 본문을 이만큼까지 넣는다
 STYLE_KEY_LABELS = {
     "narration_pov": "시점", "tense": "시제", "sentence_rhythm": "문장 리듬", "description_density": "묘사 밀도",
     "dialogue_ratio": "대사 비율", "dialogue_style": "대사 방식", "inner_monologue": "내면 독백", "pacing": "전개 속도",
-    "scene_transition": "장면 전환", "vocabulary": "어휘", "dos": "지킬 것", "donts": "피할 것",
+    "scene_transition": "장면 전환", "vocabulary": "어휘", "sound_effects": "효과음 표기", "dos": "지킬 것", "donts": "피할 것",
     "banned_phrases": "금지 표현", "markers": "문체 표지", "devices": "가끔 쓰는 장치",
 }
 
@@ -2816,7 +2825,7 @@ POLISH_RULES = """# 할 일
 위 [다듬을 본문]의 서술 문장만 다듬어, 본문 전체를 다시 냅니다.
 
 지킬 것:
-- 따옴표로 여는 대사 줄과 '─'로 여는 효과음 줄은 한 글자도 바꾸지 않고, 자리도 옮기지 않습니다.
+- 따옴표로 여는 대사 줄과 효과음 줄('─'로 여는 줄, '쾅!' · '터벅, 터벅.'처럼 소리나 몸짓만 적은 한 줄 문단)은 한 글자도 바꾸지 않고, 자리도 옮기지 않습니다.
 - 사건, 순서, 사실, 인물의 행동과 위치는 바꾸지 않습니다. 새 정보를 더하거나 있던 정보를 빼지 않습니다.
 - 스타일 프로필의 문단 규칙과 어휘 규칙은 그대로 따릅니다.
 

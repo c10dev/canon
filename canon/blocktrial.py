@@ -18,7 +18,7 @@ from .stattrial import before
 
 # 조건: (화면 이름, 설명, 사본 바꾸기, write_episode 인자)
 _STYLE_TEXT = ("narration_pov", "tense", "sentence_rhythm", "description_density", "dialogue_ratio", "dialogue_style",
-               "inner_monologue", "pacing", "scene_transition", "vocabulary")
+               "inner_monologue", "pacing", "scene_transition", "vocabulary", "sound_effects")
 
 
 def _same(q: Project) -> None:
