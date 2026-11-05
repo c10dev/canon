@@ -1,6 +1,8 @@
 """사용량 기록과 비용 추정 (canon/usage.py) 테스트. 실제 API 대신 가짜 Gemini 클라이언트를 쓴다."""
+import contextvars
 import os
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
 import pytest
@@ -80,6 +82,39 @@ def test_schema_retry_is_recorded_as_failed_then_retry():
     llm = fake_gemini(["{", "{"])
     with pytest.raises(SchemaMismatch):
         llm.json("s", "p", StyleProfile)
+
+
+ONE_CALL = (600 * 2 + 400 * 0.1 + 250 * 10) / 1e6  # fake_gemini 한 번: 입력 600 + 캐시 400 + 출력·생각 250 (gemini-4-argon)
+
+
+def test_collect_sums_every_call_including_threads():
+    good = StyleProfile().model_dump_json()
+    llm = fake_gemini(["{\"narration\": 3", good, "본문", "본문"])
+    with usage.collect() as rows:
+        llm.json("s", "p", StyleProfile)  # 형식 고치기 재시도로 두 번 부른다
+        with ThreadPoolExecutor(1) as pool:  # 검수의 동작 검사처럼 다른 스레드에서 부른 것도 모인다
+            pool.submit(contextvars.copy_context().run, llm.text, "s", "p").result()
+    assert len(rows) == 3
+    tin, tout, cost = usage.totals(rows)
+    assert (tin, tout) == (3000, 750)
+    assert cost == pytest.approx(3 * ONE_CALL)  # 캐시 할인도 사용량 화면과 같게 든다
+    assert usage.summary(30)["total"]["cost"] == pytest.approx(cost)
+    llm.text("s", "p")  # collect 밖의 호출은 더하지 않는다
+    assert len(rows) == 3
+
+
+def test_autorun_stage_counts_retry_tokens(monkeypatch):
+    good = StyleProfile().model_dump_json()
+    llm = fake_gemini(["{\"narration\": 3", good])
+    monkeypatch.setattr(autorun, "get_llm", lambda stage: llm)
+    store.project_dir("등대").mkdir(parents=True, exist_ok=True)
+    runner = autorun.Runner(autorun.Control("등대", autorun.Run(target=1)))
+    out, info = runner.call("check", 1, lambda m: m.json("s", "p", StyleProfile))
+    assert isinstance(out, StyleProfile)
+    assert (info["tokens_in"], info["tokens_out"]) == (2000, 500)
+    assert (runner.run.tokens_in, runner.run.tokens_out) == (2000, 500)
+    assert runner.run.cost == pytest.approx(round(2 * ONE_CALL, 4))
+    assert {r["source"] for r in usage.read()} == {"autorun"}
 
 
 def test_mock_is_not_recorded(monkeypatch):

@@ -63,6 +63,7 @@ DEFAULT_PRICES: list[Price] = [
 PRICED = ("gemini", "claude-api")  # 토큰 요금을 매기는 백엔드. 로컬과 Claude 구독은 0원
 
 _ctx: ContextVar[dict] = ContextVar("canon_usage", default={})
+_acc: ContextVar[Optional[list]] = ContextVar("canon_usage_acc", default=None)  # collect() 가 여는 누적기
 _lock = threading.Lock()
 
 
@@ -80,6 +81,34 @@ def scope(**kw: Any) -> Iterator[None]:
 
 def context() -> dict:
     return dict(_ctx.get())
+
+
+@contextmanager
+def collect() -> Iterator[list[dict]]:
+    """안에서 record 한 줄을 모두 모은다. copy_context 로 넘긴 스레드의 호출도 같은 목록에 모인다.
+    한 단계 안의 형식 고치기 재시도 · 여러 호출을 빠짐없이 세려는 것 (자동 집필의 토큰 · 비용 합계)."""
+    rows: list[dict] = []
+    token = _acc.set(rows)
+    try:
+        yield rows
+    finally:
+        _acc.reset(token)
+
+
+def totals(rows: list[dict]) -> tuple[int, int, Optional[float]]:
+    """collect 로 모은 줄의 (입력 토큰, 출력 + 생각 토큰, 비용). 비용은 사용량 화면과 같은 row_cost 로 센다.
+    가격을 모르는 줄이 하나라도 있으면 비용은 None."""
+    table = prices()
+    tin = sum(int(r.get("in") or 0) for r in rows)
+    tout = sum(int(r.get("out") or 0) + int(r.get("thought") or 0) for r in rows)
+    total: Optional[float] = 0.0
+    for r in rows:
+        c, _ = row_cost(r, table)
+        if c is None:
+            total = None
+        elif total is not None:
+            total += c
+    return tin, tout, total
 
 
 def log_path() -> Path:
@@ -133,6 +162,9 @@ def record(llm: Any, tokens: Optional[dict], started: Optional[float] = None, *,
         from .context import blocks
         row["chars"] = len(prompt)
         row["blocks"] = blocks(prompt, 8)
+    acc = _acc.get()
+    if acc is not None:
+        acc.append(row)  # 파일에 쓰지 못해도 합계는 맞게 먼저 더한다
     try:
         path = log_path()
         with _lock:

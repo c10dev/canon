@@ -606,7 +606,7 @@ python -m canon auto 등대 --resume [--approve | --rewrite]   # 이어 가기 (
 python -m canon auto 등대 --stop            # 중지
 ```
 
-기준 옵션: `--max-issues 0`, `--auto-opening`(1~3화도 멈추지 않음), `--max-shift 0.3`(0 이면 안 봄), `--stop-on-stage`, `--stop-on-warnings`, `--confirm-plots`, `--review-every N`, `--no-check`. 예상 비용과 실행 중 비용은 사용량 화면과 같은 가격표로 계산한다 (아래 '사용량과 비용').
+기준 옵션: `--max-issues 0`, `--auto-opening`(1~3화도 멈추지 않음), `--max-shift 0.3`(0 이면 안 봄), `--stop-on-stage`, `--stop-on-warnings`, `--confirm-plots`, `--review-every N`, `--no-check`. 예상 비용과 실행 중 비용은 사용량 화면과 같은 가격표로 계산한다 (아래 '사용량과 비용'). 실행 중 토큰 · 비용은 한 단계 안의 모든 호출(형식 고치기 재시도, 검수의 여러 호출)을 더한 값이다.
 
 ## 초반 1~3화 (흡입력)
 

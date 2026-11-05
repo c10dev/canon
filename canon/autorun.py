@@ -434,7 +434,8 @@ class Runner:
                            label=f"canon {self.name}", note=lambda m: self.log(f"{n}화 {STEP_NAMES[stage]}: {m}", "warn"))
         t = time.time()
         try:
-            out = fn(llm)
+            with usage.collect() as rows:
+                out = fn(llm)
         except SchemaMismatch as e:
             # 본문은 그대로 두고 이 화에서 멈춘다. 이어 가면 이 단계만 새로 요청한다
             raise _Halt("paused", f"{n}화 {STEP_NAMES[stage]} 응답이 형식에 맞지 않아 멈췄어요", kind="schema", reasons=[
@@ -448,10 +449,13 @@ class Runner:
             if self.ctl.want == "pause":
                 raise _Halt("paused", "일시정지했어요. 배치 작업은 계속 돌고, 이어 가면 결과를 받아 와요")
             raise _Halt(None, "서버를 다시 시작한 뒤 배치 결과를 이어 받아요")
-        u = getattr(llm, "last_usage", None) or {}
-        tin = int(u.get("prompt_tokens") or 0)
-        tout = int(u.get("completion_tokens") or 0) + int(u.get("thought_tokens") or 0)
-        c = stage_cost(stage, tin, tout, use_batch)
+        if rows:  # 단계 안의 모든 호출(형식 고치기 재시도, 검수의 여러 호출)을 사용량 화면과 같은 값으로 더한다
+            tin, tout, c = usage.totals(rows)
+        else:  # 기록하지 않는 LLM(mock 등)은 마지막 호출 값으로 짐작한다
+            u = getattr(llm, "last_usage", None) or {}
+            tin = int(u.get("prompt_tokens") or 0)
+            tout = int(u.get("completion_tokens") or 0) + int(u.get("thought_tokens") or 0)
+            c = stage_cost(stage, tin, tout, use_batch)
         with self.ctl.lock:
             self.run.tokens_in += tin
             self.run.tokens_out += tout

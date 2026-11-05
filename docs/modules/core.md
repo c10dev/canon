@@ -13,6 +13,8 @@
 - 배치를 취소하지 못하면 배치 이름을 서버 로그(`canon` 로거)에 경고로 남긴다(`_cancel_batches`)
 - 오류로 멈추면 호출 경로를 서버 로그에 남긴다
 - 비용·시간 추정
+- 실행 중 토큰 · 비용(`Run.tokens_in` · `cost`)은 `Runner._call` 이 `usage.collect()` 로 모은 단계 안의 모든 호출을 더한다(형식 고치기 재시도, 검수의 여러 호출, 다른 스레드의 동작 검사)
+- 실행 중 비용은 `usage.totals` 로 사용량 화면과 같은 값(캐시 · 배치 요금)이다. 기록하지 않는 LLM(mock)은 마지막 호출의 `last_usage` 로 짐작한다
 - 정착 문체 흐름 멈춤(`Policy.max_style_distance`, 0 이면 끔, `anchor.rolling`)
 - `autorun.json` 에 진행 기록
 - 서버 재시작 후 이어 가기
