@@ -28,10 +28,14 @@ PROVIDERS = ("gemini", "local", "claude", "claude-api", "mock")
 STAGES = ("plan", "write", "check", "state", "name", "revise", "illustration", "play", "chat")
 # 따로 정하지 않으면 이 단계의 설정을 따른다 (이름 추천 · 삽화 프롬프트 · 플롯 대화는 계획 단계 일이고, 부분 수정 · 플레이 장면은 본문 쓰기 일이다)
 STAGE_PARENT = {"name": "plan", "revise": "write", "illustration": "plan", "play": "write", "chat": "plan"}
-# Claude 추론 강도 (claude --effort, Messages API output_config.effort). 비우면 모델 기본값을 쓴다.
-# 다른 백엔드는 이 값을 보지 않는다. 단계 프리셋에는 넣지 않는다 (설정 파일 stage_efforts 와 환경 변수만).
+# 단계별 추론 강도. 비우면 모델 기본값을 쓴다. 단계 프리셋에는 넣지 않는다 (설정 파일 stage_efforts 와 환경 변수만).
+# Claude 는 EFFORTS 를 claude --effort · Messages API output_config.effort 로 넘긴다.
+# Gemini 는 GEMINI_EFFORTS 를 thinking_level 로 넘긴다. minimal 은 gemini-4-argon · 3.8-flash 가 400 으로 거절한다 (2026-11-04).
+# 로컬 · mock 은 이 값을 보지 않는다. 백엔드가 받지 않는 값은 provider_effort 가 가장 가까운 값으로 바꾼다.
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
+GEMINI_EFFORTS = ("low", "medium", "high")
 CLAUDE_PROVIDERS = ("claude", "claude-api")
+EFFORT_PROVIDERS = (*CLAUDE_PROVIDERS, "gemini")
 # 단계별 백엔드 · 모델 묶음. 고르면 설정 화면의 단계 칸을 채운다 (적지 않은 단계는 비워서 부모 단계나 생성 방식을 따른다).
 # 작가가 만든 묶음은 설정 파일 stage_presets 에 둔다 (save_preset).
 BUILTIN_PRESETS = (
@@ -221,8 +225,17 @@ def stage_model(stage: str | None, preset: dict | None = _CURRENT) -> tuple[str,
     return value, src
 
 
+def provider_effort(provider: str, value: str) -> str:
+    """그 백엔드에 넘길 추론 강도. Gemini 는 xhigh · max 를 high 로 받는다. 강도를 받지 않는 백엔드와 모르는 값은 ""."""
+    if provider in CLAUDE_PROVIDERS:
+        return value if value in EFFORTS else ""
+    if provider == "gemini":
+        return "high" if value in ("xhigh", "max") else (value if value in GEMINI_EFFORTS else "")
+    return ""
+
+
 def stage_effort(stage: str | None, preset: dict | None = _CURRENT) -> tuple[str, str]:
-    """단계별 Claude 추론 강도와 출처. 단계 환경 변수(CANON_EFFORT_CHECK 등) → 설정 파일 stage_efforts.
+    """단계별 추론 강도와 출처. 백엔드에 넘길 값은 provider_effort 로 바꾼다. 단계 환경 변수(CANON_EFFORT_CHECK 등) → 설정 파일 stage_efforts.
     비어 있으면 부모 단계가 같은 백엔드일 때 부모 값을 따르고, 그래도 없으면 ""(모델 기본값).
     EFFORTS 밖의 값은 ""로 본다. preset 은 부모 단계의 백엔드를 비교할 때만 쓴다."""
     if stage is None or stage not in STAGES:
@@ -403,7 +416,8 @@ def stage_view(preset: dict | None) -> dict[str, dict]:
                  "claude": cmodel or "Claude Code 기본 모델", "claude-api": cmodel or "claude-opus-5-5"}.get(sp, sp)
         if sm and sp != "mock":
             label = sm
-        eff, esrc = stage_effort(s, preset) if sp in CLAUDE_PROVIDERS else ("", "default")
+        eff, esrc = stage_effort(s, preset) if sp in EFFORT_PROVIDERS else ("", "default")
+        eff = provider_effort(sp, eff)
         out[s] = {"provider": sp, "source": ssrc, "model": label, "model_source": smsrc,
                   "effort": eff, "effort_source": esrc}
     return out
@@ -461,6 +475,7 @@ def public() -> dict:
         "stage_model_settings": {k: v for k, v in (_read().get("stage_models") or {}).items() if k in STAGES},
         "stage_effort_settings": {k: v for k, v in (_read().get("stage_efforts") or {}).items() if k in STAGES},
         "efforts": list(EFFORTS),
+        "gemini_efforts": list(GEMINI_EFFORTS),
         "stage_presets": presets(),
         "local_sampling": local_sampling(),
         "path": str(config_path()),

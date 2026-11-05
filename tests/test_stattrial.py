@@ -4,7 +4,7 @@ import tempfile
 
 os.environ.setdefault("CANON_HOME", tempfile.mkdtemp())  # store 를 먼저 불러와도 저장소의 projects/ 를 쓰지 않게
 
-from canon import pipeline, statwin, stattrial  # noqa: E402
+from canon import statwin, stattrial  # noqa: E402
 from canon.mock import MockLLM  # noqa: E402
 from canon.schema import StatValue  # noqa: E402
 

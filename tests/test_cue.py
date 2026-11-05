@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from canon import autorun, cue, jobs, pipeline, prompts, research, store
 from canon.cli import main
 from canon.mock import MockLLM
-from canon.schema import Cue, CueLine, CueSheet, CueSheetDraft, CueTake, StoryTime
+from canon.schema import Cue, CueLine, CueSheet, CueSheetDraft, CueTake
 
 from .jsvm import STATIC, dump, needs_node, run_js
 from .test_web import _wait

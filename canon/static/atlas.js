@@ -702,6 +702,8 @@ function atlasSvg() {
   const view = atlasViewNow();
   const z = view.z;
   const sc = 1 / z;  // 핀 · 이름표 · 인물은 확대해도 화면에서 같은 크기
+  // 장소 핀의 누름 영역: 손가락 기기에서는 화면에서 반지름 22px(지름 touch-min 44px)보다 작지 않게 한다. 휴대폰 폭은 지도가 줄어 20 단위가 7px 쯤이다
+  const hitR = Math.max(20 * sc, !atlasExporting && ATLAS_COARSE.matches && px > 0 ? (22 * sc) / px : 0);
   const labels = [];  // { x, y, text, cls, first } 를 모아 마지막에 서로 비켜 놓는다
 
   // 지도 만들기 미리보기: 생성기가 고른 자리 (놓기로 고른 것만)
@@ -853,7 +855,7 @@ function atlasSvg() {
     const old = !!pv;  // 미리보기에서 옮기지 않는 장소: 지금(옛 마을) 자리라 흐리게
     const tip = `${pl.name}${pl.kind_label ? ' · ' + pl.kind_label : ''}${old ? ' (지금 자리. 적용해도 그대로예요)' : ''}${pl.description ? '\n' + pl.description : ''}${later ? `\n${pl.known_from}화부터 독자가 알아요` : ''}${hot ? `\n${f.episode}화에 나와요` : ''}`;
     out.push(`<g class="at-pin${later ? ' later' : ''}${sel ? ' sel' : ''}${old ? ' old' : ''}" data-atlas-pin="${esc(pl.key)}" tabindex="0" role="button" aria-label="${esc(pl.name + ' 자세히 보기. 화살표로 옮겨요')}"><title>${esc(tip)}</title>
-      <circle class="at-hit" cx="${x}" cy="${y}" r="${(20 * sc).toFixed(2)}"></circle>
+      <circle class="at-hit" cx="${x}" cy="${y}" r="${hitR.toFixed(2)}"></circle>
       ${hot ? `<circle class="at-hot" cx="${x}" cy="${y}" r="${(18 * sc).toFixed(2)}" stroke-width="${(3 * sc).toFixed(2)}"></circle>` : ''}
       <circle class="at-dot" cx="${x}" cy="${y}" r="${(r * sc).toFixed(2)}" stroke-width="${(2.5 * sc).toFixed(2)}"></circle>${atlasIconSvg(pl.kind, x, y, r * 1.5 * sc)}</g>`);
     labels.push({ x, y, text: pl.name + (old ? ' (지금 자리)' : ''), cls: `${later ? ' later' : ''}${old ? ' old' : ''}`, first: sel });
@@ -1210,6 +1212,7 @@ function atlasRedraw() {
 }
 
 let atlasStageW = 0;        // 마지막으로 잰 지도 화면 폭 (px)
+const ATLAS_COARSE = window.matchMedia('(pointer: coarse)');  // 손가락 기기 (장소 핀 누름 영역)
 let atlasExporting = false;  // 내보낼 때는 화면 폭과 상관없이 지도 단위 15
 let atlasMeasureQueued = false;
 /** 이름표 글자 크기(지도 단위): 화면에서 13px(폭 480px 아래는 12px)이 되게 화면 폭과 확대 배율로 정한다.

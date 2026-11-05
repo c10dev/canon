@@ -1,0 +1,39 @@
+# PR 과 main 푸시마다 전체 시험을 돌린다. 시험은 가짜 응답(mock LLM)만 써서 API 키가 필요 없다.
+# 서버는 main 을 자동으로 받으므로(canon/updater.py), 깨진 커밋을 머지 전에 여기서 잡는다.
+name: 시험
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - uses: actions/setup-node@v4  # 화면 js 대조 시험(tests/jsvm.py)이 node 를 쓴다
+        with:
+          node-version: "22"
+      - name: 의존성 설치
+        run: pip install -r requirements.lock
+      - name: 정적 검사
+        run: ruff check canon tests scripts
+      - name: 전체 시험
+        run: |
+          export CANON_HOME="$(mktemp -d)"
+          python -m pytest -q -n auto tests

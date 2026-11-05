@@ -2397,7 +2397,8 @@ def cmd_soelab(a: argparse.Namespace) -> None:
             print(out)
 
 
-def main(argv: list[str] | None = None) -> None:
+def build_parser() -> argparse.ArgumentParser:
+    """명령줄 해석기. 명령은 갈래별 함수(_plan_commands 등)가 더한다."""
     ap = argparse.ArgumentParser(prog="canon", description="데이터 기반 AI 소설 생성기 (MVP)")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
@@ -2411,6 +2412,13 @@ def main(argv: list[str] | None = None) -> None:
         sp.set_defaults(fn=fn)
         return sp
 
+    for group in (_plan_commands, _write_commands, _tool_commands, _app_commands, _data_commands, _lab_commands):
+        group(sub, add)
+    return ap
+
+
+def _plan_commands(sub, add) -> None:
+    """기획: 작품 만들기부터 화 끼워 넣기까지"""
     sp = add("new", cmd_new)
     sp.add_argument("--title", default="")
     sp.add_argument("--genre", default="", help="쉼표로 여러 개 (python -m canon genres 로 목록)")
@@ -2503,6 +2511,10 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--remove", action="store_true", help="넣는 대신 아직 안 쓴 n 화를 빼고 뒤 화를 당김")
     sp.add_argument("--delete", action="store_true", help="본문이 있거나 반영한 마지막 n 화를 지움 (반영 취소 → 본문 비우기 → 화 빼기)")
     sp.add_argument("--keep-plot", action="store_true", help="--delete 와 함께: 화를 빼지 않고 확정된 플롯으로 남김")
+
+
+def _write_commands(sub, add) -> None:
+    """쓰기 · 검수 · 반영 · 자동 집필"""
     add("confirm", cmd_confirm, "which", yes=False)
     add("write", cmd_write, "n", yes=False)
     sp = add("rewrite", cmd_rewrite, "n")
@@ -2567,6 +2579,10 @@ def main(argv: list[str] | None = None) -> None:
     sp = add("brief", cmd_brief, "n", yes=False)
     sp.add_argument("--state", action="store_true", help="상태 정리용 작업지시서")
     sp.add_argument("--check", action="store_true", help="검수용 작업지시서")
+
+
+def _tool_commands(sub, add) -> None:
+    """가져오기 · 대화 · 내보내기 · 도감 같은 도구"""
     add("import", cmd_import, "n", "file", yes=False)
     sp = add("fix", cmd_fix, "n", "quote")
     sp.add_argument("--ask", help="AI 에게 바라는 것 (예: 대사로 풀어 줘)")
@@ -2629,6 +2645,9 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("-y", "--yes", action="store_true", help="확인 없이 반영")
     sp.set_defaults(fn=cmd_styles)
 
+
+def _app_commands(sub, add) -> None:
+    """웹 서버 · 사용량 · 상태창 · 시험"""
     sp = sub.add_parser("serve", help="웹 UI 실행")
     sp.add_argument("--host", default="127.0.0.1")
     sp.add_argument("--port", type=int, default=8000)
@@ -2669,6 +2688,10 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--repeats", type=int, default=1, help="조건마다 같은 화를 쓸 횟수 (1~5)")
     sp.add_argument("--conditions", default="", help="base,no_board,no_cues,no_profile,no_relations,no_address,no_knows 중에서 쉼표로. 비우면 base")
     sp.add_argument("--estimate", action="store_true", help="쓰지 않고 비용만 추정")
+
+
+def _data_commands(sub, add) -> None:
+    """시간 · 출연진 · 지도 · 스냅샷 · 갈래"""
     sp = add("time", cmd_time, yes=False)
     sp.add_argument("--date", help="1일째 날짜 YYYY-MM-DD. 정하면 화마다 날짜로 보이고 요일 · 남은 날은 Canon 이 계산해요. 빈 값이면 지움")
     sp.add_argument("--start", help="1일째에 붙일 글 (예: '늦겨울', '왕국력 312년'). 빈 값이면 지움")
@@ -2722,6 +2745,10 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--text", action="store_true", help="그 화 본문도 보이기")
     add("promote", cmd_promote)
     add("recalc", cmd_recalc, yes=False)
+
+
+def _lab_commands(sub, add) -> None:
+    """플레이 모드 · 쇠맛 실험실"""
     sp = sub.add_parser("play", help="플레이 모드: 세계 작품 속 인물이 되어 시간이 흐르는 삶을 살아 봄")
     psub = sp.add_subparsers(dest="action", required=True)
     q = psub.add_parser("new", help="세계 작품을 복사해 플레이 열기 (첫 구간까지)")
@@ -2782,7 +2809,9 @@ def main(argv: list[str] | None = None) -> None:
     q.add_argument("--all", action="store_true", help="가린 조각도 넣기 (가려 읽기 전에는 쓰지 마세요)")
     sp.set_defaults(fn=cmd_soelab)
 
-    a = ap.parse_args(argv)
+
+def main(argv: list[str] | None = None) -> None:
+    a = build_parser().parse_args(argv)
     ep = getattr(a, "n", None) if getattr(a, "n", None) is not None else getattr(a, "ep", None)
     try:
         with usage.scope(project=getattr(a, "name", None), episode=ep if isinstance(ep, int) else None,

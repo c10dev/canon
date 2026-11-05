@@ -20,12 +20,13 @@ from .schema import (
     Claim,
     ClaimSet,
     ConsistencyIssue,
+    ConsistencyIssueEn,
     ConsistencyReport,
+    ConsistencyReportEn,
     FindingRecheck,
     FixOption,
     FixPatch,
     FixSet,
-    ConsistencyReportEn,
     Direction,
     PlantedContradiction,
     PlantSet,
@@ -100,7 +101,7 @@ from .schema import (
 T = TypeVar("T", bound=BaseModel)
 
 # 기능 모듈이 자기 스키마의 가짜 응답을 따로 둔다 (mock_play.py, mock_birth.py). MockLLM.json 이 먼저 찾는다.
-# 새 기능의 가짜 응답은 이 파일의 if 줄을 늘리지 않고 mock_<기능>.py 에 @responds(스키마) 로 두고, 맨 아래에서 불러온다.
+# 새 기능의 가짜 응답은 mock_<기능>.py 에 @responds(스키마) 로 두고, 맨 아래에서 불러온다. 이 파일의 응답도 같은 방식이다.
 RESPONDERS: dict[type, Callable[[str, dict], BaseModel]] = {}
 
 
@@ -586,203 +587,6 @@ class MockLLM:
         hint = hint or {}
         if schema in RESPONDERS:
             return RESPONDERS[schema](prompt, hint)  # type: ignore[return-value]
-        if schema is SetupSuggestion:
-            return SetupSuggestion(
-                theme="상실을 받아들이는 용기", tone="잔잔하지만 긴장감 있는",
-                world=WorldSetting(setting="바닷가 소도시", era="현대", rules=["초자연 요소 없음"], locations=["등대", "수산시장"]),
-                characters=[
-                    Character(id="hero", name="서윤", role="주인공", gender="여", age="19세", goal="사라진 오빠를 찾는다", speech_style="짧고 건조한 반말. \"됐어, 내가 할게.\""),
-                    Character(id="ally", name="도현", role="조연", gender="남", age="24세", goal="서윤을 돕는다", speech_style="느긋한 존댓말. \"천천히 해요.\""),
-                ],
-                relationships=[Relationship(a="hero", b="ally", type="동료", affinity=1, tension=3, a_view=["경계한다"], b_view=["좋아한다", "빚졌다"])],
-            )  # type: ignore[return-value]
-        if schema is StyleProfile:
-            return StyleProfile(narration_pov="3인칭 제한", tense="과거형", sentence_rhythm="짧은 문장 위주",
-                                dos=["감각 묘사로 장면 시작"], donts=["설명조 대사"],
-                                # 있었다 · 대답은 시험 원문(tests/fixtures/revlab_story.txt)에, 않았다는 examples/sample_style.txt 에 있다.
-                                # '다'(한글 1자) · '서윤은'(인물 이름) · 원문에 없는 표지와 지어낸 장치 예시는 count_markers 가 거른다
-                                markers=[StyleMarker(text="않았다", note="부정으로 끝맺는 서술"), StyleMarker(text="있었다", note="상태 서술"),
-                                         StyleMarker(text="다", per_1k=40), StyleMarker(text="서윤은", per_1k=3),
-                                         StyleMarker(text="원문에없는표지", per_1k=9)],
-                                devices=[StyleDevice(name="대답 없는 침묵", when="물음에 답이 오지 않을 때", cues=["대답", "다"], every=3,
-                                                     example="대답은 없었다."),
-                                         StyleDevice(name="지어낸 장치", cues=["원문에없는글자"], example="지어낸 예시 문장이다.")],
-                                sample_passages=["바람이 불었다. 서윤은 고개를 들지 않았다."])  # type: ignore[return-value]
-        if schema is ArcPlan:
-            return ArcPlan(acts=_arc(hint["total"]))  # type: ignore[return-value]
-        if schema is SeriesPlan:
-            return _series(hint["total"])  # type: ignore[return-value]
-        if schema is ArcProposal:
-            return _next_arc(hint)  # type: ignore[return-value]
-        if schema is SerialConversion:
-            return _conversion(hint)  # type: ignore[return-value]
-        if schema is SerialRebuild:
-            return _rebuild(hint)  # type: ignore[return-value]
-        if schema is Rework:
-            return Rework(text=hint["text"].rstrip() + "\n\n도현은 대답 대신 시선을 피했다.", reply="새 자리에 맞게 끝을 고쳤어요.")  # type: ignore[return-value]
-        if schema is Recap:
-            return Recap(summary=f"{'아크' if hint['kind'] == 'arc' else '부'} {hint['number']} 요약: 주인공이 시험을 넘겼다.")  # type: ignore[return-value]
-        if schema is PlotBatch or schema is EpisodeDraft:
-            acts: list[Act] = hint["arc"]
-            eps = []
-            for n in range(hint["start"], hint["end"] + 1):
-                act = next(a for a in acts if a.start_ep <= n <= a.end_ep)
-                eps.append(_plot(n, act.name))
-            new = []
-            if hint["start"] <= NEW_CAST_EP <= hint["end"]:  # 새 인물 후보를 시험하도록 한 화에 단역을 데려온다
-                eps[NEW_CAST_EP - hint["start"]].characters.append(NEW_CAST.id)
-                eps[NEW_CAST_EP - hint["start"]].events.append(f"{NEW_PLACE.name}에 묵는다")
-                new = [NEW_CAST]
-            places = [NEW_PLACE] if new else []
-            if schema is EpisodeDraft:  # 뒤 화에 맞추지 않고 채운 화: 뒤 화와 어긋난 점을 함께 낸다
-                return EpisodeDraft(episodes=eps, new_characters=new, new_places=places,
-                                    next_gap=f"{hint['end'] + 1}화 첫 장면이 이미 끝난 갈등으로 시작해요.")  # type: ignore[return-value]
-            return PlotBatch(episodes=eps, new_characters=new, new_places=places)  # type: ignore[return-value]
-        if schema is PlotRevision:
-            return _revision(hint)  # type: ignore[return-value]
-        if schema is PlotAgentStep:
-            return _agent_step(hint)  # type: ignore[return-value]
-        if schema is AgentAsk:  # 빈 ask 채우기 (agent.fill). '빈 물음' 은 채워도 빈 채로 둬 되돌림 단계를 시험한다
-            if "빈 물음" in hint["message"]:
-                return AgentAsk(question="")  # type: ignore[return-value]
-            return AgentAsk(question="몇 화로 갈까요?", options=[Direction(title=t, idea=f"{t}로 간다.") for t in ("7화", "15화")])  # type: ignore[return-value]
-        if schema is StateDelta:
-            n = hint["episode"]
-            return StateDelta(
-                episode=n, summary=f"{n}화에서 서윤과 도현이 단서를 찾았다.",
-                character_updates=[CharacterState(character_id="hero", emotional_state=f"{n}화 이후 조금 더 단단해짐", knows=[f"{n}화 단서"],
-                                                  attire=MOCK_ATTIRE.get(n, ""),
-                                                  stats=[StatValue(name="레벨", value="+1")] if hint.get("stats") else [])],
-                events=[
-                    StoryEvent(episode=n, actor="ally", target="hero", kind="거짓말발각", intensity=3,
-                               reveals_secret="sec-ally-letter", quote="그 편지, 네가 버린 거 아니었잖아.")
-                    if n == 2 else
-                    StoryEvent(episode=n, actor="ally", target="hero", kind="도움", intensity=2, quote="도현이 손전등을 건넸다."),
-                    StoryEvent(episode=n, actor="hero", target="ally", kind="공동경험", intensity=1, quote="둘은 등대 계단을 올랐다."),
-                ],
-                relationship_updates=[Relationship(a="hero", b="ally", type="동료", description="서로 의지하는 사이")] if n == 3 else [],
-                secrets_added=[Secret(id="sec-ally-letter", owner="ally", content="오빠의 편지를 숨겼다", hidden_from=["hero"])] if n == 1 else [],
-                new_facts=[f"{n}화: 등대는 10년 전 폐쇄되었다"] if n == 1 else [],
-                foreshadow_planted=[Foreshadow(id=f"fs-{n:02d}-key", description="녹슨 열쇠", planted_ep=n)] if n == 1 else [],
-                foreshadow_resolved=["fs-01-key"] if n == 2 else [],
-                foreshadow_clues=[ForeshadowClue(foreshadow="fs-01-key", kind="payoff" if n == 2 else "plant", quote="서윤은 등대 앞에 섰다.")]
-                if n in (1, 2) else [],
-                setting_changes=[SettingChange(character_id="hero", field="appearance", value=MOCK_LOOK, reason="등대에서 머리를 짧게 잘랐다",
-                                               quote="서윤은 등대 앞에 섰다.")] if n == 2 else [],
-                address_changes=[AddressChange(speaker="ally", listener="hero", calls=MOCK_CALLS, speech="해체(반말)",
-                                               reason="등대에서 서로 말을 놓기로 했다", quote="서윤은 등대 앞에 섰다.")] if n == 3 else [],
-                time=StoryTime(day=n, part="밤"),
-                deadlines_added=[Deadline(id="dl-01-festival", what="등대 축제", day=5, note="닷새 뒤 축제")] if n == 1 else [],
-                deadlines_done=["dl-01-festival"] if n == 3 else [],
-            )  # type: ignore[return-value]
-        if schema is StorylineProposal:
-            return _storyline(hint)  # type: ignore[return-value]
-        if schema is ImpactReport:
-            return _impact(hint)  # type: ignore[return-value]
-        if schema is NameOptions:  # 코드 후보에서 앞쪽 n 개를 고른 척한다
-            names = hint["candidates"][: hint["n"]]
-            return NameOptions(options=[NameOption(name=x, reason="후보 중 인물과 시대에 맞는 이름") for x in names])  # type: ignore[return-value]
-        if schema is FieldIdeas:  # 칸마다 다른 결의 후보 셋. 하나는 겹치고 하나는 따옴표를 달아 정리가 고치는지 본다
-            base = MOCK_FIELD_IDEAS.get(hint["field"], ["후보 하나", "후보 둘", "후보 셋"])
-            return FieldIdeas(options=[FieldIdea(text=f"“{base[0]}”", reason="장르와 로그라인에 맞춰서"),  # type: ignore[return-value]
-                                       FieldIdea(text=base[0], reason="겹침"),
-                                       *[FieldIdea(text=x, reason="다른 방향") for x in base[1:]]])
-        if schema is IllustDraft:
-            return _illust(hint)  # type: ignore[return-value]
-        if schema is PlaceSort:
-            out, new = [], []
-            for t in hint.get("texts", []):
-                at = next((pl for pl in hint.get("places", []) if pl[:2] in t), "")
-                if at:
-                    out.append(PlaceGuess(text=t, place=at))
-                elif "모를" in t or "가는" in t:
-                    out.append(PlaceGuess(text=t, skip=True, note="한 곳으로 그릴 수 없어요"))
-                else:
-                    name = t.split()[0]
-                    out.append(PlaceGuess(text=t, new_place=name))
-                    if name not in [x.name for x in new]:
-                        new.append(NewPlace(name=name, kind="건물", description="위치 글에서 나온 곳"))
-            return PlaceSort(matches=out, new_places=new)  # type: ignore[return-value]
-        if schema is MapSuggestion:  # 이름 단어로 그 시대 종류를 고르고, 바다 쪽 장소가 있으면 바닷가 마을로. 화면에서 현대 동네를 골랐으면 현대 동네 (물은 하천)
-            from . import atlas
-            from .maps import kinds as placekinds
-
-            era = placekinds.era_of("modern" if hint.get("kind") == "modern" else "village")
-            found = {n: placekinds.classify(n, era=era) for n in hint.get("places", [])}
-            guesses = [MapPlaceGuess(name=n, kind=k, put=k != "far") for n, (k, _) in found.items()]
-            rows = [{"kind": g.kind, "word": found[g.name][1], "put": g.put} for g in guesses]
-            water = placekinds.water_for(rows)
-            if hint.get("kind") == "modern":
-                water = "none" if water == "none" else "river"
-                return MapSuggestion(kind="modern", size="medium", roads="cross", water=water, fields="few", forest="some",  # type: ignore[return-value]
-                                     places=guesses, reason=f"고른 현대 동네에 맞춰 물을 {atlas.MAKERS['modern'][1].OPTIONS['water'][water]}(으)로 정했어요.")
-            return MapSuggestion(size="small", roads="square", water=water, fields="some", forest="few", places=guesses,  # type: ignore[return-value]
-                                 reason=f"장소 목록을 보고 물을 {atlas.MAKERS['village'][1].OPTIONS['water'][water]}(으)로 정했어요.")
-        if schema is BodySuggestion:
-            return BodySuggestion(height="163cm", weight="50kg", build="마른 근육형", measurements="82-60-86",
-                                  features="왼손잡이, 오른쪽 손목에 점", note="외모 칸의 흉터와 성격에 맞춰 활동적인 체형으로 정했어요.")  # type: ignore[return-value]
-        if schema is StatInitSuggestion:  # 첫 인물만, 바뀐 양으로 적은 값 하나와 틀 밖 항목 하나 (정리가 고치는지)
-            ids = hint.get("characters", [])
-            names = hint.get("names") or ["레벨", "HP", "스킬"]
-            rows = [StatValue(name=names[0], value="+1"), StatValue(name="HP", value="100/100"), StatValue(name="스킬", value="은신"),
-                    StatValue(name="틀 밖", value="1")]
-            return StatInitSuggestion(names=["레벨", "HP", "스킬"], characters=[  # type: ignore[return-value]
-                StatInitCharacter(character_id=ids[0] if ids else "hero", stats=rows, note="바닥에서 시작하는 주인공이라 낮게 정했어요."),
-                StatInitCharacter(character_id="nobody", stats=rows)])
-        if schema is StatWindowSuggestion:  # 장식이 붙은 안 하나와 {rows} 를 빠뜨린 안 하나 (정리가 고치는지)
-            return StatWindowSuggestion(options=[  # type: ignore[return-value]
-                StatWindowOption(label="무공록", title="무공록", template="━━━━━━━━━━━━\\n【 무공록 】 {name}\\n━━━━━━━━━━━━\\n{rows}\\n━━━━━━━━━━━━",
-                                 row="▸ {key} ┃ {value}", names=["경지", "내공", "무공"], skin="scroll", why="무협 배경이라 경지와 내공으로 지었어요."),
-                StatWindowOption(label="협회 등록증", title="헌터 등록증", template="[헌터 등록증]\n성명: {name}", row="{key} - 값",
-                                 names=["등급", "레벨", "스킬", "스킬"], skin="plain", why=hint.get("request") or "협회 서류처럼 담백하게 했어요."),
-            ])
-        if schema is LookSuggestion:
-            return LookSuggestion(subject="girl", look=["Black_hair", "short hair", "brown eyes", "teenage"], outfit=["school uniform"],
-                                  note="설정에 눈 색이 없어 갈색으로 정했어요.")  # type: ignore[return-value]
-        if schema is VoiceSuggestion:
-            return VoiceSuggestion(voice="서술 어미는 ~했어요, ~인 걸까요? 처럼 부드럽게 끝낸다.\n짧은 문장 뒤에 스스로 묻는 문장을 하나 붙인다.\n"
-                                   "예: 바람이 차가웠어요. 그 사람도 이 바람을 맞고 있을까요?",
-                                   note="대사 말투보다 한 단계 차분하게 잡았어요.")  # type: ignore[return-value]
-        if schema is StyleLearning:
-            return _learning(hint)  # type: ignore[return-value]
-        if schema is StyleRevision:
-            return _style_revision(hint)  # type: ignore[return-value]
-        if schema is SetupRevision:
-            return _setup_revision(hint)  # type: ignore[return-value]
-        if schema is StyleSample:  # 참고한 화가 있으면 그 앞부분을 고쳐 쓴 척한다
-            ref = hint.get("ref", "")[:80].strip()
-            return StyleSample(text=f"바람이 찼다. 그는 걸음을 늦췄다.\n\n\"늦었네.\" {hint.get('scene', '')}".strip(),
-                               source=ref)  # type: ignore[return-value]
-        if schema is PassageRevision:
-            return _passage(hint)  # type: ignore[return-value]
-        if schema is FixSet:
-            return _fixes(hint)  # type: ignore[return-value]
-        if schema is FindingRecheck:  # 지적한 문장이 본문에서 바뀌었으면 풀린 것으로 본다
-            gone = hint["quote"].strip() not in hint.get("text", "")
-            return FindingRecheck(resolved=gone, reason="문장이 바뀌어 어긋남이 풀렸어요" if gone else "문장이 그대로예요")  # type: ignore[return-value]
-        if schema is HookReport:
-            return _hook(hint)  # type: ignore[return-value]
-        if schema is OpeningPlots:
-            return _openings(hint)  # type: ignore[return-value]
-        if schema is PlantSet:
-            return _plants(hint)  # type: ignore[return-value]
-        if schema is ClaimSet:  # 두 걸음 검수: 본문 문장마다 진술 하나
-            sents = [x.strip() for x in re.findall(r"[^.!?\n]+[.!?]", hint.get("text", "")) if len(x.strip()) > 4]
-            return ClaimSet(claims=[Claim(quote=x, claim=x) for x in sents[:30]])  # type: ignore[return-value]
-        if schema is ConsistencyReport and hint.get("motion") and "plants" not in hint:  # 동선 따로 보기: 지적 없음 (합치기는 시험이 따로 본다)
-            return ConsistencyReport(episode=hint["episode"], issues=[])  # type: ignore[return-value]
-        if schema in (ConsistencyReport, ConsistencyReportEn) and "plants" in hint:  # 검수 시험: 프롬프트에 들어간 심은 문장을 짚는다
-            return schema(episode=hint["episode"], issues=[  # type: ignore[return-value]
-                dict(type="사실", description="심은 모순", source_episode=0, source_quote="설정", current_quote=x)
-                for x in hint["plants"] if x in prompt])
-        if schema is ConsistencyReport:
-            n = hint["episode"]
-            issues = [ConsistencyIssue(
-                type="말투", description="도현이 서윤에게 반말을 쓴다", source_episode=0,
-                source_quote="느긋한 존댓말. \"천천히 해요.\"", current_quote="\"됐어, 내가 할게.\"",
-                suggestion="도현의 대사를 존댓말로 바꾼다",
-            )] if n == 2 else []
-            return ConsistencyReport(episode=n, issues=issues)  # type: ignore[return-value]
         raise NotImplementedError(schema.__name__)
 
     def text(self, system: str, prompt: str) -> str:
@@ -827,6 +631,339 @@ class MockLLM:
     def batch_cancel(self, name: str) -> None:
         if name in BATCHES:
             BATCHES[name]["cancelled"] = True
+
+
+# ---------- 스키마별 가짜 응답 (MockLLM.json 이 RESPONDERS 에서 찾는다) ----------
+
+@responds(SetupSuggestion)
+def _r_setup_suggestion(prompt: str, hint: dict):
+    return SetupSuggestion(
+        theme="상실을 받아들이는 용기", tone="잔잔하지만 긴장감 있는",
+        world=WorldSetting(setting="바닷가 소도시", era="현대", rules=["초자연 요소 없음"], locations=["등대", "수산시장"]),
+        characters=[
+            Character(id="hero", name="서윤", role="주인공", gender="여", age="19세", goal="사라진 오빠를 찾는다", speech_style="짧고 건조한 반말. \"됐어, 내가 할게.\""),
+            Character(id="ally", name="도현", role="조연", gender="남", age="24세", goal="서윤을 돕는다", speech_style="느긋한 존댓말. \"천천히 해요.\""),
+        ],
+        relationships=[Relationship(a="hero", b="ally", type="동료", affinity=1, tension=3, a_view=["경계한다"], b_view=["좋아한다", "빚졌다"])],
+    )
+
+
+@responds(StyleProfile)
+def _r_style_profile(prompt: str, hint: dict):
+    return StyleProfile(narration_pov="3인칭 제한", tense="과거형", sentence_rhythm="짧은 문장 위주",
+                        dos=["감각 묘사로 장면 시작"], donts=["설명조 대사"],
+                        # 있었다 · 대답은 시험 원문(tests/fixtures/revlab_story.txt)에, 않았다는 examples/sample_style.txt 에 있다.
+                        # '다'(한글 1자) · '서윤은'(인물 이름) · 원문에 없는 표지와 지어낸 장치 예시는 count_markers 가 거른다
+                        markers=[StyleMarker(text="않았다", note="부정으로 끝맺는 서술"), StyleMarker(text="있었다", note="상태 서술"),
+                                 StyleMarker(text="다", per_1k=40), StyleMarker(text="서윤은", per_1k=3),
+                                 StyleMarker(text="원문에없는표지", per_1k=9)],
+                        devices=[StyleDevice(name="대답 없는 침묵", when="물음에 답이 오지 않을 때", cues=["대답", "다"], every=3,
+                                             example="대답은 없었다."),
+                                 StyleDevice(name="지어낸 장치", cues=["원문에없는글자"], example="지어낸 예시 문장이다.")],
+                        sample_passages=["바람이 불었다. 서윤은 고개를 들지 않았다."])
+
+
+@responds(ArcPlan)
+def _r_arc_plan(prompt: str, hint: dict):
+    return ArcPlan(acts=_arc(hint["total"]))
+
+
+@responds(SeriesPlan)
+def _r_series_plan(prompt: str, hint: dict):
+    return _series(hint["total"])
+
+
+@responds(ArcProposal)
+def _r_arc_proposal(prompt: str, hint: dict):
+    return _next_arc(hint)
+
+
+@responds(SerialConversion)
+def _r_serial_conversion(prompt: str, hint: dict):
+    return _conversion(hint)
+
+
+@responds(SerialRebuild)
+def _r_serial_rebuild(prompt: str, hint: dict):
+    return _rebuild(hint)
+
+
+@responds(Rework)
+def _r_rework(prompt: str, hint: dict):
+    return Rework(text=hint["text"].rstrip() + "\n\n도현은 대답 대신 시선을 피했다.", reply="새 자리에 맞게 끝을 고쳤어요.")
+
+
+@responds(Recap)
+def _r_recap(prompt: str, hint: dict):
+    return Recap(summary=f"{'아크' if hint['kind'] == 'arc' else '부'} {hint['number']} 요약: 주인공이 시험을 넘겼다.")
+
+
+def _r_plot_batch(prompt: str, hint: dict, schema: type[BaseModel]):
+    acts: list[Act] = hint["arc"]
+    eps = []
+    for n in range(hint["start"], hint["end"] + 1):
+        act = next(a for a in acts if a.start_ep <= n <= a.end_ep)
+        eps.append(_plot(n, act.name))
+    new = []
+    if hint["start"] <= NEW_CAST_EP <= hint["end"]:  # 새 인물 후보를 시험하도록 한 화에 단역을 데려온다
+        eps[NEW_CAST_EP - hint["start"]].characters.append(NEW_CAST.id)
+        eps[NEW_CAST_EP - hint["start"]].events.append(f"{NEW_PLACE.name}에 묵는다")
+        new = [NEW_CAST]
+    places = [NEW_PLACE] if new else []
+    if schema is EpisodeDraft:  # 뒤 화에 맞추지 않고 채운 화: 뒤 화와 어긋난 점을 함께 낸다
+        return EpisodeDraft(episodes=eps, new_characters=new, new_places=places,
+                            next_gap=f"{hint['end'] + 1}화 첫 장면이 이미 끝난 갈등으로 시작해요.")
+    return PlotBatch(episodes=eps, new_characters=new, new_places=places)
+
+
+responds(PlotBatch)(lambda prompt, hint: _r_plot_batch(prompt, hint, PlotBatch))
+responds(EpisodeDraft)(lambda prompt, hint: _r_plot_batch(prompt, hint, EpisodeDraft))
+
+
+@responds(PlotRevision)
+def _r_plot_revision(prompt: str, hint: dict):
+    return _revision(hint)
+
+
+@responds(PlotAgentStep)
+def _r_plot_agent_step(prompt: str, hint: dict):
+    return _agent_step(hint)
+
+
+@responds(AgentAsk)
+def _r_agent_ask(prompt: str, hint: dict):
+    # 빈 ask 채우기 (agent.fill). '빈 물음' 은 채워도 빈 채로 둬 되돌림 단계를 시험한다
+    if "빈 물음" in hint["message"]:
+        return AgentAsk(question="")
+    return AgentAsk(question="몇 화로 갈까요?", options=[Direction(title=t, idea=f"{t}로 간다.") for t in ("7화", "15화")])
+
+
+@responds(StateDelta)
+def _r_state_delta(prompt: str, hint: dict):
+    n = hint["episode"]
+    return StateDelta(
+        episode=n, summary=f"{n}화에서 서윤과 도현이 단서를 찾았다.",
+        character_updates=[CharacterState(character_id="hero", emotional_state=f"{n}화 이후 조금 더 단단해짐", knows=[f"{n}화 단서"],
+                                          attire=MOCK_ATTIRE.get(n, ""),
+                                          stats=[StatValue(name="레벨", value="+1")] if hint.get("stats") else [])],
+        events=[
+            StoryEvent(episode=n, actor="ally", target="hero", kind="거짓말발각", intensity=3,
+                       reveals_secret="sec-ally-letter", quote="그 편지, 네가 버린 거 아니었잖아.")
+            if n == 2 else
+            StoryEvent(episode=n, actor="ally", target="hero", kind="도움", intensity=2, quote="도현이 손전등을 건넸다."),
+            StoryEvent(episode=n, actor="hero", target="ally", kind="공동경험", intensity=1, quote="둘은 등대 계단을 올랐다."),
+        ],
+        relationship_updates=[Relationship(a="hero", b="ally", type="동료", description="서로 의지하는 사이")] if n == 3 else [],
+        secrets_added=[Secret(id="sec-ally-letter", owner="ally", content="오빠의 편지를 숨겼다", hidden_from=["hero"])] if n == 1 else [],
+        new_facts=[f"{n}화: 등대는 10년 전 폐쇄되었다"] if n == 1 else [],
+        foreshadow_planted=[Foreshadow(id=f"fs-{n:02d}-key", description="녹슨 열쇠", planted_ep=n)] if n == 1 else [],
+        foreshadow_resolved=["fs-01-key"] if n == 2 else [],
+        foreshadow_clues=[ForeshadowClue(foreshadow="fs-01-key", kind="payoff" if n == 2 else "plant", quote="서윤은 등대 앞에 섰다.")]
+        if n in (1, 2) else [],
+        setting_changes=[SettingChange(character_id="hero", field="appearance", value=MOCK_LOOK, reason="등대에서 머리를 짧게 잘랐다",
+                                       quote="서윤은 등대 앞에 섰다.")] if n == 2 else [],
+        address_changes=[AddressChange(speaker="ally", listener="hero", calls=MOCK_CALLS, speech="해체(반말)",
+                                       reason="등대에서 서로 말을 놓기로 했다", quote="서윤은 등대 앞에 섰다.")] if n == 3 else [],
+        time=StoryTime(day=n, part="밤"),
+        deadlines_added=[Deadline(id="dl-01-festival", what="등대 축제", day=5, note="닷새 뒤 축제")] if n == 1 else [],
+        deadlines_done=["dl-01-festival"] if n == 3 else [],
+    )
+
+
+@responds(StorylineProposal)
+def _r_storyline_proposal(prompt: str, hint: dict):
+    return _storyline(hint)
+
+
+@responds(ImpactReport)
+def _r_impact_report(prompt: str, hint: dict):
+    return _impact(hint)
+
+
+@responds(NameOptions)
+def _r_name_options(prompt: str, hint: dict):
+    # 코드 후보에서 앞쪽 n 개를 고른 척한다
+    names = hint["candidates"][: hint["n"]]
+    return NameOptions(options=[NameOption(name=x, reason="후보 중 인물과 시대에 맞는 이름") for x in names])
+
+
+@responds(FieldIdeas)
+def _r_field_ideas(prompt: str, hint: dict):
+    # 칸마다 다른 결의 후보 셋. 하나는 겹치고 하나는 따옴표를 달아 정리가 고치는지 본다
+    base = MOCK_FIELD_IDEAS.get(hint["field"], ["후보 하나", "후보 둘", "후보 셋"])
+    return FieldIdeas(options=[FieldIdea(text=f"“{base[0]}”", reason="장르와 로그라인에 맞춰서"),
+                               FieldIdea(text=base[0], reason="겹침"),
+                               *[FieldIdea(text=x, reason="다른 방향") for x in base[1:]]])
+
+
+@responds(IllustDraft)
+def _r_illust_draft(prompt: str, hint: dict):
+    return _illust(hint)
+
+
+@responds(PlaceSort)
+def _r_place_sort(prompt: str, hint: dict):
+    out, new = [], []
+    for t in hint.get("texts", []):
+        at = next((pl for pl in hint.get("places", []) if pl[:2] in t), "")
+        if at:
+            out.append(PlaceGuess(text=t, place=at))
+        elif "모를" in t or "가는" in t:
+            out.append(PlaceGuess(text=t, skip=True, note="한 곳으로 그릴 수 없어요"))
+        else:
+            name = t.split()[0]
+            out.append(PlaceGuess(text=t, new_place=name))
+            if name not in [x.name for x in new]:
+                new.append(NewPlace(name=name, kind="건물", description="위치 글에서 나온 곳"))
+    return PlaceSort(matches=out, new_places=new)
+
+
+@responds(MapSuggestion)
+def _r_map_suggestion(prompt: str, hint: dict):
+    # 이름 단어로 그 시대 종류를 고르고, 바다 쪽 장소가 있으면 바닷가 마을로. 화면에서 현대 동네를 골랐으면 현대 동네 (물은 하천)
+    from . import atlas
+    from .maps import kinds as placekinds
+
+    era = placekinds.era_of("modern" if hint.get("kind") == "modern" else "village")
+    found = {n: placekinds.classify(n, era=era) for n in hint.get("places", [])}
+    guesses = [MapPlaceGuess(name=n, kind=k, put=k != "far") for n, (k, _) in found.items()]
+    rows = [{"kind": g.kind, "word": found[g.name][1], "put": g.put} for g in guesses]
+    water = placekinds.water_for(rows)
+    if hint.get("kind") == "modern":
+        water = "none" if water == "none" else "river"
+        return MapSuggestion(kind="modern", size="medium", roads="cross", water=water, fields="few", forest="some",
+                             places=guesses, reason=f"고른 현대 동네에 맞춰 물을 {atlas.MAKERS['modern'][1].OPTIONS['water'][water]}(으)로 정했어요.")
+    return MapSuggestion(size="small", roads="square", water=water, fields="some", forest="few", places=guesses,
+                         reason=f"장소 목록을 보고 물을 {atlas.MAKERS['village'][1].OPTIONS['water'][water]}(으)로 정했어요.")
+
+
+@responds(BodySuggestion)
+def _r_body_suggestion(prompt: str, hint: dict):
+    return BodySuggestion(height="163cm", weight="50kg", build="마른 근육형", measurements="82-60-86",
+                          features="왼손잡이, 오른쪽 손목에 점", note="외모 칸의 흉터와 성격에 맞춰 활동적인 체형으로 정했어요.")
+
+
+@responds(StatInitSuggestion)
+def _r_stat_init_suggestion(prompt: str, hint: dict):
+    # 첫 인물만, 바뀐 양으로 적은 값 하나와 틀 밖 항목 하나 (정리가 고치는지)
+    ids = hint.get("characters", [])
+    names = hint.get("names") or ["레벨", "HP", "스킬"]
+    rows = [StatValue(name=names[0], value="+1"), StatValue(name="HP", value="100/100"), StatValue(name="스킬", value="은신"),
+            StatValue(name="틀 밖", value="1")]
+    return StatInitSuggestion(names=["레벨", "HP", "스킬"], characters=[
+        StatInitCharacter(character_id=ids[0] if ids else "hero", stats=rows, note="바닥에서 시작하는 주인공이라 낮게 정했어요."),
+        StatInitCharacter(character_id="nobody", stats=rows)])
+
+
+@responds(StatWindowSuggestion)
+def _r_stat_window_suggestion(prompt: str, hint: dict):
+    # 장식이 붙은 안 하나와 {rows} 를 빠뜨린 안 하나 (정리가 고치는지)
+    return StatWindowSuggestion(options=[
+        StatWindowOption(label="무공록", title="무공록", template="━━━━━━━━━━━━\\n【 무공록 】 {name}\\n━━━━━━━━━━━━\\n{rows}\\n━━━━━━━━━━━━",
+                         row="▸ {key} ┃ {value}", names=["경지", "내공", "무공"], skin="scroll", why="무협 배경이라 경지와 내공으로 지었어요."),
+        StatWindowOption(label="협회 등록증", title="헌터 등록증", template="[헌터 등록증]\n성명: {name}", row="{key} - 값",
+                         names=["등급", "레벨", "스킬", "스킬"], skin="plain", why=hint.get("request") or "협회 서류처럼 담백하게 했어요."),
+    ])
+
+
+@responds(LookSuggestion)
+def _r_look_suggestion(prompt: str, hint: dict):
+    return LookSuggestion(subject="girl", look=["Black_hair", "short hair", "brown eyes", "teenage"], outfit=["school uniform"],
+                          note="설정에 눈 색이 없어 갈색으로 정했어요.")
+
+
+@responds(VoiceSuggestion)
+def _r_voice_suggestion(prompt: str, hint: dict):
+    return VoiceSuggestion(voice="서술 어미는 ~했어요, ~인 걸까요? 처럼 부드럽게 끝낸다.\n짧은 문장 뒤에 스스로 묻는 문장을 하나 붙인다.\n"
+                           "예: 바람이 차가웠어요. 그 사람도 이 바람을 맞고 있을까요?",
+                           note="대사 말투보다 한 단계 차분하게 잡았어요.")
+
+
+@responds(StyleLearning)
+def _r_style_learning(prompt: str, hint: dict):
+    return _learning(hint)
+
+
+@responds(StyleRevision)
+def _r_style_revision(prompt: str, hint: dict):
+    return _style_revision(hint)
+
+
+@responds(SetupRevision)
+def _r_setup_revision(prompt: str, hint: dict):
+    return _setup_revision(hint)
+
+
+@responds(StyleSample)
+def _r_style_sample(prompt: str, hint: dict):
+    # 참고한 화가 있으면 그 앞부분을 고쳐 쓴 척한다
+    ref = hint.get("ref", "")[:80].strip()
+    return StyleSample(text=f"바람이 찼다. 그는 걸음을 늦췄다.\n\n\"늦었네.\" {hint.get('scene', '')}".strip(),
+                       source=ref)
+
+
+@responds(PassageRevision)
+def _r_passage_revision(prompt: str, hint: dict):
+    return _passage(hint)
+
+
+@responds(FixSet)
+def _r_fix_set(prompt: str, hint: dict):
+    return _fixes(hint)
+
+
+@responds(FindingRecheck)
+def _r_finding_recheck(prompt: str, hint: dict):
+    # 지적한 문장이 본문에서 바뀌었으면 풀린 것으로 본다
+    gone = hint["quote"].strip() not in hint.get("text", "")
+    return FindingRecheck(resolved=gone, reason="문장이 바뀌어 어긋남이 풀렸어요" if gone else "문장이 그대로예요")
+
+
+@responds(HookReport)
+def _r_hook_report(prompt: str, hint: dict):
+    return _hook(hint)
+
+
+@responds(OpeningPlots)
+def _r_opening_plots(prompt: str, hint: dict):
+    return _openings(hint)
+
+
+@responds(PlantSet)
+def _r_plant_set(prompt: str, hint: dict):
+    return _plants(hint)
+
+
+@responds(ClaimSet)
+def _r_claim_set(prompt: str, hint: dict):
+    # 두 걸음 검수: 본문 문장마다 진술 하나
+    sents = [x.strip() for x in re.findall(r"[^.!?\n]+[.!?]", hint.get("text", "")) if len(x.strip()) > 4]
+    return ClaimSet(claims=[Claim(quote=x, claim=x) for x in sents[:30]])
+
+
+@responds(ConsistencyReport)
+def _r_consistency_report(prompt: str, hint: dict):
+    if hint.get("motion") and "plants" not in hint:  # 동선 따로 보기: 지적 없음 (합치기는 시험이 따로 본다)
+        return ConsistencyReport(episode=hint["episode"], issues=[])
+    if "plants" in hint:  # 검수 시험: 프롬프트에 들어간 심은 문장을 짚는다
+        return ConsistencyReport(episode=hint["episode"], issues=[ConsistencyIssue(
+            type="사실", description="심은 모순", source_episode=0, source_quote="설정", current_quote=x)
+            for x in hint["plants"] if x in prompt])
+    n = hint["episode"]
+    issues = [ConsistencyIssue(
+        type="말투", description="도현이 서윤에게 반말을 쓴다", source_episode=0,
+        source_quote="느긋한 존댓말. \"천천히 해요.\"", current_quote="\"됐어, 내가 할게.\"",
+        suggestion="도현의 대사를 존댓말로 바꾼다",
+    )] if n == 2 else []
+    return ConsistencyReport(episode=n, issues=issues)
+
+
+@responds(ConsistencyReportEn)
+def _r_consistency_report_en(prompt: str, hint: dict):
+    # 검수 시험의 영어 지시문판: 한국어판과 같이 프롬프트에 들어간 심은 문장을 짚는다
+    return ConsistencyReportEn(episode=hint["episode"], issues=[ConsistencyIssueEn(
+        type="사실", description="심은 모순", source_episode=0, source_quote="설정", current_quote=x)
+        for x in hint.get("plants", []) if x in prompt])
 
 
 BATCHES: dict[str, dict] = {}  # 프로세스 안에서만 유지되는 가짜 배치 작업

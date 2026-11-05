@@ -7,10 +7,13 @@
 - 자동 집필
 - 목표 화까지 (스토리보드 `_board`, `Policy.storyboard` · `stop_on_board_warnings`) → (큐 시트 `_cues`, `Policy.cue_sheet`) → write → (서술 다듬기 `_polish`, `Policy.polish`, 다듬을 화 `Run.polish_due`) → check + state → 정책(`Policy`) 통과 시 반영을 반복
 - 배치(`llm.BatchLLM`) 켜고 끄기
+- 배치를 취소하지 못하면 배치 이름을 서버 로그(`canon` 로거)에 경고로 남긴다(`_cancel_batches`)
+- 오류로 멈추면 호출 경로를 서버 로그에 남긴다
 - 비용·시간 추정
 - 정착 문체 흐름 멈춤(`Policy.max_style_distance`, 0 이면 끔, `anchor.rolling`)
 - `autorun.json` 에 진행 기록
 - 서버 재시작 후 이어 가기
+- 화를 반영할 때마다 작업의 `step_ep` 를 그 화로 고친다(화면 알림 `notify.js`)
 - 화면은 `static/auto.js`
 
 ### `canon/board.py`
@@ -40,6 +43,7 @@
 
 - 명령줄 (`python -m canon ...`)
 - 전체 명령 목록은 `python -m canon --help`
+- 해석기는 `build_parser` 가 만들고, 명령은 갈래 함수(`_plan_commands` · `_write_commands` · `_tool_commands` · `_app_commands` · `_data_commands` · `_lab_commands`)가 더한다. 새 명령은 맞는 갈래 함수에 넣는다
 - 단편 흐름: `new` → `style` → `arc` → `plot` → (사용자 수정) → `confirm` → (스토리보드 → 큐 시트, 웹 집필 화면 · 자동 집필) → `write` → `check` → `update` 반복
 - `run` 이 쓰기 · 검수 · 반영을 자동으로 되풀이한다
 - 장편(`new --serial`)은 `arc` 대신 `series` 를 한 번 부른다
@@ -133,7 +137,21 @@
 - 쓰기 작업의 `cues`(none)
 - `…/episodes/{n}/cue-sheet`
 - `…/cue-setting`
+- `…/recent-echoes`(`Settings.recent_echoes`, 블록 `prompts.echo_block`)
 - `…/write-material`
+
+### `canon/echoes.py`
+
+- 최근 화에서 되풀이한 구절(`recent`): 본문이 있는 직전 `WINDOW`(5)화에서 `MIN_EPISODES`(3)개 화 이상에 그대로 나온 서술 구절과 그 화 번호
+- 쓰기 요청은 앞 화 본문 전체를 넣지 않아, 모델이 지난 화 비유를 보지 못하고 다시 만든다. `metrics.measure` 의 반복 구는 한 화 안만 센다
+- 3어절(`SEED`)에서 시작해 앞뒤로 늘린다(`_grow`, `MAX_WORDS` 까지, 나온 곳의 `GROW_SHARE` 이상에서 같은 어절일 때만)
+- 대사(따옴표 안)는 세지 않는다
+- 인물 이름(성을 뗀 이름 포함) · 부르는 말 · 이야기 요소 이름이 든 구절은 뺀다(`_names`)
+- 확정 사실 · 세계관 · 인물 설정 · 상태 · 이야기 요소에 조사만 다르게 적힌 3어절 묶음이 든 구절은 뺀다(`_in_canon`)
+- 짧은 구절(`MIN_CHARS`)은 빼고, 많이 나온 화부터 `LIMIT`(10)개
+- 블록은 `prompts.echo_block`, 켜기는 `Settings.recent_echoes`
+- LLM 호출 없음
+- `tests/test_echoes.py`
 
 ### `canon/features.py`
 
@@ -173,8 +191,10 @@
 - 진행률
 - 작업이 맡은 화를 저장 덮어쓰기에서 지키기(`owned_episodes`)
 - 멈추기(`stop`)
+- 실패한 작업의 호출 경로를 서버 로그(`canon` 로거)에 남긴다. 화면에는 오류 문구만 보인다
 - 멈췄지만 AI 응답을 기다리는 같은 작업 찾기(`lingering`)
 - 같은 화의 AI 작업(`EP_AI_KINDS`) 가운데 응답을 기다리는 것 찾기(`waiting_on`). 종류가 달라도 같은 화면 호출이 겹친다
+- 단계 하나가 마지막으로 끝낸 화(`Job.step_ep`). 화면 `notify.js` 가 바뀔 때마다 알린다
 
 ### `canon/metatail.py`
 
@@ -186,8 +206,14 @@
 - `pipeline._write` 가 떼고(서버 기록 warning, `cut` 목록을 주면 `MetaCut` 으로 채움) 다시 쓰며(`whole`), `pipeline.style_drift` 가 경고를 붙인다
 - LLM 호출 없음
 
+### `canon/opening.py`
+
+- 초반 1~3화: 지표, 흡입력 판정, 여는 방식 여러 안
+- `pipeline.py` 에서 옮긴 구역이다. `pipeline` 맨 끝의 `_attach_split` 이 `EXPORTS` 의 이름을 `pipeline` 에도 둬서 `pipeline.<이름>` 으로 그대로 부른다
+
 ### `canon/pipeline.py`
 
+- 장편 전환(`serialize.py`) · 재구성(`reshape.py`) · 초반 1~3화(`opening.py`)는 따로 둔 모듈이다(`SPLIT`). 새 공용 도우미는 이 파일에 두고 그 모듈이 불러 쓴다
 - 단계별 로직
 - 차례: 설정 제안 → 스타일 분석 → 기승전결 → 화별 플롯 → 스토리보드 → 큐 시트 → 본문 → 검수 → 상태 추출/반영
 - 화별 플롯
@@ -237,6 +263,7 @@
 - 예시 문단이 있는 작품의 스타일 프로필 `style_rules_view`(칸마다 `STYLE_FIELD_LIMIT`, 예시 문단이 앞)
 - 스토리보드 깨지 않을 것을 검수에 `protect_block` · `protect_check_rule`
 - 지시 수 · 크기 상한 시험 `tests/test_write_budget.py`
+- 장편 본문 쓰기 요청(`build_episode_context(write=True)`)의 뒤쪽, 가끔 쓰는 장치 뒤에 '최근 화에서 되풀이한 구절' 블록 `echo_block`(`echoes.recent`, `Settings.recent_echoes`, 단편 · 스토리보드 만들기에는 넣지 않음)
 - 화에 큐 시트가 있으면 `episode_prompt` 맨 끝에 `cue_write_block`(실험의 조건 score 와 같은 글, `use_cues=False` 면 뺌)
 - `episode_prompt` 끝(큐 시트 블록 앞)의 문장 끝 섞기 줄 `ending_line`('~다.' 몫과 현재형 몫은 문체 기준에서 `ENDING_SHARE` · `PRESENT_SHARE_MAX` 안으로, 서술 말투가 있는 화는 뺌)
 - 화별 플롯 초안(`plot_prompt` · `serial_plot_prompt`)은 범위 안 · 범위 뒤 3화(`PLAN_AHEAD`)의 이미 정해진 화를 `fixed_plots` · `fixed_block` 으로 넣고 요구사항에 `fixed_rule` 을 붙인다(장편은 `context.BUDGET["plan_fixed"]`, 한 화 초안은 `ahead=False`)
@@ -244,6 +271,11 @@
 - 검수 요구사항의 관계 단계 한 줄(`stage_check_rule`, 관계 수치가 있을 때만)
 - 관계 설정 `rels(plan=)`: 가 닿을 곳(`Relationship.destination`)은 기획 프롬프트에만, 말로 넣는 기획은 `destination_block`
 - 다음 아크 기획(`next_arc_prompt`)은 관련 확정 사실(`plan_facts`) · 작품 속 시간(`time_plan`, 끝 줄 `ARC_TIME_RULE`) · 주역 밖 기획 인물 상태(`plan_side_states`)를 예산(`context.BUDGET` 의 `plan_facts` · `plan_states`) 안에서 넣는다
+
+### `canon/reshape.py`
+
+- 단편을 씨앗으로 장편 앞부분을 다시 짜는 재구성(웹 `rebuild` 작업)
+- `pipeline.py` 에서 옮긴 구역이다. `pipeline` 맨 끝의 `_attach_split` 이 `EXPORTS` 의 이름을 `pipeline` 에도 둬서 `pipeline.<이름>` 으로 그대로 부른다
 
 ### `canon/schema.py`
 
@@ -273,6 +305,12 @@
 - 쓰기 재료는 `Settings.write_material`(fixed 면 고정점만: `board.fixed_only`, 장면 목록 · 큐 시트를 쓰기 요청에서 뺌, `cue.on` 끔)
 - 화별 큐 시트(`Episode.cue_sheet`, `CueSheet`)도 상태 승인 대상이 아니다
 - 큐 시트 켜기는 `Settings.cue_sheet`(비우면 장편 켬 · 단편 끔)
+- 되풀이한 구절 블록 켜기는 `Settings.recent_echoes`(기본 켬, 장편에만 넣음)
+
+### `canon/serialize.py`
+
+- 단편을 장편 연재로 바꾸는 이어 쓰기 전환(CLI `convert`, 웹 `convert` 작업)
+- `pipeline.py` 에서 옮긴 구역이다. `pipeline` 맨 끝의 `_attach_split` 이 `EXPORTS` 의 이름을 `pipeline` 에도 둬서 `pipeline.<이름>` 으로 그대로 부른다
 
 ### `canon/settings.py`
 
@@ -283,6 +321,8 @@
 - 단계별 환경 변수 이름은 `stage_env`
 - 기본 모델은 `DEFAULT_MODEL`
 - 작품별 단계 프리셋은 `project_preset` · `stage_provider` · `stage_model`
+- 단계별 추론 강도는 `stage_effort`(설정 파일 `stage_efforts`, `CANON_EFFORT_<단계>`)
+- 백엔드에 넘길 강도는 `provider_effort`(Claude `EFFORTS`, Gemini `GEMINI_EFFORTS`, Gemini 는 xhigh · max 를 high 로)
 
 ### `canon/static/auto.js`
 
@@ -301,16 +341,23 @@
 
 - `projects/<이름>/project.json` 저장
 - 본문을 `episodes/NN.md` 로 내보내기(바뀐 화만 다시 씀), project.json 은 들여쓰기 없이
+- 마지막 화가 100화 이상이면 본문 파일 이름을 세 자리(`NNN.md`)로 쓰고 옛 두 자리 파일은 지운다(`ep_file`)
+- 저장 전 직전 판을 `project.prev.json` 으로, 시간마다 첫 저장 직전 판을 `backups/project.<날짜-시>.json` 으로 남긴다(최근 `BACKUP_KEEP` 개, 하드 링크라 복사하지 않음)
+- 갈래 · 복제 · 플레이 사본은 `backups/` 를 옮기지 않는다(`branches.COPY_SKIP`)
 - 작품 캐시: 같은 판이면 검증을 건너뜀. `load_view` 는 캐시 것(고치지 않음, 웹은 `web._view`), `load` 는 깊은 복사본. 저장하면 저장한 내용을 바로 캐시에 둠(`_remember`)
 - 파일 판(`tag`, 작품 GET 의 ETag). 웹 요청이 저장한 판은 `saved` 에 남아 응답의 `X-Project-ETag` 가 된다
+- 스냅샷은 `snapshots/<화>-<내용 해시>.json` 에 하나씩 두고 project.json 맨 앞 `snapshot_files` 가 차례대로 적는다(`read_disk`). 옛 project.json 안의 스냅샷도 읽는다
+- 지난 저장과 같은 스냅샷은 다시 직렬화하지 않는다(`_snap_written`). 어느 판(project.json · prev · backups)도 적지 않은 스냅샷 파일은 지운다
 - 화면 저장 기록(`writer`, `edit_rev` · `saved_by`, 파일 끝만 읽음)
+- 파일 끝에서 두 칸을 찾지 못하면 파일 전체를 읽는다. 두 칸은 `Project` 의 마지막 필드여야 한다(`tests/test_store_backup.py`)
 - 검토를 기다리는 AI 결과와 실패한 작업(`pending.json`, `load_pending` / `edit_pending`)
 
 ### `canon/updater.py`
 
 - 코드 자동 업데이트
 - `origin/main` fast-forward
-- 의존성 설치
+- 의존성 설치(`requirements.lock` 이 있으면 그것대로)
+- 다시 시작하기 전에 새 프로세스에서 `canon.web` 을 불러 보고, 불러지지 않으면 이전 커밋으로 돌린다(`_smoke`)
 - 프로세스 재시작
 - `serve` 가 시작 때와 주기적으로 부른다
 - `POST /api/update/check`(머지 때 GitHub Actions `notify-server.yml`)는 `wake` 로 바로 부르게 한다
@@ -318,6 +365,7 @@
 ### `canon/web.py`
 
 - 웹 UI 서버(`python -m canon serve`)
+- `serve` 는 로깅 설정이 없으면 INFO 수준, 시각 · 수준 · 로거 이름을 붙인 형식으로 정한다. 업데이트 · 자동 집필 이어 가기 안내도 이 로그로 낸다
 - 작품 GET 과 작품을 돌려주는 응답은 스냅샷을 화 번호만 보낸다(`_SNAPSHOT_LIGHT`). 작품 저장(PUT)은 디스크 스냅샷을 지킨다
 - 인물 · 관계도와 지도 응답은 작품 판으로 JSON 을 기억하고 ETag 를 붙인다(`_json_view`)
 - CLI 와 같은 store · pipeline · prompts 를 쓰고 화면은 `canon/static/` 의 정적 파일이다

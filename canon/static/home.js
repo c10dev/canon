@@ -28,7 +28,8 @@ const newForm = () => { const m = genreTarget(); Object.keys(NEW_FORM).forEach((
 const newFormUsed = (m) => !!(m.title || m.name || m.genres.length || m.eps !== NEW_FORM.eps || m.form !== 'short' || m.adult || m.style);
 
 /** 제목으로 폴더 이름 만들기: 폴더에 못 쓰는 글자를 빼고 빈칸은 - 로 (web.NAME_RE) */
-const folderOf = (t) => t.trim().replace(/[/\\:*?"<>|]/g, '').replace(/^\.+/, '').replace(/\s+/g, '-').slice(0, 64);
+const folderRaw = (t) => t.trim().replace(/[/\\:*?"<>|]/g, '').replace(/^\.+/, '').replace(/\s+/g, '-');
+const folderOf = (t) => [...folderRaw(t)].slice(0, 64).join('');  // 글자(코드 포인트) 64개: 서버 NAME_RE 와 같고 이모지 가운데를 끊지 않는다
 const FOLDER_BAD = /^\.|[/\\:*?"<>|]/;
 
 /** 작품 홈 · 설정 도우미 머리 아래의 AI 연결 안내 (작품 목록과 같은 글, 설정 화면 링크) */

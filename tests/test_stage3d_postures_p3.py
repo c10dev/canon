@@ -10,7 +10,7 @@ from canon import stage
 from canon import stage3d as s3
 from canon.schema import StageBody, StageContact, StageScene, StageSpot
 from canon.stage3d import fake
-from canon.stage3d.postures import _lying, held, lie, prone, side
+from canon.stage3d.postures import _lying, held, side
 
 from tests.test_stage3d_contract import check_posture
 

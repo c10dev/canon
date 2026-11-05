@@ -1168,7 +1168,7 @@ def test_web_edit_and_drop_episode(home, monkeypatch):
     v = c.delete(f"/api/revlab/{lab_id}/episodes/1").json()
     assert [(e["number"], e["head"]) for e in v["items"]] == [(1, "2화 고침")]
     assert c.delete(f"/api/revlab/{lab_id}/episodes/1").status_code == 400
-    assert c.delete(f"/api/revlab/99/episodes/1").status_code == 404
+    assert c.delete("/api/revlab/99/episodes/1").status_code == 404
     busy = jobs.Job(id="x", project=revlab.JOBS, kind="rev_parse", ep=lab_id, label="역설계")
     monkeypatch.setattr(jobs, "listing", lambda project=None: [busy])
     r = c.put(f"/api/revlab/{lab_id}/episodes/1", json={"head": "", "text": "작업 중 고침 " * 30})
@@ -1497,4 +1497,4 @@ def test_web_paragraph_to_studio(home):
     assert para not in prompts.paragraph_prompt(revlab.world(lab, e.number), SceneCard(**s["card"]), 2, [])  # 본보기는 AI 에게 보내지 않는다
     assert c.post(f"/api/revlab/{lab.id}/episodes/{e.number}/studio", json={"text": "없는 글"}).status_code == 400
     assert c.post(f"/api/revlab/{lab.id}/episodes/99/studio", json={"text": para}).status_code == 404
-    assert c.post(f"/api/revlab/999/episodes/1/studio", json={"text": para}).status_code == 404
+    assert c.post("/api/revlab/999/episodes/1/studio", json={"text": para}).status_code == 404

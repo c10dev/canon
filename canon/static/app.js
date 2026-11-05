@@ -404,6 +404,7 @@ async function pollJobs(soon = false) {
   const before = new Map(S.jobs.map((j) => [j.id, j]));
   // 화면이 목록에서 지운(닫은) 작업은 다시 보이지 않게 한다
   S.jobs = list.filter((j) => (!S.jobsSeen.has(j.id) || j.status === 'running') && !QUIET_JOBS.has(j.kind));
+  if (typeof notifyJobs === 'function') notifyJobs(S.jobs, before);  // 탭이 뒤에 있으면 브라우저 알림 (notify.js)
   let redraw = false;
   let resultFocus = null;
   for (const j of S.jobs) {
@@ -482,7 +483,31 @@ function selecting() {
 // 입력을 마치면(다른 입력칸이 아닌 곳으로 포커스가 가면) 입력 중이라 미뤄 둔 다시 그리기를 한다
 document.addEventListener('focusout', () => setTimeout(() => { if (S.renderPending && !isTyping() && !selecting()) render(); }));
 // 글자 선택을 풀면 선택 중이라 미뤄 둔 다시 그리기를 한다
-document.addEventListener('selectionchange', () => setTimeout(() => { if (S.renderPending && !isTyping() && !selecting()) render(); }));  // 누른 버튼의 동작이 먼저 돈다
+document.addEventListener('selectionchange', () => setTimeout(() => { if (S.renderPending && !isTyping() && !selecting()) render(); }));
+
+/** 숫자 칸에 휴대폰 숫자 자판을 붙인다. inputmode 가 없는 type=number 칸은 iOS 에서 글자 자판이 뜬다.
+    칸이 화면 파일 여기저기에 있어 그려질 때마다 한곳에서 붙인다. step 이 소수면 decimal, 아니면 numeric */
+function numberKeypads(root) {
+  for (const el of root.querySelectorAll('input[type=number]:not([inputmode])')) {
+    const step = el.getAttribute('step') || '';
+    el.setAttribute('inputmode', step.includes('.') || (el.min && el.min.includes('.')) ? 'decimal' : 'numeric');
+  }
+}
+if (window.MutationObserver && document.body) {
+  new window.MutationObserver((list) => {
+    for (const m of list) for (const n of m.addedNodes) if (n.nodeType === 1) { if (n.matches('input[type=number]')) numberKeypads(n.parentElement || n); else numberKeypads(n); }
+  }).observe(document.body, { childList: true, subtree: true });
+}
+// 휴대폰 키보드 높이를 --kb 로 둔다. 아래에 붙는 대화 시트 · 다시 생성 열과 찾기 팔레트가 키보드 위에 선다 (app.css 900px 이하)
+if (window.visualViewport && typeof window.visualViewport.addEventListener === 'function') {
+  const fitKeyboard = () => {
+    const vv = window.visualViewport;
+    const kb = vv.scale > 1.01 ? 0 : Math.max(0, Math.round(innerHeight - vv.height - vv.offsetTop));  // 두 손가락으로 확대한 동안은 키보드가 아니다
+    document.documentElement.style.setProperty('--kb', `${kb < 80 ? 0 : kb}px`);  // 80px 아래는 주소창이 접히고 펴지는 것이라 키보드로 보지 않는다
+  };
+  window.visualViewport.addEventListener('resize', fitKeyboard);
+  window.visualViewport.addEventListener('scroll', fitKeyboard);
+}  // 누른 버튼의 동작이 먼저 돈다
 
 // 작업 결과가 보이는 화면
 JOB_DONE_MSG.check = (j) => `${j.ep}화 검수가 끝났어요${j.result && j.result.round ? ` (${j.result.round}회차)` : ''}: 짚은 곳 ${j.result ? j.result.issues : 0}개${j.result && j.result.round > 1 ? `, 새 지적 ${j.result.added}개` : ''}`;
@@ -1517,13 +1542,18 @@ function menuBtn(id, label, body, { cls = 'btn', aria = '', title = '', align = 
 /** 열린 메뉴 창이 화면 밖으로 나가지 않게 한다. 창은 버튼 오른쪽 끝에 맞춰 왼쪽으로 펼치는데, 좁은 화면에서 버튼이
     줄 왼쪽으로 내려가면 창이 왼쪽 밖으로 나간다. 그러면 버튼 왼쪽 끝에 맞춘다 (.pop-panel.left) */
 function fitMenus() {
+  const W = document.documentElement.clientWidth;
   document.querySelectorAll('#app .pop-panel').forEach((p) => {
-    if (p.classList.contains('left')) return;
-    if (p.getBoundingClientRect().left < 8) p.classList.add('left', 'fit-left');
+    if (!p.classList.contains('left') && p.getBoundingClientRect().left < 8) p.classList.add('left', 'fit-left');
+    // 버튼이 줄 가운데에 있으면 어느 쪽에 맞춰도 넘친다. 그러면 화면 안으로 옆으로 민다 (휴대폰 폭)
+    const r = p.getBoundingClientRect();
+    const shift = r.right > W - 8 ? Math.max(8 - r.left, W - 8 - r.right) : r.left < 8 ? 8 - r.left : 0;
+    if (shift) { p.style.translate = `${Math.round(shift)}px 0`; p.classList.add('fit-shift'); }
   });
 }
 window.addEventListener('resize', () => {
   document.querySelectorAll('#app .pop-panel.fit-left').forEach((p) => p.classList.remove('left', 'fit-left'));
+  document.querySelectorAll('#app .pop-panel.fit-shift').forEach((p) => { p.classList.remove('fit-shift'); p.style.translate = ''; });
   fitMenus();
 });
 
@@ -2052,7 +2082,7 @@ function focusEl(el) {
 function afterDraw(f) {
   const main = $('#app main');
   if (main) { main.id = 'main'; main.tabIndex = -1; }
-  document.title = pageTitle();
+  document.title = typeof notifyTitle === 'function' ? notifyTitle(pageTitle(), notifyUnseen) : pageTitle();  // 안 본 알림 수 (notify.js)
   // 탭 묶음: 고른 탭만 Tab 으로 들어가고 나머지는 화살표로 옮긴다 (아래 keydown)
   document.querySelectorAll('#app [role="tablist"]').forEach((list) => {
     const tabs = [...list.querySelectorAll('[role="tab"]')];

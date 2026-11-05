@@ -10,6 +10,8 @@
 const PLAY_UNIT_MS = 20000;  // 1× 에서 시간 단위 한 칸 [추정: 시안 제안값, 실제 Gemini 속도로 재지 않음]
 const PLAY_AUTO_MS = 8000;   // 자동 결정 전에 기다리는 시간 [추정: 시안 제안값]
 const PLAY_SPEEDS = [1, 2, 4, 8];
+/** 키보드 안내를 보일까. 손가락 기기는 키보드가 없을 때가 많아 숫자 키 · Ctrl+Enter 안내를 숨긴다 */
+const playKeys = () => !(typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches);
 const PLAY_GAP_MAX = 3;      // 줄 사이가 아무리 멀어도 시간 칸은 이만큼까지만 기다린다
 const PLAY_UNIT_DAYS = { hour: 1 / 24, day: 1, month: 30, year: 365 };
 const PLAY_UNITS = { hour: '한 시간', day: '하루', month: '한 달', year: '한 해' };
@@ -506,11 +508,11 @@ function playStage(ph) {
     return `<article class="pdecide" aria-labelledby="play-dec-h">
       <div class="row"><h2 id="play-dec-h" tabindex="-1">${esc(when || '지금')}</h2><span class="chip warn">결정</span></div>
       <div class="pscene">${playParas(last.scene)}</div>
-      ${auto ? `<div class="note warn row" style="justify-content:space-between"><span><strong>자동 결정</strong> <span id="play-auto-left">${c.auto != null ? `${Math.ceil(c.auto / 1000)}초 뒤 AI가 골라요` : '시간이 흐르면 AI가 골라요'}</span> · 아무 키나 누르면 기다려요</span><button type="button" class="btn small" data-action="playHold">기다리기</button></div>` : ''}
+      ${auto ? `<div class="note warn row" style="justify-content:space-between"><span><strong>자동 결정</strong> <span id="play-auto-left">${c.auto != null ? `${Math.ceil(c.auto / 1000)}초 뒤 AI가 골라요` : '시간이 흐르면 AI가 골라요'}</span>${playKeys() ? ' · 아무 키나 누르면 기다려요' : ''}</span><button type="button" class="btn small" data-action="playHold">기다리기</button></div>` : ''}
       <section aria-labelledby="play-act-h" class="pchoices">
         <h3 id="play-act-h">어떻게 할까요?</h3>
         <ol aria-label="선택지">${last.choices.map((x, i) => `<li><button type="button" class="pchoice" data-action="playChoose" data-arg="${i + 1}" aria-keyshortcuts="${i + 1}"><span class="kbd" aria-hidden="true">${i + 1}</span>${esc(x)}</button></li>`).join('')}</ol>
-        ${playFreeBox('직접 해 보기', '세계 규칙에 어긋나면 실패하거나 대가를 치러요', `고르면 시간이 다시 흘러요 · 숫자 키 1~${last.choices.length}, 입력칸에서는 Ctrl+Enter`)}
+        ${playFreeBox('직접 해 보기', '세계 규칙에 어긋나면 실패하거나 대가를 치러요', `고르면 시간이 다시 흘러요${playKeys() ? ` · 숫자 키 1~${last.choices.length}, 입력칸에서는 Ctrl+Enter` : ''}`)}
       </section>
     </article>`;
   }
@@ -531,7 +533,7 @@ function playStage(ph) {
   const since = p.job && p.job.status === 'running' ? Math.max(0, Math.round(Date.now() / 1000 - p.job.started)) : 0;
   return `${writing ? `<div class="pwriting"><span class="spinner small" aria-hidden="true"></span><span>앞날을 쓰는 중이에요${since ? ` · ${since}초` : ''}</span><span class="psk" aria-hidden="true"></span></div>` : ''}
     ${p.ending ? '' : `<details class="pinterrupt"${S.playDraft ? ' open' : ''}><summary class="btn small" aria-keyshortcuts="I">끼어들기 · 직접 해 보기</summary>
-      ${playFreeBox('지금 하고 싶은 일', '적기 시작하면 시간이 멈춰요. 지금 구간이 끝나는 자리에서 해 봐요', '입력칸에서는 Ctrl+Enter')}</details>`}`;
+      ${playFreeBox('지금 하고 싶은 일', '적기 시작하면 시간이 멈춰요. 지금 구간이 끝나는 자리에서 해 봐요', playKeys() ? '입력칸에서는 Ctrl+Enter' : '')}</details>`}`;
 }
 
 function playFreeBox(label, hint, foot) {

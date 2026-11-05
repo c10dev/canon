@@ -13,7 +13,7 @@ from . import dynamics, findings, pipeline, store, timeline
 from .schema import (BranchDiff, BranchDiffRow, BranchEpisode, BranchInfo, BranchSide, Episode, ForkMode, Project,
                      Snapshot, TextVersion)
 
-COPY_SKIP = ("autorun.json", "pending.json", "*.tmp")  # 갈래와 복제(web.duplicate_project)가 옮기지 않는 파일
+COPY_SKIP = ("autorun.json", "pending.json", "*.tmp", "backups")  # 갈래와 복제(web.duplicate_project)가 옮기지 않는 파일
 
 
 def _new_id() -> str:
@@ -105,7 +105,7 @@ def make(name: str, to: str, n: int, mode: ForkMode = "clear", label: str = "") 
         cleared = fork(q, n, mode)
         store.save(to, q)
         for k in cleared:  # store.save 는 본문이 있는 화만 내보내니 비운 화의 옛 파일은 지운다
-            (dst / "episodes" / f"{k:02d}.md").unlink(missing_ok=True)
+            store.ep_file(dst, k, max((e.plot.number for e in q.episodes), default=0)).unlink(missing_ok=True)
         info = BranchInfo(id=_new_id(), family=src.family, parent=src.id, from_ep=n, label=label.strip(),
                           at=pipeline._now(), base=base_hash(p, n))
         store.save_branch(to, info)

@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import contextvars
+import logging
 import threading
 import time
 import uuid
@@ -42,6 +43,7 @@ class Job:
     pending: list[int] = field(default_factory=list)  # 맡은 화 중 아직 결과를 쓰지 않은 화 (화면이 그 화만 잠근다)
     released: dict[int, tuple[float, set[int]]] = field(default_factory=dict)  # 단계(done) → (내려놓은 시각, 화). release 참고
     stop: threading.Event = field(default_factory=threading.Event)  # 멈추기 신호 (cancel.current)
+    step_ep: int | None = None  # 단계 하나가 마지막으로 끝낸 화. 자동 집필이 화를 반영할 때마다 고친다 (화면이 화마다 알린다)
     alive: bool = True  # 스레드가 아직 돈다. 멈춘 작업도 이미 보낸 AI 호출의 응답을 기다리는 동안은 참 (waiting)
 
     def public(self) -> dict:
@@ -49,7 +51,7 @@ class Job:
             "id": self.id, "project": self.project, "kind": self.kind, "ep": self.ep, "label": self.label,
             "total": self.total, "done": self.done, "note": self.note, "status": self.status,
             "result": self.result, "error": self.error, "started": self.started, "step_at": self.step_at or self.started, "finished": self.finished,
-            "pending": sorted(self.pending), "waiting": self.waiting,
+            "pending": sorted(self.pending), "waiting": self.waiting, "step_ep": self.step_ep,
         }
 
     @property
@@ -116,7 +118,8 @@ def start(project: str, kind: str, ep: int | None, label: str, fn: Callable[[Job
                 job.result = out
         except cancel.Cancelled:
             job.status, job.error = "cancelled", "멈췄어요"
-        except Exception as e:  # 화면에 그대로 보여 준다
+        except Exception as e:  # 화면에 그대로 보여 준다. 원인을 찾을 수 있게 호출 경로는 서버 로그에 남긴다
+            logging.getLogger("canon").exception("작업 %s(%s, %s) 실패", job.kind, job.project, job.id)
             if job.status == "running":
                 job.error = getattr(e, "message", None) or str(e) or type(e).__name__
                 job.status = "error"

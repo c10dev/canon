@@ -284,10 +284,15 @@ def _vertex_client() -> Any:
 
 
 class GeminiLLM:
-    def __init__(self, model: str | None = None, api_key: str | None = None):
+    effort = ""  # 추론 강도 기본값 (시험이 __init__ 없이 만들 때도 있다)
+
+    def __init__(self, model: str | None = None, api_key: str | None = None, effort: str = ""):
         from google import genai
 
         from . import settings
+
+        # 추론 강도(settings.GEMINI_EFFORTS)는 thinking_level 로 넘긴다. 비우면 모델 기본값(gemini-4-argon 은 생각하지 않는다)
+        self.effort = effort if effort in settings.GEMINI_EFFORTS else ""
 
         # api_key 를 직접 넘기면(연구 화면 등) 늘 키 방식이다
         self.vertex = not api_key and settings.gemini_auth()[0] == "vertex"
@@ -358,7 +363,9 @@ class GeminiLLM:
         t, tokens = time.time(), None
         self.last_raw, self.last_finish = "", ""
         if cap := _out_cap.get():
-            config.setdefault("max_output_tokens", cap)
+            config.setdefault("max_output_tokens", cap)  # 생각 토큰도 이 한도에 든다
+        if self.effort:
+            config.setdefault("thinking_config", types.ThinkingConfig(thinking_level=self.effort.upper()))
         try:
             resp = self.client.models.generate_content(
                 model=self.model,
@@ -417,11 +424,13 @@ class GeminiLLM:
         못하거나 서버가 요청을 거절(400)하면 response_json_schema 로 보낸다."""
         from google.genai import errors
 
+        think = {"thinking_config": {"thinking_level": self.effort.upper()}} if self.effort else {}
+
         def create(fmt: dict[str, Any]) -> Any:
             return self.client.batches.create(
                 model=self.model,
                 src=[{"contents": [{"role": "user", "parts": [{"text": with_note(prompt)}]}],
-                      "config": {"system_instruction": system, **fmt}}],
+                      "config": {"system_instruction": system, **think, **fmt}}],
                 config={"display_name": label[:120]},
             )
 
@@ -756,7 +765,8 @@ class LocalLLM:
 
 def make_llm(provider: str, model: str | None = None, effort: str = "") -> LLM:
     """model 이 비어 있으면 그 백엔드의 기본 모델(설정의 model 또는 local_model)을 쓴다.
-    effort 는 Claude 추론 강도(settings.EFFORTS)이고 다른 백엔드는 무시한다. 비우면 모델 기본값."""
+    effort 는 단계 추론 강도(settings.EFFORTS)다. Claude 와 Gemini 만 받고(settings.provider_effort 로 바꿔 넘긴다)
+    다른 백엔드는 무시한다. 비우면 모델 기본값."""
     if provider == "mock":
         from .mock import MockLLM
 
@@ -764,7 +774,9 @@ def make_llm(provider: str, model: str | None = None, effort: str = "") -> LLM:
     if provider == "local":
         return LocalLLM(model=model or None)
     if provider == "gemini":
-        return GeminiLLM(model=model or None)
+        from . import settings
+
+        return GeminiLLM(model=model or None, effort=settings.provider_effort("gemini", effort))
     if provider in ("claude", "claude-api"):
         from .claude import ClaudeAPILLM, ClaudeCodeLLM
 
@@ -777,7 +789,7 @@ def make_llm(provider: str, model: str | None = None, effort: str = "") -> LLM:
 def get_llm(stage: str | None = None) -> LLM:
     """stage: plan | write | check | state | name | revise | illustration | play | chat. 단계별 백엔드와 모델 설정이 없으면 전체 설정을 쓴다.
     지금 작업의 작품(usage.scope)이 단계 프리셋을 골랐으면 그 프리셋의 단계 칸을 쓴다 (settings.project_preset).
-    Claude 백엔드면 단계 추론 강도(settings.stage_effort)도 넘긴다."""
+    단계 추론 강도(settings.stage_effort)도 넘긴다. Claude 와 Gemini 만 쓴다."""
     from . import settings
 
     llm = make_llm(settings.stage_provider(stage)[0], settings.stage_model(stage)[0], settings.stage_effort(stage)[0])

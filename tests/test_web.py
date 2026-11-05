@@ -130,7 +130,7 @@ def test_settings(client, tmp_path, monkeypatch):
     assert client.put("/api/config", json={"stage_efforts": {"check": "huge"}}).status_code == 400
     c = client.put("/api/config", json={"stages": {"check": "claude"}, "stage_efforts": {"check": "high"}}).json()
     assert c["stages"]["check"]["effort"] == "high" and c["stage_effort_settings"] == {"check": "high"}
-    assert c["efforts"] == ["low", "medium", "high", "xhigh", "max"]
+    assert c["efforts"] == ["low", "medium", "high", "xhigh", "max"] and c["gemini_efforts"] == ["low", "medium", "high"]
     c = client.put("/api/config", json={"stages": {"check": ""}, "stage_efforts": {"check": ""}}).json()
     assert c["stage_effort_settings"] == {} and c["stages"]["check"]["effort"] == ""
     from canon.llm import get_llm as _get
@@ -894,13 +894,13 @@ def test_load_cache_returns_copies(client):
 def test_saved_cache_matches_disk(client):
     """저장 직후 캐시에 둔 작품은 디스크에서 다시 읽은 것과 같다. 작품 응답은 스냅샷을 화 번호만 보내고, 작품 저장은 디스크 스냅샷을 지킨다."""
     from canon import store
-    from canon.schema import Project, Snapshot
+    from canon.schema import Snapshot
     meta = {"title": "등대", "genre": "미스터리", "logline": "x", "target_episodes": 10}
     client.post("/api/projects", json={"name": "sc", "meta": meta})
     p = store.load("sc")
     p.snapshots = [Snapshot(episode=0, facts=["첫 사실"])]
     store.save("sc", p)
-    disk = Project.model_validate_json((store.project_dir("sc") / "project.json").read_text(encoding="utf-8"))
+    disk = store.read_disk(store.project_dir("sc") / "project.json")
     store.seed_ties(disk)
     assert store.load_view("sc").model_dump_json() == disk.model_dump_json()
     got = client.get("/api/projects/sc").json()

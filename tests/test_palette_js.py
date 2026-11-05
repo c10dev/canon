@@ -1,6 +1,5 @@
 """작업 목록 남은 시간(static/app.js jobLeft)과 명령 팔레트 검색(static/palette.js)을 node 로 맞춰 본다. node 가 있을 때만 돈다."""
 import json
-import re
 import shutil
 import subprocess
 from pathlib import Path

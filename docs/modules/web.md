@@ -9,6 +9,9 @@
 - 간격 · 모서리 · 크기 · 그림자 · 쌓는 층은 맨 위 `:root` 의 변수(`--space-*` · `--radius-*` · `--shadow-*` · `--z-*`)로 쓴다(같은 시험)
 - z-index 는 `--z-*` 사다리만 쓴다(`docs/design/layout.md` '쌓는 층')
 - 손가락 기기 · 640px 이하에서 작은 누름 영역을 44px 로 키우는 규칙은 '휴대폰' 절 바로 앞 한 블록에 모은다
+- 높이 500px 이하(가로 휴대폰) 규칙은 `@media (max-height: 500px)` 로 건다. 붙여 두는 칸을 풀고 대화 시트를 키운다(`docs/design/layout.md` '오른쪽 패널')
+- `html` 에 `text-size-adjust: 100%` 를 둔다. iOS Safari 가 가로 화면에서 글자를 키우지 않게 한다
+- 떠 있는 칸 · 시트 · 메뉴(대화 기록, 펼침 메뉴, 설정 대화상자, 목차 펼침 등)는 `overscroll-behavior: contain` 이다. 끝까지 굴려도 뒤 페이지가 구르지 않는다
 - 기능마다 `/* ----- 이름 (파일.js) ----- */` 절로 나눈다
 - 공용 목차 틀의 화면별 칸 규칙은 `@container outline` 으로 건다
 - 컴포넌트 규칙을 바꾸면 `docs/design/components/bundle.css` 의 그 줄도 같게 고친다
@@ -34,6 +37,8 @@
   - 64px 레일로 접기 `toggleRail` · `syncRail`(901~1599px 에서 대화 패널을 열면 저절로)
   - 900px 이하는 위쪽 띠와 왼쪽 서랍 `drawerHead`
 - 창 폭 경계 `BP`(phone 640 · narrow 900 · chatRail 1599)와 `mq(이름)`: app.css `@media` 와 같은 값이다. `hub.js` · `review.js` 도 이것을 쓴다
+- 휴대폰 키보드 높이 `--kb`(`visualViewport`, 80px 아래와 두 손가락 확대는 0): 아래 시트 · 찾기 팔레트가 키보드 위에 선다
+- 숫자 칸 자판 `numberKeypads`: `inputmode` 가 없는 `type=number` 칸에 붙인다(소수 `step` 은 decimal, 아니면 numeric). `MutationObserver` 로 그려질 때마다 한곳에서 붙인다
 - 사이드바 아이콘(`navItems` · `navMark`: 단계는 번호, 그 밖은 토스페이스 이모지 `.tf`, 출처 문구는 사이드바 아래, Swift `Screen.mark` 와 같은 글자)
 - 사이드바 작품 칸(`workCard`: 제목 · 갈래 · 플레이 사본(`play.js` `playSideTag`) · 장편은 지금 부 · 아크(`partOf` · `arcOf`), 화 칸 띠는 단편 전체 · 장편 지금 아크, 다음 할 일은 `home.js` `nextStep`, 좁은 폭 위쪽 띠 줄이기는 `app.css` `.work-card`)
 - 4 · 5 · 6 줄이 가리키는 화(`navEp`: 한 화 흐름 `FLOW_PAGES` · 작업지시서는 보는 화)
@@ -45,6 +50,7 @@
 - 멈춘 스토리보드 작업의 응답이 오면 `JOB_LATE.board` 가 남겼는지 알리고, 남겼으면 그 화를 다시 받는다
 - 짧은 기다림 가림막 `run`(`#busy`): 상자 이름은 작업 이름(`#busy-label`)이고, 1초마다 바뀌는 경과 초(`#busy-sec`)는 낭독하지 않는다
 - 알림 말풍선(`toast`, 작업 실패는 '다시 시도' · '설정' 버튼, 기록과 자리는 `hub.js`)
+- 작업 목록을 받을 때마다 `notify.js` 의 `notifyJobs` 를 부르고, 탭 제목에 안 본 알림 수를 붙인다(`notifyTitle`)
 - 입력 바인딩(`data-bind`)
 - 공통 동작(`actions` 의 저장 · 되돌리기 · 작품 관리)
 - 펼침 메뉴(`menuBtn`, 열린 메뉴 `S.popMenu`, Esc · 바깥 누르기로 닫기)와 `#app` 밖 대화상자(`showDialog`)
@@ -160,7 +166,7 @@
 
 - 웹 화면 한 쪽
 - 화면 파일을 `<script>` 로 읽는다
-- 읽는 차례: `app.js` → `outline.js` → `hub.js` → 화면 파일들(`check.js` 바로 뒤 `flow.js`, `atlas.js` 바로 뒤 `atlas-*.js`)
+- 읽는 차례: `app.js` → `outline.js` → `hub.js` → `notify.js` → 화면 파일들(`check.js` 바로 뒤 `flow.js`, `atlas.js` 바로 뒤 `atlas-*.js`)
 - 새 화면 파일을 더하면 여기에 `<script>` 를 넣는다
 
 ### `canon/static/marks.js`
@@ -176,6 +182,7 @@
 - 집필 화면 본문 속 이름
 - 인물 이름 · 장소(`atlas.places` 와 같은 목록 `mentionPlaces`)를 정규식 하나로 찾기(`mentionRanges`, 조사 · 긴 낱말 규칙, 치는 중에는 자리 옮기기 `mentionShift`)
 - 밑줄은 `marks.js` 의 `markHtml` 이 함께 그림
+- 이름 카드 자리 `mnPlace` 도 왼쪽을 0으로 두고 너비를 잰다(`passage.js` 의 `placeTool` 과 같은 규칙)
 - 이름 카드(이 화 시작 시점 `/cast` 프레임을 `S.mnCast` 에 따로 받아 `cast.js` 함수로 읽음, 장소는 설명과 지도)
 - 켜기 · 끄기(localStorage)
 - 규칙은 `tests/test_mentions_js.py` 가 node 로 맞춰 본다
@@ -187,6 +194,20 @@
 - 문체 화면의 맨 위 '확인할 것' 카드(고르지 않은 규칙 후보 `learnTodoCard`)와 재료 묶음의 '내 수정에서 배우기' 카드(`learnCard`, 서버 `pipeline.learn_style` / `apply_learning`)
 - 라이브러리 항목의 버전 목록
 - 장치의 쓴 화 세기는 `metrics.device_last` 와 같은 규칙
+
+### `canon/static/notify.js`
+
+- 작업이 끝나면 알리기
+- 탭이 뒤에 있거나 창에 포커스가 없을 때 브라우저 알림(Notification API)을 보내고 탭 제목 앞에 수를 붙인다
+- 탭을 보고 있으면 `app.js` 의 말풍선이 이미 알리므로 보내지 않는다
+- 자동 집필의 화별 반영(서버 `Job.step_ep`)은 말풍선이 없어 탭을 보고 있으면 말풍선을 띄운다
+- 알림을 누르면 그 탭으로 와서 결과 화면(`JOB_LINK`)을 연다
+- 켜기 · 끄기와 알릴 작업 묶음(`NOTIFY_GROUPS`: 본문 쓰기 · 다시 생성 · 검수 · 상태 변경안 · 자동 집필 · 그 밖)은 localStorage `canon.notify`
+- 권한은 설정 › 이 브라우저 › 알림에서 켤 때만 묻는다(`notifyTurnOn`)
+- https 나 localhost 가 아닌 주소는 브라우저 알림을 쓸 수 없어 탭 제목에만 표시한다(`notifyPermission` 'unsupported')
+- 켜 두면 도는 작업이 없어도 30초마다 작업 목록을 묻는다(다른 탭 · 기기 · 명령줄에서 시작한 작업)
+- 계산은 순수 함수 `notifyPrefs` · `notifyGroup` · `notifyEvent` · `notifyWays` · `notifyTitle`(`tests/test_notify_js.py`)
+- `index.html` 에서 `hub.js` 바로 뒤, `settings.js` 앞에 읽는다
 
 ### `canon/static/opening.js`
 
@@ -220,12 +241,16 @@
 - 화면(사이드바 `navItems` 와 같은 이름) · 화 번호 · 인물 이름 · 설정 칸(칸 이름과 값, `palSetupFields`, 고르면 `S.jumpTo` 로 설정 도우미 기획서의 그 칸) · 설정 대화상자의 줄(`SET_ROWS`, 고르면 그 갈래를 연다) · 다음 할 일 · 저장(`saveShortcut`) · 알림 창(`hubOpen`)을 찾는다
 - 작품 밖은 작품 목록 · 설정 · 알림 창과 설정 줄만
 - 검색 `paletteItems` · `paletteMatch` 는 순수 함수(`tests/test_palette_js.py` 가 node 로 맞춰 본다)
+- 640px 이하는 찾기 칸 오른쪽에 닫기 버튼 `.pal-x`(화면을 거의 다 덮고 Esc 가 없다)
+- 찾기 칸은 휴대폰 키보드 Enter 가 '이동'(`enterkeyhint="go"`)
+- 손가락 기기에서는 '저장' 줄의 Ctrl+S 안내를 숨긴다
 - CSS 는 JS 에서 주입
 
 ### `canon/static/passage.js`
 
 - 본문 부분 수정
 - 본문에서 고르면 뜨는 도구(직접 수정, AI에게 고치기)
+- 도구 자리 `placeTool` 은 왼쪽을 0으로 두고 너비를 잰다. 옛 자리에서 재면 남은 폭만큼 줄어 화면 오른쪽 끝에 붙는다
 - 후보를 원문과 단어 단위로 비교
 - 수정 기록과 되돌리기
 - 고친 뒤 다시 할 단계 알림
@@ -318,8 +343,12 @@
   - 바로 저장 `setSave`(바꾼 칸만 `PUT /config`) · `setProjectSave`(칸마다 작품 API)
   - 저장 띠 없음
   - 키만 줄 안 '키 저장'
+  - 글 칸 `textRow`(모델 이름 · 주소 · 경로)는 휴대폰 키보드 자동 대문자 · 고치기를 끈다
   - 작품별 단계 값 `projectStage`
+  - 단계 줄의 추론 강도 칸 `effortSelect`: Claude · Gemini 단계에만, 목록은 백엔드가 받는 값(`effortOptions`)
   - Claude 로그인 줄 `claude.js` · Vertex 줄 `vertex.js`
+  - 이 브라우저 › 알림 갈래의 줄은 `notify.js` 의 값을 그리고 고친다(`notifyPref` · `notifyTurnOn` · `notifyTest`)
+  - 집필 묶음의 '되풀이한 구절 피하기' 줄(`echoes`, 장편만, `PUT …/recent-echoes`)
   - `tests/test_settings_js.py` · `tests/test_model_preset.py`
 
 ### `canon/static/setup.js`

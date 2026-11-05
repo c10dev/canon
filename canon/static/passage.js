@@ -17,13 +17,13 @@ Object.assign(S, {
 
 CHAT_TOPICS.text = {
   title: 'AI에게 고치기',
-  intro: '본문에서 고칠 부분을 드래그해 고른 뒤, 바라는 것을 적거나 아래 빠른 요청을 누르세요. AI가 후보를 2~3개 내고, 고른 후보만 본문에 들어가요. 넣은 뒤에도 수정 기록에서 되돌릴 수 있어요.',
+  intro: '본문에서 고칠 부분을 드래그하거나 길게 눌러 고른 뒤, 바라는 것을 적거나 아래 빠른 요청을 누르세요. AI가 후보를 2~3개 내고, 고른 후보만 본문에 들어가요. 넣은 뒤에도 수정 기록에서 되돌릴 수 있어요.',
   examples: [],
   placeholder: '예: 주인공이 더 망설이게 해 줘',
   clearAsk: '이 화의 부분 수정 대화를 지울까요? 본문과 수정 기록은 그대로예요.',
   ready() {
     if (curSel()) return true;
-    toast('본문에서 고칠 부분을 먼저 드래그해 고르세요', true);
+    toast('본문에서 고칠 부분을 먼저 드래그하거나 길게 눌러 고르세요', true);
     return false;
   },
   presetLabel: (id) => ((S.presets || []).find((x) => x.id === id) || {}).label || id,
@@ -113,7 +113,7 @@ function selTarget() {
   return `<div class="sel-target">
     ${s ? `<div class="between"><span class="small">고칠 부분 · ${s.text.length.toLocaleString()}자</span><button type="button" class="btn small" data-action="selShow">본문에서 보기</button></div>
       <blockquote>${esc(clip(s.text, 220))}</blockquote>`
-    : '<div class="small">본문에서 고칠 부분을 드래그해 고르면 여기에 담겨요.</div>'}
+    : '<div class="small">본문에서 고칠 부분을 드래그하거나 길게 눌러 고르면 여기에 담겨요.</div>'}
     <div class="row" style="gap:6px">${presets}</div>
   </div>`;
 }
@@ -269,6 +269,7 @@ function placeTool(ta, t) {
     const top = caretXY(ta, t.start).y - el.offsetHeight - 4;
     if (top >= 0) y = top;
   }
+  el.style.left = '0px';  // 옛 자리에서 재면 오른쪽 남은 폭만큼 줄어든 너비가 나온다
   const w = el.offsetWidth || 240;
   const left = t.mode !== 'menu' ? Math.max(c.r.left, Math.min(caretXY(ta, t.start).x, c.x) - 12) : c.x - 40;
   const x = Math.min(Math.max(8, left), document.documentElement.clientWidth - w - 8);

@@ -15,8 +15,8 @@ from pydantic import BaseModel
 from . import context, elements, genres, metrics, naming, storylines
 from .dynamics import VIEWS, describe_relations
 from .llm import _inline_refs, dump
-from .schema import Birth, Character, ChatMessage, Claim, ConsistencyIssue, ConsistencyReport, Foreshadow, ImpactReport, PlayInfo, Project, Selection, StateDelta, StoryElement
-from . import address, board, charlog, foreshadows, knows, pairlog, stage, statwin, timeline
+from .schema import Birth, Character, ChatMessage, Claim, ConsistencyIssue, ConsistencyReport, Foreshadow, PlayInfo, Project, Selection, StateDelta, StoryElement
+from . import address, board, charlog, echoes, foreshadows, knows, pairlog, stage, statwin, timeline
 from .maps import prompt as mapprompt
 
 SYSTEM_PLANNER = (
@@ -2407,7 +2407,7 @@ def build_episode_context(p: Project, n: int, *, use_board: bool = True, pre: st
         return serial_episode_context(p, n, where=where, act_line=act_line, line=line, facts=facts_text, facts_cut=facts_cut, els=els, write=write,
                                       cast_names=cast_names, extra=extra_block(extra, extra_cut) + named_block(named, named_cut),
                                       states=states, rels=rels, cast_ids=cast_ids,
-                                      fs=fs, fs_cut=fs_cut, prev=prev, tail=f"{pov}{dev}{material_block(p, n)}")
+                                      fs=fs, fs_cut=fs_cut, prev=prev, tail=f"{pov}{dev}{echo_block(p, n) if write else ''}{material_block(p, n)}")
 
     return f"""{static_context(p)}
 
@@ -2647,6 +2647,21 @@ def device_block(p: Project, n: int) -> str:
             row += f"\n  예: {d.example.strip()[:200]}"
         rows.append(row)
     return "\n".join(rows)
+
+
+def echo_block(p: Project, n: int) -> str:
+    """장편 본문 쓰기 요청의 '최근 화에서 되풀이한 구절' 블록 (echoes.recent). 직전 화 본문에서 세므로 화마다 바뀐다 (뒤쪽 블록).
+    쓰기 요청은 앞 화 본문 전체를 넣지 않아 모델이 지난 화 비유를 보지 못하고 다시 만든다. 작품 설정 recent_echoes 로 끈다. 단편 · 찾은 것이 없으면 빈 글."""
+    if not p.serial or not p.settings.recent_echoes:
+        return ""
+    rows = echoes.recent(p, n)
+    if not rows:
+        return ""
+    seen = [e.plot.number for e in echoes.window_of(p, n)]
+    lines = "\n".join(f"- {t} ({', '.join(map(str, ks))}화)" for t, ks in rows)
+    return (f"\n\n# 최근 화에서 되풀이한 구절 ({seen[0]}~{seen[-1]}화 본문에서 {min(echoes.MIN_EPISODES, len(seen))}개 화 이상에 그대로 나온 서술)\n"
+            "이번 화에는 아래 구절을 그대로 쓰지 않고 다른 말로 씁니다. 일어나는 일과 사실은 그대로 두고 표현만 바꿉니다. "
+            "같은 대상을 다시 그릴 때도 지난 화와 다른 비유와 낱말을 고릅니다.\n" + lines)
 
 
 def marker_block(p: Project) -> str:
@@ -3801,7 +3816,7 @@ def _stage_people_block(p: Project, n: int, names: list[str], prev_lines: list[s
     if minors:
         out.append(f"미성년 인물: {', '.join(minors)}. 이 인물이 낀 성적 접촉(성적 부위에 닿는 친밀한 동작, 핥다 · 애무하다)은 적지 않습니다.")
     if attire:
-        out += ["", f"[직전 화가 끝났을 때 차림] 손에 든 물건을 정할 때만 참고합니다", *attire]
+        out += ["", "[직전 화가 끝났을 때 차림] 손에 든 물건을 정할 때만 참고합니다", *attire]
     if prev_lines:
         out += ["", "[같은 화 앞 장면이 끝난 상태] 이 장면 시작 상태의 실마리입니다 (방이 바뀌었으면 자리는 새로 정합니다)", *prev_lines]
     return "\n".join(out)

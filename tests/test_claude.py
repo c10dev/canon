@@ -219,7 +219,7 @@ class ClaudeCodeTest(unittest.TestCase):
             pub = settings.public()
             self.assertEqual(pub["stages"]["check"]["effort"], "xhigh")
             self.assertEqual(pub["stage_effort_settings"], {"check": "xhigh", "write": "low"})
-            self.assertEqual(pub["stages"]["plan"]["effort"], "")  # Gemini 단계는 강도가 없다
+            self.assertEqual(pub["stages"]["plan"]["effort"], "")  # 계획 단계(Gemini)는 강도를 정하지 않았다
             with mock.patch.dict(os.environ, {"CANON_EFFORT_CHECK": "medium"}):
                 self.assertEqual(settings.stage_effort("check"), ("medium", "env"))
                 self.assertEqual(settings.public()["stages"]["check"]["effort_env"], "CANON_EFFORT_CHECK")

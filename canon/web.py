@@ -212,7 +212,7 @@ class StageConfig(_Out):
     model_source: str
     env: str  # 백엔드를 정한 환경 변수 이름. 없으면 ""
     model_env: str
-    effort: str = ""  # Claude 추론 강도. Claude 단계가 아니거나 정하지 않았으면 "" (모델 기본값)
+    effort: str = ""  # 추론 강도(그 백엔드가 받는 값). Claude · Gemini 단계가 아니거나 정하지 않았으면 "" (모델 기본값)
     effort_source: str = "default"
     effort_env: str = ""
 
@@ -260,7 +260,8 @@ class ConfigView(_Out):
     stage_settings: dict[str, str]  # 설정 파일에 적은 단계별 백엔드
     stage_model_settings: dict[str, str]
     stage_effort_settings: dict[str, str] = {}
-    efforts: list[str] = []
+    efforts: list[str] = []  # Claude 단계에서 고르는 추론 강도
+    gemini_efforts: list[str] = []  # Gemini 단계에서 고르는 추론 강도 (thinking_level)
     stage_presets: list[StagePreset] = []
     local_sampling: dict[str, float] = {}  # 로컬 본문 생성 샘플링 (설정 파일 local_sampling 이 기본값을 덮는다). 화면은 읽기만
     path: str  # 설정 파일 경로
@@ -330,7 +331,7 @@ class SettingsIn(BaseModel):
     local_key: str | None = None
     stages: dict[str, str] | None = None  # {"write": "local"}, 빈 값이면 전체 설정을 따름
     stage_models: dict[str, str] | None = None  # {"state": "gemini-3.8-flash"}, 빈 값이면 백엔드 기본 모델
-    stage_efforts: dict[str, str] | None = None  # {"check": "high"}, Claude 추론 강도. 빈 값이면 모델 기본값
+    stage_efforts: dict[str, str] | None = None  # {"check": "high"}, 추론 강도(Claude · Gemini). 빈 값이면 모델 기본값
     claude_model: str | None = None
     claude_bin: str | None = None
     anthropic_api_key: str | None = None  # Claude Console API 키. 구독 로그인은 Claude Code 가 따로 관리
@@ -346,15 +347,15 @@ def put_config(body: SettingsIn) -> ConfigView:
     choices = settings.PROVIDERS
     if body.provider is not None and body.provider not in choices:
         raise HTTPException(400, f"provider는 {' / '.join(choices)} 중 하나예요")
-    for stage, value in (body.stages or {}).items():
-        if stage not in settings.STAGES or (value and value not in choices):
-            raise HTTPException(400, f"단계 설정이 잘못됐어요: {stage}={value}")
-    for stage in body.stage_models or {}:
-        if stage not in settings.STAGES:
-            raise HTTPException(400, f"알 수 없는 단계예요: {stage}")
-    for stage, value in (body.stage_efforts or {}).items():
-        if stage not in settings.STAGES or (value and value.strip().lower() not in settings.EFFORTS):
-            raise HTTPException(400, f"추론 강도는 {' / '.join(settings.EFFORTS)} 중 하나예요: {stage}={value}")
+    for step, value in (body.stages or {}).items():
+        if step not in settings.STAGES or (value and value not in choices):
+            raise HTTPException(400, f"단계 설정이 잘못됐어요: {step}={value}")
+    for step in body.stage_models or {}:
+        if step not in settings.STAGES:
+            raise HTTPException(400, f"알 수 없는 단계예요: {step}")
+    for step, value in (body.stage_efforts or {}).items():
+        if step not in settings.STAGES or (value and value.strip().lower() not in settings.EFFORTS):
+            raise HTTPException(400, f"추론 강도는 {' / '.join(settings.EFFORTS)} 중 하나예요: {step}={value}")
     if body.gemini_auth not in (None, "", "key", "vertex"):
         raise HTTPException(400, "Gemini 연결 방식은 key / vertex 중 하나예요")
     if body.vertex_credentials and body.vertex_credentials.lstrip().startswith("{"):
@@ -5541,6 +5542,14 @@ def set_cue_setting(name: str, body: BoardSetting) -> Project:
     return _save(name, p)
 
 
+@app.put("/api/projects/{name}/recent-echoes")
+def set_recent_echoes(name: str, body: BoardSetting) -> Project:
+    """장편 쓰기 요청의 '최근 화에서 되풀이한 구절' 블록 켜기 · 끄기 (Settings.recent_echoes, prompts.echo_block)."""
+    p = _load(name)
+    p.settings.recent_echoes = body.on
+    return _save(name, p)
+
+
 class KeepSnapshots(BaseModel):
     on: bool
 
@@ -6550,6 +6559,9 @@ def serve(host: str = "127.0.0.1", port: int = 8000, open_browser: bool = False,
 
     from . import updater
 
+    log = logging.getLogger("canon")
+    if not logging.getLogger().handlers:  # 서버 로그(journalctl)에 시각과 수준을 붙인다. 시험 · 다른 프로그램이 정한 설정은 그대로 둔다
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     shown = "127.0.0.1" if host in ("0.0.0.0", "::", "") else host
     url = f"http://{shown}:{port}"
     print(f"Canon 웹 UI: {url}")
@@ -6573,10 +6585,10 @@ def serve(host: str = "127.0.0.1", port: int = 8000, open_browser: bool = False,
             r = updater.update()
             if not r.updated:
                 if r.message != last:  # 같은 사유를 매번 찍지 않는다
-                    print(f"[업데이트] {r.message}")
+                    log.info("[업데이트] %s", r.message)
                 last = r.message
                 continue
-            print(f"[업데이트] {r.message}. 진행 중인 작업이 끝나면 다시 시작해요")
+            log.info("[업데이트] %s. 진행 중인 작업이 끝나면 다시 시작해요", r.message)
             jobs.draining.set()  # 자동 집필은 다음 단계 전에 멈추고, 다시 시작한 서버가 이어 간다
             while (_active or jobs.running()) and not server.should_exit:
                 time.sleep(1)
@@ -6589,7 +6601,7 @@ def serve(host: str = "127.0.0.1", port: int = 8000, open_browser: bool = False,
     if update_interval > 0:
         threading.Thread(target=watch_updates, daemon=True).start()
     for name in autorun.resume_all():
-        print(f"[자동 집필] {name} 을(를) 이어 가요")
+        log.info("[자동 집필] %s 을(를) 이어 가요", name)
     server.run()
     if restart.is_set():
         updater.restart(no_browser=True)

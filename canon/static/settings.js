@@ -59,7 +59,8 @@ const SET_CATS = [['ai', 'AI 연결', 'pc', '이 컴퓨터의 모든 작품에 �
   ['advanced', '고급', 'pc', '환경 변수와 설정 파일이 정한 값이에요. 여기서는 보기만 해요.'],
   ['preset', 'AI 프리셋', 'project', '이 작품의 AI 호출만 바꿔요. 고르면 바로 작품에 저장해요.'],
   ['writing', '집필 · 검수', 'project', '이 작품에만 적용돼요. 자동 집필도 이 값을 따라요. 바꾸면 바로 저장해요.'],
-  ['screen', '화면', 'browser', '이 브라우저에만 기억해요. 다른 기기에는 따라가지 않아요.']];
+  ['screen', '화면', 'browser', '이 브라우저에만 기억해요. 다른 기기에는 따라가지 않아요.'],
+  ['notify', '알림', 'browser', 'AI 작업이 끝나면 알려요. 이 브라우저에만 기억해요. 다른 기기에서 받으려면 그 기기에서도 켜세요.']];
 const setCat = (id) => SET_CATS.find((x) => x[0] === id);
 
 /** 찾기 색인: 줄마다 갈래 · 묶음 · 이름 · 찾을 말. 화면에 그리는 글은 setRowHtml 이 만든다 */
@@ -88,6 +89,7 @@ const SET_ROWS = [
   { id: 'project-preset', cat: 'preset', sec: '이 작품', label: '이 작품의 프리셋', words: '프리셋 작품 모델 단계' },
   { id: 'storyboard', cat: 'writing', sec: '집필', label: '화별 스토리보드', words: '스토리보드 장면 순서 직전 화' },
   { id: 'write-material', cat: 'writing', sec: '집필', label: '쓰기 재료', words: '고정점 장면 큐 시트 재료 스토리보드' },
+  { id: 'echoes', cat: 'writing', sec: '집필', label: '되풀이한 구절 피하기', words: '반복 구절 비유 되풀이 최근 화 장편' },
   { id: 'timeline', cat: 'writing', sec: '집필', label: '작품 속 시간 기록', words: '시간 날짜 기한 타임라인' },
   { id: 'travel', cat: 'writing', sec: '집필', label: '이동 시간 검사', words: '지도 이동 거리 탈것' },
   { id: 'stat-prompt', cat: 'writing', sec: '집필', label: '상태창 수치 넣기', words: '상태창 수치 프롬프트 json lines' },
@@ -101,6 +103,9 @@ const SET_ROWS = [
   { id: 'mentions', cat: 'screen', sec: '집필 화면', label: '이름 표시', words: '이름 밑줄 인물 장소' },
   { id: 'copy-fmt', cat: 'screen', sec: '복사', label: '복사 줄바꿈 형식', words: '복사 내보내기 줄바꿈 형식' },
   { id: 'copy-title', cat: 'screen', sec: '복사', label: '복사할 때 제목 줄 넣기', words: '복사 제목 줄' },
+  { id: 'notify-on', cat: 'notify', sec: '알림', label: '작업이 끝나면 알리기', words: '알림 브라우저 알림 끝나면 완료 탭 권한 notification' },
+  { id: 'notify-test', cat: 'notify', sec: '알림', label: '시험 알림', words: '알림 시험 확인' },
+  ...NOTIFY_GROUPS.map(([g, label, desc]) => ({ id: `notify-${g}`, cat: 'notify', sec: '알릴 작업', label, words: `알림 ${desc}` })),
 ];
 
 const setNorm = (s) => String(s || '').toLowerCase().replace(/\s+/g, '');
@@ -170,11 +175,12 @@ function keyRow(id, kind, name, hint, src, placeholder, help) {
       <button type="button" class="btn" data-action="setKeySave" data-arg="${kind}">키 저장</button>${clear}`);
 }
 
-/** 글 칸: 칸을 떠나거나 Enter 를 누르면 저장한다 (change). 환경 변수가 정했으면 읽기만 */
+/** 글 칸: 칸을 떠나거나 Enter 를 누르면 저장한다 (change). 환경 변수가 정했으면 읽기만.
+    모델 이름 · 주소 · 경로만 받으므로 휴대폰 키보드가 첫 글자를 대문자로 바꾸지 않게 한다 */
 function textRow(id, field, name, desc, value, src, envName, { placeholder = '', list = '', mono = false } = {}) {
   const locked = src === 'env';
   return setRow(id, name, `${desc}${locked ? ` ${envLine(src, envName)}` : ''}`,
-    `<input class="set-inp${mono ? ' mono' : ''}" type="text" data-setfield="${field}" aria-labelledby="rn-${id}" value="${esc(value || '')}"${placeholder ? ` placeholder="${esc(placeholder)}"` : ''}${list ? ` list="${list}"` : ''}${locked ? ' readonly' : ''}>`);
+    `<input class="set-inp${mono ? ' mono' : ''}" type="text" data-setfield="${field}" aria-labelledby="rn-${id}" autocapitalize="off" autocorrect="off" spellcheck="false" value="${esc(value || '')}"${placeholder ? ` placeholder="${esc(placeholder)}"` : ''}${list ? ` list="${list}"` : ''}${locked ? ' readonly' : ''}>`);
 }
 
 /** 모델 칸 추천 목록: Gemini API 와 로컬 서버 · Claude 에 실제로 있는 모델. 없으면 직접 적는다 */
@@ -311,6 +317,9 @@ function setRowHtml(id) {
       return setRow(id, '쓰기 재료', '쓰기 요청에 스토리보드 장면 목록과 큐 시트까지 넣을지, 고정점(시간 · 기한 · 이어받을 것 · 상태창 · 이동 · 끝 차림 · 깨지 않을 것)만 넣을지 정해요. 고정점만이면 장면 나눔과 연출을 AI가 정하고, 큐 시트를 만들지 않아 화당 AI 호출이 하나 줄어요. 실측에서 Claude로 쓰면 고정점만, Gemini로 쓰면 장면까지 넣은 글이 나았어요.',
         `<select class="set-inp" data-setfield="write_material" aria-labelledby="rn-${id}">${[['', '장면 · 큐 시트까지 (기본)'], ['fixed', '고정점만']].map(([k, l]) => `<option value="${k}"${v === k ? ' selected' : ''}>${l}</option>`).join('')}</select>`);
     }
+    case 'echoes':
+      return serialOn() ? setRow(id, `되풀이한 구절 피하기 ${SET_CHIP('장편')}`, '직전 5화 본문에서 3개 화 이상에 그대로 나온 서술 구절을 찾아, 쓰기 요청에 이번 화에는 다른 말로 쓰라고 넣어요. 이름 · 호칭 · 확정 사실에 적힌 말과 대사는 빼요. AI 호출은 늘지 않아요.',
+        SW(id, p.settings.recent_echoes !== false, '되풀이한 구절 피하기'), { wide: false }) : '';
     case 'timeline':
       return p ? setRow(id, '작품 속 시간 기록', '끄면 상태 변경안에 시점을 적지 않고, 쓰기 · 검수에 시간 블록을 넣지 않아요.',
         SW(id, !!(p.timeline || {}).enabled, '작품 속 시간 기록'), { wide: false }) : '';
@@ -353,7 +362,19 @@ function setRowHtml(id) {
     }
     case 'copy-title':
       return setRow(id, '복사할 때 제목 줄 넣기', "맨 위에 'N화. 제목' 줄을 넣어요.", SW(id, !!S.copyTitle, '복사할 때 제목 줄 넣기'), { wide: false });
+    case 'notify-on': {
+      const perm = notifyPermission();
+      const how = { granted: '브라우저 알림을 허용했어요.', denied: '브라우저가 알림을 막았어요. 주소창의 사이트 설정에서 허용하세요.',
+        default: '켜면 브라우저가 알림을 허용할지 물어요.', unsupported: '이 주소(https나 localhost가 아님)에서는 브라우저 알림을 쓸 수 없어요.' }[perm];
+      return setRow(id, '작업이 끝나면 알리기', `탭이 뒤에 있을 때 브라우저 알림을 보내고 탭 제목 앞에 끝난 수를 붙여요. ${how}`, SW(id, notifyPref.on, '작업이 끝나면 알리기'), { wide: false });
+    }
+    case 'notify-test':
+      return setRow(id, '시험 알림', '지금 알림 하나를 보내 보여요.', '<button type="button" class="btn" data-action="setNotifyTest">보내 보기</button>', { wide: false });
     default:
+      if (id.startsWith('notify-')) {
+        const g = NOTIFY_GROUPS.find(([x]) => `notify-${x}` === id);
+        return g ? setRow(id, esc(g[1]), `${esc(g[2])} 알려요.`, SW(id, !!notifyPref.kinds[g[0]], g[1]), { wide: false }) : '';
+      }
       return STAGES.some(([s]) => id === `stage-${s}`) ? stageRow(id.slice(6), c) : '';
   }
 }
@@ -374,20 +395,30 @@ function stageRow(s, c) {
      <input class="set-inp half" type="text" data-setstagemodel="${s}" aria-label="${esc(label)} 모델" list="model-options" value="${esc((c.stage_model_settings || {})[s] || '')}" placeholder="모델: ${esc(st.model || '기본')}"${lockModel ? ' readonly' : ''}>${effortSelect(s, label, st, c)}`);
 }
 
-// Claude 추론 강도 (settings.EFFORTS). Claude 백엔드 단계에만 보인다. 비우면 모델 기본값
+// 추론 강도 (settings.EFFORTS · GEMINI_EFFORTS). Claude · Gemini 백엔드 단계에만 보인다. 비우면 모델 기본값
 const EFFORT_LABEL = { low: '낮음', medium: '보통', high: '높음', xhigh: '아주 높음', max: '최대' };
 const effortLocked = (s, st) => st.effort_env === `CANON_EFFORT_${s.toUpperCase()}`;
+const effortShown = (st) => ['claude', 'claude-api', 'gemini'].includes(st.provider);
+
+/** 그 단계 백엔드가 받는 강도 목록. Gemini 는 thinking_level (낮음 · 보통 · 높음) */
+function effortOptions(st, c) {
+  if (st.provider === 'gemini') return c.gemini_efforts || ['low', 'medium', 'high'];
+  return c.efforts || Object.keys(EFFORT_LABEL);
+}
 
 function effortSelect(s, label, st, c) {
-  if (!['claude', 'claude-api'].includes(st.provider)) return '';
+  if (!effortShown(st)) return '';
   const own = (c.stage_effort_settings || {})[s] || '';
+  const list = effortOptions(st, c);
   const follow = STAGE_PARENT[s] && !own && st.effort ? `${stageFollow(STAGE_PARENT[s])} (${EFFORT_LABEL[st.effort] || st.effort})` : '추론 강도: 모델 기본값';
-  const opts = (c.efforts || Object.keys(EFFORT_LABEL)).map((v) => `<option value="${v}"${own === v ? ' selected' : ''}>추론 강도: ${EFFORT_LABEL[v] || v}</option>`).join('');
-  return `<select class="set-inp half" data-setstageeffort="${s}" aria-label="${esc(label)} 추론 강도"${effortLocked(s, st) ? ' disabled' : ''}><option value="">${esc(follow)}</option>${opts}</select>`;
+  const opts = list.map((v) => `<option value="${v}"${own === v ? ' selected' : ''}>추론 강도: ${EFFORT_LABEL[v] || v}</option>`).join('');
+  // 다른 백엔드에서 고른 값(Gemini 단계의 아주 높음 · 최대)은 그대로 두고 실제로 넘기는 값을 함께 보인다 (settings.provider_effort)
+  const kept = own && !list.includes(own) ? `<option value="${own}" selected>추론 강도: ${EFFORT_LABEL[own] || own} → ${EFFORT_LABEL[st.effort] || st.effort}</option>` : '';
+  return `<select class="set-inp half" data-setstageeffort="${s}" aria-label="${esc(label)} 추론 강도"${effortLocked(s, st) ? ' disabled' : ''}><option value="">${esc(follow)}</option>${opts}${kept}</select>`;
 }
 
 function effortNote(s, st) {
-  if (!['claude', 'claude-api'].includes(st.provider)) return '';
+  if (!effortShown(st)) return '';
   if (effortLocked(s, st)) return esc(`추론 강도는 환경 변수 CANON_EFFORT_${s.toUpperCase()}이 정했어요 (${EFFORT_LABEL[st.effort] || st.effort})`);
   return '';
 }
@@ -726,6 +757,7 @@ Object.assign(actions, {
         const on = !t.enabled;
         return setProjectSave(key, 'atlas/travel', { enabled: on, mode: t.mode, kmh: t.kmh, day_km: t.day_km, span_km: p.atlas.span_km }, (x) => { x.atlas.travel.enabled = on; });
       },
+      echoes: () => { const on = p.settings.recent_echoes === false; return setProjectSave(key, 'recent-echoes', { on }, (x) => { x.settings.recent_echoes = on; }); },
       motion: () => { const on = p.settings.check_motion === false; return setProjectSave(key, 'check-motion', { on }, (x) => { x.settings.check_motion = on; }); },
       widen: () => { const on = !p.settings.check_widen; return setProjectSave(key, 'check-widen', { on }, (x) => { x.settings.check_widen = on; }); },
       numbers: () => { const on = !p.settings.show_numbers; return setProjectSave(key, 'view', { show_numbers: on }, (x) => { x.settings.show_numbers = on; }); },
@@ -734,6 +766,19 @@ Object.assign(actions, {
       mentions: () => { mentionsOn = !mentionsOn; lsKeep('canon.mentions', mentionsOn ? '1' : '0'); },
       'copy-title': () => { S.copyTitle = !S.copyTitle; lsKeep('canon.copyTitle', S.copyTitle ? '1' : '0'); },
     }[key];
+    if (key === 'notify-on') {
+      if (notifyPref.on) { notifySave({ ...notifyPref, on: false }); SET.note[key] = { text: '껐어요', kind: 'ok' }; }
+      else { setNote(key, '켜는 중…'); SET.note[key] = await notifyTurnOn(); }
+      setPaint();
+      return;
+    }
+    if (key.startsWith('notify-')) {
+      const g = key.slice(7);
+      notifySave({ ...notifyPref, kinds: { ...notifyPref.kinds, [g]: !notifyPref.kinds[g] } });
+      SET.note[key] = { text: notifyPref.on ? '저장했어요' : '저장했어요. 위의 알리기를 켜야 알려요', kind: 'ok' };
+      setPaint();
+      return;
+    }
     if (!flip) return;
     if (['marks', 'mentions', 'copy-title'].includes(key)) {
       flip();
@@ -742,6 +787,10 @@ Object.assign(actions, {
       return;
     }
     if (p) await flip();
+  },
+  async setNotifyTest() {
+    SET.note['notify-test'] = await notifyTest();
+    setPaint();
   },
   async setPresetSave() {
     const el = $('#set-preset-name');
