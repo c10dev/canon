@@ -677,6 +677,28 @@ def test_resume_without_edit_reattaches_state_batch(demo, monkeypatch):
     assert not mock.BATCHES[old]["cancelled"] and set(_state_batches()) == before
 
 
+def test_resume_after_plot_edit_resubmits_write_batch(demo, monkeypatch):
+    """일시정지 중 플롯을 고치고 이어 가면 옛 플롯으로 보낸 본문 배치를 버리고 지금 플롯으로 다시 보낸다."""
+    monkeypatch.setenv("CANON_MOCK_BATCH_POLLS", "100000")
+    autorun.start(demo, 1, True, Policy(check=False))
+    wait_until(lambda: "1:write" in autorun.get_run(demo).batches)
+    old = autorun.get_run(demo).batches["1:write"]
+    autorun.request(demo, "pause")
+    wait_until(idle(demo))
+    assert autorun.load_run(demo).batch_keys.keys() == {"1:write"}
+    p = store.load(demo)
+    p.episode(1).plot.summary = "작가가 멈춘 사이 고친 1화 줄거리"
+    store.save(demo, p)
+    for b in mock.BATCHES.values():
+        b["polls"] = 0
+    monkeypatch.setenv("CANON_MOCK_BATCH_POLLS", "0")
+    writes = lambda: {k for k, b in mock.BATCHES.items() if b["label"].endswith(" 1:write")}  # noqa: E731
+    before = writes()
+    run = autorun.resume(demo, foreground=True)
+    assert run.status == "done" and mock.BATCHES[old]["cancelled"]
+    assert len(writes() - before) == 1  # 지금 플롯으로 새로 보냈다
+
+
 def test_stale_delta_is_not_auto_applied(demo, monkeypatch):
     """변경안의 본문 지문이 지금 본문과 다르면 자동 반영하지 않고 'changed' 로 멈춘다."""
     real = pipeline.extract_state
