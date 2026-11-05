@@ -58,6 +58,7 @@ def _revert_timeline(p: Project, n: int, snap: Snapshot) -> None:
 # 상태 변경안 정리 (pipeline.clean_delta)
 CLEAN: tuple[Callable[[Project, StateDelta], list[Warn] | None], ...] = (
     foreshadows.clean_delta,   # 복선 문장을 본문에 맞춘다
+    foreshadows.resolved_warnings,  # 이미 회수한 복선을 또 회수함 (반영이 뺀다)
     timeline.clean_delta,
     charlog.clean_delta,
     address.clean_delta,       # 호칭 · 말씨 바뀜: 있는 인물 사이의 지금 값과 다른 칸만

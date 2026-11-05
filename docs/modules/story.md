@@ -176,6 +176,7 @@
 - 복선 센터
 - 복선을 본문 문장에 건다(`ForeshadowClue`, `Project.foreshadow_clues`, 본문은 바꾸지 않음)
 - AI 문장 정리(`clean_delta`)와 반영 · 되돌리기
+- 이미 회수한 복선을 또 회수하는 제안의 경고(`resolved_warnings`, features 정리 훅)
 - 작가가 걸기 · 복선 고치기(그 화 이후 스냅샷도)
 - 센터 계산(`center`: 회수율, 끊어진 연결, 예정 지남, 오래 묵음, 플롯 회수 계획)
 - 명령줄 `foreshadows`

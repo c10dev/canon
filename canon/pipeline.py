@@ -3883,19 +3883,29 @@ def apply_delta(p: Project, d: StateDelta) -> list[str]:
                         dynamics.get_tie(p.ties, s, t).warmth = dynamics.clip(upd.affinity / 5)
                 break
         else:
-            p.relationships.append(upd)
+            p.relationships.append(upd.model_copy(deep=True))  # 복사해 넣는다. sync_relationships 가 바꿔도 기록(history)의 값은 보낸 그대로 남는다
             dynamics.seed_ties(p)
 
-    known_secrets = {s.id for s in p.secrets}
     # 복사해 넣는다. 사건이 비밀을 드러내 hidden_from 을 줄여도 기록(history)의 처음 모습은 남아야 다시 계산할 수 있다
-    p.secrets += [s.model_copy(deep=True) for s in d.secrets_added if s.id not in known_secrets]
+    d.secrets_added = _first_new(d.secrets_added, {s.id for s in p.secrets}, d.dismissed.secrets_added)
+    p.secrets += [s.model_copy(deep=True) for s in d.secrets_added]
     events = [e.model_copy(update={"episode": d.episode}) for e in d.events if e.kind != "수동보정"]
     dynamics.run_episode(p, d.episode, events, ep.plot.characters)
     p.events += events
 
-    p.facts += [f for f in d.new_facts if f not in p.facts]
-    known = {f.id for f in p.foreshadows}
-    p.foreshadows += [f for f in d.foreshadow_planted if f.id not in known]
+    d.new_facts = list(dict.fromkeys(f for f in d.new_facts if f not in p.facts))
+    p.facts += d.new_facts
+    was_resolved = {f.id for f in p.foreshadows if f.status == "resolved"}
+    # 심은 복선은 apply_restate 와 같게 이번 화에 심은 열린 복선으로 맞춘다. AI 가 적은 심은 화 · 상태 · 회수 화는 믿지 않는다
+    plants = _first_new(d.foreshadow_planted, {f.id for f in p.foreshadows}, d.dismissed.foreshadow_planted)
+    d.foreshadow_planted = [f.model_copy(deep=True, update={"planted_ep": d.episode, "status": "open", "payoff_ep": None}) for f in plants]
+    p.foreshadows += [f.model_copy(deep=True) for f in d.foreshadow_planted]
+    resolved = list(dict.fromkeys(d.foreshadow_resolved))
+    d.dismissed.foreshadow_resolved += [x for x in resolved if x in was_resolved]  # 이미 회수한 복선의 회수 화를 덮지 않는다
+    d.foreshadow_resolved = [x for x in resolved if x not in was_resolved]
+    for c in d.foreshadow_clues:  # 뺀 회수의 회수 문장은 다시 떠올린 문장으로 남긴다 (foreshadows.clean_delta 와 같은 규칙)
+        if c.kind == "payoff" and c.foreshadow in was_resolved:
+            c.kind = "plant"
     for f in p.foreshadows:
         if f.id in d.foreshadow_resolved:
             f.status, f.payoff_ep = "resolved", d.episode
@@ -3905,6 +3915,18 @@ def apply_delta(p: Project, d: StateDelta) -> list[str]:
     if p.serial:
         prune_snapshots(p)
     return dropped
+
+
+def _first_new(items: list, known: set[str], skipped: list) -> list:
+    """id 가 known 에 없는 항목만 차례대로 남긴다. 한 변경안 안에서 같은 id 가 또 오면 처음 것만 남긴다. 뺀 항목은 skipped 에 넣는다."""
+    seen, out = set(known), []
+    for x in items:
+        if x.id in seen:
+            skipped.append(x)
+        else:
+            seen.add(x.id)
+            out.append(x)
+    return out
 
 
 SNAPSHOT_KEEP = 20  # 장편에서 남기는 최근 스냅샷 수. 시작점과 아크가 끝난 화는 늘 남긴다
