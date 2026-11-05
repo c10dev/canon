@@ -1499,6 +1499,11 @@ def cmd_brief(a: argparse.Namespace) -> None:
 
 def cmd_import(a: argparse.Namespace) -> None:
     p = store.load(a.name)
+    ep = p.episode(a.n)
+    if ep.status == "draft":  # 웹 put_text 와 같은 규칙: 플롯을 확정한 화에, 앞 화를 모두 반영한 뒤에만 본문을 넣는다
+        raise ValueError(f"{a.n}화 플롯을 먼저 확정하세요")
+    if ep.status == "confirmed":
+        pipeline.require_previous(p, a.n)
     pipeline.replace_text(p.episode(a.n), Path(a.file).read_text(encoding="utf-8").strip(), written_by="import")  # 지금 본문은 '이전 판'에 남는다
     store.save(a.name, p)
     print(f"{a.n}화 본문을 가져왔어요. 다음: update {a.name} {a.n}  (또는 brief --state로 채팅 앱에서 정리 후 update --from-json)")
