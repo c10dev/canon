@@ -795,6 +795,10 @@ class Runner:
                 raise _Halt("paused", f"{n}화 상태가 '{EP_STATUS.get(st, st)}'(으)로 바뀌어 멈췄어요", [
                     f"상태 변경안을 만드는 사이 {n}화가 '{EP_STATUS.get(st, st)}' 상태로 바뀌어 만든 변경안은 버렸어요",
                     f"이어 가면 {n}화의 지금 상태에서 다시 시작해요"], kind="changed")
+            try:
+                pipeline.check_applicable(q, n)  # 그사이 앞 화를 반영 취소했으면 반영하지 않는다
+            except ValueError as e:
+                raise _Halt("paused", f"{n}화 상태 변경안을 반영하지 못해 멈췄어요", [str(e), "앞 화를 반영한 뒤 이어 가세요"], kind="changed")
             held[0] = features.hold(q, delta)  # 인물 설정 · 호칭은 작가가 골라야 바뀐다. 인물 화면에 남겨 둔다
             dropped[:] = pipeline.apply_delta(q, delta)
             q.episode(n).auto = True
@@ -917,6 +921,7 @@ def resume(name: str, approve: bool = False, rewrite: bool = False, *, foregroun
                     raise ValueError(f"변경안을 만든 뒤 {n}화 본문을 고쳤어요. 그대로 반영하면 옛 본문 기준의 요약 · 인물 상태 · 사건이 들어가요. "
                                      "검토하기에서 변경안을 다시 만들거나, 다시 쓰기를 고르세요")
                 def take(q: Project) -> None:
+                    pipeline.check_applicable(q, n)
                     held[0] = features.hold(q, d)  # 검토 화면 없이 반영하면 설정 바꾸기 · 호칭 제안은 고르지 않은 것으로 남겨 둔다
                     dropped[:] = pipeline.apply_delta(q, d)
                 held = [0]

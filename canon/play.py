@@ -386,6 +386,7 @@ def settle(llm: LLM, p: Project, info: PlayInfo, n: int) -> StateDelta:
         raise ValueError(f"{n}구간은 마지막 구간이 아니에요" if t else "아직 구간이 없어요")
     if t.state == "applied":
         raise ValueError(f"{n}구간은 이미 상태를 반영했어요")
+    pipeline.check_applicable(p, n)
     try:
         cancel.check()
         d = llm.json(prompts.SYSTEM_EDITOR, prompts.play_state_prompt(p, n), StateDelta,
