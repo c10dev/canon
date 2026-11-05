@@ -9,6 +9,7 @@ import io
 import json
 import os
 import tempfile
+from types import SimpleNamespace
 
 import pytest
 
@@ -523,6 +524,57 @@ def test_fix_recheck_targets_and_pipeline(demo):
     assert [(k.parent, k.current_quote) for k in kids] == [("f1", fixed_text)]
     assert (f["f1"].status, f["f1"].log[-1].kind) == ("open", "recheck")
     assert findings.fix_recheck_targets(ep) == []  # 아직 어긋난다고 본 지적은 다시 검수로
+
+
+def test_fix_recheck_late_result_does_not_override(demo):
+    """늦게 온 고친 곳만 다시 보기 결과: 그사이 검수를 다시 했거나 되돌려 본문이 바뀌었으면 넣지 않는다.
+    그사이 작가가 닫은 지적은 건너뛰고, 실제로 넣은 결과만 settled 에 남는다."""
+    from canon.mock import MockLLM
+    from canon.schema import FixRecheckItem, FixRecheckReport
+    p = store.load(demo)
+    ep = p.episode(1)
+    pipeline.apply_check(p, ConsistencyReport(episode=1, issues=[issue("바람이 불었다."), issue("서윤은 등대 앞에 섰다.", "동선")]))
+    ep.checked_at = OLD
+    for fid in ("f1", "f2"):
+        pipeline.store_fixes(p, 1, fid, pipeline.propose_fixes(MockLLM(), p, 1, fid))
+    pipeline.apply_fixes(p, 1, [("f1", 0, []), ("f2", 0, [])])
+    basis = pipeline.fix_recheck_basis(ep)
+    assert set(basis[2]) == {"f1", "f2"}
+    rep = FixRecheckReport(results=[FixRecheckItem(id="f1", resolved=True, reason="풀림"),
+                                    FixRecheckItem(id="f2", resolved=False, reason="아직")])
+
+    # 그사이 검수를 다시 했다
+    q = p.model_copy(deep=True)
+    q.episode(1).checked_at = "2100-01-01T00:00:00+00:00"
+    with pytest.raises(ValueError, match="바뀌어서 결과를 넣지 않았어요"):
+        pipeline.apply_fix_recheck(q, 1, rep, basis)
+    assert [f.status for f in q.episode(1).findings] == ["open", "open"]
+
+    # 그사이 f1 의 고침안을 되돌렸다 (본문이 지적한 문장으로 돌아왔다)
+    q = p.model_copy(deep=True)
+    pipeline.undo_fix(q, 1, q.episode(1).findings[0].fix_group)
+    with pytest.raises(ValueError, match="바뀌어서 결과를 넣지 않았어요"):
+        pipeline.apply_fix_recheck(q, 1, rep, basis)
+    assert q.episode(1).findings[0].status == "open"
+
+    # 그사이 작가가 f2 를 손으로 고침으로 닫았다: f2 는 건너뛰고 세지 않는다
+    findings.set_status(ep, "f2", "fixed", None, pipeline._now())
+    settled: list = []
+    assert pipeline.apply_fix_recheck(p, 1, rep, basis, settled) == []
+    assert [x.id for x in settled] == ["f1"]
+    assert [(f.status, f.closed_by) for f in ep.findings] == [("fixed", "one"), ("fixed", "author")]
+
+
+def test_fix_spots_picks_match_nearest_recorded_start():
+    """고친 글이 본문에 여러 번 나오면 기록한 자리에 가장 가까운 곳을 고친 곳으로 본다."""
+    from canon.schema import TextEdit
+    s = "그는 고개를 끄덕였다."
+    text = f"{s}\n\n가운데 문단.\n\n{s}"
+    ep = SimpleNamespace(text=text)
+    late = text.rindex(s)
+    assert pipeline._fix_spots(ep, [TextEdit(id="e", before="x", after=s, start=late)]) == [(late, late + len(s))]
+    assert pipeline._fix_spots(ep, [TextEdit(id="e", before="x", after=s, start=0)]) == [(0, len(s))]
+    assert pipeline._fix_spots(ep, [TextEdit(id="e", before="x", after="", start=999)]) == [(len(text), len(text))]
 
 
 def test_fix_around_merges_neighbour_paragraphs():

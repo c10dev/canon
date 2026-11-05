@@ -2593,13 +2593,16 @@ def _job_recheck(name: str, body: "JobIn", p: Project, kind: str, n: int | None,
     want = [f.id for f in todo]
 
     def fn(job: jobs.Job):
-        rep = pipeline.recheck_fixed(llm, store.load(name), n)
+        p0 = store.load(name)
+        basis = pipeline.fix_recheck_basis(p0.episode(n))  # 늦게 온 결과가 그사이 한 검수 · 되돌리기를 덮지 않게 본 상태를 남긴다
+        rep = pipeline.recheck_fixed(llm, p0, n)
         cancel.check()
         kids: list = []
-        q = _edit(name, lambda q: kids.extend(pipeline.apply_fix_recheck(q, n, rep)))
+        settled: list = []
+        _edit(name, lambda q: kids.extend(pipeline.apply_fix_recheck(q, n, rep, basis, settled)))
         got = {x.id for x in rep.results}
-        done = [f.id for f in q.episode(n).findings if f.id in got and f.status == "fixed"]
-        return {"asked": len(want), "resolved": len(done), "open": len(got) - len(done), "added": len(kids),
+        done = sum(1 for x in settled if x.resolved)  # 실제로 넣은 결과만 센다 (그사이 작가가 닫은 지적은 빼고)
+        return {"asked": len(want), "resolved": done, "open": len(settled) - done, "added": len(kids),
                 "missing": [i for i in want if i not in got]}
     return label, total, owned, fn
 

@@ -14,7 +14,7 @@ const NOTIFY_GROUPS = [
   ['auto', '자동 집필', '화 하나를 반영하거나 멈추면', true],
   ['other', '그 밖의 AI 작업', '플롯 초안 · 설정 제안 · 대화 등', false],
 ];
-const NOTIFY_KIND = { write: 'write', check: 'check', fixes: 'check', state: 'state', auto: 'auto' };
+const NOTIFY_KIND = { write: 'write', check: 'check', fixes: 'check', recheck: 'check', state: 'state', auto: 'auto' };
 
 /** 저장한 값을 읽어 빈 칸을 기본값으로 채운다. 망가진 값은 기본값 */
 function notifyPrefs(raw) {

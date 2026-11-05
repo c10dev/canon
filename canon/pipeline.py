@@ -3682,14 +3682,22 @@ def apply_recheck(p: Project, n: int, fid: str, res: FindingRecheck) -> list[Fin
 
 
 def _fix_spots(ep: Episode, es: list[TextEdit]) -> list[tuple[int, int]]:
-    """고침안 수정들이 지금 본문에 놓인 자리 [시작, 끝]. 고친 글을 못 찾으면 기록한 자리로 본다 (지우기만 한 수정)."""
+    """고침안 수정들이 지금 본문에 놓인 자리 [시작, 끝]. 고친 글이 여러 곳에 있으면 기록한 자리(e.start)에 가장 가까운 곳을 고른다.
+    고친 글을 못 찾으면 기록한 자리로 본다 (지우기만 한 수정)."""
     out = []
     for e in es:
-        at = ep.text.find(e.after) if e.after.strip() else -1
-        if at < 0:
-            at = min(e.start, len(ep.text))
+        hits, at = [], ep.text.find(e.after) if e.after.strip() else -1
+        while at >= 0:
+            hits.append(at)
+            at = ep.text.find(e.after, at + 1)
+        at = min(hits, key=lambda h: abs(h - e.start)) if hits else min(e.start, len(ep.text))
         out.append((at, at + len(e.after)))
     return out
+
+
+def fix_recheck_basis(ep: Episode) -> tuple[str, str, dict[str, str]]:
+    """고친 곳만 다시 보기가 본 상태: (마지막 검수 시각, 본문, 대상 지적 id → 고침안 묶음). apply_fix_recheck 가 그사이 바뀌었는지 본다."""
+    return ep.checked_at, ep.text, {f.id: f.fix_group for f in findings.fix_recheck_targets(ep)}
 
 
 def recheck_fixed(llm: LLM, p: Project, n: int) -> FixRecheckReport:
@@ -3716,14 +3724,25 @@ def recheck_fixed(llm: LLM, p: Project, n: int) -> FixRecheckReport:
     return FixRecheckReport(results=out)
 
 
-def apply_fix_recheck(p: Project, n: int, rep: FixRecheckReport) -> list[Finding]:
-    """고친 곳만 다시 보기 결과를 지적마다 넣는다 (findings.settle). 그사이 닫힌 지적은 건너뛴다. 새로 생긴 딸린 지적을 돌려준다."""
+def apply_fix_recheck(p: Project, n: int, rep: FixRecheckReport, basis: tuple[str, str, dict[str, str]] | None = None,
+                      settled: list[FixRecheckItem] | None = None) -> list[Finding]:
+    """고친 곳만 다시 보기 결과를 지적마다 넣는다 (findings.settle). 그사이 닫힌 지적은 건너뛴다. 새로 생긴 딸린 지적을 돌려준다.
+    basis(fix_recheck_basis)를 주면, 묻는 사이 검수를 다시 했거나 본문이 바뀌었을 때 아무것도 넣지 않고 ValueError 를 낸다.
+    묶음이 바뀐 지적도 건너뛴다. settled 를 주면 실제로 넣은 결과를 거기에 더한다."""
     ep = p.episode(n)
+    groups = None
+    if basis is not None:
+        checked_at, text, groups = basis
+        if ep.checked_at != checked_at or ep.text != text:
+            raise ValueError("다시 보는 사이 본문이나 검수 결과가 바뀌어서 결과를 넣지 않았어요. 다시 해 주세요")
     at, kids = _now(), []
     for x in rep.results:
         f = next((g for g in ep.findings if g.id == x.id), None)
-        if f is not None and f.status == "open":
-            kids += findings.settle(ep, f, x, at)
+        if f is None or f.status != "open" or (groups is not None and groups.get(f.id) != f.fix_group):
+            continue
+        kids += findings.settle(ep, f, x, at)
+        if settled is not None:
+            settled.append(x)
     return kids
 
 
