@@ -536,6 +536,8 @@
 - 화 번호로 이름 붙인 바깥 파일(큐 시트 실험 `cuelab/<화>.json` · 블라인드 비교본 `compare/<화>/`, `compare_dir`)은 화를 넣고 뺄 때 `renumber_side_files` 로 옮긴다
 - `renumber_side_files` 는 옮길 파일을 임시 이름(`.renum-<화>`)으로 먼저 옮겨 서로 덮지 않고, 큐 시트 실험 안의 `episode` 도 새 번호로 고친다
 - 뺀 화(`gone`)의 바깥 파일은 지우지 않고 `cuelab/removed/` · `compare/removed/` 에 `<화>.<시각>` 으로 남긴다(`SIDE_REMOVED`)
+- `renumber_side_files` 에 `aside` 목록을 주면 뺀 화의 파일을 남긴 경로(작품 폴더 기준)를 더한다
+- `restore_side_files` 는 그 경로의 파일을 n화 자리로 되돌린다. 그 자리에 파일이 있으면 덮지 않고, `<종류>/removed/<이름>` 꼴이 아닌 경로는 건너뛴다
 
 ### `canon/updater.py`
 
@@ -610,5 +612,7 @@
 - 작품 목록 카드의 확인할 것(`_card_alerts`)은 `GET …/pending` 이 지우는 상태 변경안(`_stale_state`)을 빼고 보인다
 - 상태 변경안을 쓸 수 있는 화(`_state_live`)는 카드 몫과 함께 `_cards` 에 둔다
 - 화 넣기 · 빼기 · 지우기와 대화 에이전트의 화 넣기 · 빼기 승인 · 되돌리기는 저장한 뒤 `store.renumber_side_files` 로 큐 시트 실험 · 비교본을 옮긴다. 넣기 · 빼기 · 지우기 응답의 notes 에 옮긴 설명이 붙는다
+- 대화 에이전트의 승인(`agent_approval`) · 되돌리기(`agent_undo`)도 작품 저장과 바깥 파일 옮기기를 한 `jobs.project_lock` 안에서 한다
+- 에이전트의 화 빼기 승인은 removed/ 에 남긴 경로를 `RenumberOp.aside` 에 적고, 그 빼기를 되돌리면 `store.restore_side_files` 로 그 파일을 원래 화 자리로 되돌린다
 - `GET …/backups` · `POST …/backups/restore` 는 백업 목록과 되돌리기(`store.restore_backup`). 자동 집필 · 돌고 있는 AI 작업 · 검토를 기다리는 결과가 있으면 막고, 반영한 화가 줄면 `autorun.after_revert` 를 부른다
 - 작품 전체 저장은 `put_project`

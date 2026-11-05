@@ -2298,9 +2298,18 @@ def agent_approval(name: str, sid: str, t: int, body: ApprovalIn) -> dict:
     op = turn.approval.op if body.approve and turn.approval else None
     if op:
         _renumber_ready(name, op.at)
-    p = _edit(name, lambda q: agent.decide(q, sid, t, body.approve, body.picked, body.remember, not store.shares_text(name)))
+    with jobs.project_lock(name):  # 화 번호 바깥 파일도 같은 잠금 안에서 옮긴다 (insert_episode · remove_episode 와 같다)
+        p = store.load(name)
+        agent.decide(p, sid, t, body.approve, body.picked, body.remember, not store.shares_text(name))
+        store.save(name, p)
+        if op:
+            aside: list[str] = []
+            store.renumber_side_files(name, agent.shift(op), agent.dropped(op), aside)
+            rec = agent.turn_of(p, sid, t)[1].writes[-1]
+            if aside and rec.op:
+                rec.op.aside = aside  # 되돌릴 때 removed/ 에서 다시 옮겨 온다
+                store.save(name, p)
     if op:
-        store.renumber_side_files(name, agent.shift(op), agent.dropped(op))
         autorun.renumber(name, agent.shift(op))
     return {"project": p, "job": _run_agent(name, sid, t)}
 
@@ -2325,13 +2334,17 @@ def agent_undo(name: str, sid: str, t: int, body: AgentUndoIn) -> dict:
     ops = agent.undo_ops(_load(name), sid, t, body.write, body.key)
     if ops:
         _renumber_ready(name, min(op.at for op in ops))
-    out: list = []
     done: list = []
-    p = _edit(name, lambda q: out.append(agent.undo(q, sid, t, body.write, body.key, not store.shares_text(name), done)))
+    with jobs.project_lock(name):  # 화 번호 바깥 파일도 같은 잠금 안에서 옮긴다
+        p = store.load(name)
+        restored, kept, reasons = agent.undo(p, sid, t, body.write, body.key, not store.shares_text(name), done)
+        store.save(name, p)
+        for op in done:
+            store.renumber_side_files(name, agent.shift(op, inverse=True), agent.dropped(op, inverse=True))
+            if op.kind == "remove":
+                store.restore_side_files(name, op.aside, op.at)
     for op in done:
-        store.renumber_side_files(name, agent.shift(op, inverse=True), agent.dropped(op, inverse=True))
         autorun.renumber(name, agent.shift(op, inverse=True))
-    restored, kept, reasons = out[0]
     return {"project": p, "restored": restored, "kept": kept, "reasons": reasons}
 
 
