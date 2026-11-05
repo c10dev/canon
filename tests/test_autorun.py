@@ -637,8 +637,9 @@ def test_runner_reads_request_left_by_other_process(demo, monkeypatch):
     wait_until(lambda: autorun.get_run(demo).batches)
     mine = autorun._controls
     monkeypatch.setattr(autorun, "_controls", {})  # 다른 프로세스에서 본다
-    assert autorun.elsewhere(demo)
+    assert autorun.elsewhere(demo) and autorun.wanted(demo) == ""
     autorun.request(demo, "pause")
+    assert autorun.wanted(demo) == "pause"  # 다른 프로세스의 화면도 '멈추는 중'을 보인다
     monkeypatch.setattr(autorun, "_controls", mine)
     wait_until(idle(demo))
     run = autorun.load_run(demo)
@@ -683,6 +684,7 @@ def test_ended_run_reads_record_left_by_other_process(demo, monkeypatch):
     autorun.set_batch(demo, True)
     disk = autorun.load_run(demo)
     assert disk.restarts == 7 and disk.batches["1:check"] == "other-batch" and disk.policy.review_every == 2
+
 
 def test_wanted_shows_pending_pause(monkeypatch):
     """도는 실행에 일시정지 · 중지를 요청하면 wanted 가 그 요청을 돌려준다 (화면이 지금 단계가 끝날 때까지 '멈추는 중'을 보인다)."""

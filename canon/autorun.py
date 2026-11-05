@@ -251,10 +251,19 @@ def get_run(name: str) -> Optional[Run]:
 
 
 def wanted(name: str) -> str:
-    """도는 실행에 받아 둔 요청(pause | stop). 지금 단계가 끝나야 멈추므로 화면이 '멈추는 중'을 보인다. 없으면 빈 글."""
+    """도는 실행에 받아 둔 요청(pause | stop). 지금 단계가 끝나야 멈추므로 화면이 '멈추는 중'을 보인다. 없으면 빈 글.
+    다른 프로세스가 쥔 실행이면 그 주인이 아직 읽지 않은 요청 파일(autorun.want)을 본다."""
     with _lock:
         ctl = _controls.get(name)
-    return ctl.want if ctl and ctl.thread_alive else ""
+    if ctl and ctl.thread_alive:
+        return ctl.want
+    if not elsewhere(name):
+        return ""
+    try:
+        what = (store.project_dir(name) / WANT_FILE).read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+    return what if what in ("pause", "stop") else ""
 
 
 def active(name: str) -> bool:

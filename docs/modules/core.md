@@ -6,6 +6,7 @@
 
 - 자동 집필
 - `wanted(name)`: 도는 실행에 받아 둔 일시정지 · 중지 요청. 웹 `AutoView.want` 로 보내 화면이 지금 단계가 끝날 때까지 '멈추는 중'을 보인다
+- 다른 프로세스가 쥔 실행이면 `wanted` 는 주인이 아직 읽지 않은 `autorun.want` 를 돌려준다. 주인이 읽어 지우면 빈 값으로 돌아간다
 - 목표 화까지 (스토리보드 `_board`, `Policy.storyboard` · `stop_on_board_warnings`) → (큐 시트 `_cues`, `Policy.cue_sheet`) → write → (서술 다듬기 `_polish`, `Policy.polish`, 다듬을 화 `Run.polish_due`) → check + state → 정책(`Policy`) 통과 시 반영을 반복
 - 관계 정책(`max_shift` · `stop_on_stage`)은 작품 복사본에 `features.hold` 로 뺀 변경안을 반영해 본다(`review_reasons`)
 - 그래서 관계 정책은 실제 반영(`put`)과 같은 제안만 센다
@@ -416,7 +417,8 @@
 - 파일 끝에서 두 칸을 찾지 못하면 파일 전체를 읽는다. 두 칸은 `Project` 의 마지막 필드여야 한다(`tests/test_store_backup.py`)
 - 검토를 기다리는 AI 결과와 실패한 작업(`pending.json`, `load_pending` / `edit_pending`)
 - 상태 변경안 결과(`state:<화>`)는 작가가 고르던 체크와 고친 변경안을 `draft` 칸에 함께 둔다
-- 결과를 지우거나 새 결과로 바꾸면 초안도 사라진다- 화 번호로 이름 붙인 바깥 파일(큐 시트 실험 `cuelab/<화>.json` · 블라인드 비교본 `compare/<화>/`, `compare_dir`)은 화를 넣고 뺄 때 `renumber_side_files` 로 옮긴다
+- 결과를 지우거나 새 결과로 바꾸면 초안도 사라진다
+- 화 번호로 이름 붙인 바깥 파일(큐 시트 실험 `cuelab/<화>.json` · 블라인드 비교본 `compare/<화>/`, `compare_dir`)은 화를 넣고 뺄 때 `renumber_side_files` 로 옮긴다
 - `renumber_side_files` 는 옮길 파일을 임시 이름(`.renum-<화>`)으로 먼저 옮겨 서로 덮지 않고, 큐 시트 실험 안의 `episode` 도 새 번호로 고친다
 - 뺀 화(`gone`)의 바깥 파일은 지우지 않고 `cuelab/removed/` · `compare/removed/` 에 `<화>.<시각>` 으로 남긴다(`SIDE_REMOVED`)
 
@@ -436,7 +438,8 @@
 
 - 웹 UI 서버(`python -m canon serve`)
 - 맨 바깥 미들웨어 `_guard_host` 는 Host 가 IP 주소 · localhost · `*.ts.net` · 이 컴퓨터 이름 · `CANON_ALLOWED_HOSTS` 의 이름이 아니면 403 으로 막는다(DNS 리바인딩)
-- `_guard_host` 는 POST · PUT · PATCH · DELETE 에 Origin 이 있으면 그 이름이 Host 나 X-Forwarded-Host 와 같아야 받는다(CSRF). Origin 이 없는 요청(명령줄 · curl)은 받는다- 작품 문체 분석은 작업 `style`(`_job_style`, `JobIn.text` 200자 이상): 프로필과 원문 전체 기준 지표를 돌려주고 결과는 pending 에 남는다(`PENDING_KINDS`). 옛 `POST …/style` 은 그대로 둔다
+- `_guard_host` 는 POST · PUT · PATCH · DELETE 에 Origin 이 있으면 그 이름이 Host 나 X-Forwarded-Host 와 같아야 받는다(CSRF). Origin 이 없는 요청(명령줄 · curl)은 받는다
+- 작품 문체 분석은 작업 `style`(`_job_style`, `JobIn.text` 200자 이상): 프로필과 원문 전체 기준 지표를 돌려주고 결과는 pending 에 남는다(`PENDING_KINDS`). 옛 `POST …/style` 은 그대로 둔다
 - 결과 지우기 `DELETE …/pending/{key}?id=` 는 id 가 같을 때만 지운다. 화면이 옛 결과를 반영하는 사이 같은 키에 새 결과가 들어왔으면 남긴다(`syncPending` 이 id 를 보낸다)
 - 작품 카드 `setup_ready`: 설정 도우미 필수 칸이 다 찼는지(`_setup_ready`, setup.js `setupReqs` 와 같은 규칙)
 - `/api/config/health` 는 Claude 단계가 있으면 `claude_api`(Anthropic 키 유무)와 `claude` · `claude_message`(구독 설치 · 로그인, `claude.status` 를 60초 기억)를 싣는다. 설정 저장은 기억을 지우고, `/api/claude/status` 는 새로 읽은 값으로 바꾸고, error 는 기억하지 않는다
