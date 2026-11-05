@@ -3755,11 +3755,12 @@ def extract_state(llm: LLM, p: Project, n: int) -> StateDelta:
     carried = carried_delta(p, n)
     if carried is not None:
         return carried
+    basis = text_basis(p.episode(n).text)  # 프롬프트에 넣은 본문의 지문. 부르는 사이 p 가 바뀌어도 이 본문 기준이다
     delta = llm.json(prompts.SYSTEM_EDITOR, prompts.state_prompt(p, n), StateDelta,
                      hint={"episode": n, "stats": statwin.enabled(p)})
     delta.episode = n
     clean_delta(p, delta)
-    delta.basis = text_basis(p.episode(n).text)
+    delta.basis = basis
     return delta
 
 

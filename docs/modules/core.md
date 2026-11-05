@@ -18,8 +18,10 @@
 - 기한 닫힘 멈춤(`Policy.stop_on_deadline_done`): 작품에 열려 있는 기한만 센다
 - 시간 건너뜀 멈춤(`Policy.max_time_jump_days`, 0 이면 끔): `timeline.current_day` 에서 `StateDelta.time.day` 까지 앞으로 간 날수. 어느 쪽이든 날수를 모르거나 시간 기록을 껐으면 보지 않고, 거슬러 가는 것도 보지 않는다
 - 지운 칸 멈춤(`Policy.stop_on_clear`, `CharacterState.cleared`). 칸 이름은 `CLEAR_NAMES` 로 상태 승인 화면과 같은 말로 적는다
+- 상태 변경안의 본문 지문(`StateDelta.basis`)이 지금 본문과 다르면 검토 대기로 두지도 반영하지도 않고 `paused` · `changed` 로 멈춘다(`_same_text`)
 - 배치(`llm.BatchLLM`) 켜고 끄기
 - 배치를 취소하지 못하면 배치 이름을 서버 로그(`canon` 로거)에 경고로 남긴다(`_cancel_batches`)
+- 기다리는 배치마다 보낸 프롬프트 지문을 `Run.batch_keys` 에 남긴다. 이어 갈 때 다르면 `BatchLLM` 이 그 배치를 취소하고 다시 보낸다(일시정지 중 본문 · 플롯을 고친 경우)
 - 오류로 멈추면 호출 경로를 서버 로그에 남긴다
 - 비용·시간 추정
 - 실행 중 토큰 · 비용(`Run.tokens_in` · `cost`)은 `Runner._call` 이 `usage.collect()` 로 모은 단계 안의 모든 호출을 더한다(형식 고치기 재시도, 검수의 여러 호출, 다른 스레드의 동작 검사)
@@ -266,6 +268,7 @@
   - `apply_delta` 는 검사에 걸린 항목과 설정에 없는 사건 목격자를 빼고(`drop_invalid`) 반영한 뒤 뺀 항목 문구를 돌려준다
   - `drop_invalid` 가 뺀 항목은 `d.dismissed` 의 같은 칸에 남는다(반영 기록에서 보이고 반영 취소로 돌아오면 체크를 푼 채 다시 놓인다)
   - 상태 변경안의 본문 지문 `StateDelta.basis`(`text_basis`)는 `extract_state` · `carried_delta` 가 채운다
+  - `extract_state` 는 LLM 을 부르기 전에 프롬프트에 넣은 본문으로 지문을 잰다
   - 반영 `apply_delta` 는 인물 상태의 빈 칸을 그대로 두고, `CharacterState.cleared` 에 적힌 칸(목표 · 위치 · 메모 · 차림 · 감정)은 비운다
   - 설정 칸 하나 AI 후보 `suggest_field` · 단계 `field_stage`
   - 칸 목록 `prompts.FIELD_IDEAS`, 목록 칸 `prompts.IDEA_LISTS`(후보는 한 줄, 있는 항목은 뺌)
