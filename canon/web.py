@@ -1751,7 +1751,41 @@ def delete_episode(name: str, n: int, body: DeleteIn) -> dict:
         autorun.after_revert(name, n)
     if not body.keep_plot:
         autorun.renumber(name, lambda x: x - 1 if x >= n else x)
-    return {"project": p, "notes": [*notes, f"지우기 전 작품은 {path.name} 으로 남겨 뒀어요."]}
+    return {"project": p, "notes": [*notes, f"지우기 전 작품은 {path.name} 으로 남겨 뒀어요. 설정 › 백업에서 되돌릴 수 있어요."]}
+
+
+# ---------- 백업에서 되돌리기 ----------
+# store.backup_list: 시간별 백업 · 직전 판 · 화를 지우기 전 · 장편 전환 전 · 되돌리기 전 판.
+
+@app.get("/api/projects/{name}/backups")
+def list_backups(name: str) -> list[dict]:
+    _need(name)
+    return store.backup_list(name)
+
+
+class RestoreIn(BaseModel):
+    id: str  # backup_list 의 id
+
+
+@app.post("/api/projects/{name}/backups/restore")
+def restore_backup(name: str, body: RestoreIn) -> Project:
+    """백업으로 작품을 되돌린다. 지금 판은 먼저 backups/before-restore.<시각>.json 으로 남겨 다시 되돌릴 수 있다.
+    자동 집필 · AI 작업이 도는 중이거나 검토를 기다리는 결과(pending.json)가 있으면 막는다. 반영한 화가 줄면 자동 집필 기록을 화 지우기처럼 맞춘다(autorun.after_revert)."""
+    autorun.check_renumber(name)
+    busy = [j.label for j in jobs.listing(name) if j.status == "running"]
+    if busy:
+        raise ValueError(f"AI 작업({', '.join(busy)})이 끝난 뒤에 되돌리세요. 작업 결과가 되돌린 작품을 덮어요")
+    if held := store.pending_eps(name):
+        raise ValueError(f"{', '.join(f'{n}화' for n in held)}에 검토를 기다리는 AI 결과나 실패한 작업이 있어요. 먼저 확인하거나 버린 뒤에 되돌리세요")
+    with jobs.project_lock(name):
+        before = branches.last_finalized(_load(name))
+        try:
+            p = store.restore_backup(name, body.id)
+        except FileNotFoundError as e:
+            raise HTTPException(404, str(e)) from None
+    if branches.last_finalized(p) < before:
+        autorun.after_revert(name, branches.last_finalized(p) + 1)
+    return p
 
 
 # ---------- 3-1. 대화로 다듬기 ----------

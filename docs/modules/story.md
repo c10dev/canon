@@ -300,6 +300,7 @@
 - 정착 문체 화 번호도 옮긴다(`anchor.move`)
 - 화면은 `static/insert.js` (넣을 수 있는 자리 `lastFixed` 는 `last_fixed` 와 같은 규칙, `tests/test_insert_js.py`)
 - `insert.js` 의 화 지우기 버튼을 막은 이유(AI 작업 중, 자동 집필 중, 스냅샷 없음)를 버튼 아래 글로도 보인다
+- 화 지우기 확인 창은 지우기 전 작품을 설정 › 백업에서 되돌릴 수 있다고 알린다
 
 ### `canon/routes/play.py`
 

@@ -57,6 +57,7 @@
 - 명령별 쓰임
   - `abilities`: 스킬 · 특성 도감(설명 · 효과 · 대가, 가진 인물과 얻은 화) 보기
   - `arcs`: 장편 진행 보기
+  - `backups`: 백업 목록 보기 · `--restore` 로 그 판으로 되돌리기(지금 판은 먼저 백업으로 남김)
   - `branch`: 반영까지 끝난 전개를 지우지 않고 n화부터 다른 전개를 쓰는 갈래(원본은 그대로)
   - `branch-compare`: 갈래 비교
   - `branches`: 갈래 보기
@@ -367,12 +368,17 @@
 - `projects/<이름>/project.json` 저장
 - 본문을 `episodes/NN.md` 로 내보내기(바뀐 화만 다시 씀), project.json 은 들여쓰기 없이
 - 마지막 화가 100화 이상이면 본문 파일 이름을 세 자리(`NNN.md`)로 쓰고 옛 두 자리 파일은 지운다(`ep_file`)
-- 저장 전 직전 판을 `project.prev.json` 으로, 시간마다 첫 저장 직전 판을 `backups/project.<날짜-시>.json` 으로 남긴다(최근 `BACKUP_KEEP` 개, 하드 링크라 복사하지 않음)
+- 저장 전 직전 판을 `project.prev.json` 으로, 시간마다 첫 저장 직전 판을 `backups/project.<날짜-시>.json` 으로 남긴다(하드 링크라 복사하지 않음)
+- 시간별 백업은 최근 `BACKUP_HOURS`(24) 개를 모두 남기고, 그 전은 `BACKUP_DAYS`(14) 일 동안 하루에 그날 마지막 하나만 남긴다(`backup_prune`, 시간별 이름만 지움)
+- `backup_list` 는 시간별 · 직전 판 · `before-delete-<화>.json` · `before-serial.json` · 되돌리기 전 판을 새것부터 준다(UTC 시각 · 화 수 · 반영한 마지막 화, 판마다 기억)
+- `restore_backup` 은 `backup_list` 의 id 만 받는다. 지금 판을 `backups/before-restore.<시각>.json`(최근 `RESTORE_KEEP` 개)으로 남긴 뒤 저장한다
+- `backups/` 안 판의 스냅샷 파일은 작품 폴더의 `snapshots/` 에서 읽는다(`read_disk` 의 `home`)
 - 갈래 · 복제 · 플레이 사본은 `backups/` 를 옮기지 않는다(`branches.COPY_SKIP`)
 - 작품 캐시: 같은 판이면 검증을 건너뜀. `load_view` 는 캐시 것(고치지 않음, 웹은 `web._view`), `load` 는 깊은 복사본. 저장하면 저장한 내용을 바로 캐시에 둠(`_remember`)
 - 파일 판(`tag`, 작품 GET 의 ETag). 웹 요청이 저장한 판은 `saved` 에 남아 응답의 `X-Project-ETag` 가 된다
 - 스냅샷은 `snapshots/<화>-<내용 해시>.json` 에 하나씩 두고 project.json 맨 앞 `snapshot_files` 가 차례대로 적는다(`read_disk`). 옛 project.json 안의 스냅샷도 읽는다
 - 지난 저장과 같은 스냅샷은 다시 직렬화하지 않는다(`_snap_written`). 어느 판(project.json · prev · backups)도 적지 않은 스냅샷 파일은 지운다
+- `backups/` 의 모든 `.json`(되돌리기 전 판 포함)이 적은 스냅샷 파일을 남긴다
 - 아무 판도 적지 않아도 `SNAP_GRACE`(60초) 안에 쓴 스냅샷 파일은 지우지 않는다
 - `save` 는 판 기록 읽기부터 옛 스냅샷 지우기까지 작품 폴더의 `.lock` 에 `fcntl.flock` 을 잡는다(`_disk_lock`). 명령줄과 웹 서버가 함께 저장해도 서로의 새 스냅샷 파일을 지우지 않는다
 - 화면 저장 기록(`writer`, `edit_rev` · `saved_by`, 파일 끝만 읽음)
@@ -429,4 +435,5 @@
 - 초안 저장 본문의 `picks` 가 null 이면 남긴 체크를 그대로 둔다(화면의 체크가 다른 화의 것일 때)
 - 초안 저장은 결과가 없거나 상태 변경안이 아니거나 보낸 `id` 가 결과의 작업 id 와 다르면 아무것도 바꾸지 않는다(반영 · 버림 · 다시 만들기 뒤 늦게 온 저장)
 - 읽기 전용 GET 은 `_view`(`store.load_view`)로 작품을 읽는다
+- `GET …/backups` · `POST …/backups/restore` 는 백업 목록과 되돌리기(`store.restore_backup`). 자동 집필 · 돌고 있는 AI 작업 · 검토를 기다리는 결과가 있으면 막고, 반영한 화가 줄면 `autorun.after_revert` 를 부른다
 - 작품 전체 저장은 `put_project`

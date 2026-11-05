@@ -12,7 +12,7 @@ import shutil
 import threading
 import time
 from contextvars import ContextVar
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
@@ -106,15 +106,16 @@ def _snap_refs(path: Path) -> list[str] | None:
     return json.loads(m.group(1)) if m else None
 
 
-def read_disk(path: Path, tries: int = 3) -> Project:
-    """디스크의 project.json 을 스냅샷 파일과 함께 읽는다 (캐시를 거치지 않음)."""
+def read_disk(path: Path, tries: int = 3, home: Path | None = None) -> Project:
+    """디스크의 project.json 을 스냅샷 파일과 함께 읽는다 (캐시를 거치지 않음).
+    home 은 스냅샷 폴더가 있는 작품 폴더다. 비우면 path 가 든 폴더 (backups/ 안의 판은 작품 폴더를 넘긴다)."""
     for left in range(tries, 0, -1):
         text = path.read_text(encoding="utf-8")
         p = Project.model_validate_json(text)
         m = _SNAP_HEAD.match(text[:64 * 1024])
         if not m:
             return p
-        sdir = path.parent / SNAP_DIR
+        sdir = (home or path.parent) / SNAP_DIR
         try:
             p.snapshots = [Snapshot.model_validate_json((sdir / f).read_text(encoding="utf-8")) for f in json.loads(m.group(1))]
             return p
@@ -159,7 +160,7 @@ def _drop_old_snapshots(d: Path) -> None:
     if not sdir.is_dir():
         return
     keep: set[str] = set()
-    for f in [d / "project.json", d / "project.prev.json", *(d / BACKUP_DIR).glob("project.*.json")]:
+    for f in [d / "project.json", d / "project.prev.json", *(d / BACKUP_DIR).glob("*.json")]:
         keep |= set(_snap_refs(f) or ())
     fresh = time.time() - SNAP_GRACE
     for f in sdir.glob("*.json"):
@@ -270,10 +271,15 @@ def _saved_mark(path: Path) -> tuple[int, str]:
 
 
 # ---------- 저장 전 백업 ----------
-# project.prev.json: 직전 판 하나. backups/project.<날짜-시>.json: 시간마다 첫 저장 직전 판, 최근 BACKUP_KEEP 개.
+# project.prev.json: 직전 판 하나. backups/project.<날짜-시>.json: 시간마다 첫 저장 직전 판 (보관 규칙은 backup_prune).
+# backups/before-restore.<날짜-시분초>.json: 백업에서 되돌리기 직전 판 (최근 RESTORE_KEEP 개).
 # 저장은 늘 새 파일로 바꿔치기(os.replace)하므로 옛 판은 하드 링크로 붙잡으면 복사하지 않아도 그대로 남는다.
 BACKUP_DIR = "backups"
-BACKUP_KEEP = 24
+BACKUP_HOURS = 24  # 최근 시간별 백업을 이만큼 모두 남긴다
+BACKUP_DAYS = 14  # 그보다 오래된 시간별 백업은 최근 이 날수 동안 하루에 하나(그날 마지막 것)만 남긴다
+RESTORE_KEEP = 10
+_HOURLY = re.compile(r"^project\.(\d{8})-(\d{2})\.json$")
+_RESTORE = re.compile(r"^before-restore\.(\d{8}-\d{6})\.json$")
 
 
 def _hold(src: Path, dst: Path) -> None:
@@ -286,21 +292,112 @@ def _hold(src: Path, dst: Path) -> None:
     os.replace(tmp, dst)
 
 
+def backup_prune(names: list[str], now: datetime) -> list[str]:
+    """시간별 백업 파일 이름 중 지울 것. 최근 BACKUP_HOURS 개는 모두 남기고,
+    그보다 오래된 것은 now 부터 BACKUP_DAYS 날 안의 날마다 그날 마지막 것 하나만 남긴다. 시간별 이름이 아닌 파일은 건드리지 않는다."""
+    hourly = sorted(n for n in names if _HOURLY.match(n))
+    old = hourly[:-BACKUP_HOURS] if BACKUP_HOURS else hourly
+    first = now.date().toordinal() - BACKUP_DAYS + 1
+    keep: dict[str, str] = {}
+    for n in old:  # 차례대로 보므로 날마다 마지막 것이 남는다
+        day = _HOURLY.match(n).group(1)  # type: ignore[union-attr]
+        if datetime.strptime(day, "%Y%m%d").date().toordinal() >= first:
+            keep[day] = n
+    return [n for n in old if n not in keep.values()]
+
+
 def _backup(d: Path, path: Path) -> None:
     _hold(path, d / "project.prev.json")
     bdir = d / BACKUP_DIR
-    dst = bdir / f"project.{datetime.now():%Y%m%d-%H}.json"
+    now = datetime.now()
+    dst = bdir / f"project.{now:%Y%m%d-%H}.json"
     if dst.exists():
         return
     bdir.mkdir(exist_ok=True)
     _hold(path, dst)
-    for old in sorted(bdir.glob("project.*.json"))[:-BACKUP_KEEP]:
-        old.unlink(missing_ok=True)
+    for old in backup_prune([f.name for f in bdir.glob("project.*.json")], now):
+        (bdir / old).unlink(missing_ok=True)
 
 
 def backups(name: str) -> list[Path]:
     """남아 있는 시간별 백업, 오래된 것부터."""
-    return sorted((project_dir(name) / BACKUP_DIR).glob("project.*.json"))
+    return sorted(f for f in (project_dir(name) / BACKUP_DIR).glob("project.*.json") if _HOURLY.match(f.name))
+
+
+# 백업 목록의 화 수 · 반영한 마지막 화 {경로: (판, (화 수, 반영한 마지막 화, 제목))}. 하드 링크로 남긴 판은 바뀌지 않는다
+_brief_seen: dict[Path, tuple[tuple[int, int, int], tuple[int, int, str]]] = {}
+
+
+def _brief(f: Path, st: os.stat_result) -> tuple[int, int, str]:
+    key = _key(st)
+    seen = _brief_seen.get(f)
+    if seen and seen[0] == key:
+        return seen[1]
+    try:
+        d = json.loads(f.read_text(encoding="utf-8"))
+        eps = d.get("episodes") or []
+        done = [int((e.get("plot") or {}).get("number") or 0) for e in eps if e.get("status") == "finalized"]
+        got = (len(eps), max(done, default=0), str((d.get("meta") or {}).get("title") or ""))
+    except (OSError, ValueError, AttributeError, TypeError):
+        got = (-1, 0, "")  # 깨진 파일
+    _brief_seen[f] = (key, got)
+    return got
+
+
+def _backup_files(name: str) -> list[tuple[str, str, Path]]:
+    """되돌릴 수 있는 백업 (id, 종류, 경로). id 는 작품 폴더 안 상대 경로다."""
+    d = project_dir(name)
+    out: list[tuple[str, str, Path]] = []
+    bdir = d / BACKUP_DIR
+    if bdir.is_dir():
+        for f in bdir.glob("*.json"):
+            kind = "hourly" if _HOURLY.match(f.name) else "restore" if _RESTORE.match(f.name) else ""
+            if kind:
+                out.append((f"{BACKUP_DIR}/{f.name}", kind, f))
+    if (d / "project.prev.json").exists():
+        out.append(("project.prev.json", "prev", d / "project.prev.json"))
+    for f in d.glob("before-*.json"):
+        kind = "delete" if re.fullmatch(r"before-delete-\d+\.json", f.name) else "serial" if f.name == "before-serial.json" else ""
+        if kind:
+            out.append((f.name, kind, f))
+    return out
+
+
+def backup_list(name: str) -> list[dict]:
+    """되돌릴 수 있는 백업 목록, 새것부터. 시각(at)은 그 판을 저장한 때(파일 수정 시각, UTC)다.
+    episodes 는 화 수(깨진 파일이면 -1), finalized 는 반영한 마지막 화, ep 는 화를 지우기 전 백업이면 지운 화."""
+    rows = []
+    for fid, kind, f in _backup_files(name):
+        try:
+            st = f.stat()
+        except FileNotFoundError:
+            continue
+        n_eps, last, title = _brief(f, st)
+        m = re.fullmatch(r"before-delete-(\d+)\.json", f.name)
+        rows.append({"id": fid, "kind": kind, "at": datetime.fromtimestamp(st.st_mtime, timezone.utc).isoformat(timespec="seconds"),
+                     "episodes": n_eps, "finalized": last, "title": title, "ep": int(m.group(1)) if m else None})
+    return sorted(rows, key=lambda r: r["at"], reverse=True)
+
+
+def restore_backup(name: str, fid: str) -> Project:
+    """백업 하나(fid 는 backup_list 의 id)로 작품을 되돌린다. 지금 판은 먼저 backups/before-restore.<시각>.json 으로 남긴다.
+    backup_list 에 없는 id 는 FileNotFoundError."""
+    found = next((f for i, _, f in _backup_files(name) if i == fid), None)
+    if found is None or not found.exists():
+        raise FileNotFoundError(f"백업이 없어요: {fid}")
+    d = project_dir(name)
+    with _disk_lock(d):
+        p = read_disk(found, home=d)
+        seed_ties(p)
+        path = d / "project.json"
+        if path.exists():
+            bdir = d / BACKUP_DIR
+            bdir.mkdir(exist_ok=True)
+            _hold(path, bdir / f"before-restore.{datetime.now():%Y%m%d-%H%M%S}.json")
+            for old in sorted(f for f in bdir.glob("before-restore.*.json") if _RESTORE.match(f.name))[:-RESTORE_KEEP]:
+                old.unlink(missing_ok=True)
+        save(name, p)
+    return p
 
 
 def ep_file(d: Path, n: int, last: int) -> Path:

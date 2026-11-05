@@ -56,6 +56,7 @@
   python -m canon adjust 내소설 a b --warmth 0.3 --trust 0.6   a 가 b 를 보는 관계를 직접 보정
   python -m canon revert 내소설 3       3화 상태 반영 직후로 되돌리기
   python -m canon branch 내소설 3 내소설-B [--label "B안" --keep]   3화부터 다른 전개를 쓰는 갈래 (원본은 그대로, 기본은 3화부터 본문을 이전 판으로 남기고 비움)
+  python -m canon backups 내소설 [--restore backups/project.20261105-14.json]   백업 목록 보기 · 그 판으로 되돌리기 (지금 판은 먼저 백업으로 남김)
   python -m canon branches 내소설       갈래 집안: 본편과 갈래, 몇 화부터 갈라졌는지
   python -m canon branch-compare 내소설 내소설-B [--ep 3 --text]   두 갈래의 화별 줄거리와 그 화 반영 직후 상태 차이
   python -m canon promote 내소설-B      갈래를 본편으로 올리기 (갈래 정보만 바뀜)
@@ -1667,6 +1668,48 @@ def cmd_upgrade(a: argparse.Namespace) -> None:
         print("실행 중인 serve는 다시 켜야 반영돼요 (자동 업데이트를 켜 두었다면 알아서 다시 시작해요)")
 
 
+BACKUP_KINDS = {"hourly": "시간별", "prev": "직전 판", "delete": "화 지우기 전", "serial": "장편 전환 전", "restore": "되돌리기 전"}
+
+
+def _local_time(iso: str) -> str:
+    """UTC ISO 시각을 이 컴퓨터 시간대의 'YYYY-MM-DD HH:MM' 으로."""
+    from datetime import datetime
+    return datetime.fromisoformat(iso).astimezone().strftime("%Y-%m-%d %H:%M")
+
+
+def cmd_backups(a: argparse.Namespace) -> None:
+    """백업 목록을 새것부터 보이고, --restore 면 그 판으로 되돌린다. 지금 판은 먼저 backups/before-restore.<시각>.json 으로 남긴다."""
+    if not store.exists(a.name):
+        sys.exit(f"작품이 없어요: {a.name}")
+    rows = store.backup_list(a.name)
+    if not a.restore:
+        if not rows:
+            print("아직 백업이 없어요. 작품을 한 번 더 저장하면 생겨요")
+            return
+        for r in rows:
+            what = f"{r['ep']}화 지우기 전" if r["ep"] else BACKUP_KINDS[r["kind"]]
+            size = "읽지 못함" if r["episodes"] < 0 else f"{r['episodes']}화 · 반영 {r['finalized']}화까지"
+            print(f"  {_local_time(r['at'])}  {what:<8} {size:<18} {r['id']}")
+        print(f"\n되돌리기: backups {a.name} --restore <맨 뒤 이름>  (지금 판은 먼저 백업으로 남겨요)")
+        return
+    row = next((r for r in rows if r["id"] == a.restore), None)
+    if row is None:
+        sys.exit(f"백업이 없어요: {a.restore} (backups {a.name} 로 목록을 보세요)")
+    autorun.check_renumber(a.name)
+    if held := store.pending_eps(a.name):
+        sys.exit(f"{', '.join(f'{n}화' for n in held)}에 검토를 기다리는 AI 결과나 실패한 작업이 있어요. 먼저 확인하거나 버린 뒤에 되돌리세요")
+    now = store.load_view(a.name)
+    before = branches.last_finalized(now)
+    print(f"지금: {len(now.episodes)}화 · 반영 {before}화까지")
+    print(f"백업: {row['episodes']}화 · 반영 {row['finalized']}화까지 ({_local_time(row['at'])} 저장)")
+    if not confirm("이 백업으로 되돌릴까요? 지금 판은 먼저 백업으로 남겨요", a.yes):
+        return
+    p = store.restore_backup(a.name, a.restore)
+    if branches.last_finalized(p) < before:
+        autorun.after_revert(a.name, branches.last_finalized(p) + 1)
+    print("되돌렸어요. 다시 돌아가려면 목록의 '되돌리기 전' 판을 고르세요")
+
+
 def cmd_cast(a: argparse.Namespace) -> None:
     """인물 보기. 인물을 주면 설정, 지금 상태와 관계, 화별 타임라인. 없으면 인물 목록과 등장 화수."""
     p = store.load(a.name)
@@ -2706,6 +2749,8 @@ def _data_commands(sub, add) -> None:
     sp.add_argument("--add", nargs="+", action="extend", metavar="무엇@날수", help="기한 더하기 (@ 뒤는 날수나 날짜, 모르면 @ 없이)")
     sp.add_argument("--close", nargs="+", action="extend", metavar="ID", help="기한 닫기 (마지막으로 반영한 화에)")
     sp.add_argument("--drop", nargs="+", action="extend", metavar="ID", help="기한 지우기")
+    sp = add("backups", cmd_backups)
+    sp.add_argument("--restore", metavar="이름", help="이 백업으로 되돌리기 (목록 맨 뒤 이름)")
     sp = add("cast", cmd_cast, yes=False)
     sp.add_argument("character", nargs="?", help="인물 id 나 이름. 비우면 인물 목록")
     sp.add_argument("--numbers", action="store_true", help="관계를 숫자로")

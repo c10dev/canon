@@ -46,16 +46,108 @@ def test_prev_and_hourly_backup_keep_old_content(home):
 
 
 def test_backup_keeps_only_recent(home, monkeypatch):
-    monkeypatch.setattr(store, "BACKUP_KEEP", 2)
+    monkeypatch.setattr(store, "BACKUP_HOURS", 2)
     p = _proj()
     store.save("b", p)
     bdir = home / "b" / "backups"
     bdir.mkdir()
     for h in ("20200101-01", "20200101-02", "20200101-03"):
         (bdir / f"project.{h}.json").write_text("{}")
+    (bdir / "before-restore.20200101-010101.json").write_text("{}")  # 시간별이 아닌 파일은 보관 규칙 밖이다
     store.save("b", p)
     assert [f.name for f in store.backups("b")][-1].startswith("project.2")
-    assert len(store.backups("b")) == 2
+    assert len(store.backups("b")) == 2  # 2020년은 14일보다 오래돼 최근 2개만 남는다
+    assert (bdir / "before-restore.20200101-010101.json").exists()
+
+
+def test_backup_prune_keeps_hours_then_one_per_day():
+    from datetime import datetime, timedelta
+    now = datetime(2026, 11, 5, 12)
+    names = [f"project.{now - timedelta(hours=h):%Y%m%d-%H}.json" for h in range(0, 24 * 20, 3)]
+    gone = set(store.backup_prune(names, now))
+    kept = sorted(set(names) - gone)
+    hourly = sorted(names)[-store.BACKUP_HOURS:]
+    assert set(hourly) <= set(kept)  # 최근 24개는 모두
+    older = [n for n in kept if n not in hourly]
+    days = [n[8:16] for n in older]
+    assert len(days) == len(set(days))  # 그 전은 하루에 하나
+    assert all(n == max(x for x in names if x[8:16] == n[8:16] and x not in hourly) for n in older)  # 그날 마지막 것
+    assert min(days) == f"{now - timedelta(days=store.BACKUP_DAYS - 1):%Y%m%d}"  # 14일 안만
+    assert store.backup_prune(["project.prev.json", "before-restore.20200101-010101.json"], now) == []
+
+
+def _with_snaps(home, name):
+    from canon.schema import Snapshot
+    p = _proj(2)
+    p.episodes[0].status = "finalized"
+    p.snapshots = [Snapshot(episode=0, facts=["처음"]), Snapshot(episode=1, facts=["하나"])]
+    store.save(name, p)
+    return p
+
+
+def test_restore_hourly_backup_with_snapshots(home):
+    from canon.schema import Snapshot
+    p = _with_snaps(home, "r")
+    p.meta.logline = "나중"
+    p.snapshots = [Snapshot(episode=0, facts=["바뀜"])]
+    p.episodes[0].status = "draft"
+    store.save("r", p)  # 첫 판이 시간별 백업으로 남는다
+    rows = store.backup_list("r")
+    hourly = next(r for r in rows if r["kind"] == "hourly")
+    assert hourly["episodes"] == 2 and hourly["finalized"] == 1 and hourly["id"].startswith("backups/project.")
+    got = store.restore_backup("r", hourly["id"])
+    assert [s.facts for s in got.snapshots] == [["처음"], ["하나"]] and got.meta.logline == ""
+    store._views.clear()
+    assert store.load("r").meta.logline == "" and store.load("r").episodes[0].status == "finalized"
+    # 되돌리기 직전 판이 남고, 그 판의 스냅샷 파일도 지워지지 않아 다시 되돌릴 수 있다
+    pre = next(r for r in store.backup_list("r") if r["kind"] == "restore")
+    store._drop_old_snapshots(home / "r")
+    store.restore_backup("r", pre["id"])
+    store._views.clear()
+    back = store.load("r")
+    assert back.meta.logline == "나중" and [s.facts for s in back.snapshots] == [["바뀜"]]
+
+
+def test_backup_list_has_prev_and_before_delete(home):
+    p = _with_snaps(home, "l")
+    store.save("l", p)
+    store.save_backup("l", "before-delete-2", p)
+    rows = store.backup_list("l")
+    kinds = {r["kind"] for r in rows}
+    assert {"prev", "hourly", "delete"} <= kinds
+    assert next(r for r in rows if r["kind"] == "delete")["ep"] == 2
+    assert rows == sorted(rows, key=lambda r: r["at"], reverse=True)
+    store.restore_backup("l", "before-delete-2.json")  # 스냅샷이 안에 든 판도 되돌린다
+    assert [s.facts for s in store.load("l").snapshots] == [["처음"], ["하나"]]
+    for bad in ("../x/project.json", "project.json", "backups/../project.json", "pending.json"):
+        with pytest.raises(FileNotFoundError):
+            store.restore_backup("l", bad)
+
+
+def test_web_backups_list_and_restore(tmp_path, monkeypatch):
+    import importlib
+
+    from fastapi.testclient import TestClient
+    monkeypatch.setenv("CANON_HOME", str(tmp_path))
+    monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
+    from canon import web
+    importlib.reload(store)
+    p = _proj(1)
+    store.save("w", p)
+    p.meta.logline = "나중"
+    store.save("w", p)
+    c = TestClient(web.app)
+    rows = c.get("/api/projects/w/backups").json()
+    prev = next(r for r in rows if r["kind"] == "prev")
+    assert c.post("/api/projects/w/backups/restore", json={"id": "../w/project.json"}).status_code == 404
+    r = c.post("/api/projects/w/backups/restore", json={"id": prev["id"]})
+    assert r.status_code == 200 and r.json()["meta"]["logline"] == ""
+    assert store.load("w").meta.logline == ""
+    assert any(x["kind"] == "restore" for x in c.get("/api/projects/w/backups").json())
+    store.edit_pending("w", lambda d: d["results"].update({"state:1": {"ep": 1}}))
+    r = c.post("/api/projects/w/backups/restore", json={"id": prev["id"]})
+    assert r.status_code == 400 and "1화" in r.json()["detail"]  # 검토를 기다리는 결과가 옛 판에 들어가지 않게 막는다
+    assert c.get("/api/projects/nope/backups").status_code == 404
 
 
 def test_saved_mark_falls_back_to_whole_file(home, tmp_path):
