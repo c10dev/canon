@@ -17,6 +17,8 @@ sudo tailscale serve --bg --https=8446 http://127.0.0.1:8000
 
 그러면 같은 tailnet 의 맥, 아이폰에서 `https://<서버이름>.<tailnet>.ts.net:8446` 로 열린다. 작품은 서버의 `~/canon/projects/` 에, API 키는 서버 계정의 `~/.canon/config.json` 에 저장된다. 다른 컴퓨터에서 쓰던 작품은 `projects/<이름>/` 폴더를 그대로 복사하면 된다. 포트 대시보드(예: Portboard)를 쓰고 있으면 systemd 서비스 이름 `Canon - AI 소설 작성 웹 UI` 로 잡힌다. 로그는 `journalctl -u canon -f`.
 
+서버는 DNS 리바인딩을 막으려고 Host 이름을 본다. IP 주소(Tailscale `100.x.x.x` 포함), `localhost`, `*.ts.net`, 서버의 컴퓨터 이름은 늘 열린다. 다른 이름(예: 집 공유기 DNS 이름)으로 열면 403 이 난다. 그 이름을 `deploy/canon.service` 의 `Environment=CANON_ALLOWED_HOSTS=canon.home.arpa` 처럼 쉼표로 나눠 더한다. 다른 사이트에서 보낸 쓰기 요청(Origin 이 다른 POST · PUT · PATCH · DELETE)도 막는다. curl 처럼 Origin 이 없는 요청은 받는다.
+
 ## 머지 전에 시험 돌리기
 
 PR 과 `main` 푸시마다 GitHub Actions(`.github/workflows/test.yml`)가 전체 시험을 돌린다. 시험은 가짜 응답만 써서 비밀값이 필요 없다. 서버는 `main` 을 자동으로 받으므로, 시험이 실패한 PR 은 머지하지 않는다.

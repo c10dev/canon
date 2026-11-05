@@ -29,6 +29,8 @@ def _isolate() -> None:
         atexit.register(lambda: os.getpid() == owner and shutil.rmtree(home, ignore_errors=True))
     # 사용자의 설정 파일(~/.canon/config.json)을 읽거나 쓰지 않게
     os.environ["CANON_CONFIG"] = str(Path(os.environ["CANON_HOME"]) / ".config.json")
+    # TestClient 는 Host 를 testserver 로 보낸다. 웹 서버의 Host 검사(web._host_allowed)가 받게 더한다
+    os.environ["CANON_ALLOWED_HOSTS"] = "testserver"
 
 
 _isolate()

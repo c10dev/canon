@@ -251,6 +251,8 @@ CLI 의 `new -i` 도 로그라인을 같은 다섯 칸으로 묻고, 고른 장�
 
 항상 켜진 리눅스 서버에서 systemd 로 돌리고 Tailscale 로 내 기기에서만 여는 방법, 머지 전 시험(CI)과 머지하면 바로 받기 설정은 [docs/server.md](docs/server.md) 에 있다. Canon 에는 로그인이 없으니 **Tailscale Funnel 이나 공개 포트로 열지 않는다**.
 
+서버는 IP 주소 · `localhost` · `*.ts.net` · 컴퓨터 이름으로 들어온 요청만 받고, 다른 이름은 `CANON_ALLOWED_HOSTS` 로 더한다. 다른 사이트에서 보낸 쓰기 요청은 막는다([docs/server.md](docs/server.md)).
+
 ## 이름과 지명
 
 AI 에게 이름을 맡기면 서윤, 도현 같은 몇 개 이름으로 몰리고, 45세 형사에게 2020년대 아기 이름을 붙이기도 한다. 그래서 후보는 코드가 뽑고 AI 는 그중에서 고르게 했다 (`canon/naming.py`, LLM 없이 계산).

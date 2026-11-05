@@ -7,18 +7,21 @@ AI 가 만든 제안(설정, 문체, 구조, 상태 변경안)은 바로 저장�
 from __future__ import annotations
 
 import contextvars
+import functools
 import hashlib
+import ipaddress
 import json
 import logging
 import os
 import random
 import re
+import socket
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Callable, Literal, NoReturn
-from urllib.parse import quote, unquote
+from urllib.parse import quote, unquote, urlsplit
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.gzip import GZipMiddleware
@@ -100,6 +103,73 @@ async def _count_active(request: Request, call_next):
         store.saved.reset(saved_tok)
         store.writer.reset(tok)
         _active -= 1
+
+
+_UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+
+def _split_host(value: str) -> str:
+    """Host 헤더 값(이름[:포트], [IPv6][:포트])에서 포트를 떼고 소문자 이름만 돌려준다."""
+    value = value.strip().lower()
+    if value.startswith("["):
+        return value[1:value.find("]")] if "]" in value else value[1:]
+    if value.count(":") == 1:
+        value = value.split(":", 1)[0]
+    return value.rstrip(".")
+
+
+@functools.lru_cache(maxsize=1)
+def _machine_names() -> frozenset[str]:
+    try:
+        name = socket.gethostname().lower().rstrip(".")
+    except OSError:
+        return frozenset()
+    short = name.split(".", 1)[0]
+    return frozenset(n for n in (name, short, f"{short}.local") if n)
+
+
+def _host_allowed(host: str) -> bool:
+    """DNS 리바인딩은 공격자의 도메인 이름으로 들어온다. 그래서 IP 주소 · localhost · Tailscale(*.ts.net) ·
+    이 컴퓨터 이름 · CANON_ALLOWED_HOSTS(쉼표로 나눔) 의 이름만 받는다."""
+    if not host:
+        return False
+    if host == "localhost" or host.endswith(".localhost") or host.endswith(".ts.net"):
+        return True
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        pass
+    if host in _machine_names():
+        return True
+    extra = {_split_host(h) for h in os.environ.get("CANON_ALLOWED_HOSTS", "").split(",") if h.strip()}
+    return host in extra
+
+
+def _origin_ok(request: Request) -> bool:
+    """쓰기 요청에 Origin 이 있으면 그 이름이 요청의 Host(프록시 뒤면 X-Forwarded-Host)와 같아야 한다.
+    Origin 이 없는 요청(명령줄, curl, 시험)은 받는다. 포트는 프록시가 바꿀 수 있어 보지 않는다."""
+    origin = request.headers.get("origin")
+    if origin is None or request.method not in _UNSAFE_METHODS:
+        return True
+    name = (urlsplit(origin).hostname or "").lower().rstrip(".")
+    if not name:  # "null"(샌드박스 iframe, file://) 같은 값
+        return False
+    same = {_split_host(request.headers.get("host", ""))}
+    same.update(_split_host(h) for h in request.headers.get("x-forwarded-host", "").split(",") if h.strip())
+    return name in same
+
+
+@app.middleware("http")
+async def _guard_host(request: Request, call_next):
+    # 맨 바깥 미들웨어(마지막에 붙임). 로그인이 없으니 DNS 리바인딩과 다른 사이트의 쓰기 요청(CSRF)을 여기서 막는다
+    host = _split_host(request.headers.get("host", ""))
+    if not _host_allowed(host):
+        return JSONResponse({"detail": f"허용하지 않은 주소({host or '빈 Host'})로 들어온 요청이에요. "
+                                       "이 이름으로 열려면 CANON_ALLOWED_HOSTS 에 더해 주세요"}, status_code=403)
+    if not _origin_ok(request):
+        return JSONResponse({"detail": "다른 사이트에서 보낸 쓰기 요청은 받지 않아요"}, status_code=403)
+    return await call_next(request)
 
 
 @app.exception_handler(ValueError)
