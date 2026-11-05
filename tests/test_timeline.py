@@ -65,6 +65,17 @@ def test_deadline_budget_cuts_far_ones():
     assert sum(map(len, rows)) <= context.BUDGET["deadlines"]
 
 
+def test_old_overdue_deadlines_do_not_push_out_the_next_one(monkeypatch):
+    """닫히지 않은 옛 기한이 쌓여도 오늘에 가까운 기한부터 넣는다. 줄 차례는 지난 기한 → 가까운 기한 그대로."""
+    p = _short(8)
+    p.timeline.deadlines = [Deadline(id=f"dl-{i:02d}-x", what=f"{i}화 약속 " + "가" * 30, day=i, set_ep=1) for i in range(1, 41)]
+    p.timeline.deadlines.append(Deadline(id="dl-07-war", what="왕성 결전", day=95, set_ep=7))
+    monkeypatch.setattr(timeline, "current_day", lambda p, n: 93)
+    rows, cut = timeline.deadline_lines(p, 8)
+    assert cut > 0 and len(rows) + cut == 41
+    assert "왕성 결전" in rows[-1] and "40화 약속" in rows[-2] and not any("(1일째" in r for r in rows)
+
+
 def test_clean_delta():
     p = _play(_short(8), 1, 1)
     d = StateDelta(episode=2, summary="", time=StoryTime(day=-3),

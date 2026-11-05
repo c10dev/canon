@@ -222,19 +222,25 @@ def deadline_line(d: Deadline, day: int, ids: bool = False, p: Project | None = 
 
 
 def deadline_lines(p: Project, n: int, budget: int = 0, ids: bool = False) -> tuple[list[str], int]:
-    """열린 기한 줄과 예산(context.BUDGET["deadlines"]) 때문에 뺀 수. 지난 기한 → 가까운 기한 순으로 넣고 먼 것부터 뺀다.
+    """열린 기한 줄과 예산(context.BUDGET["deadlines"]) 때문에 뺀 수. 줄은 지난 기한 → 가까운 기한 순으로 둔다.
+    오늘을 알면 오늘에서 가까운 기한(지났든 남았든)부터 예산에 넣는다. 오래 지나 닫히지 않은 기한이 쌓여도
+    다가오는 기한을 밀어내지 않게 한다. 날을 모르는 기한은 맨 나중에 넣는다.
     단편도 같은 예산을 쓴다 (기한은 화수와 상관없이 쌓일 수 있다)."""
     budget = budget or context.BUDGET["deadlines"]
     day = current_day(p, n)
-    rows, size, cut = [], 0, 0
-    for d in open_deadlines(p, n):
-        line = deadline_line(d, day, ids, p)
-        if size + len(line) > budget and rows:
+    ds = open_deadlines(p, n)
+    lines = [deadline_line(d, day, ids, p) for d in ds]
+    order = list(range(len(ds)))
+    if day:
+        order.sort(key=lambda i: (ds[i].day <= 0, abs(ds[i].day - day), -ds[i].set_ep))
+    keep, size, cut = set(), 0, 0
+    for i in order:
+        if size + len(lines[i]) > budget and keep:
             cut += 1
             continue
-        rows.append(line)
-        size += len(line) + 1
-    return rows, cut
+        keep.add(i)
+        size += len(lines[i]) + 1
+    return [lines[i] for i in sorted(keep)], cut
 
 
 def _plot_time(p: Project, n: int) -> str:
