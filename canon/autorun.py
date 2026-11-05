@@ -102,6 +102,8 @@ class Run(BaseModel):
     pending: Optional[StateDelta] = Field(None, description="검토 대기 중인 변경안")
     pending_text: str = Field("", description="검토 대기 변경안을 만든 본문. 그 뒤 본문을 고쳤으면 그대로 반영하지 않는다")
     batches: dict[str, str] = Field(default_factory=dict, description="기다리는 배치 작업 slot -> 이름")
+    batch_keys: dict[str, str] = Field(default_factory=dict, description="기다리는 배치 작업 slot -> 보낸 프롬프트 지문. "
+                                       "이어 갈 때 프롬프트가 달라졌으면 (멈춘 사이 본문 · 플롯을 고침) 그 배치는 취소하고 다시 보낸다")
     applied: list[int] = Field(default_factory=list, description="이번 실행에서 자동 반영한 화")
     polish_due: list[int] = Field(default_factory=list, description="이번 실행이 쓰고 아직 다듬지 않은 화 (Policy.polish). "
                                   "서버가 다시 시작해도 이어서 다듬는다. 작가가 쓴 본문은 넣지 않는다")
@@ -524,7 +526,8 @@ class Runner:
         use_batch = self.run.batch and stage != "plan" and hasattr(llm, "batch_submit") and getattr(llm, "can_batch", True)
         if use_batch:
             llm = BatchLLM(llm, f"{n}:{stage}", self.run.batches, self.ctl.save, self.ctl.wait,
-                           label=f"canon {self.name}", note=lambda m: self.log(f"{n}화 {STEP_NAMES[stage]}: {m}", "warn"))
+                           label=f"canon {self.name}", note=lambda m: self.log(f"{n}화 {STEP_NAMES[stage]}: {m}", "warn"),
+                           keys=self.run.batch_keys)
         t = time.time()
         try:
             with usage.collect() as rows:
@@ -783,6 +786,7 @@ class Runner:
             self.log(f"{n}화 검수: 어긋난 곳 {len(report.issues)}개", "warn" if report.issues else "info",
                      **results["check"][1])
         p = store.load(self.name)
+        _same_text(p, n, delta)
         reasons = review_reasons(p, delta, report, run.policy)
         if reasons:
             with self.ctl.lock:
@@ -795,6 +799,7 @@ class Runner:
                 raise _Halt("paused", f"{n}화 상태가 '{EP_STATUS.get(st, st)}'(으)로 바뀌어 멈췄어요", [
                     f"상태 변경안을 만드는 사이 {n}화가 '{EP_STATUS.get(st, st)}' 상태로 바뀌어 만든 변경안은 버렸어요",
                     f"이어 가면 {n}화의 지금 상태에서 다시 시작해요"], kind="changed")
+            _same_text(q, n, delta)
             held[0] = features.hold(q, delta)  # 인물 설정 · 호칭은 작가가 골라야 바뀐다. 인물 화면에 남겨 둔다
             dropped[:] = pipeline.apply_delta(q, delta)
             q.episode(n).auto = True
@@ -1065,6 +1070,14 @@ def _changed_while_writing(n: int, status: str) -> list[str]:
             f"이어 가면 {n}화의 지금 상태에서 다시 시작해요"]
 
 
+def _same_text(p: Project, n: int, delta: StateDelta) -> None:
+    """변경안이 지금 본문으로 만든 것인지 본다. 만드는 사이 (일시정지 중 배치를 기다리는 동안) 본문을 고쳤으면 반영하지 않고 멈춘다."""
+    if delta.basis and delta.basis != pipeline.text_basis(p.episode(n).text):
+        raise _Halt("paused", f"{n}화 본문이 바뀌어 멈췄어요", [
+            f"상태 변경안을 만드는 사이 {n}화 본문이 바뀌어, 옛 본문으로 만든 변경안은 버렸어요",
+            "이어 가면 지금 본문으로 상태 변경안을 새로 만들어요"], kind="changed")
+
+
 def _cancel_batches(run: Run) -> None:
     """기다리던 배치 작업을 취소한다. 이미 끝났거나 키가 없어 취소하지 못해도 목록은 비운다."""
     for slot, bname in list(run.batches.items()):
@@ -1073,6 +1086,7 @@ def _cancel_batches(run: Run) -> None:
         except Exception as e:  # 취소하지 못한 배치는 서비스 쪽에서 계속 돌아 요금이 나갈 수 있다. 콘솔에서 지울 수 있게 이름을 남긴다
             _log.warning("배치 %s(%s)를 취소하지 못했어요: %s", bname, slot, getattr(e, "message", None) or e)
     run.batches = {}
+    run.batch_keys = {}
 
 
 def resume_all() -> list[str]:
