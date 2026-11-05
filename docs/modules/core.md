@@ -15,6 +15,7 @@
 - `autorun.json` 에 진행 기록
 - 서버 재시작 후 이어 가기
 - 화를 반영할 때마다 작업의 `step_ep` 를 그 화로 고친다(화면 알림 `notify.js`)
+- 반영에서 뺀 항목(`pipeline.apply_delta` 가 돌려준 것)은 화마다 경고 기록으로 남긴다. 검토 화면 없이 승인한 반영도 같다
 - 화면은 `static/auto.js`
 
 ### `canon/board.py`
@@ -228,6 +229,9 @@
   - 새 장소는 `Project.place_candidates` 로 두고 화 확정 `confirm_plot` 때 등록
   - 작품 전체 저장에서 본문이 있는 화의 플롯은 디스크 것으로 둔다(`keep_locked_plots`, 줄기 표시 `LOCKED_FREE` 만 받음, `web.put_project`)
   - 상태 변경안 정리 `clean_delta`
+  - 반영 전 검사 `validate_delta`: 설정에 없는 인물 id(이번 새 인물은 앎) · 같은 인물끼리이거나 설정에 없는 인물의 관계 사건과 관계 바뀜 · 없는 복선 id 회수(이번에 심는 복선은 앎)
+  - `apply_delta` 는 검사에 걸린 항목과 설정에 없는 사건 목격자를 빼고(`drop_invalid`) 반영한 뒤 뺀 항목 문구를 돌려준다
+  - 상태 변경안의 본문 지문 `StateDelta.basis`(`text_basis`)는 `extract_state` · `carried_delta` 가 채운다
   - 설정 칸 하나 AI 후보 `suggest_field` · 단계 `field_stage`
   - 칸 목록 `prompts.FIELD_IDEAS`, 목록 칸 `prompts.IDEA_LISTS`(후보는 한 줄, 있는 항목은 뺌)
   - 인물 칸 키 `prompts.idea_key`
@@ -289,6 +293,7 @@
 - 미성년(`cast.is_minor_age`)이면 쓰리사이즈를 제안하지 않는다
 - 인물 프롬프트 넣기(`Character.context`: auto 비중대로 · always 늘 · off 이름만)도 작가 전용이라 같은 방식으로 빠진다
 - 인물 프롬프트 넣기를 고르는 규칙은 `context.core_ids` · `off_ids` · `without_off`(모두 auto 면 예전 규칙과 같다)
+- 상태 변경안의 본문 지문(`StateDelta.basis`)도 프로그램이 채워 AI 응답 형식에서 빠진다(`SkipJsonSchema`). 비면 모름
 - 화별 쓴 사건 체크(`Episode.events_done`, 사건 글 목록)는 집필 화면 표시용이라 `EpisodePlot` 밖에 두어 프롬프트에 들어가지 않는다
 - 지금 본문을 쓴 모델(`Episode.written_by`, 판마다 `TextVersion.model`)도 프롬프트 밖이다. 값은 `usage.model_id` 의 '<백엔드>:<모델>' 이나 'import', 모르면 빈 칸
 - 쓴 모델은 집필 화면 머리 · 이전 판 · 새 판 카드 · 작품 홈 화 칸 툴팁에 보인다(`app.js` `writerLabel`)
@@ -385,6 +390,9 @@
 - CLI 와 같은 store · pipeline · prompts 를 쓰고 화면은 `canon/static/` 의 정적 파일이다
 - AI 가 만든 제안(설정, 문체, 구조, 상태 변경안)은 바로 저장하지 않고 돌려준다
 - 사용자가 화면에서 고르거나 고친 뒤 저장 요청을 보낼 때 반영한다
+- 상태 반영 `POST …/apply` 는 `pipeline.validate_delta` 에 걸린 항목이 있으면 400 으로 막고 항목을 줄마다 적는다
+- 상태 반영은 변경안 지문(`basis`)이 지금 본문과 다르면 409(`code` `stale_delta`)로 막는다. `?force=1` 이면 반영한다
+- 빈 지문(옛 결과 · 손으로 만든 변경안)은 맞춰 보지 않는다. 채팅 앱 변경안 가져오기 `state/parse` 도 지문을 채운다
 - 오래 걸리는 AI 작업은 `jobs.start` 로 돌린다
 - `start_job` 은 작업 종류마다 `JOB_MAKERS` 의 준비 함수(`_job_<종류>`)를 부른다. 함수는 (이름표, 전체 걸음, 맡은 화, 할 일)을 돌려준다. 새 작업은 함수를 더하고 `JOB_MAKERS` 에 넣는다
 - `start_job` 은 같은 화에서 멈춘 작업이 AI 응답을 기다리면 `EP_AI_KINDS` 작업을 409 로 막는다(`_waiting_409`, 역설계 실험 `rev_job` 과 같은 문구)

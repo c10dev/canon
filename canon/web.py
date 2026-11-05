@@ -3467,6 +3467,7 @@ def parse_state(name: str, n: int, body: Raw) -> StateDelta:
     except ValidationError as e:
         raise HTTPException(400, _validation_text(e))
     pipeline.clean_delta(p, delta)
+    delta.basis = pipeline.text_basis(p.episode(n).text)
     return delta
 
 
@@ -3650,8 +3651,10 @@ def _json_reason(raw: str, pos: int, msg: str) -> str:
 
 
 @app.post("/api/projects/{name}/episodes/{n}/apply")
-def apply_state(name: str, n: int, d: StateDelta) -> Project:
-    """화면에서 고른 항목만 담긴 변경안을 반영하고 그 화를 끝낸다."""
+def apply_state(name: str, n: int, d: StateDelta, force: bool = False) -> Project:
+    """화면에서 고른 항목만 담긴 변경안을 반영하고 그 화를 끝낸다.
+    누구의 것도 아닌 데이터가 남는 항목(pipeline.validate_delta)이 있으면 400 으로 막는다.
+    변경안을 만든 본문(d.basis)이 지금 본문과 다르면 409(code stale_delta)로 막는다. 작가가 확인하면 force 로 다시 보낸다."""
     p = _load(name)
     _not_auto(name)
     ep = p.episode(n)
@@ -3659,6 +3662,12 @@ def apply_state(name: str, n: int, d: StateDelta) -> Project:
         raise ValueError(f"{n}화는 본문이 작성된 상태가 아니에요 (현재: {ep.status})")
     pipeline.require_previous(p, n)
     d.episode = n
+    bad = pipeline.validate_delta(p, d)
+    if bad:
+        raise ValueError(f"반영할 수 없는 항목이 {len(bad)}개 있어요. 체크를 빼고 다시 반영하세요\n" + "\n".join(f"- {m}" for m in bad))
+    if d.basis and not force and d.basis != pipeline.text_basis(ep.text):
+        return JSONResponse({"detail": f"변경안을 만든 뒤 {n}화 본문을 고쳤어요. 옛 본문 기준의 요약 · 인물 상태 · 사건이 들어가요",
+                             "code": "stale_delta"}, status_code=409)
     pipeline.apply_delta(p, d)
     return _save(name, p)
 

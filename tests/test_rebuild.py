@@ -118,6 +118,7 @@ def test_kept_episode_reuses_old_delta():
     old = before.history[0]
     assert d.episode == 2 and d.summary == old.summary
     assert "단편 1화 때 승인한 변경안" in d.warnings[0]
+    assert d.basis == pipeline.text_basis(p.episode(2).text)  # 반영 화면이 본문을 고쳤는지 맞춰 본다
     assert all(e.episode == 2 for e in d.events) and [f.planted_ep for f in d.foreshadow_planted] == [2]
     assert p.archive.history[0].episode == 1  # 보관함 원본은 그대로
     pipeline.apply_delta(p, d)

@@ -696,9 +696,10 @@ class Runner:
                     f"상태 변경안을 만드는 사이 {n}화가 '{EP_STATUS.get(st, st)}' 상태로 바뀌어 만든 변경안은 버렸어요",
                     f"이어 가면 {n}화의 지금 상태에서 다시 시작해요"], kind="changed")
             held[0] = features.hold(q, delta)  # 인물 설정 · 호칭은 작가가 골라야 바뀐다. 인물 화면에 남겨 둔다
-            pipeline.apply_delta(q, delta)
+            dropped[:] = pipeline.apply_delta(q, delta)
             q.episode(n).auto = True
         held = [0]
+        dropped: list[str] = []
         _edit(self.name, put)
         with self.ctl.lock:
             run.applied.append(n)
@@ -706,6 +707,8 @@ class Runner:
         if self.job is not None:
             self.job.step_ep = n  # 화면이 'n화를 반영했어요' 알림을 보낸다 (notify.js)
         self.log(f"{n}화를 자동으로 반영했어요")
+        for m in dropped:
+            self.log(f"{n}화 반영에서 뺐어요: {m}", "warn")
         if held[0]:
             self.log(f"{n}화 설정 바꾸기 · 호칭 제안 {held[0]}개는 반영하지 않고 인물 · 관계도 화면에 남겨 뒀어요", "warn")
         every = run.policy.review_every
@@ -802,10 +805,13 @@ def resume(name: str, approve: bool = False, rewrite: bool = False, *, foregroun
                                  "검토하기에서 변경안을 다시 만들거나, 다시 쓰기를 고르세요")
             def take(q: Project) -> None:
                 held[0] = features.hold(q, d)  # 검토 화면 없이 반영하면 설정 바꾸기 · 호칭 제안은 고르지 않은 것으로 남겨 둔다
-                pipeline.apply_delta(q, d)
+                dropped[:] = pipeline.apply_delta(q, d)
             held = [0]
+            dropped: list[str] = []
             _edit(name, take)
             r.log(f"{n}화 변경안을 검토 화면 없이 그대로 반영했어요 (사용자 승인)")
+            for m in dropped:
+                r.log(f"{n}화 반영에서 뺐어요: {m}", "warn")
             if held[0]:
                 r.log(f"{n}화 설정 바꾸기 · 호칭 제안 {held[0]}개는 반영하지 않고 인물 · 관계도 화면에 남겨 뒀어요", "warn")
         elif status == "written" and rewrite:

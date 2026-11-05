@@ -331,6 +331,7 @@
   - `DELTA_LISTS`
   - `setDelta`
   - 머리 버튼 줄의 반영 버튼 · ⋯ `rvMenu` · `.savebar-slot`
+  - 반영 `applyDelta`: 본문을 고친 것을 확인창에서 받았으면 `?force=1` 로 보낸다. 서버가 409(`stale_delta`)를 주면 기다림 상자를 닫고 한 번 더 묻는다
   - 왼쪽 읽기 전용 본문과 근거 밑줄 `rvRanges`
   - 오른쪽 직접 정할 것 · 요약 · 그대로 반영할 것(갈래 접기 `S.rvOpen`, 고른 수 `rvKeyCount`) · 관계 계산
   - 경고를 인물 줄에 붙이기 `rvWarnSplit`
