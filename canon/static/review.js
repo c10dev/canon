@@ -17,6 +17,7 @@ function pickedDelta(n) {
     secrets_added: pick('s', d.secrets_added),
     relationship_updates: pick('r', d.relationship_updates),
     rel_flagged: [],  // 작가가 고른 뒤라 기본 체크 표시는 필요 없다 (차례도 고른 목록과 맞지 않는다)
+    reoffer: undefined,  // 화면 전용 표시 (reofferDismissed). 서버에 보내지 않는다
     new_facts: clean(pick('f', d.new_facts)),
     foreshadow_planted: pick('p', d.foreshadow_planted),
     foreshadow_resolved: pick('x', d.foreshadow_resolved),
@@ -84,6 +85,24 @@ const DELTA_LISTS = ['character_updates', 'events', 'secrets_added', 'relationsh
 const deltaCount = (d) => DELTA_LISTS.reduce((s, k) => s + (d[k] || []).length, 0);
 const deltaPicked = () => Object.entries(S.picks).filter(([k, v]) => v && DELTA_PICK.test(k)).length;
 
+/** 빼 둘 수 있는 목록과 체크 키 앞글자 (StateDelta.dismissed 의 칸, pickedDelta 와 같다) */
+const DISMISS_LISTS = [['character_updates', 'c'], ['events', 'e'], ['secrets_added', 's'], ['relationship_updates', 'r'], ['new_facts', 'f'], ['foreshadow_planted', 'p'], ['foreshadow_resolved', 'x'], ['foreshadow_clues', 'q'], ['new_characters', 'n'], ['new_places', 'l'], ['deadlines_added', 'k'], ['deadlines_done', 'o']];
+
+/** 반영 기록에서 돌아온 변경안(반영 취소 web._revert_kept, 단편 다시 쓰기 pipeline.carried_delta)의 빼 둔 항목을 목록 끝에 다시 놓는다.
+ * 기본 체크는 풀어 둔다(d.reoffer 의 차례, defaultPicks). 그대로 반영하면 pickedDelta 가 다시 dismissed 로 보낸다. 두 번 불러도 한 번만 놓는다 */
+function reofferDismissed(d) {
+  const x = d.dismissed || {};
+  for (const [k, p] of DISMISS_LISTS) {
+    const items = x[k] || [];
+    if (!items.length) continue;
+    d[k] = d[k] || [];
+    const r = (d.reoffer ||= {});
+    r[p] = [...(r[p] || []), ...items.map((_, j) => d[k].length + j)];
+    d[k].push(...items);
+  }
+  d.dismissed = {};
+}
+
 /** 변경안 n건의 기본 체크 (지금 작품 기준). setDelta 와 다른 화로 옮길 때(pickEp) 같이 쓴다 */
 function defaultPicks(d) {
   const o = {};
@@ -107,6 +126,8 @@ function defaultPicks(d) {
   (d.setting_changes || []).forEach((_, i) => { o['t' + i] = false; });  // 인물 설정은 작가가 직접 골라야 바뀐다
   (d.cast_added || []).forEach((_, i) => { o['a' + i] = true; });  // 본문에 나온 인물은 기본으로 그 화 등장 인물에 붙인다
   (d.address_changes || []).forEach((_, i) => { o['h' + i] = false; });  // 호칭 · 말씨도 작가가 직접 골라야 바뀐다
+  // 지난번 반영에서 작가가 체크를 풀었던 항목은 다시 놓아도 체크하지 않는다 (reofferDismissed)
+  Object.entries(d.reoffer || {}).forEach(([p, idx]) => idx.forEach((i) => { if (p + i in o) o[p + i] = false; }));
   return o;
 }
 
@@ -127,6 +148,7 @@ function stashPicks() {
 function setDelta(n, d, source = 'ai') {
   if (S.picksEp !== n) stashPicks();  // 다른 화를 보던 중에 이 화 변경안이 오면 보던 화의 체크를 맡겨 둔다
   if (S.picksKept) delete S.picksKept[n];
+  reofferDismissed(d);
   S.deltas[n] = d;
   S.deltaBase[n] = ep(n) ? ep(n).text : '';
   // S.picks 는 설정 제안(sc · sr · sf: 키)과 같이 쓴다. 변경안 키만 지워 설정 화면의 체크를 남긴다
@@ -169,6 +191,7 @@ function saveDeltaDraft(n) {
 /** loadPending 이 setDelta 로 받은 그대로를 놓은 뒤 부른다: 초안의 변경안과 체크로 바꾼다. 받은 그대로(S.deltaOrig)는 두어 '고침' 표시가 맞는다 */
 function restoreDeltaDraft(n, draft) {
   if (!draft || !draft.delta || !S.deltas[n]) return;
+  reofferDismissed(draft.delta);  // 빼 둔 항목을 아직 목록에 놓지 않은 초안도 맞춘다 (두 번 불러도 한 번만 놓는다)
   S.deltas[n] = draft.delta;
   if (!draft.picks) return;  // 체크 없이 남긴 초안(다른 화의 체크가 놓여 있을 때)은 받은 그대로의 기본 체크를 둔다
   for (const k of Object.keys(S.picks)) if (DELTA_PICK.test(k)) delete S.picks[k];

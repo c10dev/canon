@@ -335,6 +335,7 @@
   - `setDelta`
   - `setDelta` 는 설정에 없는 인물이 끼었거나 같은 인물끼리인 관계 사건 · 관계 바뀜을 기본으로 체크하지 않는다(서버 `validate_delta` 와 같은 규칙)
   - 체크를 푼 항목은 `pickedDelta` 가 `dismissed` 로 보낸다(설정 바꾸기 · 호칭 · 등장 인물 붙이기는 빼고)
+  - 반영 기록에서 돌아온 변경안(반영 취소 · 단편 다시 쓰기)의 `dismissed` 는 `setDelta` 가 목록 끝에 다시 놓고(`reofferDismissed`) 기본 체크를 풀어 둔다(`d.reoffer`, 화면 전용)
   - 반영이 끝난 화 기록(`historyView`) 아래 접힌 '빼 둔 항목 N개'(`dismissedView`)
   - 변경안 체크 `S.picks` 는 한 화 것이다(`S.picksEp`, 작품마다 따로 둔다)
   - 다른 화 변경안을 열면 `pickEp` 가 그 화에서 고친 체크(`S.picksKept`)를 되살린다

@@ -3798,7 +3798,8 @@ def validate_delta(p: Project, d: StateDelta) -> list[str]:
 
 
 def drop_invalid(p: Project, d: StateDelta) -> list[str]:
-    """validate_delta 에 걸린 항목을 d 에서 빼고 그 문구를 돌려준다. 사건 목격자 중 설정에 없는 인물도 뺀다(사건은 남긴다)."""
+    """validate_delta 에 걸린 항목을 d 에서 빼고 그 문구를 돌려준다. 사건 목격자 중 설정에 없는 인물도 뺀다(사건은 남긴다).
+    뺀 항목은 d.dismissed 의 같은 칸에 남겨 반영 기록에서 보이고, 반영 취소로 돌아오면 체크를 푼 채 다시 놓인다."""
     out: list[str] = []
     for name, items, why in _delta_checks(p, d):
         keep = []
@@ -3806,6 +3807,7 @@ def drop_invalid(p: Project, d: StateDelta) -> list[str]:
             m = why(x)
             if m:
                 out.append(m)
+                getattr(d.dismissed, name).append(x)
             else:
                 keep.append(x)
         setattr(d, name, keep)

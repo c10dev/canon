@@ -238,6 +238,7 @@
   - 상태 변경안 정리 `clean_delta`
   - 반영 전 검사 `validate_delta`: 설정에 없는 인물 id(이번 새 인물은 앎) · 같은 인물끼리이거나 설정에 없는 인물의 관계 사건과 관계 바뀜 · 없는 복선 id 회수(이번에 심는 복선은 앎)
   - `apply_delta` 는 검사에 걸린 항목과 설정에 없는 사건 목격자를 빼고(`drop_invalid`) 반영한 뒤 뺀 항목 문구를 돌려준다
+  - `drop_invalid` 가 뺀 항목은 `d.dismissed` 의 같은 칸에 남는다(반영 기록에서 보이고 반영 취소로 돌아오면 체크를 푼 채 다시 놓인다)
   - 상태 변경안의 본문 지문 `StateDelta.basis`(`text_basis`)는 `extract_state` · `carried_delta` 가 채운다
   - 반영 `apply_delta` 는 인물 상태의 빈 칸을 그대로 두고, `CharacterState.cleared` 에 적힌 칸(목표 · 위치 · 메모 · 차림 · 감정)은 비운다
   - 설정 칸 하나 AI 후보 `suggest_field` · 단계 `field_stage`
@@ -307,6 +308,7 @@
 - 상태 변경안의 본문 지문(`StateDelta.basis`)도 프로그램이 채워 AI 응답 형식에서 빠진다(`SkipJsonSchema`). 비면 모름
 - 상태 승인에서 반영하지 않은 항목(`StateDelta.dismissed`, `DismissedItems`)은 AI 응답 형식에서 빠지고 반영 기록(`Project.history`)에만 남는다
 - 반영 취소는 그 화 기록과 함께 빼 둔 항목도 지운다
+- 지운 기록은 `_revert_kept` 가 pending.json 에 남기고, 상태 승인 화면이 빼 둔 항목을 체크를 푼 채 다시 놓는다
 - 화별 쓴 사건 체크(`Episode.events_done`, 사건 글 목록)는 집필 화면 표시용이라 `EpisodePlot` 밖에 두어 프롬프트에 들어가지 않는다
 - 지금 본문을 쓴 모델(`Episode.written_by`, 판마다 `TextVersion.model`)도 프롬프트 밖이다. 값은 `usage.model_id` 의 '<백엔드>:<모델>' 이나 'import', 모르면 빈 칸
 - 쓴 모델은 집필 화면 머리 · 이전 판 · 새 판 카드 · 작품 홈 화 칸 툴팁에 보인다(`app.js` `writerLabel`)
