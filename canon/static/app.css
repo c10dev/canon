@@ -924,7 +924,7 @@ body.chat-open .savebar { left: calc(50% - 220px); }
 .ev-tools .btn:disabled { visibility: hidden; }
 .ev-add { align-self: flex-start; margin-left: 30px; }  /* 배치 값: 사건 번호 열만큼 들인다 */
 /* 휴대폰: 도구(연출 · 위로 · 아래로 · 빼기)를 사건 글 아래 줄 오른쪽으로 내린다. 숨기면 휴대폰에서 순서를 바꿀 길이 없다 */
-@media (max-width: 640px) { .ev-row { flex-wrap: wrap; } .ev-tools { flex-basis: 100%; justify-content: flex-end; } }
+@media (max-width: 640px) { .ev-row { flex-wrap: wrap; } .ev-row textarea { flex-basis: 0; } .ev-tools { flex-basis: 100%; justify-content: flex-end; } }  /* 글은 번호 옆에 남고 도구만 다음 줄로 */
 .page-actions { z-index: var(--z-sticky); flex-wrap: wrap; justify-content: flex-end; bottom: -20px; }
 .page-actions > .btn { flex: 0 0 auto !important; }
 .savebar-slot { flex: 1 1 auto; display: flex; min-width: 0; }
@@ -2163,10 +2163,10 @@ details.card.set-more { display: block; }
 .bc-col { display: flex; flex-direction: column; gap: var(--gap-stack); min-width: 0; }
 .bc-wrap .outline-item.bc-mem, .bc-wrap .outline-item.bc-me { padding-left: calc(var(--space-10) + var(--depth, 0) * var(--space-14)); }
 .bc-wrap .outline-item.bc-me { cursor: default; color: var(--text); font-weight: 700; }
-.bc-wrap .outline-item.bc-me: hover { background: transparent; }
+.bc-wrap .outline-item.bc-me:hover { background: transparent; }
 .bc-rows { display: flex; flex-direction: column; }
 .bc-row { display: grid; grid-template-columns: 56px minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-4) var(--space-16); padding: var(--space-10) var(--space-8); border-bottom: 1px solid var(--rule); border-radius: var(--radius-8); color: inherit; text-decoration: none; }
-a.bc-row: hover { background: var(--canvas); }
+a.bc-row:hover { background: var(--canvas); }
 .bc-row.on { background: var(--sel-bg); box-shadow: inset 3px 0 0 var(--accent); }
 .bc-row.head { padding-top: 0; font-size: 0.75rem; font-weight: 700; color: var(--muted); border-bottom-color: var(--line-strong); border-radius: 0; }
 .bc-t { gap: var(--space-6); }

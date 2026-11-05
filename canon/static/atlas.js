@@ -2345,6 +2345,12 @@ document.addEventListener('pointermove', (e) => {
   if (stage) stage.innerHTML = atlasStage();
 });
 
+// 처음 보기의 핀은 페이지를 내릴 수 있게 touch-action 이 pan-y 다. 길게 눌러 끌기가 시작되면 그 뒤의 손가락 움직임이
+// 페이지 스크롤로 넘어가지 않게 막는다 (touch-action 은 누른 순간에 정해져 바꿀 수 없다). 길게 누르기 전에는 막지 않아 쓸면 내려간다
+document.addEventListener('touchmove', (e) => {
+  if (atlasDrag && atlasDrag.armed && e.cancelable) e.preventDefault();
+}, { passive: false });
+
 // 시스템 몸짓 · 스크롤로 끊기면 끌기를 버린다 (옮긴 자리는 저장하지 않는다)
 document.addEventListener('pointercancel', () => {
   if (!atlasDrag) return;
