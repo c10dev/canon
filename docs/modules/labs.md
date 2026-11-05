@@ -11,6 +11,7 @@
 - LLM 없는 채점(`score`: 쇠맛 · 상투 · 쉼표 · 문장 길이 · 반복 구 · 문체 거리 · 설계 메모 옮김 `pipeline.memo_copied` · 예시 옮김)
 - 비용 추정(`estimate`)
 - 실행(`run`: 실험 기록 · 블라인드 비교본 kind blocks)
+- 도중에 실패하거나 멈추면 그때까지 쓴 본문을 기록에 남기고 `stopped` 에 까닭을 적은 뒤 오류를 다시 낸다(`research.stopped_note`)
 - 작품은 저장하지 않는다
 - 웹 화면은 아직 없음
 
@@ -81,6 +82,7 @@
 - 고르지 않은 비교본 목록 `open_compares`
 - `open_compares` 는 폴더 이름이 아니라 화 번호 차례로 준다(100화가 99화 앞에 오지 않게)
 - 작품 데이터와 분리해 `research/log.jsonl` 에 기록
+- 읽을 때(`history` · `latest`) 쓰다 끊긴 줄과 빈 줄은 건너뛴다(`_row`)
 - 갈래마다 마지막 기록 `latest`(연구 개요가 `history` 30개 밖의 실험도 보인다)
 
 ### `canon/revlab.py`
@@ -318,6 +320,7 @@
 - LLM 없는 채점(`score`: 바뀌지 않을 값 · 바뀔 값 오류, 없던 항목, 플롯에 없던 상태창)
 - 비용 추정(`estimate`, 실제 요청 글자 수와 `usage` 가격표)
 - 실행(`run`: 실험 기록 kind statwin, 조건마다 첫 안을 블라인드 비교본 kind statwin 으로)
+- 도중에 실패하거나 멈추면 그때까지 쓴 본문을 기록에 남기고 `stopped` 에 까닭을 적는다(blocktrial 과 같다)
 - 작품은 저장하지 않는다
 - 화면은 `static/stattrial.js`
 - 화면은 고를 때마다 비용을 추정해(`stEst`, AI 없음) 머리 주 버튼 글에 적는다(`stHeadBtn`)

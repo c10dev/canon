@@ -588,6 +588,8 @@
 - 화가 끝난 시점(`Episode.time`, `StoryTime`: 날수 · 시간대 · 날짜)
 - 플롯의 시점(`EpisodePlot.time`)
 - 기한(`Timeline.deadlines`, `Deadline`)과 남은 날(`left`)
+- 기한 예산(`deadline_lines`)은 오늘에서 가까운 기한(지났든 남았든)부터 넣는다. 줄 차례는 지난 기한 → 가까운 기한 그대로다
+- 그래서 오래 지나 닫히지 않은 기한이 쌓여도 다가오는 기한이 프롬프트에서 빠지지 않는다
 - 상태 변경안 정리 · 반영 · 되돌리기(`clean_delta`, `apply_delta`, `revert`, 기한은 `Snapshot.deadlines`)
 - 작가가 기한 고치기(`upsert`, `remove`)
 - 프롬프트 블록(쓰기 · 검수 `episode_block`, 요약 줄 `tag`, 기획 `plan_block`, 상태 `state_block` · `state_rule`, 검수 `check_rule`, 기한은 `context.BUDGET["deadlines"]`)
