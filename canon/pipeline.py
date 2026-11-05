@@ -3801,7 +3801,8 @@ def recheck_fixed(llm: LLM, p: Project, n: int) -> FixRecheckReport:
         items = [(f, f.id, [(e.before, e.after) for e in groups[f.id]]) for f in ai]
         around = prompts.fix_around(ep.text, _fix_spots(ep, [e for f in ai for e in groups[f.id]]))
         rep = llm.json(prompts.SYSTEM_CHECKER, prompts.fix_recheck_prompt(p, n, items, around, _decided(ep)), FixRecheckReport,
-                       hint={"episode": n, "items": [{"id": f.id, "quote": f.current_quote} for f in ai], "text": ep.text})
+                       hint={"episode": n, "items": [{"id": f.id, "quote": f.current_quote} for f in ai], "text": ep.text,
+                             PREFIX_HINT: len(prompts.static_context(p))})  # 첫 호출부터 작품 고정 앞부분을 캐시에 넣는다
         want, seen = {f.id for f in ai}, set()
         for x in rep.results:  # 묻지 않은 id 와 같은 id 의 두 번째 답은 버린다
             if x.id in want and x.id not in seen:

@@ -605,14 +605,16 @@ def test_fix_recheck_targets_and_pipeline(demo):
     assert len(findings.fix_recheck_targets(ep)) == 2
 
     # 프롬프트: 검수 자료 전체가 아니라 작품 설정(검수와 같은 앞부분)과 고친 곳 둘레 문단만
+    from canon.llm import PREFIX_HINT
     calls = []
 
     class Spy(MockLLM):
         def json(self, system, prompt, schema, hint=None, **kw):
-            calls.append((prompt, schema))
+            calls.append((prompt, schema, hint))
             return super().json(system, prompt, schema, hint=hint, **kw)
     rep = pipeline.recheck_fixed(Spy(), p, 1)
     assert len(calls) == 1 and calls[0][1] is FixRecheckReport
+    assert calls[0][2][PREFIX_HINT] == len(prompts.static_context(p))  # 첫 호출부터 작품 고정 앞부분을 캐시에 넣는다
     prompt = calls[0][0]
     assert prompt.startswith(prompts.static_context(p)) and prompts.check_material(p, 1).startswith(prompts.static_context(p))
     assert "## 지적 f1" in prompt and "## 지적 f2" in prompt and "## 지적 f3" not in prompt
