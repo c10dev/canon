@@ -1688,11 +1688,20 @@ function fitMenus() {
     const r = p.getBoundingClientRect();
     const shift = r.right > W - 8 ? Math.max(8 - r.left, W - 8 - r.right) : r.left < 8 ? 8 - r.left : 0;
     if (shift) { p.style.translate = `${Math.round(shift)}px 0`; p.classList.add('fit-shift'); }
+    // 아래가 모자라면(가로 휴대폰 · 화면 아래쪽 버튼) 위로 펼친다. 위도 모자라면 남은 높이 안에서 굴린다
+    const H = window.innerHeight;
+    if (r.bottom > H - 8) {
+      const btn = p.parentElement && p.parentElement.querySelector(':scope > button');
+      const top = btn ? btn.getBoundingClientRect().top : r.top;
+      if (top - 6 - r.height >= 8) p.classList.add('up');
+      else p.style.maxHeight = `${Math.max(160, Math.round(H - r.top - 8))}px`;
+    }
   });
 }
 window.addEventListener('resize', () => {
   document.querySelectorAll('#app .pop-panel.fit-left').forEach((p) => p.classList.remove('left', 'fit-left'));
   document.querySelectorAll('#app .pop-panel.fit-shift').forEach((p) => { p.classList.remove('fit-shift'); p.style.translate = ''; });
+  document.querySelectorAll('#app .pop-panel').forEach((p) => { p.classList.remove('up'); p.style.maxHeight = ''; });
   fitMenus();
 });
 
@@ -2238,6 +2247,13 @@ function focusEl(el) {
 function afterDraw(f) {
   const main = $('#app main');
   if (main) { main.id = 'main'; main.tabIndex = -1; }
+  // 화마다 한 열인 넓은 표(지도 '어디에 있었나', 상태창 화별 변화)는 1화부터 그린다. 지금 화(.cur) 또는 마지막 열이 보이게 옆으로 굴려 둔다
+  document.querySelectorAll('#app .at-table-wrap, #app .sw-table-wrap').forEach((w) => {
+    if (w.scrollWidth <= w.clientWidth + 1 || w.querySelector('.sw-init')) return;
+    const cur = w.querySelector('th.cur, td.cur');
+    if (!cur) { w.scrollLeft = w.scrollWidth; return; }
+    w.scrollLeft += cur.getBoundingClientRect().left - w.getBoundingClientRect().left - w.clientWidth / 2 + cur.offsetWidth / 2;
+  });
   document.title = typeof notifyTitle === 'function' ? notifyTitle(pageTitle(), notifyUnseen) : pageTitle();  // 안 본 알림 수 (notify.js)
   // 탭 묶음: 고른 탭만 Tab 으로 들어가고 나머지는 화살표로 옮긴다 (아래 keydown)
   document.querySelectorAll('#app [role="tablist"]').forEach((list) => {
