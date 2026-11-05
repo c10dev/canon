@@ -10,6 +10,7 @@
 
 Object.assign(S, {
   tlEdit: '',        // 고치는 기한 id. 'new' 는 새 기한 칸
+  tlDraft: null,     // 기한 칸에 적던 값 { key: tlEdit, what, day, date, note }. 다시 그려도 칸을 채운다
   tlEditGroup: '',   // 끝난 시점을 고치는 시간 흐름 묶음 열쇠
   tlSetEdit: false,  // 설정 카드를 고치는 중
   tlFold: {},        // 묶음 열쇠 → 펼침(작가가 고른 것). 없으면 지금 화 · 거꾸로 간 화가 있는 묶음만 편다
@@ -346,13 +347,29 @@ function tlDlRow(r) {
     <span class="chip${TL_DL_CHIP[r.state] ? ` ${TL_DL_CHIP[r.state]}` : ''}">${esc(r.left)}</span>${more}</div>`;
 }
 
+/** 기한 칸의 처음 값: 고치는 기한(없으면 빈 칸)의 값을 칸 글자 그대로 */
+function tlDraftOf(key) {
+  const x = (key !== 'new' && tlFind(key)) || { what: '', day: 0, note: '' };
+  return { key, what: x.what || '', day: x.day > 0 ? String(x.day) : '', date: tlISO(x.day), note: x.note || '' };
+}
+
+/** 기한 칸에 저장하지 않은 글이 있으면 S.editDrafts.tl 을 켠다 (app.js hasUnsaved 가 떠나기 전에 묻는다) */
+function tlDraftMark() {
+  const f = S.tlDraft;
+  const a = f && S.tlEdit === f.key ? f : null;
+  const b = a && tlDraftOf(f.key);
+  (S.editDrafts ||= {}).tl = !!a && (a.what !== b.what || a.note !== b.note || (tlDated() ? a.date !== b.date : a.day !== b.day));
+}
+
 function tlForm(d) {
   const x = d || { id: '', what: '', day: 0, note: '' };
+  const key = x.id || 'new';
+  const f = S.tlDraft && S.tlDraft.key === key ? S.tlDraft : { what: x.what, day: x.day > 0 ? String(x.day) : '', date: tlISO(x.day), note: x.note };
   return `<form class="tl-form" data-tl-form="${esc(x.id)}">
-    <div class="field"><label for="tl-what">무엇의 기한</label><input id="tl-what" type="text" value="${esc(x.what)}" placeholder="예: 왕성 축제 첫날, 빚 갚을 날"></div>
-    ${tlDated() ? `<div class="field"><label for="tl-date">날짜</label><input id="tl-date" type="date" min="${tlISO(1)}" value="${tlISO(x.day)}"></div>`
-    : `<div class="field"><label for="tl-day">며칠째</label><input id="tl-day" type="number" min="0" value="${x.day > 0 ? x.day : ''}" placeholder="모름"></div>`}
-    <div class="field"><label for="tl-note">본문에 나온 말</label><input id="tl-note" type="text" value="${esc(x.note)}" placeholder="예: 사흘 뒤 자정까지"></div>
+    <div class="field"><label for="tl-what">무엇의 기한</label><input id="tl-what" type="text" value="${esc(f.what)}" placeholder="예: 왕성 축제 첫날, 빚 갚을 날"></div>
+    ${tlDated() ? `<div class="field"><label for="tl-date">날짜</label><input id="tl-date" type="date" min="${tlISO(1)}" value="${esc(f.date)}"></div>`
+    : `<div class="field"><label for="tl-day">며칠째</label><input id="tl-day" type="number" min="0" value="${esc(f.day)}" placeholder="모름"></div>`}
+    <div class="field"><label for="tl-note">본문에 나온 말</label><input id="tl-note" type="text" value="${esc(f.note)}" placeholder="예: 사흘 뒤 자정까지"></div>
     <span class="row"><button type="button" class="btn small" data-action="tlEditOpen" data-arg="">취소</button><button type="submit" class="btn small primary">${x.id ? '저장' : '더하기'}</button></span></form>`;
 }
 
@@ -475,16 +492,39 @@ document.addEventListener('submit', async (e) => {
   const cur = (P().timeline.deadlines || []).find((d) => d.id === id) || {};
   const body = { id, what: $('#tl-what').value.trim(), day: $('#tl-date') ? tlDayOf($('#tl-date').value) : parseInt($('#tl-day').value, 10) || 0, note: $('#tl-note').value.trim(), done_ep: cur.done_ep || 0 };
   if (!body.what) return toast('무엇의 기한인지 적어 주세요', true);
-  await tlPut(body, id ? '기한을 고쳤어요' : '기한을 더했어요');
+  await tlPut(body, id ? '기한을 고쳤어요' : '기한을 더했어요', id ? ['기한을 고칠까요?', '고치기'] : ['기한을 더할까요?', '더하기'], true);
 });
 
-async function tlPut(body, msg) {
-  await run('기한 저장하는 중', async () => {
+// 기한 칸의 글을 S 에 둔다. 거르기를 바꾸거나 다른 이유로 다시 그려도 칸이 비지 않는다
+document.addEventListener('input', (e) => {
+  const el = e.target;
+  const f = el && el.closest && el.closest('[data-tl-form]');
+  const k = f && { 'tl-what': 'what', 'tl-day': 'day', 'tl-date': 'date', 'tl-note': 'note' }[el.id];
+  if (!k) return;
+  const key = f.dataset.tlForm || 'new';
+  if (!S.tlDraft || S.tlDraft.key !== key) S.tlDraft = tlDraftOf(key);
+  S.tlDraft[k] = el.value;
+  tlDraftMark();
+});
+
+/** 저장하지 않은 변경이 있으면 먼저 묻는다 (app.js startJob 과 같은 규칙). ask: [질문 뒷말, 확인 버튼 동사]. 저장해도 되면 true */
+async function tlAskSave(ask) {
+  return !S.dirty || askConfirm(`저장하지 않은 변경이 있어요. 저장하고 ${ask[0]}`, { ok: `저장하고 ${ask[1]}` });
+}
+
+/** 기한 하나를 저장한다. form 이면 기한 칸에서 온 것이라 서버가 받은 뒤에만 칸을 닫고, 실패하면 다시 그리지 않아 적던 글이 남는다 */
+async function tlPut(body, msg, ask, form = false) {
+  if (!(await tlAskSave(ask))) return false;
+  return run('기한 저장하는 중', async () => {
     await saveIfDirty();
     S.project = await api('PUT', `/projects/${enc(S.name)}/timeline/deadlines`, body);
-    S.tlEdit = '';
+    if (form) {
+      S.tlEdit = '';
+      S.tlDraft = null;
+      tlDraftMark();
+    }
     toast(msg);
-  });
+  }, { render: form ? 'success' : 'always' });
 }
 
 const tlFind = (id) => P().timeline.deadlines.find((d) => d.id === id);
@@ -492,6 +532,8 @@ const tlFind = (id) => P().timeline.deadlines.find((d) => d.id === id);
 Object.assign(actions, {
   tlEditOpen(id) {
     S.tlEdit = id || '';
+    S.tlDraft = null;  // 열 때는 그 기한의 값, 취소하면 적던 글을 버린다
+    tlDraftMark();
     if (S.tlEdit && S.tlEdit !== 'new' && S.tlDlTab !== 'all') S.tlDlTab = (tlFind(S.tlEdit) || {}).done_ep > 0 ? 'closed' : 'open';
     S.focusTarget = S.tlEdit ? '#tl-what' : '#tl-dl h2';
     render();
@@ -525,12 +567,13 @@ Object.assign(actions, {
   },
   async tlClose(id) {
     const d = tlFind(id);
-    await tlPut({ ...d, done_ep: Math.max(tlLastDone(), d.set_ep) }, `${d.what} 기한을 닫았어요`);
+    await tlPut({ ...d, done_ep: Math.max(tlLastDone(), d.set_ep) }, `${d.what} 기한을 닫았어요`, ['기한을 닫을까요?', '닫기']);
   },
-  async tlReopen(id) { await tlPut({ ...tlFind(id), done_ep: 0 }, '기한을 다시 열었어요'); },
+  async tlReopen(id) { await tlPut({ ...tlFind(id), done_ep: 0 }, '기한을 다시 열었어요', ['기한을 다시 열까요?', '다시 열기']); },
   async tlDrop(id) {
     const d = tlFind(id);
     if (!(await askConfirm(`'${d.what}' 기한을 지울까요? 되돌리기 기록에서도 지워져요.`, { ok: '지우기', danger: true }))) return;
+    if (!(await tlAskSave(['기한을 지울까요?', '지우기']))) return;
     await run('기한 지우는 중', async () => {
       await saveIfDirty();
       S.project = await api('DELETE', `/projects/${enc(S.name)}/timeline/deadlines/${enc(id)}`);
