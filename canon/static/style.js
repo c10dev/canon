@@ -434,7 +434,8 @@ const LIB_JOBS = '.styles';  // 문체 라이브러리 분석 작업의 project 
 /** 라이브러리 분석 작업이 끝났다 (app.js finishJob). 결과는 그 항목의 제안 카드로 둔다. 화면을 떠나 있으면 그 항목을 다시 열 때 보인다 (이 탭이 열려 있는 동안) */
 function libStyleResult(j) {
   if (j.status !== 'done' || !j.result || !j.result.profile) return;
-  S.libDraft = { lib: j.result.lib || S.libJobFor[j.id] || 'new', profile: j.result.profile, job: j.id };  // 항목은 서버가 작업에 실은 것(다른 탭에서 시작해도 맞다)
+  const lib = j.result.lib && j.result.lib !== 'new' ? j.result.lib : (S.libJobFor[j.id] || 'new');  // 새 항목을 그사이 저장했으면 libSave 가 옮긴 id (JOB_LINK 와 같은 차례)
+  S.libDraft = { lib, profile: j.result.profile, job: j.id };  // 항목은 서버가 작업에 실은 것(다른 탭에서 시작해도 맞다)
 }
 
 /** 이 항목에 온 분석 결과(S.libDraft) 카드. 작품 문체의 styleDraftCard 와 같은 모양 */
@@ -660,7 +661,7 @@ Object.assign(actions, {
     try {
       const j = await api('POST', '/styles/analyze/job', { text: S.lib.sample, lib: S.lib.id || '' });
       if (!j.already) S.libJobFor[j.id] = S.lib.id || 'new';  // 결과를 놓을 항목 (새 항목은 'new'). 이미 도는 작업이면 그 작업의 항목을 덮지 않는다
-      if (j.status !== 'running' && !j.already) { await finishJob(j); render(); return; }  // 시작 응답에서 이미 끝났다 (짧은 원문 · 가짜 응답): 바로 결과를 놓는다
+      if (j.status !== 'running' && !j.already) { S.jobsSeen.add(j.id); await finishJob(j); render(); return; }  // 본 작업으로 둬 다음 pollJobs 가 다시 끝내지 않게  // 시작 응답에서 이미 끝났다 (짧은 원문 · 가짜 응답): 바로 결과를 놓는다
       if (!j.already) toast('문체 분석을 시작했어요. 끝나면 알려 드릴게요. 그동안 다른 작업을 해도 돼요.');
       S.jobs = S.jobs.filter((x) => x.id !== j.id).concat(j);
       renderHub();

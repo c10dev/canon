@@ -1588,6 +1588,8 @@ const actions = {
       parts.reduce((o, x) => o[x], P())[last] = v;
     }
     markDirty();
+    const prev = lastRemoved();
+    if (prev) prev.seq = S.editSeq - 1;  // 되살리기는 그 앞 기록이 가정한 값으로 돌아간 것이다. 이 markDirty 도 허용한다
     render();
     toast(`${r.label}을(를) 되살렸어요`);
   },
@@ -1953,7 +1955,7 @@ document.addEventListener('click', async (e) => {
 });
 
 const navScroll = { idx: 0, max: 0, at: new Map(), restore: null };
-let navAsk = 0;
+let navAsk = 0;  // 저장하지 않은 변경을 묻는 이동마다 1씩. '저장하고 이동'이 저장하는 사이 다른 이동이 왔는지 본다
 
 // 900px 이하에서 떠 있는 창(알림 창 · 찾기 팔레트 · 대화 시트 · 서랍 메뉴)을 열면 기록을 하나 더한다(state.panel). 휴대폰의
 // 뒤로 가기가 화면을 떠나지 않고 그 창만 닫는다. 창은 한 번에 하나로 센다.
@@ -1990,14 +1992,22 @@ window.addEventListener('popstate', () => {
     p.close();
     return;
   }
-  if (history.state && history.state.panel) { panelSkip += 1; history.back(); }  // 창 없이 남은 기록: 건너뛴다
+  const st = history.state;
+  if (!st || !st.panel) return;
+  // 창 없이 남은 기록: 움직인 쪽으로 한 칸 더 간다 (뒤로 가기는 뒤로, 앞으로 가기는 앞으로)
+  if (S.dirty || S.libDirty || S.stgDirty) return;  // 저장하지 않은 변경을 묻는 hashchange 가 두 번 돌지 않게 건너뛰지 않는다
+  panelSkip += 1;
+  if (typeof st.idx === 'number' && st.idx >= navScroll.idx) history.forward(); else history.back();
 });
-/** 그린 뒤: 휴대폰에서 열린 채로 그려진 대화 시트(새로고침 · 화면 이동 뒤)에 기록을 붙인다 */
-function panelSync() {
-  if (S.chatOpen && !panelCur && PANEL_MQ.matches && document.querySelector('.chat-panel')) panelOn('chat', chatCloseIfOpen);
+// 열린 채로 그려진 대화 시트(새로고침 · 화면 이동 뒤)는 그 시트를 처음 누를 때 기록을 붙인다.
+// 사용자 동작 없이 더한 기록은 Chrome 의 뒤로 가기가 건너뛸 수 있어 그리는 중에는 붙이지 않는다
+function panelSync(e) {
+  if (S.chatOpen && !panelCur && PANEL_MQ.matches && e.target.closest && e.target.closest('.chat-panel')) panelOn('chat', chatCloseIfOpen);
 }
-const chatCloseIfOpen = () => { if (S.chatOpen && actions.toggleChat) actions.toggleChat(); };  // 저장하지 않은 변경을 묻는 이동마다 1씩. '저장하고 이동'이 저장하는 사이 다른 이동이 왔는지 본다
-try { history.replaceState({ idx: 0 }, '', location.hash || '#/'); } catch { /* 기록을 못 고치면 위치 되살리기만 빠진다 */ }
+document.addEventListener('pointerdown', panelSync, true);
+document.addEventListener('focusin', panelSync, true);
+const chatCloseIfOpen = () => { if (S.chatOpen && actions.toggleChat) actions.toggleChat(); };
+try { history.replaceState({ ...(history.state || {}), idx: 0 }, '', location.hash || '#/'); } catch { /* 기록을 못 고치면 위치 되살리기만 빠진다 */ }
 
 window.addEventListener('hashchange', async () => {
   panelCur = null;  // 화면을 옮기면 떠 있던 창은 저마다 닫힌다. 더한 기록은 남겨 둔다 (되돌리면 이동이 꼬인다)
@@ -2311,7 +2321,6 @@ function focusEl(el) {
 }
 
 function afterDraw(f) {
-  if (typeof panelSync === 'function') panelSync();  // 열린 채로 그려진 대화 시트에 뒤로 가기 기록을 붙인다
   const main = $('#app main');
   if (main) { main.id = 'main'; main.tabIndex = -1; }
   // 화마다 한 열인 넓은 표(지도 '어디에 있었나', 상태창 화별 변화)는 1화부터 그린다. 지금 화(.cur) 또는 마지막 열이 보이게 옆으로 굴려 둔다
