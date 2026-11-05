@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 import re
+import threading
 from collections import Counter
 from typing import Iterable
 
@@ -31,6 +32,7 @@ BUDGET = {
     "places": 3_000,        # 기획 · 검수 · 상태 변경안에 넣는 본문 · 플롯에서 나온 장소
     "plan_fixed": 8_000,    # 화별 플롯 초안: 범위 안 · 바로 뒤의 이미 정해진 화 플롯 (prompts.fixed_plots, 장편만)
     "plan_stages": 1_500,   # 화별 플롯 초안: 기획 인물끼리 지금 관계 단계 한 줄씩 (prompts.plan_stage_block, 장편만). 주역끼리 먼저
+    "storylines": 3_000,    # 장편 기획의 이야기 줄기 블록 (storylines.plan_block). 넘치면 합류가 끝난 줄기부터 뺀다
     "deadlines": 1_200,     # 쓰기 · 검수 · 기획 · 상태 변경안의 작품 속 열린 기한 (timeline.deadline_lines, 단편도)
     "plan_facts": 6_000,    # 다음 아크 기획: 부 목표 · 아크 아이디어 · 직전 아크 플롯과 관련된 확정 사실 (최근 FACTS_RECENT 개는 늘)
     "plan_states": 6_000,   # 다음 아크 기획: 주역 밖 기획 인물(planning_cast)의 지금 상태, 최근에 나온 인물부터
@@ -507,9 +509,32 @@ class PassageIndex:
         return [(m, [para for _, para in sorted(picked[m])]) for m in sorted(picked)]
 
 
+INDEX_KEEP = 2  # 최근에 만든 단락 색인을 들고 있는 수. 검수 · 검수 넓히기가 같은 원고로 색인을 다시 만들지 않게
+_index_cache: dict[tuple, "PassageIndex"] = {}
+_index_lock = threading.Lock()
+
+
+def passage_index(p: Project, n: int, skip: set[int] = frozenset()) -> "PassageIndex":
+    """PassageIndex 를 만들되, 넣을 화와 그 본문이 같으면 최근에 만든 것을 다시 쓴다 (장편 300화에서 한 번에 0.15~0.25초).
+    열쇠는 (화 번호, 본문) 목록이라 본문이 바뀌면 새로 만든다. 색인은 find 가 바꾸지 않아 스레드끼리 나눠 써도 된다."""
+    key = tuple((e.plot.number, e.text) for e in sorted(p.episodes, key=lambda e: e.plot.number)
+                if e.plot.number < n and e.plot.number not in skip and e.text)
+    with _index_lock:
+        hit = _index_cache.pop(key, None)
+        if hit is not None:
+            _index_cache[key] = hit  # 최근 것으로 옮긴다
+            return hit
+    built = PassageIndex(p, n, skip)
+    with _index_lock:
+        _index_cache[key] = built
+        while len(_index_cache) > INDEX_KEEP:
+            _index_cache.pop(next(iter(_index_cache)))
+    return built
+
+
 def recall(p: Project, n: int, query: str, budget: int, skip: set[int], terms: Iterable[str] = ()) -> list[tuple[int, list[str]]]:
     """n화 앞의 본문(skip 화 제외)에서 query 와 겹치는 단락을 예산만큼 찾는다. [(화, [단락...])] 화 순서."""
-    return PassageIndex(p, n, skip).find(query, budget, terms)
+    return passage_index(p, n, skip).find(query, budget, terms)
 
 
 def recall_size(p: Project, n: int, budget: int, skip: set[int]) -> list[tuple[int, list[str]]]:

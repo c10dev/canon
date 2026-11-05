@@ -217,3 +217,18 @@ def test_web_rebuild_flow(client):
     assert st["undo_blockers"] and st["undo_eps"] == {"applied": [], "changed": [3]}  # 화면이 막힌 화로 링크를 단다
     assert p["conversion"]["notes"] == out["notes"]  # 옮기지 못한 것은 새로 불러와도 보인다
     assert c.post("/api/projects/lh/convert/undo").status_code == 400
+
+
+def test_rebuild_also_resets_address_forms():
+    """단편을 장편으로 다시 짜면 호칭 · 말씨도 상태처럼 1화 전으로 돌린다. 옛 화 번호 기록이 남지 않는다."""
+    from canon import address
+    from canon.schema import AddressChange
+    p = _short(written=8)
+    a, b = [c.id for c in p.characters][:2]
+    first = address.find(p, a, b)
+    before = (first.calls, first.speech) if first else ("", "")
+    address.apply(p, [AddressChange(speaker=a, listener=b, calls="오빠", speech="해체(반말)")], 3)
+    pipeline.apply_rebuild(p, pipeline.propose_rebuild(LLM, p, 200))
+    now = address.find(p, a, b)
+    assert ((now.calls, now.speech) if now else ("", "")) == before
+    assert not [r for r in p.address_log if r.source == "ai"]

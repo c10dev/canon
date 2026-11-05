@@ -130,6 +130,7 @@ def add_turn(p: Project, sid: str, message: str, *, mode: str = "", act: str = "
         raise ValueError("보관한 세션이에요. 꺼낸 뒤 이어서 말하세요")
     if s.turns and s.turns[-1].end == "":
         raise ValueError("아직 돌아가는 턴이 있어요")
+    _compact(s)
     turn = AgentTurn(user=message, mode="options" if mode == "options" else "", act=act, episode=episode, draft=draft, at=now())
     turn.where = pipeline.chat_where(p, scope_of(p, s, turn))
     if s.turns and s.turns[-1].approval and s.turns[-1].approval.state == "wait":
@@ -169,6 +170,24 @@ def _strip(t: AgentTurn) -> None:
     """끝난 턴의 단계 결과는 다음 프롬프트에 넣지 않으므로 지워 project.json 이 커지지 않게 한다."""
     for x in t.steps:
         x.result = ""
+
+
+UNDO_TURNS = 20  # 세션마다 되돌리기 기록(쓰기 전 · 뒤 값)을 남기는 최근 턴 수
+OLD_UNDO = "오래된 턴이라 되돌리기 기록을 지웠어요"
+
+
+def _compact(s: AgentSession) -> None:
+    """최근 UNDO_TURNS 턴보다 오래된 턴의 쓰기 전 · 뒤 값과 초안을 지운다. 세션이 길어져도 project.json 이 끝없이 커지지 않게 한다.
+    턴 번호(화면 주소)는 그대로 두고, 그 턴의 아직 되돌리지 않은 부분은 kept 로 까닭을 적는다."""
+    for t in s.turns[:-UNDO_TURNS]:
+        t.draft = None
+        for w in t.writes:
+            for i in w.items:
+                if i.state == "done":
+                    i.state, i.reason = "kept", OLD_UNDO
+            w.revision = w.before = w.after = None
+            if w.op:
+                w.op.removed_ep, w.op.inserted = None, []
 
 
 # ---------- 권한 ----------
@@ -396,9 +415,9 @@ def apply_op(p: Project, op: RenumberOp, move: bool) -> list[str]:
     """화를 넣거나 뺀다 (pipeline.insert_episode · remove_episode). 무엇을 옮겼는지 돌려준다. 못 하면 ValueError 로 p 는 그대로다."""
     if op.kind == "remove":
         ep = p.episode(op.at)
-        plot, status = ep.plot.model_copy(deep=True), ep.status
+        plot, status, whole = ep.plot.model_copy(deep=True), ep.status, ep.model_copy(deep=True)
         notes = pipeline.remove_episode(p, op.at, move)
-        op.removed, op.removed_status = plot, status
+        op.removed, op.removed_status, op.removed_ep = plot, status, whole
     else:
         before = p.model_copy(deep=True)
         c = len(op.titles)
@@ -408,6 +427,7 @@ def apply_op(p: Project, op: RenumberOp, move: bool) -> list[str]:
             pipeline.insert_episode(q, op.at + i, t, s, move_text=move)
         for f in Project.model_fields:
             setattr(p, f, getattr(q, f))
+        op.inserted = [p.episode(op.at + i).model_copy(deep=True) for i in range(c)]
         moved = [e.plot.number for e in before.episodes if e.plot.number >= op.at]
         head = f"{op.at}~{op.at + c - 1}화에 새 화 {c}개를 넣었어요." if c > 1 else f"{op.at}화에 새 화를 넣었어요."
         if moved:
@@ -436,12 +456,19 @@ def inverse(p: Project, op: RenumberOp, move: bool) -> None:
         raise ValueError("그 뒤에 화를 넣거나 빼서 번호가 달라졌어요")
     q = p.model_copy(deep=True)
     if op.kind == "insert":
+        changed = [x.plot.number for x in op.inserted if p.episode(x.plot.number).model_dump() != x.model_dump()]
+        if changed:
+            raise ValueError(f"넣은 {', '.join(f'{n}화' for n in changed)}를 그 뒤에 고쳐서 되돌리지 않아요. 직접 빼 주세요")
         for i in reversed(range(len(op.titles))):
             pipeline.remove_episode(q, op.at + i, move)
     else:
         pipeline.insert_episode(q, op.at, move_text=move)
-        if op.removed:
-            e = q.episode(op.at)
+        e = q.episode(op.at)
+        if op.removed_ep:  # 뺀 화 전체를 살린다 (스토리보드 · 큐 시트 · 장면 연출 · 고칠 곳 · 다 쓴 사건 체크)
+            whole = op.removed_ep.model_copy(deep=True)
+            whole.plot.number = op.at
+            q.episodes[q.episodes.index(e)] = whole
+        elif op.removed:
             e.plot = op.removed.model_copy(update={"number": op.at})
             e.status = op.removed_status or e.status  # type: ignore[assignment]
     for f in Project.model_fields:

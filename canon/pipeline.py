@@ -3247,7 +3247,7 @@ def widen_check(llm: LLM, p: Project, n: int, report: ConsistencyReport, hint: d
     진술마다 옛 화를 따로 찾고(claim_evidence, LLM 없음), 첫 검수에 넣지 않은 단락이 근거로 나온 진술만 그 근거와 함께
     검수 모델에 다시 묻는다(widen_prompt). 판단기는 쓰지 않는다. 더한 지적은 첫 검수와 같은 문장을 짚으면 뺀다.
     (첫 검수 지적 + 더한 지적, 단계별 크기 · 진술 기록)"""
-    from .context import PassageIndex, est_tokens
+    from .context import est_tokens, passage_index
 
     ep = p.episode(n)
     hint = hint or {}
@@ -3257,7 +3257,7 @@ def widen_check(llm: LLM, p: Project, n: int, report: ConsistencyReport, hint: d
     claims = [c for c in claims if c.quote.strip() and c.claim.strip()][:prompts.TWOSTEP_CLAIMS]
     recent, found = prompts.check_recall(p, n)
     seen = {para for _, paras in found for para in paras}
-    index = PassageIndex(p, n, {e.plot.number for e in recent})  # 직전 화는 첫 검수가 원문으로 봤다
+    index = passage_index(p, n, {e.plot.number for e in recent})  # 직전 화는 첫 검수가 원문으로 봤다. 첫 검수 색인을 다시 쓴다
     rows = []
     for i, c in enumerate(claims):
         parts, hits = prompts.claim_sources(p, n, c, index)

@@ -48,6 +48,9 @@
 - 권한 밖이면 승인 카드(`Approval`, `decide`)로 남기고 턴을 끝낸다
 - 다음 아크 칸 · 구조는 화면 초안('draft')으로만 간다
 - 되돌리기(`undo`)는 `pipeline.plot_undo`
+- 화 빼기는 뺀 화 전체를 `RenumberOp.removed_ep` 에 남겨, 되돌리면 스토리보드 · 큐 시트 · 장면 연출 · 고칠 곳까지 살린다(`inverse`)
+- 화 넣기를 되돌릴 때 넣은 화가 넣은 직후(`RenumberOp.inserted`)와 다르면 고친 것으로 보고 되돌리지 않는다
+- 새 턴을 열 때 최근 `UNDO_TURNS`(20) 턴보다 오래된 턴의 쓰기 전 · 뒤 값과 초안을 지운다(`_compact`). 그 턴의 쓰기는 kept(`OLD_UNDO`)로 남는다
 - 멈추거나 실패한 턴은 `reconcile`
 - 프롬프트 `prompts.agent_plot_prompt`
 - 단계 프롬프트는 바뀌지 않는 블록(도구 · 규칙 · 요구사항)이 앞, 턴 블록과 이번 턴 단계가 뒤, 남은 단계 수가 맨 끝 한 줄이다(단계 k+1 요청이 단계 k 요청을 품음)
@@ -117,6 +120,7 @@
 - 갈래 하나는 작품 폴더 하나
 - 갈래 정보(`BranchInfo`)는 `project.json` 밖의 `branch.json`(`store.load_branch` · `save_branch` · `drop_branch`, 화면 저장이 덮지 않게)
 - 만들기(`make` → `fork`: 복사본을 `pipeline.revert(n-1)`, 뒤 아크 · 부 요약 비움, `clear` 는 n화부터 본문을 이전 판으로)
+- `clear` 갈래는 비운 화의 고칠 곳 · 다 쓴 사건 체크 · 복선 문장(작가 것도)을 함께 뺀다
 - 함께 쓰는 앞 화 고침(`shared_edited`, `base` 해시)
 - 집안 계산(`family`, `order`, `diverge`, `promote` · `promote_saved`, `remove`, `{폴더: BranchInfo}` 만 받는 순수 함수)
 - 비교(`compare` · `compare_saved`)
@@ -221,6 +225,8 @@
 - 작품에 적용하면 복사하고 `Project.style_id` · `style_version` 으로 출처만 기억
 - 저장마다 버전(`StyleVersion`)
 - 칸별 비교(`diff`)
+- 작품에서 올리기(`push_project`)는 가져온 뒤 다른 작품이 올린 변경을 덮지 않고 합친다(`merge`). 작품 문체도 합친 것으로 맞춘다
+- 합치기는 한쪽만 바꾼 칸은 바꾼 쪽, 목록 칸은 양쪽에서 더한 것을 모두 둔다. 글 칸을 양쪽에서 다르게 고쳤으면 올리지 않는다
 - 되돌리기(`restore`)
 
 ### `canon/logline.py`
@@ -619,6 +625,8 @@
 - 화의 줄기는 `EpisodePlot.storyline`(주로 따라가는 줄기, 비면 메인)과 `threads`(끼어드는 장면)
 - 범위(`span`)
 - 프롬프트 블록(`plan_block`, `episode_block`, `state_rule`)
+- 장편 프롬프트는 줄기마다 붙은 화를 최근 `EPS_KEEP`(10)개만 적고 앞 화는 수와 첫 화로 줄인다
+- 장편 기획 블록(`plan_block`)이 `context.BUDGET["storylines"]` 를 넘으면 합류가 끝난 줄기를 합류가 이른 것부터 빼고 뺀 수를 적는다. 단편은 그대로다
 - 명령줄 노선도(`ascii_map`)
 - LLM 호출 없음
 - 제안과 반영은 `pipeline.suggest_storyline` / `apply_storyline`

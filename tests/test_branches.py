@@ -240,3 +240,21 @@ def test_cli(client, capsys):
     cli.main(["promote", "lh-b", "-y"])
     out = capsys.readouterr().out.splitlines()
     assert out[0] == "본편으로 올렸어요" and out[1].startswith("B안 (lh-b) · 본편")
+
+
+def test_fork_clear_drops_marks_on_emptied_text():
+    """clear 갈래는 비운 본문에 걸린 '고칠 곳' · 다 쓴 사건 체크 · 복선 문장(작가 것도)을 함께 뺀다. 남은 화의 것은 둔다."""
+    from canon import foreshadows, tofix
+    from tests.test_convert import _short
+    p = _short(written=8)
+    fid = p.foreshadows[0].id
+    for n in (3, 6):
+        e = p.episode(n)
+        tofix.add(e, e.text[:5], "나중에 고침", 0, "now")
+        foreshadows.add_clue(p, n, e.text[:5], fid, "plant")
+        e.events_done = list(e.plot.events[:1])
+    cleared = branches.fork(p, 5, "clear")
+    assert 6 in cleared
+    assert (p.episode(6).to_fix, p.episode(6).events_done) == ([], [])
+    assert [c.episode for c in p.foreshadow_clues if c.foreshadow == fid] == [3] and not foreshadows.broken(p)
+    assert len(p.episode(3).to_fix) == 1 and p.episode(3).events_done

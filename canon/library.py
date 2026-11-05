@@ -262,10 +262,35 @@ def push_project(p: Project, note: str = "") -> StyleEntry:
     if not p.style_id:
         raise ValueError("이 작품은 라이브러리 문체에 연결돼 있지 않아요")
     e = load(p.style_id)
+    base = next((v.profile for v in e.versions if v.number == p.style_version), None)
+    if e.version != p.style_version and base is not None:
+        # 가져온 뒤 다른 작품이 올린 변경은 덮지 않고 합친다. 작품 문체도 합친 것으로 맞춘다
+        merged, clash = merge(base, p.style, e.profile)
+        if clash:
+            raise ValueError(f"라이브러리 문체가 그 사이 다른 곳에서 바뀌어 올리지 않았어요. {', '.join(clash)} 칸을 양쪽에서 다르게 고쳤어요. "
+                             "문체 화면에서 라이브러리 것을 보고 맞춘 뒤 다시 올려 주세요")
+        p.style = merged
     e.profile = p.style.model_copy(deep=True)
     e = save(e, note or f"작품 '{p.meta.title or '제목 없음'}' 에서 올림")
     p.style_version = e.version
     return e
+
+
+def merge(base: StyleProfile, mine: StyleProfile, theirs: StyleProfile) -> tuple[StyleProfile, list[str]]:
+    """base 에서 갈라진 두 문체를 합친다. 한쪽만 바꾼 칸은 바꾼 쪽을, 목록 칸은 양쪽에서 더한 것을 모두 두고 한쪽이 뺀 것은 뺀다.
+    글 칸을 양쪽이 다르게 바꿨으면 그 칸 이름을 돌려준다 (합치지 못함)."""
+    out, clash = mine.model_copy(deep=True), []
+    for key in StyleProfile.model_fields:
+        b, m, t = getattr(base, key), getattr(mine, key), getattr(theirs, key)
+        if m == t or t == b:
+            continue
+        if m == b:
+            setattr(out, key, [x.model_copy(deep=True) if hasattr(x, "model_copy") else x for x in t] if isinstance(t, list) else t)
+        elif isinstance(m, list):
+            setattr(out, key, [x for x in m if x in t or x not in b] + [x for x in t if x not in m and x not in b])
+        else:
+            clash.append(FIELD_LABELS.get(key, key))
+    return out, clash
 
 
 def link_state(p: Project) -> dict:

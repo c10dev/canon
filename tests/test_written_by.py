@@ -101,6 +101,24 @@ def test_cli_write_and_import(client, tmp_path):
     assert ep.written_by == "mock:mock" and ep.versions[-1].model == "import"
 
 
+def test_cli_import_follows_the_web_rules(client, tmp_path):
+    """명령줄 import 도 웹처럼 초안 화에는 넣지 않고, 앞 화를 반영하지 않았으면 넣지 않는다."""
+    import pytest
+    _written(client)
+    f = tmp_path / "chat.md"
+    f.write_text("붙여 넣은 본문", encoding="utf-8")
+    p = store.load("lh")
+    p.episode(1).status, p.episode(2).status, p.episode(3).status = "confirmed", "confirmed", "draft"
+    p.episode(2).text = p.episode(3).text = ""
+    store.save("lh", p)
+    with pytest.raises(SystemExit, match="3화 플롯을 먼저 확정하세요"):
+        main(["import", "lh", "3", str(f)])
+    with pytest.raises(SystemExit, match="1화\\)의 상태 반영이 끝나지 않았어요"):
+        main(["import", "lh", "2", str(f)])
+    p = store.load("lh")
+    assert (p.episode(2).text, p.episode(3).text, p.episode(3).status) == ("", "", "draft")
+
+
 def test_autorun_records_model(demo):  # noqa: F811
     jobs.draining.clear()  # 앞 시험(서버 재시작 흉내)이 남긴 표시가 있으면 배치 실행이 쓰기 전에 멈춘다
     run = autorun.start(demo, 1, True, Policy(), foreground=True)  # 배치: BatchLLM 안쪽 모델을 적는다
