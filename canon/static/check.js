@@ -16,8 +16,8 @@ Object.assign(S, {
   chkRound: {},        // 화 → 고른 회차 번호 (그 회차가 바꾼 지적만 본다). 비면 처리 상태로 거른다
   chkTab: 'issues',    // 왼쪽 칸 탭: issues · opening · style
   chkStyle: {},        // 화 → 문체 지표 { metrics, warnings } 또는 { error }
-  chkNote: '',         // 고른 지적의 메모 칸 (저장 전)
-  chkNoteFor: '',      // chkNote 가 어느 지적('화:id')의 메모인지
+  chkNotes: {},        // '화:id' → 저장 전 메모 초안 (저장한 메모와 다를 때만 둔다)
+  chkNotesOf: '',      // chkNotes 가 어느 작품의 초안인지
   fixSkip: {},         // '화:id:고침안 번호' → 빼고 넣을 딸린 곳 번호 목록
   fbOpen: 0,           // 고침안 한꺼번에 검토를 연 화 (0 이면 닫힘)
   fbOn: {},            // '화:id' → 작가가 넣기로 고른 지적 (보이는 고침안을 넣는다)
@@ -69,6 +69,24 @@ function checkOptsMenu() {
     ${opts.map(([act, v, name, desc]) => `<label class="pop-check"><input type="checkbox" id="co-${act}" data-check-opt="${act}"${v ? ' checked' : ''}><span>${name}<span class="small">${desc}</span></span></label>`).join('')}</div>`;
   return menuBtn('check-opts', `검수 옵션 ${on}/${opts.length} <span aria-hidden="true">▾</span>`, body, { title: '검수할 때 함께 할 것을 켜고 꺼요' });
 }
+
+/** 메모 초안이 하나라도 남았는지 S.editDrafts.chkNote 에 알린다 */
+function syncNoteDraft() {
+  S.editDrafts = S.editDrafts || {};
+  if (Object.keys(S.chkNotes).length) S.editDrafts.chkNote = true;
+  else delete S.editDrafts.chkNote;
+}
+
+/** 메모 칸 입력: 지적마다 초안을 따로 두어 다른 지적을 골라도 잃지 않는다. 저장한 메모와 같아지면 초안을 지운다 */
+document.addEventListener('input', (e) => {
+  const key = e.target && e.target.dataset && e.target.dataset.chkNote;
+  if (!key) return;
+  const [n, id] = key.split(':');
+  const f = ((ep(+n) || {}).findings || []).find((x) => x.id === id);
+  if (f && e.target.value === (f.note || '')) delete S.chkNotes[key];
+  else S.chkNotes[key] = e.target.value;
+  syncNoteDraft();
+});
 
 document.addEventListener('change', (e) => {
   const act = e.target && e.target.dataset && e.target.dataset.checkOpt;
@@ -292,7 +310,8 @@ function chkDetail(n, e, text, sel) {
   const spot = findingSpot(text, f);
   const can = editableEp(e) && !autoOn();
   const key = `${n}:${f.id}`;
-  if (S.chkNoteFor !== key) { S.chkNoteFor = key; S.chkNote = f.note || ''; }
+  if (S.chkNotesOf !== S.name) { S.chkNotesOf = S.name; S.chkNotes = {}; syncNoteDraft(); }
+  const note = key in S.chkNotes ? S.chkNotes[key] : (f.note || '');
   const seg = Object.entries(FINDING_STATUS).map(([k, l]) => `<button type="button" aria-pressed="${f.status === k}" data-action="setFinding" data-arg="${esc(f.id)}:${k}"${autoOn() ? ' disabled' : ''}>${l}</button>`).join('');
   const sev = Object.entries(SEVERITY).map(([k, l]) => `<button type="button" aria-pressed="${(f.severity || 'mid') === k}" data-action="setSeverity" data-arg="${esc(f.id)}:${k}"${autoOn() ? ' disabled' : ''}>${l}</button>`).join('');
   const src = f.source_episode && f.source_episode !== n ? `<a href="${base()}/write/${f.source_episode}">${f.source_episode}화</a>` : esc(srcLabel(n, f));
@@ -312,7 +331,7 @@ function chkDetail(n, e, text, sel) {
     <div class="field"><span class="small">심각도 · AI가 정하고 작가가 바꿔요</span><div class="seg chk-seg3" role="group" aria-label="심각도">${sev}</div></div>
     <div class="field"><span class="small">처리</span><div class="seg chk-seg" role="group" aria-label="처리 상태">${seg}</div></div>
     ${decided ? `<div class="field"><label class="small" for="chk-note">왜 ${FINDING_STATUS[f.status]}인지 적어 두면 다시 나와도 바로 알아볼 수 있어요</label>
-      <textarea id="chk-note" rows="2" data-local="chkNote">${esc(S.chkNote)}</textarea>
+      <textarea id="chk-note" rows="2" data-chk-note="${esc(key)}">${esc(note)}</textarea>
       <div><button type="button" class="btn small" data-action="saveFindingNote" data-arg="${esc(f.id)}">메모 저장</button></div></div>` : ''}
     ${f.status === 'fixed' && f.closed_by === 'recheck' ? '<div class="small">다시 검수에서 문장이 사라져 고침으로 바꿨어요.</div>' : ''}
     ${f.status === 'fixed' && f.closed_by === 'one' ? '<div class="small">이 지적만 다시 검수해 풀려서 고침으로 바꿨어요. 아니라고 보면 열림으로 되돌리세요.</div>' : ''}
@@ -557,11 +576,14 @@ function findingAnchor(n, f) {
   return findingSpot(text, f);
 }
 
+/** 지적 하나를 고친다. 실패하면 오류를 알리고 false 를 돌려준다 */
 async function chkPut(n, id, body) {
   try {
     takeCheck(n, await api('PUT', `/projects/${enc(S.name)}/episodes/${n}/findings/${enc(id)}`, body));
+    return true;
   } catch (err) {
     toast(err.message, true);
+    return false;
   }
 }
 
@@ -574,6 +596,12 @@ function afterFix(n, fid, pj) {
     S.selFocus = { n, start: spot.a, end: spot.b };
     S.selTool = { n, start: spot.a, text: textNow(n).slice(spot.a, spot.b), mode: 'finding', fid };
   }
+}
+
+/** 지적 상세의 처리 기록으로 화면을 옮긴다 */
+function showFindingLog() {
+  const el = document.querySelector('.c-detail .chk-log');
+  if (el) el.scrollIntoView({ block: 'nearest' });
 }
 
 Object.assign(actions, {
@@ -662,8 +690,8 @@ Object.assign(actions, {
     if (!f || f.status === status) return;
     // 고침으로 닫으면 다음 열린 지적으로 넘어간다. 그대로 둠 · 잘못 짚음은 메모를 적을 수 있게 남는다
     const next = status === 'fixed' ? findingOrder(ep(n).findings).find((x) => x.status === 'open' && x.id !== id) : null;
-    await chkPut(n, id, { status });
-    if (next) S.chkSel[n] = next.id;
+    const ok = await chkPut(n, id, { status });
+    if (ok && next) S.chkSel[n] = next.id;
     if (S.selTool && S.selTool.mode === 'finding' && S.selTool.fid === id && status !== 'open') hideTool();
     render();
   },
@@ -679,8 +707,11 @@ Object.assign(actions, {
     const n = chkEp();
     const f = ep(n).findings.find((x) => x.id === id);
     if (!f) return;
-    await chkPut(n, id, { note: S.chkNote });
-    S.chkNoteFor = '';
+    const key = `${n}:${id}`;
+    const note = key in S.chkNotes ? S.chkNotes[key] : (f.note || '');
+    if (!await chkPut(n, id, { note })) return;  // 실패하면 초안을 그대로 둔다
+    delete S.chkNotes[key];
+    syncNoteDraft();
     toast('메모를 저장했어요');
     render();
   },
@@ -837,9 +868,12 @@ Object.assign(actions, {
         S.chkSel[n] = kids[0].id;
         S.chkFilter = 'open';
         afterFix(n, kids[0].id, S.project);  // 고치는 창을 새로 생긴 딸린 지적으로 옮긴다
-        toast(`${f.status === 'fixed' ? '풀렸어요. ' : ''}고친 문장 때문에 새로 어긋난 곳 ${kids.length}개를 딸린 지적으로 더했어요`, true);
+        toast(`${f.status === 'fixed' ? '풀렸어요. ' : ''}고친 문장 때문에 새로 어긋난 곳 ${kids.length}개를 딸린 지적으로 더했어요`);
+      } else if (f.status === 'fixed') {
+        toast('풀렸어요. 고침으로 닫았어요');
       } else {
-        toast(f.status === 'fixed' ? '풀렸어요. 고침으로 닫았어요' : '아직 어긋나요. 처리 기록에서 까닭을 보세요', f.status !== 'fixed');
+        // 다시 검수의 보통 결과라 오류로 띄우지 않는다. 처리 기록으로 가는 버튼을 붙인다
+        toast('아직 어긋나요. 처리 기록에 까닭을 남겼어요', false, { actions: [{ label: '처리 기록 보기', run: showFindingLog }] });
       }
     });
   },
