@@ -225,6 +225,28 @@ def test_estimate(demo, monkeypatch):
     assert autorun.estimate(p, 6, True, Policy())["batch_rounds"] == 6  # 본문은 로컬이라 배치 없음
 
 
+def test_estimate_tokens_follow_stage_backend(demo, monkeypatch):
+    """글자 → 토큰 직선은 단계 백엔드 · 모델마다 다르다. Claude 단계는 같은 요청도 Gemini 보다 입력 토큰을 더 많이 센다."""
+    p = store.load(demo)
+    p.settings.check_motion = False
+    p.settings.stage_extract = False
+    monkeypatch.setenv("CANON_LLM", "gemini")
+    monkeypatch.setenv("CANON_MODEL", "gemini-4-argon")
+    gem = autorun.estimate(p, 6, False, Policy(check=False))
+    assert gem["token_rates"]["write"]["slope"] == 0.568 and gem["token_rates"]["write"]["source"] == "default"
+    monkeypatch.setenv("CANON_LLM_WRITE", "claude")
+    monkeypatch.setenv("CANON_MODEL_WRITE", "claude-opus-5-5")
+    cl = autorun.estimate(p, 6, False, Policy(check=False))
+    assert cl["token_rates"]["write"]["slope"] == 1.035 and cl["token_rates"]["state"]["slope"] == 0.568
+    words = p.meta.words_per_episode
+    # 본문 6화: 출력은 기울기 차이만큼, 입력은 기울기 차이 × 글자 수 + 붙는 토큰 차이만큼 는다
+    assert cl["tokens_out"] - gem["tokens_out"] == pytest.approx(6 * (1.035 - 0.568) * words, abs=2)
+    assert cl["tokens_in"] - gem["tokens_in"] > 6 * (3805 - 1579)
+    assert cl["cost"] < gem["cost"]  # Claude 구독 본문은 0원으로 센다
+    monkeypatch.setenv("CANON_LLM", "mock")  # mock 은 예전처럼 1.7자당 1토큰
+    assert autorun.estimate(p, 6, False, Policy(check=False))["token_rates"]["write"]["source"] == "fallback"
+
+
 def test_estimate_divides_measured_output_by_calls(demo, monkeypatch):
     """로그의 tokens_out 은 단계 안 모든 호출의 합이다. 추정은 호출 하나의 평균으로 나눠 호출마다 더한다."""
     p = store.load(demo)

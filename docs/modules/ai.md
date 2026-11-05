@@ -153,6 +153,20 @@
 - `totals(rows)` 는 모은 줄의 입력 · 출력(생각 포함) 토큰과 `row_cost` 비용 합이다. 가격을 모르는 줄이 있으면 비용은 None
 - 가격표(`DEFAULT_PRICES` + 설정의 `prices`, 날짜별 `since`)로 볼 때 비용을 계산한다
 - 자동 집필 추정도 같은 가격표를 쓴다
+- 입력 토큰 추정 `token_rate(백엔드, 모델)` 은 '기울기 × 요청 글자 수 + 호출마다 붙는 토큰' 직선(`TokenRate`)이다
+- 기본값 `TOKEN_RATES` 는 2026-11 서버 기록의 최소제곱 직선이다(Opus Claude Code 1.035/3805, Sonnet 0.995/5793, argon 0.568/1579, flash 0.599/2508)
+- `claude-api` 는 기록이 없어 같은 기울기에 붙는 토큰 0을 쓴다
+- 기본값이 없는 백엔드(로컬, mock)는 1.7자당 1토큰이다(`FALLBACK_CHARS_PER_TOKEN`)
+- 같은 백엔드 · 모델의 최근 성공 기록(글자 수 있음) `REFINE_MIN` 줄 이상이면 최근 `REFINE_ROWS` 줄로 다시 잰다
+- 다시 잴 때 Claude Code 가 캐시 읽기를 입력에 두 번 센 예전 줄(cached × 2 ≥ 0.9 × in 이고 in 이 기본 직선의 1.5배 초과)은 뺀다
+- 캐시가 입력 대부분이어도 입력이 직선 근처인 줄(앞부분을 시스템 프롬프트로 옮겨 캐시가 맞은 호출)은 남긴다
+- Claude Code 기록의 모델은 실제로 답한 이름이라 설정의 별칭(`opus` 등)은 그 낱말이 든 기록과 맞춘다(`_same_model`)
+- Claude Code 기본 모델(설정이 빔)은 최근 성공 기록에 가장 많은 모델로 본다(`_default_model`)
+- 기록의 글자 수는 시스템 프롬프트를 뺀 요청이라 붙는 토큰에 시스템 프롬프트가 들어 있다
+- `est_input(글자, 직선, 시스템 글자, 호출 수)` 는 붙는 토큰과 '기울기 × 시스템 글자' 가운데 큰 쪽을 호출마다 더한다
+- 단계의 백엔드 · 모델은 `stage_llm`, 그 직선은 `stage_rate` 다
+- 자동 집필 · 큐 시트 · 블록 시험 · 상태창 시험 · 역설계 실험의 비용 추정이 이 직선을 쓴다
+- 장편 블록 예산(`context.BUDGET`)과 `context.est_tokens` 는 이 직선을 쓰지 않는다
 - 백엔드가 더 준 칸(`EXTRA`: turns · stop · api_seconds · models · resent)은 있을 때만 줄에 남는다. 옛 줄에는 없다
 - `cache_rate(rows)` 는 캐시 비율이다. `resent` 를 입력과 캐시 양쪽에서 뺀다. 비용 계산은 `resent` 를 보지 않는다
 - `summary` 의 합계는 `resent` 합과 `cache_rate` 를 준다. 화면 토큰 타일이 다시 보낸 입력이 있을 때 뺀 캐시 비율을 보인다

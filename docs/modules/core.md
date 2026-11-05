@@ -30,6 +30,8 @@
 - 실행 중 비용은 `usage.totals` 로 사용량 화면과 같은 값(캐시 · 배치 요금)이다. 기록하지 않는 LLM(mock)은 마지막 호출의 `last_usage` 로 짐작한다
 - 로그 줄(`LogEntry`)의 `tokens_out` 은 단계 안 호출의 합이고 `calls` 에 호출 수를 남긴다. 옛 기록은 호출 하나로 읽는다
 - 비용 · 시간 추정(`_measured`)은 지난 로그의 출력 토큰을 호출 수로 나눠 호출 하나의 평균으로 쓴다
+- 추정의 입력 · 출력 토큰은 단계 백엔드 · 모델의 글자 → 토큰 직선(`usage.stage_rate`)으로 센다
+- 추정 결과의 `token_rates` 는 단계마다 쓴 기울기 · 붙는 토큰 · 출처(default · measured · fallback)다
 - 정착 문체 흐름 멈춤(`Policy.max_style_distance`, 0 이면 끔, `anchor.rolling`)
 - `autorun.json` 에 진행 기록
 - 변경안 반영(`_review` 의 put)은 반영 전제 `pipeline.check_applicable` 에 걸리면 반영하지 않고 paused 로 멈춘다
@@ -159,6 +161,7 @@
 - 조건(`CONDITIONS`: oneshot · score · cues)
 - LLM 없는 채점(`score`: 핵심 대사 `line_hits` · 되풀이 `repeats` · 이음매 `seams` · 여운 닫기 `closing` · 정지 장면 끝 `still` · 줄표로 자른 끝 `cut` · 큐별 `cue_rows` · `tempo_order`)
 - 비용 추정(`estimate`)
+- 비용 추정의 토큰은 본문 단계 백엔드 · 모델의 `usage.token_rate` 로 센다. 큐마다 쓰기는 붙는 토큰을 큐 수만큼 더한다
 - 실행(`run`, 실험 기록 · 블라인드 비교본 kind cue)
 - AI 호출은 `pipeline.make_cue_sheet` · `write_scored` · `play_cues`
 - 프롬프트 `prompts.cue_sheet_prompt`(대사 큐 몫은 작품 문체 기준에서 `cue_dialogue_share`) · `cue_sheet_block` · `cue_score_prompt` · `cue_head` · `cue_step` · `cue_play_prompt`(k번째 요청이 앞 요청과 응답을 통째로 품음)
