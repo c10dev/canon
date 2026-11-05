@@ -106,6 +106,22 @@ def test_full_run_with_review_stop(demo):
     assert any("자동으로 반영" in e.message for e in run.log)
 
 
+def test_auto_apply_drops_pending_state(demo):
+    """자동으로 반영한 화의 검토 대기 변경안(pending.json 의 state:<화>)은 지운다. 자동 반영(Runner._review)과 그대로 반영(resume approve) 모두."""
+    def offer(n, text):
+        rec = {"key": f"state:{n}", "id": f"x{n}", "kind": "state", "ep": n, "label": f"{n}화 상태 변경안", "result": {"episode": n}, "base": text}
+        store.edit_pending(demo, lambda d: d["results"].__setitem__(f"state:{n}", rec))
+    offer(3, "")  # 반영 취소가 다시 놓은 것처럼 아직 쓰지 않은 화의 변경안
+    store.edit_pending(demo, lambda d: d["results"].__setitem__("suggest:", {"key": "suggest:", "kind": "suggest", "ep": None}))
+    run = autorun.start(demo, 4, True, Policy(), foreground=True)
+    assert run.status == "review" and run.ep == 2
+    offer(2, run.pending_text)  # web.auto_review 가 둔 것
+    assert set(store.load_pending(demo)["results"]) == {"state:2", "state:3", "suggest:"}
+    run = autorun.resume(demo, approve=True, foreground=True)
+    assert run.status == "done" and store.load(demo).episode(3).auto
+    assert set(store.load_pending(demo)["results"]) == {"suggest:"}  # 다른 결과는 그대로 둔다
+
+
 def test_job_tells_last_applied_episode(demo):
     # 화면은 자동 집필 작업의 step_ep 가 바뀔 때마다 'n화를 반영했어요'를 알린다 (static/notify.js)
     autorun.start(demo, 1, False, Policy())

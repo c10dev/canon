@@ -865,19 +865,46 @@ def test_project_list_alerts_and_strip(client):
     """작품 목록 카드: pending.json 의 멈춘 작업 · 결과(실패가 앞), 장편의 부 · 아크 줄과 지금 아크의 화 칸 띠, 단편은 전체 화."""
     from canon import store
     from canon.schema import Part, StoryArc
+
+    from .jsvm import episode
     meta = {"title": "별빛", "target_episodes": 10}
     client.post("/api/projects", json={"name": "s", "meta": meta})
     client.post("/api/projects", json={"name": "l", "meta": dict(meta, form="serial", target_episodes=200)})
     p = store.load("l")
     p.parts = [Part(number=1, title="봄", start_ep=1, end_ep=200, goal="g")]
     p.story_arcs = [StoryArc(number=1, title="첫 손님", start_ep=1, end_ep=3, goal="g")]
+    p.episodes = [episode(1, status="written", text="본문")]  # 상태 변경안은 본문 작성 상태인 화의 것만 알린다
     store.save("l", p)
     store.edit_pending("l", lambda d: (d["results"].__setitem__("state:1", {"kind": "state", "ep": 1, "label": "1화 상태 변경안"}),
                                        d["failures"].__setitem__("check:1", {"kind": "check", "ep": 1, "label": "1화 검수", "error": "한도"})))
     rows = {x["name"]: x for x in client.get("/api/projects").json()}
     assert [(a["kind"], a["job"], a["label"]) for a in rows["l"]["alerts"]] == [("fail", "check", "1화 검수"), ("result", "state", "1화 상태 변경안")]
-    assert rows["l"]["where"] == "1부 봄 · 1아크 첫 손님" and rows["l"]["strip_from"] == 1 and rows["l"]["strip"] == ["none"] * 3
+    assert rows["l"]["where"] == "1부 봄 · 1아크 첫 손님" and rows["l"]["strip_from"] == 1 and rows["l"]["strip"] == ["written", "none", "none"]
     assert rows["s"]["alerts"] == [] and rows["s"]["where"] == "" and len(rows["s"]["strip"]) == 10
+
+
+def test_stale_state_results_hidden_and_pruned(client):
+    """쓸 수 없게 된 상태 변경안은 작품 목록 카드가 알리지 않고, GET /pending 이 지운다 (web._stale_state).
+    반영한 화의 변경안, 반영 뒤 고친 화의 고치기 전 본문에서 뽑은 변경안이 그렇다. 고친 본문에서 뽑은 변경안은 다시 맞추기 후보로 둔다."""
+    from canon import pipeline, store
+
+    from .jsvm import episode
+    client.post("/api/projects", json={"name": "st", "meta": {"title": "별빛", "target_episodes": 10}})
+    p = store.load("st")
+    p.episodes = [episode(1, status="finalized", text="1화"), episode(2, status="finalized", text="고친 2화", final_text="2화"),
+                  episode(3, status="finalized", text="고친 3화", final_text="3화"), episode(4, status="written", text="4화")]
+    store.save("st", p)
+
+    def rec(n, base, basis=None):
+        return {"key": f"state:{n}", "kind": "state", "ep": n, "label": f"{n}화 상태 변경안", "result": {"episode": n, "basis": basis}, "base": base}
+    old3 = rec(3, None, pipeline.text_basis("3화"))  # base 가 없는 옛 기록은 변경안의 basis 로 본다
+    store.edit_pending("st", lambda d: d["results"].update({"state:1": rec(1, "1화"), "state:2": rec(2, "고친 2화"), "state:3": old3,
+                                                            "state:4": rec(4, "4화")}))
+    rows = {x["name"]: x for x in client.get("/api/projects").json()}
+    assert [a["label"] for a in rows["st"]["alerts"]] == ["2화 상태 변경안", "4화 상태 변경안"]
+    assert set(client.get("/api/projects/st/pending").json()["results"]) == {"state:2", "state:4"}
+    store.edit_pending("st", lambda d: d["results"].__setitem__("state:2", rec(2, "2화")))  # 고치기 전 본문에서 뽑았다
+    assert set(client.get("/api/projects/st/pending").json()["results"]) == {"state:4"}
 
 
 def test_apply_edited_delta(client):
