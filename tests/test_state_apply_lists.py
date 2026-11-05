@@ -21,8 +21,9 @@ def test_new_relationship_is_copied_into_project():
     sent = p.history[-1].relationship_updates[0]
     live = next(r for r in p.relationships if {r.a, r.b} == {"hero", "mira"})
     assert live is not sent
-    assert (sent.affinity, sent.tension) == (3, 1)  # 반영 뒤 사건으로 바뀐 값이 기록에 새지 않는다
-    assert (live.affinity, live.tension) != (3, 1)
+    # 새 쌍은 AI 수치를 버리고 중립(0, 0)으로 들어간다 (relnum). 반영 뒤 사건으로 바뀐 값이 기록에 새지 않는다
+    assert (sent.affinity, sent.tension) == (0, 0)
+    assert (live.affinity, live.tension) != (0, 0)
 
 
 def test_replay_without_snapshots_matches_live_ties():
