@@ -59,6 +59,7 @@
 - 화면 값(`view`)
 - LLM 호출 없음
 - AI 호출은 `pipeline.make_storyboard`, 작가 요청대로 고치기는 `pipeline.revise_storyboard`
+- 두 호출 모두 `pipeline._board_draft` 안에서 출력을 `out_cap(BOARD_OUT_TOKENS)`(16,384토큰)로 막는다
 - 화면은 `static/board.js`
 
 ### `canon/cancel.py`

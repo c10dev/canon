@@ -46,7 +46,7 @@ FAKE = textwrap.dedent('''\
         sys.exit(0)
     stdin = sys.stdin.read()
     env = {{k: os.environ.get(k) for k in ("ANTHROPIC_API_KEY", "CLAUDE_CODE_DISABLE_CLAUDE_MDS", "CLAUDE_CODE_OAUTH_TOKEN",
-                                       "CLAUDE_CONFIG_DIR")}}
+                                       "CLAUDE_CONFIG_DIR", "CLAUDE_CODE_MAX_OUTPUT_TOKENS")}}
     system = open(args[args.index("--system-prompt-file") + 1], encoding="utf-8").read() if "--system-prompt-file" in args else None
     with open(os.path.join(d, "calls.jsonl"), "a") as f:
         f.write(json.dumps({{"args": args, "stdin": stdin, "env": env, "cwd": os.getcwd(), "system_file": system}},
@@ -108,6 +108,47 @@ class ClaudeCodeTest(unittest.TestCase):
         row = usage.read()[-1]
         self.assertEqual((row["backend"], row["in"], row["out"], row["cached"]), ("claude", 1530, 30, 20))
         self.assertEqual(usage.row_cost(row, usage.prices())[0], 0.0)  # 구독은 요금제에 포함
+
+    def test_out_cap_goes_to_env_only_when_set(self):
+        os.environ.pop("CLAUDE_CODE_MAX_OUTPUT_TOKENS", None)  # 사용자 셸이 내보낸 값은 빼고 본다 (setUp 의 patch.dict 가 되돌린다)
+        llm = claude.ClaudeCodeLLM()
+        with out_cap(16384):
+            llm.text("s", "p")
+        llm.text("s", "p")
+        first, second = self.calls()
+        self.assertEqual(first["env"]["CLAUDE_CODE_MAX_OUTPUT_TOKENS"], "16384")  # 출력 한도 옵션이 없어 환경 변수로
+        self.assertIsNone(second["env"]["CLAUDE_CODE_MAX_OUTPUT_TOKENS"])  # 한도가 없으면 넣지 않는다 (기본값)
+        self.assertNotIn("CLAUDE_CODE_MAX_OUTPUT_TOKENS", os.environ)  # 이 호출의 하위 환경에만
+
+    def test_out_cap_keeps_user_env_when_unset(self):
+        os.environ["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] = "8000"  # 사용자가 Claude Code 설정으로 내보낸 값
+        llm = claude.ClaudeCodeLLM()
+        llm.text("s", "p")
+        with out_cap(16384):
+            llm.text("s", "p")
+        first, second = self.calls()
+        self.assertEqual(first["env"]["CLAUDE_CODE_MAX_OUTPUT_TOKENS"], "8000")  # 한도가 없으면 사용자 값을 그대로 둔다
+        self.assertEqual(second["env"]["CLAUDE_CODE_MAX_OUTPUT_TOKENS"], "16384")
+        self.assertEqual(os.environ["CLAUDE_CODE_MAX_OUTPUT_TOKENS"], "8000")
+
+    def test_usage_keeps_turns_stop_and_models(self):
+        self.replies({"result": "글", "num_turns": 2, "stop_reason": "end_turn", "duration_api_ms": 12345,
+                      "usage": {"input_tokens": 10, "cache_creation_input_tokens": 990, "cache_read_input_tokens": 1000,
+                                "output_tokens": 30},
+                      "modelUsage": {"claude-test-model": {"inputTokens": 10, "cacheCreationInputTokens": 990,
+                                                           "cacheReadInputTokens": 1000, "outputTokens": 30},
+                                     "claude-haiku": "?"}})
+        claude.ClaudeCodeLLM().text("s", "p")
+        row = usage.read()[-1]
+        self.assertEqual((row["in"], row["cached"]), (2000, 1000))  # 비용 계산에 쓰는 칸은 그대로
+        self.assertEqual((row["turns"], row["stop"], row["api_seconds"], row["resent"]), (2, "end_turn", 12.35, 1000))
+        self.assertEqual(row["models"], {"claude-test-model": {"in": 2000, "out": 30, "cached": 1000}})
+        self.assertEqual(usage.cache_rate([row]), 0.0)  # 다시 보낸 입력을 빼면 이 호출은 캐시를 읽지 않았다
+        claude.ClaudeCodeLLM().text("s", "p")
+        row = usage.read()[-1]
+        self.assertNotIn("turns", row)  # 결과에 없으면 칸도 없다
+        self.assertNotIn("resent", row)
+        self.assertEqual(row["models"], {"claude-test-model": {"in": 0, "out": 30, "cached": 0}})
 
     def test_json_schema_and_repair(self):
         good = {"options": [{"name": "정하윤", "reason": "부드럽다"}]}
