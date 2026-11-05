@@ -1,6 +1,6 @@
 """상태 반영(pipeline.apply_delta)의 목록 칸: 복사해 넣기, 한 변경안 안의 겹침, AI 가 적은 복선 칸, 이미 회수한 복선."""
 from canon import dynamics, features, pipeline
-from canon.schema import Character, Foreshadow, Relationship, Secret, StateDelta, StoryEvent
+from canon.schema import Character, Foreshadow, ForeshadowClue, Relationship, Secret, StateDelta, StoryEvent
 
 from .test_storylines import _short
 
@@ -76,8 +76,12 @@ def test_resolving_resolved_foreshadow_is_skipped_with_warning():
     assert next(f for f in p.foreshadows if f.id == "fs-1").payoff_ep == 1  # 심은 화에 회수해도 된다
     d = StateDelta(episode=2, summary="요약", foreshadow_resolved=["fs-1", "fs-1"])
     features.clean(p, d)
+    d.foreshadow_clues = [ForeshadowClue(foreshadow="fs-1", kind="payoff", quote="열쇠", episode=2)]
     assert any("이미 1화에 회수한 복선을 다시 회수했어요: fs-1" in w for w in d.warnings)
     pipeline.apply_delta(p, d)
     assert next(f for f in p.foreshadows if f.id == "fs-1").payoff_ep == 1
     assert p.history[-1].foreshadow_resolved == []
     assert p.history[-1].dismissed.foreshadow_resolved == ["fs-1"]
+    # 뺀 회수의 회수 문장은 다시 떠올린 문장으로 남아 기록과 맞는다
+    assert [(c.episode, c.kind) for c in p.foreshadow_clues if c.foreshadow == "fs-1"] == [(2, "plant")]
+    assert [c.kind for c in p.history[-1].foreshadow_clues] == ["plant"]

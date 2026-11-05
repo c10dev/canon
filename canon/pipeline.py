@@ -3876,6 +3876,9 @@ def apply_delta(p: Project, d: StateDelta) -> list[str]:
     resolved = list(dict.fromkeys(d.foreshadow_resolved))
     d.dismissed.foreshadow_resolved += [x for x in resolved if x in was_resolved]  # 이미 회수한 복선의 회수 화를 덮지 않는다
     d.foreshadow_resolved = [x for x in resolved if x not in was_resolved]
+    for c in d.foreshadow_clues:  # 뺀 회수의 회수 문장은 다시 떠올린 문장으로 남긴다 (foreshadows.clean_delta 와 같은 규칙)
+        if c.kind == "payoff" and c.foreshadow in was_resolved:
+            c.kind = "plant"
     for f in p.foreshadows:
         if f.id in d.foreshadow_resolved:
             f.status, f.payoff_ep = "resolved", d.episode
