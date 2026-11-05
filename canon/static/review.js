@@ -170,6 +170,25 @@ function newCharCascade(n, i, on) {
   return changed;
 }
 
+/** 심는 복선 i 의 체크를 on 으로 바꾼 뒤 같은 변경안에서 그 복선을 회수하는 항목(x)을 맞춘다. 작품에 없는 복선이면
+ * 빼면 회수도 빼고(반영하면 서버가 막는다), 다시 고르면 기본 체크로 되돌린다. 바꾼 키 수를 돌려준다 */
+function plantedCascade(n, i, on) {
+  const d = S.deltas[n];
+  const f = d && d.foreshadow_planted[i];
+  if (!f) return 0;
+  S.picks['p' + i] = on;
+  if (P().foreshadows.some((x) => x.id === f.id)) return 0;
+  const base = on ? defaultPicks(d) : {};
+  let changed = 0;
+  d.foreshadow_resolved.forEach((id, j) => {
+    if (id !== f.id) return;
+    const v = on ? !!base['x' + j] : false;
+    if (!!S.picks['x' + j] !== v) changed++;
+    S.picks['x' + j] = v;
+  });
+  return changed;
+}
+
 /** S.picks 의 변경안 체크(DELTA_PICK 키)만 */
 const deltaPicks = () => Object.fromEntries(Object.entries(S.picks).filter(([k]) => DELTA_PICK.test(k)));
 
@@ -944,6 +963,13 @@ document.addEventListener('change', (e) => {
       render();
       return;
     }
+  }
+  const pf = el.dataset && S.route[2] === 'review' && /^p(\d+)$/.exec(el.dataset.pick || '');
+  if (pf && plantedCascade(S.route[3], Number(pf[1]), el.checked)) {  // 심지 않는 복선은 같은 화에 회수할 수도 없다
+    toast(el.checked ? '복선을 다시 골라 이 화의 회수도 다시 골랐어요' : '복선을 빼서 이 화의 회수도 뺐어요');
+    S.focusTarget = `#app [data-pick="${el.dataset.pick}"]`;
+    render();
+    return;
   }
   if (el.dataset && el.dataset.pick && DELTA_PICK.test(el.dataset.pick) && S.route[2] === 'review') rvCountRefresh();
 });

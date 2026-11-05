@@ -168,9 +168,18 @@ def test_planted_and_resolved_foreshadow_is_picked():
 const d = { summary: '', character_updates: [], events: [], relationship_updates: [], new_facts: [], warnings: [],
   secrets_added: [{ id: 's1', owner: 'a', content: 'x', hidden_from: [] }, { id: 's2', owner: 'zz', content: 'y', hidden_from: [] }],
   foreshadow_planted: [{ id: 'fs-new', description: '새 복선' }], foreshadow_resolved: ['fs-new', 'fs-none'] };
+ctx.toast = () => {};
+ctx.render = () => {};
 vm.runInContext('setDelta(1, ' + JSON.stringify(d) + ')', ctx);
-process.stdout.write(JSON.stringify(vm.runInContext("['x0', 'x1', 's0', 's1'].map((k) => S.picks[k])", ctx)));
+const now = () => vm.runInContext("['x0', 'x1', 's0', 's1'].map((k) => S.picks[k])", ctx);
+const pick = (on) => listeners.change.forEach((f) => f({ target: { dataset: { pick: 'p0' }, checked: on } }));
+const out = [now()];
+pick(false);  // 심지 않으면 같은 화 회수도 뺀다 (서버가 막는다)
+out.push(now());
+pick(true);
+out.push(now());
+process.stdout.write(JSON.stringify(out));
 """
     run = subprocess.run(["node", "-e", js, str(APP)], capture_output=True, text=True, encoding="utf-8")
     assert run.returncode == 0, run.stderr
-    assert json.loads(run.stdout) == [True, False, True, False]
+    assert json.loads(run.stdout) == [[True, False, True, False], [False, False, True, False], [True, False, True, False]]
