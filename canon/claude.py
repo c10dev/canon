@@ -149,7 +149,8 @@ def login_command() -> str:
 
 def cache_1h() -> bool:
     """CANON_CLAUDE_CACHE_1H 가 켜져 있으면 프롬프트 캐시를 1시간으로 쓴다. 쓰기 값이 5분 캐시의 1.25배에서 2배로 오르므로
-    한 시간 안에 같은 앞부분을 세 번 이상 읽을 때 이득이다. 기본은 끔이다 (구독은 Claude Code 가 스스로 1시간을 고르기도 한다)."""
+    한 시간 안에 같은 앞부분을 세 번 이상 읽을 때 이득이다. 기본은 끔이다. 끄면 child_env 가 5분 캐시를 강제한다
+    (구독 로그인에서 Claude Code 는 스스로 1시간 캐시를 쓴다. 2026-11-05 서버 실측)."""
     return os.environ.get("CANON_CLAUDE_CACHE_1H", "").strip().lower() in ("1", "true", "yes", "on")
 
 
@@ -162,6 +163,9 @@ def child_env(extra: dict | None = None) -> dict:
     env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1"
     if cache_1h():
         env["ENABLE_PROMPT_CACHING_1H"] = "1"  # Claude Code 가 구독 초과 사용 중에도 1시간 캐시를 쓰게 한다
+        env.pop("FORCE_PROMPT_CACHING_5M", None)
+    else:
+        env["FORCE_PROMPT_CACHING_5M"] = "1"  # 구독 기본인 1시간 캐시는 쓰기 값이 2배다. Canon 의 캐시 읽기는 대부분 5분 안에 온다
     d = config_dir()
     if d:
         Path(d).mkdir(parents=True, exist_ok=True, mode=0o700)
