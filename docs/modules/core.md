@@ -378,6 +378,7 @@
 - 사건 종류 목록에서 수동보정은 응답 형식에서만 빠지고 읽기는 한다(예전 JSON). 반영이 뺀다
 - 반영 기록의 `StateDelta.legacy_rel` 은 프로그램 칸이다(`SkipJsonSchema`). 칸이 없던 예전 기록은 참으로 읽히고 지금 반영은 거짓으로 남긴다
 - 상태 승인에서 반영하지 않은 항목(`StateDelta.dismissed`, `DismissedItems`)은 AI 응답 형식에서 빠지고 반영 기록(`Project.history`)에만 남는다
+- `DismissedItems.setting_changes` · `address_changes` 는 작가가 체크를 푼 설정 바꾸기 · 호칭이다. 반영하지 않는다. 자동 집필은 여기 말고 `setting_held` · `address_held` 에 남긴다
 - 반영이 실제로 새로 더한 항목(`StateDelta.added`, `AddedItems`)도 AI 응답 형식에서 빠진다. 없으면(None) 이 칸이 생기기 전 기록이다
 - 반영 취소는 그 화 기록과 함께 빼 둔 항목도 지운다
 - 지운 기록은 `_revert_kept` 가 pending.json 에 남기고, 상태 승인 화면이 빼 둔 항목을 체크를 푼 채 다시 놓는다

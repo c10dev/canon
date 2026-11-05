@@ -1860,6 +1860,9 @@ class DismissedItems(BaseModel):
     new_places: list[NewPlace] = Field(default_factory=list)
     deadlines_added: list[Deadline] = Field(default_factory=list)
     deadlines_done: list[str] = Field(default_factory=list)
+    # 작가가 체크를 푼 설정 바꾸기 · 호칭 제안. 반영하지 않고, 반영 취소로 돌아오면 체크를 푼 채 다시 놓인다. 자동 집필은 여기 말고 setting_held · address_held 에 남긴다
+    setting_changes: list[SettingChange] = Field(default_factory=list)
+    address_changes: list[AddressChange] = Field(default_factory=list)
 
 
 class AddedItems(BaseModel):
