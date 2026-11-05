@@ -806,7 +806,7 @@ body.chat-open .savebar { left: calc(50% - 220px); }
 .rs-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
 .rs-table th { text-align: left; font-weight: 500; color: var(--muted); font-size: 0.75rem; padding: var(--space-6) var(--space-8); border-bottom: 1px solid var(--line); white-space: nowrap; }
 .rs-table td { padding: var(--space-6) var(--space-8); border-bottom: 1px solid var(--rule); white-space: nowrap; }
-.rs-table.rs-pin th:first-child, .rs-table.rs-pin td:first-child { position: sticky; left: 0; z-index: 1; background: var(--surface); }  /* 첫 칸이 짧은 행 이름(화)인 표만: 옆으로 굴려도 보인다 */
+.rs-table.rs-pin th:first-child, .rs-table.rs-pin td:first-child { position: sticky; left: 0; z-index: var(--z-raise); background: var(--surface); }  /* 첫 칸이 짧은 행 이름(화)인 표만: 옆으로 굴려도 보인다 */
 .rs-table .rs-parts { display: block; max-width: 14em; white-space: normal; }  /* 큰 블록 비중: 마우스가 없으면 칸 아래에 적는다 */
 @media (hover: hover) { .rs-table .rs-parts { display: none; } }  /* 마우스는 칸에 올리면(title) 보인다 */
 .rs-table td.over { background: var(--red-soft); color: var(--red); font-weight: 700; }

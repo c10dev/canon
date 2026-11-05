@@ -676,7 +676,7 @@ document.addEventListener('dragleave', (e) => { const z = e.target.closest && e.
 .ref-bar.k-skip { background: var(--line-strong); }
 .ref-bar.on { outline: 2px solid var(--text); }
 .ref-table-wrap { overflow-x: auto; max-height: 70vh; }
-.ref-table-wrap thead th { position: sticky; top: 0; z-index: 1; background: var(--surface); }  /* 안에서 굴려도 머리 줄이 보인다 */
+.ref-table-wrap thead th { position: sticky; top: 0; z-index: var(--z-raise); background: var(--surface); }  /* 안에서 굴려도 머리 줄이 보인다 */
 @media (max-width: 640px) { .ref-table-wrap { max-height: none; } }  /* 휴대폰: 안쪽 스크롤에 갇히지 않고 페이지와 함께 구른다 */
 .ref-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
 .ref-table th, .ref-table td { padding: var(--space-6) var(--space-8); border-bottom: 1px solid var(--line); text-align: left; }
