@@ -922,6 +922,11 @@ def test_episodes_route_returns_only_asked_episodes(client):
     store.save("eg", p)
     after = client.get("/api/projects/eg/episodes?nums=2").json()["rest"]
     assert after != got["rest"] and after == client.get("/api/projects/eg").headers["x-project-rest"]
+    # 저장한 요청도 같은 나머지 판을 붙인다 (화면이 저장 응답으로 보관한 뒤에도 화만 받는다)
+    saved = client.patch("/api/projects/eg", json={"edit_rev": client.get("/api/projects/eg").json()["edit_rev"], "fields": {"facts": ["새 사실", "둘째 사실"]}})
+    assert saved.status_code == 200 and "x-project-etag" in saved.headers
+    assert saved.headers["x-project-rest"] == client.get("/api/projects/eg").headers["x-project-rest"]
+    assert saved.headers["x-project-rest"] == client.get("/api/projects/eg/episodes?nums=2").json()["rest"] != after
     assert client.get("/api/projects/eg/episodes?nums=a").status_code == 400
     assert client.get("/api/projects/eg/episodes").status_code == 400
     assert client.get("/api/projects/nope/episodes?nums=1").status_code == 404

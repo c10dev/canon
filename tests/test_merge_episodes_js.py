@@ -8,7 +8,14 @@ const urls = [];
 const reply = (a) => ({ status: a.status || 200, ok: (a.status || 200) < 300,
   headers: { get: (k) => (a.headers || {})[k] || null }, json: async () => a.body });
 let answers = {};
-fetch = async (url) => { urls.push(url); const a = answers[url.includes('/episodes') ? 'eps' : 'whole']; return reply(typeof a === 'function' ? a() : a); };
+const asked = [];  // 작품 GET 이 보낸 If-None-Match
+fetch = async (url, opt = {}) => {
+  urls.push(url);
+  if (url === '/api/projects/lh' && (!opt.method || opt.method === 'GET')) asked.push((opt.headers || {})['If-None-Match'] || null);
+  const key = url.includes('/episodes') ? 'eps' : opt.method && opt.method !== 'GET' ? 'save' : 'whole';
+  const a = answers[key];
+  return reply(typeof a === 'function' ? a() : a);
+};
 const ep = (n, text = '') => ({ plot: { number: n, title: '' }, status: 'confirmed', text });
 const first = { meta: { title: '등대' }, facts: [], edit_rev: 3, saved_by: 'x', episodes: [ep(1), ep(2)] };
 answers.whole = { headers: { ETag: '"v1"', 'X-Project-Rest': 'r1' }, body: first };
@@ -79,3 +86,49 @@ def test_merge_keeps_unsaved_edits_of_other_episodes():
     """)
     # 입력 중인 1화는 두고 작업이 쓴 2화만 바꿨다
     assert got == {"changed": [2], "titles": ["고치던 제목", ""], "texts": ["", "새 본문"]}
+
+
+@needs_node
+def test_merge_after_save_and_304_fetches_only_the_episode():
+    got = _run("""
+      await open();
+      // 반영 같은 저장 응답이 작품 전체와 저장한 판 · 나머지 판을 준다
+      answers.save = { headers: { 'X-Project-ETag': '"v1s"', 'X-Project-Rest': 'r1' }, body: { ...first, edit_rev: 4 } };
+      S.project = await api('POST', '/projects/lh/confirm', {});
+      answers.whole = { status: 304, body: undefined };
+      S.project = await api('GET', '/projects/lh');
+      urls.length = 0;
+      answers.eps = eps({ edit_rev: 4 });
+      await mergeEpisodes((e) => e.plot.number === 2, [2]);
+      return { urls, asked, texts: texts() };
+    """)
+    # 저장 응답의 판으로 물어 304 로 끝났고, 작업이 끝나면 2화만 받았다
+    assert got == {"urls": ["/api/projects/lh/episodes?nums=2"], "asked": [None, '"v1s"'], "texts": ["", "새 본문"]}
+
+
+@needs_node
+def test_partial_merge_updates_cache_so_next_get_is_304():
+    got = _run("""
+      await open();
+      answers.eps = eps();
+      await mergeEpisodes((e) => e.plot.number === 2, [2]);
+      P().episodes[1].text = '화면에서 고침';  // 화면이 고쳐도 보관한 것은 서버 것 그대로다
+      answers.whole = { status: 304, body: undefined };
+      S.project = await api('GET', '/projects/lh');
+      return { asked, texts: texts(), rest: restOf.get(P()) };
+    """)
+    # 화만 받은 판(v2)으로 물어 304 로 끝났고, 보관한 작품에 받은 2화가 들어 있다
+    assert got == {"asked": [None, '"v2"'], "texts": ["", "새 본문"], "rest": "r1"}
+
+
+@needs_node
+def test_partial_merge_keeps_cache_when_cache_differs():
+    got = _run("""
+      await open();
+      projectCache.data.episodes.shift();  // 보관한 것의 화 목록이 서버와 다르다
+      answers.eps = eps();
+      await mergeEpisodes((e) => e.plot.number === 2, [2]);
+      return projectCache.tag;
+    """)
+    # 보관한 판은 그대로라 다음 작품 GET 이 전체를 받는다
+    assert got == '"v1"'

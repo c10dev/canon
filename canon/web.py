@@ -28,6 +28,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.routing import APIRoute, request_response
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from . import address, agent, archetypes, autorun, board, cancel, cast, charlog, dynamics, elements, genres, illust, jobs, knows, library, metrics, naming, pipeline, prompts, publish, refs, research, settings, store, usage
@@ -97,7 +98,12 @@ async def _count_active(request: Request, call_next):
         m = _PROJECT_PATH.match(request.url.path)
         got = store.saved.get()
         if m and response.status_code == 200 and unquote(m[1]) in got:
-            response.headers["X-Project-ETag"] = got[unquote(m[1])]
+            name = unquote(m[1])
+            response.headers["X-Project-ETag"] = got[name]
+            # 응답이 작품 전체면 화면이 이 판으로 보관하고, 한 화 작업이 끝날 때 화만 받는다 (app.js touchedEpisodes)
+            rest = await run_in_threadpool(_saved_rest, name, got[name])
+            if rest:
+                response.headers["X-Project-Rest"] = rest
         return response
     finally:
         store.saved.reset(saved_tok)
@@ -990,16 +996,46 @@ def get_project(name: str, request: Request) -> Response:
     p = _view(name)
     out = p.model_dump(mode="json", exclude={"snapshots"})
     out["snapshots"] = [{"episode": s.episode} for s in p.snapshots]
-    head = {"X-Project-Rest": _rest_tag({k: v for k, v in out.items() if k != "episodes"})}
+    head = {"X-Project-Rest": _rest_tag(name, tag, p)}
     if tag:
         head["ETag"] = tag
     return JSONResponse(out, headers=head)
 
 
-def _rest_tag(rest: dict) -> str:
-    """작품에서 화(episodes)를 뺀 나머지의 판. 화만 받아 맞출 때 나머지가 화면이 가진 것과 같은지 본다 (get_episodes)."""
+# 작품 이름 → (파일 판, 화를 뺀 나머지의 판). 저장 응답 · 작품 GET · 화 GET 이 같은 판을 한 번만 계산한다
+_rests: dict[str, tuple[str, str]] = {}
+_rests_lock = threading.Lock()
+
+
+def _rest_tag(name: str, tag: str | None, p: Project) -> str:
+    """작품에서 화(episodes)를 뺀 나머지의 판. 화만 받아 맞출 때 나머지가 화면이 가진 것과 같은지 본다 (get_episodes).
+    작품 GET 이 보내는 모양(스냅샷은 화 번호만)으로 계산한다. tag 는 p 를 읽은 파일 판이다."""
+    with _rests_lock:
+        hit = _rests.get(name)
+    if tag and hit and hit[0] == tag:
+        return hit[1]
+    rest = p.model_dump(mode="json", exclude={"snapshots", "episodes"})
+    rest["snapshots"] = [{"episode": s.episode} for s in p.snapshots]
     body = json.dumps(rest, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    return hashlib.blake2b(body.encode("utf-8"), digest_size=12).hexdigest()
+    out = hashlib.blake2b(body.encode("utf-8"), digest_size=12).hexdigest()
+    if tag:
+        with _rests_lock:
+            _rests[name] = (tag, out)
+    return out
+
+
+def _saved_rest(name: str, tag: str) -> str:
+    """저장한 요청이 남긴 판(tag)의 나머지 판. 그사이 다른 저장이 끼어 파일 판이 달라졌으면 빈 값 (화면은 작품 전체를 받는다)."""
+    path = store.project_dir(name) / "project.json"
+    try:
+        if store.tag(path) != tag:
+            return ""
+        p = store.load_view(name)
+        if store.tag(path) != tag:
+            return ""
+    except (OSError, ValueError):
+        return ""
+    return _rest_tag(name, tag, p)
 
 
 @app.get("/api/projects/{name}/episodes")
@@ -1016,10 +1052,8 @@ def get_episodes(name: str, nums: str = "") -> JSONResponse:
     path = store.project_dir(name) / "project.json"
     tag = store.tag(path)
     p = _view(name)
-    rest = p.model_dump(mode="json", exclude={"snapshots", "episodes"})
-    rest["snapshots"] = [{"episode": s.episode} for s in p.snapshots]
     keep = set(want)
-    out = {"etag": tag, "edit_rev": p.edit_rev, "saved_by": p.saved_by, "rest": _rest_tag(rest),
+    out = {"etag": tag, "edit_rev": p.edit_rev, "saved_by": p.saved_by, "rest": _rest_tag(name, tag, p),
            "numbers": [e.plot.number for e in p.episodes],
            "episodes": [e.model_dump(mode="json") for e in p.episodes if e.plot.number in keep]}
     return JSONResponse(out, headers={"ETag": tag})

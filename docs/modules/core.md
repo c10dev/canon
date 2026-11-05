@@ -431,6 +431,8 @@
 - `serve` 는 로깅 설정이 없으면 INFO 수준, 시각 · 수준 · 로거 이름을 붙인 형식으로 정한다. 업데이트 · 자동 집필 이어 가기 안내도 이 로그로 낸다
 - 작품 GET 과 작품을 돌려주는 응답은 스냅샷을 화 번호만 보낸다(`_SNAPSHOT_LIGHT`). 작품 저장(PUT)은 디스크 스냅샷을 지킨다
 - 작품 GET 200 은 화를 뺀 나머지의 판(`_rest_tag`)을 `X-Project-Rest` 로 붙인다
+- 저장 응답도 `X-Project-ETag` 와 함께 같은 판을 `X-Project-Rest` 로 붙인다. 그사이 다른 저장이 끼었으면 붙이지 않는다(`_saved_rest`)
+- 나머지 판은 작품마다 마지막 파일 판 하나로 기억한다(`_rests`). 저장 응답 · 작품 GET · 화 GET 이 한 번만 계산한다
 - `GET /api/projects/{name}/episodes?nums=3,4` 는 고른 화와 `etag` · `edit_rev` · `saved_by` · 나머지 판(`rest`) · 모든 화 번호(`numbers`)만 돌려준다(`get_episodes`, 50화까지)
 - `GET /` 는 index.html 의 `/static/*.js` 태그를 내용 해시가 붙은 묶음 하나(`/bundle/<해시>.js`, 오래 캐시)로 바꿔 보낸다(`_bundle`). 파일을 고치면 해시가 바뀐다
 - 화면의 작품 저장은 `PATCH /api/projects/{name}`(`ProjectPatch`): 바뀐 최상위 칸만 받고 보내지 않은 칸은 디스크 것을 쓴다. 그 뒤는 `put_project` 와 같다

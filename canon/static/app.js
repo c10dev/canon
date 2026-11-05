@@ -208,8 +208,8 @@ async function api(method, path, body, meta) {
   const saved = !whole && r.headers.get('X-Project-ETag');
   const own = saved && path.match(/^\/projects\/[^/?]+/);
   if (own && isProjectJson(data)) {
-    projectCache = { path: own[0], tag: saved, data };
-    return structuredClone(data);
+    projectCache = { path: own[0], tag: saved, data, rest: r.headers.get('X-Project-Rest') || '' };
+    return cloneWhole(projectCache);
   }
   return data;
 }
@@ -643,8 +643,23 @@ async function touchedEpisodes(name, nums) {
     const local = new Set(base.episodes.map((e) => e.plot.number));
     if ([...server].some((n) => !local.has(n) && !ask.has(n)) || [...local].some((n) => !server.has(n))) return null;
     if (r.episodes.some((e) => !ask.has(e.plot.number))) return null;
+    patchCache(name, r);
     return { base, episodes: r.episodes };
   } catch { return null; }
+}
+
+/** 화 GET 답(r)으로 보관한 작품(projectCache)의 화를 고치고 판을 r.etag 로 올린다. 다음 화면 이동의 작품 GET 이 304 로 끝난다.
+    보관한 것의 나머지 판 · 저장 횟수 · 화 번호 목록이 서버와 같을 때만 고친다. 아니면 그대로 둬서 다음 작품 GET 이 전체를 받는다. */
+function patchCache(name, r) {
+  const c = projectCache;
+  if (!c || c.path !== `/projects/${enc(name)}` || !c.rest || c.rest !== r.rest || !r.etag || !isProjectJson(c.data)) return;
+  if ((c.data.edit_rev || 0) !== (r.edit_rev || 0) || (c.data.saved_by || '') !== (r.saved_by || '')) return;
+  const local = new Map(c.data.episodes.map((e) => [e.plot.number, e]));
+  for (const e of r.episodes) local.set(e.plot.number, structuredClone(e));  // 화면은 받은 화를 고쳐 쓰므로 보관한 것과 나눈다
+  const server = new Set(r.numbers);
+  if (local.size !== server.size || [...local.keys()].some((n) => !server.has(n))) return;
+  c.data.episodes = [...local.keys()].sort((a, b) => a - b).map((k) => local.get(k));
+  c.tag = r.etag;
 }
 
 async function finishJob(j) {
