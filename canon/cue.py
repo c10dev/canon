@@ -116,16 +116,17 @@ def from_board(p: Project, n: int) -> CueSheet:
     return CueSheet(key=ep.plot.emotional_shift.strip(), cadence="half", cues=cues, made_at=pipeline._now(), made_by="board")
 
 
-def clean(p: Project, d: CueSheetDraft) -> CueSheetDraft:
-    """빈 큐 · 빈 대사를 빼고 값 범위를 맞춘다. 목표 글자 수가 비었거나 합이 크게 어긋나면 화 분량에 맞춰 나눈다."""
-    n_scenes = 0
+def clean(p: Project, d: CueSheetDraft, scenes: int | None = None) -> CueSheetDraft:
+    """빈 큐 · 빈 대사를 빼고 값 범위를 맞춘다. 목표 글자 수가 비었거나 합이 크게 어긋나면 화 분량에 맞춰 나눈다.
+    scenes 를 주면(그 화 스토리보드 장면 수) 장면 번호가 그보다 크면 0(장면 모름)으로 둔다 (revlab.apply_episode 와 같은 규칙)."""
     d.cues = [c for c in d.cues if c.beat.strip() or any(x.text.strip() for x in c.lines)][:MAX_CUES]
     for c in d.cues:
         c.tension = min(max(c.tension, 1), 5)
         c.lines = [CueLine(speaker=x.speaker.strip(), text=x.text.strip().strip('"“”「」『』')) for x in c.lines if x.text.strip()][:MAX_LINES]
         c.length = max(c.length, 0)
         c.scene = max(c.scene, 0)
-        n_scenes = max(n_scenes, c.scene)
+        if scenes is not None and c.scene > scenes:
+            c.scene = 0
     size = p.meta.words_per_episode
     total = sum(c.length for c in d.cues)
     if d.cues and (total == 0 or not size * 0.5 <= total <= size * 1.5):
@@ -192,7 +193,8 @@ def set_episode(p: Project, n: int, d: CueSheetDraft | None, by: str = "author")
         return
     old = ep.cue_sheet
     made_by = by if by != "author" else ("both" if old and old.made_by != "author" else "author")
-    draft = clean(p, CueSheetDraft(**d.model_dump(include=set(CueSheetDraft.model_fields))))
+    scenes = len(ep.storyboard.scenes) if ep.storyboard else 0
+    draft = clean(p, CueSheetDraft(**d.model_dump(include=set(CueSheetDraft.model_fields))), scenes)
     if not draft.cues:
         raise ValueError("큐가 하나도 없어요. 일어나는 일이나 핵심 대사를 적은 큐가 있어야 해요")
     ep.cue_sheet = CueSheet(**draft.model_dump(), made_at=pipeline._now(), made_by=made_by, basis=ep_basis(p, n),

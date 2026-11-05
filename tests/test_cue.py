@@ -75,6 +75,19 @@ def test_clean_rescales_and_clamps(demo):
     assert sum(c.length for c in d.cues) == p.meta.words_per_episode  # 합이 크게 어긋나면 화 분량에 맞춘다
 
 
+def test_scene_numbers_stay_inside_the_storyboard(demo):
+    """화에 넣는 큐 시트의 장면 번호가 스토리보드 장면 수를 넘으면 0(장면 모름)으로 둔다. 스토리보드가 없으면 모두 0."""
+    p = store.load(demo)
+    pipeline.set_storyboard(p, 1, pipeline.make_storyboard(MockLLM(), p, 1), by="ai")
+    k = len(p.episode(1).storyboard.scenes)
+    d = CueSheetDraft(cues=[Cue(beat="a", scene=1), Cue(beat="b", scene=k + 5)])
+    cue.set_episode(p, 1, d, by="ai")
+    assert [c.scene for c in p.episode(1).cue_sheet.cues] == [1, 0]
+    cue.set_episode(p, 2, CueSheetDraft(cues=[Cue(beat="a", scene=2)]), by="ai")
+    assert p.episode(2).storyboard is None and p.episode(2).cue_sheet.cues[0].scene == 0
+    assert cue.clean(p, CueSheetDraft(cues=[Cue(beat="a", scene=9)])).cues[0].scene == 9  # 장면 수를 모르면 그대로
+
+
 def test_prompts_share_prefix_and_extend(demo):
     p = store.load(demo)
     s = _sheet()
