@@ -67,6 +67,18 @@
 - Gemini 응답이 끝난 이유는 `last_finish`(두 번째도 실패하고 `MAX_TOKENS` 면 `SchemaMismatch` 글에 길이 한도를 적는다)
 - Gemini 추론 강도(`GeminiLLM.effort`, `settings.GEMINI_EFFORTS`)는 `thinking_config.thinking_level` 로 넘긴다(일반 호출과 배치)
 - 강도를 비우면 `thinking_config` 를 보내지 않는다(모델 기본값)
+- Gemini 명시 캐시(`GeminiLLM._cached`)는 플롯 대화 단계(`stage == "chat"`)에서 `settings.gemini_cache` 가 켜져 있을 때만 쓴다
+- 같은 종류 직전 요청과 겹치는 앞부분은 `claude.shared_cut` 으로 찾는다(열쇠 `("gemini", vertex, 모델, 시스템)`, 단락 경계)
+- 겹치는 앞부분이 `GEMINI_CACHE_MIN_CHARS`(16,000자) 이상이고 덮는 캐시가 없으면 `client.caches.create`(시스템 프롬프트 + 앞부분, `GEMINI_CACHE_TTL` 600초)로 만든다
+- 만든 캐시는 `(vertex, 모델, 시스템 해시)` 별로 앞부분 길이 · 해시 · 이름 · 만료 시각으로 기억한다(`_GEM_CACHES`, `_cache_find`)
+- 살아 있는 캐시가 겹치는 앞부분의 절반 이상을 덮으면 그것을 다시 쓴다. 만료 `GEMINI_CACHE_MARGIN`(60초) 전부터는 쓰지 않는다
+- 캐시를 쓰는 요청은 `GenerateContentConfig(cached_content=이름)` 과 나머지 글만 보낸다. 시스템 프롬프트는 넣지 않는다(API 가 거절한다)
+- 캐시를 만들거나 쓰다 난 오류는 모두 일반 호출로 넘어간다(`_cache_failed`). 넘어간 호출 하나만 사용량에 기록한다
+- 429 · 시간 초과 · 서버 오류가 아닌 캐시 오류는 그 모델의 캐시를 `GEMINI_CACHE_BACKOFF`(1시간) 동안 끈다. 404(먼저 만료된 캐시)는 그 캐시만 잊는다
+- 캐시를 쓰는 요청이 429 · 시간 초과 · 서버 오류면 일반 호출로 넘어가지 않고 `_call` 의 다시 부르기에 맡긴다
+- Vertex AI 도 같은 경로다. SDK 가 Vertex 캐시를 지원하지만 실제 Vertex(`global` 위치)에서 되는지는 재지 않았다. 안 되면 첫 오류 뒤 1시간씩 꺼진다
+- 캐시 저장 요금은 사용량 비용 추정에 넣지 않는다. 기본값 근거(저장 요금 가정)는 `llm.py` 의 `GEMINI_CACHE_TTL` 위 주석
+- 시험은 `tests/test_gemini_cache.py`(가짜 google-genai 클라이언트)
 - 생각 토큰도 출력 한도(`out_cap`)에 든다
 - 설정 화면의 Gemini 연결 방식은 `static/vertex.js`
 - 환경 변수
@@ -78,6 +90,7 @@
   - `CANON_CONFIG`: 설정 파일 위치(기본 `~/.canon/config.json`, `settings.path`)
   - `CANON_EFFORT_<단계>`: 단계별 추론 강도(low · medium · high · xhigh · max, `settings.stage_effort`). Claude · Gemini 만 쓴다
   - `CANON_GEMINI_AUTH`: Gemini 연결 방식(key | vertex)
+  - `CANON_GEMINI_CACHE`: 0 · off 면 Gemini 명시 캐시를 끈다(기본 agent: 플롯 대화 단계만, `settings.gemini_cache`)
   - `CANON_GEMINI_TIMEOUT`: Gemini 응답을 기다리는 초(기본 600)
   - `CANON_HOME`: 프로젝트 저장 위치(기본 `projects/`)
   - `CANON_JUDGE`: 판단기(local | mock, `judge.env_choice`)

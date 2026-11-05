@@ -6,6 +6,7 @@
   GEMINI_API_KEY  Gemini API 키
   CANON_GEMINI_AUTH=vertex  키 대신 Google Cloud 서비스 계정으로 Vertex AI 의 Gemini 를 부른다
     (CANON_VERTEX_CREDENTIALS 또는 GOOGLE_APPLICATION_CREDENTIALS, GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION)
+  CANON_GEMINI_CACHE=0  플롯 대화 단계의 Gemini 명시 캐시(caches.create)를 끈다 (기본은 켬, settings.gemini_cache)
   CANON_LOCAL_URL / CANON_LOCAL_MODEL / CANON_LOCAL_KEY  로컬 서버 (Ollama, llama.cpp, vLLM, LM Studio)
   CANON_LLM_<단계>  단계별 백엔드 (예: CANON_LLM_WRITE=local). 단계 이름은 settings.STAGES
   CANON_MODEL_<단계>  단계별 모델 (예: CANON_MODEL_STATE=gemini-3.8-flash)
@@ -13,10 +14,12 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import math
 import os
 import re
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -352,6 +355,48 @@ def _vertex_client() -> Any:
     return genai.Client(vertexai=True, project=project, location=settings.vertex_location()[0], credentials=creds)
 
 
+# Gemini 명시 캐시 (caches.create). 플롯 대화 한 턴은 몇 분 안에 같은 앞부분(약 10만 토큰)으로 여러 단계를 부른다.
+# 서버 사용량 기록(2026-11-04)에서 앞 단계와 10분 안에 부른 단계는 입력의 74% 가 다시 쓸 수 있는 앞부분이었고,
+# 암묵적 캐시는 18% 만 맞았다. 그래서 같은 종류 직전 요청과 겹치는 앞부분(claude.shared_cut)을 캐시에 넣고, 다음
+# 요청은 cached_content 이름과 나머지 글만 보낸다. 캐시 오류는 모두 일반 호출로 넘어간다.
+# 저장 요금은 사용량 비용 추정에 넣지 않는다. 가정: 저장 요금은 100만 토큰 · 1시간에 4.5달러(Gemini Pro 급 가격표)이고,
+# 10만 토큰을 10분 두면 약 0.075달러다. gemini-4-argon 은 캐시된 입력이 100만 토큰에 2.0 대신 0.10달러라 한 번 다시
+# 쓸 때 약 0.19달러를 아낀다. 한 번만 다시 써도 남는다.
+GEMINI_CACHE_TTL = 600  # 캐시 유지 초. 턴 안의 단계 사이는 대부분 5분 안이다 (35/40 이 10분 안)
+GEMINI_CACHE_MARGIN = 60  # 만료 이만큼 전부터는 그 캐시를 쓰지 않는다 (보내는 사이 만료되지 않게)
+GEMINI_CACHE_MIN_CHARS = 16_000  # 겹치는 앞부분이 이보다 짧으면 만들지 않는다 (API 최소 캐시 크기 4096 토큰 위)
+GEMINI_CACHE_BACKOFF = 3600  # 캐시 오류가 나면 그 모델은 이만큼 캐시를 쓰지 않는다 (지원하지 않는 모델 · Vertex 위치)
+_GEM_CACHES: dict[tuple, list[tuple[int, str, str, float]]] = {}  # (vertex, 모델, 시스템 해시) → [(앞부분 길이, 해시, 캐시 이름, 만료 시각)]
+_GEM_CACHE_OFF: dict[tuple, float] = {}  # (vertex, 모델) → 캐시를 다시 써 볼 시각
+_GEM_LOCK = threading.Lock()
+
+
+def _sha(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _cache_find(key: tuple, prompt: str) -> tuple[int, str] | None:
+    """살아 있는 캐시 가운데 prompt 의 앞부분과 같은 가장 긴 것 (길이, 이름). 만료된 캐시는 지운다."""
+    now = time.time()
+    with _GEM_LOCK:
+        live = [e for e in _GEM_CACHES.get(key, []) if e[3] - GEMINI_CACHE_MARGIN > now]
+        if live:
+            _GEM_CACHES[key] = live
+        else:
+            _GEM_CACHES.pop(key, None)
+    for n, h, name, _ in sorted(live, reverse=True):
+        if n <= len(prompt) and prompt[n:n + 2] == "\n\n" and _sha(prompt[:n]) == h:
+            return n, name
+    return None
+
+
+def gemini_cache_reset() -> None:
+    """기억한 캐시와 끈 모델을 비운다 (시험용)."""
+    with _GEM_LOCK:
+        _GEM_CACHES.clear()
+        _GEM_CACHE_OFF.clear()
+
+
 class GeminiLLM:
     effort = ""  # 추론 강도 기본값 (시험이 __init__ 없이 만들 때도 있다)
 
@@ -442,6 +487,68 @@ class GeminiLLM:
             if tries or timeouts or busy_tries:
                 cancel.say("")  # 다시 부른 호출이 끝났다 (성공이든 실패든)
 
+    def _cached(self, system: str, prompt: str) -> tuple[str, str] | None:
+        """명시 캐시를 쓸 수 있으면 (캐시 이름, 캐시 뒤 나머지 글). 플롯 대화 단계(chat)에서 설정이 켜져 있을 때만 쓴다.
+        같은 종류 직전 요청과 겹치는 앞부분(claude.shared_cut)이 GEMINI_CACHE_MIN_CHARS 이상이고 그 앞부분을 덮는
+        살아 있는 캐시가 없으면 새로 만든다. 살아 있는 캐시가 겹치는 앞부분의 절반 이상을 덮으면 그것을 다시 쓴다."""
+        from . import settings
+        from .claude import shared_cut
+
+        if getattr(self, "stage", "") != "chat" or settings.gemini_cache()[0] == "off":
+            return None
+        vertex = bool(getattr(self, "vertex", False))
+        cut = shared_cut(("gemini", vertex, self.model, system), prompt)  # 이 요청을 직전 요청으로 기억한다
+        if time.time() < _GEM_CACHE_OFF.get((vertex, self.model), 0.0):
+            return None
+        key = (vertex, self.model, _sha(system))
+        best = _cache_find(key, prompt)
+        if best and (best[0] * 2 >= cut or cut < GEMINI_CACHE_MIN_CHARS):
+            return best[1], prompt[best[0]:]
+        if cut < GEMINI_CACHE_MIN_CHARS:
+            return None
+        name = self._cache_create(key, system, prompt[:cut])
+        return (name, prompt[cut:]) if name else None
+
+    def _cache_create(self, key: tuple, system: str, prefix: str) -> str:
+        """시스템 프롬프트와 앞부분으로 캐시를 만들고 이름을 돌려준다. 실패하면 빈 글 (일반 호출로 간다)."""
+        from google.genai import types
+
+        try:
+            made = self.client.caches.create(model=self.model, config=types.CreateCachedContentConfig(
+                contents=[types.Content(role="user", parts=[types.Part(text=prefix)])],
+                system_instruction=system or None,
+                ttl=f"{GEMINI_CACHE_TTL}s",
+                display_name="canon chat",
+                http_options=types.HttpOptions(timeout=int(gemini_timeout() * 1000))))
+            name = str(getattr(made, "name", "") or "")
+        except Exception as e:
+            self._cache_failed(e)
+            return ""
+        if not name:
+            self._cache_failed(None)
+            return ""
+        until = time.time() + GEMINI_CACHE_TTL
+        expire = getattr(made, "expire_time", None)
+        if expire is not None and hasattr(expire, "timestamp"):
+            until = min(until, expire.timestamp())
+        with _GEM_LOCK:
+            _GEM_CACHES.setdefault(key, []).append((len(prefix), _sha(prefix), name, until))
+        return name
+
+    def _cache_failed(self, e: BaseException | None, name: str = "") -> None:
+        """캐시를 만들거나 쓰다 실패했다. 그 캐시를 잊고, 요청 한도 · 시간 초과 · 서버 오류가 아니면
+        GEMINI_CACHE_BACKOFF 동안 그 모델의 캐시를 쓰지 않는다 (지원하지 않는 모델이나 Vertex 위치에 매번 묻지 않게)."""
+        if name:
+            with _GEM_LOCK:
+                for k, entries in list(_GEM_CACHES.items()):
+                    _GEM_CACHES[k] = [x for x in entries if x[2] != name]
+        if e is not None and (is_rate_limit(e) or is_timeout(e) or is_transient(e)):
+            return
+        if name and getattr(e, "code", None) == 404:
+            return  # 그 캐시만 없어졌다 (먼저 만료됨). 다음 요청은 새로 만든다
+        with _GEM_LOCK:
+            _GEM_CACHE_OFF[(bool(getattr(self, "vertex", False)), self.model)] = time.time() + GEMINI_CACHE_BACKOFF
+
     def _once(self, system: str, prompt: str, attempt: int = 1, parse: Any = None, **config: Any) -> Any:
         """한 번 부르고 사용량을 기록한다. parse 가 있으면 응답 글을 parse 한 값을 돌려주고, parse 가 실패해도
         (형식 불일치) 토큰은 쓴 것이라 실패로 기록한다."""
@@ -454,15 +561,33 @@ class GeminiLLM:
             config.setdefault("max_output_tokens", cap)  # 생각 토큰도 이 한도에 든다
         if self.effort:
             config.setdefault("thinking_config", types.ThinkingConfig(thinking_level=self.effort.upper()))
+        hit = self._cached(system, prompt)
         try:
-            resp = self.client.models.generate_content(
-                model=self.model,
-                contents=with_note(prompt),
-                config=types.GenerateContentConfig(
-                    system_instruction=system,
-                    http_options=types.HttpOptions(timeout=int(gemini_timeout() * 1000)),  # 밀리초
-                    **config),
-            )
+            resp = None
+            if hit:
+                # 캐시에 시스템 프롬프트가 들어 있어 요청에는 넣지 않는다 (함께 보내면 API 가 거절한다)
+                try:
+                    resp = self.client.models.generate_content(
+                        model=self.model,
+                        contents=with_note(hit[1].lstrip("\n")),
+                        config=types.GenerateContentConfig(
+                            cached_content=hit[0],
+                            http_options=types.HttpOptions(timeout=int(gemini_timeout() * 1000)),
+                            **config),
+                    )
+                except Exception as e:
+                    if is_rate_limit(e) or is_timeout(e) or is_transient(e):
+                        raise  # 캐시 탓이 아니다. _call 이 기다려 다시 부른다
+                    self._cache_failed(e, hit[0])  # 만료 · 지원하지 않음 등. 일반 호출로 넘어간다
+            if resp is None:
+                resp = self.client.models.generate_content(
+                    model=self.model,
+                    contents=with_note(prompt),
+                    config=types.GenerateContentConfig(
+                        system_instruction=system,
+                        http_options=types.HttpOptions(timeout=int(gemini_timeout() * 1000)),  # 밀리초
+                        **config),
+                )
             tokens = self.last_usage = _usage(resp.usage_metadata)
             reason = resp.candidates[0].finish_reason if resp.candidates else None
             self.last_finish = getattr(reason, "name", None) or str(reason or "")
