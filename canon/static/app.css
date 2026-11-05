@@ -204,7 +204,7 @@ ul, ol { margin: 0; }
 .cols { display: flex; flex-wrap: wrap; gap: var(--gap-stack); align-items: flex-start; }
 .col { flex: 1 1 360px; min-width: 0; display: flex; flex-direction: column; gap: var(--gap-stack); }
 .col.wide { flex: 2 1 560px; }
-.grid-auto { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--gap-stack); }
+.grid-auto { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: var(--gap-stack); }
 .grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gap-group); }
 @media (max-width: 640px) { .grid-2 { grid-template-columns: minmax(0, 1fr); } }
 /* 640px 이하 리듬: 본문 여백과 카드 안쪽만 줄인다 */
@@ -821,7 +821,7 @@ body.chat-open .savebar { left: calc(50% - 220px); }
 /* ----- 연구 · 모델 실험 (research.js · stattrial.js): 공용 목차 틀(.outline-wrap.rs-wrap) 위의 카드 한 열 -----
    목차는 개요 · 실험 일곱 쪽 · 기록이고, 오른쪽 열은 960px 에서 멈춘다. 쪽마다 설정 카드 → 결과 카드 → 지난 기록 */
 .rs-col { display: flex; flex-direction: column; gap: var(--gap-stack); min-width: 0; max-width: 960px; }
-.rs-xs { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--gap-stack); }
+.rs-xs { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); gap: var(--gap-stack); }
 .rs-x { min-height: 112px; padding: var(--space-16); border: 1px solid var(--line); border-radius: var(--radius-10); background: var(--surface); color: var(--text); text-decoration: none; display: flex; flex-direction: column; gap: var(--space-6); }
 .rs-x:hover { border-color: var(--sel-line); background: var(--sel-bg); }
 .rs-x.warn { border-color: var(--warn-line); }
@@ -923,7 +923,8 @@ body.chat-open .savebar { left: calc(50% - 220px); }
 .ev-tools { display: flex; gap: var(--space-2); flex: none; }
 .ev-tools .btn:disabled { visibility: hidden; }
 .ev-add { align-self: flex-start; margin-left: 30px; }  /* 배치 값: 사건 번호 열만큼 들인다 */
-@media (max-width: 640px) { .ev-tools .btn[data-action="moveEvent"] { display: none; } }
+/* 휴대폰: 도구(연출 · 위로 · 아래로 · 빼기)를 사건 글 아래 줄 오른쪽으로 내린다. 숨기면 휴대폰에서 순서를 바꿀 길이 없다 */
+@media (max-width: 640px) { .ev-row { flex-wrap: wrap; } .ev-row textarea { flex-basis: 0; } .ev-tools { flex-basis: 100%; justify-content: flex-end; } }  /* 글은 번호 옆에 남고 도구만 다음 줄로 */
 .page-actions { z-index: var(--z-sticky); flex-wrap: wrap; justify-content: flex-end; bottom: -20px; }
 .page-actions > .btn { flex: 0 0 auto !important; }
 .savebar-slot { flex: 1 1 auto; display: flex; min-width: 0; }
@@ -1062,11 +1063,11 @@ body.chat-open .savebar { left: calc(50% - 220px); }
 .auto-reason .grow, .auto-ways .grow { flex: 1 1 240px; min-width: 0; display: flex; flex-direction: column; gap: var(--space-2); overflow-wrap: anywhere; }
 .auto-ways { list-style: none; margin: 0; padding: 0; }
 .auto-ways li, .auto-list li { display: flex; flex-wrap: wrap; gap: var(--space-8) var(--space-12); align-items: center; padding: var(--space-10) 0; border-top: 1px solid var(--rule); }
-.auto-ways li: first-child, .auto-list li:first-child { border-top: none; padding-top: 0; }
+.auto-ways li:first-child, .auto-list li:first-child { border-top: none; padding-top: 0; }
 .auto-list li .grow { flex: 1 1 200px; min-width: 0; }
 .auto-log-eps { list-style: none; margin: 0; padding: 0; }
 .auto-log-eps li { display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; gap: var(--space-4) var(--space-12); padding: var(--space-10) 0; border-top: 1px solid var(--rule); font-size: 0.8125rem; }
-.auto-log-eps li: first-child { border-top: none; padding-top: 0; }
+.auto-log-eps li:first-child { border-top: none; padding-top: 0; }
 .auto-log-lines { display: flex; flex-direction: column; gap: 3px; min-width: 0; overflow-wrap: anywhere; }
 .err-text { color: var(--red); }
 @container outline (max-width: 560px) {
@@ -1452,7 +1453,7 @@ details.vis summary .small { margin-left: var(--space-6); font-weight: 400; }
 .sw-skin .sw-sys dl { gap: var(--space-4) var(--space-10); }
 .sw-skin .sw-sys dt, .sw-skin .sw-sys dd { font-size: 0.75rem; }
 .sw-skin .sw-sys-title { padding-bottom: var(--space-6); font-size: 0.75rem; }
-.sw-opts { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--space-12); }
+.sw-opts { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); gap: var(--space-12); }
 .sw-opt { padding: var(--space-14); border: 1px solid var(--line); border-radius: var(--radius-10); display: flex; flex-direction: column; gap: var(--space-10); min-width: 0; }
 .sw-opt h3 { margin: 0; font-size: 0.9375rem; }
 .sw-opt .sw-text { font-size: 0.8125rem; }
@@ -1697,6 +1698,8 @@ mark.hl.flash { outline: 2px solid currentColor; outline-offset: 2px; }
 .w-fresh .wp-body { max-height: none; overflow: visible; }
 /* 가로 휴대폰(높이 500px 이하): 붙여 둔 머리(약 130px)가 위쪽 띠와 함께 화면 절반을 덮는다. 머리는 글과 함께 올라간다 */
 @media (max-height: 500px) { .w-stick, .w-top { position: static; } }
+/* 휴대폰 키보드가 열리면(html.kb-open, app.js visualViewport) 붙여 둔 집필 머리를 풀어 남은 화면을 본문 칸에 준다 */
+@media (max-width: 640px) { .kb-open .w-stick, .kb-open .w-top { position: static; } }
 .wp-toggle[aria-expanded="true"] .wp-lead { visibility: hidden; }  /* 펼치면 엔딩 훅은 진행 줄 끝에 있다 */
 .w-busy { min-width: 280px; padding: var(--space-6) var(--space-6) var(--space-6) var(--space-14); border: 1px solid var(--sel-line); border-radius: var(--radius-10); background: var(--sel-bg); display: flex; align-items: center; gap: var(--space-12); }
 .w-busy-text { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-4) var(--space-10); align-items: baseline; font-size: 0.8125rem; }
@@ -2160,10 +2163,10 @@ details.card.set-more { display: block; }
 .bc-col { display: flex; flex-direction: column; gap: var(--gap-stack); min-width: 0; }
 .bc-wrap .outline-item.bc-mem, .bc-wrap .outline-item.bc-me { padding-left: calc(var(--space-10) + var(--depth, 0) * var(--space-14)); }
 .bc-wrap .outline-item.bc-me { cursor: default; color: var(--text); font-weight: 700; }
-.bc-wrap .outline-item.bc-me: hover { background: transparent; }
+.bc-wrap .outline-item.bc-me:hover { background: transparent; }
 .bc-rows { display: flex; flex-direction: column; }
 .bc-row { display: grid; grid-template-columns: 56px minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-4) var(--space-16); padding: var(--space-10) var(--space-8); border-bottom: 1px solid var(--rule); border-radius: var(--radius-8); color: inherit; text-decoration: none; }
-a.bc-row: hover { background: var(--canvas); }
+a.bc-row:hover { background: var(--canvas); }
 .bc-row.on { background: var(--sel-bg); box-shadow: inset 3px 0 0 var(--accent); }
 .bc-row.head { padding-top: 0; font-size: 0.75rem; font-weight: 700; color: var(--muted); border-bottom-color: var(--line-strong); border-radius: 0; }
 .bc-t { gap: var(--space-6); }
@@ -2178,12 +2181,12 @@ a.bc-row: hover { background: var(--canvas); }
 .bc-p.none { min-height: 1px; }
 .bc-who { display: none; }
 .bc-table td, .bc-table th { white-space: normal; vertical-align: top; }
-.bc-table td: first-child, .bc-table th:first-child { white-space: nowrap; }
-.bc-table th: nth-child(3), .bc-table th:nth-child(4) { width: 36%; }
+.bc-table td:first-child, .bc-table th:first-child { white-space: nowrap; }
+.bc-table th:nth-child(3), .bc-table th:nth-child(4) { width: 36%; }
 @container outline (max-width: 640px) {
   .bc-row { grid-template-columns: 44px minmax(0, 1fr); }
-  .bc-row > div: last-child { grid-column: 2; padding-top: var(--space-6); border-top: 1px dashed var(--rule); }
-  .bc-row.head > span: last-child { display: none; }
+  .bc-row > div:last-child { grid-column: 2; padding-top: var(--space-6); border-top: 1px dashed var(--rule); }
+  .bc-row.head > span:last-child { display: none; }
   .bc-pair, .bc-pair.head { grid-template-columns: minmax(0, 1fr); gap: var(--space-6); }
   .bc-pair.head { display: none; }
   .bc-p.none { display: none; }
@@ -2424,7 +2427,7 @@ dialog.set-dlg::backdrop { background: var(--overlay); }
 .plife blockquote { margin: 0; padding: var(--space-4) 0 var(--space-4) 18px; border-left: 3px solid var(--line-strong); }  /* 단계 밖: 플레이 화면 카드 규격 */
 .pstep { display: flex; align-items: center; gap: var(--space-10); }
 .pstep b { width: 24px; height: 24px; border-radius: var(--radius-6); background: var(--accent); color: var(--on-accent); display: inline-flex; align-items: center; justify-content: center; font-size: 0.75rem; }
-.pgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--space-10); }
+.pgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); gap: var(--space-10); }
 .pgrid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .popt { display: flex; gap: var(--space-10); align-items: flex-start; padding: var(--space-12) var(--space-14); border: 1px solid var(--line-strong); border-radius: var(--radius-10); cursor: pointer; }
 .popt.on { border: 2px solid var(--accent); background: var(--accent-soft); padding: 11px 13px; }  /* 단계 밖: 2px 테두리만큼 줄인 안쪽(크기 그대로) */

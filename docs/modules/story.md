@@ -430,6 +430,7 @@
 ### `canon/static/foreshadow.js`
 
 - 복선 센터 화면(주소 `foreshadow[/<복선 id>]`, `viewForeshadow`, 불러오기 `fsLoad`)
+- 640px 이하 복선 걸기 시트는 키보드 위에 선다(`bottom: var(--kb)`, 높이 `85svh - --kb`)
 - 공용 목차 틀(`outline.js`, 목차 `fsToc`: 개요 · 손볼 것 · 열린 복선 · 접은 회수한 복선 `S.fsDoneOpen`) 위에 쪽 셋: 개요 · 복선 하나 · 빈 화면
 - 개요
   - 수치 `fsStats` → 손볼 것 `fsTodoCard` → 복선 지도 `fsMapCard`: 화 축 하나

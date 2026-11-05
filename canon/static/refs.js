@@ -637,7 +637,7 @@ document.addEventListener('dragleave', (e) => { const z = e.target.closest && e.
 
 (() => {
   const css = `
-.ref-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--space-16); }
+.ref-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); gap: var(--space-16); }
 .ref-card { color: inherit; text-decoration: none; gap: var(--space-6); }
 .ref-card:hover { border-color: var(--line-strong); }
 .ref-card h3 { margin: 0; }

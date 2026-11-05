@@ -710,7 +710,9 @@ const STG_SIL = '<path class="sil" d="M28 1a9 9 0 1 1 0 18a9 9 0 1 1 0-18M18 22h
 
 function stgBodyMap(on, by, minor) {
   const parts = stgV().parts;
-  const dots = (side) => Object.entries(STG_DOTS[side]).filter(([id]) => !(minor && parts[id].sexual)).map(([id, [x, y]]) =>
+  // 손가락 기기: 도식을 두 배로 키우고(CSS), 머리와 2px 차이인 이마 점은 빼서 목록에서 고르게 한다
+  const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+  const dots = (side) => Object.entries(STG_DOTS[side]).filter(([id]) => !(minor && parts[id].sexual) && !(coarse && id === 'forehead')).map(([id, [x, y]]) =>
     `<circle class="dot${on.includes(id) ? ' on' : ''}${by.includes(id) ? ' by' : ''}" cx="${x}" cy="${y}" r="4" data-action="stgPart" data-arg="${id}" role="button" aria-label="${esc(parts[id].label)}"><title>${esc(parts[id].label)}</title></circle>`).join('');
   return `<div class="stg-bodymap"><figure><svg viewBox="0 0 56 120">${STG_SIL}${dots('front')}</svg><figcaption>앞</figcaption></figure>
     <figure><svg viewBox="0 0 56 120">${STG_SIL}${dots('back')}</svg><figcaption>뒤</figcaption></figure></div>`;
@@ -1240,10 +1242,12 @@ input.stg-aname { width: 120px; }
 .stg-fields > label { color: var(--muted); }
 .stg-fields select, .stg-fields input:not([type=number]) { min-width: 0; flex: 1; }
 .stg-touch { display: grid; grid-template-columns: 124px minmax(0, 1fr); gap: 12px; align-items: start; }
+@media (pointer: coarse) { .stg-touch { grid-template-columns: auto minmax(0, 1fr); } }  /* 커진 부위 도식(2배)이 들어가게 */
 @container stgcol (max-width: 480px) { .stg-touch { grid-template-columns: minmax(0, 1fr); } .stg-poses { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 .stg-bodymap { display: flex; gap: 6px; }
 .stg-bodymap figure { margin: 0; }
 .stg-bodymap svg { width: 56px; height: 120px; }
+@media (pointer: coarse) { .stg-bodymap svg { width: 112px; height: 240px; } }  /* 점 지름 16px, 이웃 점 사이 8px 이상 */
 .stg-bodymap .sil { fill: var(--chip); stroke: var(--line-strong); stroke-width: 1; }
 .stg-bodymap .dot { fill: var(--surface); stroke: var(--line-strong); stroke-width: 1; cursor: pointer; }
 .stg-bodymap .dot.on { fill: var(--stage-2); stroke: var(--stage-2); }
@@ -1610,19 +1614,21 @@ document.addEventListener('pointerdown', (e) => {
   const who = e.target.closest('[data-stg-who]');
   const anc = e.target.closest('[data-stg-anchor]');
   if (g.mode === 'people' && who) {
-    stgDrag = { kind: 'who', id: who.dataset.stgWho, svg, moved: false };
+    stgDrag = { kind: 'who', id: who.dataset.stgWho, svg, moved: false, x: e.clientX, y: e.clientY, touch: e.pointerType === 'touch' };
     g.who = stgDrag.id;
   } else if (g.mode === 'room' && anc) {
     const a = g.room.anchors.find((x) => x.id === anc.dataset.stgAnchor);
     const wa = stageResolve(g.room).anchors.find((x) => x.id === a.id);
     const [mx, my] = stgMeters(svg, e);
-    stgDrag = { kind: 'anchor', a, svg, dx: mx - wa.x, dy: my - wa.y, moved: false };
+    stgDrag = { kind: 'anchor', a, svg, dx: mx - wa.x, dy: my - wa.y, moved: false, x: e.clientX, y: e.clientY, touch: e.pointerType === 'touch' };
   } else return;
   svg.setPointerCapture(e.pointerId);
   e.preventDefault();
 });
 document.addEventListener('pointermove', (e) => {
   if (!stgDrag) return;
+  // 누르기만 해도 자리가 옮겨지지 않게 조금 움직인 뒤에야 끈다 (손가락은 10px, 마우스는 4px). 누르기는 그 인물 줄을 편다
+  if (!stgDrag.moved && Math.hypot(e.clientX - stgDrag.x, e.clientY - stgDrag.y) < (stgDrag.touch ? 10 : 4)) return;
   const g = S.stg;
   const [mx, my] = stgMeters(stgDrag.svg, e);
   stgDrag.moved = true;

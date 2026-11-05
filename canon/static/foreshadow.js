@@ -136,7 +136,7 @@ const FS_PICK_MAX = 6;    // 걸기 칸에 찾기 없이 보이는 복선 수
 .fs-link .grid-2 { grid-template-columns: minmax(0, 1fr) 120px; }
 .fs-link .foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
 @media (max-width: 640px) {
-  .sel-tool.fs-link { position: fixed; left: 0 !important; right: 0; top: auto !important; bottom: 0; width: auto; max-width: none; max-height: 85vh; padding: 14px 16px 20px; border-radius: 12px 12px 0 0; box-shadow: var(--shadow-dialog); }
+  .sel-tool.fs-link { position: fixed; left: 0 !important; right: 0; top: auto !important; bottom: var(--kb, 0px); width: auto; max-width: none; max-height: calc(85svh - var(--kb, 0px)); padding: 14px 16px 20px; border-radius: 12px 12px 0 0; box-shadow: var(--shadow-dialog); }
   .fs-link .foot .btn { flex: 1; }
 }
 .fs-q-row { font-family: var(--serif); font-size: 0.8125rem; line-height: 1.7; color: var(--text-2); }`;
