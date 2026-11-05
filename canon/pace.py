@@ -129,18 +129,15 @@ def clean_delta(p: Project, d: StateDelta) -> list[str]:
 def hold(p: Project, d: StateDelta) -> int:
     """features.HOLD 훅 (자동 집필 · run -y · 플레이): 반대인 유형 바뀜은 반영하지 않고 뺀다.
     인물 화면에 남겨 두는 칸이 없어 남긴 개수(0)로 세지 않고, 무엇을 뺐는지 변경안 경고에 적어 반영 기록에 남긴다."""
-    drop = set(d.rel_flagged)
-    if not drop:
+    gone = d.drop_rel_rows(d.rel_flagged)  # 범위 밖 차례(옛 변경안)는 무시하고, 남은 rel_flagged 는 빈다
+    if not gone:
         return 0
     nm = _names(p)
     d.warn_to += [""] * (len(d.warnings) - len(d.warn_to))  # 경고와 같은 차례를 지킨다 (features.clean)
-    for i in sorted(drop):
-        r = d.relationship_updates[i]
+    for r in gone:
         d.warn_to.append("")
         d.warnings.append(f"관계 유형: 자동 반영에서 뺐어요: {nm.get(r.a, r.a)} ↔ {nm.get(r.b, r.b)} '{r.type}'")
-    d.dismissed.relationship_updates += [r for i, r in enumerate(d.relationship_updates) if i in drop]  # 반영 기록의 빼 둔 항목에 남긴다
-    d.relationship_updates = [r for i, r in enumerate(d.relationship_updates) if i not in drop]
-    d.rel_flagged = []
+    d.dismissed.relationship_updates += gone  # 반영 기록의 빼 둔 항목에 남긴다
     return 0
 
 
