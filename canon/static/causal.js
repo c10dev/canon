@@ -21,6 +21,9 @@ const EL_KIND_HINT = {
 const FIX_CLASS = { '본문 수정': 'written', '플롯 수정': 'confirmed', '설명 추가': 'ai', '시점 변경': 'draft', '그대로 둠': 'draft' };
 const EL_CTX = [['auto', '관련 있을 때'], ['always', '항상'], ['off', '넣지 않음']];
 const CZ_CHUNK = 30;  // 관련 화 칸 한 줄의 화 수
+/** 640px 이하는 한 줄 10화: 30화면 칸이 9px 쯤이라 손가락으로 누를 수 없다 */
+const CZ_NARROW = typeof matchMedia === 'function' ? matchMedia('(max-width: 640px)') : null;
+const czChunk = () => (CZ_NARROW && CZ_NARROW.matches ? 10 : CZ_CHUNK);
 
 Object.assign(S, {
   causalSel: '',      // 주소의 요소 id. 비면 개요
@@ -37,19 +40,20 @@ Object.assign(S, {
 .cz-desc { font-family: var(--serif); font-size: 0.9375rem; line-height: 1.8; white-space: pre-wrap; }
 .cz-chunks { display: flex; flex-wrap: wrap; gap: 10px 24px; }
 .cz-chunk { flex: 1 1 300px; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-.cz-cells { display: grid; grid-template-columns: repeat(${CZ_CHUNK}, minmax(0, 1fr)); gap: 2px; }
-.cz-cells i { height: 22px; border-radius: 3px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; }
-.cz-cells i.tx { border-bottom: 3px solid var(--text-2); }
-.cz-cells i.rel { background: var(--accent-soft); border-color: var(--accent); }
-.cz-cells i.weak { border-style: dashed; border-color: var(--accent); }
-.cz-cells i.bad { background: var(--red-soft); border-color: var(--red); }
-.cz-cells i.plot { background: var(--amber-soft); border-color: var(--amber); }
-.cz-cells i.done { background: var(--green-soft); border-color: var(--green); }
-.cz-cells i.before { opacity: .45; }
-.cz-cells i.since { box-shadow: inset 3px 0 0 var(--accent); }
-.cz-cells i.reveal { outline: 2px dashed var(--accent); outline-offset: 1px; }
-.cz-cells i.none { background: transparent; border-color: var(--rule); cursor: default; }
-.cz-ticks { display: grid; grid-template-columns: repeat(${CZ_CHUNK}, minmax(0, 1fr)); font-size: 0.625rem; color: var(--muted); }
+.cz-cells { display: grid; grid-template-columns: repeat(var(--cz-n, ${CZ_CHUNK}), minmax(0, 1fr)); gap: 2px; }
+.cz-cells button { display: block; min-width: 0; height: 22px; padding: 0; margin: 0; font: inherit; border-radius: 3px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; }
+@media (pointer: coarse), (max-width: 640px) { .cz-cells button { height: 32px; } }
+.cz-cells button.tx { border-bottom: 3px solid var(--text-2); }
+.cz-cells button.rel { background: var(--accent-soft); border-color: var(--accent); }
+.cz-cells button.weak { border-style: dashed; border-color: var(--accent); }
+.cz-cells button.bad { background: var(--red-soft); border-color: var(--red); }
+.cz-cells button.plot { background: var(--amber-soft); border-color: var(--amber); }
+.cz-cells button.done { background: var(--green-soft); border-color: var(--green); }
+.cz-cells button.before { opacity: .45; }
+.cz-cells button.since { box-shadow: inset 3px 0 0 var(--accent); }
+.cz-cells button.reveal { outline: 2px dashed var(--accent); outline-offset: 1px; }
+.cz-cells button.none { background: transparent; border-color: var(--rule); cursor: default; }
+.cz-ticks { display: grid; grid-template-columns: repeat(var(--cz-n, ${CZ_CHUNK}), minmax(0, 1fr)); font-size: 0.625rem; color: var(--muted); }
 .cz-ticks span { white-space: nowrap; }
 .cz-rows { display: flex; flex-direction: column; }
 .cz-char { min-height: var(--control-small); }
@@ -275,12 +279,13 @@ function causalLinksCard(el) {
   const eps = P().episodes.map((e) => ({ n: e.plot.number, text: !!e.text }));
   const cells = causalCells(el, links, total, eps);
   const chunks = [];
-  for (let a = 0; a < total; a += CZ_CHUNK) {
-    const part = cells.slice(a, a + CZ_CHUNK);
+  const per = czChunk();
+  for (let a = 0; a < total; a += per) {
+    const part = cells.slice(a, a + per);
     const ticks = part.map((c) => `<span>${c.n === 1 || c.n % 10 === 0 ? c.n : ''}</span>`).join('');
     chunks.push(`<div class="cz-chunk"><span class="small">${a + 1}~${a + part.length}화</span>
-      <div class="cz-cells">${part.map((c) => `<i class="${c.cls}" data-action="causalCell" data-arg="${c.n}" title="${esc(`${c.n}화${c.tag ? ` · ${c.tag}` : ''}`)}"></i>`).join('')}</div>
-      <div class="cz-ticks">${ticks}</div></div>`);
+      <div class="cz-cells" style="--cz-n:${per}">${part.map((c) => { const say = esc(`${c.n}화${c.tag ? ` · ${c.tag}` : ''}`); return `<button type="button" class="${c.cls}" data-action="causalCell" data-arg="${c.n}" title="${say}" aria-label="${say}"></button>`; }).join('')}</div>
+      <div class="cz-ticks" style="--cz-n:${per}" aria-hidden="true">${ticks}</div></div>`);
   }
   const groups = { bad: cells.filter((c) => c.group === 'bad'), rel: cells.filter((c) => c.group === 'rel'), char: cells.filter((c) => c.group === 'char') };
   const tab = S.causalLinkTab;
@@ -594,3 +599,6 @@ document.addEventListener('input', (e) => {
   const el = causalEl();
   if (el) syncStale(el);
 });
+
+// 폭이 640px 를 넘나들면(휴대폰을 돌림) 관련 화 칸 한 줄의 화 수가 바뀌므로 다시 그린다
+if (CZ_NARROW && typeof CZ_NARROW.addEventListener === 'function') CZ_NARROW.addEventListener('change', () => { if (S.route[2] === 'causal') render(); });

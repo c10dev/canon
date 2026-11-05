@@ -370,6 +370,7 @@
 - 왼쪽 목차 `castToc`(관계도 · 등장표 · 비중별 인물, 단역이 많으면 접음 `castMinorFold`)
 - 오른쪽 한 열의 쪽 `castPage`(`S.castView`: map · table · char · pair, 옮기기 `castShow`, 주소 `cast/<map · table · c:id · p:a|b>?f=` 와 옛 `?tab=` 은 `castParse`)
 - 열 맨 위 시점 띠 `castBar`(좁은 칸은 아래에 붙음)
+- 시점 띠가 400px 이하 칸이면 글에서 '반영 뒤'(`.cast-bar-after`)를 빼 화 번호가 잘리지 않게 한다
 - 관계도 `castMapPage`(SVG, 화별 재생, 칸 폭에 맞추고 크게 보기 `CAST_ZOOM`, 누르면 고르기만 `castMapPick` · 고른 줄 `castMapSel`, 끌어 옮긴 배치는 localStorage)
 - 인물 끌기가 끊기면(`pointercancel`) `castDrag` 를 지운다
 - 640px 이하 관계도는 600px보다 좁게 줄이지 않고 옆으로 굴린다(이름이 5px로 줄지 않게, app.css)
@@ -393,6 +394,7 @@
 - 개요: 손볼 것 `causalTodoCard` → 모든 요소 `causalListCard`
 - 요소 하나(`causalDetail`): 요소 내용 읽기 카드 `causalInfoCard`(고치기 `S.causalEdit`) → 관련 화 `causalLinksCard` → 영향 분석 `causalImpact`
 - 관련 화는 30화씩 칸 줄(`CZ_CHUNK`)과 나눔 버튼 `S.causalLinkTab` 으로 거른 줄 목록
+- 640px 이하는 칸 줄이 한 줄 10화다(`czChunk`). 칸은 버튼이고 화 번호 · 표시를 `aria-label` 로 읽는다. 손가락 기기 · 640px 이하에서 높이 32px
 - 칸 · 줄을 누르면(`causalCell`) 영향 분석의 그 화 칸으로, 없으면 그 화로 간다
 - 영향 분석은 화별로 어긋나는 곳과 고칠 것을 묶는다(`causalImpactBody`, 고르기 키 `pickId` 는 그대로)
 - 쪽을 옮길 때 해시 대신 `history.replaceState`(`causalGoTo`)라 저장하지 않은 고침을 묻지 않는다
