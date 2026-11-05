@@ -78,6 +78,13 @@ class Job:
         self.released[self.done] = (time.time(), set(eps))
 
 
+class Draining(ValueError):
+    """서버가 자동 업데이트로 다시 시작하려고 작업이 끝나기를 기다린다. 새 작업은 받지 않는다 (화면에는 400 으로 보인다)."""
+
+    def __init__(self):
+        super().__init__("서버를 곧 다시 시작해요. 잠시 뒤 다시 시도하세요")
+
+
 class Busy(Exception):
     """같은 작업이 이미 돌고 있다."""
 
@@ -90,6 +97,7 @@ _jobs: dict[str, Job] = {}
 # 자동 업데이트가 다시 시작하려고 기다리는 중. 자동 집필은 다음 단계 전에 멈추고(상태는 진행 중으로 둔 채)
 # 다시 시작한 서버가 이어 간다 (canon/autorun.py resume_all).
 draining = threading.Event()
+DRAIN_LIMIT = 1800  # 이 시간(초)을 기다려도 작업이 끝나지 않으면 그대로 다시 시작한다 (canon/web.py _drain)
 _lock = threading.Lock()
 _project_locks: dict[str, threading.Lock] = {}
 
@@ -108,7 +116,11 @@ def _prune() -> None:
 
 def start(project: str, kind: str, ep: int | None, label: str, fn: Callable[[Job], Any],
           total: int = 1, owned: set[int] | None = None) -> Job:
-    """fn(job) 을 스레드에서 돌린다. fn 은 job.done/note 를 갱신할 수 있고, 돌려준 값이 job.result 가 된다."""
+    """fn(job) 을 스레드에서 돌린다. fn 은 job.done/note 를 갱신할 수 있고, 돌려준 값이 job.result 가 된다.
+    다시 시작하려고 기다리는 중(draining)이면 Draining 으로 거절한다. 자동 집필(auto)은 받는다: 첫 단계 전에
+    멈추고 다시 시작한 서버가 이어 간다 (autorun.Runner._checkpoint)."""
+    if draining.is_set() and kind != "auto":
+        raise Draining()
     with _lock:
         _prune()
         for j in _jobs.values():
@@ -185,7 +197,9 @@ def listing(project: str | None = None) -> list[Job]:
 
 
 def running() -> int:
-    return sum(1 for j in _jobs.values() if j.status == "running")
+    """도는 작업 수. 다른 스레드가 작업을 더해도 순회가 깨지지 않게 잠금 안에서 센다."""
+    with _lock:
+        return sum(1 for j in _jobs.values() if j.status == "running")
 
 
 def running_owned(project: str) -> set[int]:

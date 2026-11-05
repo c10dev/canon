@@ -421,3 +421,37 @@ def test_web_fixes_job_and_batch_apply(demo):
     assert [f["fix_group"] for f in ep["findings"]] == ["x1", "x2"]  # 지적마다 한 묶음
     assert all(set(s) == {"episode"} for s in out["project"]["snapshots"])  # 스냅샷은 화 번호만 (작품 응답과 같다)
     assert [f.status for f in store.load(demo).episode(1).findings] == ["open", "open"]  # 넣기만으로 닫지 않는다 (다시 검수가 닫는다)
+
+
+def test_stale_screen_save_keeps_check_job_results(demo):
+    """검수 작업이 지적을 쓴 뒤, 그 전에 읽은 화면이 그 화를 고쳐 PUT · PATCH 로 보내도 검수 결과는 남는다 (web.JOB_EP_FIELDS)."""
+    import time
+
+    from canon import web
+    importlib.reload(web)
+    c = TestClient(web.app)
+    stale = c.get(f"/api/projects/{demo}").json()  # 검수 전에 읽은 화면
+    assert stale["episodes"][0]["findings"] == []
+    j = c.post(f"/api/projects/{demo}/jobs", json={"kind": "check", "ep": 1}).json()
+    for _ in range(100):
+        j = next(x for x in c.get("/api/jobs").json() if x["id"] == j["id"])
+        if j["status"] != "running":
+            break
+        time.sleep(0.05)
+    assert j["status"] == "done"
+    after = store.load(demo).episode(1)
+    assert after.rounds and after.checked_at
+    want = (after.model_dump(include=set(web.JOB_EP_FIELDS)), after.rounds[-1].no)
+
+    stale["episodes"][0]["summary"] = "화면에서 고친 요약"  # 화면이 그 화를 고쳐 화 전체를 보낸다
+    out = c.put(f"/api/projects/{demo}", json=stale).json()["episodes"][0]
+    assert out["summary"] == "화면에서 고친 요약"
+    e = store.load(demo).episode(1)
+    assert (e.model_dump(include=set(web.JOB_EP_FIELDS)), e.rounds[-1].no) == want
+
+    ep = dict(stale["episodes"][0], summary="PATCH 로 고친 요약", findings=[], rounds=[], issues=[], checked_at="")
+    eps = [ep] + [{"$same": x["plot"]["number"]} for x in stale["episodes"][1:]]
+    r = c.patch(f"/api/projects/{demo}", json={"edit_rev": stale["edit_rev"], "fields": {"episodes": eps}})
+    assert r.status_code == 200 and r.json()["episodes"][0]["summary"] == "PATCH 로 고친 요약"
+    e = store.load(demo).episode(1)
+    assert (e.model_dump(include=set(web.JOB_EP_FIELDS)), e.rounds[-1].no) == want

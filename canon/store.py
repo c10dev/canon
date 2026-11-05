@@ -2,15 +2,19 @@
 본문은 읽기 편하도록 episodes/NN.md 로도 내보낸다 (화가 100화를 넘으면 NNN.md, ep_file)."""
 from __future__ import annotations
 
+import contextlib
+import fcntl
 import hashlib
 import json
 import os
 import re
 import shutil
 import threading
+import time
 from contextvars import ContextVar
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Iterator
 
 from . import cancel
 from .dynamics import seed_ties
@@ -25,6 +29,36 @@ writer: ContextVar[str] = ContextVar("writer", default="")
 # 이번 웹 요청이 저장한 작품의 판 {이름: tag}. 웹 미들웨어가 요청마다 빈 dict 를 두고, 저장 응답에 판을 붙인다
 # (화면이 저장 응답을 받은 작품으로 보관해 다음 GET 이 304 가 되게). 작업 스레드는 문맥을 복사해도 같은 dict 를 본다
 saved: ContextVar[dict | None] = ContextVar("saved", default=None)
+
+
+def write_atomic(path: Path, text: str, mode: int | None = None, fsync: bool = False) -> os.stat_result:
+    """text 를 path 에 바꿔치기로 쓴다: 이 프로세스 · 스레드만 쓰는 tmp 파일에 다 쓴 뒤 os.replace 로 바꿔 넣는다.
+    중간에 멈춰도 path 는 옛 내용 그대로다. mode 를 주면 tmp 를 처음부터 그 권한으로 만든다 (키 파일).
+    fsync 면 내용과 폴더를 디스크에 내린다 (전원이 끊겨도 빈 파일이 남지 않게). 돌려주는 것: 바꿔 넣기 직전 tmp 의 stat (판)."""
+    path = Path(path)
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    try:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o666 if mode is None else mode)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            if mode is not None:
+                os.fchmod(f.fileno(), mode)  # 죽은 프로세스가 남긴 같은 이름의 tmp 는 만들 때의 권한을 따르지 않는다
+            f.write(text)
+            if fsync:
+                f.flush()
+                os.fsync(f.fileno())
+        st = tmp.stat()
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    if fsync:
+        with contextlib.suppress(OSError):
+            dfd = os.open(path.parent, os.O_RDONLY)
+            try:
+                os.fsync(dfd)
+            finally:
+                os.close(dfd)
+    return st
 
 
 def project_dir(name: str) -> Path:
@@ -82,6 +116,18 @@ def load_view(name: str) -> Project:
     return p
 
 
+def peek(name: str) -> Project:
+    """작품 목록 카드용 가벼운 읽기. 캐시에 같은 판이 있으면 그것, 없으면 스냅샷 파일 없이 project.json 만 검증한다.
+    스냅샷이 빠진 Project 라 캐시에 두지 않고, 고치거나 저장하지 않는다. seed_ties 도 거치지 않는다."""
+    path = project_dir(name) / "project.json"
+    st = path.stat()
+    with _view_lock:
+        hit = _views.get(name)
+    if hit and hit[0] == _key(st):
+        return hit[1]
+    return Project.model_validate_json(path.read_text(encoding="utf-8"))
+
+
 # ---------- 스냅샷 파일 ----------
 # 스냅샷은 작품의 절반 가까이라(장편) project.json 이 아니라 snapshots/<화>-<내용 해시>.json 에 하나씩 둔다.
 # project.json 맨 앞의 "snapshot_files" 가 차례대로 파일 이름을 적는다. 내용이 같으면 이름도 같아 다시 쓰지 않는다.
@@ -102,15 +148,16 @@ def _snap_refs(path: Path) -> list[str] | None:
     return json.loads(m.group(1)) if m else None
 
 
-def read_disk(path: Path, tries: int = 3) -> Project:
-    """디스크의 project.json 을 스냅샷 파일과 함께 읽는다 (캐시를 거치지 않음)."""
+def read_disk(path: Path, tries: int = 3, home: Path | None = None) -> Project:
+    """디스크의 project.json 을 스냅샷 파일과 함께 읽는다 (캐시를 거치지 않음).
+    home 은 스냅샷 폴더가 있는 작품 폴더다. 비우면 path 가 든 폴더 (backups/ 안의 판은 작품 폴더를 넘긴다)."""
     for left in range(tries, 0, -1):
         text = path.read_text(encoding="utf-8")
         p = Project.model_validate_json(text)
         m = _SNAP_HEAD.match(text[:64 * 1024])
         if not m:
             return p
-        sdir = path.parent / SNAP_DIR
+        sdir = (home or path.parent) / SNAP_DIR
         try:
             p.snapshots = [Snapshot.model_validate_json((sdir / f).read_text(encoding="utf-8")) for f in json.loads(m.group(1))]
             return p
@@ -139,10 +186,13 @@ def _write_snapshots(d: Path, p: Project) -> list[str]:
         refs.append(f)
         if not (sdir / f).exists():
             sdir.mkdir(exist_ok=True)
-            tmp = sdir / f"{f}.{os.getpid()}.{threading.get_ident()}.tmp"
-            tmp.write_text(body, encoding="utf-8")
-            os.replace(tmp, sdir / f)
+            write_atomic(sdir / f, body, fsync=True)  # project.json 이 이 파일을 적기 전에 디스크까지 내린다
     return refs
+
+
+# 이 시간(초) 안에 쓴 스냅샷 파일은 아무 판도 적지 않아도 지우지 않는다.
+# 잠금(_disk_lock)을 쓰지 않는 옛 프로세스가 막 쓰고 아직 project.json 에 적지 않은 파일을 지키는 두 번째 울타리다
+SNAP_GRACE = 60.0
 
 
 def _drop_old_snapshots(d: Path) -> None:
@@ -150,11 +200,44 @@ def _drop_old_snapshots(d: Path) -> None:
     if not sdir.is_dir():
         return
     keep: set[str] = set()
-    for f in [d / "project.json", d / "project.prev.json", *(d / BACKUP_DIR).glob("project.*.json")]:
+    for f in [d / "project.json", d / "project.prev.json", *(d / BACKUP_DIR).glob("*.json")]:
         keep |= set(_snap_refs(f) or ())
+    fresh = time.time() - SNAP_GRACE
     for f in sdir.glob("*.json"):
-        if f.name not in keep:
-            f.unlink(missing_ok=True)
+        if f.name in keep:
+            continue
+        try:
+            if f.stat().st_mtime > fresh:
+                continue
+        except FileNotFoundError:
+            continue
+        f.unlink(missing_ok=True)
+
+
+_held = threading.local()
+
+
+@contextlib.contextmanager
+def _disk_lock(d: Path) -> Iterator[None]:
+    """작품 폴더의 .lock 에 거는 프로세스 사이 잠금 (명령줄과 웹 서버가 같은 작품을 함께 저장해도 섞이지 않게).
+    flock 은 연 파일마다 걸려서 같은 프로세스의 다른 스레드도 기다린다. 한 스레드 안에서는 다시 잡아도 된다."""
+    held: set[Path] = getattr(_held, "dirs", None) or set()
+    _held.dirs = held
+    if d in held:
+        yield
+        return
+    d.mkdir(parents=True, exist_ok=True)
+    fd = os.open(d / ".lock", os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        held.add(d)
+        try:
+            yield
+        finally:
+            held.discard(d)
+            fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
 
 
 def load(name: str) -> Project:
@@ -228,10 +311,15 @@ def _saved_mark(path: Path) -> tuple[int, str]:
 
 
 # ---------- 저장 전 백업 ----------
-# project.prev.json: 직전 판 하나. backups/project.<날짜-시>.json: 시간마다 첫 저장 직전 판, 최근 BACKUP_KEEP 개.
+# project.prev.json: 직전 판 하나. backups/project.<날짜-시>.json: 시간마다 첫 저장 직전 판 (보관 규칙은 backup_prune).
+# backups/before-restore.<날짜-시분초>.json: 백업에서 되돌리기 직전 판 (최근 RESTORE_KEEP 개).
 # 저장은 늘 새 파일로 바꿔치기(os.replace)하므로 옛 판은 하드 링크로 붙잡으면 복사하지 않아도 그대로 남는다.
 BACKUP_DIR = "backups"
-BACKUP_KEEP = 24
+BACKUP_HOURS = 24  # 최근 시간별 백업을 이만큼 모두 남긴다
+BACKUP_DAYS = 14  # 그보다 오래된 시간별 백업은 최근 이 날수 동안 하루에 하나(그날 마지막 것)만 남긴다
+RESTORE_KEEP = 10
+_HOURLY = re.compile(r"^project\.(\d{8})-(\d{2})\.json$")
+_RESTORE = re.compile(r"^before-restore\.(\d{8}-\d{6})\.json$")
 
 
 def _hold(src: Path, dst: Path) -> None:
@@ -244,21 +332,112 @@ def _hold(src: Path, dst: Path) -> None:
     os.replace(tmp, dst)
 
 
+def backup_prune(names: list[str], now: datetime) -> list[str]:
+    """시간별 백업 파일 이름 중 지울 것. 최근 BACKUP_HOURS 개는 모두 남기고,
+    그보다 오래된 것은 now 부터 BACKUP_DAYS 날 안의 날마다 그날 마지막 것 하나만 남긴다. 시간별 이름이 아닌 파일은 건드리지 않는다."""
+    hourly = sorted(n for n in names if _HOURLY.match(n))
+    old = hourly[:-BACKUP_HOURS] if BACKUP_HOURS else hourly
+    first = now.date().toordinal() - BACKUP_DAYS + 1
+    keep: dict[str, str] = {}
+    for n in old:  # 차례대로 보므로 날마다 마지막 것이 남는다
+        day = _HOURLY.match(n).group(1)  # type: ignore[union-attr]
+        if datetime.strptime(day, "%Y%m%d").date().toordinal() >= first:
+            keep[day] = n
+    return [n for n in old if n not in keep.values()]
+
+
 def _backup(d: Path, path: Path) -> None:
     _hold(path, d / "project.prev.json")
     bdir = d / BACKUP_DIR
-    dst = bdir / f"project.{datetime.now():%Y%m%d-%H}.json"
+    now = datetime.now()
+    dst = bdir / f"project.{now:%Y%m%d-%H}.json"
     if dst.exists():
         return
     bdir.mkdir(exist_ok=True)
     _hold(path, dst)
-    for old in sorted(bdir.glob("project.*.json"))[:-BACKUP_KEEP]:
-        old.unlink(missing_ok=True)
+    for old in backup_prune([f.name for f in bdir.glob("project.*.json")], now):
+        (bdir / old).unlink(missing_ok=True)
 
 
 def backups(name: str) -> list[Path]:
     """남아 있는 시간별 백업, 오래된 것부터."""
-    return sorted((project_dir(name) / BACKUP_DIR).glob("project.*.json"))
+    return sorted(f for f in (project_dir(name) / BACKUP_DIR).glob("project.*.json") if _HOURLY.match(f.name))
+
+
+# 백업 목록의 화 수 · 반영한 마지막 화 {경로: (판, (화 수, 반영한 마지막 화, 제목))}. 하드 링크로 남긴 판은 바뀌지 않는다
+_brief_seen: dict[Path, tuple[tuple[int, int, int], tuple[int, int, str]]] = {}
+
+
+def _brief(f: Path, st: os.stat_result) -> tuple[int, int, str]:
+    key = _key(st)
+    seen = _brief_seen.get(f)
+    if seen and seen[0] == key:
+        return seen[1]
+    try:
+        d = json.loads(f.read_text(encoding="utf-8"))
+        eps = d.get("episodes") or []
+        done = [int((e.get("plot") or {}).get("number") or 0) for e in eps if e.get("status") == "finalized"]
+        got = (len(eps), max(done, default=0), str((d.get("meta") or {}).get("title") or ""))
+    except (OSError, ValueError, AttributeError, TypeError):
+        got = (-1, 0, "")  # 깨진 파일
+    _brief_seen[f] = (key, got)
+    return got
+
+
+def _backup_files(name: str) -> list[tuple[str, str, Path]]:
+    """되돌릴 수 있는 백업 (id, 종류, 경로). id 는 작품 폴더 안 상대 경로다."""
+    d = project_dir(name)
+    out: list[tuple[str, str, Path]] = []
+    bdir = d / BACKUP_DIR
+    if bdir.is_dir():
+        for f in bdir.glob("*.json"):
+            kind = "hourly" if _HOURLY.match(f.name) else "restore" if _RESTORE.match(f.name) else ""
+            if kind:
+                out.append((f"{BACKUP_DIR}/{f.name}", kind, f))
+    if (d / "project.prev.json").exists():
+        out.append(("project.prev.json", "prev", d / "project.prev.json"))
+    for f in d.glob("before-*.json"):
+        kind = "delete" if re.fullmatch(r"before-delete-\d+\.json", f.name) else "serial" if f.name == "before-serial.json" else ""
+        if kind:
+            out.append((f.name, kind, f))
+    return out
+
+
+def backup_list(name: str) -> list[dict]:
+    """되돌릴 수 있는 백업 목록, 새것부터. 시각(at)은 그 판을 저장한 때(파일 수정 시각, UTC)다.
+    episodes 는 화 수(깨진 파일이면 -1), finalized 는 반영한 마지막 화, ep 는 화를 지우기 전 백업이면 지운 화."""
+    rows = []
+    for fid, kind, f in _backup_files(name):
+        try:
+            st = f.stat()
+        except FileNotFoundError:
+            continue
+        n_eps, last, title = _brief(f, st)
+        m = re.fullmatch(r"before-delete-(\d+)\.json", f.name)
+        rows.append({"id": fid, "kind": kind, "at": datetime.fromtimestamp(st.st_mtime, timezone.utc).isoformat(timespec="seconds"),
+                     "episodes": n_eps, "finalized": last, "title": title, "ep": int(m.group(1)) if m else None})
+    return sorted(rows, key=lambda r: r["at"], reverse=True)
+
+
+def restore_backup(name: str, fid: str) -> Project:
+    """백업 하나(fid 는 backup_list 의 id)로 작품을 되돌린다. 지금 판은 먼저 backups/before-restore.<시각>.json 으로 남긴다.
+    backup_list 에 없는 id 는 FileNotFoundError."""
+    found = next((f for i, _, f in _backup_files(name) if i == fid), None)
+    if found is None or not found.exists():
+        raise FileNotFoundError(f"백업이 없어요: {fid}")
+    d = project_dir(name)
+    with _disk_lock(d):
+        p = read_disk(found, home=d)
+        seed_ties(p)
+        path = d / "project.json"
+        if path.exists():
+            bdir = d / BACKUP_DIR
+            bdir.mkdir(exist_ok=True)
+            _hold(path, bdir / f"before-restore.{datetime.now():%Y%m%d-%H%M%S}.json")
+            for old in sorted(f for f in bdir.glob("before-restore.*.json") if _RESTORE.match(f.name))[:-RESTORE_KEEP]:
+                old.unlink(missing_ok=True)
+        save(name, p)
+    return p
 
 
 def ep_file(d: Path, n: int, last: int) -> Path:
@@ -299,10 +478,7 @@ def edit_pending(name: str, fn) -> dict:
     with _pending_lock:
         d = load_pending(name)
         fn(d)
-        path = _pending_path(name)
-        tmp = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
-        tmp.write_text(json.dumps(d, ensure_ascii=False, indent=1), encoding="utf-8")
-        os.replace(tmp, path)
+        write_atomic(_pending_path(name), json.dumps(d, ensure_ascii=False, indent=1))
         return d
 
 
@@ -311,22 +487,24 @@ def save(name: str, p: Project) -> Path:
     d = project_dir(name)
     d.mkdir(parents=True, exist_ok=True)
     path = d / "project.json"
-    if path.exists():
-        rev, by = _saved_mark(path)
-        if writer.get():
-            p.edit_rev, p.saved_by = rev + 1, writer.get()
-        else:  # 작업이 오래전에 읽은 사본을 저장해도 화면 저장 기록은 디스크 것을 잇는다
-            p.edit_rev, p.saved_by = rev, by
-        _backup(d, path)  # 직전 판과 시간별 백업을 남긴다
-    # 다른 스레드(자동 집필, 백그라운드 작업)가 쓰는 도중에 읽어도 빈 파일을 보지 않게 바꿔치기로 쓴다
-    # 들여쓰기 없이 쓴다: 장편은 들여쓰기만으로 1MB 넘게 커지고 저장마다 0.015초 더 걸린다 (2026-11-02 실측)
-    tmp = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
-    refs = _write_snapshots(d, p)  # 스냅샷 파일을 먼저 쓴다. project.json 이 바뀌기 전에는 아무도 새 파일을 적지 않는다
-    body = p.model_dump_json(exclude={"snapshots"})
-    tmp.write_text('{"snapshot_files":' + json.dumps(refs) + "," + body[1:], encoding="utf-8")
-    st = tmp.stat()  # 바꿔치기는 inode 와 수정 시각을 그대로 옮긴다. 바꾼 뒤 다른 스레드가 또 써도 이 판은 이 내용이다
-    os.replace(tmp, path)
-    _drop_old_snapshots(d)
+    # 판 기록 읽기부터 옛 스냅샷 지우기까지 한 잠금 안에서 한다. 다른 프로세스의 저장이 사이에 끼면
+    # 그 저장이 이쪽이 막 쓴(아직 project.json 에 적지 않은) 스냅샷 파일을 지워 작품을 못 읽게 된다
+    with _disk_lock(d):
+        if path.exists():
+            rev, by = _saved_mark(path)
+            if writer.get():
+                p.edit_rev, p.saved_by = rev + 1, writer.get()
+            else:  # 작업이 오래전에 읽은 사본을 저장해도 화면 저장 기록은 디스크 것을 잇는다
+                p.edit_rev, p.saved_by = rev, by
+            _backup(d, path)  # 직전 판과 시간별 백업을 남긴다
+        # 다른 스레드(자동 집필, 백그라운드 작업)가 쓰는 도중에 읽어도 빈 파일을 보지 않게 바꿔치기로 쓴다
+        # 들여쓰기 없이 쓴다: 장편은 들여쓰기만으로 1MB 넘게 커지고 저장마다 0.015초 더 걸린다 (2026-11-02 실측)
+        refs = _write_snapshots(d, p)  # 스냅샷 파일을 먼저 쓴다. project.json 이 바뀌기 전에는 아무도 새 파일을 적지 않는다
+        body = p.model_dump_json(exclude={"snapshots"})
+        # 바꿔치기 직전 tmp 의 판을 받는다. 바꿔치기는 inode 와 수정 시각을 그대로 옮기므로 바꾼 뒤 다른 스레드가 또 써도 이 판은 이 내용이다
+        # fsync 는 3MB 에 1.4ms 쯤 더 든다 (2026-11-05 실측). 전원이 끊겨도 빈 project.json 이 남지 않게 한다
+        st = write_atomic(path, '{"snapshot_files":' + json.dumps(refs) + "," + body[1:], fsync=True)
+        _drop_old_snapshots(d)
     fresh = _remember(name, st, p)
     memo: dict[int, list[tuple[Snapshot, str]]] = {}
     for s, ref in zip(fresh.snapshots, refs):
@@ -343,7 +521,7 @@ def save(name: str, p: Project) -> Path:
             f = ep_file(d, ep.plot.number, last)
             body = f"# {ep.plot.number}화. {ep.plot.title}\n\n{ep.text}\n"
             if _md_written.get(f) != (hash(body), _mtime(f)):  # 지난번에 쓴 그대로면 다시 쓰지 않는다
-                f.write_text(body, encoding="utf-8")
+                write_atomic(f, body)
                 _md_written[f] = (hash(body), _mtime(f))
     if ep_dir.is_dir():  # 본문을 지운 화나 빠진 화, 자릿수가 바뀐 옛 이름의 내보낸 파일은 지운다 (숫자.md 만, 작가가 둔 다른 파일은 그대로)
         have = {ep_file(d, e.plot.number, last).name for e in p.episodes if e.text}
@@ -373,9 +551,7 @@ def load_branch(name: str) -> BranchInfo | None:
 
 def save_branch(name: str, b: BranchInfo) -> Path:
     path = _branch_path(name)
-    tmp = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
-    tmp.write_text(b.model_dump_json(indent=2), encoding="utf-8")
-    os.replace(tmp, path)
+    write_atomic(path, b.model_dump_json(indent=2))
     return path
 
 
@@ -408,9 +584,7 @@ def load_play(name: str) -> PlayInfo | None:
 
 def save_play(name: str, info: PlayInfo) -> Path:
     path = _play_path(name)
-    tmp = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
-    tmp.write_text(info.model_dump_json(indent=2), encoding="utf-8")
-    os.replace(tmp, path)
+    write_atomic(path, info.model_dump_json(indent=2))
     return path
 
 
@@ -440,9 +614,7 @@ def load_cuelab(name: str, n: int) -> CueLab:
 def save_cuelab(name: str, lab: CueLab) -> Path:
     path = _cuelab_path(name, lab.episode)
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
-    tmp.write_text(lab.model_dump_json(indent=2), encoding="utf-8")
-    os.replace(tmp, path)
+    write_atomic(path, lab.model_dump_json(indent=2))
     return path
 
 
@@ -450,6 +622,82 @@ def cuelab_episodes(name: str) -> list[int]:
     """큐 시트 실험 파일이 있는 화."""
     d = project_dir(name) / "cuelab"
     return sorted(int(x.stem) for x in d.glob("*.json") if x.stem.isdigit()) if d.exists() else []
+
+
+def compare_dir(name: str, n: int) -> Path:
+    """n화 블라인드 비교본 폴더 (research.compare_dir). projects/<이름>/compare/<화 두 자리>/."""
+    return project_dir(name) / "compare" / f"{n:02d}"
+
+
+# 화 번호로 이름 붙인 바깥 파일: 큐 시트 실험 cuelab/<화>.json, 블라인드 비교본 compare/<화>/.
+# 화를 넣거나 빼면 project.json 안의 번호와 함께 옮겨야 다른 화의 실험 · 비교본이 새 번호의 화에 붙지 않는다.
+SIDE_REMOVED = "removed"
+_SIDE_LABEL = {"cuelab": "큐 시트 실험", "compare": "블라인드 비교본"}
+
+
+def _side_files(name: str) -> list[tuple[str, int, Path]]:
+    """(종류, 화, 경로). cuelab 은 <화>.json 파일, compare 는 <화> 폴더."""
+    d = project_dir(name)
+    out = []
+    if (d / "cuelab").is_dir():
+        out += [("cuelab", int(f.stem), f) for f in (d / "cuelab").glob("*.json") if f.stem.isdigit()]
+    if (d / "compare").is_dir():
+        out += [("compare", int(f.name), f) for f in (d / "compare").iterdir() if f.is_dir() and f.name.isdigit()]
+    return out
+
+
+def _side_path(name: str, kind: str, n: int) -> Path:
+    return _cuelab_path(name, n) if kind == "cuelab" else compare_dir(name, n)
+
+
+def _set_aside(f: Path, n: int, stamp: str) -> Path:
+    """f 를 같은 폴더의 removed/<화>.<시각>(.json) 으로 옮긴다. 지우지 않는다."""
+    root = f.parent / SIDE_REMOVED
+    root.mkdir(exist_ok=True)
+    dest, i = root / f"{n}.{stamp}{f.suffix}", 1
+    while dest.exists():
+        dest, i = root / f"{n}.{stamp}-{i}{f.suffix}", i + 1
+    os.replace(f, dest)
+    return dest
+
+
+def renumber_side_files(name: str, shift, gone=()) -> list[str]:
+    """화를 넣거나 뺀 뒤 큐 시트 실험 · 블라인드 비교본을 새 화 번호로 옮긴다. shift 는 옛 번호 → 새 번호(autorun.renumber 와 같은 규칙).
+    gone 화(뺀 화)의 파일은 지우지 않고 removed/<화>.<시각> 으로 남긴다. 옮기는 파일은 임시 이름을 거쳐 서로 덮어쓰지 않는다.
+    큐 시트 실험 파일 안의 episode 도 고친다 (save_cuelab 이 그 번호로 쓴다). 무엇을 옮겼는지 설명을 돌려준다."""
+    gone = set(gone)
+    stamp = f"{datetime.now():%Y%m%d-%H%M%S}"
+    notes: list[str] = []
+    moving = []
+    for kind, n, f in sorted(_side_files(name), key=lambda x: (x[0], x[1])):
+        if n in gone:
+            dest = _set_aside(f, n, stamp)
+            notes.append(f"뺀 {n}화의 {_SIDE_LABEL[kind]}은 {kind}/{SIDE_REMOVED}/{dest.name} 으로 남겨 뒀어요.")
+            continue
+        new = shift(n)
+        if new != n:
+            tmp = f.with_name(f".renum-{n}{f.suffix}")
+            os.replace(f, tmp)
+            moving.append((kind, n, new, tmp))
+    for kind, n, new, tmp in moving:
+        dest = _side_path(name, kind, new)
+        if dest.exists():  # 옮길 자리에 남은 파일이 있으면 덮지 않고 따로 둔다
+            _set_aside(dest, new, stamp)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(tmp, dest)
+        if kind == "cuelab":
+            try:
+                data = json.loads(dest.read_text(encoding="utf-8"))
+            except ValueError:
+                continue
+            if isinstance(data, dict):
+                data["episode"] = new
+                write_atomic(dest, json.dumps(data, ensure_ascii=False, indent=2))
+    for kind in ("cuelab", "compare"):
+        pairs = [f"{n}→{new}화" for k, n, new, _ in moving if k == kind]
+        if pairs:
+            notes.append(f"{_SIDE_LABEL[kind]}도 새 화 번호로 옮겼어요({', '.join(pairs)}).")
+    return notes
 
 def backup_path(name: str, tag: str) -> Path:
     return project_dir(name) / f"{tag}.json"
@@ -459,7 +707,7 @@ def save_backup(name: str, tag: str, p: Project) -> Path:
     """되돌리기용으로 작품 전체를 따로 남긴다 (예: 단편 → 장편 전환 직전, tag='before-serial')."""
     path = backup_path(name, tag)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(p.model_dump_json(indent=2), encoding="utf-8")
+    write_atomic(path, p.model_dump_json(indent=2), fsync=True)  # 되돌리기의 유일한 판이라 디스크까지 내린다
     return path
 
 

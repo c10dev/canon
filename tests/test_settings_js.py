@@ -154,3 +154,20 @@ def test_put_config_takes_only_a_claude_binary(client):
     got = c.put("/api/config", json={"claude_bin": "~/.local/bin/claude"}).json()
     assert got["claude_bin"] == "~/.local/bin/claude"
     assert c.put("/api/config", json={"claude_bin": ""}).json()["claude_bin"] in ("", None)
+
+
+@needs_node
+def test_backup_rows_describe_each_backup():
+    got = run_js(FILES, """(() => ({
+      find: settingsMatch(SET_ROWS, '백업').map((r) => r.id),
+      cat: setCat('backup')[2],
+      hourly: backupDesc({ kind: 'hourly', episodes: 12, finalized: 10, ep: null }),
+      none: backupDesc({ kind: 'prev', episodes: 3, finalized: 0, ep: null }),
+      del: backupDesc({ kind: 'delete', episodes: 12, finalized: 12, ep: 12 }),
+      broken: backupDesc({ kind: 'hourly', episodes: -1, finalized: 0, ep: null }),
+    }))()""", {})
+    assert got["find"] == ["backup-list"] and got["cat"] == "project"
+    assert got["hourly"] == "시간별 · 12화 · 10화까지 반영"
+    assert got["none"] == "직전 판 · 3화 · 반영한 화 없음"
+    assert got["del"] == "12화 지우기 전 · 12화 · 12화까지 반영"
+    assert got["broken"] == "시간별 · 읽지 못하는 파일이에요"

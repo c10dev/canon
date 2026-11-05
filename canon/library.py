@@ -69,7 +69,7 @@ def save(e: StyleEntry, note: str = "") -> StyleEntry:
     _snapshot(e, note)
     path = _path(e.id)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(e.model_dump_json(indent=2), encoding="utf-8")
+    store.write_atomic(path, e.model_dump_json(indent=2))
     return e
 
 
