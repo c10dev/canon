@@ -97,6 +97,15 @@ def strict_schema(schema: type[BaseModel]) -> dict:
     return walk(_inline_refs(schema.model_json_schema()))
 
 
+def json_instruction(schema: type[BaseModel]) -> str:
+    """구조화 출력 없이 JSON 을 받을 때 요청 끝에 붙이는 형식 지시. 받은 글은 _parse 가 검증한다."""
+    from .llm import _inline_refs
+
+    js = json.dumps(_inline_refs(schema.model_json_schema()), ensure_ascii=False, separators=(",", ":"))
+    return ("\n\n응답 형식: 아래 JSON 스키마를 따르는 JSON 객체 하나만 냅니다. 앞뒤에 다른 글이나 코드 블록 표시를 붙이지 않습니다.\n"
+            f"{js}")
+
+
 def _parse(schema: type[T], raw: Any) -> T:
     if isinstance(raw, (dict, list)):
         return schema.model_validate(raw)
@@ -398,6 +407,7 @@ def _served(d: dict) -> str:
 class ClaudeCodeLLM:
     """설치된 Claude Code 를 `claude -p` 로 부른다. 도구는 모두 끄고, 시스템 프롬프트를 Canon 것으로 바꾸고,
     세션을 남기지 않는다. 구조화 출력은 --json-schema 로 받고 pydantic 으로 검증해, 어긋나면 한 번 더 묻는다."""
+    family_cache = True  # PREFIX_HINT 를 받으면 캐시 가족으로 부른다 (llm.FAMILY_SYSTEM)
 
     def __init__(self, model: str | None = None, binary: str | None = None, timeout: float | None = None,
                  effort: str = ""):
@@ -481,8 +491,13 @@ class ClaudeCodeLLM:
         try:
             sch = strict_schema(schema) if schema else None
             head, ask, self.last_cut = self._split(system, prompt, schema, cut, prefix)
+            family = bool(prefix and self.last_cut)
+            if family and schema is not None:
+                # --json-schema 는 스키마마다 다른 도구를 붙여 캐시를 가른다 (도구가 시스템 프롬프트보다 앞). 가족 호출은 글로 JSON 을 받는다
+                sch, ask = None, ask.rstrip() + json_instruction(schema)
             if head != system:
-                gate = ("cli", self.requested, schema and schema.__name__, len(head), hash(head))
+                # 가족 호출은 스키마가 달라도 같은 앞부분이면 같은 캐시다
+                gate = ("cli", self.requested, None if family else schema and schema.__name__, len(head), hash(head))
                 claim = _claim(gate)
                 t = time.time()  # 앞 호출을 기다린 시간은 이 호출의 시간에 넣지 않는다
             sent = time.time()
@@ -504,14 +519,14 @@ class ClaudeCodeLLM:
             if not isinstance(d, dict):
                 raise ClaudeCodeError(f"Claude Code 실행 실패 (종료 코드 {proc.returncode}): "
                                       f"{_explain((proc.stderr or proc.stdout).strip() or '출력 없음')}")
-            tokens = self.last_usage = _cli_usage(d, structured=schema is not None)
+            tokens = self.last_usage = _cli_usage(d, structured=sch is not None)
             reached = bool(tokens and tokens["prompt_tokens"])  # 요청이 모델까지 갔으면 앞부분이 캐시에 들어갔다
             self.served = _served(d) or self.served
             if d.get("is_error") or d.get("subtype") not in (None, "success"):
                 raise ClaudeCodeError(f"Claude Code 오류: {_explain(str(d.get('result') or d.get('subtype') or d))}")
             if d.get("stop_reason") == "refusal":
                 raise ClaudeCodeError("Claude가 이 요청을 거절했어요 (안전 분류기). 수위나 표현을 조정하거나 다른 백엔드로 돌리세요.")
-            raw = d.get("structured_output") if schema is not None else None
+            raw = d.get("structured_output") if sch is not None else None
             if raw is not None:
                 self.last_note = str(d.get("result") or "").strip()  # 구조화 출력 곁에 남긴 글. 빈 결과의 이유를 보인다
             if raw is None:
@@ -543,6 +558,10 @@ class ClaudeCodeLLM:
             cut = shared_cut(("cli", self.requested, system, schema and schema.__name__), prompt, prefix)
         if not cut:
             return system, prompt, 0
+        if prefix:  # 캐시 가족: 시스템 프롬프트를 가족 공통 글로 두고 원래 것은 사용자 메시지 앞으로 (llm.FAMILY_SYSTEM)
+            from .llm import FAMILY_SYSTEM, role_block
+
+            return f"{FAMILY_SYSTEM}\n\n{prompt[:cut]}", role_block(system) + prompt[cut:].lstrip("\n"), cut
         return f"{system.rstrip()}\n\n{prompt[:cut]}", prompt[cut:].lstrip("\n"), cut
 
     def json(self, system: str, prompt: str, schema: type[T], hint: dict | None = None) -> T:
@@ -560,9 +579,12 @@ class ClaudeCodeLLM:
                 cut = self.last_cut
         raise AssertionError("unreachable")
 
-    def text(self, system: str, prompt: str) -> str:
+    def text(self, system: str, prompt: str, hint: dict | None = None) -> str:
+        """hint 의 PREFIX_HINT 는 캐시 가족 경계다 (llm.family_text)."""
+        from .llm import prefix_of
+
         self.last_attempts = 1
-        return self._call(system, prompt)
+        return self._call(system, prompt, prefix=prefix_of(hint))
 
 
 # ---------- API 키: Messages API ----------
@@ -668,6 +690,7 @@ def _api_usage(u: Any) -> dict | None:
 class ClaudeAPILLM:
     """Anthropic API 키로 Messages API 를 부른다. 구조화 출력은 output_config.format 으로 강제하고
     pydantic 으로 검증한다. 긴 본문도 끊기지 않게 스트리밍으로 받는다."""
+    family_cache = True
 
     def __init__(self, model: str | None = None, api_key: str | None = None, effort: str = ""):
         import anthropic
@@ -707,8 +730,14 @@ class ClaudeAPILLM:
         limit = min(MAX_TOKENS, out_cap) if out_cap else MAX_TOKENS
         t, tokens = time.time(), None
         self.last_raw = ""
+        content = cache_blocks((self.model, system, schema and schema.__name__), with_note(prompt), prefix)
+        if prefix and isinstance(content, list):  # 캐시 가족: 시스템 프롬프트를 가족 공통 글로, 원래 것은 뒤 블록 앞으로
+            from .llm import FAMILY_SYSTEM, role_block
+
+            content[1]["text"] = role_block(system) + content[1]["text"].lstrip("\n")
+            system = FAMILY_SYSTEM
         req: dict[str, Any] = {"model": self.model, "max_tokens": limit, "system": system,
-                               "messages": [{"role": "user", "content": cache_blocks((self.model, system, schema and schema.__name__), with_note(prompt), prefix)}]}
+                               "messages": [{"role": "user", "content": content}]}
         if schema is not None:
             req["output_config"] = {"format": {"type": "json_schema", "schema": strict_schema(schema)}}
         if self.effort:
@@ -752,6 +781,8 @@ class ClaudeAPILLM:
                 ask = repair_prompt(prompt, self.last_raw, schema, e)
         raise AssertionError("unreachable")
 
-    def text(self, system: str, prompt: str) -> str:
+    def text(self, system: str, prompt: str, hint: dict | None = None) -> str:
+        from .llm import prefix_of
+
         self.last_attempts = 1
-        return self._call(system, prompt)
+        return self._call(system, prompt, prefix=prefix_of(hint))
