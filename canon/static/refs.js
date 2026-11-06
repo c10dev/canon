@@ -25,7 +25,10 @@ const REF_TAIL_FROM = 0.6;
 const REF_SHORT = 300;
 const REF_WARN = new Set(['gap', 'dup', 'back', 'mention', 'short', 'long', 'restart']);
 
-const refBlank = (edit = '') => ({ edit, files: [], text: '', encoding: 'utf-8', bad: 0, name: '', source: '', notes: '', rights: !!edit,
+const REF_CLIP_SEL = '[data-theme-novel-content]';  // 사이트 가져오기 기본 본문 위치
+const REF_CLIP_MAX = 2000000;  // 한 번에 받는 글자 수 상한
+const refClipSel = () => { try { return localStorage.getItem('canon.refClipSel') || REF_CLIP_SEL; } catch { return REF_CLIP_SEL; } };
+const refBlank = (edit = '') => ({ edit, files: [], clips: [], text: '', encoding: 'utf-8', bad: 0, name: '', source: '', notes: '', rights: !!edit,
   rule: '', unit: '', example: '', strip: true, preview: null, cuts: [], sel: -1, at: -1, filter: 'all', undo: [], dirty: false });
 
 // ---------- 순수 함수 ----------
@@ -107,6 +110,28 @@ function refEpRows(d, lines) {
 
 const refKind = (k) => ((S.refLabels && S.refLabels.kinds) || []).find((x) => x.key === k)?.label || k;
 const refFlag = (f) => (S.refLabels && S.refLabels.flags && S.refLabels.flags[f]) || f;
+/** 사이트 가져오기 북마클릿(javascript: 주소). 소설 사이트에서 누르면 sel 칸(Shadow DOM 이면 그 안)의 문단을 모아
+    이름이 'canon-refs' 인 Canon 창(없으면 origin 의 넣기 화면을 새로 연다)에 postMessage 로 보낸다. Canon 이 받았다고 답할 때까지 0.25초마다 다시 보낸다(10초). */
+function refBookmarklet(origin, sel) {
+  const body = `(()=>{const C=${JSON.stringify(origin)},Q=${JSON.stringify(sel)};let h=null;try{h=document.querySelector(Q)}catch(e){}`
+    + "const r=h?(h.shadowRoot||h):document;const t=[...r.querySelectorAll('p')].map((p)=>p.textContent.trim()).filter(Boolean).join('\\n\\n');"
+    + "if(!t){alert('Canon: 본문 문단을 찾지 못했어요. 넣기 화면의 본문 위치 칸을 확인해 주세요.');return;}"
+    + "const m={type:'canon-ref-clip',id:Date.now()+'-'+Math.random(),title:document.title,url:location.href,text:t};"
+    + "const w=window.open('','canon-refs');if(!w){alert('Canon: 새 창을 열지 못했어요. 팝업을 허용해 주세요.');return;}"
+    + "let f=false;try{f=w.location.href==='about:blank'}catch(e){}if(f)w.location.href=C+'/#/refs/new';"
+    + "let ok=false,n=0;const on=(e)=>{if(e.origin===C&&e.data&&e.data.type==='canon-ref-clip-ok'&&e.data.id===m.id){ok=true;removeEventListener('message',on);"
+    + "if(e.data.error)alert('Canon: '+e.data.error)}};addEventListener('message',on);"
+    + "const k=setInterval(()=>{if(ok||++n>40){clearInterval(k);if(!ok){removeEventListener('message',on);alert('Canon: 창에 보내지 못했어요. Canon을 연 창을 닫고 다시 눌러 주세요.')}return}"
+    + "try{w.postMessage(m,C)}catch(e){}},250)})()";
+  return `javascript:${encodeURIComponent(body)}`;
+}
+
+/** 가져온 화 하나를 넣기 원고 끝에 잇는다. 페이지 제목을 첫 줄로 둬 화 표시 후보가 되게 한다. */
+function refClipAppend(text, clip) {
+  const part = [clip.title ? clip.title.trim() : '', clip.text.replace(/\r\n?/g, '\n').trim()].filter(Boolean).join('\n\n');
+  return text.trim() ? `${text.replace(/\s+$/, '')}\n\n\n${part}\n` : `${part}\n`;
+}
+
 const refEpName = (e) => [e.label || `${e.order}번째`, e.title].filter(Boolean).join(' ');
 
 // ---------- 불러오기 ----------
@@ -207,6 +232,7 @@ function refFileCard(d) {
     <div class="ref-drop" data-ref-drop="1"><p>${REF_TOUCH() ? '아래 버튼으로 txt 파일을 고르세요' : 'txt 파일을 여기에 끌어 놓으세요'}</p><label class="btn" for="ref-file-in">파일 고르기</label>
       <input id="ref-file-in" type="file" accept=".txt,text/plain" multiple hidden data-ref-file="1"></div>
     ${files}${enc2}${head}
+    ${refClipCard(d)}
     <details class="ref-paste"${!d.files.length && d.text ? ' open' : ''}><summary class="small">파일 대신 붙여 넣기</summary>
       <textarea rows="8" data-ref-paste="1" placeholder="원고를 붙여 넣으세요">${d.files.length ? '' : esc(d.text)}</textarea></details>
     <div class="field"><label for="ref-name">이름</label><input id="ref-name" type="text" data-ref-f="name" value="${esc(d.name)}" placeholder="예: 등대지기의 밤"></div>
@@ -215,6 +241,18 @@ function refFileCard(d) {
     <p class="small">원고는 이 컴퓨터의 작업 폴더에만 저장해요. AI에는 문체 만들기 · 역설계 실험에서 고른 화만 보내요.</p>
     <div class="row"><button type="button" class="btn primary" data-action="refDetect"${ok ? '' : ' disabled'}>화 나누기</button>
       ${d.text ? `<span class="small">${d.text.length.toLocaleString()}자</span>` : ''}</div></section>`;
+}
+
+/** 사이트에서 가져오기: 북마클릿 링크와 본문 위치 칸, 가져온 화 목록 */
+function refClipCard(d) {
+  const sel = refClipSel();
+  const list = (d.clips || []).length ? `<ol class="ref-clips small">${d.clips.map((c) => `<li>${esc(c.title || c.url)} <span>${c.chars.toLocaleString()}자</span></li>`).join('')}</ol>` : '';
+  return `<details class="ref-clip"${(d.clips || []).length ? ' open' : ''}><summary class="small">사이트에서 가져오기${(d.clips || []).length ? ` (${d.clips.length}화)` : ''}</summary>
+    <p class="small">아래 버튼을 브라우저 북마크 막대로 끌어 놓으세요. 소설 사이트에서 화를 열고 그 북마크를 누르면 본문이 이 화면에 들어와요. 화마다 한 번씩 누르면 차례대로 이어 붙여요.</p>
+    <div class="row"><a class="btn" data-ref-clip-link="1" href="${esc(refBookmarklet(location.origin, sel))}" onclick="event.preventDefault()">Canon으로 본문 보내기</a></div>
+    <div class="field"><label for="ref-clip-sel">본문 위치 <span class="small">(CSS 선택자, Shadow DOM 이면 그 안의 문단을 모아요. 바꾸면 북마크를 다시 끌어 놓으세요)</span></label>
+      <input id="ref-clip-sel" type="text" data-ref-clip-sel="1" value="${esc(sel)}" placeholder="${esc(REF_CLIP_SEL)}"></div>
+    ${list}</details>`;
 }
 
 function refRuleBar(d, v) {
@@ -595,6 +633,12 @@ document.addEventListener('input', (e) => {
     dr.dirty = true;
   }
   if (d.refI && S.refEditInfo) S.refEditInfo[d.refI] = e.target.value;
+  if (d.refClipSel) {
+    const sel = e.target.value.trim() || REF_CLIP_SEL;
+    try { localStorage.setItem('canon.refClipSel', sel); } catch { /* 기억하지 못해도 이번 링크는 바뀐다 */ }
+    const a = document.querySelector('[data-ref-clip-link]');
+    if (a) a.href = refBookmarklet(location.origin, sel);
+  }
 });
 
 document.addEventListener('change', (e) => {
@@ -622,6 +666,30 @@ document.addEventListener('change', (e) => {
   }
 });
 
+// 북마클릿이 보낸 화 받기 (refBookmarklet). 어느 화면에 있든 받아서 넣기 화면 원고 끝에 잇고, 받았다고 답한다.
+const REF_CLIP_SEEN = new Set();
+window.addEventListener('message', (e) => {
+  const m = e.data;
+  if (!m || m.type !== 'canon-ref-clip' || typeof m.text !== 'string' || typeof m.id !== 'string' || !e.source) return;
+  const reply = (error = '') => { try { e.source.postMessage({ type: 'canon-ref-clip-ok', id: m.id, error }, e.origin === 'null' ? '*' : e.origin); } catch { /* 보낸 창이 닫혔으면 넘긴다 */ } };
+  if (REF_CLIP_SEEN.has(m.id)) return reply();
+  if (S.refDraft && S.refDraft.edit && S.refDraft.dirty) return reply('경계를 고치는 중이에요. 저장하거나 나간 뒤 다시 눌러 주세요.');
+  if (m.text.length > REF_CLIP_MAX) return reply('본문이 너무 길어요.');
+  REF_CLIP_SEEN.add(m.id);
+  if (!S.refDraft || S.refDraft.edit) S.refDraft = refBlank();
+  const d = S.refDraft;
+  const clip = { title: typeof m.title === 'string' ? m.title.slice(0, 200) : '', url: typeof m.url === 'string' ? m.url.slice(0, 500) : '', text: m.text };
+  if (d.files.length) { REF_BYTES.length = 0; d.files = []; d.fileLines = []; d.text = ''; d.clips = []; }
+  d.text = refClipAppend(d.text, clip);
+  d.encoding = 'utf-8';
+  d.preview = null;
+  d.clips = [...(d.clips || []), { title: clip.title, url: clip.url, chars: clip.text.length }];
+  if (!d.source && clip.url) { try { d.source = new URL(clip.url).hostname; } catch { /* 주소가 아니면 비워 둔다 */ } }
+  reply();
+  toast(`본문을 가져왔어요: ${clip.title || clip.url || '제목 없음'} (${clip.text.length.toLocaleString()}자)`);
+  if (location.hash !== '#/refs/new') location.hash = '#/refs/new'; else render();
+});
+
 document.addEventListener('click', (e) => {
   const a = e.target.closest('[data-ref-goto]');
   if (a) S.refGoto = Number(a.dataset.refGoto);  // 경계 고치기 화면이 열리면 그 줄을 고른다 (refLoad)
@@ -645,6 +713,9 @@ document.addEventListener('dragleave', (e) => { const z = e.target.closest && e.
 .ref-drop { border: 2px dashed var(--line-strong); border-radius: var(--radius-12); padding: var(--space-24); display: flex; flex-direction: column; align-items: center; gap: var(--space-8); text-align: center; }
 .ref-drop.over { border-color: var(--accent); background: var(--accent-soft); }
 .ref-drop p { margin: 0; color: var(--muted); }
+.ref-clip p { margin: var(--space-8) 0; }
+.ref-clips { margin: var(--space-8) 0 0; padding-left: var(--space-20); }
+.ref-clips span { color: var(--muted); }
 .ref-files { margin: 0; padding-left: var(--space-20); }
 .ref-peek { font-family: var(--serif); white-space: pre-wrap; max-height: 160px; overflow: auto; padding: var(--space-12); border: 1px solid var(--line); border-radius: var(--radius-6); background: var(--bg); font-size: 0.875rem; }
 .ref-bad, .ref-warn { color: var(--amber-ink); font-weight: 700; }
