@@ -584,6 +584,9 @@ pre.brief.fold { max-height: 240px; overflow: hidden; -webkit-mask-image: linear
 .proposal { border: 1px solid var(--line); border-radius: var(--radius-10); padding: var(--space-12); display: flex; flex-direction: column; gap: var(--space-12); background: var(--bg); }
 .proposal.done { display: block; padding: var(--space-10) var(--space-12); }
 .proposal.done[open] { display: flex; }
+.chat-fold > summary { cursor: pointer; font-size: 0.8125rem; color: var(--muted); }
+.chat-fold-body { display: flex; flex-direction: column; gap: var(--space-12); margin-top: var(--space-12); }
+.next-acts { align-items: center; gap: var(--space-6); }
 .proposal.done summary { cursor: pointer; font-size: 0.8125rem; color: var(--muted); display: flex; gap: var(--space-8); align-items: center; }
 .proposal.done[open] summary { margin-bottom: var(--space-10); }
 .prop-part { padding: var(--space-10) var(--space-12); border-radius: var(--radius-8); background: var(--surface); border: 1px solid var(--line); display: flex; flex-direction: column; gap: var(--space-8); }

@@ -184,3 +184,33 @@ CANDS = """(() => {
 def test_sheet_grows_only_for_current_candidates():
     got = run_js(FILES, CANDS, _data([]))
     assert got == {"same": True, "other": False, "none": False}
+
+
+# 지금 고른 부분과 이어지는 맨 뒤 대화만 펴고 앞 대화는 접는다. 방금 넣은 답 아래에는 다음에 할 것(되돌리기 · 이어서 고치기 · 닫기)을 둔다
+FOLD = """(() => {
+  const ai = (sel, cand, outcome) => ({ role: 'ai', text: '답', selection: { start: 0, text: sel }, passage: { candidates: [{ text: cand, note: '' }] },
+    outcome, applied: outcome === 'applied' ? ['0'] : [] });
+  const msgs = [{ role: 'user', text: '더 길게' }, ai('다른 문장', '다른 문장 길게', 'applied'),
+    { role: 'user', text: '더 짧게' }, ai(data.q, data.new, 'applied')];
+  const e = data.project.episodes[0];
+  S.name = 'p';
+  S.project = { ...data.project, chats: [{ topic: 'text:1', messages: msgs }],
+    episodes: [{ ...e, edits: [{ id: 'e9', source: 'ai', start: 0, before: data.q, after: data.new, proposed: '', undone: false }] }] };
+  S.textDraft = {};
+  S.route = ['p', 'p', 'write', '1'];
+  S.chatTopic = 'text:1';
+  S.chatOpen = true;
+  S.presets = [];
+  S.sel = { n: 1, start: 0, text: data.new };
+  const after = { fold: CHAT_TOPICS.text.foldFrom(msgs), next: chatLog('text:1').includes('data-action="passageMore"') };
+  S.sel = { n: 1, start: 0, text: '새로 고른 곳' };
+  const other = { fold: CHAT_TOPICS.text.foldFrom(msgs), next: chatLog('text:1').includes('data-action="passageMore"'), note: chatLog('text:1').includes('아직 요청하지 않았어요') };
+  return { after, other };
+})()"""
+
+
+@needs_node
+def test_fold_old_talk_and_show_next_steps():
+    got = run_js(FILES, FOLD, {**_data([]), "new": NEW})
+    assert got["after"] == {"fold": 2, "next": True}
+    assert got["other"] == {"fold": 4, "next": False, "note": True}
