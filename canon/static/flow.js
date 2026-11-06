@@ -6,6 +6,8 @@
 
 /** 단계: [주소, 이름, 사이드바 번호]. 이름과 번호는 사이드바와 같다 (app.js stepLabel · navItems) */
 const FLOW_STAGES = [['write', '집필', 4], ['check', '검수', 5], ['review', '상태 승인', 6]];
+// 640px 이하 집필 머리 한 줄에서 보이는 짧은 이름 (app.css .fl-s). 낭독은 칸의 aria-label 이 온 이름을 말한다
+const FLOW_SHORT = { review: '승인' };
 
 /** 단계 셋의 글. e: 화, run: { checking, stating, delta: { picked, total } | null }.
     done 끝남 · warn 볼 것 남음 · off 아직 갈 수 없음(본문이 없음). 검수 단계는 home.js checkState 의 done 과 같다 */
@@ -44,7 +46,7 @@ function flowBar(n, cur) {
   });
   const cell = (s) => {
     const mark = s.done ? '<span class="fl-n ok" aria-hidden="true">✓</span>' : `<span class="fl-n" aria-hidden="true">${s.num}</span>`;
-    const inner = `${mark}<span class="fl-t"><strong>${s.label}</strong><span class="fl-sub${s.warn ? ' warn' : ''}">${esc(s.sub)}</span></span>`;
+    const inner = `${mark}<span class="fl-t"><strong>${FLOW_SHORT[s.key] ? `<span class="fl-l">${s.label}</span><span class="fl-s" aria-hidden="true">${FLOW_SHORT[s.key]}</span>` : s.label}</strong><span class="fl-sub${s.warn ? ' warn' : ''}">${esc(s.sub)}</span></span>`;
     const label = `${s.num}단계 ${s.label}${s.done ? ' (끝남)' : ''}: ${s.sub}`;
     return `<li>${s.off && s.key !== cur ? `<span class="fl-cell off" aria-label="${esc(label)}">${inner}</span>`
       : `<a class="fl-cell${s.key === cur ? ' cur' : ''}" href="${base()}/${s.key}/${n}" aria-label="${esc(label)}"${s.key === cur ? ' aria-current="step"' : ''}>${inner}</a>`}</li>`;
