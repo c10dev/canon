@@ -11,26 +11,42 @@ function show(run) {
   const busy = !!(run && run.running);
   $('one').disabled = busy;
   $('many').disabled = busy;
+  $('resume').disabled = busy;
   $('stop').hidden = !busy;
   const st = $('status');
   st.textContent = run ? run.msg || '' : '';
   st.className = run && run.error ? 'err' : '';
 }
 
-async function start(count) {
+function showCursor(cursor) {
+  const box = $('cursor');
+  if (cursor && cursor.url) {
+    $('cursor-title').textContent = cursor.title || cursor.url;
+    box.hidden = false;
+  } else {
+    box.hidden = true;
+  }
+}
+
+async function send(cmd, count) {
   const c = cfg();
   await chrome.storage.local.set({ canon: c.canon, sel: c.sel, next: c.next, count: String(c.count) });
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab) return;
-  chrome.runtime.sendMessage({ cmd: 'start', tabId: tab.id, cfg: { ...c, count } });
+  chrome.runtime.sendMessage({ cmd, tabId: tab.id, cfg: { ...c, count } });
 }
 
 (async () => {
-  const saved = await chrome.storage.local.get([...Object.keys(FIELDS), 'run']);
+  const saved = await chrome.storage.local.get([...Object.keys(FIELDS), 'run', 'cursor']);
   for (const [k, v] of Object.entries(FIELDS)) $(k).value = saved[k] ?? v;
   show(saved.run);
-  chrome.storage.onChanged.addListener((ch) => { if (ch.run) show(ch.run.newValue); });
-  $('one').addEventListener('click', () => start(1));
-  $('many').addEventListener('click', () => start(cfg().count));
+  showCursor(saved.cursor);
+  chrome.storage.onChanged.addListener((ch) => {
+    if (ch.run) show(ch.run.newValue);
+    if (ch.cursor) showCursor(ch.cursor.newValue);
+  });
+  $('one').addEventListener('click', () => send('start', 1));
+  $('many').addEventListener('click', () => send('start', cfg().count));
+  $('resume').addEventListener('click', () => send('resume', cfg().count));
   $('stop').addEventListener('click', () => chrome.runtime.sendMessage({ cmd: 'stop' }));
 })();
