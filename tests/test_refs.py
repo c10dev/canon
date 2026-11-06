@@ -397,21 +397,106 @@ def test_inbox(home):
     assert refs.inbox_clear() == 0 and refs.inbox() == []
 
 
-def test_api_inbox_and_extension(home):
-    import io
-    import zipfile
+NEWTO_TXT = """===== 001화 [111] =====
+
+첫 화 첫 문단
+
+첫 화 둘째 문단
+
+===== 002화 [112] =====
+
+둘째 화 본문
+"""
+
+# 가짜 newto: 진행 줄을 찍고 합본을 쓰고 끝 코드 1(접근 제한 남음)로 끝난다
+FAKE_NEWTO = r"""
+import sys
+from pathlib import Path
+work = sys.argv[sys.argv.index("--work") + 1]
+print(f"작품 {work}: 목록 1페이지, 회차 3개", flush=True)
+print(f"[1/3] {work}/111", flush=True)
+print(f"[2/3] {work}/112", flush=True)
+print(f"[3/3] {work}/113", flush=True)
+print(f"{work}/113: 접근 제한", flush=True)
+name = f"등대 [{work}].txt"
+Path(name).write_text(Path(sys.argv[1]).read_text(encoding="utf-8"), encoding="utf-8")
+print(f"합본 TXT: {name}", flush=True)
+sys.exit(1)
+"""
+
+
+@pytest.fixture()
+def newto(tmp_path, monkeypatch):
+    import sys
+    d = tmp_path / "newto"
+    d.mkdir()
+    (d / "package.json").write_text("{}", encoding="utf-8")
+    (d / "src.txt").write_text(NEWTO_TXT, encoding="utf-8")
+    (d / "fake.py").write_text(FAKE_NEWTO, encoding="utf-8")
+    monkeypatch.setenv("CANON_NEWTO", str(d))
+    monkeypatch.setattr(refs, "newto_command", lambda work: [sys.executable, str(d / "fake.py"), str(d / "src.txt"), "--work", work])
+    return d
+
+
+def test_newto_sections():
+    secs = refs.newto_sections(NEWTO_TXT + "===== 회차 [113] =====\n\n번호 없는 화\n===== 004화 [114] =====\n\n")
+    assert [(x["label"], x["id"]) for x in secs] == [("001화", "111"), ("002화", "112"), ("", "113")]  # 빈 화는 뺀다
+    assert secs[0]["text"] == "첫 화 첫 문단\n\n첫 화 둘째 문단"
+
+
+def test_newto_dir(tmp_path, monkeypatch):
+    monkeypatch.setenv("CANON_NEWTO", str(tmp_path))
+    assert refs.newto_dir() is None  # package.json 이 없으면 newto 폴더가 아니다
+    (tmp_path / "package.json").write_text("{}", encoding="utf-8")
+    assert refs.newto_dir() == tmp_path
+
+
+def test_newto_fetch(home, newto):
+    import threading
+
+    class FakeJob:
+        note, done, total = "", 0, 1
+        stop = threading.Event()
+    job = FakeJob()
+    got = refs.newto_fetch("34323", job)
+    assert got["added"] == 2 and got["dup"] == 0 and got["book"] == "등대" and got["code"] == 1
+    assert job.note == "합본 TXT: 등대 [34323].txt" and (job.done, job.total) == (2, 3)
+    items = refs.inbox()
+    assert [(x["title"], x["url"], x["book"]) for x in items] == [("001화", "newto:34323/111", "등대"), ("002화", "newto:34323/112", "등대")]
+    assert refs.newto_fetch("34323", job)["dup"] == 2  # 다시 받으면 같은 화는 더하지 않는다
+    assert refs.newto_import("34323")["dup"] == 2  # 합본 경로를 모르면 newto 폴더에서 찾는다
+    with pytest.raises(ValueError):
+        refs.newto_fetch("34323; rm", job)
+
+
+def test_newto_fetch_error(home, newto, monkeypatch):
+    import sys
+    import threading
+
+    class FakeJob:
+        note, done, total = "", 0, 1
+        stop = threading.Event()
+    monkeypatch.setattr(refs, "newto_command", lambda work: [sys.executable, "-c", "print('목록을 열지 못했습니다.'); raise SystemExit(1)"])
+    with pytest.raises(RuntimeError, match="목록을 열지 못했습니다"):
+        refs.newto_fetch("1", FakeJob())
+
+
+def test_api_inbox_and_newto(home, newto, monkeypatch):
+    import time
     c = TestClient(web.app)
-    ext = {"origin": "chrome-extension://abcdefghijklmnop"}
-    assert c.post("/api/refs/inbox", json={"title": "제1화", "url": "u", "text": "본문"}, headers=ext).json() == {"count": 1, "dup": False}
-    assert c.post("/api/refs/inbox", json={"text": "본문2"}, headers={"origin": "https://evil.example.com"}).status_code == 403
-    assert c.post("/api/refs", json={"name": "x", "text": "글"}, headers=ext).status_code == 403  # 확장 Origin 은 받은 화 주소만
-    assert c.post("/api/refs/inbox", json={"text": ""}).status_code == 400
+    assert c.get("/api/refs/inbox").json() == {"items": [], "newto": True}
+    assert c.post("/api/refs/inbox", json={"text": "본문"}, headers={"origin": "chrome-extension://abcdefghijklmnop"}).status_code in (403, 405)
+    assert c.post("/api/refs/newto", json={"work": "abc"}).status_code == 400
+    j = c.post("/api/refs/newto", json={"work": "34323"}).json()
+    assert (j["project"], j["kind"]) == (".refs", "ref_newto")
+    for _ in range(100):
+        j = c.get(f"/api/jobs/{j['id']}").json()
+        if j["status"] != "running":
+            break
+        time.sleep(0.05)
+    assert j["status"] == "done" and j["result"]["added"] == 2
     items = c.get("/api/refs/inbox").json()["items"]
-    assert [x["title"] for x in items] == ["제1화"]
-    assert c.request("DELETE", "/api/refs/inbox", json={"ids": [items[0]["id"]]}).json() == {"count": 0}
-    assert c.get("/api/refs/extension.zip").status_code == 400
-    r = c.get("/api/refs/extension.zip", params={"canon": "https://vocado.example.ts.net:8446/#/refs/new"})
-    z = zipfile.ZipFile(io.BytesIO(r.content))
-    names = set(z.namelist())
-    assert {"canon-extension/manifest.json", "canon-extension/background.js", "canon-extension/popup.html", "canon-extension/popup.js"} <= names
-    assert z.read("canon-extension/config.js").decode() == 'const CANON_DEFAULT = "https://vocado.example.ts.net:8446";\n'
+    assert [x["title"] for x in items] == ["001화", "002화"]
+    assert c.request("DELETE", "/api/refs/inbox", json={"ids": [items[0]["id"]]}).json() == {"count": 1}
+    monkeypatch.setenv("CANON_NEWTO", str(newto / "없음"))
+    assert c.post("/api/refs/newto", json={"work": "34323"}).status_code == 400

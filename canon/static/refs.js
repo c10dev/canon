@@ -15,9 +15,12 @@ Object.assign(S, {
   refCmp: null,    // 내 작품과 견주기 { project, data }
   refEditInfo: null, // 이름 · 출처 고치기 칸
   refDraft: null,  // 넣기 · 경계 고치기 상태 (refBlank)
-  refInbox: null,  // 크롬 확장이 보낸 받은 화 (GET /refs/inbox, 넣기 화면에서 읽는다)
+  refInbox: null,  // newto 로 가져온 받은 화 (GET /refs/inbox, 넣기 화면에서 읽는다)
+  refNewtoOk: false,  // 서버에 newto 폴더가 있다 (refs.newto_dir)
+  refNewtoWork: '',  // 가져올 작품 번호 칸
 });
 
+const REF_JOBS = '.refs';  // newto 가져오기 작업의 project 자리 (routes/refs.REF_JOBS)
 const REF_BYTES = [];  // 고른 파일의 바이트 (인코딩을 바꿔 다시 풀 때 쓴다). 화면 상태에 넣지 않는다
 const REF_MAX_BYTES = 30 * 1024 * 1024;
 const REF_ENCODINGS = [['utf-8', 'UTF-8'], ['euc-kr', 'CP949 (EUC-KR)'], ['utf-16le', 'UTF-16']];
@@ -108,10 +111,22 @@ function refEpRows(d, lines) {
 
 const refKind = (k) => ((S.refLabels && S.refLabels.kinds) || []).find((x) => x.key === k)?.label || k;
 const refFlag = (f) => (S.refLabels && S.refLabels.flags && S.refLabels.flags[f]) || f;
-/** 가져온 화 하나를 넣기 원고 끝에 잇는다. 페이지 제목을 첫 줄로 둬 화 표시 후보가 되게 한다. */
+/** 가져온 화 하나를 넣기 원고 끝에 잇는다. 화 이름('001화')을 첫 줄로 둬 화 표시 후보가 되게 한다. */
 function refClipAppend(text, clip) {
   const part = [clip.title ? clip.title.trim() : '', clip.text.replace(/\r\n?/g, '\n').trim()].filter(Boolean).join('\n\n');
   return text.trim() ? `${text.replace(/\s+$/, '')}\n\n\n${part}\n` : `${part}\n`;
+}
+
+async function refInboxRead() {
+  const r = await api('GET', '/refs/inbox');
+  S.refInbox = r.items;
+  S.refNewtoOk = !!r.newto;
+}
+
+/** newto 가져오기 작업이 끝났다(멈춤 · 실패 포함). 서버가 그때까지 받은 화를 대기열에 넣었으니 다시 읽는다 (app.js pollJobs) */
+async function refNewtoDone(j) {
+  if (S.route[0] === 'refs') await refInboxRead().catch(() => {});
+  if (j.status === 'cancelled' && j.result) toast(`멈췄어요. 그때까지 받은 ${j.result.added}화를 받은 화에 넣었어요`);
 }
 
 const refEpName = (e) => [e.label || `${e.order}번째`, e.title].filter(Boolean).join(' ');
@@ -126,7 +141,7 @@ async function refLoad(id, sub) {
   if (id === 'new') {
     S.ref = null;
     if (!S.refDraft || S.refDraft.edit) S.refDraft = refBlank();
-    S.refInbox = await api('GET', '/refs/inbox').then((r) => r.items).catch(() => null);
+    await refInboxRead().catch(() => { S.refInbox = null; });
     return;
   }
   if (!S.ref || S.ref.id !== id) { S.refPick = new Set(); S.refCmp = null; S.refEditInfo = null; }
@@ -226,25 +241,26 @@ function refFileCard(d) {
       ${d.text ? `<span class="small">${d.text.length.toLocaleString()}자</span>` : ''}</div></section>`;
 }
 
-/** 사이트에서 가져오기: 크롬 확장(canon/extension) 받기 · 설치 안내와 확장이 보낸 받은 화 */
+/** 사이트에서 가져오기: 서버의 newto(`npm run verify -- --headless --work <번호> --wait-on-limit`)로 작품을 받고, 받은 화를 원고로 가져온다 */
 function refClipCard(d) {
   const inbox = S.refInbox || [];
   const clips = d.clips || [];
-  const zip = `/api/refs/extension.zip?canon=${enc(location.origin)}`;
+  const j = jobFor('ref_newto', null, REF_JOBS);
   const got = inbox.length ? `<div class="ref-inbox"><div class="between"><strong>받은 화 ${inbox.length}개</strong><span class="small">${inbox.reduce((k, x) => k + x.text.length, 0).toLocaleString()}자</span></div>
-      <ol class="ref-clips small">${inbox.map((x) => `<li>${esc(x.title || x.url || '제목 없음')} <span>${x.text.length.toLocaleString()}자</span></li>`).join('')}</ol>
+      <ol class="ref-clips small">${inbox.map((x) => `<li>${esc([x.book, x.title].filter(Boolean).join(' · ') || x.url || '제목 없음')} <span>${x.text.length.toLocaleString()}자</span></li>`).join('')}</ol>
       <div class="row"><button type="button" class="btn primary" data-action="refInboxTake">원고로 가져오기</button><button type="button" class="btn" data-action="refInboxClear">비우기</button></div></div>`
-    : '<p class="small">아직 받은 화가 없어요. 확장으로 보낸 뒤 새로고침을 누르세요.</p>';
+    : '<p class="small">아직 받은 화가 없어요.</p>';
   const taken = clips.length ? `<p class="small">원고에 넣은 화 ${clips.length}개</p>` : '';
-  return `<details class="ref-clip"${inbox.length || clips.length ? ' open' : ''}><summary class="small">사이트에서 가져오기 (크롬 확장)${inbox.length ? ` · 받은 화 ${inbox.length}` : ''}</summary>
-    <ol class="small ref-steps">
-      <li><a href="${zip}" download>확장 받기</a>를 눌러 zip을 받고 압축을 푸세요.</li>
-      <li>크롬 주소창에 <code>chrome://extensions</code>를 열고 오른쪽 위 개발자 모드를 켜세요.</li>
-      <li>'압축해제된 확장 프로그램 로드' 버튼을 눌러 푼 폴더(canon-extension)를 고르세요.</li>
-      <li>소설 사이트에서 첫 화를 열고 확장 아이콘을 눌러 '자동으로 모으기'를 누르세요. 다음 화를 눌러 가며 이곳으로 보내요.</li>
-    </ol>
-    <div class="row"><a class="btn" href="${zip}" download>확장 받기</a><button type="button" class="btn" data-action="refInboxLoad">새로고침</button></div>
-    ${got}${taken}</details>`;
+  const run = j ? `<div class="ref-newto-run" aria-live="polite"><div class="between"><strong>${esc(j.label)}${j.total > 1 ? ` · ${j.done}/${j.total}` : ''}</strong>
+      <button type="button" class="btn small" data-job-stop="${j.id}">멈추기</button></div>${j.note ? `<p class="small">${esc(j.note)}</p>` : ''}</div>` : '';
+  const form = !S.refNewtoOk
+    ? '<p class="small">서버에서 newto 폴더를 찾지 못했어요. CANON_NEWTO에 newto 폴더 경로를 넣고 Canon을 다시 시작하세요.</p>'
+    : `<p class="small">작품 번호를 넣으면 서버의 newto가 화를 차례로 받아요. 요청 한도에 걸리면 기다렸다가 다시 받아요. 이미 받은 화는 건너뛰어요.</p>
+      <div class="row"><label class="sr-only" for="ref-newto-work">작품 번호</label><input id="ref-newto-work" type="text" inputmode="numeric" data-ref-newto="1" value="${esc(S.refNewtoWork)}" placeholder="작품 번호 (예: 34323)"${j ? ' disabled' : ''}>
+        <button type="button" class="btn" data-action="refNewtoStart"${j ? ' aria-disabled="true" aria-busy="true"' : ''}>${j ? '받는 중…' : '가져오기'}</button>
+        <button type="button" class="btn" data-action="refInboxLoad">새로고침</button></div>`;
+  return `<details class="ref-clip"${inbox.length || clips.length || j ? ' open' : ''}><summary class="small">사이트에서 가져오기 (newto)${inbox.length ? ` · 받은 화 ${inbox.length}` : ''}</summary>
+    ${form}${run}${got}${taken}</details>`;
 }
 
 function refRuleBar(d, v) {
@@ -465,7 +481,20 @@ function refPush(d) {
 
 Object.assign(actions, {
   refInboxLoad() {
-    return run('받은 화를 읽는 중', async () => { S.refInbox = (await api('GET', '/refs/inbox')).items; });
+    return run('받은 화를 읽는 중', refInboxRead);
+  },
+  async refNewtoStart() {
+    const work = (S.refNewtoWork || '').trim();
+    if (!/^\d+$/.test(work)) return toast('작품 번호는 숫자만 넣어 주세요', true);
+    if (jobFor('ref_newto', null, REF_JOBS)) return;
+    try {
+      const j = await api('POST', '/refs/newto', { work });
+      toast(j.already ? '이미 받는 중인 작품이 있어요' : 'newto로 받기 시작했어요. 끝나면 받은 화에 들어와요. 그동안 다른 작업을 해도 돼요.');
+      S.jobs = S.jobs.filter((x) => x.id !== j.id).concat(j);
+      renderHub();
+      render();
+      pollJobs(true);
+    } catch (e) { showError(e); }
   },
   refInboxTake() {
     const d = S.refDraft;
@@ -477,10 +506,10 @@ Object.assign(actions, {
       d.encoding = 'utf-8';
       d.preview = null;
       d.clips = [...(d.clips || []), ...items.map((x) => ({ title: x.title, url: x.url, chars: x.text.length }))];
-      const first = items.find((x) => x.url);
-      if (!d.source && first) { try { d.source = new URL(first.url).hostname; } catch { /* 주소가 아니면 비워 둔다 */ } }
+      const book = (items.find((x) => x.book) || {}).book;
+      if (!d.name.trim() && book) d.name = book;
       await api('DELETE', '/refs/inbox', { ids: items.map((x) => x.id) });
-      S.refInbox = (await api('GET', '/refs/inbox')).items;
+      await refInboxRead();
       toast(`받은 화 ${items.length}개를 원고에 넣었어요`);
     });
   },
@@ -649,6 +678,7 @@ document.addEventListener('input', (e) => {
     dr.dirty = true;
   }
   if (d.refI && S.refEditInfo) S.refEditInfo[d.refI] = e.target.value;
+  if (d.refNewto) S.refNewtoWork = e.target.value;
 });
 
 document.addEventListener('change', (e) => {
@@ -701,6 +731,8 @@ document.addEventListener('dragleave', (e) => { const z = e.target.closest && e.
 .ref-drop p { margin: 0; color: var(--muted); }
 .ref-clip p { margin: var(--space-8) 0; }
 .ref-steps { margin: var(--space-8) 0; padding-left: var(--space-20); }
+.ref-newto-run { margin-top: var(--space-12); }
+.ref-newto-run p { margin: var(--space-4) 0 0; overflow-wrap: anywhere; }
 .ref-inbox { margin-top: var(--space-12); padding-top: var(--space-12); border-top: 1px solid var(--line); }
 .ref-clips { margin: var(--space-8) 0 0; padding-left: var(--space-20); }
 .ref-clips span { color: var(--muted); }

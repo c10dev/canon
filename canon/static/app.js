@@ -301,6 +301,7 @@ const JOB_DONE_MSG = {
   suggest: '설정 제안이 도착했어요. 설정 도우미에서 확인하세요.',
   style: '문체 분석 결과가 도착했어요. 문체 레퍼런스에서 확인하고 바꿀지 고르세요.',
   lib_style: '문체 분석 결과가 도착했어요. 문체 라이브러리에서 확인하고 바꿀지 고르세요.',
+  ref_newto: (j) => `newto에서 새로 받은 ${(j.result && j.result.added) || 0}화를 받은 화에 넣었어요. 레퍼런스 원고 넣기 화면에서 원고로 가져오세요.`,
   arc: '기승전결 구조 제안이 도착했어요. 확인하고 저장하세요.',
   plots: '화별 플롯 초안을 만들었어요. 확정된 화는 그대로예요.',
   plot_one: (j) => (j.result && j.result.realign ? `${j.ep}화 플롯을 요약대로 채웠어요. ${j.result.realign}화와 어긋난 점은 ${j.result.realign}화에 '다시 맞추기'로 표시했어요.` : `${j.ep}화 플롯을 채웠어요. 다듬은 뒤 확정하세요.`),
@@ -319,6 +320,7 @@ const JOB_DONE_MSG = {
 // 작업 목록 · 알림에 넣지 않는 작업: 플레이 화면이 시계와 출생 카드에 따로 보인다 (play.js)
 const QUIET_JOBS = new Set(['play_turn', 'play_sketch']);
 JOB_DONE_MSG.play_world = (j) => `새 세계 ${j.project}${josa(j.project, '을', '를')} 만들었어요. 새 플레이에서 고르세요.`;
+JOB_STOP_NOTE.ref_newto = 'newto와 Chrome을 끝내요. 그때까지 받은 화는 받은 화에 넣어요.';
 JOB_STOP_NOTE.board = '이미 보낸 AI 호출은 끊을 수 없어요. 응답이 오면 그 화에 스토리보드와 본문이 아직 없을 때만 남겨요 (비용은 들어요). 그동안 그 화의 AI 작업은 시작할 수 없어요.';
 /** 멈춘 스토리보드 작업의 응답이 왔다 (서버 _keep_late_board). 그 화에 남았으면(result.kept) 알리고 그 화를 다시 받는다 */
 JOB_LATE.board = async (j) => {
@@ -503,14 +505,15 @@ async function pollJobs(soon = false) {
   for (const j of S.jobs) {
     const old = before.get(j.id);
     const progressed = !old || old.done !== j.done || old.status !== j.status;
-    const mine = j.project === S.name || j.project === REV_JOBS || (typeof LIB_JOBS !== 'undefined' && j.project === LIB_JOBS);  // 문체 라이브러리 분석도 작품 밖이다 (style.js)  // 역설계 실험 작업은 작품 밖이라 어느 화면에서든 제 알림을 낸다 (revlab.js)
+    const mine = j.project === S.name || j.project === REV_JOBS || (typeof LIB_JOBS !== 'undefined' && j.project === LIB_JOBS) || (typeof REF_JOBS !== 'undefined' && j.project === REF_JOBS);  // 레퍼런스 원고 newto 가져오기도 작품 밖이다 (refs.js)  // 문체 라이브러리 분석도 작품 밖이다 (style.js)  // 역설계 실험 작업은 작품 밖이라 어느 화면에서든 제 알림을 낸다 (revlab.js)
     if (progressed && !mine && old && old.status === 'running' && j.status !== 'running') {
       // 다른 작품을 보는 동안 끝났다. 결과는 그 작품을 열면 다시 놓인다 (pending.json)
       toast(j.status === 'error' ? `${j.project} · ${j.label}${josa(j.label, '을', '를')} 끝내지 못했어요: ${j.error}. 그 작품을 열면 다시 시도할 수 있어요` : `${j.project} · ${j.label}${josa(j.label, '이', '가')} 끝났어요. 그 작품을 열면 결과가 보여요`, j.status === 'error');
     }
     if (!progressed || !mine) continue;
     if (j.kind === 'agent' && typeof agentJobUpdate === 'function') await agentJobUpdate(j, old);  // 대화 에이전트 턴 (agent.js)
-    if (j.kind === 'rev_parse' && typeof revJobStep === 'function') await revJobStep(j, old);  // 역설계가 끝낸 화를 바로 받는다 (revlab.js)
+    if (j.kind === 'rev_parse' && typeof revJobStep === 'function') await revJobStep(j, old);
+    if (j.kind === 'ref_newto' && j.status !== 'running' && typeof refNewtoDone === 'function') await refNewtoDone(j);  // 받은 화를 다시 읽는다 (refs.js)  // 역설계가 끝낸 화를 바로 받는다 (revlab.js)
     if (j.kind === 'plots') {
       // 이번에 끝난 구간(지난번에 아직 만들던 화)과 새로 생긴 화만 받아 온다. 먼저 끝난 구간에서 고치던 초안은 그대로 둔다
       const was = old && Array.isArray(old.pending) ? new Set(old.pending) : null;
@@ -541,7 +544,7 @@ async function pollJobs(soon = false) {
     }
     if (j.status !== 'running' && !(old && old.status !== 'running')) await finishJob(j);
     // 설정 · 사용량 · 문체 라이브러리처럼 작품 밖 화면은 S.name 이 남아 있어도 다시 그리지 않는다
-    if ((S.route[0] === 'p' && (JOB_PAGES[j.kind] || []).includes(S.route[2] || 'home')) || (S.route[0] === 'revlab' && j.project === REV_JOBS) || (S.route[0] === 'styles' && j.kind === 'lib_style')) {
+    if ((S.route[0] === 'p' && (JOB_PAGES[j.kind] || []).includes(S.route[2] || 'home')) || (S.route[0] === 'revlab' && j.project === REV_JOBS) || (S.route[0] === 'styles' && j.kind === 'lib_style') || (S.route[0] === 'refs' && j.kind === 'ref_newto')) {
       redraw = true;
       if (j.status === 'done') resultFocus = RESULT_FOCUS[j.kind] || '#app .proposal button, #app .proposal input';
     }
@@ -847,6 +850,7 @@ function applyJobResult(j) {
 const JOB_LINK = {
   suggest: (j) => `#/p/${enc(j.project)}/setup`,
   style: (j) => `#/p/${enc(j.project)}/style`,
+  ref_newto: () => '#/refs/new',
   lib_style: (j) => `#/styles/${enc((j.result && j.result.lib && j.result.lib !== 'new' ? j.result.lib : S.libJobFor[j.id]) || 'new')}`,
   arc: (j) => `#/p/${enc(j.project)}/arc`,
   plots: (j) => `#/p/${enc(j.project)}/arc`,
