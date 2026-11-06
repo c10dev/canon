@@ -2658,7 +2658,10 @@ function workCard() {
   // 집필 화면: 640px 이하 위쪽 띠는 작품 제목 대신 화 제목 · 작품 이름과 화 상태를 두 줄로 보인다(.work-ep, app.css). 머리의 제목 줄이 빠진다
   const wn = S.route && S.route[2] === 'write' ? Number(S.route[3]) : 0;
   const we = wn ? ep(wn) : null;
-  const wep = we ? `<div class="work-ep" aria-hidden="true"><b>${wn}화 ${esc(we.plot.title)}</b><span class="small">${esc(p.meta.title || S.name)} · ${we.auto ? '자동 반영' : STATUS[we.status]}</span></div>` : '';
+  // 머리의 시점 배지(plot.js povBadge)가 그 폭에서 숨으니 시점 인물을 둘째 줄에 글로 붙인다
+  const pv = we && typeof povChar === 'function' ? povChar(wn) : null;
+  const povTxt = pv && (pv.c || pv.omni) ? ` · ${esc(pv.c ? pv.c.name || pv.c.id : '전지')} 시점` : '';
+  const wep = we ? `<div class="work-ep" aria-hidden="true"><b>${wn}화 ${esc(we.plot.title)}</b><span class="small">${esc(p.meta.title || S.name)} · ${we.auto ? '자동 반영' : STATUS[we.status]}${povTxt}</span></div>` : '';
   return `<div class="work-card${wep ? ' has-ep' : ''}">${wep}
       <div class="work-head"><a class="work-title" href="${base()}" title="${esc(p.meta.title || S.name)}">${esc(p.meta.title || S.name)}</a><a class="work-switch" href="#/" title="작품 목록" aria-label="다른 작품 고르기 (작품 목록)">⌄</a></div>
       <div class="small work-meta">${esc(p.meta.genre || '장르 미정')} · ${serial() ? '장편' : '단편'} ${total}화</div>${branchSideTag()}${playSideTag()}
