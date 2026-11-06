@@ -16,6 +16,9 @@
   #status { margin-top: 10px; padding: 8px; border-radius: 6px; background: #f6f8fa; white-space: pre-wrap; }
   #status.err { background: #fff1e5; color: #953800; }
   #status:empty { display: none; }
+  #cursor { margin-top: 12px; padding: 8px; border-radius: 6px; background: #ddf4ff; color: #0969da; font-size: 12px; }
+  #cursor b { display: block; margin-bottom: 4px; color: #1f2328; }
+  #cursor[hidden] { display: none; }
 </style>
 </head>
 <body>
@@ -31,6 +34,11 @@
 <div class="row">
   <button id="one" type="button">이 화만 보내기</button>
   <button id="many" type="button" class="primary">자동으로 모으기</button>
+</div>
+<div id="cursor" hidden>
+  <b>마지막으로 모은 화</b>
+  <span id="cursor-title"></span>
+  <div class="row"><button id="resume" type="button" class="primary">이어서 모으기</button></div>
 </div>
 <div class="row"><button id="stop" type="button" hidden>멈추기</button></div>
 <div id="status" role="status"></div>

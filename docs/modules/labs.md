@@ -21,10 +21,12 @@
 - 크롬 확장(Manifest V3): 로그인한 내 브라우저의 소설 화 본문을 레퍼런스 원고 받은 화(`POST /api/refs/inbox`)로 보낸다
 - 설치는 압축해제 로드다. 넣기 화면의 '확장 받기'가 이 폴더를 zip 으로 준다(`routes/refs.py`)
 - `popup.html` · `popup.js`: Canon 주소 · 본문 위치 선택자 · 다음 화 버튼 선택자 · 모을 화 수, '이 화만 보내기' · '자동으로 모으기' · '멈추기'
+- 마지막으로 모은 화가 있으면 팝업이 그 화를 보이고 '이어서 모으기' 버튼을 준다
 - `background.js`: 본문을 뽑아 보내고(`extract`, Shadow DOM 이면 그 안의 `p`) '다음 화'를 눌러(`clickNext`) 다음 본문이 뜨면 되풀이한다
 - 다음 화 버튼은 선택자가 비면 `rel=next` · '다음 화' · '다음' · 'next' 글자로 찾는다(열린 Shadow DOM 안까지)
 - 화 사이 `GAP_MS` 를 쉬고, 앞 화와 다른 본문이 `WAIT_MS` 안에 뜨지 않으면 멈춘다
-- 진행 상태는 `chrome.storage.local` 의 `run` 이다
+- 이어서 모으기(`collect` 의 resume)는 `cursor` 주소로 탭을 옮겨(`goTo`) 다음 화를 한 번 누른 뒤 거기부터 모은다
+- 진행 상태는 `chrome.storage.local` 의 `run` 이고, 마지막으로 보낸 화의 주소는 `cursor` 다
 - `config.js` 의 `CANON_DEFAULT` 는 받을 때 서버가 그 Canon 주소로 바꿔 넣는다
 - 확장의 요청은 Origin 이 `chrome-extension://` 이라 `web._origin_ok` 가 `POST /api/refs/inbox` 만 받는다
 
