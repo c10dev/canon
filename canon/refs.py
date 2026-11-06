@@ -31,6 +31,7 @@ MAX_CUTS = 3000
 SHORT_CHARS = 300  # 이보다 짧은 화는 '아주 짧음'
 LONG_TIMES = 3  # 평균의 이 배수를 넘으면 '아주 김'
 DUP_GAP = 200  # 같은 번호 화 표시 사이 글이 이보다 짧으면 반복 머리 (목차 줄 · 제목 한 번 더)
+PART_BACK = 0.05  # 부 표시 되풀이로 볼 때 견디는 거꾸로 가는 번호 비율 (원고의 부 번호 실수)
 TOC_GAP = 50  # 화 표시 사이 글이 이보다 짧은 줄이 TOC_RUN 개 넘게 이어지면 목차
 TOC_RUN = 10
 RUN_MIN = 3  # 번호가 다시 시작한 뒤 이만큼 이어 올라야 새 줄기로 본다
@@ -297,20 +298,26 @@ def _mark(cuts: list[dict], files: list[int]) -> None:
 
 def _parts(cuts: list[dict]) -> int:
     """부 표시를 화마다 되풀이하는 원고('<-- 01. 제목 -->' 이 1 · 2화 첫머리에 다 있다가 02 로 넘어감)를 알아본다.
-    본편 번호가 줄지 않고 같은 번호가 DUP_GAP 자 넘게 떨어져 또 나오면 그 번호를 부 번호(part)로 옮기고 화 번호를 1부터 차례대로 매긴다.
+    본편 번호가 거의 줄지 않고 같은 번호가 DUP_GAP 자 넘게 떨어져 또 나오면 그 번호를 부 번호(part)로 옮기고 화 번호를 1부터 차례대로 매긴다.
+    원고의 부 번호가 몇 번 거꾸로 가는 것(24 다음에 23)은 PART_BACK 만큼 견디고, 그 화에 '번호 거꾸로' 를 단다.
     DUP_GAP 자 안의 같은 번호(반복 머리)는 앞 화와 같은 번호를 받아 _mark 가 한 머리로 묶는다. 값: 부 수 (아니면 0)."""
     main = [c for c in cuts if c["kind"] == "main"]
-    if len(main) < 2 or any(b["num"] < a["num"] for a, b in zip(main, main[1:])):
+    if len(main) < 2:
         return 0
     starts = [i == 0 or not (c["num"] == main[i - 1]["num"] and c["gap_before"] < DUP_GAP) for i, c in enumerate(main)]
     real = [c["num"] for c, s in zip(main, starts) if s]
     if len(set(real)) == len(real):
+        return 0
+    back = [i for i in range(1, len(main)) if main[i]["num"] < main[i - 1]["num"]]
+    if len(back) > max(1, len(real) * PART_BACK):
         return 0
     n = 0
     for c, s in zip(main, starts):
         n += s
         c["part"], c["num"] = c["num"], n
         c["label"] = _label(c)
+    for i in back:
+        main[i].setdefault("flags", []).append("back")
     return len(set(real))
 
 
