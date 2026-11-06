@@ -110,3 +110,24 @@ ON_SELECT = """(() => {
 def test_outside_touch_does_not_reopen_tool():
     got = run_js(FILES, ON_SELECT, _data([]))
     assert got == {"blocked": 0, "after": 1}
+
+
+# 휴대폰 시트는 지금 고른 부분의 후보가 왔을 때만 높인다(.has-cands). 다른 부분을 새로 고르면 옛 후보로 본문을 가리지 않는다
+CANDS = """(() => {
+  const msgs = [{ role: 'user', text: '더 짧게', selection: { start: 0, text: data.q } },
+    { role: 'ai', text: '답', selection: { start: 0, text: data.q }, passage: { candidates: [{ text: '새 글', note: '' }] } }];
+  S.name = 'p';
+  S.project = { ...data.project, chats: [{ topic: 'text:1', messages: msgs }] };
+  S.textDraft = {};
+  S.route = ['p', 'p', 'write', '1'];
+  S.chatOpen = true;
+  S.presets = [];
+  const tall = (sel) => { S.sel = sel; return chatPanel('text:1').includes('has-cands'); };
+  return { same: tall({ n: 1, start: 0, text: data.q }), other: tall({ n: 1, start: 0, text: '바람이 불었다.' }), none: tall(null) };
+})()"""
+
+
+@needs_node
+def test_sheet_grows_only_for_current_candidates():
+    got = run_js(FILES, CANDS, _data([]))
+    assert got == {"same": True, "other": False, "none": False}

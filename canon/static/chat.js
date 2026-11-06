@@ -397,8 +397,11 @@ function chatPanel(topic) {
   const list = chatLog(topic);
   const empty = msgs.length || S.chatPending ? '' : `<div class="note info">${esc(t.intro)}</div>
     ${t.examples.length ? `<div class="row">${t.examples.map((x) => `<button type="button" class="btn small" data-action="chatExample" data-arg="${esc(x)}">${esc(x)}</button>`).join('')}</div>` : ''}`;
+  // 마지막 AI 답에 아직 고르지 않은 본문 후보가 있다. 휴대폰 시트는 후보를 보이려고 높아진다 (app.css .has-cands)
+  const last = msgs[msgs.length - 1];
+  const cands = !S.chatPending && last && last.role !== 'user' && last.passage && (last.passage.candidates || []).length && !last.outcome && (!t.candsFor || t.candsFor(last));
   const pending = S.chatPending ? `<div class="msg user">${esc(S.chatPending)}</div><div class="msg ai pending"><span class="spinner small" aria-hidden="true"></span>${chatWaitText()}</div>` : '';
-  return `<aside class="chat-panel" aria-label="${esc(t.title)}">
+  return `<aside class="chat-panel${cands ? ' has-cands' : ''}" aria-label="${esc(t.title)}">
     <div class="chat-head"><h2>${esc(t.title)}</h2><div class="row" style="gap:4px">
       ${msgs.length ? '<button type="button" class="btn small" data-action="chatClear">기록 지우기</button>' : ''}
       <button type="button" class="btn icon-btn" data-action="toggleChat" aria-label="닫기">✕</button></div></div>
@@ -477,8 +480,17 @@ function syncChat() {
   chatAnnounce();
   const log = $('#chat-log');
   if (!log) return;
-  log.scrollTop = S.chatScroll ? log.scrollHeight : S.chatScrollTop;
+  log.scrollTop = S.chatScroll ? chatLandAt(log) : S.chatScrollTop;
   S.chatScroll = false;
+}
+
+/** 새 답이 오면 내릴 자리. 맨 아래가 기본이고, 마지막 AI 답이 칸보다 길면 그 답의 첫 줄로 간다.
+    맨 아래로만 내리면 휴대폰 시트처럼 낮은 칸에서 후보 글과 버튼은 위로 밀리고 '모두 넣지 않기'만 보였다 */
+function chatLandAt(log) {
+  const end = log.scrollHeight;
+  const msg = log.lastElementChild;
+  if (!msg || !msg.matches('.msg.ai') || msg.matches('.pending') || msg.offsetHeight <= log.clientHeight) return end;
+  return log.scrollTop + msg.getBoundingClientRect().top - log.getBoundingClientRect().top - 8;
 }
 
 Object.assign(actions, {
@@ -489,7 +501,7 @@ Object.assign(actions, {
     S.chatScroll = true;
     try { localStorage.setItem('canon.chat', S.chatOpen ? '1' : '0'); } catch { /* 저장 못 해도 동작에는 상관없다 */ }
     render();
-    if (S.chatOpen) $('#chat-input')?.focus();
+    if (S.chatOpen && !touchFirst()) $('#chat-input')?.focus();  // 손가락 기기는 키보드가 시트를 밀어 올려 본문을 덮는다. 쓰려면 입력칸을 누른다
   },
   chatExample(text) {
     S.chatDraft = String(text);
@@ -544,7 +556,7 @@ Object.assign(actions, {
       if (isTyping() && document.activeElement.id !== 'chat-input') redrawChat();
       else {
         render();
-        $('#chat-input')?.focus();
+        if (!touchFirst()) $('#chat-input')?.focus();  // 손가락 기기에서 키보드를 올리면 방금 온 후보를 덮는다
       }
     }
   },

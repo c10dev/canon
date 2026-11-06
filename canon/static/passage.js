@@ -33,6 +33,8 @@ CHAT_TOPICS.text = {
   body: (text, preset) => ({ message: text, preset, selection: { start: S.sel.start, text: S.sel.text } }),
   userMsg: (m) => `${m.selection ? `<span class="msg-quote">${esc(clip(m.selection.text, 80))}</span>` : ''}${m.preset && m.text !== CHAT_TOPICS.text.presetLabel(m.preset) ? `<span class="chip">${esc(CHAT_TOPICS.text.presetLabel(m.preset))}</span> ` : ''}${esc(m.text)}`,  // 빠른 요청과 함께 적은 글이 있으면 둘 다 보인다
   proposal: passageProposal,
+  // 시트를 높이는 것은 지금 고른 부분의 후보일 때만이다. 다른 부분을 새로 골라 열면 옛 후보 때문에 본문이 가려지지 않게
+  candsFor: (m) => { const s = curSel(); return !!s && !!m.selection && m.selection.text === s.text; },
   inputExtra: selTarget,
 };
 
@@ -325,6 +327,8 @@ let outsideTouch = 0;
 function onSelect(e) {
   const isText = isDraftTa;
   if ((e.type === 'touchend' || e.type === 'mouseup') && outsideTouch && Date.now() - outsideTouch < 1500) return;
+  // 도구 버튼을 누르고 뗀 것은 고르기가 아니다. 버튼이 도구를 닫은 뒤 본문 칸에 남은 선택으로 도구가 다시 떴다
+  if (e.target && e.target.closest && e.target.closest('#sel-tool')) return;
   const ta = isText(e.target) ? e.target : document.activeElement;  // 본문 밖에서 손을 떼도 본문에서 고른 것
   if (!isText(ta) || !P() || !editableEp(ep(Number(ta.dataset.draft)))) return;  // 작품 목록으로 옮기는 사이에 남은 본문 칸
   setTimeout(() => {  // 클릭으로 고른 것이 풀리는 것까지 본 뒤에
@@ -443,9 +447,12 @@ function syncPassage() {
     ta.setSelectionRange(f.start, f.end);
     let c = caretXY(ta, f.start);
     if (c.y < c.r.top || c.y > c.r.bottom - c.h) scrollTa(ta, ta.scrollTop + c.y - c.r.top - c.r.height / 3);
-    // 본문 칸 자체가 화면 밖이면 페이지도 굴려 고른 문장과 도구가 보이게 한다
+    // 본문 칸 자체가 화면 밖이면 페이지도 굴려 고른 문장과 도구가 보이게 한다. 휴대폰 아래 시트가 열려 있으면 시트 위까지만 보이는 자리다
     c = caretXY(ta, f.start);
-    if (c.y < 0 || c.y + c.h * 3 > window.innerHeight) window.scrollBy(0, c.y - window.innerHeight / 3);
+    const sheet = window.innerWidth <= BP.narrow && document.querySelector('.chat-panel, .tool-col');
+    const bottom = sheet ? Math.min(window.innerHeight, sheet.getBoundingClientRect().top) : window.innerHeight;
+    const top = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--band')) || 0;  // 900px 이하 위쪽 띠
+    if (c.y < top || c.y + c.h * 2 > bottom) window.scrollBy(0, c.y - top - (bottom - top) / 3);
     const s = f.menu && readSel(ta);  // 경고에서 온 것은 다른 화면에서 넘어와 다시 그린 뒤에 도구를 연다
     if (s) {
       S.selTool = { ...s, mode: 'menu' };
@@ -545,8 +552,11 @@ Object.assign(actions, {
     S.chatOpen = true;
     S.chatScroll = true;
     try { localStorage.setItem('canon.chat', '1'); } catch { /* 저장 못 해도 동작에는 상관없다 */ }
+    // 휴대폰에서는 아래 시트가 본문 아래쪽을 덮는다. 고른 글이 시트 위에 보이게 다시 고르고 굴린다 (syncPassage)
+    if (focusText(t.n, t.text, t.start) !== -1) S.selFocus.quiet = true;
+    if (touchFirst() && isDraftTa(document.activeElement)) document.activeElement.blur();  // 본문 칸 포커스가 남으면 키보드가 오르고 다시 그리기가 밀린다
     render();
-    $('#chat-input')?.focus();
+    if (!touchFirst()) $('#chat-input')?.focus();  // 손가락 기기는 빠른 요청만 누를 수 있게 키보드를 올리지 않는다
   },
   selShow() {
     const s = curSel();
@@ -620,7 +630,7 @@ Object.assign(actions, {
       delete S.candEdit[key];
       const edit = ep(n).edits[ep(n).edits.length - 1];
       S.sel = { n, start: edit.start, text: edit.after };  // 이어서 '더 짧게' 같은 요청을 하면 넣은 글을 고친다
-      focusText(n, edit.after, edit.start);
+      if (focusText(n, edit.after, edit.start) !== -1) S.selFocus.quiet = true;  // 넣은 글을 시트 위로 굴려 보인다. 손가락 기기는 키보드를 올리지 않는다
       undoToast(`${k + 1}번 후보를 넣었어요.`, edit.id);
     });
   },

@@ -1754,6 +1754,12 @@ mark.hl.flash { outline: 2px solid currentColor; outline-offset: 2px; }
   body.chat-open .main { padding-right: var(--pad-page-x); padding-bottom: calc(60svh + var(--space-24)); }
   body.chat-open .page-actions { bottom: calc(60svh - 20px); }  /* 화 플롯 페이지의 버튼 줄은 시트 위에 붙는다 */
   body.chat-open .savebar { bottom: calc(60svh + 12px); }
+  /* 고를 본문 후보가 왔으면 시트를 높인다. 60svh 시트의 대화 기록은 113px 남짓이라 후보 글이 보이지 않았다. 후보 카드가 원문과 비교해 보인다 */
+  .chat-panel.has-cands { height: min(85svh, calc(100svh - var(--kb, 0px) - var(--space-16))); }
+  .chat-panel.has-cands > .chat-hint { display: none; }
+  /* 빠른 요청은 한 줄로 두고 옆으로 굴린다. 두 줄이면 대화 기록 칸을 50px 더 먹는다 */
+  .chat-panel .sel-target > .row { flex-wrap: nowrap; overflow-x: auto; padding-bottom: var(--space-4); }
+  .chat-panel .sel-target > .row > .btn { flex: none; }
   /* 휴대폰 키보드가 오르면(--kb, app.js visualViewport) 시트가 키보드 위에 서고, 남은 높이에 맞춰 줄어든다 */
 }
 @media (min-width: 721px) and (max-width: 900px) { body.chat-open .savebar { left: 50%; } }
