@@ -99,7 +99,8 @@ const FLAG = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke
 /** 접힌 한 줄: 엔딩 훅(없으면 줄거리) · 사건 진행(체크한 수 / 사건 수, 좁은 화면은 숨김) · 시점이 바뀐 화면 '시점 바뀜'.
     펼치면 위 오른쪽에 '더 보기' · 플롯 페이지 링크, 승인된 요약(반영이 끝난 화), 왼쪽 진행 줄(사건 체크 → 끝에 엔딩 훅 도착점),
     오른쪽 이름 · 값 표(등장 인물 · 서술 시점 · 작품 속 시간), '더 보기'에 구간 목표 · 줄거리 · 감정 변화 · 여는 장면 · 독자 질문.
-    펼친 칸(.wp-body)은 머리(.w-top) 밖에 둔다: 좁은 화면은 머리만 붙여 두고 펼친 칸은 본문과 함께 올라간다 (app.css) */
+    펼친 칸(.wp-body)은 머리(.w-top) 밖에 둔다: 좁은 화면은 머리만 붙여 두고 펼친 칸은 본문과 함께 올라간다 (app.css).
+    640px 이하는 이 줄과 본문 띠(.w-bar)가 한 줄이라 이름을 '플롯'으로 줄인다 */
 function plotStrip(n, act) {
   const e = ep(n);
   const p = e.plot;
@@ -111,7 +112,7 @@ function plotStrip(n, act) {
   const k = done.filter(Boolean).length;
   const lead = p.ending_hook ? `<b>엔딩 훅</b> ${esc(p.ending_hook)}` : esc(p.summary || '');
   const row = `<div class="wp-row"><button type="button" class="wp-toggle" data-action="togglePlot" data-arg="${n}" aria-expanded="${open}" aria-controls="wp-body">
-      <span class="wp-caret">${CARET}</span><span class="wp-label">이번 화 플롯</span><span class="wp-lead">${lead}</span>
+      <span class="wp-caret">${CARET}</span><span class="wp-label"><span class="lbl-l">이번 화 플롯</span><span class="lbl-s">플롯</span></span><span class="wp-lead">${lead}</span>
       <span class="wp-meta">${p.events.length ? `<span class="chip wp-count" aria-label="사건 ${p.events.length}개 중 ${k}개 씀">사건 ${k}/${p.events.length}</span>` : ''}${movedChip}</span></button></div>`;
   if (!open) return { row, body: '' };
   const f = (label, v) => (v ? `<div class="field"><span class="small">${label}</span><div>${v}</div></div>` : '');

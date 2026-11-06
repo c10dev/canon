@@ -1752,8 +1752,14 @@ mark.hl.flash { outline: 2px solid currentColor; outline-offset: 2px; }
   /* 본문이 첫 화면에 더 들어오게 집필 화면만 위 여백 · 머리 묶음 아래를 줄인다 */
   .main:has(> .w-headwrap) { padding-top: var(--gap-group); }
   .main > .w-headwrap { margin-bottom: calc(var(--gap-row) - var(--gap-stack)); }
-  .w-body .w-bar { padding-top: 0; padding-bottom: 0; }  /* 버튼(touch-min)이 높이를 정한다 */
-  .w-body .w-bar:has(.savebar-slot:not(:empty)) { padding-top: var(--gap-row); padding-bottom: var(--gap-row); }  /* 저장 띠가 들어와 여러 줄로 감기면 여백을 되돌린다 */
+  /* 붙는 줄 하나: 이번 화 플롯 토글(왼쪽, 남는 폭) · 글자 수 · 도구 버튼. 본문 띠(.w-bar)는 contents 라 그 안 칸이 이 줄에 선다.
+     도구가 많아 120px 밑으로 줄면 다음 줄로 감긴다. 저장 띠가 들어오면 저장 칸이 맨 아래 자기 줄을 쓴다 */
+  .w-body .w-top { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-4) var(--space-6); padding: 0 var(--space-12) 0 var(--space-16); }
+  .w-body .w-top > .w-bar { display: contents; }
+  .w-body .w-top > .wp-row { order: -1; flex: 1 1 0; min-width: 120px; padding: 0; }
+  .w-body .wp-lead b { display: none; }  /* 좁은 줄: '엔딩 훅' 이름 대신 내용을 보인다 */
+  .w-body .w-bar .w-fill, .w-body .w-bar .savebar-slot:empty { display: none; }
+  .w-body .w-bar .savebar-slot { order: 1; flex-basis: 100%; padding-bottom: var(--gap-row); }
   .w-body .prose { padding-top: var(--space-20); }
 }
 /* 다시 생성 열 (rewrite.js rwColumn): 대화 패널과 같은 자리 · 폭 */
