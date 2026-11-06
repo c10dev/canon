@@ -398,8 +398,7 @@ Object.assign(actions, {
       atlasRefresh();
     };
     if (S.route[2] === 'atlas') return go();
-    window.addEventListener('hashchange', () => routeQueue.then(go), { once: true });
-    location.hash = `${base()}/atlas`;
+    goThen(`${base()}/atlas`, go);
   },
 });
 

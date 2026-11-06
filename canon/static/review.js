@@ -915,8 +915,7 @@ Object.assign(actions, {
       S.selFocus.menu = true;
       render();
     };
-    window.addEventListener('hashchange', () => routeQueue.then(go), { once: true });
-    location.hash = `${base()}/write/${num}`;
+    goThen(`${base()}/write/${num}`, go);
   },
   /** 반영 직후 알림의 '되돌리기'. 확인 창은 revertFrom 이 띄운다. 취소하면 알림을 다시 10초 둔다 */
   async rvUndo(n) {

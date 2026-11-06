@@ -33,6 +33,7 @@
 - 서버 오류 문구 `fmtErr`: 검증 오류(detail 이 목록)는 영어 원문 대신 `VALIDATION_REASON`(web.py `_VALIDATION_REASON` 과 같음, `tests/test_fmterr_js.py`)과 칸 이름 `FIELD_NAME` 으로 쓴다
 - 저장하지 않고 이동하면 묻는 창은 작품 변경만 있을 때 '저장하고 이동'(askConfirm 의 `alt`)을 주 버튼으로 준다
 - 화면 이동 확인은 `leaveUnsaved`(작품 · 라이브러리 · 장면 연출 변경, `S.editDrafts`)를 본다
+- `goThen(hash, fn)` 은 화면을 옮기고 `routeNow` 가 그 주소를 다 그린 뒤 `fn` 을 한 번 부른다. 이동 확인에서 '취소'를 고르면 버린다
 - 새로고침 · 탭 닫기(`beforeunload`)는 `hasUnsaved` 를 본다: `leaveUnsaved` 에 본문 초안 · 지시서 결과 · 상태 변경안 · 문체 예시 · 가격표(`S.priceDirty`)를 더한다
 - `hasUnsaved` 는 화면을 옮겨도 S 에 남는 고치던 입력도 더한다: 모듈이 `onKeptDraft(함수)` 로 맡긴 검사가 하나라도 true 면 묻는다(`keptDraftOpen`)
 - `onKeptDraft` 검사는 화면 이동 확인에 넣지 않는다. 그 입력은 화면을 옮겨도 사라지지 않는다
@@ -341,6 +342,8 @@
 
 - 본문 부분 수정
 - 손가락 기기에서 검수 지적을 열면 본문 칸에 포커스하지 않는다(키보드가 고치는 창을 덮지 않게). 문장 자리만 고른다
+- 손가락 기기에서 경고의 'AI에게 고치기'로 고친 뒤에도 본문 칸에 포커스하지 않는다(`S.selFocus.quiet`). 포커스가 남으면 키보드가 올라오고 다시 그리기가 밀린다
+- 본문 밖에서 시작한 터치는 떠 있던 메뉴를 닫고, 그 터치의 touchend · mouseup 은 본문 칸에 남은 선택으로 도구를 다시 띄우지 않는다(`outsideTouch`)
 - 본문에서 고르면 뜨는 도구(직접 수정, AI에게 고치기)
 - 도구 자리 `placeTool` 은 왼쪽을 0으로 두고 너비를 잰다. 옛 자리에서 재면 남은 폭만큼 줄어 화면 오른쪽 끝에 붙는다
 - 후보를 원문과 단어 단위로 비교
@@ -348,6 +351,8 @@
 - 고친 뒤 다시 할 단계 알림
 - 상태 정리 경고에서 «» 문장을 찾아 고르기(`warnQuote`, `warnItems`, `warnPick`)
 - 경고의 'AI에게 고치기'는 대화 패널을 거치지 않고 첫 후보를 바로 본문에 넣는다(`aiFixNow`: 저장 → 부분 수정 대화 → 후보 0 적용 → 되돌리기 알림). 후보가 없으면 대화 패널을 연다
+- 되돌리기 알림 `undoToast` 는 `toast` 의 동작 알림이다. 누르거나 포커스가 있는 동안 닫히지 않고 알림 창 '최근 알림'에 남는다
+- 상태 승인 화면의 경고에서 집필 화면으로 옮길 때는 `goThen` 으로 그 화면을 다 그린 뒤에 고른다
 - 서버는 `pipeline.edit_text` · `revise_passage` · `apply_passage` · `undo_edit`
 
 ### `canon/static/plot.js`

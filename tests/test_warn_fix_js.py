@@ -33,7 +33,7 @@ EXPR = """(async () => {
   };
   const at = data.text.indexOf(data.q);
   await aiFixNow(1, data.q, at, '상태 정리 경고: «' + data.q + '» 요일이 어긋나요');
-  return { calls, text: ep(1).text, sel: S.sel, chatOpen: !!S.chatOpen };
+  return { calls, text: ep(1).text, sel: S.sel, chatOpen: !!S.chatOpen, quiet: !!(S.selFocus && S.selFocus.quiet) };
 })()"""
 
 
@@ -55,6 +55,7 @@ def test_ai_fix_now_puts_first_candidate():
     assert undo == ["undo", "AI가 고쳤어요.", "e1"]
     assert NEW in got["text"]
     assert got["sel"] == {"n": 1, "start": TEXT.index(Q), "text": NEW}  # 이어 고치면 넣은 글을 고른다
+    assert got["quiet"] is True  # 손가락 기기에서는 넣은 글을 고르기만 하고 본문 칸에 포커스하지 않는다 (syncPassage)
 
 
 @needs_node
@@ -66,3 +67,46 @@ def test_ai_fix_now_without_candidates_opens_chat():
     assert got["text"] == TEXT
     assert got["chatOpen"] is True
     assert got["sel"] == {"n": 1, "start": TEXT.index(Q), "text": Q}
+
+
+# 상태 승인 화면에서 누른 경고: 집필 화면을 다 그린 뒤 고치도록 goThen 에 맡긴다 (저장 확인 창이 떠도 옛 화면에서 돌지 않게)
+WARN_PICK = """(() => {
+  S.name = 'p';
+  S.project = data.project;
+  S.textDraft = {};
+  S.route = ['p', 'p', 'review', '1'];
+  S.deltas = { 1: { warnings: ['인물이 «' + data.q + '» 라고 했는데 상태와 어긋나요'] } };
+  const got = [];
+  goThen = (hash, fn) => got.push(hash);
+  actions.warnPick('1:0:ask');
+  return got;
+})()"""
+
+
+@needs_node
+def test_warn_pick_waits_for_write_screen():
+    got = run_js(FILES, WARN_PICK, _data([]))
+    assert got == ["#/p/p/write/1"]
+
+
+# 본문 밖에서 시작한 터치의 touchend · mouseup 은 본문 칸에 남은 선택으로 고른 부분 도구를 띄우지 않는다
+ON_SELECT = """(() => {
+  S.project = data.project;
+  S.textDraft = {};
+  let queued = 0;
+  setTimeout = () => { queued++; };
+  const ta = { matches: (q) => q === 'textarea[data-draft]', dataset: { draft: '1' } };
+  outsideTouch = Date.now();
+  onSelect({ type: 'touchend', target: {} });
+  onSelect({ type: 'mouseup', target: ta });
+  const blocked = queued;
+  outsideTouch = 0;
+  onSelect({ type: 'touchend', target: ta });
+  return { blocked, after: queued };
+})()"""
+
+
+@needs_node
+def test_outside_touch_does_not_reopen_tool():
+    got = run_js(FILES, ON_SELECT, _data([]))
+    assert got == {"blocked": 0, "after": 1}
