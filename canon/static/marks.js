@@ -134,7 +134,8 @@ function styleMenu(n) {
   if (!deviceBadges(n)) return '';
   const k = markable() ? (P().style.devices || []).filter((d) => (d.name || '').trim()).length : 0;
   const [long, short] = markable() ? ['문체 장치', '문체'] : ['본문 속 이름', '이름'];
-  const label = `<span class="lbl-l">${long}</span><span class="lbl-s" aria-hidden="true">${short}</span>${k ? ` ${k}` : ''} ${CHEVRON}`;
+  // 640px 이하 집필 붙는 줄은 글자 대신 Aa 아이콘(.lbl-i)만 보인다 (app.css). 이름은 aria-label 이 말한다
+  const label = `<span class="lbl-i" aria-hidden="true">Aa</span><span class="lbl-l">${long}</span><span class="lbl-s" aria-hidden="true">${short}</span>${k ? ` ${k}` : ''} ${CHEVRON}`;
   return menuBtn('marks', label, () => deviceBadges(n), { cls: 'btn small', aria: `${long}${k ? ` ${k}개` : ''}` });
 }
 

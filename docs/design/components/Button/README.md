@@ -9,6 +9,9 @@
 - 크기: 기본 `control`(44px), 작은 `.btn.small`은 `control-small`(36px). 작은 버튼은 카드 안 보조 동작에만 쓴다.
 - 손가락 기기(`pointer: coarse`)와 640px 이하에서 `.btn.small`은 `touch-min`(44px)이다. 한 줄의 작은 버튼이 함께 커져 높이가 같다.
 - 글자 없는 버튼은 `.icon-btn`(폭 44px, `btn` 면)에 `aria-label`을 준다. 사이드바 안의 글자 없는 버튼만 면 없는 `.side-ico`를 쓴다(Nav).
+- 예외: 640px 이하 집필 화면의 붙는 줄 도구(문체 · 고칠 곳 · 수정 기록 · 복사)와 머리의 화 앞뒤 · ⋯ 버튼은 면 없는 아이콘 버튼이다. 터치 칸은 44px 그대로이고 누르는 동안만 `btn` 면이다.
+- 그 도구 버튼은 글자 대신 아이콘(`.lbl-i`)을 보인다. 이름은 `aria-label`이나 낭독 전용 글자(`.lbl-t`)가 말한다.
+- 켜진 토글과 열린 메뉴 버튼은 그 폭에서도 원래 모양(`accent` 테두리 · `accent-soft` 면)이다.
 - 쓸 수 없을 때는 `disabled`. 링크 모양 버튼(`<a class="btn">`)은 `aria-disabled="true"`.
 - AI 작업이 도는 동안은 `disabled` 대신 `aria-disabled="true"` · `aria-busy="true"`를 단다(Busy).
 - 펼침 창을 여는 버튼은 `menuBtn`이 만든다(Menu). 열린 동안 켜진 토글과 같은 모양이다.

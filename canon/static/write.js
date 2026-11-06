@@ -94,6 +94,8 @@ function eventsLock(n) {
   return '';
 }
 
+// 640px 이하 집필 붙는 줄의 수정 기록 아이콘(.lbl-i, 되감는 시계). 넓은 폭은 숨긴다 (app.css)
+const EDITS_ICON = '<svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 9a5.5 5.5 0 1 0 1.6-3.9"></path><path d="M3 2.8v2.7h2.7"></path><path d="M9 6v3.2l2 1.3"></path></svg>';
 const FLAG = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3.5 14V2.5M3.5 3h8l-2 2.75 2 2.75h-8"></path></svg>';
 
 /** 접힌 한 줄: 엔딩 훅(없으면 줄거리) · 사건 진행(체크한 수 / 사건 수, 좁은 화면은 숨김) · 시점이 바뀐 화면 '시점 바뀜'.
@@ -209,7 +211,7 @@ function metaCutNote(n, can) {
     <ul style="list-style:none;padding:0;margin:8px 0 0;display:grid;gap:8px">${rows}</ul></details>`;
 }
 
-function writeMenu(n, starting, seg, narrow = '') {
+function writeMenu(n, starting, seg, narrow = '', copy = '') {
   const e = ep(n);
   const parts = [];
   if (seg && !starting) parts.push(`<div class="pop-sec"><span class="pop-legend">생성 방식</span>${seg}</div>`);
@@ -221,10 +223,12 @@ function writeMenu(n, starting, seg, narrow = '') {
     <a class="pop-item" href="${base()}/brief/${n}">작업지시서 화면 열기</a></div>`);
   const del = deleteBlock(e);
   if (del) parts.push(`<div class="pop-sec pop-danger">${del}</div>`);
-  if (!parts.length) return '';
   const dots = '<svg width="18" height="18" viewBox="0 0 18 18" fill="currentColor" aria-hidden="true"><circle cx="4" cy="9" r="1.6"></circle><circle cx="9" cy="9" r="1.6"></circle><circle cx="14" cy="9" r="1.6"></circle></svg>';
-  // narrow: 640px 이하에서 머리 줄에서 뺀 보조 버튼(대화 · 다시 생성). 넓은 폭에서는 .w-narrow 를 숨긴다 (app.css)
-  const head = narrow ? `<div class="w-narrow"><div class="pop-sec">${narrow}</div><div class="pop-sep" role="separator"></div></div>` : '';
+  // narrow: 640px 이하에서 머리 줄에서 뺀 보조 버튼(대화 · 다시 생성). copy: 640px 이하에서 붙는 줄의 복사 ▾ 대신 여기 두는 복사 설정 · 내보내기.
+  // 넓은 폭에서는 .w-narrow 를 숨긴다 (app.css)
+  const sep = '<div class="pop-sep" role="separator"></div>';
+  const head = narrow || copy ? `<div class="w-narrow">${narrow ? `<div class="pop-sec">${narrow}</div>${sep}` : ''}${copy ? `${copy}${sep}` : ''}</div>` : '';
+  if (!parts.length && !head) return '';
   return menuBtn('write', dots, () => head + parts.join('<div class="pop-sep" role="separator"></div>'), { cls: 'btn icon-btn', aria: `${n}화 더보기` });
 }
 
@@ -366,7 +370,7 @@ function viewWrite(n) {
   const right = `${chatOn ? chatButton(`text:${n}`) : ''}
     ${rw ? `<button class="btn${S.rwOpen === n ? ' on' : ''}" data-action="rwOpen" data-arg="${n}" aria-expanded="${S.rwOpen === n}"${rw.attr}>${rw.label}</button>` : ''}
     ${editable && !isApi && e.status !== 'finalized' ? `<a class="btn" href="${base()}/brief/${n}">작업지시서</a>` : ''}
-    ${writeMenu(n, starting, seg, narrow)}
+    ${writeMenu(n, starting, seg, narrow, text && e.status !== 'draft' && !starting ? copyMenu(n, '복사할 때 줄바꿈 형식') : '')}
     ${primary}`;
 
   const strip = plotStrip(n, act);
@@ -397,7 +401,7 @@ function viewWrite(n) {
             ${editable && (e.text || draft !== undefined) ? '<div class="savebar-slot"></div>' : '<span class="w-fill"></span>'}
             ${e.status === 'draft' ? '' : `${styleMenu(n)}
             ${editable ? tofixBtn(n) : ''}
-            ${edits ? `<button type="button" class="btn small" data-action="openEdits" title="수정 기록을 펼쳐요" aria-label="수정 기록 ${edits}개"><span class="lbl-l">수정 기록</span><span class="lbl-s">기록</span> ${edits}</button>` : ''}
+            ${edits ? `<button type="button" class="btn small" data-action="openEdits" title="수정 기록을 펼쳐요" aria-label="수정 기록 ${edits}개"><span class="lbl-i">${EDITS_ICON}</span><span class="lbl-l">수정 기록</span><span class="lbl-s">기록</span> ${edits}</button>` : ''}
             ${text ? copySplit(n) : ''}`}
             <p class="small w-hint">${e.status === 'draft' ? '플롯을 확정하면 본문을 쓸 수 있어요' : e.text ? `고칠 부분을 드래그하거나 길게 누르면 직접 고치거나 AI에게 맡기거나 나중에 고칠 곳으로 담을 수 있어요${typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches ? '. 밑줄 친 곳은 한 번 더 누르면 이름 카드 · 도구가 떠요' : ''}` : '본문을 직접 고친 뒤 저장할 수 있어요'}</p>
           </div>`}

@@ -526,6 +526,7 @@
 ### `canon/static/publish.js`
 
 - 집필 화면 본문 띠의 분할 복사 버튼(`copySplit`: 복사 + ▾ 메뉴 `copyMenu` 의 줄바꿈 형식 · 제목 줄 · .txt)과 '여러 화 내보내기' 대화상자(`exportDialogHtml`)
+- 640px 이하 집필 화면에서 복사 버튼은 아이콘(`COPY_ICON`)만 보이고, `copyMenu` 는 머리 ⋯ 메뉴에 '복사할 때 줄바꿈 형식'(`legend` 인자)으로 들어간다
 - 텍스트와 HTML 을 함께 클립보드에 넣는다(보안 연결이 아니면 복사 이벤트로)
 - 클립보드가 막히면 .txt 내려받기
 - `exportAll`: 다음 할 일 '완결 원고 내보내기'(`home.js` `nextStep`)가 부른다. 범위를 본문이 있는 첫 화 ~ 마지막 화로 두고 형식 목록이 없으면 받아 같은 대화상자를 연다
@@ -589,6 +590,7 @@
 - 고치던 메모가 원래 메모와 다르면 `S.editDrafts.tofix` 를 켠다(`tofixDraftMark`)
 - 지우기(`tofixDelete`)는 메모가 없어도 먼저 묻는다
 - 본문 도구의 '나중에 고치기'와 메모 칸(`showTool` 을 감싼다, mode `tofix`)
+- 본문 띠의 '고칠 곳 N' 버튼(`tofixBtn`)은 640px 이하에서 깃발 아이콘(`TOFIX_ICON`)과 수만 보인다
 - 밑줄(`tofixRanges` 를 `marks.js` `allRanges` 가 함께 그림)
 - 집필 화면 본문 띠의 '고칠 곳 N'(`tofixBtn`, `tofixNext`)
 - 서버 응답은 to_fix 만 가져온다(`takeToFix`)
