@@ -27,3 +27,17 @@ def test_try_edit_text_survives_redraw_and_asks_before_drop():
     assert got["kept"] == [True, True]
     assert got["still"] == [1, "고친 글"]
     assert got["calls"] == [["ask", "버리고 열기"], ["ask", "버리기"], ["PUT", "/studio/s1/tries/1", {"text": "고친 글"}]]
+
+
+@needs_node
+def test_view_prefs_pick_and_paragraphs():
+    got = run_js(["app.js", "studio.js"], """(() => ({
+      bad: stuViewPick({ lh: '9', gap: 'x' }),
+      none: stuViewPick(null),
+      good: stuViewPick({ lh: 2.2, gap: '1' }),
+      paras: stuParas('첫 줄\\n\\n<둘>'),
+    }))()""", {})
+    assert got["bad"] == {"lh": "1.85", "gap": "0"}
+    assert got["none"] == {"lh": "1.85", "gap": "0"}
+    assert got["good"] == {"lh": "2.2", "gap": "1"}
+    assert got["paras"] == "<p>첫 줄</p><p><br></p><p>&lt;둘&gt;</p>"

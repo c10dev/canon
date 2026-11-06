@@ -63,7 +63,40 @@ function stuSession() {
     <button type="button" class="btn danger" data-action="stuDelete">지우기</button>
     <button type="button" class="btn primary" data-action="stuDraft"${full ? ' disabled title="시도가 꽉 찼어요. 지울 시도를 고르세요"' : ''}>AI 안 ${n}개 쓰기</button>`;
   const head = header('문단 연습장', s.title, s.style_name ? `문체: ${esc(s.style_name)}` : '문체를 고르지 않았어요. 기본 문체 규칙으로 써요.', right);
-  return `${head}<div class="cols"><div class="col">${stuCardForm()}</div><div class="col wide">${stuModelCard()}${stuVariantCard()}${stuWriteCard()}${stuTries()}</div></div>`;
+  const v = stuView();
+  return `${head}<div class="cols stu-read" style="--stu-lh:${v.lh};--stu-gap:${v.gap}"><div class="col">${stuCardForm()}</div><div class="col wide">${stuViewBar(v)}${stuModelCard()}${stuVariantCard()}${stuWriteCard()}${stuTries()}</div></div>`;
+}
+
+// ----- 글 보기: 줄 간격 · 문단 간격 (이 브라우저에만 기억한다) -----
+
+const STU_LH = [['1.5', '좁게'], ['1.85', '보통'], ['2.2', '넓게'], ['2.6', '아주 넓게']];
+const STU_GAP = [['0', '없음'], ['0.5', '반 줄'], ['1', '한 줄']];
+const STU_VIEW_KEY = 'canon.studioView';
+
+/** 저장한 보기 값을 고른다. 목록에 없는 값은 기본값(보통 · 없음)으로 둔다. */
+function stuViewPick(raw) {
+  const r = raw && typeof raw === 'object' ? raw : {};
+  const ok = (list, x, d) => (list.some(([k]) => k === String(x)) ? String(x) : d);
+  return { lh: ok(STU_LH, r.lh, '1.85'), gap: ok(STU_GAP, r.gap, '0') };
+}
+
+function stuView() {
+  if (!S.stuView) {
+    let raw = null;
+    try { raw = JSON.parse(localStorage.getItem(STU_VIEW_KEY) || 'null'); } catch { raw = null; }
+    S.stuView = stuViewPick(raw);
+  }
+  return S.stuView;
+}
+
+function stuViewBar(v) {
+  const sel = (key, list, label) => `<label class="small stu-k">${label} <select data-stu-view="${key}" aria-label="${label}">${list.map(([k, t]) => `<option value="${k}"${k === v[key] ? ' selected' : ''}>${t}</option>`).join('')}</select></label>`;
+  return `<div class="row stu-view">${sel('lh', STU_LH, '줄 간격')}${sel('gap', STU_GAP, '문단 간격')}</div>`;
+}
+
+/** 글을 줄 바꿈마다 문단(<p>)으로 나눈다. 문단 간격은 CSS(--stu-gap)가 정한다. 빈 줄은 빈 문단으로 남긴다. */
+function stuParas(text) {
+  return String(text || '').split('\n').map((x) => `<p>${x ? esc(x) : '<br>'}</p>`).join('');
 }
 
 /** 본보기 문단 (역설계 실험 원문에서 가져옴, revlab.paragraph_card). 시도와 같은 지표로 재서 맨 위에 둔다. 프롬프트에는 넣지 않는다. */
@@ -74,7 +107,7 @@ function stuModelCard() {
   return `<section class="card stu-model" id="stu-model">
       <div class="between"><div class="row"><span class="chip">본보기</span>${c.ref ? `<span class="small">${esc(c.ref)}</span>` : ''}</div>
         <span class="small">AI에게는 보내지 않아요</span></div>
-      <div class="rw-text">${esc(c.model)}</div>${m ? stuChecks(m) : ''}
+      <div class="rw-text stu-text">${stuParas(c.model)}</div>${m ? stuChecks(m) : ''}
       <div class="row"><button type="button" class="btn small${S.stu.anatomy ? '' : ' primary'}" data-action="stuAnatomy">${S.stu.anatomy ? '다시 뜯어보기' : '구조 뜯어보기'}</button>
         <button type="button" class="btn small" data-action="stuModelSource"${c.source === c.model ? ' disabled title="이미 출발 글이에요"' : ''}>출발 글로 넣기</button>
         <button type="button" class="btn small" data-action="stuModelCopy">복사</button></div>${stuAnatomyHtml()}</section>`;
@@ -124,6 +157,11 @@ const STU_CSS = `.stu-anatomy { display: grid; gap: var(--gap-row); border-top: 
 .stu-beat select { flex: 1; min-width: 0; }
 .stu-k { display: inline-flex; align-items: center; gap: var(--space-4); white-space: nowrap; }
 .stu-k select { width: auto; }
+.stu-read .stu-text { line-height: var(--stu-lh); white-space: normal; }
+.stu-text p { margin: 0 0 calc(var(--stu-gap) * var(--stu-lh) * 1em); white-space: pre-wrap; }
+.stu-text p:last-child { margin-bottom: 0; }
+.stu-read .stu-input { line-height: var(--stu-lh); }
+.stu-view { justify-content: flex-end; }
 .stu-gaps { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-4); }
 @media (max-width: 600px) { .stu-var { flex-direction: column; align-items: stretch; } }`;
 (() => { const st = document.createElement('style'); st.textContent = STU_CSS; document.head.appendChild(st); })();
@@ -219,6 +257,12 @@ document.addEventListener('change', (e) => {
     return;
   }
   if (el.dataset.local === 'stuK') { render(); return; }
+  if (el.dataset.stuView) {
+    S.stuView = stuViewPick({ ...stuView(), [el.dataset.stuView]: el.value });
+    try { localStorage.setItem(STU_VIEW_KEY, JSON.stringify(S.stuView)); } catch { /* 저장소를 막은 브라우저: 이번 화면에서만 바꾼다 */ }
+    render();
+    return;
+  }
   if (el.dataset.stuDrill) {
     const ds = S.stuForm.card.drills.filter((d) => d !== el.dataset.stuDrill);
     S.stuForm.card.drills = el.checked ? [...ds, el.dataset.stuDrill] : ds;
@@ -235,7 +279,7 @@ function stuWriteCard() {
   const what = base ? `${base.no}번 ${base.by === 'ai' ? 'AI 안' : '글'}을 고쳐 써요` : '같은 카드로 직접 써요';
   return `<section class="card" id="stu-write">
       <div class="between"><h2>직접 쓰기</h2><span class="small">${esc(what)}</span></div>
-      <div class="field"><label for="stu-text" class="sr-only">쓸 글</label><textarea id="stu-text" rows="6" data-local="stuWrite" data-autogrow placeholder="카드의 상황을 문단 하나로 써 보세요">${esc(S.stuWrite || '')}</textarea></div>
+      <div class="field"><label for="stu-text" class="sr-only">쓸 글</label><textarea id="stu-text" class="stu-input" rows="6" data-local="stuWrite" data-autogrow placeholder="카드의 상황을 문단 하나로 써 보세요">${esc(S.stuWrite || '')}</textarea></div>
       <div class="row"><button type="button" class="btn primary small" data-action="stuAddTry">시도로 남기기</button>
         ${base || S.stuWrite ? '<button type="button" class="btn small" data-action="stuWriteClear">비우기</button>' : ''}</div>
     </section>`;
@@ -263,9 +307,9 @@ function stuTryCard(t) {
   const base = t.base ? `<span class="small">${t.base}번을 고쳐 씀</span>` : '';
   const editing = S.stuEdit === t.no;
   const body = editing
-    ? `<div class="field"><label for="stu-edit-${t.no}" class="sr-only">${t.no}번 고치기</label><textarea id="stu-edit-${t.no}" rows="6" data-autogrow data-local="stuEditText">${esc(S.stuEditText ?? t.text)}</textarea></div>
+    ? `<div class="field"><label for="stu-edit-${t.no}" class="sr-only">${t.no}번 고치기</label><textarea id="stu-edit-${t.no}" class="stu-input" rows="6" data-autogrow data-local="stuEditText">${esc(S.stuEditText ?? t.text)}</textarea></div>
        <div class="row"><button type="button" class="btn small primary" data-action="stuEditSave" data-arg="${t.no}">저장</button><button type="button" class="btn small" data-action="stuEditCancel">그만두기</button></div>`
-    : `<div class="rw-text">${esc(t.text)}</div>`;
+    : `<div class="rw-text stu-text">${stuParas(t.text)}</div>`;
   const btns = editing ? '' : `<div class="row">
       <button type="button" class="btn small${t.star ? ' primary' : ''}" data-action="stuStar" data-arg="${t.no}" aria-pressed="${t.star}">${t.star ? '★ 고름' : '☆ 고르기'}</button>
       <button type="button" class="btn small" data-action="stuRewrite" data-arg="${t.no}">고쳐 쓰기</button>
