@@ -345,6 +345,9 @@
 - 고쳐 쓰기(`stuRewrite`)는 그 시도 글을 직접 쓰기 칸에 옮기고 `base` 로 남긴다. AI 안은 고치지 않고 작가 글만 고친다(`stuEditOpen`)
 - 시도 고치기 칸의 글은 `S.stuEditText`(`data-local`)에 두어 다른 버튼으로 다시 그려도 남는다. 다른 시도를 열거나 그만둘 때 고친 것이 있으면 묻는다(`tests/test_studio_js.py`)
 - 직접 쓰기 칸과 고친 시도 글은 페이지를 떠날 때 묻는다(`app.js` `onKeptDraft`)
+- 오른쪽 열 맨 위 보기 줄 `stuViewBar`: 줄 간격(`STU_LH`) · 문단 간격(`STU_GAP`)을 고르면 본보기 · 시도 글과 쓰기 칸에 바로 적용한다
+- 보기 값은 이 브라우저에만 둔다(localStorage `canon.studioView`, 고르기 `stuViewPick`, `tests/test_studio_js.py`)
+- 본보기 · 시도 글은 줄 바꿈마다 `<p>` 로 나눠 그린다(`stuParas`). 문단 간격은 CSS 변수 `--stu-gap` 이 정한다
 - 머리 주 버튼은 'AI 안 n개 쓰기'(n 은 카드 아래 고르기 `S.stuN`, 1~4). 시도가 꽉 차면 막는다
 - 공용 클래스(`.cols` · `.card` · `.chip.ok` · `.chip.bad` · `.check-row` · `.rw-text` · `.rs-table`)에 구조 · 상황 목록 칸만 `STU_CSS` 로 더한다
 
