@@ -329,3 +329,19 @@ def test_js_views(home):
     assert "2화 골랐어요" in got["book"] and "문체 만들기" in got["book"] and "화 표" in got["book"] and "ref-bar" in got["book"]
     assert 'data-action="refToRevlab">' in got["book"] and "화 수와 상관없이 모두 합쳐 3,000,000자까지" in got["book"]  # 화 수로 막지 않는다
     assert "첫 문단" in got["read"] and "이 화 경계 고치기" in got["read"]
+
+
+@needs_node
+def test_js_clip_bookmarklet_and_append():
+    got = run_js(FILES, """(() => {
+      const url = refBookmarklet('http://localhost:8000', '[data-theme-novel-content]');
+      const src = decodeURIComponent(url.slice('javascript:'.length));
+      let ok = true; try { new Function(src); } catch { ok = false; }
+      const a = refClipAppend('', { title: '제1화 등대', text: '첫 문단\\r\\n\\n둘째 문단' });
+      const b = refClipAppend(a, { title: '제2화 바다', text: '셋째 문단' });
+      return { js: url.startsWith('javascript:'), ok, origin: src.includes('"http://localhost:8000"'), shadow: src.includes('shadowRoot'), b };
+    })()""", {})
+    assert got == {"js": True, "ok": True, "origin": True, "shadow": True,
+                   "b": "제1화 등대\n\n첫 문단\n\n둘째 문단\n\n\n제2화 바다\n\n셋째 문단\n"}
+    # 이어 붙인 글은 화 표시로 두 화로 나뉜다
+    assert [c["label"] for c in refs.preview(got["b"])["cuts"] if c.get("on", True)][:2] == ["1", "2"]

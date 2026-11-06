@@ -238,6 +238,10 @@
 - 넣기: 파일 고르기 · 끌어 놓기(여러 파일은 이름 차례로 잇고 파일마다 시작 줄 `fileLines`) · 붙여 넣기
 - 손가락 기기에서는 끌어 놓기 안내 대신 '파일 고르기'만 안내한다(`REF_TOUCH`)
 - 인코딩은 브라우저가 푼다(`refDecode`: BOM → UTF-8 엄격 → CP949, 깨진 글자 수 `bad`, 고르기 칸)
+- 사이트에서 가져오기: 넣기 화면의 북마클릿 `refBookmarklet`(소설 사이트에서 누르면 본문 위치 선택자 칸, Shadow DOM 이면 그 안의 `p` 를 모음)
+- 북마클릿은 이름이 `canon-refs` 인 Canon 창을 찾거나 새로 열어 `postMessage`(`canon-ref-clip`)로 보내고, 받았다는 답(`canon-ref-clip-ok`)이 올 때까지 0.25초마다 다시 보낸다(10초)
+- 받는 쪽은 `message` 듣개 하나다. 어느 화면에서든 받아 넣기 원고 끝에 잇고(`refClipAppend`, 페이지 제목이 첫 줄) `#/refs/new` 로 간다. 같은 id 는 한 번만 잇고, 고치던 경계가 있으면 거절한다
+- 본문 위치 선택자는 브라우저에 기억한다(`canon.refClipSel`, 기본 `[data-theme-novel-content]`). 서버를 거치지 않는다
 - 화 나누기는 서버(`POST /api/refs/split`)에 묻고, 켠 경계로 화를 자르고 글자 수를 세는 일은 화면이 한다(`refAssemble`, `refs.assemble` 과 같은 규칙)
 - 경계 고치기(`refDraftView`): 규칙 줄(단위 칩 · 다른 규칙 · 직접 패턴 · 작가의 말 떼기 · 되돌리기) · 경계 목록(거르기 모두 · 확인할 것 · 끈 줄) · 원문 보기(줄을 눌러 여기서 나누기)
 - 고른 경계 칸(`refCutEditor`): 번호 · 제목 · 종류 · 여기부터 번호 다시 매기기 · 앞 화와 합치기
