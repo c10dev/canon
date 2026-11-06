@@ -127,6 +127,7 @@ function hubButton(st = hubNow()) {
 /** 작업 한 줄의 덧붙임: 다른 작품 이름, 지금 보는 화면이면 '이 화면' */
 function hubWhere(j) {
   if (j.project === '.revlab') return S.route[0] === 'revlab' ? ' <span class="chip">이 화면</span>' : ' <span class="chip">역설계 실험</span>';  // revlab.JOBS
+  if (j.project === '.refs') return S.route[0] === 'refs' ? ' <span class="chip">이 화면</span>' : ' <span class="chip">레퍼런스 원고</span>';  // routes/refs.REF_JOBS
   if (j.project === '.styles') return S.route[0] === 'styles' ? ' <span class="chip">이 화면</span>' : ' <span class="chip">문체 라이브러리</span>';  // web.LIB_JOBS
   if (j.project !== S.name) return ` <span class="chip">${esc(j.project)}</span>`;
   const link = JOB_LINK[j.kind] && JOB_LINK[j.kind](j);

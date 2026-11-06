@@ -3,16 +3,9 @@
 web 이 맨 끝에서 이 모듈을 불러 router 를 app 에 붙이고, 여기서 정한 이름(EXPORTS)을 web 에도 둔다."""
 from __future__ import annotations
 
-import io
-import json
-import zipfile
-from pathlib import Path
-from urllib.parse import urlsplit
-
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import Response
 from pydantic import BaseModel
-from .. import refs
+from .. import jobs, refs
 from ..schema import RefBook, RefCut, RefFile
 from ..web import (  # web 의 공용 도우미
     _load,
@@ -83,29 +76,21 @@ def split_ref(body: RefSplitIn) -> dict:
     return refs.preview(body.text, body.rule, body.example, body.unit, body.strip_tails, body.files)
 
 
-class RefInboxIn(BaseModel):
-    title: str = ""
-    url: str = ""
-    text: str
-
-
 class RefInboxDelIn(BaseModel):
     ids: list[str] | None = None  # 비우면 모두 뺀다
 
 
-EXT_DIR = Path(__file__).resolve().parent.parent / "extension"  # 크롬 확장 원본 (canon/extension)
+REF_JOBS = ".refs"  # newto 가져오기 작업의 project 자리 (작품 폴더는 점으로 시작하지 않아 겹치지 않는다)
+
+
+class RefNewtoIn(BaseModel):
+    work: str  # newto 작품 번호
 
 
 @router.get("/api/refs/inbox")
 def ref_inbox() -> dict:
-    """크롬 확장이 보낸 화 (원고가 되기 전 대기열)."""
-    return {"items": refs.inbox()}
-
-
-@router.post("/api/refs/inbox")
-def ref_inbox_add(body: RefInboxIn) -> dict:
-    """크롬 확장이 화 하나를 보낸다. 다른 사이트의 쓰기 요청은 막지만 크롬 확장(chrome-extension://)은 이 주소만 받는다 (web._origin_ok)."""
-    return refs.inbox_add(body.title, body.url, body.text)
+    """newto 로 가져온 화 (원고가 되기 전 대기열)와 newto 폴더가 있는지."""
+    return {"items": refs.inbox(), "newto": refs.newto_dir() is not None}
 
 
 @router.delete("/api/refs/inbox")
@@ -113,23 +98,19 @@ def ref_inbox_clear(body: RefInboxDelIn | None = None) -> dict:
     return {"count": refs.inbox_clear(body.ids if body else None)}
 
 
-@router.get("/api/refs/extension.zip")
-def ref_extension(canon: str = "") -> Response:
-    """크롬 확장 묶음. canon 은 화면이 보낸 이 서버 주소이고, 확장의 기본 Canon 주소(config.js)로 넣는다."""
-    parts = urlsplit(canon)
-    if parts.scheme not in ("http", "https") or not parts.netloc:
-        raise HTTPException(400, "Canon 주소가 필요해요")
-    origin = f"{parts.scheme}://{parts.netloc}"
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        for f in sorted(EXT_DIR.iterdir()):
-            if f.is_file() and not f.name.startswith("."):
-                data = f.read_bytes()
-                if f.name == "config.js":
-                    data = f"const CANON_DEFAULT = {json.dumps(origin)};\n".encode()
-                z.writestr(f"canon-extension/{f.name}", data)
-    return Response(buf.getvalue(), media_type="application/zip",
-                    headers={"Content-Disposition": 'attachment; filename="canon-extension.zip"'})
+@router.post("/api/refs/newto")
+def ref_newto(body: RefNewtoIn) -> dict:
+    """newto 로 작품을 받는 작업(ref_newto)을 시작한다. 한 번에 하나만 돈다. 끝나면 합본의 화가 받은 화에 들어간다."""
+    work = body.work.strip()
+    if not refs.WORK_RE.match(work):
+        raise HTTPException(400, "작품 번호는 숫자만 넣어 주세요")
+    if refs.newto_dir() is None:
+        raise HTTPException(400, "newto 폴더를 찾지 못했어요. CANON_NEWTO에 newto 폴더 경로를 넣어 주세요")
+    try:
+        job = jobs.start(REF_JOBS, "ref_newto", None, f"newto 가져오기 ({work})", lambda j: refs.newto_fetch(work, j))
+    except jobs.Busy as b:
+        return {**b.job.public(), "already": True}
+    return job.public()
 
 
 @router.post("/api/refs")
@@ -193,7 +174,7 @@ def ref_compare(rid: str, project: str) -> dict:
 EXPORTS = (
     "RefCreateIn",
     "RefInboxDelIn",
-    "RefInboxIn",
+    "RefNewtoIn",
     "RefPickIn",
     "RefPutIn",
     "RefSplitIn",
@@ -206,10 +187,9 @@ EXPORTS = (
     "put_ref",
     "ref_compare",
     "ref_episode",
-    "ref_extension",
     "ref_inbox",
-    "ref_inbox_add",
     "ref_inbox_clear",
+    "ref_newto",
     "ref_revlab",
     "ref_sample",
     "ref_source",

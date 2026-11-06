@@ -12,11 +12,16 @@ ref.json(RefBook)에 경계(줄 번호)와 화별 지표를 둔다. 경계를 �
 from __future__ import annotations
 
 import bisect
+import glob
 import json
 import os
 import re
 import shutil
+import signal
+import subprocess
+import threading
 import uuid
+from collections import deque
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -478,7 +483,7 @@ def exists(rid: str) -> bool:
     return bool(ID_RE.match(rid or "")) and (root() / rid / "ref.json").exists()
 
 
-# ---------- 받은 화 (크롬 확장이 보낸 화, canon/extension) ----------
+# ---------- 받은 화 (newto 로 가져온 화, newto_fetch) ----------
 # 원고가 되기 전 대기열이다. <refs 폴더>/inbox.json 하나에 둔다. 넣기 화면이 원고 칸으로 가져가고 비운다.
 INBOX_MAX = 3000  # 대기열에 두는 화 수 상한
 INBOX_TEXT_MAX = 500_000  # 한 화 글자 수 상한
@@ -499,7 +504,7 @@ def inbox() -> list[dict]:
     return [x for x in data if isinstance(x, dict) and isinstance(x.get("text"), str)] if isinstance(data, list) else []
 
 
-def inbox_add(title: str, url: str, text: str) -> dict:
+def inbox_add(title: str, url: str, text: str, book: str = "") -> dict:
     """화 하나를 대기열 끝에 둔다. 같은 글의 화가 이미 있으면 더하지 않는다(다시 보낸 화). 주소는 같은데 글이 다른 사이트도 있어 글로 견준다."""
     text = _norm(text).strip()
     if not text:
@@ -507,6 +512,8 @@ def inbox_add(title: str, url: str, text: str) -> dict:
     if len(text) > INBOX_TEXT_MAX:
         raise ValueError(f"한 화가 너무 길어요 ({len(text):,}자). {INBOX_TEXT_MAX:,}자까지 받아요")
     item = {"id": uuid.uuid4().hex[:12], "title": title.strip()[:200], "url": url.strip()[:1000], "text": text, "at": _now()}
+    if book.strip():
+        item["book"] = book.strip()[:200]  # 작품 이름 (넣기 화면이 이름 칸이 비었으면 넣는다)
     with store._disk_lock(root()):
         items = inbox()
         same = next((k for k, x in enumerate(items) if x.get("text") == text), None)
@@ -524,6 +531,103 @@ def inbox_clear(ids: Optional[list[str]] = None) -> int:
         items = [] if ids is None else [x for x in inbox() if x.get("id") not in set(ids)]
         store.write_atomic(_inbox_path(), json.dumps(items, ensure_ascii=False))
     return len(items)
+
+
+# ---------- newto 로 작품 가져오기 ----------
+# newto 폴더의 `npm run verify -- --headless --work <작품 번호> --wait-on-limit` 를 부른다.
+# newto 는 작품의 화를 차례로 받아 `<작품 이름> [<작품 번호>].txt` 합본 하나에 모은다. 이미 받은 화는 건너뛴다.
+# 끝나거나 멈추면 합본의 화를 받은 화 대기열에 넣는다. Canon 은 사이트에 직접 접속하지 않는다.
+NEWTO_HEAD = re.compile(r"^===== (?:(\d+)화|회차) \[(\d+)\] =====$", re.M)  # newto 합본의 화 머리 줄
+NEWTO_LOG_KEEP = 40  # 작업 결과에 남기는 마지막 출력 줄 수
+WORK_RE = re.compile(r"^\d{1,12}$")
+
+
+def newto_dir() -> Optional[Path]:
+    """newto 폴더. CANON_NEWTO 가 없으면 Canon 저장소 옆의 newto 폴더를 본다. package.json 이 없으면 None."""
+    env = os.environ.get("CANON_NEWTO")
+    d = Path(env).expanduser() if env else Path(__file__).resolve().parent.parent.parent / "newto"
+    return d if (d / "package.json").is_file() else None
+
+
+def newto_sections(text: str) -> list[dict]:
+    """newto 합본을 화로 나눈다. 화마다 {label: '001화', id: 회차 번호, text: 본문}."""
+    text = _norm(text)
+    heads = list(NEWTO_HEAD.finditer(text))
+    out = []
+    for k, m in enumerate(heads):
+        body = text[m.end():heads[k + 1].start() if k + 1 < len(heads) else len(text)].strip()
+        if body:
+            out.append({"label": f"{m.group(1)}화" if m.group(1) else "", "id": m.group(2), "text": body})
+    return out
+
+
+def _newto_book(path: Path, work: str) -> str:
+    return path.name.removesuffix(".txt").removesuffix(f" [{work}]").strip()
+
+
+def newto_import(work: str, path: Optional[Path] = None) -> dict:
+    """newto 합본의 화를 받은 화 대기열에 넣는다. path 가 없으면 newto 폴더에서 `* [<작품 번호>].txt` 를 찾는다."""
+    if path is None:
+        d = newto_dir()
+        found = sorted(d.glob(f"* {glob.escape(f'[{work}]')}.txt"), key=lambda f: f.stat().st_mtime) if d else []
+        if not found:
+            return {"added": 0, "dup": 0, "book": ""}
+        path = found[-1]
+    book = _newto_book(path, work)
+    added = dup = 0
+    for sec in newto_sections(path.read_text(encoding="utf-8")):
+        r = inbox_add(sec["label"], f"newto:{work}/{sec['id']}", sec["text"], book=book)
+        dup += r["dup"]
+        added += not r["dup"]
+    return {"added": added, "dup": dup, "book": book}
+
+
+def newto_command(work: str) -> list[str]:
+    return [shutil.which("npm") or "npm", "run", "verify", "--", "--headless", "--work", work, "--wait-on-limit"]
+
+
+def newto_fetch(work: str, job) -> dict:
+    """작업(jobs.start) 본문. newto 를 돌리며 마지막 출력 줄을 job.note 에 두고, 끝나면 합본을 받은 화로 넣는다.
+    job.stop 이 켜지면(멈추기) newto 와 그 자식(Chrome)을 멈추고 그때까지 모은 화를 넣는다."""
+    work = work.strip()
+    if not WORK_RE.match(work):
+        raise ValueError("작품 번호는 숫자만 넣어 주세요")
+    d = newto_dir()
+    if d is None:
+        raise ValueError("newto 폴더를 찾지 못했어요. CANON_NEWTO에 newto 폴더 경로를 넣어 주세요")
+    proc = subprocess.Popen(newto_command(work), cwd=d, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            stdin=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace",
+                            start_new_session=True)
+
+    def watch() -> None:  # 멈추기를 누르면 프로세스 묶음(npm · node · Chrome)을 끝낸다
+        while proc.poll() is None:
+            if job.stop.wait(1):
+                try:
+                    os.killpg(proc.pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+                return
+    threading.Thread(target=watch, name=f"newto-{work}", daemon=True).start()
+    log: deque[str] = deque(maxlen=NEWTO_LOG_KEEP)
+    merged: Optional[Path] = None
+    assert proc.stdout is not None
+    for line in proc.stdout:
+        line = line.rstrip()
+        if not line:
+            continue
+        log.append(line)
+        job.note = line[:200]
+        if line.startswith("합본 TXT: "):
+            f = Path(line.removeprefix("합본 TXT: ").strip())
+            merged = f if f.is_absolute() else d / f
+        m = re.match(r"^\[(\d+)/(\d+)\] ", line)
+        if m:
+            job.done, job.total = int(m.group(1)) - 1, int(m.group(2))
+    code = proc.wait()
+    got = newto_import(work, merged if merged and merged.is_file() else None)
+    if code != 0 and not (got["added"] or got["dup"]) and not job.stop.is_set():  # 합본에 화가 하나도 없을 때만 실패로 본다
+        raise RuntimeError(f"newto가 끝 코드 {code}로 멈췄어요: {log[-1] if log else '출력 없음'}")
+    return {**got, "work": work, "code": code, "log": list(log)}
 
 
 def load(rid: str) -> RefBook:
