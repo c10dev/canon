@@ -22,16 +22,20 @@ function writtenNums() {
   return P().episodes.filter((e) => e.text || liveDraft(e.plot.number) !== undefined).map((e) => e.plot.number);
 }
 
+// 640px 이하 집필 붙는 줄은 '복사' 글자를 낭독에만 남기고 이 아이콘(.lbl-i)을 보인다 (app.css)
+const COPY_ICON = '<svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6.5" y="6.5" width="8.5" height="8.5" rx="1.5"></rect><path d="M11.5 6.5V4.5A1.5 1.5 0 0 0 10 3H4.5A1.5 1.5 0 0 0 3 4.5V10a1.5 1.5 0 0 0 1.5 1.5h2"></path></svg>';
+
 /** 집필 화면 본문 띠의 분할 복사 버튼: '복사'는 고른 형식으로 이 화를 복사하고, ▾ 메뉴에서 형식 · 제목 줄 · .txt · 여러 화 내보내기를 고른다. */
 function copySplit(n) {
-  return `<div class="split"><button type="button" class="btn small" data-action="copyEp" data-arg="${n}" title="고른 줄바꿈 형식으로 복사해요 (▾에서 바꿔요)">복사</button>${menuBtn('copy', CHEVRON, () => copyMenu(n), { cls: 'btn small', aria: '복사 설정과 내보내기' })}</div>`;
+  return `<div class="split"><button type="button" class="btn small" data-action="copyEp" data-arg="${n}" title="고른 줄바꿈 형식으로 복사해요 (▾에서 바꿔요)"><span class="lbl-i">${COPY_ICON}</span><span class="lbl-t">복사</span></button>${menuBtn('copy', CHEVRON, () => copyMenu(n), { cls: 'btn small', aria: '복사 설정과 내보내기' })}</div>`;
 }
 
-function copyMenu(n) {
+/** legend: 머리 ⋯ 메뉴(640px 이하, write.js writeMenu)에 넣을 때는 복사 설정인 줄 알게 이름을 바꾼다 */
+function copyMenu(n, legend = '줄바꿈 형식') {
   const fmts = S.copyFormats || [];
   const nums = writtenNums();
   const r = copyRangeOf(nums);
-  return `<fieldset class="pop-sec"><legend class="pop-legend">줄바꿈 형식</legend>
+  return `<fieldset class="pop-sec"><legend class="pop-legend">${legend}</legend>
       ${fmts.map((f) => `<label class="pop-radio" for="copy-fmt-${esc(f.id)}"><input type="radio" name="copy-fmt" id="copy-fmt-${esc(f.id)}" value="${esc(f.id)}" data-copy="fmt"${f.id === S.copyFmt ? ' checked' : ''}><span><span>${esc(f.label)}</span>${f.id === S.copyFmt && f.hint ? `<span class="small">${esc(f.hint)}</span>` : ''}</span></label>`).join('')}
     </fieldset>
     <div class="pop-sec"><label class="pop-check" for="copy-title"><input type="checkbox" id="copy-title" data-copy="title"${S.copyTitle ? ' checked' : ''}> 맨 위에 '${n}화. 제목' 줄 넣기</label></div>

@@ -1715,7 +1715,7 @@ mark.hl.flash { outline: 2px solid currentColor; outline-offset: 2px; }
 @keyframes w-busy { to { background-position: 48px 0; } }
 @media (prefers-reduced-motion: reduce) { .w-busy-text i { animation: none; } }
 /* 좁은 화면 짧은 이름 (문체 장치 → 문체, 수정 기록 → 기록, 글자 수 목표 숨김) */
-.lbl-s { display: none; }
+.lbl-s, .lbl-i { display: none; }
 @media (max-width: 640px) { .lbl-l { display: none; } .lbl-s { display: inline; } }
 /* 본문 띠: 글자 수 · 저장 칸(저장 띠가 들어온다) · 수정 기록 · 복사, 아래 줄에 안내 */
 .w-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-6) var(--space-10); padding: var(--space-8) var(--space-12) var(--space-8) var(--space-16); border-bottom: 1px solid var(--line); font-size: 0.75rem; color: var(--muted); }
@@ -1726,6 +1726,8 @@ mark.hl.flash { outline: 2px solid currentColor; outline-offset: 2px; }
 /* 집필 머리 (write.js .w-head): 640px 이하는 본문이 첫 화면에 들어오게 줄인다. 위치 줄 · 쓴 모델은 숨기고(위쪽 띠에 n/N화가 있다) 제목을 줄이고,
    보조 버튼(대화 · 다시 생성 · 작업지시서)은 ⋯ 메뉴(.w-narrow)로 옮겨 ⋯ 와 primary 만 남긴다. 단계 띠는 한 줄 칸으로, 안내만 하는 반영 끝난 화 알림은 첫 문장만 보이는 접은 칸(.w-fin-s)으로 */
 .w-narrow, .w-fin-s { display: none; }
+.w-tl, .w-headwrap { display: contents; }
+.w-headwrap > .page-head { margin-bottom: calc(var(--gap-section) - var(--gap-stack)); }  /* 넓은 폭: 머리 아래 구역 간격은 묶음 안에서도 같다 */
 .w-fin-s > summary { display: flex; align-items: center; min-height: var(--touch-min); cursor: pointer; font-size: inherit; color: inherit; }
 .w-fin-s > p { margin: 0 0 var(--space-8); }
 @media (max-width: 640px) {
@@ -1737,6 +1739,37 @@ mark.hl.flash { outline: 2px solid currentColor; outline-offset: 2px; }
   .w-head + .flow-bar .fl-sub:not(.warn) { display: none; }
   .w-fin.has-short > .note.plain:not(.w-fin-s) { display: none; }
   .w-fin-s { display: block; padding-top: 0; padding-bottom: 0; }
+  /* 머리와 단계 띠를 두 줄 격자로: 위 줄은 제목과 칩(.w-tl) · ⋯ 와 primary, 아래 줄은 화 앞뒤 버튼 · 단계 띠. 44px 줄 둘이 준다 */
+  .w-headwrap { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "tl tl acts" "nav flow flow"; align-items: center; gap: var(--gap-row); }
+  .w-headwrap > .w-head, .w-head > .row:first-child { display: contents; }
+  .w-head > .row:first-child > nav { grid-area: nav; }
+  .w-head .w-tl { grid-area: tl; display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-label) var(--gap-row); min-width: 0; }
+  .w-head .w-tl h1 { word-break: keep-all; overflow-wrap: anywhere; }  /* 좁은 칸에서 낱말 가운데서 끊지 않는다 */
+  .w-head > .row:last-child { grid-area: acts; flex-wrap: nowrap; justify-content: flex-end; }
+  .w-headwrap > .flow-bar { grid-area: flow; }
+  .w-headwrap > .flow-bar .fl-cell { gap: var(--space-4); padding: 0 var(--space-4); }  /* 화 앞뒤 버튼 옆 좁은 칸: '상태 승인'이 390px 에서 한 줄에 든다 */
+  .w-headwrap > .flow-bar .fl-n { width: 18px; height: 18px; }
+  /* 본문이 첫 화면에 더 들어오게 집필 화면만 위 여백 · 머리 묶음 아래를 줄인다 */
+  .main:has(> .w-headwrap) { padding-top: var(--gap-group); }
+  .main > .w-headwrap { margin-bottom: calc(var(--gap-row) - var(--gap-stack)); }
+  /* 붙는 줄 하나: 이번 화 플롯 토글(왼쪽, 남는 폭) · 글자 수 · 도구 버튼. 본문 띠(.w-bar)는 contents 라 그 안 칸이 이 줄에 선다.
+     도구가 많아 120px 밑으로 줄면 다음 줄로 감긴다. 저장 띠가 들어오면 저장 칸이 맨 아래 자기 줄을 쓴다 */
+  .w-body .w-top { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-4) var(--space-6); padding: 0 var(--space-12) 0 var(--space-16); }
+  .w-body .w-top > .w-bar { display: contents; }
+  .w-body .w-top > .wp-row { order: -1; flex: 1 1 0; min-width: 72px; padding: 0; }
+  .w-body .wp-lead b { display: none; }  /* 좁은 줄: '엔딩 훅' 이름 대신 내용을 보인다 */
+  .w-body .w-bar .w-fill, .w-body .w-bar .savebar-slot:empty { display: none; }
+  .w-body .w-bar .savebar-slot { order: 1; flex-basis: 100%; padding-bottom: var(--gap-row); }
+  /* 면 없는 아이콘 버튼: 붙는 줄 도구(문체 · 고칠 곳 · 수정 기록 · 복사)와 머리의 화 앞뒤 · ⋯. 터치 칸은 44px 그대로, 면은 주 버튼만.
+     켜진 토글 · 열린 메뉴는 원래 모양(accent 테두리)을 둔다. 저장 칸 안의 버튼은 건드리지 않는다 */
+  :is(.w-body .w-bar > .btn, .w-body .w-bar > .menu > .btn, .w-body .w-bar > .split .btn, .w-headwrap nav > .btn, .w-head > .row:last-child > .menu > .icon-btn):not(.on, [aria-expanded="true"], [aria-pressed="true"]) { background: transparent; color: var(--text-2); }
+  :is(.w-body .w-bar > .btn, .w-body .w-bar > .menu > .btn, .w-body .w-bar > .split .btn, .w-headwrap nav > .btn, .w-head > .row:last-child > .menu > .icon-btn):active { background: var(--btn); }
+  :is(.w-body .w-bar > .btn, .w-body .w-bar > .menu > .btn, .w-body .w-bar > .split .btn) { min-width: var(--touch-min); padding: 0 var(--space-8); gap: var(--space-4); }
+  .w-body .w-bar .lbl-i { display: inline-flex; font-weight: 700; font-size: 0.9375rem; }
+  .w-body .w-bar .btn .lbl-s, .w-body .w-bar [data-menu="marks"] > .btn > svg { display: none; }
+  .w-body .w-bar .split > .menu { display: none; }  /* 복사 ▾ 설정 · 내보내기는 머리 ⋯ 메뉴 맨 위(.w-narrow)에 둔다 */
+  .w-body .w-bar .lbl-t { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }  /* '복사' 글자는 낭독에만 */
+  .w-body .prose { padding-top: var(--space-20); }
 }
 /* 다시 생성 열 (rewrite.js rwColumn): 대화 패널과 같은 자리 · 폭 */
 .tool-col { position: fixed; top: 0; right: 0; bottom: 0; width: min(440px, 100vw); z-index: var(--z-panel); gap: 0; margin: 0; background: var(--surface); border-left: 1px solid var(--line); display: flex; flex-direction: column; }
@@ -1746,6 +1779,7 @@ mark.hl.flash { outline: 2px solid currentColor; outline-offset: 2px; }
 .prose textarea { min-height: max(480px, calc(100svh - 220px)); }
 /* 집필 화면: 머리(--wtop, write.js syncWriteTop)가 위에 붙으면 본문 칸이 그 아래 화면을 채운다. 72px 은 .prose 위아래 여백 */
 .w-body .prose textarea { min-height: max(320px, calc(100svh - var(--band, 0px) - var(--wtop, 140px) - 72px - 16px)); }
+@media (max-width: 640px) { .w-body .prose textarea { min-height: max(320px, calc(100svh - var(--band, 0px) - var(--wtop, 140px) - 56px - 16px)); } }  /* 좁은 화면: .prose 위 여백이 20px 라 위아래 56px */
 
 /* 900px 이하(휴대폰 · 세로 태블릿): AI 패널은 아래쪽 시트로. 위쪽에 본문이 보인다.
    떠 있는 저장 띠 · 작업 목록 · 알림은 시트 위로 올린다. 시트의 입력칸과 보내기를 가리지 않는다 */

@@ -261,6 +261,7 @@
 - 집필 화면 문체 표시
 - 손가락 기기에서 밑줄 친 곳은 같은 자리를 2초 안에 한 번 더 눌러야 이름 카드 · 도구를 띄운다(`markTap`). 빠른 두 번 누름으로 낱말이 골라지면 그것도 두 번째 누름으로 친다
 - 장치마다 이번 화 배지(`deviceBadges`, 본문 띠의 '문체 장치' 메뉴 `styleMenu`)
+- `styleMenu` 버튼은 640px 이하 집필 화면에서 `Aa` 아이콘만 보인다(이름은 `aria-label`)
 - 본문에서 장치 글자 · 금지 표현 밑줄(고치는 본문은 textarea 뒤에 깐 칸 `hl-layer`, 스크롤은 CSS 스크롤 타임라인 `hl-follow` 로 따라가고 안 되는 브라우저만 `scrollTop`, 읽기 전용은 `<mark>`)
 - 밑줄에서 부분 수정 도구 띄우기
 - 쓴 화 세기와 쉬는 화 판정은 `metrics.device_hits` · `device_last` · `prompts.device_block` 과 같은 규칙이라 함께 고친다(`tests/test_marks_js.py` 가 node 로 맞춰 본다)
@@ -535,6 +536,14 @@
   - 머리 ⋯ 메뉴 `writeMenu`: 생성 방식 · 컨텍스트 대화상자 · 채팅 앱 작업지시서 .md 내려받기(`briefDownload`) · 화 지우기
   - 생성 방식 바꾸기(`setMode`)는 localStorage 에 못 적어도 이번 화면에서는 바꾼다
   - 640px 이하 머리(`.w-head`)는 ⋯ 메뉴와 primary 만 남긴다(app.css)
+  - 머리와 단계 띠는 `.w-headwrap` 으로 묶는다
+  - 640px 이하에서 `.w-headwrap` 은 두 줄 격자다: 위 줄은 제목과 칩 묶음(`.w-tl`) · ⋯ 와 primary, 아래 줄은 화 앞뒤 버튼 · 단계 띠
+  - `.w-headwrap` · `.w-tl` 은 넓은 폭에서 `display: contents` 라 머리 · 단계 띠 모양이 그대로다
+  - 640px 이하에서 본문 위 여백(페이지 위 · 머리 묶음 아래 · 원고 위)을 줄인다(app.css)
+  - 640px 이하에서 본문 띠(`.w-bar`)는 `display: contents` 라 글자 수 · 도구 버튼 · 저장 칸이 접힌 플롯 줄과 한 줄(`.w-top`)에 선다
+  - 640px 이하에서 접힌 플롯 줄 이름은 `플롯`(`.lbl-s`)이다
+  - 640px 이하에서 붙는 줄 도구는 아이콘(`.lbl-i`: 문체 `Aa` · 고칠 곳 `TOFIX_ICON` · 수정 기록 `EDITS_ICON` · 복사 `COPY_ICON`)만 보이는 면 없는 버튼이다(app.css)
+  - 640px 이하에서 복사 ▾ 메뉴는 숨기고 같은 내용(`copyMenu`)을 머리 ⋯ 메뉴 맨 위(`writeMenu` 의 `copy`)에 둔다
   - 640px 이하에서 대화 · 다시 생성 버튼은 ⋯ 메뉴 맨 위(`.w-narrow`)로 옮긴다
   - 640px 이하에서 머리의 위치 줄과 쓴 모델은 숨긴다
   - 640px 이하에서 단계 띠는 한 줄 칸이다

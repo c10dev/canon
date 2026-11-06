@@ -94,12 +94,15 @@ function eventsLock(n) {
   return '';
 }
 
+// 640px 이하 집필 붙는 줄의 수정 기록 아이콘(.lbl-i, 되감는 시계). 넓은 폭은 숨긴다 (app.css)
+const EDITS_ICON = '<svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 9a5.5 5.5 0 1 0 1.6-3.9"></path><path d="M3 2.8v2.7h2.7"></path><path d="M9 6v3.2l2 1.3"></path></svg>';
 const FLAG = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3.5 14V2.5M3.5 3h8l-2 2.75 2 2.75h-8"></path></svg>';
 
 /** 접힌 한 줄: 엔딩 훅(없으면 줄거리) · 사건 진행(체크한 수 / 사건 수, 좁은 화면은 숨김) · 시점이 바뀐 화면 '시점 바뀜'.
     펼치면 위 오른쪽에 '더 보기' · 플롯 페이지 링크, 승인된 요약(반영이 끝난 화), 왼쪽 진행 줄(사건 체크 → 끝에 엔딩 훅 도착점),
     오른쪽 이름 · 값 표(등장 인물 · 서술 시점 · 작품 속 시간), '더 보기'에 구간 목표 · 줄거리 · 감정 변화 · 여는 장면 · 독자 질문.
-    펼친 칸(.wp-body)은 머리(.w-top) 밖에 둔다: 좁은 화면은 머리만 붙여 두고 펼친 칸은 본문과 함께 올라간다 (app.css) */
+    펼친 칸(.wp-body)은 머리(.w-top) 밖에 둔다: 좁은 화면은 머리만 붙여 두고 펼친 칸은 본문과 함께 올라간다 (app.css).
+    640px 이하는 이 줄과 본문 띠(.w-bar)가 한 줄이라 이름을 '플롯'으로 줄인다 */
 function plotStrip(n, act) {
   const e = ep(n);
   const p = e.plot;
@@ -111,7 +114,7 @@ function plotStrip(n, act) {
   const k = done.filter(Boolean).length;
   const lead = p.ending_hook ? `<b>엔딩 훅</b> ${esc(p.ending_hook)}` : esc(p.summary || '');
   const row = `<div class="wp-row"><button type="button" class="wp-toggle" data-action="togglePlot" data-arg="${n}" aria-expanded="${open}" aria-controls="wp-body">
-      <span class="wp-caret">${CARET}</span><span class="wp-label">이번 화 플롯</span><span class="wp-lead">${lead}</span>
+      <span class="wp-caret">${CARET}</span><span class="wp-label"><span class="lbl-l">이번 화 플롯</span><span class="lbl-s">플롯</span></span><span class="wp-lead">${lead}</span>
       <span class="wp-meta">${p.events.length ? `<span class="chip wp-count" aria-label="사건 ${p.events.length}개 중 ${k}개 씀">사건 ${k}/${p.events.length}</span>` : ''}${movedChip}</span></button></div>`;
   if (!open) return { row, body: '' };
   const f = (label, v) => (v ? `<div class="field"><span class="small">${label}</span><div>${v}</div></div>` : '');
@@ -208,7 +211,7 @@ function metaCutNote(n, can) {
     <ul style="list-style:none;padding:0;margin:8px 0 0;display:grid;gap:8px">${rows}</ul></details>`;
 }
 
-function writeMenu(n, starting, seg, narrow = '') {
+function writeMenu(n, starting, seg, narrow = '', copy = '') {
   const e = ep(n);
   const parts = [];
   if (seg && !starting) parts.push(`<div class="pop-sec"><span class="pop-legend">생성 방식</span>${seg}</div>`);
@@ -220,10 +223,12 @@ function writeMenu(n, starting, seg, narrow = '') {
     <a class="pop-item" href="${base()}/brief/${n}">작업지시서 화면 열기</a></div>`);
   const del = deleteBlock(e);
   if (del) parts.push(`<div class="pop-sec pop-danger">${del}</div>`);
-  if (!parts.length) return '';
   const dots = '<svg width="18" height="18" viewBox="0 0 18 18" fill="currentColor" aria-hidden="true"><circle cx="4" cy="9" r="1.6"></circle><circle cx="9" cy="9" r="1.6"></circle><circle cx="14" cy="9" r="1.6"></circle></svg>';
-  // narrow: 640px 이하에서 머리 줄에서 뺀 보조 버튼(대화 · 다시 생성). 넓은 폭에서는 .w-narrow 를 숨긴다 (app.css)
-  const head = narrow ? `<div class="w-narrow"><div class="pop-sec">${narrow}</div><div class="pop-sep" role="separator"></div></div>` : '';
+  // narrow: 640px 이하에서 머리 줄에서 뺀 보조 버튼(대화 · 다시 생성). copy: 640px 이하에서 붙는 줄의 복사 ▾ 대신 여기 두는 복사 설정 · 내보내기.
+  // 넓은 폭에서는 .w-narrow 를 숨긴다 (app.css)
+  const sep = '<div class="pop-sep" role="separator"></div>';
+  const head = narrow || copy ? `<div class="w-narrow">${narrow ? `<div class="pop-sec">${narrow}</div>${sep}` : ''}${copy ? `${copy}${sep}` : ''}</div>` : '';
+  if (!parts.length && !head) return '';
   return menuBtn('write', dots, () => head + parts.join('<div class="pop-sep" role="separator"></div>'), { cls: 'btn icon-btn', aria: `${n}화 더보기` });
 }
 
@@ -356,6 +361,8 @@ function viewWrite(n) {
     : `<button type="button" class="btn primary" data-action="flowCheck" data-arg="${n}"${chk.attr}>${cs.stale ? '다시 검수하기' : chk.label}</button>`)
     : e.status === 'written' ? `<a class="btn primary" href="${base()}/review/${n}">상태 승인으로</a>`
       : e.status === 'finalized' ? nextStepBtn() : fresh ? writeGo(n, blocked).primary : starting && e.storyboard ? boardGo(n, blocked) : '';
+  // 머리와 단계 띠는 .w-headwrap 으로 묶는다. 넓은 폭은 .w-headwrap · .w-tl 이 display: contents 라 머리 한 줄 아래 단계 띠다.
+  // 640px 이하는 두 줄 격자다: 제목과 칩(.w-tl) · ⋯ 와 primary, 그 아래 화 앞뒤 버튼 · 단계 띠 (app.css)
   // 640px 이하는 보조 버튼(대화 · 다시 생성 · 작업지시서)을 머리 줄에서 숨기고 ⋯ 메뉴에 같은 동작을 둔다 (작업지시서는 메뉴에 이미 있다, app.css .w-head)
   const chatOn = e.text && editable;
   const rw = e.text && editable && (isApi || e.status === 'finalized') ? jobBtn('write', n, '다시 생성') : null;
@@ -363,7 +370,7 @@ function viewWrite(n) {
   const right = `${chatOn ? chatButton(`text:${n}`) : ''}
     ${rw ? `<button class="btn${S.rwOpen === n ? ' on' : ''}" data-action="rwOpen" data-arg="${n}" aria-expanded="${S.rwOpen === n}"${rw.attr}>${rw.label}</button>` : ''}
     ${editable && !isApi && e.status !== 'finalized' ? `<a class="btn" href="${base()}/brief/${n}">작업지시서</a>` : ''}
-    ${writeMenu(n, starting, seg, narrow)}
+    ${writeMenu(n, starting, seg, narrow, text && e.status !== 'draft' && !starting ? copyMenu(n, '복사할 때 줄바꿈 형식') : '')}
     ${primary}`;
 
   const strip = plotStrip(n, act);
@@ -372,8 +379,7 @@ function viewWrite(n) {
 
   const fin = finNote(e.text ? restateNote(n) : '');  // 반영이 끝난 화 알림. 640px 이하는 첫 문장만 보이고 펼쳐 읽는다 (.w-fin)
 
-  return `<header class="page-head w-head"><div class="row" style="gap:12px">${epNav('write', n)}<div class="lead" style="gap:2px"><div class="eyebrow">${act ? actLabel(act.name) + ' 구간 · ' : ''}${n} / ${P().meta.target_episodes}화</div><h1 style="font-size:var(--w-h1, 1.5rem)">${n}화 ${esc(e.plot.title)}</h1></div>${povBadge(n)}<span class="chip ${e.status}">${STATUS[e.status]}</span>${e.auto ? '<span class="chip ai">자동 반영</span>' : ''}${e.text && writerLabel(e.written_by) ? `<span class="small w-model" title="이 본문을 쓴 모델이에요. 직접 고쳐도 바뀌지 않아요">쓴 모델 · ${esc(writerLabel(e.written_by))}</span>` : ''}</div><div class="row">${right}</div></header>
-    ${flowBar(n, 'write')}
+  return `<div class="w-headwrap"><header class="page-head w-head"><div class="row" style="gap:12px">${epNav('write', n)}<div class="w-tl"><div class="lead" style="gap:2px"><div class="eyebrow">${act ? actLabel(act.name) + ' 구간 · ' : ''}${n} / ${P().meta.target_episodes}화</div><h1 style="font-size:var(--w-h1, 1.5rem)">${n}화 ${esc(e.plot.title)}</h1></div>${povBadge(n)}<span class="chip ${e.status}">${STATUS[e.status]}</span>${e.auto ? '<span class="chip ai">자동 반영</span>' : ''}${e.text && writerLabel(e.written_by) ? `<span class="small w-model" title="이 본문을 쓴 모델이에요. 직접 고쳐도 바뀌지 않아요">쓴 모델 · ${esc(writerLabel(e.written_by))}</span>` : ''}</div></div><div class="row">${right}</div></header>${flowBar(n, 'write')}</div>
     ${e.auto ? `<div class="note info">이 화는 자동 집필이 검토 없이 반영했어요. 읽어 보고 문제가 있으면 <a href="${base()}/auto">자동 집필</a>에서 이 화부터 되돌릴 수 있어요.</div>` : ''}
     ${rebuildNote(n)}
     ${fin}
@@ -395,7 +401,7 @@ function viewWrite(n) {
             ${editable && (e.text || draft !== undefined) ? '<div class="savebar-slot"></div>' : '<span class="w-fill"></span>'}
             ${e.status === 'draft' ? '' : `${styleMenu(n)}
             ${editable ? tofixBtn(n) : ''}
-            ${edits ? `<button type="button" class="btn small" data-action="openEdits" title="수정 기록을 펼쳐요" aria-label="수정 기록 ${edits}개"><span class="lbl-l">수정 기록</span><span class="lbl-s">기록</span> ${edits}</button>` : ''}
+            ${edits ? `<button type="button" class="btn small" data-action="openEdits" title="수정 기록을 펼쳐요" aria-label="수정 기록 ${edits}개"><span class="lbl-i">${EDITS_ICON}</span><span class="lbl-l">수정 기록</span><span class="lbl-s">기록</span> ${edits}</button>` : ''}
             ${text ? copySplit(n) : ''}`}
             <p class="small w-hint">${e.status === 'draft' ? '플롯을 확정하면 본문을 쓸 수 있어요' : e.text ? `고칠 부분을 드래그하거나 길게 누르면 직접 고치거나 AI에게 맡기거나 나중에 고칠 곳으로 담을 수 있어요${typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches ? '. 밑줄 친 곳은 한 번 더 누르면 이름 카드 · 도구가 떠요' : ''}` : '본문을 직접 고친 뒤 저장할 수 있어요'}</p>
           </div>`}

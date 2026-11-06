@@ -82,10 +82,13 @@ async function tofixCall(method, n, path, body, done) {
 
 // ----- 집필 화면 -----
 
+// 640px 이하 집필 붙는 줄의 아이콘(.lbl-i, 깃발). 넓은 폭은 숨긴다 (app.css)
+const TOFIX_ICON = '<svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 15.5V3M4.5 3.5h8.5l-2.2 3 2.2 3H4.5"></path></svg>';
+
 /** 본문 띠의 '고칠 곳 N' 버튼: 누를 때마다 이 화의 다음 남은 표시를 골라 도구를 띄운다. 남은 것이 없으면 빈 글. */
 function tofixBtn(n) {
   const k = tofixOpen(ep(n)).length;
-  return k ? `<button type="button" class="btn small" data-action="tofixNext" data-arg="${n}" title="남은 고칠 곳을 차례로 골라요" aria-label="고칠 곳 ${k}개"><span class="lbl-l">고칠 곳</span><span class="lbl-s">고칠</span> ${k}</button>` : '';
+  return k ? `<button type="button" class="btn small" data-action="tofixNext" data-arg="${n}" title="남은 고칠 곳을 차례로 골라요" aria-label="고칠 곳 ${k}개"><span class="lbl-i">${TOFIX_ICON}</span><span class="lbl-l">고칠 곳</span><span class="lbl-s">고칠</span> ${k}</button>` : '';
 }
 
 /** 메모 칸 도구 (mode 'tofix'). 새로 담을 때는 id 가 없다. */
