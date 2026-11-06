@@ -361,7 +361,8 @@ function viewEpisode(n, panel = 'write') {
     </div>`;
   } else {
     center = `<div class="prose">${editable
-      ? (locked ? `<div class="note info" id="draft-lock" style="margin:12px 16px 0">${n}화 본문을 만드는 중이에요. 끝나면 이 칸이 AI 본문으로 바뀌니 그때 고치세요.</div>` : '') + draftBox(n, text)
+      ? (locked ? `<div class="note info" id="draft-lock" style="margin:12px 16px 0">${n}화 본문을 만드는 중이에요. 끝나면 이 칸이 AI 본문으로 바뀌니 그때 고치세요.</div>`
+        : aiFixing(n) ? `<div class="note info" role="status" style="margin:12px 16px 0">AI가 경고 문장을 고치는 중이에요. 끝나면 본문에 넣고 알려 드려요. 그동안 이 칸은 잠가요.</div>` : '') + draftBox(n, text)
       : `<div class="read" data-read="${n}">${readHtml(n, text)}</div>`}</div>`;
   }
 

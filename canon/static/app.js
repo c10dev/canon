@@ -651,6 +651,24 @@ function putEpisodes(eps, mine) {
   return changed;
 }
 
+/** 화면을 잠그지 않은 요청이 돌려준 작품(pj, n화 본문과 대화를 고침)을 받는다 (passage.js aiFixNow). gen 은 요청을 보낼 때의 S.gen.
+    그사이 입력이나 저장이 없었으면 통째로 받는다. 있었으면 n화와 대화 기록 · 저장 횟수만 받아 저장하지 않은 다른 입력을 지킨다.
+    화면이 n화를 고쳤으면 받지 않고 false. 화면이 이미 더 새 작품을 받았으면(그 안에 이 수정도 있다) 그대로 두고 true */
+function takeEdited(pj, n, gen) {
+  if (!P()) return false;
+  if ((pj.edit_rev || 0) < (P().edit_rev || 0)) return true;
+  if (!S.dirty && gen === S.gen) { S.project = pj; return true; }
+  const src = pj.episodes.find((e) => e.plot.number === n);
+  const cur = ep(n);
+  if (!src || (cur && projectBase && projectBase.eps.get(n) !== JSON.stringify(cur))) return false;
+  putEpisodes([src], () => true);
+  for (const k of ['chats', 'edit_rev']) {
+    P()[k] = pj[k];
+    if (projectBase) projectBase.keys.set(k, JSON.stringify(pj[k]));
+  }
+  return true;
+}
+
 /** nums 화만 서버에서 받는다 (GET /episodes). 작품 전체(장편은 수 MB)를 다시 받지 않으려고 쓴다.
     화면 작품이 작품 GET 으로 받은 것이고, 화를 뺀 나머지의 판(rest) · 저장 횟수 · 화 번호 목록이 서버와 같을 때만 { base, episodes } 를 돌려준다.
     하나라도 다르거나 요청이 실패하면 null (부르는 쪽이 작품 전체를 받는다). */

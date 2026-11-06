@@ -117,9 +117,12 @@ function draftBox(n, text) {
   // AI가 본문을 처음 쓰는 중이면 끝날 때 칸이 AI 본문으로 바뀐다. 그동안 쓴 글을 잃지 않게 잠근다 (viewWrite 의 locked 와 같은 조건)
   const e = typeof ep === 'function' ? ep(n) : null;
   const locked = typeof jobFor === 'function' && !!jobFor('write', n) && !(e && e.text);
+  // 경고의 'AI에게 고치기'가 이 화 본문을 고치는 중이면 끝날 때까지 잠근다 (passage.js aiFixNow). 그동안 쓴 글이 서버 수정과 엇갈리지 않게
+  const fixing = !locked && typeof aiFixing === 'function' && aiFixing(n);
   // 손가락 기기에서는 글이 있는 본문을 고르기 전용으로 둔다: 눌러도 키보드가 오르지 않고, 문장을 눌러 · 끌어 고른다 (passage.js pickStart). 고치기는 고른 부분 도구의 '직접 수정'으로 한다
-  const pick = !locked && !!text.trim() && typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
-  const ta = `<textarea aria-label="${n}화 본문" data-draft="${n}"${locked ? ' readonly aria-describedby="draft-lock"' : pick ? ' readonly data-pick aria-describedby="pick-hint"' : ''} placeholder="여기에 본문을 쓰세요">${esc(text)}</textarea>`;
+  const pick = !locked && !fixing && !!text.trim() && typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+  const lock = locked ? ' readonly aria-describedby="draft-lock"' : fixing ? ' readonly' : pick ? ' readonly data-pick aria-describedby="pick-hint"' : '';
+  const ta = `<textarea aria-label="${n}화 본문" data-draft="${n}"${lock} placeholder="여기에 본문을 쓰세요">${esc(text)}</textarea>`;
   const hint = pick ? '<p class="small pick-hint" id="pick-hint">문장을 누르면 골라져요. 누른 채 위아래로 끌면 여러 문장을 골라요.</p>' : '';
   return hint + ((marksOn && markable()) || nameable() || findingMarked(n, text) || tofixMarks(n, text).length || rvMarked(n, text) ? `<div class="hl-wrap"><div class="hl-layer" aria-hidden="true"><div class="hl-in"></div></div>${ta}</div>` : ta);
 }

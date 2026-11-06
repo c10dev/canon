@@ -2,6 +2,7 @@
    본문에서 드래그로 고르면 작은 도구가 뜬다. '직접 수정' 은 그 자리에서 고쳐 바로 저장하고,
    'AI에게 고치기' 는 오른쪽 대화 패널(topic 'text:<화>')을 열어 후보 2~3개를 받는다. 후보는 고른 것만 본문에 들어간다.
    상태 정리 경고가 가리킨 문장의 'AI에게 고치기' 는 대화 패널을 거치지 않고 첫 후보를 바로 넣는다 (aiFixNow).
+   기다리는 동안 화면을 잠그지 않고 그 화 본문 칸만 잠근다. 경고 문장이 본문에 그대로 한 번만 있을 때만 바로 넣는다.
    고친 것은 모두 서버의 Episode.edits 에 남아 하나씩 되돌릴 수 있다. */
 'use strict';
 
@@ -13,6 +14,7 @@ Object.assign(S, {
   taScroll: {},      // 화별 본문 칸 스크롤 위치 (다시 그려도 읽던 자리를 지킨다)
   presets: null,     // 빠른 요청 목록 (서버 prompts.PASSAGE_PRESETS)
   candEdit: {},      // '메시지:후보' → 손보는 중인 후보 글
+  aiFix: null,       // 경고의 'AI에게 고치기'가 AI를 기다리는 중 { name, n, w } (aiFixNow). 그동안 그 화 본문 칸을 잠근다
 });
 
 CHAT_TOPICS.text = {
@@ -190,14 +192,44 @@ function passageNotes(n) {
   return out.join('');
 }
 
+/** 경고 글의 «» · 따옴표 안 문구. 두 글자 이상, 긴 것부터. */
+function warnQuotes(w) {
+  const quotes = [];
+  for (const re of [/«([^»]+)»/g, /[“"]([^”"]+)[”"]/g, /[‘']([^’']+)[’']/g, /「([^」]+)」/g, /『([^』]+)』/g]) {
+    for (const m of String(w || '').matchAll(re)) quotes.push(m[1].trim());
+  }
+  return quotes.filter((q) => q.length >= 2).sort((a, b) => b.length - a.length);
+}
+
+/** 경고 문장 q 와, 그 글이 경고에 그대로 옮겨 적혀 있고 본문에 한 번만 있는지(exact).
+    exact 가 아니면 비슷한 문장이거나 여러 자리라 AI가 엉뚱한 곳을 고칠 수 있다. 'AI에게 고치기'는 바로 넣지 않고 대화 패널로 보낸다 */
+function warnSpot(w, text) {
+  const q = warnQuote(w, text);
+  const exact = !!q && warnQuotes(w).includes(q) && text.indexOf(q) === text.lastIndexOf(q);
+  return { q, exact };
+}
+
+const warnMsg = (w) => `상태 정리 경고: ${w}`;
+/** 경고 w 를 'AI에게 고치기'로 고쳤고 되돌리지 않았는가. 수정 기록의 요청 글로 안다 (따로 저장하지 않는다) */
+const warnFixed = (n, w) => ((ep(n) || {}).edits || []).some((e) => e.source === 'ai' && !e.undone && e.instruction === warnMsg(w));
+/** n화 경고를 AI가 고치는 중인가 (w 를 주면 그 경고만) */
+const aiFixing = (n, w) => !!S.aiFix && S.aiFix.name === S.name && S.aiFix.n === n && (w === undefined || S.aiFix.w === w);
+
+/** 경고 한 줄 뒤에 붙는 것: 고치는 중 · AI가 고침 표시, 아니면 '이 문장 고르기' · 'AI에게 고치기' (warnItems · review.js rvWarnLine) */
+function warnTools(n, k, w, inline = false) {
+  if (aiFixing(n, w)) return '<span class="small" role="status">AI가 고치는 중이에요</span>';
+  if (warnFixed(n, w)) return '<span class="chip ok">AI가 고침</span>';
+  const text = textNow(n);
+  const { q, exact } = editableEp(ep(n)) ? warnSpot(w, text) : { q: '' };
+  if (!q) return '';
+  const title = exact ? 'AI가 고친 글을 바로 본문에 넣어요. 알림의 되돌리기로 취소할 수 있어요' : '경고와 똑같은 문장이 없거나 여러 곳이라, 가장 비슷한 문장을 골라 대화 패널에서 보내게 해요';
+  return `<span class="row" style="gap:6px${inline ? ';display:inline-flex' : ''}"><button type="button" class="btn small" data-action="warnPick" data-arg="${n}:${k}">이 문장 고르기</button><button type="button" class="btn small" data-action="warnPick" data-arg="${n}:${k}:ask" title="${title}">AI에게 고치기</button></span>`;
+}
+
 /** 상태 변경안 경고 속 본문 문장. «» · 따옴표 안 문구를 길이 순으로 본문에서 찾고, 그대로 없으면 낱말이 가장 많이 겹치는 문장. 못 찾으면 ''. */
 function warnQuote(w, text) {
   if (!w || !text) return '';
-  const quotes = [];
-  for (const re of [/«([^»]+)»/g, /[“"]([^”"]+)[”"]/g, /[‘']([^’']+)[’']/g, /「([^」]+)」/g, /『([^』]+)』/g]) {
-    for (const m of w.matchAll(re)) quotes.push(m[1].trim());
-  }
-  const qs = quotes.filter((q) => q.length >= 2).sort((a, b) => b.length - a.length);
+  const qs = warnQuotes(w);
   const exact = qs.find((q) => text.includes(q));
   if (exact) return exact;
   // AI가 문장을 조금 바꿔 옮겼을 때: 낱말 열에 여섯 이상 들어 있는 문장
@@ -218,11 +250,9 @@ function warnQuote(w, text) {
 
 /** 상태 변경안 경고 목록. 본문 문장이 걸린 경고에는 그 문장을 골라 부분 수정 도구를 여는 버튼을 단다. */
 function warnItems(n, warnings) {
-  const text = textNow(n);
-  const can = editableEp(ep(n));
   return warnings.map((w, k) => {
-    const q = can && warnQuote(w, text);
-    return `<li>${esc(w)}${q ? ` <span class="row" style="gap:6px;display:inline-flex"><button type="button" class="btn small" data-action="warnPick" data-arg="${n}:${k}">이 문장 고르기</button><button type="button" class="btn small" data-action="warnPick" data-arg="${n}:${k}:ask" title="AI가 고친 글을 바로 본문에 넣어요. 알림의 되돌리기로 취소할 수 있어요">AI에게 고치기</button></span>` : ''}</li>`;
+    const tools = warnTools(n, k, w, true);
+    return `<li>${esc(w)}${tools ? ` ${tools}` : ''}</li>`;
   }).join('');
 }
 
@@ -674,31 +704,48 @@ function undoToast(msg, id) {
   toast(msg, false, { actions: [{ label: '되돌리기', run: () => actions.undoEdit(id) }] });
 }
 
-/** 경고가 가리킨 문장(q, 본문 at 자리)을 message 대로 AI에게 고치게 하고 첫 후보를 바로 본문에 넣는다.
-   다른 후보는 부분 수정 대화에 남는다. 넣은 수정은 알림의 되돌리기나 수정 기록으로 취소한다. */
-async function aiFixNow(n, q, at, message) {
-  const topic = `text:${n}`;
-  await run('AI가 고치는 중', async () => {
-    await saveIfDirty();
-    await flushText(n);
-    const selection = { start: at, text: q };
-    S.project = await api('POST', `/projects/${enc(S.name)}/chat/${enc(topic)}`, { message, selection });
-    const i = chatMessages(topic).length - 1;
-    const m = chatMessages(topic)[i];
-    if (!m || !m.passage || !m.passage.candidates.length) {
-      // 본문이 맞다고 본 답(후보 없이 근거만)도 여기로 온다. 대화 패널을 열어 답을 보이고, 요청을 더 적어 이어 고칠 수 있게 골라 둔다
-      S.sel = { n, ...selection };
-      S.chatOpen = true;
-      S.chatScroll = true;
-      render();
-      return toast('AI가 고친 글을 내지 않았어요. 대화 패널에서 답을 보세요', true);
-    }
-    S.project = await api('POST', `/projects/${enc(S.name)}/chat/${enc(topic)}/${i}/apply`, { candidate: 0 });
-    const edit = ep(n).edits[ep(n).edits.length - 1];
+/** 경고 w 가 가리킨 문장(q, 본문 at 자리)을 AI에게 고치게 하고 첫 후보를 바로 본문에 넣는다 (POST …/fix-now: 후보 받기와 넣기를 서버가 한 번에).
+   다른 후보는 부분 수정 대화에 남는다. 넣은 수정은 알림의 되돌리기나 수정 기록으로 취소한다.
+   AI를 기다리는 동안 화면을 잠그지 않는다: 다른 화면으로 가도 되고, 그 화 본문 칸만 잠근다(S.aiFix). 끝나면 알림으로 알린다 */
+async function aiFixNow(n, q, at, w) {
+  if (S.aiFix) return toast('다른 경고를 AI가 고치는 중이에요. 끝난 뒤에 다시 눌러 주세요', true);
+  const name = S.name;
+  // 서버는 저장된 본문을 고친다. 저장하지 않은 작품 · 본문이 있으면 먼저 저장한다 (짧은 요청이라 기다림 상자를 쓴다)
+  if ((S.dirty || S.textDraft[n] !== undefined) && !(await run('본문 저장하는 중', async () => { await saveIfDirty(); await flushText(n); }, { render: 'success' }))) return;
+  S.aiFix = { name, n, w };
+  render();
+  const gen = S.gen;
+  let out;
+  try {
+    out = await api('POST', `/projects/${enc(name)}/episodes/${n}/fix-now`, { message: warnMsg(w), selection: { start: at, text: q } });
+  } catch (e) {
+    S.aiFix = null;
+    if (S.name === name) render();
+    return showError(e, { retry: () => aiFixNow(n, q, at, w) });
+  }
+  S.aiFix = null;
+  if (S.name !== name) return toast(out.edit ? `'${name}' ${n}화 경고 문장을 AI가 고쳤어요. 그 작품의 수정 기록에서 되돌릴 수 있어요` : `'${name}' ${n}화 경고에 AI가 고친 글을 내지 않았어요`, !out.edit);
+  const took = takeEdited(out.project, n, gen);
+  const here = S.route[2] === 'write' && Number(S.route[3]) === n;
+  if (!out.edit) {
+    // 본문이 맞다고 본 답(후보 없이 근거만)도 여기로 온다. 집필 화면이면 대화 패널을 열어 답을 보이고, 요청을 더 적어 이어 고칠 수 있게 골라 둔다
+    if (here) Object.assign(S, { sel: { n, start: at, text: q }, chatOpen: true, chatScroll: true });
+    render();
+    return toast(here ? 'AI가 고친 글을 내지 않았어요. 대화 패널에서 답을 보세요' : `AI가 ${n}화 경고 문장을 고친 글을 내지 않았어요. 집필 화면 대화 패널에서 답을 보세요`, true);
+  }
+  if (!took) {
+    render();
+    return toast(`AI가 ${n}화 경고 문장을 고쳤지만, 이 화면에 저장하지 않은 ${n}화 변경이 있어 본문을 바꾸지 않았어요. 저장 띠에서 다시 불러오면 보여요`, true);
+  }
+  const edit = ep(n).edits.find((x) => x.id === out.edit);
+  if (edit && here) {
     S.sel = { n, start: edit.start, text: edit.after };  // 이어서 '더 짧게' 같은 요청을 하면 넣은 글을 고친다
     if (focusText(n, edit.after, edit.start) !== -1) S.selFocus.quiet = true;
-    undoToast('AI가 고쳤어요.', edit.id);
-  });
+  }
+  render();
+  const acts = [{ label: '되돌리기', run: () => actions.undoEdit(out.edit) }];
+  if (!(S.route[2] === 'review' && Number(S.route[3]) === n)) acts.push({ label: '상태 승인으로', run: () => { location.hash = `${base()}/review/${n}`; } });
+  toast(`AI가 ${n}화 경고 문장을 고쳤어요.`, false, { actions: acts });
 }
 
 Object.assign(actions, {
@@ -768,15 +815,20 @@ Object.assign(actions, {
     const [n, k, ask] = String(arg).split(':');
     const num = Number(n);
     const w = ((S.deltas[num] || {}).warnings || [])[Number(k)];
-    const q = warnQuote(w, textNow(num));
+    const { q, exact } = warnSpot(w, textNow(num));
     if (!q || !textNow(num).includes(q)) return toast('본문에서 그 문장을 찾을 수 없어요', true);
+    if (ask && S.aiFix) return toast('다른 경고를 AI가 고치는 중이에요. 끝난 뒤에 다시 눌러 주세요', true);
     const go = () => {
       if (S.route[2] !== 'write' || Number(S.route[3]) !== num) return;
       const at = focusText(num, q, 0);
       if (at === -1) return;
+      if (ask) S.selFocus.quiet = true;  // AI가 실패해 이 자리만 남아도 손가락 기기에서 키보드를 올리지 않는다
+      if (ask && exact) return aiFixNow(num, q, at, w);
       if (ask) {
-        S.selFocus.quiet = true;  // AI가 실패해 이 자리만 남아도 손가락 기기에서 키보드를 올리지 않는다
-        return aiFixNow(num, q, at, `상태 정리 경고: ${w}`);
+        // 비슷한 문장이거나 같은 글이 여러 곳: 바로 넣지 않는다. 문장을 골라 두고 경고를 대화 입력칸에 넣는다. 보내기는 작가가 한다
+        Object.assign(S, { sel: { n: num, start: at, text: q }, chatDraft: warnMsg(w), chatOpen: true, chatScroll: true });
+        render();
+        return toast('경고와 똑같은 문장이 없거나 여러 곳이라, 가장 비슷한 문장을 골랐어요. 맞으면 대화 패널에서 보내세요');
       }
       S.selFocus.menu = true;
       render();
