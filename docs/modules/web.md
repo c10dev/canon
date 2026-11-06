@@ -577,6 +577,7 @@
   - 머리와 단계 띠는 `.w-headwrap` 으로 묶는다
   - 640px 이하에서 `.w-headwrap` 은 한 줄이다: 화 앞뒤 버튼 · 단계 띠 · ⋯ · primary. 제목과 칩 묶음(`.w-tl`)은 낭독에만 남긴다
   - 640px 이하 집필 화면의 화 제목은 위쪽 띠 작품 칸이 보인다(`workCard` 의 `.work-ep`)
+  - AI 작업이 도는 동안(primary 자리에 진행 줄 `.w-busy`)은 ⋯ 와 진행 줄이 다음 줄을 통째로 쓴다(`.w-headwrap:has(.w-busy)`)
   - `.w-headwrap` · `.w-tl` 은 넓은 폭에서 `display: contents` 라 머리 · 단계 띠 모양이 그대로다
   - 640px 이하에서 본문 위 여백(페이지 위 · 머리 묶음 아래 · 원고 위)을 줄인다(app.css)
   - 640px 이하에서 본문 띠(`.w-bar`)는 `display: contents` 라 글자 수 · 도구 버튼 · 저장 칸이 접힌 플롯 줄과 한 줄(`.w-top`)에 선다
