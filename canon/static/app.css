@@ -1779,6 +1779,7 @@ mark.hl.flash { outline: 2px solid currentColor; outline-offset: 2px; }
   .w-body .w-top > .w-bar { display: contents; }
   .w-body .w-top > .wp-row { order: -1; flex: 1 1 0; min-width: 72px; padding: 0; }
   .w-body .wp-lead b { display: none; }  /* 좁은 줄: '엔딩 훅' 이름 대신 내용을 보인다 */
+  .w-body .w-top .wp-meta { display: none; }  /* '시점 바뀜' 칩은 펼친 플롯의 서술 시점 옆과 위쪽 띠의 시점 글에 있다 */
   .w-body .w-bar .w-fill, .w-body .w-bar .savebar-slot:empty { display: none; }
   .w-body .w-bar .savebar-slot { order: 1; flex-basis: 100%; padding-bottom: var(--gap-row); }
   /* 면 없는 아이콘 버튼: 붙는 줄 도구(문체 · 고칠 곳 · 수정 기록 · 복사)와 머리의 화 앞뒤 · ⋯. 터치 칸은 44px 그대로, 면은 주 버튼만.

@@ -83,6 +83,7 @@
 - 사이드바 아이콘(`navItems` · `navMark`: 단계는 번호, 그 밖은 토스페이스 이모지 `.tf`, 출처 문구는 사이드바 아래, Swift `Screen.mark` 와 같은 글자)
 - 사이드바 작품 칸(`workCard`: 제목 · 갈래 · 플레이 사본(`play.js` `playSideTag`) · 장편은 지금 부 · 아크(`partOf` · `arcOf`), 화 칸 띠는 단편 전체 · 장편 지금 아크, 다음 할 일은 `home.js` `nextStep`, 좁은 폭 위쪽 띠 줄이기는 `app.css` `.work-card`)
 - 집필 화면이면 작품 칸에 화 제목 · 작품 이름 · 화 상태 줄(`.work-ep`)을 더한다. 640px 이하 위쪽 띠에서만 보인다
+- `.work-ep` 둘째 줄 끝에 시점 인물(`plot.js` `povChar`)을 '이름 시점'으로 붙인다. `povChar` 가 없으면(시험에서 plot.js 를 안 읽음) 뺀다
 - 4 · 5 · 6 줄이 가리키는 화(`navEp`: 한 화 흐름 `FLOW_PAGES` · 작업지시서는 보는 화)
 - 900px 이하 위쪽 띠는 화면 위에 붙고 높이 `--band` 만큼 본문의 붙는 칸을 내린다
 - 서랍을 연 동안 뒤는 `inert`(`syncRail`)
