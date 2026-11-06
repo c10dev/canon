@@ -158,6 +158,9 @@ def _origin_ok(request: Request) -> bool:
     origin = request.headers.get("origin")
     if origin is None or request.method not in _UNSAFE_METHODS:
         return True
+    # 크롬 확장(canon/extension)이 받은 화 대기열에 보내는 요청만 받는다. 웹 페이지는 이 Origin 을 꾸밀 수 없다
+    if origin.startswith("chrome-extension://") and request.method == "POST" and request.url.path == "/api/refs/inbox":
+        return True
     name = (urlsplit(origin).hostname or "").lower().rstrip(".")
     if not name:  # "null"(샌드박스 iframe, file://) 같은 값
         return False

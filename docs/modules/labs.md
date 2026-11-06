@@ -16,6 +16,18 @@
 - 작품은 저장하지 않는다
 - 웹 화면은 아직 없음
 
+### `canon/extension/`
+
+- 크롬 확장(Manifest V3): 로그인한 내 브라우저의 소설 화 본문을 레퍼런스 원고 받은 화(`POST /api/refs/inbox`)로 보낸다
+- 설치는 압축해제 로드다. 넣기 화면의 '확장 받기'가 이 폴더를 zip 으로 준다(`routes/refs.py`)
+- `popup.html` · `popup.js`: Canon 주소 · 본문 위치 선택자 · 다음 화 버튼 선택자 · 모을 화 수, '이 화만 보내기' · '자동으로 모으기' · '멈추기'
+- `background.js`: 본문을 뽑아 보내고(`extract`, Shadow DOM 이면 그 안의 `p`) '다음 화'를 눌러(`clickNext`) 다음 본문이 뜨면 되풀이한다
+- 다음 화 버튼은 선택자가 비면 `rel=next` · '다음 화' · '다음' · 'next' 글자로 찾는다(열린 Shadow DOM 안까지)
+- 화 사이 `GAP_MS` 를 쉬고, 앞 화와 다른 본문이 `WAIT_MS` 안에 뜨지 않으면 멈춘다
+- 진행 상태는 `chrome.storage.local` 의 `run` 이다
+- `config.js` 의 `CANON_DEFAULT` 는 받을 때 서버가 그 Canon 주소로 바꿔 넣는다
+- 확장의 요청은 Origin 이 `chrome-extension://` 이라 `web._origin_ok` 가 `POST /api/refs/inbox` 만 받는다
+
 ### `canon/labstats.py`
 
 - 쇠맛 실험실 통계(표준 라이브러리만, 시드 고정)
@@ -67,6 +79,8 @@
 - 문체 만들기 원문 `sample`(고른 화를 이어 `SAMPLE_MAX` 자까지) · 역설계 실험 만들기 `to_revlab`(`revlab.create_episodes`, 화 수는 막지 않고 글자 수만 `revlab.MAX_CHARS`) · 있는 실험에 잇기 `to_lab`(`revlab.append_episodes`, 화마다 출처 `RevSource`) · 화 차례별 지금 글 `texts`(출처 상태용)
 - 이 원고로 만든 것 `made`(`RefMade`, 문체는 `POST /api/styles` 의 `ref` · `ref_eps` 로 남긴다)
 - 내 작품과 견주기 `compare`(본문 있는 화 지표, 작품에 쓰지 않음)
+- 받은 화 대기열 `inbox` · `inbox_add` · `inbox_clear`: 크롬 확장이 보낸 화를 `<refs 폴더>/inbox.json` 에 둔다(원고 폴더가 아니라 `entries` 가 읽지 않음)
+- 같은 글은 한 번만 둔다(주소가 같아도 글이 다른 사이트가 있어 글로 견줌). 상한 `INBOX_MAX` 화 · 한 화 `INBOX_TEXT_MAX` 자
 - 웹은 `/api/refs…`(`routes/refs.py`)
 - 화면은 `static/refs.js`
 - 시험 `tests/test_refs.py`(원고는 `tests/fixtures/refs_story.txt`, 직접 지은 글)
@@ -173,6 +187,8 @@
 - 레퍼런스 원고 웹 라우트(`/api/refs/...`)
 - `web.py` 맨 끝의 `_attach_routes` 가 `router` 를 앱에 붙이고 `EXPORTS` 의 이름을 `web` 에도 둔다
 - 공용 도우미(`_load` · `_save` · `_edit` 등)는 `..web` 에서 불러 쓴다
+- 받은 화 `GET` · `POST` · `DELETE /api/refs/inbox`. `/api/refs/{rid}` 보다 먼저 붙인다
+- 크롬 확장 묶음 `GET /api/refs/extension.zip`: `canon/extension` 을 zip 으로 묶고 `config.js` 에 화면이 보낸 Canon 주소를 넣는다
 
 ### `canon/routes/research.py`
 
@@ -240,10 +256,9 @@
 - 넣기: 파일 고르기 · 끌어 놓기(여러 파일은 이름 차례로 잇고 파일마다 시작 줄 `fileLines`) · 붙여 넣기
 - 손가락 기기에서는 끌어 놓기 안내 대신 '파일 고르기'만 안내한다(`REF_TOUCH`)
 - 인코딩은 브라우저가 푼다(`refDecode`: BOM → UTF-8 엄격 → CP949, 깨진 글자 수 `bad`, 고르기 칸)
-- 사이트에서 가져오기: 넣기 화면의 북마클릿 `refBookmarklet`(소설 사이트에서 누르면 본문 위치 선택자 칸, Shadow DOM 이면 그 안의 `p` 를 모음)
-- 북마클릿은 이름이 `canon-refs` 인 Canon 창을 찾거나 새로 열어 `postMessage`(`canon-ref-clip`)로 보내고, 받았다는 답(`canon-ref-clip-ok`)이 올 때까지 0.25초마다 다시 보낸다(10초)
-- 받는 쪽은 `message` 듣개 하나다. 어느 화면에서든 받아 넣기 원고 끝에 잇고(`refClipAppend`, 페이지 제목이 첫 줄) `#/refs/new` 로 간다. 같은 id 는 한 번만 잇고, 고치던 경계가 있으면 거절한다
-- 본문 위치 선택자는 브라우저에 기억한다(`canon.refClipSel`, 기본 `[data-theme-novel-content]`). 서버를 거치지 않는다
+- 사이트에서 가져오기: 넣기 화면의 크롬 확장 카드(`refClipCard`). 확장 받기(`GET /api/refs/extension.zip?canon=<이 화면 주소>`) · 설치 안내 · 받은 화 목록
+- 받은 화(`S.refInbox`)는 넣기 화면을 열 때와 새로고침에서 읽는다(`GET /api/refs/inbox`)
+- '원고로 가져오기'는 받은 화를 원고 끝에 잇고(`refClipAppend`, 페이지 제목이 첫 줄) 그 화를 대기열에서 뺀다. 출처가 비었으면 첫 화 주소의 이름을 넣는다
 - 화 나누기는 서버(`POST /api/refs/split`)에 묻고, 켠 경계로 화를 자르고 글자 수를 세는 일은 화면이 한다(`refAssemble`, `refs.assemble` 과 같은 규칙)
 - 경계 고치기(`refDraftView`): 규칙 줄(단위 칩 · 다른 규칙 · 직접 패턴 · 작가의 말 떼기 · 되돌리기) · 경계 목록(거르기 모두 · 확인할 것 · 끈 줄) · 원문 보기(줄을 눌러 여기서 나누기)
 - 고른 경계 칸(`refCutEditor`): 번호 · 제목 · 종류 · 여기부터 번호 다시 매기기 · 앞 화와 합치기

@@ -12,6 +12,7 @@ ref.json(RefBook)에 경계(줄 번호)와 화별 지표를 둔다. 경계를 �
 from __future__ import annotations
 
 import bisect
+import json
 import os
 import re
 import shutil
@@ -468,6 +469,54 @@ def _now() -> str:
 
 def exists(rid: str) -> bool:
     return bool(ID_RE.match(rid or "")) and (root() / rid / "ref.json").exists()
+
+
+# ---------- 받은 화 (크롬 확장이 보낸 화, canon/extension) ----------
+# 원고가 되기 전 대기열이다. <refs 폴더>/inbox.json 하나에 둔다. 넣기 화면이 원고 칸으로 가져가고 비운다.
+INBOX_MAX = 3000  # 대기열에 두는 화 수 상한
+INBOX_TEXT_MAX = 500_000  # 한 화 글자 수 상한
+
+
+def _inbox_path() -> Path:
+    return root() / "inbox.json"
+
+
+def inbox() -> list[dict]:
+    f = _inbox_path()
+    if not f.exists():
+        return []
+    try:
+        data = json.loads(f.read_text(encoding="utf-8"))
+    except ValueError:
+        return []
+    return [x for x in data if isinstance(x, dict) and isinstance(x.get("text"), str)] if isinstance(data, list) else []
+
+
+def inbox_add(title: str, url: str, text: str) -> dict:
+    """화 하나를 대기열 끝에 둔다. 같은 글의 화가 이미 있으면 더하지 않는다(다시 보낸 화). 주소는 같은데 글이 다른 사이트도 있어 글로 견준다."""
+    text = _norm(text).strip()
+    if not text:
+        raise ValueError("본문이 비었어요")
+    if len(text) > INBOX_TEXT_MAX:
+        raise ValueError(f"한 화가 너무 길어요 ({len(text):,}자). {INBOX_TEXT_MAX:,}자까지 받아요")
+    item = {"id": uuid.uuid4().hex[:12], "title": title.strip()[:200], "url": url.strip()[:1000], "text": text, "at": _now()}
+    with store._disk_lock(root()):
+        items = inbox()
+        same = next((k for k, x in enumerate(items) if x.get("text") == text), None)
+        if same is None:
+            if len(items) >= INBOX_MAX:
+                raise ValueError(f"받은 화가 {INBOX_MAX:,}개를 넘었어요. 넣기 화면에서 먼저 가져가 주세요")
+            items.append(item)
+            store.write_atomic(_inbox_path(), json.dumps(items, ensure_ascii=False))
+    return {"count": len(items), "dup": same is not None}
+
+
+def inbox_clear(ids: Optional[list[str]] = None) -> int:
+    """ids 의 화를 대기열에서 뺀다. ids 가 None 이면 모두 뺀다. 남은 수를 돌려준다."""
+    with store._disk_lock(root()):
+        items = [] if ids is None else [x for x in inbox() if x.get("id") not in set(ids)]
+        store.write_atomic(_inbox_path(), json.dumps(items, ensure_ascii=False))
+    return len(items)
 
 
 def load(rid: str) -> RefBook:
