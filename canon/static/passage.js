@@ -327,8 +327,21 @@ function caretXY(ta, pos) {
 }
 
 /** 고른 부분 끝 줄 바로 아래에 둔다. 화면 아래로 넘치면 고른 첫 줄 위에 둔다. 고치기 칸은 넓어서 왼쪽을 본문 칸에 맞춘다. */
+/** 휴대폰 폭(900px 이하)에서 메뉴와 직접 수정 칸은 고른 문장 아래가 아니라 화면 아래에 붙인다 (app.css .sel-tool.docked) */
+const toolDocked = (t) => window.innerWidth <= BP.narrow && (t.mode === 'menu' || t.mode === 'edit');
+
 function placeTool(ta, t) {
   const el = toolEl();
+  el.classList.toggle('docked', toolDocked(t));
+  if (toolDocked(t)) {
+    el.style.left = '';
+    el.style.top = '';
+    // 고른 부분 끝이 아래 붙은 도구에 가리면 페이지를 그만큼 굴린다
+    const c = caretXY(ta, t.start + t.text.length);
+    const top = el.getBoundingClientRect().top;
+    if (c.y + c.h > top && c.y + c.h <= c.r.bottom) window.scrollBy(0, c.y + c.h - top + 12);
+    return;
+  }
   const c = caretXY(ta, t.start + t.text.length);
   let y = Math.min(Math.max(c.y, c.r.top), c.r.bottom) + c.h + 4;
   if (y + el.offsetHeight > window.innerHeight) {
@@ -387,6 +400,150 @@ function readSel(ta) {
 const isDraftTa = (el) => !!el && !!el.matches && el.matches('textarea[data-draft]');
 // 본문 칸 밖(도구 밖)에서 시작한 마지막 터치 시각. 그 터치의 touchend · 뒤따르는 mouseup 은 본문 칸에 남은 선택으로 도구를 띄우지 않는다
 let outsideTouch = 0;
+
+// ----- 휴대폰 문장 고르기 (본문 칸 textarea[data-pick], marks.js draftBox) -----
+// 문장을 짧게 누르면 그 문장을, 잠깐(PICK_HOLD) 누른 채 끌면 지나간 문장들을 통째로 고른다. 누르자마자 끌면 화면을 굴린다.
+// 칸은 읽기 전용이라 고르는 동안 키보드가 오르지 않는다. 손을 떼면 onSelect 가 고른 부분 도구를 띄운다
+const PICK_HOLD = 200;
+let pickNow = null;  // { ta, ranges, rects, i0, i1, x, y, at, timer, on }
+let pickLast = null;  // 마지막으로 짧게 눌러 고른 문장 { ta, i, t }
+let pickAgainAt = 0;  // 같은 문장을 2초 안에 다시 누른 시각. 그 누름은 브라우저에 넘겨 밑줄 이름 카드 · 도구를 띄운다 (marks.js click)
+/** 방금 같은 문장을 다시 눌렀다: marks.js 가 이 클릭을 '두 번째 누름'으로 친다 */
+const pickAgain = () => Date.now() - pickAgainAt < 800;
+
+/** 본문을 문장 범위 [{ start, end }] 로 나눈다. 줄바꿈과 . ! ? … (닫는 따옴표 · 괄호까지)에서 끊고 앞뒤 공백은 뺀다. */
+function sentenceRanges(text) {
+  const out = [];
+  const re = /[^.!?…\n]+(?:[.!?…]+["'’”」』)\]]*)?|[.!?…]+["'’”」』)\]]*/g;
+  for (let m = re.exec(text); m; m = re.exec(text)) {
+    let a = m.index;
+    let b = a + m[0].length;
+    while (a < b && /\s/.test(text[a])) a++;
+    while (b > a && /\s/.test(text[b - 1])) b--;
+    if (b > a) out.push({ start: a, end: b });
+  }
+  return out;
+}
+
+/** 문장마다 본문 칸 안 글자 자리의 사각형들. caretXY 처럼 같은 모양의 숨은 칸에 글을 채워 한 번에 잰다. */
+function sentenceRects(ta, ranges) {
+  return mirrorRects(ta, ranges);
+}
+
+/** 숨은 칸에 본문을 채우고 ranges 마다 그 글자 자리 사각형들을 잰다 (본문 칸 안 좌표). */
+function mirrorRects(ta, ranges) {
+  const cs = getComputedStyle(ta);
+  const div = document.createElement('div');
+  ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing', 'wordSpacing', 'textIndent',
+    'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft', 'tabSize', 'wordBreak', 'overflowWrap'].forEach((k) => { div.style[k] = cs[k]; });
+  Object.assign(div.style, { position: 'absolute', visibility: 'hidden', whiteSpace: 'pre-wrap', top: '0', left: '-9999px',
+    boxSizing: 'border-box', width: `${ta.clientWidth}px`, border: '0' });
+  const v = ta.value;
+  let at = 0;
+  const spans = ranges.map((x) => {
+    div.appendChild(document.createTextNode(v.slice(at, x.start)));
+    const s = document.createElement('span');
+    s.textContent = v.slice(x.start, x.end);
+    div.appendChild(s);
+    at = x.end;
+    return s;
+  });
+  div.appendChild(document.createTextNode(v.slice(at)));
+  document.body.appendChild(div);
+  const o = div.getBoundingClientRect();
+  const rects = spans.map((s) => [...s.getClientRects()].map((r) => ({ l: r.left - o.left, r: r.right - o.left, t: r.top - o.top, b: r.bottom - o.top })));
+  div.remove();
+  return rects;
+}
+
+/** 화면 좌표(x, y)에 있는 문장 번호. 글자 위가 아니면 세로로 가장 가까운 줄의 문장. */
+function pickAt(p, x, y) {
+  const r = p.ta.getBoundingClientRect();
+  const px = x - r.left - p.ta.clientLeft + p.ta.scrollLeft;
+  const py = y - r.top - p.ta.clientTop + p.ta.scrollTop;
+  let best = -1;
+  let score = Infinity;
+  p.rects.forEach((list, i) => list.forEach((q) => {
+    const dy = py < q.t ? q.t - py : py > q.b ? py - q.b : 0;
+    const dx = px < q.l ? q.l - px : px > q.r ? px - q.r : 0;
+    const d = dy * 1000 + dx;
+    if (d < score) { score = d; best = i; }
+  }));
+  return best;
+}
+
+/** 화면 좌표에 가장 가까운 글자 자리(본문 안 위치). 고른 문장(i) 안 글자만 잰다. */
+function pickOffset(p, i, x, y) {
+  const s = p.ranges[i];
+  const chars = [];
+  for (let k = s.start; k < s.end; k++) chars.push({ start: k, end: k + 1 });
+  const q = { ta: p.ta, rects: mirrorRects(p.ta, chars) };
+  const k = pickAt(q, x, y);
+  return k < 0 ? s.start : chars[k].start;
+}
+
+function pickApply(p) {
+  const a = Math.min(p.i0, p.i1);
+  const b = Math.max(p.i0, p.i1);
+  p.ta.focus({ preventScroll: true });  // 읽기 전용 칸이라 키보드가 오르지 않는다
+  p.ta.setSelectionRange(p.ranges[a].start, p.ranges[b].end);
+}
+
+document.addEventListener('touchstart', (e) => {
+  const ta = e.target;
+  if (pickNow) { clearTimeout(pickNow.timer); pickNow = null; }
+  if (!(ta && ta.matches && ta.matches('textarea[data-pick]')) || e.touches.length !== 1) return;
+  const ranges = sentenceRanges(ta.value);
+  if (!ranges.length) return;
+  const t = e.touches[0];
+  const p = { ta, ranges, rects: sentenceRects(ta, ranges), x: t.clientX, y: t.clientY, at: Date.now(), on: false };
+  p.i0 = p.i1 = pickAt(p, t.clientX, t.clientY);
+  if (p.i0 < 0) return;
+  p.timer = setTimeout(() => {
+    p.on = true;
+    pickApply(p);
+    if (navigator.vibrate) navigator.vibrate(8);
+  }, PICK_HOLD);
+  pickNow = p;
+}, { capture: true, passive: true });
+
+document.addEventListener('touchmove', (e) => {
+  const p = pickNow;
+  if (!p) return;
+  const t = e.touches[0];
+  if (!p.on) {
+    // 잡기 전에 손가락이 움직였다: 화면을 굴리려는 것이다
+    if (Math.hypot(t.clientX - p.x, t.clientY - p.y) > 8) { clearTimeout(p.timer); pickNow = null; }
+    return;
+  }
+  e.preventDefault();  // 잡은 뒤에는 화면을 굴리지 않고 고르는 범위를 넓힌다
+  const i = pickAt(p, t.clientX, t.clientY);
+  if (i >= 0 && i !== p.i1) { p.i1 = i; pickApply(p); }
+}, { capture: true, passive: false });
+
+document.addEventListener('touchend', (e) => {
+  const p = pickNow;
+  if (!p) return;
+  clearTimeout(p.timer);
+  pickNow = null;
+  const t = e.changedTouches[0];
+  const tap = !p.on && Date.now() - p.at < 600 && Math.hypot(t.clientX - p.x, t.clientY - p.y) <= 8;
+  if (!p.on && !tap) return;
+  if (tap && pickLast && pickLast.ta === p.ta && pickLast.i === p.i0 && Date.now() - pickLast.t < 2000) {
+    // 고른 문장을 다시 눌렀다: 고르기를 풀고 그 자리에 커서를 둔다. 밑줄 친 이름 · 표시면 marks.js 가 카드 · 도구를 띄운다
+    pickLast = null;
+    pickAgainAt = Date.now();
+    // 누른 자리에 커서를 둔다. 고른 범위 안을 누르면 휴대폰은 범위를 풀지 않아 marks.js 가 커서 자리를 읽지 못한다
+    const at = pickOffset(p, p.i0, t.clientX, t.clientY);
+    p.ta.setSelectionRange(at, at);
+    return;
+  }
+  pickLast = tap ? { ta: p.ta, i: p.i0, t: Date.now() } : null;
+  pickApply(p);
+  e.preventDefault();  // 뒤따르는 마우스 이벤트가 커서를 놓아 고른 것을 풀지 않게. onSelect(문서 touchend)는 그대로 돈다
+}, { capture: true, passive: false });
+
+document.addEventListener('touchcancel', () => { if (pickNow) { clearTimeout(pickNow.timer); pickNow = null; } }, true);
 
 function onSelect(e) {
   const isText = isDraftTa;

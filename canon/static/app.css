@@ -701,6 +701,13 @@ body.chat-open .savebar { left: calc(50% - 220px); }
 .sel-tool { max-width: calc(100vw - 16px); flex-wrap: wrap; }
 .sel-tool .sel-hint { flex-basis: 100%; max-width: none; }
 .sel-tool.edit { flex-direction: column; gap: var(--space-8); width: min(460px, calc(100vw - 16px)); padding: var(--space-10) var(--space-12); }
+/* 900px 이하: 고른 부분 도구(메뉴 · 직접 수정)는 화면 아래에 붙는다(passage.js placeTool). 키보드가 오르면 키보드 위에 선다 */
+@media (max-width: 900px) {
+  .sel-tool.docked { position: fixed; left: 0; right: 0; top: auto; bottom: var(--kb, 0px); width: auto; max-width: none; border-width: 1px 0 0; border-radius: var(--radius-12) var(--radius-12) 0 0; padding: var(--space-10) var(--space-12) calc(var(--space-10) + env(safe-area-inset-bottom, 0px)); }
+}
+/* 손가락 기기의 고르기 전용 본문(marks.js draftBox): 길게 눌러 뜨는 휴대폰 기본 메뉴를 막는다. 문장은 passage.js 가 고른다 */
+textarea[data-pick] { -webkit-touch-callout: none; caret-color: transparent; }
+.pick-hint { margin: 0 0 var(--space-8); }
 .sel-tool.edit textarea { width: 100%; font-family: var(--serif); font-size: 0.9375rem; line-height: 1.8; resize: vertical; }
 .sel-target { padding: var(--space-10) var(--space-16) 0 var(--space-20); border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: var(--space-8); }
 .chat-panel > .chat-head, .chat-panel > .chat-input { flex: none; }  /* 시트가 낮아도 머리와 입력칸은 줄지 않는다 */
