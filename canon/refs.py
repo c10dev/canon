@@ -43,6 +43,11 @@ RUN_MIN = 3  # 번호가 다시 시작한 뒤 이만큼 이어 올라야 새 줄
 RUN_STEP = 3  # 새 줄기에서 다음 번호까지 허락하는 건너뜀 (번호 빠짐 몇 개)
 COMMON_MIN = 3  # 숫자 앞 글이 같은 화 표시 줄이 이만큼 있으면 공통 머리로 본다
 TAIL_FROM = 0.6  # 작가의 말 줄은 화의 이 비율 뒤에 있을 때만 뗀다
+REPEAT_LEN = 20  # 되풀이 줄로 보는 가장 짧은 줄 (장면 전환 기호 · 짧은 대사는 빼려고)
+REPEAT_SHARE = 0.5  # 켠 화 가운데 이 비율 넘게 똑같이 나오는 줄을 되풀이 줄로 본다
+REPEAT_MIN_EPS = 3  # 되풀이 줄은 적어도 이만큼의 화에 나와야 한다
+REPEAT_MAX = 50  # 찾거나 떼는 되풀이 줄 수 상한
+REPEAT_EDGE = 3  # 화 첫머리 · 끝의 빈 줄 아닌 이만큼의 줄에서만 되풀이 줄을 찾는다 (고지문 · 공지가 붙는 자리)
 SAMPLE_MAX = 30_000  # 문체 만들기에 넘기는 원문 글자 수 (revlab.STYLE_CHARS 와 같은 값)
 
 RULES: dict[str, str] = {"heading": "화 표시 줄", "mark": "기호 줄", "blank": "빈 줄 셋 넘게", "one": "한 화", "custom": "직접 패턴"}
@@ -400,17 +405,73 @@ def _tail(body: list[str]) -> int:
     return len(body)
 
 
-def assemble(lines: list[str], cuts: list, strip_tails: bool = True) -> list[dict]:
-    """켠 경계(줄 번호 차례)로 화를 잘라 낸다: [{cut, text, tail_cut}]. cut 은 cuts 의 자리. 빈 화도 남긴다(부른 쪽이 거른다)."""
+def _bodies(lines: list[str], cuts: list) -> list[tuple[int, list[str]]]:
+    """켠 경계(줄 번호 차례)로 자른 화의 줄: [(cuts 의 자리, 본문 줄)]."""
     on = [(i, c) for i, c in enumerate(cuts) if _get(c, "on", True)]
     on.sort(key=lambda x: _get(x[1], "line"))
     out = []
     for k, (i, c) in enumerate(on):
         end = _get(on[k + 1][1], "line") if k + 1 < len(on) else len(lines)
-        body = lines[max(_get(c, "body"), _get(c, "line")):end]
-        cut = _tail(body) if strip_tails else len(body)
-        text = "\n".join(body[:cut]).strip()
-        out.append({"cut": i, "text": text, "tail_cut": len("\n".join(body[cut:]).strip())})
+        out.append((i, lines[max(_get(c, "body"), _get(c, "line")):end]))
+    return out
+
+
+def find_repeats(lines: list[str], cuts: list) -> list[dict]:
+    """여러 화의 첫머리나 끝에 똑같이 나오는 긴 줄 (화마다 붙은 고지문 · 공지): [{text, eps}]. 많이 나온 줄이 앞.
+    켠 화가 REPEAT_MIN_EPS 보다 적으면 찾지 않는다. 한 화 안에서 여러 번 나와도 한 번으로 센다."""
+    bodies = _bodies(lines, cuts)
+    if len(bodies) < REPEAT_MIN_EPS:
+        return []
+    count: dict[str, int] = {}
+    first: dict[str, int] = {}
+    for _, body in bodies:
+        filled = [x.strip() for x in body if x.strip()]
+        for ln in set(filled[:REPEAT_EDGE] + filled[-REPEAT_EDGE:]):
+            if len(ln) >= REPEAT_LEN:
+                count[ln] = count.get(ln, 0) + 1
+                first.setdefault(ln, len(first))
+    need = max(REPEAT_MIN_EPS, REPEAT_SHARE * len(bodies))
+    got = [(t, n) for t, n in count.items() if n >= need]
+    got.sort(key=lambda x: (-x[1], first[x[0]]))
+    return [{"text": t, "eps": n} for t, n in got[:REPEAT_MAX]]
+
+
+def clean_repeats(repeats) -> list[str]:
+    """떼기로 고른 되풀이 줄을 정리한다 (앞뒤 공백, 빈 줄 · 같은 줄 빼기, 상한)."""
+    out: list[str] = []
+    for x in repeats or []:
+        x = str(x).strip()[:2000]
+        if x and x not in out:
+            out.append(x)
+    return out[:REPEAT_MAX]
+
+
+def _drop_repeats(body: list[str], repeats: set[str]) -> list[str]:
+    """되풀이 줄을 뺀다. 뺀 줄 뒤의 빈 줄은 앞이 빈 줄이거나 화 첫머리면 함께 빼서 빈 줄이 겹치지 않게 한다."""
+    out: list[str] = []
+    dropped = False
+    for ln in body:
+        if ln.strip() in repeats:
+            dropped = True
+            continue
+        if dropped and not ln.strip() and (not out or not out[-1].strip()):
+            continue
+        dropped = False
+        out.append(ln)
+    return out
+
+
+def assemble(lines: list[str], cuts: list, strip_tails: bool = True, repeats=()) -> list[dict]:
+    """켠 경계(줄 번호 차례)로 화를 잘라 낸다: [{cut, text, tail_cut, repeat_cut}]. cut 은 cuts 의 자리. 빈 화도 남긴다(부른 쪽이 거른다).
+    repeats 의 줄(앞뒤 공백을 뺀 글이 같은 줄)은 화 글에서 뺀다. 작가의 말은 그 뒤에 뗀다."""
+    rep = set(repeats or ())
+    out = []
+    for i, body in _bodies(lines, cuts):
+        kept = _drop_repeats(body, rep) if rep else body
+        cut = _tail(kept) if strip_tails else len(kept)
+        text = "\n".join(kept[:cut]).strip()
+        rcut = sum(len(x.strip()) for x in body if x.strip() in rep) if rep else 0
+        out.append({"cut": i, "text": text, "tail_cut": len("\n".join(kept[cut:]).strip()), "repeat_cut": rcut})
     return out
 
 
@@ -419,18 +480,21 @@ def _get(c, key: str, default=None):
 
 
 def preview(text: str, rule: str = "", example: str = "", unit: str = "", strip_tails: bool = True,
-            files: Optional[list[int]] = None) -> dict:
-    """화면 미리보기: detect 에 화별 글자 수 · 짧음 · 김 · 머리 글 · 수를 더한다. 원문은 돌려주지 않는다."""
+            files: Optional[list[int]] = None, repeats: Optional[list[str]] = None) -> dict:
+    """화면 미리보기: detect 에 화별 글자 수 · 짧음 · 김 · 머리 글 · 수를 더한다. 원문은 돌려주지 않는다.
+    찾은 되풀이 줄은 repeats_found 이고, 뗄 줄은 repeats 다. repeats 가 None 이면 찾은 줄을 모두 뗀다(처음 나눌 때)."""
     if len(text) > MAX_CHARS:
         raise ValueError(f"글이 너무 길어요 ({len(text):,}자). {MAX_CHARS:,}자까지 넣을 수 있어요")
     d = detect(text, rule, example, unit, files)
     lines = lines_of(text)
     if len([c for c in d["cuts"] if c["on"]]) > MAX_CUTS:
         raise ValueError(f"화가 너무 많아요. {MAX_CUTS:,}화까지 넣을 수 있어요")
-    eps = assemble(lines, d["cuts"], strip_tails)
+    d["repeats_found"] = find_repeats(lines, d["cuts"])
+    d["repeats"] = [x["text"] for x in d["repeats_found"]] if repeats is None else clean_repeats(repeats)
+    eps = assemble(lines, d["cuts"], strip_tails, d["repeats"])
     for e in eps:
         c = d["cuts"][e["cut"]]
-        c["chars"], c["tail_cut"] = len(e["text"]), e["tail_cut"]
+        c["chars"], c["tail_cut"], c["repeat_cut"] = len(e["text"]), e["tail_cut"], e["repeat_cut"]
     lens = [len(e["text"]) for e in eps if d["cuts"][e["cut"]]["kind"] != "skip"]
     avg = sum(lens) / len(lens) if lens else 0
     for c in d["cuts"]:
@@ -669,16 +733,16 @@ def _check_cuts(cuts: list[RefCut], n_lines: int) -> list[RefCut]:
 def _measure(lines: list[str], b: RefBook) -> None:
     """켠 경계로 화를 잘라 화별 지표를 잰다 (AI 없음)."""
     b.eps = []
-    for k, e in enumerate(assemble(lines, b.cuts, b.strip_tails)):
+    for k, e in enumerate(assemble(lines, b.cuts, b.strip_tails, b.strip_repeats)):
         m = metrics.measure(e["text"])
-        b.eps.append(RefEp(order=k + 1, chars=len(e["text"]), tail_cut=e["tail_cut"], sentences=m.sentences,
+        b.eps.append(RefEp(order=k + 1, chars=len(e["text"]), tail_cut=e["tail_cut"], repeat_cut=e["repeat_cut"], sentences=m.sentences,
                            sentence_len=round(m.sentence_len_mean, 1), paragraph_len=round(m.paragraph_len_mean, 1),
                            dialogue=round(m.dialogue_ratio, 3)))
 
 
 def create(name: str, text: str, cuts: list[RefCut], source_note: str = "", notes: str = "", rights: bool = False,
            encoding: str = "utf-8", rule: str = "heading", example: str = "", unit: str = "", common_head: str = "",
-           strip_tails: bool = True, files: Optional[list[RefFile]] = None) -> RefBook:
+           strip_tails: bool = True, files: Optional[list[RefFile]] = None, strip_repeats: Optional[list[str]] = None) -> RefBook:
     """새 원고. 원문은 정규화해 source.txt 로, 경계와 화별 지표는 ref.json 으로."""
     name = name.strip()
     if not name:
@@ -695,7 +759,7 @@ def create(name: str, text: str, cuts: list[RefCut], source_note: str = "", note
         cuts = [RefCut(line=0, body=0)]
     b = RefBook(id=uuid.uuid4().hex[:12], name=name, source=source_note, notes=notes, rights=True, encoding=encoding,
                 rule=rule if rule in RULES else "heading", rule_example=example, unit=unit, common_head=common_head,
-                strip_tails=strip_tails, cuts=_check_cuts(cuts, len(lines)), files=files or [], chars=len(text), lines=len(lines),
+                strip_tails=strip_tails, strip_repeats=clean_repeats(strip_repeats), cuts=_check_cuts(cuts, len(lines)), files=files or [], chars=len(text), lines=len(lines),
                 created_at=_now())
     _measure(lines, b)
     return _write(b, text)
@@ -703,8 +767,8 @@ def create(name: str, text: str, cuts: list[RefCut], source_note: str = "", note
 
 def update(rid: str, name: Optional[str] = None, source_note: Optional[str] = None, notes: Optional[str] = None,
            cuts: Optional[list[RefCut]] = None, strip_tails: Optional[bool] = None, rule: Optional[str] = None,
-           example: Optional[str] = None, unit: Optional[str] = None) -> RefBook:
-    """이름 · 출처 · 메모 · 경계 고치기. 경계나 작가의 말 떼기가 바뀌면 지표를 다시 잰다. 원문은 바꾸지 않는다."""
+           example: Optional[str] = None, unit: Optional[str] = None, strip_repeats: Optional[list[str]] = None) -> RefBook:
+    """이름 · 출처 · 메모 · 경계 고치기. 경계나 작가의 말 · 되풀이 줄 떼기가 바뀌면 지표를 다시 잰다. 원문은 바꾸지 않는다."""
     b = load(rid)
     if name is not None:
         if not name.strip():
@@ -720,12 +784,15 @@ def update(rid: str, name: Optional[str] = None, source_note: Optional[str] = No
         b.rule_example = example
     if unit is not None:
         b.unit = unit
-    if cuts is not None or (strip_tails is not None and strip_tails != b.strip_tails):
+    reps = clean_repeats(strip_repeats) if strip_repeats is not None else None
+    if cuts is not None or (strip_tails is not None and strip_tails != b.strip_tails) or (reps is not None and reps != b.strip_repeats):
         lines = source(rid)
         if cuts is not None:
             b.cuts = _check_cuts(cuts or [RefCut(line=0, body=0)], len(lines))
         if strip_tails is not None:
             b.strip_tails = strip_tails
+        if reps is not None:
+            b.strip_repeats = reps
         _measure(lines, b)
     return _write(b)
 
@@ -777,7 +844,7 @@ def episodes(b: RefBook) -> list[dict]:
 
 def episode_text(rid: str, order: int) -> str:
     b = load(rid)
-    eps = assemble(source(rid), b.cuts, b.strip_tails)
+    eps = assemble(source(rid), b.cuts, b.strip_tails, b.strip_repeats)
     if not 1 <= order <= len(eps):
         raise KeyError(f"{order}번째 화가 없어요")
     return eps[order - 1]["text"]
@@ -795,7 +862,7 @@ def pick(b: RefBook, orders: list[int]) -> list[dict]:
     want = set(orders)
     on = sorted(b.cuts, key=lambda c: c.line)
     out = []
-    for k, e in enumerate(assemble(lines, b.cuts, b.strip_tails)):
+    for k, e in enumerate(assemble(lines, b.cuts, b.strip_tails, b.strip_repeats)):
         c = on[k]
         if k + 1 in want and c.kind != "skip" and e["text"]:
             out.append({"order": k + 1, "label": label(c), "head": c.head, "text": e["text"], "num": c.label})
@@ -868,7 +935,7 @@ def texts(rid: str) -> dict[int, str] | None:
     except KeyError:
         return None
     on = sorted(b.cuts, key=lambda c: c.line)
-    return {k + 1: e["text"].strip() for k, e in enumerate(assemble(source(rid), b.cuts, b.strip_tails)) if on[k].kind != "skip"}
+    return {k + 1: e["text"].strip() for k, e in enumerate(assemble(source(rid), b.cuts, b.strip_tails, b.strip_repeats)) if on[k].kind != "skip"}
 
 
 def compare(rid: str, p) -> dict:

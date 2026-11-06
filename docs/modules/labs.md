@@ -51,6 +51,9 @@
 - `source.txt` 와 `ref.json` 은 `store.write_atomic` 으로 바꿔치기해 쓴다
 - 경계는 줄 번호(`RefCut.line` · 본문 시작 `body`)로만 적는다. 합치기 · 나누기를 다시 해도 원문은 그대로다
 - 화 글은 읽을 때 켠 경계로 잘라 낸다(`assemble`, 화 끝 작가의 말 떼기 `_tail` · `strip_tails`)
+- 되풀이 줄 찾기 `find_repeats`: 켠 화의 첫머리 · 끝 `REPEAT_EDGE` 줄에서 `REPEAT_LEN` 자 넘는 같은 줄이 `REPEAT_SHARE` 넘는 화(적어도 `REPEAT_MIN_EPS` 화)에 나오면 고지문 · 공지로 본다
+- 고른 되풀이 줄(`RefBook.strip_repeats`)은 `assemble` 이 화 어디서든 빼고(`_drop_repeats`, 뒤 빈 줄도) 그 뒤에 작가의 말을 뗀다. 뗀 글자 수는 `repeat_cut`
+- 미리보기는 찾은 줄 `repeats_found` 와 뗄 줄 `repeats` 를 준다. `repeats` 를 보내지 않으면 찾은 줄을 모두 뗀다. 옛 ref.json 은 `strip_repeats` 가 비어 떼지 않는다
 - 나누기 규칙은 여기 한 곳이다(`detect` · `preview` · 역설계용 `split`): 화 표시 줄 → 기호 줄 → 빈 줄 셋 넘게 → 한 화
 - 화 표시 후보 `candidates`: 단위 화 · 회 · 편 · 話 · 장(숫자 뒤) · EP · Chapter(숫자 앞), 특수 화(프롤로그 · 외전 · 에필로그 · 후기)
 - 숫자 앞 글은 비었거나 `COMMON_MIN` 번 넘게 같을 때만 받는다(공통 머리 `common_head`, 본문 속 '영화 3편' 거르기)
@@ -254,6 +257,7 @@
 - '원고로 가져오기'는 받은 화를 원고 끝에 잇고(`refClipAppend`, 화 이름이 첫 줄) 그 화를 대기열에서 뺀다. 이름이 비었으면 작품 이름(`book`)을 넣는다
 - 화 나누기는 서버(`POST /api/refs/split`)에 묻고, 켠 경계로 화를 자르고 글자 수를 세는 일은 화면이 한다(`refAssemble`, `refs.assemble` 과 같은 규칙)
 - 경계 고치기(`refDraftView`): 규칙 줄(단위 칩 · 다른 규칙 · 직접 패턴 · 작가의 말 떼기 · 되돌리기) · 경계 목록(거르기 모두 · 확인할 것 · 끈 줄) · 원문 보기(줄을 눌러 여기서 나누기)
+- 규칙 줄 아래 '화마다 되풀이되는 줄'(`refRepeatBox`): 찾은 줄마다 체크와 나온 화 수. 체크를 바꾸면 화면이 글자 수를 다시 센다(`refAssemble` 의 repeats, `refDropRepeats`)
 - 고른 경계 칸(`refCutEditor`): 번호 · 제목 · 종류 · 여기부터 번호 다시 매기기 · 앞 화와 합치기
 - 개요(`refOverview`): 고른 화로 하기(범위 `refRange`, 문체 만들기 `refToStyle`, 역설계 실험 만들기 `refToRevlab`) · 분량 막대 · 내 작품과 견주기 · 화 표(정렬) · 만든 것
 - 문체 만들기는 `S.libFromRef` 에 원문을 담아 `#/styles/new` 로 간다(라이브러리 새 항목의 원문 칸)

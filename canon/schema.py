@@ -356,6 +356,7 @@ class RefEp(BaseModel):
     order: int
     chars: int = 0
     tail_cut: int = Field(0, description="떼어 낸 작가의 말 글자 수")
+    repeat_cut: int = Field(0, description="떼어 낸 되풀이 줄(화마다 붙은 고지문 등) 글자 수")
     sentences: int = 0
     sentence_len: float = 0
     paragraph_len: float = 0
@@ -389,6 +390,7 @@ class RefBook(BaseModel):
     unit: str = Field("", description="고른 화 단위 (화 · 회 · EP …)")
     common_head: str = Field("", description="화 표시 앞에 늘 붙은 글 (작품 이름 등)")
     strip_tails: bool = Field(True, description="화 끝 작가의 말을 뗀다")
+    strip_repeats: list[str] = Field(default_factory=list, description="화 글에서 빼는 되풀이 줄 (화마다 붙은 고지문 등, refs.find_repeats). 비면 빼지 않는다")
     cuts: list[RefCut] = Field(default_factory=list)
     eps: list[RefEp] = Field(default_factory=list)
     files: list[RefFile] = Field(default_factory=list)

@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from canon import refs, revlab, store, web
-from canon.schema import RefCut
+from canon.schema import RefBook, RefCut
 
 
 STORY = (Path(__file__).parent / "fixtures" / "refs_story.txt").read_text(encoding="utf-8")
@@ -26,7 +26,7 @@ def _on(d):
 
 
 def test_fixture_preview():
-    d = refs.preview(STORY)
+    d = refs.preview(STORY, repeats=[])  # 지은 원고는 화마다 같은 문단을 되풀이해 써서 되풀이 줄 떼기를 끄고 본다 (test_find_repeats)
     assert d["rule"] == "heading" and d["unit"] == "화" and d["common_head"] == "등대 이야기"
     on = _on(d)
     assert [c["label"] for c in on] == ["프롤로그", "1", "2", "3", "4", "6", "7", "8", "9", "10", "11", "외전 1", "외전 2", "에필로그", "완결 후기"]
@@ -299,6 +299,66 @@ def test_api(home):
     assert c.get(f"/api/refs/{rid}").status_code == 404
 
 
+# ---------- 되풀이 줄 (화마다 붙은 고지문) ----------
+
+NOTICE = "※ 본 소설은 허구의 사건을 다루고 있으며, 등장하는 인명, 지명 및 단체는 현실과 관련이 없습니다."
+REPEAT_TXT = "".join(
+    f"{i}화\n\n{NOTICE}\n\n그날 아침 서윤은 등대 계단을 올랐다. {i}번째 날이었다.\n\n* * *\n\n\"오늘은 바람이 세네.\"\n\n{'작가 공지: 다음 주는 쉽니다. 기다려 주셔서 고맙습니다.' if i in (2, 4) else '바다가 조용했다.'}\n\n\n"
+    for i in range(1, 7))
+
+
+def test_find_repeats():
+    d = refs.detect(REPEAT_TXT)
+    lines = refs.lines_of(REPEAT_TXT)
+    assert refs.find_repeats(lines, d["cuts"]) == [{"text": NOTICE, "eps": 6}]  # 2화에만 나온 공지 · 짧은 줄 · 기호 줄은 아니다
+    assert refs.find_repeats(lines, [c for c in d["cuts"] if c["on"]][:2]) == []  # 화가 셋보다 적으면 찾지 않는다
+
+
+def test_assemble_drops_repeats():
+    d = refs.detect(REPEAT_TXT)
+    lines = refs.lines_of(REPEAT_TXT)
+    e = refs.assemble(lines, d["cuts"], True, [NOTICE])[0]
+    assert e["text"].startswith("그날 아침") and NOTICE not in e["text"] and e["repeat_cut"] == len(NOTICE)
+    assert "\n\n\n" not in e["text"]
+    assert refs.assemble(lines, d["cuts"], True)[0]["text"].startswith(NOTICE)  # 고르지 않으면 그대로
+
+
+def test_preview_repeats():
+    p = refs.preview(REPEAT_TXT)
+    assert p["repeats_found"] == [{"text": NOTICE, "eps": 6}] and p["repeats"] == [NOTICE]  # 처음에는 찾은 줄을 모두 뗀다
+    on = [c for c in p["cuts"] if c["on"]]
+    assert all(c["repeat_cut"] == len(NOTICE) for c in on)
+    off = refs.preview(REPEAT_TXT, repeats=[])
+    assert off["repeats"] == [] and [c["chars"] for c in off["cuts"] if c["on"]][0] > on[0]["chars"]
+    assert refs.clean_repeats([" a ", "a", "", "b"]) == ["a", "b"]
+
+
+def test_save_repeats(home):
+    p = refs.preview(REPEAT_TXT)
+    cuts = [RefCut(**{k: c[k] for k in ("line", "body", "head", "label", "title", "kind")}) for c in p["cuts"] if c["on"]]
+    b = refs.create("등대", REPEAT_TXT, cuts, rights=True, strip_repeats=[NOTICE])
+    assert b.strip_repeats == [NOTICE] and b.eps[0].repeat_cut == len(NOTICE)
+    assert NOTICE not in refs.episode_text(b.id, 1)
+    assert all(NOTICE not in t for t in refs.texts(b.id).values())
+    b = refs.update(b.id, strip_repeats=[])
+    assert b.strip_repeats == [] and b.eps[0].repeat_cut == 0 and refs.episode_text(b.id, 1).startswith(NOTICE)
+    old = refs.load(b.id).model_dump()
+    old.pop("strip_repeats")
+    assert RefBook(**old).strip_repeats == []  # 옛 ref.json 은 떼지 않는다
+
+
+def test_api_repeats(home):
+    c = TestClient(web.app)
+    p = c.post("/api/refs/split", json={"text": REPEAT_TXT}).json()
+    assert p["repeats"] == [NOTICE]
+    assert c.post("/api/refs/split", json={"text": REPEAT_TXT, "repeats": []}).json()["repeats"] == []
+    cuts = [{k: x[k] for k in ("line", "body", "head", "label", "title", "kind")} for x in p["cuts"] if x["on"]]
+    b = c.post("/api/refs", json={"name": "등대", "rights": True, "text": REPEAT_TXT, "cuts": cuts, "strip_repeats": [NOTICE]}).json()
+    assert b["strip_repeats"] == [NOTICE] and b["episodes"][0]["repeat_cut"] == len(NOTICE)
+    b = c.put(f"/api/refs/{b['id']}", json={"strip_repeats": []}).json()
+    assert b["episodes"][0]["repeat_cut"] == 0
+
+
 # ---------- 화면 (static/refs.js) ----------
 
 import re  # noqa: E402
@@ -327,8 +387,14 @@ def test_js_assemble_matches_python():
     lines = refs.lines_of(STORY)
     for strip in (True, False):
         got = run_js(FILES, "refAssemble(data.lines, data.cuts, data.strip)", {"lines": lines, "cuts": d["cuts"], "strip": strip})
-        want = [{"cut": e["cut"], "chars": len(e["text"]), "tail": e["tail_cut"]} for e in refs.assemble(lines, d["cuts"], strip)]
+        want = [{"cut": e["cut"], "chars": len(e["text"]), "tail": e["tail_cut"], "rep": 0} for e in refs.assemble(lines, d["cuts"], strip)]
         assert got == want
+    # 되풀이 줄 떼기도 같은 규칙 (뺀 줄 뒤 빈 줄 처리 · 뗀 글자 수)
+    lines = refs.lines_of(REPEAT_TXT)
+    d = refs.preview(REPEAT_TXT)
+    got = run_js(FILES, "refAssemble(data.lines, data.cuts, true, data.rep)", {"lines": lines, "cuts": d["cuts"], "rep": d["repeats"]})
+    want = [{"cut": e["cut"], "chars": len(e["text"]), "tail": e["tail_cut"], "rep": e["repeat_cut"]} for e in refs.assemble(lines, d["cuts"], True, d["repeats"])]
+    assert got == want and all(e["rep"] for e in got)
 
 
 @needs_node
@@ -337,7 +403,7 @@ def test_js_range_and_rows():
           [{"order": 13, "label": "외전 1", "kind": "side"}]
     got = run_js(FILES, "data.qs.map((q) => refRange(q, data.eps))", {"eps": eps, "qs": ["1~3", "3, 5~6", "2 ~ 4화", "외전 1", "없음"]})
     assert got == [[2, 3, 4], [4, 6, 7], [3, 4, 5], [13], []]
-    d = refs.preview(STORY)
+    d = refs.preview(STORY, repeats=[])
     rows = run_js(FILES, "refEpRows({ ...data.d, strip: true, filter: 'warn' }, data.lines)", {"d": d, "lines": refs.lines_of(STORY)})
     assert rows["counts"]["on"] == 15 and [r["label"] for r in rows["rows"]] == ["프롤로그", "6"]  # 짧은 프롤로그, 5화 빠짐
     assert rows["kinds"] == {"prologue": 1, "main": 10, "side": 2, "epilogue": 1, "skip": 1}

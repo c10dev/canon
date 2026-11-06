@@ -22,6 +22,7 @@ class RefSplitIn(BaseModel):
     unit: str = ""  # 화 표시 단위를 고른다 (규칙 칩)
     strip_tails: bool = True
     files: list[int] = []  # 이어 넣은 파일마다 시작 줄
+    repeats: list[str] | None = None  # 뗄 되풀이 줄. 비우면(None) 찾은 줄을 모두 뗀다
 
 
 class RefCreateIn(BaseModel):
@@ -36,6 +37,7 @@ class RefCreateIn(BaseModel):
     unit: str = ""
     common_head: str = ""
     strip_tails: bool = True
+    strip_repeats: list[str] = []
     cuts: list[RefCut] = []
     files: list[RefFile] = []
 
@@ -46,6 +48,7 @@ class RefPutIn(BaseModel):
     notes: str | None = None
     cuts: list[RefCut] | None = None
     strip_tails: bool | None = None
+    strip_repeats: list[str] | None = None
     rule: str | None = None
     example: str | None = None
     unit: str | None = None
@@ -73,7 +76,7 @@ def list_refs() -> dict:
 @router.post("/api/refs/split")
 def split_ref(body: RefSplitIn) -> dict:
     """경계 후보 미리보기 (저장하지 않는다, 원문을 돌려주지 않는다)."""
-    return refs.preview(body.text, body.rule, body.example, body.unit, body.strip_tails, body.files)
+    return refs.preview(body.text, body.rule, body.example, body.unit, body.strip_tails, body.files, body.repeats)
 
 
 class RefInboxDelIn(BaseModel):
@@ -116,7 +119,7 @@ def ref_newto(body: RefNewtoIn) -> dict:
 @router.post("/api/refs")
 def create_ref(body: RefCreateIn) -> dict:
     b = refs.create(body.name, body.text, body.cuts, body.source, body.notes, body.rights, body.encoding, body.rule,
-                    body.example, body.unit, body.common_head, body.strip_tails, body.files)
+                    body.example, body.unit, body.common_head, body.strip_tails, body.files, body.strip_repeats)
     return _ref_view(b)
 
 
@@ -127,7 +130,7 @@ def get_ref(rid: str) -> dict:
 
 @router.put("/api/refs/{rid}")
 def put_ref(rid: str, body: RefPutIn) -> dict:
-    b = refs.update(_ref_id(rid), body.name, body.source, body.notes, body.cuts, body.strip_tails, body.rule, body.example, body.unit)
+    b = refs.update(_ref_id(rid), body.name, body.source, body.notes, body.cuts, body.strip_tails, body.rule, body.example, body.unit, body.strip_repeats)
     return _ref_view(b)
 
 
