@@ -84,6 +84,35 @@ def test_custom_example():
         refs.detect(text, rule="custom", example="제목만")
 
 
+def test_custom_example_close_tail():
+    """예시 끝의 닫는 기호('-->')는 제목에 남지 않는다. 제목 안의 기호는 둔다."""
+    body = "그는 길을 걸었다. " * 80
+    text = "\n\n".join(f"{h}\n\n{body}" for h in ["<-- 01. 평온한 일상의 붕괴 -->", "<-- 02. 균열-->", "<-- 03. 끝 - 시작 -->"])
+    d = refs.detect(text, rule="custom", example="<-- 01. 평온한 일상의 붕괴 -->")
+    assert [(c["num"], c["title"]) for c in _on(d)] == [(1, "평온한 일상의 붕괴"), (2, "균열"), (3, "끝 - 시작")]
+
+
+def test_custom_repeated_part_marks():
+    """부 표시를 화마다 되풀이하면 그 번호를 부 번호로 보고 화 번호를 차례대로 매긴다. 바로 붙은 반복 머리는 한 화로 묶는다."""
+    body = "그는 길을 걸었다. " * 80
+    heads = ["<-- 01. 평온한 일상의 붕괴 -->", "<-- 01. 평온한 일상의 붕괴 -->", "<-- 01. 평온한 일상의 붕괴 -->", "<-- 02. 균열 -->", "<-- 02. 균열 -->"]
+    text = "\n\n".join(f"{h}\n\n{body}" for h in heads)
+    text = text.replace(heads[3], heads[3] + "\n" + heads[3], 1)  # 4화 머리를 한 번 더 씀
+    d = refs.detect(text, rule="custom", example=heads[0])
+    assert d["parts"] == 2
+    assert [(c["label"], c["part"], c["title"]) for c in _on(d)] == [
+        ("1", 1, "평온한 일상의 붕괴"), ("2", 1, "평온한 일상의 붕괴"), ("3", 1, "평온한 일상의 붕괴"), ("4", 2, "균열"), ("5", 2, "균열")]
+    assert not any(c["flags"] for c in _on(d))
+
+
+def test_custom_increasing_marks_keep_numbers():
+    """번호가 되풀이되지 않으면 원고의 번호를 그대로 둔다."""
+    body = "그는 길을 걸었다. " * 80
+    text = "\n\n".join(f"<-- {n:02d}. 제목 -->\n\n{body}" for n in (1, 2, 4))
+    d = refs.detect(text, rule="custom", example="<-- 01. 제목 -->")
+    assert d["parts"] == 0 and [c["label"] for c in _on(d)] == ["1", "2", "4"]
+
+
 def test_short_episodes_are_not_toc():
     d = refs.detect("\n".join(f"{i}화\n본문" for i in range(1, 33)))
     assert len(_on(d)) == 32

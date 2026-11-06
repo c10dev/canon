@@ -227,6 +227,7 @@ function refRuleBar(d, v) {
   const sum = [`본편 ${k.main || 0}화`, k.prologue ? `프롤로그 ${k.prologue}` : '', k.side ? `외전 ${k.side}` : '', k.epilogue ? `에필로그 ${k.epilogue}` : '', k.skip ? `제외 ${k.skip}` : ''].filter(Boolean).join(' · ');
   return `<section class="card ref-rule"><div class="between"><div><strong>${esc(sum)}</strong>${v.counts.warn ? ` · <span class="ref-warn">확인할 것 ${v.counts.warn}</span>` : ''}
       ${p.common_head ? `<div class="small">화 표시 앞에 늘 붙은 '${esc(p.common_head)}' 는 떼고 읽었어요.</div>` : ''}
+      ${p.parts ? `<div class="small">같은 번호가 여러 화에 되풀이돼서 그 번호를 부 번호로 보고, 화 번호는 1화부터 차례대로 매겼어요 (부 ${p.parts}개).</div>` : ''}
       ${p.preface_chars ? `<div class="small">첫 화 앞 글 ${p.preface_chars.toLocaleString()}자(작품 제목 · 소개 · 목차)는 머리 글로 보고 화에 넣지 않아요.</div>` : ''}</div>
       <div class="row">${chips.join('')}</div></div>
     <div class="row ref-rule-more">
