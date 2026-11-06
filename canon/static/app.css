@@ -1726,6 +1726,7 @@ mark.hl.flash { outline: 2px solid currentColor; outline-offset: 2px; }
 /* 집필 머리 (write.js .w-head): 640px 이하는 본문이 첫 화면에 들어오게 줄인다. 위치 줄 · 쓴 모델은 숨기고(위쪽 띠에 n/N화가 있다) 제목을 줄이고,
    보조 버튼(대화 · 다시 생성 · 작업지시서)은 ⋯ 메뉴(.w-narrow)로 옮겨 ⋯ 와 primary 만 남긴다. 단계 띠는 한 줄 칸으로, 안내만 하는 반영 끝난 화 알림은 첫 문장만 보이는 접은 칸(.w-fin-s)으로 */
 .w-narrow, .w-fin-s { display: none; }
+.w-tl { display: contents; }
 .w-fin-s > summary { display: flex; align-items: center; min-height: var(--touch-min); cursor: pointer; font-size: inherit; color: inherit; }
 .w-fin-s > p { margin: 0 0 var(--space-8); }
 @media (max-width: 640px) {
@@ -1737,6 +1738,18 @@ mark.hl.flash { outline: 2px solid currentColor; outline-offset: 2px; }
   .w-head + .flow-bar .fl-sub:not(.warn) { display: none; }
   .w-fin.has-short > .note.plain:not(.w-fin-s) { display: none; }
   .w-fin-s { display: block; padding-top: 0; padding-bottom: 0; }
+  /* 머리를 두 줄로: 위 줄은 제목과 칩만(.w-tl), 아래 줄은 화 앞뒤 버튼(왼쪽) · ⋯ · primary(오른쪽). 44px 버튼 줄이 하나 준다 */
+  .w-head { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "tl tl" "nav acts"; align-items: center; }
+  .w-head > .row:first-child { display: contents; }
+  .w-head > .row:first-child > nav { grid-area: nav; }
+  .w-head .w-tl { grid-area: tl; display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-label) var(--gap-row); min-width: 0; }
+  .w-head > .row:last-child { grid-area: acts; justify-content: flex-end; }
+  /* 본문이 첫 화면에 더 들어오게 집필 화면만 위 여백 · 머리와 단계 띠 사이 · 단계 띠 아래를 줄 간격(8px)으로 */
+  .main:has(> .w-head) { padding-top: var(--gap-group); }
+  .main > .w-head, .main > .w-head + .flow-bar { margin-bottom: calc(var(--gap-row) - var(--gap-stack)); }
+  .w-body .w-bar { min-height: var(--touch-min); padding-top: 0; padding-bottom: 0; }
+  .w-body .w-bar:has(.savebar-slot:not(:empty)) { padding-top: var(--gap-row); padding-bottom: var(--gap-row); }  /* 저장 띠가 들어와 여러 줄로 감기면 여백을 되돌린다 */
+  .w-body .prose { padding-top: var(--space-20); }
 }
 /* 다시 생성 열 (rewrite.js rwColumn): 대화 패널과 같은 자리 · 폭 */
 .tool-col { position: fixed; top: 0; right: 0; bottom: 0; width: min(440px, 100vw); z-index: var(--z-panel); gap: 0; margin: 0; background: var(--surface); border-left: 1px solid var(--line); display: flex; flex-direction: column; }
@@ -1746,6 +1759,7 @@ mark.hl.flash { outline: 2px solid currentColor; outline-offset: 2px; }
 .prose textarea { min-height: max(480px, calc(100svh - 220px)); }
 /* 집필 화면: 머리(--wtop, write.js syncWriteTop)가 위에 붙으면 본문 칸이 그 아래 화면을 채운다. 72px 은 .prose 위아래 여백 */
 .w-body .prose textarea { min-height: max(320px, calc(100svh - var(--band, 0px) - var(--wtop, 140px) - 72px - 16px)); }
+@media (max-width: 640px) { .w-body .prose textarea { min-height: max(320px, calc(100svh - var(--band, 0px) - var(--wtop, 140px) - 56px - 16px)); } }  /* 좁은 화면: .prose 위 여백이 20px 라 위아래 56px */
 
 /* 900px 이하(휴대폰 · 세로 태블릿): AI 패널은 아래쪽 시트로. 위쪽에 본문이 보인다.
    떠 있는 저장 띠 · 작업 목록 · 알림은 시트 위로 올린다. 시트의 입력칸과 보내기를 가리지 않는다 */
