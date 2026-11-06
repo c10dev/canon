@@ -35,10 +35,38 @@ CHAT_TOPICS.text = {
   proposal: passageProposal,
   // 시트를 높이는 것은 지금 고른 부분의 후보일 때만이다. 다른 부분을 새로 골라 열면 옛 후보 때문에 본문이 가려지지 않게
   candsFor: (m) => { const s = curSel(); return !!s && !!m.selection && m.selection.text === s.text; },
+  // 지금 고른 부분(또는 그 부분에 넣은 글)과 이어지는 맨 뒤 대화만 펴 둔다. 앞의 다른 부분 대화는 접는다
+  foldFrom(msgs) {
+    let k = msgs.length;
+    for (let i = msgs.length - 1; i >= 0; i -= 1) {
+      if (msgs[i].role === 'user') continue;
+      if (!passageRelated(msgs[i])) break;
+      k = i > 0 && msgs[i - 1].role === 'user' ? i - 1 : i;
+    }
+    return k;
+  },
+  foldNote: '고른 부분은 아직 요청하지 않았어요. 바라는 것을 적거나 아래 빠른 요청을 누르세요.',
   inputExtra: selTarget,
 };
 
 const clip = (t, n) => (t.length > n ? t.slice(0, n) + '…' : t);
+
+/** 대화 답 m 의 후보를 넣은 수정 기록. 손봐서 넣었으면 서버(pipeline.edit_text)가 후보 원문을 proposed 에 남기고, 그대로 넣었으면 proposed 는 비고 after 가 후보다. */
+function passageEdit(m) {
+  if (!m || m.outcome !== 'applied' || !m.passage || !S.chatTopic) return null;
+  const c = m.passage.candidates[Number(m.applied[0])];
+  const e = ep(Number(S.chatTopic.split(':')[1]));
+  return c && e ? [...(e.edits || [])].reverse().find((x) => x.source === 'ai' && (x.proposed ? x.proposed === c.text : x.after === c.text.trim())) || null : null;
+}
+
+/** 대화 답 m 이 지금 고른 부분의 것인가. 그 답의 후보를 넣어 고른 부분이 넣은 글로 바뀐 것도 같은 부분이다. */
+function passageRelated(m) {
+  const s = curSel();
+  if (!s || !m.selection) return false;
+  if (m.selection.text === s.text) return true;
+  const x = passageEdit(m);
+  return !!x && !x.undone && x.after === s.text;
+}
 // 반영이 끝난 화도 고친다. 반영된 상태는 그대로 두고 서버가 반영 뒤 고침으로 표시한다 (restate.js)
 const editableEp = (e) => e && (e.status === 'confirmed' || e.status === 'written' || e.status === 'finalized');
 /** 고칠 수 있는 화의 본문 초안. 반영이 끝난 화에 남은 초안은 본문이 아니다 (집필 화면이 따로 꺼내 보인다). */
@@ -140,7 +168,13 @@ function passageProposal(m, i) {
   }).join('');
   const done = m.outcome === 'applied' ? `<span class="chip finalized">${Number(m.applied[0]) + 1}번 후보를 넣음</span>`
     : m.outcome === 'dismissed' ? '<span class="chip">넣지 않음</span>' : '';
-  if (!open) return `<details class="proposal done"><summary>${done} 후보 다시 보기</summary>${cards}${m.outcome === 'dismissed' ? `<div class="row proposal-actions"><button type="button" class="btn small" data-action="chatReopen" data-arg="${i}">다시 검토</button></div>` : ''}</details>`;
+  if (!open) {
+    // 방금 넣은 답이면 다음에 할 것을 바로 아래 둔다: 되돌리기 · 넣은 글을 이어서 고치기 · 닫기
+    const x = i === chatMessages(S.chatTopic).length - 1 && passageEdit(m);
+    const next = x && !x.undone && passageRelated(m)
+      ? `<div class="row next-acts" role="group" aria-label="다음에 할 것"><span class="small">본문에 넣었어요</span><button type="button" class="btn small" data-action="undoEdit" data-arg="${esc(x.id)}">되돌리기</button><button type="button" class="btn small" data-action="passageMore">이어서 고치기</button><button type="button" class="btn small" data-action="toggleChat">닫기</button></div>` : '';
+    return `<details class="proposal done"><summary>${done} 후보 다시 보기</summary>${cards}${m.outcome === 'dismissed' ? `<div class="row proposal-actions"><button type="button" class="btn small" data-action="chatReopen" data-arg="${i}">다시 검토</button></div>` : ''}</details>${next}`;
+  }
   return `<div class="proposal">${lost ? '<div class="note plain">그사이 이 부분이 바뀌어 후보를 넣을 수 없어요. 다시 골라 요청하세요.</div>' : ''}${cards}
     <div class="row"><button class="btn small" data-action="chatDismiss" data-arg="${i}">모두 넣지 않기</button></div></div>`;
 }
@@ -549,6 +583,7 @@ Object.assign(actions, {
     const t = S.selTool;
     S.sel = { n: t.n, start: t.start, text: t.text };
     hideTool();
+    S.chatFoldOpen = false;  // 새로 고른 부분: 지난 요청은 접어 둔다 (chat.js chatLog)
     S.chatOpen = true;
     S.chatScroll = true;
     try { localStorage.setItem('canon.chat', '1'); } catch { /* 저장 못 해도 동작에는 상관없다 */ }
@@ -611,6 +646,11 @@ Object.assign(actions, {
   passagePreset(id) {
     actions.chatSend(String(id));
   },
+  /** 넣은 뒤 '이어서 고치기': 넣은 글이 고칠 부분이다. 빠른 요청과 입력칸을 보이고 입력칸으로 간다 (작가가 누른 것이라 키보드가 올라도 된다) */
+  passageMore() {
+    $('.chat-panel .sel-target')?.scrollIntoView({ block: 'nearest' });
+    $('#chat-input')?.focus();
+  },
   passageTweak(key) {
     const [i, k] = String(key).split(':').map(Number);
     if (S.candEdit[key] !== undefined) delete S.candEdit[key];
@@ -644,7 +684,7 @@ Object.assign(actions, {
       await saveIfDirty();
       await flushText(n);
       S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/edits/${enc(id)}/undo`);
-      if (edit.before) focusText(n, edit.before, edit.start);
+      if (edit.before && focusText(n, edit.before, edit.start) !== -1) S.selFocus.quiet = true;  // 손가락 기기는 키보드를 올리지 않는다
       if (S.sel && S.sel.n === n && !textNow(n).includes(S.sel.text)) S.sel = null;
       toast('수정을 취소했어요. 기록의 \'다시 넣기\'로 되돌릴 수 있어요');
     });
@@ -657,7 +697,7 @@ Object.assign(actions, {
       await saveIfDirty();
       await flushText(n);
       S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/edits/${enc(id)}/redo`);
-      if (edit.after) focusText(n, edit.after, edit.start);
+      if (edit.after && focusText(n, edit.after, edit.start) !== -1) S.selFocus.quiet = true;
       if (S.sel && S.sel.n === n && !textNow(n).includes(S.sel.text)) S.sel = null;
       toast('수정을 다시 넣었어요');
     });
