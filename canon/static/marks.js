@@ -115,7 +115,10 @@ function draftBox(n, text) {
   // AI가 본문을 처음 쓰는 중이면 끝날 때 칸이 AI 본문으로 바뀐다. 그동안 쓴 글을 잃지 않게 잠근다 (viewWrite 의 locked 와 같은 조건)
   const e = typeof ep === 'function' ? ep(n) : null;
   const locked = typeof jobFor === 'function' && !!jobFor('write', n) && !(e && e.text);
-  const ta = `<textarea aria-label="${n}화 본문" data-draft="${n}"${locked ? ' readonly aria-describedby="draft-lock"' : ''} placeholder="여기에 본문을 쓰세요">${esc(text)}</textarea>`;
+  // 경고의 'AI에게 고치기'가 이 화 본문을 고치는 중이면 끝날 때까지 잠근다 (passage.js aiFixNow). 그동안 쓴 글이 서버 수정과 엇갈리지 않게
+  const fixing = typeof aiFixing === 'function' && aiFixing(n);
+  const lock = locked ? ' readonly aria-describedby="draft-lock"' : fixing ? ' readonly' : '';
+  const ta = `<textarea aria-label="${n}화 본문" data-draft="${n}"${lock} placeholder="여기에 본문을 쓰세요">${esc(text)}</textarea>`;
   return (marksOn && markable()) || nameable() || findingMarked(n, text) || tofixMarks(n, text).length ? `<div class="hl-wrap"><div class="hl-layer" aria-hidden="true"><div class="hl-in"></div></div>${ta}</div>` : ta;
 }
 

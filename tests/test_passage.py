@@ -132,3 +132,43 @@ def test_fix_request_may_keep_text(client):
     rev = pipeline.revise_passage(_TextRight(), q, 1, sel, "상태 정리 경고: 38L")
     assert rev.candidates == [] and rev.reply == "본문이 맞아요. 플롯의 38L을 22L로 고치세요."
     assert "※" in pipeline.revise_passage(_TextRight(), q, 1, sel, "더 낫게").reply
+
+
+def test_fix_now_applies_first(client):
+    """상태 정리 경고의 'AI에게 고치기': 후보를 받아 대화에 남기고 첫 후보를 한 요청 안에서 바로 넣는다."""
+    _written(client)
+    quote = "도현은 대답하지 않았다."
+    sel = {"start": TEXT.index(quote), "text": quote}
+    msg = f"상태 정리 경고: 도현 «{quote}» 말이 없다"
+    out = client.post("/api/projects/lh/episodes/1/fix-now", json={"message": msg, "selection": sel}).json()
+    e = _ep(out["project"])
+    edit = e["edits"][-1]
+    assert out["edit"] == edit["id"] and edit["source"] == "ai" and edit["instruction"] == msg
+    assert edit["before"] == quote and e["text"] != TEXT and edit["after"] in e["text"]
+    ai = next(c for c in out["project"]["chats"] if c["topic"] == "text:1")["messages"][-1]
+    assert (ai["outcome"], ai["applied"]) == ("applied", ["0"])
+    assert client.post("/api/projects/lh/episodes/99/fix-now", json={"message": msg, "selection": sel}).status_code == 404
+
+
+def test_fix_now_without_candidate(client, monkeypatch):
+    """AI가 본문이 맞다고 답하면 본문은 그대로 두고 대화에 답만 남긴다."""
+    from canon import web
+    _written(client)
+    monkeypatch.setattr(web, "get_llm", lambda stage=None: _TextRight())
+    out = client.post("/api/projects/lh/episodes/1/fix-now", json={"message": "상태 정리 경고: 38L", "selection": {"start": 0, "text": "바람이 불었다."}}).json()
+    assert out["edit"] == "" and _ep(out["project"])["text"] == TEXT
+    ai = next(c for c in out["project"]["chats"] if c["topic"] == "text:1")["messages"][-1]
+    assert ai["text"].startswith("본문이 맞아요") and ai["passage"] is None
+
+
+def test_passage_ai_blocked_while_auto(client, monkeypatch):
+    """자동 집필이 도는 동안에는 AI를 부르기 전에 막는다 (넣기에서 막히면 AI 비용만 쓴다)."""
+    from canon import autorun
+    _written(client)
+    called = []
+    monkeypatch.setattr(pipeline, "revise_passage", lambda *a, **k: called.append(1))
+    monkeypatch.setattr(autorun, "active", lambda name: True)
+    sel = {"start": 0, "text": "바람이 불었다."}
+    assert client.post("/api/projects/lh/chat/text:1", json={"message": "더 짧게", "selection": sel}).status_code == 400
+    assert client.post("/api/projects/lh/episodes/1/fix-now", json={"message": "상태 정리 경고: x", "selection": sel}).status_code == 400
+    assert called == []

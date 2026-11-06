@@ -61,6 +61,7 @@
 - 작품 GET 이 돌려준 작품 객체는 화를 뺀 나머지의 판(`X-Project-Rest`)을 `restOf` 에 둔다
 - 한 화 작업(본문 쓰기 · 스토리보드 · 큐 시트 · 한 화 플롯 · 검수 · 고침안)이 끝나면 `mergeEpisodes` 가 그 화만 받는다(`touchedEpisodes`, `GET /episodes`)
 - 화만 받기는 나머지 판 · `edit_rev` · `saved_by` · 화 번호 목록이 서버와 같을 때만 쓴다. 하나라도 다르거나 요청이 실패하면 작품 전체를 받는다(`tests/test_merge_episodes_js.py`)
+- 화면을 잠그지 않은 요청이 돌려준 작품은 `takeEdited` 가 받는다. 그사이 입력이 있었으면 그 화와 대화 기록 · `edit_rev` 만 받아 저장하지 않은 다른 입력을 지킨다
 - 저장 응답(`X-Project-ETag`)으로 보관할 때도 `X-Project-Rest` 를 함께 보관한다. 반영 → 304 → 한 화 작업 끝에서도 화만 받는다
 - 화만 받으면 `patchCache` 가 `projectCache` 의 그 화를 고치고 판을 화 GET 의 `etag` 로 올린다. 다음 화면 이동의 작품 GET 이 304 로 끝난다
 - `patchCache` 는 보관한 것의 나머지 판 · `edit_rev` · `saved_by` · 화 번호 목록이 화 GET 답과 같을 때만 고친다. 아니면 옛 판을 둬서 다음 작품 GET 이 전체를 받는다
@@ -268,6 +269,7 @@
 - `styleMenu` 버튼은 640px 이하 집필 화면에서 `Aa` 아이콘만 보인다(이름은 `aria-label`)
 - 본문에서 장치 글자 · 금지 표현 밑줄(고치는 본문은 textarea 뒤에 깐 칸 `hl-layer`, 스크롤은 CSS 스크롤 타임라인 `hl-follow` 로 따라가고 안 되는 브라우저만 `scrollTop`, 읽기 전용은 `<mark>`)
 - 밑줄에서 부분 수정 도구 띄우기
+- 경고의 'AI에게 고치기'가 그 화를 고치는 동안 `draftBox` 는 본문 칸을 잠근다(`aiFixing`)
 - 쓴 화 세기와 쉬는 화 판정은 `metrics.device_hits` · `device_last` · `prompts.device_block` 과 같은 규칙이라 함께 고친다(`tests/test_marks_js.py` 가 node 로 맞춰 본다)
 
 ### `canon/static/mentions.js`
@@ -358,7 +360,10 @@
 - 수정 기록과 되돌리기
 - 고친 뒤 다시 할 단계 알림
 - 상태 정리 경고에서 «» 문장을 찾아 고르기(`warnQuote`, `warnItems`, `warnPick`)
-- 경고의 'AI에게 고치기'는 대화 패널을 거치지 않고 첫 후보를 바로 본문에 넣는다(`aiFixNow`: 저장 → 부분 수정 대화 → 후보 0 적용 → 되돌리기 알림). 후보가 없으면 대화 패널을 연다
+- 경고의 'AI에게 고치기'는 대화 패널을 거치지 않고 첫 후보를 바로 본문에 넣는다(`aiFixNow`: 저장 → `POST …/fix-now` 한 번 → 되돌리기 · 상태 승인으로 알림). 후보가 없으면 대화 패널을 연다
+- `aiFixNow` 는 AI를 기다리는 동안 화면을 잠그지 않는다. 그 화 본문 칸만 잠그고(`S.aiFix`, `aiFixing`) 다른 화면으로 가도 끝나면 알린다
+- 바로 넣는 것은 경고에 옮겨 적은 글이 본문에 그대로 한 번만 있을 때다(`warnSpot` 의 `exact`). 아니면 그 문장을 골라 경고를 대화 입력칸에 넣고 보내기는 작가가 한다
+- 경고 줄 뒤의 버튼 · 표시는 `warnTools` 하나가 그린다(집필 `warnItems` · 상태 승인 `rvWarnLine`): 고치는 중, 'AI가 고침'(`warnFixed`: 되돌리지 않은 AI 수정의 요청 글이 그 경고), 버튼
 - 되돌리기 알림 `undoToast` 는 `toast` 의 동작 알림이다. 누르거나 포커스가 있는 동안 닫히지 않고 알림 창 '최근 알림'에 남는다
 - 상태 승인 화면의 경고에서 집필 화면으로 옮길 때는 `goThen` 으로 그 화면을 다 그린 뒤에 고른다
 - 서버는 `pipeline.edit_text` · `revise_passage` · `apply_passage` · `undo_edit`
@@ -458,6 +463,7 @@
   - 오른쪽 직접 정할 것 · 요약 · 그대로 반영할 것(갈래 접기 `S.rvOpen`, 고른 수 `rvKeyCount`) · 관계 계산
   - 관계 사건 종류 고르기는 색(`kindStyle`) 옆에 칩 `kindTag`(＋ 좋은 사건 · － 나쁜 사건, 기호는 `aria-hidden`)을 둔다. 종류를 바꾸면 칩도 맞춘다
   - 경고를 인물 줄에 붙이기 `rvWarnSplit`
+  - 경고 줄 `rvWarnLine` 의 버튼과 고치는 중 · 'AI가 고침' 표시는 `passage.js` `warnTools`
   - 대상 인물 id(`StateDelta.warn_to`)가 있으면 그 인물 줄, 없으면(AI 경고 · 예전 변경안) 인물 이름으로 시작하는지로 붙인다
   - 인물 칸 그 자리에서 펴기 `rvOpen`
   - 편 인물 칸은 감정 · 목표 · 위치 · 메모 · 차림을 고친다(`STATE_TEXT`). 빈 칸은 지금 값을 그대로 둔다
@@ -545,6 +551,7 @@
   - 머리 `.w-stick` 에 붙는 본문 띠와 이번 화 플롯 띠 `plotStrip`(사건 진행 줄: 쓴 사건 체크 `doneEvents` → `Episode.events_done`, 막는 조건 `eventsLock`, 엔딩 훅 도착점) · 펼침 기억 `plotOpenOf`
   - 머리 높이 `syncWriteTop`
   - 머리 줄에 지금 본문을 쓴 모델(`.w-model`, `writerLabel`). 기록이 없는 화는 보이지 않는다
+  - 경고의 'AI에게 고치기'가 그 화를 고치는 동안 본문 칸 위에 잠금 안내(`role="status"`)를 둔다
   - 머리 ⋯ 메뉴 `writeMenu`: 생성 방식 · 컨텍스트 대화상자 · 채팅 앱 작업지시서 .md 내려받기(`briefDownload`) · 화 지우기
   - 생성 방식 바꾸기(`setMode`)는 localStorage 에 못 적어도 이번 화면에서는 바꾼다
   - 640px 이하 머리(`.w-head`)는 ⋯ 메뉴와 primary 만 남긴다(app.css)
