@@ -356,7 +356,8 @@ function viewWrite(n) {
     : `<button type="button" class="btn primary" data-action="flowCheck" data-arg="${n}"${chk.attr}>${cs.stale ? '다시 검수하기' : chk.label}</button>`)
     : e.status === 'written' ? `<a class="btn primary" href="${base()}/review/${n}">상태 승인으로</a>`
       : e.status === 'finalized' ? nextStepBtn() : fresh ? writeGo(n, blocked).primary : starting && e.storyboard ? boardGo(n, blocked) : '';
-  // 머리 첫 줄: 화 앞뒤 버튼 · 제목과 칩 묶음(.w-tl). 넓은 폭은 .w-tl 이 display: contents 라 한 줄이고, 640px 이하는 제목 줄 · 버튼 줄 두 줄이다 (app.css)
+  // 머리와 단계 띠는 .w-headwrap 으로 묶는다. 넓은 폭은 .w-headwrap · .w-tl 이 display: contents 라 머리 한 줄 아래 단계 띠다.
+  // 640px 이하는 두 줄 격자다: 제목과 칩(.w-tl) · ⋯ 와 primary, 그 아래 화 앞뒤 버튼 · 단계 띠 (app.css)
   // 640px 이하는 보조 버튼(대화 · 다시 생성 · 작업지시서)을 머리 줄에서 숨기고 ⋯ 메뉴에 같은 동작을 둔다 (작업지시서는 메뉴에 이미 있다, app.css .w-head)
   const chatOn = e.text && editable;
   const rw = e.text && editable && (isApi || e.status === 'finalized') ? jobBtn('write', n, '다시 생성') : null;
@@ -373,8 +374,7 @@ function viewWrite(n) {
 
   const fin = finNote(e.text ? restateNote(n) : '');  // 반영이 끝난 화 알림. 640px 이하는 첫 문장만 보이고 펼쳐 읽는다 (.w-fin)
 
-  return `<header class="page-head w-head"><div class="row" style="gap:12px">${epNav('write', n)}<div class="w-tl"><div class="lead" style="gap:2px"><div class="eyebrow">${act ? actLabel(act.name) + ' 구간 · ' : ''}${n} / ${P().meta.target_episodes}화</div><h1 style="font-size:var(--w-h1, 1.5rem)">${n}화 ${esc(e.plot.title)}</h1></div>${povBadge(n)}<span class="chip ${e.status}">${STATUS[e.status]}</span>${e.auto ? '<span class="chip ai">자동 반영</span>' : ''}${e.text && writerLabel(e.written_by) ? `<span class="small w-model" title="이 본문을 쓴 모델이에요. 직접 고쳐도 바뀌지 않아요">쓴 모델 · ${esc(writerLabel(e.written_by))}</span>` : ''}</div></div><div class="row">${right}</div></header>
-    ${flowBar(n, 'write')}
+  return `<div class="w-headwrap"><header class="page-head w-head"><div class="row" style="gap:12px">${epNav('write', n)}<div class="w-tl"><div class="lead" style="gap:2px"><div class="eyebrow">${act ? actLabel(act.name) + ' 구간 · ' : ''}${n} / ${P().meta.target_episodes}화</div><h1 style="font-size:var(--w-h1, 1.5rem)">${n}화 ${esc(e.plot.title)}</h1></div>${povBadge(n)}<span class="chip ${e.status}">${STATUS[e.status]}</span>${e.auto ? '<span class="chip ai">자동 반영</span>' : ''}${e.text && writerLabel(e.written_by) ? `<span class="small w-model" title="이 본문을 쓴 모델이에요. 직접 고쳐도 바뀌지 않아요">쓴 모델 · ${esc(writerLabel(e.written_by))}</span>` : ''}</div></div><div class="row">${right}</div></header>${flowBar(n, 'write')}</div>
     ${e.auto ? `<div class="note info">이 화는 자동 집필이 검토 없이 반영했어요. 읽어 보고 문제가 있으면 <a href="${base()}/auto">자동 집필</a>에서 이 화부터 되돌릴 수 있어요.</div>` : ''}
     ${rebuildNote(n)}
     ${fin}

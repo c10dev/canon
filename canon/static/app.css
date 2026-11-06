@@ -1726,7 +1726,8 @@ mark.hl.flash { outline: 2px solid currentColor; outline-offset: 2px; }
 /* 집필 머리 (write.js .w-head): 640px 이하는 본문이 첫 화면에 들어오게 줄인다. 위치 줄 · 쓴 모델은 숨기고(위쪽 띠에 n/N화가 있다) 제목을 줄이고,
    보조 버튼(대화 · 다시 생성 · 작업지시서)은 ⋯ 메뉴(.w-narrow)로 옮겨 ⋯ 와 primary 만 남긴다. 단계 띠는 한 줄 칸으로, 안내만 하는 반영 끝난 화 알림은 첫 문장만 보이는 접은 칸(.w-fin-s)으로 */
 .w-narrow, .w-fin-s { display: none; }
-.w-tl { display: contents; }
+.w-tl, .w-headwrap { display: contents; }
+.w-headwrap > .page-head { margin-bottom: calc(var(--gap-section) - var(--gap-stack)); }  /* 넓은 폭: 머리 아래 구역 간격은 묶음 안에서도 같다 */
 .w-fin-s > summary { display: flex; align-items: center; min-height: var(--touch-min); cursor: pointer; font-size: inherit; color: inherit; }
 .w-fin-s > p { margin: 0 0 var(--space-8); }
 @media (max-width: 640px) {
@@ -1738,16 +1739,20 @@ mark.hl.flash { outline: 2px solid currentColor; outline-offset: 2px; }
   .w-head + .flow-bar .fl-sub:not(.warn) { display: none; }
   .w-fin.has-short > .note.plain:not(.w-fin-s) { display: none; }
   .w-fin-s { display: block; padding-top: 0; padding-bottom: 0; }
-  /* 머리를 두 줄로: 위 줄은 제목과 칩만(.w-tl), 아래 줄은 화 앞뒤 버튼(왼쪽) · ⋯ · primary(오른쪽). 44px 버튼 줄이 하나 준다 */
-  .w-head { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "tl tl" "nav acts"; align-items: center; }
-  .w-head > .row:first-child { display: contents; }
+  /* 머리와 단계 띠를 두 줄 격자로: 위 줄은 제목과 칩(.w-tl) · ⋯ 와 primary, 아래 줄은 화 앞뒤 버튼 · 단계 띠. 44px 줄 둘이 준다 */
+  .w-headwrap { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "tl tl acts" "nav flow flow"; align-items: center; gap: var(--gap-row); }
+  .w-headwrap > .w-head, .w-head > .row:first-child { display: contents; }
   .w-head > .row:first-child > nav { grid-area: nav; }
   .w-head .w-tl { grid-area: tl; display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-label) var(--gap-row); min-width: 0; }
-  .w-head > .row:last-child { grid-area: acts; justify-content: flex-end; }
-  /* 본문이 첫 화면에 더 들어오게 집필 화면만 위 여백 · 머리와 단계 띠 사이 · 단계 띠 아래를 줄 간격(8px)으로 */
-  .main:has(> .w-head) { padding-top: var(--gap-group); }
-  .main > .w-head, .main > .w-head + .flow-bar { margin-bottom: calc(var(--gap-row) - var(--gap-stack)); }
-  .w-body .w-bar { min-height: var(--touch-min); padding-top: 0; padding-bottom: 0; }
+  .w-head .w-tl h1 { word-break: keep-all; overflow-wrap: anywhere; }  /* 좁은 칸에서 낱말 가운데서 끊지 않는다 */
+  .w-head > .row:last-child { grid-area: acts; flex-wrap: nowrap; justify-content: flex-end; }
+  .w-headwrap > .flow-bar { grid-area: flow; }
+  .w-headwrap > .flow-bar .fl-cell { gap: var(--space-4); padding: 0 var(--space-4); }  /* 화 앞뒤 버튼 옆 좁은 칸: '상태 승인'이 390px 에서 한 줄에 든다 */
+  .w-headwrap > .flow-bar .fl-n { width: 18px; height: 18px; }
+  /* 본문이 첫 화면에 더 들어오게 집필 화면만 위 여백 · 머리 묶음 아래를 줄인다 */
+  .main:has(> .w-headwrap) { padding-top: var(--gap-group); }
+  .main > .w-headwrap { margin-bottom: calc(var(--gap-row) - var(--gap-stack)); }
+  .w-body .w-bar { padding-top: 0; padding-bottom: 0; }  /* 버튼(touch-min)이 높이를 정한다 */
   .w-body .w-bar:has(.savebar-slot:not(:empty)) { padding-top: var(--gap-row); padding-bottom: var(--gap-row); }  /* 저장 띠가 들어와 여러 줄로 감기면 여백을 되돌린다 */
   .w-body .prose { padding-top: var(--space-20); }
 }
