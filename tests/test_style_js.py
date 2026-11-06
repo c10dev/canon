@@ -43,6 +43,15 @@ def test_card_keys_cover_profile_fields():
 
 
 @needs_node
+def test_empty_profile_and_narr_keys_match_schema():
+    """새 작품의 빈 프로필(emptyProfile)과 서술 카드 칸(NARR_KEYS)이 schema.StyleProfile 과 같은지."""
+    got = js(project(), "return { empty: emptyProfile(), narr: NARR_KEYS };")
+    assert got["empty"] == StyleProfile().model_dump(mode="json")
+    assert list(got["empty"]) == list(StyleProfile.model_fields)
+    assert got["narr"] == list(pipeline.STYLE_TEXT_KEYS)
+
+
+@needs_node
 def test_toc_items_marks_todo_hot_and_link():
     rows = js(project(profile()), """return styleTocItems(P().style, { hot: new Set(['tense', 'markers']), todo: 2, example: '바뀜', link: '다름', learn: '5건' });""")
     assert rows[0] == ["todo", "확인할 것", "2", "warn"]
