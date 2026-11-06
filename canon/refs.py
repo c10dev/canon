@@ -127,13 +127,17 @@ def _parse(line: str) -> Optional[dict]:
 
 
 def _custom_re(example: str) -> re.Pattern:
-    """예시 한 줄('[제12화] 제목')에서 꼴을 만든다: 첫 숫자 자리 앞 글 + 숫자 + 숫자 바로 뒤 붙은 글 + 제목."""
+    """예시 한 줄('[제12화] 제목')에서 꼴을 만든다: 첫 숫자 자리 앞 글 + 숫자 + 숫자 바로 뒤 붙은 글 + 제목 + 닫는 기호.
+    닫는 기호는 예시 끝의 기호 묶음이다('<-- 01. 제목 -->' 의 '-->'). 줄에 있으면 제목에서 뗀다."""
     m = re.search(r"\d+", example or "")
     if not m:
         raise ValueError("예시 줄에 화 번호(숫자)가 없어요")
     before = example[:m.start()].strip()
     after = re.match(r"\S*", example[m.end():]).group(0)
-    return re.compile(rf"^\s*{re.escape(before)}\s*(?P<num>\d{{1,4}})\s*{re.escape(after)}{_SEP}(?P<title>.*)$")
+    rest = example[m.end() + len(after):]
+    tm = re.search(r"\s*([^\w\s]+)\s*$", rest)
+    tail = rf"(?:\s*{re.escape(tm.group(1))})?" if tm and rest[:tm.start()].strip() else ""
+    return re.compile(rf"^\s*{re.escape(before)}\s*(?P<num>\d{{1,4}})\s*{re.escape(after)}{_SEP}(?P<title>.*?){tail}\s*$")
 
 
 def _lis(keys: list[tuple]) -> set[int]:
@@ -290,6 +294,25 @@ def _mark(cuts: list[dict], files: list[int]) -> None:
                     b["gap"] = [a["num"] + 1, b["num"] - 1]
 
 
+def _parts(cuts: list[dict]) -> int:
+    """부 표시를 화마다 되풀이하는 원고('<-- 01. 제목 -->' 이 1 · 2화 첫머리에 다 있다가 02 로 넘어감)를 알아본다.
+    본편 번호가 줄지 않고 같은 번호가 DUP_GAP 자 넘게 떨어져 또 나오면 그 번호를 부 번호(part)로 옮기고 화 번호를 1부터 차례대로 매긴다.
+    DUP_GAP 자 안의 같은 번호(반복 머리)는 앞 화와 같은 번호를 받아 _mark 가 한 머리로 묶는다. 값: 부 수 (아니면 0)."""
+    main = [c for c in cuts if c["kind"] == "main"]
+    if len(main) < 2 or any(b["num"] < a["num"] for a, b in zip(main, main[1:])):
+        return 0
+    starts = [i == 0 or not (c["num"] == main[i - 1]["num"] and c["gap_before"] < DUP_GAP) for i, c in enumerate(main)]
+    real = [c["num"] for c, s in zip(main, starts) if s]
+    if len(set(real)) == len(real):
+        return 0
+    n = 0
+    for c, s in zip(main, starts):
+        n += s
+        c["part"], c["num"] = c["num"], n
+        c["label"] = _label(c)
+    return len(set(real))
+
+
 def _gaps(lines: list[str], cuts: list[dict]) -> None:
     """화 표시 앞 글 글자 수 (목차 · 반복 머리 판정용)."""
     starts = [0]
@@ -321,7 +344,8 @@ def _rule_cuts(lines: list[str], rule: str) -> list[dict]:
 
 def detect(text: str, rule: str = "", example: str = "", unit: str = "", files: Optional[list[int]] = None) -> dict:
     """원문 → 경계 후보 (저장하지 않는다). rule 을 비우면 순서대로 고른다: 화 표시 줄 → 기호 줄 → 빈 줄 셋 넘게 → 한 화.
-    값: {rule, unit, alts, common_head, lines, cuts: [{line, body, head, label, num, sub, title, kind, on, flags, gap?}]}.
+    값: {rule, unit, alts, common_head, parts, lines, cuts: [{line, body, head, label, num, sub, title, kind, on, flags, gap?, part?}]}.
+    parts 는 직접 패턴의 번호를 부 번호로 보고 화 번호를 차례대로 매겼을 때의 부 수다(_parts). 아니면 0.
     cuts 에는 끈 후보(본문 속 언급 · 목차 · 반복 머리)도 들어 있다. 첫 켠 경계 앞 글은 머리 글이다."""
     lines = lines_of(text)
     files = files or []
@@ -336,11 +360,13 @@ def detect(text: str, rule: str = "", example: str = "", unit: str = "", files: 
                 c["body"] = c["line"] + 1
                 c["label"] = _label(c)
             _gaps(lines, cuts)
+            parts = _parts(cuts) if r == "custom" else 0
             _mark(cuts, files)
             for c in cuts:
                 for k in ("gap_before", "pre", "word", "unit"):
                     c.pop(k, None)
-            return {"rule": r, "unit": got["unit"], "alts": got["alts"], "common_head": got["common_head"], "lines": len(lines), "cuts": cuts}
+            return {"rule": r, "unit": got["unit"], "alts": got["alts"], "common_head": got["common_head"], "parts": parts, "lines": len(lines),
+                    "cuts": cuts}
         if r == "mark" and (rule or any(MARK_RE.match(ln) for ln in lines)):
             return {"rule": "mark", "unit": "", "alts": [], "common_head": "", "lines": len(lines), "cuts": _rule_cuts(lines, "mark")}
         if r == "blank" and (rule or len(_rule_cuts(lines, "blank")) > 1):
