@@ -2655,7 +2655,11 @@ function workCard() {
   const where = [part && `<b>${part.number}부</b> ${esc(part.title)}`, arc && `<b>아크 ${arc.number}</b> ${esc(arc.title)}`].filter(Boolean).join(' · ');
   const whereFull = [part && `${part.number}부 ${part.title}`, arc && `아크 ${arc.number} ${arc.title}`].filter(Boolean).join(' · ');  // 두 줄로 자른 부 · 아크 줄의 전체 글
   const [nextLabel, nextHref] = nextStep();
-  return `<div class="work-card">
+  // 집필 화면: 640px 이하 위쪽 띠는 작품 제목 대신 화 제목 · 작품 이름과 화 상태를 두 줄로 보인다(.work-ep, app.css). 머리의 제목 줄이 빠진다
+  const wn = S.route && S.route[2] === 'write' ? Number(S.route[3]) : 0;
+  const we = wn ? ep(wn) : null;
+  const wep = we ? `<div class="work-ep" aria-hidden="true"><b>${wn}화 ${esc(we.plot.title)}</b><span class="small">${esc(p.meta.title || S.name)} · ${we.auto ? '자동 반영' : STATUS[we.status]}</span></div>` : '';
+  return `<div class="work-card${wep ? ' has-ep' : ''}">${wep}
       <div class="work-head"><a class="work-title" href="${base()}" title="${esc(p.meta.title || S.name)}">${esc(p.meta.title || S.name)}</a><a class="work-switch" href="#/" title="작품 목록" aria-label="다른 작품 고르기 (작품 목록)">⌄</a></div>
       <div class="small work-meta">${esc(p.meta.genre || '장르 미정')} · ${serial() ? '장편' : '단편'} ${total}화</div>${branchSideTag()}${playSideTag()}
       ${where ? `<div class="work-where" title="${esc(whereFull)}">${where}</div>` : ''}
