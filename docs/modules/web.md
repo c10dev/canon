@@ -83,6 +83,8 @@
 - 숫자 칸 자판 `numberKeypads`: `inputmode` 가 없는 `type=number` 칸에 붙인다(소수 `step` 은 decimal, 아니면 numeric). `MutationObserver` 로 그려질 때마다 한곳에서 붙인다
 - 사이드바 아이콘(`navItems` · `navMark`: 단계는 번호, 그 밖은 토스페이스 이모지 `.tf`, 출처 문구는 사이드바 아래, Swift `Screen.mark` 와 같은 글자)
 - 사이드바 작품 칸(`workCard`: 제목 · 갈래 · 플레이 사본(`play.js` `playSideTag`) · 장편은 지금 부 · 아크(`partOf` · `arcOf`), 화 칸 띠는 단편 전체 · 장편 지금 아크, 다음 할 일은 `home.js` `nextStep`, 좁은 폭 위쪽 띠 줄이기는 `app.css` `.work-card`)
+- 한 화 화면(집필 · 검수 · 상태 승인)이면 작품 칸에 화 제목 · 작품 이름 · 화 상태 줄(`.work-ep`)을 더한다. 640px 이하 위쪽 띠에서만 보인다
+- `.work-ep` 둘째 줄 끝에 시점 인물(`plot.js` `povChar`)을 '이름 시점'으로 붙인다. `povChar` 가 없으면(시험에서 plot.js 를 안 읽음) 뺀다
 - 4 · 5 · 6 줄이 가리키는 화(`navEp`: 한 화 흐름 `FLOW_PAGES` · 작업지시서는 보는 화)
 - 900px 이하 위쪽 띠는 화면 위에 붙고 높이 `--band` 만큼 본문의 붙는 칸을 내린다
 - 서랍을 연 동안 뒤는 `inert`(`syncRail`)
@@ -186,6 +188,7 @@
 - 한 화 흐름
 - 집필 · 검수 · 상태 승인 한 화 화면(주소 `write` · `check` · `review/<화>`, `write.js` `viewEpisode`)의 머리 아래 단계 띠(`flowBar`, 단계 글은 순수 함수 `flowSteps`, 이름 · 번호는 사이드바와 같음 `FLOW_STAGES`, 위치 줄 `flowEyebrow`)
 - 상태 승인 칸은 변경안을 만든 뒤 본문을 고쳤으면(`S.deltaBase` · 저장하지 않은 고침) '본문 고침'으로 볼 것 남음 표시를 한다(`flowSteps` 의 `run.stale`)
+- 짧은 이름 `FLOW_SHORT`(상태 승인 → 승인)는 640px 이하 한 화 화면 머리 한 줄에서만 보인다(`.fl-s`). 다른 화면 · 폭은 온 이름(`.fl-l`)이다
 - '검수하기'(`flowCheck`: 검수 단계로 옮겨 검수, 첫 검수면 상태 변경안도 함께 `flowStateToo`, 끄기 `flowStateToggle` · localStorage `canon.flowState`)
 - `flowCheck` 와 `app.js` `checkEp`(다시 검수)는 검수를 시작하기 전에 저장하지 않은 본문 초안을 저장한다(`passage.js` `flushText`, `check.js` `fixAll` 과 같다)
 - 둘 다 `app.js` `checkReady` 를 쓴다: 저장하지 않은 작품 변경이 있으면 `startJob` 과 같은 물음으로 먼저 저장한 뒤 본문을 저장한다. 본문 저장이 `S.project` 를 서버 것으로 바꾸기 때문이다
@@ -572,7 +575,8 @@
   - 생성 방식 바꾸기(`setMode`)는 localStorage 에 못 적어도 이번 화면에서는 바꾼다
   - 640px 이하 머리(`.w-head`)는 ⋯ 메뉴와 primary 만 남긴다(app.css)
   - 머리와 단계 띠는 `.w-headwrap` 으로 묶는다
-  - 640px 이하에서 `.w-headwrap` 은 두 줄 격자다: 위 줄은 제목과 칩 묶음(`.w-tl`) · ⋯ 와 primary, 아래 줄은 화 앞뒤 버튼 · 단계 띠
+  - 640px 이하에서 `.w-headwrap` 은 한 줄이다: 화 앞뒤 버튼 · 단계 띠 · ⋯ · primary. 제목과 칩 묶음(`.w-tl`)은 낭독에만 남긴다
+  - 640px 이하 집필 화면의 화 제목은 위쪽 띠 작품 칸이 보인다(`workCard` 의 `.work-ep`)
   - `.w-headwrap` · `.w-tl` 은 넓은 폭에서 `display: contents` 라 머리 · 단계 띠 모양이 그대로다
   - 640px 이하에서 본문 위 여백(페이지 위 · 머리 묶음 아래 · 원고 위)을 줄인다(app.css)
   - 640px 이하에서 본문 띠(`.w-bar`)는 `display: contents` 라 글자 수 · 도구 버튼 · 저장 칸이 접힌 플롯 줄과 한 줄(`.w-top`)에 선다

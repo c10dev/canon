@@ -1737,6 +1737,7 @@ mark.hl.flash { outline: 2px solid currentColor; outline-offset: 2px; }
    보조 버튼(대화 · 다시 생성 · 작업지시서)은 ⋯ 메뉴(.w-narrow)로 옮겨 ⋯ 와 primary 만 남긴다. 단계 띠는 한 줄 칸으로, 안내만 하는 반영 끝난 화 알림은 첫 문장만 보이는 접은 칸(.w-fin-s)으로 */
 .w-narrow, .w-fin-s { display: none; }
 .w-tl, .w-headwrap { display: contents; }
+.fl-s, .work-ep { display: none; }
 .w-headwrap > .page-head { margin-bottom: calc(var(--gap-section) - var(--gap-stack)); }  /* 넓은 폭: 머리 아래 구역 간격은 묶음 안에서도 같다 */
 .w-fin-s > summary { display: flex; align-items: center; min-height: var(--touch-min); cursor: pointer; font-size: inherit; color: inherit; }
 .w-fin-s > p { margin: 0 0 var(--space-8); }
@@ -1749,16 +1750,26 @@ mark.hl.flash { outline: 2px solid currentColor; outline-offset: 2px; }
   .w-head + .flow-bar .fl-sub:not(.warn) { display: none; }
   .w-fin.has-short > .note.plain:not(.w-fin-s) { display: none; }
   .w-fin-s { display: block; padding-top: 0; padding-bottom: 0; }
-  /* 머리와 단계 띠를 두 줄 격자로: 위 줄은 제목과 칩(.w-tl) · ⋯ 와 primary, 아래 줄은 화 앞뒤 버튼 · 단계 띠. 44px 줄 둘이 준다 */
-  .w-headwrap { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "tl tl acts" "nav flow flow"; align-items: center; gap: var(--gap-row); }
+  /* 머리 한 줄: 화 앞뒤 버튼 · 단계 띠(짧은 이름) · ⋯ · primary. 제목과 칩(.w-tl)은 위쪽 띠(.work-ep)가 보여서 낭독에만 남긴다.
+     단계 띠가 120px 보다 좁아지면(긴 primary) ⋯ · primary 가 다음 줄 오른쪽으로 내려간다 */
+  .w-headwrap { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-row) var(--space-6); }
   .w-headwrap > .w-head, .w-head > .row:first-child { display: contents; }
-  .w-head > .row:first-child > nav { grid-area: nav; }
-  .w-head .w-tl { grid-area: tl; display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-label) var(--gap-row); min-width: 0; }
-  .w-head .w-tl h1 { word-break: keep-all; overflow-wrap: anywhere; }  /* 좁은 칸에서 낱말 가운데서 끊지 않는다 */
-  .w-head > .row:last-child { grid-area: acts; flex-wrap: nowrap; justify-content: flex-end; }
-  .w-headwrap > .flow-bar { grid-area: flow; }
-  .w-headwrap > .flow-bar .fl-cell { gap: var(--space-4); padding: 0 var(--space-4); }  /* 화 앞뒤 버튼 옆 좁은 칸: '상태 승인'이 390px 에서 한 줄에 든다 */
-  .w-headwrap > .flow-bar .fl-n { width: 18px; height: 18px; }
+  .w-head .w-tl { display: block; position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+  .w-head > .row:first-child > nav { order: 1; gap: var(--space-2) !important; }
+  .w-headwrap > .flow-bar { order: 2; flex: 1 1 120px; min-width: 120px; grid-template-columns: repeat(3, auto); }
+  .w-head > .row:last-child { order: 3; flex-wrap: nowrap; justify-content: flex-end; gap: var(--space-6); margin-left: auto; }
+  .w-headwrap > .flow-bar .fl-cell { gap: var(--space-2); padding: 0 var(--space-4); justify-content: center; }
+  .w-headwrap > .flow-bar .fl-n:not(.ok) { display: none; }  /* 번호는 빼고 끝난 단계의 ✓ 만 둔다. 지금 단계는 아래 굵은 줄 */
+  .w-headwrap > .flow-bar .fl-n { width: 16px; height: 16px; font-size: 0.6875rem; }
+  .w-headwrap > .flow-bar .fl-l { display: none; }
+  .w-headwrap > .flow-bar .fl-s { display: inline; }
+  .w-head > .row:last-child > .btn.primary { padding: 0 var(--space-12); }
+  /* 위쪽 띠: 작품 제목 자리에 화 제목(굵게)과 작품 이름 · 화 상태(작게) 두 줄 (app.js workCard .work-ep) */
+  .side > .work-card.has-ep { flex-direction: column; align-items: stretch; justify-content: center; gap: 0; }
+  .side > .work-card.has-ep > :not(.work-ep) { display: none; }
+  .side > .work-card.has-ep > .work-ep { display: flex; flex-direction: column; min-width: 0; line-height: 1.3; }
+  .work-ep > * { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .work-ep > b { font-size: 0.9375rem; }
   /* 본문이 첫 화면에 더 들어오게 집필 화면만 위 여백 · 머리 묶음 아래를 줄인다 */
   .main:has(> .w-headwrap) { padding-top: var(--gap-group); }
   .main > .w-headwrap { margin-bottom: calc(var(--gap-row) - var(--gap-stack)); }
@@ -1768,6 +1779,7 @@ mark.hl.flash { outline: 2px solid currentColor; outline-offset: 2px; }
   .w-body .w-top > .w-bar { display: contents; }
   .w-body .w-top > .wp-row { order: -1; flex: 1 1 0; min-width: 72px; padding: 0; }
   .w-body .wp-lead b { display: none; }  /* 좁은 줄: '엔딩 훅' 이름 대신 내용을 보인다 */
+  .w-body .w-top .wp-meta { display: none; }  /* '시점 바뀜' 칩은 펼친 플롯의 서술 시점 옆과 위쪽 띠의 시점 글에 있다 */
   .w-body .w-bar .w-fill, .w-body .w-bar .savebar-slot:empty { display: none; }
   .w-body .w-bar .savebar-slot { order: 1; flex-basis: 100%; padding-bottom: var(--gap-row); }
   /* 면 없는 아이콘 버튼: 붙는 줄 도구(문체 · 고칠 곳 · 수정 기록 · 복사)와 머리의 화 앞뒤 · ⋯. 터치 칸은 44px 그대로, 면은 주 버튼만.
