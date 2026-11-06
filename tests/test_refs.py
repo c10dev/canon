@@ -105,6 +105,18 @@ def test_custom_repeated_part_marks():
     assert not any(c["flags"] for c in _on(d))
 
 
+def test_custom_repeated_part_marks_one_backward():
+    """원고의 부 번호가 한 번 거꾸로 가도(24 다음 23) 부 표시로 보고, 그 화에 '번호 거꾸로' 를 단다."""
+    body = "그는 길을 걸었다. " * 80
+    nums = [1, 1, 2, 2, 3, 2, 3, 4, 4]
+    text = "\n\n".join(f"\t\t <-- {n:02d}. 제목 {n} -->\n\n{body}" for n in nums)
+    d = refs.detect(text, rule="custom", example="<-- 01. 제목 -->")
+    on = _on(d)
+    assert d["parts"] == 4 and [c["label"] for c in on] == [str(k) for k in range(1, 10)]
+    assert [c["part"] for c in on] == nums
+    assert [i for i, c in enumerate(on) if c["flags"]] == [5] and on[5]["flags"] == ["back"]
+
+
 def test_custom_increasing_marks_keep_numbers():
     """번호가 되풀이되지 않으면 원고의 번호를 그대로 둔다."""
     body = "그는 길을 걸었다. " * 80
