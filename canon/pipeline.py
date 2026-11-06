@@ -3003,6 +3003,15 @@ def apply_passage(p: Project, n: int, i: int, k: int, text: str | None = None) -
     return edit
 
 
+def apply_first(p: Project, n: int, sel: Selection, message: str, rev: PassageRevision) -> TextEdit | None:
+    """요청과 AI 후보를 부분 수정 대화에 남기고 첫 후보를 바로 본문에 넣는다 (상태 정리 경고의 'AI에게 고치기').
+    남기기와 넣기를 같은 작품에서 해 메시지 번호가 어긋나지 않는다. 후보가 없으면 남기기만 하고 None."""
+    reply = record_passage(p, n, sel, message, "", rev)
+    if reply.passage is None:
+        return None
+    return apply_passage(p, n, len(p.chat(f"text:{n}").messages) - 1, 0)
+
+
 # ---------- 4-3. 삽화 프롬프트 (NovelAI) ----------
 # AI 는 장면을 태그로 옮긴 원안만 낸다. 외형 · 인물 수 · 등급 · 품질 태그는 illust.assemble 이 붙인다.
 # 본문을 바꾸지 않으므로 반영(finalized)한 화에서도 만든다.

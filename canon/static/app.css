@@ -446,7 +446,7 @@ details > summary { cursor: pointer; font-size: 0.8125rem; color: var(--link); m
 .ep-card.sel { border: 2px solid var(--accent); background: var(--sel-bg); }
 .ep-card .t { font-size: 0.875rem; font-weight: 700; line-height: 1.45; }
 /* 한글은 낱말 중간에서 끊지 않는다 ('잃었/다'). 띄어쓰기 없이 긴 글만 칸 끝에서 끊는다 */
-.board, .plot-page, .arc-facts, .arc-form, .part-card, .part-edit, .chat-panel .diff, .plot-page textarea, .style-page, .style-page textarea, .lib-page, .lib-page textarea, .rv-grid, .rv-restate, .flow-bar { word-break: keep-all; overflow-wrap: anywhere; }
+.board, .plot-page, .arc-facts, .arc-form, .part-card, .part-edit, .chat-panel .diff, .plot-page textarea, .style-page, .style-page textarea, .lib-page, .lib-page textarea, .rv-panel, .rv-restate, .flow-bar { word-break: keep-all; overflow-wrap: anywhere; }
 .ep-card .ep-top { display: flex; justify-content: space-between; align-items: center; width: 100%; gap: var(--space-8); }
 .ep-card .ep-top strong { flex: none; font-size: 0.8125rem; white-space: nowrap; }  /* 칩이 넓어도 '74화'는 한 줄. 시점 칩이 대신 말줄임으로 준다 */
 .ep-card .ep-chips { display: inline-flex; align-items: center; gap: var(--space-4); min-width: 0; }
@@ -757,7 +757,7 @@ textarea[data-pick] { -webkit-touch-callout: none; caret-color: transparent; }
 /* 넓은 폭 사이드바(232px)와 휴대폰 폭은 'Canon.' 이름과 작품 제목 자리를 남기게 글자를 빼고 기호와 수 배지만 (이름은 aria-label) */
 @media (min-width: 901px), (max-width: 640px) {
   .side .hub-btn { padding: 0; justify-content: center; }
-  .side .hub-btn > span[aria-hidden]:not(.hub-badge, .hub-dot) { display: none; }
+  .side .hub-btn > span[aria-hidden]:not(.hub-badge, .hub-dot, .spinner) { display: none; }  /* 작업 중 회전 표시는 남긴다. 빼면 휴대폰 위쪽 띠에 빈 버튼만 보였다 */
   .side .hub-btn > .hub-n { display: block; }
 }
 @media (min-width: 901px) { .side .hub-btn { min-width: 36px; min-height: 36px; } }
@@ -1770,6 +1770,13 @@ mark.hl.flash { outline: 2px solid currentColor; outline-offset: 2px; }
   .side > .work-card.has-ep > .work-ep { display: flex; flex-direction: column; min-width: 0; line-height: 1.3; }
   .work-ep > * { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .work-ep > b { font-size: 0.9375rem; }
+  /* AI 작업이 도는 동안 primary 자리의 진행 줄(.w-busy, write.js wsBusy)은 넓다(280px). ⋯ 와 함께 다음 줄을 통째로 쓰고 글이 길면 감는다.
+     그대로 두면 360px 에서 ⋯ 와 진행 줄이 화면 밖으로 밀린다 */
+  .w-headwrap:has(.w-busy) .w-head > .row:last-child { flex: 1 1 100%; }
+  .w-head > .row:last-child > .w-busy { flex: 1 1 auto; min-width: 0; }
+  .w-head > .row:last-child > .w-busy .w-busy-text { min-width: 0; }
+  /* 화 앞뒤 버튼은 늘 한 줄에 둔다 */
+  .w-head > .row:first-child > nav { flex-wrap: nowrap; }
   /* 본문이 첫 화면에 더 들어오게 집필 화면만 위 여백 · 머리 묶음 아래를 줄인다 */
   .main:has(> .w-headwrap) { padding-top: var(--gap-group); }
   .main > .w-headwrap { margin-bottom: calc(var(--gap-row) - var(--gap-stack)); }
@@ -1862,19 +1869,8 @@ a.fl-cell:hover { background: var(--bg); color: var(--text); }
 @media (pointer: coarse) { #review-keys { display: none; } }
 select.rv-inp, input.rv-inp { font-size: 0.8125rem; }  /* 상태 승인 줄 안 고르기 · 확정 사실 칸 */
 @media (pointer: coarse) { select.rv-inp, input.rv-inp { font-size: 1rem; } }  /* 손가락 기기: 16px 아래면 iOS 가 칸을 누를 때 화면을 확대한다 */
-.rv-grid { display: flex; flex-direction: column; gap: var(--gap-stack); }
 .rv-panel { display: flex; flex-direction: column; gap: var(--gap-stack); min-width: 0; }
-@media (min-width: 901px) {
-  .rv-grid { display: grid; grid-template-columns: minmax(0, 1fr) 400px; grid-template-areas: "text panel"; align-items: start; }
-  .rv-panel { grid-area: panel; }
-  .rv-text { grid-area: text; position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow-y: auto; overscroll-behavior: contain; }
-}
-/* 1400px · 검수 1360px · 플레이 1100px: 그 화면 격자만의 창 폭 (layout.md '폭 구간') */
-@media (min-width: 1400px) { .rv-grid { grid-template-columns: minmax(0, 1fr) 460px; } }
-body.chat-open .rv-grid { display: flex; flex-direction: column; }
-body.chat-open .rv-text { position: static; max-height: none; }
-.rv-text { padding: 0; gap: 0; }
-.rv-text .read { white-space: pre-wrap; }
+.rv-desc { margin: 0; }
 .rv-fold > summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; padding: 0 18px; font-weight: 700; }  /* 단계 밖 18px: 상태 승인 카드 좌우 */
 .rv-fold[open] > summary { border-bottom: 1px solid var(--rule); }
 mark.hl.src { background: none; text-decoration-color: var(--line-strong); cursor: pointer; }
@@ -2549,19 +2545,30 @@ input[type=number].pnum { width: 80px; min-height: 36px; padding: 0 var(--space-
 @media (pointer: coarse), (max-width: 640px) { .puntil label { min-height: var(--touch-min); } }
 .pcol > .chip { align-self: flex-start; }
 
-/* ----- 검수 화면 (check.js): 넓은 폭은 왼쪽 본문 · 오른쪽 칸(지적 목록 위, 지적 상세 아래). 상태 승인 단계와 같은 자리. 좁은 폭은 한 줄로 ----- */
-.check-cols { display: flex; flex-direction: column; gap: var(--gap-stack); }
-.c-side { display: flex; flex-direction: column; gap: var(--space-16); min-width: 0; }
+/* ----- 한 화 화면 (write.js viewEpisode): 검수 · 상태 승인 칸을 열면 넓은 폭은 왼쪽 본문(.ep-main) · 오른쪽 칸(.ep-side).
+   좁은 폭은 칸이 먼저인 한 줄(문서 순서). 오른쪽 칸은 붙어 있고 칸 안에서 구른다. 집필 칸은 .ep-cols 없이 본문만 ----- */
+.ep-cols { display: flex; flex-direction: column; gap: var(--gap-stack); }
+.ep-main, .ep-side { display: flex; flex-direction: column; gap: var(--gap-stack); min-width: 0; }
 @media (min-width: 901px) {
-  .check-cols { display: grid; grid-template-columns: minmax(0, 1fr) 340px; grid-template-areas: "body side"; align-items: start; }
-  .check-cols .c-side { grid-area: side; position: sticky; top: calc(16px + var(--band, 0px)); max-height: calc(100vh - 32px - var(--band, 0px)); overflow-y: auto; overscroll-behavior: contain; }
-  .check-cols .c-body { grid-area: body; }
+  .ep-cols { display: grid; grid-template-columns: minmax(0, 1fr) 340px; grid-template-areas: "main side"; align-items: start; }
+  .ep-cols > .ep-main { grid-area: main; }
+  .ep-cols > .ep-side { grid-area: side; position: sticky; top: calc(16px + var(--band, 0px)); max-height: calc(100vh - 32px - var(--band, 0px)); overflow-y: auto; overscroll-behavior: contain; }
+  .ep-cols.ep-review { grid-template-columns: minmax(0, 1fr) 400px; }
 }
-@media (min-width: 1360px) { .check-cols { grid-template-columns: minmax(0, 1fr) 380px; } }
-/* AI 패널을 열면 한 줄로 쌓는다. 넓은 폭의 grid 규칙(카드 폭을 글만큼 줄이는 align-items, 상세 카드의 sticky)을 풀어
-   본문 카드가 폭을 다 쓰고, 내릴 때 상세 카드가 본문 위에 붙어 남지 않게 한다 */
-body.chat-open .check-cols { display: flex; flex-direction: column; align-items: stretch; }
-body.chat-open .check-cols .c-side { position: static; max-height: none; overflow: visible; }
+/* 1360px · 상태 승인 1400px: 그 칸만의 창 폭 (layout.md '폭 구간') */
+@media (min-width: 1360px) { .ep-cols { grid-template-columns: minmax(0, 1fr) 380px; } }
+@media (min-width: 1400px) { .ep-cols.ep-review { grid-template-columns: minmax(0, 1fr) 460px; } }
+/* AI 패널을 열면 한 줄로 쌓는다. 넓은 폭의 grid 규칙(카드 폭을 글만큼 줄이는 align-items, 칸의 sticky)을 풀어
+   본문 카드가 폭을 다 쓰고, 내릴 때 칸이 본문 위에 붙어 남지 않게 한다 */
+body.chat-open .ep-cols { display: flex; flex-direction: column; align-items: stretch; }
+body.chat-open .ep-cols > .ep-side { position: static; max-height: none; overflow: visible; }
+/* 상태 승인 칸의 좁은 폭: 본문 카드를 접어 둔다 (.ep-fold). 넓은 폭에서는 늘 편 채다 (rvWide 가 그리지 않음) */
+.ep-fold > .w-body { margin-top: var(--space-8); }
+/* 640px 이하: 칸의 보조 버튼(검수 옵션 · 다시 검수 · 저장 칸)은 머리 줄 대신 칸 위 한 줄에 둔다 (write.js viewEpisode) */
+.ep-tools { flex-wrap: wrap; gap: var(--space-8); }
+.ep-tools .savebar-slot { flex: 0 1 auto; }
+.ep-tools .savebar-slot:empty, .ep-tools:not(:has(> :not(.savebar-slot:empty))) { display: none; }
+.c-side { display: flex; flex-direction: column; gap: var(--space-16); min-width: 0; }
 .chk-strip { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8) var(--space-12); padding: var(--space-10) var(--space-14); border: 1px solid var(--line); border-radius: var(--radius-12); background: var(--surface); }
 /* 거르기 · 처리 상태는 디자인 시스템의 나눔 버튼(.seg). 칸이 많아 좁은 폭에서는 줄을 넘긴다 */
 .chk-strip .chk-filters { margin-left: auto; flex-wrap: wrap; }

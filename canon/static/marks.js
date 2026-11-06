@@ -97,6 +97,8 @@ function allRanges(n, text) {
   return out.filter((r) => (r.a >= end ? ((end = r.b), true) : false));
 }
 const findingMarked = (n, text) => typeof findingRanges === 'function' && findingRanges(n, text).length > 0;
+/** 상태 승인 칸의 근거 밑줄이 있는지 (review.js rvRanges). 있으면 고치는 본문에도 밑줄 칸을 깐다 */
+const rvMarked = (n, text) => typeof rvRanges === 'function' && rvRanges(n, text).length > 0;
 const tofixMarks = (n, text) => (typeof tofixRanges === 'function' && typeof ep === 'function' ? tofixRanges(ep(n), text) : []);
 
 /** 이름 밑줄 (mentions.js). 꺼 두었거나 mentions.js 가 없으면 []. */
@@ -115,11 +117,14 @@ function draftBox(n, text) {
   // AI가 본문을 처음 쓰는 중이면 끝날 때 칸이 AI 본문으로 바뀐다. 그동안 쓴 글을 잃지 않게 잠근다 (viewWrite 의 locked 와 같은 조건)
   const e = typeof ep === 'function' ? ep(n) : null;
   const locked = typeof jobFor === 'function' && !!jobFor('write', n) && !(e && e.text);
+  // 경고의 'AI에게 고치기'가 이 화 본문을 고치는 중이면 끝날 때까지 잠근다 (passage.js aiFixNow). 그동안 쓴 글이 서버 수정과 엇갈리지 않게
+  const fixing = !locked && typeof aiFixing === 'function' && aiFixing(n);
   // 손가락 기기에서는 글이 있는 본문을 고르기 전용으로 둔다: 눌러도 키보드가 오르지 않고, 문장을 눌러 · 끌어 고른다 (passage.js pickStart). 고치기는 고른 부분 도구의 '직접 수정'으로 한다
-  const pick = !locked && !!text.trim() && typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
-  const ta = `<textarea aria-label="${n}화 본문" data-draft="${n}"${locked ? ' readonly aria-describedby="draft-lock"' : pick ? ' readonly data-pick aria-describedby="pick-hint"' : ''} placeholder="여기에 본문을 쓰세요">${esc(text)}</textarea>`;
+  const pick = !locked && !fixing && !!text.trim() && typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+  const lock = locked ? ' readonly aria-describedby="draft-lock"' : fixing ? ' readonly' : pick ? ' readonly data-pick aria-describedby="pick-hint"' : '';
+  const ta = `<textarea aria-label="${n}화 본문" data-draft="${n}"${lock} placeholder="여기에 본문을 쓰세요">${esc(text)}</textarea>`;
   const hint = pick ? '<p class="small pick-hint" id="pick-hint">문장을 누르면 골라져요. 누른 채 위아래로 끌면 여러 문장을 골라요.</p>' : '';
-  return hint + ((marksOn && markable()) || nameable() || findingMarked(n, text) || tofixMarks(n, text).length ? `<div class="hl-wrap"><div class="hl-layer" aria-hidden="true"><div class="hl-in"></div></div>${ta}</div>` : ta);
+  return hint + ((marksOn && markable()) || nameable() || findingMarked(n, text) || tofixMarks(n, text).length || rvMarked(n, text) ? `<div class="hl-wrap"><div class="hl-layer" aria-hidden="true"><div class="hl-in"></div></div>${ta}</div>` : ta);
 }
 
 const markable = () => (P().style.devices || []).some((d) => (d.name || '').trim()) || bannedList().length > 0;
@@ -287,6 +292,7 @@ document.addEventListener('click', (e) => {
     if (wordPick) ta.setSelectionRange(p, p);  // 카드 · 도구를 띄울 때만 낱말 고름을 그 자리 커서로 바꾼다
     if (name) return mentionFromTa(ta, name);  // 이름을 누르면 이름 카드가 먼저다. 그 문장을 고치려면 드래그해 고른다
     if (r.key.startsWith('i:')) return actions.chkOpen(r.key.slice(2));  // 검수 화면: 그 지적을 고르고 문장에서 고치는 창을 띄운다 (check.js)
+    if (r.key.startsWith('r:')) return rvGoItem(n, r.key.slice(2));  // 상태 승인 칸: 근거 밑줄을 누르면 그 변경안 항목으로 간다 (review.js)
     if (r.key.startsWith('t:')) {  // 고칠 곳: 담은 글 그대로 고른다. tofix.js 가 메모 고치기 · 고침으로를 붙인다
       S.selTool = { n, start: r.a, text: ta.value.slice(r.a, r.b), mode: 'menu' };
       return showTool();

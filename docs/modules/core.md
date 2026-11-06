@@ -372,6 +372,7 @@
 - 단편 → 장편 전환은 이어 쓰기 `propose_conversion`/`apply_conversion`
 - 재구성 `propose_rebuild`/`apply_rebuild`(옛 상태 변경안 재사용 `carried_delta`, 다듬기 `propose_rework`/`accept_rework`)
 - 되돌리기 `undo_conversion`
+- 경고 바로 고치기 `apply_first`: 부분 수정 대화에 남기고 같은 작품에서 첫 후보를 넣는다(메시지 번호가 어긋나지 않게)
 
 ### `canon/prompts.py`
 
@@ -594,6 +595,8 @@
 - 빈 지문(옛 결과 · 손으로 만든 변경안)은 맞춰 보지 않는다. 채팅 앱 변경안 가져오기 `state/parse` 도 지문을 채운다
 - 본문 저장 `PUT …/episodes/{n}/text` 는 고침을 시작한 저장 본문(`Text.base`)이 지금 본문과 다르면 409(`code` `stale_text`)로 막는다. `?force=true` 이면 저장한다
 - `base` 가 없는 요청(옛 화면 · 명령줄 · 시험)은 맞춰 보지 않는다(`tests/test_text_conflict.py`)
+- 경고의 'AI에게 고치기' `POST …/episodes/{n}/fix-now`(`fix_now`)는 후보 받기와 첫 후보 넣기(`pipeline.apply_first`)를 한 요청에서 한다. 작품과 넣은 수정 id(`edit`, 후보가 없으면 '')를 돌려준다
+- 본문 부분 수정 대화 `POST …/chat/text:<화>` 와 `fix-now` 는 AI를 부르기 전에 `_text_guard` 를 본다. `fix-now` 는 AI 답을 받은 뒤 한 번 더 본다
 - 오래 걸리는 AI 작업은 `jobs.start` 로 돌린다
 - `start_job` 은 작업 종류마다 `JOB_MAKERS` 의 준비 함수(`_job_<종류>`)를 부른다. 함수는 (이름표, 전체 걸음, 맡은 화, 할 일)을 돌려준다. 새 작업은 함수를 더하고 `JOB_MAKERS` 에 넣는다
 - `start_job` 은 같은 화에서 멈춘 작업이 AI 응답을 기다리면 `EP_AI_KINDS` 작업을 409 로 막는다(`_waiting_409`, 역설계 실험 `rev_job` 과 같은 문구)

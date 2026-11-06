@@ -211,9 +211,11 @@ function metaCutNote(n, can) {
     <ul style="list-style:none;padding:0;margin:8px 0 0;display:grid;gap:8px">${rows}</ul></details>`;
 }
 
-function writeMenu(n, starting, seg, narrow = '', copy = '') {
+function writeMenu(n, starting, seg, narrow = '', copy = '', extra = '') {
   const e = ep(n);
   const parts = [];
+  // extra: 한 화 화면에서 연 칸의 메뉴 (상태 승인 칸의 변경안 갈래, review.js rvMenu). 머리 ⋯ 메뉴를 하나로 둔다
+  if (extra) parts.push(`<div class="pop-sec"><span class="pop-legend">변경안</span>${extra}</div>`);
   if (seg && !starting) parts.push(`<div class="pop-sec"><span class="pop-legend">생성 방식</span>${seg}</div>`);
   if (S.context && e.status !== 'draft' && !starting) parts.push(`<button type="button" class="pop-item" data-action="openCtx" data-arg="${n}" aria-haspopup="dialog">컨텍스트 · 프롬프트 원문 보기<span class="small">${S.context.length}개 블록</span></button>`);
   // 채팅 앱 작업지시서: 본문이 없으면 본문 작성 지시서, 있으면 검수 · 상태 승인 지시서 (briefTabFor)
@@ -311,12 +313,24 @@ function manualNote(n) {
       <div class="row" style="margin-top:6px"><button type="button" class="btn small" data-action="backToStart" data-arg="${n}"${busy ? ' disabled title="이 화의 AI 작업이 끝난 뒤에 돌아갈 수 있어요"' : ''}>AI로 쓰기로 돌아가기</button></div></div>`;
 }
 
-function viewWrite(n) {
+/** 집필 단계 (한 화 화면의 집필 칸) */
+const viewWrite = (n) => viewEpisode(n, 'write');
+
+/** 한 화 화면: 집필 · 검수 · 상태 승인을 한 화면에 그린다. panel: 주소의 단계 ('write' | 'check' | 'review').
+    머리 · 단계 띠 · 본문 칸은 늘 같고, 검수 · 상태 승인은 오른쪽에 그 단계의 칸을 연다 (check.js checkPanel · review.js reviewPanel).
+    집필은 칸 없이 본문을 넓게 쓴다. 본문이 없는 화는 검수 · 상태 승인도 집필처럼 그리고 무엇을 먼저 할지 알린다 */
+function viewEpisode(n, panel = 'write') {
   const e = ep(n);
-  if (!e) return header('4단계', '집필', '') + noEpisode(n);
+  if (!e) return header(...{ write: ['4단계', '집필'], check: ['5단계', stepLabel('check')], review: ['6단계', '상태 승인'] }[panel], '') + noEpisode(n);
   const act = actOf(n);
   const blocked = blockedBefore(n);
-  const editable = editableEp(e);  // 반영이 끝난 화도 고친다 (restate.js 가 반영 뒤 고침을 알린다)
+  // 오른쪽 칸: 저장한 본문이 있는 화의 검수 · 상태 승인
+  const pane = panel !== 'write' && e.status !== 'draft' && e.text ? (panel === 'check' ? checkPanel(n) : reviewPanel(n)) : null;
+  const paneWait = panel !== 'write' && !pane;  // 본문이 없어 검수 · 상태 승인 칸을 열 수 없다
+  // 반영이 끝난 화도 고친다 (restate.js 가 반영 뒤 고침을 알린다). 검수 · 상태 승인 칸을 연 채로도 본문을 고친다
+  const editable = editableEp(e);
+  // 640px 이하 머리 줄은 ⋯ 메뉴와 주 버튼만 둔다. 칸의 보조 버튼은 칸 위 한 줄(.ep-tools)로 옮긴다
+  const phone = typeof window !== 'undefined' && !!window.matchMedia && mq('phone').matches;
   // 고칠 수 없는 화(플롯 초안)는 저장된 본문을 보인다. 그 화에 남은 초안이 있으면 따로 꺼내 보인다
   const draft = editable ? S.textDraft[n] : undefined;
   const orphan = !editable && textUnsaved(n);
@@ -347,7 +361,8 @@ function viewWrite(n) {
     </div>`;
   } else {
     center = `<div class="prose">${editable
-      ? (locked ? `<div class="note info" id="draft-lock" style="margin:12px 16px 0">${n}화 본문을 만드는 중이에요. 끝나면 이 칸이 AI 본문으로 바뀌니 그때 고치세요.</div>` : '') + draftBox(n, text)
+      ? (locked ? `<div class="note info" id="draft-lock" style="margin:12px 16px 0">${n}화 본문을 만드는 중이에요. 끝나면 이 칸이 AI 본문으로 바뀌니 그때 고치세요.</div>`
+        : aiFixing(n) ? `<div class="note info" role="status" style="margin:12px 16px 0">AI가 경고 문장을 고치는 중이에요. 끝나면 본문에 넣고 알려 드려요. 그동안 이 칸은 잠가요.</div>` : '') + draftBox(n, text)
       : `<div class="read" data-read="${n}">${readHtml(n, text)}</div>`}</div>`;
   }
 
@@ -357,7 +372,8 @@ function viewWrite(n) {
   const toCheck = e.status === 'written' && !cs.done && !autoOn();
   const chk = jobBtn('check', n, '검수하기');
   // 머리 버튼: 보조 버튼들 · ⋯ 메뉴 · primary 하나 (디자인 시스템: primary 는 머리 줄 오른쪽 끝)
-  const primary = toCheck ? (cs.checked && !cs.stale ? `<a class="btn primary" href="${base()}/check/${n}">검수 이어 하기 · 열린 지적 ${cs.open}</a>`
+  // 검수 · 상태 승인 칸을 열었으면 그 칸의 주 버튼을 쓴다 (한 화면에 주 버튼 하나)
+  const primary = pane ? pane.primary : toCheck ? (cs.checked && !cs.stale ? `<a class="btn primary" href="${base()}/check/${n}">검수 이어 하기 · 열린 지적 ${cs.open}</a>`
     : `<button type="button" class="btn primary" data-action="flowCheck" data-arg="${n}"${chk.attr}>${cs.stale ? '다시 검수하기' : chk.label}</button>`)
     : e.status === 'written' ? `<a class="btn primary" href="${base()}/review/${n}">상태 승인으로</a>`
       : e.status === 'finalized' ? nextStepBtn() : fresh ? writeGo(n, blocked).primary : starting && e.storyboard ? boardGo(n, blocked) : '';
@@ -369,8 +385,9 @@ function viewWrite(n) {
   const narrow = `${chatOn ? `<button type="button" class="pop-item" data-action="toggleChat" aria-pressed="${S.chatOpen}">${chatConf(`text:${n}`).title}</button>` : ''}${rw ? `<button type="button" class="pop-item" data-action="rwOpen" data-arg="${n}" aria-expanded="${S.rwOpen === n}"${rw.attr}>${rw.label}</button>` : ''}`;
   const right = `${chatOn ? chatButton(`text:${n}`) : ''}
     ${rw ? `<button class="btn${S.rwOpen === n ? ' on' : ''}" data-action="rwOpen" data-arg="${n}" aria-expanded="${S.rwOpen === n}"${rw.attr}>${rw.label}</button>` : ''}
-    ${editable && !isApi && e.status !== 'finalized' ? `<a class="btn" href="${base()}/brief/${n}">작업지시서</a>` : ''}
-    ${writeMenu(n, starting, seg, narrow, text && e.status !== 'draft' && !starting ? copyMenu(n, '복사할 때 줄바꿈 형식') : '')}
+    ${!pane && editable && !isApi && e.status !== 'finalized' ? `<a class="btn" href="${base()}/brief/${n}">작업지시서</a>` : ''}
+    ${pane && !phone ? pane.buttons : ''}
+    ${writeMenu(n, starting, seg, narrow, text && e.status !== 'draft' && !starting ? copyMenu(n, '복사할 때 줄바꿈 형식') : '', pane && pane.menu)}
     ${primary}`;
 
   const strip = plotStrip(n, act);
@@ -379,7 +396,12 @@ function viewWrite(n) {
 
   const fin = finNote(e.text ? restateNote(n) : '');  // 반영이 끝난 화 알림. 640px 이하는 첫 문장만 보이고 펼쳐 읽는다 (.w-fin)
 
-  return `<div class="w-headwrap"><header class="page-head w-head"><div class="row" style="gap:12px">${epNav('write', n)}<div class="w-tl"><div class="lead" style="gap:2px"><div class="eyebrow">${act ? actLabel(act.name) + ' 구간 · ' : ''}${n} / ${P().meta.target_episodes}화</div><h1 style="font-size:var(--w-h1, 1.5rem)">${n}화 ${esc(e.plot.title)}</h1></div>${povBadge(n)}<span class="chip ${e.status}">${STATUS[e.status]}</span>${e.auto ? '<span class="chip ai">자동 반영</span>' : ''}${e.text && writerLabel(e.written_by) ? `<span class="small w-model" title="이 본문을 쓴 모델이에요. 직접 고쳐도 바뀌지 않아요">쓴 모델 · ${esc(writerLabel(e.written_by))}</span>` : ''}</div></div><div class="row">${right}</div></header>${flowBar(n, 'write')}</div>
+  // 본문이 없어 검수 · 상태 승인 칸을 열 수 없으면 무엇을 먼저 할지 알린다
+  const waitNote = paneWait ? `<div class="note info" role="status">${n}화 본문이 아직 없어요. 본문을 쓰고 저장한 뒤 ${panel === 'check' ? '검수해요' : '상태를 정리해요'}.${e.status === 'draft' ? '' : ' 아래 집필 칸에서 쓸 수 있어요.'}</div>` : '';
+  const hint = pane && pane.hint && e.text ? pane.hint : e.status === 'draft' ? '플롯을 확정하면 본문을 쓸 수 있어요' : e.text ? `고칠 부분을 드래그하거나 길게 누르면 직접 고치거나 AI에게 맡기거나 나중에 고칠 곳으로 담을 수 있어요${typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches ? '. 밑줄 친 곳은 한 번 더 누르면 이름 카드 · 도구가 떠요' : ''}` : '본문을 직접 고친 뒤 저장할 수 있어요';
+
+  return `<div class="w-headwrap"><header class="page-head w-head${pane && pane.head ? ` ${pane.head}` : ''}"><div class="row" style="gap:12px">${epNav(panel, n)}<div class="w-tl"><div class="lead" style="gap:2px"><div class="eyebrow">${act ? actLabel(act.name) + ' 구간 · ' : ''}${n} / ${P().meta.target_episodes}화</div><h1 style="font-size:var(--w-h1, 1.5rem)">${n}화 ${esc(e.plot.title)}</h1></div>${povBadge(n)}<span class="chip ${e.status}">${STATUS[e.status]}</span>${e.auto ? '<span class="chip ai">자동 반영</span>' : ''}${e.text && writerLabel(e.written_by) ? `<span class="small w-model" title="이 본문을 쓴 모델이에요. 직접 고쳐도 바뀌지 않아요">쓴 모델 · ${esc(writerLabel(e.written_by))}</span>` : ''}</div></div><div class="row">${right}</div></header>${flowBar(n, panel)}</div>
+    ${panel !== 'write' ? autoLockNote() : ''}${waitNote}
     ${e.auto ? `<div class="note info">이 화는 자동 집필이 검토 없이 반영했어요. 읽어 보고 문제가 있으면 <a href="${base()}/auto">자동 집필</a>에서 이 화부터 되돌릴 수 있어요.</div>` : ''}
     ${rebuildNote(n)}
     ${fin}
@@ -392,7 +414,9 @@ function viewWrite(n) {
     ${fresh ? writeStart(n, blocked) : madeBoard}
     ${editable && !e.text && draft !== undefined ? manualNote(n) : ''}
     ${starting && e.status === 'confirmed' ? cueCard(n, blocked) : ''}
-    <section class="card w-body${starting ? ' w-fresh' : ''}" aria-label="${fresh ? '이번 화 플롯' : '본문'}">
+    ${pane && phone && pane.buttons ? `<div class="row ep-tools">${pane.buttons}</div>` : ''}
+    ${pane && pane.top ? pane.top : ''}
+    ${pane && pane.full ? pane.full : episodeCols(n, panel, pane, `<section class="card w-body${starting ? ' w-fresh' : ''}" aria-label="${fresh ? '이번 화 플롯' : '본문'}">
       <div class="w-stick">
         <div class="w-top">
           ${starting ? '' : `<div class="w-bar">
@@ -403,7 +427,7 @@ function viewWrite(n) {
             ${editable ? tofixBtn(n) : ''}
             ${edits ? `<button type="button" class="btn small" data-action="openEdits" title="수정 기록을 펼쳐요" aria-label="수정 기록 ${edits}개"><span class="lbl-i">${EDITS_ICON}</span><span class="lbl-l">수정 기록</span><span class="lbl-s">기록</span> ${edits}</button>` : ''}
             ${text ? copySplit(n) : ''}`}
-            <p class="small w-hint">${e.status === 'draft' ? '플롯을 확정하면 본문을 쓸 수 있어요' : e.text ? `고칠 부분을 드래그하거나 길게 누르면 직접 고치거나 AI에게 맡기거나 나중에 고칠 곳으로 담을 수 있어요${typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches ? '. 밑줄 친 곳은 한 번 더 누르면 이름 카드 · 도구가 떠요' : ''}` : '본문을 직접 고친 뒤 저장할 수 있어요'}</p>
+            <p class="small w-hint">${hint}</p>
           </div>`}
           ${strip.row}
         </div>
@@ -411,14 +435,29 @@ function viewWrite(n) {
       </div>
       ${e.text ? passageNotes(n) ? `<div style="padding:12px 16px 0;display:flex;flex-direction:column;gap:8px">${passageNotes(n)}</div>` : '' : ''}
       ${center}
-    </section>
-    ${editHistory(e)}
+    </section>`, `${editHistory(e)}
     ${versionsPanel(e)}
     ${boardPanel(n)}
     ${cuePanel(n)}
     ${e.text ? illustPanel(n) : ''}
-    ${openingPanel(n)}
+    ${openingPanel(n)}`)}
     ${e.text && editable ? (S.rwOpen === n ? rewritePanel(n) : chatPanel(`text:${n}`)) : ''}`;
+}
+
+/** 한 화 화면의 본문 자리. 칸이 없으면(집필) 본문과 그 아래 칸들을 그대로 둔다.
+    칸이 있으면 넓은 폭은 왼쪽 본문 · 오른쪽 칸, 좁은 폭은 칸이 먼저다 (문서 순서, app.css .ep-cols).
+    fold 면 좁은 폭에서 본문을 접어 둔다 (상태 승인). after 는 칸 아래에 붙는 것 (좁은 폭 반영 바) */
+function episodeCols(n, panel, pane, body, below) {
+  if (!pane) return body + below;
+  const main = pane.fold ? `<details class="rv-fold ep-fold"><summary>${n}화 본문 보기</summary>${body}</details>` : body;
+  return `<div class="ep-cols ep-${panel}"><div class="ep-side">${pane.side || ''}</div><div class="ep-main">${main}${below}</div></div>${pane.after || ''}`;
+}
+
+// 창 폭이 640px 를 넘나들면 칸의 보조 버튼 자리(머리 줄 · 칸 위 줄)를 바꿔 다시 그린다
+if (typeof window !== 'undefined' && window.matchMedia) {
+  mq('phone').addEventListener('change', () => {
+    if (S.route && FLOW_PAGES.includes(S.route[2]) && !isTyping()) render();
+  });
 }
 
 // ----- 6. 작업지시서 -----

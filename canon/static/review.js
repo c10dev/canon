@@ -354,22 +354,20 @@ function rvWarnSplit(warnings, names, warnTo = [], ids = []) {
   return { by, rest };
 }
 
-/** 경고 한 줄과 본문에서 그 문장 고르기 · AI에게 고치기 (passage.js warnPick, k 는 d.warnings 번호) */
+/** 경고 한 줄과 본문에서 그 문장 고르기 · AI에게 고치기, 고치는 중 · AI가 고침 표시 (passage.js warnTools · warnPick, k 는 d.warnings 번호) */
 function rvWarnLine(n, w, k) {
-  const q = editableEp(ep(n)) && warnQuote(w, textNow(n));
-  return `<div class="rv-warnline"><span>${esc(w)}</span>${q ? `<span class="row" style="gap:6px"><button type="button" class="btn small" data-action="warnPick" data-arg="${n}:${k}">이 문장 고르기</button><button type="button" class="btn small" data-action="warnPick" data-arg="${n}:${k}:ask" title="AI가 고친 글을 바로 본문에 넣어요. 알림의 되돌리기로 취소할 수 있어요">AI에게 고치기</button></span>` : ''}</div>`;
+  return `<div class="rv-warnline"><span>${esc(w)}</span>${warnTools(n, k, w)}</div>`;
 }
 
 /** 갈래 고른 수 '고른/모두'. keys: 체크 키 목록 ('c0', 'e1' …) */
 const rvKeyCount = (keys) => `${keys.filter((k) => S.picks[k]).length}/${keys.length}`;
 
-/** 머리 ⋯ 메뉴: 다시 만들기 · 채팅 앱 지시서 · 버리기 */
+/** 머리 ⋯ 메뉴(write.js writeMenu)의 변경안 갈래: 다시 만들기 · 채팅 앱 지시서 · 버리기 */
 function rvMenu(n) {
   const b = jobBtn('state', n, '변경안 다시 만들기');
-  const dots = '<svg width="18" height="18" viewBox="0 0 18 18" fill="currentColor" aria-hidden="true"><circle cx="4" cy="9" r="1.6"></circle><circle cx="9" cy="9" r="1.6"></circle><circle cx="14" cy="9" r="1.6"></circle></svg>';
-  return menuBtn('review', dots, () => `<button type="button" class="pop-item" data-action="extractState" data-arg="${n}"${b.attr}>${b.label}<span class="small">AI 비용이 들어요</span></button>
+  return `<button type="button" class="pop-item" data-action="extractState" data-arg="${n}"${b.attr}>${b.label}<span class="small">AI 비용이 들어요</span></button>
     <a class="pop-item" href="${base()}/brief/${n}" data-action="openStateBrief" data-arg="${n}">상태 승인 지시서 열기</a>
-    <div class="pop-sep" role="separator"></div><div class="pop-sec pop-danger"><button type="button" class="pop-item" data-action="dropDelta" data-arg="${n}">변경안 버리기</button></div>`, { cls: 'btn icon-btn', aria: `${n}화 변경안 더보기` });
+    <div class="pop-sep" role="separator"></div><div class="pop-sec pop-danger"><button type="button" class="pop-item" data-action="dropDelta" data-arg="${n}">변경안 버리기</button></div>`;
 }
 
 /** 반영 취소에 쓸 n-1화 스냅샷이 없을 때 버튼 자리에 쓰는 까닭. 장편은 0화 · 아크 끝 · 최근 20화 스냅샷만 남긴다 (pipeline.prune_snapshots).
@@ -380,40 +378,44 @@ function revertGone() {
     : '이 화 앞의 화별 상태 기록이 없어 반영을 취소할 수 없어요';
 }
 
-function viewReview(n) {
+/** 상태 승인 단계 (한 화 화면의 상태 승인 칸). 화면 틀은 write.js viewEpisode 가 그린다 */
+const viewReview = (n) => viewEpisode(n, 'review');
+
+/** 한 화 화면의 상태 승인 칸 (write.js viewEpisode 가 부른다). 본문이 있는 화에만 부른다. 돌려주는 값은 check.js checkPanel 과 같고,
+    본문 칸에는 근거 밑줄(rvRanges)이 그어진다. after 는 본문 · 칸 아래 (좁은 폭 반영 바) */
+function reviewPanel(n) {
   const e = ep(n);
-  if (!e) return header('6단계', '상태 승인', '') + noEpisode(n);
-  const top = (desc, right = '') => `<header class="page-head"><div class="row" style="gap:12px">${epNav('review', n)}<div class="lead" style="gap:2px"><div class="eyebrow">${flowEyebrow(n)}</div><h1 style="font-size:1.5rem">${n}화 ${esc(e.plot.title)}</h1></div><span class="chip ${e.status}">${STATUS[e.status]}</span></div><div class="row">${right}</div></header>${flowBar(n, 'review')}${autoLockNote()}${desc ? `<p class="desc">${desc}</p>` : ''}`;
+  const desc = (t) => (t ? `<p class="desc rv-desc">${t}</p>` : '');
 
   if (e.status === 'finalized') {
     const h = [...P().history].reverse().find((d) => d.episode === n);
     const canRevert = P().snapshots.some((s) => s.episode === n - 1);
     // 반영 취소는 n화와 그 뒤 반영한 화를 모두 되돌린다. 되돌리는 범위를 버튼에 적는다 (revertFrom 과 같은 셈)
     const undo = P().episodes.filter((x) => x.status === 'finalized' && x.plot.number >= n).map((x) => x.plot.number);
-    return top('이 화는 상태 반영이 끝났어요. 반영된 내용이에요.', `<button class="btn" data-action="branchOpen" data-arg="${n}" title="이 작품은 그대로 두고, 사본에서 ${n}화부터 다른 전개를 써요">${n}화부터 갈래 만들기</button>${canRevert ? `<button class="btn danger" data-action="revertFrom" data-arg="${n}">${rangeText(undo)}화 반영 취소</button>` : `<span class="small">${revertGone()}</span>`}${nextStepBtn()}`) + restateCard(n) + (h ? historyView(h) : '<div class="note plain">반영 기록이 없어요.</div>');
-  }
-  if (e.status !== 'written') {
-    const [href, label] = epGo(n);  // 플롯 초안이면 플롯 확정으로 바로
-    return top('') + `<div class="card empty"><p>${n}화 본문이 아직 없어요. 본문을 쓴 뒤 상태를 정리해요.</p><a class="btn primary" href="${href}">${label}</a></div>`;
+    return { buttons: `<button class="btn" data-action="branchOpen" data-arg="${n}" title="이 작품은 그대로 두고, 사본에서 ${n}화부터 다른 전개를 써요">${n}화부터 갈래 만들기</button>${canRevert ? `<button class="btn danger" data-action="revertFrom" data-arg="${n}">${rangeText(undo)}화 반영 취소</button>` : `<span class="small">${revertGone()}</span>`}`,
+      primary: nextStepBtn(),
+      side: `<div class="rv-panel">${desc('이 화는 상태 반영이 끝났어요. 반영된 내용이에요.')}${restateCard(n)}${h ? historyView(h) : '<div class="note plain">반영 기록이 없어요.</div>'}</div>` };
   }
   const d = S.deltas[n];
   const ar = S.auto && S.auto.run;
   if (!d && ar && ar.status === 'review' && ar.ep === n && ar.pending) {
     // 자동 집필이 이미 만든 변경안이 있다. 다시 만들면 AI 비용이 또 든다
-    return top('자동 집필이 이 화에서 멈추고 만든 변경안이 있어요. 불러와 고른 항목만 반영한 뒤 자동 집필에서 이어 가세요.') +
-      `<div class="card"><div class="row"><button class="btn primary" data-action="autoOpenReview">자동 집필 변경안 불러오기</button><a class="btn" href="${base()}/auto">자동 집필로</a></div></div>`;
+    return { buttons: `<a class="btn" href="${base()}/auto">자동 집필로</a>`, primary: '<button class="btn primary" data-action="autoOpenReview">자동 집필 변경안 불러오기</button>',
+      side: `<div class="rv-panel">${desc('자동 집필이 이 화에서 멈추고 만든 변경안이 있어요. 불러와 고른 항목만 반영한 뒤 자동 집필에서 이어 가세요.')}</div>` };
   }
   if (!d) {
-    return top('AI가 본문에서 인물 상태, 관계, 확정 사실, 복선을 뽑아 변경안을 만들어요. 승인한 항목만 데이터에 반영돼요.') +
-      `${ep(n + 1) ? `<div class="note info">${n}화 상태를 반영해야 ${n + 1}화를 쓸 수 있어요.</div>` : ''}<div class="cols"><section class="card col"><h2>AI로 만들기</h2><p class="desc">${n}화 본문을 읽고 변경안을 만들어요.${S.config && S.config.stages ? ` <span class="small">모델: ${esc(projectStage('state').model)}</span>` : ''}</p><div>${((b) => `<button class="btn primary" data-action="extractState" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('state', n, '변경안 만들기'))}</div></section>
-       <section class="card col"><h2>채팅 앱에서 받은 JSON</h2><p class="desc">상태 승인 지시서를 채팅 앱에 붙여 넣고 받은 JSON을 가져와요.</p><div><a class="btn" href="${base()}/brief/${n}" data-action="openStateBrief" data-arg="${n}">상태 승인 지시서 열기</a></div></section></div>`;
+    const make = jobBtn('state', n, '변경안 만들기');
+    return { buttons: '', primary: '',
+      side: `<div class="rv-panel">${desc('AI가 본문에서 인물 상태, 관계, 확정 사실, 복선을 뽑아 변경안을 만들어요. 승인한 항목만 데이터에 반영돼요.')}
+      ${ep(n + 1) ? `<div class="note info">${n}화 상태를 반영해야 ${n + 1}화를 쓸 수 있어요.</div>` : ''}<section class="card"><h2>AI로 만들기</h2><p class="desc">${n}화 본문을 읽고 변경안을 만들어요.${S.config && S.config.stages ? ` <span class="small">모델: ${esc(projectStage('state').model)}</span>` : ''}</p><div><button class="btn primary" data-action="extractState" data-arg="${n}"${make.attr}>${make.label}</button></div></section>
+       <section class="card"><h2>채팅 앱에서 받은 JSON</h2><p class="desc">상태 승인 지시서를 채팅 앱에 붙여 넣고 받은 JSON을 가져와요.</p><div><a class="btn" href="${base()}/brief/${n}" data-action="openStateBrief" data-arg="${n}">상태 승인 지시서 열기</a></div></section></div>` };
   }
 
   pickEp(n);
   const p = P();
   const remake = ((b) => `<button class="btn small" data-action="extractState" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('state', n, '변경안 다시 만들기'));
   const stale = textUnsaved(n)
-    ? `<section class="note warn">${n}화 본문에 저장하지 않은 수정이 있어요. 반영해도 그 수정은 저장되지 않아요. 변경안을 다시 만들면 본문을 먼저 저장해요. ${remake} <a href="${base()}/write/${n}">본문으로</a></section>`
+    ? `<section class="note warn">${n}화 본문에 저장하지 않은 수정이 있어요. 반영하거나 변경안을 다시 만들면 본문을 먼저 저장해요. 고친 내용이 상태에 영향을 준다면 변경안을 다시 만드세요. ${remake}</section>`
     : S.deltaBase[n] !== undefined && S.deltaBase[n] !== e.text
       ? `<section class="note warn">이 변경안을 만든 뒤 본문을 고쳤어요 (검수에서 고친 문장도 들어가요). 고친 내용이 상태에 영향을 준다면 변경안을 다시 만드세요. ${remake}</section>` : '';
   // 열린 검수 지적이 남았거나 검수하지 않았으면 반영 전에 알린다 (검수 뒤 본문을 고쳤으면 지난 결과라고 밝힌다). 막지는 않는다
@@ -575,15 +577,15 @@ function viewReview(n) {
   const wide = rvWide();
   const source = (S.deltaOrig[n] || {}).source === 'chat' ? '채팅 앱에서 가져온' : 'AI가 본문에서 뽑은';
   const applyBtn = (label) => `<button class="btn primary" data-action="applyDelta" data-arg="${n}"${autoOn() ? ' disabled' : ''}>${label}</button>`;
-  const head = top('', `<div class="savebar-slot"></div>${rvMenu(n)}${wide ? applyBtn(`<span><span class="pick-count">${picked}</span>건 반영하고 ${n}화 완료</span>`) : ''}`).replace('<header class="page-head">', '<header class="page-head rv-head">');
   const lead = `<p class="small rv-lead">${source} 변경안 ${total}건이에요. 체크한 항목만 데이터에 반영되고, 반영해야 다음 화를 쓸 수 있어요. <span id="review-keys"><kbd>j</kbd> <kbd>k</kbd> 다음 · 이전 항목, <kbd>x</kbd> 체크.</span></p>`;
-  const text = `<div class="read" data-read="${n}">${readHtml(n, e.text)}</div>`;
-  const body = wide
-    ? `<section class="card w-body rv-text" aria-label="${n}화 본문"><div class="w-bar"><span class="w-fill">밑줄은 변경안의 근거 문장이에요. 누르면 그 항목으로 가요</span><a class="btn small" href="${base()}/write/${n}">집필에서 고치기</a></div><div class="prose">${text}</div></section>`
-    : `<details class="card rv-text rv-fold"><summary>${n}화 본문 보기</summary><div class="prose">${text}</div></details>`;
-  const panel = `<div class="rv-panel">${quote && !wide ? rvQuotePanel(n, quote) : ''}${decide}${sum}${keep}${rel}</div>`;
-  return head + stale + issues + lead + `<div class="rv-grid">${panel}${body}</div>` +
-    (wide ? '' : `<div class="apply-bar rv-deck-bar" role="region" aria-label="반영"><span class="small"><strong class="pick-count" style="color:var(--text)">${picked}</strong>/${total} 고름</span>${applyBtn(`반영하고 ${n}화 완료`)}</div>`);
+  // 본문은 viewEpisode 가 그린다. 고칠 수 있는 화면 고치는 본문에 근거 밑줄(rvRanges)을 긋는다. 900px 이하는 변경안 칸을 먼저 두고 본문은 접어 아래에 둔다 (fold)
+  // 변경안 메뉴(rvMenu)는 머리의 ⋯ 메뉴 맨 위 갈래로 들어간다 (write.js writeMenu 의 extra)
+  return { buttons: '<div class="savebar-slot"></div>', menu: rvMenu(n),
+    primary: wide ? applyBtn(`<span><span class="pick-count">${picked}</span>건 반영하고 ${n}화 완료</span>`) : '',
+    top: stale + issues + lead, fold: !wide, head: 'rv-head',
+    hint: '밑줄은 변경안의 근거 문장이에요. 밑줄을 누르면 그 항목으로 가요. 본문을 고치면 변경안을 다시 만들지 알려요',
+    side: `<div class="rv-panel">${quote && !wide ? rvQuotePanel(n, quote) : ''}${decide}${sum}${keep}${rel}</div>`,
+    after: wide ? '' : `<div class="apply-bar rv-deck-bar" role="region" aria-label="반영"><span class="small"><strong class="pick-count" style="color:var(--text)">${picked}</strong>/${total} 고름</span>${applyBtn(`반영하고 ${n}화 완료`)}</div>` };
 }
 
 /** 인물 i 의 감정 · 목표 · 위치 · 메모 · 차림 · 알게 된 정보 중 고치거나 지운 칸이 있다 */
@@ -644,7 +646,7 @@ function rvQuoteFind(text, quote) {
 
 /** 좁은 폭의 근거 카드 */
 function rvQuotePanel(n, q) {
-  const found = rvQuoteFind(ep(n) ? ep(n).text : '', q.q);
+  const found = rvQuoteFind(ep(n) ? textNow(n) : '', q.q);  // 이 칸에서 고치던 본문(저장 전)도 찾는다
   return `<section class="card rv-quote-panel" aria-label="본문 근거"><div class="rv-card-head"><h2>본문 근거</h2><span class="small">${n}화 · ${esc(q.label)}</span>
       <button type="button" class="btn small rv-close" data-action="rvQuote" data-arg="" aria-label="본문 근거 닫기">✕</button></div>
     ${found ? `<div class="rv-quote-text">${found.map((x) => `<p>${x}</p>`).join('')}</div>` : `<div class="note plain">본문에서 이 문장을 그대로 찾지 못했어요. AI가 문장을 조금 바꿔 옮겼을 수 있어요.<div class="rv-quote">${quoted(q.q)}</div></div>`}
@@ -665,15 +667,6 @@ function rvGoItem(n, key) {
   b.style.scrollMargin = '96px 0 120px';
   b.focus({ preventScroll: true });
   b.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
-}
-
-// 본문의 근거 밑줄을 누르면 그 항목으로 간다
-if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
-  document.addEventListener('click', (ev) => {
-    const m = ev.target.closest && ev.target.closest('.rv-text .read mark.hl[data-hl^="r:"]');
-    if (!m || S.route[2] !== 'review') return;
-    rvGoItem(Number(S.route[3]), m.dataset.hl.slice(2));
-  });
 }
 
 // 화면 폭이 900px 를 넘나들면 본문 칸을 옆에 두고 빼기를 바꾼다
@@ -840,17 +833,20 @@ Object.assign(actions, {
     const out = pickedDelta(n);
     // 평소에는 바로 반영한다. 고른 항목이 없거나, 경고가 남았거나, 변경안을 만든 뒤 본문을 고쳤으면 한 번 묻는다
     const count = deltaCount(out);
-    const edited = S.deltaBase[n] !== undefined && ep(n) && S.deltaBase[n] !== ep(n).text;
+    // 한 화 화면에서는 이 칸에서 본문을 고칠 수 있다. 저장하지 않은 고침은 반영 전에 저장하고, 고친 본문이라 한 번 묻는다
+    const unsaved = textUnsaved(n);
+    const edited = unsaved || (S.deltaBase[n] !== undefined && ep(n) && S.deltaBase[n] !== ep(n).text);
     const why = [
       count ? '' : '고른 항목이 0건이에요. 요약만 저장하고',
       (out.warnings || []).length ? `경고 ${out.warnings.length}건이 남아 있어요.` : '',
-      edited ? '변경안을 만든 뒤 본문을 고쳤어요.' : '',
+      unsaved ? '저장하지 않은 본문 고침이 있어요. 본문을 저장하고' : edited ? '변경안을 만든 뒤 본문을 고쳤어요.' : '',
     ].filter(Boolean);
     if (why.length && !(await askConfirm(`${why.join(' ')} ${n}화를 마칠까요? 반영하면 반영 취소로만 돌아갈 수 있어요.`, { ok: '마치기' }))) return;
     // 서버도 변경안을 만든 본문(out.basis)과 지금 본문을 맞춰 본다 (409 stale_delta). 위에서 본문을 고친 것을 확인했으면 force 로 보낸다
     let stale = null;
     const go = (force) => run('반영하는 중', async () => {
       await saveIfDirty();
+      if (typeof flushText === 'function') await flushText(n);  // 저장하지 않은 본문 고침 (passage.js, 다른 곳이 먼저 저장했으면 409 stale_text 로 멈춘다)
       try {
         S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/apply${force ? '?force=1' : ''}`, out);
         clearTimeout(draftTimer);
@@ -901,20 +897,29 @@ Object.assign(actions, {
     S.focusTarget = S.rvQuote && !wide ? '#app .rv-quote-panel .rv-close' : back && !S.rvQuote ? `#app [data-action="rvQuote"][data-arg="${CSS.escape(back)}"]` : null;
     render();
     if (!S.rvQuote) return;
-    const at = wide ? $('#app .rv-text mark.hl.src.sel') : $('#app .rv-quote-panel');
+    // 고치는 본문이면 그 문장을 본문 칸에서 고른다 (passage.js focusText). 읽기 전용 본문이면 그 밑줄로 옮겨 간다
+    if (wide && document.querySelector(`#app textarea[data-draft="${n}"]`) && focusText(n, q.trim(), 0) !== -1) {
+      S.selFocus.quiet = true;
+      // 다시 그린 뒤 포커스를 누른 버튼 대신 본문 칸에 둔다 (손가락 기기는 키보드를 올리지 않게 두지 않는다)
+      if (!(typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches)) S.focusTarget = `#app textarea[data-draft="${n}"]`;
+      return render();
+    }
+    const at = wide ? $('#app .w-body mark.hl.src.sel') : $('#app .rv-quote-panel');
     if (at) at.scrollIntoView({ block: wide ? 'center' : 'nearest', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
     else if (wide) toast('본문에서 이 문장을 그대로 찾지 못했어요. AI가 문장을 조금 바꿔 옮겼을 수 있어요', true);
   },
-  /** 본문 근거 문장을 집필 화면 본문에서 고른다 (passage.js warnPick 과 같은 길) */
+  /** 본문 근거 문장을 본문 칸에서 고르고 부분 수정 도구를 띄운다 (passage.js warnPick 과 같은 길).
+      한 화 화면에서 그 화의 고치는 본문이 있으면 그 자리에서 고르고, 없으면(좁은 폭 접힌 본문 등) 집필 칸으로 옮긴다 */
   rvQuoteGo(n) {
     const num = Number(n);
     const q = S.rvQuote && S.rvQuote.q;
     if (!q || !textNow(num).includes(q)) return toast('본문에서 그 문장을 찾을 수 없어요', true);
     const go = () => {
-      if (S.route[2] !== 'write' || Number(S.route[3]) !== num || focusText(num, q, 0) === -1) return;
+      if (!FLOW_PAGES.includes(S.route[2]) || Number(S.route[3]) !== num || focusText(num, q, 0) === -1) return;
       S.selFocus.menu = true;
       render();
     };
+    if (S.route[2] === 'review' && Number(S.route[3]) === num && rvWide() && document.querySelector(`#app textarea[data-draft="${num}"]`)) return go();
     goThen(`${base()}/write/${num}`, go);
   },
   /** 반영 직후 알림의 '되돌리기'. 확인 창은 revertFrom 이 띄운다. 취소하면 알림을 다시 10초 둔다 */

@@ -27,6 +27,7 @@
 - 글 칸(`DIALOG_TEXT`)이 있는 대화상자는 바깥(배경)을 눌러도 닫지 않는다. Esc · 취소는 닫는다
 - 그린 뒤 화마다 한 열인 넓은 표(`.at-table-wrap`, 상태창 화별 `.sw-table-wrap`)를 지금 화(`.cur`) 또는 마지막 열로 옆으로 굴려 둔다
 - 작품 안 모르는 화면 이름(옛 북마크, 손으로 친 주소)은 작품 홈을 그리고 위에 "'이름' 화면은 없어요" 안내와 작품 홈 주소로 가는 버튼을 둔다
+- 같은 화의 한 화 화면에서 칸만 바꾸면(`flowSwitch`: 집필 · 검수 · 상태 승인) 스크롤 자리를 지키고 포커스를 제목 대신 단계 띠의 지금 칸에 둔다
 - 반영 취소(`revertFrom`) 확인은 저장하지 않은 변경이 있으면 먼저 저장한다고 말하고 버튼을 '저장하고 반영 취소'로 쓴다
 - 반영 취소(`revertFrom`) 확인이 '빠지는 인물'로 적는 새 인물은 그 화 전에 이미 있던 인물(`first_ep` 가 0인 설정 단계 인물과 앞 화 반영 기록의 새 인물)을 뺀다(`pipeline.revert` 와 거의 같다)
 - 반영 취소(`revertFrom`)는 뒤 화들의 반영 기록이 검토를 기다리는 변경안으로 남으니(`web._revert_kept`) 취소 뒤 `loadPending` 으로 받는다
@@ -61,6 +62,7 @@
 - 작품 GET 이 돌려준 작품 객체는 화를 뺀 나머지의 판(`X-Project-Rest`)을 `restOf` 에 둔다
 - 한 화 작업(본문 쓰기 · 스토리보드 · 큐 시트 · 한 화 플롯 · 검수 · 고침안)이 끝나면 `mergeEpisodes` 가 그 화만 받는다(`touchedEpisodes`, `GET /episodes`)
 - 화만 받기는 나머지 판 · `edit_rev` · `saved_by` · 화 번호 목록이 서버와 같을 때만 쓴다. 하나라도 다르거나 요청이 실패하면 작품 전체를 받는다(`tests/test_merge_episodes_js.py`)
+- 화면을 잠그지 않은 요청이 돌려준 작품은 `takeEdited` 가 받는다. 그사이 입력이 있었으면 그 화와 대화 기록 · `edit_rev` 만 받아 저장하지 않은 다른 입력을 지킨다
 - 저장 응답(`X-Project-ETag`)으로 보관할 때도 `X-Project-Rest` 를 함께 보관한다. 반영 → 304 → 한 화 작업 끝에서도 화만 받는다
 - 화만 받으면 `patchCache` 가 `projectCache` 의 그 화를 고치고 판을 화 GET 의 `etag` 로 올린다. 다음 화면 이동의 작품 GET 이 304 로 끝난다
 - `patchCache` 는 보관한 것의 나머지 판 · `edit_rev` · `saved_by` · 화 번호 목록이 화 GET 답과 같을 때만 고친다. 아니면 옛 판을 둬서 다음 작품 GET 이 전체를 받는다
@@ -82,7 +84,7 @@
 - 숫자 칸 자판 `numberKeypads`: `inputmode` 가 없는 `type=number` 칸에 붙인다(소수 `step` 은 decimal, 아니면 numeric). `MutationObserver` 로 그려질 때마다 한곳에서 붙인다
 - 사이드바 아이콘(`navItems` · `navMark`: 단계는 번호, 그 밖은 토스페이스 이모지 `.tf`, 출처 문구는 사이드바 아래, Swift `Screen.mark` 와 같은 글자)
 - 사이드바 작품 칸(`workCard`: 제목 · 갈래 · 플레이 사본(`play.js` `playSideTag`) · 장편은 지금 부 · 아크(`partOf` · `arcOf`), 화 칸 띠는 단편 전체 · 장편 지금 아크, 다음 할 일은 `home.js` `nextStep`, 좁은 폭 위쪽 띠 줄이기는 `app.css` `.work-card`)
-- 집필 화면이면 작품 칸에 화 제목 · 작품 이름 · 화 상태 줄(`.work-ep`)을 더한다. 640px 이하 위쪽 띠에서만 보인다
+- 한 화 화면(집필 · 검수 · 상태 승인)이면 작품 칸에 화 제목 · 작품 이름 · 화 상태 줄(`.work-ep`)을 더한다. 640px 이하 위쪽 띠에서만 보인다
 - `.work-ep` 둘째 줄 끝에 시점 인물(`plot.js` `povChar`)을 '이름 시점'으로 붙인다. `povChar` 가 없으면(시험에서 plot.js 를 안 읽음) 뺀다
 - 4 · 5 · 6 줄이 가리키는 화(`navEp`: 한 화 흐름 `FLOW_PAGES` · 작업지시서는 보는 화)
 - 900px 이하 위쪽 띠는 화면 위에 붙고 높이 `--band` 만큼 본문의 붙는 칸을 내린다
@@ -149,7 +151,9 @@
 
 ### `canon/static/check.js`
 
-- 5단계 검수 화면(한 화 흐름의 검수 단계, 주소 `check/<화>`, `viewCheck`, 왼쪽 본문 · 오른쪽 칸 `.c-side` 에 목록과 상세)
+- 5단계 검수 칸(한 화 화면의 검수 칸, 주소 `check/<화>`, `viewCheck` 는 `write.js` `viewEpisode(n, 'check')`)
+- `checkPanel` 이 머리 보조 버튼 · 주 버튼 · 회차 띠 · 오른쪽 칸 `.c-side`(목록과 상세)를 돌려준다. 본문 칸은 `viewEpisode` 가 그린다
+- 한꺼번에 검토(`fbView`)는 `checkPanel` 의 `full` 로 본문과 칸 자리를 차지한다
 - 회차 띠(누르면 그 회차가 바꾼 지적 `roundChanges`, 새 판 구분) · 처리 상태 거르기
 - 지적 목록(탭: 모순 지적 · 초반 점검 `openingChecks` · 문체 지표 `GET …/style`, 심각도 순 · 딸린 지적은 부모 아래 `findingOrder`)
 - 본문(`draftBox` · `readHtml`, 지적 문장 밑줄 `findingRanges` 를 `marks.js` 의 `allRanges` 가 함께 그림, 바뀐 문장은 비슷한 문장 `nearQuote`)
@@ -183,8 +187,9 @@
 ### `canon/static/flow.js`
 
 - 한 화 흐름
-- 집필 · 검수 · 상태 승인 세 화면(주소 `write` · `check` · `review/<화>`)의 머리 아래 단계 띠(`flowBar`, 단계 글은 순수 함수 `flowSteps`, 이름 · 번호는 사이드바와 같음 `FLOW_STAGES`, 위치 줄 `flowEyebrow`)
-- 짧은 이름 `FLOW_SHORT`(상태 승인 → 승인)는 640px 이하 집필 머리 한 줄에서만 보인다(`.fl-s`). 다른 화면 · 폭은 온 이름(`.fl-l`)이다
+- 집필 · 검수 · 상태 승인 한 화 화면(주소 `write` · `check` · `review/<화>`, `write.js` `viewEpisode`)의 머리 아래 단계 띠(`flowBar`, 단계 글은 순수 함수 `flowSteps`, 이름 · 번호는 사이드바와 같음 `FLOW_STAGES`, 위치 줄 `flowEyebrow`)
+- 상태 승인 칸은 변경안을 만든 뒤 본문을 고쳤으면(`S.deltaBase` · 저장하지 않은 고침) '본문 고침'으로 볼 것 남음 표시를 한다(`flowSteps` 의 `run.stale`)
+- 짧은 이름 `FLOW_SHORT`(상태 승인 → 승인)는 640px 이하 한 화 화면 머리 한 줄에서만 보인다(`.fl-s`). 다른 화면 · 폭은 온 이름(`.fl-l`)이다
 - '검수하기'(`flowCheck`: 검수 단계로 옮겨 검수, 첫 검수면 상태 변경안도 함께 `flowStateToo`, 끄기 `flowStateToggle` · localStorage `canon.flowState`)
 - `flowCheck` 와 `app.js` `checkEp`(다시 검수)는 검수를 시작하기 전에 저장하지 않은 본문 초안을 저장한다(`passage.js` `flushText`, `check.js` `fixAll` 과 같다)
 - 둘 다 `app.js` `checkReady` 를 쓴다: 저장하지 않은 작품 변경이 있으면 `startJob` 과 같은 물음으로 먼저 저장한 뒤 본문을 저장한다. 본문 저장이 `S.project` 를 서버 것으로 바꾸기 때문이다
@@ -274,6 +279,7 @@
 - `styleMenu` 버튼은 640px 이하 집필 화면에서 `Aa` 아이콘만 보인다(이름은 `aria-label`)
 - 본문에서 장치 글자 · 금지 표현 밑줄(고치는 본문은 textarea 뒤에 깐 칸 `hl-layer`, 스크롤은 CSS 스크롤 타임라인 `hl-follow` 로 따라가고 안 되는 브라우저만 `scrollTop`, 읽기 전용은 `<mark>`)
 - 밑줄에서 부분 수정 도구 띄우기
+- 경고의 'AI에게 고치기'가 그 화를 고치는 동안 `draftBox` 는 본문 칸을 잠근다(`aiFixing`)
 - 쓴 화 세기와 쉬는 화 판정은 `metrics.device_hits` · `device_last` · `prompts.device_block` 과 같은 규칙이라 함께 고친다(`tests/test_marks_js.py` 가 node 로 맞춰 본다)
 
 ### `canon/static/mentions.js`
@@ -372,7 +378,10 @@
 - 수정 기록과 되돌리기
 - 고친 뒤 다시 할 단계 알림
 - 상태 정리 경고에서 «» 문장을 찾아 고르기(`warnQuote`, `warnItems`, `warnPick`)
-- 경고의 'AI에게 고치기'는 대화 패널을 거치지 않고 첫 후보를 바로 본문에 넣는다(`aiFixNow`: 저장 → 부분 수정 대화 → 후보 0 적용 → 되돌리기 알림). 후보가 없으면 대화 패널을 연다
+- 경고의 'AI에게 고치기'는 대화 패널을 거치지 않고 첫 후보를 바로 본문에 넣는다(`aiFixNow`: 저장 → `POST …/fix-now` 한 번 → 되돌리기 · 상태 승인으로 알림). 후보가 없으면 대화 패널을 연다
+- `aiFixNow` 는 AI를 기다리는 동안 화면을 잠그지 않는다. 그 화 본문 칸만 잠그고(`S.aiFix`, `aiFixing`) 다른 화면으로 가도 끝나면 알린다
+- 바로 넣는 것은 경고에 옮겨 적은 글이 본문에 그대로 한 번만 있을 때다(`warnSpot` 의 `exact`). 아니면 그 문장을 골라 경고를 대화 입력칸에 넣고 보내기는 작가가 한다
+- 경고 줄 뒤의 버튼 · 표시는 `warnTools` 하나가 그린다(집필 `warnItems` · 상태 승인 `rvWarnLine`): 고치는 중, 'AI가 고침'(`warnFixed`: 되돌리지 않은 AI 수정의 요청 글이 그 경고), 버튼
 - 되돌리기 알림 `undoToast` 는 `toast` 의 동작 알림이다. 누르거나 포커스가 있는 동안 닫히지 않고 알림 창 '최근 알림'에 남는다
 - 상태 승인 화면의 경고에서 집필 화면으로 옮길 때는 `goThen` 으로 그 화면을 다 그린 뒤에 고른다
 - 서버는 `pipeline.edit_text` · `revise_passage` · `apply_passage` · `undo_edit`
@@ -466,19 +475,24 @@
   - pending.json 에 결과가 없는 변경안은 초안을 남기지 않는다
   - 체크가 다른 화의 것이면(`S.picksEp`) 초안에 체크를 보내지 않는다
   - 받은 그대로에서 바꾼 것(요약 · 체크 · 고칠 수 있는 칸)은 `deltaTouched` 로 센다. 다시 만들기와 자동 집필의 그대로 반영이 버리기 전에 묻는 기준이다
-  - 머리 버튼 줄의 반영 버튼 · ⋯ `rvMenu` · `.savebar-slot`
+  - 머리 버튼 줄의 반영 버튼 · `.savebar-slot`
+  - 변경안 메뉴 `rvMenu`(다시 만들기 · 지시서 · 버리기)는 `write.js` `writeMenu` 의 맨 위 '변경안' 갈래로 들어간다. 머리 ⋯ 메뉴는 하나다
   - 반영 `applyDelta`: 본문을 고친 것을 확인창에서 받았으면 `?force=1` 로 보낸다. 서버가 409(`stale_delta`)를 주면 기다림 상자를 닫고 한 번 더 묻는다
-  - 왼쪽 읽기 전용 본문과 근거 밑줄 `rvRanges`
+  - `reviewPanel` 이 머리 보조 버튼 · 주 버튼 · 칸 위 알림 · 오른쪽 칸 `.rv-panel` · 좁은 폭 반영 바를 돌려준다(`viewReview` 는 `write.js` `viewEpisode(n, 'review')`)
+  - 왼쪽 본문은 `viewEpisode` 가 그리는 고치는 본문이고 근거 밑줄 `rvRanges` 를 긋는다(`marks.js` `rvMarked` 가 밑줄 칸을 깐다)
+  - 고치는 본문의 근거 밑줄을 누르면 `marks.js` 가 `rvGoItem` 으로 그 항목에 간다. 항목의 '본문 보기'(`rvQuote`)는 넓은 폭에서 본문 칸의 그 문장을 고른다
+  - 반영 `applyDelta` 는 저장하지 않은 본문 고침을 먼저 저장하고(`flushText`) 고친 본문이라 한 번 묻는다
   - 오른쪽 직접 정할 것 · 요약 · 그대로 반영할 것(갈래 접기 `S.rvOpen`, 고른 수 `rvKeyCount`) · 관계 계산
   - 관계 사건 종류 고르기는 색(`kindStyle`) 옆에 칩 `kindTag`(＋ 좋은 사건 · － 나쁜 사건, 기호는 `aria-hidden`)을 둔다. 종류를 바꾸면 칩도 맞춘다
   - 경고를 인물 줄에 붙이기 `rvWarnSplit`
+  - 경고 줄 `rvWarnLine` 의 버튼과 고치는 중 · 'AI가 고침' 표시는 `passage.js` `warnTools`
   - 대상 인물 id(`StateDelta.warn_to`)가 있으면 그 인물 줄, 없으면(AI 경고 · 예전 변경안) 인물 이름으로 시작하는지로 붙인다
   - 인물 칸 그 자리에서 펴기 `rvOpen`
   - 편 인물 칸은 감정 · 목표 · 위치 · 메모 · 차림을 고친다(`STATE_TEXT`). 빈 칸은 지금 값을 그대로 둔다
   - 지금 값이 있는 칸의 '지우기'(`data-dclear`)는 `CharacterState.cleared` 에 칸 이름을 넣어 반영 때 그 칸을 비운다
   - `tests/test_state_clear.py`
   - 본문 근거 `rvQuote` · `rvGoItem`
-  - 900px 이하는 변경안 먼저 `rvWide`
+  - 900px 이하는 변경안 먼저 `rvWide`. 본문 카드는 접어 아래에 둔다(`fold`, `.ep-fold`)
 - 줄 안 고르기 · 확정 사실 칸(`.rv-inp`)은 13px, 손가락 기기에서 16px 다(iOS 확대 막기)
 
 ### `canon/static/rewrite.js`
@@ -555,16 +569,22 @@
 ### `canon/static/write.js`
 
 - 4단계 집필
-  - 왼쪽 칸 없이 본문 칸 하나
+  - 한 화 화면 `viewEpisode(n, panel)`: 집필 · 검수 · 상태 승인 세 주소가 같은 머리 · 단계 띠 · 본문 칸을 그린다(`viewWrite` · `viewCheck` · `viewReview` 는 감싼 이름)
+  - 집필 칸은 오른쪽 칸 없이 본문 칸 하나
+  - 검수 · 상태 승인 칸은 `check.js` `checkPanel` · `review.js` `reviewPanel` 의 오른쪽 칸을 `episodeCols` 가 본문 옆에 둔다(`.ep-cols`: 넓은 폭은 왼쪽 본문 · 오른쪽 칸, 좁은 폭은 칸 먼저)
+  - 칸을 열면 머리 주 버튼은 그 칸의 것이다. 본문이 없는 화는 칸을 열지 않고 집필처럼 그린 뒤 먼저 쓰라고 알린다
+  - 640px 이하는 칸의 보조 버튼을 머리 줄 대신 칸 위 한 줄(`.ep-tools`)에 둔다. 폭이 640px 를 넘나들면 다시 그린다
   - 머리 `.w-stick` 에 붙는 본문 띠와 이번 화 플롯 띠 `plotStrip`(사건 진행 줄: 쓴 사건 체크 `doneEvents` → `Episode.events_done`, 막는 조건 `eventsLock`, 엔딩 훅 도착점) · 펼침 기억 `plotOpenOf`
   - 머리 높이 `syncWriteTop`
   - 머리 줄에 지금 본문을 쓴 모델(`.w-model`, `writerLabel`). 기록이 없는 화는 보이지 않는다
+  - 경고의 'AI에게 고치기'가 그 화를 고치는 동안 본문 칸 위에 잠금 안내(`role="status"`)를 둔다
   - 머리 ⋯ 메뉴 `writeMenu`: 생성 방식 · 컨텍스트 대화상자 · 채팅 앱 작업지시서 .md 내려받기(`briefDownload`) · 화 지우기
   - 생성 방식 바꾸기(`setMode`)는 localStorage 에 못 적어도 이번 화면에서는 바꾼다
   - 640px 이하 머리(`.w-head`)는 ⋯ 메뉴와 primary 만 남긴다(app.css)
   - 머리와 단계 띠는 `.w-headwrap` 으로 묶는다
   - 640px 이하에서 `.w-headwrap` 은 한 줄이다: 화 앞뒤 버튼 · 단계 띠 · ⋯ · primary. 제목과 칩 묶음(`.w-tl`)은 낭독에만 남긴다
   - 640px 이하 집필 화면의 화 제목은 위쪽 띠 작품 칸이 보인다(`workCard` 의 `.work-ep`)
+  - AI 작업이 도는 동안(primary 자리에 진행 줄 `.w-busy`)은 ⋯ 와 진행 줄이 다음 줄을 통째로 쓴다(`.w-headwrap:has(.w-busy)`)
   - `.w-headwrap` · `.w-tl` 은 넓은 폭에서 `display: contents` 라 머리 · 단계 띠 모양이 그대로다
   - 640px 이하에서 본문 위 여백(페이지 위 · 머리 묶음 아래 · 원고 위)을 줄인다(app.css)
   - 640px 이하에서 본문 띠(`.w-bar`)는 `display: contents` 라 글자 수 · 도구 버튼 · 저장 칸이 접힌 플롯 줄과 한 줄(`.w-top`)에 선다

@@ -60,6 +60,8 @@
 - 제목은 화 표시 전체를 감싼 괄호의 닫는 쪽을 뗀다(`_title`, '< EP.1 : 시작 >' → '시작')
 - 번호 화 표시의 제목이 특수 화 이름뿐이면 그 종류로 본다(`_special`, 'EP.0 : 프롤로그' → 프롤로그)
 - 직접 패턴(`rule` custom)은 예시 한 줄에서 꼴을 만든다(`_custom_re`)
+- 직접 패턴의 예시 끝 기호 묶음('<-- 01. 제목 -->' 의 '-->')은 닫는 기호로 보고 제목에서 뗀다
+- 직접 패턴의 같은 번호가 200자 넘게 떨어져 되풀이되고 번호가 줄지 않으면 그 번호를 부 번호(`part`)로 보고 화 번호를 1부터 매긴다(`_parts`, 응답 `parts` 는 부 수)
 - 저장 `create`(권리 확인 `rights` 필수) · `update` · `delete` · `entries` · `summary`
 - 저장 때 화별 지표(`RefEp`: 글자 수 · 대사 비율 · 문장 · 문단 평균, `metrics.measure`)를 재 둔다. AI 호출 없음
 - 문체 만들기 원문 `sample`(고른 화를 이어 `SAMPLE_MAX` 자까지) · 역설계 실험 만들기 `to_revlab`(`revlab.create_episodes`, 화 수는 막지 않고 글자 수만 `revlab.MAX_CHARS`) · 있는 실험에 잇기 `to_lab`(`revlab.append_episodes`, 화마다 출처 `RevSource`) · 화 차례별 지금 글 `texts`(출처 상태용)

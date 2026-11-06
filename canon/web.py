@@ -2040,6 +2040,7 @@ def chat_send(name: str, topic: str, body: ChatIn) -> Project:
         n = int(m.group(1))
         if body.selection is None:
             raise ValueError("본문에서 고칠 부분을 고르세요")
+        _text_guard(name, n)  # 넣기(chat_apply)에서 막힐 요청이면 AI를 부르기 전에 막는다
         sel = Selection(start=pipeline.locate(p.episode(n).text, body.selection.text, body.selection.start), text=body.selection.text)
         rev = pipeline.revise_passage(get_llm("revise"), p, n, sel, body.message, body.preset)
         return _edit(name, lambda q: pipeline.record_passage(q, n, sel, body.message, body.preset, rev))
@@ -2098,6 +2099,26 @@ def chat_apply(name: str, topic: str, i: int, body: ChatApply) -> Project:
     _plot_revision(p, topic, i)
     pipeline.apply_plot_chat(p, i, body.acts, body.episodes, arc=body.arc, parts=body.parts, draft=body.draft, topic=topic)
     return _save(name, p)
+
+
+class FixNowIn(BaseModel):
+    message: str
+    selection: Selection
+
+
+@app.post("/api/projects/{name}/episodes/{n}/fix-now")
+def fix_now(name: str, n: int, body: FixNowIn) -> dict:
+    """고른 부분을 요청대로 AI가 고치고 첫 후보를 바로 본문에 넣는다 (상태 정리 경고의 'AI에게 고치기').
+    대화에 남기기와 넣기를 한 잠금 안에서 한다. edit 는 넣은 수정 id, 후보가 없으면 ''."""
+    _text_guard(name, n)
+    p = _load(name)
+    _chat(p, f"text:{n}")
+    sel = Selection(start=pipeline.locate(p.episode(n).text, body.selection.text, body.selection.start), text=body.selection.text)
+    rev = pipeline.revise_passage(get_llm("revise"), p, n, sel, body.message)
+    _text_guard(name, n)  # AI를 기다리는 사이 자동 집필이나 본문 작업이 시작했을 수 있다
+    out: dict = {}
+    q = _edit(name, lambda x: out.update(edit=pipeline.apply_first(x, n, sel, body.message, rev)))
+    return {"project": q, "edit": out["edit"].id if out["edit"] else ""}
 
 
 @app.post("/api/projects/{name}/chat/{topic}/{i}/dismiss")
