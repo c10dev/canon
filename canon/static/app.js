@@ -608,7 +608,8 @@ if (window.visualViewport && typeof window.visualViewport.addEventListener === '
 
 // 작업 결과가 보이는 화면
 JOB_DONE_MSG.check = (j) => `${j.ep}화 검수가 끝났어요${j.result && j.result.round ? ` (${j.result.round}회차)` : ''}: 짚은 곳 ${j.result ? j.result.issues : 0}개${j.result && j.result.round > 1 ? `, 새 지적 ${j.result.added}개` : ''}`;
-const JOB_PAGES = { check: ['check', 'write', 'review'], suggest: ['setup'], style: ['style'], arc: ['arc'], plots: ['arc', 'home', 'causal'], plot_one: ['arc', 'lines'], write: ['write', 'home', 'causal'], state: ['review'], auto: ['auto', 'home', 'write', 'causal', 'arc', 'setup'], impact: ['causal'], series: ['arc'], nextarc: ['arc'], recap_arc: ['arc'], recap_part: ['arc'], fold_knows: ['arc'], storyline: ['lines'] };
+// 집필 · 검수 · 상태 승인은 한 화 화면(write.js viewEpisode)이라 셋을 함께 다시 그린다
+const JOB_PAGES = { check: ['check', 'write', 'review'], suggest: ['setup'], style: ['style'], arc: ['arc'], plots: ['arc', 'home', 'causal'], plot_one: ['arc', 'lines'], write: ['write', 'check', 'review', 'home', 'causal'], state: ['review', 'write', 'check'], auto: ['auto', 'home', 'write', 'check', 'review', 'causal', 'arc', 'setup'], impact: ['causal'], series: ['arc'], nextarc: ['arc'], recap_arc: ['arc'], recap_part: ['arc'], fold_knows: ['arc'], storyline: ['lines'] };
 
 // 작업이 project.json 에 쓴 화만 받아 온다 (mine(화면 화, 서버 화) 이 true 인 화와 새로 생긴 화). 저장하지 않은 다른 입력은 그대로 둔다.
 // 저장하지 않은 입력이 있을 때 서버 것으로 바꾼 화 번호를 돌려준다.
@@ -2135,8 +2136,10 @@ window.addEventListener('hashchange', async () => {
     navScroll.restore = navScroll.at.get(st.idx) || 0;
   } else {
     history.replaceState({ idx: ++navScroll.max }, '', location.hash);
-    navScroll.restore = null;
+    // 한 화 화면에서 칸만 바꾸면(같은 화의 집필 · 검수 · 상태 승인) 읽던 자리에 둔다. 다른 화면은 맨 위부터
+    navScroll.restore = flowSwitch(lastHash, location.hash) ? window.scrollY : null;
   }
+  navFlowSwitch = flowSwitch(lastHash, location.hash);
   navScroll.idx = history.state.idx;
   lastHash = location.hash;
   S.libDirty = false;
@@ -2182,7 +2185,9 @@ async function routeNow() {
   S.popMenu = null;
   // 다른 화면으로 옮기면 제목으로 포커스를 옮겨 스크린리더가 새 화면을 읽고, 다음 Tab 이 본문에서 시작하게 한다
   const here = location.hash.split('/').slice(0, 4).join('/');
-  if (here !== lastRoute) S.focusTarget = '#app main h1';
+  // 한 화 화면에서 칸만 바꾸면 제목 대신 단계 띠의 지금 칸으로 포커스를 둔다 (누른 칸은 다시 그려져 사라진다)
+  if (here !== lastRoute) S.focusTarget = navFlowSwitch ? '#app .flow-bar [aria-current="step"]' : '#app main h1';
+  navFlowSwitch = false;
   lastRoute = here;
   const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean).map(decodeURIComponent);
   if (parts[0] === 'p' && parts[2] === 'rev') {  // 역설계 실험은 작품 밖 화면으로 옮겼다. 예전 주소(#/p/<작품>/rev/…)는 새 주소로
@@ -2260,7 +2265,7 @@ async function routeNow() {
         branches: !branchFam() || !parts[2] || parts[2] === 'branches' ? api('GET', `${pa}/branches`) : null,
         play: !parts[2] || S.homePlayOf !== S.name ? api('GET', `${pa}/play`) : null,
         auto: typeof autoLoad === 'function' ? api('GET', `${pa}/auto`) : null,
-        context: parts[2] === 'write' && n0 && ep(n0) && ep(n0).status !== 'draft' ? api('GET', `${pa}/episodes/${n0}/context`) : null,
+        context: FLOW_PAGES.includes(parts[2]) && n0 && ep(n0) && ep(n0).status !== 'draft' ? api('GET', `${pa}/episodes/${n0}/context`) : null,
       };
       Object.values(early).forEach((x) => x && x.catch(() => {}));  // 받는 자리에서 다시 잡는다. 그 전에 실패해도 처리 안 된 거부로 남지 않게
       await loadPending(early.pending);
@@ -2285,14 +2290,15 @@ async function routeNow() {
         await learnLoad();
         await anchorLoad();
       }
-      if (parts[2] === 'write' && n && ep(n) && ep(n).status !== 'draft') {
+      // 한 화 화면의 본문 칸 재료: 집필 · 검수 · 상태 승인 어느 칸에서 열어도 같은 본문 칸을 그린다
+      if (FLOW_PAGES.includes(parts[2]) && n && ep(n) && ep(n).status !== 'draft') {
         S.context = await (early.context || api('GET', `/projects/${enc(S.name)}/episodes/${n}/context`)).catch(() => null);
         if (!S.presets) S.presets = await api('GET', '/passage/presets').catch(() => []);
         if (!S.copyFormats) S.copyFormats = await api('GET', '/publish/formats').catch(() => []);
         if (ep(n).text && (S.rwOpen === n || ep(n).candidate || (ep(n).versions || []).length)) await rwLoad(n);  // 빠른 요청 이름과 재료
         if (S.rwOpen !== n) S.rwOpen = null;
       }
-      if ((parts[2] === 'write' || parts[2] === 'setup') && !S.illModels) S.illModels = await api('GET', '/illust/models').catch(() => []);
+      if ((FLOW_PAGES.includes(parts[2]) || parts[2] === 'setup') && !S.illModels) S.illModels = await api('GET', '/illust/models').catch(() => []);
       if (parts[2] === 'arc' && parts[3]) {  // 홈의 아크 칩(arc/a3)은 그 아크를 고르고, 화 번호(arc/12)는 화 플롯 페이지를 연다
         const a = /^a\d+$/.test(parts[3]) ? Number(parts[3].slice(1)) : null;
         if (a) { S.selArc = a; S.selEp = null; S.selAct = null; }
@@ -2305,7 +2311,7 @@ async function routeNow() {
           if (arc) S.selArc = arc.number;
         }
       } else if (parts[2] === 'arc') S.selEp = null;  // 보드로 돌아오면 대화 대상도 고른 아크로 돌아간다
-      if (parts[2] === 'write' || parts[2] === 'arc' || parts[2] === 'check') await openingLoad(parts[2] === 'arc' ? 0 : (n || currentEp()));
+      if (FLOW_PAGES.includes(parts[2]) || parts[2] === 'arc') await openingLoad(parts[2] === 'arc' ? 0 : (n || currentEp()));
       if (parts[2] === 'check') await checkLoad(n || currentEp());
       if (parts[2] === 'research') await rsLoad(parts[3]);  // research/<쪽> 은 그 실험 쪽
       if (parts[2] === 'cue') await cueLoad(parts[3]);
@@ -2529,6 +2535,13 @@ function drawApp() {
 
 /** 한 화 흐름의 세 화면 (flow.js FLOW_STAGES 와 같은 주소). 사이드바 4 · 5 · 6 줄과 탭 제목이 쓴다 */
 const FLOW_PAGES = ['write', 'check', 'review'];
+
+/** 두 주소가 같은 작품 같은 화의 한 화 화면(write.js viewEpisode)이고 칸만 다른지 ('#/p/작품/check/3' → '#/p/작품/review/3') */
+function flowSwitch(from, to) {
+  const [a, b] = [from, to].map((h) => (h || '').replace(/^#\/?/, '').split('/'));
+  return a[0] === 'p' && b[0] === 'p' && a[1] === b[1] && a[2] !== b[2] && FLOW_PAGES.includes(a[2]) && FLOW_PAGES.includes(b[2]) && !!a[3] && a[3] === b[3];
+}
+let navFlowSwitch = false;  // 방금 이동이 한 화 화면의 칸 전환이다 (hashchange 가 정하고 routeNow 가 포커스에 쓴다)
 
 /** 사이드바 4 · 5 · 6 줄과 작업지시서가 가리킬 화: 한 화 흐름 · 작업지시서 화면에서는 보고 있는 화, 그 밖은 지금 작업할 화 */
 function navEp() {

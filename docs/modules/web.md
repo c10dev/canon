@@ -27,6 +27,7 @@
 - 글 칸(`DIALOG_TEXT`)이 있는 대화상자는 바깥(배경)을 눌러도 닫지 않는다. Esc · 취소는 닫는다
 - 그린 뒤 화마다 한 열인 넓은 표(`.at-table-wrap`, 상태창 화별 `.sw-table-wrap`)를 지금 화(`.cur`) 또는 마지막 열로 옆으로 굴려 둔다
 - 작품 안 모르는 화면 이름(옛 북마크, 손으로 친 주소)은 작품 홈을 그리고 위에 "'이름' 화면은 없어요" 안내와 작품 홈 주소로 가는 버튼을 둔다
+- 같은 화의 한 화 화면에서 칸만 바꾸면(`flowSwitch`: 집필 · 검수 · 상태 승인) 스크롤 자리를 지키고 포커스를 제목 대신 단계 띠의 지금 칸에 둔다
 - 반영 취소(`revertFrom`) 확인은 저장하지 않은 변경이 있으면 먼저 저장한다고 말하고 버튼을 '저장하고 반영 취소'로 쓴다
 - 반영 취소(`revertFrom`) 확인이 '빠지는 인물'로 적는 새 인물은 그 화 전에 이미 있던 인물(`first_ep` 가 0인 설정 단계 인물과 앞 화 반영 기록의 새 인물)을 뺀다(`pipeline.revert` 와 거의 같다)
 - 반영 취소(`revertFrom`)는 뒤 화들의 반영 기록이 검토를 기다리는 변경안으로 남으니(`web._revert_kept`) 취소 뒤 `loadPending` 으로 받는다
@@ -147,7 +148,9 @@
 
 ### `canon/static/check.js`
 
-- 5단계 검수 화면(한 화 흐름의 검수 단계, 주소 `check/<화>`, `viewCheck`, 왼쪽 본문 · 오른쪽 칸 `.c-side` 에 목록과 상세)
+- 5단계 검수 칸(한 화 화면의 검수 칸, 주소 `check/<화>`, `viewCheck` 는 `write.js` `viewEpisode(n, 'check')`)
+- `checkPanel` 이 머리 보조 버튼 · 주 버튼 · 회차 띠 · 오른쪽 칸 `.c-side`(목록과 상세)를 돌려준다. 본문 칸은 `viewEpisode` 가 그린다
+- 한꺼번에 검토(`fbView`)는 `checkPanel` 의 `full` 로 본문과 칸 자리를 차지한다
 - 회차 띠(누르면 그 회차가 바꾼 지적 `roundChanges`, 새 판 구분) · 처리 상태 거르기
 - 지적 목록(탭: 모순 지적 · 초반 점검 `openingChecks` · 문체 지표 `GET …/style`, 심각도 순 · 딸린 지적은 부모 아래 `findingOrder`)
 - 본문(`draftBox` · `readHtml`, 지적 문장 밑줄 `findingRanges` 를 `marks.js` 의 `allRanges` 가 함께 그림, 바뀐 문장은 비슷한 문장 `nearQuote`)
@@ -181,7 +184,8 @@
 ### `canon/static/flow.js`
 
 - 한 화 흐름
-- 집필 · 검수 · 상태 승인 세 화면(주소 `write` · `check` · `review/<화>`)의 머리 아래 단계 띠(`flowBar`, 단계 글은 순수 함수 `flowSteps`, 이름 · 번호는 사이드바와 같음 `FLOW_STAGES`, 위치 줄 `flowEyebrow`)
+- 집필 · 검수 · 상태 승인 한 화 화면(주소 `write` · `check` · `review/<화>`, `write.js` `viewEpisode`)의 머리 아래 단계 띠(`flowBar`, 단계 글은 순수 함수 `flowSteps`, 이름 · 번호는 사이드바와 같음 `FLOW_STAGES`, 위치 줄 `flowEyebrow`)
+- 상태 승인 칸은 변경안을 만든 뒤 본문을 고쳤으면(`S.deltaBase` · 저장하지 않은 고침) '본문 고침'으로 볼 것 남음 표시를 한다(`flowSteps` 의 `run.stale`)
 - '검수하기'(`flowCheck`: 검수 단계로 옮겨 검수, 첫 검수면 상태 변경안도 함께 `flowStateToo`, 끄기 `flowStateToggle` · localStorage `canon.flowState`)
 - `flowCheck` 와 `app.js` `checkEp`(다시 검수)는 검수를 시작하기 전에 저장하지 않은 본문 초안을 저장한다(`passage.js` `flushText`, `check.js` `fixAll` 과 같다)
 - 둘 다 `app.js` `checkReady` 를 쓴다: 저장하지 않은 작품 변경이 있으면 `startJob` 과 같은 물음으로 먼저 저장한 뒤 본문을 저장한다. 본문 저장이 `S.project` 를 서버 것으로 바꾸기 때문이다
@@ -463,9 +467,13 @@
   - pending.json 에 결과가 없는 변경안은 초안을 남기지 않는다
   - 체크가 다른 화의 것이면(`S.picksEp`) 초안에 체크를 보내지 않는다
   - 받은 그대로에서 바꾼 것(요약 · 체크 · 고칠 수 있는 칸)은 `deltaTouched` 로 센다. 다시 만들기와 자동 집필의 그대로 반영이 버리기 전에 묻는 기준이다
-  - 머리 버튼 줄의 반영 버튼 · ⋯ `rvMenu` · `.savebar-slot`
+  - 머리 버튼 줄의 반영 버튼 · `.savebar-slot`
+  - 변경안 메뉴 `rvMenu`(다시 만들기 · 지시서 · 버리기)는 `write.js` `writeMenu` 의 맨 위 '변경안' 갈래로 들어간다. 머리 ⋯ 메뉴는 하나다
   - 반영 `applyDelta`: 본문을 고친 것을 확인창에서 받았으면 `?force=1` 로 보낸다. 서버가 409(`stale_delta`)를 주면 기다림 상자를 닫고 한 번 더 묻는다
-  - 왼쪽 읽기 전용 본문과 근거 밑줄 `rvRanges`
+  - `reviewPanel` 이 머리 보조 버튼 · 주 버튼 · 칸 위 알림 · 오른쪽 칸 `.rv-panel` · 좁은 폭 반영 바를 돌려준다(`viewReview` 는 `write.js` `viewEpisode(n, 'review')`)
+  - 왼쪽 본문은 `viewEpisode` 가 그리는 고치는 본문이고 근거 밑줄 `rvRanges` 를 긋는다(`marks.js` `rvMarked` 가 밑줄 칸을 깐다)
+  - 고치는 본문의 근거 밑줄을 누르면 `marks.js` 가 `rvGoItem` 으로 그 항목에 간다. 항목의 '본문 보기'(`rvQuote`)는 넓은 폭에서 본문 칸의 그 문장을 고른다
+  - 반영 `applyDelta` 는 저장하지 않은 본문 고침을 먼저 저장하고(`flushText`) 고친 본문이라 한 번 묻는다
   - 오른쪽 직접 정할 것 · 요약 · 그대로 반영할 것(갈래 접기 `S.rvOpen`, 고른 수 `rvKeyCount`) · 관계 계산
   - 관계 사건 종류 고르기는 색(`kindStyle`) 옆에 칩 `kindTag`(＋ 좋은 사건 · － 나쁜 사건, 기호는 `aria-hidden`)을 둔다. 종류를 바꾸면 칩도 맞춘다
   - 경고를 인물 줄에 붙이기 `rvWarnSplit`
@@ -475,7 +483,7 @@
   - 지금 값이 있는 칸의 '지우기'(`data-dclear`)는 `CharacterState.cleared` 에 칸 이름을 넣어 반영 때 그 칸을 비운다
   - `tests/test_state_clear.py`
   - 본문 근거 `rvQuote` · `rvGoItem`
-  - 900px 이하는 변경안 먼저 `rvWide`
+  - 900px 이하는 변경안 먼저 `rvWide`. 본문 카드는 접어 아래에 둔다(`fold`, `.ep-fold`)
 - 줄 안 고르기 · 확정 사실 칸(`.rv-inp`)은 13px, 손가락 기기에서 16px 다(iOS 확대 막기)
 
 ### `canon/static/rewrite.js`
@@ -552,7 +560,11 @@
 ### `canon/static/write.js`
 
 - 4단계 집필
-  - 왼쪽 칸 없이 본문 칸 하나
+  - 한 화 화면 `viewEpisode(n, panel)`: 집필 · 검수 · 상태 승인 세 주소가 같은 머리 · 단계 띠 · 본문 칸을 그린다(`viewWrite` · `viewCheck` · `viewReview` 는 감싼 이름)
+  - 집필 칸은 오른쪽 칸 없이 본문 칸 하나
+  - 검수 · 상태 승인 칸은 `check.js` `checkPanel` · `review.js` `reviewPanel` 의 오른쪽 칸을 `episodeCols` 가 본문 옆에 둔다(`.ep-cols`: 넓은 폭은 왼쪽 본문 · 오른쪽 칸, 좁은 폭은 칸 먼저)
+  - 칸을 열면 머리 주 버튼은 그 칸의 것이다. 본문이 없는 화는 칸을 열지 않고 집필처럼 그린 뒤 먼저 쓰라고 알린다
+  - 640px 이하는 칸의 보조 버튼을 머리 줄 대신 칸 위 한 줄(`.ep-tools`)에 둔다. 폭이 640px 를 넘나들면 다시 그린다
   - 머리 `.w-stick` 에 붙는 본문 띠와 이번 화 플롯 띠 `plotStrip`(사건 진행 줄: 쓴 사건 체크 `doneEvents` → `Episode.events_done`, 막는 조건 `eventsLock`, 엔딩 훅 도착점) · 펼침 기억 `plotOpenOf`
   - 머리 높이 `syncWriteTop`
   - 머리 줄에 지금 본문을 쓴 모델(`.w-model`, `writerLabel`). 기록이 없는 화는 보이지 않는다

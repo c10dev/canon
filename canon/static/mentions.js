@@ -311,7 +311,7 @@ function mentionFromTa(ta, r, focus = false) {
 function mentionSync() {
   if (!mnOpen) return;
   const n = Number(S.route[3]) || currentEp();
-  if (S.route[2] !== 'write' || n !== mnOpen.n || !mentionsOn) return mentionClose();
+  if (!FLOW_PAGES.includes(S.route[2]) || n !== mnOpen.n || !mentionsOn) return mentionClose();  // 한 화 화면 (집필 · 검수 · 상태 승인)
   const el = mnCardEl();
   if (!el.contains(document.activeElement)) el.innerHTML = mnCardHtml(mnOpen.id, mnOpen.n) || el.innerHTML;
   mnPlace();

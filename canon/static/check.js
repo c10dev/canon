@@ -522,52 +522,40 @@ function fixesJobResult(j) {
   S.fbOpen = n;
 }
 
-function viewCheck(n) {
+/** 검수 단계 (한 화 화면의 검수 칸). 화면 틀은 write.js viewEpisode 가 그린다 */
+const viewCheck = (n) => viewEpisode(n, 'check');
+
+/** 한 화 화면의 검수 칸 (write.js viewEpisode 가 부른다). 본문이 있는 화에만 부른다.
+    buttons: 머리 보조 버튼, primary: 머리 주 버튼, top: 칸 위 띠, side: 오른쪽 칸, full: 본문 · 칸 대신 그릴 것 (한꺼번에 검토) */
+function checkPanel(n) {
   const e = ep(n);
-  if (!e) return header('5단계', stepLabel('check'), '') + noEpisode(n);
   const st = checkState(e);
   const rounds = e.rounds || [];
   const last = rounds[rounds.length - 1];
   const b = jobBtn('check', n, last ? `다시 검수 · ${last.no + 1}회차` : '검수하기');
   // 지난 검수 뒤 고침안만 넣었으면 '고친 곳만 다시 보기'가 주 버튼이다 (findings.fix_recheck_targets). 다시 검수는 옆에 그대로 둔다
-  const fast = last && e.text && editableEp(e) && !autoOn() ? fixRecheckTargets(e) : [];
+  const fast = last && editableEp(e) && !autoOn() ? fixRecheckTargets(e) : [];
   // 주 버튼은 한 화면에 하나, 머리 줄 오른쪽 끝에 둔다 (디자인 시스템 Button). 검수 전에는 빈 목록의 '검수하기'가 주 버튼이라 머리에 두지 않는다
   const checkPrimary = !fast.length && (!last || st.stale || !st.checked);
   const reviewPrimary = !fast.length && !checkPrimary;
   const fb = jobBtn('recheck', n, `고친 곳만 다시 보기 · 지적 ${fast.length}`);
   const fastBtn = fast.length ? `<button class="btn primary" data-action="fixRecheck" data-arg="${n}"${fb.attr}>${fb.label}</button>` : '';
   // 첫 검수는 flow.js flowCheck: 상태 변경안도 함께 만든다 (켰을 때). 다시 검수는 검수만
-  const checkBtn = `<button class="btn${checkPrimary ? ' primary' : ''}" data-action="${last ? 'checkEp' : 'flowCheck'}" data-arg="${n}"${e.text && !autoOn() ? b.attr : ' disabled'}>${b.label}</button>`;
+  const checkBtn = `<button class="btn${checkPrimary ? ' primary' : ''}" data-action="${last ? 'checkEp' : 'flowCheck'}" data-arg="${n}"${!autoOn() ? b.attr : ' disabled'}>${b.label}</button>`;
   const toReview = e.status === 'written'
     ? `<a class="btn${reviewPrimary ? ' primary' : ''}" href="${base()}/review/${n}">상태 승인으로${st.open ? ` · 열린 지적 ${st.open}` : ''}</a>`
     : e.status === 'finalized' && reviewPrimary ? nextStepBtn() : '';  // 반영 끝난 화도 검수가 지금 할 일이면 다음 할 일 버튼은 두지 않는다
   const lead = `${checkOptsMenu()}${S.mode === 'brief' ? `<a class="btn" href="${base()}/brief/${n}" data-action="openCheckBrief" data-arg="${n}">검수 지시서</a>` : ''}`;
-  const right = !e.text ? '' : !last ? lead + toReview : fast.length ? lead + toReview + checkBtn + fastBtn : checkPrimary ? lead + toReview + checkBtn : lead + checkBtn + toReview;
-  const head = `<header class="page-head"><div class="row" style="gap:12px">${epNav('check', n)}<div class="lead" style="gap:2px"><div class="eyebrow">${flowEyebrow(n)}</div><h1 style="font-size:1.5rem">${n}화 ${esc(e.plot.title)}</h1></div><span class="chip ${e.status}">${STATUS[e.status]}</span></div><div class="row">${right}</div></header>
-    ${flowBar(n, 'check')}${autoLockNote()}`;
-  if (!e.text) {
-    const [href, label] = epGo(n);  // 플롯 초안이면 플롯 확정으로 바로
-    return head + `<div class="card empty"><p>${n}화 본문이 아직 없어요. 본문을 쓴 뒤 검수해요.</p><a class="btn primary" href="${href}">${label}</a></div>`;
-  }
+  const [buttons, primary] = !last ? [lead + toReview, ''] : fast.length ? [lead + toReview + checkBtn, fastBtn]
+    : checkPrimary ? [lead + toReview, checkBtn] : [lead + checkBtn, toReview];
   const text = textNow(n);
+  const top = chkStrip(n, e, st, fast);
+  if (S.fbOpen === n && editableEp(e) && !autoOn() && rounds.length) return { buttons, primary, top, full: fbView(n, e, text) };
   const sel = chkSelected(n);
-  const editable = editableEp(e);
-  const center = editable ? draftBox(n, text) : `<div class="read" data-read="${n}">${readHtml(n, text)}</div>`;
-  if (S.fbOpen === n && editable && !autoOn() && (e.rounds || []).length) return head + chkStrip(n, e, st, fast) + fbView(n, e, text);
-  const notes = passageNotes(n);
-  // 본문이 왼쪽 넓은 칸, 지적 목록과 상세는 오른쪽 칸에 쌓는다 (집필 · 상태 승인 단계와 같은 자리). 좁은 폭은 목록 → 상세 → 본문 순서
-  return head + chkStrip(n, e, st, fast) + `<div class="check-cols">
-      <div class="c-side">${chkList(n, e, text, sel, checkBtn)}
-      ${chkDetail(n, e, text, sel)}</div>
-      <section class="card w-body c-body" style="padding:0;gap:0" aria-label="본문">
-        <div class="w-bar"><span class="w-count"><strong style="color:var(--text)">${text.length.toLocaleString()}</strong> / ${Number(P().meta.words_per_episode).toLocaleString()}자</span>
-          ${editable ? '<div class="savebar-slot"></div>' : '<span class="w-fill"></span>'}
-          <p class="small w-hint">${editable ? '지적을 고르면 본문이 그 문장으로 옮겨 가고, 문장에서 고치는 창이 떠요' : '읽기 전용 본문이에요'}</p></div>
-        ${notes ? `<div style="padding:12px 16px 0;display:flex;flex-direction:column;gap:8px">${notes}</div>` : ''}
-        <div class="prose">${center}</div>
-      </section>
-    </div>
-    ${editable ? chatPanel(`text:${n}`) : ''}`;
+  // 좁은 폭은 목록 → 상세 → 본문 순서 (viewEpisode 가 칸을 본문 앞에 둔다)
+  return { buttons, primary, top, side: `<div class="c-side">${chkList(n, e, text, sel, checkBtn)}
+      ${chkDetail(n, e, text, sel)}</div>`,
+    hint: editableEp(e) ? '지적을 고르면 본문이 그 문장으로 옮겨 가고, 문장에서 고치는 창이 떠요' : '' };
 }
 
 // 읽기 전용 본문의 지적 밑줄을 누르면 그 지적을 고른다 (고치는 본문은 marks.js 가 고치는 창까지 띄운다)

@@ -7,7 +7,8 @@
 /** 단계: [주소, 이름, 사이드바 번호]. 이름과 번호는 사이드바와 같다 (app.js stepLabel · navItems) */
 const FLOW_STAGES = [['write', '집필', 4], ['check', '검수', 5], ['review', '상태 승인', 6]];
 
-/** 단계 셋의 글. e: 화, run: { checking, stating, delta: { picked, total } | null }.
+/** 단계 셋의 글. e: 화, run: { checking, stating, delta: { picked, total } | null, stale }.
+    stale: 변경안을 만든 뒤 본문을 고쳤다 (저장했든 안 했든). 상태 승인 칸을 볼 것 남음으로 표시한다.
     done 끝남 · warn 볼 것 남음 · off 아직 갈 수 없음(본문이 없음). 검수 단계는 home.js checkState 의 done 과 같다 */
 function flowSteps(e, run = {}) {
   const st = checkState(e);
@@ -21,9 +22,10 @@ function flowSteps(e, run = {}) {
   const check = { key: 'check', done: written && st.done, warn: written && (open > 0 || st.stale), off: !written,
     sub: !written ? '본문을 쓴 뒤' : run.checking ? '검수하는 중' : !st.checked ? '아직 안 했어요'
       : open ? `열린 지적 ${open}` : st.stale ? '검수 뒤 본문을 고쳤어요' : found ? `지적 ${found} 처리` : '어긋난 곳 없음' };
-  const review = { key: 'review', done: fin, warn: false, off: !written,
+  const stale = !fin && !!run.delta && !!run.stale;
+  const review = { key: 'review', done: fin, warn: written && stale, off: !written,
     sub: !written ? '본문을 쓴 뒤' : fin ? '반영 완료' : run.stating ? '변경안 만드는 중'
-      : run.delta ? `${run.delta.picked}/${run.delta.total} 고름` : '변경안 없음' };
+      : stale ? '본문 고침' : run.delta ? `${run.delta.picked}/${run.delta.total} 고름` : '변경안 없음' };
   return [write, check, review].map((s, i) => ({ ...s, label: FLOW_STAGES[i][1], num: FLOW_STAGES[i][2] }));
 }
 
@@ -41,6 +43,8 @@ function flowBar(n, cur) {
   const steps = flowSteps(e, {
     checking: !!jobFor('check', n), stating: !!jobFor('state', n),
     delta: d && e.status === 'written' ? { picked: deltaPicked(), total: deltaCount(d) } : null,
+    // 변경안을 만든 뒤 본문을 고쳤다: 저장한 본문이 변경안의 본문과 다르거나, 저장하지 않은 고침이 있다 (review.js 의 stale 알림과 같은 셈)
+    stale: !!d && (textUnsaved(n) || (S.deltaBase[n] !== undefined && S.deltaBase[n] !== e.text)),
   });
   const cell = (s) => {
     const mark = s.done ? '<span class="fl-n ok" aria-hidden="true">✓</span>' : `<span class="fl-n" aria-hidden="true">${s.num}</span>`;

@@ -1,9 +1,14 @@
 """검수 화면(static/check.js)의 지적 표시 · 본문 밑줄 · 진행 단계(home.js checkState)가 서버 findings.merge 결과와 맞는지,
 화면이 오류 없이 그려지는지. node 가 있을 때만 돈다."""
+import re
+
 from canon import findings
 from canon.schema import ConsistencyIssue, TextEdit
 
-from .jsvm import dump, episode, needs_node, run_js
+from .jsvm import STATIC, dump, episode, needs_node, run_js
+
+# 검수 칸은 한 화 화면(write.js viewEpisode)이 그린다. 그 화면이 부르는 도구 파일이 많아 화면과 같은 차례로 모두 읽는다
+CHK_FILES = re.findall(r'src="/static/([a-z0-9]+\.js)"', (STATIC / "index.html").read_text(encoding="utf-8"))
 
 Q1 = "도현은 오른손에 남은 흉터를 엄지로 문질렀다."
 Q2 = "서윤은 눈앞의 문손잡이를 두 손으로 붙잡았다."
@@ -66,8 +71,7 @@ def test_view_check_renders():
     from canon.schema import Meta, Project
     e = session()
     p = Project(meta=Meta(title="t", target_episodes=3), episodes=[e])
-    files = ["app.js", "home.js", "branches.js", "style.js", "plot.js", "write.js", "review.js", "chat.js", "passage.js", "rewrite.js",
-             "restate.js", "opening.js", "auto.js", "marks.js", "check.js", "flow.js"]
+    files = CHK_FILES
     html = run_js(files, """(() => {
       S.project = data; S.name = 't'; S.route = ['p', 't', 'check', '1'];
       const all = viewCheck(1);
@@ -148,8 +152,7 @@ def test_check_view_and_fix_panel_render():
     e.findings[0].fixes = [FixOption(label="왼손으로", text="도현은 왼손에 남은 흉터를 감췄다.",
                                      extra=[FixPatch(quote=Q4, replacement="도현은 속으로 빌었다.", reason="맞춤")])]
     p = Project(meta=Meta(title="t", target_episodes=3), episodes=[e])
-    files = ["app.js", "home.js", "branches.js", "style.js", "plot.js", "write.js", "review.js", "chat.js", "passage.js", "rewrite.js",
-             "restate.js", "opening.js", "auto.js", "marks.js", "check.js", "flow.js"]
+    files = CHK_FILES
     got = run_js(files, """(() => {
       S.project = data; S.name = 't'; S.route = ['p', 't', 'check', '1'];
       const view = viewCheck(1);
@@ -177,8 +180,7 @@ def test_fix_batch_view():
     e = episode(1, status="written", text=TEXT)
     findings.merge(e, [issue(Q1), issue(Q2, "동선"), issue(Q3, "말투"), issue("본문에 없는 문장.", "시점")], "2026-10-28T10:00:00", "b")
     p = Project(meta=Meta(title="t", target_episodes=3), episodes=[e])
-    files = ["app.js", "home.js", "branches.js", "style.js", "plot.js", "write.js", "review.js", "chat.js", "passage.js", "rewrite.js",
-             "restate.js", "opening.js", "auto.js", "marks.js", "check.js", "flow.js"]
+    files = CHK_FILES
     before = run_js(files, """(() => {
       S.project = data; S.name = 't'; S.route = ['p', 't', 'check', '1'];
       return { view: viewCheck(1), need: fbNeed(ep(1), ep(1).text).map((f) => f.id) };
@@ -218,8 +220,7 @@ def test_fix_batch_view():
     assert got["on"] == ["1:f1"] and "고른 1개 넣기" in got["after"] and "같은 문장을 바꿔요" not in got["after"]
 
 
-CHK_FILES = ["app.js", "home.js", "branches.js", "style.js", "plot.js", "write.js", "review.js", "chat.js", "passage.js", "rewrite.js",
-             "restate.js", "opening.js", "auto.js", "marks.js", "check.js", "flow.js"]
+
 CHK_SETUP = """S.project = data; S.name = 't'; S.route = ['p', 't', 'check', '1'];
   render = () => {};
   const toasts = [];
@@ -290,8 +291,7 @@ def test_fix_recheck_button_matches_server():
     seen = e.model_copy(deep=True)  # f1 은 묶음을 넣은 뒤 이미 다시 봤다
     seen.findings[0].log.append(FindingEvent(at="2026-10-28T11:30:00", kind="recheck", text="아직 어긋남"))
     cases = [e, typed, seen]
-    files = ["app.js", "home.js", "branches.js", "style.js", "plot.js", "write.js", "review.js", "chat.js", "passage.js", "rewrite.js",
-             "restate.js", "opening.js", "auto.js", "marks.js", "check.js", "flow.js"]
+    files = CHK_FILES
     got = run_js(files, """(() => {
       const ids = data.cases.map((x) => fixRecheckTargets(x).map((f) => f.id));
       const views = data.cases.map((x) => {
