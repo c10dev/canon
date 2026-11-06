@@ -757,7 +757,7 @@ textarea[data-pick] { -webkit-touch-callout: none; caret-color: transparent; }
 /* 넓은 폭 사이드바(232px)와 휴대폰 폭은 'Canon.' 이름과 작품 제목 자리를 남기게 글자를 빼고 기호와 수 배지만 (이름은 aria-label) */
 @media (min-width: 901px), (max-width: 640px) {
   .side .hub-btn { padding: 0; justify-content: center; }
-  .side .hub-btn > span[aria-hidden]:not(.hub-badge, .hub-dot) { display: none; }
+  .side .hub-btn > span[aria-hidden]:not(.hub-badge, .hub-dot, .spinner) { display: none; }  /* 작업 중 회전 표시는 남긴다. 빼면 휴대폰 위쪽 띠에 빈 버튼만 보였다 */
   .side .hub-btn > .hub-n { display: block; }
 }
 @media (min-width: 901px) { .side .hub-btn { min-width: 36px; min-height: 36px; } }
@@ -1757,6 +1757,15 @@ mark.hl.flash { outline: 2px solid currentColor; outline-offset: 2px; }
   .w-head .w-tl h1 { word-break: keep-all; overflow-wrap: anywhere; }  /* 좁은 칸에서 낱말 가운데서 끊지 않는다 */
   .w-head > .row:last-child { grid-area: acts; flex-wrap: nowrap; justify-content: flex-end; }
   .w-headwrap > .flow-bar { grid-area: flow; }
+  /* AI 작업이 도는 동안 primary 자리의 진행 줄(.w-busy, write.js wsBusy)은 넓다. 위 줄에 두면 제목 칸이 한 낱말씩 세로로 감기고 격자가 화면 밖으로 밀린다.
+     그때는 진행 줄을 제목 아래 자기 줄에 펴고, 글이 길면 감는다 */
+  .w-headwrap:has(.w-busy) { grid-template-areas: "tl tl acts" "busy busy busy" "nav flow flow"; }
+  .w-headwrap:has(.w-busy) .w-head > .row:last-child { display: contents; }
+  .w-headwrap:has(.w-busy) .w-head > .row:last-child > .menu { grid-area: acts; justify-self: end; }
+  .w-head > .row:last-child > .w-busy { grid-area: busy; min-width: 0; }
+  .w-head > .row:last-child > .w-busy .w-busy-text { min-width: 0; }
+  /* 화 앞뒤 버튼은 늘 한 줄에 둔다. 위 줄이 넓어도 세로로 쌓이지 않는다 */
+  .w-head > .row:first-child > nav { flex-wrap: nowrap; }
   .w-headwrap > .flow-bar .fl-cell { gap: var(--space-4); padding: 0 var(--space-4); }  /* 화 앞뒤 버튼 옆 좁은 칸: '상태 승인'이 390px 에서 한 줄에 든다 */
   .w-headwrap > .flow-bar .fl-n { width: 18px; height: 18px; }
   /* 본문이 첫 화면에 더 들어오게 집필 화면만 위 여백 · 머리 묶음 아래를 줄인다 */

@@ -561,6 +561,7 @@
   - 640px 이하 머리(`.w-head`)는 ⋯ 메뉴와 primary 만 남긴다(app.css)
   - 머리와 단계 띠는 `.w-headwrap` 으로 묶는다
   - 640px 이하에서 `.w-headwrap` 은 두 줄 격자다: 위 줄은 제목과 칩 묶음(`.w-tl`) · ⋯ 와 primary, 아래 줄은 화 앞뒤 버튼 · 단계 띠
+  - AI 작업이 도는 동안(primary 자리에 진행 줄 `.w-busy`)은 진행 줄이 제목 아래 자기 줄을 쓴다(`.w-headwrap:has(.w-busy)`). 위 줄은 제목과 ⋯ 만 남는다
   - `.w-headwrap` · `.w-tl` 은 넓은 폭에서 `display: contents` 라 머리 · 단계 띠 모양이 그대로다
   - 640px 이하에서 본문 위 여백(페이지 위 · 머리 묶음 아래 · 원고 위)을 줄인다(app.css)
   - 640px 이하에서 본문 띠(`.w-bar`)는 `display: contents` 라 글자 수 · 도구 버튼 · 저장 칸이 접힌 플롯 줄과 한 줄(`.w-top`)에 선다
