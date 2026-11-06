@@ -361,16 +361,45 @@ def test_js_views(home):
 
 
 @needs_node
-def test_js_clip_bookmarklet_and_append():
+def test_js_clip_append():
     got = run_js(FILES, """(() => {
-      const url = refBookmarklet('http://localhost:8000', '[data-theme-novel-content]');
-      const src = decodeURIComponent(url.slice('javascript:'.length));
-      let ok = true; try { new Function(src); } catch { ok = false; }
       const a = refClipAppend('', { title: '제1화 등대', text: '첫 문단\\r\\n\\n둘째 문단' });
-      const b = refClipAppend(a, { title: '제2화 바다', text: '셋째 문단' });
-      return { js: url.startsWith('javascript:'), ok, origin: src.includes('"http://localhost:8000"'), shadow: src.includes('shadowRoot'), b };
+      return refClipAppend(a, { title: '제2화 바다', text: '셋째 문단' });
     })()""", {})
-    assert got == {"js": True, "ok": True, "origin": True, "shadow": True,
-                   "b": "제1화 등대\n\n첫 문단\n\n둘째 문단\n\n\n제2화 바다\n\n셋째 문단\n"}
+    assert got == "제1화 등대\n\n첫 문단\n\n둘째 문단\n\n\n제2화 바다\n\n셋째 문단\n"
     # 이어 붙인 글은 화 표시로 두 화로 나뉜다
-    assert [c["label"] for c in refs.preview(got["b"])["cuts"] if c.get("on", True)][:2] == ["1", "2"]
+    assert [c["label"] for c in refs.preview(got)["cuts"] if c.get("on", True)][:2] == ["1", "2"]
+
+
+def test_inbox(home):
+    assert refs.inbox() == []
+    assert refs.inbox_add("제1화", "https://example.com/1", "첫 문단\r\n둘째") == {"count": 1, "dup": False}
+    assert refs.inbox_add("제1화", "https://example.com/1", "첫 문단\n둘째") == {"count": 1, "dup": True}  # 같은 글은 한 번
+    assert refs.inbox_add("제1화", "https://example.com/1", "다른 글") == {"count": 2, "dup": False}  # 주소가 같아도 글이 다르면 더함
+    with pytest.raises(ValueError):
+        refs.inbox_add("", "", "  ")
+    items = refs.inbox()
+    assert [x["text"] for x in items] == ["첫 문단\n둘째", "다른 글"]
+    assert refs.entries() == []  # 대기열 파일은 원고로 읽지 않는다
+    assert refs.inbox_clear([items[0]["id"]]) == 1
+    assert refs.inbox_clear() == 0 and refs.inbox() == []
+
+
+def test_api_inbox_and_extension(home):
+    import io
+    import zipfile
+    c = TestClient(web.app)
+    ext = {"origin": "chrome-extension://abcdefghijklmnop"}
+    assert c.post("/api/refs/inbox", json={"title": "제1화", "url": "u", "text": "본문"}, headers=ext).json() == {"count": 1, "dup": False}
+    assert c.post("/api/refs/inbox", json={"text": "본문2"}, headers={"origin": "https://evil.example.com"}).status_code == 403
+    assert c.post("/api/refs", json={"name": "x", "text": "글"}, headers=ext).status_code == 403  # 확장 Origin 은 받은 화 주소만
+    assert c.post("/api/refs/inbox", json={"text": ""}).status_code == 400
+    items = c.get("/api/refs/inbox").json()["items"]
+    assert [x["title"] for x in items] == ["제1화"]
+    assert c.request("DELETE", "/api/refs/inbox", json={"ids": [items[0]["id"]]}).json() == {"count": 0}
+    assert c.get("/api/refs/extension.zip").status_code == 400
+    r = c.get("/api/refs/extension.zip", params={"canon": "https://vocado.example.ts.net:8446/#/refs/new"})
+    z = zipfile.ZipFile(io.BytesIO(r.content))
+    names = set(z.namelist())
+    assert {"canon-extension/manifest.json", "canon-extension/background.js", "canon-extension/popup.html", "canon-extension/popup.js"} <= names
+    assert z.read("canon-extension/config.js").decode() == 'const CANON_DEFAULT = "https://vocado.example.ts.net:8446";\n'
