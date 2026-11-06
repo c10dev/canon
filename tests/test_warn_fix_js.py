@@ -161,3 +161,11 @@ def test_fold_old_talk_and_show_next_steps():
     got = run_js(FILES, FOLD, {**_data([]), "new": NEW})
     assert got["after"] == {"fold": 2, "next": True}
     assert got["other"] == {"fold": 4, "next": False, "note": True}
+
+
+# 휴대폰 문장 고르기(passage.js sentenceRanges): 줄바꿈과 문장 끝(닫는 따옴표까지)에서 끊고 앞뒤 공백은 뺀다
+@needs_node
+def test_sentence_ranges():
+    text = '바람이 불었다. 서윤은 등대 앞에 섰다.\n\n"됐어, 내가 할게." 그가 말했다!  끝'
+    got = run_js(["app.js", "chat.js", "passage.js"], "sentenceRanges(data.t).map((r) => data.t.slice(r.start, r.end))", {"t": text})
+    assert got == ["바람이 불었다.", "서윤은 등대 앞에 섰다.", '"됐어, 내가 할게."', "그가 말했다!", "끝"]
