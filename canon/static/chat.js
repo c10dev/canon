@@ -382,10 +382,23 @@ function sendDirection(text) {
 function chatLog(topic) {
   const t = chatConf(topic);
   initPicks(topic);
-  return chatMessages(topic).map((m, i) => m.role === 'user'
+  const msgs = chatMessages(topic);
+  const one = (m, i) => (m.role === 'user'
     ? `<div class="msg user">${t.userMsg ? t.userMsg(m) : esc(m.text)}</div>`
-    : `<div class="msg ai"><div class="msg-text">${esc(m.text)}</div>${m.revision ? proposal(m, i) : (m.passage || m.style || m.setup) && t.proposal ? t.proposal(m, i) : ''}</div>`).join('');
+    : `<div class="msg ai"><div class="msg-text">${esc(m.text)}</div>${m.revision ? proposal(m, i) : (m.passage || m.style || m.setup) && t.proposal ? t.proposal(m, i) : ''}</div>`);
+  // 주제가 지금 일과 상관없는 앞 대화를 접게 하면(foldFrom) '지난 요청 N개' 아래로 접는다. 열면 다시 그려도 열어 둔다 (S.chatFoldOpen)
+  const k = t.foldFrom ? Math.max(0, Math.min(msgs.length, t.foldFrom(msgs))) : 0;
+  const now = msgs.slice(k).map((m, j) => one(m, k + j)).join('');
+  if (!k) return now;
+  const asks = msgs.slice(0, k).filter((m) => m.role === 'user').length || k;
+  const fold = `<details class="chat-fold" data-chat-fold${S.chatFoldOpen ? ' open' : ''}><summary>지난 요청 ${asks}개</summary><div class="chat-fold-body">${msgs.slice(0, k).map((m, i) => one(m, i)).join('')}</div></details>`;
+  const note = k === msgs.length && t.foldNote ? `<div class="note info">${esc(t.foldNote)}</div>` : '';
+  return fold + note + now;
 }
+
+document.addEventListener('toggle', (e) => {
+  if (e.target.matches && e.target.matches('[data-chat-fold]')) S.chatFoldOpen = e.target.open;
+}, true);
 
 function chatPanel(topic) {
   if (!S.chatOpen) return '';
