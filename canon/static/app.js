@@ -2116,13 +2116,14 @@ window.addEventListener('hashchange', async () => {
     const canSave = S.dirty && !S.libDirty && !S.stgDirty && !editDraftOpen() && !S.conflict;
     const go = await askConfirm(canSave ? '저장하지 않고 이동하면 그 변경은 사라져요.' : '저장하지 않고 이동하면 그 변경은 사라져요. 이동할까요?',
       { title: '저장하지 않은 변경이 있어요', ok: canSave ? '저장하지 않고 이동' : '이동하기', danger: true, alt: canSave ? '저장하고 이동' : '' });
+    if (!go) afterRoute = null;  // 머물기를 골랐다. 옮긴 뒤 할 일도 버린다 (goThen)
     if (!go || location.hash !== lastHash) return;  // 묻는 사이 다른 이동이 왔으면 그 이동이 다시 묻는다
     if (go === 'alt') {
       // run() 으로 감싸 저장하는 동안 화면 입력을 막는다 (저장 뒤 받은 작품이 그사이 친 글을 덮지 않게). 실패는 run 이 알린다
       let kept = false;
       // 다시 시도는 저장만 되풀이하고 이동은 잇지 못하므로 붙이지 않는다 (retry: false)
       const ok = await run('저장하는 중', async () => { kept = await save() === false; }, { render: 'never', retry: false });
-      if (!ok || kept) { render(); return; }  // 실패했거나 서버가 일부를 지켰다: 받은 작품으로 다시 그리고 이 화면에 남는다
+      if (!ok || kept) { afterRoute = null; render(); return; }  // 실패했거나 서버가 일부를 지켰다: 받은 작품으로 다시 그리고 이 화면에 남는다
       if (ask !== navAsk || location.hash !== lastHash) return;  // 저장하는 사이 다른 이동이 왔다. 그 이동이 다시 물었다
     }
     history.replaceState(st, '', to);
@@ -2153,6 +2154,15 @@ function lostPartSummaries() {
 // 기다리는 사이 또 옮겼으면 중간 화면은 건너뛴다
 let routeQueue = Promise.resolve();
 let routeWanted = 0;
+// 화면을 옮긴 뒤 할 일 { hash, fn }. routeNow 가 그 주소를 다 그리고 굴린 뒤 한 번 부른다
+let afterRoute = null;
+
+/** hash 로 옮기고, 그 화면을 다 그린 뒤 fn 을 부른다. 저장 확인 창에서 머물기를 고르거나 다른 곳으로 옮기면 부르지 않는다.
+    hashchange 를 직접 기다리면 저장 확인 창이 뜬 동안 옛 화면에서 fn 이 돌아 아무 일도 하지 않았다 */
+function goThen(hash, fn) {
+  afterRoute = { hash, fn };
+  location.hash = hash;
+}
 function route() {
   const my = ++routeWanted;
   routeQueue = routeQueue.then(() => (my === routeWanted ? routeNow() : undefined)).catch((e) => toast(e.message, true));
@@ -2355,6 +2365,9 @@ async function routeNow() {
     card.scrollIntoView({ block: 'start' });
     setTimeout(() => card.classList.remove('jump'), 2000);
   } else if (jumped) jumped.scrollIntoView({ block: 'center' });  // 카드 밖 설정 칸: 맨 위로 간 화면을 그 칸으로 내린다
+  const then = afterRoute;
+  afterRoute = null;
+  if (then && then.hash === location.hash && !S.loadError) then.fn();
   pollJobs();  // 다른 탭 · 기기에서 시작한 작업도 알아챈다
 }
 

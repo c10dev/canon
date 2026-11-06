@@ -33,6 +33,8 @@ CHAT_TOPICS.text = {
   body: (text, preset) => ({ message: text, preset, selection: { start: S.sel.start, text: S.sel.text } }),
   userMsg: (m) => `${m.selection ? `<span class="msg-quote">${esc(clip(m.selection.text, 80))}</span>` : ''}${m.preset && m.text !== CHAT_TOPICS.text.presetLabel(m.preset) ? `<span class="chip">${esc(CHAT_TOPICS.text.presetLabel(m.preset))}</span> ` : ''}${esc(m.text)}`,  // 빠른 요청과 함께 적은 글이 있으면 둘 다 보인다
   proposal: passageProposal,
+  // 시트를 높이는 것은 지금 고른 부분의 후보일 때만이다. 다른 부분을 새로 골라 열면 옛 후보 때문에 본문이 가려지지 않게
+  candsFor: (m) => { const s = curSel(); return !!s && !!m.selection && m.selection.text === s.text; },
   inputExtra: selTarget,
 };
 
@@ -318,8 +320,15 @@ function readSel(ta) {
   return b > a ? { n: Number(ta.dataset.draft), start: a, text: v.slice(a, b) } : null;
 }
 
+const isDraftTa = (el) => !!el && !!el.matches && el.matches('textarea[data-draft]');
+// 본문 칸 밖(도구 밖)에서 시작한 마지막 터치 시각. 그 터치의 touchend · 뒤따르는 mouseup 은 본문 칸에 남은 선택으로 도구를 띄우지 않는다
+let outsideTouch = 0;
+
 function onSelect(e) {
-  const isText = (el) => el && el.matches && el.matches('textarea[data-draft]');
+  const isText = isDraftTa;
+  if ((e.type === 'touchend' || e.type === 'mouseup') && outsideTouch && Date.now() - outsideTouch < 1500) return;
+  // 도구 버튼을 누르고 뗀 것은 고르기가 아니다. 버튼이 도구를 닫은 뒤 본문 칸에 남은 선택으로 도구가 다시 떴다
+  if (e.target && e.target.closest && e.target.closest('#sel-tool')) return;
   const ta = isText(e.target) ? e.target : document.activeElement;  // 본문 밖에서 손을 떼도 본문에서 고른 것
   if (!isText(ta) || !P() || !editableEp(ep(Number(ta.dataset.draft)))) return;  // 작품 목록으로 옮기는 사이에 남은 본문 칸
   setTimeout(() => {  // 클릭으로 고른 것이 풀리는 것까지 본 뒤에
@@ -334,6 +343,14 @@ function onSelect(e) {
 document.addEventListener('mouseup', onSelect);
 document.addEventListener('keyup', (e) => { if (e.shiftKey || e.key === 'Shift' || (e.key === 'a' && (e.ctrlKey || e.metaKey))) onSelect(e); });
 document.addEventListener('touchend', onSelect);
+// 휴대폰에서 본문 밖을 누르면 떠 있던 메뉴를 닫는다. iOS 는 포커스를 받지 않는 곳을 눌러도 본문 칸 포커스와 선택을 그대로 두어,
+// 누를 때마다 남은 선택으로 도구가 다시 떠 본문을 덮었다
+document.addEventListener('touchstart', (e) => {
+  const t = e.target;
+  const out = !isDraftTa(t) && !(t.closest && t.closest('#sel-tool'));
+  outsideTouch = out ? Date.now() : 0;
+  if (out && S.selTool && S.selTool.mode === 'menu') hideTool();
+}, { capture: true, passive: true });
 // 휴대폰에서 손잡이를 끌어 고른 범위를 넓히면 selectionchange 만 온다. 메뉴가 떠 있으면 새 범위로 바꾼다
 let selTimer = 0;
 document.addEventListener('selectionchange', () => {
@@ -423,15 +440,19 @@ function syncPassage() {
   const f = S.selFocus;
   if (f && String(f.n) === n) {
     S.selFocus = null;
-    // 손가락 기기에서 검수 지적을 열 때는 본문 칸에 포커스하지 않는다: 키보드가 올라와 고치는 창을 덮는다. 문장 자리만 고르고 옮긴다
-    const quiet = S.selTool && S.selTool.mode === 'finding' && typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+    // 손가락 기기에서 검수 지적을 열 때와 AI가 바로 고친 뒤(f.quiet)에는 본문 칸에 포커스하지 않는다: 키보드가 올라와 화면을 덮고,
+    // 포커스가 남은 동안은 다시 그리기를 미룬다(isTyping). 문장 자리만 고르고 옮긴다
+    const quiet = ((S.selTool && S.selTool.mode === 'finding') || f.quiet) && typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
     if (!quiet) ta.focus({ preventScroll: true });
     ta.setSelectionRange(f.start, f.end);
     let c = caretXY(ta, f.start);
     if (c.y < c.r.top || c.y > c.r.bottom - c.h) scrollTa(ta, ta.scrollTop + c.y - c.r.top - c.r.height / 3);
-    // 본문 칸 자체가 화면 밖이면 페이지도 굴려 고른 문장과 도구가 보이게 한다
+    // 본문 칸 자체가 화면 밖이면 페이지도 굴려 고른 문장과 도구가 보이게 한다. 휴대폰 아래 시트가 열려 있으면 시트 위까지만 보이는 자리다
     c = caretXY(ta, f.start);
-    if (c.y < 0 || c.y + c.h * 3 > window.innerHeight) window.scrollBy(0, c.y - window.innerHeight / 3);
+    const sheet = window.innerWidth <= BP.narrow && document.querySelector('.chat-panel, .tool-col');
+    const bottom = sheet ? Math.min(window.innerHeight, sheet.getBoundingClientRect().top) : window.innerHeight;
+    const top = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--band')) || 0;  // 900px 이하 위쪽 띠
+    if (c.y < top || c.y + c.h * 2 > bottom) window.scrollBy(0, c.y - top - (bottom - top) / 3);
     const s = f.menu && readSel(ta);  // 경고에서 온 것은 다른 화면에서 넘어와 다시 그린 뒤에 도구를 연다
     if (s) {
       S.selTool = { ...s, mode: 'menu' };
@@ -456,15 +477,10 @@ function focusText(n, text, start) {
   return at;
 }
 
-/** 방금 한 수정을 바로 되돌리는 버튼이 붙은 알림. 수정 기록은 본문 아래 접혀 있어 찾기 어렵다. 보통 알림보다 오래 둔다. */
+/** 방금 한 수정을 바로 되돌리는 버튼이 붙은 알림. 수정 기록은 본문 아래 접혀 있어 찾기 어렵다. 보통 알림보다 오래 둔다.
+    toast 의 동작 알림이라 누르거나 포커스가 있는 동안은 닫히지 않고, 알림 창 '최근 알림'에도 남는다. */
 function undoToast(msg, id) {
-  const el = document.createElement('div');
-  el.className = 't';
-  el.innerHTML = `${esc(msg)} <button type="button" class="btn small" data-action="undoEdit" data-arg="${esc(id)}">되돌리기</button>`;
-  $('#toast').appendChild(el);
-  while ($('#toast').children.length > 3) $('#toast').firstChild.remove();
-  el.addEventListener('click', (e) => { if (e.target.closest('button')) el.remove(); });
-  setTimeout(() => el.remove(), 10000);
+  toast(msg, false, { actions: [{ label: '되돌리기', run: () => actions.undoEdit(id) }] });
 }
 
 /** 경고가 가리킨 문장(q, 본문 at 자리)을 message 대로 AI에게 고치게 하고 첫 후보를 바로 본문에 넣는다.
@@ -489,7 +505,7 @@ async function aiFixNow(n, q, at, message) {
     S.project = await api('POST', `/projects/${enc(S.name)}/chat/${enc(topic)}/${i}/apply`, { candidate: 0 });
     const edit = ep(n).edits[ep(n).edits.length - 1];
     S.sel = { n, start: edit.start, text: edit.after };  // 이어서 '더 짧게' 같은 요청을 하면 넣은 글을 고친다
-    focusText(n, edit.after, edit.start);
+    if (focusText(n, edit.after, edit.start) !== -1) S.selFocus.quiet = true;
     undoToast('AI가 고쳤어요.', edit.id);
   });
 }
@@ -536,8 +552,11 @@ Object.assign(actions, {
     S.chatOpen = true;
     S.chatScroll = true;
     try { localStorage.setItem('canon.chat', '1'); } catch { /* 저장 못 해도 동작에는 상관없다 */ }
+    // 휴대폰에서는 아래 시트가 본문 아래쪽을 덮는다. 고른 글이 시트 위에 보이게 다시 고르고 굴린다 (syncPassage)
+    if (focusText(t.n, t.text, t.start) !== -1) S.selFocus.quiet = true;
+    if (touchFirst() && isDraftTa(document.activeElement)) document.activeElement.blur();  // 본문 칸 포커스가 남으면 키보드가 오르고 다시 그리기가 밀린다
     render();
-    $('#chat-input')?.focus();
+    if (!touchFirst()) $('#chat-input')?.focus();  // 손가락 기기는 빠른 요청만 누를 수 있게 키보드를 올리지 않는다
   },
   selShow() {
     const s = curSel();
@@ -563,14 +582,16 @@ Object.assign(actions, {
       if (S.route[2] !== 'write' || Number(S.route[3]) !== num) return;
       const at = focusText(num, q, 0);
       if (at === -1) return;
-      if (ask) return aiFixNow(num, q, at, `상태 정리 경고: ${w}`);
+      if (ask) {
+        S.selFocus.quiet = true;  // AI가 실패해 이 자리만 남아도 손가락 기기에서 키보드를 올리지 않는다
+        return aiFixNow(num, q, at, `상태 정리 경고: ${w}`);
+      }
       S.selFocus.menu = true;
       render();
     };
     if (S.route[2] === 'write' && Number(S.route[3]) === num) return go();
     // 상태 승인 화면에서 왔다: 집필 화면을 다 그리고 맨 위로 굴린 뒤에 고른다
-    window.addEventListener('hashchange', () => routeQueue.then(go), { once: true });
-    location.hash = `${base()}/write/${num}`;
+    goThen(`${base()}/write/${num}`, go);
   },
   /** 검수 지적(id)의 문장을 본문에서 고르고 부분 수정 도구를 띄운다 (검수 화면 check.js) */
   selectIssue(id) {
@@ -609,7 +630,7 @@ Object.assign(actions, {
       delete S.candEdit[key];
       const edit = ep(n).edits[ep(n).edits.length - 1];
       S.sel = { n, start: edit.start, text: edit.after };  // 이어서 '더 짧게' 같은 요청을 하면 넣은 글을 고친다
-      focusText(n, edit.after, edit.start);
+      if (focusText(n, edit.after, edit.start) !== -1) S.selFocus.quiet = true;  // 넣은 글을 시트 위로 굴려 보인다. 손가락 기기는 키보드를 올리지 않는다
       undoToast(`${k + 1}번 후보를 넣었어요.`, edit.id);
     });
   },
