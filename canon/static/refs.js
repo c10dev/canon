@@ -30,7 +30,7 @@ const REF_SHORT = 300;
 const REF_WARN = new Set(['gap', 'dup', 'back', 'mention', 'short', 'long', 'restart']);
 
 const refBlank = (edit = '') => ({ edit, files: [], clips: [], text: '', encoding: 'utf-8', bad: 0, name: '', source: '', notes: '', rights: !!edit,
-  rule: '', unit: '', example: '', strip: true, preview: null, cuts: [], sel: -1, at: -1, filter: 'all', undo: [], dirty: false });
+  rule: '', unit: '', example: '', strip: true, repeats: null, found: [], preview: null, cuts: [], sel: -1, at: -1, filter: 'all', undo: [], dirty: false });
 
 // ---------- 순수 함수 ----------
 
@@ -63,14 +63,30 @@ function refTail(body) {
   return body.length;
 }
 
-/** 켠 경계로 화를 자른다 (refs.assemble): [{ cut, chars, tail }]. cut 은 cuts 의 자리. */
-function refAssemble(lines, cuts, strip = true) {
+/** 되풀이 줄을 뺀다 (refs._drop_repeats). 뺀 줄 뒤의 빈 줄은 앞이 빈 줄이거나 화 첫머리면 함께 뺀다. */
+function refDropRepeats(body, rep) {
+  const out = [];
+  let dropped = false;
+  for (const ln of body) {
+    if (rep.has(ln.trim())) { dropped = true; continue; }
+    if (dropped && !ln.trim() && (!out.length || !out[out.length - 1].trim())) continue;
+    dropped = false;
+    out.push(ln);
+  }
+  return out;
+}
+
+/** 켠 경계로 화를 자른다 (refs.assemble): [{ cut, chars, tail, rep }]. cut 은 cuts 의 자리. repeats 의 줄은 빼고 작가의 말은 그 뒤에 뗀다. */
+function refAssemble(lines, cuts, strip = true, repeats = []) {
+  const rep = new Set(repeats || []);
   const on = cuts.map((c, i) => [i, c]).filter(([, c]) => c.on !== false).sort((a, b) => a[1].line - b[1].line);
   return on.map(([i, c], k) => {
     const end = k + 1 < on.length ? on[k + 1][1].line : lines.length;
     const body = lines.slice(Math.max(c.body, c.line), end);
-    const cut = strip ? refTail(body) : body.length;
-    return { cut: i, chars: body.slice(0, cut).join('\n').trim().length, tail: body.slice(cut).join('\n').trim().length };
+    const kept = rep.size ? refDropRepeats(body, rep) : body;
+    const cut = strip ? refTail(kept) : kept.length;
+    const cutRep = rep.size ? body.reduce((n, x) => n + (rep.has(x.trim()) ? x.trim().length : 0), 0) : 0;
+    return { cut: i, chars: kept.slice(0, cut).join('\n').trim().length, tail: kept.slice(cut).join('\n').trim().length, rep: cutRep };
   });
 }
 
@@ -92,7 +108,7 @@ function refRange(q, eps) {
 
 /** 경계 목록 줄 값: 켠 경계만 화 차례 · 글자 수가 있고, 짧음 · 김은 지금 글자 수로 다시 센다. filter: all · warn · off */
 function refEpRows(d, lines) {
-  const eps = refAssemble(lines, d.cuts, d.strip);
+  const eps = refAssemble(lines, d.cuts, d.strip, d.repeats || []);
   const by = new Map(eps.map((e, k) => [e.cut, { ...e, order: k + 1 }]));
   const lens = eps.filter((e) => d.cuts[e.cut].kind !== 'skip').map((e) => e.chars);
   const avg = lens.length ? lens.reduce((a, b) => a + b, 0) / lens.length : 0;
@@ -152,8 +168,9 @@ async function refLoad(id, sub) {
   if (S.refPane === 'cuts' && !(S.refDraft && S.refDraft.edit === id)) {
     const src = await api('GET', `/refs/${enc(id)}/source`);
     const b = S.ref;
-    const d = { ...refBlank(id), text: src.text, name: b.name, encoding: b.encoding, rule: b.rule, unit: b.unit, example: b.rule_example, strip: b.strip_tails };
-    d.preview = await api('POST', '/refs/split', { text: d.text, rule: b.rule, unit: b.unit, example: b.rule_example, strip_tails: b.strip_tails, files: b.files.map((f) => f.line) });
+    const d = { ...refBlank(id), text: src.text, name: b.name, encoding: b.encoding, rule: b.rule, unit: b.unit, example: b.rule_example, strip: b.strip_tails, repeats: b.strip_repeats || [] };
+    d.preview = await api('POST', '/refs/split', { text: d.text, rule: b.rule, unit: b.unit, example: b.rule_example, strip_tails: b.strip_tails, files: b.files.map((f) => f.line), repeats: d.repeats });
+    d.found = d.preview.repeats_found || [];
     // 저장한 경계를 켜고, 서버가 찾은 후보 가운데 저장하지 않은 줄은 꺼 둔다 (작가가 다시 켤 수 있다)
     const saved = new Map(b.cuts.map((c) => [c.line, c]));
     const cuts = d.preview.cuts.map((c) => (saved.has(c.line) ? { ...c, ...saved.get(c.line), on: true } : { ...c, on: false }));
@@ -281,7 +298,20 @@ function refRuleBar(d, v) {
       <label class="small" for="ref-ex">직접 패턴</label><input id="ref-ex" type="text" data-ref-f="example" value="${esc(d.example)}" placeholder="예: [제12화] 제목">
       <button type="button" class="btn small" data-action="refCustom">이 꼴로 나누기</button>
       <label class="check-row small"><input type="checkbox" data-ref-strip="1"${d.strip ? ' checked' : ''}><span>화 끝 작가의 말 떼기</span></label>
-      <button type="button" class="btn small" data-action="refUndo"${d.undo.length ? '' : ' disabled'}>되돌리기</button></div></section>`;
+      <button type="button" class="btn small" data-action="refUndo"${d.undo.length ? '' : ' disabled'}>되돌리기</button></div>${refRepeatBox(d)}</section>`;
+}
+
+/** 여러 화에 똑같이 나오는 줄(화마다 붙은 고지문 · 공지). 체크한 줄은 화 글에서 뺀다 (refs.find_repeats, 원문은 그대로) */
+function refRepeatBox(d) {
+  const found = d.found || [];
+  if (!found.length) return '';
+  const on = new Set(d.repeats || []);
+  const n = found.filter((x) => on.has(x.text)).length;
+  const rows = found.map((x, k) => `<li><label class="check-row small"><input type="checkbox" data-ref-rep="${k}"${on.has(x.text) ? ' checked' : ''}>
+    <span><span class="ref-rep-text">${esc(x.text.length > 120 ? `${x.text.slice(0, 120)}…` : x.text)}</span> <span class="ref-rep-n">${x.eps}화에 나옴</span></span></label></li>`).join('');
+  return `<details class="ref-rep"${n ? '' : ' open'}><summary class="small">화마다 되풀이되는 줄 ${found.length}개${n ? ` · ${n}개 뗌` : ''}</summary>
+    <p class="small">고지문 · 공지처럼 여러 화의 첫머리나 끝에 똑같이 나오는 줄이에요. 체크한 줄은 화 글에서 빼요. 원문은 그대로 둬요.</p>
+    <ul class="ref-rep-list">${rows}</ul></details>`;
 }
 
 function refCutList(d, v) {
@@ -422,7 +452,7 @@ function refReader(b) {
   const next = b.episodes.find((x) => x.order === e.order + 1);
   const nav = `<div class="row">${prev ? `<a class="btn small" href="#/refs/${b.id}/${prev.order}">‹ ${esc(refEpName(prev))}</a>` : ''}${next ? `<a class="btn small" href="#/refs/${b.id}/${next.order}">${esc(refEpName(next))} ›</a>` : ''}</div>`;
   const paras = S.refEp.text.split(/\n\s*\n/).map((p) => `<p>${esc(p).replace(/\n/g, '<br>')}</p>`).join('');
-  const m = `${e.chars.toLocaleString()}자 · 대사 ${Math.round(e.dialogue * 100)}% · 문장 평균 ${e.sentence_len}자${e.tail_cut ? ` · 작가의 말 ${e.tail_cut.toLocaleString()}자 뗌` : ''}`;
+  const m = `${e.chars.toLocaleString()}자 · 대사 ${Math.round(e.dialogue * 100)}% · 문장 평균 ${e.sentence_len}자${e.tail_cut ? ` · 작가의 말 ${e.tail_cut.toLocaleString()}자 뗌` : ''}${e.repeat_cut ? ` · 되풀이 줄 ${e.repeat_cut.toLocaleString()}자 뗌` : ''}`;
   return `<section class="card ref-read"><div class="between"><div><h2>${esc(refEpName(e))}</h2><div class="small">${esc(refKind(e.kind))} · ${m}</div></div>${nav}</div>
     <div class="ref-body">${paras}</div>
     <div class="between">${nav}<a class="btn small" href="#/refs/${b.id}/cuts" data-ref-goto="${e.line}">이 화 경계 고치기</a></div></section>`;
@@ -466,9 +496,9 @@ function refDecodeAll(d, enc0) {
 async function refDetect(extra = {}) {
   const d = S.refDraft;
   await run('화 표시를 찾는 중', async () => {
-    const body = { text: d.text, rule: d.rule, unit: d.unit, example: d.example, strip_tails: d.strip, files: d.fileLines || [], ...extra };
+    const body = { text: d.text, rule: d.rule, unit: d.unit, example: d.example, strip_tails: d.strip, files: d.fileLines || [], repeats: d.repeats, ...extra };
     const p = await api('POST', '/refs/split', body);
-    Object.assign(d, { rule: p.rule, unit: p.unit, preview: p, cuts: p.cuts.map((c) => ({ ...c })), sel: -1, at: -1, undo: [], dirty: true });
+    Object.assign(d, { rule: p.rule, unit: p.unit, preview: p, found: p.repeats_found || [], repeats: p.repeats || [], cuts: p.cuts.map((c) => ({ ...c })), sel: -1, at: -1, undo: [], dirty: true });
     if (body.example !== undefined) d.example = body.example;
   });
 }
@@ -572,7 +602,7 @@ Object.assign(actions, {
     const cuts = d.cuts.filter((c) => c.on !== false).map(({ line, body, head, label, title, kind }) => ({ line, body, head, label, title, kind }));
     await run('저장하는 중', async () => {
       if (d.edit) {
-        await api('PUT', `/refs/${enc(d.edit)}`, { cuts, strip_tails: d.strip, rule: d.rule, unit: d.unit, example: d.example });
+        await api('PUT', `/refs/${enc(d.edit)}`, { cuts, strip_tails: d.strip, strip_repeats: d.repeats || [], rule: d.rule, unit: d.unit, example: d.example });
         const id = d.edit;
         S.refDraft = null;
         toast('경계를 저장했어요');
@@ -580,7 +610,7 @@ Object.assign(actions, {
         return;
       }
       const b = await api('POST', '/refs', { name: d.name, source: d.source, notes: d.notes, rights: d.rights, encoding: d.encoding, text: d.text, rule: d.rule,
-        example: d.example, unit: d.unit, common_head: d.preview.common_head || '', strip_tails: d.strip, cuts,
+        example: d.example, unit: d.unit, common_head: d.preview.common_head || '', strip_tails: d.strip, strip_repeats: d.repeats || [], cuts,
         files: (d.files || []).map((f, k) => ({ name: f.name, line: (d.fileLines || [])[k] || 0 })) });
       S.refDraft = null;
       REF_BYTES.length = 0;
@@ -688,6 +718,14 @@ document.addEventListener('change', (e) => {
   if (d.refEnc && dr) { refDecodeAll(dr, e.target.value); render(); }
   if (d.refRule && dr && e.target.value) refDetect({ rule: e.target.value, unit: '' });
   if (d.refStrip && dr) { dr.strip = e.target.checked; render(); }
+  if (d.refRep !== undefined && dr && dr.found[Number(d.refRep)]) {
+    const t = dr.found[Number(d.refRep)].text;
+    const set = new Set(dr.repeats || []);
+    if (e.target.checked) set.add(t); else set.delete(t);
+    dr.repeats = dr.found.map((x) => x.text).filter((x) => set.has(x)).concat([...set].filter((x) => !dr.found.some((f) => f.text === x)));
+    dr.dirty = true;
+    render();
+  }
   if (d.refOn !== undefined && dr) {
     refPush(dr);
     dr.cuts[Number(d.refOn)].on = e.target.checked;
@@ -733,6 +771,10 @@ document.addEventListener('dragleave', (e) => { const z = e.target.closest && e.
 .ref-steps { margin: var(--space-8) 0; padding-left: var(--space-20); }
 .ref-newto-run { margin-top: var(--space-12); }
 .ref-newto-run p { margin: var(--space-4) 0 0; overflow-wrap: anywhere; }
+.ref-rep { margin-top: var(--space-12); }
+.ref-rep-list { list-style: none; margin: var(--space-8) 0 0; padding: 0; display: grid; gap: var(--space-4); }
+.ref-rep-text { overflow-wrap: anywhere; }
+.ref-rep-n { color: var(--muted); white-space: nowrap; }
 .ref-inbox { margin-top: var(--space-12); padding-top: var(--space-12); border-top: 1px solid var(--line); }
 .ref-clips { margin: var(--space-8) 0 0; padding-left: var(--space-20); }
 .ref-clips span { color: var(--muted); }

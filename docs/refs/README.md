@@ -57,6 +57,7 @@
 - 번호 · 제목 · 종류 고치기: 줄의 칸을 바로 고친다. **뒤 번호 모두 다시 매기기**(이 줄부터 1씩).
 - 머리 앞 글: 첫 경계 앞 글은 '머리 글'(작품 제목 · 작가 · 소개)로 따로 보인다. 종류를 '프롤로그'로 바꾸면 화로 친다. 기본은 제외.
 - 작가의 말 떼기: 화 끝의 '작가의 말' · '후기' · '공지' 줄을 찾으면 표시하고, **화마다 작가의 말 떼기** 체크(기본 켜짐)로 그 뒤 글을 화에서 뺀다.
+- 되풀이 줄 떼기(2026-11-06): 화의 첫머리나 끝 세 줄 안에 똑같은 긴 줄(20자 넘게)이 켠 화의 절반 넘게 나오면 고지문 · 공지로 보고 **화마다 되풀이되는 줄** 목록에 나온 화 수와 함께 보인다. 처음 나눌 때는 모두 체크하고, 체크한 줄은 화 글에서 뺀다. 원문은 그대로 둔다.
 - 고친 것은 저장 전까지 브라우저에만 있다. **되돌리기**(Ctrl+Z) 한 단계씩.
 
 아래 저장 띠: **저장하기 (n화)**. 확인할 것이 남았으면 버튼 옆에 "확인할 것 4개가 남았어요"를 적고 막지 않는다.
@@ -156,6 +157,7 @@ class RefEp(BaseModel):            # 저장 때 재 두는 값 (화면 표 · �
     chars: int = 0
     metrics: Optional[StyleMetrics] = None
     tail_cut: int = 0              # 떼어 낸 작가의 말 글자 수
+    repeat_cut: int = 0            # 떼어 낸 되풀이 줄 글자 수
 
 class RefBook(BaseModel):
     id: str                        # uuid 12자 (library 와 같은 ID_RE)
@@ -169,6 +171,7 @@ class RefBook(BaseModel):
     common_head: str = ""          # 떼어 낸 공통 머리
     preface_end: int = 0           # 머리 글이 끝나는 줄 (첫 경계 줄)
     strip_tails: bool = True       # 작가의 말 떼기
+    strip_repeats: list[str] = []  # 화 글에서 빼는 되풀이 줄 (고지문 · 공지)
     cuts: list[RefCut] = []
     eps: list[RefEp] = []
     made: list[RefMade] = []       # 이 원고로 만든 것 {kind: style | revlab | note, id, at, eps: '1~10'}
