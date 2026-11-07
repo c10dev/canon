@@ -24,6 +24,12 @@ class PromptIn(BaseModel):
     backends: list[PromptBackend] = Field(default_factory=lambda: [PromptBackend()])
 
 
+class PromptLoadIn(BaseModel):
+    kind: str = "episode"
+    project: str = ""  # 비면 예시 작품
+    n: int = 0  # 0 이면 갈래마다 기본 화
+
+
 class PromptTrialEdit(BaseModel):
     star: Optional[bool] = None
     note: Optional[str] = None
@@ -51,6 +57,15 @@ def list_promptlab() -> dict:
 @router.post("/api/promptlab")
 def create_promptlab(body: PromptIn) -> dict:
     return promptlab.view(promptlab.create(body.title, body.system, body.prompt, body.temperature, body.backends))
+
+
+@router.get("/api/promptlab/sources")
+def promptlab_sources(project: str = "") -> dict:
+    """불러오기 고르기 칸: Canon 프롬프트 갈래와, 예시 작품 또는 고른 작품의 화 목록."""
+    try:
+        return promptlab.sources(project)
+    except KeyError as e:
+        raise HTTPException(404, str(e.args[0])) from None
 
 
 @router.get("/api/promptlab/{sid}")
@@ -85,8 +100,19 @@ def run_promptlab(sid: str, body: PromptIn) -> dict:
     with usage.scope(task="promptlab"):
         runs = promptlab.run(s)
     fresh = _lab(sid)
-    promptlab.add_trial(fresh, s.system, s.prompt, s.temperature, runs)
+    promptlab.add_trial(fresh, s.system, s.prompt, s.temperature, runs, s.source)
     return promptlab.view(promptlab.save(fresh))
+
+
+@router.post("/api/promptlab/{sid}/load")
+def load_promptlab(sid: str, body: PromptLoadIn) -> dict:
+    """Canon 프롬프트를 작업지시서와 같은 함수(prompts.brief_parts)로 조립해 시스템 · 요청 칸에 채우고 저장한다. 작품은 읽기만 한다."""
+    s = _lab(sid)
+    try:
+        promptlab.load_prompt(s, body.kind, body.project, body.n)
+    except KeyError as e:
+        raise HTTPException(404, str(e.args[0])) from None
+    return promptlab.view(promptlab.save(s))
 
 
 @router.put("/api/promptlab/{sid}/trials/{no}")
@@ -121,6 +147,8 @@ EXPORTS = (
     "edit_promptlab_trial",
     "get_promptlab",
     "list_promptlab",
+    "load_promptlab",
+    "promptlab_sources",
     "put_promptlab",
     "restore_promptlab_trial",
     "run_promptlab",

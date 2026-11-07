@@ -33,3 +33,19 @@ def test_session_view_draws_trials():
     assert "&lt;글&gt;" in got and "키 없음" in got
     assert "요청 프롬프트가 지금과 달라요" in got and 'data-action="pgRestore" data-arg="1">' in got
     assert 'data-action="pgRun">돌리기</button>' in got
+
+
+@needs_node
+def test_load_card_and_source_chip():
+    got = run_js(["app.js", "usage.js", "promptlab.js"], """(() => {
+      fmtDateTime = () => '';
+      S.projects = [{ name: 'w1', title: '내 작품' }, { name: 'pl', title: '플레이', play: true }];
+      S.pgSrc = { project: '', kind: 'check', n: 2, info: { kinds: [{ id: 'episode', label: '본문 쓰기', needs_text: false }, { id: 'check', label: '검수', needs_text: true }],
+        episodes: [{ n: 1, title: '', has_text: true }, { n: 2, title: '', has_text: true }, { n: 3, title: '', has_text: false }], defaults: { episode: 3, check: 2 } } };
+      const card = pgLoadCard();
+      return { card, label: [pgSourceLabel({ label: '검수 · 예시 작품 2화' }, true), pgSourceLabel(null, false)] };
+    })()""", {})
+    assert "내 작품" in got["card"] and "플레이" not in got["card"]  # 플레이 사본은 고르지 않는다
+    assert ">3화" not in got["card"]  # 검수는 본문이 있는 화만
+    assert 'data-action="pgLoadPrompt">' in got["card"]
+    assert got["label"] == ["검수 · 예시 작품 2화 (고침)", ""]

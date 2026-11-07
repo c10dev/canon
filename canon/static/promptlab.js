@@ -1,6 +1,7 @@
 /* 프롬프트 놀이터 (작품 밖 화면 #/promptlab[/<세션 id>]). 서버는 canon/promptlab.py · research.sample, 엔드포인트는 /api/promptlab.
    시스템 · 요청 프롬프트를 직접 써서 고른 백엔드(gemini · local · mock)로 돌리고, 결과 · 시간 · 토큰 · 어림 비용을 시도로 남겨 견준다.
-   프롬프트 칸은 S.pgForm 에 고치고, 칸을 벗어날 때(change) 조용히 저장한다. 돌리기는 고친 칸을 함께 보내 서버가 먼저 저장한다. */
+   프롬프트 칸은 S.pgForm 에 고치고, 칸을 벗어날 때(change) 조용히 저장한다. 돌리기는 고친 칸을 함께 보내 서버가 먼저 저장한다.
+   '불러오기'는 Canon 프롬프트(작업지시서와 같은 조립, prompts.brief_parts)를 예시 작품이나 고른 작품으로 조립해 칸에 채운다. 고르기 칸은 S.pgSrc. */
 'use strict';
 
 DRAFT_ROOTS.pgForm = () => S.pgForm;
@@ -11,6 +12,14 @@ async function pgLoad(id) {
   S.pgLimits = { providers: home.providers, maxBackends: home.max_backends, maxTrials: home.max_trials, temperature: home.temperature };
   if (!id) { S.pg = null; S.pgForm = null; return; }
   pgSet(await api('GET', `/promptlab/${enc(id)}`));
+  if (!S.pgSrc) await pgSources('').catch(() => {});  // 불러오기 칸을 못 읽어도 세션은 연다
+}
+
+/** 불러오기 고르기 칸의 재료(갈래 · 화 목록)를 읽는다. project 가 비면 예시 작품. 갈래는 그대로 두고 화는 그 갈래의 기본 화로 */
+async function pgSources(project) {
+  const info = await api('GET', `/promptlab/sources${project ? `?project=${enc(project)}` : ''}`);
+  const kind = (S.pgSrc && S.pgSrc.kind) || 'episode';
+  S.pgSrc = { project, kind, n: info.defaults[kind] || 0, info };
 }
 
 /** 서버가 돌려준 세션을 받는다. 고치던 칸이 있으면 서버 것으로 바꾼다 (저장 뒤에만 부르므로 잃는 고침은 없다). */
@@ -42,6 +51,11 @@ function pgDiff(t, f) {
 }
 
 const PG_DIFF = { same: '지금 프롬프트와 같아요', system: '시스템 프롬프트가 지금과 달라요', prompt: '요청 프롬프트가 지금과 달라요', both: '두 프롬프트 모두 지금과 달라요' };
+/** 불러온 출처 한 줄: '검수 · 예시 작품 2화', 고쳤으면 ' (고침)' (순수 함수) */
+function pgSourceLabel(src, edited) {
+  return src ? `${src.label}${edited ? ' (고침)' : ''}` : '';
+}
+
 const PG_PROV = { gemini: 'Gemini', local: '로컬', mock: '가짜 응답(mock)' };
 
 function viewPromptLab() {
@@ -93,17 +107,37 @@ function pgForm() {
       ${b.provider === 'local' ? input('서버 주소', `backends.${i}.url`, { ...o, placeholder: '비우면 설정 값, 예: http://localhost:11434/v1' }) : ''}
       <div class="row"><button type="button" class="btn small" data-action="pgBackendDrop" data-arg="${i}">빼기</button></div></div>`).join('');
   const more = f.backends.length < (lim.maxBackends || 4);
-  return `<section class="card">
+  return `${pgLoadCard()}<section class="card">
       <div class="between"><h2>프롬프트</h2><span class="small" id="pg-saved">${S.pgDirty ? '저장하지 않은 고침이 있어요' : '칸을 벗어나면 저장해요'}</span></div>
+      ${S.pg.source ? `<div class="row"><span class="chip">불러옴</span><span class="small">${esc(pgSourceLabel(S.pg.source, S.pg.source_edited))}</span></div>` : ''}
       ${input('제목', 'title', { ...o, placeholder: '비우면 요청 첫 줄로 지어요' })}
       ${input('시스템 프롬프트', 'system', { ...o, rows: 5, autogrow: true, placeholder: '모델의 역할 · 규칙. 비워도 돼요' })}
       ${input('요청 프롬프트', 'prompt', { ...o, rows: 8, autogrow: true, placeholder: '모델에게 보낼 요청' })}
       <div class="small">시스템 ${(f.system || '').length.toLocaleString()}자 · 요청 ${(f.prompt || '').length.toLocaleString()}자 (한국어는 대략 1.7자에 1토큰)</div>
-      ${input('온도', 'temp', { ...o, type: 'number', kind: 'text', placeholder: '비우면 설정 값', hint: `${lo}~${hi}, 로컬 모델에만 적용` })}
+      ${input('온도', 'temp', { ...o, type: 'number', kind: 'text', placeholder: '비우면 설정 값', hint: `${lo}~${hi}, Gemini · 로컬에 적용` })}
       <h3>돌릴 백엔드</h3>${rows || '<p class="small">아직 백엔드가 없어요.</p>'}
       <div class="row"><button type="button" class="btn small" data-action="pgBackendAdd"${more ? '' : ' disabled title="더 넣을 수 없어요"'}>+ 백엔드</button>
         <button type="button" class="btn small${S.pgDirty ? ' primary' : ''}" data-action="pgSave">저장</button></div>
       <p class="small">백엔드는 차례로 불러요. Gemini는 사용량 · 비용에 '프롬프트 놀이터'로 잡혀요.</p>
+    </section>`;
+}
+
+/** Canon 프롬프트 불러오기 카드: 갈래 · 작품(예시 작품 또는 내 작품) · 화를 고르고 '불러오기'. */
+function pgLoadCard() {
+  const src = S.pgSrc;
+  if (!src) return '';
+  const info = src.info;
+  const works = (S.projects || []).filter((x) => !x.play);
+  const kind = info.kinds.find((k) => k.id === src.kind) || info.kinds[0];
+  const eps = info.episodes.filter((e) => !kind.needs_text || e.has_text);
+  const opt = (v, label, on) => `<option value="${esc(String(v))}"${on ? ' selected' : ''}>${esc(label)}</option>`;
+  return `<section class="card" id="pg-load">
+      <div class="between"><h2>Canon 프롬프트 불러오기</h2></div>
+      <p class="small">집필 · 검수 같은 Canon 프롬프트를 작업지시서와 같은 방식으로 조립해 시스템 · 요청 칸에 채워요. 작품은 읽기만 해요.</p>
+      <div class="grid-2"><div class="field"><label for="pg-src-kind">프롬프트</label><select id="pg-src-kind" data-pg-src="kind">${info.kinds.map((k) => opt(k.id, k.label, k.id === src.kind)).join('')}</select></div>
+        <div class="field"><label for="pg-src-project">작품</label><select id="pg-src-project" data-pg-src="project">${opt('', '예시 작품 (mock으로 만든 6화 단편)', !src.project)}${works.map((w) => opt(w.name, w.title || w.name, w.name === src.project)).join('')}</select></div></div>
+      <div class="field"><label for="pg-src-n">화</label><select id="pg-src-n" data-pg-src="n">${eps.length ? eps.map((e) => opt(e.n, `${e.n}화${e.title ? ` · ${e.title}` : ''}${e.has_text ? '' : ' (본문 없음)'}`, e.n === src.n)).join('') : opt(0, kind.needs_text ? '본문이 있는 화가 없어요' : '플롯이 있는 화가 없어요', true)}</select></div>
+      <div class="row"><button type="button" class="btn small primary" data-action="pgLoadPrompt"${eps.some((e) => e.n === src.n) ? '' : ' disabled title="화를 골라 주세요"'}>불러오기</button></div>
     </section>`;
 }
 
@@ -144,6 +178,14 @@ document.addEventListener('change', (e) => {
     pgSave(true).then(() => render());
     return;
   }
+  if (el.dataset.pgSrc) {
+    const key = el.dataset.pgSrc;
+    if (key === 'project') { run('작품을 읽는 중', () => pgSources(el.value)); return; }
+    if (key === 'kind') { S.pgSrc.kind = el.value; S.pgSrc.n = S.pgSrc.info.defaults[el.value] || 0; }
+    if (key === 'n') S.pgSrc.n = Number(el.value);
+    render();
+    return;
+  }
   if (el.dataset.pgNote != null) { actions.pgNote(Number(el.dataset.pgNote), el.value); return; }
   if (el.dataset.root === 'pgForm') pgSave(true);
 });
@@ -164,7 +206,7 @@ function pgTrialCard(t) {
       ${t.system ? `<h3>시스템</h3><div class="rw-text">${esc(t.system)}</div>` : '<p class="small">시스템 프롬프트 없음</p>'}
       <h3>요청</h3><div class="rw-text">${esc(t.prompt)}</div></details>`;
   return `<section class="card" id="pg-trial-${t.no}">
-      <div class="between"><div class="row"><span class="chip">${t.no}번</span>${t.temperature != null ? `<span class="small">온도 ${t.temperature}</span>` : ''}<span class="small">${esc(PG_DIFF[diff])}</span></div>
+      <div class="between"><div class="row"><span class="chip">${t.no}번</span>${t.source ? `<span class="chip" title="불러온 Canon 프롬프트">${esc(pgSourceLabel(t.source, t.source_edited))}</span>` : ''}${t.temperature != null ? `<span class="small">온도 ${t.temperature}</span>` : ''}<span class="small">${esc(PG_DIFF[diff])}</span></div>
         <span class="small">${esc(fmtDateTime(t.at))}</span></div>
       ${prompt}
       <div class="grid-auto">${t.runs.map(pgRunCard).join('')}</div>
@@ -184,6 +226,16 @@ Object.assign(actions, {
       const s = await api('POST', '/promptlab', {});
       location.hash = `#/promptlab/${enc(s.id)}`;
     }, { render: 'never' });
+  },
+  async pgLoadPrompt() {
+    const src = S.pgSrc;
+    const f = S.pgForm;
+    if (((f.system || '').trim() || (f.prompt || '').trim()) && !(await askConfirm('지금 시스템 · 요청 칸을 불러온 프롬프트로 바꿀까요? 지금 칸의 글은 사라져요. 지난 시도에 남은 프롬프트는 그대로예요.', { ok: '바꾸기', danger: true }))) return;
+    await run('프롬프트를 조립하는 중', async () => {
+      if (S.pgDirty) await pgSave(true);
+      pgSet(await api('POST', `/promptlab/${enc(S.pg.id)}/load`, { kind: src.kind, project: src.project, n: src.n }));
+      toast(`${S.pg.source.label} 프롬프트를 불러왔어요`);
+    });
   },
   async pgSave() {
     if (!S.pgDirty) return toast('바뀐 칸이 없어요');

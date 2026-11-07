@@ -288,7 +288,7 @@ function rsSampleView() {
       <div class="field"><label for="rs-prompt">요청</label><textarea id="rs-prompt" rows="4" data-rs="prompt" placeholder="비 오는 바닷가 소도시 등대 앞, 오빠를 찾는 서윤의 장면을 600자로 써라.">${esc(S.rs.prompt)}</textarea></div>
       <details class="rs-more"><summary>시스템 지시 · 온도</summary>
         <div class="field"><label for="rs-system">시스템 지시</label><textarea id="rs-system" rows="2" data-rs="system">${esc(S.rs.system)}</textarea></div>
-        <div class="field" style="max-width:160px"><label for="rs-temp">온도 <span class="hint">로컬만</span></label><input id="rs-temp" type="number" step="0.1" min="0" max="2" value="${esc(S.rs.temperature)}" data-rs="temperature" placeholder="설정값"></div>
+        <div class="field" style="max-width:160px"><label for="rs-temp">온도 <span class="hint">로컬 · Gemini</span></label><input id="rs-temp" type="number" step="0.1" min="0" max="2" value="${esc(S.rs.temperature)}" data-rs="temperature" placeholder="설정값"></div>
       </details>
     </section>${rsSampleOut(rsEntry('sample'))}${rsPast('sample')}`;
 }
