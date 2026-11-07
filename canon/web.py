@@ -37,7 +37,7 @@ from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록
 from .schema import (Ability, ArcPlan, BodySuggestion, StatInitSuggestion, StatSkin, StatWindowSuggestion, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
 from . import abilities, anchor, atlas, findings, foreshadows, heatplan, setupchat, stattrial, statwin, timeline
-from .schema import AgentSession, ChatScope, KnowsFoldSet, Deadline, Storyboard, StoryTime, Foreshadow, StatValue
+from .schema import AgentSession, ChatScope, HeatArcProposal, KnowsFoldSet, Deadline, Storyboard, StoryTime, Foreshadow, StatValue
 from .metrics import StyleMetrics
 from .schema import CharacterState, ConsistencyReport, FindingStatus, Severity, StoryEvent
 from .schema import FieldIdeas, NameOption, Recap, StateDeltaAI, to_delta
@@ -1089,6 +1089,9 @@ def _put_locked(name: str, p: Project, disk: Project, response: Response, merged
     if not p.serial:  # 화수를 바꿔도 열 계획이 1화부터 끝 화까지 빈틈없이 맞게 (heatplan.fit)
         p.heat, _ = heatplan.fit(p.heat, 1, p.meta.target_episodes)
         p.heat_turn, _ = heatplan.fit_turn(p.heat_turn, 1, p.meta.target_episodes)
+    for a in p.story_arcs if p.serial else []:  # 장편은 아크마다 그 아크 범위로
+        a.heat, _ = heatplan.fit(a.heat, a.start_ep, a.end_ep)
+        a.heat_turn, _ = heatplan.fit_turn(a.heat_turn, a.start_ep, a.end_ep)
     if p.serial:
         pipeline.validate_parts(p.parts, p.meta.target_episodes)
         pipeline.validate_story_arcs(p)
@@ -1745,7 +1748,7 @@ def apply_series(name: str, plan: SeriesPlan) -> Project:
 
 
 @app.post("/api/projects/{name}/arcs/apply")
-def apply_arc(name: str, prop: ArcProposal) -> Project:
+def apply_arc(name: str, prop: HeatArcProposal) -> Project:
     p = _load(name)
     pipeline.apply_arc(p, prop)
     return _save(name, p)
@@ -2556,6 +2559,17 @@ def _job_nextarc(name: str, body: "JobIn", p: Project, kind: str, n: int | None,
     return label, total, owned, fn
 
 
+def _job_heat(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 heat: 이미 있는 기승전결 위에 열 계획만 받는다. 장편은 ep 가 아크 번호(없으면 다 쓰지 않은 첫 아크)."""
+    start, end, _acts, _where, arc = pipeline.heat_target(p, n or 0)
+    label = f"아크 {arc.number} 열 계획 제안" if arc else "열 계획 제안"
+    note, number = body.note, arc.number if arc else 0
+
+    def fn(job: jobs.Job):
+        return pipeline.propose_heat(llm, store.load(name), number, note).model_dump() | {"arc": number}
+    return label, 1, set(), fn
+
+
 def _job_convert(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
     """작업 convert: (이름표, 전체 걸음, 맡은 화, 할 일)."""
     _not_auto(name)
@@ -3066,6 +3080,7 @@ JOB_MAKERS: dict[str, Callable] = {
     "arc": _job_arc,
     "series": _job_series,
     "nextarc": _job_nextarc,
+    "heat": _job_heat,
     "convert": _job_convert,
     "rebuild": _job_rebuild,
     "rework": _job_rework,
@@ -3123,7 +3138,7 @@ def start_job(name: str, body: JobIn) -> dict:
 
 # 결과가 반영 전 제안인 작업. 화면이 반영하거나 버릴 때까지 pending.json 에 둔다
 # (본문 · 플롯 · 판정 같은 작업은 서버가 이미 작품에 썼다)
-PENDING_KINDS = {"arc", "suggest", "style", "series", "nextarc", "convert", "rebuild", "rework", "storyline", "recap_arc", "recap_part", "fold_knows", "state", "openings"}
+PENDING_KINDS = {"arc", "heat", "suggest", "style", "series", "nextarc", "convert", "rebuild", "rework", "storyline", "recap_arc", "recap_part", "fold_knows", "state", "openings"}
 
 
 def _keep_pending(name: str, kind: str, n: int | None, label: str, fn):

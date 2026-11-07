@@ -404,6 +404,7 @@
   - 머리의 'AI로 다시 만들기 ▾' `plotAiMenu`(요청 칸 `S.planNote`)
   - 구간 한 줄 머리 + 화 카드 격자 `actBoard`
   - 단편은 보드 위에 열 계획 카드(`heatplan.js` `heatCard`, story.md)
+  - 장편은 고른 아크 보드 위에 그 아크의 열 계획 카드(`heatCard(p, arc)`)
   - 구간 · 아크 · 부 고치기는 서랍 없이 그 자리에서 `actEditor` · `arcEditor` · `partEditor`
   - 아크 주요 인물 이름 체크 `arcCastField`
 - 640px 이하 사건 줄의 도구(연출 · 위로 · 아래로 · 빼기)는 숨기지 않고 사건 글 아래 줄 오른쪽에 둔다

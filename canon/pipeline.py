@@ -19,6 +19,8 @@ from .schema import (
     ArcEdit,
     ArcPlan,
     HeatArcPlan,
+    HeatArcProposal,
+    HeatProposal,
     ClaimSet,
     ArcProposal,
     ArcUndo,
@@ -720,35 +722,72 @@ def plan_arc(llm: LLM, p: Project, note: str = "") -> ArcPlan:
     return plan
 
 
-def clean_heat_plan(p: Project, plan: HeatArcPlan, total: int) -> list[str]:
+def clean_heat_plan(p: Project, plan: HeatProposal, total: int) -> list[str]:
+    """단편 작품 전체(1~total 화)의 열 계획 응답을 고친다 (clean_heat)."""
+    return clean_heat(p, plan, 1, total)
+
+
+def clean_heat(p: Project, plan: HeatProposal, start: int, end: int) -> list[str]:
     """열 계획 응답을 고친다: 화를 빈틈없이 맞추고(heatplan.fit), 뒤집힘을 범위 안에 두고,
-    stakes 는 갈래가 단서가 아니고 내용이 있는 것만 남겨 심는 화를 1~total 로 자르고 지금 복선과 겹치지 않는 id 를 준다."""
-    plan.heat, notes = heatplan.fit(plan.heat, 1, total)
-    plan.heat_turn, more = heatplan.fit_turn(plan.heat_turn, 1, total)
+    stakes 는 갈래가 단서가 아니고 내용이 있는 것만 남겨 심는 화를 start~end 로 자르고 지금 복선과 겹치지 않는 id 를 준다."""
+    plan.heat, notes = heatplan.fit(plan.heat, start, end)
+    plan.heat_turn, more = heatplan.fit_turn(plan.heat_turn, start, end)
     have = {f.id for f in p.foreshadows}
     stakes = []
     for f in plan.stakes:
         if f.kind == "clue" or not f.description.strip():
             continue
-        n = min(max(f.planted_ep, 1), total)
+        n = min(max(f.planted_ep, start), end)
         k = 1
         while f"fs-{n:02d}-h{k}" in have:
             k += 1
         have.add(f"fs-{n:02d}-h{k}")
-        due = f.due_ep if f.due_ep and n <= f.due_ep <= total else None
+        due = f.due_ep if f.due_ep and n <= f.due_ep else None
         stakes.append(f.model_copy(update={"id": f"fs-{n:02d}-h{k}", "planted_ep": n, "status": "open", "payoff_ep": None,
                                            "due_ep": due, "scope": "arc", "description": f.description.strip()}))
     plan.stakes = stakes
     return notes + more
 
 
-def apply_heat_plan(p: Project, plan: HeatArcPlan) -> int:
-    """열 계획 제안을 작품에 넣는다. 계획 · 원칙 · 뒤집힘은 바꾸고, stakes 는 같은 id 가 없을 때만 복선에 더한다. 더한 수를 돌려준다."""
-    p.heat, p.heat_rule, p.heat_turn = plan.heat, plan.heat_rule, plan.heat_turn
+def apply_heat_plan(p: Project, plan: HeatProposal, arc: StoryArc | None = None) -> int:
+    """열 계획 제안을 넣는다. 단편은 작품에, 장편은 arc 에. 계획 · 원칙 · 뒤집힘은 바꾸고,
+    stakes 는 같은 id 가 없을 때만 복선에 더한다. 더한 수를 돌려준다."""
+    target = arc if arc is not None else p
+    target.heat, target.heat_rule, target.heat_turn = plan.heat, plan.heat_rule, plan.heat_turn
     have = {f.id for f in p.foreshadows}
     new = [f for f in plan.stakes if f.id not in have]
     p.foreshadows.extend(new)
     return len(new)
+
+
+def heat_target(p: Project, number: int = 0) -> tuple[int, int, list, str, StoryArc | None]:
+    """열 계획을 받을 범위: (첫 화, 끝 화, 기승전결, 이름, 아크). 단편은 작품 전체, 장편은 number 아크(0 이면 아직 다 쓰지 않은 첫 아크)."""
+    if not p.serial:
+        if not p.arc:
+            raise ValueError("기승전결 구조를 먼저 만들어 주세요")
+        return 1, p.meta.target_episodes, p.arc, "이 단편 전체의", None
+    arcs = sorted(p.story_arcs, key=lambda a: a.start_ep)
+    if not arcs:
+        raise ValueError("아크를 먼저 기획해 주세요")
+    written = {e.plot.number for e in p.episodes if e.text}
+    a = next((x for x in arcs if x.number == number), None) if number else \
+        next((x for x in arcs if any(n not in written for n in range(x.start_ep, x.end_ep + 1))), arcs[-1])
+    if a is None:
+        raise ValueError(f"아크 {number}이 없어요")
+    return a.start_ep, a.end_ep, a.acts, f"아크 {a.number} '{a.title}'({a.start_ep}~{a.end_ep}화)의", a
+
+
+def propose_heat(llm: LLM, p: Project, number: int = 0, note: str = "") -> HeatProposal:
+    """이미 있는 기승전결 · 플롯 위에 열 계획만 받는다. 저장하지 않는다 (적용은 apply_heat_plan).
+    본문이 있는 화는 지금 계획이 있으면 그 줄을 그대로 둔다 (AI 가 바꿔 보내도 되돌린다)."""
+    start, end, acts, where, arc = heat_target(p, number)
+    ask = prompts.heat_propose_prompt(p, start, end, acts, where) + prompts.request_block(note)
+    prop = llm.json(prompts.SYSTEM_PLANNER, ask, HeatProposal, hint={"start": start, "end": end, "note": note})
+    clean_heat(p, prop, start, end)
+    old = {s.ep: s for s in heatplan.plan(p, start)}
+    written = {e.plot.number for e in p.episodes if e.text}
+    prop.heat = [old[s.ep] if s.ep in written and s.ep in old else s for s in prop.heat]
+    return prop
 
 
 ACT_NAMES = ["기", "승", "전", "결"]
@@ -1006,11 +1045,15 @@ def plan_next_arc(llm: LLM, p: Project, length: int = 0, note: str = "") -> ArcP
     length = length or p.meta.arc_length
     part = p.part_for(start)
     limit = part.end_ep if part else p.meta.target_episodes
+    heat = p.settings.heat_plan
     ask = prompts.next_arc_prompt(p, start, length, note)
+    if heat:  # 요청은 맨 뒤에 덧붙인다 (작가의 말은 next_arc_prompt 안에 있다)
+        ask += prompts.heat_next_arc_rules(start, length)
+    schema = HeatArcProposal if heat else ArcProposal
     hint = {"start": start, "length": length, "limit": limit, "number": len(p.story_arcs) + 1}
-    prop = llm.json(prompts.SYSTEM_PLANNER, ask, ArcProposal, hint=hint)
+    prop = llm.json(prompts.SYSTEM_PLANNER, ask, schema, hint=hint)
     if not prop.arc.acts:  # acts 는 필수 칸이 아니라 모델이 빼먹을 수 있다. 요청을 맨 뒤에 덧붙여 한 번 더 묻는다
-        prop = llm.json(prompts.SYSTEM_PLANNER, ask + prompts.ARC_ACTS_RETRY, ArcProposal, hint=hint)
+        prop = llm.json(prompts.SYSTEM_PLANNER, ask + prompts.ARC_ACTS_RETRY, schema, hint=hint)
     return clean_arc(p, prop)
 
 
@@ -1042,6 +1085,15 @@ def clean_arc(p: Project, prop: ArcProposal) -> ArcProposal:
     a.cast += [c.id for c in prop.new_characters if c.id not in a.cast]  # 이 아크를 위해 만든 인물이다 (후보로 남는 근거)
     open_fs = {f.id for f in p.foreshadows if f.status == "open"}
     a.payoffs = [f for f in a.payoffs if f in open_fs]
+    if isinstance(prop, HeatArcProposal):  # 열 계획은 아크 범위에 맞춰 arc.heat 로 옮긴다. 화면이 고쳐 보낸 arc.heat 가 있으면 그것을 쓴다
+        if a.heat and not prop.heat:
+            prop.heat, prop.heat_rule, prop.heat_turn = a.heat, a.heat_rule, a.heat_turn
+        if prop.heat:
+            clean_heat(p, prop, a.start_ep, a.end_ep)
+            a.heat, a.heat_rule, a.heat_turn = prop.heat, prop.heat_rule, prop.heat_turn
+    elif a.heat:
+        a.heat, _ = heatplan.fit(a.heat, a.start_ep, a.end_ep)
+        a.heat_turn, _ = heatplan.fit_turn(a.heat_turn, a.start_ep, a.end_ep)
     return prop
 
 
@@ -1072,6 +1124,9 @@ def apply_arc(p: Project, prop: ArcProposal) -> StoryArc:
         raise
     add_candidates(p, [c.model_copy(update={"tier": "support" if c.tier == "main" else c.tier, "first_ep": 0})
                        for c in prop.new_characters])
+    if isinstance(prop, HeatArcProposal):  # 정점을 받칠 새 판돈 · 관객 · 제약
+        have = {f.id for f in p.foreshadows}
+        p.foreshadows.extend(f for f in prop.stakes if f.id not in have)
     undo = ArcUndo(number=a.number)  # characters 는 예전 작품(아크가 인물을 바로 더하던 때)의 되돌리기에만 남는다
     for f in p.foreshadows:
         if f.id in a.payoffs and f.status == "open":

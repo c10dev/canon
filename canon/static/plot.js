@@ -917,7 +917,8 @@ function nextArcPanel(start) {
       ${input('서술 시점', 'arc.pov', { root: 'arcDraft', placeholder: `비우면 작품 기본 (${P().style.narration_pov || '정하지 않음'})` })}
       <div class="grid-2">${input('주요 인물 id', 'arc.cast', { root: 'arcDraft', kind: 'list', rows: 3 })}${input('회수할 복선 id', 'arc.payoffs', { root: 'arcDraft', kind: 'list', rows: 3 })}</div>
       ${d.new_characters.length ? `<div class="field"><span class="label">새 인물 (인물 후보로 들어와요. 이 인물이 나오는 화를 확정하면 조연으로 등록돼요)</span>${d.new_characters.map((c) => `<div class="note plain"><strong>${esc(c.name)}</strong> <span class="small">${esc(c.id)} · ${esc(c.role)}</span><br>${esc(c.personality || c.goal)}<br><span class="small">말투: ${esc(c.speech_style)}</span></div>`).join('')}</div>` : ''}
-      <div class="small">끝 화를 바꾸면 결 구간이 따라 늘거나 줄어요. 다른 구간 범위는 적용한 뒤 구간 고치기에서 바꿀 수 있어요.</div>
+      ${(a.heat || []).length ? heatProposalPart({ ...a, stakes: d.stakes || [] }, null) : ''}
+      <div class="small">끝 화를 바꾸면 결 구간이 따라 늘거나 줄어요. 다른 구간 범위는 적용한 뒤 구간 고치기에서 바꿀 수 있어요.${(a.heat || []).length ? ' 열 계획도 새 범위에 맞춰 채우거나 잘라요.' : ''}</div>
     </section>`;
   }
   const btn = jobBtn('nextarc', null, 'AI로 다음 아크 제안');
@@ -927,6 +928,7 @@ function nextArcPanel(start) {
     ${old.length ? `<div class="note warn">50화 넘게 열린 복선이 ${old.length}개 있어요. 이번 아크에서 회수하거나 다시 떠올리도록 AI에게 함께 보여 줘요.</div>` : ''}
     <div class="grid-2">${input('아크 길이 (화)', 'length', { root: 'arcForm', type: 'number', min: 0, zeroBlank: true, placeholder: 'AI가 정함', hint: '비우면 AI가 내용에 맞게 (보통 10~25화)' })}<div></div></div>
     ${input('이번 아크에 바라는 것 (선택)', 'note', { root: 'arcForm', rows: 3, autogrow: true, placeholder: '예: 학교 밖으로 무대를 넓히고, 라이벌과 처음 손잡게' })}
+    ${heatPlanToggle('plan-note')}
     ${planAhead(p).notes.map((x) => `<div class="note warn">${esc(x)}</div>`).join('')}
     <div class="row"><button class="btn primary" data-action="planNextArc"${btn.attr}>${btn.label}</button><span class="small">지금까지 실제로 쓴 줄거리(요약), 부 목표, 열린 복선을 보고 아크 하나를 제안해요. 적용 전에 고칠 수 있어요.</span></div>
   </section>`;
@@ -969,7 +971,7 @@ function arcPanel(a, sel, head = {}) {
       ${a.cast.length || a.payoffs.length ? `<div class="row arc-people">${a.cast.length ? `<span class="small">주요 인물</span>${a.cast.map((id) => `<span class="chip">${esc(charName(id))}</span>`).join('')}` : ''}${a.payoffs.length ? `<span class="small">회수할 복선</span>${a.payoffs.map((id) => `<span class="chip">${esc((P().foreshadows.find((f) => f.id === id) || {}).description || id)}</span>`).join('')}` : ''}</div>` : ''}`}
       ${recap}
     </section>
-    <div class="board-wrap">${((pj) => pj ? `<div class="note info">구간마다 초안을 만드는 중이에요${pj.note ? ` (${esc(pj.note)})` : ''}. 끝난 구간부터 카드가 채워지고, 채워진 화는 바로 고칠 수 있어요.</div>` : '')(jobFor('plots', a.number))}${g.plotted || jobFor('plots', a.number) ? '' : `<div class="note info between"><span>구간을 확인한 뒤 화별 플롯 초안을 만들면 이 아크의 화 카드가 채워져요.</span><button class="btn small${head.html ? '' : ' primary'}" data-action="draftArcPlots" data-arg="${a.number}"${plotsBtn.attr}>${plotsBtn.label}</button></div>`}${actBoard(a.acts, eps, sel)}</div>`;
+    <div class="board-wrap">${((pj) => pj ? `<div class="note info">구간마다 초안을 만드는 중이에요${pj.note ? ` (${esc(pj.note)})` : ''}. 끝난 구간부터 카드가 채워지고, 채워진 화는 바로 고칠 수 있어요.</div>` : '')(jobFor('plots', a.number))}${heatCard(p, a)}${g.plotted || jobFor('plots', a.number) ? '' : `<div class="note info between"><span>구간을 확인한 뒤 화별 플롯 초안을 만들면 이 아크의 화 카드가 채워져요.</span><button class="btn small${head.html ? '' : ' primary'}" data-action="draftArcPlots" data-arg="${a.number}"${plotsBtn.attr}>${plotsBtn.label}</button></div>`}${actBoard(a.acts, eps, sel)}</div>`;
 }
 
 function arcEditor(a) {

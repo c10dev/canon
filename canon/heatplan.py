@@ -1,7 +1,7 @@
 """열 계획: 화마다 긴장과 보상(열)을 얼마나, 어떤 몫으로 쓰나.
 
 기승전결이 '무슨 일이 일어나나'를 정하면, 열 계획은 '열을 언제 아끼고 언제 쓰나'를 정한다.
-단편은 작품 전체에 계획 하나(`Project.heat` · `heat_rule` · `heat_turn`)를 둔다. 장편 아크는 아직 계획을 갖지 않는다.
+단편은 작품 전체에 계획 하나(`Project.heat` · `heat_rule` · `heat_turn`)를, 장편은 아크마다 하나(`StoryArc.heat` · …)를 둔다.
 경고 · 화면 · 프롬프트는 형식을 가리지 않고 `plan` · `step` · `turn` 으로 찾는다.
 경고와 실제 열 재기는 AI 를 부르지 않고, 막지 않는다.
 """
@@ -20,19 +20,44 @@ ROLES = {"build": "쌓기", "hold": "미루기", "peak": "터뜨리기", "after"
 KINDS = foreshadows.KINDS
 
 
-def plan(p: Project) -> list[HeatStep]:
-    """이 작품의 열 계획. 장편은 아직 빈 목록."""
-    return [] if p.serial else p.heat
+class Scope:
+    """계획 하나가 덮는 범위: 단편 작품 전체 또는 장편 아크 하나."""
+    def __init__(self, steps: list[HeatStep], rule: str, turn: HeatTurn, acts: list, start: int, end: int):
+        self.steps, self.rule, self.turn, self.acts, self.start, self.end = steps, rule, turn, acts, start, end
+
+
+def scopes(p: Project) -> list[Scope]:
+    """계획이 있는 범위들. 단편은 하나, 장편은 계획이 있는 아크마다."""
+    if not p.serial:
+        return [Scope(p.heat, p.heat_rule, p.heat_turn, p.arc, 1, p.meta.target_episodes)] if p.heat else []
+    return [Scope(a.heat, a.heat_rule, a.heat_turn, a.acts, a.start_ep, a.end_ep) for a in sorted(p.story_arcs, key=lambda a: a.start_ep) if a.heat]
+
+
+def scope_for(p: Project, n: int) -> Scope | None:
+    """n화가 든 범위. 장편은 n화가 든 아크."""
+    return next((s for s in scopes(p) if s.start <= n <= s.end), None)
+
+
+def plan(p: Project, n: int = 0) -> list[HeatStep]:
+    """열 계획. 단편은 작품 전체, 장편은 n화가 든 아크의 계획(n 이 0 이면 빈 목록)."""
+    if not p.serial:
+        return p.heat
+    s = scope_for(p, n) if n else None
+    return s.steps if s else []
 
 
 def step(p: Project, n: int) -> HeatStep | None:
     """n화의 열 계획 한 줄. 계획이 없거나 그 화가 계획에 없으면 None."""
-    return next((s for s in plan(p) if s.ep == n), None)
+    return next((s for s in plan(p, n) if s.ep == n), None)
 
 
-def turn(p: Project) -> HeatTurn | None:
-    """뒤집힘. 정하지 않았으면 None."""
-    t = None if p.serial else p.heat_turn
+def turn(p: Project, n: int = 0) -> HeatTurn | None:
+    """뒤집힘. 단편은 작품의 것, 장편은 n화가 든 아크의 것. 정하지 않았으면 None."""
+    if not p.serial:
+        t = p.heat_turn
+    else:
+        sc = scope_for(p, n) if n else None
+        t = sc.turn if sc else None
     return t if t and t.plant_ep > 0 else None
 
 
@@ -124,10 +149,15 @@ def _kind(run: list[HeatStep]) -> str:
 
 
 def warnings(p: Project) -> list[HeatWarn]:
-    """열 계획과 플롯 · 복선 · 큐 시트를 견준 경고. 계획이 없으면 빈 목록."""
-    steps = plan(p)
-    if not steps:
-        return []
+    """열 계획과 플롯 · 복선 · 큐 시트를 견준 경고. 계획이 없으면 빈 목록. 장편은 아크마다 따로 본다."""
+    out: list[HeatWarn] = []
+    for sc in scopes(p):
+        out += _scope_warnings(p, sc)
+    return out
+
+
+def _scope_warnings(p: Project, sc: Scope) -> list[HeatWarn]:
+    steps = sc.steps
     out: list[HeatWarn] = []
 
     def warn(ep: int, code: str, text: str) -> None:
@@ -138,13 +168,14 @@ def warnings(p: Project) -> list[HeatWarn]:
     if len(steps) >= FLAT_MIN_EPS:
         cv = pstdev(levels) / mean(levels) if mean(levels) else 0.0
         if cv < CV_MIN:
-            warn(0, "flat", f"열 눈금의 기복이 작아요 (변동계수 {cv:.2f}, {CV_MIN} 이상을 권해요). 아끼는 화와 터뜨리는 화의 차이를 키워 보세요")
-    total = max(p.meta.target_episodes, max(s.ep for s in steps))
-    gi = next((a for a in p.arc if a.name == "기"), None)
+            warn(sc.start if p.serial else 0, "flat", f"열 눈금의 기복이 작아요 (변동계수 {cv:.2f}, {CV_MIN} 이상을 권해요). 아끼는 화와 터뜨리는 화의 차이를 키워 보세요")
+    end = max(sc.end, max(s.ep for s in steps))
+    size = end - sc.start + 1
+    gi = next((a for a in sc.acts if a.name == "기"), None)
     runs = peak_runs(steps)
     for run in runs:
         for s in run:
-            if s.ep <= total * EARLY_SHARE or (gi and gi.start_ep <= s.ep <= gi.end_ep):
+            if s.ep - sc.start + 1 <= size * EARLY_SHARE or (gi and gi.start_ep <= s.ep <= gi.end_ep):
                 warn(s.ep, "early_peak", f"{s.ep}화의 터뜨리기가 일러요. 앞쪽은 쌓기 · 미루기로 열을 아껴요")
         first = run[0].ep
         if not any(f.kind == "stake" and f.planted_ep < first and (f.status == "open" or (f.payoff_ep or 0) >= first)
@@ -169,6 +200,8 @@ def warnings(p: Project) -> list[HeatWarn]:
     for e in sorted(p.episodes, key=lambda e: e.plot.number):
         first = [i for i in e.plot.foreshadow_payoff if i in fs and fs[i].kind == "audience" and i not in shown]
         shown.update(first)
+        if not sc.start <= e.plot.number <= sc.end:
+            continue
         nxt = _plot(p, e.plot.number + 1)
         if not nxt:
             continue
@@ -176,7 +209,7 @@ def warnings(p: Project) -> list[HeatWarn]:
         for i in first:
             if i not in nxt_text:
                 warn(nxt.number, "no_aftermath", f"{e.plot.number}화에서 거둔 관객 '{fs[i].description}'이 본 일의 결과가 {nxt.number}화 플롯에 없어요")
-    t = turn(p)
+    t = sc.turn if sc.turn.plant_ep > 0 else None
     if t and runs and t.fail_ep >= runs[-1][0].ep:
         warn(t.fail_ep, "late_turn", f"반격이 {t.fail_ep}화에 들켜요. 큰 정점({runs[-1][0].ep}화) 전에 들켜야 판돈이 커져요")
     for s in steps:

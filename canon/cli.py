@@ -8,6 +8,7 @@
   python -m canon learn 내소설 [--pick 1,3 | -y] [--push]   본문 수정 기록에서 문체 규칙 후보 찾기 (고른 것만 반영)
   python -m canon stylechat 내소설 "대사를 더 짧게" [--ep 3] [--pick 1,2 | -y] [--push]   대화로 문체 다듬기 (--example 이면 지금 문체로 예시 글)
   python -m canon arc 내소설            기승전결 구간 설계 (단편)
+  python -m canon heat 내소설 [--arc 3] [--note ..]   이미 있는 기승전결(장편은 아크) 위에 열 계획만 받기 (본문 있는 화는 그대로)
   python -m canon series 내소설         장편: 총 화수를 부로 나누는 부 구성 제안
   python -m canon convert 내소설 --episodes 200 [--ending keep|reopen]   단편을 장편으로 전환 (--undo 로 되돌리기)
   python -m canon convert 내소설 --episodes 200 --rebuild [--span 36] [--ending-at arc|part|series]   단편을 씨앗으로 앞부분 재구성
@@ -84,7 +85,7 @@ from pathlib import Path
 from . import (address, archetypes, autorun, branches, cast, charlog, dynamics, elements, features, genres, illust, library, logline, metrics, naming, pipeline, prompts, publish, research, store,
                storylines, updater, usage)
 from .llm import dump, get_llm
-from .schema import FINDING_STATUS, SEVERITY, ConsistencyReport, HeatArcPlan, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
+from .schema import FINDING_STATUS, SEVERITY, ConsistencyReport, HeatArcPlan, HeatProposal, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
 from . import abilities, anchor, atlas, blocktrial, findings, stattrial, foreshadows, setupchat, statwin, timeline
 from . import birth, cue, heatplan, jobs, labstats, play, soelab, tofix
 from .schema import ArcProposal, ChatScope, Deadline, MapPlace, StatValue, StateDeltaAI, StoryArc, to_delta
@@ -407,18 +408,38 @@ def cmd_arc(a: argparse.Namespace) -> None:
         print(f"[{act.name}] {act.start_ep}~{act.end_ep}화  목표: {act.goal}  / 전환점: {act.key_turn}{_act_pov(act)}")
     heat = plan if isinstance(plan, HeatArcPlan) and plan.heat else None
     if heat:
-        print(f"\n열 계획: {heat.heat_rule}")
-        for s in heat.heat:
-            print(f"  {s.ep}화 열 {s.level} · {heatplan.ROLES[s.role]}{f' · {s.kind}' if s.kind else ''}{f'  {s.note}' if s.note else ''}")
-        for f in heat.stakes:
-            print(f"  [{heatplan.KINDS[f.kind]}] {f.description} ({f.planted_ep}화에 심음)")
-        if heat.heat_turn.plant_ep:
-            print(f"  뒤집힘: {heat.heat_turn.plant_ep}화에 심고 {heat.heat_turn.fail_ep}화에 들킴 · {heat.heat_turn.gain}")
+        _print_heat(heat)
     if confirm("이 구조로 확정할까요?", a.yes):
         p.arc = plan.acts
         if heat:
             pipeline.apply_heat_plan(p, heat)
         print(f"저장: {store.save(a.name, p)}")
+
+
+def _print_heat(h) -> None:
+    """열 계획 제안을 찍는다 (arc · heat 명령)."""
+    print(f"\n열 계획: {h.heat_rule}")
+    for s in h.heat:
+        print(f"  {s.ep}화 열 {s.level} · {heatplan.ROLES[s.role]}{f' · {s.kind}' if s.kind else ''}{f'  {s.note}' if s.note else ''}")
+    for f in h.stakes:
+        print(f"  [{heatplan.KINDS[f.kind]}] {f.description} ({f.planted_ep}화에 심음)")
+    if h.heat_turn.plant_ep:
+        print(f"  뒤집힘: {h.heat_turn.plant_ep}화에 심고 {h.heat_turn.fail_ep}화에 들킴 · {h.heat_turn.gain}")
+
+
+def cmd_heat(a: argparse.Namespace) -> None:
+    """이미 있는 기승전결(장편은 아크) 위에 열 계획만 받는다. 본문이 있는 화의 계획은 바꾸지 않는다."""
+    p = store.load(a.name)
+    try:
+        start, end, _acts, _where, arc = pipeline.heat_target(p, a.arc)
+    except ValueError as e:
+        sys.exit(str(e))
+    prop = pipeline.propose_heat(get_llm("plan"), p, arc.number if arc else 0, a.note or "")
+    print(f"{start}~{end}화{f' (아크 {arc.number})' if arc else ''}")
+    _print_heat(prop)
+    if confirm("이 열 계획으로 바꿀까요?", a.yes):
+        added = pipeline.apply_heat_plan(p, prop, arc)
+        print(f"새 복선 {added}개 · 저장: {store.save(a.name, p)}")
 
 
 def cmd_plot(a: argparse.Namespace) -> None:
@@ -584,6 +605,8 @@ def cmd_nextarc(a: argparse.Namespace) -> None:
     if prop.reply:
         print(prop.reply)
     _print_arc(prop.arc)
+    if prop.arc.heat:
+        _print_heat(prop if prop.heat else HeatProposal(heat=prop.arc.heat, heat_rule=prop.arc.heat_rule, heat_turn=prop.arc.heat_turn))
     for c in prop.new_characters:
         print(f"  새 인물 후보: {c.name}({c.id}) {c.role} - {c.speech_style}")
     if prop.new_characters:
@@ -2573,6 +2596,9 @@ def _plan_commands(sub, add) -> None:
     sp.add_argument("--save", metavar="이름", help="분석한 문체를 라이브러리에도 저장")
     sp = add("arc", cmd_arc)
     sp.add_argument("--note", help="AI 에게 바라는 것 (예: 3화 안에 첫 반전)")
+    sp = add("heat", cmd_heat)
+    sp.add_argument("--arc", type=int, default=0, help="장편: 열 계획을 받을 아크 번호 (비우면 다 쓰지 않은 첫 아크)")
+    sp.add_argument("--note", help="AI 에게 바라는 것")
     sp = add("series", cmd_series)
     sp.add_argument("--note", help="AI 에게 바라는 것")
     sp = add("convert", cmd_convert)

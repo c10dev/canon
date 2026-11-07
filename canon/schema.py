@@ -533,12 +533,16 @@ class HeatActual(BaseModel):
     tension: Optional[float] = Field(None, description="큐 시트 긴장도(1~5)를 큐 목표 글자 수로 가중한 평균")
 
 
-class HeatArcPlan(ArcPlan):
-    """기승전결과 함께 받는 열 계획 (Settings.heat_plan 을 켠 단편)."""
-    heat: list[HeatStep] = Field(default_factory=list, description="1화부터 마지막 화까지 화마다 한 줄, 빈틈없이")
-    heat_rule: str = Field("", description="이 작품의 열 원칙 한 줄")
+class HeatProposal(BaseModel):
+    """AI 가 내는 열 계획: 화별 계획 · 원칙 · 뒤집힘 · 새 판돈 (pipeline.propose_heat, 기승전결 · 다음 아크와 함께 받을 때도 같은 칸)."""
+    heat: list[HeatStep] = Field(default_factory=list, description="다룰 화마다 한 줄, 빈틈없이")
+    heat_rule: str = Field("", description="열 원칙 한 줄")
     heat_turn: HeatTurn = Field(default_factory=HeatTurn)
     stakes: list["Foreshadow"] = Field(default_factory=list, description="정점을 받칠 새 판돈 · 제약 · 관객 · 금지선 (kind 가 clue 가 아닌 복선)")
+
+
+class HeatArcPlan(HeatProposal, ArcPlan):
+    """기승전결과 함께 받는 열 계획 (Settings.heat_plan 을 켠 단편)."""
 
 
 class EpisodePlot(BaseModel):
@@ -699,6 +703,18 @@ class StoryArc(BaseModel):
     payoffs: list[str] = Field(default_factory=list, description="이 아크에서 회수할 열린 복선 id")
     pov: str = Field("", description="이 아크의 서술 시점 운용 한 줄 (예: 여주 서윤 1인칭으로 바뀜). 작품 기본 시점 그대로면 비움")
     summary: str = Field("", description="아크가 끝난 뒤의 요약. 작가가 승인한 것만 넣는다")
+    heat: SkipJsonSchema[list[HeatStep]] = Field(default_factory=list, description="아크의 열 계획. start_ep 부터 end_ep 까지 (canon/heatplan.py). AI 응답 형식에는 없고 HeatArcProposal 로 받는다")
+    heat_rule: SkipJsonSchema[str] = ""
+    heat_turn: SkipJsonSchema[HeatTurn] = Field(default_factory=HeatTurn)
+
+    @model_serializer(mode="wrap")
+    def _prompt_view(self, handler: SerializerFunctionWrapHandler, info: SerializationInfo):
+        """프롬프트용 직렬화(llm.dump 의 context prompt)에서는 열 계획을 뺀다. 열 계획은 prompts.heat_* 가 따로 넣는다."""
+        data = handler(self)
+        if isinstance(data, dict) and info.context and info.context.get("prompt"):
+            for k in ("heat", "heat_rule", "heat_turn"):
+                data.pop(k, None)
+        return data
 
     @field_validator("title")
     @classmethod
@@ -711,6 +727,10 @@ class ArcProposal(BaseModel):
     arc: StoryArc
     new_characters: list[Character] = Field(default_factory=list, description="이 아크에서 새로 등장하는 인물. 기존 인물은 넣지 않는다")
     reply: str = Field("", description="작가에게 하는 설명: 왜 이 아크인지, 어떤 복선을 회수하고 무엇을 남기는지 2~4문장")
+
+
+class HeatArcProposal(HeatProposal, ArcProposal):
+    """열 계획을 함께 받는 다음 아크 제안 (Settings.heat_plan 을 켠 장편). clean_arc 가 열 계획을 arc.heat 로 옮긴다."""
 
 
 StorylineKind = Literal["서브플롯", "과거 회상", "외전", "인물 이야기"]
@@ -3203,7 +3223,9 @@ class StudioDraft(BaseModel):
     candidates: list[StudioCandidate] = Field(default_factory=list, description="서로 다른 방향으로 쓴 문단 안")
 
 
+HeatProposal.model_rebuild()
 HeatArcPlan.model_rebuild()
+HeatArcProposal.model_rebuild()
 Snapshot.model_rebuild()
 SerialRebuild.model_rebuild()
 ShortArchive.model_rebuild()
