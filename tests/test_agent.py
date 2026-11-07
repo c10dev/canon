@@ -176,6 +176,27 @@ def test_fill_turns_options_only_edit_into_ask():
     assert agent.fill(Fake(), "s", "p", full, {}) is full  # 칸이 있으면 부르지 않는다
 
 
+def test_fill_tells_why_the_step_takes_two_calls():
+    """빈 칸을 다시 받는 동안 작업 진행 줄(cancel.say → Job.retry)에 까닭을 띄우고, 끝나면 지운다."""
+    from canon import agent, cancel
+    from canon.schema import AgentAsk, PlotAgentStep
+
+    said: list[str] = []
+
+    class Fake:
+        def json(self, system, prompt, schema, hint=None):
+            said.append(f"call:{said[-1] if said else ''}")
+            return AgentAsk(question="몇 화로 갈까요?", options=[])
+
+    token = cancel.notice.set(said.append)
+    try:
+        step = agent.fill(Fake(), "s", "p", PlotAgentStep(tool="ask"), {})
+    finally:
+        cancel.notice.reset(token)
+    assert step.question == "몇 화로 갈까요?"
+    assert said[0].startswith("AI가 빈 칸을") and said[1] == f"call:{said[0]}" and said[-1] == ""
+
+
 def test_is_preamble():
     from canon.agent import is_preamble
     assert is_preamble("아크 1(1~7화)의 기승전결 구조, 심리·감각의 점층성, 그리고 현재 화별 플롯의 보완 필요 지점을 분석해 작가님께 전달합니다.")
@@ -284,6 +305,8 @@ def test_step_call_waits_less_and_caps_output(client, monkeypatch):
     assert agent.run_turn(Fake(), "lh", sid, t, job)["end"] == "done"
     assert seen == {"wait": agent.STEP_WAIT, "out": agent.STEP_OUT_TOKENS}
     assert job.step_at >= before and job.public()["step_at"] == job.step_at
+    turn = agent.turn_of(store.load("lh"), sid, t)[1]
+    assert turn.ended and turn.ended >= turn.at  # 화면이 걸린 시간을 보인다
     assert llm.gemini_timeout() == llm.GEMINI_TIMEOUT  # 단계 밖은 그대로
 
 

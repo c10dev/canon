@@ -35,8 +35,10 @@
 - 대화 에이전트(지금은 플롯 대화 `plot`만)
 - 세션(`AgentSession`, 주제마다 여럿, 다듬을 곳 · 권한 모드 `ask|draft|all`). 다듬을 곳은 `arc:N` · `next` · 부 `part:N` · 한 화 `ep:N`(`pipeline.chat_focus`, 그 곳이 든 아크는 `chat_target`), 밖을 고치면 종류 `outside` 로 늘 묻는다(`outside`, `permit`)
 - 턴(`AgentTurn`)을 백그라운드 작업 `agent` 로 돌린다(`run_turn`, 단계마다 `llm.json(PlotAgentStep)`, 최대 `MAX_STEPS`=8, 단계마다 저장)
+- 턴이 끝나면 끝난 시각 `AgentTurn.ended` 를 남긴다(`_step` · 단계 상한 · 작업 상태 맞추기). 옛 턴은 빈 값이다
 - `PlotAgentStep.tool` 은 빈 글과 도구 이름만 받는 Literal 이다. 빈 글이면 reply 로 턴을 끝낸다
 - 도구 이름만 오고 칸이 빈 단계는 같은 단계에서 그 칸만 담은 형식으로 한 번 더 부른다(`fill`: ask 는 `AgentAsk`, edit_plot 은 `PlotRevision`, 방향 안만 오면 되묻기로). 그래도 비면 되돌림 단계(`ask_empty` · `edit_empty`)
+- `fill` 이 다시 부르는 동안 작업 진행 줄(`cancel.say` → `Job.retry`)에 까닭을 띄우고 끝나면 지운다
 - 모델이 'reply' · 'done' 같은 끝 이름(`schema.AGENT_END_TOOLS`)을 tool 에 적으면 빈 글로 받는다
 - 도구는 읽기(`read_plots` · `read_summaries` · `find_text`(`context.recall`) · `read_cast`, 결과 `RESULT_LIMIT` 자)와 쓰기 `edit_plot`
 - 되묻기 `ask`
@@ -389,6 +391,9 @@
 - 턴마다 단계 줄 · 바로 쓴 것(항목 · 턴 되돌리기) · 승인 카드 · 되묻기 카드
 - 입력 상자(+ 재료, `/` 빠른 요청 `AGENT_CMDS`, 보내기 · 멈추기)와 상태 줄(권한 모드 · 대상 · 모델 · 단계 상한)
 - 진행은 `pollJobs` 가 `agentJobUpdate` 로 알린다
+- 도는 턴의 단계 줄은 지금 하는 일(`agentStepNow`: `Job.retry` 가 있으면 그 사정, 없으면 'AI 응답을 기다리는 중')과 직전 단계의 생각(`Job.note`)을 보인다
+- 지금 하는 일과 늦음 안내는 1초마다 그 자리만 고친다. `Job.retry` 가 보이는 동안 일반 늦음 안내는 숨긴다
+- 끝난 턴은 '끝났어요 · N단계 · 걸린 시간'(`agentTurnTook`, `at` 부터 `ended` 까지) 줄을 보인다
 - 화면 낭독기에 알릴 새 답은 `agentLastReply`(끝났거나 묻는 중인 턴의 답)이고 `chat.js` `chatAnnounce` 가 알린다
 - 권한 이름 `AGENT_MODES` · `AGENT_KINDS` 는 `agent.MODE_LABELS` · `KIND_LABELS` 와 같다(`tests/test_agent_js.py`)
 

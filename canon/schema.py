@@ -1160,6 +1160,7 @@ class AgentTurn(BaseModel):
     error: str = ""
     job: str = Field("", description="이 턴을 돌리는 작업 id")
     at: str = ""
+    ended: str = Field("", description="턴이 끝난 시각. 화면이 at 부터 걸린 시간을 보인다 (agent.finish)")
 
 
 class AgentSession(BaseModel):

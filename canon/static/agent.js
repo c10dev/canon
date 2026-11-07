@@ -76,6 +76,18 @@ function agentStepWait(j) {
   return `이번 단계 ${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
 }
 
+/** 지금 단계가 하는 일. AI 호출이 기다리거나 다시 부르는 중이면 그 사정(서버 Job.retry, cancel.say)을 보인다 */
+function agentStepNow(j) {
+  return (j && j.retry) || 'AI 응답을 기다리는 중';
+}
+
+/** 끝난 턴의 걸린 시간 '1분 12초' · '45초'. 시각이 없으면 빈 글 (옛 턴은 ended 가 없다) */
+function agentTurnTook(t) {
+  const sec = t.at && t.ended ? Math.round((Date.parse(t.ended) - Date.parse(t.at)) / 1000) : NaN;
+  if (!(sec >= 0)) return '';
+  return sec < 60 ? `${sec}초` : `${Math.floor(sec / 60)}분${sec % 60 ? ` ${sec % 60}초` : ''}`;
+}
+
 /** 세션의 다듬을 곳 이름. 부 · 화(part:N · ep:N)는 서버 pipeline.chat_focus, 아크 · 다음 아크는 chat_target 과 같은 대상 */
 function agentTargetText(target) {
   const m = /^(part|ep):(\d+)$/.exec(target || '');
@@ -174,6 +186,7 @@ function agentLastReply() {
 function agentTurn(s, t, i) {
   const last = i === s.turns.length - 1;
   const running = t.end === '';
+  const job = running ? agentRunningJob() : null;
   const count = (k) => t.steps.filter((x) => x.kind === k).length;
   const sum = [['read', '읽음'], ['write', '바꿈'], ['wait', '승인 기다림'], ['block', '막힘'], ['ask', '되물음']]
     .map(([k, l]) => (count(k) ? `${l} ${count(k)}` : '')).filter(Boolean).join(' · ') || (running ? '시작하는 중' : '단계 없음');
@@ -181,12 +194,13 @@ function agentTurn(s, t, i) {
       <summary><b>${esc(sum)}</b><span class="caret">단계 ${t.steps.length}</span></summary>
       <ol class="step-list">${t.steps.map((x) => `<li class="step ${x.kind}"><span class="ico" aria-hidden="true">${AGENT_STEP_ICON[x.kind] || '·'}</span>
         <span class="what"><b>${esc(agentToolName(x.tool))}</b>${x.label ? ` · ${esc(x.label)}` : ''}</span><span class="why">${esc(x.why)}</span></li>`).join('')}
-      ${running ? `<li class="step run"><span class="ico" aria-hidden="true">…</span><span class="what">다음 단계를 고르는 중</span><span class="why"></span></li>` : ''}</ol></details>` : '';
-  const job = running ? agentRunningJob() : null;
+      ${running ? `<li class="step run"><span class="ico" aria-hidden="true">…</span><span class="what"${job ? ` data-step-now="${job.id}"` : ''}>${esc(agentStepNow(job))}</span><span class="why">${job && job.note ? `방금 생각: ${esc(job.note)}` : ''}</span></li>` : ''}</ol></details>` : '';
   const bar = running ? `<div class="run-bar" role="status"><span class="spinner small" aria-hidden="true"></span>
       <span>${job ? job.done : t.steps.length}/${S.agent.max_steps}단계</span>${job ? `<span data-step-wait="${job.id}" aria-hidden="true">${agentStepWait(job)}</span>` : ''}<span class="run-meter" aria-hidden="true"><i style="width:${Math.round(((job ? job.done : 0) / S.agent.max_steps) * 100)}%"></i></span></div>
-      ${job ? `<div class="note warn" data-step-slow="${job.id}"${agentStepSec(job) > AGENT_SLOW ? '' : ' hidden'}>AI 응답이 늦어요. 한 단계는 보통 30초 안에 끝나요. ${AGENT_STEP_WAIT / 60}분 동안 응답이 없으면 한 번 다시 부르고, 또 없으면 오류로 멈춰요. 기다리지 않으려면 ■ 로 멈춘 뒤 '이어 하기'로 다시 보내세요.</div>` : ''}` : '';
+      ${job ? `<div class="note warn" data-step-slow="${job.id}"${agentStepSec(job) > AGENT_SLOW && !job.retry ? '' : ' hidden'}>AI 응답이 늦어요. 한 단계는 보통 1분 안에 끝나요. ${AGENT_STEP_WAIT / 60}분 동안 응답이 없으면 한 번 다시 부르고, 또 없으면 오류로 멈춰요. 기다리지 않으려면 ■ 로 멈춘 뒤 '이어 하기'로 다시 보내세요.</div>` : ''}` : '';
+  const took = agentTurnTook(t);
   const ends = {
+    done: `<div class="small">끝났어요 · ${t.steps.length}단계${took ? ` · ${took}` : ''}</div>`,
     cap: `<div class="note warn"><div>${S.agent.max_steps}단계에서 멈췄어요. 이어서 더 할 수 있어요.</div>${last ? `<div class="row proposal-actions"><button type="button" class="btn small primary" data-action="agentContinue" data-arg="${i}">이어 하기</button></div>` : ''}</div>`,
     stopped: `<div class="note plain"><div>멈췄어요. 쓰던 것은 저장하지 않았어요.${t.error ? ` (${esc(t.error)})` : ''}</div>${last ? `<div class="row proposal-actions"><button type="button" class="btn small" data-action="agentContinue" data-arg="${i}">이어 하기</button></div>` : ''}</div>`,
     error: `<div class="note err"><div>오류로 멈췄어요: ${esc(t.error)}</div>${last ? `<div class="row proposal-actions"><button type="button" class="btn small" data-action="agentContinue" data-arg="${i}">다시 이어 하기</button></div>` : ''}</div>`,
@@ -709,8 +723,12 @@ setInterval(() => {
     const j = S.jobs.find((x) => x.id === el.dataset.stepWait);
     if (j && j.status === 'running') el.textContent = agentStepWait(j);
   });
+  document.querySelectorAll('[data-step-now]').forEach((el) => {
+    const j = S.jobs.find((x) => x.id === el.dataset.stepNow);
+    if (j && j.status === 'running') el.textContent = agentStepNow(j);
+  });
   document.querySelectorAll('[data-step-slow]').forEach((el) => {
     const j = S.jobs.find((x) => x.id === el.dataset.stepSlow);
-    el.hidden = !(j && j.status === 'running' && agentStepSec(j) > AGENT_SLOW);
+    el.hidden = !(j && j.status === 'running' && agentStepSec(j) > AGENT_SLOW && !j.retry);  // 까닭(retry)이 보이면 일반 안내는 숨긴다
   });
 }, 1000);
