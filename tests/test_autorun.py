@@ -232,7 +232,7 @@ def test_estimate(demo, monkeypatch):
     p.settings.stage_extract = False
     off = autorun.estimate(p, 6, False, Policy())
     on = autorun.estimate(p, 6, True, Policy())
-    assert off["episodes"] == 6 and off["calls"] == {"plan": 0, "write": 6, "revise": 0, "check": 6, "state": 6}  # 단편은 스토리보드가 기본으로 꺼짐
+    assert off["episodes"] == 6 and off["calls"] == {"board": 0, "write": 6, "revise": 0, "check": 6, "state": 6}  # 단편은 스토리보드가 기본으로 꺼짐
     assert off["cost"] > 0 and on["cost"] == pytest.approx(off["cost"] / 2, abs=0.01)
     assert off["batch_rounds"] == 0 and on["batch_rounds"] == 12
     no_check = autorun.estimate(p, 6, False, Policy(check=False))

@@ -921,7 +921,7 @@ OpenAI 호환 API 를 여는 서버면 된다. 단계마다 백엔드를 고를 
 export CANON_LOCAL_URL=http://localhost:11434/v1   # Ollama. llama.cpp :8080/v1, vLLM :8000/v1
 export CANON_LOCAL_MODEL=gemma4:31b                # 비우면 서버에 하나뿐인 모델
 export CANON_LLM_WRITE=local                       # 본문만 로컬 (plan / write / check / state / name / revise / illustration / play / chat)
-export CANON_MODEL_STATE=gemini-3.8-flash          # 상태 변경안만 다른 모델 (CANON_MODEL_PLAN / _WRITE / _CHECK / _STATE / _NAME / _REVISE / _ILLUSTRATION / _PLAY / _CHAT)
+export CANON_MODEL_STATE=gemini-3.8-flash          # 상태 변경안만 다른 모델 (CANON_MODEL_PLAN / _BOARD / _WRITE / _CHECK / _STATE / _NAME / _REVISE / _ILLUSTRATION / _PLAY / _CHAT)
 export CANON_EFFORT_CHECK=high                     # Claude · Gemini 로 돌리는 단계의 추론 강도 (low | medium | high | xhigh | max, CANON_EFFORT_<단계>)
 # 전부 로컬이면 CANON_LLM=local
 

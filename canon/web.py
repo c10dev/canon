@@ -2853,7 +2853,7 @@ def _job_write(name: str, body: "JobIn", p: Project, kind: str, n: int | None, l
             make = body.board == "make"
             use_cues = body.cues != "none"
             make_cues = use_cues and cue.on(p) and not e.text and cue.remake(p, n)  # 없거나 낡은 AI · 뼈대 시트
-            plan = get_llm("plan") if make or make_cues else None  # 스토리보드 · 큐 시트는 plan 단계 모델
+            plan = get_llm("board") if make or make_cues else None  # 스토리보드 · 큐 시트 단계 (비우면 계획 단계)
             then_check = p.settings.check_after_write and not e.text  # 처음 쓰는 본문만 바로 검수한다 (Settings.check_after_write)
             checker = get_llm("check") if then_check else None  # 키가 없으면 시작할 때 바로 알린다
             label = f"{n}화 {'스토리보드와 ' if make else ''}{'큐 시트와 ' if make_cues else ''}본문{'과 검수' if then_check else ''}"
@@ -3120,7 +3120,7 @@ def start_job(name: str, body: JobIn) -> dict:
         _waiting_409(old)
     stage = {"write": "write", "state": "state", "recap_arc": "state", "recap_part": "state", "fold_knows": "state", "rework": "revise", "fixes": "revise",
              "hook": "check", "check": "check", "recheck": "check", "opening_drafts": "write", "stattrial": "write", "stage_extract": "check", "cue_run": "write",
-             }.get(kind, "plan")  # 나머지는 plan
+             "board": "board", "cues": "board"}.get(kind, "plan")  # 나머지는 plan
     llm = get_llm(stage)  # 키가 없으면 여기서 바로 오류를 보여 준다
 
     maker = JOB_MAKERS.get(kind)
