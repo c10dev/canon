@@ -424,9 +424,8 @@ function fixRecheckTargets(e) {
   if (!edits.length) return [];
   const open = all.filter((f) => f.status === 'open');
   const groups = new Set(open.filter((f) => f.fix_group).map((f) => f.fix_group));
-  if (edits.some((x) => x.source !== 'fix' || !groups.has(x.group))) return [];
   const last = new Map();
-  for (const x of edits) if (!last.has(x.group) || x.at > last.get(x.group)) last.set(x.group, x.at);
+  for (const x of edits) if (x.source === 'fix' && groups.has(x.group) && (!last.has(x.group) || x.at > last.get(x.group))) last.set(x.group, x.at);
   return open.filter((f) => last.has(f.fix_group) && !(f.log || []).some((ev) => ev.kind === 'recheck' && ev.at >= last.get(f.fix_group)));
 }
 

@@ -3206,17 +3206,21 @@ def keep_illust_look(p: Project, n: int, iid: str, cid: str, force: bool = False
 
 # ---------- 5. 검수 (모순 찾기, 문체 지표) ----------
 
-def check_episode(llm: LLM, p: Project, n: int, widen: bool | None = None, motion: bool | None = None) -> ConsistencyReport:
+def check_episode(llm: LLM, p: Project, n: int, widen: bool | None = None, motion: bool | None = None,
+                  scope: bool | None = None) -> ConsistencyReport:
     """한 화 검수. 장편이고 widen 이면(비우면 작품 설정 check_widen) 검수 넓히기(widen_check)를 이어 붙인다. 단편은 넓히지 않는다.
-    motion 이면(비우면 작품 설정 check_motion) 동선 따로 보기(motion_check)를 본 검수와 동시에 불러 지적을 합친다."""
+    motion 이면(비우면 작품 설정 check_motion) 동선 따로 보기(motion_check)를 본 검수와 동시에 불러 지적을 합친다.
+    scope 면(비우면 작품 설정 check_scope) 다시 검수는 바뀐 문단(check_scope)만 새로 짚으라고 묻고 report._scope 에 남긴다."""
     if not p.episode(n).text:
         raise ValueError(f"{n}화 본문이 없어요")
+    started, basis = _now(), text_basis(p.episode(n).text)  # 모델이 본 본문과 그때 시각 (apply_check 가 회차에 남긴다)
+    parts = check_scope(p.episode(n)) if (p.settings.check_scope if scope is None else scope) else []
     part = getattr(llm, "part", None)  # 자동 집필 배치: 호출마다 작업 slot 을 따로 둔다 (llm.BatchLLM.part)
     with ThreadPoolExecutor(max_workers=1) as pool:
         side = (pool.submit(contextvars.copy_context().run, motion_check, part("motion") if part else llm, p, n)
                 if (p.settings.check_motion if motion is None else motion) else None)
         material = prompts.check_material(p, n)  # 검수 가족(고침안 · 다시 검수 · 상태)과 같은 앞부분. 끝을 캐시 경계로 알린다
-        report = llm.json(prompts.SYSTEM_CHECKER, prompts.check_prompt(p, n, material=material), ConsistencyReport,
+        report = llm.json(prompts.SYSTEM_CHECKER, prompts.check_prompt(p, n, material=material, scope=parts), ConsistencyReport,
                           hint={"episode": n, PREFIX_HINT: len(material)})
         report.episode = n
         if widen_on(p, widen):
@@ -3225,7 +3229,35 @@ def check_episode(llm: LLM, p: Project, n: int, widen: bool | None = None, motio
             report = merge_motion(report, _side_result(side))
     if p.settings.stage_extract:  # 계획 장면이 있는 사건만 본문 장면 뽑기: apply_check 가 장면에 넣고 규칙 판정을 합친다
         report._stage, report._stage_held = stage_extract_all(llm, p, n)
+    report._scope, report._at, report._basis = parts, started, basis
     return report
+
+
+def _second_before(at: str) -> str:
+    """_now 모양 시각의 1초 앞."""
+    from datetime import datetime, timedelta
+
+    return (datetime.fromisoformat(at) - timedelta(seconds=1)).isoformat(timespec="seconds")
+
+
+SCOPE_AROUND = 1  # 다시 검수가 새로 짚을 곳: 고친 문단 앞뒤로 함께 보는 문단 수
+SCOPE_MAX = 0.5  # 바뀐 문단이 본문의 이 비율을 넘으면 본문 전체를 새로 짚는다
+
+
+def check_scope(ep: Episode) -> list[str]:
+    """다시 검수가 새로 짚을 바뀐 문단: 마지막 검수 뒤 되돌리지 않은 수정(findings.edits_since_check)이 놓인 문단과 앞뒤 SCOPE_AROUND 문단.
+    빈 목록이면 본문 전체를 짚는다: 첫 검수, 새 판, 수정 기록 없이 본문이 바뀜, 바뀐 문단이 본문의 SCOPE_MAX 를 넘음."""
+    if not ep.rounds or not ep.checked_at or not ep.text or ep.rounds[-1].superseded:
+        return []
+    if ep.rounds[-1].basis and ep.rounds[-1].basis == text_basis(ep.text):
+        return []  # 지난 검수와 같은 본문: 다시 묻는 것이라 전체를 본다
+    edits = findings.edits_since_check(ep)
+    if not edits:
+        return []
+    parts = prompts.fix_around(ep.text, _fix_spots(ep, edits), SCOPE_AROUND)
+    if not parts or sum(len(x) for x in parts) > len(ep.text) * SCOPE_MAX:
+        return []
+    return parts
 
 
 def motion_check(llm: LLM, p: Project, n: int, hint: dict | None = None) -> list[ConsistencyIssue]:
@@ -3350,7 +3382,7 @@ def check_two_step(llm: LLM, judge: Judge, p: Project, n: int, hint: dict | None
 
 def apply_check(p: Project, r: ConsistencyReport, source: CheckSource = "api", widen: bool = False) -> CheckRound:
     """검수 결과는 참고용 경고라 승인 없이 화에 붙여 둔다. 지적 목록에 회차 하나로 합친다 (findings.merge:
-    작가가 그대로 둠 · 잘못 짚음으로 정한 지적은 다시 나와도 그대로)."""
+    작가가 그대로 둠 · 잘못 짚음으로 정한 지적은 다시 나와도 그대로). 회차 시각과 지문은 check_episode 가 시작할 때 남긴 값이다."""
     ep = p.episode(r.episode)
     if not ep.text:
         raise ValueError(f"{r.episode}화 본문이 없어요")
@@ -3359,7 +3391,14 @@ def apply_check(p: Project, r: ConsistencyReport, source: CheckSource = "api", w
     # 장면 연출 규칙 판정: 설정이 꺼져 있어도 이미 있는 본문 장면은 판정한다. 검수 모델이 같은 문장을 짚었으면 뺀다
     rule = [x for x in stage.episode_issues(p, ep) if not any(_same_quote(x.current_quote, y.current_quote) for y in r.issues)]
     judged = any(stage.scenes_of(ep, i)[1] is not None for i in range(len(ep.plot.events)))
-    return findings.merge(ep, [*r.issues, *rule], _now(), text_basis(ep.text), source, widen, judged)
+    issues, outside = findings.scoped(ep, r.issues, r._scope)  # 다시 검수: 바뀌지 않은 문단의 새 지적은 넣지 않는다
+    # 회차 시각 · 지문은 검수를 시작할 때 것이다. 그래야 검수하는 동안 고친 곳이 '검수 뒤 고침'으로 남는다 (check_done · check_scope)
+    at = r._at or _now()
+    if r._basis and r._basis != text_basis(ep.text):  # 검수하는 동안 본문이 바뀌었다. 시각은 초까지라 시작과 같은 초에 고친 것도 세게 1초 앞당긴다
+        at = _second_before(at)
+    rnd = findings.merge(ep, [*issues, *rule], at, r._basis or text_basis(ep.text), source, widen, judged)
+    rnd.scoped, rnd.outside = bool(r._scope), len(outside)
+    return rnd
 
 
 # ---------- 5-2. 장면 연출: 플롯에서 초안, 본문에서 뽑기, 검수 때 함께 뽑기 (stage.py, docs/stage/) ----------
@@ -3814,7 +3853,7 @@ def fix_recheck_basis(ep: Episode) -> tuple[str, str, dict[str, str]]:
 
 def recheck_fixed(llm: LLM, p: Project, n: int) -> FixRecheckReport:
     """고친 곳만 다시 보기: 지난 검수 뒤 고침안을 넣은 열린 지적들을 한 번의 호출로 다시 본다 (findings.fix_recheck_targets).
-    검수 자료 전체 대신 작품 설정과 고친 곳 둘레 문단만 보낸다. 저장하지 않는다 (apply_fix_recheck).
+    검수 자료 전체 대신 작품 설정과 고친 곳 둘레 문단(직접 고친 곳 포함)만 보낸다. 저장하지 않는다 (apply_fix_recheck).
     장면 연출 규칙 지적은 LLM 없이 판정만 다시 한다 (recheck_finding). 돌려준 결과가 없는 지적은 결과에 없다."""
     ep = _editable(p, n)
     targets = findings.fix_recheck_targets(ep)
@@ -3825,7 +3864,7 @@ def recheck_fixed(llm: LLM, p: Project, n: int) -> FixRecheckReport:
     if ai:
         groups = {f.id: [e for e in ep.edits if e.group == f.fix_group and not e.undone] for f in ai}
         items = [(f, f.id, [(e.before, e.after) for e in groups[f.id]]) for f in ai]
-        around = prompts.fix_around(ep.text, _fix_spots(ep, [e for f in ai for e in groups[f.id]]))
+        around = prompts.fix_around(ep.text, _fix_spots(ep, findings.edits_since_check(ep)))  # 직접 고친 곳도 둘레로 보인다
         rep = llm.json(prompts.SYSTEM_CHECKER, prompts.fix_recheck_prompt(p, n, items, around, _decided(ep)), FixRecheckReport,
                        hint={"episode": n, "items": [{"id": f.id, "quote": f.current_quote} for f in ai], "text": ep.text,
                              PREFIX_HINT: len(prompts.static_context(p))})  # 첫 호출부터 작품 고정 앞부분을 캐시에 넣는다

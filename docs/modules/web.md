@@ -61,6 +61,7 @@
 - `isProjectJson`(`meta` 와 `episodes` 배열)인 답만 작품으로 받고 보관한다. 보관한 판으로 물었는데 아니면 보관한 것을 버리고 조건 없이 다시 받는다(`tests/test_project_cache_js.py`)
 - 작품 GET 이 돌려준 작품 객체는 화를 뺀 나머지의 판(`X-Project-Rest`)을 `restOf` 에 둔다
 - 한 화 작업(본문 쓰기 · 스토리보드 · 큐 시트 · 한 화 플롯 · 검수 · 고침안)이 끝나면 `mergeEpisodes` 가 그 화만 받는다(`touchedEpisodes`, `GET /episodes`)
+- 쓴 뒤 바로 검수하는 작업 `write` 는 본문을 저장한 걸음(`step_ep` 가 그 화)에서 그 화를 먼저 받고 `S.jobsMerged` 에 걸음을 적는다
 - 화만 받기는 나머지 판 · `edit_rev` · `saved_by` · 화 번호 목록이 서버와 같을 때만 쓴다. 하나라도 다르거나 요청이 실패하면 작품 전체를 받는다(`tests/test_merge_episodes_js.py`)
 - 화면을 잠그지 않은 요청이 돌려준 작품은 `takeEdited` 가 받는다. 그사이 입력이 있었으면 그 화와 대화 기록 · `edit_rev` 만 받아 저장하지 않은 다른 입력을 지킨다
 - 저장 응답(`X-Project-ETag`)으로 보관할 때도 `X-Project-Rest` 를 함께 보관한다. 반영 → 304 → 한 화 작업 끝에서도 화만 받는다
@@ -164,16 +165,22 @@
 - 문장에서 뜨는 고치는 창(`fixPanel`, `passage.js` 떠 있는 도구 mode `finding`: 고침안 `fixGet` · 딸린 곳 빼기 `fixSkip` · 적용 `fixApply` · 묶음 되돌리기 `fixUndo` · 이 지적만 다시 검수 `chkRecheck` · 다른 처리 길)
 - 이 지적만 다시 검수의 결과(아직 어긋남 · 딸린 지적 더함)는 보통 알림이다. 아직 어긋나면 '처리 기록 보기' 버튼을 붙인다
 - 고침안 한꺼번에의 띠(`fbBar`): 열린 지적 모두 고침안 받기 `fixAll`(작업 `fixes`), 한꺼번에 검토 열기 `fbOpen`
+- 그 아래 더 거르기 칸(`chkNarrow`): 심각도 `S.chkSev` · 종류 `S.chkType` · 문장 바뀜 `S.chkChanged`, 수는 다른 칸의 거르기를 적용해 센다. 지적이 셋 미만이고 거르지 않았으면 두지 않는다
+- 열림 목록을 더 걸렀으면 '거른 지적 N개를 한꺼번에' 줄(`chkBulk`)이 그대로 둠 · 잘못 짚음을 묻고 `PUT …/findings`(web `set_findings`)로 한 번에 정한다
 - 한꺼번에 검토 화면(`fbView`): 지적마다 고르기 `fbPick` · 안 고르기 `fbOpt` · 딸린 곳 `fbSkip` · 모두 고르기 `fbAll`
+- 한꺼번에 검토의 '고른 N개 넣고 다시 보기'(`fbApply`)는 모두 넣으면 검토 화면을 닫고 작업 `recheck` 를 바로 시작한다. 못 넣은 안이 있으면 화면을 남기고 시작하지 않는다
 - 같은 문장을 바꾸는 안 표시(`fbClash`), 넣기 `fbApply`(`POST …/fixes/apply`), 되돌리기 `fbUndo`
 - 고르기는 기본으로 켜지 않는다. 작업이 끝나면 `fixesJobResult` 가 검토 화면을 연다
 - `fbNeed` 는 서버 `pipeline.fix_targets` 와 같은 셈
-- 지난 검수 뒤 수정이 모두 고침안이면 머리의 주 버튼은 '고친 곳만 다시 보기 · 지적 N'(`fixRecheck`, 작업 `recheck`, 대상 `home.js` `fixRecheckTargets`)이고 다시 검수 버튼은 보조 버튼으로 남는다
+- 지난 검수 뒤 고침안을 넣은 열린 지적이 있으면 머리의 주 버튼은 '고친 곳만 다시 보기 · 지적 N'(`fixRecheck`, 작업 `recheck`, 대상 `home.js` `fixRecheckTargets`)이고 다시 검수 버튼은 보조 버튼으로 남는다
 - `fixRecheck` 도 `app.js` `checkReady` 로 저장하지 않은 작품 변경을 먼저 묻고 본문을 저장한 뒤 작업을 시작한다
 - 그때 회차 띠 아래 안내(`chkStrip` 의 `fast`)는 고친 문장과 앞뒤 문단만 보낸다고 알린다. 작업 결과 알림은 `JOB_DONE_MSG.recheck`
+- 고침안과 함께 직접 고친 곳이 있으면(`chkOtherEdits`) 안내는 고친 곳만 다시 보기로 먼저 닫고 직접 고친 곳은 다시 검수로 보라고 알린다
+- 마지막 회차가 바뀐 곳만 새로 짚었으면 회차 띠에 '바뀐 곳만'을 붙이고, 넣지 않은 새 지적(`CheckRound.outside`)이 있으면 그 수와 끄는 곳을 알린다
 - 장면 연출 규칙 지적은 '규칙' 표시(`ruleChip`)와 '장면 연출에서 보기'(`stageLink`, `stgGo`)
 - 다시 검수 버튼은 '판정 다시 보기'(LLM 없음)
 - 머리의 '검수 옵션 ▾' 메뉴(`checkOptsMenu`): 넓혀 찾기(장편, `Settings.check_widen`) · 동선 따로 보기(`Settings.check_motion`) · 연출 함께 뽑기(`Settings.stage_extract`)를 체크 줄과 설명으로 모은다. 머리 줄에는 검수 · 상태 승인 버튼만 둔다
+- `checkOptsMenu` 에는 쓴 뒤 바로 검수(`Settings.check_after_write`, `toggleCheckAfterWrite`)와 바뀐 곳만 새로 짚기(`Settings.check_scope`, `toggleCheckScope`)도 있다
 - 표시 `findingFlag` · 밑줄 `findingMarks` · `findingOrder` · `roundChanges` · `nearQuote` · `fixMissing` 은 순수 함수(`tests/test_check_js.py`)
 
 ### `canon/static/convert.js`
@@ -233,6 +240,7 @@
 - 저장한 뒤 알림에 '되돌리기'(`releaseUndo`)를 둔다
 - `releaseUndo` 는 같은 작품이 열려 있고 올린 화 값이 그사이 바뀌지 않았을 때만 하나 줄여 다시 저장한다
 - 고친 곳만 다시 볼 지적 `fixRecheckTargets`(서버 `findings.fix_recheck_targets` 와 같은 셈, `check.js` 머리 버튼이 쓴다)
+- `fixRecheckTargets` 는 직접 고친 곳이 함께 있어도 고침안을 넣은 지적을 돌려준다
 
 ### `canon/static/hub.js`
 
@@ -503,6 +511,7 @@
 - 새 판 비교(나란히 · 바뀐 곳 `textDiff`)와 고르기. 새 판을 쓸 때 뗀 작업 설명이 있으면 그 수를 한 줄로(`TextVersion.meta_cut`, 고르면 화로 따라감)
 - 이전 판 목록과 되돌리기
 - 서버는 `pipeline.rewrite_episode` · `set_candidate` · `adopt_candidate` · `drop_candidate` · `restore_version`
+- 쓰기 작업 끝 알림(`JOB_DONE_MSG.write`)은 쓴 뒤 바로 검수의 짚은 곳 수나 못 한 까닭(`check_error`)을 함께 알린다
 - 프롬프트는 `prompts.rewrite_prompt`
 
 ### `canon/static/settings.js`

@@ -2592,21 +2592,33 @@ def _job_rework(name: str, body: "JobIn", p: Project, kind: str, n: int | None, 
     return label, total, owned, fn
 
 
+_WRITE_CHECKS: set[tuple[str, int]] = set()  # 쓴 뒤 바로 검수하는 쓰기 작업이 도는 (작품, 화). 그동안 따로 검수를 시작하지 않는다
+_WRITE_CHECKS_LOCK = threading.Lock()
+
+
+def _run_check(name: str, n: int, llm) -> dict:
+    """한 화를 검수해 지적 목록에 회차 하나로 합치고 작업 결과를 돌려준다 (작업 check, 쓴 뒤 바로 검수)."""
+    _fill_old_spots(name)
+    q0 = store.load(name)
+    rep = pipeline.check_episode(llm, q0, n)
+    r = _edit(name, lambda q: pipeline.apply_check(q, rep, "api", pipeline.widen_on(q0))).episode(n).rounds[-1]
+    for prop in rep._stage_held:  # 작가가 손본 본문 장면은 덮지 않고 장면 연출 화면의 비교로 남긴다
+        _stage_keep(name, prop)
+    return {"issues": r.found, "round": r.no, "added": r.added, "stage": len(rep._stage),  # 짚은 곳: 검수 모델 + 장면 연출 규칙
+            "scoped": r.scoped, "outside": r.outside}  # 다시 검수: 바뀌지 않은 문단에서 새로 나와 넣지 않은 지적 수
+
+
 def _job_check(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
     """작업 check: (이름표, 전체 걸음, 맡은 화, 할 일)."""
     # 한 화 검수: 앞선 본문 전체와 설정에 어긋난 곳을 찾아 그 화에 붙인다 (집필 화면이 보여 주고 고칠 문장을 고르게 한다)
     if n is None or not p.episode(n).text:
         raise ValueError("본문이 있는 화만 검수해요")
+    if (name, n) in _WRITE_CHECKS:
+        raise ValueError(f"{n}화는 본문을 쓴 뒤 바로 검수하는 중이에요. 끝나면 결과가 검수 화면에 놓여요")
     label, total, owned = f"{n}화 검수", 1, set()
 
     def fn(job: jobs.Job):
-        _fill_old_spots(name)
-        q0 = store.load(name)
-        rep = pipeline.check_episode(llm, q0, n)
-        r = _edit(name, lambda q: pipeline.apply_check(q, rep, "api", pipeline.widen_on(q0))).episode(n).rounds[-1]
-        for prop in rep._stage_held:  # 작가가 손본 본문 장면은 덮지 않고 장면 연출 화면의 비교로 남긴다
-            _stage_keep(name, prop)
-        return {"issues": r.found, "round": r.no, "added": r.added, "stage": len(rep._stage)}  # 짚은 곳: 검수 모델 + 장면 연출 규칙
+        return _run_check(name, n, llm)
     return label, total, owned, fn
 
 
@@ -2825,10 +2837,37 @@ def _job_write(name: str, body: "JobIn", p: Project, kind: str, n: int | None, l
             use_cues = body.cues != "none"
             make_cues = use_cues and cue.on(p) and not e.text and cue.remake(p, n)  # 없거나 낡은 AI · 뼈대 시트
             plan = get_llm("plan") if make or make_cues else None  # 스토리보드 · 큐 시트는 plan 단계 모델
-            label = f"{n}화 {'스토리보드와 ' if make else ''}{'큐 시트와 ' if make_cues else ''}본문"
-            total, owned = 1 + make + make_cues, {n}
+            then_check = p.settings.check_after_write and not e.text  # 처음 쓰는 본문만 바로 검수한다 (Settings.check_after_write)
+            checker = get_llm("check") if then_check else None  # 키가 없으면 시작할 때 바로 알린다
+            label = f"{n}화 {'스토리보드와 ' if make else ''}{'큐 시트와 ' if make_cues else ''}본문{'과 검수' if then_check else ''}"
+            total, owned = 1 + make + make_cues + then_check, {n}
 
             def fn(job: jobs.Job):
+                if not then_check:
+                    return write(job)
+                with _WRITE_CHECKS_LOCK:
+                    _WRITE_CHECKS.add((name, n))
+                try:
+                    write(job)
+                    # 본문은 저장했다. 맡은 화를 내려놓아 검수하는 동안에도 작가가 읽고 고칠 수 있게 하고, 화면이 본문을 먼저 받게 알린다.
+                    # 그사이 고친 곳은 검수 회차가 시작 시각으로 남아 '검수 뒤 고침'으로 보인다 (pipeline.check_episode)
+                    job.done += 1
+                    job.release({n})
+                    job.step_ep = n
+                    job.note = f"{n}화 검수 중"
+                    try:
+                        with usage.scope(episode=n, task="check"):
+                            return {"check": _run_check(name, n, checker)}
+                    except cancel.Cancelled:
+                        raise
+                    except Exception as err:  # 검수가 실패해도 쓴 본문은 남는다. 까닭만 알린다
+                        logging.getLogger("canon").warning("%s %s화 쓴 뒤 검수 실패", name, n, exc_info=True)
+                        return {"check_error": getattr(err, "message", None) or str(err) or type(err).__name__}
+                finally:
+                    with _WRITE_CHECKS_LOCK:
+                        _WRITE_CHECKS.discard((name, n))
+
+            def write(job: jobs.Job):
                 _fill_old_spots(name)
                 lead: list[str] = []
                 made_at = ""
@@ -3973,6 +4012,28 @@ def set_finding(name: str, n: int, fid: str, body: FindingIn) -> Project:
     return _edit(name, fn)
 
 
+class FindingsIn(BaseModel):
+    ids: list[str] = Field(..., min_length=1, description="상태를 정할 지적 id 목록")
+    status: Literal["kept", "wrong"] = Field(..., description="한꺼번에 정할 상태: 그대로 둠(kept) · 잘못 짚음(wrong)")
+
+
+@app.put("/api/projects/{name}/episodes/{n}/findings")
+def set_findings(name: str, n: int, body: FindingsIn) -> Project:
+    """열린 지적 여러 개를 한꺼번에 그대로 둠 · 잘못 짚음으로 정한다 (검수 목록의 거르기 뒤 한꺼번에 정하기).
+    없는 id 나 열리지 않은 지적이 하나라도 있으면 아무것도 바꾸지 않는다."""
+    _need(name)
+
+    def fn(q: Project) -> None:
+        ep, now = q.episode(n), pipeline._now()
+        picked = [findings.find(ep, fid) for fid in dict.fromkeys(body.ids)]
+        shut = [f.id for f in picked if f.status != "open"]
+        if shut:
+            raise HTTPException(400, f"열린 지적만 한꺼번에 정할 수 있어요: {', '.join(shut)}")
+        for f in picked:
+            findings.set_status(ep, f.id, body.status, None, now)
+    return _edit(name, fn)
+
+
 @app.post("/api/projects/{name}/episodes/{n}/findings/{fid}/fixes")
 def finding_fixes(name: str, n: int, fid: str) -> Project:
     """열린 지적 하나의 AI 고침안(2~3개, 딸린 곳 포함)을 받아 그 지적에 남긴다. 본문은 바꾸지 않는다."""
@@ -5085,6 +5146,22 @@ def set_check_motion(name: str, body: CheckWiden) -> Project:
     """동선 따로 보기 켜기 · 끄기 (Settings.check_motion). 자동 집필 검수도 따른다."""
     p = _load(name)
     p.settings.check_motion = body.on
+    return _save(name, p)
+
+
+@app.put("/api/projects/{name}/check-after-write")
+def set_check_after_write(name: str, body: CheckWiden) -> Project:
+    """쓴 뒤 바로 검수 켜기 · 끄기 (Settings.check_after_write). 웹 쓰기 작업만 따른다."""
+    p = _load(name)
+    p.settings.check_after_write = body.on
+    return _save(name, p)
+
+
+@app.put("/api/projects/{name}/check-scope")
+def set_check_scope(name: str, body: CheckWiden) -> Project:
+    """다시 검수는 바뀐 문단만 새로 짚기 켜기 · 끄기 (Settings.check_scope). 자동 집필 검수도 따른다."""
+    p = _load(name)
+    p.settings.check_scope = body.on
     return _save(name, p)
 
 

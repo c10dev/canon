@@ -16,7 +16,13 @@ Object.assign(S, {
   rwSync: true,      // 나란히 비교의 두 칸을 함께 스크롤
 });
 
-JOB_DONE_MSG.write = (j) => (j.result && j.result.candidate ? `${j.ep}화 새 판이 나왔어요. 지금 판과 비교해 고르세요.` : `${j.ep}화 본문을 저장했어요.`);
+JOB_DONE_MSG.write = (j) => {
+  const r = j.result || {};
+  if (r.candidate) return `${j.ep}화 새 판이 나왔어요. 지금 판과 비교해 고르세요.`;
+  if (r.check_error) return `${j.ep}화 본문을 저장했어요. 바로 검수는 하지 못했어요: ${r.check_error}`;
+  if (r.check) return `${j.ep}화 본문을 저장하고 검수했어요: 짚은 곳 ${r.check.issues}개`;
+  return `${j.ep}화 본문을 저장했어요.`;
+};
 
 const RW_MODES = [
   ['fresh', '처음부터 새로', '지난 판은 보내지 않고 같은 플롯으로 새로 써요. 전개를 크게 바꾸고 싶을 때.'],

@@ -4,7 +4,7 @@
    (passage.js 의 떠 있는 도구, mode 'finding'): AI 고침안 비교와 적용(딸린 곳 포함), 묶음 되돌리기, 이 지적만 다시 검수, 다른 처리 길.
    지적과 회차는 서버 findings.merge 가 만든다 (Episode.findings · rounds). 상태 · 심각도 바꾸기는 PUT …/findings/{id},
    고침안 POST …/findings/{id}/fixes · …/fixes/{k}/apply, 되돌리기 POST …/fix-groups/{묶음}/undo, 다시 검수 POST …/findings/{id}/recheck,
-   고친 곳만 다시 보기(작업 'recheck', 지난 검수 뒤 수정이 모두 고침안일 때 머리의 주 버튼, home.js 의 fixRecheckTargets),
+   고친 곳만 다시 보기(작업 'recheck', 지난 검수 뒤 고침안을 넣은 열린 지적이 있을 때 머리의 주 버튼, home.js 의 fixRecheckTargets),
    한꺼번에: 열린 지적 모두 고침안 받기(작업 'fixes') → 고침안 한꺼번에 검토(지적마다 고르고 고른 것만 POST …/fixes/apply),
    문체 지표는 GET …/style. app.js 의 S, P, actions, api, render, run, home.js 의 checkState, write.js 의 epNav · nextStepBtn,
    marks.js 의 draftBox · readHtml, passage.js 의 textNow · editableEp · passageNotes · editTime · wordDiff · flushText · focusText · showTool,
@@ -14,6 +14,9 @@
 Object.assign(S, {
   chkSel: {},          // 화 → 고른 지적 id
   chkFilter: 'open',   // 지적 목록 거르기: open · fixed · kept · wrong · all
+  chkSev: '',          // 지적 목록 더 거르기: 심각도(crit · mid · low). 비면 모두
+  chkType: '',         // 지적 목록 더 거르기: 종류(ConsistencyIssue.type). 비면 모두
+  chkChanged: false,   // 지적 목록 더 거르기: 문장이 바뀐(본문에 인용이 없는) 열린 지적만
   chkRound: {},        // 화 → 고른 회차 번호 (그 회차가 바꾼 지적만 본다). 비면 처리 상태로 거른다
   chkTab: 'issues',    // 왼쪽 칸 탭: issues · opening · style
   chkStyle: {},        // 화 → 문체 지표 { metrics, warnings } 또는 { error }
@@ -69,6 +72,8 @@ function checkOptsMenu() {
   const s = P().settings;
   const opts = [
     serial() && ['toggleWiden', !!s.check_widen, '넓혀 찾기', '검수 뒤 이번 화 진술마다 옛 화를 더 찾아, 처음 검수에 넣지 못한 근거가 나온 진술만 다시 물어요. 검수 호출이 2번 늘어요'],
+    ['toggleCheckAfterWrite', !!s.check_after_write, '쓴 뒤 바로 검수', '집필 화면에서 본문을 처음 쓰면 같은 작업에서 바로 검수해요. 본문은 먼저 받아 읽고 고칠 수 있고, 검수하는 동안 고친 곳은 검수 뒤 고침으로 남아요. 새 판(다시 생성)은 검수하지 않고, 화마다 검수 호출이 늘어요'],
+    ['toggleCheckScope', s.check_scope !== false, '바뀐 곳만 새로 짚기', '다시 검수할 때 지난 검수 뒤 고친 문단과 앞뒤 문단에서 나온 새 지적만 넣어요. 바뀌지 않은 문단은 지난 검수가 이미 봐서, 고칠 때마다 새 지적이 또 나오는 일을 줄여요. 치명 지적은 어디서 나와도 넣어요'],
     ['toggleCheckMotion', s.check_motion !== false, '동선 따로 보기', '이번 화 본문만 넣고 인물의 자리 · 향한 쪽 · 손 · 물건이 어긋난 곳을 한 번 더 찾아요. 본 검수와 동시에 불러 기다리는 시간은 그대로고, 검수 호출이 1번 늘어요'],
     ['toggleStageExtract', s.stage_extract !== false, '연출 함께 뽑기', '계획 장면이 있는 사건마다 본문에서 장면 연출을 뽑아 규칙으로 판정해요. 본문이 바뀐 사건만 뽑고, 그런 사건마다 검수 호출이 1번 늘어요'],
   ].filter(Boolean);
@@ -251,16 +256,29 @@ function chkStrip(n, e, st, fast = []) {
   const chips = rounds.slice(-4).map((r) => {
     const gone = (r.gone_ids || []).length;
     const again = (r.again_ids || []).length;
-    const label = `${r.no}회차${r.at ? ` · ${editTime(r.at)}` : ''} · 짚은 ${r.found}${r.no > 1 ? ` · 새로 ${r.added}` : ''}${gone ? ` · 사라짐 ${gone}` : ''}${r.no > 1 && again ? ` · 다시 ${again}` : ''}${r.kept_again ? ` · 결정 그대로 ${r.kept_again}` : ''}${from[r.source] || ''}${r.widen ? ' · 넓혀 찾기' : ''}`;
+    const label = `${r.no}회차${r.at ? ` · ${editTime(r.at)}` : ''} · 짚은 ${r.found}${r.no > 1 ? ` · 새로 ${r.added}` : ''}${gone ? ` · 사라짐 ${gone}` : ''}${r.no > 1 && again ? ` · 다시 ${again}` : ''}${r.kept_again ? ` · 결정 그대로 ${r.kept_again}` : ''}${from[r.source] || ''}${r.widen ? ' · 넓혀 찾기' : ''}${r.scoped ? ' · 바뀐 곳만' : ''}`;
     return `<button type="button" class="chk-round${r === last ? ' last' : ''}" aria-pressed="${picked === r.no}" data-action="chkRound" data-arg="${r.no}">${label}</button>${r.superseded ? '<span class="chk-break">새 판</span>' : ''}`;
   }).join('');
   const fresh = last.superseded && !e.checked_at;
+  const others = fast.length ? chkOtherEdits(e, fast) : 0;
+  const scopeOn = P().settings.check_scope !== false;
+  const scopeNote = scopeOn ? ' 다시 검수는 바뀐 문단에서 나온 새 지적만 넣어요.' : '';
   return `<div class="chk-strip"><span class="small">회차</span><div class="row" style="gap:6px">${chips}</div>
       <span class="small chk-strip-hint">회차를 누르면 그 회차에 바뀐 지적만 봐요</span>
       <div class="seg chk-filters" role="group" aria-label="처리 상태로 거르기">${filters}</div></div>
     ${fresh ? `<div class="note">${last.no}회차 뒤에 본문을 새 판으로 바꿨어요. 그대로 둠 · 잘못 짚음으로 정한 지적만 남겼어요. 새 판을 검수하세요.</div>`
+    : st.stale && fast.length && others ? `<div class="note warn">${last.no}회차 뒤에 고침안을 넣고 직접 고친 곳도 ${others}곳 있어요. '고친 곳만 다시 보기'로 고침안을 넣은 지적 ${fast.length}개를 먼저 닫고, 직접 고친 곳은 그 뒤 다시 검수로 보세요.${scopeNote}</div>`
     : st.stale && fast.length ? `<div class="note warn">${last.no}회차 뒤에 고침안만 넣었어요. '고친 곳만 다시 보기'는 고친 문장과 앞뒤 문단만 보내 지적 ${fast.length}개를 한 번에 다시 봐요. 고친 곳이 멀리 떨어진 문장과 어긋나는지까지 보려면 다시 검수하세요.</div>`
-    : st.stale ? `<div class="note warn">${last.no}회차 뒤에 본문을 고쳤어요. 고친 문장의 지적은 '문장 바뀜'으로 보여요. 고친 곳이 다른 곳과 어긋나지 않는지 보려면 다시 검수하세요.</div>` : ''}`;
+    : st.stale ? `<div class="note warn">${last.no}회차 뒤에 본문을 고쳤어요. 고친 문장의 지적은 '문장 바뀜'으로 보여요. 고친 곳이 다른 곳과 어긋나지 않는지 보려면 다시 검수하세요.${scopeNote}</div>`
+    : last.scoped && last.outside ? `<div class="note">${last.no}회차는 바뀐 문단만 새로 짚었어요. 바뀌지 않은 문단에서 새로 나온 지적 ${last.outside}개는 넣지 않았어요. 모두 보려면 검수 옵션의 '바뀐 곳만 새로 짚기'를 끄고 다시 검수하세요.</div>` : ''}`;
+}
+
+/** 마지막 검수 뒤 수정 가운데 고친 곳만 다시 보기 대상(fast)의 고침안 묶음이 아닌 것의 수 (직접 고친 곳 · 다른 AI 수정 · 닫힌 지적의 묶음).
+    '이 지적만 다시 검수'로 풀린 묶음은 세지 않는다 (home.js fixRecheckTargets 와 같은 셈) */
+function chkOtherEdits(e, fast) {
+  const groups = new Set(fast.map((f) => f.fix_group));
+  const seen = new Set((e.findings || []).filter((f) => f.closed_by === 'one' && f.fix_group).map((f) => f.fix_group));
+  return (e.edits || []).filter((x) => !x.undone && x.at > e.checked_at && !(x.group && (seen.has(x.group) || groups.has(x.group)))).length;
 }
 
 function chkStyleBox(n) {
@@ -279,14 +297,55 @@ function chkTabs(n, e) {
 }
 const chkTabNow = (n, e) => (chkTabs(n, e).some(([k]) => k === S.chkTab) ? S.chkTab : 'issues');
 
-/** 목록에 보일 지적과 회차 변화: 회차를 골랐으면 그 회차가 바꾼 지적, 아니면 처리 상태로 거른 것. */
-function chkShown(n, e) {
+/** 목록에 보일 지적과 회차 변화: 회차를 골랐으면 그 회차가 바꾼 지적, 아니면 처리 상태로 거르고 심각도 · 종류 · 문장 바뀜으로 더 거른 것.
+    base 는 처리 상태로만 거른 목록 (더 거르기 칸의 수를 센다) */
+function chkShown(n, e, text = '') {
   const no = S.chkRound[n] || 0;
   if (no) {
     const ch = roundChanges(e, no);
-    return { list: findingOrder(e.findings.filter((f) => ch[f.id])), changes: ch, no };
+    return { list: findingOrder(e.findings.filter((f) => ch[f.id])), changes: ch, no, base: [] };
   }
-  return { list: findingOrder(e.findings.filter((f) => S.chkFilter === 'all' || f.status === S.chkFilter)), changes: {}, no: 0 };
+  const base = e.findings.filter((f) => S.chkFilter === 'all' || f.status === S.chkFilter);
+  return { list: findingOrder(base.filter((f) => chkNarrowHit(e, f, text))), changes: {}, no: 0, base };
+}
+
+const chkNarrowOn = () => !!(S.chkSev || S.chkType || S.chkChanged);
+/** skip: 이 거르기는 빼고 본다 ('sev' · 'type' · 'changed'). 칸마다 다른 칸의 거르기만 적용한 수를 세려는 것 */
+function chkNarrowHit(e, f, text, skip = '') {
+  if (skip !== 'sev' && S.chkSev && (f.severity || 'mid') !== S.chkSev) return false;
+  if (skip !== 'type' && S.chkType && f.type !== S.chkType) return false;
+  return skip === 'changed' || !S.chkChanged || findingFlag(e, f, text) === 'changed';
+}
+
+/** 더 거르기 칸: 심각도 · 종류 · 문장 바뀜. 고를 거리는 처리 상태로 거른 목록(base)에 있는 것, 수는 다른 칸의 거르기를 적용한 것.
+    지적이 셋 미만이고 거르지 않았으면 두지 않는다 */
+function chkNarrow(e, text, base) {
+  if (base.length < 3 && !chkNarrowOn()) return '';
+  const btn = (act, arg, on, label) => `<button type="button" aria-pressed="${on}" data-action="${act}" data-arg="${esc(arg)}">${label}</button>`;
+  const but = (skip) => base.filter((f) => chkNarrowHit(e, f, text, skip));
+  const bySev = but('sev');
+  const sevN = (k) => bySev.filter((f) => (f.severity || 'mid') === k).length;
+  const sev = [btn('chkSev', '', !S.chkSev, '모두'), ...Object.entries(SEVERITY).filter(([k]) => base.some((f) => (f.severity || 'mid') === k) || S.chkSev === k).map(([k, l]) => btn('chkSev', k, S.chkSev === k, `${l} ${sevN(k)}`))].join('');
+  const types = {};
+  for (const f of base) types[f.type] = 0;
+  if (S.chkType) types[S.chkType] = 0;
+  for (const f of but('type')) types[f.type] += 1;
+  const order = Object.keys(types).sort((a, b) => base.filter((f) => f.type === b).length - base.filter((f) => f.type === a).length);
+  const type = [btn('chkType', '', !S.chkType, '모두'), ...order.map((k) => btn('chkType', k, S.chkType === k, `${esc(k)} ${types[k]}`))].join('');
+  const changed = but('changed').filter((f) => findingFlag(e, f, text) === 'changed').length;
+  const flag = changed || S.chkChanged ? `<button type="button" class="btn small${S.chkChanged ? ' primary' : ''}" aria-pressed="${S.chkChanged}" data-action="chkChanged">문장 바뀜 ${changed}</button>` : '';
+  return `<div class="chk-narrow"><div class="chk-narrow-g"><span class="small">심각도</span><div class="seg" role="group" aria-label="심각도로 거르기">${sev}</div></div>
+    <div class="chk-narrow-g"><span class="small">종류</span><div class="seg" role="group" aria-label="종류로 거르기">${type}</div></div>${flag}
+    ${chkNarrowOn() ? '<button type="button" class="btn small ghost" data-action="chkNarrowOff">거르기 끄기</button>' : ''}</div>`;
+}
+
+/** 거른 열린 지적을 한꺼번에 그대로 둠 · 잘못 짚음으로 정하는 줄. 열림 목록을 더 걸렀을 때만 (모든 열린 지적을 한 번에 닫지 않게) */
+function chkBulk(list) {
+  if (S.chkFilter !== 'open' || !chkNarrowOn() || !list.length) return '';
+  const off = autoOn() ? ' disabled' : '';
+  return `<div class="chk-bulk"><span class="small">거른 지적 ${list.length}개를 한꺼번에</span>
+    <button type="button" class="btn small" data-action="chkBulk" data-arg="kept"${off}>그대로 둠</button>
+    <button type="button" class="btn small" data-action="chkBulk" data-arg="wrong"${off}>잘못 짚음</button></div>`;
 }
 
 function chkList(n, e, text, sel, checkBtn) {
@@ -299,9 +358,9 @@ function chkList(n, e, text, sel, checkBtn) {
   else if (!(e.rounds || []).length) {
     body = `<div class="empty" style="padding:16px 8px"><p>아직 검수하지 않았어요.</p><p class="small">앞선 본문 · 설정 · 확정 사실과 어긋나는 곳을 근거 문장과 함께 찾아요.</p>${e.status === 'written' && S.deltas[n] === undefined ? flowStateToggle() : ''}${checkBtn}</div>`;
   } else {
-    const { list, changes, no } = chkShown(n, e);
+    const { list, changes, no, base } = chkShown(n, e, text);
     const ids = new Set(list.map((f) => f.id));
-    const bar = fbBar(n, e, text);
+    const bar = fbBar(n, e, text) + (no ? '' : chkNarrow(e, text, base) + chkBulk(list));
     const caption = no ? `<div class="between"><strong style="font-size:0.8125rem">${no}회차가 바꾼 지적</strong><button type="button" class="btn small ghost" data-action="chkRound" data-arg="${no}">회차 보기 끄기</button></div>` : '';
     body = list.length ? `${caption}${bar}<ul class="chk-list">${list.map((f) => {
       const flag = findingFlag(e, f, text);
@@ -310,7 +369,9 @@ function chkList(n, e, text, sel, checkBtn) {
         <span class="row" style="gap:4px"><span class="chip ${SEV_CHIP[f.severity] || 'warn'}">${SEVERITY[f.severity] || '보통'}</span><span class="chip">${esc(f.type)}</span>${ruleChip(f)}<span class="chip ${FINDING_CHIP[f.status]}">${FINDING_STATUS[f.status]}</span>${no && changes[f.id] ? `<span class="chip">${ROUND_CHANGE[changes[f.id]]}</span>` : ''}${flag ? `<span class="chip${flag === 'changed' ? ' warn' : ''}">${FINDING_FLAG[flag]}</span>` : ''}${f.parent ? '<span class="chip">고치다 생김</span>' : ''}</span>
         <span class="chk-desc">${esc(f.description)}</span><span class="small">근거 · ${esc(srcLabel(n, f))}</span></button></li>`;
     }).join('')}</ul>`
-      : `${caption}<div class="empty" style="padding:16px 8px"><p class="small">${no ? `${no}회차는 지적 목록을 남기지 않은 예전 회차예요.` : S.chkFilter === 'open' ? '열린 지적이 없어요. 상태 승인으로 넘어가도 돼요.' : '이 상태의 지적이 없어요.'}</p></div>`;
+      : no ? `${caption}<div class="empty" style="padding:16px 8px"><p class="small">${no}회차는 지적 목록을 남기지 않은 예전 회차예요.</p></div>`
+      : base.length ? `${bar}<div class="empty" style="padding:16px 8px"><p class="small">거른 조건에 맞는 지적이 없어요.</p><button type="button" class="btn small" data-action="chkNarrowOff">거르기 끄기</button></div>`
+      : `<div class="empty" style="padding:16px 8px"><p class="small">${S.chkFilter === 'open' ? '열린 지적이 없어요. 상태 승인으로 넘어가도 돼요.' : '이 상태의 지적이 없어요.'}</p></div>`;
   }
   return `<section class="card tight c-list" aria-label="검수 결과">${head}<div role="tabpanel" id="chk-panel" aria-labelledby="chk-tab-${tab}" class="chk-panel">${body}</div></section>`;
 }
@@ -509,9 +570,9 @@ function fbView(n, e, text) {
       <span class="small">지적마다 고침안을 보고 넣을 것만 고르세요. 고른 것만 본문에 들어가고, 지적마다 한 묶음이라 하나씩 되돌릴 수 있어요.</span></div>
       <div class="row" style="gap:6px">${need ? `<button type="button" class="btn small" data-action="fixAll" data-arg="${n}"${b.attr}>${b.label}</button>` : ''}<button type="button" class="btn small ghost" data-action="fbClose">닫기</button></div></div>
     <ol class="fb-list">${rows}</ol>
-    <div class="between fb-foot"><span class="small">고른 ${picked}개 / 넣을 수 있는 ${pickable}개 · 넣은 뒤에는 고친 곳만 다시 보기로 풀렸는지 확인하세요</span>
+    <div class="between fb-foot"><span class="small">고른 ${picked}개 / 넣을 수 있는 ${pickable}개 · 넣은 뒤 고친 곳만 다시 보기로 풀렸는지 바로 확인해요</span>
       <div class="row" style="gap:6px"><button type="button" class="btn small" data-action="fbAll" data-arg="1"${pickable ? '' : ' disabled'}>모두 고르기</button><button type="button" class="btn small" data-action="fbAll" data-arg="0"${picked ? '' : ' disabled'}>모두 풀기</button>
-        <button type="button" class="btn primary" data-action="fbApply"${picked ? '' : ' disabled'}>고른 ${picked}개 넣기</button></div></div>
+        <button type="button" class="btn primary" data-action="fbApply"${picked ? '' : ' disabled'}>고른 ${picked}개 넣고 다시 보기</button></div></div>
   </section>`;
 }
 
@@ -610,6 +671,26 @@ function showFindingLog() {
 }
 
 Object.assign(actions, {
+  async toggleCheckAfterWrite() {
+    const on = !P().settings.check_after_write;
+    P().settings.check_after_write = on;
+    render();
+    try {
+      S.project = await api('PUT', `/projects/${enc(S.name)}/check-after-write`, { on });
+    } catch (err) {
+      toast(err.message, true);
+    }
+  },
+  async toggleCheckScope() {
+    const on = P().settings.check_scope === false;
+    P().settings.check_scope = on;
+    render();
+    try {
+      S.project = await api('PUT', `/projects/${enc(S.name)}/check-scope`, { on });
+    } catch (err) {
+      toast(err.message, true);
+    }
+  },
   async toggleCheckMotion() {
     const on = P().settings.check_motion === false;
     P().settings.check_motion = on;
@@ -660,6 +741,40 @@ Object.assign(actions, {
   chkFilter(k) {
     S.chkFilter = k;
     S.chkRound[chkEp()] = 0;
+    render();
+  },
+  chkSev(k) {
+    S.chkSev = k || '';
+    render();
+  },
+  chkType(k) {
+    S.chkType = k || '';
+    render();
+  },
+  chkChanged() {
+    S.chkChanged = !S.chkChanged;
+    render();
+  },
+  chkNarrowOff() {
+    S.chkSev = S.chkType = '';
+    S.chkChanged = false;
+    render();
+  },
+  /** 거른 열린 지적을 한꺼번에 그대로 둠 · 잘못 짚음으로. 묻고, 한 번에 저장한다 (web.set_findings) */
+  async chkBulk(status) {
+    const n = chkEp();
+    const e = ep(n);
+    const { list } = chkShown(n, e, textNow(n));
+    if (!list.length || S.chkFilter !== 'open' || !chkNarrowOn()) return;
+    const what = status === 'wrong' ? '잘못 짚음' : '그대로 둠';
+    const ok = await askConfirm(`거른 열린 지적 ${list.length}개를 '${what}'으로 정해요. 다시 검수에서 같은 지적이 나와도 이 결정을 지켜요. 하나씩 '열림'으로 되돌릴 수 있어요.`, { title: `${list.length}개를 ${what}으로`, ok: `${what}으로 정하기` });
+    if (!ok) return;
+    try {
+      takeCheck(n, await api('PUT', `/projects/${enc(S.name)}/episodes/${n}/findings`, { ids: list.map((f) => f.id), status }));
+      toast(`지적 ${list.length}개를 '${what}'으로 정했어요`);
+    } catch (err) {
+      toast(err.message, true);
+    }
     render();
   },
   chkRound(no) {
@@ -818,7 +933,9 @@ Object.assign(actions, {
     }
     render();
   },
-  /** 고른 고침안을 목록 차례(심각도 순)로 넣는다. 그대로 두기로 정한 지적의 문장을 건드리는 안은 확인한 뒤 다시 넣는다 */
+  /** 고른 고침안을 목록 차례(심각도 순)로 넣는다. 그대로 두기로 정한 지적의 문장을 건드리는 안은 확인한 뒤 다시 넣는다.
+      하나라도 넣었고 모두 넣었으면 검토 화면을 닫고 고친 곳만 다시 보기(작업 'recheck')를 바로 시작한다.
+      넣지 못한 안이 있으면 그 까닭을 볼 수 있게 화면을 남기고 다시 보기는 시작하지 않는다 */
   async fbApply() {
     const n = chkEp();
     const e = ep(n);
@@ -828,6 +945,7 @@ Object.assign(actions, {
       .map(({ f, k }) => ({ fid: f.id, k, skip: S.fixSkip[`${n}:${f.id}:${k}`] || [] }));
     if (!items.length) return;
     const url = `/projects/${enc(S.name)}/episodes/${n}/fixes/apply`;
+    let recheck = false;
     await run('고른 고침안을 넣는 중', async () => {
       await saveIfDirty();
       await flushText(n);
@@ -843,8 +961,13 @@ Object.assign(actions, {
       S.project = res.project;
       for (const id of applied) { delete S.fbOn[`${n}:${id}`]; delete S.fbNote[`${n}:${id}`]; }
       for (const x of res.failed) S.fbNote[`${n}:${x.fid}`] = `넣지 못했어요: ${x.error}`;
-      toast(res.failed.length ? `${applied.length}개를 넣었어요. ${res.failed.length}개는 넣지 못해 까닭을 남겼어요` : `${applied.length}개를 넣었어요. 고친 곳이 다른 곳과 어긋나지 않는지 다시 검수하세요`, !!res.failed.length);
+      recheck = !!applied.length && !res.failed.length;
+      toast(res.failed.length ? `${applied.length}개를 넣었어요. ${res.failed.length}개는 넣지 못해 까닭을 남겼어요` : `${applied.length}개를 넣었어요. 고친 곳만 다시 보기로 풀렸는지 확인할게요`, !!res.failed.length);
     });
+    if (recheck && fixRecheckTargets(ep(n)).length) {
+      S.fbOpen = 0;
+      await startJob('recheck', n);
+    }
   },
   async fbUndo(group) {
     const n = chkEp();
