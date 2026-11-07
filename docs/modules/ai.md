@@ -158,6 +158,7 @@
   - `CANON_NO_BROWSER`: 1 이면 `serve` 가 브라우저를 열지 않는다(`updater` 가 다시 띄울 때 쓴다)
   - `CANON_NO_BUNDLE`: 1 이면 웹 화면 스크립트를 묶지 않고 파일마다 보낸다(오류 위치 보기, `web._bundle`)
   - `CANON_PORT`: `scripts/canon-mac.command` 가 띄우는 웹 포트(기본 8000)
+  - `CANON_PROMPTLAB`: 프롬프트 놀이터 세션 폴더(기본 `<CANON_HOME>/.promptlab`, `promptlab.py`)
   - `CANON_REFS`: 레퍼런스 원고 폴더(기본 `<CANON_HOME>/.refs`, `refs.py`)
   - `CANON_STUDIO`: 문단 연습장 세션 폴더(기본 `<CANON_HOME>/.studio`, `studio.py`)
   - `CANON_STYLES`: 문체 라이브러리 폴더(기본 `<CANON_HOME>/.styles`, `library.py`)

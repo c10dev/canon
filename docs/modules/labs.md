@@ -51,6 +51,21 @@
 - LLM 호출 없음
 - 문체 거리 기준표는 `style_background.py`(`scripts/make_style_background.py` 로 생성) · 문체 기준 `_style_reference` 는 조각 합에서 빼는 방식이라 조각 수에 비례하고, 같은 글은 `_reference` 가 기억한다(`lru_cache` 32개)
 
+### `canon/promptlab.py`
+
+- 프롬프트 놀이터(작품 밖 `<CANON_HOME>/.promptlab/<id>.json`, `CANON_PROMPTLAB` 으로 경로 변경, 화면은 `static/promptlab.js`, 웹 `/api/promptlab/...`)
+- 시스템 · 요청 프롬프트를 직접 써서 고른 백엔드(`PROVIDERS`: gemini · local · mock)로 돌리고 결과를 시도로 남긴다. 작품과 상관없다
+- 세션 `PromptSession` 은 지금 칸(제목 · 시스템 · 요청 · 온도 · 백엔드 `PromptBackend`)과 시도 `PromptTrial`
+- 시도는 그때의 시스템 · 요청 · 온도와 백엔드마다 결과 `PromptRun`(글 · 오류 · 초 · 글자 · 토큰 · 어림 비용), 고름 `star`, 메모 `note`
+- 저장 `load` · `save`(`store.write_atomic`) · `sessions` · `create` · `update` · `delete` · `duplicate`(프롬프트 · 백엔드만 복사)
+- 백엔드 정리 `clean_backends`: 모르는 백엔드는 막고 같은 것은 한 번만, 주소는 로컬만 남기고 `MAX_BACKENDS` 개까지
+- 제목은 비우면 요청 첫 줄로 짓는다(`title_of`). 작가가 적은 제목은 프롬프트를 바꿔도 남는다
+- 돌리기 `run` 은 `research.sample` 을 그대로 부른다(차례로 부름, 한 쪽이 실패해도 나머지는 돎). 세션은 바꾸지 않고 `add_trial` 로 붙인다
+- 어림 비용 `run_cost`: `usage.PRICED` 백엔드만 `usage.rate` · `usage.cost` 로 센다. 로컬 · mock 은 0, 가격 · 토큰을 모르면 None
+- 세션마다 시도 `MAX_TRIALS` 개까지. 저절로 지우지 않고 막는다(`room`)
+- 되돌리기 `restore`: 그 시도의 프롬프트 · 온도를 지금 칸으로. 백엔드는 그대로 둔다
+- 시험 `tests/test_promptlab.py`
+
 ### `canon/refs.py`
 
 - 레퍼런스 원고(작품 밖 화면, 주소 `#/refs[/<id>[/<차례> | cuts]]`, 설계는 [docs/refs/](../refs/README.md))
@@ -187,6 +202,13 @@
 - 화면은 `static/revlab.js`
 - 시험 `tests/test_revlab.py`(글은 `tests/fixtures/revlab_story.txt`, 직접 지은 글)
 
+### `canon/routes/promptlab.py`
+
+- 프롬프트 놀이터 웹 라우트(`/api/promptlab/...`)
+- `web.py` 맨 끝의 `_attach_routes` 가 `router` 를 앱에 붙이고 `EXPORTS` 의 이름을 `web` 에도 둔다
+- 돌리기 `POST /api/promptlab/{id}/run` 은 받은 칸을 먼저 저장하고, 작업 목록을 거치지 않고 바로 돌려준다(`usage.scope(task="promptlab")`)
+- 도는 동안 바뀐 시도(별표 · 메모)를 덮지 않게 저장 직전에 세션을 다시 읽는다
+
 ### `canon/routes/refs.py`
 
 - 레퍼런스 원고 웹 라우트(`/api/refs/...`)
@@ -250,6 +272,21 @@
 - 명령줄 `soelab collect | report | export`
 - 시험 `tests/test_soelab.py` · `tests/test_soelab_web.py`
 - LLM 호출 없음
+
+### `canon/static/promptlab.js`
+
+- 프롬프트 놀이터 화면(작품 밖 `#/promptlab[/<세션 id>]`)
+- `app.js` 라우팅이 작품 밖 사이드바(`outSidebar`) 옆에 `viewPromptLab` 을 그린다(불러오기 `pgLoad`, 본문 폭 1280px)
+- 작품 밖 도구 🧫 · 작품 사이드바 ⋯ 메뉴에서 들어온다
+- 처음 화면 `pgHome`: 세션 카드(`.grid-auto`)와 머리 '+ 새 세션'
+- 세션 화면 `pgSession`: 왼쪽 열 프롬프트 칸 `pgForm`, 오른쪽 넓은 열 시도 카드 `pgTrialCard`(고른 것 먼저, 그다음 최근 것 `pgOrder`)
+- 칸은 `DRAFT_ROOTS.pgForm` 으로 묶고, 칸을 벗어날 때(change) 조용히 저장한다(`pgSave`). 돌리기는 칸을 함께 보낸다(`pgBody`)
+- 온도 칸이 비었거나 숫자가 아니면 설정 값(null)을 보낸다(`pgBody`)
+- 시도 카드: 그 시도의 프롬프트(접힘), 지금 칸과 다른지(`pgDiff`), 백엔드마다 결과 카드 `pgRunCard`(초 · 글자 · 토큰 · 어림 비용 `usd`)
+- 시도 동작: 고르기 `pgStar` · 메모 `data-pg-note` · 되돌리기 `pgRestore` · 결과 복사 `pgCopy` · 지우기 `pgDrop`
+- 머리 주 버튼은 '돌리기'(백엔드가 둘 이상이면 곳 수). 시도가 꽉 차거나 백엔드가 없으면 막는다
+- 공용 클래스(`.cols` · `.card` · `.grid-auto` · `.chip` · `.rw-text`)만 쓰고 CSS 를 더하지 않는다
+- 순수 함수 · 화면 시험 `tests/test_promptlab_js.py`
 
 ### `canon/static/refs.js`
 
