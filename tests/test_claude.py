@@ -46,7 +46,7 @@ FAKE = textwrap.dedent('''\
         sys.exit(0)
     stdin = sys.stdin.read()
     env = {{k: os.environ.get(k) for k in ("ANTHROPIC_API_KEY", "CLAUDE_CODE_DISABLE_CLAUDE_MDS", "CLAUDE_CODE_OAUTH_TOKEN",
-                                       "CLAUDE_CONFIG_DIR", "CLAUDE_CODE_MAX_OUTPUT_TOKENS")}}
+                                       "CLAUDE_CONFIG_DIR", "CLAUDE_CODE_MAX_OUTPUT_TOKENS", "DISABLE_PROMPT_CACHING")}}
     system = open(args[args.index("--system-prompt-file") + 1], encoding="utf-8").read() if "--system-prompt-file" in args else None
     with open(os.path.join(d, "calls.jsonl"), "a") as f:
         f.write(json.dumps({{"args": args, "stdin": stdin, "env": env, "cwd": os.getcwd(), "system_file": system}},
@@ -318,6 +318,34 @@ class ClaudeCodeTest(unittest.TestCase):
         llm.text("쓰기", head + "\n\n# 이번 화 플롯\n2화")
         self.assertIsNone(self.calls()[-1]["system_file"])  # 이 옵션을 모르는 버전은 예전처럼 사용자 메시지에 둔다
         self.assertEqual(self.calls()[-1]["stdin"], with_note(head + "\n\n# 이번 화 플롯\n2화"))
+
+    def test_cache_only_what_a_next_call_reads(self):
+        # 다음 호출이 읽지 않을 캐시는 쓰지 않는다 (캐시 쓰기는 입력 값의 1.25배)
+        (self.dir / "help.txt").write_text("--safe-mode --tools <t> --strict-mcp-config --no-session-persistence "
+                                           "--json-schema <s> via: --system-prompt[-file], --append-system-prompt[-file]",
+                                           encoding="utf-8")
+        claude._SEEN.clear()
+        claude._WARM.clear()
+        head = "# 작품 정보\n" + "가" * 3000
+        llm = claude.ClaudeCodeLLM()
+        llm.text("쓰기", f"{head}\n\n# 이번 화 플롯\n1화")  # 나눌 앞부분이 없다
+        llm.text("쓰기", f"{head}\n\n# 이번 화 플롯\n2화")  # 직전 요청을 방금 봤다: 다음 요청이 곧 온다
+        key = ("cli", llm.requested, "쓰기", None)
+        claude._SEEN_AT[key] -= claude.CACHE_WARM_SECONDS + 1
+        llm.text("쓰기", f"{head}\n\n# 이번 화 플롯\n3화")  # 직전 요청이 캐시 유지 시간보다 오래전이다
+        llm.text("고침", f"{head}\n\n# 고칠 지적", hint={PREFIX_HINT: len(head)})  # 부른 쪽이 경계를 알려 줬다
+        first, second, stale, family = self.calls()
+        self.assertEqual(first["env"]["DISABLE_PROMPT_CACHING"], "1")
+        self.assertIsNone(second["env"]["DISABLE_PROMPT_CACHING"])
+        self.assertEqual(second["system_file"], f"쓰기\n\n{head}")
+        self.assertEqual(stale["env"]["DISABLE_PROMPT_CACHING"], "1")
+        self.assertIsNone(family["env"]["DISABLE_PROMPT_CACHING"])
+        self.assertEqual(len(claude._WARM), 2)  # 캐시에 쓴 호출만 캐시에 있다고 기억한다
+
+        # 형식 고치기 재시도는 첫 시도와 같이 정한다
+        self.replies({"structured_output": {"wrong": 1}}, {"structured_output": {"options": []}})
+        llm.json("이름", "짧은 요청", NameOptions)
+        self.assertEqual([c["env"]["DISABLE_PROMPT_CACHING"] for c in self.calls()[-2:]], ["1", "1"])
 
     def test_prefix_hint_moves_prefix_on_first_call(self):
         # 부른 쪽이 공통 자료의 끝(hint prefix_chars)을 알려 주면 직전 요청이 없어도 첫 호출부터 시스템 프롬프트로 옮긴다
@@ -714,6 +742,18 @@ class ClaudeAPITest(unittest.TestCase):
         self.assertEqual(blocks[0], {"type": "text", "text": material, "cache_control": {"type": "ephemeral"}})
         self.assertEqual(blocks[1]["text"], role_block("고침") + with_note("# 고칠 지적\n- f1"))
         self.assertEqual(self.reqs[0]["system"], FAMILY_SYSTEM)  # 캐시 가족: 시스템 프롬프트는 가족 공통 글
+
+    def test_no_cache_mark_when_previous_request_is_stale(self):
+        # API 경로도 직전 같은 종류 요청이 캐시 유지 시간보다 오래전이면 표시하지 않는다 (다음 요청도 늦게 와 읽지 못한다)
+        claude._SEEN.clear()
+        head = "# 작품 정보\n" + "가" * 3000
+        key = ("m", "쓰기", None)
+        self.assertIsInstance(claude.cache_blocks(key, head + "\n\n1화"), str)
+        claude._SEEN_AT[key] -= claude.CACHE_WARM_SECONDS + 1
+        self.assertIsInstance(claude.cache_blocks(key, head + "\n\n2화"), str)
+        self.assertIsInstance(claude.cache_blocks(key, head + "\n\n3화"), list)
+        claude._SEEN_AT[key] -= claude.CACHE_WARM_SECONDS + 1
+        self.assertIsInstance(claude.cache_blocks(key, head + "\n\n4화", len(head)), list)  # 경계를 받으면 표시한다
 
     def test_stage_cost_uses_claude_price(self):
         self.assertAlmostEqual(usage.stage_cost("claude-api", "gemini-4-argon", 1e6, 0), 4.0)

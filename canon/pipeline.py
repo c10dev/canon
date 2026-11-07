@@ -2954,8 +2954,9 @@ def revise_passage(llm: LLM, p: Project, n: int, sel: Selection, message: str = 
         raise ValueError("무엇을 바꿀지 적거나 빠른 요청을 고르세요")
     ep = _editable(p, n)
     sel = Selection(start=locate(ep.text, sel.text, sel.start), text=sel.text)
-    rev = llm.json(prompts.reviser_system(p), prompts.passage_prompt(p, n, sel, message, preset), PassageRevision,
-                   hint={"selection": sel.text, "preset": preset, "message": message})
+    head = prompts.passage_head(p, n)  # 같은 화에서 바뀌지 않는 앞부분. 그 끝을 캐시 경계로 넘겨 이어 고칠 때 캐시를 읽는다
+    rev = llm.json(prompts.reviser_system(p), prompts.passage_prompt(p, n, sel, message, preset, head=head), PassageRevision,
+                   hint={"selection": sel.text, "preset": preset, "message": message, PREFIX_HINT: len(head)})
     keep, seen = [], {sel.text.strip()}
     for c in rev.candidates:
         c.text = c.text.strip().replace("【고칠 부분】", "").replace("【여기까지】", "")

@@ -2201,8 +2201,33 @@ def _passage_line(m: ChatMessage) -> str:
     return line
 
 
-def passage_prompt(p: Project, n: int, sel: Selection, message: str, preset: str = "") -> str:
-    """앞쪽은 작품 설정(캐시), 뒤쪽은 이번 화 데이터와 본문, 대화, 요청. 본문 쓰기와 같은 순서를 지킨다."""
+def passage_cast(p: Project, n: int) -> set[str]:
+    """부분 수정 프롬프트가 넣는 인물 id. 화 플롯 인물, 없으면 고정 인물, 그것도 없으면 모든 인물."""
+    ep = p.episode(n)
+    return set(ep.plot.characters) or {c.id for c in static_characters(p)} or {c.id for c in p.characters}
+
+
+def passage_head(p: Project, n: int) -> str:
+    """부분 수정 요청의 앞부분: 작품 고정 블록, 사실, 요소, 조연, 이번 화 플롯, 시점. 고른 곳 · 본문 · 대화와 상관없어
+    같은 화의 부분 수정은 이 글로 시작한다. 부르는 쪽이 그 길이를 캐시 경계(llm.PREFIX_HINT)로 넘긴다.
+    인물 상태는 고른 곳에 따라 아는 정보를 고르므로(state_view) 이 뒤에 둔다."""
+    ep = p.episode(n)
+    cast_ids = passage_cast(p, n)
+    facts, facts_cut = relevant_facts(p, cast_ids, n)
+    extra = side_characters(p, context.without_off(p, cast_ids))
+    els = elements.episode_block(p, n)
+    return f"""{static_context(p)}
+
+# 확정된 사실{f" (이번 화와 관련된 것만, {facts_cut}개 생략)" if facts_cut else ""}
+{chr(10).join("- " + f for f in facts) or "없음"}{f"{chr(10)}{chr(10)}# 이야기 요소 (이번 화와 관련된 설정, 어기지 말 것){chr(10)}{els}" if els else ""}
+{extra_block(extra)}
+# 이번 화 플롯
+{dump(write_plot(ep.plot))}{f"{chr(10)}{chr(10)}# 이번 화 서술 시점 (스타일 프로필보다 우선){chr(10)}{pov}" if (pov := pov_block(p, n)) else ""}"""
+
+
+def passage_prompt(p: Project, n: int, sel: Selection, message: str, preset: str = "", head: str | None = None) -> str:
+    """앞쪽은 같은 화에서 바뀌지 않는 passage_head(캐시), 뒤쪽은 인물 상태, 본문, 대화, 요청.
+    head 를 주면 다시 만들지 않고 그 글을 쓴다 (부르는 쪽이 캐시 경계를 재려고 미리 만든 것)."""
     ep = p.episode(n)
     text = ep.text
     start, end = sel.start, sel.start + len(sel.text)
@@ -2211,27 +2236,17 @@ def passage_prompt(p: Project, n: int, sel: Selection, message: str, preset: str
     else:
         before, after = text[max(0, start - PASSAGE_BEFORE):start], text[end:end + PASSAGE_AFTER]
         cut = " (고른 부분 앞뒤만)"
-    cast_ids = set(ep.plot.characters) or {c.id for c in static_characters(p)} or {c.id for c in p.characters}
-    facts, facts_cut = relevant_facts(p, cast_ids, n)
-    cast_ids = context.without_off(p, cast_ids)
+    cast_ids = context.without_off(p, passage_cast(p, n))
     states, knows_cut = state_view(p, [s for s in p.states if s.character_id in cast_ids], n, elements.plot_text(ep) + "\n" + sel.text)
-    extra = side_characters(p, cast_ids)
-    els = elements.episode_block(p, n)
     chat = next((c for c in p.chats if c.topic == f"text:{n}"), None)
     history = "\n".join(_passage_line(m) for m in (chat.messages[-PASSAGE_HISTORY:] if chat else []))
     hits = [f"{name} {cnt}회" for name, cnt in metrics.pattern_counts(sel.text).items() if cnt] if preset == "less_ai" else []
     request = passage_request(message, preset) or "더 낫게 다듬어 주세요."
     fix = not preset and message.strip().startswith(PASSAGE_FIX_HEADS)
-    return f"""{static_context(p)}
+    return f"""{passage_head(p, n) if head is None else head}
 
-# 확정된 사실{f" (이번 화와 관련된 것만, {facts_cut}개 생략)" if facts_cut else ""}
-{chr(10).join("- " + f for f in facts) or "없음"}{f"{chr(10)}{chr(10)}# 이야기 요소 (이번 화와 관련된 설정, 어기지 말 것){chr(10)}{els}" if els else ""}
-{extra_block(extra)}
 # 인물 현재 상태 ({n - 1}화 종료 시점){knows_note(knows_cut)}
 {dump(states) or "1화 시작 시점, 설정 그대로"}
-
-# 이번 화 플롯
-{dump(write_plot(ep.plot))}{f"{chr(10)}{chr(10)}# 이번 화 서술 시점 (스타일 프로필보다 우선){chr(10)}{pov}" if (pov := pov_block(p, n)) else ""}
 
 # {n}화 본문{cut}. 【고칠 부분】부터 【여기까지】를 고칩니다
 {before}【고칠 부분】{sel.text}【여기까지】{after}
