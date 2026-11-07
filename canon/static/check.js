@@ -4,7 +4,7 @@
    (passage.js 의 떠 있는 도구, mode 'finding'): AI 고침안 비교와 적용(딸린 곳 포함), 묶음 되돌리기, 이 지적만 다시 검수, 다른 처리 길.
    지적과 회차는 서버 findings.merge 가 만든다 (Episode.findings · rounds). 상태 · 심각도 바꾸기는 PUT …/findings/{id},
    고침안 POST …/findings/{id}/fixes · …/fixes/{k}/apply, 되돌리기 POST …/fix-groups/{묶음}/undo, 다시 검수 POST …/findings/{id}/recheck,
-   고친 곳만 다시 보기(작업 'recheck', 지난 검수 뒤 수정이 모두 고침안일 때 머리의 주 버튼, home.js 의 fixRecheckTargets),
+   고친 곳만 다시 보기(작업 'recheck', 지난 검수 뒤 고침안을 넣은 열린 지적이 있을 때 머리의 주 버튼, home.js 의 fixRecheckTargets),
    한꺼번에: 열린 지적 모두 고침안 받기(작업 'fixes') → 고침안 한꺼번에 검토(지적마다 고르고 고른 것만 POST …/fixes/apply),
    문체 지표는 GET …/style. app.js 의 S, P, actions, api, render, run, home.js 의 checkState, write.js 의 epNav · nextStepBtn,
    marks.js 의 draftBox · readHtml, passage.js 의 textNow · editableEp · passageNotes · editTime · wordDiff · flushText · focusText · showTool,
@@ -69,6 +69,8 @@ function checkOptsMenu() {
   const s = P().settings;
   const opts = [
     serial() && ['toggleWiden', !!s.check_widen, '넓혀 찾기', '검수 뒤 이번 화 진술마다 옛 화를 더 찾아, 처음 검수에 넣지 못한 근거가 나온 진술만 다시 물어요. 검수 호출이 2번 늘어요'],
+    ['toggleCheckAfterWrite', !!s.check_after_write, '쓴 뒤 바로 검수', '집필 화면에서 본문을 처음 쓰면 같은 작업에서 바로 검수해요. 본문은 먼저 받아 읽고 고칠 수 있고, 검수하는 동안 고친 곳은 검수 뒤 고침으로 남아요. 새 판(다시 생성)은 검수하지 않고, 화마다 검수 호출이 늘어요'],
+    ['toggleCheckScope', s.check_scope !== false, '바뀐 곳만 새로 짚기', '다시 검수할 때 지난 검수 뒤 고친 문단과 앞뒤 문단에서 나온 새 지적만 넣어요. 바뀌지 않은 문단은 지난 검수가 이미 봐서, 고칠 때마다 새 지적이 또 나오는 일을 줄여요. 치명 지적은 어디서 나와도 넣어요'],
     ['toggleCheckMotion', s.check_motion !== false, '동선 따로 보기', '이번 화 본문만 넣고 인물의 자리 · 향한 쪽 · 손 · 물건이 어긋난 곳을 한 번 더 찾아요. 본 검수와 동시에 불러 기다리는 시간은 그대로고, 검수 호출이 1번 늘어요'],
     ['toggleStageExtract', s.stage_extract !== false, '연출 함께 뽑기', '계획 장면이 있는 사건마다 본문에서 장면 연출을 뽑아 규칙으로 판정해요. 본문이 바뀐 사건만 뽑고, 그런 사건마다 검수 호출이 1번 늘어요'],
   ].filter(Boolean);
@@ -251,16 +253,29 @@ function chkStrip(n, e, st, fast = []) {
   const chips = rounds.slice(-4).map((r) => {
     const gone = (r.gone_ids || []).length;
     const again = (r.again_ids || []).length;
-    const label = `${r.no}회차${r.at ? ` · ${editTime(r.at)}` : ''} · 짚은 ${r.found}${r.no > 1 ? ` · 새로 ${r.added}` : ''}${gone ? ` · 사라짐 ${gone}` : ''}${r.no > 1 && again ? ` · 다시 ${again}` : ''}${r.kept_again ? ` · 결정 그대로 ${r.kept_again}` : ''}${from[r.source] || ''}${r.widen ? ' · 넓혀 찾기' : ''}`;
+    const label = `${r.no}회차${r.at ? ` · ${editTime(r.at)}` : ''} · 짚은 ${r.found}${r.no > 1 ? ` · 새로 ${r.added}` : ''}${gone ? ` · 사라짐 ${gone}` : ''}${r.no > 1 && again ? ` · 다시 ${again}` : ''}${r.kept_again ? ` · 결정 그대로 ${r.kept_again}` : ''}${from[r.source] || ''}${r.widen ? ' · 넓혀 찾기' : ''}${r.scoped ? ' · 바뀐 곳만' : ''}`;
     return `<button type="button" class="chk-round${r === last ? ' last' : ''}" aria-pressed="${picked === r.no}" data-action="chkRound" data-arg="${r.no}">${label}</button>${r.superseded ? '<span class="chk-break">새 판</span>' : ''}`;
   }).join('');
   const fresh = last.superseded && !e.checked_at;
+  const others = fast.length ? chkOtherEdits(e, fast) : 0;
+  const scopeOn = P().settings.check_scope !== false;
+  const scopeNote = scopeOn ? ' 다시 검수는 바뀐 문단에서 나온 새 지적만 넣어요.' : '';
   return `<div class="chk-strip"><span class="small">회차</span><div class="row" style="gap:6px">${chips}</div>
       <span class="small chk-strip-hint">회차를 누르면 그 회차에 바뀐 지적만 봐요</span>
       <div class="seg chk-filters" role="group" aria-label="처리 상태로 거르기">${filters}</div></div>
     ${fresh ? `<div class="note">${last.no}회차 뒤에 본문을 새 판으로 바꿨어요. 그대로 둠 · 잘못 짚음으로 정한 지적만 남겼어요. 새 판을 검수하세요.</div>`
+    : st.stale && fast.length && others ? `<div class="note warn">${last.no}회차 뒤에 고침안을 넣고 직접 고친 곳도 ${others}곳 있어요. '고친 곳만 다시 보기'로 고침안을 넣은 지적 ${fast.length}개를 먼저 닫고, 직접 고친 곳은 그 뒤 다시 검수로 보세요.${scopeNote}</div>`
     : st.stale && fast.length ? `<div class="note warn">${last.no}회차 뒤에 고침안만 넣었어요. '고친 곳만 다시 보기'는 고친 문장과 앞뒤 문단만 보내 지적 ${fast.length}개를 한 번에 다시 봐요. 고친 곳이 멀리 떨어진 문장과 어긋나는지까지 보려면 다시 검수하세요.</div>`
-    : st.stale ? `<div class="note warn">${last.no}회차 뒤에 본문을 고쳤어요. 고친 문장의 지적은 '문장 바뀜'으로 보여요. 고친 곳이 다른 곳과 어긋나지 않는지 보려면 다시 검수하세요.</div>` : ''}`;
+    : st.stale ? `<div class="note warn">${last.no}회차 뒤에 본문을 고쳤어요. 고친 문장의 지적은 '문장 바뀜'으로 보여요. 고친 곳이 다른 곳과 어긋나지 않는지 보려면 다시 검수하세요.${scopeNote}</div>`
+    : last.scoped && last.outside ? `<div class="note">${last.no}회차는 바뀐 문단만 새로 짚었어요. 바뀌지 않은 문단에서 새로 나온 지적 ${last.outside}개는 넣지 않았어요. 모두 보려면 검수 옵션의 '바뀐 곳만 새로 짚기'를 끄고 다시 검수하세요.</div>` : ''}`;
+}
+
+/** 마지막 검수 뒤 수정 가운데 고친 곳만 다시 보기 대상(fast)의 고침안 묶음이 아닌 것의 수 (직접 고친 곳 · 다른 AI 수정 · 닫힌 지적의 묶음).
+    '이 지적만 다시 검수'로 풀린 묶음은 세지 않는다 (home.js fixRecheckTargets 와 같은 셈) */
+function chkOtherEdits(e, fast) {
+  const groups = new Set(fast.map((f) => f.fix_group));
+  const seen = new Set((e.findings || []).filter((f) => f.closed_by === 'one' && f.fix_group).map((f) => f.fix_group));
+  return (e.edits || []).filter((x) => !x.undone && x.at > e.checked_at && !(x.group && (seen.has(x.group) || groups.has(x.group)))).length;
 }
 
 function chkStyleBox(n) {
@@ -509,9 +524,9 @@ function fbView(n, e, text) {
       <span class="small">지적마다 고침안을 보고 넣을 것만 고르세요. 고른 것만 본문에 들어가고, 지적마다 한 묶음이라 하나씩 되돌릴 수 있어요.</span></div>
       <div class="row" style="gap:6px">${need ? `<button type="button" class="btn small" data-action="fixAll" data-arg="${n}"${b.attr}>${b.label}</button>` : ''}<button type="button" class="btn small ghost" data-action="fbClose">닫기</button></div></div>
     <ol class="fb-list">${rows}</ol>
-    <div class="between fb-foot"><span class="small">고른 ${picked}개 / 넣을 수 있는 ${pickable}개 · 넣은 뒤에는 고친 곳만 다시 보기로 풀렸는지 확인하세요</span>
+    <div class="between fb-foot"><span class="small">고른 ${picked}개 / 넣을 수 있는 ${pickable}개 · 넣은 뒤 고친 곳만 다시 보기로 풀렸는지 바로 확인해요</span>
       <div class="row" style="gap:6px"><button type="button" class="btn small" data-action="fbAll" data-arg="1"${pickable ? '' : ' disabled'}>모두 고르기</button><button type="button" class="btn small" data-action="fbAll" data-arg="0"${picked ? '' : ' disabled'}>모두 풀기</button>
-        <button type="button" class="btn primary" data-action="fbApply"${picked ? '' : ' disabled'}>고른 ${picked}개 넣기</button></div></div>
+        <button type="button" class="btn primary" data-action="fbApply"${picked ? '' : ' disabled'}>고른 ${picked}개 넣고 다시 보기</button></div></div>
   </section>`;
 }
 
@@ -610,6 +625,26 @@ function showFindingLog() {
 }
 
 Object.assign(actions, {
+  async toggleCheckAfterWrite() {
+    const on = !P().settings.check_after_write;
+    P().settings.check_after_write = on;
+    render();
+    try {
+      S.project = await api('PUT', `/projects/${enc(S.name)}/check-after-write`, { on });
+    } catch (err) {
+      toast(err.message, true);
+    }
+  },
+  async toggleCheckScope() {
+    const on = P().settings.check_scope === false;
+    P().settings.check_scope = on;
+    render();
+    try {
+      S.project = await api('PUT', `/projects/${enc(S.name)}/check-scope`, { on });
+    } catch (err) {
+      toast(err.message, true);
+    }
+  },
   async toggleCheckMotion() {
     const on = P().settings.check_motion === false;
     P().settings.check_motion = on;
@@ -818,7 +853,9 @@ Object.assign(actions, {
     }
     render();
   },
-  /** 고른 고침안을 목록 차례(심각도 순)로 넣는다. 그대로 두기로 정한 지적의 문장을 건드리는 안은 확인한 뒤 다시 넣는다 */
+  /** 고른 고침안을 목록 차례(심각도 순)로 넣는다. 그대로 두기로 정한 지적의 문장을 건드리는 안은 확인한 뒤 다시 넣는다.
+      하나라도 넣었고 모두 넣었으면 검토 화면을 닫고 고친 곳만 다시 보기(작업 'recheck')를 바로 시작한다.
+      넣지 못한 안이 있으면 그 까닭을 볼 수 있게 화면을 남기고 다시 보기는 시작하지 않는다 */
   async fbApply() {
     const n = chkEp();
     const e = ep(n);
@@ -828,6 +865,7 @@ Object.assign(actions, {
       .map(({ f, k }) => ({ fid: f.id, k, skip: S.fixSkip[`${n}:${f.id}:${k}`] || [] }));
     if (!items.length) return;
     const url = `/projects/${enc(S.name)}/episodes/${n}/fixes/apply`;
+    let recheck = false;
     await run('고른 고침안을 넣는 중', async () => {
       await saveIfDirty();
       await flushText(n);
@@ -843,8 +881,13 @@ Object.assign(actions, {
       S.project = res.project;
       for (const id of applied) { delete S.fbOn[`${n}:${id}`]; delete S.fbNote[`${n}:${id}`]; }
       for (const x of res.failed) S.fbNote[`${n}:${x.fid}`] = `넣지 못했어요: ${x.error}`;
-      toast(res.failed.length ? `${applied.length}개를 넣었어요. ${res.failed.length}개는 넣지 못해 까닭을 남겼어요` : `${applied.length}개를 넣었어요. 고친 곳이 다른 곳과 어긋나지 않는지 다시 검수하세요`, !!res.failed.length);
+      recheck = !!applied.length && !res.failed.length;
+      toast(res.failed.length ? `${applied.length}개를 넣었어요. ${res.failed.length}개는 넣지 못해 까닭을 남겼어요` : `${applied.length}개를 넣었어요. 고친 곳만 다시 보기로 풀렸는지 확인할게요`, !!res.failed.length);
     });
+    if (recheck && fixRecheckTargets(ep(n)).length) {
+      S.fbOpen = 0;
+      await startJob('recheck', n);
+    }
   },
   async fbUndo(group) {
     const n = chkEp();

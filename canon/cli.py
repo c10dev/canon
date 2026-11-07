@@ -1038,6 +1038,8 @@ def _print_issues(p: Project, n: int, closed: bool = True) -> None:
     r = ep.rounds[-1]
     opened = findings.open_findings(ep)
     print(f"\n=== {n}화 검수 {r.no}회차: 짚은 {r.found}곳, 새로 {r.added}곳 · 열린 지적 {len(opened)}곳 ===")
+    if r.scoped:
+        print(f"바뀐 문단만 새로 짚었어요{f' · 바뀌지 않은 문단의 새 지적 {r.outside}곳은 넣지 않았어요' if r.outside else ''}")
     for f in opened:
         src = f"{f.source_episode}화" if f.source_episode else "설정"
         print(f"! {findings.line(ep, f)}\n    {src} 근거: {f.source_quote}\n    {n}화: {f.current_quote}")

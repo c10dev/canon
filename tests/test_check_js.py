@@ -211,13 +211,13 @@ def test_fix_batch_view():
     })()""", dump(p))
     assert got["need"] == pipeline.fix_targets(e) == ["f3"]
     assert 'data-action="fbOpen" data-arg="1">한꺼번에 검토 · 2' in got["list"]
-    assert "고침안 한꺼번에 검토" in got["empty"] and "고른 0개 넣기" in got["empty"] and 'data-action="fbApply" disabled' in got["empty"]
+    assert "고침안 한꺼번에 검토" in got["empty"] and "고른 0개 넣고 다시 보기" in got["empty"] and 'data-action="fbApply" disabled' in got["empty"]
     assert "아직 고침안이 없어요" not in got["empty"] and "고침안을 받은 뒤 본문이 바뀌었어요" in got["empty"]  # f3
     assert "지적한 문장을 지금 본문에서 찾을 수 없어요" in got["empty"]  # f4
     assert "남은 1개 고침안 받기" in got["empty"]
-    assert "고른 2개 넣기" in got["all"]  # 넣을 수 있는 f1 · f2 만
+    assert "고른 2개 넣고 다시 보기" in got["all"]  # 넣을 수 있는 f1 · f2 만
     assert got["clash"] == {"f2": "f1"} and "같은 문장을 바꿔요" in got["clashView"]
-    assert got["on"] == ["1:f1"] and "고른 1개 넣기" in got["after"] and "같은 문장을 바꿔요" not in got["after"]
+    assert got["on"] == ["1:f1"] and "고른 1개 넣고 다시 보기" in got["after"] and "같은 문장을 바꿔요" not in got["after"]
 
 
 
@@ -278,8 +278,8 @@ def test_recheck_outcome_is_not_error():
 
 @needs_node
 def test_fix_recheck_button_matches_server():
-    """지난 검수 뒤 수정이 모두 고침안이면 '고친 곳만 다시 보기'가 주 버튼이고 다시 검수는 옆에 남는다.
-    직접 고친 곳이 있으면 다시 검수가 주 버튼이다. home.js fixRecheckTargets 는 서버 findings.fix_recheck_targets 와 같은 셈."""
+    """지난 검수 뒤 고침안을 넣은 열린 지적이 있으면 '고친 곳만 다시 보기'가 주 버튼이고 다시 검수는 옆에 남는다.
+    직접 고친 곳이 함께 있어도 같다. home.js fixRecheckTargets 는 서버 findings.fix_recheck_targets 와 같은 셈."""
     from canon.schema import FindingEvent, Meta, Project
     e = episode(1, status="written", text=TEXT)
     findings.merge(e, [issue(Q1), issue(Q2, "동선"), issue(Q3, "말투")], "2026-10-28T10:00:00", "b")
@@ -300,11 +300,13 @@ def test_fix_recheck_button_matches_server():
       });
       return { ids, views };
     })()""", {"cases": [dump(x) for x in cases], "p": dump(Project(meta=Meta(title="t", target_episodes=3), episodes=[e]))})
-    assert got["ids"] == [[f.id for f in findings.fix_recheck_targets(x)] for x in cases] == [["f1", "f2"], [], ["f2"]]
-    fast, slow, one = got["views"]
+    assert got["ids"] == [[f.id for f in findings.fix_recheck_targets(x)] for x in cases] == [["f1", "f2"], ["f1", "f2"], ["f2"]]
+    fast, mixed, one = got["views"]
     assert 'class="btn primary" data-action="fixRecheck" data-arg="1">고친 곳만 다시 보기 · 지적 2' in fast
     assert 'class="btn" data-action="checkEp"' in fast and "고침안만 넣었어요" in fast  # 다시 검수는 주 버튼이 아닌 채 남는다
-    assert 'data-action="fixRecheck"' not in slow and 'class="btn primary" data-action="checkEp"' in slow
+    # 직접 고친 곳이 함께 있어도 고침안을 넣은 지적은 먼저 고친 곳만 다시 보기로 닫고, 직접 고친 곳은 다시 검수로 본다고 알린다
+    assert 'class="btn primary" data-action="fixRecheck" data-arg="1">고친 곳만 다시 보기 · 지적 2' in mixed
+    assert "직접 고친 곳도 1곳" in mixed and "바뀐 문단에서 나온 새 지적만" in mixed
     assert "고친 곳만 다시 보기 · 지적 1" in one
 
 
@@ -328,3 +330,40 @@ def test_fix_recheck_asks_before_saving_project():
     })()""" % CHK_SETUP, check_project())
     assert got["refused"] == [["ask", "저장하고 시작하기"]]
     assert got["calls"] == [["ask", "저장하고 시작하기"], ["save"], ["PUT", "/projects/t/episodes/1/text"], ["job", "recheck", 1]]
+
+
+@needs_node
+def test_fix_batch_apply_starts_recheck():
+    """한꺼번에 검토의 '고른 N개 넣고 다시 보기': 모두 넣으면 검토 화면을 닫고 고친 곳만 다시 보기를 바로 시작한다.
+    넣지 못한 안이 있으면 까닭을 볼 수 있게 화면을 남기고 시작하지 않는다."""
+    from canon.schema import FixOption, Meta, Project
+    e = episode(1, status="written", text=TEXT)
+    findings.merge(e, [issue(Q1), issue(Q2, "동선")], "2026-10-28T10:00:00", "b")
+    e.findings[0].fixes = [FixOption(label="왼손으로", text="도현은 왼손에 남은 흉터를 감췄다.")]
+    e.findings[1].fixes = [FixOption(label="한 손으로", text="서윤은 문손잡이를 한 손으로 붙잡았다.")]
+    p = Project(meta=Meta(title="t", target_episodes=3), episodes=[e])
+    a = e.model_copy(deep=True)
+    a.text = a.text.replace(Q1, "도현은 왼손에 남은 흉터를 감췄다.")
+    a.findings[0].fix_group = "x1"
+    a.edits = [TextEdit(id="e1", at="2026-10-28T11:00:00", source="fix", group="x1", before=Q1, after="도현은 왼손에 남은 흉터를 감췄다.")]
+    after = Project(meta=Meta(title="t", target_episodes=3), episodes=[a])
+    got = run_js(CHK_FILES, """(async () => {
+      S.project = structuredClone(data.p); S.name = 't'; S.route = ['p', 't', 'check', '1'];
+      render = () => {};
+      toast = () => {};
+      run = async (label, fn) => fn();
+      const calls = [];
+      startJob = async (kind, n) => { calls.push(['job', kind, n]); };
+      let failed = [];
+      api = async (m, path, body) => { calls.push([m, path]); return { project: structuredClone(data.after), applied: ['f1'], failed }; };
+      S.fbOpen = 1; S.fbOn = { '1:f1': true };
+      await actions.fbApply();
+      const ok = { calls: calls.splice(0), open: S.fbOpen };
+      S.project = structuredClone(data.p); S.fbOpen = 1; S.fbOn = { '1:f1': true, '1:f2': true };
+      failed = [{ fid: 'f2', error: '앞 고침안이 같은 문장을 바꿨어요' }];
+      await actions.fbApply();
+      return { ok, bad: { calls: calls.splice(0), open: S.fbOpen, note: S.fbNote['1:f2'] } };
+    })()""", {"p": dump(p), "after": dump(after)})
+    assert got["ok"] == {"calls": [["POST", "/projects/t/episodes/1/fixes/apply"], ["job", "recheck", 1]], "open": 0}
+    assert got["bad"]["calls"] == [["POST", "/projects/t/episodes/1/fixes/apply"]] and got["bad"]["open"] == 1
+    assert "넣지 못했어요" in got["bad"]["note"]

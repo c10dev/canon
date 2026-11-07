@@ -95,6 +95,8 @@ const SET_ROWS = [
   { id: 'timeline', cat: 'writing', sec: '집필', label: '작품 속 시간 기록', words: '시간 날짜 기한 타임라인' },
   { id: 'travel', cat: 'writing', sec: '집필', label: '이동 시간 검사', words: '지도 이동 거리 탈것' },
   { id: 'stat-prompt', cat: 'writing', sec: '집필', label: '상태창 수치 넣기', words: '상태창 수치 프롬프트 json lines' },
+  { id: 'after-write', cat: 'writing', sec: '검수', label: '쓴 뒤 바로 검수', words: '검수 자동 집필 끝 바로 쓰기' },
+  { id: 'scope', cat: 'writing', sec: '검수', label: '바뀐 곳만 새로 짚기', words: '검수 다시 검수 바뀐 문단 새 지적 회차' },
   { id: 'motion', cat: 'writing', sec: '검수', label: '동선 따로 보기', words: '검수 동선 손 자세 향한 쪽 물건' },
   { id: 'widen', cat: 'writing', sec: '검수', label: '넓혀 찾기', words: '검수 넓히기 옛 화 장편' },
   { id: 'numbers', cat: 'writing', sec: '보기 · 보관', label: '관계를 숫자로 보기', words: '관계 숫자 말' },
@@ -339,6 +341,12 @@ function setRowHtml(id) {
       return setRow(id, '상태창 수치 넣기', '본문 쓰기 프롬프트에 인물 상태창 수치를 넣는 방식이에요. 연구 화면의 상태창 시험에서 셋을 견줘 볼 수 있어요.',
         `<select class="set-inp" data-setfield="stat_prompt" aria-labelledby="rn-${id}">${[['json', '인물 상태에 그대로 (기본)'], ['lines', '이번 화 인물만 줄로'], ['none', '넣지 않음']].map(([k, l]) => `<option value="${k}"${v === k ? ' selected' : ''}>${l}</option>`).join('')}</select>`);
     }
+    case 'after-write':
+      return p ? setRow(id, '쓴 뒤 바로 검수', '집필 화면에서 본문을 처음 쓰면 같은 작업에서 바로 검수해요. 본문은 먼저 받아 읽고 고칠 수 있고, 검수하는 동안 고친 곳은 검수 뒤 고침으로 남아요. 새 판(다시 생성)은 검수하지 않고, 화마다 검수 호출이 늘어요.',
+        SW(id, !!p.settings.check_after_write, '쓴 뒤 바로 검수'), { wide: false }) : '';
+    case 'scope':
+      return p ? setRow(id, '바뀐 곳만 새로 짚기', '다시 검수할 때 지난 검수 뒤 고친 문단과 앞뒤 문단에서 나온 새 지적만 넣어요. 바뀌지 않은 문단은 지난 검수가 이미 봐서, 고칠 때마다 새 지적이 또 나오는 일을 줄여요. 치명 지적은 어디서 나와도 넣어요.',
+        SW(id, p.settings.check_scope !== false, '바뀐 곳만 새로 짚기'), { wide: false }) : '';
     case 'motion':
       return p ? setRow(id, '동선 따로 보기', '검수할 때 이번 화 본문만 넣고 인물의 자리 · 향한 쪽 · 손 · 물건이 어긋난 곳을 한 번 더 찾아요. 본 검수와 동시에 불러서 기다리는 시간은 그대로고, 검수 호출이 1번 늘어요.',
         SW(id, p.settings.check_motion !== false, '동선 따로 보기'), { wide: false }) : '';
@@ -834,6 +842,8 @@ Object.assign(actions, {
         return setProjectSave(key, 'atlas/travel', { enabled: on, mode: t.mode, kmh: t.kmh, day_km: t.day_km, span_km: p.atlas.span_km }, (x) => { x.atlas.travel.enabled = on; });
       },
       echoes: () => { const on = p.settings.recent_echoes === false; return setProjectSave(key, 'recent-echoes', { on }, (x) => { x.settings.recent_echoes = on; }); },
+      'after-write': () => { const on = !p.settings.check_after_write; return setProjectSave(key, 'check-after-write', { on }, (x) => { x.settings.check_after_write = on; }); },
+      scope: () => { const on = p.settings.check_scope === false; return setProjectSave(key, 'check-scope', { on }, (x) => { x.settings.check_scope = on; }); },
       motion: () => { const on = p.settings.check_motion === false; return setProjectSave(key, 'check-motion', { on }, (x) => { x.settings.check_motion = on; }); },
       widen: () => { const on = !p.settings.check_widen; return setProjectSave(key, 'check-widen', { on }, (x) => { x.settings.check_widen = on; }); },
       numbers: () => { const on = !p.settings.show_numbers; return setProjectSave(key, 'view', { show_numbers: on }, (x) => { x.settings.show_numbers = on; }); },

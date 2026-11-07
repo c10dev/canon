@@ -7,7 +7,8 @@
 - 작가가 바꾼 심각도는 AI 값으로 덮지 않는다.
 지적 하나만 다시 검수하면(settle) 회차는 늘지 않는다. 풀렸으면 고침으로 닫고, 고친 문장 때문에 새로 어긋난 곳은
 그 지적에 딸린 지적(Finding.parent)으로 더한다.
-고친 곳만 다시 보기(fix_recheck_targets)는 지난 검수 뒤 수정이 모두 고침안일 때 그 지적들을 한 번에 다시 보고 같은 settle 로 넣는다.
+고친 곳만 다시 보기(fix_recheck_targets)는 지난 검수 뒤 고침안을 넣은 열린 지적들을 한 번에 다시 보고 같은 settle 로 넣는다.
+두 번째 회차부터 바뀐 문단 밖에서 새로 나온 지적은 넣지 않는다(scoped, 범위는 pipeline.check_scope).
 그대로 둠 · 잘못 짚음은 검수 프롬프트에 넣지 않는다(합치기에서만 거른다). LLM 호출 없음.
 """
 from __future__ import annotations
@@ -129,21 +130,33 @@ def edits_since_check(ep: Episode) -> list[TextEdit]:
 
 
 def fix_recheck_targets(ep: Episode) -> list[Finding]:
-    """고친 곳만 다시 보기로 볼 지적: 마지막 검수 뒤의 수정이 모두 열린 지적에 넣은 고침안 묶음일 때 그 지적들.
-    직접 고친 곳, 다른 AI 수정, 닫힌 지적의 묶음이 하나라도 있으면 빈 목록이다 (그때는 다시 검수).
+    """고친 곳만 다시 보기로 볼 지적: 마지막 검수 뒤에 고침안 묶음을 넣은 열린 지적들.
+    직접 고친 곳이나 다른 AI 수정이 함께 있어도 고침안을 넣은 지적은 대상이다. 그 수정은 다시 검수가 바뀐 문단에서 본다(pipeline.check_scope).
     묶음을 넣은 뒤 이미 다시 본 지적은 뺀다. home.js fixRecheckTargets 와 같은 셈."""
-    edits = edits_since_check(ep)
-    if not edits:
-        return []
     groups = {f.fix_group for f in open_findings(ep) if f.fix_group}
-    if any(x.source != "fix" or x.group not in groups for x in edits):
-        return []
     last: dict[str, str] = {}
-    for x in edits:
-        last[x.group] = max(last.get(x.group, ""), x.at)
+    for x in edits_since_check(ep):
+        if x.source == "fix" and x.group in groups:
+            last[x.group] = max(last.get(x.group, ""), x.at)
     # 그 묶음을 넣은 뒤 이미 다시 보고 아직 어긋난다고 한 지적은 다시 부르지 않는다 (그때는 다시 검수)
     return [f for f in open_findings(ep) if f.fix_group in last
             and not any(ev.kind == "recheck" and ev.at >= last[f.fix_group] for ev in f.log)]
+
+
+def scoped(ep: Episode, issues: list[ConsistencyIssue], scope: list[str]) -> tuple[list[ConsistencyIssue], list[ConsistencyIssue]]:
+    """다시 검수 결과를 바뀐 문단(scope)으로 거른다. (넣을 지적, 뺀 지적). scope 가 비면 모두 넣는다.
+    옛 지적과 같은 문장, 심각도 치명, 인용 문장이 없는 지적, 바뀐 문단 안의 문장을 짚은 지적만 넣는다.
+    바뀌지 않은 문단은 지난 회차가 이미 봤다. 같은 본문에서 새로 나온 지적은 대개 모델이 매번 다르게 짚은 것이다."""
+    if not scope:
+        return list(issues), []
+    keep, out = [], []
+    for x in issues:
+        q = x.current_quote.strip()
+        if not q or x.severity == "crit" or _match(ep, x, set()) is not None or any(in_text(s, q) for s in scope):
+            keep.append(x)
+        else:
+            out.append(x)
+    return keep, out
 
 
 def counted(ep: Episode, issues: list[ConsistencyIssue], ignore_minor: bool = False) -> list[ConsistencyIssue]:

@@ -521,6 +521,11 @@ async function pollJobs(soon = false) {
       S.jobsMerged[j.id] = j.done;  // 저장할 때 이 단계까지 받아 왔다고 알린다 (save)
     }
     if (j.kind === 'write' && j.status !== 'running') await mergeEpisodes((e) => e.plot.number === j.ep, [j.ep]);
+    // 쓴 뒤 바로 검수: 본문을 저장한 걸음에서 서버가 그 화를 내려놓는다(Job.step_ep). 검수가 끝나기 전에 본문을 먼저 받아 읽고 고치게 한다
+    if (j.kind === 'write' && j.status === 'running' && j.step_ep === j.ep && (!old || old.step_ep !== j.step_ep)) {
+      await mergeEpisodes((e) => e.plot.number === j.ep, [j.ep]);
+      S.jobsMerged[j.id] = j.done;  // 저장할 때 이 걸음까지 받아 왔다고 알린다 (save)
+    }
     if (j.kind === 'board' && j.status !== 'running') await mergeEpisodes((e) => e.plot.number === j.ep, [j.ep]);  // 스토리보드는 그 화에 붙었다 (board.js)
     if (j.kind === 'cues' && j.status !== 'running') await mergeEpisodes((e) => e.plot.number === j.ep, [j.ep]);  // 큐 시트도 그 화에 붙었다 (cue.js)
     if (j.kind === 'plot_one' && j.status !== 'running') {
@@ -610,7 +615,7 @@ if (window.visualViewport && typeof window.visualViewport.addEventListener === '
 }  // 누른 버튼의 동작이 먼저 돈다
 
 // 작업 결과가 보이는 화면
-JOB_DONE_MSG.check = (j) => `${j.ep}화 검수가 끝났어요${j.result && j.result.round ? ` (${j.result.round}회차)` : ''}: 짚은 곳 ${j.result ? j.result.issues : 0}개${j.result && j.result.round > 1 ? `, 새 지적 ${j.result.added}개` : ''}`;
+JOB_DONE_MSG.check = (j) => `${j.ep}화 검수가 끝났어요${j.result && j.result.round ? ` (${j.result.round}회차)` : ''}: 짚은 곳 ${j.result ? j.result.issues : 0}개${j.result && j.result.round > 1 ? `, 새 지적 ${j.result.added}개` : ''}${j.result && j.result.outside ? `, 바뀌지 않은 문단의 새 지적 ${j.result.outside}개는 넣지 않았어요` : ''}`;
 // 집필 · 검수 · 상태 승인은 한 화 화면(write.js viewEpisode)이라 셋을 함께 다시 그린다
 const JOB_PAGES = { check: ['check', 'write', 'review'], suggest: ['setup'], style: ['style'], arc: ['arc'], plots: ['arc', 'home', 'causal'], plot_one: ['arc', 'lines'], write: ['write', 'check', 'review', 'home', 'causal'], state: ['review', 'write', 'check'], auto: ['auto', 'home', 'write', 'check', 'review', 'causal', 'arc', 'setup'], impact: ['causal'], series: ['arc'], nextarc: ['arc'], recap_arc: ['arc'], recap_part: ['arc'], fold_knows: ['arc'], storyline: ['lines'] };
 

@@ -602,10 +602,14 @@ def test_fix_recheck_targets_and_pipeline(demo):
     pipeline.apply_fixes(p, 1, [("f1", 0, []), ("f2", 0, [])])
     assert [f.id for f in findings.fix_recheck_targets(ep)] == ["f1", "f2"]
 
-    # 직접 고친 곳이 하나라도 있으면 다시 검수해야 한다
-    typed = pipeline.record_typed(p, 1, ep.text, ep.text + " 덧붙임.")
-    assert findings.fix_recheck_targets(ep) == []
+    # 직접 고친 곳이 함께 있어도 고침안을 넣은 지적은 대상이다 (직접 고친 곳은 다시 검수가 바뀐 문단에서 본다)
+    before = ep.text
+    typed = pipeline.record_typed(p, 1, ep.text, ep.text + "\n\n덧붙임.")
+    ep.text += "\n\n덧붙임."
+    assert [f.id for f in findings.fix_recheck_targets(ep)] == ["f1", "f2"]
+    assert "덧붙임." in "\n".join(prompts.fix_around(ep.text, pipeline._fix_spots(ep, findings.edits_since_check(ep))))
     typed.undone = True
+    ep.text = before
     assert len(findings.fix_recheck_targets(ep)) == 2
 
     # 프롬프트: 검수 자료 전체가 아니라 작품 설정(검수와 같은 앞부분)과 고친 곳 둘레 문단만
@@ -651,6 +655,75 @@ def test_fix_recheck_targets_and_pipeline(demo):
     assert [(k.parent, k.current_quote) for k in kids] == [("f1", fixed_text)]
     assert (f["f1"].status, f["f1"].log[-1].kind) == ("open", "recheck")
     assert findings.fix_recheck_targets(ep) == []  # 아직 어긋난다고 본 지적은 다시 검수로
+
+
+def test_scoped_keeps_old_crit_quoteless_and_inside():
+    """다시 검수 거르기: 옛 지적과 같은 문장 · 치명 · 인용 없음 · 바뀐 문단 안은 넣고, 바뀌지 않은 문단의 새 지적만 뺀다."""
+    e = episode()
+    findings.merge(e, [issue(Q1)], "2026-10-28T10:00:00", "b")
+    crit = issue(Q4, "말투")
+    crit.severity = "crit"
+    xs = [issue(Q1, desc="같은 문장"), issue(Q2, "동선"), issue(Q3, "말투"), crit, issue("", "플롯", "사건 누락")]
+    keep, out = findings.scoped(e, xs, [Q2.replace("두 손", "두  손")])  # 띄어쓰기가 달라도 같은 문장
+    assert [x.description for x in keep] == ["같은 문장", "어긋남", "어긋남", "사건 누락"]
+    assert [x.current_quote for x in keep][1:3] == [Q2, Q4]
+    assert [x.current_quote for x in out] == [Q3]
+    assert findings.scoped(e, xs, []) == (xs, [])
+
+
+def test_check_scope_second_round(demo):
+    """두 번째 회차부터 바뀐 문단만 새로 짚는다: 범위는 마지막 검수 뒤 수정이 놓인 문단과 앞뒤 문단, 프롬프트 맨 뒤에 붙고,
+    그 밖에서 새로 나온 지적은 넣지 않고 수만 회차에 남긴다. 첫 검수 · 설정을 끔 · 바뀐 문단이 너무 많음 · 같은 본문은 전체."""
+    from canon import prompts
+    from canon.mock import MockLLM
+    p = store.load(demo)
+    ep = p.episode(1)
+    paras = [f"{i}번째 문단의 문장이다." for i in range(12)]
+    ep.text = "\n\n".join(paras)
+    assert pipeline.check_scope(ep) == []  # 아직 검수하지 않았다
+    pipeline.apply_check(p, ConsistencyReport(episode=1, issues=[]))
+    assert pipeline.check_scope(ep) == []  # 검수 뒤 고친 곳이 없다
+    ep.checked_at = OLD
+    new = ep.text.replace(paras[5], "5번째 문단을 고쳤다.")
+    pipeline.record_typed(p, 1, ep.text, new)
+    ep.text = new
+    scope = pipeline.check_scope(ep)
+    assert scope == ["\n".join([paras[4], "5번째 문단을 고쳤다.", paras[6]])]
+
+    calls = []
+
+    class Spy(MockLLM):
+        def json(self, system, prompt, schema, hint=None, **kw):
+            calls.append(prompt)
+            if schema is ConsistencyReport and "바뀐 문단" in prompt:
+                return ConsistencyReport(episode=1, issues=[issue("5번째 문단을 고쳤다."), issue(paras[9], "동선")])
+            return super().json(system, prompt, schema, hint=hint, **kw)
+    p.settings.check_motion = False
+    p.settings.stage_extract = False
+    rep = pipeline.check_episode(Spy(), p, 1)
+    prompt = calls[0]
+    assert prompt.startswith(prompts.check_material(p, 1)) and prompt.endswith(prompts.scope_block(scope))
+    r = pipeline.apply_check(p, rep)
+    assert (r.no, r.scoped, r.outside, r.added) == (2, True, 1, 1)
+    assert [f.current_quote for f in findings.open_findings(ep)] == ["5번째 문단을 고쳤다."]
+    assert [x.current_quote for x in ep.issues] == ["5번째 문단을 고쳤다."]  # 넣은 지적만 회차 결과로 남긴다
+
+    # 설정을 끄면 본문 전체를 짚는다
+    ep.checked_at = OLD
+    p.settings.check_scope = False
+    calls.clear()
+    assert pipeline.check_episode(Spy(), p, 1)._scope == [] and "바뀐 문단" not in calls[0]
+    p.settings.check_scope = True
+    # 같은 본문을 다시 검수하면 전체를 본다
+    ep.rounds[-1].basis = pipeline.text_basis(ep.text)
+    assert pipeline.check_scope(ep) == []
+    ep.rounds[-1].basis = ""
+    assert pipeline.check_scope(ep) != []
+    # 바뀐 문단이 본문의 절반을 넘으면 전체를 본다
+    wide = ep.text.replace(paras[1], "1번째를 고쳤다.").replace(paras[10], "10번째를 고쳤다.")
+    pipeline.record_typed(p, 1, ep.text, wide)
+    ep.text = wide
+    assert pipeline.check_scope(ep) == []
 
 
 def test_fix_recheck_late_result_does_not_override(demo):
@@ -713,6 +786,98 @@ def test_fix_around_merges_neighbour_paragraphs():
     assert prompts.fix_around(text, [(at, at + 2), (at2, at2 + 2)]) == ["나.\n다.\n라.\n마.\n바."]  # 이웃한 둘레는 합친다
     assert prompts.fix_around(text, [(0, 1)], k=0) == ["가."]
     assert prompts.fix_around("", [(0, 0)]) == []
+
+
+def test_check_round_keeps_start_time_and_basis(demo, monkeypatch):
+    """검수 회차의 시각 · 지문은 검수를 시작할 때 것이다: 검수하는 동안 고친 곳은 '검수 뒤 고침'으로 남는다.
+    채팅 앱 JSON 처럼 시작 값이 없는 결과는 넣는 때의 값을 쓴다."""
+    from canon.mock import MockLLM
+    now = ["2026-11-07T10:00:00+00:00"]
+    monkeypatch.setattr(pipeline, "_now", lambda: now[0])
+    p = store.load(demo)
+    p.settings.check_motion = p.settings.stage_extract = False
+    ep = p.episode(1)
+    old = ep.text
+    rep = pipeline.check_episode(MockLLM(), p, 1)
+    now[0] = "2026-11-07T10:00:20+00:00"  # 검수 답을 기다리는 동안 작가가 고쳤다
+    new = old + "\n\n검수하는 동안 고친 문단이다."
+    e = pipeline.record_typed(p, 1, old, new)
+    ep.text = new
+    now[0] = "2026-11-07T10:00:40+00:00"
+    r = pipeline.apply_check(p, rep)
+    # 본문이 바뀌었으니 시작과 같은 초에 고친 것도 세게 1초 앞당긴다
+    assert (r.at, r.basis, ep.checked_at) == ("2026-11-07T09:59:59+00:00", pipeline.text_basis(old), "2026-11-07T09:59:59+00:00")
+    assert findings.edits_since_check(ep) == [e] and not findings.check_done(ep)
+    r = pipeline.apply_check(p, ConsistencyReport(episode=1, issues=[]), "chat")
+    assert (r.at, r.basis) == ("2026-11-07T10:00:40+00:00", pipeline.text_basis(new))
+
+    # 시작과 같은 초에 고쳐도 '검수 뒤 고침'이다 (시각은 초까지만 남는다)
+    now[0] = "2026-11-07T11:00:00+00:00"
+    rep = pipeline.check_episode(MockLLM(), p, 1)
+    e2 = pipeline.record_typed(p, 1, ep.text, ep.text + "\n\n같은 초에 고침.")
+    ep.text += "\n\n같은 초에 고침."
+    pipeline.apply_check(p, rep)
+    assert e2 in findings.edits_since_check(ep) and not findings.check_done(ep)
+    # 검수하는 동안 고치지 않았으면 시작 시각 그대로
+    now[0] = "2026-11-07T12:00:00+00:00"
+    r = pipeline.apply_check(p, pipeline.check_episode(MockLLM(), p, 1))
+    assert r.at == "2026-11-07T12:00:00+00:00" and findings.edits_since_check(ep) == []
+
+
+def _wait_job(c, jid):
+    import time
+    for _ in range(200):
+        j = next(x for x in c.get("/api/jobs").json() if x["id"] == jid)
+        if j["status"] != "running":
+            return j
+        time.sleep(0.05)
+    raise AssertionError("작업이 끝나지 않았어요")
+
+
+def test_web_write_then_check(demo, monkeypatch):
+    """쓴 뒤 바로 검수(Settings.check_after_write): 처음 쓰는 본문만 같은 작업에서 검수하고 결과를 회차로 붙인다.
+    그동안 따로 검수를 시작하지 않는다. 검수가 실패해도 쓴 본문은 남는다. 본문이 있는 화를 다시 쓰면 검수 걸음이 없다."""
+    from canon import web
+    c = TestClient(web.app)
+    p = store.load(demo)
+    assert p.settings.check_after_write is False  # 기본은 끔 (화마다 검수 호출이 는다)
+    p.episode(1).status = "finalized"
+    p.settings.check_motion = p.settings.stage_extract = False
+    store.save(demo, p)
+    r = c.put(f"/api/projects/{demo}/check-after-write", json={"on": True})
+    assert r.status_code == 200 and r.json()["settings"]["check_after_write"] is True
+
+    j = c.post(f"/api/projects/{demo}/jobs", json={"kind": "write", "ep": 2, "board": "none", "cues": "none"}).json()
+    assert j["label"].endswith("본문과 검수") and j["total"] == 2
+    j = _wait_job(c, j["id"])
+    assert j["status"] == "done" and j["result"]["check"]["round"] == 1 and j["step_ep"] == 2
+    e = store.load(demo).episode(2)
+    assert e.text and len(e.rounds) == 1 and e.rounds[0].basis == pipeline.text_basis(e.text)
+
+    # 본문이 있는 화를 다시 쓰면 검수하지 않는다
+    j = c.post(f"/api/projects/{demo}/jobs", json={"kind": "write", "ep": 2, "board": "none", "cues": "none"}).json()
+    assert "검수" not in j["label"] and j["total"] == 1
+    _wait_job(c, j["id"])
+
+    # 쓴 뒤 검수가 도는 동안 따로 검수를 시작하지 않는다
+    web._WRITE_CHECKS.add((demo, 2))
+    try:
+        r = c.post(f"/api/projects/{demo}/jobs", json={"kind": "check", "ep": 2})
+        assert r.status_code == 400 and "바로 검수하는 중" in r.text
+    finally:
+        web._WRITE_CHECKS.discard((demo, 2))
+
+    # 검수가 실패해도 본문은 남고 까닭을 알린다
+    p = store.load(demo)
+    p.episode(2).status = "finalized"
+    store.save(demo, p)
+
+    def boom(name, n, llm):
+        raise ValueError("검수 모델이 답하지 않았어요")
+    monkeypatch.setattr(web, "_run_check", boom)
+    j = _wait_job(c, c.post(f"/api/projects/{demo}/jobs", json={"kind": "write", "ep": 3, "board": "none", "cues": "none"}).json()["id"])
+    assert j["status"] == "done" and j["result"] == {"check_error": "검수 모델이 답하지 않았어요"}
+    assert store.load(demo).episode(3).text and (demo, 3) not in web._WRITE_CHECKS
 
 
 def test_web_recheck_job(demo):
