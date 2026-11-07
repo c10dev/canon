@@ -425,6 +425,7 @@ class ClaudeCodeLLM:
         self.last_usage: dict | None = None
         self.last_attempts = 0
         self.last_raw = self.last_note = ""
+        self.last_keep = True  # 이번 호출이 캐시에 쓰나. 아니면 DISABLE_PROMPT_CACHING 을 넣는다 (_split)
 
     @property
     def model(self) -> str:
@@ -495,11 +496,14 @@ class ClaudeCodeLLM:
         try:
             sch = strict_schema(schema) if schema else None
             head, ask, self.last_cut = self._split(system, prompt, schema, cut, prefix)
+            if not self.last_keep:
+                # 다음 호출이 읽지 않을 캐시는 쓰지 않는다. 캐시 쓰기는 입력 값의 1.25배다
+                env = {**(env or {}), "DISABLE_PROMPT_CACHING": "1"}
             family = bool(prefix and self.last_cut)
             if family and schema is not None:
                 # --json-schema 는 스키마마다 다른 도구를 붙여 캐시를 가른다 (도구가 시스템 프롬프트보다 앞). 가족 호출은 글로 JSON 을 받는다
                 sch, ask = None, ask.rstrip() + json_instruction(schema)
-            if head != system:
+            if head != system and self.last_keep:
                 # 가족 호출은 스키마가 달라도 같은 앞부분이면 같은 캐시다
                 gate = ("cli", self.requested, None if family else schema and schema.__name__, len(head), hash(head))
                 claim = _claim(gate)
@@ -555,11 +559,14 @@ class ClaudeCodeLLM:
         통째로 같을 때만 캐시가 맞는다. 그래서 같은 종류 직전 요청과 겹치는 앞부분(shared_cut)을 시스템 프롬프트 뒤로 옮긴다.
         cut 을 주면 그 자리를 쓴다 (형식 고치기 재시도가 첫 시도와 같은 시스템 프롬프트로 캐시를 읽게).
         prefix 를 주면 직전 요청과 견주지 않고 그 자리(단락 경계로 맞춤)에서 옮긴다. 같은 앞부분의 첫 호출부터 캐시에 넣는다.
-        겹침이 짧거나 이 버전이 --system-prompt-file 을 모르면 그대로 둔다 (긴 글을 인자로 넘기면 Linux 한도 128KB 에 걸린다)."""
+        겹침이 짧거나 이 버전이 --system-prompt-file 을 모르면 그대로 둔다 (긴 글을 인자로 넘기면 Linux 한도 128KB 에 걸린다).
+        캐시에 쓸지(last_keep)도 정한다 (worth_caching). cut 을 주면(형식 고치기 재시도) 첫 시도의 값을 그대로 쓴다."""
         if "--system-prompt-file" not in _flags(self._bin()):
+            self.last_keep = True  # 앞부분을 옮기지 못하는 버전은 예전처럼 Claude Code 에 맡긴다
             return system, prompt, 0
         if cut is None:
-            cut = shared_cut(("cli", self.requested, system, schema and schema.__name__), prompt, prefix)
+            cut, recent = cut_and_recent(("cli", self.requested, system, schema and schema.__name__), prompt, prefix)
+            self.last_keep = worth_caching(cut, prefix, recent)
         if not cut:
             return system, prompt, 0
         if prefix:  # 캐시 가족: 시스템 프롬프트를 가족 공통 글로 두고 원래 것은 사용자 메시지 앞으로 (llm.FAMILY_SYSTEM)
@@ -605,6 +612,7 @@ def api_model(model: str) -> str:
 # 프롬프트 캐시: Messages API 는 cache_control 을 단 블록까지만 캐시한다. 프롬프트는 작품 고정 블록이 앞, 화마다 바뀌는
 # 블록이 뒤라(prompts.build_episode_context), 같은 종류의 직전 요청과 겹치는 앞부분 끝에 표시를 달면 다음 화부터 그 앞부분을 읽는다.
 _SEEN: dict[tuple, str] = {}  # (모델, 시스템, 스키마) → 직전 요청 본문
+_SEEN_AT: dict[tuple, float] = {}  # 같은 열쇠 → 직전 요청을 본 시각
 _SEEN_LOCK = threading.Lock()
 CACHE_MIN_CHARS = 2_000  # 겹치는 앞부분이 이보다 짧으면 표시하지 않는다 (최소 캐시 길이 아래)
 
@@ -613,12 +621,29 @@ def shared_cut(key: tuple, prompt: str, prefix: int | None = None) -> int:
     """직전 같은 종류 요청과 겹치는 앞부분이 끝나는 단락 경계. 겹침이 CACHE_MIN_CHARS 보다 짧으면 0. 이 요청을 직전 요청으로 기억한다.
     prefix 를 주면 직전 요청 대신 그 글자 수를 앞부분 끝으로 본다 (부른 쪽이 공통 자료가 끝나는 곳을 안다: llm.prefix_of).
     그 자리 바로 뒤의 단락 구분까지 앞부분에 넣어, 자료 뒤에 '\n\n'으로 요청을 붙인 프롬프트는 자료 끝에서 자른다."""
+    return cut_and_recent(key, prompt, prefix)[0]
+
+
+def cut_and_recent(key: tuple, prompt: str, prefix: int | None = None) -> tuple[int, bool]:
+    """(shared_cut 의 자리, 같은 종류 직전 요청을 캐시 유지 시간 안에 봤는지)."""
+    now = time.time()
     with _SEEN_LOCK:
         prev = _SEEN.get(key, "")
+        recent = key in _SEEN and now - _SEEN_AT.get(key, 0.0) < _warm_seconds()
         _SEEN[key] = prompt
+        _SEEN_AT[key] = now
     end = min(prefix, len(prompt)) + 2 if prefix else len(os.path.commonprefix([prev, prompt]))
     cut = prompt.rfind("\n\n", 0, end)
-    return cut if cut >= CACHE_MIN_CHARS else 0
+    return (cut if cut >= CACHE_MIN_CHARS else 0), recent
+
+
+def worth_caching(cut: int, prefix: int | None, recent: bool) -> bool:
+    """이 요청을 캐시에 쓸 만한가. 캐시 쓰기는 입력 값의 1.25배(1시간 캐시는 2배)라, 다음 요청이 읽을 앞부분이 있을 때만 쓴다.
+    - 나눌 앞부분이 없으면(cut 0) 쓰지 않는다. 다음 요청은 다른 자리에서 나누므로 이 요청의 캐시를 읽지 못한다.
+    - 부른 쪽이 경계를 알려 줬으면(prefix, 캐시 가족 · 부분 수정) 쓴다. 곧 같은 앞부분 요청이 온다.
+    - 경계 없이 직전 요청과 견줘 나눴으면, 직전 요청을 캐시 유지 시간 안에 봤을 때만 쓴다.
+      화마다 한 번 부르는 단계(plot_one 등)는 다음 요청이 캐시 유지 시간 뒤에 와서 읽지 못한다 (2026-11-07 서버 실측)."""
+    return bool(cut) and (bool(prefix) or recent)
 
 
 # 구독(Claude Code)은 앞부분을 시스템 프롬프트로 옮겨 캐시한다(ClaudeCodeLLM._split). 고침안 받기처럼 같은 앞부분 요청을
@@ -672,9 +697,9 @@ def _release(gate: tuple, claim: threading.Event | None, reached: bool, sent: fl
 
 def cache_blocks(key: tuple, prompt: str, prefix: int | None = None) -> str | list[dict]:
     """직전 같은 종류 요청과 겹치는 앞부분을 단락 경계에서 잘라 캐시 표시를 단 블록으로 나눈다. 겹침이 짧으면 글 그대로.
-    prefix 를 주면 그 자리에서 자른다 (shared_cut)."""
-    cut = shared_cut(key, prompt, prefix)
-    if not cut:
+    prefix 를 주면 그 자리에서 자른다 (shared_cut). 다음 요청이 읽을 만하지 않으면 표시하지 않는다 (worth_caching)."""
+    cut, recent = cut_and_recent(key, prompt, prefix)
+    if not worth_caching(cut, prefix, recent):
         return prompt
     mark = {"type": "ephemeral", "ttl": "1h"} if cache_1h() else {"type": "ephemeral"}
     return [{"type": "text", "text": prompt[:cut], "cache_control": mark},

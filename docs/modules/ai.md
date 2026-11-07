@@ -16,6 +16,15 @@
 - 부른 쪽이 공통 앞부분의 끝을 알면 `hint[llm.PREFIX_HINT]`(`prefix_chars`, 글자 수)로 넘긴다. 읽는 함수는 `llm.prefix_of`
 - 경계를 받으면 `shared_cut` 은 직전 요청과 견주지 않고 그 자리(뒤따르는 단락 구분까지 보고 단락 경계로 맞춤)에서 자른다. 같은 앞부분의 첫 호출부터 캐시에 넣는다
 - 경계는 Claude 두 백엔드만 쓴다. Gemini · 로컬 · mock 은 hint 의 이 키를 쓰지 않는다
+- 캐시는 다음 요청이 읽을 때만 쓴다(`worth_caching`). 캐시 쓰기는 입력 값의 1.25배(1시간 캐시는 2배)다
+- 나눌 앞부분이 없으면(cut 0) 쓰지 않는다. 다음 요청은 다른 자리에서 나눠 이 요청의 캐시를 읽지 못한다
+- 경계(`PREFIX_HINT`)를 받았으면 쓴다
+- 경계 없이 직전 요청과 견줘 나눴으면 직전 같은 종류 요청을 캐시 유지 시간 안에 봤을 때만 쓴다(`cut_and_recent`, `_SEEN_AT`)
+- 화마다 한 번 부르는 단계(plot_one 등)는 다음 요청이 15~17분 뒤라 5분 캐시를 읽지 못했다(2026-11-07 서버 실측: plot_one 쓰기 1,044k, 읽기 3k)
+- API 는 쓰지 않을 요청에 캐시 표시를 달지 않는다(`cache_blocks`)
+- 구독은 쓰지 않을 요청에 `DISABLE_PROMPT_CACHING=1` 을 넣는다(`last_keep`). Claude Code 는 표시를 고를 수 없어 사용자 메시지까지 통째로 캐시에 쓴다
+- 구독의 쓰지 않는 호출은 캐시 게이트(`_claim`)를 거치지 않는다
+- 대가: Claude Code 가 한 호출 안에서 같은 요청을 다시 보내면(`resent`) 그 요청도 캐시를 읽지 못한다
 - API 는 그 끝에 `cache_control` 을 단다(`cache_blocks`)
 - 구독은 캐시 표시를 고를 수 없어 그 앞부분을 시스템 프롬프트 뒤로 옮겨 `--system-prompt-file` 로 넘긴다(`ClaudeCodeLLM._split`)
 - 캐시 가족: 경계(`PREFIX_HINT`)를 받은 호출은 시스템 프롬프트를 가족 공통 글 `llm.FAMILY_SYSTEM` 으로 둔다. 원래 시스템 프롬프트는 사용자 메시지 맨 앞(`llm.role_block`)으로 옮긴다
@@ -27,6 +36,7 @@
 - 두 백엔드는 `family_cache = True` 다. `text(system, prompt, hint=)` 도 경계를 받는다(`llm.family_text`)
 - Claude Code 는 시스템 프롬프트 끝에 캐시 표시를 단다
 - 형식 고치기 재시도는 첫 시도와 같은 자리에서 자른다(`last_cut`). 처음 요청 뒤에 덧붙이므로 첫 시도의 캐시를 읽는다
+- 형식 고치기 재시도는 캐시에 쓸지도 첫 시도를 따른다(`last_keep`)
 - `--system-prompt-file` 은 2.1.x `--help` 에 `--system-prompt[-file]` 로만 나온다. 모르는 버전이면 예전처럼 사용자 메시지에 둔다
 - 같은 시스템 프롬프트를 동시에 보내면 먼저 보낸 호출이 끝나거나 보낸 지 `CACHE_PREFILL_SECONDS`(30초)가 지날 때까지 뒤 호출이 기다린다(`_claim` · `_release`). 고침안 받기(`FIX_WORKERS` 3)가 모두 캐시를 새로 쓰지 않게 하려는 것
 - 모델까지 간 호출은 보낸 시각부터 `CACHE_WARM_SECONDS`(300초) 동안 캐시에 있다고 보고 기다리지 않는다
