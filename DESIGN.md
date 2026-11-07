@@ -51,6 +51,10 @@ AI 로 소설을 길게 쓸수록 인물 말투, 관계, 심리, 복선, 문체�
 | 문체 예시 | `StyleExample` (`style_example`) | 지금 문체로 쓴 예시 글, 고쳐 쓴 원래 대목, 쓸 때의 프로필 | 쓸 때마다 덮어씀, 본문에는 안 들어감 |
 | 확정 사실 | `facts` | 본문에서 새로 정해진 사실 (이름, 과거사 등) | 매 화 승인 후 |
 | 복선 | `Foreshadow` | 내용, 심은 화, 회수 화, 상태, 범위(`scope`: arc/part/series), 회수 예정 화(`due_ep`) | 매 화 승인 후 |
+| 복선 갈래 | `Foreshadow.kind`, `Foreshadow.public` | 단서(clue, 기본) · 판돈(stake) · 제약(constraint) · 관객(audience) · 금지선(ban). 판돈은 남에게 드러났는지(`public`)도 적는다. 열 계획의 정점을 받친다 | 매 화 승인 후, 작가가 고칠 때 |
+| 열 계획 (단편) | `HeatStep` 목록 (`heat`), `heat_rule`, `HeatTurn` (`heat_turn`) | 화마다 열 눈금(0~5)과 몫(쌓기 · 미루기 · 터뜨리기 · 뒷날 · 쉬기), 정점 종류, 한 줄. 작품의 열 원칙, 뒤집힘 한 번(반격을 심은 화 · 들킨 화 · 상대가 쥐는 것). 비면 쓰지 않는다 (`canon/heatplan.py`) | 작가가 고칠 때, AI 계획안은 적용 후 |
+| 열 계획 경고 · 실제 열 | `HeatWarn`, `HeatActual` (저장하지 않음) | 계획과 플롯 · 복선 · 큐 시트를 견준 경고 아홉 가지(막지 않음). 쓴 화의 열 낱말 밀도와 큐 긴장 평균(참고값) | 볼 때마다 계산 |
+| 열 계획 제안 | `HeatArcPlan` (저장하지 않음) | `Settings.heat_plan` 을 켠 단편의 기승전결 응답에 함께 오는 열 계획 · 원칙 · 뒤집힘 · 판돈. 작가가 구조를 고를 때 들어간다 | 구조 제안 때 |
 | 복선 문장 | `ForeshadowClue` (`foreshadow_clues`) | 복선 id, 심음 · 다시 떠올림(`plant`) 또는 회수(`payoff`), 본문 문장 그대로, 화, 누가 걸었나(`by`: ai/author). 본문은 바꾸지 않고 문장만 기억한다 | 매 화 승인 후, 작가가 고를 때 |
 | 상태창 기록 | `StatRecord` (`stat_log`), `StatWindow` (`stat_window`) | 화, 인물, 항목, 바뀐 값, 이전 값, 출처(ai/author). 서식은 본문에 넣을 상태창 틀(`{name}`, `{rows}`, `{key}`, `{value}`), 화면 창 이름 · 스킨, 작품 틀 | 매 화 승인 후, 작가가 고칠 때 |
 | 작품 속 시간 | `Episode.time` (`StoryTime`), `EpisodePlot.time`, `Timeline` (`timeline`: `enabled`, `start`, `start_date`, `deadlines`) | 화가 끝난 시점(날수 · 시간대 · 날짜나 계절), 플롯이 정한 시점(직전 화에서 얼마나 지났는지), 1일째 날짜(`start_date`, YYYY-MM-DD)와 덧붙일 말, 기한(`Deadline`: 무엇, 날수, 본문의 말, 생긴 화, 닫힌 화) | 매 화 승인 후, 작가가 고칠 때 |

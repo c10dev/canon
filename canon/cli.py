@@ -84,9 +84,9 @@ from pathlib import Path
 from . import (address, archetypes, autorun, branches, cast, charlog, dynamics, elements, features, genres, illust, library, logline, metrics, naming, pipeline, prompts, publish, research, store,
                storylines, updater, usage)
 from .llm import dump, get_llm
-from .schema import FINDING_STATUS, SEVERITY, ConsistencyReport, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
+from .schema import FINDING_STATUS, SEVERITY, ConsistencyReport, HeatArcPlan, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
 from . import abilities, anchor, atlas, blocktrial, findings, stattrial, foreshadows, setupchat, statwin, timeline
-from . import birth, cue, jobs, labstats, play, soelab, tofix
+from . import birth, cue, heatplan, jobs, labstats, play, soelab, tofix
 from .schema import ArcProposal, ChatScope, Deadline, MapPlace, StatValue, StateDeltaAI, StoryArc, to_delta
 from .maps import kinds as placekinds
 from .maps import travel
@@ -405,8 +405,19 @@ def cmd_arc(a: argparse.Namespace) -> None:
     plan = pipeline.plan_arc(get_llm("plan"), p, a.note or "")
     for act in plan.acts:
         print(f"[{act.name}] {act.start_ep}~{act.end_ep}화  목표: {act.goal}  / 전환점: {act.key_turn}{_act_pov(act)}")
+    heat = plan if isinstance(plan, HeatArcPlan) and plan.heat else None
+    if heat:
+        print(f"\n열 계획: {heat.heat_rule}")
+        for s in heat.heat:
+            print(f"  {s.ep}화 열 {s.level} · {heatplan.ROLES[s.role]}{f' · {s.kind}' if s.kind else ''}{f'  {s.note}' if s.note else ''}")
+        for f in heat.stakes:
+            print(f"  [{heatplan.KINDS[f.kind]}] {f.description} ({f.planted_ep}화에 심음)")
+        if heat.heat_turn.plant_ep:
+            print(f"  뒤집힘: {heat.heat_turn.plant_ep}화에 심고 {heat.heat_turn.fail_ep}화에 들킴 · {heat.heat_turn.gain}")
     if confirm("이 구조로 확정할까요?", a.yes):
         p.arc = plan.acts
+        if heat:
+            pipeline.apply_heat_plan(p, heat)
         print(f"저장: {store.save(a.name, p)}")
 
 
@@ -888,6 +899,10 @@ def cmd_confirm(a: argparse.Namespace) -> None:
         print(f"새 인물 등록: {', '.join(c.name or c.id for c in p.characters if c.id in added)}")
     if len(p.elements) > places:
         print(f"새 장소 등록 (인과율): {', '.join(el.name for el in p.elements[places:])}")
+    nums = {e.plot.number for e in targets}
+    for w in heatplan.warnings(p):
+        if w.ep == 0 or w.ep in nums:
+            print(f"열 계획: {w.text}")
     store.save(a.name, p)
 
 
