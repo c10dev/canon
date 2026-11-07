@@ -161,6 +161,7 @@ def reconcile(p: Project) -> bool:
                 continue  # 작업을 띄우기 직전이다
             else:
                 t.end = "stopped" if j.status == "cancelled" else "done"
+            t.ended = t.ended or now()
             _strip(t)
             changed = True
     return changed
@@ -513,11 +514,21 @@ def fill(llm: LLM, system: str, prompt: str, step: PlotAgentStep, hint: dict) ->
     프롬프트에 '칸을 채운다'를 더해도 4번 모두 비었고, 같은 프롬프트 뒤에 AgentAsk 로 다시 부르니 2번 모두 묻는 말과
     방향 3안을 냈다. edit_plot 을 PlotRevision 으로 채우게 하면 방향 안(options)만 낼 때가 있어, 그때는 되묻기로 바꾼다."""
     tool = step.tool.strip()
-    if tool == "ask" and not step.question.strip() and not step.options:
+    if (tool == "ask" and not step.question.strip() and not step.options) or (tool == "edit_plot" and empty_edit(step.edit)):
+        cancel.say("AI가 빈 칸을 보내 그 칸만 한 번 더 받아요")  # 한 단계가 호출 두 번이 된다. 화면이 까닭을 보인다
+        try:
+            return _fill(llm, system, prompt, step, hint, tool)
+        finally:
+            cancel.say("")
+    return step
+
+
+def _fill(llm: LLM, system: str, prompt: str, step: PlotAgentStep, hint: dict, tool: str) -> PlotAgentStep:
+    if tool == "ask":
         a = llm.json(system, prompt + FILL_NOTE.format(tool=tool, thought=step.thought.strip(), what=FILL_WHAT["ask"]), AgentAsk,
                      hint={**hint, "fill": "ask"})
         return step.model_copy(update={"question": a.question, "options": a.options, "reply": step.reply or a.reply})
-    if tool == "edit_plot" and empty_edit(step.edit):
+    if tool == "edit_plot":
         rev = llm.json(system, prompt + FILL_NOTE.format(tool=tool, thought=step.thought.strip(), what=FILL_WHAT["edit_plot"]), PlotRevision,
                        hint={**hint, "fill": "edit"})
         if rev.options and empty_edit(rev.model_copy(update={"options": []})):
@@ -593,6 +604,7 @@ def _step(p: Project, sid: str, t: int, step: PlotAgentStep, move: bool = True, 
         turn.steps.append(StepRecord(kind="note", tool=tool, why="없는 도구예요", result=f"{tool} 라는 도구는 없어요. [도구] 목록에서 고르세요"))
     if end:
         turn.end = end  # type: ignore[assignment]
+        turn.ended = now()
         if end in ("done", "ask"):
             _strip(turn)
     s.updated = now()
@@ -625,6 +637,7 @@ def run_turn(llm: LLM, name: str, sid: str, t: int, job=None) -> dict:
     def cap(q: Project) -> None:
         _, tq = turn_of(q, sid, t)
         tq.end = "cap"
+        tq.ended = now()
     _edit(name, cap)
     return {"end": "cap", "steps": MAX_STEPS}
 
