@@ -7,7 +7,8 @@ CANON_MODEL_<단계> (단계별 모델, 예: CANON_MODEL_STATE), CANON_EFFORT_<�
 (단계별 Claude 추론 강도), CANON_CLAUDE_MODEL, CANON_CLAUDE_BIN, CANON_CLAUDE_CONFIG_DIR,
 ANTHROPIC_API_KEY (Claude 백엔드, claude.py), CANON_GEMINI_AUTH(key | vertex, 또는 GOOGLE_GENAI_USE_VERTEXAI=true),
 CANON_VERTEX_CREDENTIALS(또는 GOOGLE_APPLICATION_CREDENTIALS), GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION (Vertex AI),
-CANON_GEMINI_CACHE(0 이면 Gemini 명시 캐시를 끈다, gemini_cache). prices 는 AI 요금 가격표에서 고친 줄 (usage.py).
+CANON_GEMINI_CACHE(0 이면 Gemini 명시 캐시를 끈다, gemini_cache).
+gemini_cache_unsupported 는 명시 캐시를 받지 않는다고 API 가 답한 모델 (llm.GeminiLLM 이 적는다). prices 는 AI 요금 가격표에서 고친 줄 (usage.py).
 작품이 단계 프리셋을 고르면(Settings.model_preset) 그 작품의 호출에서는 프리셋이 설정 파일의 단계 칸을 대신한다 (project_preset).
 Claude 구독 로그인은 Claude Code 가 직접 관리하므로 여기에 계정 정보나 토큰을 두지 않는다.
 claude_separate 는 Canon 전용 Claude Code 설정 폴더를 쓸지만 적는다 (claude_config_dir).
@@ -111,8 +112,9 @@ def gemini_auth() -> tuple[str, str]:
 
 def gemini_cache() -> tuple[str, str]:
     """Gemini 명시 캐시(llm.GeminiLLM 의 caches.create)를 쓸 곳. agent: 플롯 대화 단계(chat)만 / off: 쓰지 않는다.
-    기본은 agent 다. 대화 한 턴은 몇 분 안에 같은 앞부분(약 10만 토큰)으로 여러 단계를 부르므로 캐시를 두 번 다시 쓰면
-    캐시를 만드는 요금과 저장 요금(10분)보다 아끼는 입력 요금이 크다. 다른 단계는 같은 앞부분을 몇 분 안에 다시 부르는 일이 적어 켜지 않는다.
+    기본은 agent 다. 대화 한 턴은 몇 분 안에 같은 앞부분(약 10만 토큰)으로 여러 단계를 부르므로, 명시 캐시를 받는 모델에서
+    캐시를 두 번 다시 쓰면 캐시를 만드는 요금과 저장 요금(10분)보다 아끼는 입력 요금이 크다고 본다 (가정).
+    기본 모델 gemini-4-argon 은 명시 캐시를 받지 않는다 (2026-11-07 실측). 그런 모델은 gemini_cache_unsupported 에 남아 켜져 있어도 쓰지 않는다. 다른 단계는 같은 앞부분을 몇 분 안에 다시 부르는 일이 적어 켜지 않는다.
     환경 변수 CANON_GEMINI_CACHE=0 (또는 off) 로 끈다."""
     raw = _read().get("gemini_cache")
     if raw is False or raw == 0:  # JSON 의 false · 0 도 끈다 (bool 은 int 라 0 과 같이 본다)
@@ -122,6 +124,41 @@ def gemini_cache() -> tuple[str, str]:
     if value in ("0", "off", "false", "no"):
         return "off", src
     return "agent", src
+
+
+def gemini_cache_model_key(vertex: bool, model: str) -> str:
+    """gemini_cache_unsupported 의 열쇠. API 키와 Vertex AI 는 같은 모델도 받는 기능이 다를 수 있어 나눈다."""
+    return f"{'vertex' if vertex else 'key'}:{model}"
+
+
+def gemini_cache_unsupported() -> dict[str, str]:
+    """명시 캐시를 받지 않는다고 API 가 답한 모델 {열쇠(gemini_cache_model_key): 알게 된 날짜}.
+    한 번 적히면 지울 때까지 그 모델에서 명시 캐시를 쓰지 않는다. 모델이 나중에 받게 되면 설정 파일에서 그 줄을 지운다."""
+    raw = _read().get("gemini_cache_unsupported")
+    return {str(k): str(v) for k, v in raw.items()} if isinstance(raw, dict) else {}
+
+
+def mark_gemini_cache_unsupported(vertex: bool, model: str) -> bool:
+    """그 모델이 명시 캐시를 받지 않는다고 설정 파일에 적는다. 새로 적었으면 참.
+    설정 파일을 읽지 못하면(깨진 JSON) 적지 않는다. 다른 설정을 지우지 않게 하려는 것이다."""
+    from datetime import date
+
+    path = config_path()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    except (OSError, json.JSONDecodeError):
+        return False
+    if not isinstance(data, dict):
+        return False
+    seen = data.get("gemini_cache_unsupported")
+    seen = dict(seen) if isinstance(seen, dict) else {}
+    key = gemini_cache_model_key(vertex, model)
+    if key in seen:
+        return False
+    seen[key] = date.today().isoformat()
+    data["gemini_cache_unsupported"] = seen
+    _write(data)
+    return True
 
 
 def vertex_credentials() -> tuple[str, str]:
@@ -515,6 +552,9 @@ def public() -> dict:
         "stage_effort_settings": {k: v for k, v in (_read().get("stage_efforts") or {}).items() if k in STAGES},
         "efforts": list(EFFORTS),
         "gemini_efforts": list(GEMINI_EFFORTS),
+        # 지금 Gemini 연결 방식에서 명시 캐시를 받지 않는 모델 (설정 화면 모델 칸 안내)
+        "gemini_cache_unsupported": sorted(k.split(":", 1)[1] for k in gemini_cache_unsupported()
+                                           if k.startswith(gemini_cache_model_key(auth == "vertex", ""))),
         "stage_presets": presets(),
         "local_sampling": local_sampling(),
         "path": str(config_path()),

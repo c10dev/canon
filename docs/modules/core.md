@@ -516,6 +516,9 @@
 - 단계별 추론 강도는 `stage_effort`(설정 파일 `stage_efforts`, `CANON_EFFORT_<단계>`)
 - 백엔드에 넘길 강도는 `provider_effort`(Claude `EFFORTS`, Gemini `GEMINI_EFFORTS`, Gemini 는 xhigh · max 를 high 로)
 - Gemini 명시 캐시를 쓸 곳은 `gemini_cache`(설정 파일 `gemini_cache`, `CANON_GEMINI_CACHE`). agent(기본, 플롯 대화 단계만) | off
+- 명시 캐시를 받지 않는 모델은 설정 파일 `gemini_cache_unsupported` 에 남는다(`gemini_cache_unsupported` · `mark_gemini_cache_unsupported`, 적는 쪽은 `llm.GeminiLLM`)
+- `mark_gemini_cache_unsupported` 는 설정 파일이 깨진 JSON 이면 적지 않는다(다른 설정을 지우지 않게)
+- `public()` 의 `gemini_cache_unsupported` 는 지금 Gemini 연결 방식에서 명시 캐시를 받지 않는 모델 이름 목록이다(설정 화면 모델 칸 안내)
 
 ### `canon/static/auto.js`
 

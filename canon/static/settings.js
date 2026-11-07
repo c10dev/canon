@@ -258,7 +258,7 @@ function setRowHtml(id) {
     case 'vertex-cred': case 'vertex-project': case 'vertex-location':
       return (c.gemini_auth || 'key') === 'vertex' ? vertexRow(id, c) : '';
     case 'gemini-model':
-      return textRow(id, 'model', '모델', `목록에서 고르거나 이름을 적어요. 칸을 떠나면 저장해요. ${modelCount('gemini')}`, c.model_setting, c.model_source, 'CANON_MODEL', { list: 'model-options' });
+      return textRow(id, 'model', '모델', `목록에서 고르거나 이름을 적어요. 칸을 떠나면 저장해요. ${modelCount('gemini')}${(c.gemini_cache_unsupported || []).includes(c.model_setting) ? ' 이 모델은 명시 캐시를 받지 않아요. 플롯 대화의 앞부분 캐시는 암묵적 캐시만 맞아요.' : ''}`, c.model_setting, c.model_source, 'CANON_MODEL', { list: 'model-options' });
     case 'claude-account':
       return claudeAccountRow(id, c);
     case 'claude-login':

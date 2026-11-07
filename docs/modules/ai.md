@@ -117,8 +117,13 @@
 - 캐시를 쓰는 요청은 `GenerateContentConfig(cached_content=이름)` 과 나머지 글만 보낸다. 시스템 프롬프트는 넣지 않는다(API 가 거절한다)
 - 캐시를 만들거나 쓰다 난 오류는 모두 일반 호출로 넘어간다(`_cache_failed`). 넘어간 호출 하나만 사용량에 기록한다
 - 429 · 시간 초과 · 서버 오류가 아닌 캐시 오류는 그 모델의 캐시를 `GEMINI_CACHE_BACKOFF`(1시간) 동안 끈다
+- 모델이 명시 캐시를 받지 않는다는 오류(`is_cache_unsupported`, 문구 'does not support explicit context caching')는 그 모델을 바로 끈다(`_GEM_CACHE_OFF` 값 inf)
+- 그 모델은 `settings.mark_gemini_cache_unsupported` 로 설정 파일 `gemini_cache_unsupported` 에 남기고, `_cached` 가 읽어 서버를 다시 시작해도 캐시 만들기를 보내지 않는다
+- 기록의 열쇠는 `key:모델` · `vertex:모델`(`settings.gemini_cache_model_key`)이다. 모델이 나중에 받게 되면 설정 파일에서 그 줄을 지운다
+- 실측(2026-11-07): gemini-4-argon(API 키)은 명시 캐시를 받지 않는다. 캐시 만들기 5번이 모두 이 오류였고 성공은 0번이다
 - 캐시를 쓰다 난 403 · 404(만료되거나 다른 키로 만든 캐시)는 그 캐시만 잊는다
 - 캐시 만들기의 400(앞부분이 최소 캐시 크기보다 작을 수 있다)은 그 길이 이하만 피한다(`_GEM_CACHE_FLOOR`). `GEMINI_CACHE_BAD_SIZE`(3)번 잇따르면 모델을 끈다
+- 명시 캐시를 받지 않는다는 400 은 이 길이 셈을 거치지 않는다
 - 캐시를 쓰는 요청이 429 · 시간 초과 · 서버 오류면 일반 호출로 넘어가지 않고 `_call` 의 다시 부르기에 맡긴다
 - Vertex AI 도 같은 경로다. SDK 가 Vertex 캐시를 지원하지만 실제 Vertex(`global` 위치)에서 되는지는 재지 않았다. 안 되면 첫 오류 뒤 1시간씩 꺼진다
 - 캐시 저장 요금은 사용량 비용 추정에 넣지 않는다. 기본값 근거(저장 · 만들기 요금 가정)는 `llm.py` 의 `GEMINI_CACHE_TTL` 위 주석

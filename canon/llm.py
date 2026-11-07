@@ -215,6 +215,13 @@ def is_bad_key(e: BaseException) -> bool:
     return code == 400 and ("API_KEY_INVALID" in text or "API key not valid" in text or "API key expired" in text)
 
 
+def is_cache_unsupported(e: BaseException) -> bool:
+    """모델이 명시 캐시(caches.create)를 받지 않는다는 오류. 400 이지만 앞부분이 짧은 400 과 달리 길이를 바꿔도 같다.
+    실제 문구(2026-11-07): "Model `gemini-4-argon` does not support explicit context caching." """
+    text = f"{getattr(e, 'message', None) or ''} {e}".lower()
+    return "does not support explicit context caching" in text
+
+
 def is_rate_limit(e: BaseException) -> bool:
     """google-genai 의 429 RESOURCE_EXHAUSTED 오류인가."""
     return getattr(e, "code", None) == 429 or getattr(e, "status", None) == "RESOURCE_EXHAUSTED"
@@ -405,19 +412,21 @@ def _vertex_client() -> Any:
 # 서버 사용량 기록(2026-11-04)에서 앞 단계와 10분 안에 부른 단계는 입력의 74% 가 다시 쓸 수 있는 앞부분이었고,
 # 암묵적 캐시는 18% 만 맞았다. 그래서 같은 종류 직전 요청과 겹치는 앞부분(claude.shared_cut)을 캐시에 넣고, 다음
 # 요청은 cached_content 이름과 나머지 글만 보낸다. 캐시 오류는 모두 일반 호출로 넘어간다.
-# 저장 요금은 사용량 비용 추정에 넣지 않는다. 가정: 저장 요금은 100만 토큰 · 1시간에 4.5달러(Gemini Pro 급 가격표)이고,
-# 10만 토큰을 10분 두면 약 0.075달러다. 캐시를 만드는 호출(caches.create)은 앞부분을 보통 입력 요금으로 낸다고 보고
-# 사용량에 따로 기록한다 (가정. 가격표에서 확인하지 않았다). 그러면 캐시를 만드는 단계는 앞부분을 한 번 더 내는 셈이라
-# 약 0.20달러를 더 쓴다. gemini-4-argon 은 캐시된 입력이 100만 토큰에 2.0 대신 0.10달러라 한 번 다시 쓸 때 약 0.19달러를
-# 아낀다. 그래서 두 번 다시 쓰면 남는다 (서버 기록에서 한 턴은 보통 3단계 이상이다).
+# 실측(2026-11-07, 서버 사용량 기록): 기본 모델 gemini-4-argon(API 키 방식)은 명시 캐시를 받지 않는다. 캐시 만들기 5번이
+# 모두 "does not support explicit context caching" 으로 실패했고 성공은 0번이다. 그래서 이 모델에서는 아낀 요금이 없다.
+# 대화 단계의 캐시 비율(약 17%)은 모두 암묵적 캐시 몫이다. 이 오류를 받으면 그 모델은 바로 끄고 설정 파일에 남긴다
+# (settings.mark_gemini_cache_unsupported). 서버를 다시 시작해도 다시 묻지 않는다.
+# 명시 캐시를 받는 모델에서의 비용 셈(가정. 가격표에서 확인하지 않았다): 저장 요금은 100만 토큰 · 1시간에 4.5달러이고,
+# 10만 토큰을 10분 두면 약 0.075달러다. 캐시를 만드는 호출은 앞부분을 보통 입력 요금으로 낸다고 보고 사용량에 따로 기록한다.
+# 캐시된 입력이 보통 입력의 약 5% 라면 두 번 다시 쓸 때부터 남는다.
 GEMINI_CACHE_TTL = 600  # 캐시 유지 초. 턴 안의 단계 사이는 대부분 5분 안이다 (35/40 이 10분 안)
 GEMINI_CACHE_MARGIN = 60  # 만료 이만큼 전부터는 그 캐시를 쓰지 않는다 (보내는 사이 만료되지 않게)
 GEMINI_CACHE_MIN_CHARS = 16_000  # 겹치는 앞부분이 이보다 짧으면 만들지 않는다 (서버 기록의 대화 요청은 토큰당 1.5~1.8자라 약 9천 토큰)
-GEMINI_CACHE_BACKOFF = 3600  # 캐시 오류가 나면 그 모델은 이만큼 캐시를 쓰지 않는다 (지원하지 않는 모델 · Vertex 위치)
+GEMINI_CACHE_BACKOFF = 3600  # 캐시 오류가 나면 그 모델은 이만큼 캐시를 쓰지 않는다 (Vertex 위치 등. 명시 캐시를 받지 않는 모델은 계속 끈다)
 GEMINI_CACHE_BAD_SIZE = 3  # 캐시 만들기가 400 으로 이만큼 잇따라 실패해야 그 모델을 끈다. 그 전에는 그 길이 이하만 피한다
 GEMINI_CACHE_CREATE_TIMEOUT = 120  # 캐시 만들기는 이 초까지만 기다린다 (늦으면 일반 호출로. 한 단계가 응답 시간의 두 배를 기다리지 않게)
 _GEM_CACHES: dict[tuple, list[tuple[int, str, str, float]]] = {}  # (vertex, 모델, 시스템 해시) → [(앞부분 길이, 해시, 캐시 이름, 만료 시각)]
-_GEM_CACHE_OFF: dict[tuple, float] = {}  # (vertex, 모델) → 캐시를 다시 써 볼 시각
+_GEM_CACHE_OFF: dict[tuple, float] = {}  # (vertex, 모델) → 캐시를 다시 써 볼 시각 (명시 캐시를 받지 않는 모델은 inf)
 _GEM_CACHE_FLOOR: dict[tuple, tuple[int, int]] = {}  # (vertex, 모델) → (400 으로 실패한 가장 긴 앞부분 길이, 잇따라 실패한 수)
 _GEM_LOCK = threading.Lock()
 
@@ -558,6 +567,10 @@ class GeminiLLM:
         cut = shared_cut(("gemini", vertex, self.model, system, project), prompt)  # 이 요청을 직전 요청으로 기억한다
         if time.time() < _GEM_CACHE_OFF.get((vertex, self.model), 0.0):
             return None
+        if settings.gemini_cache_model_key(vertex, self.model) in settings.gemini_cache_unsupported():
+            with _GEM_LOCK:
+                _GEM_CACHE_OFF[(vertex, self.model)] = math.inf  # 다음부터는 설정 파일을 읽지 않는다
+            return None
         key = (vertex, self.model, _sha(system), owner)
         floor = max(GEMINI_CACHE_MIN_CHARS, _GEM_CACHE_FLOOR.get((vertex, self.model), (0, 0))[0] + 1)
         best = _cache_find(key, prompt)
@@ -610,8 +623,20 @@ class GeminiLLM:
         """캐시를 만들거나 쓰다 실패했다. 그 캐시를 잊고, 요청 한도 · 시간 초과 · 서버 오류가 아니면
         GEMINI_CACHE_BACKOFF 동안 그 모델의 캐시를 쓰지 않는다 (지원하지 않는 모델이나 Vertex 위치에 매번 묻지 않게).
         캐시를 쓰다 난 403 · 404 는 그 캐시만 잊는다 (만료된 캐시나 다른 키로 만든 캐시는 403 을 낼 수 있다).
-        캐시 만들기의 400 은 앞부분이 너무 짧아서일 수 있어, 그 길이 이하만 피하고 GEMINI_CACHE_BAD_SIZE 번 잇따르면 끈다."""
+        캐시 만들기의 400 은 앞부분이 너무 짧아서일 수 있어, 그 길이 이하만 피하고 GEMINI_CACHE_BAD_SIZE 번 잇따르면 끈다.
+        모델이 명시 캐시를 받지 않는다는 오류(is_cache_unsupported)는 바로 끄고 설정 파일에 남긴다 (서버를 다시 시작해도 묻지 않게)."""
         model = (bool(getattr(self, "vertex", False)), self.model)
+        if e is not None and is_cache_unsupported(e):
+            from . import settings
+
+            with _GEM_LOCK:
+                _GEM_CACHE_FLOOR.pop(model, None)
+                _GEM_CACHE_OFF[model] = math.inf
+            try:
+                settings.mark_gemini_cache_unsupported(*model)
+            except OSError as err:  # 설정 파일을 못 써도 이 서버가 도는 동안은 꺼져 있다
+                _log.warning("명시 캐시를 받지 않는 모델을 설정 파일에 적지 못했어요: %s", err)
+            return
         if name:
             with _GEM_LOCK:
                 for k, entries in list(_GEM_CACHES.items()):
