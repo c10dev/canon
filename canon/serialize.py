@@ -3,9 +3,9 @@
 pipeline 이 맨 끝에서 이 모듈을 불러 여기서 정한 이름(EXPORTS)을 pipeline 에도 둔다 (pipeline.<이름> 으로 부르는 코드가 그대로 돈다)."""
 from __future__ import annotations
 
-from . import prompts
+from . import heatplan, prompts
 from .llm import LLM
-from .schema import Conversion, Episode, Part, Project, SerialConversion, StoryArc
+from .schema import Conversion, Episode, Part, Project, HeatTurn, SerialConversion, StoryArc
 from .pipeline import (  # pipeline 의 공용 도우미
     ARC_MIN,
     LOCKED,
@@ -163,11 +163,16 @@ def apply_conversion(p: Project, prop: SerialConversion, at: str = "") -> Projec
     try:
         p.meta.form, p.meta.target_episodes = "serial", prop.total_episodes
         p.story_arcs = [prop.arc] if end else []
+        if end and p.heat:  # 단편 열 계획은 아크 1(단편 전체)의 열 계획이 된다
+            prop.arc.heat, _ = heatplan.fit(p.heat, prop.arc.start_ep, prop.arc.end_ep)
+            prop.arc.heat_rule = p.heat_rule
+            prop.arc.heat_turn, _ = heatplan.fit_turn(p.heat_turn, prop.arc.start_ep, prop.arc.end_ep)
+        p.heat, p.heat_rule, p.heat_turn = [], "", HeatTurn()
         p.parts = prop.parts
         p.arc = []
         validate_story_arcs(p)
     except ValueError:
-        for k in ("meta", "story_arcs", "parts", "arc"):
+        for k in ("meta", "story_arcs", "parts", "arc", "heat", "heat_rule", "heat_turn"):
             setattr(p, k, getattr(before, k))
         raise
     tiers = {t.id: t.tier for t in prop.tiers}

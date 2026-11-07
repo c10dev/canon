@@ -808,7 +808,7 @@ def serial_plot_prompt(p: Project, start: int, end: int, ahead: bool = True, red
 {dump(fs) or "없음"}{time_plan(p, start)}{rebuild}
 
 요구사항:
-{plot_rules(p, start <= OPENING_EPISODES)}{fixed_rule(fixed, start, end)}{new_cast_rule(p)}"""
+{plot_rules(p, start <= OPENING_EPISODES)}{heat_plot_rules(p, start)}{fixed_rule(fixed, start, end)}{new_cast_rule(p)}"""
 
 
 PLAN_AHEAD = 3  # 화별 플롯 초안에 넣는 범위 뒤의 이미 정해진 화 수
@@ -955,6 +955,7 @@ def plot_rules(p: Project, opening: bool = False) -> str:
 - 첫 아크의 큰 보상은 25화 안에 둡니다 (무료 공개 구간 안에 보상이 와야 계속 읽는다는 연재 관습)."""
 
 
+ARC_HEAT = ("heat", "heat_rule", "heat_turn")  # 아크를 프롬프트에 덤프할 때 빼는 칸. 열 계획은 heat_* 가 따로 넣는다
 HEAT_ROLE_GUIDE = {
     "build": "쌓기: 열을 쓰지 않고 판돈 · 약점 · 관계 · 금지선을 심는다",
     "hold": "미루기: 터질 듯 막는다 (시한, 금지선, 들킬 뻔한 순간). 터뜨리지 않는다",
@@ -990,19 +991,21 @@ def heat_stakes_text(p: Project) -> str:
                      f"{f', {f.due_ep}화에 거둘 예정' if f.due_ep else ''})" for f in rows)
 
 
-def heat_plot_rules(p: Project) -> str:
-    """단편 화별 플롯을 쓸 때 열 계획 블록과 규칙. 계획이 없으면 빈 글 (지금 프롬프트와 같다)."""
-    steps = heatplan.plan(p)
+def heat_plot_rules(p: Project, n: int = 0) -> str:
+    """화별 플롯을 쓸 때 열 계획 블록과 규칙. 단편은 작품 전체, 장편은 n화가 든 아크의 계획. 계획이 없으면 빈 글 (지금 프롬프트와 같다)."""
+    steps = heatplan.plan(p, n)
     if not steps:
         return ""
+    sc = heatplan.scope_for(p, steps[0].ep)
+    rule = sc.rule if sc else ""
     lines = "\n".join(f"  {s.ep}화: {heat_step_line(p, s.ep)}" for s in steps)
-    t = heatplan.turn(p)
+    t = heatplan.turn(p, steps[0].ep)
     turn = f"\n  뒤집힘: {t.plant_ep}화에 반격을 심고 {t.fail_ep}화에 들킨다. 들킨 대가로 상대가 쥐는 것: {t.gain or '정하지 않음'}" if t else ""
     stakes = heat_stakes_text(p)
     kinds = "\n".join(f"  - {v}" for v in HEAT_KIND_GUIDE.values())
     return f"""
 - 작가가 정한 열 계획을 따릅니다. 열은 긴장과 보상을 얼마나 쓰는지입니다 (0 없음 ~ {heatplan.LEVEL_MAX} 가장 셈). 수위가 아니라 언제 터뜨리는지를 정합니다.
-{lines}{f"{chr(10)}  열 원칙: {p.heat_rule}" if p.heat_rule.strip() else ""}{turn}
+{lines}{f"{chr(10)}  열 원칙: {rule}" if rule.strip() else ""}{turn}
 - 화의 사건은 그 화의 몫을 따릅니다. 쌓기 · 미루기 · 쉬기 화에 정점 사건을 넣지 않고, 터뜨리기 화는 앞 화에 심은 것을 거둡니다.
 - 터뜨리기 화의 foreshadow_payoff 에는 받치는 판돈(stake) 하나와 관객(audience)이나 제약(constraint) 하나의 복선 id 를 넣습니다.
 - 관객 복선을 거둔 화의 다음 화 events 에는 그 사람이 본 일의 결과를 하나 넣고, 그 복선 id 를 적습니다.
@@ -1013,25 +1016,74 @@ def heat_plot_rules(p: Project) -> str:
 {stakes or "없음"}"""
 
 
-def heat_arc_rules(total: int) -> str:
-    """기승전결 기획 때 열 계획을 함께 받는 요구사항 (Settings.heat_plan 을 켠 단편, 응답 형식 HeatArcPlan)."""
-    low = "승 구간 끝에 낮은 정점을 하나 더 두고, 큰 정점과 종류를 다르게 합니다. 낮은 정점은 대화(흥정, 심문)가 이끕니다." if total >= 13 else "정점은 하나만 둡니다."
+def heat_rules(span: str, size: int, lead: str) -> str:
+    """열 계획 요구사항. span 은 다룰 화 범위 글('1화부터 16화까지'), size 는 화 수, lead 는 첫 줄 (함께 짜는지, 따로 짜는지)."""
+    low = "승 구간 끝에 낮은 정점을 하나 더 두고, 큰 정점과 종류를 다르게 합니다. 낮은 정점은 대화(흥정, 심문)가 이끕니다." if size >= 13 else "정점은 하나만 둡니다."
     roles = "\n".join(f"  - {k}: {v}" for k, v in HEAT_ROLE_GUIDE.items())
     kinds = "\n".join(f"  - {k}: {v}" for k, v in HEAT_KIND_GUIDE.items())
     return f"""
 
-열 계획도 함께 짭니다. 열은 긴장과 보상을 얼마나 쓰는지입니다 (0 없음 ~ {heatplan.LEVEL_MAX} 가장 셈). 수위가 아니라 언제 아끼고 언제 터뜨리는지를 정합니다.
-- heat 에는 1화부터 {total}화까지 화마다 한 줄씩 level(0~{heatplan.LEVEL_MAX}) · role · note 를 빈틈없이 적습니다. role 은 아래 다섯 가지입니다.
+{lead} 열은 긴장과 보상을 얼마나 쓰는지입니다 (0 없음 ~ {heatplan.LEVEL_MAX} 가장 셈). 수위가 아니라 언제 아끼고 언제 터뜨리는지를 정합니다.
+- heat 에는 {span} 화마다 한 줄씩 level(0~{heatplan.LEVEL_MAX}) · role · note 를 빈틈없이 적습니다. role 은 아래 다섯 가지입니다.
 {roles}
 - 쌓기 · 미루기가 앞쪽 40~50% 를 차지하고, 이 구간은 열 2 이하입니다. 매 화 비슷한 열을 쓰지 않습니다.
 - 큰 정점(peak)은 전 구간 끝에 둡니다. {low}
 - 정점 화에는 kind 에 정점 종류를 한 줄로 적습니다 (예: 맨정신의 흥정, 관객 앞 촬영). 다른 화는 kind 를 비웁니다.
 - 터뜨리기 다음 화는 뒷날(after)입니다.
-- heat_rule 에 이 작품의 열 원칙을 한 줄로 적습니다.
-- stakes 에는 정점을 받칠 복선을 2~5개 적습니다. 정점마다 그 전 화에 심은 stake 하나와 audience 나 constraint 하나가 받쳐야 합니다. kind 는 아래 넷 중 하나이고, planted_ep 는 심는 화입니다.
+- heat_rule 에 열 원칙을 한 줄로 적습니다.
+- stakes 에는 정점을 받칠 새 복선을 2~5개 적습니다. 이미 있는 복선과 같은 것은 다시 적지 않습니다. 정점마다 그 전 화에 심은 stake 하나와 audience 나 constraint 하나가 받쳐야 합니다. kind 는 아래 넷 중 하나이고, planted_ep 는 심는 화입니다.
 {kinds}
 - 큰 정점의 stake 는 앞 정점의 stake 보다 커야 합니다. 남에게 드러나는 쪽으로 커지면 public 을 true 로 적습니다.
 - heat_turn: 약한 쪽의 반격 하나를 plant_ep 에 심고, 큰 정점 전 fail_ep 에 들키게 합니다. 반격은 겉으로 성공했다가 화의 마지막 줄에서 들킵니다. gain 에 들킨 대가로 상대가 쥐는 새 판돈을 적습니다."""
+
+
+def heat_arc_rules(total: int) -> str:
+    """기승전결 기획 때 열 계획을 함께 받는 요구사항 (Settings.heat_plan 을 켠 단편, 응답 형식 HeatArcPlan)."""
+    return heat_rules(f"1화부터 {total}화까지", total, "열 계획도 함께 짭니다.")
+
+
+def heat_next_arc_rules(start: int, length: int) -> str:
+    """다음 아크 기획 때 열 계획을 함께 받는 요구사항 (Settings.heat_plan 을 켠 장편, 응답 형식 HeatArcProposal)."""
+    return heat_rules(f"아크 첫 화({start}화)부터 아크 끝 화(arc.end_ep)까지", length, "이 아크의 열 계획도 함께 짭니다. 앞 아크와 같은 판돈 · 같은 종류의 정점을 되풀이하지 않습니다.")
+
+
+def heat_propose_prompt(p: Project, start: int, end: int, acts: list, where: str) -> str:
+    """이미 있는 기승전결 · 화별 플롯 위에 열 계획만 받는다 (pipeline.propose_heat, 응답 형식 HeatProposal).
+    본문이 있는 화는 실제 열 참고값과 지금 계획을 넣고, 그 화의 계획은 바꾸지 않게 한다 (pipeline 이 다시 지킨다)."""
+    plots = []
+    actual = {a.ep: a for a in heatplan.actual(p)}
+    for n in range(start, end + 1):
+        e = next((x for x in p.episodes if x.plot.number == n), None)
+        if e is None:
+            plots.append(f"- {n}화: 플롯 없음")
+            continue
+        pays = f" | 거두는 복선: {', '.join(e.plot.foreshadow_payoff)}" if e.plot.foreshadow_payoff else ""
+        plots.append(f"- {n}화 [{e.plot.act}] {e.plot.title}: {e.plot.summary} | 사건: {' / '.join(e.plot.events)}{pays}")
+    written = []
+    for n in range(start, end + 1):
+        if n not in actual:
+            continue
+        a, now = actual[n], heatplan.step(p, n)
+        vals = " · ".join(x for x in [f"큐 긴장 {a.tension}" if a.tension is not None else "", f"열 낱말 {a.density}/1천 자" if a.density is not None else ""] if x)
+        plan_now = f"지금 계획 열 {now.level} · {heatplan.ROLES[now.role]} (그대로 둡니다)" if now else "지금 계획 없음 (본문과 플롯을 보고 매깁니다)"
+        written.append(f"- {n}화: 본문 있음. {vals or '참고값 없음'}. {plan_now}")
+    clues = "\n".join(f"- {f.id} [{heatplan.KINDS[f.kind]}] {f.description} ({f.planted_ep}화)" for f in p.foreshadows if f.status == "open")
+    return f"""{where} 열 계획을 짭니다. 기승전결과 화별 플롯은 이미 있습니다. 플롯은 바꾸지 않고, 그 위에 열을 언제 아끼고 언제 쓸지 정합니다.
+
+[작품]
+{meta_text(p)}
+[인물]
+{", ".join(f"{c.name}({c.id})" for c in p.characters) or "없음"}
+[기승전결 구조]
+{dump(acts)}
+[화별 플롯]
+{chr(10).join(plots)}
+[본문이 있는 화]
+{chr(10).join(written) or "없음"}
+[열린 복선]
+{clues or "없음"}""" + heat_rules(f"{start}화부터 {end}화까지", end - start + 1, "요구사항:") + """
+- 본문이 있는 화는 지금 계획이 있으면 그대로 적고, 없으면 그 화의 플롯과 참고값에 맞게 매깁니다.
+- 열린 복선 가운데 판돈 · 관객 · 제약이 될 것은 stakes 에 새로 적지 말고 note 에서 그 id 로 가리킵니다."""
 
 
 def pov_plan_rule(p: Project, unit: str) -> str:
@@ -1225,7 +1277,7 @@ def structure_text(p: Project, n: int, head: str = "[지금 부와 아크]") -> 
     if part:
         lines.append(f"[{part.number}부 {part.title} ({part.start_ep}~{part.end_ep}화)]\n목표: {part.goal}\n전환점: {part.key_turn}")
     if arc:
-        lines.append(dump(arc.model_dump(exclude={"summary"}) | {"title": f"아크 {arc.number} {arc.title}"}))
+        lines.append(dump(arc.model_dump(exclude={"summary", *ARC_HEAT}) | {"title": f"아크 {arc.number} {arc.title}"}))
     return head + "\n" + ("\n".join(lines) or "아직 없음")
 
 
@@ -1613,7 +1665,7 @@ def next_arc_prompt(p: Project, start: int, length: int, note: str) -> str:
 [지금까지의 줄거리]
 {story_so_far(p, start, plans=True) or "없음 (첫 아크)"}
 [직전 아크]
-{dump(prev.model_dump(exclude={"summary"})) if prev else "없음"}
+{dump(prev.model_dump(exclude={"summary", *ARC_HEAT})) if prev else "없음"}
 [직전 아크의 마지막 화 플롯 (반영한 화의 summary 는 쓴 본문 요약)]
 {dump(prev_eps) if prev_eps else "없음"}
 [열린 복선]{f" (그 밖에 {fs_more}개는 오래된 아크 단위 복선이라 뺐습니다)" if fs_more else ""}
@@ -1642,7 +1694,7 @@ def recap_prompt(p: Project, kind: str, number: int) -> str:
         body = "\n".join(f"{e.plot.number}화 {e.plot.title}: {e.summary}" for e in p.episodes
                          if a.start_ep <= e.plot.number <= a.end_ep and e.summary)
         what, size = f"아크 {a.number} {a.title} ({a.start_ep}~{a.end_ep}화)", "5~8문장, 600자 안팎"
-        plan = dump(a.model_dump(exclude={"summary", "acts"}))
+        plan = dump(a.model_dump(exclude={"summary", "acts", *ARC_HEAT}))
     else:
         x = next(x for x in p.parts if x.number == number)
         arcs = [a for a in p.story_arcs if x.start_ep <= a.start_ep <= x.end_ep]
@@ -2043,7 +2095,7 @@ def _serial_plot_parts(p: Project, scope, rng: random.Random | None = None) -> t
     locked = [e.plot.number for e in p.episodes if e.status in ("written", "finalized") and lo <= e.plot.number <= hi]
     confirmed = [e.plot.number for e in p.episodes if e.status == "confirmed"]
     fs, more = relevant_foreshadows(p, lo)
-    arcs = [a.model_dump(exclude={"summary"}) for a in p.story_arcs if a.end_ep >= lo - 1 and a.start_ep <= hi]
+    arcs = [a.model_dump(exclude={"summary", *ARC_HEAT}) for a in p.story_arcs if a.end_ep >= lo - 1 and a.start_ep <= hi]
     ids = context.without_off(p, context.planning_cast(p, lo) | {c for e in p.episodes if lo - 2 <= e.plot.number <= hi for c in e.plot.characters})
     limit = chat_next_limit(p) if start <= p.meta.target_episodes else 0
     near_arcs = [a for a in p.story_arcs if a.end_ep >= lo - 1 and a.start_ep <= hi]
@@ -2055,7 +2107,7 @@ def _serial_plot_parts(p: Project, scope, rng: random.Random | None = None) -> t
         part = p.part_for(focus.start_ep)
         end_limit = part.end_ep if part else p.meta.target_episodes
         target_block = f"""[고칠 아크] 아크 {focus.number} ({focus.start_ep}~{focus.end_ep}화). 구조(acts)와 아크 칸(arc)을 바꾸면 이 아크에 들어갑니다
-{dump(focus.model_dump(exclude={"summary"}))}"""
+{dump(focus.model_dump(exclude={"summary", *ARC_HEAT}))}"""
         target_rules = f"""- acts 는 아크 {focus.number}의 기승전결을 바꿀 때만 네 구간 모두, 그대로면 빈 목록입니다. 구간은 {focus.start_ep}화부터 아크 끝 화까지 기, 승, 전, 결 순서로 빈틈없이 이어집니다.
 - 아크 칸(제목, 목표, 갈등, 보상, 주요 인물, 회수할 복선, 서술 시점)을 바꿀 때만 arc 에 모든 칸을 채웁니다. 바꾸지 않는 칸은 지금 값을 그대로 씁니다. 그대로면 arc.title 을 비웁니다. cast 에는 이미 있는 인물 id 만 넣습니다.
 """ + (f"- 아크 끝 화를 바꾸려면 arc.end_ep 에 새 끝 화({focus.start_ep + ARC_MIN - 1}~{min(end_limit, focus.start_ep + ARC_MAX - 1)}화)를 넣고 acts 도 새 범위에 맞춥니다. 그대로면 0 입니다. 줄일 때 확정했거나 본문이 있는 화는 빼지 않습니다.\n"
@@ -2066,7 +2118,7 @@ def _serial_plot_parts(p: Project, scope, rng: random.Random | None = None) -> t
         where = f"{limit}화({'부' if p.part_for(start) else '작품'} 끝)"
         target_block = f"""[다음 아크 기획] 아크 {len(p.story_arcs) + 1}, {start}화부터 시작해 {where}까지 끝낼 수 있습니다. 보통 {p.meta.arc_length}화 안팎
 [지금 다음 아크 초안 (적용 전, 작가가 손봤을 수 있음)]
-{dump({"arc": d.arc.model_dump(exclude={"summary", "number", "start_ep"}), "new_characters": [c.model_dump(include={"id", "name", "role"}) for c in d.new_characters]}) if d else "아직 없음. 작가와 이야기하며 새로 짭니다"}"""
+{dump({"arc": d.arc.model_dump(exclude={"summary", "number", "start_ep", *ARC_HEAT}), "new_characters": [c.model_dump(include={"id", "name", "role"}) for c in d.new_characters]}) if d else "아직 없음. 작가와 이야기하며 새로 짭니다"}"""
         target_rules = f"""- 다음 아크를 짜거나 고칠 때 arc 에 모든 칸을 채우고 arc.end_ep 에 끝 화({start + ARC_MIN - 1}~{min(limit, start + ARC_MAX - 1)}화)를, acts 에 {start}화부터 끝 화까지 기, 승, 전, 결 네 구간을 넣습니다.{" 초안이 있으면 작가가 말하지 않은 칸은 초안 값을 그대로 둡니다." if d else ""}
 - 아크는 하나의 문제를 열고 해결합니다. goal 은 아크가 끝날 때 바뀌어 있어야 하는 것, conflict 는 주인공을 막는 문제나 상대, payoff 는 클라이맥스에서 독자가 받는 보상입니다. 직전 아크와 같은 모양의 갈등을 되풀이하지 않습니다.
 - payoffs 에는 열린 복선 id 만 넣습니다. 새 인물이 필요하면 new_characters 에 전체 설정(speech_style 포함)을 넣고 cast 에 그 id 를 넣습니다. tier 는 support 나 minor 입니다.
@@ -2571,6 +2623,9 @@ def build_episode_context(p: Project, n: int, *, use_board: bool = True, pre: st
     prev = prev_head + prev_rest
     if p.serial:
         act_line = f"현재 아크 안 구간: {act.name if act else '?'} ({act.start_ep if act else '?'}~{act.end_ep if act else '?'}화) 목표: {act.goal if act else ''}"
+        heat = heat_step_line(p, n)
+        if heat:
+            act_line += f"\n이번 화 열 계획 (작가가 정함): {heat}"
         return serial_episode_context(p, n, where=where, act_line=act_line, line=line, facts=facts_text, facts_cut=facts_cut, els=els, write=write,
                                       cast_names=cast_names, extra=extra_block(extra, extra_cut) + named_block(named, named_cut),
                                       states=states, rels=rels, cast_ids=cast_ids,
@@ -4424,7 +4479,7 @@ def impact_structure(p: Project) -> str:
     if not p.serial:
         return f"[기승전결 구조] 총 {p.meta.target_episodes}화\n{dump(p.arc) if p.arc else '아직 없음'}"
     done = max((e.plot.number for e in p.episodes if e.text), default=0)
-    arcs = [a.model_dump(exclude={"acts"} if a.end_ep <= done else set()) for a in sorted(p.story_arcs, key=lambda a: a.start_ep)]
+    arcs = [a.model_dump(exclude={"acts", *ARC_HEAT} if a.end_ep <= done else set(ARC_HEAT)) for a in sorted(p.story_arcs, key=lambda a: a.start_ep)]
     last = p.planned_until()
     rest = (f"\n{last + 1}~{p.meta.target_episodes}화는 아직 아크로 기획하지 않았습니다. 이 화들에 미칠 영향은 "
             "부의 goal, key_turn, arc_ideas 에 비춰 summary 와 conflicts 로 알립니다." if last < p.meta.target_episodes else "")

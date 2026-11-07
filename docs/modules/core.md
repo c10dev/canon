@@ -317,6 +317,8 @@
 - 기승전결 `plan_arc` 는 `Settings.heat_plan` 을 켠 단편이면 열 계획을 함께 받는다(응답 `HeatArcPlan`, 요구 `prompts.heat_arc_rules`)
 - 열 계획 정리 `clean_heat_plan`: `heatplan.fit` · `fit_turn`, 판돈은 단서 · 빈 것을 빼고 심는 화를 자르고 겹치지 않는 id(`fs-<화>-h<k>`)
 - 열 계획 적용 `apply_heat_plan`: 계획 · 원칙 · 뒤집힘을 바꾸고 판돈은 같은 id 가 없을 때만 복선에 더함. 명령줄 `arc` 와 화면 구조 제안 고르기(`heatApply`)가 쓴다
+- 열 계획을 받을 범위 `heat_target`(단편 작품 전체, 장편은 아크 번호 또는 다 쓰지 않은 첫 아크)과 받기 `propose_heat`(본문 있는 화는 지금 계획 줄을 지킨다)
+- 다음 아크 `plan_next_arc` 는 `heat_plan` 을 켜면 `HeatArcProposal` 로 묻고(`prompts.heat_next_arc_rules`), `clean_arc` 가 열 계획을 아크 범위에 맞춰 `arc.heat` 로 옮기고, `apply_arc` 가 판돈을 복선에 더한다
 - 화별 플롯
   - 대화로 다듬기 `revise_plot`/`apply_revision` 포함
   - 대상 `chat_target`: 고른 아크 · 다음 아크
@@ -398,6 +400,9 @@
 - 화별 컨텍스트 조립(`build_episode_context`)
 - 단편 열 계획: 화별 플롯 규칙 끝 `heat_plot_rules`(계획 · 원칙 · 뒤집힘 · 열린 판돈 · 갈래 안내), 쓰기 · 스토리보드 · 큐 시트의 현재 구간 뒤 `heat_step_line`, 큐 시트 요청 맨 끝 `heat_cue_rule`
 - 열 계획이 없으면 세 곳 모두 빈 글이라 프롬프트가 그대로다
+- 장편은 화별 플롯 요청(`serial_plot_prompt`) 끝에 그 아크의 `heat_plot_rules`, 쓰기 컨텍스트의 아크 안 구간 줄(`act_line`) 뒤에 이번 화 열 한 줄을 넣는다
+- 아크를 프롬프트에 덤프할 때 열 계획 칸은 뺀다(`ARC_HEAT`, `StoryArc` 의 프롬프트용 직렬화). 아크의 열 계획 칸은 AI 응답 형식에도 없다(`SkipJsonSchema`)
+- 열 계획 받기 요청 `heat_propose_prompt`: 기승전결, 화별 플롯, 본문 있는 화의 실제 열 참고값과 지금 계획, 열린 복선. 요구사항은 단편 기획과 같은 `heat_rules`
 - 작업지시서(`episode_brief`, `state_brief`)
 - 인물 고르기는 `static_characters` · `side_characters` · `roster_line` · `cast_block` 이 `Character.context` 를 따른다
 - 장편은 플롯 인물 목록 밖이라도 이름이 나온 조연을 넣는다(쓰기 `named_block`, 검수 `check_cast`, 상태 변경안)
@@ -493,6 +498,7 @@
 
 - 단편을 장편 연재로 바꾸는 이어 쓰기 전환(CLI `convert`, 웹 `convert` 작업)
 - `pipeline.py` 에서 옮긴 구역이다. `pipeline` 맨 끝의 `_attach_split` 이 `EXPORTS` 의 이름을 `pipeline` 에도 둬서 `pipeline.<이름>` 으로 그대로 부른다
+- 전환 반영(`apply_conversion`)은 단편 열 계획을 아크 1의 열 계획으로 옮기고 작품 쪽 칸을 비운다
 
 ### `canon/settings.py`
 
@@ -586,6 +592,8 @@
 
 - 웹 UI 서버(`python -m canon serve`)
 - 작품 저장(PUT · PATCH)은 단편 열 계획을 1화부터 끝 화까지 맞춘다(`heatplan.fit` · `fit_turn`). 화수를 바꿔도 빈틈이 생기지 않는다
+- 장편은 아크마다 그 아크 범위로 열 계획을 맞춘다. 다음 아크 적용(`/arcs/apply`)은 판돈이 든 제안(`HeatArcProposal`)도 받는다
+- 작업 `heat`(`_job_heat`): 이미 있는 기승전결 · 아크 위 열 계획 제안. 결과는 검토를 기다리는 결과(`PENDING_KINDS`)로 남는다
 - 문체 라이브러리 분석 작업 `POST /api/styles/analyze/job`(kind `lib_style`, project `LIB_JOBS` = `.styles`)
 - 맨 바깥 미들웨어 `_guard_host` 는 Host 가 IP 주소 · localhost · `*.ts.net` · 이 컴퓨터 이름 · `CANON_ALLOWED_HOSTS` 의 이름이 아니면 403 으로 막는다(DNS 리바인딩)
 - `_guard_host` 는 POST · PUT · PATCH · DELETE 에 Origin 이 있으면 그 이름이 Host 나 X-Forwarded-Host 와 같아야 받는다(CSRF). Origin 이 없는 요청(명령줄 · curl)은 받는다
