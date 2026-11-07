@@ -19,7 +19,7 @@ from .style_background import FEATURES
 # 지표 판. 상수(AI_PATTERNS · DEFAULT_CLICHES · THRESHOLDS · UPPER_ONLY · COPY_SPAN · STYLE_DISTANCE_WARN · _SENT_END · ENDING_* · SFX_*)나
 # 셈 로직을 바꿔 같은 글의 값이 달라지면 올린다. tests/test_metrics_version.py 가 상수 해시와 결과 스냅샷으로 막는다.
 # 쇠맛 실험실(soelab)은 판이 다른 보고서끼리 숫자를 섞지 않는다.
-METRICS_VERSION = "2026-11-c"
+METRICS_VERSION = "2026-11-d"
 
 # 한국어 소설 생성에서 자주 보이는 상투 표현. 작품별 금지 표현은 StyleProfile.banned_phrases 에 더한다.
 DEFAULT_CLICHES = [
@@ -91,6 +91,8 @@ class StyleMetrics(BaseModel):
     style_distance: Optional[float] = Field(None, description="기준 원문 대비 문체 거리 (style_spread 의 몇 배). 비교할 때만 채운다")
     sfx_per_1k: Optional[float] = Field(None, description="1,000자당 효과음 줄(소리나 몸짓만 적은 한 줄 문단, is_sfx_line) 수")
     sfx_marks: dict[str, float] = Field(default_factory=dict, description="효과음 줄 끝 표시('-!' · '-' · '…' · '!' · '.' · ',' · '없음')별 몫. 효과음 줄이 SFX_MARK_MIN 줄 미만이면 비운다")
+    dialogue_tilde_ratio: Optional[float] = Field(None, description="큰따옴표 · 낫표로 여는 대사 줄 중 물결표(~)가 든 줄의 몫. 대사 줄이 DIALOGUE_MIN 줄 미만이면 재지 않음")
+    dialogue_line_len: Optional[float] = Field(None, description="큰따옴표 · 낫표로 여는 대사 줄 하나의 평균 글자 수. 대사 줄이 DIALOGUE_MIN 줄 미만이면 재지 않음")
     sound_word_per_1k: Optional[float] = Field(None, description="1,000자당 낱말 '소리' 수 (목소리 · 숨소리 같은 합성어와 '소리치다 · 소리 지르다'는 뺌). 보기만 하고 경고하지 않는다: 소리의 결을 풀어 쓰는 문장도 이 낱말을 쓴다")
 
 
@@ -163,6 +165,21 @@ def _endings(text: str) -> tuple[Optional[float], Optional[float]]:
             runs.append(cur)
         cur = 0
     return round(sum(narr) / len(narr), 2), round(sum(r for r in runs if r >= ENDING_RUN) / len(narr), 2)
+
+
+# 대사의 꼴 (2026-11-07 실측, reports/지표 사각지대). 레퍼런스 웹소설 4편은 물결표가 든 대사 줄이 화 중앙값 0%,
+# 대사 줄 평균 길이가 21~25자였다. 물결표를 프로필에 적어 쓴 작품은 34% · 32자였다. 대사 비율(양)로는 갈리지 않았다.
+DIALOGUE_MIN = 10  # 대사 줄이 이보다 적으면 대사 꼴을 재지 않는다
+_DIALOGUE_OPEN = ("\"", "“", "「", "『")  # 작은따옴표로 여는 줄은 속생각인 경우가 많아 뺀다
+
+
+def _dialogue_shape(text: str) -> tuple[Optional[float], Optional[float]]:
+    """(dialogue_tilde_ratio, dialogue_line_len). 큰따옴표 · 낫표로 여는 줄을 대사 줄로 센다."""
+    lines = [ln.strip() for ln in text.split("\n") if ln.strip().startswith(_DIALOGUE_OPEN)]
+    if len(lines) < DIALOGUE_MIN:
+        return None, None
+    tilde = sum(("~" in ln or "～" in ln) for ln in lines)
+    return round(tilde / len(lines), 2), round(mean(len(ln) for ln in lines), 1)
 
 
 _TRAIL = re.compile(r"(?:…|\.{2,})$")  # 말줄임으로 끝남
@@ -382,6 +399,7 @@ def measure(text: str, banned: list[str] | None = None) -> StyleMetrics:
     avg = mean(lens)
     da, run = _endings(text)
     fx = sfx_lines(text)
+    tilde, dlg_len = _dialogue_shape(text)
     return StyleMetrics(
         chars=len(text),
         sentences=len(sents),
@@ -402,6 +420,8 @@ def measure(text: str, banned: list[str] | None = None) -> StyleMetrics:
         pattern_per_1k={k: round(v * 1000 / len(text), 2) for k, v in pattern_counts(text).items()},
         sfx_per_1k=round(len(fx) * 1000 / len(text), 2),
         sfx_marks=sfx_marks(fx),
+        dialogue_tilde_ratio=tilde,
+        dialogue_line_len=dlg_len,
         sound_word_per_1k=round(len(_SOUND_WORD.findall(text)) * 1000 / len(text), 2),
         **_style_reference(text),
     )
@@ -598,6 +618,8 @@ THRESHOLDS: dict[str, tuple[str, float, bool]] = {
     "pronoun_per_1k": ("대명사 밀도(1,000자당)", 3.0, False),
     "da_ending_ratio": ("'~다.' 끝 서술 비율", 0.2, False),
     "da_run_ratio": ("'~다.' 다섯 줄 이상 이어진 서술 비율", 0.2, False),
+    "dialogue_tilde_ratio": ("물결표 대사 줄 비율", 0.15, False),
+    "dialogue_line_len": ("대사 한 줄 평균 길이", 0.3, True),
 }
 # 쇠맛 지표는 기준보다 높을 때만 문제라서 낮아진 쪽은 경고하지 않는다.
 UPPER_ONLY = {"comma_sentence_ratio", "short_ending_ratio", "pronoun_per_1k", "da_ending_ratio", "da_run_ratio"}
