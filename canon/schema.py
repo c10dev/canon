@@ -254,6 +254,7 @@ class Snapshot(BaseModel):
 class Settings(BaseModel):
     show_numbers: bool = Field(False, description="CLI 에서 관계를 숫자로 보여줄지(True), 말로 보여줄지(False)")
     check_widen: bool = Field(False, description="장편 검수 넓히기: 검수 뒤 진술마다 옛 화를 더 찾아, 첫 검수에 없던 근거가 나온 진술만 다시 묻는다 (검수 호출 2번 더)")
+    heat_plan: bool = Field(False, description="단편 기승전결을 기획할 때 열 계획(화별 열 눈금 · 몫, 판돈 · 제약 · 관객 · 금지선, 뒤집힘)을 함께 받는다 (canon/heatplan.py)")
     heat_words: list[str] = Field(default_factory=list, description="정점 대목을 찾을 때 세는 낱말 (작가가 적음, metrics.peak_window). 비우면 정점 대목 경고를 하지 않는다")
     check_motion: bool = Field(True, description="검수 때 동선만 따로 한 번 더 본다 (pipeline.motion_check: 이번 화 본문만 넣는 check 호출 1번 더, 본 검수와 동시에 부름)")
     stage_extract: bool = Field(True, description="검수 때 본문에서 장면 연출을 함께 뽑는다 (계획 장면이 있는 사건마다 check 호출 1번 더, 본문이 그대로인 사건은 건너뜀)")
@@ -495,6 +496,47 @@ class Act(BaseModel):
 
 class ArcPlan(BaseModel):
     acts: list[Act]
+
+
+HeatRole = Literal["build", "hold", "peak", "after", "rest"]
+
+
+class HeatStep(BaseModel):
+    """열 계획 한 줄: 한 화가 긴장과 보상(열)을 얼마나, 어떤 몫으로 쓰나 (canon/heatplan.py)."""
+    ep: int
+    level: int = Field(2, description="열 눈금 0(없음) ~ 5(가장 셈)", json_schema_extra=_range(0, 5))
+    role: HeatRole = Field("build", description="build 쌓기 / hold 미루기(터질 듯 막음) / peak 터뜨리기 / after 뒷날(터진 일의 결과) / rest 쉬기")
+    kind: str = Field("", description="터뜨리기 화의 정점 종류 한 줄 (예: 맨정신의 흥정, 관객 앞 촬영). 다른 몫이면 비움")
+    note: str = Field("", description="이 화가 열에서 하는 일 한 줄")
+
+
+class HeatTurn(BaseModel):
+    """뒤집힘 한 번: 반격을 심고, 반격이 들키고, 들킨 대가로 상대가 새 판돈을 쥔다. plant_ep 가 0 이면 없음."""
+    plant_ep: int = Field(0, description="반격을 심는 화. 없으면 0")
+    fail_ep: int = Field(0, description="반격이 들키는 화. 큰 정점 전")
+    gain: str = Field("", description="들킨 대가로 상대가 쥐는 것 한 줄")
+
+
+class HeatWarn(BaseModel):
+    """열 계획 경고 한 줄 (heatplan.warnings). 막지 않는다. AI 가 채우지 않는다."""
+    ep: int = Field(0, description="경고가 가리키는 화. 계획 전체면 0")
+    code: str = Field(description="heatplan.WARN_CODES 의 하나")
+    text: str
+
+
+class HeatActual(BaseModel):
+    """쓴 화의 실제 열 참고값 (heatplan.actual). 둘 다 없으면 None."""
+    ep: int
+    density: Optional[float] = Field(None, description="열 낱말(Settings.heat_words) 수 / 공백 뺀 1천 자")
+    tension: Optional[float] = Field(None, description="큐 시트 긴장도(1~5)를 큐 목표 글자 수로 가중한 평균")
+
+
+class HeatArcPlan(ArcPlan):
+    """기승전결과 함께 받는 열 계획 (Settings.heat_plan 을 켠 단편)."""
+    heat: list[HeatStep] = Field(default_factory=list, description="1화부터 마지막 화까지 화마다 한 줄, 빈틈없이")
+    heat_rule: str = Field("", description="이 작품의 열 원칙 한 줄")
+    heat_turn: HeatTurn = Field(default_factory=HeatTurn)
+    stakes: list["Foreshadow"] = Field(default_factory=list, description="정점을 받칠 새 판돈 · 제약 · 관객 · 금지선 (kind 가 clue 가 아닌 복선)")
 
 
 class EpisodePlot(BaseModel):
@@ -1634,6 +1676,9 @@ class CharacterState(BaseModel):
         return data
 
 
+ForeshadowKind = Literal["clue", "stake", "constraint", "audience", "ban"]
+
+
 class Foreshadow(BaseModel):
     id: str = Field(description="예: fs-03-locket")
     description: str
@@ -1642,6 +1687,9 @@ class Foreshadow(BaseModel):
     status: Literal["open", "resolved"] = "open"
     scope: Literal["arc", "part", "series"] = Field("arc", description="회수 범위: arc 이번 아크 안 / part 이번 부 안 / series 작품 끝까지 가는 큰 복선")
     due_ep: Optional[int] = Field(None, description="회수 예정 화. 정하지 않았으면 비움")
+    kind: ForeshadowKind = Field("clue", description="clue 독자가 나중에 알아챌 단서 / stake 잃을 수 있는 것 / constraint 행위를 막는 조건(시한, 소리 금지, 계약) / "
+                                 "audience 보거나 들을 수 있는 사람 / ban 오래 미루는 금지선")
+    public: bool = Field(False, description="stake 가 남에게 드러난 것인가 (판돈이 사적인 것에서 공개된 것으로 커지는지 본다)")
 
 
 class StoryTime(BaseModel):
@@ -2331,6 +2379,9 @@ class Project(BaseModel):
     style_example: Optional[StyleExample] = Field(None, description="문체 화면의 '이 문체로 쓴 예시'")
     style_learning: Optional[StyleLearning] = Field(None, description="수정 기록에서 찾은 문체 규칙 후보 (마지막 것)")
     arc: list[Act] = Field(default_factory=list, description="단편: 작품 전체의 기승전결. 장편에서는 비워 두고 아크마다 기승전결을 둔다")
+    heat: list[HeatStep] = Field(default_factory=list, description="단편: 열 계획. 1화부터 마지막 화까지 화마다 한 줄 (canon/heatplan.py). 비면 열 계획을 쓰지 않는다")
+    heat_rule: str = Field("", description="단편: 열 원칙 한 줄")
+    heat_turn: HeatTurn = Field(default_factory=HeatTurn, description="단편: 뒤집힘 한 번. plant_ep 가 0 이면 없음")
     parts: list[Part] = Field(default_factory=list, description="장편: 부 구성")
     story_arcs: list[StoryArc] = Field(default_factory=list, description="장편: 지금까지 기획한 아크. 다음 아크를 하나씩 붙인다")
     arc_undo: list[ArcUndo] = Field(default_factory=list, description="아크마다 붙일 때 바꾼 것 (마지막 아크를 지우면 되돌린다)")
@@ -3142,6 +3193,7 @@ class StudioDraft(BaseModel):
     candidates: list[StudioCandidate] = Field(default_factory=list, description="서로 다른 방향으로 쓴 문단 안")
 
 
+HeatArcPlan.model_rebuild()
 Snapshot.model_rebuild()
 SerialRebuild.model_rebuild()
 ShortArchive.model_rebuild()

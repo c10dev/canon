@@ -186,6 +186,7 @@
 - AI 문장 정리(`clean_delta`)와 반영 · 되돌리기
 - 이미 회수한 복선을 또 회수하는 제안의 경고(`resolved_warnings`, features 정리 훅)
 - 작가가 걸기 · 복선 고치기(그 화 이후 스냅샷도)
+- 더하기 · 고치기는 열 계획 갈래(`kind`, `KINDS`)와 판돈 드러남(`public`)도 받는다
 - 센터 계산(`center`: 회수율, 끊어진 연결, 예정 지남, 오래 묵음, 플롯 회수 계획)
 - 명령줄 `foreshadows`
 - LLM 호출 없음
@@ -195,6 +196,23 @@
 - 장르 목록(`CATALOG`)과 장르별 안내
 - 프롬프트의 장르 안내(`guide`, 수위 지시는 넣지 않는다)
 - 설정 화면의 장르별 로그라인 예시(`Genre.logline`)
+
+### `canon/heatplan.py`
+
+- 열 계획: 화마다 긴장과 보상(열)을 얼마나(`HeatStep.level` 0~5), 어떤 몫(`role`: 쌓기 · 미루기 · 터뜨리기 · 뒷날 · 쉬기)으로 쓰나
+- 단편은 작품 전체에 계획 하나(`Project.heat` · `heat_rule` · `heat_turn`)를 둔다. 장편 아크는 아직 계획을 갖지 않는다(`plan` 이 빈 목록)
+- 화 번호로 찾기 `step`, 뒤집힘(`HeatTurn`: 반격을 심은 화 · 들킨 화 · 상대가 쥐는 것) `turn`
+- 계획 정리 `fit`: 범위 밖 화 · 같은 화 두 번째 줄을 버리고 빠진 화를 `FILL_LEVEL` · `FILL_ROLE` 로 채우고 눈금을 0~5 로 자름. 빈 계획은 그대로
+- 뒤집힘 정리 `fit_turn`: 범위 밖이거나 들킨 화가 심은 화보다 앞서면 비움
+- 경고 `warnings`(`HeatWarn`, 막지 않음): 기복이 작음 · 이른 정점 · 판돈 없는 정점 · 관객 · 제약 없는 정점 · 같은 종류 정점 · 커지지 않은 판돈 · 관객이 본 일의 결과 없음 · 늦은 뒤집힘 · 쌓기 화의 높은 긴장(`WARN_CODES`)
+- 잇닿은 터뜨리기 화는 한 정점으로 묶는다(`peak_runs`). 종류 · 판돈 견주기는 정점끼리 한다
+- 기복은 열 눈금 변동계수가 `CV_MIN` 미만이면 경고한다(`FLAT_MIN_EPS` 화 넘는 계획만). 이른 정점은 기 구간이나 작품 앞 `EARLY_SHARE` 안
+- 관객 결과는 관객 복선을 처음 거둔 화의 다음 화 플롯(요약 · 사건 · 회수 id)에 그 복선 id 가 있는지로만 본다
+- 한 화를 가리키는 경고와 계획 전체 경고 `warnings_for`. 명령줄 `confirm` 이 확정한 화의 경고를 보인다
+- 실제 열 참고값 `actual`(`HeatActual`): 열 낱말 밀도 `density`(`Settings.heat_words`, 공백 뺀 1천 자당) · 큐 긴장 평균 `cue_tension`(목표 글자 수로 가중, 건너뛴 시트는 뺌)
+- 판돈 · 제약 · 관객 · 금지선은 복선 갈래(`Foreshadow.kind`)로 둔다. 판돈이 남에게 드러났는지는 `Foreshadow.public`
+- 설정 `Settings.heat_plan`(기본 끔)을 켠 단편은 기승전결과 함께 열 계획을 받는다(응답 형식 `HeatArcPlan`). 화면은 `static/heatplan.js`, 프롬프트는 `prompts.heat_*`
+- LLM 호출 없음
 
 ### `canon/illust.py`
 
@@ -479,6 +497,20 @@
 - 상태 승인 화면의 복선 문장 고르기(`fsClueRows`, `q` 항목)
 - `fsBands` · `fsAt` · `fsMarks` · `fsFlag` · `fsTail` · `fsAttention` · `fsTodo` · `fsTocRows` · `fsFlow` · `fsAhead` · `fsTicks` · `fsCandidates` 는 순수 함수(`tests/test_foreshadow_js.py`)
 - CSS 는 JS 에서 주입
+
+### `canon/static/heatplan.js`
+
+- 열 계획 카드 `heatCard`: 단편 기승전결 보드 위. 장편이나 구조가 없으면 그리지 않음
+- 계획이 없으면 '직접 적기'(`heatStart`)가 기승전결 구간으로 밑그림을 깐다(`heatDefault`: 앞은 쌓기, 13화 이상이면 승 끝 낮은 정점, 전 끝 큰 정점, 결은 뒷날 · 쉬기)
+- 화마다 막대 하나(`heatBar`, 높이는 열 0~5, 터뜨리기는 amber). 쓴 화는 큐 긴장 평균을 가로 눈금으로 겹친다
+- 막대를 누르면(`heatPick`) 눈금 · 몫 나눔 버튼(`heatLevel` · `heatRole`)과 정점 종류 · 한 줄 칸(`heat.<i>.kind` · `note`)을 편다
+- 몫을 터뜨리기 밖으로 바꾸면 정점 종류를 지운다
+- 경고 `heatWarnings` · 재기 `heatDensity` · `heatCueTension` 은 `heatplan.warnings` · `density` · `cue_tension` 과 같은 규칙(`tests/test_heatplan_js.py`)
+- 판돈 · 제약 · 관객 · 금지선 목록(`heatStakes`): 갈래 풀기 · 판돈 드러남(`heatKind` · `heatPublic`, 복선 고치기 API)
+- 열린 단서 복선에 갈래 붙이기, 새로 심기(`heatAddStake`, 복선 더하기 API, 플롯이 있는 화에만)
+- 뒤집힘 칸(`heat_turn.plant_ep` · `fail_ep` · `gain`)과 열 원칙 칸(`heat_rule`)
+- 지우기 `heatClear`
+- 구조 제안 미리보기 `heatProposalPart`(누를 수 없는 막대), 고르기 `heatApply`, 'AI로 구조 만들기 · 다시 제안'의 켜기 칸 `heatPlanToggle`(`settings.heat_plan`)
 
 ### `canon/static/illust.js`
 

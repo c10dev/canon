@@ -17,7 +17,7 @@ from . import context, elements, genres, metrics, naming, storylines
 from .dynamics import VIEWS, describe_relations
 from .llm import _inline_refs, dump
 from .schema import Birth, Character, ChatMessage, Claim, ConsistencyIssue, ConsistencyReport, Foreshadow, PlayInfo, Project, Selection, StateDeltaAI, StoryElement
-from . import address, board, charlog, echoes, foreshadows, knows, pairlog, stage, statwin, timeline
+from . import address, board, charlog, echoes, foreshadows, heatplan, knows, pairlog, stage, statwin, timeline
 from .maps import prompt as mapprompt
 
 SYSTEM_PLANNER = (
@@ -945,7 +945,7 @@ def plot_rules(p: Project, opening: bool = False) -> str:
     if not p.serial:
         return common + """
 - 매 화 ending_hook 을 둡니다. 마지막 화는 훅 대신 여운을 둡니다.
-- 복선은 심는 화와 회수하는 화를 계획하고, 결 구간까지 모두 회수합니다."""
+- 복선은 심는 화와 회수하는 화를 계획하고, 결 구간까지 모두 회수합니다.""" + heat_plot_rules(p)
     return common + f"""
 - act 는 그 화가 속한 아크 안의 기승전결 위치입니다. 아크의 conflict 가 결 구간에서 해결되고, 아크의 payoff 가 전 구간 끝이나 결 구간 첫 화에 확실하게 나옵니다.
 - 주인공이 막히는 구간은 2~3화를 넘기지 않고, 막힌 만큼 시원하게 푸는 화를 뒤에 둡니다.
@@ -953,6 +953,85 @@ def plot_rules(p: Project, opening: bool = False) -> str:
 - 매 화 ending_hook 을 둡니다. 장면 한가운데나 새 정보가 드러나는 순간에 끊습니다. 아크 마지막 화는 다음 아크로 이어지는 떡밥으로 끊습니다. 작품 마지막 화({p.meta.target_episodes}화)만 훅 대신 여운을 둡니다.
 - 이 아크에서 심은 작은 복선은 아크 안에서 회수합니다. 아크의 payoffs 에 있는 복선은 아크가 끝나기 전에 회수합니다. 부나 작품 끝까지 끌고 갈 복선은 심을 때 그렇다고 밝힙니다.
 - 첫 아크의 큰 보상은 25화 안에 둡니다 (무료 공개 구간 안에 보상이 와야 계속 읽는다는 연재 관습)."""
+
+
+HEAT_ROLE_GUIDE = {
+    "build": "쌓기: 열을 쓰지 않고 판돈 · 약점 · 관계 · 금지선을 심는다",
+    "hold": "미루기: 터질 듯 막는다 (시한, 금지선, 들킬 뻔한 순간). 터뜨리지 않는다",
+    "peak": "터뜨리기: 앞 화에 심은 판돈 · 관객 · 제약을 거두며 열을 쓴다",
+    "after": "뒷날: 터진 일의 결과를 다룬다. 정점과 다른 인물의 시점으로 다시 겪거나, 관객이 본 일이 돌아온다",
+    "rest": "쉬기: 숨을 고르며 다음 판돈을 심는다",
+}
+HEAT_KIND_GUIDE = {
+    "stake": "판돈: 잃을 수 있는 것. 터뜨리는 화에서 실제로 위협이 된다",
+    "constraint": "제약: 행위를 막는 조건 (시한, 소리 금지, 계약). 막힌 곳이 있어야 다른 형태로 터진다. 계약은 글자만 지키고 빈틈을 쓰는 장치가 된다",
+    "audience": "관객: 보거나 들을 수 있는 사람. 이 사람이 본 것은 다음 화에 결과를 남긴다",
+    "ban": "금지선: 오래 미루는 선. 넘을 때까지 대신하는 행위로 열을 올린다",
+}
+
+
+def heat_step_line(p: Project, n: int) -> str:
+    """n화의 열 계획 한 줄. 계획이 없으면 빈 글."""
+    s = heatplan.step(p, n)
+    if s is None:
+        return ""
+    out = f"열 {s.level}/{heatplan.LEVEL_MAX} · {HEAT_ROLE_GUIDE[s.role]}"
+    if s.kind:
+        out += f" · 정점 종류: {s.kind}"
+    if s.note:
+        out += f" · {s.note}"
+    return out
+
+
+def heat_stakes_text(p: Project) -> str:
+    """열린 판돈 · 제약 · 관객 · 금지선 (갈래가 단서가 아닌 열린 복선)."""
+    rows = [f for f in p.foreshadows if f.kind != "clue" and f.status == "open"]
+    return "\n".join(f"- {f.id} [{heatplan.KINDS[f.kind]}{' · 드러남' if f.public else ''}] {f.description} ({f.planted_ep}화에 심음"
+                     f"{f', {f.due_ep}화에 거둘 예정' if f.due_ep else ''})" for f in rows)
+
+
+def heat_plot_rules(p: Project) -> str:
+    """단편 화별 플롯을 쓸 때 열 계획 블록과 규칙. 계획이 없으면 빈 글 (지금 프롬프트와 같다)."""
+    steps = heatplan.plan(p)
+    if not steps:
+        return ""
+    lines = "\n".join(f"  {s.ep}화: {heat_step_line(p, s.ep)}" for s in steps)
+    t = heatplan.turn(p)
+    turn = f"\n  뒤집힘: {t.plant_ep}화에 반격을 심고 {t.fail_ep}화에 들킨다. 들킨 대가로 상대가 쥐는 것: {t.gain or '정하지 않음'}" if t else ""
+    stakes = heat_stakes_text(p)
+    kinds = "\n".join(f"  - {v}" for v in HEAT_KIND_GUIDE.values())
+    return f"""
+- 작가가 정한 열 계획을 따릅니다. 열은 긴장과 보상을 얼마나 쓰는지입니다 (0 없음 ~ {heatplan.LEVEL_MAX} 가장 셈). 수위가 아니라 언제 터뜨리는지를 정합니다.
+{lines}{f"{chr(10)}  열 원칙: {p.heat_rule}" if p.heat_rule.strip() else ""}{turn}
+- 화의 사건은 그 화의 몫을 따릅니다. 쌓기 · 미루기 · 쉬기 화에 정점 사건을 넣지 않고, 터뜨리기 화는 앞 화에 심은 것을 거둡니다.
+- 터뜨리기 화의 foreshadow_payoff 에는 받치는 판돈(stake) 하나와 관객(audience)이나 제약(constraint) 하나의 복선 id 를 넣습니다.
+- 관객 복선을 거둔 화의 다음 화 events 에는 그 사람이 본 일의 결과를 하나 넣고, 그 복선 id 를 적습니다.
+- 정점이 둘이면 종류가 달라야 하고, 뒤 정점의 판돈은 앞 정점보다 커야 합니다 (남에게 드러나는 쪽으로).
+- 복선 갈래:
+{kinds}
+[판돈 · 제약 · 관객 · 금지선 (열린 것)]
+{stakes or "없음"}"""
+
+
+def heat_arc_rules(total: int) -> str:
+    """기승전결 기획 때 열 계획을 함께 받는 요구사항 (Settings.heat_plan 을 켠 단편, 응답 형식 HeatArcPlan)."""
+    low = "승 구간 끝에 낮은 정점을 하나 더 두고, 큰 정점과 종류를 다르게 합니다. 낮은 정점은 대화(흥정, 심문)가 이끕니다." if total >= 13 else "정점은 하나만 둡니다."
+    roles = "\n".join(f"  - {k}: {v}" for k, v in HEAT_ROLE_GUIDE.items())
+    kinds = "\n".join(f"  - {k}: {v}" for k, v in HEAT_KIND_GUIDE.items())
+    return f"""
+
+열 계획도 함께 짭니다. 열은 긴장과 보상을 얼마나 쓰는지입니다 (0 없음 ~ {heatplan.LEVEL_MAX} 가장 셈). 수위가 아니라 언제 아끼고 언제 터뜨리는지를 정합니다.
+- heat 에는 1화부터 {total}화까지 화마다 한 줄씩 level(0~{heatplan.LEVEL_MAX}) · role · note 를 빈틈없이 적습니다. role 은 아래 다섯 가지입니다.
+{roles}
+- 쌓기 · 미루기가 앞쪽 40~50% 를 차지하고, 이 구간은 열 2 이하입니다. 매 화 비슷한 열을 쓰지 않습니다.
+- 큰 정점(peak)은 전 구간 끝에 둡니다. {low}
+- 정점 화에는 kind 에 정점 종류를 한 줄로 적습니다 (예: 맨정신의 흥정, 관객 앞 촬영). 다른 화는 kind 를 비웁니다.
+- 터뜨리기 다음 화는 뒷날(after)입니다.
+- heat_rule 에 이 작품의 열 원칙을 한 줄로 적습니다.
+- stakes 에는 정점을 받칠 복선을 2~5개 적습니다. 정점마다 그 전 화에 심은 stake 하나와 audience 나 constraint 하나가 받쳐야 합니다. kind 는 아래 넷 중 하나이고, planted_ep 는 심는 화입니다.
+{kinds}
+- 큰 정점의 stake 는 앞 정점의 stake 보다 커야 합니다. 남에게 드러나는 쪽으로 커지면 public 을 true 로 적습니다.
+- heat_turn: 약한 쪽의 반격 하나를 plant_ep 에 심고, 큰 정점 전 fail_ep 에 들키게 합니다. 반격은 겉으로 성공했다가 화의 마지막 줄에서 들킵니다. gain 에 들킨 대가로 상대가 쥐는 새 판돈을 적습니다."""
 
 
 def pov_plan_rule(p: Project, unit: str) -> str:
@@ -2456,6 +2535,9 @@ def build_episode_context(p: Project, n: int, *, use_board: bool = True, pre: st
 전환점: {b.key_turn}"""
         if together:
             where += "\n한 화 안에서 위 구간들을 차례로 지나가도록 쓰세요."
+        heat = heat_step_line(p, n)
+        if heat:
+            where += f"\n# 이번 화 열 계획 (작가가 정함)\n{heat}"
 
     els = elements.episode_block(p, n)
     els = f"\n\n# 이야기 요소 (이번 화와 관련된 설정, 어기지 말 것)\n{els}" if els else ""
@@ -3114,9 +3196,18 @@ def cue_sheet_prompt(p: Project, n: int, lead: str = "") -> str:
         return (lead + "\n\n아래는 위 요청으로 만든 스토리보드를 Canon 이 값을 세어 적은 글입니다. 스토리보드 JSON 을 다시 만들지 않습니다.\n\n"
                 + board_block(p, n) + "\n\n"
                 + _cue_request(p, n, f"위 자료와 바로 위 스토리보드로 {n}화의 큐 시트(악보)를 JSON 으로 만듭니다. 본문을 쓰지 않습니다.\n"
-                               f"[다음 화 플롯]의 사건은 큐에 넣지 않습니다. 시간 · 이동 · 장면 순서는 바로 위 스토리보드를 따릅니다."))
+                               f"[다음 화 플롯]의 사건은 큐에 넣지 않습니다. 시간 · 이동 · 장면 순서는 바로 위 스토리보드를 따릅니다.") + heat_cue_rule(p, n))
     return build_episode_context(p, n) + "\n\n" + _cue_request(
-        p, n, f"위 자료로 {n}화의 큐 시트(악보)를 JSON 으로 만듭니다. 본문을 쓰지 않습니다.")
+        p, n, f"위 자료로 {n}화의 큐 시트(악보)를 JSON 으로 만듭니다. 본문을 쓰지 않습니다.") + heat_cue_rule(p, n)
+
+
+def heat_cue_rule(p: Project, n: int) -> str:
+    """큐 시트 요청 맨 끝: 이 화의 열 계획이 있으면 긴장도를 그 눈금에 맞춘다. 없으면 빈 글."""
+    s = heatplan.step(p, n)
+    if s is None:
+        return ""
+    cap = "열 0~1 화라 긴장도 4 이상 큐를 만들지 않습니다." if s.level <= 1 else f"큐 긴장도는 대체로 열 눈금({s.level}) 안팎에 둡니다."
+    return f"\n- 이 화의 열 계획은 '{heat_step_line(p, n)}' 입니다. {cap}"
 
 
 def _cue_request(p: Project, n: int, first: str) -> str:

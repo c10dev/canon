@@ -813,6 +813,7 @@ function applyJobResult(j) {
     S.styleDraft = j.result;
   } else if (j.kind === 'arc' && j.result) {
     S.arcProposal = j.result.acts;  // 바로 바꾸지 않고 지금 구조와 비교해 고르게 한다 (arcProposalCard)
+    S.heatProposal = (j.result.heat || []).length ? { heat: j.result.heat, heat_rule: j.result.heat_rule || '', heat_turn: j.result.heat_turn, stakes: j.result.stakes || [] } : null;  // 열 계획을 켠 단편 (heatplan.js)
   } else if (j.kind === 'write' && !(j.result && j.result.candidate)) {
     // AI가 본문을 새로 썼다 (새 판 candidate 는 본문을 덮지 않으니 쓰던 초안과 변경안을 그대로 둔다).
     // 그 화 칸에 쓰던 글이 있으면(다른 탭에서 시작한 작업 등) 버리지 않고 칸에 남긴다. 저장하면 수정 기록에 남아 되돌릴 수 있다
@@ -2010,7 +2011,7 @@ Object.assign(actions, {
 // 작품마다 따로 두는 화면 상태와 빈 값. 화 번호로 잡거나 반영 전 AI 제안이라, 다른 작품에 보이거나 반영되면 안 된다
 const PER_PROJECT = {
   textDraft: () => ({}), deltas: () => ({}), deltaBase: () => ({}), deltaOrig: () => ({}),
-  suggestion: () => null, styleDraft: () => null, picks: () => ({}), picksEp: () => null, picksKept: () => ({}), seriesDraft: () => null, arcDraft: () => null, arcProposal: () => null, recapDrafts: () => ({}), foldDrafts: () => ({}),
+  suggestion: () => null, styleDraft: () => null, picks: () => ({}), picksEp: () => null, picksKept: () => ({}), seriesDraft: () => null, arcDraft: () => null, arcProposal: () => null, heatProposal: () => null, recapDrafts: () => ({}), foldDrafts: () => ({}),
   lineDraft: () => null, convDraft: () => null, rbDraft: () => null, reworks: () => ({}),
   openingData: () => ({}), openingPlots: () => ({}), openingUsed: () => ({}), openingPrev: () => ({}), rw: () => ({}), rwInfo: () => ({}), looks: () => ({}),
   causalLinks: () => ({}), causalPicks: () => ({}), causalGone: () => null, chatPicks: () => ({}),

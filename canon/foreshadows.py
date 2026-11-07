@@ -13,6 +13,7 @@ from .schema import Foreshadow, ForeshadowClue, Project, StateDelta
 
 LONG_OPEN = 50  # 이 화수 넘게 다시 떠올리지 않은 열린 복선은 오래 묵었다고 본다 (아크 화면의 경고와 같은 값)
 SCOPES = {"arc": "이번 아크", "part": "이번 부", "series": "작품 전체"}
+KINDS = {"clue": "단서", "stake": "판돈", "constraint": "제약", "audience": "관객", "ban": "금지선"}  # 열 계획의 갈래 (heatplan)
 
 _SKIP = re.compile(r"[\s\"'“”‘’「」『』《》〈〉.,!?…·~\-–—()\[\]]+")
 
@@ -127,6 +128,11 @@ def _check_ep(p: Project, n: int) -> None:
         raise ValueError(f"{n}화가 없어요") from None
 
 
+def _check_kind(kind: str) -> None:
+    if kind not in KINDS:
+        raise ValueError(f"복선 갈래는 {', '.join(KINDS)} 중 하나예요")
+
+
 def new_id(p: Project, n: int) -> str:
     have = {f.id for f in p.foreshadows}
     k = 1
@@ -135,8 +141,9 @@ def new_id(p: Project, n: int) -> str:
     return f"fs-{n:02d}-a{k}"
 
 
-def add(p: Project, description: str, n: int, scope: str = "arc", due_ep: Optional[int] = None) -> Foreshadow:
-    """작가가 복선을 직접 더한다. n화에 심은 것으로 본다."""
+def add(p: Project, description: str, n: int, scope: str = "arc", due_ep: Optional[int] = None,
+        kind: str = "clue", public: bool = False) -> Foreshadow:
+    """작가가 복선을 직접 더한다. n화에 심은 것으로 본다. kind 는 열 계획의 갈래(heatplan.KINDS)."""
     description = description.strip()
     if not description:
         raise ValueError("복선 내용을 적어 주세요")
@@ -145,16 +152,19 @@ def add(p: Project, description: str, n: int, scope: str = "arc", due_ep: Option
         raise ValueError(f"회수 범위는 {', '.join(SCOPES)} 중 하나예요")
     if due_ep is not None and due_ep < n:
         raise ValueError("회수 예정 화가 심은 화보다 앞이에요")
-    f = Foreshadow(id=new_id(p, n), description=description, planted_ep=n, scope=scope, due_ep=due_ep)  # type: ignore[arg-type]
+    _check_kind(kind)
+    f = Foreshadow(id=new_id(p, n), description=description, planted_ep=n, scope=scope, due_ep=due_ep, kind=kind, public=public)  # type: ignore[arg-type]
     for fs in _copies(p, n):
         fs.append(f.model_copy(deep=True))
     return f
 
 
 def update(p: Project, fid: str, description: Optional[str] = None, scope: Optional[str] = None,
-           due_ep: Optional[int] = None, clear_due: bool = False) -> Foreshadow:
-    """내용, 회수 범위, 회수 예정 화를 고친다. 기록이 어긋나지 않게 모든 스냅샷에 같이 적는다."""
+           due_ep: Optional[int] = None, clear_due: bool = False, kind: Optional[str] = None, public: Optional[bool] = None) -> Foreshadow:
+    """내용, 회수 범위, 회수 예정 화, 갈래, 드러남을 고친다. 기록이 어긋나지 않게 모든 스냅샷에 같이 적는다."""
     f = get(p, fid)
+    if kind is not None:
+        _check_kind(kind)
     if scope is not None and scope not in SCOPES:
         raise ValueError(f"회수 범위는 {', '.join(SCOPES)} 중 하나예요")
     if due_ep is not None and due_ep < f.planted_ep:
@@ -171,6 +181,10 @@ def update(p: Project, fid: str, description: Optional[str] = None, scope: Optio
             x.scope = scope  # type: ignore[assignment]
         if due_ep is not None or clear_due:
             x.due_ep = due_ep
+        if kind is not None:
+            x.kind = kind  # type: ignore[assignment]
+        if public is not None:
+            x.public = public
     return f
 
 

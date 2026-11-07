@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from . import dynamics, elements, illust, metrics, naming, prompts, renumber, setupchat, storylines
 from .judge import Judge, Question
 from .llm import LLM, PREFIX_HINT, Interrupted, dump, family_text, out_cap
-from . import anchor, board, cancel, charlog, context, features, findings, foreshadows, knows, metatail, stage, statwin, usage
+from . import anchor, board, cancel, charlog, context, features, findings, foreshadows, heatplan, knows, metatail, stage, statwin, usage
 from .schema import CueSheet, CueSheetDraft, Finding, MetaCut, FindingRecheck, FixBatch, FixOption, FixPatch, FixRecheckItem, FixRecheckReport, FixSet, RevArcSet, RevEpisodeDraft, RevLineSet
 from .schema import ParagraphAnatomy, ReaderCheck, SceneCard, SceneVariant, SceneVariants, StudioCandidate, StudioDraft
 from .schema import (
@@ -18,6 +18,7 @@ from .schema import (
     Act,
     ArcEdit,
     ArcPlan,
+    HeatArcPlan,
     ClaimSet,
     ArcProposal,
     ArcUndo,
@@ -707,11 +708,47 @@ def library_blank(st: StyleProfile) -> bool:
 # ---------- 3. 기승전결 + 화별 플롯 ----------
 
 def plan_arc(llm: LLM, p: Project, note: str = "") -> ArcPlan:
-    """note: 작가가 바라는 것 (비우면 AI 가 정한다)."""
-    plan = llm.json(prompts.SYSTEM_PLANNER, prompts.arc_prompt(p) + prompts.request_block(note), ArcPlan,
-                    hint={"total": p.meta.target_episodes, "note": note})
-    fit_arc(plan, p.meta.target_episodes)
+    """note: 작가가 바라는 것 (비우면 AI 가 정한다).
+    Settings.heat_plan 을 켠 단편은 열 계획을 함께 받는다(HeatArcPlan). 저장하지 않는다: 적용은 apply_heat_plan."""
+    total = p.meta.target_episodes
+    heat = p.settings.heat_plan and not p.serial
+    ask = prompts.arc_prompt(p) + (prompts.heat_arc_rules(total) if heat else "") + prompts.request_block(note)
+    plan = llm.json(prompts.SYSTEM_PLANNER, ask, HeatArcPlan if heat else ArcPlan, hint={"total": total, "note": note})
+    fit_arc(plan, total)
+    if isinstance(plan, HeatArcPlan):
+        clean_heat_plan(p, plan, total)
     return plan
+
+
+def clean_heat_plan(p: Project, plan: HeatArcPlan, total: int) -> list[str]:
+    """열 계획 응답을 고친다: 화를 빈틈없이 맞추고(heatplan.fit), 뒤집힘을 범위 안에 두고,
+    stakes 는 갈래가 단서가 아니고 내용이 있는 것만 남겨 심는 화를 1~total 로 자르고 지금 복선과 겹치지 않는 id 를 준다."""
+    plan.heat, notes = heatplan.fit(plan.heat, 1, total)
+    plan.heat_turn, more = heatplan.fit_turn(plan.heat_turn, 1, total)
+    have = {f.id for f in p.foreshadows}
+    stakes = []
+    for f in plan.stakes:
+        if f.kind == "clue" or not f.description.strip():
+            continue
+        n = min(max(f.planted_ep, 1), total)
+        k = 1
+        while f"fs-{n:02d}-h{k}" in have:
+            k += 1
+        have.add(f"fs-{n:02d}-h{k}")
+        due = f.due_ep if f.due_ep and n <= f.due_ep <= total else None
+        stakes.append(f.model_copy(update={"id": f"fs-{n:02d}-h{k}", "planted_ep": n, "status": "open", "payoff_ep": None,
+                                           "due_ep": due, "scope": "arc", "description": f.description.strip()}))
+    plan.stakes = stakes
+    return notes + more
+
+
+def apply_heat_plan(p: Project, plan: HeatArcPlan) -> int:
+    """열 계획 제안을 작품에 넣는다. 계획 · 원칙 · 뒤집힘은 바꾸고, stakes 는 같은 id 가 없을 때만 복선에 더한다. 더한 수를 돌려준다."""
+    p.heat, p.heat_rule, p.heat_turn = plan.heat, plan.heat_rule, plan.heat_turn
+    have = {f.id for f in p.foreshadows}
+    new = [f for f in plan.stakes if f.id not in have]
+    p.foreshadows.extend(new)
+    return len(new)
 
 
 ACT_NAMES = ["기", "승", "전", "결"]

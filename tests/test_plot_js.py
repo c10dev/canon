@@ -5,7 +5,7 @@ from canon.schema import Act, Character, Meta, Part, Project, StoryArc
 from .jsvm import dump, episode, needs_node, run_js
 
 FILES = ["app.js", "home.js", "plot.js"]
-VIEW_FILES = ["app.js", "home.js", "branches.js", "style.js", "plot.js", "write.js", "review.js", "chat.js", "agent.js", "passage.js",
+VIEW_FILES = ["app.js", "home.js", "branches.js", "style.js", "plot.js", "heatplan.js", "write.js", "review.js", "chat.js", "agent.js", "passage.js",
               "rewrite.js", "restate.js", "opening.js", "insert.js", "lines.js", "auto.js", "marks.js", "timeline.js", "cast.js", "foreshadow.js"]
 
 

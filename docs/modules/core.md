@@ -309,6 +309,9 @@
 - 장편 전환(`serialize.py`) · 재구성(`reshape.py`) · 초반 1~3화(`opening.py`)는 따로 둔 모듈이다(`SPLIT`). 새 공용 도우미는 이 파일에 두고 그 모듈이 불러 쓴다
 - 단계별 로직
 - 차례: 설정 제안 → 스타일 분석 → 기승전결 → 화별 플롯 → 스토리보드 → 큐 시트 → 본문 → 검수 → 상태 추출/반영
+- 기승전결 `plan_arc` 는 `Settings.heat_plan` 을 켠 단편이면 열 계획을 함께 받는다(응답 `HeatArcPlan`, 요구 `prompts.heat_arc_rules`)
+- 열 계획 정리 `clean_heat_plan`: `heatplan.fit` · `fit_turn`, 판돈은 단서 · 빈 것을 빼고 심는 화를 자르고 겹치지 않는 id(`fs-<화>-h<k>`)
+- 열 계획 적용 `apply_heat_plan`: 계획 · 원칙 · 뒤집힘을 바꾸고 판돈은 같은 id 가 없을 때만 복선에 더함. 명령줄 `arc` 와 화면 구조 제안 고르기(`heatApply`)가 쓴다
 - 화별 플롯
   - 대화로 다듬기 `revise_plot`/`apply_revision` 포함
   - 대상 `chat_target`: 고른 아크 · 다음 아크
@@ -381,6 +384,8 @@
 
 - 프롬프트 템플릿
 - 화별 컨텍스트 조립(`build_episode_context`)
+- 단편 열 계획: 화별 플롯 규칙 끝 `heat_plot_rules`(계획 · 원칙 · 뒤집힘 · 열린 판돈 · 갈래 안내), 쓰기 · 스토리보드 · 큐 시트의 현재 구간 뒤 `heat_step_line`, 큐 시트 요청 맨 끝 `heat_cue_rule`
+- 열 계획이 없으면 세 곳 모두 빈 글이라 프롬프트가 그대로다
 - 작업지시서(`episode_brief`, `state_brief`)
 - 인물 고르기는 `static_characters` · `side_characters` · `roster_line` · `cast_block` 이 `Character.context` 를 따른다
 - 장편은 플롯 인물 목록 밖이라도 이름이 나온 조연을 넣는다(쓰기 `named_block`, 검수 `check_cast`, 상태 변경안)
@@ -448,6 +453,8 @@
 - 반영이 실제로 새로 더한 항목(`StateDelta.added`, `AddedItems`)도 AI 응답 형식에서 빠진다. 없으면(None) 이 칸이 생기기 전 기록이다
 - 반영 취소는 그 화 기록과 함께 빼 둔 항목도 지운다
 - 지운 기록은 `_revert_kept` 가 pending.json 에 남기고, 상태 승인 화면이 빼 둔 항목을 체크를 푼 채 다시 놓는다
+- 단편 열 계획(`Project.heat` · `heat_rule` · `heat_turn`, `HeatStep` · `HeatTurn`)은 기본값이 비어 옛 작품이 읽힌다. 규칙은 story.md 의 `canon/heatplan.py` 절
+- 복선 갈래 `Foreshadow.kind`(clue 단서 · stake 판돈 · constraint 제약 · audience 관객 · ban 금지선)는 옛 복선을 clue 로 읽는다
 - 화별 쓴 사건 체크(`Episode.events_done`, 사건 글 목록)는 집필 화면 표시용이라 `EpisodePlot` 밖에 두어 프롬프트에 들어가지 않는다
 - 지금 본문을 쓴 모델(`Episode.written_by`, 판마다 `TextVersion.model`)도 프롬프트 밖이다. 값은 `usage.model_id` 의 '<백엔드>:<모델>' 이나 'import', 모르면 빈 칸
 - 쓴 모델은 집필 화면 머리 · 이전 판 · 새 판 카드 · 작품 홈 화 칸 툴팁에 보인다(`app.js` `writerLabel`)
@@ -566,6 +573,7 @@
 ### `canon/web.py`
 
 - 웹 UI 서버(`python -m canon serve`)
+- 작품 저장(PUT · PATCH)은 단편 열 계획을 1화부터 끝 화까지 맞춘다(`heatplan.fit` · `fit_turn`). 화수를 바꿔도 빈틈이 생기지 않는다
 - 문체 라이브러리 분석 작업 `POST /api/styles/analyze/job`(kind `lib_style`, project `LIB_JOBS` = `.styles`)
 - 맨 바깥 미들웨어 `_guard_host` 는 Host 가 IP 주소 · localhost · `*.ts.net` · 이 컴퓨터 이름 · `CANON_ALLOWED_HOSTS` 의 이름이 아니면 403 으로 막는다(DNS 리바인딩)
 - `_guard_host` 는 POST · PUT · PATCH · DELETE 에 Origin 이 있으면 그 이름이 Host 나 X-Forwarded-Host 와 같아야 받는다(CSRF). Origin 이 없는 요청(명령줄 · curl)은 받는다

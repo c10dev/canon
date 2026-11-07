@@ -963,6 +963,36 @@ textarea[data-pick] { -webkit-touch-callout: none; caret-color: transparent; }
 .plot-main { min-width: 0; display: flex; flex-direction: column; gap: var(--gap-stack); }
 .plot-main > .card { margin: 0; }
 .plot-wrap .outline-list { padding-bottom: var(--space-8); }
+/* 열 계획 카드 (heatplan.js): 화마다 막대 하나, 높이는 열 0~5. 터뜨리기는 amber, 쓴 화의 큐 긴장은 가로 눈금 */
+.heat-card { margin-bottom: var(--gap-stack); display: grid; gap: var(--gap-group); }
+.heat-h, .heat-lab { font-weight: 700; display: block; margin-bottom: var(--gap-label); }
+.heat-bars { display: flex; gap: var(--space-4); align-items: flex-end; overflow-x: auto; padding-bottom: var(--space-4); }
+.heat-col { flex: 1 0 28px; max-width: 48px; display: grid; gap: var(--space-4); justify-items: stretch; background: none; border: 1px solid transparent; border-radius: var(--radius-6); padding: var(--space-4); cursor: pointer; color: var(--text-2); font: inherit; }
+.heat-col:hover { background: var(--accent-soft); }
+.heat-col.sel { border-color: var(--sel-line); background: var(--sel-bg); }
+.heat-track { position: relative; height: 96px; background: var(--rule); border-radius: var(--radius-4); overflow: hidden; }
+.heat-fill { position: absolute; left: 0; right: 0; bottom: 0; background: var(--accent); border-radius: var(--radius-4) var(--radius-4) 0 0; }
+.heat-fill.peak { background: var(--amber); }
+.heat-fill.after, .heat-fill.rest { background: var(--line-strong); }
+.heat-real { position: absolute; left: 0; right: 0; height: 3px; background: var(--text); }
+.heat-ep { font-size: 12px; text-align: center; display: flex; justify-content: center; align-items: center; gap: var(--space-2); }
+.heat-dot { width: 6px; height: 6px; border-radius: var(--radius-pill); background: var(--amber); }
+.heat-legend { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-6); }
+.heat-key { display: inline-block; width: 12px; height: 12px; border-radius: var(--radius-2); background: var(--accent); }
+.heat-key.peak { background: var(--amber); }
+.heat-key.real { height: 3px; background: var(--text); }
+.heat-edit { display: grid; gap: var(--gap-group); padding: var(--pad-card-tight); border: 1px solid var(--line); border-radius: var(--radius-8); }
+.heat-seg { flex-wrap: wrap; }
+.heat-proposal { display: grid; gap: var(--gap-row); margin-top: var(--gap-group); padding-top: var(--gap-group); border-top: 1px solid var(--line); }
+.heat-proposal .heat-col { cursor: default; }
+.heat-toggle { gap: var(--space-6); align-items: center; }
+.heat-stake { display: flex; justify-content: space-between; align-items: center; gap: var(--gap-row); padding: var(--space-6) 0; border-bottom: 1px solid var(--rule); flex-wrap: wrap; }
+.heat-kind.stake { background: var(--amber-soft); color: var(--amber-ink); }
+.heat-kind.audience { background: var(--accent-soft); color: var(--accent-ink); }
+.heat-kind.constraint, .heat-kind.ban { background: var(--chip); color: var(--text-2); }
+.heat-add { display: grid; grid-template-columns: 2fr 1fr 1fr auto; gap: var(--gap-row); align-items: end; margin-top: var(--gap-row); }
+@media (max-width: 640px) { .heat-add { grid-template-columns: 1fr 1fr; } .heat-add .field:first-child { grid-column: 1 / -1; } }
+@media (forced-colors: active) { .heat-fill, .heat-real, .heat-key, .heat-dot { background: CanvasText; } .heat-fill.peak, .heat-key.peak { background: Highlight; } }
 .plot-wrap .outline-h { font-weight: 700; display: flex; align-items: center; gap: var(--space-6); }
 .plot-wrap .outline-h.between { padding-right: 0; }
 .plot-wrap .outline-h .btn { min-height: 28px; height: 28px; padding: 0 var(--space-6); }

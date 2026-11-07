@@ -36,7 +36,7 @@ from .llm import BadKey, GeminiLLM, LocalLLM, MissingKey, get_llm, make_llm
 from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록)
 from .schema import (Ability, ArcPlan, BodySuggestion, StatInitSuggestion, StatSkin, StatWindowSuggestion, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
-from . import abilities, anchor, atlas, findings, foreshadows, setupchat, stattrial, statwin, timeline
+from . import abilities, anchor, atlas, findings, foreshadows, heatplan, setupchat, stattrial, statwin, timeline
 from .schema import AgentSession, ChatScope, KnowsFoldSet, Deadline, Storyboard, StoryTime, Foreshadow, StatValue
 from .metrics import StyleMetrics
 from .schema import CharacterState, ConsistencyReport, FindingStatus, Severity, StoryEvent
@@ -1086,6 +1086,9 @@ def _put_locked(name: str, p: Project, disk: Project, response: Response, merged
         raise HTTPException(409, "다른 탭이나 기기에서 이 작품을 먼저 저장했어요. 다시 불러와 그 변경을 보거나, 내 변경으로 덮어쓰세요")
     if p.arc and not p.serial:
         pipeline.validate_arc(ArcPlan(acts=p.arc), p.meta.target_episodes)
+    if not p.serial:  # 화수를 바꿔도 열 계획이 1화부터 끝 화까지 빈틈없이 맞게 (heatplan.fit)
+        p.heat, _ = heatplan.fit(p.heat, 1, p.meta.target_episodes)
+        p.heat_turn, _ = heatplan.fit_turn(p.heat_turn, 1, p.meta.target_episodes)
     if p.serial:
         pipeline.validate_parts(p.parts, p.meta.target_episodes)
         pipeline.validate_story_arcs(p)
@@ -4596,13 +4599,15 @@ class ForeshadowIn(BaseModel):
     episode: int  # 심은 화
     scope: str = "arc"
     due_ep: int | None = None
+    kind: str = "clue"
+    public: bool = False
 
 
 @app.post("/api/projects/{name}/foreshadows")
 def foreshadow_add(name: str, body: ForeshadowIn) -> Project:
     p = _load(name)
     _not_auto(name)
-    foreshadows.add(p, body.description, body.episode, body.scope, body.due_ep)
+    foreshadows.add(p, body.description, body.episode, body.scope, body.due_ep, body.kind, body.public)
     return _save(name, p)
 
 
@@ -4611,13 +4616,15 @@ class ForeshadowEdit(BaseModel):
     scope: str | None = None
     due_ep: int | None = None
     clear_due: bool = False
+    kind: str | None = None
+    public: bool | None = None
 
 
 @app.put("/api/projects/{name}/foreshadows/{fid}")
 def foreshadow_edit(name: str, fid: str, body: ForeshadowEdit) -> Project:
     p = _load(name)
     _not_auto(name)
-    foreshadows.update(p, fid, body.description, body.scope, body.due_ep, body.clear_due)
+    foreshadows.update(p, fid, body.description, body.scope, body.due_ep, body.clear_due, body.kind, body.public)
     return _save(name, p)
 
 

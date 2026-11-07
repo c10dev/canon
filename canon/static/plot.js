@@ -341,7 +341,7 @@ function plotAiMenu(items) {
   const busy = btns.find((x) => jobFor(x.kind, x.ep ?? null));
   return menuBtn('plotai', `${busy ? esc(busy.b.label) : 'AI로 다시 만들기'} ${CHEVRON}`, () => `${btns.map((x) => `<button type="button" class="pop-item plot-ai-item" data-action="${x.action}"${x.arg != null ? ` data-arg="${x.arg}"` : ''}${x.b.attr}><span><strong>${esc(x.b.label)}</strong>${x.sub ? `<span class="small">${esc(x.sub)}</span>` : ''}</span></button>`).join('')}
       <div class="pop-sep" role="separator"></div>
-      <label class="pop-sec"><span class="pop-legend">함께 보낼 요청 (선택)</span><input type="text" data-local="planNote" value="${esc(S.planNote || '')}" placeholder="예: 3화 안에 첫 반전, 로맨스 비중은 줄이기"></label>`);
+      <label class="pop-sec"><span class="pop-legend">함께 보낼 요청 (선택)</span><input type="text" data-local="planNote" value="${esc(S.planNote || '')}" placeholder="예: 3화 안에 첫 반전, 로맨스 비중은 줄이기"></label>${serial() ? '' : heatPlanToggle('pop-sec')}`);
 }
 
 /** 구간 범위가 start~end 화를 빈틈 · 겹침 없이 덮는지. 문제가 있으면 고칠 곳을 문장으로 돌려준다 (서버 validate_arc 가 저장을 막는 경우). */
@@ -398,7 +398,7 @@ function viewArc() {
         ...actCoverage(p.arc, 1, p.meta.target_episodes).map((text) => ({ text, sub: '구간 고치기에서 범위를 맞추면 저장돼요' })),
         ...plotTodos(p, 1, p.meta.target_episodes)])}
        ${eps.some((e) => povBadge(e.plot.number)) ? POV_LEGEND : ''}`);
-    board = plotLayout(toc, `<div class="plot-main"><div class="board-wrap">${note}${actBoard(p.arc, eps, sel)}</div></div>`);
+    board = plotLayout(toc, `<div class="plot-main"><div class="board-wrap">${note}${heatCard(p)}${actBoard(p.arc, eps, sel)}</div></div>`);
   }
 
   // 머리: 대화 · AI로 다시 만들기 ▾ · 지금 할 일 하나(초안이 없으면 초안 만들기, 초안이 있으면 모두 확정, 그 밖에는 다음 화 쓰기)
@@ -423,7 +423,7 @@ function viewArc() {
 /** 구조가 없을 때 'AI로 구조 만들기' 아래 요청 칸 */
 function planNoteInput() {
   return `<label class="plan-note"><span class="small">함께 보낼 요청 (선택)</span>
-    <input type="text" data-local="planNote" value="${esc(S.planNote || '')}" placeholder="예: 3화 안에 첫 반전, 로맨스 비중은 줄이기"></label>`;
+    <input type="text" data-local="planNote" value="${esc(S.planNote || '')}" placeholder="예: 3화 안에 첫 반전, 로맨스 비중은 줄이기"></label>${serial() ? '' : heatPlanToggle('plan-note')}`;
 }
 
 /** start~end 화 중 플롯 초안 작업이 새로 만들 화가 있다 (없는 화나 초안). 없으면 서버도 '새로 만들 초안이 없어요'로 막는다 (web._plot_ranges). */
@@ -448,7 +448,7 @@ function arcProposalCard() {
   return `<section class="card proposal" aria-label="AI 구조 제안">
     <div class="between"><h2>AI 구조 제안 <span class="chip ai">적용 전</span></h2>${proposalActions(['dropArcProposal'], ['useArcProposal'], has ? '이 구조로 바꾸기' : '이 구조로 시작')}</div>
     <p class="small">${has ? '지우는 것은 빨강, 새로 넣는 것은 초록이에요. 바꿔도 저장하기 전에는 작품에 들어가지 않아요.' : '고르면 구조가 생기고, 저장하면 작품에 들어가요.'}</p>
-    <div class="diff">${rows}</div></section>`;
+    <div class="diff">${rows}</div>${S.heatProposal ? heatProposalPart(S.heatProposal) : ''}</section>`;
 }
 
 function actEditor(i) {
@@ -1095,6 +1095,8 @@ Object.assign(actions, {
   useArcProposal() {
     P().arc = S.arcProposal;
     S.arcProposal = null;
+    if (S.heatProposal) heatApply(P(), S.heatProposal);
+    S.heatProposal = null;
     markDirty();
     render();
     toast('구조를 바꿨어요. 저장하면 작품에 들어가요');
@@ -1102,6 +1104,7 @@ Object.assign(actions, {
   async dropArcProposal() {
     if (!(await confirmDrop('AI 구조 제안'))) return;
     S.arcProposal = null;
+    S.heatProposal = null;
     render();
   },
   async draftPlots() {
