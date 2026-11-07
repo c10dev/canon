@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from . import context, elements, genres, metrics, naming, storylines
 from .dynamics import VIEWS, describe_relations
 from .llm import _inline_refs, dump
-from .schema import Birth, Character, ChatMessage, Claim, ConsistencyIssue, ConsistencyReport, Foreshadow, PlayInfo, Project, Selection, StateDeltaAI, StoryElement
+from .schema import Birth, Character, ChatMessage, Claim, ConsistencyIssue, ConsistencyReport, Foreshadow, PlayInfo, PlotBatch, Project, Selection, StateDeltaAI, StoryElement
 from . import address, board, charlog, echoes, foreshadows, heatplan, knows, pairlog, stage, statwin, timeline
 from .maps import prompt as mapprompt
 
@@ -4634,46 +4634,59 @@ def opening_plots_prompt(p: Project, n: int, approaches: list[str]) -> str:
 # ---------- 작업지시서 (구독형 채팅 앱용) ----------
 # API 경로와 같은 프롬프트를 그대로 쓴다. 나중에 MCP 서버의 prompt/tool 로 옮길 때도 이 함수들을 재사용한다.
 
-def episode_brief(p: Project, n: int) -> str:
-    return f"""# {p.meta.title or "작품"} {n}화 작업지시서
+# 작업지시서 갈래: 열쇠 → (이름, 본문이 있어야 하나). 프롬프트 놀이터(promptlab.py)의 '불러오기'도 이 목록과 brief_parts 를 쓴다
+BRIEF_KINDS: dict[str, tuple[str, bool]] = {
+    "episode": ("본문 쓰기", False),
+    "plot": ("한 화 플롯", False),
+    "check": ("검수", True),
+    "state": ("상태 변경안", True),
+}
 
-아래 지시를 그대로 따라 {n}화 본문을 작성해 주세요.
 
-## 역할
-{writer_system(p)}
+def _out_format(model: type[BaseModel]) -> str:
+    return f"""
 
-{episode_prompt(p, n)}
+## 출력 형식
+아래 JSON 스키마를 따르는 JSON 하나만 코드 블록 없이 출력하세요.
+
+{_schema_text(model)}"""
+
+
+def brief_parts(p: Project, n: int, kind: str = "episode") -> tuple[str, str]:
+    """작업지시서의 (역할 = 시스템 프롬프트, 요청 프롬프트). API 경로와 같은 함수로 조립한다.
+    JSON 으로 받는 단계(플롯 · 검수 · 상태 변경안)는 API 경로가 따로 넘기는 응답 스키마를 요청 끝에 글로 붙인다."""
+    if kind not in BRIEF_KINDS:
+        raise ValueError(f"모르는 프롬프트 갈래예요: {kind}")
+    if kind == "state":
+        return SYSTEM_EDITOR, state_prompt(p, n) + _out_format(StateDeltaAI)
+    if kind == "check":
+        return SYSTEM_CHECKER, check_prompt(p, n) + _out_format(ConsistencyReport)
+    if kind == "plot":
+        return SYSTEM_PLANNER, plot_prompt(p, n, n) + _out_format(PlotBatch)
+    return writer_system(p), episode_prompt(p, n)
+
+
+def _brief(p: Project, n: int, kind: str, head: str, lead: str = "") -> str:
+    system, prompt = brief_parts(p, n, kind)
+    return f"""# {p.meta.title or "작품"} {n}화 {head}
+
+{lead}## 역할
+{system}
+
+{prompt}
 """
+
+
+def episode_brief(p: Project, n: int) -> str:
+    return _brief(p, n, "episode", "작업지시서", f"아래 지시를 그대로 따라 {n}화 본문을 작성해 주세요.\n\n")
 
 
 def state_brief(p: Project, n: int) -> str:
-    return f"""# {p.meta.title or "작품"} {n}화 상태 정리 작업지시서
-
-## 역할
-{SYSTEM_EDITOR}
-
-{state_prompt(p, n)}
-
-## 출력 형식
-아래 JSON 스키마를 따르는 JSON 하나만 코드 블록 없이 출력하세요.
-
-{_schema_text(StateDeltaAI)}
-"""
+    return _brief(p, n, "state", "상태 정리 작업지시서")
 
 
 def check_brief(p: Project, n: int) -> str:
-    return f"""# {p.meta.title or "작품"} {n}화 검수 작업지시서
-
-## 역할
-{SYSTEM_CHECKER}
-
-{check_prompt(p, n)}
-
-## 출력 형식
-아래 JSON 스키마를 따르는 JSON 하나만 코드 블록 없이 출력하세요.
-
-{_schema_text(ConsistencyReport)}
-"""
+    return _brief(p, n, "check", "검수 작업지시서")
 
 
 def _schema_text(model: type[BaseModel]) -> str:

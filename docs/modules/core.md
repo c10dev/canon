@@ -406,6 +406,8 @@
 - 아크를 프롬프트에 덤프할 때 열 계획 칸은 뺀다(`ARC_HEAT`, `StoryArc` 의 프롬프트용 직렬화). 아크의 열 계획 칸은 AI 응답 형식에도 없다(`SkipJsonSchema`)
 - 열 계획 받기 요청 `heat_propose_prompt`: 기승전결, 화별 플롯, 본문 있는 화의 실제 열 참고값과 지금 계획, 열린 복선. 요구사항은 단편 기획과 같은 `heat_rules`
 - 작업지시서(`episode_brief`, `state_brief`)
+- 작업지시서는 `brief_parts`(역할 = 시스템, 요청)로 조립한다. 갈래 목록은 `BRIEF_KINDS`(본문 쓰기 · 한 화 플롯 · 검수 · 상태 변경안)
+- JSON 으로 받는 갈래는 응답 스키마를 요청 끝에 글로 붙인다(`_out_format`). 프롬프트 놀이터의 불러오기도 `brief_parts` 를 쓴다
 - 인물 고르기는 `static_characters` · `side_characters` · `roster_line` · `cast_block` 이 `Character.context` 를 따른다
 - 장편은 플롯 인물 목록 밖이라도 이름이 나온 조연을 넣는다(쓰기 `named_block`, 검수 `check_cast`, 상태 변경안)
 - 오랜만에 나오는 인물은 `return_block`
