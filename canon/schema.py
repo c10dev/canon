@@ -3221,6 +3221,15 @@ class PromptBackend(BaseModel):
     url: str = ""
 
 
+class PromptSource(BaseModel):
+    """프롬프트 놀이터에서 불러온 Canon 프롬프트의 출처 (prompts.brief_parts)."""
+    kind: str = Field(description="prompts.BRIEF_KINDS 열쇠: episode · plot · check · state")
+    label: str = ""
+    project: str = Field("", description="조립에 쓴 작품 폴더 이름. 비면 예시 작품(promptlab.example_project)")
+    n: int = 0
+    sig: str = Field("", description="불러온 시스템 · 요청 프롬프트의 지문. 지금 칸과 다르면 고친 것")
+
+
 class PromptRun(BaseModel):
     """프롬프트 놀이터 시도 안의 백엔드 하나의 결과 (research.sample 한 줄)."""
     backend: str = ""
@@ -3243,6 +3252,8 @@ class PromptTrial(BaseModel):
     prompt: str = ""
     temperature: Optional[float] = None
     runs: list[PromptRun] = Field(default_factory=list)
+    source: Optional[PromptSource] = None
+    source_edited: bool = Field(False, description="불러온 프롬프트를 고쳐 돌렸다")
     star: bool = False
     note: str = ""
 
@@ -3255,6 +3266,7 @@ class PromptSession(BaseModel):
     prompt: str = ""
     temperature: Optional[float] = None
     backends: list[PromptBackend] = Field(default_factory=lambda: [PromptBackend()])
+    source: Optional[PromptSource] = Field(None, description="지금 칸을 불러온 Canon 프롬프트. 다른 프롬프트를 불러오면 바뀐다")
     trials: list[PromptTrial] = Field(default_factory=list)
     created_at: str = ""
     updated_at: str = ""

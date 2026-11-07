@@ -48,7 +48,7 @@ def make_backend(b: Backend, temperature: float | None = None) -> LLM:
             sampling = {**sampling, "temperature": temperature}
         return LocalLLM(base_url=b.url or None, model=b.model or None, sampling=sampling)
     if b.provider == "gemini":
-        return GeminiLLM(model=b.model or None)
+        return GeminiLLM(model=b.model or None, temperature=temperature)
     if b.provider == "mock":
         return make_llm("mock")
     raise ValueError(f"알 수 없는 백엔드: {b.provider} (gemini | local | mock)")

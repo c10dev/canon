@@ -460,14 +460,16 @@ def gemini_cache_reset() -> None:
 
 class GeminiLLM:
     effort = ""  # 추론 강도 기본값 (시험이 __init__ 없이 만들 때도 있다)
+    temperature: float | None = None  # 연구 화면 · 프롬프트 놀이터가 고른 온도. None 이면 보내지 않아 모델 기본값을 쓴다
 
-    def __init__(self, model: str | None = None, api_key: str | None = None, effort: str = ""):
+    def __init__(self, model: str | None = None, api_key: str | None = None, effort: str = "", temperature: float | None = None):
         from google import genai
 
         from . import settings
 
         # 추론 강도(settings.GEMINI_EFFORTS)는 thinking_level 로 넘긴다. 비우면 모델 기본값(gemini-4-argon 은 생각하지 않는다)
         self.effort = effort if effort in settings.GEMINI_EFFORTS else ""
+        self.temperature = temperature
 
         # api_key 를 직접 넘기면(연구 화면 등) 늘 키 방식이다
         self.vertex = not api_key and settings.gemini_auth()[0] == "vertex"
@@ -667,6 +669,8 @@ class GeminiLLM:
             config.setdefault("max_output_tokens", cap)  # 생각 토큰도 이 한도에 든다
         if self.effort:
             config.setdefault("thinking_config", types.ThinkingConfig(thinking_level=self.effort.upper()))
+        if self.temperature is not None:
+            config.setdefault("temperature", self.temperature)
         hit = self._cached(system, prompt)
         cancel.check()  # 캐시를 만드는 사이 작업을 멈췄으면 생성 호출을 보내지 않는다
         try:
