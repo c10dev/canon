@@ -259,3 +259,78 @@ def test_vertex_uses_the_same_path():
     g.text("시스템", _step(1))
     g.text("시스템", _step(2))
     assert len(made) == 1 and sent[-1][1].cached_content == "cachedContents/c1"
+
+
+class Unsupported(Err):
+    # google-genai ClientError 처럼 message 에 API 문구가 들어 있다 (2026-11-07 서버 사용량 기록의 문구)
+    def __init__(self, model: str = "gemini-4-argon"):
+        super().__init__(400, "INVALID_ARGUMENT")
+        self.message = f"Model `{model}` does not support explicit context caching."
+
+
+def test_unsupported_model_is_turned_off_at_once_and_remembered():
+    g, sent, made = _fake()
+    g.fail_create = Unsupported()
+    g.text("시스템", _step(1))
+    assert g.text("시스템", _step(2)) == "답"  # 일반 호출로 넘어간다
+    assert sent[-1][1].cached_content is None
+    assert llm._GEM_CACHE_OFF[(False, "gemini-4-argon")] == float("inf")
+    assert llm._GEM_CACHE_FLOOR == {}  # 앞부분이 짧은 400 과 달리 세 번 기다리지 않는다
+    assert settings.gemini_cache_unsupported() == {"key:gemini-4-argon": llm.time.strftime("%Y-%m-%d")}
+    tries = []
+    g.fail_create = None
+    g.client.caches.create = lambda **kw: tries.append(kw)
+    for i in range(3, 6):
+        with usage.scope(project=f"p{i}"):  # 더 긴 앞부분 · 다른 작품도 다시 묻지 않는다
+            g.text("시스템", "긴 앞부분\n\n" + _step(i))
+            g.text("시스템", "긴 앞부분\n\n" + _step(i + 10))
+    assert not tries
+    assert [r["task"] for r in usage.read()].count("캐시 만들기") == 1
+
+
+def test_unsupported_model_stays_off_after_restart():
+    settings.mark_gemini_cache_unsupported(False, "gemini-4-argon")
+    llm.gemini_cache_reset()  # 서버를 다시 시작했다
+    g, sent, made = _fake()
+    for i in range(3):
+        g.text("시스템", _step(i))
+    assert not made and all(c.cached_content is None for _, c in sent)
+    assert not any(r["task"] == "캐시 만들기" for r in usage.read())
+
+
+def test_unsupported_is_per_model_and_per_auth():
+    settings.mark_gemini_cache_unsupported(False, "gemini-4-argon")
+    g, sent, made = _fake(vertex=True)  # Vertex AI 는 따로 본다
+    g.text("시스템", _step(1))
+    g.text("시스템", _step(2))
+    assert len(made) == 1
+    g, sent, made = _fake()
+    g.model = "gemini-3.8-flash"
+    g.text("시스템", _step(1))
+    g.text("시스템", _step(2))
+    assert len(made) == 1
+
+
+def test_mark_unsupported_keeps_other_settings_and_skips_broken_file():
+    settings.config_path().write_text('{"model": "gemini-4-argon", "gemini_cache_unsupported": {"vertex:x": "2026-11-01"}}', encoding="utf-8")
+    assert settings.mark_gemini_cache_unsupported(False, "gemini-4-argon")
+    assert not settings.mark_gemini_cache_unsupported(False, "gemini-4-argon")  # 이미 적혀 있다
+    assert settings.model() == ("gemini-4-argon", "file")
+    assert set(settings.gemini_cache_unsupported()) == {"vertex:x", "key:gemini-4-argon"}
+    settings.config_path().write_text("{깨진", encoding="utf-8")
+    assert not settings.mark_gemini_cache_unsupported(False, "y")
+    assert settings.config_path().read_text(encoding="utf-8") == "{깨진"  # 다른 설정을 지우지 않는다
+
+
+def test_public_lists_unsupported_models_for_the_current_auth(monkeypatch):
+    monkeypatch.delenv("CANON_GEMINI_AUTH", raising=False)
+    monkeypatch.delenv("GOOGLE_GENAI_USE_VERTEXAI", raising=False)
+    settings.mark_gemini_cache_unsupported(False, "gemini-4-argon")
+    settings.mark_gemini_cache_unsupported(True, "gemini-3.8-flash")
+    assert settings.public()["gemini_cache_unsupported"] == ["gemini-4-argon"]
+
+
+def test_is_cache_unsupported():
+    assert llm.is_cache_unsupported(Unsupported())
+    assert llm.is_cache_unsupported(Exception("400 INVALID_ARGUMENT. Model `m` does not support explicit context caching."))
+    assert not llm.is_cache_unsupported(Err(400, "INVALID_ARGUMENT"))
