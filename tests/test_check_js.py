@@ -367,3 +367,61 @@ def test_fix_batch_apply_starts_recheck():
     assert got["ok"] == {"calls": [["POST", "/projects/t/episodes/1/fixes/apply"], ["job", "recheck", 1]], "open": 0}
     assert got["bad"]["calls"] == [["POST", "/projects/t/episodes/1/fixes/apply"]] and got["bad"]["open"] == 1
     assert "넣지 못했어요" in got["bad"]["note"]
+
+
+def test_narrow_filters_and_bulk_decide():
+    """지적 목록 더 거르기(심각도 · 종류 · 문장 바뀜)와 거른 열린 지적 한꺼번에 정하기.
+    수는 처리 상태로 거른 목록에서 센다. 한꺼번에 정하기는 열림 목록을 더 걸렀을 때만 보이고, 묻고 나서 거른 지적의 id 만 보낸다."""
+    from canon.schema import Meta, Project
+    e = episode(1, status="written", text=TEXT)
+    gone = "도현은 사라진 문장에서 웃었다."
+    findings.merge(e, [issue(Q1), issue(Q2, "동선"), issue(Q3, "동선"), issue(gone, "동선")], "2026-10-28T10:00:00", "b")
+    e.findings[0].severity = "crit"
+    e.findings[1].severity = e.findings[2].severity = e.findings[3].severity = "low"
+    p = Project(meta=Meta(title="t", target_episodes=3), episodes=[e])
+    got = run_js(CHK_FILES, """(async () => {
+      S.project = structuredClone(data.p); S.name = 't'; S.route = ['p', 't', 'check', '1'];
+      render = () => {};
+      const toasts = [];
+      toast = (m) => toasts.push(m);
+      const e = ep(1);
+      const text = textNow(1);
+      const ids = () => chkShown(1, e, text).list.map((f) => f.id);
+      const all = ids();
+      const row0 = chkNarrow(e, text, chkShown(1, e, text).base);
+      const bulk0 = chkBulk(chkShown(1, e, text).list);
+      actions.chkSev('low');
+      const low = ids();
+      const row1 = chkNarrow(e, text, chkShown(1, e, text).base);
+      actions.chkType('동선');
+      const lowMove = ids();
+      const bulk1 = chkBulk(chkShown(1, e, text).list);
+      actions.chkChanged();
+      const changed = ids();
+      actions.chkNarrowOff();
+      actions.chkType('동선');
+      const calls = [];
+      let answer = false;
+      askConfirm = async (msg) => { calls.push(['ask', msg]); return answer; };
+      api = async (m, path, body) => { calls.push([m, path, body]); return structuredClone(data.p); };
+      await actions.chkBulk('wrong');
+      answer = true;
+      await actions.chkBulk('wrong');
+      S.chkFilter = 'all';
+      const bulkAll = chkBulk(chkShown(1, e, text).list);
+      return { all, row0, row1, bulk0, low, lowMove, bulk1, changed, calls, toasts, bulkAll };
+    })()""", {"p": dump(p)})
+    assert got["all"] == ["f1", "f2", "f3", "f4"]
+    assert "치명 1" in got["row0"] and "사소 3" in got["row0"] and "보통" not in got["row0"]
+    assert "동선 3" in got["row0"] and "사실 1" in got["row0"] and "문장 바뀜 1" in got["row0"]
+    assert got["bulk0"] == ""  # 거르지 않았으면 한꺼번에 정하기가 없다
+    assert "동선 3" in got["row1"] and "사실 0" in got["row1"] and "치명 1" in got["row1"]  # 종류 수는 심각도 거르기를 적용해 센다
+    assert got["low"] == ["f2", "f3", "f4"] and got["lowMove"] == ["f2", "f3", "f4"]
+    assert "거른 지적 3개를 한꺼번에" in got["bulk1"]
+    assert got["changed"] == ["f4"]
+    asks = [c for c in got["calls"] if c[0] == "ask"]
+    puts = [c for c in got["calls"] if c[0] == "PUT"]
+    assert len(asks) == 2 and "3개" in asks[0][1] and "잘못 짚음" in asks[0][1]
+    assert puts == [["PUT", "/projects/t/episodes/1/findings", {"ids": ["f2", "f3", "f4"], "status": "wrong"}]]
+    assert got["toasts"] == ["지적 3개를 '잘못 짚음'으로 정했어요"]
+    assert got["bulkAll"] == ""  # 열림 목록이 아니면 한꺼번에 정하기가 없다

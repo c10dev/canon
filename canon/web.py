@@ -4012,6 +4012,28 @@ def set_finding(name: str, n: int, fid: str, body: FindingIn) -> Project:
     return _edit(name, fn)
 
 
+class FindingsIn(BaseModel):
+    ids: list[str] = Field(..., min_length=1, description="상태를 정할 지적 id 목록")
+    status: Literal["kept", "wrong"] = Field(..., description="한꺼번에 정할 상태: 그대로 둠(kept) · 잘못 짚음(wrong)")
+
+
+@app.put("/api/projects/{name}/episodes/{n}/findings")
+def set_findings(name: str, n: int, body: FindingsIn) -> Project:
+    """열린 지적 여러 개를 한꺼번에 그대로 둠 · 잘못 짚음으로 정한다 (검수 목록의 거르기 뒤 한꺼번에 정하기).
+    없는 id 나 열리지 않은 지적이 하나라도 있으면 아무것도 바꾸지 않는다."""
+    _need(name)
+
+    def fn(q: Project) -> None:
+        ep, now = q.episode(n), pipeline._now()
+        picked = [findings.find(ep, fid) for fid in dict.fromkeys(body.ids)]
+        shut = [f.id for f in picked if f.status != "open"]
+        if shut:
+            raise HTTPException(400, f"열린 지적만 한꺼번에 정할 수 있어요: {', '.join(shut)}")
+        for f in picked:
+            findings.set_status(ep, f.id, body.status, None, now)
+    return _edit(name, fn)
+
+
 @app.post("/api/projects/{name}/episodes/{n}/findings/{fid}/fixes")
 def finding_fixes(name: str, n: int, fid: str) -> Project:
     """열린 지적 하나의 AI 고침안(2~3개, 딸린 곳 포함)을 받아 그 지적에 남긴다. 본문은 바꾸지 않는다."""

@@ -165,6 +165,8 @@
 - 문장에서 뜨는 고치는 창(`fixPanel`, `passage.js` 떠 있는 도구 mode `finding`: 고침안 `fixGet` · 딸린 곳 빼기 `fixSkip` · 적용 `fixApply` · 묶음 되돌리기 `fixUndo` · 이 지적만 다시 검수 `chkRecheck` · 다른 처리 길)
 - 이 지적만 다시 검수의 결과(아직 어긋남 · 딸린 지적 더함)는 보통 알림이다. 아직 어긋나면 '처리 기록 보기' 버튼을 붙인다
 - 고침안 한꺼번에의 띠(`fbBar`): 열린 지적 모두 고침안 받기 `fixAll`(작업 `fixes`), 한꺼번에 검토 열기 `fbOpen`
+- 그 아래 더 거르기 칸(`chkNarrow`): 심각도 `S.chkSev` · 종류 `S.chkType` · 문장 바뀜 `S.chkChanged`, 수는 다른 칸의 거르기를 적용해 센다. 지적이 셋 미만이고 거르지 않았으면 두지 않는다
+- 열림 목록을 더 걸렀으면 '거른 지적 N개를 한꺼번에' 줄(`chkBulk`)이 그대로 둠 · 잘못 짚음을 묻고 `PUT …/findings`(web `set_findings`)로 한 번에 정한다
 - 한꺼번에 검토 화면(`fbView`): 지적마다 고르기 `fbPick` · 안 고르기 `fbOpt` · 딸린 곳 `fbSkip` · 모두 고르기 `fbAll`
 - 한꺼번에 검토의 '고른 N개 넣고 다시 보기'(`fbApply`)는 모두 넣으면 검토 화면을 닫고 작업 `recheck` 를 바로 시작한다. 못 넣은 안이 있으면 화면을 남기고 시작하지 않는다
 - 같은 문장을 바꾸는 안 표시(`fbClash`), 넣기 `fbApply`(`POST …/fixes/apply`), 되돌리기 `fbUndo`

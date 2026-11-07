@@ -232,6 +232,7 @@
 - 검수가 끝났는지(`check_done`, `home.js` `checkState` 의 done 과 같은 규칙, 작품 목록 `open_checked`)
 - 자동 집필이 세는 지적(`counted`, 사소 빼기)
 - 작가가 정하기(`set_status` · `set_severity`, 웹 `set_finding`, 명령줄 `check --keep` · `--sev`)
+- 웹 `set_findings`(`PUT …/findings`)는 열린 지적 여러 개를 한꺼번에 kept · wrong 으로 정한다. 없는 id · 열리지 않은 지적이 섞이면 아무것도 바꾸지 않는다
 - 명령줄 `check --recheck-fixed` 는 고친 곳만 다시 보기(`pipeline.recheck_fixed`)
 - 고침안이 건드리는 다른 지적(`touches`)
 - 지적 하나 다시 검수 결과 넣기(`settle`: 고침으로 닫기, 딸린 지적 `add_children`)

@@ -14,6 +14,9 @@
 Object.assign(S, {
   chkSel: {},          // 화 → 고른 지적 id
   chkFilter: 'open',   // 지적 목록 거르기: open · fixed · kept · wrong · all
+  chkSev: '',          // 지적 목록 더 거르기: 심각도(crit · mid · low). 비면 모두
+  chkType: '',         // 지적 목록 더 거르기: 종류(ConsistencyIssue.type). 비면 모두
+  chkChanged: false,   // 지적 목록 더 거르기: 문장이 바뀐(본문에 인용이 없는) 열린 지적만
   chkRound: {},        // 화 → 고른 회차 번호 (그 회차가 바꾼 지적만 본다). 비면 처리 상태로 거른다
   chkTab: 'issues',    // 왼쪽 칸 탭: issues · opening · style
   chkStyle: {},        // 화 → 문체 지표 { metrics, warnings } 또는 { error }
@@ -294,14 +297,55 @@ function chkTabs(n, e) {
 }
 const chkTabNow = (n, e) => (chkTabs(n, e).some(([k]) => k === S.chkTab) ? S.chkTab : 'issues');
 
-/** 목록에 보일 지적과 회차 변화: 회차를 골랐으면 그 회차가 바꾼 지적, 아니면 처리 상태로 거른 것. */
-function chkShown(n, e) {
+/** 목록에 보일 지적과 회차 변화: 회차를 골랐으면 그 회차가 바꾼 지적, 아니면 처리 상태로 거르고 심각도 · 종류 · 문장 바뀜으로 더 거른 것.
+    base 는 처리 상태로만 거른 목록 (더 거르기 칸의 수를 센다) */
+function chkShown(n, e, text = '') {
   const no = S.chkRound[n] || 0;
   if (no) {
     const ch = roundChanges(e, no);
-    return { list: findingOrder(e.findings.filter((f) => ch[f.id])), changes: ch, no };
+    return { list: findingOrder(e.findings.filter((f) => ch[f.id])), changes: ch, no, base: [] };
   }
-  return { list: findingOrder(e.findings.filter((f) => S.chkFilter === 'all' || f.status === S.chkFilter)), changes: {}, no: 0 };
+  const base = e.findings.filter((f) => S.chkFilter === 'all' || f.status === S.chkFilter);
+  return { list: findingOrder(base.filter((f) => chkNarrowHit(e, f, text))), changes: {}, no: 0, base };
+}
+
+const chkNarrowOn = () => !!(S.chkSev || S.chkType || S.chkChanged);
+/** skip: 이 거르기는 빼고 본다 ('sev' · 'type' · 'changed'). 칸마다 다른 칸의 거르기만 적용한 수를 세려는 것 */
+function chkNarrowHit(e, f, text, skip = '') {
+  if (skip !== 'sev' && S.chkSev && (f.severity || 'mid') !== S.chkSev) return false;
+  if (skip !== 'type' && S.chkType && f.type !== S.chkType) return false;
+  return skip === 'changed' || !S.chkChanged || findingFlag(e, f, text) === 'changed';
+}
+
+/** 더 거르기 칸: 심각도 · 종류 · 문장 바뀜. 고를 거리는 처리 상태로 거른 목록(base)에 있는 것, 수는 다른 칸의 거르기를 적용한 것.
+    지적이 셋 미만이고 거르지 않았으면 두지 않는다 */
+function chkNarrow(e, text, base) {
+  if (base.length < 3 && !chkNarrowOn()) return '';
+  const btn = (act, arg, on, label) => `<button type="button" aria-pressed="${on}" data-action="${act}" data-arg="${esc(arg)}">${label}</button>`;
+  const but = (skip) => base.filter((f) => chkNarrowHit(e, f, text, skip));
+  const bySev = but('sev');
+  const sevN = (k) => bySev.filter((f) => (f.severity || 'mid') === k).length;
+  const sev = [btn('chkSev', '', !S.chkSev, '모두'), ...Object.entries(SEVERITY).filter(([k]) => base.some((f) => (f.severity || 'mid') === k) || S.chkSev === k).map(([k, l]) => btn('chkSev', k, S.chkSev === k, `${l} ${sevN(k)}`))].join('');
+  const types = {};
+  for (const f of base) types[f.type] = 0;
+  if (S.chkType) types[S.chkType] = 0;
+  for (const f of but('type')) types[f.type] += 1;
+  const order = Object.keys(types).sort((a, b) => base.filter((f) => f.type === b).length - base.filter((f) => f.type === a).length);
+  const type = [btn('chkType', '', !S.chkType, '모두'), ...order.map((k) => btn('chkType', k, S.chkType === k, `${esc(k)} ${types[k]}`))].join('');
+  const changed = but('changed').filter((f) => findingFlag(e, f, text) === 'changed').length;
+  const flag = changed || S.chkChanged ? `<button type="button" class="btn small${S.chkChanged ? ' primary' : ''}" aria-pressed="${S.chkChanged}" data-action="chkChanged">문장 바뀜 ${changed}</button>` : '';
+  return `<div class="chk-narrow"><div class="chk-narrow-g"><span class="small">심각도</span><div class="seg" role="group" aria-label="심각도로 거르기">${sev}</div></div>
+    <div class="chk-narrow-g"><span class="small">종류</span><div class="seg" role="group" aria-label="종류로 거르기">${type}</div></div>${flag}
+    ${chkNarrowOn() ? '<button type="button" class="btn small ghost" data-action="chkNarrowOff">거르기 끄기</button>' : ''}</div>`;
+}
+
+/** 거른 열린 지적을 한꺼번에 그대로 둠 · 잘못 짚음으로 정하는 줄. 열림 목록을 더 걸렀을 때만 (모든 열린 지적을 한 번에 닫지 않게) */
+function chkBulk(list) {
+  if (S.chkFilter !== 'open' || !chkNarrowOn() || !list.length) return '';
+  const off = autoOn() ? ' disabled' : '';
+  return `<div class="chk-bulk"><span class="small">거른 지적 ${list.length}개를 한꺼번에</span>
+    <button type="button" class="btn small" data-action="chkBulk" data-arg="kept"${off}>그대로 둠</button>
+    <button type="button" class="btn small" data-action="chkBulk" data-arg="wrong"${off}>잘못 짚음</button></div>`;
 }
 
 function chkList(n, e, text, sel, checkBtn) {
@@ -314,9 +358,9 @@ function chkList(n, e, text, sel, checkBtn) {
   else if (!(e.rounds || []).length) {
     body = `<div class="empty" style="padding:16px 8px"><p>아직 검수하지 않았어요.</p><p class="small">앞선 본문 · 설정 · 확정 사실과 어긋나는 곳을 근거 문장과 함께 찾아요.</p>${e.status === 'written' && S.deltas[n] === undefined ? flowStateToggle() : ''}${checkBtn}</div>`;
   } else {
-    const { list, changes, no } = chkShown(n, e);
+    const { list, changes, no, base } = chkShown(n, e, text);
     const ids = new Set(list.map((f) => f.id));
-    const bar = fbBar(n, e, text);
+    const bar = fbBar(n, e, text) + (no ? '' : chkNarrow(e, text, base) + chkBulk(list));
     const caption = no ? `<div class="between"><strong style="font-size:0.8125rem">${no}회차가 바꾼 지적</strong><button type="button" class="btn small ghost" data-action="chkRound" data-arg="${no}">회차 보기 끄기</button></div>` : '';
     body = list.length ? `${caption}${bar}<ul class="chk-list">${list.map((f) => {
       const flag = findingFlag(e, f, text);
@@ -325,7 +369,9 @@ function chkList(n, e, text, sel, checkBtn) {
         <span class="row" style="gap:4px"><span class="chip ${SEV_CHIP[f.severity] || 'warn'}">${SEVERITY[f.severity] || '보통'}</span><span class="chip">${esc(f.type)}</span>${ruleChip(f)}<span class="chip ${FINDING_CHIP[f.status]}">${FINDING_STATUS[f.status]}</span>${no && changes[f.id] ? `<span class="chip">${ROUND_CHANGE[changes[f.id]]}</span>` : ''}${flag ? `<span class="chip${flag === 'changed' ? ' warn' : ''}">${FINDING_FLAG[flag]}</span>` : ''}${f.parent ? '<span class="chip">고치다 생김</span>' : ''}</span>
         <span class="chk-desc">${esc(f.description)}</span><span class="small">근거 · ${esc(srcLabel(n, f))}</span></button></li>`;
     }).join('')}</ul>`
-      : `${caption}<div class="empty" style="padding:16px 8px"><p class="small">${no ? `${no}회차는 지적 목록을 남기지 않은 예전 회차예요.` : S.chkFilter === 'open' ? '열린 지적이 없어요. 상태 승인으로 넘어가도 돼요.' : '이 상태의 지적이 없어요.'}</p></div>`;
+      : no ? `${caption}<div class="empty" style="padding:16px 8px"><p class="small">${no}회차는 지적 목록을 남기지 않은 예전 회차예요.</p></div>`
+      : base.length ? `${bar}<div class="empty" style="padding:16px 8px"><p class="small">거른 조건에 맞는 지적이 없어요.</p><button type="button" class="btn small" data-action="chkNarrowOff">거르기 끄기</button></div>`
+      : `<div class="empty" style="padding:16px 8px"><p class="small">${S.chkFilter === 'open' ? '열린 지적이 없어요. 상태 승인으로 넘어가도 돼요.' : '이 상태의 지적이 없어요.'}</p></div>`;
   }
   return `<section class="card tight c-list" aria-label="검수 결과">${head}<div role="tabpanel" id="chk-panel" aria-labelledby="chk-tab-${tab}" class="chk-panel">${body}</div></section>`;
 }
@@ -695,6 +741,40 @@ Object.assign(actions, {
   chkFilter(k) {
     S.chkFilter = k;
     S.chkRound[chkEp()] = 0;
+    render();
+  },
+  chkSev(k) {
+    S.chkSev = k || '';
+    render();
+  },
+  chkType(k) {
+    S.chkType = k || '';
+    render();
+  },
+  chkChanged() {
+    S.chkChanged = !S.chkChanged;
+    render();
+  },
+  chkNarrowOff() {
+    S.chkSev = S.chkType = '';
+    S.chkChanged = false;
+    render();
+  },
+  /** 거른 열린 지적을 한꺼번에 그대로 둠 · 잘못 짚음으로. 묻고, 한 번에 저장한다 (web.set_findings) */
+  async chkBulk(status) {
+    const n = chkEp();
+    const e = ep(n);
+    const { list } = chkShown(n, e, textNow(n));
+    if (!list.length || S.chkFilter !== 'open' || !chkNarrowOn()) return;
+    const what = status === 'wrong' ? '잘못 짚음' : '그대로 둠';
+    const ok = await askConfirm(`거른 열린 지적 ${list.length}개를 '${what}'으로 정해요. 다시 검수에서 같은 지적이 나와도 이 결정을 지켜요. 하나씩 '열림'으로 되돌릴 수 있어요.`, { title: `${list.length}개를 ${what}으로`, ok: `${what}으로 정하기` });
+    if (!ok) return;
+    try {
+      takeCheck(n, await api('PUT', `/projects/${enc(S.name)}/episodes/${n}/findings`, { ids: list.map((f) => f.id), status }));
+      toast(`지적 ${list.length}개를 '${what}'으로 정했어요`);
+    } catch (err) {
+      toast(err.message, true);
+    }
     render();
   },
   chkRound(no) {

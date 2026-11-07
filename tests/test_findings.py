@@ -188,6 +188,28 @@ def test_web_endpoints(demo):
     assert c.get(f"/api/projects/{demo}/episodes/2/style").status_code == 400
 
 
+def test_web_set_findings_bulk(demo):
+    """열린 지적 여러 개를 한꺼번에 그대로 둠 · 잘못 짚음으로. 없는 id · 열리지 않은 지적이 섞이면 아무것도 바꾸지 않는다."""
+    from canon import web
+    c = TestClient(web.app)
+    p = store.load(demo)
+    ep = p.episode(1)
+    paras = [x for x in ep.text.split(".") if x.strip()][:3]
+    findings.merge(ep, [issue(x.strip() + ".") for x in paras], pipeline._now(), pipeline.text_basis(ep.text))
+    findings.set_status(ep, "f3", "fixed", None, pipeline._now())
+    store.save(demo, p)
+    url = f"/api/projects/{demo}/episodes/1/findings"
+    assert c.put(url, json={"ids": ["f1", "f9"], "status": "wrong"}).status_code == 400
+    r = c.put(url, json={"ids": ["f1", "f3"], "status": "wrong"})
+    assert r.status_code == 400 and "f3" in r.json()["detail"]
+    assert [f.status for f in store.load(demo).episode(1).findings] == ["open", "open", "fixed"]
+    assert c.put(url, json={"ids": ["f1"], "status": "fixed"}).status_code == 422  # 한꺼번에는 그대로 둠 · 잘못 짚음만
+    assert c.put(url, json={"ids": [], "status": "kept"}).status_code == 422
+    fs = c.put(url, json={"ids": ["f1", "f2", "f1"], "status": "wrong"}).json()["episodes"][0]["findings"]
+    assert [(f["status"], f["closed_by"]) for f in fs] == [("wrong", "author"), ("wrong", "author"), ("fixed", "author")]
+    assert sum(1 for x in fs[0]["log"] if x["kind"] == "author") == 1  # 같은 id 를 두 번 보내도 한 번만 남긴다
+
+
 def test_cli_flags(demo):
     out = io.StringIO()
     p = store.load(demo)
