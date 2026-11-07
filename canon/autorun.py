@@ -36,7 +36,7 @@ from .schema import ConsistencyReport, Project, RewriteRequest, StateDelta, Text
 _log = logging.getLogger("canon")
 
 LOG_KEEP = 500
-STEP_NAMES = {"plan": "스토리보드", "write": "본문", "revise": "서술 다듬기", "check": "검수", "state": "상태 변경안"}
+STEP_NAMES = {"board": "스토리보드", "write": "본문", "revise": "서술 다듬기", "check": "검수", "state": "상태 변경안"}
 # 루프 단계(Run.step) 이름: 서버 재시작 뒤 어느 단계를 다시 하는지 알릴 때
 RUN_STEPS = {"board": "스토리보드 만들기", "cues": "큐 시트 만들기", "write": "본문 쓰기", "polish": "서술 다듬기", "review": "검수와 상태 변경안 만들기", "confirm": "플롯 확정"}
 # 지울 수 있는 인물 상태 칸 이름 (CharacterState.cleared, Policy.stop_on_clear 의 멈춘 이유)
@@ -44,7 +44,7 @@ CLEAR_NAMES = {"current_goal": "목표", "location": "위치", "notes": "메모"
 # 화 상태 이름 (화면 STATUS 와 같은 말)
 EP_STATUS = {"draft": "초안", "confirmed": "확정", "written": "작성됨", "finalized": "반영 완료"}
 # 측정값이 없을 때 쓰는 단계별 소요 시간 추정 (초, 일반 호출)
-SECONDS = {"plan": 90.0, "write": 90.0, "revise": 90.0, "check": 40.0, "state": 40.0}
+SECONDS = {"board": 90.0, "write": 90.0, "revise": 90.0, "check": 40.0, "state": 40.0}
 # 스토리보드 추정: 출력 토큰, 쓰기 프롬프트에 붙는 블록 글자 수 (손으로 채운 스토리보드 예시에서 잰 어림, DESIGN.md)
 BOARD_OUT, BOARD_CHARS = 3500, 3500
 # 큐 시트 추정: 출력 토큰, 쓰기 프롬프트에 붙는 블록 글자 수 (11화 실측: 출력 1,524토큰, 쓰기 입력 +1,375토큰, DESIGN.md)
@@ -422,8 +422,9 @@ def _measured(name: str | None) -> dict[str, dict[str, float]]:
     run = load_run(name) if name else None
     acc: dict[str, list[LogEntry]] = {}
     for e in (run.log if run else []):
-        if e.step in SECONDS and e.seconds and e.level == "info":
-            acc.setdefault(e.step + (":batch" if e.batch else ""), []).append(e)
+        step = "board" if e.step == "plan" else e.step  # 옛 실행 로그는 스토리보드 단계를 plan 으로 적었다
+        if step in SECONDS and e.seconds and e.level == "info":
+            acc.setdefault(step + (":batch" if e.batch else ""), []).append(e)
     # tokens_out 은 단계 안 모든 호출의 합이라 호출 수로 나눠 호출 하나의 평균을 낸다 (estimate 가 호출마다 더한다)
     return {k: {"out": sum(x.tokens_out for x in v) / max(1, sum(x.calls for x in v)), "seconds": sum(x.seconds for x in v) / len(v)}
             for k, v in acc.items()}
@@ -438,7 +439,7 @@ def estimate(p: Project, target: int, batch: bool, policy: Policy, name: str | N
         if not e.text:
             e.text = _filler(p, p.meta.words_per_episode)
     measured = _measured(name)
-    steps = {"plan": 0, "write": 0, "revise": 0, "check": 0, "state": 0}
+    steps = {"board": 0, "write": 0, "revise": 0, "check": 0, "state": 0}
     # 단계 백엔드 · 모델마다 글자 → 토큰 직선이 다르다 (Claude 는 Gemini 보다 글자당 토큰이 많다, usage.token_rate)
     rates = {s: usage.stage_rate(s) for s in steps}
     write_out = usage.est_output(p.meta.words_per_episode, rates["write"])
@@ -470,11 +471,11 @@ def estimate(p: Project, target: int, batch: bool, policy: Policy, name: str | N
         if e.status in ("draft", "confirmed"):
             made = boards and e.storyboard is None
             if made:  # 스토리보드 만들기 한 번 + 쓰기 프롬프트에 들어갈 스토리보드 블록
-                calls.append(("plan", prompts.SYSTEM_PLANNER, prompts.storyboard_prompt(sim, n), BOARD_OUT))
+                calls.append(("board", prompts.SYSTEM_PLANNER, prompts.storyboard_prompt(sim, n), BOARD_OUT))
             sheet = cues and e.cue_sheet is None
             if sheet:  # 큐 시트 만들기 한 번 (방금 만든 스토리보드가 있으면 그 요청 글 + 스토리보드 블록이 앞에 온다) + 쓰기 프롬프트 끝에 붙는 큐 시트 블록
                 lead = prompts.storyboard_prompt(sim, n) if made else ""
-                calls.append(("plan", prompts.SYSTEM_PLANNER, prompts.cue_sheet_prompt(sim, n, lead=lead) + " " * (BOARD_CHARS if made else 0), CUE_OUT))
+                calls.append(("board", prompts.SYSTEM_PLANNER, prompts.cue_sheet_prompt(sim, n, lead=lead) + " " * (BOARD_CHARS if made else 0), CUE_OUT))
             calls.append(("write", prompts.writer_system(sim), prompts.episode_prompt(sim, n)
                           + " " * ((BOARD_CHARS if made else 0) + (CUE_CHARS if sheet else 0)), write_out))
             if policy.polish:  # 서술 다듬기 한 번: 작품 고정 블록 + 쓴 본문(목표 분량) + 규칙, 본문 전체를 다시 낸다
@@ -487,7 +488,7 @@ def estimate(p: Project, target: int, batch: bool, policy: Policy, name: str | N
     cost: Optional[float] = 0.0
     unpriced = []
     for step, (tin, tout) in tokens.items():
-        c = stage_cost(step, tin, tout, batch and step != "plan")
+        c = stage_cost(step, tin, tout, batch and step != "board")
         if c is None:
             unpriced.append(gemini_model(step))
         elif cost is not None:
@@ -497,7 +498,7 @@ def estimate(p: Project, target: int, batch: bool, policy: Policy, name: str | N
     eps = len(todo) - len(missing)
 
     def secs(step: str) -> float:
-        if batch and batchable(step) and step != "plan":
+        if batch and batchable(step) and step != "board":
             return 0.0  # 배치 대기는 rounds 로 따로 센다
         m = measured.get(step)
         return m["seconds"] if m else SECONDS[step]
@@ -509,7 +510,7 @@ def estimate(p: Project, target: int, batch: bool, policy: Policy, name: str | N
     widen += stage_waves / eps_n if eps_n else 0  # 장면 뽑기도 검수 뒤에 부른다 (동시 호출 수만큼 묶어 한 차례)
     slow = widen if "check" not in measured else 1  # 잰 검수 시간은 넓히기까지 든 시간이다
     # 일반 호출: 본문 + (동시에 부르는 검수와 상태 변경안 중 긴 쪽)
-    normal = steps["plan"] * secs("plan") + steps["write"] * secs("write") + steps["revise"] * secs("revise") + eps * max((secs(s) * (slow if s == "check" else 1) for s in review), default=0.0)
+    normal = steps["board"] * secs("board") + steps["write"] * secs("write") + steps["revise"] * secs("revise") + eps * max((secs(s) * (slow if s == "check" else 1) for s in review), default=0.0)
     # 배치: 본문 한 번, 검수 + 상태 변경안 한 번을 기다린다 (넓히기를 켜면 검수 배치를 두 번 더 기다린다)
     rounds = ((steps["write"] if batchable("write") else 0) + (steps["revise"] if batchable("revise") else 0)
               + (eps if any(batchable(s) for s in review) else 0)
@@ -591,8 +592,8 @@ class Runner:
 
     def _call(self, stage: str, n: int, fn: Callable[[Any], Any]) -> tuple[Any, dict]:
         llm = get_llm(stage)
-        # 스토리보드(plan)는 배치로 보내지 않는다: 쓰기를 바로 이어야 하고 한 화에 한 번이라 아낄 것이 적다
-        use_batch = self.run.batch and stage != "plan" and hasattr(llm, "batch_submit") and getattr(llm, "can_batch", True)
+        # 스토리보드 · 큐 시트(board)는 배치로 보내지 않는다: 쓰기를 바로 이어야 하고 한 화에 한 번이라 아낄 것이 적다
+        use_batch = self.run.batch and stage != "board" and hasattr(llm, "batch_submit") and getattr(llm, "can_batch", True)
         if use_batch:
             llm = BatchLLM(llm, f"{n}:{stage}", self.run.batches, self.ctl.save, self.ctl.wait,
                            label=f"canon {self.name}", note=lambda m: self.log(f"{n}화 {STEP_NAMES[stage]}: {m}", "warn"),
@@ -714,7 +715,7 @@ class Runner:
         self._set(n, "board")
         self.log(f"{n}화 스토리보드를 만드는 중")
         lead: list[str] = []
-        made, use = self.call("plan", n, lambda llm: pipeline.make_storyboard(llm, p, n, lead=lead))
+        made, use = self.call("board", n, lambda llm: pipeline.make_storyboard(llm, p, n, lead=lead))
 
         def put(q: Project) -> None:
             st = q.episode(n).status
@@ -746,7 +747,7 @@ class Runner:
         # 방금 만든 스토리보드 요청 글로 시작하게 보내 캐시가 맞게 한다. 작가가 고쳤거나 낡았으면 예전 요청 (pipeline.cue_lead)
         bl = self.board_lead if self.board_lead and self.board_lead[0] == n else None
         lead = pipeline.cue_lead(p, n, bl[2], bl[1]) if bl else ""
-        made, use = self.call("plan", n, lambda llm: pipeline.make_cue_sheet(llm, p, n, lead=lead))
+        made, use = self.call("board", n, lambda llm: pipeline.make_cue_sheet(llm, p, n, lead=lead))
         if not made.cues:
             self.log(f"{n}화 큐 시트가 비어 왔어요. 큐 시트 없이 써요", "warn", **use)
             self.no_cues.add(n)

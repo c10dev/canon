@@ -29,9 +29,9 @@ PROVIDERS = ("gemini", "local", "claude", "claude-api", "mock")
 # 단계: plan(설정 제안, 문체 분석, 기승전결, 화별 플롯) / write(본문) / check(검수) / state(상태 추출)
 # / name(이름·지명 AI 추천) / revise(본문 부분 수정, 서술 다듬기) / illustration(삽화 프롬프트) / play(플레이 모드 장면)
 # / chat(플롯 대화 에이전트, agent.run_turn)
-STAGES = ("plan", "write", "check", "state", "name", "revise", "illustration", "play", "chat")
-# 따로 정하지 않으면 이 단계의 설정을 따른다 (이름 추천 · 삽화 프롬프트 · 플롯 대화는 계획 단계 일이고, 부분 수정 · 플레이 장면은 본문 쓰기 일이다)
-STAGE_PARENT = {"name": "plan", "revise": "write", "illustration": "plan", "play": "write", "chat": "plan"}
+STAGES = ("plan", "board", "write", "check", "state", "name", "revise", "illustration", "play", "chat")
+# 따로 정하지 않으면 이 단계의 설정을 따른다 (스토리보드 · 큐 시트, 이름 추천, 삽화 프롬프트, 플롯 대화는 계획 단계 일이고, 부분 수정 · 플레이 장면은 본문 쓰기 일이다)
+STAGE_PARENT = {"board": "plan", "name": "plan", "revise": "write", "illustration": "plan", "play": "write", "chat": "plan"}
 # 단계별 추론 강도. 비우면 모델 기본값을 쓴다. 단계 프리셋에는 넣지 않는다 (설정 파일 stage_efforts 와 환경 변수만).
 # Claude 는 EFFORTS 를 claude --effort · Messages API output_config.effort 로 넘긴다.
 # Gemini 는 GEMINI_EFFORTS 를 thinking_level 로 넘긴다. minimal 은 gemini-4-argon · 3.8-flash 가 400 으로 거절한다 (2026-11-04).

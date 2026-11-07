@@ -146,7 +146,7 @@ def test_autorun_makes_sheets_keeps_author_sheet_and_estimates(demo):
     store.save(demo, p)
     est_on = autorun.estimate(p, 3, False, autorun.Policy())
     est_off = autorun.estimate(p, 3, False, autorun.Policy(cue_sheet=False))
-    assert est_on["calls"]["plan"] == 2 and est_off["calls"]["plan"] == 0  # 2화는 이미 있어 1 · 3화만
+    assert est_on["calls"]["board"] == 2 and est_off["calls"]["board"] == 0  # 2화는 이미 있어 1 · 3화만
     assert est_on["tokens_in"] > est_off["tokens_in"]
     run = autorun.start(demo, 3, False, autorun.Policy(hand_pick_opening=False, check=False), foreground=True)
     assert run.status == "done", run.reasons

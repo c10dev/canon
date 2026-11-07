@@ -10,6 +10,8 @@
 - 목표 화까지 (스토리보드 `_board`, `Policy.storyboard` · `stop_on_board_warnings`) → (큐 시트 `_cues`, `Policy.cue_sheet`) → write → (서술 다듬기 `_polish`, `Policy.polish`, 다듬을 화 `Run.polish_due`) → check + state → 정책(`Policy`) 통과 시 반영을 반복
 - 낡은 AI 큐 시트를 다시 받았는데 비어 오면 그 화는 낡은 시트를 넣지 않고 쓰고 `CueSheet.skipped` 로 적는다(`Runner.no_cues`)
 - `_cues` 는 같은 실행의 `_board` 가 방금 만든 스토리보드(`Runner.board_lead`: 화 · made_at · 요청 글)면 그 요청 글로 시작하는 큐 시트 요청을 보낸다(`pipeline.cue_lead`)
+- 스토리보드 · 큐 시트는 `board` 단계 모델로 부르고 배치로 보내지 않는다. 비용 추정 `calls` 의 키도 `board` 다
+- 옛 실행 로그의 스토리보드 단계 `plan` 은 `_measured` 가 `board` 로 읽는다
 - 관계 정책(`max_shift` · `stop_on_stage`)은 작품 복사본에 `features.hold` 로 뺀 변경안을 반영해 본다(`review_reasons`)
 - 그래서 관계 정책은 실제 반영(`put`)과 같은 제안만 센다
 - 이야기 데이터 정책은 `_story_reasons` 가 본다. 모두 기본으로 꺼져 있어(0 · false) 켜기 전과 같이 돈다
@@ -507,6 +509,7 @@
 - `_write` 는 `store.write_atomic(mode=0o600, fsync=True)` 로 쓴다. 키가 든 임시 파일도 처음부터 본인만 읽고, 쓰다 멈춰도 옛 설정이 그대로 남는다
 - 환경 변수가 있으면 파일보다 우선한다
 - 단계 이름 목록은 `STAGES`
+- 스토리보드 · 큐 시트 단계 `board` 는 따로 정하지 않으면 계획 단계를 따른다(`STAGE_PARENT`). 웹 쓰기 작업 · 스토리보드 · 큐 시트 작업과 자동 집필이 이 단계로 부른다
 - 단계별 환경 변수 이름은 `stage_env`
 - 기본 모델은 `DEFAULT_MODEL`
 - 작품별 단계 프리셋은 `project_preset` · `stage_provider` · `stage_model`

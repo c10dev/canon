@@ -208,7 +208,7 @@ def test_autorun_makes_boards_and_stops_on_conflict(demo):
     p = store.load(demo)
     assert p.episode(1).storyboard.made_by == "ai" and p.episode(1).status == "finalized"
     assert p.episode(2).storyboard is not None and not p.episode(2).text
-    assert any(e.step == "plan" for e in run.log)
+    assert any(e.step == "board" for e in run.log)
     assert any("다음 화 플롯 경고" in e.message for e in run.log)  # 기록만
     # 작가가 카드에서 그대로 저장하면 이어 간다
     pipeline.set_storyboard(p, 2, p.episode(2).storyboard)
@@ -233,7 +233,7 @@ def test_estimate_counts_board_calls(demo):
     p = store.load(demo)
     on = autorun.estimate(p, 3, False, autorun.Policy())
     off = autorun.estimate(p, 3, False, autorun.Policy(storyboard=False))
-    assert on["calls"]["plan"] == 3 and off["calls"]["plan"] == 0
+    assert on["calls"]["board"] == 3 and off["calls"]["board"] == 0
     assert on["tokens_in"] > off["tokens_in"]
 
 

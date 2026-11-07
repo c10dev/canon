@@ -215,8 +215,8 @@ function autoEstCard() {
   const x = e.off;
   // 쓸 수 있는 화가 없으면 시간 · 비용을 적지 않고 시작 버튼도 끈다 (viewAuto)
   if (!x.episodes) return autoNothingNote(x);
-  const local = Object.entries(x.stages).filter(([, v]) => v === 'local').map(([k]) => ({ plan: '스토리보드', write: '본문', check: '검수', state: '상태' }[k]));
-  return `<div class="small">${x.episodes ? `${x.from}~${x.to}화 ${x.episodes}화 남음 · 호출 ${x.calls.plan ? `스토리보드 ${x.calls.plan} · ` : ''}본문 ${x.calls.write} · ${x.calls.revise ? `다듬기 ${x.calls.revise} · ` : ''}검수 ${x.calls.check} · 상태 ${x.calls.state} · 토큰 입력 약 ${x.tokens_in.toLocaleString()} / 출력 약 ${x.tokens_out.toLocaleString()}` : `${x.to}화까지 남은 화가 없어요`}</div>
+  const local = Object.entries(x.stages).filter(([, v]) => v === 'local').map(([k]) => ({ board: '스토리보드', write: '본문', check: '검수', state: '상태' }[k]));
+  return `<div class="small">${x.episodes ? `${x.from}~${x.to}화 ${x.episodes}화 남음 · 호출 ${x.calls.board ? `스토리보드 ${x.calls.board} · ` : ''}본문 ${x.calls.write} · ${x.calls.revise ? `다듬기 ${x.calls.revise} · ` : ''}검수 ${x.calls.check} · 상태 ${x.calls.state} · 토큰 입력 약 ${x.tokens_in.toLocaleString()} / 출력 약 ${x.tokens_out.toLocaleString()}` : `${x.to}화까지 남은 화가 없어요`}</div>
     <div class="grid-2">${col(e.off, false)}${col(e.on, true)}</div>
     ${x.missing.length ? `<div class="note warn">플롯이 없는 화(${rangeText(x.missing)}화)에서 멈춰요. ${autoPlotHint(x.missing[0])}</div>` : ''}
     ${(x.drafts || []).length ? `<div class="note warn">플롯이 초안인 ${rangeText(x.drafts)}화에서 멈춰요. 추정은 끝까지 쓴다고 보고 셌어요. 확정하거나 '초안 플롯도 자동으로 확정하고 쓰기'를 켜세요.</div>` : ''}

@@ -142,13 +142,13 @@
   - `CANON_JUDGE_MODEL` · `CANON_JUDGE_URL`: 로컬 판단기 서버(비면 로컬 서버 설정)
   - `CANON_JUDGE_WORKERS`: 판단기 동시 요청 수(기본 16, `judge.LocalJudge`)
   - `CANON_LLM`: gemini | local | claude | claude-api | mock
-  - `CANON_LLM_<단계>`: 단계별 백엔드(`CANON_LLM_PLAN` · `_WRITE` · `_CHECK` · `_STATE` · `_NAME` · `_REVISE` · `_ILLUSTRATION` · `_PLAY` · `_CHAT`, 이름은 `settings.stage_env`)
+  - `CANON_LLM_<단계>`: 단계별 백엔드(`CANON_LLM_PLAN` · `_BOARD` · `_WRITE` · `_CHECK` · `_STATE` · `_NAME` · `_REVISE` · `_ILLUSTRATION` · `_PLAY` · `_CHAT`, 이름은 `settings.stage_env`)
   - `CANON_LOCAL_KEY` · `CANON_LOCAL_MODEL` · `CANON_LOCAL_URL`: 로컬 서버
   - `CANON_LOCAL_TIMEOUT`: 로컬 서버 응답을 기다리는 초(기본 900, 숫자가 아니거나 0 이하면 기본값, `llm.local_timeout`)
   - `CANON_MOCK_BATCH_POLLS`: 가짜 배치가 끝나기 전에 물어볼 횟수(기본 0)
   - `CANON_MOCK_DELAY`: 가짜 응답이 기다리는 초(기본 0, 화면 진행 표시 확인용)
   - `CANON_MODEL`: Gemini 모델(기본 `gemini-4-argon`)
-  - `CANON_MODEL_<단계>`: 단계별 모델(`CANON_MODEL_PLAN` · `_WRITE` · `_CHECK` · `_STATE` · `_NAME` · `_REVISE` · `_ILLUSTRATION` · `_PLAY` · `_CHAT`)
+  - `CANON_MODEL_<단계>`: 단계별 모델(`CANON_MODEL_PLAN` · `_BOARD` · `_WRITE` · `_CHECK` · `_STATE` · `_NAME` · `_REVISE` · `_ILLUSTRATION` · `_PLAY` · `_CHAT`)
   - `CANON_NEWTO`: 레퍼런스 원고 newto 가져오기의 newto 폴더(기본 Canon 저장소 옆 `newto`, `refs.newto_dir`)
   - `CANON_NO_BROWSER`: 1 이면 `serve` 가 브라우저를 열지 않는다(`updater` 가 다시 띄울 때 쓴다)
   - `CANON_NO_BUNDLE`: 1 이면 웹 화면 스크립트를 묶지 않고 파일마다 보낸다(오류 위치 보기, `web._bundle`)
