@@ -3875,6 +3875,7 @@ def style_drift(p: Project, n: int) -> tuple[metrics.StyleMetrics, list[str]]:
     cur = metrics.measure(text, p.style.banned_phrases)
     cur.style_distance = metrics.style_distance(base, text)
     warns = metrics.drift(base, cur)
+    warns += metrics.peak_drift(base, metrics.peak_window(text, p.settings.heat_words))
     voiced = (c := prompts.pov_character(p, n)) is not None and bool(c.narration_voice.strip())
     if voiced:  # 시점 인물의 서술 말투로 쓴 화는 어미가 기준 원문과 달라야 맞다
         warns = [w for w in warns if not w.startswith(VOICE_SKIP)]

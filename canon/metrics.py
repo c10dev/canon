@@ -19,7 +19,7 @@ from .style_background import FEATURES
 # 지표 판. 상수(AI_PATTERNS · DEFAULT_CLICHES · THRESHOLDS · UPPER_ONLY · COPY_SPAN · STYLE_DISTANCE_WARN · _SENT_END · ENDING_* · SFX_*)나
 # 셈 로직을 바꿔 같은 글의 값이 달라지면 올린다. tests/test_metrics_version.py 가 상수 해시와 결과 스냅샷으로 막는다.
 # 쇠맛 실험실(soelab)은 판이 다른 보고서끼리 숫자를 섞지 않는다.
-METRICS_VERSION = "2026-11-c"
+METRICS_VERSION = "2026-11-d"
 
 # 한국어 소설 생성에서 자주 보이는 상투 표현. 작품별 금지 표현은 StyleProfile.banned_phrases 에 더한다.
 DEFAULT_CLICHES = [
@@ -91,6 +91,8 @@ class StyleMetrics(BaseModel):
     style_distance: Optional[float] = Field(None, description="기준 원문 대비 문체 거리 (style_spread 의 몇 배). 비교할 때만 채운다")
     sfx_per_1k: Optional[float] = Field(None, description="1,000자당 효과음 줄(소리나 몸짓만 적은 한 줄 문단, is_sfx_line) 수")
     sfx_marks: dict[str, float] = Field(default_factory=dict, description="효과음 줄 끝 표시('-!' · '-' · '…' · '!' · '.' · ',' · '없음')별 몫. 효과음 줄이 SFX_MARK_MIN 줄 미만이면 비운다")
+    dialogue_tilde_ratio: Optional[float] = Field(None, description="큰따옴표 · 낫표로 여는 대사 줄 중 물결표(~)가 든 줄의 몫. 대사 줄이 DIALOGUE_MIN 줄 미만이면 재지 않음")
+    dialogue_line_len: Optional[float] = Field(None, description="큰따옴표 · 낫표로 여는 대사 줄 하나의 평균 글자 수. 대사 줄이 DIALOGUE_MIN 줄 미만이면 재지 않음")
     sound_word_per_1k: Optional[float] = Field(None, description="1,000자당 낱말 '소리' 수 (목소리 · 숨소리 같은 합성어와 '소리치다 · 소리 지르다'는 뺌). 보기만 하고 경고하지 않는다: 소리의 결을 풀어 쓰는 문장도 이 낱말을 쓴다")
 
 
@@ -163,6 +165,21 @@ def _endings(text: str) -> tuple[Optional[float], Optional[float]]:
             runs.append(cur)
         cur = 0
     return round(sum(narr) / len(narr), 2), round(sum(r for r in runs if r >= ENDING_RUN) / len(narr), 2)
+
+
+# 대사의 꼴 (2026-11-07 실측, reports/지표 사각지대). 레퍼런스 웹소설 4편은 물결표가 든 대사 줄이 화 중앙값 0%,
+# 대사 줄 평균 길이가 21~25자였다. 물결표를 프로필에 적어 쓴 작품은 34% · 32자였다. 대사 비율(양)로는 갈리지 않았다.
+DIALOGUE_MIN = 10  # 대사 줄이 이보다 적으면 대사 꼴을 재지 않는다
+_DIALOGUE_OPEN = ("\"", "“", "「", "『")  # 작은따옴표로 여는 줄은 속생각인 경우가 많아 뺀다
+
+
+def _dialogue_shape(text: str) -> tuple[Optional[float], Optional[float]]:
+    """(dialogue_tilde_ratio, dialogue_line_len). 큰따옴표 · 낫표로 여는 줄을 대사 줄로 센다."""
+    lines = [ln.strip() for ln in text.split("\n") if ln.strip().startswith(_DIALOGUE_OPEN)]
+    if len(lines) < DIALOGUE_MIN:
+        return None, None
+    tilde = sum(("~" in ln or "～" in ln) for ln in lines)
+    return round(tilde / len(lines), 2), round(mean(len(ln) for ln in lines), 1)
 
 
 _TRAIL = re.compile(r"(?:…|\.{2,})$")  # 말줄임으로 끝남
@@ -382,6 +399,7 @@ def measure(text: str, banned: list[str] | None = None) -> StyleMetrics:
     avg = mean(lens)
     da, run = _endings(text)
     fx = sfx_lines(text)
+    tilde, dlg_len = _dialogue_shape(text)
     return StyleMetrics(
         chars=len(text),
         sentences=len(sents),
@@ -402,6 +420,8 @@ def measure(text: str, banned: list[str] | None = None) -> StyleMetrics:
         pattern_per_1k={k: round(v * 1000 / len(text), 2) for k, v in pattern_counts(text).items()},
         sfx_per_1k=round(len(fx) * 1000 / len(text), 2),
         sfx_marks=sfx_marks(fx),
+        dialogue_tilde_ratio=tilde,
+        dialogue_line_len=dlg_len,
         sound_word_per_1k=round(len(_SOUND_WORD.findall(text)) * 1000 / len(text), 2),
         **_style_reference(text),
     )
@@ -480,8 +500,8 @@ def style_distance(base: StyleMetrics, text: str) -> Optional[float]:
 TEMPO_WINDOW = 400
 
 
-def tempo_curve(text: str, size: int = TEMPO_WINDOW) -> list[dict]:
-    """문단 경계를 지켜 size 자 안팎으로 자른 창마다 위치(at, 글자) · 글자 수 · 대사 비율 · 문장 평균 길이."""
+def _para_windows(text: str, size: int) -> list[tuple[int, str]]:
+    """문단 경계를 지켜 size 자 안팎으로 자른 창 (시작 자리, 글). 마지막 창은 size 의 절반보다 짧으면 버린다."""
     out, cur, at, pos = [], "", 0, 0
     for para in re.split(r"(\n+)", text):
         if not para.strip():
@@ -492,13 +512,56 @@ def tempo_curve(text: str, size: int = TEMPO_WINDOW) -> list[dict]:
         cur = f"{cur}\n{para}" if cur else para
         pos += len(para)
         if len(cur) >= size:
-            m = measure(cur)
-            out.append({"at": at, "chars": m.chars, "dialogue_ratio": m.dialogue_ratio, "sentence_len": m.sentence_len_mean})
+            out.append((at, cur))
             cur = ""
     if len(cur.strip()) >= size / 2:
-        m = measure(cur)
+        out.append((at, cur))
+    return out
+
+
+def tempo_curve(text: str, size: int = TEMPO_WINDOW) -> list[dict]:
+    """문단 경계를 지켜 size 자 안팎으로 자른 창마다 위치(at, 글자) · 글자 수 · 대사 비율 · 문장 평균 길이."""
+    out = []
+    for at, chunk in _para_windows(text, size):
+        m = measure(chunk)
         out.append({"at": at, "chars": m.chars, "dialogue_ratio": m.dialogue_ratio, "sentence_len": m.sentence_len_mean})
     return out
+
+
+# ---------- 정점 대목 ----------
+# 열 낱말(Settings.heat_words)이 가장 몰린 창의 문장 길이 (2026-11-07 실측, reports/열 판정 시트 2).
+# 작가의 블라인드 판정에서, 같은 출처끼리 문장 길이가 15% 넘게 다른 짝 13개 가운데 12개는 문장이 짧은 쪽이 더 달아올랐다.
+# 작품 전체 평균은 그 차이를 가렸다(정점 대목만 긴 화가 평균을 크게 바꾸지 않는다).
+PEAK_WINDOW = 600  # 정점 대목 창 크기 (문단 경계를 지켜 자른다)
+PEAK_MIN_HITS = 3  # 창 안의 열 낱말이 이보다 적으면 정점 대목으로 보지 않는다
+PEAK_LIMIT = 0.3   # 정점 대목 문장 평균이 기준값보다 이만큼(비율) 넘게 길면 경고한다
+
+
+def peak_window(text: str, words: list[str], size: int = PEAK_WINDOW) -> Optional[dict]:
+    """열 낱말이 가장 많이 든 창: 시작 자리(at) · 글자 수 · 열 낱말 수(hits) · 문장 평균 길이. 낱말이 없거나 PEAK_MIN_HITS 에 못 미치면 None."""
+    words = [w.strip() for w in words if w.strip()]
+    if not words:
+        return None
+    best = None
+    for at, chunk in _para_windows(text, size):
+        hits = sum(chunk.count(w) for w in words)
+        if best is None or hits > best[0]:
+            best = (hits, at, chunk)
+    if best is None or best[0] < PEAK_MIN_HITS:
+        return None
+    m = measure(best[2])
+    return {"at": best[1], "chars": m.chars, "hits": best[0], "sentence_len": m.sentence_len_mean}
+
+
+def peak_drift(base: StyleMetrics, peak: Optional[dict]) -> list[str]:
+    """정점 대목의 문장 평균이 기준값보다 PEAK_LIMIT 넘게 길면 경고 한 줄. drift 와 같은 꼴로 적는다."""
+    if not peak or not base.sentence_len_mean:
+        return []
+    b, c = base.sentence_len_mean, peak["sentence_len"]
+    diff = (c - b) / b
+    if round(diff, 3) <= PEAK_LIMIT:  # 소수 오차로 딱 30% 가 경고되지 않게
+        return []
+    return [f"정점 대목 문장 길이: 기준 {b} → {c} ({diff:+.0%}, 열 낱말 {peak['hits']}개가 몰린 {peak['at']:,}자 근처)"]
 
 
 # ---------- 문체 표지와 베끼기 ----------
@@ -598,6 +661,8 @@ THRESHOLDS: dict[str, tuple[str, float, bool]] = {
     "pronoun_per_1k": ("대명사 밀도(1,000자당)", 3.0, False),
     "da_ending_ratio": ("'~다.' 끝 서술 비율", 0.2, False),
     "da_run_ratio": ("'~다.' 다섯 줄 이상 이어진 서술 비율", 0.2, False),
+    "dialogue_tilde_ratio": ("물결표 대사 줄 비율", 0.15, False),
+    "dialogue_line_len": ("대사 한 줄 평균 길이", 0.3, True),
 }
 # 쇠맛 지표는 기준보다 높을 때만 문제라서 낮아진 쪽은 경고하지 않는다.
 UPPER_ONLY = {"comma_sentence_ratio", "short_ending_ratio", "pronoun_per_1k", "da_ending_ratio", "da_run_ratio"}
