@@ -377,6 +377,7 @@
   - 검수하는 동안 본문이 바뀌었으면 회차 시각을 1초 앞당긴다(`_second_before`). 시각이 초까지라 시작과 같은 초에 고친 것도 세려는 것이다
   - `check_episode` 는 범위를 `prompts.check_prompt(scope=)` 로 넘겨 요청 맨 뒤에 `prompts.scope_block` 을 붙이고 `report._scope` 에 남긴다
   - `Settings.check_scope`(기본 켬), 웹 `PUT …/check-scope`
+- 문체 경고 `style_drift` 는 `Settings.heat_words` 가 있으면 정점 대목 경고(`metrics.peak_window` · `peak_drift`)를 더한다
 - 장면 연출은 플롯에서 초안 `draft_stage` · 본문에서 뽑기 `extract_stage`(박자가 빈 응답이면 한 번 다시 묻기) · 검수 때 함께 뽑기 `stage_extract_all` · 적용 `apply_stage` · 적용 취소 `undo_stage`(`stage.py`)
 - 동선 지적 고침안은 새 문장을 더한 안을 거른다(`clean_fixes` 의 `_adds_sentence`)
 - 장편은 부 계획(`plan_series`) → 다음 아크(`plan_next_arc`/`apply_arc`, 기획 전 경고 `plan_ahead`: 본문 없는 아크 2개 이상 · 요약 없는 끝난 아크 · 부, 막지 않음) → 아크 · 부 요약(`recap`/`apply_recap`)
@@ -384,6 +385,8 @@
 - 재구성 `propose_rebuild`/`apply_rebuild`(옛 상태 변경안 재사용 `carried_delta`, 다듬기 `propose_rework`/`accept_rework`)
 - 되돌리기 `undo_conversion`
 - 경고 바로 고치기 `apply_first`: 부분 수정 대화에 남기고 같은 작품에서 첫 후보를 넣는다(메시지 번호가 어긋나지 않게)
+- 부분 수정 `revise_passage` 는 `passage_head` 길이를 캐시 경계(`llm.PREFIX_HINT`)로 넘긴다. 같은 화에서 이어 고치면 앞부분을 캐시에서 읽는다
+- 경계가 없을 때는 【고칠 부분】 자리가 호출마다 달라 `shared_cut` 의 자리도 달라졌다. 1분 간격 호출도 시스템 프롬프트(751토큰)만 읽었다(2026-11-07 서버 실측)
 
 ### `canon/prompts.py`
 
@@ -400,6 +403,8 @@
 - 직전 화 블록 `prev_block`(스토리보드를 넣는 화와 스토리보드 만들기만 원문 전체, `build_episode_context(full_prev=)`)
 - 장편은 스토리보드가 없을 때만 넣는 시간 · 이동 · 장면 연출 블록과 `pre`(스토리보드 만들기의 Canon 값 · 장소 목록)를 직전 화 본문 뒤에 둔다. 단편 차례는 그대로다
 - 장편 쓰기 가족 앞부분 `write_head`: 작품 고정 블록부터 직전 화 본문 원문까지(`build_episode_context(head_only=True)`). 스토리보드 만들기 · 큐 시트 · 스토리보드로 본문 쓰기가 이 글로 시작한다. 단편은 빈 글
+- 부분 수정 앞부분 `passage_head`: 작품 고정 블록 · 사실 · 이야기 요소 · 조연 · 이번 화 플롯 · 시점. 고른 곳 · 본문 · 대화와 상관없다
+- `passage_prompt(head=)` 는 그 뒤에 인물 상태 · 본문 · 대화 · 요청을 둔다. 인물 상태는 고른 곳에 따라 아는 정보를 고르므로(`state_view`) 앞부분 밖이다
 - 쇠맛을 줄이는 쓰기 규칙: 블록 차례 한 줄 `priority_line`
 - 문체 분석 요청 `style_prompt` 은 효과음 표기 칸(`sound_effects`)을 묻고, 원문에서 센 효과음 줄 요약(`sfx_note`)을 붙인다
 - 이번 화 플롯은 쓰기 · 검수(`check_material`) · 상태 변경안(`state_prompt`) · 부분 수정(`passage_prompt`)이 모두 `write_plot` 으로 넣는다(라벨 모양이 아닌 예전 `emotional_shift` 를 뺌). 플롯 화면 · 흡입력 판정은 그대로

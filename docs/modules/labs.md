@@ -35,6 +35,15 @@
 - 효과음 끝 표시 `sfx_mark` · 몫 `sfx_marks`(효과음 줄이 `SFX_MARK_MIN` 줄 미만이면 비움)
 - `measure` 의 효과음 지표: `sfx_per_1k` · `sfx_marks` · `sound_word_per_1k`(낱말 '소리', 합성어와 '소리치다 · 소리 지르다'는 뺌)
 - '소리' 낱말 밀도는 재기만 하고 경고하지 않음(2026-11-05 실험에서 이 값이 높은 판을 판정이 골랐음)
+- 대사 꼴 `_dialogue_shape`: 큰따옴표 · 낫표로 여는 줄을 대사 줄로 셈(작은따옴표 줄은 속생각이 많아 뺌)
+- `measure` 의 대사 꼴 지표: `dialogue_tilde_ratio`(물결표가 든 대사 줄의 몫) · `dialogue_line_len`(대사 줄 평균 글자 수)
+- 대사 줄이 `DIALOGUE_MIN` 줄 미만이면 대사 꼴을 재지 않음
+- 대사 꼴은 `drift` 가 기준값과 견줘 경고함(물결표는 차이 0.15, 길이는 30%). 옛 기준값에는 값이 없어 경고하지 않음
+- 대사 꼴을 더한 근거는 reports/지표 사각지대 2026-11-07.md(대사 비율로는 갈리지 않던 작품과 레퍼런스가 이 값으로 갈림)
+- 문단 경계 창 `_para_windows`(`tempo_curve` 와 `peak_window` 가 함께 씀)
+- 정점 대목 `peak_window`: 열 낱말(`Settings.heat_words`)이 가장 많이 든 `PEAK_WINDOW` 자 창의 자리 · 열 낱말 수 · 문장 평균 길이. 낱말이 없거나 `PEAK_MIN_HITS` 개 미만이면 None
+- 정점 대목 경고 `peak_drift`: 그 창의 문장 평균이 기준값보다 `PEAK_LIMIT`(30%) 넘게 길면 한 줄. `pipeline.style_drift` 가 붙임
+- 정점 대목을 더한 근거는 reports/열 판정 시트 2 2026-11-07(같은 출처끼리 문장 길이가 다른 짝 13개 중 12개에서 짧은 쪽이 더 달아오름, 작품 평균은 그 차이를 가림)
 - 효과음 끝 표시 경고 `sfx_mark_drift`(원문이 `SFX_MARK_RARE` 미만으로 쓰는 표시를 이번 화 효과음 줄 `SFX_MARK_NEW` 이상에 쓰면)
 - 문체 분석 요청에 넣는 원문 효과음 줄 요약 `sfx_summary`(`prompts.sfx_note`)
 - 말줄임 · 물음 셈 `narration_tics` 는 효과음 줄을 서술로 세지 않음

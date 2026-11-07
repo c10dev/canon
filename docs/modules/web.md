@@ -559,6 +559,8 @@
   - 목차 수 `styleCount`
   - 서술 카드 칸은 `NARR_KEYS`(효과음 표기 포함). 목차 수는 채운 칸 / 전체 칸
   - 기준 지표 `baselineItems` 에 효과음 줄(`sfxRate`: 1,000자당 수와 가장 많은 끝 표시) · '소리' 낱말 밀도
+  - 기준 지표 `baselineItems` 에 물결표 대사 줄 비율 · 대사 한 줄 길이(값이 없으면 –)
+  - '지킬 · 피할 것' 카드의 열 낱말 칸(`heatWordsRead` · `heatWordsEdit`, `Settings.heat_words` 에 묶음): 작품 화면에만 있고 라이브러리 문체에는 없음
   - 빈 문체는 세 갈래 `stylePickCard` · `styleManual`
   - 프로필 카드 뒤에 작품 정착 문체 카드(`static/anchor.js` 의 `anchorCard`)
   - 라이브러리 항목도 같은 카드

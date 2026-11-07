@@ -134,7 +134,7 @@ function pfRead(id, prof, root, hot) {
         <div><div class="pf-lbl"><i class="sw no" aria-hidden="true"></i>피할 것 ${(prof.donts || []).length}${tag('donts')}</div>${list(prof.donts)}</div>
       </div>
       <div><div class="pf-lbl">금지 표현 ${(prof.banned_phrases || []).length}${tag('banned_phrases')} <span class="small">본문에 나오면 경고해요</span></div>
-        ${(prof.banned_phrases || []).length ? `<div class="row">${prof.banned_phrases.map((x) => `<span class="chip pf-quote">${esc(x)}</span>`).join('')}</div>` : `<div class="small">${pfNone}</div>`}</div>`;
+        ${(prof.banned_phrases || []).length ? `<div class="row">${prof.banned_phrases.map((x) => `<span class="chip pf-quote">${esc(x)}</span>`).join('')}</div>` : `<div class="small">${pfNone}</div>`}</div>${root ? '' : heatWordsRead()}`;
   }
   if (id === 'markers') {
     return `<table class="pf-table"><thead><tr><th scope="col">표지</th><th scope="col">쓰임</th><th scope="col" class="num">1,000자당</th></tr></thead>
@@ -154,6 +154,19 @@ function pfRead(id, prof, root, hot) {
   return `<ol class="pf-pass">${prof.sample_passages.map((x) => `<li><p class="prose-quote pf-clamp">${esc(x)}</p></li>`).join('')}</ol>`;
 }
 
+// 열 낱말(Settings.heat_words): 작품에만 있다(라이브러리 문체에는 없음). 화마다 이 낱말이 가장 몰린 대목의 문장 길이를 재서 기준보다 길면 경고한다 (metrics.peak_window)
+const HEAT_WORDS_WHY = '이 낱말이 가장 몰린 대목을 정점으로 보고, 그 대목의 문장이 기준보다 30% 넘게 길면 경고해요. 비우면 재지 않아요';
+
+function heatWordsRead() {
+  const xs = P().settings.heat_words || [];
+  return `<div><div class="pf-lbl">열 낱말 ${xs.length} <span class="small">${esc(HEAT_WORDS_WHY)}</span></div>
+    ${xs.length ? `<div class="row">${xs.map((x) => `<span class="chip pf-quote">${esc(x)}</span>`).join('')}</div>` : `<div class="small">${pfNone}</div>`}</div>`;
+}
+
+function heatWordsEdit() {
+  return input('열 낱말', 'settings.heat_words', { kind: 'list', rows: 2, autogrow: true, hint: HEAT_WORDS_WHY, placeholder: '정점 대목에 몰려 나오는 낱말, 한 줄에 하나씩' });
+}
+
 /** 카드의 고치는 칸. 칸은 글 길이만큼 늘어난다. 대화 변경안이 바꿀 칸은 테두리로 표시한다 */
 function pfEdit(id, base, root, hot) {
   const o = (x = {}) => (root ? { ...x, root } : x);
@@ -166,7 +179,7 @@ function pfEdit(id, base, root, hot) {
         <div class="note ok">${f('지킬 것', 'dos', { kind: 'list', rows: 3 })}</div>
         <div class="note err">${f('피할 것', 'donts', { kind: 'list', rows: 3 })}</div>
       </div>
-      ${f('금지 표현', 'banned_phrases', { kind: 'list', rows: 2, placeholder: '본문에 나오면 경고할 표현, 한 줄에 하나씩' })}`;
+      ${f('금지 표현', 'banned_phrases', { kind: 'list', rows: 2, placeholder: '본문에 나오면 경고할 표현, 한 줄에 하나씩' })}${root ? '' : heatWordsEdit()}`;
   }
   if (id === 'markers') {
     prof.markers = prof.markers || [];
@@ -431,10 +444,12 @@ function baselineItems(b, long = false) {
     ['과거형 비율', pct(b.past_tense_ratio), "'~다'로 끝나는 서술 문장 중 '~했다', '~었다'처럼 과거형으로 끝나는 비율이에요. 그런 문장이 없으면 –로 보여요."],
     ['어휘 다양도', b.mattr == null ? '–' : b.mattr.toFixed(2), '어절 100개씩 창을 옮기며 잰 서로 다른 어절의 비율이에요(0~1). 높을수록 같은 말을 덜 되풀이해요. 100어절보다 짧으면 재지 않아요.'],
     ['쉼표 문장 비율', pct(b.comma_sentence_ratio), '대사를 뺀 서술 문장 중 쉼표가 들어간 문장의 비율이에요. AI가 쓴 한국어 글은 사람 글보다 높은 편이에요.'],
+    ['물결표 대사 줄', pct(b.dialogue_tilde_ratio), '큰따옴표나 낫표로 여는 대사 줄 중 물결표(~)가 든 줄의 비율이에요. 비교한 레퍼런스 웹소설 네 편은 거의 0%였어요. 대사 줄이 10줄보다 적거나 다시 분석하기 전에 잰 기준이면 –로 보여요.'],
+    ['대사 한 줄 길이', b.dialogue_line_len == null ? '–' : `${Math.round(b.dialogue_line_len)}자`, '대사 줄 하나의 평균 글자 수예요. 따옴표도 세요. 비교한 레퍼런스 웹소설 네 편은 21~25자였어요. 대사 줄이 10줄보다 적거나 다시 분석하기 전에 잰 기준이면 –로 보여요.'],
     ['효과음 줄 (1,000자당)', sfxRate(b), "'쾅!', '터벅, 터벅.'처럼 소리나 몸짓만 적은 한 줄 문단의 수예요. 괄호 안은 가장 많이 쓴 끝 표시예요. 다시 분석하기 전에 잰 기준이면 –로 보여요."],
     ["'소리' 낱말 (1,000자당)", b.sound_word_per_1k == null ? '–' : b.sound_word_per_1k.toFixed(2), "'소리가 났다'처럼 소리를 적지 않고 알리는 낱말이에요. 목소리 · 숨소리와 '소리치다'는 세지 않아요. 레퍼런스 웹소설은 0.3~0.6, AI 글은 1 안팎이었어요. 소리의 결을 풀어 쓰는 문장도 이 낱말을 써서, 낮을수록 좋은 건 아니에요."],
   ];
-  const short = ['문장 평균', '길이 변화폭', '문단 평균', '대사', '과거형', '어휘 다양도', '쉼표 문장', '효과음 줄', "'소리'"];
+  const short = ['문장 평균', '길이 변화폭', '문단 평균', '대사', '과거형', '어휘 다양도', '쉼표 문장', '물결표 대사', '대사 길이', '효과음 줄', "'소리'"];
   return long ? rows : rows.map(([, v, why], i) => [short[i], v, why]);
 }
 

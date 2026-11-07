@@ -172,3 +172,27 @@ def test_passage_ai_blocked_while_auto(client, monkeypatch):
     assert client.post("/api/projects/lh/chat/text:1", json={"message": "더 짧게", "selection": sel}).status_code == 400
     assert client.post("/api/projects/lh/episodes/1/fix-now", json={"message": "상태 정리 경고: x", "selection": sel}).status_code == 400
     assert called == []
+
+
+def test_passage_head_stays_same_for_the_episode(client):
+    # 같은 화의 부분 수정은 고른 곳 · 본문 · 대화가 달라도 같은 앞부분으로 시작해야 캐시가 맞는다
+    from canon.llm import PREFIX_HINT
+
+    p = Project.model_validate(_written(client))
+    head = prompts.passage_head(p, 1)
+    a = prompts.passage_prompt(p, 1, Selection(start=0, text="바람이 불었다."), "짧게")
+    p.episode(1).text = TEXT.replace("도현은", "도현이")
+    b = prompts.passage_prompt(p, 1, Selection(start=TEXT.index("\"됐어"), text="\"됐어, 내가 할게.\""), "길게")
+    assert a.startswith(head + "\n\n# 인물 현재 상태") and b.startswith(head + "\n\n# 인물 현재 상태")
+    assert "【고칠 부분】" not in head and "# 1화 본문" not in head
+
+    seen = []
+
+    class Spy:
+        def json(self, system, prompt, schema, hint=None):
+            seen.append((prompt, hint))
+            return schema(reply="ok", candidates=[{"text": "바람이 세게 불었다."}])
+
+    pipeline.revise_passage(Spy(), p, 1, Selection(start=0, text="바람이 불었다."), "세게")
+    prompt, hint = seen[0]
+    assert hint[PREFIX_HINT] == len(head) and prompt.startswith(head)
