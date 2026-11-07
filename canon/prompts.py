@@ -3716,11 +3716,38 @@ def checker_system(lang: str = "ko") -> str:
     return SYSTEM_CHECKER_EN if lang == "en" else SYSTEM_CHECKER
 
 
-def check_prompt(p: Project, n: int, mode: str = "", sized: bool = False, lang: str = "ko", material: str = "") -> str:
+def check_prompt(p: Project, n: int, mode: str = "", sized: bool = False, lang: str = "ko", material: str = "",
+                 scope: list[str] | None = None) -> str:
     """검수 프롬프트. mode 를 비우면 장편은 budget, 단편은 full. 연구 화면 검수 시험이 두 방식을 견준다.
     sized 는 옛 단락을 찾지 않고 같은 크기로 채운다 (길이만 재는 autorun.estimate). lang 이 en 이면 지시문만 영어판(CHECK_LANGS)이다.
-    material 에 같은 인자로 만든 check_material 을 주면 다시 만들지 않는다 (부른 쪽이 그 길이를 캐시 경계로 넘길 때)."""
+    material 에 같은 인자로 만든 check_material 을 주면 다시 만들지 않는다 (부른 쪽이 그 길이를 캐시 경계로 넘길 때).
+    scope(pipeline.check_scope 의 바뀐 문단)를 주면 그 문단 안의 문장만 짚으라는 요청을 맨 뒤에 덧붙인다 (앞부분 캐시는 그대로)."""
     material = material or check_material(p, n, mode, sized, lang)
+    return _check_request(p, n, mode, lang, material) + scope_block(scope or [], lang)
+
+
+def scope_block(scope: list[str], lang: str = "ko") -> str:
+    """다시 검수의 범위: 지난 검수 뒤 바뀐 문단. 비면 빈 글 (본문 전체를 짚는다)."""
+    if not scope:
+        return ""
+    paras = "\n---\n".join(scope)
+    if lang == "en":
+        return f"""
+
+# Changed passages (edited since the last check, with the paragraphs around them)
+{paras}
+
+- This is a re-check. Report only contradictions whose current_quote is inside the changed passages above. source_quote can come from anywhere. The other paragraphs were already checked last time."""
+    return f"""
+
+# 바뀐 문단 (지난 검수 뒤 고친 곳과 그 앞뒤)
+{paras}
+
+- 이번은 다시 검수입니다. current_quote 가 위 '바뀐 문단' 안에 있는 어긋남만 짚습니다. 근거(source_quote)는 어디서 와도 됩니다. 나머지 문단은 지난 검수에서 이미 봤습니다."""
+
+
+def _check_request(p: Project, n: int, mode: str, lang: str, material: str) -> str:
+    """검수 프롬프트의 자료와 요청 (scope 를 붙이기 전)."""
     rules = f"{timeline.check_rule(p, n)}{mapprompt.travel_check_rule(p, n)}{attire_check_rule(p)}{stage_check_rule(p)}{layer_check_rule(p, check_cast(p, n) if (mode or ('budget' if p.serial else 'full')) == 'budget' else None)}{address.check_rule(p)}{statwin.check_rule(p)}{protect_check_rule(p.episode(n))}{pairlog.check_rule(pair_check_block(p, n, mode))}"
     if lang == "en":
         return f"""{material}

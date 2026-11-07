@@ -128,6 +128,11 @@ def test_cli_web_and_autorun_estimate(tmp_path, monkeypatch):
     c = TestClient(web.app)
     r = c.put("/api/projects/demo/check-motion", json={"on": False})
     assert r.status_code == 200 and r.json()["settings"]["check_motion"] is False
+    assert Project.model_validate({}).settings.check_scope is True  # 다시 검수는 바뀐 곳만 새로 짚기가 기본 (예전 project.json 포함)
+    r = c.put("/api/projects/demo/check-scope", json={"on": False})
+    assert r.status_code == 200 and r.json()["settings"]["check_scope"] is False
+    r = c.put("/api/projects/demo/check-scope", json={"on": True})
+    assert r.json()["settings"]["check_scope"] is True
     p = store.load("demo")
     assert p.settings.check_motion is False
     p.settings.stage_extract = False  # 장면 뽑기 호출은 tests/test_autorun.py 의 추정 시험이 센다

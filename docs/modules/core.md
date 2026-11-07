@@ -232,11 +232,15 @@
 - 검수가 끝났는지(`check_done`, `home.js` `checkState` 의 done 과 같은 규칙, 작품 목록 `open_checked`)
 - 자동 집필이 세는 지적(`counted`, 사소 빼기)
 - 작가가 정하기(`set_status` · `set_severity`, 웹 `set_finding`, 명령줄 `check --keep` · `--sev`)
+- 웹 `set_findings`(`PUT …/findings`)는 열린 지적 여러 개를 한꺼번에 kept · wrong 으로 정한다. 없는 id · 열리지 않은 지적이 섞이면 아무것도 바꾸지 않는다
 - 명령줄 `check --recheck-fixed` 는 고친 곳만 다시 보기(`pipeline.recheck_fixed`)
 - 고침안이 건드리는 다른 지적(`touches`)
 - 지적 하나 다시 검수 결과 넣기(`settle`: 고침으로 닫기, 딸린 지적 `add_children`)
 - 마지막 검수 뒤 되돌리지 않은 수정(`edits_since_check`, `check_done` 과 같은 셈)
-- 고친 곳만 다시 볼 지적(`fix_recheck_targets`): 검수 뒤 수정이 모두 열린 지적의 고침안 묶음(source fix)일 때 그 지적들. 직접 고친 곳이 하나라도 있으면 빈 목록
+- 고친 곳만 다시 볼 지적(`fix_recheck_targets`): 마지막 검수 뒤 고침안 묶음(source fix)을 넣은 열린 지적들
+- 직접 고친 곳이나 다른 AI 수정이 함께 있어도 고침안을 넣은 지적은 `fix_recheck_targets` 대상이다. 그 수정은 다시 검수가 바뀐 문단에서 본다
+- 다시 검수 거르기(`scoped`): 바뀐 문단(`pipeline.check_scope`) 밖에서 새로 나온 지적은 넣지 않는다. 옛 지적과 같은 문장 · 치명 · 인용 없는 지적은 넣는다
+- `pipeline.apply_check` 가 `scoped` 를 부르고 회차에 `CheckRound.scoped` · `outside`(넣지 않은 수)를 남긴다. `Episode.issues` 는 넣은 지적만
 - 묶음을 넣은 뒤 이미 다시 본(기록 `recheck`) 지적은 `fix_recheck_targets` 에서 뺀다. `home.js` `fixRecheckTargets` 와 같은 셈
 - 새 판(`new_version`: 결정한 지적만 남김)
 - 세션 비우기(`clear`)
@@ -250,6 +254,7 @@
 - 묶음 답의 지적마다 `clean_fixes` 를 거친다(`_fix_result`, 한 지적 고침안과 같은 셈). 요청에 없는 id 와 겹친 id 는 버린다
 - 프롬프트 `prompts.fix_prompt` · `recheck_prompt`(앞부분은 검수와 같은 `check_material`)
 - 고친 곳만 다시 보기: `pipeline.recheck_fixed` 가 대상 지적을 한 번의 호출(LLM `FixRecheckReport`, 단계 check)로 다시 묻고 `apply_fix_recheck` 가 지적마다 `settle` 한다. 회차는 늘지 않는다
+- 고친 곳 둘레(`fix_around`)에는 직접 고친 곳을 포함한 검수 뒤 수정이 모두 들어간다
 - 고친 곳만 다시 보기 프롬프트 `prompts.fix_recheck_prompt` 는 검수 자료 전체 대신 `static_context`(검수와 같은 앞부분)와 고친 곳 둘레 문단(`fix_around`, 앞뒤 `FIX_AROUND` 문단)만 넣는다
 - `recheck_fixed` 는 `static_context` 길이를 캐시 경계(`llm.PREFIX_HINT`)로 넘긴다. 고친 뒤라 본문이 달라 검수 자료의 캐시는 읽지 못한다
 - `recheck_fixed` 는 묻지 않은 id 와 같은 id 의 두 번째 답을 버린다. 규칙 지적은 LLM 없이 `recheck_finding` 으로 판정만
@@ -369,6 +374,13 @@
   - 프롬프트 `prompts.widen_prompt`
   - 동선 따로 보기 `motion_check`: 본 검수와 동시에 이번 화 본문만 넣고 동선만 묻기, 합치기 `merge_motion`(본 검수가 짚은 문장은 뺌)
   - `Settings.check_motion`(기본 켬), 프롬프트 `prompts.motion_prompt` · `SYSTEM_MOTION`
+  - 다시 검수 범위 `check_scope`: 두 번째 회차부터 마지막 검수 뒤 수정이 놓인 문단과 앞뒤 `SCOPE_AROUND`(1) 문단
+  - `check_scope` 가 빈 목록이면 본문 전체: 첫 검수 · 새 판 · 지난 검수와 같은 본문 · 수정 기록 없음 · 바뀐 문단이 본문의 `SCOPE_MAX`(절반)를 넘음
+  - `check_episode` 는 시작할 때의 시각과 본문 지문을 `report._at` · `_basis` 에 남기고, `apply_check` 가 그 값으로 회차 시각 · `checked_at` · 지문을 정한다
+  - 그래서 검수하는 동안 고친 곳은 '검수 뒤 고침'(`findings.edits_since_check`)으로 남는다. 시작 값이 없는 결과(채팅 앱 JSON)는 넣는 때의 값
+  - 검수하는 동안 본문이 바뀌었으면 회차 시각을 1초 앞당긴다(`_second_before`). 시각이 초까지라 시작과 같은 초에 고친 것도 세려는 것이다
+  - `check_episode` 는 범위를 `prompts.check_prompt(scope=)` 로 넘겨 요청 맨 뒤에 `prompts.scope_block` 을 붙이고 `report._scope` 에 남긴다
+  - `Settings.check_scope`(기본 켬), 웹 `PUT …/check-scope`
 - 문체 경고 `style_drift` 는 `Settings.heat_words` 가 있으면 정점 대목 경고(`metrics.peak_window` · `peak_drift`)를 더한다
 - 장면 연출은 플롯에서 초안 `draft_stage` · 본문에서 뽑기 `extract_stage`(박자가 빈 응답이면 한 번 다시 묻기) · 검수 때 함께 뽑기 `stage_extract_all` · 적용 `apply_stage` · 적용 취소 `undo_stage`(`stage.py`)
 - 동선 지적 고침안은 새 문장을 더한 안을 거른다(`clean_fixes` 의 `_adds_sentence`)
@@ -612,6 +624,10 @@
 - 본문 부분 수정 대화 `POST …/chat/text:<화>` 와 `fix-now` 는 AI를 부르기 전에 `_text_guard` 를 본다. `fix-now` 는 AI 답을 받은 뒤 한 번 더 본다
 - 오래 걸리는 AI 작업은 `jobs.start` 로 돌린다
 - `start_job` 은 작업 종류마다 `JOB_MAKERS` 의 준비 함수(`_job_<종류>`)를 부른다. 함수는 (이름표, 전체 걸음, 맡은 화, 할 일)을 돌려준다. 새 작업은 함수를 더하고 `JOB_MAKERS` 에 넣는다
+- 쓴 뒤 바로 검수(`Settings.check_after_write`, 기본 끔, `PUT …/check-after-write`): 처음 쓰는 본문이면 작업 `write` 가 저장 뒤 검수 걸음(`_run_check`, 작업 `check` 와 같은 함수)을 잇는다
+- 쓴 뒤 검수 걸음 전에 그 화를 내려놓고(`Job.release`) `Job.step_ep` 를 그 화로 둔다. 화면은 본문을 먼저 받고 작가는 검수하는 동안 고칠 수 있다
+- 쓴 뒤 검수가 실패해도 작업은 끝남이고 결과에 `check_error` 를 싣는다. 성공하면 결과 `check` 는 작업 `check` 의 결과와 같다
+- 쓴 뒤 검수가 도는 (작품, 화)는 `_WRITE_CHECKS` 에 두고, 그동안 작업 `check` 는 400 으로 거절한다. 새 판(다시 생성)은 검수하지 않는다
 - `start_job` 은 같은 화에서 멈춘 작업이 AI 응답을 기다리면 `EP_AI_KINDS` 작업을 409 로 막는다(`_waiting_409`, 역설계 실험 `rev_job` 과 같은 문구)
 - 멈춘 스토리보드 작업의 늦은 응답은 그 화에 스토리보드 · 본문이 없고 플롯이 확정돼 있으면 남긴다(`_keep_late_board`, 결과 `{kept}`)
 - `_keep_pending` 은 멈춘 작업의 결과를 pending.json 에 남기지 않고 지난 실패도 지우지 않는다
