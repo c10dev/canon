@@ -56,7 +56,7 @@ ruff check canon tests scripts      # 정적 검사 (쓰지 않는 import · 변
 ```
 
 - 시험은 `CANON_HOME` 을 임시 폴더로 두고 돌린다. `tests/conftest.py` 도 값이 없으면 임시 폴더를 정하므로, 이 값은 덤 안전장치다.
-- `tests/conftest.py` 는 `CANON_CONFIG` 를 `CANON_HOME` 안으로 돌리고 `CANON_USAGE` · `CANON_STYLES` · `CANON_REFS` · `CANON_STUDIO` 를 지운다.
+- `tests/conftest.py` 는 `CANON_CONFIG` 를 `CANON_HOME` 안으로 돌리고 `CANON_USAGE` · `CANON_STYLES` · `CANON_REFS` · `CANON_STUDIO` · `CANON_PROMPTLAB` 을 지운다.
 - 저장 위치가 저장소의 `projects/` 이면 `tests/conftest.py` 가 시험을 시작하지 않는다(`tests/test_conftest_isolation.py`).
 - 공통 `client` fixture 는 `tests/conftest.py` 에 있다. `canon.web` 을 다시 불러오지 않고 `store.ROOT` 만 시험 폴더로 바꾼다.
 - 시험은 `importlib.reload(store)` · `reload(web)` 를 쓰지 않는다(한 번에 1~2.5초). 저장 위치는 `monkeypatch.setattr(store, "ROOT", tmp_path)` 로 바꾼다(`tests/test_conftest_isolation.py`).
