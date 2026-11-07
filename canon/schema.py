@@ -3214,6 +3214,52 @@ class StudioSession(BaseModel):
     updated_at: str = ""
 
 
+class PromptBackend(BaseModel):
+    """프롬프트 놀이터에서 돌릴 백엔드 (research.Backend 와 같은 칸). model · url 이 비면 설정 값을 쓴다."""
+    provider: str = "gemini"
+    model: str = ""
+    url: str = ""
+
+
+class PromptRun(BaseModel):
+    """프롬프트 놀이터 시도 안의 백엔드 하나의 결과 (research.sample 한 줄)."""
+    backend: str = ""
+    model: str = ""
+    ok: bool = False
+    text: str = ""
+    error: str = ""
+    seconds: float = 0.0
+    chars: int = 0
+    tokens_in: int = 0
+    tokens_out: int = 0
+    cost: Optional[float] = Field(None, description="가격표로 어림한 USD. 로컬 · mock 은 0, 가격을 모르면 None")
+
+
+class PromptTrial(BaseModel):
+    """프롬프트 놀이터에서 한 번 돌린 것. 그때의 프롬프트를 함께 남겨 나중에 다시 불러온다."""
+    no: int
+    at: str = ""
+    system: str = ""
+    prompt: str = ""
+    temperature: Optional[float] = None
+    runs: list[PromptRun] = Field(default_factory=list)
+    star: bool = False
+    note: str = ""
+
+
+class PromptSession(BaseModel):
+    """프롬프트 놀이터 세션 (canon/promptlab.py). 작품 밖 <CANON_HOME>/.promptlab/<id>.json"""
+    id: str
+    title: str = ""
+    system: str = ""
+    prompt: str = ""
+    temperature: Optional[float] = None
+    backends: list[PromptBackend] = Field(default_factory=lambda: [PromptBackend()])
+    trials: list[PromptTrial] = Field(default_factory=list)
+    created_at: str = ""
+    updated_at: str = ""
+
+
 class StudioCandidate(BaseModel):
     text: str = Field(description="문단 하나. 제목 · 해설 · 마크다운 없이 본문만")
     note: str = Field("", description="이 안이 다른 안과 어떻게 다른지 한 줄")

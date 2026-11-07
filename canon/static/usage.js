@@ -31,7 +31,7 @@ const USAGE_TASK = {
   hook: '흡입력 판정', openings: '여는 방식 안', opening_drafts: '여러 안으로 쓰기',
   names: '이름 추천', style: '문체 분석', lib_style: '문체 분석 (라이브러리)', chat: 'AI 대화', edits: '부분 수정', auto: '자동 집필', sample: '샘플 비교',
   stage: '단계 시험', compare: '가려 비교', budget: '컨텍스트 크기', probe: '서버 점검', check: '검수', update: '상태 변경안', run: '연속 실행', fix: '부분 수정',
-  fixes: '지적 고치기', recheck: '고친 곳만 다시 보기', board: '스토리보드', cues: '큐 시트', cue_sheet: '큐 시트', cue_run: '큐 시트로 쓰기', plot_one: '한 화 플롯', agent: 'AI 대화 에이전트', play: '플레이', studio: '문단 연습장',
+  fixes: '지적 고치기', recheck: '고친 곳만 다시 보기', board: '스토리보드', cues: '큐 시트', cue_sheet: '큐 시트', cue_run: '큐 시트로 쓰기', plot_one: '한 화 플롯', agent: 'AI 대화 에이전트', play: '플레이', studio: '문단 연습장', promptlab: '프롬프트 놀이터',
 };
 // 추론 강도 이름 (settings.js EFFORT_LABEL 과 같다). '기본'은 강도를 정하지 않은 호출(usage.EFFORT_DEFAULT)
 const USAGE_EFFORT = { low: '낮음', medium: '보통', high: '높음', xhigh: '아주 높음', max: '최대', 기본: '기본 (모델 기본값)' };

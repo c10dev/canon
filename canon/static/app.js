@@ -2242,7 +2242,7 @@ async function routeNow() {
     }
     if (!S.genres) S.genres = await api('GET', '/genres').catch(() => []);
     if (!S.namingStyles) S.namingStyles = await api('GET', '/naming/styles').catch(() => []);
-    if (['usage', 'revlab', 'soelab', 'styles', 'refs', 'studio'].includes(parts[0])) {  // 작품 밖 사이드바의 최근 작품 · 문체 · 원고 수 (처음 한 번만, 작품 목록에 오면 다시 읽는다)
+    if (['usage', 'revlab', 'soelab', 'styles', 'refs', 'studio', 'promptlab'].includes(parts[0])) {  // 작품 밖 사이드바의 최근 작품 · 문체 · 원고 수 (처음 한 번만, 작품 목록에 오면 다시 읽는다)
       if (!S.projects) S.projects = await api('GET', '/projects').catch(() => null);
       if (!S.libs) S.libs = await api('GET', '/styles').catch(() => null);
       if (!S.refList) S.refList = await api('GET', '/refs').then((r) => r.refs).catch(() => null);
@@ -2267,6 +2267,10 @@ async function routeNow() {
       S.name = null;
       S.project = null;
       await stuLoad(parts[1]);
+    } else if (parts[0] === 'promptlab') {
+      S.name = null;
+      S.project = null;
+      await pgLoad(parts[1]);
     } else if (parts[0] === 'styles') {
       S.name = null;
       S.project = null;
@@ -2524,6 +2528,7 @@ function drawApp() {
   if (p === 'soelab') return outside('soelab', 1280, viewSoe());
   if (p === 'refs') return outside('refs', 1280, viewRefs());
   if (p === 'studio') return outside('studio', 1180, viewStudio());
+  if (p === 'promptlab') return outside('promptlab', 1280, viewPromptLab());
   if (p === 'styles') return outside('styles', 1180, S.route[1] && S.lib ? viewLibEntry() : viewLibrary());
   if (S.loadError) {
     // 작품을 읽지 못한 화면도 작품 밖 사이드바 안에 그린다 (900px 이하 위쪽 띠의 메뉴 · 알림 · 찾기가 남는다)
@@ -2678,7 +2683,7 @@ function navItems() {
     auto: ['auto', base() + '/auto', '🤖', autoMenuLabel()],
     tools,
     apart: [['research', base() + '/research', '🔬', '연구 · 모델 실험'], ['cue', base() + '/cue', '🎼', '큐 시트 집필 실험'], ['revlab', '#/revlab', '🔁', '역설계 실험'], ['soelab', '#/soelab', '🧪', '쇠맛 실험실'], ['usage', base() + '/usage', '💰', '사용량 · 비용']],
-    foot: [['#/settings', '설정'], ['#/usage', '모든 작품 사용량 · 비용'], ['#/styles', '문체 라이브러리'], ['#/studio', '문단 연습장'], ['#/refs', '레퍼런스 원고'], ['#/revlab', '역설계 실험'], ['#/soelab', '쇠맛 실험실'], ['#/', '작품 목록']],
+    foot: [['#/settings', '설정'], ['#/usage', '모든 작품 사용량 · 비용'], ['#/styles', '문체 라이브러리'], ['#/studio', '문단 연습장'], ['#/promptlab', '프롬프트 놀이터'], ['#/refs', '레퍼런스 원고'], ['#/revlab', '역설계 실험'], ['#/soelab', '쇠맛 실험실'], ['#/', '작품 목록']],
   };
 }
 
@@ -2852,6 +2857,7 @@ function outNav(list = [], libs = [], refList = []) {
     alerts: list.reduce((k, x) => k + alerts(x).length, 0),
     fails: list.reduce((k, x) => k + alerts(x).filter((a) => a.kind === 'fail').length, 0),
     tools: [['styles', '#/styles', '🖋️', '문체 라이브러리', libs.length ? String(libs.length) : ''], ['studio', '#/studio', '✍️', '문단 연습장', ''],
+      ['promptlab', '#/promptlab', '🧫', '프롬프트 놀이터', ''],
       ['refs', '#/refs', '📑', '레퍼런스 원고', refList.length ? String(refList.length) : ''],
       ['revlab', '#/revlab', '🔁', '역설계 실험', ''],
       ['soelab', '#/soelab', '🧪', '쇠맛 실험실', ''], ['usage', '#/usage', '💰', '사용량 · 비용', '']],
