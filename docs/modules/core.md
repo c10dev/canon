@@ -366,6 +366,7 @@
   - 프롬프트 `prompts.widen_prompt`
   - 동선 따로 보기 `motion_check`: 본 검수와 동시에 이번 화 본문만 넣고 동선만 묻기, 합치기 `merge_motion`(본 검수가 짚은 문장은 뺌)
   - `Settings.check_motion`(기본 켬), 프롬프트 `prompts.motion_prompt` · `SYSTEM_MOTION`
+- 문체 경고 `style_drift` 는 `Settings.heat_words` 가 있으면 정점 대목 경고(`metrics.peak_window` · `peak_drift`)를 더한다
 - 장면 연출은 플롯에서 초안 `draft_stage` · 본문에서 뽑기 `extract_stage`(박자가 빈 응답이면 한 번 다시 묻기) · 검수 때 함께 뽑기 `stage_extract_all` · 적용 `apply_stage` · 적용 취소 `undo_stage`(`stage.py`)
 - 동선 지적 고침안은 새 문장을 더한 안을 거른다(`clean_fixes` 의 `_adds_sentence`)
 - 장편은 부 계획(`plan_series`) → 다음 아크(`plan_next_arc`/`apply_arc`, 기획 전 경고 `plan_ahead`: 본문 없는 아크 2개 이상 · 요약 없는 끝난 아크 · 부, 막지 않음) → 아크 · 부 요약(`recap`/`apply_recap`)

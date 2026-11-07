@@ -500,8 +500,8 @@ def style_distance(base: StyleMetrics, text: str) -> Optional[float]:
 TEMPO_WINDOW = 400
 
 
-def tempo_curve(text: str, size: int = TEMPO_WINDOW) -> list[dict]:
-    """문단 경계를 지켜 size 자 안팎으로 자른 창마다 위치(at, 글자) · 글자 수 · 대사 비율 · 문장 평균 길이."""
+def _para_windows(text: str, size: int) -> list[tuple[int, str]]:
+    """문단 경계를 지켜 size 자 안팎으로 자른 창 (시작 자리, 글). 마지막 창은 size 의 절반보다 짧으면 버린다."""
     out, cur, at, pos = [], "", 0, 0
     for para in re.split(r"(\n+)", text):
         if not para.strip():
@@ -512,13 +512,56 @@ def tempo_curve(text: str, size: int = TEMPO_WINDOW) -> list[dict]:
         cur = f"{cur}\n{para}" if cur else para
         pos += len(para)
         if len(cur) >= size:
-            m = measure(cur)
-            out.append({"at": at, "chars": m.chars, "dialogue_ratio": m.dialogue_ratio, "sentence_len": m.sentence_len_mean})
+            out.append((at, cur))
             cur = ""
     if len(cur.strip()) >= size / 2:
-        m = measure(cur)
+        out.append((at, cur))
+    return out
+
+
+def tempo_curve(text: str, size: int = TEMPO_WINDOW) -> list[dict]:
+    """문단 경계를 지켜 size 자 안팎으로 자른 창마다 위치(at, 글자) · 글자 수 · 대사 비율 · 문장 평균 길이."""
+    out = []
+    for at, chunk in _para_windows(text, size):
+        m = measure(chunk)
         out.append({"at": at, "chars": m.chars, "dialogue_ratio": m.dialogue_ratio, "sentence_len": m.sentence_len_mean})
     return out
+
+
+# ---------- 정점 대목 ----------
+# 열 낱말(Settings.heat_words)이 가장 몰린 창의 문장 길이 (2026-11-07 실측, reports/열 판정 시트 2).
+# 작가의 블라인드 판정에서, 같은 출처끼리 문장 길이가 15% 넘게 다른 짝 13개 가운데 12개는 문장이 짧은 쪽이 더 달아올랐다.
+# 작품 전체 평균은 그 차이를 가렸다(정점 대목만 긴 화가 평균을 크게 바꾸지 않는다).
+PEAK_WINDOW = 600  # 정점 대목 창 크기 (문단 경계를 지켜 자른다)
+PEAK_MIN_HITS = 3  # 창 안의 열 낱말이 이보다 적으면 정점 대목으로 보지 않는다
+PEAK_LIMIT = 0.3   # 정점 대목 문장 평균이 기준값보다 이만큼(비율) 넘게 길면 경고한다
+
+
+def peak_window(text: str, words: list[str], size: int = PEAK_WINDOW) -> Optional[dict]:
+    """열 낱말이 가장 많이 든 창: 시작 자리(at) · 글자 수 · 열 낱말 수(hits) · 문장 평균 길이. 낱말이 없거나 PEAK_MIN_HITS 에 못 미치면 None."""
+    words = [w.strip() for w in words if w.strip()]
+    if not words:
+        return None
+    best = None
+    for at, chunk in _para_windows(text, size):
+        hits = sum(chunk.count(w) for w in words)
+        if best is None or hits > best[0]:
+            best = (hits, at, chunk)
+    if best is None or best[0] < PEAK_MIN_HITS:
+        return None
+    m = measure(best[2])
+    return {"at": best[1], "chars": m.chars, "hits": best[0], "sentence_len": m.sentence_len_mean}
+
+
+def peak_drift(base: StyleMetrics, peak: Optional[dict]) -> list[str]:
+    """정점 대목의 문장 평균이 기준값보다 PEAK_LIMIT 넘게 길면 경고 한 줄. drift 와 같은 꼴로 적는다."""
+    if not peak or not base.sentence_len_mean:
+        return []
+    b, c = base.sentence_len_mean, peak["sentence_len"]
+    diff = (c - b) / b
+    if round(diff, 3) <= PEAK_LIMIT:  # 소수 오차로 딱 30% 가 경고되지 않게
+        return []
+    return [f"정점 대목 문장 길이: 기준 {b} → {c} ({diff:+.0%}, 열 낱말 {peak['hits']}개가 몰린 {peak['at']:,}자 근처)"]
 
 
 # ---------- 문체 표지와 베끼기 ----------

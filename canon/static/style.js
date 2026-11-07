@@ -134,7 +134,7 @@ function pfRead(id, prof, root, hot) {
         <div><div class="pf-lbl"><i class="sw no" aria-hidden="true"></i>피할 것 ${(prof.donts || []).length}${tag('donts')}</div>${list(prof.donts)}</div>
       </div>
       <div><div class="pf-lbl">금지 표현 ${(prof.banned_phrases || []).length}${tag('banned_phrases')} <span class="small">본문에 나오면 경고해요</span></div>
-        ${(prof.banned_phrases || []).length ? `<div class="row">${prof.banned_phrases.map((x) => `<span class="chip pf-quote">${esc(x)}</span>`).join('')}</div>` : `<div class="small">${pfNone}</div>`}</div>`;
+        ${(prof.banned_phrases || []).length ? `<div class="row">${prof.banned_phrases.map((x) => `<span class="chip pf-quote">${esc(x)}</span>`).join('')}</div>` : `<div class="small">${pfNone}</div>`}</div>${root ? '' : heatWordsRead()}`;
   }
   if (id === 'markers') {
     return `<table class="pf-table"><thead><tr><th scope="col">표지</th><th scope="col">쓰임</th><th scope="col" class="num">1,000자당</th></tr></thead>
@@ -154,6 +154,19 @@ function pfRead(id, prof, root, hot) {
   return `<ol class="pf-pass">${prof.sample_passages.map((x) => `<li><p class="prose-quote pf-clamp">${esc(x)}</p></li>`).join('')}</ol>`;
 }
 
+// 열 낱말(Settings.heat_words): 작품에만 있다(라이브러리 문체에는 없음). 화마다 이 낱말이 가장 몰린 대목의 문장 길이를 재서 기준보다 길면 경고한다 (metrics.peak_window)
+const HEAT_WORDS_WHY = '이 낱말이 가장 몰린 대목을 정점으로 보고, 그 대목의 문장이 기준보다 30% 넘게 길면 경고해요. 비우면 재지 않아요';
+
+function heatWordsRead() {
+  const xs = P().settings.heat_words || [];
+  return `<div><div class="pf-lbl">열 낱말 ${xs.length} <span class="small">${esc(HEAT_WORDS_WHY)}</span></div>
+    ${xs.length ? `<div class="row">${xs.map((x) => `<span class="chip pf-quote">${esc(x)}</span>`).join('')}</div>` : `<div class="small">${pfNone}</div>`}</div>`;
+}
+
+function heatWordsEdit() {
+  return input('열 낱말', 'settings.heat_words', { kind: 'list', rows: 2, autogrow: true, hint: HEAT_WORDS_WHY, placeholder: '정점 대목에 몰려 나오는 낱말, 한 줄에 하나씩' });
+}
+
 /** 카드의 고치는 칸. 칸은 글 길이만큼 늘어난다. 대화 변경안이 바꿀 칸은 테두리로 표시한다 */
 function pfEdit(id, base, root, hot) {
   const o = (x = {}) => (root ? { ...x, root } : x);
@@ -166,7 +179,7 @@ function pfEdit(id, base, root, hot) {
         <div class="note ok">${f('지킬 것', 'dos', { kind: 'list', rows: 3 })}</div>
         <div class="note err">${f('피할 것', 'donts', { kind: 'list', rows: 3 })}</div>
       </div>
-      ${f('금지 표현', 'banned_phrases', { kind: 'list', rows: 2, placeholder: '본문에 나오면 경고할 표현, 한 줄에 하나씩' })}`;
+      ${f('금지 표현', 'banned_phrases', { kind: 'list', rows: 2, placeholder: '본문에 나오면 경고할 표현, 한 줄에 하나씩' })}${root ? '' : heatWordsEdit()}`;
   }
   if (id === 'markers') {
     prof.markers = prof.markers || [];

@@ -39,6 +39,7 @@ def constants() -> dict:
         "_SENT_END": metrics._SENT_END.pattern,
         "ENDING": [metrics.ENDING_RUN, metrics.ENDING_MIN, metrics.ENDING_DEFAULTS],
         "DIALOGUE": [metrics.DIALOGUE_MIN, list(metrics._DIALOGUE_OPEN)],
+        "PEAK": [metrics.PEAK_WINDOW, metrics.PEAK_MIN_HITS, metrics.PEAK_LIMIT],
         "SFX": [metrics.SFX_MAX_LEN, metrics.SFX_MAX_WORDS, metrics.SFX_MARK_MIN, sorted(metrics.SFX_SOFT), sorted(metrics.SFX_STOP),
                 metrics._SFX_TAIL.pattern, metrics._SOUND_WORD.pattern, metrics.SFX_MARK_RARE, metrics.SFX_MARK_NEW],
     }
