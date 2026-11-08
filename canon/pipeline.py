@@ -861,6 +861,19 @@ def validate_arc(plan: ArcPlan, total: int, start: int = 1) -> None:
         raise ValueError(f"구간이 {expected - 1}화에서 끝나요 (목표 {total}화)")
 
 
+def act_groups(acts: list[Act]) -> list[tuple[str, int, int]]:
+    """플롯 초안을 한 번에 받는 구간: (구간 이름들, 첫 화, 끝 화). 한 화를 함께 쓰는 구간(짧은 작품)은 한 묶음이다.
+    웹 작업 plots 와 프롬프트 놀이터의 '플롯 초안'이 같은 묶음을 쓴다."""
+    groups: list[list] = []
+    for a in sorted(acts, key=act_order):
+        if groups and a.start_ep <= groups[-1][2]:
+            groups[-1][0].append(a.name)
+            groups[-1][2] = max(groups[-1][2], a.end_ep)
+        else:
+            groups.append([[a.name], a.start_ep, a.end_ep])
+    return [("·".join(names), a, b) for names, a, b in groups]
+
+
 def draft_plots(llm: LLM, p: Project, start: int, end: int, note: str = "") -> PlotBatch:
     beats = p.beats()
     if not beats:

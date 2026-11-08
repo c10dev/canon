@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from . import prompts, research, store, usage
+from . import llm, prompts, research, store, usage
 from .schema import Project, PromptBackend, PromptRun, PromptSession, PromptSource, PromptTrial
 
 ID_RE = re.compile(r"^[0-9a-f]{8,32}$")
@@ -227,8 +227,9 @@ def restore(s: PromptSession, no: int) -> PromptSession:
 # ---------- Canon 프롬프트 불러오기 ----------
 
 EXAMPLE_TITLE = "예시 작품"
-# 예시 작품에서 갈래마다 조립하는 화. 1 · 2화는 본문을 쓰고 상태까지 반영했고, 3화는 플롯만 확정했다
-EXAMPLE_N = {"episode": 3, "plot": 3, "check": 2, "state": 2}
+# 예시 작품에서 갈래마다 조립하는 화. 1 · 2화는 본문을 쓰고 상태까지 반영했고, 3화는 플롯만 확정했고, 4~6화는 플롯 초안이다.
+# 여기 없는 갈래(작품 하나를 짜는 갈래, 플롯 초안)는 default_n 으로 정한다
+EXAMPLE_N = {"plot": 4, "storyboard": 3, "cue": 3, "episode": 3, "check": 2, "state": 2}
 _example: Optional[Project] = None
 
 
@@ -266,22 +267,63 @@ def _project(name: str) -> Project:
     return store.load(name)  # 읽기만 한다. 저장하지 않는다
 
 
+def kinds_for(p: Project) -> dict[str, prompts.BriefKind]:
+    """그 작품에 맞는 갈래. 장편에만 있는 갈래(부 구성)는 단편에서 뺀다."""
+    return {k: v for k, v in prompts.BRIEF_KINDS.items() if not v.form or (v.form == "serial") == p.serial}
+
+
+def _ready(e, need: str) -> bool:
+    return {"text": bool(e.text), "confirmed": e.status != "draft", "draft": e.status == "draft"}.get(need, True)
+
+
 def default_n(p: Project, kind: str) -> int:
-    """갈래마다 조립할 화의 기본값. 본문이 있어야 하는 갈래는 본문이 있는 마지막 화, 나머지는 본문이 없는 첫 화."""
-    nums = sorted(e.plot.number for e in p.episodes)
-    written = [e.plot.number for e in p.episodes if e.text]
-    if prompts.BRIEF_KINDS[kind][1]:
-        return max(written, default=0)
-    return next((n for n in nums if n not in written), nums[-1] if nums else 0)
+    """갈래마다 조립할 화의 기본값. 본문이 있어야 하는 갈래는 본문이 있는 마지막 화, 작품 하나를 짜는 갈래는 0,
+    플롯 초안은 초안이 든 첫 구간의 첫 화, 나머지는 본문이 없는 첫 화(확정이 있어야 하면 그 가운데 확정한 화)."""
+    k = prompts.BRIEF_KINDS[kind]
+    if k.scope == "work":
+        return 0
+    if k.scope == "act":
+        drafts = {e.plot.number for e in p.episodes if e.status == "draft"}
+        groups = groups_of(p)
+        return next((g["n"] for g in groups if any(g["n"] <= x <= g["end"] for x in drafts)), groups[0]["n"] if groups else 0)
+    eps = sorted(p.episodes, key=lambda e: e.plot.number)
+    if k.need == "text":
+        return max((e.plot.number for e in eps if e.text), default=0)
+    fresh = [e for e in eps if not e.text]
+    pick = next((e for e in fresh if _ready(e, k.need)), None)
+    if pick:
+        return pick.plot.number
+    ready = [e for e in eps if _ready(e, k.need)]
+    return ready[-1].plot.number if ready else 0
+
+
+def span(a: int, b: int) -> str:
+    return f"{a}화" if a == b else f"{a}~{b}화"
+
+
+def _default(p: Project, project: str, kind: str) -> int:
+    return EXAMPLE_N[kind] if not project and kind in EXAMPLE_N else default_n(p, kind)
+
+
+def groups_of(p: Project) -> list[dict]:
+    """플롯 초안 구간 목록. n 은 구간 첫 화(불러오기에 보내는 값)."""
+    if not p.beats():
+        return []
+    from . import pipeline
+
+    return [{"n": a, "end": b, "label": f"{names} 구간 {span(a, b)}"} for names, a, b in pipeline.act_groups(p.beats())]
 
 
 def sources(project: str = "") -> dict:
-    """불러오기 고르기 칸: 갈래 목록과 그 작품의 화(본문이 있는지)와 갈래별 기본 화."""
+    """불러오기 고르기 칸: 갈래 목록과 그 작품의 화(본문이 있는지, 플롯을 확정했는지) · 플롯 초안 구간과 갈래별 기본 화."""
     p = _project(project)
-    kinds = [{"id": k, "label": label, "needs_text": need} for k, (label, need) in prompts.BRIEF_KINDS.items()]
-    eps = [{"n": e.plot.number, "title": e.plot.title, "has_text": bool(e.text)} for e in sorted(p.episodes, key=lambda e: e.plot.number)]
-    defaults = EXAMPLE_N if not project else {k: default_n(p, k) for k in prompts.BRIEF_KINDS}
-    return {"project": project, "title": p.meta.title or project, "kinds": kinds, "episodes": eps, "defaults": defaults}
+    ks = kinds_for(p)
+    kinds = [{"id": k, "label": v.label, "need": v.need, "needs_text": v.need == "text", "scope": v.scope} for k, v in ks.items()]
+    eps = [{"n": e.plot.number, "title": e.plot.title, "has_text": bool(e.text), "confirmed": e.status != "draft"}
+           for e in sorted(p.episodes, key=lambda e: e.plot.number)]
+    defaults = {k: _default(p, project, k) for k in ks}
+    return {"project": project, "title": p.meta.title or project, "kinds": kinds, "episodes": eps, "groups": groups_of(p),
+            "defaults": defaults}
 
 
 def load_prompt(s: PromptSession, kind: str, project: str = "", n: int = 0) -> PromptSession:
@@ -289,19 +331,36 @@ def load_prompt(s: PromptSession, kind: str, project: str = "", n: int = 0) -> P
     if kind not in prompts.BRIEF_KINDS:
         raise ValueError(f"모르는 프롬프트 갈래예요: {kind}")
     p = _project(project)
-    n = n or (EXAMPLE_N[kind] if not project else default_n(p, kind))
-    try:
-        p.episode(n)
-    except KeyError:
-        raise ValueError(f"{n}화 플롯이 없어 프롬프트를 만들 수 없어요") from None
-    label, need = prompts.BRIEF_KINDS[kind]
-    if need and not p.episode(n).text:
-        raise ValueError(f"{n}화 본문이 없어 {label} 프롬프트를 만들 수 없어요")
+    k = prompts.BRIEF_KINDS[kind]
+    if kind not in kinds_for(p):
+        raise ValueError(f"{k.label} 프롬프트는 장편 연재 작품에서만 만들어요")
+    title = p.meta.title or project or EXAMPLE_TITLE
+    if k.scope == "work":
+        n, where = 0, ""
+    elif k.scope == "act":
+        n = n or _default(p, project, kind)
+        start, end = prompts.plots_range(p, n)
+        where = f" {span(start, end)}"
+    else:
+        n = n or _default(p, project, kind)
+        try:
+            ep = p.episode(n)
+        except KeyError:
+            raise ValueError(f"{n}화 플롯이 없어 프롬프트를 만들 수 없어요") from None
+        if k.need == "text" and not ep.text:
+            raise ValueError(f"{n}화 본문이 없어 {k.label} 프롬프트를 만들 수 없어요")
+        if k.need == "confirmed" and ep.status == "draft":
+            raise ValueError(f"{n}화 플롯을 확정하지 않아 {k.label} 프롬프트를 만들 수 없어요")
+        if k.need == "draft" and ep.status != "draft":
+            raise ValueError(f"{n}화는 플롯을 확정한 화라 {k.label} 프롬프트를 만들 수 없어요. 초안인 화를 고르세요")
+        where = f" {n}화"
     system, prompt = prompts.brief_parts(p, n, kind)
-    label = f"{prompts.BRIEF_KINDS[kind][0]} · {p.meta.title or project or EXAMPLE_TITLE} {n}화"
+    name = ("다음 아크" if p.serial else "기승전결 구조") if kind == "arc" else k.label
+    label = f"{name} · {title}{where}"
     if max(len(system), len(prompt)) > TEXT_MAX:
         raise ValueError(f"조립한 프롬프트가 {TEXT_MAX:,}자를 넘어 불러올 수 없어요. 앞쪽 화를 고르세요")
-    if s.title == title_of(s.prompt):  # 요청 첫 줄로 지은 제목이면 불러온 프롬프트 이름으로 (작가가 적은 제목은 남긴다)
+    auto = s.title == title_of(s.prompt) or (s.source and s.title == s.source.label[:TITLE_MAX])
+    if auto:  # 요청 첫 줄이나 앞서 불러온 이름으로 지은 제목이면 이번 프롬프트 이름으로 (작가가 적은 제목은 남긴다)
         s.title = label[:TITLE_MAX]
     s.system, s.prompt = system, prompt
     s.source = PromptSource(kind=kind, label=label, project=project, n=n, sig=sig(s.system, s.prompt))
@@ -323,5 +382,6 @@ def view(s: PromptSession) -> dict:
 
 
 def limits() -> dict:
+    """policy_note: Gemini · 로컬 백엔드가 보내기 직전에 요청 끝에 붙이는 한 줄(llm.with_note). 칸에는 넣지 않고 화면이 칸 아래에 보인다."""
     return {"providers": list(PROVIDERS), "max_backends": MAX_BACKENDS, "max_trials": MAX_TRIALS, "text_max": TEXT_MAX,
-            "temperature": list(TEMPERATURE)}
+            "temperature": list(TEMPERATURE), "policy_note": llm.POLICY_NOTE}

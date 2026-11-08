@@ -160,7 +160,8 @@ def test_gemini_gets_temperature_only_when_set(monkeypatch):
 def test_web_load(client):
     s = client.post("/api/promptlab", json={"backends": [{"provider": "mock"}]}).json()
     src = client.get("/api/promptlab/sources").json()
-    assert [k["id"] for k in src["kinds"]] == ["episode", "plot", "check", "state"] and src["defaults"]["check"] == 2
+    assert [k["id"] for k in src["kinds"]] == ["arc", "heat", "plots", "plot", "storyboard", "cue", "episode", "check", "state"]
+    assert src["defaults"]["check"] == 2
     assert client.get("/api/promptlab/sources?project=없는작품").status_code == 404
     v = client.post(f"/api/promptlab/{s['id']}/load", json={"kind": "check"}).json()
     assert v["source"]["kind"] == "check" and v["system"] and v["prompt"]
@@ -168,3 +169,113 @@ def test_web_load(client):
     v = client.post(f"/api/promptlab/{s['id']}/run", json={"system": v["system"], "prompt": v["prompt"], "backends": [{"provider": "mock"}]}).json()
     assert v["trials"][0]["source"]["label"].startswith("검수") and v["trials"][0]["source_edited"] is False
     assert client.post(f"/api/promptlab/{s['id']}/load", json={"kind": "check", "n": 5}).status_code == 400
+
+
+class _Seen:
+    """MockLLM 을 감싸 json 호출의 (시스템, 요청)을 남긴다."""
+
+    def __init__(self):
+        from canon.mock import MockLLM
+
+        self.llm, self.calls = MockLLM(), []
+
+    def __getattr__(self, name):
+        return getattr(self.llm, name)
+
+    def json(self, system, prompt, schema, hint=None):
+        self.calls.append((system, prompt))
+        return self.llm.json(system, prompt, schema, hint=hint)
+
+
+def _names_out(text):
+    """새 인물 이름 후보 줄은 부를 때마다 무작위로 뽑으므로 견주기에서 뺀다."""
+    return "\n".join(x for x in text.splitlines() if not x.startswith(("- 새 남자 인물 후보", "- 새 여자 인물 후보")))
+
+
+def _same_as_pipeline(p, kind, n, call):
+    """brief_parts 가 pipeline 이 보내는 첫 요청과 같은지 본다. 놀이터 쪽은 응답 스키마 글(## 출력 형식)이 끝에 더 붙는다."""
+    from canon import prompts
+
+    seen = _Seen()
+    call(seen)
+    system, prompt = prompts.brief_parts(p, n, kind)
+    assert "\n\n## 출력 형식\n" in prompt
+    assert (system, _names_out(prompt.split("\n\n## 출력 형식\n")[0])) == (seen.calls[0][0], _names_out(seen.calls[0][1]))
+
+
+def test_new_kinds_match_pipeline_short():
+    from canon import pipeline
+
+    p = promptlab.example_project()
+    for e in p.episodes[:2]:
+        e.status = "finalized"
+    _same_as_pipeline(p, "plots", 4, lambda llm: pipeline.draft_plots(llm, p, 4, 4))
+    _same_as_pipeline(p, "plots", 6, lambda llm: pipeline.draft_plots(llm, p, 5, 6))  # 구간 안 어느 화를 골라도 구간 전체
+    _same_as_pipeline(p, "plot", 4, lambda llm: pipeline.draft_episode(llm, p, 4))  # 한 화 플롯은 웹 작업 plot_one 과 같다
+    _same_as_pipeline(p, "storyboard", 3, lambda llm: pipeline.make_storyboard(llm, p, 3))
+    _same_as_pipeline(p, "cue", 3, lambda llm: pipeline.make_cue_sheet(llm, p, 3))
+    _same_as_pipeline(p, "arc", 0, lambda llm: pipeline.plan_arc(llm, p))
+    _same_as_pipeline(p, "heat", 0, lambda llm: pipeline.propose_heat(llm, p))
+    p.settings.heat_plan = True  # 열 계획을 켠 단편은 구조 요청에 열 계획 규칙이 붙는다
+    _same_as_pipeline(p, "arc", 0, lambda llm: pipeline.plan_arc(llm, p))
+
+
+def test_new_kinds_match_pipeline_serial():
+    from canon import pipeline
+    from canon.mock import MockLLM
+
+    llm = MockLLM()
+    p = promptlab.Project()
+    p.meta.title, p.meta.form, p.meta.target_episodes = "탑", "serial", 120
+    pipeline.apply_setup(p, pipeline.suggest_setup(llm, p))
+    _same_as_pipeline(p, "series", 0, lambda x: pipeline.plan_series(x, p))
+    pipeline.apply_series(p, pipeline.plan_series(llm, p))
+    _same_as_pipeline(p, "arc", 0, lambda x: pipeline.plan_next_arc(x, p))
+    a = pipeline.apply_arc(p, pipeline.plan_next_arc(llm, p))
+    _same_as_pipeline(p, "heat", 0, lambda x: pipeline.propose_heat(x, p))
+    g = pipeline.act_groups(a.acts)[1]
+    _same_as_pipeline(p, "plots", g[1], lambda x: pipeline.draft_plots(x, p, g[1], g[2]))
+    p.settings.heat_plan = True
+    _same_as_pipeline(p, "arc", 0, lambda x: pipeline.plan_next_arc(x, p))
+
+
+def test_new_kinds_sources_and_guards(home, monkeypatch, tmp_path):
+    from canon import store
+
+    info = promptlab.sources()
+    ids = [k["id"] for k in info["kinds"]]
+    assert ids == ["arc", "heat", "plots", "plot", "storyboard", "cue", "episode", "check", "state"]  # 단편에는 부 구성이 없다
+    assert {k["id"]: k["scope"] for k in info["kinds"]}["heat"] == "work" and info["defaults"]["arc"] == 0
+    assert [g["n"] for g in info["groups"]] == [1, 2, 4, 5] and info["groups"][0]["label"] == "기 구간 1화"
+    assert info["defaults"]["plots"] == 4  # 초안이 든 첫 구간
+    assert [e["confirmed"] for e in info["episodes"]] == [True, True, True, False, False, False]
+    s = promptlab.create(backends=[PromptBackend(provider="mock")])
+    promptlab.load_prompt(s, "arc")
+    assert s.source.label == "기승전결 구조 · 예시 작품" and s.source.n == 0
+    promptlab.load_prompt(s, "plots", n=6)
+    assert s.source.label == "플롯 초안 · 예시 작품 5~6화"
+    assert s.title == s.source.label  # 앞서 불러온 이름으로 지은 제목은 다음 불러오기 이름으로 바뀐다
+    s.title = "내 제목"
+    promptlab.load_prompt(s, "arc")
+    assert s.title == "내 제목"
+    with pytest.raises(ValueError, match="확정하지 않아"):
+        promptlab.load_prompt(s, "storyboard", n=4)
+    with pytest.raises(ValueError, match="초안인 화를 고르세요"):
+        promptlab.load_prompt(s, "plot", n=3)
+    with pytest.raises(ValueError, match="장편 연재"):
+        promptlab.load_prompt(s, "series")
+    monkeypatch.setattr(store, "ROOT", tmp_path / "projects")
+    q = promptlab.example_project()
+    q.episodes = q.episodes[:2]  # 3화 플롯이 없는 작품: 스토리보드 기본 화는 확정한 화 가운데 본문이 없는 화가 없으니 마지막 확정 화
+    store.save("짧은작품", q)
+    d = promptlab.sources("짧은작품")["defaults"]
+    assert d["storyboard"] == 2 and d["plots"] == 1 and d["check"] == 2
+
+
+def test_policy_note_is_shown_not_put_in_the_prompt(home):
+    from canon import llm
+
+    assert promptlab.limits()["policy_note"] == llm.POLICY_NOTE
+    s = promptlab.create(backends=[PromptBackend(provider="mock")])
+    promptlab.load_prompt(s, "episode")
+    assert llm.POLICY_NOTE not in s.prompt  # 백엔드가 보낼 때 붙인다. 칸에 넣으면 두 번 붙는다

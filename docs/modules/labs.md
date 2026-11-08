@@ -65,14 +65,21 @@
 - 세션마다 시도 `MAX_TRIALS` 개까지. 저절로 지우지 않고 막는다(`room`)
 - 되돌리기 `restore`: 그 시도의 프롬프트 · 온도 · 출처를 지금 칸으로. 백엔드는 그대로 둔다
 - 불러오기 `load_prompt`: Canon 프롬프트를 작업지시서와 같은 `prompts.brief_parts` 로 조립해 시스템 · 요청 칸에 채운다
+- 갈래는 `prompts.BRIEF_KINDS` 그대로다. 작품에 맞는 갈래만 `kinds_for` 로 고른다(부 구성은 장편만)
+- 고르는 단위(`BriefKind.scope`): 화, 플롯 초안 구간(`groups_of`, `pipeline.act_groups`), 작품 하나(구조 · 열 계획 · 부 구성, 화를 쓰지 않아 n 은 0)
+- 한 화 플롯은 플롯이 초안인 화만 조립한다(`pipeline.draft_episode` 와 같다)
+- 스토리보드 · 큐 시트는 플롯을 확정한 화만 조립한다(`pipeline` 과 같다). 앞 화가 끝났는지(`require_previous`)는 보지 않는다
 - 불러오기 재료는 예시 작품(`example_project`, mock LLM 으로 만든 저장하지 않는 6화 단편, 한 번 만들어 사본을 줌)이나 고른 작품(`store.load`, 읽기만)
-- 예시 작품은 1 · 2화에 본문과 상태 반영이 있고 3화는 플롯만 확정했다. 갈래마다 조립하는 화는 `EXAMPLE_N`
+- 예시 작품은 1 · 2화에 본문과 상태 반영이 있고 3화는 플롯만 확정했다. 갈래마다 조립하는 화는 `EXAMPLE_N`, 없는 갈래는 `default_n`
 - 고른 작품의 기본 화 `default_n`: 본문이 있어야 하는 갈래는 본문이 있는 마지막 화, 나머지는 본문이 없는 첫 화
+- 확정 · 초안이어야 하는 갈래는 본문이 없고 그 조건에 맞는 첫 화, 플롯 초안은 초안이 든 첫 구간
 - 불러온 출처 `PromptSource`(갈래 · 이름 · 작품 · 화 · 지문 `sig`)를 세션에 두고, 돌릴 때 시도에 옮긴다. 지문이 다르면 `source_edited`
 - 조립한 프롬프트가 `TEXT_MAX` 를 넘으면 자르지 않고 막는다
-- 제목이 요청 첫 줄로 지은 것이면 불러온 이름으로 바꾼다. 작가가 적은 제목은 남긴다
+- 제목이 요청 첫 줄이나 앞서 불러온 이름으로 지은 것이면 이번 불러온 이름으로 바꾼다. 작가가 적은 제목은 남긴다
 - 한 화 플롯 프롬프트의 새 인물 이름 후보(`prompts.new_cast_rule`)는 불러올 때마다 무작위로 바뀐다
-- 고르기 칸 재료 `sources`(갈래 · 화 목록 · 갈래별 기본 화)
+- 고르기 칸 재료 `sources`(갈래 · 화 목록 · 플롯 초안 구간 · 갈래별 기본 화)
+- `llm.POLICY_NOTE` 는 칸에 넣지 않는다. Gemini · 로컬 백엔드가 보낼 때 붙이므로(`llm.with_note`) 칸에 넣으면 두 번 붙는다
+- 대신 `limits` 가 `policy_note` 로 그 줄을 주고 화면이 요청 칸 아래에 보인다
 - 시험 `tests/test_promptlab.py`
 
 ### `canon/refs.py`
@@ -293,6 +300,9 @@
 - 칸은 `DRAFT_ROOTS.pgForm` 으로 묶고, 칸을 벗어날 때(change) 조용히 저장한다(`pgSave`). 돌리기는 칸을 함께 보낸다(`pgBody`)
 - 온도 칸이 비었거나 숫자가 아니면 설정 값(null)을 보낸다(`pgBody`)
 - 왼쪽 열 맨 위 불러오기 카드 `pgLoadCard`: 프롬프트 갈래 · 작품(예시 작품 또는 `S.projects`) · 화를 고르고 '불러오기'(`pgLoadPrompt`). 고르기 칸은 `S.pgSrc`(`pgSources`)
+- 화 고르기 칸 `pgSrcChoices`: 작품 하나를 짜는 갈래는 칸이 없고, 플롯 초안은 구간, 나머지는 그 갈래의 조건(본문 · 확정 · 초안)에 맞는 화만
+- 작품을 단편으로 바꿔 고른 갈래가 없으면 본문 쓰기로 돌아간다(`pgSources`)
+- 요청 칸 아래에 Gemini · 로컬이 보낼 때 붙이는 `POLICY_NOTE` 줄을 보인다(`S.pgLimits.policyNote`)
 - 칸에 글이 있으면 불러오기 전에 묻는다. 불러온 출처는 프롬프트 카드와 시도 카드에 칩으로 보인다(`pgSourceLabel`, 고쳤으면 '(고침)')
 - 시도 카드: 그 시도의 프롬프트(접힘), 지금 칸과 다른지(`pgDiff`), 백엔드마다 결과 카드 `pgRunCard`(초 · 글자 · 토큰 · 어림 비용 `usd`)
 - 시도 동작: 고르기 `pgStar` · 메모 `data-pg-note` · 되돌리기 `pgRestore` · 결과 복사 `pgCopy` · 지우기 `pgDrop`

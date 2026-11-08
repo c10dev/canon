@@ -9,7 +9,8 @@ DRAFT_ROOTS.pgForm = () => S.pgForm;
 async function pgLoad(id) {
   const home = await api('GET', '/promptlab');
   S.pgList = home.sessions;
-  S.pgLimits = { providers: home.providers, maxBackends: home.max_backends, maxTrials: home.max_trials, temperature: home.temperature };
+  S.pgLimits = { providers: home.providers, maxBackends: home.max_backends, maxTrials: home.max_trials, temperature: home.temperature,
+    policyNote: home.policy_note || '' };
   if (!id) { S.pg = null; S.pgForm = null; return; }
   pgSet(await api('GET', `/promptlab/${enc(id)}`));
   if (!S.pgSrc) await pgSources('').catch(() => {});  // 불러오기 칸을 못 읽어도 세션은 연다
@@ -18,8 +19,21 @@ async function pgLoad(id) {
 /** 불러오기 고르기 칸의 재료(갈래 · 화 목록)를 읽는다. project 가 비면 예시 작품. 갈래는 그대로 두고 화는 그 갈래의 기본 화로 */
 async function pgSources(project) {
   const info = await api('GET', `/promptlab/sources${project ? `?project=${enc(project)}` : ''}`);
-  const kind = (S.pgSrc && S.pgSrc.kind) || 'episode';
+  const want = (S.pgSrc && S.pgSrc.kind) || 'episode';
+  const kind = info.kinds.some((k) => k.id === want) ? want : 'episode';  // 단편으로 바꾸면 장편에만 있는 갈래(부 구성)는 없다
   S.pgSrc = { project, kind, n: info.defaults[kind] || 0, info };
+}
+
+/** 갈래에 맞는 '화' 고르기 칸 (순수 함수, tests/test_promptlab_js.py). scope work 는 칸이 없고(null), act 는 플롯 초안 구간,
+    episode 는 그 갈래의 조건(본문 · 확정 · 초안)에 맞는 화만. 옛 응답(needs_text 만 있음)도 읽는다 */
+function pgSrcChoices(info, kind) {
+  const scope = kind.scope || 'episode';
+  if (scope === 'work') return null;
+  if (scope === 'act') return { label: '구간', options: (info.groups || []).map((g) => ({ n: g.n, label: g.label })), empty: '기승전결 구조가 없어요' };
+  const need = kind.need ?? (kind.needs_text ? 'text' : '');
+  const ok = (e) => (need === 'text' ? e.has_text : need === 'confirmed' ? e.confirmed : need === 'draft' ? !e.confirmed : true);
+  const empty = { text: '본문이 있는 화가 없어요', confirmed: '플롯을 확정한 화가 없어요', draft: '플롯이 초안인 화가 없어요' }[need] || '플롯이 있는 화가 없어요';
+  return { label: '화', options: info.episodes.filter(ok).map((e) => ({ n: e.n, label: `${e.n}화${e.title ? ` · ${e.title}` : ''}${e.has_text ? '' : ' (본문 없음)'}` })), empty };
 }
 
 /** 서버가 돌려준 세션을 받는다. 고치던 칸이 있으면 서버 것으로 바꾼다 (저장 뒤에만 부르므로 잃는 고침은 없다). */
@@ -113,6 +127,7 @@ function pgForm() {
       ${input('제목', 'title', { ...o, placeholder: '비우면 요청 첫 줄로 지어요' })}
       ${input('시스템 프롬프트', 'system', { ...o, rows: 5, autogrow: true, placeholder: '모델의 역할 · 규칙. 비워도 돼요' })}
       ${input('요청 프롬프트', 'prompt', { ...o, rows: 8, autogrow: true, placeholder: '모델에게 보낼 요청' })}
+      ${lim.policyNote ? `<p class="small">Gemini · 로컬은 보낼 때 요청 끝에 이 한 줄을 붙여요. Canon의 모든 AI 요청에 붙는 줄이라 칸에는 넣지 않아요: <code>${esc(lim.policyNote)}</code></p>` : ''}
       <div class="small">시스템 ${(f.system || '').length.toLocaleString()}자 · 요청 ${(f.prompt || '').length.toLocaleString()}자 (한국어는 대략 1.7자에 1토큰)</div>
       ${input('온도', 'temp', { ...o, type: 'number', kind: 'text', placeholder: '비우면 설정 값', hint: `${lo}~${hi}, Gemini · 로컬에 적용` })}
       <h3>돌릴 백엔드</h3>${rows || '<p class="small">아직 백엔드가 없어요.</p>'}
@@ -129,15 +144,15 @@ function pgLoadCard() {
   const info = src.info;
   const works = (S.projects || []).filter((x) => !x.play);
   const kind = info.kinds.find((k) => k.id === src.kind) || info.kinds[0];
-  const eps = info.episodes.filter((e) => !kind.needs_text || e.has_text);
+  const pick = pgSrcChoices(info, kind);
   const opt = (v, label, on) => `<option value="${esc(String(v))}"${on ? ' selected' : ''}>${esc(label)}</option>`;
   return `<section class="card" id="pg-load">
       <div class="between"><h2>Canon 프롬프트 불러오기</h2></div>
-      <p class="small">집필 · 검수 같은 Canon 프롬프트를 작업지시서와 같은 방식으로 조립해 시스템 · 요청 칸에 채워요. 작품은 읽기만 해요.</p>
+      <p class="small">구조 · 플롯 · 스토리보드 · 큐 시트 · 집필 · 검수 같은 Canon 프롬프트를 실제로 보내는 글과 같게 조립해 시스템 · 요청 칸에 채워요. 작가의 요청 칸은 비워요. 작품은 읽기만 해요.</p>
       <div class="grid-2"><div class="field"><label for="pg-src-kind">프롬프트</label><select id="pg-src-kind" data-pg-src="kind">${info.kinds.map((k) => opt(k.id, k.label, k.id === src.kind)).join('')}</select></div>
         <div class="field"><label for="pg-src-project">작품</label><select id="pg-src-project" data-pg-src="project">${opt('', '예시 작품 (mock으로 만든 6화 단편)', !src.project)}${works.map((w) => opt(w.name, w.title || w.name, w.name === src.project)).join('')}</select></div></div>
-      <div class="field"><label for="pg-src-n">화</label><select id="pg-src-n" data-pg-src="n">${eps.length ? eps.map((e) => opt(e.n, `${e.n}화${e.title ? ` · ${e.title}` : ''}${e.has_text ? '' : ' (본문 없음)'}`, e.n === src.n)).join('') : opt(0, kind.needs_text ? '본문이 있는 화가 없어요' : '플롯이 있는 화가 없어요', true)}</select></div>
-      <div class="row"><button type="button" class="btn small primary" data-action="pgLoadPrompt"${eps.some((e) => e.n === src.n) ? '' : ' disabled title="화를 골라 주세요"'}>불러오기</button></div>
+      ${pick ? `<div class="field"><label for="pg-src-n">${pick.label}</label><select id="pg-src-n" data-pg-src="n">${pick.options.length ? pick.options.map((x) => opt(x.n, x.label, x.n === src.n)).join('') : opt(0, pick.empty, true)}</select></div>` : '<p class="small">작품 하나를 짜는 프롬프트라 화를 고르지 않아요.</p>'}
+      <div class="row"><button type="button" class="btn small primary" data-action="pgLoadPrompt"${!pick || pick.options.some((x) => x.n === src.n) ? '' : ` disabled title="고를 수 있는 항목이 없어요"`}>불러오기</button></div>
     </section>`;
 }
 

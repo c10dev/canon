@@ -3223,10 +3223,10 @@ class PromptBackend(BaseModel):
 
 class PromptSource(BaseModel):
     """프롬프트 놀이터에서 불러온 Canon 프롬프트의 출처 (prompts.brief_parts)."""
-    kind: str = Field(description="prompts.BRIEF_KINDS 열쇠: episode · plot · check · state")
+    kind: str = Field(description="prompts.BRIEF_KINDS 열쇠: series · arc · heat · plots · plot · storyboard · cue · episode · check · state")
     label: str = ""
     project: str = Field("", description="조립에 쓴 작품 폴더 이름. 비면 예시 작품(promptlab.example_project)")
-    n: int = 0
+    n: int = Field(0, description="조립한 화. 플롯 초안은 고른 구간 첫 화, 작품 하나를 짜는 갈래(구조 · 열 계획 · 부 구성)는 0")
     sig: str = Field("", description="불러온 시스템 · 요청 프롬프트의 지문. 지금 칸과 다르면 고친 것")
 
 
