@@ -3627,15 +3627,22 @@ def _audit_delta_lines(p: Project, d: StateDelta) -> str:
     """누락 검사에 넣는 변경안 줄임. 일곱 종류를 견줄 칸만 사람 말로 적는다."""
     nm = {c.id: c.name or c.id for c in p.characters} | {c.id: c.name or c.id for c in d.new_characters}
     out = [f"(참고) 요약: {d.summary or '없음'}"]
+    secrets = {s.id: s.content for s in [*p.secrets, *d.secrets_added]}
     out += [f"인물 상태 · {nm.get(u.character_id, u.character_id)}: " + " / ".join(x for x in (u.emotional_state, u.current_goal,
-            f"위치 {u.location}" if u.location else "", f"차림 {u.attire}" if u.attire else "", *(f"앎 {k}" for k in u.knows)) if x)
+            f"위치 {u.location}" if u.location else "", f"차림 {u.attire}" if u.attire else "", f"메모 {u.notes}" if u.notes else "",
+            *(f"앎 {k}" for k in u.knows)) if x)
             for u in d.character_updates]
     out += [f"관계 사건 · {nm.get(e.actor, e.actor)} → {nm.get(e.target, e.target)}: {e.kind}"
-            + (f" (드러난 비밀 {e.reveals_secret})" if e.reveals_secret else "") for e in d.events]
+            + (f" (드러난 비밀: {secrets.get(e.reveals_secret, e.reveals_secret)})" if e.reveals_secret else "") for e in d.events]
+    out += [f"관계 바뀜 · {nm.get(r.a, r.a)} ↔ {nm.get(r.b, r.b)}: {r.type} {r.description}".rstrip() for r in d.relationship_updates]
     out += [f"새 비밀 · {nm.get(s.owner, s.owner)}: {s.content}" for s in d.secrets_added]
     out += [f"새 사실: {f}" for f in d.new_facts]
     out += [f"새 장소: {x.name}" for x in d.new_places]
     out += [f"새 인물: {c.name or c.id}" for c in d.new_characters]
+    out += [f"기한: {k.what}{f' ({k.note})' if k.note else ''}" for k in d.deadlines_added]
+    out += [f"설정 바꾸기 · {nm.get(x.character_id, x.character_id)} {x.field}: {x.value}" for x in d.setting_changes]
+    out += [f"호칭 · 말씨 · {nm.get(x.speaker, x.speaker)} → {nm.get(x.listener, x.listener)}: {' '.join(v for v in (x.calls, x.speech) if v)}"
+            for x in d.address_changes]
     return "\n".join(out)
 
 
@@ -3650,7 +3657,7 @@ def audit_prompt(p: Project, n: int, d: StateDelta) -> str:
 {_audit_delta_lines(p, d)}
 
 요구사항:
-- 본문에서 실제로 일어났는데 위 변경안의 칸 줄(인물 상태 · 관계 사건 · 새 비밀 · 새 사실 · 새 장소 · 새 인물)에 적히지 않은 것을 items 에 넣습니다. '(참고) 요약'에만 나오는 일은 칸에 없으니 빠진 것입니다. 칸 줄에 말만 달리 적혀 있으면 빠진 것이 아닙니다.
+- 본문에서 실제로 일어났는데 위 변경안의 칸 줄(인물 상태 · 관계 사건 · 관계 바뀜 · 새 비밀 · 새 사실 · 새 장소 · 새 인물 · 기한 · 설정 바꾸기 · 호칭 · 말씨)에 적히지 않은 것을 items 에 넣습니다. '(참고) 요약'에만 나오는 일은 칸에 없으니 빠진 것입니다. 칸 줄에 말만 달리 적혀 있으면 빠진 것이 아닙니다.
 - 관계 사건은 두 인물 사이에 도움 · 배신 · 고백 · 다툼 · 약속처럼 관계를 움직인 일입니다. 관계 사건 줄에 그 두 사람의 사건이 없으면 빠진 것입니다.
 - kind 는 {", ".join(AUDIT_KINDS)} 가운데 하나입니다. 이 일곱 가지 밖의 것(감정 변화, 분위기, 사소한 행동)은 넣지 않습니다.
 - 장소 이동은 인물이 다른 장소로 옮겨 가 화가 끝날 때 위치가 바뀌었는데 그 인물의 인물 상태 줄에 위치가 없거나 다른 것, 소지품은 뒤 화까지 이어질 물건을 얻거나 잃은 것, 부상은 뒤 화까지 남을 상처입니다.

@@ -1261,6 +1261,7 @@ def carried_delta(p: Project, n: int) -> StateDelta | None:
     if src is None or old is None or src.text != p.episode(n).text:
         return None
     d = old.model_copy(deep=True, update={"episode": n})
+    drop_audit_warnings(d)
     for e in [*d.events, *d.dismissed.events]:  # 빼 둔 항목(dismissed)도 번호를 맞춘다
         e.episode = n
     for f in [*d.foreshadow_planted, *d.dismissed.foreshadow_planted]:
@@ -4102,6 +4103,14 @@ def extract_state(llm: LLM, p: Project, n: int, audit: LLM | None = None) -> Sta
 
 AUDIT_MARK = "[누락 의심]"  # 누락 검사 경고의 머리. 자동 집필 정책은 이 경고를 따로 센다 (autorun.Policy.stop_on_audit)
 AUDIT_MAX = 6
+AUDIT_QUOTE_MIN = 8  # 띄어쓰기 · 문장 부호를 뺀 인용 글자 수 하한. '그는' 같은 짧은 인용은 어디에나 있어 근거가 못 된다
+
+
+def drop_audit_warnings(d: StateDelta) -> None:
+    """누락 검사 경고를 warn_to 와 함께 뺀다. 옛 본문 기준의 누락 의심을 다시 쓰는 변경안(carried_delta · 반영 취소)에 남기지 않는다."""
+    features.align_warn_to(d)
+    keep = [i for i, w in enumerate(d.warnings) if not w.startswith(AUDIT_MARK)]
+    d.warnings, d.warn_to = [d.warnings[i] for i in keep], [d.warn_to[i] for i in keep]
 
 
 def audit_delta(llm: LLM, p: Project, n: int, d: StateDelta) -> list[str]:
@@ -4119,7 +4128,7 @@ def audit_delta(llm: LLM, p: Project, n: int, d: StateDelta) -> list[str]:
     out: list[str] = []
     for x in rep.items:
         q = x.quote.strip().strip("«»")
-        if not q or not x.missing.strip() or not findings.in_text(text, q):
+        if len(foreshadows.norm(q)) < AUDIT_QUOTE_MIN or not x.missing.strip() or not findings.in_text(text, q):
             continue
         w = f"{AUDIT_MARK} {x.kind}: {x.missing.strip()} «{q}»"
         if w not in out and w not in d.warnings:

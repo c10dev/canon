@@ -9,8 +9,8 @@ from .schema import AuditItem, AuditReport
 
 @responds(AuditReport)
 def _audit(prompt: str, hint: dict) -> AuditReport:
-    """hint: text(n화 본문). 본문 첫 문장을 장소 이동 누락으로, 본문에 없는 문장 하나를 소지품 누락으로 낸다(버려지는지 보게)."""
-    first = next((s for s in re.split(r"(?<=[.!?])\s+", hint.get("text", "")) if s.strip()), "")
+    """hint: text(n화 본문). 본문 앞 두 문장을 장소 이동 누락으로, 본문에 없는 문장 하나를 소지품 누락으로 낸다(버려지는지 보게)."""
+    first = " ".join([s for s in re.split(r"(?<=[.!?])\s+", hint.get("text", "")) if s.strip()][:2])
     if not first:
         return AuditReport()
     return AuditReport(items=[AuditItem(kind="장소 이동", missing="인물이 다른 곳으로 옮겼는데 위치가 그대로예요", quote=first),

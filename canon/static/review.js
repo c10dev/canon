@@ -343,18 +343,22 @@ const rvWide = () => !(typeof window !== 'undefined' && window.matchMedia && mq(
 
 /** 경고를 인물 줄에 붙인다. names · ids: character_updates 순서의 인물 이름 · id. 값은 경고 번호.
     프로그램 경고는 대상 인물 id 를 warnTo(StateDelta.warn_to, warnings 와 같은 차례)에 적는다 (statwin · travel · attire, features.clean).
-    대상이 없거나 그 인물 줄이 없으면(AI 경고, 예전 변경안) 경고 글이 인물 이름으로 시작할 때 그 인물 줄(by[i]), 아니면 '본문 점검'(rest) */
+    대상이 없거나 그 인물 줄이 없으면(AI 경고, 예전 변경안) 경고 글이 인물 이름으로 시작할 때 그 인물 줄(by[i]), 아니면 '본문 점검'(rest).
+    누락 검사 경고('[누락 의심]', pipeline.AUDIT_MARK)는 본문이 아니라 변경안에 빠진 것이라 따로 모은다(audit) */
+const RV_AUDIT = '[누락 의심]';
 function rvWarnSplit(warnings, names, warnTo = [], ids = []) {
   const order = names.map((nm, i) => [String(nm || '').trim(), i]).filter(([nm]) => nm.length >= 2).sort((a, b) => b[0].length - a[0].length);
   const by = {};
   const rest = [];
+  const audit = [];
   (warnings || []).forEach((w, k) => {
+    if (String(w).startsWith(RV_AUDIT)) return audit.push(k);
     const to = (warnTo || [])[k] ? ids.indexOf(warnTo[k]) : -1;
     const hit = to >= 0 ? [null, to] : order.find(([nm]) => String(w).trim().startsWith(nm));
     if (hit) (by[hit[1]] = by[hit[1]] || []).push(k);
     else rest.push(k);
   });
-  return { by, rest };
+  return { by, rest, audit };
 }
 
 /** 경고 한 줄과 본문에서 그 문장 고르기 · AI에게 고치기, 고치는 중 · AI가 고침 표시 (passage.js warnTools · warnPick, k 는 d.warnings 번호) */
@@ -540,10 +544,11 @@ function reviewPanel(n) {
     addressDeltaRows(n, d, box),
     newChars,
     d.foreshadow_resolved.map((id, i) => (knownFs(id) ? '' : resolvedRow(id, i))).join(''),
+    warns.audit.length ? `<div class="change rv-check"><span class="rv-bang" aria-hidden="true">!</span><div class="body"><div class="rv-row-head"><strong class="rv-name">변경안 누락 의심</strong><span class="small">본문에는 있는데 변경안에 없어 보여요. 맞으면 위 칸에 직접 더하세요</span></div>${warns.audit.map((k) => `<div class="rv-warnline"><span>${esc(d.warnings[k])}</span>${warnTools(n, k, d.warnings[k], false, true)}</div>`).join('')}</div></div>` : '',
     warns.rest.length ? `<div class="change rv-check"><span class="rv-bang" aria-hidden="true">!</span><div class="body"><div class="rv-row-head"><strong class="rv-name">본문 점검</strong><span class="small">반영과 따로, 본문을 고칠지 봐요</span></div>${warns.rest.map((k) => rvWarnLine(n, d.warnings[k], k)).join('')}</div></div>` : '',
   ].join('');
   const decideCount = charIdx.filter(decideChar).length + (d.setting_changes || []).length + (d.address_changes || []).length + (d.new_characters || []).length
-    + d.foreshadow_resolved.filter((id) => !knownFs(id)).length + (warns.rest.length ? 1 : 0);
+    + d.foreshadow_resolved.filter((id) => !knownFs(id)).length + (warns.rest.length ? 1 : 0) + (warns.audit.length ? 1 : 0);
   const decide = decideRows ? `<section class="card rv-card rv-decide" aria-labelledby="rv-decide-h"><div class="rv-card-head"><h2 id="rv-decide-h">직접 정할 것 <span class="chip warn">${decideCount}</span></h2><span class="small">AI가 혼자 정하지 않는 것과 경고가 붙은 것이에요</span></div>${decideRows}</section>` : '';
 
   const sum = `<section class="card rv-card"><div class="rv-card-head"><h2><label for="dsum">${n}화 요약</label></h2><span class="small"><span id="dsum-count">${d.summary.length.toLocaleString()}</span>자 · 다음 화를 쓸 때 이 요약이 들어가요</span></div>

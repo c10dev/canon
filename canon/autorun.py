@@ -461,6 +461,8 @@ def estimate(p: Project, target: int, batch: bool, policy: Policy, name: str | N
             missing.append(n)
             continue
         calls = [("state", prompts.SYSTEM_EDITOR, prompts.state_prompt(sim, n), JSON_OUTPUT_RESERVE)]
+        if sim.settings.state_audit:  # 누락 검사 한 번: 본문 + 변경안 줄임. 상태 변경안 단계 값으로 어림한다 (audit 모델이 더 싸면 넘게 잡힘)
+            calls.append(("state", prompts.SYSTEM_EDITOR, prompts.audit_prompt(sim, n, StateDelta(episode=n, summary="")) + " " * 1500, JSON_OUTPUT_RESERVE))
         if policy.check:
             calls.append(("check", prompts.SYSTEM_CHECKER, prompts.check_prompt(sim, n, sized=True), JSON_OUTPUT_RESERVE))
             if sim.serial and sim.settings.check_widen:  # 검수 넓히기: 진술 뽑기 + 다시 묻기 (근거는 진술마다 다 찬다고 본다)

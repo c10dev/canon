@@ -13,8 +13,9 @@
 - 스토리보드 · 큐 시트는 `board` 단계 모델로 부르고 배치로 보내지 않는다. 비용 추정 `calls` 의 키도 `board` 다
 - 옛 실행 로그의 스토리보드 단계 `plan` 은 `_measured` 가 `board` 로 읽는다
 - 관계 정책(`max_shift` · `stop_on_stage`)은 작품 복사본에 `features.hold` 로 뺀 변경안을 반영해 본다(`review_reasons`)
-- 변경안 경고 멈춤(`Policy.stop_on_warnings`)은 누락 검사의 '[누락 의심]' 경고를 세지 않는다. 그 경고는 `Policy.stop_on_audit`(기본 꺼짐)가 따로 본다
 - 그래서 관계 정책은 실제 반영(`put`)과 같은 제안만 센다
+- 변경안 경고 멈춤(`Policy.stop_on_warnings`)은 누락 검사의 '[누락 의심]' 경고를 세지 않는다. 그 경고는 `Policy.stop_on_audit`(기본 꺼짐)가 따로 본다
+- 비용 · 시간 추정(`estimate`)은 누락 검사를 켠 작품에서 상태 변경안 호출을 화마다 하나 더 센다(상태 변경안 단계 값으로 어림)
 - 이야기 데이터 정책은 `_story_reasons` 가 본다. 모두 기본으로 꺼져 있어(0 · false) 켜기 전과 같이 돈다
 - 새 인물 멈춤(`Policy.stop_on_new_characters`, `StateDelta.new_characters`)
 - 새 비밀 멈춤(`Policy.stop_on_secrets`, `StateDelta.secrets_added`)
@@ -227,7 +228,7 @@
 - 사람 검토 없이 반영할 때(자동 집필 · `run -y` · 플레이)는 `hold`(`HOLD`)가 작가가 골라야 하는 제안을 빼서 남겨 둔다. 관계 단계와 반대인 유형 바뀜(`pace.hold`)은 남기지 않고 빼서 경고에 적는다
 - 정리 훅 `_near_facts` 는 이미 있는 확정 사실과 비슷한 새 사실을 `StateDelta.fact_near`(새 사실, 옛 사실)에 적는다. 경고는 내지 않는다
 - `_near_facts` · `_hold_near_facts` 는 장편만 본다. 단편은 표시도 빼기도 하지 않는다
-- 정리 훅 `_untag_facts` 는 새 사실이 따라 적은 '(n화)' 표시(`context.FACT_TAG`)를 뗀다. 비슷한 사실 보기 전에 돈다
+- 정리 훅 `_untag_facts` 는 새 사실이 따라 적은 '(n화)' 표시(`context.FACT_TAG`)를 뗀다. 비슷한 사실 보기 전에 돈다. 장편만 본다
 - HOLD 훅 `_hold_near_facts` 는 그 새 사실을 `d.dismissed.new_facts` 로 옮기고 경고에 적는다. 작가는 반영 기록에서 나중에 넣는다(`pipeline.take_dismissed_fact`)
 - 상태를 가진 기능을 더할 때는 `pipeline.py` 를 고치지 않고 기능 모듈에 훅을 두고 이 목록에 넣는다(목록 순서가 부르는 순서)
 - LLM 호출 없음
@@ -281,6 +282,9 @@
 - `audit_delta` 는 n화 본문과 변경안 줄임(`prompts.audit_prompt`)을 넣고 `AuditReport` 를 받는다. 종류는 비밀 공개 · 관계 사건 · 약속 · 부상 · 정체 공개 · 장소 이동 · 소지품
 - `audit_delta` 는 본문에서 찾을 수 없는 인용(`findings.in_text`)을 버리고 `AUDIT_MAX`(6)개까지 '[누락 의심]'(`AUDIT_MARK`) 경고로만 붙인다. `warn_to` 는 "" 로 차례를 맞춘다
 - `audit_delta` 는 변경안 칸을 바꾸지 않고, 실패하면 경고 없이 넘어간다. 반영 기록에서 돌아온 변경안(`carried_delta`)은 다시 보지 않는다
+- 띄어쓰기 · 문장 부호를 뺀 인용이 `AUDIT_QUOTE_MIN`(8)자보다 짧으면 버린다
+- 다시 쓰는 변경안(`carried_delta`, 반영 취소 `web._revert_kept`)은 옛 '[누락 의심]' 경고를 뺀다(`drop_audit_warnings`)
+- 배치 자동 집필에서도 누락 검사는 실시간 호출이다(상태 변경안만 배치). 사용량에는 그대로 잡힌다
 - 작업지시서(`brief`, 채팅 앱) 경로에는 누락 검사가 없다
 - 결정은 검수 프롬프트에 넣지 않는다
 - LLM 호출 없음

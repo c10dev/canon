@@ -4260,6 +4260,8 @@ def _revert_kept(p: Project, n: int) -> dict:
         if e is None:
             continue
         key = f"state:{m}"
+        d = d.model_copy(deep=True)
+        pipeline.drop_audit_warnings(d)  # 옛 누락 의심은 다시 놓을 때 빼고 고른다 (자동 집필 stop_on_audit 가 그것 때문에 멈추지 않게)
         out[key] = {"key": key, "id": f"revert:{at}:{m}", "kind": "state", "ep": m, "label": f"{m}화 상태 변경안",
                     "result": d.model_dump(), "base": e.final_text or e.text, "at": at}
     return out

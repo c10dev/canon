@@ -498,6 +498,7 @@
   - 오른쪽 직접 정할 것 · 요약 · 그대로 반영할 것(갈래 접기 `S.rvOpen`, 고른 수 `rvKeyCount`) · 관계 계산
   - 관계 사건 종류 고르기는 색(`kindStyle`) 옆에 칩 `kindTag`(＋ 좋은 사건 · － 나쁜 사건, 기호는 `aria-hidden`)을 둔다. 종류를 바꾸면 칩도 맞춘다
   - 경고를 인물 줄에 붙이기 `rvWarnSplit`
+  - '[누락 의심]' 경고는 `rvWarnSplit` 이 따로 모아(`audit`) '변경안 누락 의심' 줄에 둔다. 본문을 고칠 일이 아니라 '이 문장 고르기'만 둔다(`warnTools` 의 `pickOnly`)
   - 경고 줄 `rvWarnLine` 의 버튼과 고치는 중 · 'AI가 고침' 표시는 `passage.js` `warnTools`
   - 대상 인물 id(`StateDelta.warn_to`)가 있으면 그 인물 줄, 없으면(AI 경고 · 예전 변경안) 인물 이름으로 시작하는지로 붙인다
   - 인물 칸 그 자리에서 펴기 `rvOpen`
