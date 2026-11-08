@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Callable
 
-from . import address, attire, cast, charlog, elements, foreshadows, knows, naming, pace, statwin, timeline
+from . import address, attire, cast, charlog, elements, foreshadows, knows, naming, pace, stateedit, statwin, timeline
 from .maps import travel
 from .schema import Project, Snapshot, StateDelta
 
@@ -91,7 +91,8 @@ APPLY_LAST: tuple[Callable[[Project, StateDelta], None], ...] = (foreshadows.app
 REVERT_FIRST: tuple[Callable[[Project, int, Snapshot], None], ...] = (_unregister_places, _revert_two(cast.revert))
 # 되돌리기: 스냅샷으로 덮고 반영 기록을 자른 뒤
 REVERT_LAST: tuple[Callable[[Project, int, Snapshot], None], ...] = (
-    _revert_two(foreshadows.revert), _revert_two(statwin.revert), _revert_timeline, _revert_two(charlog.revert), _revert_two(address.revert), _revert_two(knows.revert))
+    _revert_two(foreshadows.revert), _revert_two(statwin.revert), _revert_timeline, _revert_two(charlog.revert), _revert_two(address.revert), _revert_two(knows.revert),
+    _revert_two(stateedit.revert))
 # 사람 검토 없이 반영하기 전 (자동 집필 · run -y · 플레이): 작가가 골라야 바뀌는 제안을 빼서 남겨 둔다. 남긴 개수를 센다
 HOLD: tuple[Callable[[Project, StateDelta], int], ...] = (charlog.hold, address.hold, pace.hold)
 

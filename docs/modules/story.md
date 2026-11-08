@@ -382,6 +382,18 @@
 - 프롬프트는 `prompts.setup_chat_prompt`
 - 명령줄 `setupchat`
 
+### `canon/stateedit.py`
+
+- 반영 뒤 지금 상태 고치기: 작가가 인물의 감정 · 목표 · 위치 · 차림(`FIELDS`)을 상태 반영 뒤에도 고친다(`set_state`)
+- 고친 것은 마지막으로 반영한 화(`statwin.last_done`)의 작가 기록(`Project.state_log`: 화, 칸, 반영 값, 고친 값)으로 남기고 그 화 스냅샷도 맞춘다(`dynamics.take_snapshot`, `statwin.set_stats` 와 같은 방식)
+- 같은 화 뒤에 같은 칸을 또 고치면 한 기록으로 합치고, 반영 값으로 돌아오면 기록을 지운다. 그래서 기록이 있으면 마지막 반영 값과 다르다
+- 1화를 반영하기 전에는 1화 시작 전(0화) 상태를 고치고 0화 기록으로 남긴다. 스냅샷 0 은 있을 때만 맞춘다(없으면 첫 반영이 고친 값으로 만든다)
+- 화 되돌리기는 n화 뒤 기록을 자르기만 한다(`revert`, features 훅 `REVERT_LAST`). n화 뒤 기록을 n화로 옮기지 않는다: 지금 상태는 그 화 시점에만 맞아 뒤 화 상태가 앞 화 프롬프트에 들어간다
+- 아는 정보 · 메모 · 상태창 수치(`statwin`) · 관계 수치(`수동보정` 사건)는 다루지 않는다
+- 웹 `PUT /api/projects/{name}/state/{cid}`(빠진 칸은 그대로, 빈 글은 비움)
+- 화면은 `static/cast.js` 의 지금 상태 카드
+- LLM 호출 없음
+
 ### `canon/static/abilities.js`
 
 - 스킬 도감 화면(사이드바 도구, 공용 목차 틀 `outline.js`)
@@ -462,6 +474,9 @@
 - 관계도 온기 다섯 단계 선 색은 `WARMTH_BANDS`(적대 `--warm-hostile`, 반감 `--bad`, 무덤덤 `--warm-mid`, 호감 `--good`, 아낌 `--warm-deep`)
 - 인물 쪽 `castCharPage`
   - 머리 `castHead` · 보는 시점의 상태 · 상태창 수치(바뀐 양 `castStatDelta`, 카드 | 시스템 창 보기는 localStorage, 창 모양은 작품 스킨 `stat_window.skin`) · 관계 줄 `castSheetRels`(온기 막대 `castMeter`) · 비밀 · 설정과 남겨 둔 제안 · 읽기 먼저인 'AI · 서술 · 신체 · 삽화' 카드 `castEditCard`
+    - 지금 상태 카드 `castSheetState` 는 마지막 시점에서만 '고치기'를 보인다(`S.castStateEdit`, 저장 `castStateSave` → `PUT …/state/<인물>`)
+    - 고친 칸(`castStateLog`: 그 시점 화의 `state_log` 기록)은 '직접 고침'과 반영 값을 보이고, 마지막 시점이면 되돌리기 `castStateUndo` 로 반영 값을 다시 보낸다
+    - 지금 상태 저장 · 되돌리기는 저장하지 않은 작품 변경을 먼저 저장한다(뒤에 저장하면 옛 상태로 덮는다)
     - 상태창 칸 모양은 `statwin.js` `swStatsBody` 와 같이 쓴다
     - 고치기 `S.castEdit`: AI에 넣기 `charContextField` · 서술 말투 `plot.js` `voiceField` · 신체 프로필 `bodyFields` · 삽화 외형 태그 `illust.js` `visualFields`
     - AI 제안 동작은 `research.js` `bodyAI`

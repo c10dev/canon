@@ -36,7 +36,7 @@ from .llm import BadKey, GeminiLLM, LocalLLM, MissingKey, explain_error, get_llm
 from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록)
 from .schema import (Ability, ArcPlan, BodySuggestion, StatInitSuggestion, StatSkin, StatWindowSuggestion, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
-from . import abilities, anchor, atlas, findings, foreshadows, heatplan, setupchat, stattrial, statwin, timeline
+from . import abilities, anchor, atlas, findings, foreshadows, heatplan, setupchat, stateedit, stattrial, statwin, timeline
 from .schema import AgentSession, ChatScope, HeatArcProposal, KnowsFoldSet, Deadline, Storyboard, StoryTime, Foreshadow, StatValue
 from .metrics import StyleMetrics
 from .schema import CharacterState, ConsistencyReport, FindingStatus, Severity, StoryEvent
@@ -1176,6 +1176,7 @@ def _put_locked(name: str, p: Project, disk: Project, response: Response, merged
     _keep_spots(disk, p)
     # 설정 변경 기록과 남겨 둔 제안은 화면이 직접 고치지 않는다. 디스크 것에 이번 저장이 고친 인물 설정만 작가 기록으로 더한다
     p.setting_log, p.setting_held = disk.setting_log, disk.setting_held
+    p.state_log = disk.state_log  # 지금 상태를 고친 기록은 /state 라우트만 고친다
     p.address_forms, p.address_log, p.address_held = disk.address_forms, disk.address_log, disk.address_held  # 호칭 · 말씨는 /address 라우트만 고친다
     p.agent_sessions = disk.agent_sessions  # 대화 세션은 대화 라우트와 에이전트 작업만 고친다 (화면의 옛 사본이 덮지 않게)
     charlog.record_author(disk, p)
@@ -4834,6 +4835,27 @@ def foreshadow_prune(name: str) -> Project:
     _not_auto(name)
     foreshadows.prune(p)
     return _save(name, p)
+
+
+# ---------- 반영 뒤 지금 상태 고치기 (canon/stateedit.py) ----------
+
+class StateIn(BaseModel):
+    """고칠 칸만 보낸다. 빠진 칸(None)은 그대로, 빈 글은 칸을 비운다."""
+    emotional_state: str | None = None
+    current_goal: str | None = None
+    location: str | None = None
+    attire: str | None = None
+
+
+@app.put("/api/projects/{name}/state/{cid}")
+def state_set(name: str, cid: str, body: StateIn) -> Project:
+    """작가가 인물의 지금 상태(감정 · 목표 · 위치 · 차림)를 고친다. 마지막으로 반영한 화의 작가 기록으로 남고 그 화 스냅샷도 맞춘다.
+    반영 값으로 돌려 보내면 기록이 지워진다 (화면의 되돌리기 단추). 자동 집필이 도는 중이면 막는다."""
+    _not_auto(name)
+    with jobs.project_lock(name):
+        p = _load(name)
+        stateedit.set_state(p, cid, body.model_dump())
+        return _save_locked(name, p)
 
 
 # ---------- 상태창 (canon/statwin.py) ----------

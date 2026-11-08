@@ -486,6 +486,7 @@
 
 - 단편을 씨앗으로 장편 앞부분을 다시 짜는 재구성(웹 `rebuild` 작업)
 - 재구성은 상태 · 관계와 함께 상태창 · 설정 바꾸기 · 호칭 · 말씨 기록도 1화 전으로 돌린다(`statwin` · `charlog` · `address.revert(p, 0)`)
+- 재구성은 반영 뒤 지금 상태를 고친 기록도 1화 전 것만 남긴다(`stateedit.revert(p, 0)`)
 - `pipeline.py` 에서 옮긴 구역이다. `pipeline` 맨 끝의 `_attach_split` 이 `EXPORTS` 의 이름을 `pipeline` 에도 둬서 `pipeline.<이름>` 으로 그대로 부른다
 
 ### `canon/schema.py`
@@ -675,6 +676,8 @@
 - `GET /api/projects/{name}/episodes?nums=3,4` 는 고른 화와 `etag` · `edit_rev` · `saved_by` · 나머지 판(`rest`) · 모든 화 번호(`numbers`)만 돌려준다(`get_episodes`, 50화까지)
 - `GET /` 는 index.html 의 `/static/*.js` 태그를 내용 해시가 붙은 묶음 하나(`/bundle/<해시>.js`, 오래 캐시)로 바꿔 보낸다(`_bundle`). 파일을 고치면 해시가 바뀐다
 - 화면의 작품 저장은 `PATCH /api/projects/{name}`(`ProjectPatch`): 바뀐 최상위 칸만 받고 보내지 않은 칸은 디스크 것을 쓴다. 그 뒤는 `put_project` 와 같다
+- 작품 저장(PUT · PATCH)은 지금 상태를 고친 기록(`state_log`)을 디스크 것으로 둔다. 그 기록은 `PUT /api/projects/{name}/state/{cid}`(`state_set`, `stateedit.set_state`)만 고친다
+- `state_set` 은 자동 집필이 도는 중이면 막고(`_not_auto`), 프로젝트 잠금 안에서 읽고 저장한다
 - PATCH 의 `episodes` 에서 `{"$same": 화}` 는 디스크의 그 화다. 디스크에 없는 화면 409
 - 작품 저장(PUT · PATCH)은 디스크 읽기 · `edit_rev` 충돌 검사 · 디스크 칸 지키기 · 저장을 한 번의 `jobs.project_lock` 안에서 한다(`_put_locked` · `_patch_locked`)
 - 잠금은 재진입하지 않는다. 잠금을 잡은 채 저장하는 코드는 `_save` 대신 `_save_locked` 를 부른다
