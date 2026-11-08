@@ -30,6 +30,10 @@ def test_episode_prompt_has_opening_rules(client):
     assert "초반 규칙" in prompts.episode_prompt(p, 3)
     fourth = prompts.episode_prompt(p, 4)
     assert "초반 규칙" not in fourth and "직전 화 마지막 장면" in fourth
+    # 4화부터는 이미 나온 설정 · 지난 사건을 다시 설명하지 않는 줄이 붙는다. 1~3화는 초반 규칙이 다룬다
+    assert prompts.RETOLD_LINE in fourth
+    assert prompts.RETOLD_LINE not in first and prompts.RETOLD_LINE not in prompts.episode_prompt(p, 3)
+    assert fourth.index(prompts.RETOLD_LINE) > fourth.index("4화 본문을 약")  # 요청 글 안, 자료 블록 뒤
     # 바뀌지 않는 블록이 앞에 그대로 있어 캐시가 맞는다
     assert first.startswith(prompts.static_context(p)) and fourth.startswith(prompts.static_context(p))
     # 플롯 생성은 1~3화를 포함할 때만 초반 규칙을 붙인다

@@ -1,4 +1,4 @@
-"""설정 도우미(static/setup.js)의 josa · composeLogline · loglineChecks · toneText 가 logline.josa · compose · checks · tone_text 와 같은지.
+"""화면 공용 josa(static/app.js)와 설정 도우미(static/setup.js)의 composeLogline · loglineChecks · toneText 가 logline.josa · compose · checks · tone_text 와 같은지.
 node 가 있을 때만 돈다. Swift 앱(FeatureSetup/Logline.swift)은 여기서 보지 않는다."""
 import itertools
 
@@ -10,7 +10,8 @@ from canon.schema import LoglineParts, ToneDials
 from .jsvm import dump, needs_node, run_js
 
 WORDS = ["서윤", "서진이", "손님2", "손님3", "벽10", "AI", "로봇 X", "  도현  ", "", "   ", "강", "가", "힣", "각",
-         "R2-D2", "007", "주인공(17)", "🗡️", "１", "ㄱ", *(f"방{d}" for d in "0123456789")]
+         "R2-D2", "007", "주인공(17)", "🗡️", "１", "ㄱ", *(f"방{d}" for d in "0123456789"),
+         "서울", "칼", "반영 완료", "'서윤'", "「검」", "“바다”", "『서울』", "''", "'", "0.43", "Canon'"]
 JOSA = [("이", "가"), ("을", "를"), ("은", "는"), ("과", "와"), ("으로", "로")]
 
 PARTS = [

@@ -315,9 +315,9 @@ function agentApproval(t, i, last) {
   const kinds = a.kinds.map((k) => AGENT_KINDS[k] || k).join(' · ');
   return `<div class="approval${wait ? '' : ' settled'}">
     <div class="row">${head}<strong>${a.keys.length}곳 쓰기</strong></div>
-    ${wait ? `<span class="small">${esc(kinds)}은(는) 지금 권한 모드(${AGENT_MODES[(agentSession() || {}).mode || 'draft'][0]})에서 물어보고 바꿔요.</span>` : ''}
+    ${wait ? `<span class="small">${esc(kinds)}${josa(kinds, '은', '는')} 지금 권한 모드(${AGENT_MODES[(agentSession() || {}).mode || 'draft'][0]})에서 물어보고 바꿔요.</span>` : ''}
     ${a.keys.map(part).join('')}
-    ${wait ? `<label class="check"><input type="checkbox" data-agent-remember="${i}"${S.agentRemember[i] ? ' checked' : ''}> 이 세션에서 ${esc(kinds)}은(는) 묻지 않고 바꾸기</label>
+    ${wait ? `<label class="check"><input type="checkbox" data-agent-remember="${i}"${S.agentRemember[i] ? ' checked' : ''}> 이 세션에서 ${esc(kinds)}${josa(kinds, '은', '는')} 묻지 않고 바꾸기</label>
       <div class="row proposal-actions"><button type="button" class="btn small" data-action="agentDecide" data-arg="${i}|0">거절</button>
         <button type="button" class="btn small primary" data-action="agentDecide" data-arg="${i}|1">고른 것 승인하고 이어 하기</button></div>` : ''}
   </div>`;

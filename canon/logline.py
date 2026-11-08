@@ -19,19 +19,27 @@ def _jong(ch: str) -> int:
     return (code - HANGUL_FIRST) % 28
 
 
-# 숫자는 한국어로 읽은 받침이 있나: 영 일 이 삼 사 오 육 칠 팔 구
-DIGIT_FINAL = {"0": 1, "1": 1, "2": 0, "3": 1, "4": 0, "5": 0, "6": 1, "7": 1, "8": 1, "9": 0}
+# 숫자를 한국어로 읽은 소리의 받침 번호: 영(ㅇ) 일(ㄹ) 이 삼(ㅁ) 사 오 육(ㄱ) 칠(ㄹ) 팔(ㄹ) 구
+DIGIT_FINAL = {"0": 21, "1": 8, "2": 0, "3": 16, "4": 0, "5": 0, "6": 1, "7": 8, "8": 8, "9": 0}
+RIEUL = 8  # 받침 ㄹ 은 '으로'가 아니라 '로'를 받는다 (서울로, 칼로, 1로)
+# 끝의 따옴표 · 낫표는 건너뛰고 그 앞 글자로 고른다 ('서윤'이)
+QUOTE_TAIL = "'\"‘’“”「」『』«»`"
 
 
 def josa(word: str, with_final: str, without_final: str) -> str:
     """앞말 받침에 맞는 조사. '서윤' + 이/가 → 이, '서진이' → 가, '손님2' → 가 (숫자는 읽는 소리로).
-    한글도 숫자도 아니면 '이(가)'."""
+    '으로' · '로'는 받침 ㄹ 이면 '로'(서울로, 7로). 끝의 따옴표 · 낫표는 건너뛴다.
+    한글도 숫자도 아니면 '이(가)', '(으)로'."""
     w = word.strip()
     if not w:
         return ""
-    j = DIGIT_FINAL.get(w[-1], _jong(w[-1]))
+    core = w.rstrip(QUOTE_TAIL)
+    j = DIGIT_FINAL.get(core[-1], _jong(core[-1])) if core else -1
+    ro = with_final == "으로"
     if j < 0:
-        return f"{with_final}({without_final})"
+        return "(으)로" if ro else f"{with_final}({without_final})"
+    if ro and j == RIEUL:
+        return without_final
     return with_final if j else without_final
 
 

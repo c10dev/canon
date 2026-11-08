@@ -114,3 +114,40 @@ def test_finalized_episode_can_illustrate(client):
     store.save("lh", p)
     r = client.post("/api/projects/lh/episodes/1/illust", json={})
     assert r.status_code == 200 and r.json()["episodes"][0]["text"] == TEXT
+
+
+SCENE = ("파도가 방파제를 때렸다. 서윤은 등대 계단 아래에서 손전등을 켰다.\n\n"
+        "\"오빠, 거기 있어?\" 대답 대신 위층에서 유리 깨지는 소리가 났다. 그녀는 숨을 고르고 첫 계단에 발을 올렸다.")
+
+
+def test_match_quote_keeps_exact_and_fixes_spacing():
+    assert illust.match_quote(SCENE, "서윤은 등대 계단 아래에서 손전등을 켰다.") == ("서윤은 등대 계단 아래에서 손전등을 켰다.", "")
+    # 줄바꿈 · 띄어쓰기만 다르면 원문 그대로 바꾼다. 알릴 것은 없다
+    q, note = illust.match_quote(SCENE, "손전등을 켰다.  \"오빠, 거기 있어?\"")
+    assert q == "손전등을 켰다.\n\n\"오빠, 거기 있어?\"" and note == ""
+    assert illust.match_quote(SCENE, "  ") == ("", "")
+
+
+def test_match_quote_window_and_drop():
+    # 따옴표 모양만 바꿔 옮겼으면 그 문장을 담은 가장 짧은 창(원문)으로
+    q, note = illust.match_quote(SCENE, "“오빠, 거기 있어?” 대답 대신 위층에서 유리 깨지는 소리가 났다.")
+    assert q == "\"오빠, 거기 있어?\" 대답 대신 위층에서 유리 깨지는 소리가 났다." and note == illust.QUOTE_FIXED
+    # 낱말 몇 개를 바꿔 옮겼으면 같은 문장으로 보는 창 가운데 길이가 가장 가까운 것
+    q, note = illust.match_quote(SCENE, "서윤은 등대 계단 밑에서 손전등을 켰다.")
+    assert q == "서윤은 등대 계단 아래에서 손전등을 켰다." and note == illust.QUOTE_FIXED
+    # 짧은 인용은 비슷한 문장으로 바꾸지 않는다
+    assert illust.match_quote(SCENE, "서윤이 웃었다.") == ("", illust.QUOTE_DROPPED)
+    assert illust.match_quote(SCENE, "바닷가 마을에 눈이 소복이 쌓여 아이들이 썰매를 탔다.") == ("", illust.QUOTE_DROPPED)
+
+
+def test_illustrate_checks_quote_against_prompt_scope(monkeypatch):
+    from canon import pipeline
+    from canon.mock import MockLLM
+    from .jsvm import episode
+    p = Project(meta=Meta(title="등대"), episodes=[episode(1, text=SCENE)])
+    assert pipeline.illustrate(MockLLM(), p, 1).draft.quote == "파도가 방파제를 때렸다."  # mock: 본문 첫 문장
+    # 프롬프트에 넣지 않은 뒤쪽 본문의 문장은 인용으로 두지 않는다
+    monkeypatch.setattr(prompts, "ILLUST_FULL_LIMIT", 5)
+    ill = pipeline.illustrate(MockLLM(), p, 1)
+    assert prompts.illust_scope(SCENE, None) == "파도가 방" and ill.draft.quote == ""
+    assert ill.notes[0] == illust.QUOTE_DROPPED and illust.assemble(p, ill).notes[0] == illust.QUOTE_DROPPED

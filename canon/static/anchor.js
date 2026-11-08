@@ -88,7 +88,7 @@ function anchorCard() {
   const notes = [];
   if (a.stale) notes.push(`<div class="note warn between" role="status"><span>정착 화 본문이 잰 뒤로 바뀌었어요. 기준은 마지막으로 잰 값을 그대로 써요.</span><button type="button" class="btn small" data-action="anchorRemeasure">다시 재기</button></div>`);
   if (a.later != null && a.later > v.band[1]) notes.push(`<div class="note plain small">잴 때 그 뒤 화들이 평균 ${anchorNum(a.later)} 떨어져 있었어요. 고른 화가 뒤 화와 꽤 달라요.</div>`);
-  if (last && last.rolling > v.warn) notes.push(`<div class="note warn small" role="status">최근 ${v.window}화 평균 ${anchorNum(last.rolling)}로 정착 문체에서 멀어졌어요 (${last.n}화까지). 다른 작품 글 쪽에 가까워요.</div>`);
+  if (last && last.rolling > v.warn) notes.push(`<div class="note warn small" role="status">최근 ${v.window}화 평균 ${anchorNum(last.rolling)}${josa(String(anchorNum(last.rolling)), '으로', '로')} 정착 문체에서 멀어졌어요 (${last.n}화까지). 다른 작품 글 쪽에 가까워요.</div>`);
   if (!(a.metrics && a.metrics.distance_ready)) notes.push(`<div class="note plain small">고른 화가 짧아 문체 거리를 재지 못해요. ${v.min_chars.toLocaleString()}자 넘게 골라 주세요.</div>`);
   const pass = a.passages.length
     ? `<details class="anchor-pass"><summary class="small">대표 문단 ${a.passages.length}개 (쓰기 프롬프트의 문체 예시)</summary>${a.passages.map((t) => `<blockquote class="small">${esc(t)}</blockquote>`).join('')}</details>`

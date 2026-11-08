@@ -165,6 +165,7 @@ AI 로 소설을 길게 쓸수록 인물 말투, 관계, 심리, 복선, 문체�
      - 비용: 자동 집필 추정이 계획 장면이 있는 사건 수만큼 검수 호출을 더하고, 시간은 동시 호출 수로 묶은 차례 수만큼 더한다. 채팅 결과 넣기와 검수 지시서는 뽑기를 돌리지 않지만, 이미 있는 본문 장면의 판정은 같은 `apply_check` 로 들어간다.
      - shadowcast 엔진(옷 겹침 · 물건 자리까지 보는 공개 판정기)으로 판정을 바꾸는 일은 2차 후보다([docs/stage/plan.md](docs/stage/plan.md)).
    - **초반 1~3화** (단편 · 장편 모두): 웹소설은 1~3화에서 독자가 계속 읽을지 정하므로 따로 점검한다. 보고서는 프로젝트 파일 `canon/research/opening-hook.html`.
+     - 4화부터는 초반 규칙 대신 쓰기 요청의 흐름 문장에 한 구절(`prompts.RETOLD_LINE`)을 잇는다: 독자가 앞 화에서 읽은 설정과 지난 사건을 다시 설명하지 않는다. 오랜만에 다시 나오는 인물만 한두 문장으로 짚는다. 장소 이동은 스토리보드 · 큐 시트가 다루므로 넣지 않는다.
      - 초반 지표(`metrics.measure_opening`, `opening_warnings`, LLM 없음): 첫 대사 위치, 주인공 이름이 처음 나오는 위치, 1화에 이름이 나온 인물 수, 앞 2,000자의 설정어 밀도(세계관 장소 · 이야기 요소 이름), 앞 3분의 1에서 대사 없이 이어지는 서술, 회상 · 설명 표지, 첫 두 문장의 흔한 시작, 마지막 문단의 앞날 해설, 상태창 비율. 기준은 `OPENING_LIMITS` 로 출발점이고 경고만 한다.
      - 흡입력 판정(`pipeline.check_hook` → `HookReport`, check 단계 모델): 첫 문단, 주인공, 전제, 설명 부담, 걸린 것, 장르 약속, 엔딩을 1~5점과 근거 인용으로 매기고, 전제 문장, 독자가 들고 갈 질문, 다음 화를 누를지를 낸다. `clean_hook` 이 본문에서 찾지 못한 인용을 지우고 그 항목을 1점으로 내린다(판정자가 근거 없이 후하게 주는 것을 막는다). 판정은 데이터를 바꾸지 않는 참고라 승인 없이 `Episode.hook` 에 붙이고, 판정한 본문의 해시(`basis`)가 지금 본문과 다르면 다시 판정하라고 표시한다.
      - 여는 방식 비교: `suggest_openings`(→ `OpeningPlots`)는 같은 화 플롯을 여는 방식(`prompts.OPENING_APPROACHES`)만 달리해 여러 안으로 내고, `clean_openings` 가 요청하지 않은 방식 · 중복을 빼고 화 번호 · 구간 · 이야기 줄기를 맞춘다. 고른 안은 `apply_opening` 이 플롯 대화 반영과 같은 규칙(본문 있는 화는 막고, 확정한 화는 초안으로)으로 넣고, 처음 고르기 전 플롯을 `Episode.opening_prev` 에 남긴다(다른 안으로 다시 바꿔도 처음 것). `undo_opening` 이 그 플롯으로 되돌리고 칸을 비운다. 본문 비교는 `opening_drafts` 가 방식마다 `write_episode(approach=…)` 를 부르고 `research.save_compare(kind="opening")` 가 블라인드 비교와 같은 `compare/NN/` 형식으로 가려 저장한다. 비교본마다 지표와 판정(`hook-K.json`)을 따로 보고, `pick_compare` 로 고르면 방식이 공개되고 그 본문이 화 본문이 된다.
@@ -643,6 +644,7 @@ OpenStreetMap(OSM) 데이터를 올리면 실제 동네를 지도로 쓴다. 현
 - `attire.clean_delta`(`features.CLEAN`)가 변경안 차림에서 끝 낱말이 '가방' · '옷' · '겉옷' · '신발'인 조각(`attire.vague`)을 인물 이름으로 시작하는 경고로 낸다. 앞 낱말이 쓰임(`KIND_WORDS`: 서류, 등산 …)이거나 가방의 메는 자리(`CARRY`: 등에, 어깨, 손에 …, 괄호 안 포함)를 말하면 넘어간다. 색 · 재질은 종류로 보지 않는다. '책가방' · '잠옷'처럼 붙은 말은 종류다. 차림 글자 수는 종류가 들어가도록 40자에서 60자 안팎으로 늘렸다.
 - 쓰기(`attire_write_rule`) · 검수(`attire_check_rule`) 규칙은 차림이 하나라도 기록된 작품에만 붙는다(`has_attire`). 쓰기 규칙에는 차림을 장면마다 묘사하지 말라는 말이 들어 있다. 검수는 따로 유형을 두지 않고 '사실'로 짚는다(한 장면 안의 어긋남은 '동선').
 - 삽화 프롬프트(`_illust_cast`)는 `attire_now` 로 받아 본문에 없으면 태그로 옮긴다. 저장된 기본 옷 태그(`Project.visuals`)는 그대로다.
+- n화 삽화의 `attire_now` · `location_now` 는 n화가 시작할 때(n-1화 반영 뒤) 값이다(`illust.states_at`). 뒤 화까지 반영했으면 n-1화 스냅샷, 지워졌으면 n-1화 이하 가장 가까운 스냅샷을 쓰고 그 화를 알린다. 장편은 스냅샷을 0화 · 아크 끝 · 최근 20화만 남기므로 옛 화는 더 앞 시점 차림이 들어갈 수 있다. 맞는 스냅샷이 없으면 지금 상태를 쓰고 'n화보다 뒤 상태'를 알린다(`Illustration.draft_notes`, 다시 조립해도 남음).
 - 늘어나는 양(300화 합성 장편, 한 화 4명, 43자 차림): 쓰기 +387자(약 230토큰, 0.9%), 검수 +463자(약 270토큰, 0.5%). 100화 · 300화가 같다.
 
 ### 감정의 두 층 (`CharacterState.emotional_state`, `prompts.LAYER_STATE_RULE`)
@@ -764,6 +766,7 @@ Gemini 플롯 대화는 명시 캐시를 쓴다(`llm.GeminiLLM._cached`, `settin
 - **태그 정리** (`clean`): 쉼표로 나누고 소문자, 낱말 사이 밑줄은 띄어쓰기, 한글 태그 · 겹치는 태그 · 인물 수 · `rating:` · 맨 `girl` 은 뺀다. 가중치 문법(`1.2::tag ::`)은 그대로 둔다.
 - **등급.** 성인물(`Meta.adult`)이 아니면 `general` / `sensitive` 로 묶고 부정 프롬프트 맨 앞에 `nsfw`. 성인물이면 AI 가 고른 등급을 쓰고 `explicit` 은 `nsfw` 를 더한다.
 - **저장.** `Episode.illustrations`(최근 20개)에 원안과 조립 결과를 같이 둔다. 원안이 있으니 모델 · 외형 · 화풍을 바꾸면 AI 없이 다시 조립한다(`rebuild_illustration`). 본문을 바꾸지 않으므로 반영(finalized)한 화에서도 만든다. 화면은 `static/illust.js`(고치는 본문은 `passage.js` 의 떠 있는 도구에 버튼을 더하고, 읽기 전용 본문은 자체 도구), CLI 는 `illust`, `look`.
+- **인용 대조.** AI 가 옮긴 장면 인용(`IllustDraft.quote`)은 화면에 'AI가 고른 장면'으로 보이므로 `illust.match_quote` 가 프롬프트에 넣은 본문 범위와 견준다. 그대로 있으면 두고, 1~3문장 창 가운데 따옴표만 다르거나 같은 문장으로 보는 창(`findings.same_quote`)이 있으면 원문으로 바꾸고, 없으면 비우고 알린다. 짧은 인용은 비슷한 창으로 바꾸지 않는다.
 - NovelAI 이미지 생성 API 호출은 아직 없다. 넣는다면 `IllustCharPrompt.position` 을 `use_coords` 좌표로 옮기고 키는 설정 화면(`~/.canon/config.json`)에 둔다.
 
 ## 6. LLM 프로바이더

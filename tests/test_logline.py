@@ -27,6 +27,25 @@ class LoglineTest(unittest.TestCase):
         self.assertEqual(logline.josa("손님2", "과", "와"), "와")
         self.assertEqual(logline.josa("손님3", "과", "와"), "과")
 
+    def test_josa_rieul_ro(self):
+        # 받침 ㄹ 과 숫자 끝 1 · 7 · 8(일 · 칠 · 팔)은 '으로'가 아니라 '로'
+        for w in ("서울", "칼", "반영 완료", "방1", "7", "18"):
+            self.assertEqual(logline.josa(w, "으로", "로"), "로", w)
+        for w in ("확정", "작성됨", "양피지", "현대", "방3", "0.43"):
+            self.assertEqual(logline.josa(w, "으로", "로"), "으로" if w in ("확정", "작성됨", "방3", "0.43") else "로", w)
+        # ㄹ 규칙은 '으로' 쌍에만: '서울'이, '칼'을
+        self.assertEqual(logline.josa("서울", "이", "가"), "이")
+        self.assertEqual(logline.josa("칼", "을", "를"), "을")
+        # 모르는 끝 글자는 '(으)로'
+        self.assertEqual(logline.josa("Canon", "으로", "로"), "(으)로")
+
+    def test_josa_skips_closing_quotes(self):
+        self.assertEqual(logline.josa("'서윤'", "이", "가"), "이")
+        self.assertEqual(logline.josa("「검」", "을", "를"), "을")
+        self.assertEqual(logline.josa("“바다”", "으로", "로"), "로")
+        self.assertEqual(logline.josa("『서울』", "으로", "로"), "로")
+        self.assertEqual(logline.josa("''", "이", "가"), "이(가)")
+
     def test_checks_flag_missing(self):
         oks = [ok for ok, _ in logline.checks(LoglineParts(who="서윤", goal="행복"))]
         self.assertEqual(oks, [False] * 5)

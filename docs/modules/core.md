@@ -466,6 +466,9 @@
 - 스토리보드 깨지 않을 것을 검수에 `protect_block` · `protect_check_rule`
 - 지시 수 · 크기 상한 시험 `tests/test_write_budget.py`
 - 장편 본문 쓰기 요청(`build_episode_context(write=True)`)의 뒤쪽, 가끔 쓰는 장치 뒤에 '최근 화에서 되풀이한 구절' 블록 `echo_block`(`echoes.recent`, `Settings.recent_echoes`, 단편 · 스토리보드 만들기에는 넣지 않음)
+- 4화부터 `episode_prompt` 의 흐름 문장에 이미 나온 설정 · 지난 사건을 다시 설명하지 않는 구절 `RETOLD_LINE`(1~3화는 `opening_rules` 가 다룸)
+- `RETOLD_LINE` 은 지시 문장 수 상한(`tests/test_write_budget.py`)을 지키려고 따로 문장을 두지 않는다
+- `RETOLD_LINE` 은 오랜만에 다시 나오는 인물만 처음 나올 때 한두 문장으로 짚게 해 `return_block` 과 맞춘다
 - 화에 큐 시트가 있으면 `episode_prompt` 맨 끝에 `cue_write_block`(실험의 조건 score 와 같은 글, `use_cues=False` 면 뺌)
 - `episode_prompt` 끝(큐 시트 블록 앞)의 문장 끝 섞기 줄 `ending_line`('~다.' 몫과 현재형 몫은 문체 기준에서 `ENDING_SHARE` · `PRESENT_SHARE_MAX` 안으로, 서술 말투가 있는 화는 뺌)
 - `episode_prompt` 는 speech_style 의 대사 예시를 그대로 쓰지 말고 어미 · 호칭 · 길이만 따르라고 적는다. 작가가 정한 말버릇은 써도 된다(`brief` 도 같은 글)

@@ -28,7 +28,32 @@ def test_rules_once_recorded():
     w = prompts.episode_prompt(p, 3)
     assert "\"attire\": \"젖은 회색 코트(오른쪽 소매 찢어짐)" in w and "차림: [인물 현재 상태]의 attire" in w
     assert "- 차림: [인물 현재 상태]의 attire" in prompts.check_prompt(p, 3)
-    assert '"attire_now": "젖은 회색 코트(오른쪽 소매 찢어짐), 손전등, 녹슨 열쇠"' in prompts.illust_prompt(p, 2, None)
+    # 2화 삽화는 2화가 시작할 때(1화 반영 뒤) 차림을 쓴다. 3화 삽화는 마지막 반영(2화) 뒤 지금 상태
+    assert '"attire_now": "젖은 회색 코트, 손전등"' in prompts.illust_prompt(p, 2, None)
+    assert '"attire_now": "젖은 회색 코트(오른쪽 소매 찢어짐), 손전등, 녹슨 열쇠"' in prompts.illust_prompt(p, 3, None)
+
+
+def test_illust_state_at_episode_start():
+    from canon import illust
+    p = _play(_short(8), 1, 3)
+    attire = lambda n: next(s.attire for s in illust.states_at(p, n)[0] if s.character_id == "hero")  # noqa: E731
+    assert attire(4) == p.state_of("hero").attire and illust.states_at(p, 4)[1] == ""
+    assert attire(3) == p.snapshot(2).states[0].attire and attire(2) == "젖은 회색 코트, 손전등"
+    p.snapshots = [s for s in p.snapshots if s.episode in (0, 1, 3)]  # 장편처럼 2화 스냅샷을 지움 → 2화 이하 가장 가까운 1화
+    assert attire(3) == "젖은 회색 코트, 손전등" and illust.states_at(p, 3)[1] == "2화 스냅샷이 지워져 1화 반영 뒤 차림 · 위치를 썼어요"
+    p.snapshots = []  # 스냅샷이 없으면 지금 상태를 쓰고 알린다
+    states, note = illust.states_at(p, 2)
+    assert states is p.states and note == "2화보다 뒤 상태(3화 반영 뒤)의 차림 · 위치를 썼어요"
+
+
+def test_illustrate_keeps_late_state_note_after_rebuild():
+    from canon import illust
+    from canon.mock import MockLLM
+    p = _play(_short(8), 1, 3)
+    p.snapshots = []
+    ill = pipeline.illustrate(MockLLM(), p, 2)
+    assert ill.notes[0] == "2화보다 뒤 상태(3화 반영 뒤)의 차림 · 위치를 썼어요"
+    assert illust.assemble(p, ill).notes[0] == ill.notes[0]  # 다시 조립해도 남는다
 
 
 def test_cast_timeline_shows_change():

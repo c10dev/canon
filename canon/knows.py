@@ -16,6 +16,7 @@ from __future__ import annotations
 import re
 
 from . import context
+from .logline import josa
 from .schema import CharacterState, KnowsFold, KnowsFoldRecord, KnowsFoldSet, Project, StateDelta, StoryArc
 
 FOLD_LINES = 8  # 인물 하나를 접은 뒤 남길 줄 수
@@ -55,7 +56,7 @@ def clean_delta(p: Project, d: StateDelta) -> None:
 def _arc(p: Project, number: int) -> StoryArc:
     a = next((x for x in p.story_arcs if x.number == number), None)
     if a is None:
-        raise ValueError(f"아크 {number}이(가) 없어요")
+        raise ValueError(f"아크 {number}{josa(str(number), '이', '가')} 없어요")
     return a
 
 

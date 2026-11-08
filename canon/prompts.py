@@ -14,7 +14,7 @@ from typing import NamedTuple
 
 from pydantic import BaseModel
 
-from . import context, elements, genres, metrics, naming, storylines
+from . import context, elements, genres, illust, metrics, naming, storylines
 from .dynamics import VIEWS, describe_relations
 from .llm import _inline_refs, dump
 from .schema import Birth, Character, ChatMessage, Claim, ConsistencyIssue, ConsistencyReport, Foreshadow, PlayInfo, PlotBatch, Project, Selection, StateDeltaAI, StoryElement
@@ -2952,6 +2952,8 @@ def episode_prompt(p: Project, n: int, approach: str = "", use_board: bool = Tru
     windows = sb is not None and any(x["window"] for x in board.steps(p, sb))
     flow = ("첫 화이므로 앞 이야기를 요약하거나 설명으로 깔지 않고 장면으로 시작하고, " if n == 1
             else "직전 화 마지막 장면과 자연스럽게 이어지고, ")
+    if n > OPENING_EPISODES:  # 1~3화는 opening_rules 가 설명 문장을 다룬다
+        flow += RETOLD_LINE
     return (
         build_episode_context(p, n, use_board=use_board, write=True)
         + (f"\n\n{rules}" if rules else "")
@@ -3040,6 +3042,11 @@ def polish_prompt(p: Project, n: int, text: str) -> str:
 
 # 사건을 차례로 처리하느라 요약처럼 흐르지 않게, 한 장면에 머물 자리를 준다 (서술 단조로움 개선, 2026-11-03).
 FOCUS_LINE = "플롯 사건 가운데 이 화의 중심이 되는 하나를 골라 가장 길게 장면으로 쓰고, 나머지는 짧게 이어도 됩니다."
+# 4화부터 쓰기 요청의 흐름 문장('직전 화 … 이어지고, ')에 잇는 구절. 독자가 이미 아는 설정 · 지난 사건을 다시 풀어 쓰지 않게 한다.
+# 오랜만에 다시 나오는 인물은 return_block 의 '처음 나올 때 한두 문장으로 짚어 줍니다'를 따른다.
+# 지시 문장 수 상한(tests/test_write_budget.py)을 지키려고 따로 문장을 두지 않고 흐름 문장 안에 넣는다.
+RETOLD_LINE = ("독자가 앞 화에서 읽은 세계관 설정과 지난 사건은 다시 설명하거나 요약하지 않고"
+               "(오랜만에 다시 나오는 인물만 처음 나올 때 한두 문장으로 짚음), ")
 
 
 def shift_label(text: str) -> bool:
@@ -4924,15 +4931,16 @@ ILLUST_FULL_LIMIT = 12_000  # 장면을 AI 가 고를 때 넣는 본문 한도
 
 
 def _illust_cast(p: Project, n: int, text: str) -> list[dict]:
-    """이번 화 등장 인물과 본문에 이름이 나오는 인물: 설정 외모와 저장된 외형 태그, 지금 상태."""
+    """이번 화 등장 인물과 본문에 이름이 나오는 인물: 설정 외모와 저장된 외형 태그, n화가 시작할 때의 상태(illust.states_at)."""
     ep = p.episode(n)
     ids = list(ep.plot.characters) + [c.id for c in p.characters if c.name and c.name in text and c.id not in ep.plot.characters]
+    states = {s.character_id: s for s in illust.states_at(p, n)[0]}
     out = []
     for c in p.characters:
         if c.id not in ids:
             continue
         v = p.visual(c.id)
-        st = p.state_of(c.id)
+        st = states.get(c.id)
         out.append({
             "id": c.id, "name": c.name, "gender": c.gender, "age": c.age, "appearance": c.appearance,
             "saved_look_tags": v.look if v else [], "saved_outfit_tags": v.outfit if v else [],
@@ -4940,6 +4948,13 @@ def _illust_cast(p: Project, n: int, text: str) -> list[dict]:
             "attire_now": st.attire if st else "",
         })
     return out
+
+
+def illust_scope(text: str, sel: Selection | None) -> str:
+    """삽화 프롬프트에 넣는 본문 범위. 고른 부분이 있으면 그 앞뒤, 없으면 앞에서 ILLUST_FULL_LIMIT 자. 인용 대조(illust.match_quote)도 이 범위를 본다."""
+    if sel is None:
+        return text[:ILLUST_FULL_LIMIT]
+    return text[max(0, sel.start - ILLUST_BEFORE):sel.start + len(sel.text) + ILLUST_AFTER]
 
 
 def illust_prompt(p: Project, n: int, sel: Selection | None, request: str = "") -> str:
@@ -4952,7 +4967,7 @@ def illust_prompt(p: Project, n: int, sel: Selection | None, request: str = "") 
         pick = "- 【그릴 장면】 안에서 가장 그림이 되는 한순간을 고릅니다. quote 에는 그 순간의 문장을 【그릴 장면】 안에서 원문 그대로 옮깁니다."
     else:
         cut = len(text) > ILLUST_FULL_LIMIT
-        body = f"# {n}화 본문{' (앞부분)' if cut else ''}\n{text[:ILLUST_FULL_LIMIT]}"
+        body = f"# {n}화 본문{' (앞부분)' if cut else ''}\n{illust_scope(text, None)}"
         pick = ("- 이 화에서 삽화 한 장으로 가장 좋은 장면을 고릅니다. 이 화의 핵심 사건이나 감정이 바뀌는 순간, 인물이 또렷이 보이는 순간을 고르고 "
                 "마지막 장면의 반전은 미리 보여 주지 않습니다. quote 에는 그 장면 문장을 본문에서 원문 그대로 1~3문장 옮깁니다.")
     rating = "장면에 맞게 general, sensitive, questionable, explicit 중에서 고릅니다."  # 전연령 작품은 illust.assemble 이 낮춘다
@@ -4979,7 +4994,7 @@ def illust_prompt(p: Project, n: int, sel: Selection | None, request: str = "") 
 - characters 에는 그림에 보이는 인물만 넣습니다. 이름이 있는 인물은 위 인물 목록의 id 를 씁니다. 목소리만 나오거나 화면 밖에 있는 인물은 넣지 않습니다.
 - 외형 태그(saved_look_tags)가 있는 인물은 look 을 빈 목록으로 둡니다. 없는 인물은 appearance, age, gender 를 보고 look 에 머리 색, 머리 길이와 모양, 눈 색, 체형, 나이대 태그를 넣습니다 (예: black hair, long hair, ponytail, brown eyes, mature female).
 - outfit 은 본문에 옷차림이 나오거나 장면에 맞는 옷이 저장된 기본 옷차림(saved_outfit_tags)과 다를 때만 적습니다 (예: school uniform, white shirt, pajamas, armor).
-- attire_now 는 가장 최근에 반영한 그 인물의 차림(옷, 상처, 지닌 물건)입니다. 장면 본문이 다르게 말하면 본문을 따르고, 본문에 없으면 attire_now 를 태그로 옮깁니다 (예: torn sleeve, bandaged hand, dagger at hip).
+- attire_now 는 이 화가 시작할 때(앞 화까지 반영한) 그 인물의 차림(옷, 상처, 지닌 물건)입니다. 장면 본문이 다르게 말하면 본문을 따르고, 본문에 없으면 attire_now 를 태그로 옮깁니다 (예: torn sleeve, bandaged hand, dagger at hip).
 - expression 과 action 은 이 순간의 모습입니다. 시선(looking at viewer, looking at another, looking away), 자세(standing, sitting, kneeling), 손(holding umbrella, hand on own chest)을 구체적으로 적습니다.
 - 두 인물이 주고받는 행동은 하는 쪽 action 에 source#행동, 받는 쪽에 target#행동, 서로 하면 둘 다 mutual#행동 으로 적습니다 (예: source#hug, target#hug, mutual#holding hands).
 - 인물이 둘 이상이면 position 에 left, center, right 중 하나를 적어 서로 겹치지 않게 합니다.

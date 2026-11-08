@@ -13,18 +13,7 @@ const LOGLINE_SLOTS = [
   ['stake', '무엇이 걸렸나', '선택, 비워도 돼요'],
 ];
 
-// 숫자는 한국어로 읽은 받침이 있나: 영 일 이 삼 사 오 육 칠 팔 구 (logline.DIGIT_FINAL)
-const DIGIT_FINAL = '1101001110';
-
-function josa(word, withFinal, withoutFinal) {
-  const w = word.trim();
-  if (!w) return '';
-  const digit = DIGIT_FINAL['0123456789'.indexOf(w[w.length - 1])];
-  if (digit) return digit === '1' ? withFinal : withoutFinal;
-  const code = w.charCodeAt(w.length - 1);
-  if (code < 0xAC00 || code > 0xD7A3) return `${withFinal}(${withoutFinal})`;
-  return (code - 0xAC00) % 28 ? withFinal : withoutFinal;
-}
+// 조사 josa 는 app.js (여러 화면이 쓴다)
 
 function composeLogline(p) {
   const [who, why, goal, block, stake] = LOGLINE_SLOTS.map(([k]) => (p[k] || '').trim().replace(/\.+$/, ''));
@@ -245,7 +234,7 @@ function relRow(r, i) {
   const started = p.snapshots.length > 0; // 첫 상태 반영 뒤에는 관계 사건으로 계산한다
   const chips = (vals, on, act) => vals.map(([label, arg]) => `<button type="button" aria-pressed="${on(label)}" data-action="${act}" data-arg="${esc(`${i}|${arg}`)}">${esc(label)}</button>`).join('');
   const view = (side, from, to) => `<div class="rel-line"><span class="label-text">${esc(charName(from) || from)} → ${esc(charName(to) || to)}</span>
-      <div class="genre-opts" role="group" aria-label="${esc(charName(from) || from)}이(가) ${esc(charName(to) || to)}을(를) 보는 방식">${chips(VIEWS.map((w) => [w, `${side}|${w}`]), (w) => (r[side] || []).includes(w), 'toggleView')}</div></div>`;
+      <div class="genre-opts" role="group" aria-label="${esc(charName(from) || from)}${josa(charName(from) || from, '이', '가')} ${esc(charName(to) || to)}${josa(charName(to) || to, '을', '를')} 보는 방식">${chips(VIEWS.map((w) => [w, `${side}|${w}`]), (w) => (r[side] || []).includes(w), 'toggleView')}</div></div>`;
   const open = cardOpen(relKey(r), false);
   return `<details class="rel-card" id="rel-${i}" data-open-key="${esc(relKey(r))}"${open ? ' open' : ''}>
     <summary class="row-sum">${relSummary(r, i, open)}</summary>
@@ -662,7 +651,7 @@ function wizRel(r, i) {
   const a = charName(r.a) || r.a;
   const bn = charName(r.b) || r.b;
   const view = (side, from, to) => `<div class="field"><span class="label-text">${esc(from)}${josa(from, '은', '는')} ${esc(to)}${josa(to, '을', '를')}</span>
-    <div class="genre-opts" role="group" aria-label="${esc(from)}이(가) ${esc(to)}을(를) 보는 방식">${chips(VIEWS.map((w) => [w, `${side}|${w}`]), (w) => (r[side] || []).includes(w), 'toggleView')}</div></div>`;
+    <div class="genre-opts" role="group" aria-label="${esc(from)}${josa(from, '이', '가')} ${esc(to)}${josa(to, '을', '를')} 보는 방식">${chips(VIEWS.map((w) => [w, `${side}|${w}`]), (w) => (r[side] || []).includes(w), 'toggleView')}</div></div>`;
   return `<div class="wiz-rel" id="wiz-rel-${i}">
     <div class="between"><strong>관계 ${i + 1}</strong><button type="button" class="btn small danger" data-action="removeRelationship" data-arg="${i}" aria-label="관계 ${i + 1} 빼기">빼기</button></div>
     <div class="wiz-pair"><div class="field"><label for="ra${i}">인물 A</label><select id="ra${i}" data-bind="${b}.a">${opts(r.a)}</select></div><span aria-hidden="true">↔</span><div class="field"><label for="rb${i}">인물 B</label><select id="rb${i}" data-bind="${b}.b">${opts(r.b)}</select></div></div>
