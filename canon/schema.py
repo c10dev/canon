@@ -2282,6 +2282,7 @@ class Illustration(BaseModel):
     rating: str = ""
     missing_look: list[str] = Field(default_factory=list, description="외형 태그가 저장되지 않아 AI 태그를 쓴 인물 id")
     notes: list[str] = Field(default_factory=list, description="조립하며 알릴 것")
+    draft_notes: list[str] = Field(default_factory=list, description="원안을 받을 때 알릴 것 (상태 시점, 인용 대조). 다시 조립해도 notes 앞에 남는다")
 
 
 # ---------- 전체 프로젝트 ----------

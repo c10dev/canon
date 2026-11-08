@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import re
 
-from .schema import CharacterVisual, IllustCharacter, IllustCharPrompt, IllustDraft, Illustration, Project
+from .schema import CharacterState, CharacterVisual, IllustCharacter, IllustCharPrompt, IllustDraft, Illustration, Project
 
 # id → (이름, 'Add Quality Tags' 가 붙이는 태그, 인물 칸 최대 수, 영어 문장 설명을 넣을지)
 MODELS: dict[str, tuple[str, str, int, bool]] = {
@@ -119,6 +119,19 @@ def _char_tags(p: Project, ch: IllustCharacter, missing: list[str]) -> tuple[str
     return subject, tags, clean(v.negative) if v else []
 
 
+def states_at(p: Project, n: int) -> tuple[list[CharacterState], str]:
+    """n화 삽화에 넣을 인물 상태(차림 · 위치)와 알릴 것. n화가 시작할 때, 곧 n-1화를 반영한 뒤의 상태를 쓴다.
+    반영이 n-1화까지면 지금 상태, 더 뒤까지 반영했으면 n-1화 스냅샷, 지워졌으면 n-1화 이하 가장 가까운 스냅샷.
+    장편은 스냅샷을 0화 · 아크 끝 · 최근 20화만 남긴다(pipeline.prune_snapshots). 맞는 스냅샷이 없으면 지금 상태를 쓰고 알린다."""
+    last = max((e.plot.number for e in p.episodes if e.status == "finalized"), default=0)
+    if last <= n - 1:
+        return p.states, ""
+    snaps = [s for s in p.snapshots if s.episode <= n - 1]
+    if snaps:
+        return max(snaps, key=lambda s: s.episode).states, ""
+    return p.states, f"{n}화보다 뒤 상태({last}화 반영 뒤)의 차림 · 위치를 썼어요"
+
+
 def assemble(p: Project, ill: Illustration, model: str | None = None) -> Illustration:
     """draft 와 지금 저장된 외형 태그 · 설정으로 프롬프트를 (다시) 조립한다. ill 을 고쳐 돌려준다."""
     mid = model if model in MODELS else (ill.model if ill.model in MODELS else (p.illust.model if p.illust.model in MODELS else DEFAULT_MODEL))
@@ -167,7 +180,7 @@ def assemble(p: Project, ill: Illustration, model: str | None = None) -> Illustr
 
     ill.model, ill.base, ill.characters, ill.negative, ill.combined = mid, base, cps, join(neg), combined
     ill.rating, ill.missing_look = rating, sorted(set(missing), key=missing.index)
-    ill.notes = notes
+    ill.notes = list(ill.draft_notes) + notes
     return ill
 
 

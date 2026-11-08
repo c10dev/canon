@@ -227,6 +227,10 @@
 - 등급
 - 모델별 품질 태그(`MODELS`)를 붙여 기본 · 인물 · 부정 프롬프트로(`assemble`)
 - 태그 정리(`clean`)
+- n화 삽화에 넣을 인물 상태(`states_at`): 반영이 n-1화까지면 지금 상태, 더 뒤까지 반영했으면 n-1화 이하 가장 가까운 스냅샷
+- 장편은 스냅샷을 0화 · 아크 끝 · 최근 20화만 남긴다(`pipeline.prune_snapshots`). 옛 화 삽화는 더 앞 시점의 차림 · 위치가 들어갈 수 있다
+- 맞는 스냅샷이 없으면 지금 상태를 쓰고 'n화보다 뒤 상태'를 `Illustration.draft_notes` 에 남긴다
+- `assemble` 은 `draft_notes` 를 `notes` 앞에 둔다. 다시 조립해도 원안을 받을 때의 알림이 남는다
 - LLM 호출 없음
 - AI 호출은 `pipeline.illustrate` / `suggest_look` (`illustration` 단계)
 
