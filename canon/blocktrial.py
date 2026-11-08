@@ -90,7 +90,8 @@ def score(q: Project, n: int, text: str) -> dict:
             "comma_ratio": m.comma_sentence_ratio, "sentence_mean": m.sentence_len_mean, "repeated": len(m.repeated_phrases),
             "style_distance": metrics.style_distance(pipeline.style_baseline(q), text),
             "memo_copied": len(pipeline.memo_copied(q, n, text)),
-            "sample_copied": len(metrics.copied_sentences(text, q.style.sample_passages))}
+            "sample_copied": len(metrics.copied_sentences(text, q.style.sample_passages)),
+            "speech_copied": len(pipeline.speech_copied(q, text))}
 
 
 def estimate(p: Project, episodes: list[int], repeats: int = 1, conditions: list[str] | None = None,
@@ -164,7 +165,7 @@ def run(name: str, p: Project, llm, episodes: list[int], repeats: int = 1, condi
 
 
 _KEYS = ("prompt_chars", "chars", "pattern_per_1k", "cliche_per_1k", "comma_ratio", "sentence_mean", "repeated",
-         "style_distance", "memo_copied", "sample_copied")
+         "style_distance", "memo_copied", "sample_copied", "speech_copied")
 
 
 def summary(drafts: list[dict]) -> list[dict]:
@@ -188,5 +189,5 @@ def describe(res: dict) -> str:
         f"{s['label']:14s} 본문 {s['drafts']}개 · 요청 {f(s['prompt_chars'], ',.0f')}자 · 쇠맛 {f(s['pattern_per_1k'], '.2f')}/1k"
         f" · 상투 {f(s['cliche_per_1k'], '.2f')}/1k · 쉼표 문장 {f(s['comma_ratio'], '.2f')} · 문장 {f(s['sentence_mean'], '.1f')}자"
         f" · 반복 구 {f(s['repeated'], '.1f')} · 문체 거리 {f(s['style_distance'], '.2f')} · 메모 옮김 {f(s['memo_copied'], '.1f')}"
-        f" · 예시 옮김 {f(s['sample_copied'], '.1f')}"
+        f" · 예시 옮김 {f(s['sample_copied'], '.1f')} · 말투 예시 옮김 {f(s.get('speech_copied'), '.1f')}"
         for s in res["summary"])

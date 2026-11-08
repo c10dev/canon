@@ -642,6 +642,36 @@ def copied_sentences(text: str, passages: list[str], span: int = COPY_SPAN) -> l
     return list(dict.fromkeys(out))
 
 
+# 인물 말투(speech_style)의 따옴표 대사 예시. 기획 프롬프트가 말투 끝에 예시 한 줄을 붙이게 해서, 그 줄이 본문에 그대로 3~5번
+# 들어간 작품이 여럿 있었다. '말버릇 "…"' 처럼 작가가 정한 말버릇은 써도 되는 말이라 뺀다.
+SPEECH_QUOTE = re.compile(r'"([^"\n]+)"|“([^”\n]+)”|「([^」\n]+)」|『([^』\n]+)』|\'([^\'\n]+)\'|‘([^’\n]+)’')
+SPEECH_HABIT = ("말버릇", "입버릇")
+SPEECH_COPY_MIN = 6  # 대사 예시 문장이 공백과 끝 문장부호를 빼고 이만큼 안 되면 흔한 말이라 보지 않는다 ("그만해." 등)
+
+
+def speech_examples(style: str) -> list[str]:
+    """말투 글에서 따옴표로 묶은 대사 예시. 바로 앞에 '말버릇' · '입버릇' 이 있는 따옴표는 뺀다."""
+    out = []
+    for m in SPEECH_QUOTE.finditer(style or ""):
+        if any(w in style[max(0, m.start() - 8):m.start()] for w in SPEECH_HABIT):
+            continue
+        out.append(next(g for g in m.groups() if g).strip())
+    return [x for x in out if x]
+
+
+def speech_copied(text: str, styles: list[str]) -> list[str]:
+    """인물 말투의 대사 예시를 본문에 그대로 쓴 문장 (copied_sentences). 대사 예시는 COPY_SPAN 보다 짧은 일이 많아
+    예시 문장마다 그 길이(최대 COPY_SPAN)를 겹침 길이로 쓴다. 끝 문장부호는 빼고 견준다 ('?' 를 '.' 로 바꿔 써도 잡는다)."""
+    out: list[str] = []
+    for ex in dict.fromkeys(x for s in styles for x in speech_examples(s)):
+        for s in sentences(ex):
+            s = s.strip("\"'“”‘’「」『』 ").rstrip(".!?…~")
+            size = len(re.sub(r"\s+", "", s))
+            if size >= SPEECH_COPY_MIN:
+                out += copied_sentences(text, [s], min(COPY_SPAN, size))
+    return list(dict.fromkeys(out))
+
+
 def hangul_ratio(text: str) -> float:
     """글자 중 한글 비율. 본문 대신 영어 생각 과정이 나온 응답을 거른다."""
     letters = [c for c in text if c.isalpha()]

@@ -4086,6 +4086,10 @@ def style_drift(p: Project, n: int) -> tuple[metrics.StyleMetrics, list[str]]:
     if tails:
         quotes = ", ".join(f"'{s[:40]}{'…' if len(s) > 40 else ''}'" for s in tails[:2])
         warns.append(f"본문이 아닌 작업 설명처럼 보이는 앞뒤 문단 {len(tails)}개: {quotes}")
+    said = speech_copied(p, text)
+    if said:
+        quotes = ", ".join(f"'{s[:30]}{'…' if len(s) > 30 else ''}'" for s in said[:3])
+        warns.append(f"말투 예시 대사를 그대로 쓴 문장 {len(said)}개: {quotes}")
     moved = memo_copied(p, n, text)
     if moved:
         quotes = ", ".join(f"'{s[:30]}{'…' if len(s) > 30 else ''}'" for s in moved[:3])
@@ -4104,6 +4108,11 @@ def memo_texts(p: Project, n: int) -> list[str]:
     if ep.cue_sheet and not ep.cue_sheet.skipped:  # 큐 시트 없이 쓴 본문에는 큐 메모가 들어가지 않았다
         out += [x for c in ep.cue_sheet.cues for x in (c.beat, c.exit)]
     return [x for x in out if x and x.strip()]
+
+
+def speech_copied(p: Project, text: str) -> list[str]:
+    """인물 말투(speech_style)의 따옴표 대사 예시를 본문에 그대로 쓴 문장 (metrics.speech_copied). 예시는 어미 · 호칭 · 길이를 보여 줄 뿐이다."""
+    return metrics.speech_copied(text, [c.speech_style for c in p.characters if c.speech_style])
 
 
 def memo_copied(p: Project, n: int, text: str) -> list[str]:

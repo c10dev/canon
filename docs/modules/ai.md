@@ -90,6 +90,11 @@
 - Gemini 429 요청 한도는 `GeminiLLM._call` 이 `RATE_WAITS`(30 · 60 · 120초)만큼 기다려 다시 부른다(기다리기 전 `cancel.check`, 실패한 시도는 하나씩 사용량에 실패로)
 - 429 오류에 서버가 `RetryInfo.retryDelay` 를 주면 `rate_pause` 가 그 값(올림, `RATE_WAITS` 의 가장 긴 값까지)을 기다린다(`retry_delay`)
 - 끝내 막히면 해요체 안내 `RateLimited`(`RATE_HINT`)
+- 하루 한도 · 선불 크레딧 소진 429(`is_hard_quota`)는 기다리지 않고 `QuotaSpent`(`QUOTA_HINT` 와 `usage.BILLING_URL`)를 낸다
+- `is_hard_quota` 는 `QuotaFailure` 위반의 `quotaId` 에 `PerDay` 가 있거나 메시지에 `CREDIT_SPENT` 문구가 있으면 참이다
+- `_call` 은 `is_hard_quota` 를 `is_rate_limit` 보다 먼저 본다. 분당 한도와 Vertex 'Resource exhausted' 는 들지 않아 `RATE_WAITS` 만큼 기다린다
+- 'exceeded your current quota' 는 분당 한도 429 에도 오는 문구라 `is_hard_quota` 가 보지 않는다
+- `retry_delay` 와 `is_hard_quota` 는 같은 details 읽기(`_details`)를 쓴다
 - 500 · 502 · 503(`is_transient`: 과부하 UNAVAILABLE · INTERNAL)은 `SERVER_WAITS`(5 · 15 · 45초)만큼 기다려 다시 부른다
 - 끝내 풀리지 않으면 해요체 안내 `ServerBusy`(`SERVER_HINT`)
 - 429 · 서버 오류 · 시간 초과는 따로 센다
@@ -97,6 +102,13 @@
 - 시간 한도를 넘기면(`is_timeout`) `cancel.check` 뒤 한 번 더 부른다
 - 또 넘기면 해요체 안내 `TimedOut`(`TIMEOUT_HINT`)
 - 넘긴 시도도 사용량에 실패로
+- Gemini 가 글 없이 끝나면 `EmptyResponse`(RuntimeError)를 낸다: '끝난 이유'(`finish`) · '막은 이유'(`prompt_feedback.block_reason`, `block`) · 생각 토큰 수(`thought`)를 싣는다
+- `EmptyResponse` 문구는 'Gemini 응답이 비었어요' 로 시작한다. code · status 칸이 없어 `is_transient` 가 다시 부르지 않는다
+- 화면 오류 문구는 `explain_error(e)` 가 고른다. `ERROR_TABLE` 의 줄을 위에서부터 보고 처음 맞는 줄의 원인과 할 일을 쓴다
+- `ERROR_TABLE` 줄 차례: 하루 한도 · 안전 필터(`SAFETY_STOPS`) · RECITATION · 생각만 쓰고 끊김(MAX_TOKENS 와 생각 토큰) · 입력 길이 초과 · 지역 제한
+- `ERROR_TABLE` 에는 'blocked' · '400' 같은 넓은 패턴을 두지 않는다. API 키 제한 403 도 'are blocked.' 로 온다(`tests/test_explain_error.py`)
+- 맞는 줄이 없으면 한국어 오류는 그대로 둔다. 한글이 없는 오류는 앞 `FOREIGN_CUT`(140)자만 싣고, `PROVIDER_MODULES` 의 오류면 'AI 서비스가 오류를 돌려줬어요' 를 앞에 붙인다
+- `explain_error` 를 쓰는 곳: `jobs` 작업 오류 · `autorun` 오류 멈춤 · `web` 의 서버 오류 응답 · 고침안 실패 · 쓴 뒤 검수 실패 · `pending.json` 실패 기록. 전체 예외는 각 곳이 서버 로그에 남긴다
 - 배치는 429 · 서버 오류 · 시간 한도 경로 밖
 - `BatchLLM` 은 slot 마다 보낸 프롬프트 지문(`keys`, `BatchLLM.key`)을 남긴다. 다시 붙을 때 지문이 다르면 기다리던 작업을 취소하고 새로 보낸다
 - `GeminiLLM.batch_poll` 은 배치 응답의 `finish_reason` 을 `last_finish` 에 남기고, `BatchLLM` 이 그것을 자기 `last_finish` 로 옮긴다(끊긴 배치 본문 거부)

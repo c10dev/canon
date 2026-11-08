@@ -248,14 +248,20 @@ def is_rate_limit(e: BaseException) -> bool:
     return getattr(e, "code", None) == 429 or getattr(e, "status", None) == "RESOURCE_EXHAUSTED"
 
 
-def retry_delay(e: BaseException) -> float | None:
-    """429 오류의 details 에 서버가 적은 RetryInfo.retryDelay(예: '37s')의 초. 없거나 읽지 못하면 None."""
+def _details(e: BaseException) -> Iterator[dict]:
+    """google-genai 오류의 details(응답 JSON 전체: {"error": {"code", "message", "status", "details": [...]}})에 든
+    google.rpc 항목(RetryInfo · QuotaFailure · Help 등). 형태가 다르면 아무것도 내지 않는다."""
     body = getattr(e, "details", None)
     if isinstance(body, dict) and isinstance(body.get("error"), dict):
         body = body["error"]
     items = body.get("details") if isinstance(body, dict) else None
-    for d in items if isinstance(items, list) else []:
-        if not isinstance(d, dict) or not str(d.get("@type", "")).endswith("RetryInfo"):
+    yield from (d for d in (items if isinstance(items, list) else []) if isinstance(d, dict))
+
+
+def retry_delay(e: BaseException) -> float | None:
+    """429 오류의 details 에 서버가 적은 RetryInfo.retryDelay(예: '37s')의 초. 없거나 읽지 못하면 None."""
+    for d in _details(e):
+        if not str(d.get("@type", "")).endswith("RetryInfo"):
             continue
         raw = d.get("retryDelay")
         try:
@@ -271,6 +277,102 @@ def rate_pause(e: BaseException, default: float) -> float:
     """429 뒤 기다릴 초. 서버가 retryDelay 를 주면 그 값(올림, RATE_WAITS 의 가장 긴 값까지), 아니면 default."""
     v = retry_delay(e)
     return min(math.ceil(v), max(RATE_WAITS)) if v else default
+
+
+# 기다려도 풀리지 않는 429: 하루 한도(QuotaFailure 의 quotaId 에 PerDay)나 선불 크레딧 소진. 분당 한도와 Vertex 의
+# 'Resource exhausted. Please try again later.' 는 여기 들지 않고 RATE_WAITS 만큼 기다린다. 판별이 빠지면 그쪽으로 떨어진다.
+# 'exceeded your current quota' 는 분당 한도 429 에도 나오는 문구라 보지 않는다.
+CREDIT_SPENT = ("prepayment credits are depleted", "credit balance is too low")
+QUOTA_HINT = "하루 요청 한도(또는 선불 크레딧)를 다 썼어요. 기다려도 풀리지 않아요."
+
+
+def is_hard_quota(e: BaseException) -> bool:
+    """기다려도 풀리지 않는 한도 오류인가: QuotaFailure 위반의 quotaId 에 PerDay 가 있거나 크레딧 소진 문구가 있다."""
+    for d in _details(e):
+        if str(d.get("@type", "")).endswith("QuotaFailure"):
+            for v in d.get("violations") or []:
+                if isinstance(v, dict) and "PerDay" in str(v.get("quotaId", "")):
+                    return True
+    text = f"{getattr(e, 'message', None) or ''} {e}".lower()
+    return any(w in text for w in CREDIT_SPENT)
+
+
+class QuotaSpent(RuntimeError):
+    """하루 한도나 선불 크레딧을 다 썼다. 기다려 다시 부르지 않는다. 자동 집필은 멈춤 종류 quota 로 멈춘다."""
+
+    def __init__(self):
+        super().__init__(f"{QUOTA_HINT} 사용량과 결제는 {usage.BILLING_URL} 에서 확인하세요.")
+        self.message = str(self)
+
+
+class EmptyResponse(RuntimeError):
+    """Gemini 가 글 없이 끝났다. finish(끝난 이유) · block(요청을 막은 이유) · thought(생각 토큰 수)를 싣는다.
+    화면 문구는 explain_error 가 고른다. code · status 칸은 두지 않는다 (is_transient 가 다시 부르지 않게)."""
+
+    def __init__(self, finish: str = "", block: str = "", thought: int = 0, note: str = ""):
+        self.finish, self.block, self.thought = finish, block, thought
+        bits = [f"끝난 이유 {finish}" if finish else "", f"막은 이유 {block}" if block else "",
+                f"생각 {thought}토큰" if thought else "", note]
+        super().__init__("Gemini 응답이 비었어요: " + (", ".join(b for b in bits if b) or "후보 없음"))
+
+
+def _enum_name(v: Any) -> str:
+    """SDK 열거값(FinishReason.SAFETY 등)의 이름. 문자열이면 'FinishReason.' 앞부분을 뗀다."""
+    return str(getattr(v, "name", None) or v or "").rsplit(".", 1)[-1]
+
+
+SAFETY_STOPS = {"SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII", "IMAGE_SAFETY", "IMAGE_PROHIBITED_CONTENT", "JAILBREAK", "MODEL_ARMOR"}
+
+
+def _empty(e: BaseException) -> EmptyResponse | None:
+    return e if isinstance(e, EmptyResponse) else None
+
+
+def _err_text(e: BaseException) -> str:
+    return f"{getattr(e, 'message', None) or ''} {e}"
+
+
+# 오류 → 화면 문구. 위에서부터 처음 맞는 줄을 쓴다. 줄마다 실제 문구로 시험한다 (tests/test_explain_error.py).
+# 'blocked' · '400' 같은 넓은 패턴은 두지 않는다 (API 키 제한 403 도 'are blocked.' 로 온다).
+ERROR_TABLE: list[tuple[str, Any, Any]] = [
+    ("quota", is_hard_quota, lambda e: QuotaSpent().message),
+    ("safety", lambda e: (x := _empty(e)) is not None and (x.finish in SAFETY_STOPS or x.block in SAFETY_STOPS),
+     lambda e: "AI 안전 필터가 막았어요. 표현을 누그러뜨리거나 쓰기 단계 모델을 바꿔 보세요."),
+    ("recitation", lambda e: (x := _empty(e)) is not None and x.finish in ("RECITATION", "IMAGE_RECITATION"),
+     lambda e: "AI가 기존 글과 너무 비슷해 멈췄어요. 다시 생성하거나 요청을 조금 바꿔 보세요."),
+    ("thinking", lambda e: (x := _empty(e)) is not None and x.finish == "MAX_TOKENS" and x.thought > 0,
+     lambda e: f"AI가 생각만 {e.thought:,}토큰 쓰고 글을 내기 전에 출력 길이 한도에 걸렸어요. "
+               "설정의 단계별 모델에서 추론 강도를 낮추거나 다시 시도해 보세요."),
+    ("input_too_long", lambda e: re.search(r"input token count.{0,40}exceeds the maximum number of tokens|prompt is too long"
+                                           r"|exceeds the available context size|maximum context length", _err_text(e), re.I),
+     lambda e: "입력이 모델이 받을 수 있는 길이를 넘었어요. 입력 한도가 큰 모델로 바꾸거나 프롬프트 보기에서 큰 블록을 꺼 보세요. "
+               "장편이면 접은 줄거리 예산을 줄이고, 검수는 직전 화 원문과 관련 단락만 넣는 budget 방식으로 돌려 보세요."),
+    ("region", lambda e: "user location is not supported" in _err_text(e).lower(),
+     lambda e: "지금 있는 지역에서는 Gemini API를 쓸 수 없어요. 설정의 AI 연결에서 Vertex AI나 다른 백엔드로 바꿔 보세요."),
+]
+FOREIGN_CUT = 140  # 표에 없는 바깥(영문) 오류 원문을 화면에 싣는 글자 수. 전체는 서버 로그에 있다
+PROVIDER_MODULES = {"google", "anthropic", "openai", "httpx", "requests"}  # 이 패키지의 오류는 'AI 서비스가 돌려준 오류'로 적는다
+
+
+def explain_error(e: BaseException) -> str:
+    """화면에 보일 오류 문구. ERROR_TABLE 에서 처음 맞는 줄의 원인과 할 일, 없으면 낸 쪽 문구.
+    Canon 이 한국어로 낸 오류는 그대로 둔다. 한글이 없는 바깥 오류는 앞 FOREIGN_CUT 자만 붙인다. 키 값은 싣지 않는다."""
+    for _, match, say in ERROR_TABLE:
+        try:
+            hit = match(e)
+        except Exception:  # 표의 한 줄이 낯선 오류 모양에 걸려도 화면 문구는 낸다
+            hit = False
+        if hit:
+            return say(e)
+    text = str(getattr(e, "message", None) or e or "").strip()
+    if not text or re.search("[가-힣]", text):
+        return text or type(e).__name__
+    cut = " ".join(text.split())
+    cut = cut[:FOREIGN_CUT] + ("…" if len(cut) > FOREIGN_CUT else "")
+    if type(e).__module__.split(".")[0] in PROVIDER_MODULES:
+        code = getattr(e, "code", None) or getattr(e, "status", None)
+        return f"AI 서비스가 오류를 돌려줬어요{f' ({code})' if code else ''}: {cut}"
+    return f"오류가 났어요: {cut}"
 
 
 # 500 · 502 · 503(서버 과부하 · 내부 오류) 뒤 다시 부르기 전 기다리는 초. 'The model is overloaded' 같은 일시 오류다.
@@ -551,6 +653,8 @@ class GeminiLLM:
                         cancel.say("AI 응답이 늦어 다시 불러요")
                     elif is_bad_key(e):
                         raise BadKey(VERTEX_HINT if getattr(self, "vertex", False) else KEY_HINT) from e  # 다시 불러도 같다
+                    elif is_hard_quota(e):
+                        raise QuotaSpent() from e  # 기다려도 풀리지 않는다
                     elif is_rate_limit(e):
                         pause = next(rate, None)
                         if pause is None:
@@ -725,7 +829,10 @@ class GeminiLLM:
             reason = resp.candidates[0].finish_reason if resp.candidates else None
             self.last_finish = getattr(reason, "name", None) or str(reason or "")
             if not resp.text:
-                raise RuntimeError(f"Gemini 응답이 비었어요: {resp.candidates[0].finish_reason if resp.candidates else resp}")
+                fb = getattr(resp, "prompt_feedback", None)
+                raise EmptyResponse(self.last_finish and _enum_name(reason), _enum_name(getattr(fb, "block_reason", None)),
+                                    int((tokens or {}).get("thought_tokens") or 0),
+                                    str(getattr(fb, "block_reason_message", None) or ""))
             self.last_raw = resp.text
             out = parse(resp.text) if parse else resp.text
         except Exception as e:
