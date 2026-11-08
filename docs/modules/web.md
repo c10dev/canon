@@ -526,6 +526,10 @@
   - 찾기 색인 `SET_ROWS` · `settingsMatch`
   - 줄 HTML `setRowHtml`
   - 바로 저장 `setSave`(바꾼 칸만 `PUT /config`) · `setProjectSave`(칸마다 작품 API)
+  - 설정 API 응답은 `setConfigCall` 이 받는다. 마지막으로 보낸 요청(`SET.seq`)의 응답만 `S.config` 에 넣는다
+  - 늦게 온 옛 응답을 버렸으면(`SET.stale`) 기다리는 요청이 다 끝난 뒤 `GET /config` 로 한 번 맞춘다
+  - 설정 파일이 깨졌으면(`config_broken`) 본문 맨 위에 `note warn` 안내(`setBrokenHtml`)와 보관본 경로를 보인다
+  - 안내의 '기본값으로 새로 시작'(`setConfigReset`)은 묻고 `POST /config/reset` 을 보낸다. 그 전에는 서버가 저장을 409 로 막는다
   - 대화상자를 닫으면 작품 밖(작품 목록)도 다시 그린다. `setSave` 뒤 키 점검(`/config/health`)이 닫은 뒤에 오면 그때 다시 그린다
   - 저장 띠 없음
   - 키만 줄 안 '키 저장'

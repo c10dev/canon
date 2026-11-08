@@ -522,6 +522,13 @@
 - 사용자 설정(LLM 프로바이더, 모델, API 키, 로컬 서버, 단계별 백엔드)
 - 웹 설정 화면에서 저장하면 `~/.canon/config.json` 에 들어간다(`CANON_CONFIG` 로 경로 변경)
 - `_write` 는 `store.write_atomic(mode=0o600, fsync=True)` 로 쓴다. 키가 든 임시 파일도 처음부터 본인만 읽고, 쓰다 멈춰도 옛 설정이 그대로 남는다
+- 읽고-고치고-쓰는 곳(`update` · `save_preset` · `delete_preset` · `set_prices` · `mark_gemini_cache_unsupported` · `reset_broken`)은 프로세스 안 잠금 `_CONFIG_LOCK`(RLock)을 잡는다. 겹친 단계 칸 PUT 이 서로의 값을 지우지 않는다
+- CLI 와 서버처럼 다른 프로세스가 함께 쓰는 경우는 이 잠금이 막지 않는다
+- `_load()` 는 (설정, 깨졌는지)를 돌려준다. JSON 이 아니거나 객체가 아니거나 읽지 못하면 깨진 것이다
+- 깨진 파일을 처음 만나면 원문을 `config.json.corrupt-<시각>` 로 한 번 복사한다(0o600, `_keep_broken`). 같은 내용의 보관본이 있으면 새로 만들지 않는다
+- 깨진 동안 읽는 쪽은 `{}`(기본값)를 쓰고, 쓰는 쪽(`_load_for_write`)은 보관본 이름을 적은 `ConfigBroken`(ValueError) 을 낸다. 웹은 409 와 `code: config_broken` 으로 답한다
+- `reset_broken` 은 깨진 파일만 빈 설정으로 바꾸고 보관본은 둔다(`POST /api/config/reset`, 설정 화면 '기본값으로 새로 시작'). 깨지지 않은 파일이면 ValueError
+- `public()` 의 `config_broken` · `config_backup` 은 깨졌는지와 보관본 경로다. 키 값은 오류 · 로그 · 화면에 찍지 않는다
 - 환경 변수가 있으면 파일보다 우선한다
 - 단계 이름 목록은 `STAGES`
 - 스토리보드 · 큐 시트 단계 `board` 는 따로 정하지 않으면 계획 단계를 따른다(`STAGE_PARENT`). 웹 쓰기 작업 · 스토리보드 · 큐 시트 작업과 자동 집필이 이 단계로 부른다

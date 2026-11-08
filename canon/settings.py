@@ -12,12 +12,17 @@ gemini_cache_unsupported 는 명시 캐시를 받지 않는다고 API 가 답한
 작품이 단계 프리셋을 고르면(Settings.model_preset) 그 작품의 호출에서는 프리셋이 설정 파일의 단계 칸을 대신한다 (project_preset).
 Claude 구독 로그인은 Claude Code 가 직접 관리하므로 여기에 계정 정보나 토큰을 두지 않는다.
 claude_separate 는 Canon 전용 Claude Code 설정 폴더를 쓸지만 적는다 (claude_config_dir).
+파일이 깨져 있으면 읽는 쪽은 기본값을 쓰고, 처음 만났을 때 config.json.corrupt-<시각> 로 보관하고, 쓰는 쪽은 ConfigBroken 으로 막는다 (_load).
 파일은 작품 폴더와 따로 두어 저장소나 project.json 에 키가 섞이지 않게 한다.
 """
 from __future__ import annotations
 
+import hashlib
 import json
+import logging
 import os
+import threading
+from datetime import datetime
 from pathlib import Path
 
 from . import store
@@ -61,21 +66,120 @@ def config_path() -> Path:
     return Path(os.environ.get("CANON_CONFIG", "~/.canon/config.json")).expanduser()
 
 
-def _read() -> dict:
-    path = config_path()
-    if not path.exists():
-        return {}
+# 설정 파일을 읽고-고치고-쓰는 동안 잡는 프로세스 안 잠금. 단계 칸 PUT 두 개나 LLM 스레드의 mark_gemini_cache_unsupported 가
+# 겹쳐도 한쪽이 다른 쪽의 값을 지우지 않게 한다. CLI 와 서버처럼 다른 프로세스가 함께 쓰는 경우는 막지 않는다
+_CONFIG_LOCK = threading.RLock()
+# 깨진 설정 파일 (경로, 원문 sha256) → 보관본 경로. 같은 깨진 내용은 한 번만 보관한다
+_backups: dict[tuple[str, str], str] = {}
+
+
+class ConfigBroken(ValueError):
+    """설정 파일이 깨져 있어 쓰지 않는다. 웹은 409 와 code config_broken 으로 답한다."""
+
+
+def _keep_broken(path: Path, raw: bytes) -> str:
+    """깨진 설정 파일을 config.json.corrupt-<시각> 로 한 번만 복사한다 (본인만 읽는 0o600, 키가 들어 있을 수 있다).
+    같은 내용의 보관본이 이미 있으면 그 경로를 쓴다. 복사하지 못하면 ""."""
+    key = (str(path), hashlib.sha256(raw).hexdigest())
+    got = _backups.get(key)
+    if got and Path(got).exists():
+        return got
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
+        for old in sorted(path.parent.glob(f"{path.name}.corrupt-*")):
+            if old.read_bytes() == raw:
+                _backups[key] = str(old)
+                return str(old)
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        for n in range(100):
+            dest = path.with_name(f"{path.name}.corrupt-{stamp}{f'-{n}' if n else ''}")
+            try:
+                fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            except FileExistsError:
+                continue
+            with os.fdopen(fd, "wb") as f:
+                os.fchmod(f.fileno(), 0o600)
+                f.write(raw)
+            break
+        else:
+            return ""
+    except OSError:
+        logging.getLogger("canon").warning("깨진 설정 파일을 보관하지 못했어요: %s", path)
+        return ""
+    logging.getLogger("canon").warning("설정 파일이 깨져 있어 %s 에 보관했어요. 고치기 전에는 설정을 저장하지 않아요", dest)
+    _backups[key] = str(dest)
+    return str(dest)
+
+
+def _load() -> tuple[dict, bool]:
+    """(설정, 깨졌는지). 파일이 없으면 ({}, False). JSON 이 아니거나 객체가 아니거나 읽지 못하면 ({}, True) 이고,
+    처음 만났을 때 원문을 보관본으로 남긴다 (_keep_broken). 읽는 쪽은 {} 로 기본값을 쓰고, 쓰는 쪽은 _load_for_write 로 막는다."""
+    path = config_path()
+    with _CONFIG_LOCK:
+        if not path.exists():
+            return {}, False
+        try:
+            raw = path.read_bytes()
+        except OSError:
+            return {}, True
+        try:
+            data = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            data = None
+        if isinstance(data, dict):
+            return data, False
+        _keep_broken(path, raw)
+        return {}, True
+
+
+def _read() -> dict:
+    return _load()[0]
 
 
 def _write(data: dict) -> None:
     path = config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    # 키가 들어 있으므로 처음부터 본인만 읽는 tmp 파일에 써서 바꿔 넣는다. 중간에 멈춰도 옛 설정이 그대로 남는다
-    store.write_atomic(path, json.dumps(data, ensure_ascii=False, indent=2), mode=0o600, fsync=True)
+    with _CONFIG_LOCK:
+        # 키가 들어 있으므로 처음부터 본인만 읽는 tmp 파일에 써서 바꿔 넣는다. 중간에 멈춰도 옛 설정이 그대로 남는다
+        store.write_atomic(path, json.dumps(data, ensure_ascii=False, indent=2), mode=0o600, fsync=True)
+
+
+def broken_backup() -> str:
+    """설정 파일이 깨져 있으면 보관본 경로 (보관하지 못했으면 ""). 깨지지 않았으면 ""."""
+    path = config_path()
+    with _CONFIG_LOCK:
+        if not _load()[1]:
+            return ""
+        try:
+            raw = path.read_bytes()
+        except OSError:
+            return ""
+        return _keep_broken(path, raw)
+
+
+def _broken_message() -> str:
+    backup = broken_backup()
+    kept = f"원래 내용은 {Path(backup).name}에 보관했어요. " if backup else "원래 내용을 보관하지 못했어요. "
+    return (f"설정 파일({config_path().name})이 깨져 있어 저장하지 않았어요. {kept}"
+            "설정 화면에서 '기본값으로 새로 시작'을 누르거나 파일을 고쳐 주세요")
+
+
+def _load_for_write() -> dict:
+    """쓰기 전에 읽는다. 깨진 파일이면 ConfigBroken: {} 위에 새 값만 넣어 덮으면 키 · 프리셋 · 가격표가 사라진다.
+    부르는 쪽은 _CONFIG_LOCK 을 잡은 채 이것부터 _write 까지 한다."""
+    data, broken = _load()
+    if broken:
+        raise ConfigBroken(_broken_message())
+    return data
+
+
+def reset_broken() -> None:
+    """깨진 설정 파일을 빈 설정으로 바꾼다 (설정 화면 '기본값으로 새로 시작'). 보관본은 그대로 둔다.
+    깨지지 않은 파일은 지우지 않는다 (키를 잃지 않게)."""
+    with _CONFIG_LOCK:
+        if not _load()[1]:
+            raise ValueError("설정 파일이 깨져 있지 않아요. 새로 시작하지 않았어요")
+        broken_backup()  # 보관본을 먼저 남긴다
+        _write({})
 
 
 def _pick(env_names: tuple[str, ...], file_value: str | None, default: str = "") -> tuple[str, str]:
@@ -143,22 +247,19 @@ def mark_gemini_cache_unsupported(vertex: bool, model: str) -> bool:
     설정 파일을 읽지 못하면(깨진 JSON) 적지 않는다. 다른 설정을 지우지 않게 하려는 것이다."""
     from datetime import date
 
-    path = config_path()
-    try:
-        data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-    except (OSError, json.JSONDecodeError):
-        return False
-    if not isinstance(data, dict):
-        return False
-    seen = data.get("gemini_cache_unsupported")
-    seen = dict(seen) if isinstance(seen, dict) else {}
-    key = gemini_cache_model_key(vertex, model)
-    if key in seen:
-        return False
-    seen[key] = date.today().isoformat()
-    data["gemini_cache_unsupported"] = seen
-    _write(data)
-    return True
+    with _CONFIG_LOCK:
+        data, broken = _load()
+        if broken:
+            return False
+        seen = data.get("gemini_cache_unsupported")
+        seen = dict(seen) if isinstance(seen, dict) else {}
+        key = gemini_cache_model_key(vertex, model)
+        if key in seen:
+            return False
+        seen[key] = date.today().isoformat()
+        data["gemini_cache_unsupported"] = seen
+        _write(data)
+        return True
 
 
 def vertex_credentials() -> tuple[str, str]:
@@ -374,35 +475,36 @@ def update(*, provider: str | None = None, model: str | None = None,
     if claude_bin and claude_bin.strip() and Path(claude_bin.strip()).name.lower() not in CLAUDE_BIN_NAMES:
         # 설정 화면(로그인 없는 웹 API)으로 아무 실행 파일이나 부르게 하지 않는다. 다른 이름은 CANON_CLAUDE_BIN 으로
         raise ValueError("claude 실행 파일 경로만 적을 수 있어요 (파일 이름이 claude). 다른 이름이면 CANON_CLAUDE_BIN으로 정하세요")
-    data = _read()
-    for key, value in (("provider", provider), ("model", model), ("gemini_api_key", api_key),
-                       ("local_url", local_url), ("local_model", local_model), ("local_key", local_key),
-                       ("claude_model", claude_model), ("claude_bin", claude_bin),
-                       ("anthropic_api_key", anthropic_api_key), ("gemini_auth", gemini_auth),
-                       ("vertex_credentials", vertex_credentials), ("vertex_project", vertex_project),
-                       ("vertex_location", vertex_location)):
-        if value is None:
-            continue
-        if value.strip():
-            data[key] = value.strip()
-        else:
-            data.pop(key, None)
-    if clear_key:
-        data.pop("gemini_api_key", None)
-    if clear_anthropic_key:
-        data.pop("anthropic_api_key", None)
-    if claude_separate is not None:  # 끄면 지운다. 전용 폴더의 로그인은 지우지 않아 다시 켜면 그대로 쓴다
-        if claude_separate:
-            data["claude_separate"] = True
-        else:
-            data.pop("claude_separate", None)
-    if stages is not None:
-        _set_stage_map(data, "stages", stages)  # 빈 값이면 전체 provider 를 따른다
-    if stage_models is not None:
-        _set_stage_map(data, "stage_models", stage_models)  # 빈 값이면 백엔드 기본 모델
-    if stage_efforts is not None:
-        _set_stage_map(data, "stage_efforts", {k: (v or "").strip().lower() for k, v in stage_efforts.items()})  # 빈 값이면 모델 기본값
-    _write(data)
+    with _CONFIG_LOCK:
+        data = _load_for_write()
+        for key, value in (("provider", provider), ("model", model), ("gemini_api_key", api_key),
+                           ("local_url", local_url), ("local_model", local_model), ("local_key", local_key),
+                           ("claude_model", claude_model), ("claude_bin", claude_bin),
+                           ("anthropic_api_key", anthropic_api_key), ("gemini_auth", gemini_auth),
+                           ("vertex_credentials", vertex_credentials), ("vertex_project", vertex_project),
+                           ("vertex_location", vertex_location)):
+            if value is None:
+                continue
+            if value.strip():
+                data[key] = value.strip()
+            else:
+                data.pop(key, None)
+        if clear_key:
+            data.pop("gemini_api_key", None)
+        if clear_anthropic_key:
+            data.pop("anthropic_api_key", None)
+        if claude_separate is not None:  # 끄면 지운다. 전용 폴더의 로그인은 지우지 않아 다시 켜면 그대로 쓴다
+            if claude_separate:
+                data["claude_separate"] = True
+            else:
+                data.pop("claude_separate", None)
+        if stages is not None:
+            _set_stage_map(data, "stages", stages)  # 빈 값이면 전체 provider 를 따른다
+        if stage_models is not None:
+            _set_stage_map(data, "stage_models", stage_models)  # 빈 값이면 백엔드 기본 모델
+        if stage_efforts is not None:
+            _set_stage_map(data, "stage_efforts", {k: (v or "").strip().lower() for k, v in stage_efforts.items()})  # 빈 값이면 모델 기본값
+        _write(data)
 
 
 def _clean_stage_map(values: dict[str, str] | None, providers: bool) -> dict[str, str]:
@@ -440,28 +542,30 @@ def save_preset(name: str, stages: dict[str, str] | None, stage_models: dict[str
     item = {"name": name, "stages": _clean_stage_map(stages, True), "stage_models": _clean_stage_map(stage_models, False)}
     if not item["stages"] and not item["stage_models"]:
         raise ValueError("단계 칸이 모두 비어 있어요")
-    data = _read()
-    mine = [p for p in data.get("stage_presets") or [] if isinstance(p, dict)]
-    old = next((p for p in mine if p.get("name") == name), None)
-    item["id"] = old["id"] if old else f"my-{os.urandom(4).hex()}"
-    data["stage_presets"] = [item if p is old else p for p in mine] + ([] if old else [item])
-    _write(data)
+    with _CONFIG_LOCK:
+        data = _load_for_write()
+        mine = [p for p in data.get("stage_presets") or [] if isinstance(p, dict)]
+        old = next((p for p in mine if p.get("name") == name), None)
+        item["id"] = old["id"] if old else f"my-{os.urandom(4).hex()}"
+        data["stage_presets"] = [item if p is old else p for p in mine] + ([] if old else [item])
+        _write(data)
     return {**item, "builtin": False}
 
 
 def delete_preset(preset_id: str) -> None:
     if any(p["id"] == preset_id for p in BUILTIN_PRESETS):
         raise ValueError("기본 프리셋은 지울 수 없어요")
-    data = _read()
-    mine = [p for p in data.get("stage_presets") or [] if isinstance(p, dict)]
-    rest = [p for p in mine if p.get("id") != preset_id]
-    if len(rest) == len(mine):
-        raise KeyError(preset_id)
-    if rest:
-        data["stage_presets"] = rest
-    else:
-        data.pop("stage_presets", None)
-    _write(data)
+    with _CONFIG_LOCK:
+        data = _load_for_write()
+        mine = [p for p in data.get("stage_presets") or [] if isinstance(p, dict)]
+        rest = [p for p in mine if p.get("id") != preset_id]
+        if len(rest) == len(mine):
+            raise KeyError(preset_id)
+        if rest:
+            data["stage_presets"] = rest
+        else:
+            data.pop("stage_presets", None)
+        _write(data)
 
 
 def prices() -> list[dict]:
@@ -471,12 +575,13 @@ def prices() -> list[dict]:
 
 
 def set_prices(rows: list[dict]) -> None:
-    data = _read()
-    if rows:
-        data["prices"] = rows
-    else:
-        data.pop("prices", None)
-    _write(data)
+    with _CONFIG_LOCK:
+        data = _load_for_write()
+        if rows:
+            data["prices"] = rows
+        else:
+            data.pop("prices", None)
+        _write(data)
 
 
 def stage_view(preset: dict | None) -> dict[str, dict]:
@@ -558,4 +663,7 @@ def public() -> dict:
         "stage_presets": presets(),
         "local_sampling": local_sampling(),
         "path": str(config_path()),
+        # 설정 파일이 깨져 있으면 참. 화면은 맨 위에 안내와 '기본값으로 새로 시작'(POST /config/reset)을 보이고, 그때까지 저장은 막힌다
+        "config_broken": _load()[1],
+        "config_backup": broken_backup(),
     }

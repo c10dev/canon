@@ -138,7 +138,8 @@ function settingsCat(hash) {
 
 // ----- 대화상자 상태 -----
 
-const SET = { cat: 'ai', view: 'detail', q: '', note: {}, open: {}, test: null, undo: null };
+// seq · pending · stale: 설정 요청 순번 (setConfigCall). 마지막으로 보낸 요청의 응답만 S.config 에 넣는다
+const SET = { cat: 'ai', view: 'detail', q: '', note: {}, open: {}, test: null, undo: null, seq: 0, pending: 0, stale: false };
 
 /** 줄 아래 한 줄 알림: 저장 중 · 저장했어요 · 오류 */
 function setNote(id, text, kind = '') {
@@ -521,7 +522,23 @@ const setCats = () => SET_CATS.filter(([, , g]) => g !== 'project' || inProject(
 /** 찾기에 쓰는 줄: 지금 보일 수 있는 갈래의 줄 */
 const setRowsNow = () => { const ok = new Set(setCats().map(([id]) => id)); return SET_ROWS.filter((r) => ok.has(r.cat)); };
 
+/** 설정 파일이 깨졌을 때 맨 위 안내 (config_broken). 새로 시작하기 전까지 서버가 저장을 막는다 */
+function setBrokenHtml(c) {
+  if (!c || !c.config_broken) return '';
+  const kept = c.config_backup
+    ? `원래 내용은 <code class="set-path">${esc(c.config_backup)}</code>에 보관했어요.`
+    : '원래 내용을 보관하지 못했어요. 새로 시작하면 원래 내용은 사라져요.';
+  const n = SET.note['config-reset'] || {};
+  const msg = ` <span id="rs-config-reset" class="set-note${n.kind ? ` ${n.kind}` : ''}">${esc(n.text || '')}</span>`;
+  return `<div class="note warn" role="status">설정 파일이 깨져 있어 기본값으로 보여 주고 있어요. ${kept} 새로 시작하기 전에는 설정을 저장하지 않아요.
+    <button type="button" class="btn small" data-action="setConfigReset">기본값으로 새로 시작</button>${msg}</div>`;
+}
+
 function setBodyHtml() {
+  return setBrokenHtml(S.config) + setBodyMain();
+}
+
+function setBodyMain() {
   const back = '<button type="button" class="set-back link-btn" data-action="setBack">‹ 설정</button>';
   if (SET.q.trim()) {
     const hits = settingsMatch(setRowsNow(), SET.q);
@@ -641,7 +658,7 @@ async function openSettings(cat) {
   const cur = dlg.querySelector(SET.view === 'list' ? '.set-nav-item' : '.set-nav-item[aria-current="page"]');
   if (cur) cur.focus({ preventScroll: true });
   // 설정 · 모델 목록 · Claude 로그인 상태 · 복사 형식은 기다리지 않고 받는 대로 다시 그린다
-  api('GET', '/config').then((c) => { S.config = c; setPaint(); }).catch((e) => toast(e.message, true));
+  setConfigCall('GET', '/config').then(() => setPaint()).catch((e) => toast(e.message, true));
   loadModelList();
   claudeStatusLoad();
   SET.backups = null;
@@ -656,10 +673,30 @@ let setOpener = null;
 /** 뒤 화면 글 칸에 쓰는 중인가. 닫은 대화상자 안 칸(Esc 로 닫으면 포커스가 아직 키 칸에 있다)은 세지 않는다 */
 const setTypingBehind = () => isTyping() && !document.getElementById('set-dlg')?.contains(document.activeElement);
 
+/** 설정 API 를 부르고, 마지막으로 보낸 요청(SET.seq)의 응답일 때만 S.config 에 넣는다.
+ *  단계 칸은 칸마다 따로 PUT 을 보내므로 늦게 온 옛 응답이 새 값을 덮지 않게 한다.
+ *  옛 응답을 버렸으면(SET.stale) 기다리는 요청이 다 끝난 뒤 GET /config 로 한 번 맞춘다 */
+async function setConfigCall(method, path, body) {
+  const my = ++SET.seq;
+  SET.pending += 1;
+  try {
+    const c = await api(method, path, body);
+    if (my === SET.seq) S.config = c;
+    else SET.stale = true;
+    return c;
+  } finally {
+    SET.pending -= 1;
+    if (!SET.pending && SET.stale) {
+      SET.stale = false;
+      setConfigCall('GET', '/config').then(() => setPaint()).catch(() => {});
+    }
+  }
+}
+
 async function setSave(row, body, done = '저장했어요') {
   setNote(row, '저장하는 중…');
   try {
-    S.config = await api('PUT', '/config', body);
+    await setConfigCall('PUT', '/config', body);
     SET.note[row] = { text: done, kind: 'ok' };
     api('GET', '/config/health').then((h) => {
       S.health = h;
@@ -895,6 +932,21 @@ Object.assign(actions, {
     SET.note['notify-test'] = await notifyTest();
     setPaint();
   },
+  async setConfigReset() {
+    const c = S.config || {};
+    const lose = c.config_backup ? '보관본은 그대로 남아요.' : '원래 내용은 보관하지 못해 사라져요.';
+    if (!(await askConfirm(`설정 파일을 빈 설정으로 새로 시작할까요? API 키 · 내 프리셋 · 가격표를 다시 넣어야 해요. ${lose}`, { ok: '새로 시작', danger: true }))) return;
+    setNote('config-reset', '새로 시작하는 중…');
+    try {
+      await setConfigCall('POST', '/config/reset');
+      SET.note['config-reset'] = { text: '', kind: '' };
+      toast('설정을 기본값으로 새로 시작했어요');
+      api('GET', '/config/health').then((h) => { S.health = h; }).catch(() => {});
+    } catch (e) {
+      SET.note['config-reset'] = { text: e.message, kind: 'err' };
+    }
+    setPaint();
+  },
   async setPresetSave() {
     const el = $('#set-preset-name');
     const name = el ? el.value.trim() : '';
@@ -903,8 +955,7 @@ Object.assign(actions, {
     if ((c.stage_presets || []).some((x) => !x.builtin && x.name === name) && !(await askConfirm(`'${name}' 프리셋을 지금 단계 칸으로 바꿀까요?`, { ok: '바꾸기', danger: true }))) return;
     setNote('preset-save', '저장하는 중…');
     try {
-      const r = await api('POST', '/config/presets', { name, stages: c.stage_settings || {}, stage_models: c.stage_model_settings || {} });
-      S.config.stage_presets = r.stage_presets;
+      await setConfigCall('POST', '/config/presets', { name, stages: c.stage_settings || {}, stage_models: c.stage_model_settings || {} });
       SET.note['preset-save'] = { text: `'${name}' 프리셋을 저장했어요`, kind: 'ok' };
       if (el) el.value = '';
     } catch (e) {
@@ -916,8 +967,7 @@ Object.assign(actions, {
     const pre = ((S.config || {}).stage_presets || []).find((x) => x.id === String(id));
     if (!pre || pre.builtin || !(await askConfirm(`'${pre.name}' 프리셋을 지울까요? 지금 단계 설정은 그대로예요. 이 프리셋을 고른 작품은 전체 설정을 따라요.`, { ok: '지우기', danger: true }))) return;
     try {
-      const r = await api('DELETE', `/config/presets/${encodeURIComponent(pre.id)}`);
-      S.config.stage_presets = r.stage_presets;
+      await setConfigCall('DELETE', `/config/presets/${encodeURIComponent(pre.id)}`);
       SET.note['preset-save'] = { text: `'${pre.name}' 프리셋을 지웠어요`, kind: 'ok' };
     } catch (e) {
       SET.note['preset-save'] = { text: e.message, kind: 'err' };

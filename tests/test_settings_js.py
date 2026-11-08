@@ -209,3 +209,64 @@ def test_backup_rows_describe_each_backup():
     assert got["none"] == "직전 판 · 3화 · 반영한 화 없음"
     assert got["del"] == "12화 지우기 전 · 12화 · 12화까지 반영"
     assert got["broken"] == "시간별 · 읽지 못하는 파일이에요"
+
+
+@needs_node
+def test_late_put_response_does_not_overwrite_newer_config():
+    """단계 칸 PUT 두 개가 겹쳐 옛 응답이 늦게 와도 S.config 는 마지막 요청의 응답이고, 다 끝난 뒤 GET 으로 한 번 맞춘다 (SET.seq)"""
+    got = run_js(FILES, """(async () => {
+      setPaint = () => {};
+      const waits = [];
+      const calls = [];
+      api = (m, u, b) => {
+        calls.push([m, u]);
+        if (u === '/config/health') return Promise.resolve({});
+        if (m === 'GET') return new Promise((ok) => waits.push(() => ok({ tag: 'fresh' })));
+        return new Promise((ok) => waits.push(() => ok({ tag: b.stages.write ? 'first' : 'second' })));
+      };
+      S.config = { tag: 'old' };
+      const a = setSave('stage-write', { stages: { write: 'local' } });
+      const b = setSave('stage-check', { stages: { check: 'claude' } });
+      waits[1]();  // 나중 요청이 먼저 온다
+      await b;
+      const afterSecond = S.config.tag;
+      waits[0]();  // 옛 요청이 늦게 온다
+      await a;
+      const afterFirst = S.config.tag;
+      waits[2]();  // 다 끝난 뒤 다시 읽은 GET
+      for (let i = 0; i < 5; i += 1) await Promise.resolve();
+      return { afterSecond, afterFirst, final: S.config.tag, gets: calls.filter(([m, u]) => m === 'GET' && u === '/config').length,
+        notes: [SET.note['stage-write'].kind, SET.note['stage-check'].kind] };
+    })()""", {})
+    assert got["afterSecond"] == "second"
+    assert got["afterFirst"] == "second"  # 늦게 온 옛 응답은 버린다
+    assert got["gets"] == 1 and got["final"] == "fresh"  # 버린 응답이 있었으니 끝난 뒤 한 번 다시 읽는다
+    assert got["notes"] == ["ok", "ok"]
+
+
+@needs_node
+def test_broken_config_banner_and_reset():
+    """설정 파일이 깨지면 맨 위에 보관본과 '기본값으로 새로 시작'을 보이고, 누르면 묻고 POST /config/reset 을 보낸다"""
+    got = run_js(FILES, """(async () => {
+      setPaint = () => {};
+      toast = () => {};
+      const calls = [];
+      api = async (m, u) => { calls.push([m, u]); return u === '/config/reset' ? { config_broken: false } : {}; };
+      let yes = false;
+      askConfirm = async () => yes;
+      const html = setBrokenHtml({ config_broken: true, config_backup: '/h/.canon/config.json.corrupt-20261108-101500' });
+      const lost = setBrokenHtml({ config_broken: true, config_backup: '' });
+      const fine = setBrokenHtml({ config_broken: false });
+      S.config = { config_broken: true, config_backup: 'x' };
+      await actions.setConfigReset();
+      const cancel = calls.length;
+      yes = true;
+      await actions.setConfigReset();
+      return { html, lost, fine, cancel, calls, broken: S.config.config_broken };
+    })()""", {})
+    assert "config.json.corrupt-20261108-101500" in got["html"] and 'data-action="setConfigReset"' in got["html"]
+    assert "기본값으로 새로 시작" in got["html"] and 'class="note warn"' in got["html"]
+    assert "보관하지 못했어요" in got["lost"]
+    assert got["fine"] == ""
+    assert got["cancel"] == 0
+    assert ["POST", "/config/reset"] in got["calls"] and got["broken"] is False
