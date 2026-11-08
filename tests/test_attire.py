@@ -40,7 +40,7 @@ def test_illust_state_at_episode_start():
     assert attire(4) == p.state_of("hero").attire and illust.states_at(p, 4)[1] == ""
     assert attire(3) == p.snapshot(2).states[0].attire and attire(2) == "젖은 회색 코트, 손전등"
     p.snapshots = [s for s in p.snapshots if s.episode in (0, 1, 3)]  # 장편처럼 2화 스냅샷을 지움 → 2화 이하 가장 가까운 1화
-    assert attire(3) == "젖은 회색 코트, 손전등" and illust.states_at(p, 3)[1] == ""
+    assert attire(3) == "젖은 회색 코트, 손전등" and illust.states_at(p, 3)[1] == "2화 스냅샷이 지워져 1화 반영 뒤 차림 · 위치를 썼어요"
     p.snapshots = []  # 스냅샷이 없으면 지금 상태를 쓰고 알린다
     states, note = illust.states_at(p, 2)
     assert states is p.states and note == "2화보다 뒤 상태(3화 반영 뒤)의 차림 · 위치를 썼어요"

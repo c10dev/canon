@@ -1,4 +1,4 @@
-"""설정 도우미(static/setup.js)의 josa · composeLogline · loglineChecks · toneText 가 logline.josa · compose · checks · tone_text 와 같은지.
+"""화면 공용 josa(static/app.js)와 설정 도우미(static/setup.js)의 composeLogline · loglineChecks · toneText 가 logline.josa · compose · checks · tone_text 와 같은지.
 node 가 있을 때만 돈다. Swift 앱(FeatureSetup/Logline.swift)은 여기서 보지 않는다."""
 import itertools
 

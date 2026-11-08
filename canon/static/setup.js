@@ -13,25 +13,7 @@ const LOGLINE_SLOTS = [
   ['stake', '무엇이 걸렸나', '선택, 비워도 돼요'],
 ];
 
-// 숫자를 한국어로 읽은 소리의 받침 번호: 영(ㅇ) 일(ㄹ) 이 삼(ㅁ) 사 오 육(ㄱ) 칠(ㄹ) 팔(ㄹ) 구 (logline.DIGIT_FINAL)
-const DIGIT_FINAL = [21, 8, 0, 16, 0, 0, 1, 8, 8, 0];
-// 끝의 따옴표 · 낫표는 건너뛰고 그 앞 글자로 고른다 (logline.QUOTE_TAIL)
-const JOSA_QUOTE_TAIL = /['"‘’“”「」『』«»`]+$/;
-
-// '으로' · '로'는 받침 ㄹ(8)이면 '로'. 한글도 숫자도 아니면 '이(가)', '(으)로' (logline.josa)
-function josa(word, withFinal, withoutFinal) {
-  const w = word.trim();
-  if (!w) return '';
-  const core = w.replace(JOSA_QUOTE_TAIL, '');
-  const last = core ? core[core.length - 1] : '';
-  const digit = last ? '0123456789'.indexOf(last) : -1;
-  const code = last ? last.charCodeAt(0) : 0;
-  const j = digit >= 0 ? DIGIT_FINAL[digit] : (code >= 0xAC00 && code <= 0xD7A3 ? (code - 0xAC00) % 28 : -1);
-  const ro = withFinal === '으로';
-  if (j < 0) return ro ? '(으)로' : `${withFinal}(${withoutFinal})`;
-  if (ro && j === 8) return withoutFinal;
-  return j ? withFinal : withoutFinal;
-}
+// 조사 josa 는 app.js (여러 화면이 쓴다)
 
 function composeLogline(p) {
   const [who, why, goal, block, stake] = LOGLINE_SLOTS.map(([k]) => (p[k] || '').trim().replace(/\.+$/, ''));

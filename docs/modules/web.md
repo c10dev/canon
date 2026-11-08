@@ -21,6 +21,7 @@
 ### `canon/static/app.js`
 
 - 웹 화면의 뼈대
+- 이름 뒤 조사 `josa`(여러 화면이 쓴다, `logline.josa` 와 같은 규칙, `tests/test_logline_js.py`)
 - 900px 이하에서 알림 창 · 찾기 팔레트 · 대화 시트 · 서랍 메뉴를 열면 기록을 하나 더해(`panelOn` · `panelOff`, state.panel) 뒤로 가기가 그 창만 닫는다. 닫을 때 되돌리기는 한 박자 미뤄 다른 창이 이어 쓰고, 주소가 바뀐 popstate 는 창을 닫지 않고, 창 없이 남은 기록은 움직인 쪽(뒤 · 앞)으로 건너뛰고, 저장하지 않은 변경이 있으면 건너뛰지 않는다. 열린 채 그려진 대화 시트는 그 시트를 처음 누를 때 `panelSync` 가 기록을 붙인다
 - 지운 것 되살리기는 최근 10개까지 쌓는다(`rememberRemoved`, `S.removed`). 지우기 사이에 다른 고침(`S.editSeq`)이 있으면 앞 기록을 버린다. 저장 띠의 '되살리기'는 가장 최근 것부터 하나씩
 - 휴대폰 키보드가 열리면 html 에 `kb-open` 을 단다(`--kb` 80px 이상). 640px 이하에서 집필 머리를 붙여 두지 않는다
@@ -550,7 +551,7 @@
   - 새 작품 마법사 `viewSetupWizard`: 필수 칸 `setupReqs` · 걸음 목차 `wizStepper` · `wizStepState` · 세계 종류 · 시대 칩 `withWorldKind` · `worldRecs`
   - 다 채운 작품은 기획서 `viewSetupDoc`: 구역 `DOC_SECS` · 목차 상태 `docStatus` · 머리 요약 `docSummary` · 관계 점검 `relIssue` · `relWork` · 가 닿을 곳이 섞인 사이 `relDestNote`
   - 인물 · 관계는 한 줄 목록에서 하나만 편다
-  - 이야기 뼈대만: 로그라인 · 관계 · 이름 후보 · 조사 `josa`
+  - 이야기 뼈대만: 로그라인 · 관계 · 이름 후보
   - 인물 상세는 `cast.js` 인물 카드
   - 상태창 처음 수치는 `statwin.js` 로 가는 링크 `setupStatLink`
   - `tests/test_setup_wizard_js.py`

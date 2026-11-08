@@ -11,7 +11,7 @@ const STAGES = [['plan', '계획', '설정 제안 · 문체 분석 · 기승전�
 // 백엔드를 비우면 따르는 단계 (settings.STAGE_PARENT 와 같다)
 const STAGE_PARENT = { board: 'plan', name: 'plan', revise: 'write', illustration: 'plan', play: 'write', chat: 'plan' };
 const stageName = (s) => (STAGES.find(([x]) => x === s) || [s, s])[1];
-// '본문 쓰기를 따름' · '계획을 따름' (조사 josa 는 setup.js)
+// '본문 쓰기를 따름' · '계획을 따름' (조사 josa 는 app.js)
 const stageFollow = (s) => `${stageName(s)}${josa(stageName(s), '을', '를')} 따름`;
 const PROVIDERS = [['gemini', 'Gemini API'], ['claude', 'Claude 구독 로그인'], ['claude-api', 'Claude API 키'], ['local', '로컬 서버'],
   ['mock', 'mock (AI 없이 화면 확인)']];

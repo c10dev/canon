@@ -229,6 +229,7 @@
 - 태그 정리(`clean`)
 - n화 삽화에 넣을 인물 상태(`states_at`): 반영이 n-1화까지면 지금 상태, 더 뒤까지 반영했으면 n-1화 이하 가장 가까운 스냅샷
 - 장편은 스냅샷을 0화 · 아크 끝 · 최근 20화만 남긴다(`pipeline.prune_snapshots`). 옛 화 삽화는 더 앞 시점의 차림 · 위치가 들어갈 수 있다
+- n-1화 스냅샷이 지워져 더 앞 스냅샷을 쓰면 그 화를 `Illustration.draft_notes` 에 남긴다
 - 맞는 스냅샷이 없으면 지금 상태를 쓰고 'n화보다 뒤 상태'를 `Illustration.draft_notes` 에 남긴다
 - `assemble` 은 `draft_notes` 를 `notes` 앞에 둔다. 다시 조립해도 원안을 받을 때의 알림이 남는다
 - AI 가 옮긴 장면 인용 대조(`match_quote`): 본문에 그대로 있으면 두고, 띄어쓰기 · 줄바꿈만 다르면 원문으로 바꾼다(`elements.find`)
@@ -275,6 +276,7 @@
 - 톤 다이얼 문장(`tone_text`)
 - LLM 호출 없음
 - `static/setup.js` 에 같은 규칙이 있어 함께 고친다(`tests/test_logline_js.py`)
+- `josa` 의 화면 쪽은 `static/app.js` 에 있다(여러 화면이 쓴다)
 
 ### `canon/naming.py`
 

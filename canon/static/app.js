@@ -3,6 +3,28 @@
    AI 호출이나 저장이 끝나면 화면 전체를 다시 그린다. */
 'use strict';
 
+// ----- 조사 -----
+// 이름 뒤 조사. canon/logline.py 의 josa 와 같은 규칙이라 함께 고친다 (tests/test_logline_js.py). 화면 문구는 '이(가)'를 박지 않고 이것을 쓴다
+// 숫자를 한국어로 읽은 소리의 받침 번호: 영(ㅇ) 일(ㄹ) 이 삼(ㅁ) 사 오 육(ㄱ) 칠(ㄹ) 팔(ㄹ) 구 (logline.DIGIT_FINAL)
+const DIGIT_FINAL = [21, 8, 0, 16, 0, 0, 1, 8, 8, 0];
+// 끝의 따옴표 · 낫표는 건너뛰고 그 앞 글자로 고른다 (logline.QUOTE_TAIL)
+const JOSA_QUOTE_TAIL = /['"‘’“”「」『』«»`]+$/;
+
+// '으로' · '로'는 받침 ㄹ(8)이면 '로'. 한글도 숫자도 아니면 '이(가)', '(으)로' (logline.josa)
+function josa(word, withFinal, withoutFinal) {
+  const w = word.trim();
+  if (!w) return '';
+  const core = w.replace(JOSA_QUOTE_TAIL, '');
+  const last = core ? core[core.length - 1] : '';
+  const digit = last ? '0123456789'.indexOf(last) : -1;
+  const code = last ? last.charCodeAt(0) : 0;
+  const j = digit >= 0 ? DIGIT_FINAL[digit] : (code >= 0xAC00 && code <= 0xD7A3 ? (code - 0xAC00) % 28 : -1);
+  const ro = withFinal === '으로';
+  if (j < 0) return ro ? '(으)로' : `${withFinal}(${withoutFinal})`;
+  if (ro && j === 8) return withoutFinal;
+  return j ? withFinal : withoutFinal;
+}
+
 const S = {
   config: null,
   name: null,        // 현재 프로젝트 폴더 이름
