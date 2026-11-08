@@ -19,7 +19,7 @@ os.environ["CANON_LLM"] = "mock"
 os.environ["CANON_HOME"] = tempfile.mkdtemp()
 
 from canon import cancel, claude, settings, usage  # noqa: E402
-from canon.llm import FAMILY_SYSTEM, PREFIX_HINT, SchemaMismatch, get_llm, out_cap, role_block, wait_cap, with_note  # noqa: E402
+from canon.llm import FAMILY_SYSTEM, PREFIX_HINT, OutputCut, SchemaMismatch, get_llm, out_cap, role_block, wait_cap, with_note  # noqa: E402
 from canon.schema import FindingRecheck, NameOptions  # noqa: E402
 
 FAKE = textwrap.dedent('''\
@@ -688,7 +688,7 @@ class ClaudeAPITest(unittest.TestCase):
         self.assertNotIn("timeout", self.reqs[0])
         with wait_cap(300), out_cap(16384):
             llm.text("s", "p")
-            with self.assertRaisesRegex(RuntimeError, "16384 토큰"):
+            with self.assertRaisesRegex(OutputCut, "16384 토큰"):  # pipeline._write 가 끊긴 본문으로 센다
                 llm.text("s", "p")
         self.assertEqual((self.reqs[1]["max_tokens"], self.reqs[1]["timeout"]), (16384, 300))
 

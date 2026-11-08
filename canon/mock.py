@@ -585,6 +585,9 @@ MOCK_FIELD_IDEAS = {
 
 
 class MockLLM:
+    knows_cut = True  # 끊긴 응답을 last_finish 로 알린다 (CUT_TEXT). pipeline._write 가 출력 한도를 건다
+    last_finish = ""
+
     def json(self, system: str, prompt: str, schema: type[T], hint: dict | None = None) -> T:
         _delay()
         hint = hint or {}
@@ -593,6 +596,17 @@ class MockLLM:
         raise NotImplementedError(schema.__name__)
 
     def text(self, system: str, prompt: str) -> str:
+        out = self._text(system, prompt)
+        self.last_finish = "STOP"
+        if CUT_TEXT:  # 출력 길이 한도에 걸려 끊긴 응답 흉내: 앞 절반만 낸다
+            empty = CUT_TEXT.pop() == "empty"
+            self.last_finish = "MAX_TOKENS"
+            if empty:  # 생각만 하다 한도에 걸려 글 없이 끝난 응답 (GeminiLLM 은 '응답이 비었어요' 오류를 낸다)
+                raise RuntimeError("Gemini 응답이 비었어요: MAX_TOKENS")
+            out = out[:max(1, len(out) // 2)]
+        return out
+
+    def _text(self, system: str, prompt: str) -> str:
         _delay()
         from .mock_cue import text_for
         if (cue := text_for(prompt)) is not None:  # 큐 시트 집필 실험
@@ -618,7 +632,7 @@ class MockLLM:
             out = _broken(out)
         name = f"batches/mock-{uuid.uuid4().hex[:8]}"
         BATCHES[name] = {"out": out, "polls": int(os.environ.get("CANON_MOCK_BATCH_POLLS", "0") or 0),
-                         "label": label, "cancelled": False}
+                         "label": label, "cancelled": False, "finish": self.last_finish if schema is None else "STOP"}
         return name
 
     def batch_poll(self, name: str) -> str | None:
@@ -631,6 +645,7 @@ class MockLLM:
         if b["polls"] > 0:
             b["polls"] -= 1
             return None
+        self.last_finish = b.get("finish", "STOP")  # GeminiLLM.batch_poll 처럼 끝난 이유를 남긴다 (CUT_TEXT 면 MAX_TOKENS)
         return b["out"]
 
     def batch_cancel(self, name: str) -> None:
@@ -982,6 +997,7 @@ def _r_consistency_report_en(prompt: str, hint: dict):
 
 BATCHES: dict[str, dict] = {}  # 프로세스 안에서만 유지되는 가짜 배치 작업
 BAD_JSON: list[str] = []  # 여기 넣은 스키마 이름은 다음 배치 응답 한 번을 형식이 틀리게 낸다 (넣은 만큼)
+CUT_TEXT: list[bool | str] = []  # 넣은 만큼 다음 글 응답(text)을 출력 길이 한도에 걸려 끊긴 것으로 낸다 (last_finish MAX_TOKENS). "empty" 는 글 없이 끝난 응답
 
 
 def _broken(out: str) -> str:

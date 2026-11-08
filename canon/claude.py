@@ -720,6 +720,7 @@ class ClaudeAPILLM:
     """Anthropic API 키로 Messages API 를 부른다. 구조화 출력은 output_config.format 으로 강제하고
     pydantic 으로 검증한다. 긴 본문도 끊기지 않게 스트리밍으로 받는다."""
     family_cache = True
+    knows_cut = True  # 끊긴 응답(stop_reason max_tokens)은 llm.OutputCut 오류로 알린다
 
     def __init__(self, model: str | None = None, api_key: str | None = None, effort: str = ""):
         import anthropic
@@ -784,7 +785,8 @@ class ClaudeAPILLM:
             if msg.stop_reason == "refusal":
                 raise RuntimeError("Claude가 이 요청을 거절했어요 (안전 분류기). 수위나 표현을 조정하거나 다른 백엔드로 돌리세요.")
             if msg.stop_reason == "max_tokens":
-                raise RuntimeError(f"Claude 응답이 최대 길이({limit} 토큰)에서 끊겼어요")
+                from .llm import OutputCut
+                raise OutputCut(f"Claude 응답이 최대 길이({limit} 토큰)에서 끊겼어요")
             text = "".join(b.text for b in msg.content if b.type == "text").strip()
             if not text:
                 raise RuntimeError(f"Claude 응답이 비었어요: stop_reason={msg.stop_reason}")

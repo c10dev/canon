@@ -107,7 +107,7 @@ class Run(BaseModel):
     step: str = ""
     reasons: list[str] = Field(default_factory=list, description="멈춘 이유")
     halt: str = Field("", description="멈춘 종류. 화면이 고칠 곳으로 가는 버튼을 고른다: "
-                      "plot_missing | plot_draft | board | board_stale | review | every | changed | reverted | schema | error")
+                      "plot_missing | plot_draft | board | board_stale | review | every | changed | reverted | schema | cut | error")
     restarts: int = Field(0, description="서버가 다시 시작돼 이어 간 횟수 (그때 하던 단계는 처음부터 다시 한다)")
     pending: Optional[StateDelta] = Field(None, description="검토 대기 중인 변경안")
     pending_text: str = Field("", description="검토 대기 변경안을 만든 본문. 그 뒤 본문을 고쳤으면 그대로 반영하지 않는다")
@@ -769,8 +769,12 @@ class Runner:
         self.log(f"{n}화 본문을 쓰는 중" + (" (배치)" if self.run.batch and batchable("write") else ""))
         cut: list = []
         use_cues = n not in self.no_cues
-        (text, model), usage = self.call("write", n, lambda llm: (pipeline.write_episode(llm, p, n, use_cues=use_cues, cut=cut),
-                                                                  pipeline.writer_of(llm)))
+        try:
+            (text, model), usage = self.call("write", n, lambda llm: (pipeline.write_episode(llm, p, n, use_cues=use_cues, cut=cut),
+                                                                      pipeline.writer_of(llm)))
+        except pipeline.WriteCut as e:  # 끊긴 본문은 반영하지 않는다. 이어 가면 이 화 본문을 다시 쓴다
+            raise _Halt("paused", f"{n}화 본문이 출력 길이 한도에 걸려 끊겨 멈췄어요",
+                        [str(e), f"{n}화에 끊긴 본문을 넣지 않았어요. 이어 가면 {n}화 본문을 다시 써요"], kind="cut") from e
 
         def put(q: Project) -> None:
             ep = q.episode(n)

@@ -6,6 +6,7 @@ import contextlib
 import fcntl
 import hashlib
 import json
+import logging
 import os
 import re
 import shutil
@@ -137,15 +138,34 @@ SNAP_DIR = "snapshots"
 _SNAP_HEAD = re.compile(r'^\{"snapshot_files":(\[[^\]]*\])')
 
 
+class SnapRefsUnreadable(Exception):
+    """판 파일의 스냅샷 목록을 읽지 못했다. 옛 모양(목록 없음)과 다르다."""
+
+
 def _snap_refs(path: Path) -> list[str] | None:
-    """project.json 맨 앞의 스냅샷 파일 목록. 옛 모양이면 None."""
+    """project.json 맨 앞의 스냅샷 파일 목록. 옛 모양이면 None, 파일이 없으면 [].
+    읽지 못하면(OSError, 빈 파일, JSON 객체가 아닌 머리, 64KB 안에서 닫히지 않는 목록) SnapRefsUnreadable."""
     try:
         with path.open("rb") as f:
             head = f.read(64 * 1024).decode("utf-8", errors="ignore")
-    except OSError:
-        return None
+    except FileNotFoundError:  # 없는 판은 아무 파일도 적지 않는다
+        return []
+    except OSError as e:
+        raise SnapRefsUnreadable(f"{path}: {e}") from e
     m = _SNAP_HEAD.match(head)
-    return json.loads(m.group(1)) if m else None
+    if m:
+        try:
+            refs = json.loads(m.group(1))
+        except ValueError as e:
+            raise SnapRefsUnreadable(f"{path}: 스냅샷 목록이 JSON이 아니에요") from e
+        if not all(isinstance(r, str) for r in refs):
+            raise SnapRefsUnreadable(f"{path}: 스냅샷 목록 모양이 달라요")
+        return refs
+    if head.startswith('{"snapshot_files"'):
+        raise SnapRefsUnreadable(f"{path}: 스냅샷 목록이 앞 64KB 안에서 닫히지 않아요")
+    if not head.lstrip().startswith("{"):
+        raise SnapRefsUnreadable(f"{path}: 빈 파일이거나 JSON 객체가 아니에요")
+    return None
 
 
 def read_disk(path: Path, tries: int = 3, home: Path | None = None) -> Project:
@@ -201,7 +221,16 @@ def _drop_old_snapshots(d: Path) -> None:
         return
     keep: set[str] = set()
     for f in [d / "project.json", d / "project.prev.json", *(d / BACKUP_DIR).glob("*.json")]:
-        keep |= set(_snap_refs(f) or ())
+        try:
+            keep |= set(_snap_refs(f) or ())
+        except SnapRefsUnreadable as e:
+            # Canon 이 쓰지 않은 backups/ 파일(시간별 · 되돌리기 전 이름이 아닌 것)은 스냅샷을 적지 않으므로 넘긴다.
+            # 이런 파일은 아무도 지우지 않아 정리가 영영 멈출 수 있다
+            if f.parent == d / BACKUP_DIR and not (_HOURLY.match(f.name) or _RESTORE.match(f.name)):
+                continue
+            # 읽지 못한 판이 적은 파일을 모르므로 이번 정리는 건너뛴다
+            logging.getLogger("canon").warning("스냅샷 정리를 건너뛰었어요. 판을 읽지 못했어요: %s", e)
+            return
     fresh = time.time() - SNAP_GRACE
     for f in sdir.glob("*.json"):
         if f.name in keep:

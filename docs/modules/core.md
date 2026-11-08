@@ -24,6 +24,7 @@
 - 시간 건너뜀 멈춤(`Policy.max_time_jump_days`, 0 이면 끔): `timeline.current_day` 에서 `StateDelta.time.day` 까지 앞으로 간 날수. 어느 쪽이든 날수를 모르거나 시간 기록을 껐으면 보지 않고, 거슬러 가는 것도 보지 않는다
 - 지운 칸 멈춤(`Policy.stop_on_clear`, `CharacterState.cleared`). 칸 이름은 `CLEAR_NAMES` 로 상태 승인 화면과 같은 말로 적는다
 - 상태 변경안의 본문 지문(`StateDelta.basis`)이 지금 본문과 다르면 검토 대기로 두지도 반영하지도 않고 `paused` · `changed` 로 멈춘다(`_same_text`)
+- 본문이 출력 길이 한도에 걸려 끊기면(`pipeline.WriteCut`) 그 화를 반영하지 않고 `paused` · `cut` 으로 멈춘다. 이어 가면 그 화 본문을 다시 쓴다
 - 배치(`llm.BatchLLM`) 켜고 끄기
 - 배치를 취소하지 못하면 배치 이름을 서버 로그(`canon` 로거)에 경고로 남긴다(`_cancel_batches`)
 - 기다리는 배치마다 보낸 프롬프트 지문을 `Run.batch_keys` 에 남긴다. 이어 갈 때 다르면 `BatchLLM` 이 그 배치를 취소하고 다시 보낸다(일시정지 중 본문 · 플롯을 고친 경우)
@@ -370,6 +371,17 @@
 - 큐 시트: `make_cue_sheet`, 넣기는 `cue.set_episode`, `write_episode(use_cues=)`
 - 쓰기 가족: 스토리보드 · 큐 시트 요청이 `prompts.write_head` 로 시작하면 `write_family` 가 그 길이를 캐시 경계 hint 로 준다
 - 쓰기 가족: `_write` 는 `llm.family_text` 로 부른다. 요청이 `write_head` 로 시작하면 본문 쓰기도 같은 캐시를 읽는다
+- 본문 쓰기 출력 한도: `_write` 는 끊긴 응답을 알아채는 백엔드(`llm.knows_cut`: Gemini · Claude API · mock)에만 `out_cap(write_out_tokens(p, n))` 을 건다
+- 로컬(`LocalLLM.caps_write = False`)은 한도를 걸지 않고 끊김만 본다
+- `write_out_tokens` 는 글자 수(목표 분량과 그 화 지금 본문 중 긴 쪽) × `WRITE_TOKENS_PER_CHAR`(4) + `WRITE_THINK_TOKENS`(16,384)를 `WRITE_OUT_RANGE`(24,576~65,536) 안으로 자른다
+- 근거: 서버 write 단계 본문 쓰기 271번(2026-11-08)의 출력+생각 최댓값은 Gemini 17,089 · Claude 24,800토큰이다. 목표 7,000자 한도는 44,384토큰이다
+- Claude Code(구독)는 끊김을 알리지 않아 한도를 걸지 않는다
+- 배치(`llm.BatchLLM`)는 끊김을 알리지만(`knows_cut`) 요청에 출력 한도를 싣지 않아 한도는 걸지 않는다(`caps_write = False`)
+- 끊긴 응답(`llm.was_cut` 또는 `llm.OutputCut`)은 본문으로 받지 않고 `WRITE_TRIES` 안에서 다시 부른다
+- 끝난 이유가 끊김인데 글 없이 끝나 백엔드가 낸 '응답이 비었어요' 오류(RuntimeError)도 끊김으로 센다
+- 세 번 모두 끊기면 `WriteCut`(ValueError)을 낸다: '본문이 출력 길이 한도에 걸려 끊겼어요'. 끊긴 본문은 돌려주지 않는다
+- 일부만 끊기고 나머지가 다른 까닭이면 끊긴 수를 함께 적은 보통 ValueError 를 낸다(자동 집필은 `cut` 이 아닌 오류로 멈춘다)
+- 다시 생성 · 서술 다듬기 · 큐 시트 집필도 `_write` 를 거쳐 같은 한도와 거부를 쓴다. 부분 수정(`PassageRevision`)은 JSON 이라 끊기면 형식 불일치로 끝난다
 - 방금 만든 스토리보드 다음의 큐 시트: `make_storyboard(lead=)` 가 보낸 요청 글을 채우고, `cue_lead` 가 그 스토리보드가 AI 가 만든 그대로 · 낡지 않음일 때만 그 글을 돌려준다. `make_cue_sheet(lead=)` 는 그 글로 시작하는 요청을 보낸다(자동 집필 `_cues`, 웹 쓰기 작업 `board: make`)
 - 문체 분석 `analyze_style` 뒤 `count_markers` 가 표지 · 장치 단서를 거른다: 원문에 없는 것, 한글 2자 미만(`MARKER_MIN_HANGUL`), 인물 이름(2자 이상)이 든 것
 - `count_markers` 는 원문 표본에 없는(공백 빼고 견줌) 장치 예시를 비운다
@@ -525,6 +537,17 @@
 - 사용자 설정(LLM 프로바이더, 모델, API 키, 로컬 서버, 단계별 백엔드)
 - 웹 설정 화면에서 저장하면 `~/.canon/config.json` 에 들어간다(`CANON_CONFIG` 로 경로 변경)
 - `_write` 는 `store.write_atomic(mode=0o600, fsync=True)` 로 쓴다. 키가 든 임시 파일도 처음부터 본인만 읽고, 쓰다 멈춰도 옛 설정이 그대로 남는다
+- 읽고-고치고-쓰는 곳(`update` · `save_preset` · `delete_preset` · `set_prices` · `mark_gemini_cache_unsupported` · `reset_broken`)은 프로세스 안 잠금 `_CONFIG_LOCK`(RLock)을 잡는다. 겹친 단계 칸 PUT 이 서로의 값을 지우지 않는다
+- CLI 와 서버처럼 다른 프로세스가 함께 쓰는 경우는 이 잠금이 막지 않는다
+- `_load()` 는 (설정, 문제)를 돌려준다. 문제는 `""` · `"corrupt"`(JSON 이 아니거나 객체가 아님) · `"unreadable"`(권한 · 입출력 오류)이다
+- 읽지 못한 파일은 권한을 고치면 키가 돌아올 수 있어 보관하지 않고, 쓰기는 권한을 확인하라는 `ConfigBroken` 으로 막는다
+- 깨진 파일을 처음 만나면 원문을 `config.json.corrupt-<시각>` 로 한 번 복사한다(0o600, `_keep_broken`). 같은 내용의 보관본이 있으면 새로 만들지 않는다
+- 보관본을 쓰다 실패하면(디스크 가득 등) 반쪽 파일을 지우고, 같은 내용은 다시 시도하지 않는다(`_backup_failed`)
+- 깨진 동안 읽는 쪽은 `{}`(기본값)를 쓰고, 쓰는 쪽(`_load_for_write`)은 보관본 이름을 적은 `ConfigBroken`(ValueError) 을 낸다. 웹은 409 와 `code: config_broken` 으로 답한다
+- `reset_broken` 은 깨진 파일만 빈 설정으로 바꾸고 보관본은 둔다(`POST /api/config/reset`, 설정 화면 '기본값으로 새로 시작'). 깨지지 않은 파일이면 ValueError
+- 읽지 못한 파일이면 `reset_broken` 은 ValueError 로 거절한다
+- `public()` 의 `config_broken` · `config_backup` 은 깨졌는지와 보관본 경로다. 키 값은 오류 · 로그 · 화면에 찍지 않는다
+- `public()` 의 `config_unreadable` 은 읽지 못했는지다(그때 `config_broken` 도 참)
 - 환경 변수가 있으면 파일보다 우선한다
 - 단계 이름 목록은 `STAGES`
 - 스토리보드 · 큐 시트 단계 `board` 는 따로 정하지 않으면 계획 단계를 따른다(`STAGE_PARENT`). 웹 쓰기 작업 · 스토리보드 · 큐 시트 작업과 자동 집필이 이 단계로 부른다
@@ -581,6 +604,11 @@
 - 지난 저장과 같은 스냅샷은 다시 직렬화하지 않는다(`_snap_written`). 어느 판(project.json · prev · backups)도 적지 않은 스냅샷 파일은 지운다
 - `backups/` 의 모든 `.json`(되돌리기 전 판 포함)이 적은 스냅샷 파일을 남긴다
 - 아무 판도 적지 않아도 `SNAP_GRACE`(60초) 안에 쓴 스냅샷 파일은 지우지 않는다
+- `_snap_refs` 는 판의 스냅샷 목록을 돌려준다. 옛 모양이면 None, 없는 파일이면 빈 목록이다
+- 판을 읽지 못하면(OSError, 빈 파일, JSON 객체가 아닌 머리, 앞 64KB 안에서 닫히지 않는 목록) `_snap_refs` 가 `SnapRefsUnreadable` 을 낸다
+- 판 하나라도 읽지 못하면 `_drop_old_snapshots` 는 그 차례 정리를 건너뛰고 `canon` 로그에 경고를 남긴다
+- 판을 계속 읽지 못하면 `snapshots/` 가 커진다
+- 읽지 못한 `backups/` 파일이 시간별 · 되돌리기 전 이름(`_HOURLY` · `_RESTORE`)이 아니면 `_drop_old_snapshots` 는 그 파일을 넘기고 정리를 이어 간다
 - `save` 는 판 기록 읽기부터 옛 스냅샷 지우기까지 작품 폴더의 `.lock` 에 `fcntl.flock` 을 잡는다(`_disk_lock`). 명령줄과 웹 서버가 함께 저장해도 서로의 새 스냅샷 파일을 지우지 않는다
 - 읽고 고쳐 저장하는 구간 전체의 프로세스 사이 잠금은 `jobs.project_lock`(`.edit.lock`)이 맡는다
 - `write_atomic` 은 pid · 스레드 id 가 붙은 tmp 파일에 다 쓴 뒤 `os.replace` 로 바꿔 넣고, 바꾸기 직전 tmp 의 stat(판)을 돌려준다
@@ -643,6 +671,15 @@
 - 잠금은 재진입하지 않는다. 잠금을 잡은 채 저장하는 코드는 `_save` 대신 `_save_locked` 를 부른다
 - 작품 저장(PUT · PATCH)은 디스크에도 있는 화의 `JOB_EP_FIELDS` 칸(검수 결과 · 흡입력 판정 · 다시 맞추기 표시 · 고칠 곳 · 장면 연출)을 디스크 값으로 둔다(`_keep_job_fields`)
 - 작업이나 전용 엔드포인트만 쓰는 화의 칸을 새로 만들면 `JOB_EP_FIELDS` 에 더한다. 그래야 작업 전에 읽은 화면의 저장이 작업 결과를 덮지 않는다
+- 작품 저장(PUT · PATCH)이 디스크에서 본문이 있는 화를 빼면 디스크 화를 통째로 되돌리고 `X-Canon-Kept` 에 `{"field": "episode", "ep": n}` 로 알린다(`_keep_texts`)
+- 작품 저장(PUT · PATCH)이 본문이 있던 화의 본문을 빈 글로 보내면 그 화도 디스크 것으로 통째로 되돌리고 `{"field": "text", "ep": n}` 로 알린다(`_keep_texts`)
+- 본문만 되돌리지 않는 까닭: 화면이 보낸 옛 상태(confirmed)가 남으면 본문이 있는데 안 쓴 화로 보여 플롯 잠금이 풀리고 다시 쓰기가 본문을 덮는다
+- 되돌린 화도 줄기 표시(`LOCKED_FREE`)는 화면 것을 받고, 이번 저장이 지운 인물 · 줄기는 플롯에서 뺀다(`_restored`). 되돌림이 저장 검사 뒤에 오기 때문이다
+- 빠진 화의 본문이 화면이 보낸 다른 화의 본문과 같으면 되돌리지 않는다. 화 끼워 넣기로 번호가 밀린 옛 탭의 덮어쓰기가 끝 화를 겹쳐 남기지 않게 한다
+- 본문을 비운 화도 같다. 화 지우기로 본문이 앞으로 당겨진 뒤 옛 탭이 덮어써도 같은 본문이 두 화에 생기지 않는다
+- 총 화수(`meta.target_episodes`) 밖의 화를 되돌리면 `"why": "over_target"` 을 붙인다
+- 이 본문 지키기는 `force` 로도 풀지 않는다. 화 빼기 · 지우기는 전용 라우트(`remove_episode` · `delete_episode`)가 한다
+- 인물 · 떡밥 · 비밀 목록이 비는 저장은 막지 않는다. 작가가 일부러 지운 결과다
 - 인물 · 관계도와 지도 응답은 작품 판으로 JSON 을 기억하고 ETag 를 붙인다(`_json_view`)
 - CLI 와 같은 store · pipeline · prompts 를 쓰고 화면은 `canon/static/` 의 정적 파일이다
 - AI 가 만든 제안(설정, 문체, 구조, 상태 변경안)은 바로 저장하지 않고 돌려준다

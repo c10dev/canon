@@ -74,6 +74,19 @@ class SchemaMismatch(RuntimeError):
                          + (f". {note}" if note else ""))
 
 
+class OutputCut(RuntimeError):
+    """응답이 출력 길이 한도(out_cap 또는 모델 기본 한도)에 걸려 끊겼다. 끝난 이유를 last_finish 로 남기지 않고 오류로 알리는 백엔드가 낸다 (claude.ClaudeAPILLM)."""
+
+
+# 응답이 출력 길이 한도에 걸려 끊겼다는 끝난 이유: Gemini MAX_TOKENS, OpenAI 호환(로컬) length.
+CUT_FINISH = ("MAX_TOKENS", "length")
+
+
+def was_cut(llm: Any) -> bool:
+    """마지막 응답이 출력 길이 한도에 걸려 끊겼으면 참. 끝난 이유(last_finish)를 남기지 않는 백엔드는 늘 거짓."""
+    return str(getattr(llm, "last_finish", "") or "") in CUT_FINISH
+
+
 def _brief(e: ValidationError, limit: int = 8) -> str:
     """검증 오류를 위치와 이유만 짧게. 입력값 전체는 길고 본문이 섞여 있어 뺀다."""
     errs = e.errors(include_url=False)
@@ -467,6 +480,7 @@ def gemini_cache_reset() -> None:
 
 
 class GeminiLLM:
+    knows_cut = True  # 끊긴 응답을 last_finish(MAX_TOKENS)로 알린다. pipeline._write 가 이 백엔드에만 출력 한도를 건다
     effort = ""  # 추론 강도 기본값 (시험이 __init__ 없이 만들 때도 있다)
     temperature: float | None = None  # 연구 화면 · 프롬프트 놀이터가 고른 온도. None 이면 보내지 않아 모델 기본값을 쓴다
 
@@ -788,6 +802,9 @@ class GeminiLLM:
         if out is None or out.error or out.response is None:
             raise BatchGone(f"Gemini 배치 응답이 없어요: {out.error if out else job.dest}")
         self.last_usage = _usage(out.response.usage_metadata)
+        cands = getattr(out.response, "candidates", None) or []
+        reason = getattr(cands[0], "finish_reason", None) if cands else None
+        self.last_finish = getattr(reason, "name", None) or str(reason or "")  # BatchLLM 이 끊김(MAX_TOKENS)을 알게 한다
         if not out.response.text:
             raise BatchGone("Gemini 배치 응답이 비었어요")
         return out.response.text
@@ -825,7 +842,12 @@ class BatchLLM:
     기다리던 작업을 취소하고 지금 프롬프트로 새로 보낸다. 지문이 없는 예전 기록은 그대로 다시 붙는다.
     wait(초) 는 기다리고 나서 'stop'(작업 취소) | 'pause'(작업은 두고 멈춤) | '' 를 돌려준다.
     json 응답이 스키마와 맞지 않으면 오류를 붙여 '<slot>:fix' 로 한 번 더 배치를 보내고, note(글) 로 알린다.
+    끝난 이유는 안쪽 LLM 의 batch_poll 이 남긴 것을 last_finish 로 옮긴다. 본문 쓰기(pipeline._write)가 끊긴 배치 본문을 받지 않게 한다.
+    배치 요청에는 출력 한도를 실어 보내지 않으므로 본문 쓰기 한도는 걸지 않는다 (caps_write).
     """
+
+    knows_cut = True
+    caps_write = False
 
     def __init__(self, inner: Any, slot: str, names: dict[str, str], on_change: Any, wait: Any,
                  label: str = "canon", interval: float | None = None, note: Any = None,
@@ -837,6 +859,7 @@ class BatchLLM:
         self.last_usage: dict | None = None
         self.last_attempts = 1
         self.last_prompt = ""  # 사용량 기록에 블록 크기를 남기려고
+        self.last_finish = ""  # 마지막 배치 응답이 끝난 이유 (안쪽 LLM 의 batch_poll 이 남긴 것)
         self.model = getattr(inner, "model", "")
 
     @staticmethod
@@ -865,6 +888,7 @@ class BatchLLM:
              slot: str | None = None, key: str = "") -> str:
         slot = slot or self.slot
         self.last_prompt = prompt
+        self.last_finish = ""
         key = key or self.key(system, prompt)
         self._drop_stale(slot, key)
         name = self.names.get(slot)
@@ -894,6 +918,7 @@ class BatchLLM:
             if raw is not None:
                 self._forget(slot)
                 self.last_usage = getattr(self.inner, "last_usage", None)
+                self.last_finish = str(getattr(self.inner, "last_finish", "") or "")
                 return raw
             why = self.wait(self.interval)
             if why == "stop":
@@ -986,6 +1011,11 @@ class LocalLLM:
     검증에 실패하면 오류를 알려 주고 한 번 더 묻는다. 추론 모델의 <think> 블록은 지운다.
     """
 
+    knows_cut = True  # 끊긴 응답을 last_finish(length)로 알린다
+    # 본문 쓰기 출력 한도(pipeline.write_out_tokens)는 걸지 않는다. vLLM 은 프롬프트 + max_tokens 가 max_model_len 을 넘으면
+    # 요청을 400 으로 거절해 16k · 32k 컨텍스트 서버에서 본문 쓰기가 늘 실패한다. 끊김 검사(finish_reason length)는 그대로 한다
+    caps_write = False
+
     def __init__(self, base_url: str | None = None, model: str | None = None,
                  api_key: str | None = None, sampling: dict | None = None, timeout: float | None = None):
         from . import settings
@@ -998,6 +1028,7 @@ class LocalLLM:
         self.last_usage: dict | None = None  # 연구 화면에서 보여 줄 마지막 호출의 토큰 수
         self.last_attempts = 0
         self.last_raw = ""
+        self.last_finish = ""  # 마지막 응답의 finish_reason (stop, length 등). length 는 출력 길이 한도에 걸려 끊긴 것
 
     def _request(self, method: str, path: str, body: dict | None = None, timeout: float | None = None) -> dict:
         """path 가 http 로 시작하면 그 주소를 그대로 쓴다 (/v1 밖의 /tokenize, /version). timeout 은 self.timeout 보다 짧게만 준다.
@@ -1093,6 +1124,7 @@ class LocalLLM:
         """한 번 부르고 사용량을 기록한다. parse 는 GeminiLLM._call 과 같다."""
         cancel.check()
         t, tokens = time.time(), None
+        self.last_finish = ""
         try:
             sent = list(messages)
             if sent and sent[-1].get("role") == "user" and isinstance(sent[-1].get("content"), str):
@@ -1103,6 +1135,7 @@ class LocalLLM:
             resp = self._request("POST", "/chat/completions", body)
             tokens = self.last_usage = _local_usage(resp.get("usage"))
             choice = (resp.get("choices") or [{}])[0]
+            self.last_finish = str(choice.get("finish_reason") or "")
             content = (choice.get("message") or {}).get("content") or ""
             content = _THINK_RE.sub("", content).strip()
             if not content:
