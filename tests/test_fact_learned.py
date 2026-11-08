@@ -44,10 +44,14 @@ def test_short_prompts_do_not_tag():
 
 
 def test_clean_strips_tags_from_new_facts():
-    p = _play(_short(8), 1, 2)
-    d = StateDelta(episode=2, summary="", new_facts=["(12화) 등대 계단은 백십 칸이다", " (3화)  ", "(요약) 그대로 둔다"])
+    p, n = _serial_with_fact()
+    d = StateDelta(episode=n, summary="", new_facts=["(12화) 등대 계단은 높다", " (3화)  ", "(요약) 그대로 둔다"])
     pipeline.clean_delta(p, d)
-    assert d.new_facts == ["등대 계단은 백십 칸이다", "(요약) 그대로 둔다"]
+    assert d.new_facts == ["등대 계단은 높다", "(요약) 그대로 둔다"]
+    short = _play(_short(8), 1, 2)  # 단편은 표시를 붙이지 않아 그대로 둔다
+    d = StateDelta(episode=2, summary="", new_facts=["(12화) 등대"])
+    pipeline.clean_delta(short, d)
+    assert d.new_facts == ["(12화) 등대"]
 
 
 def test_impact_facts_untagged():

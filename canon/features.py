@@ -23,7 +23,9 @@ Warn = str | tuple[str, str]
 
 
 def _untag_facts(p: Project, d: StateDelta) -> None:
-    """프롬프트가 장편 사실 줄 앞에 붙인 '(n화)' 표시(prompts.fact_rows)를 새 사실이 따라 적었으면 뗀다. 빈 사실은 뺀다."""
+    """프롬프트가 장편 사실 줄 앞에 붙인 '(n화)' 표시(prompts.fact_rows)를 새 사실이 따라 적었으면 뗀다. 빈 사실은 뺀다. 단편은 표시를 붙이지 않아 그대로 둔다."""
+    if not p.serial:
+        return
     d.new_facts = [f for f in (context.FACT_TAG.sub("", x).strip() for x in d.new_facts) if f]
 
 
