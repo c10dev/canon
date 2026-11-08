@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Iterator
 
 from . import cancel, store
+from .llm import explain_error
 
 KEEP_SECONDS = 600  # 끝난 작업을 목록에 남겨 두는 시간
 OWN_GRACE = 30  # 끝난 뒤에도 화면이 새 내용을 받아 갈 때까지 맡은 화를 지키는 시간
@@ -186,7 +187,7 @@ def start(project: str, kind: str, ep: int | None, label: str, fn: Callable[[Job
         except Exception as e:  # 화면에 그대로 보여 준다. 원인을 찾을 수 있게 호출 경로는 서버 로그에 남긴다
             logging.getLogger("canon").exception("작업 %s(%s, %s) 실패", job.kind, job.project, job.id)
             if job.status == "running":
-                job.error = getattr(e, "message", None) or str(e) or type(e).__name__
+                job.error = explain_error(e)  # 원인과 할 일. 전체 예외는 위 서버 로그에 있다
                 job.status = "error"
         finally:
             job.finished = job.finished or time.time()

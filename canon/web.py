@@ -32,7 +32,7 @@ from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from . import address, agent, archetypes, autorun, board, cancel, cast, charlog, dynamics, elements, genres, illust, jobs, knows, library, metrics, naming, pipeline, prompts, publish, refs, research, settings, store, usage
-from .llm import BadKey, GeminiLLM, LocalLLM, MissingKey, get_llm, make_llm
+from .llm import BadKey, GeminiLLM, LocalLLM, MissingKey, explain_error, get_llm, make_llm
 from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록)
 from .schema import (Ability, ArcPlan, BodySuggestion, StatInitSuggestion, StatSkin, StatWindowSuggestion, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
@@ -42,7 +42,7 @@ from .metrics import StyleMetrics
 from .schema import CharacterState, ConsistencyReport, FindingStatus, Severity, StoryEvent
 from .schema import FieldIdeas, NameOption, Recap, StateDeltaAI, to_delta
 from . import branches
-from .schema import BranchDiff, BranchInfo, ForkMode, Snapshot
+from .schema import BranchDiff, BranchInfo, Episode, ForkMode, Snapshot
 from . import play
 from . import cue
 from .schema import CueSheetDraft
@@ -185,6 +185,12 @@ async def _bad_request(_: Request, e: Exception) -> JSONResponse:
     return JSONResponse({"detail": str(msg)}, status_code=400)
 
 
+@app.exception_handler(settings.ConfigBroken)
+async def _config_broken(_: Request, e: Exception) -> JSONResponse:
+    # 깨진 설정 파일 위에 덮어쓰지 않았다. 화면은 설정 맨 위 안내의 '기본값으로 새로 시작'으로 풀게 한다
+    return JSONResponse({"detail": str(e), "code": "config_broken"}, status_code=409)
+
+
 @app.exception_handler(BadKey)
 async def _bad_key(_: Request, e: BadKey) -> JSONResponse:
     # 키가 틀리거나 만료됐다: 영어 원문 대신 설정으로 가는 안내 (화면 showError 가 설정을 열지 묻는다)
@@ -200,9 +206,9 @@ async def _no_key(_: Request, e: MissingKey) -> JSONResponse:
 
 @app.exception_handler(Exception)
 async def _server_error(_: Request, e: Exception) -> JSONResponse:
-    # 응답 실패 등을 화면에 그대로 보여 준다. 예외 이름과 자세한 내용은 서버 로그에만 남긴다
+    # 응답 실패 등은 원인과 할 일로 바꿔 보여 준다 (llm.explain_error). 예외 이름과 자세한 내용은 서버 로그에만 남긴다
     logging.getLogger("canon").exception("요청 처리 중 오류")
-    return JSONResponse({"detail": str(e) or "서버에서 오류가 났어요. 서버 로그를 확인하세요"}, status_code=500)
+    return JSONResponse({"detail": explain_error(e) if str(e) else "서버에서 오류가 났어요. 서버 로그를 확인하세요"}, status_code=500)
 
 
 def _need(name: str) -> None:
@@ -251,6 +257,8 @@ def _save_locked(name: str, p: Project, merged: set[str] | None = None, kept: li
         kept += [k for k in autorun.protected(name, disk, p) if k not in kept]
         # 본문이 있는 화의 플롯은 화면이 막아도 서버에서 한 번 더 지킨다 (줄기 표시만 받는다)
         kept += [{"field": "plot", "ep": n, "why": "locked"} for n in pipeline.keep_locked_plots(disk, p)]
+        # 본문이 있던 화가 빠지거나 본문이 빈 글이 되는 저장은 화면 버그로 본다. 화 지우기는 전용 라우트가 있어 force 로도 풀지 않는다
+        kept += _keep_texts(disk, p)
         # 화면이 열린 동안 플롯 작업이 더한 새 인물 후보도 지킨다. 안 쓰이거나 등록된 후보는 sync 가 지운다
         have = {c.id for c in p.cast_candidates}
         p.cast_candidates += [c for c in disk.cast_candidates if c.id not in have]
@@ -261,6 +269,52 @@ def _save_locked(name: str, p: Project, merged: set[str] | None = None, kept: li
         p.rooms = disk.rooms
     store.save(name, p)
     return p
+
+
+def _keep_texts(disk: Project, p: Project) -> list[dict]:
+    """디스크에서 본문이 있는 화를 화면 저장이 빼거나 본문을 비우면 디스크 화를 통째로 되돌린다.
+    본문만 되돌리면 화면이 보낸 옛 상태(confirmed 등)가 남아 본문이 있는데 안 쓴 화로 보이므로 상태 · 플롯도 디스크 것을 둔다.
+    빠진 화는 {"field": "episode", "ep": n} 를, 비운 본문은 {"field": "text", "ep": n} 를 돌려준다. 총 화수 밖의 화는 "why": "over_target" 을 붙인다.
+    빠지거나 비운 화의 디스크 본문이 화면이 보낸 다른 화의 본문과 같으면 화 번호가 밀린 옛 사본(화 끼워 넣기 · 화 지우기 뒤)이라 되돌리지 않는다.
+    화 지우기 · 본문 비우기는 전용 라우트(remove_episode · delete_episode)가 한다."""
+    mine = {e.plot.number: e for e in p.episodes}
+    kept: list[dict] = []
+    for d in disk.episodes:
+        if not d.text:
+            continue
+        n = d.plot.number
+        if any(e.text == d.text for e in p.episodes if e.plot.number != n):  # 같은 본문이 화면의 다른 화에 있다: 번호가 밀린 사본
+            continue
+        if n not in mine:
+            mine[n] = _restored(d, None, disk, p)
+            kept.append({"field": "episode", "ep": n})
+        elif not mine[n].text:
+            mine[n] = _restored(d, mine[n], disk, p)
+            kept.append({"field": "text", "ep": n})
+        else:
+            continue
+        if n > p.meta.target_episodes:
+            kept[-1]["why"] = "over_target"
+    if kept:
+        p.episodes = [mine[k] for k in sorted(mine)]
+    return kept
+
+
+def _restored(d: Episode, e: Episode | None, disk: Project, p: Project) -> Episode:
+    """_keep_texts 가 되돌릴 디스크 화 사본. 줄기 표시(LOCKED_FREE)는 화면 것을 받고(pipeline.keep_locked_plots 와 같다),
+    이번 저장이 지운 인물과 없는 줄기는 플롯에서 뺀다. 되돌림은 검사(validate_storylines) 뒤에 오므로 여기서 맞춘다."""
+    keep = d.model_copy(deep=True)
+    if e is not None:
+        keep.plot = keep.plot.model_copy(update={k: getattr(e.plot, k) for k in pipeline.LOCKED_FREE})
+    gone = {c.id for c in disk.characters} - {c.id for c in p.characters}
+    keep.plot.characters = [c for c in keep.plot.characters if c not in gone]
+    if keep.plot.pov in gone:
+        keep.plot.pov = ""
+    lines = {s.id for s in p.storylines}
+    if keep.plot.storyline not in lines:
+        keep.plot.storyline = ""
+    keep.plot.threads = [t for t in keep.plot.threads if t in lines]
+    return keep
 
 
 # 화의 칸 중 작업 · 전용 엔드포인트만 쓰고 화면의 작품 저장(PUT · PATCH)은 바꾸지 않는 칸.
@@ -369,6 +423,9 @@ class ConfigView(_Out):
     stage_presets: list[StagePreset] = []
     local_sampling: dict[str, float] = {}  # 로컬 본문 생성 샘플링 (설정 파일 local_sampling 이 기본값을 덮는다). 화면은 읽기만
     path: str  # 설정 파일 경로
+    config_broken: bool = Field(False, description="설정 파일이 깨져 있어 기본값으로 읽고 저장은 막았다 (POST /api/config/reset 으로 새로 시작)")
+    config_unreadable: bool = Field(False, description="설정 파일을 권한 · 입출력 오류로 읽지 못했다 (config_broken 도 참). 새로 시작(POST /api/config/reset)은 400 으로 거절한다")
+    config_backup: str = Field("", description="깨진 설정 파일의 보관본 경로 (config.json.corrupt-<시각>). 못 남겼거나 깨지지 않았으면 \"\"")
 
 
 class ConfigTest(_Out):
@@ -490,6 +547,13 @@ def put_config(body: SettingsIn) -> ConfigView:
     return settings.public()
 
 
+@app.post("/api/config/reset")
+def reset_config() -> ConfigView:
+    """깨진 설정 파일을 빈 설정으로 새로 시작한다. 보관본(config.json.corrupt-<시각>)은 그대로 둔다. 깨지지 않았으면 400."""
+    settings.reset_broken()
+    return settings.public()
+
+
 class PresetIn(BaseModel):
     name: str
     stages: dict[str, str] = {}
@@ -501,6 +565,8 @@ def save_stage_preset(body: PresetIn) -> ConfigView:
     """설정 화면 단계 칸을 이름 붙여 내 프리셋으로 저장한다. 단계 설정 자체는 바꾸지 않는다."""
     try:
         settings.save_preset(body.name, body.stages, body.stage_models)
+    except settings.ConfigBroken:
+        raise  # 409 (_config_broken)
     except ValueError as e:
         raise HTTPException(400, str(e))
     return settings.public()
@@ -510,6 +576,8 @@ def save_stage_preset(body: PresetIn) -> ConfigView:
 def delete_stage_preset(preset_id: str) -> ConfigView:
     try:
         settings.delete_preset(preset_id)
+    except settings.ConfigBroken:
+        raise  # 409 (_config_broken)
     except ValueError as e:
         raise HTTPException(400, str(e))
     except KeyError:
@@ -2645,7 +2713,7 @@ def _job_fixes(name: str, body: "JobIn", p: Project, kind: str, n: int | None, l
         q0 = store.load(name)
         failed: list[dict] = []
         missing: list[str] = []
-        why = lambda e: getattr(e, "message", None) or str(e) or type(e).__name__
+        why = explain_error
 
         def keep(fid: str, got) -> None:
             if isinstance(got, str):
@@ -2869,7 +2937,7 @@ def _job_write(name: str, body: "JobIn", p: Project, kind: str, n: int | None, l
                         raise
                     except Exception as err:  # 검수가 실패해도 쓴 본문은 남는다. 까닭만 알린다
                         logging.getLogger("canon").warning("%s %s화 쓴 뒤 검수 실패", name, n, exc_info=True)
-                        return {"check_error": getattr(err, "message", None) or str(err) or type(err).__name__}
+                        return {"check_error": explain_error(err)}
                 finally:
                     with _WRITE_CHECKS_LOCK:
                         _WRITE_CHECKS.discard((name, n))
@@ -3141,7 +3209,7 @@ def _keep_pending(name: str, kind: str, n: int | None, label: str, fn):
         except cancel.Cancelled:
             raise  # 멈춘 작업은 실패로 남기지 않는다
         except Exception as e:
-            fail = {"key": key, "kind": kind, "ep": n, "label": label, "error": getattr(e, "message", None) or str(e) or type(e).__name__, "at": _now()}
+            fail = {"key": key, "kind": kind, "ep": n, "label": label, "error": explain_error(e), "at": _now()}
 
             def put_fail(d: dict) -> None:
                 d["failures"][key] = fail

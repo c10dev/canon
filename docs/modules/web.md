@@ -57,6 +57,9 @@
 - 상태 `S`
 - 서버 호출 `api`
 - 작품 저장 `save` 는 받은 판(`projectBase` 의 `keys` · `eps`)과 달라진 칸 · 화만 `PATCH` 로 보낸다(`patchBody`)
+- 서버가 본문 있는 화를 지켜 `X-Canon-Kept` 에 `episode` · `text` 를 담으면 `save` 는 토스트로 알리고 '저장했어요'를 띄우지 않는다
+- 빠진 화(`episode`)는 '본문이 있는 화를 빼는 저장이라' 토스트에 화 지우기를 알려 준다
+- 비운 본문(`text`)은 대개 이 화면의 옛 사본이라 '서버에는 본문이 있는 화라' 중립 토스트로 알린다. 같은 화를 플롯 보호(`locked`) 토스트가 이미 알렸으면 띄우지 않는다
 - 본문 고침을 시작한 저장 본문은 `TEXT_BASE`('작품:화')에 적는다(`markTextBase` · `textBase`). 본문 저장 요청 몸은 `textBody`(서버 `Text.base`)
 - 작품 전체 GET 은 받은 판을 `projectCache` 에 두고 304 면 그 복사본을 쓴다
 - `isProjectJson`(`meta` 와 `episodes` 배열)인 답만 작품으로 받고 보관한다. 보관한 판으로 물었는데 아니면 보관한 것을 버리고 조건 없이 다시 받는다(`tests/test_project_cache_js.py`)
@@ -527,6 +530,12 @@
   - 찾기 색인 `SET_ROWS` · `settingsMatch`
   - 줄 HTML `setRowHtml`
   - 바로 저장 `setSave`(바꾼 칸만 `PUT /config`) · `setProjectSave`(칸마다 작품 API)
+  - 설정 API 응답은 `setConfigCall` 이 받는다. 마지막으로 보낸 요청(`SET.seq`)의 응답만 `S.config` 에 넣는다
+  - 늦게 온 옛 응답을 버렸으면(`SET.stale`) 기다리는 요청이 다 끝난 뒤 `GET /config` 로 한 번 맞춘다
+  - 요청이 `config_broken` 으로 막히거나 새로 시작이 실패해도 끝난 뒤 `GET /config` 로 맞춘다. 맨 위 안내와 단추가 서버 상태와 같게 보인다
+  - 설정 파일이 깨졌으면(`config_broken`) 본문 맨 위에 `note warn` 안내(`setBrokenHtml`)와 보관본 경로를 보인다
+  - 읽지 못한 파일(`config_unreadable`)이면 새로 시작 단추 없이 파일 권한을 확인하라고 안내한다
+  - 안내의 '기본값으로 새로 시작'(`setConfigReset`)은 묻고 `POST /config/reset` 을 보낸다. 그 전에는 서버가 저장을 409 로 막는다
   - 대화상자를 닫으면 작품 밖(작품 목록)도 다시 그린다. `setSave` 뒤 키 점검(`/config/health`)이 닫은 뒤에 오면 그때 다시 그린다
   - 저장 띠 없음
   - 키만 줄 안 '키 저장'

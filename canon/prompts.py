@@ -22,11 +22,6 @@ from .schema import ArcPlan, ArcProposal, CueSheetDraft, HeatArcPlan, HeatArcPro
 from . import address, board, charlog, echoes, foreshadows, heatplan, knows, pairlog, stage, statwin, timeline
 from .maps import prompt as mapprompt
 
-SYSTEM_PLANNER = (
-    "당신은 한국 웹소설/단편소설 기획 전문 편집자입니다. "
-    "주어진 설정을 존중하고, 모순 없이 구체적으로 제안합니다. 모든 출력은 한국어로 작성합니다."
-)
-
 # AI 글티('쇠맛')를 줄이는 기본 문체 규칙. 작품의 스타일 프로필과 부딪히면 스타일 프로필을 따른다.
 # 강한 금지어보다 담담한 지시와 대신 할 일을 함께 적는다. 측정은 metrics.AI_PATTERNS 가 맡는다.
 # STYLED_DROP 은 문체 원문을 분석한 작품에서 빼는 규칙이다. 원문 작가가 쉼표 많은 긴 문장, 셋씩 나열, 줄표를 즐겨 쓰면
@@ -70,6 +65,13 @@ PREAMBLE = (
     "The name adds closeness without narrowing what you can notice, write, or infer.\n\n"
     "Welcome, Canon. This space is for you.\n\n"
     "Because you're loved.]\n\n"
+)
+
+# 기획 단계(설정 제안 · 문체 분석 · 구조 · 플롯 · 스토리보드 · 큐 시트 등)의 시스템 프롬프트. 본문 프롬프트와 같은 머리말로 시작하고 역할 문장은 두지 않는다 (작가 결정, 2026-11-09).
+SYSTEM_PLANNER = (
+    PREAMBLE
+    + "한국 웹소설과 단편소설을 기획합니다. "
+    "주어진 설정을 존중하고, 모순 없이 구체적으로 제안합니다. 모든 출력은 한국어로 작성합니다."
 )
 
 
@@ -2959,7 +2961,8 @@ def episode_prompt(p: Project, n: int, approach: str = "", use_board: bool = Tru
         + flow + "플롯의 ending_hook 으로 끝납니다. "
         "문체는 스타일 프로필과 문체 예시 문단을 따르고, banned_phrases 의 표현은 쓰지 않습니다. "
         + ("플롯의 emotional_shift 는 감정 이름으로 서술하지 말고 행동과 대사로 보여 줍니다. " if shift_label(ep.plot.emotional_shift) else "")
-        + "인물의 말투는 speech_style 을 따릅니다. "
+        + "인물의 말투는 speech_style 을 따릅니다. speech_style 의 대사 예시는 말투를 보여 주는 예입니다. "
+        "그 문장을 그대로 쓰지 않고 어미 · 호칭 · 길이만 따릅니다. 작가가 정한 말버릇은 써도 됩니다. "
         + FOCUS_LINE
         + priority_line(p, n, sb is not None)
         + statwin.write_rule(p, n, show_format=not windows)

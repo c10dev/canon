@@ -9,6 +9,7 @@
 - 시험할 화(`candidates`, 뒤쪽부터 `default_pick`)
 - 사본은 `stattrial.before`
 - LLM 없는 채점(`score`: 쇠맛 · 상투 · 쉼표 · 문장 길이 · 반복 구 · 문체 거리 · 설계 메모 옮김 `pipeline.memo_copied` · 예시 옮김)
+- `score` 의 `speech_copied` 는 인물 말투의 대사 예시를 그대로 쓴 문장 수다(`pipeline.speech_copied`, 명령줄 '말투 예시 옮김')
 - 비용 추정(`estimate`)
 - 비용 추정의 토큰은 본문 단계 백엔드 · 모델의 `usage.token_rate` 로 센다
 - 실행(`run`: 실험 기록 · 블라인드 비교본 kind blocks)
@@ -24,6 +25,8 @@
 ### `canon/metrics.py`
 
 - 문체 지표(문장 길이, 대사 비율, 과거형 비율, 어휘 다양도, 반복 구, 상투 표현, 쇠맛 패턴과 쉼표·대명사 지표, 문체 거리, 문체 표지 빈도, 예시 문단 베끼기)와 기준 대비 경고
+- 말투 대사 예시 뽑기 `speech_examples`(큰따옴표 · 작은따옴표 · 낫표, 바로 앞에 '말버릇' · '입버릇' 이 있으면 뺌)
+- 말투 대사 예시 옮김 `speech_copied`: 예시 문장마다 그 길이(최대 `COPY_SPAN`)로 `copied_sentences` 를 부른다. 끝 문장부호는 빼고, `SPEECH_COPY_MIN`(6)자 미만 예시는 보지 않는다
 - 1~3화 초반 지표(`measure_opening`)
 - 지표 판 `METRICS_VERSION`(상수나 셈 로직을 바꿔 같은 글의 값이 달라지면 올림, `tests/test_metrics_version.py` 가 상수 해시와 fixture `tests/fixtures/soelab/` 결과 스냅샷으로 막음)
 - 쇠맛 패턴 · 상투 표현 자리 `pattern_spans`(`Span`, `pattern_counts` 는 이 위에서 셈)
