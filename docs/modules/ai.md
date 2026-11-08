@@ -200,6 +200,7 @@
   - `mock_board.py` 스토리보드
   - `mock_cue.py` 큐 시트와 큐 본문
   - `mock_fixrecheck.py` 고친 곳만 다시 보기
+  - `mock_foreshadow_judge.py` 복선 판정(`ForeshadowBreaks`, 회수하지 않을 복선 id 가 본문에 나오면 '미리 회수')
   - `mock_heat.py` 열 계획: 기승전결과 함께(`HeatArcPlan`), 다음 아크와 함께(`HeatArcProposal`), 열 계획만(`HeatProposal`, 첫 화를 열 5로 보내 본문 있는 화 지키기를 시험)
   - `mock_knows.py` 아는 정보 접기
   - `mock_offscreen.py` 화면 밖 근황

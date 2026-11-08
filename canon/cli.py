@@ -2440,6 +2440,10 @@ def cmd_blocktrial(a: argparse.Namespace) -> None:
     print(f"시험할 화: {', '.join(map(str, eps))}화 · 반복 {a.repeats}번 · 조건 {', '.join(blocktrial.CONDITIONS[c][0] for c in conds)}")
     for r in est["rows"]:
         print(f"  {r['label']:14s} 쓰기 {r['writes']}번 · 입력 약 {r['input_tokens']:,}토큰 · 출력 약 {r['output_tokens']:,}토큰 · {('약 %.2f달러' % r['usd']) if r['usd'] is not None else '가격 모름'}")
+        if r.get("judge_input_tokens"):
+            print(f"  {'':14s} 복선 판정 {r['writes']}번 · 입력 약 {r['judge_input_tokens']:,}토큰 · 출력 약 {r['judge_output_tokens']:,}토큰 (위 금액에 들어 있어요)")
+    for x in est.get("skipped", []):
+        print(f"  {x['note']}")
     print(f"  합: 쓰기 {est['writes']}번 · {('약 %.2f달러' % est['usd']) if est['usd'] is not None else '가격 모름'} ({est['model']})")
     if a.estimate:
         return
@@ -2864,7 +2868,7 @@ def _app_commands(sub, add) -> None:
     sp = add("blocktrial", cmd_blocktrial)
     sp.add_argument("--episodes", default="", help="시험할 화: 20-27 또는 2,5,9. 비우면 뒤쪽 8화")
     sp.add_argument("--repeats", type=int, default=1, help="조건마다 같은 화를 쓸 횟수 (1~5)")
-    sp.add_argument("--conditions", default="", help="base,no_board,no_cues,no_profile,no_relations,no_address,no_knows 중에서 쉼표로. 비우면 base")
+    sp.add_argument("--conditions", default="", help="base,no_board,no_cues,no_profile,no_relations,no_address,no_knows,fs_json,fs_line 중에서 쉼표로. 비우면 base")
     sp.add_argument("--estimate", action="store_true", help="쓰지 않고 비용만 추정")
 
 

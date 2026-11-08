@@ -476,6 +476,13 @@
 - 직전 화 블록 `prev_block`(스토리보드를 넣는 화와 스토리보드 만들기만 원문 전체, `build_episode_context(full_prev=)`)
 - 장편은 스토리보드가 없을 때만 넣는 시간 · 이동 · 장면 연출 블록과 `pre`(스토리보드 만들기의 Canon 값 · 장소 목록)를 직전 화 본문 뒤에 둔다. 단편 차례는 그대로다
 - 장편 쓰기 가족 앞부분 `write_head`: 작품 고정 블록부터 직전 화 본문 원문까지(`build_episode_context(head_only=True)`). 스토리보드 만들기 · 큐 시트 · 스토리보드로 본문 쓰기가 이 글로 시작한다. 단편은 빈 글
+- 장편 쓰기의 '# 열린 복선' 블록 `serial_foreshadow_block`: 고른 복선을 모두 한 줄 꼴 `foreshadow_line`(id, 심은 화, 회수 예정 화, 회수 범위 `foreshadows.SCOPES`, 갈래 `foreshadows.KINDS` · 드러남, 설명 전부)으로
+- `serial_foreshadow_block` 은 복선을 빼거나 설명을 자르지 않는다
+- `serial_foreshadow_block(as_json=True)` 나 ContextVar `FORESHADOW_JSON` 을 참으로 두면 예전 JSON 꼴로, 바꾸기 전과 글자까지 같다(`blocktrial` 의 fs_json 조건)
+- 단편의 '# 열린 복선' 블록은 그대로다
+- 복선 판정 요청 `foreshadow_judge_prompt`(blocktrial 의 fs_ 조건): `relevant_foreshadows` 목록 전문 · 이번 화 회수 id · 본문을 넣고 어긴 곳(id · 인용 · 까닭 · kind '모순' · '미리 회수')을 묻는다
+- `foreshadow_judge_prompt` 는 잇지 않은 복선을 적지 않게 한다
+- `foreshadow_judge_prompt` 의 시스템 지시는 `SYSTEM_CHECKER` 다
 - 부분 수정 앞부분 `passage_head`: 작품 고정 블록 · 사실 · 이야기 요소 · 조연 · 이번 화 플롯 · 시점. 고른 곳 · 본문 · 대화와 상관없다
 - `passage_prompt(head=)` 는 그 뒤에 인물 상태 · 본문 · 대화 · 요청을 둔다. 인물 상태는 고른 곳에 따라 아는 정보를 고르므로(`state_view`) 앞부분 밖이다
 - 쇠맛을 줄이는 쓰기 규칙: 블록 차례 한 줄 `priority_line`

@@ -135,3 +135,74 @@ def test_episode_prompt_says_examples_are_not_lines():
     p = _trial()
     out = prompts.episode_prompt(p, 3)
     assert "speech_style 의 대사 예시는 말투를 보여 주는 예입니다" in out and "작가가 정한 말버릇은 써도 됩니다" in out
+
+
+def _serial_trial(count=20):
+    """장편으로 바꾼 시험 작품. 1화에 심은 열린 복선 count 개를 모든 스냅샷에도 둔다 (before 가 스냅샷으로 되돌린다)."""
+    from canon.schema import Foreshadow
+
+    p = _trial()
+    p.meta.form = "serial"
+    fs = [Foreshadow(id=f"fs-t{i:02d}", description=f"떡밥 {i}", planted_ep=1) for i in range(count)]
+    for s in p.snapshots:
+        s.foreshadows = [f.model_copy() for f in fs]
+    p.foreshadows = [f.model_copy() for f in fs]
+    return p
+
+
+def test_fs_conditions_estimate_json_bigger_than_line():
+    """fs_json 의 쓰기 요청이 fs_line(지금 방식 = base)보다 크다. 판정 요청 토큰도 센다."""
+    p = _serial_trial()
+    est = blocktrial.estimate(p, [3], conditions=["fs_json", "fs_line", "base"])
+    rows = {r["condition"]: r for r in est["rows"]}
+    assert rows["fs_json"]["input_tokens"] > rows["fs_line"]["input_tokens"] == rows["base"]["input_tokens"]
+    assert rows["fs_json"]["judge_input_tokens"] == rows["fs_line"]["judge_input_tokens"] > 0
+    assert rows["base"]["judge_input_tokens"] == 0 and est["skipped"] == []
+    base = blocktrial.before(p, 3)
+    assert blocktrial.prompt_size(base, 3, {}, "fs_json") > blocktrial.prompt_size(base, 3, {}, "fs_line")
+    assert prompts.FORESHADOW_JSON.get() is False  # 고리는 끝나면 되돌린다
+
+
+def test_fs_conditions_run_with_judge_counts(monkeypatch):
+    from canon import research, store
+
+    p = _serial_trial()
+    store.save("btfs", p)
+    real, seen = pipeline.write_episode, []
+
+    def write(llm, q, n, **kw):
+        seen.append(prompts.FORESHADOW_JSON.get())
+        return real(llm, q, n, **kw) + "\n\nfs-t03 의 진상이 드러났다."  # 가짜 판정이 '미리 회수' 로 센다
+
+    monkeypatch.setattr(pipeline, "write_episode", write)
+    res = blocktrial.run("btfs", store.load("btfs"), LLM, [3], repeats=2, conditions=["fs_json", "fs_line"])
+    assert seen == [True] * 2 + [False] * 2
+    for d in res["drafts"]:
+        assert d["early_payoffs"] == 1 and d["contradictions"] == 0
+        assert d["breaks"][0]["foreshadow"] == "fs-t03" and d["breaks"][0]["kind"] == "미리 회수"
+    rows = {s["condition"]: s for s in res["summary"]}
+    assert rows["fs_json"]["early_payoffs"] == 1 and rows["fs_line"]["contradictions"] == 0
+    assert rows["fs_json"]["prompt_chars"] > rows["fs_line"]["prompt_chars"]
+    assert "미리 회수 1.00/화" in blocktrial.describe(res)
+    assert research.load_compare("btfs", 3)["kind"] == "blocks"
+    assert store.load("btfs").model_dump() == p.model_dump()
+
+
+def test_fs_conditions_skip_identical_prompts():
+    """단편 화는 두 조건의 쓰기 요청이 같아 건너뛰고 그렇다고 적는다. 다른 조건은 그대로 쓴다."""
+    from canon import store
+
+    p = _trial()
+    _, skipped = blocktrial.plan(p, [2, 3], ["fs_json", "fs_line"])
+    assert [x["episode"] for x in skipped] == [2, 3]
+    est = blocktrial.estimate(p, [3], conditions=["fs_json", "fs_line", "base"])
+    assert [r["writes"] for r in est["rows"]] == [0, 0, 1] and est["skipped"][0]["episode"] == 3
+    store.save("btfs2", p)
+    res = blocktrial.run("btfs2", store.load("btfs2"), LLM, [3], conditions=["fs_json", "fs_line", "base"])
+    assert [d["condition"] for d in res["drafts"]] == ["base"] and res["skipped"][0]["episode"] == 3
+    assert "건너뛰었어요" in blocktrial.describe(res)
+    try:
+        blocktrial.run("btfs2", store.load("btfs2"), LLM, [3], conditions=["fs_json", "fs_line"])
+        raise AssertionError("막혀야 한다")
+    except ValueError as e:
+        assert "같아요" in str(e)

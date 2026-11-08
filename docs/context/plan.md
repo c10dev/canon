@@ -14,7 +14,7 @@ RisuAI 에서 빌려 오기로 한 생각(로어북식 조건부 넣기(활성�
 | 차례 | # | 일감 | 상태 | 명세서 | 먼저 끝날 것 |
 |---|---|---|---|---|---|
 | — | 1 | 지금 넣기가 놓치는 것 측정 (LLM 비용 없음) | 끝 ([#408](https://github.com/c10dev/canon/pull/408) 머지): 찾는 범위 지금 그대로, 새 조건은 측정에서 이득 없음 | [01-measure.md](specs/01-measure.md) | — |
-| 1 | 10 | 열린 복선 블록 줄이기 (관련 상위 K개 전문 + 나머지 한 줄) | 설계 | [10-foreshadow-trim.md](specs/10-foreshadow-trim.md) | 1 |
+| 1 | 10 | 열린 복선 블록 줄이기 (고른 복선을 모두 한 줄 꼴로, 2026-11-09 바꿈) | PR (2026-11-09): 확인 (가) 49.5% 줄어듦, 확인 (나) 모순 늘지 않음 | [10-foreshadow-trim.md](specs/10-foreshadow-trim.md) | 1 |
 | 2 | 3 | 프롬프트 보기 강화와 블록 설정 (끄고 켜기 · 블록 예산, 장편만) | 설계 | [03-prompt-view.md](specs/03-prompt-view.md) | — |
 | 3 | 6 | 정규식 규칙 묶음 (경고 · 고침) | 설계 | [06-regex-rules.md](specs/06-regex-rules.md) | — |
 | 3 | 6b | 대화 에이전트의 정규식 규칙 제안 (작가가 적용) | 설계 | [06-regex-rules.md](specs/06-regex-rules.md) 의 정할 것 12 | 6 |
