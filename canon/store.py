@@ -226,7 +226,7 @@ def _drop_old_snapshots(d: Path) -> None:
         except SnapRefsUnreadable as e:
             # Canon 이 쓰지 않은 backups/ 파일(시간별 · 되돌리기 전 이름이 아닌 것)은 스냅샷을 적지 않으므로 넘긴다.
             # 이런 파일은 아무도 지우지 않아 정리가 영영 멈출 수 있다
-            if f.parent.name == BACKUP_DIR and not (_HOURLY.match(f.name) or _RESTORE.match(f.name)):
+            if f.parent == d / BACKUP_DIR and not (_HOURLY.match(f.name) or _RESTORE.match(f.name)):
                 continue
             # 읽지 못한 판이 적은 파일을 모르므로 이번 정리는 건너뛴다
             logging.getLogger("canon").warning("스냅샷 정리를 건너뛰었어요. 판을 읽지 못했어요: %s", e)

@@ -112,6 +112,21 @@ def test_put_skips_renumbered_copy(client):
     assert _kept(r) == []
 
 
+def test_put_skips_renumbered_copy_when_text_emptied(client):
+    """화 지우기(본문을 앞으로 당김) 뒤 옛 탭이 덮어쓰면, 비운 2화 자리에 당겨진 3화 본문을 되돌리지 않는다 (같은 본문이 두 화에 생기지 않게)."""
+    sent = _setup(client)
+    sent["episodes"] = [episode(1, status="written", text="1화 본문").model_dump(), episode(2).model_dump(),
+                        episode(3, status="written", text="3화 본문").model_dump()]  # 옛 탭: 2화는 본문 없는 초안
+    p = store.load("kt")
+    p.episodes = [episode(1, status="written", text="1화 본문"), episode(2, status="written", text="3화 본문")]
+    store.save("kt", p)  # 디스크: 2화를 지워 3화 본문이 2화로 당겨졌다
+    r = client.put("/api/projects/kt?force=true", json=sent)
+    assert r.status_code == 200, r.text
+    texts = [e.text for e in store.load("kt").episodes]
+    assert texts.count("3화 본문") == 1
+    assert _kept(r) == []
+
+
 def test_put_restored_episode_drops_gone_character_and_storyline(client):
     from canon.schema import Character, Storyline
     _setup(client)

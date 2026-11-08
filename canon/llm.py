@@ -794,6 +794,9 @@ class GeminiLLM:
         if out is None or out.error or out.response is None:
             raise BatchGone(f"Gemini 배치 응답이 없어요: {out.error if out else job.dest}")
         self.last_usage = _usage(out.response.usage_metadata)
+        cands = getattr(out.response, "candidates", None) or []
+        reason = getattr(cands[0], "finish_reason", None) if cands else None
+        self.last_finish = getattr(reason, "name", None) or str(reason or "")  # BatchLLM 이 끊김(MAX_TOKENS)을 알게 한다
         if not out.response.text:
             raise BatchGone("Gemini 배치 응답이 비었어요")
         return out.response.text
@@ -831,7 +834,12 @@ class BatchLLM:
     기다리던 작업을 취소하고 지금 프롬프트로 새로 보낸다. 지문이 없는 예전 기록은 그대로 다시 붙는다.
     wait(초) 는 기다리고 나서 'stop'(작업 취소) | 'pause'(작업은 두고 멈춤) | '' 를 돌려준다.
     json 응답이 스키마와 맞지 않으면 오류를 붙여 '<slot>:fix' 로 한 번 더 배치를 보내고, note(글) 로 알린다.
+    끝난 이유는 안쪽 LLM 의 batch_poll 이 남긴 것을 last_finish 로 옮긴다. 본문 쓰기(pipeline._write)가 끊긴 배치 본문을 받지 않게 한다.
+    배치 요청에는 출력 한도를 실어 보내지 않으므로 본문 쓰기 한도는 걸지 않는다 (caps_write).
     """
+
+    knows_cut = True
+    caps_write = False
 
     def __init__(self, inner: Any, slot: str, names: dict[str, str], on_change: Any, wait: Any,
                  label: str = "canon", interval: float | None = None, note: Any = None,
@@ -843,6 +851,7 @@ class BatchLLM:
         self.last_usage: dict | None = None
         self.last_attempts = 1
         self.last_prompt = ""  # 사용량 기록에 블록 크기를 남기려고
+        self.last_finish = ""  # 마지막 배치 응답이 끝난 이유 (안쪽 LLM 의 batch_poll 이 남긴 것)
         self.model = getattr(inner, "model", "")
 
     @staticmethod
@@ -871,6 +880,7 @@ class BatchLLM:
              slot: str | None = None, key: str = "") -> str:
         slot = slot or self.slot
         self.last_prompt = prompt
+        self.last_finish = ""
         key = key or self.key(system, prompt)
         self._drop_stale(slot, key)
         name = self.names.get(slot)
@@ -900,6 +910,7 @@ class BatchLLM:
             if raw is not None:
                 self._forget(slot)
                 self.last_usage = getattr(self.inner, "last_usage", None)
+                self.last_finish = str(getattr(self.inner, "last_finish", "") or "")
                 return raw
             why = self.wait(self.interval)
             if why == "stop":

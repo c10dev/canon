@@ -99,6 +99,7 @@
 - 넘긴 시도도 사용량에 실패로
 - 배치는 429 · 서버 오류 · 시간 한도 경로 밖
 - `BatchLLM` 은 slot 마다 보낸 프롬프트 지문(`keys`, `BatchLLM.key`)을 남긴다. 다시 붙을 때 지문이 다르면 기다리던 작업을 취소하고 새로 보낸다
+- `GeminiLLM.batch_poll` 은 배치 응답의 `finish_reason` 을 `last_finish` 에 남기고, `BatchLLM` 이 그것을 자기 `last_finish` 로 옮긴다(끊긴 배치 본문 거부)
 - 형식 고치기 slot(`<slot>:fix`)도 처음 프롬프트의 지문으로 맞춰 본다. 지문이 없는 예전 기록은 그대로 다시 붙는다
 - 모든 요청 맨 끝(사용자 메시지)에 `POLICY_NOTE` 한 줄(`with_note`, Gemini · 배치 · 로컬 · `claude.py` 두 백엔드가 보내기 직전에). 수위 지시는 프롬프트에 두지 않는다
 - 응답 읽기 `_validate`: 통째로 읽히지 않으면 글 속 최상위 JSON 객체(`_json_objects`)를 뒤에서부터 읽는다(생각 글이 앞에 새는 응답, Gemini · 배치 · Claude 공통)

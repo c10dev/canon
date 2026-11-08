@@ -270,3 +270,29 @@ def test_broken_config_banner_and_reset():
     assert got["fine"] == ""
     assert got["cancel"] == 0
     assert ["POST", "/config/reset"] in got["calls"] and got["broken"] is False
+
+
+@needs_node
+def test_unreadable_config_banner_has_no_reset():
+    """권한 때문에 읽지 못한 설정 파일은 새로 시작을 권하지 않고 권한을 확인하라고 안내한다"""
+    got = run_js(FILES, """(() => setBrokenHtml({ config_broken: true, config_unreadable: true, config_backup: '' }))()""", {})
+    assert "권한" in got and "setConfigReset" not in got
+
+
+@needs_node
+def test_config_broken_error_refreshes_config():
+    """저장이 409 config_broken 으로 막히면 GET /config 로 다시 읽어 맨 위 안내가 서버와 같게 보인다"""
+    got = run_js(FILES, """(async () => {
+      setPaint = () => {};
+      const calls = [];
+      api = async (m, u) => {
+        calls.push([m, u]);
+        if (m === 'PUT') { const e = new Error('설정 파일이 깨져 있어 저장하지 않았어요'); e.code = 'config_broken'; throw e; }
+        return { config_broken: true, config_backup: 'b' };
+      };
+      S.config = { config_broken: false };
+      await setSave('model', { model: 'x' });
+      for (let i = 0; i < 5; i += 1) await Promise.resolve();
+      return { calls, broken: S.config.config_broken };
+    })()""", {})
+    assert ["GET", "/config"] in got["calls"] and got["broken"] is True

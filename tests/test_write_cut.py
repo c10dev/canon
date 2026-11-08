@@ -68,7 +68,47 @@ def test_cut_body_is_retried_then_refused(project, monkeypatch):
     monkeypatch.setattr(mock, "CUT_TEXT", [True] * pipeline.WRITE_TRIES)
     with pytest.raises(pipeline.WriteCut, match=r"출력 길이 한도\(36,384토큰\)에 걸려 끊겼어요 \(3번 중 3번\)"):
         pipeline.write_episode(MockLLM(), project, 1)
-    assert not project.episode(1).text and project.episode(1).status == "confirmed"
+
+
+def test_web_write_does_not_save_cut_body(client, monkeypatch):
+    """본문 쓰기 라우트는 돌려받은 본문을 저장한다. 세 번 모두 끊기면 오류로 끝나고 화 본문은 그대로다."""
+    from canon import store as st
+
+    from .test_plot_chat import _project
+    _project(client)
+    client.post("/api/projects/lh/episodes/1/confirm")
+    monkeypatch.setattr(mock, "CUT_TEXT", [True] * pipeline.WRITE_TRIES)
+    r = client.post("/api/projects/lh/episodes/1/write")
+    assert r.status_code >= 400 and "출력 길이 한도" in r.text
+    ep = st.load("lh").episode(1)
+    assert not ep.text and ep.status == "confirmed"
+
+
+def test_mixed_failures_are_not_reported_as_cut(project, monkeypatch):
+    """세 번 중 일부만 끊기고 나머지가 다른 까닭이면 끊김(WriteCut)이 아니라 까닭을 모두 적은 오류로 멈춘다."""
+    monkeypatch.setattr(mock, "CUT_TEXT", [True])
+
+    class Mixed(_Capped):
+        def _text(self, system, prompt):
+            self.caps.append(caps()[0])
+            return "I am thinking about the scene in English first."
+
+    with pytest.raises(ValueError) as e:
+        pipeline._write(Mixed(), project, 1, "쓰기")
+    assert not isinstance(e.value, pipeline.WriteCut)
+    assert "끊긴 응답 1번" in str(e.value) and "다른 글(영어로 된 생각 과정 등) 2번" in str(e.value)
+
+
+def test_batch_cut_body_is_refused(project, monkeypatch):
+    """배치로 쓴 본문도 끝난 이유(MAX_TOKENS)를 받아 끊긴 본문을 받지 않는다. 배치에는 출력 한도를 걸지 않는다."""
+    monkeypatch.setattr(mock, "CUT_TEXT", [True])
+    names: dict = {}
+    b = llm.BatchLLM(MockLLM(), "write", names, lambda: None, lambda s: "")
+    out = pipeline._write(b, project, 1, "쓰기")
+    assert out and b.last_finish == "STOP" and names == {}
+    monkeypatch.setattr(mock, "CUT_TEXT", [True] * pipeline.WRITE_TRIES)
+    with pytest.raises(pipeline.WriteCut, match=r"출력 길이 한도에 걸려 끊겼어요 \(3번 중 3번\)"):
+        pipeline._write(llm.BatchLLM(MockLLM(), "write", {}, lambda: None, lambda s: ""), project, 1, "쓰기")
 
 
 def test_empty_cut_reply_counts_as_cut(project, monkeypatch):

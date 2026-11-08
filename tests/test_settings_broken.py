@@ -48,7 +48,7 @@ def test_broken_file_is_kept_once_and_writers_refuse(cfg):
 
 def test_non_object_json_is_broken(cfg):
     cfg.write_text("[1, 2]", encoding="utf-8")
-    assert settings._load() == ({}, True)
+    assert settings._load() == ({}, "corrupt")
     with pytest.raises(settings.ConfigBroken):
         settings.update(model="x")
 
@@ -120,3 +120,61 @@ def test_concurrent_updates_keep_both_keys(cfg, monkeypatch):
     data = json.loads(cfg.read_text(encoding="utf-8"))
     assert data["stages"] == {"write": "local", "check": "claude"}
     assert data["model"] == "m"
+
+
+def test_unreadable_file_is_not_reset_or_kept(cfg, monkeypatch):
+    """권한 등으로 읽지 못한 파일은 깨진 파일과 다르다: 보관하지 않고, 새로 시작도 거절한다 (권한을 고치면 키가 돌아온다)."""
+    cfg.write_text(json.dumps({"model": "m"}), encoding="utf-8")
+    real = type(cfg).read_bytes
+
+    def deny(self):
+        if self == cfg:
+            raise PermissionError("denied")
+        return real(self)
+
+    monkeypatch.setattr(type(cfg), "read_bytes", deny)
+    assert settings._load() == ({}, "unreadable")
+    pub = settings.public()
+    assert pub["config_broken"] is True and pub["config_unreadable"] is True and pub["config_backup"] == ""
+    with pytest.raises(settings.ConfigBroken, match="권한"):
+        settings.update(model="x")
+    with pytest.raises(ValueError, match="권한"):
+        settings.reset_broken()
+    monkeypatch.setattr(type(cfg), "read_bytes", real)
+    assert json.loads(cfg.read_text(encoding="utf-8")) == {"model": "m"}  # 파일은 그대로
+    assert not list(cfg.parent.glob("config.json.corrupt-*"))
+
+
+def test_failed_backup_leaves_no_partial_file_and_is_not_retried(cfg, monkeypatch):
+    """보관본을 쓰다 실패하면(디스크 가득 등) 반쪽 파일을 지우고, 읽을 때마다 다시 시도하지 않는다."""
+    cfg.write_text(BROKEN, encoding="utf-8")
+    opened = []
+    real_open = settings.os.open
+
+    def counting_open(path, *a, **k):
+        opened.append(str(path))
+        return real_open(path, *a, **k)
+
+    class Full:
+        def __init__(self, fd, mode):
+            self.fd = fd
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            settings.os.close(self.fd)
+
+        def fileno(self):
+            return self.fd
+
+        def write(self, raw):
+            raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(settings.os, "open", counting_open)
+    monkeypatch.setattr(settings.os, "fdopen", Full)
+    for _ in range(5):
+        settings.model()
+    assert not list(cfg.parent.glob("config.json.corrupt-*"))
+    assert len(opened) == 1  # 같은 내용은 한 번만 시도한다
+    assert settings.public()["config_backup"] == ""

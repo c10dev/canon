@@ -632,7 +632,7 @@ class MockLLM:
             out = _broken(out)
         name = f"batches/mock-{uuid.uuid4().hex[:8]}"
         BATCHES[name] = {"out": out, "polls": int(os.environ.get("CANON_MOCK_BATCH_POLLS", "0") or 0),
-                         "label": label, "cancelled": False}
+                         "label": label, "cancelled": False, "finish": self.last_finish if schema is None else "STOP"}
         return name
 
     def batch_poll(self, name: str) -> str | None:
@@ -645,6 +645,7 @@ class MockLLM:
         if b["polls"] > 0:
             b["polls"] -= 1
             return None
+        self.last_finish = b.get("finish", "STOP")  # GeminiLLM.batch_poll 처럼 끝난 이유를 남긴다 (CUT_TEXT 면 MAX_TOKENS)
         return b["out"]
 
     def batch_cancel(self, name: str) -> None:

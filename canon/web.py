@@ -275,18 +275,17 @@ def _keep_texts(disk: Project, p: Project) -> list[dict]:
     """디스크에서 본문이 있는 화를 화면 저장이 빼거나 본문을 비우면 디스크 화를 통째로 되돌린다.
     본문만 되돌리면 화면이 보낸 옛 상태(confirmed 등)가 남아 본문이 있는데 안 쓴 화로 보이므로 상태 · 플롯도 디스크 것을 둔다.
     빠진 화는 {"field": "episode", "ep": n} 를, 비운 본문은 {"field": "text", "ep": n} 를 돌려준다. 총 화수 밖의 화는 "why": "over_target" 을 붙인다.
-    빠진 화의 본문이 화면이 보낸 다른 화의 본문과 같으면 화 번호가 밀린 옛 사본(화 끼워 넣기 뒤)이라 되돌리지 않는다.
+    빠지거나 비운 화의 디스크 본문이 화면이 보낸 다른 화의 본문과 같으면 화 번호가 밀린 옛 사본(화 끼워 넣기 · 화 지우기 뒤)이라 되돌리지 않는다.
     화 지우기 · 본문 비우기는 전용 라우트(remove_episode · delete_episode)가 한다."""
     mine = {e.plot.number: e for e in p.episodes}
-    sent = {e.text for e in p.episodes if e.text}
     kept: list[dict] = []
     for d in disk.episodes:
         if not d.text:
             continue
         n = d.plot.number
+        if any(e.text == d.text for e in p.episodes if e.plot.number != n):  # 같은 본문이 화면의 다른 화에 있다: 번호가 밀린 사본
+            continue
         if n not in mine:
-            if d.text in sent:
-                continue
             mine[n] = _restored(d, None, disk, p)
             kept.append({"field": "episode", "ep": n})
         elif not mine[n].text:
@@ -425,6 +424,7 @@ class ConfigView(_Out):
     local_sampling: dict[str, float] = {}  # 로컬 본문 생성 샘플링 (설정 파일 local_sampling 이 기본값을 덮는다). 화면은 읽기만
     path: str  # 설정 파일 경로
     config_broken: bool = Field(False, description="설정 파일이 깨져 있어 기본값으로 읽고 저장은 막았다 (POST /api/config/reset 으로 새로 시작)")
+    config_unreadable: bool = Field(False, description="설정 파일을 권한 · 입출력 오류로 읽지 못했다 (config_broken 도 참). 새로 시작(POST /api/config/reset)은 400 으로 거절한다")
     config_backup: str = Field("", description="깨진 설정 파일의 보관본 경로 (config.json.corrupt-<시각>). 못 남겼거나 깨지지 않았으면 \"\"")
 
 

@@ -71,6 +71,8 @@ def config_path() -> Path:
 _CONFIG_LOCK = threading.RLock()
 # 깨진 설정 파일 (경로, 원문 sha256) → 보관본 경로. 같은 깨진 내용은 한 번만 보관한다
 _backups: dict[tuple[str, str], str] = {}
+# 보관본을 남기지 못한 깨진 내용 (경로, 원문 sha256). 읽을 때마다 다시 복사하려다 빈 파일을 쌓지 않게 한 번만 시도한다
+_backup_failed: set[tuple[str, str]] = set()
 
 
 class ConfigBroken(ValueError):
@@ -84,6 +86,9 @@ def _keep_broken(path: Path, raw: bytes) -> str:
     got = _backups.get(key)
     if got and Path(got).exists():
         return got
+    if key in _backup_failed:
+        return ""
+    dest = None
     try:
         for old in sorted(path.parent.glob(f"{path.name}.corrupt-*")):
             if old.read_bytes() == raw:
@@ -101,8 +106,12 @@ def _keep_broken(path: Path, raw: bytes) -> str:
                 f.write(raw)
             break
         else:
+            _backup_failed.add(key)
             return ""
     except OSError:
+        if dest is not None:  # 쓰다 실패한(디스크 가득 등) 반쪽 보관본은 지운다. 남기면 다음 읽기가 다른 내용으로 보고 또 만든다
+            dest.unlink(missing_ok=True)
+        _backup_failed.add(key)
         logging.getLogger("canon").warning("깨진 설정 파일을 보관하지 못했어요: %s", path)
         return ""
     logging.getLogger("canon").warning("설정 파일이 깨져 있어 %s 에 보관했어요. 고치기 전에는 설정을 저장하지 않아요", dest)
@@ -110,25 +119,27 @@ def _keep_broken(path: Path, raw: bytes) -> str:
     return str(dest)
 
 
-def _load() -> tuple[dict, bool]:
-    """(설정, 깨졌는지). 파일이 없으면 ({}, False). JSON 이 아니거나 객체가 아니거나 읽지 못하면 ({}, True) 이고,
-    처음 만났을 때 원문을 보관본으로 남긴다 (_keep_broken). 읽는 쪽은 {} 로 기본값을 쓰고, 쓰는 쪽은 _load_for_write 로 막는다."""
+def _load() -> tuple[dict, str]:
+    """(설정, 문제). 문제는 "" (괜찮음) · "corrupt" (JSON 이 아니거나 객체가 아님) · "unreadable" (권한 · 입출력 오류로 읽지 못함).
+    파일이 없으면 ({}, ""). 깨진 파일은 처음 만났을 때 원문을 보관본으로 남긴다 (_keep_broken).
+    읽지 못한 파일은 권한을 고치면 키가 돌아올 수 있어 보관하지도 새로 시작하지도 않는다 (reset_broken).
+    읽는 쪽은 {} 로 기본값을 쓰고, 쓰는 쪽은 _load_for_write 로 막는다."""
     path = config_path()
     with _CONFIG_LOCK:
         if not path.exists():
-            return {}, False
+            return {}, ""
         try:
             raw = path.read_bytes()
         except OSError:
-            return {}, True
+            return {}, "unreadable"
         try:
             data = json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError):
             data = None
         if isinstance(data, dict):
-            return data, False
+            return data, ""
         _keep_broken(path, raw)
-        return {}, True
+        return {}, "corrupt"
 
 
 def _read() -> dict:
@@ -157,6 +168,9 @@ def broken_backup() -> str:
 
 
 def _broken_message() -> str:
+    if _load()[1] == "unreadable":
+        return (f"설정 파일({config_path().name})을 읽지 못해 저장하지 않았어요. "
+                "파일 권한을 확인해 주세요. 권한을 고치면 원래 설정이 그대로 돌아와요")
     backup = broken_backup()
     kept = f"원래 내용은 {Path(backup).name}에 보관했어요. " if backup else "원래 내용을 보관하지 못했어요. "
     return (f"설정 파일({config_path().name})이 깨져 있어 저장하지 않았어요. {kept}"
@@ -176,7 +190,10 @@ def reset_broken() -> None:
     """깨진 설정 파일을 빈 설정으로 바꾼다 (설정 화면 '기본값으로 새로 시작'). 보관본은 그대로 둔다.
     깨지지 않은 파일은 지우지 않는다 (키를 잃지 않게)."""
     with _CONFIG_LOCK:
-        if not _load()[1]:
+        problem = _load()[1]
+        if problem == "unreadable":
+            raise ValueError("설정 파일을 읽지 못해요. 파일 권한을 확인해 주세요. 새로 시작하지 않았어요")
+        if not problem:
             raise ValueError("설정 파일이 깨져 있지 않아요. 새로 시작하지 않았어요")
         broken_backup()  # 보관본을 먼저 남긴다
         _write({})
@@ -664,6 +681,8 @@ def public() -> dict:
         "local_sampling": local_sampling(),
         "path": str(config_path()),
         # 설정 파일이 깨져 있으면 참. 화면은 맨 위에 안내와 '기본값으로 새로 시작'(POST /config/reset)을 보이고, 그때까지 저장은 막힌다
-        "config_broken": _load()[1],
+        "config_broken": bool(problem := _load()[1]),
+        # 설정 파일을 읽지 못하면(권한 등) 참. 화면은 새로 시작 대신 권한을 확인하라고 안내한다
+        "config_unreadable": problem == "unreadable",
         "config_backup": broken_backup(),
     }

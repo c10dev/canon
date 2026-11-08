@@ -525,6 +525,9 @@ const setRowsNow = () => { const ok = new Set(setCats().map(([id]) => id)); retu
 /** 설정 파일이 깨졌을 때 맨 위 안내 (config_broken). 새로 시작하기 전까지 서버가 저장을 막는다 */
 function setBrokenHtml(c) {
   if (!c || !c.config_broken) return '';
+  if (c.config_unreadable) {  // 권한 등으로 읽지 못함: 권한을 고치면 원래 설정이 돌아오므로 새로 시작을 권하지 않는다
+    return '<div class="note warn" role="status">설정 파일을 읽지 못해 기본값으로 보여 주고 있어요. 파일 권한을 확인해 주세요. 그 전에는 설정을 저장하지 않아요.</div>';
+  }
   const kept = c.config_backup
     ? `원래 내용은 <code class="set-path">${esc(c.config_backup)}</code>에 보관했어요.`
     : '원래 내용을 보관하지 못했어요. 새로 시작하면 원래 내용은 사라져요.';
@@ -684,6 +687,11 @@ async function setConfigCall(method, path, body) {
     if (my === SET.seq) S.config = c;
     else SET.stale = true;
     return c;
+  } catch (e) {
+    // 서버가 설정 파일이 깨졌다고 막았거나 새로 시작이 실패했으면 화면의 S.config 는 옛 상태다.
+    // 다 끝난 뒤 GET /config 로 맞춰 맨 위 안내와 '기본값으로 새로 시작' 단추가 서버와 같게 보이게 한다
+    if (e.code === 'config_broken' || path === '/config/reset') SET.stale = true;
+    throw e;
   } finally {
     SET.pending -= 1;
     if (!SET.pending && SET.stale) {

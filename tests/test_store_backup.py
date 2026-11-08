@@ -297,3 +297,20 @@ def test_snap_refs_tells_old_missing_and_unreadable(home):
         f.write_text(body, encoding="utf-8")
         with pytest.raises(store.SnapRefsUnreadable):
             store._snap_refs(f)
+
+
+def test_drop_old_snapshots_keeps_prev_refs_in_project_named_backups(home, monkeypatch):
+    """작품 폴더 이름이 backups 여도 읽지 못한 project.prev.json 을 낯선 백업 파일로 넘기지 않는다."""
+    from canon.schema import Snapshot
+    d = home / "backups"
+    p = _with_snaps(home, "backups")
+    p.snapshots = [Snapshot(episode=0, facts=["새것"])]
+    store.save("backups", p)  # project.json 은 새 스냅샷, prev 는 첫 판을 적는다
+    for f in (d / store.BACKUP_DIR).glob("*.json"):
+        f.unlink()
+    only = set(store._snap_refs(d / "project.prev.json")) - set(store._snap_refs(d / "project.json"))
+    assert only
+    (d / "project.prev.json").write_text("", encoding="utf-8")  # prev 가 깨졌다
+    monkeypatch.setattr(store, "SNAP_GRACE", 0.0)
+    store._drop_old_snapshots(d)
+    assert all((d / "snapshots" / f).exists() for f in only)

@@ -2610,13 +2610,14 @@ def _write(llm: LLM, p: Project, n: int, prompt: str, cut: list[MetaCut] | None 
         if cut is not None:
             cut[:] = [MetaCut(text=x, at="head") for x in head] + [MetaCut(text=x, at="tail") for x in tail]
         return body
-    what = " · ".join(f"{label} {k}번" for key, label in (("thought", "다른 글(영어로 된 생각 과정 등)"), ("meta", "작업 설명이나 거절 문구"))
-                      if (k := bad[key]))
-    if bad["cut"]:
-        limit = f"({cap:,}토큰)" if cap else ""
-        raise WriteCut(f"{n}화 본문이 출력 길이 한도{limit}에 걸려 끊겼어요 ({WRITE_TRIES}번 중 {bad['cut']}번"
-                       + (f", 그 밖에 {what}" if what else "") + "). 끊긴 본문은 저장하지 않았어요. "
+    limit = f"({cap:,}토큰)" if cap else ""
+    if bad["cut"] == WRITE_TRIES:  # 세 번 모두 끊겼을 때만 끊김으로 멈춘다 (자동 집필 kind cut)
+        raise WriteCut(f"{n}화 본문이 출력 길이 한도{limit}에 걸려 끊겼어요 ({WRITE_TRIES}번 중 {bad['cut']}번). "
+                       "끊긴 본문은 저장하지 않았어요. "
                        "모델이 같은 글을 되풀이했을 수 있어요. 다시 시도하거나 설정에서 쓰기 모델을 바꿔 주세요")
+    what = " · ".join(f"{label} {k}번" for key, label in (("thought", "다른 글(영어로 된 생각 과정 등)"), ("meta", "작업 설명이나 거절 문구"),
+                                                         ("cut", f"출력 길이 한도{limit}에 걸려 끊긴 응답"))
+                      if (k := bad[key]))
     raise ValueError(f"{n}화 본문 대신 {what}이 나왔어요. 다시 시도해 주세요")
 
 

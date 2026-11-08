@@ -284,7 +284,29 @@ def test_save_warns_when_server_keeps_episode_text():
     })()"""
     got = run_js(FILES, expr, _project())
     assert got["ok"] is False
-    lost = [t for t in got["toasts"] if t.startswith("본문이 있는 화를 빼거나 본문을 비우는 저장이라")]
-    assert len(lost) == 2 and "1~2화" in lost[0]
+    gone = [t for t in got["toasts"] if t.startswith("본문이 있는 화를 빼는 저장이라")]
+    emptied = [t for t in got["toasts"] if t.startswith("서버에는 본문이 있는 화라")]
+    assert len(gone) == 2 and "1화" in gone[0] and "화 지우기" in gone[0]  # save 를 두 번 불렀다
+    assert len(emptied) == 2 and "2화" in emptied[0] and "화 지우기" not in emptied[0]  # 옛 사본일 뿐이라 지우기를 권하지 않는다
     assert "저장했어요" not in got["toasts"]
     assert not any("화 플롯" in t for t in got["toasts"])  # 플롯을 버렸다고 잘못 알리지 않는다
+
+
+@needs_node
+def test_save_skips_emptied_toast_when_plot_toast_covers_it():
+    """같은 화가 플롯 보호(locked)로도 알려지면 비운 본문 토스트는 띄우지 않는다 (한 까닭에 경고 하나)."""
+    expr = STUB + """(async () => {
+      S.project = data; S.name = 'lh'; S.route = ['p', 'lh', 'plot']; S.jobs = []; S.dirty = true;
+      projectBase = null;
+      const kept = [{ field: 'plot', ep: 2, why: 'locked' }, { field: 'text', ep: 2 }];
+      api = async (m, path, body, meta) => {
+        meta.headers = { get: (k) => (k === 'X-Canon-Kept' ? encodeURIComponent(JSON.stringify(kept)) : null) };
+        return data;
+      };
+      const ok = await save();
+      return { ok, toasts };
+    })()"""
+    got = run_js(FILES, expr, _project())
+    assert got["ok"] is False
+    assert any(t.startswith("본문이 있는 화라 플롯은") for t in got["toasts"]), got["toasts"]
+    assert not any(t.startswith("서버에는 본문이 있는 화라") for t in got["toasts"])

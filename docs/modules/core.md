@@ -375,10 +375,12 @@
 - 로컬(`LocalLLM.caps_write = False`)은 한도를 걸지 않고 끊김만 본다
 - `write_out_tokens` 는 글자 수(목표 분량과 그 화 지금 본문 중 긴 쪽) × `WRITE_TOKENS_PER_CHAR`(4) + `WRITE_THINK_TOKENS`(16,384)를 `WRITE_OUT_RANGE`(24,576~65,536) 안으로 자른다
 - 근거: 서버 write 단계 본문 쓰기 271번(2026-11-08)의 출력+생각 최댓값은 Gemini 17,089 · Claude 24,800토큰이다. 목표 7,000자 한도는 44,384토큰이다
-- Claude Code(구독) · 배치는 끊김을 알리지 않아 한도를 걸지 않는다
+- Claude Code(구독)는 끊김을 알리지 않아 한도를 걸지 않는다
+- 배치(`llm.BatchLLM`)는 끊김을 알리지만(`knows_cut`) 요청에 출력 한도를 싣지 않아 한도는 걸지 않는다(`caps_write = False`)
 - 끊긴 응답(`llm.was_cut` 또는 `llm.OutputCut`)은 본문으로 받지 않고 `WRITE_TRIES` 안에서 다시 부른다
 - 끝난 이유가 끊김인데 글 없이 끝나 백엔드가 낸 '응답이 비었어요' 오류(RuntimeError)도 끊김으로 센다
-- 끝내 끊기면 `WriteCut`(ValueError)을 낸다: '본문이 출력 길이 한도에 걸려 끊겼어요'. 끊긴 본문은 돌려주지 않는다
+- 세 번 모두 끊기면 `WriteCut`(ValueError)을 낸다: '본문이 출력 길이 한도에 걸려 끊겼어요'. 끊긴 본문은 돌려주지 않는다
+- 일부만 끊기고 나머지가 다른 까닭이면 끊긴 수를 함께 적은 보통 ValueError 를 낸다(자동 집필은 `cut` 이 아닌 오류로 멈춘다)
 - 다시 생성 · 서술 다듬기 · 큐 시트 집필도 `_write` 를 거쳐 같은 한도와 거부를 쓴다. 부분 수정(`PassageRevision`)은 JSON 이라 끊기면 형식 불일치로 끝난다
 - 방금 만든 스토리보드 다음의 큐 시트: `make_storyboard(lead=)` 가 보낸 요청 글을 채우고, `cue_lead` 가 그 스토리보드가 AI 가 만든 그대로 · 낡지 않음일 때만 그 글을 돌려준다. `make_cue_sheet(lead=)` 는 그 글로 시작하는 요청을 보낸다(자동 집필 `_cues`, 웹 쓰기 작업 `board: make`)
 - 문체 분석 `analyze_style` 뒤 `count_markers` 가 표지 · 장치 단서를 거른다: 원문에 없는 것, 한글 2자 미만(`MARKER_MIN_HANGUL`), 인물 이름(2자 이상)이 든 것
@@ -534,11 +536,15 @@
 - `_write` 는 `store.write_atomic(mode=0o600, fsync=True)` 로 쓴다. 키가 든 임시 파일도 처음부터 본인만 읽고, 쓰다 멈춰도 옛 설정이 그대로 남는다
 - 읽고-고치고-쓰는 곳(`update` · `save_preset` · `delete_preset` · `set_prices` · `mark_gemini_cache_unsupported` · `reset_broken`)은 프로세스 안 잠금 `_CONFIG_LOCK`(RLock)을 잡는다. 겹친 단계 칸 PUT 이 서로의 값을 지우지 않는다
 - CLI 와 서버처럼 다른 프로세스가 함께 쓰는 경우는 이 잠금이 막지 않는다
-- `_load()` 는 (설정, 깨졌는지)를 돌려준다. JSON 이 아니거나 객체가 아니거나 읽지 못하면 깨진 것이다
+- `_load()` 는 (설정, 문제)를 돌려준다. 문제는 `""` · `"corrupt"`(JSON 이 아니거나 객체가 아님) · `"unreadable"`(권한 · 입출력 오류)이다
+- 읽지 못한 파일은 권한을 고치면 키가 돌아올 수 있어 보관하지 않고, 쓰기는 권한을 확인하라는 `ConfigBroken` 으로 막는다
 - 깨진 파일을 처음 만나면 원문을 `config.json.corrupt-<시각>` 로 한 번 복사한다(0o600, `_keep_broken`). 같은 내용의 보관본이 있으면 새로 만들지 않는다
+- 보관본을 쓰다 실패하면(디스크 가득 등) 반쪽 파일을 지우고, 같은 내용은 다시 시도하지 않는다(`_backup_failed`)
 - 깨진 동안 읽는 쪽은 `{}`(기본값)를 쓰고, 쓰는 쪽(`_load_for_write`)은 보관본 이름을 적은 `ConfigBroken`(ValueError) 을 낸다. 웹은 409 와 `code: config_broken` 으로 답한다
 - `reset_broken` 은 깨진 파일만 빈 설정으로 바꾸고 보관본은 둔다(`POST /api/config/reset`, 설정 화면 '기본값으로 새로 시작'). 깨지지 않은 파일이면 ValueError
+- 읽지 못한 파일이면 `reset_broken` 은 ValueError 로 거절한다
 - `public()` 의 `config_broken` · `config_backup` 은 깨졌는지와 보관본 경로다. 키 값은 오류 · 로그 · 화면에 찍지 않는다
+- `public()` 의 `config_unreadable` 은 읽지 못했는지다(그때 `config_broken` 도 참)
 - 환경 변수가 있으면 파일보다 우선한다
 - 단계 이름 목록은 `STAGES`
 - 스토리보드 · 큐 시트 단계 `board` 는 따로 정하지 않으면 계획 단계를 따른다(`STAGE_PARENT`). 웹 쓰기 작업 · 스토리보드 · 큐 시트 작업과 자동 집필이 이 단계로 부른다
@@ -666,6 +672,7 @@
 - 본문만 되돌리지 않는 까닭: 화면이 보낸 옛 상태(confirmed)가 남으면 본문이 있는데 안 쓴 화로 보여 플롯 잠금이 풀리고 다시 쓰기가 본문을 덮는다
 - 되돌린 화도 줄기 표시(`LOCKED_FREE`)는 화면 것을 받고, 이번 저장이 지운 인물 · 줄기는 플롯에서 뺀다(`_restored`). 되돌림이 저장 검사 뒤에 오기 때문이다
 - 빠진 화의 본문이 화면이 보낸 다른 화의 본문과 같으면 되돌리지 않는다. 화 끼워 넣기로 번호가 밀린 옛 탭의 덮어쓰기가 끝 화를 겹쳐 남기지 않게 한다
+- 본문을 비운 화도 같다. 화 지우기로 본문이 앞으로 당겨진 뒤 옛 탭이 덮어써도 같은 본문이 두 화에 생기지 않는다
 - 총 화수(`meta.target_episodes`) 밖의 화를 되돌리면 `"why": "over_target"` 을 붙인다
 - 이 본문 지키기는 `force` 로도 풀지 않는다. 화 빼기 · 지우기는 전용 라우트(`remove_episode` · `delete_episode`)가 한다
 - 인물 · 떡밥 · 비밀 목록이 비는 저장은 막지 않는다. 작가가 일부러 지운 결과다
