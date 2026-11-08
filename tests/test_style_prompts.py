@@ -47,6 +47,7 @@ class StylePromptTest(unittest.TestCase):
                 self.assertTrue(text.startswith("[You may be called Canon here."))
                 self.assertNotIn("당신은", text)
                 self.assertIn("본문", text)
+                self.assertIn("모든 출력은 한국어로 작성합니다", text)  # 머리말이 영어라서 출력 언어를 밝힌다
             self.assertNotIn("RP/ERP", fn(plain))
             self.assertIn("RP/ERP", fn(adult))
         self.assertIn("본문만 출력하고", prompts.writer_system(plain))
