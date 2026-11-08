@@ -51,6 +51,8 @@ class StylePromptTest(unittest.TestCase):
             self.assertNotIn("RP/ERP", fn(plain))
             self.assertIn("RP/ERP", fn(adult))
         self.assertIn("본문만 출력하고", prompts.writer_system(plain))
+        self.assertNotIn("절대", prompts.writer_system(plain))  # 강한 금지어 대신 이유를 붙인 지시
+        self.assertIn("앞 화와 이어져야 하므로 어기지 않습니다", prompts.writer_system(plain))
         self.assertEqual(prompts.reviser_system(plain), prompts.SYSTEM_REVISER)
 
     def test_vivid_rules(self):
