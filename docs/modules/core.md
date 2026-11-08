@@ -329,6 +329,7 @@
   - 플롯 · 다음 아크(`apply_arc`)가 데려온 새 인물은 후보 `Project.cast_candidates`(아크 주요 인물에 있으면 플롯에 없어도 남김 `sync_candidates`)
   - 새 장소는 `Project.place_candidates` 로 두고 화 확정 `confirm_plot` 때 등록
   - 초안 플롯을 다시 받으면(`apply_plots`, 여러 화 · 한 화) 작가 자료인 장면 연출 · 고칠 곳 · 다 쓴 사건 체크는 남긴다
+  - 플롯 초안을 한 번에 받는 구간 `act_groups`: 한 화를 함께 쓰는 구간(짧은 작품)은 한 묶음. 웹 작업 plots(`web._plot_ranges`)와 프롬프트 놀이터의 플롯 초안이 쓴다
   - 작품 전체 저장에서 본문이 있는 화의 플롯은 디스크 것으로 둔다(`keep_locked_plots`, 줄기 표시 `LOCKED_FREE` 만 받음, `web.put_project`)
   - 상태 변경안 정리 `clean_delta`
   - 반영 전 검사 `validate_delta`: 설정에 없는 인물 id(이번 새 인물은 앎) · 같은 인물끼리이거나 설정에 없는 인물의 관계 사건과 관계 바뀜 · 없는 복선 id 회수(이번에 심는 복선은 앎)
@@ -406,8 +407,17 @@
 - 아크를 프롬프트에 덤프할 때 열 계획 칸은 뺀다(`ARC_HEAT`, `StoryArc` 의 프롬프트용 직렬화). 아크의 열 계획 칸은 AI 응답 형식에도 없다(`SkipJsonSchema`)
 - 열 계획 받기 요청 `heat_propose_prompt`: 기승전결, 화별 플롯, 본문 있는 화의 실제 열 참고값과 지금 계획, 열린 복선. 요구사항은 단편 기획과 같은 `heat_rules`
 - 작업지시서(`episode_brief`, `state_brief`)
-- 작업지시서는 `brief_parts`(역할 = 시스템, 요청)로 조립한다. 갈래 목록은 `BRIEF_KINDS`(본문 쓰기 · 한 화 플롯 · 검수 · 상태 변경안)
-- JSON 으로 받는 갈래는 응답 스키마를 요청 끝에 글로 붙인다(`_out_format`). 프롬프트 놀이터의 불러오기도 `brief_parts` 를 쓴다
+- 작업지시서는 `brief_parts`(역할 = 시스템, 요청)로 조립한다. 갈래 목록은 `BRIEF_KINDS`(`BriefKind`: 이름 · 필요한 것 · 고르는 단위 · 장편만)
+- 갈래는 집필 흐름 차례로 부 구성(장편만) · 기승전결 구조 · 다음 아크 · 열 계획 · 플롯 초안 · 한 화 플롯 · 스토리보드 · 큐 시트 · 본문 쓰기 · 검수 · 상태 변경안이다
+- 새 갈래는 `pipeline` 의 호출(`plan_series` · `plan_arc` · `plan_next_arc` · `propose_heat` · `draft_plots` · `draft_episode` · `make_storyboard` · `make_cue_sheet`)과 같은 함수를 같은 차례로 부르고 작가의 요청은 비운다(`tests/test_promptlab.py` 가 견준다)
+- 구조 갈래 `arc_ask`: 단편은 기승전결(`arc_prompt`), 장편은 다음 아크 하나(`next_arc_prompt`). 열 계획을 켠 작품은 열 계획 규칙과 그 스키마를 붙인다
+- 플롯 초안 갈래는 n 화가 든 구간(`plots_range`, `pipeline.act_groups`) 전체를 짠다. 웹 작업 plots 도 구간마다 부른다
+- 한 화 플롯 갈래는 `draft_episode`(웹 작업 plot_one, 뒤 화에 맞추기 켬)와 같은 `episode_plot_prompt` 다. 플롯이 초안인 화만 짠다
+- 큐 시트 갈래는 스토리보드를 같은 작업에서 막 만든 경우(`lead`)가 아닌 따로 만들 때의 글이다
+- JSON 으로 받는 갈래는 응답 스키마를 요청 끝에 글로 붙인다(`_out_format`)
+- `brief_request` 는 (시스템, 요청, 응답 스키마)를 돌려준다. `brief_parts` 는 그 요청에 스키마 글을 붙인 것이다
+- 프롬프트 놀이터의 불러오기는 `brief_request` 를 쓰고 스키마는 돌릴 때 구조화 출력으로 넘긴다
+- 갈래마다 실제 호출의 단계(`BriefKind.stage`: 계획 · 스토리보드 · 큐 시트는 board · 본문 쓰기 · 검수 · 상태 변경안)를 적는다
 - 인물 고르기는 `static_characters` · `side_characters` · `roster_line` · `cast_block` 이 `Character.context` 를 따른다
 - 장편은 플롯 인물 목록 밖이라도 이름이 나온 조연을 넣는다(쓰기 `named_block`, 검수 `check_cast`, 상태 변경안)
 - 오랜만에 나오는 인물은 `return_block`

@@ -2469,18 +2469,8 @@ def _plot_ranges(p: Project, arc: int | None = None) -> list[tuple[str, int, int
         if s is None:
             raise ValueError(f"아크 {arc}이(가) 없어요")
         beats = s.acts
-    groups: list[list] = []  # 화를 함께 쓰는 구간(짧은 작품)은 한 번에 만든다: [이름들, 시작, 끝]
-    for a in sorted(beats, key=pipeline.act_order):
-        if groups and a.start_ep <= groups[-1][2]:
-            groups[-1][0].append(a.name)
-            groups[-1][2] = max(groups[-1][2], a.end_ep)
-        else:
-            groups.append([[a.name], a.start_ep, a.end_ep])
-    out = []
-    for names, a, b in groups:
-        if any(status.get(n, "draft") == "draft" for n in range(a, b + 1)):
-            out.append(("·".join(names), a, b))
-    return out
+    # 화를 함께 쓰는 구간(짧은 작품)은 한 번에 만든다 (pipeline.act_groups)
+    return [(names, a, b) for names, a, b in pipeline.act_groups(beats) if any(status.get(n, "draft") == "draft" for n in range(a, b + 1))]
 
 
 def _waiting_409(old: jobs.Job) -> NoReturn:

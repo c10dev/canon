@@ -61,18 +61,35 @@
 - 백엔드 정리 `clean_backends`: 모르는 백엔드는 막고 같은 것은 한 번만, 주소는 로컬만 남기고 `MAX_BACKENDS` 개까지
 - 제목은 비우면 요청 첫 줄로 짓는다(`title_of`). 작가가 적은 제목은 프롬프트를 바꿔도 남는다
 - 돌리기 `run` 은 `research.sample` 을 그대로 부른다(차례로 부름, 한 쪽이 실패해도 나머지는 돎). 세션은 바꾸지 않고 `add_trial` 로 붙인다
+- 불러온 갈래가 있으면 `run_spec` 대로 돌린다: 응답 스키마(구조화 출력 `llm.json`), 그 단계의 모델 · 추론 강도, 출력 한도
+- 출력 한도 `OUT_TOKENS`: 스토리보드 · 큐 시트는 `pipeline.BOARD_OUT_TOKENS` · `CUE_OUT_TOKENS`, 나머지는 기본 한도
+- 고른 작품에서 불러왔으면 그 작품의 단계 프리셋(`settings.project_preset`)을 쓴다
+- 칸을 고쳐도 출처가 있으면 같은 방식으로 돌린다. 불러온 출처가 없는 세션은 예전처럼 글로 받는다
+- 시도의 결과마다 받은 스키마 · 추론 강도 · 출력 한도를 남긴다(`PromptRun.schema_name` · `effort` · `out_tokens`)
+- 실패한 결과는 마지막으로 받은 원문(`PromptRun.raw`, `research.RAW_MAX` 자까지)과 끝난 이유(`finish`)를 남긴다
+- 구조화 출력 결과 검사 `inspect`: 빈 칸(`research.empty_fields`, 앞쪽 `EMPTY_SHOWN` 개와 수)을 남긴다
+- `canon_notes` 는 실제 경로의 정리 함수(`clean_storyboard` · `cue.clean` · `fit_arc` · `clean_heat` · `validate_parts`, 화 번호 맞춤)를 사본에 돌려 Canon 이 정리하거나 거절하는 것을 `PromptRun.notes` 에 적는다
+- 검사는 작품을 바꾸지 않고, 검사가 실패해도 결과는 남긴다
+- `view` 의 `spec` 은 화면에 보일 돌리는 방식(스키마 이름 · 단계 이름 `STAGE_LABELS` · 한도 · 백엔드마다 쓸 모델과 추론 강도)이다
 - 어림 비용 `run_cost`: `usage.PRICED` 백엔드만 `usage.rate` · `usage.cost` 로 센다. 로컬 · mock 은 0, 가격 · 토큰을 모르면 None
 - 세션마다 시도 `MAX_TRIALS` 개까지. 저절로 지우지 않고 막는다(`room`)
 - 되돌리기 `restore`: 그 시도의 프롬프트 · 온도 · 출처를 지금 칸으로. 백엔드는 그대로 둔다
-- 불러오기 `load_prompt`: Canon 프롬프트를 작업지시서와 같은 `prompts.brief_parts` 로 조립해 시스템 · 요청 칸에 채운다
+- 불러오기 `load_prompt`: Canon 프롬프트를 `prompts.brief_request` 로 조립해 시스템 · 요청 칸에 채운다. 스키마 글은 칸에 넣지 않고 출처(`PromptSource.schema_name` · `stage`)에 둔다
+- 갈래는 `prompts.BRIEF_KINDS` 그대로다. 작품에 맞는 갈래만 `kinds_for` 로 고른다(부 구성은 장편만)
+- 고르는 단위(`BriefKind.scope`): 화, 플롯 초안 구간(`groups_of`, `pipeline.act_groups`), 작품 하나(구조 · 열 계획 · 부 구성, 화를 쓰지 않아 n 은 0)
+- 한 화 플롯은 플롯이 초안인 화만 조립한다(`pipeline.draft_episode` 와 같다)
+- 스토리보드 · 큐 시트는 플롯을 확정한 화만 조립한다(`pipeline` 과 같다). 앞 화가 끝났는지(`require_previous`)는 보지 않는다
 - 불러오기 재료는 예시 작품(`example_project`, mock LLM 으로 만든 저장하지 않는 6화 단편, 한 번 만들어 사본을 줌)이나 고른 작품(`store.load`, 읽기만)
-- 예시 작품은 1 · 2화에 본문과 상태 반영이 있고 3화는 플롯만 확정했다. 갈래마다 조립하는 화는 `EXAMPLE_N`
+- 예시 작품은 1 · 2화에 본문과 상태 반영이 있고 3화는 플롯만 확정했다. 갈래마다 조립하는 화는 `EXAMPLE_N`, 없는 갈래는 `default_n`
 - 고른 작품의 기본 화 `default_n`: 본문이 있어야 하는 갈래는 본문이 있는 마지막 화, 나머지는 본문이 없는 첫 화
+- 확정 · 초안이어야 하는 갈래는 본문이 없고 그 조건에 맞는 첫 화, 플롯 초안은 초안이 든 첫 구간
 - 불러온 출처 `PromptSource`(갈래 · 이름 · 작품 · 화 · 지문 `sig`)를 세션에 두고, 돌릴 때 시도에 옮긴다. 지문이 다르면 `source_edited`
 - 조립한 프롬프트가 `TEXT_MAX` 를 넘으면 자르지 않고 막는다
-- 제목이 요청 첫 줄로 지은 것이면 불러온 이름으로 바꾼다. 작가가 적은 제목은 남긴다
+- 제목이 요청 첫 줄이나 앞서 불러온 이름으로 지은 것이면 이번 불러온 이름으로 바꾼다. 작가가 적은 제목은 남긴다
 - 한 화 플롯 프롬프트의 새 인물 이름 후보(`prompts.new_cast_rule`)는 불러올 때마다 무작위로 바뀐다
-- 고르기 칸 재료 `sources`(갈래 · 화 목록 · 갈래별 기본 화)
+- 고르기 칸 재료 `sources`(갈래 · 화 목록 · 플롯 초안 구간 · 갈래별 기본 화)
+- `llm.POLICY_NOTE` 는 칸에 넣지 않는다. Gemini · 로컬 백엔드가 보낼 때 붙이므로(`llm.with_note`) 칸에 넣으면 두 번 붙는다
+- 대신 `limits` 가 `policy_note` 로 그 줄을 주고 화면이 요청 칸 아래에 보인다
 - 시험 `tests/test_promptlab.py`
 
 ### `canon/refs.py`
@@ -119,6 +136,10 @@
 - 연구 화면(모델 실험) 로직
 - 서버 점검
 - 샘플 비교
+- 샘플 생성 `sample` 은 실패하면 받은 원문(`last_raw`, `RAW_MAX` 자까지)과 끝난 이유(`last_finish`)를 줄에 남긴다
+- 샘플 생성 `sample` 은 schema 를 주면 `llm.json` 으로 받아 검증한 JSON 을 글로 돌려준다. mock 은 hint 없이 스키마 응답을 짓지 못해 글로 받는다
+- `sample` 의 stage · out_tokens: 모델 칸이 빈 백엔드는 그 단계의 모델 · 추론 강도(`stage_defaults`)로 만들고 출력 한도(`llm.out_cap`)를 건다
+- `stage_defaults`: 단계 모델은 그 단계 백엔드가 같을 때만 쓰고, 추론 강도는 `settings.provider_effort` 로 바꿔 Gemini 에만 넘긴다
 - 단계 시험
 - 컨텍스트 크기
 - 검수 시험
@@ -293,6 +314,13 @@
 - 칸은 `DRAFT_ROOTS.pgForm` 으로 묶고, 칸을 벗어날 때(change) 조용히 저장한다(`pgSave`). 돌리기는 칸을 함께 보낸다(`pgBody`)
 - 온도 칸이 비었거나 숫자가 아니면 설정 값(null)을 보낸다(`pgBody`)
 - 왼쪽 열 맨 위 불러오기 카드 `pgLoadCard`: 프롬프트 갈래 · 작품(예시 작품 또는 `S.projects`) · 화를 고르고 '불러오기'(`pgLoadPrompt`). 고르기 칸은 `S.pgSrc`(`pgSources`)
+- 화 고르기 칸 `pgSrcChoices`: 작품 하나를 짜는 갈래는 칸이 없고, 플롯 초안은 구간, 나머지는 그 갈래의 조건(본문 · 확정 · 초안)에 맞는 화만
+- 작품을 단편으로 바꿔 고른 갈래가 없으면 본문 쓰기로 돌아간다(`pgSources`)
+- 요청 칸 아래에 Gemini · 로컬이 보낼 때 붙이는 `POLICY_NOTE` 줄을 보인다(`S.pgLimits.policyNote`)
+- 불러온 갈래가 있으면 돌리는 방식 한 줄(`pgSpecLine`)과 모델 칸 안내(`pgModelHint`, 그 단계 모델 · 추론 강도)를 보인다
+- 결과 카드는 받은 형식 · 추론 강도 · 출력 한도를 함께 적는다(`pgRunCard`)
+- 구조화 출력 결과는 Canon 정리와 빈 칸 수를 보이고 빈 칸 경로는 펼쳐 본다(`pgCheckHtml`)
+- 실패한 결과는 받은 원문과 끝난 이유를 펼쳐 본다(`pgRawHtml`, MAX_TOKENS 면 출력 한도)
 - 칸에 글이 있으면 불러오기 전에 묻는다. 불러온 출처는 프롬프트 카드와 시도 카드에 칩으로 보인다(`pgSourceLabel`, 고쳤으면 '(고침)')
 - 시도 카드: 그 시도의 프롬프트(접힘), 지금 칸과 다른지(`pgDiff`), 백엔드마다 결과 카드 `pgRunCard`(초 · 글자 · 토큰 · 어림 비용 `usd`)
 - 시도 동작: 고르기 `pgStar` · 메모 `data-pg-note` · 되돌리기 `pgRestore` · 결과 복사 `pgCopy` · 지우기 `pgDrop`

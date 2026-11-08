@@ -94,12 +94,13 @@ def test_load_prompt_from_example_uses_brief_parts(home):
     for kind, n in promptlab.EXAMPLE_N.items():
         promptlab.load_prompt(s, kind)
         p = promptlab.example_project()
-        system, prompt = prompts.brief_parts(p, n, kind)
-        assert s.system == system
+        system, prompt, schema = prompts.brief_request(p, n, kind)  # 스키마 글은 칸에 넣지 않는다 (돌릴 때 구조화 출력)
+        assert s.system == system and s.source.schema_name == (schema.__name__ if schema else "")
+        assert prompts.brief_parts(p, n, kind)[1].startswith(prompt.split("새 남자 인물 후보")[0])  # 작업지시서는 스키마 글을 붙인다
         if kind == "plot":  # 플롯 프롬프트는 새 인물 이름 후보를 부를 때마다 무작위로 뽑는다
             assert s.prompt.split("새 남자 인물 후보")[0] == prompt.split("새 남자 인물 후보")[0]
         else:
-            assert s.prompt == prompt  # 작업지시서와 같은 조립
+            assert s.prompt == prompt  # 작업지시서와 같은 조립 (스키마 글만 뺀다)
         assert s.source.kind == kind and s.source.n == n and s.source.project == "" and "예시 작품" in s.source.label
     assert prompts.brief_parts(p, 2, "check")[1] in prompts.check_brief(p, 2)
     t = promptlab.add_trial(s, s.system, s.prompt, None, [], s.source)
@@ -160,7 +161,8 @@ def test_gemini_gets_temperature_only_when_set(monkeypatch):
 def test_web_load(client):
     s = client.post("/api/promptlab", json={"backends": [{"provider": "mock"}]}).json()
     src = client.get("/api/promptlab/sources").json()
-    assert [k["id"] for k in src["kinds"]] == ["episode", "plot", "check", "state"] and src["defaults"]["check"] == 2
+    assert [k["id"] for k in src["kinds"]] == ["arc", "heat", "plots", "plot", "storyboard", "cue", "episode", "check", "state"]
+    assert src["defaults"]["check"] == 2
     assert client.get("/api/promptlab/sources?project=없는작품").status_code == 404
     v = client.post(f"/api/promptlab/{s['id']}/load", json={"kind": "check"}).json()
     assert v["source"]["kind"] == "check" and v["system"] and v["prompt"]
@@ -168,3 +170,210 @@ def test_web_load(client):
     v = client.post(f"/api/promptlab/{s['id']}/run", json={"system": v["system"], "prompt": v["prompt"], "backends": [{"provider": "mock"}]}).json()
     assert v["trials"][0]["source"]["label"].startswith("검수") and v["trials"][0]["source_edited"] is False
     assert client.post(f"/api/promptlab/{s['id']}/load", json={"kind": "check", "n": 5}).status_code == 400
+
+
+class _Seen:
+    """MockLLM 을 감싸 json 호출의 (시스템, 요청)을 남긴다."""
+
+    def __init__(self):
+        from canon.mock import MockLLM
+
+        self.llm, self.calls = MockLLM(), []
+
+    def __getattr__(self, name):
+        return getattr(self.llm, name)
+
+    def json(self, system, prompt, schema, hint=None):
+        self.calls.append((system, prompt))
+        return self.llm.json(system, prompt, schema, hint=hint)
+
+
+def _names_out(text):
+    """새 인물 이름 후보 줄은 부를 때마다 무작위로 뽑으므로 견주기에서 뺀다."""
+    return "\n".join(x for x in text.splitlines() if not x.startswith(("- 새 남자 인물 후보", "- 새 여자 인물 후보")))
+
+
+def _same_as_pipeline(p, kind, n, call):
+    """brief_parts 가 pipeline 이 보내는 첫 요청과 같은지 본다. 놀이터 쪽은 응답 스키마 글(## 출력 형식)이 끝에 더 붙는다."""
+    from canon import prompts
+
+    seen = _Seen()
+    call(seen)
+    system, prompt = prompts.brief_parts(p, n, kind)
+    assert "\n\n## 출력 형식\n" in prompt
+    assert (system, _names_out(prompt.split("\n\n## 출력 형식\n")[0])) == (seen.calls[0][0], _names_out(seen.calls[0][1]))
+
+
+def test_new_kinds_match_pipeline_short():
+    from canon import pipeline
+
+    p = promptlab.example_project()
+    for e in p.episodes[:2]:
+        e.status = "finalized"
+    _same_as_pipeline(p, "plots", 4, lambda llm: pipeline.draft_plots(llm, p, 4, 4))
+    _same_as_pipeline(p, "plots", 6, lambda llm: pipeline.draft_plots(llm, p, 5, 6))  # 구간 안 어느 화를 골라도 구간 전체
+    _same_as_pipeline(p, "plot", 4, lambda llm: pipeline.draft_episode(llm, p, 4))  # 한 화 플롯은 웹 작업 plot_one 과 같다
+    _same_as_pipeline(p, "storyboard", 3, lambda llm: pipeline.make_storyboard(llm, p, 3))
+    _same_as_pipeline(p, "cue", 3, lambda llm: pipeline.make_cue_sheet(llm, p, 3))
+    _same_as_pipeline(p, "arc", 0, lambda llm: pipeline.plan_arc(llm, p))
+    _same_as_pipeline(p, "heat", 0, lambda llm: pipeline.propose_heat(llm, p))
+    p.settings.heat_plan = True  # 열 계획을 켠 단편은 구조 요청에 열 계획 규칙이 붙는다
+    _same_as_pipeline(p, "arc", 0, lambda llm: pipeline.plan_arc(llm, p))
+
+
+def test_new_kinds_match_pipeline_serial():
+    from canon import pipeline
+    from canon.mock import MockLLM
+
+    llm = MockLLM()
+    p = promptlab.Project()
+    p.meta.title, p.meta.form, p.meta.target_episodes = "탑", "serial", 120
+    pipeline.apply_setup(p, pipeline.suggest_setup(llm, p))
+    _same_as_pipeline(p, "series", 0, lambda x: pipeline.plan_series(x, p))
+    pipeline.apply_series(p, pipeline.plan_series(llm, p))
+    _same_as_pipeline(p, "arc", 0, lambda x: pipeline.plan_next_arc(x, p))
+    a = pipeline.apply_arc(p, pipeline.plan_next_arc(llm, p))
+    _same_as_pipeline(p, "heat", 0, lambda x: pipeline.propose_heat(x, p))
+    g = pipeline.act_groups(a.acts)[1]
+    _same_as_pipeline(p, "plots", g[1], lambda x: pipeline.draft_plots(x, p, g[1], g[2]))
+    p.settings.heat_plan = True
+    _same_as_pipeline(p, "arc", 0, lambda x: pipeline.plan_next_arc(x, p))
+
+
+def test_new_kinds_sources_and_guards(home, monkeypatch, tmp_path):
+    from canon import store
+
+    info = promptlab.sources()
+    ids = [k["id"] for k in info["kinds"]]
+    assert ids == ["arc", "heat", "plots", "plot", "storyboard", "cue", "episode", "check", "state"]  # 단편에는 부 구성이 없다
+    assert {k["id"]: k["scope"] for k in info["kinds"]}["heat"] == "work" and info["defaults"]["arc"] == 0
+    assert [g["n"] for g in info["groups"]] == [1, 2, 4, 5] and info["groups"][0]["label"] == "기 구간 1화"
+    assert info["defaults"]["plots"] == 4  # 초안이 든 첫 구간
+    assert [e["confirmed"] for e in info["episodes"]] == [True, True, True, False, False, False]
+    s = promptlab.create(backends=[PromptBackend(provider="mock")])
+    promptlab.load_prompt(s, "arc")
+    assert s.source.label == "기승전결 구조 · 예시 작품" and s.source.n == 0
+    promptlab.load_prompt(s, "plots", n=6)
+    assert s.source.label == "플롯 초안 · 예시 작품 5~6화"
+    assert s.title == s.source.label  # 앞서 불러온 이름으로 지은 제목은 다음 불러오기 이름으로 바뀐다
+    s.title = "내 제목"
+    promptlab.load_prompt(s, "arc")
+    assert s.title == "내 제목"
+    with pytest.raises(ValueError, match="확정하지 않아"):
+        promptlab.load_prompt(s, "storyboard", n=4)
+    with pytest.raises(ValueError, match="초안인 화를 고르세요"):
+        promptlab.load_prompt(s, "plot", n=3)
+    with pytest.raises(ValueError, match="장편 연재"):
+        promptlab.load_prompt(s, "series")
+    monkeypatch.setattr(store, "ROOT", tmp_path / "projects")
+    q = promptlab.example_project()
+    q.episodes = q.episodes[:2]  # 3화 플롯이 없는 작품: 스토리보드 기본 화는 확정한 화 가운데 본문이 없는 화가 없으니 마지막 확정 화
+    store.save("짧은작품", q)
+    d = promptlab.sources("짧은작품")["defaults"]
+    assert d["storyboard"] == 2 and d["plots"] == 1 and d["check"] == 2
+
+
+def test_policy_note_is_shown_not_put_in_the_prompt(home):
+    from canon import llm
+
+    assert promptlab.limits()["policy_note"] == llm.POLICY_NOTE
+    s = promptlab.create(backends=[PromptBackend(provider="mock")])
+    promptlab.load_prompt(s, "episode")
+    assert llm.POLICY_NOTE not in s.prompt  # 백엔드가 보낼 때 붙인다. 칸에 넣으면 두 번 붙는다
+
+
+def _fake_gemini(monkeypatch, answer):
+    """research.GeminiLLM 을 보낸 config 를 남기는 가짜로 바꾼다."""
+    from types import SimpleNamespace
+
+    from canon import research
+    from canon.llm import GeminiLLM
+
+    seen = []
+
+    def generate(model, contents, config):
+        seen.append({"model": model, "config": config, "contents": contents})
+        u = SimpleNamespace(prompt_token_count=1, candidates_token_count=1, thoughts_token_count=0, cached_content_token_count=0)
+        return SimpleNamespace(text=answer, usage_metadata=u, candidates=[SimpleNamespace(finish_reason=SimpleNamespace(name="STOP"))])
+
+    def fake(model=None, effort="", temperature=None, **kw):
+        llm = object.__new__(GeminiLLM)
+        llm.client = SimpleNamespace(models=SimpleNamespace(generate_content=generate))
+        llm.model, llm.effort, llm.temperature = model or "gemini-4-argon", effort, temperature
+        return llm
+
+    monkeypatch.setattr(research, "GeminiLLM", fake)
+    return seen
+
+
+def test_run_uses_structured_output_stage_and_cap(home, monkeypatch):
+    """불러온 갈래는 실제 호출처럼 구조화 출력 · 그 단계의 모델과 추론 강도 · 출력 한도로 돌린다."""
+    from canon import llm, settings
+
+    monkeypatch.setenv("CANON_LLM", "gemini")
+    monkeypatch.setenv("CANON_MODEL_BOARD", "gemini-board-model")
+    monkeypatch.setenv("CANON_EFFORT_BOARD", "xhigh")
+    seen = _fake_gemini(monkeypatch, '{"scenes": []}')
+    assert settings.stage_model("board")[0] == "gemini-board-model"
+    s = promptlab.create(backends=[PromptBackend(provider="gemini"), PromptBackend(provider="gemini", model="내 모델")])
+    promptlab.load_prompt(s, "storyboard")
+    assert "## 출력 형식" not in s.prompt and s.source.schema_name == "StoryboardDraft" and s.source.stage == "board"
+    spec = promptlab.view(s)["spec"]
+    assert spec["schema"] == "StoryboardDraft" and spec["out_tokens"] == 16384 and spec["stage_label"] == "스토리보드 · 큐 시트"
+    assert spec["backends"] == [{"model": "gemini-board-model", "effort": "high"}, {"model": "내 모델", "effort": "high"}]
+    runs = promptlab.run(s)
+    assert [r.model for r in runs] == ["gemini-board-model", "내 모델"] and all(r.ok for r in runs)
+    assert runs[0].schema_name == "StoryboardDraft" and runs[0].out_tokens == 16384 and runs[0].effort == "high"
+    cfg = seen[0]["config"]
+    assert cfg.response_mime_type == "application/json" and cfg.response_json_schema["title"] == "StoryboardDraft"
+    assert cfg.max_output_tokens == 16384 and cfg.thinking_config.thinking_level.name.lower() == "high"
+    assert seen[0]["contents"].endswith(llm.POLICY_NOTE)  # 정책 줄은 보낼 때 한 번 붙는다
+    promptlab.load_prompt(s, "episode")  # 본문 쓰기는 글로 받고 기본 한도
+    seen.clear()
+    runs = promptlab.run(s)
+    assert runs[0].schema_name == "" and runs[0].out_tokens == 0
+    assert seen[0]["config"].response_mime_type is None and not seen[0]["config"].max_output_tokens
+
+
+def test_run_without_source_or_with_mock_stays_text(home):
+    s = promptlab.create(prompt="그냥 요청", backends=[PromptBackend(provider="mock")])
+    assert promptlab.view(s)["spec"] == {"schema": "", "stage": "", "stage_label": "", "out_tokens": 0, "backends": []}
+    assert promptlab.run(s)[0].schema_name == ""
+    promptlab.load_prompt(s, "check")
+    r = promptlab.run(s)[0]
+    assert r.ok and r.schema_name == ""  # mock 은 hint 없이 스키마 응답을 짓지 못해 글로 받는다
+
+
+def test_failed_structured_run_keeps_raw(home, monkeypatch):
+    """형식이 어긋난 응답은 형식 고치기를 한 번 더 묻고, 그래도 실패하면 마지막 원문과 끝난 이유를 남긴다."""
+    monkeypatch.setenv("CANON_LLM", "gemini")
+    seen = _fake_gemini(monkeypatch, "JSON 이 아닌 답")
+    s = promptlab.create(backends=[PromptBackend(provider="gemini")])
+    promptlab.load_prompt(s, "storyboard")
+    r = promptlab.run(s)[0]
+    assert not r.ok and r.raw == "JSON 이 아닌 답" and r.finish == "STOP" and len(seen) == 2
+    assert promptlab.add_trial(s, s.system, s.prompt, None, [r]).runs[0].raw == "JSON 이 아닌 답"
+
+
+def test_structured_run_is_checked_like_canon(home, monkeypatch):
+    """구조화 출력 결과의 빈 칸 수와, 실제 경로라면 Canon 이 정리하거나 거절하는 것을 적는다."""
+    import json
+
+    monkeypatch.setenv("CANON_LLM", "gemini")
+    scene = {"place": "등대", "spot": "계단", "goal": "열쇠를 찾는다", "turn": "", "end_state": "문이 열린다"}
+    _fake_gemini(monkeypatch, json.dumps({"scenes": [scene, {"place": "", "spot": "", "goal": "", "turn": "", "end_state": ""}]}))
+    s = promptlab.create(backends=[PromptBackend(provider="gemini")])
+    promptlab.load_prompt(s, "storyboard")
+    r = promptlab.run(s)[0]
+    assert r.ok and r.notes == ["빈 장면 1개는 Canon이 빼요"]
+    assert r.empty_count > 0 and "scenes[0].turn" in r.empty
+    from canon.schema import PlotBatch
+
+    other = promptlab.example_project().episode(5).plot.model_copy(update={"number": 9})
+    _fake_gemini(monkeypatch, PlotBatch(episodes=[other]).model_dump_json())
+    promptlab.load_prompt(s, "plots", n=5)
+    r = promptlab.run(s)[0]
+    assert r.ok and r.notes == ["요청한 화(5~6화)와 받은 화([9])가 달라 Canon은 받지 않아요"]
+    _fake_gemini(monkeypatch, json.dumps({"scenes": []}))
+    promptlab.load_prompt(s, "storyboard")
+    assert "장면이 하나도 없어" in promptlab.run(s)[0].notes[0]

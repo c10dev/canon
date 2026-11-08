@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from . import prompts, research, store, usage
+from . import llm, prompts, research, store, usage
 from .schema import Project, PromptBackend, PromptRun, PromptSession, PromptSource, PromptTrial
 
 ID_RE = re.compile(r"^[0-9a-f]{8,32}$")
@@ -178,18 +178,111 @@ def run_cost(provider: str, model: str, tokens: Optional[dict]) -> Optional[floa
 
 def to_run(b: PromptBackend, row: dict) -> PromptRun:
     tokens = row.get("usage") or {}
-    return PromptRun(backend=row.get("backend", research.label(research.Backend(**b.model_dump()))), model=row.get("model", ""),
+    return PromptRun(backend=row.get("backend", research.label(research.Backend(**b.model_dump()))), model=row.get("model", ""), effort=row.get("effort", ""),
+                     schema_name=row.get("schema", ""),
                      ok=bool(row.get("ok")), text=row.get("text", ""), error=row.get("error", ""), seconds=row.get("seconds", 0.0),
                      chars=row.get("chars", 0), tokens_in=tokens.get("prompt_tokens") or 0,
                      tokens_out=(tokens.get("completion_tokens") or 0) + (tokens.get("thought_tokens") or 0),
-                     cost=run_cost(b.provider, row.get("model", ""), tokens) if row.get("ok") else None)
+                     cost=run_cost(b.provider, row.get("model", ""), tokens) if row.get("ok") else None,
+                     raw=row.get("raw", ""), finish=row.get("finish", ""))
+
+
+# 실제 호출이 거는 출력 한도(pipeline.BOARD_OUT_TOKENS · CUE_OUT_TOKENS). 없는 갈래는 기본 한도
+OUT_TOKENS = {"storyboard": "BOARD_OUT_TOKENS", "cue": "CUE_OUT_TOKENS"}
+STAGE_LABELS = {"plan": "계획", "board": "스토리보드 · 큐 시트", "write": "본문 쓰기", "check": "검수", "state": "상태 변경안"}
+
+
+def run_spec(s: PromptSession) -> dict:
+    """불러온 갈래대로 돌리는 방식: 응답 스키마(구조화 출력), 단계(모델 · 추론 강도), 출력 한도. 불러온 출처가 없으면 모두 빈칸(글로 받음).
+    출처가 있으면 칸을 고쳐도 같은 방식으로 돌린다. 프롬프트를 고쳐 가며 같은 단계 호출을 견주는 곳이라서다."""
+    src = s.source
+    if not src or src.kind not in prompts.BRIEF_KINDS:
+        return {"schema": None, "stage": "", "out_tokens": 0, "preset": None}
+    from . import pipeline, schema as schemas, settings
+
+    model = getattr(schemas, src.schema_name, None) if src.schema_name else None
+    cap = getattr(pipeline, OUT_TOKENS[src.kind]) if src.kind in OUT_TOKENS else 0
+    preset = settings.project_preset(src.project) if src.project else None
+    return {"schema": model, "stage": src.stage, "out_tokens": cap, "preset": preset}
 
 
 def run(s: PromptSession) -> list[PromptRun]:
-    """지금 프롬프트를 고른 백엔드마다 차례로 보낸다. 세션은 바꾸지 않는다 (저장 직전에 다시 읽어 add_trial 로 붙인다)."""
+    """지금 프롬프트를 고른 백엔드마다 차례로 보낸다. 세션은 바꾸지 않는다 (저장 직전에 다시 읽어 add_trial 로 붙인다).
+    불러온 갈래가 있으면 실제 호출처럼 구조화 출력 · 그 단계의 모델과 추론 강도 · 출력 한도로 돌린다 (run_spec)."""
     can_run(s)
-    rows = research.sample([research.Backend(**b.model_dump()) for b in s.backends], s.system, s.prompt, s.temperature)
-    return [to_run(b, r) for b, r in zip(s.backends, rows)]
+    spec = run_spec(s)
+    rows = research.sample([research.Backend(**b.model_dump()) for b in s.backends], s.system, s.prompt, s.temperature,
+                           schema=spec["schema"], stage=spec["stage"], preset=spec["preset"], out_tokens=spec["out_tokens"])
+    out = [to_run(b, r).model_copy(update={"out_tokens": spec["out_tokens"]}) for b, r in zip(s.backends, rows)]
+    for r in out:
+        if r.ok and r.schema_name and spec["schema"]:
+            inspect(s, spec["schema"].model_validate_json(r.text), r)
+    return out
+
+
+EMPTY_SHOWN = 20  # 결과에 남기는 빈 칸 경로 수
+
+
+def inspect(s: PromptSession, obj, r: PromptRun) -> None:
+    """구조화 출력 결과를 검사해 r 에 적는다: 빈 칸(research.empty_fields)과, 실제 경로라면 Canon 이 이 응답을 어떻게 정리하거나 거절하는지(notes).
+    작품은 바꾸지 않는다. 검사가 실패해도 결과는 남긴다."""
+    empty = research.empty_fields(obj)
+    r.empty, r.empty_count = empty[:EMPTY_SHOWN], len(empty)
+    try:
+        r.notes = canon_notes(s.source, obj.model_copy(deep=True))
+    except Exception as e:  # 검사는 덤이라 실패해도 시도는 남긴다
+        r.notes = [f"Canon 정리를 검사하지 못했어요: {type(e).__name__}: {e}"]
+
+
+def canon_notes(src: PromptSource, obj) -> list[str]:
+    """실제 경로의 정리 함수를 사본에 돌려 본 결과. 갈래마다 pipeline 과 같은 함수를 쓴다."""
+    from . import cue, pipeline
+
+    p, n, kind = _project(src.project), src.n, src.kind
+    notes: list[str] = []
+    if kind == "storyboard":  # pipeline._board_draft · clean_storyboard
+        before = len(obj.scenes)
+        pipeline.clean_storyboard(obj)
+        if before > len(obj.scenes):
+            notes.append(f"빈 장면 {before - len(obj.scenes)}개는 Canon이 빼요")
+        if not obj.scenes and p.episode(n).plot.events:
+            notes.append("장면이 하나도 없어 Canon은 한 번 더 물어요. 그래도 없으면 저장하지 않아요")
+    elif kind == "cue":  # pipeline.make_cue_sheet · cue.clean
+        board = p.episode(n).storyboard
+        before = len(obj.cues)
+        cue.clean(p, obj, len(board.scenes) if board else None)
+        if before > len(obj.cues):
+            notes.append(f"빈 큐 {before - len(obj.cues)}개는 Canon이 빼요")
+        if not obj.cues:
+            notes.append("큐가 하나도 없어요")
+    elif kind in ("plots", "plot"):  # pipeline.draft_plots · draft_episode
+        got = [e.number for e in obj.episodes]
+        if kind == "plots":
+            a, b = prompts.plots_range(p, n)
+            if got != list(range(a, b + 1)):
+                notes.append(f"요청한 화({span(a, b)})와 받은 화({got or '없음'})가 달라 Canon은 받지 않아요")
+        elif not got:
+            notes.append(f"{n}화 플롯을 받지 못해 Canon은 받지 않아요")
+        elif n not in got:
+            notes.append(f"{n}화가 없어 Canon은 첫 플롯({got[0]}화)을 {n}화로 받아요")
+    elif kind == "arc" and not p.serial:  # pipeline.plan_arc · fit_arc
+        try:
+            if pipeline.fit_arc(obj, p.meta.target_episodes):
+                notes.append("구간 범위가 맞지 않아 Canon이 범위만 고쳐요")
+        except ValueError as e:
+            notes.append(f"Canon은 받지 않아요: {e}")
+    elif kind == "arc":  # pipeline.plan_next_arc
+        if not obj.arc.acts:
+            notes.append("기승전결(acts)이 비어 Canon은 한 번 더 물어요")
+    elif kind == "heat":  # pipeline.propose_heat · clean_heat
+        start, end, *_ = pipeline.heat_target(p)
+        notes += [f"Canon 정리: {x}" for x in pipeline.clean_heat(p, obj, start, end)]
+    elif kind == "series":  # pipeline.plan_series · validate_parts
+        try:
+            pipeline.validate_parts(obj.parts, p.meta.target_episodes)
+        except ValueError as e:
+            notes.append(f"Canon은 받지 않아요: {e}")
+    return notes
 
 
 def add_trial(s: PromptSession, system: str, prompt: str, temperature: Optional[float], runs: list[PromptRun],
@@ -227,8 +320,9 @@ def restore(s: PromptSession, no: int) -> PromptSession:
 # ---------- Canon 프롬프트 불러오기 ----------
 
 EXAMPLE_TITLE = "예시 작품"
-# 예시 작품에서 갈래마다 조립하는 화. 1 · 2화는 본문을 쓰고 상태까지 반영했고, 3화는 플롯만 확정했다
-EXAMPLE_N = {"episode": 3, "plot": 3, "check": 2, "state": 2}
+# 예시 작품에서 갈래마다 조립하는 화. 1 · 2화는 본문을 쓰고 상태까지 반영했고, 3화는 플롯만 확정했고, 4~6화는 플롯 초안이다.
+# 여기 없는 갈래(작품 하나를 짜는 갈래, 플롯 초안)는 default_n 으로 정한다
+EXAMPLE_N = {"plot": 4, "storyboard": 3, "cue": 3, "episode": 3, "check": 2, "state": 2}
 _example: Optional[Project] = None
 
 
@@ -266,22 +360,63 @@ def _project(name: str) -> Project:
     return store.load(name)  # 읽기만 한다. 저장하지 않는다
 
 
+def kinds_for(p: Project) -> dict[str, prompts.BriefKind]:
+    """그 작품에 맞는 갈래. 장편에만 있는 갈래(부 구성)는 단편에서 뺀다."""
+    return {k: v for k, v in prompts.BRIEF_KINDS.items() if not v.form or (v.form == "serial") == p.serial}
+
+
+def _ready(e, need: str) -> bool:
+    return {"text": bool(e.text), "confirmed": e.status != "draft", "draft": e.status == "draft"}.get(need, True)
+
+
 def default_n(p: Project, kind: str) -> int:
-    """갈래마다 조립할 화의 기본값. 본문이 있어야 하는 갈래는 본문이 있는 마지막 화, 나머지는 본문이 없는 첫 화."""
-    nums = sorted(e.plot.number for e in p.episodes)
-    written = [e.plot.number for e in p.episodes if e.text]
-    if prompts.BRIEF_KINDS[kind][1]:
-        return max(written, default=0)
-    return next((n for n in nums if n not in written), nums[-1] if nums else 0)
+    """갈래마다 조립할 화의 기본값. 본문이 있어야 하는 갈래는 본문이 있는 마지막 화, 작품 하나를 짜는 갈래는 0,
+    플롯 초안은 초안이 든 첫 구간의 첫 화, 나머지는 본문이 없는 첫 화(확정이 있어야 하면 그 가운데 확정한 화)."""
+    k = prompts.BRIEF_KINDS[kind]
+    if k.scope == "work":
+        return 0
+    if k.scope == "act":
+        drafts = {e.plot.number for e in p.episodes if e.status == "draft"}
+        groups = groups_of(p)
+        return next((g["n"] for g in groups if any(g["n"] <= x <= g["end"] for x in drafts)), groups[0]["n"] if groups else 0)
+    eps = sorted(p.episodes, key=lambda e: e.plot.number)
+    if k.need == "text":
+        return max((e.plot.number for e in eps if e.text), default=0)
+    fresh = [e for e in eps if not e.text]
+    pick = next((e for e in fresh if _ready(e, k.need)), None)
+    if pick:
+        return pick.plot.number
+    ready = [e for e in eps if _ready(e, k.need)]
+    return ready[-1].plot.number if ready else 0
+
+
+def span(a: int, b: int) -> str:
+    return f"{a}화" if a == b else f"{a}~{b}화"
+
+
+def _default(p: Project, project: str, kind: str) -> int:
+    return EXAMPLE_N[kind] if not project and kind in EXAMPLE_N else default_n(p, kind)
+
+
+def groups_of(p: Project) -> list[dict]:
+    """플롯 초안 구간 목록. n 은 구간 첫 화(불러오기에 보내는 값)."""
+    if not p.beats():
+        return []
+    from . import pipeline
+
+    return [{"n": a, "end": b, "label": f"{names} 구간 {span(a, b)}"} for names, a, b in pipeline.act_groups(p.beats())]
 
 
 def sources(project: str = "") -> dict:
-    """불러오기 고르기 칸: 갈래 목록과 그 작품의 화(본문이 있는지)와 갈래별 기본 화."""
+    """불러오기 고르기 칸: 갈래 목록과 그 작품의 화(본문이 있는지, 플롯을 확정했는지) · 플롯 초안 구간과 갈래별 기본 화."""
     p = _project(project)
-    kinds = [{"id": k, "label": label, "needs_text": need} for k, (label, need) in prompts.BRIEF_KINDS.items()]
-    eps = [{"n": e.plot.number, "title": e.plot.title, "has_text": bool(e.text)} for e in sorted(p.episodes, key=lambda e: e.plot.number)]
-    defaults = EXAMPLE_N if not project else {k: default_n(p, k) for k in prompts.BRIEF_KINDS}
-    return {"project": project, "title": p.meta.title or project, "kinds": kinds, "episodes": eps, "defaults": defaults}
+    ks = kinds_for(p)
+    kinds = [{"id": k, "label": v.label, "need": v.need, "needs_text": v.need == "text", "scope": v.scope} for k, v in ks.items()]
+    eps = [{"n": e.plot.number, "title": e.plot.title, "has_text": bool(e.text), "confirmed": e.status != "draft"}
+           for e in sorted(p.episodes, key=lambda e: e.plot.number)]
+    defaults = {k: _default(p, project, k) for k in ks}
+    return {"project": project, "title": p.meta.title or project, "kinds": kinds, "episodes": eps, "groups": groups_of(p),
+            "defaults": defaults}
 
 
 def load_prompt(s: PromptSession, kind: str, project: str = "", n: int = 0) -> PromptSession:
@@ -289,22 +424,40 @@ def load_prompt(s: PromptSession, kind: str, project: str = "", n: int = 0) -> P
     if kind not in prompts.BRIEF_KINDS:
         raise ValueError(f"모르는 프롬프트 갈래예요: {kind}")
     p = _project(project)
-    n = n or (EXAMPLE_N[kind] if not project else default_n(p, kind))
-    try:
-        p.episode(n)
-    except KeyError:
-        raise ValueError(f"{n}화 플롯이 없어 프롬프트를 만들 수 없어요") from None
-    label, need = prompts.BRIEF_KINDS[kind]
-    if need and not p.episode(n).text:
-        raise ValueError(f"{n}화 본문이 없어 {label} 프롬프트를 만들 수 없어요")
-    system, prompt = prompts.brief_parts(p, n, kind)
-    label = f"{prompts.BRIEF_KINDS[kind][0]} · {p.meta.title or project or EXAMPLE_TITLE} {n}화"
+    k = prompts.BRIEF_KINDS[kind]
+    if kind not in kinds_for(p):
+        raise ValueError(f"{k.label} 프롬프트는 장편 연재 작품에서만 만들어요")
+    title = p.meta.title or project or EXAMPLE_TITLE
+    if k.scope == "work":
+        n, where = 0, ""
+    elif k.scope == "act":
+        n = n or _default(p, project, kind)
+        start, end = prompts.plots_range(p, n)
+        where = f" {span(start, end)}"
+    else:
+        n = n or _default(p, project, kind)
+        try:
+            ep = p.episode(n)
+        except KeyError:
+            raise ValueError(f"{n}화 플롯이 없어 프롬프트를 만들 수 없어요") from None
+        if k.need == "text" and not ep.text:
+            raise ValueError(f"{n}화 본문이 없어 {k.label} 프롬프트를 만들 수 없어요")
+        if k.need == "confirmed" and ep.status == "draft":
+            raise ValueError(f"{n}화 플롯을 확정하지 않아 {k.label} 프롬프트를 만들 수 없어요")
+        if k.need == "draft" and ep.status != "draft":
+            raise ValueError(f"{n}화는 플롯을 확정한 화라 {k.label} 프롬프트를 만들 수 없어요. 초안인 화를 고르세요")
+        where = f" {n}화"
+    system, prompt, schema = prompts.brief_request(p, n, kind)  # 스키마는 글로 붙이지 않고 돌릴 때 구조화 출력으로 넘긴다
+    name = ("다음 아크" if p.serial else "기승전결 구조") if kind == "arc" else k.label
+    label = f"{name} · {title}{where}"
     if max(len(system), len(prompt)) > TEXT_MAX:
         raise ValueError(f"조립한 프롬프트가 {TEXT_MAX:,}자를 넘어 불러올 수 없어요. 앞쪽 화를 고르세요")
-    if s.title == title_of(s.prompt):  # 요청 첫 줄로 지은 제목이면 불러온 프롬프트 이름으로 (작가가 적은 제목은 남긴다)
+    auto = s.title == title_of(s.prompt) or (s.source and s.title == s.source.label[:TITLE_MAX])
+    if auto:  # 요청 첫 줄이나 앞서 불러온 이름으로 지은 제목이면 이번 프롬프트 이름으로 (작가가 적은 제목은 남긴다)
         s.title = label[:TITLE_MAX]
     s.system, s.prompt = system, prompt
-    s.source = PromptSource(kind=kind, label=label, project=project, n=n, sig=sig(s.system, s.prompt))
+    s.source = PromptSource(kind=kind, label=label, project=project, n=n, schema_name=schema.__name__ if schema else "", stage=k.stage,
+                            sig=sig(s.system, s.prompt))
     return s
 
 
@@ -318,10 +471,17 @@ def summary(s: PromptSession) -> dict:
 
 
 def view(s: PromptSession) -> dict:
+    """spec: 화면에 보이는 돌리는 방식 (응답 스키마 이름 · 단계 이름 · 출력 한도 · 백엔드마다 쓸 모델과 추론 강도)."""
     edited = bool(s.source) and s.source.sig != sig(s.system, s.prompt)
-    return {**s.model_dump(), **{"summary": summary(s), "source_edited": edited}}
+    spec = run_spec(s)
+    use = [dict(zip(("model", "effort"), research.stage_defaults(research.Backend(**b.model_dump()), spec["stage"], spec["preset"])))
+           for b in s.backends] if spec["stage"] else []
+    shown = {"schema": spec["schema"].__name__ if spec["schema"] else "", "stage": spec["stage"],
+             "stage_label": STAGE_LABELS.get(spec["stage"], spec["stage"]), "out_tokens": spec["out_tokens"], "backends": use}
+    return {**s.model_dump(), **{"summary": summary(s), "source_edited": edited, "spec": shown}}
 
 
 def limits() -> dict:
+    """policy_note: Gemini · 로컬 백엔드가 보내기 직전에 요청 끝에 붙이는 한 줄(llm.with_note). 칸에는 넣지 않고 화면이 칸 아래에 보인다."""
     return {"providers": list(PROVIDERS), "max_backends": MAX_BACKENDS, "max_trials": MAX_TRIALS, "text_max": TEXT_MAX,
-            "temperature": list(TEMPERATURE)}
+            "temperature": list(TEMPERATURE), "policy_note": llm.POLICY_NOTE}

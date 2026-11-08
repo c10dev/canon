@@ -3223,10 +3223,12 @@ class PromptBackend(BaseModel):
 
 class PromptSource(BaseModel):
     """프롬프트 놀이터에서 불러온 Canon 프롬프트의 출처 (prompts.brief_parts)."""
-    kind: str = Field(description="prompts.BRIEF_KINDS 열쇠: episode · plot · check · state")
+    kind: str = Field(description="prompts.BRIEF_KINDS 열쇠: series · arc · heat · plots · plot · storyboard · cue · episode · check · state")
     label: str = ""
     project: str = Field("", description="조립에 쓴 작품 폴더 이름. 비면 예시 작품(promptlab.example_project)")
-    n: int = 0
+    n: int = Field(0, description="조립한 화. 플롯 초안은 고른 구간 첫 화, 작품 하나를 짜는 갈래(구조 · 열 계획 · 부 구성)는 0")
+    schema_name: str = Field("", description="돌릴 때 구조화 출력으로 받는 응답 스키마 이름(schema 모듈의 모델). 비면 글로 받는다")
+    stage: str = Field("", description="실제 호출의 단계(settings.STAGES). 모델 칸이 빈 백엔드를 이 단계의 모델 · 추론 강도로 돌린다")
     sig: str = Field("", description="불러온 시스템 · 요청 프롬프트의 지문. 지금 칸과 다르면 고친 것")
 
 
@@ -3234,6 +3236,9 @@ class PromptRun(BaseModel):
     """프롬프트 놀이터 시도 안의 백엔드 하나의 결과 (research.sample 한 줄)."""
     backend: str = ""
     model: str = ""
+    effort: str = Field("", description="넘긴 추론 강도. 비면 모델 기본값")
+    schema_name: str = Field("", description="구조화 출력으로 받은 응답 스키마. 비면 글로 받음")
+    out_tokens: int = Field(0, description="건 출력 한도(llm.out_cap). 0 이면 기본 한도")
     ok: bool = False
     text: str = ""
     error: str = ""
@@ -3242,6 +3247,11 @@ class PromptRun(BaseModel):
     tokens_in: int = 0
     tokens_out: int = 0
     cost: Optional[float] = Field(None, description="가격표로 어림한 USD. 로컬 · mock 은 0, 가격을 모르면 None")
+    raw: str = Field("", description="실패했을 때 마지막으로 받은 원문 (research.RAW_MAX 자까지)")
+    finish: str = Field("", description="실패했을 때 마지막 응답이 끝난 이유 (STOP, MAX_TOKENS 등). 모르면 빈칸")
+    empty: list[str] = Field(default_factory=list, description="구조화 출력에서 빈 칸 경로 (앞쪽 promptlab.EMPTY_SHOWN 개)")
+    empty_count: int = Field(0, description="구조화 출력의 빈 칸 수 (research.empty_fields)")
+    notes: list[str] = Field(default_factory=list, description="실제 경로라면 Canon 이 이 응답을 어떻게 정리하거나 거절하는지")
 
 
 class PromptTrial(BaseModel):

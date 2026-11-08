@@ -9,7 +9,8 @@ DRAFT_ROOTS.pgForm = () => S.pgForm;
 async function pgLoad(id) {
   const home = await api('GET', '/promptlab');
   S.pgList = home.sessions;
-  S.pgLimits = { providers: home.providers, maxBackends: home.max_backends, maxTrials: home.max_trials, temperature: home.temperature };
+  S.pgLimits = { providers: home.providers, maxBackends: home.max_backends, maxTrials: home.max_trials, temperature: home.temperature,
+    policyNote: home.policy_note || '' };
   if (!id) { S.pg = null; S.pgForm = null; return; }
   pgSet(await api('GET', `/promptlab/${enc(id)}`));
   if (!S.pgSrc) await pgSources('').catch(() => {});  // 불러오기 칸을 못 읽어도 세션은 연다
@@ -18,8 +19,21 @@ async function pgLoad(id) {
 /** 불러오기 고르기 칸의 재료(갈래 · 화 목록)를 읽는다. project 가 비면 예시 작품. 갈래는 그대로 두고 화는 그 갈래의 기본 화로 */
 async function pgSources(project) {
   const info = await api('GET', `/promptlab/sources${project ? `?project=${enc(project)}` : ''}`);
-  const kind = (S.pgSrc && S.pgSrc.kind) || 'episode';
+  const want = (S.pgSrc && S.pgSrc.kind) || 'episode';
+  const kind = info.kinds.some((k) => k.id === want) ? want : 'episode';  // 단편으로 바꾸면 장편에만 있는 갈래(부 구성)는 없다
   S.pgSrc = { project, kind, n: info.defaults[kind] || 0, info };
+}
+
+/** 갈래에 맞는 '화' 고르기 칸 (순수 함수, tests/test_promptlab_js.py). scope work 는 칸이 없고(null), act 는 플롯 초안 구간,
+    episode 는 그 갈래의 조건(본문 · 확정 · 초안)에 맞는 화만. 옛 응답(needs_text 만 있음)도 읽는다 */
+function pgSrcChoices(info, kind) {
+  const scope = kind.scope || 'episode';
+  if (scope === 'work') return null;
+  if (scope === 'act') return { label: '구간', options: (info.groups || []).map((g) => ({ n: g.n, label: g.label })), empty: '기승전결 구조가 없어요' };
+  const need = kind.need ?? (kind.needs_text ? 'text' : '');
+  const ok = (e) => (need === 'text' ? e.has_text : need === 'confirmed' ? e.confirmed : need === 'draft' ? !e.confirmed : true);
+  const empty = { text: '본문이 있는 화가 없어요', confirmed: '플롯을 확정한 화가 없어요', draft: '플롯이 초안인 화가 없어요' }[need] || '플롯이 있는 화가 없어요';
+  return { label: '화', options: info.episodes.filter(ok).map((e) => ({ n: e.n, label: `${e.n}화${e.title ? ` · ${e.title}` : ''}${e.has_text ? '' : ' (본문 없음)'}` })), empty };
 }
 
 /** 서버가 돌려준 세션을 받는다. 고치던 칸이 있으면 서버 것으로 바꾼다 (저장 뒤에만 부르므로 잃는 고침은 없다). */
@@ -52,6 +66,23 @@ function pgDiff(t, f) {
 
 const PG_DIFF = { same: '지금 프롬프트와 같아요', system: '시스템 프롬프트가 지금과 달라요', prompt: '요청 프롬프트가 지금과 달라요', both: '두 프롬프트 모두 지금과 달라요' };
 /** 불러온 출처 한 줄: '검수 · 예시 작품 2화', 고쳤으면 ' (고침)' (순수 함수) */
+/** 불러온 갈래대로 돌리는 방식 한 줄 (순수 함수, tests/test_promptlab_js.py). 불러온 출처가 없으면 빈 글 */
+function pgSpecLine(spec) {
+  if (!spec || !spec.stage) return '';
+  const parts = [`${spec.stage_label} 단계의 모델 · 추론 강도`];
+  if (spec.schema) parts.push(`응답 형식 ${spec.schema}(구조화 출력, 가짜 응답은 글)`);
+  if (spec.out_tokens) parts.push(`출력 한도 ${spec.out_tokens.toLocaleString()}토큰`);
+  return `실제 호출처럼 돌려요: ${parts.join(' · ')}.`;
+}
+
+/** 모델 칸 안내: 불러온 갈래가 있으면 그 단계에서 쓸 모델 · 추론 강도, 없으면 설정 값 (순수 함수) */
+function pgModelHint(spec, i, b) {
+  const use = spec && spec.backends && spec.backends[i];
+  if (!use || b.model) return '비우면 설정 값';
+  const effort = use.effort ? `, 추론 강도 ${use.effort}` : '';
+  return use.model ? `비우면 ${spec.stage_label} 단계 모델(${use.model}${effort})` : `비우면 설정 값${effort}`;
+}
+
 function pgSourceLabel(src, edited) {
   return src ? `${src.label}${edited ? ' (고침)' : ''}` : '';
 }
@@ -103,16 +134,18 @@ function pgForm() {
   const provs = lim.providers || ['gemini', 'local', 'mock'];
   const rows = f.backends.map((b, i) => `<div class="card" style="padding:var(--pad-card-tight)">
       <div class="grid-2"><div class="field"><label for="pg-prov-${i}">백엔드</label><select id="pg-prov-${i}" data-pg-prov="${i}">${provs.map((p) => `<option value="${p}"${p === b.provider ? ' selected' : ''}>${esc(PG_PROV[p] || p)}</option>`).join('')}</select></div>
-        ${b.provider === 'mock' ? '' : input('모델', `backends.${i}.model`, { ...o, placeholder: '비우면 설정 값' })}</div>
+        ${b.provider === 'mock' ? '' : input('모델', `backends.${i}.model`, { ...o, placeholder: pgModelHint(S.pg.spec, i, b) })}</div>
       ${b.provider === 'local' ? input('서버 주소', `backends.${i}.url`, { ...o, placeholder: '비우면 설정 값, 예: http://localhost:11434/v1' }) : ''}
       <div class="row"><button type="button" class="btn small" data-action="pgBackendDrop" data-arg="${i}">빼기</button></div></div>`).join('');
   const more = f.backends.length < (lim.maxBackends || 4);
   return `${pgLoadCard()}<section class="card">
       <div class="between"><h2>프롬프트</h2><span class="small" id="pg-saved">${S.pgDirty ? '저장하지 않은 고침이 있어요' : '칸을 벗어나면 저장해요'}</span></div>
       ${S.pg.source ? `<div class="row"><span class="chip">불러옴</span><span class="small">${esc(pgSourceLabel(S.pg.source, S.pg.source_edited))}</span></div>` : ''}
+      ${pgSpecLine(S.pg.spec) ? `<p class="small">${esc(pgSpecLine(S.pg.spec))}</p>` : ''}
       ${input('제목', 'title', { ...o, placeholder: '비우면 요청 첫 줄로 지어요' })}
       ${input('시스템 프롬프트', 'system', { ...o, rows: 5, autogrow: true, placeholder: '모델의 역할 · 규칙. 비워도 돼요' })}
       ${input('요청 프롬프트', 'prompt', { ...o, rows: 8, autogrow: true, placeholder: '모델에게 보낼 요청' })}
+      ${lim.policyNote ? `<p class="small">Gemini · 로컬은 보낼 때 요청 끝에 이 한 줄을 붙여요. Canon의 모든 AI 요청에 붙는 줄이라 칸에는 넣지 않아요: <code>${esc(lim.policyNote)}</code></p>` : ''}
       <div class="small">시스템 ${(f.system || '').length.toLocaleString()}자 · 요청 ${(f.prompt || '').length.toLocaleString()}자 (한국어는 대략 1.7자에 1토큰)</div>
       ${input('온도', 'temp', { ...o, type: 'number', kind: 'text', placeholder: '비우면 설정 값', hint: `${lo}~${hi}, Gemini · 로컬에 적용` })}
       <h3>돌릴 백엔드</h3>${rows || '<p class="small">아직 백엔드가 없어요.</p>'}
@@ -129,15 +162,15 @@ function pgLoadCard() {
   const info = src.info;
   const works = (S.projects || []).filter((x) => !x.play);
   const kind = info.kinds.find((k) => k.id === src.kind) || info.kinds[0];
-  const eps = info.episodes.filter((e) => !kind.needs_text || e.has_text);
+  const pick = pgSrcChoices(info, kind);
   const opt = (v, label, on) => `<option value="${esc(String(v))}"${on ? ' selected' : ''}>${esc(label)}</option>`;
   return `<section class="card" id="pg-load">
       <div class="between"><h2>Canon 프롬프트 불러오기</h2></div>
-      <p class="small">집필 · 검수 같은 Canon 프롬프트를 작업지시서와 같은 방식으로 조립해 시스템 · 요청 칸에 채워요. 작품은 읽기만 해요.</p>
+      <p class="small">구조 · 플롯 · 스토리보드 · 큐 시트 · 집필 · 검수 같은 Canon 프롬프트를 실제로 보내는 글과 같게 조립해 시스템 · 요청 칸에 채워요. 작가의 요청 칸은 비워요. 작품은 읽기만 해요.</p>
       <div class="grid-2"><div class="field"><label for="pg-src-kind">프롬프트</label><select id="pg-src-kind" data-pg-src="kind">${info.kinds.map((k) => opt(k.id, k.label, k.id === src.kind)).join('')}</select></div>
         <div class="field"><label for="pg-src-project">작품</label><select id="pg-src-project" data-pg-src="project">${opt('', '예시 작품 (mock으로 만든 6화 단편)', !src.project)}${works.map((w) => opt(w.name, w.title || w.name, w.name === src.project)).join('')}</select></div></div>
-      <div class="field"><label for="pg-src-n">화</label><select id="pg-src-n" data-pg-src="n">${eps.length ? eps.map((e) => opt(e.n, `${e.n}화${e.title ? ` · ${e.title}` : ''}${e.has_text ? '' : ' (본문 없음)'}`, e.n === src.n)).join('') : opt(0, kind.needs_text ? '본문이 있는 화가 없어요' : '플롯이 있는 화가 없어요', true)}</select></div>
-      <div class="row"><button type="button" class="btn small primary" data-action="pgLoadPrompt"${eps.some((e) => e.n === src.n) ? '' : ' disabled title="화를 골라 주세요"'}>불러오기</button></div>
+      ${pick ? `<div class="field"><label for="pg-src-n">${pick.label}</label><select id="pg-src-n" data-pg-src="n">${pick.options.length ? pick.options.map((x) => opt(x.n, x.label, x.n === src.n)).join('') : opt(0, pick.empty, true)}</select></div>` : '<p class="small">작품 하나를 짜는 프롬프트라 화를 고르지 않아요.</p>'}
+      <div class="row"><button type="button" class="btn small primary" data-action="pgLoadPrompt"${!pick || pick.options.some((x) => x.n === src.n) ? '' : ` disabled title="고를 수 있는 항목이 없어요"`}>불러오기</button></div>
     </section>`;
 }
 
@@ -193,11 +226,28 @@ document.addEventListener('change', (e) => {
 // ----- 시도 -----
 
 function pgRunCard(r) {
-  const facts = r.ok ? [`${r.seconds}초`, `${Number(r.chars || 0).toLocaleString()}자`, r.tokens_in || r.tokens_out ? `토큰 ${tok(r.tokens_in)} → ${tok(r.tokens_out)}` : '', usd(r.cost)].filter(Boolean).join(' · ')
+  const how = [r.schema_name ? `${r.schema_name} 형식` : '', r.effort ? `추론 강도 ${r.effort}` : '', r.out_tokens ? `한도 ${tok(r.out_tokens)}` : ''];
+  const facts = r.ok ? [`${r.seconds}초`, `${Number(r.chars || 0).toLocaleString()}자`, r.tokens_in || r.tokens_out ? `토큰 ${tok(r.tokens_in)} → ${tok(r.tokens_out)}` : '', usd(r.cost), ...how].filter(Boolean).join(' · ')
     : `${r.seconds}초`;
   const body = r.ok ? `<div class="rw-text">${esc(r.text)}</div>` : `<p class="small warn-text" role="alert">${esc(r.error || '실패했어요')}</p>`;
   return `<div class="card" style="padding:var(--pad-card-tight)"><div class="between"><div class="row"><span class="chip${r.ok ? '' : ' bad'}">${esc(r.backend)}</span>${r.model && r.model !== r.backend ? `<span class="small">${esc(r.model)}</span>` : ''}</div></div>
-      <div class="small">${esc(facts)}</div>${body}</div>`;
+      <div class="small">${esc(facts)}</div>${pgCheckHtml(r)}${body}${pgRawHtml(r)}</div>`;
+}
+
+/** 구조화 출력 결과의 검사: Canon 정리(notes)와 빈 칸 수. 펼치면 빈 칸 경로 (tests/test_promptlab_js.py) */
+function pgCheckHtml(r) {
+  if (!r.ok || !r.schema_name) return '';
+  const notes = (r.notes || []).map((x) => `<li>${esc(x)}</li>`).join('');
+  const more = r.empty_count > (r.empty || []).length ? ` 외 ${r.empty_count - r.empty.length}곳` : '';
+  const empty = r.empty_count ? `<details><summary class="small">빈 칸 ${r.empty_count}곳</summary><p class="small">${esc((r.empty || []).join(', '))}${more}</p></details>` : '<p class="small">빈 칸 없음</p>';
+  return `${notes ? `<ul class="small warn-text">${notes}</ul>` : '<p class="small">Canon이 그대로 받는 응답이에요</p>'}${empty}`;
+}
+
+/** 실패한 결과의 받은 원문 (형식이 어긋난 응답을 본다). 끝난 이유가 MAX_TOKENS 면 출력 한도에 걸린 것 */
+function pgRawHtml(r) {
+  if (r.ok || !(r.raw || r.finish)) return '';
+  const why = r.finish ? ` · 끝난 이유 ${r.finish}${r.finish === 'MAX_TOKENS' ? '(출력 한도)' : ''}` : '';
+  return `<details><summary class="small">받은 원문 ${Number((r.raw || '').length).toLocaleString()}자${esc(why)}</summary><div class="rw-text">${esc(r.raw || '')}</div></details>`;
 }
 
 function pgTrialCard(t) {
