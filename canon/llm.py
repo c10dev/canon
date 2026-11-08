@@ -74,6 +74,19 @@ class SchemaMismatch(RuntimeError):
                          + (f". {note}" if note else ""))
 
 
+class OutputCut(RuntimeError):
+    """응답이 출력 길이 한도(out_cap 또는 모델 기본 한도)에 걸려 끊겼다. 끝난 이유를 last_finish 로 남기지 않고 오류로 알리는 백엔드가 낸다 (claude.ClaudeAPILLM)."""
+
+
+# 응답이 출력 길이 한도에 걸려 끊겼다는 끝난 이유: Gemini MAX_TOKENS, OpenAI 호환(로컬) length.
+CUT_FINISH = ("MAX_TOKENS", "length")
+
+
+def was_cut(llm: Any) -> bool:
+    """마지막 응답이 출력 길이 한도에 걸려 끊겼으면 참. 끝난 이유(last_finish)를 남기지 않는 백엔드는 늘 거짓."""
+    return str(getattr(llm, "last_finish", "") or "") in CUT_FINISH
+
+
 def _brief(e: ValidationError, limit: int = 8) -> str:
     """검증 오류를 위치와 이유만 짧게. 입력값 전체는 길고 본문이 섞여 있어 뺀다."""
     errs = e.errors(include_url=False)
@@ -459,6 +472,7 @@ def gemini_cache_reset() -> None:
 
 
 class GeminiLLM:
+    knows_cut = True  # 끊긴 응답을 last_finish(MAX_TOKENS)로 알린다. pipeline._write 가 이 백엔드에만 출력 한도를 건다
     effort = ""  # 추론 강도 기본값 (시험이 __init__ 없이 만들 때도 있다)
     temperature: float | None = None  # 연구 화면 · 프롬프트 놀이터가 고른 온도. None 이면 보내지 않아 모델 기본값을 쓴다
 
@@ -978,6 +992,8 @@ class LocalLLM:
     검증에 실패하면 오류를 알려 주고 한 번 더 묻는다. 추론 모델의 <think> 블록은 지운다.
     """
 
+    knows_cut = True  # 끊긴 응답을 last_finish(length)로 알린다
+
     def __init__(self, base_url: str | None = None, model: str | None = None,
                  api_key: str | None = None, sampling: dict | None = None, timeout: float | None = None):
         from . import settings
@@ -990,6 +1006,7 @@ class LocalLLM:
         self.last_usage: dict | None = None  # 연구 화면에서 보여 줄 마지막 호출의 토큰 수
         self.last_attempts = 0
         self.last_raw = ""
+        self.last_finish = ""  # 마지막 응답의 finish_reason (stop, length 등). length 는 출력 길이 한도에 걸려 끊긴 것
 
     def _request(self, method: str, path: str, body: dict | None = None, timeout: float | None = None) -> dict:
         """path 가 http 로 시작하면 그 주소를 그대로 쓴다 (/v1 밖의 /tokenize, /version). timeout 은 self.timeout 보다 짧게만 준다.
@@ -1085,6 +1102,7 @@ class LocalLLM:
         """한 번 부르고 사용량을 기록한다. parse 는 GeminiLLM._call 과 같다."""
         cancel.check()
         t, tokens = time.time(), None
+        self.last_finish = ""
         try:
             sent = list(messages)
             if sent and sent[-1].get("role") == "user" and isinstance(sent[-1].get("content"), str):
@@ -1095,6 +1113,7 @@ class LocalLLM:
             resp = self._request("POST", "/chat/completions", body)
             tokens = self.last_usage = _local_usage(resp.get("usage"))
             choice = (resp.get("choices") or [{}])[0]
+            self.last_finish = str(choice.get("finish_reason") or "")
             content = (choice.get("message") or {}).get("content") or ""
             content = _THINK_RE.sub("", content).strip()
             if not content:

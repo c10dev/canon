@@ -585,6 +585,9 @@ MOCK_FIELD_IDEAS = {
 
 
 class MockLLM:
+    knows_cut = True  # 끊긴 응답을 last_finish 로 알린다 (CUT_TEXT). pipeline._write 가 출력 한도를 건다
+    last_finish = ""
+
     def json(self, system: str, prompt: str, schema: type[T], hint: dict | None = None) -> T:
         _delay()
         hint = hint or {}
@@ -593,6 +596,15 @@ class MockLLM:
         raise NotImplementedError(schema.__name__)
 
     def text(self, system: str, prompt: str) -> str:
+        out = self._text(system, prompt)
+        self.last_finish = "STOP"
+        if CUT_TEXT:  # 출력 길이 한도에 걸려 끊긴 응답 흉내: 앞 절반만 낸다
+            CUT_TEXT.pop()
+            self.last_finish = "MAX_TOKENS"
+            out = out[:max(1, len(out) // 2)]
+        return out
+
+    def _text(self, system: str, prompt: str) -> str:
         _delay()
         from .mock_cue import text_for
         if (cue := text_for(prompt)) is not None:  # 큐 시트 집필 실험
@@ -982,6 +994,7 @@ def _r_consistency_report_en(prompt: str, hint: dict):
 
 BATCHES: dict[str, dict] = {}  # 프로세스 안에서만 유지되는 가짜 배치 작업
 BAD_JSON: list[str] = []  # 여기 넣은 스키마 이름은 다음 배치 응답 한 번을 형식이 틀리게 낸다 (넣은 만큼)
+CUT_TEXT: list[bool] = []  # 넣은 만큼 다음 글 응답(text)을 출력 길이 한도에 걸려 끊긴 것으로 낸다 (last_finish MAX_TOKENS)
 
 
 def _broken(out: str) -> str:

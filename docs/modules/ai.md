@@ -54,6 +54,7 @@
 - 두 백엔드도 `llm.wait_cap` · `llm.out_cap` 을 따른다(`llm.caps` 로 읽음)
 - 구독은 제한 시간을 `min(CANON_CLAUDE_TIMEOUT, wait_cap)` 으로 둔다. 넘기면 다시 부르지 않고 `ClaudeCodeError`
 - API 는 `max_tokens` 를 `min(MAX_TOKENS, out_cap)` 으로, SDK 요청 옵션 `timeout` 을 `wait_cap` 으로 보낸다
+- API 응답이 `max_tokens` 로 끝나면 `llm.OutputCut` 을 낸다. 본문 쓰기(`pipeline._write`)는 끊긴 본문으로 세어 다시 부른다
 - 구독은 `out_cap` 이 있을 때만 그 호출의 하위 환경에 `CLAUDE_CODE_MAX_OUTPUT_TOKENS` 를 넣는다(`child_env(extra)`). 없으면 넣지 않는다
 - 두 백엔드는 호출마다(형식 고치기 재시도도) 보내기 전에 `cancel.check()` 를 부른다
 - 구독은 `_run` 이 `Popen` 으로 띄우고 `STOP_POLL`(0.25초)마다 멈추기 신호를 보다가 서면 하위 프로세스를 끝내고 `cancel.Cancelled`
@@ -103,6 +104,10 @@
 - 응답 읽기 `_validate`: 통째로 읽히지 않으면 글 속 최상위 JSON 객체(`_json_objects`)를 뒤에서부터 읽는다(생각 글이 앞에 새는 응답, Gemini · 배치 · Claude 공통)
 - 형식 고치기 `repair_prompt`: 응답에 JSON 객체가 없으면 처음 요청을 그대로 다시 보낸다
 - Gemini 응답이 끝난 이유는 `last_finish`(두 번째도 실패하고 `MAX_TOKENS` 면 `SchemaMismatch` 글에 길이 한도를 적는다)
+- 로컬도 응답의 `finish_reason` 을 `last_finish` 에 남긴다(`length` 는 출력 한도에 걸려 끊김)
+- `was_cut(llm)` 은 `last_finish` 가 `CUT_FINISH`(`MAX_TOKENS` · `length`)면 참이다
+- `knows_cut` 이 참인 백엔드(Gemini · 로컬 · Claude API · mock)만 끊김을 알린다. `pipeline._write` 가 이 백엔드에만 출력 한도를 건다
+- `OutputCut`(RuntimeError): 끝난 이유 대신 오류로 끊김을 알리는 백엔드가 낸다(Claude API `max_tokens`)
 - Gemini 추론 강도(`GeminiLLM.effort`, `settings.GEMINI_EFFORTS`)는 `thinking_config.thinking_level` 로 넘긴다(일반 호출과 배치)
 - Gemini 온도(`GeminiLLM.temperature`)는 정했을 때만 `temperature` 로 넘긴다. 연구 화면 샘플 생성과 프롬프트 놀이터가 쓴다(`research.make_backend`)
 - 프롬프트 놀이터는 `research.make_backend` 에 단계를 넘겨 그 단계의 모델 · 추론 강도로 Gemini · 로컬을 만든다
@@ -173,6 +178,7 @@
 - 테스트용 가짜 LLM
 - `MockLLM.json` 은 스키마로 `RESPONDERS` 만 찾는다. `mock.py` 의 응답도 `@responds` 함수(`_r_<스키마>`)이고 `json` 안에 스키마 분기를 두지 않는다(`tests/test_mock_registry.py`)
 - 가짜 문체 프로필은 시험 원문에 있는 표지 · 장치와 걸러져야 할 표지 · 장치를 함께 낸다 (`count_markers` 와 문체 넣은 쓰기 경로 시험)
+- `CUT_TEXT` 에 넣은 만큼 다음 글 응답을 앞 절반만 내고 `last_finish` 를 `MAX_TOKENS` 로 둔다(끊긴 본문 시험)
 - 새 기능의 가짜 응답은 `mock_<기능>.py` 에 `@responds(스키마)` 로 두고(`RESPONDERS`) `mock.py` 맨 끝에서 불러온다
   - `mock_birth.py` 출생 배경
   - `mock_board.py` 스토리보드
