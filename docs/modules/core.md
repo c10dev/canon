@@ -406,6 +406,7 @@
 - 장면 연출은 플롯에서 초안 `draft_stage` · 본문에서 뽑기 `extract_stage`(박자가 빈 응답이면 한 번 다시 묻기) · 검수 때 함께 뽑기 `stage_extract_all` · 적용 `apply_stage` · 적용 취소 `undo_stage`(`stage.py`)
 - 동선 지적 고침안은 새 문장을 더한 안을 거른다(`clean_fixes` 의 `_adds_sentence`)
 - 장편은 부 계획(`plan_series`) → 다음 아크(`plan_next_arc`/`apply_arc`, 기획 전 경고 `plan_ahead`: 본문 없는 아크 2개 이상 · 요약 없는 끝난 아크 · 부, 막지 않음) → 아크 · 부 요약(`recap`/`apply_recap`)
+- 다음 아크 기획 앞 화면 밖 근황 제안 `plan_offscreen`(작업 `offscreen`, 규칙은 story.md 의 `canon/offscreen.py` 절). 저장하지 않는다
 - 단편 → 장편 전환은 이어 쓰기 `propose_conversion`/`apply_conversion`
 - 재구성 `propose_rebuild`/`apply_rebuild`(옛 상태 변경안 재사용 `carried_delta`, 다듬기 `propose_rework`/`accept_rework`)
 - 되돌리기 `undo_conversion`
@@ -443,6 +444,7 @@
 - 인물 고르기는 `static_characters` · `side_characters` · `roster_line` · `cast_block` 이 `Character.context` 를 따른다
 - 장편은 플롯 인물 목록 밖이라도 이름이 나온 조연을 넣는다(쓰기 `named_block`, 검수 `check_cast`, 상태 변경안)
 - 오랜만에 나오는 인물은 `return_block`
+- `return_lines` 는 작가가 정한 화면 밖 근황(`CharacterState.offscreen`)이 있으면 시점 화와 함께 그 줄 끝에 붙인다. 근황이 없으면 글이 예전과 같다
 - 스토리보드 만들기 `storyboard_prompt`(Canon 이 센 값 `canon_values_block`), 고치기 `storyboard_revise_prompt`(만들기 프롬프트 뒤에 지금 스토리보드와 요청)
 - 큐 시트 만들기 `cue_sheet_prompt(lead=)`: lead 를 주면 스토리보드 요청 글 그대로 + `board_block` + 큐 시트 요구사항(`_cue_request`). 응답 형식은 같다
 - lead 안에 장면 연출이 이미 있어 다시 넣지 않는다. 요구사항 첫 줄이 다음 화 플롯 사건을 큐에 넣지 말고 시간 · 이동 · 장면 순서는 스토리보드를 따르라고 적는다
@@ -481,6 +483,8 @@
 - 검수 요구사항의 관계 단계 한 줄(`stage_check_rule`, 관계 수치가 있을 때만)
 - 관계 설정 `rels(plan=)`: 가 닿을 곳(`Relationship.destination`)은 기획 프롬프트에만, 말로 넣는 기획은 `destination_block`
 - 다음 아크 기획(`next_arc_prompt`)은 관련 확정 사실(`plan_facts`) · 작품 속 시간(`time_plan`, 끝 줄 `ARC_TIME_RULE`) · 주역 밖 기획 인물 상태(`plan_side_states`)를 예산(`context.BUDGET` 의 `plan_facts` · `plan_states`) 안에서 넣는다
+- 다음 아크 기획은 조연 상태 뒤에 화면 밖 근황(`offscreen_block`, `offscreen.OFFSCREEN_MAX` 명까지, 넘으면 뺀 수)을 넣는다. 근황이 있을 때만 요구사항에 이어 쓰기 줄을 더한다
+- 화면 밖 근황 제안 `offscreen_prompt`(종류 `OFFSCREEN_KINDS`): 인물마다 마지막으로 나온 화 요약 문장(`seen_sentence`) · 마지막 상태 · 주역과의 관계 · 지금 근황
 
 ### `canon/reshape.py`
 
@@ -499,6 +503,7 @@
 - 인물 프롬프트 넣기(`Character.context`: auto 비중대로 · always 늘 · off 이름만)도 작가 전용이라 같은 방식으로 빠진다
 - 인물 상태의 지울 칸(`CharacterState.cleared`)은 변경안에만 쓴다. 비었으면 직렬화에서 빼서 저장한 상태 · 프롬프트에 들어가지 않는다
 - 지울 칸에 값이 함께 오면 검증(`_blank_cleared`)이 그 칸을 비워 차림 · 이동 거리 경고가 새 값으로 보지 않는다
+- 화면 밖 근황(`CharacterState.offscreen` · `offscreen_ep`)은 AI 응답 형식(`SkipJsonSchema`)과 프롬프트 직렬화에서 빠진다. 비었으면 저장하지도 않는다
 - 인물 프롬프트 넣기를 고르는 규칙은 `context.core_ids` · `off_ids` · `without_off`(모두 auto 면 예전 규칙과 같다)
 - 상태 변경안의 본문 지문(`StateDelta.basis`)도 프로그램이 채워 AI 응답 형식에서 빠진다(`SkipJsonSchema`). 비면 모름
 - 상태 변경안의 AI 응답 형식은 `StateDeltaAI` 다(`extract_state` · `play.settle` · `state_brief`). 관계 바뀜 `RelationshipChange` 와 사건 `AIStoryEvent` 에 관계 수치 · 보는 방식 · 가 닿을 곳 · 화 번호 · 수동보정 칸이 없다
@@ -656,6 +661,8 @@
 - 작품 저장(PUT · PATCH)은 단편 열 계획을 1화부터 끝 화까지 맞춘다(`heatplan.fit` · `fit_turn`). 화수를 바꿔도 빈틈이 생기지 않는다
 - 장편은 아크마다 그 아크 범위로 열 계획을 맞춘다. 다음 아크 적용(`/arcs/apply`)은 판돈이 든 제안(`HeatArcProposal`)도 받는다
 - 작업 `heat`(`_job_heat`): 이미 있는 기승전결 · 아크 위 열 계획 제안. 결과는 검토를 기다리는 결과(`PENDING_KINDS`)로 남는다
+- 작업 `offscreen`(`_job_offscreen`, 계획 단계 모델): 화면 밖 근황 제안. 결과는 `PENDING_KINDS` 로 남는다
+- 화면 밖 근황 저장 `POST …/offscreen`(`OffscreenSet`, 고른 인물만) · 지우기 `DELETE …/offscreen/{인물 id}`. 장편에서만 받는다
 - 문체 라이브러리 분석 작업 `POST /api/styles/analyze/job`(kind `lib_style`, project `LIB_JOBS` = `.styles`)
 - 맨 바깥 미들웨어 `_guard_host` 는 Host 가 IP 주소 · localhost · `*.ts.net` · 이 컴퓨터 이름 · `CANON_ALLOWED_HOSTS` 의 이름이 아니면 403 으로 막는다(DNS 리바인딩)
 - `_guard_host` 는 POST · PUT · PATCH · DELETE 에 Origin 이 있으면 그 이름이 Host 나 X-Forwarded-Host 와 같아야 받는다(CSRF). Origin 이 없는 요청(명령줄 · curl)은 받는다

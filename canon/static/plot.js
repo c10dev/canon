@@ -930,6 +930,7 @@ function nextArcPanel(start) {
     ${input('이번 아크에 바라는 것 (선택)', 'note', { root: 'arcForm', rows: 3, autogrow: true, placeholder: '예: 학교 밖으로 무대를 넓히고, 라이벌과 처음 손잡게' })}
     ${heatPlanToggle('plan-note')}
     ${planAhead(p).notes.map((x) => `<div class="note warn">${esc(x)}</div>`).join('')}
+    ${typeof offscreenBox === 'function' ? offscreenBox(start) : ''}
     <div class="row"><button class="btn primary" data-action="planNextArc"${btn.attr}>${btn.label}</button><span class="small">지금까지 실제로 쓴 줄거리(요약), 부 목표, 열린 복선을 보고 아크 하나를 제안해요. 적용 전에 고칠 수 있어요.</span></div>
   </section>`;
 }

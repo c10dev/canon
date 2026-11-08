@@ -82,6 +82,7 @@ const S = {
   planNote: '',      // 구조 다시 제안 · 플롯 초안 · 부 구성 제안에 함께 보낼 작가 요청
   arcForm: { length: 0, note: '' },  // 장편: 다음 아크 요청
   foldDrafts: {},    // 장편: 아크 번호 → 아는 정보 접기 제안 { folds: [{ character_id, lines }] } (knows.py)
+  offscreenDraft: null, // 장편: 화면 밖 근황 제안 { lines: [{ character_id, text, kind, on }] } (offscreen.py)
   recapDrafts: {},   // 장편: 아크·부 요약 제안. 'arc1', 'part2' 같은 키 → { kind, number, summary }. 여러 개를 함께 고친다
   namingStyles: null, // 이름 스타일 목록 (서버 naming.STYLES)
   names: {},         // 이름·지명 후보. 'c:<인물 id>' 또는 'place' → { candidates, options, ai }
@@ -334,6 +335,7 @@ const JOB_DONE_MSG = {
   recap_arc: (j) => `아크 ${j.ep} 요약 제안이 도착했어요.`,
   recap_part: (j) => `${j.ep}부 요약 제안이 도착했어요.`,
   fold_knows: (j) => `아크 ${j.ep} 아는 정보 접기 제안이 도착했어요.`,
+  offscreen: '화면 밖 근황 제안이 도착했어요. 고른 인물만 저장하세요.',
   impact: (j) => `${j.label.replace(/^인과율: /, '')}이 끝났어요. 인과율에서 확인하세요.`,
   storyline: '이야기 줄기 제안이 도착했어요. 고른 화와 함께 적용하세요.',
   // 멈춤 · 검토 대기도 작업으로는 '끝남'이다. 사람을 기다리는지 상태별로 말한다 (autorun._launch 결과)
@@ -639,7 +641,7 @@ if (window.visualViewport && typeof window.visualViewport.addEventListener === '
 // 작업 결과가 보이는 화면
 JOB_DONE_MSG.check = (j) => `${j.ep}화 검수가 끝났어요${j.result && j.result.round ? ` (${j.result.round}회차)` : ''}: 짚은 곳 ${j.result ? j.result.issues : 0}개${j.result && j.result.round > 1 ? `, 새 지적 ${j.result.added}개` : ''}${j.result && j.result.outside ? `, 바뀌지 않은 문단의 새 지적 ${j.result.outside}개는 넣지 않았어요` : ''}`;
 // 집필 · 검수 · 상태 승인은 한 화 화면(write.js viewEpisode)이라 셋을 함께 다시 그린다
-const JOB_PAGES = { check: ['check', 'write', 'review'], suggest: ['setup'], style: ['style'], arc: ['arc'], heat: ['arc'], plots: ['arc', 'home', 'causal'], plot_one: ['arc', 'lines'], write: ['write', 'check', 'review', 'home', 'causal'], state: ['review', 'write', 'check'], auto: ['auto', 'home', 'write', 'check', 'review', 'causal', 'arc', 'setup'], impact: ['causal'], series: ['arc'], nextarc: ['arc'], recap_arc: ['arc'], recap_part: ['arc'], fold_knows: ['arc'], storyline: ['lines'] };
+const JOB_PAGES = { check: ['check', 'write', 'review'], suggest: ['setup'], style: ['style'], arc: ['arc'], heat: ['arc'], plots: ['arc', 'home', 'causal'], plot_one: ['arc', 'lines'], write: ['write', 'check', 'review', 'home', 'causal'], state: ['review', 'write', 'check'], auto: ['auto', 'home', 'write', 'check', 'review', 'causal', 'arc', 'setup'], impact: ['causal'], series: ['arc'], nextarc: ['arc'], recap_arc: ['arc'], recap_part: ['arc'], fold_knows: ['arc'], offscreen: ['arc'], storyline: ['lines'] };
 
 // 작업이 project.json 에 쓴 화만 받아 온다 (mine(화면 화, 서버 화) 이 true 인 화와 새로 생긴 화). 저장하지 않은 다른 입력은 그대로 둔다.
 // 저장하지 않은 입력이 있을 때 서버 것으로 바꾼 화 번호를 돌려준다.
@@ -771,7 +773,7 @@ async function finishJob(j) {
 }
 
 // ---------- 검토를 기다리는 결과 · 실패 (서버 pending.json, web.PENDING_KINDS 와 같은 목록) ----------
-const PENDING_KINDS = ['arc', 'heat', 'suggest', 'style', 'series', 'nextarc', 'convert', 'rebuild', 'rework', 'storyline', 'recap_arc', 'recap_part', 'fold_knows', 'state', 'openings'];
+const PENDING_KINDS = ['arc', 'heat', 'suggest', 'style', 'series', 'nextarc', 'convert', 'rebuild', 'rework', 'storyline', 'recap_arc', 'recap_part', 'fold_knows', 'offscreen', 'state', 'openings'];
 
 /** 그 결과가 아직 화면에 제안으로 남아 있다. 반영하거나 버리면 false 가 된다. */
 function pendingShown(r) {
@@ -786,6 +788,7 @@ function pendingShown(r) {
     case 'recap_arc': return !!S.recapDrafts['arc' + r.ep];
     case 'recap_part': return !!S.recapDrafts['part' + r.ep];
     case 'fold_knows': return !!S.foldDrafts[r.ep];
+    case 'offscreen': return !!S.offscreenDraft;
     case 'storyline': return !!S.lineDraft;
     case 'convert': return !!S.convDraft;
     case 'rebuild': return !!S.rbDraft;
@@ -866,6 +869,9 @@ function applyJobResult(j) {
   } else if (j.kind === 'fold_knows' && j.result) {
     S.foldDrafts[j.ep] = { folds: j.result.folds.map((f) => ({ ...f, on: true })) };
     S.selArc = j.ep;
+  } else if (j.kind === 'offscreen' && j.result) {
+    S.offscreenDraft = { lines: j.result.lines.map((x) => ({ ...x, on: true })) };
+    S.selArc = 'next';
   } else if (['convert', 'rebuild', 'rework'].includes(j.kind) && j.result) {
     convertResult(j);
   } else if (j.kind === 'storyline' && j.result) {
@@ -894,6 +900,7 @@ const JOB_LINK = {
   recap_arc: (j) => `#/p/${enc(j.project)}/arc`,
   recap_part: (j) => `#/p/${enc(j.project)}/arc`,
   fold_knows: (j) => `#/p/${enc(j.project)}/arc`,
+  offscreen: (j) => `#/p/${enc(j.project)}/arc`,
   impact: (j) => `#/p/${enc(j.project)}/causal${j.result ? '/' + enc(j.result.element) : ''}`,
   storyline: (j) => `#/p/${enc(j.project)}/lines`,
   auto: (j) => `#/p/${enc(j.project)}/auto`,
@@ -2048,7 +2055,7 @@ Object.assign(actions, {
 // 작품마다 따로 두는 화면 상태와 빈 값. 화 번호로 잡거나 반영 전 AI 제안이라, 다른 작품에 보이거나 반영되면 안 된다
 const PER_PROJECT = {
   textDraft: () => ({}), deltas: () => ({}), deltaBase: () => ({}), deltaOrig: () => ({}),
-  suggestion: () => null, styleDraft: () => null, picks: () => ({}), picksEp: () => null, picksKept: () => ({}), seriesDraft: () => null, arcDraft: () => null, arcProposal: () => null, heatProposal: () => null, heatDraft: () => null, recapDrafts: () => ({}), foldDrafts: () => ({}),
+  suggestion: () => null, styleDraft: () => null, picks: () => ({}), picksEp: () => null, picksKept: () => ({}), seriesDraft: () => null, arcDraft: () => null, arcProposal: () => null, heatProposal: () => null, heatDraft: () => null, recapDrafts: () => ({}), foldDrafts: () => ({}), offscreenDraft: () => null,
   lineDraft: () => null, convDraft: () => null, rbDraft: () => null, reworks: () => ({}),
   openingData: () => ({}), openingPlots: () => ({}), openingUsed: () => ({}), openingPrev: () => ({}), rw: () => ({}), rwInfo: () => ({}), looks: () => ({}),
   causalLinks: () => ({}), causalPicks: () => ({}), causalGone: () => null, chatPicks: () => ({}),

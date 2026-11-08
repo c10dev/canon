@@ -201,6 +201,7 @@
   - `mock_fixrecheck.py` 고친 곳만 다시 보기
   - `mock_heat.py` 열 계획: 기승전결과 함께(`HeatArcPlan`), 다음 아크와 함께(`HeatArcProposal`), 열 계획만(`HeatProposal`, 첫 화를 열 5로 보내 본문 있는 화 지키기를 시험)
   - `mock_knows.py` 아는 정보 접기
+  - `mock_offscreen.py` 화면 밖 근황
   - `mock_play.py` 장면
   - `mock_revlab.py` 역설계
   - `mock_stage.py` 장면 연출

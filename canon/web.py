@@ -38,6 +38,8 @@ from .schema import (Ability, ArcPlan, BodySuggestion, StatInitSuggestion, StatS
                      StorylineProposal, StyleEntry, StyleProfile)
 from . import abilities, anchor, atlas, findings, foreshadows, heatplan, setupchat, stattrial, statwin, timeline
 from .schema import AgentSession, ChatScope, HeatArcProposal, KnowsFoldSet, Deadline, Storyboard, StoryTime, Foreshadow, StatValue
+from .schema import OffscreenSet
+from . import offscreen
 from .metrics import StyleMetrics
 from .schema import CharacterState, ConsistencyReport, FindingStatus, Severity, StoryEvent
 from .schema import FieldIdeas, NameOption, Recap, StateDeltaAI, to_delta
@@ -1915,6 +1917,28 @@ def undo_knows_fold(name: str, number: int) -> Project:
     return _save(name, p)
 
 
+@app.post("/api/projects/{name}/offscreen")
+def apply_offscreen(name: str, body: OffscreenSet) -> Project:
+    """화면 밖 근황 제안(작업 offscreen) 가운데 작가가 고르고 고친 인물만 저장한다 (offscreen.apply). 시점 화는 다음 아크 시작 화 바로 앞 화."""
+    p = _load(name)
+    _not_auto(name)
+    if not p.serial:
+        raise ValueError("장편 연재(form=serial) 작품에서만 화면 밖 근황을 둬요")
+    if not offscreen.apply(p, body):
+        raise ValueError("저장할 근황이 없어요. 인물을 고르거나 근황을 적으세요")
+    return _save(name, p)
+
+
+@app.delete("/api/projects/{name}/offscreen/{cid}")
+def clear_offscreen(name: str, cid: str) -> Project:
+    """인물 cid 의 화면 밖 근황을 지운다 (offscreen.clear)."""
+    p = _load(name)
+    _not_auto(name)
+    if not offscreen.clear(p, cid):
+        raise ValueError("지울 근황이 없어요")
+    return _save(name, p)
+
+
 # ---------- 3-2. 이야기 줄기 ----------
 # AI 제안은 백그라운드 작업(storyline)으로 받고, 화면에서 고친 뒤 아래로 반영한다. 화에 붙이고 떼는 것은 화면이 저장(PUT)한다.
 
@@ -2843,6 +2867,15 @@ def _job_fold_knows(name: str, body: "JobIn", p: Project, kind: str, n: int | No
     return label, total, owned, fn
 
 
+def _job_offscreen(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 offscreen: (이름표, 전체 걸음, 맡은 화, 할 일). 다음 아크 기획 앞 화면 밖 근황 제안."""
+    label, total, owned = f"{offscreen.start(p)}화 앞 화면 밖 근황", 1, set()
+
+    def fn(job: jobs.Job):
+        return pipeline.plan_offscreen(llm, store.load(name)).model_dump()
+    return label, total, owned, fn
+
+
 def _job_plots(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
     """작업 plots: (이름표, 전체 걸음, 맡은 화, 할 일)."""
     if not p.beats():
@@ -3151,6 +3184,7 @@ JOB_MAKERS: dict[str, Callable] = {
     "recap_arc": _job_recap_arc,
     "recap_part": _job_recap_arc,
     "fold_knows": _job_fold_knows,
+    "offscreen": _job_offscreen,
     "plots": _job_plots,
     "plot_one": _job_plot_one,
     "write": _job_write,
@@ -3196,7 +3230,7 @@ def start_job(name: str, body: JobIn) -> dict:
 
 # 결과가 반영 전 제안인 작업. 화면이 반영하거나 버릴 때까지 pending.json 에 둔다
 # (본문 · 플롯 · 판정 같은 작업은 서버가 이미 작품에 썼다)
-PENDING_KINDS = {"arc", "heat", "suggest", "style", "series", "nextarc", "convert", "rebuild", "rework", "storyline", "recap_arc", "recap_part", "fold_knows", "state", "openings"}
+PENDING_KINDS = {"arc", "heat", "suggest", "style", "series", "nextarc", "convert", "rebuild", "rework", "storyline", "recap_arc", "recap_part", "fold_knows", "offscreen", "state", "openings"}
 
 
 def _keep_pending(name: str, kind: str, n: int | None, label: str, fn):

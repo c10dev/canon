@@ -12,6 +12,8 @@ from . import dynamics, elements, illust, metrics, naming, prompts, renumber, se
 from .judge import Judge, Question
 from .llm import LLM, PREFIX_HINT, Interrupted, OutputCut, dump, family_text, out_cap, was_cut
 from . import anchor, board, cancel, charlog, context, features, findings, foreshadows, heatplan, knows, metatail, stage, statwin, usage
+from . import offscreen
+from .schema import OffscreenSet
 from .schema import CueSheet, CueSheetDraft, Finding, MetaCut, FindingRecheck, FixBatch, FixOption, FixPatch, FixRecheckItem, FixRecheckReport, FixSet, RevArcSet, RevEpisodeDraft, RevLineSet
 from .schema import ParagraphAnatomy, ReaderCheck, SceneCard, SceneVariant, SceneVariants, StudioCandidate, StudioDraft
 from .schema import (
@@ -1213,6 +1215,17 @@ def fold_knows(llm: LLM, p: Project, number: int) -> KnowsFoldSet:
         raise ValueError(f"아크 {number}까지 접을 만큼 아는 정보가 쌓인 인물이 없어요 (인물마다 {context.KNOWS_KEEP}개가 넘어야 접어요)")
     fs = llm.json(prompts.SYSTEM_EDITOR, prompts.fold_prompt(p, number, want), KnowsFoldSet, hint={"arc": number, "ids": list(want)})
     return knows.clean_fold(p, number, fs)
+
+
+def plan_offscreen(llm: LLM, p: Project) -> OffscreenSet:
+    """다음 아크 기획 앞, context.RETURN_GAP 화 넘게 나오지 않은 인물(offscreen.targets)마다 화면 밖 근황 제안. 저장하지 않는다 (offscreen.apply)."""
+    if not p.serial:
+        raise ValueError("장편 연재(form=serial) 작품에서만 화면 밖 근황을 물어요")
+    want, cut = offscreen.targets(p)
+    if not want:
+        raise ValueError(f"{offscreen.start(p)}화 앞에서 {context.RETURN_GAP}화 넘게 나오지 않은 인물이 없어요")
+    s = llm.json(prompts.SYSTEM_PLANNER, prompts.offscreen_prompt(p, want, cut), OffscreenSet, hint={"ids": list(want)})
+    return offscreen.clean(p, s, want)
 
 
 def pending_recaps(p: Project) -> list[tuple[str, int]]:
