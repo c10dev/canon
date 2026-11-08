@@ -42,7 +42,7 @@ from .metrics import StyleMetrics
 from .schema import CharacterState, ConsistencyReport, FindingStatus, Severity, StoryEvent
 from .schema import FieldIdeas, NameOption, Recap, StateDeltaAI, to_delta
 from . import branches
-from .schema import BranchDiff, BranchInfo, ForkMode, Snapshot
+from .schema import BranchDiff, BranchInfo, Episode, ForkMode, Snapshot
 from . import play
 from . import cue
 from .schema import CueSheetDraft
@@ -266,24 +266,50 @@ def _save_locked(name: str, p: Project, merged: set[str] | None = None, kept: li
 
 
 def _keep_texts(disk: Project, p: Project) -> list[dict]:
-    """디스크에서 본문이 있는 화를 화면 저장이 빼거나 본문을 비우면 디스크 것을 둔다.
-    빠진 화는 디스크 화를 통째로 되돌리고 {"field": "episode", "ep": n} 를, 비운 본문은 본문만 되돌리고 {"field": "text", "ep": n} 를 돌려준다.
+    """디스크에서 본문이 있는 화를 화면 저장이 빼거나 본문을 비우면 디스크 화를 통째로 되돌린다.
+    본문만 되돌리면 화면이 보낸 옛 상태(confirmed 등)가 남아 본문이 있는데 안 쓴 화로 보이므로 상태 · 플롯도 디스크 것을 둔다.
+    빠진 화는 {"field": "episode", "ep": n} 를, 비운 본문은 {"field": "text", "ep": n} 를 돌려준다. 총 화수 밖의 화는 "why": "over_target" 을 붙인다.
+    빠진 화의 본문이 화면이 보낸 다른 화의 본문과 같으면 화 번호가 밀린 옛 사본(화 끼워 넣기 뒤)이라 되돌리지 않는다.
     화 지우기 · 본문 비우기는 전용 라우트(remove_episode · delete_episode)가 한다."""
     mine = {e.plot.number: e for e in p.episodes}
+    sent = {e.text for e in p.episodes if e.text}
     kept: list[dict] = []
     for d in disk.episodes:
         if not d.text:
             continue
         n = d.plot.number
         if n not in mine:
-            mine[n] = d
+            if d.text in sent:
+                continue
+            mine[n] = _restored(d, None, disk, p)
             kept.append({"field": "episode", "ep": n})
         elif not mine[n].text:
-            mine[n].text = d.text
+            mine[n] = _restored(d, mine[n], disk, p)
             kept.append({"field": "text", "ep": n})
+        else:
+            continue
+        if n > p.meta.target_episodes:
+            kept[-1]["why"] = "over_target"
     if kept:
         p.episodes = [mine[k] for k in sorted(mine)]
     return kept
+
+
+def _restored(d: Episode, e: Episode | None, disk: Project, p: Project) -> Episode:
+    """_keep_texts 가 되돌릴 디스크 화 사본. 줄기 표시(LOCKED_FREE)는 화면 것을 받고(pipeline.keep_locked_plots 와 같다),
+    이번 저장이 지운 인물과 없는 줄기는 플롯에서 뺀다. 되돌림은 검사(validate_storylines) 뒤에 오므로 여기서 맞춘다."""
+    keep = d.model_copy(deep=True)
+    if e is not None:
+        keep.plot = keep.plot.model_copy(update={k: getattr(e.plot, k) for k in pipeline.LOCKED_FREE})
+    gone = {c.id for c in disk.characters} - {c.id for c in p.characters}
+    keep.plot.characters = [c for c in keep.plot.characters if c not in gone]
+    if keep.plot.pov in gone:
+        keep.plot.pov = ""
+    lines = {s.id for s in p.storylines}
+    if keep.plot.storyline not in lines:
+        keep.plot.storyline = ""
+    keep.plot.threads = [t for t in keep.plot.threads if t in lines]
+    return keep
 
 
 # 화의 칸 중 작업 · 전용 엔드포인트만 쓰고 화면의 작품 저장(PUT · PATCH)은 바꾸지 않는 칸.

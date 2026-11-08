@@ -71,3 +71,74 @@ def test_dedicated_routes_still_remove_episodes(client):
     r = client.post("/api/projects/kt/episodes/2/delete", json={})
     assert r.status_code == 200, r.text
     assert [e.plot.number for e in store.load("kt").episodes] == [1]
+
+
+def test_put_force_from_stale_tab_keeps_written_status(client):
+    """오래된 탭이 2화를 아직 안 쓴(confirmed · 빈 본문) 사본으로 덮어써도 상태와 본문을 함께 디스크 것으로 둔다.
+    본문만 되돌리면 본문이 있는데 안 쓴 화로 보여 플롯 잠금이 풀리고 다시 쓰기가 본문을 덮는다."""
+    sent = _setup(client)
+    two = next(e for e in sent["episodes"] if e["plot"]["number"] == 2)
+    two.update(status="confirmed", text="")
+    two["plot"]["summary"] = "옛 요약"
+    r = client.put("/api/projects/kt?force=true", json=sent)
+    assert r.status_code == 200, r.text
+    ep = store.load("kt").episode(2)
+    assert (ep.status, ep.text, ep.plot.summary) == ("written", "2화 본문", "")
+    assert {"field": "text", "ep": 2} in _kept(r)
+
+
+def test_patch_text_empty_with_lower_status_keeps_written(client):
+    sent = _setup(client)
+    eps = [{"$same": e["plot"]["number"]} for e in sent["episodes"]]
+    two = next(e for e in sent["episodes"] if e["plot"]["number"] == 2)
+    eps[1] = {**two, "text": "", "status": "confirmed"}
+    r = client.patch("/api/projects/kt", json={"edit_rev": sent["edit_rev"], "fields": {"episodes": eps}})
+    assert r.status_code == 200, r.text
+    ep = store.load("kt").episode(2)
+    assert (ep.status, ep.text) == ("written", "2화 본문")
+
+
+def test_put_skips_renumbered_copy(client):
+    """화 끼워 넣기로 번호가 밀린 뒤 옛 탭이 덮어쓰면, 빠진 끝 화는 옛 탭이 앞 번호로 보낸 본문과 같아 되살리지 않는다."""
+    sent = _setup(client)
+    p = store.load("kt")
+    p.episodes = [episode(1, status="written", text="1화 본문"), episode(2), episode(3, status="written", text="2화 본문")]
+    store.save("kt", p)
+    sent["episodes"] = [e for e in sent["episodes"] if e["plot"]["number"] != 3]  # 옛 탭: 1화, 2화(2화 본문)
+    r = client.put("/api/projects/kt?force=true", json=sent)
+    assert r.status_code == 200, r.text
+    p = store.load("kt")
+    assert [(e.plot.number, e.text) for e in p.episodes] == [(1, "1화 본문"), (2, "2화 본문")]
+    assert _kept(r) == []
+
+
+def test_put_restored_episode_drops_gone_character_and_storyline(client):
+    from canon.schema import Character, Storyline
+    _setup(client)
+    p = store.load("kt")
+    p.characters = [Character(id="a", name="가", role=""), Character(id="x", name="엑스", role="")]
+    p.storylines = [Storyline(id="sl-01")]
+    p.episodes[0] = episode(1, status="written", text="1화 본문", plot={"characters": ["a", "x"], "storyline": "sl-01", "pov": "x"})
+    store.save("kt", p)
+    sent = client.get("/api/projects/kt").json()
+    sent["characters"] = [c for c in sent["characters"] if c["id"] != "x"]
+    sent["storylines"] = []
+    sent["episodes"] = [e for e in sent["episodes"] if e["plot"]["number"] != 1]
+    r = client.put("/api/projects/kt", json=sent)
+    assert r.status_code == 200, r.text
+    ep = store.load("kt").episode(1)
+    assert ep.text == "1화 본문"
+    assert (ep.plot.characters, ep.plot.storyline, ep.plot.pov) == (["a"], "", "")
+
+
+def test_put_marks_restored_episode_over_target(client):
+    _setup(client)
+    p = store.load("kt")
+    p.episodes.append(episode(5, status="written", text="5화 본문"))
+    store.save("kt", p)
+    sent = client.get("/api/projects/kt").json()
+    sent["episodes"] = [e for e in sent["episodes"] if e["plot"]["number"] != 5]
+    r = client.put("/api/projects/kt", json=sent)
+    assert r.status_code == 200, r.text
+    assert store.load("kt").episode(5).text == "5화 본문"
+    assert _kept(r) == [{"field": "episode", "ep": 5, "why": "over_target"}]
