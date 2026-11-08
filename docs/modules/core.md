@@ -400,9 +400,9 @@
 ### `canon/prompts.py`
 
 - 프롬프트 템플릿
-- 본문을 쓰는 시스템 프롬프트(`writer_system` · `reviser_system` · `paragraph_system`)는 작가가 정한 머리말(`preamble`)로 시작한다
+- 본문을 쓰는 시스템 프롬프트(`writer_system` · `reviser_system` · `paragraph_system`)는 작가가 정한 머리말(`PREAMBLE`)로 시작한다
 - 그 머리말 뒤의 지시에는 '당신은 소설가입니다' 같은 역할 문장을 두지 않고 할 일만 적는다
-- 머리말의 성인 RP/ERP 줄은 `Meta.adult` 인 작품에만 넣는다
+- 성인 · 전연령 작품은 같은 머리말을 받는다(수위 지시를 프롬프트에 두지 않는 규칙, `test_no_rating_instruction_in_prompts`)
 - 머리말이 영어라서 세 지시 모두 '모든 출력은 한국어로 작성합니다'를 둔다
 - 본문 쓰기 지시는 설정 · 사실을 '절대' 같은 강한 말 대신 이유('앞 화와 이어져야 하므로')를 붙여 지키게 한다
 - 화별 컨텍스트 조립(`build_episode_context`)
