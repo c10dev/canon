@@ -947,8 +947,9 @@ Object.assign(actions, {
     const [n, i] = String(arg).split('|').map(Number);
     await run('넣는 중', async () => {
       await saveIfDirty();
+      const before = P().facts.length;
       S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/dismissed-facts/${i}`);
-      toast('확정 사실에 넣었어요');
+      toast(P().facts.length > before ? '확정 사실에 넣었어요' : '이미 있는 사실이라 빼 둔 목록에서만 지웠어요');
     });
   },
   async dropDelta(n) {

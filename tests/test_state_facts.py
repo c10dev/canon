@@ -26,7 +26,7 @@ def test_serial_state_prompt_lists_facts_and_rule():
     assert out.index(HEAD) < out.index("[이미 있는 장소]")
     # 검수 자료를 앞에 두는 요청은 그 자료에 사실이 있어 블록을 다시 넣지 않고, 요구사항은 그 칸을 가리킨다
     head = prompts.state_prompt(p, n, head="# 검수 자료")
-    assert HEAD not in head and "new_facts 에는 위 자료의 확정 사실 칸" + RULE in head
+    assert HEAD not in head and "new_facts 에는 위 자료의 확정 사실(Confirmed facts) 칸" + RULE in head
 
 
 def test_short_state_prompt_unchanged():
@@ -71,34 +71,49 @@ def _delta(p, n):
     return StateDelta(episode=n, summary=f"{n}화", new_facts=["학과 단톡방 인원은 마흔 명이다", "등대 계단은 백십 칸이다"])
 
 
+NEAR = "학과 단톡방 인원은 마흔 명이다"
+
+
 def test_clean_marks_near_facts_and_hold_dismisses():
-    p = _play(_short8(8), 1, 2)
-    d = _delta(p, 3)
+    p = _long()
+    d = _delta(p, _next(p))
     pipeline.clean_delta(p, d)
-    assert [(x.fact, x.like) for x in d.fact_near] == [("학과 단톡방 인원은 마흔 명이다", "학과 단톡방 인원은 마흔 명쯤이다.")]
+    assert [(x.fact, x.like) for x in d.fact_near] == [(NEAR, "학과 단톡방 인원은 마흔 명쯤이다.")]
     assert not any("확정 사실" in w for w in d.warnings)  # 화면은 경고 대신 그 줄에 적는다
     features.hold(p, d)
-    assert d.new_facts == ["등대 계단은 백십 칸이다"] and d.dismissed.new_facts == ["학과 단톡방 인원은 마흔 명이다"]
-    assert d.warnings[-1] == "확정 사실: 이미 있는 사실과 비슷해 자동 반영에서 뺐어요: 학과 단톡방 인원은 마흔 명이다"
+    assert d.new_facts == ["등대 계단은 백십 칸이다"] and d.dismissed.new_facts == [NEAR]
+    assert d.warnings[-1] == f"확정 사실: 이미 있는 사실과 비슷해 자동 반영에서 뺐어요: {NEAR}"
     assert len(d.warn_to) == len(d.warnings)
 
 
+def test_short_does_not_mark_or_hold():
+    p = _play(_short8(8), 1, 2)
+    d = _delta(p, 3)
+    pipeline.clean_delta(p, d)
+    assert d.fact_near == []
+    features.hold(p, d)
+    assert NEAR in d.new_facts and d.dismissed.new_facts == []
+
+
 def test_take_dismissed_fact_later():
+    from canon.schema import FactNear
     p = _play(_short8(8), 1, 2)
     pipeline.confirm_plot(p, 3)
     p.episode(3).text, p.episode(3).status = pipeline.write_episode(LLM, p, 3), "written"
     d = _delta(p, 3)
-    pipeline.clean_delta(p, d)
-    features.hold(p, d)
+    d.new_facts = ["등대 계단은 백십 칸이다"]
     pipeline.apply_delta(p, d)
-    assert "학과 단톡방 인원은 마흔 명이다" not in p.facts
-    assert pipeline.take_dismissed_fact(p, 3, 0) == "학과 단톡방 인원은 마흔 명이다"
     rec = p.history[-1]
-    assert p.facts[-1] == "학과 단톡방 인원은 마흔 명이다" and rec.dismissed.new_facts == []
-    assert "학과 단톡방 인원은 마흔 명이다" in rec.new_facts and "학과 단톡방 인원은 마흔 명이다" in rec.added.facts
-    assert "학과 단톡방 인원은 마흔 명이다" in p.snapshot(3).facts
+    rec.dismissed.new_facts = [NEAR, "학과 단톡방 인원은 마흔 명쯤이다."]  # 자동 반영이 뺀 것처럼 둔다
+    rec.fact_near = [FactNear(fact=NEAR, like="학과 단톡방 인원은 마흔 명쯤이다.")]
+    assert pipeline.take_dismissed_fact(p, 3, 0) == NEAR
+    assert p.facts[-1] == NEAR and rec.dismissed.new_facts == ["학과 단톡방 인원은 마흔 명쯤이다."] and rec.fact_near == []
+    assert NEAR in rec.new_facts and NEAR in rec.added.facts and NEAR in p.snapshot(3).facts
+    n = len(p.facts)
+    assert pipeline.take_dismissed_fact(p, 3, 0) == "" and len(p.facts) == n  # 이미 있는 사실은 빼 둔 목록에서만 지운다
+    assert rec.dismissed.new_facts == []
     pipeline.revert(p, 2)  # 반영 취소하면 함께 빠진다
-    assert "학과 단톡방 인원은 마흔 명이다" not in p.facts
+    assert NEAR not in p.facts
     try:
         pipeline.take_dismissed_fact(p, 3, 0)
         raise AssertionError("반영 기록이 없으면 막아야 해요")
@@ -127,8 +142,8 @@ def test_review_unchecks_near_facts():
 
 def test_cli_asks_near_facts(monkeypatch, capsys):
     from canon import cli
-    p = _play(_short8(8), 1, 2)
-    d = _delta(p, 3)
+    p = _long()
+    d = _delta(p, _next(p))
     pipeline.clean_delta(p, d)
     monkeypatch.setattr(cli, "confirm", lambda msg, yes=False: False)
     cli._ask_near_facts(d)

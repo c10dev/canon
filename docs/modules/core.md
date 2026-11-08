@@ -223,6 +223,7 @@
 - `align_warn_to` 가 `warn_to` 길이를 `warnings` 에 맞춘다
 - 사람 검토 없이 반영할 때(자동 집필 · `run -y` · 플레이)는 `hold`(`HOLD`)가 작가가 골라야 하는 제안을 빼서 남겨 둔다. 관계 단계와 반대인 유형 바뀜(`pace.hold`)은 남기지 않고 빼서 경고에 적는다
 - 정리 훅 `_near_facts` 는 이미 있는 확정 사실과 비슷한 새 사실을 `StateDelta.fact_near`(새 사실, 옛 사실)에 적는다. 경고는 내지 않는다
+- `_near_facts` · `_hold_near_facts` 는 장편만 본다. 단편은 표시도 빼기도 하지 않는다
 - HOLD 훅 `_hold_near_facts` 는 그 새 사실을 `d.dismissed.new_facts` 로 옮기고 경고에 적는다. 작가는 반영 기록에서 나중에 넣는다(`pipeline.take_dismissed_fact`)
 - 상태를 가진 기능을 더할 때는 `pipeline.py` 를 고치지 않고 기능 모듈에 훅을 두고 이 목록에 넣는다(목록 순서가 부르는 순서)
 - LLM 호출 없음
@@ -347,6 +348,7 @@
   - 관계 바뀜 행을 빼는 곳(`drop_invalid` · `pace.hold` · `_ask_flagged`)은 `StateDelta.drop_rel_rows` 를 써서 `rel_flagged` 를 남은 행의 차례로 다시 매긴다
   - `apply_delta` 는 기록(history)에 넣기 전 `rel_flagged` 에서 범위 밖 · 겹친 차례를 버린다(반영 취소로 다시 놓일 때 맞는 행을 기본으로 빼 둔다)
   - `take_dismissed_fact` 는 n화 반영 기록의 빼 둔 새 사실 하나를 확정 사실에 넣는다. 그 화와 뒤 화 스냅샷, 그 화 기록의 `new_facts` · `added.facts` 에도 넣어 반영 취소가 함께 뺀다
+  - `take_dismissed_fact` 는 그 기록의 `fact_near` 에서도 그 사실을 지운다. 이미 있는 사실이면 빼 둔 목록에서만 지운다
   - `apply_delta` 는 새 관계 · 심은 복선 · 비밀을 복사해 넣는다(반영 뒤 계산이 바꿔도 반영 기록의 값은 보낸 그대로 남아 다시 계산할 때 두 번 세지 않는다)
   - `apply_delta` 는 한 변경안 안에서 같은 사실 · 같은 복선 id · 같은 비밀 id 가 또 오면 처음 것만 반영한다(`_first_new`)
   - `apply_delta` 는 심은 복선을 `apply_restate` 처럼 이번 화에 심은 열린 복선(`planted_ep` 이번 화, `status` open, `payoff_ep` 없음)으로 맞춘다
@@ -491,6 +493,7 @@
 - 지울 칸에 값이 함께 오면 검증(`_blank_cleared`)이 그 칸을 비워 차림 · 이동 거리 경고가 새 값으로 보지 않는다
 - 인물 프롬프트 넣기를 고르는 규칙은 `context.core_ids` · `off_ids` · `without_off`(모두 auto 면 예전 규칙과 같다)
 - 상태 변경안의 본문 지문(`StateDelta.basis`)도 프로그램이 채워 AI 응답 형식에서 빠진다(`SkipJsonSchema`). 비면 모름
+- 비슷한 새 사실 표시(`StateDelta.fact_near`, `FactNear`: 새 사실 · 옛 사실)도 프로그램 칸이다(`SkipJsonSchema`, `features._near_facts`)
 - 상태 변경안의 AI 응답 형식은 `StateDeltaAI` 다(`extract_state` · `play.settle` · `state_brief`). 관계 바뀜 `RelationshipChange` 와 사건 `AIStoryEvent` 에 관계 수치 · 보는 방식 · 가 닿을 곳 · 화 번호 · 수동보정 칸이 없다
 - `to_delta` 가 받은 `StateDeltaAI`(또는 `StateDelta` 를 돌려주는 가짜 LLM)를 n화 `StateDelta` 로 바꾸며 그 칸들을 버린다. 채팅 앱 JSON 가져오기(`web.parse_state`, 명령줄 `update --from-json`)도 거친다
 - 사건 종류 목록에서 수동보정은 응답 형식에서만 빠지고 읽기는 한다(예전 JSON). 반영이 뺀다

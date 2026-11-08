@@ -3671,7 +3671,7 @@ def state_prompt(p: Project, n: int, cuts: tuple[int, int] | None = None, head: 
     facts = state_facts_block(p, n, ids, facts_budget) if p.serial and not head else ""
     fact_rule = ""
     if p.serial and (head or facts):
-        where = "위 자료의 확정 사실 칸" if head else "[이미 있는 확정 사실]"
+        where = "위 자료의 확정 사실(Confirmed facts) 칸" if head else "[이미 있는 확정 사실]"
         fact_rule = f"\n- new_facts 에는 {where}에 없는 새 사실만 적습니다. 이미 있는 사실을 말만 바꿔 다시 적지 않습니다."
     return f"""{lead}
 

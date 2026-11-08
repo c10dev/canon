@@ -24,14 +24,17 @@ Warn = str | tuple[str, str]
 
 def _near_facts(p: Project, d: StateDelta) -> None:
     """새 사실 가운데 이미 있는 확정 사실과 비슷한 것(context.near_fact)을 d.fact_near 에 적는다. 경고는 내지 않는다.
-    상태 승인 화면은 이 사실을 기본으로 체크하지 않고, 사람 검토 없는 반영은 뺀다(_hold_near_facts)."""
+    상태 승인 화면은 이 사실을 기본으로 체크하지 않고, 사람 검토 없는 반영은 뺀다(_hold_near_facts). 장편만 본다(단편 경로는 그대로)."""
+    if not p.serial:
+        d.fact_near = []
+        return
     d.fact_near = [FactNear(fact=f, like=like) for f in dict.fromkeys(d.new_facts) if f not in p.facts and (like := context.near_fact(f, p.facts))]
 
 
 def _hold_near_facts(p: Project, d: StateDelta) -> int:
     """HOLD 훅 (자동 집필 · run -y · 플레이): 비슷한 새 사실은 반영하지 않고 d.dismissed 로 옮긴다.
     반영 기록의 '빼 둔 항목'에서 작가가 나중에 확정 사실로 넣는다(pipeline.take_dismissed_fact). 인물 화면에 남기는 칸이 아니라 0 을 센다."""
-    near = {x.fact for x in d.fact_near}
+    near = {x.fact for x in d.fact_near} if p.serial else set()
     gone = [f for f in d.new_facts if f in near]
     if not gone:
         return 0
