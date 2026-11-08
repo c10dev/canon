@@ -29,7 +29,7 @@ from pydantic import BaseModel, Field
 
 from . import anchor, atlas, board, cue, dynamics, features, findings, jobs, pipeline, prompts, settings, store, timeline, usage
 from . import stage as stage_mod
-from .llm import BatchLLM, Interrupted, SchemaMismatch, get_llm
+from .llm import BatchLLM, Interrupted, QuotaSpent, SchemaMismatch, explain_error, get_llm
 from .research import JSON_OUTPUT_RESERVE, _filler
 from .schema import ConsistencyReport, Project, RewriteRequest, StateDelta, TextVersion
 
@@ -107,7 +107,7 @@ class Run(BaseModel):
     step: str = ""
     reasons: list[str] = Field(default_factory=list, description="멈춘 이유")
     halt: str = Field("", description="멈춘 종류. 화면이 고칠 곳으로 가는 버튼을 고른다: "
-                      "plot_missing | plot_draft | board | board_stale | review | every | changed | reverted | schema | error")
+                      "plot_missing | plot_draft | board | board_stale | review | every | changed | reverted | schema | quota | error")
     restarts: int = Field(0, description="서버가 다시 시작돼 이어 간 횟수 (그때 하던 단계는 처음부터 다시 한다)")
     pending: Optional[StateDelta] = Field(None, description="검토 대기 중인 변경안")
     pending_text: str = Field("", description="검토 대기 변경안을 만든 본문. 그 뒤 본문을 고쳤으면 그대로 반영하지 않는다")
@@ -671,9 +671,13 @@ class Runner:
                 self._review(p, n)
         except _Halt as h:
             self._finish(h)
-        except Exception as e:  # 화면과 로그에 그대로 보여 준다
+        except QuotaSpent as e:  # 하루 한도 · 선불 크레딧: 기다려도 풀리지 않아 바로 멈춘다. 한도가 풀리거나 충전한 뒤 이어 간다
+            _log.warning("자동 집필이 AI 사용 한도로 멈췄어요 (%s)", self.name, exc_info=True)
+            self._finish(_Halt("paused", "AI 사용 한도를 다 써서 멈췄어요", [e.message, "한도가 풀리거나 크레딧을 충전한 뒤 이어 가세요"],
+                               kind="quota"), level="error")
+        except Exception as e:  # 원인과 할 일을 화면에, 전체 예외는 로그에 남긴다
             _log.exception("자동 집필이 오류로 멈췄어요 (%s)", self.name)
-            msg = getattr(e, "message", None) or str(e) or type(e).__name__
+            msg = explain_error(e)
             hint = " 배치를 끄고 이어 가 보세요." if run.batch and "batch" in msg.lower() else ""
             # 이유 칸에도 남겨 자동 집필 카드가 무엇 때문에 멈췄는지 보인다
             self._finish(_Halt("error", f"오류로 멈췄어요: {msg}{hint}", [f"{msg}{hint}"], kind="error"), level="error")

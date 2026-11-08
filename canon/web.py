@@ -32,7 +32,7 @@ from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from . import address, agent, archetypes, autorun, board, cancel, cast, charlog, dynamics, elements, genres, illust, jobs, knows, library, metrics, naming, pipeline, prompts, publish, refs, research, settings, store, usage
-from .llm import BadKey, GeminiLLM, LocalLLM, MissingKey, get_llm, make_llm
+from .llm import BadKey, GeminiLLM, LocalLLM, MissingKey, explain_error, get_llm, make_llm
 from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록)
 from .schema import (Ability, ArcPlan, BodySuggestion, StatInitSuggestion, StatSkin, StatWindowSuggestion, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
@@ -200,9 +200,9 @@ async def _no_key(_: Request, e: MissingKey) -> JSONResponse:
 
 @app.exception_handler(Exception)
 async def _server_error(_: Request, e: Exception) -> JSONResponse:
-    # 응답 실패 등을 화면에 그대로 보여 준다. 예외 이름과 자세한 내용은 서버 로그에만 남긴다
+    # 응답 실패 등은 원인과 할 일로 바꿔 보여 준다 (llm.explain_error). 예외 이름과 자세한 내용은 서버 로그에만 남긴다
     logging.getLogger("canon").exception("요청 처리 중 오류")
-    return JSONResponse({"detail": str(e) or "서버에서 오류가 났어요. 서버 로그를 확인하세요"}, status_code=500)
+    return JSONResponse({"detail": explain_error(e) if str(e) else "서버에서 오류가 났어요. 서버 로그를 확인하세요"}, status_code=500)
 
 
 def _need(name: str) -> None:
@@ -2645,7 +2645,7 @@ def _job_fixes(name: str, body: "JobIn", p: Project, kind: str, n: int | None, l
         q0 = store.load(name)
         failed: list[dict] = []
         missing: list[str] = []
-        why = lambda e: getattr(e, "message", None) or str(e) or type(e).__name__
+        why = explain_error
 
         def keep(fid: str, got) -> None:
             if isinstance(got, str):
@@ -2869,7 +2869,7 @@ def _job_write(name: str, body: "JobIn", p: Project, kind: str, n: int | None, l
                         raise
                     except Exception as err:  # 검수가 실패해도 쓴 본문은 남는다. 까닭만 알린다
                         logging.getLogger("canon").warning("%s %s화 쓴 뒤 검수 실패", name, n, exc_info=True)
-                        return {"check_error": getattr(err, "message", None) or str(err) or type(err).__name__}
+                        return {"check_error": explain_error(err)}
                 finally:
                     with _WRITE_CHECKS_LOCK:
                         _WRITE_CHECKS.discard((name, n))
@@ -3141,7 +3141,7 @@ def _keep_pending(name: str, kind: str, n: int | None, label: str, fn):
         except cancel.Cancelled:
             raise  # 멈춘 작업은 실패로 남기지 않는다
         except Exception as e:
-            fail = {"key": key, "kind": kind, "ep": n, "label": label, "error": getattr(e, "message", None) or str(e) or type(e).__name__, "at": _now()}
+            fail = {"key": key, "kind": kind, "ep": n, "label": label, "error": explain_error(e), "at": _now()}
 
             def put_fail(d: dict) -> None:
                 d["failures"][key] = fail

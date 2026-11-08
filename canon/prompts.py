@@ -2957,7 +2957,8 @@ def episode_prompt(p: Project, n: int, approach: str = "", use_board: bool = Tru
         + flow + "플롯의 ending_hook 으로 끝납니다. "
         "문체는 스타일 프로필과 문체 예시 문단을 따르고, banned_phrases 의 표현은 쓰지 않습니다. "
         + ("플롯의 emotional_shift 는 감정 이름으로 서술하지 말고 행동과 대사로 보여 줍니다. " if shift_label(ep.plot.emotional_shift) else "")
-        + "인물의 말투는 speech_style 을 따릅니다. "
+        + "인물의 말투는 speech_style 을 따릅니다. speech_style 의 대사 예시는 말투를 보여 주는 예입니다. "
+        "그 문장을 그대로 쓰지 않고 어미 · 호칭 · 길이만 따릅니다. 작가가 정한 말버릇은 써도 됩니다. "
         + FOCUS_LINE
         + priority_line(p, n, sb is not None)
         + statwin.write_rule(p, n, show_format=not windows)

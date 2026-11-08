@@ -28,6 +28,8 @@
 - 배치를 취소하지 못하면 배치 이름을 서버 로그(`canon` 로거)에 경고로 남긴다(`_cancel_batches`)
 - 기다리는 배치마다 보낸 프롬프트 지문을 `Run.batch_keys` 에 남긴다. 이어 갈 때 다르면 `BatchLLM` 이 그 배치를 취소하고 다시 보낸다(일시정지 중 본문 · 플롯을 고친 경우)
 - 오류로 멈추면 호출 경로를 서버 로그에 남긴다
+- 오류로 멈춘 이유 칸은 `llm.explain_error` 의 원인과 할 일이다
+- 하루 한도 · 선불 크레딧 소진(`llm.QuotaSpent`)이면 기다리지 않고 `paused` · `quota` 로 멈춘다. 한도가 풀리거나 충전한 뒤 이어 간다
 - 비용·시간 추정
 - 실행 중 토큰 · 비용(`Run.tokens_in` · `cost`)은 `Runner._call` 이 `usage.collect()` 로 모은 단계 안의 모든 호출을 더한다(형식 고치기 재시도, 검수의 여러 호출, 다른 스레드의 동작 검사)
 - 실행 중 비용은 `usage.totals` 로 사용량 화면과 같은 값(캐시 · 배치 요금)이다. 기록하지 않는 LLM(mock)은 마지막 호출의 `last_usage` 로 짐작한다
@@ -289,6 +291,7 @@
 - 작업이 맡은 화를 저장 덮어쓰기에서 지키기(`owned_episodes`)
 - 멈추기(`stop`)
 - 실패한 작업의 호출 경로를 서버 로그(`canon` 로거)에 남긴다. 화면에는 오류 문구만 보인다
+- 작업 오류 문구(`Job.error`)는 `llm.explain_error` 가 고른다
 - 멈췄지만 AI 응답을 기다리는 같은 작업 찾기(`lingering`)
 - 끝난 작업은 `KEEP_SECONDS` 뒤 목록에서 뺀다(`_prune`)
 - 멈췄지만 아직 응답을 기다리는 작업은 응답이 끝날 때까지 빼지 않는다. 빼면 `lingering` · `waiting_on` 이 못 찾아 호출이 겹친다
@@ -387,6 +390,7 @@
   - `check_episode` 는 범위를 `prompts.check_prompt(scope=)` 로 넘겨 요청 맨 뒤에 `prompts.scope_block` 을 붙이고 `report._scope` 에 남긴다
   - `Settings.check_scope`(기본 켬), 웹 `PUT …/check-scope`
 - 문체 경고 `style_drift` 는 `Settings.heat_words` 가 있으면 정점 대목 경고(`metrics.peak_window` · `peak_drift`)를 더한다
+- `style_drift` 는 인물 말투의 대사 예시를 본문에 그대로 쓴 문장을 '말투 예시 대사를 그대로 쓴 문장' 경고로 더한다(`speech_copied`, `metrics.speech_copied`)
 - 장면 연출은 플롯에서 초안 `draft_stage` · 본문에서 뽑기 `extract_stage`(박자가 빈 응답이면 한 번 다시 묻기) · 검수 때 함께 뽑기 `stage_extract_all` · 적용 `apply_stage` · 적용 취소 `undo_stage`(`stage.py`)
 - 동선 지적 고침안은 새 문장을 더한 안을 거른다(`clean_fixes` 의 `_adds_sentence`)
 - 장편은 부 계획(`plan_series`) → 다음 아크(`plan_next_arc`/`apply_arc`, 기획 전 경고 `plan_ahead`: 본문 없는 아크 2개 이상 · 요약 없는 끝난 아크 · 부, 막지 않음) → 아크 · 부 요약(`recap`/`apply_recap`)
@@ -451,6 +455,7 @@
 - 장편 본문 쓰기 요청(`build_episode_context(write=True)`)의 뒤쪽, 가끔 쓰는 장치 뒤에 '최근 화에서 되풀이한 구절' 블록 `echo_block`(`echoes.recent`, `Settings.recent_echoes`, 단편 · 스토리보드 만들기에는 넣지 않음)
 - 화에 큐 시트가 있으면 `episode_prompt` 맨 끝에 `cue_write_block`(실험의 조건 score 와 같은 글, `use_cues=False` 면 뺌)
 - `episode_prompt` 끝(큐 시트 블록 앞)의 문장 끝 섞기 줄 `ending_line`('~다.' 몫과 현재형 몫은 문체 기준에서 `ENDING_SHARE` · `PRESENT_SHARE_MAX` 안으로, 서술 말투가 있는 화는 뺌)
+- `episode_prompt` 는 speech_style 의 대사 예시를 그대로 쓰지 말고 어미 · 호칭 · 길이만 따르라고 적는다. 작가가 정한 말버릇은 써도 된다(`brief` 도 같은 글)
 - 화별 플롯 초안(`plot_prompt` · `serial_plot_prompt`)은 범위 안 · 범위 뒤 3화(`PLAN_AHEAD`)의 이미 정해진 화를 `fixed_plots` · `fixed_block` 으로 넣고 요구사항에 `fixed_rule` 을 붙인다(장편은 `context.BUDGET["plan_fixed"]`, 한 화 초안은 `ahead=False`)
 - 장편 화별 플롯 초안은 `[관계]` 뒤에 지금 관계 단계 라벨(`plan_stage_block`, 예산 `context.BUDGET["plan_stages"]`), 장편 `plot_rules` 에 '단계는 한 화에 한 칸' 한 줄
 - 장편 화별 플롯 초안(`serial_plot_prompt`)과 장편 플롯 대화(`_serial_plot_parts`)는 접은 줄거리 뒤에 확정 사실 · 주역 상태 · 주역 밖 인물 상태를 넣는다(`plot_facts_states`)
@@ -554,6 +559,7 @@
 - 중지 · 설정을 바꿔 새로 시작은 머리 '실행 ▾' 메뉴
 - 지금 실행 카드는 화 칸 띠(`autoCells`, 40칸까지)와 수 칸 넷
 - 멈춘 이유마다 갈 곳 버튼(`autoReasonLink`: 검수 결과 · 관계도 · 그 화 읽기)
+- 멈춘 종류 `quota`(AI 사용 한도)의 갈 곳 버튼은 사용량 · 비용 화면이다(`autoHaltLinks`)
 - 진행 기록은 이번 실행을 화별로 묶는다(`autoLogGroups`, '모든 줄'은 예전 표)
 - 승인 정책은 읽기 카드(`autoPolicySummary`)이고 멈춘 실행에서만 '고치기'로 칸을 편다
 - 목표 · 정책을 바꾸면 추정(`S.autoEst`)을 비우고 다시 잰다. 추정이 오기 전에는 시작 버튼을 막는다
