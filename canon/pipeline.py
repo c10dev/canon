@@ -2579,13 +2579,19 @@ def _write(llm: LLM, p: Project, n: int, prompt: str, cut: list[MetaCut] | None 
     cut 목록을 주면 뗀 문단을 앞 · 뒤 자리와 함께 채운다. 본문만 돌려주는 모양은 실험 · 비교 호출자가 그대로 쓰게 둔다."""
     system = prompts.writer_system(p)
     head = prompts.write_head(p, n)  # 장편 쓰기 가족: 스토리보드 · 큐 시트와 같은 앞부분이면 그 캐시를 읽는다
-    cap = write_out_tokens(p, n) if getattr(llm, "knows_cut", False) else None
+    cap = (write_out_tokens(p, n) if getattr(llm, "knows_cut", False) and getattr(llm, "caps_write", True)
+           else None)  # 로컬 모델은 끊김만 보고 한도는 걸지 않는다 (LocalLLM.caps_write)
     bad = {"cut": 0, "thought": 0, "meta": 0}
     for _ in range(WRITE_TRIES):
         try:
             with out_cap(cap) if cap else nullcontext():
                 text = family_text(llm, system, prompt, head)
         except OutputCut:
+            text = None
+        except RuntimeError:
+            # 생각만 하다 한도에 걸려 글 없이 끝난 응답은 백엔드가 '응답이 비었어요' 로 낸다. 끝난 이유가 끊김이면 끊김으로 센다
+            if not was_cut(llm):
+                raise
             text = None
         if text is None or was_cut(llm):  # 출력 길이 한도에 걸려 끊긴 본문은 받지 않는다
             bad["cut"] += 1

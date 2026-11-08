@@ -599,8 +599,10 @@ class MockLLM:
         out = self._text(system, prompt)
         self.last_finish = "STOP"
         if CUT_TEXT:  # 출력 길이 한도에 걸려 끊긴 응답 흉내: 앞 절반만 낸다
-            CUT_TEXT.pop()
+            empty = CUT_TEXT.pop() == "empty"
             self.last_finish = "MAX_TOKENS"
+            if empty:  # 생각만 하다 한도에 걸려 글 없이 끝난 응답 (GeminiLLM 은 '응답이 비었어요' 오류를 낸다)
+                raise RuntimeError("Gemini 응답이 비었어요: MAX_TOKENS")
             out = out[:max(1, len(out) // 2)]
         return out
 
@@ -994,7 +996,7 @@ def _r_consistency_report_en(prompt: str, hint: dict):
 
 BATCHES: dict[str, dict] = {}  # 프로세스 안에서만 유지되는 가짜 배치 작업
 BAD_JSON: list[str] = []  # 여기 넣은 스키마 이름은 다음 배치 응답 한 번을 형식이 틀리게 낸다 (넣은 만큼)
-CUT_TEXT: list[bool] = []  # 넣은 만큼 다음 글 응답(text)을 출력 길이 한도에 걸려 끊긴 것으로 낸다 (last_finish MAX_TOKENS)
+CUT_TEXT: list[bool | str] = []  # 넣은 만큼 다음 글 응답(text)을 출력 길이 한도에 걸려 끊긴 것으로 낸다 (last_finish MAX_TOKENS). "empty" 는 글 없이 끝난 응답
 
 
 def _broken(out: str) -> str:

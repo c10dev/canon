@@ -993,6 +993,9 @@ class LocalLLM:
     """
 
     knows_cut = True  # 끊긴 응답을 last_finish(length)로 알린다
+    # 본문 쓰기 출력 한도(pipeline.write_out_tokens)는 걸지 않는다. vLLM 은 프롬프트 + max_tokens 가 max_model_len 을 넘으면
+    # 요청을 400 으로 거절해 16k · 32k 컨텍스트 서버에서 본문 쓰기가 늘 실패한다. 끊김 검사(finish_reason length)는 그대로 한다
+    caps_write = False
 
     def __init__(self, base_url: str | None = None, model: str | None = None,
                  api_key: str | None = None, sampling: dict | None = None, timeout: float | None = None):

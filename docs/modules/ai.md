@@ -107,6 +107,7 @@
 - 로컬도 응답의 `finish_reason` 을 `last_finish` 에 남긴다(`length` 는 출력 한도에 걸려 끊김)
 - `was_cut(llm)` 은 `last_finish` 가 `CUT_FINISH`(`MAX_TOKENS` · `length`)면 참이다
 - `knows_cut` 이 참인 백엔드(Gemini · 로컬 · Claude API · mock)만 끊김을 알린다. `pipeline._write` 가 이 백엔드에만 출력 한도를 건다
+- 로컬은 `caps_write = False` 라 본문 쓰기 출력 한도를 받지 않는다. vLLM 은 프롬프트 + `max_tokens` 가 컨텍스트를 넘으면 요청을 400 으로 거절한다
 - `OutputCut`(RuntimeError): 끝난 이유 대신 오류로 끊김을 알리는 백엔드가 낸다(Claude API `max_tokens`)
 - Gemini 추론 강도(`GeminiLLM.effort`, `settings.GEMINI_EFFORTS`)는 `thinking_config.thinking_level` 로 넘긴다(일반 호출과 배치)
 - Gemini 온도(`GeminiLLM.temperature`)는 정했을 때만 `temperature` 로 넘긴다. 연구 화면 샘플 생성과 프롬프트 놀이터가 쓴다(`research.make_backend`)

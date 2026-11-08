@@ -71,6 +71,39 @@ def test_cut_body_is_retried_then_refused(project, monkeypatch):
     assert not project.episode(1).text and project.episode(1).status == "confirmed"
 
 
+def test_empty_cut_reply_counts_as_cut(project, monkeypatch):
+    monkeypatch.setattr(mock, "CUT_TEXT", ["empty"])  # 생각만 하다 한도에 걸려 글 없이 끝났다
+    fake = _Capped()
+    assert pipeline._write(fake, project, 1, "쓰기") == BODY and len(fake.caps) == 2
+
+    monkeypatch.setattr(mock, "CUT_TEXT", ["empty"] * pipeline.WRITE_TRIES)
+    with pytest.raises(pipeline.WriteCut, match=r"3번 중 3번"):
+        pipeline._write(_Capped(), project, 1, "쓰기")
+
+
+def test_empty_reply_without_cut_is_not_retried(project):
+    class Empty(MockLLM):  # 끊김이 아닌 빈 응답(안전 필터 등)은 지금처럼 오류로 끝난다
+        def text(self, system, prompt):
+            self.last_finish = "SAFETY"
+            raise RuntimeError("Gemini 응답이 비었어요: SAFETY")
+
+    with pytest.raises(RuntimeError, match="SAFETY"):
+        pipeline._write(Empty(), project, 1, "쓰기")
+
+
+def test_local_gets_no_write_cap(project, monkeypatch):
+    local = LocalLLM(base_url="http://127.0.0.1:9/v1", model="m", api_key="", sampling={}, timeout=1)
+    sent = []
+
+    def fake(method, path, body=None, timeout=None):
+        sent.append(body)
+        return {"choices": [{"message": {"content": BODY}, "finish_reason": "stop"}]}
+
+    monkeypatch.setattr(local, "_request", fake)
+    assert pipeline._write(local, project, 1, "쓰기") == BODY
+    assert "max_tokens" not in sent[-1]  # vLLM 은 프롬프트 + max_tokens 가 컨텍스트를 넘으면 400 으로 거절한다
+
+
 def test_output_cut_error_counts_as_cut(project):
     class Api:  # Claude API 는 끊기면 OutputCut 을 낸다
         knows_cut = True

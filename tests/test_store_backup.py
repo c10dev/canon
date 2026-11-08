@@ -276,6 +276,16 @@ def test_drop_old_snapshots_skips_on_broken_head(home, monkeypatch, body):
     assert all((d / "snapshots" / f).exists() for f in only)  # 깨진 판을 옛 모양으로 보고 지우지 않는다
 
 
+@pytest.mark.parametrize("body", ["", "[1, 2]"])
+def test_drop_old_snapshots_ignores_stray_backup_file(home, monkeypatch, body):
+    d, bak, only = _orphan_backup(home, "s", monkeypatch)
+    bak.unlink()  # 백업이 적던 파일은 이제 아무 판도 적지 않는다
+    (d / store.BACKUP_DIR / "notes.json").write_text(body, encoding="utf-8")  # Canon 이 쓰지 않은 파일 (빈 파일 · 배열)
+    store._drop_old_snapshots(d)
+    assert not any((d / "snapshots" / f).exists() for f in only)  # 낯선 파일 때문에 정리가 멈추지 않는다
+    assert (d / store.BACKUP_DIR / "notes.json").exists()
+
+
 def test_snap_refs_tells_old_missing_and_unreadable(home):
     f = home / "x.json"
     assert store._snap_refs(f) == []  # 없는 판은 아무것도 적지 않는다

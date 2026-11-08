@@ -371,11 +371,13 @@
 - 큐 시트: `make_cue_sheet`, 넣기는 `cue.set_episode`, `write_episode(use_cues=)`
 - 쓰기 가족: 스토리보드 · 큐 시트 요청이 `prompts.write_head` 로 시작하면 `write_family` 가 그 길이를 캐시 경계 hint 로 준다
 - 쓰기 가족: `_write` 는 `llm.family_text` 로 부른다. 요청이 `write_head` 로 시작하면 본문 쓰기도 같은 캐시를 읽는다
-- 본문 쓰기 출력 한도: `_write` 는 끊긴 응답을 알아채는 백엔드(`llm.knows_cut`: Gemini · 로컬 · Claude API · mock)에만 `out_cap(write_out_tokens(p, n))` 을 건다
+- 본문 쓰기 출력 한도: `_write` 는 끊긴 응답을 알아채는 백엔드(`llm.knows_cut`: Gemini · Claude API · mock)에만 `out_cap(write_out_tokens(p, n))` 을 건다
+- 로컬(`LocalLLM.caps_write = False`)은 한도를 걸지 않고 끊김만 본다
 - `write_out_tokens` 는 글자 수(목표 분량과 그 화 지금 본문 중 긴 쪽) × `WRITE_TOKENS_PER_CHAR`(4) + `WRITE_THINK_TOKENS`(16,384)를 `WRITE_OUT_RANGE`(24,576~65,536) 안으로 자른다
 - 근거: 서버 write 단계 본문 쓰기 271번(2026-11-08)의 출력+생각 최댓값은 Gemini 17,089 · Claude 24,800토큰이다. 목표 7,000자 한도는 44,384토큰이다
 - Claude Code(구독) · 배치는 끊김을 알리지 않아 한도를 걸지 않는다
 - 끊긴 응답(`llm.was_cut` 또는 `llm.OutputCut`)은 본문으로 받지 않고 `WRITE_TRIES` 안에서 다시 부른다
+- 끝난 이유가 끊김인데 글 없이 끝나 백엔드가 낸 '응답이 비었어요' 오류(RuntimeError)도 끊김으로 센다
 - 끝내 끊기면 `WriteCut`(ValueError)을 낸다: '본문이 출력 길이 한도에 걸려 끊겼어요'. 끊긴 본문은 돌려주지 않는다
 - 다시 생성 · 서술 다듬기 · 큐 시트 집필도 `_write` 를 거쳐 같은 한도와 거부를 쓴다. 부분 수정(`PassageRevision`)은 JSON 이라 끊기면 형식 불일치로 끝난다
 - 방금 만든 스토리보드 다음의 큐 시트: `make_storyboard(lead=)` 가 보낸 요청 글을 채우고, `cue_lead` 가 그 스토리보드가 AI 가 만든 그대로 · 낡지 않음일 때만 그 글을 돌려준다. `make_cue_sheet(lead=)` 는 그 글로 시작하는 요청을 보낸다(자동 집필 `_cues`, 웹 쓰기 작업 `board: make`)
@@ -594,7 +596,9 @@
 - 아무 판도 적지 않아도 `SNAP_GRACE`(60초) 안에 쓴 스냅샷 파일은 지우지 않는다
 - `_snap_refs` 는 판의 스냅샷 목록을 돌려준다. 옛 모양이면 None, 없는 파일이면 빈 목록이다
 - 판을 읽지 못하면(OSError, 빈 파일, JSON 객체가 아닌 머리, 앞 64KB 안에서 닫히지 않는 목록) `_snap_refs` 가 `SnapRefsUnreadable` 을 낸다
-- 판 하나라도 읽지 못하면 `_drop_old_snapshots` 는 그 차례 정리를 건너뛰고 `canon` 로그에 경고를 남긴다. 계속 읽지 못하면 `snapshots/` 가 커진다
+- 판 하나라도 읽지 못하면 `_drop_old_snapshots` 는 그 차례 정리를 건너뛰고 `canon` 로그에 경고를 남긴다
+- 판을 계속 읽지 못하면 `snapshots/` 가 커진다
+- 읽지 못한 `backups/` 파일이 시간별 · 되돌리기 전 이름(`_HOURLY` · `_RESTORE`)이 아니면 `_drop_old_snapshots` 는 그 파일을 넘기고 정리를 이어 간다
 - `save` 는 판 기록 읽기부터 옛 스냅샷 지우기까지 작품 폴더의 `.lock` 에 `fcntl.flock` 을 잡는다(`_disk_lock`). 명령줄과 웹 서버가 함께 저장해도 서로의 새 스냅샷 파일을 지우지 않는다
 - 읽고 고쳐 저장하는 구간 전체의 프로세스 사이 잠금은 `jobs.project_lock`(`.edit.lock`)이 맡는다
 - `write_atomic` 은 pid · 스레드 id 가 붙은 tmp 파일에 다 쓴 뒤 `os.replace` 로 바꿔 넣고, 바꾸기 직전 tmp 의 stat(판)을 돌려준다
