@@ -765,6 +765,7 @@ Gemini 플롯 대화는 명시 캐시를 쓴다(`llm.GeminiLLM._cached`, `settin
 - **태그 정리** (`clean`): 쉼표로 나누고 소문자, 낱말 사이 밑줄은 띄어쓰기, 한글 태그 · 겹치는 태그 · 인물 수 · `rating:` · 맨 `girl` 은 뺀다. 가중치 문법(`1.2::tag ::`)은 그대로 둔다.
 - **등급.** 성인물(`Meta.adult`)이 아니면 `general` / `sensitive` 로 묶고 부정 프롬프트 맨 앞에 `nsfw`. 성인물이면 AI 가 고른 등급을 쓰고 `explicit` 은 `nsfw` 를 더한다.
 - **저장.** `Episode.illustrations`(최근 20개)에 원안과 조립 결과를 같이 둔다. 원안이 있으니 모델 · 외형 · 화풍을 바꾸면 AI 없이 다시 조립한다(`rebuild_illustration`). 본문을 바꾸지 않으므로 반영(finalized)한 화에서도 만든다. 화면은 `static/illust.js`(고치는 본문은 `passage.js` 의 떠 있는 도구에 버튼을 더하고, 읽기 전용 본문은 자체 도구), CLI 는 `illust`, `look`.
+- **인용 대조.** AI 가 옮긴 장면 인용(`IllustDraft.quote`)은 화면에 'AI가 고른 장면'으로 보이므로 `illust.match_quote` 가 프롬프트에 넣은 본문 범위와 견준다. 그대로 있으면 두고, 1~3문장 창 가운데 따옴표만 다르거나 같은 문장으로 보는 창(`findings.same_quote`)이 있으면 원문으로 바꾸고, 없으면 비우고 알린다. 짧은 인용은 비슷한 창으로 바꾸지 않는다.
 - NovelAI 이미지 생성 API 호출은 아직 없다. 넣는다면 `IllustCharPrompt.position` 을 `use_coords` 좌표로 옮기고 키는 설정 화면(`~/.canon/config.json`)에 둔다.
 
 ## 6. LLM 프로바이더

@@ -231,6 +231,12 @@
 - 장편은 스냅샷을 0화 · 아크 끝 · 최근 20화만 남긴다(`pipeline.prune_snapshots`). 옛 화 삽화는 더 앞 시점의 차림 · 위치가 들어갈 수 있다
 - 맞는 스냅샷이 없으면 지금 상태를 쓰고 'n화보다 뒤 상태'를 `Illustration.draft_notes` 에 남긴다
 - `assemble` 은 `draft_notes` 를 `notes` 앞에 둔다. 다시 조립해도 원안을 받을 때의 알림이 남는다
+- AI 가 옮긴 장면 인용 대조(`match_quote`): 본문에 그대로 있으면 두고, 띄어쓰기 · 줄바꿈만 다르면 원문으로 바꾼다(`elements.find`)
+- 그대로 없으면 연속 1~3문장 창과 견준다. 따옴표 · 문장 부호만 다른 창(`findings.in_text`)이 먼저다
+- 다음은 같은 문장으로 보는 창(`findings.same_quote`) 가운데 길이가 가장 가까운 것이다. 글 조각이 인용의 절반보다 적은 창은 견주지 않는다
+- 글 조각이 `QUOTE_MIN_GRAMS`(8)보다 적은 짧은 인용은 비슷한 창으로 바꾸지 않는다
+- 맞는 창이 없으면 인용을 비우고 `draft_notes` 에 알린다
+- 대조 범위는 프롬프트에 넣은 본문 범위와 같다(`prompts.illust_scope`: 고른 부분 앞뒤, 없으면 앞 `ILLUST_FULL_LIMIT` 자)
 - LLM 호출 없음
 - AI 호출은 `pipeline.illustrate` / `suggest_look` (`illustration` 단계)
 
@@ -534,6 +540,7 @@
 ### `canon/static/illust.js`
 
 - 집필 화면 삽화 프롬프트 카드(칸별 복사, 다시 조립, 외형 고정)
+- 카드의 인용 칸은 고른 부분, 없으면 AI 인용이다. 둘 다 비면(인용을 본문에서 못 찾음) 그리지 않는다
 - 읽기 전용 본문에서 고르는 도구
 - 도구 자리도 왼쪽을 0으로 두고 너비를 잰다(`passage.js` 의 `placeTool` 과 같은 규칙)
 - 인물 화면 인물 카드의 삽화 외형 태그(`visualFields`)

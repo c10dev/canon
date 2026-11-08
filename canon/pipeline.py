@@ -3138,9 +3138,10 @@ def illustrate(llm: LLM, p: Project, n: int, sel: Selection | None = None, reque
         if c.id and c.id not in ids:  # 이름으로 적었거나 없는 id 면 설정에 없는 인물로 본다
             hit = next((x.id for x in p.characters if x.name and x.name == c.id), "")
             c.id = hit
+    draft.quote, quote_note = illust.match_quote(prompts.illust_scope(ep.text, sel), draft.quote)
     late = illust.states_at(p, n)[1]
     return illust.assemble(p, Illustration(id="", model=model or p.illust.model, selection=sel, request=request.strip(), draft=draft,
-                                           draft_notes=[late] if late else []))
+                                           draft_notes=[x for x in (quote_note, late) if x]))
 
 
 def add_illustration(p: Project, n: int, ill: Illustration) -> Illustration:

@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import re
 
+from . import elements, findings, metrics
+from .context import grams
 from .schema import CharacterState, CharacterVisual, IllustCharacter, IllustCharPrompt, IllustDraft, Illustration, Project
 
 # id → (이름, 'Add Quality Tags' 가 붙이는 태그, 인물 칸 최대 수, 영어 문장 설명을 넣을지)
@@ -130,6 +132,35 @@ def states_at(p: Project, n: int) -> tuple[list[CharacterState], str]:
     if snaps:
         return max(snaps, key=lambda s: s.episode).states, ""
     return p.states, f"{n}화보다 뒤 상태({last}화 반영 뒤)의 차림 · 위치를 썼어요"
+
+
+QUOTE_MIN_GRAMS = 8  # 이보다 글 조각(한글 3글자)이 적은 짧은 인용은 비슷한 문장으로 바꾸지 않고, 본문에 그대로 있을 때만 둔다
+QUOTE_FIXED = "AI가 옮긴 장면 인용이 본문과 조금 달라 본문 원문으로 바꿨어요"
+QUOTE_DROPPED = "AI가 옮긴 장면 인용을 본문에서 찾지 못해 비웠어요"
+
+
+def match_quote(text: str, quote: str) -> tuple[str, str]:
+    """AI 가 옮긴 장면 인용(IllustDraft.quote)을 본문 범위 text 와 대조한다. (맞춘 인용, 알릴 것).
+    그대로 있으면 둔다(띄어쓰기 · 줄바꿈 차이는 원문으로). 없으면 연속 1~3문장 창과 견준다:
+    따옴표 · 문장 부호만 다른 창(findings.in_text), 다음은 같은 문장으로 보는 창(findings.same_quote) 가운데 길이가 가장 가까운 것.
+    맞는 창이 없거나 짧은 인용이면 비운다."""
+    q = quote.strip()
+    if not q:
+        return "", ""
+    hit = elements.find(text, q)
+    if hit:
+        return text[hit[0]:hit[1]], ""
+    sents = metrics.sentences(text)
+    windows = [" ".join(sents[i:i + k]) for k in (1, 2, 3) for i in range(len(sents) - k + 1)]
+    pick = min((w for w in windows if findings.in_text(w, q)), key=len, default="")
+    size = len(grams(q))
+    if not pick and size >= QUOTE_MIN_GRAMS:
+        near = [w for w in windows if 2 * len(grams(w)) >= size and findings.same_quote(w, q)]
+        pick = min(near, key=lambda w: abs(len(w) - len(q)), default="")
+    if not pick:
+        return "", QUOTE_DROPPED
+    span = elements.find(text, pick)
+    return (text[span[0]:span[1]] if span else pick), QUOTE_FIXED
 
 
 def assemble(p: Project, ill: Illustration, model: str | None = None) -> Illustration:

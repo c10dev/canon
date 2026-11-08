@@ -4946,6 +4946,13 @@ def _illust_cast(p: Project, n: int, text: str) -> list[dict]:
     return out
 
 
+def illust_scope(text: str, sel: Selection | None) -> str:
+    """삽화 프롬프트에 넣는 본문 범위. 고른 부분이 있으면 그 앞뒤, 없으면 앞에서 ILLUST_FULL_LIMIT 자. 인용 대조(illust.match_quote)도 이 범위를 본다."""
+    if sel is None:
+        return text[:ILLUST_FULL_LIMIT]
+    return text[max(0, sel.start - ILLUST_BEFORE):sel.start + len(sel.text) + ILLUST_AFTER]
+
+
 def illust_prompt(p: Project, n: int, sel: Selection | None, request: str = "") -> str:
     ep = p.episode(n)
     text = ep.text
@@ -4956,7 +4963,7 @@ def illust_prompt(p: Project, n: int, sel: Selection | None, request: str = "") 
         pick = "- 【그릴 장면】 안에서 가장 그림이 되는 한순간을 고릅니다. quote 에는 그 순간의 문장을 【그릴 장면】 안에서 원문 그대로 옮깁니다."
     else:
         cut = len(text) > ILLUST_FULL_LIMIT
-        body = f"# {n}화 본문{' (앞부분)' if cut else ''}\n{text[:ILLUST_FULL_LIMIT]}"
+        body = f"# {n}화 본문{' (앞부분)' if cut else ''}\n{illust_scope(text, None)}"
         pick = ("- 이 화에서 삽화 한 장으로 가장 좋은 장면을 고릅니다. 이 화의 핵심 사건이나 감정이 바뀌는 순간, 인물이 또렷이 보이는 순간을 고르고 "
                 "마지막 장면의 반전은 미리 보여 주지 않습니다. quote 에는 그 장면 문장을 본문에서 원문 그대로 1~3문장 옮깁니다.")
     rating = "장면에 맞게 general, sensitive, questionable, explicit 중에서 고릅니다."  # 전연령 작품은 illust.assemble 이 낮춘다
