@@ -1,6 +1,6 @@
 # 01. 지금 넣기가 놓치는 것 측정
 
-상태: 진행 (claude/context-measure-ca9956) · 계획: [plan.md](../plan.md) 의 1번 · 먼저: —
+상태: 진행 (claude/context-measure-ca9956, PR [#408](https://github.com/c10dev/canon/pull/408)) · 계획: [plan.md](../plan.md) 의 1번 · 먼저: —
 
 결과(2026-11-08): 찾는 범위는 지금 그대로, 새 조건 넷은 '측정에서 이득 없음'. 숫자는 [README.md](../README.md) 정한 규칙과 DESIGN.md 7장 '컨텍스트 (장편)'의 '넣기가 놓치는 것 실측' 줄에 있다.
 결과 글과 판정 시트는 `reports/컨텍스트 놓침 실측 2026-11-08.md` · `reports/컨텍스트 놓침 판정 시트 2026-11-08/` 에 있다(커밋하지 않음).
