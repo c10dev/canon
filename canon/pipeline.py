@@ -912,6 +912,7 @@ def apply_plots(p: Project, batch: PlotBatch) -> None:
         new = Episode(plot=plot)
         if cur:  # 작가 자료는 플롯을 다시 받아도 남긴다. 장면 연출은 사건 글로 사건을 다시 찾는다 (stage.find_event)
             new.stage, new.to_fix, new.events_done = cur.stage, cur.to_fix, cur.events_done
+            new.direction = cur.direction  # 작가 연출 지시
         by_no[plot.number] = new
         storylines.clean_plot(p, new)
         applied.append(plot)
@@ -1710,7 +1711,8 @@ def apply_revision(p: Project, rev: PlotRevision, acts: bool, episodes: list[int
     if focus and "arc" in applied:
         validate_story_arcs(p)
     for n, plot in picked.items():
-        by_no[n] = Episode(plot=plot.model_copy(deep=True))  # 확정된 화도 내용이 바뀌면 다시 확정한다
+        was = by_no.get(n)
+        by_no[n] = Episode(plot=plot.model_copy(deep=True), direction=was.direction if was else "")  # 확정된 화도 내용이 바뀌면 다시 확정한다. 작가 연출 지시는 남긴다
         storylines.clean_plot(p, by_no[n])
         applied.append(str(n))
     p.episodes = [by_no[k] for k in sorted(by_no)]

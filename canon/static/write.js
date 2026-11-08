@@ -94,6 +94,41 @@ function eventsLock(n) {
   return '';
 }
 
+/** 작가 연출 지시 칸 (Episode.direction · 장편은 StoryArc.direction). 쓰기 요청 맨 끝에 넣는다 (prompts.direction_block).
+    지금 걸린 지시를 늘 보여 아크 지시가 낡은 채 남지 않게 한다. '고치기'로 두 칸을 열고 저장하면 바로 서버에 쓴다 (저장 띠와 섞지 않는다).
+    막는 조건은 사건 체크와 같다 (서버 set_direction). 반영이 끝난 화에 지시가 없으면 그리지 않는다 */
+function dirCard(n) {
+  const e = ep(n);
+  if (e.status === 'draft') return '';
+  const arc = serial() ? arcOf(n) : null;
+  const a = (arc && arc.direction) || '';
+  const d = e.direction || '';
+  const editing = S.dirEdit === n;
+  if (!editing && !a && !d && e.status === 'finalized') return '';
+  const lock = eventsLock(n).replace('체크할', '고칠');
+  const btn = editing ? '' : `<button type="button" class="btn small" data-action="dirOpen" data-arg="${n}"${lock ? ` disabled title="${lock}"` : ''}>${a || d ? '고치기' : '적기'}</button>`;
+  const arcName = arc ? `아크 ${arc.number}${arc.title ? ` ${esc(arc.title)}` : ''} · ${arc.start_ep}~${arc.end_ep}화` : '';
+  const lead = e.text ? '이 화 지시는 본문을 쓴 뒤 기록으로 남고, 다시 생성할 때도 넣어요. 다음 화에는 넣지 않아요.'
+    : '쓰기 요청 맨 끝에 넣어요. 플롯의 사건과 설정은 바꾸지 않아요.';
+  const head = `<div class="w-dir-head"><h2 id="w-dir-h">작가 연출 지시</h2><span class="small">${a || d || editing ? lead : '없어요. 적으면 이 화 쓰기 요청 맨 끝에 넣어요.'}</span><span class="w-fill"></span>${btn}</div>`;
+  if (editing) {
+    const typed = S.dirText || {};  // 저장 전에 적은 글: 작업 알림 등으로 다시 그려도 남긴다
+    return `<section class="card w-dir" aria-labelledby="w-dir-h">${head}
+      ${arc ? `<div class="field"><label for="dir-arc">이번 아크 동안 <span class="hint">${arcName}의 화를 쓰는 동안 넣어요</span></label><textarea id="dir-arc" rows="2" placeholder="예: 장면 끝마다 짧은 대사로 끊고, 싸움 장면은 길게 써요">${esc(typed['dir-arc'] ?? a)}</textarea></div>` : ''}
+      <div class="field"><label for="dir-ep">이번 화만 <span class="hint">${n}화를 쓸 때만 넣어요</span></label><textarea id="dir-ep" rows="2" placeholder="예: 회상은 한 문단으로 줄이고 대화 장면을 길게 써요">${esc(typed['dir-ep'] ?? d)}</textarea></div>
+      <div class="row"><button type="button" class="btn primary small" data-action="dirSave" data-arg="${n}">저장</button><button type="button" class="btn small" data-action="dirCancel">취소</button></div>
+    </section>`;
+  }
+  const rows = [arc && a ? [`이번 아크 동안 <span class="hint">${arcName}</span>`, a] : null, d ? [e.text ? `${n}화를 쓸 때 준 지시` : '이번 화만', d] : null]
+    .filter(Boolean).map(([t, v]) => `<div class="field"><span class="small">${t}</span><div class="w-dir-text">${esc(v)}</div></div>`).join('');
+  return `<section class="card w-dir" aria-labelledby="w-dir-h">${head}${rows}</section>`;
+}
+
+document.addEventListener('input', (ev) => {
+  const id = ev.target && ev.target.id;
+  if (id === 'dir-ep' || id === 'dir-arc') (S.dirText ||= {})[id] = ev.target.value;
+});
+
 // 640px 이하 집필 붙는 줄의 수정 기록 아이콘(.lbl-i, 되감는 시계). 넓은 폭은 숨긴다 (app.css)
 const EDITS_ICON = '<svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 9a5.5 5.5 0 1 0 1.6-3.9"></path><path d="M3 2.8v2.7h2.7"></path><path d="M9 6v3.2l2 1.3"></path></svg>';
 const FLAG = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3.5 14V2.5M3.5 3h8l-2 2.75 2 2.75h-8"></path></svg>';
@@ -412,6 +447,7 @@ function viewEpisode(n, panel = 'write') {
     ${editable && autoOn() ? `<div class="note warn">자동 집필이 도는 동안은 본문을 저장할 수 없어요. 쓰던 글은 이 화면에 남아 있어요. 저장하려면 <a href="${base()}/auto">자동 집필</a>을 일시정지하세요. 어색한 곳은 지금도 글을 골라 '나중에 고치기'로 담아 둘 수 있어요.</div>` : ''}
     ${e.text && editable ? candidateCard(n) : ''}
     ${fresh ? writeStart(n, blocked) : madeBoard}
+    ${panel === 'write' ? dirCard(n) : ''}
     ${editable && !e.text && draft !== undefined ? manualNote(n) : ''}
     ${starting && e.status === 'confirmed' ? cueCard(n, blocked) : ''}
     ${pane && phone && pane.buttons ? `<div class="row ep-tools">${pane.buttons}</div>` : ''}
@@ -693,6 +729,32 @@ Object.assign(actions, {
   togglePlotMore() {
     S.plotMore = !S.plotMore;
     render();
+  },
+  dirOpen(n) {
+    S.dirEdit = Number(n);
+    S.dirText = {};
+    render();
+    document.getElementById('dir-ep')?.focus();
+  },
+  dirCancel() {
+    S.dirEdit = null;
+    S.dirText = {};
+    render();
+  },
+  /** 작가 연출 지시 저장: 서버가 돌려준 값만 이 화 · 아크에 합친다 (화면 전체를 받은 작품으로 바꾸지 않는다, 사건 체크와 같다) */
+  async dirSave(n) {
+    n = Number(n);
+    const arcBox = document.getElementById('dir-arc');
+    const body = { episode: document.getElementById('dir-ep')?.value || '', arc: arcBox ? arcBox.value : null };
+    await run('저장하는 중', async () => {
+      const r = await api('PUT', `/projects/${enc(S.name)}/episodes/${n}/direction`, body);
+      ep(n).direction = r.episode;
+      const arc = serial() ? arcOf(n) : null;
+      if (arc) arc.direction = r.arc;
+      S.dirEdit = null;
+      S.dirText = {};
+      toast('연출 지시를 저장했어요');
+    });
   },
   openCtx(n) {
     showDialog('w-ctx', ctxDialogHtml(n), '[data-action="menuToggle"][data-arg="write"]');

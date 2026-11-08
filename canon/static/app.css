@@ -1741,6 +1741,13 @@ mark.hl.flash { outline: 2px solid currentColor; outline-offset: 2px; }
 .w-go-foot { padding-top: var(--space-12); border-top: 1px solid var(--rule); display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8) var(--space-12); }
 .w-go-foot .w-fill { flex: 1 1 auto; }
 .w-go-foot .field { flex-direction: row; align-items: center; gap: var(--space-8); }
+/* 작가 연출 지시 칸 (write.js dirCard): 지금 걸린 지시를 늘 보이고 '고치기'로 두 칸을 연다 */
+.w-dir { display: flex; flex-direction: column; gap: var(--space-12); }
+.w-dir-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-4) var(--space-12); }
+.w-dir-head h2 { margin: 0; }
+.w-dir-head .w-fill { flex: 1 1 auto; }
+.w-dir .field > .small { font-size: 0.75rem; font-weight: 700; color: var(--muted); }
+.w-dir-text { white-space: pre-wrap; }
 .w-go-ctx summary { min-height: 44px; display: flex; align-items: center; font-size: 0.8125rem; font-weight: 700; color: var(--link); cursor: pointer; }
 .w-fresh .w-stick { position: static; border-bottom: 0; }
 .w-fresh .wp-body { max-height: none; overflow: visible; }

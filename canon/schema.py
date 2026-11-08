@@ -706,13 +706,14 @@ class StoryArc(BaseModel):
     heat: SkipJsonSchema[list[HeatStep]] = Field(default_factory=list, description="아크의 열 계획. start_ep 부터 end_ep 까지 (canon/heatplan.py). AI 응답 형식에는 없고 HeatArcProposal 로 받는다")
     heat_rule: SkipJsonSchema[str] = ""
     heat_turn: SkipJsonSchema[HeatTurn] = Field(default_factory=HeatTurn)
+    direction: SkipJsonSchema[str] = Field("", description="작가 연출 지시: 이 아크의 화를 쓰는 동안 쓰기 요청 끝에 넣는다 (prompts.direction_block). 작가만 적는다")
 
     @model_serializer(mode="wrap")
     def _prompt_view(self, handler: SerializerFunctionWrapHandler, info: SerializationInfo):
-        """프롬프트용 직렬화(llm.dump 의 context prompt)에서는 열 계획을 뺀다. 열 계획은 prompts.heat_* 가 따로 넣는다."""
+        """프롬프트용 직렬화(llm.dump 의 context prompt)에서는 열 계획과 연출 지시를 뺀다. 둘은 prompts.heat_* · direction_block 이 따로 넣는다."""
         data = handler(self)
         if isinstance(data, dict) and info.context and info.context.get("prompt"):
-            for k in ("heat", "heat_rule", "heat_turn"):
+            for k in ("heat", "heat_rule", "heat_turn", "direction"):
                 data.pop(k, None)
         return data
 
@@ -1655,6 +1656,7 @@ class Episode(BaseModel):
     storyboard_prev: Optional["Storyboard"] = Field(None, description="AI 가 요청대로 고치기 전 스토리보드 (적용 취소용, pipeline.undo_storyboard). 다른 방법으로 바꾸면 비운다")
     cue_sheet: Optional["CueSheet"] = Field(None, description="쓰기 재료: 큐 시트 (pipeline.make_cue_sheet, cue.set_episode). 쓰기 프롬프트 끝에 넣는다 (prompts.cue_write_block). 상태 승인 대상이 아니다")
     style_basis: str = Field("", description="AI 가 지금 본문을 쓸 때의 문체 지문 (anchor.style_basis). 비면 모름 (손으로 쓴 본문, 다시 생성 판을 고른 본문)")
+    direction: str = Field("", description="작가 연출 지시: 이 화를 쓸 때만 쓰기 요청 끝에 넣는다 (prompts.direction_block). 본문을 쓴 뒤에는 기록으로 남고 다음 화에는 넣지 않는다")
 
     @model_validator(mode="after")
     def _old_check(self) -> "Episode":
