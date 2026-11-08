@@ -29,6 +29,7 @@ BUDGET = {
     "impact_text": 90_000,  # 인과율 영향 분석: 이미 쓴 본문
     "secrets": 2_500,       # 본문 쓰기의 관계 블록에 붙는 숨긴 비밀
     "state_secrets": 6_000,  # 상태 변경안 · 검수의 비밀 목록
+    "state_facts": 4_000,   # 장편 상태 변경안: 이미 있는 확정 사실 (prompts.state_facts_block, 검수 자료를 앞에 두는 요청에는 넣지 않음)
     "places": 3_000,        # 기획 · 검수 · 상태 변경안에 넣는 본문 · 플롯에서 나온 장소
     "plan_fixed": 8_000,    # 화별 플롯 초안: 범위 안 · 바로 뒤의 이미 정해진 화 플롯 (prompts.fixed_plots, 장편만)
     "plan_stages": 1_500,   # 화별 플롯 초안: 기획 인물끼리 지금 관계 단계 한 줄씩 (prompts.plan_stage_block, 장편만). 주역끼리 먼저
@@ -59,6 +60,7 @@ BUDGET = {
     "play_secrets": 800,    # 장면: 장면 인물이 얽힌 숨긴 비밀 (pick_secrets 의 셈)
     "play_foreshadows": 900,  # 장면: 열린 복선 한 줄씩
     "play_state_secrets": 2_000,  # 상태 변경안: 장면 인물이 얽힌 비밀 (pick_secrets 의 셈, 넣는 글은 이보다 길다)
+    "play_state_facts": 1_800,  # 상태 변경안: 이미 있는 확정 사실 (state_facts 의 플레이 크기)
     # 역설계 실험 (revlab). 화 수를 막지 않아서 화 수만큼 커지는 블록을 접는다. 30화 안팎 실험은 예산에 닿지 않는다
     "rev_story": 12_000,    # 되돌려 쓰기 사본의 앞 화 요약 (revlab.fold_story: 오래된 화부터 첫 문장 → 뺌). 장편 story_past + story_arc 와 같은 크기
     "rev_facts": 10_000,    # 되돌려 쓰기 사본의 사실 (revlab.fit_facts: 최근 화 사실부터)
@@ -195,6 +197,26 @@ def pick_facts(p: Project, ids: set[str], query: str, budget: int, terms: Iterab
         keep.add(i)
         used += cost
     return [facts[i] for i in sorted(keep)], len(facts) - len(keep)
+
+
+FACT_NEAR = 0.5  # 새 사실의 글 조각 가운데 이만큼이 한 옛 사실과 겹치면 비슷한 사실로 본다 (실제 장편 4편 1,192개에서 잼, DESIGN.md)
+FACT_NEAR_MIN = 3  # 글 조각이 이보다 적은 짧은 사실은 견주지 않는다
+
+
+def near_fact(fact: str, facts: Iterable[str]) -> str:
+    """fact 와 가장 많이 겹치는 옛 사실. 겹침(새 사실의 글 조각 가운데 옛 사실과 같은 몫)이 FACT_NEAR 아래면 빈 글.
+    같은 글은 반영이 이미 거르므로 여기서는 보지 않는다."""
+    g = grams(fact)
+    if len(g) < FACT_NEAR_MIN:
+        return ""
+    best, like = 0.0, ""
+    for f in facts:
+        if f == fact:
+            continue
+        r = len(g & grams(f)) / len(g)
+        if r > best:
+            best, like = r, f
+    return like if best >= FACT_NEAR else ""
 
 
 # ---------- 인물이 아는 정보 ----------

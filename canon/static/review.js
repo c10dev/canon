@@ -17,6 +17,7 @@ function pickedDelta(n) {
     secrets_added: pick('s', d.secrets_added),
     relationship_updates: pick('r', d.relationship_updates),
     rel_flagged: [],  // 작가가 고른 뒤라 기본 체크 표시는 필요 없다 (차례도 고른 목록과 맞지 않는다)
+    fact_near: [],  // 같은 까닭으로 비운다 (features._near_facts)
     reoffer: undefined,  // 화면 전용 표시 (reofferDismissed). 서버에 보내지 않는다
     new_facts: clean(pick('f', d.new_facts)),
     foreshadow_planted: pick('p', d.foreshadow_planted),
@@ -118,7 +119,9 @@ function defaultPicks(d, over = {}) {
   d.secrets_added.forEach((x, i) => { o['s' + i] = known.has(x.owner); });  // 설정에 없는 인물의 비밀도 서버 반영이 막는다
   // 유형 · 설명이 반영 뒤 관계 단계와 반대인 바뀜은 기본으로 빼 둔다 (pace.clean_delta). 맞으면 작가가 체크한다
   d.relationship_updates.forEach((r, i) => { o['r' + i] = !(d.rel_flagged || []).includes(i) && pairOk(r.a, r.b); });
-  d.new_facts.forEach((_, i) => { o['f' + i] = true; });
+  // 이미 있는 확정 사실과 비슷한 새 사실은 기본으로 빼 둔다 (features._near_facts). 새 사실이면 작가가 체크한다
+  const near = new Set((d.fact_near || []).map((x) => x.fact));
+  d.new_facts.forEach((f, i) => { o['f' + i] = !near.has(f); });
   d.foreshadow_planted.forEach((_, i) => { o['p' + i] = true; });
   // 이번에 심고 같은 화에 회수한 복선도 아는 복선이다 (서버 validate_delta 와 같다)
   d.foreshadow_resolved.forEach((id, i) => { o['x' + i] = fsKnown(d, id); });
@@ -512,7 +515,9 @@ function reviewPanel(n) {
     return `<div class="change">${box('r' + i)}<div class="body"><label for="pk-r${i}" style="font-size:0.875rem;font-weight:700">${esc(charName(r.a))} ↔ ${esc(charName(r.b))}</label>
       ${diff(cur && cur.type, r.type)}${r.description ? diff(cur && cur.description, r.description) : ''}${(d.rel_flagged || []).includes(i) ? '<div class="small">관계 단계와 반대라 기본으로 빼 두었어요. 맞으면 체크하세요.</div>' : ''}</div></div>`;
   }).join('');
-  const facts = d.new_facts.map((f, i) => `<div class="change">${box('f' + i, `확정 사실 ${i + 1} 반영`)}<div class="body"><div class="row" style="gap:6px;flex-wrap:nowrap"><input id="fv-${i}" aria-label="확정 사실 ${i + 1}" ${edit(`new_facts.${i}`, 'f' + i)} value="${esc(f)}" placeholder="비우면 빼요" class="rv-inp" style="flex:1;min-width:0">${editMark(n, 'f' + i)}</div></div></div>`).join('');
+  const like = new Map((d.fact_near || []).map((x) => [x.fact, x.like]));
+  const nearNote = (f) => like.has(f) ? `<div class="small">이미 있는 사실과 비슷해 기본으로 빼 두었어요: ${esc(like.get(f))}. 새 사실이면 체크하세요.</div>` : '';
+  const facts = d.new_facts.map((f, i) => `<div class="change">${box('f' + i, `확정 사실 ${i + 1} 반영`)}<div class="body"><div class="row" style="gap:6px;flex-wrap:nowrap"><input id="fv-${i}" aria-label="확정 사실 ${i + 1}" ${edit(`new_facts.${i}`, 'f' + i)} value="${esc(f)}" placeholder="비우면 빼요" class="rv-inp" style="flex:1;min-width:0">${editMark(n, 'f' + i)}</div>${nearNote(f)}</div></div>`).join('');
   // 회수한다는 복선 id 를 모르면 '직접 정할 것'으로 (기본으로 빼 둔다, setDelta)
   const resolvedRow = (id, i) => {
     const f = p.foreshadows.find((x) => x.id === id);
@@ -758,7 +763,8 @@ function dismissedView(h) {
     ...(x.events || []).map((ev) => `관계 사건 · ${esc(charName(ev.actor))} → ${esc(charName(ev.target))} · ${esc(ev.kind)} ${INTENSITY[ev.intensity] || ''}`),
     ...(x.relationship_updates || []).map((r) => `관계 유형 · ${esc(charName(r.a))} ↔ ${esc(charName(r.b))} · ${esc(r.type)}`),
     ...(x.secrets_added || []).map((s) => `비밀 · <strong>${esc(charName(s.owner))}</strong> ${esc(s.content)}`),
-    ...(x.new_facts || []).map((f) => `사실 · ${esc(f)}`),
+    // 빼 둔 사실은 나중에 확정 사실로 넣을 수 있다 (자동 반영이 비슷한 사실이라 뺀 것 포함, pipeline.take_dismissed_fact)
+    ...(x.new_facts || []).map((f, i) => `사실 · ${esc(f)} <button type="button" class="btn small ghost" data-action="takeDismissedFact" data-arg="${h.episode}|${i}">확정 사실에 넣기</button>`),
     ...(x.foreshadow_planted || []).map((f) => `복선 심음 · ${esc(f.description)}`),
     ...(x.foreshadow_resolved || []).map((id) => `복선 회수 · ${esc(fs(id))}`),
     ...(x.foreshadow_clues || []).map((q) => `복선 문장 · ${esc(fs(q.foreshadow))} “${esc(q.quote)}”`),
@@ -936,6 +942,14 @@ Object.assign(actions, {
     }
     rvUndoClose(false);
     location.hash = `${base()}/review/${n}`;  // 다시 고를 변경안이 있는 화면으로
+  },
+  async takeDismissedFact(arg) {
+    const [n, i] = String(arg).split('|').map(Number);
+    await run('넣는 중', async () => {
+      await saveIfDirty();
+      S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/dismissed-facts/${i}`);
+      toast('확정 사실에 넣었어요');
+    });
   },
   async dropDelta(n) {
     if (!(await askConfirm('이 변경안을 버릴까요?', { ok: '버리기', danger: true }))) return;

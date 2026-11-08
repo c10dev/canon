@@ -4434,6 +4434,25 @@ def apply_restate(p: Project, d: StateDelta) -> dict:
     return {"summary": bool(summary), "facts": len(facts), "foreshadows": len(plants), "clues": len(clues), "places": len(places)}
 
 
+def take_dismissed_fact(p: Project, n: int, i: int) -> str:
+    """n화 반영 기록에서 빼 둔 새 사실(dismissed.new_facts) 하나를 확정 사실에 넣는다. 자동 반영이 이미 있는 사실과 비슷해 뺀 것을
+    작가가 나중에 고르는 길이다. 그 화와 뒤 화의 스냅샷 · 반영 기록에도 넣어 반영 취소와 맞춘다(apply_restate 와 같다). 넣은 사실."""
+    rec = next((h for h in reversed(p.history) if h.episode == n), None)
+    if rec is None or not 0 <= i < len(rec.dismissed.new_facts):
+        raise ValueError(f"{n}화 반영 기록에 빼 둔 사실이 없어요. 화면을 새로 고쳐 보세요")
+    fact = rec.dismissed.new_facts.pop(i).strip()
+    if not fact or fact in p.facts:
+        return fact
+    p.facts.append(fact)
+    for snap in p.snapshots:
+        if snap.episode >= n and fact not in snap.facts:
+            snap.facts.append(fact)
+    rec.new_facts.append(fact)
+    if rec.added is not None:
+        rec.added.facts.append(fact)
+    return fact
+
+
 def keep_state(p: Project, n: int) -> None:
     """반영 뒤 고쳤지만 상태는 그대로 둬도 된다고 정한다 (오타 · 문장 다듬기). 반영 뒤 고침 표시를 지운다."""
     ep = p.episode(n)

@@ -1994,6 +1994,12 @@ class DismissedItems(BaseModel):
     address_changes: list[AddressChange] = Field(default_factory=list)
 
 
+class FactNear(BaseModel):
+    """새 사실 하나와 그와 비슷한 이미 있는 확정 사실 (context.near_fact)."""
+    fact: str
+    like: str
+
+
 class AddedItems(BaseModel):
     """반영할 때 실제로 새로 더해진 항목 (pipeline.apply_delta · apply_restate 가 적는다). 반영 취소가 이것만 뺀다."""
     relationships: list[list[str]] = Field(default_factory=list, description="새로 더한 관계 쌍 [a, b]")
@@ -2028,6 +2034,9 @@ class StateDelta(BaseModel):
     # 프로그램이 채운다 (pace.clean_delta). AI 응답 형식에서 뺀다. 상태 승인 화면이 이 차례의 relationship_updates 를 기본으로 체크하지 않는다
     rel_flagged: SkipJsonSchema[list[int]] = Field(
         default_factory=list, description="relationship_updates 가운데 유형 · 설명의 극성이 반영 뒤 관계 단계와 반대인 것의 차례")
+    # 프로그램이 채운다 (features._near_facts). AI 응답 형식에서 뺀다. 상태 승인 화면이 이 새 사실을 기본으로 체크하지 않고, 자동 반영은 뺀다
+    fact_near: SkipJsonSchema[list[FactNear]] = Field(
+        default_factory=list, description="new_facts 가운데 이미 있는 확정 사실과 글 조각이 많이 겹치는 것과 그 옛 사실. 글로 짚어 차례가 바뀌어도 맞는다")
     # 프로그램이 채운다 (pipeline.extract_state). AI 응답 형식에서 뺀다. 반영할 때 지금 본문과 다르면 web 반영이 막는다
     basis: SkipJsonSchema[str] = Field("", description="변경안을 만든 본문의 지문 (pipeline.text_basis). 비면 모름")
     # 프로그램이 채운다 (features.clean). AI 응답 형식에서 뺀다. warnings 와 같은 차례이고, 짧으면 모자란 칸은 "" 로 본다
