@@ -108,3 +108,13 @@ def test_web_route(client, monkeypatch):
 def test_old_project_reads_without_state_log():
     from canon.schema import Project
     assert Project.model_validate({}).state_log == []
+
+
+def test_cast_frames_replay_edit_when_snapshot_is_pruned():
+    from canon import cast
+    p = _play(_short(8), 1, 1)
+    stateedit.set_state(p, "hero", {"location": "1화 뒤 고친 곳"})
+    _play(p, 2, 2)
+    p.snapshots = [s for s in p.snapshots if s.episode != 1]  # 장편 스냅샷 줄이기처럼 1화 스냅샷이 없다
+    f1 = next(f for f in cast.frames(p) if f["episode"] == 1)
+    assert next(s for s in f1["states"] if s["character_id"] == "hero")["location"] == "1화 뒤 고친 곳"

@@ -23,9 +23,11 @@ FIELDS: dict[str, str] = {"emotional_state": "감정", "current_goal": "목표",
 
 
 def _state(p: Project, cid: str) -> CharacterState:
+    """없으면 pipeline._init_states 처럼 인물의 원하는 것을 목표로 두고 만든다."""
     s = p.state_of(cid)
     if s is None:
-        s = CharacterState(character_id=cid)
+        c = next(c for c in p.characters if c.id == cid)
+        s = CharacterState(character_id=cid, current_goal=c.goal)
         p.states.append(s)
     return s
 

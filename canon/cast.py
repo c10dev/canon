@@ -87,6 +87,10 @@ def _apply_gap(sim: Project, p: Project, n: int, delta: Optional[StateDelta]) ->
                 r.type, r.description = upd.type or r.type, upd.description or r.description
         have = {s.id for s in sim.secrets}
         sim.secrets += [s.model_copy(deep=True) for s in delta.secrets_added if s.id not in have]
+    for rec in (x for x in p.state_log if x.episode == n):  # 그 화 반영 뒤 작가가 고친 지금 상태 (stateedit.py)
+        cur = next((s for s in sim.states if s.character_id == rec.character_id), None)
+        if cur is not None:
+            setattr(cur, rec.field, rec.after)
     dynamics.run_episode(sim, n, [e for e in p.events if e.episode == n], p.episode(n).plot.characters)
 
 
