@@ -329,7 +329,7 @@ ERROR_TABLE: list[tuple[str, Any, Any]] = [
      lambda e: "AI가 기존 글과 너무 비슷해 멈췄어요. 다시 생성하거나 요청을 조금 바꿔 보세요."),
     ("thinking", lambda e: (x := _empty(e)) is not None and x.finish == "MAX_TOKENS" and x.thought > 0,
      lambda e: f"AI가 생각만 {e.thought:,}토큰 쓰고 글을 내기 전에 출력 길이 한도에 걸렸어요. "
-               "설정의 AI 연결에서 생각 수준을 낮추거나 다시 시도해 보세요."),
+               "설정의 단계별 모델에서 추론 강도를 낮추거나 다시 시도해 보세요."),
     ("input_too_long", lambda e: re.search(r"input token count.{0,40}exceeds the maximum number of tokens|prompt is too long"
                                            r"|exceeds the available context size|maximum context length", _err_text(e), re.I),
      lambda e: "입력이 모델이 받을 수 있는 길이를 넘었어요. 입력 한도가 큰 모델로 바꾸거나 프롬프트 보기에서 큰 블록을 꺼 보세요. "
