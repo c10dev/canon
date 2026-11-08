@@ -414,7 +414,10 @@
 - 플롯 초안 갈래는 n 화가 든 구간(`plots_range`, `pipeline.act_groups`) 전체를 짠다. 웹 작업 plots 도 구간마다 부른다
 - 한 화 플롯 갈래는 `draft_episode`(웹 작업 plot_one, 뒤 화에 맞추기 켬)와 같은 `episode_plot_prompt` 다. 플롯이 초안인 화만 짠다
 - 큐 시트 갈래는 스토리보드를 같은 작업에서 막 만든 경우(`lead`)가 아닌 따로 만들 때의 글이다
-- JSON 으로 받는 갈래는 응답 스키마를 요청 끝에 글로 붙인다(`_out_format`). 프롬프트 놀이터의 불러오기도 `brief_parts` 를 쓴다
+- JSON 으로 받는 갈래는 응답 스키마를 요청 끝에 글로 붙인다(`_out_format`)
+- `brief_request` 는 (시스템, 요청, 응답 스키마)를 돌려준다. `brief_parts` 는 그 요청에 스키마 글을 붙인 것이다
+- 프롬프트 놀이터의 불러오기는 `brief_request` 를 쓰고 스키마는 돌릴 때 구조화 출력으로 넘긴다
+- 갈래마다 실제 호출의 단계(`BriefKind.stage`: 계획 · 스토리보드 · 큐 시트는 board · 본문 쓰기 · 검수 · 상태 변경안)를 적는다
 - 인물 고르기는 `static_characters` · `side_characters` · `roster_line` · `cast_block` 이 `Character.context` 를 따른다
 - 장편은 플롯 인물 목록 밖이라도 이름이 나온 조연을 넣는다(쓰기 `named_block`, 검수 `check_cast`, 상태 변경안)
 - 오랜만에 나오는 인물은 `return_block`

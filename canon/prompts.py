@@ -4642,6 +4642,7 @@ class BriefKind(NamedTuple):
     need: str = ""  # 조립할 화의 조건: "" · "text"(본문이 있음) · "confirmed"(플롯을 확정함) · "draft"(플롯이 초안)
     scope: str = "episode"  # 고르는 단위: episode(화) · act(플롯 초안 구간, n 은 구간 안의 화) · work(작품 하나, n 을 쓰지 않음)
     form: str = ""  # "" 이면 단편 · 장편 모두, "serial" 이면 장편만
+    stage: str = "plan"  # 실제 호출이 쓰는 단계(settings.STAGES). 놀이터가 그 단계의 모델 · 추론 강도로 돌린다
 
 
 # 작업지시서 갈래: 열쇠 → BriefKind. 프롬프트 놀이터(promptlab.py)의 '불러오기'도 이 목록과 brief_parts 를 쓴다. 차례는 집필 흐름 차례
@@ -4651,11 +4652,11 @@ BRIEF_KINDS: dict[str, BriefKind] = {
     "heat": BriefKind("열 계획", scope="work"),
     "plots": BriefKind("플롯 초안", scope="act"),
     "plot": BriefKind("한 화 플롯", need="draft"),
-    "storyboard": BriefKind("스토리보드", need="confirmed"),
-    "cue": BriefKind("큐 시트", need="confirmed"),
-    "episode": BriefKind("본문 쓰기"),
-    "check": BriefKind("검수", need="text"),
-    "state": BriefKind("상태 변경안", need="text"),
+    "storyboard": BriefKind("스토리보드", need="confirmed", stage="board"),
+    "cue": BriefKind("큐 시트", need="confirmed", stage="board"),
+    "episode": BriefKind("본문 쓰기", stage="write"),
+    "check": BriefKind("검수", need="text", stage="check"),
+    "state": BriefKind("상태 변경안", need="text", stage="state"),
 }
 
 
@@ -4669,36 +4670,43 @@ def _out_format(model: type[BaseModel]) -> str:
 
 
 def brief_parts(p: Project, n: int, kind: str = "episode") -> tuple[str, str]:
-    """작업지시서의 (역할 = 시스템 프롬프트, 요청 프롬프트). API 경로(pipeline)와 같은 함수 · 같은 차례로 조립한다. 작가의 요청(note)은 비운다.
-    JSON 으로 받는 단계는 API 경로가 따로 넘기는 응답 스키마를 요청 끝에 글로 붙인다.
+    """작업지시서의 (역할 = 시스템 프롬프트, 요청 프롬프트). API 경로와 같은 글(brief_request)에
+    API 경로가 따로 넘기는 응답 스키마를 요청 끝에 글로 붙인다 (채팅 앱은 구조화 출력을 받지 못한다)."""
+    system, prompt, schema = brief_request(p, n, kind)
+    return system, prompt + (_out_format(schema) if schema else "")
+
+
+def brief_request(p: Project, n: int, kind: str = "episode") -> tuple[str, str, type[BaseModel] | None]:
+    """(시스템 프롬프트, 요청 프롬프트, 응답 스키마). API 경로(pipeline)와 같은 함수 · 같은 차례로 조립한다. 작가의 요청(note)은 비운다.
+    응답 스키마는 API 경로가 llm.json 에 넘기는 것이고, 본문 쓰기는 글로 받아 None 이다. 프롬프트 놀이터는 이 스키마로 구조화 출력을 받는다.
     scope 가 work 인 갈래(부 구성 · 구조 · 열 계획)는 n 을 쓰지 않고, act 인 플롯 초안은 n 이 든 구간(pipeline.act_groups) 전체를 짠다."""
     if kind not in BRIEF_KINDS:
         raise ValueError(f"모르는 프롬프트 갈래예요: {kind}")
     if kind == "state":
-        return SYSTEM_EDITOR, state_prompt(p, n) + _out_format(StateDeltaAI)
+        return SYSTEM_EDITOR, state_prompt(p, n), StateDeltaAI
     if kind == "check":
-        return SYSTEM_CHECKER, check_prompt(p, n) + _out_format(ConsistencyReport)
+        return SYSTEM_CHECKER, check_prompt(p, n), ConsistencyReport
     if kind == "plot":  # pipeline.draft_episode (웹 작업 plot_one, 뒤 화에 맞추기 켬)
-        return SYSTEM_PLANNER, episode_plot_prompt(p, n) + _out_format(PlotBatch)
+        return SYSTEM_PLANNER, episode_plot_prompt(p, n), PlotBatch
     if kind == "plots":  # pipeline.draft_plots (웹 작업 plots 가 구간마다 부른다)
         start, end = plots_range(p, n)
-        return SYSTEM_PLANNER, plot_prompt(p, start, end) + _out_format(PlotBatch)
+        return SYSTEM_PLANNER, plot_prompt(p, start, end), PlotBatch
     if kind == "storyboard":  # pipeline.make_storyboard
-        return SYSTEM_PLANNER, storyboard_prompt(p, n) + _out_format(StoryboardDraft)
+        return SYSTEM_PLANNER, storyboard_prompt(p, n), StoryboardDraft
     if kind == "cue":  # pipeline.make_cue_sheet: 스토리보드를 같은 작업에서 막 만든 경우(lead)가 아닌 따로 만들 때의 글
-        return SYSTEM_PLANNER, cue_sheet_prompt(p, n) + _out_format(CueSheetDraft)
+        return SYSTEM_PLANNER, cue_sheet_prompt(p, n), CueSheetDraft
     if kind == "series":  # pipeline.plan_series
         if not p.serial:
             raise ValueError("부 구성은 장편 연재 작품에서만 짜요")
-        return SYSTEM_PLANNER, series_prompt(p) + _out_format(SeriesPlan)
+        return SYSTEM_PLANNER, series_prompt(p), SeriesPlan
     if kind == "arc":
-        return SYSTEM_PLANNER, arc_ask(p)
+        return (SYSTEM_PLANNER, *arc_ask(p))
     if kind == "heat":  # pipeline.propose_heat
         from . import pipeline
 
         start, end, acts, where, _ = pipeline.heat_target(p)
-        return SYSTEM_PLANNER, heat_propose_prompt(p, start, end, acts, where) + _out_format(HeatProposal)
-    return writer_system(p), episode_prompt(p, n)
+        return SYSTEM_PLANNER, heat_propose_prompt(p, start, end, acts, where), HeatProposal
+    return writer_system(p), episode_prompt(p, n), None
 
 
 def plots_range(p: Project, n: int) -> tuple[int, int]:
@@ -4713,20 +4721,20 @@ def plots_range(p: Project, n: int) -> tuple[int, int]:
     raise ValueError(f"{n}화가 든 기승전결 구간이 없어요")
 
 
-def arc_ask(p: Project) -> str:
-    """구조 짜기 요청 + 응답 스키마. 단편은 pipeline.plan_arc(기승전결), 장편은 pipeline.plan_next_arc(다음 아크 하나)와 같은 글이다.
-    열 계획을 켠 작품은 열 계획 규칙과 그 스키마를 붙인다. 다음 아크의 acts 빠짐 재요청(ARC_ACTS_RETRY)은 넣지 않는다."""
+def arc_ask(p: Project) -> tuple[str, type[BaseModel]]:
+    """구조 짜기 (요청, 응답 스키마). 단편은 pipeline.plan_arc(기승전결), 장편은 pipeline.plan_next_arc(다음 아크 하나)와 같은 글이다.
+    열 계획을 켠 작품은 열 계획 규칙을 붙이고 열 계획 스키마로 받는다. 다음 아크의 acts 빠짐 재요청(ARC_ACTS_RETRY)은 넣지 않는다."""
     heat = p.settings.heat_plan
     if not p.serial:
         total = p.meta.target_episodes
-        return arc_prompt(p) + (heat_arc_rules(total) if heat else "") + _out_format(HeatArcPlan if heat else ArcPlan)
+        return arc_prompt(p) + (heat_arc_rules(total) if heat else ""), HeatArcPlan if heat else ArcPlan
     from . import pipeline
 
     start, length = pipeline.next_arc_start(p), p.meta.arc_length
     if start > p.meta.target_episodes:
         raise ValueError(f"총 {p.meta.target_episodes}화까지 아크가 모두 있어요")
-    return (next_arc_prompt(p, start, length, "") + (heat_next_arc_rules(start, length) if heat else "")
-            + _out_format(HeatArcProposal if heat else ArcProposal))
+    return (next_arc_prompt(p, start, length, "") + (heat_next_arc_rules(start, length) if heat else ""),
+            HeatArcProposal if heat else ArcProposal)
 
 
 def _brief(p: Project, n: int, kind: str, head: str, lead: str = "") -> str:

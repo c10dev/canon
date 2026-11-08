@@ -94,12 +94,13 @@ def test_load_prompt_from_example_uses_brief_parts(home):
     for kind, n in promptlab.EXAMPLE_N.items():
         promptlab.load_prompt(s, kind)
         p = promptlab.example_project()
-        system, prompt = prompts.brief_parts(p, n, kind)
-        assert s.system == system
+        system, prompt, schema = prompts.brief_request(p, n, kind)  # 스키마 글은 칸에 넣지 않는다 (돌릴 때 구조화 출력)
+        assert s.system == system and s.source.schema_name == (schema.__name__ if schema else "")
+        assert prompts.brief_parts(p, n, kind)[1].startswith(prompt.split("새 남자 인물 후보")[0])  # 작업지시서는 스키마 글을 붙인다
         if kind == "plot":  # 플롯 프롬프트는 새 인물 이름 후보를 부를 때마다 무작위로 뽑는다
             assert s.prompt.split("새 남자 인물 후보")[0] == prompt.split("새 남자 인물 후보")[0]
         else:
-            assert s.prompt == prompt  # 작업지시서와 같은 조립
+            assert s.prompt == prompt  # 작업지시서와 같은 조립 (스키마 글만 뺀다)
         assert s.source.kind == kind and s.source.n == n and s.source.project == "" and "예시 작품" in s.source.label
     assert prompts.brief_parts(p, 2, "check")[1] in prompts.check_brief(p, 2)
     t = promptlab.add_trial(s, s.system, s.prompt, None, [], s.source)
@@ -279,3 +280,65 @@ def test_policy_note_is_shown_not_put_in_the_prompt(home):
     s = promptlab.create(backends=[PromptBackend(provider="mock")])
     promptlab.load_prompt(s, "episode")
     assert llm.POLICY_NOTE not in s.prompt  # 백엔드가 보낼 때 붙인다. 칸에 넣으면 두 번 붙는다
+
+
+def _fake_gemini(monkeypatch, answer):
+    """research.GeminiLLM 을 보낸 config 를 남기는 가짜로 바꾼다."""
+    from types import SimpleNamespace
+
+    from canon import research
+    from canon.llm import GeminiLLM
+
+    seen = []
+
+    def generate(model, contents, config):
+        seen.append({"model": model, "config": config, "contents": contents})
+        u = SimpleNamespace(prompt_token_count=1, candidates_token_count=1, thoughts_token_count=0, cached_content_token_count=0)
+        return SimpleNamespace(text=answer, usage_metadata=u, candidates=[SimpleNamespace(finish_reason=SimpleNamespace(name="STOP"))])
+
+    def fake(model=None, effort="", temperature=None, **kw):
+        llm = object.__new__(GeminiLLM)
+        llm.client = SimpleNamespace(models=SimpleNamespace(generate_content=generate))
+        llm.model, llm.effort, llm.temperature = model or "gemini-4-argon", effort, temperature
+        return llm
+
+    monkeypatch.setattr(research, "GeminiLLM", fake)
+    return seen
+
+
+def test_run_uses_structured_output_stage_and_cap(home, monkeypatch):
+    """불러온 갈래는 실제 호출처럼 구조화 출력 · 그 단계의 모델과 추론 강도 · 출력 한도로 돌린다."""
+    from canon import llm, settings
+
+    monkeypatch.setenv("CANON_LLM", "gemini")
+    monkeypatch.setenv("CANON_MODEL_BOARD", "gemini-board-model")
+    monkeypatch.setenv("CANON_EFFORT_BOARD", "xhigh")
+    seen = _fake_gemini(monkeypatch, '{"scenes": []}')
+    assert settings.stage_model("board")[0] == "gemini-board-model"
+    s = promptlab.create(backends=[PromptBackend(provider="gemini"), PromptBackend(provider="gemini", model="내 모델")])
+    promptlab.load_prompt(s, "storyboard")
+    assert "## 출력 형식" not in s.prompt and s.source.schema_name == "StoryboardDraft" and s.source.stage == "board"
+    spec = promptlab.view(s)["spec"]
+    assert spec["schema"] == "StoryboardDraft" and spec["out_tokens"] == 16384 and spec["stage_label"] == "스토리보드 · 큐 시트"
+    assert spec["backends"] == [{"model": "gemini-board-model", "effort": "high"}, {"model": "내 모델", "effort": "high"}]
+    runs = promptlab.run(s)
+    assert [r.model for r in runs] == ["gemini-board-model", "내 모델"] and all(r.ok for r in runs)
+    assert runs[0].schema_name == "StoryboardDraft" and runs[0].out_tokens == 16384 and runs[0].effort == "high"
+    cfg = seen[0]["config"]
+    assert cfg.response_mime_type == "application/json" and cfg.response_json_schema["title"] == "StoryboardDraft"
+    assert cfg.max_output_tokens == 16384 and cfg.thinking_config.thinking_level.name.lower() == "high"
+    assert seen[0]["contents"].endswith(llm.POLICY_NOTE)  # 정책 줄은 보낼 때 한 번 붙는다
+    promptlab.load_prompt(s, "episode")  # 본문 쓰기는 글로 받고 기본 한도
+    seen.clear()
+    runs = promptlab.run(s)
+    assert runs[0].schema_name == "" and runs[0].out_tokens == 0
+    assert seen[0]["config"].response_mime_type is None and not seen[0]["config"].max_output_tokens
+
+
+def test_run_without_source_or_with_mock_stays_text(home):
+    s = promptlab.create(prompt="그냥 요청", backends=[PromptBackend(provider="mock")])
+    assert promptlab.view(s)["spec"] == {"schema": "", "stage": "", "stage_label": "", "out_tokens": 0, "backends": []}
+    assert promptlab.run(s)[0].schema_name == ""
+    promptlab.load_prompt(s, "check")
+    r = promptlab.run(s)[0]
+    assert r.ok and r.schema_name == ""  # mock 은 hint 없이 스키마 응답을 짓지 못해 글로 받는다

@@ -66,6 +66,23 @@ function pgDiff(t, f) {
 
 const PG_DIFF = { same: '지금 프롬프트와 같아요', system: '시스템 프롬프트가 지금과 달라요', prompt: '요청 프롬프트가 지금과 달라요', both: '두 프롬프트 모두 지금과 달라요' };
 /** 불러온 출처 한 줄: '검수 · 예시 작품 2화', 고쳤으면 ' (고침)' (순수 함수) */
+/** 불러온 갈래대로 돌리는 방식 한 줄 (순수 함수, tests/test_promptlab_js.py). 불러온 출처가 없으면 빈 글 */
+function pgSpecLine(spec) {
+  if (!spec || !spec.stage) return '';
+  const parts = [`${spec.stage_label} 단계의 모델 · 추론 강도`];
+  if (spec.schema) parts.push(`응답 형식 ${spec.schema}(구조화 출력, 가짜 응답은 글)`);
+  if (spec.out_tokens) parts.push(`출력 한도 ${spec.out_tokens.toLocaleString()}토큰`);
+  return `실제 호출처럼 돌려요: ${parts.join(' · ')}.`;
+}
+
+/** 모델 칸 안내: 불러온 갈래가 있으면 그 단계에서 쓸 모델 · 추론 강도, 없으면 설정 값 (순수 함수) */
+function pgModelHint(spec, i, b) {
+  const use = spec && spec.backends && spec.backends[i];
+  if (!use || b.model) return '비우면 설정 값';
+  const effort = use.effort ? `, 추론 강도 ${use.effort}` : '';
+  return use.model ? `비우면 ${spec.stage_label} 단계 모델(${use.model}${effort})` : `비우면 설정 값${effort}`;
+}
+
 function pgSourceLabel(src, edited) {
   return src ? `${src.label}${edited ? ' (고침)' : ''}` : '';
 }
@@ -117,13 +134,14 @@ function pgForm() {
   const provs = lim.providers || ['gemini', 'local', 'mock'];
   const rows = f.backends.map((b, i) => `<div class="card" style="padding:var(--pad-card-tight)">
       <div class="grid-2"><div class="field"><label for="pg-prov-${i}">백엔드</label><select id="pg-prov-${i}" data-pg-prov="${i}">${provs.map((p) => `<option value="${p}"${p === b.provider ? ' selected' : ''}>${esc(PG_PROV[p] || p)}</option>`).join('')}</select></div>
-        ${b.provider === 'mock' ? '' : input('모델', `backends.${i}.model`, { ...o, placeholder: '비우면 설정 값' })}</div>
+        ${b.provider === 'mock' ? '' : input('모델', `backends.${i}.model`, { ...o, placeholder: pgModelHint(S.pg.spec, i, b) })}</div>
       ${b.provider === 'local' ? input('서버 주소', `backends.${i}.url`, { ...o, placeholder: '비우면 설정 값, 예: http://localhost:11434/v1' }) : ''}
       <div class="row"><button type="button" class="btn small" data-action="pgBackendDrop" data-arg="${i}">빼기</button></div></div>`).join('');
   const more = f.backends.length < (lim.maxBackends || 4);
   return `${pgLoadCard()}<section class="card">
       <div class="between"><h2>프롬프트</h2><span class="small" id="pg-saved">${S.pgDirty ? '저장하지 않은 고침이 있어요' : '칸을 벗어나면 저장해요'}</span></div>
       ${S.pg.source ? `<div class="row"><span class="chip">불러옴</span><span class="small">${esc(pgSourceLabel(S.pg.source, S.pg.source_edited))}</span></div>` : ''}
+      ${pgSpecLine(S.pg.spec) ? `<p class="small">${esc(pgSpecLine(S.pg.spec))}</p>` : ''}
       ${input('제목', 'title', { ...o, placeholder: '비우면 요청 첫 줄로 지어요' })}
       ${input('시스템 프롬프트', 'system', { ...o, rows: 5, autogrow: true, placeholder: '모델의 역할 · 규칙. 비워도 돼요' })}
       ${input('요청 프롬프트', 'prompt', { ...o, rows: 8, autogrow: true, placeholder: '모델에게 보낼 요청' })}
@@ -208,7 +226,8 @@ document.addEventListener('change', (e) => {
 // ----- 시도 -----
 
 function pgRunCard(r) {
-  const facts = r.ok ? [`${r.seconds}초`, `${Number(r.chars || 0).toLocaleString()}자`, r.tokens_in || r.tokens_out ? `토큰 ${tok(r.tokens_in)} → ${tok(r.tokens_out)}` : '', usd(r.cost)].filter(Boolean).join(' · ')
+  const how = [r.schema_name ? `${r.schema_name} 형식` : '', r.effort ? `추론 강도 ${r.effort}` : '', r.out_tokens ? `한도 ${tok(r.out_tokens)}` : ''];
+  const facts = r.ok ? [`${r.seconds}초`, `${Number(r.chars || 0).toLocaleString()}자`, r.tokens_in || r.tokens_out ? `토큰 ${tok(r.tokens_in)} → ${tok(r.tokens_out)}` : '', usd(r.cost), ...how].filter(Boolean).join(' · ')
     : `${r.seconds}초`;
   const body = r.ok ? `<div class="rw-text">${esc(r.text)}</div>` : `<p class="small warn-text" role="alert">${esc(r.error || '실패했어요')}</p>`;
   return `<div class="card" style="padding:var(--pad-card-tight)"><div class="between"><div class="row"><span class="chip${r.ok ? '' : ' bad'}">${esc(r.backend)}</span>${r.model && r.model !== r.backend ? `<span class="small">${esc(r.model)}</span>` : ''}</div></div>

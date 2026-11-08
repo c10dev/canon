@@ -72,3 +72,21 @@ def test_load_card_scopes_and_policy_note():
     assert got["cueOpts"] == [1]  # 큐 시트는 플롯을 확정한 화만
     assert got["draftOpts"] == [2]  # 한 화 플롯은 플롯이 초안인 화만
     assert "POLICY LINE" in got["view"]
+
+
+@needs_node
+def test_spec_line_model_hint_and_run_facts():
+    got = run_js(["app.js", "usage.js", "promptlab.js"], """(() => {
+      const spec = { schema: 'StoryboardDraft', stage: 'board', stage_label: '스토리보드 · 큐 시트', out_tokens: 16384,
+        backends: [{ model: 'gemini-x', effort: 'high' }, { model: '', effort: '' }] };
+      return {
+        line: pgSpecLine(spec), none: pgSpecLine({ stage: '' }),
+        hint: [pgModelHint(spec, 0, { model: '' }), pgModelHint(spec, 0, { model: '내 모델' }), pgModelHint(spec, 1, { model: '' }), pgModelHint(null, 0, { model: '' })],
+        card: pgRunCard({ backend: 'gemini', model: 'gemini-x', ok: true, text: '{}', seconds: 1, chars: 2, tokens_in: 0, tokens_out: 0, cost: 0,
+          schema_name: 'StoryboardDraft', effort: 'high', out_tokens: 16384 }),
+      };
+    })()""", {})
+    assert got["line"].startswith("실제 호출처럼 돌려요: 스토리보드 · 큐 시트 단계의 모델 · 추론 강도") and "StoryboardDraft" in got["line"] and "16,384토큰" in got["line"]
+    assert got["none"] == ""
+    assert got["hint"] == ["비우면 스토리보드 · 큐 시트 단계 모델(gemini-x, 추론 강도 high)", "비우면 설정 값", "비우면 설정 값", "비우면 설정 값"]
+    assert "StoryboardDraft 형식" in got["card"] and "추론 강도 high" in got["card"]

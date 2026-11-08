@@ -3227,6 +3227,8 @@ class PromptSource(BaseModel):
     label: str = ""
     project: str = Field("", description="조립에 쓴 작품 폴더 이름. 비면 예시 작품(promptlab.example_project)")
     n: int = Field(0, description="조립한 화. 플롯 초안은 고른 구간 첫 화, 작품 하나를 짜는 갈래(구조 · 열 계획 · 부 구성)는 0")
+    schema_name: str = Field("", description="돌릴 때 구조화 출력으로 받는 응답 스키마 이름(schema 모듈의 모델). 비면 글로 받는다")
+    stage: str = Field("", description="실제 호출의 단계(settings.STAGES). 모델 칸이 빈 백엔드를 이 단계의 모델 · 추론 강도로 돌린다")
     sig: str = Field("", description="불러온 시스템 · 요청 프롬프트의 지문. 지금 칸과 다르면 고친 것")
 
 
@@ -3234,6 +3236,9 @@ class PromptRun(BaseModel):
     """프롬프트 놀이터 시도 안의 백엔드 하나의 결과 (research.sample 한 줄)."""
     backend: str = ""
     model: str = ""
+    effort: str = Field("", description="넘긴 추론 강도. 비면 모델 기본값")
+    schema_name: str = Field("", description="구조화 출력으로 받은 응답 스키마. 비면 글로 받음")
+    out_tokens: int = Field(0, description="건 출력 한도(llm.out_cap). 0 이면 기본 한도")
     ok: bool = False
     text: str = ""
     error: str = ""

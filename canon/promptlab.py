@@ -178,18 +178,41 @@ def run_cost(provider: str, model: str, tokens: Optional[dict]) -> Optional[floa
 
 def to_run(b: PromptBackend, row: dict) -> PromptRun:
     tokens = row.get("usage") or {}
-    return PromptRun(backend=row.get("backend", research.label(research.Backend(**b.model_dump()))), model=row.get("model", ""),
+    return PromptRun(backend=row.get("backend", research.label(research.Backend(**b.model_dump()))), model=row.get("model", ""), effort=row.get("effort", ""),
+                     schema_name=row.get("schema", ""),
                      ok=bool(row.get("ok")), text=row.get("text", ""), error=row.get("error", ""), seconds=row.get("seconds", 0.0),
                      chars=row.get("chars", 0), tokens_in=tokens.get("prompt_tokens") or 0,
                      tokens_out=(tokens.get("completion_tokens") or 0) + (tokens.get("thought_tokens") or 0),
                      cost=run_cost(b.provider, row.get("model", ""), tokens) if row.get("ok") else None)
 
 
+# 실제 호출이 거는 출력 한도(pipeline.BOARD_OUT_TOKENS · CUE_OUT_TOKENS). 없는 갈래는 기본 한도
+OUT_TOKENS = {"storyboard": "BOARD_OUT_TOKENS", "cue": "CUE_OUT_TOKENS"}
+STAGE_LABELS = {"plan": "계획", "board": "스토리보드 · 큐 시트", "write": "본문 쓰기", "check": "검수", "state": "상태 변경안"}
+
+
+def run_spec(s: PromptSession) -> dict:
+    """불러온 갈래대로 돌리는 방식: 응답 스키마(구조화 출력), 단계(모델 · 추론 강도), 출력 한도. 불러온 출처가 없으면 모두 빈칸(글로 받음).
+    출처가 있으면 칸을 고쳐도 같은 방식으로 돌린다. 프롬프트를 고쳐 가며 같은 단계 호출을 견주는 곳이라서다."""
+    src = s.source
+    if not src or src.kind not in prompts.BRIEF_KINDS:
+        return {"schema": None, "stage": "", "out_tokens": 0, "preset": None}
+    from . import pipeline, schema as schemas, settings
+
+    model = getattr(schemas, src.schema_name, None) if src.schema_name else None
+    cap = getattr(pipeline, OUT_TOKENS[src.kind]) if src.kind in OUT_TOKENS else 0
+    preset = settings.project_preset(src.project) if src.project else None
+    return {"schema": model, "stage": src.stage, "out_tokens": cap, "preset": preset}
+
+
 def run(s: PromptSession) -> list[PromptRun]:
-    """지금 프롬프트를 고른 백엔드마다 차례로 보낸다. 세션은 바꾸지 않는다 (저장 직전에 다시 읽어 add_trial 로 붙인다)."""
+    """지금 프롬프트를 고른 백엔드마다 차례로 보낸다. 세션은 바꾸지 않는다 (저장 직전에 다시 읽어 add_trial 로 붙인다).
+    불러온 갈래가 있으면 실제 호출처럼 구조화 출력 · 그 단계의 모델과 추론 강도 · 출력 한도로 돌린다 (run_spec)."""
     can_run(s)
-    rows = research.sample([research.Backend(**b.model_dump()) for b in s.backends], s.system, s.prompt, s.temperature)
-    return [to_run(b, r) for b, r in zip(s.backends, rows)]
+    spec = run_spec(s)
+    rows = research.sample([research.Backend(**b.model_dump()) for b in s.backends], s.system, s.prompt, s.temperature,
+                           schema=spec["schema"], stage=spec["stage"], preset=spec["preset"], out_tokens=spec["out_tokens"])
+    return [to_run(b, r).model_copy(update={"out_tokens": spec["out_tokens"]}) for b, r in zip(s.backends, rows)]
 
 
 def add_trial(s: PromptSession, system: str, prompt: str, temperature: Optional[float], runs: list[PromptRun],
@@ -354,7 +377,7 @@ def load_prompt(s: PromptSession, kind: str, project: str = "", n: int = 0) -> P
         if k.need == "draft" and ep.status != "draft":
             raise ValueError(f"{n}화는 플롯을 확정한 화라 {k.label} 프롬프트를 만들 수 없어요. 초안인 화를 고르세요")
         where = f" {n}화"
-    system, prompt = prompts.brief_parts(p, n, kind)
+    system, prompt, schema = prompts.brief_request(p, n, kind)  # 스키마는 글로 붙이지 않고 돌릴 때 구조화 출력으로 넘긴다
     name = ("다음 아크" if p.serial else "기승전결 구조") if kind == "arc" else k.label
     label = f"{name} · {title}{where}"
     if max(len(system), len(prompt)) > TEXT_MAX:
@@ -363,7 +386,8 @@ def load_prompt(s: PromptSession, kind: str, project: str = "", n: int = 0) -> P
     if auto:  # 요청 첫 줄이나 앞서 불러온 이름으로 지은 제목이면 이번 프롬프트 이름으로 (작가가 적은 제목은 남긴다)
         s.title = label[:TITLE_MAX]
     s.system, s.prompt = system, prompt
-    s.source = PromptSource(kind=kind, label=label, project=project, n=n, sig=sig(s.system, s.prompt))
+    s.source = PromptSource(kind=kind, label=label, project=project, n=n, schema_name=schema.__name__ if schema else "", stage=k.stage,
+                            sig=sig(s.system, s.prompt))
     return s
 
 
@@ -377,8 +401,14 @@ def summary(s: PromptSession) -> dict:
 
 
 def view(s: PromptSession) -> dict:
+    """spec: 화면에 보이는 돌리는 방식 (응답 스키마 이름 · 단계 이름 · 출력 한도 · 백엔드마다 쓸 모델과 추론 강도)."""
     edited = bool(s.source) and s.source.sig != sig(s.system, s.prompt)
-    return {**s.model_dump(), **{"summary": summary(s), "source_edited": edited}}
+    spec = run_spec(s)
+    use = [dict(zip(("model", "effort"), research.stage_defaults(research.Backend(**b.model_dump()), spec["stage"], spec["preset"])))
+           for b in s.backends] if spec["stage"] else []
+    shown = {"schema": spec["schema"].__name__ if spec["schema"] else "", "stage": spec["stage"],
+             "stage_label": STAGE_LABELS.get(spec["stage"], spec["stage"]), "out_tokens": spec["out_tokens"], "backends": use}
+    return {**s.model_dump(), **{"summary": summary(s), "source_edited": edited, "spec": shown}}
 
 
 def limits() -> dict:

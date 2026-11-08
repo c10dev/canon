@@ -13,6 +13,7 @@ import socket
 import time
 import urllib.error
 import uuid
+from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -21,7 +22,7 @@ from pydantic import BaseModel
 
 from . import context, metrics, pipeline, prompts, settings, store
 from .judge import env_choice, make_judge
-from .llm import LLM, GeminiLLM, LocalLLM, make_llm
+from .llm import LLM, GeminiLLM, LocalLLM, make_llm, out_cap
 from .schema import ConsistencyReport, ConsistencyReportEn, PlantSet, Project, plant_kind
 
 CHARS_PER_TOKEN = context.CHARS_PER_TOKEN
@@ -41,14 +42,25 @@ def label(b: Backend) -> str:
     return f"{b.provider}:{b.model}" if b.model else b.provider
 
 
-def make_backend(b: Backend, temperature: float | None = None) -> LLM:
+def stage_defaults(b: Backend, stage: str = "", preset: dict | None = None) -> tuple[str, str]:
+    """그 단계의 (모델, 추론 강도). 모델 칸을 적었으면 그 모델. 단계 모델은 그 단계 백엔드가 b 와 같을 때만 쓴다 (다른 백엔드의 모델 이름이라서).
+    추론 강도는 Gemini 만 받는다(settings.provider_effort). 단계가 없으면 둘 다 빈칸(설정 값 · 모델 기본값)."""
+    if not stage or b.provider == "mock":
+        return b.model, ""
+    model = b.model or (settings.stage_model(stage, preset)[0] if settings.stage_provider(stage, preset)[0] == b.provider else "")
+    return model, settings.provider_effort(b.provider, settings.stage_effort(stage, preset)[0])
+
+
+def make_backend(b: Backend, temperature: float | None = None, stage: str = "", preset: dict | None = None) -> LLM:
+    """stage 를 주면 모델 칸이 빈 백엔드는 그 단계의 모델 · 추론 강도로 만든다 (stage_defaults, 프롬프트 놀이터가 불러온 갈래의 단계)."""
+    model, effort = stage_defaults(b, stage, preset)
     if b.provider == "local":
         sampling = settings.local_sampling()
         if temperature is not None:
             sampling = {**sampling, "temperature": temperature}
-        return LocalLLM(base_url=b.url or None, model=b.model or None, sampling=sampling)
+        return LocalLLM(base_url=b.url or None, model=model or None, sampling=sampling)
     if b.provider == "gemini":
-        return GeminiLLM(model=b.model or None, temperature=temperature)
+        return GeminiLLM(model=model or None, effort=effort, temperature=temperature)
     if b.provider == "mock":
         return make_llm("mock")
     raise ValueError(f"알 수 없는 백엔드: {b.provider} (gemini | local | mock)")
@@ -162,17 +174,24 @@ def _probe_reason(url: str, e: RuntimeError) -> str:
 
 # ---------- 샘플 생성 ----------
 
-def sample(runs: list[Backend], system: str, prompt: str, temperature: float | None = None) -> list[dict]:
-    """같은 요청을 백엔드마다 차례로 보낸다. 한 쪽이 실패해도 나머지는 돌린다."""
+def sample(runs: list[Backend], system: str, prompt: str, temperature: float | None = None, schema: type[BaseModel] | None = None,
+           stage: str = "", preset: dict | None = None, out_tokens: int = 0) -> list[dict]:
+    """같은 요청을 백엔드마다 차례로 보낸다. 한 쪽이 실패해도 나머지는 돌린다.
+    schema 를 주면 실제 호출처럼 llm.json(구조화 출력)으로 받아 검증한 JSON 을 글로 돌려준다. 검증에 실패하면 그 백엔드는 실패다.
+    mock 은 부른 쪽의 hint 로 응답을 지어 hint 없이는 스키마 응답을 못 만든다. 그래서 mock 은 schema 를 받아도 글로 받는다(row 의 schema 가 빈칸).
+    stage 는 모델 칸이 빈 백엔드에 그 단계의 모델 · 추론 강도를 쓰게 하고(make_backend), out_tokens 는 출력 한도(llm.out_cap)다."""
     out = []
     for b in runs:
-        row: dict[str, Any] = {"backend": label(b)}
+        structured = schema is not None and b.provider != "mock"  # 형식은 pipeline 이 쓰는 것과 같아 test_schema_nodict 가 따로 보지 않는다
+        row: dict[str, Any] = {"backend": label(b), "schema": schema.__name__ if structured else ""}
         t = time.perf_counter()
         try:
-            llm = make_backend(b, temperature)
-            text = llm.text(system, prompt)
+            llm = make_backend(b, temperature, stage, preset)
+            with out_cap(out_tokens) if out_tokens else nullcontext():
+                text = llm.json(system, prompt, schema).model_dump_json(indent=2) if structured else llm.text(system, prompt)
             m = metrics.measure(text)
-            row.update(ok=True, model=_model_name(llm), text=text, chars=len(text), usage=getattr(llm, "last_usage", None),
+            row.update(ok=True, model=_model_name(llm), effort=getattr(llm, "effort", "") or "", text=text, chars=len(text),
+                       usage=getattr(llm, "last_usage", None),
                        sentence_len_mean=m.sentence_len_mean, dialogue_ratio=m.dialogue_ratio, mattr=m.mattr)
         except Exception as e:  # 백엔드마다 오류 종류가 달라 메시지만 남긴다
             row.update(ok=False, error=f"{type(e).__name__}: {e}")
