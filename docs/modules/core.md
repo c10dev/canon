@@ -24,6 +24,7 @@
 - 시간 건너뜀 멈춤(`Policy.max_time_jump_days`, 0 이면 끔): `timeline.current_day` 에서 `StateDelta.time.day` 까지 앞으로 간 날수. 어느 쪽이든 날수를 모르거나 시간 기록을 껐으면 보지 않고, 거슬러 가는 것도 보지 않는다
 - 지운 칸 멈춤(`Policy.stop_on_clear`, `CharacterState.cleared`). 칸 이름은 `CLEAR_NAMES` 로 상태 승인 화면과 같은 말로 적는다
 - 상태 변경안의 본문 지문(`StateDelta.basis`)이 지금 본문과 다르면 검토 대기로 두지도 반영하지도 않고 `paused` · `changed` 로 멈춘다(`_same_text`)
+- 본문이 출력 길이 한도에 걸려 끊기면(`pipeline.WriteCut`) 그 화를 반영하지 않고 `paused` · `cut` 으로 멈춘다. 이어 가면 그 화 본문을 다시 쓴다
 - 배치(`llm.BatchLLM`) 켜고 끄기
 - 배치를 취소하지 못하면 배치 이름을 서버 로그(`canon` 로거)에 경고로 남긴다(`_cancel_batches`)
 - 기다리는 배치마다 보낸 프롬프트 지문을 `Run.batch_keys` 에 남긴다. 이어 갈 때 다르면 `BatchLLM` 이 그 배치를 취소하고 다시 보낸다(일시정지 중 본문 · 플롯을 고친 경우)
@@ -370,6 +371,13 @@
 - 큐 시트: `make_cue_sheet`, 넣기는 `cue.set_episode`, `write_episode(use_cues=)`
 - 쓰기 가족: 스토리보드 · 큐 시트 요청이 `prompts.write_head` 로 시작하면 `write_family` 가 그 길이를 캐시 경계 hint 로 준다
 - 쓰기 가족: `_write` 는 `llm.family_text` 로 부른다. 요청이 `write_head` 로 시작하면 본문 쓰기도 같은 캐시를 읽는다
+- 본문 쓰기 출력 한도: `_write` 는 끊긴 응답을 알아채는 백엔드(`llm.knows_cut`: Gemini · 로컬 · Claude API · mock)에만 `out_cap(write_out_tokens(p, n))` 을 건다
+- `write_out_tokens` 는 글자 수(목표 분량과 그 화 지금 본문 중 긴 쪽) × `WRITE_TOKENS_PER_CHAR`(4) + `WRITE_THINK_TOKENS`(16,384)를 `WRITE_OUT_RANGE`(24,576~65,536) 안으로 자른다
+- 근거: 서버 write 단계 본문 쓰기 271번(2026-11-08)의 출력+생각 최댓값은 Gemini 17,089 · Claude 24,800토큰이다. 목표 7,000자 한도는 44,384토큰이다
+- Claude Code(구독) · 배치는 끊김을 알리지 않아 한도를 걸지 않는다
+- 끊긴 응답(`llm.was_cut` 또는 `llm.OutputCut`)은 본문으로 받지 않고 `WRITE_TRIES` 안에서 다시 부른다
+- 끝내 끊기면 `WriteCut`(ValueError)을 낸다: '본문이 출력 길이 한도에 걸려 끊겼어요'. 끊긴 본문은 돌려주지 않는다
+- 다시 생성 · 서술 다듬기 · 큐 시트 집필도 `_write` 를 거쳐 같은 한도와 거부를 쓴다. 부분 수정(`PassageRevision`)은 JSON 이라 끊기면 형식 불일치로 끝난다
 - 방금 만든 스토리보드 다음의 큐 시트: `make_storyboard(lead=)` 가 보낸 요청 글을 채우고, `cue_lead` 가 그 스토리보드가 AI 가 만든 그대로 · 낡지 않음일 때만 그 글을 돌려준다. `make_cue_sheet(lead=)` 는 그 글로 시작하는 요청을 보낸다(자동 집필 `_cues`, 웹 쓰기 작업 `board: make`)
 - 문체 분석 `analyze_style` 뒤 `count_markers` 가 표지 · 장치 단서를 거른다: 원문에 없는 것, 한글 2자 미만(`MARKER_MIN_HANGUL`), 인물 이름(2자 이상)이 든 것
 - `count_markers` 는 원문 표본에 없는(공백 빼고 견줌) 장치 예시를 비운다

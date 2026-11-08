@@ -6,10 +6,11 @@ import logging
 
 import re
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
 
 from . import dynamics, elements, illust, metrics, naming, prompts, renumber, setupchat, storylines
 from .judge import Judge, Question
-from .llm import LLM, PREFIX_HINT, Interrupted, dump, family_text, out_cap
+from .llm import LLM, PREFIX_HINT, Interrupted, OutputCut, dump, family_text, out_cap, was_cut
 from . import anchor, board, cancel, charlog, context, features, findings, foreshadows, heatplan, knows, metatail, stage, statwin, usage
 from .schema import CueSheet, CueSheetDraft, Finding, MetaCut, FindingRecheck, FixBatch, FixOption, FixPatch, FixRecheckItem, FixRecheckReport, FixSet, RevArcSet, RevEpisodeDraft, RevLineSet
 from .schema import ParagraphAnatomy, ReaderCheck, SceneCard, SceneVariant, SceneVariants, StudioCandidate, StudioDraft
@@ -2395,6 +2396,32 @@ def reopen_impact(p: Project, eid: str) -> None:
 HANGUL_MIN = 0.8
 WRITE_TRIES = 3
 
+# 본문 쓰기 한 번의 출력 토큰 한도 (생각 토큰 포함) = 목표 글자 수 × WRITE_TOKENS_PER_CHAR + WRITE_THINK_TOKENS, WRITE_OUT_RANGE 안으로.
+# 서버 기록(2026-11-08, write 단계 본문 쓰기 271번, 목표 5,000 · 7,000자): 가장 많이 Gemini 17,089토큰(생각 13,185, 목표 글자당 2.44),
+# Claude 24,800토큰(목표 글자당 3.54). 목표 7,000자 한도는 44,384토큰이다. effort 가 꺼져도 Gemini 는 생각할 수 있어 생각 몫을 크게 둔다.
+# 한도는 끊긴 응답을 알아채는 백엔드(llm.knows_cut)에만 건다. 끊긴 본문은 저장하지 않는다 (_write, WriteCut).
+WRITE_TOKENS_PER_CHAR = 4
+WRITE_THINK_TOKENS = 16384
+WRITE_OUT_RANGE = (24576, 65536)
+
+
+class WriteCut(ValueError):
+    """본문이 WRITE_TRIES 번 모두 출력 길이 한도에 걸려 끊겼다 (가운데 다른 까닭으로 버린 응답도 있을 수 있다). 끊긴 본문은 돌려주지 않는다.
+    자동 집필은 이 오류에서 그 화를 반영하지 않고 멈춘다 (autorun kind cut)."""
+
+
+def write_out_tokens(p: Project, n: int | None = None) -> int:
+    """n화 본문 쓰기의 출력 토큰 한도. 글자 수는 목표 분량(Meta.words_per_episode)과 그 화 지금 본문 중 긴 쪽이다:
+    다시 생성 · 서술 다듬기는 지금 본문만큼 다시 내니, 작가가 목표보다 길게 쓴 화도 끊기지 않게 한다."""
+    chars = p.meta.words_per_episode
+    if n is not None:
+        try:
+            chars = max(chars, len(p.episode(n).text))
+        except KeyError:
+            pass
+    lo, hi = WRITE_OUT_RANGE
+    return max(lo, min(hi, chars * WRITE_TOKENS_PER_CHAR + WRITE_THINK_TOKENS))
+
 
 def write_episode(llm: LLM, p: Project, n: int, approach: str = "", use_board: bool = True, use_cues: bool = True,
                   cut: list[MetaCut] | None = None) -> str:
@@ -2552,9 +2579,18 @@ def _write(llm: LLM, p: Project, n: int, prompt: str, cut: list[MetaCut] | None 
     cut 목록을 주면 뗀 문단을 앞 · 뒤 자리와 함께 채운다. 본문만 돌려주는 모양은 실험 · 비교 호출자가 그대로 쓰게 둔다."""
     system = prompts.writer_system(p)
     head = prompts.write_head(p, n)  # 장편 쓰기 가족: 스토리보드 · 큐 시트와 같은 앞부분이면 그 캐시를 읽는다
-    bad = {"thought": 0, "meta": 0}
+    cap = write_out_tokens(p, n) if getattr(llm, "knows_cut", False) else None
+    bad = {"cut": 0, "thought": 0, "meta": 0}
     for _ in range(WRITE_TRIES):
-        text = family_text(llm, system, prompt, head)
+        try:
+            with out_cap(cap) if cap else nullcontext():
+                text = family_text(llm, system, prompt, head)
+        except OutputCut:
+            text = None
+        if text is None or was_cut(llm):  # 출력 길이 한도에 걸려 끊긴 본문은 받지 않는다
+            bad["cut"] += 1
+            logging.getLogger("canon").warning("%s화 본문이 출력 길이 한도(%s토큰)에 걸려 끊겨 다시 써요", n, cap or "기본")
+            continue
         if metrics.hangul_ratio(text) < HANGUL_MIN:
             bad["thought"] += 1
             continue
@@ -2570,6 +2606,11 @@ def _write(llm: LLM, p: Project, n: int, prompt: str, cut: list[MetaCut] | None 
         return body
     what = " · ".join(f"{label} {k}번" for key, label in (("thought", "다른 글(영어로 된 생각 과정 등)"), ("meta", "작업 설명이나 거절 문구"))
                       if (k := bad[key]))
+    if bad["cut"]:
+        limit = f"({cap:,}토큰)" if cap else ""
+        raise WriteCut(f"{n}화 본문이 출력 길이 한도{limit}에 걸려 끊겼어요 ({WRITE_TRIES}번 중 {bad['cut']}번"
+                       + (f", 그 밖에 {what}" if what else "") + "). 끊긴 본문은 저장하지 않았어요. "
+                       "모델이 같은 글을 되풀이했을 수 있어요. 다시 시도하거나 설정에서 쓰기 모델을 바꿔 주세요")
     raise ValueError(f"{n}화 본문 대신 {what}이 나왔어요. 다시 시도해 주세요")
 
 
