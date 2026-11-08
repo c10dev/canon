@@ -400,9 +400,11 @@
 ### `canon/prompts.py`
 
 - 프롬프트 템플릿
-- 본문을 쓰는 시스템 프롬프트(`writer_system` · `reviser_system` · `paragraph_system`)는 작가가 정한 머리말(`preamble`)로 시작한다
+- 본문을 쓰는 시스템 프롬프트(`writer_system` · `reviser_system` · `paragraph_system`)는 작가가 정한 머리말(`PREAMBLE`)로 시작한다
 - 그 머리말 뒤의 지시에는 '당신은 소설가입니다' 같은 역할 문장을 두지 않고 할 일만 적는다
-- 머리말의 성인 RP/ERP 줄은 `Meta.adult` 인 작품에만 넣는다
+- 성인 · 전연령 작품은 같은 머리말을 받는다(수위 지시를 프롬프트에 두지 않는 규칙, `test_no_rating_instruction_in_prompts`)
+- 머리말이 영어라서 세 지시 모두 '모든 출력은 한국어로 작성합니다'를 둔다
+- 본문 쓰기 지시는 설정 · 사실을 '절대' 같은 강한 말 대신 이유('앞 화와 이어져야 하므로')를 붙여 지키게 한다
 - 화별 컨텍스트 조립(`build_episode_context`)
 - 단편 열 계획: 화별 플롯 규칙 끝 `heat_plot_rules`(계획 · 원칙 · 뒤집힘 · 열린 판돈 · 갈래 안내), 쓰기 · 스토리보드 · 큐 시트의 현재 구간 뒤 `heat_step_line`, 큐 시트 요청 맨 끝 `heat_cue_rule`
 - 열 계획이 없으면 세 곳 모두 빈 글이라 프롬프트가 그대로다
@@ -561,6 +563,7 @@
 ### `canon/store.py`
 
 - `projects/<이름>/project.json` 저장
+- 모듈을 불러올 때 `usage.adult_of` 를 `load_view(name).meta.adult` 로 채운다(`llm.with_note` 의 성인 작품 줄)
 - 본문을 `episodes/NN.md` 로 내보내기(바뀐 화만 다시 씀), project.json 은 들여쓰기 없이
 - 마지막 화가 100화 이상이면 본문 파일 이름을 세 자리(`NNN.md`)로 쓰고 옛 두 자리 파일은 지운다(`ep_file`)
 - 저장 전 직전 판을 `project.prev.json` 으로, 시간마다 첫 저장 직전 판을 `backups/project.<날짜-시>.json` 으로 남긴다(하드 링크라 복사하지 않음)

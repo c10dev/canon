@@ -100,6 +100,7 @@
 - `BatchLLM` 은 slot 마다 보낸 프롬프트 지문(`keys`, `BatchLLM.key`)을 남긴다. 다시 붙을 때 지문이 다르면 기다리던 작업을 취소하고 새로 보낸다
 - 형식 고치기 slot(`<slot>:fix`)도 처음 프롬프트의 지문으로 맞춰 본다. 지문이 없는 예전 기록은 그대로 다시 붙는다
 - 모든 요청 맨 끝(사용자 메시지)에 `POLICY_NOTE` 한 줄(`with_note`, Gemini · 배치 · 로컬 · `claude.py` 두 백엔드가 보내기 직전에). 수위 지시는 프롬프트에 두지 않는다
+- 성인 독자 대상 작품의 요청이면 `with_note` 가 `POLICY_NOTE` 앞에 `ADULT_NOTE`(작가가 정한 RP/ERP 줄)를 둔다. 작품은 `usage.adult()` 로 안다. 프롬프트 글은 성인 · 전연령 작품이 같다
 - 응답 읽기 `_validate`: 통째로 읽히지 않으면 글 속 최상위 JSON 객체(`_json_objects`)를 뒤에서부터 읽는다(생각 글이 앞에 새는 응답, Gemini · 배치 · Claude 공통)
 - 형식 고치기 `repair_prompt`: 응답에 JSON 객체가 없으면 처음 요청을 그대로 다시 보낸다
 - Gemini 응답이 끝난 이유는 `last_finish`(두 번째도 실패하고 `MAX_TOKENS` 면 `SchemaMismatch` 글에 길이 한도를 적는다)
@@ -189,6 +190,7 @@
 
 - AI 사용량과 비용
 - LLM 구현이 실제 호출마다 `record` 로 `projects/.usage/usage.jsonl` 에 남긴다
+- `adult()` 는 scope 의 `project` 가 성인 독자 대상 작품인지 돌려준다(`adult_of` 는 store 가 채움, 모르면 False)
 - `read` 는 읽은 끝 위치를 기억하고 다음에는 늘어난 줄만 읽는다(`_read_cache`)
 - 작품 · 화 · 작업은 `scope(...)` 로 붙인다(웹 미들웨어, `jobs.start`, 자동 집필, CLI)
 - `collect()` 는 안에서 `record` 한 줄을 목록에 모은다(`_acc`). `copy_context` 로 넘긴 스레드의 호출도 같은 목록에 모인다

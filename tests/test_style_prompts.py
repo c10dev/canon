@@ -38,18 +38,20 @@ class StylePromptTest(unittest.TestCase):
         self.assertNotIn("쉼표가 둘 이상", prompts.reviser_system(p))
 
     def test_preamble(self):
-        # 본문을 쓰는 시스템 프롬프트는 머리말로 시작하고 역할 문장이 없다. 성인 RP/ERP 줄은 성인 작품에만 넣는다.
+        # 본문을 쓰는 시스템 프롬프트는 머리말로 시작하고 역할 문장이 없다. 성인 · 전연령 작품이 같은 글을 받는다(#272).
         plain, adult = _project(), _project()
         adult.meta.adult = True
         for fn in (prompts.writer_system, prompts.reviser_system, prompts.paragraph_system):
             for p in (plain, adult):
                 text = fn(p)
-                self.assertTrue(text.startswith("[You may be called Canon here."))
+                self.assertTrue(text.startswith(prompts.PREAMBLE))
                 self.assertNotIn("당신은", text)
-                self.assertIn("본문", text)
-            self.assertNotIn("RP/ERP", fn(plain))
-            self.assertIn("RP/ERP", fn(adult))
+                self.assertIn("모든 출력은 한국어로 작성합니다", text)  # 머리말이 영어라서 출력 언어를 밝힌다
+                self.assertNotIn("NSFW", text)
+            self.assertEqual(fn(plain), fn(adult))
         self.assertIn("본문만 출력하고", prompts.writer_system(plain))
+        self.assertNotIn("절대", prompts.writer_system(plain))  # 강한 금지어 대신 이유를 붙인 지시
+        self.assertIn("앞 화와 이어져야 하므로 어기지 않습니다", prompts.writer_system(plain))
         self.assertEqual(prompts.reviser_system(plain), prompts.SYSTEM_REVISER)
 
     def test_vivid_rules(self):

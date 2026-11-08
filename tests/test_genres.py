@@ -31,5 +31,7 @@ def test_no_rating_instruction_in_prompts():
     """수위는 프롬프트에 지시로 넣지 않는다. 성인 · 전연령 작품의 요청이 같다 (화면과 프로그램 규칙만 다르다)."""
     adult, kids = (Project(meta=Meta(title="t", genres=["mystery"], adult=a)) for a in (True, False))
     assert prompts.static_context(adult) == prompts.static_context(kids)
+    for fn in (prompts.writer_system, prompts.reviser_system, prompts.paragraph_system):  # 시스템 프롬프트도 같다
+        assert fn(adult) == fn(kids)
     for text in (prompts.static_context(kids), prompts.setup_prompt(kids)):
         assert "수위" not in text and "전연령" not in text and "암시로" not in text and "rating" not in text

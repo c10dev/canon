@@ -18,7 +18,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any, Iterator, NamedTuple, Optional
+from typing import Any, Callable, Iterator, NamedTuple, Optional
 
 from pydantic import BaseModel, Field
 
@@ -81,6 +81,21 @@ def scope(**kw: Any) -> Iterator[None]:
 
 def context() -> dict:
     return dict(_ctx.get())
+
+
+# 작품 이름 → 성인 독자 대상 작품(Meta.adult)인지. store 가 정한다 (usage 는 store 를 모른다).
+adult_of: Callable[[str], bool] | None = None
+
+
+def adult() -> bool:
+    """지금 호출의 작품(scope 의 project)이 성인 독자 대상 작품인지. 작품을 모르거나 읽지 못하면 False (줄을 넣지 않는 쪽)."""
+    name = _ctx.get().get("project")
+    if not name or adult_of is None:
+        return False
+    try:
+        return bool(adult_of(name))
+    except Exception:
+        return False
 
 
 @contextmanager
