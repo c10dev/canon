@@ -577,6 +577,9 @@
 - 지난 저장과 같은 스냅샷은 다시 직렬화하지 않는다(`_snap_written`). 어느 판(project.json · prev · backups)도 적지 않은 스냅샷 파일은 지운다
 - `backups/` 의 모든 `.json`(되돌리기 전 판 포함)이 적은 스냅샷 파일을 남긴다
 - 아무 판도 적지 않아도 `SNAP_GRACE`(60초) 안에 쓴 스냅샷 파일은 지우지 않는다
+- `_snap_refs` 는 판의 스냅샷 목록을 돌려준다. 옛 모양이면 None, 없는 파일이면 빈 목록이다
+- 판을 읽지 못하면(OSError, 빈 파일, JSON 객체가 아닌 머리, 앞 64KB 안에서 닫히지 않는 목록) `_snap_refs` 가 `SnapRefsUnreadable` 을 낸다
+- 판 하나라도 읽지 못하면 `_drop_old_snapshots` 는 그 차례 정리를 건너뛰고 `canon` 로그에 경고를 남긴다. 계속 읽지 못하면 `snapshots/` 가 커진다
 - `save` 는 판 기록 읽기부터 옛 스냅샷 지우기까지 작품 폴더의 `.lock` 에 `fcntl.flock` 을 잡는다(`_disk_lock`). 명령줄과 웹 서버가 함께 저장해도 서로의 새 스냅샷 파일을 지우지 않는다
 - 읽고 고쳐 저장하는 구간 전체의 프로세스 사이 잠금은 `jobs.project_lock`(`.edit.lock`)이 맡는다
 - `write_atomic` 은 pid · 스레드 id 가 붙은 tmp 파일에 다 쓴 뒤 `os.replace` 로 바꿔 넣고, 바꾸기 직전 tmp 의 stat(판)을 돌려준다
