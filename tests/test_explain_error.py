@@ -190,10 +190,12 @@ def test_autorun_quota_halt(tmp_path, monkeypatch):
         main(["plot", "demo"])
         main(["confirm", "demo", "all"])
 
-    def spent(self, p, n):
+    def spent(*a, **kw):
         raise QuotaSpent() from per_day()
 
-    monkeypatch.setattr(autorun.Runner, "_write", spent)
+    from canon import pipeline
+
+    monkeypatch.setattr(pipeline, "write_episode", spent)  # 본문 쓰기 호출에서 하루 한도에 걸린다
     run = autorun.start("demo", 1, False, autorun.Policy(hand_pick_opening=False), foreground=True)
     assert run.status == "paused" and run.halt == "quota" and run.ep == 1  # 화면의 갈 곳 버튼은 ep 가 있어야 보인다
     assert run.reasons[0].startswith(llm.QUOTA_HINT) and "이어 가세요" in run.reasons[1]
