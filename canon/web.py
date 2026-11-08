@@ -185,6 +185,12 @@ async def _bad_request(_: Request, e: Exception) -> JSONResponse:
     return JSONResponse({"detail": str(msg)}, status_code=400)
 
 
+@app.exception_handler(settings.ConfigBroken)
+async def _config_broken(_: Request, e: Exception) -> JSONResponse:
+    # 깨진 설정 파일 위에 덮어쓰지 않았다. 화면은 설정 맨 위 안내의 '기본값으로 새로 시작'으로 풀게 한다
+    return JSONResponse({"detail": str(e), "code": "config_broken"}, status_code=409)
+
+
 @app.exception_handler(BadKey)
 async def _bad_key(_: Request, e: BadKey) -> JSONResponse:
     # 키가 틀리거나 만료됐다: 영어 원문 대신 설정으로 가는 안내 (화면 showError 가 설정을 열지 묻는다)
@@ -418,6 +424,8 @@ class ConfigView(_Out):
     stage_presets: list[StagePreset] = []
     local_sampling: dict[str, float] = {}  # 로컬 본문 생성 샘플링 (설정 파일 local_sampling 이 기본값을 덮는다). 화면은 읽기만
     path: str  # 설정 파일 경로
+    config_broken: bool = Field(False, description="설정 파일이 깨져 있어 기본값으로 읽고 저장은 막았다 (POST /api/config/reset 으로 새로 시작)")
+    config_backup: str = Field("", description="깨진 설정 파일의 보관본 경로 (config.json.corrupt-<시각>). 못 남겼거나 깨지지 않았으면 \"\"")
 
 
 class ConfigTest(_Out):
@@ -539,6 +547,13 @@ def put_config(body: SettingsIn) -> ConfigView:
     return settings.public()
 
 
+@app.post("/api/config/reset")
+def reset_config() -> ConfigView:
+    """깨진 설정 파일을 빈 설정으로 새로 시작한다. 보관본(config.json.corrupt-<시각>)은 그대로 둔다. 깨지지 않았으면 400."""
+    settings.reset_broken()
+    return settings.public()
+
+
 class PresetIn(BaseModel):
     name: str
     stages: dict[str, str] = {}
@@ -550,6 +565,8 @@ def save_stage_preset(body: PresetIn) -> ConfigView:
     """설정 화면 단계 칸을 이름 붙여 내 프리셋으로 저장한다. 단계 설정 자체는 바꾸지 않는다."""
     try:
         settings.save_preset(body.name, body.stages, body.stage_models)
+    except settings.ConfigBroken:
+        raise  # 409 (_config_broken)
     except ValueError as e:
         raise HTTPException(400, str(e))
     return settings.public()
@@ -559,6 +576,8 @@ def save_stage_preset(body: PresetIn) -> ConfigView:
 def delete_stage_preset(preset_id: str) -> ConfigView:
     try:
         settings.delete_preset(preset_id)
+    except settings.ConfigBroken:
+        raise  # 409 (_config_broken)
     except ValueError as e:
         raise HTTPException(400, str(e))
     except KeyError:
