@@ -443,6 +443,7 @@
 - 조건 `CONDITIONS`(none · json · lines, `stat_window.prompt` 만 바꾼 사본 `variant`)
 - 시험할 화(`candidates`, 추천 `default_pick`)
 - 그 화를 쓰기 직전 사본(`before`, `pipeline.revert`)
+- 컨텍스트 놓침 실측 `scripts/context_measure.py` 도 이 사본으로 화마다 쓰기 프롬프트를 다시 만든다(LLM 없음, `docs/context/specs/01-measure.md`, 시험 `tests/test_context_measure.py`)
 - 원래 반영의 바뀐 항목(`changes`)
 - LLM 없는 채점(`score`: 바뀌지 않을 값 · 바뀔 값 오류, 없던 항목, 플롯에 없던 상태창)
 - 비용 추정(`estimate`, 실제 요청 글자 수와 `usage` 가격표)
