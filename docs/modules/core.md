@@ -639,6 +639,10 @@
 - 잠금은 재진입하지 않는다. 잠금을 잡은 채 저장하는 코드는 `_save` 대신 `_save_locked` 를 부른다
 - 작품 저장(PUT · PATCH)은 디스크에도 있는 화의 `JOB_EP_FIELDS` 칸(검수 결과 · 흡입력 판정 · 다시 맞추기 표시 · 고칠 곳 · 장면 연출)을 디스크 값으로 둔다(`_keep_job_fields`)
 - 작업이나 전용 엔드포인트만 쓰는 화의 칸을 새로 만들면 `JOB_EP_FIELDS` 에 더한다. 그래야 작업 전에 읽은 화면의 저장이 작업 결과를 덮지 않는다
+- 작품 저장(PUT · PATCH)이 디스크에서 본문이 있는 화를 빼면 디스크 화를 통째로 되돌리고 `X-Canon-Kept` 에 `{"field": "episode", "ep": n}` 로 알린다(`_keep_texts`)
+- 작품 저장(PUT · PATCH)이 본문이 있던 화의 본문을 빈 글로 보내면 본문만 디스크 것으로 되돌리고 `{"field": "text", "ep": n}` 로 알린다(`_keep_texts`)
+- 이 본문 지키기는 `force` 로도 풀지 않는다. 화 빼기 · 지우기는 전용 라우트(`remove_episode` · `delete_episode`)가 한다
+- 인물 · 떡밥 · 비밀 목록이 비는 저장은 막지 않는다. 작가가 일부러 지운 결과다
 - 인물 · 관계도와 지도 응답은 작품 판으로 JSON 을 기억하고 ETag 를 붙인다(`_json_view`)
 - CLI 와 같은 store · pipeline · prompts 를 쓰고 화면은 `canon/static/` 의 정적 파일이다
 - AI 가 만든 제안(설정, 문체, 구조, 상태 변경안)은 바로 저장하지 않고 돌려준다

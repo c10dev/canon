@@ -251,6 +251,8 @@ def _save_locked(name: str, p: Project, merged: set[str] | None = None, kept: li
         kept += [k for k in autorun.protected(name, disk, p) if k not in kept]
         # 본문이 있는 화의 플롯은 화면이 막아도 서버에서 한 번 더 지킨다 (줄기 표시만 받는다)
         kept += [{"field": "plot", "ep": n, "why": "locked"} for n in pipeline.keep_locked_plots(disk, p)]
+        # 본문이 있던 화가 빠지거나 본문이 빈 글이 되는 저장은 화면 버그로 본다. 화 지우기는 전용 라우트가 있어 force 로도 풀지 않는다
+        kept += _keep_texts(disk, p)
         # 화면이 열린 동안 플롯 작업이 더한 새 인물 후보도 지킨다. 안 쓰이거나 등록된 후보는 sync 가 지운다
         have = {c.id for c in p.cast_candidates}
         p.cast_candidates += [c for c in disk.cast_candidates if c.id not in have]
@@ -261,6 +263,27 @@ def _save_locked(name: str, p: Project, merged: set[str] | None = None, kept: li
         p.rooms = disk.rooms
     store.save(name, p)
     return p
+
+
+def _keep_texts(disk: Project, p: Project) -> list[dict]:
+    """디스크에서 본문이 있는 화를 화면 저장이 빼거나 본문을 비우면 디스크 것을 둔다.
+    빠진 화는 디스크 화를 통째로 되돌리고 {"field": "episode", "ep": n} 를, 비운 본문은 본문만 되돌리고 {"field": "text", "ep": n} 를 돌려준다.
+    화 지우기 · 본문 비우기는 전용 라우트(remove_episode · delete_episode)가 한다."""
+    mine = {e.plot.number: e for e in p.episodes}
+    kept: list[dict] = []
+    for d in disk.episodes:
+        if not d.text:
+            continue
+        n = d.plot.number
+        if n not in mine:
+            mine[n] = d
+            kept.append({"field": "episode", "ep": n})
+        elif not mine[n].text:
+            mine[n].text = d.text
+            kept.append({"field": "text", "ep": n})
+    if kept:
+        p.episodes = [mine[k] for k in sorted(mine)]
+    return kept
 
 
 # 화의 칸 중 작업 · 전용 엔드포인트만 쓰고 화면의 작품 저장(PUT · PATCH)은 바꾸지 않는 칸.

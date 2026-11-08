@@ -56,6 +56,7 @@
 - 상태 `S`
 - 서버 호출 `api`
 - 작품 저장 `save` 는 받은 판(`projectBase` 의 `keys` · `eps`)과 달라진 칸 · 화만 `PATCH` 로 보낸다(`patchBody`)
+- 서버가 본문 있는 화를 지켜 `X-Canon-Kept` 에 `episode` · `text` 를 담으면 `save` 는 그 화 번호를 '본문이 있는 화를 빼거나 본문을 비우는 저장이라' 토스트로 알리고 '저장했어요'를 띄우지 않는다
 - 본문 고침을 시작한 저장 본문은 `TEXT_BASE`('작품:화')에 적는다(`markTextBase` · `textBase`). 본문 저장 요청 몸은 `textBody`(서버 `Text.base`)
 - 작품 전체 GET 은 받은 판을 `projectCache` 에 두고 304 면 그 복사본을 쓴다
 - `isProjectJson`(`meta` 와 `episodes` 배열)인 답만 작품으로 받고 보관한다. 보관한 판으로 물었는데 아니면 보관한 것을 버리고 조건 없이 다시 받는다(`tests/test_project_cache_js.py`)
