@@ -451,7 +451,8 @@
 - 장편 본문 쓰기 요청(`build_episode_context(write=True)`)의 뒤쪽, 가끔 쓰는 장치 뒤에 '최근 화에서 되풀이한 구절' 블록 `echo_block`(`echoes.recent`, `Settings.recent_echoes`, 단편 · 스토리보드 만들기에는 넣지 않음)
 - 화에 큐 시트가 있으면 `episode_prompt` 맨 끝에 `cue_write_block`(실험의 조건 score 와 같은 글, `use_cues=False` 면 뺌)
 - `episode_prompt` 끝(큐 시트 블록 앞)의 문장 끝 섞기 줄 `ending_line`('~다.' 몫과 현재형 몫은 문체 기준에서 `ENDING_SHARE` · `PRESENT_SHARE_MAX` 안으로, 서술 말투가 있는 화는 뺌)
-- 4화부터 `episode_prompt` 의 요청 글에 이미 나온 설정 · 지난 사건을 다시 설명하지 않는 줄 `RETOLD_LINE`(1~3화는 `opening_rules` 가 다룸)
+- 4화부터 `episode_prompt` 의 흐름 문장에 이미 나온 설정 · 지난 사건을 다시 설명하지 않는 구절 `RETOLD_LINE`(1~3화는 `opening_rules` 가 다룸)
+- `RETOLD_LINE` 은 지시 문장 수 상한(`tests/test_write_budget.py`)을 지키려고 따로 문장을 두지 않는다
 - `RETOLD_LINE` 은 오랜만에 다시 나오는 인물만 처음 나올 때 한두 문장으로 짚게 해 `return_block` 과 맞춘다
 - 화별 플롯 초안(`plot_prompt` · `serial_plot_prompt`)은 범위 안 · 범위 뒤 3화(`PLAN_AHEAD`)의 이미 정해진 화를 `fixed_plots` · `fixed_block` 으로 넣고 요구사항에 `fixed_rule` 을 붙인다(장편은 `context.BUDGET["plan_fixed"]`, 한 화 초안은 `ahead=False`)
 - 장편 화별 플롯 초안은 `[관계]` 뒤에 지금 관계 단계 라벨(`plan_stage_block`, 예산 `context.BUDGET["plan_stages"]`), 장편 `plot_rules` 에 '단계는 한 화에 한 칸' 한 줄

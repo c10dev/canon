@@ -2951,7 +2951,7 @@ def episode_prompt(p: Project, n: int, approach: str = "", use_board: bool = Tru
     flow = ("첫 화이므로 앞 이야기를 요약하거나 설명으로 깔지 않고 장면으로 시작하고, " if n == 1
             else "직전 화 마지막 장면과 자연스럽게 이어지고, ")
     if n > OPENING_EPISODES:  # 1~3화는 opening_rules 가 설명 문장을 다룬다
-        flow = RETOLD_LINE + flow
+        flow += RETOLD_LINE
     return (
         build_episode_context(p, n, use_board=use_board, write=True)
         + (f"\n\n{rules}" if rules else "")
@@ -3039,10 +3039,11 @@ def polish_prompt(p: Project, n: int, text: str) -> str:
 
 # 사건을 차례로 처리하느라 요약처럼 흐르지 않게, 한 장면에 머물 자리를 준다 (서술 단조로움 개선, 2026-11-03).
 FOCUS_LINE = "플롯 사건 가운데 이 화의 중심이 되는 하나를 골라 가장 길게 장면으로 쓰고, 나머지는 짧게 이어도 됩니다."
-# 4화부터 쓰기 요청에 붙는 줄. 독자가 이미 아는 설정 · 지난 사건을 다시 풀어 쓰지 않게 한다.
+# 4화부터 쓰기 요청의 흐름 문장('직전 화 … 이어지고, ')에 잇는 구절. 독자가 이미 아는 설정 · 지난 사건을 다시 풀어 쓰지 않게 한다.
 # 오랜만에 다시 나오는 인물은 return_block 의 '처음 나올 때 한두 문장으로 짚어 줍니다'를 따른다.
-RETOLD_LINE = ("독자는 앞 화를 읽었습니다. 이미 나온 세계관 설정과 지난 화 사건을 다시 설명하거나 요약하지 않고, "
-               "이번 화 장면에 필요한 만큼만 대사와 행동 속에서 짚습니다. 오랜만에 다시 나오는 인물만 처음 나올 때 한두 문장으로 짚어 줍니다. ")
+# 지시 문장 수 상한(tests/test_write_budget.py)을 지키려고 따로 문장을 두지 않고 흐름 문장 안에 넣는다.
+RETOLD_LINE = ("독자가 앞 화에서 읽은 세계관 설정과 지난 사건은 다시 설명하거나 요약하지 않고"
+               "(오랜만에 다시 나오는 인물만 처음 나올 때 한두 문장으로 짚음), ")
 
 
 def shift_label(text: str) -> bool:
