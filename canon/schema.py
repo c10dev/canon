@@ -256,7 +256,7 @@ class Settings(BaseModel):
     check_widen: bool = Field(False, description="장편 검수 넓히기: 검수 뒤 진술마다 옛 화를 더 찾아, 첫 검수에 없던 근거가 나온 진술만 다시 묻는다 (검수 호출 2번 더)")
     check_after_write: bool = Field(False, description="웹에서 본문을 처음 쓰면 같은 작업에서 바로 검수한다 (web._job_write). 새 판(다시 생성)은 검수하지 않는다")
     check_scope: bool = Field(True, description="다시 검수(두 번째 회차부터)는 지난 검수 뒤 바뀐 문단에서 나온 새 지적만 넣는다 (pipeline.check_scope · findings.scoped)")
-    heat_plan: bool = Field(False, description="단편 기승전결을 기획할 때 열 계획(화별 열 눈금 · 몫, 판돈 · 제약 · 관객 · 금지선, 뒤집힘)을 함께 받는다 (canon/heatplan.py)")
+    heat_plan: bool = Field(False, description="단편은 기승전결을, 장편은 다음 아크를 기획할 때 열 계획(화별 열 눈금 · 몫, 판돈 · 제약 · 관객 · 금지선, 뒤집힘)을 함께 받는다 (canon/heatplan.py)")
     heat_words: list[str] = Field(default_factory=list, description="정점 대목을 찾을 때 세는 낱말 (작가가 적음, metrics.peak_window). 비우면 정점 대목 경고를 하지 않는다")
     check_motion: bool = Field(True, description="검수 때 동선만 따로 한 번 더 본다 (pipeline.motion_check: 이번 화 본문만 넣는 check 호출 1번 더, 본 검수와 동시에 부름)")
     stage_extract: bool = Field(True, description="검수 때 본문에서 장면 연출을 함께 뽑는다 (계획 장면이 있는 사건마다 check 호출 1번 더, 본문이 그대로인 사건은 건너뜀)")

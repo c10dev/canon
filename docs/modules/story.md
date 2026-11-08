@@ -519,7 +519,7 @@
 - 열린 단서 복선에 갈래 붙이기, 새로 심기(`heatAddStake`, 복선 더하기 API, 플롯이 있는 화에만)
 - 뒤집힘 칸(`heat_turn.plant_ep` · `fail_ep` · `gain`)과 열 원칙 칸(`heat_rule`)
 - 지우기 `heatClear`
-- 구조 제안 미리보기 `heatProposalPart`(누를 수 없는 막대), 고르기 `heatApply`, 'AI로 구조 만들기 · 다시 제안'의 켜기 칸 `heatPlanToggle`(`settings.heat_plan`)
+- 구조 제안 미리보기 `heatProposalPart`(누를 수 없는 막대), 고르기 `heatApply`, 켜기 칸 `heatPlanToggle`(`settings.heat_plan`): 단편은 'AI로 구조 만들기 · 다시 제안', 장편은 '다음 아크 기획' 카드
 - 다음 아크 제안 카드도 열 계획 미리보기를 붙이고, 다음 아크 기획 칸에 켜기 칸을 둔다
 
 ### `canon/static/illust.js`
