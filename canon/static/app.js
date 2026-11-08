@@ -1554,15 +1554,22 @@ async function save(force = false) {
   // 서버가 작업 · 자동 집필 · 다른 곳의 반영을 지키느라 화면 값 대신 서버 것을 둔 칸. 화면이 고친 칸이면 성공 토스트만으로는 버린 줄 모른다
   const head = meta.headers && meta.headers.get('X-Canon-Kept');
   const kept = head ? JSON.parse(decodeURIComponent(head)) : [];
-  const dropped = kept.filter((k) => k.field !== 'character' && k.why !== 'locked' && edited(k)).map((k) => (k.field === 'relationships' ? '관계' : `${k.ep}화 플롯`));
+  const dropped = kept.filter((k) => (k.field === 'relationships' || k.field === 'plot') && k.why !== 'locked' && edited(k)).map((k) => (k.field === 'relationships' ? '관계' : `${k.ep}화 플롯`));
   const locked = kept.filter((k) => k.why === 'locked' && edited(k)).map((k) => k.ep);
   const kin = kept.filter((k) => k.field === 'character').map((k) => k.name);
+  // 빠진 화는 작가가 지우려 했을 수 있어 화 지우기를 알려 준다. 비운 본문은 대개 이 화면의 옛 사본이라(다른 곳에서 쓴 화) 중립 문구로 알린다.
+  // 플롯 토스트(locked)가 이미 그 화를 알렸으면 비운 본문 토스트는 띄우지 않는다
+  const gone = kept.filter((k) => k.field === 'episode').map((k) => k.ep);
+  const emptied = kept.filter((k) => k.field === 'text' && !locked.includes(k.ep)).map((k) => k.ep);
+  const lost = [...gone, ...emptied];
   if (dropped.length) toast(`작업이나 반영된 진행과 겹쳐 이 부분은 저장하지 않고 서버에 있는 것으로 두었어요: ${dropped.join(', ')}`, true);
   if (locked.length) toast(`본문이 있는 화라 플롯은 저장하지 않고 서버에 있는 것으로 두었어요: ${rangeText(locked)}화. 이야기 줄기 표시만 바꿀 수 있어요`, true);
+  if (gone.length) toast(`본문이 있는 화를 빼는 저장이라 그 화는 서버에 있는 것으로 두었어요: ${rangeText(gone)}화. 화를 지우려면 화 지우기를 써 주세요`, true);
+  if (emptied.length) toast(`서버에는 본문이 있는 화라 서버에 있는 것으로 두었어요: ${rangeText(emptied)}화`, true);
   if (kin.length) toast(`이 화면이 모르는 사이 반영으로 더해진 인물(${kin.join(', ')})은 지우지 않고 남겼어요`);
   if (S.route[2] === 'style') { await loadStyleLink(); await learnLoad(); await anchorLoad(); }
   if (S.route[2] === 'causal') await causalLoad();
-  return !dropped.length && !locked.length;
+  return !dropped.length && !locked.length && !lost.length;
 }
 
 async function loadStyleLink() {

@@ -53,6 +53,10 @@ class StylePromptTest(unittest.TestCase):
         self.assertNotIn("절대", prompts.writer_system(plain))  # 강한 금지어 대신 이유를 붙인 지시
         self.assertIn("앞 화와 이어져야 하므로 어기지 않습니다", prompts.writer_system(plain))
         self.assertEqual(prompts.reviser_system(plain), prompts.SYSTEM_REVISER)
+        # 기획 단계(플롯 · 스토리보드 · 큐 시트 등)도 같은 머리말로 시작하고 역할 문장이 없다
+        self.assertTrue(prompts.SYSTEM_PLANNER.startswith(prompts.PREAMBLE))
+        self.assertNotIn("당신은", prompts.SYSTEM_PLANNER)
+        self.assertIn("모든 출력은 한국어로 작성합니다", prompts.SYSTEM_PLANNER)
 
     def test_vivid_rules(self):
         # 금지만 하던 비유 규칙을 대신 할 일로 바꾸고, 감각 · 늘려 쓰기 · 튀는 생각 규칙은 문체 원문이 있어도 넣는다
