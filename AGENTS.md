@@ -18,6 +18,7 @@ AI 로 소설을 길게 쓸수록 인물 관계, 심리, 말투, 복선, 문체�
 |---|---|
 | 지도 기능(`canon/atlas.py` · `canon/maps/` · `static/atlas*.js`)을 고칠 때 | [docs/map/](docs/map/README.md): 모듈 경계, 지도 데이터 형식, 일감 차례와 작업 명세서. 일감을 끝내면 그 명세서의 상태와 `docs/map/plan.md` 를 고친다 |
 | 장면 연출(방 안 자리 · 자세 · 신체 접촉을 박자마다 적고 재생하는 도구, `stage`)을 만들거나 고칠 때 | [docs/stage/](docs/stage/README.md): 정한 규칙, 데이터 형식, 일감 차례와 작업 명세서, 화면 시안 |
+| 컨텍스트 조립(`context.py` 의 활성화 · 프롬프트 보기와 블록 설정 · 정규식 규칙 · 선언형 규칙 · 접은 줄거리 고르기)을 고칠 때 | [docs/context/](docs/context/README.md). 일감을 끝내면 그 명세서의 상태와 `docs/context/plan.md` 를 고친다 |
 | 웹 화면(`canon/static/`)의 모양을 고칠 때 | [docs/design/](docs/design/README.md): 디자인 시스템의 원본: 문구 · 색 · 글자 · 간격 규칙(README), 화면 배치(`layout.md`), 토큰 값(`tokens.json`), 컴포넌트별 문서와 미리보기(`components/<이름>/README.md` · `preview.html`), 미리보기가 읽는 컴포넌트 CSS 사본(`components/bundle.css`) |
 | 스키마 · 프롬프트 · 파이프라인 · 검수 · 스토리보드 · 큐 시트 · 저장 · 작업 · 자동 집필 · 명령줄 · 웹 서버를 고칠 때 | [docs/modules/core.md](docs/modules/core.md) |
 | LLM 백엔드 · 사용량 · 판단기 · 가짜 응답(mock) · 환경 변수를 고칠 때 | [docs/modules/ai.md](docs/modules/ai.md) |
