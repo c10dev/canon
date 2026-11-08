@@ -194,7 +194,7 @@ def clean(p: Project, rev: SetupRevision, mode: str = "") -> SetupRevision:
         same = next((x for x in p.characters if x.name.strip() == name), None)
         if same is not None:
             remap[c.id] = same.id
-            notes.append(f"새 인물 {name}은(는) 이미 있는 인물이라 뺐어요")
+            notes.append(f"새 인물 {name}{logline.josa(name, '은', '는')} 이미 있는 인물이라 뺐어요")
             continue
         cid = _slug(c.id)
         if cid in taken:
@@ -299,7 +299,8 @@ def apply(p: Project, i: int, parts: list[str]) -> list[str]:
     have = {c.id for c in p.characters} | {c.id for c in rev.new_characters if f"new:{c.id}" in want}
     for r in rev.relationships:
         if rel_id(r) in want and not {r.a, r.b} <= have:
-            raise ValueError(f"{label(p, rev, rel_id(r))}은(는) 고르지 않은 새 인물과 이어져 있어요. 그 인물도 함께 고르세요")
+            what = label(p, rev, rel_id(r))
+            raise ValueError(f"{what}{logline.josa(what, '은', '는')} 고르지 않은 새 인물과 이어져 있어요. 그 인물도 함께 고르세요")
     before = _before(p)
     old = p.model_copy(update={"characters": before.characters})  # 인물 설정 변경 기록용
 

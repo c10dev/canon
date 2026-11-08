@@ -2467,7 +2467,7 @@ def _plot_ranges(p: Project, arc: int | None = None) -> list[tuple[str, int, int
     if p.serial and arc is not None:
         s = next((x for x in p.story_arcs if x.number == arc), None)
         if s is None:
-            raise ValueError(f"아크 {arc}이(가) 없어요")
+            raise ValueError(f"아크 {arc}{josa(str(arc), '이', '가')} 없어요")
         beats = s.acts
     # 화를 함께 쓰는 구간(짧은 작품)은 한 번에 만든다 (pipeline.act_groups)
     return [(names, a, b) for names, a, b in pipeline.act_groups(beats) if any(status.get(n, "draft") == "draft" for n in range(a, b + 1))]

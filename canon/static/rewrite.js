@@ -144,7 +144,7 @@ function rewritePanel(n) {
     : `<p class="small" style="margin:0">무엇이 아쉬웠는지 알려 주면 새 판을 쓸 때 참고해요. 지금 본문은 그대로 두고, 새 판이 오면 비교해서 골라요.</p>
     <div class="field"><span class="small">빠른 요청 (여러 개 고를 수 있어요)</span><div class="row rw-chips" style="gap:6px">${chips}</div></div>
     <div class="field"><label class="small" for="rw-feedback">피드백</label>
-      <textarea id="rw-feedback" data-rw-feedback="${n}" rows="3" placeholder="예: ${esc(exName(0))}이(가) 너무 빨리 마음을 연다. 중간에 한 번 더 밀어내게 해 줘">${esc(r.feedback)}</textarea></div>
+      <textarea id="rw-feedback" data-rw-feedback="${n}" rows="3" placeholder="예: ${esc(exName(0))}${josa(exName(0), '이', '가')} 너무 빨리 마음을 연다. 중간에 한 번 더 밀어내게 해 줘">${esc(r.feedback)}</textarea></div>
     <div class="field"><span class="small">함께 넣을 것</span><div class="grid-2">${mats}</div></div>
     ${howTo}
     <div class="field"><span class="small">살릴 부분 ${r.keep.length}/${info.keep_max}</span>

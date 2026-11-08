@@ -381,7 +381,7 @@ Object.assign(actions, {
     const v = ilVisual(cid);
     const filled = v ? [['외형', v.look], ['기본 옷차림', v.outfit]].filter(([, x]) => (x || []).length).map(([k]) => k) : [];
     if (v && v.subject) filled.push('그림 속 성별');
-    if (filled.length && !(await askConfirm(`지금 적힌 ${filled.join(' · ')}을(를) AI 제안으로 바꿀까요? 저장하기 전에는 '변경 모두 버리기'로 되돌릴 수 있어요`, { ok: '바꾸기' }))) return;
+    if (filled.length && !(await askConfirm(`지금 적힌 ${filled.join(' · ')}${josa(filled[filled.length - 1], '을', '를')} AI 제안으로 바꿀까요? 저장하기 전에는 '변경 모두 버리기'로 되돌릴 수 있어요`, { ok: '바꾸기' }))) return;
     await run('외형 태그 만드는 중', async () => {
       await saveIfDirty();  // AI는 저장된 인물 설정을 읽는다. 방금 고친 설정이나 새 인물도 보게 먼저 저장한다
       const s = await api('POST', `/projects/${enc(S.name)}/characters/${enc(cid)}/look`);

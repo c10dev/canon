@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from . import dynamics, elements, illust, metrics, naming, prompts, renumber, setupchat, storylines
 from .judge import Judge, Question
 from .llm import LLM, PREFIX_HINT, Interrupted, dump, family_text, out_cap
+from .logline import josa
 from . import anchor, board, cancel, charlog, context, features, findings, foreshadows, heatplan, knows, metatail, stage, statwin, usage
 from .schema import CueSheet, CueSheetDraft, Finding, MetaCut, FindingRecheck, FixBatch, FixOption, FixPatch, FixRecheckItem, FixRecheckReport, FixSet, RevArcSet, RevEpisodeDraft, RevLineSet
 from .schema import ParagraphAnatomy, ReaderCheck, SceneCard, SceneVariant, SceneVariants, StudioCandidate, StudioDraft
@@ -1200,7 +1201,7 @@ def _recap_target(p: Project, kind: str, number: int):
         raise ValueError(f"모르는 요약 단위예요: {kind}")
     hit = next((x for x in items if x.number == number), None)
     if hit is None:
-        raise ValueError(f"{'아크' if kind == 'arc' else '부'} {number}이(가) 없어요")
+        raise ValueError(f"{'아크' if kind == 'arc' else '부'} {number}{josa(str(number), '이', '가')} 없어요")
     return hit
 
 
@@ -1397,7 +1398,7 @@ def chat_target(p: Project, target: str = "") -> tuple[str, StoryArc | None]:
             raise ValueError(f"모르는 대화 대상이에요: {target}") from None
         a = next((x for x in p.story_arcs if x.number == number), None)
         if a is None:
-            raise ValueError(f"아크 {number}이(가) 없어요. 아크를 다시 고르세요")
+            raise ValueError(f"아크 {number}{josa(str(number), '이', '가')} 없어요. 아크를 다시 고르세요")
         return f"arc:{a.number}", a
     if target not in ("", "next"):
         raise ValueError(f"모르는 대화 대상이에요: {target}")
@@ -1841,7 +1842,7 @@ def plot_undo(p: Project, applied: list[str], before: PlotUndo, after: PlotUndo)
         for group in [struct] if linked else [[x] for x in struct]:
             if a is None:
                 for x in group:
-                    keep(x, f"아크 {before.arc.number}이(가) 없어짐")
+                    keep(x, f"아크 {before.arc.number}{josa(str(before.arc.number), '이', '가')} 없어짐")
                 continue
             if not all(_arc_same(a, after.arc, x) for x in group):
                 for x in group:
@@ -2283,7 +2284,7 @@ def remove_episode(p: Project, n: int, move_text: bool = False) -> list[str]:
             empty += [f"{x.number}부" for x in renumber.shrink_ranges(q.parts, n)]
         empty += [f"{a.name} 구간" for a in renumber.shrink_ranges(q.beats(), n)]
         if empty:
-            raise ValueError(f"{n}화를 빼면 {', '.join(empty)}이(가) 비어요. 구간이나 아크 범위를 먼저 늘리세요")
+            raise ValueError(f"{n}화를 빼면 {', '.join(empty)}{josa(empty[-1], '이', '가')} 비어요. 구간이나 아크 범위를 먼저 늘리세요")
         if n <= q.meta.target_episodes:
             q.meta.target_episodes -= 1
         sync_candidates(q)
@@ -2291,7 +2292,8 @@ def remove_episode(p: Project, n: int, move_text: bool = False) -> list[str]:
 
     texts = _text_note(p, moved, lambda x: x - 1)
     notes = _renumbered(p, change)
-    head = f"{n}화 '{ep.plot.title or '제목 없음'}'을(를) 뺐어요."
+    title = ep.plot.title or '제목 없음'
+    head = f"{n}화 '{title}'{josa(title, '을', '를')} 뺐어요."
     if moved:
         head += f" 원래 {moved[0]}~{moved[-1]}화는 {moved[0] - 1}~{moved[-1] - 1}화가 됐어요."
     return [head, *texts, *notes]

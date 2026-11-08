@@ -1457,7 +1457,7 @@ Object.assign(actions, {
   },
   async stgCastDrop(w) {
     const g = S.stg;
-    if (!(await askConfirm(`${charName(w)}을(를) 출연진에서 뺄까요? 이 인물의 자리 · 자세 · 접촉도 모두 사라져요.`, { ok: '빼기', danger: true }))) return;
+    if (!(await askConfirm(`${charName(w)}${josa(charName(w), '을', '를')} 출연진에서 뺄까요? 이 인물의 자리 · 자세 · 접촉도 모두 사라져요.`, { ok: '빼기', danger: true }))) return;
     g.scene.cast = g.scene.cast.filter((x) => x !== w);
     const strip = (list) => list.filter((b) => b.who !== w).map((b) => ({ ...b, contacts: b.contacts.filter((c) => c.to !== w) }));
     g.scene.start = strip(g.scene.start);

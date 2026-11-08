@@ -1706,7 +1706,7 @@ const actions = {
     const prev = lastRemoved();
     if (prev) prev.seq = S.editSeq - 1;  // 되살리기는 그 앞 기록이 가정한 값으로 돌아간 것이다. 이 markDirty 도 허용한다
     render();
-    toast(`${r.label}을(를) 되살렸어요`);
+    toast(`${r.label}${josa(r.label, '을', '를')} 되살렸어요`);
   },
   async saveForce() {
     if (!(await askConfirm('다른 탭이나 기기에서 저장한 변경을 이 화면의 작품으로 덮어쓸까요? 그쪽에서 바꾼 설정 · 플롯은 사라져요.', { ok: '덮어쓰기', danger: true }))) return;

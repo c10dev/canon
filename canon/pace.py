@@ -14,6 +14,7 @@ from collections import Counter, deque
 from itertools import combinations
 
 from . import dynamics, metrics, prompts
+from .logline import josa
 from .schema import Project, StateDelta
 
 POSITIVE = ("친구", "연인", "동료", "화해", "동맹", "우정", "부부", "약혼", "애인", "신뢰", "믿", "사랑", "애정", "호감",
@@ -115,7 +116,7 @@ def clean_delta(p: Project, d: StateDelta) -> list[str]:
         if new and new == -sign and new != old and not _masked(p, d, r.a, r.b):
             stage = dynamics.find_tie(sim.ties, r.a, r.b) or dynamics.find_tie(sim.ties, r.b, r.a)
             d.rel_flagged.append(i)
-            warns.append(f"관계 유형: {nm.get(r.a, r.a)} ↔ {nm.get(r.b, r.b)} 유형이 '{r.type}'(으)로 바뀌는데, 반영 뒤 단계는 "
+            warns.append(f"관계 유형: {nm.get(r.a, r.a)} ↔ {nm.get(r.b, r.b)} 유형이 '{r.type}'{josa(r.type, '으로', '로')} 바뀌는데, 반영 뒤 단계는 "
                          f"{stage.stage}예요. 사건이 아직 그만큼 쌓이지 않았어요. 기본으로 빼 두었으니 맞으면 체크해 주세요.")
     big = Counter(frozenset((e.actor, e.target)) for e in d.events if e.intensity >= 3 and e.kind != "수동보정")
     for pair, k in big.items():

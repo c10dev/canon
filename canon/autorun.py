@@ -30,6 +30,7 @@ from pydantic import BaseModel, Field
 from . import anchor, atlas, board, cue, dynamics, features, findings, jobs, pipeline, prompts, settings, store, timeline, usage
 from . import stage as stage_mod
 from .llm import BatchLLM, Interrupted, SchemaMismatch, get_llm
+from .logline import josa
 from .research import JSON_OUTPUT_RESERVE, _filler
 from .schema import ConsistencyReport, Project, RewriteRequest, StateDelta, TextVersion
 
@@ -43,6 +44,14 @@ RUN_STEPS = {"board": "스토리보드 만들기", "cues": "큐 시트 만들기
 CLEAR_NAMES = {"current_goal": "목표", "location": "위치", "notes": "메모", "attire": "차림", "emotional_state": "감정"}
 # 화 상태 이름 (화면 STATUS 와 같은 말)
 EP_STATUS = {"draft": "초안", "confirmed": "확정", "written": "작성됨", "finalized": "반영 완료"}
+
+
+def _status_to(st: str) -> str:
+    """멈춤 이유에 넣는 "'확정'으로" 꼴. 조사는 상태 이름의 받침으로 고른다."""
+    name = EP_STATUS.get(st, st)
+    return f"'{name}'{josa(name, '으로', '로')}"
+
+
 # 측정값이 없을 때 쓰는 단계별 소요 시간 추정 (초, 일반 호출)
 SECONDS = {"board": 90.0, "write": 90.0, "revise": 90.0, "check": 40.0, "state": 40.0}
 # 스토리보드 추정: 출력 토큰, 쓰기 프롬프트에 붙는 블록 글자 수 (손으로 채운 스토리보드 예시에서 잰 어림, DESIGN.md)
@@ -720,7 +729,7 @@ class Runner:
         def put(q: Project) -> None:
             st = q.episode(n).status
             if st != "confirmed":
-                raise _Halt("paused", f"{n}화 상태가 '{EP_STATUS.get(st, st)}'(으)로 바뀌어 멈췄어요", [
+                raise _Halt("paused", f"{n}화 상태가 {_status_to(st)} 바뀌어 멈췄어요", [
                     f"스토리보드를 만드는 사이 {n}화가 '{EP_STATUS.get(st, st)}' 상태로 바뀌어 만든 스토리보드는 버렸어요",
                     f"이어 가면 {n}화의 지금 상태에서 다시 시작해요"], kind="changed")
             pipeline.set_storyboard(q, n, made, by="ai")
@@ -756,7 +765,7 @@ class Runner:
         def put(q: Project) -> None:
             st = q.episode(n).status
             if st != "confirmed":
-                raise _Halt("paused", f"{n}화 상태가 '{EP_STATUS.get(st, st)}'(으)로 바뀌어 멈췄어요", [
+                raise _Halt("paused", f"{n}화 상태가 {_status_to(st)} 바뀌어 멈췄어요", [
                     f"큐 시트를 만드는 사이 {n}화가 '{EP_STATUS.get(st, st)}' 상태로 바뀌어 만든 큐 시트는 버렸어요",
                     f"이어 가면 {n}화의 지금 상태에서 다시 시작해요"], kind="changed")
             cue.set_episode(q, n, made, by="ai")
@@ -775,7 +784,7 @@ class Runner:
         def put(q: Project) -> None:
             ep = q.episode(n)
             if ep.status != "confirmed":
-                raise _Halt("paused", f"{n}화 상태가 '{EP_STATUS.get(ep.status, ep.status)}'(으)로 바뀌어 멈췄어요",
+                raise _Halt("paused", f"{n}화 상태가 {_status_to(ep.status)} 바뀌어 멈췄어요",
                             _changed_while_writing(n, ep.status), kind="changed")
             ep.text, ep.status, ep.written_by, ep.meta_cut = text, "written", model, cut
             cue.mark_used(q, n, use_cues)  # 자동 집필은 있는 큐 시트를 넣어 쓴다. 다시 받은 시트가 비어 왔으면 빼고 쓴다
@@ -874,7 +883,7 @@ class Runner:
         def put(q: Project) -> None:
             st = q.episode(n).status
             if st != "written":
-                raise _Halt("paused", f"{n}화 상태가 '{EP_STATUS.get(st, st)}'(으)로 바뀌어 멈췄어요", [
+                raise _Halt("paused", f"{n}화 상태가 {_status_to(st)} 바뀌어 멈췄어요", [
                     f"상태 변경안을 만드는 사이 {n}화가 '{EP_STATUS.get(st, st)}' 상태로 바뀌어 만든 변경안은 버렸어요",
                     f"이어 가면 {n}화의 지금 상태에서 다시 시작해요"], kind="changed")
             _same_text(q, n, delta)
