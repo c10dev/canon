@@ -328,6 +328,7 @@
 - 다음 아크 `plan_next_arc` 는 `heat_plan` 을 켜면 `HeatArcProposal` 로 묻고(`prompts.heat_next_arc_rules`), `clean_arc` 가 열 계획을 아크 범위에 맞춰 `arc.heat` 로 옮기고, `apply_arc` 가 판돈을 복선에 더한다
 - 화별 플롯
   - 대화로 다듬기 `revise_plot`/`apply_revision` 포함
+  - `apply_revision` 이 화를 다시 만들어도 작가 연출 지시(`Episode.direction`)는 남긴다
   - 대상 `chat_target`: 고른 아크 · 다음 아크
   - 아크 칸 · 부 구성 변경안
   - 방향 여러 안
@@ -473,7 +474,8 @@
 - `RETOLD_LINE` 은 오랜만에 다시 나오는 인물만 처음 나올 때 한두 문장으로 짚게 해 `return_block` 과 맞춘다
 - 화에 큐 시트가 있으면 `episode_prompt` 맨 끝에 `cue_write_block`(실험의 조건 score 와 같은 글, `use_cues=False` 면 뺌)
 - 작가 연출 지시 `direction_block` 은 `episode_prompt` 맨 끝(큐 시트 블록 뒤)이다. 아크 지시('이번 아크 동안', 장편만) 다음 화 지시('이번 화만') 차례
-- 지시 블록은 '플롯의 사건과 설정은 바꾸지 않습니다', '지시 문구를 본문에 쓰지 않습니다'를 둔다. 우선 차례는 블록 머리가 아니라 `priority_line` 에 '이번 화 플롯' 바로 뒤로 넣는다
+- 지시 블록은 '플롯의 사건과 설정은 바꾸지 않습니다', '지시 문구를 본문에 쓰지 않습니다'를 둔다
+- 지시의 우선 차례는 블록 머리가 아니라 `priority_line` 에 '이번 화 플롯' 바로 뒤로 넣는다
 - 화 지시는 그 화 요청에만 들어간다(`direction_texts` 가 n화 칸만 읽음). 다시 생성 · 작업지시서 · 자동 집필도 `episode_prompt` 라 같은 지시를 받는다
 - `cue_score_prompt` · `cue_head` 는 `episode_prompt(direction=False)` 를 쓰고 자기 글 끝에 지시를 붙인다. 그래서 큐 시트를 넣은 집필 요청과 조건 score 글이 같다
 - `episode_prompt` 끝(큐 시트 블록 앞)의 문장 끝 섞기 줄 `ending_line`('~다.' 몫과 현재형 몫은 문체 기준에서 `ENDING_SHARE` · `PRESENT_SHARE_MAX` 안으로, 서술 말투가 있는 화는 뺌)
@@ -532,6 +534,12 @@
 - AI 가 본문 전체를 쓰는 호출자가 `pipeline.writer_of(llm)` 을 `replace_text(written_by=)` · `set_candidate(model=)` · `research.save_compare(models=)` 로 넘긴다. 작가 수정은 바꾸지 않는다(수정 기록 `edits`)
 - 인물 지금 차림(`CharacterState.attire`, 옷 · 상처 · 지닌 물건)은 지금 값만 덮어쓰고 지난 값은 스냅샷
 - 차림 규칙은 `prompts.ATTIRE_STATE_RULE` · `attire_write_rule` · `attire_check_rule`. 옷 · 가방 · 신발은 종류(백팩 · 숄더백 · 핸드백 …)와 가방의 메는 자리까지 적고, 쓰기는 그 종류 · 메는 방식을 지키고, 검수는 같은 물건의 종류 · 메는 방식 · 색이 설명 없이 바뀐 곳을 본다. 종류를 모르는 조각 경고는 `attire.py`
+- 차림의 차례는 이번 화 본문 > 지금 차림(`attire`) > 설정 외모(`appearance`)의 평소 옷차림이다
+- 쓰기 규칙은 appearance 의 옷차림보다 attire 를 따르고 이 화에서 바뀌면 그 뒤로는 바뀐 차림을 따르게 한다
+- 스토리보드 한 줄 갈래(`board=True`)도 appearance 의 옷차림보다 attire 라는 말을 짧게 넣는다
+- 검수 규칙은 옷차림 · 상처 · 변장이 appearance 와 다른 것이 attire 나 이번 화 본문으로 설명되면 모순이 아니라고 적는다. 한 장면 안의 동선은 동선 항목대로 본다
+- 검수 규칙은 설명 없이 바뀐 눈 색 · 머리 색 · 체격은 그대로 짚고, 영구 흉터는 `setting_changes` 거리라고 적는다
+- 차림 규칙은 `has_attire` 만 보고 작품 형식은 보지 않는다. 차림이 기록된 단편도 같은 규칙을 받는다
 - 인물 감정(`CharacterState.emotional_state`)은 맞서는 감정이면 두 층 라벨('겉: … / 속: …', '머리: … / 몸: …'). 상태 규칙 `prompts.LAYER_STATE_RULE`, 찾기 `LAYER` · `layered`, 검수 규칙 `layer_check_rule`(두 층 라벨이 있을 때만). 쓰기 규칙은 없다
 - 작품이 쓸 단계 프리셋(`Settings.model_preset`, 비우면 전체 설정)은 `settings.project_preset` 이 찾고 `stage_provider` · `stage_model` 이 지금 작업의 작품(`usage.scope`)에서 저절로 쓴다
 - 화별 스토리보드(`Episode.storyboard`, `Storyboard`: 장면 · 시간 · 상태창 바뀐 양 · 이동 · 끝 차림 · 넘겨받을 것 · 깨지 않을 것 · 경고)는 상태 승인 대상이 아니다
@@ -544,6 +552,7 @@
 ### `canon/serialize.py`
 
 - 단편을 장편 연재로 바꾸는 이어 쓰기 전환(CLI `convert`, 웹 `convert` 작업)
+- 전환이 화를 다시 만들어도 작가 연출 지시(`Episode.direction`)는 남긴다
 - `pipeline.py` 에서 옮긴 구역이다. `pipeline` 맨 끝의 `_attach_split` 이 `EXPORTS` 의 이름을 `pipeline` 에도 둬서 `pipeline.<이름>` 으로 그대로 부른다
 - 전환 반영(`apply_conversion`)은 단편 열 계획을 아크 1의 열 계획으로 옮기고 작품 쪽 칸을 비운다
 

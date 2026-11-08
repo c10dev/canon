@@ -95,3 +95,17 @@ def test_clean_delta_warns_vague_bag():
     d = StateDelta(episode=3, summary="3화", character_updates=[CharacterState(character_id="hero", attire="젖은 코트, 등에 멘 검은 백팩")])
     pipeline.clean_delta(p, d)
     assert not any("차림" in w for w in d.warnings)
+
+
+def test_attire_wins_over_setting_appearance():
+    p = _play(_short(8), 1, 2)
+    w = prompts.attire_write_rule(p)
+    assert "appearance 에 적힌 옷차림은 평소 모습이라 attire 와 다르면 attire 를 따르고" in w
+    assert "이 화에서 갈아입거나 다치면 그 뒤로는 바뀐 차림을 따릅니다" in w
+    assert "본문을 따" not in w  # 본문을 쓰는 모델에게 '본문을 따르라'는 순환 지시를 주지 않는다
+    assert "appearance 의 옷차림보다 [인물 현재 상태]의 attire" in prompts.attire_write_rule(p, board=True)
+    c = prompts.check_prompt(p, 3)
+    assert "옷차림 · 상처 · 변장이 인물 설정의 appearance 와 다른 것은 attire 나 이번 화 본문" in c
+    assert "설명 없이 달라진 눈 색" in c  # 예외는 옷차림 · 상처 · 변장뿐
+    assert "영구 흉터" in c and "setting_changes" in c
+    assert "- 확인할 것: 확정 사실, 이야기 요소와 세부(이름, 나이, 외모" in c  # 차림 밖 외모 대조는 그대로
