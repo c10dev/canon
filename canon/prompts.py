@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from . import context, elements, genres, metrics, naming, storylines
 from .dynamics import VIEWS, describe_relations
 from .llm import _inline_refs, dump
-from .schema import Birth, Character, ChatMessage, Claim, ConsistencyIssue, ConsistencyReport, Foreshadow, PlayInfo, PlotBatch, Project, Selection, StateDeltaAI, StoryElement
+from .schema import Birth, Character, ChatMessage, Claim, ConsistencyIssue, ConsistencyReport, Foreshadow, PlayInfo, PlotBatch, Project, Selection, StateDelta, StateDeltaAI, StoryElement
 from .schema import ArcPlan, ArcProposal, CueSheetDraft, HeatArcPlan, HeatArcProposal, HeatProposal, SeriesPlan, StoryboardDraft
 from . import address, board, charlog, echoes, foreshadows, heatplan, knows, pairlog, stage, statwin, timeline
 from .maps import prompt as mapprompt
@@ -3609,6 +3609,45 @@ def rewrite_prompt(p: Project, n: int, req, materials: dict[str, list[str]], old
     """지금 본문을 큐 시트 없이 썼으면(CueSheet.skipped) 다시 생성도 큐 시트를 넣지 않는다."""
     s = p.episode(n).cue_sheet
     return episode_prompt(p, n, use_cues=not (s and s.skipped)) + "\n\n" + rewrite_block(p, n, req, materials, old)
+
+
+AUDIT_KINDS = ("비밀 공개", "관계 사건", "약속", "부상", "정체 공개", "장소 이동", "소지품")  # schema.AuditKind 와 같은 차례
+
+
+def _audit_delta_lines(p: Project, d: StateDelta) -> str:
+    """누락 검사에 넣는 변경안 줄임. 일곱 종류를 견줄 칸만 사람 말로 적는다."""
+    nm = {c.id: c.name or c.id for c in p.characters} | {c.id: c.name or c.id for c in d.new_characters}
+    out = [f"(참고) 요약: {d.summary or '없음'}"]
+    out += [f"인물 상태 · {nm.get(u.character_id, u.character_id)}: " + " / ".join(x for x in (u.emotional_state, u.current_goal,
+            f"위치 {u.location}" if u.location else "", f"차림 {u.attire}" if u.attire else "", *(f"앎 {k}" for k in u.knows)) if x)
+            for u in d.character_updates]
+    out += [f"관계 사건 · {nm.get(e.actor, e.actor)} → {nm.get(e.target, e.target)}: {e.kind}"
+            + (f" (드러난 비밀 {e.reveals_secret})" if e.reveals_secret else "") for e in d.events]
+    out += [f"새 비밀 · {nm.get(s.owner, s.owner)}: {s.content}" for s in d.secrets_added]
+    out += [f"새 사실: {f}" for f in d.new_facts]
+    out += [f"새 장소: {x.name}" for x in d.new_places]
+    out += [f"새 인물: {c.name or c.id}" for c in d.new_characters]
+    return "\n".join(out)
+
+
+def audit_prompt(p: Project, n: int, d: StateDelta) -> str:
+    """상태 변경안 누락 검사(pipeline.audit_delta). n화 본문과 받은 변경안 줄임만 넣는다. 작업지시서(brief)에는 이 단계가 없다."""
+    return f"""아래는 {n}화 본문과, 그 본문에서 뽑은 상태 변경안입니다. 변경안에 빠진 것을 찾으세요.
+
+[{n}화 본문]
+{p.episode(n).text}
+
+[받은 상태 변경안]
+{_audit_delta_lines(p, d)}
+
+요구사항:
+- 본문에서 실제로 일어났는데 위 변경안의 칸 줄(인물 상태 · 관계 사건 · 새 비밀 · 새 사실 · 새 장소 · 새 인물)에 적히지 않은 것을 items 에 넣습니다. '(참고) 요약'에만 나오는 일은 칸에 없으니 빠진 것입니다. 칸 줄에 말만 달리 적혀 있으면 빠진 것이 아닙니다.
+- 관계 사건은 두 인물 사이에 도움 · 배신 · 고백 · 다툼 · 약속처럼 관계를 움직인 일입니다. 관계 사건 줄에 그 두 사람의 사건이 없으면 빠진 것입니다.
+- kind 는 {", ".join(AUDIT_KINDS)} 가운데 하나입니다. 이 일곱 가지 밖의 것(감정 변화, 분위기, 사소한 행동)은 넣지 않습니다.
+- 장소 이동은 인물이 다른 장소로 옮겨 가 화가 끝날 때 위치가 바뀌었는데 그 인물의 인물 상태 줄에 위치가 없거나 다른 것, 소지품은 뒤 화까지 이어질 물건을 얻거나 잃은 것, 부상은 뒤 화까지 남을 상처입니다.
+- quote 에는 근거인 본문 문장을 글자 그대로 옮깁니다. 본문에서 찾을 수 없는 문장은 버려집니다.
+- missing 에는 무엇이 빠졌는지 한 문장으로 적습니다.
+- 확실한 것만, 많아야 6개입니다. 빠진 것이 없으면 빈 목록을 냅니다."""
 
 
 def state_facts_block(p: Project, n: int, ids: set[str], budget: str = "state_facts") -> str:

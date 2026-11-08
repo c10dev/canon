@@ -28,11 +28,12 @@ DEFAULT_LOCAL_URL = "http://localhost:11434/v1"  # Ollama. llama.cpp 는 :8080/v
 # claude: 설치된 Claude Code 의 구독 로그인, claude-api: Anthropic API 키 (claude.py)
 PROVIDERS = ("gemini", "local", "claude", "claude-api", "mock")
 # 단계: plan(설정 제안, 문체 분석, 기승전결, 화별 플롯) / write(본문) / check(검수) / state(상태 추출)
+# / audit(상태 변경안 누락 검사, 작품 설정 state_audit 를 켤 때만, 싼 모델 권장)
 # / name(이름·지명 AI 추천) / revise(본문 부분 수정, 서술 다듬기) / illustration(삽화 프롬프트) / play(플레이 모드 장면)
 # / chat(플롯 대화 에이전트, agent.run_turn)
-STAGES = ("plan", "board", "write", "check", "state", "name", "revise", "illustration", "play", "chat")
+STAGES = ("plan", "board", "write", "check", "state", "audit", "name", "revise", "illustration", "play", "chat")
 # 따로 정하지 않으면 이 단계의 설정을 따른다 (스토리보드 · 큐 시트, 이름 추천, 삽화 프롬프트, 플롯 대화는 계획 단계 일이고, 부분 수정 · 플레이 장면은 본문 쓰기 일이다)
-STAGE_PARENT = {"board": "plan", "name": "plan", "revise": "write", "illustration": "plan", "play": "write", "chat": "plan"}
+STAGE_PARENT = {"board": "plan", "audit": "state", "name": "plan", "revise": "write", "illustration": "plan", "play": "write", "chat": "plan"}
 # 단계별 추론 강도. 비우면 모델 기본값을 쓴다. 단계 프리셋에는 넣지 않는다 (설정 파일 stage_efforts 와 환경 변수만).
 # Claude 는 EFFORTS 를 claude --effort · Messages API output_config.effort 로 넘긴다.
 # Gemini 는 GEMINI_EFFORTS 를 thinking_level 로 넘긴다. minimal 은 gemini-4-argon · 3.8-flash 가 400 으로 거절한다 (2026-11-04).
@@ -47,11 +48,11 @@ BUILTIN_PRESETS = (
     {"id": "gemini", "name": "Gemini",
      "stages": {"plan": "gemini", "write": "gemini", "check": "gemini", "state": "gemini"},
      "stage_models": {"plan": "gemini-4-argon", "write": "gemini-4-argon", "check": "gemini-4-argon",
-                      "state": "gemini-3.8-flash", "name": "gemini-3.8-flash"}},
+                      "state": "gemini-3.8-flash", "audit": "gemini-3.8-flash", "name": "gemini-3.8-flash"}},
     {"id": "anthropic", "name": "Anthropic (Claude API 키)",
      "stages": {"plan": "claude-api", "write": "claude-api", "check": "claude-api", "state": "claude-api"},
      "stage_models": {"plan": "claude-opus-5-5", "write": "claude-opus-5-5", "check": "claude-opus-5-5",
-                      "state": "claude-sonnet-5-5", "name": "claude-haiku-5-5"}},
+                      "state": "claude-sonnet-5-5", "audit": "claude-haiku-5-5", "name": "claude-haiku-5-5"}},
 )
 # 로컬 본문 생성 기본 샘플링. 구조화 출력(json)에는 쓰지 않는다.
 DEFAULT_SAMPLING = {"temperature": 1.0, "top_p": 0.95, "min_p": 0.05}

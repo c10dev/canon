@@ -5186,6 +5186,14 @@ def set_check_scope(name: str, body: CheckWiden) -> Project:
     return _save(name, p)
 
 
+@app.put("/api/projects/{name}/state-audit")
+def set_state_audit(name: str, body: CheckWiden) -> Project:
+    """상태 변경안 누락 검사 켜기 · 끄기 (Settings.state_audit). 자동 집필 상태 변경안도 따른다."""
+    p = _load(name)
+    p.settings.state_audit = body.on
+    return _save(name, p)
+
+
 @app.put("/api/projects/{name}/stage-extract")
 def set_stage_extract(name: str, body: CheckWiden) -> Project:
     """검수 때 함께 뽑기 켜기 · 끄기 (Settings.stage_extract). 자동 집필 검수도 따른다."""

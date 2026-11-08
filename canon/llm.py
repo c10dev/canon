@@ -1163,7 +1163,7 @@ def make_llm(provider: str, model: str | None = None, effort: str = "") -> LLM:
 
 
 def get_llm(stage: str | None = None) -> LLM:
-    """stage: plan | write | check | state | name | revise | illustration | play | chat. 단계별 백엔드와 모델 설정이 없으면 전체 설정을 쓴다.
+    """stage: plan | write | check | state | audit | name | revise | illustration | play | chat. 단계별 백엔드와 모델 설정이 없으면 전체 설정을 쓴다.
     지금 작업의 작품(usage.scope)이 단계 프리셋을 골랐으면 그 프리셋의 단계 칸을 쓴다 (settings.project_preset).
     단계 추론 강도(settings.stage_effort)도 넘긴다. Claude 와 Gemini 만 쓴다."""
     from . import settings

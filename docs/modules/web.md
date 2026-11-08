@@ -534,6 +534,7 @@
   - 글 칸 `textRow`(모델 이름 · 주소 · 경로)는 휴대폰 키보드 자동 대문자 · 고치기를 끈다
   - Gemini 모델 칸은 고른 모델이 `gemini_cache_unsupported` 에 있으면 설명에 '이 모델은 명시 캐시를 받지 않아요'를 붙인다
   - 작품별 단계 값 `projectStage`
+  - 이 작품 › 집필 · 검수의 '상태 변경안 누락 검사'(`audit`, `Settings.state_audit`). 단계 목록에도 `audit` 가 있다
   - '프리셋으로 채우기'는 지금 칸이 어느 프리셋과도 다르면(직접 고른 조합) 덮기 전에 묻고, 그만두면 고른 값을 되돌린다
   - 프리셋으로 채운 뒤 그 줄에 '되돌리기'(`setPresetUndo`, `SET.undo`)가 생겨 고르기 전 단계 칸을 다시 저장한다. 단계 칸을 손으로 고치거나 대화상자를 다시 열면 사라진다
   - 단계 줄의 추론 강도 칸 `effortSelect`: Claude · Gemini 단계에만, 목록은 백엔드가 받는 값(`effortOptions`)

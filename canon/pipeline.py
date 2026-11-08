@@ -16,6 +16,7 @@ from .schema import ParagraphAnatomy, ReaderCheck, SceneCard, SceneVariant, Scen
 from .schema import (
     AddedItems,
     Act,
+    AuditReport,
     ArcEdit,
     ArcPlan,
     HeatArcPlan,
@@ -4072,7 +4073,9 @@ def text_basis(text: str) -> str:
 
 # ---------- 6. 상태 갱신 ----------
 
-def extract_state(llm: LLM, p: Project, n: int) -> StateDelta:
+def extract_state(llm: LLM, p: Project, n: int, audit: LLM | None = None) -> StateDelta:
+    """n화 상태 변경안. 작품 설정 state_audit 를 켜면 받은 뒤 누락 검사(audit_delta)를 한 번 더 부른다.
+    audit 를 주지 않으면 audit 단계 모델(get_llm('audit'))을 쓴다. 반영 기록에서 돌아온 변경안(carried_delta)은 다시 검사하지 않는다."""
     if not p.episode(n).text:
         raise ValueError(f"{n}화 본문이 없어요")
     carried = carried_delta(p, n)
@@ -4089,7 +4092,44 @@ def extract_state(llm: LLM, p: Project, n: int) -> StateDelta:
     delta = to_delta(raw, n)  # 관계 수치 칸은 응답 형식에 없고, 있어도 버린다
     clean_delta(p, delta)
     delta.basis = basis
+    if p.settings.state_audit:
+        if audit is None:
+            from .llm import get_llm
+            audit = get_llm("audit")
+        audit_delta(audit, p, n, delta)
     return delta
+
+
+AUDIT_MARK = "[누락 의심]"  # 누락 검사 경고의 머리. 자동 집필 정책은 이 경고를 따로 센다 (autorun.Policy.stop_on_audit)
+AUDIT_MAX = 6
+
+
+def audit_delta(llm: LLM, p: Project, n: int, d: StateDelta) -> list[str]:
+    """받은 상태 변경안에 본문의 비밀 공개 · 관계 사건 · 약속 · 부상 · 정체 공개 · 장소 이동 · 소지품이 빠졌는지 한 번 더 묻는다.
+    본문에서 찾을 수 없는 인용은 버리고 AUDIT_MAX 개까지 '[누락 의심]' 경고로만 d.warnings 끝에 붙인다(warn_to 는 "").
+    변경안 칸은 바꾸지 않는다. 검사가 실패하면 경고를 붙이지 않고 변경안은 그대로 둔다. 붙인 경고."""
+    text = p.episode(n).text
+    try:
+        rep = llm.json(prompts.SYSTEM_EDITOR, prompts.audit_prompt(p, n, d), AuditReport, hint={"episode": n, "text": text})
+    except Interrupted:
+        raise
+    except Exception as e:  # 누락 검사는 덤이라 변경안을 막지 않는다
+        logging.getLogger("canon").warning("%s화 상태 변경안 누락 검사가 실패했어요: %s", n, e)
+        return []
+    out: list[str] = []
+    for x in rep.items:
+        q = x.quote.strip().strip("«»")
+        if not q or not x.missing.strip() or not findings.in_text(text, q):
+            continue
+        w = f"{AUDIT_MARK} {x.kind}: {x.missing.strip()} «{q}»"
+        if w not in out and w not in d.warnings:
+            out.append(w)
+        if len(out) >= AUDIT_MAX:
+            break
+    features.align_warn_to(d)
+    d.warnings += out
+    d.warn_to += [""] * len(out)
+    return out
 
 
 def clean_delta(p: Project, d: StateDelta) -> None:

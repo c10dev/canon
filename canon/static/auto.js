@@ -47,7 +47,7 @@ function autoDefaults() {
     target: Math.max(lastPlot, autoFirstOpen()),  // 플롯이 있는 마지막 화까지. 다 반영했으면 고를 수 있는 첫 화
     batch: last ? last.batch : false,
     policy: last ? { cue_sheet: true, ...last.policy } : {
-      check: true, max_issues: 0, ignore_minor: false, stop_on_critical: true, max_shift: 0.3, stop_on_stage: false, stop_on_warnings: false, confirm_plots: false, review_every: 0, hand_pick_opening: true,
+      check: true, max_issues: 0, ignore_minor: false, stop_on_critical: true, max_shift: 0.3, stop_on_stage: false, stop_on_warnings: false, stop_on_audit: false, confirm_plots: false, review_every: 0, hand_pick_opening: true,
       storyboard: true, stop_on_board_warnings: true, cue_sheet: true, polish: false, max_style_distance: 0,
       stop_on_new_characters: false, stop_on_secrets: false, stop_on_resolve: false, stop_on_early_resolve: false, stop_on_deadline_done: false, max_time_jump_days: 0, stop_on_clear: false,
     },
@@ -254,7 +254,8 @@ function autoPolicyForm(f, disabled, bind = 'auto') {
     </div>
     <div class="grid-2">
       ${chk('stop_on_stage', '관계 단계가 바뀌면 멈추기', '호감 → 신뢰, 신뢰 → 균열처럼 관계의 단계가 바뀔 때')}
-      ${chk('stop_on_warnings', '상태 변경안에 경고가 있으면 멈추기', '플롯 사건 누락, 설정이나 말투 위반을 AI가 적었을 때')}
+      ${chk('stop_on_warnings', '상태 변경안에 경고가 있으면 멈추기', '플롯 사건 누락, 설정이나 말투 위반을 AI가 적었을 때. 누락 검사의 [누락 의심]은 세지 않아요')}
+      ${P().settings.state_audit ? chk('stop_on_audit', '누락 의심이 있으면 멈추기', '상태 변경안 누락 검사가 본문에 있는데 빠진 것을 찾았을 때') : ''}
       ${chk('hand_pick_opening', '1~3화는 반영하기 전에 멈추기', '독자가 계속 읽을지 정하는 초반 화라 직접 읽고, 필요하면 여는 방식을 비교해 고르세요')}
       ${p.storyboard ? chk('stop_on_board_warnings', '스토리보드가 이번 화 플롯과 어긋나면 멈추기', '플롯 숫자가 지금 상태에서 닿을 수 없을 때처럼. 다음 화 플롯 경고는 기록만 해요') : ''}
     </div>
@@ -311,6 +312,7 @@ function autoPolicySummary(p) {
   if (P().anchor) (p.max_style_distance ? on : off).push(p.max_style_distance ? `정착 문체 거리 ${p.max_style_distance} 넘음` : '정착 문체 흐름');
   (p.stop_on_stage ? on : off).push('관계 단계 바뀜');
   (p.stop_on_warnings ? on : off).push('변경안 경고');
+  if (P().settings.state_audit) (p.stop_on_audit ? on : off).push('누락 의심');
   (p.hand_pick_opening ? on : off).push('1~3화 직접 고름');
   (p.review_every ? on : off).push(p.review_every ? `${p.review_every}화마다 읽기` : 'n화마다 읽기');
   (p.stop_on_new_characters ? on : off).push('새 인물');
