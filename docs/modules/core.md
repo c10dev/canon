@@ -563,6 +563,7 @@
 ### `canon/store.py`
 
 - `projects/<이름>/project.json` 저장
+- 모듈을 불러올 때 `usage.adult_of` 를 `load_view(name).meta.adult` 로 채운다(`llm.with_note` 의 성인 작품 줄)
 - 본문을 `episodes/NN.md` 로 내보내기(바뀐 화만 다시 씀), project.json 은 들여쓰기 없이
 - 마지막 화가 100화 이상이면 본문 파일 이름을 세 자리(`NNN.md`)로 쓰고 옛 두 자리 파일은 지운다(`ep_file`)
 - 저장 전 직전 판을 `project.prev.json` 으로, 시간마다 첫 저장 직전 판을 `backups/project.<날짜-시>.json` 으로 남긴다(하드 링크라 복사하지 않음)
