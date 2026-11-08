@@ -870,7 +870,7 @@ function applyJobResult(j) {
     S.foldDrafts[j.ep] = { folds: j.result.folds.map((f) => ({ ...f, on: true })) };
     S.selArc = j.ep;
   } else if (j.kind === 'offscreen' && j.result) {
-    S.offscreenDraft = { lines: j.result.lines.map((x) => ({ ...x, on: true })) };
+    S.offscreenDraft = { at: j.result.at || 0, lines: j.result.lines.map((x) => ({ ...x, on: true })) };
     S.selArc = 'next';
   } else if (['convert', 'rebuild', 'rework'].includes(j.kind) && j.result) {
     convertResult(j);

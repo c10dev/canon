@@ -406,7 +406,7 @@
 - 장면 연출은 플롯에서 초안 `draft_stage` · 본문에서 뽑기 `extract_stage`(박자가 빈 응답이면 한 번 다시 묻기) · 검수 때 함께 뽑기 `stage_extract_all` · 적용 `apply_stage` · 적용 취소 `undo_stage`(`stage.py`)
 - 동선 지적 고침안은 새 문장을 더한 안을 거른다(`clean_fixes` 의 `_adds_sentence`)
 - 장편은 부 계획(`plan_series`) → 다음 아크(`plan_next_arc`/`apply_arc`, 기획 전 경고 `plan_ahead`: 본문 없는 아크 2개 이상 · 요약 없는 끝난 아크 · 부, 막지 않음) → 아크 · 부 요약(`recap`/`apply_recap`)
-- 다음 아크 기획 앞 화면 밖 근황 제안 `plan_offscreen`(작업 `offscreen`, 규칙은 story.md 의 `canon/offscreen.py` 절). 저장하지 않는다
+- 다음 아크 기획 앞 화면 밖 근황 제안 `plan_offscreen`(작업 `offscreen`, 규칙은 story.md 의 `canon/offscreen.py` 절). 저장하지 않고 시점 화를 `OffscreenSet.at` 에 적는다
 - 단편 → 장편 전환은 이어 쓰기 `propose_conversion`/`apply_conversion`
 - 재구성 `propose_rebuild`/`apply_rebuild`(옛 상태 변경안 재사용 `carried_delta`, 다듬기 `propose_rework`/`accept_rework`)
 - 되돌리기 `undo_conversion`

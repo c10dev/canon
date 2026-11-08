@@ -9,7 +9,8 @@ const OFFSCREEN_KIND = { daily: '일상', change: '변화', hook: '복귀 고리
 /** 다음 아크 기획 칸 안의 근황 칸. 다음 아크가 RETURN_GAP 화 뒤에 시작하거나, 저장한 근황 · 제안이 있을 때만 그린다 */
 function offscreenBox(start) {
   const p = P();
-  const saved = (p.states || []).filter((s) => s.offscreen).sort((a, b) => b.offscreen_ep - a.offscreen_ep);
+  const live = new Set((p.characters || []).filter((c) => c.context !== 'off').map((c) => c.id));  // offscreen.listed 와 같게 '넣지 않음' · 지운 인물은 뺀다
+  const saved = (p.states || []).filter((s) => s.offscreen && live.has(s.character_id)).sort((a, b) => b.offscreen_ep - a.offscreen_ep);
   const draft = S.offscreenDraft;
   if (start <= RETURN_GAP && !saved.length && !draft) return '';
   const b = jobBtn('offscreen', null, saved.length ? 'AI로 근황 다시 제안' : 'AI로 근황 제안');
@@ -20,7 +21,7 @@ function offscreenBox(start) {
       <textarea rows="2" data-autogrow data-ofs="${i}" aria-label="${esc(charName(x.character_id))} 화면 밖 근황">${esc(x.text)}</textarea></div></div>`).join('') : '';
   return `<div class="knows-fold">
     <div class="between"><h3>화면 밖 근황 ${saved.length ? `<span class="chip finalized">${saved.length}명 저장</span>` : ''}</h3>${draft ? '' : `<button class="btn small" data-action="planOffscreen"${b.attr}>${b.label}</button>`}</div>
-    <div class="small">${RETURN_GAP}화 넘게 나오지 않은 인물이 그동안 어떻게 지냈는지 정해 두면 다음 아크 제안과, 그 인물이 다시 나오는 화의 쓰기에 들어가요. 그 인물이 나온 화를 반영하면 근황은 지워져요.</div>
+    <div class="small">${RETURN_GAP}화 넘게 나오지 않은 인물이 그동안 어떻게 지냈는지 정해 두면 다음 아크 제안과, 그 인물이 다시 나오는 화의 쓰기에 들어가요. 그 인물이 등장 인물로 나온 화를 반영하면 근황은 지워져요.</div>
     ${savedList ? `<ul class="cast-ul">${savedList}</ul>` : ''}
     ${draft ? `${rows || '<div class="small">근황을 받은 인물이 없어요</div>'}<div class="row"><button class="btn small" data-action="dropOffscreen">버리기</button><button class="btn small primary" data-action="applyOffscreen">고른 근황 저장</button></div>` : ''}
   </div>`;
@@ -44,7 +45,7 @@ document.addEventListener('change', (e) => {
 
 /** 보낼 근황: 고른 인물만, 빈 근황은 뺀다 */
 function offscreenPicked(draft) {
-  return { lines: draft.lines.filter((x) => x.on && x.text.trim()).map((x) => ({ character_id: x.character_id, text: x.text.trim(), kind: x.kind })) };
+  return { at: draft.at || 0, lines: draft.lines.filter((x) => x.on && x.text.trim()).map((x) => ({ character_id: x.character_id, text: x.text.trim(), kind: x.kind })) };
 }
 
 Object.assign(actions, {

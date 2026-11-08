@@ -787,6 +787,8 @@ class OffscreenLine(BaseModel):
 class OffscreenSet(BaseModel):
     """다음 아크 기획 앞 화면 밖 근황 제안. 작가가 인물마다 골라 적용한다 (pipeline.plan_offscreen, offscreen.apply)."""
     lines: list[OffscreenLine] = Field(default_factory=list)
+    # 제안을 받을 때의 시점 화 (다음 아크 시작 화 바로 앞 화). 프로그램이 채운다. 저장할 때 지금 값과 다르면 낡은 제안이라 막는다
+    at: SkipJsonSchema[int] = Field(0, description="근황의 시점 화 (pipeline.plan_offscreen)")
 
 
 class KnowsFoldRecord(BaseModel):

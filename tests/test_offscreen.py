@@ -81,7 +81,10 @@ def test_plan_clean_apply_and_prompts():
 def test_no_offscreen_keeps_prompts():
     p, a = _project()
     n = a.end_ep + 1
-    assert "화면 밖 근황" not in prompts.return_block(p, {"smith"}, n)
+    assert prompts.return_block(p, {"smith"}, n) == (
+        f"\n\n# 오랜만에 다시 나오는 인물 ({context.RETURN_GAP}화 넘게 나오지 않음. 그동안 바뀐 것은 줄거리와 인물 현재 상태를 따르고, "
+        f"독자가 누구인지 알아보게 처음 나올 때 한두 문장으로 짚어 줍니다)\n- 마르타 부인: 마지막으로 나온 화 2화 ({n - 2}화 전). "
+        "2화 요약: 마르타 부인이 서윤의 검을 맡아 두었다.")  # 근황이 없으면 예전 글 그대로
     plan = prompts.next_arc_prompt(p, n, 0, "")
     assert "화면 밖 근황" not in plan
     assert "offscreen" not in json.loads(p.model_dump_json())["states"][-1]  # 빈 근황은 저장하지 않는다
@@ -102,10 +105,16 @@ def test_reappearance_clears_and_absence_keeps():
     offscreen.apply(p, OffscreenSet(lines=[OffscreenLine(character_id="smith", text="대장간을 지켰다")]))
     pipeline.apply_delta(p, StateDelta(episode=5, summary="5화 요약"))
     assert p.state_of("smith").offscreen == "대장간을 지켰다"  # 나오지 않은 화는 그대로
-    p.episode(6).text = "마르타 부인이 돌아왔다."
+    p.episode(6).text = "서윤은 마르타 부인을 떠올렸다."
     pipeline.apply_delta(p, StateDelta(episode=6, summary="6화 요약"))
+    assert p.state_of("smith").offscreen == "대장간을 지켰다"  # 이름만 나온 회상은 비우지 않는다
+    p.episode(7).plot.characters.append("smith")
+    pipeline.apply_delta(p, StateDelta(episode=7, summary="7화 요약"))
     st = p.state_of("smith")
     assert st.offscreen == "" and st.offscreen_ep == 0
+    offscreen.apply(p, OffscreenSet(lines=[OffscreenLine(character_id="smith", text="다시 떠났다")]))
+    pipeline.apply_delta(p, StateDelta(episode=8, summary="8화 요약", character_updates=[CharacterState(character_id="smith", location="북문")]))
+    assert p.state_of("smith").offscreen == ""  # 상태 변경안이 다룬 인물도 나온 것이다
 
 
 def test_revert_drops_offscreen_saved_after_snapshot():
@@ -130,6 +139,20 @@ def test_short_and_empty_raise():
         pipeline.plan_offscreen(LLM, q)
 
 
+def test_stale_proposal_is_rejected():
+    p, a = _project()
+    s = pipeline.plan_offscreen(LLM, p)
+    assert s.at == a.end_ep
+    _plan_arc(p)  # 근황을 받은 뒤 다음 아크를 적용했다
+    with pytest.raises(ValueError, match="다시 받으세요"):
+        offscreen.check_fresh(p, s)
+    q, b = _project()
+    s = pipeline.plan_offscreen(LLM, q)
+    q.episode(b.end_ep).text = ""
+    q.episode(b.end_ep).plot.characters.append("smith")  # 그사이 smith 가 기획한 화에 들었다
+    assert offscreen.check_fresh(q, s).lines == []
+
+
 def test_response_schemas_skip_offscreen():
     for m in (StateDelta, StateDeltaAI):
         assert "offscreen" not in json.dumps(m.model_json_schema(), ensure_ascii=False)
@@ -149,6 +172,13 @@ def test_job_maker_and_web_routes(client):  # noqa: F811
     assert "offscreen" not in next(s for s in out["states"] if s["character_id"] == "smith")
     assert client.delete("/api/projects/ofs/offscreen/smith").status_code == 400
     assert client.post("/api/projects/ofs/offscreen", json={"lines": []}).status_code == 400
+    old = client.post("/api/projects/ofs/offscreen", json={**body, "at": a.end_ep - 3})
+    assert old.status_code == 400 and "다시 받으세요" in old.json()["detail"]
+    q = _serial()
+    _plan_arc(q)
+    st.save("ofs2", q)
+    r = client.post("/api/projects/ofs2/jobs", json={"kind": "offscreen"})
+    assert r.status_code == 400 and "나오지 않은 인물이 없어요" in r.json()["detail"]  # 작업을 띄우기 전에 알린다
 
 
 def test_js_gap_matches_context():
@@ -163,11 +193,11 @@ def test_next_arc_panel_shows_saved_and_draft():
     got = run_js(FILES, """(() => {
       S.project = data; S.name = 't';
       const saved = nextArcPanel(data.story_arcs[0].end_ep + 1);
-      S.offscreenDraft = { lines: [{ character_id: 'smith', text: '새 근황', kind: 'hook', on: true }, { character_id: 'hero', text: '  ', kind: 'daily', on: true }] };
+      S.offscreenDraft = { at: 12, lines: [{ character_id: 'smith', text: '새 근황', kind: 'hook', on: true }, { character_id: 'hero', text: '  ', kind: 'daily', on: true }] };
       const draft = nextArcPanel(data.story_arcs[0].end_ep + 1);
       return { saved, draft, picked: offscreenPicked(S.offscreenDraft) };
     })()""", dump(p))
     assert "화면 밖 근황" in got["saved"] and f"{a.end_ep}화 끝 시점" in got["saved"] and "대장간을 지켰다" in got["saved"]
     assert 'data-action="clearOffscreen" data-arg="smith"' in got["saved"] and 'data-action="planOffscreen"' in got["saved"]
     assert "복귀 고리" in got["draft"] and 'data-action="applyOffscreen"' in got["draft"]
-    assert got["picked"] == {"lines": [{"character_id": "smith", "text": "새 근황", "kind": "hook"}]}  # 빈 근황은 보내지 않는다
+    assert got["picked"] == {"at": 12, "lines": [{"character_id": "smith", "text": "새 근황", "kind": "hook"}]}  # 빈 근황은 보내지 않는다

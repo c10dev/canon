@@ -1303,7 +1303,9 @@ Object.assign(actions, {
       S.selArc = S.arcDraft.arc.number;
       S.arcDraft = null;
       S.arcForm = { length: 0, note: '' };
-      toast('아크를 적용했어요. 화별 플롯 초안을 만드세요.');
+      const staleAway = !!S.offscreenDraft;
+      S.offscreenDraft = null;  // 근황 시점(다음 아크 시작 화 앞)이 바뀌어 저장할 수 없다 (offscreen.check_fresh)
+      toast(`아크를 적용했어요. 화별 플롯 초안을 만드세요.${staleAway ? ' 저장하지 않은 화면 밖 근황 제안은 시점이 바뀌어 버렸어요.' : ''}`);
     });
   },
   async removeLastArc() {

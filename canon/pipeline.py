@@ -1219,11 +1219,7 @@ def fold_knows(llm: LLM, p: Project, number: int) -> KnowsFoldSet:
 
 def plan_offscreen(llm: LLM, p: Project) -> OffscreenSet:
     """다음 아크 기획 앞, context.RETURN_GAP 화 넘게 나오지 않은 인물(offscreen.targets)마다 화면 밖 근황 제안. 저장하지 않는다 (offscreen.apply)."""
-    if not p.serial:
-        raise ValueError("장편 연재(form=serial) 작품에서만 화면 밖 근황을 물어요")
-    want, cut = offscreen.targets(p)
-    if not want:
-        raise ValueError(f"{offscreen.start(p)}화 앞에서 {context.RETURN_GAP}화 넘게 나오지 않은 인물이 없어요")
+    want, cut = offscreen.ready(p)
     s = llm.json(prompts.SYSTEM_PLANNER, prompts.offscreen_prompt(p, want, cut), OffscreenSet, hint={"ids": list(want)})
     return offscreen.clean(p, s, want)
 

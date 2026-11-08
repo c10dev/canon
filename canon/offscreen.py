@@ -40,6 +40,25 @@ def targets(p: Project, n: int | None = None) -> tuple[dict[str, int], int]:
     return {cid: gap[cid] for cid in order[:OFFSCREEN_MAX]}, max(0, len(order) - OFFSCREEN_MAX)
 
 
+def ready(p: Project) -> tuple[dict[str, int], int]:
+    """근황을 물을 수 있으면 targets 를 돌려주고, 아니면 까닭을 ValueError 로 알린다 (작업을 띄우기 전에도 부른다)."""
+    if not p.serial:
+        raise ValueError("장편 연재(form=serial) 작품에서만 화면 밖 근황을 물어요")
+    want, cut = targets(p)
+    if not want:
+        raise ValueError(f"{start(p)}화 앞에서 {context.RETURN_GAP}화 넘게 나오지 않은 인물이 없어요")
+    return want, cut
+
+
+def check_fresh(p: Project, s: OffscreenSet) -> OffscreenSet:
+    """저장하려는 제안이 지금 시점의 것인지 본다. 제안 뒤 아크를 적용했으면(시점 화가 바뀜) 낡은 제안이라 막는다.
+    그사이 다시 나와 대상에서 빠진 인물의 줄은 뺀다. at 이 0 이면(명령줄 · 손으로 만든 요청) 시점을 보지 않는다."""
+    if s.at and s.at != start(p) - 1:
+        raise ValueError(f"근황을 받은 뒤 다음 아크가 바뀌었어요 ({s.at}화 → {start(p) - 1}화 끝 시점). 근황을 다시 받으세요")
+    want = targets(p)[0]
+    return OffscreenSet(lines=[x for x in s.lines if x.character_id in want], at=s.at)
+
+
 def _trim(text: str) -> str:
     text = " ".join(text.split())
     return text if len(text) <= TEXT_MAX else text[:TEXT_MAX - 1] + "…"
@@ -53,7 +72,7 @@ def clean(p: Project, s: OffscreenSet, want: dict[str, int] | None = None) -> Of
         text = _trim(x.text)
         if x.character_id in want and text and x.character_id not in out:
             out[x.character_id] = OffscreenLine(character_id=x.character_id, text=text, kind=x.kind)
-    return OffscreenSet(lines=[out[cid] for cid in want if cid in out])
+    return OffscreenSet(lines=[out[cid] for cid in want if cid in out], at=start(p) - 1)
 
 
 def apply(p: Project, s: OffscreenSet, at: int | None = None) -> int:
@@ -94,15 +113,12 @@ def listed(p: Project) -> tuple[list[CharacterState], int]:
 
 
 def apply_delta(p: Project, d: StateDelta) -> None:
-    """반영 훅 (features.APPLY_LAST): 이번 화에 나온 인물(플롯 인물, 본문에 이름이 나옴, 상태 변경안이 다룸)의 근황을 비운다.
-    context.last_seen 과 같은 규칙으로 본다. 등장 인물 붙이기(cast.apply_delta) 뒤에 부른다."""
+    """반영 훅 (features.APPLY_LAST): 이번 화에 실제로 나온 인물(플롯 인물, 상태 변경안이 다룸)의 근황을 비운다.
+    등장 인물 붙이기(cast.apply_delta) 뒤에 불러, 본문에 나와 변경안이 다룬 인물(StateDelta.cast_added)도 플롯 인물로 본다.
+    본문에 이름만 나온 화는 비우지 않는다: 플롯 밖 인물의 이름은 대개 회상 · 언급이라(DESIGN.md '본문에 나온 인물을 등장 인물에 붙이기')
+    회상 한 줄이 작가가 고른 근황을 지우게 된다. 그래서 공백 판정(context.last_seen)보다 좁다."""
     ep = p.episode(d.episode)
-    touched = {u.character_id for u in d.character_updates}
-    by_id = {c.id: c for c in p.characters}
+    here = set(ep.plot.characters) | {u.character_id for u in d.character_updates}
     for s in p.states:
-        if not s.offscreen:
-            continue
-        c = by_id.get(s.character_id)
-        pat = context.name_pattern(c) if c else None
-        if s.character_id in ep.plot.characters or s.character_id in touched or (pat and pat.search(ep.text)):
+        if s.offscreen and s.character_id in here:
             s.offscreen, s.offscreen_ep = "", 0

@@ -1924,7 +1924,7 @@ def apply_offscreen(name: str, body: OffscreenSet) -> Project:
     _not_auto(name)
     if not p.serial:
         raise ValueError("장편 연재(form=serial) 작품에서만 화면 밖 근황을 둬요")
-    if not offscreen.apply(p, body):
+    if not offscreen.apply(p, offscreen.check_fresh(p, body)):
         raise ValueError("저장할 근황이 없어요. 인물을 고르거나 근황을 적으세요")
     return _save(name, p)
 
@@ -2868,7 +2868,8 @@ def _job_fold_knows(name: str, body: "JobIn", p: Project, kind: str, n: int | No
 
 
 def _job_offscreen(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
-    """작업 offscreen: (이름표, 전체 걸음, 맡은 화, 할 일). 다음 아크 기획 앞 화면 밖 근황 제안."""
+    """작업 offscreen: (이름표, 전체 걸음, 맡은 화, 할 일). 다음 아크 기획 앞 화면 밖 근황 제안. 물을 인물이 없으면 작업 전에 400."""
+    offscreen.ready(p)
     label, total, owned = f"{offscreen.start(p)}화 앞 화면 밖 근황", 1, set()
 
     def fn(job: jobs.Job):
