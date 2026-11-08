@@ -1534,6 +1534,15 @@ def relevant_foreshadows(p: Project, n: int) -> tuple[list[Foreshadow], int]:
     return picked, len(opened) - len(picked)
 
 
+def fact_rows(p: Project, facts: list[str]) -> str:
+    """사실 목록 줄. 장편은 반영 기록으로 센 들어온 화를 '(n화)'로 앞에 붙인다(context.facts_learned, 0화 · 모름은 붙이지 않음).
+    상태 변경안이 따라 적은 표시는 features._untag_facts 가 뗀다. 검수 · 인과율 · 플레이 장면 요청은 이 함수를 쓰지 않는다. 비면 '없음'."""
+    if not facts:
+        return "없음"
+    eps = context.facts_learned(p) if p.serial else {}
+    return "\n".join(f"- ({eps[f]}화) {f}" if eps.get(f) else f"- {f}" for f in facts)
+
+
 def relevant_facts(p: Project, cast: set[str], n: int | None = None, budget: str = "facts") -> tuple[list[str], int]:
     """확정 사실이 많으면 이번 화 인물 이름이 들어간 것과 최근 것만 넣는다.
     장편은 n 화 플롯과 이야기 요소로 관련 순서를 매겨 블록 예산(context.BUDGET[budget])만큼만 넣는다."""
@@ -1621,7 +1630,7 @@ def plot_facts_states(p: Project, ids: set[str], start: int, query: str, numbers
     side, side_cut, side_knows_cut = plan_side_states(p, ids, start, query, "plot_states")
     return f"""
 [확정된 사실 (어기지 않음. 이번 범위와 관련된 것과 최근 것)]{f" (그 밖에 {facts_cut}개는 관련이 적어 뺐습니다)" if facts_cut else ""}
-{chr(10).join("- " + f for f in facts) or "없음"}
+{fact_rows(p, facts)}
 [인물 현재 상태 (위치 · 부상 · 목표 · 아는 정보. 플롯이 어기지 않게)]{knows_note(knows_cut)}
 {dump(main_states) or "설정 그대로"}
 [조연 · 최근 인물 현재 상태 (최근에 나온 순서)]{f" (그 밖에 {side_cut}명은 예산을 넘겨 뺐습니다)" if side_cut else ""}{knows_note(side_knows_cut)}
@@ -1685,7 +1694,7 @@ def next_arc_prompt(p: Project, start: int, length: int, note: str) -> str:
 [열린 복선]{f" (그 밖에 {fs_more}개는 오래된 아크 단위 복선이라 뺐습니다)" if fs_more else ""}
 {fs_lines or "없음"}
 [확정된 사실 (이 아크와 관련된 것과 최근 것)]{f" (그 밖에 {facts_cut}개는 관련이 적어 뺐습니다)" if facts_cut else ""}
-{chr(10).join("- " + f for f in facts) or "없음"}{time_plan(p, start, ARC_TIME_RULE)}
+{fact_rows(p, facts)}{time_plan(p, start, ARC_TIME_RULE)}
 [작가의 요청]
 {note.strip() or "없음"}
 
@@ -2364,7 +2373,7 @@ def passage_head(p: Project, n: int) -> str:
     return f"""{static_context(p)}
 
 # 확정된 사실{f" (이번 화와 관련된 것만, {facts_cut}개 생략)" if facts_cut else ""}
-{chr(10).join("- " + f for f in facts) or "없음"}{f"{chr(10)}{chr(10)}# 이야기 요소 (이번 화와 관련된 설정, 어기지 말 것){chr(10)}{els}" if els else ""}
+{fact_rows(p, facts)}{f"{chr(10)}{chr(10)}# 이야기 요소 (이번 화와 관련된 설정, 어기지 말 것){chr(10)}{els}" if els else ""}
 {extra_block(extra)}
 # 이번 화 플롯
 {dump(write_plot(ep.plot))}{f"{chr(10)}{chr(10)}# 이번 화 서술 시점 (스타일 프로필보다 우선){chr(10)}{pov}" if (pov := pov_block(p, n)) else ""}"""
@@ -2626,7 +2635,7 @@ def build_episode_context(p: Project, n: int, *, use_board: bool = True, pre: st
     dev = device_block(p, n)
     dev = f"\n\n# 가끔 쓰는 장치 (최근 화에서 쓴 화를 센 것)\n{dev}" if dev else ""
 
-    facts_text = chr(10).join("- " + f for f in facts) or "없음"
+    facts_text = fact_rows(p, facts)
     full = sb is not None if full_prev is None else full_prev
     if late:
         prev_head = prev_block(p, n, last_text, full)
@@ -3658,7 +3667,7 @@ def state_facts_block(p: Project, n: int, ids: set[str], budget: str = "state_fa
     ep = p.episode(n)
     facts, cut = context.pick_facts(p, ids, ep.text + "\n" + elements.plot_text(ep), context.BUDGET[budget], context.query_terms(p, n))
     return (f"[이미 있는 확정 사실 — 다시 적지 않습니다]{cut_note(cut, '이번 화와 관련된 것과 최근 것만')}\n"
-            + "\n".join("- " + f for f in facts) + "\n")
+            + fact_rows(p, facts) + "\n")
 
 
 def state_prompt(p: Project, n: int, cuts: tuple[int, int] | None = None, head: str = "", facts_budget: str = "state_facts") -> str:

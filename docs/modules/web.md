@@ -235,6 +235,7 @@
 - 작품 홈
   - 지금 화 `homeNowCard` · 확인할 것 `homeTodos`(말투 빈 인물 `homeSpeechGaps`, 시점 인물 서술 말투 빈칸 `homeVoiceGap`) · 전 화수 막대 `homeProgress` · 줄인 목록 `homeCast` · `homeForeshadows`
   - 계산 함수는 작품을 받는 순수 함수 `tests/test_home_js.py`
+  - 확정 사실 줄 끝의 'n화' 링크는 그 화 상태 승인 기록(`/review/n`)으로 간다. 들어온 화는 `factsLearned`(`context.facts_learned` 와 같은 규칙)
 - 장르 · 화 진행 막대와 연재 일정(`epSteps`, 검수 칸 `checkState`, 화를 열 단계 화면 `epStage`: 다음 할 일 · 화 칸 · 팔레트, 작품 목록 다음 할 일 `projectNext` 는 서버 `findings.check_done`, `releasePlan`, `Project.release`)
 - 연재 일정 줄의 'n화 올림으로 표시'(`releaseOne`)는 올린 화를 하나 늘려 저장한다
 - 저장한 뒤 알림에 '되돌리기'(`releaseUndo`)를 둔다
