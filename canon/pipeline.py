@@ -10,7 +10,6 @@ from concurrent.futures import ThreadPoolExecutor
 from . import dynamics, elements, illust, metrics, naming, prompts, renumber, setupchat, storylines
 from .judge import Judge, Question
 from .llm import LLM, PREFIX_HINT, Interrupted, dump, family_text, out_cap
-from .logline import josa
 from . import anchor, board, cancel, charlog, context, features, findings, foreshadows, heatplan, knows, metatail, stage, statwin, usage
 from .schema import CueSheet, CueSheetDraft, Finding, MetaCut, FindingRecheck, FixBatch, FixOption, FixPatch, FixRecheckItem, FixRecheckReport, FixSet, RevArcSet, RevEpisodeDraft, RevLineSet
 from .schema import ParagraphAnatomy, ReaderCheck, SceneCard, SceneVariant, SceneVariants, StudioCandidate, StudioDraft
@@ -92,6 +91,7 @@ from .schema import (
     TextVersion,
     to_delta,
 )
+from .logline import josa
 
 
 # ---------- 1. 설정 도우미 ----------

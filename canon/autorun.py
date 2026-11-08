@@ -30,9 +30,9 @@ from pydantic import BaseModel, Field
 from . import anchor, atlas, board, cue, dynamics, features, findings, jobs, pipeline, prompts, settings, store, timeline, usage
 from . import stage as stage_mod
 from .llm import BatchLLM, Interrupted, SchemaMismatch, get_llm
-from .logline import josa
 from .research import JSON_OUTPUT_RESERVE, _filler
 from .schema import ConsistencyReport, Project, RewriteRequest, StateDelta, TextVersion
+from .logline import josa
 
 _log = logging.getLogger("canon")
 
