@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
-from . import cancel
+from . import cancel, usage
 from .dynamics import seed_ties
 from .schema import BranchInfo, CueLab, PlayInfo, Project, Snapshot
 
@@ -782,3 +782,7 @@ def load_backup(name: str, tag: str) -> Project | None:
 
 def drop_backup(name: str, tag: str) -> None:
     backup_path(name, tag).unlink(missing_ok=True)
+
+
+# 보내기 직전의 요청(llm.with_note)이 성인 작품인지 알게 한다. load_view 는 판이 같으면 캐시를 돌려준다.
+usage.adult_of = lambda name: load_view(name).meta.adult
