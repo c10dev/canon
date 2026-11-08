@@ -66,6 +66,10 @@
 - 고른 작품에서 불러왔으면 그 작품의 단계 프리셋(`settings.project_preset`)을 쓴다
 - 칸을 고쳐도 출처가 있으면 같은 방식으로 돌린다. 불러온 출처가 없는 세션은 예전처럼 글로 받는다
 - 시도의 결과마다 받은 스키마 · 추론 강도 · 출력 한도를 남긴다(`PromptRun.schema_name` · `effort` · `out_tokens`)
+- 실패한 결과는 마지막으로 받은 원문(`PromptRun.raw`, `research.RAW_MAX` 자까지)과 끝난 이유(`finish`)를 남긴다
+- 구조화 출력 결과 검사 `inspect`: 빈 칸(`research.empty_fields`, 앞쪽 `EMPTY_SHOWN` 개와 수)을 남긴다
+- `canon_notes` 는 실제 경로의 정리 함수(`clean_storyboard` · `cue.clean` · `fit_arc` · `clean_heat` · `validate_parts`, 화 번호 맞춤)를 사본에 돌려 Canon 이 정리하거나 거절하는 것을 `PromptRun.notes` 에 적는다
+- 검사는 작품을 바꾸지 않고, 검사가 실패해도 결과는 남긴다
 - `view` 의 `spec` 은 화면에 보일 돌리는 방식(스키마 이름 · 단계 이름 `STAGE_LABELS` · 한도 · 백엔드마다 쓸 모델과 추론 강도)이다
 - 어림 비용 `run_cost`: `usage.PRICED` 백엔드만 `usage.rate` · `usage.cost` 로 센다. 로컬 · mock 은 0, 가격 · 토큰을 모르면 None
 - 세션마다 시도 `MAX_TRIALS` 개까지. 저절로 지우지 않고 막는다(`room`)
@@ -132,6 +136,7 @@
 - 연구 화면(모델 실험) 로직
 - 서버 점검
 - 샘플 비교
+- 샘플 생성 `sample` 은 실패하면 받은 원문(`last_raw`, `RAW_MAX` 자까지)과 끝난 이유(`last_finish`)를 줄에 남긴다
 - 샘플 생성 `sample` 은 schema 를 주면 `llm.json` 으로 받아 검증한 JSON 을 글로 돌려준다. mock 은 hint 없이 스키마 응답을 짓지 못해 글로 받는다
 - `sample` 의 stage · out_tokens: 모델 칸이 빈 백엔드는 그 단계의 모델 · 추론 강도(`stage_defaults`)로 만들고 출력 한도(`llm.out_cap`)를 건다
 - `stage_defaults`: 단계 모델은 그 단계 백엔드가 같을 때만 쓰고, 추론 강도는 `settings.provider_effort` 로 바꿔 Gemini 에만 넘긴다
@@ -314,6 +319,8 @@
 - 요청 칸 아래에 Gemini · 로컬이 보낼 때 붙이는 `POLICY_NOTE` 줄을 보인다(`S.pgLimits.policyNote`)
 - 불러온 갈래가 있으면 돌리는 방식 한 줄(`pgSpecLine`)과 모델 칸 안내(`pgModelHint`, 그 단계 모델 · 추론 강도)를 보인다
 - 결과 카드는 받은 형식 · 추론 강도 · 출력 한도를 함께 적는다(`pgRunCard`)
+- 구조화 출력 결과는 Canon 정리와 빈 칸 수를 보이고 빈 칸 경로는 펼쳐 본다(`pgCheckHtml`)
+- 실패한 결과는 받은 원문과 끝난 이유를 펼쳐 본다(`pgRawHtml`, MAX_TOKENS 면 출력 한도)
 - 칸에 글이 있으면 불러오기 전에 묻는다. 불러온 출처는 프롬프트 카드와 시도 카드에 칩으로 보인다(`pgSourceLabel`, 고쳤으면 '(고침)')
 - 시도 카드: 그 시도의 프롬프트(접힘), 지금 칸과 다른지(`pgDiff`), 백엔드마다 결과 카드 `pgRunCard`(초 · 글자 · 토큰 · 어림 비용 `usd`)
 - 시도 동작: 고르기 `pgStar` · 메모 `data-pg-note` · 되돌리기 `pgRestore` · 결과 복사 `pgCopy` · 지우기 `pgDrop`

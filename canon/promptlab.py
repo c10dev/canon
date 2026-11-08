@@ -183,7 +183,8 @@ def to_run(b: PromptBackend, row: dict) -> PromptRun:
                      ok=bool(row.get("ok")), text=row.get("text", ""), error=row.get("error", ""), seconds=row.get("seconds", 0.0),
                      chars=row.get("chars", 0), tokens_in=tokens.get("prompt_tokens") or 0,
                      tokens_out=(tokens.get("completion_tokens") or 0) + (tokens.get("thought_tokens") or 0),
-                     cost=run_cost(b.provider, row.get("model", ""), tokens) if row.get("ok") else None)
+                     cost=run_cost(b.provider, row.get("model", ""), tokens) if row.get("ok") else None,
+                     raw=row.get("raw", ""), finish=row.get("finish", ""))
 
 
 # 실제 호출이 거는 출력 한도(pipeline.BOARD_OUT_TOKENS · CUE_OUT_TOKENS). 없는 갈래는 기본 한도
@@ -212,7 +213,76 @@ def run(s: PromptSession) -> list[PromptRun]:
     spec = run_spec(s)
     rows = research.sample([research.Backend(**b.model_dump()) for b in s.backends], s.system, s.prompt, s.temperature,
                            schema=spec["schema"], stage=spec["stage"], preset=spec["preset"], out_tokens=spec["out_tokens"])
-    return [to_run(b, r).model_copy(update={"out_tokens": spec["out_tokens"]}) for b, r in zip(s.backends, rows)]
+    out = [to_run(b, r).model_copy(update={"out_tokens": spec["out_tokens"]}) for b, r in zip(s.backends, rows)]
+    for r in out:
+        if r.ok and r.schema_name and spec["schema"]:
+            inspect(s, spec["schema"].model_validate_json(r.text), r)
+    return out
+
+
+EMPTY_SHOWN = 20  # 결과에 남기는 빈 칸 경로 수
+
+
+def inspect(s: PromptSession, obj, r: PromptRun) -> None:
+    """구조화 출력 결과를 검사해 r 에 적는다: 빈 칸(research.empty_fields)과, 실제 경로라면 Canon 이 이 응답을 어떻게 정리하거나 거절하는지(notes).
+    작품은 바꾸지 않는다. 검사가 실패해도 결과는 남긴다."""
+    empty = research.empty_fields(obj)
+    r.empty, r.empty_count = empty[:EMPTY_SHOWN], len(empty)
+    try:
+        r.notes = canon_notes(s.source, obj.model_copy(deep=True))
+    except Exception as e:  # 검사는 덤이라 실패해도 시도는 남긴다
+        r.notes = [f"Canon 정리를 검사하지 못했어요: {type(e).__name__}: {e}"]
+
+
+def canon_notes(src: PromptSource, obj) -> list[str]:
+    """실제 경로의 정리 함수를 사본에 돌려 본 결과. 갈래마다 pipeline 과 같은 함수를 쓴다."""
+    from . import cue, pipeline
+
+    p, n, kind = _project(src.project), src.n, src.kind
+    notes: list[str] = []
+    if kind == "storyboard":  # pipeline._board_draft · clean_storyboard
+        before = len(obj.scenes)
+        pipeline.clean_storyboard(obj)
+        if before > len(obj.scenes):
+            notes.append(f"빈 장면 {before - len(obj.scenes)}개는 Canon이 빼요")
+        if not obj.scenes and p.episode(n).plot.events:
+            notes.append("장면이 하나도 없어 Canon은 한 번 더 물어요. 그래도 없으면 저장하지 않아요")
+    elif kind == "cue":  # pipeline.make_cue_sheet · cue.clean
+        board = p.episode(n).storyboard
+        before = len(obj.cues)
+        cue.clean(p, obj, len(board.scenes) if board else None)
+        if before > len(obj.cues):
+            notes.append(f"빈 큐 {before - len(obj.cues)}개는 Canon이 빼요")
+        if not obj.cues:
+            notes.append("큐가 하나도 없어요")
+    elif kind in ("plots", "plot"):  # pipeline.draft_plots · draft_episode
+        got = [e.number for e in obj.episodes]
+        if kind == "plots":
+            a, b = prompts.plots_range(p, n)
+            if got != list(range(a, b + 1)):
+                notes.append(f"요청한 화({span(a, b)})와 받은 화({got or '없음'})가 달라 Canon은 받지 않아요")
+        elif not got:
+            notes.append(f"{n}화 플롯을 받지 못해 Canon은 받지 않아요")
+        elif n not in got:
+            notes.append(f"{n}화가 없어 Canon은 첫 플롯({got[0]}화)을 {n}화로 받아요")
+    elif kind == "arc" and not p.serial:  # pipeline.plan_arc · fit_arc
+        try:
+            if pipeline.fit_arc(obj, p.meta.target_episodes):
+                notes.append("구간 범위가 맞지 않아 Canon이 범위만 고쳐요")
+        except ValueError as e:
+            notes.append(f"Canon은 받지 않아요: {e}")
+    elif kind == "arc":  # pipeline.plan_next_arc
+        if not obj.arc.acts:
+            notes.append("기승전결(acts)이 비어 Canon은 한 번 더 물어요")
+    elif kind == "heat":  # pipeline.propose_heat · clean_heat
+        start, end, *_ = pipeline.heat_target(p)
+        notes += [f"Canon 정리: {x}" for x in pipeline.clean_heat(p, obj, start, end)]
+    elif kind == "series":  # pipeline.plan_series · validate_parts
+        try:
+            pipeline.validate_parts(obj.parts, p.meta.target_episodes)
+        except ValueError as e:
+            notes.append(f"Canon은 받지 않아요: {e}")
+    return notes
 
 
 def add_trial(s: PromptSession, system: str, prompt: str, temperature: Optional[float], runs: list[PromptRun],

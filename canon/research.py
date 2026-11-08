@@ -174,6 +174,9 @@ def _probe_reason(url: str, e: RuntimeError) -> str:
 
 # ---------- 샘플 생성 ----------
 
+RAW_MAX = 30000  # 실패한 결과에 남기는 원문 글자 수 상한 (세션 파일이 너무 커지지 않게)
+
+
 def sample(runs: list[Backend], system: str, prompt: str, temperature: float | None = None, schema: type[BaseModel] | None = None,
            stage: str = "", preset: dict | None = None, out_tokens: int = 0) -> list[dict]:
     """같은 요청을 백엔드마다 차례로 보낸다. 한 쪽이 실패해도 나머지는 돌린다.
@@ -185,6 +188,7 @@ def sample(runs: list[Backend], system: str, prompt: str, temperature: float | N
         structured = schema is not None and b.provider != "mock"  # 형식은 pipeline 이 쓰는 것과 같아 test_schema_nodict 가 따로 보지 않는다
         row: dict[str, Any] = {"backend": label(b), "schema": schema.__name__ if structured else ""}
         t = time.perf_counter()
+        llm = None
         try:
             llm = make_backend(b, temperature, stage, preset)
             with out_cap(out_tokens) if out_tokens else nullcontext():
@@ -195,6 +199,8 @@ def sample(runs: list[Backend], system: str, prompt: str, temperature: float | N
                        sentence_len_mean=m.sentence_len_mean, dialogue_ratio=m.dialogue_ratio, mattr=m.mattr)
         except Exception as e:  # 백엔드마다 오류 종류가 달라 메시지만 남긴다
             row.update(ok=False, error=f"{type(e).__name__}: {e}")
+            # 받은 원문과 끝난 이유: 구조화 출력이 어긋나 실패했을 때 모델이 실제로 낸 글을 본다 (형식 고치기 재요청의 답)
+            row.update(raw=str(getattr(llm, "last_raw", "") or "")[:RAW_MAX], finish=str(getattr(llm, "last_finish", "") or ""))
         row["seconds"] = round(time.perf_counter() - t, 2)
         out.append(row)
     return out

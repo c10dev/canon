@@ -342,3 +342,38 @@ def test_run_without_source_or_with_mock_stays_text(home):
     promptlab.load_prompt(s, "check")
     r = promptlab.run(s)[0]
     assert r.ok and r.schema_name == ""  # mock 은 hint 없이 스키마 응답을 짓지 못해 글로 받는다
+
+
+def test_failed_structured_run_keeps_raw(home, monkeypatch):
+    """형식이 어긋난 응답은 형식 고치기를 한 번 더 묻고, 그래도 실패하면 마지막 원문과 끝난 이유를 남긴다."""
+    monkeypatch.setenv("CANON_LLM", "gemini")
+    seen = _fake_gemini(monkeypatch, "JSON 이 아닌 답")
+    s = promptlab.create(backends=[PromptBackend(provider="gemini")])
+    promptlab.load_prompt(s, "storyboard")
+    r = promptlab.run(s)[0]
+    assert not r.ok and r.raw == "JSON 이 아닌 답" and r.finish == "STOP" and len(seen) == 2
+    assert promptlab.add_trial(s, s.system, s.prompt, None, [r]).runs[0].raw == "JSON 이 아닌 답"
+
+
+def test_structured_run_is_checked_like_canon(home, monkeypatch):
+    """구조화 출력 결과의 빈 칸 수와, 실제 경로라면 Canon 이 정리하거나 거절하는 것을 적는다."""
+    import json
+
+    monkeypatch.setenv("CANON_LLM", "gemini")
+    scene = {"place": "등대", "spot": "계단", "goal": "열쇠를 찾는다", "turn": "", "end_state": "문이 열린다"}
+    _fake_gemini(monkeypatch, json.dumps({"scenes": [scene, {"place": "", "spot": "", "goal": "", "turn": "", "end_state": ""}]}))
+    s = promptlab.create(backends=[PromptBackend(provider="gemini")])
+    promptlab.load_prompt(s, "storyboard")
+    r = promptlab.run(s)[0]
+    assert r.ok and r.notes == ["빈 장면 1개는 Canon이 빼요"]
+    assert r.empty_count > 0 and "scenes[0].turn" in r.empty
+    from canon.schema import PlotBatch
+
+    other = promptlab.example_project().episode(5).plot.model_copy(update={"number": 9})
+    _fake_gemini(monkeypatch, PlotBatch(episodes=[other]).model_dump_json())
+    promptlab.load_prompt(s, "plots", n=5)
+    r = promptlab.run(s)[0]
+    assert r.ok and r.notes == ["요청한 화(5~6화)와 받은 화([9])가 달라 Canon은 받지 않아요"]
+    _fake_gemini(monkeypatch, json.dumps({"scenes": []}))
+    promptlab.load_prompt(s, "storyboard")
+    assert "장면이 하나도 없어" in promptlab.run(s)[0].notes[0]

@@ -231,7 +231,23 @@ function pgRunCard(r) {
     : `${r.seconds}초`;
   const body = r.ok ? `<div class="rw-text">${esc(r.text)}</div>` : `<p class="small warn-text" role="alert">${esc(r.error || '실패했어요')}</p>`;
   return `<div class="card" style="padding:var(--pad-card-tight)"><div class="between"><div class="row"><span class="chip${r.ok ? '' : ' bad'}">${esc(r.backend)}</span>${r.model && r.model !== r.backend ? `<span class="small">${esc(r.model)}</span>` : ''}</div></div>
-      <div class="small">${esc(facts)}</div>${body}</div>`;
+      <div class="small">${esc(facts)}</div>${pgCheckHtml(r)}${body}${pgRawHtml(r)}</div>`;
+}
+
+/** 구조화 출력 결과의 검사: Canon 정리(notes)와 빈 칸 수. 펼치면 빈 칸 경로 (tests/test_promptlab_js.py) */
+function pgCheckHtml(r) {
+  if (!r.ok || !r.schema_name) return '';
+  const notes = (r.notes || []).map((x) => `<li>${esc(x)}</li>`).join('');
+  const more = r.empty_count > (r.empty || []).length ? ` 외 ${r.empty_count - r.empty.length}곳` : '';
+  const empty = r.empty_count ? `<details><summary class="small">빈 칸 ${r.empty_count}곳</summary><p class="small">${esc((r.empty || []).join(', '))}${more}</p></details>` : '<p class="small">빈 칸 없음</p>';
+  return `${notes ? `<ul class="small warn-text">${notes}</ul>` : '<p class="small">Canon이 그대로 받는 응답이에요</p>'}${empty}`;
+}
+
+/** 실패한 결과의 받은 원문 (형식이 어긋난 응답을 본다). 끝난 이유가 MAX_TOKENS 면 출력 한도에 걸린 것 */
+function pgRawHtml(r) {
+  if (r.ok || !(r.raw || r.finish)) return '';
+  const why = r.finish ? ` · 끝난 이유 ${r.finish}${r.finish === 'MAX_TOKENS' ? '(출력 한도)' : ''}` : '';
+  return `<details><summary class="small">받은 원문 ${Number((r.raw || '').length).toLocaleString()}자${esc(why)}</summary><div class="rw-text">${esc(r.raw || '')}</div></details>`;
 }
 
 function pgTrialCard(t) {

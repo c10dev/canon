@@ -3247,6 +3247,11 @@ class PromptRun(BaseModel):
     tokens_in: int = 0
     tokens_out: int = 0
     cost: Optional[float] = Field(None, description="가격표로 어림한 USD. 로컬 · mock 은 0, 가격을 모르면 None")
+    raw: str = Field("", description="실패했을 때 마지막으로 받은 원문 (research.RAW_MAX 자까지)")
+    finish: str = Field("", description="실패했을 때 마지막 응답이 끝난 이유 (STOP, MAX_TOKENS 등). 모르면 빈칸")
+    empty: list[str] = Field(default_factory=list, description="구조화 출력에서 빈 칸 경로 (앞쪽 promptlab.EMPTY_SHOWN 개)")
+    empty_count: int = Field(0, description="구조화 출력의 빈 칸 수 (research.empty_fields)")
+    notes: list[str] = Field(default_factory=list, description="실제 경로라면 Canon 이 이 응답을 어떻게 정리하거나 거절하는지")
 
 
 class PromptTrial(BaseModel):

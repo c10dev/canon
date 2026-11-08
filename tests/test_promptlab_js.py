@@ -90,3 +90,20 @@ def test_spec_line_model_hint_and_run_facts():
     assert got["none"] == ""
     assert got["hint"] == ["비우면 스토리보드 · 큐 시트 단계 모델(gemini-x, 추론 강도 high)", "비우면 설정 값", "비우면 설정 값", "비우면 설정 값"]
     assert "StoryboardDraft 형식" in got["card"] and "추론 강도 high" in got["card"]
+
+
+@needs_node
+def test_run_card_check_and_raw():
+    got = run_js(["app.js", "usage.js", "promptlab.js"], """(() => {
+      const base = { backend: 'gemini', model: 'g', seconds: 1, chars: 2, tokens_in: 0, tokens_out: 0, cost: 0, schema_name: 'StoryboardDraft' };
+      return {
+        noted: pgRunCard({ ...base, ok: true, text: '{}', notes: ['빈 장면 1개는 Canon이 빼요'], empty: ['scenes[0].turn'], empty_count: 3 }),
+        clean: pgRunCard({ ...base, ok: true, text: '{}', notes: [], empty: [], empty_count: 0 }),
+        failed: pgRunCard({ ...base, ok: false, text: '', error: 'SchemaMismatch: x', raw: '<끊긴 답', finish: 'MAX_TOKENS' }),
+        text: pgRunCard({ ...base, schema_name: '', ok: true, text: '글' }),
+      };
+    })()""", {})
+    assert "빈 장면 1개는 Canon이 빼요" in got["noted"] and "빈 칸 3곳" in got["noted"] and "외 2곳" in got["noted"]
+    assert "Canon이 그대로 받는 응답이에요" in got["clean"] and "빈 칸 없음" in got["clean"]
+    assert "&lt;끊긴 답" in got["failed"] and "MAX_TOKENS(출력 한도)" in got["failed"]
+    assert "빈 칸" not in got["text"] and "받은 원문" not in got["text"]  # 글로 받은 결과는 검사하지 않는다
