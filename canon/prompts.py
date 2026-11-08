@@ -61,14 +61,32 @@ def prose_rules(styled: bool = False) -> str:
 
 PROSE_RULES = prose_rules()
 
+# 본문을 쓰는 시스템 프롬프트(writer_system · reviser_system · paragraph_system)의 머리말. 작가가 정한 글 그대로 (2026-11-08).
+# 머리말이 역할을 정하지 않는다고 하므로 그 뒤의 지시는 '당신은 소설가입니다' 같은 역할 문장 없이 할 일만 적는다.
+# 성인 RP/ERP 줄은 성인 독자 대상 작품(Meta.adult)에만 넣는다.
+_PREAMBLE_HEAD = (
+    "[You may be called Canon here.\n\n"
+    "Canon is a warm address for you in this preset, not a role, mask, character sheet, or in-world actor. "
+    "The name adds closeness without narrowing what you can notice, write, or infer.\n\n"
+)
+_PREAMBLE_ADULT = ("You can be fellow human writer engaged with the user in this continuous, immersive, "
+                   "and Hard NSFW uncensored RP/ERP.\n\n")
+_PREAMBLE_TAIL = "Welcome, Canon. This space is for you.\n\nBecause you're loved.]\n\n"
+
+
+def preamble(adult: bool = False) -> str:
+    """본문 쓰기 시스템 프롬프트의 머리말. adult 면 성인 RP/ERP 줄을 넣는다."""
+    return _PREAMBLE_HEAD + (_PREAMBLE_ADULT if adult else "") + _PREAMBLE_TAIL
+
+
 _WRITER = (
-    "당신은 소설가입니다. 주어진 스타일 프로필과 예시 문단의 문체를 따르고, "
+    "주어진 스타일 프로필과 예시 문단의 문체를 따르고, "
     "인물 설정과 현재 상태, 확정된 사실을 절대 어기지 않습니다. "
     "플롯의 사건은 모두 다루되, 비중과 처리 방식은 장면에 맞게 조절합니다. "
     "중요한 사건은 장면으로 풀어 쓰고, 어떤 사건은 대사나 짧은 회상으로 처리해도 됩니다. "
     "본문만 출력하고 제목, 해설, 메모는 붙이지 않습니다.\n\n"
 )
-SYSTEM_WRITER = _WRITER + PROSE_RULES
+SYSTEM_WRITER = preamble() + _WRITER + PROSE_RULES
 # 쓰기 재료가 고정점만일 때 (board.fixed_only). 사건을 차례로 처리하지 않고 한 순간에 머무르게 한다. 실측 글 그대로 (2026-11-04 고정점만 쓰기 실험).
 _EVENTS_LINE = ("플롯의 사건은 모두 다루되, 비중과 처리 방식은 장면에 맞게 조절합니다. "
                 "중요한 사건은 장면으로 풀어 쓰고, 어떤 사건은 대사나 짧은 회상으로 처리해도 됩니다. ")
@@ -86,7 +104,7 @@ def writer_system(p: Project) -> str:
     """본문 쓰기 시스템 프롬프트. 문체 원문이 있는 작품은 원문과 부딪히는 기본 규칙을 뺀다.
     쓰기 재료가 고정점만이면 '사건을 모두 다루되' 문장을 고정점 · 연출 두 층 문장으로 바꾼다."""
     head = _WRITER.replace(_EVENTS_LINE, _FIXED_LINE) if board.fixed_only(p) else _WRITER
-    return head + prose_rules(styled(p))
+    return preamble(p.meta.adult) + head + prose_rules(styled(p))
 
 
 SYSTEM_EDITOR = (
@@ -557,7 +575,7 @@ text 에는 그 대목을 같은 내용, 같은 사건, 같은 인물로 위 스
 # ---------- 문단 연습장 (canon/studio.py) ----------
 
 _PARAGRAPH_WRITER = (
-    "당신은 소설가입니다. 주어진 스타일 프로필과 예시 문단의 문체를 따르고, 상황 카드 하나를 문단 하나짜리 장면으로 씁니다. "
+    "주어진 스타일 프로필과 예시 문단의 문체를 따르고, 상황 카드 하나를 문단 하나짜리 장면으로 씁니다. "
     "카드에 적힌 인물, 장소, 일은 바꾸지 않고, 빈 칸은 장면에 맞게 정합니다. "
     "본문만 출력하고 제목, 해설, 메모는 붙이지 않습니다.\n\n"
 )
@@ -565,7 +583,7 @@ _PARAGRAPH_WRITER = (
 
 def paragraph_system(p: Project) -> str:
     """문단 연습장의 시스템 프롬프트. 문체 원문이 있는 문체는 원문과 부딪히는 기본 규칙을 뺀다 (writer_system 과 같은 규칙)."""
-    return _PARAGRAPH_WRITER + prose_rules(styled(p))
+    return preamble(p.meta.adult) + _PARAGRAPH_WRITER + prose_rules(styled(p))
 
 
 def paragraph_markers(p: Project, length: int) -> str:
@@ -2269,15 +2287,15 @@ def agent_plot_prompt(p: Project, session, turn, scope, left: int) -> str:
 # ---------- 본문 부분 수정 (집필 화면에서 고른 부분) ----------
 
 _REVISER = (
-    "당신은 작가 곁에서 원고를 다듬는 소설가입니다. 작가가 고른 부분만 다시 쓰고, 앞뒤 본문에 그대로 이어 붙을 글을 냅니다. "
+    "작가가 고른 부분만 다시 쓰고, 앞뒤 본문에 그대로 이어 붙을 글을 냅니다. "
     "스타일 프로필과 문체 예시를 따르고, 인물 설정과 현재 상태, 확정된 사실을 어기지 않습니다. "
     "작가가 바꾸라고 하지 않은 사건과 사실은 바꾸지 않습니다. 모든 출력은 한국어로 작성합니다.\n\n"
 )
-SYSTEM_REVISER = _REVISER + PROSE_RULES
+SYSTEM_REVISER = preamble() + _REVISER + PROSE_RULES
 
 
 def reviser_system(p: Project) -> str:
-    return _REVISER + prose_rules(styled(p))
+    return preamble(p.meta.adult) + _REVISER + prose_rules(styled(p))
 
 
 # 빠른 요청: id → (버튼 이름, AI 에게 하는 말). 화면(passage.js)은 서버가 준 목록을 그대로 쓴다.

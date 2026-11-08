@@ -400,6 +400,9 @@
 ### `canon/prompts.py`
 
 - 프롬프트 템플릿
+- 본문을 쓰는 시스템 프롬프트(`writer_system` · `reviser_system` · `paragraph_system`)는 작가가 정한 머리말(`preamble`)로 시작한다
+- 그 머리말 뒤의 지시에는 '당신은 소설가입니다' 같은 역할 문장을 두지 않고 할 일만 적는다
+- 머리말의 성인 RP/ERP 줄은 `Meta.adult` 인 작품에만 넣는다
 - 화별 컨텍스트 조립(`build_episode_context`)
 - 단편 열 계획: 화별 플롯 규칙 끝 `heat_plot_rules`(계획 · 원칙 · 뒤집힘 · 열린 판돈 · 갈래 안내), 쓰기 · 스토리보드 · 큐 시트의 현재 구간 뒤 `heat_step_line`, 큐 시트 요청 맨 끝 `heat_cue_rule`
 - 열 계획이 없으면 세 곳 모두 빈 글이라 프롬프트가 그대로다
