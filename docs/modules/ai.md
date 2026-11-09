@@ -85,6 +85,13 @@
 - 호출마다 `usage.record`(단계 `judge`)
 - 두 걸음 검수 `pipeline.check_two_step`(진술 `prompts.claims_prompt` → 근거 `claim_evidence` → 의심 `verdict_prompt`)가 쓴다
 - 두 걸음 검수는 아직 연구 화면에서만 쓴다
+- 판단기 평가 세트 `scripts/judge_eval.py`(시험 `tests/test_judge_eval.py`)
+- `judge_eval.py build` 는 작품 사본에 모순을 심고(`plant_prompt`) 심은 문장 · 원래 문장 · 고친 지적 · 심지 않은 문장마다 근거 묶음(`claim_evidence`)을 붙여 JSONL 로 쓴다
+- `judge_eval.py build` 는 모순을 심은 화마다 심기 전 · 뒤 본문으로 진술 뽑기(`claims_prompt`)를 한 번씩 불러, 그 문장에서 뽑은 진술로 근거를 찾는다(`--no-claims` 면 문장 그대로)
+- 평가 줄의 `has_source` 는 심을 때 고른 어긋나는 원문이 근거 묶음에 들었는지다
+- `has_source` 가 거짓이어도 다른 단락 · 확정 사실이 같은 모순의 근거가 될 수 있다
+- `judge_eval.py run` 은 판단기(local | mock)로 판정해 묶음별 문턱 재현율 · 헛지적률과 AUC 를 낸다. `--blind` 는 근거를 빼고 판정한다
+- `judge_eval.py run --shuffle SEED` 는 다른 화의 근거 묶음을 붙여 판정한다. 엉뚱한 근거로도 심은 문장을 짚으면 판단기가 문장의 티를 보는 것이다
 
 ### `canon/llm.py`
 
