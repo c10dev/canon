@@ -4907,7 +4907,8 @@ def stage_extract_prompt(p: Project, n: int, event: int, room=None, prev_lines: 
 # ---------- 두 걸음 검수: 진술 뽑기 → 판단기가 근거와 견줌 → 의심만 판정 (연구 화면) ----------
 # 긴 검수 입력 하나를 짧은 판단 여러 개로 바꾼다. 판단기(judge.py)는 고르기만 하고, 보고서는 검수 모델이 근거를 인용해 쓴다.
 
-TWOSTEP_CLAIMS = 30  # 한 화에서 뽑는 진술 수 상한
+# 한 화에서 뽑는 진술 수 상한. 30이면 Claude · gemini-4-argon 이 거의 모든 화에서 상한을 채워 심은 모순을 놓쳤다 (DESIGN.md '진술 뽑기 실측')
+TWOSTEP_CLAIMS = 50
 TWOSTEP_EVIDENCE = 3_000  # 진술 하나에 붙이는 근거 글자. 판단기 입력이 8k 토큰 서버에도 들어가게
 TWOSTEP_FLAG = 0.25  # '어긋남' 확률이 이 이상이면 의심으로 올린다. 판단기가 놓친 것은 검수 모델도 못 보므로 낮게 잡는다
 TWOSTEP_FLAG_MAX = 8  # 검수 모델에 넘기는 의심 진술 수

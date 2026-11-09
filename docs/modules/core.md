@@ -488,6 +488,7 @@
 - `count_markers` 는 원문 표본에 없는(공백 빼고 견줌) 장치 예시를 비운다
 - 검수
   - 장편 넓혀 찾기 `widen_check`: 첫 검수에 없던 옛 단락이 근거로 나온 진술만 다시 묻기
+  - 진술 뽑기(`prompts.claims_prompt`)와 진술 수 상한 `prompts.TWOSTEP_CLAIMS`(50)은 두 걸음 검수와 같이 쓴다
   - `Settings.check_widen`
   - 프롬프트 `prompts.widen_prompt`
   - 동선 따로 보기 `motion_check`: 본 검수와 동시에 이번 화 본문만 넣고 동선만 묻기, 합치기 `merge_motion`(본 검수가 짚은 문장은 뺌)
