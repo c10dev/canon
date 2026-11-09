@@ -35,6 +35,8 @@ const USAGE_TASK = {
 };
 // 추론 강도 이름 (settings.js EFFORT_LABEL 과 같다). '기본'은 강도를 정하지 않은 호출(usage.EFFORT_DEFAULT)
 const USAGE_EFFORT = { low: '낮음', medium: '보통', high: '높음', xhigh: '아주 높음', max: '최대', 기본: '기본 (모델 기본값)' };
+// 본문 쓰기가 받지 않고 다시 부른 응답의 까닭 (기록 칸 discarded, pipeline._write · polish_episode)
+const USAGE_DISCARD = { cut: '끊김', thought: '다른 글', meta: '작업 설명', polish: '다듬기 어긋남' };
 
 /** 작업 이름표. Gemini 명시적 캐시를 만든 호출은 '<작업> 캐시 만들기' 로 기록된다(llm.py). 순수 함수 */
 function usageTaskLabel(t) {
@@ -265,13 +267,17 @@ function usageBreakdown(u) {
   const byCost = rows.some((r) => r.cost > 0);
   const max = Math.max(...rows.map((r) => (byCost ? r.cost : r.calls)), 0) || 1;
   const shown = S.usageByAll ? rows : rows.slice(0, 8);
-  const list = shown.map((r) => `<div class="usage-br"><span class="lb">${label(r)}${r.failed ? ` <span class="chip usage-fail">실패 ${r.failed}</span>` : ''}${r.batch ? ` <span class="chip">배치 ${r.batch}</span>` : ''}</span>
+  // 추론 강도 표만 끊김 · 버림 · 분량 달성률 열을 더한다 (좁은 칸에서는 숨김)
+  const fx = by === 'effort';
+  const fxCols = (r) => (fx ? `<span class="m x">${r.cut || '-'}</span><span class="m x">${r.discarded || '-'}</span><span class="m x">${r.len_ratio != null ? `${Math.round(r.len_ratio * 100)}%` : '-'}</span>` : '');
+  const list = shown.map((r) => `<div class="usage-br${fx ? ' fx' : ''}"><span class="lb">${label(r)}${r.failed ? ` <span class="chip usage-fail">실패 ${r.failed}</span>` : ''}${r.batch ? ` <span class="chip">배치 ${r.batch}</span>` : ''}</span>
       <span class="bar" aria-hidden="true"><b style="width:${Math.round(((byCost ? r.cost : r.calls) / max) * 100)}%"></b></span>
-      <span class="v">${r.unpriced && !r.cost ? '가격 모름' : usd(r.cost)}</span><span class="m">${r.calls.toLocaleString()}번</span><span class="m c">${r.in ? usagePct(r.cache_rate) : '-'}</span><span class="m sec">${r.seconds_avg ? `${r.seconds_avg.toFixed(1)}초` : '-'}</span><span class="m">${tok(r.in)} · ${tok(r.out)}</span></div>`).join('');
+      <span class="v">${r.unpriced && !r.cost ? '가격 모름' : usd(r.cost)}</span><span class="m">${r.calls.toLocaleString()}번</span><span class="m c">${r.in ? usagePct(r.cache_rate) : '-'}</span><span class="m sec">${r.seconds_avg ? `${r.seconds_avg.toFixed(1)}초` : '-'}</span>${fxCols(r)}<span class="m">${tok(r.in)} · ${tok(r.out)}</span></div>`).join('');
   return `<section class="card usage-by" aria-labelledby="usage-by-h">
     <div class="between"><h2 id="usage-by-h">어디에 썼나</h2>
       <div class="seg" role="group" aria-label="나누는 기준">${opts.map(([k, l]) => `<button type="button" data-action="usageBy" data-arg="${k === 'episode' ? 'project' : k}" aria-pressed="${by === k}">${l}</button>`).join('')}</div></div>
-    ${rows.length ? `<div class="usage-bars"><div class="usage-br hd" aria-hidden="true"><span>${opts.find(([k]) => k === by)[1]}</span><span>${byCost ? '비용 비중' : '호출 비중'}</span><span class="v">추정 비용</span><span class="m">호출</span><span class="m c">캐시</span><span class="m sec">평균 시간</span><span class="m">입력 · 출력</span></div>${list}</div>
+    ${rows.length ? `<div class="usage-bars"><div class="usage-br hd${fx ? ' fx' : ''}" aria-hidden="true"><span>${opts.find(([k]) => k === by)[1]}</span><span>${byCost ? '비용 비중' : '호출 비중'}</span><span class="v">추정 비용</span><span class="m">호출</span><span class="m c">캐시</span><span class="m sec">평균 시간</span>${fx ? '<span class="m x">끊김</span><span class="m x">버림</span><span class="m x">분량</span>' : ''}<span class="m">입력 · 출력</span></div>${list}</div>
+      ${fx ? '<div class="small usage-fx-note">분량은 본문 쓰기 호출의 응답 전체 글자 수 기준이에요 (목표 분량 대비, 버린 응답과 기록 칸이 없는 옛 호출은 빼요). 끊김은 출력 길이 한도에 걸린 호출, 버림은 본문 쓰기가 받지 않고 다시 부른 호출이에요.</div>' : ''}
       ${rows.length > shown.length ? `<div><button type="button" class="btn small ghost" data-action="usageByAll">${rows.length - shown.length}개 더 보기</button></div>` : ''}`
       : `<div class="small">${by === 'episode' ? '화가 정해지지 않은 호출(설정, 기획 등)은 빠져요.' : '기록 없음'}</div>`}
   </section>`;
@@ -289,20 +295,21 @@ function usageBlocks(r) {
 function usageCalls(u) {
   const all = S.usageList === 'trouble' ? u.trouble : u.recent;
   const list = S.usageMore ? all : all.slice(0, 20);
-  const tabs = [['recent', '최근 호출'], ['trouble', `실패 · 다시 요청${u.trouble.length ? ` ${u.trouble.length}` : ''}`]];
+  const tabs = [['recent', '최근 호출'], ['trouble', `실패 · 다시 요청 · 버림${u.trouble.length ? ` ${u.trouble.length}` : ''}`]];
   const rows = list.map((r) => {
     // 긴 오류는 앞부분만 보이고 눌러서 펼친다
     const err = (r.error || '').length > 60
       ? `<details class="usage-err"><summary>${esc(r.error.slice(0, 60))}…</summary>${esc(r.error)}</details>` : `<span class="small usage-err">${esc(r.error || '')}</span>`;
     const state = !r.ok ? `<span class="chip usage-fail">실패</span> ${err}`
-      : (r.attempt > 1 ? '<span class="chip warn">다시 요청</span>' : '<span class="chip ok">성공</span>');
+      : r.discarded ? `<span class="chip warn">버림</span><span class="s2">${esc(USAGE_DISCARD[r.discarded] || r.discarded)}</span>`  // 까닭은 칩 아래 줄 (결과 칸 폭을 늘리지 않게)
+        : (r.attempt > 1 ? '<span class="chip warn">다시 요청</span>' : '<span class="chip ok">성공</span>');
     const where = [r.project ? usageName(r.project) : '', r.episode != null ? `${r.episode}화` : ''].filter(Boolean).join(' · ');
     return `<div class="usage-call">
       <span class="when">${esc(fmtWhen(r.at))}</span>
       <span class="where">${esc(where || '-')}</span>
       <span class="task">${esc(usageTaskLabel(r.task) || USAGE_STAGE[r.stage] || '-')}<span class="s2">${esc(USAGE_STAGE[r.stage] || r.stage || '')} · ${esc(USAGE_SOURCE[r.source] || r.source || '')}</span></span>
       <span class="model">${esc(r.model)}${r.batch ? ' <span class="chip">배치</span>' : ''}</span>
-      <span class="r tokens">${tok(r.in)} → ${tok(r.out + (r.thought || 0))}${r.cached ? `<span class="s2">캐시 ${tok(r.cached)}</span>` : ''}${r.thought ? `<span class="s2">생각 ${tok(r.thought)}</span>` : ''}${usageBlocks(r)}</span>
+      <span class="r tokens">${tok(r.in)} → ${tok(r.out + (r.thought || 0))}${r.cached ? `<span class="s2">캐시 ${tok(r.cached)}</span>` : ''}${r.thought ? `<span class="s2">생각 ${tok(r.thought)}</span>` : ''}${r.out_chars != null ? `<span class="s2">응답 ${r.target ? `${r.out_chars.toLocaleString()}/${r.target.toLocaleString()}자` : `${r.out_chars.toLocaleString()}자`}</span>` : ''}${usageBlocks(r)}</span>
       <span class="r secs">${r.seconds != null ? `${r.seconds.toFixed(1)}초` : '-'}</span>
       <span class="r cost"><strong>${usd(r.cost)}</strong>${r.saved || r.cache_saved ? `<span class="s2">아낌 ${usd((r.saved || 0) + (r.cache_saved || 0))}</span>` : ''}${r.cache_premium ? `<span class="s2">쓰기 할증 ${usd(r.cache_premium)}</span>` : ''}</span>
       <span class="state">${state}</span></div>`;

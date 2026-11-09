@@ -21,6 +21,10 @@
 - 경계(`PREFIX_HINT`)를 받았으면 쓴다
 - 경계 없이 직전 요청과 견줘 나눴으면 직전 같은 종류 요청을 캐시 유지 시간 안에 봤을 때만 쓴다(`cut_and_recent`, `_SEEN_AT`)
 - 화마다 한 번 부르는 단계(plot_one 등)는 다음 요청이 15~17분 뒤라 5분 캐시를 읽지 못했다(2026-11-07 서버 실측: plot_one 쓰기 1,044k, 읽기 3k)
+- `worth_caching` 은 (쓸지, 까닭 낱말)을 돌려준다. 까닭은 short(cut 0) · prefix(경계를 받음) · recent(직전 요청을 방금 봄) · not_worth(직전 요청이 오래됨)
+- 까닭 낱말은 사용량 칸 `cache_note` 로 넘긴다. API 는 `cache_blocks_note` 가, 구독은 `_split` 이 `last_cache_note` 에 정한다
+- 구독이 `--system-prompt-file` 을 모르는 버전이면 `cache_note` 는 unsupported 다(캐시는 Claude Code 에 맡김)
+- 구독의 형식 고치기 재시도는 `cache_note` 도 첫 시도 값을 쓴다
 - API 는 쓰지 않을 요청에 캐시 표시를 달지 않는다(`cache_blocks`)
 - 구독은 쓰지 않을 요청에 `DISABLE_PROMPT_CACHING=1` 을 넣는다(`last_keep`). Claude Code 는 표시를 고를 수 없어 사용자 메시지까지 통째로 캐시에 쓴다
 - 구독의 쓰지 않는 호출은 캐시 게이트(`_claim`)를 거치지 않는다
@@ -48,6 +52,8 @@
 - 기다린 시간은 사용량 기록의 `seconds` 에 넣지 않는다
 - 사용량 기록의 글자 수 · 블록 크기는 옮기기 전 원래 프롬프트 기준이다
 - `_cli_usage` 는 JSON 결과의 `num_turns` · `stop_reason` · `duration_api_ms` · `modelUsage` 를 사용량 칸 `turns` · `stop` · `api_seconds` · `models` 로 넘긴다
+- 구독은 받은 응답 글자 수(`last_raw`)를 사용량 칸 `out_chars` 로 넘긴다
+- API 는 `stop_reason` 과 응답 글자 수를 사용량 칸 `stop` · `out_chars` 로 넘긴다. `max_tokens` 로 끊긴 응답(실패 줄)도 받은 글자 수를 남긴다
 - 다시 보낸 입력 어림값 `resent`(`_resent`)는 요청 수로 `in × (요청 수-1)/요청 수` 다. 요청 수는 구조화 출력이면 `turns-1`(답을 도구로 내 한 번이어도 2턴), 아니면 `turns`
 - `modelUsage` 에 모델이 둘 이상이면(거절 뒤 대체 모델) 가장 작은 모델 입력을 한 번 크기로 보고 넘친 몫도 `resent` 로 본다. 두 값 가운데 큰 쪽
 - 캐시에 새로 쓴 입력은 `written`, 그 가운데 1시간 캐시 몫은 `written_1h` 다(`_written`, 응답의 `cache_creation_input_tokens` · `cache_creation.ephemeral_1h_input_tokens`). 구독과 API 경로가 같다
@@ -121,6 +127,8 @@
 - 형식 고치기 `repair_prompt`: 응답에 JSON 객체가 없으면 처음 요청을 그대로 다시 보낸다
 - Gemini 응답이 끝난 이유는 `last_finish`(두 번째도 실패하고 `MAX_TOKENS` 면 `SchemaMismatch` 글에 길이 한도를 적는다)
 - 로컬도 응답의 `finish_reason` 을 `last_finish` 에 남긴다(`length` 는 출력 한도에 걸려 끊김)
+- Gemini · 로컬 · 배치는 끝난 이유와 응답 전체 글자 수를 사용량 칸 `stop` · `out_chars` 로 넘긴다(`usage.with_extra`, `last_usage` 는 토큰 수만 둔다)
+- 로컬의 `out_chars` 는 생각 태그(`<think>`)를 떼기 전 응답 글자 수다
 - `was_cut(llm)` 은 `last_finish` 가 `CUT_FINISH`(`MAX_TOKENS` · `length`)면 참이다
 - `knows_cut` 이 참인 백엔드(Gemini · 로컬 · Claude API · mock)만 끊김을 알린다. `pipeline._write` 가 이 백엔드에만 출력 한도를 건다
 - 로컬은 `caps_write = False` 라 본문 쓰기 출력 한도를 받지 않는다. vLLM 은 프롬프트 + `max_tokens` 가 컨텍스트를 넘으면 요청을 400 으로 거절한다
@@ -140,6 +148,10 @@
 - 살아 있는 캐시가 겹치는 앞부분의 절반 이상을 덮으면 그것을 다시 쓴다. 만료 `GEMINI_CACHE_MARGIN`(60초) 전부터는 쓰지 않는다
 - 캐시를 쓰는 요청은 `GenerateContentConfig(cached_content=이름)` 과 나머지 글만 보낸다. 시스템 프롬프트는 넣지 않는다(API 가 거절한다)
 - 캐시를 만들거나 쓰다 난 오류는 모두 일반 호출로 넘어간다(`_cache_failed`). 넘어간 호출 하나만 사용량에 기록한다
+- `_cached` 는 (캐시 이름과 나머지 글 또는 None, 까닭 낱말)을 돌려준다. 까닭은 사용량 칸 `cache_note` 가 된다(`llm.CACHE_NOTES`)
+- 까닭 낱말은 분기마다 하나다: stage_off · setting_off · model_off(오류로 잠시 끔) · unsupported(받지 않는 모델) · hit · short · made · failed
+- 캐시를 만들다 실패했거나 살아 있는 캐시를 쓰다 실패해 일반 호출로 넘어간 호출은 failed 다
+- 만료된 캐시는 `_cache_find` 가 조용히 지우기만 해 따로 낱말을 두지 않는다(새로 만들면 made, 앞부분이 짧으면 short)
 - 429 · 시간 초과 · 서버 오류가 아닌 캐시 오류는 그 모델의 캐시를 `GEMINI_CACHE_BACKOFF`(1시간) 동안 끈다
 - 모델이 명시 캐시를 받지 않는다는 오류(`is_cache_unsupported`, 문구 'does not support explicit context caching')는 그 모델을 바로 끈다(`_GEM_CACHE_OFF` 값 inf)
 - 그 모델은 `settings.mark_gemini_cache_unsupported` 로 설정 파일 `gemini_cache_unsupported` 에 남기고, `_cached` 가 읽어 서버를 다시 시작해도 캐시 만들기를 보내지 않는다
@@ -236,6 +248,10 @@
 - `summary` 는 날짜 · 작품 · 화 · 단계 · 모델 · 용도 · 작업(`by_task`) · 추론 강도(`by_effort`)로 묶는다
 - 추론 강도를 정하지 않은 호출은 `EFFORT_DEFAULT`('기본') 묶음에 든다
 - 묶음과 합계마다 `cache_rate`(캐시 / 입력, 입력이 없으면 0)와 `seconds_avg`(호출당 평균 초)를 붙인다(`_rates`)
+- 묶음과 합계는 `discarded`(버린 응답 수)와 `cut`(끊긴 호출 수, `is_cut`: `stop` 이 `CUT_STOPS` 이거나 `discarded` cut)를 센다
+- 분량 달성률 `len_ratio` 는 목표 분량이 있는 줄의 `out_chars` 합 / `target` 합이다(`len_pair`). 그런 줄이 없으면 None, 센 줄 수는 `len_calls`
+- `len_ratio` 에는 실패 · 버린 줄과 칸이 없는 옛 줄을 넣지 않는다
+- 낭비(`wasted`)와 실패 목록(`trouble`)은 실패 · `attempt` 2 이상 · `discarded` 줄이다
 - 묶음 · 합계 · 호출 줄마다 `cache_saved` · `cache_premium` 을 붙인다(`row_cache`, 묶음은 `_cache` 로 반올림)
 - 자동 집필 추정도 같은 가격표를 쓴다
 - 입력 토큰 추정 `token_rate(백엔드, 모델)` 은 '기울기 × 요청 글자 수 + 호출마다 붙는 토큰' 직선(`TokenRate`)이다
@@ -252,7 +268,17 @@
 - 단계의 백엔드 · 모델은 `stage_llm`, 그 직선은 `stage_rate` 다
 - 자동 집필 · 큐 시트 · 블록 시험 · 상태창 시험 · 역설계 실험의 비용 추정이 이 직선을 쓴다
 - 장편 블록 예산(`context.BUDGET`)과 `context.est_tokens` 는 이 직선을 쓰지 않는다
-- 백엔드가 더 준 칸(`EXTRA`: turns · stop · api_seconds · models · resent · written · written_1h)은 있을 때만 줄에 남는다. 옛 줄에는 없다
+- 백엔드가 더 준 칸(`EXTRA`: turns · stop · api_seconds · models · resent · written · written_1h · out_chars · cache_note)은 있을 때만 줄에 남는다. 옛 줄에는 없다
+- `cache_note` 는 캐시를 쓰거나 못 쓴 까닭 낱말이다(`llm.CACHE_NOTES`). Gemini 는 `_cached`, Claude 는 `worth_caching` 이 정한다
+- `stop` 은 모든 백엔드의 끝난 이유다(Gemini `STOP` · `MAX_TOKENS`, Claude `end_turn` · `max_tokens`, 로컬 `stop` · `length`). 새 칸을 두지 않고 Claude Code 의 칸을 함께 쓴다
+- `out_chars` 는 응답 전체 글자 수다(본문에서 뗀 작업 설명도 든다)
+- `with_extra(tokens, **칸)` 은 백엔드가 토큰 dict 에 칸을 더한 새 dict 를 만든다. 값이 None · 빈 글이면 넣지 않는다
+- scope 의 정해진 키(project · episode · stage · task · source · attempt) 밖에서는 `SCOPED`(target)만 줄에 싣는다. 다른 키는 줄에 남지 않는다
+- `record` 는 백엔드가 넘긴 `attempt` 를 scope 의 값보다 먼저 쓴다
+- `hold()` 는 안에서 `record` 한 줄을 파일에 쓰지 않고 모았다가 끝날 때 쓴다. 겹쳐 열면 안쪽 줄은 바깥 목록으로 넘긴다
+- `hold()` 안의 줄도 `collect()` 에는 바로 더한다. 같은 dict 라 나중에 단 `discarded` 도 보인다
+- `discard(rows, 까닭)` 은 모은 줄 가운데 마지막 줄(응답을 낸 호출)에 `discarded` 를 단다. 이미 까닭이 있으면 두고 바꾸지 않는다
+- 기록 파일은 덧붙이기만 하므로 응답을 받은 뒤 버릴지 정하는 쪽(`pipeline._write`)이 `hold` 로 쓰기를 미룬다
 - `cache_rate(rows)` 는 캐시 비율이다. `resent` 를 입력과 캐시 양쪽에서 뺀다. 비용 계산은 `resent` 를 보지 않는다
 - `summary` 의 합계는 `resent` 합과 `cache_rate` 를 준다. 화면 토큰 타일이 다시 보낸 입력이 있을 때 뺀 캐시 비율을 보인다
 - 화면은 `static/usage.js`
@@ -261,6 +287,8 @@
 - 날짜별 막대는 비용 · 호출 수 중 하나(축 하나, 눈금 `usageTicks`)
 - '어디에 썼나'는 단계 · 작업 · 모델 · 추론 강도 · 작품(작품 안에서는 화) · 어디서 중 하나(`usageBreakdown`)
 - '어디에 썼나' 줄은 비용 · 호출 · 캐시 비율 · 평균 시간 · 토큰을 보인다
+- 추론 강도로 나누면 끊김 · 버림 · 분량(달성률) 열을 더하고(`.usage-br.fx`), 표 아래에 '응답 전체 글자 수 기준'이라고 밝힌다. 칸 폭 900px 이하에서는 세 열과 그 안내를 숨긴다
+- 호출 목록은 버린 줄에 '버림' 칩과 까닭(`USAGE_DISCARD`)을, 토큰 칸에 '응답 글자 수/목표 분량자'를 보인다
 - 캐시 비율 글자는 `usagePct`(10% 밑은 소수 첫째 자리)
 - 비용 타일의 토큰 칸은 캐시 비율과 캐시 토큰을 함께 보인다
 - '아낀 · 버린 비용' 타일의 큰 숫자에서 아낀 쪽은 배치 할인과 캐시 읽기 아낌의 합이다

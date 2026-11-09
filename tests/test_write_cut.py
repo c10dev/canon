@@ -1,7 +1,7 @@
 """본문 쓰기 출력 한도와 끊긴 본문 거부 (pipeline.write_out_tokens · _write · WriteCut, llm.was_cut, autorun kind cut)."""
 import pytest
 
-from canon import autorun, llm, mock, pipeline, store
+from canon import autorun, llm, mock, pipeline, store, usage
 from canon.llm import LocalLLM, OutputCut, caps, was_cut
 from canon.mock import MockLLM
 from canon.schema import Episode, EpisodePlot, Project
@@ -176,6 +176,8 @@ def test_local_records_length_finish(monkeypatch):
     monkeypatch.setattr(local, "_request", reply("stop"))
     local.text("s", "p")
     assert local.last_finish == "stop" and not was_cut(local)
+    rows = usage.read()[-2:]  # 끝난 이유와 응답 글자 수가 사용량 칸에 남는다
+    assert [(r["stop"], r["out_chars"]) for r in rows] == [("length", 13), ("stop", 13)]
 
 
 def test_autorun_pauses_without_saving_cut_body(tmp_path, monkeypatch):

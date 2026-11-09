@@ -31,12 +31,18 @@ class UsageBucket(_Out):
     resent: int = Field(0, description="한 호출 안에서 다시 보낸 입력 어림값. cache_rate 를 셀 때 in · cached 에서 뺐다")
     cache_rate: float = Field(0.0, description="캐시 토큰 / 입력 토큰 (0~1, 다시 보낸 입력은 뺌). 입력이 없으면 0")
     seconds_avg: float = Field(0.0, description="호출당 평균 초")
+    discarded: int = Field(0, description="본문 쓰기가 받지 않고 다시 부른 응답 수 (기록 칸 discarded)")
+    cut: int = Field(0, description="출력 길이 한도에 걸려 끊긴 호출 수 (usage.is_cut)")
+    len_calls: int = Field(0, description="분량 달성률에 넣은 호출 수 (목표 분량과 응답 글자 수가 있고 실패 · 버림이 아닌 줄)")
+    len_out: int = Field(0, description="그 호출들의 응답 전체 글자 수 합")
+    len_target: int = Field(0, description="그 호출들의 목표 분량 합")
+    len_ratio: float | None = Field(None, description="분량 달성률 len_out / len_target. 넣은 호출이 없으면 null")
     cache_saved: float = Field(0.0, description="캐시 읽기로 아낀 비용 USD (usage.row_cache)")
     cache_premium: float = Field(0.0, description="캐시 쓰기 할증 USD (usage.row_cache)")
 
 
 class UsageTotal(UsageBucket):
-    wasted: float = Field(0.0, description="실패 · 재시도 호출의 비용")
+    wasted: float = Field(0.0, description="실패 · 재시도 · 버린 응답 호출의 비용")
 
 
 class UsageGroup(UsageBucket):
@@ -73,6 +79,11 @@ class UsageCall(_Out):
     error: str = ""
     chars: int | None = None
     blocks: list[list[str | int]] | None = Field(None, description="프롬프트 머리글별 글자 수 [이름, 글자 수], 큰 것부터")
+    stop: str = Field("", description="응답이 끝난 이유 (STOP · MAX_TOKENS · end_turn · max_tokens · length 등)")
+    out_chars: int | None = Field(None, description="응답 전체 글자 수. 옛 기록에는 없다")
+    target: int | None = Field(None, description="본문 쓰기 호출이 받은 목표 분량 글자 수")
+    discarded: str = Field("", description="본문 쓰기가 버린 응답의 까닭 (cut · thought · meta · polish)")
+    cache_note: str = Field("", description="캐시를 쓰거나 못 쓴 까닭 낱말 (llm.CACHE_NOTES)")
     cost: float | None = Field(None, description="추정 비용 USD. 가격을 모르면 null")
     saved: float = 0.0
     cache_saved: float = Field(0.0, description="캐시 읽기로 아낀 비용 USD (usage.row_cache)")

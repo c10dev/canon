@@ -107,6 +107,7 @@ class ClaudeCodeTest(unittest.TestCase):
         self.assertEqual(llm.model, "claude-test-model")
         row = usage.read()[-1]
         self.assertEqual((row["backend"], row["in"], row["out"], row["cached"]), ("claude", 1530, 30, 20))
+        self.assertEqual(row["out_chars"], len("바다가 울었다."))  # 응답 전체 글자 수
         self.assertEqual(usage.row_cost(row, usage.prices())[0], 0.0)  # 구독은 요금제에 포함
 
     def test_out_cap_goes_to_env_only_when_set(self):
@@ -340,6 +341,7 @@ class ClaudeCodeTest(unittest.TestCase):
         llm.text("쓰기", head + "\n\n# 이번 화 플롯\n1화")
         llm.text("쓰기", head + "\n\n# 이번 화 플롯\n2화")
         self.assertIsNone(self.calls()[-1]["system_file"])  # 이 옵션을 모르는 버전은 예전처럼 사용자 메시지에 둔다
+        self.assertEqual(usage.read()[-1]["cache_note"], "unsupported")  # 캐시는 Claude Code 에 맡긴다
         self.assertEqual(self.calls()[-1]["stdin"], with_note(head + "\n\n# 이번 화 플롯\n2화"))
 
     def test_cache_only_what_a_next_call_reads(self):
@@ -364,11 +366,14 @@ class ClaudeCodeTest(unittest.TestCase):
         self.assertEqual(stale["env"]["DISABLE_PROMPT_CACHING"], "1")
         self.assertIsNone(family["env"]["DISABLE_PROMPT_CACHING"])
         self.assertEqual(len(claude._WARM), 2)  # 캐시에 쓴 호출만 캐시에 있다고 기억한다
+        # 사용량 기록 칸 cache_note 에 캐시에 쓰거나 쓰지 않은 까닭을 남긴다 (worth_caching)
+        self.assertEqual([r["cache_note"] for r in usage.read()], ["short", "recent", "not_worth", "prefix"])
 
         # 형식 고치기 재시도는 첫 시도와 같이 정한다
         self.replies({"structured_output": {"wrong": 1}}, {"structured_output": {"options": []}})
         llm.json("이름", "짧은 요청", NameOptions)
         self.assertEqual([c["env"]["DISABLE_PROMPT_CACHING"] for c in self.calls()[-2:]], ["1", "1"])
+        self.assertEqual([r["cache_note"] for r in usage.read()[-2:]], ["short", "short"])
 
     def test_prefix_hint_moves_prefix_on_first_call(self):
         # 부른 쪽이 공통 자료의 끝(hint prefix_chars)을 알려 주면 직전 요청이 없어도 첫 호출부터 시스템 프롬프트로 옮긴다
@@ -715,6 +720,18 @@ class ClaudeAPITest(unittest.TestCase):
                 llm.text("s", "p")
         self.assertEqual((self.reqs[1]["max_tokens"], self.reqs[1]["timeout"]), (16384, 300))
 
+    def test_rows_carry_stop_and_out_chars(self):
+        """끝난 이유(stop)와 응답 글자 수(out_chars)를 사용량 칸에 싣는다. 끊긴 응답도 받은 글자 수를 남긴다."""
+        llm = self.make(_msg("글 네 자"), _msg("끊긴 글", "max_tokens"))
+        llm.text("s", "p")
+        with self.assertRaises(OutputCut):
+            llm.text("s", "p")
+        ok, cut = usage.read()[-2:]
+        self.assertEqual((ok["stop"], ok["out_chars"]), ("end_turn", 5))
+        self.assertEqual((cut["stop"], cut["out_chars"], cut["ok"]), ("max_tokens", 4, False))
+        self.assertTrue(usage.is_cut(cut))
+        self.assertNotIn("out_chars", llm.last_usage)  # last_usage 는 토큰 수만 둔다
+
     def test_stop_before_and_during_stream(self):
         ev = threading.Event()
         tok = cancel.current.set(ev)
@@ -777,6 +794,21 @@ class ClaudeAPITest(unittest.TestCase):
         self.assertIsInstance(claude.cache_blocks(key, head + "\n\n3화"), list)
         claude._SEEN_AT[key] -= claude.CACHE_WARM_SECONDS + 1
         self.assertIsInstance(claude.cache_blocks(key, head + "\n\n4화", len(head)), list)  # 경계를 받으면 표시한다
+
+    def test_worth_caching_gives_a_reason(self):
+        """캐시에 쓸지와 그 까닭 낱말 (사용량 기록 칸 cache_note). 분기마다 하나다."""
+        self.assertEqual(claude.worth_caching(0, 100, True), (False, "short"))
+        self.assertEqual(claude.worth_caching(2500, 2500, False), (True, "prefix"))
+        self.assertEqual(claude.worth_caching(2500, None, True), (True, "recent"))
+        self.assertEqual(claude.worth_caching(2500, None, False), (False, "not_worth"))
+
+    def test_api_row_carries_cache_note(self):
+        claude._SEEN.clear()
+        head = "# 작품 정보\n" + "가" * 3000
+        llm = self.make(_msg("1화"), _msg("2화"))
+        llm.text("쓰기", head + "\n\n1화")
+        llm.text("쓰기", head + "\n\n2화")
+        self.assertEqual([r["cache_note"] for r in usage.read()], ["short", "recent"])
 
     def test_stage_cost_uses_claude_price(self):
         self.assertAlmostEqual(usage.stage_cost("claude-api", "gemini-4-argon", 1e6, 0), 4.0)

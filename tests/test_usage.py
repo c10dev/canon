@@ -162,12 +162,15 @@ def test_batch_cost_and_savings():
 
         def batch_poll(self, name):
             self.last_usage = {"prompt_tokens": 1_000_000, "completion_tokens": 100_000}
+            self.last_finish = "STOP"
             return "본문"
 
     inner = Inner()
     Inner.__name__ = "GeminiLLM"  # 기록은 백엔드를 클래스 이름으로 가린다
     b = BatchLLM(inner, "1:write", {}, lambda: None, lambda s: "", interval=0)
     assert b.text("s", "p") == "본문"
+    row = usage.read()[-1]
+    assert (row["stop"], row["out_chars"], row["batch"]) == ("STOP", 2, True)  # 배치도 끝난 이유와 응답 글자 수를 남긴다
     t = usage.summary(30)["total"]
     assert t["batch"] == 1
     assert t["cost"] == pytest.approx(1.0 + 0.5)  # 배치 입력 $1, 출력 $5
@@ -733,3 +736,160 @@ def test_old_rows_read_and_cache_rate_drops_resent(home):
     usage._read_cache.clear()
     t = usage.summary(0)["total"]
     assert t["cache_rate"] == pytest.approx(usage.cache_rate([old, odd])) == pytest.approx(200 / 5000)
+
+
+# ---------- 출력 글자 수 · 끝난 이유 · 버린 까닭 (개선 22) ----------
+
+def test_gemini_row_carries_stop_and_out_chars():
+    """Gemini 응답의 끝난 이유(stop)와 응답 전체 글자 수(out_chars)를 줄에 싣는다. last_usage 는 토큰 수만 둔다."""
+    llm = fake_gemini(["본문 다섯자"])
+    reason = SimpleNamespace(name="MAX_TOKENS")
+    gen = llm.client.models.generate_content
+
+    def with_reason(model, contents, config):
+        r = gen(model, contents, config)
+        return SimpleNamespace(**{**vars(r), "candidates": [SimpleNamespace(finish_reason=reason)]})
+
+    llm.client.models.generate_content = with_reason
+    llm.text("s", "p")
+    row = usage.read()[-1]
+    assert (row["stop"], row["out_chars"]) == ("MAX_TOKENS", 6)
+    assert usage.is_cut(row)
+    assert "stop" not in llm.last_usage and "out_chars" not in llm.last_usage
+
+
+def test_hold_defers_file_write_and_discard_marks_last_row():
+    """hold() 안의 줄은 끝날 때 파일에 쓴다. discard 는 마지막 줄에 까닭을 달고, collect() 에도 같은 값이 보인다."""
+    llm = fake_gemini(["a", "b"])
+    with usage.collect() as got:
+        with usage.hold() as rows:
+            llm.text("s", "p")
+            with usage.hold() as inner:  # 겹쳐 열면 안쪽 줄은 바깥 목록으로 넘긴다
+                llm.text("s", "p")
+            assert len(inner) == 1 and len(rows) == 2
+            assert usage.read() == []  # 아직 파일에 쓰지 않았다
+            usage.discard(rows, "thought")
+            usage.discard(rows, "meta")  # 이미 단 까닭은 두고 바꾸지 않는다
+    saved = usage.read()
+    assert [r.get("discarded") for r in saved] == [None, "thought"]
+    assert got[-1]["discarded"] == "thought"
+    usage.discard([], "cut")  # 줄이 없으면 아무것도 하지 않는다
+
+
+def test_scope_target_reaches_row_but_other_keys_do_not():
+    """scope 로 넣은 키 가운데 목표 분량(target)만 줄에 싣는다 (usage.SCOPED)."""
+    llm = fake_gemini(["a"])
+    with usage.scope(target=3000, discarded="thought"):
+        llm.text("s", "p")
+    row = usage.read()[-1]
+    assert row["target"] == 3000 and "discarded" not in row
+
+
+def _project():
+    from canon.schema import Episode, EpisodePlot, Project
+    p = Project()
+    p.meta.words_per_episode = 20
+    p.episodes = [Episode(plot=EpisodePlot(number=1, act="기", title="t", summary="s", events=["e"], characters=[],
+                                           emotional_shift="", ending_hook=""), status="confirmed")]
+    return p
+
+
+def test_write_marks_discarded_rows_and_target():
+    """본문 쓰기가 버린 응답(영어 생각 과정 · 작업 설명)은 그 호출의 줄 자체에 까닭을 단다. 채택한 줄은 낭비로 세지 않는다."""
+    from canon import pipeline
+    body = "바람이 불었다. 서윤은 등대 앞에 섰다."
+    llm = fake_gemini(["Let me think about this chapter first.", "죄송하지만 이 장면은 쓸 수 없습니다. 다른 방향으로 쓸까요?", body])
+    llm.stage = "write"
+    p = _project()
+    assert pipeline._write(llm, p, 1, "쓰기") == body
+    rows = usage.read()
+    assert [r.get("discarded") for r in rows] == ["thought", "meta", None]
+    assert all(r["target"] == 20 and r["attempt"] == 1 for r in rows)
+    s = usage.summary(30)
+    assert s["total"]["discarded"] == 2 and s["trouble_total"] == 2
+    assert s["total"]["wasted"] == pytest.approx(2 * usage.row_cost(rows[0], usage.prices())[0])
+    # 분량 달성률은 버리지 않은 줄만: 본문 글자 수 / 목표 20자
+    assert s["total"]["len_calls"] == 1 and s["total"]["len_ratio"] == pytest.approx(round(len(body) / 20, 3))
+
+
+def test_cue_write_target_is_cue_length():
+    """큐마다 쓰기는 그 큐의 분량을 목표로 싣는다."""
+    from canon import pipeline
+    from canon.schema import Cue, CueSheet
+    body = "바람이 불었다. 서윤은 등대 앞에 섰다."
+    llm = fake_gemini([body, body])
+    llm.stage = "write"
+    sheet = CueSheet(cues=[Cue(beat="a", length=700), Cue(beat="b", length=300)])
+    pipeline.play_cues(llm, _project(), 1, sheet)
+    assert [r["target"] for r in usage.read()] == [700, 300]
+
+
+def test_summary_len_ratio_and_cut_by_effort_skip_old_rows():
+    """추론 강도 묶음마다 분량 달성률(len_ratio)과 끊김(cut) · 버림(discarded) 수를 준다. 칸이 없는 옛 줄은 건너뛴다."""
+    from datetime import datetime
+    now = datetime.now().isoformat(timespec="seconds")
+    base = {"at": now, "project": "등대", "stage": "write", "backend": "gemini", "model": "gemini-4-argon",
+            "in": 100, "out": 10, "ok": True, "effort": "high"}
+    rows = [
+        {**base, "target": 1000, "out_chars": 900, "stop": "STOP"},
+        {**base, "target": 1000, "out_chars": 1300, "stop": "STOP"},
+        {**base, "target": 1000, "out_chars": 400, "stop": "MAX_TOKENS", "discarded": "cut"},  # 버린 줄은 달성률에서 뺀다
+        {**base, "stop": "max_tokens", "ok": False, "error": "끊김"},  # Claude API 끊김
+        {**base, "effort": "low", "target": 1000},  # 응답 글자 수가 없는 줄
+        {**base, "effort": "low"},  # 옛 줄
+    ]
+    path = usage.log_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
+    s = usage.summary(30)
+    eff = {b["effort"]: b for b in s["by_effort"]}
+    assert eff["high"]["len_ratio"] == pytest.approx(1.1) and eff["high"]["len_calls"] == 2
+    assert (eff["high"]["cut"], eff["high"]["discarded"]) == (2, 1)
+    assert eff["low"]["len_ratio"] is None and eff["low"]["cut"] == 0
+    assert s["total"]["cut"] == 2
+
+
+def test_usage_api_passes_new_columns(client):
+    """사용량 응답 모형(routes/research.py)이 새 칸을 버리지 않는다: 묶음의 끊김 · 버림 · 분량 달성률, 줄의 끝난 이유 등."""
+    from datetime import datetime
+    now = datetime.now().isoformat(timespec="seconds")
+    base = {"at": now, "project": "", "stage": "write", "backend": "gemini", "model": "gemini-4-argon",
+            "in": 100, "out": 10, "ok": True}
+    rows = [{**base, "target": 1000, "out_chars": 800, "stop": "STOP", "cache_note": "stage_off"},
+            {**base, "target": 1000, "out_chars": 500, "stop": "MAX_TOKENS", "discarded": "cut"}]
+    path = usage.log_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
+    d = client.get("/api/usage?days=30").json()
+    t = d["total"]
+    assert (t["cut"], t["discarded"], t["len_calls"], t["len_ratio"]) == (1, 1, 1, 0.8)
+    assert d["by_effort"][0]["len_ratio"] == 0.8
+    call = d["trouble"][0]
+    assert (call["stop"], call["out_chars"], call["target"], call["discarded"]) == ("MAX_TOKENS", 500, 1000, "cut")
+    assert d["recent"][-1]["cache_note"] == "stage_off"
+
+
+def test_hold_writes_rows_even_when_the_block_raises():
+    llm = fake_gemini(["a"])
+    with pytest.raises(RuntimeError):
+        with usage.hold() as rows:
+            llm.text("s", "p")
+            usage.discard(rows, "meta")
+            raise RuntimeError("멈춤")
+    assert [r.get("discarded") for r in usage.read()] == ["meta"]
+
+
+def test_polish_marks_the_dropped_version():
+    """서술 다듬기가 대사 줄을 바꾼 판은 그 호출의 줄에 discarded polish 를 달고, 목표 분량은 지금 본문 글자 수다."""
+    from canon import pipeline
+    old = "바람이 불었다. 서윤은 등대 앞에 섰다.\n\n\"됐어, 내가 할게.\""
+    changed = "바람이 세게 불었다. 서윤은 등대 앞에 섰다.\n\n\"아니, 내가 할게.\""
+    kept = "바람이 세게 불었다. 서윤은 등대 앞에 섰다.\n\n\"됐어, 내가 할게.\""
+    llm = fake_gemini([changed, kept])
+    llm.stage = "revise"
+    p = _project()
+    p.episodes[0].text = old
+    assert pipeline.polish_episode(llm, p, 1) == kept
+    rows = usage.read()
+    assert [r.get("discarded") for r in rows] == ["polish", None]
+    assert all(r["target"] == len(old) for r in rows)

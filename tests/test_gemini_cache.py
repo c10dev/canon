@@ -334,3 +334,56 @@ def test_is_cache_unsupported():
     assert llm.is_cache_unsupported(Unsupported())
     assert llm.is_cache_unsupported(Exception("400 INVALID_ARGUMENT. Model `m` does not support explicit context caching."))
     assert not llm.is_cache_unsupported(Err(400, "INVALID_ARGUMENT"))
+
+
+# ---------- 캐시를 못 쓴 까닭 (개선 24): 사용량 기록 칸 cache_note ----------
+
+def _notes() -> list:
+    return [r.get("cache_note") for r in usage.read() if r["task"] != "캐시 만들기"]
+
+
+def test_cache_note_short_made_hit():
+    g, sent, made = _fake()
+    g.text("시스템", _step(1))  # 직전 요청이 없어 겹침이 없다
+    g.text("시스템", _step(2))
+    g.text("시스템", _step(3))
+    assert _notes() == ["short", "made", "hit"]
+    assert all(x in llm.CACHE_NOTES for x in _notes())
+
+
+def test_cache_note_stage_and_setting_off(monkeypatch):
+    g, _, _ = _fake(stage="write")
+    g.text("시스템", _step(1))
+    monkeypatch.setenv("CANON_GEMINI_CACHE", "0")
+    g, _, _ = _fake()
+    g.text("시스템", _step(1))
+    assert _notes() == ["stage_off", "setting_off"]
+
+
+def test_cache_note_failed_then_model_off():
+    g, _, _ = _fake()
+    g.fail_create = Err(403, "PERMISSION_DENIED")
+    g.text("시스템", _step(1))
+    g.text("시스템", _step(2))  # 만들다 실패해 일반 호출로
+    g.text("시스템", _step(3))  # GEMINI_CACHE_BACKOFF 동안 끔
+    assert _notes() == ["short", "failed", "model_off"]
+
+
+def test_cache_note_failed_when_cached_call_falls_back():
+    g, _, _ = _fake()
+    g.text("시스템", _step(1))
+    g.text("시스템", _step(2))
+    g.fail_cached = Err(400, "INVALID_ARGUMENT")
+    g.text("시스템", _step(3))  # 살아 있는 캐시를 쓰다 실패해 일반 호출로
+    assert _notes() == ["short", "made", "failed"]
+
+
+def test_cache_note_unsupported_from_memory_and_settings():
+    g, _, _ = _fake()
+    g.fail_create = Unsupported()
+    g.text("시스템", _step(1))
+    g.text("시스템", _step(2))
+    g.text("시스템", _step(3))  # 바로 끈 모델 (_GEM_CACHE_OFF 가 inf)
+    llm.gemini_cache_reset()  # 서버를 다시 시작해도 설정 파일로 안다
+    g.text("시스템", _step(4))
+    assert _notes() == ["short", "failed", "unsupported", "unsupported"]
