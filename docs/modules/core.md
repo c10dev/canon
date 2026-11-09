@@ -761,6 +761,7 @@
 - 이 칸을 다루는 AI 호출은 신체 프로필 제안(`pipeline.suggest_body`)뿐이다
 - 미성년(`cast.is_minor_age`)이면 쓰리사이즈를 제안하지 않는다
 - 인물 프롬프트 넣기(`Character.context`: auto 비중대로 · always 늘 · off 이름만)도 작가 전용이라 같은 방식으로 빠진다
+- ComfyUI 그림 기록 `IllustImage`(파일 · 시드 · 보낸 프롬프트 · 틀 이름 · 알림)는 `Illustration.images` 에 둔다(`canon/comfy.py`)
 - 인물 상태의 지울 칸(`CharacterState.cleared`)은 변경안에만 쓴다. 비었으면 직렬화에서 빼서 저장한 상태 · 프롬프트에 들어가지 않는다
 - 지울 칸에 값이 함께 오면 검증(`_blank_cleared`)이 그 칸을 비워 차림 · 이동 거리 경고가 새 값으로 보지 않는다
 - 화면 밖 근황(`CharacterState.offscreen` · `offscreen_ep`)은 AI 응답 형식(`SkipJsonSchema`)과 프롬프트 직렬화에서 빠진다. 비었으면 저장하지도 않는다
@@ -869,6 +870,7 @@
 
 - 사용자 설정(LLM 프로바이더, 모델, API 키, 로컬 서버, 단계별 백엔드)
 - 웹 설정 화면에서 저장하면 `~/.canon/config.json` 에 들어간다(`CANON_CONFIG` 로 경로 변경)
+- ComfyUI 그리기 설정(`comfy`): 환경 변수 `CANON_COMFY_<KEY>` 가 먼저, 다음은 설정 파일의 `comfy_<key>`. 웹 설정 화면에는 아직 칸이 없다
 - `_write` 는 `store.write_atomic(mode=0o600, fsync=True)` 로 쓴다. 키가 든 임시 파일도 처음부터 본인만 읽고, 쓰다 멈춰도 옛 설정이 그대로 남는다
 - 읽고-고치고-쓰는 곳(`update` · `save_preset` · `delete_preset` · `set_prices` · `mark_gemini_cache_unsupported` · `reset_broken`)은 프로세스 안 잠금 `_CONFIG_LOCK`(RLock)을 잡는다. 겹친 단계 칸 PUT 이 서로의 값을 지우지 않는다
 - CLI 와 서버처럼 다른 프로세스가 함께 쓰는 경우는 이 잠금이 막지 않는다
@@ -1099,6 +1101,11 @@
 - 지적 작업끼리 부딪히면 시작 전에 400 이다(`_finding_clash`). 지적 하나 작업은 그 화의 `check` · `fixes` · `recheck` · 같은 지적의 다른 작업이 도는 동안 시작하지 않는다
 - 거꾸로 `check` · `fixes` · `recheck` 는 그 화의 지적 하나 작업이 도는 동안 시작하지 않는다. 다른 지적끼리는 함께 돈다
 - `illust` 는 `JobIn.selection` · `note`(바라는 것) · `model` 을 받아 삽화를 그 화에 더한다(옛 경로 `…/episodes/{n}/illust` 와 같다)
+- `illust_render`(`_job_illust_render`)는 삽화 하나(`JobIn.target`, 화는 `ep`)를 ComfyUI로 그려 그 삽화에 그림을 더한다(`canon/comfy.py`)
+- `illust_render` 는 LLM을 부르지 않는다(`NO_LLM_KINDS`). `start_job` 은 그 작업에 `get_llm` 을 부르지 않아 키가 없어도 돈다
+- `illust_render` 는 `CANON_COMFY_URL` 이 비었거나 삽화가 없으면 시작 전에 400 이다
+- ComfyUI 경로: 그리기 설정 `GET /api/comfy`(`comfy.status`), 그림 파일 `GET …/illust-images/{file}`, 그림 지우기 `DELETE …/episodes/{n}/illust/{iid}/images/{file}`
+- 그림 파일 경로는 작품이 있는지만 본다(`store.exists`). 그림마다 작품을 읽지 않는다
 - `atlas_suggest`(`JobIn.spec`) · `atlas_sort`(`JobIn.texts`)는 제안만 돌려주고 작품을 바꾸지 않는다. `atlas_sort` 는 정리할 위치 글이 없으면 시작 전에 400 이다
 - 옛 동기 경로(`…/findings/{fid}/fixes` · `recheck`, `…/episodes/{n}/illust`, `atlas/generate/suggest` · `atlas/sort`)는 명령줄 · 시험이 쓰는 동안 남긴다
 - 플레이 시작(`POST …/play/start`)은 작업으로 옮기지 않았다. 폴더 복사만 동기이고 AI 호출은 이미 작업 `play_turn` 이다

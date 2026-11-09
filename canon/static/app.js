@@ -575,7 +575,7 @@ async function pollJobs(soon = false) {
     if (j.kind === 'check' && j.status === 'done') await mergeEpisodes((e) => e.plot.number === j.ep, [j.ep]);  // 검수 결과는 그 화에 붙었다
     if (j.kind === 'recheck' && j.status === 'done') await mergeEpisodes((e) => e.plot.number === j.ep, [j.ep]);  // 고친 곳만 다시 보기 결과는 그 화 지적에 붙었다
     if (j.kind === 'fixes' && j.status !== 'running') await mergeEpisodes((e) => e.plot.number === j.ep, [j.ep]);  // 받은 고침안은 그 화 지적에 붙었다 (실패해도 앞서 받은 것은 남았다)
-    if (['fix_one', 'recheck_one', 'illust'].includes(j.kind) && j.status === 'done') await mergeEpisodes((e) => e.plot.number === j.ep, [j.ep]);  // 지적 하나의 고침안 · 다시 검수, 삽화는 그 화에 붙었다 (check.js, illust.js)
+    if (['fix_one', 'recheck_one', 'illust', 'illust_render'].includes(j.kind) && j.status === 'done') await mergeEpisodes((e) => e.plot.number === j.ep, [j.ep]);  // 지적 하나의 고침안 · 다시 검수, 삽화 · 삽화 그림은 그 화에 붙었다 (check.js, illust.js)
     if (j.kind === 'auto') {
       // 다른 탭이나 명령줄에서 시작했어도 잠금(autoOn)이 걸리고, 끝나면 풀리게 실행 상태를 받아 온다. autoPoll 이 이어서 지켜본다
       if ((j.status === 'running') !== autoOn() && typeof autoLoad === 'function') await autoLoad(false);
@@ -2445,6 +2445,7 @@ async function routeNow() {
         if (S.rwOpen !== n) S.rwOpen = null;
       }
       if ((FLOW_PAGES.includes(parts[2]) || parts[2] === 'setup') && !S.illModels) S.illModels = await api('GET', '/illust/models').catch(() => []);
+      if ((FLOW_PAGES.includes(parts[2]) || parts[2] === 'setup') && !S.comfy) S.comfy = await api('GET', '/comfy').catch(() => ({ on: false }));
       if (parts[2] === 'arc' && parts[3]) {  // 홈의 아크 칩(arc/a3)은 그 아크를 고르고, 화 번호(arc/12)는 화 플롯 페이지를 연다
         const a = /^a\d+$/.test(parts[3]) ? Number(parts[3].slice(1)) : null;
         if (a) { S.selArc = a; S.selEp = null; S.selAct = null; }

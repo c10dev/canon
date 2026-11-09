@@ -834,6 +834,12 @@ Gemini 플롯 대화는 명시 캐시를 쓴다(`llm.GeminiLLM._cached`, `settin
 - **저장.** `Episode.illustrations`(최근 20개)에 원안과 조립 결과를 같이 둔다. 원안이 있으니 모델 · 외형 · 화풍을 바꾸면 AI 없이 다시 조립한다(`rebuild_illustration`). 본문을 바꾸지 않으므로 반영(finalized)한 화에서도 만든다. 화면은 `static/illust.js`(고치는 본문은 `passage.js` 의 떠 있는 도구에 버튼을 더하고, 읽기 전용 본문은 자체 도구), CLI 는 `illust`, `look`.
 - **인용 대조.** AI 가 옮긴 장면 인용(`IllustDraft.quote`)은 화면에 'AI가 고른 장면'으로 보이므로 `illust.match_quote` 가 프롬프트에 넣은 본문 범위와 견준다. 그대로 있으면 두고, 1~3문장 창 가운데 따옴표만 다르거나 같은 문장으로 보는 창(`findings.same_quote`)이 있으면 원문으로 바꾸고, 없으면 비우고 알린다. 짧은 인용은 비슷한 창으로 바꾸지 않는다.
 - NovelAI 이미지 생성 API 호출은 아직 없다. 넣는다면 `IllustCharPrompt.position` 을 `use_coords` 좌표로 옮기고 키는 설정 화면(`~/.canon/config.json`)에 둔다.
+- **ComfyUI 로 그리기** (`canon/comfy.py`, 2026-11-09). 조립한 프롬프트를 GPU 서버의 ComfyUI 로 보내 그림을 받는다. 주소는 `CANON_COMFY_URL`(SSH 터널), 워크플로는 ComfyUI 'Export (API)' JSON 틀(`CANON_COMFY_WORKFLOW`)의 자리표 `{{prompt}}` · `{{negative}}` · `{{seed}}` 를 채운다. 틀이 없으면 SDXL 체크포인트 하나로 그리는 기본 틀을 쓴다.
+  - 워크플로를 코드에 박지 않은 것은 체크포인트(NoobAI · Anima 등)와 ControlNet · 인페인트 노드 구성이 서버 팩마다 달라서다. Canon 은 틀의 글 칸만 채운다.
+  - NovelAI 문법은 SD 태그로 옮긴다: `girl` · `boy` · `other` 를 빼며, `1.2::tag ::` 는 `(tag:1.2)`, `rating:x` 는 Danbooru 등급 낱말로.
+  - 인물을 영역별로 그리는 틀은 `{{main}}` · `{{char1}}`~`{{char3}}` · `{{multi:A:B}}` 로 인물 칸을 채운다. 인물 칸이 없는 틀에는 인물을 한 줄로 합쳐 넣고 외형이 섞일 수 있다고 알린다.
+  - 실측(2026-11-09, B200 MIG 1g): 기본 틀(SDXL 832x1216 28스텝) 30초, 사용자 올인원 틀(하이레즈 · 얼굴 · 눈 디테일러, 1536px) 한 장 192초(샘플링 약 110초), ComfyUI 를 다시 띄운 뒤 첫 장은 모델을 읽느라 435초. 올인원 틀의 리저널 모드(NakoMultiAreaConditioning)는 스텝당 100초가 넘어 아직 쓰지 않는다.
+  - 그림은 작품 폴더 `illust/<16자리 16진수>.png` 이고 기록은 `Illustration.images`(삽화마다 8장). 데이터가 가리키지 않는 파일은 `comfy.prune` 이 지운다. 그리기는 작업 `illust_render` 이고 LLM 이 아니라 사용량 기록에 잡지 않는다.
 
 ## 6. LLM 프로바이더
 

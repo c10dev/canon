@@ -282,6 +282,40 @@
 - LLM 호출 없음
 - 화면은 `static/charlog.js`
 
+### `canon/comfy.py`
+
+- 저장한 삽화 프롬프트(`Illustration`)를 ComfyUI로 그려 작품 폴더 `illust/` 에 PNG로 둔다
+- LLM 호출 없음. 사용량 기록(`usage.record`)은 LLM 토큰만 세므로 부르지 않는다
+- ComfyUI 주소는 `CANON_COMFY_URL` 이다. GPU 서버의 ComfyUI를 SSH 터널로 이어 쓴다
+- `CANON_COMFY_URL=mock` 이면 가짜 ComfyUI(`_fake`)가 시드로 색을 정한 작은 PNG를 준다. 시험과 수동 확인이 쓴다
+- 워크플로 틀은 ComfyUI의 'Export (API)' JSON이다(`CANON_COMFY_WORKFLOW`). 화면용 JSON(`nodes` · `links`)은 받지 않는다
+- 틀을 정하지 않으면 SDXL 체크포인트 하나로 그리는 기본 틀(`DEFAULT_WORKFLOW`, 체크포인트는 `CANON_COMFY_CKPT`)을 쓴다
+- 틀의 글 칸에 적은 자리표 `{{prompt}}` · `{{negative}}` · `{{seed}}` · `{{width}}` · `{{height}}` · `{{checkpoint}}` 를 채운다(`fill`, 한 줄 프롬프트만 쓰는 `workflow`)
+- 인물을 영역별로 그리는 틀(리저널)은 기본 칸 `{{main}}` 과 인물 칸 `{{char1}}` ~ `{{char3}}` 를 쓴다
+- 인물이 둘 이상이고 틀에 인물 칸이 둘 이상이면 인물을 자리 순(왼쪽 → 가운데 → 오른쪽)으로 인물 칸에 넣고 기본 칸에는 장면만 둔다
+- 그렇지 않으면 기본 칸에 모두 넣고 인물 칸은 비운다. 인물 칸보다 인물이 많으면 남는 인물은 기본 칸에 넣고 알린다
+- `{{multi:A:B}}` 는 인물을 인물 칸에 나눠 넣으면 A, 아니면 B 다(예: 리저널 모드 번호 `{{multi:3:1}}`)
+- 칸 값이 숫자 자리표 하나뿐이면 정수로 바꾼다. 글 안의 자리표는 글로 바꾼다("masterpiece, {{prompt}}")
+- `{{prompt}}` 가 없는 틀은 `positive` · `negative` 입력을 따라가 그 노드의 `text` 칸을 채우고, `seed` · `noise_seed` 칸에 시드를 넣는다
+- 크기는 `CANON_COMFY_SIZE`(기본 832x1216), 기다리는 시간은 `CANON_COMFY_TIMEOUT`(기본 600초)
+- NovelAI용으로 조립한 프롬프트를 SD 태그 조각으로 옮긴다(`parts_of` → `Parts`: 기본 태그 · 자리 순 인물 태그 · 영어 문장 · 부정 태그)
+- 인물을 한 줄로 합쳐 보낼 때는 인물이 둘 이상이면 섞일 수 있다고 알린다(`MIXED`, 한 줄 프롬프트는 `prompt_of`)
+- 인물 칸의 girl · boy · other 는 인물 수 태그와 겹쳐 뺀다
+- 가중치 `1.2::tag ::` 는 `(tag:1.2)`, `{tag}` · `[tag]` 는 1.05배씩 · 1/1.05배씩으로 옮긴다. 0 이하 가중치 태그는 빼고 알린다(`sd_tag`)
+- `source#` · `target#` · `mutual#` 를 떼고, 태그 속 괄호는 `\(` `\)` 로 막는다
+- `rating:general` · `sensitive` · `explicit` 는 같은 낱말로, `questionable` 은 `nsfw` 로 옮긴다
+- '품질 태그 직접 넣기'로 붙은 NovelAI 품질 태그는 뺀다. 체크포인트에 맞는 품질 태그는 틀에 적는다
+- 영어 장면 문장은 그 문장을 넣는 모델(V5)로 조립했을 때만 끝에 한 덩어리로 붙인다
+- 그리기(`render`): `/prompt` 로 보내고 `/history/<id>` 를 1초마다 보고, 저장 노드(`type: output`) 그림을 `/view` 로 받는다
+- 그림을 여러 번 저장하는 틀은 제목에 '최종' · 'final' 이 든 노드의 그림을 받는다(`FINAL_TITLES`)
+- ComfyUI 오류 응답은 `error.message` 와 노드 오류를 한 줄로 옮긴다(`_reason`). 그리다 난 오류는 `execution_error` 의 `exception_message` 를 싣는다
+- 작업을 멈추거나 시간을 넘기면 ComfyUI 대기열에서 빼고 끊는다(`_drop`: `/queue` delete, `/interrupt`)
+- 그림 기록은 `Illustration.images`(`IllustImage`: 파일 · 시드 · 보낸 프롬프트 · 틀 이름 · 알림)이고 삽화마다 `IMAGES_KEEP`(8)장까지 남긴다
+- 파일 이름은 16자리 16진수 `.png` 다. 그 밖의 이름은 열지 않는다(`image_path`)
+- 작품 데이터가 가리키지 않는 그림 파일은 `prune` 이 지운다. 그림을 더하거나 지울 때, 삽화를 지울 때 부른다
+- 파일 쓰기 · 그림 기록 · `prune` 은 한 작품 잠금(`web._edit`) 안에서 한다. 밖에서 하면 함께 도는 그리기의 새 파일을 다른 정리가 지운다
+- 그리는 동안 그 삽화가 지워졌으면 파일을 쓰지 않고 작업이 실패한다
+
 ### `canon/dynamics.py`
 
 - 관계 역학
@@ -761,6 +795,10 @@
 
 - 집필 화면 삽화 프롬프트 카드(칸별 복사, 다시 조립, 외형 고정)
 - '고른 부분으로 만들기'는 보조 버튼이다. 집필 화면의 주 버튼은 머리의 다음 일 하나다
+- 서버에 ComfyUI를 이어 두면(`GET /api/comfy` 의 `on`, `S.comfy`) 카드 아래 줄에 'ComfyUI로 그리기' · '다시 그리기'(`illDraw`)를 둔다
+- 그리기는 화면을 막지 않는 작업 `illust_render`(대상은 삽화 id, 화는 `ep`)다. 끝나면 그 화를 받아 온다
+- 그린 그림은 카드에 새것부터 가로로 늘어놓는다(`ilImages`). 그림을 누르면 새 탭에서 크게 보고, 그림마다 지우기(`illImgDelete`)가 있다
+- 맨 새 그림의 알림과 ComfyUI에 보낸 프롬프트 · 틀 이름은 접어 둔다
 - 삽화 프롬프트 만들기(`ilMake`, 고른 부분 · AI가 장면 고르기)는 화면을 막지 않는 작업 `illust` 다. 끝나면 그 화를 받아 오고, 그 화를 보고 있으면 새 삽화로 내려간다
 - 카드의 인용 칸은 고른 부분, 없으면 AI 인용이다. 둘 다 비면(인용을 본문에서 못 찾음) 그리지 않는다
 - 읽기 전용 본문에서 고르는 도구

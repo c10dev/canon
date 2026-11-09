@@ -118,7 +118,7 @@
 - `JOB_BTNS[data-action]` 에 등록한 버튼은 그린 뒤 `lockJobBtns` 가 도는 작업이면 '만드는 중'으로 잠근다(`aria-disabled` · `aria-busy` · `run-wait`). 화면 파일의 버튼 글자는 고치지 않는다
 - `JOB_BTNS` 는 `[종류, 대상, 화]` 를 돌려준다. 화는 한 화를 두고 도는 작업(삽화 `illust`)만 준다
 - `lockJobBtns` 는 `#app` 안 버튼만 본다. `#app` 밖 고치는 창(`#sel-tool`)의 버튼은 화면 파일이 `jobBtn` 으로 그린다
-- 작업이 그 화에 쓴 결과(`fix_one` · `recheck_one` · `illust`)는 `pollJobs` 가 끝날 때 그 화만 받아 온다(`mergeEpisodes`)
+- 작업이 그 화에 쓴 결과(`fix_one` · `recheck_one` · `illust` · `illust_render`)는 `pollJobs` 가 끝날 때 그 화만 받아 온다(`mergeEpisodes`)
 - `SCREEN_ONLY_JOBS` 는 결과를 화면 제안 칸에만 놓는 작업이다. 다른 작품을 보는 동안 끝나면 결과가 남지 않았으니 다시 받으라고 알린다
 - 짧은 기다림 가림막 `run`(`#busy`): 상자 이름은 작업 이름(`#busy-label`)이고, 1초마다 바뀌는 경과 초(`#busy-sec`)는 낭독하지 않는다
 - `run` 은 가림막을 바로 띄우되 400ms(`BUSY_DELAY`) 동안 투명하게(`busy-wait`) 둔다. 그 안에 끝나면 화면이 어두워지지 않고, `inert` · 상자 포커스는 바로 걸며, 누른 버튼에는 `aria-busy` 와 돌림표(`run-wait`)를 단다. `opt.now` 는 바로 어둡게 그린다
