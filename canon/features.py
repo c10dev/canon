@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Callable
 
-from . import address, attire, cast, charlog, context, elements, foreshadows, knows, naming, pace, statwin, timeline
+from . import address, attire, cast, charlog, context, elements, foreshadows, knows, naming, offscreen, pace, statwin, timeline
 from .maps import travel
 from .schema import FactNear, Project, Snapshot, StateDelta
 
@@ -119,7 +119,10 @@ CLEAN: tuple[Callable[[Project, StateDelta], list[Warn] | None], ...] = (
 # 반영 (pipeline.apply_delta): 새 인물을 더한 직후. 작가가 고른 설정 바꾸기 · 호칭 제안만 온다 (자동 집필은 hold 로 미리 뺀다)
 APPLY_FIRST: tuple[Callable[[Project, StateDelta], None], ...] = (charlog.apply_delta, address.apply_delta, _add_places)
 # 반영: 상태 · 관계 · 사실 · 복선을 반영한 뒤, 반영 기록과 스냅샷 전
-APPLY_LAST: tuple[Callable[[Project, StateDelta], None], ...] = (foreshadows.apply_delta, timeline.apply_delta, cast.apply_delta)
+APPLY_LAST: tuple[Callable[[Project, StateDelta], None], ...] = (
+    foreshadows.apply_delta, timeline.apply_delta, cast.apply_delta,
+    offscreen.apply_delta,  # 다시 나온 인물의 화면 밖 근황을 비운다 (등장 인물 붙이기 뒤)
+)
 
 # 되돌리기 (pipeline.revert): 스냅샷으로 상태를 덮기 전
 REVERT_FIRST: tuple[Callable[[Project, int, Snapshot], None], ...] = (_unregister_places, _revert_two(cast.revert))

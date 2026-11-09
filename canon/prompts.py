@@ -20,6 +20,7 @@ from .llm import _inline_refs, dump
 from .schema import Birth, Character, ChatMessage, Claim, ConsistencyIssue, ConsistencyReport, Foreshadow, PlayInfo, PlotBatch, Project, Selection, StateDelta, StateDeltaAI, StoryElement
 from .schema import ArcPlan, ArcProposal, CueSheetDraft, HeatArcPlan, HeatArcProposal, HeatProposal, SeriesPlan, StoryboardDraft
 from . import address, board, charlog, echoes, foreshadows, heatplan, knows, pairlog, stage, statwin, timeline
+from . import offscreen
 from .maps import prompt as mapprompt
 
 # AI 글티('쇠맛')를 줄이는 기본 문체 규칙. 작품의 스타일 프로필과 부딪히면 스타일 프로필을 따른다.
@@ -1468,13 +1469,21 @@ def return_lines(p: Project, ids: set[str], n: int) -> list[str]:
         if n - m < context.RETURN_GAP:
             continue
         c = by_id[cid]
-        pat = context.name_pattern(c)
-        sents = [s for s in re.split(r"(?<=[.!?。])\s+", " ".join(p.episode(m).summary.split())) if s]
-        line = next((s for s in sents if pat and pat.search(s)), "")  # 이름이 없는 문장은 다른 인물 이야기라 옮기지 않는다
-        if len(line) > RETURN_SENTENCE:
-            line = line[:RETURN_SENTENCE - 1] + "…"
-        rows.append(f"- {c.name}: 마지막으로 나온 화 {m}화 ({n - m}화 전)" + (f". {m}화 요약: {line}" if line else ""))
+        line = seen_sentence(p, c, m)
+        st = p.state_of(cid)
+        row = f"- {c.name}: 마지막으로 나온 화 {m}화 ({n - m}화 전)" + (f". {m}화 요약: {line}" if line else "")
+        if st and st.offscreen:  # 요약 문장이 마침표로 끝나면 마침표를 겹쳐 찍지 않는다
+            row += ("" if row.endswith((".", "!", "?", "。", "…")) else ".") + f" 화면 밖 근황 ({st.offscreen_ep}화 끝 시점, 작가가 정함): {st.offscreen}"
+        rows.append(row)
     return rows
+
+
+def seen_sentence(p: Project, c: Character, m: int) -> str:
+    """m화 요약에서 인물 c 의 이름이 나온 첫 문장 (RETURN_SENTENCE 자까지). 없으면 빈 글."""
+    pat = context.name_pattern(c)
+    sents = [s for s in re.split(r"(?<=[.!?。])\s+", " ".join(p.episode(m).summary.split())) if s]
+    line = next((s for s in sents if pat and pat.search(s)), "")  # 이름이 없는 문장은 다른 인물 이야기라 옮기지 않는다
+    return line[:RETURN_SENTENCE - 1] + "…" if len(line) > RETURN_SENTENCE else line
 
 
 def return_block(p: Project, ids: set[str], n: int) -> str:
@@ -1482,8 +1491,21 @@ def return_block(p: Project, ids: set[str], n: int) -> str:
     rows = return_lines(p, ids, n)
     if not rows:
         return ""
+    away = ("\n화면 밖 근황은 적힌 화 끝 시점의 것입니다. 그 뒤 줄거리 · 현재 상태와 어긋나면 줄거리와 현재 상태를 따르고, "
+            "근황은 다시 나온 장면에서 대사나 행동으로 드러냅니다") if any("화면 밖 근황 (" in r for r in rows) else ""
     return (f"\n\n# 오랜만에 다시 나오는 인물 ({context.RETURN_GAP}화 넘게 나오지 않음. 그동안 바뀐 것은 줄거리와 인물 현재 상태를 따르고, "
-            "독자가 누구인지 알아보게 처음 나올 때 한두 문장으로 짚어 줍니다)\n" + "\n".join(rows))
+            "독자가 누구인지 알아보게 처음 나올 때 한두 문장으로 짚어 줍니다)" + away + "\n" + "\n".join(rows))
+
+
+def offscreen_block(p: Project) -> str:
+    """다음 아크 기획의 화면 밖 근황 (offscreen.listed). 근황이 없으면 빈 글."""
+    rows, cut = offscreen.listed(p)
+    if not rows:
+        return ""
+    name = {c.id: c.name for c in p.characters}
+    lines = "\n".join(f"- {name.get(s.character_id, s.character_id)} ({s.character_id}, {s.offscreen_ep}화 끝 시점): {s.offscreen}" for s in rows)
+    more = f" (그 밖에 {cut}명은 뺐습니다)" if cut else ""
+    return f"\n[오래 나오지 않은 인물의 화면 밖 근황 (작가가 정한 것)]{more}\n{lines}"
 
 
 def candidates_block(p: Project) -> str:
@@ -1683,7 +1705,7 @@ def next_arc_prompt(p: Project, start: int, length: int, note: str) -> str:
 [인물 현재 상태]{knows_note(knows_cut)}
 {dump(main_states) or "설정 그대로"}
 [조연 · 최근 인물 현재 상태 (최근에 나온 순서)]{f" (그 밖에 {side_cut}명은 예산을 넘겨 뺐습니다)" if side_cut else ""}{knows_note(side_knows_cut)}
-{dump(side_states) or "없음"}
+{dump(side_states) or "없음"}{offscreen_block(p)}
 [부 구성]
 {dump(p.parts) if p.parts else "부 구성 없음 (작품 전체가 한 부)"}
 
@@ -1707,7 +1729,7 @@ def next_arc_prompt(p: Project, start: int, length: int, note: str) -> str:
 - acts 는 아크 안의 기승전결로, {start}화부터 end_ep 까지 기, 승, 전, 결 순서로 빈틈없이 이어집니다. 마지막 1~2화는 정리와 다음 아크 떡밥에 씁니다.
 {"- 첫 아크입니다. 기 구간은 소개가 아니라 발단으로, 1화에 사건이 시작되고 1~3화 안에 주인공의 결핍, 작품의 핵심 장치, 작은 보상 하나가 나옵니다." + chr(10) if start == 1 else ""}- 직전 아크와 같은 모양의 갈등을 되풀이하지 않습니다. 걸린 것이나 상대가 조금씩 커지게 합니다.
 - payoffs 에는 이 아크에서 회수할 열린 복선 id 를 넣습니다. '오래됨' 표시가 있는 복선은 회수하거나 아크 안에서 다시 떠올립니다.
-- cast 에는 이 아크에 주로 나오는 인물 id 를 넣습니다. 새 인물이 필요하면 new_characters 에 전체 설정(speech_style 포함)을 넣고 tier 는 support 나 minor 로 둡니다. 이미 있는 인물을 다시 만들지 않습니다.
+{"- 화면 밖 근황이 있는 인물을 이 아크에 다시 데려오면 그 근황에서 이어지게 하고, 근황과 어긋나는 일을 지어내지 않습니다." + chr(10) if offscreen.listed(p)[0] else ""}- cast 에는 이 아크에 주로 나오는 인물 id 를 넣습니다. 새 인물이 필요하면 new_characters 에 전체 설정(speech_style 포함)을 넣고 tier 는 support 나 minor 로 둡니다. 이미 있는 인물을 다시 만들지 않습니다.
 - reply 에는 왜 이 아크인지, 어떤 복선을 회수하고 무엇을 다음으로 남기는지 2~4문장으로 씁니다.
 {pov_plan_rule(p, "아크")}
 - summary 는 비워 둡니다."""
@@ -1769,6 +1791,53 @@ def fold_prompt(p: Project, number: int, want: dict[str, list[str]]) -> str:
 - 위 목록과 이미 접은 줄에 없는 것을 지어내지 않습니다. 이 인물이 모르는 것을 넣지 않습니다.
 - 이미 접은 줄이 있으면 그것까지 합쳐 다시 씁니다.
 - 한 줄에 한 가지, {knows.FOLD_LINE_MAX}자 이하로 씁니다. '그', '그녀' 대신 이름을 씁니다. 줄 앞에 화 표시를 붙이지 않습니다."""
+
+
+OFFSCREEN_KINDS = {"daily": "하던 일을 이어 감", "change": "처지 · 관계 · 몸이 바뀜", "hook": "다시 나올 때 들고 올 목적이나 소식"}
+
+
+def offscreen_prompt(p: Project, want: dict[str, int], cut: int = 0) -> str:
+    """다음 아크 기획 앞 화면 밖 근황 (pipeline.plan_offscreen). want 는 offscreen.targets: {인물 id: 마지막으로 나온 화}."""
+    start = offscreen.start(p)
+    by_id = {c.id: c for c in p.characters}
+    near = context.core_ids(p) | set(want)
+    blocks = []
+    for cid, m in want.items():
+        c = by_id[cid]
+        st = p.state_of(cid)
+        now = {k: v for k, v in (st.model_dump(include={"location", "current_goal", "emotional_state", "notes"}) if st else {}).items() if v}
+        ties = [f"- {by_id[o].name if o in by_id else o}: {r.type}{f' ({r.description})' if r.description else ''}"
+                for r in p.relationships if cid in (r.a, r.b) and (o := r.b if r.a == cid else r.a) in near]
+        seen = seen_sentence(p, c, m)
+        old = f"\n지금 적힌 근황 ({st.offscreen_ep}화 끝 시점): {st.offscreen}" if st and st.offscreen else ""
+        blocks.append(f"## {c.name} ({cid}, {c.role or '역할 없음'}, {c.tier})\n"
+                      f"마지막으로 나온 화: {m}화 ({start - m}화 전){f'. {m}화 요약: {seen}' if seen else ''}\n"
+                      f"목표: {c.goal or '없음'}\n마지막 상태: {dump(now) if now else '없음'}\n"
+                      f"관계:\n{chr(10).join(ties) or '없음'}{old}")
+    kinds = "\n".join(f"  - {k}: {v}" for k, v in OFFSCREEN_KINDS.items())
+    more = f" (그 밖에 {cut}명은 수가 많아 이번에는 뺐습니다)" if cut else ""
+    return f"""장편 연재의 다음 아크가 {start}화에서 시작합니다. 아래 인물들은 {context.RETURN_GAP}화 넘게 본문에 나오지 않았습니다.
+인물마다 마지막으로 나온 화 뒤 {start - 1}화 끝까지 화면 밖에서 어떻게 지냈는지 근황을 제안하세요.
+작가가 고른 근황은 이 인물이 다시 나오는 화의 쓰기 프롬프트와 다음 아크 기획에 들어갑니다.
+
+[작품]
+{meta_text(p)}
+[지금까지의 줄거리]
+{story_so_far(p, start, plans=True) or "없음"}
+
+[오래 나오지 않은 인물]{more}
+{chr(10).join(blocks)}
+
+요구사항:
+- lines 에 위 인물마다 하나씩 character_id, text, kind 를 넣습니다.
+- text 는 1~2문장, {offscreen.TEXT_MAX}자 이하로 씁니다. 어디서 무엇을 하며 지냈는지 다시 나오는 장면에서 쓸 수 있게 구체적으로 씁니다.
+- 줄거리, 마지막 상태, 관계와 어긋나지 않게 씁니다. 화면 밖에서 줄거리의 큰 사건을 일으키거나 해결하게 하지 않습니다.
+- 죽음, 정체 폭로, 관계를 끊는 일처럼 이야기를 크게 바꾸는 일은 넣지 않습니다. 그것은 작가가 본문에서 정합니다.
+- 지금 적힌 근황이 있으면 그 뒤로 이어지게 씁니다.
+- 줄거리에서 이미 죽었거나 이야기에서 떠난 인물이면 일상을 지어내지 않고 text 에 그 사실만 짧게 적습니다.
+- kind 는 근황의 종류입니다.
+{kinds}
+- '그', '그녀' 대신 이름을 씁니다."""
 
 
 # ---------- 이야기 줄기 제안 ----------

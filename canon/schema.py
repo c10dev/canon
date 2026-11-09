@@ -775,6 +775,23 @@ class KnowsFoldSet(BaseModel):
     folds: list[KnowsFold] = Field(default_factory=list)
 
 
+OffscreenKind = Literal["daily", "change", "hook"]
+
+
+class OffscreenLine(BaseModel):
+    """오래 나오지 않은 인물 하나의 화면 밖 근황 제안 (canon/offscreen.py)."""
+    character_id: str = Field(description="인물 id")
+    text: str = Field(description="그동안 화면 밖에서 지낸 모습 1~2문장. 줄거리 · 관계와 어긋나지 않게")
+    kind: OffscreenKind = Field("daily", description="daily: 하던 일을 이어 감 / change: 처지 · 관계 · 몸이 바뀜 / hook: 다시 나올 때 들고 올 목적이나 소식")
+
+
+class OffscreenSet(BaseModel):
+    """다음 아크 기획 앞 화면 밖 근황 제안. 작가가 인물마다 골라 적용한다 (pipeline.plan_offscreen, offscreen.apply)."""
+    lines: list[OffscreenLine] = Field(default_factory=list)
+    # 제안을 받을 때의 시점 화 (다음 아크 시작 화 바로 앞 화). 프로그램이 채운다. 저장할 때 지금 값과 다르면 낡은 제안이라 막는다
+    at: SkipJsonSchema[int] = Field(0, description="근황의 시점 화 (pipeline.plan_offscreen)")
+
+
 class KnowsFoldRecord(BaseModel):
     """적용한 접기 기록. 되돌리기에 쓴다."""
     arc: int
@@ -1688,6 +1705,10 @@ class CharacterState(BaseModel):
     cleared: list[str] = Field(default_factory=list, description="변경안에서 이번 화로 지울 칸 이름 (current_goal, location, notes, attire, emotional_state). 목표를 이뤘거나 버렸는데 새 목표가 없을 때처럼 이전 값이 더는 맞지 않고 새로 적을 값도 없을 때만")
     # 아크 요약 뒤 오래된 knows 를 접은 줄 (canon/knows.py). 작가가 고른 AI 제안만 들어온다. AI 응답 형식과 프롬프트 직렬화에서는 뺀다
     knows_folded: SkipJsonSchema[list[str]] = Field(default_factory=list, description="접은 아는 정보 (knows.apply_fold)")
+    # 장편: 오래 나오지 않은 인물의 화면 밖 근황 (canon/offscreen.py). 다음 아크 기획 때 작가가 고른 AI 제안만 들어오고, 다시 나온 화를 반영하면 비운다.
+    # notes 와 달리 상태 변경안이 고치지 않고, 프롬프트에는 상태 칸이 아니라 '오랜만에 다시 나오는 인물' · 다음 아크 기획의 근황 줄로만 들어간다
+    offscreen: SkipJsonSchema[str] = Field("", description="화면 밖 근황 (offscreen.apply)")
+    offscreen_ep: SkipJsonSchema[int] = Field(0, description="근황이 말하는 시점 화. 이 화 끝까지의 근황이다")
 
     @model_validator(mode="after")
     def _blank_cleared(self):
@@ -1703,8 +1724,13 @@ class CharacterState(BaseModel):
         data = handler(self)
         if isinstance(data, dict) and not data.get("cleared", True):
             data.pop("cleared")  # 지울 칸이 없으면 저장 · 프롬프트에 넣지 않는다
+        if isinstance(data, dict) and not data.get("offscreen", True):
+            data.pop("offscreen")  # 근황이 없으면 저장 · 프롬프트에 넣지 않는다
+            data.pop("offscreen_ep", None)
         if isinstance(data, dict) and info.context and info.context.get("prompt"):
             data.pop("knows_folded", None)
+            data.pop("offscreen", None)  # 근황은 '오랜만에 다시 나오는 인물' · 다음 아크 기획 블록이 시점 화와 함께 따로 넣는다
+            data.pop("offscreen_ep", None)
         return data
 
 
