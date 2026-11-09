@@ -662,6 +662,15 @@ pre.brief.fold { max-height: 240px; overflow: hidden; -webkit-mask-image: linear
 .composer-box:focus-within { outline: 3px solid var(--accent); outline-offset: 1px; }
 .composer-box textarea { flex: 1; min-width: 0; min-height: 40px; max-height: 160px; padding: 9px var(--space-6); border: 0; background: transparent; resize: none; line-height: 1.5; }  /* 단계 밖 9px: 한 줄 높이를 40px 에 맞춘다 */
 .composer-box textarea:focus { outline: none; }
+.composer-mats { display: flex; flex-wrap: wrap; gap: var(--space-6); }  /* 입력 상자 위 재료 칩 (agent.js agentMats): 집필 화면에서 고른 본문 */
+.composer-mats[hidden] { display: none; }
+.mat-chip { display: inline-flex; align-items: center; gap: var(--space-6); max-width: 100%; min-height: 28px; padding: 0 var(--space-4) 0 var(--space-10); border-radius: var(--radius-pill); background: var(--accent-soft); color: var(--accent-ink); font-size: 0.75rem; }
+.mat-chip .mat-kind { flex: none; font-weight: 700; }
+.mat-chip .mat-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mat-chip .small { flex: none; color: inherit; opacity: 0.8; }
+.mat-x { flex: none; width: 24px; height: 24px; border: 0; border-radius: 50%; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+@media (hover: hover) { .mat-x:hover { background: var(--surface); } }
+@media (pointer: coarse) { .mat-x { width: var(--touch-min); height: var(--touch-min); margin: -8px -4px -8px 0; } }  /* 손가락 기기: 떼기 버튼을 누르기 쉽게 */
 .comp-icon, .comp-send { flex: none; width: 40px; height: 40px; border: 0; border-radius: var(--radius-12); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
 .comp-icon { background: transparent; color: var(--text); }
 @media (hover: hover) { .comp-icon:hover { background: var(--bg); } }

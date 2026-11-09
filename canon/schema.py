@@ -1022,6 +1022,11 @@ class Selection(BaseModel):
     text: str
 
 
+class TextMaterial(Selection):
+    """대화 에이전트 턴에 붙인 재료: 집필 화면에서 고른 본문 (agent.js '재료' 칩). 붙이면 에이전트 단계 없이 본문 고치기 도구를 바로 부른다 (agent_text)."""
+    episode: int = Field(0, description="고른 본문의 화")
+
+
 # 'plot'(기승전결 · 플롯 화면), 'text:<화>'(집필 화면의 본문 부분 수정), 'style'(문체 화면), 'setup'(설정 도우미). web._chat 이 검사한다
 ChatTopic = str
 
@@ -1083,15 +1088,28 @@ class ToolArg(BaseModel):
     value: str = Field("", description="인자 값")
 
 
+# PlotAgentStep.tool 이 받는 도구 이름. 새 도구는 한 줄씩 더한다 (tests/test_agent.py test_step_tool_names)
+AGENT_TOOL_NAMES = (
+    "",
+    "read_plots",
+    "read_summaries",
+    "find_text",
+    "read_cast",
+    "edit_plot",
+    "insert_episodes",
+    "remove_episode",
+    "ask",
+    "revise_text",
+)
 AGENT_END_TOOLS = ("done", "end", "finish", "none", "reply")  # 모델이 턴 끝을 도구 이름처럼 적는 말. 빈 tool 과 같이 받는다
 
 
 class PlotAgentStep(BaseModel):
     """플롯 대화 에이전트의 한 단계. 도구 하나를 부르거나, tool 을 비우고 reply 로 턴을 끝낸다 (agent.run_turn)."""
     thought: str = Field("", description="작가에게 보일 한 줄: 이 단계에서 무엇을 왜 하는지")
-    tool: Literal["", "read_plots", "read_summaries", "find_text", "read_cast", "edit_plot", "insert_episodes", "remove_episode", "ask"] = Field(
+    tool: Literal[AGENT_TOOL_NAMES] = Field(  # type: ignore[valid-type]
         "", description="부를 도구 이름 ([도구] 목록에 있는 것). 턴을 끝낼 때는 빈 글로 두고 reply 칸에 답을 쓴다. reply 는 도구 이름이 아니다")
-    args: list[ToolArg] = Field(default_factory=list, description="읽기 도구와 insert_episodes · remove_episode 의 인자")
+    args: list[ToolArg] = Field(default_factory=list, description="읽기 도구와 insert_episodes · remove_episode · revise_text 의 인자")
     edit: PlotRevision = Field(default_factory=lambda: PlotRevision(reply=""),
                                description="edit_plot 일 때만: 바꿀 것만 채운 변경안. reply 는 한 줄 설명. 다른 도구면 비워 둔다")
     question: str = Field("", description="ask 일 때만: 작가에게 묻는 말")
@@ -1141,7 +1159,7 @@ class RenumberOp(BaseModel):
 
 
 class WriteItem(BaseModel):
-    """바로 쓴 것 한 부분. key 는 'parts' · 'arc' · 'acts' · 'draft'(다음 아크 초안) · 화 번호 · 'renumber'(화 넣기 · 빼기)."""
+    """바로 쓴 것 한 부분. key 는 'parts' · 'arc' · 'acts' · 'draft'(다음 아크 초안) · 화 번호 · 'renumber'(화 넣기 · 빼기) · 'text'(본문 고치기)."""
     key: str
     label: str = ""
     state: Literal["done", "reverted", "kept"] = "done"
@@ -1157,6 +1175,8 @@ class WriteRecord(BaseModel):
     before: Optional[PlotUndo] = None
     after: Optional[PlotUndo] = None
     op: Optional[RenumberOp] = Field(None, description="화 넣기 · 빼기를 쓴 기록. 되돌리기는 반대 동작(agent.inverse)")
+    episode: int = Field(0, description="본문 고치기(revise_text)로 넣은 화")
+    edit: str = Field("", description="본문 고치기로 넣은 수정 기록 id (Episode.edits). 되돌리기는 pipeline.undo_edit")
 
 
 class Approval(BaseModel):
@@ -1164,11 +1184,16 @@ class Approval(BaseModel):
     tool: str = "edit_plot"
     target: str = ""
     revision: Optional[PlotRevision] = None
-    keys: list[str] = Field(default_factory=list, description="묻는 부분 ('parts' · 'arc' · 'acts' · 화 번호 · 'renumber')")
+    keys: list[str] = Field(default_factory=list, description="묻는 부분 ('parts' · 'arc' · 'acts' · 화 번호 · 'renumber' · 본문 고치기의 후보 번호)")
     kinds: list[str] = Field(default_factory=list, description="묻는 까닭이 된 종류 (agent.KIND_LABELS). '이 세션에서 묻지 않기'가 auto_kinds 에 더한다")
     state: Literal["wait", "approved", "denied"] = "wait"
     picked: list[str] = Field(default_factory=list)
     op: Optional[RenumberOp] = Field(None, description="화 넣기 · 빼기를 묻는 카드 (tool 이 insert_episodes · remove_episode)")
+    passage: Optional[PassageRevision] = Field(None, description="본문 고치기 카드(tool 'revise_text')의 후보. keys 는 후보 번호(0부터)")
+    selection: Optional[Selection] = Field(None, description="본문 고치기 카드: 고칠 부분")
+    episode: int = Field(0, description="본문 고치기 카드: 고칠 화")
+    preset: str = Field("", description="본문 고치기 카드: 빠른 요청 id (prompts.PASSAGE_PRESETS)")
+    at: str = Field("", description="본문 고치기 카드: 부분 수정 대화('text:N')에 남긴 답의 시각. 넣을 때 그 답을 찾는다 (agent_text.decide)")
 
 
 class AskCard(BaseModel):
@@ -1185,6 +1210,8 @@ class AgentTurn(BaseModel):
     episode: int = 0
     draft: Optional[ArcProposal] = Field(None, description="다음 아크 대상일 때 보낼 때의 화면 초안")
     screen: str = Field("", description="보낼 때 작가가 보던 화면 (agent.SCREENS 의 이름). 비면 플롯 화면과 같게 다룬다 (agent.off_plot)")
+    selection: Optional[TextMaterial] = Field(None, description="붙인 재료: 고른 본문. 있으면 본문 고치기 도구를 바로 부른다 (agent_text.shortcut)")
+    preset: str = Field("", description="빠른 요청 id (prompts.PASSAGE_PRESETS). 있으면 본문 고치기 도구를 바로 부른다")
     steps: list[StepRecord] = Field(default_factory=list)
     reply: str = ""
     writes: list[WriteRecord] = Field(default_factory=list)

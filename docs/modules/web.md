@@ -156,6 +156,7 @@
 - 주제 `plot` 은 대화 에이전트 패널이다. 옛 대화 셋(`text:<화>` · `style` · `setup`)은 04b~04d 전까지 그 화면이 `chatLegacy(주제)` 로 알린다
 - 보이는 주제는 `chatShownTopic`(`S.chatOld` 가 그 화면 옛 주제의 종류일 때만 옛 패널)이다. 패널 머리 전환 `chatSwitch`(Seg)로 바꾼다
 - 옛 대화가 남은 화면의 머리 버튼 `chatButton(주제)` 는 `chatOldToggle` 로 그 옛 대화를 연다. 사이드바 대화 버튼과 플롯 화면 머리 버튼은 `toggleChat` 으로 대화 에이전트를 연다
+- 집필 화면 머리의 'AI에게 고치기'는 `chatButton` 을 쓰지 않고 대화 에이전트를 연다(`agent.js` `agentOpenText`, 04b). 옛 'AI에게 고치기' 대화는 패널 머리 전환으로 연다
 - 열림 상태(`S.chatOpen`, localStorage `canon.chat`)는 `chatOpenSaved` · `chatSetOpen` 만 읽고 쓴다(`tests/test_agent_js.py`)
 - 900px 이하(`chatNarrow`)에서 `chatOpenSaved` 는 `canon.chat` 을 읽지 않고 `chatSetOpen` 은 쓰지 않는다. 화면을 새로 열면 시트가 닫혀 있고, 넓은 화면의 기억은 그대로다
 - 900px 이하에서 화면을 옮기면(`app.js` `routeNow` → `chatCloseOnNav`) 시트를 닫는다. 같은 주소를 다시 그릴 때는 닫지 않는다
@@ -423,6 +424,8 @@
 - 방금 넣은 답 아래에는 다음에 할 것 줄(`.next-acts`: 되돌리기 · 이어서 고치기 `passageMore` · 닫기)을 둔다. 되돌리면 사라진다
 - 수정 되돌리기 · 다시 넣기 뒤에도 손가락 기기에서는 본문 칸에 포커스하지 않는다
 - 본문에서 고르면 뜨는 도구(직접 수정, AI에게 고치기)
+- 도구의 'AI에게 고치기'(`selAi`)는 대화 에이전트를 열고 고른 부분을 재료 칩으로 붙인다(`S.agentMaterial`, 04b). 옛 'AI에게 고치기' 대화는 패널 머리의 전환으로 연다
+- 대화 에이전트 패널이 열려 있으면(`S.chatOld` 가 빔) 본문을 고르기만 해도 재료 칩을 바꾼다(`onSelect` → `agent.js` `agentAttach`)
 - 도구 자리 `placeTool` 은 왼쪽을 0으로 두고 너비를 잰다. 옛 자리에서 재면 남은 폭만큼 줄어 화면 오른쪽 끝에 붙는다
 - 후보를 원문과 단어 단위로 비교
 - 수정 기록과 되돌리기

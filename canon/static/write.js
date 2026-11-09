@@ -511,8 +511,10 @@ function viewEpisode(n, panel = 'write') {
   // 640px 이하는 보조 버튼(대화 · 다시 생성 · 작업지시서)을 머리 줄에서 숨기고 ⋯ 메뉴에 같은 동작을 둔다 (작업지시서는 메뉴에 이미 있다, app.css .w-head)
   const chatOn = e.text && editable;
   const rw = e.text && editable && (isApi || e.status === 'finalized') ? jobBtn('write', n, '다시 생성') : null;
-  const narrow = `${chatOn ? `<button type="button" class="pop-item" data-action="chatOldToggle" data-arg="text:${n}" aria-pressed="${chatOldOn(`text:${n}`)}">${chatConf(`text:${n}`).title}</button>` : ''}${rw ? `<button type="button" class="pop-item" data-action="rwOpen" data-arg="${n}" aria-expanded="${S.rwOpen === n}"${rw.attr}>${rw.label}</button>` : ''}`;
-  const right = `${chatOn ? chatButton(`text:${n}`) : ''}
+  // 'AI에게 고치기'는 대화 에이전트를 연다 (04b: 대상 text:N, 고른 본문은 재료 칩). 옛 대화는 패널 머리의 전환으로 연다
+  const aiOn = !!S.chatOpen && !S.chatOld;
+  const narrow = `${chatOn ? `<button type="button" class="pop-item" data-action="agentOpenText" data-arg="${n}" aria-pressed="${aiOn}">AI에게 고치기</button>` : ''}${rw ? `<button type="button" class="pop-item" data-action="rwOpen" data-arg="${n}" aria-expanded="${S.rwOpen === n}"${rw.attr}>${rw.label}</button>` : ''}`;
+  const right = `${chatOn ? `<button class="btn${aiOn ? ' on' : ''}" data-action="agentOpenText" data-arg="${n}" aria-pressed="${aiOn}">AI에게 고치기</button>` : ''}
     ${rw ? `<button class="btn${S.rwOpen === n ? ' on' : ''}" data-action="rwOpen" data-arg="${n}" aria-expanded="${S.rwOpen === n}"${rw.attr}>${rw.label}</button>` : ''}
     ${!pane && editable && !isApi && e.status !== 'finalized' ? `<a class="btn" href="${base()}/brief/${n}">작업지시서</a>` : ''}
     ${pane && !phone ? pane.buttons : ''}

@@ -196,3 +196,68 @@ def test_server_screens_match_drawapp_views():
     from canon import agent
     assert set(agent.SCREENS) == {"home", *_views()}
     assert set(agent.PLOT_SCREENS) <= set(agent.SCREENS)
+
+
+# ---------- 04b: 본문 고치기 (재료 칩 · 빠른 요청 · 후보 카드) ----------
+
+_TEXT_PROJECT = {"title": "t", "serial": False, "meta": {"target_episodes": 3}, "parts": [], "story_arcs": [],
+                 "episodes": [{"plot": {"number": 1, "title": "첫 화"}, "status": "written", "text": "바람이 불었다. 도현은 대답하지 않았다.",
+                               "edits": [{"id": "e1", "before": "도현은 대답하지 않았다.", "after": "도현은 입을 닫았다.", "undone": False}]}]}
+
+
+@needs_node
+def test_preset_commands_and_material_chip():
+    """본문 빠른 요청은 '/' 명령이 된다('/더 짧게', 띄어쓰기 없이도). 본문 대상이거나 재료가 붙었을 때만 목록에 뜬다.
+    재료 칩은 입력 상자 위에 고른 본문을 보이고, 본문에서 사라진 재료는 칩을 감춘다."""
+    got = run_js(["app.js", "chat.js", "agent.js"], """(() => {
+      S.name = 'lh'; S.project = data; S.route = ['p', 'lh', 'write', '1'];
+      S.presets = [{ id: 'shorter', label: '더 짧게' }, { id: 'dialogue', label: '대사 늘리기' }];
+      S.agent = { name: 'lh', sessions: [], legacy: 0, older: [], model: 'm', max_steps: 8 };
+      S.chatHere = { target: '', legacy: '', hold: false };
+      const none = agentTextCmds().length;
+      S.chatHere.target = 'text:1';
+      const cmds = agentTextCmds().map((x) => x[0]);
+      const empty = agentMats();
+      S.agentMaterial = { n: 1, start: 9, text: '도현은 대답하지 않았다.' };
+      const chip = agentMats();
+      const comp = agentComposer();
+      S.agentMaterial = { n: 1, start: 0, text: '본문에 없는 글' };
+      return { none, cmds, empty, chip, comp, gone: agentMats(),
+        p1: agentParsePreset('/더 짧게'), p2: agentParsePreset('/더짧게 더 담백하게'), p3: agentParsePreset('/대사 늘리기는 어때'), p4: agentParsePreset('더 짧게') };
+    })()""", _TEXT_PROJECT)
+    assert got["none"] == 0 and got["cmds"] == ["/더 짧게", "/대사 늘리기"]
+    assert "hidden" in got["empty"] and "hidden" in got["gone"]
+    assert "재료" in got["chip"] and "1화 · 도현은 대답하지 않았다." in got["chip"] and 'data-action="agentMaterialDrop"' in got["chip"]
+    assert 'class="composer-mats"' in got["comp"] and 'data-action="agentPreset" data-arg="shorter"' in got["comp"]
+    assert got["p1"] == {"id": "shorter", "label": "더 짧게", "rest": ""}
+    assert got["p2"] == {"id": "shorter", "label": "더 짧게", "rest": "더 담백하게"}
+    assert got["p3"] is None and got["p4"] is None  # 이름 뒤에 바로 붙은 말 · '/' 없는 말은 빠른 요청이 아니다
+
+
+@needs_node
+def test_text_card_picks_one_candidate_and_never_offers_remember():
+    """본문 고치기 카드는 후보마다 '이걸로 넣기' · '손봐서 넣기'를 두고 '이 세션에서 묻지 않기'를 두지 않는다.
+    넣은 뒤에는 쓴 것 목록이 수정 기록으로 바뀐 글을 보이고, 수정 기록에서 되돌렸으면 되돌린 것으로 보인다."""
+    got = run_js(["app.js", "chat.js", "passage.js", "agent.js"], """(() => {
+      S.name = 'lh'; S.project = data; S.route = ['p', 'lh', 'write', '1']; S.presets = [{ id: 'shorter', label: '더 짧게' }];
+      S.agent = { name: 'lh', sessions: [], legacy: 0, older: [], model: 'm', max_steps: 8 };
+      const a = { tool: 'revise_text', keys: ['0', '1'], kinds: ['text'], state: 'wait', picked: [], episode: 1, preset: 'shorter',
+        selection: { start: 9, text: '도현은 대답하지 않았다.' }, passage: { reply: '두 가지예요', candidates: [{ text: '도현은 말이 없었다.', note: '짧게' }, { text: '도현은 입을 닫았다.', note: '' }] } };
+      const t = { user: '더 짧게', preset: 'shorter', selection: { episode: 1, start: 9, text: '도현은 대답하지 않았다.' }, mode: '', steps: [], reply: '두 가지예요', writes: [], approval: a, end: 'wait' };
+      const s = { id: 's', mode: 'all', turns: [t] };
+      S.agent.sessions = [s]; S.agentSid = 's';
+      const wait = agentTurn(s, t, 0);
+      const done = { ...t, end: 'done', approval: { ...a, state: 'approved', picked: ['1'] },
+        writes: [{ tool: 'revise_text', episode: 1, edit: 'e1', items: [{ key: 'text', label: '1화 본문 · 2번 후보', state: 'done' }] }] };
+      const after = agentTurn(s, done, 0);
+      data.episodes[0].edits[0].undone = true;
+      return { wait, after, undone: agentTurn(s, done, 0), plot: agentApproval({ ...t, approval: { tool: 'edit_plot', keys: ['3'], kinds: ['draft'], state: 'wait', picked: [], revision: { episodes: [] }, target: '' } }, 0, true) };
+    })()""", _TEXT_PROJECT)
+    w = got["wait"]
+    assert w.count('data-action="agentPickCand"') == 2 and w.count('data-action="agentCandTweak"') == 2
+    assert "data-agent-remember" not in w and "권한 모드와 상관없이" in w and 'data-arg="0|0"' in w
+    assert "<del>" in w and "msg-quote" in w and "/더 짧게" in w  # 후보는 원문과의 낱말 비교, 보낸 말은 재료와 빠른 요청
+    assert "agentPickCand" not in got["after"] and "후보 2 · 넣음" in got["after"]
+    assert 'data-action="agentUndo" data-arg="0|0|text"' in got["after"] and "입을 닫았다" in got["after"]
+    assert "agentUndo" not in got["undone"] and "되돌림" in got["undone"]
+    assert "data-agent-remember" in got["plot"]  # 플롯 카드의 '묻지 않기'는 그대로

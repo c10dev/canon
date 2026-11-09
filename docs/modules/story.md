@@ -37,10 +37,13 @@
 - 세션 목록은 작품 하나에 하나다(`sessions`, `TOPICS`). 새 세션 topic 은 `agent` 이고, 옛 `plot` 세션도 같은 목록에 보인다
 - 세션(`AgentSession`, 다듬을 곳 · 권한 모드 `ask|draft|all`). 다듬을 곳은 `arc:N` · `next` · 부 `part:N` · 한 화 `ep:N`(`pipeline.chat_focus`, 그 곳이 든 아크는 `chat_target`), 밖을 고치면 종류 `outside` 로 늘 묻는다(`outside`, `permit`)
 - 화면이 주는 대상 `text:N`(집필 · 검수 · 상태 승인) · `setup`(설정 도우미) · `style`(문체)도 `chat_focus` 가 읽는다. `chat_target` 은 `text:N` 을 `ep:N` 처럼, `setup` · `style` 을 '' 처럼 읽는다
-- 이 세 대상에는 아직 쓰기 도구가 없다(04b~04d). 플롯 쓰기는 모두 `outside` 로 묻는다(`OTHER_FOCUS`)
+- 이 세 대상에서 플롯 쓰기는 모두 `outside` 로 묻는다(`OTHER_FOCUS`). 설정 · 문체 대상에는 아직 쓰기 도구가 없다(04c · 04d)
+- 본문 대상 `text:N` 의 쓰기 도구는 본문 고치기 `revise_text`(`agent_text.py`)다
 - 플롯 화면 밖에서 작품 전체('')를 대상으로 보낸 턴도 플롯 쓰기를 모두 `outside` 로 묻는다(`off_plot`, 2026-11-09 사용자 결정). 플롯 화면(`PLOT_SCREENS`)은 지금 규칙 그대로다
 - 턴은 작가가 보던 화면을 `AgentTurn.screen` 에 남긴다. `SCREENS`(웹 drawApp 의 views 표와 'home')에 없거나 비면 '' 이고 플롯 화면과 같게 다룬다
 - 턴을 열 때 화면 대상이 오면(`add_turn` 의 `target`) 고정하지 않은 세션의 대상을 그 값으로 바꾼다. 고정은 `AgentSession.pinned`(옛 세션은 False)
+- 턴에 재료(`add_turn` 의 `selection`, `schema.TextMaterial`: 고른 본문과 그 화)와 빠른 요청(`preset`, `prompts.PASSAGE_PRESETS`)을 붙일 수 있다. 빠른 요청만 있고 재료가 없거나 모르는 빠른 요청이면 막는다
+- 재료와 빠른 요청으로 연 새 세션의 이름은 'N화 본문 · 빠른 요청 이름'이다
 - 설정 · 문체 · 본문 고치기의 옛 대화는 `legacy_chats` 가 (주제, 메시지 수)로 준다. 웹 세션 목록의 `older` 이고 화면은 읽기만 한다
 - 턴(`AgentTurn`)을 백그라운드 작업 `agent` 로 돌린다(`run_turn`, 단계마다 `llm.json(PlotAgentStep)`, 최대 `MAX_STEPS`=8, 단계마다 저장)
 - `first_step_prompt` 는 새 세션 첫 턴에서 `run_turn` 이 처음 보내는 요청이다. 세션(id `LAB_SID`)을 작품에 붙이지 않는다. 프롬프트 놀이터 불러오기가 쓴다
@@ -48,6 +51,7 @@
 - 단계를 시작할 때 그 한도를 `Job.step_wait` 에 적는다. 화면의 늦음 안내가 이 값을 보인다(`agentStepLimit`)
 - 턴이 끝나면 끝난 시각 `AgentTurn.ended` 를 남긴다(`_step` · 단계 상한 · 작업 상태 맞추기). 옛 턴은 빈 값이다
 - `PlotAgentStep.tool` 은 빈 글과 도구 이름만 받는 Literal 이다. 빈 글이면 reply 로 턴을 끝낸다
+- 도구 이름 목록은 `schema.AGENT_TOOL_NAMES` 이고 한 줄에 하나다. 새 도구는 줄을 더한다
 - 도구 이름만 오고 칸이 빈 단계는 같은 단계에서 그 칸만 담은 형식으로 한 번 더 부른다(`fill`: ask 는 `AgentAsk`, edit_plot 은 `PlotRevision`, 방향 안만 오면 되묻기로). 그래도 비면 되돌림 단계(`ask_empty` · `edit_empty`)
 - `fill` 이 다시 부르는 동안 작업 진행 줄(`cancel.say` → `Job.retry`)에 까닭을 띄우고 끝나면 지운다
 - 모델이 'reply' · 'done' 같은 끝 이름(`schema.AGENT_END_TOOLS`)을 tool 에 적으면 빈 글로 받는다
@@ -55,6 +59,13 @@
 - 되묻기 `ask`
 - 화 넣기 · 빼기 `insert_episodes` · `remove_episode`(`RENUMBER_TOOLS`, `RenumberOp`): 복사본에 해 보고(`preview`) 늘 승인 카드로 묻는다(`permit` 의 `renumber`). 쓰기 `apply_op`, 되돌리기 반대 동작 `inverse`, 자동 집필 번호 `shift`. 번호를 옮긴 뒤에는 턴을 다시 찾는다(작품 칸이 통째로 바뀜)
 - 화 넣기 · 빼기가 빼는 옛 화 번호 `dropped`(되돌리기면 넣었던 화들): 웹이 `store.renumber_side_files` 의 `gone` 으로 넘긴다
+- 늘 카드로 묻는 도구는 `CARD_TOOLS`(도구 이름 → 모듈)에 한 줄씩 등록한다. 몸통은 제 파일에 두고 모듈은 `agent_text.py` 머리에 적은 이름들을 둔다. 04c · 04d 도 같은 방식으로 더한다
+- 권한 모드('모두 자동' 포함)와 '이 세션에서 묻지 않기'를 따르지 않고 늘 묻는 종류는 `ALWAYS_ASK`(`renumber` 와 `CARD_TOOLS` 의 종류)다
+- `permit` 은 `ALWAYS_ASK` 종류에 늘 'ask' 를 낸다. `decide` 의 `remember` 는 이 종류를 `auto_kinds` 에 넣지 않는다
+- `run_turn` 은 카드 도구의 AI 호출(`prepare`)을 잠금 밖에서 부르고, 그 결과를 `_step` 에 넘겨 잠금 안에서 기록한다(`record`)
+- 지름길: 턴의 첫 단계에서 `card_shortcut` 이 단계를 정하면 에이전트 단계(`PlotAgentStep`)를 부르지 않는다. 재료나 빠른 요청이 붙은 턴이다(`agent_text.shortcut`)
+- 카드 도구의 카드에 답하면 `decide` 가 그 모듈의 `decide` 를 부르고 턴을 끝낸다(`resume` 하지 않는다)
+- `undo` 는 카드 도구가 쓴 기록(`WriteRecord.tool`)이면 그 모듈의 `undo` 를 부른다. `_compact` 는 그 기록을 건드리지 않는다
 - `RenumberOp.aside`: 화 빼기 승인 때 웹이 removed/ 에 남긴 큐 시트 실험 · 비교본 경로를 적는다. 빼기를 되돌리면 웹이 그 파일을 되돌린다
 - 쓰기는 `clean_revision` 으로 거른다(본문이 있는 화는 막힘)
 - 쓰기 부분마다 종류(`KIND_LABELS`)를 매긴다
@@ -67,11 +78,28 @@
 - 새 턴을 열 때 최근 `UNDO_TURNS`(20) 턴보다 오래된 턴의 쓰기 전 · 뒤 값과 초안을 지운다(`_compact`). 그 턴의 쓰기는 kept(`OLD_UNDO`)로 남는다
 - 멈추거나 실패한 턴은 `reconcile`
 - 프롬프트 `prompts.agent_plot_prompt`
-- 대상 블록 `prompts.agent_focus_block` 은 본문 · 설정 · 문체 대상에 '바로 고치는 도구가 없고, 플롯 쓰기는 작가에게 물어진다'를 알린다
+- 대상 블록 `prompts.agent_focus_block` 은 설정 · 문체 대상에 '바로 고치는 도구가 없고, 플롯 쓰기는 작가에게 물어진다'를 알린다
+- 본문 대상에는 '본문을 고쳐 달라고 하면 revise_text 를 그 화로 부른다'를 알린다
 - 플롯 화면 밖의 작품 전체 턴이면 같은 블록이 '플롯 쓰기는 모두 물어진다' 한 줄을 넣는다
 - mock 단계(`mock._agent_step`)는 힌트 `aim` 이 본문 · 설정 · 문체이면 '플롯'이 든 말만 고치고 나머지는 읽은 뒤 답만 한다
+- mock 단계는 본문 대상에서 «원문» 이 든 말이면 `revise_text` 를 그 원문으로 부르고, 막혔으면 답만 한다
 - 단계 프롬프트는 바뀌지 않는 블록(도구 · 규칙 · 요구사항)이 앞, 턴 블록과 이번 턴 단계가 뒤, 남은 단계 수가 맨 끝 한 줄이다(단계 k+1 요청이 단계 k 요청을 품음)
 - 이름 후보는 `random.Random(session.id)` 로 뽑아 단계마다 같다(`plot_chat_parts` 의 rng)
+
+### `canon/agent_text.py`
+
+- 대화 에이전트의 본문 고치기 도구 `revise_text`(종류 `text`, 04b). `agent.CARD_TOOLS` 가 등록한다
+- 후보는 `pipeline.revise_passage`(LLM 단계 `revise`), 기록은 `record_passage`, 넣기는 `apply_passage` 를 그대로 쓴다. 지금 'AI에게 고치기'와 같은 부분 수정 대화(`text:N`)와 수정 기록에 남는다
+- 결과는 후보 2~3개가 든 승인 카드(`Approval.passage` · `selection` · `episode` · `preset` · `at`)다. 권한 모드와 상관없이 늘 묻는다(`agent.ALWAYS_ASK`)
+- 카드에 답하면(`decide`) 고른 후보 하나만 넣는다. 작가가 손본 글(`text`)도 받는다. 거절하면 대화의 그 답을 버린 것(`dismissed`)으로 둔다. 어느 쪽이든 턴을 끝낸다
+- 넣기는 카드가 남긴 대화 답을 시각 · 고른 부분으로 찾는다(`_chat_index`). 대화가 잘려 없으면 `pipeline.edit_text` 로 같은 기록을 남긴다
+- 넣은 것은 `WriteRecord`(`tool` · `episode` · `edit`)로 남는다. 되돌리기(`undo`)는 `pipeline.undo_edit` 이라 수정 기록의 되돌리기와 같다
+- 지름길(`shortcut`): 턴에 재료(`AgentTurn.selection`)나 빠른 요청(`AgentTurn.preset`)이 붙으면 에이전트 단계 없이 이 도구를 부른다. AI 호출은 한 번이다
+- 에이전트가 부를 때는 인자 `quote`(본문 원문) · `request` · `n`(비우면 다듬을 곳의 화) · `preset` 을 받는다. 원문을 본문에서 못 찾으면 막힘 단계로 돌려준다
+- 빠른 요청 이름만 보낸 말은 작가의 말로 넘기지 않는다(`_message`, 빠른 요청 지시가 이미 들어간다)
+- 자동 집필이 돌거나 그 화를 쓰는 작업이 돌면 AI를 부르지 않고 막는다(`_guard`, `web._text_guard` 와 같은 검사)
+- 지름길 턴이 막히면 까닭을 답으로 남기고 턴을 끝낸다. 에이전트가 부른 턴이면 막힘 결과를 받고 이어 간다
+- 모듈 머리 글에 늘 카드로 묻는 도구 모듈이 둘 이름(`TOOL` · `KIND` · `LABEL` · `shortcut` · `prepare` · `record` · `decide` · `undo`)을 적는다
 
 ### `canon/anchor.py`
 
@@ -460,13 +488,27 @@
 - 턴은 보던 화면 이름(`screen`, 작품 홈은 'home')도 보낸다. 서버가 `agent.SCREENS` 로 확인한다
 - 상태 줄의 대상이 바뀌면 `agentAfterDraw` 가 `.foot-target` 을 한 번 강조(`flash`)하고 `chatSay` 로 `#chat-live` 에 알린다. 패널을 처음 그릴 때는 알리지 않는다
 - 상태 줄의 핀(`agentPin`)과 다듬을 곳 메뉴(`agentTarget`)는 세션을 고정한다. `/대상` 은 고정을 풀고 화면 대상으로 돌린다
-- 본문 · 설정 · 문체 대상의 빈 세션은 예시 대신 '읽고 답하고, 플롯은 늘 묻는다' 안내를 보인다
+- 설정 · 문체 대상의 빈 세션은 예시 대신 '읽고 답하고, 플롯은 늘 묻는다' 안내를 보인다
+- 본문 대상의 빈 세션은 '드래그하면 재료로 붙고, `/` 빠른 요청을 고르면 후보를 골라 넣는다' 안내를 보인다
 - 세션 동작 `agentAct(fn, { save })` 와 말 보내기 `agentStartTurn`: AI가 작품을 읽거나 고치는 동작은 저장하지 않은 변경이 있으면 저장할지 묻는다. 세션 만들기 · 대상 · 권한 모드 · 이름 · 보관은 `save: false` 로 묻지도 저장하지도 않는다
 - `agentAct` 는 응답의 `project` 가 객체일 때만 `S.project` 를 바꾼다. 이어 하기 응답은 작업 정보라 `project` 가 작품 이름 글이다
 - 세션 머리와 목록(보관함, '이전 대화'는 옛 `Project.chats` 를 `chatLog` 로)
 - '이전 대화 · 플롯'(`legacy`)은 예전처럼 골라 적용 · 취소한다. 설정 · 문체 · 본문 고치기(`legacy:<주제>`)는 `chatLog(주제, { readOnly: true })` 로 읽기만 한다
 - 턴마다 단계 줄 · 바로 쓴 것(항목 · 턴 되돌리기) · 승인 카드 · 되묻기 카드
 - 입력 상자(+ 재료, `/` 빠른 요청 `AGENT_CMDS`, 보내기 · 멈추기)와 상태 줄(권한 모드 · 대상 · 대상 고정 · 모델 · 단계 상한)
+- 재료 칩(`agentMats`, `S.agentMaterial`): 집필 화면에서 고른 본문이 입력 상자 위에 붙는다. 붙이기는 `agentAttach`(`passage.js` 가 부른다), 떼기는 ✕(`agentMaterialDrop`)
+- 본문에서 사라진 재료는 칩을 감추고 보내지 않는다(`agentMaterialNow`)
+- '+ 재료' 메뉴는 집필 화면에서 고른 본문(`curSel`)이 있으면 '고른 본문'을 붙인다
+- 본문 빠른 요청(`S.presets`, 서버 `prompts.PASSAGE_PRESETS`)은 `/더 짧게` 같은 `/` 명령이다(`agentTextCmds`). 본문 대상이거나 재료가 붙었을 때만 뜬다
+- `/` 명령은 띄어쓰기 없이 써도 받는다(`agentParsePreset`). '/' 목록은 띄어쓰기를 빼고 견준다
+- 재료가 붙은 말은 `selection`, 빠른 요청은 `preset` 으로 보낸다. 서버가 에이전트 단계 없이 본문 고치기를 바로 부른다. 보낸 재료는 뗀다
+- 본문 고치기 카드(`agentTextApproval`): 후보마다 원문과 낱말 비교(`wordDiff`), '이걸로 넣기' · '손봐서 넣기', 아래 '모두 넣지 않기'
+- 늘 묻는 종류(`AGENT_ALWAYS`, 서버 `agent.ALWAYS_ASK`)의 카드는 '이 세션에서 묻지 않기'를 두지 않는다
+- 카드에 답하기(`agentTextDecide`)는 그 화 본문 초안을 먼저 저장한다(`flushText`). 넣으면 넣은 글을, 넣지 않으면 고른 부분을 재료로 다시 붙인다
+- 바로 쓴 것의 본문 고치기 항목은 수정 기록(`agentTextEdit`)으로 바뀐 글을 보인다. 수정 기록에서 되돌렸으면 되돌린 것으로 보인다
+- 마지막 턴이 본문 후보를 기다리면 패널에 `has-cands` 를 단다(휴대폰 시트가 높아진다)
+- 본문 고치기 카드를 연 턴이 끝나면 작품을 다시 받는다(`agentJobUpdate` → `agentRefreshProject('')`). 카드가 남긴 부분 수정 대화를 화면 저장이 옛 사본으로 덮지 않게
+- `agentOpenText`: 집필 화면 머리의 'AI에게 고치기'. 대화 에이전트를 열고 고른 본문을 재료로 붙인다. 열려 있으면 닫는다
 - 진행은 `pollJobs` 가 `agentJobUpdate` 로 알린다
 - 도는 턴의 단계 줄은 지금 하는 일(`agentStepNow`: `Job.retry` 가 있으면 그 사정, 없으면 'AI 응답을 기다리는 중')과 직전 단계의 생각(`Job.note`)을 보인다
 - 지금 하는 일과 늦음 안내는 1초마다 그 자리만 고친다. `Job.retry` 가 보이는 동안 일반 늦음 안내는 숨긴다
