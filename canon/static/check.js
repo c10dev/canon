@@ -3,7 +3,8 @@
    오른쪽 지적 상세(근거 · 심각도 · 처리 상태 · 메모 · 처리 기록). 지적을 누르면 본문이 그 문장으로 옮겨 가고 문장에서 고치는 창이 뜬다
    (passage.js 의 떠 있는 도구, mode 'finding'): AI 고침안 비교와 적용(딸린 곳 포함), 묶음 되돌리기, 이 지적만 다시 검수, 다른 처리 길.
    지적과 회차는 서버 findings.merge 가 만든다 (Episode.findings · rounds). 상태 · 심각도 바꾸기는 PUT …/findings/{id},
-   고침안 POST …/findings/{id}/fixes · …/fixes/{k}/apply, 되돌리기 POST …/fix-groups/{묶음}/undo, 다시 검수 POST …/findings/{id}/recheck,
+   고침안 받기(작업 'fix_one') · 넣기 POST …/fixes/{k}/apply, 되돌리기 POST …/fix-groups/{묶음}/undo,
+   이 지적만 다시 검수(작업 'recheck_one', 장면 연출 규칙 · 정규식 지적은 AI 없이 POST …/findings/{id}/recheck),
    고친 곳만 다시 보기(작업 'recheck', 지난 검수 뒤 고침안을 넣은 열린 지적이 있을 때 머리의 주 버튼, home.js 의 fixRecheckTargets),
    한꺼번에: 열린 지적 모두 고침안 받기(작업 'fixes') → 고침안 한꺼번에 검토(지적마다 고르고 고른 것만 POST …/fixes/apply),
    문체 지표는 GET …/style. app.js 의 S, P, actions, api, render, run, home.js 의 checkState, write.js 의 epNav · nextStepBtn,
@@ -43,6 +44,57 @@ JOB_DONE_MSG.recheck = (j) => {
 };
 JOB_PAGES.recheck = ['check'];
 JOB_LINK.recheck = (j) => `#/p/${enc(j.project)}/check/${j.ep}`;
+
+// 지적 하나의 AI 고침안 받기 · 이 지적만 다시 검수는 백그라운드 작업으로 돈다 (web._job_finding_ai). 기다리는 동안 다른 지적을 읽고 고칠 수 있다.
+// 대상은 지적 id 이고 화마다 새로 매기므로 버튼 잠금(JOB_BTNS)에 화를 함께 준다. 같은 화의 검수 · 고침안 한꺼번에 받기 · 고친 곳만 다시 보기와는
+// 함께 돌지 않는다 (web._finding_clash). 장면 연출 규칙 · 정규식 지적의 '판정 다시 보기'는 AI를 부르지 않아 그대로 바로 한다
+JOB_PAGES.fix_one = ['check'];
+JOB_PAGES.recheck_one = ['check'];
+JOB_LINK.fix_one = (j) => `#/p/${enc(j.project)}/check/${j.ep}`;
+JOB_LINK.recheck_one = (j) => `#/p/${enc(j.project)}/check/${j.ep}`;
+JOB_DONE_MSG.fix_one = (j) => `${j.ep}화 지적 ${j.target}의 고침안 ${(j.result || {}).fixes || 0}개가 도착했어요.`;
+JOB_DONE_MSG.recheck_one = (j) => `${j.ep}화 지적 ${j.target}${josa(j.target, '을', '를')} 다시 검수했어요.`;
+JOB_BTNS.fixGet = (id) => ['fix_one', id, chkEp()];
+JOB_BTNS.chkRecheck = (id) => ['recheck_one', id, chkEp()];
+/** 끝난 지적 작업(fix_one · recheck_one)의 지적을 지금 보고 있다: 그 화 검수 칸에서 그 지적을 골라 두었다 */
+const onFinding = (n, fid) => S.route[2] === 'check' && Number(S.route[3]) === n && S.chkSel[n] === fid;
+/** 지적 작업의 알림 버튼 '보기': 그 화 검수 칸에서 그 지적을 고르고 고치는 창을 연다 */
+const findingGo = (n, fid) => ({ label: '보기', run: () => {
+  S.chkSel[n] = fid;
+  const there = S.route[2] === 'check' && Number(S.route[3]) === n;
+  if (ep(n)) afterFix(n, fid, S.project);
+  if (there) render(); else location.hash = `${base()}/check/${n}`;
+} });
+/** 고침안이 왔다: 작가가 그 지적을 보고 있고 칸을 고치는 중이 아니면 옛 동작처럼 고치는 창을 그 지적으로 연다. 아니면 알림의 '보기'로 연다 */
+JOB_RESULT.fix_one = (j) => {
+  const n = j.ep;
+  const fid = j.target;
+  if (!ep(n) || !(ep(n).findings || []).some((f) => f.id === fid)) return null;
+  if (onFinding(n, fid) && !isTyping()) { afterFix(n, fid, S.project); return null; }
+  return { actions: [findingGo(n, fid)] };
+};
+/** 이 지적만 다시 검수 결과: 옛 동작과 같은 알림. 새로 생긴 딸린 지적이 있고 작가가 그 지적을 보고 있으면 고치는 창을 딸린 지적으로 옮긴다 */
+JOB_RESULT.recheck_one = (j) => {
+  const n = j.ep;
+  const r = j.result || {};
+  const f = ep(n) && (ep(n).findings || []).find((x) => x.id === j.target);
+  if (!f) return null;
+  const kids = (r.kids || []).filter((id) => (ep(n).findings || []).some((x) => x.id === id));
+  const head = `${n}화 지적 ${f.id}: `;
+  if (kids.length) {
+    if (onFinding(n, f.id) && !isTyping()) {
+      S.chkSel[n] = kids[0];
+      S.chkFilter = 'open';
+      afterFix(n, kids[0], S.project);  // 고치는 창을 새로 생긴 딸린 지적으로 옮긴다
+      return { msg: `${head}${r.resolved ? '풀렸어요. ' : ''}고친 문장 때문에 새로 어긋난 곳 ${kids.length}개를 딸린 지적으로 더했어요` };
+    }
+    return { msg: `${head}${r.resolved ? '풀렸어요. ' : ''}고친 문장 때문에 새로 어긋난 곳 ${kids.length}개를 딸린 지적으로 더했어요`, actions: [findingGo(n, kids[0])] };
+  }
+  if (r.resolved) return { msg: `${head}풀렸어요. 고침으로 닫았어요` };
+  // 다시 검수의 보통 결과라 오류로 띄우지 않는다. 그 지적의 처리 기록으로 가는 버튼을 붙인다
+  const log = onFinding(n, f.id) ? { label: '처리 기록 보기', run: showFindingLog } : findingGo(n, f.id);
+  return { msg: `${head}아직 어긋나요. 처리 기록에 까닭을 남겼어요`, actions: [log] };
+};
 
 // 서버 schema.FINDING_STATUS · SEVERITY 와 같은 이름
 const FINDING_STATUS = { open: '열림', fixed: '고침', kept: '그대로 둠', wrong: '잘못 짚음' };
@@ -859,14 +911,18 @@ Object.assign(actions, {
     S.fixSkip[key] = [...skip].sort((a, b) => a - b);
     showTool();
   },
+  /** AI 고침안 받기 (작업 'fix_one'). 옛 동작처럼 묻지 않고 저장하고, 본문도 먼저 저장한다 (AI는 저장된 본문을 읽는다) */
   async fixGet(id) {
     const n = chkEp();
-    await run('고침안을 받는 중', async () => {
+    try {
       await saveIfDirty();
       await flushText(n);
-      Object.keys(S.fixSkip).filter((k) => k.startsWith(`${n}:${id}:`)).forEach((k) => delete S.fixSkip[k]);
-      afterFix(n, id, await api('POST', `/projects/${enc(S.name)}/episodes/${n}/findings/${enc(id)}/fixes`));
-    });
+    } catch (err) {
+      showError(err);
+      return;
+    }
+    Object.keys(S.fixSkip).filter((k) => k.startsWith(`${n}:${id}:`)).forEach((k) => delete S.fixSkip[k]);
+    await startJob('fix_one', n, { target: id }, { quiet: true });
   },
   async fixApply(arg) {
     const n = chkEp();
@@ -1004,11 +1060,24 @@ Object.assign(actions, {
       toast(left ? `${before - left}곳을 되돌렸어요. ${left}곳은 그 뒤에 또 고쳐 남겼어요` : '고침안을 되돌렸어요');
     });
   },
+  /** 이 지적만 다시 검수. AI 검수 지적은 작업 'recheck_one' 으로 돌고(결과는 JOB_RESULT.recheck_one), 장면 연출 규칙 · 정규식 지적은 AI 없이 바로 판정한다 */
   async chkRecheck(id) {
     const n = chkEp();
     const had = new Set((ep(n).findings || []).map((f) => f.id));
-    const regex = ((ep(n).findings || []).find((x) => x.id === id) || {}).origin === 'regex';
-    await run(regex ? '판정 다시 보는 중' : '이 지적만 다시 검수하는 중', async () => {
+    const origin = ((ep(n).findings || []).find((x) => x.id === id) || {}).origin;
+    const regex = origin === 'regex';
+    if (origin !== 'rule' && !regex) {
+      try {
+        await saveIfDirty();
+        await flushText(n);
+      } catch (err) {
+        showError(err);
+        return;
+      }
+      await startJob('recheck_one', n, { target: id }, { quiet: true });
+      return;
+    }
+    await run('판정 다시 보는 중', async () => {
       await saveIfDirty();
       await flushText(n);
       afterFix(n, id, await api('POST', `/projects/${enc(S.name)}/episodes/${n}/findings/${enc(id)}/recheck`));

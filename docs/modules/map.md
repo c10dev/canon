@@ -286,6 +286,8 @@
 - 설정 칸(`atlasGenBox`)은 살펴보기 '지도' 칸에 있고, 설정은 나눔 버튼(`atlasGenSeg`, 동작 `atlasGenSet`)이다
 - 미리보기 중에 설정 · 장소 종류를 바꾸면 바로 다시 미리 본다(`atlasGenRun`)
 - 미리보기 막대(`atlasGenBar`)는 지도 아래 줄에 서고, 주 버튼 '이 마을 적용' 하나를 둔다
+- AI 설정 제안(`atlasGenSuggest`)은 화면을 막지 않는 작업 `atlas_suggest` 다. 결과는 설정 칸에만 놓고 기다리는 동안 작가가 고른 칸(`touched`)은 덮지 않는다
+- 그 작업이 도는 동안 지도 화면을 다시 불러와 설정 상태(`S.atlasGen`)가 새로 시작됐으면 결과를 놓지 않고 다시 받으라고 알린다
 - `tests/test_atlas_kinds.py` 는 `// ----- 지도 종류를 바꿀 때` 부터 `// ----- 지도 만들기 칸 -----` 앞까지 잘라 돌린다
 
 ### `canon/static/atlas-icons.js`
@@ -299,6 +301,7 @@
 
 - 지도 화면 기능 파일
 - 어디에 있었나 표(`atlasTable`)와 장소와 맞지 않은 위치(`atlasUnmatched`, AI 정리 `atlasSort` · 적용 `atlasApply`)
+- AI 정리(`atlasSort`)는 화면을 막지 않는 작업 `atlas_sort` 다. 결과는 고르기 칸에만 놓고 작가가 이미 고른 글은 덮지 않는다
 - 표 칸에 이동 경고(`atlasTvLive`)를 칩으로 보이고, 칩을 누르면 그 이동을 지도에서 본다(`atlasTravelShow`)
 
 ### `canon/static/atlas-travel.js`
@@ -311,6 +314,7 @@
 ### `canon/static/atlas.js`
 
 - 지도 화면 뼈대
+- `atlasRefresh` 는 다시 그린 칸에서도 도는 AI 작업의 버튼을 잠근다(`lockJobBtns`)
 - 손가락으로 장소 핀을 끌려면 길게 누른다(`ATLAS_HOLD_MS` 350ms). 그 전에 움직이면 끌기를 버리고, 확대한 지도면 그 손가락으로 지도를 옮긴다. 끊기면(pointercancel) 옮긴 자리를 되돌린다
 - 처음 보기(확대 전)에서는 핀 위에서도 쓸어 페이지를 내린다(핀 `touch-action` 은 확대했을 때만 none). 길게 눌러 끌기가 시작된 뒤에는 touchmove 를 막아 페이지가 구르지 않는다
 - 마우스가 없으면(`hover: none`) '어디에 있었나' 표의 위치 글을 10자로 자르지 않고 줄바꿈한다

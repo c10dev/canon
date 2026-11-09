@@ -113,6 +113,8 @@
 - 화면 파일은 결과 놓기 `JOB_RESULT[종류]` 를 등록한다. `finishJob` 이 부르고, `{ msg, actions }` 를 돌려주면 끝 알림의 글과 버튼을 바꾼다
 - 칸에 바로 넣는 결과(서술 말투 · 외형 태그)는 그 칸을 고치는 중이거나 시작한 뒤 고쳤으면 덮지 않는다. 알림의 '넣기'로 넣는다
 - `JOB_BTNS[data-action]` 에 등록한 버튼은 그린 뒤 `lockJobBtns` 가 도는 작업이면 '만드는 중'으로 잠근다(`aria-disabled` · `aria-busy` · `run-wait`). 화면 파일의 버튼 글자는 고치지 않는다
+- `JOB_BTNS` 는 `[종류, 대상, 화]` 를 돌려준다. 화는 대상 id 를 화마다 새로 매기는 작업(지적 id)만 준다
+- 작업이 그 화에 쓴 결과(`fix_one` · `recheck_one` · `illust`)는 `pollJobs` 가 끝날 때 그 화만 받아 온다(`mergeEpisodes`)
 - `SCREEN_ONLY_JOBS` 는 결과를 화면 제안 칸에만 놓는 작업이다. 다른 작품을 보는 동안 끝나면 결과가 남지 않았으니 다시 받으라고 알린다
 - 짧은 기다림 가림막 `run`(`#busy`): 상자 이름은 작업 이름(`#busy-label`)이고, 1초마다 바뀌는 경과 초(`#busy-sec`)는 낭독하지 않는다
 - `run` 은 가림막을 바로 띄우되 400ms(`BUSY_DELAY`) 동안 투명하게(`busy-wait`) 둔다. 그 안에 끝나면 화면이 어두워지지 않고, `inert` · 상자 포커스는 바로 걸며, 누른 버튼에는 `aria-busy` 와 돌림표(`run-wait`)를 단다. `opt.now` 는 바로 어둡게 그린다
@@ -206,6 +208,9 @@
 - `chkPut` 은 성공 여부를 돌려준다. 메모 저장이 실패하면 초안을 그대로 두고 저장했다고 알리지 않는다
 - 문장에서 뜨는 고치는 창(`fixPanel`, `passage.js` 떠 있는 도구 mode `finding`: 고침안 `fixGet` · 딸린 곳 빼기 `fixSkip` · 적용 `fixApply` · 묶음 되돌리기 `fixUndo` · 이 지적만 다시 검수 `chkRecheck` · 다른 처리 길)
 - 이 지적만 다시 검수의 결과(아직 어긋남 · 딸린 지적 더함)는 보통 알림이다. 아직 어긋나면 '처리 기록 보기' 버튼을 붙인다
+- AI 고침안 받기(`fixGet`)와 AI 검수 지적의 이 지적만 다시 검수(`chkRecheck`)는 화면을 막지 않는 작업 `fix_one` · `recheck_one`(대상 지적 id)이다
+- 장면 연출 규칙 · 정규식 지적의 '판정 다시 보기'는 AI를 부르지 않아 그대로 바로 한다(`POST …/findings/{id}/recheck`)
+- 지적 작업이 끝났을 때 작가가 그 지적을 보고 있고 입력 중이 아니면 고치는 창을 연다(`afterFix`). 아니면 알림의 '보기'가 그 지적을 고르고 연다(`findingGo`)
 - 고침안 한꺼번에의 띠(`fbBar`): 열린 지적 모두 고침안 받기 `fixAll`(작업 `fixes`), 한꺼번에 검토 열기 `fbOpen`
 - 그 아래 더 거르기 칸(`chkNarrow`): 심각도 `S.chkSev` · 종류 `S.chkType` · 문장 바뀜 `S.chkChanged`, 수는 다른 칸의 거르기를 적용해 센다. 지적이 셋 미만이고 거르지 않았으면 두지 않는다
 - 열림 목록을 더 걸렀으면 '거른 지적 N개를 한꺼번에' 줄(`chkBulk`)이 그대로 둠 · 잘못 짚음을 묻고 `PUT …/findings`(web `set_findings`)로 한 번에 정한다

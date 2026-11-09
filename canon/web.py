@@ -40,6 +40,7 @@ from .schema import (Ability, ArcPlan, BodySuggestion, StatInitSuggestion, StatS
 from . import abilities, anchor, atlas, findings, foreshadows, heatplan, setupchat, stateedit, stattrial, statwin, timeline
 from .schema import AgentSession, ChatScope, HeatArcProposal, KnowsFoldSet, Deadline, Storyboard, StoryTime, Foreshadow, StatValue
 from .schema import OffscreenSet
+from .schema import MapSpec
 from .schema import TextMaterial
 from . import agent_text
 from .schema import BlockSetting, BudgetSetting
@@ -2585,6 +2586,10 @@ class JobIn(BaseModel):
     text: str = ""  # style: 분석할 예시 원문 (200자 이상)
     target: str = ""  # char_body, char_voice, char_look, names_ai: 인물 id (names_ai 는 비우면 지명)
     place_kind: str = ""  # names_ai: 지명 종류 (target 이 비었을 때)
+    selection: Selection | None = None  # illust: 그릴 부분 (비우면 AI 가 장면을 고른다)
+    model: str = ""  # illust: 삽화 모델 (illust.MODELS)
+    spec: MapSpec | None = None  # atlas_suggest: 지도 화면에서 지금 고른 설정
+    texts: list[str] | None = None  # atlas_sort: 정리할 위치 글 (비우면 맞지 않은 글 모두)
 
 
 def _edit(name: str, fn) -> Project:
@@ -3013,9 +3018,98 @@ def _job_style_ai(name: str, body: "JobIn", p: Project, kind: str, n: int | None
     return label, 1, set(), fn
 
 
+def _job_finding_ai(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 fix_one · recheck_one: 열린 지적 하나(target)의 AI 고침안 받기 · 그 지적만 다시 검수.
+    고침안은 지적에 남기고 본문은 바꾸지 않는다 (작가가 고른 안만 .../fixes/{k}/apply 로 넣는다). 다시 검수는 결과를 지적에 넣는다 (옛 동기 경로와 같다)."""
+    fid = body.target
+    if n is None or not fid:
+        raise ValueError("화 번호(ep)와 지적 id(target)가 필요해요")
+    if kind == "fix_one":
+        pipeline._fixable(p, n, fid)
+        label = f"{n}화 {fid} 고침안"
+
+        def fn(job: jobs.Job):
+            opts = pipeline.propose_fixes(llm, store.load(name), n, fid)
+            cancel.check()
+            _edit(name, lambda q: pipeline.store_fixes(q, n, fid, opts))
+            return {"fid": fid, "fixes": len(opts)}
+    else:
+        pipeline._open_finding(p, n, fid)
+        label = f"{n}화 {fid} 다시 검수"
+
+        def fn(job: jobs.Job):
+            res = pipeline.recheck_finding(llm, store.load(name), n, fid)
+            cancel.check()
+            kids: list = []
+            q = _edit(name, lambda q: kids.extend(pipeline.apply_recheck(q, n, fid, res)))
+            f = findings.find(q.episode(n), fid)
+            return {"fid": fid, "resolved": f.status == "fixed", "kids": [k.id for k in kids], "reason": res.reason}
+    return label, 1, set(), fn
+
+
+# 한 화의 지적을 통째로 다루는 작업과 지적 하나를 다루는 작업. 같은 화에서 함께 돌면 늦게 끝난 쪽이 앞 결과를 엇갈리게 덮는다
+_FINDING_BATCH = ("check", "fixes", "recheck")
+_FINDING_ONE = ("fix_one", "recheck_one")
+
+
+def _finding_clash(name: str, kind: str, n: int | None, target: str) -> None:
+    """지적 작업끼리 부딪히면 시작 전에 400. 지적 하나 작업은 그 화의 통째 작업 · 같은 지적의 다른 작업이 도는 동안,
+    통째 작업은 그 화의 지적 하나 작업이 도는 동안 시작하지 않는다. 다른 지적끼리는 함께 돈다."""
+    if n is None or kind not in _FINDING_BATCH + _FINDING_ONE:
+        return
+    for j in jobs.listing(name):
+        if j.status != "running" or j.ep != n or (j.kind == kind and (j.target or "") == target):
+            continue  # 같은 작업은 jobs.start 가 이미 도는 것을 돌려준다
+        one = kind in _FINDING_ONE and (j.kind in _FINDING_BATCH or (j.kind in _FINDING_ONE and j.target == target))
+        if one or (kind in _FINDING_BATCH and j.kind in _FINDING_ONE):
+            raise ValueError(f"'{j.label}'{josa(j.label, '이', '가')} 도는 중이에요. 끝난 뒤 다시 하세요")
+
+
+def _job_illust(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 illust: 고른 부분(없으면 AI 가 고른 장면)의 삽화 프롬프트를 만들어 그 화에 더한다 (옛 동기 경로 .../illust 와 같다).
+    본문은 바꾸지 않는다. 삽화 프롬프트는 이야기 데이터가 아니라 그림 도구에 넘길 글이라 옛 경로처럼 바로 남긴다."""
+    if n is None or not p.episode(n).text:
+        raise ValueError(f"{n}화 본문이 없어요")
+    if body.model and body.model not in illust.MODELS:
+        raise ValueError(f"모르는 모델이에요: {body.model}")
+    sel, ask, model = body.selection, body.note, body.model
+    label = f"{n}화 {'삽화 태그' if sel else '삽화 장면 고르기'}"
+
+    def fn(job: jobs.Job):
+        ill = pipeline.illustrate(llm, store.load(name), n, sel, ask, model)
+        cancel.check()
+        _edit(name, lambda q: pipeline.add_illustration(q, n, ill))
+        return {"id": ill.id, "missing_look": list(ill.missing_look)}
+    return label, 1, set(), fn
+
+
+def _job_atlas_ai(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 atlas_suggest · atlas_sort: 지도 만들기 설정 제안 · 장소와 맞지 않은 위치 글 정리 제안. 저장하지 않는다
+    (화면 칸에만 놓고, 작가가 미리보기 · 적용을 눌러야 지도에 들어간다)."""
+    if kind == "atlas_suggest":
+        spec = body.spec
+        label = "지도 설정 제안"
+
+        def fn(job: jobs.Job):
+            return pipeline.suggest_map(llm, store.load(name), spec)
+    else:
+        texts = body.texts
+        items = atlas.unmatched(p, atlas.frames(p, atlas.places(p)))
+        if texts is not None:
+            want = {t.strip() for t in texts}
+            items = [it for it in items if it["text"] in want]
+        if not items:
+            raise ValueError("장소와 맞지 않은 위치 글이 없어요")
+        label = f"위치 글 {len(items)}개 정리"
+
+        def fn(job: jobs.Job):
+            return pipeline.sort_places(llm, store.load(name), texts)
+    return label, 1, set(), fn
+
+
 def _job_target(kind: str, body: "JobIn") -> str:
-    """같은 종류를 대상마다 따로 돌리는 작업의 대상: 인물 id. 이름 고르기는 지명이면 빈 글이다."""
-    return body.target if kind in ("char_body", "char_voice", "char_look", "names_ai") else ""
+    """같은 종류를 대상마다 따로 돌리는 작업의 대상: 인물 id, 지적 id. 이름 고르기는 지명이면 빈 글이다."""
+    return body.target if kind in ("char_body", "char_voice", "char_look", "names_ai", "fix_one", "recheck_one") else ""
 
 
 def _job_plots(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
@@ -3378,6 +3472,11 @@ JOB_MAKERS: dict[str, Callable] = {
     "names_ai": _job_names_ai,
     "style_learn": _job_style_ai,
     "style_example": _job_style_ai,
+    "fix_one": _job_finding_ai,
+    "recheck_one": _job_finding_ai,
+    "illust": _job_illust,
+    "atlas_suggest": _job_atlas_ai,
+    "atlas_sort": _job_atlas_ai,
 }
 
 
@@ -3386,23 +3485,26 @@ def start_job(name: str, body: JobIn) -> dict:
     """오래 걸리는 AI 작업을 시작하고 바로 돌아온다. 결과는 GET /api/jobs 로 본다."""
     p = _load(name)
     kind, n = body.kind, body.ep
-    if kind in ("write", "state", "plots", "plot_one", "check", "board", "recheck"):
+    if kind in ("write", "state", "plots", "plot_one", "check", "board", "recheck", "recheck_one"):
         _not_auto(name)
     if kind in jobs.EP_AI_KINDS and (old := jobs.waiting_on(name, n)):  # 같은 화에 호출이 겹치면 요청 한도(429)에 더 걸린다
         _waiting_409(old)
     stage = {"write": "write", "state": "state", "recap_arc": "state", "recap_part": "state", "fold_knows": "state", "rework": "revise", "fixes": "revise",
              "hook": "check", "check": "check", "recheck": "check", "opening_drafts": "write", "stattrial": "write", "stage_extract": "check", "cue_run": "write",
-             "board": "board", "cues": "board", "char_look": "illustration", "names_ai": "name", "style_example": "write"}.get(kind, "plan")  # 나머지는 plan
+             "board": "board", "cues": "board", "char_look": "illustration", "names_ai": "name", "style_example": "write",
+             "fix_one": "revise", "recheck_one": "check", "illust": "illustration", "atlas_sort": "state"}.get(kind, "plan")  # 나머지는 plan
     llm = get_llm(stage)  # 키가 없으면 여기서 바로 오류를 보여 준다
 
     maker = JOB_MAKERS.get(kind)
     if maker is None:
         raise ValueError(f"모르는 작업이에요: {kind}")
-    label, total, owned, fn = maker(name, body, p, kind, n, llm)
     target = _job_target(kind, body)
+    _finding_clash(name, kind, n, target)
+    label, total, owned, fn = maker(name, body, p, kind, n, llm)
 
     try:
-        with usage.scope(episode=n if kind in ("write", "board", "state", "check", "fixes", "recheck", "rework", "hook", "openings", "opening_drafts", "plot_one", "cue_sheet", "cue_run", "cues") else None, task=kind):
+        with usage.scope(episode=n if kind in ("write", "board", "state", "check", "fixes", "recheck", "rework", "hook", "openings", "opening_drafts", "plot_one", "cue_sheet", "cue_run", "cues",
+                                       "fix_one", "recheck_one", "illust") else None, task=kind):
             job = jobs.start(name, kind, n, label, _keep_pending(name, kind, n, label, fn, target), total=total, owned=owned, target=target)
     except jobs.Busy as b:
         return {**b.job.public(), "already": True}
