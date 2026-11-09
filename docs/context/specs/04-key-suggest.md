@@ -1,258 +1,248 @@
-# 04. 키워드 AI 제안
+# 04. 다른 이름 채우기
 
-상태: 설계 (2026-11-08 좁힘) · 계획: [plan.md](../plan.md) 의 4번 · 먼저: —
+상태: 진행 (claude/alias-fill) · 계획: [plan.md](../plan.md) 의 4번 · 먼저: —
 
-2026-11-08 계획을 다시 짜며 이 일감을 다른 이름 채우기로 좁혔다(README 의 Q39 · Q36): 인물 다른 이름 칸과 이야기 요소의 부분 이름.
-보조 키 · 제외 키 제안은 활성화 조건 넷과 함께 장기 후보로 미룬다. 아래에서 보조 키 · 제외 키를 다루는 줄은 지금 범위가 아니다.
-근거: 측정 표본에서 낭비로 센 인물 · 요소의 69% 가 이름 없이(호칭 · 1인칭 · 부분 이름) 본문에 나왔다([01-measure.md](01-measure.md)).
-일감 2 를 기다리지 않는다. 인물 다른 이름 칸을 어디에 둘지는 이 명세서의 정할 것에서 새로 정한다.
+2026-11-08 계획을 다시 짜며 이 일감을 키워드 AI 제안에서 다른 이름 채우기로 좁혔다(README 의 Q39 · Q36).
+범위는 둘이다: 인물의 다른 이름 칸(새로 만든다), 이야기 요소의 부분 이름(`StoryElement.aliases` 에 채운다).
+보조 키 · 제외 키 제안은 활성화 조건 넷(일감 2)과 함께 장기 후보로 미룬다. 이 문서는 `Activation` 을 만들지 않는다.
+2026-11-10 옛 명세(`Activation.keys` · `secondary_keys` · `exclude_keys` 제안)를 지우고 좁힌 범위로 다시 썼다. 옛 글은 git 기록에 있다.
 
 ## 목표
 
-작가가 인물 · 이야기 요소 · 복선마다 키워드(찾는 키 · 보조 키 · 제외 키)를 손으로 다 적지 않아도 된다.
-AI 가 항목의 설정과 본문을 읽고 키워드를 제안하고, 작가가 고른 것만 적용한다(2026-11-08 정함, Q16 b).
-대화 에이전트도 권한 모드 안에서 키워드를 고칠 수 있고, 고친 것은 되돌릴 수 있다(2026-11-08 정함, Q29).
-키워드는 2번 일감의 활성화 묶음(`Activation`)이 판정에 쓰는 값이다. 이 일감은 판정 규칙을 바꾸지 않는다.
+작가가 인물 · 이야기 요소마다 본문에서 부르는 다른 이름을 손으로 다 적지 않아도 된다.
+AI 가 항목의 설정과 본문을 읽고 다른 이름을 제안하고, 작가가 고른 것만 적용한다(2026-11-08 정함, Q16).
+적용한 다른 이름은 이름과 같이 '이 항목이 나온다'를 찾는 데 쓴다. 그래서 쓰기 프롬프트가 별명 · 호칭 · 부분 이름으로만 나오는 항목을 놓치지 않는다.
+근거: 측정 표본에서 낭비로 센 인물 · 요소의 69%(29/42)가 이름 없이(1인칭 · 호칭 · 부분 이름) 본문에 나왔다(README 의 정한 규칙, [01-measure.md](01-measure.md)).
+측정 보고서의 부분 이름 예: '인물 특징' 요소는 80번 골라졌고 이름으로는 0번 나왔으며 본문에서는 '마력핵' · '신성력'으로 나왔다.
+1인칭 화자는 다른 이름으로 잡지 못한다. 69% 안에서 이 몫은 확인에서 따로 센다.
+이 일감이 따르는 정한 규칙은 [README.md](../README.md) 의 2026-11-08 결정 Q7 · Q16 · Q29 · Q36 · Q39 다.
 
 ## 정할 것
 
-시작 전에 사용자와 정한다. 추천안을 먼저 쓴다. 정하면 결과를 적고 [README.md](../README.md) 의 정한 규칙에도 더한다.
+시작 전에 사용자와 정할 것이다.
+추천안을 먼저 쓴다.
+앞 질문의 답이 뒤 질문의 전제가 되도록 차례를 두었다.
+2026-11-10: 1~15 를 모두 추천안대로 정했다(사용자 결정).
 
-1. 부를 단계(`get_llm` 의 단계 이름, `settings.STAGES`) — 추천: `"plan"`. 같은 꼴의 설정 제안(`pipeline.suggest_body` · `suggest_voice`)이 `"plan"` 을 쓴다. 다른 안은 `"name"` 이다(부모가 `plan`, 기본 묶음은 flash 급).
-2. 제안 단위 — 추천: 항목 하나(화면의 항목 카드 버튼)와 목록 한 번(한 종류에서 작가가 고른 항목들, 한 번 부를 때 `KEY_BATCH` 개까지) 둘 다 둔다.
-3. 동기 호출인지 백그라운드 작업인지 — 추천: 항목 하나는 동기 엔드포인트, 목록 한 번은 백그라운드 작업(`jobs`, 종류 이름 `keys`)으로 둔다.
-   - 항목 하나가 동기로 돌 수 있는 것은 화 수 세기의 비용 규칙(아래 '화 수 세기') 덕분이다.
-4. 적용 방법 — 추천: `suggest_body` 처럼 화면이 고른 값을 항목에 넣고 작품 저장으로 저장한다. 따로 적용 엔드포인트를 두지 않는다.
-5. 에이전트 쓰기 종류 — 추천: `permit(s, kind)` 는 종류 하나만 받으므로 쓰기 종류를 셋으로 나눈다.
-   - `keys_new`(화면 이름 '빈 키워드 칸'): 빈 칸에 더하기. `DRAFT_KINDS` 에 더해 '빈 곳 · 초안만 자동'에서 바로 쓴다.
-   - `keys`(화면 이름 '키워드'): 키가 있는 칸에 더하기. '모두 자동'에서만 바로 쓴다.
-   - `keys_remove`(화면 이름 '키워드 빼기'): 빼기. 정할 것 6을 따른다.
-6. 에이전트가 키를 빼는 것 — 추천: 빼기는 '모두 자동'에서도 승인 카드로 묻는다. AGENTS.md 의 '지우기는 어느 모드에서도 AI 가 하지 않는다'에 가깝게 둔다.
-   - `permit` 에 `outside` 처럼 `all` 판정보다 앞서는 `keys_remove` 갈래를 둔다('이 세션에서 묻지 않기'는 따른다).
-7. 이야기 요소의 다른 이름(`StoryElement.aliases`) 제안을 둘지 — 추천: 두지 않는다.
-   - `Activation` 의 키는 02 의 규칙대로 `elements.basis` 에 넣지 않으므로 적용해도 영향 분석이 낡지 않는다.
-   - `aliases` 는 `elements.basis` 에 들어가고 프롬프트에도 찍힌다. 그래서 제안을 적용하면 영향 분석이 지난 것으로 보인다.
-   - 두기로 하면 요소 카드에만 '다른 이름' 칩을 더한다.
-8. 명령줄 — 추천: 이 일감에서는 명령을 더하지 않는다. 화면과 에이전트로만 쓴다.
-9. AI 제안의 범위 — 추천: 제안은 더할 키만 낸다. 빼기는 작가가 손으로 하거나 에이전트 `edit_keys` 로 한다(정할 것 6).
-   - 까닭: 제안 화면은 체크한 칩을 더하기만 한다. 빼기 제안을 받으면 빼기 칩이라는 다른 동작이 생긴다.
+1. 인물 다른 이름을 어디에 두는가 — 정함(2026-11-10, 추천안): 새 칸 `Character.aliases: SkipJsonSchema[list[str]] = []`.
+   - `StoryElement.aliases` · `NewPlace.aliases` · `Ability.aliases` 와 같은 이름 · 모양이다.
+   - `SkipJsonSchema` 로 두어 설정 단계의 LLM 응답 형식(`SetupSuggestion`, 새 인물)이 채우지 않게 한다. `body` · `context` 와 같은 꼴이다. 다른 이름은 이 일감의 제안 길로만 AI 가 낸다.
+   - 기본값이 빈 목록이라 옛 `project.json` 이 그대로 읽힌다.
+   - 다른 안 (가): `Project.address_forms` 의 `calls` 를 다른 이름으로 쓴다. `calls` 는 말하는 사람마다 다르고 '오라버니' · '엄마' 같은 관계 말이 많아 여러 인물이 함께 찾힌다.
+   - 다른 안 (나): `Activation.keys` 에 둔다(옛 README 정할 것 6 의 추천). `Activation` 은 일감 2 와 함께 장기 후보로 옮겼다(Q36).
+2. 인물 다른 이름을 어디서 찾는 데 쓰는가 — 정함(2026-11-10, 추천안): `context.name_pattern` 한 곳에만 더한다.
+   - 이것 하나로 `named_ids`(장편 쓰기의 이름 나온 인물 · 상태 변경안 · 검수), `last_seen`, `cast.cast_to_add`, 측정 스크립트의 `char_hits` 가 함께 다른 이름을 본다.
+   - `context.names_of`(아는 정보 고르기 점수 · 옛 단락 점수), `pace.name_forms`, `echoes`, `static/mentions.js` 는 이 일감에서 바꾸지 않는다. 써 본 뒤 필요하면 따로 정한다.
+   - 고르는 규칙(`core_ids` · `static_characters` · `episode_cast` · `planning_cast`)은 이름을 보지 않으므로 바뀌지 않는다(README 의 '활성화는 `static_context` 인물을 바꾸지 않는다').
+   - 다른 안: 이름을 쓰는 곳 모두에 더한다. 화면 하이라이트와 점수까지 바뀌어 확인할 곳이 크게 늘어난다.
+3. 인물 다른 이름을 맞추는 꼴 — 정함(2026-11-10, 추천안): 이름의 전체 꼴과 같게 맞춘다. 두 글자 이상만 받는다.
+   - 앞이 한글 · 영문이면 다른 낱말의 일부로 본다(`name_pattern` 의 지금 규칙). 뒤에 조사가 붙어도 맞는다.
+   - 성 떼기 · 첫 낱말 떼기는 다른 이름에 하지 않는다. 작가가 적은 꼴 그대로 찾는다.
+   - 한 글자 다른 이름은 받지 않는다. 한 글자 이름의 `SHORT_TAIL` 규칙을 넓히지 않는다(`elements.terms` 의 두 글자 규칙과 같다).
+4. 인물 다른 이름을 프롬프트에 찍는가 — 정함(2026-11-10, 추천안): 찍지 않는다. `prompts.cast_view` 의 `exclude` 에 `aliases` 를 더한다.
+   - `cast_view` 는 앞 블록 '# 인물 설정'(`static_parts`)에 들어간다. 다른 이름을 고칠 때마다 캐시 앞부분이 깨진다(AGENTS.md 의 '바뀌지 않는 블록이 앞').
+   - 쓰는 모델에게 부르는 말은 이미 `speech_style` 과 호칭 블록(`address.block`)이 알린다.
+   - 다른 안: 찍는다. 모델이 별명을 알게 되지만 앞 블록 크기와 캐시 적중이 바뀐다. 찍기로 하면 '바뀌지 않는 블록' 원칙대로 고친 다음 화부터 캐시가 한 번 깨진다고 적는다.
+5. 인물 다른 이름은 '설정 바꾸기'인가 — 정함(2026-11-10, 추천안): 아니다. `charlog.FIELDS` · `LOG_FIELDS` 에 넣지 않는다.
+   - `context` · `body` 처럼 찾기에만 쓰는 작가 메타 칸이다. 상태 변경안의 설정 바꾸기 제안(`charlog.hold`)과 `setting_log` 기록에서 빠진다.
+   - 상태 변경안(`state`)은 다른 이름을 제안하지 않는다.
+6. 이야기 요소의 부분 이름을 어디에 두는가 — 정함(2026-11-10, 추천안): 있는 칸 `StoryElement.aliases` 에 채운다. 새 칸을 두지 않는다.
+   - `aliases` 는 이미 '본문과 플롯에서 언급을 찾을 다른 이름'이고 `elements.terms` 로 찾는다(README 정할 것 6: 다른 이름 목록을 둘 두지 않는다).
+   - `aliases` 는 `elements.basis` 에 들어가 채우면 영향 분석이 '지난 분석'으로 보인다. 부분 이름이 바뀌면 그 요소가 걸리는 플롯 줄이 바뀌므로 다시 분석할 까닭이 있다. 이 표시는 그대로 둔다.
+   - `aliases` 는 `elements.describe` 의 '(다른 이름: …)'로 프롬프트에도 찍힌다. 지금 동작 그대로다.
+   - 다른 안: 찾기에만 쓰는 새 칸 `StoryElement.keys`. 다른 이름 목록이 둘이 되고 화면도 칸이 늘어난다.
+7. 제안을 받는 길 — 정함(2026-11-10, 추천안): 백그라운드 작업 하나(`jobs`, 종류 이름 `aliases`)로 둔다. 화면 전용 작업(`SCREEN_ONLY_JOBS`)이다.
+   - `JobIn.target` 이 있으면 그 항목 하나(`c:<인물 id>` · `e:<요소 id>`)를, 비면 다른 이름이 빈 항목을 `ALIAS_BATCH` 개까지 한 번에 받는다.
+   - UX 02b · 02c 에서 인물 제안(`char_body` · `char_voice`)과 연구 화면 AI 호출을 작업으로 옮겼다. 같은 꼴을 따른다.
+   - 동기 엔드포인트는 두지 않는다.
+   - 다른 안: 항목 하나는 동기 엔드포인트, 여러 항목은 작업(옛 명세의 추천). 길이 둘이 되고 UX 02c 의 방향과 다르다.
+8. 부를 단계 — 정함(2026-11-10, 추천안): `"plan"`. 같은 꼴의 인물 칸 제안(`suggest_body` · `suggest_voice` · `suggest_field`)이 `plan` 을 쓴다.
+   - `start_job` 의 kind → 단계 표에 없으면 `plan` 이 되지만 표에 `aliases` 를 적어 둔다.
+   - 다른 안: `"name"`(이름 짓기 · 제목). 부모가 `plan` 이고 기본 묶음이 flash 급이다.
+9. 적용 방법 — 정함(2026-11-10, 추천안): `bodySuggestCard`(`static/cast.js`) 꼴의 고르기 카드에서 고른 다른 이름을 칸에 넣고 작품 저장으로 저장한다. 따로 적용 엔드포인트를 두지 않는다.
+   - 기본으로 체크하지 않는다. 작가가 고른 것만 넣는다.
+   - 인물은 설정 화면의 인물 카드(`static/setup.js`), 요소는 인과율 화면의 요소 카드(`static/causal.js`)에 '다른 이름 제안' 버튼을 둔다.
+   - 인물 카드에 '다른 이름' 칸을 더한다(지금 없다). 요소 카드의 '다른 이름' 칸은 이미 있다.
+10. 제안 재료 — 정함(2026-11-10, 추천안): 항목마다 설정 한 줄, 지금 이름 · 다른 이름, 본문 단락, (인물만) 그 인물을 부르는 호칭을 넣는다.
+    - 설정 한 줄: 인물은 이름 · 역할 · 성격 앞부분, 요소는 `elements.describe`.
+    - 본문 단락: 쓴 화(`written` · `finalized`) 본문에서 이름 · 다른 이름이 맞은 단락과 그 앞뒤 단락을 최근 화부터 `ALIAS_SAMPLE` 자까지.
+    - 이름이 본문에 없는 요소는 `context.recall` 로 설명과 겹치는 단락을 찾는다. 임베딩은 쓰지 않는다(DESIGN.md 7장, 2026-11-03 실측).
+    - 호칭: `Project.address_forms` 에서 `listener` 가 그 인물인 줄의 `calls`. AI 가 고를 씨앗으로만 넣고 그대로 넣지 않는다.
+    - 다른 항목의 이름 · 다른 이름 목록을 넣어 겹치는 말을 피하게 한다.
+    - 바뀌지 않는 블록(작품 정보 · 항목 목록)이 앞, 항목별 단락이 뒤, 요청 문장이 맨 뒤다(Gemini 암묵적 캐시).
+    - 재료는 화수에 따라 끝없이 커지지 않는다. 넘쳐 뺀 단락 수를 프롬프트에 적는다.
+11. 화 수와 겹침 표시 — 정함(2026-11-10, 추천안): 제안한 다른 이름마다 '최근 N화 가운데 몇 화에서 찾혀요'와 겹치는 항목을 프로그램이 센다. LLM 을 부르지 않는다.
+    - 인물은 정할 것 3 의 꼴로, 요소는 `elements.terms` 의 꼴(부분 문자열)로 쓴 화 본문을 찾는다. 최근 `ALIAS_HIT_EPS` 화만 본다.
+    - 이름으로는 찾히지 않고 그 다른 이름으로만 찾히는 화 수를 따로 적는다. 다른 이름이 얼마나 더 찾는지를 작가가 본다.
+    - 다른 항목의 이름 · 다른 이름과 같거나 서로 품으면(한쪽이 다른 쪽에 들어 있음) 빼지 않고 '‹다른 항목›과 겹쳐요'라고 적는다. 작가가 판단한다.
+    - 쓰기 프롬프트가 찾는 범위(Q9: 플롯 글 + 직전 화 끝)가 아니라 본문을 센다. 칩의 뜻은 '본문에서 이 말로 나오는 화'이고 화면에 그렇게 적는다.
+12. 정리 규칙 (`aliases.clean`, LLM 없음) — 정함(2026-11-10, 추천안): 아래를 뺀다. 뺀 수는 알림 줄로 돌려준다.
+    - 앞뒤 빈칸과 따옴표는 지운다. 조사 떼기는 하지 않는다. 조사가 붙은 말은 근거 검사에서 걸러지지 않으므로 작가가 칩에서 보고 고른다.
+    - 두 글자보다 짧은 말, `ALIAS_MAX_LEN` 자를 넘는 말.
+    - 그 항목의 이름(인물은 `metrics.name_forms` 꼴 포함)이나 이미 있는 다른 이름과 같은 말.
+    - 한 항목 안에서 겹치는 말.
+    - 근거 단락이 재료에 없는 말: 제안한 말이 그 항목의 재료 단락 어디에도 글자로 없으면 뺀다. 지어낸 별명을 막는다.
+    - 없는 항목을 가리키는 제안.
+13. 대화 에이전트 — 정함(2026-11-10, 추천안): 인물 다른 이름은 `edit_setup` 이 고칠 수 있게 `CharField` 에 `aliases` 를 더한다. 요소의 다른 이름을 고치는 에이전트 도구는 이 일감에서 만들지 않는다.
+    - `edit_setup` 은 늘 승인 카드로 묻고(`ALWAYS_ASK`), 적용 전 값을 `WriteRecord.setup_before` 에 남겨 되돌린다. Q29 의 '권한 모드 안 · 되돌릴 수 있게'를 가장 엄하게 지킨다.
+    - `aliases` 는 목록 칸이라 `setupchat.apply_revision` 의 목록 처리(지금 `secrets` 만)를 넓힌다.
+    - `setupchat.apply_revision` 은 인물 칸을 바꾸면 `charlog.record_author` 에 남긴다. 정할 것 5 대로 `aliases` 는 남기지 않는다.
+    - 지금 에이전트에는 이야기 요소를 고치는 도구가 하나도 없다. 요소 도구를 새로 만드는 일은 이 일감보다 크다.
+    - 다른 안: 새 도구 `edit_aliases`(인물 · 요소, 빈 칸에 더하기는 `DRAFT_KINDS`). 옛 명세의 쓰기 종류 셋(`keys_new` · `keys` · `keys_remove`)과 같은 꼴이라 도구 · 판정 · 되돌리기가 모두 새로 생긴다.
+14. 확인 — 정함(2026-11-10, 추천안): 두 가지로 확인한다.
+    - (가) LLM 없이: 측정 스크립트(`scripts/context_measure.py`)가 `name_pattern` · `elements.terms` 를 그대로 쓰므로, 다른 이름을 채운 사본으로 다시 돌리면 놓침 · 낭비가 다시 계산된다.
+    - (나) 실호출: 서버 vocado-dev 의 장편 네 작품을 로컬 임시 `CANON_HOME` 으로 복사하고 작품마다 `aliases` 작업을 한 번 돌린다(flash 급). 제안을 모두 적용한 사본과 작가가 고를 만한 것만 고른 사본(사람 판정 표본)으로 (가)를 돌린다.
+    - 견줄 기준선은 01 실측(인물 낭비 11.1%, 요소 낭비 50.0%)이다. 문턱은 두지 않는다. 이 일감은 작가가 고르는 기능이라 결과를 적기만 한다.
+    - 한계: 지금 채운 다른 이름이 옛 화 전부에 걸린다(01 의 같은 한계). 1인칭 화자 몫은 따로 센다.
+    - 비용 어림은 아래 '비용'.
+15. 명령줄 — 정함(2026-11-10, 추천안): 더하지 않는다. 화면과 에이전트로만 쓴다.
 
 ## 바꿀 곳
 
+정할 것이 모두 추천안일 때의 목록이다.
+
 | 파일 | 바꿀 것 |
 |---|---|
-| `canon/schema.py` | LLM 응답 형식 `KeySuggestion` · `KeyIdea`, 프로그램이 채우는 `KeyHit`, 에이전트 쓰기 `KeyEdit`, 에이전트 되돌리기 값 `KeyUndo` |
-| `canon/schema.py` 의 `Approval` | 묻는 키워드 쓰기를 담는 `keys_edit: list[KeyEdit]`(기본값 빈 목록). 지금 `revision` 은 `PlotRevision`, `op` 는 `RenumberOp` 만 담는다 |
-| `canon/keys.py` (새 파일) | 제안 정리(`clean`), 화 수 세기(`hits`), 에이전트 쓰기와 되돌리기(`apply_edit` · `undo_edit`). LLM 을 부르지 않는다 |
-| `canon/prompts.py` | `key_prompt(p, targets)` 하나. 시스템 문은 `SYSTEM_PLANNER` 를 쓴다 |
-| `canon/prompts.py` 의 `AGENT_PLOT_TOOLS` | 도구 목록 글에 `read_keys` · `edit_keys` 줄 |
-| `canon/pipeline.py` | `suggest_keys(llm, p, targets)`: `llm.json(..., KeySuggestion)` 을 부르고 `keys.clean` · `keys.hits` 를 거쳐 돌려준다. 저장하지 않는다 |
-| `canon/web.py` | 항목 하나 제안 `POST /api/projects/{name}/keys/{target}`(지금 `characters/{cid}/voice` · `body` 제안 곁). `KeySuggestion` 을 돌려준다. 단계는 `get_llm("plan")`(정할 것 1) |
-| `canon/web.py` 의 `JOB_MAKERS` · `JobIn` | 목록 작업 `keys`. `JobIn` 에 `targets: list[str] = []`('c:<id>' 꼴)를 더한다. 작업은 `kind="keys"` 와 `targets` 로 부른다 |
-| `canon/agent.py` | 쓰기 도구 `edit_keys`, `permit` 의 `keys_remove` 갈래(정할 것 6), `undo` 의 `KeyUndo` 갈래 |
-| `canon/agent.py` 의 `READ_TOOLS` · `KIND_LABELS` · `DRAFT_KINDS` | `READ_TOOLS` 에 `read_keys`, `KIND_LABELS` 에 `keys_new` · `keys` · `keys_remove`, `DRAFT_KINDS` 에 `keys_new`(정할 것 5) |
-| `canon/schema.py` 의 `PlotAgentStep` | `tool` 목록에 `read_keys` · `edit_keys`, `edit_keys` 일 때 채우는 칸 `keys_edit: list[KeyEdit]` |
-| `canon/mock.py` 의 `_agent_step` | `edit_keys` 를 내는 갈래(시험 문구에 맞춰) |
-| `canon/mock_keys.py` (새 파일) | `@responds(KeySuggestion)` 가짜 응답. `canon/mock.py` 맨 아래 import 줄에 더한다 |
-| `canon/static/cast.js` | 인물 카드의 '키워드 제안' 버튼과 고르기 칸 |
-| `canon/static/causal.js` | 이야기 요소 카드의 같은 버튼과 고르기 칸 |
-| `canon/static/foreshadow.js` | 복선 카드의 같은 버튼과 고르기 칸 |
-| `canon/static/agent.js` | 도구 이름 표에 `read_keys` · `edit_keys` 이름표, `edit_keys` 단계와 승인 카드 표시 |
+| `canon/schema.py` | `Character.aliases: SkipJsonSchema[list[str]] = []`(정할 것 1). `CharField` 에 `"aliases"`(13). LLM 응답 형식 `AliasSuggestion` · `AliasIdea`, 프로그램이 채우는 `AliasHit` |
+| `canon/context.py` | `name_pattern` 이 `c.aliases` 의 두 글자 이상 말을 전체 꼴로 더한다(2 · 3) |
+| `canon/prompts.py` | `cast_view` 의 `exclude` 에 `aliases`(4). 새 `alias_prompt(p, targets)`(10). 시스템 문은 `SYSTEM_PLANNER` |
+| `canon/aliases.py` (새 파일) | `targets(p, target)`: 작업이 받을 항목 고르기. `material(p, item)`: 재료 단락. `clean(p, s)`(12). `hits(p, s)`(11). LLM 을 부르지 않는다 |
+| `canon/pipeline.py` | `suggest_aliases(llm, p, targets)`: `llm.json(..., AliasSuggestion)` 을 부르고 `aliases.clean` · `aliases.hits` 를 거쳐 돌려준다. 저장하지 않는다 |
+| `canon/web.py` | 작업 `aliases`: `_job_aliases`, `JOB_MAKERS`, `start_job` 의 단계 표(`plan`), `_job_target` 에 kind 를 더할지(항목 하나일 때) |
+| `canon/setupchat.py` | `apply_revision` 의 목록 칸 처리에 `aliases`. `charlog.record_author` 에서 `aliases` 를 뺀다(5 · 13) |
+| `canon/mock_aliases.py` (새 파일) | `@responds(AliasSuggestion)` 가짜 응답. 재료 단락에 있는 말을 골라 내 `clean` 의 근거 검사를 통과하게 한다. `canon/mock.py` 맨 아래 import 줄에 더한다 |
+| `canon/static/setup.js` | 인물 카드에 '다른 이름' 칸(목록)과 '다른 이름 제안' 버튼 |
+| `canon/static/causal.js` | 요소 카드에 '다른 이름 제안' 버튼 |
+| `canon/static/aliases.js` (새 파일) | 제안 고르기 카드(칩 · 체크 칸 · 화 수 · 겹침 표시), 작업 결과 받기. `bodySuggestCard` 꼴을 따른다 |
+| `canon/static/app.js` | `SCREEN_ONLY_JOBS` · `JOB_DONE_MSG` 등 작업 표에 `aliases` |
 
-- 키워드가 놓이는 자리는 2번 일감이 정한 `Activation.keys` · `secondary_keys` · `exclude_keys` 다. 이 일감은 그 자리를 읽고 쓰기만 한다.
-- 판정 함수는 `canon/context.py` 에만 있다(Q7). `keys.hits` 는 그 함수와 02 의 낱말 맞추기 함수를 부르고 판정을 따로 만들지 않는다.
+- 판정 함수는 `canon/context.py` 에만 둔다(Q7). `aliases.hits` 는 `context.name_pattern` 과 `elements.terms` 를 부르고 판정을 따로 만들지 않는다.
+- LLM 호출은 `get_llm("plan")` 하나다. 새 단계 이름을 `settings.STAGES` 에 더하지 않는다.
+- 작업 스레드는 지금 `jobs` 가 `contextvars.copy_context()` 로 띄운다. 새 스레드를 띄우지 않는다.
+- `usage.record` 는 `LLM` 구현이 부르므로 따로 부르지 않는다.
 
 ## 데이터 · 스키마
 
 ### LLM 응답 형식
 
 ```
-KeySuggestion
-  items: list[KeyIdea]
-  notices: list[str]    # SkipJsonSchema. 프로그램이 채우는 알림 줄 (뺀 키 수 등)
+AliasSuggestion
+  items: list[AliasIdea]
+  notices: SkipJsonSchema[list[str]]   # 프로그램이 채우는 알림 줄 (뺀 말 수 등)
 
-KeyIdea
-  target: str           # 'c:<인물 id>' · 'e:<요소 id>' · 'f:<복선 id>'
-  keys: list[str]       # 더할 찾는 키 (Activation.keys)
-  secondary_keys: list[str]  # 더할 보조 키 (Activation.secondary_keys, 주 키와 함께 있어야 켜진다)
-  exclude_keys: list[str]    # 더할 제외 키 (Activation.exclude_keys, 있으면 꺼진다)
-  reason: str           # 작가에게 보일 한두 문장
+AliasIdea
+  target: str            # 'c:<인물 id>' · 'e:<요소 id>'
+  aliases: list[str]     # 더할 다른 이름
+  reason: str            # 작가에게 보일 한두 문장
+  hits: SkipJsonSchema[list[AliasHit]]
 ```
 
 - dict 필드를 쓰지 않는다. `tests/test_schema_nodict.py` 가 `.json(…)` 으로 받는 형식을 본다.
-- AI 는 더할 키만 낸다. 빼거나 바꾸는 제안은 받지 않는다(정할 것 9).
-- 이름은 2번 일감의 `Activation` 필드 이름과 맞춘다. 2번이 다른 이름을 쓰면 이 절을 먼저 고친다.
-- 정할 것 7에서 요소의 다른 이름 제안을 두기로 하면 `KeyIdea` 에 `aliases: list[str]` 를 더하고 `e:` 항목에만 받는다.
+- AI 는 더할 말만 낸다. 빼거나 바꾸는 제안은 받지 않는다. 빼기는 작가가 칸에서 한다.
 
 ### 프로그램이 채우는 것
 
 ```
-KeyHit (SkipJsonSchema)
-  key: str
-  kind: 'key' | 'secondary' | 'exclude'
-  episodes: list[int]   # 이 키가 맞는 쓴 화 (아래 '화 수 세기')
-  clash: str            # 다른 항목의 이름 · 다른 이름과 겹치면 그 항목 이름, 아니면 빈 글
+AliasHit (SkipJsonSchema)
+  alias: str
+  episodes: list[int]   # 이 말이 본문에 나온 최근 쓴 화
+  only: list[int]       # 그 가운데 이름 · 지금 다른 이름으로는 찾히지 않는 화
+  clash: str            # 겹치는 다른 항목 이름, 없으면 빈 글
 ```
 
-- `KeyIdea` 에 `hits: list[KeyHit]` 를 SkipJsonSchema 로 붙인다. AI 는 채우지 않는다.
+### 저장
 
-- `KeyIdea` 에 `changed: list[int]` 를 SkipJsonSchema 로 붙인다. 고른 키를 모두 더했을 때 판정이 바뀌는 쓴 화다.
-
-### 에이전트 쓰기
-
-```
-KeyEdit
-  target: str
-  add_keys: list[str]
-  add_secondary: list[str]
-  add_exclude: list[str]
-  remove_keys: list[str]
-  remove_secondary: list[str]
-  remove_exclude: list[str]
-```
-
-- dict 필드를 쓰지 않는다. `PlotAgentStep.keys_edit` 와 `Approval.keys_edit` 가 이 모델을 쓴다.
-
-### 에이전트 되돌리기 값
-
-```
-KeyUndo
-  target: str
-  keys: list[str]
-  secondary_keys: list[str]
-  exclude_keys: list[str]
-```
-
-- `WriteRecord` 에 `keys_before` · `keys_after: list[KeyUndo]` 를 기본값 빈 목록으로 더한다. 옛 세션 파일도 읽힌다.
-- `WriteRecord.tool` 은 `"edit_keys"` 다.
+- `Character.aliases` 와 `StoryElement.aliases` 둘만 바뀐다. 작품 저장(`put_project`)으로 저장한다.
+- `Character.aliases` 는 `charlog` 기록 · 스냅샷 되돌리기 대상이 아니다(정할 것 5). `Snapshot` 에는 인물 · 요소가 없다.
+- 새 전역 저장소와 새 환경 변수는 없다.
+- [compat.md](../compat.md) 의 CCv3 로어북 대응(`keys`)은 바꾸지 않는다. 가져오기 · 내보내기는 지금 범위 밖이다(Q26).
 
 ## 규칙
 
-### 제안 재료 (`prompts.key_prompt`)
-
-- 항목마다 지금 설정 한 줄(인물은 이름 · 역할 · 설명 칸, 요소는 `elements.describe` 꼴, 복선은 `description`)을 넣는다.
-- 항목마다 지금 키워드를 넣는다. AI 가 이미 있는 키를 다시 내지 않게 한다.
-- 항목마다 본문에서 그 항목이 나온 단락을 `KEY_SAMPLE` 자까지 넣는다.
-- 단락은 02 가 `context.name_pattern` 에서 떼는 낱말 맞추기 함수를 본문 단락에 돌려 이름 · 다른 이름 · 지금 키가 맞은 곳이다.
-- 이것은 낱말 맞추기이지 판정이 아니다. `context.activate` 는 단락 자리가 아니라 항목을 돌려주고, 본문이 아니라 찾는 범위(Q9)를 본다. 그래서 판정은 여전히 `context.py` 에만 있다(Q7).
-- 이름이 본문에 없는 항목(복선 대부분)은 `context.recall` 로 설명과 겹치는 단락을 찾는다. 임베딩은 쓰지 않는다(DESIGN.md 7장, 2026-11-03 실측).
-- 다른 항목의 이름과 다른 이름 목록을 넣는다. 제외 키를 고르는 데 쓰고, 겹치는 다른 이름을 피하게 한다.
-- 바뀌지 않는 블록(작품 정보 · 항목 목록)이 앞, 항목별 단락이 뒤다.
-- 요청 문장은 프롬프트 맨 뒤에 둔다(Gemini 암묵적 캐시).
-- 재료는 화수에 따라 끝없이 커지지 않는다. 단락은 최근 화부터 채우고, 넘쳐 뺀 단락 수를 프롬프트에 적는다.
-
-### 프롬프트가 AI 에게 시키는 것
-
-- 찾는 키: 본문에서 그 항목을 실제로 부른 말(별명 · 호칭 · 줄임말). 조사를 붙이지 않은 꼴로 쓴다.
-- 보조 키: 주 키가 흔한 낱말이라 다른 뜻으로도 나올 때, 그 항목일 때만 함께 나오는 말.
-- 제외 키: 주 키가 나와도 그 항목이 아닌 글에 나오는 말.
-- 근거 단락이 없는 키는 내지 않는다.
-
-### 정리 (`keys.clean`, LLM 없음)
-
-- 앞뒤 빈칸과 따옴표를 지운다.
-- 두 글자보다 짧은 키는 뺀다(`elements.terms` 의 두 글자 규칙과 같다).
-- `KEY_MAX_LEN` 자를 넘는 키는 뺀다.
-- 항목의 이름이나 이미 있는 키와 같은 키는 뺀다.
-- 한 항목 안에서 겹치는 키는 하나만 둔다.
-- 제외 키가 그 항목의 이름이나 다른 이름에 들어 있으면 뺀다. 그 키가 늘 항목을 끄기 때문이다.
-- 없는 항목을 가리키는 `target` 은 뺀다.
-- 다른 항목의 이름 · 다른 이름 · 찾는 키와 같은 찾는 키는 빼지 않고 `KeyHit.clash` 에 적는다. 작가가 판단한다.
-- 뺀 키 수는 `KeySuggestion.notices` 의 알림 줄로 돌려준다.
-
-### 화 수 세기 (`keys.hits`, LLM 없음)
-
-- 비용 규칙: 키마다 `context.activate` 를 부르지 않는다. sticky · 한 단계 더 찾기 때문에 한 번 부를 때마다 앞 화에 기대므로, 화 × 키 × 항목만큼 부르면 87화 장편에서 수만 번이 된다.
-- 세는 화는 본문이 있는 화(`written` · `finalized`) 가운데 최근 `KEY_HIT_EPS` 화로 끊는다.
-- 키 하나의 `KeyHit.episodes` 는 02 의 낱말 맞추기 함수를 각 화의 찾는 범위 글에 돌려 센다. 판정 함수를 부르지 않는다.
-- 찾는 키 · 보조 키는 그 키가 맞고 이름 · 지금 키는 맞지 않는 화를 담는다.
-- 제외 키는 그 키가 맞고 지금 이름 · 키로 찾히는 화를 담는다.
-- `context.activate` 는 항목마다 두 번만 부른다. 지금 값으로 한 번, 제안한 키를 모두 더한 값으로 한 번 부르고, 판정이 바뀐 화를 `KeyIdea.changed` 에 담는다.
-- 찾는 범위 글은 1번 측정이 정한 범위(02 의 `SCAN`)와 같다(Q9).
-- 지금 데이터로 센다. 그 화를 쓸 때의 상태로 되돌리지 않는다. 화면에 '지금 설정으로 센 값'이라고 적는다.
-
-### 적용
-
-- AI 제안은 작가가 고른 키만 들어간다. 기본으로 체크하지 않는다.
-- 제안 적용과 에이전트는 `Activation.keys` · `secondary_keys` · `exclude_keys` 에만 쓴다. 02 의 규칙대로 프롬프트용 직렬화가 `activation` 을 빼므로 프롬프트에 찍히지 않는다.
-- `Character` 의 설정 칸(`name` · `role` · `appearance` · `personality` · `background` · `speech_style` · `narration_voice` · `secrets` 등)과 `StoryElement.aliases` 에는 쓰지 않는다.
-- 그래서 키워드는 인물 설정 바꾸기가 아니고, `charlog` 의 설정 바꾸기 기록에 남기지 않는다.
-- 자동 집필은 키워드 제안을 부르지 않는다.
-- 단편과 장편 모두에서 쓴다. 판정이 두 꼴 모두에 걸리기 때문이다(Q18).
-
-### 에이전트 (`agent.py`)
-
-- `read_keys`: 인물 · 요소 · 복선의 이름과 지금 키워드를 `RESULT_LIMIT` 안에서 돌려준다.
-- `edit_keys`: 항목마다 `KeyEdit`(더할 키와 뺄 키)를 받는다. 더할 키는 `keys.clean` 을 거친다.
-- 칸마다 쓰기 종류를 정한다. 빈 칸에 더하면 `keys_new`, 키가 있는 칸에 더하면 `keys`, 빼면 `keys_remove` 다(정할 것 5).
-- 종류마다 `permit(s, 종류)` 로 바로 쓸지 물을지 정한다. 묻는 부분은 `Approval.keys_edit` 에 담는다.
-- 에이전트도 `Activation` 의 세 칸에만 쓴다. `Character` 설정 칸과 `StoryElement.aliases` 는 고치지 않는다.
-- 바로 쓰면 쓰기 전 · 뒤 값을 `KeyUndo` 로 남긴다.
-- 되돌리기는 지금 값이 쓴 직후 값과 같은 항목만 돌린다(`pipeline.plot_undo` 와 같은 규칙).
-- 에이전트는 블록 켜고 끄기와 블록 예산을 고치지 않는다(Q29).
-- 에이전트는 정규식 규칙과 선언형 규칙을 제안만 한다(Q29). 그 도구는 이 일감에서 만들지 않는다.
-- 지금 에이전트는 플롯 대화(`TOPICS = ("plot",)`)만 돈다. 키워드 도구는 그 주제에 더한다.
-
 ### 처음 값
 
-- `KEY_BATCH = 10`: 한 번 부를 때 항목 수. 근거 없는 처음 값이다. mock 과 실호출 1~2회로 응답 크기를 본 뒤 고친다.
-- `KEY_SAMPLE = 3000`: 항목 하나의 단락 글자 예산. 근거 없는 처음 값이다. 같은 방법으로 고친다.
-- `KEY_MAX_LEN = 20`: 키 하나의 최대 글자 수. 근거 없는 처음 값이다.
-- `KEY_HIT_EPS = 30`: 화 수 세기가 보는 최근 화 수. 근거 없는 처음 값이다. 시간 시험(아래 '시험')을 보고 고친다.
+- `ALIAS_BATCH = 10`: 한 번 부를 때 항목 수. 근거 없는 처음 값이다. 확인 (나)의 응답 크기를 보고 고친다.
+- `ALIAS_SAMPLE = 3000`: 항목 하나의 재료 단락 글자 예산. 근거 없는 처음 값이다. 같은 방법으로 고친다.
+- `ALIAS_MAX_LEN = 12`: 다른 이름 하나의 최대 글자 수. 근거 없는 처음 값이다.
+- `ALIAS_HIT_EPS = 30`: 화 수 세기가 보는 최근 쓴 화 수. 근거 없는 처음 값이다.
+
+### 승인 흐름
+
+- AI 제안은 작가가 카드에서 고른 말만 들어간다. 기본으로 체크하지 않는다.
+- 자동 집필 · `-y` · 상태 승인은 다른 이름을 제안하지도 바꾸지도 않는다.
+- 대화 에이전트는 인물 다른 이름만 `edit_setup` 카드로 바꾼다(정할 것 13). 카드는 권한 모드와 상관없이 묻고 되돌릴 수 있다.
+
+### 단편 · 장편
+
+- 제안은 단편과 장편에서 똑같이 쓴다.
+- 인물 다른 이름이 쓰기 프롬프트에 주는 영향은 장편에만 있다. 단편 쓰기는 이름으로 인물을 고르지 않는다(`named` 블록은 장편만).
+- 상태 변경안 · 검수의 이름 나온 인물(`named_ids`)은 두 꼴 모두에서 다른 이름을 본다.
+- 단편 쓰기 프롬프트는 바뀌지 않는다. `cast_view` 에서 `aliases` 를 빼므로 인물 설정 블록도 그대로다.
+- 요소의 `aliases` 는 지금도 두 꼴에서 `elements.terms` 로 찾는다. 이 일감은 채우기만 한다.
 
 ## 화면 · 명령줄 · 프롬프트
 
-- 인물 카드(`cast.js`), 요소 카드(`causal.js`), 복선 카드(`foreshadow.js`)에 '키워드 제안' 버튼을 둔다.
-- 제안은 종류별(찾는 키 · 보조 키 · 제외 키)로 칩을 보이고, 칩마다 체크 칸과 '12개 화에서 켜져요' 같은 화 수를 단다.
-- 제외 키 칩은 '3개 화에서 꺼져요'로 적는다.
-- 겹치는 키는 '‹다른 항목›의 이름과 같아요'라고 적는다.
-- 고른 칩을 넣은 뒤에는 화면 아래 저장 띠의 작품 저장으로 저장한다.
-- 단계 이름 '반영'은 쓰지 않는다. 제안을 받아들이는 동작은 '적용'이다.
-- 문구 예: '키워드를 제안받았어요', '고른 키워드를 적용했어요', '근거가 없어 뺀 키워드가 2개 있어요'.
-- 프롬프트는 쓰기 프롬프트(`build_episode_context`)에 들어가지 않는다. 그래서 `context.BUDGET` 키를 더하지 않는다.
-- 작업지시서(`brief_parts`)에는 넣지 않는다. 설정 제안(`suggest_body`)처럼 화면 전용이다.
-- 명령줄은 더하지 않는다(정할 것 8).
+- 설정 화면 인물 카드: '다른 이름' 칸. 힌트는 요소 카드와 같게 '본문에서 다르게 부르는 말. 두 글자 이상'.
+- 인물 카드 · 요소 카드: '다른 이름 제안' 버튼. 누르면 작업 `aliases` 를 그 항목 하나로 띄운다.
+- 인물 목록 · 요소 목록 머리: '빈 다른 이름 제안' 버튼. 다른 이름이 빈 항목을 `ALIAS_BATCH` 개까지 한 작업으로 띄운다.
+- 고르기 카드: 항목마다 칩. 칩마다 체크 칸, '최근 30화 중 12화에서 나와요 · 이름 없이 5화', 겹치면 '‹다른 항목›과 겹쳐요'.
+- 카드 아래 '고른 다른 이름 적용', 적용 뒤 작품 저장 띠로 저장한다.
+- 문구 예: '다른 이름을 제안받았어요', '고른 다른 이름을 넣었어요. 저장하면 들어가요', '근거가 없어 뺀 말이 2개 있어요'.
+- '반영'은 상태 승인에만 쓰므로 이 화면 문구에 쓰지 않는다.
+- 칩 화 수 아래에 '지금 본문에서 센 값이에요'를 작게 적는다.
+- 프롬프트(`alias_prompt`)는 쓰기 프롬프트에 들어가지 않는다. `context.BUDGET` 키를 더하지 않는다.
+- 작업지시서(`brief`)에는 넣지 않는다. 설정 제안(`suggest_body`)처럼 화면 전용이다.
+- 쓰기 프롬프트에서 바뀌는 것은 정할 것 4 의 `cast_view` 하나다. 지금 작품은 `aliases` 가 없어 스냅샷이 바뀌지 않는다.
+- 화면 모양을 바꾸면 `docs/design/` 의 고칠 문서를 구현 때 적는다(칩 고르기 카드가 새 컴포넌트면 `components/`).
+- 명령줄은 더하지 않는다(정할 것 15).
+- `swift/` 를 고치지 않고 `scripts/make_openapi.py` 를 돌리지 않는다.
 
 ## 시험
 
-- 새 시험 `tests/test_keys.py`: `clean` 의 각 규칙(두 글자, 이름과 같음, 겹침, 자기 이름을 끄는 제외 키, 없는 항목), `hits` 가 켜지고 꺼지는 화를 맞게 세는지.
-- 같은 파일: mock 으로 `suggest_keys` 를 불러 저장하지 않는지(작품 파일이 바뀌지 않음).
-- 같은 파일: 단편 작품에서도 제안과 화 수 세기가 도는지.
-- 같은 파일: 화가 많은 장편 작품(측정 작품과 같은 87화를 mock 으로 만든 것)에서 항목 하나의 `hits` 가 정한 시간 안에 끝나는지, `context.activate` 를 항목마다 두 번만 부르는지.
-- 웹: `POST /api/projects/{name}/keys/{target}` 와 작업 `keys`(`targets` 인자)가 `client` fixture 로 도는지, 없는 `target` 은 404 인지.
-- 에이전트(`tests/test_agent.py` 꼴): `permit` 이 모드와 `keys_new` · `keys` · `keys_remove` 에 따라 맞게 정하는지, '모두 자동'에서도 `keys_remove` 는 묻는지.
-- 같은 꼴: 바로 쓴 키를 되돌리면 전 값으로 돌아가는지, 작가가 그 사이 고친 항목은 되돌리지 않는지, 에이전트가 `Character` 설정 칸과 `StoryElement.aliases` 를 바꾸지 않는지.
-- `tests/test_schema_nodict.py` 가 `KeySuggestion` 을 함께 보는지 확인한다.
-- `canon/mock_keys.py` 를 더했으니 `tests/test_agents_docs.py` 가 새 파일 이름을 찾는지 본다.
-- 전체 시험: `CANON_HOME=$(mktemp -d) python -m pytest -q -n auto tests`.
-- 정적 검사: `ruff check canon tests scripts`.
-- Swift 개발이 멈춰 있어 `python scripts/make_openapi.py` 는 돌리지 않는다(AGENTS.md).
+- 새 시험 `tests/test_aliases.py`:
+  - `name_pattern` 이 인물 다른 이름을 찾고, 앞이 한글이면 찾지 않고, 한 글자 다른 이름은 받지 않는다.
+  - `named_ids` 가 다른 이름으로만 나온 인물을 고른다.
+  - `cast_view` 결과에 `aliases` 가 없다.
+  - `clean` 의 각 규칙(두 글자, 최대 길이, 이름과 같음, 겹침, 근거 없는 말, 없는 항목).
+  - `hits` 가 화 수 · 이름 없이 찾힌 화 · 겹침을 맞게 센다.
+  - mock 으로 작업 `aliases` 를 돌려 작품 파일이 바뀌지 않는다.
+  - 단편 작품에서도 작업이 돈다.
+  - 옛 `project.json`(`Character` 에 `aliases` 없음)이 읽힌다.
+- `tests/test_agent_setup.py`: `edit_setup` 카드로 인물 다른 이름을 더하고 되돌리면 전 값으로 돌아간다. `setting_log` 에 남지 않는다.
+- `tests/test_schema_nodict.py` 가 `AliasSuggestion` 을 함께 본다.
+- 설정 단계 응답 형식(`SetupSuggestion`)의 JSON 스키마에 `aliases` 가 없다.
+- 측정 스크립트 시험(`tests/test_context_measure.py`)에 다른 이름을 채운 데모 작품으로 인물 놓침이 줄어드는 경우를 더한다.
+- JS: 고르기 카드를 그리는 시험(기본 체크 없음, 겹침 문구, 화 수 문구).
+- 프롬프트 스냅샷은 바뀌지 않아야 한다(지금 데모 작품에 `aliases` 가 없다).
+- 전체: `CANON_HOME=$(mktemp -d) python -m pytest -q -n auto tests`. 정적 검사: `ruff check canon tests scripts`.
 
 ## 문서
 
-- `docs/modules/story.md`: 새 절 `### canon/keys.py`, `### canon/agent.py` 에 `read_keys` · `edit_keys` · 쓰기 종류 `keys_new` · `keys` · `keys_remove` 줄, `cast.js` · `causal.js` · `foreshadow.js` 절에 제안 버튼 줄.
-- `docs/modules/core.md`: `prompts.py` 절에 `key_prompt`, `pipeline.py` 절에 `suggest_keys`, `schema.py` 절에 새 모델, `web.py` 절에 엔드포인트와 작업 `keys`.
-- `docs/modules/ai.md`: `canon/mock.py` 절의 가짜 응답 파일 목록에 `mock_keys.py` 를 가나다 · 알파벳 차례로 한 줄.
-- README.md: 인물 · 인과율 · 복선 화면 설명에 키워드 제안 한 줄.
-- DESIGN.md: 컨텍스트 조립 장의 활성 조건 설명 뒤에 '키워드는 AI 가 제안하고 작가가 적용한다' 한 줄.
-- 이 폴더의 [plan.md](../plan.md) 4번 상태와 [README.md](../README.md) 의 정한 규칙.
+- `docs/modules/story.md`: 새 절 `### canon/aliases.py` · `### canon/static/aliases.js`. `setupchat.py` · `setup.js` · `causal.js` 절에 줄.
+- `docs/modules/core.md`: `schema.py`(새 칸 · 모델), `context.py`(`name_pattern`), `prompts.py`(`cast_view` · `alias_prompt`), `pipeline.py`(`suggest_aliases`), `web.py`(작업 `aliases`) 절에 줄.
+- `docs/modules/ai.md`: `canon/mock.py` 절의 가짜 응답 파일 목록에 `mock_aliases.py`.
+- `static/mentions.js` 머리 주석의 'Character 에 별칭 칸이 없어 이름만'을 '이름만(다른 이름은 이 화면에서 쓰지 않음)'으로 고친다.
+- README.md: 설정 화면 인물 · 인과율 화면 설명에 다른 이름 제안 한 줄.
+- DESIGN.md: 컨텍스트 조립 장의 이름 나온 인물 설명 뒤에 '인물 다른 이름도 찾는다' 줄. 확인 (나)의 실측값을 날짜와 함께.
+- [01-measure.md](01-measure.md) 107줄의 '인물에는 다른 이름 필드가 없다'는 측정 당시 사실로 두고 바꾸지 않는다.
+- 이 폴더의 [plan.md](../plan.md) 4번 상태, [README.md](../README.md) 의 정한 규칙과 정할 것 6.
 
 ## 확인하지 못할 것
 
-- 실제 Gemini 호출로 제안 품질과 응답 크기를 보는 것은 키가 있을 때만 한다. 비용 규칙(AGENTS.md '비용 드는 모델 실험') 안에서 1~2회로 시작한다.
-- 제안된 키가 판정을 실제로 낫게 하는지는 1번 측정의 대리 지표로만 본다. 그 대리 지표는 이름과 다른 이름만 쓰므로, 제안된 키가 찾은 항목이 실제로 나왔는지는 지표로 알 수 없다. 사람이 표본을 읽어 확인한다.
+- 실제 모델의 제안 품질은 확인 (나)에서 네 작품 1회씩으로만 본다. 작품이 더 다양하면 결과가 달라질 수 있다.
+- 다른 이름이 찾은 화에 그 항목이 실제로 나왔는지는 측정의 대리 지표로 알 수 없다. 사람이 표본을 읽어 확인한다.
 - 작가가 칩을 고르는 화면이 편한지는 작가가 직접 써 봐야 안다.
 
-### 시작 전에 확인할 것
+사용자가 할 단계:
 
-- 이 문서의 키 이름은 02 의 `Activation.keys` · `secondary_keys` · `exclude_keys` 를 따른다. 머지된 2번 일감의 이름이 다르면 이 문서를 먼저 고친다.
-- 2번 일감의 판정 함수(`context.activate`)와 낱말 맞추기 함수의 이름, 키를 더한 `Activation` 을 넘겨 결과를 미리 볼 수 있는 꼴인지.
-- 1번 측정이 정한 판정 글 범위(Q9).
-- `PlotAgentStep` 에 칸을 더하면 에이전트 단계 프롬프트가 얼마나 커지는지. 칸 설명을 짧게 둔다.
+1. 머지 뒤 작품 하나에서 인물 카드의 '다른 이름 제안'을 누른다.
+2. 칩의 화 수와 근거가 맞는지 보고 몇 개를 골라 적용하고 저장한다.
+3. 다음 화를 쓰기 전에 프롬프트 보기에서 그 인물이 '이름 나온 인물'로 들어갔는지 본다.
 
 ## 비용
 
-- 키워드 제안은 새 LLM 호출이다. 단계는 정할 것 1 을 따른다.
-- 시험은 가짜 응답(`canon/mock_keys.py`)만 쓴다.
-- 처음 값(`KEY_BATCH` · `KEY_SAMPLE`)을 고치는 실호출 1~2회는 AGENTS.md '비용 드는 모델 실험' 규칙 안에서 돌린다. 돌리기 전에 `python -m canon usage --prices` 로 어림한다.
+- 시험은 가짜 응답(`canon/mock_aliases.py`)만 쓴다.
+- 확인 (나): 작품 넷 × 작업 1~2회(항목 `ALIAS_BATCH` = 10개씩, 인물 · 요소 합쳐 작품마다 2~4회 호출)로 8~16회를 어림한다.
+- 호출 하나는 재료 약 30,000자(항목 10 × `ALIAS_SAMPLE` 3,000자) ≈ 18,000 토큰 입력, 출력 1,000 토큰 안팎이다(한국어 1.7자/토큰).
+- flash 급 가격으로 16회 ≈ 29만 토큰 입력이라 $1 아래로 어림한다. 돌리기 전에 `python -m canon usage --prices` 로 다시 어림한다.
 - 모델별 호출 수와 쓴 비용을 PR 에 적는다.
