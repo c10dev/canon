@@ -162,12 +162,15 @@ def test_batch_cost_and_savings():
 
         def batch_poll(self, name):
             self.last_usage = {"prompt_tokens": 1_000_000, "completion_tokens": 100_000}
+            self.last_finish = "STOP"
             return "본문"
 
     inner = Inner()
     Inner.__name__ = "GeminiLLM"  # 기록은 백엔드를 클래스 이름으로 가린다
     b = BatchLLM(inner, "1:write", {}, lambda: None, lambda s: "", interval=0)
     assert b.text("s", "p") == "본문"
+    row = usage.read()[-1]
+    assert (row["stop"], row["out_chars"], row["batch"]) == ("STOP", 2, True)  # 배치도 끝난 이유와 응답 글자 수를 남긴다
     t = usage.summary(30)["total"]
     assert t["batch"] == 1
     assert t["cost"] == pytest.approx(1.0 + 0.5)  # 배치 입력 $1, 출력 $5
@@ -768,3 +771,49 @@ def test_summary_len_ratio_and_cut_by_effort_skip_old_rows():
     assert (eff["high"]["cut"], eff["high"]["discarded"]) == (2, 1)
     assert eff["low"]["len_ratio"] is None and eff["low"]["cut"] == 0
     assert s["total"]["cut"] == 2
+
+
+def test_usage_api_passes_new_columns(client):
+    """사용량 응답 모형(routes/research.py)이 새 칸을 버리지 않는다: 묶음의 끊김 · 버림 · 분량 달성률, 줄의 끝난 이유 등."""
+    from datetime import datetime
+    now = datetime.now().isoformat(timespec="seconds")
+    base = {"at": now, "project": "", "stage": "write", "backend": "gemini", "model": "gemini-4-argon",
+            "in": 100, "out": 10, "ok": True}
+    rows = [{**base, "target": 1000, "out_chars": 800, "stop": "STOP", "cache_note": "stage_off"},
+            {**base, "target": 1000, "out_chars": 500, "stop": "MAX_TOKENS", "discarded": "cut"}]
+    path = usage.log_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
+    d = client.get("/api/usage?days=30").json()
+    t = d["total"]
+    assert (t["cut"], t["discarded"], t["len_calls"], t["len_ratio"]) == (1, 1, 1, 0.8)
+    assert d["by_effort"][0]["len_ratio"] == 0.8
+    call = d["trouble"][0]
+    assert (call["stop"], call["out_chars"], call["target"], call["discarded"]) == ("MAX_TOKENS", 500, 1000, "cut")
+    assert d["recent"][-1]["cache_note"] == "stage_off"
+
+
+def test_hold_writes_rows_even_when_the_block_raises():
+    llm = fake_gemini(["a"])
+    with pytest.raises(RuntimeError):
+        with usage.hold() as rows:
+            llm.text("s", "p")
+            usage.discard(rows, "meta")
+            raise RuntimeError("멈춤")
+    assert [r.get("discarded") for r in usage.read()] == ["meta"]
+
+
+def test_polish_marks_the_dropped_version():
+    """서술 다듬기가 대사 줄을 바꾼 판은 그 호출의 줄에 discarded polish 를 달고, 목표 분량은 지금 본문 글자 수다."""
+    from canon import pipeline
+    old = "바람이 불었다. 서윤은 등대 앞에 섰다.\n\n\"됐어, 내가 할게.\""
+    changed = "바람이 세게 불었다. 서윤은 등대 앞에 섰다.\n\n\"아니, 내가 할게.\""
+    kept = "바람이 세게 불었다. 서윤은 등대 앞에 섰다.\n\n\"됐어, 내가 할게.\""
+    llm = fake_gemini([changed, kept])
+    llm.stage = "revise"
+    p = _project()
+    p.episodes[0].text = old
+    assert pipeline.polish_episode(llm, p, 1) == kept
+    rows = usage.read()
+    assert [r.get("discarded") for r in rows] == ["polish", None]
+    assert all(r["target"] == len(old) for r in rows)

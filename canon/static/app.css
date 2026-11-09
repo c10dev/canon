@@ -1233,12 +1233,17 @@ textarea[data-pick] { -webkit-touch-callout: none; caret-color: transparent; }
 .usage-blocks ul { margin: var(--space-4) 0 0; padding-left: var(--space-16); }
 .price-table td { font-variant-numeric: tabular-nums; }
 #price-box.editing { border-color: var(--sel-line); }
+@container usage (max-width: 900px) {
+  /* 추론 강도 표의 열 10개는 최소 폭이 약 834px 이라, 그보다 좁으면 끊김 · 버림 · 분량 열과 안내를 숨기고 7열로 돌아간다 */
+  .usage-br.fx { grid-template-columns: minmax(120px, 220px) minmax(60px, 1fr) 84px 64px 56px 72px 112px; }
+  .usage-br.fx .x, .usage-fx-note { display: none; }
+}
 @container usage (max-width: 760px) {
   .usage-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .usage-tile.hero { grid-column: 1 / -1; }
   .usage-br, .usage-br.fx { grid-template-columns: minmax(0, 1fr) 84px 64px; }
   .usage-br .bar { grid-column: 1 / -1; grid-row: 2; }
-  .usage-br > .m:last-child, .usage-br .c, .usage-br .sec, .usage-br .x, .usage-br.hd > span:nth-child(2), .usage-br.hd > span:last-child { display: none; }
+  .usage-br > .m:last-child, .usage-br .c, .usage-br .sec, .usage-br .x, .usage-fx-note, .usage-br.hd > span:nth-child(2), .usage-br.hd > span:last-child { display: none; }
   /* 좁은 칸의 호출 한 줄: 작업 · 비용 위, 시각 · 작품 · 모델 · 토큰 · 결과는 아래 작은 글 */
   .usage-call { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2) var(--space-10); padding: var(--space-10) 0; }
   .usage-call.hd { display: none; }

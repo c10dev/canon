@@ -7,6 +7,7 @@ import logging
 import re
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
+from typing import Callable
 
 from . import dynamics, elements, illust, metrics, naming, prompts, renumber, setupchat, storylines
 from .judge import Judge, Question
@@ -2588,13 +2589,15 @@ def set_storyboard(p: Project, n: int, b: Storyboard | None, by: str = "author")
     ep.storyboard = b
 
 
-def _write(llm: LLM, p: Project, n: int, prompt: str, cut: list[MetaCut] | None = None, target: int | None = None) -> str:
+def _write(llm: LLM, p: Project, n: int, prompt: str, cut: list[MetaCut] | None = None, target: int | None = None,
+           verdict: Callable[[str], str] | None = None) -> str:
     """본문을 쓴다. 한글이 적은 응답(영어 생각 과정 등)과 본문 대신 작업 설명 · 거절 문구만 온 응답(metatail.whole)은 다시 부른다.
     본문 앞뒤에 붙은 확실한 작업 설명(metatail.split: 'n화 본문입니다' 머리말, 끝의 '짚어 둘 것' 같은 작가에게 하는 말)은 떼고 서버 기록에 남긴다.
     덜 확실한 것은 떼지 않고 검수 화면의 문체 경고(style_drift)로 알린다.
     cut 목록을 주면 뗀 문단을 앞 · 뒤 자리와 함께 채운다. 본문만 돌려주는 모양은 실험 · 비교 호출자가 그대로 쓰게 둔다.
     target 은 이 호출이 받은 목표 분량 글자 수다 (비면 화 분량 Meta.words_per_episode). 사용량 기록 줄에 싣는다 (usage.SCOPED).
-    다시 부르려고 버린 응답은 그 호출의 사용량 기록 줄에 까닭(discarded: cut · thought · meta)을 단다 (usage.hold)."""
+    다시 부르려고 버린 응답은 그 호출의 사용량 기록 줄에 까닭(discarded: cut · thought · meta)을 단다 (usage.hold).
+    verdict(본문) 은 받은 본문을 부른 쪽이 버릴 까닭(빈 글이면 씀)이다. 까닭이 있으면 그 줄에 달고 본문은 그대로 돌려준다 (서술 다듬기)."""
     system = prompts.writer_system(p)
     head = prompts.write_head(p, n)  # 장편 쓰기 가족: 스토리보드 · 큐 시트와 같은 앞부분이면 그 캐시를 읽는다
     cap = (write_out_tokens(p, n) if getattr(llm, "knows_cut", False) and getattr(llm, "caps_write", True)
@@ -2625,7 +2628,9 @@ def _write(llm: LLM, p: Project, n: int, prompt: str, cut: list[MetaCut] | None 
                 bad[why] += 1
                 usage.discard(rows, why)
                 continue
-        body, head, tail = metatail.parts(text)
+            body, head, tail = metatail.parts(text)
+            if verdict is not None:
+                usage.discard(rows, verdict(body))  # 줄을 파일에 쓰기 전에 단다
         if head or tail:
             logging.getLogger("canon").warning("%s화 본문 앞뒤의 작업 설명 %d문단을 뗐어요: %s", n, len(head) + len(tail),
                                                " / ".join(x[:80] for x in head + tail))
@@ -2874,11 +2879,9 @@ def polish_episode(llm: LLM, p: Project, n: int, cut: list[MetaCut] | None = Non
     log = logging.getLogger("canon")
     for _ in range(POLISH_TRIES):
         part: list[MetaCut] = []
-        with usage.hold() as rows:
-            new = _write(llm, p, n, prompt, part, target=len(old))
-            why = polish_problem(old, new)
-            if why:
-                usage.discard(rows, "polish")  # 대사 · 효과음 줄이나 분량을 바꾼 판은 버린다
+        # 대사 · 효과음 줄이나 분량을 바꾼 판은 버리고, 그 호출의 사용량 기록 줄에 polish 를 단다
+        new = _write(llm, p, n, prompt, part, target=len(old), verdict=lambda t: "polish" if polish_problem(old, t) else "")
+        why = polish_problem(old, new)
         if why:
             log.warning("%s화 서술 다듬기를 다시 불러요: %s", n, why)
             continue

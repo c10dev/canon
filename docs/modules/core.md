@@ -412,6 +412,7 @@
 - `_write(target=)` 는 이 호출의 목표 분량 글자 수를 `usage.scope(target=)` 로 사용량 기록 줄에 싣는다. 비면 `Meta.words_per_episode`
 - 큐마다 쓰기(`play_cues`)는 그 큐의 분량(`Cue.length`)을, 서술 다듬기는 지금 본문 글자 수를 목표로 넘긴다
 - 서술 다듬기가 대사 · 효과음 줄이나 분량을 바꿔 버린 판(`polish_problem`)도 그 줄에 `discarded` polish 를 단다
+- 다듬기는 `_write(verdict=)` 로 판정을 넘긴다. 줄은 그 시도 안에서만 쥐고 파일에 쓰기 전에 단다
 - 끝난 이유가 끊김인데 글 없이 끝나 백엔드가 낸 '응답이 비었어요' 오류(RuntimeError)도 끊김으로 센다
 - 세 번 모두 끊기면 `WriteCut`(ValueError)을 낸다: '본문이 출력 길이 한도에 걸려 끊겼어요'. 끊긴 본문은 돌려주지 않는다
 - 일부만 끊기고 나머지가 다른 까닭이면 끊긴 수를 함께 적은 보통 ValueError 를 낸다(자동 집필은 `cut` 이 아닌 오류로 멈춘다)

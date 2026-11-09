@@ -72,7 +72,8 @@ _lock = threading.Lock()
 
 @contextmanager
 def scope(**kw: Any) -> Iterator[None]:
-    """안에서 일어나는 호출에 project, episode, stage, task, source, attempt 를 붙인다. None 인 값은 바깥 값을 둔다."""
+    """안에서 일어나는 호출에 project, episode, stage, task, source, attempt, target 을 붙인다. None 인 값은 바깥 값을 둔다.
+    다른 키는 줄에 실리지 않는다 (record 가 정해진 키와 SCOPED 만 담는다)."""
     token = _ctx.set({**_ctx.get(), **{k: v for k, v in kw.items() if v is not None}})
     try:
         yield

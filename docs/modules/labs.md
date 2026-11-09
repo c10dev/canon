@@ -264,6 +264,7 @@
 ### `canon/routes/research.py`
 
 - 연구 화면 웹 라우트(`/api/projects/{name}/research/...`)
+- 사용량 응답 모형(`UsageBucket` · `UsageCall`)은 받은 칸만 내보낸다. `usage.summary` 묶음이나 기록 줄에 칸을 더하면 여기에도 더한다(`/api/usage`)
 - `web.py` 맨 끝의 `_attach_routes` 가 `router` 를 앱에 붙이고 `EXPORTS` 의 이름을 `web` 에도 둔다
 - 공용 도우미(`_load` · `_save` · `_edit` 등)는 `..web` 에서 불러 쓴다
 

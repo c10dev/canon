@@ -292,7 +292,7 @@ function usageCalls(u) {
     const err = (r.error || '').length > 60
       ? `<details class="usage-err"><summary>${esc(r.error.slice(0, 60))}…</summary>${esc(r.error)}</details>` : `<span class="small usage-err">${esc(r.error || '')}</span>`;
     const state = !r.ok ? `<span class="chip usage-fail">실패</span> ${err}`
-      : r.discarded ? `<span class="chip warn">버림 · ${esc(USAGE_DISCARD[r.discarded] || r.discarded)}</span>`
+      : r.discarded ? `<span class="chip warn">버림</span><span class="s2">${esc(USAGE_DISCARD[r.discarded] || r.discarded)}</span>`  // 까닭은 칩 아래 줄 (결과 칸 폭을 늘리지 않게)
         : (r.attempt > 1 ? '<span class="chip warn">다시 요청</span>' : '<span class="chip ok">성공</span>');
     const where = [r.project ? usageName(r.project) : '', r.episode != null ? `${r.episode}화` : ''].filter(Boolean).join(' · ');
     return `<div class="usage-call">
@@ -300,7 +300,7 @@ function usageCalls(u) {
       <span class="where">${esc(where || '-')}</span>
       <span class="task">${esc(usageTaskLabel(r.task) || USAGE_STAGE[r.stage] || '-')}<span class="s2">${esc(USAGE_STAGE[r.stage] || r.stage || '')} · ${esc(USAGE_SOURCE[r.source] || r.source || '')}</span></span>
       <span class="model">${esc(r.model)}${r.batch ? ' <span class="chip">배치</span>' : ''}</span>
-      <span class="r tokens">${tok(r.in)} → ${tok(r.out + (r.thought || 0))}${r.cached ? `<span class="s2">캐시 ${tok(r.cached)}</span>` : ''}${r.thought ? `<span class="s2">생각 ${tok(r.thought)}</span>` : ''}${r.out_chars != null ? `<span class="s2">응답 ${r.out_chars.toLocaleString()}자${r.target ? ` / 목표 ${r.target.toLocaleString()}자` : ''}</span>` : ''}${usageBlocks(r)}</span>
+      <span class="r tokens">${tok(r.in)} → ${tok(r.out + (r.thought || 0))}${r.cached ? `<span class="s2">캐시 ${tok(r.cached)}</span>` : ''}${r.thought ? `<span class="s2">생각 ${tok(r.thought)}</span>` : ''}${r.out_chars != null ? `<span class="s2">응답 ${r.target ? `${r.out_chars.toLocaleString()}/${r.target.toLocaleString()}자` : `${r.out_chars.toLocaleString()}자`}</span>` : ''}${usageBlocks(r)}</span>
       <span class="r secs">${r.seconds != null ? `${r.seconds.toFixed(1)}초` : '-'}</span>
       <span class="r cost"><strong>${usd(r.cost)}</strong>${r.saved ? `<span class="s2">아낌 ${usd(r.saved)}</span>` : ''}</span>
       <span class="state">${state}</span></div>`;
