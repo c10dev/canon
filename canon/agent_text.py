@@ -10,6 +10,7 @@
 agent.py 의 CARD_TOOLS 가 이 모듈을 등록한다. 늘 카드로 묻는 도구 모듈은 아래 이름을 둔다:
 TOOL · KIND · LABEL, shortcut(turn) · prepare(name, p, s, turn, step) · record(p, s, turn, step, prepared) · decide(p, s, turn, approve, picked, text) · undo(p, rec, items).
 prepare 는 잠금 밖에서 AI 를 부르고, record · decide · undo 는 잠금 안에서 작품을 고친다.
+되돌리기 값을 턴(WriteRecord)에 두는 도구는 compact(rec, reason) 도 둔다 (agent._compact 가 오래된 턴에서 부른다, 설정 도구 agent_setup).
 """
 
 from __future__ import annotations

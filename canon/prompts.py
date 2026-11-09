@@ -2400,6 +2400,7 @@ AGENT_PLOT_TOOLS = """[도구] 한 단계에 하나만 부릅니다
 - insert_episodes (args: at, count, titles, summaries): at 화 앞에 새 화 count 개를 넣고 at 화부터 뒤 화를 그만큼 뒤로 밉니다. titles · summaries 는 새 화마다 '|' 로 나눕니다. 본문만 있고 상태를 반영하지 않은 화도 함께 밀립니다(본문은 그대로). 늘 작가에게 묻고 턴이 끝납니다. 승인되면 같은 턴에서 이어 가며, 새 화 플롯은 edit_plot 으로 채웁니다
 - remove_episode (args: n): 본문이 없는 n 화를 빼고 뒤 화를 한 칸씩 당깁니다. 늘 작가에게 묻습니다
 - revise_text (args: quote, request, n, preset): n 화 본문(비우면 다듬을 곳의 화)에서 quote 부분을 request 대로 고친 후보 2~3개를 만들어 작가에게 보입니다. quote 는 본문 원문 그대로 옮긴 한 문장~몇 문단이고, 모르면 find_text 로 먼저 찾습니다. preset 은 비웁니다. 작가가 고른 후보만 본문에 들어가고, 늘 작가에게 묻고 턴이 끝납니다
+- edit_setup (args: request): 작가가 설정(제목, 로그라인, 주제, 톤, 메모, 세계관, 인물 칸, 새 인물, 관계)을 바꾸라고 할 때 부릅니다. 설정 편집자가 바뀌는 칸만 담은 변경안을 만들고, 권한 모드와 상관없이 늘 작가에게 칸마다 물으며 턴이 끝납니다. 작가가 고른 칸만 들어갑니다. 편집자는 이 대화를 보지 못하므로 request 에 무엇을 어떻게 바꿀지(작가의 말과 이번 턴에 정한 방향)를 그것만 읽어도 알게 씁니다. 관계 수치는 적지 않습니다
 - ask: question 과 options (서로 다른 방향 2~3개) 를 넣습니다. 작가의 답을 기다리며 턴이 끝납니다
 - 턴을 끝낼 때는 tool 칸을 빈 글("")로 두고 reply 칸에 답을 씁니다. reply 는 칸 이름이지 도구 이름이 아닙니다
 
@@ -2452,7 +2453,9 @@ def agent_focus_block(p: Project, focus: str, off_plot: bool = False) -> str:
         what = {"setup": "설정(기본 정보 · 세계관 · 인물)을 보고 있습니다. 인물에 대한 물음은 read_cast 로 읽고 reply 로 답합니다",
                 "style": "문체를 보고 있습니다. 문체에 대한 물음은 reply 로 답합니다"}[kind]
         noun = {"setup": "설정", "style": "문체"}[kind]
-        return (f"[이 세션에서 다듬을 곳] {name}. 작가는 {what}. {noun}을 바로 고치는 도구는 없으니, 고칠 글이나 값은 reply 에 제안합니다. "
+        how = {"setup": "설정을 바꾸라는 말이면 edit_setup 을 부릅니다(늘 작가에게 칸마다 물어집니다). "}.get(
+            kind, f"{noun}을 바로 고치는 도구는 없으니, 고칠 글이나 값은 reply 에 제안합니다. ")
+        return (f"[이 세션에서 다듬을 곳] {name}. 작가는 {what}. {how}"
                 "플롯을 고쳐야 하면 edit_plot 을 불러도 되지만 모두 작가에게 물어집니다.\n")
     if off_plot:  # 2026-11-09 사용자 결정: 플롯 화면 밖에서는 작품 전체가 대상이어도 플롯 쓰기를 묻는다
         return "[이 세션에서 다듬을 곳] 작품 전체. 작가는 플롯 화면 밖에 있습니다. 플롯을 고치는 edit_plot 은 모두 작가에게 물어집니다.\n"

@@ -67,7 +67,7 @@ from canon.schema import Project  # noqa: E402
 
 from .jsvm import STATIC, dump, episode  # noqa: E402
 
-FILES = ["app.js", "chat.js", "agent.js"]
+FILES = ["app.js", "chat.js", "agent.js", "agentsetup.js"]  # agentsetup.js: 설정 대상의 빈 세션 안내 (agentSetupIntro)
 
 
 def _views() -> list[str]:

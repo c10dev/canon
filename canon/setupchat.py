@@ -286,12 +286,19 @@ def _before(p: Project) -> SetupBefore:
 
 def apply(p: Project, i: int, parts: list[str]) -> list[str]:
     """i 번째 메시지의 변경안에서 고른 부분만 설정에 넣는다. 적용하기 전 설정을 메시지에 남긴다. 넣은 부분 id 를 돌려준다."""
-    from .pipeline import _init_states, validate_relationships
-
     m = message(p, i)
     if m.outcome:
         raise ValueError("이미 처리한 변경안이에요")
-    rev = m.setup
+    before, picked = apply_revision(p, m.setup, parts)
+    m.setup_before, m.applied, m.outcome = before, picked, "applied"
+    return picked
+
+
+def apply_revision(p: Project, rev: SetupRevision, parts: list[str]) -> tuple[SetupBefore, list[str]]:
+    """변경안에서 고른 부분만 설정에 넣는다. (적용하기 전 설정, 넣은 부분 id). 대화 기록(apply)과 대화 에이전트(agent_setup)가 같이 쓴다.
+    고를 것이 없거나 고르지 않은 새 인물과 이어진 관계를 고르면 설정을 바꾸기 전에 ValueError."""
+    from .pipeline import _init_states, validate_relationships
+
     want = set(parts)
     picked = [x for x in part_ids(rev) if x in want]
     if not picked:
@@ -330,8 +337,7 @@ def apply(p: Project, i: int, parts: list[str]) -> list[str]:
     _init_states(p)
     _reseed(p)
     charlog.record_author(old, p)
-    m.setup_before, m.applied, m.outcome = before, picked, "applied"
-    return picked
+    return before, picked
 
 
 def _used(p: Project, cid: str) -> bool:
@@ -348,7 +354,15 @@ def undo(p: Project, i: int) -> tuple[list[str], list[str]]:
     m = message(p, i)
     if m.outcome != "applied" or m.setup_before is None:
         raise ValueError("적용한 변경안이 아니에요")
-    rev, before, applied = m.setup, m.setup_before, set(m.applied)
+    done, kept = undo_revision(p, m.setup, m.setup_before, m.applied)
+    m.outcome, m.applied, m.setup_before = "", [], None
+    return done, kept
+
+
+def undo_revision(p: Project, rev: SetupRevision, before: SetupBefore, parts: list[str]) -> tuple[list[str], list[str]]:
+    """적용한 변경안의 부분(parts)을 적용하기 전(before)으로 돌린다. 그 뒤에 다시 고친 부분과 이미 쓰이는 새 인물은 그대로 둔다.
+    (되돌린 부분, 그대로 둔 부분). 대화 기록(undo)과 대화 에이전트(agent_setup)가 같이 쓴다."""
+    applied = set(parts)
     old = p.model_copy(update={"characters": [c.model_copy(deep=True) for c in p.characters]})
     done: list[str] = []
     kept: list[str] = []
@@ -415,6 +429,5 @@ def undo(p: Project, i: int) -> tuple[list[str], list[str]]:
     _reseed(p)
     archetypes.prune(p)  # 지운 새 인물에 골라 둔 원형
     charlog.record_author(old, p)
-    m.outcome, m.applied, m.setup_before = "", [], None
     order = part_ids(rev)
     return sorted(done, key=order.index), sorted(kept, key=order.index)
