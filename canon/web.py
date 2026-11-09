@@ -4638,6 +4638,15 @@ def take_held_setting(name: str, i: int, body: HeldIn) -> Project:
     return _save(name, p)
 
 
+@app.post("/api/projects/{name}/episodes/{n}/dismissed-facts/{i}")
+def take_dismissed_fact(name: str, n: int, i: int) -> Project:
+    """n화 반영 기록에서 빼 둔 새 사실 하나를 확정 사실에 넣는다 (자동 반영이 비슷한 사실이라 뺀 것을 나중에 고를 때)."""
+    p = _load(name)
+    _not_auto(name)
+    pipeline.take_dismissed_fact(p, n, i)
+    return _save(name, p)
+
+
 @app.delete("/api/projects/{name}/setting-held/{i}")
 def drop_held_setting(name: str, i: int) -> Project:
     """남겨 둔 설정 바꾸기 제안 하나를 버린다."""

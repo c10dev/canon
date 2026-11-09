@@ -3621,10 +3621,22 @@ def rewrite_prompt(p: Project, n: int, req, materials: dict[str, list[str]], old
     return episode_prompt(p, n, use_cues=not (s and s.skipped)) + "\n\n" + rewrite_block(p, n, req, materials, old)
 
 
-def state_prompt(p: Project, n: int, cuts: tuple[int, int] | None = None, head: str = "") -> str:
+def state_facts_block(p: Project, n: int, ids: set[str], budget: str = "state_facts") -> str:
+    """장편 상태 변경안의 '[이미 있는 확정 사실]'. 새 사실을 다시 적지 않게 이번 화 본문 · 플롯과 관련된 것과 최근 것을 예산만큼 넣고 뺀 수를 적는다.
+    검수 자료를 앞에 두는 요청(head)은 그 자료에 확정 사실이 있어 부르지 않는다. 사실이 없으면 빈 글."""
+    if not p.facts:
+        return ""
+    ep = p.episode(n)
+    facts, cut = context.pick_facts(p, ids, ep.text + "\n" + elements.plot_text(ep), context.BUDGET[budget], context.query_terms(p, n))
+    return (f"[이미 있는 확정 사실 — 다시 적지 않습니다]{cut_note(cut, '이번 화와 관련된 것과 최근 것만')}\n"
+            + "\n".join("- " + f for f in facts) + "\n")
+
+
+def state_prompt(p: Project, n: int, cuts: tuple[int, int] | None = None, head: str = "", facts_budget: str = "state_facts") -> str:
     """상태 변경안. cuts 는 (뺀 비밀 수, 뺀 복선 수)로 머리글의 뺀 수를 바꾼다: 미리 거른 보기를 넘기는 플레이(play_view)가 원래 작품 기준 수를 준다.
     head 에 검수 자료(check_material, 끝이 n화 본문)를 주면 그 뒤에 상태 칸을 붙이고 본문은 다시 넣지 않는다. 검수 가족과 캐시를 함께 쓰려는
-    것이라 캐시 가족을 받는 백엔드만 준다 (pipeline.extract_state). 비우면 예전 모양이다 (다른 백엔드 · 작업지시서)."""
+    것이라 캐시 가족을 받는 백엔드만 준다 (pipeline.extract_state). 비우면 예전 모양이다 (다른 백엔드 · 작업지시서).
+    장편이고 head 가 없으면 '[이미 있는 확정 사실]'을 넣는다(state_facts_block, 예산 키 facts_budget). 단편은 넣지 않는다."""
     ep = p.episode(n)
     secrets_cut = fs_cut = 0
     if p.serial:  # 장편: 이번 화 플롯 인물 · 본문에 이름이 나온 인물과 주역만 자세히, 나머지는 한 줄 목록으로 ('넣지 않음' 인물은 한 줄 목록에)
@@ -3666,13 +3678,18 @@ def state_prompt(p: Project, n: int, cuts: tuple[int, int] | None = None, head: 
 {dump(secrets) or "없음"}
 """
     plot = f"[이번 화 플롯]: 위 자료의 '{n}화 플롯' 칸을 봅니다.\n" if head else f"[이번 화 플롯]\n{dump(write_plot(ep.plot))}\n"
+    facts = state_facts_block(p, n, ids, facts_budget) if p.serial and not head else ""
+    fact_rule = ""
+    if p.serial and (head or facts):
+        where = "위 자료의 확정 사실(Confirmed facts) 칸" if head else "[이미 있는 확정 사실]"
+        fact_rule = f"\n- new_facts 에는 {where}에 없는 새 사실만 적습니다. 이미 있는 사실을 말만 바꿔 다시 적지 않습니다."
     return f"""{lead}
 
 {cast}[이전 관계]
 {relations}{address.block(p, ids if p.serial else context.without_off(p, None), "[호칭 · 말씨]")}
 {secret_block}[열린 복선]{cut_note(fs_cut, "이번 아크와 관련된 것만", "목록에 없는 복선의 id 는 쓰지 않습니다")}
 {dump(fs) or "없음"}
-{plot}[이미 있는 장소]
+{plot}{facts}[이미 있는 장소]
 {places_line(p, ep.text)}
 {f"[작품 속 시간]{chr(10)}{timeline.state_block(p, n)}{chr(10)}" if timeline.enabled(p) else ""}{text}
 요구사항:
@@ -3687,7 +3704,7 @@ def state_prompt(p: Project, n: int, cuts: tuple[int, int] | None = None, head: 
 - 아래 [이미 있는 장소]에 없는 장소(지형, 마을, 건물, 가게 등)가 이름을 갖고 처음 나왔으면 new_places 에 넣습니다. name 은 본문에 쓴 그대로, kind 는 종류 한 단어, description 은 본문에서 드러난 것만 한 줄입니다. 이름 없는 길, 방, 골목은 넣지 않습니다.
 - 이미 있는 장소를 다른 이름이나 표기로 부른 것이면 new_places 에 넣지 않고 warnings 에 적습니다.
 - character_updates 의 location 에는 [이미 있는 장소]나 new_places 의 이름을 표기 그대로 앞에 씁니다 (예: '하르덴 왕궁 서재'). 옮겨 가는 중이면 '하르덴에서 벨라 항구로 가는 배 위'처럼 떠난 곳과 갈 곳을 함께 씁니다.
-- warnings 에는 플롯 사건 누락, 설정/말투 위반, 확정 사실과의 모순을 적습니다. 본문 문장이 걸리면 그 문장을 «» 안에 글자 그대로 넣어 작가가 바로 찾게 합니다.{storylines.state_rule(p, n)}{foreshadows.state_rule(p)}{statwin.state_rule(p)}{ATTIRE_STATE_RULE}{LAYER_STATE_RULE}{charlog.state_rule(p)}{address.state_rule(p)}{timeline.state_rule(p, n)}"""
+- warnings 에는 플롯 사건 누락, 설정/말투 위반, 확정 사실과의 모순을 적습니다. 본문 문장이 걸리면 그 문장을 «» 안에 글자 그대로 넣어 작가가 바로 찾게 합니다.{fact_rule}{storylines.state_rule(p, n)}{foreshadows.state_rule(p)}{statwin.state_rule(p)}{ATTIRE_STATE_RULE}{LAYER_STATE_RULE}{charlog.state_rule(p)}{address.state_rule(p)}{timeline.state_rule(p, n)}"""
 
 
 def _check_full(p: Project, n: int) -> tuple[str, str, str, str, str, str]:
@@ -5655,4 +5672,4 @@ def play_state_prompt(p: Project, n: int) -> str:
     view, secrets_cut, fs_cut = play_view(p, n, play_state_cast(p, n))
     cut = (f"\n- [현재 비밀]과 [열린 복선]은 이번 구간 인물과 관련된 것만 넣었습니다 (비밀 {secrets_cut}개, 복선 {fs_cut}개 생략). "
            "목록에 없는 비밀 · 복선의 id 는 쓰지 않습니다.") if secrets_cut or fs_cut else ""
-    return state_prompt(view, n, (secrets_cut, fs_cut)) + PLAY_STATE_RULE + cut
+    return state_prompt(view, n, (secrets_cut, fs_cut), facts_budget="play_state_facts") + PLAY_STATE_RULE + cut

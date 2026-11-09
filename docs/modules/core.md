@@ -94,6 +94,8 @@
 - `update -y` 의 관계 미리 보기는 반영처럼 `features.hold` 로 뺀 제안을 빼고 계산한다(`_print_relation_preview`)
 - `update` 는 반영 전제(`pipeline.check_applicable`)에 걸리면 변경안을 만들지 않고 까닭을 알린다. 반영 완료한 화는 앞 화로 되돌리는 `revert <작품> <n-1>` 을 알려 준다
 - `update`(`-y` 없이)는 관계 미리 보기 전에 관계 단계와 반대인 관계 바뀜(`StateDelta.rel_flagged`)을 따로 보여 주고 묻는다. 기본은 빼고, 뺀 것은 `d.dismissed` 에 남긴다(`_ask_flagged`)
+- `update`(`-y` 없이)는 이미 있는 확정 사실과 비슷한 새 사실(`StateDelta.fact_near`)도 옛 사실과 나란히 보여 주고 묻는다. 기본은 빼고 `d.dismissed` 에 남긴다(`_ask_near_facts`)
+- `update -y` 는 비슷한 새 사실을 반영하지 않고 빼 둔 수를 알린다(`features.hold`)
 - 장편(`new --serial`)은 `arc` 대신 `series` 를 한 번 부른다
 - 장편은 아크마다 `nextarc` → `plot` → `confirm` → `run` → `recap` 을 되풀이한다
 - `auto --stop` 은 다른 곳(웹 서버)에서 도는 실행이면 중지를 청했다고 알린다(`autorun.elsewhere`)
@@ -149,6 +151,7 @@
 - 블록 재기(`blocks`, 사용량 기록 · 연구 화면)
 - 블록 글자 예산(`BUDGET`)
 - 관련 사실(`pick_facts`) · 비밀(`pick_secrets`) · 떡밥(`rank_foreshadows`) · 인물이 아는 정보(`pick_knows`, 뺀 수는 `prompts.knows_note`) 고르기
+- 비슷한 확정 사실(`near_fact`): 새 사실의 한글 3글자 조각 가운데 `FACT_NEAR`(0.5) 이상이 한 옛 사실과 겹치면 그 옛 사실. 조각이 `FACT_NEAR_MIN`(3)보다 적으면 보지 않는다
 - 기획 프롬프트 인물(`planning_cast`)
 - 인물 이름(`names_of`: 세 글자 이름은 성을 뗀 이름도, `metrics.name_forms`)
 - 이름으로 켜는 인물(`named_ids` · `name_pattern`, 남은 예산 `fit_named`) · 마지막으로 나온 화(`last_seen`)
@@ -222,6 +225,9 @@
 - 글만 돌려준 경고, 훅이 `d.warnings` 에 바로 붙인 경고, AI 경고는 대상이 "" 다
 - `align_warn_to` 가 `warn_to` 길이를 `warnings` 에 맞춘다
 - 사람 검토 없이 반영할 때(자동 집필 · `run -y` · 플레이)는 `hold`(`HOLD`)가 작가가 골라야 하는 제안을 빼서 남겨 둔다. 관계 단계와 반대인 유형 바뀜(`pace.hold`)은 남기지 않고 빼서 경고에 적는다
+- 정리 훅 `_near_facts` 는 이미 있는 확정 사실과 비슷한 새 사실을 `StateDelta.fact_near`(새 사실, 옛 사실)에 적는다. 경고는 내지 않는다
+- `_near_facts` · `_hold_near_facts` 는 장편만 본다. 단편은 표시도 빼기도 하지 않는다
+- HOLD 훅 `_hold_near_facts` 는 그 새 사실을 `d.dismissed.new_facts` 로 옮기고 경고에 적는다. 작가는 반영 기록에서 나중에 넣는다(`pipeline.take_dismissed_fact`)
 - 상태를 가진 기능을 더할 때는 `pipeline.py` 를 고치지 않고 기능 모듈에 훅을 두고 이 목록에 넣는다(목록 순서가 부르는 순서)
 - LLM 호출 없음
 
@@ -345,6 +351,8 @@
   - `drop_invalid` 가 뺀 항목은 `d.dismissed` 의 같은 칸에 남는다(반영 기록에서 보이고 반영 취소로 돌아오면 체크를 푼 채 다시 놓인다)
   - 관계 바뀜 행을 빼는 곳(`drop_invalid` · `pace.hold` · `_ask_flagged`)은 `StateDelta.drop_rel_rows` 를 써서 `rel_flagged` 를 남은 행의 차례로 다시 매긴다
   - `apply_delta` 는 기록(history)에 넣기 전 `rel_flagged` 에서 범위 밖 · 겹친 차례를 버린다(반영 취소로 다시 놓일 때 맞는 행을 기본으로 빼 둔다)
+  - `take_dismissed_fact` 는 n화 반영 기록의 빼 둔 새 사실 하나를 확정 사실에 넣는다. 그 화와 뒤 화 스냅샷, 그 화 기록의 `new_facts` · `added.facts` 에도 넣어 반영 취소가 함께 뺀다
+  - `take_dismissed_fact` 는 그 기록의 `fact_near` 에서도 그 사실을 지운다. 이미 있는 사실이면 빼 둔 목록에서만 지운다
   - `apply_delta` 는 새 관계 · 심은 복선 · 비밀을 복사해 넣는다(반영 뒤 계산이 바꿔도 반영 기록의 값은 보낸 그대로 남아 다시 계산할 때 두 번 세지 않는다)
   - `apply_delta` 는 한 변경안 안에서 같은 사실 · 같은 복선 id · 같은 비밀 id 가 또 오면 처음 것만 반영한다(`_first_new`)
   - `apply_delta` 는 심은 복선을 `apply_restate` 처럼 이번 화에 심은 열린 복선(`planted_ep` 이번 화, `status` open, `payoff_ep` 없음)으로 맞춘다
@@ -461,6 +469,11 @@
 - 상태 변경안의 뺀 수 안내에는 '목록에 없는 비밀 · 복선의 id 는 쓰지 않습니다'를 붙인다
 - 플레이는 `state_prompt(cuts=)` 로 `play_view` 의 뺀 수를 넘겨 머리글이 원래 작품 기준 수를 적는다
 - `state_prompt(head=)` 는 검수 자료 뒤에 상태 칸을 붙이고 본문 · 이번 화 플롯을 다시 넣지 않는다
+- 장편 `state_prompt` 는 head 가 없으면 `[이미 있는 확정 사실 — 다시 적지 않습니다]` 블록(`state_facts_block`)을 이번 화 플롯 뒤에 넣는다
+- `state_facts_block` 은 `context.pick_facts` 로 본문 · 플롯과 관련된 것과 최근 것을 예산 `state_facts` 만큼 고르고 뺀 수를 머리글에 적는다
+- 플레이 상태 변경안(`play_state_prompt`)은 같은 블록을 예산 `play_state_facts` 로 넣는다
+- 장편 요구사항에는 '확정 사실에 없는 새 사실만' 한 줄을 넣는다. head 가 있으면 검수 자료의 확정 사실 칸을 가리킨다
+- 단편 `state_prompt` 에는 사실 블록도 그 요구사항도 넣지 않는다
 - 장편이고 상태 인물이 `check_cast` 와 같으면 인물 설정 · 이전 인물 상태 · 비밀 칸도 넣지 않고 검수 자료의 칸을 보라고 적는다(같은 함수로 고름)
 - 예시 문단이 있는 작품의 스타일 프로필 `style_rules_view`(칸마다 `STYLE_FIELD_LIMIT`, 예시 문단이 앞)
 - 스토리보드 깨지 않을 것을 검수에 `protect_block` · `protect_check_rule`
@@ -501,6 +514,7 @@
 - 지울 칸에 값이 함께 오면 검증(`_blank_cleared`)이 그 칸을 비워 차림 · 이동 거리 경고가 새 값으로 보지 않는다
 - 인물 프롬프트 넣기를 고르는 규칙은 `context.core_ids` · `off_ids` · `without_off`(모두 auto 면 예전 규칙과 같다)
 - 상태 변경안의 본문 지문(`StateDelta.basis`)도 프로그램이 채워 AI 응답 형식에서 빠진다(`SkipJsonSchema`). 비면 모름
+- 비슷한 새 사실 표시(`StateDelta.fact_near`, `FactNear`: 새 사실 · 옛 사실)도 프로그램 칸이다(`SkipJsonSchema`, `features._near_facts`)
 - 상태 변경안의 AI 응답 형식은 `StateDeltaAI` 다(`extract_state` · `play.settle` · `state_brief`). 관계 바뀜 `RelationshipChange` 와 사건 `AIStoryEvent` 에 관계 수치 · 보는 방식 · 가 닿을 곳 · 화 번호 · 수동보정 칸이 없다
 - `to_delta` 가 받은 `StateDeltaAI`(또는 `StateDelta` 를 돌려주는 가짜 LLM)를 n화 `StateDelta` 로 바꾸며 그 칸들을 버린다. 채팅 앱 JSON 가져오기(`web.parse_state`, 명령줄 `update --from-json`)도 거친다
 - 사건 종류 목록에서 수동보정은 응답 형식에서만 빠지고 읽기는 한다(예전 JSON). 반영이 뺀다
@@ -710,6 +724,7 @@
 - `start_job` 은 같은 화에서 멈춘 작업이 AI 응답을 기다리면 `EP_AI_KINDS` 작업을 409 로 막는다(`_waiting_409`, 역설계 실험 `rev_job` 과 같은 문구)
 - 멈춘 스토리보드 작업의 늦은 응답은 그 화에 스토리보드 · 본문이 없고 플롯이 확정돼 있으면 남긴다(`_keep_late_board`, 결과 `{kept}`)
 - `_keep_pending` 은 멈춘 작업의 결과를 pending.json 에 남기지 않고 지난 실패도 지우지 않는다
+- 빼 둔 새 사실 넣기 `POST …/episodes/{n}/dismissed-facts/{i}`(`pipeline.take_dismissed_fact`)
 - 반영 취소(`POST …/revert/{n}`)는 n+1화부터의 반영 기록을 pending.json 의 상태 변경안(`state:<화>`)으로 남긴다(`_revert_kept`)
 - 남긴 변경안의 base 는 반영 때 본문이다(반영 뒤 고쳤으면 `final_text`)
 - 반영 뒤 고친 화에서 이미 뽑아 둔 상태 변경안은 반영 기록으로 덮지 않는다

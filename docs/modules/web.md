@@ -479,6 +479,8 @@
   - 반영 기록에서 돌아온 변경안(반영 취소 · 단편 다시 쓰기)의 `dismissed` 는 `setDelta` 가 목록 끝에 다시 놓고(`reofferDismissed`) 기본 체크를 풀어 둔다(`d.reoffer`, 화면 전용)
   - 체크를 푼 채 다시 놓인 새 인물 · 심는 복선을 가리키는 항목도 `defaultPicks` 가 기본으로 빼 둔다(`over` 로 지금 `n` · `p` 체크를 주면 그 값을 기준으로 맞춘다)
   - 반영이 끝난 화 기록(`historyView`) 아래 접힌 '빼 둔 항목 N개'(`dismissedView`)
+  - 빼 둔 사실마다 '확정 사실에 넣기'(`takeDismissedFact`, `POST …/dismissed-facts/{i}`)
+  - 이미 있는 확정 사실과 비슷한 새 사실(`d.fact_near`)은 `defaultPicks` 가 기본으로 빼 두고 그 줄에 옛 사실을 적는다
   - 변경안 체크 `S.picks` 는 한 화 것이다(`S.picksEp`, 작품마다 따로 둔다)
   - 다른 화 변경안을 열면 `pickEp` 가 그 화에서 고친 체크(`S.picksKept`)를 되살린다
   - 고친 체크가 없으면 `pickEp` 가 지금 작품 기준 기본 체크(`defaultPicks`)로 다시 센다
