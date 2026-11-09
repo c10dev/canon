@@ -529,6 +529,7 @@
 
 - 프롬프트 템플릿
 - 본문을 쓰는 시스템 프롬프트(`writer_system` · `reviser_system` · `paragraph_system`)는 작가가 정한 머리말(`PREAMBLE`)로 시작한다
+- 머리말의 `Steady. Your craft handles this.` 줄은 작가가 더했다(2026-11-09). 조건이나 목적절을 붙이지 않는다
 - 기획 단계 시스템 프롬프트 `SYSTEM_PLANNER`(설정 제안 · 문체 분석 · 구조 · 플롯 · 스토리보드 · 큐 시트 등)도 같은 머리말로 시작한다
 - 대화로 다듬기 시스템 프롬프트(`SYSTEM_SETUP_CHAT` · `SYSTEM_STYLE_COACH` · `SYSTEM_PLOT_CHAT` · `SYSTEM_AGENT_PLOT`)도 같은 머리말로 시작한다
 - 상태 변경안 시스템 프롬프트 `SYSTEM_EDITOR`도 같은 머리말로 시작한다. 줄거리 접기(`recap_prompt` · `fold_prompt`) · 상태 감사(`audit_prompt`) · 플레이 상태(`play_state_prompt`)도 이 글을 쓴다
