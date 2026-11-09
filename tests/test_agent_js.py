@@ -43,3 +43,18 @@ def test_step_now_and_turn_end():
     assert got["took"] == "1분 12초" and got["short"] == "45초" and got["old"] == ""
     assert "끝났어요 · 1단계 · 1분 12초" in got["html"]
     assert "끝났어요 · 1단계</div>" in got["oldHtml"]
+
+
+@needs_node
+def test_continue_keeps_project_data():
+    """이어 하기 응답은 작업 정보라 project 칸이 작품 이름 글이다. 2026-11-09 그 글이 S.project 를 덮어
+    화면이 'Cannot read properties of undefined (reading 'map')' 으로 깨졌다."""
+    got = run_js(["app.js", "chat.js", "agent.js"], """(async () => {
+      S.name = 'lh'; S.project = data; S.dirty = false; S.jobs = [];
+      saveIfDirty = async () => {}; pollJobs = () => {}; agentLoad = async () => {}; render = () => {};
+      await agentAct(async () => ({ id: 'j1', kind: 'agent', project: 'lh', status: 'running' }));
+      const kept = S.project === data;
+      await agentAct(async () => ({ project: { ...data, title: '새 제목' }, job: { id: 'j2', kind: 'agent', project: 'lh' } }));
+      return { kept, title: S.project.title, jobs: S.jobs.map((j) => j.id) };
+    })()""", {"title": "옛 제목", "episodes": []})
+    assert got == {"kept": True, "title": "새 제목", "jobs": ["j1", "j2"]}

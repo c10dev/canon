@@ -503,7 +503,8 @@ async function agentAct(fn, { save = true } = {}) {
   try {
     if (save) await saveIfDirty();
     const res = await fn();
-    if (res && res.project && !S.dirty) S.project = res.project;
+    // 작업 정보(이어 하기 응답, jobs.Job.public)의 project 는 작품 이름 글이다. 작품 데이터(객체)일 때만 바꾼다
+    if (res && res.project && typeof res.project === 'object' && !S.dirty) S.project = res.project;
     if (res && res.job) { S.jobs = [...S.jobs.filter((x) => x.id !== res.job.id), res.job]; pollJobs(true); }
     else if (res && res.id && res.kind === 'agent') { S.jobs = [...S.jobs.filter((x) => x.id !== res.id), res]; pollJobs(true); }
     await agentLoad();
