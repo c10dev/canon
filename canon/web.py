@@ -5374,12 +5374,13 @@ def set_storyboard_setting(name: str, body: BoardSetting) -> Project:
 
 
 class WriteMaterial(BaseModel):
-    mode: Literal["", "scenes", "fixed"]
+    mode: Literal["", "scenes", "lean", "fixed"]
 
 
 @app.put("/api/projects/{name}/write-material")
 def set_write_material(name: str, body: WriteMaterial) -> Project:
-    """쓰기 재료의 양 (Settings.write_material). fixed 면 스토리보드 장면 · 큐 시트를 빼고 고정점만 넣는다 (board.fixed_only)."""
+    """쓰기 재료의 양 (Settings.write_material). fixed 면 스토리보드 장면 · 큐 시트를 빼고 고정점만 넣는다 (board.fixed_only).
+    lean 이면 스토리보드를 어기면 안 되는 것 · 이번 화에 쓸 것으로 나누고 설계 메모를 뺀다 (board.lean)."""
     p = _load(name)
     p.settings.write_material = body.mode
     return _save(name, p)

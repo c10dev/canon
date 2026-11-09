@@ -68,6 +68,8 @@
 - 만든 입력의 지문(`basis`) · 낡음(`stale`, 본문을 쓰기 전에만)
 - 날수 · 요일(`days`, `weekday`: 작품 기준이 없으면 직전 화 기록 글의 요일에서)
 - 시간 한 줄(`time_line`)
+- 쓰기 재료 꼭 쓸 것만(`lean`)과 그때 쓰기 요청에 남기는 이어받을 것의 종류(`LEAN_HANDOVER`)
+- 중심 장면 번호(`focus`, 장면 수 밖이면 0)
 - 상태창 단계마다 바뀌기 전 · 뒤 값(`steps`, `statwin.resolve`) · 창 글(`window_text`)
 - Canon 경고(`checks`: 맡은 장면 없는 사건 · 모르는 id · 값 범위 · 관계 단계를 두 칸 넘게 옮기는 플롯 `pace.plot_warnings`)
 - 자동 집필 멈춤 이유(`stop_reasons`, `STOP_KINDS`)
@@ -470,9 +472,16 @@
 - 오랜만에 나오는 인물은 `return_block`
 - `return_lines` 는 작가가 정한 화면 밖 근황(`CharacterState.offscreen`)이 있으면 시점 화와 함께 그 줄 끝에 붙인다. 근황이 없으면 글이 예전과 같다
 - 스토리보드 만들기 `storyboard_prompt`(Canon 이 센 값 `canon_values_block`), 고치기 `storyboard_revise_prompt`(만들기 프롬프트 뒤에 지금 스토리보드와 요청)
+- `storyboard_prompt` 는 중심 장면(`focus`)을 고르게 하고, 작가 연출 지시가 있으면 그 줄에 함께 보여 준다
 - 큐 시트 만들기 `cue_sheet_prompt(lead=)`: lead 를 주면 스토리보드 요청 글 그대로 + `board_block` + 큐 시트 요구사항(`_cue_request`). 응답 형식은 같다
 - lead 안에 장면 연출이 이미 있어 다시 넣지 않는다. 요구사항 첫 줄이 다음 화 플롯 사건을 큐에 넣지 말고 시간 · 이동 · 장면 순서는 스토리보드를 따르라고 적는다
 - 쓰기에 넣는 `board_block`(직전 화 본문 뒤, 이번 화 플롯 바로 앞, 시간 · 이동 블록을 대신함)
+- `board_block(write=True)` 는 쓰기 재료가 꼭 쓸 것만이면 `lean_board_block` 을 돌려준다. 큐 시트 만들기는 write 를 끄고 전체를 본다
+- `lean_board_block` 은 '어기면 안 되는 것'(시간 · 기한 · 이어받을 것 중 `board.LEAN_HANDOVER`)을 앞에, '이번 화에 쓸 것'(장면 · 중심 장면 · 뜨는 상태창 · 이동 · 차림이 바뀌는 순간)을 뒤에 둔다
+- `lean_board_block` 은 장면 끝 상태 · 깨지 않을 것 · 끝 차림 목록 · 창이 뜨지 않는 상태창 변화를 넣지 않는다
+- 쓰기 요청의 무게 문장 `focus_line`: 꼭 쓸 것만이고 중심 장면이 있으면 그 장면에 분량의 절반쯤, 아니면 `FOCUS_LINE`
+- 큐 시트 만들기 `cue_focus_rule`: 꼭 쓸 것만이고 중심 장면이 있으면 그 장면 큐들의 length 합을 절반쯤으로
+- `cue_sheet_block(exits=False)` 는 큐 끝 상태를 뺀다. `cue_write_block` 이 꼭 쓸 것만일 때 쓴다
 - 직전 화 블록 `prev_block`(스토리보드를 넣는 화와 스토리보드 만들기만 원문 전체, `build_episode_context(full_prev=)`)
 - 장편은 스토리보드가 없을 때만 넣는 시간 · 이동 · 장면 연출 블록과 `pre`(스토리보드 만들기의 Canon 값 · 장소 목록)를 직전 화 본문 뒤에 둔다. 단편 차례는 그대로다
 - 장편 쓰기 가족 앞부분 `write_head`: 작품 고정 블록부터 직전 화 본문 원문까지(`build_episode_context(head_only=True)`). 스토리보드 만들기 · 큐 시트 · 스토리보드로 본문 쓰기가 이 글로 시작한다. 단편은 빈 글
@@ -581,6 +590,8 @@
 - 화별 스토리보드(`Episode.storyboard`, `Storyboard`: 장면 · 시간 · 상태창 바뀐 양 · 이동 · 끝 차림 · 넘겨받을 것 · 깨지 않을 것 · 경고)는 상태 승인 대상이 아니다
 - 스토리보드 켜기는 `Settings.storyboard`(비우면 장편 켬 · 단편 끔)
 - 쓰기 재료는 `Settings.write_material`(fixed 면 고정점만: `board.fixed_only`, 장면 목록 · 큐 시트를 쓰기 요청에서 뺌, `cue.on` 끔)
+- 쓰기 재료 lean 은 꼭 쓸 것만(`board.lean`): 쓰기 요청의 스토리보드를 거르고 큐 끝 상태를 뺀다. 데이터 · 큐 시트 만들기 · 검수는 그대로다
+- 스토리보드의 중심 장면은 `Storyboard.focus`(1부터, 0 은 고르지 않음, `board.focus` 가 장면 수 밖이면 0). 꼭 쓸 것만에서만 쓰기 · 큐 시트 지시가 된다
 - 화별 큐 시트(`Episode.cue_sheet`, `CueSheet`)도 상태 승인 대상이 아니다
 - 큐 시트 켜기는 `Settings.cue_sheet`(비우면 장편 켬 · 단편 끔)
 - 되풀이한 구절 블록 켜기는 `Settings.recent_echoes`(기본 켬, 장편에만 넣음)

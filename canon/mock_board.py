@@ -33,5 +33,5 @@ def _board(prompt: str, hint: dict) -> StoryboardDraft:
     return StoryboardDraft(
         scenes=scenes, time=BoardTime(after=0, part="새벽", days=1, end_part="아침"), stats=stats,
         stat_basis=["직전 화 끝 값에서 셈"] if stats else [],
-        handover=[BoardHandover(kind="장면", text="직전 화 마지막 장면에서 이어진다")],
+        handover=[BoardHandover(kind="장면", text="직전 화 마지막 장면에서 이어진다")], focus=1,
         protect=["다음 화 첫 사건의 전제를 깨지 않는다"], warnings=warnings)

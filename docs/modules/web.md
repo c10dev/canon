@@ -130,6 +130,7 @@
 - 본문 없는 화의 만들기 · 바로 쓰기 · 스토리보드 없이 쓰기(`boardStart`)
 - 만든 카드(`boardCard`: 어긋남 · 확정 값 · 넘겨받을 것 · 깨지 않을 것 · 장면, 낡음 표시, 다시 만들기 · 이대로 쓰기)
 - 고치기(`boardForm`, 칸 글 읽기 `boardParse`, `tests/test_storyboard.py`)
+- 만든 카드는 중심 장면(`focus`)에 '중심 장면' 칩을 단다. 고치기에는 중심 장면 번호 칸이 있고, 장면을 빼면 번호를 맞춘다(`boardScene`)
 - 저장한 것과 다른 고치기 칸과 보내지 않은 'AI에게 고치기' 요청은 페이지를 떠날 때 묻는다(`boardUnsaved`, `app.js` `onKeptDraft`)
 - 쓴 화의 접은 카드(`boardPanel`)
 - 계산 값은 `GET …/storyboard`(`board.view`)

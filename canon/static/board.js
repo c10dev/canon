@@ -154,7 +154,7 @@ function boardBody(n, b, v) {
   const covered = new Set(b.scenes.flatMap((s) => s.events));
   const missing = Array.from({ length: events }, (_, i) => i + 1).filter((k) => !covered.has(k));
   parts.push(`<div class="bd-sec"><h3 class="bd-h">장면 ${b.scenes.length} <span class="small">${missing.length ? `사건 ${missing.join(', ')}번을 맡은 장면이 없어요` : events ? `사건 1~${events}을 모두 나눠 맡았어요` : ''}</span></h3>
-    <ol class="bd-scenes">${b.scenes.map((s) => `<li><div><strong>${esc([s.place, s.spot].filter(Boolean).join(' · '))}</strong>${s.time ? ` · ${esc(s.time)}` : ''}${s.present.length ? ` · ${esc(s.present.map(name).join(', '))}` : ''}${s.events.length ? ` <span class="chip">사건 ${s.events.join(', ')}</span> ${boardStageLink(n, s)}` : ''}</div>
+    <ol class="bd-scenes">${b.scenes.map((s, i) => `<li><div>${b.focus === i + 1 ? '<span class="chip">중심 장면</span> ' : ''}<strong>${esc([s.place, s.spot].filter(Boolean).join(' · '))}</strong>${s.time ? ` · ${esc(s.time)}` : ''}${s.present.length ? ` · ${esc(s.present.map(name).join(', '))}` : ''}${s.events.length ? ` <span class="chip">사건 ${s.events.join(', ')}</span> ${boardStageLink(n, s)}` : ''}</div>
       ${s.goal ? `<div class="small">목표 · ${esc(s.goal)}</div>` : ''}${s.turn ? `<div class="small">전환 · ${esc(s.turn)}</div>` : ''}${s.end_state ? `<div class="small">끝 · ${esc(s.end_state)}</div>` : ''}</li>`).join('')}</ol></div>`);
   return parts.join('');
 }
@@ -179,7 +179,7 @@ function boardForm(n, d) {
     <h3 class="bd-h">시간</h3>
     <div class="grid-2">${inp('time.after', t.after, '직전 화 끝에서 며칠 뒤 (같은 날 0, 메인 시간 밖 -1)', 'int')}${inp('time.days', t.days, '걸치는 날 수', 'int')}</div>
     <div class="grid-2">${inp('time.part', t.part, '시작 시간대')}${inp('time.end_part', t.end_part, '끝 시간대')}</div>
-    <h3 class="bd-h">장면</h3>${scenes}<button class="btn small" data-action="boardScene" data-arg="add">장면 더하기</button>
+    <h3 class="bd-h">장면</h3>${inp('focus', d.focus || 0, '중심 장면 번호 (분량의 절반쯤을 쓸 장면, 0 이면 고르지 않음)', 'int')}${scenes}<button class="btn small" data-action="boardScene" data-arg="add">장면 더하기</button>
     ${stats ? `<h3 class="bd-h">상태창</h3>${stats}` : ''}
     <h3 class="bd-h">넘겨받을 것 <span class="small">한 줄에 하나, '종류: 내용' (종류는 ${BOARD_KINDS.join(' · ')})</span></h3>
     <textarea data-bd="handover" data-bd-type="handover" rows="5" aria-label="넘겨받을 것">${esc(d.handover.map((h) => (h.kind ? `${h.kind}: ` : '') + h.text).join('\n'))}</textarea>
@@ -301,7 +301,12 @@ Object.assign(actions, {
     const d = S.boardEdit && S.boardEdit.draft;
     if (!d) return;
     if (arg === 'add') d.scenes.push({ place: '', spot: '', time: '', present: [], events: [], goal: '', turn: '', end_state: '' });
-    else d.scenes.splice(Number(String(arg).split(':')[1]), 1);
+    else {
+      const i = Number(String(arg).split(':')[1]);
+      d.scenes.splice(i, 1);
+      if (d.focus === i + 1) d.focus = 0;  // 뺀 장면이 중심 장면이면 고르지 않은 것으로, 뒤 장면이면 번호를 당긴다
+      else if (d.focus > i + 1) d.focus -= 1;
+    }
     render();
   },
   async boardSave(n) {
