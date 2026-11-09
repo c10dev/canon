@@ -138,8 +138,10 @@ function nextStale(m) {
 }
 
 /** 화면 머리의 '대화로 다듬기' 버튼 (플롯 · 설정 도우미 · 문체 화면). 어느 화면에서든 대화 에이전트 패널을 열고 닫는다 */
+/** 대화 패널 열기 버튼: 머리 줄 끝의 아이콘 버튼. 켜져도 테두리를 진하게 하지 않는다 (.chat-toggle, docs/design/components/Button) */
 function chatButton() {
-  return `<button class="btn${S.chatOpen ? ' on' : ''}" data-action="toggleChat" aria-pressed="${S.chatOpen}">${CHAT_TOPICS.plot.title}</button>`;
+  const name = CHAT_TOPICS.plot.title;
+  return `<button type="button" class="btn icon-btn chat-toggle" data-action="toggleChat" aria-pressed="${S.chatOpen}" aria-label="${name}" title="${name}">${SIDE_ICON.chat}</button>`;
 }
 
 // ----- 패널 하나: 화면이 주는 기본 대상 -----

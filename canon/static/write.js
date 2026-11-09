@@ -51,7 +51,9 @@ function finNote(html) {
     동작이 있는 다음 할 일(완결 원고 내보내기)은 이 화면에서 부르므로 늘 둔다 */
 function nextStepBtn() {
   const next = nextStep();
-  return !next[2] && next[1] === `${base()}/${S.route.slice(2).map(enc).join('/')}` ? '' : nextStepHtml(next);
+  if (!next[2] && next[1] === `${base()}/${S.route.slice(2).map(enc).join('/')}`) return '';
+  // 완결 원고 내보내기는 이 화의 일이 아니라 보조 버튼으로 둔다. 집필 화면의 주 버튼은 화 상태의 다음 일 하나다 (docs/design/README.md '주 버튼 셈')
+  return nextStepHtml(next, next[2] === 'exportAll' ? 'btn' : 'btn primary');
 }
 
 // 이번 화 플롯 띠 (본문 칸 머리). 본문이 있는 화는 마지막으로 고른 펼침을 브라우저에 기억하고, 본문이 없는 화는 펼쳐서 시작한다
@@ -116,12 +118,12 @@ function dirCard(n) {
     return `<section class="card w-dir" aria-labelledby="w-dir-h">${head}
       ${arc ? `<div class="field"><label for="dir-arc">이번 아크 동안 <span class="hint">${arcName}의 화를 쓰는 동안 넣어요</span></label><textarea id="dir-arc" rows="2" placeholder="예: 장면 끝마다 짧은 대사로 끊고, 싸움 장면은 길게 써요">${esc(typed['dir-arc'] ?? a)}</textarea></div>` : ''}
       <div class="field"><label for="dir-ep">이번 화만 <span class="hint">${n}화를 쓸 때만 넣어요</span></label><textarea id="dir-ep" rows="2" placeholder="예: 회상은 한 문단으로 줄이고 대화 장면을 길게 써요">${esc(typed['dir-ep'] ?? d)}</textarea></div>
-      <div class="row"><button type="button" class="btn primary small" data-action="dirSave" data-arg="${n}">저장</button><button type="button" class="btn small" data-action="dirCancel">취소</button></div>
+      <div class="row"><button type="button" class="btn small" data-action="dirSave" data-arg="${n}">저장</button><button type="button" class="btn small" data-action="dirCancel">취소</button></div>
     </section>`;
   }
   const rows = [arc && a ? [`이번 아크 동안 <span class="hint">${arcName}</span>`, a] : null, d ? [e.text ? `${n}화를 쓸 때 준 지시` : '이번 화만', d] : null]
     .filter(Boolean).map(([t, v]) => `<div class="field"><span class="small">${t}</span><div class="w-dir-text">${esc(v)}</div></div>`).join('');
-  return `<section class="card w-dir" aria-labelledby="w-dir-h">${head}${rows}</section>`;
+  return `<section class="sec w-dir" aria-labelledby="w-dir-h">${head}${rows}</section>`;
 }
 
 document.addEventListener('input', (ev) => {
@@ -531,7 +533,7 @@ function viewEpisode(n, panel = 'write') {
   const waitNote = paneWait ? `<div class="note info" role="status">${n}화 본문이 아직 없어요. 본문을 쓰고 저장한 뒤 ${panel === 'check' ? '검수해요' : '상태를 정리해요'}.${e.status === 'draft' ? '' : ' 아래 집필 칸에서 쓸 수 있어요.'}</div>` : '';
   const hint = pane && pane.hint && e.text ? pane.hint : e.status === 'draft' ? '플롯을 확정하면 본문을 쓸 수 있어요' : e.text ? `고칠 부분을 드래그하거나 길게 누르면 직접 고치거나 AI에게 맡기거나 나중에 고칠 곳으로 담을 수 있어요${typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches ? '. 밑줄 친 곳은 한 번 더 누르면 이름 카드 · 도구가 떠요' : ''}` : '본문을 직접 고친 뒤 저장할 수 있어요';
 
-  return `<div class="w-headwrap"><header class="page-head w-head${pane && pane.head ? ` ${pane.head}` : ''}"><div class="row" style="gap:12px">${epNav(panel, n)}<div class="w-tl"><div class="lead" style="gap:2px"><div class="eyebrow">${act ? actLabel(act.name) + ' 구간 · ' : ''}${n} / ${P().meta.target_episodes}화</div><h1 style="font-size:var(--w-h1, 1.5rem)">${n}화 ${esc(e.plot.title)}</h1></div>${povBadge(n)}<span class="chip ${e.status}">${STATUS[e.status]}</span>${e.auto ? '<span class="chip ai">자동 반영</span>' : ''}${e.text && writerLabel(e.written_by) ? `<span class="small w-model" title="이 본문을 쓴 모델이에요. 직접 고쳐도 바뀌지 않아요">쓴 모델 · ${esc(writerLabel(e.written_by))}</span>` : ''}</div></div><div class="row">${right}</div></header>${flowBar(n, panel)}</div>
+  return `<div class="w-headwrap"><header class="page-head w-head${pane && pane.head ? ` ${pane.head}` : ''}"><div class="row" style="gap:12px">${epNav(panel, n)}<div class="w-tl"><div class="lead" style="gap:2px"><div class="eyebrow">${act ? actLabel(act.name) + ' 구간 · ' : ''}${n} / ${P().meta.target_episodes}화</div><h1 style="font-size:var(--w-h1, 1.375rem)">${n}화 ${esc(e.plot.title)}</h1></div>${povBadge(n)}<span class="chip ${e.status}">${STATUS[e.status]}</span>${e.auto ? '<span class="chip ai">자동 반영</span>' : ''}${e.text && writerLabel(e.written_by) ? `<span class="small w-model" title="이 본문을 쓴 모델이에요. 직접 고쳐도 바뀌지 않아요">쓴 모델 · ${esc(writerLabel(e.written_by))}</span>` : ''}</div></div><div class="row">${right}</div></header>${flowBar(n, panel)}</div>
     ${panel !== 'write' ? autoLockNote() : ''}${waitNote}
     ${panel === 'write' ? gistCard(n) : ''}
     ${e.auto ? `<div class="note info">이 화는 자동 집필이 검토 없이 반영했어요. 읽어 보고 문제가 있으면 <a href="${base()}/auto">자동 집필</a>에서 이 화부터 되돌릴 수 있어요.</div>` : ''}

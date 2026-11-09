@@ -741,7 +741,7 @@ function viewSetupWizard() {
   const bodies = [wizBasics, wizLogline, wizWorld, wizCast, wizRels, wizFinish];
   // 빈칸 AI 제안은 옛 설정 대화 패널 아래에 있었다(04e 에서 패널을 지움). 한 장 보기처럼 머리에 둔다
   const sug = ((b) => `<button type="button" class="btn" data-action="suggest"${b.attr} title="비어 있는 칸과 새 인물 · 관계를 한 번에 제안해요. 채운 칸은 건드리지 않고, 고른 것만 적용해요">${b.label}</button>`)(jobBtn('suggest', null, '빈칸 AI 제안받기'));
-  const right = `${sug}${chatButton()}<button type="button" class="btn ghost" data-action="setupMode" data-arg="doc">한 장으로 모두 보기</button>`;
+  const right = `${sug}<button type="button" class="btn ghost" data-action="setupMode" data-arg="doc">한 장으로 모두 보기</button>${chatButton()}`;
   return `${header('1단계 · 새 작품', '설정 도우미', '', right)}
     ${aiNote()}
     ${S.suggestion ? viewSuggestion() : ''}
@@ -918,7 +918,7 @@ function viewSetupDoc() {
   const first = !p.characters.length;
   const sug = ((b) => `<button type="button" class="btn${first ? ' primary' : ''}" data-action="suggest"${b.attr} title="비어 있는 칸과 새 인물 · 관계를 한 번에 제안해요. 채운 칸은 건드리지 않고, 고른 것만 적용해요">${b.label}</button>`)(jobBtn('suggest', null, '빈칸 AI 제안받기'));
   const go = (cls) => `<a class="btn${first ? '' : ' primary'} ${cls}" href="${base()}/style">문체 레퍼런스로</a>`;
-  return `${header('1단계 · 기획서', '설정 도우미', `<span id="setup-sum">${esc(docSummary(p))}</span>`, `${sug}${chatButton()}${go('setup-go')}`)}
+  return `${header('1단계 · 기획서', '설정 도우미', `<span id="setup-sum">${esc(docSummary(p))}</span>`, `${sug}${go('setup-go')}${chatButton()}`)}
     ${aiNote()}
     ${S.suggestion ? viewSuggestion() : ''}
     ${outlineDoc(docToc(), `<div class="setup-secs">
@@ -944,7 +944,7 @@ function viewSetupDoc() {
         ${namePicks('place', 'addPlace', (n) => n)}
         ${input('이름 규칙', 'world.name_rules', { kind: 'list', rows: 2, placeholder: "예: 북부 귀족은 성 앞에 '폰'을 붙인다" })}
       </section>
-      <section class="card" id="setup-chars" aria-labelledby="h-setup-chars">
+      <section class="sec" id="setup-chars" aria-labelledby="h-setup-chars">
         ${secHead(3, `인물 <span class="small">${p.characters.length}명</span>`, `<div class="row"><button type="button" class="btn small ghost" data-action="checkNames" title="글자가 겹치는 이름, 나이와 안 맞는 이름, AI가 자주 짓는 이름을 찾아요">이름 점검</button><button type="button" class="btn small" data-action="dexRoll" title="원형 · 상처 · 말투 · 비틀기 · 이름을 무작위로 섞어 3안을 보여 줘요">도감 주사위 굴리기</button><button type="button" class="btn small" data-action="addCharacter">+ 인물 더하기</button></div>`)}
         <p class="small">이름 · 말투 · 성격은 화마다 바뀌지 않아요.${help('화마다 바뀌는 감정과 목표는 상태 승인에서 다뤄요. 주역은 매 화, 조연 · 단역은 나오는 화에만 AI에 들어가요.')}</p>
         ${nameCheckBox()}
@@ -952,7 +952,7 @@ function viewSetupDoc() {
         ${p.characters.length ? `<div class="setup-rows">${p.characters.map(charRow).join('')}</div>` : '<div class="note plain">인물이 없어요. 직접 더하거나 빈칸 AI 제안을 받으세요.</div>'}
       </section>
       ${setupStatLink()}
-      <section class="card" id="setup-rels" aria-labelledby="h-setup-rels">
+      <section class="sec" id="setup-rels" aria-labelledby="h-setup-rels">
         ${secHead(4, `관계 <span class="small">${p.relationships.length}개</span>`, `<button type="button" class="btn small" data-action="addRelationship"${autoOn() ? ' disabled' : ''}>+ 관계 더하기</button>`)}
         <p class="small">${p.snapshots.length ? '첫 반영 뒤에는 본문의 관계 사건으로 계산돼요.' : '서로 어떻게 보는지 고르면 시작 관계를 계산해요. 긴장은 자동 계산이에요.'}</p>
         ${lock}
@@ -972,7 +972,7 @@ function viewSetupDoc() {
 function setupStatLink() {
   const p = P();
   if (!swWanted(p) && !(swWin().names || []).length && !p.states.some((s) => (s.stats || []).length)) return '';
-  return `<section class="card tight" id="setup-stats"><div class="between"><span><strong>상태창</strong> <span class="small">레벨 · 스킬처럼 본문 상태창에 나오는 값은 작품 틀과 처음 수치를 상태창 수치 화면에서 정해요</span></span>
+  return `<section class="sec" id="setup-stats"><div class="between"><span><strong>상태창</strong> <span class="small">레벨 · 스킬처럼 본문 상태창에 나오는 값은 작품 틀과 처음 수치를 상태창 수치 화면에서 정해요</span></span>
     <a class="btn small" href="${base()}/statwin">상태창 수치</a></div></section>`;
 }
 

@@ -277,7 +277,7 @@ function heatCard(p, arc = null) {
   const draft = S.heatDraft && Number(S.heatDraft.arc || 0) === h.number ? heatDraftCard(S.heatDraft, h) : '';
   const where = arc ? '이 아크의 ' : '';
   if (!steps.length) {
-    return `<section class="card heat-card" aria-label="완급 계획"><div class="between"><h2>${arc ? '이 아크의 완급 계획' : '완급 계획'}</h2>
+    return `<section class="sec heat-card" aria-label="완급 계획"><div class="between"><h2>${arc ? '이 아크의 완급 계획' : '완급 계획'}</h2>
       <span class="row"><button type="button" class="btn small" data-action="heatStart">직접 적기</button>${heatAiButton(h)}</span></div>
       <p class="small">${where}긴장과 보상을 언제 아끼고 언제 쓸지 정해요.${help('기승전결이 무슨 일이 일어나는지 정한다면, 완급 계획은 긴장과 보상을 언제 쓸지 정해요. 화마다 세기를 적으면 정점 앞뒤에 판돈 · 관객 · 결과가 있는지 알려 줘요. AI로 받으면 본문이 있는 화의 계획은 그대로 둬요.')}</p>${draft}</section>`;
   }
@@ -286,7 +286,7 @@ function heatCard(p, arc = null) {
   const actual = heatActual(p);
   const sel = steps.some((s) => s.ep === S.heatSel) ? S.heatSel : 0;
   const t = h.obj.heat_turn || {};
-  return `<section class="card heat-card" aria-label="완급 계획"><div class="between"><h2>${arc ? '이 아크의 완급 계획' : '완급 계획'}</h2>
+  return `<section class="sec heat-card" aria-label="완급 계획"><div class="between"><h2>${arc ? '이 아크의 완급 계획' : '완급 계획'}</h2>
       <span class="row">${heatAiButton(h)}<button type="button" class="btn small" data-action="heatClear">완급 계획 지우기</button></span></div>
     ${draft}
     ${input('완급 원칙', `${h.base}heat_rule`, { placeholder: '예: 앞 절반은 세기를 아끼며 쌓고, 큰 정점은 전 구간 끝 두 화' })}

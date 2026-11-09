@@ -27,9 +27,9 @@
 | 6 | 05 | AI 답 흘려 보이기 (본문 쓰기 먼저) | 끝 ([#445](https://github.com/c10dev/canon/pull/445) 머지) | [05-streaming.md](specs/05-streaming.md) | — |
 | 7 | 06 | 집필 화면에서 상태 변경안 훑고 고르기 | 끝 ([#448](https://github.com/c10dev/canon/pull/448) 머지) | [06-inline-review.md](specs/06-inline-review.md) | — |
 | 8 | 07 | 메뉴 · 버튼 줄이기 | 끝 ([#449](https://github.com/c10dev/canon/pull/449) 머지, 정할 것은 추천안대로) | [07-menu-trim.md](specs/07-menu-trim.md) | — |
-| 12 | 09 | 안내 문구 덜어 내기 (개념 하나에 설명 한 번, 내부 용어 지우기) | PR ([#458](https://github.com/c10dev/canon/pull/458)) | [09-copy-edit.md](specs/09-copy-edit.md) | — |
+| 12 | 09 | 안내 문구 덜어 내기 (개념 하나에 설명 한 번, 내부 용어 지우기) | 끝 ([#458](https://github.com/c10dev/canon/pull/458) 머지) | [09-copy-edit.md](specs/09-copy-edit.md) | — |
 | 11 | 10 | AI 상투 기호 빼기 (✦, 판에 박힌 예시 알약) | 끝 ([#456](https://github.com/c10dev/canon/pull/456) 머지) | [10-ai-tells.md](specs/10-ai-tells.md) | — |
-| 미정 | 11 | 화면 위계 세우기 (주 버튼 하나, 카드 덜기, 토큰 밖 값) | 설계 | [11-hierarchy.md](specs/11-hierarchy.md) | — |
+| 13 | 11 | 화면 위계 세우기 (주 버튼 하나, 카드 덜기, 토큰 밖 값) | PR (PR_LINK) | [11-hierarchy.md](specs/11-hierarchy.md) | — |
 | 4 | 12 | 숫자와 빈 칸 접기 (지표 칩, "비어 있음" 줄) | 끝 ([#434](https://github.com/c10dev/canon/pull/434) 머지) | [12-quiet-data.md](specs/12-quiet-data.md) | — |
 | 미정 | 13 | 빼는 규칙 (디자인 시스템 '덜기' 절과 기준 수 시험) | 설계 | [13-subtract-rule.md](specs/13-subtract-rule.md) | 09 · 11 의 세기 |
 | 미정 | 14 | 브랜드 손보기 (제목 글꼴, 귤색 자리, 사이드바 아이콘, 시안 먼저) | 설계 | [14-brand.md](specs/14-brand.md) | 11 |
