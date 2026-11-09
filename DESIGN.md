@@ -838,7 +838,7 @@ Gemini 플롯 대화는 명시 캐시를 쓴다(`llm.GeminiLLM._cached`, `settin
   - 워크플로를 코드에 박지 않은 것은 체크포인트(NoobAI · Anima 등)와 ControlNet · 인페인트 노드 구성이 서버 팩마다 달라서다. Canon 은 틀의 글 칸만 채운다.
   - NovelAI 문법은 SD 태그로 옮긴다: `girl` · `boy` · `other` 를 빼며, `1.2::tag ::` 는 `(tag:1.2)`, `rating:x` 는 Danbooru 등급 낱말로.
   - 인물을 영역별로 그리는 틀은 `{{main}}` · `{{char1}}`~`{{char3}}` · `{{multi:A:B}}` 로 인물 칸을 채운다. 인물 칸이 없는 틀에는 인물을 한 줄로 합쳐 넣고 외형이 섞일 수 있다고 알린다.
-  - 실측(2026-11-09, B200 MIG 1g): 기본 틀(SDXL 832x1216 28스텝) 30초, 사용자 올인원 틀(하이레즈 · 얼굴 · 눈 디테일러, 1536px) 한 장 192초(샘플링 약 110초), ComfyUI 를 다시 띄운 뒤 첫 장은 모델을 읽느라 435초. 올인원 틀의 리저널 모드(NakoMultiAreaConditioning)는 스텝당 100초가 넘어 아직 쓰지 않는다.
+  - 실측(2026-11-09, B200 MIG 1g): 기본 틀(SDXL 832x1216 28스텝) 30초, 사용자 올인원 틀(하이레즈 · 얼굴 · 눈 디테일러, 1536px) 한 장 192초(샘플링 약 110초), ComfyUI 를 다시 띄운 뒤 첫 장은 모델을 읽느라 435초. 올인원 틀의 리저널 모드(NakoMultiAreaConditioning, 기본 칸 비중 0.5)는 인물 둘을 제자리에 그리고 한 장 127초. 처음에는 스텝당 100초가 넘었는데, 컨테이너가 CPU 72개를 보여 torch 가 스레드를 72개 띄운 탓이었다(작은 CPU 연산 하나 280ms). ComfyUI 를 OMP_NUM_THREADS=8 로 띄우면 풀린다.
   - 그림은 작품 폴더 `illust/<16자리 16진수>.png` 이고 기록은 `Illustration.images`(삽화마다 8장). 데이터가 가리키지 않는 파일은 `comfy.prune` 이 지운다. 그리기는 작업 `illust_render` 이고 LLM 이 아니라 사용량 기록에 잡지 않는다.
 
 ## 6. LLM 프로바이더
