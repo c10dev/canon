@@ -296,3 +296,88 @@ def test_config_broken_error_refreshes_config():
       return { calls, broken: S.config.config_broken };
     })()""", {})
     assert ["GET", "/config"] in got["calls"] and got["broken"] is True
+
+
+BLOCKS_STATE = """
+  setPaint = () => {};
+  S.name = 'sr';
+  S.dirty = false;
+  S.route = ['p', 'sr', 'write', '3'];
+  S.project = { meta: { form: 'serial' }, settings: { blocks: [], budgets: [] }, relationships: [], episodes: [] };
+  SET.blocks = { name: 'sr',
+    blocks: [{ id: 'facts', title: '확정된 사실', locked: false, toggle: true, front: false, note: '', on: true, keys: ['facts'] },
+             { id: 'world', title: '세계관', locked: false, toggle: true, front: true, note: '', on: true, keys: [] }],
+    budgets: [{ key: 'facts', value: 1500, default: 1500, min: 300, max: 6000 }] };
+  const calls = [];
+  const waits = [];
+  // PUT 은 시험이 풀어 줄 때까지 기다린다 (ok 면 보낸 몸통을 설정으로 돌려주고, 아니면 거절)
+  api = (m, u, body) => {
+    calls.push([m, u, body ? JSON.parse(JSON.stringify(body)) : null]);
+    if (m !== 'PUT') return Promise.resolve([]);
+    return new Promise((res, rej) => waits.push((ok) => (ok ? res({ meta: { form: 'serial' }, settings: body, relationships: [], episodes: [] }) : rej(new Error('저장하지 못했어요')))));
+  };
+  const tick = async () => { for (let i = 0; i < 10; i += 1) await Promise.resolve(); };
+  const puts = () => calls.filter((c) => c[0] === 'PUT').map((c) => c[2]);
+  const state = () => ({ facts: SET.blocks.blocks[0].on, world: SET.blocks.blocks[1].on, budget: SET.blocks.budgets[0].value });
+"""
+
+
+@needs_node
+def test_block_saves_go_one_by_one_and_send_the_last_change():
+    """스위치를 빠르게 두 번 누르면 두 번째 저장은 첫 저장이 끝난 뒤 그때 값(다시 켬)을 보낸다"""
+    got = run_js(FILES, "(async () => {" + BLOCKS_STATE + """
+      actions.setBlock('facts');
+      actions.setBlock('facts');
+      await tick();
+      const sentFirst = puts().length;
+      waits[0](true);
+      await tick();
+      const sentSecond = puts().length;
+      waits[1](true);
+      await tick();
+      return { sentFirst, sentSecond, bodies: puts(), state: state() };
+    })()""", {})
+    assert got["sentFirst"] == 1 and got["sentSecond"] == 2  # 앞 저장이 끝나야 다음을 보낸다
+    assert got["bodies"][0]["blocks"] == [] and got["bodies"][1]["blocks"] == []  # 둘 다 보낼 때의 마지막 값(켬)
+    assert got["state"]["facts"] is True
+
+
+@needs_node
+def test_failed_block_save_reverts_only_its_own_change():
+    """앞 저장(블록 끄기)이 거절되면 그 변경만 되돌리고, 뒤 저장(예산)은 끈 블록 없이 보낸다"""
+    got = run_js(FILES, "(async () => {" + BLOCKS_STATE + """
+      actions.setBlock('facts');
+      const g = SET.blocks.budgets[0];
+      setBlocksSave('budgets', () => { g.value = 2000; }, false);
+      actions.setBlock('world');
+      await tick();
+      waits[0](false);
+      await tick();
+      const afterFail = state();
+      waits[1](true);
+      await tick();
+      waits[2](true);
+      await tick();
+      return { afterFail, bodies: puts(), state: state(), note: SET.note.blocks, server: S.project.settings };
+    })()""", {})
+    assert got["afterFail"] == {"facts": True, "world": False, "budget": 2000}
+    assert got["bodies"][1] == {"blocks": [{"id": "world", "on": False}], "budgets": [{"key": "facts", "value": 2000}]}
+    assert got["state"] == {"facts": True, "world": False, "budget": 2000}
+    assert got["server"]["blocks"] == [{"id": "world", "on": False}]
+
+
+@needs_node
+def test_block_save_drops_the_cached_prompt_text():
+    """블록 설정을 저장하면 들고 있던 프롬프트 원문과 토큰 센 값을 버리고 컨텍스트 표를 다시 받는다"""
+    got = run_js(FILES, "(async () => {" + BLOCKS_STATE + """
+      S.context = [{ id: 'facts' }];
+      S.promptText = '[시스템]\\n옛 요청';
+      S.ctxCount = { k: 'sr:3', tokens: 10 };
+      actions.setBlock('facts');
+      await tick();
+      waits[0](true);
+      await tick();
+      return { prompt: S.promptText, count: S.ctxCount, gets: calls.filter((c) => c[0] === 'GET').map((c) => c[1]) };
+    })()""", {})
+    assert got["prompt"] is None and got["count"] is None
+    assert "/projects/sr/episodes/3/context" in got["gets"]

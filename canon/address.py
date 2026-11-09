@@ -191,17 +191,21 @@ def lines(p: Project, ids: set[str] | None = None) -> list[str]:
     return out
 
 
-def block(p: Project, ids: set[str] | None, head: str = "# 호칭 · 말씨") -> str:
-    """쓰기 · 검수 · 상태 변경안에 넣는 이번 화 인물끼리의 호칭 · 말씨. 장편은 BUDGET['address'] 까지 넣고 뺀 수를 적는다. 없으면 빈 글."""
+def block(p: Project, ids: set[str] | None, head: str = "# 호칭 · 말씨", *, budget: int = 0, trace=None) -> str:
+    """쓰기 · 검수 · 상태 변경안에 넣는 이번 화 인물끼리의 호칭 · 말씨. 장편은 예산(budget, 비우면 BUDGET['address'])까지 넣고 뺀 수를 적는다. 없으면 빈 글.
+    쓰기 가족만 작품 예산(context.budget)을 budget 으로 넘긴다. trace(context.Trace)를 주면 예산으로 뺀 줄을 'address' 블록에 적는다."""
     rows = lines(p, ids)
     if not rows:
         return ""
     cut = 0
     if p.serial:
         keep, used = [], 0
+        limit = budget or context.BUDGET["address"]
         for r in rows:
-            if used + len(r) + 1 > context.BUDGET["address"]:
+            if used + len(r) + 1 > limit:
                 cut += 1
+                if trace is not None:
+                    trace.drop("address", r.removeprefix("- "), context.DROP_BUDGET)
                 continue
             keep.append(r)
             used += len(r) + 1

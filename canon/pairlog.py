@@ -31,8 +31,9 @@ def _names(p: Project) -> dict[str, str]:
     return {c.id: c.name or c.id for c in p.characters}
 
 
-def write_lines(p: Project, n: int, ids: set[str], budget: int) -> tuple[list[str], int]:
-    """쓰기 블록 줄: ids(이번 화 플롯 인물) 끼리의 쌍마다 한 줄. 최근에 사건이 있던 쌍부터 예산(글자)까지. (줄, 뺀 쌍 수)"""
+def write_lines(p: Project, n: int, ids: set[str], budget: int, trace=None) -> tuple[list[str], int]:
+    """쓰기 블록 줄: ids(이번 화 플롯 인물) 끼리의 쌍마다 한 줄. 최근에 사건이 있던 쌍부터 예산(글자)까지. (줄, 뺀 쌍 수)
+    trace(context.Trace)를 주면 예산으로 뺀 줄을 'pairs' 블록에 적는다."""
     nm = _names(p)
     rows = []
     for (a, b), evs in history(p, n).items():
@@ -51,15 +52,18 @@ def write_lines(p: Project, n: int, ids: set[str], budget: int) -> tuple[list[st
     out, used = [], 0
     for _, line in rows:
         if used + len(line) + 1 > budget:
+            if trace is not None:
+                from . import context
+                context.trace_drops(trace, "pairs", [line])
             continue
         out.append(line)
         used += len(line) + 1
     return out, len(rows) - len(out)
 
 
-def write_block(p: Project, n: int, ids: set[str], budget: int) -> str:
-    """쓰기 프롬프트 블록. 이번 화 플롯 인물끼리 지난 사건이 없으면 빈 글."""
-    lines, cut = write_lines(p, n, ids, budget)
+def write_block(p: Project, n: int, ids: set[str], budget: int, trace=None) -> str:
+    """쓰기 프롬프트 블록. 이번 화 플롯 인물끼리 지난 사건이 없으면 빈 글. trace 는 write_lines 에 넘긴다."""
+    lines, cut = write_lines(p, n, ids, budget, trace)
     if not lines:
         return ""
     return ("\n\n# 두 사람 사이에 있었던 일 (승인된 관계 사건, 이번 화 인물끼리)\n" + "\n".join(lines)

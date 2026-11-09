@@ -139,7 +139,7 @@ def snippet(text: str, at: int, width: int = WINDOW) -> str:
     return " ".join(text[max(0, at - width):at + width + 8].split())
 
 
-# ---------- 선택 옮겨 쓰기 (prompts.build_episode_context · serial_episode_context) ----------
+# ---------- 선택 옮겨 쓰기 (prompts.build_episode_context · serial_parts) ----------
 
 def size_of(c: Character) -> int:
     return len(dump(cast_view([c])))

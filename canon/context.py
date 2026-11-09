@@ -77,6 +77,91 @@ FORESHADOW_CAP = 25  # 본문 쓰기에 넣는 열린 복선 수
 PLAN_FORESHADOW_CAP = 60  # 다음 아크 기획에 넣는 열린 복선 수
 
 
+# 쓰기 가족 요청(prompts.episode_parts 와 그 위 요청)이 쓰는 예산 키. 작품 설정(Settings.budgets)으로 바꿀 수 있는 것은 이 키뿐이다
+WRITE_KEYS = ("facts", "story_past", "story_arc", "secrets", "deadlines", "cast", "travel", "spots", "stage", "address",
+              "stat_lines", "relations", "pairs", "states")
+
+
+def budget(p: Project, key: str) -> int:
+    """작품의 쓰기 예산. 장편이고 key 가 WRITE_KEYS 에 있고 작품 설정(Settings.budgets)에 budget_ok 를 지나는 값이 있으면 그 값, 아니면 BUDGET[key].
+    단편은 저장한 값과 상관없이 늘 BUDGET 기본값이다 (spec 03 정할 것 3)."""
+    if p.serial and key in WRITE_KEYS:
+        for b in p.settings.budgets:
+            if b.key == key and budget_ok(key, b.value):  # 범위 밖 값(손으로 고친 project.json 등)은 무시한다
+                return b.value
+    return BUDGET[key]
+
+
+def budget_range(key: str) -> tuple[int, int]:
+    """작품 예산으로 받는 값의 범위 (가장 작은 값, 가장 큰 값). 기본값의 1/4 ~ 4배를 100 단위로 내린 값, 가장 작은 값은 100 이상."""
+    base = BUDGET[key]
+    return max(100, base // 4 // 100 * 100), base * 4 // 100 * 100
+
+
+def budget_ok(key: str, value: int) -> bool:
+    """작품 예산으로 받을 수 있는 값인지: WRITE_KEYS 의 키, 100 단위, budget_range 안. 0 은 받지 않는다 (빼려면 블록을 끈다)."""
+    if key not in WRITE_KEYS or value <= 0 or value % 100:
+        return False
+    lo, hi = budget_range(key)
+    return lo <= value <= hi
+
+
+# ---------- 넣은 이유 · 뺀 이유 (prompts 보기의 trace) ----------
+# 화면이 보이는 이유 이름은 여기 한 곳에 둔다. 컨텍스트 활성화(docs/context 02)도 같은 이름을 쓴다.
+REASON_ALWAYS = "늘 넣기"
+REASON_PLOT = "이번 화 플롯 등장"
+REASON_NAMED = "이름 발견"
+REASON_SCORE = "관련 점수"
+REASON_RECENT = "최근"
+REASON_ARC = "아크 회수 · 기한"
+REASON_SCOPE = "작품 · 부 단위"
+REASON_ALL = "전부 넣음(수가 적음)"
+REASON_NAME_IN = "이번 화 인물 이름"
+REASON_SECRET = "고른 비밀"
+REASON_RETURN = "오랜만의 재등장"
+REASON_FIT = "예산 안에 듦"
+DROP_BUDGET = "예산 넘음"
+DROP_ARC = "아크와 무관"
+DROP_CAP = "개수 상한"
+DROP_UNRELATED = "이번 화와 무관"
+
+
+class Trace:
+    """요청을 조립하며 블록마다 넣은 항목과 뺀 항목을 (이름, 이유)로 적는다. 조립 함수의 trace 인자가 None 이면 적지 않는다."""
+
+    def __init__(self):
+        self.items: dict[str, list[tuple[str, str]]] = {}
+        self.dropped: dict[str, list[tuple[str, str]]] = {}
+
+    def item(self, block_id: str, name: str, reason: str) -> None:
+        self.items.setdefault(block_id, []).append((name, reason))
+
+    def drop(self, block_id: str, name: str, reason: str) -> None:
+        self.dropped.setdefault(block_id, []).append((name, reason))
+
+    def forget(self, block_id: str) -> None:
+        """꺼진 블록의 항목을 지운다 (보기가 꺼진 블록의 항목을 보이지 않게)."""
+        self.items.pop(block_id, None)
+        self.dropped.pop(block_id, None)
+
+
+TRACE_LABEL = 40  # 뺀 줄을 보기에 적을 때 이름 길이
+
+
+def trace_label(line: str, limit: int = TRACE_LABEL) -> str:
+    """뺀 줄의 짧은 이름: 앞 '- ' 와 공백을 떼고 limit 자를 넘으면 자르고 '…'."""
+    text = line.strip().removeprefix("- ").strip().split("\n")[0]
+    return text if len(text) <= limit else text[:limit - 1] + "…"
+
+
+def trace_drops(trace: Trace | None, block_id: str, lines: Iterable[str], reason: str = "") -> None:
+    """예산으로 뺀 줄들을 짧은 이름(trace_label)으로 trace 에 적는다. trace 가 None 이면 아무것도 하지 않는다."""
+    if trace is None:
+        return
+    for line in lines:
+        trace.drop(block_id, trace_label(line), reason or DROP_BUDGET)
+
+
 def est_tokens(text: str) -> int:
     return round(len(text) / CHARS_PER_TOKEN)
 
@@ -168,7 +253,14 @@ def pick_places(p: Project, text: str, budget: int) -> tuple[list[str], int]:
     return out, len(names) - len(out)
 
 
-def pick_facts(p: Project, ids: set[str], query: str, budget: int, terms: Iterable[str] = ()) -> tuple[list[str], int]:
+def trace_unrelated(trace: Trace | None, block_id: str, count: int) -> None:
+    """이번 화와 무관해 넣지 않은 옛 사실을 하나하나 적지 않고 '옛 사실 N개' 한 줄로 적는다."""
+    if trace is not None and count > 0:
+        trace.drop(block_id, f"옛 사실 {count}개", DROP_UNRELATED)
+
+
+def pick_facts(p: Project, ids: set[str], query: str, budget: int, terms: Iterable[str] = (),
+               trace: Trace | None = None) -> tuple[list[str], int]:
     """확정 사실을 이번 화와 관련된 순서로 예산만큼. 최근 FACTS_RECENT 개는 늘 넣는다.
     관련: 조연 · 단역 이름(3) > 이야기 요소 · 장소(2) > 주역 이름(1), 같으면 query 와 겹치는 글 조각이 많은 것, 그다음 최근 것.
     아무것도 겹치지 않는 옛 사실은 넣지 않는다. 고른 사실은 원래 순서로 돌려준다."""
@@ -196,6 +288,14 @@ def pick_facts(p: Project, ids: set[str], query: str, budget: int, terms: Iterab
             continue
         keep.add(i)
         used += cost
+    if trace is not None:  # 예산으로 뺀 사실은 이름으로, 아무것도 겹치지 않는 옛 사실은 개수 한 줄로
+        scored_ids = {i for _, _, i in scored}
+        for i, f in enumerate(facts):
+            if i in keep:
+                trace.item("facts", f, REASON_RECENT if i in recent else REASON_SCORE)
+            elif i in scored_ids:
+                trace.drop("facts", f, DROP_BUDGET)
+        trace_unrelated(trace, "facts", len(facts) - len(recent) - len(scored))
     return [facts[i] for i in sorted(keep)], len(facts) - len(keep)
 
 
@@ -240,7 +340,7 @@ KNOWS_OVERLAP = 0.2  # 이름 · 요소가 없을 때 이번 화 글과 겹친�
 
 
 def pick_knows(knows: list[str], query: str, names: Iterable[str], terms: Iterable[str] = (),
-               limit: int = KNOWS_KEEP, recent: int = KNOWS_RECENT) -> tuple[list[str], int]:
+               limit: int = KNOWS_KEEP, recent: int = KNOWS_RECENT, *, trace: Trace | None = None, who: str = "") -> tuple[list[str], int]:
     """인물이 아는 정보를 이번 화와 관련된 것부터 limit(KNOWS_KEEP) 개. 최근 recent(KNOWS_RECENT) 개는 늘 넣는다.
     관련: 이야기 요소 · 장소(2) > 이번 화 인물 이름(1), 같으면 query 와 겹치는 글 조각이 많은 것, 그다음 최근 것.
     관련된 것으로 다 차지 않으면 남은 자리는 최근 것으로 채운다. 고른 것은 원래 순서로. (고른 것, 뺀 수)
@@ -267,6 +367,10 @@ def pick_knows(knows: list[str], query: str, names: Iterable[str], terms: Iterab
         if len(keep) >= limit:
             break
         keep.add(i)
+    if trace is not None:  # 상태 블록의 아는 정보: 이름은 '인물: 정보'
+        for i, k in enumerate(knows):
+            if i not in keep:
+                trace.drop("states", f"{who}: {k}" if who else k, DROP_CAP)
     return [knows[i] for i in sorted(keep)], len(knows) - len(keep)
 
 
@@ -291,6 +395,16 @@ def foreshadow_rank(p: Project, f: Foreshadow, n: int) -> int:
     return 6
 
 
+# foreshadow_rank 순위 → 보기에 적는 넣은 이유. 0 회수 예정 지남 · 1 이번 아크 회수 · 2 아크 안 회수 예정은 '아크 회수 · 기한',
+# 3 작품 단위 · 4 부 단위는 '작품 · 부 단위', 5 이번 아크에 심음 · 6 그 밖 최근은 '최근'
+FORESHADOW_REASONS = {0: REASON_ARC, 1: REASON_ARC, 2: REASON_ARC, 3: REASON_SCOPE, 4: REASON_SCOPE, 5: REASON_RECENT, 6: REASON_RECENT}
+
+
+def foreshadow_reason(p: Project, f: Foreshadow, n: int) -> str:
+    """복선을 넣은 이유 (FORESHADOW_REASONS)."""
+    return FORESHADOW_REASONS[foreshadow_rank(p, f, n)]
+
+
 def rank_foreshadows(p: Project, fs: list[Foreshadow], n: int, cap: int) -> list[Foreshadow]:
     """순위대로 cap 개를 고르고 심은 순서로 돌려준다. 같은 순위면 작품 · 부 단위는 오래된 것, 나머지는 최근 것이 먼저.
     예전처럼 뒤에서 자르면 끝까지 갈 오래된 큰 떡밥이 먼저 빠진다."""
@@ -311,7 +425,8 @@ def open_secrets(p: Project, ids: set[str] | None = None) -> list[Secret]:
 
 def pick_secrets(p: Project, ids: set[str], query: str, budget: int) -> tuple[list[Secret], int]:
     """open_secrets(ids) 중 이번 화와 관련된 순서로 예산만큼. (고른 것, 뺀 수)
-    관련: query 와 겹치는 글 조각 비율, 조연 · 단역이 얽힘, 무게, 같으면 나중에 생긴 것. 고른 것은 원래 순서로."""
+    관련: query 와 겹치는 글 조각 비율, 조연 · 단역이 얽힘, 무게, 같으면 나중에 생긴 것. 고른 것은 원래 순서로.
+    보기 기록은 trace_secrets 가 한다 (요청에 실제로 찍히는 비밀은 인물을 다 고른 뒤에야 안다)."""
     cand = open_secrets(p, ids)
     main = {c.id for c in p.characters if c.tier == "main"}
     q = grams(query)
@@ -331,6 +446,22 @@ def pick_secrets(p: Project, ids: set[str], query: str, budget: int) -> tuple[li
         keep.add(i)
         used += cost
     return [cand[i] for i in sorted(keep)], len(cand) - len(keep)
+
+
+def trace_secrets(trace: Trace | None, cand: list[Secret], picked: list[Secret], ids: set[str]) -> None:
+    """관계 블록의 숨긴 비밀을 trace 에 적는다. ids 는 인물을 다 고른(상태 예산으로 뺀 뒤) 이번 화 인물이다.
+    dynamics.describe_relations 와 같은 규칙(주인이 ids 에 있고 모르는 인물 하나 이상이 ids 에 있음)으로 요청에 찍히는 비밀만 적는다:
+    고른 것은 넣은 항목('고른 비밀'), 예산으로 고르지 못한 것은 뺀 항목. pick_secrets 의 후보(cand)와 고른 것(picked)을 받는다."""
+    if trace is None:
+        return
+    chosen = {id(s) for s in picked}
+    for sec in cand:
+        if sec.owner not in ids or not set(sec.hidden_from) & ids:
+            continue
+        if id(sec) in chosen:
+            trace.item("relations", sec.content, REASON_SECRET)
+        else:
+            trace.drop("relations", sec.content, DROP_BUDGET)
 
 
 # ---------- 인물 넣기 방식 (Character.context) ----------
@@ -360,21 +491,37 @@ def without_off(p: Project, ids: set[str] | None) -> set[str] | None:
     return set(ids) - off
 
 
-def fit_cast(extra: list[Character], used: int, size, budget: int) -> tuple[list[Character], int]:
+def fit_cast(extra: list[Character], used: int, size, budget: int, trace: Trace | None = None) -> tuple[list[Character], int]:
     """'항상' 넣는 조연 · 단역 설정(used 글자)과 이번 화 조연 · 단역(extra) 설정을 합쳐 예산(글자) 안에 맞춘다.
     넘치면 단역 먼저, 같은 비중이면 뒤에 있는 인물부터 뺀다. size(인물) 는 그 인물 설정의 글자 수. (넣을 인물, 뺀 수)
     '항상' 조연 · 단역이 없으면(used 0) 예전처럼 다 넣는다."""
     if not used:
+        keep = set(range(len(extra)))
+    else:
+        order = sorted(range(len(extra)), key=lambda i: (extra[i].tier == "minor", i))
+        keep, total = set(), used
+        for i in order:
+            cost = size(extra[i])
+            if total + cost > budget:
+                continue
+            keep.add(i)
+            total += cost
+    _trace_people(trace, "cast", extra, keep, None)  # 넣은 인물은 조립(prompts.context_parts)이 플롯 등장으로 적는다
+    if not used:
         return extra, 0
-    order = sorted(range(len(extra)), key=lambda i: (extra[i].tier == "minor", i))
-    keep, total = set(), used
-    for i in order:
-        cost = size(extra[i])
-        if total + cost > budget:
-            continue
-        keep.add(i)
-        total += cost
     return [c for i, c in enumerate(extra) if i in keep], len(extra) - len(keep)
+
+
+def _trace_people(trace: Trace | None, block_id: str, people: list[Character], keep: set[int], reason: str | None) -> None:
+    """넣은 인물(reason 이 있을 때만)과 예산으로 뺀 인물을 trace 에 적는다."""
+    if trace is None:
+        return
+    for i, c in enumerate(people):
+        if i in keep:
+            if reason:
+                trace.item(block_id, c.name or c.id, reason)
+        else:
+            trace.drop(block_id, c.name or c.id, DROP_BUDGET)
 
 
 PLAN_RECENT = 20  # 기획 프롬프트: 최근 몇 화 플롯에 나온 인물까지 관계를 본다
@@ -455,7 +602,7 @@ def named_ids(p: Project, text: str) -> set[str]:
     return out
 
 
-def fit_named(named: list[Character], used: int, size, budget: int) -> tuple[list[Character], int]:
+def fit_named(named: list[Character], used: int, size, budget: int, trace: Trace | None = None) -> tuple[list[Character], int]:
     """이름으로 켠 인물(플롯 인물 목록 밖) 설정을 남은 예산에 넣는다. used 는 이미 넣은 조연 · 단역 설정 글자.
     조연 먼저, 같은 비중이면 앞 인물부터. (넣을 인물, 뺀 수)"""
     order = sorted(range(len(named)), key=lambda i: (named[i].tier == "minor", i))
@@ -466,6 +613,7 @@ def fit_named(named: list[Character], used: int, size, budget: int) -> tuple[lis
             continue
         keep.add(i)
         total += cost
+    _trace_people(trace, "named", named, keep, REASON_NAMED)
     return [c for i, c in enumerate(named) if i in keep], len(named) - len(keep)
 
 

@@ -251,6 +251,18 @@ class Snapshot(BaseModel):
     deadlines: Optional[list["Deadline"]] = Field(None, description="작품 속 기한. 기한이 생기기 전에 찍은 스냅샷이면 비움 (timeline.revert 가 화 번호로 거른다)")
 
 
+class BlockSetting(BaseModel):
+    """작품의 쓰기 요청 블록 하나를 넣을지 (prompts.BLOCKS). 장편만 따른다. 끌 수 없는 블록은 off 여도 넣는다."""
+    id: str = Field(description="prompts.BLOCKS 의 블록 id. 모르는 id 는 읽을 때 무시한다")
+    on: bool = Field(True, description="False 면 장편 쓰기 가족 요청에서 그 블록을 머리글째 뺀다")
+
+
+class BudgetSetting(BaseModel):
+    """작품의 쓰기 요청 예산 하나 (context.BUDGET 키 단위). 블록 하나가 키를 여럿 쓰므로 블록이 아니라 키마다 둔다. 장편만 따른다."""
+    key: str = Field(description="context.WRITE_KEYS 의 예산 키. 모르는 키는 읽을 때 무시한다")
+    value: int = Field(description="글자 예산. context.budget_range 안의 100 단위 값")
+
+
 class Settings(BaseModel):
     show_numbers: bool = Field(False, description="CLI 에서 관계를 숫자로 보여줄지(True), 말로 보여줄지(False)")
     check_widen: bool = Field(False, description="장편 검수 넓히기: 검수 뒤 진술마다 옛 화를 더 찾아, 첫 검수에 없던 근거가 나온 진술만 다시 묻는다 (검수 호출 2번 더)")
@@ -267,6 +279,8 @@ class Settings(BaseModel):
     recent_echoes: bool = Field(True, description="장편 본문 쓰기 요청에 '최근 화에서 되풀이한 구절' 블록을 넣는다 (echoes.recent: 직전 5화 본문에서 3개 화 이상에 그대로 나온 서술 구절, prompts.echo_block). 단편에는 넣지 않는다")
     keep_snapshots: bool = Field(False, description="장편에서도 화별 스냅샷을 지우지 않고 모두 남긴다 (연구용 작품: 어느 화로든 되돌릴 수 있다). 끄면 0화 · 아크 끝 · 최근 20화만 남긴다 (pipeline.prune_snapshots)")
     model_preset: str = Field("", description="이 작품이 쓰는 단계 프리셋 id (settings.presets: 단계별 백엔드 · 모델 묶음). 비우면 전체 설정을 따른다. 고른 프리셋이 지워졌으면 전체 설정을 따른다 (settings.project_preset)")
+    blocks: list[BlockSetting] = Field(default_factory=list, description="쓰기 요청 블록 끄기 (prompts.block_on). 비우면 모든 블록을 넣는다. 장편만 따른다")
+    budgets: list[BudgetSetting] = Field(default_factory=list, description="쓰기 요청 예산 바꾸기 (context.budget). 비우면 context.BUDGET 기본값. 장편만 따른다")
 
 
 # ---------- 스타일 레퍼런스 ----------

@@ -267,14 +267,15 @@ def render(p: Project, cid: str, stats: list[StatValue] | None = None) -> str:
     return w.template.replace("{name}", c.name if c else cid).replace("{rows}", rows).strip()
 
 
-def write_rule(p: Project, n: int = 0, show_format: bool = True) -> str:
+def write_rule(p: Project, n: int = 0, show_format: bool = True, budget: int = 0, trace=None) -> str:
     """본문 쓰기 프롬프트 끝에 붙는 규칙. 상태창을 만든 인물이 없으면 빈 글.
     넣는 방식(stat_window.prompt)이 none 이면 빈 글, lines 면 이번 화 인물의 수치 줄과 도감 줄(lines_block).
-    show_format 을 끄면 서식 예시를 빼고 스토리보드의 창 글을 따르게 한다 (스토리보드가 창 글을 이미 보일 때, 같은 창을 두 번 넣지 않게)."""
+    show_format 을 끄면 서식 예시를 빼고 스토리보드의 창 글을 따르게 한다 (스토리보드가 창 글을 이미 보일 때, 같은 창을 두 번 넣지 않게).
+    budget 은 도감 줄 예산 (lines_block, 비우면 BUDGET['stat_lines'])."""
     if not enabled(p) or p.stat_window.prompt == "none":
         return ""
     if p.stat_window.prompt == "lines" and n:
-        return lines_block(p, n, show_format)
+        return lines_block(p, n, show_format, budget, trace)
     who = next((s.character_id for s in p.states if s.stats), "")
     return ("\n\n상태창: [인물 현재 상태]의 stats 가 지금 수치입니다. 본문에 상태창이나 수치를 보여 줄 때는 이 값을 그대로 쓰고, "
             "이번 화 사건으로 바뀌는 값만 바꿉니다. 이유 없이 수치를 올리거나 내리지 않습니다. "
@@ -301,10 +302,11 @@ def wants_window(p: Project, n: int) -> bool:
     return any(w and w in text for w in {"상태창", p.stat_window.title.strip()})
 
 
-def lines_block(p: Project, n: int, show_format: bool = True) -> str:
+def lines_block(p: Project, n: int, show_format: bool = True, budget: int = 0, trace=None) -> str:
     """상태창 줄 형식(stat_window.prompt = lines): 이번 화 인물의 수치를 한 줄씩, 그 인물이 가진 스킬 · 특성은 도감 한 줄로.
     수치는 확인용 사실로만 주고, 상태창 서식 예시는 플롯에 상태창 장면이 있을 때만 붙인다(show_format 을 끄면 붙이지 않는다).
-    도감 줄은 context.BUDGET['stat_lines'] 까지."""
+    도감 줄은 예산(budget, 비우면 context.BUDGET['stat_lines'])까지. 쓰기 요청이 작품 예산(context.budget)을 넘긴다.
+    trace(context.Trace)를 주면 예산으로 뺀 도감 줄을 쓰기 요청의 '지시문' 블록에 적는다."""
     from . import abilities, context, elements
 
     ids = episode_cast(p, n)
@@ -330,10 +332,11 @@ def lines_block(p: Project, n: int, show_format: bool = True) -> str:
         line = abilities.line(p, a, mine or own)
         if line:
             picks.append((0 if named else 1 if a.context == "always" else 2, line))
-    budget, used, lines, cut = context.BUDGET["stat_lines"], 0, [], 0
+    budget, used, lines, cut = budget or context.BUDGET["stat_lines"], 0, [], 0
     for _, line in sorted(picks, key=lambda x: x[0]):
         if used + len(line) > budget:
             cut += 1
+            context.trace_drops(trace, "instructions", [line])
             continue
         lines.append(line)
         used += len(line)

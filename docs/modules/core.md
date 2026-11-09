@@ -69,6 +69,8 @@
 - 만든 입력의 지문(`basis`) · 낡음(`stale`, 본문을 쓰기 전에만)
 - 날수 · 요일(`days`, `weekday`: 작품 기준이 없으면 직전 화 기록 글의 요일에서)
 - 시간 한 줄(`time_line`)
+- 기한 줄(`deadline_rows`)은 예산 인자를 받는다. 쓰기 요청의 스토리보드 블록만 작품 예산(`context.budget`)을 넘긴다
+- `deadline_rows(trace=)` 는 예산으로 뺀 기한을 보기의 'board' 블록에 적는다
 - 쓰기 재료 꼭 쓸 것만(`lean`)과 그때 쓰기 요청에 남기는 이어받을 것의 종류(`LEAN_HANDOVER`)
 - 중심 장면 번호(`focus`, 장면 수 밖이면 0)
 - 상태창 단계마다 바뀌기 전 · 뒤 값(`steps`, `statwin.resolve`) · 창 글(`window_text`)
@@ -155,6 +157,20 @@
 - 장편 프롬프트 크기 관리
 - 블록 재기(`blocks`, 사용량 기록 · 연구 화면)
 - 블록 글자 예산(`BUDGET`)
+- 쓰기 가족 예산 키 `WRITE_KEYS`: 작품 설정(`Settings.budgets`)으로 바꿀 수 있는 키는 이 14개뿐이다
+- 작품 예산 `budget(p, key)`: 장편이고 `WRITE_KEYS` 의 키에 작품 값이 있으면 그 값, 아니면 `BUDGET[key]`. 단편은 늘 기본값
+- 저장한 값이 `budget_ok` 를 지나지 못하면(손으로 고친 `project.json` 등) `budget` 은 그 값을 무시하고 `BUDGET[key]` 를 쓴다
+- 작품 예산 범위 `budget_range(key)`: 기본값의 1/4 ~ 4배를 100 단위로 내림, 가장 작은 값은 100
+- 작품 예산 검사 `budget_ok(key, value)`: `WRITE_KEYS` 의 키 · 100 단위 · 범위 안. 0 은 받지 않는다(빼려면 블록을 끈다)
+- 넣은 이유 · 뺀 이유 이름은 상수 `REASON_*` · `DROP_*` 한 곳에 둔다(보기와 컨텍스트 활성화가 같은 말을 쓴다)
+- 보기 기록 `Trace`: `item(블록 id, 이름, 이유)` · `drop(…)`, `items` · `dropped` 는 블록 id → [(이름, 이유)]
+- `Trace.forget(블록 id)` 는 꺼진 블록의 항목을 지운다(`prompts.follow_parts` 가 부른다)
+- 뺀 줄 이름 `trace_label`(앞 '- ' 를 떼고 `TRACE_LABEL` 40자까지)과 뺀 줄 적기 `trace_drops(trace, 블록 id, 줄들)`. 예산으로 줄을 빼는 함수들이 함께 쓴다
+- 무관한 옛 사실은 하나하나 적지 않고 `trace_unrelated` 가 '옛 사실 N개' 한 줄로 적는다. 예산으로 뺀 사실은 이름으로 적는다
+- 복선의 넣은 이유는 `foreshadow_reason`(`FORESHADOW_REASONS`: 순위 0~2 '아크 회수 · 기한', 3~4 '작품 · 부 단위', 5~6 '최근')
+- `pick_facts` · `pick_knows` · `fit_cast` · `fit_named` 는 선택 인자 `trace` 를 받아 넣은 항목과 뺀 항목을 적는다. `None` 이면 지금과 같은 일을 하고 같은 값을 돌려준다
+- 숨긴 비밀의 보기 기록은 `pick_secrets` 가 아니라 `trace_secrets(trace, 후보, 고른 것, 인물)` 이 한다. 상태 예산으로 인물을 뺀 뒤 요청에 찍히는 비밀만 적는다
+- `trace_secrets` 는 `dynamics.describe_relations` 와 같은 규칙(주인이 인물에 있고 모르는 인물 하나 이상이 인물에 있음)을 쓴다
 - 관련 사실(`pick_facts`) · 비밀(`pick_secrets`) · 떡밥(`rank_foreshadows`) · 인물이 아는 정보(`pick_knows`, 뺀 수는 `prompts.knows_note`) 고르기
 - 확정 사실이 들어온 화(`facts_learned`): 반영 기록의 `new_facts` 로 센다. 고친 화 다시 맞추기 · 빼 둔 사실 넣기도 그 기록에 더해 잡힌다. 저장하지 않는다
 - `facts_learned` 에 인과율 `apply_impact` 로 넣은 사실은 없다(반영 기록을 남기지 않음). 설정 단계 · 직접 적은 사실도 없다
@@ -461,6 +477,30 @@
 - 머리말이 영어라서 머리말을 받는 지시는 모두 '모든 출력은 한국어로 작성합니다'를 둔다
 - 본문 쓰기 지시는 설정 · 사실을 '절대' 같은 강한 말 대신 이유('앞 화와 이어져야 하므로')를 붙여 지키게 한다
 - 화별 컨텍스트 조립(`build_episode_context`)
+- 쓰기 요청 블록 표 `BLOCKS`(`Block`: id · 화면 이름 · 잠금 · 쓰는 예산 키 · 캐시 앞부분 `front` · 대신 정하는 설정 `note`)와 id 찾기 `BLOCK_BY_ID`
+- 끌 수 있는 블록(`toggleable`)은 잠기지 않았고 `note` 가 없는 블록이다. `note` 의 "short" 는 단편 요청에만 있는 블록이다
+- 'states'(인물 현재 상태)는 잠긴 블록이다. 상태창 줄(`statwin.write_rule`) · 스토리보드 · 옷차림 규칙(`attire_write_rule`)이 '[인물 현재 상태]'를 가리킨다. `states` 예산은 바꿀 수 있다
+- 화면 블록 이름 `block_title(p, id)`: 'structure' 는 장편 '현재 부와 아크', 단편 '현재 구간'. 나머지는 `Block.title`
+- 장편 조각 조립은 `serial_parts` 다. 예전 글 함수 `serial_episode_context` 는 지웠다
+- 'named' 블록을 끄면 이름이 나온 조연 · 단역을 고르지 않는다. 그 인물의 설정 · 상태 · 관계 · 호칭 · 사건 · 다시 나옴 줄이 모두 빠진다
+- 플롯에 적힌 조연 · 단역(`fit_cast`)은 `max(작품 cast 예산, BUDGET['cast'])` 를 쓴다. 작가가 낮춰도 빠지지 않고 높이면 넓어진다. 이름이 나온 인물(`fit_named`)은 작품 값을 그대로 쓴다
+- `priority_line` 은 작품 설정이 끈 블록(서술 시점 · 가끔 쓰는 장치)을 차례에서 뺀다. 설정이 없으면 글이 그대로다
+- 쓰기 가족은 블록 조각(`Part`: 블록 id · 앞 구분 줄을 품은 글) 목록으로 조립하고 `join_parts` 로 잇는다. 이은 글이 고치기 전 요청과 글자까지 같다
+- 조각 함수: `static_parts(p, follow=False, trace=None)` · `context_parts(p, n, …, trace=None)` · `episode_parts(p, n, …, trace=None)`. 글 함수 `static_context` · `build_episode_context` · `episode_prompt` 는 그 조각을 잇는다
+- 블록 넣기 `block_on(p, id)`: 단편 · 잠긴 블록 · `note` 블록 · 모르는 id 는 늘 참. 장편은 `Settings.blocks` 가 끈 블록만 거짓
+- 꺼진 블록은 `follow_parts` 가 머리글과 앞 구분 줄째 뺀다. 맨 앞 블록이 빠지면 남은 첫 조각의 앞 줄바꿈을 지운다. 요청 안에 끈 사실을 적지 않는다
+- `follow_parts(trace=)` 는 꺼진 블록의 넣은 항목 · 뺀 항목도 지운다
+- 설정을 따르는 요청은 `build_episode_context` 위의 쓰기 가족(본문 쓰기 · 고쳐 쓰기 · 스토리보드 · 큐 시트 · `write_head` · 다시 생성 · 큐 조건 · 작업지시서 본문)뿐이다
+- `static_context(p)` 기본은 설정을 따르지 않는다. 검수 · 상태 변경안 · 다듬기 · 부분 고치기 · `pipeline.recheck_fixed` 의 캐시 경계가 이 기본을 쓴다
+- 쓰기 가족은 예산을 `context.budget(p, key)` 로 읽어 함께 쓰는 함수에 인자로 넘긴다(`relevant_facts(limit=)` · `story_parts(past_budget=, arc_budget=)` · `serial_relations(budget=)` · `board_block(budget=)` 등). 함수 안 기본 읽기는 그대로다
+- 지시문 꼬리(여는 규칙부터 `ending_line` 까지)는 끌 수 없는 `instructions` 한 조각이고, 큐 시트 `cues` · 작가 연출 지시 `direction` 이 따로 뒤에 붙는다
+- `relevant_foreshadows` · `relevant_facts` · `state_view` · `fit_states` · `serial_relations` · `story_parts` · `return_block` 은 선택 인자 `trace` 로 넣은 항목과 뺀 항목을 이유와 함께 적는다
+- 복선의 뺀 이유는 `keep` 으로 거른 것 '아크와 무관'과 `FORESHADOW_CAP` 으로 자른 것 '개수 상한'으로 나눈다. 접은 줄거리의 뺀 묶음은 부 · 아크 머리 이름으로 적는다
+- 이번 아크 줄거리에서 예산 때문에 첫 문장으로 줄인 화는 'story_arc' 블록에 '예산 넘음'으로 적는다
+- `fit_states` 가 아는 정보를 줄인 인물은 'states' 블록에 '인물: 아는 정보 k개 줄임'으로 적는다. 플롯 인물 목록이 비면 남은 상태의 넣은 이유는 '늘 넣기'다
+- 'cast' 블록의 넣은 항목은 `fit_cast` 뒤에 적는다. 예산으로 뺀 플롯 조연 · 단역은 뺀 항목에만 있다
+- `stage_block(trace=)` · `board_block(trace=)` 는 예산으로 뺀 장면 · 기한을 적는다
+- 시험 `tests/test_block_settings.py`
 - 단편 열 계획: 화별 플롯 규칙 끝 `heat_plot_rules`(계획 · 원칙 · 뒤집힘 · 열린 판돈 · 갈래 안내), 쓰기 · 스토리보드 · 큐 시트의 현재 구간 뒤 `heat_step_line`, 큐 시트 요청 맨 끝 `heat_cue_rule`
 - 열 계획이 없으면 세 곳 모두 빈 글이라 프롬프트가 그대로다
 - 장편은 화별 플롯 요청(`serial_plot_prompt`) 끝에 그 아크의 `heat_plot_rules`, 쓰기 컨텍스트의 아크 안 구간 줄(`act_line`) 뒤에 이번 화 열 한 줄을 넣는다
@@ -615,6 +655,9 @@
 - 화별 큐 시트(`Episode.cue_sheet`, `CueSheet`)도 상태 승인 대상이 아니다
 - 큐 시트 켜기는 `Settings.cue_sheet`(비우면 장편 켬 · 단편 끔)
 - 되풀이한 구절 블록 켜기는 `Settings.recent_echoes`(기본 켬, 장편에만 넣음)
+- 쓰기 요청 블록 끄기 `Settings.blocks`(`BlockSetting`: 블록 id · on)와 예산 `Settings.budgets`(`BudgetSetting`: 예산 키 · 값)는 장편만 따른다. 비면 지금과 같다
+- 끄기는 블록마다, 예산은 키마다 둔다. 블록 하나가 키를 여럿 쓰기 때문이다(관계 블록의 `relations` · `secrets`)
+- 모르는 블록 id · 예산 키는 읽을 때 무시하고 지우지 않는다
 
 ### `canon/sent.py`
 
@@ -815,6 +858,22 @@
 - 인물 · 떡밥 · 비밀 목록이 비는 저장은 막지 않는다. 작가가 일부러 지운 결과다
 - 인물 · 관계도와 지도 응답은 작품 판으로 JSON 을 기억하고 ETag 를 붙인다(`_json_view`)
 - CLI 와 같은 store · pipeline · prompts 를 쓰고 화면은 `canon/static/` 의 정적 파일이다
+- 컨텍스트 보기 `GET …/episodes/{n}/context` 는 본문 쓰기 요청과 같은 조각(`prompts.episode_parts`)에서 블록마다 한 줄을 만든다
+- 보기 인자(`_view_args`): 스토리보드가 있으면 넣고, 큐 시트가 있고 건너뛰지 않았으면(`skipped`) 넣는다. 여는 방식은 비우고 작가 연출 지시는 넣는다
+- 보기 줄은 `{id, title, chars, tokens, on, locked, toggle, front, note, budgets, items, dropped, text}` 다. `title` · `chars` 는 옛 화면을 위해 남긴다
+- 보기는 같은 블록의 조각을 차례대로 한 줄로 합치고 빈 블록은 뺀다. `tokens` 는 `context.est_tokens` 추정이다
+- 보기의 `items` · `dropped` 는 조립에 넘긴 `context.Trace` 에서 온다(넣은 항목 · 뺀 항목과 이유)
+- 장편에서 작가가 끈 블록은 보기에 `on: false` · 글자 0 · 빈 글로 들어간다. 단편은 `budgets` 가 빈 목록이다
+- 끈 블록의 자리는 블록을 모두 켰을 때(예산은 그대로) 요청에 놓일 자리다(`_all_on_order`). 끄고 켜도 줄이 옮겨 다니지 않는다
+- 보기 줄과 `GET …/blocks` 의 `title` 은 `prompts.block_title` 이다
+- 블록 설정 `GET …/blocks` 는 `{serial, blocks, budgets}` 를 돌려준다. `budgets` 는 장편만 `context.WRITE_KEYS` 차례로 `{key, value, default, min, max}` 다
+- 블록 설정 저장 `PUT …/blocks`(`BlocksIn`)는 두 목록을 통째로 바꾸고 끈 블록과 기본값과 다른 예산만 저장한다
+- `PUT …/blocks` 는 단편 · 없는 블록 · 잠긴 블록 끄기 · 다른 설정이 정하는 블록 끄기 · 없는 예산 키 · `context.budget_ok` 를 지나지 않는 값을 400 으로 막는다
+- `PUT …/blocks` 는 자동 집필 중에도 받는다. 설정은 요청을 조립할 때 읽으므로 다음 화부터 따른다
+- 대화 에이전트 도구는 블록 설정을 읽지도 쓰지도 않는다(`tests/test_web_blocks.py`)
+- 실제 토큰 세기 `POST …/episodes/{n}/count-tokens` 는 `with_note(writer_system + 요청)` 을 쓰기 단계 백엔드의 `count_tokens` 로 한 번 센다
+- 토큰 세기는 `{tokens, estimate, note}` 를 돌려준다. 메서드가 없거나(mock · 배치) 오류가 나면 `tokens` 가 null 이고 `note` 가 '이 백엔드는 토큰을 셀 수 없어요'다
+- 센 호출은 `usage.record` 로 작업 '토큰 세기' · 입력 · 출력 토큰 0 으로 남긴다(비용 0)
 - AI 가 만든 제안(설정, 문체, 구조, 상태 변경안)은 바로 저장하지 않고 돌려준다
 - 사용자가 화면에서 고르거나 고친 뒤 저장 요청을 보낼 때 반영한다
 - 상태 반영 `POST …/apply` 는 `pipeline.validate_delta` 에 걸린 항목이 있으면 400 으로 막고 항목을 줄마다 적는다

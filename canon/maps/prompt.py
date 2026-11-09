@@ -9,7 +9,7 @@ from . import travel
 from .spots import episode_spots
 
 
-def travel_block(p: Project, n: int, budget: int = 0) -> str:
+def travel_block(p: Project, n: int, budget: int = 0, *, trace=None) -> str:
     """n화를 쓰거나 검수할 때 넣는 이동 거리: 이번 화 인물의 지금 장소에서 플롯에 나온 장소까지 거리와 걸리는 시간.
     대중교통이고 지하철이 빠르면 '지하철로 약 n분 (역 → 역 n정거장, 서둘러도 n분)'. 꺼졌거나 축척을 모르거나 넣을 줄이 없으면 빈 문자열. 예산(context.BUDGET["travel"])을 넘으면 먼 것부터 뺀다."""
     moves = travel.episode_moves(p, n)
@@ -26,6 +26,7 @@ def travel_block(p: Project, n: int, budget: int = 0) -> str:
         text = f"- {m['who']}: {m['src']} → {m['dst']} 약 {travel.fmt_km(m['km'])}, {how}"
         if size + len(text) > budget and keep:
             cut += 1
+            context.trace_drops(trace, "travel", [text])
             continue
         keep.append(text)
         size += len(text) + 1
@@ -42,9 +43,10 @@ def travel_check_rule(p: Project, n: int) -> str:
             "근거가 거리 줄이면 source_episode 는 0, source_quote 는 그 줄입니다.")
 
 
-def spot_block(p: Project, n: int, budget: int = 0) -> str:
+def spot_block(p: Project, n: int, budget: int = 0, *, trace=None) -> str:
     """n화를 쓰거나 검수할 때 넣는 장소의 건물: 플롯에 이름이 나온 장소 가운데 건물 한 줄(MapPin.spot)이 있는 것.
-    예산(context.BUDGET["spots"])을 넘으면 뒤에 나온 장소부터 빼고 뺀 수를 적는다. 넣을 줄이 없으면 빈 글."""
+    예산(context.BUDGET["spots"])을 넘으면 뒤에 나온 장소부터 빼고 뺀 수를 적는다. 넣을 줄이 없으면 빈 글.
+    trace(context.Trace)를 주면 뺀 줄을 'spots' 블록에 적는다 (travel_block 도 같게 'travel' 블록에)."""
     spots = episode_spots(p, n)
     budget = budget or context.BUDGET["spots"]
     keep, size, cut = [], 0, 0
@@ -52,6 +54,7 @@ def spot_block(p: Project, n: int, budget: int = 0) -> str:
         row = f"- {name}: {spot}"
         if size + len(row) > budget and keep:
             cut += 1
+            context.trace_drops(trace, "spots", [row])
             continue
         keep.append(row)
         size += len(row) + 1

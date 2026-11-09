@@ -221,11 +221,12 @@ def deadline_line(d: Deadline, day: int, ids: bool = False, p: Project | None = 
     return f"- {d.what}{f' ({extra})' if extra else ''}{f' [{d.id}]' if ids else ''}"
 
 
-def deadline_lines(p: Project, n: int, budget: int = 0, ids: bool = False) -> tuple[list[str], int]:
+def deadline_lines(p: Project, n: int, budget: int = 0, ids: bool = False, *, trace=None, block: str = "time") -> tuple[list[str], int]:
     """열린 기한 줄과 예산(context.BUDGET["deadlines"]) 때문에 뺀 수. 줄은 지난 기한 → 가까운 기한 순으로 둔다.
     오늘을 알면 오늘에서 가까운 기한(지났든 남았든)부터 예산에 넣는다. 오래 지나 닫히지 않은 기한이 쌓여도
     다가오는 기한을 밀어내지 않게 한다. 날을 모르는 기한은 맨 나중에 넣는다.
-    단편도 같은 예산을 쓴다 (기한은 화수와 상관없이 쌓일 수 있다)."""
+    단편도 같은 예산을 쓴다 (기한은 화수와 상관없이 쌓일 수 있다).
+    trace(context.Trace)를 주면 예산으로 뺀 기한을 block(쓰기 요청의 '작품 속 시간' 또는 '스토리보드') 블록에 적는다."""
     budget = budget or context.BUDGET["deadlines"]
     day = current_day(p, n)
     ds = open_deadlines(p, n)
@@ -237,6 +238,7 @@ def deadline_lines(p: Project, n: int, budget: int = 0, ids: bool = False) -> tu
     for i in order:
         if size + len(lines[i]) > budget and keep:
             cut += 1
+            context.trace_drops(trace, block, [lines[i]])
             continue
         keep.add(i)
         size += len(lines[i]) + 1
@@ -248,14 +250,16 @@ def _plot_time(p: Project, n: int) -> str:
     return e.plot.time.strip() if e else ""
 
 
-def episode_block(p: Project, n: int) -> str:
+def episode_block(p: Project, n: int, budget: int = 0, *, trace=None) -> str:
     """본문 쓰기 · 검수에 넣는 블록: 기준, 직전 화 끝 시점, 이번 화 플롯의 시점, 열린 기한.
+    budget 은 열린 기한 예산 (비우면 BUDGET['deadlines'], deadline_lines). 쓰기 가족만 작품 예산(context.budget)을 넘긴다.
+    trace 를 주면 예산으로 뺀 기한을 'time' 블록에 적는다.
     꺼졌거나 넣을 것이 하나도 없으면 빈 문자열 (기록이 없는 작품의 프롬프트는 그대로)."""
     if not enabled(p):
         return ""
     prev = prev_end(p, n)
     plan = _plot_time(p, n)
-    rows, cut = deadline_lines(p, n)
+    rows, cut = deadline_lines(p, n, budget, trace=trace)
     hint = weekday_hint(p, current_day(p, n) or (1 if n == 1 else 0))  # 1화는 1일째에서 시작한다
     if not (prev or plan or rows or hint):
         return ""

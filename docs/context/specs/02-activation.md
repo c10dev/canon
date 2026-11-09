@@ -113,7 +113,7 @@
    - 후보 다: 사실 활성화를 이 일감에서 빼고 뒤 일감으로 미룬다.
    - 추천: 후보 나. 이야기 요소와 인물도 지금 통째 저장으로 고친다. 새 엔드포인트가 필요 없다.
 18. 판정을 쓰는 프롬프트 범위
-   - 추천: 이 일감은 본문 쓰기(`build_episode_context` · `serial_episode_context`, 장편 `write_head`)와 부분 고치기(`passage_head`)만 바꾼다.
+   - 추천: 이 일감은 본문 쓰기(`build_episode_context` · `serial_parts`, 장편 `write_head`)와 부분 고치기(`passage_head`)만 바꾼다.
    - 추천안에서 검수, 상태 변경안, 플롯 초안(`plot_facts_states`), 다음 아크 기획(`plan_facts`), 영향 분석, 플레이는 지금 규칙을 둔다.
    - 추천안에서 그 요청들의 예산 키(`check_facts` · `state_secrets` · `plot_facts` · `plot_states` · `plan_facts` · `impact_facts`)도 바꾸지 않는다.
    - 까닭: 검수는 앞선 본문 전체를 보는 예외다. 다른 요청이 같은 항목을 보게 맞추는 일은 01번 측정 뒤 따로 본다.
@@ -133,7 +133,7 @@
 | `canon/schema.py` | `StoryElement` 가 `llm.dump` 로 프롬프트에 찍히는 길이 있으면 같은 꼴의 직렬화기를 더한다 |
 | `canon/context.py` | 판정 함수 `activate`, 조건 계산 `holds`, 낱말 맞추기 함수(`name_pattern` 에서 뗌), 찾는 범위 상수 `SCAN`, 예산 차례 `REASONS`, 장편 `BUDGET["elements"]` |
 | `canon/elements.py` | `for_episode` · `relevant` 가 판정 결과를 받는다. 판정 자체는 두지 않는다 |
-| `canon/prompts.py` | `build_episode_context` · `serial_episode_context` · `passage_head` 가 판정 결과로 이야기 요소 · 곁 인물 · 복선 · 사실을 고른다. 뺀 개수를 블록에 적는다 |
+| `canon/prompts.py` | `build_episode_context` · `serial_parts` · `passage_head` 가 판정 결과로 이야기 요소 · 곁 인물 · 복선 · 사실을 고른다. 뺀 개수를 블록에 적는다 |
 | `canon/prompts.py` | 인물 목록을 직접 `model_dump(exclude={...})` 하는 줄(지금 324행 `"body", "context"`)의 exclude 집합에 `activation` 을 더한다 |
 | `canon/foreshadows.py` | `update` 가 `activation`(과 정할 것 16의 `context`)을 받는다. `_copies` 규칙대로 지금 목록과 스냅샷 사본에 함께 적는다 |
 | `canon/web.py` | 복선 편집 `PUT /api/projects/{name}/foreshadows/{fid}` 의 요청 모델 `ForeshadowEdit` 에 `activation` 칸을 더한다 |
