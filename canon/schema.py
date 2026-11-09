@@ -500,6 +500,15 @@ class StyleExample(BaseModel):
     at: str = ""
 
 
+class StyleCard(BaseModel):
+    """대화 에이전트의 문체 변경안 카드와 적용 기록 (canon/agent_style.py). AI 가 채우지 않는다.
+    승인 카드(Approval.style)는 revision · episode 만, 적용 기록(WriteRecord.style)은 적용한 칸과 적용하기 전 문체도 남긴다."""
+    revision: StyleRevision
+    episode: int = Field(0, description="참고한 화. 0 이면 없음")
+    applied: list[str] = Field(default_factory=list, description="적용한 칸 이름 (StyleKey)")
+    before: Optional[StyleProfile] = Field(None, description="적용하기 전 작품 문체 (적용 취소용)")
+
+
 # ---------- 계층형 플롯 ----------
 
 class Act(BaseModel):
@@ -1101,6 +1110,7 @@ AGENT_TOOL_NAMES = (
     "ask",
     "revise_text",
     "edit_setup",
+    "edit_style",
 )
 AGENT_END_TOOLS = ("done", "end", "finish", "none", "reply")  # 모델이 턴 끝을 도구 이름처럼 적는 말. 빈 tool 과 같이 받는다
 
@@ -1160,7 +1170,7 @@ class RenumberOp(BaseModel):
 
 
 class WriteItem(BaseModel):
-    """바로 쓴 것 한 부분. key 는 'parts' · 'arc' · 'acts' · 'draft'(다음 아크 초안) · 화 번호 · 'renumber'(화 넣기 · 빼기) · 'text'(본문 고치기)."""
+    """바로 쓴 것 한 부분. key 는 'parts' · 'arc' · 'acts' · 'draft'(다음 아크 초안) · 화 번호 · 'renumber'(화 넣기 · 빼기) · 'text'(본문 고치기) · 문체 칸 이름(edit_style)."""
     key: str
     label: str = ""
     state: Literal["done", "reverted", "kept"] = "done"
@@ -1180,6 +1190,7 @@ class WriteRecord(BaseModel):
     edit: str = Field("", description="본문 고치기로 넣은 수정 기록 id (Episode.edits). 되돌리기는 pipeline.undo_edit")
     setup: Optional[SetupRevision] = Field(None, description="설정 도구(tool 'edit_setup')가 쓴 변경안. items 의 key 는 setupchat.part_ids")
     setup_before: Optional[SetupBefore] = Field(None, description="설정 도구가 쓰기 전 설정. 되돌리기는 setupchat.undo_revision")
+    style: Optional[StyleCard] = Field(None, description="문체 변경안을 적용한 기록 (tool 'edit_style'). 되돌리기는 agent_style.undo")
 
 
 class Approval(BaseModel):
@@ -1199,6 +1210,7 @@ class Approval(BaseModel):
     at: str = Field("", description="본문 고치기 카드: 부분 수정 대화('text:N')에 남긴 답의 시각. 넣을 때 그 답을 찾는다 (agent_text.decide)")
     setup: Optional[SetupRevision] = Field(None, description="설정 변경안을 묻는 카드 (tool 'edit_setup'). keys 는 setupchat.part_ids")
     defaults: list[str] = Field(default_factory=list, description="카드가 처음 체크해 두는 부분 (agent_setup.defaults). 채운 칸 · 인물 칸은 빠진다")
+    style: Optional[StyleCard] = Field(None, description="문체 변경안을 묻는 카드 (tool 'edit_style'). 권한 모드와 상관없이 늘 묻는다")
 
 
 class AskCard(BaseModel):

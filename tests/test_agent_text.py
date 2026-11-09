@@ -174,7 +174,7 @@ def test_card_blocked_while_auto_and_new_turn_drops_it(client, calls, monkeypatc
 
 
 def test_always_ask_and_permit():
-    assert agent.ALWAYS_ASK == ("renumber", "text", "setup")  # 04c 의 설정 도구도 늘 묻는다
+    assert agent.ALWAYS_ASK == ("renumber", "text", "setup", "style")  # 04c 의 설정 도구 · 04d 의 문체 도구도 늘 묻는다
     assert agent.KIND_LABELS["text"] == "본문 고치기"
     from canon.schema import AgentSession
     for mode in ("ask", "draft", "all"):
@@ -189,7 +189,7 @@ def test_prompt_lists_the_tool_and_text_focus_points_to_it(client):
     assert "- revise_text (args: quote, request, n, preset)" in prompts.AGENT_PLOT_TOOLS
     block = prompts.agent_focus_block(p, "text:1")
     assert "revise_text 를 n=1 로" in block and "도구는 없으니" not in block
-    assert "도구는 없으니" in prompts.agent_focus_block(p, "style")  # 문체는 04d 전까지 그대로
+    assert "edit_style" in prompts.agent_focus_block(p, "style")  # 04d: 문체는 문체 도구로
     assert "edit_setup" in prompts.agent_focus_block(p, "setup")  # 설정은 04c 의 설정 도구
 
 

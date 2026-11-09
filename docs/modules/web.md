@@ -662,6 +662,10 @@
 - 서버는 `pipeline.revise_style` · `apply_style_chat` · `undo_style_chat` · `style_example`
 - '예시 쓰기'는 작업 `style_example` 을 시작한다(등록은 `style.js`). 대화 전송 경로는 그대로다
 - 칸 이름은 `prompts.STYLE_KEY_LABELS` 와 같다(`tests/test_labels_js.py`)
+- 대화 에이전트의 문체 카드(`agent.js` `agentStyleApproval`)가 `STYLE_LABEL` · `styleEditDiff` · `sampleBlock` · `epSelect` 를 함께 쓴다
+- 참고할 화 `S.styleRefEp` 는 이 대화와 에이전트 패널의 칩이 함께 쓴다
+- 서버의 적용 · 취소 몸통은 `pipeline.apply_style_edits` · `undo_style_edits` 이고, 대화의 `apply_style_chat` · `undo_style_chat` 은 메시지 칸만 맡는다
+- 이 대화 패널(패널 머리 전환 줄의 옛 '대화로 다듬기')은 04b~04d 가 머지된 뒤 정리할 때까지 남긴다
 
 ### `canon/static/write.js`
 
