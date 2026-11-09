@@ -15,6 +15,8 @@ const AGENT_STEP_ICON = { read: '읽', write: '씀', wait: '물', block: '막', 
 const AGENT_LEGACY = 'legacy';
 const AGENT_SLOW = 60;  // 한 단계를 이 초보다 오래 기다리면 늦음 안내를 보인다 (보통 5~30초)
 const AGENT_STEP_WAIT = 300;  // 서버 agent.STEP_WAIT 와 같다. 이만큼 응답이 없으면 한 번 다시 부르고, 또 없으면 오류로 멈춘다
+// 작업이 알려 준 한 단계 한도(Job.step_wait, Claude Code 는 agent.STEP_WAIT_CLAUDE). 없으면 AGENT_STEP_WAIT
+const agentStepLimit = j => (j && j.step_wait) || AGENT_STEP_WAIT;
 const AGENT_ICON = {
   plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>',
   send: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"></path></svg>',
@@ -197,7 +199,7 @@ function agentTurn(s, t, i) {
       ${running ? `<li class="step run"><span class="ico" aria-hidden="true">…</span><span class="what"${job ? ` data-step-now="${job.id}"` : ''}>${esc(agentStepNow(job))}</span><span class="why">${job && job.note ? `방금 생각: ${esc(job.note)}` : ''}</span></li>` : ''}</ol></details>` : '';
   const bar = running ? `<div class="run-bar" role="status"><span class="spinner small" aria-hidden="true"></span>
       <span>${job ? job.done : t.steps.length}/${S.agent.max_steps}단계</span>${job ? `<span data-step-wait="${job.id}" aria-hidden="true">${agentStepWait(job)}</span>` : ''}<span class="run-meter" aria-hidden="true"><i style="width:${Math.round(((job ? job.done : 0) / S.agent.max_steps) * 100)}%"></i></span></div>
-      ${job ? `<div class="note warn" data-step-slow="${job.id}"${agentStepSec(job) > AGENT_SLOW && !job.retry ? '' : ' hidden'}>AI 응답이 늦어요. 한 단계는 보통 1분 안에 끝나요. ${AGENT_STEP_WAIT / 60}분 동안 응답이 없으면 한 번 다시 부르고, 또 없으면 오류로 멈춰요. 기다리지 않으려면 ■ 로 멈춘 뒤 '이어 하기'로 다시 보내세요.</div>` : ''}` : '';
+      ${job ? `<div class="note warn" data-step-slow="${job.id}"${agentStepSec(job) > AGENT_SLOW && !job.retry ? '' : ' hidden'}>AI 응답이 늦어요. 한 단계는 보통 1분 안에 끝나요. ${agentStepLimit(job) / 60}분 동안 응답이 없으면 한 번 다시 부르고, 또 없으면 오류로 멈춰요. 기다리지 않으려면 ■ 로 멈춘 뒤 '이어 하기'로 다시 보내세요.</div>` : ''}` : '';
   const took = agentTurnTook(t);
   const ends = {
     done: `<div class="small">끝났어요 · ${t.steps.length}단계${took ? ` · ${took}` : ''}</div>`,

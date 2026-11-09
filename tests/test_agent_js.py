@@ -16,8 +16,10 @@ def test_mode_and_kind_labels_match_server():
 def test_step_wait_matches_server():
     got = run_js(["app.js", "chat.js", "agent.js"],
                  "({ wait: AGENT_STEP_WAIT, text: agentStepWait({ started: Date.now() / 1000 - 75 }),"
-                 " step: agentStepWait({ started: 0, step_at: Date.now() / 1000 - 5 }) })", None)
+                 " step: agentStepWait({ started: 0, step_at: Date.now() / 1000 - 5 }),"
+                 " limit: [agentStepLimit({ step_wait: 480 }), agentStepLimit({ step_wait: 0 }), agentStepLimit(null)] })", None)
     assert got["wait"] == agent.STEP_WAIT
+    assert got["limit"] == [480, agent.STEP_WAIT, agent.STEP_WAIT]  # 작업이 알려 준 한도(Claude Code 는 더 길다)를 쓴다
     assert got["text"] == "이번 단계 1:15"
     assert got["step"] == "이번 단계 0:05"
 

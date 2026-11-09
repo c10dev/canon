@@ -235,12 +235,35 @@ class ClaudeCodeTest(unittest.TestCase):
             claude.ClaudeCodeLLM().json("s", "p", NameOptions)
 
     def test_wait_cap_ends_slow_call(self):
-        self.replies({"sleep": 10})
+        self.replies({"sleep": 10}, {"sleep": 10})
         t = time.monotonic()
-        with wait_cap(0.5), self.assertRaisesRegex(claude.ClaudeCodeError, "0.5초"):
+        with wait_cap(0.5), self.assertRaisesRegex(claude.ClaudeTimedOut, "0.5초"):
             claude.ClaudeCodeLLM().text("s", "p")  # 플롯 대화 한 단계의 한도가 Claude Code 에도 걸린다
-        self.assertLess(time.monotonic() - t, 5)
-        self.assertFalse(usage.read()[-1]["ok"])
+        self.assertLess(time.monotonic() - t, 8)
+        self.assertEqual(len(self.calls()), 2)  # 한 번 다시 부르고 또 넘기면 오류
+        self.assertEqual([r["ok"] for r in usage.read()], [False, False])
+
+    def test_wait_cap_retries_once_after_timeout(self):
+        """줄인 한도를 넘기면 Gemini 처럼 한 번 다시 부른다. 2026-11-05~09 대화 에이전트 단계 3건이 300초에서 끊겨 턴이 멈췄다."""
+        self.replies({"sleep": 10}, {"structured_output": {"options": [{"name": "윤서", "reason": "부드럽다"}]}})
+        seen = []
+        tok = cancel.notice.set(seen.append)
+        try:
+            with wait_cap(0.5):
+                out = claude.ClaudeCodeLLM().json("s", "p", NameOptions)
+        finally:
+            cancel.notice.reset(tok)
+        self.assertEqual(out.options[0].name, "윤서")
+        self.assertEqual(len(self.calls()), 2)
+        self.assertEqual([r["ok"] for r in usage.read()], [False, True])
+        self.assertIn("AI 응답이 늦어 다시 불러요", seen)
+
+    def test_full_timeout_is_not_retried(self):
+        """한도를 줄이지 않은 호출(CANON_CLAUDE_TIMEOUT)은 다시 부르지 않는다. 그 한도를 두 번 기다리지 않게."""
+        self.replies({"sleep": 10}, {"sleep": 10})
+        with self.assertRaisesRegex(claude.ClaudeTimedOut, "CANON_CLAUDE_TIMEOUT"):
+            claude.ClaudeCodeLLM(timeout=0.5).text("s", "p")
+        self.assertEqual(len(self.calls()), 1)
 
     def test_stop_kills_running_call(self):
         self.replies({"sleep": 10})

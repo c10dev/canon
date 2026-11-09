@@ -323,6 +323,10 @@ class ClaudeCodeError(RuntimeError):
     pass
 
 
+class ClaudeTimedOut(ClaudeCodeError):
+    """하위 프로세스가 제한 시간 안에 끝나지 않았다. 끝낸 프로세스는 사용량을 남기지 않는다."""
+
+
 def _explain(text: str) -> str:
     low = text.lower()
     if any(w in low for w in ("not logged in", "/login", "login expired", "invalid api key", "authentication", "oauth token")):
@@ -518,7 +522,7 @@ class ClaudeCodeLLM:
                     proc = _run(self._args(head, sch, system_file), timeout, stdin=with_note(ask),
                                 stop=cancel.current.get(), env=env)
             except subprocess.TimeoutExpired as e:
-                raise ClaudeCodeError(f"Claude Code 응답이 {timeout:g}초 안에 오지 않았어요"
+                raise ClaudeTimedOut(f"Claude Code 응답이 {timeout:g}초 안에 오지 않았어요"
                                       + ("" if wait and wait < self.timeout else " (CANON_CLAUDE_TIMEOUT)")) from e
             try:
                 d = json.loads(proc.stdout.strip().splitlines()[-1]) if proc.stdout.strip() else None
@@ -582,7 +586,7 @@ class ClaudeCodeLLM:
         for attempt in range(2):
             self.last_attempts = attempt + 1
             try:
-                return self._call(system, ask, schema, attempt + 1, cut, prefix)
+                return self._slow_retry(lambda: self._call(system, ask, schema, attempt + 1, cut, prefix))
             except ValidationError as e:
                 if attempt:
                     raise SchemaMismatch(schema, e, "Claude") from e
@@ -595,7 +599,22 @@ class ClaudeCodeLLM:
         from .llm import prefix_of
 
         self.last_attempts = 1
-        return self._call(system, prompt, prefix=prefix_of(hint))
+        return self._slow_retry(lambda: self._call(system, prompt, prefix=prefix_of(hint)))
+
+    def _slow_retry(self, call: Any) -> Any:
+        """wait_cap 으로 줄인 한도를 넘기면 llm.TIMEOUT_RETRIES 번 다시 부른다 (Gemini 와 같다).
+        한도를 줄이지 않은 호출(CANON_CLAUDE_TIMEOUT)은 다시 부르지 않는다. 그 한도를 두 번 기다리지 않게 한다."""
+        from .llm import TIMEOUT_RETRIES, caps
+
+        for i in range(TIMEOUT_RETRIES + 1):
+            try:
+                return call()
+            except ClaudeTimedOut:
+                _, wait = caps()
+                if i >= TIMEOUT_RETRIES or not wait or wait >= self.timeout:
+                    raise
+                cancel.say("AI 응답이 늦어 다시 불러요")
+        raise AssertionError("unreachable")
 
 
 # ---------- API 키: Messages API ----------
