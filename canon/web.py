@@ -2577,6 +2577,7 @@ class JobIn(BaseModel):
     place_kind: str = ""  # names_ai: 지명 종류 (target 이 비었을 때)
     selection: Selection | None = None  # illust: 그릴 부분 (비우면 AI 가 장면을 고른다)
     model: str = ""  # illust: 삽화 모델 (illust.MODELS)
+    draw: bool = False  # illust: 만든 뒤 바로 ComfyUI 로 그린다 (illust_render 와 같은 일을 한 작업 안에서)
     spec: MapSpec | None = None  # atlas_suggest: 지도 화면에서 지금 고른 설정
     texts: list[str] | None = None  # atlas_sort: 정리할 위치 글 (비우면 맞지 않은 글 모두)
     trial: dict | None = None  # rs_*: 연구 실험 요청 (routes/research 의 SampleIn · StageIn · CheckTrialIn · Backend · CompareIn 모양)
@@ -3062,21 +3063,46 @@ def _job_illust(name: str, body: "JobIn", p: Project, kind: str, n: int | None, 
         raise ValueError(f"{n}화 본문이 없어요")
     if body.model and body.model not in illust.MODELS:
         raise ValueError(f"모르는 모델이에요: {body.model}")
-    sel, ask, model = body.selection, body.note, body.model
-    label = f"{n}화 {'삽화 태그' if sel else '삽화 장면 고르기'}"
+    if body.draw and not comfy.url():
+        raise ValueError("ComfyUI 주소가 없어요. CANON_COMFY_URL이나 설정 파일의 comfy_url에 ComfyUI 주소를 적으세요")
+    sel, ask, model, draw = body.selection, body.note, body.model, body.draw
+    label = f"{n}화 {'삽화 태그' if sel else '삽화 장면 고르기'}" + (" · 그리기" if draw else "")
 
     def fn(job: jobs.Job):
         ill = pipeline.illustrate(llm, store.load(name), n, sel, ask, model)
         cancel.check()
         _edit(name, lambda q: pipeline.add_illustration(q, n, ill))
-        return {"id": ill.id, "missing_look": list(ill.missing_look)}
+        out = {"id": ill.id, "missing_look": list(ill.missing_look)}
+        if draw:
+            cancel.say("ComfyUI가 그리는 중이에요")
+            try:
+                out.update(_draw_into(name, n, ill.id))
+            except comfy.ComfyError as e:
+                raise comfy.ComfyError(f"삽화 프롬프트는 만들었지만 그리지 못했어요. {e}") from e
+        return out
     return label, 1, set(), fn
 
 
+def _draw_into(name: str, n: int, iid: str) -> dict:
+    """삽화 프롬프트 하나를 ComfyUI 로 그려 그 삽화에 그림을 더한다 (작업 illust_render · illust 의 draw).
+    파일 쓰기 · 기록 · 정리(prune)는 한 작품 잠금(_edit) 안에서 한다. 밖에서 쓰면 함께 도는 그리기나 지우기의 정리가 새 파일을 지운다.
+    그 삽화가 그리는 사이 지워졌으면 파일을 쓰지 않고 실패한다."""
+    q = store.load(name)
+    data, img = comfy.render(q, comfy.find(q, n, iid))
+    cancel.check()
+
+    def put(r: Project) -> None:
+        comfy.find(r, n, iid)
+        img.file = comfy.save_image(name, data)
+        comfy.add_image(r, n, iid, img)
+        comfy.prune(name, r)
+    _edit(name, put)
+    return {"file": img.file, "notes": list(img.notes)}
+
+
 def _job_illust_render(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
-    """작업 illust_render: 삽화 프롬프트 하나(body.target)를 ComfyUI 로 그려 그 삽화에 그림을 더한다. LLM 을 부르지 않는다.
-    삽화 프롬프트처럼 이야기 데이터가 아니라 바로 남긴다. 그 삽화가 그사이 지워졌으면 받은 그림을 버린다.
-    파일 쓰기 · 기록 · 정리(prune)는 한 작품 잠금(_edit) 안에서 한다. 밖에서 쓰면 함께 도는 그리기나 지우기의 정리가 새 파일을 지운다."""
+    """작업 illust_render: 삽화 프롬프트 하나(body.target)를 ComfyUI 로 그려 그 삽화에 그림을 더한다(_draw_into). LLM 을 부르지 않는다.
+    삽화 프롬프트처럼 이야기 데이터가 아니라 바로 남긴다."""
     if n is None:
         raise ValueError("그릴 화가 없어요")
     iid = body.target
@@ -3085,17 +3111,7 @@ def _job_illust_render(name: str, body: "JobIn", p: Project, kind: str, n: int |
         raise ValueError("ComfyUI 주소가 없어요. CANON_COMFY_URL에 ComfyUI 주소를 적으세요")
 
     def fn(job: jobs.Job):
-        q = store.load(name)
-        data, img = comfy.render(q, comfy.find(q, n, iid))
-        cancel.check()
-
-        def put(r: Project) -> None:
-            comfy.find(r, n, iid)  # 지워졌으면 파일을 쓰지 않고 실패한다
-            img.file = comfy.save_image(name, data)
-            comfy.add_image(r, n, iid, img)
-            comfy.prune(name, r)
-        _edit(name, put)
-        return {"id": iid, "file": img.file, "notes": list(img.notes)}
+        return {"id": iid, **_draw_into(name, n, iid)}
     return f"{n}화 삽화 그리기", 1, set(), fn
 
 

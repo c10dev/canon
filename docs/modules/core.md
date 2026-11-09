@@ -1102,6 +1102,8 @@
 - 거꾸로 `check` · `fixes` · `recheck` 는 그 화의 지적 하나 작업이 도는 동안 시작하지 않는다. 다른 지적끼리는 함께 돈다
 - `illust` 는 `JobIn.selection` · `note`(바라는 것) · `model` 을 받아 삽화를 그 화에 더한다(옛 경로 `…/episodes/{n}/illust` 와 같다)
 - `illust_render`(`_job_illust_render`)는 삽화 하나(`JobIn.target`, 화는 `ep`)를 ComfyUI로 그려 그 삽화에 그림을 더한다(`canon/comfy.py`)
+- `illust` 에 `JobIn.draw` 를 켜면 삽화를 더한 뒤 같은 작업 안에서 바로 그린다(`_draw_into`, `illust_render` 와 같은 일). 그리기만 실패하면 만든 삽화는 남고 오류에 그렇다고 적는다
+- `draw` 를 켠 `illust` 는 ComfyUI 주소가 없으면 시작 전에 400 이다
 - `illust_render` 는 LLM을 부르지 않는다(`NO_LLM_KINDS`). `start_job` 은 그 작업에 `get_llm` 을 부르지 않아 키가 없어도 돈다
 - `illust_render` 는 `CANON_COMFY_URL` 이 비었거나 삽화가 없으면 시작 전에 400 이다
 - ComfyUI 경로: 그리기 설정 `GET /api/comfy`(`comfy.status`), 그림 파일 `GET …/illust-images/{file}`, 그림 지우기 `DELETE …/episodes/{n}/illust/{iid}/images/{file}`
