@@ -350,7 +350,7 @@ function stuChecks(m) {
     <div class="small">${esc(facts)}</div>
     ${why.length ? `<div class="small">${why.map(esc).join('<br>')}</div>` : ''}
     ${hits.length ? `<div class="small">걸린 곳: ${hits.join(' · ')}</div>` : ''}
-    ${marks.length ? `<div class="small">문체 표지: ${marks.join(' · ')}</div>` : ''}
+    ${marks.length ? `<div class="small">문체 버릇: ${marks.join(' · ')}</div>` : ''}
     ${(m.copied || []).length ? `<div class="small warn-text">본보기에서 옮긴 문장: ${m.copied.map((x) => `«${esc(x)}»`).join(' · ')}</div>` : ''}`;
 }
 

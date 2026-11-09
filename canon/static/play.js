@@ -800,7 +800,7 @@ function playHomeCard() {
   }
   const fin = P().episodes.filter((e) => e.status === 'finalized').length;
   return `<section class="card tight"><div class="between"><h2>이 세계로 플레이</h2><a class="btn small" href="#/play/new/${enc(S.name)}">새 플레이</a></div>
-    <p class="small" style="line-height:1.6">이 세계 속 인물이 되거나 무작위로 태어나서, 시간이 흐르는 동안 갈림길마다 결정해요. ${fin ? `${fin}화를 반영한 직후의 세계에서 시작하고` : '반영한 화가 없으면 이야기 시작 전에서 시작하고'}, 세계 작품은 바뀌지 않아요.</p></section>`;
+    <p class="small" style="line-height:1.6">이 세계 속 인물이 되어 갈림길마다 결정해요.${help(`${fin ? `${fin}화를 반영한 직후의 세계에서 시작하고` : '반영한 화가 없으면 이야기 시작 전에서 시작하고'}, 세계 작품은 바뀌지 않아요.`)}</p></section>`;
 }
 
 // ---------- 동작 ----------

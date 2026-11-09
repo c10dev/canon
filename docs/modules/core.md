@@ -47,7 +47,7 @@
 - 비용 · 시간 추정(`_measured`)은 지난 로그의 출력 토큰을 호출 수로 나눠 호출 하나의 평균으로 쓴다
 - 추정의 입력 · 출력 토큰은 단계 백엔드 · 모델의 글자 → 토큰 직선(`usage.stage_rate`)으로 센다
 - 추정 결과의 `token_rates` 는 단계마다 쓴 기울기 · 붙는 토큰 · 출처(default · measured · fallback)다
-- 정착 문체 흐름 멈춤(`Policy.max_style_distance`, 0 이면 끔, `anchor.rolling`)
+- 이 작품의 문체 흐름 멈춤(`Policy.max_style_distance`, 0 이면 끔, `anchor.rolling`)
 - `autorun.json` 에 진행 기록
 - 변경안 반영(`_review` 의 put)은 반영 전제 `pipeline.check_applicable` 에 걸리면 반영하지 않고 paused 로 멈춘다
 - 검토 대기의 그대로 반영(`resume` 의 take)도 `check_applicable` 에 걸리면 반영하지 않고 오류를 낸다
@@ -399,11 +399,11 @@
 - 장편 전환(`serialize.py`) · 재구성(`reshape.py`) · 초반 1~3화(`opening.py`)는 따로 둔 모듈이다(`SPLIT`). 새 공용 도우미는 이 파일에 두고 그 모듈이 불러 쓴다
 - 단계별 로직
 - 차례: 설정 제안 → 스타일 분석 → 기승전결 → 화별 플롯 → 스토리보드 → 큐 시트 → 본문 → 검수 → 상태 추출/반영
-- 기승전결 `plan_arc` 는 `Settings.heat_plan` 을 켠 단편이면 열 계획을 함께 받는다(응답 `HeatArcPlan`, 요구 `prompts.heat_arc_rules`)
-- 열 계획 정리 `clean_heat_plan`: `heatplan.fit` · `fit_turn`, 판돈은 단서 · 빈 것을 빼고 심는 화를 자르고 겹치지 않는 id(`fs-<화>-h<k>`)
-- 열 계획 적용 `apply_heat_plan`: 계획 · 원칙 · 뒤집힘을 바꾸고 판돈은 같은 id 가 없을 때만 복선에 더함. 명령줄 `arc` 와 화면 구조 제안 고르기(`heatApply`)가 쓴다
-- 열 계획을 받을 범위 `heat_target`(단편 작품 전체, 장편은 아크 번호 또는 다 쓰지 않은 첫 아크)과 받기 `propose_heat`(본문 있는 화는 지금 계획 줄을 지킨다)
-- 다음 아크 `plan_next_arc` 는 `heat_plan` 을 켜면 `HeatArcProposal` 로 묻고(`prompts.heat_next_arc_rules`), `clean_arc` 가 열 계획을 아크 범위에 맞춰 `arc.heat` 로 옮기고, `apply_arc` 가 판돈을 복선에 더한다
+- 기승전결 `plan_arc` 는 `Settings.heat_plan` 을 켠 단편이면 완급 계획을 함께 받는다(응답 `HeatArcPlan`, 요구 `prompts.heat_arc_rules`)
+- 완급 계획 정리 `clean_heat_plan`: `heatplan.fit` · `fit_turn`, 판돈은 단서 · 빈 것을 빼고 심는 화를 자르고 겹치지 않는 id(`fs-<화>-h<k>`)
+- 완급 계획 적용 `apply_heat_plan`: 계획 · 원칙 · 뒤집힘을 바꾸고 판돈은 같은 id 가 없을 때만 복선에 더함. 명령줄 `arc` 와 화면 구조 제안 고르기(`heatApply`)가 쓴다
+- 완급 계획을 받을 범위 `heat_target`(단편 작품 전체, 장편은 아크 번호 또는 다 쓰지 않은 첫 아크)과 받기 `propose_heat`(본문 있는 화는 지금 계획 줄을 지킨다)
+- 다음 아크 `plan_next_arc` 는 `heat_plan` 을 켜면 `HeatArcProposal` 로 묻고(`prompts.heat_next_arc_rules`), `clean_arc` 가 완급 계획을 아크 범위에 맞춰 `arc.heat` 로 옮기고, `apply_arc` 가 판돈을 복선에 더한다
 - 화별 플롯
   - 대화로 다듬기 `revise_plot`/`apply_revision` 포함
   - `apply_revision` 이 화를 다시 만들어도 작가 연출 지시(`Episode.direction`)는 남긴다
@@ -565,18 +565,18 @@
 - 'cast' 블록의 넣은 항목은 `fit_cast` 뒤에 적는다. 예산으로 뺀 플롯 조연 · 단역은 뺀 항목에만 있다
 - `stage_block(trace=)` · `board_block(trace=)` 는 예산으로 뺀 장면 · 기한을 적는다
 - 시험 `tests/test_block_settings.py`
-- 단편 열 계획: 화별 플롯 규칙 끝 `heat_plot_rules`(계획 · 원칙 · 뒤집힘 · 열린 판돈 · 갈래 안내), 쓰기 · 스토리보드 · 큐 시트의 현재 구간 뒤 `heat_step_line`, 큐 시트 요청 맨 끝 `heat_cue_rule`
-- 열 계획이 없으면 세 곳 모두 빈 글이라 프롬프트가 그대로다
+- 단편 완급 계획: 화별 플롯 규칙 끝 `heat_plot_rules`(계획 · 원칙 · 뒤집힘 · 열린 판돈 · 갈래 안내), 쓰기 · 스토리보드 · 큐 시트의 현재 구간 뒤 `heat_step_line`, 큐 시트 요청 맨 끝 `heat_cue_rule`
+- 완급 계획이 없으면 세 곳 모두 빈 글이라 프롬프트가 그대로다
 - 장편은 화별 플롯 요청(`serial_plot_prompt`) 끝에 그 아크의 `heat_plot_rules`, 쓰기 컨텍스트의 아크 안 구간 줄(`act_line`) 뒤에 이번 화 열 한 줄을 넣는다
-- 아크를 프롬프트에 덤프할 때 열 계획 칸은 뺀다(`ARC_HEAT`, `StoryArc` 의 프롬프트용 직렬화). 아크의 열 계획 칸은 AI 응답 형식에도 없다(`SkipJsonSchema`)
-- 열 계획 받기 요청 `heat_propose_prompt`: 기승전결, 화별 플롯, 본문 있는 화의 실제 열 참고값과 지금 계획, 열린 복선. 요구사항은 단편 기획과 같은 `heat_rules`
+- 아크를 프롬프트에 덤프할 때 완급 계획 칸은 뺀다(`ARC_HEAT`, `StoryArc` 의 프롬프트용 직렬화). 아크의 완급 계획 칸은 AI 응답 형식에도 없다(`SkipJsonSchema`)
+- 완급 계획 받기 요청 `heat_propose_prompt`: 기승전결, 화별 플롯, 본문 있는 화의 실제 열 참고값과 지금 계획, 열린 복선. 요구사항은 단편 기획과 같은 `heat_rules`
 - 작업지시서(`episode_brief`, `state_brief`)
 - 작업지시서는 `brief_parts`(역할 = 시스템, 요청)로 조립한다. 갈래 목록은 `BRIEF_KINDS`(`BriefKind`: 이름 · 필요한 것 · 고르는 단위 · 장편만)
-- 갈래는 집필 흐름 차례로 설정 도우미 대화 · 문체 대화 · 부 구성(장편만) · 기승전결 구조 · 다음 아크 · 열 계획 · 플롯 초안 · 한 화 플롯 · 플롯 대화 에이전트 · 스토리보드 · 큐 시트 · 본문 쓰기 · 본문 부분 수정 · 검수 · 상태 변경안이다
+- 갈래는 집필 흐름 차례로 설정 도우미 대화 · 문체 대화 · 부 구성(장편만) · 기승전결 구조 · 다음 아크 · 완급 계획 · 플롯 초안 · 한 화 플롯 · 플롯 대화 에이전트 · 스토리보드 · 큐 시트 · 본문 쓰기 · 본문 부분 수정 · 검수 · 상태 변경안이다
 - 대화로 다듬기 갈래는 `revise_setup` · `revise_style` · `revise_passage` · `agent.run_turn` 첫 단계와 같은 글이고, 작가의 말 자리에 `CHAT_MESSAGE` 를 넣는다(`tests/test_promptlab.py` 가 견준다)
 - 본문 부분 수정 갈래가 고르는 부분은 `passage_sample`(빈 줄이 아닌 단락 가운데 한가운데 단락)이다. 빠른 요청은 쓰지 않는다
 - 새 갈래는 `pipeline` 의 호출(`plan_series` · `plan_arc` · `plan_next_arc` · `propose_heat` · `draft_plots` · `draft_episode` · `make_storyboard` · `make_cue_sheet`)과 같은 함수를 같은 차례로 부르고 작가의 요청은 비운다(`tests/test_promptlab.py` 가 견준다)
-- 구조 갈래 `arc_ask`: 단편은 기승전결(`arc_prompt`), 장편은 다음 아크 하나(`next_arc_prompt`). 열 계획을 켠 작품은 열 계획 규칙과 그 스키마를 붙인다
+- 구조 갈래 `arc_ask`: 단편은 기승전결(`arc_prompt`), 장편은 다음 아크 하나(`next_arc_prompt`). 완급 계획을 켠 작품은 완급 계획 규칙과 그 스키마를 붙인다
 - 플롯 초안 갈래는 n 화가 든 구간(`plots_range`, `pipeline.act_groups`) 전체를 짠다. 웹 작업 plots 도 구간마다 부른다
 - 한 화 플롯 갈래는 `draft_episode`(웹 작업 plot_one, 뒤 화에 맞추기 켬)와 같은 `episode_plot_prompt` 다. 플롯이 초안인 화만 짠다
 - 큐 시트 갈래는 스토리보드를 같은 작업에서 막 만든 경우(`lead`)가 아닌 따로 만들 때의 글이다
@@ -771,7 +771,7 @@
 - 반영이 실제로 새로 더한 항목(`StateDelta.added`, `AddedItems`)도 AI 응답 형식에서 빠진다. 없으면(None) 이 칸이 생기기 전 기록이다
 - 반영 취소는 그 화 기록과 함께 빼 둔 항목도 지운다
 - 지운 기록은 `_revert_kept` 가 pending.json 에 남기고, 상태 승인 화면이 빼 둔 항목을 체크를 푼 채 다시 놓는다
-- 단편 열 계획(`Project.heat` · `heat_rule` · `heat_turn`, `HeatStep` · `HeatTurn`)은 기본값이 비어 옛 작품이 읽힌다. 규칙은 story.md 의 `canon/heatplan.py` 절
+- 단편 완급 계획(`Project.heat` · `heat_rule` · `heat_turn`, `HeatStep` · `HeatTurn`)은 기본값이 비어 옛 작품이 읽힌다. 규칙은 story.md 의 `canon/heatplan.py` 절
 - 작가 연출 지시 `Episode.direction` · `StoryArc.direction` 은 빈 글이 기본값이다. 아크 지시는 `ArcProposal.arc` 로 AI 가 채우는 모델이라 응답 형식(`SkipJsonSchema`)과 프롬프트 덤프(`_prompt_view`, `prompts.ARC_HEAT`)에서 뺀다
 - 복선 갈래 `Foreshadow.kind`(clue 단서 · stake 판돈 · constraint 제약 · audience 관객 · ban 금지선)는 옛 복선을 clue 로 읽는다
 - 화별 쓴 사건 체크(`Episode.events_done`, 사건 글 목록)는 집필 화면 표시용이라 `EpisodePlot` 밖에 두어 프롬프트에 들어가지 않는다
@@ -858,7 +858,7 @@
 - 단편을 장편 연재로 바꾸는 이어 쓰기 전환(CLI `convert`, 웹 `convert` 작업)
 - 전환이 화를 다시 만들어도 작가 연출 지시(`Episode.direction`)는 남긴다
 - `pipeline.py` 에서 옮긴 구역이다. `pipeline` 맨 끝의 `_attach_split` 이 `EXPORTS` 의 이름을 `pipeline` 에도 둬서 `pipeline.<이름>` 으로 그대로 부른다
-- 전환 반영(`apply_conversion`)은 단편 열 계획을 아크 1의 열 계획으로 옮기고 작품 쪽 칸을 비운다
+- 전환 반영(`apply_conversion`)은 단편 완급 계획을 아크 1의 완급 계획으로 옮기고 작품 쪽 칸을 비운다
 
 ### `canon/settings.py`
 
@@ -1003,9 +1003,9 @@
 ### `canon/web.py`
 
 - 웹 UI 서버(`python -m canon serve`)
-- 작품 저장(PUT · PATCH)은 단편 열 계획을 1화부터 끝 화까지 맞춘다(`heatplan.fit` · `fit_turn`). 화수를 바꿔도 빈틈이 생기지 않는다
-- 장편은 아크마다 그 아크 범위로 열 계획을 맞춘다. 다음 아크 적용(`/arcs/apply`)은 판돈이 든 제안(`HeatArcProposal`)도 받는다
-- 작업 `heat`(`_job_heat`): 이미 있는 기승전결 · 아크 위 열 계획 제안. 결과는 검토를 기다리는 결과(`PENDING_KINDS`)로 남는다
+- 작품 저장(PUT · PATCH)은 단편 완급 계획을 1화부터 끝 화까지 맞춘다(`heatplan.fit` · `fit_turn`). 화수를 바꿔도 빈틈이 생기지 않는다
+- 장편은 아크마다 그 아크 범위로 완급 계획을 맞춘다. 다음 아크 적용(`/arcs/apply`)은 판돈이 든 제안(`HeatArcProposal`)도 받는다
+- 작업 `heat`(`_job_heat`): 이미 있는 기승전결 · 아크 위 완급 계획 제안. 결과는 검토를 기다리는 결과(`PENDING_KINDS`)로 남는다
 - 작업 `offscreen`(`_job_offscreen`, 계획 단계 모델): 화면 밖 근황 제안. 결과는 `PENDING_KINDS` 로 남는다
 - 화면 밖 근황 저장 `POST …/offscreen`(`OffscreenSet`, 고른 인물만) · 지우기 `DELETE …/offscreen/{인물 id}`. 장편에서만 받는다
 - 문체 라이브러리 분석 작업 `POST /api/styles/analyze/job`(kind `lib_style`, project `LIB_JOBS` = `.styles`)

@@ -128,6 +128,10 @@
 - 입력 바인딩(`data-bind`)
 - 공통 동작(`actions` 의 저장 · 되돌리기 · 작품 관리)
 - 펼침 메뉴(`menuBtn`, 열린 메뉴 `S.popMenu`, Esc · 바깥 누르기로 닫기)와 `#app` 밖 대화상자(`showDialog`)
+- 물음표 툴팁 `help(text)`: 늘 보일 필요 없는 설명 · 판정 기준을 누르면 펼친다(디자인 시스템 Help)
+- `help` 는 span · button 만 써서 `<p>` · `<label>` · 제목 안에 넣어도 된다. 누르면 그 툴팁만 열리고 바깥 누르기 · Esc 로 닫힌다
+- `help` 버튼 누르기는 캡처 단계에서 기본 동작을 막는다. `<label>` 안에 있어도 체크박스 · 입력칸을 건드리지 않는다
+- `input(label, path, { help })` 은 입력칸 이름 뒤에 `help` 를 붙인다(`hint` 는 늘 보이는 글)
 - 확인 대화상자 `askConfirm`(Promise<boolean>) · `askText`(Promise<string|null>): 브라우저 `confirm` · `prompt` 대신 쓴다(디자인 시스템 Dialog)
 - 확인 대화상자를 부르는 동작은 `async` 로 두고 `await` 로 답을 기다린다
 - `danger` 이고 `alt` · 입력칸이 없으면 첫 포커스는 취소 버튼이다. 열자마자 Enter 로 위험한 동작을 고르지 않게 한다
@@ -470,8 +474,8 @@
   - 목차의 진행 막대 `plotMeter` · 구간 줄 `actTocItems`(누르면 `jumpAct`) · 확인할 것 `plotTodos`(관계를 한 화에 너무 많이 옮기는 화 `pacePlot`, `pace.plot_warnings` 와 같은 규칙 `tests/test_plot_pace_js.py`)
   - 머리의 'AI로 다시 만들기 ▾' `plotAiMenu`(요청 칸 `S.planNote`)
   - 구간 한 줄 머리 + 화 카드 격자 `actBoard`
-  - 단편은 보드 위에 열 계획 카드(`heatplan.js` `heatCard`, story.md)
-  - 장편은 고른 아크 보드 위에 그 아크의 열 계획 카드(`heatCard(p, arc)`)
+  - 단편은 보드 위에 완급 계획 카드(`heatplan.js` `heatCard`, story.md)
+  - 장편은 고른 아크 보드 위에 그 아크의 완급 계획 카드(`heatCard(p, arc)`)
   - 구간 · 아크 · 부 고치기는 서랍 없이 그 자리에서 `actEditor` · `arcEditor` · `partEditor`
   - 아크 주요 인물 이름 체크 `arcCastField`
 - 640px 이하 사건 줄의 도구(연출 · 위로 · 아래로 · 빼기)는 숨기지 않고 사건 글 아래 줄 오른쪽에 둔다
@@ -681,12 +685,12 @@
   - 요약은 가장 어긋난 지표 둘이다(`metricGaps`). 점수는 차이를 경고 폭으로 나눈 값이고, 1을 넘으면 '경고' 칩을 단다. 경고 폭의 절반보다 작은 차이는 올리지 않는다
   - 요약의 경고 폭 표 `METRIC_GAPS` 는 `metrics.THRESHOLDS` · `UPPER_ONLY` 와 같게 둔다(`tests/test_style_js.py`)
   - 견줄 화나 기준 지표가 없으면 요약 줄을 두지 않는다
-  - 정착 문체를 정해도 요약은 레퍼런스(`style_baseline`)와 견준다. 검수 화면의 문체 경고는 정착 문체를 보므로 둘이 다를 수 있다
+  - 이 작품의 문체를 정해도 요약은 레퍼런스(`style_baseline`)와 견준다. 검수 화면의 문체 경고는 이 작품의 문체를 보므로 둘이 다를 수 있다
   - 지표 칩(`metricChips`)은 '지표 풀이'를 열면 보이고, 값이 없는 지표는 칩을 그리지 않는다. 라이브러리 항목의 칩도 같다
   - 지표 풀이 표(`baselineRows`)는 '–'를 남겨 왜 없는지 적고, 견준 화가 있으면 지표마다 그 화의 값을 곁에 적는다
-  - '지킬 · 피할 것' 카드의 열 낱말 칸(`heatWordsRead` · `heatWordsEdit`, `Settings.heat_words` 에 묶음): 작품 화면에만 있고 라이브러리 문체에는 없음
+  - '지킬 · 피할 것' 카드의 절정 낱말 칸(`heatWordsRead` · `heatWordsEdit`, `Settings.heat_words` 에 묶음): 작품 화면에만 있고 라이브러리 문체에는 없음
   - 빈 문체는 세 갈래 `stylePickCard` · `styleManual`
-  - 프로필 카드 뒤에 작품 정착 문체 카드(`static/anchor.js` 의 `anchorCard`)
+  - 프로필 카드 뒤에 이 작품의 문체 카드(`static/anchor.js` 의 `anchorCard`)
   - 라이브러리 항목도 같은 카드
   - 목차 틀은 공용 `outline.js`(`styleToc`)
   - `tests/test_style_js.py`
@@ -754,6 +758,7 @@
   - 640px 이하에서 머리의 위치 줄과 쓴 모델은 숨긴다
   - 640px 이하에서 단계 띠는 한 줄 칸이다
   - 640px 이하에서 안내만 하는 반영 끝난 화 알림은 첫 문장을 요약으로 둔 접은 칸(`finNote`, `.w-fin-s`)이다
+  - 본문을 아직 고치지 않은 반영 끝난 화 알림은 한 문장과 물음표 툴팁(`help`)이라 접지 않는다
   - 640px 이하에서 Esc 로 대화를 닫아 포커스가 비면 ⋯ 메뉴 버튼으로 돌린다(머리 줄의 대화 버튼이 숨어 있어서)
   - 반영이 끝난 화의 머리 primary `nextStepBtn` 은 지금 보는 화면으로 가는 일이면 두지 않는다
   - 동작이 있는 다음 할 일(완결 원고 내보내기)은 `nextStepBtn` 이 늘 둔다

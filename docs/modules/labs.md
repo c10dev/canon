@@ -34,7 +34,7 @@
 
 ### `canon/metrics.py`
 
-- 문체 지표(문장 길이, 대사 비율, 과거형 비율, 어휘 다양도, 반복 구, 상투 표현, 쇠맛 패턴과 쉼표·대명사 지표, 문체 거리, 문체 표지 빈도, 예시 문단 베끼기)와 기준 대비 경고
+- 문체 지표(문장 길이, 대사 비율, 과거형 비율, 어휘 다양도, 반복 구, 상투 표현, 쇠맛 패턴과 쉼표·대명사 지표, 문체 거리, 문체 버릇 빈도, 예시 문단 베끼기)와 기준 대비 경고
 - 말투 대사 예시 뽑기 `speech_examples`(큰따옴표 · 작은따옴표 · 낫표, 바로 앞에 '말버릇' · '입버릇' 이 있으면 뺌)
 - 말투 대사 예시 옮김 `speech_copied`: 예시 문장마다 그 길이(최대 `COPY_SPAN`)로 `copied_sentences` 를 부른다. 끝 문장부호는 빼고, `SPEECH_COPY_MIN`(6)자 미만 예시는 보지 않는다
 - 1~3화 초반 지표(`measure_opening`)
@@ -54,7 +54,7 @@
 - 대사 꼴은 `drift` 가 기준값과 견줘 경고함(물결표는 차이 0.15, 길이는 30%). 옛 기준값에는 값이 없어 경고하지 않음
 - 대사 꼴을 더한 근거는 reports/지표 사각지대 2026-11-07.md(대사 비율로는 갈리지 않던 작품과 레퍼런스가 이 값으로 갈림)
 - 문단 경계 창 `_para_windows`(`tempo_curve` 와 `peak_window` 가 함께 씀)
-- 정점 대목 `peak_window`: 열 낱말(`Settings.heat_words`)이 가장 많이 든 `PEAK_WINDOW` 자 창의 자리 · 열 낱말 수 · 문장 평균 길이. 낱말이 없거나 `PEAK_MIN_HITS` 개 미만이면 None
+- 정점 대목 `peak_window`: 절정 낱말(`Settings.heat_words`)이 가장 많이 든 `PEAK_WINDOW` 자 창의 자리 · 절정 낱말 수 · 문장 평균 길이. 낱말이 없거나 `PEAK_MIN_HITS` 개 미만이면 None
 - 정점 대목 경고 `peak_drift`: 그 창의 문장 평균이 기준값보다 `PEAK_LIMIT`(30%) 넘게 길면 한 줄. `pipeline.style_drift` 가 붙임
 - 정점 대목을 더한 근거는 reports/열 판정 시트 2 2026-11-07(같은 출처끼리 문장 길이가 다른 짝 13개 중 12개에서 짧은 쪽이 더 달아오름, 작품 평균은 그 차이를 가림)
 - 효과음 끝 표시 경고 `sfx_mark_drift`(원문이 `SFX_MARK_RARE` 미만으로 쓰는 표시를 이번 화 효과음 줄 `SFX_MARK_NEW` 이상에 쓰면)
@@ -91,7 +91,7 @@
 - 갈래는 `prompts.BRIEF_KINDS` 그대로다. 작품에 맞는 갈래만 `kinds_for` 로 고른다(부 구성은 장편만)
 - 대화로 다듬기 갈래(설정 도우미 · 문체 · 플롯 대화 에이전트 첫 단계 · 본문 부분 수정)는 작가의 말 자리에 `prompts.CHAT_MESSAGE` 를 넣는다. 작가가 그 줄을 바꿔 돌린다
 - 대화로 다듬기 갈래는 `canon_notes` 검사가 없다(빈 칸 검사만 한다)
-- 고르는 단위(`BriefKind.scope`): 화, 플롯 초안 구간(`groups_of`, `pipeline.act_groups`), 작품 하나(구조 · 열 계획 · 부 구성, 화를 쓰지 않아 n 은 0)
+- 고르는 단위(`BriefKind.scope`): 화, 플롯 초안 구간(`groups_of`, `pipeline.act_groups`), 작품 하나(구조 · 완급 계획 · 부 구성, 화를 쓰지 않아 n 은 0)
 - 한 화 플롯은 플롯이 초안인 화만 조립한다(`pipeline.draft_episode` 와 같다)
 - 스토리보드 · 큐 시트는 플롯을 확정한 화만 조립한다(`pipeline` 과 같다). 앞 화가 끝났는지(`require_previous`)는 보지 않는다
 - 불러오기 재료는 예시 작품(`example_project`, mock LLM 으로 만든 저장하지 않는 6화 단편, 한 번 만들어 사본을 줌)이나 고른 작품(`store.load`, 읽기만)
@@ -456,7 +456,7 @@
 - AI 호출 전 카드 저장 `stuCall`. CSS 는 JS 에서 주입(`STU_CSS`)
 - AI 안 쓰기 · 뜯어보기 · 상황 바꿔 보기 · 독자 질문은 화면을 막지 않는 작업이다(`stuStartJob`, 고친 카드를 먼저 저장). 버튼은 `stuBtn`(`jobBtn(…, STU_JOBS, 세션 id)`)으로 '만드는 중'을 그린다
 - 작업이 끝나면 그 세션을 보고 있을 때 다시 받는다(`stuJobDone`). 고치던 카드(`S.stuDirty`)는 서버 것으로 바꾸지 않고 남긴다
-- 시도 카드: 지표 칩(`stuChecks`: 지켰나 ✓ · 못 지킴 ✕ · 읽고 판단 ?), 글자 · 문장 · 대사 비율, 걸린 곳 «인용», 문체 표지 횟수
+- 시도 카드: 지표 칩(`stuChecks`: 지켰나 ✓ · 못 지킴 ✕ · 읽고 판단 ?), 글자 · 문장 · 대사 비율, 걸린 곳 «인용», 문체 버릇 횟수
 - 고쳐 쓰기(`stuRewrite`)는 그 시도 글을 직접 쓰기 칸에 옮기고 `base` 로 남긴다. AI 안은 고치지 않고 작가 글만 고친다(`stuEditOpen`)
 - 시도 고치기 칸의 글은 `S.stuEditText`(`data-local`)에 두어 다른 버튼으로 다시 그려도 남는다. 다른 시도를 열거나 그만둘 때 고친 것이 있으면 묻는다(`tests/test_studio_js.py`)
 - 직접 쓰기 칸과 고친 시도 글은 페이지를 떠날 때 묻는다(`app.js` `onKeptDraft`)
@@ -501,7 +501,7 @@
 - 시도 `add_ai` · `add_author`(고친 곳이 없으면 막음) · `edit`(작가 글만 고침, 고르기는 모두) · `remove`(그 시도를 고쳐 쓴 글은 `base` 0)
 - 세션마다 시도 `MAX_TRIES` 개까지. 저절로 지우지 않고 막는다(`room`)
 - 연습 종류 `DRILLS`(`Drill`: 이름 · 프롬프트 지시 · 지표 확인). 확인이 없는 연습(소리 · 냄새 · 촉감, 자리 · 자세)은 작가가 읽고 판단한다
-- 문단 지표 `measure`: 비율 대신 개수로 센다. 길이 · 연습 확인, 걸린 곳(`metrics.pattern_spans`), 문체 표지 횟수(`metrics.marker_count`)
+- 문단 지표 `measure`: 비율 대신 개수로 센다. 길이 · 연습 확인, 걸린 곳(`metrics.pattern_spans`), 문체 버릇 횟수(`metrics.marker_count`)
 - 화 단위 지표(어휘 다양도 · 문체 거리 · 쇠맛 화당 상한)는 문단에 맞지 않아 쓰지 않는다. 문장 길이 변화폭은 4문장부터 잰다
 - 감정 이름 확인은 대사 밖 서술에서만 `EMOTION_WORDS` 와 쇠맛 패턴 '감정 이름 서술'을 본다
 - 프롬프트 재료 `world`: 고른 문체만 채운 저장하지 않는 `Project`(프롬프트는 `prompts.paragraph_system` · `paragraph_prompt`)

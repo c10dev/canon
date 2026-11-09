@@ -935,9 +935,9 @@ def test_js_run_rows_and_metric_rows():
     assert row["되풀이 문장"] == [("0", False), ("1", True)] and row["쇠맛 경고"] == [("0", False), ("2", True)]  # 원문이 0이면 하나라도 표시
     assert row["템포 (원문 큐 경계)"] == [("맞음", False), ("-", False)]
     assert row["문체 거리 (원문 다른 화 1.0)"] == [("-", False), ("-", False)]
-    assert row["쉼표 문장"] == [("10%", False), ("50%", True)] and row["표지 빈도 경고"] == [("0", False), ("1", True)]
+    assert row["쉼표 문장"] == [("10%", False), ("50%", True)] and row["버릇 빈도 경고"] == [("0", False), ("1", True)]
     assert row["원문 옮김"] == [("-", False), ("1", True)] and row["장치 예시 옮김"] == [("-", False), ("0", False)]  # 하나라도 옮기면 표시
-    assert m["notes"] == ["기준이 짧아요", "되돌려 쓴 글 표지: '있었다' 9회 (원문 빈도면 2회 안팎)", "되돌려 쓴 글 옮긴 문장: “대답은 없었다.”"]
+    assert m["notes"] == ["기준이 짧아요", "되돌려 쓴 글 버릇: '있었다' 9회 (원문 빈도면 2회 안팎)", "되돌려 쓴 글 옮긴 문장: “대답은 없었다.”"]
 
 
 

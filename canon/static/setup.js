@@ -10,7 +10,7 @@ const LOGLINE_SLOTS = [
   ['why', '무엇 때문에', '이야기를 시작하게 만드는 일'],
   ['goal', '무엇을 하려 하나', "눈에 보이는 행동, '~한다'로 끝내기"],
   ['block', '무엇이 막나', '사람이나 힘'],
-  ['stake', '무엇이 걸렸나', '선택, 비워도 돼요'],
+  ['stake', '무엇이 걸렸나', '선택'],
 ];
 
 // 조사 josa 는 app.js (여러 화면이 쓴다)
@@ -66,12 +66,11 @@ function loglineBuilder() {
   }).join('');
   return `<div class="logline-box">
     <div class="logline-out"><p id="logline-preview" class="logline-preview" aria-live="polite">${esc(m.logline || LOGLINE_EMPTY)}</p><ul id="logline-checks" class="logline-checks" aria-label="로그라인 점검">${loglineChecksHtml(m)}</ul></div>
-    ${legacy ? '<div class="note plain">지금 로그라인은 한 문장으로만 저장되어 있어요. 칸을 채우면 칸 내용으로 바뀌어요.</div>' : ''}
+    ${legacy ? '<div class="note plain">지금 로그라인은 한 문장뿐이라, 칸을 채우면 칸 내용으로 바뀌어요.</div>' : ''}
     <div class="slots">${slots}</div>
-    <p class="small">다섯 칸을 채우면 한 문장으로 합쳐요. 점선 예시를 누르면 빈 칸에 들어가요.</p>
     ${exs.length ? `<details><summary>예시 로그라인 ${exs.length}개 보기</summary><div class="ex-list">${exs.map((e, i) => `<div class="ex-item"><span>${esc(composeLogline(e))}</span><button type="button" class="btn small" data-action="useExample" data-arg="${i}">이 예시로 채우기</button></div>`).join('')}</div></details>` : ''}
     <div id="logline-manual">${loglineManualHtml(m)}</div>
-    <details${legacy || loglineManual(m) ? ' open' : ''}><summary>한 문장으로 직접 고쳐 쓰기</summary>${input('로그라인 문장', 'meta.logline', { rows: 3, hint: '직접 고친 문장은 칸을 고쳐도 그대로 둬요' })}</details>
+    <details${legacy || loglineManual(m) ? ' open' : ''}><summary>한 문장으로 직접 고쳐 쓰기</summary>${input('로그라인 문장', 'meta.logline', { rows: 3, help: '직접 고친 문장은 칸을 고쳐도 그대로 둬요.' })}</details>
   </div>`;
 }
 
@@ -151,7 +150,7 @@ function toneBox() {
   const dialText = toneText(d);
   const offer = dialText && m.tone.trim() && m.tone !== dialText
     ? `<div class="row"><span class="small">다이얼 문장: ${esc(dialText)}</span><button type="button" class="btn small" data-action="useToneText">다이얼 문장으로 바꾸기</button></div>` : '';
-  return `<div id="tone-box" class="field"><span class="label-text">톤 <span class="hint">양 끝 중 어디에 가까운지 골라요. 왼쪽부터 1~4단계이고, 고른 단계를 다시 누르면 꺼져요. 문장은 직접 고쳐도 되고, 직접 쓴 문장은 다이얼이 덮지 않아요</span></span>${rows}${input('톤 문장', 'meta.tone', { placeholder: '예: 조금 어둡고 진지하고 호흡이 느리다' })}${offer}</div>`;
+  return `<div id="tone-box" class="field"><span class="label-text">톤${help('양 끝 중 어디에 가까운지 골라요. 왼쪽부터 1~4단계이고, 고른 단계를 다시 누르면 꺼져요. 문장은 직접 고쳐도 되고, 직접 쓴 문장은 다이얼이 덮지 않아요.')}</span>${rows}${input('톤 문장', 'meta.tone', { placeholder: '예: 조금 어둡고 진지하고 호흡이 느리다' })}${offer}</div>`;
 }
 
 // 관계를 말로 고르기. VIEWS 는 canon/dynamics.py 의 VIEWS 와 같은 목록이다.
@@ -397,9 +396,9 @@ function nameStyleField() {
   const det = (S.nameCheck || {}).detected;
   const opts = (S.namingStyles || []).map((st) => `<option value="${esc(st.id)}"${w.name_style === st.id ? ' selected' : ''}>${esc(st.label)}</option>`).join('');
   const cur = (S.namingStyles || []).find((st) => st.id === (w.name_style || det));
-  return `<div class="field"><label for="f-name-style">이름 스타일 <span class="hint">이름과 지명 후보를 뽑는 기준</span></label>
+  return `<div class="field"><label for="f-name-style">이름 스타일 <span class="hint">이름과 지명 후보를 뽑는 기준</span>${cur ? help(cur.summary) : ''}</label>
     <select id="f-name-style" data-bind="world.name_style" data-kind="text"><option value="" id="name-style-auto">자동 (지금: ${esc(styleLabel(det))})</option>${opts}</select>
-    ${cur ? `<div class="small">${esc(cur.summary)}</div>` : ''}</div>`;
+    </div>`;
 }
 
 function placeKindOptions() {
@@ -876,7 +875,7 @@ function genreField() {
 
 const episodesInput = () => (serial()
   ? input('총 화수', 'meta.target_episodes', { type: 'number', min: 1, max: 1000, hint: '늘리거나 줄이면 마지막 부 끝 화가 따라가요' })
-  : input('총 화수', 'meta.target_episodes', { type: 'number', min: 4, max: 40, hint: '단편 4~40화, 10~20화를 권해요' }));
+  : input('총 화수', 'meta.target_episodes', { type: 'number', min: 4, max: 40, hint: '단편 4~40화', help: '단편은 10~20화를 권해요.' }));
 
 /** 인물 카드의 칸 + 칸 하나 AI 후보 (ideas.js). 펼침은 openMap 의 'cd:<id>' 가 기억해 다시 그려도 접히지 않는다 */
 const charIdeaInput = (label, path, opt) => input(label, path, { ...opt, aside: ideaBtn(path), after: ideaList(path) });
@@ -930,12 +929,12 @@ function viewSetupDoc() {
         ${adultCheck(`data-bind="meta.adult" data-kind="bool"${p.meta.adult ? ' checked' : ''}`)}
       </section>
       <section class="card" id="setup-logline" aria-labelledby="h-setup-logline">
-        ${secHead(1, '로그라인', '<span class="small">AI가 플롯을 짤 때 가장 먼저 읽어요</span>')}
+        ${secHead(1, '로그라인')}
         ${loglineBuilder()}
       </section>
       <section class="card" id="setup-world" aria-labelledby="h-setup-world">
         ${secHead(2, '세계')}
-        <div class="field"><span class="label-text" id="wiz-world-lab">세계 종류 <span class="hint">고르면 배경 칸 첫 문장이 돼요</span></span>
+        <div class="field"><span class="label-text" id="wiz-world-lab">세계 종류${help('고르면 배경 칸 첫 문장이 돼요.')}</span>
           ${wizChips('wiz-world-chips', WORLD_KINDS.map(([l]) => l), worldRecs(p.meta.genres, 0), (x) => x === worldKindOf(p.world.setting), 'wizWorld', 'wiz-world-lab')}</div>
         ${input('배경', 'world.setting', { rows: 2, aside: ideaBtn('world.setting', '배경 후보 받기'), after: ideaList('world.setting') })}
         <div class="grid-2">${input('시대', 'world.era', { placeholder: '예: 중세풍, 현대' })}${nameStyleField()}</div>
@@ -947,7 +946,7 @@ function viewSetupDoc() {
       </section>
       <section class="card" id="setup-chars" aria-labelledby="h-setup-chars">
         ${secHead(3, `인물 <span class="small">${p.characters.length}명</span>`, `<div class="row"><button type="button" class="btn small ghost" data-action="checkNames" title="글자가 겹치는 이름, 나이와 안 맞는 이름, AI가 자주 짓는 이름을 찾아요">이름 점검</button><button type="button" class="btn small" data-action="dexRoll" title="원형 · 상처 · 말투 · 비틀기 · 이름을 무작위로 섞어 3안을 보여 줘요">도감 주사위 굴리기</button><button type="button" class="btn small" data-action="addCharacter">+ 인물 더하기</button></div>`)}
-        <p class="small">이름 · 말투 · 성격은 고정 설정이에요. 화마다 바뀌는 감정과 목표는 상태 승인에서 관리해요. 주역은 매 화, 조연 · 단역은 나오는 화에만 AI에 들어가요.</p>
+        <p class="small">이름 · 말투 · 성격은 화마다 바뀌지 않아요.${help('화마다 바뀌는 감정과 목표는 상태 승인에서 다뤄요. 주역은 매 화, 조연 · 단역은 나오는 화에만 AI에 들어가요.')}</p>
         ${nameCheckBox()}
         ${dexRollBox()}
         ${p.characters.length ? `<div class="setup-rows">${p.characters.map(charRow).join('')}</div>` : '<div class="note plain">인물이 없어요. 직접 더하거나 빈칸 AI 제안을 받으세요.</div>'}
@@ -960,7 +959,7 @@ function viewSetupDoc() {
         ${rels ? `<div class="setup-rows">${autoOn() ? `<fieldset disabled class="lockset" aria-describedby="rel-lock">${rels}</fieldset>` : rels}</div>` : '<div class="note plain">관계가 없어요.</div>'}
       </section>
       <section class="card" id="setup-more" aria-labelledby="h-setup-more">
-        ${secHead(5, '더 채우면 좋아요', '<span class="small">비워도 시작할 수 있어요</span>')}
+        ${secHead(5, '더 채우면 좋아요', '<span class="small">선택</span>')}
         ${input('주제', 'meta.theme', { hint: '이 이야기가 끝까지 묻는 질문 하나', placeholder: '예: 떠난 사람을 이해하면 용서할 수 있나?' })}
         ${toneBox()}
         <div class="grid-2">${input('화당 분량', 'meta.words_per_episode', { type: 'number', hint: '공백 포함 글자 수' })}${input('메모', 'meta.notes', { rows: 2 })}</div>

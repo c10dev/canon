@@ -1548,7 +1548,7 @@ def keep_style(name: str, body: StyleKeep) -> StyleKept:
         _save(name, p)
     else:
         if library.blank(p.style) and not body.sample.strip():  # 원문만 있으면 라이브러리에서 나중에 분석할 수 있다
-            raise HTTPException(400, "문체가 비어 있어요. 원문을 넣거나 문체 분석 · 스타일 프로필을 채운 뒤 저장할 수 있어요")
+            raise HTTPException(400, "문체가 비어 있어요. 원문을 분석하거나 문체 카드를 채운 뒤 저장할 수 있어요")
         e = library.from_project(p, body.name or f"{p.meta.title or name} 문체", body.sample, body.source)
         if body.sample.strip():  # 웹에서 분석한 원문의 기준 지표를 작품에도 남긴다
             p.style_baseline = e.baseline
@@ -2690,7 +2690,7 @@ def _job_nextarc(name: str, body: "JobIn", p: Project, kind: str, n: int | None,
 def _job_heat(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
     """작업 heat: 이미 있는 기승전결 위에 열 계획만 받는다. 장편은 ep 가 아크 번호(없으면 다 쓰지 않은 첫 아크)."""
     start, end, _acts, _where, arc = pipeline.heat_target(p, n or 0)
-    label = f"아크 {arc.number} 열 계획 제안" if arc else "열 계획 제안"
+    label = f"아크 {arc.number} 완급 계획 제안" if arc else "완급 계획 제안"
     note, number = body.note, arc.number if arc else 0
 
     def fn(job: jobs.Job):

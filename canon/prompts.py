@@ -5276,7 +5276,7 @@ BRIEF_KINDS: dict[str, BriefKind] = {
     "style_chat": BriefKind("대화로 다듬기 · 문체", scope="work"),
     "series": BriefKind("부 구성", scope="work", form="serial"),
     "arc": BriefKind("기승전결 구조 · 다음 아크", scope="work"),
-    "heat": BriefKind("열 계획", scope="work"),
+    "heat": BriefKind("완급 계획", scope="work"),
     "plots": BriefKind("플롯 초안", scope="act"),
     "plot": BriefKind("한 화 플롯", need="draft"),
     "agent_plot": BriefKind("대화로 다듬기 · 플롯 (대화 에이전트 첫 단계)", scope="work", stage="chat"),

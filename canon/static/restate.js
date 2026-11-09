@@ -44,7 +44,7 @@ function restateNote(n) {
   const later = laterWritten(n);
   const next = later.length ? ` 뒤 화(${rangeText(later)}화)는 고치기 전 본문을 이어 썼어요. 이어지는 장면이 걸리면 <a href="${base()}/check/${later[0]}">${later[0]}화</a>를 검수해 보세요.` : '';
   if (!editedAfterFinal(e)) {
-    return `<div class="note plain">상태 반영이 끝난 화예요. 본문을 고쳐도 반영된 요약 · 인물 상태 · 복선은 그대로 남아요. 고친 뒤 요약과 새 사실만 다시 맞출 수 있어요.</div>`;
+    return `<div class="note plain">반영이 끝난 화라, 본문을 고쳐도 반영된 요약 · 인물 상태 · 복선은 그대로예요.${help('고친 뒤 요약과 새 사실만 다시 맞출 수 있어요.')}</div>`;
   }
   return `<div class="note warn">반영한 뒤 본문을 고쳤어요. 요약 · 인물 상태 · 복선은 고치기 전 본문으로 반영한 거예요.${next}
     <div class="row" style="margin-top:6px"><a class="btn small primary" href="${base()}/review/${n}">상태 다시 맞추기</a><button type="button" class="btn small" data-action="keepState" data-arg="${n}"${autoOn() ? ' disabled' : ''}>그대로 두기</button></div></div>`;

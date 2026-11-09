@@ -115,6 +115,7 @@
 ### `canon/agent_style.py`
 
 - 대화 에이전트의 문체 도구 `edit_style`(종류 `style`, 04d). `agent.CARD_TOOLS` 가 등록한다
+- 화면 칸 이름표 `STYLE_LABELS`: `prompts.STYLE_KEY_LABELS` 에서 화면 이름만 바꾼 표(`markers` 는 '문체 버릇'). 카드 · 명령줄 · `stylechat.js` `STYLE_KEYS` 가 같은 이름을 쓴다(`tests/test_labels_js.py`)
 - `prepare`: 잠금 밖에서 `pipeline.revise_style`(LLM 단계 `plan`)을 부른다. 옛 문체 대화와 같은 프롬프트 · 정리다
 - 인자는 `request`(비우면 작가의 이번 말)와 `episode`(참고할 화)다
 - 참고할 화 `ref_episode`: 인자가 먼저이고, 비었으면 문체 대상 턴의 `AgentTurn.episode`(화면의 '참고할 화' 칩)를 쓴다
@@ -149,14 +150,14 @@
 
 ### `canon/anchor.py`
 
-- 작품 정착 문체: 작가가 고른 반영한 화를 이 작품의 문체 기준으로 고정한다(`Project.anchor`, `StyleAnchor`)
+- 이 작품의 문체: 작가가 고른 반영한 화를 이 작품의 문체 기준으로 고정한다(`Project.anchor`, `StyleAnchor`)
 - 고를 수 있는 화 `usable`(반영 끝, 본문 있음, 서술 말투 화 아님) · 처음 추천 `suggest`(앞 5화, 저장하지 않음)
 - 재기 `measure` · `set_anchor`(합쳐 6,000자 이상, 대표 문단은 고른 화 본문에 글자 그대로 있어야 함, 표지 빈도는 고른 화에서 다시 셈)
 - 잴 때 고른 화 뒤 10화가 떨어진 평균 거리 `later`(크면 고른 화가 작품을 대표하지 못함)
 - 대표 문단 후보 `candidates`(문단 묶음 중 문장 길이 · 대사 비율이 기준에 가까운 것, 대사 위주 · 서술 위주 하나씩 먼저)
-- 본문 지문 `basis` · 낡음 `stale`(정착 화 본문을 고치거나 지우면 다시 재라고 알림, 번호만 옮기면 그대로)
+- 본문 지문 `basis` · 낡음 `stale`(고른 화 본문을 고치거나 지우면 다시 재라고 알림, 번호만 옮기면 그대로)
 - 기준이 있으면 `pipeline.style_baseline` 이 이것을 쓰고 표지 빈도는 `markers`, 쓰기 예시는 `prompts.style_passages`
-- 흐름 `distance` · `rolling`(최근 5화, 서술 말투 화 · 정착 화 빼고) · 경고 `warning`(`DRIFT_WARN` 1.15, `pipeline.style_drift` 가 붙임)
+- 흐름 `distance` · `rolling`(최근 5화, 서술 말투 화 · 고른 화 빼고) · 경고 `warning`(`DRIFT_WARN` 1.15, `pipeline.style_drift` 가 붙임)
 - 문턱은 사람 웹소설 4편 실측: 같은 작품은 80화 뒤 0.85~1.05(`HUMAN_BAND`), 다른 작품끼리 평균 1.33(`OTHER_AUTHOR`)
 - AI 가 쓴 본문의 문체 지문 `stamp` · `style_basis`(`Episode.style_basis`, `pipeline.replace_text` 가 비움)
 - 화면 값 `view` · 추이 `trend`(문체를 바꾼 화 `changed`)
@@ -278,7 +279,7 @@
 - AI 문장 정리(`clean_delta`)와 반영 · 되돌리기
 - 이미 회수한 복선을 또 회수하는 제안의 경고(`resolved_warnings`, features 정리 훅)
 - 작가가 걸기 · 복선 고치기(그 화 이후 스냅샷도)
-- 더하기 · 고치기는 열 계획 갈래(`kind`, `KINDS`)와 판돈 드러남(`public`)도 받는다
+- 더하기 · 고치기는 완급 계획 갈래(`kind`, `KINDS`)와 판돈 드러남(`public`)도 받는다
 - 센터 계산(`center`: 회수율, 끊어진 연결, 예정 지남, 오래 묵음, 플롯 회수 계획)
 - 명령줄 `foreshadows`
 - LLM 호출 없음
@@ -291,7 +292,7 @@
 
 ### `canon/heatplan.py`
 
-- 열 계획: 화마다 긴장과 보상(열)을 얼마나(`HeatStep.level` 0~5), 어떤 몫(`role`: 쌓기 · 미루기 · 터뜨리기 · 뒷날 · 쉬기)으로 쓰나
+- 완급 계획: 화마다 긴장과 보상(열)을 얼마나(`HeatStep.level` 0~5), 어떤 몫(`role`: 쌓기 · 미루기 · 터뜨리기 · 뒷날 · 쉬기)으로 쓰나
 - 단편은 작품 전체에 계획 하나(`Project.heat` · `heat_rule` · `heat_turn`)를 둔다. 장편은 아크마다 하나(`StoryArc.heat` · …)를 둔다
 - 계획이 덮는 범위 `Scope`(`scopes` · `scope_for`): 단편은 작품 전체, 장편은 계획이 있는 아크마다. `plan(p, n)` 은 장편이면 n화가 든 아크의 계획
 - 화 번호로 찾기 `step`, 뒤집힘(`HeatTurn`: 반격을 심은 화 · 들킨 화 · 상대가 쥐는 것) `turn`
@@ -300,13 +301,13 @@
 - 경고 `warnings`(`HeatWarn`, 막지 않음): 기복이 작음 · 이른 정점 · 판돈 없는 정점 · 관객 · 제약 없는 정점 · 같은 종류 정점 · 커지지 않은 판돈 · 관객이 본 일의 결과 없음 · 늦은 뒤집힘 · 쌓기 화의 높은 긴장(`WARN_CODES`)
 - 장편 경고는 아크마다 따로 본다(`_scope_warnings`). 기복 경고는 아크 첫 화를, 이른 정점은 아크 안 앞쪽인지를 본다
 - 잇닿은 터뜨리기 화는 한 정점으로 묶는다(`peak_runs`). 종류 · 판돈 견주기는 정점끼리 한다
-- 기복은 열 눈금 변동계수가 `CV_MIN` 미만이면 경고한다(`FLAT_MIN_EPS` 화 넘는 계획만). 이른 정점은 기 구간이나 작품 앞 `EARLY_SHARE` 안
+- 기복은 세기 눈금 변동계수가 `CV_MIN` 미만이면 경고한다(`FLAT_MIN_EPS` 화 넘는 계획만). 이른 정점은 기 구간이나 작품 앞 `EARLY_SHARE` 안
 - 관객 결과는 관객 복선을 처음 거둔 화의 다음 화 플롯(요약 · 사건 · 회수 id)에 그 복선 id 가 있는지로만 본다
 - 한 화를 가리키는 경고와 계획 전체 경고 `warnings_for`. 명령줄 `confirm` 이 확정한 화의 경고를 보인다
-- 실제 열 참고값 `actual`(`HeatActual`): 열 낱말 밀도 `density`(`Settings.heat_words`, 공백 뺀 1천 자당) · 큐 긴장 평균 `cue_tension`(목표 글자 수로 가중, 건너뛴 시트는 뺌)
+- 실제 열 참고값 `actual`(`HeatActual`): 절정 낱말 밀도 `density`(`Settings.heat_words`, 공백 뺀 1천 자당) · 큐 긴장 평균 `cue_tension`(목표 글자 수로 가중, 건너뛴 시트는 뺌)
 - 판돈 · 제약 · 관객 · 금지선은 복선 갈래(`Foreshadow.kind`)로 둔다. 판돈이 남에게 드러났는지는 `Foreshadow.public`
-- 설정 `Settings.heat_plan`(기본 끔)을 켜면 단편은 기승전결과(`HeatArcPlan`), 장편은 다음 아크와(`HeatArcProposal`) 함께 열 계획을 받는다. 화면은 `static/heatplan.js`, 프롬프트는 `prompts.heat_*`
-- 이미 있는 기승전결이나 아크 위에 열 계획만 받기는 `pipeline.propose_heat`(응답 `HeatProposal`, 웹 작업 `heat`, 명령줄 `heat`)
+- 설정 `Settings.heat_plan`(기본 끔)을 켜면 단편은 기승전결과(`HeatArcPlan`), 장편은 다음 아크와(`HeatArcProposal`) 함께 완급 계획을 받는다. 화면은 `static/heatplan.js`, 프롬프트는 `prompts.heat_*`
+- 이미 있는 기승전결이나 아크 위에 완급 계획만 받기는 `pipeline.propose_heat`(응답 `HeatProposal`, 웹 작업 `heat`, 명령줄 `heat`)
 - LLM 호출 없음
 
 ### `canon/illust.py`
@@ -465,7 +466,7 @@
 - 새 화 AI 초안은 `draft_episode`(`prompts.episode_plot_prompt`)
 - 본문이 있거나 반영한 마지막 화 지우기는 `delete_last`(반영 취소 → 본문 비우기 → 화 빼기, 웹은 `before-delete-<화>.json` 백업)
 - 화 번호를 품은 칸을 새로 만들면 `move_points` 에도 넣는다
-- 정착 문체 화 번호도 옮긴다(`anchor.move`)
+- 이 작품의 문체로 고른 화 번호도 옮긴다(`anchor.move`)
 - 화면은 `static/insert.js` (넣을 수 있는 자리 `lastFixed` 는 `last_fixed` 와 같은 규칙, `tests/test_insert_js.py`)
 - `insert.js` 의 화 지우기 버튼을 막은 이유(AI 작업 중, 자동 집필 중, 스냅샷 없음)를 버튼 아래 글로도 보인다
 - 화 지우기 확인 창은 지우기 전 작품을 설정 › 백업에서 되돌릴 수 있다고 알린다
@@ -589,11 +590,11 @@
 
 ### `canon/static/anchor.js`
 
-- 문체 화면의 '작품 정착 문체' 카드(`anchorCard`, 목차 줄 `anchorTocWord`)
+- 문체 화면의 '이 작품의 문체' 카드(`anchorCard`, 목차 줄 `anchorTocWord`)
 - 화 칩으로 고르기 · 대표 문단 후보 고르기(4개까지) · 저장 · 다시 재기 · 지우기(`anchorChooser`)
 - 다시 고를 때 후보를 열지 않으면 지금 대표 문단을 그대로 저장한다(`anchorBody`)
 - 후보를 열면 지금 대표 문단을 맨 앞에 체크해 둔다. 저장할 때 지금 문단이 빠지면 묻는다
-- 정착 문체와 레퍼런스 기준 비교 표(`anchorCompare`)
+- 이 작품의 문체와 레퍼런스 기준 비교 표(`anchorCompare`)
 - 화별 문체 거리 추이 SVG(`anchorChart`: 사람 연재 띠 · 경고 점선 · 최근 5화 평균 선 · 문체를 바꾼 화 세로선)
 - 서버는 `web.py` 의 '2-0. 작품 정착 문체'
 
@@ -701,9 +702,9 @@
 
 ### `canon/static/heatplan.js`
 
-- 열 계획 카드 `heatCard(p, arc)`: 단편은 기승전결 보드 위, 장편은 고른 아크의 보드 위. 다루는 범위와 저장 경로는 `heatHost` · `heatNowHost`(장편은 `S.selArc`)
+- 완급 계획 카드 `heatCard(p, arc)`: 단편은 기승전결 보드 위, 장편은 고른 아크의 보드 위. 다루는 범위와 저장 경로는 `heatHost` · `heatNowHost`(장편은 `S.selArc`)
 - 계획이 없으면 '직접 적기'(`heatStart`)가 기승전결 구간으로 밑그림을 깐다(`heatDefaultFor`: 앞은 쌓기, 13화 이상이면 승 끝 낮은 정점, 전 끝 큰 정점, 결은 뒷날 · 쉬기)
-- 'AI로 열 계획 받기'(`heatPropose`, 작업 `heat`, 장편은 아크 번호)의 결과는 카드 안 제안 `heatDraftCard`(`S.heatDraft`)로 두고, 고르면(`heatDraftUse`) 넣는다
+- 'AI로 완급 계획 받기'(`heatPropose`, 작업 `heat`, 장편은 아크 번호)의 결과는 카드 안 제안 `heatDraftCard`(`S.heatDraft`)로 두고, 고르면(`heatDraftUse`) 넣는다
 - 화마다 막대 하나(`heatBar`, 높이는 열 0~5, 터뜨리기는 amber). 쓴 화는 큐 긴장 평균을 가로 눈금으로 겹친다
 - 막대를 누르면(`heatPick`) 눈금 · 몫 나눔 버튼(`heatLevel` · `heatRole`)과 정점 종류 · 한 줄 칸(`heat.<i>.kind` · `note`)을 편다
 - 몫을 터뜨리기 밖으로 바꾸면 정점 종류를 지운다
@@ -713,7 +714,7 @@
 - 뒤집힘 칸(`heat_turn.plant_ep` · `fail_ep` · `gain`)과 열 원칙 칸(`heat_rule`)
 - 지우기 `heatClear`
 - 구조 제안 미리보기 `heatProposalPart`(누를 수 없는 막대), 고르기 `heatApply`, 'AI로 구조 만들기 · 다시 제안'의 켜기 칸 `heatPlanToggle`(`settings.heat_plan`)
-- 다음 아크 제안 카드도 열 계획 미리보기를 붙이고, 다음 아크 기획 칸에 켜기 칸을 둔다
+- 다음 아크 제안 카드도 완급 계획 미리보기를 붙이고, 다음 아크 기획 칸에 켜기 칸을 둔다
 
 ### `canon/static/illust.js`
 

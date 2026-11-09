@@ -15,7 +15,7 @@ const STYLE_KEYS = [
   ['narration_pov', '시점'], ['tense', '시제'], ['sentence_rhythm', '문장 리듬'], ['description_density', '묘사 밀도'],
   ['dialogue_ratio', '대사 비율'], ['dialogue_style', '대사 방식'], ['inner_monologue', '내면 독백'], ['pacing', '전개 속도'],
   ['scene_transition', '장면 전환'], ['vocabulary', '어휘'], ['sound_effects', '효과음 표기'], ['dos', '지킬 것'], ['donts', '피할 것'],
-  ['banned_phrases', '금지 표현'], ['markers', '문체 표지'], ['devices', '가끔 쓰는 장치'],
+  ['banned_phrases', '금지 표현'], ['markers', '문체 버릇'], ['devices', '가끔 쓰는 장치'],
 ];
 const STYLE_LABEL = Object.fromEntries(STYLE_KEYS);
 const STYLE_LISTS = ['dos', 'donts', 'banned_phrases'];
@@ -82,9 +82,9 @@ function styleExampleCard() {
   const body = ex ? `${exampleStale(ex) ? '<div class="note warn">이 예시를 쓴 뒤 문체가 바뀌었어요. 다시 쓰면 지금 문체로 써요.</div>' : ''}
       ${sampleBlock(ex.text, ex.source, ex.episode)}
       <div class="between"><span class="small">${esc(how)} · ${ex.text.length.toLocaleString()}자</span><button type="button" class="btn small" data-action="styleExampleClear">지우기</button></div>`
-    : `<div class="small">${blank ? '문체를 만든 뒤 예시를 써 볼 수 있어요.' : '아직 예시가 없어요. 지금 문체로 짧은 장면을 써서 실제로 어떻게 읽히는지 보여 줘요.'}</div>`;
+    : `<div class="small">${blank ? '문체를 만든 뒤 예시를 써 볼 수 있어요.' : '아직 예시가 없어요.'}</div>`;
   return `<section class="card pf-sec" id="pf-example" tabindex="-1">
-      <div class="pf-head"><h2>이 문체로 쓴 예시</h2><span class="small">본문에는 들어가지 않아요</span></div>
+      <div class="pf-head"><h2>이 문체로 쓴 예시${help('지금 문체로 짧은 장면을 써서 실제로 어떻게 읽히는지 보여 줘요. 본문에는 들어가지 않아요.')}</h2></div>
       ${body}
       <div class="row sty-ex-row">
         <input type="text" data-local="styleExScene" value="${esc(S.styleExScene || '')}" aria-label="바라는 장면" placeholder="바라는 장면 (비우면 AI가 골라요), 예: 비 오는 날 두 사람이 다툼" style="flex:1 1 240px;min-width:0"${blank ? ' disabled' : ''}>
