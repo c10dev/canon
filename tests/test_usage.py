@@ -174,6 +174,82 @@ def test_batch_cost_and_savings():
     assert t["saved"] == pytest.approx(1.5)
 
 
+OPUS = usage.Price(model="claude-opus-5-5", input=4.0, output=20.0, cached=0.20)
+
+
+def test_cache_write_premium_in_cost():
+    # 입력 100만 = 읽기 40만 + 쓰기 30만(그 가운데 1시간 10만) + 나머지 30만
+    assert usage.cost(OPUS, 1e6, 0, 4e5, False, 3e5, 1e5) == pytest.approx(0.3 * 4 + 0.4 * 0.2 + 0.2 * 5 + 0.1 * 8)
+    assert usage.cost(OPUS, 1e6, 0, 4e5, True, 3e5, 1e5) == pytest.approx((0.3 * 4 + 0.4 * 0.2 + 0.2 * 5 + 0.1 * 8) / 2)
+    assert usage.cost(OPUS, 1e6, 1e5) == pytest.approx(4 + 2)  # 쓰기를 넘기지 않으면 예전과 같다
+    # 읽기 + 쓰기가 입력을 넘으면 입력 안으로 자른다
+    assert usage.cost(OPUS, 100, 0, 80, False, 50, 90) == pytest.approx((80 * 0.2 + 20 * 8) / 1e6)
+    assert usage.cost(OPUS, 100, 0, 0, False, -50) == pytest.approx(400 / 1e6)  # 망가진 줄의 음수는 0으로
+    own = usage.Price(model="x", input=1, output=1, cache_write=3, cache_write_1h=5)
+    assert usage.cost(own, 2e6, 0, 0, False, 2e6, 1e6) == pytest.approx(3 + 5)
+
+
+def test_old_price_rows_get_default_write_rates():
+    old = usage.Price.model_validate({"model": "claude-x", "input": 2, "output": 10})  # 옛 설정 파일의 줄
+    assert old.cache_write is None and old.cache_write_1h is None
+    assert usage.cost(old, 1e6, 0, 0, False, 1e6) == pytest.approx(2 * 1.25)
+    assert usage.cost(old, 1e6, 0, 0, False, 1e6, 1e6) == pytest.approx(2 * 2)
+
+
+def test_row_cache_saved_and_premium():
+    table = usage.prices()
+    at = "2026-11-09T10:00:00+09:00"
+    row = {"backend": "claude-api", "model": "claude-opus-5-5", "at": at, "in": 1_000_000, "out": 0,
+           "cached": 400_000, "written": 300_000, "written_1h": 100_000}
+    assert usage.row_cost(row, table) == (pytest.approx(3.08), 0.0)
+    saved, premium = usage.row_cache(row, table)
+    assert saved == pytest.approx(0.4 * (4 - 0.2))
+    assert premium == pytest.approx(0.2 * (5 - 4) + 0.1 * (8 - 4))
+    assert usage.row_cache({**row, "batch": True}, table) == (pytest.approx(saved / 2), pytest.approx(premium / 2))
+    # 구독 Claude Code 는 0원이라 아낌 · 할증도 0
+    assert usage.row_cache({**row, "backend": "claude"}, table) == (0.0, 0.0)
+    assert usage.row_cost({**row, "backend": "claude"}, table) == (0.0, 0.0)
+    # 쓰기 칸이 없는 옛 줄은 할증 없이 읽기 아낌만 센다
+    old = {"backend": "gemini", "model": "gemini-3.5-flash-lite", "at": at, "in": 1_000_000, "out": 0, "cached": 500_000}
+    assert usage.row_cache(old, table) == (pytest.approx(0.5 * (0.30 - 0.03)), 0.0)
+    assert usage.row_cache({**old, "model": "gemini-9"}, table) == (0.0, 0.0)  # 가격을 모르는 모델
+
+
+def test_summary_counts_cache_saved_and_premium():
+    from datetime import datetime
+    now = datetime.now().isoformat(timespec="seconds")
+    base = {"at": now, "out": 0, "ok": True, "in": 1_000_000}
+    rows = [
+        {**base, "backend": "claude-api", "model": "claude-opus-5-5", "cached": 400_000, "written": 300_000, "written_1h": 100_000},
+        {**base, "backend": "claude", "model": "claude-opus-5-5", "cached": 400_000, "written": 300_000},
+        {**base, "backend": "gemini", "model": "gemini-3.5-flash-lite", "cached": 500_000},
+    ]
+    usage.log_path().parent.mkdir(parents=True, exist_ok=True)
+    usage.log_path().write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    s = usage.summary(30)
+    t = s["total"]
+    assert t["cache_saved"] == pytest.approx(1.52 + 0.135)
+    assert t["cache_premium"] == pytest.approx(0.6)
+    assert t["cost"] == pytest.approx(3.08 + 0.5 * 0.30 + 0.5 * 0.03)
+    model = {(r["backend"], r["model"]): r for r in s["by_model"]}
+    assert model[("claude", "claude-opus-5-5")]["cache_saved"] == 0.0
+    assert model[("claude-api", "claude-opus-5-5")]["cache_premium"] == pytest.approx(0.6)
+    assert all("cache_saved" in r and "cache_premium" in r for k in ("by_stage", "by_day") for r in s[k])
+    recent = {r["backend"]: r for r in s["recent"]}
+    assert recent["claude-api"]["cache_saved"] == pytest.approx(1.52)
+    assert recent["claude"]["cache_premium"] == 0.0
+
+
+def test_cache_write_prices_saved_and_checked(monkeypatch):
+    rows = [usage.Price.model_validate(r) for r in usage.price_table()["rows"]]
+    rows.append(usage.Price(model="claude-x", input=1, output=1, cache_write=1.5))
+    usage.save_prices(rows)
+    assert usage.rate("claude-x").cache_write == 1.5 and usage.rate("claude-x").cache_write_1h is None
+    with pytest.raises(ValueError):
+        usage.save_prices([usage.Price(model="y", input=1, output=1, cache_write_1h=-1)])
+    assert usage.price_table()["claude_url"].startswith("https://")
+
+
 def test_price_dates_and_prefix():
     assert usage.rate("gemini-4-argon", "2026-11-30").input == 2.0
     assert usage.rate("gemini-4-argon", "2026-12-01").input == 4.0

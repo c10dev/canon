@@ -125,7 +125,7 @@ function viewUsage() {
       <div class="usage-tile hero"><span class="k">${span}추정 비용</span><span class="usage-num">${usd(t.cost)}</span><span class="small">${t.unpriced ? `가격 모르는 호출 ${t.unpriced}번 빠짐` : '가격표 기준'}</span></div>
       <div class="usage-tile"><span class="k">호출</span><span class="usage-num">${t.calls.toLocaleString()}번</span><span class="small">${t.failed ? `실패 ${t.failed}` : '실패 없음'}${t.retries ? ` · 다시 요청 ${t.retries}` : ''}</span></div>
       <div class="usage-tile"><span class="k">토큰 입력 · 출력</span><span class="usage-num">${tok(t.in)} · ${tok(t.out)}</span><span class="small">${t.cached ? `캐시 ${usagePct(t.cache_rate)} · ${tok(t.cached)} (싸게 매겨짐)` : '캐시 없음'}${t.resent ? ` · 다시 보낸 입력 ${tok(t.resent)}은 비율에서 뺐어요` : ''} · 출력은 생각 토큰 포함</span></div>
-      <div class="usage-tile"><span class="k">아낀 · 버린 비용</span><span class="usage-num">${usd(t.saved)} · ${usd(t.wasted)}</span><span class="small">${t.batch ? `배치 ${t.batch}번` : '배치 안 씀'} · 실패와 다시 요청</span></div>
+      <div class="usage-tile"><span class="k">아낀 · 버린 비용</span><span class="usage-num">${usd(t.saved + (t.cache_saved || 0))} · ${usd(t.wasted)}</span><span class="small">${usageSavedLine(t)} · 버린 것은 실패와 다시 요청</span></div>
     </div>`;
   return `${head}<div class="usage-wrap">${filters}
     ${u.unpriced.length ? `<div class="note warn usage-unpriced"><span>가격표에 없는 모델이 있어요. 이 호출은 비용에서 빠졌어요. 가격을 넣으면 다시 계산해요.</span>
@@ -135,6 +135,15 @@ function viewUsage() {
     ${usageBreakdown(u)}
     ${usageCalls(u)}
     ${usagePriceSection()}</div>`;
+}
+
+/** 아낀 비용 타일의 풀이: 배치 할인, 캐시 읽기로 아낀 것, 캐시 쓰기 할증(아낀 것보다 크면 알린다) */
+function usageSavedLine(t) {
+  const read = t.cache_saved || 0;
+  const extra = t.cache_premium || 0;
+  return [t.batch ? `배치 ${t.batch}번 ${usd(t.saved)}` : '배치 안 씀',
+    read ? `캐시 읽기 ${usd(read)}` : '캐시 아낌 없음',
+    ...(extra ? [`캐시 쓰기 할증 ${usd(extra)}${extra > read ? ' (아낀 것보다 커요)' : ''}`] : [])].join(' · ');
 }
 
 /** 축 눈금: 0 부터 가장 큰 값을 덮는 깔끔한 간격 셋. 순수 함수(tests/test_research_js.py) */
@@ -295,7 +304,7 @@ function usageCalls(u) {
       <span class="model">${esc(r.model)}${r.batch ? ' <span class="chip">배치</span>' : ''}</span>
       <span class="r tokens">${tok(r.in)} → ${tok(r.out + (r.thought || 0))}${r.cached ? `<span class="s2">캐시 ${tok(r.cached)}</span>` : ''}${r.thought ? `<span class="s2">생각 ${tok(r.thought)}</span>` : ''}${usageBlocks(r)}</span>
       <span class="r secs">${r.seconds != null ? `${r.seconds.toFixed(1)}초` : '-'}</span>
-      <span class="r cost"><strong>${usd(r.cost)}</strong>${r.saved ? `<span class="s2">아낌 ${usd(r.saved)}</span>` : ''}</span>
+      <span class="r cost"><strong>${usd(r.cost)}</strong>${r.saved || r.cache_saved ? `<span class="s2">아낌 ${usd((r.saved || 0) + (r.cache_saved || 0))}</span>` : ''}${r.cache_premium ? `<span class="s2">쓰기 할증 ${usd(r.cache_premium)}</span>` : ''}</span>
       <span class="state">${state}</span></div>`;
   }).join('');
   return `<section class="card" aria-label="호출 목록">
@@ -319,7 +328,9 @@ function usageMoreLine(u, all, list) {
 
 // ----- AI 요금 가격표 (사용량 · 비용 화면) -----
 
-const PRICE_COLS = [['input', '입력'], ['output', '출력'], ['cached', '캐시 입력'], ['batch_input', '배치 입력'], ['batch_output', '배치 출력']];
+const PRICE_COLS = [['input', '입력'], ['output', '출력'], ['cached', '캐시 입력'], ['cache_write', '캐시 쓰기'], ['cache_write_1h', '1시간 캐시 쓰기'], ['batch_input', '배치 입력'], ['batch_output', '배치 출력']];
+// 칸을 비웠을 때 쓰는 값 (usage.cost 와 같은 규칙). 입력 칸 안에 흐린 글자로 보인다
+const PRICE_EMPTY = { cached: (r) => r.input, cache_write: (r) => r.input * 1.25, cache_write_1h: (r) => r.input * 2, batch_input: (r) => r.input / 2, batch_output: (r) => r.output / 2 };
 
 /** 가격표 카드: 읽는 모양은 한 줄 요약과 '고치기', 고치는 동안은 표 (Card '읽기 카드와 고치기 카드') */
 function usagePriceSection() {
@@ -349,7 +360,7 @@ function viewPrices() {
   if (!pr || !S.priceRows) return '<h2>AI 요금 가격표</h2><div class="small">불러오는 중…</div>';
   const rows = S.priceRows.map((r, i) => {
     const st = r.custom ? '<span class="chip confirmed">고침</span>' : r.upcoming ? '<span class="chip written">예고</span>' : r.current ? '<span class="chip finalized">지금</span>' : '';
-    const num = (k) => `<input type="number" min="0" step="0.001" inputmode="decimal" data-price="${i}.${k}" value="${r[k] == null ? '' : r[k]}" placeholder="${k === 'cached' ? r.input : k.startsWith('batch') ? (k === 'batch_input' ? r.input / 2 : r.output / 2) : ''}" aria-label="${esc(r.model)} ${PRICE_COLS.find(([c]) => c === k)[1]}">`;
+    const num = (k) => `<input type="number" min="0" step="0.001" inputmode="decimal" data-price="${i}.${k}" value="${r[k] == null ? '' : r[k]}" placeholder="${PRICE_EMPTY[k] ? Number(PRICE_EMPTY[k](r).toPrecision(6)) : ''}" aria-label="${esc(r.model)} ${PRICE_COLS.find(([c]) => c === k)[1]}">`;
     // 기본 줄은 지워도 저장하면 되살아난다 (기본값과 다른 줄만 설정에 남는다). 지우기 대신 고쳐 덮어쓰게 한다
     const fixed = r.custom === false;
     return `<tr><td class="price-model" data-label="모델"><input type="text" data-price="${i}.model" value="${esc(r.model)}" title="${esc(r.model)}" aria-label="모델 이름">${st || r.note ? `<div class="small">${st}${r.note ? ` ${esc(r.note)}` : ''}</div>` : ''}</td>
@@ -359,7 +370,7 @@ function viewPrices() {
         : `<button class="btn small" data-action="priceRemove" data-arg="${i}" aria-label="${esc(r.model || `${i + 1}번째`)} 줄 지우기">지우기</button>`}</td></tr>`;
   }).join('');
   return `<div class="between"><h2>AI 요금 가격표 <span class="small">고치는 중 · USD / 100만 토큰</span></h2><button type="button" class="btn small" data-action="priceToggle" aria-expanded="true">다 고쳤어요</button></div>
-    <p class="desc">기본값은 ${esc(pr.checked)}에 <a href="${pr.url}" target="_blank" rel="noopener">Google Gemini API 가격표</a>(유료 등급 표준 요금)에서 옮긴 값이에요. 가격이 바뀌면 여기서 고치세요. 적용 시작일을 적은 줄은 그날부터의 호출에 쓰고(예고된 인상), 고치면 지난 기록과 자동 집필 예상 비용도 이 표로 다시 계산해요. 생각 토큰은 출력 요금, 배치 칸을 비우면 절반으로 쳐요. 로컬 모델은 0원이고, 표에 없는 Gemini 모델은 '가격 모름'으로 빠져요.</p>
+    <p class="desc">기본값은 ${esc(pr.checked)}에 <a href="${pr.url}" target="_blank" rel="noopener">Google Gemini API 가격표</a>(유료 등급 표준 요금)와 <a href="${pr.claude_url || 'https://platform.claude.com/docs/en/about-claude/pricing'}" target="_blank" rel="noopener">Anthropic 가격표</a>에서 옮긴 값이에요. 가격이 바뀌면 여기서 고치세요. 적용 시작일을 적은 줄은 그날부터의 호출에 쓰고(예고된 인상), 고치면 지난 기록과 자동 집필 예상 비용도 이 표로 다시 계산해요. 생각 토큰은 출력 요금, 배치 칸을 비우면 절반으로 쳐요. 캐시 쓰기는 Claude 호출만 기록하고, 칸을 비우면 입력의 1.25배(1시간 캐시는 2배)로 쳐요. 로컬 모델은 0원이고, 표에 없는 Gemini 모델은 '가격 모름'으로 빠져요.</p>
     <div class="rs-scroll price-scroll"><table class="rs-table price-table">
       <thead><tr><th>모델</th><th>적용 시작일</th>${PRICE_COLS.map(([, l]) => `<th>${l}</th>`).join('')}<th><span class="sr-only">줄 조작</span></th></tr></thead>
       <tbody>${rows}</tbody></table></div>
@@ -438,7 +449,7 @@ Object.assign(actions, {
     await run('불러오는 중', () => usageLoad());
   },
   priceAdd() {
-    S.priceRows.push({ model: '', since: '', input: 0, output: 0, cached: null, batch_input: null, batch_output: null, note: '' });
+    S.priceRows.push({ model: '', since: '', input: 0, output: 0, cached: null, cache_write: null, cache_write_1h: null, batch_input: null, batch_output: null, note: '' });
     S.priceDirty = true;
     priceRedraw();
   },
@@ -447,7 +458,7 @@ Object.assign(actions, {
     S.priceOpen = true;
     let i = S.priceRows.findIndex((r) => r.model.trim() === model);
     if (i < 0) {
-      S.priceRows.push({ model, since: '', input: 0, output: 0, cached: null, batch_input: null, batch_output: null, note: '' });
+      S.priceRows.push({ model, since: '', input: 0, output: 0, cached: null, cache_write: null, cache_write_1h: null, batch_input: null, batch_output: null, note: '' });
       i = S.priceRows.length - 1;
       S.priceDirty = true;
     }
@@ -468,7 +479,7 @@ Object.assign(actions, {
     priceRedraw();
   },
   async priceSave() {
-    const nameless = S.priceRows.findIndex((r) => !r.model.trim() && (r.input || r.output || r.cached || r.batch_input || r.batch_output || (r.since || '').trim()));
+    const nameless = S.priceRows.findIndex((r) => !r.model.trim() && (r.input || r.output || r.cached || r.cache_write || r.cache_write_1h || r.batch_input || r.batch_output || (r.since || '').trim()));
     if (nameless >= 0) {
       toast(`${nameless + 1}번째 줄에 모델 이름을 적으세요. 이름이 없으면 그 줄은 저장되지 않아요`, true);
       const el = document.querySelector(`[data-price="${nameless}.model"]`);
