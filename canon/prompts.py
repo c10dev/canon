@@ -2399,6 +2399,7 @@ AGENT_PLOT_TOOLS = """[도구] 한 단계에 하나만 부릅니다
 - edit_plot: edit 에 바꿀 것만 채운 변경안을 넣습니다 (아래 [변경안 규칙]). 작가의 권한 안이면 바로 저장되고, 아니면 작가에게 물어집니다. 결과로 저장된 것 · 물은 것 · 막힌 것을 받습니다
 - insert_episodes (args: at, count, titles, summaries): at 화 앞에 새 화 count 개를 넣고 at 화부터 뒤 화를 그만큼 뒤로 밉니다. titles · summaries 는 새 화마다 '|' 로 나눕니다. 본문만 있고 상태를 반영하지 않은 화도 함께 밀립니다(본문은 그대로). 늘 작가에게 묻고 턴이 끝납니다. 승인되면 같은 턴에서 이어 가며, 새 화 플롯은 edit_plot 으로 채웁니다
 - remove_episode (args: n): 본문이 없는 n 화를 빼고 뒤 화를 한 칸씩 당깁니다. 늘 작가에게 묻습니다
+- revise_text (args: quote, request, n, preset): n 화 본문(비우면 다듬을 곳의 화)에서 quote 부분을 request 대로 고친 후보 2~3개를 만들어 작가에게 보입니다. quote 는 본문 원문 그대로 옮긴 한 문장~몇 문단이고, 모르면 find_text 로 먼저 찾습니다. preset 은 비웁니다. 작가가 고른 후보만 본문에 들어가고, 늘 작가에게 묻고 턴이 끝납니다
 - ask: question 과 options (서로 다른 방향 2~3개) 를 넣습니다. 작가의 답을 기다리며 턴이 끝납니다
 - 턴을 끝낼 때는 tool 칸을 빈 글("")로 두고 reply 칸에 답을 씁니다. reply 는 칸 이름이지 도구 이름이 아닙니다
 
@@ -2418,7 +2419,8 @@ def _agent_turn_line(t) -> str:
     notes = ([f"바꿈: {', '.join(done)}"] if done else []) + ([f"되돌림: {', '.join(back)}"] if back else [])
     if t.approval:
         state = {"wait": "작가 답 기다림", "approved": "작가가 승인함", "denied": "작가가 거절함"}[t.approval.state]
-        notes.append(f"물음({state}): {', '.join(t.approval.keys)}")
+        what = f"본문 후보 {len(t.approval.keys)}개" if t.approval.passage else ", ".join(t.approval.keys)
+        notes.append(f"물음({state}): {what}")
     if t.ask:
         notes.append("되물음: " + (" / ".join(f"{i}. {o.title}" for i, o in enumerate(t.ask.options, 1)) or t.ask.question))
     return out + (f"\n  ({' · '.join(notes)})" if notes else "")
@@ -2440,12 +2442,16 @@ def agent_focus_block(p: Project, focus: str, off_plot: bool = False) -> str:
         locked = " 이 화는 본문이 있어 플롯을 바꿀 수 없으니, 분석하거나 뒤 화를 맞추는 쪽으로 돕습니다." if e.status in ("written", "finalized") else ""
         return (f"[이 세션에서 다듬을 곳] {name}. 이 화의 플롯을 다룹니다. 앞뒤 화나 아크 · 구조를 함께 고쳐야 하면 넣어도 되지만 "
                 f"작가에게 물어집니다.{locked}\n")
-    if kind in ("text", "setup", "style"):
-        # 2026-11-09 사용자 결정: 화면이 대상을 정하고, 플롯 도구는 어느 화면에서든 쓰되 대상 밖이면 묻는다. 본문 · 설정 · 문체 도구는 아직 없다
-        what = {"text": "이 화 본문을 보고 있습니다. 본문에 대한 물음은 find_text 로 읽고 reply 로 답합니다",
-                "setup": "설정(기본 정보 · 세계관 · 인물)을 보고 있습니다. 인물에 대한 물음은 read_cast 로 읽고 reply 로 답합니다",
+    if kind == "text":
+        # 04b: 본문은 revise_text 로 고친다. 후보를 작가가 골라야 들어간다
+        return (f"[이 세션에서 다듬을 곳] {name}. 작가는 이 화 본문을 보고 있습니다. 본문에 대한 물음은 find_text 로 읽고 reply 로 답합니다. "
+                f"본문을 고쳐 달라고 하면 revise_text 를 n={lo} 로 부릅니다. "
+                "플롯을 고쳐야 하면 edit_plot 을 불러도 되지만 모두 작가에게 물어집니다.\n")
+    if kind in ("setup", "style"):
+        # 2026-11-09 사용자 결정: 화면이 대상을 정하고, 플롯 도구는 어느 화면에서든 쓰되 대상 밖이면 묻는다. 설정 · 문체 도구는 아직 없다
+        what = {"setup": "설정(기본 정보 · 세계관 · 인물)을 보고 있습니다. 인물에 대한 물음은 read_cast 로 읽고 reply 로 답합니다",
                 "style": "문체를 보고 있습니다. 문체에 대한 물음은 reply 로 답합니다"}[kind]
-        noun = {"text": "본문", "setup": "설정", "style": "문체"}[kind]
+        noun = {"setup": "설정", "style": "문체"}[kind]
         return (f"[이 세션에서 다듬을 곳] {name}. 작가는 {what}. {noun}을 바로 고치는 도구는 없으니, 고칠 글이나 값은 reply 에 제안합니다. "
                 "플롯을 고쳐야 하면 edit_plot 을 불러도 되지만 모두 작가에게 물어집니다.\n")
     if off_plot:  # 2026-11-09 사용자 결정: 플롯 화면 밖에서는 작품 전체가 대상이어도 플롯 쓰기를 묻는다

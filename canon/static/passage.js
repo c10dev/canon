@@ -1,6 +1,8 @@
 /* 본문 부분 수정 (집필 화면). app.js 의 S, actions, api, render 와 chat.js 의 대화 패널을 그대로 쓴다.
    본문에서 드래그로 고르면 작은 도구가 뜬다. '직접 수정' 은 그 자리에서 고쳐 바로 저장하고,
-   'AI에게 고치기' 는 오른쪽 대화 패널(topic 'text:<화>')을 열어 후보 2~3개를 받는다. 후보는 고른 것만 본문에 들어간다.
+   'AI에게 고치기' 는 대화 에이전트 패널을 열고 고른 부분을 입력 상자 위 '재료' 칩으로 붙인다(agent.js agentAttach). 에이전트가 후보 2~3개를 카드로 내고,
+   고른 것만 본문에 들어간다. 대화 에이전트 패널이 열려 있으면 드래그만 해도 재료가 바뀐다.
+   옛 'AI에게 고치기' 대화(topic 'text:<화>')는 패널 머리의 전환으로 계속 열 수 있다(04c · 04d 가 머지된 뒤 정리한다).
    상태 정리 경고가 가리킨 문장의 'AI에게 고치기' 는 대화 패널을 거치지 않고 첫 후보를 바로 넣는다 (aiFixNow).
    기다리는 동안 화면을 잠그지 않고 그 화 본문 칸만 잠근다. 경고 문장이 본문에 그대로 한 번만 있을 때만 바로 넣는다.
    고친 것은 모두 서버의 Episode.edits 에 남아 하나씩 되돌릴 수 있다. */
@@ -560,6 +562,8 @@ function onSelect(e) {
     if (S.selTool && S.selTool.mode === 'edit') return;
     S.selTool = { ...s, mode: 'menu' };
     showTool();
+    // 대화 에이전트 패널이 열려 있으면 고른 부분을 재료 칩으로 붙인다 (옛 'AI에게 고치기' 대화를 연 동안은 그 대화의 고칠 부분만 쓴다)
+    if (S.chatOpen && !S.chatOld && typeof agentAttach === 'function') agentAttach(s);
   }, 0);
 }
 
@@ -789,8 +793,10 @@ Object.assign(actions, {
     const t = S.selTool;
     S.sel = { n: t.n, start: t.start, text: t.text };
     hideTool();
-    S.chatFoldOpen = false;  // 새로 고른 부분: 지난 요청은 접어 둔다 (chat.js chatLog)
-    S.chatOld = 'text';  // 본문 고치기는 04b 전까지 옛 'AI에게 고치기' 대화가 맡는다 (chat.js chatShownTopic)
+    S.chatFoldOpen = false;  // 새로 고른 부분: 옛 대화로 바꿔 열면 지난 요청은 접어 둔다 (chat.js chatLog)
+    S.chatOld = '';  // 04b: 본문 고치기는 대화 에이전트가 맡는다. 고른 부분은 재료 칩으로 붙는다 (agent.js)
+    S.agentMaterial = { n: t.n, start: t.start, text: t.text };
+    S.rwOpen = null;  // 다시 생성 열과 같은 자리라 하나만 연다 (chat.js toggleChat)
     chatSetOpen(true);
     S.chatScroll = true;
     // 휴대폰에서는 아래 시트가 본문 아래쪽을 덮는다. 고른 글이 시트 위에 보이게 다시 고르고 굴린다 (syncPassage)

@@ -326,7 +326,8 @@ def _agent_step(hint: dict) -> PlotAgentStep:
     '여러 안' 요청은 되묻고, '?' 로 끝나면 답만 하고, '끝없이' 는 상한 시험으로 늘 읽는다.
     '끝 이름' 은 읽은 뒤 칸 이름 reply 를 도구로 적어 끝낸다 (모델이 실제로 낸 응답 모양).
     대상이 본문 · 설정 · 문체(hint 'aim')이면 '플롯'이 든 말만 고치고 나머지는 읽은 뒤 답만 한다.
-    'N화 앞에 M화' 는 화 넣기, 'N화 빼' 는 화 빼기를 묻고, '빈 물음' 은 묻는 말 없는 ask 를 내고, '분석' 은 처음에 예고만 하고, 되돌림 단계(tool 'reply')를 보면 내용을 쓴다."""
+    'N화 앞에 M화' 는 화 넣기, 'N화 빼' 는 화 빼기를 묻고, '빈 물음' 은 묻는 말 없는 ask 를 내고, '분석' 은 처음에 예고만 하고, 되돌림 단계(tool 'reply')를 보면 내용을 쓴다.
+    본문 대상에서 «원문» 이 든 말은 본문 고치기(revise_text)를 그 원문으로 부르고, 막혔으면 답만 한다."""
     msg, steps, tools = hint["message"], hint.get("steps", []), hint.get("tools", [])
     if "끝없이" in msg:
         return PlotAgentStep(thought="더 읽어 봐요", tool="read_plots",
@@ -357,6 +358,12 @@ def _agent_step(hint: dict) -> PlotAgentStep:
         return PlotAgentStep(reply="아크 1(1~7화)의 기승전결 구조를 분석해 작가님께 전달합니다.")
     if "끝 이름" in msg and steps:
         return PlotAgentStep.model_validate({"tool": "reply", "reply": "읽어 보니 고칠 곳이 없어요."})
+    quote = re.search(r"«([^»]+)»", msg)
+    if hint.get("aim") == "text" and quote:
+        if "revise_text" in tools:
+            return PlotAgentStep(reply="고른 부분을 고치지 못했어요.")
+        return PlotAgentStep(thought="고를 부분을 고쳐요", tool="revise_text",
+                             args=[ToolArg(name="quote", value=quote.group(1)), ToolArg(name="request", value=msg)])
     if "approval" in tools:
         return PlotAgentStep(reply="작가의 답대로 마쳤어요.")
     if "edit_plot" in tools or msg.rstrip().endswith("?"):

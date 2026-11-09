@@ -7,8 +7,10 @@
 - 쓰기는 권한 모드 안이면 바로 저장하고(WriteRecord, 되돌리기 가능), 밖이면 승인 카드(Approval)를 남기고 턴을 끝낸다.
   막힌 것(본문이 있는 화)은 clean_revision 이 빼고, 까닭을 단계 결과로 AI 에게 돌려준다.
 - 쓰기는 지금 적용 함수(pipeline.plot_apply · apply_revision)와 정리 함수(clean_revision)를 감싸기만 한다. 새 계산은 없다.
-쓰기 도구는 지금 플롯 도구뿐이다. 대상이 본문 · 설정 · 문체이면 플롯 쓰기는 모두 '다듬을 곳 밖'으로 묻는다.
-설정 · 문체 · 본문 고치기는 04b~04d 가 도구를 더할 때까지 옛 단발 대화(chat_send)도 쓴다.
+- 늘 카드로 묻는 도구(CARD_TOOLS, 본문 고치기 agent_text 등)는 몸통을 제 파일에 두고 여기에는 등록 줄만 둔다. 권한 모드와 상관없이 묻는다(ALWAYS_ASK).
+  재료나 빠른 요청이 붙은 턴은 에이전트 단계 없이 그 도구를 바로 부른다(지름길, AI 호출 한 번).
+대상이 본문 · 설정 · 문체이면 플롯 쓰기는 모두 '다듬을 곳 밖'으로 묻는다.
+설정 · 문체 고치기는 04c · 04d 가 도구를 더할 때까지 옛 단발 대화(chat_send)도 쓴다. 옛 'AI에게 고치기' 대화도 그때까지 남긴다.
 """
 
 from __future__ import annotations
@@ -19,10 +21,11 @@ import uuid
 from datetime import datetime, timezone
 
 from . import cancel, context, jobs, pipeline, prompts, renumber, store, usage
+from . import agent_text
 from .llm import LLM, dump, out_cap, wait_cap
 from .logline import josa
 from .schema import (AgentAsk, AgentSession, AgentTurn, Approval, AskCard, ChatScope, PlotAgentStep, PlotRevision, Project, RenumberOp,
-                     StepRecord, WriteItem, WriteRecord)
+                     StepRecord, TextMaterial, WriteItem, WriteRecord)
 
 TOPICS = ("agent", "plot")  # 'agent' 는 새 세션, 'plot' 은 옛 플롯 대화 세션. 둘 다 같은 목록에 보인다
 OTHER_FOCUS = ("text", "setup", "style")  # 화면이 주는 대상 가운데 아직 쓰기 도구가 없는 것 (chat_focus 종류)
@@ -36,11 +39,17 @@ TITLE_LIMIT = 24
 MODE_LABELS = {"ask": "물어보기", "draft": "빈 곳 · 초안만 자동", "all": "모두 자동"}
 # 쓰기 한 부분의 종류. '빈 곳 · 초안만 자동'은 draft · next 만 바로 쓰고 나머지는 묻는다
 KIND_LABELS = {"draft": "초안 화", "next": "다음 아크 초안", "confirmed": "확정한 화", "arc": "아크 칸", "acts": "구간 · 범위", "parts": "부 구성",
-               "renumber": "화 넣기 · 빼기", "outside": "다듬을 곳 밖"}
+               "renumber": "화 넣기 · 빼기", "outside": "다듬을 곳 밖", "text": "본문 고치기"}
 DRAFT_KINDS = ("draft", "next")
 READ_TOOLS = ("read_plots", "read_summaries", "find_text", "read_cast")
 # 화 넣기 · 빼기. 뒤 화 번호(본문만 있고 반영하지 않은 화 포함, renumber.last_fixed)가 바뀌므로 권한 모드와 상관없이 늘 묻는다
 RENUMBER_TOOLS = ("insert_episodes", "remove_episode")
+# 늘 카드로 묻는 도구: 도구 이름 → 모듈 (agent_text.py 머리의 이름들을 둔다). 04c · 04d 는 한 줄씩 더한다
+CARD_TOOLS = {m.TOOL: m for m in (
+    agent_text,
+)}
+# 권한 모드('모두 자동' 포함)와 '이 세션에서 묻지 않기'(auto_kinds)를 따르지 않고 늘 묻는 쓰기 종류
+ALWAYS_ASK = ("renumber", *(m.KIND for m in CARD_TOOLS.values()))
 MAX_INSERT = 10  # 한 번에 넣는 새 화 수
 # 한 단계의 AI 호출 한도. 보통 5~30초, 길어도 4분 남짓이다(2026-11-03 사용량 기록 13건, 가장 긴 것 263초).
 # 응답이 없으면 STEP_WAIT 초 뒤 한 번 다시 부르고, 또 없으면 오류로 턴을 멈춘다 (llm.wait_cap)
@@ -164,10 +173,11 @@ def first_step_prompt(p: Project, message: str, target: str = "") -> str:
 
 
 def add_turn(p: Project, sid: str, message: str, *, mode: str = "", act: str = "", episode: int = 0, draft=None,
-             target: str | None = None, screen: str = "") -> int:
+             target: str | None = None, screen: str = "", selection: TextMaterial | None = None, preset: str = "") -> int:
     """새 턴을 연다. 돌아가는 턴이나 승인을 기다리는 턴이 있으면 막는다. 턴 번호를 돌려준다.
     target 은 화면이 주는 대상이다. 고정하지 않은 세션이면 세션 대상을 이 값으로 바꾼다.
-    screen 은 작가가 보던 화면이다. SCREENS 에 없으면 '' (플롯 화면과 같다)로 남긴다."""
+    screen 은 작가가 보던 화면이다. SCREENS 에 없으면 '' (플롯 화면과 같다)로 남긴다.
+    selection(재료: 고른 본문) · preset(빠른 요청)이 있으면 본문 고치기 도구를 바로 부른다 (agent_text.shortcut)."""
     s = session(p, sid)
     message = message.strip()
     if not message:
@@ -176,11 +186,19 @@ def add_turn(p: Project, sid: str, message: str, *, mode: str = "", act: str = "
         raise ValueError("보관한 세션이에요. 꺼낸 뒤 이어서 말하세요")
     if s.turns and s.turns[-1].end == "":
         raise ValueError("아직 돌아가는 턴이 있어요")
+    if preset and preset not in prompts.PASSAGE_PRESETS:
+        raise ValueError(f"모르는 빠른 요청이에요: {preset}")
+    if preset and selection is None:
+        raise ValueError("빠른 요청은 본문에서 고칠 부분을 골라 재료로 붙인 뒤 보내세요")
+    if selection is not None:
+        if not selection.text.strip():
+            raise ValueError("고른 부분이 비었어요")
+        p.episode(selection.episode)  # 없는 화면 KeyError
     if target is not None and not s.pinned:
         s.target = pipeline.chat_session_target(p, target)
     _compact(s)
     turn = AgentTurn(user=message, mode="options" if mode == "options" else "", act=act, episode=episode, draft=draft, at=now(),
-                     screen=screen if screen in SCREENS else "")
+                     screen=screen if screen in SCREENS else "", selection=selection, preset=preset)
     turn.where = pipeline.chat_where(p, scope_of(p, s, turn))
     if s.turns and s.turns[-1].approval and s.turns[-1].approval.state == "wait":
         s.turns[-1].approval.state = "denied"  # 답하지 않고 새로 말하면 묻던 쓰기는 하지 않는다
@@ -232,6 +250,8 @@ def _compact(s: AgentSession) -> None:
     for t in s.turns[:-UNDO_TURNS]:
         t.draft = None
         for w in t.writes:
+            if w.tool in CARD_TOOLS:
+                continue  # 본문 고치기는 되돌리기 값이 수정 기록(Episode.edits)에 있어 이 턴에는 무겁게 남는 것이 없다
             for i in w.items:
                 if i.state == "done":
                     i.state, i.reason = "kept", OLD_UNDO
@@ -243,8 +263,8 @@ def _compact(s: AgentSession) -> None:
 # ---------- 권한 ----------
 
 def permit(s: AgentSession, kind: str) -> str:
-    """'auto' (바로 쓴다) 또는 'ask' (작가에게 묻는다). 막힘은 정리 단계(clean_revision)가 따로 판정한다. 화 넣기 · 빼기는 늘 묻는다."""
-    if kind == "renumber":
+    """'auto' (바로 쓴다) 또는 'ask' (작가에게 묻는다). 막힘은 정리 단계(clean_revision)가 따로 판정한다. ALWAYS_ASK 종류는 늘 묻는다."""
+    if kind in ALWAYS_ASK:
         return "ask"
     if kind == "outside":  # 세션이 고른 부 · 화 밖은 '모두 자동'이어도 묻는다 ('이 세션에서 묻지 않기'는 따른다)
         return "auto" if kind in s.auto_kinds else "ask"
@@ -617,9 +637,10 @@ def _preamble_retry(turn: AgentTurn, reply: str) -> bool:
     return True
 
 
-def _step(p: Project, sid: str, t: int, step: PlotAgentStep, move: bool = True, held: list[int] | None = None) -> str:
+def _step(p: Project, sid: str, t: int, step: PlotAgentStep, move: bool = True, held: list[int] | None = None, prepared=None) -> str:
     """AI 의 한 단계를 처리해 턴에 남긴다. 턴을 끝내면 끝 상태를 돌려준다 ('' 이면 다음 단계).
-    move · held 는 화 넣기 · 빼기에 쓴다 (store.shares_text 의 반대, store.pending_eps)."""
+    move · held 는 화 넣기 · 빼기에 쓴다 (store.shares_text 의 반대, store.pending_eps).
+    prepared 는 늘 카드로 묻는 도구가 잠금 밖에서 만든 결과다 (CARD_TOOLS 의 prepare)."""
     s, turn = turn_of(p, sid, t)
     args = {a.name: a.value for a in step.args}
     tool = step.tool.strip()
@@ -646,6 +667,8 @@ def _step(p: Project, sid: str, t: int, step: PlotAgentStep, move: bool = True, 
     elif tool in READ_TOOLS:
         where, result = read(p, tool, args)
         turn.steps.append(StepRecord(kind="read", tool=tool, label=where, why=step.thought.strip(), result=result))
+    elif tool in CARD_TOOLS:
+        end = CARD_TOOLS[tool].record(p, s, turn, step, prepared)
     elif tool in RENUMBER_TOOLS:
         if renumber_step(p, turn, tool, args, move, held or []):
             turn.reply = step.reply.strip() or step.thought.strip()
@@ -671,6 +694,16 @@ def _step(p: Project, sid: str, t: int, step: PlotAgentStep, move: bool = True, 
     return end
 
 
+def card_shortcut(turn: AgentTurn) -> PlotAgentStep | None:
+    """지름길: 재료나 빠른 요청이 붙은 턴의 첫 단계를 에이전트 대신 정한다 (AI 를 부르지 않는다)."""
+    if turn.steps:
+        return None
+    for m in CARD_TOOLS.values():
+        if (step := m.shortcut(turn)) is not None:
+            return step
+    return None
+
+
 def step_wait(llm: LLM) -> float:
     """한 단계 호출을 기다리는 초. Claude Code(구독)는 STEP_WAIT_CLAUDE, 나머지는 STEP_WAIT."""
     return STEP_WAIT_CLAUDE if usage.backend_of(llm) == "claude" else STEP_WAIT
@@ -682,17 +715,24 @@ def run_turn(llm: LLM, name: str, sid: str, t: int, job=None) -> dict:
         cancel.check()
         p = store.load(name)
         s, turn = turn_of(p, sid, t)
-        scope = scope_of(p, s, turn)
-        hint = {**pipeline.plot_chat_hint(p, turn.user, scope), "agent": True, "mode": turn.mode, "aim": pipeline.chat_focus(p, scope.focus)[0],
-                "steps": [x.kind for x in turn.steps], "tools": [x.tool for x in turn.steps]}
         if job is not None:
             job.step_at, job.step_wait = time.time(), step_wait(llm)
-        prompt = prompts.agent_plot_prompt(p, s, turn, scope, MAX_STEPS - i)
-        with wait_cap(step_wait(llm)), out_cap(STEP_OUT_TOKENS):
-            step = llm.json(prompts.SYSTEM_AGENT_PLOT, prompt, PlotAgentStep, hint=hint)
-            step = fill(llm, prompts.SYSTEM_AGENT_PLOT, prompt, step, hint)
+        step = card_shortcut(turn)
+        if step is None:
+            scope = scope_of(p, s, turn)
+            hint = {**pipeline.plot_chat_hint(p, turn.user, scope), "agent": True, "mode": turn.mode, "aim": pipeline.chat_focus(p, scope.focus)[0],
+                    "steps": [x.kind for x in turn.steps], "tools": [x.tool for x in turn.steps]}
+            prompt = prompts.agent_plot_prompt(p, s, turn, scope, MAX_STEPS - i)
+            with wait_cap(step_wait(llm)), out_cap(STEP_OUT_TOKENS):
+                step = llm.json(prompts.SYSTEM_AGENT_PLOT, prompt, PlotAgentStep, hint=hint)
+                step = fill(llm, prompts.SYSTEM_AGENT_PLOT, prompt, step, hint)
+        prepared = None
+        if (card := CARD_TOOLS.get(step.tool.strip())) is not None:
+            with wait_cap(step_wait(llm)):  # 도구가 부르는 AI(본문 고치기는 단계 'revise'). 잠금 밖에서 부른다
+                prepared = card.prepare(name, p, s, turn, step)
+            cancel.check()
         move, held = not store.shares_text(name), store.pending_eps(name)
-        end = _edit(name, lambda q: _step(q, sid, t, step, move, held))
+        end = _edit(name, lambda q: _step(q, sid, t, step, move, held, prepared))
         if job is not None:
             job.done = i + 1
             job.note = step.thought[:60]
@@ -719,13 +759,19 @@ def resume(p: Project, sid: str, t: int, note: StepRecord | None = None) -> None
     turn.end, turn.error = "", ""
 
 
-def decide(p: Project, sid: str, t: int, approve: bool, picked: list[str], remember: bool = False, move: bool = True) -> None:
+def decide(p: Project, sid: str, t: int, approve: bool, picked: list[str], remember: bool = False, move: bool = True,
+           text: str | None = None) -> None:
     """승인 카드에 답한다. 승인하면 고른 부분을 쓰고, 같은 턴을 이어 가도록 연다 (resume).
-    화 넣기 · 빼기 카드는 move 규칙(renumber.last_fixed)으로 쓴다."""
+    화 넣기 · 빼기 카드는 move 규칙(renumber.last_fixed)으로 쓴다.
+    늘 카드로 묻는 도구(CARD_TOOLS)의 카드는 그 모듈의 decide 가 쓰고 턴을 끝낸다 (이어 돌리지 않는다). text 는 작가가 손본 후보다."""
     s, turn = turn_of(p, sid, t)
     a = turn.approval
     if a is None or a.state != "wait" or turn.end != "wait":
         raise ValueError("답할 승인 카드가 없어요")
+    if a.tool in CARD_TOOLS:
+        CARD_TOOLS[a.tool].decide(p, s, turn, approve, picked, text)
+        s.updated = now()
+        return
     if approve and a.op:
         op = a.op.model_copy(deep=True)
         notes = apply_op(p, op, move)  # 못 하면 ValueError 로 카드를 그대로 둔다
@@ -745,8 +791,8 @@ def decide(p: Project, sid: str, t: int, approve: bool, picked: list[str], remem
         rec = _write(p, s, a.revision, a.target, keys)  # 쓰지 못하면 ValueError 로 카드를 그대로 둔다
         if rec.items:
             turn.writes.append(rec)
-        if remember:
-            s.auto_kinds = sorted(set(s.auto_kinds) | set(a.kinds))
+        if remember:  # 늘 묻는 종류는 '묻지 않기'에 넣지 않는다
+            s.auto_kinds = sorted(set(s.auto_kinds) | (set(a.kinds) - set(ALWAYS_ASK)))
         a.state, a.picked = "approved", [i.key for i in rec.items]
         names = ", ".join(i.label for i in rec.items) or "없음"
         note = StepRecord(kind="note", tool="approval", label=names, why="작가가 승인했어요", result=f"작가가 승인해 저장함: {names}")
@@ -783,6 +829,12 @@ def undo(p: Project, sid: str, t: int, w: int | None = None, key: str | None = N
     for k in order:
         rec, items = pick(k)
         if not items:
+            continue
+        if rec.tool in CARD_TOOLS:
+            d, kp, wy = CARD_TOOLS[rec.tool].undo(p, rec, items)
+            done_l += d
+            kept_l += kp
+            why_l += wy
             continue
         if rec.op:
             try:

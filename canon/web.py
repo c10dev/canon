@@ -40,6 +40,8 @@ from .schema import (Ability, ArcPlan, BodySuggestion, StatInitSuggestion, StatS
 from . import abilities, anchor, atlas, findings, foreshadows, heatplan, setupchat, stateedit, stattrial, statwin, timeline
 from .schema import AgentSession, ChatScope, HeatArcProposal, KnowsFoldSet, Deadline, Storyboard, StoryTime, Foreshadow, StatValue
 from .schema import OffscreenSet
+from .schema import TextMaterial
+from . import agent_text
 from .schema import BlockSetting, BudgetSetting
 from . import offscreen
 from .metrics import StyleMetrics
@@ -2405,6 +2407,8 @@ class TurnIn(BaseModel):
     draft: ArcProposal | None = None  # 다음 아크 대상: 화면의 초안
     target: str | None = None  # 화면이 주는 대상. 고정하지 않은 세션은 이 값으로 바꾼다 (agent.add_turn)
     screen: str = ""  # 작가가 보던 화면. 서버가 agent.SCREENS 로 확인하고, 비거나 모르면 플롯 화면과 같다
+    selection: TextMaterial | None = None  # 재료: 집필 화면에서 고른 본문. 있으면 본문 고치기 도구를 바로 부른다 (agent_text.shortcut)
+    preset: str = ""  # 빠른 요청 id (prompts.PASSAGE_PRESETS). 재료와 함께 보낸다
 
 
 def _run_agent(name: str, sid: str, t: int) -> dict:
@@ -2427,15 +2431,19 @@ def agent_turn(name: str, sid: str, body: TurnIn) -> dict:
     _need(name)
     if any(j.kind == "agent" and j.status == "running" for j in jobs.listing(name)):
         raise ValueError("이 작품에서 이미 대화가 돌아가고 있어요. 끝난 뒤 보내거나 멈추세요")
+    if body.selection is not None:
+        _text_guard(name, body.selection.episode)  # 본문 고치기로 갈 턴은 AI를 부르기 전에 막는다 (넣을 때도 다시 본다)
     out: list[int] = []
-    _edit(name, lambda p: out.append(agent.add_turn(p, sid, body.message, mode=body.mode, act=body.act, episode=body.episode, draft=body.draft, target=body.target, screen=body.screen)))
+    _edit(name, lambda p: out.append(agent.add_turn(p, sid, body.message, mode=body.mode, act=body.act, episode=body.episode, draft=body.draft, target=body.target, screen=body.screen,
+                                                    selection=body.selection, preset=body.preset)))
     return _run_agent(name, sid, out[0])
 
 
 class ApprovalIn(BaseModel):
     approve: bool
     picked: list[str] = []  # 쓸 부분 (비우면 카드의 모든 부분)
-    remember: bool = False  # 이 세션에서 이 종류는 묻지 않기
+    remember: bool = False  # 이 세션에서 이 종류는 묻지 않기 (agent.ALWAYS_ASK 종류는 무시한다)
+    text: str | None = None  # 본문 고치기 카드: 작가가 손본 후보 (picked 는 후보 번호 하나)
 
 
 @app.post("/api/projects/{name}/sessions/{sid}/turns/{t}/approval")
@@ -2447,9 +2455,11 @@ def agent_approval(name: str, sid: str, t: int, body: ApprovalIn) -> dict:
     op = turn.approval.op if body.approve and turn.approval else None
     if op:
         _renumber_ready(name, op.at)
+    if body.approve and turn.approval and turn.approval.tool == agent_text.TOOL:
+        _text_guard(name, turn.approval.episode)
     with jobs.project_lock(name):  # 화 번호 바깥 파일도 같은 잠금 안에서 옮긴다 (insert_episode · remove_episode 와 같다)
         p = store.load(name)
-        agent.decide(p, sid, t, body.approve, body.picked, body.remember, not store.shares_text(name))
+        agent.decide(p, sid, t, body.approve, body.picked, body.remember, not store.shares_text(name), body.text)
         store.save(name, p)
         if op:
             aside: list[str] = []
@@ -2460,6 +2470,8 @@ def agent_approval(name: str, sid: str, t: int, body: ApprovalIn) -> dict:
                 store.save(name, p)
     if op:
         autorun.renumber(name, agent.shift(op))
+    if agent.turn_of(p, sid, t)[1].end:  # 늘 카드로 묻는 도구(본문 고치기 등)는 답하면 턴이 끝난다. 에이전트를 다시 부르지 않는다
+        return {"project": p, "job": None}
     return {"project": p, "job": _run_agent(name, sid, t)}
 
 
@@ -2480,6 +2492,10 @@ class AgentUndoIn(BaseModel):
 def agent_undo(name: str, sid: str, t: int, body: AgentUndoIn) -> dict:
     """바로 쓴 것을 되돌린다. 그 뒤에 다시 고치거나 확정한 것은 남기고 까닭을 돌려준다."""
     _need(name)
+    _, turn = agent.turn_of(_load(name), sid, t)
+    for k, rec in enumerate(turn.writes):  # 본문을 되돌리는 것은 본문 고치기와 같은 검사를 거친다
+        if rec.tool == agent_text.TOOL and body.write in (None, k) and any(i.state == "done" for i in rec.items):
+            _text_guard(name, rec.episode)
     ops = agent.undo_ops(_load(name), sid, t, body.write, body.key)
     if ops:
         _renumber_ready(name, min(op.at for op in ops))
