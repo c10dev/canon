@@ -11,6 +11,7 @@
 - 낡은 AI 큐 시트를 다시 받았는데 비어 오면 그 화는 낡은 시트를 넣지 않고 쓰고 `CueSheet.skipped` 로 적는다(`Runner.no_cues`)
 - 쓰기 재료 조율이면 스토리보드보다 먼저 조율 메모를 만든다(`_coord`, `coord.remake`, board 단계). 스토리보드도 그 메모를 플롯으로 본다. 사건 수가 달라 받지 못하면 경고만 남기고 원래 플롯으로 쓴다(`Runner.no_coord`)
 - 쓰기(`_write`)와 다듬기(`_polish`)는 본문을 넣는 `_edit` 안에서 보낸 프롬프트 기록을 남긴다(`sent.keep`). 다듬은 글을 버리면 기록도 남기지 않는다
+- 자동 집필의 쓰기(`_write`)는 `write_episode` 에 `on_chunk` 를 넘기지 않는다. 흘려 받지 않고 지금처럼 다 끝난 본문을 반영한다
 - `_cues` 는 같은 실행의 `_board` 가 방금 만든 스토리보드(`Runner.board_lead`: 화 · made_at · 요청 글)면 그 요청 글로 시작하는 큐 시트 요청을 보낸다(`pipeline.cue_lead`)
 - 스토리보드 · 큐 시트는 `board` 단계 모델로 부르고 배치로 보내지 않는다. 비용 추정 `calls` 의 키도 `board` 다
 - 옛 실행 로그의 스토리보드 단계 `plan` 은 `_measured` 가 `board` 로 읽는다
@@ -335,6 +336,9 @@
 - 웹의 오래 걸리는 AI 작업을 스레드로 돌리는 메모리 작업 목록
 - `Job.retry`: AI 호출이 기다리거나 다시 부르는 중인 사정(`cancel.say` → `Job.say`). 스레드마다 `retries` 에 두고 남은 하나를 보인다. `public()` 에 싣는다
 - `Job.step_wait`: 대화 에이전트 한 단계의 AI 호출 한도(초, `agent.step_wait`). `public()` 에 싣는다. 0 이면 화면이 기본값을 쓴다
+- `Job.partial`: 흘려 받는 중인 AI 글(지금까지 받은 글 전체). 저장한 글이 아니다. 도는 작업만 `public()` 에 싣는다
+- `Job.set_partial(text)` 는 잠금(`_lock`) 아래에서 고친다. 끝나거나 멈춘 작업은 받지 않아 늦게 온 조각이 부분 글을 되살리지 않는다
+- 작업이 끝나거나 멈추거나 실패하면(`run` 의 finally, `stop`) 부분 글을 비운다
 - 중복 실행 막기
 - `Job.target`: 같은 종류를 대상(인물 id)마다 따로 돌린다. 중복 막기는 (작품, 종류, 화, 대상)으로 본다. `public()` 에 싣는다
 - 자동 업데이트가 다시 시작하려고 기다리는 동안(`draining`) 새 작업은 `Draining`(400, '서버를 곧 다시 시작해요')으로 거절한다. 자동 집필(`auto`)은 받아서 첫 단계 전에 멈춘다
@@ -440,6 +444,7 @@
 - 조율 메모: `make_coord`(plan 계열 시스템 프롬프트, `prompts.coord_prompt`). 사건 수가 플롯과 다르면 ValueError. 저장은 호출자가 `Episode.coord` 에 한다
 - 쓰기 가족: 스토리보드 · 큐 시트 요청이 `prompts.write_head` 로 시작하면 `write_family` 가 그 길이를 캐시 경계 hint 로 준다
 - 쓰기 가족: `_write` 는 `llm.family_text` 로 부른다. 요청이 `write_head` 로 시작하면 본문 쓰기도 같은 캐시를 읽는다
+- `write_episode(on_chunk=)` · `_write(on_chunk=)` 는 흘려 받는 글을 `family_text` 로 넘긴다. 다시 부르는 시도(끊김 · 다른 글)는 먼저 빈 글을 보내 버린 응답을 미리보기에 남기지 않는다
 - 본문 쓰기 출력 한도: `_write` 는 끊긴 응답을 알아채는 백엔드(`llm.knows_cut`: Gemini · Claude API · mock)에만 `out_cap(write_out_tokens(p, n))` 을 건다
 - 로컬(`LocalLLM.caps_write = False`)은 한도를 걸지 않고 끊김만 본다
 - `write_out_tokens` 는 글자 수(목표 분량과 그 화 지금 본문 중 긴 쪽) × `WRITE_TOKENS_PER_CHAR`(4) + `WRITE_THINK_TOKENS`(16,384)를 `WRITE_OUT_RANGE`(24,576~65,536) 안으로 자른다
@@ -930,6 +935,9 @@
 - 쓴 뒤 검수가 실패해도 작업은 끝남이고 결과에 `check_error` 를 싣는다. 성공하면 결과 `check` 는 작업 `check` 의 결과와 같다
 - 쓴 뒤 검수가 도는 (작품, 화)는 `_WRITE_CHECKS` 에 두고, 그동안 작업 `check` 는 400 으로 거절한다. 새 판(다시 생성)은 검수하지 않는다
 - 작업 `write` 는 본문을 저장하는 `_edit` 안에서 보낸 프롬프트 기록을 남긴다(`sent.keep`). 다시 생성은 새 판과 함께 `sent.hold` 로 둔다
+- 작업 `write` 의 본문 쓰기는 `write_episode(on_chunk=job.set_partial)` 로 부른다. 흘려 받을 수 있는 백엔드면 쓰는 글이 `Job.partial` 에 실린다
+- 작업 `write` 는 본문을 저장한 뒤 부분 글을 비운다. 쓴 뒤 검수 걸음 동안 미리보기가 남지 않는다
+- 새 판(다시 생성 · 서술 다듬기)은 아직 흘려 받지 않는다. 다 끝난 뒤 새 판 카드로 받는다
 - 새 판 고르기 `POST …/candidate/adopt` · 버리기 `DELETE …/candidate` 는 저장과 같은 잠금 안에서 `sent.adopt` · `sent.drop_candidate` 를 부른다
 - 동기 쓰기 `POST …/episodes/{n}/write` 도 `project_lock` 안에서 `sent.keep` 뒤 `_save_locked` 로 저장한다
 - 화 지우기 `delete_episode` 가 화를 남기면(`keep_plot`) 그 화의 기록을 `sent/removed/` 로 옮기고 notes 에 적는다

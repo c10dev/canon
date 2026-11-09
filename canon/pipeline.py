@@ -2479,17 +2479,20 @@ def write_out_tokens(p: Project, n: int | None = None) -> int:
 
 
 def write_episode(llm: LLM, p: Project, n: int, approach: str = "", use_board: bool = True, use_cues: bool = True,
-                  cut: list[MetaCut] | None = None, sent: list[SentPrompt] | None = None) -> str:
+                  cut: list[MetaCut] | None = None, sent: list[SentPrompt] | None = None,
+                  on_chunk: Callable[[str], None] | None = None) -> str:
     """approach: 1~3화를 여러 안으로 쓸 때 여는 방식 (prompts.OPENING_APPROACHES).
     use_board: 그 화에 스토리보드가 있으면 쓰기 프롬프트에 넣는다. 끄면 스토리보드 없이 쓴다.
     use_cues: 그 화에 큐 시트가 있으면 쓰기 프롬프트 끝에 넣는다. 끄면 큐 시트 없이 쓴다.
     cut: 목록을 주면 본문 앞뒤에서 뗀 작업 설명 문단을 채운다 (_write). 저장하는 호출자가 replace_text(meta_cut=)로 넘긴다.
-    sent: 목록을 주면 받은 호출의 요청 기록(sent.SentPrompt)을 채운다. 본문을 저장하는 호출자가 sent.keep 으로 남긴다."""
+    sent: 목록을 주면 받은 호출의 요청 기록(sent.SentPrompt)을 채운다. 본문을 저장하는 호출자가 sent.keep 으로 남긴다.
+    on_chunk: 주면 흘려 받을 수 있는 백엔드에서 조각마다 지금까지 받은 글로 부른다 (_write, llm.family_text). 저장한 글이 아니다."""
     ep = p.episode(n)
     if ep.status == "draft":
         raise ValueError(f"{n}화 플롯이 아직 확정되지 않았어요 (confirm 먼저)")
     require_previous(p, n)
-    return _write(llm, p, n, prompts.episode_prompt(p, n, approach, use_board=use_board, use_cues=use_cues), cut, sent)
+    return _write(llm, p, n, prompts.episode_prompt(p, n, approach, use_board=use_board, use_cues=use_cues), cut, sent,
+                  on_chunk=on_chunk)
 
 
 # ---------- 4-0. 화별 스토리보드 ----------
@@ -2631,7 +2634,7 @@ def set_storyboard(p: Project, n: int, b: Storyboard | None, by: str = "author")
 
 def _write(llm: LLM, p: Project, n: int, prompt: str, cut: list[MetaCut] | None = None,
            sent: list[SentPrompt] | None = None, kind: str = "write", target: int | None = None,
-           verdict: Callable[[str], str] | None = None) -> str:
+           verdict: Callable[[str], str] | None = None, on_chunk: Callable[[str], None] | None = None) -> str:
     """본문을 쓴다. 한글이 적은 응답(영어 생각 과정 등)과 본문 대신 작업 설명 · 거절 문구만 온 응답(metatail.whole)은 다시 부른다.
     본문 앞뒤에 붙은 확실한 작업 설명(metatail.split: 'n화 본문입니다' 머리말, 끝의 '짚어 둘 것' 같은 작가에게 하는 말)은 떼고 서버 기록에 남긴다.
     덜 확실한 것은 떼지 않고 검수 화면의 문체 경고(style_drift)로 알린다.
@@ -2640,7 +2643,8 @@ def _write(llm: LLM, p: Project, n: int, prompt: str, cut: list[MetaCut] | None 
     여기서는 파일에 쓰지 않는다: 큐마다 쓰기 · 다듬기 재시도처럼 채택하지 않을 판도 이 함수를 부른다 (sent.py).
     target 은 이 호출이 받은 목표 분량 글자 수다 (비면 화 분량 Meta.words_per_episode). 사용량 기록 줄에 싣는다 (usage.SCOPED).
     다시 부르려고 버린 응답은 그 호출의 사용량 기록 줄에 까닭(discarded: cut · thought · meta)을 단다 (usage.hold).
-    verdict(본문) 은 받은 본문을 부른 쪽이 버릴 까닭(빈 글이면 씀)이다. 까닭이 있으면 그 줄에 달고 본문은 그대로 돌려준다 (서술 다듬기)."""
+    verdict(본문) 은 받은 본문을 부른 쪽이 버릴 까닭(빈 글이면 씀)이다. 까닭이 있으면 그 줄에 달고 본문은 그대로 돌려준다 (서술 다듬기).
+    on_chunk 는 흘려 받는 글을 받는다 (llm.family_text). 다시 부르는 호출은 빈 글부터 다시 보낸다. 앞뒤 작업 설명은 떼지 않은 글이다."""
     system = prompts.writer_system(p)
     head = prompts.write_head(p, n)  # 장편 쓰기 가족: 스토리보드 · 큐 시트와 같은 앞부분이면 그 캐시를 읽는다
     cap = (write_out_tokens(p, n) if getattr(llm, "knows_cut", False) and getattr(llm, "caps_write", True)
@@ -2653,7 +2657,9 @@ def _write(llm: LLM, p: Project, n: int, prompt: str, cut: list[MetaCut] | None 
             why, note = "", ""
             try:
                 with out_cap(cap) if cap else nullcontext():
-                    text = family_text(llm, system, prompt, head)
+                    if on_chunk is not None and call > 1:
+                        on_chunk("")  # 버린 응답의 글을 미리보기에 남기지 않는다
+                    text = family_text(llm, system, prompt, head, on_chunk)
             except OutputCut:
                 text = None
             except RuntimeError:

@@ -69,6 +69,8 @@
 - 두 백엔드는 호출마다(형식 고치기 재시도도) 보내기 전에 `cancel.check()` 를 부른다
 - 구독은 `_run` 이 `Popen` 으로 띄우고 `STOP_POLL`(0.25초)마다 멈추기 신호를 보다가 서면 하위 프로세스를 끝내고 `cancel.Cancelled`
 - API 는 스트림 조각마다 `cancel.check()` 를 불러 멈추면 스트림을 닫는다
+- API 는 흘려 받기(`text_stream(system, prompt, on_chunk, hint=)`)를 둔다. 같은 스트림의 `text` 이벤트마다 지금까지 받은 글 전체로 `on_chunk` 를 부르고 사용량은 다 받은 뒤 한 번 기록한다
+- 구독(`ClaudeCodeLLM`)은 `text_stream` 이 없다. 본문 쓰기도 다 끝난 뒤 한 번에 받는다
 - 화면은 `static/claude.js`
 
 ### `canon/judge.py`
@@ -87,6 +89,13 @@
 ### `canon/llm.py`
 
 - LLM 프로바이더 인터페이스(`json`, `text`)와 Gemini(API 키 또는 Vertex AI 서비스 계정 `_vertex_client`)
+- 흘려 받을 수 있는 백엔드(Gemini, Claude API, 로컬, mock)만 `text_stream(system, prompt, on_chunk) -> str` 을 둔다. `LLM` Protocol 에는 넣지 않고 부르는 쪽이 `getattr` 로 찾는다
+- `on_chunk` 는 조각마다 지금까지 받은 글 전체를 받는다. 다시 부르는 호출(시간 초과 · 서버 오류)은 빈 글부터 다시 보내 화면의 부분 글이 겹치지 않는다
+- `text_stream` 은 조각 사이에서 `cancel.check()` 를 부르고 사용량(`usage.record`)은 다 받은 뒤 한 번 기록한다
+- Gemini `text_stream` 은 `generate_content_stream` 으로 받는다. 조각을 모은 `_Streamed` 의 마지막 조각 값으로 끝난 이유(`last_finish`) · 사용량을 읽는다
+- 로컬 `text_stream` 은 `stream=True` 와 `stream_options.include_usage` 로 SSE 를 받는다(`LocalLLM._stream`). 서버가 400 을 내면 `stream_options` 만 빼고 한 번 더 부른다
+- 로컬 흘려 받기는 생각 블록(`<think>`, 아직 닫히지 않은 것까지)을 뺀 글로 `on_chunk` 를 부른다
+- 배치(`BatchLLM`)는 `text_stream` 이 없다
 - 키 · 권한 오류(401, 403, 400 API_KEY_INVALID, `is_bad_key`)는 다시 부르지 않고 `BadKey`(`KEY_HINT`, Vertex 는 `VERTEX_HINT`)를 낸다. 웹은 code `bad_key` 로 답한다
 - 요청 한도로 기다리거나 응답 지연으로 다시 부를 때 `cancel.say` 로 작업 진행 줄에 알리고, 그 호출이 끝나면 비운다
 - 로컬(OpenAI 호환) 구현
@@ -96,7 +105,8 @@
 - 단계별 선택(`get_llm(stage)`)
 - 단계 이름은 `settings.STAGES` 다
 - 캐시 가족 공통 시스템 프롬프트 `FAMILY_SYSTEM` · 역할 블록 `role_block`. 이 글을 바꾸면 쌓인 캐시를 모두 새로 쓴다
-- `family_text(llm, system, prompt, head)` 는 요청이 head 로 시작하고 백엔드가 `family_cache` 면 `text` 에 경계 hint 를 넘긴다. 아니면 `text(system, prompt)` 만 부른다(다른 백엔드 · 시험용 가짜 LLM)
+- `family_text(llm, system, prompt, head, on_chunk=None)` 는 요청이 head 로 시작하고 백엔드가 `family_cache` 면 `text` 에 경계 hint 를 넘긴다. 아니면 `text(system, prompt)` 만 부른다(다른 백엔드 · 시험용 가짜 LLM)
+- `family_text` 는 `on_chunk` 를 받고 백엔드에 `text_stream` 이 있으면 `text` 대신 그것을 부른다. 없으면 지금처럼 `text` 를 부르고 `on_chunk` 는 부르지 않는다
 - Gemini 429 요청 한도는 `GeminiLLM._call` 이 `RATE_WAITS`(30 · 60 · 120초)만큼 기다려 다시 부른다(기다리기 전 `cancel.check`, 실패한 시도는 하나씩 사용량에 실패로)
 - 429 오류에 서버가 `RetryInfo.retryDelay` 를 주면 `rate_pause` 가 그 값(올림, `RATE_WAITS` 의 가장 긴 값까지)을 기다린다(`retry_delay`)
 - 끝내 막히면 해요체 안내 `RateLimited`(`RATE_HINT`)
@@ -190,6 +200,7 @@
   - `CANON_LOCAL_TIMEOUT`: 로컬 서버 응답을 기다리는 초(기본 900, 숫자가 아니거나 0 이하면 기본값, `llm.local_timeout`)
   - `CANON_MOCK_BATCH_POLLS`: 가짜 배치가 끝나기 전에 물어볼 횟수(기본 0)
   - `CANON_MOCK_DELAY`: 가짜 응답이 기다리는 초(기본 0, 화면 진행 표시 확인용)
+  - `CANON_MOCK_STREAM_DELAY`: 가짜 `text_stream` 이 조각 사이에 기다리는 초(기본 0, 부분 글 미리보기 확인용)
   - `CANON_MODEL`: Gemini 모델(기본 `gemini-4-argon`)
   - `CANON_MODEL_<단계>`: 단계별 모델(`CANON_MODEL_PLAN` · `_BOARD` · `_WRITE` · `_CHECK` · `_STATE` · `_AUDIT` · `_NAME` · `_REVISE` · `_ILLUSTRATION` · `_PLAY` · `_CHAT`)
   - `CANON_NEWTO`: 레퍼런스 원고 newto 가져오기의 newto 폴더(기본 Canon 저장소 옆 `newto`, `refs.newto_dir`)
@@ -210,6 +221,7 @@
 - `MockLLM.json` 은 스키마로 `RESPONDERS` 만 찾는다. `mock.py` 의 응답도 `@responds` 함수(`_r_<스키마>`)이고 `json` 안에 스키마 분기를 두지 않는다(`tests/test_mock_registry.py`)
 - 가짜 문체 프로필은 시험 원문에 있는 표지 · 장치와 걸러져야 할 표지 · 장치를 함께 낸다 (`count_markers` 와 문체 넣은 쓰기 경로 시험)
 - `CUT_TEXT` 에 넣은 만큼 다음 글 응답을 앞 절반만 내고 `last_finish` 를 `MAX_TOKENS` 로 둔다(끊긴 본문 시험)
+- `MockLLM.text_stream` 은 `text` 와 같은 글을 `STREAM_PIECES`(6) 조각으로 나눠 낸다. 조각마다 멈추기 신호를 본다
 - 새 기능의 가짜 응답은 `mock_<기능>.py` 에 `@responds(스키마)` 로 두고(`RESPONDERS`) `mock.py` 맨 끝에서 불러온다
   - `mock_audit.py` 상태 변경안 누락 검사 (본문 앞 두 문장과 본문에 없는 인용 하나)
   - `mock_birth.py` 출생 배경

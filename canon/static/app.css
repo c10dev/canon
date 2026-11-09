@@ -1821,6 +1821,10 @@ pre.brief.ctx-text { max-height: 280px; padding: var(--space-12); font-size: 0.7
 .w-busy-text i { grid-column: 1 / -1; height: 4px; border-radius: var(--radius-2); background: repeating-linear-gradient(90deg, var(--accent) 0 24px, var(--chip) 24px 48px); background-size: 48px 4px; animation: w-busy 1.2s linear infinite; forced-color-adjust: none; }
 @keyframes w-busy { to { background-position: 48px 0; } }
 @media (prefers-reduced-motion: reduce) { .w-busy-text i { animation: none; } }
+/* 쓰는 중인 본문 미리보기 (write.js streamCard). 아직 저장하지 않은 글이라 본문 칸과 따로 둔다. .card 의 display 가 hidden 을 이기지 않게 숨김을 적는다 */
+.w-stream[hidden] { display: none; }
+.w-stream-head { display: flex; align-items: baseline; gap: var(--space-10); flex-wrap: wrap; }
+.w-stream-text { max-height: 60vh; overflow-y: auto; font-family: var(--serif); font-size: 1rem; line-height: 2; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
 /* 좁은 화면 짧은 이름 (문체 장치 → 문체, 수정 기록 → 기록, 글자 수 목표 숨김) */
 .lbl-s, .lbl-i { display: none; }
 @media (max-width: 640px) { .lbl-l { display: none; } .lbl-s { display: inline; } }

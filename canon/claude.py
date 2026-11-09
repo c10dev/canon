@@ -39,7 +39,7 @@ import threading
 import time
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any, Callable, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
@@ -796,7 +796,8 @@ class ClaudeAPILLM:
         return self.client.messages.count_tokens(model=self.model, messages=[{"role": "user", "content": text}]).input_tokens
 
     def _call(self, system: str, prompt: str, schema: type[BaseModel] | None = None, attempt: int = 1,
-              prefix: int | None = None) -> Any:
+              prefix: int | None = None, on_chunk: Callable[[str], None] | None = None) -> Any:
+        """on_chunk 가 있으면 글 조각(text 이벤트)마다 지금까지 받은 글 전체로 부른다. 사용량은 다 받은 뒤 한 번 기록한다."""
         from .llm import caps, with_note
 
         cancel.check()  # 멈춘 작업은 다음 호출을 보내지 않는다 (형식 고치기 재시도도)
@@ -821,9 +822,13 @@ class ClaudeAPILLM:
         if wait:
             req["timeout"] = wait  # SDK 요청 옵션: 연결과 조각 사이 기다림의 한도
         try:
+            got: list[str] = []
             with self.client.beta.messages.stream(**req) as stream:
-                for _ in stream:  # 조각마다 멈추기 신호를 본다. 멈추면 스트림을 닫는다
+                for ev in stream:  # 조각마다 멈추기 신호를 본다. 멈추면 스트림을 닫는다
                     cancel.check()
+                    if on_chunk is not None and getattr(ev, "type", "") == "text" and getattr(ev, "text", ""):
+                        got.append(ev.text)
+                        on_chunk("".join(got).lstrip())
                 msg = stream.get_final_message()
             tokens = self.last_usage = _api_usage(msg.usage)
             text = "".join(b.text for b in msg.content if b.type == "text").strip()
@@ -863,3 +868,10 @@ class ClaudeAPILLM:
 
         self.last_attempts = 1
         return self._call(system, prompt, prefix=prefix_of(hint))
+
+    def text_stream(self, system: str, prompt: str, on_chunk: Callable[[str], None], hint: dict | None = None) -> str:
+        """text 와 같지만 글 조각마다 지금까지 받은 글 전체로 on_chunk 를 부른다 (llm.family_text)."""
+        from .llm import prefix_of
+
+        self.last_attempts = 1
+        return self._call(system, prompt, prefix=prefix_of(hint), on_chunk=on_chunk)

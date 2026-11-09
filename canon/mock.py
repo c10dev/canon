@@ -634,6 +634,24 @@ class MockLLM:
             out = out[:max(1, len(out) // 2)]
         return out
 
+    def text_stream(self, system: str, prompt: str, on_chunk: Callable[[str], None]) -> str:
+        """text 와 같은 글을 STREAM_PIECES 조각으로 나눠 낸다. 조각마다 지금까지의 글 전체로 on_chunk 를 부르고 멈추기 신호를 본다.
+        CANON_MOCK_STREAM_DELAY=초 면 조각 사이에 기다린다 (화면의 부분 글 미리보기 확인용, 기본 0)."""
+        import os
+        import time
+
+        from . import cancel
+
+        out = self.text(system, prompt)
+        pause = float(os.environ.get("CANON_MOCK_STREAM_DELAY", "0") or 0)
+        step = max(1, -(-len(out) // STREAM_PIECES))
+        for end in range(step, len(out) + step, step):
+            cancel.check()
+            if pause:
+                time.sleep(pause)
+            on_chunk(out[:end])
+        return out
+
     def _text(self, system: str, prompt: str) -> str:
         _delay()
         from .mock_cue import text_for
@@ -1025,6 +1043,7 @@ def _r_consistency_report_en(prompt: str, hint: dict):
 
 BATCHES: dict[str, dict] = {}  # 프로세스 안에서만 유지되는 가짜 배치 작업
 BAD_JSON: list[str] = []  # 여기 넣은 스키마 이름은 다음 배치 응답 한 번을 형식이 틀리게 낸다 (넣은 만큼)
+STREAM_PIECES = 6  # text_stream 이 글을 나눠 내는 조각 수
 CUT_TEXT: list[bool | str] = []  # 넣은 만큼 다음 글 응답(text)을 출력 길이 한도에 걸려 끊긴 것으로 낸다 (last_finish MAX_TOKENS). "empty" 는 글 없이 끝난 응답
 
 
