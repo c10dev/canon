@@ -12,6 +12,8 @@
 - `start_login` 은 그 폴더로 `claude auth login --claudeai` 를 띄우기만 한다(입출력을 잇지 않음, 10분 뒤 끝냄). 웹 `POST /api/claude/login` 은 Canon 을 실행하는 컴퓨터에서 온 요청만 받는다
 - `logout` 은 전용 폴더를 쓸 때만 `claude auth logout` 을 부른다(평소 Claude Code 로그인은 건드리지 않음)
 - 단계별 추론 강도(`settings.stage_effort`)를 구독은 `--effort`(모르는 버전이면 뺌), API 는 `output_config.effort` 로 넘긴다. 비우면 모델 기본값. 사용량 기록 줄의 `effort`
+- 구독 호출은 `--settings` 로 사용자 설정의 advisor 를 끈다(`NO_ADVISOR`, 모르는 버전이면 뺌). `--safe-mode` 는 advisor 를 끄지 않는다
+- advisor 가 붙으면 긴 호출마다 다른 모델 요청이 하나 늘고 본 모델 요청이 두 번 나갔다(2026-11-09, Claude 호출 544번 중 84번)
 - 프롬프트 캐시는 두 백엔드가 같은 `shared_cut`(같은 모델 · 시스템 · 스키마의 직전 요청과 겹치는 앞부분, 단락 경계, 2,000자 이상)으로 자른다
 - 부른 쪽이 공통 앞부분의 끝을 알면 `hint[llm.PREFIX_HINT]`(`prefix_chars`, 글자 수)로 넘긴다. 읽는 함수는 `llm.prefix_of`
 - 경계를 받으면 `shared_cut` 은 직전 요청과 견주지 않고 그 자리(뒤따르는 단락 구분까지 보고 단락 경계로 맞춤)에서 자른다. 같은 앞부분의 첫 호출부터 캐시에 넣는다

@@ -187,7 +187,7 @@ def _flags(binary: str) -> frozenset[str]:
 def _probe(binary: str, real: str) -> frozenset[str]:
     out = _run([binary, "--help"], 30)
     text = out.stdout + out.stderr
-    known = ("--safe-mode", "--tools", "--strict-mcp-config", "--no-session-persistence", "--json-schema", "--effort")
+    known = ("--safe-mode", "--tools", "--strict-mcp-config", "--no-session-persistence", "--json-schema", "--effort", "--settings")
     found = {f for f in known if f in text}
     if "--system-prompt-file" in text or "--system-prompt[-file]" in text:  # 2.1.x 는 옵션 목록에 따로 싣지 않는다
         found.add("--system-prompt-file")
@@ -412,6 +412,12 @@ def _served(d: dict) -> str:
     return max(mu, key=lambda k: (mu[k] if isinstance(mu[k], dict) else {}).get("outputTokens") or 0)
 
 
+# Canon 이 부르는 Claude Code 에서 끄는 사용자 설정. --safe-mode 는 advisor 를 끄지 않는다.
+# 사용자 설정에 advisorModel 이 있으면 Canon 호출에도 advisor(다른 모델)가 붙어, 긴 호출마다 그 모델 요청이 하나 늘고
+# 본 모델 요청도 advisor 앞뒤로 두 번 나간다 (2026-11-09 실측: subway 11-06~11-09 Claude 호출 544번 중 84번, advisor 입력 약 703만 토큰)
+NO_ADVISOR = '{"advisorModel": ""}'
+
+
 class ClaudeCodeLLM:
     """설치된 Claude Code 를 `claude -p` 로 부른다. 도구는 모두 끄고, 시스템 프롬프트를 Canon 것으로 바꾸고,
     세션을 남기지 않는다. 구조화 출력은 --json-schema 로 받고 pydantic 으로 검증해, 어긋나면 한 번 더 묻는다."""
@@ -471,6 +477,8 @@ class ClaudeCodeLLM:
         for f in ("--safe-mode", "--strict-mcp-config", "--no-session-persistence"):
             if f in flags:
                 args.append(f)
+        if "--settings" in flags:  # 사용자 설정의 advisor 를 끈다 (NO_ADVISOR)
+            args += ["--settings", NO_ADVISOR]
         if self.requested:
             args += ["--model", self.requested]
         if self.effort:

@@ -293,6 +293,19 @@ class ClaudeCodeTest(unittest.TestCase):
             llm.text("s", "p")
         self.assertFalse(usage.read()[-1]["ok"])
 
+    def test_turns_off_user_advisor(self):
+        # 사용자 설정의 advisorModel 이 Canon 호출에 붙지 않게 --settings 로 끈다. 옵션을 모르는 버전은 넘기지 않는다
+        (self.dir / "help.txt").write_text("--safe-mode --tools <t> --strict-mcp-config --no-session-persistence --settings <file-or-json>",
+                                           encoding="utf-8")
+        claude._probe.cache_clear()
+        claude.ClaudeCodeLLM().text("s", "p")
+        args = self.calls()[0]["args"]
+        self.assertEqual(json.loads(args[args.index("--settings") + 1]), {"advisorModel": ""})
+        (self.dir / "help.txt").write_text("--safe-mode --tools <t>", encoding="utf-8")
+        claude._probe.cache_clear()
+        claude.ClaudeCodeLLM().text("s", "p")
+        self.assertNotIn("--settings", self.calls()[-1]["args"])
+
     def test_old_cli_without_json_schema(self):
         (self.dir / "help.txt").write_text("--tools <tools...>", encoding="utf-8")
         llm = claude.ClaudeCodeLLM()
