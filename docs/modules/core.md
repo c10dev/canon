@@ -332,6 +332,7 @@
 ### `canon/opening.py`
 
 - 초반 1~3화: 지표, 흡입력 판정, 여는 방식 여러 안
+- 여는 방식 안을 고르거나 되돌려도 그 화의 작가 연출 지시(`Episode.direction`)는 남긴다
 - `pipeline.py` 에서 옮긴 구역이다. `pipeline` 맨 끝의 `_attach_split` 이 `EXPORTS` 의 이름을 `pipeline` 에도 둬서 `pipeline.<이름>` 으로 그대로 부른다
 
 ### `canon/pipeline.py`
@@ -346,12 +347,14 @@
 - 다음 아크 `plan_next_arc` 는 `heat_plan` 을 켜면 `HeatArcProposal` 로 묻고(`prompts.heat_next_arc_rules`), `clean_arc` 가 열 계획을 아크 범위에 맞춰 `arc.heat` 로 옮기고, `apply_arc` 가 판돈을 복선에 더한다
 - 화별 플롯
   - 대화로 다듬기 `revise_plot`/`apply_revision` 포함
+  - `apply_revision` 이 화를 다시 만들어도 작가 연출 지시(`Episode.direction`)는 남긴다
   - 대상 `chat_target`: 고른 아크 · 다음 아크
   - 아크 칸 · 부 구성 변경안
   - 방향 여러 안
   - 플롯 · 다음 아크(`apply_arc`)가 데려온 새 인물은 후보 `Project.cast_candidates`(아크 주요 인물에 있으면 플롯에 없어도 남김 `sync_candidates`)
   - 새 장소는 `Project.place_candidates` 로 두고 화 확정 `confirm_plot` 때 등록
   - 초안 플롯을 다시 받으면(`apply_plots`, 여러 화 · 한 화) 작가 자료인 장면 연출 · 고칠 곳 · 다 쓴 사건 체크는 남긴다
+  - 작가 연출 지시(`Episode.direction`)도 같이 남긴다
   - 플롯 초안을 한 번에 받는 구간 `act_groups`: 한 화를 함께 쓰는 구간(짧은 작품)은 한 묶음. 웹 작업 plots(`web._plot_ranges`)와 프롬프트 놀이터의 플롯 초안이 쓴다
   - 작품 전체 저장에서 본문이 있는 화의 플롯은 디스크 것으로 둔다(`keep_locked_plots`, 줄기 표시 `LOCKED_FREE` 만 받음, `web.put_project`)
   - 상태 변경안 정리 `clean_delta`
@@ -501,6 +504,11 @@
 - `RETOLD_LINE` 은 지시 문장 수 상한(`tests/test_write_budget.py`)을 지키려고 따로 문장을 두지 않는다
 - `RETOLD_LINE` 은 오랜만에 다시 나오는 인물만 처음 나올 때 한두 문장으로 짚게 해 `return_block` 과 맞춘다
 - 화에 큐 시트가 있으면 `episode_prompt` 맨 끝에 `cue_write_block`(실험의 조건 score 와 같은 글, `use_cues=False` 면 뺌)
+- 작가 연출 지시 `direction_block` 은 `episode_prompt` 맨 끝(큐 시트 블록 뒤)이다. 아크 지시('이번 아크 동안', 장편만) 다음 화 지시('이번 화만') 차례
+- 지시 블록은 '플롯의 사건과 설정은 바꾸지 않습니다', '지시 문구를 본문에 쓰지 않습니다'를 둔다
+- 지시의 우선 차례는 블록 머리가 아니라 `priority_line` 에 '이번 화 플롯' 바로 뒤로 넣는다
+- 화 지시는 그 화 요청에만 들어간다(`direction_texts` 가 n화 칸만 읽음). 다시 생성 · 작업지시서 · 자동 집필도 `episode_prompt` 라 같은 지시를 받는다
+- `cue_score_prompt` · `cue_head` 는 `episode_prompt(direction=False)` 를 쓰고 자기 글 끝에 지시를 붙인다. 그래서 큐 시트를 넣은 집필 요청과 조건 score 글이 같다
 - `episode_prompt` 끝(큐 시트 블록 앞)의 문장 끝 섞기 줄 `ending_line`('~다.' 몫과 현재형 몫은 문체 기준에서 `ENDING_SHARE` · `PRESENT_SHARE_MAX` 안으로, 서술 말투가 있는 화는 뺌)
 - `episode_prompt` 는 speech_style 의 대사 예시를 그대로 쓰지 말고 어미 · 호칭 · 길이만 따르라고 적는다. 작가가 정한 말버릇은 써도 된다(`brief` 도 같은 글)
 - 화별 플롯 초안(`plot_prompt` · `serial_plot_prompt`)은 범위 안 · 범위 뒤 3화(`PLAN_AHEAD`)의 이미 정해진 화를 `fixed_plots` · `fixed_block` 으로 넣고 요구사항에 `fixed_rule` 을 붙인다(장편은 `context.BUDGET["plan_fixed"]`, 한 화 초안은 `ahead=False`)
@@ -547,6 +555,7 @@
 - 반영 취소는 그 화 기록과 함께 빼 둔 항목도 지운다
 - 지운 기록은 `_revert_kept` 가 pending.json 에 남기고, 상태 승인 화면이 빼 둔 항목을 체크를 푼 채 다시 놓는다
 - 단편 열 계획(`Project.heat` · `heat_rule` · `heat_turn`, `HeatStep` · `HeatTurn`)은 기본값이 비어 옛 작품이 읽힌다. 규칙은 story.md 의 `canon/heatplan.py` 절
+- 작가 연출 지시 `Episode.direction` · `StoryArc.direction` 은 빈 글이 기본값이다. 아크 지시는 `ArcProposal.arc` 로 AI 가 채우는 모델이라 응답 형식(`SkipJsonSchema`)과 프롬프트 덤프(`_prompt_view`, `prompts.ARC_HEAT`)에서 뺀다
 - 복선 갈래 `Foreshadow.kind`(clue 단서 · stake 판돈 · constraint 제약 · audience 관객 · ban 금지선)는 옛 복선을 clue 로 읽는다
 - 화별 쓴 사건 체크(`Episode.events_done`, 사건 글 목록)는 집필 화면 표시용이라 `EpisodePlot` 밖에 두어 프롬프트에 들어가지 않는다
 - 지금 본문을 쓴 모델(`Episode.written_by`, 판마다 `TextVersion.model`)도 프롬프트 밖이다. 값은 `usage.model_id` 의 '<백엔드>:<모델>' 이나 'import', 모르면 빈 칸
@@ -561,6 +570,12 @@
 - AI 가 본문 전체를 쓰는 호출자가 `pipeline.writer_of(llm)` 을 `replace_text(written_by=)` · `set_candidate(model=)` · `research.save_compare(models=)` 로 넘긴다. 작가 수정은 바꾸지 않는다(수정 기록 `edits`)
 - 인물 지금 차림(`CharacterState.attire`, 옷 · 상처 · 지닌 물건)은 지금 값만 덮어쓰고 지난 값은 스냅샷
 - 차림 규칙은 `prompts.ATTIRE_STATE_RULE` · `attire_write_rule` · `attire_check_rule`. 옷 · 가방 · 신발은 종류(백팩 · 숄더백 · 핸드백 …)와 가방의 메는 자리까지 적고, 쓰기는 그 종류 · 메는 방식을 지키고, 검수는 같은 물건의 종류 · 메는 방식 · 색이 설명 없이 바뀐 곳을 본다. 종류를 모르는 조각 경고는 `attire.py`
+- 차림의 차례는 이번 화 본문 > 지금 차림(`attire`) > 설정 외모(`appearance`)의 평소 옷차림이다
+- 쓰기 규칙은 appearance 의 옷차림보다 attire 를 따르고 이 화에서 바뀌면 그 뒤로는 바뀐 차림을 따르게 한다
+- 스토리보드 한 줄 갈래(`board=True`)도 appearance 의 옷차림보다 attire 라는 말을 짧게 넣는다
+- 검수 규칙은 옷차림 · 상처 · 변장이 appearance 와 다른 것이 attire 나 이번 화 본문으로 설명되면 모순이 아니라고 적는다. 한 장면 안의 동선은 동선 항목대로 본다
+- 검수 규칙은 설명 없이 바뀐 눈 색 · 머리 색 · 체격은 그대로 짚고, 영구 흉터는 `setting_changes` 거리라고 적는다
+- 차림 규칙은 `has_attire` 만 보고 작품 형식은 보지 않는다. 차림이 기록된 단편도 같은 규칙을 받는다
 - 인물 감정(`CharacterState.emotional_state`)은 맞서는 감정이면 두 층 라벨('겉: … / 속: …', '머리: … / 몸: …'). 상태 규칙 `prompts.LAYER_STATE_RULE`, 찾기 `LAYER` · `layered`, 검수 규칙 `layer_check_rule`(두 층 라벨이 있을 때만). 쓰기 규칙은 없다
 - 작품이 쓸 단계 프리셋(`Settings.model_preset`, 비우면 전체 설정)은 `settings.project_preset` 이 찾고 `stage_provider` · `stage_model` 이 지금 작업의 작품(`usage.scope`)에서 저절로 쓴다
 - 화별 스토리보드(`Episode.storyboard`, `Storyboard`: 장면 · 시간 · 상태창 바뀐 양 · 이동 · 끝 차림 · 넘겨받을 것 · 깨지 않을 것 · 경고)는 상태 승인 대상이 아니다
@@ -573,6 +588,7 @@
 ### `canon/serialize.py`
 
 - 단편을 장편 연재로 바꾸는 이어 쓰기 전환(CLI `convert`, 웹 `convert` 작업)
+- 전환이 화를 다시 만들어도 작가 연출 지시(`Episode.direction`)는 남긴다
 - `pipeline.py` 에서 옮긴 구역이다. `pipeline` 맨 끝의 `_attach_split` 이 `EXPORTS` 의 이름을 `pipeline` 에도 둬서 `pipeline.<이름>` 으로 그대로 부른다
 - 전환 반영(`apply_conversion`)은 단편 열 계획을 아크 1의 열 계획으로 옮기고 작품 쪽 칸을 비운다
 
@@ -722,6 +738,8 @@
 - 잠금은 재진입하지 않는다. 잠금을 잡은 채 저장하는 코드는 `_save` 대신 `_save_locked` 를 부른다
 - 작품 저장(PUT · PATCH)은 디스크에도 있는 화의 `JOB_EP_FIELDS` 칸(검수 결과 · 흡입력 판정 · 다시 맞추기 표시 · 고칠 곳 · 장면 연출)을 디스크 값으로 둔다(`_keep_job_fields`)
 - 작업이나 전용 엔드포인트만 쓰는 화의 칸을 새로 만들면 `JOB_EP_FIELDS` 에 더한다. 그래야 작업 전에 읽은 화면의 저장이 작업 결과를 덮지 않는다
+- 아크의 작가 연출 지시(`StoryArc.direction`)도 같은 번호의 아크면 디스크 값으로 둔다(`_keep_job_fields`)
+- 작가 연출 지시 `PUT …/episodes/{n}/direction`(`DirectionBody`: episode, arc 는 null 이면 그대로)은 그 화와 그 화가 든 아크(장편만)에 쓴다. 자동 집필 · 그 화를 맡은 AI 작업이 돌면 막는다
 - 작품 저장(PUT · PATCH)이 디스크에서 본문이 있는 화를 빼면 디스크 화를 통째로 되돌리고 `X-Canon-Kept` 에 `{"field": "episode", "ep": n}` 로 알린다(`_keep_texts`)
 - 작품 저장(PUT · PATCH)이 본문이 있던 화의 본문을 빈 글로 보내면 그 화도 디스크 것으로 통째로 되돌리고 `{"field": "text", "ep": n}` 로 알린다(`_keep_texts`)
 - 본문만 되돌리지 않는 까닭: 화면이 보낸 옛 상태(confirmed)가 남으면 본문이 있는데 안 쓴 화로 보여 플롯 잠금이 풀리고 다시 쓰기가 본문을 덮는다

@@ -150,7 +150,7 @@ def apply_opening(p: Project, n: int, plot: EpisodePlot) -> None:
         plot.characters = list(dict.fromkeys(cur.plot.characters + plot.characters))
     # 처음 고르기 전 플롯을 남겨 새로고침 뒤에도 되돌릴 수 있게 한다. 다른 안으로 다시 바꿔도 처음 것을 지킨다
     prev = (cur.opening_prev or cur.plot).model_copy(deep=True) if cur else None
-    by_no[n] = Episode(plot=plot, opening_prev=prev)
+    by_no[n] = Episode(plot=plot, opening_prev=prev, direction=cur.direction if cur else "")  # 작가 연출 지시는 안을 바꿔도 남긴다
     storylines.clean_plot(p, by_no[n])
     p.episodes = [by_no[k] for k in sorted(by_no)]
     sync_candidates(p)
@@ -167,7 +167,7 @@ def undo_opening(p: Project, n: int) -> None:
     act = p.act_for(n)
     if act:
         plot.act = act.name
-    p.episodes = [Episode(plot=plot) if x.plot.number == n else x for x in p.episodes]
+    p.episodes = [Episode(plot=plot, direction=x.direction) if x.plot.number == n else x for x in p.episodes]
     storylines.clean_plot(p, p.episode(n))
     sync_candidates(p)
 

@@ -972,7 +972,7 @@ def plot_rules(p: Project, opening: bool = False) -> str:
 - 첫 아크의 큰 보상은 25화 안에 둡니다 (무료 공개 구간 안에 보상이 와야 계속 읽는다는 연재 관습)."""
 
 
-ARC_HEAT = ("heat", "heat_rule", "heat_turn")  # 아크를 프롬프트에 덤프할 때 빼는 칸. 열 계획은 heat_* 가 따로 넣는다
+ARC_HEAT = ("heat", "heat_rule", "heat_turn", "direction")  # 아크를 프롬프트에 덤프할 때 빼는 칸. 열 계획은 heat_*, 작가 연출 지시는 direction_block 이 따로 넣는다
 HEAT_ROLE_GUIDE = {
     "build": "쌓기: 열을 쓰지 않고 판돈 · 약점 · 관계 · 금지선을 심는다",
     "hold": "미루기: 터질 듯 막는다 (시한, 금지선, 들킬 뻔한 순간). 터뜨리지 않는다",
@@ -1335,7 +1335,11 @@ def cut_note(cut: int, what: str = "이번 화와 관련된 것만", tail: str =
 
 # ---------- 지금 차림 (CharacterState.attire) ----------
 # 옷 · 상처 · 지닌 물건은 화가 넘어가면 요약에서 빠진다. 지금 값만 상태에 덮어써 두고(기록은 화별 스냅샷),
-# 쓰기 · 검수 규칙은 차림이 하나라도 기록된 작품에만 붙인다. 상태 변경안은 늘 차림을 적게 한다.
+# 쓰기 · 검수 규칙은 차림이 하나라도 기록된 작품에만 붙인다(단편도 같다). 상태 변경안은 늘 차림을 적게 한다.
+# 차림의 차례: 이번 화 본문 > attire(지금 차림) > appearance(설정 외모의 평소 옷차림). 설정 외모 제안이 옷차림을 넣게 해서
+# 둘이 부딪힌다. 쓰기 규칙은 '본문을 따르라'가 쓰는 모델에게 순환 지시가 되므로 'attire 를 따르고 이 화에서 바뀌면 그 뒤로는 바뀐 차림'으로 적는다.
+# 검수 규칙의 예외는 옷차림 · 상처 · 변장만이다. 설명 없이 달라진 눈 색 · 체격 같은 외모는 계속 짚는다.
+# 스토리보드 한 줄 갈래(board=True)도 appearance 보다 attire 라는 말을 짧게 넣는다. 스토리보드의 끝 차림은 attire 를 이어받지만 설정 외모 블록은 그대로 들어가기 때문이다.
 
 def has_attire(p: Project) -> bool:
     return any(s.attire for s in p.states)
@@ -1348,8 +1352,9 @@ def attire_write_rule(p: Project, board: bool = False) -> str:
         return ""
     if board:
         src = "고정점" if p.settings.write_material == "fixed" else "스토리보드"  # 인자 board 가 모듈 이름을 가려 board.fixed_only 대신 칸을 본다
-        return f"\n\n차림: [인물 현재 상태]의 attire 와 {src}의 끝 차림을 지키고, 차림은 장면마다 묘사하지 않고 필요할 때만 씁니다."
+        return f"\n\n차림: appearance 의 옷차림보다 [인물 현재 상태]의 attire 와 {src}의 끝 차림을 지키고, 차림은 장면마다 묘사하지 않고 필요할 때만 씁니다."
     return ("\n\n차림: [인물 현재 상태]의 attire 는 직전 화가 끝났을 때 그 인물의 옷, 몸에 남은 상처 · 얼룩, 지닌 물건입니다. "
+            "인물 설정의 appearance 에 적힌 옷차림은 평소 모습이라 attire 와 다르면 attire 를 따르고, 이 화에서 갈아입거나 다치면 그 뒤로는 바뀐 차림을 따릅니다. "
             "장면이 이어지면 그대로 지키고, 달라지려면 갈아입거나 다치거나 물건을 잃는 행동을 본문에 보여 줍니다. "
             "attire 에 적힌 물건은 그 종류와 메는 방식대로 씁니다: 백팩을 핸드백 · 숄더백으로, 등에 멘 가방을 손에 든 가방으로, 코트를 패딩으로 바꾸지 않습니다. "
             "'가방', '옷'처럼 뭉뚱그려 부를 때도 메고 · 들고 · 입은 모양은 attire 의 종류에 맞춥니다. "
@@ -1362,7 +1367,11 @@ def attire_check_rule(p: Project) -> str:
         return ""
     return ("\n- 차림: [인물 현재 상태]의 attire(직전 화가 끝났을 때의 옷, 상처, 지닌 물건)와 어긋나는 차림이 갈아입거나 다치거나 잃는 행동 없이 나오는지 봅니다. "
             "같은 물건의 종류 · 메는 방식 · 색이 설명 없이 바뀌는 것도 봅니다(백팩이 핸드백 · 숄더백으로, 등에 멘 가방을 손에 들고 있음, 검은 코트가 베이지 코트로). "
-            "날이 바뀌어 옷만 달라진 것은 모순이 아닙니다. type 은 사실, source_episode 는 0, source_quote 는 그 attire 문구입니다.")
+            "날이 바뀌어 옷만 달라진 것은 모순이 아닙니다. "
+            "옷차림 · 상처 · 변장이 인물 설정의 appearance 와 다른 것은 attire 나 이번 화 본문(갈아입음, 다침, 변장)으로 설명되면 모순이 아닙니다(한 장면 안의 동선은 동선 항목대로 봅니다). "
+            "설명 없이 달라진 눈 색 · 머리 색 · 체격 같은 외모는 그대로 짚습니다. "
+            "영구 흉터처럼 이번 화 본문에서 생겨 뒤 화까지 남는 외모 바뀜은 모순이 아니라 상태 변경안의 setting_changes 거리입니다. "
+            "type 은 사실, source_episode 는 0, source_quote 는 그 attire 문구입니다.")
 
 
 ATTIRE_STATE_RULE = (
@@ -3019,10 +3028,12 @@ def _anchor_markers(p: Project) -> list:
     return anchor.markers(p)
 
 
-def episode_prompt(p: Project, n: int, approach: str = "", use_board: bool = True, use_cues: bool = True) -> str:
+def episode_prompt(p: Project, n: int, approach: str = "", use_board: bool = True, use_cues: bool = True,
+                   direction: bool = True) -> str:
     """approach 는 1~3화를 여러 안으로 쓸 때 안마다 다르게 주는 여는 방식(OPENING_APPROACHES).
     use_board 를 끄면 스토리보드가 있어도 넣지 않는다 (스토리보드 없이 쓰기).
-    그 화에 큐 시트(Episode.cue_sheet)가 있으면 맨 끝에 붙인다. use_cues 를 끄거나 쓰기 재료가 고정점만이면 넣지 않는다 (큐 시트 없이 쓰기)."""
+    그 화에 큐 시트(Episode.cue_sheet)가 있으면 그 뒤에 붙인다. use_cues 를 끄거나 쓰기 재료가 고정점만이면 넣지 않는다 (큐 시트 없이 쓰기).
+    작가 연출 지시(direction_block)는 맨 끝이다. direction 을 끄면 빼고, 큐 시트를 따로 붙이는 호출자가 자기 글 끝에 붙인다."""
     rules = opening_rules(p, n, approach)
     ep = p.episode(n)
     sheet = ep.cue_sheet if use_cues and not board.fixed_only(p) else None  # 고정점만이면 시트가 있어도 넣지 않는다
@@ -3047,7 +3058,25 @@ def episode_prompt(p: Project, n: int, approach: str = "", use_board: bool = Tru
         + attire_write_rule(p, board=sb is not None)
         + ending_line(p, n)
         + (cue_write_block(p, sheet) if sheet and sheet.cues else "")
+        + (direction_block(p, n) if direction else "")
     )
+
+
+def direction_texts(p: Project, n: int) -> tuple[str, str]:
+    """n화에 걸린 작가 연출 지시 (아크 지시, 화 지시). 아크 지시는 장편의 n화가 든 아크에서만 온다."""
+    arc = p.arc_for(n) if p.serial else None
+    return (arc.direction.strip() if arc else ""), p.episode(n).direction.strip()
+
+
+def direction_block(p: Project, n: int) -> str:
+    """쓰기 요청 맨 끝의 작가 연출 지시: 아크 지시, 화 지시 차례. 둘 다 없으면 빈 글.
+    화 지시는 그 화를 쓸 때만 넣는다 (다음 화 요청은 그 화의 칸만 본다). 우선 차례는 priority_line 이 적는다."""
+    arc, ep = direction_texts(p, n)
+    if not (arc or ep):
+        return ""
+    rows = ([f"이번 아크 동안: {arc}"] if arc else []) + ([f"이번 화만: {ep}"] if ep else [])
+    return ("\n\n# 작가 연출 지시\n" + "\n".join(rows)
+            + "\n이 지시는 장면을 어떻게 보여 줄지에 대한 것입니다. 플롯의 사건과 설정은 바꾸지 않습니다. 지시 문구를 본문에 쓰지 않습니다.")
 
 
 # 서술이 '~다.' 끝 과거형 문장을 줄줄이 늘어놓지 않게, 문장 끝 몫을 숫자로 준다. 프로필의 "현재형을 적극 사용" 같은 글은 잘 옮겨지지 않았다.
@@ -3142,9 +3171,14 @@ def priority_line(p: Project, n: int, has_board: bool) -> str:
     """쓰기 자료가 서로 부딪힐 때 따를 차례를 한 줄로. 블록 머리마다 '…보다 우선'을 흩어 두지 않는다 (쇠맛 연구, 2026-10-30).
     차례를 정할 블록이 하나뿐이면 빈 글."""
     order = ([("고정점" if board.fixed_only(p) else "스토리보드")] if has_board else []) + ["이번 화 플롯"]
+    directed = any(direction_texts(p, n))
+    if directed:  # 플롯은 무엇을, 연출 지시는 어떻게를 정한다
+        order.append("작가 연출 지시")
     near = [x for x, on in (("서술 시점", pov_block(p, n)), ("가끔 쓰는 장치", device_block(p, n))) if on]
     if near:
-        order += [" · ".join(near), "스타일 프로필과 문체 예시"]
+        order.append(" · ".join(near))
+    if near or directed:
+        order.append("스타일 프로필과 문체 예시")
     if len(order) < 2:
         return ""
     return " 자료가 서로 부딪히면 " + ", ".join(order) + " 차례로 따릅니다."
@@ -3439,13 +3473,14 @@ def cue_write_block(p: Project, sheet) -> str:
 
 
 def cue_score_prompt(p: Project, n: int, sheet) -> str:
-    """큐 시트를 함께 주고 한 번에 쓰기 (조건 score). 앞부분은 큐 시트 없는 episode_prompt 그대로."""
-    return episode_prompt(p, n, use_cues=False) + cue_write_block(p, sheet)
+    """큐 시트를 함께 주고 한 번에 쓰기 (조건 score). 앞부분은 큐 시트 없는 episode_prompt 그대로.
+    작가 연출 지시는 집필(episode_prompt)과 같이 큐 시트 뒤 맨 끝이다."""
+    return episode_prompt(p, n, use_cues=False, direction=False) + cue_write_block(p, sheet) + direction_block(p, n)
 
 
 def cue_head(p: Project, n: int, sheet) -> str:
-    """큐마다 쓰는 조건(cues)의 앞부분. 모든 큐 요청이 이 글로 시작한다."""
-    return (episode_prompt(p, n, use_cues=False) + "\n\n" + cue_sheet_block(p, sheet)
+    """큐마다 쓰는 조건(cues)의 앞부분. 모든 큐 요청이 이 글로 시작한다. 작가 연출 지시는 이 글 맨 끝이다."""
+    return (episode_prompt(p, n, use_cues=False, direction=False) + "\n\n" + cue_sheet_block(p, sheet)
             + "\n\n이번에는 위 큐 시트의 큐를 하나씩 차례로 씁니다. 요청마다 지시한 큐 하나만 씁니다. "
             "앞 큐 본문이 있으면 그 마지막 문장에서 바로 이어 씁니다. 앞 본문을 되풀이하거나 요약하지 않고, 인물과 자리를 다시 소개하지 않습니다. "
             "그 큐의 끝 상태에 닿으면 멈춥니다. 끝 상태는 도착점이지 마지막 문장이 아닙니다. "
@@ -3453,7 +3488,8 @@ def cue_head(p: Project, n: int, sheet) -> str:
             "다음 큐가 받아 이을 말이나 움직임이 진행 중인 곳에서 멈춥니다. 문장은 끝까지 맺고, 줄표(——)나 말줄임으로 문장을 자르지 않습니다. "
             "문장 길이와 문단 호흡은 스타일 프로필과 문체 예시 문단을 따르고, 템포는 그 안에서 조절합니다. "
             "큐마다 정한 글자 수를 넘기지 않습니다. "
-            "큐 번호, 제목, 머리말을 쓰지 않습니다.")
+            "큐 번호, 제목, 머리말을 쓰지 않습니다."
+            + direction_block(p, n))
 
 
 def cue_step(p: Project, sheet, k: int) -> str:

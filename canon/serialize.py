@@ -185,7 +185,8 @@ def apply_conversion(p: Project, prop: SerialConversion, at: str = "") -> Projec
     p.facts += prop.facts
     by_no = {e.plot.number: e for e in p.episodes}
     for plot in prop.episodes:
-        by_no[plot.number] = Episode(plot=plot.model_copy(deep=True))  # 확정된 화도 내용이 바뀌면 다시 확정한다
+        was = by_no.get(plot.number)
+        by_no[plot.number] = Episode(plot=plot.model_copy(deep=True), direction=was.direction if was else "")  # 확정된 화도 내용이 바뀌면 다시 확정한다. 작가 연출 지시는 남긴다
     p.episodes = [by_no[k] for k in sorted(by_no)]
     if not at:
         from datetime import datetime, timezone

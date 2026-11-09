@@ -323,6 +323,7 @@ def _restored(d: Episode, e: Episode | None, disk: Project, p: Project) -> Episo
 # 화면이 작업 전에 읽은 화를 통째로 보내도 이 칸은 디스크 값을 둔다. 작업이 화에 새 칸을 쓰면 여기에 더한다
 JOB_EP_FIELDS = (
     "checked_at",  # 검수 작업 (pipeline.apply_check)
+    "direction",  # 작가 연출 지시 라우트. 지시를 적기 전에 읽은 화면이 지우지 않게
     "findings",  # 검수 · 고침안 작업, 지적 라우트
     "hook",  # 흡입력 판정 작업
     "issues",  # 검수 작업
@@ -334,13 +335,18 @@ JOB_EP_FIELDS = (
 
 
 def _keep_job_fields(disk: Project, p: Project) -> None:
-    """화면이 보낸 화 중 디스크에도 있는 화는 JOB_EP_FIELDS 칸을 디스크 값으로 둔다. 화면에만 있는 새 화는 그대로 둔다."""
+    """화면이 보낸 화 중 디스크에도 있는 화는 JOB_EP_FIELDS 칸을 디스크 값으로 둔다. 화면에만 있는 새 화는 그대로 둔다.
+    아크의 작가 연출 지시(StoryArc.direction)도 전용 라우트만 쓰므로 같은 번호의 아크면 디스크 값으로 둔다."""
     have = {e.plot.number: e for e in disk.episodes}
     for e in p.episodes:
         d = have.get(e.plot.number)
         if d is not None:
             for f in JOB_EP_FIELDS:
                 setattr(e, f, getattr(d, f))
+    arcs = {a.number: a for a in disk.story_arcs}
+    for a in p.story_arcs:
+        if a.number in arcs:
+            a.direction = arcs[a.number].direction
 
 
 def _not_auto(name: str) -> None:
@@ -3442,6 +3448,32 @@ def set_events_done(name: str, n: int, body: EventsDone) -> list[str]:
     ep.events_done = [x for x in ep.plot.events if x in set(body.done)]
     _save(name, p)
     return ep.events_done
+
+
+class DirectionBody(BaseModel):
+    episode: str = ""
+    arc: str | None = None  # None 이면 아크 지시를 그대로 둔다
+
+
+@app.put("/api/projects/{name}/episodes/{n}/direction")
+def set_direction(name: str, n: int, body: DirectionBody) -> dict:
+    """집필 화면의 작가 연출 지시: 이번 화(Episode.direction)와 n화가 든 아크(StoryArc.direction, 장편만).
+    쓰기 요청 맨 끝에 넣는다 (prompts.direction_block). 사건 체크와 같이 자동 집필과 이 화를 맡은 AI 작업이 도는 동안은 막는다."""
+    _not_auto(name)
+    if any(j.status == "running" and n in j.owned for j in jobs.listing(name)):
+        raise ValueError("AI 작업이 끝난 뒤에 연출 지시를 고칠 수 있어요")
+    p = _load(name)
+    ep = p.episode(n)
+    if ep.status == "draft":
+        raise ValueError(f"{n}화 플롯을 먼저 확정하세요")
+    ep.direction = body.episode.strip()
+    if body.arc is not None:
+        arc = p.arc_for(n) if p.serial else None
+        if arc is None:
+            raise ValueError(f"{n}화가 든 아크가 없어요. 아크 지시는 장편의 아크를 붙인 뒤에 적을 수 있어요")
+        arc.direction = body.arc.strip()
+    _save(name, p)
+    return {"episode": ep.direction, "arc": (p.arc_for(n).direction if p.serial and p.arc_for(n) else "")}
 
 
 # ---------- 4-0. 화별 스토리보드 ----------
