@@ -1,6 +1,6 @@
 # 09. 안내 문구 덜어 내기
 
-상태: 설계 · 계획: [plan.md](../plan.md) 의 09번 · 먼저: —
+상태: PR ([#458](https://github.com/c10dev/canon/pull/458)) · 정할 것은 추천안대로, 내부 용어 이름 중 '정착 문체' · '열 계획' · '열 낱말' · '표지'는 사용자와 정한다 · 세기 `scripts/count_copy.py` · 계획: [plan.md](../plan.md) 의 09번 · 먼저: —
 
 ## 목표
 
