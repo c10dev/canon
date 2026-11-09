@@ -53,9 +53,11 @@ def test_coord_drops_body_and_object_handover(demo):
     out = prompts.board_block(p, 2, write=True)
     assert "도윤은 왼손에 붕대를 감았다" not in out  # 몸 · 물건 줄은 뺀다
     assert "도윤은 상태창을 숨겼다" in out  # 숨긴 것 · 질문은 남긴다
-    assert coord.ATTIRE_HEAD in out and "\n끝 차림 (바뀐 인물만):" not in out
+    assert "끝 차림" not in out  # 끝 차림 값은 본문이 동작으로 옮기므로 넣지 않는다
     full = prompts.board_block(p, 2)  # 쓰기 밖 요청은 그대로
     assert "도윤은 왼손에 붕대를 감았다" in full and "\n끝 차림 (바뀐 인물만):" in full
+    rule = prompts.attire_write_rule(p, board=True)
+    assert not rule or ("끝 차림" not in rule and "attire 를 지키고" in rule)
 
 
 def test_stale_memo_falls_back_to_plot(demo):
@@ -125,3 +127,39 @@ def test_endpoint_accepts_coord(demo):
     r = c.put(f"/api/projects/{demo}/write-material", json={"mode": "coord"})
     assert r.status_code == 200 and r.json()["settings"]["write_material"] == "coord"
     assert coord.on(store.load(demo))
+
+
+def test_coord_storyboard_request(demo):
+    p = _ready(demo)
+    out = prompts.storyboard_prompt(p, 2)
+    assert prompts.COORD_BOARD_RULES in out and "attire 는 비웁니다" in out
+    assert "장면 끝 상태를 적습니다" not in out and "자리, 손에 든 물건, 다친 곳" not in out
+    plot = out.split("# 이번 화 플롯\n", 1)[1]
+    assert "조율 사건 1" in plot  # 스토리보드도 조율 메모를 플롯으로 본다
+    assert "protect 에는" in out and "time 에는" in out  # 연속성 칸은 그대로
+    p.settings.write_material = "fixed"
+    full = prompts.storyboard_prompt(p, 2)
+    assert prompts.COORD_BOARD_RULES not in full and "장면 끝 상태를 적습니다" in full and "attire 에는 이번 화에" in full
+    assert "조율 사건 1" not in full
+
+
+def test_write_job_makes_memo_before_storyboard(demo, monkeypatch):
+    from canon import web
+    from canon.schema import StoryboardDraft
+
+    store.save(demo, _ready(demo, memo=False))
+    seen: list = []
+    orig = MockLLM.json
+
+    def json_(self, system, prompt, schema, hint=None):
+        seen.append((schema, prompt))
+        return orig(self, system, prompt, schema, hint)
+    monkeypatch.setattr(MockLLM, "json", json_)
+    c = TestClient(web.app)
+    r = c.post(f"/api/projects/{demo}/jobs", json={"kind": "write", "ep": 2, "board": "make"})
+    assert r.status_code == 200 and r.json()["total"] == 3, r.text
+    assert _wait(c, r.json()["id"])["status"] == "done"
+    kinds = [k for k, _ in seen]
+    assert kinds.index(CoordDraft) < kinds.index(StoryboardDraft)
+    board_req = next(pr for k, pr in seen if k is StoryboardDraft)
+    assert "사건 1에서 주인공의 마음이 한 칸 움직인다" in board_req  # 방금 만든 조율 메모를 플롯으로 본다

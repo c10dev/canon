@@ -3091,7 +3091,7 @@ def _job_write(name: str, body: "JobIn", p: Project, kind: str, n: int | None, l
             plan = get_llm("board") if make or make_cues or make_coord else None  # 스토리보드 · 큐 시트 · 조율 메모 단계 (비우면 계획 단계)
             then_check = p.settings.check_after_write and not e.text  # 처음 쓰는 본문만 바로 검수한다 (Settings.check_after_write)
             checker = get_llm("check") if then_check else None  # 키가 없으면 시작할 때 바로 알린다
-            label = (f"{n}화 {'스토리보드와 ' if make else ''}{'큐 시트와 ' if make_cues else ''}{'조율 메모와 ' if make_coord else ''}"
+            label = (f"{n}화 {'조율 메모와 ' if make_coord else ''}{'스토리보드와 ' if make else ''}{'큐 시트와 ' if make_cues else ''}"
                      f"본문{'과 검수' if then_check else ''}")
             total, owned = 1 + make + make_cues + make_coord + then_check, {n}
 
@@ -3124,19 +3124,7 @@ def _job_write(name: str, body: "JobIn", p: Project, kind: str, n: int | None, l
                 _fill_old_spots(name)
                 lead: list[str] = []
                 made_at = ""
-                if make:
-                    job.note = f"{n}화 스토리보드 만드는 중"
-                    b = pipeline.make_storyboard(plan, store.load(name), n, lead=lead)
-                    _edit(name, lambda q: pipeline.set_storyboard(q, n, b, by="ai"))
-                    made_at = b.made_at
-                    job.done = 1
-                if make_cues:  # 스토리보드 다음: 큐 시트는 스토리보드 장면 순서를 받아 만든다
-                    job.note = f"{n}화 큐 시트 만드는 중"
-                    q = store.load(name)  # 방금 만든 스토리보드면 그 요청 글로 시작해 캐시가 맞게 한다 (pipeline.cue_lead)
-                    s = pipeline.make_cue_sheet(plan, q, n, lead=pipeline.cue_lead(q, n, lead, made_at))
-                    _edit(name, lambda q: cue.set_episode(q, n, s, by="ai"))
-                    job.done += 1
-                if make_coord:  # 스토리보드 다음: 조율 메모는 플롯만 본다. 실패하면 원래 플롯으로 쓴다
+                if make_coord:  # 스토리보드보다 먼저: 스토리보드도 조율 메모를 플롯으로 본다. 실패하면 원래 플롯으로 쓴다
                     job.note = f"{n}화 조율 메모 만드는 중"
                     try:
                         m = pipeline.make_coord(plan, store.load(name), n)
@@ -3145,6 +3133,18 @@ def _job_write(name: str, body: "JobIn", p: Project, kind: str, n: int | None, l
                         raise
                     except Exception:
                         logging.getLogger("canon").warning("%s %s화 조율 메모 실패, 원래 플롯으로 씀", name, n, exc_info=True)
+                    job.done += 1
+                if make:
+                    job.note = f"{n}화 스토리보드 만드는 중"
+                    b = pipeline.make_storyboard(plan, store.load(name), n, lead=lead)
+                    _edit(name, lambda q: pipeline.set_storyboard(q, n, b, by="ai"))
+                    made_at = b.made_at
+                    job.done += 1
+                if make_cues:  # 스토리보드 다음: 큐 시트는 스토리보드 장면 순서를 받아 만든다
+                    job.note = f"{n}화 큐 시트 만드는 중"
+                    q = store.load(name)  # 방금 만든 스토리보드면 그 요청 글로 시작해 캐시가 맞게 한다 (pipeline.cue_lead)
+                    s = pipeline.make_cue_sheet(plan, q, n, lead=pipeline.cue_lead(q, n, lead, made_at))
+                    _edit(name, lambda q: cue.set_episode(q, n, s, by="ai"))
                     job.done += 1
                 job.note = f"{n}화 본문 쓰는 중"
                 cut: list = []
