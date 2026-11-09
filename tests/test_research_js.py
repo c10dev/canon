@@ -85,6 +85,18 @@ def test_usage_pct_formats_cache_rate():
 
 
 @needs_node
+def test_usage_saved_line_splits_cache_read_and_write():
+    got = run_js(FILES, """[
+      usageSavedLine({ batch: 2, saved: 1.5, cache_saved: 0.25, cache_premium: 0.1 }),
+      usageSavedLine({ batch: 0, saved: 0, cache_saved: 0.02, cache_premium: 0.05 }),
+      usageSavedLine({ batch: 0, saved: 0 }),
+    ]""", {})
+    assert got == ["배치 2번 $1.50 · 캐시 읽기 $0.2500 · 캐시 쓰기 할증 $0.1000",
+                   "배치 안 씀 · 캐시 읽기 $0.0200 · 캐시 쓰기 할증 $0.0500 (아낀 것보다 커요)",
+                   "배치 안 씀 · 캐시 아낌 없음"]
+
+
+@needs_node
 def test_usage_task_label_names_new_tasks():
     got = run_js(FILES, "[usageTaskLabel('recheck'), usageTaskLabel('agent 캐시 만들기'), usageTaskLabel('캐시 만들기'), usageTaskLabel('zzz'), usageTaskLabel('')]", {})
     assert got == ["고친 곳만 다시 보기", "AI 대화 에이전트 캐시 만들기", "캐시 만들기", "zzz", ""]

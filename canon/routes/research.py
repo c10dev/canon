@@ -37,6 +37,8 @@ class UsageBucket(_Out):
     len_out: int = Field(0, description="그 호출들의 응답 전체 글자 수 합")
     len_target: int = Field(0, description="그 호출들의 목표 분량 합")
     len_ratio: float | None = Field(None, description="분량 달성률 len_out / len_target. 넣은 호출이 없으면 null")
+    cache_saved: float = Field(0.0, description="캐시 읽기로 아낀 비용 USD (usage.row_cache)")
+    cache_premium: float = Field(0.0, description="캐시 쓰기 할증 USD (usage.row_cache)")
 
 
 class UsageTotal(UsageBucket):
@@ -84,6 +86,8 @@ class UsageCall(_Out):
     cache_note: str = Field("", description="캐시를 쓰거나 못 쓴 까닭 낱말 (llm.CACHE_NOTES)")
     cost: float | None = Field(None, description="추정 비용 USD. 가격을 모르면 null")
     saved: float = 0.0
+    cache_saved: float = Field(0.0, description="캐시 읽기로 아낀 비용 USD (usage.row_cache)")
+    cache_premium: float = Field(0.0, description="캐시 쓰기 할증 USD (usage.row_cache)")
 
 
 class UsageSummary(_Out):
@@ -120,6 +124,7 @@ class PriceTable(_Out):
     checked: str
     url: str
     billing_url: str
+    claude_url: str = Field("", description="기본 가격표의 Claude 줄을 옮긴 Anthropic 가격표")
 
 
 @router.get("/api/usage")

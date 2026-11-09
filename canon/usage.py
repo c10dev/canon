@@ -24,7 +24,8 @@ from pydantic import BaseModel, Field
 
 PRICES_URL = "https://ai.google.dev/gemini-api/docs/pricing"
 BILLING_URL = "https://aistudio.google.com/usage"
-PRICES_CHECKED = "2026-10-22"  # 아래 기본 가격을 Google 가격표에서 확인한 날
+CLAUDE_PRICES_URL = "https://platform.claude.com/docs/en/about-claude/pricing"
+PRICES_CHECKED = "2026-11-09"  # 아래 기본 가격을 Google 가격표와 Anthropic 가격표(CLAUDE_PRICES_URL)에서 확인한 날
 
 
 class Price(BaseModel):
@@ -36,6 +37,8 @@ class Price(BaseModel):
     cached: Optional[float] = Field(None, description="캐시된 입력. 비면 입력 가격")
     batch_input: Optional[float] = Field(None, description="배치 입력. 비면 입력의 절반")
     batch_output: Optional[float] = Field(None, description="배치 출력. 비면 출력의 절반")
+    cache_write: Optional[float] = Field(None, description="5분 캐시에 새로 쓴 입력. 비면 입력의 1.25배")
+    cache_write_1h: Optional[float] = Field(None, description="1시간 캐시에 새로 쓴 입력. 비면 입력의 2배")
     note: str = ""
 
 
@@ -56,8 +59,9 @@ DEFAULT_PRICES: list[Price] = [
     _p("gemini-3.1-flash-lite", "", 0.25, 1.50, 0.025),
     _p("gemini-3.1-pro-preview", "", 2.0, 12.0, 0.20, "20만 토큰 이하 프롬프트 기준"),
     # Anthropic API 키(claude-api)로 부를 때. 구독 로그인(claude)은 요금제에 포함돼 0원으로 센다.
+    # 캐시 쓰기 칸은 비워 둔다. Anthropic 가격표의 값이 입력의 1.25배(5분) · 2배(1시간)라 비운 칸의 값과 같다.
     _p("claude-opus-5-5", "", 4.0, 20.0, 0.20, "Anthropic API"),
-    _p("claude-sonnet-5-5", "", 2.0, 10.0, 0.20, "Anthropic API"),
+    _p("claude-sonnet-5-5", "", 2.0, 10.0, 0.10, "Anthropic API"),
     _p("claude-haiku-5-5", "", 0.10, 0.50, 0.01, "Anthropic API, 10만 토큰 이하 프롬프트 기준"),
 ]
 PRICED = ("gemini", "claude-api")  # 토큰 요금을 매기는 백엔드. 로컬과 Claude 구독은 0원
@@ -514,7 +518,8 @@ def save_prices(rows: list[Price]) -> None:
             continue
         if r.since and not _is_date(r.since):
             raise ValueError(f"{r.model}: 적용 시작일은 YYYY-MM-DD로 적어 주세요 ({r.since})")
-        if min(r.input, r.output, r.cached or 0, r.batch_input or 0, r.batch_output or 0) < 0:
+        if min(r.input, r.output, r.cached or 0, r.batch_input or 0, r.batch_output or 0,
+               r.cache_write or 0, r.cache_write_1h or 0) < 0:
             raise ValueError(f"{r.model}: 가격은 0 이상이어야 해요")
         by[r.model].append(r)
     defaults: dict[str, list[dict]] = defaultdict(list)
@@ -549,16 +554,25 @@ def rate(model: str, day: str = "", table: Optional[list[Price]] = None) -> Opti
     return rows[-1] if rows else None
 
 
-def cost(p: Price, tin: float, tout: float, cached: float = 0.0, batch: bool = False) -> float:
-    """USD. tin 은 캐시된 토큰을 포함한 입력 전체, tout 은 생각 토큰을 포함한 출력."""
+def cost(p: Price, tin: float, tout: float, cached: float = 0.0, batch: bool = False,
+         written: float = 0.0, written_1h: float = 0.0) -> float:
+    """USD. tin 은 캐시에서 읽은 토큰(cached)과 캐시에 새로 쓴 토큰(written)을 포함한 입력 전체,
+    tout 은 생각 토큰을 포함한 출력. written_1h 는 written 가운데 1시간 캐시에 쓴 몫이다.
+    배치는 캐시 읽기 · 쓰기 값에도 입력과 같은 비율로 할인한다 (Anthropic 가격표: 배율은 배치 할인과 겹친다)."""
     inp, out = p.input, p.output
     cin = p.cached if p.cached is not None else p.input
+    w5 = p.cache_write if p.cache_write is not None else p.input * 1.25
+    w1h = p.cache_write_1h if p.cache_write_1h is not None else p.input * 2
     if batch:
         inp = p.batch_input if p.batch_input is not None else p.input / 2
         out = p.batch_output if p.batch_output is not None else p.output / 2
-        cin = cin * (inp / p.input) if p.input else cin / 2
+        ratio = inp / p.input if p.input else 0.5
+        cin, w5, w1h = cin * ratio, w5 * ratio, w1h * ratio
     cached = min(cached, tin)
-    return ((tin - cached) * inp + cached * cin + tout * out) / 1e6
+    written = max(0.0, min(written, tin - cached))
+    written_1h = max(0.0, min(written_1h, written))
+    plain = tin - cached - written
+    return (plain * inp + cached * cin + (written - written_1h) * w5 + written_1h * w1h + tout * out) / 1e6
 
 
 def stage_cost(backend: str, model: str, tin: float, tout: float, batch: bool = False) -> Optional[float]:
@@ -581,9 +595,27 @@ def row_cost(r: dict, table: list[Price]) -> tuple[Optional[float], float]:
     if p is None:
         return None, 0.0
     tin, tout, cached = r.get("in", 0), r.get("out", 0) + r.get("thought", 0), r.get("cached", 0)
-    c = cost(p, tin, tout, cached, bool(r.get("batch")))
-    saved = cost(p, tin, tout, cached) - c if r.get("batch") else 0.0
+    written, written_1h = r.get("written", 0), r.get("written_1h", 0)
+    c = cost(p, tin, tout, cached, bool(r.get("batch")), written, written_1h)
+    saved = cost(p, tin, tout, cached, False, written, written_1h) - c if r.get("batch") else 0.0
     return c, saved
+
+
+def row_cache(r: dict, table: list[Price]) -> tuple[float, float]:
+    """(캐시 읽기로 아낀 비용, 캐시 쓰기 할증). 둘 다 0 이상이고, 캐시로 실제로 아낀 것은 앞에서 뒤를 뺀 값이다.
+    아낌 = 캐시 읽기를 입력 값으로 친 비용 − 실제 비용. 할증 = 실제 비용 − 캐시 쓰기를 입력 값으로 친 비용.
+    로컬 · Claude 구독(0원) · 가격을 모르는 모델은 (0, 0)."""
+    if r.get("backend") not in PRICED:
+        return 0.0, 0.0
+    p = rate(r.get("model", ""), r.get("at", "")[:10], table)
+    if p is None:
+        return 0.0, 0.0
+    tin, tout, cached = r.get("in", 0), r.get("out", 0) + r.get("thought", 0), r.get("cached", 0)
+    written, written_1h, batch = r.get("written", 0), r.get("written_1h", 0), bool(r.get("batch"))
+    c = cost(p, tin, tout, cached, batch, written, written_1h)
+    saved = cost(p, tin, tout, 0, batch, written, written_1h) - c
+    extra = c - cost(p, tin, tout, cached, batch)
+    return max(saved, 0.0), max(extra, 0.0)
 
 
 # ---------- 모아 보기 ----------
@@ -622,10 +654,16 @@ def len_pair(r: dict) -> tuple[int, int] | None:
     return chars, target
 
 
+def _cache(b: dict) -> dict:
+    """묶음의 캐시 읽기로 아낀 비용(`cache_saved`)과 캐시 쓰기 할증(`cache_premium`), USD 소수 여섯째 자리."""
+    return {"cache_saved": round(b.get("cache_saved", 0.0), 6), "cache_premium": round(b.get("cache_premium", 0.0), 6)}
+
+
 def summary(days: Optional[int] = 30, project: Optional[str] = None, limit: int = 60) -> dict:
     """기간(최근 days 일, None 이면 전체)과 작품으로 거른 기록을 날짜, 작품, 화, 단계, 모델, 용도, 작업, 추론 강도별로 모은다.
 
-    묶음마다 캐시 비율(`cache_rate` = 캐시 토큰 / 입력 토큰)과 호출당 평균 시간(`seconds_avg`)을 붙인다."""
+    묶음마다 캐시 비율(`cache_rate` = 캐시 토큰 / 입력 토큰)과 호출당 평균 시간(`seconds_avg`)을 붙인다.
+    묶음과 호출마다 캐시 읽기로 아낀 비용(`cache_saved`)과 캐시 쓰기 할증(`cache_premium`)도 붙인다."""
     table = prices()
     start = _since(days)
     rows = read()
@@ -644,6 +682,7 @@ def summary(days: Optional[int] = 30, project: Optional[str] = None, limit: int 
     trouble, recent = [], []
     for r in rows:
         c, saved = row_cost(r, table)
+        cache_saved, cache_premium = row_cache(r, table)
         out = r.get("out", 0) + r.get("thought", 0)
         pair = len_pair(r)
         cut = is_cut(r)
@@ -667,6 +706,8 @@ def summary(days: Optional[int] = 30, project: Optional[str] = None, limit: int 
             b["resent"] += min(r.get("resent", 0), r.get("cached", 0))  # cache_rate 처럼 줄마다 캐시 안으로 자른다
             b["cost"] += c or 0.0
             b["saved"] += saved
+            b["cache_saved"] = b.get("cache_saved", 0.0) + cache_saved
+            b["cache_premium"] = b.get("cache_premium", 0.0) + cache_premium
             b["unpriced"] += c is None
             b["seconds"] += r.get("seconds") or 0.0
             b["batch"] += bool(r.get("batch"))
@@ -679,6 +720,7 @@ def summary(days: Optional[int] = 30, project: Optional[str] = None, limit: int 
         if c is None:
             unpriced.add(r.get("model", ""))
         item = {**r, "cost": c, "saved": saved}
+        item.update(cache_saved=cache_saved, cache_premium=cache_premium)
         if not r.get("ok", True) or r.get("attempt", 1) > 1 or r.get("discarded"):  # 버린 응답도 낭비다
             wasted += c or 0.0
             trouble.append(item)
@@ -688,6 +730,7 @@ def summary(days: Optional[int] = 30, project: Optional[str] = None, limit: int 
         out = []
         for k, b in groups[name].items():
             row = {**b, "cost": round(b["cost"], 6), "saved": round(b["saved"], 6), "seconds": round(b["seconds"], 1), **_rates(b)}
+            row.update(_cache(b))
             if name == "episode":
                 row["project"], row["episode"] = k
             elif name == "model":
@@ -701,6 +744,7 @@ def summary(days: Optional[int] = 30, project: Optional[str] = None, limit: int 
             return sorted(out, key=lambda x: (x["project"], x["episode"]))
         return sorted(out, key=lambda x: (-x["cost"], -x["calls"]))
 
+    total.update(_cache(total))
     return {
         "days": days, "since": start, "project": project, "projects": projects,
         "total": {**total, "cost": round(total["cost"], 6), "saved": round(total["saved"], 6),
@@ -724,4 +768,5 @@ def price_table() -> dict:
     rows = [{**p.model_dump(), "custom": p.model in mine, "current": id(p) in current,
              "upcoming": bool(p.since and p.since > today)}
             for p in sorted(table, key=lambda p: (p.model, p.since))]
-    return {"rows": rows, "checked": PRICES_CHECKED, "url": PRICES_URL, "billing_url": BILLING_URL}
+    return {"rows": rows, "checked": PRICES_CHECKED, "url": PRICES_URL, "billing_url": BILLING_URL,
+            "claude_url": CLAUDE_PRICES_URL}

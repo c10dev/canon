@@ -58,7 +58,9 @@
 - `modelUsage` 에 모델이 둘 이상이면(거절 뒤 대체 모델) 가장 작은 모델 입력을 한 번 크기로 보고 넘친 몫도 `resent` 로 본다. 두 값 가운데 큰 쪽
 - 캐시에 새로 쓴 입력은 `written`, 그 가운데 1시간 캐시 몫은 `written_1h` 다(`_written`, 응답의 `cache_creation_input_tokens` · `cache_creation.ephemeral_1h_input_tokens`). 구독과 API 경로가 같다
 - 두 백엔드도 `llm.wait_cap` · `llm.out_cap` 을 따른다(`llm.caps` 로 읽음)
-- 구독은 제한 시간을 `min(CANON_CLAUDE_TIMEOUT, wait_cap)` 으로 둔다. 넘기면 다시 부르지 않고 `ClaudeCodeError`
+- 구독은 제한 시간을 `min(CANON_CLAUDE_TIMEOUT, wait_cap)` 으로 둔다. 넘기면 `ClaudeTimedOut`(`ClaudeCodeError` 의 갈래)
+- 구독이 `wait_cap` 으로 줄인 한도를 넘기면 `llm.TIMEOUT_RETRIES`(1)번 다시 부른다(`_slow_retry`, 작업 진행 줄에 '다시 불러요')
+- 줄이지 않은 한도(`CANON_CLAUDE_TIMEOUT`)를 넘기면 다시 부르지 않는다. 900초를 두 번 기다리지 않게 하려는 것이다
 - API 는 `max_tokens` 를 `min(MAX_TOKENS, out_cap)` 으로, SDK 요청 옵션 `timeout` 을 `wait_cap` 으로 보낸다
 - API 응답이 `max_tokens` 로 끝나면 `llm.OutputCut` 을 낸다. 본문 쓰기(`pipeline._write`)는 끊긴 본문으로 세어 다시 부른다
 - 구독은 `out_cap` 이 있을 때만 그 호출의 하위 환경에 `CLAUDE_CODE_MAX_OUTPUT_TOKENS` 를 넣는다(`child_env(extra)`). 없으면 넣지 않는다
@@ -231,6 +233,18 @@
 - `collect()` 는 안에서 `record` 한 줄을 목록에 모은다(`_acc`). `copy_context` 로 넘긴 스레드의 호출도 같은 목록에 모인다
 - `totals(rows)` 는 모은 줄의 입력 · 출력(생각 포함) 토큰과 `row_cost` 비용 합이다. 가격을 모르는 줄이 있으면 비용은 None
 - 가격표(`DEFAULT_PRICES` + 설정의 `prices`, 날짜별 `since`)로 볼 때 비용을 계산한다
+- 기본 가격표는 `PRICES_CHECKED` 에 Google 가격표(`PRICES_URL`)와 Anthropic 가격표(`CLAUDE_PRICES_URL`)에서 옮겼다
+- `Price.cache_write` · `cache_write_1h` 는 5분 · 1시간 캐시에 새로 쓴 입력의 값이다
+- 캐시 쓰기 칸이 비면 입력의 1.25배 · 2배로 친다(Anthropic 가격표의 배율)
+- `cost` 는 `written` 을 캐시 쓰기 값으로, 그 가운데 `written_1h` 를 1시간 캐시 쓰기 값으로 센다
+- 기록 줄에 `written` 칸이 없으면(옛 줄 · Gemini) 캐시 쓰기는 0이다
+- `cost` 는 캐시 읽기와 쓰기의 합이 입력을 넘으면 입력 안으로 자르고, 음수는 0으로 둔다
+- 프롬프트 놀이터의 `promptlab.run_cost` 도 `written` · `written_1h` 를 넘겨 같은 값을 낸다
+- 배치는 캐시 읽기 · 쓰기 값에도 입력과 같은 할인 비율을 곱한다(Anthropic 가격표: 배율은 배치 할인과 겹친다)
+- `row_cache` 는 줄마다 (캐시 읽기로 아낀 비용, 캐시 쓰기 할증)이다. 둘 다 0 이상이다
+- 아낌은 `cached` 를 입력 값으로 친 비용에서 실제 비용을 뺀 값이다
+- 할증은 실제 비용에서 `written` 을 입력 값으로 친 비용을 뺀 값이다
+- 로컬 · Claude 구독(0원) · 가격을 모르는 모델은 아낌과 할증이 0이다
 - `summary` 는 날짜 · 작품 · 화 · 단계 · 모델 · 용도 · 작업(`by_task`) · 추론 강도(`by_effort`)로 묶는다
 - 추론 강도를 정하지 않은 호출은 `EFFORT_DEFAULT`('기본') 묶음에 든다
 - 묶음과 합계마다 `cache_rate`(캐시 / 입력, 입력이 없으면 0)와 `seconds_avg`(호출당 평균 초)를 붙인다(`_rates`)
@@ -238,6 +252,7 @@
 - 분량 달성률 `len_ratio` 는 목표 분량이 있는 줄의 `out_chars` 합 / `target` 합이다(`len_pair`). 그런 줄이 없으면 None, 센 줄 수는 `len_calls`
 - `len_ratio` 에는 실패 · 버린 줄과 칸이 없는 옛 줄을 넣지 않는다
 - 낭비(`wasted`)와 실패 목록(`trouble`)은 실패 · `attempt` 2 이상 · `discarded` 줄이다
+- 묶음 · 합계 · 호출 줄마다 `cache_saved` · `cache_premium` 을 붙인다(`row_cache`, 묶음은 `_cache` 로 반올림)
 - 자동 집필 추정도 같은 가격표를 쓴다
 - 입력 토큰 추정 `token_rate(백엔드, 모델)` 은 '기울기 × 요청 글자 수 + 호출마다 붙는 토큰' 직선(`TokenRate`)이다
 - 기본값 `TOKEN_RATES` 는 2026-11 서버 기록의 최소제곱 직선이다(Opus Claude Code 1.035/3805, Sonnet 0.995/5793, argon 0.568/1579, flash 0.599/2508)
@@ -276,6 +291,12 @@
 - 호출 목록은 버린 줄에 '버림' 칩과 까닭(`USAGE_DISCARD`)을, 토큰 칸에 '응답 글자 수/목표 분량자'를 보인다
 - 캐시 비율 글자는 `usagePct`(10% 밑은 소수 첫째 자리)
 - 비용 타일의 토큰 칸은 캐시 비율과 캐시 토큰을 함께 보인다
+- '아낀 · 버린 비용' 타일의 큰 숫자에서 아낀 쪽은 배치 할인과 캐시 읽기 아낌의 합이다
+- 그 타일의 풀이(`usageSavedLine`)는 배치 · 캐시 읽기 · 캐시 쓰기 할증을 따로 보인다
+- 할증이 캐시 읽기 아낌보다 크면 풀이에 '(아낀 것보다 커요)'를 덧붙인다
+- 호출 목록의 비용 칸은 아낌(배치 + 캐시 읽기)과 쓰기 할증을 따로 보인다
 - 가격표 카드는 읽는 모양이 기본이고 '고치기'로 편다(`S.priceOpen`)
+- 가격표 칸은 `PRICE_COLS` 이고 캐시 쓰기 · 1시간 캐시 쓰기 칸이 있다
+- 빈 가격 칸의 흐린 글자는 비웠을 때 쓰는 값이다(`PRICE_EMPTY`, `usage.cost` 와 같은 규칙)
 - 가격표 저장 · 기본값으로 되돌리기는 `run()` 으로 보내 기다리는 동안 뒤 화면을 막고 포커스를 기다림 상자로 옮긴다(`priceSend`)
 - 칸 폭 규칙은 `@container usage`

@@ -14,6 +14,8 @@ from .judge import Judge, Question
 from .llm import LLM, PREFIX_HINT, Interrupted, OutputCut, dump, family_text, out_cap, was_cut
 from . import anchor, board, cancel, charlog, context, features, findings, foreshadows, heatplan, knows, metatail, stage, statwin, usage
 from . import offscreen
+from .sent import SentPrompt, SentRetry
+from .sent import record as sent_record
 from .schema import OffscreenSet
 from .schema import CueSheet, CueSheetDraft, Finding, MetaCut, FindingRecheck, FixBatch, FixOption, FixPatch, FixRecheckItem, FixRecheckReport, FixSet, RevArcSet, RevEpisodeDraft, RevLineSet
 from .schema import ParagraphAnatomy, ReaderCheck, SceneCard, SceneVariant, SceneVariants, StudioCandidate, StudioDraft
@@ -2440,16 +2442,17 @@ def write_out_tokens(p: Project, n: int | None = None) -> int:
 
 
 def write_episode(llm: LLM, p: Project, n: int, approach: str = "", use_board: bool = True, use_cues: bool = True,
-                  cut: list[MetaCut] | None = None) -> str:
+                  cut: list[MetaCut] | None = None, sent: list[SentPrompt] | None = None) -> str:
     """approach: 1~3화를 여러 안으로 쓸 때 여는 방식 (prompts.OPENING_APPROACHES).
     use_board: 그 화에 스토리보드가 있으면 쓰기 프롬프트에 넣는다. 끄면 스토리보드 없이 쓴다.
     use_cues: 그 화에 큐 시트가 있으면 쓰기 프롬프트 끝에 넣는다. 끄면 큐 시트 없이 쓴다.
-    cut: 목록을 주면 본문 앞뒤에서 뗀 작업 설명 문단을 채운다 (_write). 저장하는 호출자가 replace_text(meta_cut=)로 넘긴다."""
+    cut: 목록을 주면 본문 앞뒤에서 뗀 작업 설명 문단을 채운다 (_write). 저장하는 호출자가 replace_text(meta_cut=)로 넘긴다.
+    sent: 목록을 주면 받은 호출의 요청 기록(sent.SentPrompt)을 채운다. 본문을 저장하는 호출자가 sent.keep 으로 남긴다."""
     ep = p.episode(n)
     if ep.status == "draft":
         raise ValueError(f"{n}화 플롯이 아직 확정되지 않았어요 (confirm 먼저)")
     require_previous(p, n)
-    return _write(llm, p, n, prompts.episode_prompt(p, n, approach, use_board=use_board, use_cues=use_cues), cut)
+    return _write(llm, p, n, prompts.episode_prompt(p, n, approach, use_board=use_board, use_cues=use_cues), cut, sent)
 
 
 # ---------- 4-0. 화별 스토리보드 ----------
@@ -2589,12 +2592,15 @@ def set_storyboard(p: Project, n: int, b: Storyboard | None, by: str = "author")
     ep.storyboard = b
 
 
-def _write(llm: LLM, p: Project, n: int, prompt: str, cut: list[MetaCut] | None = None, target: int | None = None,
+def _write(llm: LLM, p: Project, n: int, prompt: str, cut: list[MetaCut] | None = None,
+           sent: list[SentPrompt] | None = None, kind: str = "write", target: int | None = None,
            verdict: Callable[[str], str] | None = None) -> str:
     """본문을 쓴다. 한글이 적은 응답(영어 생각 과정 등)과 본문 대신 작업 설명 · 거절 문구만 온 응답(metatail.whole)은 다시 부른다.
     본문 앞뒤에 붙은 확실한 작업 설명(metatail.split: 'n화 본문입니다' 머리말, 끝의 '짚어 둘 것' 같은 작가에게 하는 말)은 떼고 서버 기록에 남긴다.
     덜 확실한 것은 떼지 않고 검수 화면의 문체 경고(style_drift)로 알린다.
     cut 목록을 주면 뗀 문단을 앞 · 뒤 자리와 함께 채운다. 본문만 돌려주는 모양은 실험 · 비교 호출자가 그대로 쓰게 둔다.
+    sent 목록을 주면 받은 호출의 요청 · 시도 번호 · 다시 부른 까닭(sent.SentPrompt, kind 는 write · rewrite · polish)을 채운다.
+    여기서는 파일에 쓰지 않는다: 큐마다 쓰기 · 다듬기 재시도처럼 채택하지 않을 판도 이 함수를 부른다 (sent.py).
     target 은 이 호출이 받은 목표 분량 글자 수다 (비면 화 분량 Meta.words_per_episode). 사용량 기록 줄에 싣는다 (usage.SCOPED).
     다시 부르려고 버린 응답은 그 호출의 사용량 기록 줄에 까닭(discarded: cut · thought · meta)을 단다 (usage.hold).
     verdict(본문) 은 받은 본문을 부른 쪽이 버릴 까닭(빈 글이면 씀)이다. 까닭이 있으면 그 줄에 달고 본문은 그대로 돌려준다 (서술 다듬기)."""
@@ -2604,9 +2610,10 @@ def _write(llm: LLM, p: Project, n: int, prompt: str, cut: list[MetaCut] | None 
            else None)  # 로컬 모델은 끊김만 보고 한도는 걸지 않는다 (LocalLLM.caps_write)
     bad = {"cut": 0, "thought": 0, "meta": 0}
     size = p.meta.words_per_episode if target is None else target
-    for _ in range(WRITE_TRIES):
+    retries: list[SentRetry] = []
+    for call in range(1, WRITE_TRIES + 1):
         with usage.scope(target=size), usage.hold() as rows:
-            why = ""
+            why, note = "", ""
             try:
                 with out_cap(cap) if cap else nullcontext():
                     text = family_text(llm, system, prompt, head)
@@ -2618,7 +2625,7 @@ def _write(llm: LLM, p: Project, n: int, prompt: str, cut: list[MetaCut] | None 
                     raise
                 text = None
             if text is None or was_cut(llm):  # 출력 길이 한도에 걸려 끊긴 본문은 받지 않는다
-                why = "cut"
+                why, note = "cut", (f"{cap}토큰" if cap else "")
                 logging.getLogger("canon").warning("%s화 본문이 출력 길이 한도(%s토큰)에 걸려 끊겨 다시 써요", n, cap or "기본")
             elif metrics.hangul_ratio(text) < HANGUL_MIN:
                 why = "thought"
@@ -2626,16 +2633,20 @@ def _write(llm: LLM, p: Project, n: int, prompt: str, cut: list[MetaCut] | None 
                 why = "meta"
             if why:
                 bad[why] += 1
+                retries.append(SentRetry(call=call, reason=why, note=note))
                 usage.discard(rows, why)
                 continue
-            body, head, tail = metatail.parts(text)
+            body, lead, tail = metatail.parts(text)
             if verdict is not None:
                 usage.discard(rows, verdict(body))  # 줄을 파일에 쓰기 전에 단다
-        if head or tail:
-            logging.getLogger("canon").warning("%s화 본문 앞뒤의 작업 설명 %d문단을 뗐어요: %s", n, len(head) + len(tail),
-                                               " / ".join(x[:80] for x in head + tail))
+        if lead or tail:
+            logging.getLogger("canon").warning("%s화 본문 앞뒤의 작업 설명 %d문단을 뗐어요: %s", n, len(lead) + len(tail),
+                                               " / ".join(x[:80] for x in lead + tail))
         if cut is not None:
-            cut[:] = [MetaCut(text=x, at="head") for x in head] + [MetaCut(text=x, at="tail") for x in tail]
+            cut[:] = [MetaCut(text=x, at="head") for x in lead] + [MetaCut(text=x, at="tail") for x in tail]
+        if sent is not None:
+            rec = sent_record(llm, system, prompt, head, call, retries)
+            sent[:] = [rec.model_copy(update={"kind": kind})]
         return body
     limit = f"({cap:,}토큰)" if cap else ""
     if bad["cut"] == WRITE_TRIES:  # 세 번 모두 끊겼을 때만 끊김으로 멈춘다 (자동 집필 kind cut)
@@ -2817,15 +2828,17 @@ def rewrite_prompt(p: Project, n: int, req: RewriteRequest) -> str:
     return prompts.rewrite_prompt(p, n, req, rewrite_materials(p, n), p.episode(n).text)
 
 
-def rewrite_episode(llm: LLM, p: Project, n: int, req: RewriteRequest, cut: list[MetaCut] | None = None) -> str:
-    """피드백을 반영해 그 화를 다시 쓴다. 저장하지 않는다 (set_candidate 로 새 판에 둔다). cut 은 write_episode 와 같다."""
+def rewrite_episode(llm: LLM, p: Project, n: int, req: RewriteRequest, cut: list[MetaCut] | None = None,
+                    sent: list[SentPrompt] | None = None) -> str:
+    """피드백을 반영해 그 화를 다시 쓴다. 저장하지 않는다 (set_candidate 로 새 판에 둔다). cut · sent 는 write_episode 와 같다.
+    sent 기록은 새 판을 둘 때 sent.hold 로, 작가가 고르면 sent.adopt 로 남긴다."""
     ep = _editable(p, n)
     require_previous(p, n)
     if req.mode == "revise" and not ep.text.strip():
         raise ValueError("고쳐 쓸 지난 판이 없어요")
     if req.mode == "polish":
-        return polish_episode(llm, p, n, cut)
-    return _write(llm, p, n, rewrite_prompt(p, n, clean_rewrite(req)), cut)
+        return polish_episode(llm, p, n, cut, sent)
+    return _write(llm, p, n, rewrite_prompt(p, n, clean_rewrite(req)), cut, sent, "rewrite")
 
 
 POLISH_TRIES = 2
@@ -2864,11 +2877,13 @@ def polish_tics(old: str, new: str) -> str:
     return ", ".join(over)
 
 
-def polish_episode(llm: LLM, p: Project, n: int, cut: list[MetaCut] | None = None) -> str:
+def polish_episode(llm: LLM, p: Project, n: int, cut: list[MetaCut] | None = None,
+                   sent: list[SentPrompt] | None = None) -> str:
     """지금 본문의 서술 문장만 다듬는다 (prompts.polish_prompt). 저장하지 않는다 (set_candidate 로 새 판에 둔다).
     대사 · 효과음 줄이 바뀐 글은 POLISH_TRIES 번까지 다시 부르고, 그래도 바뀌면 멈춘다. 다듬기 모델은 revise 단계를 부른 쪽이 고른다.
     말줄임 · 물음을 너무 늘린 글(polish_tics, 서술 말투가 있는 화는 보지 않음)도 다시 부른다. 끝내 줄지 않으면 멈추지 않고
-    그중 덜 늘린 판을 낸다: 작가가 새 판을 견줘 고르니, 글은 나아졌을 수 있다."""
+    그중 덜 늘린 판을 낸다: 작가가 새 판을 견줘 고르니, 글은 나아졌을 수 있다.
+    sent 는 낸 판의 요청 기록을 채운다. 시도 번호는 다듬기 재시도까지 이어 센다 (버린 판의 까닭은 polish · tics)."""
     ep = _editable(p, n)
     old = ep.text.strip()
     if not old:
@@ -2877,27 +2892,44 @@ def polish_episode(llm: LLM, p: Project, n: int, cut: list[MetaCut] | None = Non
     look = not prompts.voiced(p, n)  # 서술 말투가 있는 화는 문장 끝 몫 · 상한을 넣지 않으니 세지도 않는다
     why, best = "", None
     log = logging.getLogger("canon")
+    calls, retries = 0, list[SentRetry]()  # 다듬기 재시도까지 이은 호출 수 · 버린 호출
+
+    def rebase(rec: SentPrompt) -> SentPrompt:  # 이번 시도 안의 번호를 앞 시도 뒤로 민다
+        return rec.model_copy(update={"attempt": calls + rec.attempt,
+                                      "retries": [r.model_copy(update={"call": calls + r.call}) for r in rec.retries]})
+
+    def done(rec: SentPrompt, part: list[MetaCut], dropped: list[SentRetry]) -> None:
+        if cut is not None:
+            cut[:] = part
+        if sent is not None:  # 버린 호출은 낸 판 앞뒤 모두 까닭에 남긴다
+            sent[:] = [rec.model_copy(update={"kind": "polish", "retries": sorted(dropped, key=lambda r: r.call)})]
+
     for _ in range(POLISH_TRIES):
         part: list[MetaCut] = []
+        got: list[SentPrompt] = []
         # 대사 · 효과음 줄이나 분량을 바꾼 판은 버리고, 그 호출의 사용량 기록 줄에 polish 를 단다
-        new = _write(llm, p, n, prompt, part, target=len(old), verdict=lambda t: "polish" if polish_problem(old, t) else "")
+        new = _write(llm, p, n, prompt, part, got, target=len(old),
+                     verdict=lambda t: "polish" if polish_problem(old, t) else "")
+        rec = rebase(got[0])  # _write 는 본문을 돌려줄 때 늘 채운다
+        calls = rec.attempt
         why = polish_problem(old, new)
         if why:
             log.warning("%s화 서술 다듬기를 다시 불러요: %s", n, why)
+            retries.extend([*rec.retries, SentRetry(call=calls, reason="polish", note=why)])
             continue
         tic = polish_tics(old, new) if look else ""
         if not tic:
-            if cut is not None:
-                cut[:] = part
+            done(rec, part, [*retries, *rec.retries])
             return new
         log.warning("%s화 서술 다듬기를 다시 불러요: %s", n, tic)
+        retries.extend([*rec.retries, SentRetry(call=calls, reason="tics", note=tic)])
         t = metrics.narration_tics(new)
         if best is None or sum(t.values()) < best[0]:
-            best = (sum(t.values()), new, part)
+            best = (sum(t.values()), new, part, rec)
     if best is not None:
         log.warning("%s화 서술 다듬기: 말줄임 · 물음이 줄지 않아 덜 늘린 판을 냈어요", n)
-        if cut is not None:
-            cut[:] = best[2]
+        picked = best[3]
+        done(picked, best[2], [r for r in retries if r.call != picked.attempt])
         return best[1]
     raise ValueError(f"{n}화 서술 다듬기를 쓰지 않았어요. {why}. 다시 시도해 주세요")
 
