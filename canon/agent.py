@@ -26,6 +26,10 @@ from .schema import (AgentAsk, AgentSession, AgentTurn, Approval, AskCard, ChatS
 
 TOPICS = ("agent", "plot")  # 'agent' 는 새 세션, 'plot' 은 옛 플롯 대화 세션. 둘 다 같은 목록에 보인다
 OTHER_FOCUS = ("text", "setup", "style")  # 화면이 주는 대상 가운데 아직 쓰기 도구가 없는 것 (chat_focus 종류)
+# 턴이 실어 오는 화면 이름: 웹 app.js drawApp 의 views 표와 작품 홈('home'). 모르는 이름은 '' (플롯 화면과 같다)로 받는다 (tests/test_agent_js.py)
+SCREENS = ("abilities", "arc", "atlas", "auto", "branches", "brief", "cast", "causal", "check", "convert", "cue", "foreshadow",
+           "home", "lines", "research", "review", "setup", "stage", "statwin", "style", "timeline", "tofix", "usage", "write")
+PLOT_SCREENS = ("arc",)  # 플롯 화면 (구간 · 아크 · 화 플롯 페이지). 여기서는 작품 전체('') 대상도 지금 규칙 그대로다
 MAX_STEPS = 8  # 한 번 돌 때 부르는 단계 수. 닿으면 '이어 하기'로 같은 턴을 이어 간다
 RESULT_LIMIT = 2500  # 읽기 도구 결과 글자 예산 (프롬프트가 단계마다 커지지 않게)
 TITLE_LIMIT = 24
@@ -160,9 +164,10 @@ def first_step_prompt(p: Project, message: str, target: str = "") -> str:
 
 
 def add_turn(p: Project, sid: str, message: str, *, mode: str = "", act: str = "", episode: int = 0, draft=None,
-             target: str | None = None) -> int:
+             target: str | None = None, screen: str = "") -> int:
     """새 턴을 연다. 돌아가는 턴이나 승인을 기다리는 턴이 있으면 막는다. 턴 번호를 돌려준다.
-    target 은 화면이 주는 대상이다. 고정하지 않은 세션이면 세션 대상을 이 값으로 바꾼다."""
+    target 은 화면이 주는 대상이다. 고정하지 않은 세션이면 세션 대상을 이 값으로 바꾼다.
+    screen 은 작가가 보던 화면이다. SCREENS 에 없으면 '' (플롯 화면과 같다)로 남긴다."""
     s = session(p, sid)
     message = message.strip()
     if not message:
@@ -174,7 +179,8 @@ def add_turn(p: Project, sid: str, message: str, *, mode: str = "", act: str = "
     if target is not None and not s.pinned:
         s.target = pipeline.chat_session_target(p, target)
     _compact(s)
-    turn = AgentTurn(user=message, mode="options" if mode == "options" else "", act=act, episode=episode, draft=draft, at=now())
+    turn = AgentTurn(user=message, mode="options" if mode == "options" else "", act=act, episode=episode, draft=draft, at=now(),
+                     screen=screen if screen in SCREENS else "")
     turn.where = pipeline.chat_where(p, scope_of(p, s, turn))
     if s.turns and s.turns[-1].approval and s.turns[-1].approval.state == "wait":
         s.turns[-1].approval.state = "denied"  # 답하지 않고 새로 말하면 묻던 쓰기는 하지 않는다
@@ -290,6 +296,12 @@ def outside(p: Project, focus: str, key: str) -> bool:
     return kind == "ep"  # 부를 고르면 부 구성 · 그 부의 아크 칸 · 구조는 안이다
 
 
+def off_plot(focus: str, turn: AgentTurn) -> bool:
+    """플롯 화면 밖에서 작품 전체('')를 대상으로 보낸 턴인지. 그러면 플롯 쓰기는 모두 '다듬을 곳 밖'으로 묻는다
+    (2026-11-09 사용자 결정, docs/ux/specs/04-one-agent.md 정할 것 7). 화면이 비었거나(옛 클라이언트) 플롯 화면이면 지금 규칙 그대로다."""
+    return not focus and bool(turn.screen) and turn.screen not in PLOT_SCREENS
+
+
 def _groups(p: Project, rev: PlotRevision, target: str, keys: list[str]) -> list[str]:
     """함께 써야 하는 부분을 묶는다: 끝 화가 바뀌는 아크 칸과 구조, 구조와 범위 밖 화."""
     _, focus = pipeline.chat_target(p, target)
@@ -375,7 +387,8 @@ def edit_plot(p: Project, s: AgentSession, turn: AgentTurn, edit: PlotRevision) 
     by_no = {e.plot.number: e for e in p.episodes}
     blocked = [n for n in raw if n not in kept]
     steps: list[StepRecord] = []
-    parts = [(k, "outside" if outside(p, scope.focus, k) else kind) for k, kind in _parts(p, rev, target)]
+    away = off_plot(scope.focus, turn)
+    parts = [(k, "outside" if away or outside(p, scope.focus, k) else kind) for k, kind in _parts(p, rev, target)]
     auto = [k for k, kind in parts if permit(s, kind) == "auto"]
     ask = [k for k, kind in parts if k not in auto]
     linked = set(_groups(p, rev, target, ask))  # 함께 써야 하는 부분 하나라도 물으면 함께 묻는다

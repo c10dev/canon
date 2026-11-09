@@ -2410,8 +2410,9 @@ def _agent_turn_line(t) -> str:
     return out + (f"\n  ({' · '.join(notes)})" if notes else "")
 
 
-def agent_focus_block(p: Project, focus: str) -> str:
-    """세션의 다듬을 곳(부 · 한 화 플롯 · 화면이 주는 본문 · 설정 · 문체) 블록. 작품 전체면 빈 글. 턴 안에서는 바뀌지 않는다."""
+def agent_focus_block(p: Project, focus: str, off_plot: bool = False) -> str:
+    """세션의 다듬을 곳(부 · 한 화 플롯 · 화면이 주는 본문 · 설정 · 문체) 블록. 작품 전체면 빈 글이고,
+    플롯 화면 밖에서 보낸 작품 전체(off_plot)면 플롯 쓰기가 물어진다는 한 줄이다. 턴 안에서는 바뀌지 않는다."""
     from .pipeline import chat_focus
 
     kind, lo, hi, name = chat_focus(p, focus)
@@ -2433,6 +2434,8 @@ def agent_focus_block(p: Project, focus: str) -> str:
         noun = {"text": "본문", "setup": "설정", "style": "문체"}[kind]
         return (f"[이 세션에서 다듬을 곳] {name}. 작가는 {what}. {noun}을 바로 고치는 도구는 없으니, 고칠 글이나 값은 reply 에 제안합니다. "
                 "플롯을 고쳐야 하면 edit_plot 을 불러도 되지만 모두 작가에게 물어집니다.\n")
+    if off_plot:  # 2026-11-09 사용자 결정: 플롯 화면 밖에서는 작품 전체가 대상이어도 플롯 쓰기를 묻는다
+        return "[이 세션에서 다듬을 곳] 작품 전체. 작가는 플롯 화면 밖에 있습니다. 플롯을 고치는 edit_plot 은 모두 작가에게 물어집니다.\n"
     return ""
 
 
@@ -2441,6 +2444,7 @@ def agent_plot_prompt(p: Project, session, turn, scope, left: int) -> str:
     (세션 안에서 바뀌지 않음), 다듬을 곳, 세션의 지난 턴, 보던 곳, 새 말과 이번 턴 방식(턴 안에서 바뀌지 않음),
     이번 턴에 한 단계 순서다. 남은 단계 수만 맨 끝 한 줄에 둔다. 그래서 단계 k+1 요청은 단계 k 요청에서
     끝 줄을 뺀 글로 시작하고, 서버 캐시가 앞 단계 요청을 거의 통째로 다시 쓴다."""
+    from .agent import off_plot
     from .pipeline import chat_where
 
     body, rules, label = plot_chat_parts(p, scope, random.Random(session.id))  # 이름 후보를 세션마다 고정한다
@@ -2467,7 +2471,7 @@ def agent_plot_prompt(p: Project, session, turn, scope, left: int) -> str:
 - 작가가 고치기가 아니라 분석 · 검토 · 질문을 청하면 edit_plot 을 부르지 않습니다. 필요한 것을 읽은 뒤 tool 을 비우고 reply 에 분석 내용 자체를 씁니다. 길이는 내용에 맞추고(항목마다 근거 화를 붙임), "분석해 전달합니다", "살펴보겠습니다" 같은 예고만 쓰지 않습니다. reply 가 이 턴의 마지막 말이라 그 뒤에 이어 쓸 기회가 없습니다.
 - 고쳤을 때 reply 에는 무엇을 바꿨고, 무엇을 물었고, 무엇이 막혔는지 2~5문장으로 씁니다. thought 에는 이 단계에서 하는 일을 한 줄로 씁니다.
 
-{agent_focus_block(p, scope.focus)}[이 세션의 지난 대화]
+{agent_focus_block(p, scope.focus, off_plot(scope.focus, turn))}[이 세션의 지난 대화]
 {chr(10).join(_agent_turn_line(t) for t in past) or "없음 (첫 턴)"}
 {f"[작가가 보고 있는 곳] {where} (작가가 '이 화', '여기', '이 구간'이라고 하면 이곳입니다){chr(10)}" if where else ""}
 [작가의 새 말]
