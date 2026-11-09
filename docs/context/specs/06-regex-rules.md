@@ -1,6 +1,6 @@
 # 06. 정규식 규칙 묶음 (경고 · 고침)
 
-상태: 진행 (claude/regex-rules) · 계획: [plan.md](../plan.md) 의 6번 · 먼저: —
+상태: 진행 (claude/regex-rules, #446) · 계획: [plan.md](../plan.md) 의 6번 · 먼저: —
 
 ## 목표
 
