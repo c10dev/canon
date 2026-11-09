@@ -408,6 +408,7 @@ function rebuildNote(n) {
   return `<div class="note info" style="display:flex;flex-direction:column;gap:8px">${head}
     ${rw.reply ? `<div class="small">${esc(rw.reply)}</div>` : ''}
     <div class="small" data-rework-basis="${n}">${reworkBasis(rw)}</div>
+    ${(rw.ruled || []).length && typeof ruledLine === 'function' ? `<div class="small">${esc(ruledLine(rw.ruled))}. 바꾼 뒤 집필 화면에서 되돌릴 수 있어요.</div>` : ''}
     <div class="pdiff" data-rework-diff="${n}" style="max-height:360px;overflow:auto;white-space:pre-wrap;font-family:var(--serif);font-size:0.875rem;line-height:1.8">${reworkDiff(e.text, rw.edited ?? rw.text)}</div>
     <details><summary class="small">넣기 전에 손보기</summary><textarea rows="10" data-rework="${n}" aria-label="다듬은 본문">${esc(rw.edited ?? rw.text)}</textarea></details>
     <div class="row"><button class="btn small" data-action="reworkDrop" data-arg="${n}">버리기</button><button class="btn small primary" data-action="reworkAccept" data-arg="${n}">이 본문으로 바꾸기</button><span class="small">고치기 전후는 수정 기록에 남아 되돌릴 수 있어요.</span></div>
@@ -488,7 +489,8 @@ Object.assign(actions, {
     if (!rw) return;
     await run('바꾸는 중', async () => {
       await saveIfDirty();
-      S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/rework`, { text: rw.edited ?? rw.text, proposed: rw.text });
+      // 제안에 건 고침 규칙(Rework.ruled)을 돌려보낸다. 서버는 넣는 글에 아직 남은 곳만 기록한다 (reshape.accept_rework)
+      S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/rework`, { text: rw.edited ?? rw.text, proposed: rw.text, ruled: rw.ruled || [] });
       delete S.reworks[n];
       delete S.textDraft[n];
       toast(`${n}화 본문을 다듬은 글로 바꿨어요.`);

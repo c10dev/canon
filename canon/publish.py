@@ -1,13 +1,16 @@
 """본문을 다른 곳(웹소설 플랫폼, 블로그, 원고 파일)에 붙여 넣기 좋게 다듬는다. LLM 을 부르지 않는다.
 
-글 내용은 바꾸지 않고 줄바꿈, 공백, 마크다운 흔적만 정리한다. 화면 복사(텍스트와 HTML 두 형식)와
+고정 정리는 글 내용을 바꾸지 않고 줄바꿈, 공백, 마크다운 흔적만 정리한다. 화면 복사(텍스트와 HTML 두 형식)와
 .txt 내려받기, CLI export 가 모두 이 함수를 쓴다.
+작품이 켠 정규식 규칙 묶음에 내보내기 규칙(type export)이 있으면 export 가 그 규칙으로 글을 바꾼 뒤 정리한다
+(canon/regexrules.py). 저장된 본문은 그대로이고, 원문 그대로(raw) 형식에는 걸지 않는다.
 """
 from __future__ import annotations
 
 import html
 import re
 
+from . import regexrules
 from .schema import Project
 
 # id → (화면 이름, 설명)
@@ -79,6 +82,7 @@ def title_line(p: Project, n: int) -> str:
 def export(p: Project, numbers: list[int], fmt: str = "blank", title: bool = True,
            drafts: dict[int, str] | None = None) -> dict:
     """화들을 하나의 글로 잇는다. drafts 는 저장 전 화면의 본문(화 번호 → 글). 본문이 없는 화는 건너뛴다.
+    raw 가 아니면 화마다 내보내기 규칙(regexrules.export_text)을 건 뒤 글과 HTML 을 같은 본문에서 만든다.
     {'text', 'html', 'episodes', 'filename'} 를 돌려준다."""
     drafts = drafts or {}
     texts, htmls, used = [], [], []
@@ -86,6 +90,8 @@ def export(p: Project, numbers: list[int], fmt: str = "blank", title: bool = Tru
         body = drafts.get(n, p.episode(n).text)
         if not body.strip():
             continue
+        if fmt != "raw":
+            body = regexrules.export_text(p, body)
         t, h = format_text(body, fmt), format_html(body, fmt)
         if title or len(numbers) > 1:  # 여러 화를 이을 때는 화 구분이 필요해 제목을 늘 넣는다
             head = title_line(p, n)

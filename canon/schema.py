@@ -10,8 +10,9 @@ from __future__ import annotations
 
 import re
 from typing import Literal, Optional
+from uuid import uuid4
 
-from pydantic import BaseModel, Field, PrivateAttr, SerializationInfo, SerializerFunctionWrapHandler, field_validator, model_serializer, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, SerializationInfo, SerializerFunctionWrapHandler, field_validator, model_serializer, model_validator
 from pydantic.json_schema import SkipJsonSchema
 
 from .metrics import StyleMetrics
@@ -281,6 +282,72 @@ class Settings(BaseModel):
     model_preset: str = Field("", description="이 작품이 쓰는 단계 프리셋 id (settings.presets: 단계별 백엔드 · 모델 묶음). 비우면 전체 설정을 따른다. 고른 프리셋이 지워졌으면 전체 설정을 따른다 (settings.project_preset)")
     blocks: list[BlockSetting] = Field(default_factory=list, description="쓰기 요청 블록 끄기 (prompts.block_on). 비우면 모든 블록을 넣는다. 장편만 따른다")
     budgets: list[BudgetSetting] = Field(default_factory=list, description="쓰기 요청 예산 바꾸기 (context.budget). 비우면 context.BUDGET 기본값. 장편만 따른다")
+    rule_bundles: list[str] = Field(default_factory=list, description="켠 정규식 규칙 묶음 id (canon/regexrules.py). 목록 차례가 거는 차례다. 지워진 묶음은 건너뛴다")
+
+
+# ---------- 정규식 규칙 묶음 (canon/regexrules.py) ----------
+# 작가가 만든 규칙이라 LLM 이 채우지 않는다. 필드는 RisuAI 정규식 스크립트를 따른다 (docs/context/compat.md 2절)
+
+class RegexRule(BaseModel):
+    """정규식 규칙 하나. in · out 은 JavaScript 꼴로 저장하고 regexrules 가 Python re 꼴로 바꿔 건다."""
+    model_config = ConfigDict(populate_by_name=True)
+    id: str = Field(default_factory=lambda: uuid4().hex[:8])
+    comment: str = Field("", description="규칙 이름. 화면과 지적에 보인다")
+    in_: str = Field("", alias="in", description="찾을 정규식 (JavaScript 꼴). 비면 걸지 않는다")
+    out: str = Field("", description="바꿀 글 (JavaScript String.replace 꼴: $1 · $& · $<이름> · $$). 경고 규칙에서는 쓰지 않는다")
+    type: Literal["output", "export"] = Field("output", description="output: 쓴 본문에 건다 / export: 내보낼 때만 건다")
+    flag: str = Field("g", description="플래그 글자 (g · i · m · s · u · d)")
+    action: Literal["warn", "fix"] = Field("warn", description="warn: 검수 때 걸린 곳을 보인다 / fix: 본문을 바꾼다")
+    enabled: bool = True
+
+    @field_validator("id")
+    @classmethod
+    def _fill_id(cls, v: str) -> str:
+        """빈 id("" · 빈칸)는 새 id 로 바꾼다. 기록 · 지적이 규칙을 id 로 가리키므로 두 규칙이 빈 id 를 나눠 쓰면 안 된다."""
+        return v if v.strip() else uuid4().hex[:8]
+
+
+class RuleBundleVersion(BaseModel):
+    number: int
+    at: str = ""
+    note: str = ""
+    rules: list[RegexRule] = Field(default_factory=list)
+
+
+class RuleBundle(BaseModel):
+    """규칙 묶음 하나. <CANON_HOME>/.rules/<id>.json 파일 하나다 (CANON_RULES 로 경로 변경)."""
+    id: str
+    name: str
+    notes: str = ""
+    rules: list[RegexRule] = Field(default_factory=list)
+    created_at: str = ""
+    updated_at: str = ""
+    version: int = 1
+    versions: list[RuleBundleVersion] = Field(default_factory=list, description="규칙 목록이 바뀔 때마다 남긴 버전 (최근 것만)")
+
+
+class RuleChange(BaseModel):
+    """고침 규칙이 바꾼 곳 하나. start 는 그 규칙 걸기가 끝난 본문 안 자리다 (부분 수정 후보에서는 후보 글 안 자리)."""
+    bundle: str
+    version: int = 0
+    rule: str
+    name: str = Field("", description="걸 때의 규칙 이름 (화면 표시용)")
+    start: int
+    before: str
+    after: str
+    undone: bool = False
+
+
+RuleRunKind = Literal["write", "rewrite", "polish", "passage", "import", "auto", "adopt", "rework"]
+
+
+class RuleRun(BaseModel):
+    """고침 규칙을 한 번 건 기록. 바뀐 곳이 없고 건너뛰지도 않았으면 남기지 않는다."""
+    id: str = Field("", description="r<N>. 화 안에서 겹치지 않는다")
+    at: str = ""
+    kind: RuleRunKind = "write"
+    changes: list[RuleChange] = Field(default_factory=list)
+    skipped: str = Field("", description="시간 한도로 멈춘 묶음 이름. 이때 본문은 걸기 전 그대로다")
 
 
 # ---------- 스타일 레퍼런스 ----------
@@ -897,6 +964,7 @@ class Rework(BaseModel):
     """재구성에서 '다듬기'로 고른 화를 AI 가 고친 본문. 작가가 비교해 보고 받아들인다."""
     text: str = Field(description="고친 본문 전체")
     reply: str = Field("", description="무엇을 고쳤는지 2~3문장")
+    ruled: SkipJsonSchema[list[RuleChange]] = Field(default_factory=list, description="고침 규칙이 text 에서 바꾼 곳 (프로그램이 채운다)")
 
 
 class ShortArchive(BaseModel):
@@ -1017,6 +1085,7 @@ class ChatScope(BaseModel):
 class PassageCandidate(BaseModel):
     text: str = Field(description="고칠 부분을 대신할 새 글. 앞뒤 본문은 되풀이하지 않는다")
     note: str = Field("", description="무엇을 어떻게 바꿨는지 한 줄")
+    ruled: SkipJsonSchema[list[RuleChange]] = Field(default_factory=list, description="고침 규칙이 text 에서 바꾼 곳. start 는 후보 글 안 자리 (프로그램이 채운다)")
 
 
 class PassageRevision(BaseModel):
@@ -1265,15 +1334,17 @@ SEVERITY: dict[str, str] = {"crit": "치명", "mid": "보통", "low": "사소"}
 
 
 class ConsistencyIssue(BaseModel):
-    type: IssueType = Field(description="사실: 확정 사실·세부 모순 / 시간: 순서·인과 / 인물 정보: 모르는 것을 앎 / 말투 / 세계관 규칙 / 플롯: 사건 누락 / 동선: 한 장면 안에서 위치·몸이 향한 쪽·자세·손에 든 것·가려진 곳이 행동 없이 바뀜 / 시점: 시점 인물이 볼 수 없거나 모르는 것을 서술, 1인칭의 나가 다른 인물로 바뀜, 표시 없이 시점 인물이 바뀜")
+    # 표기: 정규식 경고 규칙 지적 (origin regex). LLM 응답 형식에는 IssueType 만 보인다
+    type: IssueType | SkipJsonSchema[Literal["표기"]] = Field(description="사실: 확정 사실·세부 모순 / 시간: 순서·인과 / 인물 정보: 모르는 것을 앎 / 말투 / 세계관 규칙 / 플롯: 사건 누락 / 동선: 한 장면 안에서 위치·몸이 향한 쪽·자세·손에 든 것·가려진 곳이 행동 없이 바뀜 / 시점: 시점 인물이 볼 수 없거나 모르는 것을 서술, 1인칭의 나가 다른 인물로 바뀜, 표시 없이 시점 인물이 바뀜")
     description: str = Field(description="무엇이 어긋났는지 한 문장")
     source_episode: int = Field(0, description="앞선 근거가 나온 화. 설정·확정 사실·인물 상태가 근거면 0, 같은 화 앞 문장이면 이번 화")
     source_quote: str = Field(description="앞선 근거 원문 그대로 (설정이면 해당 설정 문장)")
     current_quote: str = Field(description="이번 화에서 어긋난 문장 원문 그대로")
     suggestion: str = Field("", description="고치는 방법 제안")
     severity: Severity = Field("mid", description="crit: 독자가 바로 알아챌 모순이거나 뒤 화 전개를 흔듦 / mid: 눈여겨 읽으면 보이는 어긋남 / low: 사소한 세부")
-    # 프로그램이 채운다 (LLM 응답 형식에서 뺀다). 장면 연출 규칙 판정(stage.to_issues)이 낸 지적은 rule
-    origin: SkipJsonSchema[Literal["ai", "rule"]] = Field("ai", description="ai: 검수 모델 / rule: 장면 연출 규칙 판정")
+    # 프로그램이 채운다 (LLM 응답 형식에서 뺀다). 장면 연출 규칙 판정(stage.to_issues)이 낸 지적은 rule, 정규식 경고 규칙(regexrules.hits)은 regex
+    origin: SkipJsonSchema[Literal["ai", "rule", "regex"]] = Field("ai", description="ai: 검수 모델 / rule: 장면 연출 규칙 판정 / regex: 정규식 경고 규칙")
+    regex_rule: SkipJsonSchema[str] = Field("", description="정규식 경고 규칙 지적의 '<묶음 id>/<규칙 id>'")
     stage_event: SkipJsonSchema[int] = Field(-1, description="규칙 지적의 플롯 사건 번호 (0부터). 장면 연출 화면 링크")
     stage_beat: SkipJsonSchema[int] = Field(0, description="규칙 지적의 본문 장면 박자 (1부터)")
 
@@ -1421,6 +1492,7 @@ class TextVersion(BaseModel):
     request: Optional[RewriteRequest] = Field(None, description="이 판을 만든 다시 생성 요청 (처음 쓴 판이면 비움)")
     model: str = Field("", description="이 판을 쓴 모델 (Episode.written_by 와 같은 모양). 모르면 비움. 프롬프트에 넣지 않는다")
     meta_cut: list[MetaCut] = Field(default_factory=list, description="이 판을 쓸 때 앞뒤에서 뗀 작업 설명 문단. 판을 고르면 Episode.meta_cut 으로 따라간다")
+    rule_runs: list[RuleRun] = Field(default_factory=list, description="이 판 본문에 고침 규칙을 건 기록. 판을 고르면 Episode.rule_runs 로 따라간다")
 
 
 FindingStatus = Literal["open", "fixed", "kept", "wrong"]
@@ -1737,6 +1809,7 @@ class Episode(BaseModel):
                                             "모르면(옛 본문, 화면에서 붙여 넣은 본문) 비움. 작가가 고쳐도 바꾸지 않는다(고친 것은 edits). 프롬프트에 넣지 않는다")
     meta_cut: list[MetaCut] = Field(default_factory=list, description="지금 본문을 쓸 때 앞뒤에서 뗀 작업 설명 문단 (metatail.split). "
                                                                    "집필 화면에서 본문에 되살리거나 지운다. 프롬프트에 넣지 않는다")
+    rule_runs: list[RuleRun] = Field(default_factory=list, description="지금 본문에 고침 규칙을 건 기록 (canon/regexrules.py, 최근 것만). 프롬프트에 넣지 않는다")
     final_text: str = Field("", description="상태 반영이 끝난 뒤 본문을 처음 고치기 직전의 본문. 지금 본문과 다르면 반영된 요약 · 상태가 고치기 전 본문 기준이다. 다시 맞추거나 그대로 두기로 하면 비운다")
     time: "StoryTime" = Field(default_factory=lambda: StoryTime(), description="이 화가 끝난 작품 속 시점. 상태 반영 때 채운다")
     realign: str = Field("", description="앞 화 플롯을 뒤 화에 맞추지 않고 다시 짜면서 이 화와 어긋나게 된 점. 이 화 플롯을 다시 짜거나 작가가 확인하면 비운다")

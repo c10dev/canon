@@ -538,6 +538,7 @@ function viewEpisode(n, panel = 'write') {
     ${rebuildNote(n)}
     ${fin}
     ${e.text ? metaCutNote(n, editable && !autoOn()) : ''}
+    ${e.text && typeof ruleRunsNote === 'function' ? ruleRunsNote(n, editable && !autoOn()) : ''}
     ${orphan ? `<div class="note warn">저장하지 않은 ${n}화 초고가 남아 있어요. 이 화는 상태 반영이 끝나 본문으로 저장할 수 없어서, 아래에는 반영된 본문을 보여요.
       <details><summary>남은 초고 보기 (${S.textDraft[n].length.toLocaleString()}자)</summary><textarea readonly id="orphan-${n}" aria-label="${n}화 남은 초고" style="width:100%;min-height:160px;margin-top:6px">${esc(S.textDraft[n])}</textarea></details>
       <div class="row" style="margin-top:6px"><button class="btn small" data-action="copyOrphan" data-arg="${n}">초고 복사</button><button class="btn small danger" data-action="dropOrphan" data-arg="${n}">초고 버리기</button></div></div>` : ''}
@@ -1014,13 +1015,16 @@ Object.assign(actions, {
     const text = $('#imp-body').value.trim();
     if (!text) return toast('본문을 붙여 넣으세요', true);
     if (ep(n).text && !(await askConfirm(`${n}화의 지금 본문을 바꿀까요?`, { ok: '바꾸기', danger: true }))) return;
+    const seen = (ep(n).rule_runs || []).map((r) => r.id);
     await run('가져오는 중', async () => {
       await saveIfDirty();
-      S.project = await api('PUT', `/projects/${enc(S.name)}/episodes/${n}/text`, { text });
+      // 받은 본문이라 서버가 고침 규칙을 걸고 기록을 남긴다 (Text.source, 직접 친 글에는 걸지 않는다). 지금 본문은 이전 판에 남는다
+      S.project = await api('PUT', `/projects/${enc(S.name)}/episodes/${n}/text`, { text, source: 'import' });
       delete S.textDraft[n];
       delete S.deltas[n];
       delete S.briefDraft[`${S.name}:${n}:episode`];
-      toast(`${n}화 본문으로 저장했어요`);
+      const said = typeof ruleRunSay === 'function' ? (ep(n).rule_runs || []).filter((r) => !seen.includes(r.id)).map(ruleRunSay).filter(Boolean).join(' ') : '';
+      toast(`${n}화 본문으로 저장했어요.${said ? ` ${said}` : ''}`);
       location.hash = `${base()}/write/${n}`;
     });
   },

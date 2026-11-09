@@ -53,7 +53,8 @@ def log(f: Finding, at: str, kind: str, text: str = "") -> None:
 
 def _match(ep: Episode, x: ConsistencyIssue, taken: set[str]) -> Optional[Finding]:
     """x 와 같은 출처 · 같은 문장을 짚은 옛 지적. 같은 갈래를 먼저 찾는다. 이번 회차에 이미 이은 지적은 건너뛴다."""
-    cands = [f for f in ep.findings if f.id not in taken and f.origin == x.origin and same(f, x)]  # 규칙 지적은 규칙 지적끼리
+    cands = [f for f in ep.findings if f.id not in taken and f.origin == x.origin and same(f, x)  # 규칙 지적은 규칙 지적끼리
+             and (x.origin != "regex" or f.regex_rule == x.regex_rule)]  # 정규식 경고 지적은 같은 규칙끼리
     return next((f for f in cands if f.type == x.type), cands[0] if cands else None)
 
 
@@ -161,9 +162,9 @@ def scoped(ep: Episode, issues: list[ConsistencyIssue], scope: list[str]) -> tup
 
 def counted(ep: Episode, issues: list[ConsistencyIssue], ignore_minor: bool = False) -> list[ConsistencyIssue]:
     """검수 결과 가운데 작가가 그대로 둠 · 잘못 짚음으로 정해 두지 않은 것 (자동 집필 허용 개수가 센다).
-    ignore_minor 면 심각도 '사소'도 뺀다. 합치기 전후 어느 쪽에서 불러도 같다."""
+    ignore_minor 면 심각도 '사소'도 뺀다. 합치기 전후 어느 쪽에서 불러도 같다. 정규식 경고 규칙 지적(origin regex)은 세지 않는다."""
     decided = [f for f in ep.findings if f.status in DECIDED]
-    out = [x for x in issues if not any(same(f, x) for f in decided)]
+    out = [x for x in issues if x.origin != "regex" and not any(same(f, x) for f in decided)]
     return [x for x in out if x.severity != "low"] if ignore_minor else out
 
 

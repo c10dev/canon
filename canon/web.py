@@ -36,7 +36,7 @@ from .llm import BadKey, GeminiLLM, LocalLLM, MissingKey, explain_error, get_llm
 from . import context as ctxrules  # 이름 context 는 컨텍스트 보기 엔드포인트가 쓴다
 from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록)
 from .schema import (Ability, ArcPlan, BodySuggestion, StatInitSuggestion, StatSkin, StatWindowSuggestion, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
-                     StorylineProposal, StyleEntry, StyleProfile)
+                     RuleChange, RuleRun, StorylineProposal, StyleEntry, StyleProfile)
 from . import abilities, anchor, atlas, findings, foreshadows, heatplan, setupchat, stateedit, stattrial, statwin, timeline
 from .schema import AgentSession, ChatScope, HeatArcProposal, KnowsFoldSet, Deadline, Storyboard, StoryTime, Foreshadow, StatValue
 from .schema import OffscreenSet
@@ -1887,6 +1887,7 @@ def apply_rebuild(name: str, prop: SerialRebuild) -> dict:
 class ReworkIn(BaseModel):
     text: str
     proposed: str = ""  # AI 가 낸 글 (작가가 손봤으면 수정 기록에 남긴다)
+    ruled: list[RuleChange] = []  # 제안을 만들 때 고침 규칙이 바꾼 곳 (Rework.ruled, proposed 안 자리). 넣은 본문에 아직 있는 곳만 기록한다
 
 
 @app.post("/api/projects/{name}/episodes/{n}/rework")
@@ -1894,7 +1895,7 @@ def accept_rework(name: str, n: int, body: ReworkIn) -> Project:
     """재구성에서 다듬기로 고른 화에 다듬은 본문을 넣는다."""
     _not_auto(name)
     p = _load(name)
-    pipeline.accept_rework(p, n, body.text, body.proposed)
+    pipeline.accept_rework(p, n, body.text, body.proposed, body.ruled)
     return _save(name, p)
 
 
@@ -2160,7 +2161,7 @@ def chat_send(name: str, topic: str, body: ChatIn) -> Project:
             raise ValueError("본문에서 고칠 부분을 고르세요")
         _text_guard(name, n)  # 넣기(chat_apply)에서 막힐 요청이면 AI를 부르기 전에 막는다
         sel = Selection(start=pipeline.locate(p.episode(n).text, body.selection.text, body.selection.start), text=body.selection.text)
-        rev = pipeline.revise_passage(get_llm("revise"), p, n, sel, body.message, body.preset)
+        rev = pipeline.revise_passage(get_llm("revise"), p, n, sel, body.message, body.preset, rules=True)  # 후보마다 고침 규칙을 건다
         return _edit(name, lambda q: pipeline.record_passage(q, n, sel, body.message, body.preset, rev))
     if topic == "style":
         rev = pipeline.revise_style(get_llm("plan"), p, body.message, body.episode)
@@ -2232,7 +2233,7 @@ def fix_now(name: str, n: int, body: FixNowIn) -> dict:
     p = _load(name)
     _chat(p, f"text:{n}")
     sel = Selection(start=pipeline.locate(p.episode(n).text, body.selection.text, body.selection.start), text=body.selection.text)
-    rev = pipeline.revise_passage(get_llm("revise"), p, n, sel, body.message)
+    rev = pipeline.revise_passage(get_llm("revise"), p, n, sel, body.message, rules=True)  # 첫 후보가 바로 본문에 들어가므로 고침 규칙을 건다
     _text_guard(name, n)  # AI를 기다리는 사이 자동 집필이나 본문 작업이 시작했을 수 있다
     out: dict = {}
     q = _edit(name, lambda x: out.update(edit=pipeline.apply_first(x, n, sel, body.message, rev)))
@@ -2750,7 +2751,8 @@ def _run_check(name: str, n: int, llm) -> dict:
     _fill_old_spots(name)
     q0 = store.load(name)
     rep = pipeline.check_episode(llm, q0, n)
-    r = _edit(name, lambda q: pipeline.apply_check(q, rep, "api", pipeline.widen_on(q0))).episode(n).rounds[-1]
+    pre = pipeline.check_hits(store.load(name), n)  # 정규식 경고 규칙은 잠그기 전에 건다 (작품을 오래 잠그지 않게)
+    r = _edit(name, lambda q: pipeline.apply_check(q, rep, "api", pipeline.widen_on(q0), pre)).episode(n).rounds[-1]
     for prop in rep._stage_held:  # 작가가 손본 본문 장면은 덮지 않고 장면 연출 화면의 비교로 남긴다
         _stage_keep(name, prop)
     return {"issues": r.found, "round": r.no, "added": r.added, "stage": len(rep._stage),  # 짚은 곳: 검수 모델 + 장면 연출 규칙
@@ -3061,6 +3063,11 @@ def _job_plot_one(name: str, body: "JobIn", p: Project, kind: str, n: int | None
     return label, total, owned, fn
 
 
+def _rule_note(ruled: list[RuleRun]) -> dict:
+    """쓰기 작업 결과에 붙이는 마지막 고침 규칙 기록 (화면이 '규칙으로 N곳 고쳤어요' · 건너뜀 알림을 보인다). 없으면 빈 dict."""
+    return {"rule_run": ruled[-1].model_dump()} if ruled else {}
+
+
 def _job_write(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
     """작업 write · state: (이름표, 전체 걸음, 맡은 화, 할 일)."""
     if n is None:
@@ -3078,13 +3085,14 @@ def _job_write(name: str, body: "JobIn", p: Project, kind: str, n: int | None, l
             def fn(job: jobs.Job):
                 cut: list = []
                 rec: list = []
-                text = pipeline.rewrite_episode(use, store.load(name), n, req, cut, rec)
+                ruled: list[RuleRun] = []
+                text = pipeline.rewrite_episode(use, store.load(name), n, req, cut, rec, ruled)
 
                 def put(q: Project) -> None:  # 새 판을 낳은 요청은 대기 칸에 둔다. 작가가 고르면 지금 기록이 된다 (sent.adopt)
-                    v = pipeline.set_candidate(q, n, text, req, pipeline.writer_of(use), cut)
+                    v = pipeline.set_candidate(q, n, text, req, pipeline.writer_of(use), cut, ruled)
                     sent.hold(name, n, rec, text, v.id)
                 _edit(name, put)
-                return {"candidate": True}
+                return {"candidate": True, **_rule_note(ruled)}
         else:
             make = body.board == "make"
             use_cues = body.cues != "none"
@@ -3103,7 +3111,7 @@ def _job_write(name: str, body: "JobIn", p: Project, kind: str, n: int | None, l
                 with _WRITE_CHECKS_LOCK:
                     _WRITE_CHECKS.add((name, n))
                 try:
-                    write(job)
+                    wrote = write(job)
                     # 본문은 저장했다. 맡은 화를 내려놓아 검수하는 동안에도 작가가 읽고 고칠 수 있게 하고, 화면이 본문을 먼저 받게 알린다.
                     # 그사이 고친 곳은 검수 회차가 시작 시각으로 남아 '검수 뒤 고침'으로 보인다 (pipeline.check_episode)
                     job.done += 1
@@ -3112,12 +3120,12 @@ def _job_write(name: str, body: "JobIn", p: Project, kind: str, n: int | None, l
                     job.note = f"{n}화 검수 중"
                     try:
                         with usage.scope(episode=n, task="check"):
-                            return {"check": _run_check(name, n, checker)}
+                            return {"check": _run_check(name, n, checker), **(wrote or {})}
                     except cancel.Cancelled:
                         raise
                     except Exception as err:  # 검수가 실패해도 쓴 본문은 남는다. 까닭만 알린다
                         logging.getLogger("canon").warning("%s %s화 쓴 뒤 검수 실패", name, n, exc_info=True)
-                        return {"check_error": explain_error(err)}
+                        return {"check_error": explain_error(err), **(wrote or {})}
                 finally:
                     with _WRITE_CHECKS_LOCK:
                         _WRITE_CHECKS.discard((name, n))
@@ -3152,11 +3160,13 @@ def _job_write(name: str, body: "JobIn", p: Project, kind: str, n: int | None, l
                 cut: list = []
                 rec: list = []
                 # 흘려 받을 수 있는 백엔드면 쓰는 글을 작업의 부분 글(Job.partial)로 보인다. 집필 화면이 읽기 전용 미리보기에 그린다
+                ruled: list[RuleRun] = []
                 text = pipeline.write_episode(llm, store.load(name), n, use_board=body.board != "none", use_cues=use_cues, cut=cut,
-                                              sent=rec, on_chunk=job.set_partial)
+                                              sent=rec, ruled=ruled, on_chunk=job.set_partial)
 
                 def save(q):
-                    pipeline.replace_text(q.episode(n), text, written_by=pipeline.writer_of(llm), meta_cut=cut)  # 지금 본문이 있으면 '이전 판'에 남는다
+                    pipeline.replace_text(q.episode(n), text, written_by=pipeline.writer_of(llm), meta_cut=cut,
+                                          rule_runs=ruled)  # 지금 본문이 있으면 '이전 판'에 남는다
                     anchor.stamp(q, n)
                     if q.episode(n).storyboard is not None:  # 스토리보드 없이 쓴 본문은 검수가 그 전제를 대조하지 않는다
                         q.episode(n).storyboard.skipped = body.board == "none"
@@ -3164,7 +3174,7 @@ def _job_write(name: str, body: "JobIn", p: Project, kind: str, n: int | None, l
                     sent.keep(name, n, rec, text)  # 이 본문이 받은 요청 그대로 (작품 폴더 sent/)
                 _edit(name, save)
                 job.set_partial("")  # 본문을 저장했다. 이어지는 검수 동안 미리보기를 남기지 않는다
-                return None
+                return _rule_note(ruled) or None
     else:
         if not e.text:
             raise ValueError(f"{n}화 본문이 없어요")
@@ -3550,9 +3560,10 @@ def get_job(jid: str) -> dict:
 def write_episode(name: str, n: int) -> Project:
     p = _load(name)
     _not_auto(name)
-    llm, cut, rec = get_llm("write"), [], []
-    text = pipeline.write_episode(llm, p, n, cut=cut, sent=rec)
-    pipeline.replace_text(p.episode(n), text, written_by=pipeline.writer_of(llm), meta_cut=cut)  # 지금 본문이 있으면 '이전 판'에 남는다
+    llm, cut, rec, ruled = get_llm("write"), [], [], []
+    text = pipeline.write_episode(llm, p, n, cut=cut, sent=rec, ruled=ruled)
+    pipeline.replace_text(p.episode(n), text, written_by=pipeline.writer_of(llm), meta_cut=cut,
+                          rule_runs=ruled)  # 지금 본문이 있으면 '이전 판'에 남는다
     cue.mark_used(p, n, True)
     anchor.stamp(p, n)
     with jobs.project_lock(name):
@@ -3563,6 +3574,7 @@ def write_episode(name: str, n: int) -> Project:
 class Text(BaseModel):
     text: str
     base: str | None = None  # 이 고침을 시작한 저장 본문. 주면 지금 저장 본문과 맞춰 보고, 없으면(옛 화면 · 명령줄) 맞춰 보지 않는다
+    source: Literal["", "import"] = ""  # import: 작업지시서 화면에 붙여 넣은 밖의 AI 본문 (고침 규칙을 건다). 비우면 작가가 친 글
 
 
 @app.put("/api/projects/{name}/episodes/{n}/text")
@@ -3573,12 +3585,30 @@ def put_text(name: str, n: int, body: Text, force: bool = False) -> Project:
     _text_guard(name, n)
     p = _load(name)
     ep = p.episode(n)
+    stale = JSONResponse({"detail": f"다른 탭이나 기기에서 {n}화 본문을 먼저 저장했어요. 다시 불러와 그 본문을 보거나, 내 고침으로 덮어쓰세요",
+                          "code": "stale_text"}, status_code=409)
     if body.base is not None and not force and body.base.strip() != ep.text.strip():
-        return JSONResponse({"detail": f"다른 탭이나 기기에서 {n}화 본문을 먼저 저장했어요. 다시 불러와 그 본문을 보거나, 내 고침으로 덮어쓰세요",
-                             "code": "stale_text"}, status_code=409)
+        return stale
     if ep.status == "draft":
         raise ValueError(f"{n}화 플롯을 먼저 확정하세요")
     text = body.text.strip()
+    if body.source == "import" and text:  # 밖의 AI 가 쓴 본문: 명령줄 import 와 같이 고침 규칙을 걸고 지금 본문은 '이전 판'에 남긴다
+        if ep.status == "confirmed":
+            pipeline.require_previous(p, n)
+        runs: list[RuleRun] = []
+        text = pipeline.apply_rules(p, text, "import", runs)  # 규칙 걸기는 몇 초 걸릴 수 있어 잠그기 전에 한다
+        with jobs.project_lock(name):  # 그사이 다른 저장이 있었을 수 있어 잠그고 다시 읽어 확인한 뒤 바꾼다
+            _text_guard(name, n)  # 규칙을 거는 사이 그 화를 쓰는 작업이 시작됐을 수 있다
+            p = store.load(name)
+            ep = p.episode(n)
+            if body.base is not None and not force and body.base.strip() != ep.text.strip():
+                return stale
+            if ep.status == "draft":
+                raise ValueError(f"{n}화 플롯을 먼저 확정하세요")
+            if ep.status == "confirmed":
+                pipeline.require_previous(p, n)
+            pipeline.replace_text(ep, text, written_by="import", rule_runs=runs)
+            return _save_locked(name, p)
     if ep.status == "finalized":  # 반영이 끝난 화도 고친다. 반영된 상태는 그대로 두고 반영 뒤 고침으로 표시한다
         if not text:
             raise ValueError(f"{n}화는 상태 반영이 끝나 본문을 비울 수 없어요")
@@ -3589,7 +3619,7 @@ def put_text(name: str, n: int, body: Text, force: bool = False) -> Project:
     if text and ep.status == "confirmed":  # 손으로 쓰거나 붙여 넣은 본문도 AI 쓰기와 같은 순서 규칙을 따른다
         pipeline.require_previous(p, n)
     if not ep.text or not text:  # 빈 화에 넣은 본문은 직접 쓴 것인지 채팅 앱에서 붙여 넣은 것인지 몰라 모델을 비운다
-        ep.written_by, ep.meta_cut = "", []
+        ep.written_by, ep.meta_cut, ep.rule_runs = "", [], []  # 판을 남기지 않으므로 고침 규칙 기록도 비운다
     pipeline.record_typed(p, n, ep.text, text)
     ep.text = text
     ep.status = "written" if ep.text else "confirmed"
@@ -4431,7 +4461,7 @@ def _sent_note(rec: sent.SentPrompt, text: str) -> str:
     if rec.masked:
         parts.append(f"비밀 값 {rec.masked}개를 가렸어요")
     if not sent.matches(rec, text):
-        parts.append("그 뒤로 본문이 바뀌었어요 (직접 고침 · 판 되돌리기 · 백업 되돌리기)")
+        parts.append("그 뒤로 본문이 바뀌었어요 (직접 고침 · 규칙 되돌리기 · 판 되돌리기 · 백업 되돌리기)")
     return " · ".join(x for x in parts if x) + "."
 
 
@@ -4467,14 +4497,16 @@ def parse_state(name: str, n: int, body: Raw) -> StateDelta:
 def import_check(name: str, n: int, body: Raw) -> Project:
     """채팅 앱이 돌려준 검수 결과 JSON 을 회차 하나로 합친다 (검수 지시서, 회차 source chat).
     상태 변경안 가져오기와 같은 규칙으로 읽는다."""
-    _load(name).episode(n)
+    q0 = _load(name)
+    q0.episode(n)
     data = _json_object(body.raw)
     data["episode"] = n
     try:
         rep = ConsistencyReport.model_validate(data)
     except ValidationError as e:
         raise HTTPException(400, _validation_text(e))
-    return _edit(name, lambda q: pipeline.apply_check(q, rep, "chat"))
+    pre = pipeline.check_hits(q0, n)  # 정규식 경고 규칙은 잠그기 전에 건다
+    return _edit(name, lambda q: pipeline.apply_check(q, rep, "chat", hits=pre))
 
 
 class FindingIn(BaseModel):
@@ -5844,7 +5876,7 @@ def brief(name: str, n: int, kind: str = "episode") -> BriefText:
 # ---------- 기능별 라우트 (canon/routes/) ----------
 # 각 모듈은 위의 도우미를 web 에서 불러 쓰므로 맨 끝 가까이에서 부른다. 시험이 web 을 다시 불러오면(reload) 라우트 모듈도 다시 불러온다.
 # 모듈이 정한 이름은 web 에도 둔다(web.<이름> 으로 부르는 코드와 시험이 그대로 돈다). 붙이는 차례는 옮기기 전 web.py 의 차례다
-ROUTES = ("studio", "promptlab", "refs", "atlas", "revlab", "soelab", "play", "research")
+ROUTES = ("studio", "promptlab", "refs", "atlas", "revlab", "soelab", "play", "research", "regexrules")
 
 
 _ROUTERS: list = []  # 붙인 라우트 모듈의 router. app.routes 에는 감싼 모양(_IncludedRouter)으로만 들어간다

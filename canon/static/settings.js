@@ -104,6 +104,7 @@ const SET_ROWS = [
   { id: 'snapshots', cat: 'writing', sec: '보기 · 보관', label: '스냅샷 모두 남기기', words: '스냅샷 되돌리기 장편 보관' },
   { id: 'blocks', cat: 'writing', sec: '프롬프트 블록', label: '블록 켜기 · 끄기', words: '프롬프트 블록 컨텍스트 요청 끄기 켜기 장편 캐시' },
   { id: 'budgets', cat: 'writing', sec: '프롬프트 블록', label: '블록 예산', words: '프롬프트 블록 예산 글자 컨텍스트 기본값 장편 캐시' },
+  { id: 'regex-rules', cat: 'writing', sec: '정규식 규칙', label: '켤 규칙 묶음', words: '정규식 규칙 묶음 고침 경고 표기 말줄임표 따옴표 바꾸기 regex' },
   { id: 'backup-list', cat: 'backup', sec: '백업에서 되돌리기', label: '백업에서 되돌리기', words: '백업 되돌리기 복원 이전 판 시간별 지우기 전 실수' },
   { id: 'elsewhere', cat: 'writing', sec: '다른 화면에서 정해요', label: '작품 정보 · 연재 일정 · 자동 집필', words: '제목 장르 화수 분량 연재 일정 자동 집필 멈춤 정책' },
   { id: 'write-mode', cat: 'screen', sec: '집필 화면', label: '집필 생성 방식', words: 'AI로 쓰기 채팅 앱 작업지시서 생성 방식' },
@@ -369,6 +370,8 @@ function setRowHtml(id) {
       return p ? blockRows() : '';
     case 'budgets':
       return serialOn() ? budgetRows() : '';
+    case 'regex-rules':
+      return p ? ruleBundleRows() : '';
     case 'backup-list':
       return p ? backupRows() : '';
     case 'elsewhere':
@@ -552,6 +555,72 @@ function ctxReload() {
     S.context = c;
     if (!document.getElementById('set-dlg')?.open && !setTypingBehind()) render();
   }).catch(() => {});
+}
+
+// ----- 정규식 규칙 (Settings.rule_bundles: 켤 규칙 묶음 id, 거는 차례. 묶음 목록 GET /rules, 저장 PUT …/rule-bundles) -----
+
+/** 켤 규칙 묶음 줄들: 켠 묶음(거는 차례대로, 위 · 아래로 옮기기) 다음 끈 묶음. 지워진 묶음 id 는 '찾을 수 없는 묶음이에요' 로 끄기만 둔다 */
+function ruleBundleRows() {
+  const on = P().settings.rule_bundles || [];
+  const got = SET.rules;
+  const head = setRow('regex-rules', '켤 규칙 묶음', '켠 묶음의 고침 규칙은 AI가 쓴 본문 · 새 판 · 부분 수정 · 붙여 넣은 본문을 저장하기 전에 바꾸고, 바꾼 곳은 집필 화면에서 되돌릴 수 있어요. 경고 규칙은 검수 결과에 걸린 곳을 더해요. 위 묶음부터 차례로 걸어요.',
+    '<a class="btn" href="#/rules">규칙 묶음 관리</a>', { wide: false });
+  if (!got || got.name !== S.name) return `${head}<div class="set-desc">규칙 묶음 목록을 불러오는 중이에요.</div>`;
+  if (got.error) return `${head}<div class="set-desc">규칙 묶음 목록을 불러오지 못했어요: ${esc(got.error)}</div>`;
+  const byId = Object.fromEntries(got.list.map((x) => [x.id, x]));
+  const sw = (id, isOn, label) => `<button type="button" class="set-sw" role="switch" aria-checked="${isOn}" aria-label="${esc(label)} 켜기" data-action="setRuleBundle" data-arg="${esc(id)}"></button>`;
+  const desc = (x) => ruleCounts(x).join(' · ');
+  const onRows = on.map((id, i) => {
+    const x = byId[id];
+    const moves = `<button type="button" class="btn ghost icon-btn" data-action="setRuleMove" data-arg="${i}:-1"${i === 0 ? ' disabled' : ''} aria-label="${esc(x ? x.name : id)} 먼저 걸기">↑</button><button type="button" class="btn ghost icon-btn" data-action="setRuleMove" data-arg="${i}:1"${i === on.length - 1 ? ' disabled' : ''} aria-label="${esc(x ? x.name : id)} 나중에 걸기">↓</button>`;
+    return x ? `<li class="set-sub"><span>${i + 1}. ${esc(x.name)}<span class="set-desc">${desc(x)}</span></span><span class="row" style="gap:4px;flex-wrap:nowrap">${moves}${sw(id, true, x.name)}</span></li>`
+      : `<li class="set-sub"><span>${i + 1}. ${esc(id)}<span class="set-desc">찾을 수 없는 묶음이에요. 지워졌거나 다른 컴퓨터의 묶음이라 걸지 않아요.</span></span><span class="row" style="gap:4px;flex-wrap:nowrap">${moves}${sw(id, true, id)}</span></li>`;
+  }).join('');
+  const offRows = got.list.filter((x) => !on.includes(x.id)).map((x) => `<li class="set-sub"><span>${esc(x.name)}<span class="set-desc">${desc(x)}</span></span>${sw(x.id, false, x.name)}</li>`).join('');
+  if (!onRows && !offRows) return `${head}<div class="set-desc">아직 만든 규칙 묶음이 없어요. '규칙 묶음 관리'에서 만들어요.</div>`;
+  return `${head}<ul class="set-subs" aria-label="켤 규칙 묶음">${onRows}${offRows}</ul>`;
+}
+
+async function loadRuleBundles() {
+  if (!inProject()) return;
+  const name = S.name;
+  try {
+    SET.rules = { name, list: await api('GET', '/rules') };
+  } catch (e) {
+    SET.rules = { name, error: e.message };
+  }
+  setPaint();
+}
+
+// 켤 묶음 저장 줄: 앞 저장이 끝난 뒤 그때 화면 값(마지막으로 바꾼 차례)을 보낸다
+let ruleSaveChain = Promise.resolve();
+
+/** 켤 묶음을 ids 로 바꾼다. 화면에 먼저 보이고, 저장은 차례로 보낸다. 서버가 거절하면 바꾸기 전으로 되돌리고 문구를 줄 아래에 보인다.
+    작품에 저장하지 않은 수정이 있으면 응답의 켠 묶음만 맞춘다 (setProjectSave 는 값 하나만 보내 쓰지 않는다) */
+function setRulesSave(ids) {
+  const name = S.name;
+  const before = [...(P().settings.rule_bundles || [])];
+  P().settings.rule_bundles = ids;
+  setPaint();
+  setNote('regex-rules', '저장하는 중…');
+  const send = async () => {
+    if (S.name !== name) return;
+    try {
+      const p = await api('PUT', `/projects/${enc(name)}/rule-bundles`, { bundles: P().settings.rule_bundles });
+      if (S.name === name) {
+        if (!S.dirty) S.project = p;
+        else P().settings.rule_bundles = p.settings.rule_bundles;
+      }
+      SET.note['regex-rules'] = { text: '저장했어요. 다음에 본문을 쓸 때부터 걸어요', kind: 'ok' };
+    } catch (e) {
+      if (S.name === name && JSON.stringify(P().settings.rule_bundles) === JSON.stringify(ids)) P().settings.rule_bundles = before;
+      SET.note['regex-rules'] = { text: e.message, kind: 'err' };
+    }
+    setPaint();
+  };
+  const done = ruleSaveChain.then(send);
+  ruleSaveChain = done.catch(() => {});
+  return done;
 }
 
 const BACKUP_KINDS = { hourly: '시간별', prev: '직전 판', delete: '화 지우기 전', serial: '장편 전환 전', restore: '되돌리기 전' };
@@ -825,6 +894,8 @@ async function openSettings(cat) {
   loadBackups();
   SET.blocks = null;
   loadBlocks();
+  SET.rules = null;
+  loadRuleBundles();
   if (!S.copyFormats) api('GET', '/publish/formats').then((f) => { S.copyFormats = f; setPaint(); }).catch(() => {});
 }
 let setOpener = null;
@@ -997,6 +1068,20 @@ Object.assign(actions, {
     if (!g || g.value === g.default) return;
     const front = (got.blocks || []).some((b) => b.front && (b.keys || []).includes(g.key));
     return setBlocksSave('budgets', () => { g.value = g.default; }, front).then(() => document.getElementById(`set-bud-${g.key}`)?.focus({ preventScroll: true }));
+  },
+  /** 규칙 묶음 하나를 켜고 끈다. 켜면 맨 뒤(가장 나중에 걸기)에 붙는다 */
+  setRuleBundle(id) {
+    const on = P().settings.rule_bundles || [];
+    return setRulesSave(on.includes(id) ? on.filter((x) => x !== id) : [...on, id]);
+  },
+  /** 켠 묶음의 거는 차례를 한 칸 옮긴다 */
+  setRuleMove(arg) {
+    const [i, d] = String(arg).split(':').map(Number);
+    const on = [...(P().settings.rule_bundles || [])];
+    const j = i + d;
+    if (j < 0 || j >= on.length) return;
+    [on[i], on[j]] = [on[j], on[i]];
+    return setRulesSave(on).then(() => document.querySelector(`#set-dlg [data-action="setRuleMove"][data-arg="${j}:${d}"]`)?.focus({ preventScroll: true }));
   },
   /** 블록을 정하는 다른 설정 줄로 옮겨 그 칸에 포커스를 둔다 */
   setJump(row) {

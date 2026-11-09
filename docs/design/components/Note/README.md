@@ -13,6 +13,10 @@
   - `plain` 덧붙임: `bg` 면, `text-2` 글자.
 - 글자는 `note`(13px, 줄 간격 1.55), 안쪽 12px · 14px, 모서리 `radius-8`.
 - 바뀌어 나타나는 상자는 `role="status"`를 준다.
+- 접는 알림은 `<details class="note plain">`에 요약 한 줄을 `summary`로 둔다: 뗀 작업 설명(`metaCutNote`), 규칙 고침(`ruleRunsNote`).
+- 규칙 고침 알림은 걸기 한 번마다 하나다. 요약은 '규칙으로 N곳 고쳤어요' 와 작은 글자의 종류 · 시각 · 되돌린 수다.
+- 펴면 바뀐 곳마다 규칙 이름(굵게) · 전 글(`del`, `red-soft` 면) → 뒤 글(`ins`, `green-soft` 면) · `되돌리기`(`.btn.small`)가 한 줄이다(`.rx-change`). 지운 곳은 '(지움)', 줄바꿈은 ↵ 로 보인다.
+- 시간 한도로 건너뛴 걸기는 접지 않은 `note warn` 한 줄이다.
 
 ## 지킬 것
 
