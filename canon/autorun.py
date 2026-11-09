@@ -678,12 +678,12 @@ class Runner:
                 self._fill_old_spots(p)
                 if e.status == "confirmed":
                     self._recap_note(p)
+                    if self._coord(p, n):
+                        continue  # 새 조율 메모를 저장했다. 스토리보드도 이 메모를 플롯으로 보니 먼저 만든다
                     if self._board(p, n):
                         continue  # 새 스토리보드를 저장했다. 다시 읽고 쓴다
                     if self._cues(p, n):
                         continue  # 새 큐 시트를 저장했다. 다시 읽고 쓴다
-                    if self._coord(p, n):
-                        continue  # 새 조율 메모를 저장했다. 다시 읽고 쓴다
                     self._write(p, n)
                     continue
                 if n in run.polish_due:

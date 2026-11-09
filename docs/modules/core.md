@@ -9,7 +9,7 @@
 - 다른 프로세스가 쥔 실행이면 `wanted` 는 주인이 아직 읽지 않은 `autorun.want` 를 돌려준다. 주인이 읽어 지우면 빈 값으로 돌아간다
 - 목표 화까지 (스토리보드 `_board`, `Policy.storyboard` · `stop_on_board_warnings`) → (큐 시트 `_cues`, `Policy.cue_sheet`) → write → (서술 다듬기 `_polish`, `Policy.polish`, 다듬을 화 `Run.polish_due`) → check + state → 정책(`Policy`) 통과 시 반영을 반복
 - 낡은 AI 큐 시트를 다시 받았는데 비어 오면 그 화는 낡은 시트를 넣지 않고 쓰고 `CueSheet.skipped` 로 적는다(`Runner.no_cues`)
-- 쓰기 재료 조율이면 큐 시트 다음, 쓰기 전에 조율 메모를 만든다(`_coord`, `coord.remake`, board 단계). 사건 수가 달라 받지 못하면 경고만 남기고 원래 플롯으로 쓴다(`Runner.no_coord`)
+- 쓰기 재료 조율이면 스토리보드보다 먼저 조율 메모를 만든다(`_coord`, `coord.remake`, board 단계). 스토리보드도 그 메모를 플롯으로 본다. 사건 수가 달라 받지 못하면 경고만 남기고 원래 플롯으로 쓴다(`Runner.no_coord`)
 - 쓰기(`_write`)와 다듬기(`_polish`)는 본문을 넣는 `_edit` 안에서 보낸 프롬프트 기록을 남긴다(`sent.keep`). 다듬은 글을 버리면 기록도 남기지 않는다
 - `_cues` 는 같은 실행의 `_board` 가 방금 만든 스토리보드(`Runner.board_lead`: 화 · made_at · 요청 글)면 그 요청 글로 시작하는 큐 시트 요청을 보낸다(`pipeline.cue_lead`)
 - 스토리보드 · 큐 시트는 `board` 단계 모델로 부르고 배치로 보내지 않는다. 비용 추정 `calls` 의 키도 `board` 다
@@ -193,10 +193,12 @@
 - 조율 메모(`Episode.coord`, `CoordMemo`): 플롯 summary · events · ending_hook 을 '무엇이 바뀌는가' 한 줄씩으로 줄인 것. 핵심 대사는 그대로다
 - 입력 지문(`basis`: 플롯 summary · events · ending_hook) · 지금 플롯으로 만든 것인지(`fresh`) · 쓰기 요청에 넣을 메모(`memo`, 조율이 아니거나 낡으면 None)
 - 새로 만들지(`remake`: 조율이고 메모가 없거나 낡음, 웹 쓰기 작업 · 자동 집필 `_coord`)
-- 웹 쓰기 작업은 스토리보드 · 큐 시트 다음, 본문 앞에 조율 메모를 만든다(board 단계, 이름표 '조율 메모와'). 실패하면 경고 로그만 남기고 원래 플롯으로 쓴다
+- 웹 쓰기 작업은 스토리보드 · 큐 시트보다 먼저 조율 메모를 만든다(board 단계, 이름표 '조율 메모와'). 실패하면 경고 로그만 남기고 원래 플롯으로 쓴다
 - 플롯 바꾸기(`plot`): `prompts.write_plot(memo=)` 가 부른다. 쓰기 · 검수 · 상태 변경안 · 부분 수정이 같은 글을 받는다
 - 쓰기 요청의 이어받을 것에서 몸 · 물건 줄을 뺀다(`handover`, `DROP_HANDOVER`)
-- 끝 차림 머리(`ATTIRE_HEAD`): 어긋나지만 않게 지키고 본문에 꺼내지 않는다
+- 쓰기 요청에 끝 차림을 넣지 않는다. 끝 상태 값('서랍 안쪽에 숨김')을 본문이 동작으로 옮기기 때문이다. 다음 화가 기대는 것은 깨지 않을 것이 지킨다
+- 스토리보드 만들기 · 큐 시트 같은 설계 요청도 조율 메모를 플롯으로 본다(`prompts.context_parts` 가 `plot` 을 부른다)
+- 스토리보드 요청은 `prompts.COORD_BOARD_RULES` 를 받는다: 장면 자리 · 목표 · 전환 · 끝 상태 · 중심 장면 · 끝 차림을 비우고, 이어받을 것은 이번 화 사건이 기대는 것만
 - 쓰기 요청 끝 단락(`NOTE`)은 조율 메모를 넣었을 때만 붙는다
 - 글은 조율판 실측(2026-11-09, `reports/action-justify-2026-11-09`) 그대로다
 - LLM 호출 없음. 만들기는 `pipeline.make_coord`
@@ -549,7 +551,8 @@
 - lead 안에 장면 연출이 이미 있어 다시 넣지 않는다. 요구사항 첫 줄이 다음 화 플롯 사건을 큐에 넣지 말고 시간 · 이동 · 장면 순서는 스토리보드를 따르라고 적는다
 - 쓰기에 넣는 `board_block`(직전 화 본문 뒤, 이번 화 플롯 바로 앞, 시간 · 이동 블록을 대신함)
 - `board_block(write=True)` 는 쓰기 재료가 꼭 쓸 것만이면 `lean_board_block` 을 돌려준다. 큐 시트 만들기는 write 를 끄고 전체를 본다
-- `board_block(write=True)` 는 쓰기 재료 조율이면 이어받을 것의 몸 · 물건 줄을 빼고 끝 차림 머리를 `coord.ATTIRE_HEAD` 로 바꾼다
+- `board_block(write=True)` 는 쓰기 재료 조율이면 이어받을 것의 몸 · 물건 줄과 끝 차림을 뺀다. `attire_write_rule` 도 끝 차림을 말하지 않는다
+- 쓰기 재료 조율이면 `storyboard_prompt` 의 장면 · 중심 장면 · 첫 장면 · 이어받을 것 규칙이 `COORD_BOARD_RULES` 로 바뀌고 끝 차림 규칙은 '비웁니다'가 된다
 - `lean_board_block` 은 '어기면 안 되는 것'(시간 · 기한 · 이어받을 것 중 `board.LEAN_HANDOVER`)을 앞에, '이번 화에 쓸 것'(장면 · 중심 장면 · 뜨는 상태창 · 이동 · 차림이 바뀌는 순간)을 뒤에 둔다
 - `lean_board_block` 은 장면 끝 상태 · 깨지 않을 것 · 끝 차림 목록 · 창이 뜨지 않는 상태창 변화를 넣지 않는다
 - 쓰기 요청의 무게 문장 `focus_line`: 꼭 쓸 것만이고 중심 장면이 있으면 그 장면에 분량의 절반쯤, 아니면 `FOCUS_LINE`

@@ -4,7 +4,9 @@
 고정점만(board.fixed_only)에 더해 쓰기 요청을 이렇게 바꾼다 (prompts.board_block · write_plot · episode_parts).
 - 플롯 summary · events · ending_hook 대신 조율 메모(Episode.coord, pipeline.make_coord)를 넣는다. 핵심 대사는 그대로다.
 - 이어받을 것의 몸 · 물건 줄을 뺀다 (DROP_HANDOVER).
-- 끝 차림은 어긋나지만 않게 지키고 본문에 꺼내지 않는다 (ATTIRE_HEAD).
+- 끝 차림을 쓰기 요청에 넣지 않는다. '서랍 안쪽에 숨김' 같은 끝 상태 값을 본문이 동작으로 옮기기 때문이다
+  (2026-11-09 분석: 조율판 3편이 '본문에 꺼내지 않음' 지시에도 끝 차림 값을 모두 옮겼다). 다음 화가 기대는 것은 깨지 않을 것(protect)이 지킨다.
+- 스토리보드 만들기도 조율 메모를 플롯으로 보고, 장면 자리 · 목표 · 전환 · 끝 상태 · 중심 장면 · 끝 차림을 비운다 (prompts.COORD_BOARD_RULES).
 - 쓰기 요청 끝에 조율 메모 단락(NOTE)을 붙인다. 조율 메모가 없거나 낡았으면 붙이지 않는다.
 
 실측(2026-11-09, subway 79화, Claude Opus 5.5, reports/action-justify-2026-11-09): 작가 블라인드에서 조율판이 지금 판보다
@@ -21,7 +23,6 @@ from .schema import CoordMemo, EpisodePlot, Project
 
 # 이어받을 것에서 빼는 종류. 손에 든 것 · 몸 상태를 본문이 다시 보여 주게 만드는 줄이다
 DROP_HANDOVER = ("몸", "물건")
-ATTIRE_HEAD = "끝 차림 (바뀐 인물만. 어긋나지만 않게 지키고, 본문에 일부러 보여 주거나 정리하는 장면을 넣지 않습니다):"
 # 조율판 실측의 글 그대로 (2026-11-09)
 NOTE = ("[조율 메모] 이번 화 플롯은 사건마다 무엇이 바뀌는지만 정했습니다. 그것을 어떤 동작과 대사로 보여 줄지, "
         "어느 사건을 장면으로 펼치고 어느 것을 한두 문장으로 넘길지는 직접 정합니다. 이동, 옷 갈아입기, 물건을 넣고 빼는 일은 "
@@ -57,7 +58,8 @@ def remake(p: Project, n: int) -> bool:
 
 
 def plot(plot_: EpisodePlot, m: Optional[CoordMemo]) -> EpisodePlot:
-    """플롯의 summary · events · ending_hook 을 조율 메모로 바꾼 사본. 메모가 없으면 그대로."""
+    """플롯의 summary · events · ending_hook 을 조율 메모로 바꾼 사본. 메모가 없으면 그대로.
+    쓰기 가족(prompts.write_plot)과 스토리보드 만들기 같은 설계 요청(prompts.context_parts)이 함께 쓴다."""
     if m is None:
         return plot_
     return plot_.model_copy(update={"summary": m.summary, "events": list(m.events), "ending_hook": m.ending_hook})

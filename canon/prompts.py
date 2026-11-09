@@ -1389,7 +1389,9 @@ def attire_write_rule(p: Project, board: bool = False) -> str:
         if mode == "lean":  # 꼭 쓸 것만은 끝 차림 목록을 넣지 않고 차림이 바뀌는 순간만 넣는다
             return ("\n\n차림: appearance 의 옷차림보다 [인물 현재 상태]의 attire 를 지키고, 스토리보드의 '차림이 바뀌는 순간'에만 바꿉니다. "
                     "차림은 장면마다 묘사하지 않고 필요할 때만 씁니다.")
-        src = "고정점" if mode in ("fixed", "coord") else "스토리보드"  # 조율도 고정점만 위에 선다 (board.fixed_only)
+        if mode == "coord":  # 조율은 끝 차림을 쓰기 요청에 넣지 않는다 (board_block)
+            return "\n\n차림: appearance 의 옷차림보다 [인물 현재 상태]의 attire 를 지키고, 차림은 장면마다 묘사하지 않고 필요할 때만 씁니다."
+        src = "고정점" if mode == "fixed" else "스토리보드"
         return f"\n\n차림: appearance 의 옷차림보다 [인물 현재 상태]의 attire 와 {src}의 끝 차림을 지키고, 차림은 장면마다 묘사하지 않고 필요할 때만 씁니다."
     return ("\n\n차림: [인물 현재 상태]의 attire 는 직전 화가 끝났을 때 그 인물의 옷, 몸에 남은 상처 · 얼룩, 지닌 물건입니다. "
             "인물 설정의 appearance 에 적힌 옷차림은 평소 모습이라 attire 와 다르면 attire 를 따르고, 이 화에서 갈아입거나 다치면 그 뒤로는 바뀐 차림을 따릅니다. "
@@ -3042,7 +3044,7 @@ def context_parts(p: Project, n: int, *, use_board: bool = True, pre: str = "", 
         Part("story", f"\n\n# 지금까지의 줄거리\n{story_so_far(p, n) or '없음 (첫 화)'}"),
         Part("structure", f"\n\n{where}"),
         *lines, *prev_head, *prev_rest,
-        Part("plot", f"\n\n# 이번 화 플롯\n{dump(write_plot(ep.plot, coord.memo(p, n)) if write else ep.plot)}"),
+        Part("plot", f"\n\n# 이번 화 플롯\n{dump(write_plot(ep.plot, coord.memo(p, n)) if write else coord.plot(ep.plot, coord.memo(p, n)))}"),
         Part("pov", pov), Part("devices", dev), Part("material", material_block(p, n))]
     return follow_parts(p, parts, trace)
 
@@ -3087,7 +3089,7 @@ def serial_parts(p: Project, n: int, *, where: str, act_line: str, lines: list[P
     if head_only:
         return head
     return head + list(prev_rest) + [
-        Part("plot", f"\n\n# 이번 화 플롯\n{dump(write_plot(p.episode(n).plot, coord.memo(p, n)) if write else p.episode(n).plot)}"), *tail]
+        Part("plot", f"\n\n# 이번 화 플롯\n{dump(write_plot(p.episode(n).plot, coord.memo(p, n)) if write else coord.plot(p.episode(n).plot, coord.memo(p, n)))}"), *tail]
 
 
 def write_head(p: Project, n: int) -> str:
@@ -3559,8 +3561,8 @@ def board_block(p: Project, n: int, write: bool = False, budget: int = 0, trace:
         out.append("이동:")
         where = (lambda m: "") if fixed else (lambda m: f"{m.scene}장면에서 " if m.scene else "장면 사이에 ")
         out += [f"- {name.get(m.character_id, m.character_id)}: {where(m)}{m.to}(으)로" for m in b.moves]
-    if b.attire:
-        out.append(coord.ATTIRE_HEAD if write and coord.on(p) else "끝 차림 (바뀐 인물만):")
+    if b.attire and not (write and coord.on(p)):  # 조율은 끝 차림을 쓰기 요청에 넣지 않는다 (적힌 값을 본문이 동작으로 옮긴다, coord.py)
+        out.append("끝 차림 (바뀐 인물만):")
         out += [f"- {name.get(a.character_id, a.character_id)} = {a.end.strip()}" for a in b.attire if a.end.strip()]
     if b.protect:
         out.append("이번 화에서 깨지 않을 것 (다음 화가 전제함):")
@@ -3647,6 +3649,17 @@ def canon_values_block(p: Project, n: int) -> str:
     return "# Canon 이 센 값 (그대로 쓸 것)\n" + "\n".join(lines)
 
 
+# 쓰기 재료 조율(coord.on)의 스토리보드 요구사항 앞부분. 감독은 장면에서 무엇이 일어나는지와 이어지는 사실만 정하고,
+# 자리 · 목표 · 전환 · 끝 상태 · 중심 장면은 비운다 (조율이면 쓰기 요청에 들어가지 않고, 끝 상태 값은 본문이 동작으로 옮긴다. 2026-11-09 분석)
+COORD_BOARD_RULES = """- scenes: 장면 3~7개. 이번 화 플롯 events 를 빠짐없이 나눠 맡고, 장면마다 맡은 events 번호(1부터)를 적습니다.
+  장면마다 장소, 시각, 함께 있는 인물 id 만 적습니다. 자리(spot), 장면 목표, 전환점, 장면 끝 상태는 비웁니다. 쓰기 재료가 조율이라 본문을 쓰는 AI 가 정합니다.
+- focus 는 0 으로 둡니다.
+- 대사, 본문 문장, 묘사를 적지 않습니다.
+- 첫 장면은 [직전 화 본문]의 마지막 장면에서 이어집니다. 플롯의 opening(여는 장면)과 time 칸을 직전 화 끝과 대조해, 어긋나면 warnings 에 적고 직전 화 끝을 따릅니다.
+- handover 에는 직전 화 끝에서 이어받아야 하는 사실 가운데 이번 화 사건이 기대는 것만 한 줄씩 적습니다 (kind: 장면, 시간, 몸, 물건, 인물, 숨긴 것, 숫자, 질문). 손에 든 것과 몸 상태는 이번 화 사건이 그것에 기댈 때만 적습니다.
+"""
+
+
 def storyboard_prompt(p: Project, n: int) -> str:
     """n화 스토리보드 만들기. 앞부분은 쓰기 프롬프트와 같고, 직전 화 본문 앞(장편은 뒤)에 Canon 이 센 값 · 장소 목록,
     이번 화 플롯 앞에 다음 화 플롯을 넣는다. 요구사항은 맨 끝."""
@@ -3658,11 +3671,15 @@ def storyboard_prompt(p: Project, n: int) -> str:
     stats = statwin.enabled(p)
     arc_dir, ep_dir = direction_texts(p, n)
     said = " ".join(x for x in (arc_dir and f"아크 연출 지시: {arc_dir}", ep_dir and f"화 연출 지시: {ep_dir}") if x)
-    return build_episode_context(p, n, use_board=False, pre=pre, between=between, full_prev=True) + f"""
+    lead = build_episode_context(p, n, use_board=False, pre=pre, between=between, full_prev=True) + f"""
 
 위 자료로 {n}화 스토리보드를 JSON 으로 만듭니다. 본문을 쓰지 않습니다.
 
-- scenes: 장면 3~7개. 이번 화 플롯 events 를 빠짐없이 나눠 맡고, 장면마다 맡은 events 번호(1부터)를 적습니다.
+"""
+    if coord.on(p):  # 쓰기 재료 조율: 장면 동선 · 끝 상태 · 끝 차림은 본문을 쓰는 AI 가 정한다 (coord.py)
+        head = lead + COORD_BOARD_RULES
+    else:
+        head = lead + f"""- scenes: 장면 3~7개. 이번 화 플롯 events 를 빠짐없이 나눠 맡고, 장면마다 맡은 events 번호(1부터)를 적습니다.
   장면마다 장소, 그 장소 안 자리, 시각, 함께 있는 인물 id, 장면 목표, 전환점, 장면 끝 상태를 적습니다.
   장면 목표 · 전환점은 명사구로 짧게, 장면 끝 상태는 값을 · 로 이어 적습니다 (예: '건우 운전석 · 공회전 · 연료 1.2L'). 본문 문장처럼 쓰면 본문에 그대로 옮겨집니다.
 - focus: 이 화의 중심 장면 번호 하나(1부터). 작품이 가장 공들여 보여 줘야 하는 장면을 고릅니다. 본문 분량의 절반쯤이 이 장면에 갑니다.{f" ({said})" if said else ""}
@@ -3670,15 +3687,16 @@ def storyboard_prompt(p: Project, n: int) -> str:
 - 첫 장면은 [직전 화 본문]의 마지막 장면에서 바로 이어집니다. 자리, 손에 든 물건, 다친 곳, 하던 말이 이어지게 합니다.
   플롯의 opening(여는 장면)과 time 칸도 직전 화 끝과 대조해, 어긋나면 warnings 에 적고 직전 화 끝을 따릅니다.
 - handover 에는 직전 화 끝에서 이어받아야 하는 사실을 한 줄씩 적습니다 (kind: 장면, 시간, 몸, 물건, 인물, 숨긴 것, 숫자, 질문).
-- 상태창 항목(예: 동료 칸 1 / 1)을 자리 수 같은 물리적 사실로 바꿔 적지 않습니다. 장소 · 사물의 생김새는 앞 화 본문과 [확정된 사실]에 있는 것만 씁니다.
+"""
+    return head + """- 상태창 항목(예: 동료 칸 1 / 1)을 자리 수 같은 물리적 사실로 바꿔 적지 않습니다. 장소 · 사물의 생김새는 앞 화 본문과 [확정된 사실]에 있는 것만 씁니다.
 - 스토리보드 글에 화 번호('6화', '11화')를 쓰지 않습니다. '사흘째 밤', '어제 낮'처럼 작품 속 때로 적습니다. 화 번호를 적으면 1인칭 본문에 그대로 옮겨집니다.
 - 앞 화 숫자를 근거로 쓸 때는 그 숫자의 조건까지 옮깁니다 (왕복인지 편도인지, 어떤 길에서 잰 값인지).
 - 물 · 연료 같은 소모 셈에는 [인물 현재 상태]와 [확정된 사실]에 있는 소모 항목을 빠짐없이 넣습니다 (예: 이동 중 소모와 쉬는 동안 새는 양을 함께).
 - time 에는 직전 화 끝에서 며칠 뒤에 시작하는지(after, 같은 날 0, 회상 · 외전처럼 메인 시간 밖이면 -1), 시작 · 끝 시간대, 걸치는 날 수를 적습니다. 날수와 날짜는 적지 않습니다 (Canon 이 셉니다).
 """ + ("""- stats 에는 [인물 현재 상태]의 stats 에서 바뀌는 항목만, 바뀐 양으로 적습니다 (예: -0.7, +1, +독 내성). 바뀐 장면 번호를 scene 에, 본문에 상태창이 뜨면 window 를 true 로 적습니다. 근거는 stat_basis 에 한 줄씩 적습니다.
   지금 값에서 닿을 수 없는 플롯 수치는 쓰지 않고 warnings 에 적습니다.
-""" if stats else "- 이 작품은 상태창을 쓰지 않습니다. stats 와 stat_basis 는 비웁니다.\n") + """- moves 에는 다른 장소로 옮겨 가는 인물만 [장소 목록]의 이름으로 적습니다.
-- attire 에는 이번 화에 차림이 바뀌는 인물의 끝 차림만 적습니다 (이어지는 상처와 물건까지 다시, 가방 · 옷 · 신발은 백팩 · 코트 · 운동화처럼 종류까지).
+""" if stats else "- 이 작품은 상태창을 쓰지 않습니다. stats 와 stat_basis 는 비웁니다.\n") + f"""- moves 에는 다른 장소로 옮겨 가는 인물만 [장소 목록]의 이름으로 적습니다.
+{"- attire 는 비웁니다 (쓰기 재료가 조율이라 끝 차림은 본문을 쓴 뒤 상태 변경안이 정합니다)." if coord.on(p) else "- attire 에는 이번 화에 차림이 바뀌는 인물의 끝 차림만 적습니다 (이어지는 상처와 물건까지 다시, 가방 · 옷 · 신발은 백팩 · 코트 · 운동화처럼 종류까지)."}
 - protect 에는 [다음 화 플롯]이 전제하는 것 중 이번 화가 깨기 쉬운 것을 적습니다.
 - warnings: 이번 화 플롯이 [인물 현재 상태] · [직전 화 본문] · [Canon 이 센 값] · 설정과 어긋나면 적고, resolution 에 이 스토리보드가 택한 처리를 적습니다.
   지금 상태가 플롯보다 앞섭니다. 플롯 칸을 고쳐 적지 않습니다. 다음 화 플롯과 어긋나면 target 을 next, kind 를 next_plot 으로 적습니다."""
