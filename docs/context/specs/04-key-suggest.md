@@ -1,6 +1,6 @@
 # 04. 다른 이름 채우기
 
-상태: 진행 (claude/alias-fill) · 계획: [plan.md](../plan.md) 의 4번 · 먼저: —
+상태: 진행 (claude/alias-fill, #468) · 계획: [plan.md](../plan.md) 의 4번 · 먼저: —
 
 2026-11-10 구현: 바꿀 곳 · 시험 · 문서를 모두 고쳤다. 확인 (가)는 `tests/test_context_measure.py` 의 데모 작품으로만 돌렸다. 확인 (나) 실호출과 그 실측값은 아직 없다.
 
