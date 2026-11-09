@@ -192,6 +192,11 @@
   - `CANON_CLAUDE_BIN` · `CANON_CLAUDE_MODEL` · `CANON_CLAUDE_TIMEOUT`: Claude
   - `CANON_CLAUDE_CACHE_1H`: 1 · true · on 이면 Claude 프롬프트 캐시를 1시간으로 쓴다(기본 끔, `claude.cache_1h`). 쓰기 값이 5분 캐시의 1.25배에서 2배로 오른다. 끄면 Claude Code 에 5분 캐시를 강제한다
   - `CANON_CLAUDE_CONFIG_DIR`: Canon 전용 Claude Code 설정 폴더(구독 계정을 따로 로그인)
+  - `CANON_COMFY_CKPT`: 기본 ComfyUI 워크플로가 쓰는 체크포인트 파일 이름(`canon/comfy.py`)
+  - `CANON_COMFY_SIZE`: ComfyUI 그림 크기(기본 832x1216)
+  - `CANON_COMFY_TIMEOUT`: ComfyUI 그림 하나를 기다리는 초(기본 600)
+  - `CANON_COMFY_URL`: ComfyUI 주소(예: SSH 터널 `http://127.0.0.1:18188`). `mock` 이면 가짜 ComfyUI. 비우면 그리기를 끈다
+  - `CANON_COMFY_WORKFLOW`: ComfyUI 'Export (API)' 워크플로 JSON 경로. 비우면 기본 틀
   - `CANON_CONFIG`: 설정 파일 위치(기본 `~/.canon/config.json`, `settings.path`)
   - `CANON_EFFORT_<단계>`: 단계별 추론 강도(low · medium · high · xhigh · max, `settings.stage_effort`). Claude · Gemini 만 쓴다
   - `CANON_GEMINI_AUTH`: Gemini 연결 방식(key | vertex)

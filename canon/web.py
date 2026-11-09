@@ -31,7 +31,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from . import address, agent, archetypes, autorun, board, cancel, cast, charlog, coord, dynamics, elements, genres, illust, jobs, knows, library, metrics, naming, pipeline, prompts, publish, refs, research, settings, store, usage
+from . import address, agent, archetypes, autorun, board, cancel, cast, charlog, comfy, coord, dynamics, elements, genres, illust, jobs, knows, library, metrics, naming, pipeline, prompts, publish, refs, research, settings, store, usage
 from .llm import BadKey, GeminiLLM, LocalLLM, MissingKey, explain_error, get_llm, make_llm, with_note
 from . import context as ctxrules  # 이름 context 는 컨텍스트 보기 엔드포인트가 쓴다
 from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록)
@@ -2573,7 +2573,7 @@ class JobIn(BaseModel):
     board: Literal["", "make", "none"] = ""  # write: make 면 스토리보드를 새로 만든 뒤 쓴다(바로 쓰기), none 이면 스토리보드 없이 쓴다
     cues: Literal["", "none"] = ""  # write: 큐 시트를 쓰는 작품(cue.on)인데 그 화에 없으면 만든 뒤 쓴다. none 이면 큐 시트 없이 쓴다
     text: str = ""  # style: 분석할 예시 원문 (200자 이상)
-    target: str = ""  # char_body, char_voice, char_look, names_ai: 인물 id (names_ai 는 비우면 지명)
+    target: str = ""  # char_body, char_voice, char_look, names_ai: 인물 id (names_ai 는 비우면 지명). illust_render: 삽화 id
     place_kind: str = ""  # names_ai: 지명 종류 (target 이 비었을 때)
     selection: Selection | None = None  # illust: 그릴 부분 (비우면 AI 가 장면을 고른다)
     model: str = ""  # illust: 삽화 모델 (illust.MODELS)
@@ -3073,6 +3073,32 @@ def _job_illust(name: str, body: "JobIn", p: Project, kind: str, n: int | None, 
     return label, 1, set(), fn
 
 
+def _job_illust_render(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 illust_render: 삽화 프롬프트 하나(body.target)를 ComfyUI 로 그려 그 삽화에 그림을 더한다. LLM 을 부르지 않는다.
+    삽화 프롬프트처럼 이야기 데이터가 아니라 바로 남긴다. 그 삽화가 그사이 지워졌으면 받은 그림을 버린다.
+    파일 쓰기 · 기록 · 정리(prune)는 한 작품 잠금(_edit) 안에서 한다. 밖에서 쓰면 함께 도는 그리기나 지우기의 정리가 새 파일을 지운다."""
+    if n is None:
+        raise ValueError("그릴 화가 없어요")
+    iid = body.target
+    comfy.find(p, n, iid)
+    if not comfy.url():
+        raise ValueError("ComfyUI 주소가 없어요. CANON_COMFY_URL에 ComfyUI 주소를 적으세요")
+
+    def fn(job: jobs.Job):
+        q = store.load(name)
+        data, img = comfy.render(q, comfy.find(q, n, iid))
+        cancel.check()
+
+        def put(r: Project) -> None:
+            comfy.find(r, n, iid)  # 지워졌으면 파일을 쓰지 않고 실패한다
+            img.file = comfy.save_image(name, data)
+            comfy.add_image(r, n, iid, img)
+            comfy.prune(name, r)
+        _edit(name, put)
+        return {"id": iid, "file": img.file, "notes": list(img.notes)}
+    return f"{n}화 삽화 그리기", 1, set(), fn
+
+
 def _job_atlas_ai(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
     """작업 atlas_suggest · atlas_sort: 지도 만들기 설정 제안 · 장소와 맞지 않은 위치 글 정리 제안. 저장하지 않는다
     (화면 칸에만 놓고, 작가가 미리보기 · 적용을 눌러야 지도에 들어간다)."""
@@ -3099,7 +3125,7 @@ def _job_atlas_ai(name: str, body: "JobIn", p: Project, kind: str, n: int | None
 
 def _job_target(kind: str, body: "JobIn") -> str:
     """같은 종류를 대상마다 따로 돌리는 작업의 대상: 인물 id, 지적 id. 이름 고르기는 지명이면 빈 글이다."""
-    return body.target if kind in ("char_body", "char_voice", "char_look", "names_ai", "fix_one", "recheck_one") else ""
+    return body.target if kind in ("char_body", "char_voice", "char_look", "names_ai", "fix_one", "recheck_one", "illust_render") else ""
 
 
 def _job_plots(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
@@ -3465,6 +3491,7 @@ JOB_MAKERS: dict[str, Callable] = {
     "fix_one": _job_finding_ai,
     "recheck_one": _job_finding_ai,
     "illust": _job_illust,
+    "illust_render": _job_illust_render,
     "atlas_suggest": _job_atlas_ai,
     "atlas_sort": _job_atlas_ai,
 }
@@ -3472,6 +3499,8 @@ JOB_MAKERS: dict[str, Callable] = {
 
 # 단계 LLM 대신 작업이 고른 백엔드를 쓰는 작업 (연구 실험 rs_*, routes/research 가 더한다). start_job 이 get_llm 을 부르지 않는다
 OWN_LLM_KINDS: set[str] = set()
+# LLM 을 부르지 않는 작업 (ComfyUI 그리기). start_job 이 get_llm 을 부르지 않아 키가 없어도 돈다
+NO_LLM_KINDS = {"illust_render"}
 
 
 @app.post("/api/projects/{name}/jobs")
@@ -3487,7 +3516,7 @@ def start_job(name: str, body: JobIn) -> dict:
              "hook": "check", "check": "check", "recheck": "check", "opening_drafts": "write", "stattrial": "write", "stage_extract": "check", "cue_run": "write",
              "board": "board", "cues": "board", "char_look": "illustration", "names_ai": "name", "style_example": "write",
              "fix_one": "revise", "recheck_one": "check", "illust": "illustration", "atlas_sort": "state"}.get(kind, "plan")  # 나머지는 plan
-    llm = None if kind in OWN_LLM_KINDS else get_llm(stage)  # 키가 없으면 여기서 바로 오류를 보여 준다
+    llm = None if kind in OWN_LLM_KINDS or kind in NO_LLM_KINDS else get_llm(stage)  # 키가 없으면 여기서 바로 오류를 보여 준다
 
     maker = JOB_MAKERS.get(kind)
     if maker is None:
@@ -3498,7 +3527,7 @@ def start_job(name: str, body: JobIn) -> dict:
 
     try:
         with usage.scope(episode=n if kind in ("write", "board", "state", "check", "fixes", "recheck", "rework", "hook", "openings", "opening_drafts", "plot_one", "cue_sheet", "cue_run", "cues",
-                                       "fix_one", "recheck_one", "illust") else None, task=kind):
+                                       "fix_one", "recheck_one", "illust", "illust_render") else None, task=kind):
             job = jobs.start(name, kind, n, label, _keep_pending(name, kind, n, label, fn, target), total=total, owned=owned, target=target)
     except jobs.Busy as b:
         return {**b.job.public(), "already": True}
@@ -4501,7 +4530,35 @@ def keep_illust_look(name: str, n: int, iid: str, body: KeepLook) -> Project:
 @app.delete("/api/projects/{name}/episodes/{n}/illust/{iid}")
 def delete_illust(name: str, n: int, iid: str) -> Project:
     _load(name).episode(n)
-    return _edit(name, lambda p: pipeline.remove_illustration(p, n, iid))
+
+    def drop(p: Project) -> None:
+        pipeline.remove_illustration(p, n, iid)
+        comfy.prune(name, p)  # 지운 삽화의 그림 파일. 작품 잠금 안에서 지워 함께 도는 그리기의 새 파일을 지우지 않는다
+    return _edit(name, drop)
+
+
+# ComfyUI 로 그리기 (canon/comfy.py). 그리기는 작업 illust_render 이고, 여기는 설정 · 그림 파일 · 그림 지우기다
+
+@app.get("/api/comfy")
+def comfy_status() -> dict:
+    return comfy.status()
+
+
+@app.get("/api/projects/{name}/illust-images/{file}")
+def illust_image(name: str, file: str) -> FileResponse:
+    if not store.exists(name):
+        raise KeyError(f"작품이 없어요: {name}")
+    return FileResponse(comfy.image_path(name, file), media_type="image/png", headers={"Cache-Control": "private, max-age=31536000, immutable"})
+
+
+@app.delete("/api/projects/{name}/episodes/{n}/illust/{iid}/images/{file}")
+def delete_illust_image(name: str, n: int, iid: str, file: str) -> Project:
+    _load(name).episode(n)
+
+    def drop(p: Project) -> None:
+        comfy.remove_image(p, n, iid, file)
+        comfy.prune(name, p)
+    return _edit(name, drop)
 
 
 class VoiceRequest(BaseModel):
