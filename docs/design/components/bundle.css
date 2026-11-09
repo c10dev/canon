@@ -271,3 +271,4 @@ details.w-gist > summary { padding: 8px 0; cursor: pointer; }
   .outline-item { min-height: 44px; }
 }
 .sty-secs { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+@media (pointer: coarse), (max-width: 640px) { .help-btn { position: relative; } .help-btn::after { content: ''; position: absolute; inset: -13px; } }
