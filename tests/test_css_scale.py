@@ -19,7 +19,7 @@ FONT_PX = {float(s["fontSize"].removesuffix("px")) for g in TOKENS["type"]["grou
 # 단계 밖이지만 정한 값: (속성, 선택자, 값) → 까닭. 선택자는 app.css 규칙의 선택자 글 그대로다
 EXCEPTIONS = {
     ("font-size", ".usage-tile.hero .usage-num", "3rem"): "사용량 첫 수 타일의 큰 수 48px. Card 문서 '수 타일'에 적었다",
-    ("font-size", ".nav a .num.tf, .nav-off .num.tf", "1.125rem"): "사이드바 이모지 칸 18px(README '표시와 그림'). 사이드바 표시는 일감 14 가 다룬다",
+    ("font-size", ".nav a .num.tf, .nav-off .num.tf", "1.125rem"): "사이드바 이모지 칸 18px(README '표시와 그림'). 일감 14 에서 이모지를 두기로 해 남긴다",
 }
 # 꾸밈 변수: 작가가 고른 상태창 꾸밈(.sw-box)이 값을 준다
 SKIN_VARS = {"var(--sw-radius)"}

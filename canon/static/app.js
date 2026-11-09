@@ -2878,9 +2878,10 @@ function navItems() {
   };
 }
 
-/** 사이드바 앞 기호: 단계 번호는 글자 칸, 그 밖은 토스페이스 이모지 아이콘 (원본 그대로, 낭독은 이름으로 충분해 숨긴다) */
-function navMark(mark) {
-  return /\p{Extended_Pictographic}/u.test(mark) ? `<span class="num tf" aria-hidden="true">${mark}</span>` : `<span class="num" aria-hidden="true">${mark}</span>`;
+/** 사이드바 앞 기호: 단계 번호는 글자 칸, 그 밖은 토스페이스 이모지 아이콘 (원본 그대로, 낭독은 이름으로 충분해 숨긴다).
+    rare: 드문 도구(아직 안 쓴 도구 · 작품 밖 도구). 펴진 사이드바에서는 이모지를 숨겨 글만 보이고, 레일에서는 보인다 (app.css .num.rare) */
+function navMark(mark, rare = false) {
+  return /\p{Extended_Pictographic}/u.test(mark) ? `<span class="num tf${rare ? ' rare' : ''}" aria-hidden="true">${mark}</span>` : `<span class="num" aria-hidden="true">${mark}</span>`;
 }
 
 /** 화 칸 띠에 그릴 수 있는 가장 많은 화. 넘으면 칸이 너무 얇아 막대로 그린다 */
@@ -2943,10 +2944,10 @@ function navBadge(text, spoken, tone = '') {
   return `<span class="nav-badge${tone ? ` ${tone}` : ''}"><span aria-hidden="true">${text}</span><span class="sr-only">, ${spoken}</span></span>`;
 }
 
-/** 사이드바 한 줄 [id, 주소, 기호, 이름]. 이름이 길면 줄임표, 레일에서는 이름을 눈으로만 감추고 title 로 보인다 */
-function navLink([id, href, mark, label], active, badge = '') {
+/** 사이드바 한 줄 [id, 주소, 기호, 이름]. 이름이 길면 줄임표, 레일에서는 이름을 눈으로만 감추고 title 로 보인다. rare 는 navMark */
+function navLink([id, href, mark, label], active, badge = '', rare = false) {
   const step = /^\d$/.test(mark) ? `<span class="sr-only"> (단계 ${mark})</span>` : '';
-  return `<a href="${href}" title="${esc(label)}"${id === active ? ' aria-current="page"' : ''}>${navMark(mark)}<span class="nav-label">${label}${step}</span>${badge}</a>`;
+  return `<a href="${href}" title="${esc(label)}"${id === active ? ' aria-current="page"' : ''}>${navMark(mark, rare)}<span class="nav-label">${label}${step}</span>${badge}</a>`;
 }
 
 /** 접는 묶음. 머리는 ▸ 삼각형 버튼, 펼침은 navFoldOpen (레일에서는 머리를 숨기고 작품 도구는 늘 보인다) */
@@ -3022,7 +3023,7 @@ function sidebar(active) {
   const shown = tools.filter((t) => t[4]);
   const folded = tools.filter((t) => !t[4]);
   const here = (xs) => xs.some((t) => t[0] === active);  // 지금 보는 화면이 든 묶음은 펼쳐 그린다 (기억하지 않는다)
-  const more = folded.length ? navFold('more', '아직 안 쓴 도구', folded.length, folded.map(link).join(''), navFoldOpen('more') || here(folded)) : '';
+  const more = folded.length ? navFold('more', '아직 안 쓴 도구', folded.length, folded.map((t) => navLink(t, active, badge[t[0]] || '', true)).join(''), navFoldOpen('more') || here(folded)) : '';
   return `<nav class="side${S.menuOpen ? ' open' : ''}" aria-label="작품 메뉴">
     ${sideTop({ chat: true })}
     ${workCard()}
@@ -3067,8 +3068,8 @@ function outSidebar(active) {
   const recentLinks = recent.map((r) => link([`p:${r.name}`, r.href, r.mark, esc(r.label)],
     r.fail ? navBadge(r.fail, `멈춘 작업 ${r.fail}개`, 'red') : r.result ? navBadge('결과', '검토를 기다리는 결과가 있어요', 'amber') : '')).join('');
   const toolLinks = tools.map(([id, href, mark, label, badge]) => (href
-    ? link([id, href, mark, label], badge ? navBadge(badge, `${badge}개`) : '')
-    : `<span class="nav-off" title="${esc(label)} · 아직 열지 않았어요" aria-disabled="true">${navMark(mark)}<span class="nav-label">${label}</span>${navBadge(badge, '준비하는 중')}</span>`)).join('');
+    ? navLink([id, href, mark, label], active, badge ? navBadge(badge, `${badge}개`) : '', true)
+    : `<span class="nav-off" title="${esc(label)} · 아직 열지 않았어요" aria-disabled="true">${navMark(mark, true)}<span class="nav-label">${label}</span>${navBadge(badge, '준비하는 중')}</span>`)).join('');
   return `<nav class="side side-out${S.menuOpen ? ' open' : ''}" aria-label="작품 밖 메뉴">
     ${sideTop()}
     <div class="side-menu" id="side-menu">
