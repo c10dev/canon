@@ -49,6 +49,7 @@ from . import play
 from . import cue
 from .schema import CueSheetDraft
 from . import stage, tofix
+from . import sent
 from .schema import PlayInfo, StageProposal, StageRoom, StageScene
 from .logline import josa
 
@@ -2069,6 +2070,8 @@ def delete_episode(name: str, n: int, body: DeleteIn) -> dict:
         store.save(name, p)
         if not body.keep_plot:
             notes = [*notes, *store.renumber_side_files(name, lambda x: x - 1 if x >= n else x, [n])]
+        elif aside := sent.set_aside(name, n):  # 화는 남고 본문만 지웠다. 그 본문의 요청 기록은 따로 남긴다
+            notes = [*notes, f"지운 {n}화 본문의 보낸 프롬프트 기록은 따로 남겨 뒀어요: {aside}"]
     if before.episode(n).status == "finalized":
         autorun.after_revert(name, n)
     if not body.keep_plot:
@@ -2945,8 +2948,13 @@ def _job_write(name: str, body: "JobIn", p: Project, kind: str, n: int | None, l
 
             def fn(job: jobs.Job):
                 cut: list = []
-                text = pipeline.rewrite_episode(use, store.load(name), n, req, cut)
-                _edit(name, lambda q: pipeline.set_candidate(q, n, text, req, pipeline.writer_of(use), cut))
+                rec: list = []
+                text = pipeline.rewrite_episode(use, store.load(name), n, req, cut, rec)
+
+                def put(q: Project) -> None:  # 새 판을 낳은 요청은 대기 칸에 둔다. 작가가 고르면 지금 기록이 된다 (sent.adopt)
+                    v = pipeline.set_candidate(q, n, text, req, pipeline.writer_of(use), cut)
+                    sent.hold(name, n, rec, text, v.id)
+                _edit(name, put)
                 return {"candidate": True}
         else:
             make = body.board == "make"
@@ -3001,7 +3009,9 @@ def _job_write(name: str, body: "JobIn", p: Project, kind: str, n: int | None, l
                     job.done += 1
                 job.note = f"{n}화 본문 쓰는 중"
                 cut: list = []
-                text = pipeline.write_episode(llm, store.load(name), n, use_board=body.board != "none", use_cues=use_cues, cut=cut)
+                rec: list = []
+                text = pipeline.write_episode(llm, store.load(name), n, use_board=body.board != "none", use_cues=use_cues, cut=cut,
+                                              sent=rec)
 
                 def save(q):
                     pipeline.replace_text(q.episode(n), text, written_by=pipeline.writer_of(llm), meta_cut=cut)  # 지금 본문이 있으면 '이전 판'에 남는다
@@ -3009,6 +3019,7 @@ def _job_write(name: str, body: "JobIn", p: Project, kind: str, n: int | None, l
                     if q.episode(n).storyboard is not None:  # 스토리보드 없이 쓴 본문은 검수가 그 전제를 대조하지 않는다
                         q.episode(n).storyboard.skipped = body.board == "none"
                     cue.mark_used(q, n, use_cues)  # 큐 시트 없이 쓴 본문: 다시 생성도 넣지 않고 화면이 '쓴 큐 시트'로 보이지 않는다
+                    sent.keep(name, n, rec, text)  # 이 본문이 받은 요청 그대로 (작품 폴더 sent/)
                 _edit(name, save)
                 return None
     else:
@@ -3386,12 +3397,14 @@ def get_job(jid: str) -> dict:
 def write_episode(name: str, n: int) -> Project:
     p = _load(name)
     _not_auto(name)
-    llm, cut = get_llm("write"), []
-    text = pipeline.write_episode(llm, p, n, cut=cut)
+    llm, cut, rec = get_llm("write"), [], []
+    text = pipeline.write_episode(llm, p, n, cut=cut, sent=rec)
     pipeline.replace_text(p.episode(n), text, written_by=pipeline.writer_of(llm), meta_cut=cut)  # 지금 본문이 있으면 '이전 판'에 남는다
     cue.mark_used(p, n, True)
     anchor.stamp(p, n)
-    return _save(name, p)
+    with jobs.project_lock(name):
+        sent.keep(name, n, rec, text)
+        return _save_locked(name, p)
 
 
 class Text(BaseModel):
@@ -3800,6 +3813,10 @@ class PromptText(BaseModel):
     """보내지 않고 보기만 하는 프롬프트 원문."""
     system: str
     prompt: str
+    source: Literal["rebuilt", "sent"] = "rebuilt"  # rebuilt: 지금 데이터로 다시 만듦, sent: 그 화 본문이 받은 요청 그대로 (sent.py)
+    has_sent: bool = False  # 그 화에 보낸 프롬프트 기록이 있다 (화면이 두 갈래를 오가게 한다)
+    note: str = ""  # 화면에 그대로 보이는 설명 한 줄
+    at: str = ""  # sent: 보낸 시각 (화면이 fmtDateTime 으로 보인다)
 
 
 @app.get("/api/projects/{name}/episodes/{n}/rewrite")
@@ -3837,15 +3854,20 @@ def adopt_candidate(name: str, n: int) -> Project:
     _not_auto(name)
     _no_write_job(name, n)
     p = _load(name)
+    vid = p.episode(n).candidate.id if p.episode(n).candidate else ""
     pipeline.adopt_candidate(p, n)
-    return _save(name, p)
+    with jobs.project_lock(name):
+        sent.adopt(name, n, vid)
+        return _save_locked(name, p)
 
 
 @app.delete("/api/projects/{name}/episodes/{n}/candidate")
 def drop_candidate(name: str, n: int) -> Project:
     p = _load(name)
     pipeline.drop_candidate(p, n)
-    return _save(name, p)
+    with jobs.project_lock(name):
+        sent.drop_candidate(name, n)
+        return _save_locked(name, p)
 
 
 @app.post("/api/projects/{name}/episodes/{n}/versions/{vid}/restore")
@@ -4088,9 +4110,38 @@ def suggest_look(name: str, cid: str) -> LookSuggestion:
 
 
 @app.get("/api/projects/{name}/episodes/{n}/prompt")
-def prompt(name: str, n: int) -> PromptText:
-    p = _load(name)
-    return {"system": prompts.writer_system(p), "prompt": prompts.episode_prompt(p, n)}
+def prompt(name: str, n: int, source: Literal["auto", "sent", "rebuilt"] = "auto") -> PromptText:
+    """집필 프롬프트 원문. auto 는 그 화에 보낸 프롬프트 기록이 있으면 그것을, 없으면 지금 데이터로 다시 만든 것을 준다."""
+    p = _view(name)
+    ep = p.episode(n)
+    rec = sent.read(name, n)
+    if rec is not None and source != "rebuilt":
+        return {"system": rec.system, "prompt": rec.prompt.rstrip() + rec.tail if rec.tail else rec.prompt,
+                "source": "sent", "has_sent": True, "note": _sent_note(rec, ep.text), "at": rec.at}
+    if rec is not None:
+        note = "지금 데이터로 다시 만든 프롬프트예요. 이 화 본문이 실제로 받은 프롬프트와 다를 수 있어요."
+    elif ep.text.strip():
+        note = "이 화는 보낸 프롬프트 기록이 없어요. 지금 데이터로 다시 만든 프롬프트예요."
+    else:
+        note = ""
+    return {"system": prompts.writer_system(p), "prompt": prompts.episode_prompt(p, n), "has_sent": rec is not None, "note": note}
+
+
+SENT_KIND = {"write": "본문 쓰기", "rewrite": "다시 생성", "polish": "서술 다듬기"}
+
+
+def _sent_note(rec: sent.SentPrompt, text: str) -> str:
+    """보낸 그대로 보기의 설명 한 줄: 언제 · 어느 모델 · 몇 번째 시도 · 다시 부른 까닭 · 본문이 그 뒤 바뀌었는지."""
+    parts = [f"{SENT_KIND[rec.kind]} 때 보낸 그대로예요", rec.model]
+    why = sent.retry_text(rec)
+    parts.append(f"{rec.attempt}번째 호출의 응답을 받았어요" + (f" (다시 부른 까닭: {why})" if why else ""))
+    if rec.family:
+        parts.append("캐시 가족으로 보내 Claude에는 시스템 글을 요청 맨 앞에 붙였어요")
+    if rec.masked:
+        parts.append(f"비밀 값 {rec.masked}개를 가렸어요")
+    if not sent.matches(rec, text):
+        parts.append("그 뒤로 본문이 바뀌었어요 (직접 고침 · 판 되돌리기 · 백업 되돌리기)")
+    return " · ".join(x for x in parts if x) + "."
 
 
 # ---------- 5. 상태 변경안 ----------

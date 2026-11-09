@@ -107,7 +107,7 @@ def test_write_episode_sends_direction(monkeypatch):
     p.episode(1).status = "confirmed"
     p.episode(1).direction = "대사를 짧게"
     sent = []
-    monkeypatch.setattr(pipeline, "_write", lambda llm_, q, n, prompt, cut=None: sent.append(prompt) or "본문")
+    monkeypatch.setattr(pipeline, "_write", lambda llm_, q, n, prompt, cut=None, *rest: sent.append(prompt) or "본문")
     pipeline.write_episode(LLM, p, 1)
     assert sent[0].endswith(prompts.direction_block(p, 1))
 
@@ -133,7 +133,7 @@ def test_auto_run_uses_saved_episode_direction(demo, monkeypatch):
     store.save(demo, p)
     sent = []
     real = pipeline._write
-    monkeypatch.setattr(pipeline, "_write", lambda llm_, q, n, prompt, cut=None: sent.append((n, prompt)) or real(llm_, q, n, prompt, cut))
+    monkeypatch.setattr(pipeline, "_write", lambda llm_, q, n, prompt, cut=None, *rest: sent.append((n, prompt)) or real(llm_, q, n, prompt, cut, *rest))
     autorun.start(demo, 2, False, autorun.Policy(hand_pick_opening=False), foreground=True)
     by = dict(sent)
     assert "이번 화만: 대사를 짧게" in by[1] and "대사를 짧게" not in by[2]

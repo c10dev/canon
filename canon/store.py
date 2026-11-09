@@ -658,40 +658,66 @@ def compare_dir(name: str, n: int) -> Path:
     return project_dir(name) / "compare" / f"{n:02d}"
 
 
-# 화 번호로 이름 붙인 바깥 파일: 큐 시트 실험 cuelab/<화>.json, 블라인드 비교본 compare/<화>/.
-# 화를 넣거나 빼면 project.json 안의 번호와 함께 옮겨야 다른 화의 실험 · 비교본이 새 번호의 화에 붙지 않는다.
+# ---------- 보낸 집필 프롬프트 기록 (canon/sent.py) ----------
+# projects/<이름>/sent/<화>.json.gz. 화당 수만 자라 project.json 밖에 gzip 으로 둔다.
+SENT_SUFFIX = ".json.gz"
+
+
+def sent_path(name: str, n: int) -> Path:
+    return project_dir(name) / "sent" / f"{n}{SENT_SUFFIX}"
+
+
+# 화 번호로 이름 붙인 바깥 파일: 큐 시트 실험 cuelab/<화>.json, 블라인드 비교본 compare/<화>/, 보낸 프롬프트 기록 sent/<화>.json.gz.
+# 화를 넣거나 빼면 project.json 안의 번호와 함께 옮겨야 다른 화의 실험 · 비교본 · 기록이 새 번호의 화에 붙지 않는다.
 SIDE_REMOVED = "removed"
-_SIDE_LABEL = {"cuelab": "큐 시트 실험", "compare": "블라인드 비교본"}
+_SIDE_LABEL = {"cuelab": "큐 시트 실험", "compare": "블라인드 비교본", "sent": "보낸 프롬프트 기록"}
 
 
-def _side_files(name: str) -> list[tuple[str, int, Path]]:
-    """(종류, 화, 경로). cuelab 은 <화>.json 파일, compare 는 <화> 폴더."""
+def side_files(name: str) -> list[tuple[str, int, Path]]:
+    """(종류, 화, 경로). cuelab 은 <화>.json 파일, compare 는 <화> 폴더, sent 는 <화>.json.gz 파일."""
     d = project_dir(name)
     out = []
     if (d / "cuelab").is_dir():
         out += [("cuelab", int(f.stem), f) for f in (d / "cuelab").glob("*.json") if f.stem.isdigit()]
     if (d / "compare").is_dir():
         out += [("compare", int(f.name), f) for f in (d / "compare").iterdir() if f.is_dir() and f.name.isdigit()]
+    if (d / "sent").is_dir():
+        out += [("sent", int(f.name[:-len(SENT_SUFFIX)]), f) for f in (d / "sent").glob(f"*{SENT_SUFFIX}")
+                if f.name[:-len(SENT_SUFFIX)].isdigit()]
     return out
 
 
 def _side_path(name: str, kind: str, n: int) -> Path:
-    return _cuelab_path(name, n) if kind == "cuelab" else compare_dir(name, n)
+    return _cuelab_path(name, n) if kind == "cuelab" else sent_path(name, n) if kind == "sent" else compare_dir(name, n)
+
+
+def _ext(f: Path) -> str:
+    """파일 이름의 화 번호 뒤 확장자 ('.json', '.json.gz'). 폴더(compare)는 빈 글."""
+    return f.name[len(f.name.split(".", 1)[0]):]
 
 
 def _set_aside(f: Path, n: int, stamp: str) -> Path:
-    """f 를 같은 폴더의 removed/<화>.<시각>(.json) 으로 옮긴다. 지우지 않는다."""
+    """f 를 같은 폴더의 removed/<화>.<시각>(.json · .json.gz) 으로 옮긴다. 지우지 않는다."""
     root = f.parent / SIDE_REMOVED
     root.mkdir(exist_ok=True)
-    dest, i = root / f"{n}.{stamp}{f.suffix}", 1
+    ext = _ext(f)
+    dest, i = root / f"{n}.{stamp}{ext}", 1
     while dest.exists():
-        dest, i = root / f"{n}.{stamp}-{i}{f.suffix}", i + 1
+        dest, i = root / f"{n}.{stamp}-{i}{ext}", i + 1
     os.replace(f, dest)
     return dest
 
 
+def set_aside_side(name: str, kind: str, n: int) -> str:
+    """n화의 kind 바깥 파일 하나를 removed/ 로 옮긴다 (화는 남기고 본문만 지울 때). 옮긴 자리(작품 폴더 기준)나 빈 글."""
+    f = _side_path(name, kind, n)
+    if not f.exists():
+        return ""
+    return _set_aside(f, n, f"{datetime.now():%Y%m%d-%H%M%S}").relative_to(project_dir(name)).as_posix()
+
+
 def renumber_side_files(name: str, shift, gone=(), aside: list[str] | None = None) -> list[str]:
-    """화를 넣거나 뺀 뒤 큐 시트 실험 · 블라인드 비교본을 새 화 번호로 옮긴다. shift 는 옛 번호 → 새 번호(autorun.renumber 와 같은 규칙).
+    """화를 넣거나 뺀 뒤 큐 시트 실험 · 블라인드 비교본 · 보낸 프롬프트 기록을 새 화 번호로 옮긴다. shift 는 옛 번호 → 새 번호(autorun.renumber 와 같은 규칙).
     gone 화(뺀 화)의 파일은 지우지 않고 removed/<화>.<시각> 으로 남긴다. 옮기는 파일은 임시 이름을 거쳐 서로 덮어쓰지 않는다.
     큐 시트 실험 파일 안의 episode 도 고친다 (save_cuelab 이 그 번호로 쓴다). 무엇을 옮겼는지 설명을 돌려준다.
     aside 를 주면 gone 화의 파일을 남긴 자리(작품 폴더 기준 경로)를 더한다 (restore_side_files 로 되돌린다)."""
@@ -699,7 +725,7 @@ def renumber_side_files(name: str, shift, gone=(), aside: list[str] | None = Non
     stamp = f"{datetime.now():%Y%m%d-%H%M%S}"
     notes: list[str] = []
     moving = []
-    for kind, n, f in sorted(_side_files(name), key=lambda x: (x[0], x[1])):
+    for kind, n, f in sorted(side_files(name), key=lambda x: (x[0], x[1])):
         if n in gone:
             dest = _set_aside(f, n, stamp)
             if aside is not None:
@@ -708,7 +734,7 @@ def renumber_side_files(name: str, shift, gone=(), aside: list[str] | None = Non
             continue
         new = shift(n)
         if new != n:
-            tmp = f.with_name(f".renum-{n}{f.suffix}")
+            tmp = f.with_name(f".renum-{n}{_ext(f)}")
             os.replace(f, tmp)
             moving.append((kind, n, new, tmp))
     for kind, n, new, tmp in moving:
@@ -725,7 +751,7 @@ def renumber_side_files(name: str, shift, gone=(), aside: list[str] | None = Non
             if isinstance(data, dict):
                 data["episode"] = new
                 write_atomic(dest, json.dumps(data, ensure_ascii=False, indent=2))
-    for kind in ("cuelab", "compare"):
+    for kind in _SIDE_LABEL:
         pairs = [f"{n}→{new}화" for k, n, new, _ in moving if k == kind]
         if pairs:
             notes.append(f"{_SIDE_LABEL[kind]}도 새 화 번호로 옮겼어요({', '.join(pairs)}).")

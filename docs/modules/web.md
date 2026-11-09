@@ -610,6 +610,9 @@
   - 머리 줄에 지금 본문을 쓴 모델(`.w-model`, `writerLabel`). 기록이 없는 화는 보이지 않는다
   - 경고의 'AI에게 고치기'가 그 화를 고치는 동안 본문 칸 위에 잠금 안내(`role="status"`)를 둔다
   - 머리 ⋯ 메뉴 `writeMenu`: 생성 방식 · 컨텍스트 대화상자 · 채팅 앱 작업지시서 .md 내려받기(`briefDownload`) · 화 지우기
+  - 프롬프트 원문 보기(`togglePrompt` · `loadPrompt`)는 그 화에 보낸 프롬프트 기록이 있으면 보낸 그대로를 먼저 보인다(`web.prompt` 의 `source=auto`)
+  - 원문 위 설명 줄 `promptSource`: 보낸 시각(`fmtDateTime`) · 서버 `note`, 두 갈래를 오가는 버튼 `switchPrompt`('지금 데이터로 다시 만든 것 보기' · '보낸 그대로 보기')
+  - 기록이 없는 화는 다시 만든 것만 보이고 설명 줄이 그렇다고 밝힌다. 갈래와 설명은 `S.promptInfo` 에 둔다
   - 생성 방식 바꾸기(`setMode`)는 localStorage 에 못 적어도 이번 화면에서는 바꾼다
   - 640px 이하 머리(`.w-head`)는 ⋯ 메뉴와 primary 만 남긴다(app.css)
   - 머리와 단계 띠는 `.w-headwrap` 으로 묶는다

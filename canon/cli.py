@@ -87,7 +87,7 @@ from . import (address, archetypes, autorun, branches, cast, charlog, dynamics, 
 from .llm import dump, get_llm
 from .schema import FINDING_STATUS, SEVERITY, ConsistencyReport, HeatArcPlan, HeatProposal, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
 from . import abilities, anchor, atlas, blocktrial, findings, stattrial, foreshadows, setupchat, statwin, timeline
-from . import birth, cue, heatplan, jobs, labstats, play, soelab, tofix
+from . import birth, cue, heatplan, jobs, labstats, play, sent, soelab, tofix
 from .schema import ArcProposal, ChatScope, Deadline, MapPlace, StatValue, StateDeltaAI, StoryArc, to_delta
 from .maps import kinds as placekinds
 from .maps import travel
@@ -892,6 +892,8 @@ def cmd_insert(a: argparse.Namespace) -> None:
         if end:
             _print_side(store.renumber_side_files(a.name, end, [n]))
             autorun.renumber(a.name, end)
+        elif aside := sent.set_aside(a.name, n):  # 화는 남고 본문만 지웠다. 그 본문의 요청 기록은 따로 남긴다
+            print(f"지운 {n}화 본문의 보낸 프롬프트 기록은 따로 남겨 뒀어요: {aside}")
         return
     if end:
         autorun.renumber(a.name, end)
@@ -907,7 +909,7 @@ def cmd_insert(a: argparse.Namespace) -> None:
 
 
 def _print_side(notes: list[str]) -> None:
-    """화 번호로 이름 붙인 바깥 파일(큐 시트 실험 · 블라인드 비교본)을 옮긴 설명."""
+    """화 번호로 이름 붙인 바깥 파일(큐 시트 실험 · 블라인드 비교본 · 보낸 프롬프트 기록)을 옮긴 설명."""
     if notes:
         print("\n".join(notes))
 
@@ -937,12 +939,14 @@ def cmd_write(a: argparse.Namespace) -> None:
 def _write(name: str, p: Project, n: int) -> None:
     print(f"{n}화 생성 중...")
     atlas.fill_old_spots(p, store.project_dir(name) / "map")  # 건물 한 줄이 빈 옛 핀. 아래 저장에 함께 들어간다
-    llm, cut = get_llm("write"), []
-    text = pipeline.write_episode(llm, p, n, cut=cut)
+    llm, cut, rec = get_llm("write"), [], []
+    text = pipeline.write_episode(llm, p, n, cut=cut, sent=rec)
     pipeline.replace_text(p.episode(n), text, written_by=pipeline.writer_of(llm), meta_cut=cut)  # 지금 본문이 있으면 '이전 판'에 남는다
     cue.mark_used(p, n, True)
     anchor.stamp(p, n)
-    store.save(name, p)
+    with jobs.project_lock(name):
+        sent.keep(name, n, rec, text)
+        store.save(name, p)
     print(f"{n}화 저장: {store.project_dir(name) / 'episodes' / f'{n:02d}.md'} ({len(text)}자)")
     for w in pipeline.style_drift(p, n)[1]:
         print(f"! 문체: {w}")
@@ -968,19 +972,26 @@ def cmd_rewrite(a: argparse.Namespace) -> None:
         print(f"{a.n}화를 {a.restore} 판으로 되돌렸어요 (지금 본문은 이전 판에 남김). 저장: {store.save(a.name, p)}")
         return
     if a.adopt or a.drop:
+        vid = ep.candidate.id if ep.candidate else ""
         (pipeline.adopt_candidate if a.adopt else pipeline.drop_candidate)(p, a.n)
+        if a.adopt:
+            sent.adopt(a.name, a.n, vid)
+        else:
+            sent.drop_candidate(a.name, a.n)
         print(f"{a.n}화 새 판을 {'본문으로 썼어요' if a.adopt else '버렸어요'}. 저장: {store.save(a.name, p)}")
         return
     req = RewriteRequest(feedback=a.ask or "", presets=_csv(a.preset), materials=_csv(a.use),  # type: ignore[arg-type]
                          mode="polish" if a.polish else "revise" if a.revise else "fresh", keep=a.keep or [])
     req = pipeline.clean_rewrite(req)
     print(f"{a.n}화 다시 생성 중... ({REWRITE_MODE_LABEL[req.mode]})")
-    llm, cut = get_llm("revise" if req.mode == "polish" else "write"), []
-    text = pipeline.rewrite_episode(llm, p, a.n, req, cut)
-    pipeline.set_candidate(p, a.n, text, req, pipeline.writer_of(llm), cut)
+    llm, cut, rec = get_llm("revise" if req.mode == "polish" else "write"), [], []
+    text = pipeline.rewrite_episode(llm, p, a.n, req, cut, rec)
+    vid = pipeline.set_candidate(p, a.n, text, req, pipeline.writer_of(llm), cut).id
+    sent.hold(a.name, a.n, rec, text, vid)
     print(f"\n{text[:600]}{'…' if len(text) > 600 else ''}\n\n지금 판 {len(ep.text):,}자 → 새 판 {len(text):,}자")
     if confirm("새 판으로 바꿀까요? (지금 본문은 이전 판에 남아요)", a.yes):
         pipeline.adopt_candidate(p, a.n)
+        sent.adopt(a.name, a.n, vid)
         for w in pipeline.style_drift(p, a.n)[1]:
             print(f"! 문체: {w}")
         _print_opening(p, a.n)

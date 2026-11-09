@@ -226,7 +226,25 @@ function ctxList() {
     <div class="small">이전 본문 전체 대신 이 데이터만 매번 같은 순서로 넣어요.</div>`;
 }
 const ctxTotal = () => `${S.context.length}개 블록 · 합계 ${S.context.reduce((s, c) => s + c.chars, 0).toLocaleString()}자`;
-const promptBtn = (n) => `<button type="button" class="btn small" data-action="togglePrompt" data-arg="${n}">${S.promptText ? '프롬프트 닫기' : '프롬프트 원문 보기'}</button>${S.promptText ? `<pre class="brief mono" style="max-height:420px">${esc(S.promptText)}</pre>` : ''}`;
+const promptBtn = (n) => `<button type="button" class="btn small" data-action="togglePrompt" data-arg="${n}">${S.promptText ? '프롬프트 닫기' : '프롬프트 원문 보기'}</button>${S.promptText ? `${promptSource(n)}<pre class="brief mono" style="max-height:420px">${esc(S.promptText)}</pre>` : ''}`;
+// 보낸 그대로(sent/ 기록) · 지금 데이터로 다시 만든 것 두 갈래. 기록이 없는 화는 다시 만든 것만 보이고 그렇다고 밝힌다 (web.prompt)
+function promptSource(n) {
+  const r = S.promptInfo;
+  if (!r) return '';
+  const when = r.source === 'sent' && r.at ? `${fmtDateTime(r.at)} · ` : '';
+  const flip = r.has_sent
+    ? ` <button type="button" class="btn small ghost" data-action="switchPrompt" data-arg="${n}">${r.source === 'sent' ? '지금 데이터로 다시 만든 것 보기' : '보낸 그대로 보기'}</button>`
+    : '';
+  return r.note || flip ? `<div class="small">${esc(when + r.note)}${flip}</div>` : '';
+}
+
+async function loadPrompt(n, source) {
+  await run('불러오는 중', async () => {
+    const r = await api('GET', `/projects/${enc(S.name)}/episodes/${n}/prompt?source=${source}`);
+    S.promptText = `[시스템]\n${r.system}\n\n[프롬프트]\n${r.prompt}`;
+    S.promptInfo = r;
+  });
+}
 
 function ctxDialogHtml(n) {
   return `<div class="dlg-body">
@@ -763,14 +781,16 @@ Object.assign(actions, {
     const dlg = () => { if (document.getElementById('w-ctx')?.open) showDialog('w-ctx', ctxDialogHtml(n)); };  // ⋯ 메뉴의 대화상자는 #app 밖이라 따로 채운다
     if (S.promptText) {
       S.promptText = null;
+      S.promptInfo = null;
       dlg();
       return render();
     }
-    await run('불러오는 중', async () => {
-      const r = await api('GET', `/projects/${enc(S.name)}/episodes/${n}/prompt`);
-      S.promptText = `[시스템]\n${r.system}\n\n[프롬프트]\n${r.prompt}`;
-    });
+    await loadPrompt(n, 'auto');
     dlg();
+  },
+  async switchPrompt(n) {
+    await loadPrompt(n, S.promptInfo?.source === 'sent' ? 'rebuilt' : 'sent');
+    if (document.getElementById('w-ctx')?.open) showDialog('w-ctx', ctxDialogHtml(n));
   },
 
   // 작업지시서
