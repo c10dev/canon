@@ -4328,6 +4328,8 @@ def _revert_kept(p: Project, n: int) -> dict:
         if e is None:
             continue
         key = f"state:{m}"
+        d = d.model_copy(deep=True)
+        pipeline.drop_audit_warnings(d)  # 옛 누락 의심은 다시 놓을 때 빼고 고른다 (자동 집필 stop_on_audit 가 그것 때문에 멈추지 않게)
         out[key] = {"key": key, "id": f"revert:{at}:{m}", "kind": "state", "ep": m, "label": f"{m}화 상태 변경안",
                     "result": d.model_dump(), "base": e.final_text or e.text, "at": at}
     return out
@@ -5251,6 +5253,14 @@ def set_check_scope(name: str, body: CheckWiden) -> Project:
     """다시 검수는 바뀐 문단만 새로 짚기 켜기 · 끄기 (Settings.check_scope). 자동 집필 검수도 따른다."""
     p = _load(name)
     p.settings.check_scope = body.on
+    return _save(name, p)
+
+
+@app.put("/api/projects/{name}/state-audit")
+def set_state_audit(name: str, body: CheckWiden) -> Project:
+    """상태 변경안 누락 검사 켜기 · 끄기 (Settings.state_audit). 자동 집필 상태 변경안도 따른다."""
+    p = _load(name)
+    p.settings.state_audit = body.on
     return _save(name, p)
 
 

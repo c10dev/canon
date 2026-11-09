@@ -14,6 +14,8 @@
 - 옛 실행 로그의 스토리보드 단계 `plan` 은 `_measured` 가 `board` 로 읽는다
 - 관계 정책(`max_shift` · `stop_on_stage`)은 작품 복사본에 `features.hold` 로 뺀 변경안을 반영해 본다(`review_reasons`)
 - 그래서 관계 정책은 실제 반영(`put`)과 같은 제안만 센다
+- 변경안 경고 멈춤(`Policy.stop_on_warnings`)은 누락 검사의 '[누락 의심]' 경고를 세지 않는다. 그 경고는 `Policy.stop_on_audit`(기본 꺼짐)가 따로 본다
+- 비용 · 시간 추정(`estimate`)은 누락 검사를 켠 작품에서 상태 변경안 호출을 화마다 하나 더 센다(상태 변경안 단계 값으로 어림)
 - 이야기 데이터 정책은 `_story_reasons` 가 본다. 모두 기본으로 꺼져 있어(0 · false) 켜기 전과 같이 돈다
 - 새 인물 멈춤(`Policy.stop_on_new_characters`, `StateDelta.new_characters`)
 - 새 비밀 멈춤(`Policy.stop_on_secrets`, `StateDelta.secrets_added`)
@@ -151,6 +153,8 @@
 - 블록 재기(`blocks`, 사용량 기록 · 연구 화면)
 - 블록 글자 예산(`BUDGET`)
 - 관련 사실(`pick_facts`) · 비밀(`pick_secrets`) · 떡밥(`rank_foreshadows`) · 인물이 아는 정보(`pick_knows`, 뺀 수는 `prompts.knows_note`) 고르기
+- 확정 사실이 들어온 화(`facts_learned`): 반영 기록의 `new_facts` 로 센다. 고친 화 다시 맞추기 · 빼 둔 사실 넣기도 그 기록에 더해 잡힌다. 저장하지 않는다
+- `facts_learned` 에 인과율 `apply_impact` 로 넣은 사실은 없다(반영 기록을 남기지 않음). 설정 단계 · 직접 적은 사실도 없다
 - 비슷한 확정 사실(`near_fact`): 새 사실의 한글 3글자 조각 가운데 `FACT_NEAR`(0.5) 이상이 한 옛 사실과 겹치면 그 옛 사실. 조각이 `FACT_NEAR_MIN`(3)보다 적으면 보지 않는다
 - 기획 프롬프트 인물(`planning_cast`)
 - 인물 이름(`names_of`: 세 글자 이름은 성을 뗀 이름도, `metrics.name_forms`)
@@ -227,6 +231,7 @@
 - 사람 검토 없이 반영할 때(자동 집필 · `run -y` · 플레이)는 `hold`(`HOLD`)가 작가가 골라야 하는 제안을 빼서 남겨 둔다. 관계 단계와 반대인 유형 바뀜(`pace.hold`)은 남기지 않고 빼서 경고에 적는다
 - 정리 훅 `_near_facts` 는 이미 있는 확정 사실과 비슷한 새 사실을 `StateDelta.fact_near`(새 사실, 옛 사실)에 적는다. 경고는 내지 않는다
 - `_near_facts` · `_hold_near_facts` 는 장편만 본다. 단편은 표시도 빼기도 하지 않는다
+- 정리 훅 `_untag_facts` 는 새 사실이 따라 적은 '(n화)' 표시(`context.FACT_TAG`)를 뗀다. 비슷한 사실 보기 전에 돈다. 장편만 본다
 - HOLD 훅 `_hold_near_facts` 는 그 새 사실을 `d.dismissed.new_facts` 로 옮기고 경고에 적는다. 작가는 반영 기록에서 나중에 넣는다(`pipeline.take_dismissed_fact`)
 - 상태를 가진 기능을 더할 때는 `pipeline.py` 를 고치지 않고 기능 모듈에 훅을 두고 이 목록에 넣는다(목록 순서가 부르는 순서)
 - LLM 호출 없음
@@ -276,6 +281,14 @@
 - 고침안(한 지적 · 묶음) · 다시 검수는 `check_material` 길이를 캐시 경계(`llm.PREFIX_HINT`)로 넘긴다. 세 프롬프트 함수는 미리 만든 자료를 `material` 로 받는다
 - 검수(`check_episode`)도 `check_material` 길이를 캐시 경계로 넘긴다. `check_prompt(material=)` 가 미리 만든 자료를 받는다
 - 상태 변경안(`extract_state`)은 백엔드가 `family_cache` 면 `state_prompt(head=check_material)` 로 검수 자료로 시작하고 그 길이를 캐시 경계로 넘긴다. 다른 백엔드는 예전 프롬프트다
+- 작품 설정 `Settings.state_audit`(기본 꺼짐)를 켜면 `extract_state` 가 정리한 변경안을 `audit_delta` 로 한 번 더 본다(`audit` 단계 모델, 인자 `audit` 로 바꿀 수 있음)
+- `audit_delta` 는 n화 본문과 변경안 줄임(`prompts.audit_prompt`)을 넣고 `AuditReport` 를 받는다. 종류는 비밀 공개 · 관계 사건 · 약속 · 부상 · 정체 공개 · 장소 이동 · 소지품
+- `audit_delta` 는 본문에서 찾을 수 없는 인용(`findings.in_text`)을 버리고 `AUDIT_MAX`(6)개까지 '[누락 의심]'(`AUDIT_MARK`) 경고로만 붙인다. `warn_to` 는 "" 로 차례를 맞춘다
+- `audit_delta` 는 변경안 칸을 바꾸지 않고, 실패하면 경고 없이 넘어간다. 반영 기록에서 돌아온 변경안(`carried_delta`)은 다시 보지 않는다
+- 띄어쓰기 · 문장 부호를 뺀 인용이 `AUDIT_QUOTE_MIN`(8)자보다 짧으면 버린다
+- 다시 쓰는 변경안(`carried_delta`, 반영 취소 `web._revert_kept`)은 옛 '[누락 의심]' 경고를 뺀다(`drop_audit_warnings`)
+- 배치 자동 집필에서도 누락 검사는 실시간 호출이다(상태 변경안만 배치). 사용량에는 그대로 잡힌다
+- 작업지시서(`brief`, 채팅 앱) 경로에는 누락 검사가 없다
 - 결정은 검수 프롬프트에 넣지 않는다
 - LLM 호출 없음
 
@@ -474,6 +487,9 @@
 - 플레이 상태 변경안(`play_state_prompt`)은 같은 블록을 예산 `play_state_facts` 로 넣는다
 - 장편 요구사항에는 '확정 사실에 없는 새 사실만' 한 줄을 넣는다. head 가 있으면 검수 자료의 확정 사실 칸을 가리킨다
 - 단편 `state_prompt` 에는 사실 블록도 그 요구사항도 넣지 않는다
+- 사실 줄은 `fact_rows` 로 쓴다. 장편은 들어온 화를 '(n화)'로 앞에 붙인다(`context.facts_learned`, 0화 · 모름은 붙이지 않음)
+- `fact_rows` 를 쓰는 곳은 쓰기 맥락 · 부분 고치기 머리 · 화별 플롯 · 다음 아크 기획 · 상태 변경안이다
+- 검수 자료 · 넓혀 찾기 · 인과율 영향 분석 · 플레이 장면의 사실 줄에는 '(n화)'를 붙이지 않는다. 인과율 `rep.new_facts` 는 정리 훅을 거치지 않는다
 - 장편이고 상태 인물이 `check_cast` 와 같으면 인물 설정 · 이전 인물 상태 · 비밀 칸도 넣지 않고 검수 자료의 칸을 보라고 적는다(같은 함수로 고름)
 - 예시 문단이 있는 작품의 스타일 프로필 `style_rules_view`(칸마다 `STYLE_FIELD_LIMIT`, 예시 문단이 앞)
 - 스토리보드 깨지 않을 것을 검수에 `protect_block` · `protect_check_rule`
@@ -573,6 +589,7 @@
 - 환경 변수가 있으면 파일보다 우선한다
 - 단계 이름 목록은 `STAGES`
 - 스토리보드 · 큐 시트 단계 `board` 는 따로 정하지 않으면 계획 단계를 따른다(`STAGE_PARENT`). 웹 쓰기 작업 · 스토리보드 · 큐 시트 작업과 자동 집필이 이 단계로 부른다
+- 상태 변경안 누락 검사 단계 `audit` 는 따로 정하지 않으면 상태 변경안 단계를 따른다. 기본 프리셋은 싼 모델(flash · haiku)을 둔다
 - 단계별 환경 변수 이름은 `stage_env`
 - 기본 모델은 `DEFAULT_MODEL`
 - 작품별 단계 프리셋은 `project_preset` · `stage_provider` · `stage_model`
@@ -586,6 +603,7 @@
 ### `canon/static/auto.js`
 
 - 자동 집필 화면(`viewAuto`, 서버 `autorun.py`)
+- 누락 의심 멈춤(`stop_on_audit`) 칸은 작품 설정 `state_audit` 를 켰을 때만 보인다
 - 일시정지 · 중지를 누른 뒤 지금 단계가 끝날 때까지 머리 버튼이 '멈추는 중…' · '중지하는 중…'(`AutoView.want`, aria-busy)이다
 - 서버 재시작 칸은 '끊긴 호출 비용은 빠졌어요' 를 글로 보인다(title 에만 두지 않음)
 - 실행이 있으면 공용 목차 틀이다(목차 `autoToc`: 지금 실행 · 멈춘 이유 · 검토 없이 반영한 화 · 진행 기록 · 승인 정책)
@@ -725,6 +743,7 @@
 - 멈춘 스토리보드 작업의 늦은 응답은 그 화에 스토리보드 · 본문이 없고 플롯이 확정돼 있으면 남긴다(`_keep_late_board`, 결과 `{kept}`)
 - `_keep_pending` 은 멈춘 작업의 결과를 pending.json 에 남기지 않고 지난 실패도 지우지 않는다
 - 빼 둔 새 사실 넣기 `POST …/episodes/{n}/dismissed-facts/{i}`(`pipeline.take_dismissed_fact`)
+- 상태 변경안 누락 검사 켜기 · 끄기 `PUT …/state-audit`(`Settings.state_audit`)
 - 반영 취소(`POST …/revert/{n}`)는 n+1화부터의 반영 기록을 pending.json 의 상태 변경안(`state:<화>`)으로 남긴다(`_revert_kept`)
 - 남긴 변경안의 base 는 반영 때 본문이다(반영 뒤 고쳤으면 `final_text`)
 - 반영 뒤 고친 화에서 이미 뽑아 둔 상태 변경안은 반영 기록으로 덮지 않는다

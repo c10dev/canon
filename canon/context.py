@@ -199,6 +199,19 @@ def pick_facts(p: Project, ids: set[str], query: str, budget: int, terms: Iterab
     return [facts[i] for i in sorted(keep)], len(facts) - len(keep)
 
 
+def facts_learned(p: Project) -> dict[str, int]:
+    """{확정 사실: 들어온 화}. 반영 기록(history)의 new_facts 로 센다. 고친 화 다시 맞추기(apply_restate)와 빼 둔 사실 넣기도
+    그 화 기록의 new_facts 에 더하므로 함께 잡힌다. 기록에 없는 사실(설정 단계, 작가가 직접 적은 것, 인과율 apply_impact)은 빠진다. 저장하지 않는다."""
+    out: dict[str, int] = {}
+    for d in sorted(p.history, key=lambda d: d.episode):
+        for f in d.new_facts:
+            out.setdefault(f, d.episode)
+    return out
+
+
+FACT_TAG = re.compile(r"^\s*\(\d+화\)\s*")  # prompts.fact_rows 가 장편 사실 줄 앞에 붙이는 표시
+
+
 FACT_NEAR = 0.5  # 새 사실의 글 조각 가운데 이만큼이 한 옛 사실과 겹치면 비슷한 사실로 본다 (실제 장편 4편 1,192개에서 잼, DESIGN.md)
 FACT_NEAR_MIN = 3  # 글 조각이 이보다 적은 짧은 사실은 견주지 않는다
 

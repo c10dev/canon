@@ -22,6 +22,13 @@ from .schema import FactNear, Project, Snapshot, StateDelta
 Warn = str | tuple[str, str]
 
 
+def _untag_facts(p: Project, d: StateDelta) -> None:
+    """프롬프트가 장편 사실 줄 앞에 붙인 '(n화)' 표시(prompts.fact_rows)를 새 사실이 따라 적었으면 뗀다. 빈 사실은 뺀다. 단편은 표시를 붙이지 않아 그대로 둔다."""
+    if not p.serial:
+        return
+    d.new_facts = [f for f in (context.FACT_TAG.sub("", x).strip() for x in d.new_facts) if f]
+
+
 def _near_facts(p: Project, d: StateDelta) -> None:
     """새 사실 가운데 이미 있는 확정 사실과 비슷한 것(context.near_fact)을 d.fact_near 에 적는다. 경고는 내지 않는다.
     상태 승인 화면은 이 사실을 기본으로 체크하지 않고, 사람 검토 없는 반영은 뺀다(_hold_near_facts). 장편만 본다(단편 경로는 그대로)."""
@@ -95,6 +102,7 @@ CLEAN: tuple[Callable[[Project, StateDelta], list[Warn] | None], ...] = (
     charlog.clean_delta,
     address.clean_delta,       # 호칭 · 말씨 바뀜: 있는 인물 사이의 지금 값과 다른 칸만
     knows.clean_delta,         # 프롬프트가 아는 정보 앞에 붙인 '(n화)' 표시를 뗀다
+    _untag_facts,              # 프롬프트가 사실 줄 앞에 붙인 '(n화)' 표시를 뗀다 (비슷한 사실 보기 전에)
     attire.clean_delta,        # 차림의 '가방' · '옷'처럼 종류를 모르는 물건
     _clean_places,
     _new_cast_gaps,            # 말투가 빈 새 인물

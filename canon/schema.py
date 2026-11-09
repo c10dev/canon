@@ -256,6 +256,7 @@ class Settings(BaseModel):
     check_widen: bool = Field(False, description="장편 검수 넓히기: 검수 뒤 진술마다 옛 화를 더 찾아, 첫 검수에 없던 근거가 나온 진술만 다시 묻는다 (검수 호출 2번 더)")
     check_after_write: bool = Field(False, description="웹에서 본문을 처음 쓰면 같은 작업에서 바로 검수한다 (web._job_write). 새 판(다시 생성)은 검수하지 않는다")
     check_scope: bool = Field(True, description="다시 검수(두 번째 회차부터)는 지난 검수 뒤 바뀐 문단에서 나온 새 지적만 넣는다 (pipeline.check_scope · findings.scoped)")
+    state_audit: bool = Field(False, description="상태 변경안을 받은 뒤 audit 단계 모델로 본문에 있는데 빠진 것을 한 번 더 찾아 '[누락 의심]' 경고로만 붙인다 (pipeline.audit_delta). 반영하지 않는다")
     heat_plan: bool = Field(False, description="단편 기승전결을 기획할 때 열 계획(화별 열 눈금 · 몫, 판돈 · 제약 · 관객 · 금지선, 뒤집힘)을 함께 받는다 (canon/heatplan.py)")
     heat_words: list[str] = Field(default_factory=list, description="정점 대목을 찾을 때 세는 낱말 (작가가 적음, metrics.peak_window). 비우면 정점 대목 경고를 하지 않는다")
     check_motion: bool = Field(True, description="검수 때 동선만 따로 한 번 더 본다 (pipeline.motion_check: 이번 화 본문만 넣는 check 호출 1번 더, 본 검수와 동시에 부름)")
@@ -2090,6 +2091,21 @@ class RelationshipChange(BaseModel):
     b: str = Field(description="인물 id")
     type: str = Field(description="연인, 라이벌, 사제, 가족 등")
     description: str = ""
+
+
+AuditKind = Literal["비밀 공개", "관계 사건", "약속", "부상", "정체 공개", "장소 이동", "소지품"]
+
+
+class AuditItem(BaseModel):
+    """상태 변경안 누락 검사가 짚은 것 하나 (pipeline.audit_delta)."""
+    kind: AuditKind = Field(description="빠진 것의 종류")
+    missing: str = Field(description="본문에는 있는데 변경안에 없는 것, 한 문장")
+    quote: str = Field(description="그 근거인 본문 문장을 글자 그대로")
+
+
+class AuditReport(BaseModel):
+    """상태 변경안 누락 검사 응답. 빠진 것이 없으면 빈 목록."""
+    items: list[AuditItem] = Field(default_factory=list, description="본문에 있는데 변경안에 빠진 것. 최대 6개, 확실한 것만")
 
 
 class StateDeltaAI(StateDelta):
