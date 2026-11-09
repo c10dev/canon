@@ -164,7 +164,8 @@ function agentPanel() {
   const target = agentTarget(s);
   const sub = legacy ? `${chatTopicName(old || 'plot')} · 옛 기록 ${oldN}개` : `다듬을 곳: ${agentTargetText(target)}`;
   const shown = `${S.name}|${target}`;
-  if (S.agentShown && S.agentShown !== shown && !legacy) S.agentFlash = agentTargetText(target);
+  // 같은 작품에서 대상이 바뀔 때만 알린다 (다른 작품으로 옮긴 첫 그리기는 알리지 않는다)
+  if (S.agentShown && S.agentShown !== shown && S.agentShown.startsWith(`${S.name}|`) && !legacy) S.agentFlash = agentTargetText(target);
   if (!legacy) S.agentShown = shown;
   const sw = chatSwitch('plot');
   return `<aside class="chat-panel" aria-label="대화 에이전트">
