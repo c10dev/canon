@@ -9,6 +9,7 @@
 - 다른 프로세스가 쥔 실행이면 `wanted` 는 주인이 아직 읽지 않은 `autorun.want` 를 돌려준다. 주인이 읽어 지우면 빈 값으로 돌아간다
 - 목표 화까지 (스토리보드 `_board`, `Policy.storyboard` · `stop_on_board_warnings`) → (큐 시트 `_cues`, `Policy.cue_sheet`) → write → (서술 다듬기 `_polish`, `Policy.polish`, 다듬을 화 `Run.polish_due`) → check + state → 정책(`Policy`) 통과 시 반영을 반복
 - 낡은 AI 큐 시트를 다시 받았는데 비어 오면 그 화는 낡은 시트를 넣지 않고 쓰고 `CueSheet.skipped` 로 적는다(`Runner.no_cues`)
+- 쓰기(`_write`)와 다듬기(`_polish`)는 본문을 넣는 `_edit` 안에서 보낸 프롬프트 기록을 남긴다(`sent.keep`). 다듬은 글을 버리면 기록도 남기지 않는다
 - `_cues` 는 같은 실행의 `_board` 가 방금 만든 스토리보드(`Runner.board_lead`: 화 · made_at · 요청 글)면 그 요청 글로 시작하는 큐 시트 요청을 보낸다(`pipeline.cue_lead`)
 - 스토리보드 · 큐 시트는 `board` 단계 모델로 부르고 배치로 보내지 않는다. 비용 추정 `calls` 의 키도 `board` 다
 - 옛 실행 로그의 스토리보드 단계 `plan` 은 `_measured` 가 `board` 로 읽는다
@@ -306,6 +307,7 @@
 - `project_lock` 을 거치는 경로끼리만 프로세스가 달라도 서로 덮지 않는다
 - `project_lock` 을 거치는 경로: 웹 저장(`web._save` · `put_project` 등), 자동 집필(`autorun._edit`, 명령줄 `run` 포함), 대화 에이전트(`agent._edit`), 큐 시트 실험(`cue.with_lock`), 명령줄 `tofix`
 - 명령줄의 다른 명령(`write` · `check` · `update` · `confirm` · `plot` 등)은 아직 잠금 없이 `store.load` → AI 호출 → `store.save` 로 작품 전체를 저장한다
+- 명령줄 `write` 는 보낸 프롬프트 기록(`sent.keep`)과 마지막 저장만 `project_lock` 안에서 한다. 읽기와 AI 호출은 잠그지 않는다
 - 그래서 그 명령이 도는 동안 웹 서버가 저장한 내용은 아직 덮일 수 있다(2026-11-05 확인, `cli.py` 의 `store.save(` 65곳)
 - `project_lock` 은 다른 프로세스가 쥐고 있으면 `LOCK_WAIT`(30초)까지 기다리고, 넘기면 `Locked`(400, '다른 프로그램(명령줄 등)이 이 작품을 고치고 있어요')를 낸다
 - `project_lock` 의 flock 은 `store.save` 의 `.lock` 과 다른 파일이라 잠금 안에서 저장해도 막히지 않는다. 점으로 시작하는 열쇠(`revlab.lock_key`)와 폴더가 없는 작품은 프로세스 안에서만 잠근다
@@ -412,6 +414,8 @@
 - 세 번 모두 끊기면 `WriteCut`(ValueError)을 낸다: '본문이 출력 길이 한도에 걸려 끊겼어요'. 끊긴 본문은 돌려주지 않는다
 - 일부만 끊기고 나머지가 다른 까닭이면 끊긴 수를 함께 적은 보통 ValueError 를 낸다(자동 집필은 `cut` 이 아닌 오류로 멈춘다)
 - 다시 생성 · 서술 다듬기 · 큐 시트 집필도 `_write` 를 거쳐 같은 한도와 거부를 쓴다. 부분 수정(`PassageRevision`)은 JSON 이라 끊기면 형식 불일치로 끝난다
+- `_write` 에 `sent` 목록을 주면 받은 호출의 요청 기록(`sent.SentPrompt`: 시도 번호 · 다시 부른 까닭)을 채운다. 파일에는 쓰지 않는다(`canon/sent.py`)
+- `write_episode(sent=)` · `rewrite_episode(sent)` · `polish_episode(sent)` 가 그 목록을 넘긴다. `polish_episode` 는 다듬기 재시도까지 호출 번호를 이어 센다
 - 방금 만든 스토리보드 다음의 큐 시트: `make_storyboard(lead=)` 가 보낸 요청 글을 채우고, `cue_lead` 가 그 스토리보드가 AI 가 만든 그대로 · 낡지 않음일 때만 그 글을 돌려준다. `make_cue_sheet(lead=)` 는 그 글로 시작하는 요청을 보낸다(자동 집필 `_cues`, 웹 쓰기 작업 `board: make`)
 - 문체 분석 `analyze_style` 뒤 `count_markers` 가 표지 · 장치 단서를 거른다: 원문에 없는 것, 한글 2자 미만(`MARKER_MIN_HANGUL`), 인물 이름(2자 이상)이 든 것
 - `count_markers` 는 원문 표본에 없는(공백 빼고 견줌) 장치 예시를 비운다
@@ -606,6 +610,36 @@
 - 큐 시트 켜기는 `Settings.cue_sheet`(비우면 장편 켬 · 단편 끔)
 - 되풀이한 구절 블록 켜기는 `Settings.recent_echoes`(기본 켬, 장편에만 넣음)
 
+### `canon/sent.py`
+
+- 보낸 집필 프롬프트 기록: 본문으로 채택한 집필 호출의 요청을 작품 폴더 `sent/<화>.json.gz` 에 gzip 으로 남긴다. `project.json` 에는 넣지 않는다
+- 웹의 프롬프트 보기 · `/context` 는 지금 데이터로 다시 만든다. 이 기록은 그 화 본문이 실제로 받은 요청 그대로다
+- 한 기록(`SentPrompt`): 시스템 · 요청 글 · 캐시 앞부분 글자 수(`head_chars`, `head` 속성) · 모델(`usage.model_id`) · 받은 호출 번호(`attempt`) · 다시 부른 까닭(`retries`)
+- 다시 부른 까닭(`SentRetry.reason`): `cut` 끊김 · `thought` 한글 적음 · `meta` 작업 설명뿐 · `polish` 다듬기가 대사 줄을 바꿈 · `tics` 다듬기가 말줄임을 늘림
+- `family` 는 백엔드가 캐시 가족 경계를 받았는지다. 참이면 Claude 는 시스템을 `llm.FAMILY_SYSTEM` 으로 바꾸고 기록의 시스템 글을 요청 앞에 두어 보냈다
+- `tail` 은 실제 백엔드가 요청 끝에 붙이는 정책 줄(`llm.with_note`)이다. 가짜 응답(mock)은 붙이지 않는다
+- 파일 하나(`SentFile`)에 지금 본문의 기록(`current`)과 고르기를 기다리는 새 판의 기록(`candidate`)을 둔다
+- 기록은 저장한 본문의 지문(`basis`, `pipeline.text_basis`)을 품는다. `matches(rec, text)` 가 거짓이면 그 뒤로 본문이 바뀐 것이다(직접 고침 · 판 되돌리기 · 백업 되돌리기 · 비교본 채택)
+- `pipeline._write` 는 재료만 채운다(`record`). 큐마다 쓰기 · 다듬기 재시도처럼 채택하지 않을 판도 `_write` 를 부르기 때문이다
+- `keep` 은 본문을 저장하는 쪽이 `jobs.project_lock` 안에서 부른다
+- `keep` 을 부르는 곳: 웹 쓰기 작업 · 동기 쓰기, 자동 집필 쓰기 · 다듬기, 명령줄 `write` · `run`
+- 다시 생성 · 다듬기 새 판은 `hold` 로 대기 칸에 둔다
+- 작가가 새 판을 고르면 `adopt(version)` 이 대기 기록을 지금 기록으로 옮긴다
+- 새 판을 버리면 `drop_candidate` 가 대기 기록을 지운다
+- 명령줄 `rewrite` 는 확인을 묻는 동안 잠그지 않고, 기록(`hold` · `adopt` · `drop_candidate`)과 저장만 `project_lock` 안에서 한다
+- 파일 안의 화 번호(`SentFile.episode`)보다 파일 자리를 믿는다. 화를 넣고 빼면 파일만 옮기기 때문이다(`_read`)
+- `write_scored` · `play_cues` · 비교(`compare_drafts` · `adopt_draft`) · 실험 · 가져온 본문은 기록하지 않는다. 그 본문에는 앞 기록이 남아 `matches` 가 거짓이 된다
+- 화를 넣고 빼면 `store.renumber_side_files` 가 큐 시트 실험 · 비교본과 같이 옮긴다. 뺀 화 · 본문만 지운 화(`delete_last(keep_plot)`)의 기록은 `sent/removed/` 에 남긴다(`set_aside`)
+- 반영 취소(`pipeline.revert`)는 뒤 화 본문을 남기므로 기록도 그대로 둔다
+- 갈래 · 복제 · 플레이 사본은 `sent/` 를 함께 옮긴다. 함께 쓰는 앞 화 본문의 기록이라서다
+- 시간별 백업 · 되돌리기 전 판은 `project.json` 만 남긴다. 백업으로 되돌려도 `sent/` 는 그대로이고 바뀐 본문은 `matches` 로 드러난다
+- 쓰기 전에 설정의 키 값(`settings.api_key` · `anthropic_key` · `local_key`)과 키 모양 글(AIza… · sk-ant-…)을 가린다(`mask`, 가린 수 `masked`). 요청은 작품 데이터로만 만들어 보통은 0 이다
+- `head_chars` 는 가린 뒤의 앞부분 길이로 잰다
+- 공개 읽기 `read(name, n)`(없으면 None)와 `matches`. 검수 지적의 원인 진단이 이 둘을 읽는다
+- 화면 설명 줄의 까닭 이름은 `RETRY_LABEL` · `retry_text`(`web._sent_note`)
+- 크기: gzip 으로 약 3배 줄어 화당 25~32KB 쯤이다(실측은 DESIGN.md 4장 '보낸 프롬프트 기록')
+- `tests/test_sent.py`
+
 ### `canon/serialize.py`
 
 - 단편을 장편 연재로 바꾸는 이어 쓰기 전환(CLI `convert`, 웹 `convert` 작업)
@@ -708,6 +742,9 @@
 - 상태 변경안 결과(`state:<화>`)는 작가가 고르던 체크와 고친 변경안을 `draft` 칸에 함께 둔다
 - 결과를 지우거나 새 결과로 바꾸면 초안도 사라진다
 - 화 번호로 이름 붙인 바깥 파일(큐 시트 실험 `cuelab/<화>.json` · 블라인드 비교본 `compare/<화>/`, `compare_dir`)은 화를 넣고 뺄 때 `renumber_side_files` 로 옮긴다
+- 보낸 프롬프트 기록 `sent/<화>.json.gz`(`sent_path`, `canon/sent.py`)도 같은 바깥 파일이다(`side_files` 의 종류 `sent`)
+- 바깥 파일을 `removed/` 로 옮길 때 화 번호 뒤 확장자(`.json` · `.json.gz`)를 그대로 둔다(`_ext`)
+- `set_aside_side(name, kind, n)` 는 화를 남기고 본문만 지울 때 한 종류의 바깥 파일을 `removed/` 로 옮긴다
 - `renumber_side_files` 는 옮길 파일을 임시 이름(`.renum-<화>`)으로 먼저 옮겨 서로 덮지 않고, 큐 시트 실험 안의 `episode` 도 새 번호로 고친다
 - 뺀 화(`gone`)의 바깥 파일은 지우지 않고 `cuelab/removed/` · `compare/removed/` 에 `<화>.<시각>` 으로 남긴다(`SIDE_REMOVED`)
 - `renumber_side_files` 에 `aside` 목록을 주면 뺀 화의 파일을 남긴 경로(작품 폴더 기준)를 더한다
@@ -788,6 +825,13 @@
 - 쓴 뒤 검수 걸음 전에 그 화를 내려놓고(`Job.release`) `Job.step_ep` 를 그 화로 둔다. 화면은 본문을 먼저 받고 작가는 검수하는 동안 고칠 수 있다
 - 쓴 뒤 검수가 실패해도 작업은 끝남이고 결과에 `check_error` 를 싣는다. 성공하면 결과 `check` 는 작업 `check` 의 결과와 같다
 - 쓴 뒤 검수가 도는 (작품, 화)는 `_WRITE_CHECKS` 에 두고, 그동안 작업 `check` 는 400 으로 거절한다. 새 판(다시 생성)은 검수하지 않는다
+- 작업 `write` 는 본문을 저장하는 `_edit` 안에서 보낸 프롬프트 기록을 남긴다(`sent.keep`). 다시 생성은 새 판과 함께 `sent.hold` 로 둔다
+- 새 판 고르기 `POST …/candidate/adopt` · 버리기 `DELETE …/candidate` 는 저장과 같은 잠금 안에서 `sent.adopt` · `sent.drop_candidate` 를 부른다
+- 동기 쓰기 `POST …/episodes/{n}/write` 도 `project_lock` 안에서 `sent.keep` 뒤 `_save_locked` 로 저장한다
+- 화 지우기 `delete_episode` 가 화를 남기면(`keep_plot`) 그 화의 기록을 `sent/removed/` 로 옮기고 notes 에 적는다
+- 프롬프트 원문 `GET …/episodes/{n}/prompt?source=auto|sent|rebuilt`: auto 는 기록이 있으면 보낸 그대로(`source: sent`), 없으면 지금 데이터로 다시 만든 것
+- 보낸 그대로는 요청 끝에 `tail`(정책 줄)을 붙여 준다. `note`(`_sent_note`)는 쓰기 종류 · 모델 · 받은 호출 번호 · 다시 부른 까닭 · 그 뒤 본문이 바뀌었는지를 적는다
+- 다시 만든 것은 `has_sent` 와 `note` 로 기록이 있는지(실제와 다를 수 있음) · 없는지를 알린다. 쓰기 전 화는 `note` 가 비었다
 - `start_job` 은 같은 화에서 멈춘 작업이 AI 응답을 기다리면 `EP_AI_KINDS` 작업을 409 로 막는다(`_waiting_409`, 역설계 실험 `rev_job` 과 같은 문구)
 - 멈춘 스토리보드 작업의 늦은 응답은 그 화에 스토리보드 · 본문이 없고 플롯이 확정돼 있으면 남긴다(`_keep_late_board`, 결과 `{kept}`)
 - `_keep_pending` 은 멈춘 작업의 결과를 pending.json 에 남기지 않고 지난 실패도 지우지 않는다

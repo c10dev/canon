@@ -29,7 +29,7 @@ def test_polish_off_by_default(demo):
 
 
 def test_polish_failure_keeps_written_text(demo, monkeypatch):
-    def fail(llm, p, n, cut=None):
+    def fail(llm, p, n, cut=None, sent=None):
         raise ValueError("대사 · 효과음 줄이 바뀌었어요")
     monkeypatch.setattr(pipeline, "polish_episode", fail)
     run = autorun.start(demo, 1, False, Policy(polish=True), foreground=True)

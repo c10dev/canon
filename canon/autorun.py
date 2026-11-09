@@ -29,6 +29,7 @@ from pydantic import BaseModel, Field
 
 from . import anchor, atlas, board, cue, dynamics, features, findings, jobs, pipeline, prompts, settings, store, timeline, usage
 from . import stage as stage_mod
+from . import sent
 from .llm import BatchLLM, Interrupted, QuotaSpent, SchemaMismatch, explain_error, get_llm
 from .research import JSON_OUTPUT_RESERVE, _filler
 from .schema import ConsistencyReport, Project, RewriteRequest, StateDelta, TextVersion
@@ -789,9 +790,11 @@ class Runner:
         self._set(n, "write")
         self.log(f"{n}화 본문을 쓰는 중" + (" (배치)" if self.run.batch and batchable("write") else ""))
         cut: list = []
+        rec: list = []
         use_cues = n not in self.no_cues
         try:
-            (text, model), usage = self.call("write", n, lambda llm: (pipeline.write_episode(llm, p, n, use_cues=use_cues, cut=cut),
+            (text, model), usage = self.call("write", n, lambda llm: (pipeline.write_episode(llm, p, n, use_cues=use_cues, cut=cut,
+                                                                                             sent=rec),
                                                                       pipeline.writer_of(llm)))
         except pipeline.WriteCut as e:  # 끊긴 본문은 반영하지 않는다. 이어 가면 이 화 본문을 다시 쓴다
             raise _Halt("paused", f"{n}화 본문이 출력 길이 한도에 걸려 끊겨 멈췄어요",
@@ -805,6 +808,7 @@ class Runner:
             ep.text, ep.status, ep.written_by, ep.meta_cut = text, "written", model, cut
             cue.mark_used(q, n, use_cues)  # 자동 집필은 있는 큐 시트를 넣어 쓴다. 다시 받은 시트가 비어 왔으면 빼고 쓴다
             anchor.stamp(q, n)
+            sent.keep(self.name, n, rec, text)
         q = _edit(self.name, put)
         if self.run.policy.polish:
             with self.ctl.lock:
@@ -825,6 +829,7 @@ class Runner:
         self.log(f"{n}화 서술을 다듬는 중" + (" (배치)" if self.run.batch and batchable("revise") else ""))
         before = p.episode(n).text
         cut: list = []
+        rec: list = []
 
         def done(note: str = "", level: str = "info", **kw: Any) -> None:
             with self.ctl.lock:
@@ -834,7 +839,7 @@ class Runner:
                 self.log(note, level, **kw)
 
         try:
-            (text, model), use = self.call("revise", n, lambda llm: (pipeline.polish_episode(llm, p, n, cut), pipeline.writer_of(llm)))
+            (text, model), use = self.call("revise", n, lambda llm: (pipeline.polish_episode(llm, p, n, cut, rec), pipeline.writer_of(llm)))
         except ValueError as e:
             done(f"{n}화 서술 다듬기를 건너뛰고 쓴 글로 이어 가요: {e}", "warn")
             return
@@ -847,6 +852,7 @@ class Runner:
                 return
             pipeline.replace_text(ep, text, made_by=RewriteRequest(mode="polish"), written_by=model, meta_cut=cut)
             anchor.stamp(q, n)
+            sent.keep(self.name, n, rec, text)
         q = _edit(self.name, put)
         if not kept["same"]:
             done(f"{n}화 본문이 그사이 바뀌어 다듬은 글은 버렸어요", "warn", **use)

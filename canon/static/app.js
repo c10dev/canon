@@ -57,6 +57,7 @@ const S = {
   editDrafts: {},    // 화면에만 있는 인라인 편집기의 저장하지 않은 입력. 키 → true/false (hasUnsaved 의 약속)
   context: null,
   promptText: null,
+  promptInfo: null,  // 프롬프트 원문의 갈래(보낸 그대로 · 다시 만든 것)와 설명 (write.js promptSource)
   popMenu: null,     // 열린 펼침 메뉴 id (menuBtn). 다시 그려도 열려 있고, 화면을 옮기면 닫는다
   briefTab: 'episode',
   briefText: null,
@@ -2264,6 +2265,7 @@ async function routeNow() {
   S.route = parts;
   S.context = null;
   S.promptText = null;
+  S.promptInfo = null;
   S.briefText = null;
   if (parts[0] === 'revlab') {  // 작품에서 역설계 실험으로 오면 그 작품을 기억한다. 머리의 '‹ 작품' 버튼이 돌아간다 (revlab.js revBackBtns)
     if (S.name && S.project) S.revFrom = { name: S.name, title: S.project.meta.title || S.name };
