@@ -29,11 +29,11 @@ def test_write_job_keeps_record_and_prompt_view(client, monkeypatch):
     assert rec.kind == "write" and rec.model == "mock:mock" and rec.attempt == 1 and rec.retries == []
     assert rec.system == prompts.writer_system(p)
     assert sent.matches(rec, p.episode(1).text)
-    assert rec.tail.endswith(llm_mod.POLICY_NOTE)
+    assert rec.tail == ""  # 가짜 응답은 정책 줄을 붙이지 않는다
 
     r = client.get("/api/projects/lh/episodes/1/prompt").json()
     assert r["source"] == "sent" and r["has_sent"] and r["at"] == rec.at
-    assert r["prompt"].endswith(llm_mod.POLICY_NOTE) and r["prompt"].startswith(rec.prompt.rstrip())
+    assert r["prompt"] == rec.prompt
     assert "본문 쓰기 때 보낸 그대로예요" in r["note"] and "1번째 호출" in r["note"] and "바뀌었어요" not in r["note"]
     r = client.get("/api/projects/lh/episodes/1/prompt?source=rebuilt").json()
     assert r["source"] == "rebuilt" and r["has_sent"] and "다를 수 있어요" in r["note"]
@@ -119,6 +119,26 @@ def test_mask_keys(monkeypatch):
     assert k == 3 and "secret" not in text and "AIza" not in text and "sk-ant" not in text
     rec = sent.record(mock.MockLLM(), "시스템 my-secret-gemini-value", "요청", "", 1, [])
     assert rec.masked == 1 and "secret" not in rec.system
+
+
+def test_tail_for_real_backend(monkeypatch):
+    from canon import usage
+
+    monkeypatch.setattr(usage, "model_id", lambda llm: "gemini:gemini-4-argon")
+    rec = sent.record(object(), "s", "요청", "", 1, [])
+    assert rec.model == "gemini:gemini-4-argon" and rec.tail.endswith(llm_mod.POLICY_NOTE)
+
+
+def test_moved_record_writes_to_new_number(client):
+    """화를 넣어 옮긴 기록을 다시 쓰면 새 번호 파일에 쓴다 (파일 안의 옛 번호를 따르지 않는다)."""
+    from .test_insert import _short
+
+    store.save("mv", _short())
+    sent.keep("mv", 7, sent.SentPrompt(prompt="7화 요청"), "7화 본문")
+    assert client.post("/api/projects/mv/episodes/insert", json={"at": 6}).status_code == 200
+    sent.hold("mv", 8, sent.SentPrompt(prompt="새 판"), "새 판 본문", "v2")
+    assert sent.episodes("mv") == [8]
+    assert sent.read("mv", 8).prompt == "7화 요청" and sent._read("mv", 8).candidate.version == "v2"
 
 
 def test_head_chars_only_when_prefix():

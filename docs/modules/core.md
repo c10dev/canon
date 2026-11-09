@@ -620,14 +620,20 @@
 - 파일 하나(`SentFile`)에 지금 본문의 기록(`current`)과 고르기를 기다리는 새 판의 기록(`candidate`)을 둔다
 - 기록은 저장한 본문의 지문(`basis`, `pipeline.text_basis`)을 품는다. `matches(rec, text)` 가 거짓이면 그 뒤로 본문이 바뀐 것이다(직접 고침 · 판 되돌리기 · 백업 되돌리기 · 비교본 채택)
 - `pipeline._write` 는 재료만 채운다(`record`). 큐마다 쓰기 · 다듬기 재시도처럼 채택하지 않을 판도 `_write` 를 부르기 때문이다
-- `keep` 은 본문을 저장하는 쪽이 `jobs.project_lock` 안에서 부른다: 웹 쓰기 작업 · 동기 쓰기, 자동 집필 쓰기 · 다듬기, 명령줄 `write` · `run`
-- 다시 생성 · 다듬기 새 판은 `hold` 로 대기 칸에 두고, 작가가 고르면 `adopt(version)` 이 지금 기록으로 옮기고, 버리면 `drop_candidate` 가 지운다
+- `keep` 은 본문을 저장하는 쪽이 `jobs.project_lock` 안에서 부른다
+- `keep` 을 부르는 곳: 웹 쓰기 작업 · 동기 쓰기, 자동 집필 쓰기 · 다듬기, 명령줄 `write` · `run`
+- 다시 생성 · 다듬기 새 판은 `hold` 로 대기 칸에 둔다
+- 작가가 새 판을 고르면 `adopt(version)` 이 대기 기록을 지금 기록으로 옮긴다
+- 새 판을 버리면 `drop_candidate` 가 대기 기록을 지운다
+- 명령줄 `rewrite` 는 확인을 묻는 동안 잠그지 않고, 기록(`hold` · `adopt` · `drop_candidate`)과 저장만 `project_lock` 안에서 한다
+- 파일 안의 화 번호(`SentFile.episode`)보다 파일 자리를 믿는다. 화를 넣고 빼면 파일만 옮기기 때문이다(`_read`)
 - `write_scored` · `play_cues` · 비교(`compare_drafts` · `adopt_draft`) · 실험 · 가져온 본문은 기록하지 않는다. 그 본문에는 앞 기록이 남아 `matches` 가 거짓이 된다
 - 화를 넣고 빼면 `store.renumber_side_files` 가 큐 시트 실험 · 비교본과 같이 옮긴다. 뺀 화 · 본문만 지운 화(`delete_last(keep_plot)`)의 기록은 `sent/removed/` 에 남긴다(`set_aside`)
 - 반영 취소(`pipeline.revert`)는 뒤 화 본문을 남기므로 기록도 그대로 둔다
 - 갈래 · 복제 · 플레이 사본은 `sent/` 를 함께 옮긴다. 함께 쓰는 앞 화 본문의 기록이라서다
 - 시간별 백업 · 되돌리기 전 판은 `project.json` 만 남긴다. 백업으로 되돌려도 `sent/` 는 그대로이고 바뀐 본문은 `matches` 로 드러난다
-- 쓰기 전에 설정의 API 키 값(`settings.api_key` · `anthropic_key`)과 키 모양 글(AIza… · sk-ant-…)을 가린다(`mask`, 가린 수 `masked`). 요청은 작품 데이터로만 만들어 보통은 0 이다
+- 쓰기 전에 설정의 키 값(`settings.api_key` · `anthropic_key` · `local_key`)과 키 모양 글(AIza… · sk-ant-…)을 가린다(`mask`, 가린 수 `masked`). 요청은 작품 데이터로만 만들어 보통은 0 이다
+- `head_chars` 는 가린 뒤의 앞부분 길이로 잰다
 - 공개 읽기 `read(name, n)`(없으면 None)와 `matches`. 검수 지적의 원인 진단이 이 둘을 읽는다
 - 화면 설명 줄의 까닭 이름은 `RETRY_LABEL` · `retry_text`(`web._sent_note`)
 - 크기: gzip 으로 약 3배 줄어 화당 25~32KB 쯤이다(실측은 DESIGN.md 4장 '보낸 프롬프트 기록')

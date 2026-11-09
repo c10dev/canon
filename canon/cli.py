@@ -974,11 +974,13 @@ def cmd_rewrite(a: argparse.Namespace) -> None:
     if a.adopt or a.drop:
         vid = ep.candidate.id if ep.candidate else ""
         (pipeline.adopt_candidate if a.adopt else pipeline.drop_candidate)(p, a.n)
-        if a.adopt:
-            sent.adopt(a.name, a.n, vid)
-        else:
-            sent.drop_candidate(a.name, a.n)
-        print(f"{a.n}화 새 판을 {'본문으로 썼어요' if a.adopt else '버렸어요'}. 저장: {store.save(a.name, p)}")
+        with jobs.project_lock(a.name):  # 보낸 프롬프트 기록과 저장을 웹 작업과 섞지 않는다
+            if a.adopt:
+                sent.adopt(a.name, a.n, vid)
+            else:
+                sent.drop_candidate(a.name, a.n)
+            path = store.save(a.name, p)
+        print(f"{a.n}화 새 판을 {'본문으로 썼어요' if a.adopt else '버렸어요'}. 저장: {path}")
         return
     req = RewriteRequest(feedback=a.ask or "", presets=_csv(a.preset), materials=_csv(a.use),  # type: ignore[arg-type]
                          mode="polish" if a.polish else "revise" if a.revise else "fresh", keep=a.keep or [])
@@ -987,17 +989,20 @@ def cmd_rewrite(a: argparse.Namespace) -> None:
     llm, cut, rec = get_llm("revise" if req.mode == "polish" else "write"), [], []
     text = pipeline.rewrite_episode(llm, p, a.n, req, cut, rec)
     vid = pipeline.set_candidate(p, a.n, text, req, pipeline.writer_of(llm), cut).id
-    sent.hold(a.name, a.n, rec, text, vid)
     print(f"\n{text[:600]}{'…' if len(text) > 600 else ''}\n\n지금 판 {len(ep.text):,}자 → 새 판 {len(text):,}자")
-    if confirm("새 판으로 바꿀까요? (지금 본문은 이전 판에 남아요)", a.yes):
+    adopt = confirm("새 판으로 바꿀까요? (지금 본문은 이전 판에 남아요)", a.yes)
+    if adopt:
         pipeline.adopt_candidate(p, a.n)
-        sent.adopt(a.name, a.n, vid)
         for w in pipeline.style_drift(p, a.n)[1]:
             print(f"! 문체: {w}")
         _print_opening(p, a.n)
     else:
         print(f"새 판은 고르기 대기로 남겼어요. 웹 집필 화면에서 비교하거나 rewrite {a.name} {a.n} --adopt / --drop")
-    print(f"저장: {store.save(a.name, p)}")
+    with jobs.project_lock(a.name):  # 확인을 묻는 동안은 잠그지 않는다. 기록과 저장만 잠금 안에서 한다
+        sent.hold(a.name, a.n, rec, text, vid)
+        if adopt:
+            sent.adopt(a.name, a.n, vid)
+        print(f"저장: {store.save(a.name, p)}")
 
 
 def _csv(v: str | None) -> list[str]:

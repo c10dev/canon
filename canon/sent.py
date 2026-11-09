@@ -71,7 +71,7 @@ def _now() -> str:
 
 def _secrets() -> list[str]:
     out = []
-    for get in (settings.api_key, settings.anthropic_key):
+    for get in (settings.api_key, settings.anthropic_key, settings.local_key):
         try:
             v = get()[0]
         except Exception:  # 설정 파일을 못 읽어도 기록은 남긴다 (모양 검사는 그대로 한다)
@@ -97,12 +97,16 @@ def record(llm, system: str, prompt: str, head: str, attempt: int, retries: list
     from . import llm as llm_mod
     from . import usage
 
-    head_chars = len(head) if head and prompt.startswith(head) else 0
-    tail = llm_mod.with_note(prompt)[len(prompt.rstrip()):]
+    family = bool(head and prompt.startswith(head) and getattr(llm, "family_cache", False))
+    model = usage.model_id(llm)
+    tail = "" if model == "mock:mock" else llm_mod.with_note(prompt)[len(prompt.rstrip()):]  # 가짜 응답은 정책 줄을 붙이지 않는다
+    sent_head = prompt.startswith(head) and head
     system, a = mask(system)
     prompt, b = mask(prompt)
-    return SentPrompt(at=_now(), model=usage.model_id(llm), system=system, prompt=prompt, head_chars=head_chars,
-                      family=bool(head_chars and getattr(llm, "family_cache", False)), tail=tail,
+    head, _ = mask(head)  # 가린 뒤 길이로 경계를 잰다
+    head_chars = len(head) if sent_head and prompt.startswith(head) else 0
+    return SentPrompt(at=_now(), model=model, system=system, prompt=prompt, head_chars=head_chars,
+                      family=family, tail=tail,
                       attempt=attempt, retries=list(retries), masked=a + b)
 
 
@@ -114,9 +118,12 @@ def _read(name: str, n: int) -> SentFile:
     f = path(name, n)
     if f.exists():
         try:
-            return SentFile.model_validate_json(gzip.decompress(f.read_bytes()))
+            data = SentFile.model_validate_json(gzip.decompress(f.read_bytes()))
         except (OSError, EOFError, ValueError):
             pass
+        else:  # 화를 넣고 빼면 파일만 옮긴다 (store.renumber_side_files). 안의 번호보다 파일 자리를 믿는다
+            data.episode = n
+            return data
     return SentFile(episode=n)
 
 
