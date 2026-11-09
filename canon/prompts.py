@@ -1351,7 +1351,11 @@ def attire_write_rule(p: Project, board: bool = False) -> str:
     if not has_attire(p):
         return ""
     if board:
-        src = "고정점" if p.settings.write_material == "fixed" else "스토리보드"  # 인자 board 가 모듈 이름을 가려 board.fixed_only 대신 칸을 본다
+        mode = p.settings.write_material  # 인자 board 가 모듈 이름을 가려 board.fixed_only · board.lean 대신 칸을 본다
+        if mode == "lean":  # 꼭 쓸 것만은 끝 차림 목록을 넣지 않고 차림이 바뀌는 순간만 넣는다
+            return ("\n\n차림: appearance 의 옷차림보다 [인물 현재 상태]의 attire 를 지키고, 스토리보드의 '차림이 바뀌는 순간'에만 바꿉니다. "
+                    "차림은 장면마다 묘사하지 않고 필요할 때만 씁니다.")
+        src = "고정점" if mode == "fixed" else "스토리보드"
         return f"\n\n차림: appearance 의 옷차림보다 [인물 현재 상태]의 attire 와 {src}의 끝 차림을 지키고, 차림은 장면마다 묘사하지 않고 필요할 때만 씁니다."
     return ("\n\n차림: [인물 현재 상태]의 attire 는 직전 화가 끝났을 때 그 인물의 옷, 몸에 남은 상처 · 얼룩, 지닌 물건입니다. "
             "인물 설정의 appearance 에 적힌 옷차림은 평소 모습이라 attire 와 다르면 attire 를 따르고, 이 화에서 갈아입거나 다치면 그 뒤로는 바뀐 차림을 따릅니다. "
@@ -2722,7 +2726,7 @@ def build_episode_context(p: Project, n: int, *, use_board: bool = True, pre: st
         prev_rest = tl + tr + stg + (f"\n\n{pre.rstrip()}" if pre else "") + between
     else:
         prev_head = pre + prev_block(p, n, last_text, full)
-        prev_rest = (f"\n\n{board_block(p, n)}{stg}" if sb is not None else "") + between
+        prev_rest = (f"\n\n{board_block(p, n, write=write)}{stg}" if sb is not None else "") + between
     prev = prev_head + prev_rest
     if p.serial:
         act_line = f"현재 아크 안 구간: {act.name if act else '?'} ({act.start_ep if act else '?'}~{act.end_ep if act else '?'}화) 목표: {act.goal if act else ''}"
@@ -3052,7 +3056,7 @@ def episode_prompt(p: Project, n: int, approach: str = "", use_board: bool = Tru
         + ("플롯의 emotional_shift 는 감정 이름으로 서술하지 말고 행동과 대사로 보여 줍니다. " if shift_label(ep.plot.emotional_shift) else "")
         + "인물의 말투는 speech_style 을 따릅니다. speech_style 의 대사 예시는 말투를 보여 주는 예입니다. "
         "그 문장을 그대로 쓰지 않고 어미 · 호칭 · 길이만 따릅니다. 작가가 정한 말버릇은 써도 됩니다. "
-        + FOCUS_LINE
+        + focus_line(p, sb)
         + priority_line(p, n, sb is not None)
         + statwin.write_rule(p, n, show_format=not windows)
         + attire_write_rule(p, board=sb is not None)
@@ -3149,6 +3153,15 @@ def polish_prompt(p: Project, n: int, text: str) -> str:
 
 # 사건을 차례로 처리하느라 요약처럼 흐르지 않게, 한 장면에 머물 자리를 준다 (서술 단조로움 개선, 2026-11-03).
 FOCUS_LINE = "플롯 사건 가운데 이 화의 중심이 되는 하나를 골라 가장 길게 장면으로 쓰고, 나머지는 짧게 이어도 됩니다."
+
+
+def focus_line(p: Project, sb) -> str:
+    """쓰기 요청의 무게 문장. 쓰기 재료가 꼭 쓸 것만이고(board.lean) 스토리보드가 중심 장면을 골랐으면 그 장면에 분량의 절반쯤을 쓰게 한다.
+    설계 단계가 무게를 정하고 집필은 따른다 (2026-11-09 설계). 그 밖에는 FOCUS_LINE (쓰기 AI 가 고른다)."""
+    k = board.focus(sb) if board.lean(p) else 0
+    if not k:
+        return FOCUS_LINE
+    return f"스토리보드의 중심 장면({k}장면)을 가장 길게, 본문 분량의 절반쯤으로 쓰고 나머지 장면은 짧게 잇습니다."
 # 4화부터 쓰기 요청의 흐름 문장('직전 화 … 이어지고, ')에 잇는 구절. 독자가 이미 아는 설정 · 지난 사건을 다시 풀어 쓰지 않게 한다.
 # 오랜만에 다시 나오는 인물은 return_block 의 '처음 나올 때 한두 문장으로 짚어 줍니다'를 따른다.
 # 지시 문장 수 상한(tests/test_write_budget.py)을 지키려고 따로 문장을 두지 않고 흐름 문장 안에 넣는다.
@@ -3189,9 +3202,13 @@ def priority_line(p: Project, n: int, has_board: bool) -> str:
 # (같은 모델이면 캐시가 맞는다). 쓰기 프롬프트에는 Canon 이 값을 센 글(board_block)로 넣고 JSON 을 그대로 넣지 않는다.
 # 경고와 근거(warnings, stat_basis, checks)는 쓰기에 넣지 않는다.
 
-def board_block(p: Project, n: int) -> str:
+def board_block(p: Project, n: int, write: bool = False) -> str:
     """쓰기 프롬프트의 스토리보드 블록: 직전 화 본문 뒤, 이번 화 플롯 바로 앞. 스토리보드가 없으면 빈 글.
-    쓰기 재료가 고정점만이면(board.fixed_only) 장면 목록과 장면 번호를 빼고 고정점만 넣는다. 장면 메모가 본문에 옮겨지는 것을 막는다."""
+    쓰기 재료가 고정점만이면(board.fixed_only) 장면 목록과 장면 번호를 빼고 고정점만 넣는다. 장면 메모가 본문에 옮겨지는 것을 막는다.
+    write 는 본문을 쓰는 요청이다. 쓰기 재료가 꼭 쓸 것만이면(board.lean) 그때만 lean_board_block 으로 거른다.
+    큐 시트 만들기 같은 설계 요청은 write 를 끄고 스토리보드 전체를 본다."""
+    if write and board.lean(p):
+        return lean_board_block(p, n)
     b = p.episode(n).storyboard
     if b is None:
         return ""
@@ -3246,6 +3263,53 @@ def board_block(p: Project, n: int) -> str:
     return "\n".join(out)
 
 
+def lean_board_block(p: Project, n: int) -> str:
+    """쓰기 재료 '꼭 쓸 것만'(board.lean)의 스토리보드 블록. 집필에는 이번 화 목표와 꼭 써야 하는 것만 넣는다.
+    앞 블록은 어기면 안 되지만 본문에 꺼내지 않아도 되는 것(시간 · 기한 · 첫 장면에 닿는 이어받을 것), 뒤 블록은 이번 화에 쓸 것이다.
+    쓰기 요청에 가까운 글이 본문에 더 반영되도록 쓸 것을 뒤에 둔다. 장면 끝 상태, 깨지 않을 것, 이어받을 것 중 숨긴 것 · 인물 · 숫자 · 질문,
+    끝 차림 목록, 창이 뜨지 않는 상태창 변화는 넣지 않는다. 그 값은 데이터에 남고 검수가 대조한다 (subway 79화, 2026-11-09 설계)."""
+    b = p.episode(n).storyboard
+    if b is None:
+        return ""
+    name = {c.id: c.name or c.id for c in p.characters}
+    who = lambda ids: ", ".join(name.get(x, x) for x in ids)  # noqa: E731
+    keep = ["# 이번 화에서 어기면 안 되는 것 (지키기만 합니다. 본문에 일부러 꺼내 설명하지 않습니다)", f"시간: {board.time_line(p, n, b)}"]
+    dl = board.deadline_rows(p, n, b)
+    if dl:
+        keep += ["열린 기한:"] + dl
+    hand = [h for h in b.handover if h.text.strip() and (not h.kind.strip() or h.kind.strip() in board.LEAN_HANDOVER)]
+    if hand:
+        keep.append("직전 화에서 이어지는 것:")
+        keep += [f"- {f'[{h.kind}] ' if h.kind.strip() else ''}{h.text.strip()}" for h in hand]
+    out = ["# 이번 화에 쓸 것 (스토리보드. 대사와 문장은 정하지 않았으니 직접 씁니다)"]
+    focus = board.focus(b)
+    if b.scenes:
+        out.append("장면:")
+        for k, sc in enumerate(b.scenes, 1):
+            head = " · ".join(x for x in (sc.place.strip(), sc.spot.strip(), sc.time.strip(), who(sc.present)) if x)
+            out.append(f"{k}. {head}" + (" (중심 장면)" if k == focus else ""))
+            body = [x for x in (f"맡은 사건: {', '.join(map(str, sc.events))}" if sc.events else "", sc.goal.strip() and f"목표: {sc.goal.strip()}",
+                                sc.turn.strip() and f"전환: {sc.turn.strip()}") if x]
+            if body:
+                out.append("   " + " / ".join(body))
+    for x in board.steps(p, b):
+        if not x["window"]:  # 창이 뜨지 않는 변화는 상태 변경안이 본문에서 뽑는다
+            continue
+        at = f"{x['scene']}장면" if x["scene"] else "화 끝"
+        rows = ", ".join(f"{r['name']} {r['before'] or '(없음)'} → {r['after'] or '(없앰)'}" for r in x["rows"])
+        out.append(f"상태창 {x['window']} ({at}, {name.get(x['character_id'], x['character_id'])}, 값은 Canon 이 센 것이라 그대로 씁니다): {rows}")
+        out.append("  창 글:\n" + "\n".join("  " + line for line in board.window_text(p, x).splitlines()))
+    if b.moves:
+        out.append("이동:")
+        out += [f"- {name.get(m.character_id, m.character_id)}: {f'{m.scene}장면에서 ' if m.scene else '장면 사이에 '}{m.to}(으)로" for m in b.moves]
+    change = [a for a in b.attire if a.why.strip()]
+    if change:
+        out.append("차림이 바뀌는 순간:")
+        out += [f"- {name.get(a.character_id, a.character_id)}: {a.why.strip()}" for a in change]
+    out.append("위 장면 순서를 따릅니다. 목표 · 전환은 설계 메모라 그 글을 본문에 옮기지 않습니다.")
+    return "\n".join(keep) + "\n\n" + "\n".join(out)
+
+
 def canon_values_block(p: Project, n: int) -> str:
     """스토리보드 만들기에 넣는 'Canon 이 센 값': 요일 셈(작품 기준이 없으면 직전 화 기록 글에서), 상태창 지금 값, 가장 빠른 탈것.
     직전 화 끝 시점과 기한은 앞의 작품 속 시간 블록(timeline.episode_block)에 있다. 넣을 것이 없으면 빈 글."""
@@ -3281,6 +3345,8 @@ def storyboard_prompt(p: Project, n: int) -> str:
     pre = (f"{vals}\n\n" if vals else "") + f"# 장소 목록\n{places_line(p, elements.plot_text(ep))}\n\n"
     between = f"\n\n# 다음 화 플롯 (이번 화가 깨면 안 되는 전제를 찾는 데만 씁니다)\n{dump(nxt.plot)}" if nxt else ""
     stats = statwin.enabled(p)
+    arc_dir, ep_dir = direction_texts(p, n)
+    said = " ".join(x for x in (arc_dir and f"아크 연출 지시: {arc_dir}", ep_dir and f"화 연출 지시: {ep_dir}") if x)
     return build_episode_context(p, n, use_board=False, pre=pre, between=between, full_prev=True) + f"""
 
 위 자료로 {n}화 스토리보드를 JSON 으로 만듭니다. 본문을 쓰지 않습니다.
@@ -3288,6 +3354,7 @@ def storyboard_prompt(p: Project, n: int) -> str:
 - scenes: 장면 3~7개. 이번 화 플롯 events 를 빠짐없이 나눠 맡고, 장면마다 맡은 events 번호(1부터)를 적습니다.
   장면마다 장소, 그 장소 안 자리, 시각, 함께 있는 인물 id, 장면 목표, 전환점, 장면 끝 상태를 적습니다.
   장면 목표 · 전환점은 명사구로 짧게, 장면 끝 상태는 값을 · 로 이어 적습니다 (예: '건우 운전석 · 공회전 · 연료 1.2L'). 본문 문장처럼 쓰면 본문에 그대로 옮겨집니다.
+- focus: 이 화의 중심 장면 번호 하나(1부터). 작품이 가장 공들여 보여 줘야 하는 장면을 고릅니다. 본문 분량의 절반쯤이 이 장면에 갑니다.{f" ({said})" if said else ""}
 - 대사, 본문 문장, 묘사를 적지 않습니다. 인물이 할 말은 '무엇을 밝힌다' 처럼 내용만 적습니다.
 - 첫 장면은 [직전 화 본문]의 마지막 장면에서 바로 이어집니다. 자리, 손에 든 물건, 다친 곳, 하던 말이 이어지게 합니다.
   플롯의 opening(여는 장면)과 time 칸도 직전 화 끝과 대조해, 어긋나면 warnings 에 적고 직전 화 끝을 따릅니다.
@@ -3426,7 +3493,7 @@ def _cue_request(p: Project, n: int, first: str) -> str:
   인물의 speech_style 을 그대로 따릅니다. dialogue 큐에는 1~3개를 적습니다.
 - exit: 그 큐가 끝날 때의 상태 (자리, 손에 든 것, 감정, 결정). 다음 큐가 여기서 이어받습니다.
 - length: 목표 글자 수. 합이 약 {size}자가 되게 합니다. 핵심 큐는 길게, 이어 주는 큐는 짧게 줍니다.
-  큐 길이를 고르게 나누지 않습니다. 가장 긴 큐는 가장 짧은 큐의 두 배를 넘습니다.
+  큐 길이를 고르게 나누지 않습니다. 가장 긴 큐는 가장 짧은 큐의 두 배를 넘습니다.{cue_focus_rule(p, n)}
 - key: 이번 화 정서의 기준선 한 줄.
 - cadence: 화 끝 종지. 플롯의 ending_hook 에 맞춥니다.
 {cad}
@@ -3435,8 +3502,16 @@ def _cue_request(p: Project, n: int, first: str) -> str:
 - 묘사, 본문 문장, 화 번호를 적지 않습니다.""" + priority_line(p, n, p.episode(n).storyboard is not None)
 
 
-def cue_sheet_block(p: Project, sheet) -> str:
-    """쓰기 요청에 붙이는 큐 시트 글. 대사는 글자 그대로 넣으라고 적는다."""
+def cue_focus_rule(p: Project, n: int) -> str:
+    """큐 시트 만들기의 length 줄에 잇는 중심 장면 배분. 쓰기 재료가 꼭 쓸 것만이고(board.lean) 스토리보드가 중심 장면을 골랐을 때만.
+    쓰기 지시(focus_line)가 '중심 장면에 절반쯤'을 말하므로 큐 길이도 맞춘다. 두 지시가 부딪히지 않게 한다."""
+    k = board.focus(p.episode(n).storyboard) if board.lean(p) else 0
+    return f"\n  스토리보드의 중심 장면({k}장면) 큐들의 length 합이 화 글자의 절반쯤이 되게 합니다." if k else ""
+
+
+def cue_sheet_block(p: Project, sheet, exits: bool = True) -> str:
+    """쓰기 요청에 붙이는 큐 시트 글. 대사는 글자 그대로 넣으라고 적는다.
+    exits 를 끄면 큐 끝 상태(exit)를 뺀다 (쓰기 재료 꼭 쓸 것만, board.lean: 끝 상태는 설계 메모라 본문에 옮겨진다)."""
     name = {c.id: c.name or c.id for c in p.characters}
     cad = CUE_CADENCES.get(sheet.cadence, ("", ""))
     out = ["# 이번 화 큐 시트 (악보)",
@@ -3457,17 +3532,19 @@ def cue_sheet_block(p: Project, sheet) -> str:
         for ln in c.lines:
             if ln.text.strip():
                 out.append(f"   핵심 대사 {name.get(ln.speaker, ln.speaker) or '?'}: «{ln.text.strip()}»")
-        if c.exit.strip():
+        if exits and c.exit.strip():
             out.append(f"   끝: {c.exit.strip()}")
-    out.append("핵심 대사는 « » 안의 글자 그대로 본문에 넣습니다 (앞뒤 행동과 서술은 자유). 일 · 끝 칸은 설계 메모라 그 글을 옮기지 않습니다. "
+    out.append("핵심 대사는 « » 안의 글자 그대로 본문에 넣습니다 (앞뒤 행동과 서술은 자유). "
+               + ("일 · 끝 칸은" if exits else "일 칸은") + " 설계 메모라 그 글을 옮기지 않습니다. "
                "긴장도, 템포, 편성은 문장 길이와 문단 호흡, 대사와 서술의 비율로 드러냅니다.")
     return "\n".join(out)
 
 
 def cue_write_block(p: Project, sheet) -> str:
-    """한 번에 쓰는 요청 끝에 붙이는 큐 시트와 지시. 집필(episode_prompt)과 실험의 조건 score 가 같은 글을 쓴다."""
+    """한 번에 쓰는 요청 끝에 붙이는 큐 시트와 지시. 집필(episode_prompt)과 실험의 조건 score 가 같은 글을 쓴다.
+    쓰기 재료가 꼭 쓸 것만이면(board.lean) 큐 끝 상태를 뺀다."""
     total = sum(c.length for c in sheet.cues) or p.meta.words_per_episode
-    return ("\n\n" + cue_sheet_block(p, sheet)
+    return ("\n\n" + cue_sheet_block(p, sheet, exits=not board.lean(p))
             + f"\n\n위 큐 시트의 순서와 진행을 따라 이번 화를 처음부터 끝까지 한 번에 씁니다. 큐마다 정한 글자 수를 지켜 전체가 약 {total}자를 넘지 않게 합니다. "
             "문장 길이와 문단 호흡은 스타일 프로필과 문체 예시 문단을 따르고, 템포는 그 안에서 조절합니다. 큐 번호나 머리말을 본문에 쓰지 않습니다.")
 

@@ -2548,7 +2548,7 @@ def _board_draft(llm: LLM, n: int, events: int, prompt: str, hint: dict) -> Stor
 
 
 def clean_storyboard(d: StoryboardDraft) -> StoryboardDraft:
-    """빈 장면 · 빈 줄을 빼고, 장면 번호를 장면 수 안으로 맞춘다."""
+    """빈 장면 · 빈 줄을 빼고, 장면 번호(상태창 · 이동 · 중심 장면)를 장면 수 안으로 맞춘다."""
     d.scenes = [x for x in d.scenes if any(v.strip() for v in (x.place, x.spot, x.goal, x.turn, x.end_state))]
     k = len(d.scenes)
     for x in d.stats:
@@ -2558,6 +2558,7 @@ def clean_storyboard(d: StoryboardDraft) -> StoryboardDraft:
     for m in d.moves:
         m.scene = m.scene if 0 <= m.scene <= k else 0
     d.moves = [m for m in d.moves if m.character_id.strip() and m.to.strip()]
+    d.focus = d.focus if 0 <= d.focus <= k else 0
     d.attire = [a for a in d.attire if a.character_id.strip() and a.end.strip()]
     d.handover = [h for h in d.handover if h.text.strip()]
     d.protect = [x.strip() for x in d.protect if x.strip()]

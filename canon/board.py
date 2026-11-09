@@ -34,6 +34,24 @@ def fixed_only(p: Project) -> bool:
     return p.settings.write_material == "fixed"
 
 
+# 쓰기 재료 '꼭 쓸 것만'에서 쓰기 요청에 남기는 이어받을 것의 종류. 첫 장면에 바로 닿는 것만 남기고 숨긴 것 · 인물 · 숫자 · 질문은 뺀다.
+# 종류를 비운 줄(작가가 적은 줄)은 남긴다.
+LEAN_HANDOVER = ("장면", "시간", "몸", "물건")
+
+
+def lean(p: Project) -> bool:
+    """쓰기 재료가 '꼭 쓸 것만'인지 (Settings.write_material = lean). 집필에는 이번 화 목표와 꼭 써야 하는 것만 넣는다.
+    스토리보드를 '어기면 안 되는 것'과 '이번 화에 쓸 것'으로 나누고, 장면 끝 상태 · 깨지 않을 것 · 큐 끝 상태 같은 설계 메모를 뺀다 (prompts.board_block).
+    데이터와 검수는 그대로다. 검수는 깨지 않을 것을 계속 대조한다 (prompts.protect_block)."""
+    return p.settings.write_material == "lean"
+
+
+def focus(b) -> int:
+    """스토리보드의 중심 장면 번호 (1부터). 비었거나 장면 수 밖이면 0."""
+    k = getattr(b, "focus", 0) if b is not None else 0
+    return k if b is not None and 1 <= k <= len(b.scenes) else 0
+
+
 def _episode(p: Project, n: int) -> Episode | None:
     return next((e for e in p.episodes if e.plot.number == n), None)
 

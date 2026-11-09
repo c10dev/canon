@@ -263,7 +263,7 @@ class Settings(BaseModel):
     stage_extract: bool = Field(True, description="검수 때 본문에서 장면 연출을 함께 뽑는다 (계획 장면이 있는 사건마다 check 호출 1번 더, 본문이 그대로인 사건은 건너뜀)")
     storyboard: Optional[bool] = Field(None, description="화마다 쓰기 전에 스토리보드를 만들고, 쓰기 프롬프트에 직전 화 본문 전체를 넣는다. 비우면 장편 켬 · 단편 끔 (board.on)")
     cue_sheet: Optional[bool] = Field(None, description="화마다 쓰기 전에 큐 시트(큐마다 기능 · 긴장 · 템포 · 편성 · 핵심 대사 · 분량)를 만들어 쓰기 프롬프트 끝에 넣는다. 비우면 장편 켬 · 단편 끔 (cue.on)")
-    write_material: Literal["", "scenes", "fixed"] = Field("", description="쓰기 재료의 양. fixed(고정점만)면 스토리보드의 장면 목록을 쓰기 요청에서 빼고 고정점(시간 · 기한 · 이어받을 것 · 상태창 · 이동 · 끝 차림 · 깨지 않을 것)만 넣으며, 큐 시트를 만들거나 넣지 않는다. scenes 와 비움은 지금처럼 장면까지 넣는다 (board.fixed_only)")
+    write_material: Literal["", "scenes", "lean", "fixed"] = Field("", description="쓰기 재료의 양. fixed(고정점만)면 스토리보드의 장면 목록을 쓰기 요청에서 빼고 고정점(시간 · 기한 · 이어받을 것 · 상태창 · 이동 · 끝 차림 · 깨지 않을 것)만 넣으며, 큐 시트를 만들거나 넣지 않는다. lean(꼭 쓸 것만)이면 스토리보드를 '어기면 안 되는 것'과 '이번 화에 쓸 것'으로 나눠 넣고 장면 끝 상태 · 깨지 않을 것 · 큐 끝 상태 같은 설계 메모를 뺀다 (board.lean). scenes 와 비움은 지금처럼 장면까지 넣는다 (board.fixed_only)")
     recent_echoes: bool = Field(True, description="장편 본문 쓰기 요청에 '최근 화에서 되풀이한 구절' 블록을 넣는다 (echoes.recent: 직전 5화 본문에서 3개 화 이상에 그대로 나온 서술 구절, prompts.echo_block). 단편에는 넣지 않는다")
     keep_snapshots: bool = Field(False, description="장편에서도 화별 스냅샷을 지우지 않고 모두 남긴다 (연구용 작품: 어느 화로든 되돌릴 수 있다). 끄면 0화 · 아크 끝 · 최근 20화만 남긴다 (pipeline.prune_snapshots)")
     model_preset: str = Field("", description="이 작품이 쓰는 단계 프리셋 id (settings.presets: 단계별 백엔드 · 모델 묶음). 비우면 전체 설정을 따른다. 고른 프리셋이 지워졌으면 전체 설정을 따른다 (settings.project_preset)")
@@ -1850,6 +1850,7 @@ class StoryboardDraft(BaseModel):
     moves: list[BoardMove] = Field(default_factory=list, description="다른 장소로 옮겨 가는 인물만")
     attire: list[BoardAttire] = Field(default_factory=list)
     handover: list[BoardHandover] = Field(default_factory=list, description="직전 화 본문 끝에서 이어받을 것")
+    focus: int = Field(0, description="이 화의 중심 장면 번호 (1부터). 작품의 중심에 가장 가까운 장면 하나, 본문 분량의 절반쯤을 쓸 곳")
     protect: list[str] = Field(default_factory=list, description="다음 화 플롯이 전제하는 것. 이번 화에서 깨지 않는다")
     warnings: list[BoardWarning] = Field(default_factory=list)
 
