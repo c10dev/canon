@@ -194,7 +194,9 @@ async function playLoad(parts) {
   const name = parts[1];
   const fresh = S.playName !== name;
   S.playName = name;
-  playSet(await api('GET', `/projects/${enc(name)}/play`), fresh);
+  const view = await api('GET', `/projects/${enc(name)}/play`);
+  if (!view) throw new Error(`플레이가 아닌 작품이에요: ${name}`);  // 서버는 플레이 사본이 아니면 null 을 돌려준다 (routes/play.py get_play)
+  playSet(view, fresh);
   if (parts[2] === 'life') S.playLife = await api('GET', `/projects/${enc(name)}/play/life`);
   if (!parts[2]) playStart();
   if (playNeedsPoll()) playPoll();
@@ -232,6 +234,7 @@ async function playRefresh() {
   let view;
   try {
     view = await api('GET', `/projects/${enc(name)}/play`);
+    if (!view) throw new Error('플레이가 아닌 작품');  // 플레이 폴더가 지워졌거나 바뀌었다: 실패와 같게 천천히 다시 묻는다
   } catch {
     clearTimeout(playPollTimer);
     playPollTimer = setTimeout(playRefresh, 4000);  // 서버가 꺼졌거나 다시 시작하는 중: 작업 목록처럼 천천히 다시 묻는다
@@ -732,7 +735,7 @@ function viewPlayNew() {
   const ready = w && (f.mode === 'char' ? !!f.char : !!(b && sk));
   return `<div class="small"><a href="#/">작품 목록</a> › 새 플레이</div>
     ${header('플레이 모드', '새 플레이', '세계를 고르고, 그 세계에서 누가 될지 정해요. 플레이는 세계 작품을 복사해 따로 두니 세계 작품은 바뀌지 않아요.')}
-    ${aiNote()}
+    ${aiNote(true)}
     <section class="card" aria-labelledby="pn-1">${step(1, '<span id="pn-1">세계</span>')}
       <div class="pgrid">${worldOpts}<label class="popt${f.newWorld ? ' on' : ''}"><input type="radio" name="play-world" value=""${f.newWorld ? ' checked' : ''}><span class="pcol"><strong>새 세계</strong><span class="small">장르와 한 줄로 세계를 만들어요. 일반 작품으로 남아요</span></span></label></div>
       ${nw}
@@ -766,15 +769,15 @@ function viewPlayNew() {
 
 // ---------- 작품 홈 (home.js 가 부른다). 작품 목록의 플레이 줄은 home.js plGroupRows ----------
 
-/** 작품 홈을 열 때 그 작품이 플레이 사본인지 알아 둔다 (app.js routeNow). 사본이면 플레이 정보, 아니면 null. */
+/** 작품 홈을 열 때 그 작품이 플레이 사본인지 알아 둔다 (app.js routeNow). 사본이면 플레이 정보, 아니면 null (서버도 null 을 돌려준다). */
 async function playHomeLoad(pre) {
   S.homePlay = null;
   const name = S.name;
   S.homePlayOf = name;  // 이 작품을 물어봤다 (app.js routeNow 는 작품을 바꿨을 때도 다시 묻는다)
   try {
     const v = await (pre || api('GET', `/projects/${enc(name)}/play`));
-    if (S.name === name) S.homePlay = v;
-  } catch { /* 플레이 사본이 아니다 */ }
+    if (S.name === name) S.homePlay = v || null;
+  } catch { /* 작품이 없거나 서버에 닿지 못했다: 플레이 사본이 아닌 것으로 둔다 */ }
 }
 
 /** 지금 작품이 플레이 사본인지 (사이드바 작품 칸 · 다음 할 일) */

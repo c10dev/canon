@@ -4,6 +4,7 @@ mock 은 짝수 구간에서만 결정 장면을 낸다 (mock_play.decides). 세
 import time
 
 from canon import prompts, store
+from canon.schema import Meta, Project
 
 from .test_restate import _two_done
 
@@ -130,7 +131,21 @@ def test_play_flow(client, monkeypatch):  # noqa: F811
     assert life["player"] == card["birth"]["name"] and life["archetype"] == card["archetype"] and life["seed"] == 7
     assert life["turns"] == 4 and life["decisions"] == 2 and life["free"] == 1 and life["ending"] == "플레이어가 끝냈어요"
     assert life["chapters"] and life["chapters"][0]["start_ep"] == 3 and life["last_text"]
-    assert client.get("/api/projects/lh/play").status_code == 400  # 세계 작품은 플레이가 아니다
+    r = client.get("/api/projects/lh/play")
+    assert r.status_code == 200 and r.json() is None  # 세계 작품은 플레이가 아니다
+
+
+def test_play_get_on_plain_project(client):  # noqa: F811
+    """플레이가 아닌 작품: 읽기(GET /play)는 200 · null 이라 작품 홈 콘솔에 오류가 찍히지 않는다. 쓰기 경로는 그대로 400, 없는 작품은 404."""
+    store.save("plain", Project(meta=Meta(title="보통 작품", genre="", logline="")))
+    r = client.get("/api/projects/plain/play")
+    assert r.status_code == 200 and r.json() is None
+    assert client.get("/api/projects/nope/play").status_code == 404
+    for path, body in [("advance", {}), ("see", {"n": 1}), ("rewind", {"n": 1}), ("end", {"reason": ""}), ("fork", {"n": 1, "to": "plain-b"})]:
+        r = client.post(f"/api/projects/plain/play/{path}", json=body)
+        assert r.status_code == 400 and "플레이가 아닌 작품" in r.json()["detail"], (path, r.text)
+    assert client.put("/api/projects/plain/play/settings", json={"focus": ""}).status_code == 400
+    assert client.get("/api/projects/plain/play/life").status_code == 400
 
 
 def test_play_as_world_character(client):  # noqa: F811

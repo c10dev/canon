@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+<!-- 브라우저 탭 아이콘: 'Canon.' 로고처럼 먹색 C 와 귤색 점. 색은 docs/design/tokens.json 의 logo · brand-2 -->
+<style>.c{stroke:#2C3642}.d{fill:#D16604}@media (prefers-color-scheme:dark){.c{stroke:#A3ACB7}.d{fill:#F18333}}</style>
+<path class="c" d="M21.07 8.93A10 10 0 1 0 21.07 23.07" fill="none" stroke-width="5" stroke-linecap="round"/>
+<circle class="d" cx="27.5" cy="26.5" r="3.5"/>
+</svg>

@@ -34,9 +34,12 @@ const folderRaw = (t) => t.trim().replace(/[/\\:*?"<>|]/g, '').replace(/^\.+/, '
 const folderOf = (t) => [...folderRaw(t)].slice(0, 64).join('');  // 글자(코드 포인트) 64개: 서버 NAME_RE 와 같고 이모지 가운데를 끊지 않는다
 const FOLDER_BAD = /^\.|[/\\:*?"<>|]/;
 
-/** 작품 홈 · 설정 도우미 머리 아래의 AI 연결 안내 (작품 목록과 같은 글, 설정 화면 링크) */
-function aiNote() {
-  return aiWarning() ? `<div class="note warn" role="status">${esc(aiWarning())} <a href="#/settings/ai" style="color:inherit;font-weight:700">AI 연결 설정</a></div>` : '';
+/** 작품 목록 · 작품 홈 · 설정 도우미 머리 아래의 AI 연결 안내 (사이드바 아래 줄과 같은 글, 설정 화면 링크).
+    사이드바가 펴진 901px 이상에서는 아래 줄(sideFoot 의 .side-warn)이 같은 글을 보이므로 숨긴다(.ai-note, app.css).
+    사이드바가 없는 화면(새 플레이)은 always 로 늘 보인다 */
+function aiNote(always = false) {
+  const w = aiWarning();
+  return w ? `<div class="note warn${always ? '' : ' ai-note'}" role="status">${esc(w)} <a href="#/settings/ai" style="color:inherit;font-weight:700">AI 연결 설정</a></div>` : '';
 }
 
 // 작품 목록(#/)은 작품 밖 사이드바(app.js outSidebar) 옆에 머리 → (새 작품 칸) → 이어 쓰기 카드 → 모든 작품 한 줄 목록 순서다.
@@ -268,7 +271,7 @@ function viewProjects() {
   const f = newForm();
   // 새 작품 칸: 주소가 #/new 이거나, 오류가 있거나, 작품이 없으면 편다. 그 밖에는 작가가 연 · 닫은 대로, 정하지 않았으면 적던 내용이 있을 때 편다
   const open = S.route[0] === 'new' || !!S.newErr || !list.length || (S.npOpen ?? newFormUsed(f));
-  const warn = aiWarning() ? `<div class="note warn" role="status">${esc(aiWarning())} <a href="#/settings/ai" style="color:inherit;font-weight:700">AI 연결 설정</a></div>` : '';
+  const warn = aiNote();
   if (!list.length) {
     return `${header('', '첫 작품을 만들어요', '제목과 형식만 정하면 시작할 수 있어요. 로그라인 · 인물 · 세계는 다음 화면의 설정 도우미에서 채워요.', '<a class="btn" href="#/play/new">새 플레이</a>')}
       ${warn}
