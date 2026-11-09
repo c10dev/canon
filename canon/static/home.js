@@ -380,6 +380,18 @@ function nextStep() {
   return ['완결 원고 보기', `${base()}/write/${e.plot.number}`, 'exportAll', '완결 원고 내보내기'];
 }
 
+/** 작품 홈 머리의 ⋯ 메뉴. 머리에는 이 메뉴와 주 버튼(다음 할 일, 오른쪽 끝) 하나만 둔다. fin 반영한 화 수, arcNext 다음 할 일이 플롯 화면인지.
+    든 것: 장편으로 늘리기(모든 화를 반영한 단편) · 기승전결 · 플롯(다음 할 일이 그 화면이 아닐 때) · 갈래 만들기(반영한 화가 있을 때). 비면 그리지 않는다 */
+function homeHeadMore(fin, arcNext) {
+  const m = P().meta;
+  const items = [
+    !serial() && fin && fin === m.target_episodes ? `<a class="pop-item" href="${base()}/convert">장편으로 늘리기</a>` : '',
+    arcNext ? '' : `<a class="pop-item" href="${base()}/arc">${stepLabel('arc')}</a>`,
+    fin ? '<button type="button" class="pop-item" data-action="branchOpen" title="이 작품은 그대로 두고, 사본에서 다른 전개를 써요">갈래 만들기</button>' : '',
+  ].filter(Boolean);
+  return items.length ? menuBtn('home-more', '<span aria-hidden="true">⋯</span>', () => items.join(''), { aria: '작품 더 보기 메뉴', title: '더 보기' }) : '';
+}
+
 /** 다음 할 일을 버튼에 쓰는 글. 동작이 있으면 동작 글 */
 function nextStepLabel(next) {
   return next[2] ? next[3] || next[0] : next[0];
@@ -720,7 +732,7 @@ function viewHome() {
   // 사실이 들어온 화 링크 (반영 기록에서 센다, context.facts_learned). 기록에 없는 사실(설정 단계 · 직접 적음 · 인과율)은 붙이지 않는다
   const factLi = (f) => `<li>${esc(f)}${learned[f] ? ` <a class="small" href="${base()}/review/${learned[f]}">${learned[f]}화</a>` : ''}</li>`;
 
-  return `${header(`${esc(m.genre || '장르 미정')}${m.adult ? ' · 성인' : ''} · ${serial() ? '장편 연재 · ' : ''}전 ${m.target_episodes}화 · 화당 ${Number(m.words_per_episode).toLocaleString()}자`, m.title || S.name, m.logline ? `<span class="home-logline" title="${esc(m.logline)}">${esc(m.logline)}</span>` : '', `${!serial() && fin && fin === m.target_episodes ? `<a class="btn" href="${base()}/convert">장편으로 늘리기</a>` : ''}${isArcHref(nextHref) ? '' : `<a class="btn" href="${base()}/arc">${stepLabel('arc')}</a>`}${fin ? '<button type="button" class="btn" data-action="branchOpen" title="이 작품은 그대로 두고, 사본에서 다른 전개를 써요">갈래 만들기</button>' : ''}${nextStepHtml(next)}`)}
+  return `${header(`${esc(m.genre || '장르 미정')}${m.adult ? ' · 성인' : ''} · ${serial() ? '장편 연재 · ' : ''}전 ${m.target_episodes}화 · 화당 ${Number(m.words_per_episode).toLocaleString()}자`, m.title || S.name, m.logline ? `<span class="home-logline" title="${esc(m.logline)}">${esc(m.logline)}</span>` : '', `${homeHeadMore(fin, isArcHref(nextHref))}${nextStepHtml(next)}`)}
     ${autoLockNote()}
     ${aiNote()}
     <div class="home-top">${homeNowCard(nextLabel, nextHref)}${homeTodoCard()}</div>

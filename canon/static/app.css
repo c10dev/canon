@@ -2128,6 +2128,7 @@ body.routing::before { content: ''; position: fixed; top: 0; left: 0; height: 3p
 .pop-item { width: 100%; min-height: 44px; padding: 0 var(--space-10); border: none; border-radius: var(--radius-8); background: transparent; color: var(--text); font: inherit; font-size: 0.8125rem; text-align: left; display: flex; align-items: center; gap: var(--space-10); cursor: pointer; }
 @media (hover: hover) { .pop-item:hover { background: var(--bg); } }
 .pop-item .small { margin-left: auto; }
+a.pop-item { color: var(--text); text-decoration: none; }  /* 링크 줄도 동작 줄과 같은 모양 */
 .pop-radio { min-height: 40px; padding: var(--space-6) var(--space-2); display: flex; gap: var(--space-10); align-items: flex-start; cursor: pointer; }
 .pop-radio input { width: 20px; height: 20px; margin: 0; flex: none; accent-color: var(--accent); }
 .pop-radio > span { display: flex; flex-direction: column; gap: var(--space-2); line-height: 1.45; }
@@ -2833,6 +2834,11 @@ mark.hl.tofix { text-decoration-color: var(--him-ink); text-decoration-style: da
 @media (pointer: coarse), (max-width: 640px) { .ai-mini { min-height: var(--touch-min); } }
 .ai-mini:hover { border-color: var(--sel-line); }
 .ai-mini[aria-expanded="true"] { border-color: var(--accent); }
+/* 칸 옆 ✦ 후보 버튼(ideas.js ideaBtn)은 그 칸에 포인터를 올리거나 포커스가 있을 때만 보인다. 자리는 그대로 두고 Tab 순서에도 남아,
+   키보드로 닿으면(:focus-within) 보인다. 숨은 동안은 눌리지 않는다. 후보를 펼친 칸(aria-expanded)은 늘 보인다 */
+.field .ai-mini:not([aria-expanded="true"]) { opacity: 0; pointer-events: none; transition: opacity 0.12s; }
+.field:hover .ai-mini, .field:focus-within .ai-mini { opacity: 1; pointer-events: auto; }
+@media (prefers-reduced-motion: reduce) { .field .ai-mini { transition: none; } }
 .lab-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-8); flex-wrap: wrap; min-height: 36px; }
 .in-ai { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-8); align-items: center; }
 /* ✦ 후보: 칸 바로 아래에 펼친다. 고르기 전에는 칸이 바뀌지 않는다 (ideas.js) */

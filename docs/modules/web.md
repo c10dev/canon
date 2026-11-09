@@ -85,7 +85,9 @@
   - 본문 `.out-main` 폭 `--out-w` · `@container out`
   - 작품을 읽지 못한 화면(주소가 틀림 · 불러오기 오류)도 작품 밖 사이드바 안에 그린다(본문 720px)
 - 사이드바
-  - `sidebar`: 맨 위 줄 `sideTop` · 작품 칸 · 단계 · 접는 묶음 `navFold`(작품 도구 · 아직 안 쓴 도구 · 실험, 펼침 `navFoldOpen`) · 아래 고정 줄 `sideFoot`(설정 · ⋯ 메뉴)
+  - `sidebar`: 맨 위 줄 `sideTop` · 작품 칸 · 단계 · 접는 묶음 `navFold`(작품 도구 · 그 안의 아직 안 쓴 도구, 펼침 `navFoldOpen`) · 아래 고정 줄 `sideFoot`(설정 · ⋯ 메뉴)
+  - 실험 화면(`navItems` 의 `apart`: 연구 · 큐 시트 · 역설계 · 쇠맛 · 사용량)은 작품 안 사이드바에 그리지 않는다. 찾기 팔레트로 부른다
+  - 아직 안 쓴 도구(`NAV_FOLD_NOKEEP`)는 펼침을 브라우저에 두지 않는다. `routeNow` 가 화면을 옮길 때 다시 접는다
   - 줄 끝 배지 `navBadges`(순수 함수, `tests/test_sidebar_js.py`) · `navBadge`
   - 64px 레일로 접기 `toggleRail` · `syncRail`(901~1599px 에서 대화 패널을 열면 저절로)
   - 작품 안 사이드바의 맨 위 줄은 찾기 앞에 대화 버튼을 둔다(`sideTop({ chat: true })`, `chat.js` `toggleChat`). 작품 밖 · 플레이 사이드바에는 없다
@@ -273,7 +275,8 @@
 - 버튼에 쓰는 글 `nextStepLabel`: 동작이 있으면 동작 글, 없으면 글
 - 다음 할 일 버튼 `nextStepHtml`: 동작이 있으면 `data-action` button, 없으면 a
 - `nextStepHtml` 은 작품 홈 머리와 집필 머리(`write.js` `nextStepBtn`)가 쓴다
-- 작품 홈 머리는 다음 할 일이 이야기 구조 화면(`/arc`, `/arc/n`, `isArcHref`)이면 이야기 구조 보조 버튼을 두지 않는다
+- 작품 홈 머리는 다음 할 일 버튼과 ⋯ 메뉴 `homeHeadMore` 둘이다. 메뉴 안은 장편으로 늘리기 · 이야기 구조 · 갈래 만들기이고 조건이 맞을 때만 든다
+- 작품 홈 머리 ⋯ 메뉴는 다음 할 일이 이야기 구조 화면(`/arc`, `/arc/n`, `isArcHref`)이면 이야기 구조 줄을 두지 않는다. 메뉴가 비면 ⋯ 도 없다
 - 작품 홈 '다음 할 일' 카드는 자동 집필이 돌 때 제목을 '자동 집필이 n화를 쓰는 중이에요'로 쓴다. '자동 집필로'는 버튼과 링크에만 쓴다
 - 사이드바 자동 집필 메뉴 이름 `autoMenuLabel`: 돌면 '자동 집필 · 쓰는 중', 멈추면 그 까닭
 - 작품 목록 `projectGo` 는 플롯 전 작품의 설정 필수 칸이 비면(`setup_ready` false) '설정 마저 채우기'로 보낸다
@@ -311,6 +314,7 @@
 
 - 설정 칸 하나의 AI 후보(✦)
 - 칸 옆 버튼(`ideaBtn`, `.ai-mini`)과 칸 바로 아래 후보 목록(`ideaList`)
+- 칸 옆 버튼은 그 칸(`.field`)에 포인터나 포커스가 있을 때만 보인다(app.css, 투명도). Tab 순서에는 남아 키보드로 닿으면 보인다
 - 고르기(`useIdea`, 로그라인 칸이면 합친 문장도) · 다시 받기 · 닫기
 - 마법사 · 기획서 칸에는 `input()` 의 `aside` · `beside` · `after` 로 붙인다
 - 고르기 전에는 칸을 바꾸지 않는다
@@ -408,6 +412,8 @@
 - 명령 팔레트
 - Ctrl+K(맥은 ⌘K, 입력칸 안에서도) · 좁은 화면 사이드바 '찾기'(`openPalette`)
 - 화면(사이드바 `navItems` 와 같은 이름) · 화 번호 · 인물 이름 · 설정 칸(칸 이름과 값, `palSetupFields`, 고르면 `S.jumpTo` 로 설정 도우미 기획서의 그 칸) · 설정 대화상자의 줄(`SET_ROWS`, 고르면 그 갈래를 연다) · 다음 할 일 · 저장(`saveShortcut`) · 알림 창(`hubOpen`)을 찾는다
+- 사이드바에 그리지 않는 실험 화면(`navItems` 의 `apart`)도 찾는다. 작품 밖 화면(`foot`)과 주소가 같은 실험은 한 번만 넣는다
+- 작품 안 화면 이름이 모두 팔레트에서 찾아지는지 `tests/test_sidebar_js.py` 가 본다
 - 작품 밖은 작품 목록 · 설정 · 알림 창과 설정 줄만
 - 검색 `paletteItems` · `paletteMatch` 는 순수 함수(`tests/test_palette_js.py` 가 node 로 맞춰 본다)
 - 640px 이하는 찾기 칸 오른쪽에 닫기 버튼 `.pal-x`(화면을 거의 다 덮고 Esc 가 없다)

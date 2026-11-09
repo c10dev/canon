@@ -1,9 +1,11 @@
 """설정 칸 하나의 AI 후보 화면(static/ideas.js)을 node 로 맞춰 본다: 칸 목록이 서버(prompts.FIELD_IDEAS)와 같고,
 받기 전에는 칸이 그대로이며, 고르면 그 칸과 합친 로그라인만 바뀐다."""
+import re
+
 from canon import prompts
 from canon.schema import Project
 
-from .jsvm import dump, needs_node, run_js
+from .jsvm import STATIC, dump, needs_node, run_js
 
 FILES = ["app.js", "home.js", "setup.js", "ideas.js"]
 
@@ -73,3 +75,12 @@ def test_wired_into_setup():
     assert "lab-row" not in got["plain"] and "in-ai" not in got["plain"]
     assert got["wizard"] == "wizard" and got["mode"] == "doc"  # 빈 새 작품은 마법사지만 칸 점프는 기획서로
     assert got["docIdeas"] == 7 and got["hasTheme"]
+
+
+def test_idea_button_shows_on_focus_and_stays_in_tab_order():
+    """칸 옆 ✦ 후보 버튼은 칸에 포인터 · 포커스가 있을 때만 보인다. 숨길 때 display · visibility 를 쓰면 Tab 으로 닿지 못한다."""
+    css = (STATIC / "app.css").read_text(encoding="utf-8")
+    hide = re.search(r'^\.field \.ai-mini:not\(\[aria-expanded="true"\]\) \{([^}]*)\}', css, re.M)
+    assert hide and "opacity: 0" in hide.group(1) and "pointer-events: none" in hide.group(1)
+    assert "display" not in hide.group(1) and "visibility" not in hide.group(1)
+    assert re.search(r"^\.field:hover \.ai-mini, \.field:focus-within \.ai-mini \{[^}]*opacity: 1", css, re.M)
