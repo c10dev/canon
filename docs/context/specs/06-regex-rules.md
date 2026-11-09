@@ -1,6 +1,6 @@
 # 06. 정규식 규칙 묶음 (경고 · 고침)
 
-상태: 진행 (claude/regex-rules, #446) · 계획: [plan.md](../plan.md) 의 6번 · 먼저: —
+상태: 끝 (#446) · 계획: [plan.md](../plan.md) 의 6번 · 먼저: —
 
 ## 목표
 
@@ -124,6 +124,9 @@ AI 가 본문을 쓰면 작가가 보기 전에 고침(`fix`) 규칙이 본문�
 12. 대화 에이전트의 규칙 제안 — 정함(2026-11-08, Q33): 이 일감(6)에서 만들지 않고 6 뒤의 조각 6b 가 맡는다.
    - 6b 는 07 의 정할 것 9(`propose_rule` 도구, 쓰기 종류 `rule` 은 늘 'ask')와 같은 꼴로 만든다.
    - 6b 는 6 의 저장소 모양이 머지된 뒤 시작한다([plan.md](../plan.md) 의 6b).
+   - 2026-11-09 6b 를 정하며 바꿨다: 도구 이름은 `propose_regex` 다. 07 의 `propose_rule` 과 이름을 나눈다(06b 의 정할 것 1).
+   - 2026-11-09 6b 를 정하며 바꿨다: `renumber` 의 길이 아니라 늘 묻는 도구 모듈(`CARD_TOOLS`) 꼴이다(06b 의 정할 것 2).
+   - 6b 의 명세서는 [06b-rule-propose.md](06b-rule-propose.md) 다.
 13. 재구성 다듬기 제안의 고침 기록을 받아들이기까지 넘기는 방식 — 정함(2026-11-09, 추천안): (가) `Rework` 에 `ruled: SkipJsonSchema[list[RuleChange]]` 를 더하고 `ReworkIn` · `static/convert.js` · `cli.py` `cmd_rework` 가 그 값을 되돌려 보낸다.
    - `accept_rework` 는 `apply_passage` 와 같이 아직 찾히는 곳만 남긴다.
    - 이유: 서버는 재구성 다듬기 제안(`Rework`)을 저장하지 않는다. 제안은 작업 결과로만 화면(`S.reworks`)에 간다.
@@ -409,7 +412,7 @@ AI 가 본문을 쓰면 작가가 보기 전에 고침(`fix`) 규칙이 본문�
 대화 에이전트 (Q29):
 
 - `canon/agent.py` 는 규칙 묶음을 쓰거나 고치지 않고, 작품의 `Settings.rule_bundles` 도 고치지 않는다. 어느 권한 모드에서도 같다.
-- 에이전트가 규칙을 제안하고 작가가 적용하는 길(Q29)은 정할 것 12 에서 정한다. 지금 에이전트는 플롯 주제만 맡는다(`agent.TOPICS`).
+- 에이전트가 규칙을 제안하고 작가가 적용하는 길(Q29)은 [06b-rule-propose.md](06b-rule-propose.md) 가 맡는다.
 - 에이전트의 본문 고치기 도구(`agent_text.py`, 04b)는 'AI에게 고치기'와 같은 함수를 쓰므로 후보에 고침 규칙을 걸고 넣은 고침을 규칙 기록에 남긴다.
 
 단편 · 장편:
