@@ -239,3 +239,18 @@ def test_add_image_keeps_recent(tmp_path, monkeypatch):
         (d / f"{k:016x}.png").write_bytes(b"x")
     (d / "keep.txt").write_text("남의 파일")
     assert comfy.prune("x", p) == 2 and (d / "keep.txt").exists()
+
+
+def test_settings_file_when_no_env(monkeypatch, tmp_path):
+    """systemd 로 띄운 서버처럼 환경 변수를 못 넣을 때는 설정 파일의 comfy_<key> 를 읽는다. 환경 변수가 먼저다."""
+    from canon import settings
+    cfg = tmp_path / "config.json"
+    cfg.write_text(json.dumps({"comfy_url": "http://127.0.0.1:18188", "comfy_ckpt": "wai.safetensors", "comfy_size": "1024x1024"}))
+    monkeypatch.setenv("CANON_CONFIG", str(cfg))
+    for k in ("URL", "CKPT", "SIZE", "WORKFLOW", "TIMEOUT"):
+        monkeypatch.delenv(f"CANON_COMFY_{k}", raising=False)
+    assert settings.comfy("url") == ("http://127.0.0.1:18188", "file")
+    assert comfy.url() == "http://127.0.0.1:18188" and comfy.size() == (1024, 1024)
+    assert comfy.status()["checkpoint"] == "wai.safetensors" and comfy.timeout() == comfy.DEFAULT_TIMEOUT
+    monkeypatch.setenv("CANON_COMFY_URL", "mock")
+    assert comfy.url() == "mock"

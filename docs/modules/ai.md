@@ -197,6 +197,7 @@
   - `CANON_COMFY_TIMEOUT`: ComfyUI 그림 하나를 기다리는 초(기본 600)
   - `CANON_COMFY_URL`: ComfyUI 주소(예: SSH 터널 `http://127.0.0.1:18188`). `mock` 이면 가짜 ComfyUI. 비우면 그리기를 끈다
   - `CANON_COMFY_WORKFLOW`: ComfyUI 'Export (API)' 워크플로 JSON 경로. 비우면 기본 틀
+  - `CANON_COMFY_*` 가 없으면 설정 파일의 `comfy_url` · `comfy_workflow` · `comfy_ckpt` · `comfy_size` · `comfy_timeout` 을 읽는다(`settings.comfy`). systemd 로 띄운 서버처럼 환경 변수를 넣기 어려울 때 쓴다
   - `CANON_CONFIG`: 설정 파일 위치(기본 `~/.canon/config.json`, `settings.path`)
   - `CANON_EFFORT_<단계>`: 단계별 추론 강도(low · medium · high · xhigh · max, `settings.stage_effort`). Claude · Gemini 만 쓴다
   - `CANON_GEMINI_AUTH`: Gemini 연결 방식(key | vertex)

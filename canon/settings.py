@@ -323,6 +323,12 @@ def local_key() -> tuple[str, str]:
     return _pick(("CANON_LOCAL_KEY",), _read().get("local_key"))
 
 
+def comfy(key: str) -> tuple[str, str]:
+    """ComfyUI 그리기 설정 (canon/comfy.py). key: url | workflow | ckpt | size | timeout.
+    환경 변수 CANON_COMFY_<KEY> 가 먼저, 다음은 설정 파일의 comfy_<key>. systemd 로 띄운 서버는 설정 파일에 적는다."""
+    return _pick((f"CANON_COMFY_{key.upper()}",), str(_read().get(f"comfy_{key}") or ""))
+
+
 def claude_model() -> tuple[str, str]:
     """Claude 백엔드 기본 모델. 비우면 구독은 Claude Code 기본 모델, API 는 claude.DEFAULT_API_MODEL."""
     return _pick(("CANON_CLAUDE_MODEL",), _read().get("claude_model"))

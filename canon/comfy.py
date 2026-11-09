@@ -1,7 +1,8 @@
 """삽화 그리기: 저장한 삽화 프롬프트(Illustration)를 ComfyUI 에 보내 그림을 받아 작품 폴더에 둔다.
 
 LLM 을 부르지 않는다. 사용량 기록(usage.record)은 LLM 토큰만 세므로 여기서는 부르지 않는다.
-ComfyUI 는 따로 띄운 서버다 (GPU 서버에서 돌리고 SSH 터널로 잇는다). 주소는 CANON_COMFY_URL, 'mock' 이면 가짜 서버.
+ComfyUI 는 따로 띄운 서버다 (GPU 서버에서 돌리고 SSH 터널로 잇는다). 주소는 CANON_COMFY_URL(설정 파일은 comfy_url), 'mock' 이면 가짜 서버.
+설정 이름은 모두 환경 변수 CANON_COMFY_<KEY> 가 먼저이고, 없으면 설정 파일(~/.canon/config.json)의 comfy_<key> 를 쓴다.
 
 워크플로는 ComfyUI 에서 'Export (API)' 로 내보낸 JSON 을 틀로 쓴다 (CANON_COMFY_WORKFLOW). 틀의 글 칸에 적은 자리표를 채운다.
 - {{prompt}} · {{negative}}: 긍정 · 부정 프롬프트. "masterpiece, {{prompt}}" 처럼 앞뒤에 고정 태그를 둘 수 있다
@@ -25,7 +26,6 @@ from __future__ import annotations
 
 import copy
 import json
-import os
 import re
 import secrets
 import time
@@ -37,7 +37,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import cancel, illust, store
+from . import cancel, illust, settings, store
 from .schema import Illustration, IllustImage, Project
 
 DEFAULT_SIZE = (832, 1216)
@@ -77,32 +77,37 @@ class ComfyError(RuntimeError):
 
 # ---------- 설정 ----------
 
+def _conf(key: str) -> str:
+    """CANON_COMFY_<KEY> 환경 변수, 없으면 설정 파일의 comfy_<key> (settings.comfy)."""
+    return settings.comfy(key)[0].strip()
+
+
 def url() -> str:
-    return os.environ.get("CANON_COMFY_URL", "").strip()
+    return _conf("url")
 
 
 def size() -> tuple[int, int]:
-    m = re.fullmatch(r"\s*(\d+)\s*[x×]\s*(\d+)\s*", os.environ.get("CANON_COMFY_SIZE", ""))
+    m = re.fullmatch(r"\s*(\d+)\s*[x×]\s*(\d+)\s*", _conf("size"))
     return (int(m[1]), int(m[2])) if m else DEFAULT_SIZE
 
 
 def timeout() -> float:
     try:
-        return float(os.environ.get("CANON_COMFY_TIMEOUT", "") or DEFAULT_TIMEOUT)
+        return float(_conf("timeout") or DEFAULT_TIMEOUT)
     except ValueError:
         return DEFAULT_TIMEOUT
 
 
 def status() -> dict:
     """화면이 그리기 버튼을 보일지 정하는 값. ComfyUI 에 묻지 않는다 (꺼져 있으면 그리기 작업이 알린다)."""
-    path = os.environ.get("CANON_COMFY_WORKFLOW", "").strip()
+    path = _conf("workflow")
     return {"on": bool(url()), "mock": url() == "mock", "workflow": Path(path).name if path else "",
-            "checkpoint": os.environ.get("CANON_COMFY_CKPT", "").strip()}
+            "checkpoint": _conf("ckpt")}
 
 
 def template() -> dict:
     """워크플로 틀. CANON_COMFY_WORKFLOW 파일, 없으면 기본 틀."""
-    path = os.environ.get("CANON_COMFY_WORKFLOW", "").strip()
+    path = _conf("workflow")
     if not path:
         return copy.deepcopy(DEFAULT_WORKFLOW)
     try:
@@ -273,7 +278,7 @@ def fill(parts: Parts, seed: int, tpl: dict | None = None) -> tuple[dict, str, l
         if parts.people > 1:
             notes.append(MIXED)
     slots: dict = {"prompt": parts.flat(), "main": main, "negative": negative, "seed": seed, "width": w, "height": h,
-                   "checkpoint": os.environ.get("CANON_COMFY_CKPT", "").strip(), "multi": regional}
+                   "checkpoint": _conf("ckpt"), "multi": regional}
     for i in range(1, 10):
         slots[f"char{i}"] = ", ".join(put[i - 1]) if i <= len(put) else ""
     found: set[str] = set()

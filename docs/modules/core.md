@@ -870,6 +870,7 @@
 
 - 사용자 설정(LLM 프로바이더, 모델, API 키, 로컬 서버, 단계별 백엔드)
 - 웹 설정 화면에서 저장하면 `~/.canon/config.json` 에 들어간다(`CANON_CONFIG` 로 경로 변경)
+- ComfyUI 그리기 설정(`comfy`): 환경 변수 `CANON_COMFY_<KEY>` 가 먼저, 다음은 설정 파일의 `comfy_<key>`. 웹 설정 화면에는 아직 칸이 없다
 - `_write` 는 `store.write_atomic(mode=0o600, fsync=True)` 로 쓴다. 키가 든 임시 파일도 처음부터 본인만 읽고, 쓰다 멈춰도 옛 설정이 그대로 남는다
 - 읽고-고치고-쓰는 곳(`update` · `save_preset` · `delete_preset` · `set_prices` · `mark_gemini_cache_unsupported` · `reset_broken`)은 프로세스 안 잠금 `_CONFIG_LOCK`(RLock)을 잡는다. 겹친 단계 칸 PUT 이 서로의 값을 지우지 않는다
 - CLI 와 서버처럼 다른 프로세스가 함께 쓰는 경우는 이 잠금이 막지 않는다
