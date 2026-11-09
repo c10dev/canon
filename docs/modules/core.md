@@ -508,7 +508,9 @@
 - 열 계획 받기 요청 `heat_propose_prompt`: 기승전결, 화별 플롯, 본문 있는 화의 실제 열 참고값과 지금 계획, 열린 복선. 요구사항은 단편 기획과 같은 `heat_rules`
 - 작업지시서(`episode_brief`, `state_brief`)
 - 작업지시서는 `brief_parts`(역할 = 시스템, 요청)로 조립한다. 갈래 목록은 `BRIEF_KINDS`(`BriefKind`: 이름 · 필요한 것 · 고르는 단위 · 장편만)
-- 갈래는 집필 흐름 차례로 부 구성(장편만) · 기승전결 구조 · 다음 아크 · 열 계획 · 플롯 초안 · 한 화 플롯 · 스토리보드 · 큐 시트 · 본문 쓰기 · 검수 · 상태 변경안이다
+- 갈래는 집필 흐름 차례로 설정 도우미 대화 · 문체 대화 · 부 구성(장편만) · 기승전결 구조 · 다음 아크 · 열 계획 · 플롯 초안 · 한 화 플롯 · 플롯 대화 에이전트 · 스토리보드 · 큐 시트 · 본문 쓰기 · 본문 부분 수정 · 검수 · 상태 변경안이다
+- 대화로 다듬기 갈래는 `revise_setup` · `revise_style` · `revise_passage` · `agent.run_turn` 첫 단계와 같은 글이고, 작가의 말 자리에 `CHAT_MESSAGE` 를 넣는다(`tests/test_promptlab.py` 가 견준다)
+- 본문 부분 수정 갈래가 고르는 부분은 `passage_sample`(빈 줄이 아닌 단락 가운데 한가운데 단락)이다. 빠른 요청은 쓰지 않는다
 - 새 갈래는 `pipeline` 의 호출(`plan_series` · `plan_arc` · `plan_next_arc` · `propose_heat` · `draft_plots` · `draft_episode` · `make_storyboard` · `make_cue_sheet`)과 같은 함수를 같은 차례로 부르고 작가의 요청은 비운다(`tests/test_promptlab.py` 가 견준다)
 - 구조 갈래 `arc_ask`: 단편은 기승전결(`arc_prompt`), 장편은 다음 아크 하나(`next_arc_prompt`). 열 계획을 켠 작품은 열 계획 규칙과 그 스키마를 붙인다
 - 플롯 초안 갈래는 n 화가 든 구간(`plots_range`, `pipeline.act_groups`) 전체를 짠다. 웹 작업 plots 도 구간마다 부른다

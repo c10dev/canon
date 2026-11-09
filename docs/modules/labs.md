@@ -75,7 +75,7 @@
 - 제목은 비우면 요청 첫 줄로 짓는다(`title_of`). 작가가 적은 제목은 프롬프트를 바꿔도 남는다
 - 돌리기 `run` 은 `research.sample` 을 그대로 부른다(차례로 부름, 한 쪽이 실패해도 나머지는 돎). 세션은 바꾸지 않고 `add_trial` 로 붙인다
 - 불러온 갈래가 있으면 `run_spec` 대로 돌린다: 응답 스키마(구조화 출력 `llm.json`), 그 단계의 모델 · 추론 강도, 출력 한도
-- 출력 한도 `OUT_TOKENS`: 스토리보드 · 큐 시트는 `pipeline.BOARD_OUT_TOKENS` · `CUE_OUT_TOKENS`, 나머지는 기본 한도
+- 출력 한도 `OUT_TOKENS`(갈래 → 모듈 · 이름): 스토리보드 · 큐 시트는 `pipeline.BOARD_OUT_TOKENS` · `CUE_OUT_TOKENS`, 대화 에이전트는 `agent.STEP_OUT_TOKENS`, 나머지는 기본 한도
 - 고른 작품에서 불러왔으면 그 작품의 단계 프리셋(`settings.project_preset`)을 쓴다
 - 칸을 고쳐도 출처가 있으면 같은 방식으로 돌린다. 불러온 출처가 없는 세션은 예전처럼 글로 받는다
 - 시도의 결과마다 받은 스키마 · 추론 강도 · 출력 한도를 남긴다(`PromptRun.schema_name` · `effort` · `out_tokens`)
@@ -89,11 +89,14 @@
 - 되돌리기 `restore`: 그 시도의 프롬프트 · 온도 · 출처를 지금 칸으로. 백엔드는 그대로 둔다
 - 불러오기 `load_prompt`: Canon 프롬프트를 `prompts.brief_request` 로 조립해 시스템 · 요청 칸에 채운다. 스키마 글은 칸에 넣지 않고 출처(`PromptSource.schema_name` · `stage`)에 둔다
 - 갈래는 `prompts.BRIEF_KINDS` 그대로다. 작품에 맞는 갈래만 `kinds_for` 로 고른다(부 구성은 장편만)
+- 대화로 다듬기 갈래(설정 도우미 · 문체 · 플롯 대화 에이전트 첫 단계 · 본문 부분 수정)는 작가의 말 자리에 `prompts.CHAT_MESSAGE` 를 넣는다. 작가가 그 줄을 바꿔 돌린다
+- 대화로 다듬기 갈래는 `canon_notes` 검사가 없다(빈 칸 검사만 한다)
 - 고르는 단위(`BriefKind.scope`): 화, 플롯 초안 구간(`groups_of`, `pipeline.act_groups`), 작품 하나(구조 · 열 계획 · 부 구성, 화를 쓰지 않아 n 은 0)
 - 한 화 플롯은 플롯이 초안인 화만 조립한다(`pipeline.draft_episode` 와 같다)
 - 스토리보드 · 큐 시트는 플롯을 확정한 화만 조립한다(`pipeline` 과 같다). 앞 화가 끝났는지(`require_previous`)는 보지 않는다
 - 불러오기 재료는 예시 작품(`example_project`, mock LLM 으로 만든 저장하지 않는 6화 단편, 한 번 만들어 사본을 줌)이나 고른 작품(`store.load`, 읽기만)
 - 예시 작품은 1 · 2화에 본문과 상태 반영이 있고 3화는 플롯만 확정했다. 갈래마다 조립하는 화는 `EXAMPLE_N`, 없는 갈래는 `default_n`
+- 단계 이름 `STAGE_LABELS` 에는 부분 수정(`revise`) · 플롯 대화(`chat`)도 있다
 - 고른 작품의 기본 화 `default_n`: 본문이 있어야 하는 갈래는 본문이 있는 마지막 화, 나머지는 본문이 없는 첫 화
 - 확정 · 초안이어야 하는 갈래는 본문이 없고 그 조건에 맞는 첫 화, 플롯 초안은 초안이 든 첫 구간
 - 불러온 출처 `PromptSource`(갈래 · 이름 · 작품 · 화 · 지문 `sig`)를 세션에 두고, 돌릴 때 시도에 옮긴다. 지문이 다르면 `source_edited`

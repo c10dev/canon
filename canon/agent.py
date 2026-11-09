@@ -124,6 +124,18 @@ def scope_of(p: Project, s: AgentSession, turn: AgentTurn) -> ChatScope:
     return ChatScope(target=target, focus=focus, act=turn.act, episode=turn.episode, mode="options" if turn.mode == "options" else "", draft=draft)
 
 
+LAB_SID = "promptlab"  # first_step_prompt 의 세션 id. 이름 후보를 세션 id 로 뽑으므로 불러올 때마다 같은 글이 된다
+
+
+def first_step_prompt(p: Project, message: str, target: str = "") -> str:
+    """새 세션 첫 턴에서 run_turn 이 처음 보내는 요청 (프롬프트 놀이터 불러오기). 세션을 작품에 붙이지 않아 작품은 바뀌지 않는다."""
+    s = AgentSession(id=LAB_SID, target=target)
+    turn = AgentTurn(user=message.strip())
+    turn.where = pipeline.chat_where(p, scope_of(p, s, turn))
+    s.turns.append(turn)
+    return prompts.agent_plot_prompt(p, s, turn, scope_of(p, s, turn), MAX_STEPS)
+
+
 def add_turn(p: Project, sid: str, message: str, *, mode: str = "", act: str = "", episode: int = 0, draft=None) -> int:
     """새 턴을 연다. 돌아가는 턴이나 승인을 기다리는 턴이 있으면 막는다. 턴 번호를 돌려준다."""
     s = session(p, sid)

@@ -164,7 +164,8 @@ def test_gemini_gets_temperature_only_when_set(monkeypatch):
 def test_web_load(client):
     s = client.post("/api/promptlab", json={"backends": [{"provider": "mock"}]}).json()
     src = client.get("/api/promptlab/sources").json()
-    assert [k["id"] for k in src["kinds"]] == ["arc", "heat", "plots", "plot", "storyboard", "cue", "episode", "check", "state"]
+    assert [k["id"] for k in src["kinds"]] == ["setup_chat", "style_chat", "arc", "heat", "plots", "plot", "agent_plot", "storyboard", "cue",
+                                              "episode", "passage", "check", "state"]
     assert src["defaults"]["check"] == 2
     assert client.get("/api/promptlab/sources?project=없는작품").status_code == 404
     v = client.post(f"/api/promptlab/{s['id']}/load", json={"kind": "check"}).json()
@@ -192,8 +193,8 @@ class _Seen:
 
 
 def _names_out(text):
-    """새 인물 이름 후보 줄은 부를 때마다 무작위로 뽑으므로 견주기에서 뺀다."""
-    return "\n".join(x for x in text.splitlines() if not x.startswith(("- 새 남자 인물 후보", "- 새 여자 인물 후보")))
+    """새 인물 이름 · 장소 후보 줄은 부를 때마다 무작위로 뽑으므로 견주기에서 뺀다."""
+    return "\n".join(x for x in text.splitlines() if not x.startswith(("- 새 남자 인물 후보", "- 새 여자 인물 후보", "- 장소 후보")))
 
 
 def _same_as_pipeline(p, kind, n, call):
@@ -243,12 +244,68 @@ def test_new_kinds_match_pipeline_serial():
     _same_as_pipeline(p, "arc", 0, lambda x: pipeline.plan_next_arc(x, p))
 
 
+def test_chat_kinds_match_pipeline():
+    """대화로 다듬기 갈래는 작가의 말 자리에 CHAT_MESSAGE 를 넣고 pipeline 의 대화 호출과 같은 글을 조립한다."""
+    from canon import pipeline, prompts
+
+    p = promptlab.example_project()
+    msg = prompts.CHAT_MESSAGE
+    _same_as_pipeline(p, "setup_chat", 0, lambda llm: pipeline.revise_setup(llm, p, msg))
+    _same_as_pipeline(p, "style_chat", 0, lambda llm: pipeline.revise_style(llm, p, msg))
+    _same_as_pipeline(p, "passage", 2, lambda llm: pipeline.revise_passage(llm, p, 2, prompts.passage_sample(p, 2), msg))
+    sel = prompts.passage_sample(p, 2)
+    assert sel.text.strip() and p.episode(2).text[sel.start:sel.start + len(sel.text)] == sel.text
+
+
+def test_agent_plot_kind_is_the_first_step_of_a_new_turn(client):
+    """대화 에이전트 갈래는 새 세션 첫 턴에서 run_turn 이 처음 보내는 요청과 같다 (이름 후보 줄은 세션 id 로 뽑아 뺀다)."""
+    from canon import agent, prompts, store
+    from canon.schema import PlotAgentStep
+
+    from .test_plot_chat import _project
+
+    _project(client)
+    p = store.load("lh")
+    system, prompt, schema = prompts.brief_request(p, 0, "agent_plot")
+    assert schema is PlotAgentStep and system == prompts.SYSTEM_AGENT_PLOT and prompts.CHAT_MESSAGE in prompt
+    assert prompt == prompts.brief_request(p, 0, "agent_plot")[1] and not p.agent_sessions  # 불러올 때마다 같고 작품에 세션을 붙이지 않는다
+    s = agent.new_session(p, "plot")
+    t = agent.add_turn(p, s.id, prompts.CHAT_MESSAGE)
+    store.save("lh", p)
+    seen = []
+
+    class Fake:
+        def json(self, system, prompt, schema, hint=None):
+            seen.append((system, prompt))
+            return PlotAgentStep(reply="그대로 둘게요")
+
+    agent.run_turn(Fake(), "lh", s.id, t)
+    assert (system, _names_out(prompt)) == (seen[0][0], _names_out(seen[0][1]))
+
+
+def test_chat_kinds_run_like_their_stage(home):
+    s = promptlab.create(backends=[PromptBackend(provider="mock")])
+    promptlab.load_prompt(s, "agent_plot")
+    spec = promptlab.view(s)["spec"]
+    assert (spec["schema"], spec["stage"], spec["stage_label"], spec["out_tokens"]) == ("PlotAgentStep", "chat", "플롯 대화", 16384)
+    promptlab.load_prompt(s, "passage")
+    spec = promptlab.view(s)["spec"]
+    assert s.source.n == 2 and (spec["schema"], spec["stage_label"], spec["out_tokens"]) == ("PassageRevision", "부분 수정", 0)
+    with pytest.raises(ValueError, match="본문이 없어"):
+        promptlab.load_prompt(s, "passage", n=4)
+    for kind, schema in (("setup_chat", "SetupRevision"), ("style_chat", "StyleRevision")):
+        promptlab.load_prompt(s, kind)
+        assert s.source.n == 0 and s.source.schema_name == schema and s.source.stage == "plan"
+    assert promptlab.run(s)[0].ok
+
+
 def test_new_kinds_sources_and_guards(home, monkeypatch, tmp_path):
     from canon import store
 
     info = promptlab.sources()
     ids = [k["id"] for k in info["kinds"]]
-    assert ids == ["arc", "heat", "plots", "plot", "storyboard", "cue", "episode", "check", "state"]  # 단편에는 부 구성이 없다
+    assert ids == ["setup_chat", "style_chat", "arc", "heat", "plots", "plot", "agent_plot", "storyboard", "cue", "episode", "passage", "check",
+                   "state"]  # 단편에는 부 구성이 없다
     assert {k["id"]: k["scope"] for k in info["kinds"]}["heat"] == "work" and info["defaults"]["arc"] == 0
     assert [g["n"] for g in info["groups"]] == [1, 2, 4, 5] and info["groups"][0]["label"] == "기 구간 1화"
     assert info["defaults"]["plots"] == 4  # 초안이 든 첫 구간

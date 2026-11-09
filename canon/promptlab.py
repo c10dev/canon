@@ -188,9 +188,10 @@ def to_run(b: PromptBackend, row: dict) -> PromptRun:
                      raw=row.get("raw", ""), finish=row.get("finish", ""))
 
 
-# 실제 호출이 거는 출력 한도(pipeline.BOARD_OUT_TOKENS · CUE_OUT_TOKENS). 없는 갈래는 기본 한도
-OUT_TOKENS = {"storyboard": "BOARD_OUT_TOKENS", "cue": "CUE_OUT_TOKENS"}
-STAGE_LABELS = {"plan": "계획", "board": "스토리보드 · 큐 시트", "write": "본문 쓰기", "check": "검수", "state": "상태 변경안"}
+# 실제 호출이 거는 출력 한도(pipeline.BOARD_OUT_TOKENS · CUE_OUT_TOKENS, agent.STEP_OUT_TOKENS): 갈래 → (모듈, 이름). 없는 갈래는 기본 한도
+OUT_TOKENS = {"storyboard": ("pipeline", "BOARD_OUT_TOKENS"), "cue": ("pipeline", "CUE_OUT_TOKENS"), "agent_plot": ("agent", "STEP_OUT_TOKENS")}
+STAGE_LABELS = {"plan": "계획", "board": "스토리보드 · 큐 시트", "write": "본문 쓰기", "check": "검수", "state": "상태 변경안",
+                "revise": "부분 수정", "chat": "플롯 대화"}
 
 
 def run_spec(s: PromptSession) -> dict:
@@ -199,10 +200,15 @@ def run_spec(s: PromptSession) -> dict:
     src = s.source
     if not src or src.kind not in prompts.BRIEF_KINDS:
         return {"schema": None, "stage": "", "out_tokens": 0, "preset": None}
-    from . import pipeline, schema as schemas, settings
+    import importlib
+
+    from . import schema as schemas, settings
 
     model = getattr(schemas, src.schema_name, None) if src.schema_name else None
-    cap = getattr(pipeline, OUT_TOKENS[src.kind]) if src.kind in OUT_TOKENS else 0
+    cap = 0
+    if src.kind in OUT_TOKENS:
+        mod, attr = OUT_TOKENS[src.kind]
+        cap = getattr(importlib.import_module(f"canon.{mod}"), attr)
     preset = settings.project_preset(src.project) if src.project else None
     return {"schema": model, "stage": src.stage, "out_tokens": cap, "preset": preset}
 
@@ -323,7 +329,7 @@ def restore(s: PromptSession, no: int) -> PromptSession:
 EXAMPLE_TITLE = "예시 작품"
 # 예시 작품에서 갈래마다 조립하는 화. 1 · 2화는 본문을 쓰고 상태까지 반영했고, 3화는 플롯만 확정했고, 4~6화는 플롯 초안이다.
 # 여기 없는 갈래(작품 하나를 짜는 갈래, 플롯 초안)는 default_n 으로 정한다
-EXAMPLE_N = {"plot": 4, "storyboard": 3, "cue": 3, "episode": 3, "check": 2, "state": 2}
+EXAMPLE_N = {"plot": 4, "storyboard": 3, "cue": 3, "episode": 3, "passage": 2, "check": 2, "state": 2}
 _example: Optional[Project] = None
 
 
