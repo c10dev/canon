@@ -31,8 +31,8 @@
 | 11 | 10 | AI 상투 기호 빼기 (✦, 판에 박힌 예시 알약) | 끝 ([#456](https://github.com/c10dev/canon/pull/456) 머지) | [10-ai-tells.md](specs/10-ai-tells.md) | — |
 | 13 | 11 | 화면 위계 세우기 (주 버튼 하나, 카드 덜기, 토큰 밖 값) | 끝 ([#461](https://github.com/c10dev/canon/pull/461) 머지) | [11-hierarchy.md](specs/11-hierarchy.md) | — |
 | 4 | 12 | 숫자와 빈 칸 접기 (지표 칩, "비어 있음" 줄) | 끝 ([#434](https://github.com/c10dev/canon/pull/434) 머지) | [12-quiet-data.md](specs/12-quiet-data.md) | — |
-| 14 | 13 | 빼는 규칙 (디자인 시스템 '덜기' 절과 기준 수 시험) | PR ([#463](https://github.com/c10dev/canon/pull/463)) | [13-subtract-rule.md](specs/13-subtract-rule.md) | 09 · 11 의 세기 |
-| 미정 | 14 | 브랜드 손보기 (제목 글꼴, 귤색 자리, 사이드바 아이콘, 시안 먼저) | 설계 | [14-brand.md](specs/14-brand.md) | 11 |
+| 14 | 13 | 빼는 규칙 (디자인 시스템 '덜기' 절과 기준 수 시험) | 끝 ([#463](https://github.com/c10dev/canon/pull/463) 머지) | [13-subtract-rule.md](specs/13-subtract-rule.md) | 09 · 11 의 세기 |
+| 14 | 14 | 브랜드 손보기 (제목 글꼴, 귤색 자리, 사이드바 아이콘, 시안 먼저) | PR ([#464](https://github.com/c10dev/canon/pull/464)). 시안 A '작게 바꾸기'를 고름 | [14-brand.md](specs/14-brand.md) | 11 |
 
 '차례'가 같은 일감(01 · 02a, 04a · 08, 04b · 04c · 04d)은 한 묶음이다.
 

@@ -12,8 +12,9 @@
   - 화 칸 띠(`.work-strip`)는 칸 하나가 한 화다. 높이 10px, 모서리 3px: 초안 `chip` 면에 `line-strong` 안쪽 테두리, 확정 `accent`, 작성됨 `amber`, 반영 완료 `green`. 지금 화는 `text` 2px 테두리. 단편은 전체 화, 장편은 지금 아크의 화를 그린다.
   - 다음 할 일(`.work-next`)은 `link` 글자 13px 700.
 - 메뉴 링크: `href`, 표시 칸 `<span class="num">`(단계 숫자) 또는 `<span class="num tf">`(토스페이스 이모지), 이름 `.nav-label`, 지금 화면 링크에 `aria-current="page"`.
+- 드문 도구(아직 안 쓴 도구 · 작품 밖 도구)의 이모지 칸은 `num tf rare`다. 펴진 사이드바에서는 숨겨 글만 보이고, 레일에서는 보인다.
   - 메뉴 줄은 넓은 폭 32px, 손가락 기기(`pointer: coarse`)와 서랍 44px, 레일 40px(손가락 기기 44px). 줄 사이 1px, 모서리 `radius-8`, 글자 `text-2` 500. 긴 이름은 줄임표.
-  - 지금 화면은 `accent-soft` 면, `accent-ink` 글자 700, 번호 칸은 `accent` 면에 `on-accent`.
+  - 지금 화면은 `accent-soft` 면, `accent-ink` 글자 700, 단계 번호 칸은 `brand-2` 면에 `on-brand`(귤색 '여기' 표시). 이모지 칸은 면이 없다.
   - 표시 칸은 `aria-hidden`. 단계 번호는 `<span class="sr-only"> (단계 1)</span>`로 화면 읽기에 준다.
 - 줄 끝 배지(`.nav-badge`): 20px 높이, `radius-10`, 11px 700. 열린 지적 수는 `red-soft` · `err-ink`, 반영하지 않은 결과는 `amber-soft` · `amber-ink`, 자동 집필이 쓰는 화 · 남은 고칠 곳은 `chip` · `text-2`. 배지 글자는 눈으로만 보이고, 낭독할 글은 배지 안 `.sr-only`에 쓴다.
 - 접는 묶음(`.nav-fold`): 단계 아래 `작품 도구`(처음 펼침, 맨 아래에 `아직 안 쓴 도구`가 접혀 있음) 하나다. 머리(`.nav-fold-head`)는 28px, 12px 700 `muted` 글자, ▸ 기호가 펼치면 ▾ 방향으로 돈다. 데이터가 없는 도구는 `아직 안 쓴 도구`로 간다(지금 보는 도구는 그대로 둔다).
