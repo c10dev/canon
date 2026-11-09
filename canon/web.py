@@ -2324,9 +2324,15 @@ def chat_clear(name: str, topic: str) -> Project:
 # 세션 목록 · 만들기 · 고치기, 턴 보내기(백그라운드 작업 'agent'), 승인 카드 답, 이어 하기, 되돌리기.
 # 화면은 작업 진행(GET /api/jobs)이 바뀔 때 세션 목록만 다시 받는다.
 
+class LegacyChat(BaseModel):
+    topic: str  # 'setup' · 'style' · 'text:N'
+    count: int  # 메시지 수
+
+
 class SessionsOut(BaseModel):
     sessions: list[AgentSession]
-    legacy: int = 0  # 옛 단발 대화 메시지 수 (화면의 '이전 대화')
+    legacy: int = 0  # 옛 플롯 대화 메시지 수 (화면의 '이전 대화', 변경안을 골라 적용할 수 있다)
+    older: list[LegacyChat] = []  # 설정 · 문체 · 본문 고치기의 옛 대화 (화면의 '이전 대화', 읽기 전용, agent.legacy_chats)
     model: str = ""  # 상태 줄에 보일 모델 이름 (chat 단계)
     max_steps: int = agent.MAX_STEPS
 
@@ -2341,24 +2347,27 @@ def _model_label() -> str:
 
 
 @app.get("/api/projects/{name}/sessions")
-def agent_sessions(name: str, topic: str = "plot") -> SessionsOut:
+def agent_sessions(name: str, topic: str = "agent") -> SessionsOut:
+    """세션 목록. 'agent' 와 옛 'plot' 은 작품 하나의 같은 목록이다."""
     p = _load(name)
     if agent.reconcile(p):  # 멈추거나 실패한 작업의 턴을 끝낸다
         p = _edit(name, lambda q: agent.reconcile(q))
-    return SessionsOut(sessions=agent.sessions(p, topic), legacy=agent.legacy_count(p, topic), model=_model_label())
+    older = [LegacyChat(topic=t, count=n) for t, n in agent.legacy_chats(p)] if topic in agent.TOPICS else []
+    return SessionsOut(sessions=agent.sessions(p, topic), legacy=agent.legacy_count(p, topic), older=older, model=_model_label())
 
 
 class SessionIn(BaseModel):
-    topic: str = "plot"
+    topic: str = "agent"
     target: str = ""
     title: str = ""
+    pinned: bool = False  # 작가가 고른 대상으로 만들면 고정한다
 
 
 @app.post("/api/projects/{name}/sessions")
 def agent_session_new(name: str, body: SessionIn) -> AgentSession:
     _need(name)
     out: list[AgentSession] = []
-    _session_edit(name, lambda p: out.append(agent.new_session(p, body.topic, body.target, body.title)))
+    _session_edit(name, lambda p: out.append(agent.new_session(p, body.topic, body.target, body.title, body.pinned)))
     return out[0]
 
 
@@ -2377,6 +2386,7 @@ class SessionPatch(BaseModel):
     mode: str | None = None
     target: str | None = None
     archived: bool | None = None
+    pinned: bool | None = None
 
 
 @app.patch("/api/projects/{name}/sessions/{sid}")
@@ -2393,6 +2403,7 @@ class TurnIn(BaseModel):
     act: str = ""  # 화면에서 연 구간
     episode: int = 0  # 화면에서 연 화
     draft: ArcProposal | None = None  # 다음 아크 대상: 화면의 초안
+    target: str | None = None  # 화면이 주는 대상. 고정하지 않은 세션은 이 값으로 바꾼다 (agent.add_turn)
 
 
 def _run_agent(name: str, sid: str, t: int) -> dict:
@@ -2416,7 +2427,7 @@ def agent_turn(name: str, sid: str, body: TurnIn) -> dict:
     if any(j.kind == "agent" and j.status == "running" for j in jobs.listing(name)):
         raise ValueError("이 작품에서 이미 대화가 돌아가고 있어요. 끝난 뒤 보내거나 멈추세요")
     out: list[int] = []
-    _edit(name, lambda p: out.append(agent.add_turn(p, sid, body.message, mode=body.mode, act=body.act, episode=body.episode, draft=body.draft)))
+    _edit(name, lambda p: out.append(agent.add_turn(p, sid, body.message, mode=body.mode, act=body.act, episode=body.episode, draft=body.draft, target=body.target)))
     return _run_agent(name, sid, out[0])
 
 

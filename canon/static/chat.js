@@ -1,9 +1,11 @@
-/* 대화로 다듬기 패널. app.js 의 S, actions, api, render 를 그대로 쓴다.
-   작가가 말하면 AI가 답과 변경안을 내고, 변경안은 바뀌는 칸만 보여 준다. 작가가 고른 부분만 반영한다.
+/* 대화 패널. app.js 의 S, actions, api, render 를 그대로 쓴다.
+   작품 안의 모든 화면에 패널 하나(대화 에이전트, agent.js)를 그린다. app.js drawApp 이 chatDock() 으로 붙이고, 화면을 옮겨도 자리와 열림 상태는 그대로다.
+   화면은 기본 대상만 준다(chatDefaultTarget: 집필 · 검수 · 상태 승인 'text:N', 설정 도우미 'setup', 문체 'style', 플롯 화면은 고른 아크, 그 밖 '').
+   주제 'plot' 은 대화 에이전트 패널이다(옛 플롯 대화 기록은 그 안의 '이전 대화').
+   옛 단발 대화 셋 — 본문 부분 수정('text:<화>', passage.js), 문체('style', stylechat.js), 설정 도우미('setup', setupchat.js) — 은
+   04b~04d 가 에이전트 도구를 더할 때까지 그 화면에 남는다. 화면이 chatLegacy(주제)로 알리면 패널 머리의 전환(chatSwitch)과 머리 버튼(chatButton)으로 옛 패널을 연다.
+   옛 대화: 작가가 말하면 AI가 답과 변경안을 내고, 변경안은 바뀌는 칸만 보여 준다. 작가가 고른 부분만 반영한다.
    플롯 대화는 적용한 변경안을 취소할 수 있다 (pipeline.undo_plot_chat: 그 뒤에 다시 고친 화와 본문을 쓴 화는 남긴다).
-   기승전결 · 플롯 화면(topic 'plot'), 집필 화면의 본문 부분 수정(topic 'text:<화>', passage.js), 문체 화면(topic 'style', stylechat.js),
-   설정 도우미(topic 'setup', setupchat.js)에 붙어 있다.
-   다른 화면에 붙일 때는 CHAT_TOPICS 에 항목을 더하고 서버 web.py 의 _chat 과 변경안 반영 함수를 함께 늘린다.
    주제마다 body(요청 내용), proposal(변경안 그리기), userMsg, inputExtra 를 바꿔 끼울 수 있다. */
 'use strict';
 
@@ -30,14 +32,27 @@ const CHAT_TOPICS = {
   },
 };
 
+// 패널 열림 상태는 S.chatOpen 과 브라우저의 'canon.chat' 에 둔다. 읽고 쓰는 곳은 이 두 함수뿐이다 (휴대폰 시트 일감 08 도 여기를 고친다)
+const CHAT_OPEN_KEY = 'canon.chat';
+function chatOpenSaved() {
+  try { return localStorage.getItem(CHAT_OPEN_KEY) === '1'; } catch { return false; }
+}
+/** 패널을 열거나 닫는다. save: 다음에 열 때도 기억할지 (다시 생성 열이 자리를 잠깐 빌릴 때는 기억하지 않는다) */
+function chatSetOpen(on, { save = true } = {}) {
+  S.chatOpen = !!on;
+  if (save) { try { localStorage.setItem(CHAT_OPEN_KEY, S.chatOpen ? '1' : '0'); } catch { /* 저장 못 해도 동작에는 상관없다 */ } }
+}
+
 Object.assign(S, {
-  chatOpen: (() => { try { return localStorage.getItem('canon.chat') === '1'; } catch { return false; } })(),
+  chatOpen: chatOpenSaved(),
   chatDraft: '',
   chatPending: null,  // 보내는 중인 메시지
   chatPicks: {},      // '메시지번호:acts' 또는 '메시지번호:화' → 반영할지
   chatScroll: true,   // 다음 그리기 때 맨 아래로 내릴지
   chatScrollTop: 0,   // 화면을 다시 그려도 읽던 자리를 지킨다
-  chatTopic: 'plot',  // 지금 열린 패널의 주제 ('plot' 또는 'text:<화>')
+  chatTopic: 'plot',  // 지금 열린 패널의 주제 ('plot' 대화 에이전트, 옛 대화 'setup' · 'style' · 'text:<화>')
+  chatHere: { target: '', legacy: '', hold: false },  // 지금 화면이 주는 기본 대상 · 옛 대화 주제 · 패널 자리를 다른 열이 쓰는지 (drawApp 이 정한다)
+  chatOld: '',        // 옛 대화를 보이는 주제 종류 ('setup' · 'style' · 'text'). 그 주제를 주는 화면에서만 옛 패널을 그린다
   chatOptions: false, // 플롯 대화: 변경안 대신 방향 여러 안을 받는다
 });
 
@@ -136,8 +151,71 @@ function nextStale(m) {
   return m.target === 'next' && m.revision.acts.length > 0 && m.revision.acts[0].start_ep !== plannedUntil() + 1;
 }
 
+/** 화면 머리의 대화 버튼. 'plot'(플롯 화면)은 대화 에이전트 패널을, 옛 대화 주제는 그 옛 패널을 열고 닫는다 (패널은 하나라 연 패널을 바꾼다) */
 function chatButton(topic = 'plot') {
-  return `<button class="btn${S.chatOpen ? ' on' : ''}" data-action="toggleChat" aria-pressed="${S.chatOpen}">${chatConf(topic).title}</button>`;
+  if (topic === 'plot') return `<button class="btn${S.chatOpen ? ' on' : ''}" data-action="toggleChat" aria-pressed="${S.chatOpen}">${chatConf(topic).title}</button>`;
+  const on = chatOldOn(topic);
+  return `<button class="btn${on ? ' on' : ''}" data-action="chatOldToggle" data-arg="${esc(topic)}" aria-pressed="${on}">${chatConf(topic).title}</button>`;
+}
+
+// ----- 패널 하나: 화면이 주는 기본 대상과 옛 대화 -----
+
+/** 화면이 주는 기본 대상 (서버 pipeline.chat_focus · chat_target 이 읽는 값). 집필 · 검수 · 상태 승인은 그 화 본문, 설정 도우미 · 문체는 그 화면,
+    플롯 화면은 아크 줄에서 고른 곳(plotScope), 그 밖은 '' (작품 전체) */
+function chatDefaultTarget(page, n) {
+  if (FLOW_PAGES.includes(page)) return n && ep(n) ? `text:${n}` : '';
+  if (page === 'setup' || page === 'style') return page;
+  if (page === 'arc') return plotScope().target;
+  return '';
+}
+
+/** drawApp 이 화면을 그리기 전에 부른다. 화면 파일은 그리는 동안 chatLegacy 로 옛 대화 주제를 더한다 */
+function chatScreen(page, n) {
+  S.chatHere = { target: chatDefaultTarget(page, n), legacy: '', hold: false };
+}
+
+/** 화면이 그리는 동안 부른다: 이 화면에 남은 옛 대화 주제(04b~04d 전까지). hold 면 패널 자리를 다른 열(다시 생성)이 쓴다. 그릴 글은 없다 */
+function chatLegacy(topic, { hold = false } = {}) {
+  S.chatHere = { ...S.chatHere, legacy: topic || '', hold: !!hold };
+  return '';
+}
+
+/** 그 옛 대화가 열려 있는지. 화면 머리는 chatLegacy 보다 먼저 그려지므로 S.chatHere 를 보지 않는다 */
+function chatOldOn(topic) {
+  return !!S.chatOpen && S.chatOld === String(topic).split(':')[0];
+}
+
+/** 패널에 보일 주제: 이 화면의 옛 대화를 골랐으면 그 주제, 아니면 대화 에이전트('plot') */
+function chatShownTopic() {
+  const l = S.chatHere.legacy;
+  return l && S.chatOld && l.split(':')[0] === S.chatOld ? l : 'plot';
+}
+
+/** drawApp 이 셸 끝에 붙이는 패널 (닫혀 있거나 다른 열이 자리를 쓰면 빈 글) */
+function chatDock() {
+  return S.chatHere.hold ? '' : chatPanel();
+}
+
+/** 패널 머리의 전환: 이 화면에 옛 대화가 남아 있으면 대화 에이전트와 옛 대화 사이를 고른다 */
+function chatSwitch(topic) {
+  const l = S.chatHere.legacy;
+  if (!l) return '';
+  const old = topic !== 'plot';
+  return `<div class="seg chat-switch" role="group" aria-label="대화 고르기">
+    <button type="button" data-action="chatUseAgent" aria-pressed="${!old}">대화 에이전트</button>
+    <button type="button" data-action="chatUseOld" data-arg="${esc(l)}" aria-pressed="${old}">${esc(chatOldTitle(l))}</button></div>`;
+}
+
+/** 옛 대화 패널 이름 ('대화로 다듬기' · 'AI에게 고치기'). 주제 파일(passage.js 등)이 없을 때도 이름을 준다 */
+function chatOldTitle(topic) {
+  const t = chatConf(topic);
+  return t ? t.title : String(topic).startsWith('text:') ? 'AI에게 고치기' : '대화로 다듬기';
+}
+
+/** 옛 대화 주제의 이름 ('이전 대화' 목록): 설정 도우미 · 문체 · N화 본문 고치기 */
+function chatTopicName(topic) {
+  const m = /^text:(\d+)$/.exec(topic || '');
+  return m ? `${m[1]}화 본문 고치기` : { setup: '설정 도우미', style: '문체', plot: '플롯' }[topic] || topic;
 }
 
 // ----- 변경안 비교 -----
@@ -378,9 +456,24 @@ function sendDirection(text) {
 
 // ----- 패널 -----
 
-/** 대화 기록 (메시지와 변경안 카드). 플롯 대화 에이전트(agent.js)의 '이전 대화'도 이것으로 그린다. */
-function chatLog(topic) {
+/** 읽기 전용 대화 기록 한 답의 변경안 요약 (그 화면 밖이라 고르거나 넣는 버튼은 없다). 본문 후보는 넣은 후보 글을 보인다 */
+function chatReadOnlyCard(m) {
+  const rev = m.revision || m.passage || m.style || m.setup;
+  if (!rev) return '';
+  const state = m.outcome === 'applied' ? '<span class="chip finalized">적용함</span>' : m.outcome === 'dismissed' ? '<span class="chip">버림</span>' : '<span class="chip">고르지 않음</span>';
+  const put = m.passage && m.outcome === 'applied' ? (m.passage.candidates[Number(m.applied[0])] || {}).text : '';
+  return `<div class="proposal done"><div class="row">${state}</div>${put ? `<div class="diff"><div class="diff-row"><ins>${esc(put)}</ins></div></div>` : ''}</div>`;
+}
+
+/** 대화 기록 (메시지와 변경안 카드). 대화 에이전트(agent.js)의 '이전 대화'도 이것으로 그린다.
+    readOnly: 그 화면 밖에서 읽기만 한다. 변경안 카드 대신 요약을 보이고, 고른 부분 · 접기처럼 그 화면 상태를 읽는 것은 쓰지 않는다 */
+function chatLog(topic, { readOnly = false } = {}) {
   const t = chatConf(topic);
+  if (readOnly) {
+    return chatMessages(topic).map((m) => (m.role === 'user'
+      ? `<div class="msg user">${m.selection ? `<span class="msg-quote">${esc(m.selection.text.length > 80 ? `${m.selection.text.slice(0, 80)}…` : m.selection.text)}</span>` : ''}${esc(m.text)}</div>`
+      : `<div class="msg ai"><div class="msg-text">${esc(m.text)}</div>${chatReadOnlyCard(m)}</div>`)).join('');
+  }
   initPicks(topic);
   const msgs = chatMessages(topic);
   const one = (m, i) => (m.role === 'user'
@@ -400,12 +493,15 @@ document.addEventListener('toggle', (e) => {
   if (e.target.matches && e.target.matches('[data-chat-fold]')) S.chatFoldOpen = e.target.open;
 }, true);
 
-function chatPanel(topic) {
-  if (!S.chatOpen) return '';
+function chatPanel(topic = chatShownTopic()) {
+  if (!S.chatOpen) {
+    S.agentShown = null;  // 다시 열 때는 대상 바뀜을 알리지 않는다 (agent.js)
+    return '';
+  }
   const t = chatConf(topic);
   if (S.chatTopic !== topic) S.chatScroll = true;
   S.chatTopic = topic;
-  if (topic === 'plot' && typeof agentPanel === 'function') return agentPanel();  // 플롯 대화는 에이전트 세션 (agent.js)
+  if (topic === 'plot' && typeof agentPanel === 'function') return agentPanel();  // 대화 에이전트 (agent.js)
   const msgs = chatMessages(topic);
   const list = chatLog(topic);
   const empty = msgs.length || S.chatPending ? '' : `<div class="note info">${esc(t.intro)}</div>
@@ -414,7 +510,9 @@ function chatPanel(topic) {
   const last = msgs[msgs.length - 1];
   const cands = !S.chatPending && last && last.role !== 'user' && last.passage && (last.passage.candidates || []).length && !last.outcome && (!t.candsFor || t.candsFor(last));
   const pending = S.chatPending ? `<div class="msg user">${esc(S.chatPending)}</div><div class="msg ai pending"><span class="spinner small" aria-hidden="true"></span>${chatWaitText()}</div>` : '';
+  const sw = chatSwitch(topic);
   return `<aside class="chat-panel${cands ? ' has-cands' : ''}" aria-label="${esc(t.title)}">
+    ${sw ? `<div class="chat-switch-row">${sw}</div>` : ''}
     <div class="chat-head"><h2>${esc(t.title)}</h2><div class="row" style="gap:4px">
       ${msgs.length ? '<button type="button" class="btn small" data-action="chatClear">기록 지우기</button>' : ''}
       <button type="button" class="btn icon-btn" data-action="toggleChat" aria-label="닫기">✕</button></div></div>
@@ -450,7 +548,7 @@ function chatWaitTick() {
 function redrawChat() {
   const el = document.querySelector('.chat-panel');
   if (!el) return;
-  const html = chatPanel(S.chatTopic);
+  const html = chatPanel();
   if (html) el.outerHTML = html;
   else el.remove();
   syncChat();
@@ -466,7 +564,7 @@ function chatLastReply() {
   while (i >= 0 && msgs[i].role === 'user') i -= 1;
   return { scope: `${S.name}|${S.chatTopic}`, id: String(i), text: i >= 0 ? msgs[i].text || '' : '' };
 }
-function chatAnnounce() {
+function chatLive() {
   let live = document.getElementById('chat-live');
   if (!live) {
     live = document.createElement('div');
@@ -476,6 +574,14 @@ function chatAnnounce() {
     live.setAttribute('aria-live', 'polite');
     document.body.appendChild(live);
   }
+  return live;
+}
+/** 화면 낭독기에 한 줄 알린다 (대상이 바뀜 같은 패널 소식) */
+function chatSay(text) {
+  chatLive().textContent = text;
+}
+function chatAnnounce() {
+  const live = chatLive();
   if (!document.querySelector('.chat-panel #chat-log')) { chatHeard = null; return; }
   const r = chatLastReply();
   const was = chatHeard;
@@ -491,6 +597,7 @@ function syncChat() {
   syncRail();  // 901~1599px 에서 패널을 열면 사이드바를 레일로 접는다 (app.js)
   stackBottom();
   chatAnnounce();
+  if (typeof agentAfterDraw === 'function') agentAfterDraw();  // 대상이 바뀌었으면 상태 줄을 한 번 강조하고 알린다
   const log = $('#chat-log');
   if (!log) return;
   log.scrollTop = S.chatScroll ? chatLandAt(log) : S.chatScrollTop;
@@ -507,14 +614,35 @@ function chatLandAt(log) {
 }
 
 Object.assign(actions, {
+  /** 사이드바 · 플롯 화면 머리 · 패널 닫기 버튼. 열 때는 대화 에이전트로 연다 */
   toggleChat() {
-    S.chatOpen = !S.chatOpen;
+    chatSetOpen(!S.chatOpen);
     if (typeof panelOn === 'function') { if (S.chatOpen) panelOn('chat', chatCloseIfOpen); else panelOff('chat'); }  // 휴대폰 뒤로 가기가 시트만 닫게 (닫힌 시트를 다시 열지 않는다)
-    if (S.chatOpen) S.rwOpen = null;  // 집필 화면: 다시 생성 열(rewrite.js)과 같은 자리라 하나만 연다
+    if (S.chatOpen) { S.rwOpen = null; S.chatOld = ''; }  // 집필 화면: 다시 생성 열(rewrite.js)과 같은 자리라 하나만 연다
     S.chatScroll = true;
-    try { localStorage.setItem('canon.chat', S.chatOpen ? '1' : '0'); } catch { /* 저장 못 해도 동작에는 상관없다 */ }
     render();
     if (S.chatOpen && !touchFirst()) $('#chat-input')?.focus();  // 손가락 기기는 키보드가 시트를 밀어 올려 본문을 덮는다. 쓰려면 입력칸을 누른다
+  },
+  /** 설정 도우미 · 문체 · 집필 머리의 옛 대화 버튼: 그 옛 대화로 열고, 이미 그 대화가 열렸으면 닫는다 */
+  chatOldToggle(topic) {
+    if (chatOldOn(topic)) return actions.toggleChat();
+    if (!S.chatOpen) {
+      actions.toggleChat();
+      if (!S.chatOpen) return;
+    }
+    actions.chatUseOld(topic);
+  },
+  chatUseAgent() {
+    S.chatOld = '';
+    S.chatScroll = true;
+    render();
+    if (!touchFirst()) $('#chat-input')?.focus();
+  },
+  chatUseOld(topic) {
+    S.chatOld = String(topic).split(':')[0];
+    S.chatScroll = true;
+    render();
+    if (!touchFirst()) $('#chat-input')?.focus();
   },
   chatExample(text) {
     S.chatDraft = String(text);

@@ -1,7 +1,10 @@
-/* 대화 에이전트 패널 (플롯 대화, 서버 canon/agent.py). chat.js 의 chatPanel('plot') 이 이 패널을 그린다.
+/* 대화 에이전트 패널 (서버 canon/agent.py). 작품 안의 모든 화면에 하나다. chat.js 의 chatPanel('plot') 이 이 패널을 그린다.
    세션 머리(제목 · 대상 · 세션 목록), 턴마다 단계 줄 · 답 · 바로 쓴 것(되돌리기) · 승인 카드 · 되묻기, 입력 상자(+ 재료, / 빠른 요청, 보내기 · 멈추기),
-   상태 줄(권한 모드 · 대상 · 모델 · 단계 상한). 턴은 백그라운드 작업 'agent' 로 돌고, pollJobs 가 진행을 알려 주면 세션만 다시 받는다.
-   옛 단발 대화 기록은 '이전 대화'로 지금 카드(chat.js proposal)를 그대로 보인다. 권한 이름은 agent.MODE_LABELS · KIND_LABELS 와 같다. */
+   상태 줄(권한 모드 · 대상 · 대상 고정 · 모델 · 단계 상한). 턴은 백그라운드 작업 'agent' 로 돌고, pollJobs 가 진행을 알려 주면 세션만 다시 받는다.
+   세션 목록은 작품 하나에 하나다(새 세션 topic 'agent', 옛 'plot' 세션도 함께). 대상은 화면이 준다(chat.js chatDefaultTarget).
+   고정하지 않은 세션은 턴을 보낼 때 화면 대상으로 바뀌고, 상태 줄의 대상이 바뀌면 한 번 강조하고 #chat-live 로 알린다(agentAfterDraw).
+   옛 플롯 대화 기록은 '이전 대화'로 지금 카드(chat.js proposal)를 그대로 보인다. 설정 · 문체 · 본문 고치기의 옛 기록은 '이전 대화'에서 읽기만 한다.
+   권한 이름은 agent.MODE_LABELS · KIND_LABELS 와 같다. */
 'use strict';
 
 const AGENT_MODES = { ask: ['물어보기', '쓰기마다 그 자리에서 승인해요.'],
@@ -9,10 +12,10 @@ const AGENT_MODES = { ask: ['물어보기', '쓰기마다 그 자리에서 승�
   all: ['모두 자동', '막힌 것 말고는 묻지 않고 써요. 턴마다 되돌릴 수 있어요.'] };
 const AGENT_KINDS = { draft: '초안 화', next: '다음 아크 초안', confirmed: '확정한 화', arc: '아크 칸', acts: '구간 · 범위', parts: '부 구성',
   renumber: '화 넣기 · 빼기', outside: '다듬을 곳 밖' };
-const AGENT_CMDS = [['/여러안', '바꾸기 전에 방향 여러 안으로 물어요'], ['/대상', '이 세션의 대상을 지금 보는 곳으로'],
+const AGENT_CMDS = [['/여러안', '바꾸기 전에 방향 여러 안으로 물어요'], ['/대상', '대상 고정을 풀고 지금 보는 곳으로'],
   ['/새세션', '지금 보는 곳으로 새 세션'], ['/되돌리기', '마지막으로 바꾼 턴 되돌리기']];
 const AGENT_STEP_ICON = { read: '읽', write: '씀', wait: '물', block: '막', ask: '?', note: '·' };
-const AGENT_LEGACY = 'legacy';
+const AGENT_LEGACY = 'legacy';  // 옛 플롯 대화. 설정 · 문체 · 본문 고치기의 옛 기록은 'legacy:<주제>' (읽기 전용)
 const AGENT_SLOW = 60;  // 한 단계를 이 초보다 오래 기다리면 늦음 안내를 보인다 (보통 5~30초)
 const AGENT_STEP_WAIT = 300;  // 서버 agent.STEP_WAIT 와 같다. 이만큼 응답이 없으면 한 번 다시 부르고, 또 없으면 오류로 멈춘다
 // 작업이 알려 준 한 단계 한도(Job.step_wait, Claude Code 는 agent.STEP_WAIT_CLAUDE). 없으면 AGENT_STEP_WAIT
@@ -22,6 +25,7 @@ const AGENT_ICON = {
   send: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"></path></svg>',
   stop: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"></rect></svg>',
   down: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>',
+  pin: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 17v5M8 3h8l-1 6 3 4H6l3-4z"></path></svg>',
 };
 
 Object.assign(S, {
@@ -35,6 +39,8 @@ Object.assign(S, {
   agentPicks: {},       // '턴:부분' → 승인 카드에서 쓸지
   agentRemember: {},    // 턴 → 이 세션에서 묻지 않기
   agentBusy: false,     // 보내는 중 (작업이 뜨기 전)
+  agentShown: null,     // 상태 줄에 마지막으로 보인 대상 ('작품|대상'). 바뀌면 한 번 강조한다
+  agentFlash: null,     // 다음 그리기 뒤 강조하고 알릴 대상 이름
 });
 
 JOB_PAGES.agent = [];  // 패널만 다시 그린다 (agentJobUpdate)
@@ -48,20 +54,42 @@ function agentKey() { return `canon.agent.${S.name}`; }
 async function agentLoad() {
   if (!S.name) return;
   const name = S.name;
-  const res = await api('GET', `/projects/${enc(name)}/sessions?topic=plot`);
+  const res = await api('GET', `/projects/${enc(name)}/sessions`);
   if (name !== S.name) return;
-  S.agent = { name, ...res };
+  S.agent = { name, older: [], ...res };
   const live = res.sessions.filter((s) => !s.archived);
   let sid = S.agentSid;
   if (!sid) { try { sid = localStorage.getItem(agentKey()); } catch { sid = null; } }
-  if (sid !== AGENT_LEGACY && !res.sessions.some((s) => s.id === sid)) sid = null;
+  const old = agentOldTopic(sid);
+  if (sid !== AGENT_LEGACY && !old && !res.sessions.some((s) => s.id === sid)) sid = null;
   if (sid === AGENT_LEGACY && !res.legacy) sid = null;
+  if (old && !S.agent.older.some((x) => x.topic === old)) sid = null;
   if (!sid) sid = live.length ? [...live].sort((a, b) => (b.updated || '').localeCompare(a.updated || ''))[0].id : (res.legacy ? AGENT_LEGACY : null);
   S.agentSid = sid;
 }
 
 function agentSession() {
-  return S.agent && S.agentSid && S.agentSid !== AGENT_LEGACY ? S.agent.sessions.find((s) => s.id === S.agentSid) || null : null;
+  return S.agent && S.agentSid && !agentIsLegacy(S.agentSid) ? S.agent.sessions.find((s) => s.id === S.agentSid) || null : null;
+}
+
+/** 이전 대화를 연 것인지 (옛 플롯 대화 'legacy' 나 읽기 전용 'legacy:<주제>') */
+function agentIsLegacy(sid) {
+  return sid === AGENT_LEGACY || !!agentOldTopic(sid);
+}
+
+/** 읽기 전용 이전 대화의 주제 ('legacy:setup' → 'setup'). 아니면 빈 글 */
+function agentOldTopic(sid) {
+  return typeof sid === 'string' && sid.startsWith(`${AGENT_LEGACY}:`) ? sid.slice(AGENT_LEGACY.length + 1) : '';
+}
+
+/** 화면이 주는 기본 대상 (chat.js chatDefaultTarget, drawApp 이 정한다) */
+function agentScreenTarget() {
+  return (S.chatHere && S.chatHere.target) || '';
+}
+
+/** 이 세션이 다음 턴에 쓸 대상: 고정한 세션은 세션 대상, 아니면 화면 대상 */
+function agentTarget(s = agentSession()) {
+  return s && s.pinned ? s.target : agentScreenTarget();
 }
 
 function agentRunningJob() {
@@ -90,8 +118,15 @@ function agentTurnTook(t) {
   return sec < 60 ? `${sec}초` : `${Math.floor(sec / 60)}분${sec % 60 ? ` ${sec % 60}초` : ''}`;
 }
 
-/** 세션의 다듬을 곳 이름. 부 · 화(part:N · ep:N)는 서버 pipeline.chat_focus, 아크 · 다음 아크는 chat_target 과 같은 대상 */
+/** 세션의 다듬을 곳 이름. 부 · 화 · 본문 · 설정 · 문체는 서버 pipeline.chat_focus, 아크 · 다음 아크는 chat_target 과 같은 대상 */
 function agentTargetText(target) {
+  if (target === 'setup') return '설정';
+  if (target === 'style') return '문체';
+  const t = /^text:(\d+)$/.exec(target || '');
+  if (t) {
+    const e = ep(Number(t[1]));
+    return `${t[1]}화 본문${e && e.plot.title ? ` ${e.plot.title}` : ''}`;
+  }
   const m = /^(part|ep):(\d+)$/.exec(target || '');
   if (m && m[1] === 'part') {
     const x = (P().parts || []).find((y) => y.number === Number(m[2]));
@@ -104,7 +139,7 @@ function agentTargetText(target) {
   const a = plotTargetArc(target);
   if (a) return `아크 ${a.number}${a.title ? ` ${a.title}` : ''}`;
   if (target === 'next') return `다음 아크 (${plannedUntil() + 1}화부터)`;
-  return serial() ? '본문이 없는 첫 아크' : '작품 전체';
+  return serial() && S.route[2] === 'arc' ? '본문이 없는 첫 아크' : '작품 전체';  // 장편 플롯 화면에서 아크를 고르지 않으면 플롯 쓰기는 그 아크로 간다
 }
 
 function agentSelect(sid) {
@@ -119,13 +154,22 @@ function agentSelect(sid) {
 function agentPanel() {
   if (!S.agent || S.agent.name !== S.name) {
     agentLoad().then(() => redrawChat()).catch((e) => toast(e.message, true));
-    return `<aside class="chat-panel" aria-label="대화로 다듬기"><div class="chat-log" id="chat-log" role="log" aria-live="off"><div class="msg ai pending" role="status"><span class="spinner small" aria-hidden="true"></span>대화 세션을 불러오는 중…</div></div></aside>`;
+    return `<aside class="chat-panel" aria-label="대화 에이전트"><div class="chat-log" id="chat-log" role="log" aria-live="off"><div class="msg ai pending" role="status"><span class="spinner small" aria-hidden="true"></span>대화 세션을 불러오는 중…</div></div></aside>`;
   }
   const s = agentSession();
-  const legacy = S.agentSid === AGENT_LEGACY;
+  const old = agentOldTopic(S.agentSid);
+  const legacy = agentIsLegacy(S.agentSid);
   const title = legacy ? '이전 대화' : s ? (s.title || '새 세션') : '새 세션';
-  const sub = legacy ? `플롯 · 옛 기록 ${S.agent.legacy}개` : `플롯 · 다듬을 곳: ${agentTargetText(s ? s.target : plotScope().target)}`;
-  return `<aside class="chat-panel" aria-label="대화로 다듬기">
+  const oldN = old ? (S.agent.older.find((x) => x.topic === old) || {}).count || 0 : S.agent.legacy;
+  const target = agentTarget(s);
+  const sub = legacy ? `${chatTopicName(old || 'plot')} · 옛 기록 ${oldN}개` : `다듬을 곳: ${agentTargetText(target)}`;
+  const shown = `${S.name}|${target}`;
+  // 같은 작품에서 대상이 바뀔 때만 알린다 (다른 작품으로 옮긴 첫 그리기는 알리지 않는다)
+  if (S.agentShown && S.agentShown !== shown && S.agentShown.startsWith(`${S.name}|`) && !legacy) S.agentFlash = agentTargetText(target);
+  if (!legacy) S.agentShown = shown;
+  const sw = chatSwitch('plot');
+  return `<aside class="chat-panel" aria-label="대화 에이전트">
+    ${sw ? `<div class="chat-switch-row">${sw}</div>` : ''}
     <div class="chat-head">
       <button type="button" class="sess-btn" data-action="agentMenuToggle" aria-haspopup="true" aria-expanded="${S.agentMenu}">
         <strong><span class="sess-title">${esc(title)}</span>${AGENT_ICON.down}</strong><span class="small">${esc(sub)}</span></button>
@@ -153,10 +197,12 @@ function agentMenu() {
   const row = (s) => `<button type="button" class="sess-item" aria-current="${s.id === S.agentSid}" data-action="agentPick" data-arg="${s.id}">
     <span class="t">${esc(s.title || '새 세션')}</span><span class="small">${esc(agentTargetText(s.target))} · ${fmtDateTime(s.updated || s.created)}</span>${chip(s)}</button>`;
   const cur = agentSession();
-  return `<div class="pop sess-menu" role="group" aria-label="플롯 대화 세션">
-    <div class="pop-title">플롯 대화 세션 · ${live.length}</div>
+  const olds = S.agent.older || [];
+  return `<div class="pop sess-menu" role="group" aria-label="대화 세션">
+    <div class="pop-title">대화 세션 · ${live.length}</div>
     ${live.map(row).join('') || '<div class="small" style="padding:6px 10px">아직 세션이 없어요. 말을 보내면 새 세션이 생겨요.</div>'}
-    ${S.agent.legacy ? `<button type="button" class="sess-item" aria-current="${S.agentSid === AGENT_LEGACY}" data-action="agentPick" data-arg="${AGENT_LEGACY}"><span class="t">이전 대화</span><span class="small">예전 방식 기록 ${S.agent.legacy}개 · 변경안을 골라 적용</span><span class="chip">읽기</span></button>` : ''}
+    ${S.agent.legacy ? `<button type="button" class="sess-item" aria-current="${S.agentSid === AGENT_LEGACY}" data-action="agentPick" data-arg="${AGENT_LEGACY}"><span class="t">이전 대화 · 플롯</span><span class="small">예전 방식 기록 ${S.agent.legacy}개 · 변경안을 골라 적용</span><span class="chip">읽기</span></button>` : ''}
+    ${olds.map((x) => `<button type="button" class="sess-item" aria-current="${S.agentSid === `${AGENT_LEGACY}:${x.topic}`}" data-action="agentPick" data-arg="${esc(`${AGENT_LEGACY}:${x.topic}`)}"><span class="t">이전 대화 · ${esc(chatTopicName(x.topic))}</span><span class="small">예전 방식 기록 ${x.count}개 · 읽기만</span><span class="chip">읽기</span></button>`).join('')}
     ${cur ? `<hr class="pop-sep"><div class="row" style="padding:0 6px"><button type="button" class="btn small" data-action="agentRename">이름 바꾸기</button><button type="button" class="btn small" data-action="agentArchive" data-arg="${cur.id}|1">이 세션 보관</button></div>` : ''}
     ${kept.length ? `<details style="padding:0 10px"><summary>보관함 · ${kept.length}</summary>
       ${kept.map((s) => `<div class="between" style="padding:4px 0"><span class="small">${esc(s.title || '새 세션')} · ${fmtDate(s.updated || s.created)}</span><button type="button" class="btn small" data-action="agentArchive" data-arg="${s.id}|0">꺼내기</button></div>`).join('')}</details>` : ''}
@@ -167,9 +213,17 @@ function agentLog() {
   if (S.agentSid === AGENT_LEGACY) {
     return `<div class="note plain">예전 방식(한 번에 변경안 하나) 대화 기록이에요. 변경안은 예전처럼 골라서 적용하거나 취소할 수 있어요. 새로 말하면 새 세션이 열려요.</div>${chatLog('plot')}`;
   }
+  const old = agentOldTopic(S.agentSid);
+  if (old) {
+    return `<div class="note plain">${esc(chatTopicName(old))} 예전 대화 기록이에요. 여기서는 읽기만 해요. 변경안을 고르거나 적용을 취소하려면 그 화면 패널 머리에서 '${esc(chatOldTitle(old))}'로 바꾸세요. 새로 말하면 새 세션이 열려요.</div>${chatLog(old, { readOnly: true })}`;
+  }
   const s = agentSession();
   if (!s || !s.turns.length) {
     const t = CHAT_TOPICS.plot;
+    const aim = agentTarget(s);
+    if (/^(text:\d+|setup|style)$/.test(aim)) {
+      return `<div class="note info">${esc(agentTargetText(aim))}에 대해 물으면 AI가 읽고 답해요. ${esc(aim === 'setup' ? '설정' : aim === 'style' ? '문체' : '본문')}을 바로 고치는 도구는 아직 없어서, 고칠 것은 답으로 제안해요. 플롯은 고칠 수 있지만 늘 먼저 물어봐요.${S.chatHere.legacy ? ` 지금처럼 고르고 적용하려면 위에서 '${esc(chatOldTitle(S.chatHere.legacy))}'로 바꾸세요.` : ''}</div>`;
+    }
     return `<div class="note info">구조와 플롯을 말로 고쳐요. AI가 필요한 플롯과 본문을 읽고 고치며, 아래 권한 모드에 따라 초안은 바로 쓰고 확정한 화나 범위는 물어봐요. 바로 쓴 것은 되돌릴 수 있고, 본문이 있는 화는 바꾸지 않아요.</div>
       <div class="row">${t.examples.map((x) => `<button type="button" class="btn small" data-action="agentExample" data-arg="${esc(x)}">${esc(x)}</button>`).join('')}</div>`;
   }
@@ -178,7 +232,7 @@ function agentLog() {
 
 /** 화면 낭독기에 알릴 가장 새 답(chat.js chatAnnounce). 끝났거나 묻는 중인 턴의 답만 친다 */
 function agentLastReply() {
-  const s = S.agentSid === AGENT_LEGACY ? null : agentSession();
+  const s = agentIsLegacy(S.agentSid) ? null : agentSession();
   const turns = s ? s.turns : [];
   let i = turns.length - 1;
   while (i >= 0 && !(turns[i].reply && turns[i].end !== '')) i -= 1;
@@ -347,6 +401,9 @@ function agentTargetMenu(cur) {
   const opt = (t, label, sub) => `<button type="button" class="mode-opt" aria-pressed="${t === cur}" data-action="agentTarget" data-arg="${esc(t)}"><strong>${esc(label)}</strong>${sub ? `<span class="small">${esc(sub)}</span>` : ''}</button>`;
   const head = (t) => `<div class="pop-title">${t}</div>`;
   const out = [];
+  const here = agentScreenTarget();
+  if (/^(text:\d+|setup|style)$/.test(here)) out.push(head('이 화면'), opt(here, agentTargetText(here), '읽고 답해요. 플롯을 고치면 늘 물어봐요'));
+  if (serial()) out.push(opt('', '작품 전체', '플롯을 고치면 본문이 없는 첫 아크로 가요'));
   if (serial()) {
     if ((p.parts || []).length) out.push(head('부'), ...p.parts.map((x) => opt(`part:${x.number}`, `${x.number}부${x.title ? ` ${x.title}` : ''}`, `${epRange(x.start_ep, x.end_ep)} · 부 구성과 이 부의 아크`)));
     const arcs = [...p.story_arcs].sort((a, b) => a.start_ep - b.start_ep);
@@ -364,7 +421,7 @@ function agentTargetMenu(cur) {
       <button type="button" class="btn small" data-action="agentTargetEp">이 화로</button></div>`);
   }
   return `<div class="pop mode-menu target-menu" role="group" aria-label="다듬을 곳">
-    <div class="pop-title">이 세션에서 다듬을 곳 · 다음 턴부터</div>
+    <div class="pop-title">이 세션에서 다듬을 곳 · 다음 턴부터 · 고르면 고정돼요</div>
     ${out.join('')}
     <hr class="pop-sep"><span class="small" style="padding:0 10px 4px">고른 곳 밖(다른 화, 부를 골랐으면 그 부 밖)을 고치면 권한 모드와 상관없이 물어봐요.</span>
   </div>`;
@@ -374,8 +431,9 @@ function agentComposer() {
   const s = agentSession();
   const job = agentRunningJob();
   const mode = (s && s.mode) || 'draft';
-  const target = s ? s.target : plotScope().target;
-  const here = scopeText();
+  const target = agentTarget(s);
+  const pinned = !!(s && s.pinned);
+  const here = S.route[2] === 'arc' ? scopeText() : agentTargetText(agentScreenTarget());
   return `<div class="composer">
     <div class="pop slash-menu" id="agent-slash" role="group" aria-label="빠른 요청" hidden>
       <div class="pop-title">빠른 요청</div>
@@ -384,7 +442,7 @@ function agentComposer() {
     ${S.agentPlus ? `<div class="pop slash-menu" role="group" aria-label="함께 넣을 재료">
       <div class="pop-title">함께 넣을 재료 · 말에 붙여요</div>
       <button type="button" class="cmd" data-action="agentMaterial" data-arg="where"><b>보고 있는 곳</b><span>${esc(here)}</span></button>
-      ${S.selEp ? `<button type="button" class="cmd" data-action="agentMaterial" data-arg="ep"><b>${S.selEp}화 플롯</b><span>열린 화를 가리켜요</span></button>` : ''}
+      ${S.selEp && S.route[2] === 'arc' ? `<button type="button" class="cmd" data-action="agentMaterial" data-arg="ep"><b>${S.selEp}화 플롯</b><span>열린 화를 가리켜요</span></button>` : ''}
       <button type="button" class="cmd" data-action="agentMaterial" data-arg="find"><b>본문에서 찾기</b><span>«찾을 말»을 본문에서 찾아 보라고 해요</span></button>
     </div>` : ''}
     <div class="composer-box">
@@ -395,7 +453,8 @@ function agentComposer() {
     </div>
     <div class="composer-foot">
       <button type="button" class="foot-mode" data-action="agentModeToggle" aria-haspopup="true" aria-expanded="${S.agentModeMenu}">${AGENT_MODES[mode][0]}</button>
-      <button type="button" class="foot-mode foot-target" data-action="agentTargetToggle" aria-haspopup="true" aria-expanded="${S.agentTargetMenu}" title="이 세션에서 다듬을 곳: 부 · 아크 · 화 플롯">${esc(agentTargetText(target))} ▾</button>
+      <button type="button" class="foot-mode foot-target" data-action="agentTargetToggle" aria-haspopup="true" aria-expanded="${S.agentTargetMenu}" title="이 세션에서 다듬을 곳. 고정하지 않으면 화면을 옮길 때 바뀌어요">${esc(agentTargetText(target))} ▾</button>
+      <button type="button" class="foot-mode foot-pin" data-action="agentPin" aria-pressed="${pinned}" aria-label="${pinned ? '대상 고정 풀기' : '대상 고정'}" title="${pinned ? '고정을 풀면 화면을 옮길 때 대상이 바뀌어요' : '화면을 옮겨도 이 대상을 그대로 둬요'}">${AGENT_ICON.pin}</button>
       <span class="foot-right"><b>${esc(S.agent.model)}</b><span>${S.agent.max_steps}단계</span></span>
       ${S.agentModeMenu ? `<div class="pop mode-menu" role="group" aria-label="권한 모드">
         <div class="pop-title">이 세션의 권한 · 다음 턴부터</div>
@@ -422,6 +481,19 @@ function agentRedraw() {
   const job = agentRunningJob();
   if (btn) btn.outerHTML = job ? `<button type="button" class="comp-send stop" data-action="agentStop" aria-label="멈추기">${AGENT_ICON.stop}</button>`
     : `<button type="button" class="comp-send" data-action="agentSend" aria-label="보내기">${AGENT_ICON.send}</button>`;
+}
+
+/** 그린 뒤(chat.js syncChat): 상태 줄의 대상이 바뀌었으면 그 칸을 한 번 강조하고 화면 낭독기에 알린다 */
+function agentAfterDraw() {
+  if (!S.agentFlash) return;
+  const name = S.agentFlash;
+  S.agentFlash = null;
+  const el = document.querySelector('.chat-panel .foot-target');
+  if (!el) return;
+  el.classList.remove('flash');
+  void el.offsetWidth;  // 같은 칸을 다시 강조할 때도 애니메이션이 처음부터 돈다
+  el.classList.add('flash');
+  chatSay(`다듬을 곳이 바뀌었어요: ${name}`);
 }
 
 /** pollJobs 가 이 작품의 'agent' 작업 진행이 바뀔 때 부른다. 끝났고 쓴 것이 있으면 작품을 다시 받는다. */
@@ -462,7 +534,7 @@ function agentPutDraft(w, reply) {
 
 async function agentEnsureSession() {
   if (agentSession()) return agentSession().id;
-  const s = await api('POST', `/projects/${enc(S.name)}/sessions`, { topic: 'plot', target: plotScope().target });
+  const s = await api('POST', `/projects/${enc(S.name)}/sessions`, { topic: 'agent', target: agentScreenTarget() });
   await agentLoad();
   agentSelect(s.id);
   return s.id;
@@ -480,8 +552,7 @@ async function agentStartTurn(text, mode = '') {
   try {
     await saveIfDirty();
     const sid = await agentEnsureSession();
-    const sc = plotScope();
-    const job = await api('POST', `/projects/${enc(S.name)}/sessions/${sid}/turns`, { message: text, mode, act: sc.act, episode: sc.episode, draft: sc.draft });
+    const job = await api('POST', `/projects/${enc(S.name)}/sessions/${sid}/turns`, { message: text, mode, ...agentTurnScope() });
     S.jobs = [...S.jobs.filter((x) => x.id !== job.id), job];
     await agentLoad();
     pollJobs(true);
@@ -494,6 +565,14 @@ async function agentStartTurn(text, mode = '') {
     redrawChat();
     $('#chat-input')?.focus();
   }
+}
+
+/** 턴과 함께 보내는 화면 정보. 플롯 화면은 연 구간 · 화와 다음 아크 초안, 다른 화면은 대상만 보낸다(그 화면에서 플롯 화면의 고른 칸은 지난 값이다).
+    고정한 세션은 대상을 보내지 않는다 (서버 agent.add_turn 이 고정한 세션의 대상은 그대로 둔다) */
+function agentTurnScope(s = agentSession()) {
+  const target = agentTarget(s);
+  const sc = S.route[2] === 'arc' ? plotScope() : { act: '', episode: 0, draft: target === 'next' ? S.arcDraft || null : null };
+  return { act: sc.act, episode: sc.episode, draft: sc.draft, ...(s && s.pinned ? {} : { target: agentScreenTarget() }) };
 }
 
 /** 세션 동작 공통. save: AI가 작품을 읽거나 고치는 동작이면 저장하지 않은 변경을 먼저 저장한다 (묻고 나서).
@@ -548,9 +627,9 @@ Object.assign(actions, {
     const s = agentSession();
     if (cmd === '/대상') {
       if (!s) return toast('세션이 없어요. 말을 보내면 지금 보는 곳으로 세션이 생겨요');
-      await agentAct(() => api('PATCH', `/projects/${enc(S.name)}/sessions/${s.id}`, { target: plotScope().target }), { save: false });
+      await agentAct(() => api('PATCH', `/projects/${enc(S.name)}/sessions/${s.id}`, { target: agentScreenTarget(), pinned: false }), { save: false });
       S.agentDraft = '';
-      return toast(`대상을 바꿨어요: ${agentTargetText(plotScope().target)}`);
+      return toast(`대상 고정을 풀었어요: ${agentTargetText(agentScreenTarget())}`);
     }
     if (cmd === '/되돌리기') {
       const i = s ? s.turns.map((t, k) => (t.writes.some((w) => w.items.some((x) => x.state === 'done' && x.key !== 'draft')) ? k : -1)).filter((k) => k >= 0).pop() : undefined;
@@ -562,7 +641,7 @@ Object.assign(actions, {
   async agentNew() {
     S.agentMenu = false;
     await agentAct(async () => {
-      const s = await api('POST', `/projects/${enc(S.name)}/sessions`, { topic: 'plot', target: plotScope().target });
+      const s = await api('POST', `/projects/${enc(S.name)}/sessions`, { topic: 'agent', target: agentScreenTarget() });
       agentSelect(s.id);
       return s;
     }, { save: false });
@@ -587,16 +666,27 @@ Object.assign(actions, {
     S.agentMenu = S.agentPlus = S.agentModeMenu = false;
     redrawChat();
   },
+  /** 다듬을 곳 메뉴에서 고르면 그 대상으로 고정한다 (화면을 옮겨도 바뀌지 않는다) */
   async agentTarget(target) {
     S.agentTargetMenu = false;
     const s = agentSession();
     const res = await agentAct(async () => {
-      if (s) return api('PATCH', `/projects/${enc(S.name)}/sessions/${s.id}`, { target });
-      const made = await api('POST', `/projects/${enc(S.name)}/sessions`, { topic: 'plot', target });
+      if (s) return api('PATCH', `/projects/${enc(S.name)}/sessions/${s.id}`, { target, pinned: true });
+      const made = await api('POST', `/projects/${enc(S.name)}/sessions`, { topic: 'agent', target, pinned: true });
       agentSelect(made.id);
       return made;
     }, { save: false });
-    if (res) toast(`다듬을 곳을 바꿨어요: ${agentTargetText(target)}`);
+    if (res) toast(`다듬을 곳을 고정했어요: ${agentTargetText(target)}`);
+  },
+  /** 상태 줄의 핀: 지금 대상으로 고정하거나 고정을 푼다. 세션이 없으면 고정한 새 세션을 연다 */
+  async agentPin() {
+    const s = agentSession();
+    if (s && s.pinned) {
+      const res = await agentAct(() => api('PATCH', `/projects/${enc(S.name)}/sessions/${s.id}`, { pinned: false }), { save: false });
+      if (res) toast(`대상 고정을 풀었어요. 화면을 옮기면 바뀌어요: ${agentTargetText(agentScreenTarget())}`);
+      return;
+    }
+    return actions.agentTarget(agentTarget(s));
   },
   agentTargetEp() {
     const n = Number(($('#agent-target-ep') || {}).value);
@@ -609,7 +699,7 @@ Object.assign(actions, {
     redrawChat();
   },
   agentMaterial(kind) {
-    const add = { where: `(보고 있는 곳: ${scopeText()}) `, ep: `${S.selEp}화 플롯을 보고, `, find: '본문에서 «» 이(가) 나온 단락을 찾아 보고, ' }[kind] || '';
+    const add = { where: `(보고 있는 곳: ${S.route[2] === 'arc' ? scopeText() : agentTargetText(agentScreenTarget())}) `, ep: `${S.selEp}화 플롯을 보고, `, find: '본문에서 «» 이(가) 나온 단락을 찾아 보고, ' }[kind] || '';
     S.agentDraft = `${S.agentDraft || ''}${S.agentDraft && !/\s$/.test(S.agentDraft) ? ' ' : ''}${add}`;
     S.agentPlus = false;
     redrawChat();

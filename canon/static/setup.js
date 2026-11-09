@@ -745,7 +745,7 @@ function viewSetupWizard() {
     ${aiNote()}
     ${S.suggestion ? viewSuggestion() : ''}
     ${outlineDoc(wizStepper(), `<div class="setup-secs"><section class="card wiz-card" aria-labelledby="wiz-q">${bodies[w.step]()}</section></div>`)}
-    ${wizFoot(w.step)}${chatPanel('setup')}`;
+    ${wizFoot(w.step)}${chatLegacy('setup')}`;
 }
 
 /** 칸을 고치면 필수 칸 수, 목차, 필수 표시, 기획서 머리 요약만 다시 그린다 (입력 중인 칸의 포커스 유지) */
@@ -974,7 +974,7 @@ function viewSetupDoc() {
         <div class="grid-2">${input('화당 분량', 'meta.words_per_episode', { type: 'number', hint: '공백 포함 글자 수' })}${input('메모', 'meta.notes', { rows: 2 })}</div>
       </section>
     </div>`)}
-    ${first ? '' : `<div class="setup-foot phone-only">${go('')}</div>`}${chatPanel('setup')}`;
+    ${first ? '' : `<div class="setup-foot phone-only">${go('')}</div>`}${chatLegacy('setup')}`;
 }
 
 /** 상태창을 쓰는 작품이면 상태창 수치 화면으로 가는 줄. 작품 틀과 처음 수치는 그 화면에서 정한다 */

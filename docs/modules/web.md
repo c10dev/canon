@@ -84,6 +84,7 @@
   - `sidebar`: 맨 위 줄 `sideTop` · 작품 칸 · 단계 · 접는 묶음 `navFold`(작품 도구 · 아직 안 쓴 도구 · 실험, 펼침 `navFoldOpen`) · 아래 고정 줄 `sideFoot`(설정 · ⋯ 메뉴)
   - 줄 끝 배지 `navBadges`(순수 함수, `tests/test_sidebar_js.py`) · `navBadge`
   - 64px 레일로 접기 `toggleRail` · `syncRail`(901~1599px 에서 대화 패널을 열면 저절로)
+  - 작품 안 사이드바의 맨 위 줄은 찾기 앞에 대화 버튼을 둔다(`sideTop({ chat: true })`, `chat.js` `toggleChat`). 작품 밖 · 플레이 사이드바에는 없다
   - 900px 이하는 위쪽 띠와 왼쪽 서랍 `drawerHead`
 - 창 폭 경계 `BP`(phone 640 · narrow 900 · chatRail 1599)와 `mq(이름)`: app.css `@media` 와 같은 값이다. `hub.js` · `review.js` 도 이것을 쓴다
 - 휴대폰 키보드 높이 `--kb`(`visualViewport`, 80px 아래와 두 손가락 확대는 0): 아래 시트 · 찾기 팔레트가 키보드 위에 선다
@@ -149,7 +150,15 @@
 
 ### `canon/static/chat.js`
 
-- 화면에 붙는 AI 대화 패널(플롯 대화는 `agent.js` 가 그린다)(901~1599px 은 사이드바를 레일로 접고 400px, 900px 이하는 아래 시트, 규칙은 `app.css` 의 `body.chat-open`. 기승전결 · 플롯 화면 `plot`, 집필 화면 `text:<화>`)
+- 화면에 붙는 AI 대화 패널(대화 에이전트는 `agent.js` 가 그린다)(901~1599px 은 사이드바를 레일로 접고 400px, 900px 이하는 아래 시트, 규칙은 `app.css` 의 `body.chat-open`)
+- 작품 안 모든 화면에 패널 하나다. `app.js` `drawApp` 이 화면을 그리기 전에 `chatScreen`, 셸 끝에 `chatDock()` 을 부른다. 화면을 옮겨도 자리와 열림 상태는 그대로다
+- 화면이 주는 기본 대상 `chatDefaultTarget`: 집필 · 검수 · 상태 승인 `text:N`, 설정 도우미 `setup`, 문체 `style`, 플롯 화면은 고른 아크(`plotScope`), 그 밖 ''
+- 주제 `plot` 은 대화 에이전트 패널이다. 옛 대화 셋(`text:<화>` · `style` · `setup`)은 04b~04d 전까지 그 화면이 `chatLegacy(주제)` 로 알린다
+- 보이는 주제는 `chatShownTopic`(`S.chatOld` 가 그 화면 옛 주제의 종류일 때만 옛 패널)이다. 패널 머리 전환 `chatSwitch`(Seg)로 바꾼다
+- 옛 대화가 남은 화면의 머리 버튼 `chatButton(주제)` 는 `chatOldToggle` 로 그 옛 대화를 연다. 사이드바 대화 버튼과 플롯 화면 머리 버튼은 `toggleChat` 으로 대화 에이전트를 연다
+- 열림 상태(`S.chatOpen`, localStorage `canon.chat`)는 `chatOpenSaved` · `chatSetOpen` 만 읽고 쓴다(`tests/test_agent_js.py`)
+- 다시 생성 열이 자리를 빌리면 화면이 `chatLegacy(…, { hold: true })` 로 알리고 `chatDock` 은 패널을 그리지 않는다
+- `chatLog(주제, { readOnly: true })` 는 그 화면 밖에서 읽기만 하는 기록이다. 변경안 카드 대신 요약(`chatReadOnlyCard`)을 보이고 고른 부분 · 접기를 쓰지 않는다
 - 답을 기다리는 줄은 경과 초를 1초마다 고치고(`chatWaitTick`), 5초가 지나면 '기다리지 않기'(`chatStop`, AbortController)를 보인다. 기다리지 않기는 오류가 아닌 보통 알림이다. 초는 알림 칸(role=status) 밖에 둔다
 - 보내기(`chatSend`)는 저장하지 않은 변경이 있으면 기다림 줄을 놓기 전에 묻는다. 취소하면 보내지 않고 쓴 글은 입력칸에 남는다
 - `#chat-log` 는 `role="log"` 이지만 패널을 통째로 다시 그려서 `aria-live="off"` 다
@@ -159,6 +168,7 @@
 - 주제의 `foldFrom(msgs)` 가 돌려준 번호 앞 메시지는 '지난 요청 N개'(`.chat-fold`) 아래로 접는다. 연 상태는 `S.chatFoldOpen` 에 둔다
 - 다 접혔고 주제에 `foldNote` 가 있으면 그 안내를 보인다
 - 새 AI 답만 패널 밖 숨은 알림 칸 `#chat-live`(role=status)에 넣는다(`chatAnnounce`, 처음 연 패널 · 다른 대화의 옛 답은 알리지 않음)
+- 대상 바뀜 같은 패널 소식은 `chatSay` 로 같은 칸에 넣는다
 - 변경안을 칸별로 지금 값과 비교해 보여 주고 고른 것만 반영 요청
 - 주제마다 요청 내용과 변경안 그리기를 `CHAT_TOPICS` 에서 바꿔 끼운다
 - 플롯 대화는 대상(`plotScope`: 고른 아크 · 다음 아크 초안, 연 구간 · 화)을 함께 보낸다
@@ -166,6 +176,7 @@
 - 적용한 플롯 변경안의 적용 취소(`chatUndo`, 서버 `pipeline.undo_plot_chat`)
 - 서버 `pipeline.chat_target` · `chat_where` 와 같은 규칙(`tests/test_chat_js.py`)
 - 화면 본체는 `plot.js` · `write.js`
+- 서버 `pipeline.chat_focus` · `chat_target` 의 새 대상 값은 `tests/test_chat_js.py`, 화면별 기본 대상 · 대상 고정 · 옛 기록 보기는 `tests/test_agent_js.py`
 
 ### `canon/static/check.js`
 

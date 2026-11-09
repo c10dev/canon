@@ -2411,7 +2411,7 @@ def _agent_turn_line(t) -> str:
 
 
 def agent_focus_block(p: Project, focus: str) -> str:
-    """세션이 고른 다듬을 곳(부 · 한 화) 블록. 고르지 않았으면 빈 글. 세션 안에서는 바뀌지 않는다."""
+    """세션의 다듬을 곳(부 · 한 화 플롯 · 화면이 주는 본문 · 설정 · 문체) 블록. 작품 전체면 빈 글. 턴 안에서는 바뀌지 않는다."""
     from .pipeline import chat_focus
 
     kind, lo, hi, name = chat_focus(p, focus)
@@ -2425,6 +2425,14 @@ def agent_focus_block(p: Project, focus: str) -> str:
         locked = " 이 화는 본문이 있어 플롯을 바꿀 수 없으니, 분석하거나 뒤 화를 맞추는 쪽으로 돕습니다." if e.status in ("written", "finalized") else ""
         return (f"[이 세션에서 다듬을 곳] {name}. 이 화의 플롯을 다룹니다. 앞뒤 화나 아크 · 구조를 함께 고쳐야 하면 넣어도 되지만 "
                 f"작가에게 물어집니다.{locked}\n")
+    if kind in ("text", "setup", "style"):
+        # 2026-11-09 사용자 결정: 화면이 대상을 정하고, 플롯 도구는 어느 화면에서든 쓰되 대상 밖이면 묻는다. 본문 · 설정 · 문체 도구는 아직 없다
+        what = {"text": "이 화 본문을 보고 있습니다. 본문에 대한 물음은 find_text 로 읽고 reply 로 답합니다",
+                "setup": "설정(기본 정보 · 세계관 · 인물)을 보고 있습니다. 인물에 대한 물음은 read_cast 로 읽고 reply 로 답합니다",
+                "style": "문체를 보고 있습니다. 문체에 대한 물음은 reply 로 답합니다"}[kind]
+        noun = {"text": "본문", "setup": "설정", "style": "문체"}[kind]
+        return (f"[이 세션에서 다듬을 곳] {name}. 작가는 {what}. {noun}을 바로 고치는 도구는 없으니, 고칠 글이나 값은 reply 에 제안합니다. "
+                "플롯을 고쳐야 하면 edit_plot 을 불러도 되지만 모두 작가에게 물어집니다.\n")
     return ""
 
 

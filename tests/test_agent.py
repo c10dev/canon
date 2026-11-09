@@ -593,3 +593,65 @@ def test_restore_side_files_keeps_existing_and_skips_odd_paths():
 def _short_project():
     from .test_insert import _short
     return _short()
+
+
+# ---------- 04a: 패널 하나 · 화면이 주는 대상 (docs/ux/specs/04-one-agent.md) ----------
+
+def test_screen_target_asks_every_plot_write(client):
+    """대상이 본문 · 설정 · 문체이면 플롯 도구는 쓰되 '다듬을 곳 밖'으로 늘 묻는다. 플롯이 아닌 말은 읽고 답만 한다."""
+    _project(client)
+    plot = _ep(client, 3)["plot"]
+    sid = _session(client, topic="agent", target="setup")
+    t = _say(client, sid, "3화 플롯 전개가 너무 빨라")
+    assert t["end"] == "wait" and t["approval"]["kinds"] == ["outside"] and t["approval"]["keys"] == ["3"]
+    assert _ep(client, 3)["plot"] == plot  # '빈 곳 · 초안만 자동'이어도 바로 쓰지 않는다
+    sid = _session(client, topic="agent", target="style")
+    client.patch(f"/api/projects/lh/sessions/{sid}", json={"mode": "all"})
+    t = _say(client, sid, "3화 플롯 전개가 너무 빨라")
+    assert t["end"] == "wait" and t["approval"]["kinds"] == ["outside"]  # '모두 자동'이어도 묻는다
+    t = _say(client, _session(client, topic="agent", target="text:2"), "이 장면 말투가 어때")
+    assert t["end"] == "done" and t["writes"] == [] and t["approval"] is None and "제안" in t["reply"]
+    assert t["where"].startswith("2화") and "본문" in t["where"]
+
+
+def test_turn_follows_screen_target_unless_pinned(client):
+    _project(client)
+    sid = _session(client, topic="agent")
+    _say(client, sid, "말투가 어때", target="style")
+    s = client.get("/api/projects/lh/sessions").json()["sessions"][0]
+    assert s["target"] == "style" and s["pinned"] is False and s["topic"] == "agent"
+    client.patch(f"/api/projects/lh/sessions/{sid}", json={"pinned": True})
+    _say(client, sid, "인물은 어때", target="setup")
+    s = client.get("/api/projects/lh/sessions").json()["sessions"][0]
+    assert s["target"] == "style" and s["pinned"] is True  # 고정한 세션은 화면을 옮겨도 그대로
+    r = client.post(f"/api/projects/lh/sessions/{sid}/turns", json={"message": "x", "target": "text:99"})
+    assert r.status_code == 200  # 고정한 세션은 화면 대상을 보지 않는다
+    _wait(client, r.json()["id"])
+    client.patch(f"/api/projects/lh/sessions/{sid}", json={"pinned": False})
+    r = client.post(f"/api/projects/lh/sessions/{sid}/turns", json={"message": "x", "target": "text:99"})
+    assert r.status_code == 400 and "99화" in r.json()["detail"]
+    pinned = client.post("/api/projects/lh/sessions", json={"target": "setup", "pinned": True}).json()
+    assert pinned["topic"] == "agent" and pinned["pinned"] is True and pinned["target"] == "setup"
+
+
+def test_old_project_json_lists_plot_sessions_and_old_chats(client):
+    """옛 project.json: topic 'plot' 세션(pinned 칸 없음)과 설정 · 문체 · 본문 고치기 기록이 그대로 읽히고 한 목록에 보인다."""
+    import json
+
+    from canon import store
+    _project(client)
+    path = store.project_dir("lh") / "project.json"
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    msg = lambda t: {"role": "user", "text": t}  # noqa: E731
+    raw["agent_sessions"] = [{"id": "old1", "topic": "plot", "title": "옛 세션", "target": "ep:3", "turns": []}]
+    raw["chats"] = [{"topic": "text:3", "messages": [msg("더 짧게")]}, {"topic": "plot", "messages": [msg("a"), msg("b")]},
+                    {"topic": "style", "messages": [msg("담담하게"), msg("더")]}, {"topic": "setup", "messages": [msg("주인공")]},
+                    {"topic": "text:10", "messages": []}]
+    path.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+    out = client.get("/api/projects/lh/sessions").json()
+    assert [(s["id"], s["topic"], s["pinned"]) for s in out["sessions"]] == [("old1", "plot", False)]
+    assert out["legacy"] == 2
+    assert out["older"] == [{"topic": "setup", "count": 1}, {"topic": "style", "count": 2}, {"topic": "text:3", "count": 1}]
+    assert client.get("/api/projects/lh/sessions?topic=plot").json()["sessions"][0]["id"] == "old1"  # 옛 주소도 같은 목록
+    sid = _session(client, topic="agent")
+    assert [s["id"] for s in client.get("/api/projects/lh/sessions").json()["sessions"]] == ["old1", sid]
