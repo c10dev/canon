@@ -899,7 +899,7 @@ Object.assign(actions, {
     const p = S.play;
     const focus = p.focus === f ? '' : (f || '');
     try { playSet(await api('PUT', `/projects/${enc(p.name)}/play/settings`, { focus })); } catch (e) { return showError(e); }
-    toast(focus ? `초점을 '${focus}'(으)로 바꿨어요. 다음 구간부터 따라요` : '초점을 AI가 정하게 했어요');
+    toast(focus ? `초점을 '${focus}'${josa(focus, '으로', '로')} 바꿨어요. 다음 구간부터 따라요` : '초점을 AI가 정하게 했어요');
     playDraw();
   },
   async playEnd() {

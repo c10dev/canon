@@ -284,6 +284,7 @@ function autoHaltLinks(r) {
     case 'every': return go(`${base()}/write/${n}`, `${n}화 읽으러 가기`);
     case 'changed': return go(`${base()}/write/${n}`, `${n}화 집필 화면 보기`);
     case 'board': case 'board_stale': return go(`${base()}/write/${n}`, `${n}화 스토리보드 보기`);
+    case 'quota': return go(`${base()}/usage`, '사용량 · 비용 보기');
     default: return '';
   }
 }

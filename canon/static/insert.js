@@ -142,7 +142,7 @@ async function delLast(n, keepPlot) {
   }
   if (e.text) parts.push(`본문 ${e.text.length.toLocaleString()}자와 수정 기록 · 이전 판 · 삽화 프롬프트를 지워요.`);
   parts.push(keepPlot ? '플롯은 확정된 채로 남아 다시 쓸 수 있어요.' : `플롯도 빼고${ep(n + 1) ? ' 뒤 화를 한 칸씩 당기고' : ''} 총 화수가 1 줄어요.`);
-  if (!(await askConfirm(`${n}화 '${e.plot.title || '제목 없음'}'을(를) 지울까요?\n\n${parts.join('\n')}\n\n지우기 전 작품은 백업으로 남아요. 설정 › 백업에서 되돌릴 수 있어요.`, { ok: '지우기', danger: true }))) return;
+  if (!(await askConfirm(`${n}화 '${e.plot.title || '제목 없음'}'${josa(e.plot.title || '제목 없음', '을', '를')} 지울까요?\n\n${parts.join('\n')}\n\n지우기 전 작품은 백업으로 남아요. 설정 › 백업에서 되돌릴 수 있어요.`, { ok: '지우기', danger: true }))) return;
   await run('화를 지우는 중', async () => {
     await saveIfDirty();
     const r = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/delete`, { keep_plot: keepPlot });

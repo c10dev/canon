@@ -6,10 +6,11 @@ import logging
 
 import re
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
 
 from . import dynamics, elements, illust, metrics, naming, prompts, renumber, setupchat, storylines
 from .judge import Judge, Question
-from .llm import LLM, PREFIX_HINT, Interrupted, dump, family_text, out_cap
+from .llm import LLM, PREFIX_HINT, Interrupted, OutputCut, dump, family_text, out_cap, was_cut
 from . import anchor, board, cancel, charlog, context, features, findings, foreshadows, heatplan, knows, metatail, stage, statwin, usage
 from .schema import CueSheet, CueSheetDraft, Finding, MetaCut, FindingRecheck, FixBatch, FixOption, FixPatch, FixRecheckItem, FixRecheckReport, FixSet, RevArcSet, RevEpisodeDraft, RevLineSet
 from .schema import ParagraphAnatomy, ReaderCheck, SceneCard, SceneVariant, SceneVariants, StudioCandidate, StudioDraft
@@ -92,6 +93,7 @@ from .schema import (
     TextVersion,
     to_delta,
 )
+from .logline import josa
 
 
 # ---------- 1. 설정 도우미 ----------
@@ -1201,7 +1203,7 @@ def _recap_target(p: Project, kind: str, number: int):
         raise ValueError(f"모르는 요약 단위예요: {kind}")
     hit = next((x for x in items if x.number == number), None)
     if hit is None:
-        raise ValueError(f"{'아크' if kind == 'arc' else '부'} {number}이(가) 없어요")
+        raise ValueError(f"{'아크' if kind == 'arc' else '부'} {number}{josa(str(number), '이', '가')} 없어요")
     return hit
 
 
@@ -1399,7 +1401,7 @@ def chat_target(p: Project, target: str = "") -> tuple[str, StoryArc | None]:
             raise ValueError(f"모르는 대화 대상이에요: {target}") from None
         a = next((x for x in p.story_arcs if x.number == number), None)
         if a is None:
-            raise ValueError(f"아크 {number}이(가) 없어요. 아크를 다시 고르세요")
+            raise ValueError(f"아크 {number}{josa(str(number), '이', '가')} 없어요. 아크를 다시 고르세요")
         return f"arc:{a.number}", a
     if target not in ("", "next"):
         raise ValueError(f"모르는 대화 대상이에요: {target}")
@@ -1843,7 +1845,7 @@ def plot_undo(p: Project, applied: list[str], before: PlotUndo, after: PlotUndo)
         for group in [struct] if linked else [[x] for x in struct]:
             if a is None:
                 for x in group:
-                    keep(x, f"아크 {before.arc.number}이(가) 없어짐")
+                    keep(x, f"아크 {before.arc.number}{josa(str(before.arc.number), '이', '가')} 없어짐")
                 continue
             if not all(_arc_same(a, after.arc, x) for x in group):
                 for x in group:
@@ -2285,7 +2287,7 @@ def remove_episode(p: Project, n: int, move_text: bool = False) -> list[str]:
             empty += [f"{x.number}부" for x in renumber.shrink_ranges(q.parts, n)]
         empty += [f"{a.name} 구간" for a in renumber.shrink_ranges(q.beats(), n)]
         if empty:
-            raise ValueError(f"{n}화를 빼면 {', '.join(empty)}이(가) 비어요. 구간이나 아크 범위를 먼저 늘리세요")
+            raise ValueError(f"{n}화를 빼면 {', '.join(empty)}{josa(empty[-1], '이', '가')} 비어요. 구간이나 아크 범위를 먼저 늘리세요")
         if n <= q.meta.target_episodes:
             q.meta.target_episodes -= 1
         sync_candidates(q)
@@ -2293,7 +2295,8 @@ def remove_episode(p: Project, n: int, move_text: bool = False) -> list[str]:
 
     texts = _text_note(p, moved, lambda x: x - 1)
     notes = _renumbered(p, change)
-    head = f"{n}화 '{ep.plot.title or '제목 없음'}'을(를) 뺐어요."
+    title = ep.plot.title or '제목 없음'
+    head = f"{n}화 '{title}'{josa(title, '을', '를')} 뺐어요."
     if moved:
         head += f" 원래 {moved[0]}~{moved[-1]}화는 {moved[0] - 1}~{moved[-1] - 1}화가 됐어요."
     return [head, *texts, *notes]
@@ -2396,6 +2399,32 @@ def reopen_impact(p: Project, eid: str) -> None:
 # 연구에서 Gemini 4 Argon 이 92번 중 1번 영어 생각 과정을 본문으로 냈다.
 HANGUL_MIN = 0.8
 WRITE_TRIES = 3
+
+# 본문 쓰기 한 번의 출력 토큰 한도 (생각 토큰 포함) = 목표 글자 수 × WRITE_TOKENS_PER_CHAR + WRITE_THINK_TOKENS, WRITE_OUT_RANGE 안으로.
+# 서버 기록(2026-11-08, write 단계 본문 쓰기 271번, 목표 5,000 · 7,000자): 가장 많이 Gemini 17,089토큰(생각 13,185, 목표 글자당 2.44),
+# Claude 24,800토큰(목표 글자당 3.54). 목표 7,000자 한도는 44,384토큰이다. effort 가 꺼져도 Gemini 는 생각할 수 있어 생각 몫을 크게 둔다.
+# 한도는 끊긴 응답을 알아채는 백엔드(llm.knows_cut)에만 건다. 끊긴 본문은 저장하지 않는다 (_write, WriteCut).
+WRITE_TOKENS_PER_CHAR = 4
+WRITE_THINK_TOKENS = 16384
+WRITE_OUT_RANGE = (24576, 65536)
+
+
+class WriteCut(ValueError):
+    """본문이 WRITE_TRIES 번 모두 출력 길이 한도에 걸려 끊겼다 (가운데 다른 까닭으로 버린 응답도 있을 수 있다). 끊긴 본문은 돌려주지 않는다.
+    자동 집필은 이 오류에서 그 화를 반영하지 않고 멈춘다 (autorun kind cut)."""
+
+
+def write_out_tokens(p: Project, n: int | None = None) -> int:
+    """n화 본문 쓰기의 출력 토큰 한도. 글자 수는 목표 분량(Meta.words_per_episode)과 그 화 지금 본문 중 긴 쪽이다:
+    다시 생성 · 서술 다듬기는 지금 본문만큼 다시 내니, 작가가 목표보다 길게 쓴 화도 끊기지 않게 한다."""
+    chars = p.meta.words_per_episode
+    if n is not None:
+        try:
+            chars = max(chars, len(p.episode(n).text))
+        except KeyError:
+            pass
+    lo, hi = WRITE_OUT_RANGE
+    return max(lo, min(hi, chars * WRITE_TOKENS_PER_CHAR + WRITE_THINK_TOKENS))
 
 
 def write_episode(llm: LLM, p: Project, n: int, approach: str = "", use_board: bool = True, use_cues: bool = True,
@@ -2554,9 +2583,24 @@ def _write(llm: LLM, p: Project, n: int, prompt: str, cut: list[MetaCut] | None 
     cut 목록을 주면 뗀 문단을 앞 · 뒤 자리와 함께 채운다. 본문만 돌려주는 모양은 실험 · 비교 호출자가 그대로 쓰게 둔다."""
     system = prompts.writer_system(p)
     head = prompts.write_head(p, n)  # 장편 쓰기 가족: 스토리보드 · 큐 시트와 같은 앞부분이면 그 캐시를 읽는다
-    bad = {"thought": 0, "meta": 0}
+    cap = (write_out_tokens(p, n) if getattr(llm, "knows_cut", False) and getattr(llm, "caps_write", True)
+           else None)  # 로컬 모델은 끊김만 보고 한도는 걸지 않는다 (LocalLLM.caps_write)
+    bad = {"cut": 0, "thought": 0, "meta": 0}
     for _ in range(WRITE_TRIES):
-        text = family_text(llm, system, prompt, head)
+        try:
+            with out_cap(cap) if cap else nullcontext():
+                text = family_text(llm, system, prompt, head)
+        except OutputCut:
+            text = None
+        except RuntimeError:
+            # 생각만 하다 한도에 걸려 글 없이 끝난 응답은 백엔드가 '응답이 비었어요' 로 낸다. 끝난 이유가 끊김이면 끊김으로 센다
+            if not was_cut(llm):
+                raise
+            text = None
+        if text is None or was_cut(llm):  # 출력 길이 한도에 걸려 끊긴 본문은 받지 않는다
+            bad["cut"] += 1
+            logging.getLogger("canon").warning("%s화 본문이 출력 길이 한도(%s토큰)에 걸려 끊겨 다시 써요", n, cap or "기본")
+            continue
         if metrics.hangul_ratio(text) < HANGUL_MIN:
             bad["thought"] += 1
             continue
@@ -2570,7 +2614,13 @@ def _write(llm: LLM, p: Project, n: int, prompt: str, cut: list[MetaCut] | None 
         if cut is not None:
             cut[:] = [MetaCut(text=x, at="head") for x in head] + [MetaCut(text=x, at="tail") for x in tail]
         return body
-    what = " · ".join(f"{label} {k}번" for key, label in (("thought", "다른 글(영어로 된 생각 과정 등)"), ("meta", "작업 설명이나 거절 문구"))
+    limit = f"({cap:,}토큰)" if cap else ""
+    if bad["cut"] == WRITE_TRIES:  # 세 번 모두 끊겼을 때만 끊김으로 멈춘다 (자동 집필 kind cut)
+        raise WriteCut(f"{n}화 본문이 출력 길이 한도{limit}에 걸려 끊겼어요 ({WRITE_TRIES}번 중 {bad['cut']}번). "
+                       "끊긴 본문은 저장하지 않았어요. "
+                       "모델이 같은 글을 되풀이했을 수 있어요. 다시 시도하거나 설정에서 쓰기 모델을 바꿔 주세요")
+    what = " · ".join(f"{label} {k}번" for key, label in (("thought", "다른 글(영어로 된 생각 과정 등)"), ("meta", "작업 설명이나 거절 문구"),
+                                                         ("cut", f"출력 길이 한도{limit}에 걸려 끊긴 응답"))
                       if (k := bad[key]))
     raise ValueError(f"{n}화 본문 대신 {what}이 나왔어요. 다시 시도해 주세요")
 
@@ -3138,7 +3188,10 @@ def illustrate(llm: LLM, p: Project, n: int, sel: Selection | None = None, reque
         if c.id and c.id not in ids:  # 이름으로 적었거나 없는 id 면 설정에 없는 인물로 본다
             hit = next((x.id for x in p.characters if x.name and x.name == c.id), "")
             c.id = hit
-    return illust.assemble(p, Illustration(id="", model=model or p.illust.model, selection=sel, request=request.strip(), draft=draft))
+    draft.quote, quote_note = illust.match_quote(prompts.illust_scope(ep.text, sel), draft.quote)
+    late = illust.states_at(p, n)[1]
+    return illust.assemble(p, Illustration(id="", model=model or p.illust.model, selection=sel, request=request.strip(), draft=draft,
+                                           draft_notes=[x for x in (quote_note, late) if x]))
 
 
 def add_illustration(p: Project, n: int, ill: Illustration) -> Illustration:
@@ -4040,6 +4093,10 @@ def style_drift(p: Project, n: int) -> tuple[metrics.StyleMetrics, list[str]]:
     if tails:
         quotes = ", ".join(f"'{s[:40]}{'…' if len(s) > 40 else ''}'" for s in tails[:2])
         warns.append(f"본문이 아닌 작업 설명처럼 보이는 앞뒤 문단 {len(tails)}개: {quotes}")
+    said = speech_copied(p, text)
+    if said:
+        quotes = ", ".join(f"'{s[:30]}{'…' if len(s) > 30 else ''}'" for s in said[:3])
+        warns.append(f"말투 예시 대사를 그대로 쓴 문장 {len(said)}개: {quotes}")
     moved = memo_copied(p, n, text)
     if moved:
         quotes = ", ".join(f"'{s[:30]}{'…' if len(s) > 30 else ''}'" for s in moved[:3])
@@ -4058,6 +4115,11 @@ def memo_texts(p: Project, n: int) -> list[str]:
     if ep.cue_sheet and not ep.cue_sheet.skipped:  # 큐 시트 없이 쓴 본문에는 큐 메모가 들어가지 않았다
         out += [x for c in ep.cue_sheet.cues for x in (c.beat, c.exit)]
     return [x for x in out if x and x.strip()]
+
+
+def speech_copied(p: Project, text: str) -> list[str]:
+    """인물 말투(speech_style)의 따옴표 대사 예시를 본문에 그대로 쓴 문장 (metrics.speech_copied). 예시는 어미 · 호칭 · 길이를 보여 줄 뿐이다."""
+    return metrics.speech_copied(text, [c.speech_style for c in p.characters if c.speech_style])
 
 
 def memo_copied(p: Project, n: int, text: str) -> list[str]:

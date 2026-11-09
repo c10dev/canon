@@ -66,6 +66,9 @@ def _fresh_caches(monkeypatch):
 
     for cache in (store._views, store._snap_written, store._md_written, store._preset_seen, store._brief_seen):
         cache.clear()
+    from canon import settings
+
+    settings._backups.clear()  # 깨진 설정 파일 보관본 경로
     web = sys.modules.get("canon.web")
     if web is not None:
         for cache in (web._cards, web._rests, web._json_views):

@@ -54,6 +54,7 @@
 - 두 백엔드도 `llm.wait_cap` · `llm.out_cap` 을 따른다(`llm.caps` 로 읽음)
 - 구독은 제한 시간을 `min(CANON_CLAUDE_TIMEOUT, wait_cap)` 으로 둔다. 넘기면 다시 부르지 않고 `ClaudeCodeError`
 - API 는 `max_tokens` 를 `min(MAX_TOKENS, out_cap)` 으로, SDK 요청 옵션 `timeout` 을 `wait_cap` 으로 보낸다
+- API 응답이 `max_tokens` 로 끝나면 `llm.OutputCut` 을 낸다. 본문 쓰기(`pipeline._write`)는 끊긴 본문으로 세어 다시 부른다
 - 구독은 `out_cap` 이 있을 때만 그 호출의 하위 환경에 `CLAUDE_CODE_MAX_OUTPUT_TOKENS` 를 넣는다(`child_env(extra)`). 없으면 넣지 않는다
 - 두 백엔드는 호출마다(형식 고치기 재시도도) 보내기 전에 `cancel.check()` 를 부른다
 - 구독은 `_run` 이 `Popen` 으로 띄우고 `STOP_POLL`(0.25초)마다 멈추기 신호를 보다가 서면 하위 프로세스를 끝내고 `cancel.Cancelled`
@@ -89,6 +90,11 @@
 - Gemini 429 요청 한도는 `GeminiLLM._call` 이 `RATE_WAITS`(30 · 60 · 120초)만큼 기다려 다시 부른다(기다리기 전 `cancel.check`, 실패한 시도는 하나씩 사용량에 실패로)
 - 429 오류에 서버가 `RetryInfo.retryDelay` 를 주면 `rate_pause` 가 그 값(올림, `RATE_WAITS` 의 가장 긴 값까지)을 기다린다(`retry_delay`)
 - 끝내 막히면 해요체 안내 `RateLimited`(`RATE_HINT`)
+- 하루 한도 · 선불 크레딧 소진 429(`is_hard_quota`)는 기다리지 않고 `QuotaSpent`(`QUOTA_HINT` 와 `usage.BILLING_URL`)를 낸다
+- `is_hard_quota` 는 `QuotaFailure` 위반의 `quotaId` 에 `PerDay` 가 있거나 메시지에 `CREDIT_SPENT` 문구가 있으면 참이다
+- `_call` 은 `is_hard_quota` 를 `is_rate_limit` 보다 먼저 본다. 분당 한도와 Vertex 'Resource exhausted' 는 들지 않아 `RATE_WAITS` 만큼 기다린다
+- 'exceeded your current quota' 는 분당 한도 429 에도 오는 문구라 `is_hard_quota` 가 보지 않는다
+- `retry_delay` 와 `is_hard_quota` 는 같은 details 읽기(`_details`)를 쓴다
 - 500 · 502 · 503(`is_transient`: 과부하 UNAVAILABLE · INTERNAL)은 `SERVER_WAITS`(5 · 15 · 45초)만큼 기다려 다시 부른다
 - 끝내 풀리지 않으면 해요체 안내 `ServerBusy`(`SERVER_HINT`)
 - 429 · 서버 오류 · 시간 초과는 따로 센다
@@ -96,14 +102,27 @@
 - 시간 한도를 넘기면(`is_timeout`) `cancel.check` 뒤 한 번 더 부른다
 - 또 넘기면 해요체 안내 `TimedOut`(`TIMEOUT_HINT`)
 - 넘긴 시도도 사용량에 실패로
+- Gemini 가 글 없이 끝나면 `EmptyResponse`(RuntimeError)를 낸다: '끝난 이유'(`finish`) · '막은 이유'(`prompt_feedback.block_reason`, `block`) · 생각 토큰 수(`thought`)를 싣는다
+- `EmptyResponse` 문구는 'Gemini 응답이 비었어요' 로 시작한다. code · status 칸이 없어 `is_transient` 가 다시 부르지 않는다
+- 화면 오류 문구는 `explain_error(e)` 가 고른다. `ERROR_TABLE` 의 줄을 위에서부터 보고 처음 맞는 줄의 원인과 할 일을 쓴다
+- `ERROR_TABLE` 줄 차례: 하루 한도 · 안전 필터(`SAFETY_STOPS`) · RECITATION · 생각만 쓰고 끊김(MAX_TOKENS 와 생각 토큰) · 입력 길이 초과 · 지역 제한
+- `ERROR_TABLE` 에는 'blocked' · '400' 같은 넓은 패턴을 두지 않는다. API 키 제한 403 도 'are blocked.' 로 온다(`tests/test_explain_error.py`)
+- 맞는 줄이 없으면 한국어 오류는 그대로 둔다. 한글이 없는 오류는 앞 `FOREIGN_CUT`(140)자만 싣고, `PROVIDER_MODULES` 의 오류면 'AI 서비스가 오류를 돌려줬어요' 를 앞에 붙인다
+- `explain_error` 를 쓰는 곳: `jobs` 작업 오류 · `autorun` 오류 멈춤 · `web` 의 서버 오류 응답 · 고침안 실패 · 쓴 뒤 검수 실패 · `pending.json` 실패 기록. 전체 예외는 각 곳이 서버 로그에 남긴다
 - 배치는 429 · 서버 오류 · 시간 한도 경로 밖
 - `BatchLLM` 은 slot 마다 보낸 프롬프트 지문(`keys`, `BatchLLM.key`)을 남긴다. 다시 붙을 때 지문이 다르면 기다리던 작업을 취소하고 새로 보낸다
+- `GeminiLLM.batch_poll` 은 배치 응답의 `finish_reason` 을 `last_finish` 에 남기고, `BatchLLM` 이 그것을 자기 `last_finish` 로 옮긴다(끊긴 배치 본문 거부)
 - 형식 고치기 slot(`<slot>:fix`)도 처음 프롬프트의 지문으로 맞춰 본다. 지문이 없는 예전 기록은 그대로 다시 붙는다
 - 모든 요청 맨 끝(사용자 메시지)에 `POLICY_NOTE` 한 줄(`with_note`, Gemini · 배치 · 로컬 · `claude.py` 두 백엔드가 보내기 직전에). 수위 지시는 프롬프트에 두지 않는다
 - 성인 독자 대상 작품의 요청이면 `with_note` 가 `POLICY_NOTE` 앞에 `ADULT_NOTE`(작가가 정한 RP/ERP 줄)를 둔다. 작품은 `usage.adult()` 로 안다. 프롬프트 글은 성인 · 전연령 작품이 같다
 - 응답 읽기 `_validate`: 통째로 읽히지 않으면 글 속 최상위 JSON 객체(`_json_objects`)를 뒤에서부터 읽는다(생각 글이 앞에 새는 응답, Gemini · 배치 · Claude 공통)
 - 형식 고치기 `repair_prompt`: 응답에 JSON 객체가 없으면 처음 요청을 그대로 다시 보낸다
 - Gemini 응답이 끝난 이유는 `last_finish`(두 번째도 실패하고 `MAX_TOKENS` 면 `SchemaMismatch` 글에 길이 한도를 적는다)
+- 로컬도 응답의 `finish_reason` 을 `last_finish` 에 남긴다(`length` 는 출력 한도에 걸려 끊김)
+- `was_cut(llm)` 은 `last_finish` 가 `CUT_FINISH`(`MAX_TOKENS` · `length`)면 참이다
+- `knows_cut` 이 참인 백엔드(Gemini · 로컬 · Claude API · mock)만 끊김을 알린다. `pipeline._write` 가 이 백엔드에만 출력 한도를 건다
+- 로컬은 `caps_write = False` 라 본문 쓰기 출력 한도를 받지 않는다. vLLM 은 프롬프트 + `max_tokens` 가 컨텍스트를 넘으면 요청을 400 으로 거절한다
+- `OutputCut`(RuntimeError): 끝난 이유 대신 오류로 끊김을 알리는 백엔드가 낸다(Claude API `max_tokens`)
 - Gemini 추론 강도(`GeminiLLM.effort`, `settings.GEMINI_EFFORTS`)는 `thinking_config.thinking_level` 로 넘긴다(일반 호출과 배치)
 - Gemini 온도(`GeminiLLM.temperature`)는 정했을 때만 `temperature` 로 넘긴다. 연구 화면 샘플 생성과 프롬프트 놀이터가 쓴다(`research.make_backend`)
 - 프롬프트 놀이터는 `research.make_backend` 에 단계를 넘겨 그 단계의 모델 · 추론 강도로 Gemini · 로컬을 만든다
@@ -174,6 +193,7 @@
 - 테스트용 가짜 LLM
 - `MockLLM.json` 은 스키마로 `RESPONDERS` 만 찾는다. `mock.py` 의 응답도 `@responds` 함수(`_r_<스키마>`)이고 `json` 안에 스키마 분기를 두지 않는다(`tests/test_mock_registry.py`)
 - 가짜 문체 프로필은 시험 원문에 있는 표지 · 장치와 걸러져야 할 표지 · 장치를 함께 낸다 (`count_markers` 와 문체 넣은 쓰기 경로 시험)
+- `CUT_TEXT` 에 넣은 만큼 다음 글 응답을 앞 절반만 내고 `last_finish` 를 `MAX_TOKENS` 로 둔다(끊긴 본문 시험)
 - 새 기능의 가짜 응답은 `mock_<기능>.py` 에 `@responds(스키마)` 로 두고(`RESPONDERS`) `mock.py` 맨 끝에서 불러온다
   - `mock_audit.py` 상태 변경안 누락 검사 (본문 앞 두 문장과 본문에 없는 인용 하나)
   - `mock_birth.py` 출생 배경

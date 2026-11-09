@@ -104,7 +104,7 @@ function atlasGenForm(st) {
   const why = st.ai && st.ai.reason
     ? `<div class="note" role="status">AI 제안: ${esc(st.ai.reason)}</div>`
     : !S.atlas.gen.made && S.atlas.gen.spec.water !== 'none' && !st.touched.water
-      ? `<p class="small">물가가 필요한 장소가 있어 물을 '${esc(atlasGenLabel('water', st.spec.water))}'(으)로 골라 뒀어요.</p>` : '';
+      ? `<p class="small">물가가 필요한 장소가 있어 물을 '${esc(atlasGenLabel('water', st.spec.water))}'${josa(atlasGenLabel('water', st.spec.water), '으로', '로')} 골라 뒀어요.</p>` : '';
   const kindNote = st.spec.kind === 'city' ? '<p class="small">도시는 성벽 · 성문 · 구역(시장, 신전, 귀족, 장인, 빈민 등)이 있는 큰 지도예요. 이야기 장소는 종류에 맞는 구역에 놓아요.</p>'
     : st.spec.kind === 'modern' ? '<p class="small">현대 동네는 대로 격자 안에 아파트 단지 · 빌라촌 · 대로변 상가 · 역 앞 · 학교 · 공원이 있는 가상의 동네예요. 숲 칸은 공원 수를 정해요. 마을에서 고른 장소 종류는 현대 이름으로 옮겨 둬요(주막은 호텔, 신전은 교회, 장터는 마트).</p>' : '';
   const places = atlasGenPlaces(st);
