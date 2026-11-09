@@ -353,7 +353,7 @@
 - `Job.set_partial(text)` 는 잠금(`_lock`) 아래에서 고친다. 끝나거나 멈춘 작업은 받지 않아 늦게 온 조각이 부분 글을 되살리지 않는다
 - 작업이 끝나거나 멈추거나 실패하면(`run` 의 finally, `stop`) 부분 글을 비운다
 - 중복 실행 막기
-- `Job.target`: 같은 종류를 대상(인물 id)마다 따로 돌린다. 중복 막기는 (작품, 종류, 화, 대상)으로 본다. `public()` 에 싣는다
+- `Job.target`: 같은 종류를 대상(인물 id, 지적 id)마다 따로 돌린다. 중복 막기는 (작품, 종류, 화, 대상)으로 본다. `public()` 에 싣는다
 - 자동 업데이트가 다시 시작하려고 기다리는 동안(`draining`) 새 작업은 `Draining`(400, '서버를 곧 다시 시작해요')으로 거절한다. 자동 집필(`auto`)은 받아서 첫 단계 전에 멈춘다
 - `running()` 은 다른 스레드가 작업을 더해도 깨지지 않게 잠금 안에서 센다
 - `project_lock(name)` 은 프로세스 안 잠금(재진입하지 않음)을 잡은 뒤 작품 폴더의 `.edit.lock` 에 `fcntl.flock` 을 건다
@@ -375,6 +375,7 @@
 - 멈췄지만 아직 응답을 기다리는 작업은 응답이 끝날 때까지 빼지 않는다. 빼면 `lingering` · `waiting_on` 이 못 찾아 호출이 겹친다
 - 같은 화의 AI 작업(`EP_AI_KINDS`) 가운데 응답을 기다리는 것 찾기(`waiting_on`). 종류가 달라도 같은 화면 호출이 겹친다
 - `EP_AI_KINDS` 에는 고친 곳만 다시 보기 작업 `recheck` 도 든다
+- `EP_AI_KINDS` 에는 지적 하나의 고침안 `fix_one` 과 이 지적만 다시 검수 `recheck_one` 도 든다
 - 단계 하나가 마지막으로 끝낸 화(`Job.step_ep`). 화면 `notify.js` 가 바뀔 때마다 알린다
 
 ### `canon/metatail.py`
@@ -1083,6 +1084,15 @@
 - 그 가운데 여섯은 제안만 돌려주고 작품을 바꾸지 않는다. `style_learn` · `style_example` 은 옛 동기 경로처럼 제안 칸(`style_learning` · `style_example`)에만 `_edit` 로 쓴다
 - 인물 작업과 `names_ai` 는 `JobIn.target`(인물 id)을 `Job.target` 으로 넘긴다(`_job_target`). 지명은 `JobIn.place_kind` 를 쓰고 대상이 빈 글이다
 - 옛 동기 경로(`…/characters/{cid}/body` · `voice` · `look`, `statwin-suggest` · `statwin-init`, `names`, `style/learn` · `style/example`)는 시험이 쓰는 동안 남긴다
+- 남은 AI 호출도 작업이다(UX 02c): `fix_one` · `recheck_one`(`_job_finding_ai`), `illust`(`_job_illust`), `atlas_suggest` · `atlas_sort`(`_job_atlas_ai`)
+- `fix_one` · `recheck_one` 은 지적 하나(`JobIn.target`, 화는 `ep`)를 다룬다. 결과는 옛 동기 경로처럼 그 지적에 `_edit` 로 넣는다. 본문은 바꾸지 않는다
+- `recheck_one` 은 결과에 풀렸는지(`resolved`)와 새로 생긴 딸린 지적 id(`kids`)를 싣는다
+- 지적 작업끼리 부딪히면 시작 전에 400 이다(`_finding_clash`). 지적 하나 작업은 그 화의 `check` · `fixes` · `recheck` · 같은 지적의 다른 작업이 도는 동안 시작하지 않는다
+- 거꾸로 `check` · `fixes` · `recheck` 는 그 화의 지적 하나 작업이 도는 동안 시작하지 않는다. 다른 지적끼리는 함께 돈다
+- `illust` 는 `JobIn.selection` · `note`(바라는 것) · `model` 을 받아 삽화를 그 화에 더한다(옛 경로 `…/episodes/{n}/illust` 와 같다)
+- `atlas_suggest`(`JobIn.spec`) · `atlas_sort`(`JobIn.texts`)는 제안만 돌려주고 작품을 바꾸지 않는다. `atlas_sort` 는 정리할 위치 글이 없으면 시작 전에 400 이다
+- 옛 동기 경로(`…/findings/{fid}/fixes` · `recheck`, `…/episodes/{n}/illust`, `atlas/generate/suggest` · `atlas/sort`)는 명령줄 · 시험이 쓰는 동안 남긴다
+- 플레이 시작(`POST …/play/start`)은 작업으로 옮기지 않았다. 폴더 복사만 동기이고 AI 호출은 이미 작업 `play_turn` 이다
 - 쓴 뒤 바로 검수(`Settings.check_after_write`, 기본 끔, `PUT …/check-after-write`): 처음 쓰는 본문이면 작업 `write` 가 저장 뒤 검수 걸음(`_run_check`, 작업 `check` 와 같은 함수)을 잇는다
 - 쓴 뒤 검수 걸음 전에 그 화를 내려놓고(`Job.release`) `Job.step_ep` 를 그 화로 둔다. 화면은 본문을 먼저 받고 작가는 검수하는 동안 고칠 수 있다
 - 쓴 뒤 검수가 실패해도 작업은 끝남이고 결과에 `check_error` 를 싣는다. 성공하면 결과 `check` 는 작업 `check` 의 결과와 같다

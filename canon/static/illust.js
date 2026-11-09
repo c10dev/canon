@@ -52,6 +52,19 @@ JOB_RESULT.char_look = (j) => {
   return { msg: `${j.label} 제안을 칸에 넣었어요. 고친 뒤 저장하세요.` };
 };
 
+// 삽화 프롬프트 만들기(고른 부분 · AI가 장면 고르기)도 백그라운드 작업으로 돈다 (web._job_illust). 기다리는 동안 본문을 읽고 고칠 수 있다.
+// 서버가 만든 삽화를 그 화에 더하면 app.js pollJobs 가 그 화만 받아 온다. 작업은 저장된 본문을 읽으므로 묻지 않고 먼저 저장한다 (옛 동작과 같다)
+JOB_PAGES.illust = ['write', 'check', 'review'];
+JOB_LINK.illust = (j) => `#/p/${enc(j.project)}/write/${j.ep}`;
+JOB_DONE_MSG.illust = (j) => `${j.ep}화 삽화 프롬프트를 만들었어요.`;
+JOB_BTNS.illMake = () => ['illust', undefined, ilEpNum()];
+/** 삽화가 왔다: 그 화를 보고 있고 칸을 고치는 중이 아니면 옛 동작처럼 새 삽화로 내려간다 (syncIllust) */
+JOB_RESULT.illust = (j) => {
+  if (Number(S.route[3]) === j.ep && JOB_PAGES.illust.includes(S.route[2]) && !isTyping()) S.illScroll = true;
+  const miss = ((j.result || {}).missing_look || []).length;
+  return { msg: miss ? `${j.ep}화 삽화 프롬프트를 만들었어요. 외형 태그가 없는 인물은 고정해 두세요` : `${j.ep}화 삽화 프롬프트를 만들었어요.` };
+};
+
 const IL_SUBJECT = { girl: '여성 (girl)', boy: '남성 (boy)', other: '그 밖 (other)' };
 const IL_RATING = { general: '전연령', sensitive: '약한 노출', questionable: '노출', explicit: '성인' };
 
@@ -336,17 +349,18 @@ function ilEpNum() {
   return Number(S.route[3]) || currentEp();
 }
 
+/** 삽화 프롬프트 만들기 (작업 'illust'). AI는 저장된 본문과 설정을 읽으므로 먼저 저장한다. 결과는 JOB_RESULT.illust */
 async function ilMake(n, sel) {
-  await run(sel ? '장면을 태그로 옮기는 중' : '그릴 장면을 고르는 중', async () => {
+  try {
     await saveIfDirty();
     if (typeof flushText === 'function') await flushText(n);
-    const body = { request: S.illAsk, model: (P().illust || {}).model || '' };
-    if (sel) body.selection = { start: sel.start, text: sel.text };
-    S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/illust`, body);
-    S.illScroll = true;
-    const last = ep(n).illustrations[ep(n).illustrations.length - 1];
-    toast(last && last.missing_look.length ? '만들었어요. 외형 태그가 없는 인물은 고정해 두세요' : '삽화 프롬프트를 만들었어요');
-  });
+  } catch (err) {
+    showError(err);
+    return;
+  }
+  const extra = { note: S.illAsk, model: (P().illust || {}).model || '' };
+  if (sel) extra.selection = { start: sel.start, text: sel.text };
+  await startJob('illust', n, extra, { quiet: true });
 }
 
 Object.assign(actions, {

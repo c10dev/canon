@@ -324,7 +324,8 @@ const JOB_LATE = {};
 const JOB_RESULT = {};
 // 결과를 화면 제안 칸에만 놓는 작업 (pending.json 에 남기지 않는다). 다른 작품을 보는 동안 끝나면 결과가 남지 않는다
 const SCREEN_ONLY_JOBS = new Set();
-// 화면을 막지 않는 AI 제안 버튼: data-action → (data-arg) => [작업 종류, 대상]. 그린 뒤 lockJobBtns 가 도는 작업의 버튼을 잠근다
+// 화면을 막지 않는 AI 제안 버튼: data-action → (data-arg) => [작업 종류, 대상, 화]. 그린 뒤 lockJobBtns 가 도는 작업의 버튼을 잠근다.
+// 화는 대상 id 가 화마다 새로 매겨지는 작업(지적 id f1 · f2)만 준다
 const JOB_BTNS = {};
 const JOB_STOP_NOTE = {};  // 작업 종류별 멈추기 확인 문구. 없으면 응답을 버린다는 기본 문구
 const JOB_DONE_MSG = {
@@ -376,7 +377,7 @@ function jobFor(kind, ep = null, name = S.name, target = null) {
 const jobKey = (kind, ep, target) => `${kind}:${ep ?? ''}${target ? `:${target}` : ''}`;
 
 // 한 화를 두고 AI 를 부르는 작업. 같은 화에서 멈춘 작업이 아직 응답을 기다리면 새로 시작하지 않는다 (서버 jobs.EP_AI_KINDS, 409)
-const EP_AI_KINDS = new Set(['board', 'check', 'cues', 'fixes', 'plot_one', 'recheck', 'state', 'write']);
+const EP_AI_KINDS = new Set(['board', 'check', 'cues', 'fix_one', 'fixes', 'plot_one', 'recheck', 'recheck_one', 'state', 'write']);
 const EP_WAIT_TIP = '앞에서 멈춘 작업이 아직 AI 응답을 기다려요. 이미 보낸 호출은 끊을 수 없어요. 응답이 오면 다시 시작할 수 있어요';
 
 /** n 화의 EP_AI_KINDS 작업 가운데 멈췄지만 아직 AI 응답을 기다리는 것. 서버 jobs.waiting_on 과 같은 셈 */
@@ -574,6 +575,7 @@ async function pollJobs(soon = false) {
     if (j.kind === 'check' && j.status === 'done') await mergeEpisodes((e) => e.plot.number === j.ep, [j.ep]);  // 검수 결과는 그 화에 붙었다
     if (j.kind === 'recheck' && j.status === 'done') await mergeEpisodes((e) => e.plot.number === j.ep, [j.ep]);  // 고친 곳만 다시 보기 결과는 그 화 지적에 붙었다
     if (j.kind === 'fixes' && j.status !== 'running') await mergeEpisodes((e) => e.plot.number === j.ep, [j.ep]);  // 받은 고침안은 그 화 지적에 붙었다 (실패해도 앞서 받은 것은 남았다)
+    if (['fix_one', 'recheck_one', 'illust'].includes(j.kind) && j.status === 'done') await mergeEpisodes((e) => e.plot.number === j.ep, [j.ep]);  // 지적 하나의 고침안 · 다시 검수, 삽화는 그 화에 붙었다 (check.js, illust.js)
     if (j.kind === 'auto') {
       // 다른 탭이나 명령줄에서 시작했어도 잠금(autoOn)이 걸리고, 끝나면 풀리게 실행 상태를 받아 온다. autoPoll 이 이어서 지켜본다
       if ((j.status === 'running') !== autoOn() && typeof autoLoad === 'function') await autoLoad(false);
@@ -917,9 +919,9 @@ function lockJobBtns(root = document) {
   for (const b of root.querySelectorAll('#app [data-action]')) {
     const f = JOB_BTNS[b.dataset.action];
     if (!f) continue;
-    const [kind, target] = f(b.dataset.arg);
-    const j = jobFor(kind, null, S.name, target ?? null);
-    const starting = !j && S.starting.has(jobKey(kind, null, target));
+    const [kind, target, n] = f(b.dataset.arg);
+    const j = jobFor(kind, n ?? null, S.name, target ?? null);
+    const starting = !j && S.starting.has(jobKey(kind, n ?? null, target));
     if (!j && !starting) continue;
     const text = j ? `${j.label} 만드는 중…` : `${b.textContent.trim()} · 시작하는 중…`;
     b.setAttribute('aria-disabled', 'true');

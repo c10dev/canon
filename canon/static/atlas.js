@@ -1737,6 +1737,7 @@ function atlasRefresh() {
   atlasPaint('atlas-side', atlasSide());
   if (!(S.popMenu && String(S.popMenu).startsWith('at-'))) atlasPaint('atlas-bar', atlasBar());
   atlasFootPaint();
+  lockJobBtns();  // 다시 그린 칸에서도 도는 AI 작업(지도 설정 제안 · 위치 글 정리)의 버튼을 잠근다
 }
 
 function viewAtlas() {

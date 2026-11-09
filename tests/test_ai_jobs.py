@@ -196,8 +196,9 @@ def test_js_registers_pages_messages_links_and_buttons():
     })()""" % json.dumps(list(KINDS)), {})
     assert got["pages"] == KINDS
     assert got["msg"] == [] and got["link"] == [] and got["result"] == []
-    assert got["btns"] == sorted(["bodyAI", "voiceAI", "lookAI", "swSuggest", "swInitAI", "nameAI", "placeAI", "learnRun", "styleExampleWrite"])
-    assert got["screen"] == sorted(["char_body", "char_voice", "char_look", "statwin_suggest", "statwin_init", "names_ai"])
+    assert got["btns"] == sorted(["bodyAI", "voiceAI", "lookAI", "swSuggest", "swInitAI", "nameAI", "placeAI", "learnRun", "styleExampleWrite",
+                                  "illMake", "atlasGenSuggest", "atlasSort"])  # 뒤 셋은 02c (test_ai_jobs_more.py)
+    assert got["screen"] == sorted(["char_body", "char_voice", "char_look", "statwin_suggest", "statwin_init", "names_ai", "atlas_suggest", "atlas_sort"])
     assert got["body"] == "#/p/%EB%93%B1%EB%8C%80/cast/ally"
 
 

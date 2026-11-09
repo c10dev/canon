@@ -21,6 +21,38 @@ function atlasGenState() {
   return S.atlasGen;
 }
 
+// AI 설정 제안은 백그라운드 작업으로 돈다 (web._job_atlas_ai). 기다리는 동안 설정 칸을 고르고 미리보기를 볼 수 있다.
+// 결과는 설정 칸에만 놓는다. 작가가 고른 칸(touched)은 덮지 않고, 미리보기 · 적용을 눌러야 지도에 들어간다
+JOB_PAGES.atlas_suggest = ['atlas'];
+JOB_LINK.atlas_suggest = (j) => `#/p/${enc(j.project)}/atlas`;
+JOB_DONE_MSG.atlas_suggest = '지도 설정 제안이 도착했어요.';
+SCREEN_ONLY_JOBS.add('atlas_suggest');
+JOB_BTNS.atlasGenSuggest = () => ['atlas_suggest'];
+JOB_RESULT.atlas_suggest = (j) => {
+  const st = S.atlasGen;
+  const r = j.result;
+  if (!r || !S.atlas || !st || st.name !== j.project) return { msg: '지도 설정 제안이 왔지만 지도 화면을 다시 불러와서 넣지 않았어요. 지도 화면에서 다시 받으세요' };
+  let changed = 0;
+  const from = st.spec.kind;
+  // 작가가 고른 칸은 덮지 않는다 (기다리는 동안 고른 칸도). 지도 종류를 먼저 정하고 그 종류의 칸만 채운다
+  ['kind', ...Object.keys(atlasGenOpts(st.touched.kind ? st.spec.kind : r.kind))].forEach((k) => {
+    if (!st.touched[k] && r[k] && st.spec[k] !== r[k]) { st.spec[k] = r[k]; changed++; }
+  });
+  atlasGenFit(st.spec);
+  atlasGenShiftKinds(st.spec, from);
+  const notes = {};
+  r.places.forEach((g) => {
+    const row = st.spec.places.find((x) => x.key === g.key);
+    if (g.note) notes[g.key] = g.note;
+    if (!row || st.touched['p:' + g.key] || (row.kind === g.kind && row.put === g.put)) return;
+    row.kind = atlasGenToEra(g.key, g.kind, st.spec.kind);  // 작가가 고른 지도 종류와 AI 가 고른 종류의 시대가 다를 수 있다
+    row.put = g.put;
+    changed++;
+  });
+  st.ai = { reason: r.reason, notes };
+  return { msg: changed ? `AI 제안으로 ${changed}칸을 바꿨어요. 확인하고 미리보기를 누르세요` : 'AI 제안이 지금 설정과 같아요' };
+};
+
 const atlasNewSeed = () => 1 + Math.floor(Math.random() * 2147483646);
 /** 고른 지도 종류(spec.kind)의 설정 칸 { size: {id: 이름}, ... }. 도시는 길 모양 칸이 없다 */
 const atlasGenOpts = (kind) => S.atlas.gen.options[kind || (S.atlasGen && S.atlasGen.spec.kind) || 'village'] || {};
@@ -210,31 +242,10 @@ Object.assign(actions, {
   async atlasGenPreview() {
     await atlasGenRun();
   },
+  /** AI 설정 제안 (작업 'atlas_suggest'). 지금 고른 설정을 함께 보낸다. 결과는 JOB_RESULT.atlas_suggest */
   async atlasGenSuggest() {
     const st = atlasGenState();
-    await run('AI가 지도 설정을 고르는 중', async () => {
-      const r = await api('POST', `/projects/${enc(S.name)}/atlas/generate/suggest`, st.spec);
-      let changed = 0;
-      const from = st.spec.kind;
-      // 작가가 고른 칸은 덮지 않는다. 지도 종류를 먼저 정하고 그 종류의 칸만 채운다
-      ['kind', ...Object.keys(atlasGenOpts(st.touched.kind ? st.spec.kind : r.kind))].forEach((k) => {
-        if (!st.touched[k] && r[k] && st.spec[k] !== r[k]) { st.spec[k] = r[k]; changed++; }
-      });
-      atlasGenFit(st.spec);
-      atlasGenShiftKinds(st.spec, from);
-      const notes = {};
-      r.places.forEach((g) => {
-        const row = st.spec.places.find((x) => x.key === g.key);
-        if (g.note) notes[g.key] = g.note;
-        if (!row || st.touched['p:' + g.key] || (row.kind === g.kind && row.put === g.put)) return;
-        row.kind = atlasGenToEra(g.key, g.kind, st.spec.kind);  // 작가가 고른 지도 종류와 AI 가 고른 종류의 시대가 다를 수 있다
-        row.put = g.put;
-        changed++;
-      });
-      st.ai = { reason: r.reason, notes };
-      atlasRefresh();
-      toast(changed ? `AI 제안으로 ${changed}칸을 바꿨어요. 확인하고 미리보기를 누르세요` : 'AI 제안이 지금 설정과 같아요');
-    });
+    await startJob('atlas_suggest', null, { spec: st.spec }, { quiet: true });
   },
   /** 설정 나눔 버튼 'key:id'. 미리보기 중이면 바로 다시 만든다 */
   async atlasGenSet(arg) {

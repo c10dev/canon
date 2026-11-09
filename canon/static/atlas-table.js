@@ -108,28 +108,38 @@ function atlasRerenderUnmatched() {
   el.outerHTML = atlasUnmatched();
   const again = document.querySelector('#at-unmatched .at-um-list');
   if (again) again.scrollTop = top;
+  lockJobBtns($('#at-unmatched') || document);  // 도는 정리 작업의 버튼을 다시 잠근다
 }
 
+// 'AI로 한 번에 정리'는 백그라운드 작업으로 돈다 (web._job_atlas_ai). 기다리는 동안 위치 글을 직접 골라도 된다.
+// 결과는 고르기 칸에만 놓는다. 작가가 이미 고른 글은 덮지 않고, '적용'을 눌러야 잇는다
+JOB_PAGES.atlas_sort = ['atlas'];
+JOB_LINK.atlas_sort = (j) => `#/p/${enc(j.project)}/atlas`;
+JOB_DONE_MSG.atlas_sort = '위치 글 정리 제안이 도착했어요.';
+SCREEN_ONLY_JOBS.add('atlas_sort');
+JOB_BTNS.atlasSort = () => ['atlas_sort'];
+JOB_RESULT.atlas_sort = (j) => {
+  const r = j.result;
+  if (!r || !S.atlas) return { msg: '위치 글 정리 제안이 왔지만 지도 화면을 다시 불러와서 넣지 않았어요. 지도 화면에서 다시 받으세요' };
+  S.atlasNew = r.new_places || [];
+  let filled = 0;
+  for (const row of r.rows || []) {
+    const v = row.place || (row.new_place ? 'new:' + row.new_place : row.skip ? '-' : '');
+    const d = atlasDraft(row.text);
+    d.note = row.note || '';
+    if (!v || d.v) continue;  // 작가가 이미 고른 글은 덮지 않는다 (기다리는 동안 고른 글도)
+    d.v = v;
+    d.on = true;
+    filled++;
+  }
+  const empty = (S.atlas.unmatched || []).filter((u) => !atlasDraft(u.text).v).length;
+  return { msg: filled ? `위치 글 ${filled}개를 채웠어요. 확인하고 '적용'을 누르세요${empty ? `. ${empty}개는 AI가 정하지 못했어요` : ''}` : 'AI가 새로 채운 위치 글이 없어요' };
+};
+
 Object.assign(actions, {
+  /** AI로 한 번에 정리 (작업 'atlas_sort'). AI는 저장된 작품을 읽으므로 묻지 않고 먼저 저장한다 (옛 동작과 같다). 결과는 JOB_RESULT.atlas_sort */
   async atlasSort() {
-    const list = S.atlas.unmatched || [];
-    await run(`AI가 위치 글 ${list.length}개를 정리하는 중`, async () => {
-      await saveIfDirty();
-      const r = await api('POST', `/projects/${enc(S.name)}/atlas/sort`, {});
-      S.atlasNew = r.new_places || [];
-      let filled = 0;
-      for (const row of r.rows || []) {
-        const v = row.place || (row.new_place ? 'new:' + row.new_place : row.skip ? '-' : '');
-        const d = atlasDraft(row.text);
-        d.note = row.note || '';
-        if (!v || d.v) continue;  // 작가가 이미 고른 글은 덮지 않는다
-        d.v = v;
-        d.on = true;
-        filled++;
-      }
-      const empty = list.filter((u) => !atlasDraft(u.text).v).length;
-      toast(filled ? `${filled}개를 채웠어요. 확인하고 '적용'을 누르세요${empty ? `. ${empty}개는 AI가 정하지 못했어요` : ''}` : 'AI가 새로 채운 위치 글이 없어요', !filled);
-    });
+    await startJob('atlas_sort', null, {}, { quiet: true });
   },
   atlasBulk() {
     const v = $('#at-um-bulk').value;

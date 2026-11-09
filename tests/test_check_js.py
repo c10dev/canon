@@ -261,7 +261,10 @@ def test_note_draft_kept_until_saved():
 
 @needs_node
 def test_recheck_outcome_is_not_error():
-    """이 지적만 다시 검수의 보통 결과(아직 어긋남 · 딸린 지적 더함)는 오류 알림이 아니다."""
+    """규칙 지적의 판정 다시 보기(AI 없음)의 보통 결과(아직 어긋남 · 딸린 지적 더함)는 오류 알림이 아니다.
+    AI 검수 지적의 결과는 작업 recheck_one 이 놓는다 (tests/test_ai_jobs_more.py)."""
+    data = check_project()
+    data["episodes"][0]["findings"][3]["origin"] = "rule"
     got = run_js(CHK_FILES, """(async () => {
       %s
       saveIfDirty = async () => {}; flushText = async () => {};
@@ -271,7 +274,7 @@ def test_recheck_outcome_is_not_error():
       api = async () => { const pj = structuredClone(data); pj.episodes[0].findings.push({ ...pj.episodes[0].findings[3], id: 'f5', parent: 'f4' }); return pj; };
       await actions.chkRecheck('f4');
       return toasts;
-    })()""" % CHK_SETUP, check_project())
+    })()""" % CHK_SETUP, data)
     assert got[0] == ["아직 어긋나요. 처리 기록에 까닭을 남겼어요", False, ["처리 기록 보기"]]
     assert got[1] == ["고친 문장 때문에 새로 어긋난 곳 1개를 딸린 지적으로 더했어요", False, []]
 

@@ -228,7 +228,7 @@ def lingering(project: str, kind: str, ep: int | None) -> Job | None:
 
 
 # 한 화를 두고 AI 를 부르는 작업. 같은 화에서 멈춘 작업이 아직 응답을 기다리면 이 작업은 새로 시작하지 않는다 (waiting_on)
-EP_AI_KINDS = frozenset({"board", "check", "cues", "fixes", "plot_one", "recheck", "state", "write"})
+EP_AI_KINDS = frozenset({"board", "check", "cues", "fix_one", "fixes", "plot_one", "recheck", "recheck_one", "state", "write"})
 
 
 def waiting_on(project: str, ep: int | None) -> Job | None:
