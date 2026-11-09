@@ -2457,6 +2457,8 @@ def agent_approval(name: str, sid: str, t: int, body: ApprovalIn) -> dict:
         _renumber_ready(name, op.at)
     if body.approve and turn.approval and turn.approval.tool == agent_text.TOOL:
         _text_guard(name, turn.approval.episode)
+    if body.approve and turn.approval and turn.approval.setup and any(k.startswith("r:") for k in body.picked):
+        _not_auto(name)  # 설정 도구의 관계: 자동 집필이 반영하는 관계와 겹치지 않게 (chat_apply 와 같다)
     with jobs.project_lock(name):  # 화 번호 바깥 파일도 같은 잠금 안에서 옮긴다 (insert_episode · remove_episode 와 같다)
         p = store.load(name)
         agent.decide(p, sid, t, body.approve, body.picked, body.remember, not store.shares_text(name), body.text)

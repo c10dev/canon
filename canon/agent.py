@@ -7,10 +7,10 @@
 - 쓰기는 권한 모드 안이면 바로 저장하고(WriteRecord, 되돌리기 가능), 밖이면 승인 카드(Approval)를 남기고 턴을 끝낸다.
   막힌 것(본문이 있는 화)은 clean_revision 이 빼고, 까닭을 단계 결과로 AI 에게 돌려준다.
 - 쓰기는 지금 적용 함수(pipeline.plot_apply · apply_revision)와 정리 함수(clean_revision)를 감싸기만 한다. 새 계산은 없다.
-- 늘 카드로 묻는 도구(CARD_TOOLS, 본문 고치기 agent_text 등)는 몸통을 제 파일에 두고 여기에는 등록 줄만 둔다. 권한 모드와 상관없이 묻는다(ALWAYS_ASK).
+- 늘 카드로 묻는 도구(CARD_TOOLS, 본문 고치기 agent_text · 설정 agent_setup 등)는 몸통을 제 파일에 두고 여기에는 등록 줄만 둔다. 권한 모드와 상관없이 묻는다(ALWAYS_ASK).
   재료나 빠른 요청이 붙은 턴은 에이전트 단계 없이 그 도구를 바로 부른다(지름길, AI 호출 한 번).
 대상이 본문 · 설정 · 문체이면 플롯 쓰기는 모두 '다듬을 곳 밖'으로 묻는다.
-설정 · 문체 고치기는 04c · 04d 가 도구를 더할 때까지 옛 단발 대화(chat_send)도 쓴다. 옛 'AI에게 고치기' 대화도 그때까지 남긴다.
+문체 고치기는 04d 가 도구를 더할 때까지 옛 단발 대화(chat_send)도 쓴다. 옛 'AI에게 고치기' · 설정 대화도 그때까지 남긴다.
 """
 
 from __future__ import annotations
@@ -21,14 +21,14 @@ import uuid
 from datetime import datetime, timezone
 
 from . import cancel, context, jobs, pipeline, prompts, renumber, store, usage
-from . import agent_text
+from . import agent_setup, agent_text
 from .llm import LLM, dump, out_cap, wait_cap
 from .logline import josa
 from .schema import (AgentAsk, AgentSession, AgentTurn, Approval, AskCard, ChatScope, PlotAgentStep, PlotRevision, Project, RenumberOp,
                      StepRecord, TextMaterial, WriteItem, WriteRecord)
 
 TOPICS = ("agent", "plot")  # 'agent' 는 새 세션, 'plot' 은 옛 플롯 대화 세션. 둘 다 같은 목록에 보인다
-OTHER_FOCUS = ("text", "setup", "style")  # 화면이 주는 대상 가운데 아직 쓰기 도구가 없는 것 (chat_focus 종류)
+OTHER_FOCUS = ("text", "setup", "style")  # 화면이 주는 대상 가운데 플롯이 아닌 것 (chat_focus 종류). 플롯 쓰기는 모두 '다듬을 곳 밖'이다
 # 턴이 실어 오는 화면 이름: 웹 app.js drawApp 의 views 표와 작품 홈('home'). 모르는 이름은 '' (플롯 화면과 같다)로 받는다 (tests/test_agent_js.py)
 SCREENS = ("abilities", "arc", "atlas", "auto", "branches", "brief", "cast", "causal", "check", "convert", "cue", "foreshadow",
            "home", "lines", "research", "review", "setup", "stage", "statwin", "style", "timeline", "tofix", "usage", "write")
@@ -39,7 +39,7 @@ TITLE_LIMIT = 24
 MODE_LABELS = {"ask": "물어보기", "draft": "빈 곳 · 초안만 자동", "all": "모두 자동"}
 # 쓰기 한 부분의 종류. '빈 곳 · 초안만 자동'은 draft · next 만 바로 쓰고 나머지는 묻는다
 KIND_LABELS = {"draft": "초안 화", "next": "다음 아크 초안", "confirmed": "확정한 화", "arc": "아크 칸", "acts": "구간 · 범위", "parts": "부 구성",
-               "renumber": "화 넣기 · 빼기", "outside": "다듬을 곳 밖", "text": "본문 고치기"}
+               "renumber": "화 넣기 · 빼기", "outside": "다듬을 곳 밖", "text": "본문 고치기", "setup": "설정 칸"}
 DRAFT_KINDS = ("draft", "next")
 READ_TOOLS = ("read_plots", "read_summaries", "find_text", "read_cast")
 # 화 넣기 · 빼기. 뒤 화 번호(본문만 있고 반영하지 않은 화 포함, renumber.last_fixed)가 바뀌므로 권한 모드와 상관없이 늘 묻는다
@@ -47,6 +47,7 @@ RENUMBER_TOOLS = ("insert_episodes", "remove_episode")
 # 늘 카드로 묻는 도구: 도구 이름 → 모듈 (agent_text.py 머리의 이름들을 둔다). 04c · 04d 는 한 줄씩 더한다
 CARD_TOOLS = {m.TOOL: m for m in (
     agent_text,
+    agent_setup,
 )}
 # 권한 모드('모두 자동' 포함)와 '이 세션에서 묻지 않기'(auto_kinds)를 따르지 않고 늘 묻는 쓰기 종류
 ALWAYS_ASK = ("renumber", *(m.KIND for m in CARD_TOOLS.values()))
@@ -251,7 +252,9 @@ def _compact(s: AgentSession) -> None:
     for t in s.turns[:-UNDO_TURNS]:
         t.draft = None
         for w in t.writes:
-            if w.tool in CARD_TOOLS:
+            if (card := CARD_TOOLS.get(w.tool)) is not None:
+                if hasattr(card, "compact"):  # 되돌리기 값을 턴에 두는 도구 (설정 도구의 쓰기 전 설정)
+                    card.compact(w, OLD_UNDO)
                 continue  # 본문 고치기는 되돌리기 값이 수정 기록(Episode.edits)에 있어 이 턴에는 무겁게 남는 것이 없다
             for i in w.items:
                 if i.state == "done":

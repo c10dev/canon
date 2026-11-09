@@ -37,8 +37,9 @@
 - 세션 목록은 작품 하나에 하나다(`sessions`, `TOPICS`). 새 세션 topic 은 `agent` 이고, 옛 `plot` 세션도 같은 목록에 보인다
 - 세션(`AgentSession`, 다듬을 곳 · 권한 모드 `ask|draft|all`). 다듬을 곳은 `arc:N` · `next` · 부 `part:N` · 한 화 `ep:N`(`pipeline.chat_focus`, 그 곳이 든 아크는 `chat_target`), 밖을 고치면 종류 `outside` 로 늘 묻는다(`outside`, `permit`)
 - 화면이 주는 대상 `text:N`(집필 · 검수 · 상태 승인) · `setup`(설정 도우미) · `style`(문체)도 `chat_focus` 가 읽는다. `chat_target` 은 `text:N` 을 `ep:N` 처럼, `setup` · `style` 을 '' 처럼 읽는다
-- 이 세 대상에서 플롯 쓰기는 모두 `outside` 로 묻는다(`OTHER_FOCUS`). 설정 · 문체 대상에는 아직 쓰기 도구가 없다(04c · 04d)
+- 이 세 대상에서 플롯 쓰기는 모두 `outside` 로 묻는다(`OTHER_FOCUS`). 문체 대상에는 아직 쓰기 도구가 없다(04d)
 - 본문 대상 `text:N` 의 쓰기 도구는 본문 고치기 `revise_text`(`agent_text.py`)다
+- 설정 쓰기 도구는 `edit_setup`(`agent_setup.py`)이다. 대상과 상관없이 쓸 수 있다
 - 플롯 화면 밖에서 작품 전체('')를 대상으로 보낸 턴도 플롯 쓰기를 모두 `outside` 로 묻는다(`off_plot`, 2026-11-09 사용자 결정). 플롯 화면(`PLOT_SCREENS`)은 지금 규칙 그대로다
 - 턴은 작가가 보던 화면을 `AgentTurn.screen` 에 남긴다. `SCREENS`(웹 drawApp 의 views 표와 'home')에 없거나 비면 '' 이고 플롯 화면과 같게 다룬다
 - 턴을 열 때 화면 대상이 오면(`add_turn` 의 `target`) 고정하지 않은 세션의 대상을 그 값으로 바꾼다. 고정은 `AgentSession.pinned`(옛 세션은 False)
@@ -65,7 +66,7 @@
 - `run_turn` 은 카드 도구의 AI 호출(`prepare`)을 잠금 밖에서 부르고, 그 결과를 `_step` 에 넘겨 잠금 안에서 기록한다(`record`)
 - 지름길: 턴의 첫 단계에서 `card_shortcut` 이 단계를 정하면 에이전트 단계(`PlotAgentStep`)를 부르지 않는다. 재료나 빠른 요청이 붙은 턴이다(`agent_text.shortcut`)
 - 카드 도구의 카드에 답하면 `decide` 가 그 모듈의 `decide` 를 부르고 턴을 끝낸다(`resume` 하지 않는다)
-- `undo` 는 카드 도구가 쓴 기록(`WriteRecord.tool`)이면 그 모듈의 `undo` 를 부른다. `_compact` 는 그 기록을 건드리지 않는다
+- `undo` 는 카드 도구가 쓴 기록(`WriteRecord.tool`)이면 그 모듈의 `undo` 를 부른다. `_compact` 는 그 모듈에 `compact` 훅이 있을 때만 부른다(설정 도구)
 - `RenumberOp.aside`: 화 빼기 승인 때 웹이 removed/ 에 남긴 큐 시트 실험 · 비교본 경로를 적는다. 빼기를 되돌리면 웹이 그 파일을 되돌린다
 - 쓰기는 `clean_revision` 으로 거른다(본문이 있는 화는 막힘)
 - 쓰기 부분마다 종류(`KIND_LABELS`)를 매긴다
@@ -78,13 +79,34 @@
 - 새 턴을 열 때 최근 `UNDO_TURNS`(20) 턴보다 오래된 턴의 쓰기 전 · 뒤 값과 초안을 지운다(`_compact`). 그 턴의 쓰기는 kept(`OLD_UNDO`)로 남는다
 - 멈추거나 실패한 턴은 `reconcile`
 - 프롬프트 `prompts.agent_plot_prompt`
-- 대상 블록 `prompts.agent_focus_block` 은 설정 · 문체 대상에 '바로 고치는 도구가 없고, 플롯 쓰기는 작가에게 물어진다'를 알린다
+- 대상 블록 `prompts.agent_focus_block` 은 문체 대상에 '바로 고치는 도구가 없고, 플롯 쓰기는 작가에게 물어진다'를 알린다
 - 본문 대상에는 '본문을 고쳐 달라고 하면 revise_text 를 그 화로 부른다'를 알린다
+- 설정 대상에는 같은 블록이 '설정을 바꾸라는 말이면 edit_setup 을 부른다(늘 칸마다 물어진다)'를 알린다
 - 플롯 화면 밖의 작품 전체 턴이면 같은 블록이 '플롯 쓰기는 모두 물어진다' 한 줄을 넣는다
 - mock 단계(`mock._agent_step`)는 힌트 `aim` 이 본문 · 설정 · 문체이면 '플롯'이 든 말만 고치고 나머지는 읽은 뒤 답만 한다
 - mock 단계는 본문 대상에서 «원문» 이 든 말이면 `revise_text` 를 그 원문으로 부르고, 막혔으면 답만 한다
+- mock 단계는 대상이 설정이거나 '설정을' 이 든 말이 `mock.MOCK_SETUP_WORDS`('날카롭', '다듬' 등)를 담으면 `edit_setup` 을 부른다
 - 단계 프롬프트는 바뀌지 않는 블록(도구 · 규칙 · 요구사항)이 앞, 턴 블록과 이번 턴 단계가 뒤, 남은 단계 수가 맨 끝 한 줄이다(단계 k+1 요청이 단계 k 요청을 품음)
 - 이름 후보는 `random.Random(session.id)` 로 뽑아 단계마다 같다(`plot_chat_parts` 의 rng)
+
+### `canon/agent_setup.py`
+
+- 대화 에이전트의 설정 도구 `edit_setup`(종류 `setup`, 04c). `agent.CARD_TOOLS` 가 등록한다
+- `prepare`: 잠금 밖에서 `pipeline.revise_setup`(LLM 단계 `plan`)을 부른다. 옛 설정 대화와 같은 프롬프트 · 정리다
+- `prepare` 의 요청은 `request` 인자이고, 비면 작가의 이번 말이다(`request`). 편집자는 세션 대화를 보지 않는다
+- 방향 여러 안은 에이전트의 `ask` 가 묻는다. 그래서 `revise_setup` 의 mode 는 늘 비운다
+- 지름길(`shortcut`)은 없다. 늘 에이전트 단계가 고른다
+- `record`: 잠근 작품에서 `setupchat.clean` 으로 다시 거르고 승인 카드(`Approval.setup` · `keys` · `kinds` ['setup'] · `defaults`)를 남긴 뒤 턴을 끝낸다
+- 바뀌는 칸이 없거나 요청이 비면 카드 없이 단계 줄(note · block)만 남기고 같은 턴을 잇는다
+- 권한 모드와 상관없이 늘 묻는다. '이 세션에서 묻지 않기'(`auto_kinds`)도 받지 않는다(`agent.ALWAYS_ASK`, 2026-11-09 사용자 결정)
+- 처음 체크(`defaults`): 빈 칸 · 새 인물 · 새 관계만 켠다. 이미 채운 칸과 인물 칸(인물 설정 바꾸기)은 꺼 둔다
+- 새 관계의 호감 · 긴장 수치는 0 으로 둔다(`_no_numbers`). 관계 수치는 AI 가 적지 않는다
+- `decide`: 작가가 고른 부분만 `setupchat.apply_revision` 으로 넣고 쓰기 전 설정을 `WriteRecord.setup_before` 에 남긴다. 고른 것이 없으면 카드를 그대로 둔다
+- `decide` 는 승인이든 거절이든 턴을 끝낸다. 에이전트를 다시 부르지 않는다
+- `undo`: `setupchat.undo_revision` 으로 그 뒤에 다시 고치지 않은 부분만 돌린다. 남긴 부분은 까닭 `KEPT`
+- `compact`: 오래된 턴의 `WriteRecord.setup` · `setup_before` 를 지운다(`agent._compact` 가 이 훅이 있는 도구에만 부른다)
+- 화면 카드는 `static/agentsetup.js`
+- 웹 승인(`web.agent_approval`)은 관계를 고르면 자동 집필이 도는지 본다(`chat_apply` 와 같다)
 
 ### `canon/agent_text.py`
 
@@ -437,6 +459,7 @@
 - AI 변경안(`SetupRevision`: 기본 정보 · 세계관 칸 `SetupEdit`, 인물 칸 `CharacterEdit`, 새 인물, 관계, 방향 여러 안) 정리(`clean`)
 - 고른 부분만 적용(`apply`, 부분 id `part_ids`)
 - 변경안 단위 적용 취소(`undo`, `ChatMessage.setup_before`)
+- 적용 · 적용 취소의 몸통은 `apply_revision` · `undo_revision` 이다. 대화 에이전트의 설정 도구(`agent_setup`)도 같은 함수를 쓴다
 - 기록(`record`)
 - AI 는 칸 · 인물 · 관계를 지우지 않는다
 - 첫 반영 뒤에는 AI 가 관계의 시작 방식과 수치를 바꾸지 않는다
@@ -488,13 +511,16 @@
 - 턴은 보던 화면 이름(`screen`, 작품 홈은 'home')도 보낸다. 서버가 `agent.SCREENS` 로 확인한다
 - 상태 줄의 대상이 바뀌면 `agentAfterDraw` 가 `.foot-target` 을 한 번 강조(`flash`)하고 `chatSay` 로 `#chat-live` 에 알린다. 패널을 처음 그릴 때는 알리지 않는다
 - 상태 줄의 핀(`agentPin`)과 다듬을 곳 메뉴(`agentTarget`)는 세션을 고정한다. `/대상` 은 고정을 풀고 화면 대상으로 돌린다
-- 설정 · 문체 대상의 빈 세션은 예시 대신 '읽고 답하고, 플롯은 늘 묻는다' 안내를 보인다
+- 문체 대상의 빈 세션은 예시 대신 '읽고 답하고, 플롯은 늘 묻는다' 안내를 보인다
 - 본문 대상의 빈 세션은 '드래그하면 재료로 붙고, `/` 빠른 요청을 고르면 후보를 골라 넣는다' 안내를 보인다
+- 설정 대상의 빈 세션은 `agentSetupIntro`(설정 도구 안내와 예시)를 보인다
 - 세션 동작 `agentAct(fn, { save })` 와 말 보내기 `agentStartTurn`: AI가 작품을 읽거나 고치는 동작은 저장하지 않은 변경이 있으면 저장할지 묻는다. 세션 만들기 · 대상 · 권한 모드 · 이름 · 보관은 `save: false` 로 묻지도 저장하지도 않는다
 - `agentAct` 는 응답의 `project` 가 객체일 때만 `S.project` 를 바꾼다. 이어 하기 응답은 작업 정보라 `project` 가 작품 이름 글이다
 - 세션 머리와 목록(보관함, '이전 대화'는 옛 `Project.chats` 를 `chatLog` 로)
 - '이전 대화 · 플롯'(`legacy`)은 예전처럼 골라 적용 · 취소한다. 설정 · 문체 · 본문 고치기(`legacy:<주제>`)는 `chatLog(주제, { readOnly: true })` 로 읽기만 한다
 - 턴마다 단계 줄 · 바로 쓴 것(항목 · 턴 되돌리기) · 승인 카드 · 되묻기 카드
+- 설정 도구의 승인 카드(`Approval.setup`)와 쓴 것 비교(`WriteRecord.setup`)는 `agentsetup.js` 가 그린다(`agentApproval` · `agentItemDiff` 가 넘긴다)
+- `agentDecide` 는 설정 카드면 `agentSetupPicks`(체크했고 막히지 않은 부분)를 보낸다
 - 입력 상자(+ 재료, `/` 빠른 요청 `AGENT_CMDS`, 보내기 · 멈추기)와 상태 줄(권한 모드 · 대상 · 대상 고정 · 모델 · 단계 상한)
 - 재료 칩(`agentMats`, `S.agentMaterial`): 집필 화면에서 고른 본문이 입력 상자 위에 붙는다. 붙이기는 `agentAttach`(`passage.js` 가 부른다), 떼기는 ✕(`agentMaterialDrop`)
 - 본문에서 사라진 재료는 칩을 감추고 보내지 않는다(`agentMaterialNow`)
@@ -515,6 +541,16 @@
 - 끝난 턴은 '끝났어요 · N단계 · 걸린 시간'(`agentTurnTook`, `at` 부터 `ended` 까지) 줄을 보인다
 - 화면 낭독기에 알릴 새 답은 `agentLastReply`(끝났거나 묻는 중인 턴의 답)이고 `chat.js` `chatAnnounce` 가 알린다
 - 권한 이름 `AGENT_MODES` · `AGENT_KINDS` 는 `agent.MODE_LABELS` · `KIND_LABELS` 와 같다(`tests/test_agent_js.py`)
+
+### `canon/static/agentsetup.js`
+
+- 대화 에이전트의 설정 도구 카드(서버 `agent_setup.py`)
+- 칸마다 지금 값과 나란히 보인다. 비교는 `setupchat.js` 의 `setupKeyValue` · `setupRelDiff` · `setupNewCard` 와 `chat.js` 의 `diffField` 를 쓴다
+- 처음 체크는 서버의 `Approval.defaults` 다(`agentSetupPicked`). 채운 칸에는 '채운 칸 바꿈', 인물 칸에는 '인물 설정 바꿈' 칩을 단다
+- 고르지 않은 새 인물과 이어진 관계는 끈다(`agentSetupBlocked`). 새 인물 체크를 바꾸면 패널을 다시 그린다
+- '이 세션에서 묻지 않기' 칸은 없다. 넷 이상인 카드는 모두 고르기 · 모두 빼기(`agentSetupPickAll`)
+- 쓴 뒤 비교는 쓰기 전 설정(`WriteRecord.setup_before`)과 한다(`agentSetupItemDiff`)
+- 설정 대상의 빈 세션 안내와 예시(`agentSetupIntro`, `AGENT_SETUP_EXAMPLES`)
 
 ### `canon/static/anchor.js`
 

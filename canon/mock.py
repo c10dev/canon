@@ -321,12 +321,16 @@ def _serial_revision(hint: dict, rev: PlotRevision) -> bool:
     return done
 
 
+MOCK_SETUP_WORDS = ("날카롭", "다듬", "바꿔", "더해", "채워", "어둡게")  # 설정 도구를 부르는 말 (_agent_step)
+
+
 def _agent_step(hint: dict) -> PlotAgentStep:
     """대화 에이전트 흉내. 처음엔 플롯을 읽고, 다음 단계에 플롯 대화 흉내(_revision)로 고치고, 쓴 결과를 보면 끝낸다.
     '여러 안' 요청은 되묻고, '?' 로 끝나면 답만 하고, '끝없이' 는 상한 시험으로 늘 읽는다.
     '끝 이름' 은 읽은 뒤 칸 이름 reply 를 도구로 적어 끝낸다 (모델이 실제로 낸 응답 모양).
     대상이 본문 · 설정 · 문체(hint 'aim')이면 '플롯'이 든 말만 고치고 나머지는 읽은 뒤 답만 한다.
     'N화 앞에 M화' 는 화 넣기, 'N화 빼' 는 화 빼기를 묻고, '빈 물음' 은 묻는 말 없는 ask 를 내고, '분석' 은 처음에 예고만 하고, 되돌림 단계(tool 'reply')를 보면 내용을 쓴다.
+    대상이 설정이거나 '설정을' 이 든 말이 MOCK_SETUP_WORDS 를 담으면 설정 도구(edit_setup)를 부른다.
     본문 대상에서 «원문» 이 든 말은 본문 고치기(revise_text)를 그 원문으로 부르고, 막혔으면 답만 한다."""
     msg, steps, tools = hint["message"], hint.get("steps", []), hint.get("tools", [])
     if "끝없이" in msg:
@@ -364,6 +368,11 @@ def _agent_step(hint: dict) -> PlotAgentStep:
             return PlotAgentStep(reply="고른 부분을 고치지 못했어요.")
         return PlotAgentStep(thought="고를 부분을 고쳐요", tool="revise_text",
                              args=[ToolArg(name="quote", value=quote.group(1)), ToolArg(name="request", value=msg)])
+    if (hint.get("aim") == "setup" or "설정을" in msg) and "플롯" not in msg and any(w in msg for w in MOCK_SETUP_WORDS) \
+            and not {"edit_setup", "approval"} & set(tools):  # 설정 도구 (UX 04c). 대상이 설정이 아니어도 '설정을 …' 이면 부른다
+        return PlotAgentStep(thought="설정 변경안을 받아요", tool="edit_setup", args=[ToolArg(name="request", value=msg)])
+    if "edit_setup" in tools and "approval" not in tools:  # 바뀌는 칸이 없어 카드 없이 돌아왔다
+        return PlotAgentStep(reply="설정은 지금 그대로가 좋아 보여요.")
     if "approval" in tools:
         return PlotAgentStep(reply="작가의 답대로 마쳤어요.")
     if "edit_plot" in tools or msg.rstrip().endswith("?"):

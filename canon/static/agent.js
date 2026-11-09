@@ -3,6 +3,7 @@
    상태 줄(권한 모드 · 대상 · 대상 고정 · 모델 · 단계 상한). 턴은 백그라운드 작업 'agent' 로 돌고, pollJobs 가 진행을 알려 주면 세션만 다시 받는다.
    세션 목록은 작품 하나에 하나다(새 세션 topic 'agent', 옛 'plot' 세션도 함께). 대상은 화면이 준다(chat.js chatDefaultTarget).
    고정하지 않은 세션은 턴을 보낼 때 화면 대상으로 바뀌고, 상태 줄의 대상이 바뀌면 한 번 강조하고 #chat-live 로 알린다(agentAfterDraw).
+   설정 도구(edit_setup)의 승인 카드와 쓴 것 비교는 agentsetup.js 가 그린다.
    옛 플롯 대화 기록은 '이전 대화'로 지금 카드(chat.js proposal)를 그대로 보인다. 설정 · 문체 · 본문 고치기의 옛 기록은 '이전 대화'에서 읽기만 한다.
    본문 고치기(서버 agent_text, 도구 revise_text): 집필 화면에서 본문을 고르면 입력 상자 위 '재료' 칩으로 붙고(S.agentMaterial), '/' 빠른 요청에
    더 짧게 · 대사 늘리기 같은 본문 빠른 요청(서버 prompts.PASSAGE_PRESETS)이 함께 뜬다. 재료나 빠른 요청이 붙은 말은 서버가 에이전트 단계 없이 그 도구를 바로 부른다.
@@ -14,8 +15,8 @@ const AGENT_MODES = { ask: ['물어보기', '쓰기마다 그 자리에서 승�
   draft: ['빈 곳 · 초안만 자동', '초안 화 · 새 화 · 다음 아크 초안은 바로 쓰고, 확정한 화와 범위는 물어요.'],
   all: ['모두 자동', '막힌 것 말고는 묻지 않고 써요. 턴마다 되돌릴 수 있어요.'] };
 const AGENT_KINDS = { draft: '초안 화', next: '다음 아크 초안', confirmed: '확정한 화', arc: '아크 칸', acts: '구간 · 범위', parts: '부 구성',
-  renumber: '화 넣기 · 빼기', outside: '다듬을 곳 밖', text: '본문 고치기' };
-const AGENT_ALWAYS = ['renumber', 'text'];  // 서버 agent.ALWAYS_ASK: 권한 모드와 상관없이 묻고 '이 세션에서 묻지 않기'를 두지 않는다
+  renumber: '화 넣기 · 빼기', outside: '다듬을 곳 밖', text: '본문 고치기', setup: '설정 칸' };
+const AGENT_ALWAYS = ['renumber', 'text', 'setup'];  // 서버 agent.ALWAYS_ASK: 권한 모드와 상관없이 묻고 '이 세션에서 묻지 않기'를 두지 않는다
 const AGENT_CMDS = [['/여러안', '바꾸기 전에 방향 여러 안으로 물어요'], ['/대상', '대상 고정을 풀고 지금 보는 곳으로'],
   ['/새세션', '지금 보는 곳으로 새 세션'], ['/되돌리기', '마지막으로 바꾼 턴 되돌리기']];
 const AGENT_STEP_ICON = { read: '읽', write: '씀', wait: '물', block: '막', ask: '?', note: '·' };
@@ -230,6 +231,7 @@ function agentLog() {
   if (!s || !s.turns.length) {
     const t = CHAT_TOPICS.plot;
     const aim = agentTarget(s);
+    if (aim === 'setup') return agentSetupIntro();  // 설정 도구가 있다 (agentsetup.js)
     if (/^text:\d+$/.test(aim)) {
       return `<div class="note info">본문에서 고칠 부분을 드래그하면 아래에 재료로 붙어요. 바라는 것을 적거나 '/'를 눌러 더 짧게 · 대사 늘리기 같은 빠른 요청을 고르세요. AI가 후보를 2~3개 내고, 고른 후보만 본문에 들어가요. 권한 모드와 상관없이 늘 골라서 넣고, 넣은 뒤에도 되돌릴 수 있어요.</div>`;
     }
@@ -293,7 +295,8 @@ function agentTurn(s, t, i) {
 function agentToolName(tool) {
   return { read_plots: '화 플롯 읽기', read_summaries: '화 요약 목록', find_text: '본문 단락 찾기', read_cast: '인물 읽기',
     edit_plot: '플롯 고치기', insert_episodes: '화 넣기', remove_episode: '화 빼기', ask: '되묻기', approval: '작가의 답',
-    ask_empty: '빈 되묻기', edit_empty: '빈 고치기', reply: '예고만 한 답', revise_text: '본문 고치기' }[tool] || tool;
+    ask_empty: '빈 되묻기', edit_empty: '빈 고치기', reply: '예고만 한 답', revise_text: '본문 고치기',
+    edit_setup: '설정 고치기' }[tool] || tool;
 }
 
 const agentClip = (t, n) => (t.length > n ? `${t.slice(0, n)}…` : t);
@@ -348,6 +351,7 @@ function agentMats() {
 
 /** 바로 쓴 것 한 부분의 바뀐 칸. 쓰기 전 · 뒤 값(before · after)으로 비교한다 (지금 값은 이미 바뀌었다). */
 function agentItemDiff(w, item) {
+  if (w.setup) return agentSetupItemDiff(w, item);  // 설정 도구 (agentsetup.js)
   const b = w.before || {};
   const a = w.after || {};
   if (/^\d+$/.test(item.key)) {
@@ -454,6 +458,7 @@ function agentApproval(t, i, last) {
   const a = t.approval;
   if (a.op) return agentOpApproval(t, i, last);
   if (a.passage) return agentTextApproval(t, i, last);
+  if (a.setup) return agentSetupApproval(t, i, last);  // 설정 도구: 칸마다 늘 묻는다 (agentsetup.js)
   const wait = a.state === 'wait' && t.end === 'wait' && last;
   const rev = a.revision;
   const base = revBase({ target: a.target });
@@ -512,7 +517,7 @@ function agentTargetMenu(cur) {
   const head = (t) => `<div class="pop-title">${t}</div>`;
   const out = [];
   const here = agentScreenTarget();
-  if (/^(text:\d+|setup|style)$/.test(here)) out.push(head('이 화면'), opt(here, agentTargetText(here), '읽고 답해요. 플롯을 고치면 늘 물어봐요'));
+  if (/^(text:\d+|setup|style)$/.test(here)) out.push(head('이 화면'), opt(here, agentTargetText(here), here === 'setup' ? '설정은 칸마다 물어보고 고쳐요. 플롯을 고치면 늘 물어봐요' : '읽고 답해요. 플롯을 고치면 늘 물어봐요'));
   if (serial()) out.push(opt('', '작품 전체', '플롯을 고치면 본문이 없는 첫 아크로 가요'));
   if (serial()) {
     if ((p.parts || []).length) out.push(head('부'), ...p.parts.map((x) => opt(`part:${x.number}`, `${x.number}부${x.title ? ` ${x.title}` : ''}`, `${epRange(x.start_ep, x.end_ep)} · 부 구성과 이 부의 아크`)));
@@ -916,7 +921,7 @@ Object.assign(actions, {
     const s = agentSession();
     const a = s.turns[Number(i)].approval;
     if (a.passage) return agentTextDecide(Number(i), yes === '1' ? 0 : -1);
-    const picked = a.keys.filter((k) => S.agentPicks[`${i}:${k}`] !== false);
+    const picked = a.setup ? agentSetupPicks(i, a) : a.keys.filter((k) => S.agentPicks[`${i}:${k}`] !== false);
     if (yes === '1' && !picked.length) return toast('쓸 곳을 체크해서 고르세요', true);
     const res = await agentAct(() => api('POST', `/projects/${enc(S.name)}/sessions/${s.id}/turns/${i}/approval`,
       { approve: yes === '1', picked, remember: !!S.agentRemember[i] }));

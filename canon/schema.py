@@ -1100,6 +1100,7 @@ AGENT_TOOL_NAMES = (
     "remove_episode",
     "ask",
     "revise_text",
+    "edit_setup",
 )
 AGENT_END_TOOLS = ("done", "end", "finish", "none", "reply")  # 모델이 턴 끝을 도구 이름처럼 적는 말. 빈 tool 과 같이 받는다
 
@@ -1109,7 +1110,7 @@ class PlotAgentStep(BaseModel):
     thought: str = Field("", description="작가에게 보일 한 줄: 이 단계에서 무엇을 왜 하는지")
     tool: Literal[AGENT_TOOL_NAMES] = Field(  # type: ignore[valid-type]
         "", description="부를 도구 이름 ([도구] 목록에 있는 것). 턴을 끝낼 때는 빈 글로 두고 reply 칸에 답을 쓴다. reply 는 도구 이름이 아니다")
-    args: list[ToolArg] = Field(default_factory=list, description="읽기 도구와 insert_episodes · remove_episode · revise_text 의 인자")
+    args: list[ToolArg] = Field(default_factory=list, description="읽기 도구와 insert_episodes · remove_episode · revise_text · edit_setup 의 인자")
     edit: PlotRevision = Field(default_factory=lambda: PlotRevision(reply=""),
                                description="edit_plot 일 때만: 바꿀 것만 채운 변경안. reply 는 한 줄 설명. 다른 도구면 비워 둔다")
     question: str = Field("", description="ask 일 때만: 작가에게 묻는 말")
@@ -1177,6 +1178,8 @@ class WriteRecord(BaseModel):
     op: Optional[RenumberOp] = Field(None, description="화 넣기 · 빼기를 쓴 기록. 되돌리기는 반대 동작(agent.inverse)")
     episode: int = Field(0, description="본문 고치기(revise_text)로 넣은 화")
     edit: str = Field("", description="본문 고치기로 넣은 수정 기록 id (Episode.edits). 되돌리기는 pipeline.undo_edit")
+    setup: Optional[SetupRevision] = Field(None, description="설정 도구(tool 'edit_setup')가 쓴 변경안. items 의 key 는 setupchat.part_ids")
+    setup_before: Optional[SetupBefore] = Field(None, description="설정 도구가 쓰기 전 설정. 되돌리기는 setupchat.undo_revision")
 
 
 class Approval(BaseModel):
@@ -1194,6 +1197,8 @@ class Approval(BaseModel):
     episode: int = Field(0, description="본문 고치기 카드: 고칠 화")
     preset: str = Field("", description="본문 고치기 카드: 빠른 요청 id (prompts.PASSAGE_PRESETS)")
     at: str = Field("", description="본문 고치기 카드: 부분 수정 대화('text:N')에 남긴 답의 시각. 넣을 때 그 답을 찾는다 (agent_text.decide)")
+    setup: Optional[SetupRevision] = Field(None, description="설정 변경안을 묻는 카드 (tool 'edit_setup'). keys 는 setupchat.part_ids")
+    defaults: list[str] = Field(default_factory=list, description="카드가 처음 체크해 두는 부분 (agent_setup.defaults). 채운 칸 · 인물 칸은 빠진다")
 
 
 class AskCard(BaseModel):
