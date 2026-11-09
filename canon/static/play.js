@@ -195,7 +195,8 @@ async function playLoad(parts) {
   const fresh = S.playName !== name;
   S.playName = name;
   const view = await api('GET', `/projects/${enc(name)}/play`);
-  if (!view) throw new Error(`플레이가 아닌 작품이에요: ${name}`);  // 서버는 플레이 사본이 아니면 null 을 돌려준다 (routes/play.py get_play)
+  // 서버는 플레이 사본이 아니면 null 을 돌려준다 (routes/play.py get_play). 화면 오류는 쓰기 경로의 400 과 같은 꼴로 낸다
+  if (!view) throw Object.assign(new Error(`플레이가 아닌 작품이에요: ${name}`), { status: 400 });
   playSet(view, fresh);
   if (parts[2] === 'life') S.playLife = await api('GET', `/projects/${enc(name)}/play/life`);
   if (!parts[2]) playStart();
