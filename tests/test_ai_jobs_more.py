@@ -172,7 +172,8 @@ def test_js_registers_pages_messages_links_and_buttons():
         msg: kinds.filter((k) => { const m = JOB_DONE_MSG[k]; return !(typeof m === 'function' ? m(j(k)) : m); }),
         link: Object.fromEntries(kinds.map((k) => [k, JOB_LINK[k] && JOB_LINK[k](j(k))])),
         result: kinds.filter((k) => typeof JOB_RESULT[k] !== 'function'),
-        btns: ['fixGet', 'chkRecheck', 'illMake', 'atlasGenSuggest', 'atlasSort'].map((a) => JOB_BTNS[a] && JOB_BTNS[a]('f1')),
+        btns: ['illMake', 'atlasGenSuggest', 'atlasSort'].map((a) => JOB_BTNS[a] && JOB_BTNS[a]('f1')),
+        chk: ['fixGet', 'chkRecheck'].filter((a) => a in JOB_BTNS),
         screen: kinds.filter((k) => SCREEN_ONLY_JOBS.has(k)),
         epAi: ['fix_one', 'recheck_one'].map((k) => EP_AI_KINDS.has(k)),
       };
@@ -182,30 +183,38 @@ def test_js_registers_pages_messages_links_and_buttons():
     enc = "%EB%93%B1%EB%8C%80"
     assert got["link"] == {"fix_one": f"#/p/{enc}/check/2", "recheck_one": f"#/p/{enc}/check/2", "illust": f"#/p/{enc}/write/2",
                            "atlas_suggest": f"#/p/{enc}/atlas", "atlas_sort": f"#/p/{enc}/atlas"}
-    # 지적 id 는 화마다 새로 매겨서 버튼 잠금에 화를 함께 준다. 삽화는 그 화의 작업 하나다
-    assert got["btns"] == [["fix_one", "f1", 2], ["recheck_one", "f1", 2], ["illust", None, 2], ["atlas_suggest"], ["atlas_sort"]]
+    # 삽화는 그 화의 작업 하나라 버튼 잠금에 화를 함께 준다. 지적 버튼은 #app 밖 고치는 창에 있어 jobBtn 으로 그린다
+    assert got["btns"] == [["illust", None, 2], ["atlas_suggest"], ["atlas_sort"]] and got["chk"] == []
     assert got["screen"] == ["atlas_suggest", "atlas_sort"] and got["epAi"] == [True, True]
 
 
 @needs_node
 def test_js_lock_buttons_by_episode():
-    """지적 작업의 버튼은 그 화의 그 지적만 잠근다 (다른 화의 같은 id 는 그대로)."""
+    """삽화 버튼은 그 화의 작업만 잠근다. 지적 버튼(jobBtn)은 그 화의 그 지적 작업만 잠근다 (다른 화의 같은 id 는 그대로)."""
     got = run_js(FILES, """(() => {
       S.name = 'a';
-      const btn = (arg) => ({ dataset: { action: 'fixGet', arg }, attrs: {}, textContent: 'AI 고침안 받기', classList: { add() {}, contains() { return false; } },
+      const btn = (action, arg) => ({ dataset: { action, arg }, attrs: {}, textContent: '고른 부분으로 만들기', classList: { add() {}, contains() { return false; } },
         setAttribute(k, v) { this.attrs[k] = v; }, getAttribute(k) { return this.attrs[k] ?? null; } });
-      const btns = [btn('f1'), btn('f2')];
+      const btns = [btn('illMake', 'sel')];
       const root = { querySelectorAll: () => btns };
-      S.route = ['p', 'a', 'check', '3'];
-      S.jobs = [{ id: '1', status: 'running', project: 'a', kind: 'fix_one', ep: 2, target: 'f1', label: '2화 f1 고침안' }];
+      S.route = ['p', 'a', 'write', '3'];
+      S.jobs = [{ id: '1', status: 'running', project: 'a', kind: 'illust', ep: 2, target: '', label: '2화 삽화 태그' },
+        { id: '2', status: 'running', project: 'a', kind: 'fix_one', ep: 2, target: 'f1', label: '2화 f1 고침안' }];
       lockJobBtns(root);
-      const other = btns.map((b) => b.getAttribute('aria-disabled'));
+      const other = btns[0].getAttribute('aria-disabled');
+      S.route = ['p', 'a', 'write', '2'];
+      lockJobBtns(root);
+      const fix = [jobBtn('fix_one', 2, 'AI 고침안 받기', 'a', 'f1').label, jobBtn('fix_one', 3, 'AI 고침안 받기', 'a', 'f1').label, jobBtn('fix_one', 2, 'AI 고침안 받기', 'a', 'f2').label];
       S.route = ['p', 'a', 'check', '2'];
-      lockJobBtns(root);
-      return { other, same: btns.map((b) => [b.getAttribute('aria-disabled'), b.textContent]) };
+      S.jobs.push({ id: '3', status: 'running', project: 'a', kind: 'recheck_one', ep: 2, target: 'f1', label: '2화 f1 다시 검수' });
+      const re = [recheckBtn({ id: 'f1', origin: 'ai' }), recheckBtn({ id: 'f1', origin: 'regex' })];
+      return { other, same: [btns[0].getAttribute('aria-disabled'), btns[0].textContent], fix, re };
     })()""", {})
-    assert got["other"] == [None, None]
-    assert got["same"] == [["true", "2화 f1 고침안 만드는 중…"], [None, "AI 고침안 받기"]]
+    assert got["other"] is None
+    assert got["same"] == ["true", "2화 삽화 태그 만드는 중…"]
+    assert got["fix"] == ["2화 f1 고침안 만드는 중…", "AI 고침안 받기", "AI 고침안 받기"]
+    assert 'aria-disabled="true"' in got["re"][0] and "2화 f1 다시 검수 만드는 중…" in got["re"][0]
+    assert "aria-disabled" not in got["re"][1] and "판정 다시 보기" in got["re"][1]  # 정규식 판정은 AI 작업이 아니다
 
 
 CHK_SETUP = """S.project = data; S.name = 't'; S.route = ['p', 't', 'check', '1'];

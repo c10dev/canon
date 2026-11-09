@@ -54,8 +54,7 @@ JOB_LINK.fix_one = (j) => `#/p/${enc(j.project)}/check/${j.ep}`;
 JOB_LINK.recheck_one = (j) => `#/p/${enc(j.project)}/check/${j.ep}`;
 JOB_DONE_MSG.fix_one = (j) => `${j.ep}화 지적 ${j.target}의 고침안 ${(j.result || {}).fixes || 0}개가 도착했어요.`;
 JOB_DONE_MSG.recheck_one = (j) => `${j.ep}화 지적 ${j.target}${josa(j.target, '을', '를')} 다시 검수했어요.`;
-JOB_BTNS.fixGet = (id) => ['fix_one', id, chkEp()];
-JOB_BTNS.chkRecheck = (id) => ['recheck_one', id, chkEp()];
+// 버튼은 jobBtn 으로 그린다 (fixPanel · recheckBtn). 고치는 창(#sel-tool)이 #app 밖이라 lockJobBtns(JOB_BTNS)가 닿지 않는다
 /** 끝난 지적 작업(fix_one · recheck_one)의 지적을 지금 보고 있다: 그 화 검수 칸에서 그 지적을 골라 두었다 */
 const onFinding = (n, fid) => S.route[2] === 'check' && Number(S.route[3]) === n && S.chkSel[n] === fid;
 /** 지적 작업의 알림 버튼 '보기': 그 화 검수 칸에서 그 지적을 고르고 고치는 창을 연다 */
@@ -119,7 +118,9 @@ const srcLine = (n, f) => (f.origin === 'regex' ? '정규식 규칙' : `근거 �
 const RECHECK_LOCAL = { rule: ['판정 다시 보기', 'AI를 부르지 않고 지금 본문 장면으로 판정만 다시 해요'], regex: ['판정 다시 보기', 'AI를 부르지 않고 지금 본문에 이 경고 규칙만 다시 걸어 봐요'] };
 const recheckBtn = (f, busy = false) => {
   const [label, why] = RECHECK_LOCAL[f.origin] || ['이 지적만 다시 검수', ''];
-  return `<button type="button" class="btn small" data-action="chkRecheck" data-arg="${esc(f.id)}"${why ? ` title="${why}"` : ''}${busy ? ' disabled' : ''}>${label}</button>`;
+  // AI 검수 지적은 작업 recheck_one 이 도는 동안 '만드는 중'으로 잠근다. 고치는 창(#sel-tool)은 #app 밖이라 lockJobBtns 가 닿지 않아 여기서 그린다
+  const b = why ? { label, attr: '' } : jobBtn('recheck_one', chkEp(), label, S.name, f.id);
+  return `<button type="button" class="btn small" data-action="chkRecheck" data-arg="${esc(f.id)}"${why ? ` title="${why}"` : ''}${b.attr}${busy ? ' disabled' : ''}>${b.label}</button>`;
 };
 
 /** 규칙 지적의 '장면 연출에서 보기': 그 사건 본문 장면의 그 박자로 (stage.js 의 S.stgJump). */
@@ -519,7 +520,8 @@ function fixPanel(n, fid) {
       <div class="fix-way"><strong>일부러 그렇게 썼어요</strong><span class="small">그대로 둠으로 두고 이유를 남겨요. 다시 나와도 결정이 지켜져요</span><button type="button" class="btn small" data-action="setFinding" data-arg="${esc(f.id)}:kept"${busy ? ' disabled' : ''}>그대로 둠</button></div>
       <div class="fix-way"><strong>${regex ? '규칙이 잘못 짚었어요' : 'AI가 잘못 짚었어요'}</strong><span class="small">${regex ? '이 문장은 이 규칙에 해당하지 않아요' : '모순이 아니에요'}. 다시 나와도 결정이 지켜져요</span><button type="button" class="btn small" data-action="setFinding" data-arg="${esc(f.id)}:wrong"${busy ? ' disabled' : ''}>잘못 짚음</button></div>
     </div>`;
-  const tools = `<div class="row"><button type="button" class="btn small" data-action="fixGet" data-arg="${esc(f.id)}"${busy ? ' disabled' : ''}>${fixes.length ? '고침안 다시 받기' : 'AI 고침안 받기'}</button>
+  const fb = jobBtn('fix_one', n, fixes.length ? '고침안 다시 받기' : 'AI 고침안 받기', S.name, f.id);  // 고치는 창은 #app 밖이라 작업 상태를 여기서 그린다
+  const tools = `<div class="row"><button type="button" class="btn small" data-action="fixGet" data-arg="${esc(f.id)}"${fb.attr}${busy ? ' disabled' : ''}>${fb.label}</button>
       <button type="button" class="btn small" data-action="selManual">직접 고치기</button>${f.suggestion ? `<button type="button" class="btn small" data-action="issueAsk" data-arg="${esc(f.id)}">대화로 고치기</button>` : ''}</div>`;
   const done = applied ? `<div class="note info fix-done"><span>고침안을 넣었어요. 고친 문장이 다른 곳과 어긋나지 않는지 이 지적만 다시 물어볼 수 있어요.</span>
       <span class="row" style="gap:6px"><button type="button" class="btn small" data-action="fixUndo" data-arg="${esc(f.fix_group)}"${busy ? ' disabled' : ''}>한 번에 되돌리기</button>${recheckBtn(f, busy)}</span></div>` : '';
