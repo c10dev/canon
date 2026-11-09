@@ -20,6 +20,7 @@ Object.assign(S, {
   castPos: {},       // 끌어서 옮긴 자리 {id: [x, y]}
   castZoom: 0,       // 관계도 크기 단계 (CAST_ZOOM 의 몇 번째). 0 은 칸 폭에 맞춤
   castEdit: '',      // 'AI · 서술 · 신체 · 삽화' 카드를 고치는 중인 인물 id
+  castStateEdit: '', // '지금 상태' 카드를 고치는 중인 인물 id (stateedit.py)
   castMinorOpen: false,  // 목차의 단역 묶음을 펼쳤는지
 });
 
@@ -87,6 +88,7 @@ async function castLoad(arg) {
   if (!same) {
     S.castAllTl = false;
     S.castEdit = '';
+    S.castStateEdit = '';
     S.castMinorOpen = false;
     try { S.castPos = JSON.parse(localStorage.getItem('canon-cast-pos:' + S.name) || '{}') || {}; } catch (e) { S.castPos = {}; }
     try { S.castTheme = localStorage.getItem('canon-cast-theme:' + S.name) || ''; } catch (e) { S.castTheme = ''; }
@@ -441,6 +443,8 @@ function bodyRows(c) {
 // 인물 하나의 설정(고정) · 지금 상태 · 상태창 수치 · 관계 · 비밀 · 기록을 한 장에. 값은 모두 보는 시점(frame)의 것
 
 const SHEET_STATE = [['감정', 'emotional_state'], ['목표', 'current_goal'], ['위치', 'location'], ['차림', 'attire']];
+// 지금 상태 칸 + 목적격 조사 (되돌리기 묻기 · 알림 글). 칸은 stateedit.FIELDS 와 같다 (tests/test_stateedit.py)
+const STATE_OBJ = { emotional_state: '감정을', current_goal: '목표를', location: '위치를', attire: '차림을' };
 const SHEET_SETTING = ['appearance', 'personality', 'speech_style', 'goal', 'wound', 'arc', 'background'];  // 서술 말투는 'AI · 서술 · 신체 · 삽화' 카드에
 const SW_FRACTION = /^\s*(\d[\d,]*(?:\.\d+)?)\s*\/\s*(\d[\d,]*(?:\.\d+)?)\s*$/;
 
@@ -475,21 +479,44 @@ function castStatDelta(before, after) {
   return '바뀜';
 }
 
+/** 반영 뒤 작가가 고친 지금 상태 기록 중 이 시점(f.episode)의 것. 칸 → 기록. 기록이 있으면 그 화 반영 값과 다르다 (stateedit.set_state 가 같아지면 지운다) */
+function castStateLog(cid, f) {
+  return Object.fromEntries((P().state_log || []).filter((r) => r.character_id === cid && f && r.episode === f.episode).map((r) => [r.field, r]));
+}
+
+/** 지금 상태 카드. 마지막 시점(마지막으로 반영한 화, 반영 전이면 1화 시작 전)에서만 고친다. 고친 칸은 '직접 고침'과 반영 값 · 되돌리기를 보인다 */
 function castSheetState(c, f) {
   const st = castStateOf(f, c.id);
   const prev = castStateOf(castPrevFrame(), c.id);
-  const head = `<div class="between"><h2>지금 상태</h2><span class="small">화마다 바뀌는 값 · ${esc(frameLabel(f))}</span></div>`;
+  const last = S.castFrame === S.cast.frames.length - 1;
+  const open = last && S.castStateEdit === c.id;
+  const btn = last ? `<button type="button" class="btn small" id="csh-state-edit" data-action="castStateEdit" data-arg="${esc(c.id)}" aria-expanded="false">고치기</button>` : '<span class="small">마지막 시점에서 고칠 수 있어요</span>';
+  // '저장'을 눌러야 남는 카드: 고치는 동안 머리 버튼을 숨기고 카드 아래 오른쪽에 취소 · 저장 (docs/design Card)
+  const head = `<div class="pf-head"><h2>지금 상태${open ? ' <span class="small pf-state">고치는 중</span>' : ''}</h2><div class="row"><span class="small">화마다 바뀌는 값 · ${esc(frameLabel(f))}</span>${castPresent(c, f) && !open ? btn : ''}</div></div>`;
   if (!castPresent(c, f)) return `<section class="card">${head}<div class="note">이 시점에는 아직 나오지 않은 인물이에요. ${c.first_ep}화에 처음 나와요.</div></section>`;
+  const logs = castStateLog(c.id, f);
+  const when = f && f.episode ? `${f.episode}화 반영 값` : '처음 값';
+  if (open) {
+    const now = P().states.find((x) => x.character_id === c.id) || {};  // 고치는 것은 작품의 지금 상태다 (마지막 시점과 같다)
+    const rows = SHEET_STATE.map(([label, k]) => `<div class="csh-row"><span><label for="cse-${k}">${label}</label></span><textarea id="cse-${k}" rows="1" data-autogrow>${esc(now[k] || '')}</textarea>${logs[k] ? '<span class="chip">직접 고침</span>' : '<span></span>'}</div>`).join('');
+    return `<section class="card pf-sec editing" id="csh-state" tabindex="-1">${head}<div>${rows}</div>
+      <div class="between sw-foot"><span class="small">저장하면 ${f && f.episode ? `${f.episode}화의` : '1화 시작 전(0화)'} 작가 기록으로 남고 다음 화 프롬프트에 들어가요. 아는 것 · 상태창 수치 · 관계는 여기서 고치지 않아요.</span>
+        <span class="row" style="margin-left:auto"><button type="button" class="btn small ghost" data-action="castStateEdit" data-arg="${esc(c.id)}">취소</button><button type="button" class="btn small primary" data-action="castStateSave" data-arg="${esc(c.id)}">저장</button></span></div></section>`;
+  }
   const rows = SHEET_STATE.map(([label, k]) => {
     const v = st ? st[k] : '';
-    const moved = prev && f.episode && v && v !== prev[k];
+    const r = logs[k];
+    const moved = prev && f.episode && v && v !== prev[k] && !(r && r.before === prev[k]);  // 작가만 바꾼 칸은 '직접 고침'만
     const map = k === 'location' && v ? ` · <a href="${base()}/atlas">지도에서 보기</a>` : '';
-    return `<div class="csh-row"><span>${label}</span><div class="${v ? '' : 'small'}">${esc(v || '기록 없음')}${map}</div>${moved ? `<span class="csh-delta">${f.episode}화에 바뀜</span>` : ''}</div>`;
+    const was = r ? `<div class="small">${when}: ${esc(r.before || '(비어 있음)')}</div>` : '';
+    const undo = r && last ? `<button type="button" class="btn small ghost" data-action="castStateUndo" data-arg="${esc(`${c.id}|${k}`)}" aria-label="${STATE_OBJ[k]} ${when}으로 되돌리기">되돌리기</button>` : '';
+    const marks = `${moved ? `<span class="csh-delta">${f.episode}화에 바뀜</span>` : ''}${r ? '<span class="chip">직접 고침</span>' : ''}${undo}`;
+    return `<div class="csh-row"><span>${label}</span><div class="${v ? '' : 'small'}">${esc(v || '기록 없음')}${map}${was}</div>${marks ? `<span class="row" style="gap:6px">${marks}</span>` : ''}</div>`;
   }).join('');
   const knows = st ? st.knows : [];
   const old = new Set(prev ? prev.knows : knows);
   const chips = knows.map((k) => `<span class="csh-know${f.episode && !old.has(k) ? ' new' : ''}">${esc(k)}</span>`).join('');
-  return `<section class="card">${head}<div>${rows}
+  return `<section class="card pf-sec" id="csh-state" tabindex="-1">${head}<div>${rows}
     <div class="csh-row"><span>아는 것${knows.length ? ` ${knows.length}` : ''}</span><div class="csh-chips">${chips || '<span class="small">기록 없음</span>'}</div></div></div></section>`;
 }
 
@@ -1020,6 +1047,44 @@ Object.assign(actions, {
     S.castZoom = Math.min(CAST_ZOOM.length - 1, Math.max(0, S.castZoom + Number(d)));
     const stage = document.getElementById('cast-stage');
     if (stage) castSwap(stage, castStage());
+  },
+  castStateEdit(id) {
+    S.castStateEdit = S.castStateEdit === id ? '' : id;
+    render();
+    document.getElementById(S.castStateEdit ? 'cse-emotional_state' : 'csh-state-edit')?.focus({ preventScroll: true });  // 취소하면 고치기 버튼으로
+  },
+  /** 지금 상태 저장: 바뀐 칸만 보낸다 (PUT /state/<인물>, stateedit.set_state). 저장하지 않은 작품 변경은 먼저 저장한다 (뒤에 저장하면 옛 상태로 덮는다) */
+  async castStateSave(id) {
+    const st = P().states.find((x) => x.character_id === id) || {};
+    const body = {};
+    SHEET_STATE.forEach(([, k]) => {
+      const el = document.getElementById(`cse-${k}`);
+      if (el && el.value.trim() !== (st[k] || '')) body[k] = el.value;
+    });
+    if (!Object.keys(body).length) { S.castStateEdit = ''; render(); return toast('바뀐 칸이 없어요'); }
+    if (S.dirty && !(await askConfirm('저장하지 않은 변경이 있어요. 저장하고 지금 상태를 고칠까요?', { ok: '저장하고 고치기' }))) return;
+    await run('저장하는 중', async () => {
+      await saveIfDirty();
+      S.project = await api('PUT', `/projects/${enc(S.name)}/state/${enc(id)}`, body);
+      S.castStateEdit = '';
+      await castLoad();
+      toast('지금 상태를 고쳤어요');
+    });
+  },
+  /** 고친 칸 하나를 그 화 반영 값으로 돌린다. 같은 라우트에 반영 값을 보내면 기록이 지워진다 */
+  async castStateUndo(arg) {
+    const [id, k] = String(arg).split('|');
+    const r = (P().state_log || []).filter((x) => x.character_id === id && x.field === k).pop();
+    if (!r) return;
+    const when = r.episode ? `${r.episode}화 반영 값` : '처음 값';
+    if (!(await askConfirm(`${STATE_OBJ[k] || k} ${when}으로 되돌릴까요? ${when}: ${r.before || '(비어 있음)'}`, { ok: '되돌리기' }))) return;
+    if (S.dirty && !(await askConfirm('저장하지 않은 변경이 있어요. 저장하고 되돌릴까요?', { ok: '저장하고 되돌리기' }))) return;
+    await run('되돌리는 중', async () => {
+      await saveIfDirty();
+      S.project = await api('PUT', `/projects/${enc(S.name)}/state/${enc(id)}`, { [k]: r.before });
+      await castLoad();
+      toast(`${STATE_OBJ[k] || k} ${when}으로 되돌렸어요`);
+    });
   },
   castEditToggle(id) {
     S.castEdit = S.castEdit === id ? '' : id;

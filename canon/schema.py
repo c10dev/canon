@@ -1969,6 +1969,19 @@ class SettingRecord(BaseModel):
     quote: str = ""
 
 
+StateField = Literal["emotional_state", "current_goal", "location", "attire"]
+
+
+class StateRecord(BaseModel):
+    """반영 뒤 작가가 인물의 지금 상태(감정 · 목표 · 위치 · 차림)를 고친 기록. 마지막 반영 값 표시와 되돌리기에 쓴다 (canon/stateedit.py)."""
+    episode: int = Field(description="고칠 때 마지막으로 반영한 화. 1화 반영 전이면 0")
+    character_id: str
+    field: StateField
+    before: str = Field("", description="그 화 반영 값 (작가가 처음 고치기 전 값)")
+    after: str = ""
+    source: Literal["author"] = "author"
+
+
 class AddressForm(BaseModel):
     """한 인물이 다른 인물을 부르는 말과 그에게 쓰는 말씨. 방향이 있다 (A→B 와 B→A 가 따로). 작가가 인물 · 관계 화면에서 정하고,
     본문에서 바뀐 것은 상태 변경안의 address_changes 로 와서 작가가 골라야 반영한다 (canon/address.py)."""
@@ -2478,6 +2491,7 @@ class Project(BaseModel):
     abilities: list[Ability] = Field(default_factory=list, description="스킬 · 특성 · 칭호 도감 (canon/abilities.py)")
     setting_log: list[SettingRecord] = Field(default_factory=list, description="인물 설정이 바뀐 기록 (승인한 설정 바꾸기 제안, 1화 반영 뒤 작가가 고친 것)")
     setting_held: list[SettingChange] = Field(default_factory=list, description="자동 집필이 반영하지 않고 남겨 둔 설정 바꾸기 제안. 작가가 인물 화면에서 적용하거나 버린다")
+    state_log: list[StateRecord] = Field(default_factory=list, description="반영 뒤 작가가 인물의 지금 상태를 고친 기록 (canon/stateedit.py)")
     address_forms: list[AddressForm] = Field(default_factory=list, description="인물끼리 부르는 말과 말씨 (방향마다 하나, canon/address.py)")
     address_log: list[AddressRecord] = Field(default_factory=list, description="호칭 · 말씨가 바뀐 기록 (승인한 바뀜 제안, 1화 반영 뒤 작가가 고친 것)")
     knows_folds: list[KnowsFoldRecord] = Field(default_factory=list, description="아는 정보를 접은 기록 (canon/knows.py)")
