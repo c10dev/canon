@@ -1,4 +1,4 @@
-"""대화 보내기(chat.js chatSend) · 줄기 지우기(lines.js lineDelete) · 관계 보정(cast.js tieFix)이 저장하지 않은 변경을
+"""줄기 지우기(lines.js lineDelete) · 관계 보정(cast.js tieFix)이 저장하지 않은 변경을
 말없이 저장하지 않고 먼저 묻는지, 취소하면 아무것도 보내지 않는지. 관계도 다시 그리기(cast.js castSwap)가 포커스를 되돌리는지,
 새 AI 답만 숨은 알림 칸(chat.js chatAnnounce)에 들어가는지. node 가 있을 때만 돈다."""
 from canon.schema import Project
@@ -18,21 +18,6 @@ render = () => {};
 redrawChat = () => {};
 toast = () => {};
 """
-
-
-@needs_node
-def test_chat_send_asks_before_save_and_cancel_keeps_draft():
-    expr = FAKE + """(async () => {
-      S.project = data;
-      S.name = 'p'; S.chatTopic = 'plot'; S.dirty = true; S.chatDraft = '고쳐 줘';
-      answers = [false];
-      await legacyChatSend();  // 플롯 대화는 agent.js 가 가로채므로 chat.js 의 보내기를 바로 부른다
-      return { log, pending: S.chatPending, draft: S.chatDraft };
-    })()"""
-    got = run_js(FILES, expr, dump(Project()))
-    assert got["log"] == [["ask", "저장하지 않은 변경이 있어요. 저장하고 보낼까요?", "저장하고 보내기"]]
-    assert got["pending"] is None
-    assert got["draft"] == "고쳐 줘"
 
 
 @needs_node
@@ -90,15 +75,17 @@ def test_chat_announce_only_new_reply():
       const live = { textContent: '' };
       let panel = true;
       document = { getElementById: (id) => (id === 'chat-live' ? live : null), querySelector: () => (panel ? {} : null) };
-      S.name = 'p'; S.chatTopic = 'text:1';
-      S.project = { ...data, chats: [{ topic: 'text:1', messages: [{ role: 'user', text: '질문' }, { role: 'ai', text: '옛 답' }] }] };
+      S.name = 'p'; S.project = data;
+      const turn = (reply) => ({ message: '질문', reply, end: 'done', writes: [] });
+      S.agent = { name: 'p', sessions: [{ id: 's1', turns: [turn('옛 답')] }, { id: 's2', turns: [turn('다른 세션 답')] }], legacy: 0, older: [] };
+      S.agentSid = 's1';
       const out = [];
       chatAnnounce(); out.push(live.textContent);  // 처음 연 패널: 옛 답은 알리지 않는다
       chatAnnounce(); out.push(live.textContent);  // 다시 그려도 그대로
-      S.project.chats[0].messages.push({ role: 'user', text: '또' }, { role: 'ai', text: '새 답' });
+      S.agent.sessions[0].turns.push(turn('새 답'));
       chatAnnounce(); out.push(live.textContent);
-      S.chatTopic = 'text:2';
-      chatAnnounce(); out.push(live.textContent);  // 다른 대화로 옮기면 알리지 않는다
+      S.agentSid = 's2';
+      chatAnnounce(); out.push(live.textContent);  // 다른 세션으로 옮기면 알리지 않는다
       return out;
     })()"""
     assert run_js(FILES, expr, dump(Project())) == ["", "", "AI 답: 새 답", "AI 답: 새 답"]

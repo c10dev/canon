@@ -740,12 +740,14 @@ function wizFoot(step) {
 function viewSetupWizard() {
   const w = wizState();
   const bodies = [wizBasics, wizLogline, wizWorld, wizCast, wizRels, wizFinish];
-  const right = `${chatButton('setup')}<button type="button" class="btn ghost" data-action="setupMode" data-arg="doc">한 장으로 모두 보기</button>`;
+  // 빈칸 AI 제안은 옛 설정 대화 패널 아래에 있었다(04e 에서 패널을 지움). 한 장 보기처럼 머리에 둔다
+  const sug = ((b) => `<button type="button" class="btn" data-action="suggest"${b.attr} title="비어 있는 칸과 새 인물 · 관계를 한 번에 제안해요. 채운 칸은 건드리지 않고, 고른 것만 적용해요">✦ ${b.label}</button>`)(jobBtn('suggest', null, '빈칸 AI 제안받기'));
+  const right = `${sug}${chatButton()}<button type="button" class="btn ghost" data-action="setupMode" data-arg="doc">한 장으로 모두 보기</button>`;
   return `${header('1단계 · 새 작품', '설정 도우미', '', right)}
     ${aiNote()}
     ${S.suggestion ? viewSuggestion() : ''}
     ${outlineDoc(wizStepper(), `<div class="setup-secs"><section class="card wiz-card" aria-labelledby="wiz-q">${bodies[w.step]()}</section></div>`)}
-    ${wizFoot(w.step)}${chatLegacy('setup')}`;
+    ${wizFoot(w.step)}`;
 }
 
 /** 칸을 고치면 필수 칸 수, 목차, 필수 표시, 기획서 머리 요약만 다시 그린다 (입력 중인 칸의 포커스 유지) */
@@ -799,16 +801,6 @@ function redrawWizRels() {
   const role = e.target.dataset.bind.match(/^characters\.(\d+)\.role$/);
   if (role) document.querySelectorAll(`[data-action="wizRole"][data-arg^="${role[1]}|"]`).forEach((btn) => btn.setAttribute('aria-pressed', String(btn.dataset.arg === `${role[1]}|${e.target.value}`)));
 }));
-
-// 마법사에서 대화 패널에 보이는 시작 문장 (걸음마다)
-const WIZ_CHAT = [
-  ['제목 후보를 다섯 개 내 줘', '이 장르에 어울리는 제목으로 바꿔 줘'],
-  ['로그라인 빈 칸을 채워 줘', '로그라인이 밋밋해, 걸린 것을 키워 줘'],
-  ['배경을 두세 문장으로 구체적으로 써 줘', '세계관 규칙을 세 개쯤 채워 줘'],
-  ['로그라인에 나온 인물을 만들어 줘', '라이벌을 한 명 넣어 줘'],
-  ['주인공과 상대역의 관계를 제안해 줘', '인물 사이 관계를 채워 줘'],
-  ['남은 빈칸을 채워 줘', '주인공의 약점을 더 어둡게'],
-];
 
 /** 1단계 화면: 필수 칸이 빈 새 작품은 마법사, 그 밖은 기획서 */
 function viewSetup() {
@@ -927,7 +919,7 @@ function viewSetupDoc() {
   const first = !p.characters.length;
   const sug = ((b) => `<button type="button" class="btn${first ? ' primary' : ''}" data-action="suggest"${b.attr} title="비어 있는 칸과 새 인물 · 관계를 한 번에 제안해요. 채운 칸은 건드리지 않고, 고른 것만 적용해요">✦ ${b.label}</button>`)(jobBtn('suggest', null, '빈칸 AI 제안받기'));
   const go = (cls) => `<a class="btn${first ? '' : ' primary'} ${cls}" href="${base()}/style">문체 레퍼런스로</a>`;
-  return `${header('1단계 · 기획서', '설정 도우미', `<span id="setup-sum">${esc(docSummary(p))}</span>`, `${sug}${chatButton('setup')}${go('setup-go')}`)}
+  return `${header('1단계 · 기획서', '설정 도우미', `<span id="setup-sum">${esc(docSummary(p))}</span>`, `${sug}${chatButton()}${go('setup-go')}`)}
     ${aiNote()}
     ${S.suggestion ? viewSuggestion() : ''}
     ${outlineDoc(docToc(), `<div class="setup-secs">
@@ -974,7 +966,7 @@ function viewSetupDoc() {
         <div class="grid-2">${input('화당 분량', 'meta.words_per_episode', { type: 'number', hint: '공백 포함 글자 수' })}${input('메모', 'meta.notes', { rows: 2 })}</div>
       </section>
     </div>`)}
-    ${first ? '' : `<div class="setup-foot phone-only">${go('')}</div>`}${chatLegacy('setup')}`;
+    ${first ? '' : `<div class="setup-foot phone-only">${go('')}</div>`}`;
 }
 
 /** 상태창을 쓰는 작품이면 상태창 수치 화면으로 가는 줄. 작품 틀과 처음 수치는 그 화면에서 정한다 */

@@ -4,7 +4,7 @@
    세션 목록은 작품 하나에 하나다(새 세션 topic 'agent', 옛 'plot' 세션도 함께). 대상은 화면이 준다(chat.js chatDefaultTarget).
    고정하지 않은 세션은 턴을 보낼 때 화면 대상으로 바뀌고, 상태 줄의 대상이 바뀌면 한 번 강조하고 #chat-live 로 알린다(agentAfterDraw).
    설정 도구(edit_setup)의 승인 카드와 쓴 것 비교는 agentsetup.js 가 그린다.
-   옛 플롯 대화 기록은 '이전 대화'로 지금 카드(chat.js proposal)를 그대로 보인다. 설정 · 문체 · 본문 고치기의 옛 기록은 '이전 대화'에서 읽기만 한다.
+   옛 플롯 대화 기록은 '이전 대화'로 지금 카드(chat.js proposal)를 그대로 보인다. 설정 · 문체 · 본문 고치기의 옛 기록은 '이전 대화'에서 읽기만 하고, 적용한 설정 · 문체 변경안은 거기서 취소한다(chat.js chatReadOnlyCard).
    본문 고치기(서버 agent_text, 도구 revise_text): 집필 화면에서 본문을 고르면 입력 상자 위 '재료' 칩으로 붙고(S.agentMaterial), '/' 빠른 요청에
    더 짧게 · 대사 늘리기 같은 본문 빠른 요청(서버 prompts.PASSAGE_PRESETS)이 함께 뜬다. 재료나 빠른 요청이 붙은 말은 서버가 에이전트 단계 없이 그 도구를 바로 부른다.
    결과는 후보 카드(agentTextApproval)이고 권한 모드와 상관없이 늘 묻는다. 고른 후보 하나만 본문에 들어가고 수정 기록에 남는다.
@@ -176,12 +176,10 @@ function agentPanel() {
   // 같은 작품에서 대상이 바뀔 때만 알린다 (다른 작품으로 옮긴 첫 그리기는 알리지 않는다)
   if (S.agentShown && S.agentShown !== shown && S.agentShown.startsWith(`${S.name}|`) && !legacy) S.agentFlash = agentTargetText(target);
   if (!legacy) S.agentShown = shown;
-  const sw = chatSwitch('plot');
   // 마지막 턴이 본문 후보를 고르기를 기다린다. 휴대폰 시트는 후보를 보이려고 높아진다 (app.css .has-cands)
   const last = s && s.turns[s.turns.length - 1];
   const cands = !legacy && last && last.end === 'wait' && last.approval && last.approval.passage;
   return `<aside class="chat-panel${cands ? ' has-cands' : ''}" aria-label="대화 에이전트">
-    ${sw ? `<div class="chat-switch-row">${sw}</div>` : ''}
     <div class="chat-head">
       <button type="button" class="sess-btn" data-action="agentMenuToggle" aria-haspopup="true" aria-expanded="${S.agentMenu}">
         <strong><span class="sess-title">${esc(title)}</span>${AGENT_ICON.down}</strong><span class="small">${esc(sub)}</span></button>
@@ -227,7 +225,8 @@ function agentLog() {
   }
   const old = agentOldTopic(S.agentSid);
   if (old) {
-    return `<div class="note plain">${esc(chatTopicName(old))} 예전 대화 기록이에요. 여기서는 읽기만 해요. 변경안을 고르거나 적용을 취소하려면 그 화면 패널 머리에서 '${esc(chatOldTitle(old))}'로 바꾸세요. 새로 말하면 새 세션이 열려요.</div>${chatLog(old, { readOnly: true })}`;
+    const how = old === 'setup' || old === 'style' ? '적용한 변경안은 여기서 취소할 수 있어요.' : '넣은 후보는 집필 화면의 수정 기록에서 되돌려요.';
+    return `<div class="note plain">${esc(chatTopicName(old))} 예전 대화 기록이에요. 여기서는 읽기만 해요. ${how} 새로 말하면 새 세션이 열려요.</div>${chatLog(old, { readOnly: true })}`;
   }
   const s = agentSession();
   if (!s || !s.turns.length) {
@@ -238,9 +237,7 @@ function agentLog() {
       return `<div class="note info">본문에서 고칠 부분을 드래그하면 아래에 재료로 붙어요. 바라는 것을 적거나 '/'를 눌러 더 짧게 · 대사 늘리기 같은 빠른 요청을 고르세요. AI가 후보를 2~3개 내고, 고른 후보만 본문에 들어가요. 권한 모드와 상관없이 늘 골라서 넣고, 넣은 뒤에도 되돌릴 수 있어요.</div>`;
     }
     if (aim === 'style') {  // 문체 도구가 있다 (agent_style)
-      const ex = CHAT_TOPICS.style ? CHAT_TOPICS.style.examples : [];
-      return `<div class="note info">문체를 말로 고쳐요. AI가 스타일 프로필에서 바꿀 칸을 지금 값과 나란히 보여 주고, 바뀐 문체로 쓴 시험 문단도 함께 내요. 고른 칸만 이 작품 문체에 들어가고, 적용한 뒤에도 취소할 수 있어요. 권한 모드와 상관없이 늘 먼저 물어봐요. '+'에서 참고할 화를 고르면 그 화 한 대목을 새 문체로 고쳐 써 봐요.</div>
-        <div class="row">${ex.map((x) => `<button type="button" class="btn small" data-action="agentExample" data-arg="${esc(x)}">${esc(x)}</button>`).join('')}</div>`;
+      return `<div class="note info">문체를 말로 고쳐요. AI가 스타일 프로필에서 바꿀 칸을 지금 값과 나란히 보여 주고, 바뀐 문체로 쓴 시험 문단도 함께 내요. 고른 칸만 이 작품 문체에 들어가고, 적용한 뒤에도 취소할 수 있어요. 권한 모드와 상관없이 늘 먼저 물어봐요. '+'에서 참고할 화를 고르면 그 화 한 대목을 새 문체로 고쳐 써 봐요.</div>`;
     }
     return `<div class="note info">구조와 플롯을 말로 고쳐요. AI가 필요한 플롯과 본문을 읽고 고치며, 아래 권한 모드에 따라 초안은 바로 쓰고 확정한 화나 범위는 물어봐요. 바로 쓴 것은 되돌릴 수 있고, 본문이 있는 화는 바꾸지 않아요.</div>
       <div class="row">${t.examples.map((x) => `<button type="button" class="btn small" data-action="agentExample" data-arg="${esc(x)}">${esc(x)}</button>`).join('')}</div>`;
@@ -909,11 +906,10 @@ Object.assign(actions, {
   },
   /** 집필 화면 머리의 'AI에게 고치기': 대화 에이전트를 열고(대상은 화면이 주는 text:N), 고른 본문이 있으면 재료로 붙인다. 열려 있으면 닫는다 */
   agentOpenText(n) {
-    if (S.chatOpen && !S.chatOld) return actions.toggleChat();
+    if (S.chatOpen) return actions.toggleChat();
     const sel = typeof curSel === 'function' ? curSel() : null;
     if (sel && sel.n === Number(n)) S.agentMaterial = { n: sel.n, start: sel.start, text: sel.text };
-    if (!S.chatOpen) return actions.toggleChat();  // 열 때 옛 대화가 아닌 대화 에이전트로 연다
-    return actions.chatUseAgent();
+    return actions.toggleChat();
   },
   agentMaterialDrop() {
     agentAttach(null);
@@ -1027,12 +1023,6 @@ Object.assign(actions, {
     agentStartTurn(ks.length === 1 ? `${names[0]} 방향으로 고쳐 줘.` : `${names.join('과 ')}을 섞어서 고쳐 줘. 각 안에서 살릴 것을 골라 하나의 흐름으로 이어 줘.`);
   },
 });
-
-// 플롯 대화는 이 패널이 보낸다 (Enter 보내기는 chat.js 가 chatSend 를 부른다)
-const legacyChatSend = actions.chatSend;
-actions.chatSend = function (preset) {
-  return S.chatTopic === 'plot' ? actions.agentSend() : legacyChatSend.call(this, preset);
-};
 
 document.addEventListener('change', (e) => {
   const d = e.target.dataset || {};

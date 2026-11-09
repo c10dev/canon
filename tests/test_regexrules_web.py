@@ -10,7 +10,7 @@ import pytest
 
 from canon import regexrules, store
 
-from .test_passage import TEXT, _ep, _written
+from .test_passage import TEXT, _ep, _old_passage, _written
 from .test_web import _wait
 
 JOB = "/api/projects/lh/jobs"
@@ -225,7 +225,7 @@ def test_passage_and_fix_now_record(client):
     _use(client, _make(client, STOOD))
     quote = "서윤은 등대 앞에 섰다."
     sel = {"start": TEXT.index(quote), "text": quote}
-    p = client.post("/api/projects/lh/chat/text:1", json={"message": "더 짧게", "selection": sel}).json()
+    p = _old_passage("lh", 1, sel, "더 짧게")  # 옛 'AI에게 고치기' 기록 (보내기는 04e 에서 지움. 같은 revise_passage 를 대화 에이전트가 부른다)
     ai = next(c for c in p["chats"] if c["topic"] == "text:1")["messages"][-1]
     first = ai["passage"]["candidates"][0]
     assert "서 있었다" in first["text"] and [c["after"] for c in first["ruled"]] == ["서 있었다"]
