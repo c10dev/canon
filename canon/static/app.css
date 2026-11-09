@@ -1629,6 +1629,7 @@ mark.hl.flash { outline: 2px solid currentColor; outline-offset: 2px; }
   body.side-rail .side::-webkit-scrollbar { display: none; }
   body.side-rail .side-top { flex-direction: column; padding: 0; gap: var(--space-4); }
   body.side-rail .side-top .brand, body.side-rail .side > .work-card, body.side-rail .side-warn, body.side-rail .side-foot > .tf-credit { display: none; }
+  body:not(.side-rail) .ai-note { display: none; }  /* AI 연결 안내는 펴진 사이드바의 아래 줄(.side-warn)에만. 레일 · 900px 이하에서는 본문 상자로 보인다 (home.js aiNote) */
   body.side-rail .side-ico { width: 44px; height: 40px; }
   body.side-rail .hub-btn { min-width: 44px; min-height: 40px; }
   body.side-rail .nav a, body.side-rail .nav-off { min-height: 40px; padding: 0; justify-content: center; }

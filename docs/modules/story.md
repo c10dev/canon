@@ -383,6 +383,8 @@
 ### `canon/routes/play.py`
 
 - 플레이 모드 웹 라우트(`/api/projects/{name}/play/...`, 출생 배경)
+- `GET /api/projects/{name}/play` 는 플레이 사본이 아닌 작품에 200 과 `null` 을 돌려준다. 작품 홈이 화면을 옮길 때마다 묻기 때문이다
+- 쓰기 경로(`play/advance` · `see` · `rewind` · `end` · `fork` · `settings`)와 `play/life` 는 플레이 사본이 아니면 `_play` 가 400 을 낸다
 - 작품 목록 카드의 플레이 요약(`_play_card` · `_play_days`)은 `web.py` 에 남는다
 - `web.py` 맨 끝의 `_attach_routes` 가 `router` 를 앱에 붙이고 `EXPORTS` 의 이름을 `web` 에도 둔다
 - 공용 도우미(`_load` · `_save` · `_edit` 등)는 `..web` 에서 불러 쓴다
@@ -626,6 +628,7 @@
 - 지난 일 · 되감기(`/past`, `<dialog>`)
 - 생애 기록(`/life`)
 - 작품 홈 카드(`playHomeCard`)
+- `/play` 가 `null` 이면 작품 홈(`playHomeLoad`)은 플레이 사본이 아닌 것으로 둔다. 플레이 화면(`playLoad`)은 오류를 내고, 다시 묻기(`playRefresh`)는 실패와 같게 4초 뒤 다시 묻는다
 - 시계 규칙은 DOM 없는 순수 함수(`playItems` · `playGap` · `playClockStart` · `playPhase` · `playTick` · `playClock`, `tests/test_play_js.py`)
 - 서버는 `routes/play.py` 의 `/api/projects/{이름}/play…` 와 `/api/play/worlds`: 구간 작업 `play_turn`(남은 반영 → 장면 → 반영, 플레이 잠금 `_play_lock`, 다음 흐름 `_play_continue`)
 - 배경 `play_sketch`

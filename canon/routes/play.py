@@ -549,7 +549,11 @@ def play_start(world: str, body: PlayStartIn) -> PlayStarted:
 
 
 @router.get("/api/projects/{name}/play")
-def get_play(name: str) -> PlayView:
+def get_play(name: str) -> PlayView | None:
+    """플레이 화면 값. 플레이 사본이 아니면 null 이다 (작품 홈이 화면을 옮길 때마다 묻는다). 쓰기 경로는 _play 가 400 을 낸다."""
+    _need(name)
+    if store.load_play(name) is None:
+        return None
     return _play_view(name)
 
 

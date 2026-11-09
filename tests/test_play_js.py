@@ -125,3 +125,27 @@ def test_retry_body():
     ]
     got = run_js(FILES, "data.map(([t, a]) => playRetryBody(t, a))", cases)
     assert got == [{}, {"choice": 2}, {}, {"action": "바다로 뛰어든다"}, {}, {}]
+
+
+@needs_node
+def test_plain_project_play_view_is_null():
+    """서버는 플레이가 아닌 작품의 GET /play 에 null 을 준다 (routes/play.py get_play). 작품 홈은 플레이 사본이 아닌 것으로 두고,
+    플레이 화면 주소로 열면 전처럼 오류를 내고, 다시 묻기(playRefresh)는 실패와 같게 기다렸다 다시 묻는다."""
+    got = run_js(FILES, """(async () => {
+  clearInterval = () => {};
+  let waits = 0;
+  setTimeout = () => { waits += 1; };
+  api = async () => null;
+  S.name = 'w';
+  S.homePlay = { name: 'w' };
+  await playHomeLoad(api('GET', '/projects/w/play'));
+  const home = S.homePlay;
+  const copy = playCopy();
+  let err = '';
+  try { await playLoad(['play', 'w']); } catch (e) { err = e.message; }
+  S.route = ['play', 'w'];
+  S.playName = 'w';
+  await playRefresh();
+  return { home, copy, err, play: S.play || null, waits };
+})()""", None)
+    assert got == {"home": None, "copy": False, "err": "플레이가 아닌 작품이에요: w", "play": None, "waits": 1}

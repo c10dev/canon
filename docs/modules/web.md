@@ -238,6 +238,9 @@
 - 사이드바 자동 집필 메뉴 이름 `autoMenuLabel`: 돌면 '자동 집필 · 쓰는 중', 멈추면 그 까닭
 - 작품 목록 `projectGo` 는 플롯 전 작품의 설정 필수 칸이 비면(`setup_ready` false) '설정 마저 채우기'로 보낸다
 - `aiWarning` 은 Anthropic 키가 없거나(`claude_api` false) Claude 구독을 쓸 수 없으면(`claude` install · login · error) 첫 작업 전에 알린다
+- `aiWarning` 의 글은 사이드바 아래 줄(`app.js` `sideFoot` 의 `.side-warn`)과 본문 안내 상자(`aiNote`)가 함께 쓴다
+- `aiNote` 상자(`.ai-note`)는 사이드바가 펴진 901px 이상에서 숨는다. 레일 · 900px 이하에서만 보여 한 화면에 한 번만 나온다
+- 사이드바가 없는 새 플레이 화면은 `aiNote(true)` 로 상자를 늘 보인다
 - 작품 홈
   - 지금 화 `homeNowCard` · 확인할 것 `homeTodos`(말투 빈 인물 `homeSpeechGaps`, 시점 인물 서술 말투 빈칸 `homeVoiceGap`) · 전 화수 막대 `homeProgress` · 줄인 목록 `homeCast` · `homeForeshadows`
   - 계산 함수는 작품을 받는 순수 함수 `tests/test_home_js.py`
@@ -282,6 +285,7 @@
 
 - 웹 화면 한 쪽
 - 화면 파일을 `<script>` 로 읽는다
+- 브라우저 탭 아이콘은 `static/favicon.svg` 다(먹색 C 와 귤색 점, 색은 `docs/design/tokens.json` 의 `logo` · `brand-2`, 어두운 모드 값은 SVG 안 `prefers-color-scheme`)
 - 읽는 차례: `app.js` → `outline.js` → `hub.js` → `notify.js` → 화면 파일들(`check.js` 바로 뒤 `flow.js`, `atlas.js` 바로 뒤 `atlas-*.js`)
 - 새 화면 파일을 더하면 여기에 `<script>` 를 넣는다
 
