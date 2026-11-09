@@ -173,7 +173,8 @@ def run_cost(provider: str, model: str, tokens: Optional[dict]) -> Optional[floa
         return None
     tin = tokens.get("prompt_tokens") or 0
     tout = (tokens.get("completion_tokens") or 0) + (tokens.get("thought_tokens") or 0)
-    return usage.cost(p, tin, tout, tokens.get("cached_tokens") or 0)
+    return usage.cost(p, tin, tout, tokens.get("cached_tokens") or 0, False,
+                      tokens.get("written") or 0, tokens.get("written_1h") or 0)
 
 
 def to_run(b: PromptBackend, row: dict) -> PromptRun:
