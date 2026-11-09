@@ -511,8 +511,8 @@ function viewEpisode(n, panel = 'write') {
   // 640px 이하는 보조 버튼(대화 · 다시 생성 · 작업지시서)을 머리 줄에서 숨기고 ⋯ 메뉴에 같은 동작을 둔다 (작업지시서는 메뉴에 이미 있다, app.css .w-head)
   const chatOn = e.text && editable;
   const rw = e.text && editable && (isApi || e.status === 'finalized') ? jobBtn('write', n, '다시 생성') : null;
-  // 'AI에게 고치기'는 대화 에이전트를 연다 (04b: 대상 text:N, 고른 본문은 재료 칩). 옛 대화는 패널 머리의 전환으로 연다
-  const aiOn = !!S.chatOpen && !S.chatOld;
+  // 'AI에게 고치기'는 대화 에이전트를 연다 (04b: 대상 text:N, 고른 본문은 재료 칩)
+  const aiOn = !!S.chatOpen;
   const narrow = `${chatOn ? `<button type="button" class="pop-item" data-action="agentOpenText" data-arg="${n}" aria-pressed="${aiOn}">AI에게 고치기</button>` : ''}${rw ? `<button type="button" class="pop-item" data-action="rwOpen" data-arg="${n}" aria-expanded="${S.rwOpen === n}"${rw.attr}>${rw.label}</button>` : ''}`;
   const right = `${chatOn ? `<button class="btn${aiOn ? ' on' : ''}" data-action="agentOpenText" data-arg="${n}" aria-pressed="${aiOn}">AI에게 고치기</button>` : ''}
     ${rw ? `<button class="btn${S.rwOpen === n ? ' on' : ''}" data-action="rwOpen" data-arg="${n}" aria-expanded="${S.rwOpen === n}"${rw.attr}>${rw.label}</button>` : ''}
@@ -576,7 +576,7 @@ function viewEpisode(n, panel = 'write') {
     ${cuePanel(n)}
     ${e.text ? illustPanel(n) : ''}
     ${openingPanel(n)}`)}
-    ${e.text && editable && S.rwOpen === n ? rewritePanel(n) : ''}${chatLegacy(e.text && editable ? `text:${n}` : '', { hold: !!(e.text && editable) && S.rwOpen === n })}`;
+    ${e.text && editable && S.rwOpen === n ? rewritePanel(n) : ''}${chatHold(!!(e.text && editable) && S.rwOpen === n)}`;
 }
 
 /** 상태 변경안 요약 카드 (docs/ux 06). 집필 칸의 단계 띠 아래 · 본문 위에 두고, 변경안이 생긴 화에서만 보인다.

@@ -97,17 +97,6 @@ outlineSpy('sty-toc', {
 const pfKey = (root, id) => (root ? `lib:${(S.lib && S.lib.id) || 'new'}:${id}` : `${S.name}:${id}`);
 const pfOpen = (root, id) => !!(S.styleOpen || {})[pfKey(root, id)];
 
-/** 대화 패널이 열려 있고 아직 고르지 않은 문체 변경안이 있으면 그 변경안이 바꿀 칸 (카드에 표시한다). */
-function styleChatKeys() {
-  if (!S.chatOpen || S.chatOld !== 'style' || typeof chatMessages !== 'function') return new Set();  // 옛 문체 대화를 연 동안만 (chat.js chatShownTopic)
-  const msgs = chatMessages('style');
-  for (let i = msgs.length - 1; i >= 0; i--) {
-    const m = msgs[i];
-    if (m.style) return new Set(m.outcome ? [] : m.style.edits.map((e) => e.key));
-  }
-  return new Set();
-}
-
 /** 이름 없이 aria-label 만 단 입력칸 (표지 표처럼 칸 이름이 표 머리에 있을 때). app.js 의 input 과 같은 바인딩 */
 function bareInput(path, label, { root = '', kind = 'text', cls = '', placeholder = '' } = {}) {
   return `<input id="f-${path.replace(/\./g, '-')}" type="text" class="${cls}" value="${esc(bindValue(path, kind, root))}" data-bind="${path}" data-kind="${kind}"${root ? ` data-root="${root}"` : ''} aria-label="${esc(label)}" placeholder="${esc(placeholder)}">`;
@@ -365,7 +354,7 @@ function viewStyle() {
   styleSeen = { name: S.name, title: P().meta.title || S.name };
   const st = P().style;
   const next = stepLabel('arc');
-  const go = (primary) => `${chatButton('style')}<a class="btn${primary ? ' primary' : ''}" href="${base()}/arc">${next}${josa(next, '으로', '로')}</a>`;
+  const go = (primary) => `${chatButton()}<a class="btn${primary ? ' primary' : ''}" href="${base()}/arc">${next}${josa(next, '으로', '로')}</a>`;
   // 문체가 비었으면 시작하는 세 갈래(원문 · 라이브러리 · 직접 채우기)만 보인다. '문체 분석'이 주 버튼이다
   if (styleBlank(st) && !(S.styleManual || {})[S.name]) {
     const rows = [['source', '원문 붙여 넣기', '', ''], ['pick', '라이브러리에서 고르기', String((S.libs || []).length), ''], ['manual', '직접 채우기', '', '']];
@@ -375,9 +364,9 @@ function viewStyle() {
       ${stylePickCard()}
       <section class="card tight pf-sec" id="pf-manual" tabindex="-1"><div class="sty-row"><div><h3>직접 채우기</h3><p class="small pf-sub">원문 없이 시점 · 시제부터 카드를 하나씩 채워요. 대화로 다듬기에서 말로 시작해도 돼요.</p></div>
         <span class="sty-acts"><button type="button" class="btn small" data-action="styleManual">빈 카드 열기</button></span></div></section>
-    </div></div></div>${chatLegacy('style')}`;
+    </div></div></div>`;
   }
-  const hot = styleChatKeys();
+  const hot = new Set();  // 옛 문체 대화 변경안이 바꿀 칸 표시. 04e 에서 옛 패널을 지워 늘 비어 있다
   const r = P().style_learning;
   const todo = r ? r.suggestions.filter((s) => !s.applied).length : 0;
   const ex = P().style_example;
@@ -385,7 +374,7 @@ function viewStyle() {
   return `${header('2단계', stepLabel('style'), '이 규칙과 대표 문단이 매 화 본문 생성에 함께 들어가요. 카드의 \'고치기\'로 그 카드만 고쳐요.', go(true))}
     <div class="outline-wrap style-page"><div class="outline-doc">${styleToc(rows)}<div class="sty-secs">
       ${styleDraftCard()}${styleStatus()}${todo ? learnTodoCard() : ''}${styleExampleCard()}${profileCards('style', '', hot)}${anchorCard()}${styleSourceCard()}${learnCard()}
-    </div></div></div>${chatLegacy('style')}`;
+    </div></div></div>`;
 }
 
 // ----- 문체 라이브러리 -----
@@ -653,7 +642,7 @@ Object.assign(actions, {
     const k = pfKey(root, 'narr');
     const open = !!(S.styleFill || {})[k];
     const prof = getPath(bindRoot(root), root ? 'profile' : 'style');
-    S.styleFill = { ...S.styleFill, [k]: open ? null : foldBlank(NARR_KEYS, narrHas(prof, root ? new Set() : styleChatKeys())).blank };
+    S.styleFill = { ...S.styleFill, [k]: open ? null : foldBlank(NARR_KEYS, narrHas(prof, new Set())).blank };
     render();
     if (!open) focusEl($('#pf-narr .pf-fill textarea, #pf-narr .pf-fill input'));
     else $('#pf-narr [data-action="styleFill"]')?.focus();

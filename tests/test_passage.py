@@ -1,5 +1,6 @@
 """본문 부분 수정 테스트 (mock LLM): 고른 부분 직접 고치기, AI 후보 넣기, 되돌리기, 기록. 실행: python -m pytest tests"""
-from canon import pipeline, prompts
+from canon import pipeline, prompts, store
+from canon.mock import MockLLM
 from canon.schema import ConsistencyIssue, EpisodePlot, Episode, Project, Selection
 
 from .test_plot_chat import _project
@@ -40,13 +41,21 @@ def test_manual_edit_and_undo(client):
     assert client.post("/api/projects/lh/episodes/1/edits", json={"selection": gone, "after": "x"}).status_code == 400
 
 
+def _old_passage(name, n, sel, message, preset=""):
+    """옛 'AI에게 고치기' 대화 기록을 남긴다. 보내기(chat_send 'text:N')는 04e 에서 지웠고, 같은 함수를 대화 에이전트(agent_text)와 명령줄이 부른다."""
+    q = store.load(name)
+    s = Selection(start=sel["start"], text=sel["text"])
+    pipeline.record_passage(q, n, s, message, preset, pipeline.revise_passage(MockLLM(), q, n, s, message, preset, rules=True))
+    store.save(name, q)
+    return store.load(name).model_dump(mode="json")
+
+
 def test_ai_candidates_apply(client):
     _written(client)
     quote = "도현은 대답하지 않았다."
     sel = {"start": TEXT.index(quote), "text": quote}
-    assert client.post("/api/projects/lh/chat/text:1", json={"message": "더 짧게"}).status_code == 400  # 고른 부분 없음
-    assert client.post("/api/projects/lh/chat/text:99", json={"message": "x", "selection": sel}).status_code == 404
-    p = client.post("/api/projects/lh/chat/text:1", json={"preset": "dialogue", "selection": sel}).json()
+    assert client.post("/api/projects/lh/chat/text:1", json={"message": "x", "selection": sel}).status_code == 404  # 옛 대화는 보내지 않는다
+    p = _old_passage("lh", 1, sel, "", "dialogue")
     chat = next(c for c in p["chats"] if c["topic"] == "text:1")
     user, ai = chat["messages"]
     assert (user["text"], user["preset"]) == ("대사 늘리기", "dialogue")
@@ -69,7 +78,7 @@ def test_ai_candidates_apply(client):
     prompt = prompts.passage_prompt(q, 1, Selection(start=edit["start"], text=edit["after"]), "조금 더 길게")
     assert "【고칠 부분】도현은 끝내 입을 열지 않았다.【여기까지】" in prompt and "2번 후보를 넣음" in prompt
 
-    p = client.post("/api/projects/lh/chat/text:1", json={"message": "다르게", "selection": {"start": 0, "text": "바람이 불었다."}}).json()
+    _old_passage("lh", 1, {"start": 0, "text": "바람이 불었다."}, "다르게")
     p = client.post("/api/projects/lh/chat/text:1/3/dismiss").json()
     assert next(c for c in p["chats"] if c["topic"] == "text:1")["messages"][3]["outcome"] == "dismissed"
     p = client.delete("/api/projects/lh/chat/text:1").json()
@@ -84,7 +93,7 @@ def test_finalized_can_be_edited(client):
     sel = {"start": 0, "text": "바람이 불었다."}
     e = _ep(client.post("/api/projects/lh/episodes/1/edits", json={"selection": sel, "after": "비가 왔다."}).json())
     assert e["status"] == "finalized" and e["text"].startswith("비가 왔다.") and e["final_text"] == TEXT
-    assert client.post("/api/projects/lh/chat/text:1", json={"message": "x", "selection": {"start": 0, "text": "비가 왔다."}}).status_code == 200
+    assert client.post("/api/projects/lh/episodes/1/fix-now", json={"message": "x", "selection": {"start": 0, "text": "비가 왔다."}}).status_code == 200
 
 
 def test_typed_diff_and_presets():
@@ -162,14 +171,13 @@ def test_fix_now_without_candidate(client, monkeypatch):
 
 
 def test_passage_ai_blocked_while_auto(client, monkeypatch):
-    """자동 집필이 도는 동안에는 AI를 부르기 전에 막는다 (넣기에서 막히면 AI 비용만 쓴다)."""
+    """자동 집필이 도는 동안에는 AI를 부르기 전에 막는다 (넣기에서 막히면 AI 비용만 쓴다). 대화 에이전트의 본문 도구는 test_agent_text 가 본다."""
     from canon import autorun
     _written(client)
     called = []
     monkeypatch.setattr(pipeline, "revise_passage", lambda *a, **k: called.append(1))
     monkeypatch.setattr(autorun, "active", lambda name: True)
     sel = {"start": 0, "text": "바람이 불었다."}
-    assert client.post("/api/projects/lh/chat/text:1", json={"message": "더 짧게", "selection": sel}).status_code == 400
     assert client.post("/api/projects/lh/episodes/1/fix-now", json={"message": "상태 정리 경고: x", "selection": sel}).status_code == 400
     assert called == []
 

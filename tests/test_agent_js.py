@@ -89,7 +89,7 @@ SETUP = """S.name = 'demo'; S.project = data.project; S.chatOpen = true; S.jobs 
 
 
 def test_drawapp_paints_one_panel_and_screens_do_not():
-    """패널은 drawApp 이 셸 끝에 하나만 붙인다. 화면 파일은 chatPanel 을 부르지 않고 옛 대화 주제만 알린다 (chatLegacy)."""
+    """패널은 drawApp 이 셸 끝에 하나만 붙인다. 화면 파일은 chatPanel 을 부르지 않는다 (다시 생성 열이 자리를 쓰면 chatHold 로 알린다)."""
     src = (STATIC / "app.js").read_text(encoding="utf-8")
     assert "</main>${chatDock()}</div>" in src
     assert "chatScreen(views[page] ? page : '', n)" in src
@@ -152,32 +152,50 @@ def test_target_follows_screen_unless_pinned_and_flashes_once():
 
 
 @needs_node
-def test_legacy_switch_and_read_only_old_chats():
-    """옛 대화가 남은 화면은 패널 머리에서 옛 대화로 바꾼다. 다른 화면에서는 '이전 대화'로 읽기만 한다 (변경안 버튼 없음)."""
-    msgs = [{"role": "user", "text": "주인공을 더 어둡게"},
-            {"role": "assistant", "text": "바꿔 봤어요", "setup": {"reply": "바꿔 봤어요", "edits": [], "characters": [], "new_characters": [],
-                                                              "relationships": [], "options": []}, "outcome": ""},
-            {"role": "user", "text": "더 짧게", "selection": {"start": 0, "text": "바람이 불었다."}},
-            {"role": "assistant", "text": "후보예요", "passage": {"reply": "후보예요", "candidates": [{"text": "바람.", "note": ""}]},
-             "outcome": "applied", "applied": ["0"]}]
-    project = {**_demo(), "chats": [{"topic": "setup", "messages": msgs[:2]}, {"topic": "text:3", "messages": msgs[2:]}]}
-    got = run_js([*FILES, "setupchat.js"], SETUP + """(() => {
-      S.route = ['p', 'demo', 'setup']; chatScreen('setup', 0); chatLegacy('setup');
-      const agent = chatDock();
-      S.chatOld = 'setup'; const old = chatDock(); const oldTopic = S.chatTopic;
-      S.route = ['p', 'demo', 'cast']; chatScreen('cast', 0);
-      const away = chatDock();  // 옛 대화 화면 밖에서는 늘 에이전트
-      S.agentSid = 'legacy:text:3'; const ro = chatDock();
+def test_no_old_chat_switch_and_read_only_old_chats():
+    """옛 대화 셋은 지웠다(04e): 어느 화면에서든 패널은 대화 에이전트이고 전환 줄이 없다. 머리 버튼은 에이전트를 연다.
+    옛 기록은 '이전 대화'로 읽기만 하고(고르기 · 넣기 버튼 없음), 적용한 설정 · 문체 변경안은 거기서 적용 취소한다."""
+    setup = {"reply": "바꿔 봤어요", "edits": [{"key": "theme", "text": "새 주제", "items": [], "why": ""}], "characters": [],
+             "new_characters": [], "relationships": [], "options": []}
+    style = {"reply": "짧게", "edits": [{"key": "dos", "items": ["짧게"], "text": "", "markers": [], "devices": [], "why": ""}], "preview": ""}
+    msgs = {
+        "setup": [{"role": "user", "text": "주제를 바꿔 줘"}, {"role": "assistant", "text": "바꿔 봤어요", "setup": setup, "outcome": "applied", "applied": ["theme"]}],
+        "style": [{"role": "user", "text": "짧게"}, {"role": "assistant", "text": "짧게", "style": style, "outcome": "applied", "applied": ["dos"]}],
+        "text:3": [{"role": "user", "text": "더 짧게", "selection": {"start": 0, "text": "바람이 불었다."}},
+                   {"role": "assistant", "text": "후보예요", "passage": {"reply": "후보예요", "candidates": [{"text": "바람.", "note": ""}]},
+                    "outcome": "applied", "applied": ["0"]}],
+    }
+    project = {**_demo(), "chats": [{"topic": t, "messages": m} for t, m in msgs.items()]}
+    got = run_js([*FILES, "setupchat.js", "stylechat.js"], SETUP + """(() => {
+      const docks = {};
+      for (const page of ['setup', 'style', 'write']) { S.route = ['p', 'demo', page, '1']; chatScreen(page, 1); docks[page] = chatDock(); }
+      const button = chatButton();
+      const ro = {};
+      for (const t of ['setup', 'style', 'text:3']) { S.agentSid = `legacy:${t}`; ro[t] = chatDock(); }
       S.agentMenu = true; const menu = chatDock();
-      return { agent, old, oldTopic, away, ro, menu };
-    })()""", {"project": project, "older": [{"topic": "setup", "count": 2}, {"topic": "text:3", "count": 2}]})
-    assert 'data-action="chatUseOld" data-arg="setup" aria-pressed="false"' in got["agent"]
-    assert 'aria-label="대화로 다듬기"' in got["old"] and got["oldTopic"] == "setup"
-    assert 'data-action="chatUseAgent" aria-pressed="false"' in got["old"]
-    assert 'aria-label="대화 에이전트"' in got["away"] and "chatUseOld" not in got["away"]
-    assert "3화 본문 고치기 예전 대화 기록" in got["ro"] and "바람." in got["ro"] and "적용함" in got["ro"]
-    assert "chatApply" not in got["ro"] and "chatDismiss" not in got["ro"]
+      return { docks, button, ro, menu, topic: S.chatTopic };
+    })()""", {"project": project, "older": [{"topic": "setup", "count": 2}, {"topic": "style", "count": 2}, {"topic": "text:3", "count": 2}]})
+    for page, html in got["docks"].items():
+        assert 'aria-label="대화 에이전트"' in html and "chat-switch" not in html and "chatUseOld" not in html, page
+    assert 'data-action="toggleChat"' in got["button"] and "대화로 다듬기" in got["button"] and got["topic"] == "plot"
+    assert 'data-action="setupChatUndo" data-arg="1"' in got["ro"]["setup"] and "적용한 것: 주제" in got["ro"]["setup"]
+    assert 'data-action="styleChatUndo" data-arg="1"' in got["ro"]["style"] and "적용한 것: 지킬 것" in got["ro"]["style"]
+    assert "3화 본문 고치기 예전 대화 기록" in got["ro"]["text:3"] and "바람." in got["ro"]["text:3"] and "적용함" in got["ro"]["text:3"]
+    assert "수정 기록에서 되돌려요" in got["ro"]["text:3"] and "ChatUndo" not in got["ro"]["text:3"]
+    for html in got["ro"].values():
+        assert "chatApply" not in html and "chatDismiss" not in html and "passageApply" not in html
     assert "이전 대화 · 설정 도우미" in got["menu"] and "이전 대화 · 3화 본문 고치기" in got["menu"]
+
+
+def test_old_chat_panels_are_gone():
+    """옛 대화 셋의 패널 · 보내기 · 전환 줄을 부르는 곳이 남지 않았다 (04e). 머리 버튼은 주제 없이 에이전트를 연다."""
+    gone = ["chatLegacy(", "chatSwitch(", "chatOldToggle", "chatUseOld", "chatUseAgent", "S.chatOld", "chat-switch", "CHAT_TOPICS.setup",
+            "CHAT_TOPICS.style", "CHAT_TOPICS.text", "setupProposal", "styleProposal", "passageProposal", "/chat/${enc(topic)}`, body"]
+    for f in [*STATIC.glob("*.js"), STATIC / "app.css"]:
+        src = f.read_text(encoding="utf-8")
+        for g in gone:
+            assert g not in src, (f.name, g)
+        assert not re.search(r"chatButton\('", src), f.name
 
 
 @needs_node

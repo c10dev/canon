@@ -23,6 +23,7 @@
 | 5 | 04b | 에이전트의 본문 고치기 도구 (후보 카드, 작가가 골라 넣음) | 끝 ([#438](https://github.com/c10dev/canon/pull/438) 머지) | [04-one-agent.md](specs/04-one-agent.md) | 04a |
 | 5 | 04c | 에이전트의 설정 도구 (설정 · 인물 변경안 카드) | 끝 ([#440](https://github.com/c10dev/canon/pull/440) 머지) | [04-one-agent.md](specs/04-one-agent.md) | 04a |
 | 5 | 04d | 에이전트의 문체 도구 (문체 변경안 카드) | 끝 ([#439](https://github.com/c10dev/canon/pull/439) 머지) | [04-one-agent.md](specs/04-one-agent.md) | 04a |
+| 9 | 04e | 옛 대화 셋 정리 (전환 줄 · 옛 패널 · chat_send 세 갈래) | PR ([#453](https://github.com/c10dev/canon/pull/453)) | [04-one-agent.md](specs/04-one-agent.md) | 04b · 04c · 04d |
 | 6 | 05 | AI 답 흘려 보이기 (본문 쓰기 먼저) | 끝 ([#445](https://github.com/c10dev/canon/pull/445) 머지) | [05-streaming.md](specs/05-streaming.md) | — |
 | 7 | 06 | 집필 화면에서 상태 변경안 훑고 고르기 | 끝 ([#448](https://github.com/c10dev/canon/pull/448) 머지) | [06-inline-review.md](specs/06-inline-review.md) | — |
 | 8 | 07 | 메뉴 · 버튼 줄이기 | 끝 ([#449](https://github.com/c10dev/canon/pull/449) 머지, 정할 것은 추천안대로) | [07-menu-trim.md](specs/07-menu-trim.md) | — |

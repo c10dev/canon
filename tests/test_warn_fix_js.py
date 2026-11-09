@@ -1,5 +1,5 @@
 """상태 정리 경고의 'AI에게 고치기'(static/passage.js aiFixNow)가 한 요청(POST …/fix-now)으로 첫 후보를 넣는지,
-기다리는 동안 화면을 잠그지 않고 그 화 본문만 잠그는지, 후보가 없으면 대화 패널을 여는지,
+기다리는 동안 화면을 잠그지 않고 그 화 본문만 잠그는지, 후보가 없으면 대화 에이전트를 열고 그 문장을 재료로 붙이는지,
 비슷한 문장이면 바로 넣지 않는지, 저장하지 않은 다른 입력을 지키는지. 서버 호출은 가짜로 바꿔 본다. node 가 있을 때만 돈다."""
 from .jsvm import dump, episode, needs_node, run_js
 
@@ -38,7 +38,7 @@ EXPR = """(async () => {
   const at = data.text.indexOf(data.q);
   await aiFixNow(1, data.q, at, data.w);
   return { calls, during, after: aiFixing(1), text: ep(1).text, title: P().meta.title, chats: P().chats.length, rev: P().edit_rev,
-    sel: S.sel, chatOpen: !!S.chatOpen, quiet: !!(S.selFocus && S.selFocus.quiet), tools: warnTools(1, 0, data.w) };
+    sel: S.sel, mat: S.agentMaterial || null, chatOpen: !!S.chatOpen, quiet: !!(S.selFocus && S.selFocus.quiet), tools: warnTools(1, 0, data.w) };
 })()"""
 
 # 본문 칸이 잠겼는지: marks.js draftBox 대신 같은 조건(aiFixing)을 본다
@@ -87,10 +87,10 @@ def test_ai_fix_now_keeps_unsaved_input():
 def test_ai_fix_now_without_candidates_opens_chat():
     got = _run(_data([]))
     calls = got["calls"]
-    assert ["toast", "AI가 고친 글을 내지 않았어요. 대화 패널에서 답을 보세요", True, []] in calls
+    assert ["toast", "AI가 1화 경고 문장을 고친 글을 내지 않았어요. AI 답: 답", True, []] in calls  # 답은 옛 기록 'text:1'에 남고 알림에도 보인다
     assert got["text"] == TEXT
     assert got["chatOpen"] is True
-    assert got["sel"] == {"n": 1, "start": TEXT.index(Q), "text": Q}
+    assert got["sel"] == got["mat"] == {"n": 1, "start": TEXT.index(Q), "text": Q}  # 대화 에이전트의 재료로 붙는다
 
 
 # 상태 승인 화면에서 누른 경고: 집필 화면을 다 그린 뒤 고치도록 goThen 에 맡긴다 (저장 확인 창이 떠도 옛 화면에서 돌지 않게)
@@ -113,7 +113,7 @@ def test_warn_pick_waits_for_write_screen():
     assert got == ["#/p/p/write/1"]
 
 
-# 경고 문장이 본문에 그대로 한 번만 있을 때만 바로 넣는다. 비슷한 문장이면 골라 두고 경고를 대화 입력칸에 넣는다
+# 경고 문장이 본문에 그대로 한 번만 있을 때만 바로 넣는다. 비슷한 문장이면 재료로 붙이고 경고를 대화 에이전트 입력칸에 넣는다
 NEAR = """(() => {
   S.name = 'p';
   S.project = data.project;
@@ -125,7 +125,7 @@ NEAR = """(() => {
   aiFixNow = () => got.push('fix');
   toast = (msg) => got.push(msg.slice(0, 12));
   actions.warnPick('1:0:ask');
-  return { got, draft: S.chatDraft, chatOpen: !!S.chatOpen, sel: S.sel, spot: warnSpot(data.w, data.text) };
+  return { got, draft: S.agentDraft, mat: S.agentMaterial || null, chatOpen: !!S.chatOpen, sel: S.sel, spot: warnSpot(data.w, data.text) };
 })()"""
 
 
@@ -135,7 +135,7 @@ def test_warn_pick_near_sentence_goes_to_chat():
     got = run_js(FILES, NEAR, _data([], w=w))
     assert got["spot"] == {"q": Q, "exact": False}
     assert "fix" not in got["got"] and got["draft"] == "상태 정리 경고: " + w and got["chatOpen"] is True
-    assert got["sel"] == {"n": 1, "start": TEXT.index(Q), "text": Q}
+    assert got["sel"] == got["mat"] == {"n": 1, "start": TEXT.index(Q), "text": Q}
     twice = run_js(FILES, NEAR, _data([], text=TEXT + " " + Q))  # 같은 글이 두 곳이면 어느 쪽인지 몰라 바로 넣지 않는다
     assert twice["spot"]["exact"] is False
     exact = run_js(FILES, NEAR, _data([]))
@@ -163,57 +163,6 @@ ON_SELECT = """(() => {
 def test_outside_touch_does_not_reopen_tool():
     got = run_js(FILES, ON_SELECT, _data([]))
     assert got == {"blocked": 0, "after": 1}
-
-
-# 휴대폰 시트는 지금 고른 부분의 후보가 왔을 때만 높인다(.has-cands). 다른 부분을 새로 고르면 옛 후보로 본문을 가리지 않는다
-CANDS = """(() => {
-  const msgs = [{ role: 'user', text: '더 짧게', selection: { start: 0, text: data.q } },
-    { role: 'ai', text: '답', selection: { start: 0, text: data.q }, passage: { candidates: [{ text: '새 글', note: '' }] } }];
-  S.name = 'p';
-  S.project = { ...data.project, chats: [{ topic: 'text:1', messages: msgs }] };
-  S.textDraft = {};
-  S.route = ['p', 'p', 'write', '1'];
-  S.chatOpen = true;
-  S.presets = [];
-  const tall = (sel) => { S.sel = sel; return chatPanel('text:1').includes('has-cands'); };
-  return { same: tall({ n: 1, start: 0, text: data.q }), other: tall({ n: 1, start: 0, text: '바람이 불었다.' }), none: tall(null) };
-})()"""
-
-
-@needs_node
-def test_sheet_grows_only_for_current_candidates():
-    got = run_js(FILES, CANDS, _data([]))
-    assert got == {"same": True, "other": False, "none": False}
-
-
-# 지금 고른 부분과 이어지는 맨 뒤 대화만 펴고 앞 대화는 접는다. 방금 넣은 답 아래에는 다음에 할 것(되돌리기 · 이어서 고치기 · 닫기)을 둔다
-FOLD = """(() => {
-  const ai = (sel, cand, outcome) => ({ role: 'ai', text: '답', selection: { start: 0, text: sel }, passage: { candidates: [{ text: cand, note: '' }] },
-    outcome, applied: outcome === 'applied' ? ['0'] : [] });
-  const msgs = [{ role: 'user', text: '더 길게' }, ai('다른 문장', '다른 문장 길게', 'applied'),
-    { role: 'user', text: '더 짧게' }, ai(data.q, data.new, 'applied')];
-  const e = data.project.episodes[0];
-  S.name = 'p';
-  S.project = { ...data.project, chats: [{ topic: 'text:1', messages: msgs }],
-    episodes: [{ ...e, edits: [{ id: 'e9', source: 'ai', start: 0, before: data.q, after: data.new, proposed: '', undone: false }] }] };
-  S.textDraft = {};
-  S.route = ['p', 'p', 'write', '1'];
-  S.chatTopic = 'text:1';
-  S.chatOpen = true;
-  S.presets = [];
-  S.sel = { n: 1, start: 0, text: data.new };
-  const after = { fold: CHAT_TOPICS.text.foldFrom(msgs), next: chatLog('text:1').includes('data-action="passageMore"') };
-  S.sel = { n: 1, start: 0, text: '새로 고른 곳' };
-  const other = { fold: CHAT_TOPICS.text.foldFrom(msgs), next: chatLog('text:1').includes('data-action="passageMore"'), note: chatLog('text:1').includes('아직 요청하지 않았어요') };
-  return { after, other };
-})()"""
-
-
-@needs_node
-def test_fold_old_talk_and_show_next_steps():
-    got = run_js(FILES, FOLD, {**_data([]), "new": NEW})
-    assert got["after"] == {"fold": 2, "next": True}
-    assert got["other"] == {"fold": 4, "next": False, "note": True}
 
 
 # 휴대폰 문장 고르기(passage.js sentenceRanges): 줄바꿈과 문장 끝(닫는 따옴표까지)에서 끊고 앞뒤 공백은 뺀다

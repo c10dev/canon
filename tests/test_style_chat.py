@@ -1,5 +1,5 @@
 """대화로 문체 다듬기와 이 문체로 쓴 예시 (mock LLM). 실행: python -m pytest tests"""
-from canon import pipeline, prompts
+from canon import pipeline, prompts, store
 from canon.mock import MockLLM
 from canon.schema import Episode, EpisodePlot, Project, StyleEdit, StyleMarker, StyleProfile, StyleRevision
 
@@ -122,11 +122,13 @@ def test_style_chat_api(client):
     e = client.post("/api/styles", json={"name": "건조체", "sample": SAMPLE, "profile": prof}).json()
     client.post("/api/projects", json={"name": "a", "meta": {"title": "등대", "target_episodes": 10}, "style_id": e["id"]})
 
-    r = client.post("/api/projects/a/chat/style", json={"message": "대사를 짧게"})
-    assert r.status_code == 200
-    m = r.json()["chats"][0]["messages"][1]
+    # 옛 문체 대화 기록: 보내기는 04e 에서 지웠으므로 기록은 pipeline 으로 만든다. 적용 · 적용 취소 · 버림은 옛 엔드포인트가 그대로 받는다
+    assert client.post("/api/projects/a/chat/style", json={"message": "대사를 짧게"}).status_code == 404
+    q = store.load("a")
+    pipeline.record_style_chat(q, "대사를 짧게", 0, pipeline.revise_style(MockLLM(), q, "대사를 짧게"))
+    store.save("a", q)
+    m = client.get("/api/projects/a").json()["chats"][0]["messages"][1]
     assert m["style"]["edits"] and m["style"]["preview"]
-    assert client.post("/api/projects/a/chat/style", json={"message": "x", "episode": 3}).status_code == 400
     assert client.post("/api/projects/a/chat/style/1/apply", json={"fields": []}).status_code == 400
 
     keys = [x["key"] for x in m["style"]["edits"]]

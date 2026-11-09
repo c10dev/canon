@@ -1076,8 +1076,10 @@
 - `Text.source` 는 빈 글과 import 만 받는다. 다른 값은 422 다
 - `base` 가 없는 요청(옛 화면 · 명령줄 · 시험)은 맞춰 보지 않는다(`tests/test_text_conflict.py`)
 - 경고의 'AI에게 고치기' `POST …/episodes/{n}/fix-now`(`fix_now`)는 후보 받기와 첫 후보 넣기(`pipeline.apply_first`)를 한 요청에서 한다. 작품과 넣은 수정 id(`edit`, 후보가 없으면 '')를 돌려준다
-- 부분 수정 대화(`chat_send` 의 `text:<화>`)와 `fix-now` 는 `revise_passage(rules=True)` 로 후보마다 고침 규칙을 건다
-- 본문 부분 수정 대화 `POST …/chat/text:<화>` 와 `fix-now` 는 AI를 부르기 전에 `_text_guard` 를 본다. `fix-now` 는 AI 답을 받은 뒤 한 번 더 본다
+- `fix-now` 와 대화 에이전트의 본문 고치기(`agent_text`)는 `revise_passage(rules=True)` 로 후보마다 고침 규칙을 건다
+- `chat_send`(`POST …/chat/{topic}`)는 옛 플롯 대화(`plot`)만 받는다. `setup` · `style` · `text:<화>` 갈래는 04e 에서 지웠고 404 를 돌려준다(새 말은 대화 에이전트가 받는다)
+- 옛 대화의 적용(`chat_apply`) · 버림 · 다시 검토 · 지우기 · 적용 취소(`chat/style/{i}/undo` · `chat/setup/{i}/undo` · `chat/plot/{i}/undo`)는 남긴다. 옛 `project.json` 의 기록을 다루고, 화면은 '이전 대화'의 적용 취소만 부른다
+- `fix-now` 는 AI를 부르기 전에 `_text_guard` 를 보고, AI 답을 받은 뒤 한 번 더 본다
 - 오래 걸리는 AI 작업은 `jobs.start` 로 돌린다
 - `start_job` 은 작업 종류마다 `JOB_MAKERS` 의 준비 함수(`_job_<종류>`)를 부른다. 함수는 (이름표, 전체 걸음, 맡은 화, 할 일)을 돌려준다. 새 작업은 함수를 더하고 `JOB_MAKERS` 에 넣는다
 - 화면을 막던 AI 제안도 작업이다: `char_body` · `char_voice` · `char_look`(`_job_char_ai`), `statwin_suggest` · `statwin_init`(`_job_statwin_ai`), `names_ai`(`_job_names_ai`), `style_learn` · `style_example`(`_job_style_ai`)

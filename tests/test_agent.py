@@ -652,6 +652,10 @@ def test_old_project_json_lists_plot_sessions_and_old_chats(client):
     assert [(s["id"], s["topic"], s["pinned"]) for s in out["sessions"]] == [("old1", "plot", False)]
     assert out["legacy"] == 2
     assert out["older"] == [{"topic": "setup", "count": 1}, {"topic": "style", "count": 2}, {"topic": "text:3", "count": 1}]
+    assert client.get("/api/projects/lh").json()["chats"][0]["topic"] == "text:3"
+    for topic in ("setup", "style", "text:3"):  # 옛 대화 셋은 보내지 않는다 (04e). 새 말은 대화 에이전트가 받는다
+        r = client.post(f"/api/projects/lh/chat/{topic}", json={"message": "x", "selection": {"start": 0, "text": "x"}})
+        assert r.status_code == 404 and "대화 에이전트" in r.json()["detail"]
     assert client.get("/api/projects/lh/sessions?topic=plot").json()["sessions"][0]["id"] == "old1"  # 옛 주소도 같은 목록
     sid = _session(client, topic="agent")
     assert [s["id"] for s in client.get("/api/projects/lh/sessions").json()["sessions"]] == ["old1", sid]

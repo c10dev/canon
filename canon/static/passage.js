@@ -2,8 +2,8 @@
    본문에서 드래그로 고르면 작은 도구가 뜬다. '직접 수정' 은 그 자리에서 고쳐 바로 저장하고,
    'AI에게 고치기' 는 대화 에이전트 패널을 열고 고른 부분을 입력 상자 위 '재료' 칩으로 붙인다(agent.js agentAttach). 에이전트가 후보 2~3개를 카드로 내고,
    고른 것만 본문에 들어간다. 대화 에이전트 패널이 열려 있으면 드래그만 해도 재료가 바뀐다.
-   옛 'AI에게 고치기' 대화(topic 'text:<화>')는 패널 머리의 전환으로 계속 열 수 있다(04c · 04d 가 머지된 뒤 정리한다).
-   상태 정리 경고가 가리킨 문장의 'AI에게 고치기' 는 대화 패널을 거치지 않고 첫 후보를 바로 넣는다 (aiFixNow).
+   옛 'AI에게 고치기' 대화(topic 'text:<화>')의 패널과 보내기는 04e 에서 지웠다. 옛 기록은 대화 에이전트의 '이전 대화'에서 읽는다.
+   상태 정리 경고가 가리킨 문장의 'AI에게 고치기' 는 대화 패널을 거치지 않고 첫 후보를 바로 넣는다 (aiFixNow). 요청과 후보는 옛 기록 'text:<화>'에 남는다.
    기다리는 동안 화면을 잠그지 않고 그 화 본문 칸만 잠근다. 경고 문장이 본문에 그대로 한 번만 있을 때만 바로 넣는다.
    고친 것은 모두 서버의 Episode.edits 에 남아 하나씩 되돌릴 수 있다. */
 'use strict';
@@ -15,62 +15,11 @@ Object.assign(S, {
   selFocus: null,    // 다시 그린 뒤 본문에서 골라 보여 줄 자리 { n, start, end }
   taScroll: {},      // 화별 본문 칸 스크롤 위치 (다시 그려도 읽던 자리를 지킨다)
   presets: null,     // 빠른 요청 목록 (서버 prompts.PASSAGE_PRESETS)
-  candEdit: {},      // '메시지:후보' → 손보는 중인 후보 글
   aiFix: null,       // 경고의 'AI에게 고치기'가 AI를 기다리는 중 { name, n, w } (aiFixNow). 그동안 그 화 본문 칸을 잠근다
 });
 
-CHAT_TOPICS.text = {
-  title: 'AI에게 고치기',
-  intro: '본문에서 고칠 부분을 드래그하거나 길게 눌러 고른 뒤, 바라는 것을 적거나 아래 빠른 요청을 누르세요. AI가 후보를 2~3개 내고, 고른 후보만 본문에 들어가요. 넣은 뒤에도 수정 기록에서 되돌릴 수 있어요.',
-  examples: [],
-  placeholder: '예: 주인공이 더 망설이게 해 줘',
-  clearAsk: '이 화의 부분 수정 대화를 지울까요? 본문과 수정 기록은 그대로예요.',
-  ready() {
-    if (curSel()) return true;
-    toast('본문에서 고칠 부분을 먼저 드래그하거나 길게 눌러 고르세요', true);
-    return false;
-  },
-  presetLabel: (id) => ((S.presets || []).find((x) => x.id === id) || {}).label || id,
-  async beforeSend() {
-    await flushText(S.sel.n);
-  },
-  body: (text, preset) => ({ message: text, preset, selection: { start: S.sel.start, text: S.sel.text } }),
-  userMsg: (m) => `${m.selection ? `<span class="msg-quote">${esc(clip(m.selection.text, 80))}</span>` : ''}${m.preset && m.text !== CHAT_TOPICS.text.presetLabel(m.preset) ? `<span class="chip">${esc(CHAT_TOPICS.text.presetLabel(m.preset))}</span> ` : ''}${esc(m.text)}`,  // 빠른 요청과 함께 적은 글이 있으면 둘 다 보인다
-  proposal: passageProposal,
-  // 시트를 높이는 것은 지금 고른 부분의 후보일 때만이다. 다른 부분을 새로 골라 열면 옛 후보 때문에 본문이 가려지지 않게
-  candsFor: (m) => { const s = curSel(); return !!s && !!m.selection && m.selection.text === s.text; },
-  // 지금 고른 부분(또는 그 부분에 넣은 글)과 이어지는 맨 뒤 대화만 펴 둔다. 앞의 다른 부분 대화는 접는다
-  foldFrom(msgs) {
-    let k = msgs.length;
-    for (let i = msgs.length - 1; i >= 0; i -= 1) {
-      if (msgs[i].role === 'user') continue;
-      if (!passageRelated(msgs[i])) break;
-      k = i > 0 && msgs[i - 1].role === 'user' ? i - 1 : i;
-    }
-    return k;
-  },
-  foldNote: '고른 부분은 아직 요청하지 않았어요. 바라는 것을 적거나 아래 빠른 요청을 누르세요.',
-  inputExtra: selTarget,
-};
-
 const clip = (t, n) => (t.length > n ? t.slice(0, n) + '…' : t);
 
-/** 대화 답 m 의 후보를 넣은 수정 기록. 손봐서 넣었으면 서버(pipeline.edit_text)가 후보 원문을 proposed 에 남기고, 그대로 넣었으면 proposed 는 비고 after 가 후보다. */
-function passageEdit(m) {
-  if (!m || m.outcome !== 'applied' || !m.passage || !S.chatTopic) return null;
-  const c = m.passage.candidates[Number(m.applied[0])];
-  const e = ep(Number(S.chatTopic.split(':')[1]));
-  return c && e ? [...(e.edits || [])].reverse().find((x) => x.source === 'ai' && (x.proposed ? x.proposed === c.text : x.after === c.text.trim())) || null : null;
-}
-
-/** 대화 답 m 이 지금 고른 부분의 것인가. 그 답의 후보를 넣어 고른 부분이 넣은 글로 바뀐 것도 같은 부분이다. */
-function passageRelated(m) {
-  const s = curSel();
-  if (!s || !m.selection) return false;
-  if (m.selection.text === s.text) return true;
-  const x = passageEdit(m);
-  return !!x && !x.undone && x.after === s.text;
-}
 // 반영이 끝난 화도 고친다. 반영된 상태는 그대로 두고 서버가 반영 뒤 고침으로 표시한다 (restate.js)
 const editableEp = (e) => e && (e.status === 'confirmed' || e.status === 'written' || e.status === 'finalized');
 /** 고칠 수 있는 화의 본문 초안. 반영이 끝난 화에 남은 초안은 본문이 아니다 (집필 화면이 따로 꺼내 보인다). */
@@ -136,51 +85,6 @@ function wordDiff(a, b) {
   });
   flush();
   return html;
-}
-
-// ----- 대화 패널: 고칠 부분과 빠른 요청, 후보 -----
-
-function selTarget() {
-  const s = curSel();
-  const busy = !!S.chatPending;
-  const presets = (S.presets || []).map((x) => `<button type="button" class="btn small" data-action="passagePreset" data-arg="${esc(x.id)}"${s && !busy ? '' : ' disabled'}>${esc(x.label)}</button>`).join('');
-  return `<div class="sel-target">
-    ${s ? `<div class="between"><span class="small">고칠 부분 · ${s.text.length.toLocaleString()}자</span><button type="button" class="btn small" data-action="selShow">본문에서 보기</button></div>
-      <blockquote>${esc(clip(s.text, 220))}</blockquote>`
-    : '<div class="small">본문에서 고칠 부분을 드래그하거나 길게 눌러 고르면 여기에 담겨요.</div>'}
-    <div class="row" style="gap:6px">${presets}</div>
-  </div>`;
-}
-
-function passageProposal(m, i) {
-  const n = Number(S.chatTopic.split(':')[1]);
-  const orig = m.selection.text;
-  const open = !m.outcome;
-  const lost = open && !textNow(n).includes(orig);
-  const cards = m.passage.candidates.map((c, k) => {
-    const key = `${i}:${k}`;
-    const editing = S.candEdit[key] !== undefined;
-    const body = editing
-      ? `<textarea rows="5" data-cand-edit="${key}" aria-label="후보 ${k + 1} 손보기">${esc(S.candEdit[key])}</textarea>`
-      : `<div class="pdiff">${wordDiff(orig, c.text)}</div>`;
-    const chosen = m.outcome === 'applied' && m.applied[0] === String(k);
-    const btns = !open || lost ? '' : editing
-      ? `<button class="btn small primary" data-action="passageApply" data-arg="${key}">손본 글로 바꾸기</button><button class="btn small" data-action="passageTweak" data-arg="${key}">취소</button>`
-      : `<button class="btn small primary" data-action="passageApply" data-arg="${key}">이걸로 바꾸기</button><button class="btn small" data-action="passageTweak" data-arg="${key}">손봐서 넣기</button>`;
-    return `<div class="cand${chosen ? ' chosen' : ''}"><div class="between"><strong>후보 ${k + 1}${chosen ? ' · 넣음' : ''}</strong><span class="small">${(c.text.length - orig.length >= 0 ? '+' : '') + (c.text.length - orig.length)}자</span></div>
-      ${c.note ? `<div class="small">${esc(c.note)}</div>` : ''}${(c.ruled || []).length && typeof ruledLine === 'function' ? `<div class="small">${esc(ruledLine(c.ruled))}</div>` : ''}${body}${btns ? `<div class="row">${btns}</div>` : ''}</div>`;
-  }).join('');
-  const done = m.outcome === 'applied' ? `<span class="chip finalized">${Number(m.applied[0]) + 1}번 후보를 넣음</span>`
-    : m.outcome === 'dismissed' ? '<span class="chip">넣지 않음</span>' : '';
-  if (!open) {
-    // 방금 넣은 답이면 다음에 할 것을 바로 아래 둔다: 되돌리기 · 넣은 글을 이어서 고치기 · 닫기
-    const x = i === chatMessages(S.chatTopic).length - 1 && passageEdit(m);
-    const next = x && !x.undone && passageRelated(m)
-      ? `<div class="row next-acts" role="group" aria-label="다음에 할 것"><span class="small">본문에 넣었어요</span><button type="button" class="btn small" data-action="undoEdit" data-arg="${esc(x.id)}">되돌리기</button><button type="button" class="btn small" data-action="passageMore">이어서 고치기</button><button type="button" class="btn small" data-action="toggleChat">닫기</button></div>` : '';
-    return `<details class="proposal done"><summary>${done} 후보 다시 보기</summary>${cards}${m.outcome === 'dismissed' ? `<div class="row proposal-actions"><button type="button" class="btn small" data-action="chatReopen" data-arg="${i}">다시 검토</button></div>` : ''}</details>${next}`;
-  }
-  return `<div class="proposal">${lost ? '<div class="note plain">그사이 이 부분이 바뀌어 후보를 넣을 수 없어요. 다시 골라 요청하세요.</div>' : ''}${cards}
-    <div class="row"><button class="btn small" data-action="chatDismiss" data-arg="${i}">모두 넣지 않기</button></div></div>`;
 }
 
 // ----- 집필 화면 블록 -----
@@ -562,8 +466,8 @@ function onSelect(e) {
     if (S.selTool && S.selTool.mode === 'edit') return;
     S.selTool = { ...s, mode: 'menu' };
     showTool();
-    // 대화 에이전트 패널이 열려 있으면 고른 부분을 재료 칩으로 붙인다 (옛 'AI에게 고치기' 대화를 연 동안은 그 대화의 고칠 부분만 쓴다)
-    if (S.chatOpen && !S.chatOld && typeof agentAttach === 'function') agentAttach(s);
+    // 대화 에이전트 패널이 열려 있으면 고른 부분을 재료 칩으로 붙인다
+    if (S.chatOpen && typeof agentAttach === 'function') agentAttach(s);
   }, 0);
 }
 
@@ -632,8 +536,6 @@ document.addEventListener('scroll', (e) => {
 }, true);
 
 document.addEventListener('input', (e) => {
-  const k = e.target.dataset && e.target.dataset.candEdit;
-  if (k !== undefined) S.candEdit[k] = e.target.value;
   if (e.target.matches && e.target.matches('textarea[data-draft]') && S.selTool) hideTool();
 });
 
@@ -711,7 +613,7 @@ function undoToast(msg, id) {
 }
 
 /** 경고 w 가 가리킨 문장(q, 본문 at 자리)을 AI에게 고치게 하고 첫 후보를 바로 본문에 넣는다 (POST …/fix-now: 후보 받기와 넣기를 서버가 한 번에).
-   다른 후보는 부분 수정 대화에 남는다. 넣은 수정은 알림의 되돌리기나 수정 기록으로 취소한다.
+   다른 후보는 옛 기록 'text:<화>'에 남는다(대화 에이전트의 '이전 대화'). 넣은 수정은 알림의 되돌리기나 수정 기록으로 취소한다.
    AI를 기다리는 동안 화면을 잠그지 않는다: 다른 화면으로 가도 되고, 그 화 본문 칸만 잠근다(S.aiFix). 끝나면 알림으로 알린다 */
 async function aiFixNow(n, q, at, w) {
   if (S.aiFix) return toast('다른 경고를 AI가 고치는 중이에요. 끝난 뒤에 다시 눌러 주세요', true);
@@ -735,10 +637,11 @@ async function aiFixNow(n, q, at, w) {
   const took = takeEdited(out.project, n, gen);
   const here = S.route[2] === 'write' && Number(S.route[3]) === n;
   if (!out.edit) {
-    // 본문이 맞다고 본 답(후보 없이 근거만)도 여기로 온다. 집필 화면이면 대화 패널을 열어 답을 보이고, 요청을 더 적어 이어 고칠 수 있게 골라 둔다
-    if (here) { Object.assign(S, { sel: { n, start: at, text: q }, chatOld: 'text', chatScroll: true }); chatSetOpen(true); }  // 옛 'AI에게 고치기' 대화로 연다 (chat.js)
+    // 본문이 맞다고 본 답(후보 없이 근거만)도 여기로 온다. 답은 알림에 보인다. 집필 화면이면 대화 에이전트를 열고 그 문장을 재료로 붙여 이어 고칠 수 있게 한다
+    const said = (chatMessages(`text:${n}`).slice(-1)[0] || {}).text || '';
+    if (here) { Object.assign(S, { sel: { n, start: at, text: q }, agentMaterial: { n, start: at, text: q }, rwOpen: null, chatScroll: true }); chatSetOpen(true); }
     render();
-    return toast(here ? 'AI가 고친 글을 내지 않았어요. 대화 패널에서 답을 보세요' : `AI가 ${n}화 경고 문장을 고친 글을 내지 않았어요. 집필 화면 대화 패널에서 답을 보세요`, true);
+    return toast(`AI가 ${n}화 경고 문장을 고친 글을 내지 않았어요.${said ? ` AI 답: ${said}` : ''}`, true);
   }
   if (!took) {
     render();
@@ -795,8 +698,6 @@ Object.assign(actions, {
     const t = S.selTool;
     S.sel = { n: t.n, start: t.start, text: t.text };
     hideTool();
-    S.chatFoldOpen = false;  // 새로 고른 부분: 옛 대화로 바꿔 열면 지난 요청은 접어 둔다 (chat.js chatLog)
-    S.chatOld = '';  // 04b: 본문 고치기는 대화 에이전트가 맡는다. 고른 부분은 재료 칩으로 붙는다 (agent.js)
     S.agentMaterial = { n: t.n, start: t.start, text: t.text };
     S.rwOpen = null;  // 다시 생성 열과 같은 자리라 하나만 연다 (chat.js toggleChat)
     chatSetOpen(true);
@@ -812,12 +713,12 @@ Object.assign(actions, {
     if (s && focusText(s.n, s.text, s.start) === -1) return toast('본문에서 찾을 수 없어요. 다시 골라 주세요', true);
     render();
   },
-  /** 검수 지적(id)의 문장을 고르고, 검수가 낸 고칠 방향을 대화 입력칸에 넣는다. 보내기는 작가가 한다 */
+  /** 검수 지적(id)의 문장을 고르고, 검수가 낸 고칠 방향을 대화 에이전트 입력칸에 넣는다. 보내기는 작가가 한다 */
   issueAsk(id) {
     const n = Number(S.route[3]) || currentEp();
     const x = (ep(n).findings || []).find((f) => f.id === id);
     if (!x) return;
-    S.chatDraft = `검수 지적: ${x.description} → ${x.suggestion}`;
+    S.agentDraft = `검수 지적: ${x.description} → ${x.suggestion}`;
     actions.selectIssue(id);
   },
   /** 상태 정리 경고가 가리킨 문장을 집필 화면 본문에서 고르고 부분 수정 도구를 연다. ask 면 경고대로 AI가 바로 고친다 */
@@ -835,8 +736,8 @@ Object.assign(actions, {
       if (ask) S.selFocus.quiet = true;  // AI가 실패해 이 자리만 남아도 손가락 기기에서 키보드를 올리지 않는다
       if (ask && exact) return aiFixNow(num, q, at, w);
       if (ask) {
-        // 비슷한 문장이거나 같은 글이 여러 곳: 바로 넣지 않는다. 문장을 골라 두고 경고를 대화 입력칸에 넣는다. 보내기는 작가가 한다
-        Object.assign(S, { sel: { n: num, start: at, text: q }, chatDraft: warnMsg(w), chatOld: 'text', chatScroll: true });
+        // 비슷한 문장이거나 같은 글이 여러 곳: 바로 넣지 않는다. 문장을 대화 에이전트의 재료로 붙이고 경고를 입력칸에 넣는다. 보내기는 작가가 한다
+        Object.assign(S, { sel: { n: num, start: at, text: q }, agentMaterial: { n: num, start: at, text: q }, agentDraft: warnMsg(w), rwOpen: null, chatScroll: true });
         chatSetOpen(true);
         render();
         return toast('경고와 똑같은 문장이 없거나 여러 곳이라, 가장 비슷한 문장을 골랐어요. 맞으면 대화 패널에서 보내세요');
@@ -862,37 +763,6 @@ Object.assign(actions, {
       S.selTool = { ...s, mode: 'menu' };
       showTool();
     }
-  },
-  passagePreset(id) {
-    actions.chatSend(String(id));
-  },
-  /** 넣은 뒤 '이어서 고치기': 넣은 글이 고칠 부분이다. 빠른 요청과 입력칸을 보이고 입력칸으로 간다 (작가가 누른 것이라 키보드가 올라도 된다) */
-  passageMore() {
-    $('.chat-panel .sel-target')?.scrollIntoView({ block: 'nearest' });
-    $('#chat-input')?.focus();
-  },
-  passageTweak(key) {
-    const [i, k] = String(key).split(':').map(Number);
-    if (S.candEdit[key] !== undefined) delete S.candEdit[key];
-    else S.candEdit[key] = chatMessages(S.chatTopic)[i].passage.candidates[k].text;
-    render();
-  },
-  async passageApply(key) {
-    const [i, k] = String(key).split(':').map(Number);
-    const topic = S.chatTopic;
-    const n = Number(topic.split(':')[1]);
-    const body = { candidate: k };
-    if (S.candEdit[key] !== undefined) body.text = S.candEdit[key];
-    await run('본문에 넣는 중', async () => {
-      await saveIfDirty();
-      await flushText(n);
-      S.project = await api('POST', `/projects/${enc(S.name)}/chat/${enc(topic)}/${i}/apply`, body);
-      delete S.candEdit[key];
-      const edit = ep(n).edits[ep(n).edits.length - 1];
-      S.sel = { n, start: edit.start, text: edit.after };  // 이어서 '더 짧게' 같은 요청을 하면 넣은 글을 고친다
-      if (focusText(n, edit.after, edit.start) !== -1) S.selFocus.quiet = true;  // 넣은 글을 시트 위로 굴려 보인다. 손가락 기기는 키보드를 올리지 않는다
-      undoToast(`${k + 1}번 후보를 넣었어요.`, edit.id);
-    });
   },
   async undoEdit(id) {
     const n = Number(S.route[3]) || currentEp();

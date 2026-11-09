@@ -47,6 +47,8 @@
 - 턴에 재료(`add_turn` 의 `selection`, `schema.TextMaterial`: 고른 본문과 그 화)와 빠른 요청(`preset`, `prompts.PASSAGE_PRESETS`)을 붙일 수 있다. 빠른 요청만 있고 재료가 없거나 모르는 빠른 요청이면 막는다
 - 재료와 빠른 요청으로 연 새 세션의 이름은 'N화 본문 · 빠른 요청 이름'이다
 - 설정 · 문체 · 본문 고치기의 옛 대화는 `legacy_chats` 가 (주제, 메시지 수)로 준다. 웹 세션 목록의 `older` 이고 화면은 읽기만 한다
+- 그 옛 대화 셋의 보내기(`web.py` `chat_send` 의 `setup` · `style` · `text:N`)는 04e 에서 지웠다. 새 말은 이 에이전트의 도구가 받는다
+- 옛 기록의 적용 취소(`chat/setup/{i}/undo` · `chat/style/{i}/undo`)와 본문 되돌리기(수정 기록)는 그대로 쓴다
 - 턴(`AgentTurn`)을 백그라운드 작업 `agent` 로 돌린다(`run_turn`, 단계마다 `llm.json(PlotAgentStep)`, 최대 `MAX_STEPS`=8, 단계마다 저장)
 - `first_step_prompt` 는 새 세션 첫 턴에서 `run_turn` 이 처음 보내는 요청이다. 세션(id `LAB_SID`)을 작품에 붙이지 않는다. 프롬프트 놀이터 불러오기가 쓴다
 - 단계 호출은 `step_wait` 초까지 기다린다: Claude Code(구독)는 `STEP_WAIT_CLAUDE`(480), 나머지는 `STEP_WAIT`(300)
@@ -531,19 +533,20 @@
 
 ### `canon/static/agent.js`
 
-- 대화 에이전트 패널. 작품 안 모든 화면에 하나다(`chat.js` 의 `chatPanel('plot')` 이 부르고, `app.js` `drawApp` 이 `chatDock` 으로 셸 끝에 붙인다)
+- 대화 에이전트 패널. 작품 안 모든 화면에 하나다(`chat.js` 의 `chatPanel()` 이 부르고, `app.js` `drawApp` 이 `chatDock` 으로 셸 끝에 붙인다)
 - 다음 턴의 대상은 `agentTarget`: 고정한 세션은 세션 대상, 아니면 화면 대상(`agentScreenTarget` = `S.chatHere.target`)
 - 턴은 `agentTurnScope` 로 화면 대상을 함께 보낸다(고정한 세션은 빼고). 연 구간 · 화 · 다음 아크 초안은 플롯 화면에서만 보낸다
 - 턴은 보던 화면 이름(`screen`, 작품 홈은 'home')도 보낸다. 서버가 `agent.SCREENS` 로 확인한다
 - 상태 줄의 대상이 바뀌면 `agentAfterDraw` 가 `.foot-target` 을 한 번 강조(`flash`)하고 `chatSay` 로 `#chat-live` 에 알린다. 패널을 처음 그릴 때는 알리지 않는다
 - 상태 줄의 핀(`agentPin`)과 다듬을 곳 메뉴(`agentTarget`)는 세션을 고정한다. `/대상` 은 고정을 풀고 화면 대상으로 돌린다
-- 문체 대상의 빈 세션은 문체 도구 안내와 `CHAT_TOPICS.style.examples` 예시를 보인다
+- 문체 대상의 빈 세션은 문체 도구 안내를 보인다. 옛 문체 대화에서 빌려 오던 예시 알약은 04e 에서 그 대화와 함께 뺐다(예시는 일감 10)
 - 본문 대상의 빈 세션은 '드래그하면 재료로 붙고, `/` 빠른 요청을 고르면 후보를 골라 넣는다' 안내를 보인다
 - 설정 대상의 빈 세션은 `agentSetupIntro`(설정 도구 안내와 예시)를 보인다
 - 세션 동작 `agentAct(fn, { save })` 와 말 보내기 `agentStartTurn`: AI가 작품을 읽거나 고치는 동작은 저장하지 않은 변경이 있으면 저장할지 묻는다. 세션 만들기 · 대상 · 권한 모드 · 이름 · 보관은 `save: false` 로 묻지도 저장하지도 않는다
 - `agentAct` 는 응답의 `project` 가 객체일 때만 `S.project` 를 바꾼다. 이어 하기 응답은 작업 정보라 `project` 가 작품 이름 글이다
 - 세션 머리와 목록(보관함, '이전 대화'는 옛 `Project.chats` 를 `chatLog` 로)
 - '이전 대화 · 플롯'(`legacy`)은 예전처럼 골라 적용 · 취소한다. 설정 · 문체 · 본문 고치기(`legacy:<주제>`)는 `chatLog(주제, { readOnly: true })` 로 읽기만 한다
+- 읽기만 하는 설정 · 문체 기록도 적용한 변경안은 '적용 취소'를 둔다(`chat.js` `chatReadOnlyCard`). 본문 고치기 기록의 안내는 집필 화면 수정 기록에서 되돌리라고 적는다
 - 턴마다 단계 줄 · 바로 쓴 것(항목 · 턴 되돌리기) · 승인 카드 · 되묻기 카드
 - 설정 도구의 승인 카드(`Approval.setup`)와 쓴 것 비교(`WriteRecord.setup`)는 `agentsetup.js` 가 그린다(`agentApproval` · `agentItemDiff` 가 넘긴다)
 - `agentDecide` 는 설정 카드면 `agentSetupPicks`(체크했고 막히지 않은 부분)를 보낸다
@@ -563,6 +566,7 @@
 - 마지막 턴이 본문 후보를 기다리면 패널에 `has-cands` 를 단다(휴대폰 시트가 높아진다)
 - 본문 고치기 카드를 연 턴이 끝나면 작품을 다시 받는다(`agentJobUpdate` → `agentRefreshProject('')`). 카드가 남긴 부분 수정 대화를 화면 저장이 옛 사본으로 덮지 않게
 - `agentOpenText`: 집필 화면 머리의 'AI에게 고치기'. 대화 에이전트를 열고 고른 본문을 재료로 붙인다. 열려 있으면 닫는다
+- Enter 보내기(`chat.js`)는 `agentSend` 를 바로 부른다. 옛 `chatSend` 를 가로채던 줄은 04e 에서 지웠다
 - 문체 대상이면 '+ 재료'에서 참고할 화(`epSelect('styleRefEp')`)를 골라 입력 상자 위 칩(`agentRefChip`)으로 붙인다. 턴의 `episode` 로 간다(`agentTurnScope`)
 - 진행은 `pollJobs` 가 `agentJobUpdate` 로 알린다
 - 도는 턴의 단계 줄은 지금 하는 일(`agentStepNow`: `Job.retry` 가 있으면 그 사정, 없으면 'AI 응답을 기다리는 중')과 직전 단계의 생각(`Job.note`)을 보인다
@@ -775,11 +779,9 @@
 
 ### `canon/static/setupchat.js`
 
-- 설정 도우미의 대화로 다듬기 패널(`CHAT_TOPICS.setup`)
-- 칸별 변경안과 지금 값 비교(이미 채운 칸을 바꾸는 부분은 기본으로 체크하지 않음)
-- 새 인물을 고르지 않으면 그 인물과의 관계는 끔
-- 방향 여러 안(`chat.js` 의 `optionsCard`)
-- 적용 · 적용 취소
+- 설정 변경안을 읽는 도우미: 칸 이름 · 지금 값(`setupKeyValue`) · 부분 이름(`setupLabel`) · 관계 비교(`setupRelDiff`) · 새 인물 카드(`setupNewCard`). 대화 에이전트의 설정 카드(`agentsetup.js`)가 쓴다
+- 옛 설정 대화(주제 `setup`)의 적용 취소 `setupChatUndo`. 대화 에이전트의 '이전 대화'(`chat.js` `chatReadOnlyCard`)에서 부른다
+- 옛 설정 대화의 패널 · 보내기 · 변경안 카드 · 적용 · 방향 여러 안은 04e 에서 지웠다
 - 칸 이름(`SETUP_KEYS`, `SETUP_CHAR_LABEL`)과 부분 id 는 `setupchat.KEY_LABELS` · `CHAR_LABELS` · `part_ids` 와 같다
 
 ### `canon/static/statwin.js`

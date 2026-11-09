@@ -11,6 +11,7 @@ import pytest
 
 from canon import archetypes, logline, pipeline, prompts, setupchat, store
 from canon.cli import main
+from canon.mock import MockLLM
 from canon.schema import ArchetypePick, Character, CharacterEdit, Relationship, SetupEdit, SetupRevision
 
 from .test_storylines import _short
@@ -154,12 +155,13 @@ def test_options_and_prompt():
     assert "options 에 서로 분명히 다른 방향" in prompts.setup_chat_prompt(p, "방향", "options")
 
 
-def test_web_send_apply_undo(client):  # noqa: F811
+def test_web_old_record_apply_undo(client):  # noqa: F811
+    """옛 설정 대화 기록: 보내기는 04e 에서 지웠다(대화 에이전트의 설정 도구가 맡는다). 적용 · 적용 취소 · 버림 · 다시 검토는 옛 엔드포인트가 그대로 받는다."""
     p = _project()
+    setupchat.record(p, "주인공 약점을 더 어둡게", "", pipeline.revise_setup(MockLLM(), p, "주인공 약점을 더 어둡게"))
     store.save("등대", p)
-    r = client.post("/api/projects/등대/chat/setup", json={"message": "주인공 약점을 더 어둡게"})
-    assert r.status_code == 200, r.text
-    msgs = r.json()["chats"][-1]["messages"]
+    assert client.post("/api/projects/등대/chat/setup", json={"message": "주인공 약점을 더 어둡게"}).status_code == 404
+    msgs = client.get("/api/projects/등대").json()["chats"][-1]["messages"]
     i = len(msgs) - 1
     assert msgs[i]["setup"]["new_characters"][0]["id"] == "mentor"
     r = client.post(f"/api/projects/등대/chat/setup/{i}/apply", json={"fields": ["theme", "new:mentor"]})
@@ -171,8 +173,7 @@ def test_web_send_apply_undo(client):  # noqa: F811
     assert client.post(f"/api/projects/등대/chat/setup/{i}/reopen").status_code == 200
     r = client.post(f"/api/projects/등대/chat/setup/{i}/apply", json={"fields": []})
     assert r.status_code == 400 and "고르세요" in r.json()["detail"]
-    r = client.post("/api/projects/등대/chat/setup", json={"message": "방향", "mode": "options"})
-    assert len(r.json()["chats"][-1]["messages"][-1]["setup"]["options"]) == 3
+    assert len(pipeline.revise_setup(MockLLM(), p, "방향", "options").options) == 3
 
 
 def test_cli(tmp_path, monkeypatch):
@@ -200,7 +201,7 @@ def test_js_labels_match_server():
     harness = """
 const vm = require('vm');
 const fs = require('fs');
-const ctx = { CHAT_TOPICS: {}, actions: {}, document: { addEventListener() {} } };
+const ctx = { actions: {}, document: { addEventListener() {} } };
 vm.createContext(ctx);
 vm.runInContext(fs.readFileSync(process.argv[1], 'utf8') + ';globalThis.out = { keys: SETUP_KEYS, chars: SETUP_CHAR_LABEL };', ctx);
 process.stdout.write(JSON.stringify(ctx.out));

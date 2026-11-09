@@ -2128,6 +2128,8 @@ def restore_backup(name: str, body: RestoreIn) -> Project:
 # ---------- 3-1. 대화로 다듬기 ----------
 # 대화 기록은 project.json 의 chats 에 화면(topic)별로 남는다. 플롯 화면은 'plot', 집필 화면의 본문 부분 수정은
 # 화마다 'text:<화>', 문체 화면은 'style', 설정 도우미는 'setup' 이다 (4-1 · 2-2 · canon/setupchat.py 참고).
+# 'plot' 밖의 셋은 옛 기록이다(04e). 새 말은 대화 에이전트가 받고, 여기서는 적용 · 적용 취소 · 버림 · 지우기만 남긴다.
+# 상태 정리 경고의 'AI에게 고치기'(fix-now)는 지금도 'text:<화>' 기록에 요청과 후보를 남긴다.
 
 TEXT_TOPIC = re.compile(r"^text:(\d+)$")
 
@@ -2141,35 +2143,22 @@ def _chat(p: Project, topic: str):
 
 class ChatIn(BaseModel):
     message: str = ""
-    selection: Selection | None = None  # 본문 부분 수정: 고른 부분
-    preset: str = ""  # 본문 부분 수정: 빠른 요청 id (prompts.PASSAGE_PRESETS)
     # 플롯 대화: 화면이 알려 주는 대상과 보던 곳 (schema.ChatScope)
     target: str = ""  # '' 기본, 'arc:3' 고른 아크, 'next' 다음 아크 기획
     act: str = ""  # 연 구간 이름
-    episode: int = 0  # 연 화. 문체 대화면 참고할 화
-    mode: Literal["", "options"] = ""  # options: 방향 여러 안 (플롯 · 설정 대화)
+    episode: int = 0  # 연 화
+    mode: Literal["", "options"] = ""  # options: 방향 여러 안
     draft: ArcProposal | None = None  # target 'next': 화면의 다음 아크 초안
 
 
 @app.post("/api/projects/{name}/chat/{topic}")
 def chat_send(name: str, topic: str, body: ChatIn) -> Project:
-    """작가의 말을 보내고 AI 답과 변경안을 대화 기록에 남긴다. 구조와 플롯, 본문은 바꾸지 않는다."""
+    """옛 플롯 대화에 작가의 말을 보내고 AI 답과 변경안을 대화 기록에 남긴다. 구조와 플롯, 본문은 바꾸지 않는다.
+    설정 · 문체 · 본문 고치기('text:N')의 보내기는 대화 에이전트의 도구가 맡는다(agent_setup · agent_style · agent_text). 그 옛 기록은 읽기 · 적용 취소만 한다."""
     p = _load(name)
     _chat(p, topic)
-    if m := TEXT_TOPIC.match(topic):
-        n = int(m.group(1))
-        if body.selection is None:
-            raise ValueError("본문에서 고칠 부분을 고르세요")
-        _text_guard(name, n)  # 넣기(chat_apply)에서 막힐 요청이면 AI를 부르기 전에 막는다
-        sel = Selection(start=pipeline.locate(p.episode(n).text, body.selection.text, body.selection.start), text=body.selection.text)
-        rev = pipeline.revise_passage(get_llm("revise"), p, n, sel, body.message, body.preset, rules=True)  # 후보마다 고침 규칙을 건다
-        return _edit(name, lambda q: pipeline.record_passage(q, n, sel, body.message, body.preset, rev))
-    if topic == "style":
-        rev = pipeline.revise_style(get_llm("plan"), p, body.message, body.episode)
-        return _edit(name, lambda q: pipeline.record_style_chat(q, body.message, body.episode, rev))
-    if topic == setupchat.TOPIC:
-        rev = pipeline.revise_setup(get_llm("plan"), p, body.message, body.mode)
-        return _edit(name, lambda q: setupchat.record(q, body.message, body.mode, rev))
+    if topic != "plot":
+        raise HTTPException(404, "이 대화는 이제 보낼 수 없어요. 대화 에이전트에게 말해 주세요")
     target, _ = pipeline.chat_target(p, body.target)  # 기다리는 동안 아크가 붙어도 처음 대상을 기록한다
     scope = ChatScope(target=target, act=body.act, episode=body.episode, mode=body.mode, draft=body.draft)
     rev = pipeline.revise_plot(get_llm("plan"), p, body.message, scope)

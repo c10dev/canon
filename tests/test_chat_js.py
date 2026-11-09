@@ -141,10 +141,12 @@ def test_closed_sheet_band_on_narrow_screen():
     """닫힌 시트는 900px 이하 작품 화면에서만 '대화 열기' 띠가 된다. 상태 승인 화면 · 다시 생성 열에는 없다. 닫힌 사이 온 새 답에 점을 단다."""
     p = Project(episodes=[episode(1)])
     expr = SCREEN + """S.project = data; S.name = 'demo'; S.chatOpen = false;
-      const dock = (page, opt) => { chatScreen(page, 1); if (opt) chatLegacy('text:1', opt); return chatDock(); };
+      let replies = -1;  // 대화 에이전트의 마지막 답 번호 (agent.js agentLastReply 대역)
+      agentLastReply = () => ({ scope: 'demo|agent:s1', id: String(replies), text: replies < 0 ? '' : '고쳤어요' });
+      const dock = (page, hold) => { chatScreen(page, 1); if (hold) chatHold(true); return chatDock(); };
       screen(false, null); const wide = dock('write');
-      screen(true, null); const band = dock('write'); const review = dock('review'); const hold = dock('write', { hold: true }); const cast = dock('cast');
-      S.project.chats = [{ topic: 'plot', messages: [{ role: 'user', text: '고쳐 줘' }, { role: 'ai', text: '고쳤어요' }] }];
+      screen(true, null); const band = dock('write'); const review = dock('review'); const hold = dock('write', true); const cast = dock('cast');
+      replies = 0;
       const fresh = dock('write');
       S.chatOpen = true; dock('write'); S.chatOpen = false;  // 열어서 봤다
       [wide, band.includes('class="chat-band"'), band.includes('chat-band-dot'), review, hold, cast.includes('chat-band'),

@@ -67,6 +67,9 @@ def test_ending_changes_act_and_dismiss(client):
     p = client.delete("/api/projects/lh/chat/plot").json()
     assert p["chats"][0]["messages"] == []
     assert client.post("/api/projects/lh/chat/nope", json={"message": "x"}).status_code == 404
+    for topic in ("setup", "style", "text:1"):  # 옛 대화 셋의 보내기는 지웠다 (04e). 플롯 갈래로 흘러가지 않는다
+        assert client.post(f"/api/projects/lh/chat/{topic}", json={"message": "x"}).status_code == 404
+    assert [c["topic"] for c in client.get("/api/projects/lh").json()["chats"]] == ["plot"]
     assert client.post("/api/projects/lh/chat/plot", json={"message": "  "}).status_code == 400
 
 
