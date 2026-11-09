@@ -130,7 +130,7 @@ function setupProposal(m, i) {
     const cur = setupPair(base.relationships, r.a, r.b);
     const blocked = open ? setupRelBlocked(rev, i, r) : [];
     const head = `관계 · ${esc(setupName(rev, base, r.a))} ↔ ${esc(setupName(rev, base, r.b))}${cur ? (open ? ' <span class="chip written">있는 관계 바꿈</span>' : '') : ' <span class="chip ai">새 관계</span>'}`;
-    const note = blocked.length ? `<div class="note plain">새 인물 ${blocked.map((id) => esc(setupName(rev, base, id))).join(', ')}을(를) 함께 골라야 넣을 수 있어요.</div>` : '';
+    const note = blocked.length ? `<div class="note plain">새 인물 ${blocked.map((id) => esc(setupName(rev, base, id))).join(', ')}${josa(setupName(rev, base, blocked[blocked.length - 1]), '을', '를')} 함께 골라야 넣을 수 있어요.</div>` : '';
     parts.push(part(setupRelId(r), !cur, head, `${note}<div class="diff">${setupRelDiff(r, cur, rev, base) || '<div class="small">지금 관계와 같아요.</div>'}</div>`, blocked.length > 0));
   });
 

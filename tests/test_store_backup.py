@@ -1,6 +1,7 @@
 """저장 전 백업(project.prev.json · backups/), 화면 저장 기록 읽기, 세 자리 본문 파일 이름, 사용량 기록 이어 읽기."""
 import json
 import os
+import shutil
 
 import pytest
 
@@ -225,3 +226,91 @@ def test_snapshot_changed_in_place_is_written(home):
     store.save("m", p)
     store._views.clear()
     assert store.load("m").snapshots[0].facts == ["처음", "더함"]
+
+
+def _orphan_backup(home, name, monkeypatch):
+    """백업 하나만 적는 스냅샷 파일을 만들고 SNAP_GRACE 를 0 으로 둔다. (작품 폴더, 백업 경로, 그 파일 이름) 을 돌려준다."""
+    from canon.schema import Snapshot
+    p = _with_snaps(home, name)
+    d = home / name
+    (d / store.BACKUP_DIR).mkdir(exist_ok=True)
+    bak = d / store.BACKUP_DIR / "before-restore.20260101-000000.json"
+    shutil.copy(d / "project.json", bak)  # 지금 스냅샷 파일들을 적는 백업
+    only = set(store._snap_refs(bak))
+    p.snapshots = [Snapshot(episode=0, facts=["새것"])]
+    store.save(name, p)
+    store.save(name, p)  # project.json · prev 가 모두 새 스냅샷만 적는다
+    for f in (d / store.BACKUP_DIR).glob("project.*.json"):
+        f.unlink()  # 시간별 백업도 첫 판을 적으므로 지워 bak 하나만 남긴다
+    only -= set(store._snap_refs(d / "project.json")) | set(store._snap_refs(d / "project.prev.json"))
+    assert only  # 백업만 적는 파일이 있다
+    monkeypatch.setattr(store, "SNAP_GRACE", 0.0)
+    return d, bak, only
+
+
+def test_drop_old_snapshots_skips_when_backup_unreadable(home, monkeypatch, caplog):
+    d, bak, only = _orphan_backup(home, "u", monkeypatch)
+    real_open = type(bak).open
+
+    def fail_open(self, *a, **k):  # root 로 돌면 chmod 0 이 듣지 않으므로 읽기를 바꿔 실패를 만든다
+        if self == bak:
+            raise PermissionError(13, "Permission denied")
+        return real_open(self, *a, **k)
+
+    monkeypatch.setattr(type(bak), "open", fail_open)
+    with caplog.at_level("WARNING", logger="canon"):
+        store._drop_old_snapshots(d)
+    assert all((d / "snapshots" / f).exists() for f in only)  # 읽지 못한 백업이 적은 파일을 지우지 않는다
+    assert "스냅샷 정리를 건너뛰었어요" in caplog.text
+    monkeypatch.setattr(type(bak), "open", real_open)
+    assert [s.facts for s in store.read_disk(bak, home=d).snapshots] == [["처음"], ["하나"]]
+    store._drop_old_snapshots(d)  # 다시 읽히면 백업이 적은 파일은 남고 정리는 그대로 돈다
+    assert all((d / "snapshots" / f).exists() for f in only)
+
+
+@pytest.mark.parametrize("body", ["", "\x00\x00garbage", '{"snapshot_files":["0-a.json"', '{"snapshot_files":["0-a.json",1]}'])
+def test_drop_old_snapshots_skips_on_broken_head(home, monkeypatch, body):
+    d, bak, only = _orphan_backup(home, "b", monkeypatch)
+    bak.write_text(body, encoding="utf-8")  # 백업이 깨졌다 (빈 파일 · 손상 · 64KB 안에서 닫히지 않는 목록)
+    store._drop_old_snapshots(d)
+    assert all((d / "snapshots" / f).exists() for f in only)  # 깨진 판을 옛 모양으로 보고 지우지 않는다
+
+
+@pytest.mark.parametrize("body", ["", "[1, 2]"])
+def test_drop_old_snapshots_ignores_stray_backup_file(home, monkeypatch, body):
+    d, bak, only = _orphan_backup(home, "s", monkeypatch)
+    bak.unlink()  # 백업이 적던 파일은 이제 아무 판도 적지 않는다
+    (d / store.BACKUP_DIR / "notes.json").write_text(body, encoding="utf-8")  # Canon 이 쓰지 않은 파일 (빈 파일 · 배열)
+    store._drop_old_snapshots(d)
+    assert not any((d / "snapshots" / f).exists() for f in only)  # 낯선 파일 때문에 정리가 멈추지 않는다
+    assert (d / store.BACKUP_DIR / "notes.json").exists()
+
+
+def test_snap_refs_tells_old_missing_and_unreadable(home):
+    f = home / "x.json"
+    assert store._snap_refs(f) == []  # 없는 판은 아무것도 적지 않는다
+    f.write_text('{"meta":{}}', encoding="utf-8")
+    assert store._snap_refs(f) is None  # 옛 모양
+    f.write_text('{"snapshot_files":["0-a.json"],"meta":{}}', encoding="utf-8")
+    assert store._snap_refs(f) == ["0-a.json"]
+    for body in ["", "garbage", '{"snapshot_files":["0-a.json"' + " " * 70000 + "]}", '{"snapshot_files":[1]}']:
+        f.write_text(body, encoding="utf-8")
+        with pytest.raises(store.SnapRefsUnreadable):
+            store._snap_refs(f)
+
+
+def test_drop_old_snapshots_keeps_prev_refs_in_project_named_backups(home, monkeypatch):
+    """작품 폴더 이름이 backups 여도 읽지 못한 project.prev.json 을 낯선 백업 파일로 넘기지 않는다."""
+    from canon.schema import Snapshot
+    d = home / "backups"
+    p = _with_snaps(home, "backups")
+    p.snapshots = [Snapshot(episode=0, facts=["새것"])]
+    store.save("backups", p)  # project.json 은 새 스냅샷, prev 는 첫 판을 적는다
+    for f in (d / store.BACKUP_DIR).glob("*.json"):
+        f.unlink()
+    only = set(store._snap_refs(d / "project.prev.json")) - set(store._snap_refs(d / "project.json"))
+    assert only
+    (d / "project.prev.json").write_text("", encoding="utf-8")  # prev 가 깨졌다
+    monkeypatch.setattr(store, "SNAP_GRACE", 0.0)
+    store._drop_old_snapshots(d)
+    assert all((d / "snapshots" / f).exists() for f in only)

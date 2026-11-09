@@ -1026,7 +1026,7 @@ def cmd_check(a: argparse.Namespace) -> None:
             fid, level = a.sev
             level = SEVERITY_ARG.get(level, level)
             f = findings.set_severity(p.episode(a.n), fid, level, pipeline._now())
-            print(f"{f.id}: 심각도를 {SEVERITY[level]}으로 정했어요")
+            print(f"{f.id}: 심각도를 {SEVERITY[level]}{logline.josa(SEVERITY[level], '으로', '로')} 정했어요")
         store.save(a.name, p)
     elif a.recheck_fixed:
         print(f"{a.n}화 고친 곳만 다시 보는 중...")

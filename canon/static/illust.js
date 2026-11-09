@@ -154,11 +154,13 @@ function ilCard(n, x) {
       <button type="button" class="btn small" data-action="illRebuild" data-arg="${esc(x.id)}">다시 조립</button></div>`
     : `<div class="note warn between"><span>${esc(names[cid] || cid)}: 외형 태그가 저장되지 않아 AI가 붙인 태그를 썼어요. 다음 삽화에서 모습이 달라질 수 있어요.</span>
       <button type="button" class="btn small" data-action="illKeepLook" data-arg="${esc(x.id)}|${esc(cid)}">이 태그로 고정</button></div>`)).join('');
+  // 인용은 본문과 대조해 못 찾으면 비운다(illust.match_quote). 빈 인용은 칸을 그리지 않는다
+  const quote = (x.selection && x.selection.text.length <= 400 ? x.selection.text : x.draft.quote) || '';
   return `<article class="ill-card">
     <div class="row" style="gap:6px"><strong>${esc(x.draft.scene || '장면')}</strong>
       <span class="chip">${esc(m.label)}</span><span class="chip${x.rating === 'general' ? '' : ' written'}">${IL_RATING[x.rating] || x.rating}</span>
       <span class="small">${x.selection ? '고른 부분' : 'AI가 고른 장면'} · ${editTime(x.at)}</span></div>
-    <blockquote class="ill-quote">${esc((x.selection && x.selection.text.length <= 400 ? x.selection.text : x.draft.quote) || '')}</blockquote>
+    ${quote ? `<blockquote class="ill-quote">${esc(quote)}</blockquote>` : ''}
     ${x.request ? `<div class="small">요청: ${esc(x.request)}</div>` : ''}
     ${missing}
     ${(x.notes || []).map((t) => `<div class="note plain">${esc(t)}</div>`).join('')}
@@ -381,7 +383,7 @@ Object.assign(actions, {
     const v = ilVisual(cid);
     const filled = v ? [['외형', v.look], ['기본 옷차림', v.outfit]].filter(([, x]) => (x || []).length).map(([k]) => k) : [];
     if (v && v.subject) filled.push('그림 속 성별');
-    if (filled.length && !(await askConfirm(`지금 적힌 ${filled.join(' · ')}을(를) AI 제안으로 바꿀까요? 저장하기 전에는 '변경 모두 버리기'로 되돌릴 수 있어요`, { ok: '바꾸기' }))) return;
+    if (filled.length && !(await askConfirm(`지금 적힌 ${filled.join(' · ')}${josa(filled[filled.length - 1], '을', '를')} AI 제안으로 바꿀까요? 저장하기 전에는 '변경 모두 버리기'로 되돌릴 수 있어요`, { ok: '바꾸기' }))) return;
     await run('외형 태그 만드는 중', async () => {
       await saveIfDirty();  // AI는 저장된 인물 설정을 읽는다. 방금 고친 설정이나 새 인물도 보게 먼저 저장한다
       const s = await api('POST', `/projects/${enc(S.name)}/characters/${enc(cid)}/look`);

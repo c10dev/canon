@@ -21,6 +21,7 @@
 ### `canon/static/app.js`
 
 - 웹 화면의 뼈대
+- 이름 뒤 조사 `josa`(여러 화면이 쓴다, `logline.josa` 와 같은 규칙, `tests/test_logline_js.py`)
 - 900px 이하에서 알림 창 · 찾기 팔레트 · 대화 시트 · 서랍 메뉴를 열면 기록을 하나 더해(`panelOn` · `panelOff`, state.panel) 뒤로 가기가 그 창만 닫는다. 닫을 때 되돌리기는 한 박자 미뤄 다른 창이 이어 쓰고, 주소가 바뀐 popstate 는 창을 닫지 않고, 창 없이 남은 기록은 움직인 쪽(뒤 · 앞)으로 건너뛰고, 저장하지 않은 변경이 있으면 건너뛰지 않는다. 열린 채 그려진 대화 시트는 그 시트를 처음 누를 때 `panelSync` 가 기록을 붙인다
 - 지운 것 되살리기는 최근 10개까지 쌓는다(`rememberRemoved`, `S.removed`). 지우기 사이에 다른 고침(`S.editSeq`)이 있으면 앞 기록을 버린다. 저장 띠의 '되살리기'는 가장 최근 것부터 하나씩
 - 휴대폰 키보드가 열리면 html 에 `kb-open` 을 단다(`--kb` 80px 이상). 640px 이하에서 집필 머리를 붙여 두지 않는다
@@ -56,6 +57,9 @@
 - 상태 `S`
 - 서버 호출 `api`
 - 작품 저장 `save` 는 받은 판(`projectBase` 의 `keys` · `eps`)과 달라진 칸 · 화만 `PATCH` 로 보낸다(`patchBody`)
+- 서버가 본문 있는 화를 지켜 `X-Canon-Kept` 에 `episode` · `text` 를 담으면 `save` 는 토스트로 알리고 '저장했어요'를 띄우지 않는다
+- 빠진 화(`episode`)는 '본문이 있는 화를 빼는 저장이라' 토스트에 화 지우기를 알려 준다
+- 비운 본문(`text`)은 대개 이 화면의 옛 사본이라 '서버에는 본문이 있는 화라' 중립 토스트로 알린다. 같은 화를 플롯 보호(`locked`) 토스트가 이미 알렸으면 띄우지 않는다
 - 본문 고침을 시작한 저장 본문은 `TEXT_BASE`('작품:화')에 적는다(`markTextBase` · `textBase`). 본문 저장 요청 몸은 `textBody`(서버 `Text.base`)
 - 작품 전체 GET 은 받은 판을 `projectCache` 에 두고 304 면 그 복사본을 쓴다
 - `isProjectJson`(`meta` 와 `episodes` 배열)인 답만 작품으로 받고 보관한다. 보관한 판으로 물었는데 아니면 보관한 것을 버리고 조건 없이 다시 받는다(`tests/test_project_cache_js.py`)
@@ -528,6 +532,12 @@
   - 찾기 색인 `SET_ROWS` · `settingsMatch`
   - 줄 HTML `setRowHtml`
   - 바로 저장 `setSave`(바꾼 칸만 `PUT /config`) · `setProjectSave`(칸마다 작품 API)
+  - 설정 API 응답은 `setConfigCall` 이 받는다. 마지막으로 보낸 요청(`SET.seq`)의 응답만 `S.config` 에 넣는다
+  - 늦게 온 옛 응답을 버렸으면(`SET.stale`) 기다리는 요청이 다 끝난 뒤 `GET /config` 로 한 번 맞춘다
+  - 요청이 `config_broken` 으로 막히거나 새로 시작이 실패해도 끝난 뒤 `GET /config` 로 맞춘다. 맨 위 안내와 단추가 서버 상태와 같게 보인다
+  - 설정 파일이 깨졌으면(`config_broken`) 본문 맨 위에 `note warn` 안내(`setBrokenHtml`)와 보관본 경로를 보인다
+  - 읽지 못한 파일(`config_unreadable`)이면 새로 시작 단추 없이 파일 권한을 확인하라고 안내한다
+  - 안내의 '기본값으로 새로 시작'(`setConfigReset`)은 묻고 `POST /config/reset` 을 보낸다. 그 전에는 서버가 저장을 409 로 막는다
   - 대화상자를 닫으면 작품 밖(작품 목록)도 다시 그린다. `setSave` 뒤 키 점검(`/config/health`)이 닫은 뒤에 오면 그때 다시 그린다
   - 저장 띠 없음
   - 키만 줄 안 '키 저장'
@@ -552,7 +562,7 @@
   - 새 작품 마법사 `viewSetupWizard`: 필수 칸 `setupReqs` · 걸음 목차 `wizStepper` · `wizStepState` · 세계 종류 · 시대 칩 `withWorldKind` · `worldRecs`
   - 다 채운 작품은 기획서 `viewSetupDoc`: 구역 `DOC_SECS` · 목차 상태 `docStatus` · 머리 요약 `docSummary` · 관계 점검 `relIssue` · `relWork` · 가 닿을 곳이 섞인 사이 `relDestNote`
   - 인물 · 관계는 한 줄 목록에서 하나만 편다
-  - 이야기 뼈대만: 로그라인 · 관계 · 이름 후보 · 조사 `josa`
+  - 이야기 뼈대만: 로그라인 · 관계 · 이름 후보
   - 인물 상세는 `cast.js` 인물 카드
   - 상태창 처음 수치는 `statwin.js` 로 가는 링크 `setupStatLink`
   - `tests/test_setup_wizard_js.py`

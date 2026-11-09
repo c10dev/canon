@@ -136,7 +136,7 @@ function boardBody(n, b, v) {
   const vals = [];
   vals.push(`<div class="bd-row"><span class="bd-k">시간 · Canon이 셈</span><span>${v ? esc(v.time) : '세는 중…'}</span></div>`);
   if (v && v.deadlines.length) vals.push(`<div class="bd-row"><span class="bd-k">열린 기한</span><span>${v.deadlines.map((d) => esc(d.replace(/^- /, ''))).join('<br>')}</span></div>`);
-  vals.push(`<div class="bd-row"><span class="bd-k">이동</span><span>${b.moves.length ? b.moves.map((m) => `${esc(name(m.character_id))} · ${m.scene ? `${m.scene}장면에서 ` : ''}${esc(m.to)}(으)로`).join('<br>') : '없음'}</span></div>`);
+  vals.push(`<div class="bd-row"><span class="bd-k">이동</span><span>${b.moves.length ? b.moves.map((m) => `${esc(name(m.character_id))} · ${m.scene ? `${m.scene}장면에서 ` : ''}${esc(m.to)}${josa(m.to, '으로', '로')}`).join('<br>') : '없음'}</span></div>`);
   if (b.attire.length) vals.push(`<div class="bd-row"><span class="bd-k">차림 (화 끝)</span><span>${b.attire.map((a) => `<strong>${esc(name(a.character_id))}</strong> · ${esc(a.end)}${a.why ? ` <span class="small">(${esc(a.why)})</span>` : ''}`).join('<br>')}</span></div>`);
   const steps = v ? v.steps : [];
   if (steps.length) {

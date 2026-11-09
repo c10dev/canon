@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 
 from . import cancel, context, jobs, pipeline, prompts, renumber, store
 from .llm import LLM, dump, out_cap, wait_cap
+from .logline import josa
 from .schema import (AgentAsk, AgentSession, AgentTurn, Approval, AskCard, ChatScope, PlotAgentStep, PlotRevision, Project, RenumberOp,
                      StepRecord, WriteItem, WriteRecord)
 
@@ -355,8 +356,9 @@ def edit_plot(p: Project, s: AgentSession, turn: AgentTurn, edit: PlotRevision) 
         kinds = sorted({kind for k, kind in parts if k in ask})
         turn.approval = Approval(target=target, revision=rev, keys=ask, kinds=kinds)
         names = ", ".join(label(p, k, target) for k in ask)
+        what = " · ".join(KIND_LABELS[k] for k in kinds)
         steps.append(StepRecord(kind="wait", tool="edit_plot", label=names,
-                                why=f"{' · '.join(KIND_LABELS[k] for k in kinds)}은(는) 물어보고 바꿔요",
+                                why=f"{what}{josa(what, '은', '는')} 물어보고 바꿔요",
                                 result=f"작가에게 물음: {names}. 작가의 답을 기다려야 하므로 턴을 끝냅니다"))
     if not steps:
         steps.append(StepRecord(kind="note", tool="edit_plot", why="바뀌는 것이 없어요", result="바뀌는 것이 없어요"))

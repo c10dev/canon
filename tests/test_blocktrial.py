@@ -106,3 +106,32 @@ def test_run_keeps_drafts_written_before_a_failure(monkeypatch):
     with pytest.raises(Cancelled):
         blocktrial.run("bt2", store.load("bt2"), LLM, [2])
     assert research.history("bt2")[0]["stopped"].startswith("4개")  # 쓴 본문이 없으면 새 기록을 남기지 않는다
+
+
+def test_speech_copied_catches_short_dialogue_examples():
+    """말투(speech_style)의 따옴표 대사 예시를 본문에 그대로 쓰면 잡는다. 예시는 COPY_SPAN 보다 짧아도 잡고, 말버릇은 뺀다."""
+    from canon import metrics
+
+    style = '짧은 반말, 상대를 성으로 부른다. 말버릇 "됐거든, 진짜로." 예: "넌 아직 멀었어, 꼬맹아?"'
+    assert metrics.speech_examples(style) == ["넌 아직 멀었어, 꼬맹아?"]
+    text = '"넌 아직 멀었어, 꼬맹아." 그가 웃었다. "됐거든, 진짜로." 서윤이 말했다. 비가 왔다.'
+    assert metrics.copied_sentences(text, ["넌 아직 멀었어, 꼬맹아?"]) == []  # 기본 겹침 길이(12자)로는 놓친다
+    said = metrics.speech_copied(text, [style])
+    assert said == ['"넌 아직 멀었어, 꼬맹아."']  # 끝 문장부호가 달라도 잡는다. 말버릇 줄은 잡지 않는다
+    assert metrics.speech_copied("그가 웃었다. 그만해.", ['예: "그만해."']) == []  # 흔한 짧은 말은 보지 않는다
+    assert metrics.speech_copied(text, ["「아직 멀었어」 같은 말"]) == []  # 여섯 자가 안 되는 예시는 보지 않는다
+    assert metrics.speech_copied("“내 사전에 포기란 없다.” 그가 말했다.", ["“내 사전에 포기란 없다”"])
+
+    p = _trial()
+    p.characters[0].speech_style = style
+    p.episode(2).text = text
+    assert pipeline.speech_copied(p, text) == said
+    _, warns = pipeline.style_drift(p, 2)
+    assert any(w.startswith("말투 예시 대사를 그대로 쓴 문장 1개") for w in warns)
+    assert blocktrial.score(p, 2, text)["speech_copied"] == 1
+
+
+def test_episode_prompt_says_examples_are_not_lines():
+    p = _trial()
+    out = prompts.episode_prompt(p, 3)
+    assert "speech_style 의 대사 예시는 말투를 보여 주는 예입니다" in out and "작가가 정한 말버릇은 써도 됩니다" in out

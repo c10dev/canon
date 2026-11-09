@@ -1554,7 +1554,7 @@ function atlasExportMenu() {
     <div class="pop-sep"></div>
     <button type="button" class="pop-item" data-action="atlasExport" data-arg="svg">SVG로 내려받기<span class="small">고쳐 쓰기 좋아요</span></button>
     <button type="button" class="pop-item" data-action="atlasExport" data-arg="png">PNG로 내려받기<span class="small">2배 크기</span></button>
-    <p class="small at-pop-note">${v ? `화풍은 지금 고른 '${esc(ATLAS_STYLES[atlasStyleNow()].label)}'으로 그려요. ` : ''}${S.atlas.layout && S.atlas.layout.source ? '출처 글은 늘 들어가요.' : ''}</p>`;
+    <p class="small at-pop-note">${v ? `화풍은 지금 고른 '${esc(ATLAS_STYLES[atlasStyleNow()].label)}'${josa(ATLAS_STYLES[atlasStyleNow()].label, '으로', '로')} 그려요. ` : ''}${S.atlas.layout && S.atlas.layout.source ? '출처 글은 늘 들어가요.' : ''}</p>`;
 }
 
 /** 화 칸 하나하나: 반영한 시점 칸(지난 화 · 지금), 이동 경고가 있는 화는 점, 아직 반영하지 않은 화는 점선 칸 */
@@ -1981,7 +1981,7 @@ Object.assign(actions, {
     S.atlasSel = '';
     const pl = atlasPlace(key);
     const name = pl ? pl.name : key;
-    await atlasSavePins(atlasPins().filter((x) => x.place !== key), `'${name}'을(를) 지도에서 뺐어요`, { before: atlasPinMap(), label: `'${name}' 빼기` });
+    await atlasSavePins(atlasPins().filter((x) => x.place !== key), `'${name}'${josa(name, '을', '를')} 지도에서 뺐어요`, { before: atlasPinMap(), label: `'${name}' 빼기` });
   },
   async atlasUndo(d) {
     const back = Number(d) < 0;
@@ -2274,7 +2274,7 @@ document.addEventListener('submit', async (e) => {
       S.atlasSel = r.key;
       await atlasLoad();
       atlasRefresh();
-      toast(`'${name}'을(를) 장소로 등록하고 이 건물에 놓았어요 (인과율 '장소')`);
+      toast(`'${name}'${josa(name, '을', '를')} 장소로 등록하고 이 건물에 놓았어요 (인과율 '장소')`);
     });
   }
 });
@@ -2418,7 +2418,7 @@ document.addEventListener('click', async (e) => {
   S.atlasSel = pl.key;
   const before = atlasPinMap();
   pl.pin = atlasSnap(pt);
-  await atlasSavePins(atlasPins(), `'${pl.name}'을(를) 지도에 놓았어요`, { before, label: `'${pl.name}' 놓기` });
+  await atlasSavePins(atlasPins(), `'${pl.name}'${josa(pl.name, '을', '를')} 지도에 놓았어요`, { before, label: `'${pl.name}' 놓기` });
 });
 
 // 키보드: 장소에서 Enter 는 자세히 보기, 화살표는 1% (Shift 5%) 옮기기

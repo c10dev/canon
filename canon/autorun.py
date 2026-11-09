@@ -29,9 +29,10 @@ from pydantic import BaseModel, Field
 
 from . import anchor, atlas, board, cue, dynamics, features, findings, jobs, pipeline, prompts, settings, store, timeline, usage
 from . import stage as stage_mod
-from .llm import BatchLLM, Interrupted, SchemaMismatch, get_llm
+from .llm import BatchLLM, Interrupted, QuotaSpent, SchemaMismatch, explain_error, get_llm
 from .research import JSON_OUTPUT_RESERVE, _filler
 from .schema import ConsistencyReport, Project, RewriteRequest, StateDelta, TextVersion
+from .logline import josa
 
 _log = logging.getLogger("canon")
 
@@ -43,6 +44,14 @@ RUN_STEPS = {"board": "스토리보드 만들기", "cues": "큐 시트 만들기
 CLEAR_NAMES = {"current_goal": "목표", "location": "위치", "notes": "메모", "attire": "차림", "emotional_state": "감정"}
 # 화 상태 이름 (화면 STATUS 와 같은 말)
 EP_STATUS = {"draft": "초안", "confirmed": "확정", "written": "작성됨", "finalized": "반영 완료"}
+
+
+def _status_to(st: str) -> str:
+    """멈춤 이유에 넣는 "'확정'으로" 꼴. 조사는 상태 이름의 받침으로 고른다."""
+    name = EP_STATUS.get(st, st)
+    return f"'{name}'{josa(name, '으로', '로')}"
+
+
 # 측정값이 없을 때 쓰는 단계별 소요 시간 추정 (초, 일반 호출)
 SECONDS = {"board": 90.0, "write": 90.0, "revise": 90.0, "check": 40.0, "state": 40.0}
 # 스토리보드 추정: 출력 토큰, 쓰기 프롬프트에 붙는 블록 글자 수 (손으로 채운 스토리보드 예시에서 잰 어림, DESIGN.md)
@@ -107,7 +116,7 @@ class Run(BaseModel):
     step: str = ""
     reasons: list[str] = Field(default_factory=list, description="멈춘 이유")
     halt: str = Field("", description="멈춘 종류. 화면이 고칠 곳으로 가는 버튼을 고른다: "
-                      "plot_missing | plot_draft | board | board_stale | review | every | changed | reverted | schema | error")
+                      "plot_missing | plot_draft | board | board_stale | review | every | changed | reverted | schema | cut | error")
     restarts: int = Field(0, description="서버가 다시 시작돼 이어 간 횟수 (그때 하던 단계는 처음부터 다시 한다)")
     pending: Optional[StateDelta] = Field(None, description="검토 대기 중인 변경안")
     pending_text: str = Field("", description="검토 대기 변경안을 만든 본문. 그 뒤 본문을 고쳤으면 그대로 반영하지 않는다")
@@ -671,9 +680,13 @@ class Runner:
                 self._review(p, n)
         except _Halt as h:
             self._finish(h)
-        except Exception as e:  # 화면과 로그에 그대로 보여 준다
+        except QuotaSpent as e:  # 하루 한도 · 선불 크레딧: 기다려도 풀리지 않아 바로 멈춘다. 한도가 풀리거나 충전한 뒤 이어 간다
+            _log.warning("자동 집필이 AI 사용 한도로 멈췄어요 (%s)", self.name, exc_info=True)
+            self._finish(_Halt("paused", "AI 사용 한도를 다 써서 멈췄어요", [e.message, "한도가 풀리거나 크레딧을 충전한 뒤 이어 가세요"],
+                               kind="quota"), level="error")
+        except Exception as e:  # 원인과 할 일을 화면에, 전체 예외는 로그에 남긴다
             _log.exception("자동 집필이 오류로 멈췄어요 (%s)", self.name)
-            msg = getattr(e, "message", None) or str(e) or type(e).__name__
+            msg = explain_error(e)
             hint = " 배치를 끄고 이어 가 보세요." if run.batch and "batch" in msg.lower() else ""
             # 이유 칸에도 남겨 자동 집필 카드가 무엇 때문에 멈췄는지 보인다
             self._finish(_Halt("error", f"오류로 멈췄어요: {msg}{hint}", [f"{msg}{hint}"], kind="error"), level="error")
@@ -720,7 +733,7 @@ class Runner:
         def put(q: Project) -> None:
             st = q.episode(n).status
             if st != "confirmed":
-                raise _Halt("paused", f"{n}화 상태가 '{EP_STATUS.get(st, st)}'(으)로 바뀌어 멈췄어요", [
+                raise _Halt("paused", f"{n}화 상태가 {_status_to(st)} 바뀌어 멈췄어요", [
                     f"스토리보드를 만드는 사이 {n}화가 '{EP_STATUS.get(st, st)}' 상태로 바뀌어 만든 스토리보드는 버렸어요",
                     f"이어 가면 {n}화의 지금 상태에서 다시 시작해요"], kind="changed")
             pipeline.set_storyboard(q, n, made, by="ai")
@@ -756,7 +769,7 @@ class Runner:
         def put(q: Project) -> None:
             st = q.episode(n).status
             if st != "confirmed":
-                raise _Halt("paused", f"{n}화 상태가 '{EP_STATUS.get(st, st)}'(으)로 바뀌어 멈췄어요", [
+                raise _Halt("paused", f"{n}화 상태가 {_status_to(st)} 바뀌어 멈췄어요", [
                     f"큐 시트를 만드는 사이 {n}화가 '{EP_STATUS.get(st, st)}' 상태로 바뀌어 만든 큐 시트는 버렸어요",
                     f"이어 가면 {n}화의 지금 상태에서 다시 시작해요"], kind="changed")
             cue.set_episode(q, n, made, by="ai")
@@ -769,13 +782,17 @@ class Runner:
         self.log(f"{n}화 본문을 쓰는 중" + (" (배치)" if self.run.batch and batchable("write") else ""))
         cut: list = []
         use_cues = n not in self.no_cues
-        (text, model), usage = self.call("write", n, lambda llm: (pipeline.write_episode(llm, p, n, use_cues=use_cues, cut=cut),
-                                                                  pipeline.writer_of(llm)))
+        try:
+            (text, model), usage = self.call("write", n, lambda llm: (pipeline.write_episode(llm, p, n, use_cues=use_cues, cut=cut),
+                                                                      pipeline.writer_of(llm)))
+        except pipeline.WriteCut as e:  # 끊긴 본문은 반영하지 않는다. 이어 가면 이 화 본문을 다시 쓴다
+            raise _Halt("paused", f"{n}화 본문이 출력 길이 한도에 걸려 끊겨 멈췄어요",
+                        [str(e), f"{n}화에 끊긴 본문을 넣지 않았어요. 이어 가면 {n}화 본문을 다시 써요"], kind="cut") from e
 
         def put(q: Project) -> None:
             ep = q.episode(n)
             if ep.status != "confirmed":
-                raise _Halt("paused", f"{n}화 상태가 '{EP_STATUS.get(ep.status, ep.status)}'(으)로 바뀌어 멈췄어요",
+                raise _Halt("paused", f"{n}화 상태가 {_status_to(ep.status)} 바뀌어 멈췄어요",
                             _changed_while_writing(n, ep.status), kind="changed")
             ep.text, ep.status, ep.written_by, ep.meta_cut = text, "written", model, cut
             cue.mark_used(q, n, use_cues)  # 자동 집필은 있는 큐 시트를 넣어 쓴다. 다시 받은 시트가 비어 왔으면 빼고 쓴다
@@ -874,7 +891,7 @@ class Runner:
         def put(q: Project) -> None:
             st = q.episode(n).status
             if st != "written":
-                raise _Halt("paused", f"{n}화 상태가 '{EP_STATUS.get(st, st)}'(으)로 바뀌어 멈췄어요", [
+                raise _Halt("paused", f"{n}화 상태가 {_status_to(st)} 바뀌어 멈췄어요", [
                     f"상태 변경안을 만드는 사이 {n}화가 '{EP_STATUS.get(st, st)}' 상태로 바뀌어 만든 변경안은 버렸어요",
                     f"이어 가면 {n}화의 지금 상태에서 다시 시작해요"], kind="changed")
             _same_text(q, n, delta)

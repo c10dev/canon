@@ -74,6 +74,19 @@ class SchemaMismatch(RuntimeError):
                          + (f". {note}" if note else ""))
 
 
+class OutputCut(RuntimeError):
+    """응답이 출력 길이 한도(out_cap 또는 모델 기본 한도)에 걸려 끊겼다. 끝난 이유를 last_finish 로 남기지 않고 오류로 알리는 백엔드가 낸다 (claude.ClaudeAPILLM)."""
+
+
+# 응답이 출력 길이 한도에 걸려 끊겼다는 끝난 이유: Gemini MAX_TOKENS, OpenAI 호환(로컬) length.
+CUT_FINISH = ("MAX_TOKENS", "length")
+
+
+def was_cut(llm: Any) -> bool:
+    """마지막 응답이 출력 길이 한도에 걸려 끊겼으면 참. 끝난 이유(last_finish)를 남기지 않는 백엔드는 늘 거짓."""
+    return str(getattr(llm, "last_finish", "") or "") in CUT_FINISH
+
+
 def _brief(e: ValidationError, limit: int = 8) -> str:
     """검증 오류를 위치와 이유만 짧게. 입력값 전체는 길고 본문이 섞여 있어 뺀다."""
     errs = e.errors(include_url=False)
@@ -235,14 +248,20 @@ def is_rate_limit(e: BaseException) -> bool:
     return getattr(e, "code", None) == 429 or getattr(e, "status", None) == "RESOURCE_EXHAUSTED"
 
 
-def retry_delay(e: BaseException) -> float | None:
-    """429 오류의 details 에 서버가 적은 RetryInfo.retryDelay(예: '37s')의 초. 없거나 읽지 못하면 None."""
+def _details(e: BaseException) -> Iterator[dict]:
+    """google-genai 오류의 details(응답 JSON 전체: {"error": {"code", "message", "status", "details": [...]}})에 든
+    google.rpc 항목(RetryInfo · QuotaFailure · Help 등). 형태가 다르면 아무것도 내지 않는다."""
     body = getattr(e, "details", None)
     if isinstance(body, dict) and isinstance(body.get("error"), dict):
         body = body["error"]
     items = body.get("details") if isinstance(body, dict) else None
-    for d in items if isinstance(items, list) else []:
-        if not isinstance(d, dict) or not str(d.get("@type", "")).endswith("RetryInfo"):
+    yield from (d for d in (items if isinstance(items, list) else []) if isinstance(d, dict))
+
+
+def retry_delay(e: BaseException) -> float | None:
+    """429 오류의 details 에 서버가 적은 RetryInfo.retryDelay(예: '37s')의 초. 없거나 읽지 못하면 None."""
+    for d in _details(e):
+        if not str(d.get("@type", "")).endswith("RetryInfo"):
             continue
         raw = d.get("retryDelay")
         try:
@@ -258,6 +277,102 @@ def rate_pause(e: BaseException, default: float) -> float:
     """429 뒤 기다릴 초. 서버가 retryDelay 를 주면 그 값(올림, RATE_WAITS 의 가장 긴 값까지), 아니면 default."""
     v = retry_delay(e)
     return min(math.ceil(v), max(RATE_WAITS)) if v else default
+
+
+# 기다려도 풀리지 않는 429: 하루 한도(QuotaFailure 의 quotaId 에 PerDay)나 선불 크레딧 소진. 분당 한도와 Vertex 의
+# 'Resource exhausted. Please try again later.' 는 여기 들지 않고 RATE_WAITS 만큼 기다린다. 판별이 빠지면 그쪽으로 떨어진다.
+# 'exceeded your current quota' 는 분당 한도 429 에도 나오는 문구라 보지 않는다.
+CREDIT_SPENT = ("prepayment credits are depleted", "credit balance is too low")
+QUOTA_HINT = "하루 요청 한도(또는 선불 크레딧)를 다 썼어요. 기다려도 풀리지 않아요."
+
+
+def is_hard_quota(e: BaseException) -> bool:
+    """기다려도 풀리지 않는 한도 오류인가: QuotaFailure 위반의 quotaId 에 PerDay 가 있거나 크레딧 소진 문구가 있다."""
+    for d in _details(e):
+        if str(d.get("@type", "")).endswith("QuotaFailure"):
+            for v in d.get("violations") or []:
+                if isinstance(v, dict) and "PerDay" in str(v.get("quotaId", "")):
+                    return True
+    text = f"{getattr(e, 'message', None) or ''} {e}".lower()
+    return any(w in text for w in CREDIT_SPENT)
+
+
+class QuotaSpent(RuntimeError):
+    """하루 한도나 선불 크레딧을 다 썼다. 기다려 다시 부르지 않는다. 자동 집필은 멈춤 종류 quota 로 멈춘다."""
+
+    def __init__(self):
+        super().__init__(f"{QUOTA_HINT} 사용량과 결제는 {usage.BILLING_URL} 에서 확인하세요.")
+        self.message = str(self)
+
+
+class EmptyResponse(RuntimeError):
+    """Gemini 가 글 없이 끝났다. finish(끝난 이유) · block(요청을 막은 이유) · thought(생각 토큰 수)를 싣는다.
+    화면 문구는 explain_error 가 고른다. code · status 칸은 두지 않는다 (is_transient 가 다시 부르지 않게)."""
+
+    def __init__(self, finish: str = "", block: str = "", thought: int = 0, note: str = ""):
+        self.finish, self.block, self.thought = finish, block, thought
+        bits = [f"끝난 이유 {finish}" if finish else "", f"막은 이유 {block}" if block else "",
+                f"생각 {thought}토큰" if thought else "", note]
+        super().__init__("Gemini 응답이 비었어요: " + (", ".join(b for b in bits if b) or "후보 없음"))
+
+
+def _enum_name(v: Any) -> str:
+    """SDK 열거값(FinishReason.SAFETY 등)의 이름. 문자열이면 'FinishReason.' 앞부분을 뗀다."""
+    return str(getattr(v, "name", None) or v or "").rsplit(".", 1)[-1]
+
+
+SAFETY_STOPS = {"SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII", "IMAGE_SAFETY", "IMAGE_PROHIBITED_CONTENT", "JAILBREAK", "MODEL_ARMOR"}
+
+
+def _empty(e: BaseException) -> EmptyResponse | None:
+    return e if isinstance(e, EmptyResponse) else None
+
+
+def _err_text(e: BaseException) -> str:
+    return f"{getattr(e, 'message', None) or ''} {e}"
+
+
+# 오류 → 화면 문구. 위에서부터 처음 맞는 줄을 쓴다. 줄마다 실제 문구로 시험한다 (tests/test_explain_error.py).
+# 'blocked' · '400' 같은 넓은 패턴은 두지 않는다 (API 키 제한 403 도 'are blocked.' 로 온다).
+ERROR_TABLE: list[tuple[str, Any, Any]] = [
+    ("quota", is_hard_quota, lambda e: QuotaSpent().message),
+    ("safety", lambda e: (x := _empty(e)) is not None and (x.finish in SAFETY_STOPS or x.block in SAFETY_STOPS),
+     lambda e: "AI 안전 필터가 막았어요. 표현을 누그러뜨리거나 쓰기 단계 모델을 바꿔 보세요."),
+    ("recitation", lambda e: (x := _empty(e)) is not None and x.finish in ("RECITATION", "IMAGE_RECITATION"),
+     lambda e: "AI가 기존 글과 너무 비슷해 멈췄어요. 다시 생성하거나 요청을 조금 바꿔 보세요."),
+    ("thinking", lambda e: (x := _empty(e)) is not None and x.finish == "MAX_TOKENS" and x.thought > 0,
+     lambda e: f"AI가 생각만 {e.thought:,}토큰 쓰고 글을 내기 전에 출력 길이 한도에 걸렸어요. "
+               "설정의 단계별 모델에서 추론 강도를 낮추거나 다시 시도해 보세요."),
+    ("input_too_long", lambda e: re.search(r"input token count.{0,40}exceeds the maximum number of tokens|prompt is too long"
+                                           r"|exceeds the available context size|maximum context length", _err_text(e), re.I),
+     lambda e: "입력이 모델이 받을 수 있는 길이를 넘었어요. 입력 한도가 큰 모델로 바꾸거나 프롬프트 보기에서 큰 블록을 꺼 보세요. "
+               "장편이면 접은 줄거리 예산을 줄이고, 검수는 직전 화 원문과 관련 단락만 넣는 budget 방식으로 돌려 보세요."),
+    ("region", lambda e: "user location is not supported" in _err_text(e).lower(),
+     lambda e: "지금 있는 지역에서는 Gemini API를 쓸 수 없어요. 설정의 AI 연결에서 Vertex AI나 다른 백엔드로 바꿔 보세요."),
+]
+FOREIGN_CUT = 140  # 표에 없는 바깥(영문) 오류 원문을 화면에 싣는 글자 수. 전체는 서버 로그에 있다
+PROVIDER_MODULES = {"google", "anthropic", "openai", "httpx", "requests"}  # 이 패키지의 오류는 'AI 서비스가 돌려준 오류'로 적는다
+
+
+def explain_error(e: BaseException) -> str:
+    """화면에 보일 오류 문구. ERROR_TABLE 에서 처음 맞는 줄의 원인과 할 일, 없으면 낸 쪽 문구.
+    Canon 이 한국어로 낸 오류는 그대로 둔다. 한글이 없는 바깥 오류는 앞 FOREIGN_CUT 자만 붙인다. 키 값은 싣지 않는다."""
+    for _, match, say in ERROR_TABLE:
+        try:
+            hit = match(e)
+        except Exception:  # 표의 한 줄이 낯선 오류 모양에 걸려도 화면 문구는 낸다
+            hit = False
+        if hit:
+            return say(e)
+    text = str(getattr(e, "message", None) or e or "").strip()
+    if not text or re.search("[가-힣]", text):
+        return text or type(e).__name__
+    cut = " ".join(text.split())
+    cut = cut[:FOREIGN_CUT] + ("…" if len(cut) > FOREIGN_CUT else "")
+    if type(e).__module__.split(".")[0] in PROVIDER_MODULES:
+        code = getattr(e, "code", None) or getattr(e, "status", None)
+        return f"AI 서비스가 오류를 돌려줬어요{f' ({code})' if code else ''}: {cut}"
+    return f"오류가 났어요: {cut}"
 
 
 # 500 · 502 · 503(서버 과부하 · 내부 오류) 뒤 다시 부르기 전 기다리는 초. 'The model is overloaded' 같은 일시 오류다.
@@ -467,6 +582,7 @@ def gemini_cache_reset() -> None:
 
 
 class GeminiLLM:
+    knows_cut = True  # 끊긴 응답을 last_finish(MAX_TOKENS)로 알린다. pipeline._write 가 이 백엔드에만 출력 한도를 건다
     effort = ""  # 추론 강도 기본값 (시험이 __init__ 없이 만들 때도 있다)
     temperature: float | None = None  # 연구 화면 · 프롬프트 놀이터가 고른 온도. None 이면 보내지 않아 모델 기본값을 쓴다
 
@@ -537,6 +653,8 @@ class GeminiLLM:
                         cancel.say("AI 응답이 늦어 다시 불러요")
                     elif is_bad_key(e):
                         raise BadKey(VERTEX_HINT if getattr(self, "vertex", False) else KEY_HINT) from e  # 다시 불러도 같다
+                    elif is_hard_quota(e):
+                        raise QuotaSpent() from e  # 기다려도 풀리지 않는다
                     elif is_rate_limit(e):
                         pause = next(rate, None)
                         if pause is None:
@@ -711,7 +829,10 @@ class GeminiLLM:
             reason = resp.candidates[0].finish_reason if resp.candidates else None
             self.last_finish = getattr(reason, "name", None) or str(reason or "")
             if not resp.text:
-                raise RuntimeError(f"Gemini 응답이 비었어요: {resp.candidates[0].finish_reason if resp.candidates else resp}")
+                fb = getattr(resp, "prompt_feedback", None)
+                raise EmptyResponse(self.last_finish and _enum_name(reason), _enum_name(getattr(fb, "block_reason", None)),
+                                    int((tokens or {}).get("thought_tokens") or 0),
+                                    str(getattr(fb, "block_reason_message", None) or ""))
             self.last_raw = resp.text
             out = parse(resp.text) if parse else resp.text
         except Exception as e:
@@ -788,6 +909,9 @@ class GeminiLLM:
         if out is None or out.error or out.response is None:
             raise BatchGone(f"Gemini 배치 응답이 없어요: {out.error if out else job.dest}")
         self.last_usage = _usage(out.response.usage_metadata)
+        cands = getattr(out.response, "candidates", None) or []
+        reason = getattr(cands[0], "finish_reason", None) if cands else None
+        self.last_finish = getattr(reason, "name", None) or str(reason or "")  # BatchLLM 이 끊김(MAX_TOKENS)을 알게 한다
         if not out.response.text:
             raise BatchGone("Gemini 배치 응답이 비었어요")
         return out.response.text
@@ -825,7 +949,12 @@ class BatchLLM:
     기다리던 작업을 취소하고 지금 프롬프트로 새로 보낸다. 지문이 없는 예전 기록은 그대로 다시 붙는다.
     wait(초) 는 기다리고 나서 'stop'(작업 취소) | 'pause'(작업은 두고 멈춤) | '' 를 돌려준다.
     json 응답이 스키마와 맞지 않으면 오류를 붙여 '<slot>:fix' 로 한 번 더 배치를 보내고, note(글) 로 알린다.
+    끝난 이유는 안쪽 LLM 의 batch_poll 이 남긴 것을 last_finish 로 옮긴다. 본문 쓰기(pipeline._write)가 끊긴 배치 본문을 받지 않게 한다.
+    배치 요청에는 출력 한도를 실어 보내지 않으므로 본문 쓰기 한도는 걸지 않는다 (caps_write).
     """
+
+    knows_cut = True
+    caps_write = False
 
     def __init__(self, inner: Any, slot: str, names: dict[str, str], on_change: Any, wait: Any,
                  label: str = "canon", interval: float | None = None, note: Any = None,
@@ -837,6 +966,7 @@ class BatchLLM:
         self.last_usage: dict | None = None
         self.last_attempts = 1
         self.last_prompt = ""  # 사용량 기록에 블록 크기를 남기려고
+        self.last_finish = ""  # 마지막 배치 응답이 끝난 이유 (안쪽 LLM 의 batch_poll 이 남긴 것)
         self.model = getattr(inner, "model", "")
 
     @staticmethod
@@ -865,6 +995,7 @@ class BatchLLM:
              slot: str | None = None, key: str = "") -> str:
         slot = slot or self.slot
         self.last_prompt = prompt
+        self.last_finish = ""
         key = key or self.key(system, prompt)
         self._drop_stale(slot, key)
         name = self.names.get(slot)
@@ -894,6 +1025,7 @@ class BatchLLM:
             if raw is not None:
                 self._forget(slot)
                 self.last_usage = getattr(self.inner, "last_usage", None)
+                self.last_finish = str(getattr(self.inner, "last_finish", "") or "")
                 return raw
             why = self.wait(self.interval)
             if why == "stop":
@@ -986,6 +1118,11 @@ class LocalLLM:
     검증에 실패하면 오류를 알려 주고 한 번 더 묻는다. 추론 모델의 <think> 블록은 지운다.
     """
 
+    knows_cut = True  # 끊긴 응답을 last_finish(length)로 알린다
+    # 본문 쓰기 출력 한도(pipeline.write_out_tokens)는 걸지 않는다. vLLM 은 프롬프트 + max_tokens 가 max_model_len 을 넘으면
+    # 요청을 400 으로 거절해 16k · 32k 컨텍스트 서버에서 본문 쓰기가 늘 실패한다. 끊김 검사(finish_reason length)는 그대로 한다
+    caps_write = False
+
     def __init__(self, base_url: str | None = None, model: str | None = None,
                  api_key: str | None = None, sampling: dict | None = None, timeout: float | None = None):
         from . import settings
@@ -998,6 +1135,7 @@ class LocalLLM:
         self.last_usage: dict | None = None  # 연구 화면에서 보여 줄 마지막 호출의 토큰 수
         self.last_attempts = 0
         self.last_raw = ""
+        self.last_finish = ""  # 마지막 응답의 finish_reason (stop, length 등). length 는 출력 길이 한도에 걸려 끊긴 것
 
     def _request(self, method: str, path: str, body: dict | None = None, timeout: float | None = None) -> dict:
         """path 가 http 로 시작하면 그 주소를 그대로 쓴다 (/v1 밖의 /tokenize, /version). timeout 은 self.timeout 보다 짧게만 준다.
@@ -1093,6 +1231,7 @@ class LocalLLM:
         """한 번 부르고 사용량을 기록한다. parse 는 GeminiLLM._call 과 같다."""
         cancel.check()
         t, tokens = time.time(), None
+        self.last_finish = ""
         try:
             sent = list(messages)
             if sent and sent[-1].get("role") == "user" and isinstance(sent[-1].get("content"), str):
@@ -1103,6 +1242,7 @@ class LocalLLM:
             resp = self._request("POST", "/chat/completions", body)
             tokens = self.last_usage = _local_usage(resp.get("usage"))
             choice = (resp.get("choices") or [{}])[0]
+            self.last_finish = str(choice.get("finish_reason") or "")
             content = (choice.get("message") or {}).get("content") or ""
             content = _THINK_RE.sub("", content).strip()
             if not content:
