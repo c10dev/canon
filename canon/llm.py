@@ -789,7 +789,7 @@ class GeminiLLM:
         cancel.check()  # 멈춘 작업은 다음 호출을 보내지 않는다
         from google.genai import types
 
-        t, tokens = time.time(), None
+        t, tokens, extra = time.time(), None, {}
         self.last_raw, self.last_finish = "", ""
         if cap := _out_cap.get():
             config.setdefault("max_output_tokens", cap)  # 생각 토큰도 이 한도에 든다
@@ -828,6 +828,7 @@ class GeminiLLM:
             tokens = self.last_usage = _usage(resp.usage_metadata)
             reason = resp.candidates[0].finish_reason if resp.candidates else None
             self.last_finish = getattr(reason, "name", None) or str(reason or "")
+            extra = {"stop": self.last_finish, "out_chars": len(resp.text or "")}  # 사용량 기록 칸 (usage.EXTRA)
             if not resp.text:
                 fb = getattr(resp, "prompt_feedback", None)
                 raise EmptyResponse(self.last_finish and _enum_name(reason), _enum_name(getattr(fb, "block_reason", None)),
@@ -836,9 +837,9 @@ class GeminiLLM:
             self.last_raw = resp.text
             out = parse(resp.text) if parse else resp.text
         except Exception as e:
-            usage.record(self, tokens, t, ok=False, error=e, attempt=attempt, prompt=prompt)
+            usage.record(self, usage.with_extra(tokens, **extra), t, ok=False, error=e, attempt=attempt, prompt=prompt)
             raise
-        usage.record(self, tokens, t, attempt=attempt, prompt=prompt)
+        usage.record(self, usage.with_extra(tokens, **extra), t, attempt=attempt, prompt=prompt)
         return out
 
     def json(self, system: str, prompt: str, schema: type[T], hint: dict | None = None) -> T:
@@ -967,6 +968,7 @@ class BatchLLM:
         self.last_attempts = 1
         self.last_prompt = ""  # 사용량 기록에 블록 크기를 남기려고
         self.last_finish = ""  # 마지막 배치 응답이 끝난 이유 (안쪽 LLM 의 batch_poll 이 남긴 것)
+        self.last_out_chars: int | None = None  # 마지막 배치 응답의 글자 수 (사용량 기록 칸 out_chars)
         self.model = getattr(inner, "model", "")
 
     @staticmethod
@@ -995,7 +997,7 @@ class BatchLLM:
              slot: str | None = None, key: str = "") -> str:
         slot = slot or self.slot
         self.last_prompt = prompt
-        self.last_finish = ""
+        self.last_finish, self.last_out_chars = "", None
         key = key or self.key(system, prompt)
         self._drop_stale(slot, key)
         name = self.names.get(slot)
@@ -1026,6 +1028,7 @@ class BatchLLM:
                 self._forget(slot)
                 self.last_usage = getattr(self.inner, "last_usage", None)
                 self.last_finish = str(getattr(self.inner, "last_finish", "") or "")
+                self.last_out_chars = len(raw)
                 return raw
             why = self.wait(self.interval)
             if why == "stop":
@@ -1073,7 +1076,8 @@ class BatchLLM:
 
     def _done(self, out: Any, error: Exception | None = None) -> Any:
         """받아 온 배치 결과 하나를 기록한다 (형식이 어긋났어도 토큰은 썼다)."""
-        usage.record(self.inner, self.last_usage, ok=error is None, error=error, attempt=self.last_attempts, batch=True,
+        extra = usage.with_extra(self.last_usage, stop=self.last_finish, out_chars=self.last_out_chars)
+        usage.record(self.inner, extra, ok=error is None, error=error, attempt=self.last_attempts, batch=True,
                      prompt=self.last_prompt)
         return out
 
@@ -1230,7 +1234,7 @@ class LocalLLM:
     def _chat(self, system: str, messages: list[dict], attempt: int = 1, parse: Any = None, **extra: Any) -> Any:
         """한 번 부르고 사용량을 기록한다. parse 는 GeminiLLM._call 과 같다."""
         cancel.check()
-        t, tokens = time.time(), None
+        t, tokens, cols = time.time(), None, {}
         self.last_finish = ""
         try:
             sent = list(messages)
@@ -1244,14 +1248,15 @@ class LocalLLM:
             choice = (resp.get("choices") or [{}])[0]
             self.last_finish = str(choice.get("finish_reason") or "")
             content = (choice.get("message") or {}).get("content") or ""
+            cols = {"stop": self.last_finish, "out_chars": len(content)}  # 사용량 기록 칸 (생각 태그를 떼기 전 응답 전체)
             content = _THINK_RE.sub("", content).strip()
             if not content:
                 raise RuntimeError(f"로컬 모델 응답이 비었어요: finish_reason={choice.get('finish_reason')}")
             out = parse(content) if parse else content
         except Exception as e:
-            usage.record(self, tokens, t, ok=False, error=e, attempt=attempt, prompt=_last_user(messages))
+            usage.record(self, usage.with_extra(tokens, **cols), t, ok=False, error=e, attempt=attempt, prompt=_last_user(messages))
             raise
-        usage.record(self, tokens, t, attempt=attempt, prompt=_last_user(messages))
+        usage.record(self, usage.with_extra(tokens, **cols), t, attempt=attempt, prompt=_last_user(messages))
         return out
 
     def json(self, system: str, prompt: str, schema: type[T], hint: dict | None = None) -> T:

@@ -2588,37 +2588,43 @@ def set_storyboard(p: Project, n: int, b: Storyboard | None, by: str = "author")
     ep.storyboard = b
 
 
-def _write(llm: LLM, p: Project, n: int, prompt: str, cut: list[MetaCut] | None = None) -> str:
+def _write(llm: LLM, p: Project, n: int, prompt: str, cut: list[MetaCut] | None = None, target: int | None = None) -> str:
     """본문을 쓴다. 한글이 적은 응답(영어 생각 과정 등)과 본문 대신 작업 설명 · 거절 문구만 온 응답(metatail.whole)은 다시 부른다.
     본문 앞뒤에 붙은 확실한 작업 설명(metatail.split: 'n화 본문입니다' 머리말, 끝의 '짚어 둘 것' 같은 작가에게 하는 말)은 떼고 서버 기록에 남긴다.
     덜 확실한 것은 떼지 않고 검수 화면의 문체 경고(style_drift)로 알린다.
-    cut 목록을 주면 뗀 문단을 앞 · 뒤 자리와 함께 채운다. 본문만 돌려주는 모양은 실험 · 비교 호출자가 그대로 쓰게 둔다."""
+    cut 목록을 주면 뗀 문단을 앞 · 뒤 자리와 함께 채운다. 본문만 돌려주는 모양은 실험 · 비교 호출자가 그대로 쓰게 둔다.
+    target 은 이 호출이 받은 목표 분량 글자 수다 (비면 화 분량 Meta.words_per_episode). 사용량 기록 줄에 싣는다 (usage.SCOPED).
+    다시 부르려고 버린 응답은 그 호출의 사용량 기록 줄에 까닭(discarded: cut · thought · meta)을 단다 (usage.hold)."""
     system = prompts.writer_system(p)
     head = prompts.write_head(p, n)  # 장편 쓰기 가족: 스토리보드 · 큐 시트와 같은 앞부분이면 그 캐시를 읽는다
     cap = (write_out_tokens(p, n) if getattr(llm, "knows_cut", False) and getattr(llm, "caps_write", True)
            else None)  # 로컬 모델은 끊김만 보고 한도는 걸지 않는다 (LocalLLM.caps_write)
     bad = {"cut": 0, "thought": 0, "meta": 0}
+    size = p.meta.words_per_episode if target is None else target
     for _ in range(WRITE_TRIES):
-        try:
-            with out_cap(cap) if cap else nullcontext():
-                text = family_text(llm, system, prompt, head)
-        except OutputCut:
-            text = None
-        except RuntimeError:
-            # 생각만 하다 한도에 걸려 글 없이 끝난 응답은 백엔드가 '응답이 비었어요' 로 낸다. 끝난 이유가 끊김이면 끊김으로 센다
-            if not was_cut(llm):
-                raise
-            text = None
-        if text is None or was_cut(llm):  # 출력 길이 한도에 걸려 끊긴 본문은 받지 않는다
-            bad["cut"] += 1
-            logging.getLogger("canon").warning("%s화 본문이 출력 길이 한도(%s토큰)에 걸려 끊겨 다시 써요", n, cap or "기본")
-            continue
-        if metrics.hangul_ratio(text) < HANGUL_MIN:
-            bad["thought"] += 1
-            continue
-        if metatail.whole(text):
-            bad["meta"] += 1
-            continue
+        with usage.scope(target=size), usage.hold() as rows:
+            why = ""
+            try:
+                with out_cap(cap) if cap else nullcontext():
+                    text = family_text(llm, system, prompt, head)
+            except OutputCut:
+                text = None
+            except RuntimeError:
+                # 생각만 하다 한도에 걸려 글 없이 끝난 응답은 백엔드가 '응답이 비었어요' 로 낸다. 끝난 이유가 끊김이면 끊김으로 센다
+                if not was_cut(llm):
+                    raise
+                text = None
+            if text is None or was_cut(llm):  # 출력 길이 한도에 걸려 끊긴 본문은 받지 않는다
+                why = "cut"
+                logging.getLogger("canon").warning("%s화 본문이 출력 길이 한도(%s토큰)에 걸려 끊겨 다시 써요", n, cap or "기본")
+            elif metrics.hangul_ratio(text) < HANGUL_MIN:
+                why = "thought"
+            elif metatail.whole(text):
+                why = "meta"
+            if why:
+                bad[why] += 1
+                usage.discard(rows, why)
+                continue
         body, head, tail = metatail.parts(text)
         if head or tail:
             logging.getLogger("canon").warning("%s화 본문 앞뒤의 작업 설명 %d문단을 뗐어요: %s", n, len(head) + len(tail),
@@ -2693,7 +2699,7 @@ def play_cues(llm: LLM, p: Project, n: int, sheet: CueSheet, progress=None) -> t
             progress(k, len(sheet.cues))
         prompt = prompts.cue_play_prompt(p, n, sheet, done)
         sent += len(system) + len(prompt)
-        done.append(_write(llm, p, n, prompt).strip())
+        done.append(_write(llm, p, n, prompt, target=sheet.cues[k - 1].length).strip())  # 목표 분량은 그 큐의 분량
     return done, sent
 
 
@@ -2868,8 +2874,11 @@ def polish_episode(llm: LLM, p: Project, n: int, cut: list[MetaCut] | None = Non
     log = logging.getLogger("canon")
     for _ in range(POLISH_TRIES):
         part: list[MetaCut] = []
-        new = _write(llm, p, n, prompt, part)
-        why = polish_problem(old, new)
+        with usage.hold() as rows:
+            new = _write(llm, p, n, prompt, part, target=len(old))
+            why = polish_problem(old, new)
+            if why:
+                usage.discard(rows, "polish")  # 대사 · 효과음 줄이나 분량을 바꾼 판은 버린다
         if why:
             log.warning("%s화 서술 다듬기를 다시 불러요: %s", n, why)
             continue

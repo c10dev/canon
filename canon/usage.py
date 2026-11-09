@@ -64,6 +64,7 @@ PRICED = ("gemini", "claude-api")  # 토큰 요금을 매기는 백엔드. 로�
 
 _ctx: ContextVar[dict] = ContextVar("canon_usage", default={})
 _acc: ContextVar[Optional[list]] = ContextVar("canon_usage_acc", default=None)  # collect() 가 여는 누적기
+_held: ContextVar[Optional[list]] = ContextVar("canon_usage_held", default=None)  # hold() 가 파일에 쓰기를 미룬 줄
 _lock = threading.Lock()
 
 
@@ -110,6 +111,32 @@ def collect() -> Iterator[list[dict]]:
         _acc.reset(token)
 
 
+@contextmanager
+def hold() -> Iterator[list[dict]]:
+    """안에서 record 한 줄을 파일에 바로 쓰지 않고 모았다가 끝날 때 쓴다. 끝나기 전에 줄을 고칠 수 있다 (discard).
+    기록 파일은 덧붙이기만 하므로, 응답을 받은 뒤에 버릴지 정하는 쪽(pipeline._write)이 버린 줄 자체에 까닭을 달려는 것.
+    collect() 에는 record 할 때 바로 더한다 (같은 dict 라 고친 값도 보인다). 겹쳐 열면 안쪽 줄은 바깥 목록으로 넘긴다."""
+    rows: list[dict] = []
+    token = _held.set(rows)
+    try:
+        yield rows
+    finally:
+        _held.reset(token)
+        outer = _held.get()
+        if outer is not None:
+            outer.extend(rows)
+        else:
+            for r in rows:
+                _append(r)
+
+
+def discard(rows: list[dict], why: str) -> None:
+    """hold() 로 모은 줄 가운데 마지막 줄(응답을 낸 호출)에 버린 까닭을 단다. 이미 까닭이 있으면 두고, 줄이 없으면 아무것도 하지 않는다.
+    마지막 줄만 다는 것은 한 번 부르는 사이에 요청 한도 · 서버 오류로 실패한 줄이 앞에 있을 수 있어서다."""
+    if rows and why and not rows[-1].get("discarded"):
+        rows[-1]["discarded"] = why
+
+
 def cache_rate(rows: list[dict]) -> float | None:
     """캐시로 읽은 입력의 비율. 한 호출 안에서 다시 보낸 입력(resent)은 캐시로 읽혔다고 보고 입력과 캐시 양쪽에서 뺀다.
     실측(2026-11, 서버 기록 Claude 842번): 그대로 세면 캐시 비율이 14.7%, 다시 보낸 것으로 보이는 호출(캐시가 입력의 절반)을 빼면 8~10%.
@@ -152,10 +179,15 @@ def backend_of(llm: Any) -> Optional[str]:
             "LocalJudge": "local"}.get(name)
 
 
-# 있을 때만 남기는 칸. turns 턴 수, stop 멈춘 이유, api_seconds 모델 API 시간, models 모델별 토큰,
+# 있을 때만 남기는 칸. turns 턴 수, stop 끝난 이유 (모든 백엔드: STOP · MAX_TOKENS · end_turn · max_tokens · length 등),
+# api_seconds 모델 API 시간, models 모델별 토큰,
 # resent 한 호출 안에서 다시 보낸 입력 어림값 (in 에 들어 있음. 캐시 비율을 셀 때 in · cached 에서 뺀다).
 # written 캐시에 새로 쓴 입력 (in 에 들어 있음), written_1h 그 가운데 1시간 캐시 몫. 옛 줄에는 없다.
-EXTRA = ("turns", "stop", "api_seconds", "models", "resent", "written", "written_1h")
+# out_chars 응답 전체 글자 수 (본문에서 뗀 작업 설명도 든다). 응답이 오지 않았으면 칸이 없다.
+EXTRA = ("turns", "stop", "api_seconds", "models", "resent", "written", "written_1h", "out_chars")
+# scope 로 넣으면 줄에 싣는 칸. target 은 본문 쓰기 호출이 받은 목표 분량 글자 수 (pipeline._write)
+SCOPED = ("target",)
+CUT_STOPS = ("max_tokens", "length")  # 출력 길이 한도에 걸려 끊긴 끝난 이유. 소문자로 견준다 (llm.CUT_FINISH 와 Claude 의 max_tokens)
 
 
 def record(llm: Any, tokens: Optional[dict], started: Optional[float] = None, *, ok: bool = True,
@@ -187,9 +219,12 @@ def record(llm: Any, tokens: Optional[dict], started: Optional[float] = None, *,
         "ok": ok,
         "error": _error_text(error) if error is not None else "",
     }
-    for k in EXTRA:  # 백엔드가 더 알려 준 값(Claude Code 의 턴 수 · 멈춘 이유 등). 없으면 칸이 없다
+    for k in EXTRA:  # 백엔드가 더 알려 준 값(끝난 이유 · 응답 글자 수 · Claude Code 의 턴 수 등). 없으면 칸이 없다
         if u.get(k) not in (None, "", {}):
             row[k] = u[k]
+    for k in SCOPED:  # 부른 쪽이 scope 로 알려 준 값 (본문 쓰기의 목표 분량)
+        if ctx.get(k) not in (None, ""):
+            row[k] = ctx[k]
     if getattr(llm, "effort", ""):
         row["effort"] = llm.effort  # 넘긴 추론 강도(Claude · Gemini). 정하지 않았으면 칸이 없다 (모델 기본값)
     if prompt:
@@ -199,6 +234,21 @@ def record(llm: Any, tokens: Optional[dict], started: Optional[float] = None, *,
     acc = _acc.get()
     if acc is not None:
         acc.append(row)  # 파일에 쓰지 못해도 합계는 맞게 먼저 더한다
+    held = _held.get()
+    if held is not None:
+        held.append(row)  # hold() 가 끝날 때 쓴다
+    else:
+        _append(row)
+
+
+def with_extra(tokens: Optional[dict], **kw: Any) -> dict:
+    """백엔드가 record 에 넘길 토큰 dict 에 칸(stop · out_chars 등)을 더한 새 dict. 값이 None 이거나 빈 글이면 넣지 않는다.
+    last_usage 를 고치지 않으려고 새 dict 를 만든다."""
+    return {**(tokens or {}), **{k: v for k, v in kw.items() if v is not None and v != ""}}
+
+
+def _append(row: dict) -> None:
+    """기록 파일에 한 줄을 덧붙인다. 실패해도 오류를 내지 않는다."""
     try:
         path = log_path()
         with _lock:
@@ -545,11 +595,29 @@ EFFORT_DEFAULT = "기본"  # 추론 강도를 정하지 않은 호출(모델 기
 
 def _rates(b: dict) -> dict:
     """묶음의 캐시 비율(캐시 / 입력, 0~1, 입력이 없으면 0)과 호출당 평균 초.
-    한 호출 안에서 다시 보낸 입력(resent)은 cache_rate 처럼 입력과 캐시 양쪽에서 뺀다."""
+    한 호출 안에서 다시 보낸 입력(resent)은 cache_rate 처럼 입력과 캐시 양쪽에서 뺀다.
+    분량 달성률(len_ratio)은 목표 분량이 있는 호출의 응답 글자 수 합 / 목표 합이다. 그런 호출이 없으면 None."""
     resent = min(b.get("resent", 0), b["cached"])
     tin, cached = b["in"] - resent, b["cached"] - resent
     return {"cache_rate": round(cached / tin, 4) if tin > 0 else 0.0,
-            "seconds_avg": round(b["seconds"] / b["calls"], 1) if b["calls"] else 0.0}
+            "seconds_avg": round(b["seconds"] / b["calls"], 1) if b["calls"] else 0.0,
+            "len_ratio": round(b["len_out"] / b["len_target"], 3) if b.get("len_target") else None}
+
+
+def is_cut(r: dict) -> bool:
+    """기록 줄이 출력 길이 한도에 걸려 끊긴 호출인지. 끝난 이유(stop)나 본문 쓰기가 버린 까닭(discarded cut)으로 안다. 옛 줄은 거짓."""
+    return r.get("discarded") == "cut" or str(r.get("stop") or "").lower() in CUT_STOPS
+
+
+def len_pair(r: dict) -> tuple[int, int] | None:
+    """분량 달성률에 넣을 (응답 글자 수, 목표 분량). 목표 분량과 응답 글자 수가 있고, 실패하지 않았고 버리지 않은 줄만.
+    버린 줄(끊김 · 다른 글)은 끊김 · 버림 수로 따로 센다. 옛 줄은 None."""
+    target, chars = r.get("target"), r.get("out_chars")
+    if not isinstance(target, int) or target <= 0 or not isinstance(chars, int):
+        return None
+    if not r.get("ok", True) or r.get("discarded"):
+        return None
+    return chars, target
 
 
 def summary(days: Optional[int] = 30, project: Optional[str] = None, limit: int = 60) -> dict:
@@ -564,7 +632,8 @@ def summary(days: Optional[int] = 30, project: Optional[str] = None, limit: int 
 
     def bucket() -> dict:
         return {"calls": 0, "failed": 0, "retries": 0, "in": 0, "out": 0, "cached": 0, "resent": 0, "cost": 0.0,
-                "saved": 0.0, "unpriced": 0, "seconds": 0.0, "batch": 0}
+                "saved": 0.0, "unpriced": 0, "seconds": 0.0, "batch": 0,
+                "discarded": 0, "cut": 0, "len_calls": 0, "len_out": 0, "len_target": 0}
 
     total = bucket()
     groups: dict[str, dict[Any, dict]] = {k: defaultdict(bucket) for k in ("day", "project", "episode", "stage", "model", "source", "task", "effort")}
@@ -574,6 +643,8 @@ def summary(days: Optional[int] = 30, project: Optional[str] = None, limit: int 
     for r in rows:
         c, saved = row_cost(r, table)
         out = r.get("out", 0) + r.get("thought", 0)
+        pair = len_pair(r)
+        cut = is_cut(r)
         keys = {
             "day": r.get("at", "")[:10],
             "project": r.get("project") or "",
@@ -597,10 +668,16 @@ def summary(days: Optional[int] = 30, project: Optional[str] = None, limit: int 
             b["unpriced"] += c is None
             b["seconds"] += r.get("seconds") or 0.0
             b["batch"] += bool(r.get("batch"))
+            b["discarded"] += bool(r.get("discarded"))
+            b["cut"] += cut
+            if pair:
+                b["len_calls"] += 1
+                b["len_out"] += pair[0]
+                b["len_target"] += pair[1]
         if c is None:
             unpriced.add(r.get("model", ""))
         item = {**r, "cost": c, "saved": saved}
-        if not r.get("ok", True) or r.get("attempt", 1) > 1:
+        if not r.get("ok", True) or r.get("attempt", 1) > 1 or r.get("discarded"):  # 버린 응답도 낭비다
             wasted += c or 0.0
             trouble.append(item)
         recent.append(item)

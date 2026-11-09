@@ -107,6 +107,7 @@ class ClaudeCodeTest(unittest.TestCase):
         self.assertEqual(llm.model, "claude-test-model")
         row = usage.read()[-1]
         self.assertEqual((row["backend"], row["in"], row["out"], row["cached"]), ("claude", 1530, 30, 20))
+        self.assertEqual(row["out_chars"], len("바다가 울었다."))  # 응답 전체 글자 수
         self.assertEqual(usage.row_cost(row, usage.prices())[0], 0.0)  # 구독은 요금제에 포함
 
     def test_out_cap_goes_to_env_only_when_set(self):
@@ -691,6 +692,18 @@ class ClaudeAPITest(unittest.TestCase):
             with self.assertRaisesRegex(OutputCut, "16384 토큰"):  # pipeline._write 가 끊긴 본문으로 센다
                 llm.text("s", "p")
         self.assertEqual((self.reqs[1]["max_tokens"], self.reqs[1]["timeout"]), (16384, 300))
+
+    def test_rows_carry_stop_and_out_chars(self):
+        """끝난 이유(stop)와 응답 글자 수(out_chars)를 사용량 칸에 싣는다. 끊긴 응답도 받은 글자 수를 남긴다."""
+        llm = self.make(_msg("글 네 자"), _msg("끊긴 글", "max_tokens"))
+        llm.text("s", "p")
+        with self.assertRaises(OutputCut):
+            llm.text("s", "p")
+        ok, cut = usage.read()[-2:]
+        self.assertEqual((ok["stop"], ok["out_chars"]), ("end_turn", 5))
+        self.assertEqual((cut["stop"], cut["out_chars"], cut["ok"]), ("max_tokens", 4, False))
+        self.assertTrue(usage.is_cut(cut))
+        self.assertNotIn("out_chars", llm.last_usage)  # last_usage 는 토큰 수만 둔다
 
     def test_stop_before_and_during_stream(self):
         ev = threading.Event()

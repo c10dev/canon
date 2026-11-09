@@ -407,6 +407,11 @@
 - Claude Code(구독)는 끊김을 알리지 않아 한도를 걸지 않는다
 - 배치(`llm.BatchLLM`)는 끊김을 알리지만(`knows_cut`) 요청에 출력 한도를 싣지 않아 한도는 걸지 않는다(`caps_write = False`)
 - 끊긴 응답(`llm.was_cut` 또는 `llm.OutputCut`)은 본문으로 받지 않고 `WRITE_TRIES` 안에서 다시 부른다
+- `_write` 는 시도마다 `usage.hold()` 로 사용량 기록 줄을 모았다가, 버린 응답이면 그 호출의 줄 자체에 `discarded`(cut · thought · meta)를 달아 쓴다(`usage.discard`)
+- 까닭을 다음 시도 줄에 달지 않는 것은 채택한 호출이 낭비로 잡히지 않게 하려는 것이다. 버린 시도도 `attempt` 는 1 이다
+- `_write(target=)` 는 이 호출의 목표 분량 글자 수를 `usage.scope(target=)` 로 사용량 기록 줄에 싣는다. 비면 `Meta.words_per_episode`
+- 큐마다 쓰기(`play_cues`)는 그 큐의 분량(`Cue.length`)을, 서술 다듬기는 지금 본문 글자 수를 목표로 넘긴다
+- 서술 다듬기가 대사 · 효과음 줄이나 분량을 바꿔 버린 판(`polish_problem`)도 그 줄에 `discarded` polish 를 단다
 - 끝난 이유가 끊김인데 글 없이 끝나 백엔드가 낸 '응답이 비었어요' 오류(RuntimeError)도 끊김으로 센다
 - 세 번 모두 끊기면 `WriteCut`(ValueError)을 낸다: '본문이 출력 길이 한도에 걸려 끊겼어요'. 끊긴 본문은 돌려주지 않는다
 - 일부만 끊기고 나머지가 다른 까닭이면 끊긴 수를 함께 적은 보통 ValueError 를 낸다(자동 집필은 `cut` 이 아닌 오류로 멈춘다)
