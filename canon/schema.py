@@ -1184,6 +1184,7 @@ class AgentTurn(BaseModel):
     act: str = ""
     episode: int = 0
     draft: Optional[ArcProposal] = Field(None, description="다음 아크 대상일 때 보낼 때의 화면 초안")
+    screen: str = Field("", description="보낼 때 작가가 보던 화면 (agent.SCREENS 의 이름). 비면 플롯 화면과 같게 다룬다 (agent.off_plot)")
     steps: list[StepRecord] = Field(default_factory=list)
     reply: str = ""
     writes: list[WriteRecord] = Field(default_factory=list)

@@ -37,7 +37,9 @@
 - 세션 목록은 작품 하나에 하나다(`sessions`, `TOPICS`). 새 세션 topic 은 `agent` 이고, 옛 `plot` 세션도 같은 목록에 보인다
 - 세션(`AgentSession`, 다듬을 곳 · 권한 모드 `ask|draft|all`). 다듬을 곳은 `arc:N` · `next` · 부 `part:N` · 한 화 `ep:N`(`pipeline.chat_focus`, 그 곳이 든 아크는 `chat_target`), 밖을 고치면 종류 `outside` 로 늘 묻는다(`outside`, `permit`)
 - 화면이 주는 대상 `text:N`(집필 · 검수 · 상태 승인) · `setup`(설정 도우미) · `style`(문체)도 `chat_focus` 가 읽는다. `chat_target` 은 `text:N` 을 `ep:N` 처럼, `setup` · `style` 을 '' 처럼 읽는다
-- 이 세 대상에는 아직 쓰기 도구가 없다(04b~04d). 플롯 쓰기는 모두 `outside` 로 묻는다(`OTHER_FOCUS`). 작품 전체('')는 지금 규칙 그대로다
+- 이 세 대상에는 아직 쓰기 도구가 없다(04b~04d). 플롯 쓰기는 모두 `outside` 로 묻는다(`OTHER_FOCUS`)
+- 플롯 화면 밖에서 작품 전체('')를 대상으로 보낸 턴도 플롯 쓰기를 모두 `outside` 로 묻는다(`off_plot`, 2026-11-09 사용자 결정). 플롯 화면(`PLOT_SCREENS`)은 지금 규칙 그대로다
+- 턴은 작가가 보던 화면을 `AgentTurn.screen` 에 남긴다. `SCREENS`(웹 drawApp 의 views 표와 'home')에 없거나 비면 '' 이고 플롯 화면과 같게 다룬다
 - 턴을 열 때 화면 대상이 오면(`add_turn` 의 `target`) 고정하지 않은 세션의 대상을 그 값으로 바꾼다. 고정은 `AgentSession.pinned`(옛 세션은 False)
 - 설정 · 문체 · 본문 고치기의 옛 대화는 `legacy_chats` 가 (주제, 메시지 수)로 준다. 웹 세션 목록의 `older` 이고 화면은 읽기만 한다
 - 턴(`AgentTurn`)을 백그라운드 작업 `agent` 로 돌린다(`run_turn`, 단계마다 `llm.json(PlotAgentStep)`, 최대 `MAX_STEPS`=8, 단계마다 저장)
@@ -66,6 +68,7 @@
 - 멈추거나 실패한 턴은 `reconcile`
 - 프롬프트 `prompts.agent_plot_prompt`
 - 대상 블록 `prompts.agent_focus_block` 은 본문 · 설정 · 문체 대상에 '바로 고치는 도구가 없고, 플롯 쓰기는 작가에게 물어진다'를 알린다
+- 플롯 화면 밖의 작품 전체 턴이면 같은 블록이 '플롯 쓰기는 모두 물어진다' 한 줄을 넣는다
 - mock 단계(`mock._agent_step`)는 힌트 `aim` 이 본문 · 설정 · 문체이면 '플롯'이 든 말만 고치고 나머지는 읽은 뒤 답만 한다
 - 단계 프롬프트는 바뀌지 않는 블록(도구 · 규칙 · 요구사항)이 앞, 턴 블록과 이번 턴 단계가 뒤, 남은 단계 수가 맨 끝 한 줄이다(단계 k+1 요청이 단계 k 요청을 품음)
 - 이름 후보는 `random.Random(session.id)` 로 뽑아 단계마다 같다(`plot_chat_parts` 의 rng)
@@ -454,6 +457,7 @@
 - 대화 에이전트 패널. 작품 안 모든 화면에 하나다(`chat.js` 의 `chatPanel('plot')` 이 부르고, `app.js` `drawApp` 이 `chatDock` 으로 셸 끝에 붙인다)
 - 다음 턴의 대상은 `agentTarget`: 고정한 세션은 세션 대상, 아니면 화면 대상(`agentScreenTarget` = `S.chatHere.target`)
 - 턴은 `agentTurnScope` 로 화면 대상을 함께 보낸다(고정한 세션은 빼고). 연 구간 · 화 · 다음 아크 초안은 플롯 화면에서만 보낸다
+- 턴은 보던 화면 이름(`screen`, 작품 홈은 'home')도 보낸다. 서버가 `agent.SCREENS` 로 확인한다
 - 상태 줄의 대상이 바뀌면 `agentAfterDraw` 가 `.foot-target` 을 한 번 강조(`flash`)하고 `chatSay` 로 `#chat-live` 에 알린다. 패널을 처음 그릴 때는 알리지 않는다
 - 상태 줄의 핀(`agentPin`)과 다듬을 곳 메뉴(`agentTarget`)는 세션을 고정한다. `/대상` 은 고정을 풀고 화면 대상으로 돌린다
 - 본문 · 설정 · 문체 대상의 빈 세션은 예시 대신 '읽고 답하고, 플롯은 늘 묻는다' 안내를 보인다

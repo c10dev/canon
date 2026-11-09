@@ -145,9 +145,9 @@ def test_target_follows_screen_unless_pinned_and_flashes_once():
                                                 "mode": "draft", "auto_kinds": [], "archived": False, "turns": []}]})
     assert got["first"] is None  # 패널을 처음 그릴 때는 알리지 않는다
     assert got["flash"] == "설정" and got["again"] is None and got["foot"] and got["pinBtn"]
-    assert got["scope"] == {"act": "", "episode": 0, "draft": None, "target": "setup"}
+    assert got["scope"] == {"act": "", "episode": 0, "draft": None, "screen": "setup", "target": "setup"}
     assert got["pinnedFlash"] == "2화 플롯 2화 제목"  # 고정하면 세션 대상(ep:2)을 보인다
-    assert got["pinnedScope"] == {"act": "", "episode": 0, "draft": None}  # 고정한 세션은 화면 대상을 보내지 않는다
+    assert got["pinnedScope"] == {"act": "", "episode": 0, "draft": None, "screen": "cast"}  # 고정한 세션은 화면 대상을 보내지 않는다
     assert got["pinnedHtml"] and got["pinnedTarget"] == "ep:2"
 
 
@@ -189,3 +189,10 @@ def test_open_state_has_one_owner():
         assert not re.search(r"S\.chatOpen\s*=[^=]|chatOpen:\s*(true|false)", src.replace("S.chatOpen = !!on", "")), f.name
     got = run_js(FILES, "chatSetOpen(true); const a = S.chatOpen; chatSetOpen(false, { save: false }); [a, S.chatOpen, chatOpenSaved()]", None)
     assert got == [True, False, False]
+
+
+def test_server_screens_match_drawapp_views():
+    """턴이 실어 보내는 화면 이름(agent.SCREENS)은 drawApp 의 views 표와 작품 홈이다. 화면이 늘면 서버 목록도 늘린다."""
+    from canon import agent
+    assert set(agent.SCREENS) == {"home", *_views()}
+    assert set(agent.PLOT_SCREENS) <= set(agent.SCREENS)

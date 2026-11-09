@@ -2404,6 +2404,7 @@ class TurnIn(BaseModel):
     episode: int = 0  # 화면에서 연 화
     draft: ArcProposal | None = None  # 다음 아크 대상: 화면의 초안
     target: str | None = None  # 화면이 주는 대상. 고정하지 않은 세션은 이 값으로 바꾼다 (agent.add_turn)
+    screen: str = ""  # 작가가 보던 화면. 서버가 agent.SCREENS 로 확인하고, 비거나 모르면 플롯 화면과 같다
 
 
 def _run_agent(name: str, sid: str, t: int) -> dict:
@@ -2427,7 +2428,7 @@ def agent_turn(name: str, sid: str, body: TurnIn) -> dict:
     if any(j.kind == "agent" and j.status == "running" for j in jobs.listing(name)):
         raise ValueError("이 작품에서 이미 대화가 돌아가고 있어요. 끝난 뒤 보내거나 멈추세요")
     out: list[int] = []
-    _edit(name, lambda p: out.append(agent.add_turn(p, sid, body.message, mode=body.mode, act=body.act, episode=body.episode, draft=body.draft, target=body.target)))
+    _edit(name, lambda p: out.append(agent.add_turn(p, sid, body.message, mode=body.mode, act=body.act, episode=body.episode, draft=body.draft, target=body.target, screen=body.screen)))
     return _run_agent(name, sid, out[0])
 
 
