@@ -9,6 +9,23 @@
    서버는 canon/statwin.py (/statwin/<인물 id>, /statwin-suggest). AI 가 적은 바뀐 값은 상태 승인 화면에서 고른 뒤에만 반영된다(swDeltaRows). */
 'use strict';
 
+// 꾸미기 안 · 처음 수치 AI 제안은 백그라운드 작업으로 돈다 (web._job_statwin_ai). 기다리는 동안 다른 칸을 읽고 고칠 수 있다.
+// 결과는 제안 카드(S.swSug · S.swInitSug)에만 놓고, 작가가 고른 안만 상태창 라우트로 저장한다
+JOB_PAGES.statwin_suggest = ['statwin'];
+JOB_PAGES.statwin_init = ['statwin'];
+JOB_LINK.statwin_suggest = (j) => `#/p/${enc(j.project)}/statwin/_decor`;
+JOB_LINK.statwin_init = (j) => `#/p/${enc(j.project)}/statwin/_frame`;
+JOB_DONE_MSG.statwin_suggest = '상태창 꾸미기 안이 도착했어요. 고른 안만 적용하세요.';
+JOB_DONE_MSG.statwin_init = '상태창 처음 수치 제안이 도착했어요. 고른 인물만 넣으세요.';
+SCREEN_ONLY_JOBS.add('statwin_suggest').add('statwin_init');
+JOB_BTNS.swSuggest = () => ['statwin_suggest'];
+JOB_BTNS.swInitAI = () => ['statwin_init'];
+JOB_RESULT.statwin_suggest = (j) => {
+  S.swSug = j.result;
+  return j.result && j.result.options.length ? null : { msg: '쓸 만한 꾸미기 안이 오지 않았어요. 다시 받아 보세요' };
+};
+JOB_RESULT.statwin_init = (j) => { S.swInitSug = j.result; return null; };
+
 Object.assign(S, {
   sw: null,          // 서버 값 { names, columns, current, text, presets }
   swCid: '',         // 보고 있는 인물
@@ -579,11 +596,7 @@ Object.assign(actions, {
   },
   async swSuggest() {
     const request = ($('#sw-req') || {}).value || '';
-    await run('꾸미기 안 만드는 중', async () => {
-      await saveIfDirty();  // AI는 저장된 설정을 읽는다
-      S.swSug = await api('POST', `/projects/${enc(S.name)}/statwin-suggest`, { request: request.trim() });
-      if (!S.swSug.options.length) toast('쓸 만한 안이 오지 않았어요. 다시 받아 보세요', true);
-    });
+    await startJob('statwin_suggest', null, { note: request.trim() }, { quiet: true });  // AI는 저장된 설정을 읽는다
   },
   async swUseOpt(i) {
     const o = ((S.swSug || {}).options || [])[Number(i)];
@@ -759,10 +772,7 @@ Object.assign(actions, {
   swInitAllToggle() { S.swInitAll = !S.swInitAll; render(); },
   async swInitAI() {
     const request = (($('#swi-req') || {}).value || '').trim();
-    await run('처음 수치 제안 만드는 중', async () => {
-      await saveIfDirty();  // AI는 저장된 인물 설정을 읽는다
-      S.swInitSug = await api('POST', `/projects/${enc(S.name)}/statwin-init`, { request });
-    });
+    await startJob('statwin_init', null, { note: request }, { quiet: true });  // AI는 저장된 인물 설정을 읽는다
   },
   swInitUse() {
     const s = S.swInitSug;

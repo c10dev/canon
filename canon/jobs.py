@@ -51,6 +51,7 @@ class Job:
     released: dict[int, tuple[float, set[int]]] = field(default_factory=dict)  # 단계(done) → (내려놓은 시각, 화). release 참고
     stop: threading.Event = field(default_factory=threading.Event)  # 멈추기 신호 (cancel.current)
     step_ep: int | None = None  # 단계 하나가 마지막으로 끝낸 화. 자동 집필이 화를 반영할 때마다 고친다 (화면이 화마다 알린다)
+    target: str = ""  # 같은 종류를 나눠 돌리는 대상 (인물 id 등). 대상이 다르면 함께 돈다
     alive: bool = True  # 스레드가 아직 돈다. 멈춘 작업도 이미 보낸 AI 호출의 응답을 기다리는 동안은 참 (waiting)
 
     def say(self, text: str) -> None:
@@ -68,6 +69,7 @@ class Job:
             "total": self.total, "done": self.done, "note": self.note, "retry": self.retry, "status": self.status,
             "result": self.result, "error": self.error, "started": self.started, "step_at": self.step_at or self.started, "finished": self.finished,
             "step_wait": self.step_wait, "pending": sorted(self.pending), "waiting": self.waiting, "step_ep": self.step_ep,
+            "target": self.target,
         }
 
     @property
@@ -158,7 +160,7 @@ def _prune() -> None:
 
 
 def start(project: str, kind: str, ep: int | None, label: str, fn: Callable[[Job], Any],
-          total: int = 1, owned: set[int] | None = None) -> Job:
+          total: int = 1, owned: set[int] | None = None, target: str = "") -> Job:
     """fn(job) 을 스레드에서 돌린다. fn 은 job.done/note 를 갱신할 수 있고, 돌려준 값이 job.result 가 된다.
     다시 시작하려고 기다리는 중(draining)이면 Draining 으로 거절한다. 자동 집필(auto)은 받는다: 첫 단계 전에
     멈추고 다시 시작한 서버가 이어 간다 (autorun.Runner._checkpoint)."""
@@ -167,10 +169,10 @@ def start(project: str, kind: str, ep: int | None, label: str, fn: Callable[[Job
     with _lock:
         _prune()
         for j in _jobs.values():
-            if j.status == "running" and (j.project, j.kind, j.ep) == (project, kind, ep):
+            if j.status == "running" and (j.project, j.kind, j.ep, j.target) == (project, kind, ep, target):
                 raise Busy(j)
         job = Job(id=uuid.uuid4().hex[:12], project=project, kind=kind, ep=ep, label=label,
-                  total=total, owned=set(owned or ()), pending=sorted(owned or ()))
+                  total=total, owned=set(owned or ()), pending=sorted(owned or ()), target=target)
         _jobs[job.id] = job
 
     def run() -> None:

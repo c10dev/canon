@@ -15,7 +15,7 @@ const vm = require('vm');
 const fs = require('fs');
 const data = JSON.parse(fs.readFileSync(0, 'utf8'));
 const noop = { addEventListener() {} };
-const ctx = { data, URLSearchParams, S: {}, actions: {}, document: { ...noop, createElement: () => ({}), head: { appendChild() {} } }, window: noop };
+const ctx = { data, JOB_PAGES: {}, JOB_LINK: {}, JOB_DONE_MSG: {}, JOB_RESULT: {}, JOB_BTNS: {}, SCREEN_ONLY_JOBS: new Set(), URLSearchParams, S: {}, actions: {}, document: { ...noop, createElement: () => ({}), head: { appendChild() {} } }, window: noop };
 vm.createContext(ctx);
 const src = process.argv.slice(1).map((f) => fs.readFileSync(f, 'utf8')).join('\\n;\\n');
 vm.runInContext(src + `

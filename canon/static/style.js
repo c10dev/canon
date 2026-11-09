@@ -12,6 +12,17 @@ function emptyProfile() {
 
 // 프로필 카드: id, 이름. 화면은 왼쪽 목차 + 오른쪽 카드 한 열이고, 카드는 읽는 모양이 기본이며 '고치기'로 그 카드만 고치는 칸을 편다.
 // 작품 화면(base 'style')과 라이브러리 항목(base 'profile', root 'lib')이 같은 카드를 쓴다
+// 지금 문체로 예시 쓰기(stylechat.js styleExampleWrite)는 백그라운드 작업으로 돈다 (web._job_style_ai). 기다리는 동안 다른 칸을 읽고 고칠 수 있다.
+// 작업은 예시를 작품의 예시 칸(style_example)에만 쓴다. 화면은 그 칸만 받아 고치던 문체 칸을 지킨다 (takeField)
+JOB_PAGES.style_example = ['style'];
+JOB_LINK.style_example = (j) => `#/p/${enc(j.project)}/style`;
+JOB_DONE_MSG.style_example = '문체 예시를 썼어요.';
+JOB_BTNS.styleExampleWrite = () => ['style_example'];
+JOB_RESULT.style_example = (j) => {
+  if (j.result && j.result.style_example) takeField('style_example', j.result.style_example);
+  return null;
+};
+
 const STYLE_CARDS = [['narr', '서술'], ['rules', '지킬 · 피할 것'], ['markers', '문체 표지'], ['devices', '가끔 쓰는 장치'], ['passages', '대표 문단']];
 const NARR_KEYS = ['narration_pov', 'tense', 'sentence_rhythm', 'description_density', 'dialogue_ratio', 'dialogue_style',
   'inner_monologue', 'pacing', 'scene_transition', 'vocabulary', 'sound_effects'];

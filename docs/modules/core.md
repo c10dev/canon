@@ -317,6 +317,7 @@
 - `Job.retry`: AI 호출이 기다리거나 다시 부르는 중인 사정(`cancel.say` → `Job.say`). 스레드마다 `retries` 에 두고 남은 하나를 보인다. `public()` 에 싣는다
 - `Job.step_wait`: 대화 에이전트 한 단계의 AI 호출 한도(초, `agent.step_wait`). `public()` 에 싣는다. 0 이면 화면이 기본값을 쓴다
 - 중복 실행 막기
+- `Job.target`: 같은 종류를 대상(인물 id)마다 따로 돌린다. 중복 막기는 (작품, 종류, 화, 대상)으로 본다. `public()` 에 싣는다
 - 자동 업데이트가 다시 시작하려고 기다리는 동안(`draining`) 새 작업은 `Draining`(400, '서버를 곧 다시 시작해요')으로 거절한다. 자동 집필(`auto`)은 받아서 첫 단계 전에 멈춘다
 - `running()` 은 다른 스레드가 작업을 더해도 깨지지 않게 잠금 안에서 센다
 - `project_lock(name)` 은 프로세스 안 잠금(재진입하지 않음)을 잡은 뒤 작품 폴더의 `.edit.lock` 에 `fcntl.flock` 을 건다
@@ -886,6 +887,10 @@
 - 본문 부분 수정 대화 `POST …/chat/text:<화>` 와 `fix-now` 는 AI를 부르기 전에 `_text_guard` 를 본다. `fix-now` 는 AI 답을 받은 뒤 한 번 더 본다
 - 오래 걸리는 AI 작업은 `jobs.start` 로 돌린다
 - `start_job` 은 작업 종류마다 `JOB_MAKERS` 의 준비 함수(`_job_<종류>`)를 부른다. 함수는 (이름표, 전체 걸음, 맡은 화, 할 일)을 돌려준다. 새 작업은 함수를 더하고 `JOB_MAKERS` 에 넣는다
+- 화면을 막던 AI 제안도 작업이다: `char_body` · `char_voice` · `char_look`(`_job_char_ai`), `statwin_suggest` · `statwin_init`(`_job_statwin_ai`), `names_ai`(`_job_names_ai`), `style_learn` · `style_example`(`_job_style_ai`)
+- 그 가운데 여섯은 제안만 돌려주고 작품을 바꾸지 않는다. `style_learn` · `style_example` 은 옛 동기 경로처럼 제안 칸(`style_learning` · `style_example`)에만 `_edit` 로 쓴다
+- 인물 작업과 `names_ai` 는 `JobIn.target`(인물 id)을 `Job.target` 으로 넘긴다(`_job_target`). 지명은 `JobIn.place_kind` 를 쓰고 대상이 빈 글이다
+- 옛 동기 경로(`…/characters/{cid}/body` · `voice` · `look`, `statwin-suggest` · `statwin-init`, `names`, `style/learn` · `style/example`)는 시험이 쓰는 동안 남긴다
 - 쓴 뒤 바로 검수(`Settings.check_after_write`, 기본 끔, `PUT …/check-after-write`): 처음 쓰는 본문이면 작업 `write` 가 저장 뒤 검수 걸음(`_run_check`, 작업 `check` 와 같은 함수)을 잇는다
 - 쓴 뒤 검수 걸음 전에 그 화를 내려놓고(`Job.release`) `Job.step_ep` 를 그 화로 둔다. 화면은 본문을 먼저 받고 작가는 검수하는 동안 고칠 수 있다
 - 쓴 뒤 검수가 실패해도 작업은 끝남이고 결과에 `check_error` 를 싣는다. 성공하면 결과 `check` 는 작업 `check` 의 결과와 같다
@@ -900,6 +905,7 @@
 - `start_job` 은 같은 화에서 멈춘 작업이 AI 응답을 기다리면 `EP_AI_KINDS` 작업을 409 로 막는다(`_waiting_409`, 역설계 실험 `rev_job` 과 같은 문구)
 - 멈춘 스토리보드 작업의 늦은 응답은 그 화에 스토리보드 · 본문이 없고 플롯이 확정돼 있으면 남긴다(`_keep_late_board`, 결과 `{kept}`)
 - `_keep_pending` 은 멈춘 작업의 결과를 pending.json 에 남기지 않고 지난 실패도 지우지 않는다
+- `_keep_pending` 의 실패 열쇠는 대상이 있으면 끝에 `:<대상>` 을 붙인다(`char_look::ally`). 인물마다 실패를 따로 남긴다
 - 빼 둔 새 사실 넣기 `POST …/episodes/{n}/dismissed-facts/{i}`(`pipeline.take_dismissed_fact`)
 - 상태 변경안 누락 검사 켜기 · 끄기 `PUT …/state-audit`(`Settings.state_audit`)
 - 반영 취소(`POST …/revert/{n}`)는 n+1화부터의 반영 기록을 pending.json 의 상태 변경안(`state:<화>`)으로 남긴다(`_revert_kept`)

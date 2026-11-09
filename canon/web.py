@@ -1328,11 +1328,16 @@ class NamesOut(BaseModel):
 @app.post("/api/projects/{name}/names", response_model_exclude_unset=True)  # options 는 ai 일 때만
 def names(name: str, body: NamesIn) -> NamesOut:
     p = body.project or _load(name)
+    return _names_out(p, body, get_llm("name") if body.ai else None)
+
+
+def _names_out(p: Project, body: NamesIn, llm) -> dict:
+    """이름 · 지명 후보 응답. llm 을 주면 AI 가 후보에서 골라 이유를 붙인다 (POST .../names 와 작업 names_ai 가 함께 쓴다)."""
     n = max(1, min(body.n, 20))
     out: dict = {"style": naming.resolve_style(p), "detected": naming.detect_style(p)}
     out["style_label"] = naming.style_label(out["style"])
-    if body.ai:
-        cands, opts = pipeline.suggest_names(get_llm("name"), p, body.character, body.place_kind, min(n, 8))
+    if llm is not None:
+        cands, opts = pipeline.suggest_names(llm, p, body.character, body.place_kind, min(n, 8))
         out["candidates"] = [c.model_dump() for c in cands]
         out["options"] = [o.model_dump() for o in opts.options]
     else:
@@ -1642,7 +1647,8 @@ def style_edit_stats(name: str) -> dict:
 
 @app.post("/api/projects/{name}/style/learn")
 def learn_style(name: str) -> Project:
-    """수정 기록에서 문체 규칙 후보를 찾아 작품에 붙인다. 문체는 바꾸지 않는다 (고른 것만 apply 로)."""
+    """수정 기록에서 문체 규칙 후보를 찾아 작품에 붙인다. 문체는 바꾸지 않는다 (고른 것만 apply 로).
+    웹 화면은 작업 style_learn 으로 부른다 (기다리는 동안 화면을 막지 않게)."""
     p = _load(name)
     r = pipeline.learn_style(get_llm("plan"), p)
     p = _load(name)  # AI 를 기다리는 사이 저장된 내용을 덮지 않는다
@@ -2538,7 +2544,7 @@ class JobIn(BaseModel):
     draft: int = 0  # hook: 0 이면 그 화 본문, k 면 비교본 k 번을 판정
     rewrite: RewriteRequest | None = None  # write: 본문이 있는 화를 다시 생성. 새 판은 본문을 덮지 않고 고르기를 기다린다
     fit_next: bool = True  # plot_one: 바로 뒤 화를 바꾸지 않는 화로 보고 맞춘다. 끄면 작가가 적은 것대로 마무리하고 뒤 화에 어긋난 점을 표시한다
-    episodes: list[int] = []  # stattrial: 시험할 화
+    episodes: list[int] = []  # stattrial: 시험할 화. style_example: 한 대목을 고쳐 쓸 화 하나
     repeats: int = 1  # stattrial: 조건마다 같은 화를 쓸 횟수
     conditions: list[str] = []  # stattrial: none | json | lines (비우면 셋 다). cue_run: oneshot | score | cues (비우면 셋 다)
     event: int = 0  # stage_draft, stage_extract: 플롯 사건 번호 (0부터)
@@ -2546,6 +2552,8 @@ class JobIn(BaseModel):
     board: Literal["", "make", "none"] = ""  # write: make 면 스토리보드를 새로 만든 뒤 쓴다(바로 쓰기), none 이면 스토리보드 없이 쓴다
     cues: Literal["", "none"] = ""  # write: 큐 시트를 쓰는 작품(cue.on)인데 그 화에 없으면 만든 뒤 쓴다. none 이면 큐 시트 없이 쓴다
     text: str = ""  # style: 분석할 예시 원문 (200자 이상)
+    target: str = ""  # char_body, char_voice, char_look, names_ai: 인물 id (names_ai 는 비우면 지명)
+    place_kind: str = ""  # names_ai: 지명 종류 (target 이 비었을 때)
 
 
 def _edit(name: str, fn) -> Project:
@@ -2889,6 +2897,95 @@ def _job_offscreen(name: str, body: "JobIn", p: Project, kind: str, n: int | Non
     return label, total, owned, fn
 
 
+def _job_char(p: Project, cid: str) -> Character:
+    """인물 하나를 두고 AI 를 부르는 작업이 시작 전에 인물을 찾는다. 없으면 작업 전에 400."""
+    c = next((c for c in p.characters if c.id == cid), None) if cid else None
+    if c is None:
+        raise KeyError(f"인물이 없어요: {cid}. 새로 더한 인물이면 저장한 뒤 다시 하세요")
+    return c
+
+
+def _job_char_ai(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 char_body · char_voice · char_look: 인물 하나의 신체 프로필 · 서술 말투 · 외형 태그 제안. 저장하지 않는다 (작가가 칸에서 고쳐 작품 저장)."""
+    c = _job_char(p, body.target)
+    who = c.name or c.id
+    cid, ask = c.id, body.note.strip()
+    if kind == "char_body":
+        label = f"{who} 신체 프로필 제안"
+
+        def fn(job: jobs.Job):
+            return pipeline.suggest_body(llm, store.load(name), cid).model_dump()
+    elif kind == "char_voice":
+        label = f"{who} 서술 말투 초안"
+
+        def fn(job: jobs.Job):
+            return pipeline.suggest_voice(llm, store.load(name), cid, ask).model_dump()
+    else:
+        label = f"{who} 외형 태그"
+
+        def fn(job: jobs.Job):
+            return pipeline.suggest_look(llm, store.load(name), cid).model_dump()
+    return label, 1, set(), fn
+
+
+def _job_statwin_ai(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 statwin_suggest · statwin_init: 상태창 꾸미기 안 · 처음 수치 제안. 저장하지 않는다 (작가가 고른 안만 상태창 라우트로 저장)."""
+    ask = body.note.strip()
+    if kind == "statwin_suggest":
+        label = "상태창 꾸미기 안"
+
+        def fn(job: jobs.Job):
+            return pipeline.suggest_stat_window(llm, store.load(name), ask).model_dump()
+    else:
+        label = "상태창 처음 수치 제안"
+
+        def fn(job: jobs.Job):
+            return pipeline.suggest_initial_stats(llm, store.load(name), ask).model_dump()
+    return label, 1, set(), fn
+
+
+def _job_names_ai(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 names_ai: AI 가 이름(target 인물) · 지명(place_kind) 후보에서 골라 이유를 붙인다. 저장된 작품을 읽고 저장하지 않는다."""
+    req = NamesIn(character=body.target, place_kind=body.place_kind, ai=True, n=8)
+    if req.character:
+        label = f"{_job_char(p, req.character).name or req.character} 이름 고르기"
+    else:
+        label = f"{req.place_kind or '지명'} 지명 고르기"
+
+    def fn(job: jobs.Job):
+        return _names_out(store.load(name), req, llm)
+    return label, 1, set(), fn
+
+
+def _job_style_ai(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 style_learn · style_example: 수정 기록에서 찾은 규칙 후보 · 지금 문체로 쓴 예시를 작품의 제안 칸
+    (style_learning · style_example)에 둔다. 문체와 본문은 바꾸지 않는다 (고른 규칙만 /style/learn/apply 로)."""
+    if kind == "style_learn":
+        pipeline.check_learnable(p)
+        label = "문체 규칙 찾기"
+
+        def fn(job: jobs.Job):
+            r = pipeline.learn_style(llm, store.load(name))
+            _edit(name, lambda q: setattr(q, "style_learning", r))
+            return {"style_learning": r.model_dump()}
+    else:
+        at = body.episodes[0] if body.episodes else 0
+        pipeline.check_example(p, at)
+        scene = body.note
+        label = "문체 예시 쓰기"
+
+        def fn(job: jobs.Job):
+            ex = pipeline.style_example(llm, store.load(name), scene, at)
+            _edit(name, lambda q: setattr(q, "style_example", ex))
+            return {"style_example": ex.model_dump()}
+    return label, 1, set(), fn
+
+
+def _job_target(kind: str, body: "JobIn") -> str:
+    """같은 종류를 대상마다 따로 돌리는 작업의 대상: 인물 id. 이름 고르기는 지명이면 빈 글이다."""
+    return body.target if kind in ("char_body", "char_voice", "char_look", "names_ai") else ""
+
+
 def _job_plots(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
     """작업 plots: (이름표, 전체 걸음, 맡은 화, 할 일)."""
     if not p.beats():
@@ -3219,6 +3316,14 @@ JOB_MAKERS: dict[str, Callable] = {
     "stattrial": _job_stattrial,
     "cue_sheet": _job_cue_sheet,
     "cue_run": _job_cue_run,
+    "char_body": _job_char_ai,
+    "char_voice": _job_char_ai,
+    "char_look": _job_char_ai,
+    "statwin_suggest": _job_statwin_ai,
+    "statwin_init": _job_statwin_ai,
+    "names_ai": _job_names_ai,
+    "style_learn": _job_style_ai,
+    "style_example": _job_style_ai,
 }
 
 
@@ -3233,17 +3338,18 @@ def start_job(name: str, body: JobIn) -> dict:
         _waiting_409(old)
     stage = {"write": "write", "state": "state", "recap_arc": "state", "recap_part": "state", "fold_knows": "state", "rework": "revise", "fixes": "revise",
              "hook": "check", "check": "check", "recheck": "check", "opening_drafts": "write", "stattrial": "write", "stage_extract": "check", "cue_run": "write",
-             "board": "board", "cues": "board"}.get(kind, "plan")  # 나머지는 plan
+             "board": "board", "cues": "board", "char_look": "illustration", "names_ai": "name", "style_example": "write"}.get(kind, "plan")  # 나머지는 plan
     llm = get_llm(stage)  # 키가 없으면 여기서 바로 오류를 보여 준다
 
     maker = JOB_MAKERS.get(kind)
     if maker is None:
         raise ValueError(f"모르는 작업이에요: {kind}")
     label, total, owned, fn = maker(name, body, p, kind, n, llm)
+    target = _job_target(kind, body)
 
     try:
         with usage.scope(episode=n if kind in ("write", "board", "state", "check", "fixes", "recheck", "rework", "hook", "openings", "opening_drafts", "plot_one", "cue_sheet", "cue_run", "cues") else None, task=kind):
-            job = jobs.start(name, kind, n, label, _keep_pending(name, kind, n, label, fn), total=total, owned=owned)
+            job = jobs.start(name, kind, n, label, _keep_pending(name, kind, n, label, fn, target), total=total, owned=owned, target=target)
     except jobs.Busy as b:
         return {**b.job.public(), "already": True}
     return job.public()
@@ -3254,9 +3360,10 @@ def start_job(name: str, body: JobIn) -> dict:
 PENDING_KINDS = {"arc", "heat", "suggest", "style", "series", "nextarc", "convert", "rebuild", "rework", "storyline", "recap_arc", "recap_part", "fold_knows", "offscreen", "state", "openings"}
 
 
-def _keep_pending(name: str, kind: str, n: int | None, label: str, fn):
-    """작업 fn 을 감싸, 끝나면 제안 결과를, 실패하면 오류를 작품의 pending.json 에 남긴다. 같은 작업이 성공하면 지난 실패를 지운다."""
-    key = f"{kind}:{n if n is not None else ''}"
+def _keep_pending(name: str, kind: str, n: int | None, label: str, fn, target: str = ""):
+    """작업 fn 을 감싸, 끝나면 제안 결과를, 실패하면 오류를 작품의 pending.json 에 남긴다. 같은 작업이 성공하면 지난 실패를 지운다.
+    대상(target)이 있는 작업은 열쇠 끝에 ':<대상>' 을 붙여 인물마다 따로 남긴다."""
+    key = f"{kind}:{n if n is not None else ''}" + (f":{target}" if target else "")
 
     def run(job: jobs.Job):
         try:

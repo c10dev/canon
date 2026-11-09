@@ -18,7 +18,7 @@ HARNESS = """
 const vm = require('vm');
 const fs = require('fs');
 const data = JSON.parse(fs.readFileSync(0, 'utf8'));
-const ctx = { data, S: {}, actions: {}, render() {}, document: { addEventListener() {}, createElement: () => ({}), head: { appendChild() {} } } };
+const ctx = { data, JOB_PAGES: {}, JOB_LINK: {}, JOB_DONE_MSG: {}, JOB_RESULT: {}, JOB_BTNS: {}, SCREEN_ONLY_JOBS: new Set(), S: {}, actions: {}, render() {}, document: { addEventListener() {}, createElement: () => ({}), head: { appendChild() {} } } };
 vm.createContext(ctx);
 vm.runInContext(fs.readFileSync(process.argv[1], 'utf8') + `
 ;globalThis.out = data.cases.map(([b, v]) => swResolve(b, v));`, ctx);
@@ -73,7 +73,7 @@ def _run(files, expr, data=None):
 const vm = require('vm');
 const fs = require('fs');
 const data = JSON.parse(fs.readFileSync(0, 'utf8'));
-const ctx = { data, S: {}, actions: {}, render() {}, document: { addEventListener() {}, createElement: () => ({}), head: { appendChild() {} } } };
+const ctx = { data, JOB_PAGES: {}, JOB_LINK: {}, JOB_DONE_MSG: {}, JOB_RESULT: {}, JOB_BTNS: {}, SCREEN_ONLY_JOBS: new Set(), S: {}, actions: {}, render() {}, document: { addEventListener() {}, createElement: () => ({}), head: { appendChild() {} } } };
 vm.createContext(ctx);
 vm.runInContext(process.argv.slice(1).map((f) => fs.readFileSync(f, 'utf8')).join(';\\n') + `
 ;globalThis.out = (${EXPR});`, ctx);

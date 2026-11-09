@@ -647,15 +647,49 @@ function rsGot(sec, x) {
   delete S.rs.open[sec];
 }
 
+// 신체 프로필 · 서술 말투 AI 제안은 백그라운드 작업으로 돈다 (web._job_char_ai). 기다리는 동안 다른 칸을 읽고 고칠 수 있다.
+// 작업은 저장된 인물 설정을 읽으므로 방금 고친 나이 · 외모도 보게 묻지 않고 먼저 저장한다 (startJob opt.quiet)
+JOB_PAGES.char_body = ['cast'];
+JOB_PAGES.char_voice = ['cast'];
+JOB_LINK.char_body = (j) => `#/p/${enc(j.project)}/cast/${enc(j.target)}`;
+JOB_LINK.char_voice = JOB_LINK.char_body;
+JOB_DONE_MSG.char_body = (j) => `${j.label}${josa(j.label, '이', '가')} 도착했어요. 고른 칸만 적용하세요.`;
+JOB_DONE_MSG.char_voice = (j) => `${j.label}${josa(j.label, '이', '가')} 도착했어요.`;
+SCREEN_ONLY_JOBS.add('char_body').add('char_voice');
+JOB_BTNS.bodyAI = (cid) => ['char_body', cid];
+JOB_BTNS.voiceAI = (cid) => ['char_voice', cid];
+JOB_RESULT.char_body = (j) => {
+  const cid = j.target;
+  if (!j.result || !P().characters.some((x) => x.id === cid)) return { msg: `${j.label}${josa(j.label, '이', '가')} 왔지만 그 인물이 없어서 놓지 않았어요.` };
+  S.bodySug = { ...(S.bodySug || {}), [cid]: j.result };
+  S.bodyOpen = { ...(S.bodyOpen || {}), [cid]: true };
+  return null;
+};
+/** 서술 말투 초안은 칸에 바로 넣는다. 그 칸을 고치는 중이거나 시작한 뒤 고쳤으면 덮지 않고 알림의 '넣기'로 넣게 한다 */
+JOB_RESULT.char_voice = (j) => {
+  const c = P().characters.find((x) => x.id === j.target);
+  if (!j.result || !c) return { msg: `${j.label}${josa(j.label, '이', '가')} 왔지만 그 인물이 없어서 넣지 않았어요.` };
+  const put = () => {
+    c.narration_voice = j.result.voice;
+    S.voices = { ...(S.voices || {}), [c.id]: j.result.note || '' };
+    markDirty();
+  };
+  const a = S.jobArgs[j.id];
+  const before = a && a.opt ? a.opt.before : undefined;
+  const el = document.activeElement;
+  const here = !!el && el.dataset && el.dataset.bind === `characters.${P().characters.indexOf(c)}.narration_voice`;
+  if (here || (before !== undefined && (c.narration_voice || '') !== before)) {
+    return { msg: `${j.label}${josa(j.label, '이', '가')} 왔지만 그 칸을 고치고 있어서 넣지 않았어요. 넣으면 지금 적은 말투를 바꿔요.`,
+      actions: [{ label: '넣기', run: () => { put(); render(); toast('초안을 칸에 넣었어요. 고친 뒤 저장하세요'); } }] };
+  }
+  put();
+  return { msg: `${j.label}${josa(j.label, '을', '를')} 칸에 넣었어요. 고친 뒤 저장하세요.` };
+};
+
 Object.assign(actions, {
   async bodyAI(cid) {
     if (!P().characters.some((x) => x.id === cid)) return;
-    await run('신체 프로필 제안 만드는 중', async () => {
-      await saveIfDirty();  // AI는 저장된 인물 설정을 읽는다. 방금 고친 나이 · 외모도 보게 먼저 저장한다
-      const s = await api('POST', `/projects/${enc(S.name)}/characters/${enc(cid)}/body`);
-      S.bodySug = { ...(S.bodySug || {}), [cid]: s };
-      S.bodyOpen = { ...(S.bodyOpen || {}), [cid]: true };
-    });
+    await startJob('char_body', null, { target: cid }, { quiet: true });
   },
   bodyApply(cid) {
     const c = P().characters.find((x) => x.id === cid);
@@ -679,15 +713,8 @@ Object.assign(actions, {
     const c = P().characters.find((x) => x.id === cid);
     if (!c) return;
     if ((c.narration_voice || '').trim() && !(await askConfirm('지금 적힌 서술 말투를 AI 초안으로 바꿀까요? 저장하기 전에는 되돌릴 수 있어요', { ok: '바꾸기' }))) return;
-    await run('서술 말투 초안 만드는 중', async () => {
-      await saveIfDirty();  // AI는 저장된 인물 설정을 읽는다. 방금 고친 설정이나 새 인물도 보게 먼저 저장한다
-      const req = document.getElementById(`voice-req-${cid}`);
-      const s = await api('POST', `/projects/${enc(S.name)}/characters/${enc(cid)}/voice`, { request: req ? req.value.trim() : '' });
-      c.narration_voice = s.voice;
-      S.voices = { ...(S.voices || {}), [cid]: s.note || '' };
-      markDirty();
-      toast('초안을 칸에 넣었어요. 고친 뒤 저장하세요');
-    });
+    const req = document.getElementById(`voice-req-${cid}`);
+    await startJob('char_voice', null, { target: cid, note: req ? req.value.trim() : '' }, { quiet: true, before: c.narration_voice || '' });
   },
   /** 백엔드 칩 고르기(경로|칩 번호). 블라인드 비교의 'cmp|번호'는 비교본 고르기 */
   async rsPick(arg) {

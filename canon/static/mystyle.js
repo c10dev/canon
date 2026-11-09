@@ -10,6 +10,20 @@ Object.assign(S, {
   libNote: '',       // 다음 저장의 버전 메모
 });
 
+// 수정 기록에서 규칙 찾기는 백그라운드 작업으로 돈다 (web._job_style_ai). 기다리는 동안 다른 칸을 읽고 고칠 수 있다.
+// 작업은 후보를 작품의 제안 칸(style_learning)에만 쓴다. 화면은 그 칸만 받아 고치던 다른 칸을 지킨다 (takeField)
+JOB_PAGES.style_learn = ['style'];
+JOB_LINK.style_learn = (j) => `#/p/${enc(j.project)}/style`;
+JOB_DONE_MSG.style_learn = '문체 규칙 후보가 도착했어요.';
+JOB_BTNS.learnRun = () => ['style_learn'];
+JOB_RESULT.style_learn = (j) => {
+  const r = j.result && j.result.style_learning;
+  if (!r) return null;
+  takeField('style_learning', r);
+  S.learnPicks = {};
+  return { msg: r.suggestions.length ? `규칙 후보 ${r.suggestions.length}개를 찾았어요. 고른 것만 넣어요.` : '되풀이된 고침을 찾지 못했어요' };
+};
+
 const RULE_KINDS = { do: '지킬 것', dont: '피할 것', banned: '금지 표현', marker: '문체 표지', device: '가끔 쓰는 장치' };
 
 async function learnLoad() {
@@ -158,13 +172,7 @@ Object.assign(actions, {
     render();
   },
   async learnRun() {
-    await run('수정 기록에서 규칙을 찾는 중…', async () => {
-      await saveIfDirty();
-      S.project = await api('POST', `/projects/${enc(S.name)}/style/learn`);
-      S.learnPicks = {};
-      const k = P().style_learning.suggestions.length;
-      toast(k ? `규칙 후보 ${k}개를 찾았어요. 고른 것만 넣어요.` : '되풀이된 고침을 찾지 못했어요');
-    });
+    await startJob('style_learn', null, {}, { quiet: true });
   },
   async learnApply() {
     const r = P().style_learning;
