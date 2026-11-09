@@ -10,12 +10,6 @@
 const CHAT_TOPICS = {
   plot: {
     title: '대화로 다듬기',
-    get examples() {
-      if (!serial()) return ['3화 전개가 너무 빨라', '결말을 비극으로 바꿔 줘', '승 구간을 한 화 늘려 줘', '주인공이 더 늦게 진실을 알게 해 줘'];
-      return S.selArc === 'next'
-        ? ['15화짜리로, 라이벌과 처음 손잡는 아크', '무대를 학교 밖으로 넓혀 줘', '갈등을 더 개인적인 걸로']
-        : ['이 아크 갈등을 더 개인적인 걸로', '아크를 3화 늘려 줘', '승 구간 전개가 느려', '2부 목표를 복수에서 구원으로'];
-    },
     clearAsk: '이 작품의 대화 기록을 지울까요? 적용한 구조와 플롯은 그대로예요.',
     userMsg: (m) => `${m.where ? `<span class="msg-quote">${esc(m.where)}</span>` : ''}${m.mode === 'options' ? '<span class="chip">방향 여러 안</span> ' : ''}${esc(m.text)}`,
   },

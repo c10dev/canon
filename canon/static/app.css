@@ -2828,19 +2828,19 @@ mark.hl.tofix { text-decoration-color: var(--him-ink); text-decoration-style: da
 .wiz-sum .mark.no { color: var(--amber); }
 .wiz-more-body { display: flex; flex-direction: column; gap: var(--space-12); padding-top: var(--space-12); }
 .lockset:disabled .wiz-rel { opacity: .6; }
-/* 작은 AI 제안: 칸 하나를 채우는 버튼은 같은 모양 (✦) */
+/* 작은 AI 제안: 칸 하나를 채우는 버튼은 같은 모양 */
 .ai-mini { min-height: 36px; padding: 0 var(--space-10); border: 1px solid transparent; border-radius: var(--radius-8); background: var(--accent-soft); color: var(--accent-ink); font: inherit; font-size: 0.75rem; font-weight: 700; white-space: nowrap; cursor: pointer; }
 @media (pointer: coarse), (max-width: 640px) { .ai-mini { min-height: var(--touch-min); } }
 .ai-mini:hover { border-color: var(--sel-line); }
 .ai-mini[aria-expanded="true"] { border-color: var(--accent); }
-/* 칸 옆 ✦ 후보 버튼(ideas.js ideaBtn)은 그 칸에 포인터를 올리거나 포커스가 있을 때만 보인다. 자리는 그대로 두고 Tab 순서에도 남아,
+/* 칸 옆 AI 후보 버튼(ideas.js ideaBtn)은 그 칸에 포인터를 올리거나 포커스가 있을 때만 보인다. 자리는 그대로 두고 Tab 순서에도 남아,
    키보드로 닿으면(:focus-within) 보인다. 숨은 동안은 눌리지 않는다. 후보를 펼친 칸(aria-expanded)은 늘 보인다 */
 .field .ai-mini:not([aria-expanded="true"]) { opacity: 0; pointer-events: none; transition: opacity 0.12s; }
 .field:hover .ai-mini, .field:focus-within .ai-mini { opacity: 1; pointer-events: auto; }
 @media (prefers-reduced-motion: reduce) { .field .ai-mini { transition: none; } }
 .lab-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-8); flex-wrap: wrap; min-height: 36px; }
 .in-ai { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-8); align-items: center; }
-/* ✦ 후보: 칸 바로 아래에 펼친다. 고르기 전에는 칸이 바뀌지 않는다 (ideas.js) */
+/* 칸 하나 AI 후보: 칸 바로 아래에 펼친다. 고르기 전에는 칸이 바뀌지 않는다 (ideas.js) */
 .cands { display: flex; flex-direction: column; gap: var(--space-6); padding: var(--space-10); border: 1px solid var(--sel-line); border-radius: var(--radius-10); background: var(--sel-bg); }
 .cands .ch { font-size: 0.75rem; font-weight: 700; color: var(--muted); }
 .cands .opt { display: flex; flex-direction: column; gap: var(--space-2); min-height: 44px; padding: var(--space-8) var(--space-12); border: 1px solid var(--line); border-radius: var(--radius-8); background: var(--surface); color: var(--text); font: inherit; text-align: left; line-height: 1.5; cursor: pointer; }
@@ -2932,7 +2932,7 @@ details[open] > .row-sum { background: var(--sel-bg); }
   .page-head .setup-go { display: none; }
   .row-body { padding: var(--space-12); }
 }
-/* 이름 줄에 ✦ 버튼이 있는 칸과 나란한 칸의 입력칸 높이를 맞춘다 */
+/* 이름 줄에 후보 버튼이 있는 칸과 나란한 칸의 입력칸 높이를 맞춘다 */
 .setup-secs .grid-2 > .field > label, .setup-secs .grid-3 > .field > label { min-height: 36px; display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--space-4); }
 /* 작품 정착 문체 (anchor.js) */
 .anchor-cmp { border-collapse: collapse; margin: var(--space-8) 0; }

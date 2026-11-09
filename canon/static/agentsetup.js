@@ -4,12 +4,10 @@
    고르지 않은 새 인물과 이어진 관계는 고를 수 없다(setupchat.apply_revision 과 같은 규칙). 부분 id 는 setupchat.part_ids 와 같다. */
 'use strict';
 
-const AGENT_SETUP_EXAMPLES = ['로그라인을 더 날카롭게', '주인공의 약점을 더 어둡게', '조력자를 한 명 넣어 줘'];
-
 /** 설정 대상의 빈 세션 안내 (agent.js agentLog) */
 function agentSetupIntro() {
   return `<div class="note info">설정을 말로 고쳐요. AI가 로그라인, 주제, 톤, 세계관, 인물, 관계에서 바꿀 칸만 지금 값과 나란히 보여 주고, 권한 모드와 상관없이 칸마다 물어봐요. 이미 채운 칸과 인물 칸은 꺼 둬요. 플롯은 고칠 수 있지만 늘 먼저 물어봐요.</div>
-    <div class="row">${AGENT_SETUP_EXAMPLES.map((x) => `<button type="button" class="btn small" data-action="agentExample" data-arg="${esc(x)}">${esc(x)}</button>`).join('')}</div>`;
+    ${agentExampleRow('setup')}`;
 }
 
 /** 카드의 한 부분이 체크돼 있는지. 처음 그릴 때 서버 defaults 로 채운다. */

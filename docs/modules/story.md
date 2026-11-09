@@ -540,6 +540,8 @@
 - 상태 줄의 대상이 바뀌면 `agentAfterDraw` 가 `.foot-target` 을 한 번 강조(`flash`)하고 `chatSay` 로 `#chat-live` 에 알린다. 패널을 처음 그릴 때는 알리지 않는다
 - 상태 줄의 핀(`agentPin`)과 다듬을 곳 메뉴(`agentTarget`)는 세션을 고정한다. `/대상` 은 고정을 풀고 화면 대상으로 돌린다
 - 문체 대상의 빈 세션은 문체 도구 안내를 보인다. 옛 문체 대화에서 빌려 오던 예시 알약은 04e 에서 그 대화와 함께 뺐다(예시는 일감 10)
+- 빈 세션의 예시 요청은 `agentExamples(대상)` 이 틀 문장에 작품 값(인물 이름 · 화 번호 · 아크 번호)을 채워 둘까지 낸다. AI 를 부르지 않는다(`tests/test_ai_tells_js.py`)
+- 채울 값이 없으면 예시 버튼 줄을 그리지 않고(`agentExampleRow`) 입력칸 예시 글만 남는다. 본문 · 문체 대상은 예시가 없다
 - 본문 대상의 빈 세션은 '드래그하면 재료로 붙고, `/` 빠른 요청을 고르면 후보를 골라 넣는다' 안내를 보인다
 - 설정 대상의 빈 세션은 `agentSetupIntro`(설정 도구 안내와 예시)를 보인다
 - 세션 동작 `agentAct(fn, { save })` 와 말 보내기 `agentStartTurn`: AI가 작품을 읽거나 고치는 동작은 저장하지 않은 변경이 있으면 저장할지 묻는다. 세션 만들기 · 대상 · 권한 모드 · 이름 · 보관은 `save: false` 로 묻지도 저장하지도 않는다
@@ -583,7 +585,7 @@
 - 고르지 않은 새 인물과 이어진 관계는 끈다(`agentSetupBlocked`). 새 인물 체크를 바꾸면 패널을 다시 그린다
 - '이 세션에서 묻지 않기' 칸은 없다. 넷 이상인 카드는 모두 고르기 · 모두 빼기(`agentSetupPickAll`)
 - 쓴 뒤 비교는 쓰기 전 설정(`WriteRecord.setup_before`)과 한다(`agentSetupItemDiff`)
-- 설정 대상의 빈 세션 안내와 예시(`agentSetupIntro`, `AGENT_SETUP_EXAMPLES`)
+- 설정 대상의 빈 세션 안내와 예시(`agentSetupIntro`, 예시는 `agent.js` `agentExamples('setup')`)
 
 ### `canon/static/anchor.js`
 
