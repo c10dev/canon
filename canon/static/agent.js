@@ -56,6 +56,49 @@ JOB_PAGES.agent = [];  // 패널만 다시 그린다 (agentJobUpdate)
 JOB_DONE_MSG.agent = (j) => `${j.label}: 턴이 끝났어요`;
 JOB_LINK.agent = (j) => `#/p/${enc(j.project)}/arc`;
 
+// ----- 빈 세션의 예시 요청 -----
+
+/** 빈 세션에 보일 예시 요청. 틀 문장에 이 작품의 값(인물 이름 · 화 번호 · 아크 번호)을 채우고 둘까지 낸다. AI 를 부르지 않는다.
+    채울 값이 없는 틀은 빼고, 하나도 없으면 빈 목록이다(입력칸 예시 글만 남는다). 본문 · 문체 대상은 예시를 두지 않는다 */
+function agentExamples(target) {
+  const p = P();
+  if (!p || target === 'style' || /^text:\d+$/.test(target || '')) return [];
+  const named = (p.characters || []).filter((c) => (c.name || '').trim());
+  const lead = [...named].sort((a, b) => /주인공/.test(b.role || '') - /주인공/.test(a.role || ''));
+  const [c, d] = lead.map((x) => x.name.trim());
+  const out = [];
+  if (target === 'setup') {
+    if (c) out.push(`${c}의 약점을 더 어둡게`);
+    if (c && d) out.push(`${c}${josa(c, '과', '와')} ${d} 사이에 갈등을 하나 더`);
+    return out;
+  }
+  const arc = plotTargetArc(target);
+  const part = /^part:(\d+)$/.exec(target || '');
+  if (arc) {
+    out.push(`아크 ${arc.number} 갈등을 더 개인적인 걸로`);
+    if (c) out.push(`${c}의 비중을 이 아크에서 늘려 줘`);
+  } else if (target === 'next') {
+    out.push(`${plannedUntil() + 1}화부터 15화짜리 아크로`);
+    if (c) out.push(`다음 아크는 ${c} 중심으로`);
+  } else if (part) {
+    out.push(`${part[1]}부 전환점을 더 늦게`);
+    if (c) out.push(`${part[1]}부에서 ${c}의 목표를 더 분명하게`);
+  } else {
+    const e = /^ep:(\d+)$/.exec(target || '');
+    const open = (p.episodes || []).find((x) => !LOCKED_STATUS.includes(x.status));
+    const n = e ? Number(e[1]) : (S.selEp && ep(S.selEp) ? S.selEp : open && open.plot.number);
+    if (n) out.push(`${n}화 전개가 너무 빨라`);
+    if (c) out.push(`${c}${josa(c, '이', '가')} 진실을 더 늦게 알게 해 줘`);
+  }
+  return out.slice(0, 2);
+}
+
+/** 예시 요청 버튼 줄. 예시가 없으면 빈 글 */
+function agentExampleRow(target) {
+  const xs = agentExamples(target);
+  return xs.length ? `<div class="row">${xs.map((x) => `<button type="button" class="btn small" data-action="agentExample" data-arg="${esc(x)}">${esc(x)}</button>`).join('')}</div>` : '';
+}
+
 // ----- 데이터 -----
 
 function agentKey() { return `canon.agent.${S.name}`; }
@@ -230,7 +273,6 @@ function agentLog() {
   }
   const s = agentSession();
   if (!s || !s.turns.length) {
-    const t = CHAT_TOPICS.plot;
     const aim = agentTarget(s);
     if (aim === 'setup') return agentSetupIntro();  // 설정 도구가 있다 (agentsetup.js)
     if (/^text:\d+$/.test(aim)) {
@@ -240,7 +282,7 @@ function agentLog() {
       return `<div class="note info">문체를 말로 고쳐요. AI가 스타일 프로필에서 바꿀 칸을 지금 값과 나란히 보여 주고, 바뀐 문체로 쓴 시험 문단도 함께 내요. 고른 칸만 이 작품 문체에 들어가고, 적용한 뒤에도 취소할 수 있어요. 권한 모드와 상관없이 늘 먼저 물어봐요. '+'에서 참고할 화를 고르면 그 화 한 대목을 새 문체로 고쳐 써 봐요.</div>`;
     }
     return `<div class="note info">구조와 플롯을 말로 고쳐요. AI가 필요한 플롯과 본문을 읽고 고치며, 아래 권한 모드에 따라 초안은 바로 쓰고 확정한 화나 범위는 물어봐요. 바로 쓴 것은 되돌릴 수 있고, 본문이 있는 화는 바꾸지 않아요.</div>
-      <div class="row">${t.examples.map((x) => `<button type="button" class="btn small" data-action="agentExample" data-arg="${esc(x)}">${esc(x)}</button>`).join('')}</div>`;
+      ${agentExampleRow(aim)}`;
   }
   return s.turns.map((t, i) => agentTurn(s, t, i)).join('');
 }

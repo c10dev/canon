@@ -1294,7 +1294,7 @@ class FieldIdeasIn(BaseModel):
 
 @app.post("/api/projects/{name}/field-ideas")
 def field_ideas(name: str, body: FieldIdeasIn) -> FieldIdeas:
-    """설정 칸 하나의 AI 후보 (✦). 저장하지 않는다. 작가가 고른 후보만 화면이 칸에 넣는다."""
+    """설정 칸 하나의 AI 후보. 저장하지 않는다. 작가가 고른 후보만 화면이 칸에 넣는다."""
     p = body.project or _load(name)
     return pipeline.suggest_field(get_llm(pipeline.field_stage(body.field)), p, body.field, max(1, min(body.n, 5)))
 

@@ -154,7 +154,7 @@ def field_stage(field: str) -> str:
 
 
 def suggest_field(llm: LLM, p: Project, field: str, n: int = 3) -> FieldIdeas:
-    """설정 칸 하나의 AI 후보 (✦). 저장하지 않는다 (작가가 하나를 고르면 화면이 칸에 넣고 작품을 저장한다).
+    """설정 칸 하나의 AI 후보. 저장하지 않는다 (작가가 하나를 고르면 화면이 칸에 넣고 작품을 저장한다).
     field 는 화면 칸 경로 (인물 칸은 characters.<번호>.<칸>). 빈 후보, 겹치는 후보, 지금 값과 같은 후보는 뺀다.
     목록 칸(prompts.IDEA_LISTS)은 후보를 한 줄로 고치고, 목록에 이미 있는 항목은 뺀다."""
     key = prompts.idea_key(field)

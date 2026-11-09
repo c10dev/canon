@@ -5450,7 +5450,7 @@ def naming_prompt(p: Project, target: str, candidates: list, n: int) -> str:
 
 
 
-# ---------- 설정 칸 하나 AI 후보 (✦) ----------
+# ---------- 설정 칸 하나 AI 후보 ----------
 # 칸 하나만 채우는 작은 제안. 여러 칸을 바꾸는 제안은 설정 도우미 대화(setup_chat_prompt)가 맡는다.
 # 키는 화면의 data-bind 경로와 같다 (static/setup.js). 값: (칸 이름, 쓰는 법)
 

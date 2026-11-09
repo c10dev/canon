@@ -2332,7 +2332,7 @@ class FieldIdea(BaseModel):
 
 
 class FieldIdeas(BaseModel):
-    """설정 칸 하나의 AI 후보 (✦). 작가가 하나를 골라야 칸이 바뀐다 (pipeline.suggest_field)."""
+    """설정 칸 하나의 AI 후보. 작가가 하나를 골라야 칸이 바뀐다 (pipeline.suggest_field)."""
     options: list[FieldIdea]
 
 
