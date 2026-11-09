@@ -108,7 +108,7 @@ def test_cli_arc_applies_heat(capsys, monkeypatch):
     store.save("heat-arc", p)
     cli.main(["arc", "heat-arc", "-y"])
     out = capsys.readouterr().out
-    assert "열 계획:" in out and "뒤집힘:" in out
+    assert "완급 계획:" in out and "뒤집힘:" in out
     saved = store.load("heat-arc")
     assert len(saved.heat) == 8 and any(f.kind == "audience" and f.id.startswith("fs-") for f in saved.foreshadows)
 
@@ -129,7 +129,7 @@ def test_proposal_card_and_apply_match_python():
       actions.useArcProposal();
       return { card, menu, heat: S.project.heat, fs: S.project.foreshadows.map((f) => f.id), left: S.heatProposal }; })()"""
     got = run_js(FILES, expr, {"p": dump(p), "plan": dump(plan)})
-    assert "열 계획" in got["card"] and 'data-action="heatPick"' not in got["card"]
+    assert "완급 계획" in got["card"] and 'data-action="heatPick"' not in got["card"]
     assert 'data-bind="settings.heat_plan"' in got["menu"] and "checked" in got["menu"]
     assert got["heat"] == [s.model_dump() for s in want.heat]
     assert got["fs"] == [f.id for f in want.foreshadows] and got["left"] is None

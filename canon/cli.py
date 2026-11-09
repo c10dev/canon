@@ -9,7 +9,7 @@
   python -m canon learn 내소설 [--pick 1,3 | -y] [--push]   본문 수정 기록에서 문체 규칙 후보 찾기 (고른 것만 반영)
   python -m canon stylechat 내소설 "대사를 더 짧게" [--ep 3] [--pick 1,2 | -y] [--push]   대화로 문체 다듬기 (--example 이면 지금 문체로 예시 글)
   python -m canon arc 내소설            기승전결 구간 설계 (단편)
-  python -m canon heat 내소설 [--arc 3] [--note ..]   이미 있는 기승전결(장편은 아크) 위에 열 계획만 받기 (본문 있는 화는 그대로)
+  python -m canon heat 내소설 [--arc 3] [--note ..]   이미 있는 기승전결(장편은 아크) 위에 완급 계획만 받기 (본문 있는 화는 그대로)
   python -m canon series 내소설         장편: 총 화수를 부로 나누는 부 구성 제안
   python -m canon convert 내소설 --episodes 200 [--ending keep|reopen]   단편을 장편으로 전환 (--undo 로 되돌리기)
   python -m canon convert 내소설 --episodes 200 --rebuild [--span 36] [--ending-at arc|part|series]   단편을 씨앗으로 앞부분 재구성
@@ -88,7 +88,7 @@ from . import (address, archetypes, autorun, branches, cast, charlog, dynamics, 
 from .llm import dump, get_llm
 from .schema import FINDING_STATUS, SEVERITY, ConsistencyReport, HeatArcPlan, HeatProposal, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
 from . import abilities, anchor, atlas, blocktrial, findings, stattrial, foreshadows, setupchat, statwin, timeline
-from . import birth, cue, heatplan, jobs, labstats, play, regexrules, sent, soelab, tofix
+from . import agent_style, birth, cue, heatplan, jobs, labstats, play, regexrules, sent, soelab, tofix
 from .schema import ArcProposal, ChatScope, Deadline, MapPlace, StatValue, StateDeltaAI, StoryArc, to_delta
 from .maps import kinds as placekinds
 from .maps import travel
@@ -309,7 +309,7 @@ def cmd_styles(a: argparse.Namespace) -> None:
     print(f"\n저장 위치: {library.root()}")
 
 
-RULE_KIND_TEXT = {"do": "지킬 것", "dont": "피할 것", "banned": "금지 표현", "marker": "문체 표지", "device": "가끔 쓰는 장치"}
+RULE_KIND_TEXT = {"do": "지킬 것", "dont": "피할 것", "banned": "금지 표현", "marker": "문체 버릇", "device": "가끔 쓰는 장치"}
 
 
 def cmd_learn(a: argparse.Namespace) -> None:
@@ -371,7 +371,7 @@ def cmd_stylechat(a: argparse.Namespace) -> None:
     msg = pipeline.record_style_chat(p, a.message, a.ep or 0, rev)
     print(rev.reply)
     for k, e in enumerate(rev.edits, 1):
-        label = prompts.STYLE_KEY_LABELS.get(e.key, e.key)
+        label = agent_style.STYLE_LABELS.get(e.key, e.key)
         print(f"\n{k}. [{label}]{f' {e.why}' if e.why else ''}\n   지금: {_style_value_text(getattr(p.style, e.key))}"
               f"\n   바꾸면: {_style_value_text(pipeline.style_value(e))}")
     if rev.preview:
@@ -386,7 +386,7 @@ def cmd_stylechat(a: argparse.Namespace) -> None:
             keys = []
         if keys:
             pipeline.apply_style_chat(p, i, keys)
-            print(f"적용했어요: {', '.join(prompts.STYLE_KEY_LABELS[k] for k in keys)}")
+            print(f"적용했어요: {', '.join(agent_style.STYLE_LABELS[k] for k in keys)}")
             if a.push and p.style_id and library.exists(p.style_id):
                 e = library.push_project(p, f"대화로 다듬음: {a.message[:60]}")
                 print(f"라이브러리 '{e.name}' 을 {e.version}번 버전으로 올렸어요")
@@ -469,9 +469,9 @@ def cmd_arc(a: argparse.Namespace) -> None:
 
 def _print_heat(h) -> None:
     """열 계획 제안을 찍는다 (arc · heat 명령)."""
-    print(f"\n열 계획: {h.heat_rule}")
+    print(f"\n완급 계획: {h.heat_rule}")
     for s in h.heat:
-        print(f"  {s.ep}화 열 {s.level} · {heatplan.ROLES[s.role]}{f' · {s.kind}' if s.kind else ''}{f'  {s.note}' if s.note else ''}")
+        print(f"  {s.ep}화 세기 {s.level} · {heatplan.ROLES[s.role]}{f' · {s.kind}' if s.kind else ''}{f'  {s.note}' if s.note else ''}")
     for f in h.stakes:
         print(f"  [{heatplan.KINDS[f.kind]}] {f.description} ({f.planted_ep}화에 심음)")
     if h.heat_turn.plant_ep:
@@ -488,7 +488,7 @@ def cmd_heat(a: argparse.Namespace) -> None:
     prop = pipeline.propose_heat(get_llm("plan"), p, arc.number if arc else 0, a.note or "")
     print(f"{start}~{end}화{f' (아크 {arc.number})' if arc else ''}")
     _print_heat(prop)
-    if confirm("이 열 계획으로 바꿀까요?", a.yes):
+    if confirm("이 완급 계획으로 바꿀까요?", a.yes):
         added = pipeline.apply_heat_plan(p, prop, arc)
         print(f"새 복선 {added}개 · 저장: {store.save(a.name, p)}")
 
@@ -980,7 +980,7 @@ def cmd_confirm(a: argparse.Namespace) -> None:
     nums = {e.plot.number for e in targets}
     for w in heatplan.warnings(p):
         if w.ep == 0 or w.ep in nums:
-            print(f"열 계획: {w.text}")
+            print(f"완급 계획: {w.text}")
     store.save(a.name, p)
 
 
@@ -2709,7 +2709,7 @@ def _plan_commands(sub, add) -> None:
     sp = add("arc", cmd_arc)
     sp.add_argument("--note", help="AI 에게 바라는 것 (예: 3화 안에 첫 반전)")
     sp = add("heat", cmd_heat)
-    sp.add_argument("--arc", type=int, default=0, help="장편: 열 계획을 받을 아크 번호 (비우면 다 쓰지 않은 첫 아크)")
+    sp.add_argument("--arc", type=int, default=0, help="장편: 완급 계획을 받을 아크 번호 (비우면 다 쓰지 않은 첫 아크)")
     sp.add_argument("--note", help="AI 에게 바라는 것")
     sp = add("series", cmd_series)
     sp.add_argument("--note", help="AI 에게 바라는 것")

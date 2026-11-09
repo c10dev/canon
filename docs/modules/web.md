@@ -474,8 +474,8 @@
   - 목차의 진행 막대 `plotMeter` · 구간 줄 `actTocItems`(누르면 `jumpAct`) · 확인할 것 `plotTodos`(관계를 한 화에 너무 많이 옮기는 화 `pacePlot`, `pace.plot_warnings` 와 같은 규칙 `tests/test_plot_pace_js.py`)
   - 머리의 'AI로 다시 만들기 ▾' `plotAiMenu`(요청 칸 `S.planNote`)
   - 구간 한 줄 머리 + 화 카드 격자 `actBoard`
-  - 단편은 보드 위에 열 계획 카드(`heatplan.js` `heatCard`, story.md)
-  - 장편은 고른 아크 보드 위에 그 아크의 열 계획 카드(`heatCard(p, arc)`)
+  - 단편은 보드 위에 완급 계획 카드(`heatplan.js` `heatCard`, story.md)
+  - 장편은 고른 아크 보드 위에 그 아크의 완급 계획 카드(`heatCard(p, arc)`)
   - 구간 · 아크 · 부 고치기는 서랍 없이 그 자리에서 `actEditor` · `arcEditor` · `partEditor`
   - 아크 주요 인물 이름 체크 `arcCastField`
 - 640px 이하 사건 줄의 도구(연출 · 위로 · 아래로 · 빼기)는 숨기지 않고 사건 글 아래 줄 오른쪽에 둔다
@@ -685,12 +685,12 @@
   - 요약은 가장 어긋난 지표 둘이다(`metricGaps`). 점수는 차이를 경고 폭으로 나눈 값이고, 1을 넘으면 '경고' 칩을 단다. 경고 폭의 절반보다 작은 차이는 올리지 않는다
   - 요약의 경고 폭 표 `METRIC_GAPS` 는 `metrics.THRESHOLDS` · `UPPER_ONLY` 와 같게 둔다(`tests/test_style_js.py`)
   - 견줄 화나 기준 지표가 없으면 요약 줄을 두지 않는다
-  - 정착 문체를 정해도 요약은 레퍼런스(`style_baseline`)와 견준다. 검수 화면의 문체 경고는 정착 문체를 보므로 둘이 다를 수 있다
+  - 이 작품의 문체를 정해도 요약은 레퍼런스(`style_baseline`)와 견준다. 검수 화면의 문체 경고는 이 작품의 문체를 보므로 둘이 다를 수 있다
   - 지표 칩(`metricChips`)은 '지표 풀이'를 열면 보이고, 값이 없는 지표는 칩을 그리지 않는다. 라이브러리 항목의 칩도 같다
   - 지표 풀이 표(`baselineRows`)는 '–'를 남겨 왜 없는지 적고, 견준 화가 있으면 지표마다 그 화의 값을 곁에 적는다
-  - '지킬 · 피할 것' 카드의 열 낱말 칸(`heatWordsRead` · `heatWordsEdit`, `Settings.heat_words` 에 묶음): 작품 화면에만 있고 라이브러리 문체에는 없음
+  - '지킬 · 피할 것' 카드의 절정 낱말 칸(`heatWordsRead` · `heatWordsEdit`, `Settings.heat_words` 에 묶음): 작품 화면에만 있고 라이브러리 문체에는 없음
   - 빈 문체는 세 갈래 `stylePickCard` · `styleManual`
-  - 프로필 카드 뒤에 작품 정착 문체 카드(`static/anchor.js` 의 `anchorCard`)
+  - 프로필 카드 뒤에 이 작품의 문체 카드(`static/anchor.js` 의 `anchorCard`)
   - 라이브러리 항목도 같은 카드
   - 목차 틀은 공용 `outline.js`(`styleToc`)
   - `tests/test_style_js.py`

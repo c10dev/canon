@@ -80,7 +80,7 @@ def joined(p: Project, episodes: list[int]) -> str:
 def _check(p: Project, episodes: list[int]) -> list[int]:
     eps = sorted(dict.fromkeys(episodes))
     if not eps:
-        raise ValueError("정착 문체로 쓸 화를 하나 넘게 골라 주세요")
+        raise ValueError("이 작품의 문체로 쓸 화를 하나 넘게 골라 주세요")
     ok = set(usable(p))
     bad = [n for n in eps if n not in ok]
     if bad:
@@ -209,7 +209,7 @@ def warning(p: Project, n: int) -> str:
     r = rolling(p, n)
     if r is None or r <= DRIFT_WARN:
         return ""
-    return (f"정착 문체에서 멀어짐: 최근 {WINDOW}화 평균 {r} (사람 연재는 {HUMAN_BAND[0]}~{HUMAN_BAND[1]}에 머물고, "
+    return (f"이 작품의 문체에서 멀어짐: 최근 {WINDOW}화 평균 {r} (사람 연재는 {HUMAN_BAND[0]}~{HUMAN_BAND[1]}에 머물고, "
             f"다른 작품 글은 평균 {OTHER_AUTHOR}, {DRIFT_WARN} 넘으면 알려요)")
 
 

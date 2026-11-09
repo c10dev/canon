@@ -24,7 +24,7 @@ JOB_RESULT.style_learn = (j) => {
   return { msg: r.suggestions.length ? `규칙 후보 ${r.suggestions.length}개를 찾았어요. 고른 것만 넣어요.` : '되풀이된 고침을 찾지 못했어요' };
 };
 
-const RULE_KINDS = { do: '지킬 것', dont: '피할 것', banned: '금지 표현', marker: '문체 표지', device: '가끔 쓰는 장치' };
+const RULE_KINDS = { do: '지킬 것', dont: '피할 것', banned: '금지 표현', marker: '문체 버릇', device: '가끔 쓰는 장치' };
 
 async function learnLoad() {
   S.editStats = await api('GET', `/projects/${enc(S.name)}/style/edits`).catch(() => null);

@@ -3,7 +3,7 @@
 
 const HEAT_ROLES = { build: '쌓기', hold: '미루기', peak: '터뜨리기', after: '뒷날', rest: '쉬기' };
 const HEAT_ROLE_WHY = {
-  build: '열 없이 판돈 · 약점 · 관계를 심어요', hold: '터질 듯 막아요. 시한 · 금지선 · 들킬 뻔한 순간', peak: '심은 것을 거두며 열을 써요',
+  build: '세기를 아끼며 판돈 · 약점 · 관계를 심어요', hold: '터질 듯 막아요. 시한 · 금지선 · 들킬 뻔한 순간', peak: '심은 것을 거두며 세기를 터뜨려요',
   after: '터진 일의 결과. 상대 시점으로 다시 겪거나 관객이 본 일이 돌아와요', rest: '숨을 고르며 다음 판돈을 심어요',
 };
 const HEAT_KINDS = { clue: '단서', stake: '판돈', constraint: '제약', audience: '관객', ban: '금지선' };
@@ -76,7 +76,7 @@ function heatScopeWarnings(p, sc) {
     const m = levels.reduce((a, b) => a + b, 0) / levels.length;
     const sd = Math.sqrt(levels.reduce((a, b) => a + (b - m) ** 2, 0) / levels.length);
     const cv = m ? sd / m : 0;
-    if (cv < HEAT_CV_MIN) warn(serialWork ? sc.start : 0, 'flat', `열 눈금의 기복이 작아요 (변동계수 ${cv.toFixed(2)}, ${HEAT_CV_MIN} 이상을 권해요). 아끼는 화와 터뜨리는 화의 차이를 키워 보세요`);
+    if (cv < HEAT_CV_MIN) warn(serialWork ? sc.start : 0, 'flat', `세기 눈금의 기복이 작아요 (변동계수 ${cv.toFixed(2)}, ${HEAT_CV_MIN} 이상을 권해요). 아끼는 화와 터뜨리는 화의 차이를 키워 보세요`);
   }
   const end = Math.max(sc.end, ...steps.map((s) => s.ep));
   const size = end - sc.start + 1;
@@ -84,7 +84,7 @@ function heatScopeWarnings(p, sc) {
   const runs = heatPeakRuns(steps);
   runs.forEach((run) => {
     run.forEach((s) => {
-      if (s.ep - sc.start + 1 <= size * HEAT_EARLY || (gi && gi.start_ep <= s.ep && s.ep <= gi.end_ep)) warn(s.ep, 'early_peak', `${s.ep}화의 터뜨리기가 일러요. 앞쪽은 쌓기 · 미루기로 열을 아껴요`);
+      if (s.ep - sc.start + 1 <= size * HEAT_EARLY || (gi && gi.start_ep <= s.ep && s.ep <= gi.end_ep)) warn(s.ep, 'early_peak', `${s.ep}화의 터뜨리기가 일러요. 앞쪽은 쌓기 · 미루기로 세기를 아껴요`);
     });
     const first = run[0].ep;
     if (!(p.foreshadows || []).some((f) => f.kind === 'stake' && f.planted_ep < first && (f.status === 'open' || (f.payoff_ep || 0) >= first))) {
@@ -211,7 +211,7 @@ function heatNowHost() {
 function heatBar(s, act, sel, warned, still = false) {
   const pct = (v) => `${Math.round((v / HEAT_MAX) * 100)}%`;
   const real = act && act.tension != null ? `<span class="heat-real" style="bottom:${pct(act.tension)}" aria-hidden="true"></span>` : '';
-  const label = `${s.ep}화 열 ${s.level} · ${HEAT_ROLES[s.role]}${s.kind ? ` · ${s.kind}` : ''}${act ? ` · 실제 큐 긴장 ${act.tension ?? '없음'}, 열 낱말 ${act.density ?? '없음'}` : ''}${warned ? ' · 경고 있음' : ''}`;
+  const label = `${s.ep}화 세기 ${s.level} · ${HEAT_ROLES[s.role]}${s.kind ? ` · ${s.kind}` : ''}${act ? ` · 실제 큐 긴장 ${act.tension ?? '없음'}, 절정 낱말 ${act.density ?? '없음'}` : ''}${warned ? ' · 경고 있음' : ''}`;
   const body = `<span class="heat-track"><span class="heat-fill ${s.role}" style="height:${pct(s.level)}"></span>${real}</span>
       <span class="heat-ep">${s.ep}${warned ? '<span class="heat-dot" aria-hidden="true"></span>' : ''}</span>`;
   if (still) return `<span class="heat-col" title="${esc(label)}">${body}</span>`;  // 제안 미리보기: 누를 수 없다
@@ -224,8 +224,8 @@ function heatEditor(h, n) {
   const s = h.obj.heat[i];
   const seg = (label, items, cur, action) => `<div class="field"><span class="heat-lab">${label}</span><div class="seg heat-seg" role="group" aria-label="${n}화 ${label}">
     ${items.map(([v, t, why]) => `<button type="button" class="btn small" data-action="${action}" data-arg="${n}:${v}" aria-pressed="${String(v) === String(cur)}"${why ? ` title="${esc(why)}"` : ''}>${t}</button>`).join('')}</div></div>`;
-  return `<div class="heat-edit" role="group" aria-label="${n}화 열 계획">
-    ${seg('열', Array.from({ length: HEAT_MAX + 1 }, (_, k) => [k, String(k)]), s.level, 'heatLevel')}
+  return `<div class="heat-edit" role="group" aria-label="${n}화 완급 계획">
+    ${seg('세기', Array.from({ length: HEAT_MAX + 1 }, (_, k) => [k, String(k)]), s.level, 'heatLevel')}
     ${seg('몫', Object.entries(HEAT_ROLES).map(([k, t]) => [k, t, HEAT_ROLE_WHY[k]]), s.role, 'heatRole')}
     <p class="small">${esc(HEAT_ROLE_WHY[s.role])}</p>
     ${s.role === 'peak' ? input('정점 종류', `${h.base}heat.${i}.kind`, { placeholder: '예: 맨정신의 흥정, 관객 앞 촬영', hint: '정점이 둘 이상이면 종류가 달라야 해요' }) : ''}
@@ -257,13 +257,13 @@ function heatStakes(p, h) {
 
 /** AI 열 계획 받기 버튼 (작업 heat). 장편은 아크 번호를 ep 로 보낸다 */
 function heatAiButton(h, primary) {
-  const b = jobBtn('heat', h.number || null, (h.obj.heat || []).length ? 'AI로 열 계획 다시 받기' : 'AI로 열 계획 받기');
+  const b = jobBtn('heat', h.number || null, (h.obj.heat || []).length ? 'AI로 완급 계획 다시 받기' : 'AI로 완급 계획 받기');
   return `<button type="button" class="btn small${primary ? ' primary' : ''}" data-action="heatPropose" data-arg="${h.number}"${b.attr}>${b.label}</button>`;
 }
 
 /** 받은 열 계획 제안 (작업 heat 결과). 고르면 그 범위에 넣는다 */
 function heatDraftCard(d, h) {
-  return `<div class="card proposal heat-draft" aria-label="AI 열 계획 제안"><div class="between"><h3>AI 열 계획 제안 <span class="chip ai">적용 전</span></h3>
+  return `<div class="card proposal heat-draft" aria-label="AI 완급 계획 제안"><div class="between"><h3>AI 완급 계획 제안 <span class="chip ai">적용 전</span></h3>
       <span class="row"><button type="button" class="btn small" data-action="heatDraftDrop">버리기</button><button type="button" class="btn small primary" data-action="heatDraftUse">이 계획으로 바꾸기</button></span></div>
     ${heatProposalPart(d, h)}</div>`;
 }
@@ -277,20 +277,20 @@ function heatCard(p, arc = null) {
   const draft = S.heatDraft && Number(S.heatDraft.arc || 0) === h.number ? heatDraftCard(S.heatDraft, h) : '';
   const where = arc ? '이 아크의 ' : '';
   if (!steps.length) {
-    return `<section class="card heat-card" aria-label="열 계획"><div class="between"><h2>${arc ? '이 아크의 열 계획' : '열 계획'}</h2>
+    return `<section class="card heat-card" aria-label="완급 계획"><div class="between"><h2>${arc ? '이 아크의 완급 계획' : '완급 계획'}</h2>
       <span class="row"><button type="button" class="btn small" data-action="heatStart">직접 적기</button>${heatAiButton(h)}</span></div>
-      <p class="small">${where}열(긴장과 보상)을 언제 아끼고 언제 쓸지 정해요.${help('기승전결이 무슨 일이 일어나는지 정한다면, 열 계획은 열을 언제 쓸지 정해요. 화마다 열을 적으면 정점 앞뒤에 판돈 · 관객 · 결과가 있는지 알려 줘요. AI로 받으면 본문이 있는 화의 계획은 그대로 둬요.')}</p>${draft}</section>`;
+      <p class="small">${where}긴장과 보상을 언제 아끼고 언제 쓸지 정해요.${help('기승전결이 무슨 일이 일어나는지 정한다면, 완급 계획은 긴장과 보상을 언제 쓸지 정해요. 화마다 세기를 적으면 정점 앞뒤에 판돈 · 관객 · 결과가 있는지 알려 줘요. AI로 받으면 본문이 있는 화의 계획은 그대로 둬요.')}</p>${draft}</section>`;
   }
   const warns = heatWarnings(p).filter((w) => !serialWork || (w.ep >= h.start && w.ep <= h.end));
   const warned = new Set(warns.map((w) => w.ep));
   const actual = heatActual(p);
   const sel = steps.some((s) => s.ep === S.heatSel) ? S.heatSel : 0;
   const t = h.obj.heat_turn || {};
-  return `<section class="card heat-card" aria-label="열 계획"><div class="between"><h2>${arc ? '이 아크의 열 계획' : '열 계획'}</h2>
-      <span class="row">${heatAiButton(h)}<button type="button" class="btn small" data-action="heatClear">열 계획 지우기</button></span></div>
+  return `<section class="card heat-card" aria-label="완급 계획"><div class="between"><h2>${arc ? '이 아크의 완급 계획' : '완급 계획'}</h2>
+      <span class="row">${heatAiButton(h)}<button type="button" class="btn small" data-action="heatClear">완급 계획 지우기</button></span></div>
     ${draft}
-    ${input('열 원칙', `${h.base}heat_rule`, { placeholder: '예: 앞 절반은 열 없이 쌓고, 큰 정점은 전 구간 끝 두 화' })}
-    <div class="heat-bars" role="group" aria-label="화별 열 막대. 누르면 그 화를 고쳐요">${steps.map((s) => heatBar(s, actual[s.ep], s.ep === sel, warned.has(s.ep))).join('')}</div>
+    ${input('완급 원칙', `${h.base}heat_rule`, { placeholder: '예: 앞 절반은 세기를 아끼며 쌓고, 큰 정점은 전 구간 끝 두 화' })}
+    <div class="heat-bars" role="group" aria-label="화별 세기 막대. 누르면 그 화를 고쳐요">${steps.map((s) => heatBar(s, actual[s.ep], s.ep === sel, warned.has(s.ep))).join('')}</div>
     <p class="small heat-legend"><span class="heat-key peak"></span>터뜨리기 <span class="heat-key build"></span>그 밖 <span class="heat-key real"></span>쓴 화의 큐 긴장(참고값)</p>
     ${sel ? heatEditor(h, sel) : '<p class="small">막대를 누르면 그 화의 열과 몫을 고쳐요.</p>'}
     ${warns.length ? `<div class="note warn" role="status"><strong>확인할 것 ${warns.length}</strong><ul class="plain">${warns.map((w) => `<li>${esc(w.text)}</li>`).join('')}</ul></div>` : ''}
@@ -305,20 +305,20 @@ function heatCard(p, arc = null) {
 function heatPlanToggle(cls) {
   const on = !!(P().settings || {}).heat_plan;
   const what = P().meta.form === 'serial' ? '아크를' : '구조를';
-  return `<label class="${cls} row small heat-toggle"><input type="checkbox" data-bind="settings.heat_plan" data-kind="bool"${on ? ' checked' : ''}><span>${what} 제안받을 때 열 계획(화별 열 · 판돈 · 뒤집힘)도 함께 받기</span></label>`;
+  return `<label class="${cls} row small heat-toggle"><input type="checkbox" data-bind="settings.heat_plan" data-kind="bool"${on ? ' checked' : ''}><span>${what} 제안받을 때 완급 계획(화별 세기 · 판돈 · 뒤집힘)도 함께 받기</span></label>`;
 }
 
 /** 열 계획 제안 미리보기 (구조 · 다음 아크 · 열 계획 제안 카드 안). h 는 바뀔 범위 (heatHost), 없으면 단편 작품 */
 function heatProposalPart(d, h = null) {
   const t = d.heat_turn || {};
   const now = h ? (h.obj.heat || []).length : (P().heat || []).length;
-  return `<div class="heat-proposal"><span class="heat-h">열 계획 <span class="chip ai">함께 바뀜</span></span>
+  return `<div class="heat-proposal"><span class="heat-h">완급 계획 <span class="chip ai">함께 바뀜</span></span>
     ${d.heat_rule ? `<p class="small">${esc(d.heat_rule)}</p>` : ''}
     <div class="heat-bars" aria-hidden="true">${d.heat.map((s) => heatBar(s, null, false, false, true)).join('')}</div>
-    <ul class="plain small">${d.heat.filter((s) => s.role === 'peak').map((s) => `<li>${s.ep}화 터뜨리기 · 열 ${s.level}${s.kind ? ` · ${esc(s.kind)}` : ''}</li>`).join('')}
+    <ul class="plain small">${d.heat.filter((s) => s.role === 'peak').map((s) => `<li>${s.ep}화 터뜨리기 · 세기 ${s.level}${s.kind ? ` · ${esc(s.kind)}` : ''}</li>`).join('')}
       ${(d.stakes || []).map((f) => `<li>${HEAT_KINDS[f.kind] || f.kind} · ${esc(f.description)} (${f.planted_ep}화에 심음)</li>`).join('')}
       ${t.plant_ep > 0 ? `<li>뒤집힘 · ${t.plant_ep}화에 심고 ${t.fail_ep}화에 들킴${t.gain ? ` · ${esc(t.gain)}` : ''}</li>` : ''}</ul>
-    <p class="small">${now ? '고르면 지금 열 계획이 이것으로 바뀌어요. ' : ''}판돈 · 관객은 복선 목록에 새로 더해요.</p></div>`;
+    <p class="small">${now ? '고르면 지금 완급 계획이 이것으로 바뀌어요. ' : ''}판돈 · 관객은 복선 목록에 새로 더해요.</p></div>`;
 }
 
 /** 열 계획 제안 넣기 (pipeline.apply_heat_plan 과 같다). target 은 계획을 받을 것: 단편 작품이나 장편 아크 */
@@ -387,10 +387,10 @@ Object.assign(actions, {
     S.heatDraft = null;
     markDirty();
     render();
-    toast('열 계획을 바꿨어요. 저장하면 작품에 들어가요');
+    toast('완급 계획을 바꿨어요. 저장하면 작품에 들어가요');
   },
   async heatDraftDrop() {
-    if (!(await confirmDrop('AI 열 계획 제안'))) return;
+    if (!(await confirmDrop('AI 완급 계획 제안'))) return;
     S.heatDraft = null;
     render();
   },

@@ -98,7 +98,7 @@ function voiceField(c, b) {
     ${note ? `<div class="note info">${esc(note)}</div>` : ''}
     ${eps.length ? `<div class="small">이 말투가 들어가는 화: ${rangeText(eps)}화</div>`
       : (c.narration_voice || '').trim() ? `<div class="note warn">아직 ${esc(c.name || '이 인물')} 시점인 화가 없어서 이 말투는 어느 화에도 들어가지 않아요. <a href="${base()}/arc">${stepLabel('arc')}</a>에서 시점 인물을 정하세요.</div>` : ''}
-    <div class="small">대사는 위의 말투(대사)를 따라요. 이 말투로 쓴 화는 어미 관련 문체 경고(과거형 비율, 문체 거리, 표지)를 빼요.</div>
+    <div class="small">대사는 위의 말투(대사)를 따라요. 이 말투로 쓴 화는 어미 관련 문체 경고(과거형 비율, 문체 거리, 버릇)를 빼요.</div>
     <div class="row" style="flex-wrap:nowrap"><input type="text" id="voice-req-${esc(c.id)}" aria-label="${esc(c.name || '이 인물')} 서술 말투 AI 요청" placeholder="AI에게 바랄 점 (예: 더 냉소적으로, 문장을 짧게)" style="flex:1">
       <button type="button" class="btn small" style="flex:none" data-action="voiceAI" data-arg="${esc(c.id)}">설정으로 AI 초안 받기</button></div>`;
   return eps.length || (c.narration_voice || '').trim() || note ? body
@@ -918,7 +918,7 @@ function nextArcPanel(start) {
       <div class="grid-2">${input('주요 인물 id', 'arc.cast', { root: 'arcDraft', kind: 'list', rows: 3 })}${input('회수할 복선 id', 'arc.payoffs', { root: 'arcDraft', kind: 'list', rows: 3 })}</div>
       ${d.new_characters.length ? `<div class="field"><span class="label">새 인물 (인물 후보로 들어와요. 이 인물이 나오는 화를 확정하면 조연으로 등록돼요)</span>${d.new_characters.map((c) => `<div class="note plain"><strong>${esc(c.name)}</strong> <span class="small">${esc(c.id)} · ${esc(c.role)}</span><br>${esc(c.personality || c.goal)}<br><span class="small">말투: ${esc(c.speech_style)}</span></div>`).join('')}</div>` : ''}
       ${(a.heat || []).length ? heatProposalPart({ ...a, stakes: d.stakes || [] }, null) : ''}
-      <div class="small">끝 화를 바꾸면 결 구간이 따라 늘거나 줄어요. 다른 구간 범위는 적용한 뒤 구간 고치기에서 바꿀 수 있어요.${(a.heat || []).length ? ' 열 계획도 새 범위에 맞춰 채우거나 잘라요.' : ''}</div>
+      <div class="small">끝 화를 바꾸면 결 구간이 따라 늘거나 줄어요. 다른 구간 범위는 적용한 뒤 구간 고치기에서 바꿀 수 있어요.${(a.heat || []).length ? ' 완급 계획도 새 범위에 맞춰 채우거나 잘라요.' : ''}</div>
     </section>`;
   }
   const btn = jobBtn('nextarc', null, 'AI로 다음 아크 제안');

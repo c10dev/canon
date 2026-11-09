@@ -1,11 +1,11 @@
 """화면이 따로 들고 있는 칸 이름 · 스킨 · 온기 구간이 서버 표와 같은지. node 가 있을 때만 돈다.
 charlog.js SC_LABELS ↔ charlog.LOG_FIELDS, statwin.js SW_SKINS ↔ statwin.SKINS,
-stylechat.js STYLE_KEYS · STYLE_LISTS ↔ pipeline.STYLE_KEYS · STYLE_LIST_KEYS · prompts.STYLE_KEY_LABELS,
+stylechat.js STYLE_KEYS · STYLE_LISTS ↔ pipeline.STYLE_KEYS · STYLE_LIST_KEYS · agent_style.STYLE_LABELS,
 cast.js warmthColor 구간 ↔ dynamics.warmth_word.
 서버 표 pipeline.STYLE_KEYS 는 원본 schema.StyleProfile 과 맞춰 본다 (node 없이 돈다)."""
 from typing import get_args, get_origin
 
-from canon import charlog, dynamics, pipeline, prompts, statwin
+from canon import agent_style, charlog, dynamics, pipeline, statwin
 from canon.schema import StyleProfile
 
 from .jsvm import needs_node, run_js
@@ -19,7 +19,7 @@ def test_labels_match_server():
     assert got["sc"] == charlog.LOG_FIELDS
     assert got["sw"] == {k: v.split(":")[0] for k, v in statwin.SKINS.items()}
     assert [k for k, _ in got["style"]] == list(pipeline.STYLE_KEYS)
-    assert dict(got["style"]) == prompts.STYLE_KEY_LABELS
+    assert dict(got["style"]) == agent_style.STYLE_LABELS
     assert got["lists"] == list(pipeline.STYLE_LIST_KEYS)
 
 

@@ -4287,7 +4287,7 @@ def style_drift(p: Project, n: int) -> tuple[metrics.StyleMetrics, list[str]]:
         warns = [w for w in warns if not w.startswith(VOICE_SKIP)]
     marks = [] if voiced else metrics.marker_warnings(anchor.markers(p), text)
     if marks:
-        warns.append(f"문체 표지: {', '.join(marks)}")
+        warns.append(f"문체 버릇: {', '.join(marks)}")
     warns[:0] = [f"장치 {w}" for w in metrics.device_warnings(p.style.devices, p.episodes, n, text)]  # 자동 집필 기록은 앞 3개만 남긴다
     if (drift := anchor.warning(p, n)):
         warns.append(drift)

@@ -331,7 +331,7 @@ def review_reasons(p: Project, delta: StateDelta, report: Optional[ConsistencyRe
     if policy.max_style_distance > 0 and not anchor.voiced(p, delta.episode):
         r = anchor.rolling(p, delta.episode)
         if r is not None and r > policy.max_style_distance:
-            out.append(f"정착 문체에서 멀어졌어요: 최근 {anchor.WINDOW}화 평균 문체 거리 {r} (멈춤 기준 {policy.max_style_distance})")
+            out.append(f"이 작품의 문체에서 멀어졌어요: 최근 {anchor.WINDOW}화 평균 문체 거리 {r} (멈춤 기준 {policy.max_style_distance})")
     names = _names(p)
     unknown = sorted({u.character_id for u in delta.character_updates if u.character_id not in names})
     if unknown:

@@ -2690,7 +2690,7 @@ def _job_nextarc(name: str, body: "JobIn", p: Project, kind: str, n: int | None,
 def _job_heat(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
     """작업 heat: 이미 있는 기승전결 위에 열 계획만 받는다. 장편은 ep 가 아크 번호(없으면 다 쓰지 않은 첫 아크)."""
     start, end, _acts, _where, arc = pipeline.heat_target(p, n or 0)
-    label = f"아크 {arc.number} 열 계획 제안" if arc else "열 계획 제안"
+    label = f"아크 {arc.number} 완급 계획 제안" if arc else "완급 계획 제안"
     note, number = body.note, arc.number if arc else 0
 
     def fn(job: jobs.Job):

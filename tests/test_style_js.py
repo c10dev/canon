@@ -74,7 +74,7 @@ def test_view_reads_cards_and_opens_one_for_editing():
     assert 'data-bind="style.markers.0.text"' not in read and 'data-bind="style.narration_pov"' not in read
     assert "마지막으로 쓴 화 1화" in read  # 1화에 '떨었다' 두 번 (marks.js deviceLast)
     assert '>기승전결 · 플롯으로</a>' in read and 'class="btn primary"' in read
-    assert 'data-bind="style.markers.0.text"' in edit and 'aria-label="표지 1 쓰임"' in edit and "다 고쳤어요" in edit
+    assert 'data-bind="style.markers.0.text"' in edit and 'aria-label="버릇 1 쓰임"' in edit and "다 고쳤어요" in edit
     assert 'data-bind="style.narration_pov"' not in edit  # 다른 카드는 그대로 읽는 모양
 
 
@@ -232,4 +232,4 @@ def test_narr_card_shows_filled_rows_and_one_fill_button():
 def test_rules_card_drops_empty_placeholder():
     """지킬 · 피할 것 카드에서 수가 0인 묶음은 '비어 있음' 을 따로 적지 않는다."""
     html = js(project(profile()), "return pfRead('rules', P().style, '', new Set());")
-    assert "비어 있음" not in html and "열 낱말 0" in html
+    assert "비어 있음" not in html and "절정 낱말 0" in html

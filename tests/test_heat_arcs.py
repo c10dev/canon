@@ -197,8 +197,8 @@ def test_arc_card_and_draft_use():
       actions.heatLevel(data.start + ':4');
       return { empty, none, withDraft, full, heat: S.project.story_arcs[0].heat, fs: S.project.foreshadows.length, left: S.heatDraft }; })()"""
     got = run_js(VIEW_FILES, expr, {"p": dump(p), "prop": dump(prop), "n": a.number, "start": a.start_ep})
-    assert got["none"] == "" and 'data-action="heatPropose"' in got["empty"] and "이 아크의 열 계획" in got["empty"]
-    assert "AI 열 계획 제안" in got["withDraft"] and 'data-action="heatDraftUse"' in got["withDraft"]
+    assert got["none"] == "" and 'data-action="heatPropose"' in got["empty"] and "이 아크의 완급 계획" in got["empty"]
+    assert "AI 완급 계획 제안" in got["withDraft"] and 'data-action="heatDraftUse"' in got["withDraft"]
     assert 'data-bind="story_arcs.0.heat_rule"' in got["full"] and got["left"] is None
     assert got["heat"][0]["level"] == 4 and [s["ep"] for s in got["heat"]] == list(range(a.start_ep, a.end_ep + 1))
     assert got["fs"] == len(p.foreshadows) + len(prop.stakes)

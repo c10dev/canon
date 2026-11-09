@@ -561,7 +561,7 @@ def peak_drift(base: StyleMetrics, peak: Optional[dict]) -> list[str]:
     diff = (c - b) / b
     if round(diff, 3) <= PEAK_LIMIT:  # 소수 오차로 딱 30% 가 경고되지 않게
         return []
-    return [f"정점 대목 문장 길이: 기준 {b} → {c} ({diff:+.0%}, 열 낱말 {peak['hits']}개가 몰린 {peak['at']:,}자 근처)"]
+    return [f"정점 대목 문장 길이: 기준 {b} → {c} ({diff:+.0%}, 절정 낱말 {peak['hits']}개가 몰린 {peak['at']:,}자 근처)"]
 
 
 # ---------- 문체 표지와 베끼기 ----------

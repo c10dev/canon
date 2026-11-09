@@ -247,7 +247,7 @@ function autoPolicyForm(f, disabled, bind = 'auto') {
       <div class="field"><label for="${id('issues')}">검수에서 어긋난 곳이 몇 개를 넘으면 멈출까요</label><select id="${id('issues')}" data-${bind}="policy.max_issues"${dis || (p.check ? '' : ' disabled')}>${opts([[0, '하나라도 있으면 멈춤'], [1, '1개까지 넘어감'], [2, '2개까지 넘어감'], [5, '5개까지 넘어감']], p.max_issues)}</select></div>
       <div class="field"><label for="${id('shift')}">관계가 크게 움직이면 멈추기</label><select id="${id('shift')}" data-${bind}="policy.max_shift"${dis}>${opts(AUTO_SHIFT, p.max_shift)}</select></div>
     </div>
-    ${P().anchor ? `<div class="grid-2"><div class="field"><label for="${id('style')}">정착 문체에서 멀어지면 멈추기</label><select id="${id('style')}" data-${bind}="policy.max_style_distance"${dis}>${opts(AUTO_STYLE, p.max_style_distance || 0)}</select><span class="small">최근 5화 평균 문체 거리로 봐요. 사람이 쓴 웹소설도 연재하며 0.85~1.05까지는 움직여요</span></div></div>` : ''}
+    ${P().anchor ? `<div class="grid-2"><div class="field"><label for="${id('style')}">이 작품의 문체에서 멀어지면 멈추기</label><select id="${id('style')}" data-${bind}="policy.max_style_distance"${dis}>${opts(AUTO_STYLE, p.max_style_distance || 0)}</select><span class="small">최근 5화 평균 문체 거리로 봐요. 사람이 쓴 웹소설도 연재하며 0.85~1.05까지는 움직여요</span></div></div>` : ''}
     <div class="grid-2">
       ${chk('stop_on_critical', '치명적인 어긋남이 있으면 멈추기', '위 개수와 상관없이, 검수가 치명으로 본 곳이 하나라도 있으면 멈춰요')}
       ${chk('ignore_minor', '사소한 어긋남은 세지 않기', '물건 색처럼 사소한 곳은 위 개수에 넣지 않아요. 켜면 덜 멈추지만 작은 어긋남이 쌓일 수 있어요')}
@@ -310,7 +310,7 @@ function autoPolicySummary(p) {
   if (p.check) on.push(p.max_issues ? `검수 어긋남 ${p.max_issues + 1}개부터${p.ignore_minor ? '(사소한 것 빼고)' : ''}` : `검수 어긋남 1개부터${p.ignore_minor ? '(사소한 것 빼고)' : ''}`);
   (p.check && p.stop_on_critical ? on : off).push('치명 지적');
   (p.max_shift ? on : off).push(p.max_shift ? `관계 ${p.max_shift} 넘게 움직임` : '관계 움직임');
-  if (P().anchor) (p.max_style_distance ? on : off).push(p.max_style_distance ? `정착 문체 거리 ${p.max_style_distance} 넘음` : '정착 문체 흐름');
+  if (P().anchor) (p.max_style_distance ? on : off).push(p.max_style_distance ? `이 작품의 문체 거리 ${p.max_style_distance} 넘음` : '이 작품의 문체 흐름');
   (p.stop_on_stage ? on : off).push('관계 단계 바뀜');
   (p.stop_on_warnings ? on : off).push('변경안 경고');
   if (P().settings.state_audit) (p.stop_on_audit ? on : off).push('누락 의심');
