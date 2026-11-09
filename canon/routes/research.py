@@ -5,8 +5,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-from .. import prompts, research, settings, usage
+from .. import jobs, prompts, research, settings, usage
 from ..web import (  # web 의 공용 도우미
+    JOB_MAKERS,
+    OWN_LLM_KINDS,
     _Out,
     _load,
     _need,
@@ -268,6 +270,88 @@ def research_pick(name: str, n: int, body: Pick) -> dict:
         _save(name, p)
     research.record(name, "pick", {"episode": n, **r})
     return {"compare": research.load_compare(name, n), "result": r, "project": p}
+
+
+# ---------- 백그라운드 작업 (UX 02c) ----------
+# 화면은 실험 다섯(샘플 생성 · 단계 시험 · 검수 시험 · 프롬프트 재기 · 두 백엔드로 쓰기)을 작업(POST /projects/<이름>/jobs,
+# 종류 rs_<실험>, JobIn.trial 에 위 요청 모양)으로 부른다. 기다리는 동안 다른 칸을 고칠 수 있다.
+# 실험이 고른 백엔드를 그대로 쓰므로 start_job 이 단계 LLM 을 만들지 않는다 (OWN_LLM_KINDS).
+# 기록(research/log.jsonl)은 옛 동기 경로와 같은 줄을 남기고, 사용량도 옛 경로처럼 source · stage 'research' 와 실험 이름으로 적는다.
+# 기록에 결과 전체가 남는 실험은 작업 결과에 기록 id 만 싣는다 (작업 목록 응답이 커지지 않게). 화면이 기록에서 다시 읽는다.
+
+
+def _rs_scope(task: str, episode: int | None = None):
+    return usage.scope(source="research", stage="research", task=task, episode=episode)
+
+
+def _job_research(name: str, body, p, kind: str, n: int | None, llm) -> tuple:
+    """작업 rs_sample · rs_stage · rs_check · rs_budget · rs_compare: (이름표, 전체 걸음, 맡은 화, 할 일). 작품에는 저장하지 않는다."""
+    t = body.trial or {}
+    if kind == "rs_sample":
+        req = SampleIn.model_validate(t)
+        if not req.runs or not req.prompt.strip():
+            raise ValueError("백엔드와 요청 문장을 넣으세요")
+        label = f"샘플 생성 · 백엔드 {len(req.runs)}개"
+
+        def fn(job: jobs.Job):
+            with _rs_scope("sample"):
+                rows = research.sample(req.runs, req.system, req.prompt, req.temperature)
+            entry = research.record(name, "sample", {"system": req.system, "prompt": req.prompt, "temperature": req.temperature, "rows": rows})
+            return {"id": entry["id"], "kind": "sample"}
+    elif kind == "rs_stage":
+        req = StageIn.model_validate(t)
+        if req.stage not in research.STAGES:
+            raise ValueError(f"모르는 단계예요: {req.stage}")
+        research.make_backend(req.backend)  # 모르는 백엔드는 시작 전에 알린다
+        label = f"{research.STAGES[req.stage]} 시험"
+
+        def fn(job: jobs.Job):
+            with _rs_scope("stage"):
+                row = research.stage_trial(_load(name), req.backend, req.stage, req.sample)
+            return {"id": research.record(name, "stage", row)["id"], "kind": "stage"}
+    elif kind == "rs_check":
+        req = CheckTrialIn.model_validate(t)
+        if not 1 <= req.plants <= 5:
+            raise ValueError("심을 모순은 1~5개예요")
+        p.episode(req.episode)  # 없는 화는 시작 전에 알린다
+        research.make_backend(req.backend)
+        label = f"{req.episode}화 검수 시험"
+
+        def fn(job: jobs.Job):
+            with _rs_scope("check"):
+                res = research.check_trial(_load(name), req.episode, req.backend, req.plants, req.modes or None, judge=req.judge,
+                                           stage=req.stage, langs=req.langs or None)
+            return {"id": research.record(name, "check", res)["id"], "kind": "check"}
+    elif kind == "rs_budget":
+        b = research.Backend.model_validate(t)
+        research.make_backend(b)
+        label = "화별 프롬프트 재기"
+
+        def fn(job: jobs.Job):
+            with _rs_scope("budget"):
+                res = research.budget(_load(name), b)
+            summary = {k: res[k] for k in ("backend", "model", "limit", "first_over", "first_tight", "tokenizer")}
+            return {**research.record(name, "budget", summary), **res}  # 기록에는 요약만 남아 표 전체를 결과에 싣는다 (옛 경로와 같은 모양)
+    else:
+        req = CompareIn.model_validate(t)
+        if n is None:
+            raise ValueError("화 번호(ep)가 필요해요")
+        p.episode(n)
+        if research.label(req.a) == research.label(req.b) and req.a.url == req.b.url:
+            raise ValueError("두 백엔드가 같아요")  # run_compare 와 같은 검사를 시작 전에 한다
+        label = f"{n}화 두 백엔드로 쓰기"
+
+        def fn(job: jobs.Job):
+            with _rs_scope("compare", n):
+                research.run_compare(name, _load(name), n, req.a, req.b)
+            research.record(name, "compare", {"episode": n, "backends": [research.label(req.a), research.label(req.b)]})
+            return {"episode": n}  # 비교본은 compare/ 에 남았다. 화면이 GET .../research/compare/<화> 로 받는다
+    return label, 1, set(), fn
+
+
+for _kind in ("rs_sample", "rs_stage", "rs_check", "rs_budget", "rs_compare"):
+    JOB_MAKERS[_kind] = _job_research
+    OWN_LLM_KINDS.add(_kind)
 
 
 EXPORTS = (

@@ -17,13 +17,13 @@
 | 1 | 02a | 짧은 동작의 가림막 늦추기 | 끝 ([#426](https://github.com/c10dev/canon/pull/426) 머지) | [02-busy.md](specs/02-busy.md) | — |
 | 2 | 03 | 다시 그려도 본문 칸 지키기 (저장 뒤 Ctrl+Z) | 끝 ([#428](https://github.com/c10dev/canon/pull/428) 머지) | [03-keep-editor.md](specs/03-keep-editor.md) | — |
 | 3 | 02b | 화면을 막는 AI 제안을 작업으로 옮기기 (인물 · 상태창 · 이름 · 문체 8곳) | 끝 ([#431](https://github.com/c10dev/canon/pull/431) 머지) | [02-busy.md](specs/02-busy.md) | 02a |
-| 미정 | 02c | 남은 AI 호출 작업으로 옮기기 (지도 2 · 검수 2 · 삽화 1 · 플레이 1 · 문단 연습장 4 · 연구 5) | 앞 절반 리뷰 중 ([#454](https://github.com/c10dev/canon/pull/454): 지도 2 · 검수 2 · 삽화 1 옮김, 플레이 1 은 AI 호출이 이미 작업이라 뺌). 남은 것: 문단 연습장 4 · 연구 5 | [02-busy.md](specs/02-busy.md) 와 #431 본문의 '남은 AI 호출' 표 | 02b |
+| 10 | 02c | 남은 AI 호출 작업으로 옮기기 (지도 2 · 검수 2 · 삽화 1 · 플레이 1 · 문단 연습장 4 · 연구 5) | 끝 ([#454](https://github.com/c10dev/canon/pull/454) · [#455](https://github.com/c10dev/canon/pull/455)). 플레이 1 은 AI 호출이 이미 작업이라 뺌 | [02-busy.md](specs/02-busy.md) 와 #431 본문의 '남은 AI 호출' 표 | 02b |
 | 4 | 04a | 대화 패널 하나: 모든 작품 화면에 에이전트 패널, 화면이 기본 대상을 준다 | 끝 ([#433](https://github.com/c10dev/canon/pull/433) 머지). 정할 것 7 고침은 [#435](https://github.com/c10dev/canon/pull/435) 머지 | [04-one-agent.md](specs/04-one-agent.md) | — |
 | 4 | 08 | 휴대폰 대화 시트가 화면을 덮지 않게 | 끝 ([#432](https://github.com/c10dev/canon/pull/432) 머지) | [08-phone-sheet.md](specs/08-phone-sheet.md) | 04a |
 | 5 | 04b | 에이전트의 본문 고치기 도구 (후보 카드, 작가가 골라 넣음) | 끝 ([#438](https://github.com/c10dev/canon/pull/438) 머지) | [04-one-agent.md](specs/04-one-agent.md) | 04a |
 | 5 | 04c | 에이전트의 설정 도구 (설정 · 인물 변경안 카드) | 끝 ([#440](https://github.com/c10dev/canon/pull/440) 머지) | [04-one-agent.md](specs/04-one-agent.md) | 04a |
 | 5 | 04d | 에이전트의 문체 도구 (문체 변경안 카드) | 끝 ([#439](https://github.com/c10dev/canon/pull/439) 머지) | [04-one-agent.md](specs/04-one-agent.md) | 04a |
-| 9 | 04e | 옛 대화 셋 정리 (전환 줄 · 옛 패널 · chat_send 세 갈래) | PR ([#453](https://github.com/c10dev/canon/pull/453)) | [04-one-agent.md](specs/04-one-agent.md) | 04b · 04c · 04d |
+| 9 | 04e | 옛 대화 셋 정리 (전환 줄 · 옛 패널 · chat_send 세 갈래) | 끝 ([#453](https://github.com/c10dev/canon/pull/453)) | [04-one-agent.md](specs/04-one-agent.md) | 04b · 04c · 04d |
 | 6 | 05 | AI 답 흘려 보이기 (본문 쓰기 먼저) | 끝 ([#445](https://github.com/c10dev/canon/pull/445) 머지) | [05-streaming.md](specs/05-streaming.md) | — |
 | 7 | 06 | 집필 화면에서 상태 변경안 훑고 고르기 | 끝 ([#448](https://github.com/c10dev/canon/pull/448) 머지) | [06-inline-review.md](specs/06-inline-review.md) | — |
 | 8 | 07 | 메뉴 · 버튼 줄이기 | 끝 ([#449](https://github.com/c10dev/canon/pull/449) 머지, 정할 것은 추천안대로) | [07-menu-trim.md](specs/07-menu-trim.md) | — |

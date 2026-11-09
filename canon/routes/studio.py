@@ -3,16 +3,20 @@
 web 이 맨 끝에서 이 모듈을 불러 router 를 app 에 붙이고, 여기서 정한 이름(EXPORTS)을 web 에도 둔다."""
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from .. import pipeline, studio, usage
+from .. import jobs, pipeline, studio, usage
 from ..llm import get_llm
 from ..schema import SceneCard, StudioSession
 
 router = APIRouter()
 
 # 한 문단짜리 장면을 상황 카드로 AI 에게 여러 안 쓰게 하거나 작가가 직접 써 본다. 저장은 작품 밖 <CANON_HOME>/.studio/.
-# AI 안은 짧은 요청이라 작업 목록을 거치지 않고 문체 예시(style_example)처럼 바로 돌려준다.
+# 화면은 AI 호출 넷(AI 안 쓰기 · 박자 짚기 · 다른 상황 · 독자로 읽기)을 백그라운드 작업(POST /studio/<id>/jobs)으로 부른다 (UX 02c).
+# 작품 밖이라 작업 목록의 project 자리는 STU_JOBS 이고 대상(target)은 세션 id 다. 옛 동기 경로는 시험이 쓰는 동안 남긴다.
+STU_JOBS = ".studio"  # 작업 목록의 project 자리 (작품 폴더는 점으로 시작하지 않아 겹치지 않는다). 화면은 '문단 연습장'으로 보인다
 
 class StudioIn(BaseModel):
     title: str = ""
@@ -148,6 +152,77 @@ def reader_studio(sid: str, no: int) -> dict:
     return studio.view(studio.save(s))
 
 
+class StudioJobIn(BaseModel):
+    kind: Literal["draft", "anatomy", "variants", "reader"]
+    n: int = 3  # draft: 쓸 AI 안 수
+    k: int = 4  # variants: 받을 상황 수
+    no: int = 0  # reader: 점검할 시도 번호
+
+
+@router.post("/api/studio/{sid}/jobs")
+def studio_job(sid: str, body: StudioJobIn) -> dict:
+    """문단 연습장의 AI 호출을 작업으로 돌린다 (작업 종류 stu_<kind>, 대상은 세션 id, reader 는 화 자리에 시도 번호).
+    결과는 옛 동기 경로처럼 세션 파일에 남기고, 쓰는 동안 바뀐 세션을 덮지 않게 저장 직전에 다시 읽는다. 카드는 시작할 때 것을 쓴다."""
+    s = _studio(sid)
+    card, name = s.card, s.title or "문단 연습"
+    kind, ep = f"stu_{body.kind}", None
+    if body.kind == "draft":
+        n = max(studio.DRAFTS[0], min(studio.DRAFTS[1], body.n))
+        studio.room(s, n)  # 시도가 꽉 찼으면 여기서 바로 알린다
+        llm = get_llm("write")
+        label = f"{name} · AI 안 {n}개"
+
+        def fn(job: jobs.Job):
+            cands = pipeline.draft_paragraph(llm, card, n)
+            q = studio.load(sid)
+            studio.add_ai(q, cands, getattr(llm, "model", "") or "")
+            studio.save(q)
+            return {"sid": sid, "added": len(cands)}
+    elif body.kind == "anatomy":
+        if not card.model.strip():
+            raise ValueError("본보기 문단이 없어요")
+        llm = get_llm("plan")
+        label = f"{name} · 구조 뜯어보기"
+
+        def fn(job: jobs.Job):
+            a = pipeline.anatomize_paragraph(llm, card)
+            q = studio.load(sid)
+            studio.set_anatomy(q, a)
+            studio.save(q)
+            return {"sid": sid, "lines": len(a.lines)}
+    elif body.kind == "variants":
+        llm = get_llm("plan")
+        k = body.k
+        label = f"{name} · 다른 상황"
+
+        def fn(job: jobs.Job):
+            vs = pipeline.vary_scene(llm, card, k)
+            q = studio.load(sid)
+            q.variants = vs
+            studio.save(q)
+            return {"sid": sid, "variants": len(vs)}
+    else:
+        try:
+            text = studio.find(s, body.no).text
+        except KeyError as e:
+            raise HTTPException(404, str(e.args[0])) from None
+        llm = get_llm("check")
+        no, ep = body.no, body.no
+        label = f"{name} · {no}번 시도 독자로 읽기"
+
+        def fn(job: jobs.Job):
+            r = pipeline.reader_check(llm, text)
+            q = studio.load(sid)
+            studio.set_reader(q, no, r)
+            studio.save(q)
+            return {"sid": sid, "no": no}
+    try:
+        with usage.scope(project="", episode=None, task="studio"):
+            return jobs.start(STU_JOBS, kind, ep, label, fn, target=sid).public()
+    except jobs.Busy as b:
+        return {**b.job.public(), "already": True}
+
+
 @router.post("/api/studio/{sid}/tries")
 def add_studio_try(sid: str, body: StudioTryIn) -> dict:
     s = _studio(sid)
@@ -170,8 +245,10 @@ def delete_studio_try(sid: str, no: int) -> dict:
 
 
 EXPORTS = (
+    "STU_JOBS",
     "StudioDraftIn",
     "StudioIn",
+    "StudioJobIn",
     "StudioTryEdit",
     "StudioTryIn",
     "StudioVariantsIn",
