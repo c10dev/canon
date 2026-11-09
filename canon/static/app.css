@@ -253,6 +253,12 @@ main:focus, h1[tabindex="-1"]:focus, h2[tabindex="-1"]:focus { outline: none; } 
 .field { display: flex; flex-direction: column; gap: var(--gap-label); min-width: 0; }
 .field > label, .label { font-size: 0.8125rem; font-weight: 500; }
 .field .hint { font-weight: 400; color: var(--muted); }
+/* 물음표 툴팁(app.js help): 늘 보이지 않아도 되는 설명 · 판정 기준. 누르면 펼치고 밖을 누르거나 Esc 면 닫는다 */
+.help { position: relative; display: inline-block; vertical-align: middle; margin-left: var(--space-4); font-weight: 400; }
+.help-btn { width: 18px; height: 18px; padding: 0; border: 1px solid var(--line-strong); border-radius: 50%; background: var(--surface); color: var(--text-2); font: inherit; font-size: 0.6875rem; font-weight: 700; line-height: 16px; cursor: pointer; }
+.help-btn[aria-expanded=true] { background: var(--accent-soft); color: var(--accent-ink); border-color: var(--accent); }
+.help-pop { position: absolute; left: 0; top: calc(100% + var(--space-6)); z-index: var(--z-pop); width: max-content; max-width: min(300px, 80vw); padding: var(--space-8) var(--space-12); border: 1px solid var(--line); border-radius: var(--radius-8); background: var(--surface); color: var(--text-2); box-shadow: var(--shadow-float); font-size: 0.8125rem; font-weight: 400; line-height: 1.55; white-space: normal; text-align: left; word-break: keep-all; overflow-wrap: anywhere; letter-spacing: 0; }
+.help-pop.end { left: auto; right: 0; }
 input[type=text], input:not([type]), input[type=search], input[type=number], input[type=password], textarea, select { width: 100%; min-height: 42px; padding: 0 var(--space-12); border: 1px solid var(--line-strong); border-radius: var(--radius-8); background: var(--surface); color: var(--text); font: inherit; font-size: 0.875rem; }
 /* 손가락으로 쓰는 기기: 16px 보다 작으면 iOS 가 초점 때 화면을 확대한다 */
 @media (pointer: coarse) { input[type=text], input:not([type]), input[type=search], input[type=number], input[type=password], textarea, select { font-size: 1rem; } }
@@ -2552,6 +2558,9 @@ dialog.set-dlg::backdrop { background: var(--overlay); }
   .small a, a.small, .note a, a.chip, .tl-row a.n { position: relative; }
   .small a::after, a.small::after, .note a::after, a.chip::after, .tl-row a.n::after { content: ''; position: absolute; inset: -12px -4px; }
   .split > .menu > .btn, .menu > .btn.small { min-width: var(--touch-min); }
+  /* 물음표 툴팁: 모양은 18px 그대로, 누름 영역만 44px 로 넓힌다 */
+  .help-btn { position: relative; }
+  .help-btn::after { content: ''; position: absolute; inset: -13px; }
 }
 
 /* ----- 플레이 모드 (play.js, 시안 안 A 읽기형): 시간 흐름 막대, 흘러간 일, 결정 장면, 옆 패널, 지난 일, 생애 기록, 새 플레이 ----- */

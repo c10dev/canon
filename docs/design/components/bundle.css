@@ -120,6 +120,11 @@ textarea:disabled, select:disabled, input:not([type="checkbox"]):not([type="radi
 .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .field > label, .label { font-size: 0.8125rem; font-weight: 500; }
 .field .hint { font-weight: 400; color: var(--muted); }
+.help { position: relative; display: inline-block; vertical-align: middle; margin-left: 4px; font-weight: 400; }
+.help-btn { width: 18px; height: 18px; padding: 0; border: 1px solid var(--line-strong); border-radius: 50%; background: var(--surface); color: var(--text-2); font: inherit; font-size: 0.6875rem; font-weight: 700; line-height: 16px; cursor: pointer; }
+.help-btn[aria-expanded=true] { background: var(--accent-soft); color: var(--accent-ink); border-color: var(--accent); }
+.help-pop { position: absolute; left: 0; top: calc(100% + 6px); z-index: 12; width: max-content; max-width: min(300px, 80vw); padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text-2); box-shadow: 0 6px 24px rgba(0,0,0,0.16); font-size: 0.8125rem; font-weight: 400; line-height: 1.55; white-space: normal; text-align: left; word-break: keep-all; overflow-wrap: anywhere; letter-spacing: 0; }
+.help-pop.end { left: auto; right: 0; }
 input[type=text], input:not([type]), input[type=search], input[type=number], input[type=password], textarea, select { width: 100%; min-height: 42px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; font-size: 0.875rem; }
 @media (pointer: coarse) { input[type=text], input:not([type]), input[type=search], input[type=number], input[type=password], textarea, select { font-size: 1rem; } }
 .field input[readonly], .field textarea[readonly] { background: var(--bg); color: var(--muted); border-style: dashed; cursor: default; }

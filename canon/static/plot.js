@@ -412,8 +412,8 @@ function viewArc() {
   // 장편으로 늘리기는 모든 화를 반영한 뒤에 쓸 수 있다 (작품 홈과 같은 이름)
   const fin = eps.length && eps.every((e) => e.status === 'finalized') && eps.length === p.meta.target_episodes;
   // 완결: 다음 할 일은 원고 내보내기나 장편으로 늘리기다 (내려받기 형식은 집필 화면 '복사 · 내보내기'에서 고른 것)
-  const done = fin ? `<div class="note ok between"><span>모든 화를 반영했어요. 원고를 내보내거나 장편으로 늘려 이어 쓸 수 있어요.</span><span class="row"><button type="button" class="btn small" data-action="downloadTxt" data-arg="1-${p.meta.target_episodes}">전체 .txt 내려받기</button><a class="btn small primary" href="${base()}/convert">장편으로 늘리기</a></span></div>` : '';
-  return `${header('3단계', stepLabel('arc'), '구간을 확인하고 화 카드를 눌러 플롯을 다듬어요. 확정한 화만 본문을 쓸 수 있고, 초안을 다시 만들어도 확정한 화는 그대로예요.', chatButton() + menu + primary)}
+  const done = fin ? `<div class="note ok between"><span>모든 화를 반영했어요.</span><span class="row"><button type="button" class="btn small" data-action="downloadTxt" data-arg="1-${p.meta.target_episodes}">전체 .txt 내려받기</button><a class="btn small primary" href="${base()}/convert">장편으로 늘리기</a></span></div>` : '';
+  return `${header('3단계', stepLabel('arc'), `확정한 화만 본문을 쓸 수 있어요.${help('초안을 다시 만들어도 확정한 화는 그대로예요.')}`, chatButton() + menu + primary)}
     ${done}${board}`;
 }
 

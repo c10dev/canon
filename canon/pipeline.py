@@ -670,7 +670,7 @@ def check_example(p: Project, episode: int = 0) -> str:
             raise ValueError(f"{episode}화에 본문이 없어요. 본문이 있는 화를 고르세요")
         ref = ep.text
     if library_blank(p.style):
-        raise ValueError("문체가 비어 있어요. 문체 분석을 하거나 스타일 프로필을 채운 뒤 예시를 써 볼 수 있어요")
+        raise ValueError("문체가 비어 있어요. 원문을 분석하거나 문체 카드를 채운 뒤 예시를 써 볼 수 있어요")
     return ref
 
 

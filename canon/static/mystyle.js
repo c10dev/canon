@@ -54,7 +54,7 @@ function deviceFields(base, root) {
         <button class="btn icon-btn danger" style="margin-top:26px" data-action="deviceRemove" data-arg="${root || ''}|${i}" aria-label="장치 ${i + 1} 지우기">✕</button>
       </div></div>`;
   }).join('');
-  return rows || '<div class="small">아직 없어요. 레퍼런스의 버릇이 매 화 반복되면 규칙이나 대표 문단에서 빼고 여기에 적으세요.</div>';
+  return rows || `<div class="small">아직 없어요.${help('레퍼런스의 버릇이 매 화 반복되면 규칙이나 대표 문단에서 빼고 여기에 적으세요.')}</div>`;
 }
 
 // ----- 내 수정에서 배우기 (작품 문체 화면) -----
@@ -110,15 +110,15 @@ function learnCard() {
   const short = !st || st.usable < st.min;
   const open = r && r.suggestions.some((s) => !s.applied);
   const count = st
-    ? `본문을 고친 기록 ${st.total}건 중 배울 수 있는 것 ${st.usable}건${short ? ` · ${st.min}건부터 찾을 수 있어요` : ''}`
+    ? `본문을 고친 기록 ${st.total}건 중 배울 수 있는 것 ${st.usable}건`
     : '';
   // 지난 후보가 모두 들어갔거나 찾지 못했으면 그 결과를 여기에 둔다
   const past = r && !open ? `<div class="note plain">${esc(r.summary || '')}<div class="small">${fmtDate(r.at)} · 수정 ${r.edits_used}건을 봤어요</div></div>
       ${r.suggestions.length ? `<div class="learn-list">${r.suggestions.map(suggestionRow).join('')}</div>` : '<div class="small">두 번 이상 되풀이된 고침을 찾지 못했어요. 본문을 더 고친 뒤 다시 찾아 보세요.</div>'}
       <div class="row"><button class="btn small ghost" data-action="learnDismiss">후보 지우기</button></div>` : '';
   return `<section class="card pf-sec" id="pf-learn" tabindex="-1">
-      <div class="pf-head"><h2>내 수정에서 배우기</h2><button class="btn small" data-action="learnRun"${short ? ' disabled' : ''}>${r ? '다시 찾기' : '수정 기록에서 규칙 찾기'}</button></div>
-      <p class="small pf-sub">AI 본문을 고친 기록에서 되풀이되는 고침을 찾아 규칙 후보로 보여 줘요. 근거가 두 번 이상인 것만 내고, 고른 것만 이 작품 문체에 넣어요. 되돌린 수정, 동선 맞추기, 새로 써 넣기만 한 것은 보지 않아요.${count ? ` ${count}.` : ''}</p>
+      <div class="pf-head"><h2>내 수정에서 배우기</h2><button class="btn small" data-action="learnRun"${short ? ` disabled${st ? ` title="배울 수 있는 기록이 ${st.min}건 이상이면 찾을 수 있어요"` : ''}` : ''}>${r ? '다시 찾기' : '수정 기록에서 규칙 찾기'}</button></div>
+      <p class="small pf-sub">AI 본문을 고친 기록에서 되풀이되는 고침을 찾아 규칙 후보로 보여 줘요.${count ? ` ${count}.` : ''}${help(`근거가 두 번 이상인 것만 내고, 고른 것만 이 작품 문체에 넣어요. 되돌린 수정, 동선 맞추기, 새로 써 넣기만 한 것은 보지 않아요.${st ? ` 배울 수 있는 기록이 ${st.min}건 이상이면 찾을 수 있어요.` : ''}`)}</p>
       ${open ? '<p class="small">찾은 후보는 맨 위 \'확인할 것\'에서 골라요.</p>' : past}
     </section>`;
 }
@@ -145,7 +145,7 @@ function versionsCard() {
       </li>`;
   }).join('');
   return `<section class="card tight pf-sec" id="pf-versions" tabindex="-1">
-      <div class="between"><h2>버전</h2><span class="small">프로필이나 기준 지표가 바뀔 때마다 남겨요 (최근 30개)</span></div>
+      <div class="between"><h2>버전</h2><span class="small">문체나 기준 지표가 바뀔 때마다 남겨요 (최근 30개)</span></div>
       <div class="field"><label for="lib-note">다음 저장의 버전 메모 <span class="hint">비우면 바뀐 칸 이름을 적어요</span></label>
         <input id="lib-note" type="text" data-local="libNote" value="${esc(S.libNote || '')}" placeholder="예: 망상 장면을 가끔 쓰는 장치로 옮김"></div>
       ${rows ? `<ul class="version-list">${rows}</ul>` : '<div class="small">아직 버전이 없어요.</div>'}

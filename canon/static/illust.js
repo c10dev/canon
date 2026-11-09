@@ -241,13 +241,12 @@ function illustPanel(n) {
   const count = (e.illustrations || []).length;
   const open = S.illOpen[n] ?? (count > 0 || !!sel);
   return `<details class="card" id="ill-panel" data-ill-ep="${n}" aria-label="삽화 프롬프트"${open ? ' open' : ''}>
-    <summary class="between"><h2>삽화 프롬프트 <span class="small">NovelAI${count ? ` · ${count}개` : ''}</span></h2>
-      <span class="small">본문을 드래그하거나 길게 눌러 고른 뒤 '삽화 프롬프트 만들기'를 누르거나, 장면을 AI에게 맡기세요</span></summary>
+    <summary class="between"><h2>삽화 프롬프트 <span class="small">NovelAI${count ? ` · ${count}개` : ''}</span></h2></summary>
     <div class="cols" style="gap:16px">
       <div style="flex:2 1 420px;min-width:0;display:flex;flex-direction:column;gap:10px">
         ${sel ? `<div class="sel-target" style="padding:0;border:0"><div class="between"><span class="small">그릴 부분 · ${sel.text.length.toLocaleString()}자</span><button type="button" class="btn small" data-action="illClear">고른 것 풀기</button></div>
           <blockquote>${esc(clip(sel.text, 300))}</blockquote></div>`
-        : '<div class="note plain">본문에서 그릴 부분을 드래그하거나 길게 눌러 고르면 여기에 담겨요. 고르지 않으면 AI가 이 화에서 그림이 될 장면을 골라요.</div>'}
+        : '<div class="note plain">본문에서 고른 부분이 여기에 담겨요. 고르지 않으면 AI가 이 화에서 그림이 될 장면을 골라요.</div>'}
         <div class="field"><label for="ill-ask">바라는 것 <span class="hint">선택. 예: 뒷모습으로, 비 오는 밤, 두 사람만</span></label>
           <input id="ill-ask" type="text" value="${esc(S.illAsk)}" placeholder="비우면 장면 그대로"></div>
         <div class="row" style="gap:6px">

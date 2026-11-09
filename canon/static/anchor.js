@@ -81,7 +81,7 @@ function anchorCard() {
   const choosing = S.anchorPick !== null;
   const last = [...v.trend].reverse().find((t) => t.rolling != null);
   const head = `<div class="pf-head"><h2>작품 정착 문체</h2><div class="row">${a && !choosing ? `<button type="button" class="btn small" data-action="anchorStart">다시 고르기</button><button type="button" class="btn small ghost" data-action="anchorDrop">지우기</button>` : ''}${!a && !choosing ? `<button type="button" class="btn small primary" data-action="anchorStart"${v.usable.length ? '' : ' disabled'}>정착 화 고르기</button>` : ''}</div></div>`;
-  const intro = '<p class="small pf-sub">레퍼런스는 따라갈 목표이고, 정착 문체는 이 작품이 앞 화에서 실제로 굳힌 목소리예요. 정하면 문체 경고와 화별 흐름이 이 기준을 보고, 고른 대표 문단이 쓰기 프롬프트의 문체 예시가 돼요. 라이브러리에는 올리지 않아요.</p>';
+  const intro = `<p class="small pf-sub">이 작품이 앞 화에서 실제로 굳힌 목소리예요.${help('레퍼런스는 따라갈 목표이고, 정착 문체는 앞 화에서 굳은 목소리예요. 정하면 문체 경고와 화별 흐름이 이 기준을 보고, 고른 대표 문단이 쓰기 프롬프트의 문체 예시가 돼요. 라이브러리에는 올리지 않아요.')}</p>`;
   if (!a) {
     return `<section class="card pf-sec" id="pf-anchor" tabindex="-1">${head}${intro}${choosing ? anchorChooser(v) : (v.usable.length ? `<p class="small">추천: ${rangeText(v.suggest)}화</p>` : '<p class="small">상태 반영이 끝난 화가 생기면 고를 수 있어요.</p>')}</section>`;
   }

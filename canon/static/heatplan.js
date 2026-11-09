@@ -279,7 +279,7 @@ function heatCard(p, arc = null) {
   if (!steps.length) {
     return `<section class="card heat-card" aria-label="열 계획"><div class="between"><h2>${arc ? '이 아크의 열 계획' : '열 계획'}</h2>
       <span class="row"><button type="button" class="btn small" data-action="heatStart">직접 적기</button>${heatAiButton(h)}</span></div>
-      <p class="small">기승전결이 무슨 일이 일어나는지 정한다면, 열 계획은 ${where}열(긴장과 보상)을 언제 아끼고 언제 쓸지 정해요. 화마다 열을 적으면 정점 앞뒤에 판돈 · 관객 · 결과가 있는지 알려 줘요. AI로 받으면 본문이 있는 화의 계획은 그대로 둬요.</p>${draft}</section>`;
+      <p class="small">${where}열(긴장과 보상)을 언제 아끼고 언제 쓸지 정해요.${help('기승전결이 무슨 일이 일어나는지 정한다면, 열 계획은 열을 언제 쓸지 정해요. 화마다 열을 적으면 정점 앞뒤에 판돈 · 관객 · 결과가 있는지 알려 줘요. AI로 받으면 본문이 있는 화의 계획은 그대로 둬요.')}</p>${draft}</section>`;
   }
   const warns = heatWarnings(p).filter((w) => !serialWork || (w.ep >= h.start && w.ep <= h.end));
   const warned = new Set(warns.map((w) => w.ep));

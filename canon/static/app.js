@@ -1208,7 +1208,7 @@ function input(label, path, opt = {}) {
   const raw = bindValue(path, kind, opt.root);
   const val = esc(opt.zeroBlank && Number(raw) === 0 ? '' : raw);
   const rootAttr = opt.root ? ` data-root="${opt.root}"` : '';
-  const hint = opt.hint ? ` <span class="hint">${esc(opt.hint)}</span>` : '';
+  const hint = (opt.hint ? ` <span class="hint">${esc(opt.hint)}</span>` : '') + (opt.help ? help(opt.help) : '');
   const ro = opt.readonly ? ' readonly' : '';
   const ctrl = opt.rows || kind === 'list'
     ? `<textarea id="${id}" rows="${opt.rows || 3}" data-bind="${path}" data-kind="${kind}"${rootAttr}${ro}${opt.autogrow ? ' data-autogrow' : ''}${opt.style ? ` style="${opt.style}"` : ''} placeholder="${esc(opt.placeholder || (kind === 'list' ? '한 줄에 하나씩' : ''))}">${val}</textarea>`
@@ -3075,6 +3075,46 @@ function outSidebar(active) {
     ${S.menuOpen ? '<div class="side-scrim" data-action="toggleMenu" aria-hidden="true"></div>' : ''}
   </nav>`;
 }
+
+/** 물음표 툴팁: 늘 보일 필요 없는 설명 · 판정 기준을 누르면 펼친다 (docs/design/components/Help).
+ *  글 사이 · 입력칸 이름 · 제목 설명 줄 안에 넣어도 되게 span 과 button 만 쓴다. text 는 글자 그대로 넣는다 */
+function help(text, label = '설명 보기') {
+  return `<span class="help"><button type="button" class="help-btn" aria-expanded="false" aria-label="${esc(label)}">?</button><span class="help-pop" role="note" hidden>${esc(text)}</span></span>`;
+}
+
+function closeHelps(except) {
+  document.querySelectorAll('.help-btn[aria-expanded="true"]').forEach((b) => {
+    if (b === except) return;
+    b.setAttribute('aria-expanded', 'false');
+    b.nextElementSibling.hidden = true;
+  });
+}
+
+// 툴팁은 그 버튼으로 열고 닫는다. 밖을 누르거나 Esc 를 누르면 닫는다. 다시 그리면 닫힌 채로 그려진다
+document.addEventListener('click', (e) => {
+  const b = e.target.closest && e.target.closest('.help-btn');
+  if (!b) {
+    if (!(e.target.closest && e.target.closest('.help-pop'))) closeHelps();
+    return;
+  }
+  e.preventDefault();
+  e.stopPropagation();
+  const open = b.getAttribute('aria-expanded') !== 'true';
+  closeHelps(b);
+  b.setAttribute('aria-expanded', String(open));
+  const pop = b.nextElementSibling;
+  pop.hidden = !open;
+  pop.classList.remove('end');
+  if (open && pop.getBoundingClientRect().right > innerWidth - 8) pop.classList.add('end');  // 오른쪽 끝에서는 왼쪽으로 펼친다
+}, true);
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || e.isComposing) return;
+  const b = document.querySelector('.help-btn[aria-expanded="true"]');
+  if (!b) return;
+  closeHelps();
+  b.focus();
+  e.preventDefault();
+});
 
 function header(eyebrow, title, desc, right = '') {
   return `<header class="page-head"><div class="lead">${eyebrow ? `<div class="eyebrow">${eyebrow}</div>` : ''}<h1>${esc(title)}</h1>${desc ? `<p class="desc">${desc}</p>` : ''}</div><div class="row">${right}</div></header>`;
