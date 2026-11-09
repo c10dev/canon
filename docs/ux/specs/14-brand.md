@@ -1,6 +1,6 @@
 # 14. 브랜드 손보기
 
-상태: PR ([#464](https://github.com/c10dev/canon/pull/464)) · 계획: [plan.md](../plan.md) 의 14번 · 먼저: 11
+상태: 끝 (#464, 시안 A) · 계획: [plan.md](../plan.md) 의 14번 · 먼저: 11
 
 ## 목표
 

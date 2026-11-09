@@ -1,6 +1,6 @@
 # 10. AI 상투 기호 빼기
 
-상태: PR ([#456](https://github.com/c10dev/canon/pull/456)) · 계획: [plan.md](../plan.md) 의 10번 · 먼저: —
+상태: 끝 (#456) · 계획: [plan.md](../plan.md) 의 10번 · 먼저: —
 
 ## 목표
 
