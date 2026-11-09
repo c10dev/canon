@@ -19,13 +19,14 @@ count_copy = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(count_copy)
 
 # 한 화면의 늘 보이는 안내 문장 상한 (docs/design/README.md '덜기')
-LIMIT = 5
+LIMIT = 3
 
 # 2026-11-09 에 이미 상한을 넘은 화면의 그날 수: (화면, 주소 뒤쪽, 작품 상태, S 에 넣을 값의 키) → 문장 수.
 # 줄이면 이 수도 낮춘다. 상한 아래로 내려가면 줄을 지운다.
 BASELINE: dict[tuple[str, str, str, str], int] = {
     ("home", "", "empty", ""): 7,
     ("home", "", "draft", ""): 6,
+    ("home", "", "finished", ""): 5,
     ("setup", "setup", "empty", ""): 8,
     ("setup", "setup", "written", ""): 8,
     ("style", "style", "empty", ""): 9,
@@ -39,6 +40,7 @@ BASELINE: dict[tuple[str, str, str, str], int] = {
     ("write", "write-2", "confirmed", ""): 11,
     ("write", "write-2", "confirmed", "dirEdit"): 12,
     ("write", "write-2", "written", ""): 9,
+    ("write", "write-8", "finished", ""): 4,
 }
 
 VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"}
