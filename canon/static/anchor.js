@@ -69,7 +69,7 @@ function anchorChooser(v) {
       <p class="small">상태 반영이 끝난 화 가운데 이 작품의 목소리가 잘 굳은 화를 골라요. 서술 말투가 있는 시점 인물의 화는 고를 수 없어요. 합쳐 ${v.min_chars.toLocaleString()}자 넘게 골라야 문체 거리를 재요.</p>
       <div class="anchor-eps">${chips || '<span class="small">고를 수 있는 화가 아직 없어요</span>'}</div>
       <div class="row"><button type="button" class="btn small" data-action="anchorCands"${pick.size ? '' : ' disabled'}>대표 문단 후보 보기</button>
-        <button type="button" class="btn small primary" data-action="anchorSave"${pick.size ? '' : ' disabled'}>이 작품의 문체로 저장</button>
+        <button type="button" class="btn small" data-action="anchorSave"${pick.size ? '' : ' disabled'}>이 작품의 문체로 저장</button>
         <button type="button" class="btn small ghost" data-action="anchorCancel">취소</button></div>
       ${cands}</div>`;
 }
@@ -80,10 +80,10 @@ function anchorCard() {
   const a = v.anchor;
   const choosing = S.anchorPick !== null;
   const last = [...v.trend].reverse().find((t) => t.rolling != null);
-  const head = `<div class="pf-head"><h2>이 작품의 문체</h2><div class="row">${a && !choosing ? `<button type="button" class="btn small" data-action="anchorStart">다시 고르기</button><button type="button" class="btn small ghost" data-action="anchorDrop">지우기</button>` : ''}${!a && !choosing ? `<button type="button" class="btn small primary" data-action="anchorStart"${v.usable.length ? '' : ' disabled'}>화 고르기</button>` : ''}</div></div>`;
+  const head = `<div class="pf-head"><h2>이 작품의 문체</h2><div class="row">${a && !choosing ? `<button type="button" class="btn small" data-action="anchorStart">다시 고르기</button><button type="button" class="btn small ghost" data-action="anchorDrop">지우기</button>` : ''}${!a && !choosing ? `<button type="button" class="btn small" data-action="anchorStart"${v.usable.length ? '' : ' disabled'}>화 고르기</button>` : ''}</div></div>`;
   const intro = `<p class="small pf-sub">이 작품이 앞 화에서 실제로 굳힌 목소리예요.${help('레퍼런스는 따라갈 목표이고, 이 작품의 문체는 앞 화에서 굳은 목소리예요. 정하면 문체 경고와 화별 흐름이 이 기준을 보고, 고른 대표 문단이 쓰기 프롬프트의 문체 예시가 돼요. 라이브러리에는 올리지 않아요.')}</p>`;
   if (!a) {
-    return `<section class="card pf-sec" id="pf-anchor" tabindex="-1">${head}${intro}${choosing ? anchorChooser(v) : (v.usable.length ? `<p class="small">추천: ${rangeText(v.suggest)}화</p>` : '<p class="small">상태 반영이 끝난 화가 생기면 고를 수 있어요.</p>')}</section>`;
+    return `<section class="${choosing ? 'card' : 'sec'} pf-sec" id="pf-anchor" tabindex="-1">${head}${intro}${choosing ? anchorChooser(v) : (v.usable.length ? `<p class="small">추천: ${rangeText(v.suggest)}화</p>` : '<p class="small">상태 반영이 끝난 화가 생기면 고를 수 있어요.</p>')}</section>`;
   }
   const notes = [];
   if (a.stale) notes.push(`<div class="note warn between" role="status"><span>고른 화 본문이 잰 뒤로 바뀌었어요. 기준은 마지막으로 잰 값을 그대로 써요.</span><button type="button" class="btn small" data-action="anchorRemeasure">다시 재기</button></div>`);
@@ -93,7 +93,7 @@ function anchorCard() {
   const pass = a.passages.length
     ? `<details class="anchor-pass"><summary class="small">대표 문단 ${a.passages.length}개 (쓰기 프롬프트의 문체 예시)</summary>${a.passages.map((t) => `<blockquote class="small">${esc(t)}</blockquote>`).join('')}</details>`
     : '<p class="small">대표 문단을 고르지 않아 문체 예시는 레퍼런스 것을 써요.</p>';
-  return `<section class="card pf-sec" id="pf-anchor" tabindex="-1">${head}
+  return `<section class="${choosing ? 'card' : 'sec'} pf-sec" id="pf-anchor" tabindex="-1">${head}
       <p class="small pf-sub">고른 화 ${rangeText(a.episodes)}화 · ${fmtDateTime(a.at)}에 쟀어요${last ? ` · 최근 ${v.window}화 평균 ${anchorNum(last.rolling)}` : ''}</p>
       ${notes.join('')}${choosing ? anchorChooser(v) : `${anchorCompare(v)}${pass}${anchorChart(v)}`}</section>`;
 }

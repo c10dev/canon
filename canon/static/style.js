@@ -115,7 +115,7 @@ function pfCard(id, label, base, root, hot) {
   ].join('');
   const sub = { markers: `어미 · 조사 · 말버릇${help('레퍼런스 원문에서 센 1,000자당 빈도보다 넘치거나 빠지면 경고해요.')}`, devices: '특정 상황에만, 몇 화에 한 번 쓰는 장면 장치', passages: '본문 생성 때 원문 그대로 보여 줘요, 2~4개' }[id];
   const body = editing ? pfEdit(id, base, root, hot) : pfRead(id, prof, root, hot, base);
-  return `<section class="card pf-sec${editing ? ' editing' : ''}" id="pf-${id}" tabindex="-1"${empty ? ` data-pf-key="${esc(pfKey(root, id))}"` : ''}>
+  return `<section class="${editing ? 'card pf-sec editing' : 'sec pf-sec'}" id="pf-${id}" tabindex="-1"${empty ? ` data-pf-key="${esc(pfKey(root, id))}"` : ''}>
       <div class="pf-head"><h2>${label}${isHot ? ' <span class="chip hot">대화 변경안</span>' : ''}${editing && !empty ? ' <span class="small pf-state">고치는 중</span>' : ''}</h2><div class="row">${btns}</div></div>
       ${sub ? `<p class="small pf-sub">${sub}</p>` : ''}${body}</section>`;
 }
@@ -286,7 +286,7 @@ function styleLibraryRow() {
 function styleStatus() {
   const b = P().style_baseline;
   const now = S.styleNow && S.styleNow.name === S.name ? S.styleNow : null;
-  return `<section class="card tight pf-sec sty-top" id="pf-status" tabindex="-1" aria-label="라이브러리와 기준 지표">
+  return `<section class="sec pf-sec sty-top" id="pf-status" tabindex="-1" aria-label="라이브러리와 기준 지표">
       ${styleLibraryRow()}
       <div class="sty-row">${b ? metricSummary(b, now) : '<span class="small">원문을 분석하면 문장 길이, 대사 비율 같은 기준 지표를 재요</span>'}
         ${b ? `<span class="sty-acts">${menuBtn('style-metrics', '지표 풀이', () => `${metricChips(b)}${baselineRows(b, undefined, now)}`, { cls: 'btn small ghost' })}</span>` : ''}</div>
@@ -330,7 +330,7 @@ const sampleCount = () => `<span class="small"><span id="sample-count">${S.style
 /** 재료 카드: 원문을 다시 붙여 넣어 분석. 원문 칸은 열 때만 */
 function styleSourceCard() {
   const open = S.styleSampleOpen || S.styleSample.trim();
-  return `<section class="card pf-sec" id="pf-source" tabindex="-1">
+  return `<section class="${open ? 'card' : 'sec'} pf-sec" id="pf-source" tabindex="-1">
       <div class="pf-head"><h2><label for="sample">원문 · 다시 분석</label></h2><div class="row">${open ? sampleCount() : ''}<button type="button" class="btn small" data-action="toggleStyleSample" aria-expanded="${!!open}">${open ? '접기' : '원문 붙여 넣기'}</button></div></div>
       ${open ? styleSampleBox(false) : ''}
     </section>`;
@@ -354,7 +354,7 @@ function viewStyle() {
   styleSeen = { name: S.name, title: P().meta.title || S.name };
   const st = P().style;
   const next = stepLabel('arc');
-  const go = (primary) => `${chatButton()}<a class="btn${primary ? ' primary' : ''}" href="${base()}/arc">${next}${josa(next, '으로', '로')}</a>`;
+  const go = (primary) => `<a class="btn${primary ? ' primary' : ''}" href="${base()}/arc">${next}${josa(next, '으로', '로')}</a>${chatButton()}`;
   // 문체가 비었으면 시작하는 세 갈래(원문 · 라이브러리 · 직접 채우기)만 보인다. '문체 분석'이 주 버튼이다
   if (styleBlank(st) && !(S.styleManual || {})[S.name]) {
     const rows = [['source', '원문 붙여 넣기', '', ''], ['pick', '라이브러리에서 고르기', String((S.libs || []).length), ''], ['manual', '직접 채우기', '', '']];

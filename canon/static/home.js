@@ -672,7 +672,7 @@ function homeNowCard(nextLabel, nextHref) {
 
 function homeTodoCard() {
   const items = homeTodos(P(), base(), typeof povChar === 'function' ? (n) => povChar(n).c : null);
-  return `<section class="card home-todo" aria-labelledby="home-todo-h"><div class="between"><h2 id="home-todo-h">확인할 것</h2><span class="small">${items.length ? `${items.length}개` : ''}</span></div>
+  return `<section class="sec home-todo" aria-labelledby="home-todo-h"><div class="between"><h2 id="home-todo-h">확인할 것</h2><span class="small">${items.length ? `${items.length}개` : ''}</span></div>
     ${items.length ? `<ul>${items.map((x) => `<li><span class="home-tag ${x.kind}">${x.tag}</span><div><strong>${esc(x.label)}</strong><div class="small">${esc(x.sub)}</div></div><a class="btn small" href="${x.href}">${esc(x.link)}</a></li>`).join('')}</ul>`
     : `<p class="small">확인할 것이 없어요.${help('반영 때 검수 경고, 요약 없는 아크, 다가오는 기한, 회수 예정이 지난 복선이 여기 모여요.')}</p>`}</section>`;
 }
@@ -746,11 +746,11 @@ function viewHome() {
     ${branchHomeCard()}
     ${playHomeCard()}
     <div class="grid-auto home-lists">
-      <section class="card" aria-labelledby="home-cast-h"><div class="between"><h2 id="home-cast-h">주요 인물</h2><span class="small">${fin ? fin + '화 기준' : '시작 시점'}${p.characters.length > HOME_CAST ? ` · ${p.characters.length}명 중 ${HOME_CAST}명` : ''}</span></div>
+      <section class="sec" aria-labelledby="home-cast-h"><div class="between"><h2 id="home-cast-h">주요 인물</h2><span class="small">${fin ? fin + '화 기준' : '시작 시점'}${p.characters.length > HOME_CAST ? ` · ${p.characters.length}명 중 ${HOME_CAST}명` : ''}</span></div>
         ${states ? `<ul class="home-list">${states}</ul>` : '<div class="small">인물이 없어요</div>'}<a class="card-more" href="${base()}/cast">인물 ${p.characters.length}명 · 관계 ${p.relationships.length}개 모두 보기</a></section>
-      <section class="card" aria-labelledby="home-fs-h"><div class="between"><h2 id="home-fs-h">열린 복선</h2><span class="small">${openFs.length > HOME_FS ? `${openFs.length}개 중 오래된 ${HOME_FS}개` : `${openFs.length}개`}</span></div>
+      <section class="sec" aria-labelledby="home-fs-h"><div class="between"><h2 id="home-fs-h">열린 복선</h2><span class="small">${openFs.length > HOME_FS ? `${openFs.length}개 중 오래된 ${HOME_FS}개` : `${openFs.length}개`}</span></div>
         ${fsRows ? `<ul class="home-list home-fs">${fsRows}</ul>` : '<div class="small">없음</div>'}<a class="card-more" href="${base()}/foreshadow">복선 ${p.foreshadows.length}개 · 복선 센터</a></section>
-      <section class="card" aria-labelledby="home-fact-h"><div class="between"><h2 id="home-fact-h">확정 사실</h2><span class="small">${p.facts.length > HOME_FACTS ? `${p.facts.length}개 중 최근 ${HOME_FACTS}개` : `${p.facts.length}개`}</span></div>
+      <section class="sec" aria-labelledby="home-fact-h"><div class="between"><h2 id="home-fact-h">확정 사실</h2><span class="small">${p.facts.length > HOME_FACTS ? `${p.facts.length}개 중 최근 ${HOME_FACTS}개` : `${p.facts.length}개`}</span></div>
         ${facts.length ? `<ul class="home-facts">${facts.slice(0, HOME_FACTS).map(factLi).join('')}</ul>` : '<div class="small">없음</div>'}
         ${p.facts.length > HOME_FACTS ? `<details><summary class="small">전체 ${p.facts.length}개 보기</summary><ol class="home-facts all">${p.facts.map(factLi).join('')}</ol></details>` : ''}
       </section>

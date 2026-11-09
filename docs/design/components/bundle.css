@@ -17,6 +17,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--
 .btn:disabled, .btn[aria-disabled="true"] { opacity: 0.5; cursor: not-allowed; }
 .btn.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); font-weight: 700; }
 .icon-btn { width: 44px; padding: 0; }
+.chat-toggle svg { width: 18px; height: 18px; }
+.chat-toggle[aria-pressed="true"] { background: var(--btn-hover); }
 
 /* ----- 이름 글자 · 사이드바 메뉴 (Nav) ----- */
 .side-top { display: flex; align-items: center; gap: 4px; padding-left: 8px; }
@@ -32,7 +34,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--
 .work-head { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .work-title { flex: 0 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 1rem; font-weight: 800; letter-spacing: -0.01em; line-height: 1.4; color: var(--text); text-decoration: none; }
 .work-strip { display: grid; grid-template-columns: repeat(var(--n), 1fr); gap: 2px; }
-.work-strip i { height: 10px; border-radius: 3px; box-shadow: inset 0 0 0 1px var(--line); }
+.work-strip i { height: 10px; border-radius: 2px; box-shadow: inset 0 0 0 1px var(--line); }
 .work-strip i.draft { background: var(--chip); box-shadow: inset 0 0 0 1px var(--line-strong); }
 .work-strip i.confirmed { background: var(--accent); box-shadow: none; }
 .work-strip i.written { background: var(--amber); box-shadow: none; }
@@ -83,6 +85,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--
 /* ----- 카드 · 안내 · 빈 화면 (Card, Note, Empty) ----- */
 .card { padding: 20px 24px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); display: flex; flex-direction: column; gap: 12px; }
 .card.tight { padding: 16px; gap: 8px; }
+.sec { padding-top: 16px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 @media (max-width: 640px) { .card { padding: 16px; } }
 .note { padding: 12px 14px; border-radius: 8px; font-size: 0.8125rem; line-height: 1.55; }
 .note.info { background: var(--accent-soft); color: var(--info-ink); }

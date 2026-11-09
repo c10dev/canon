@@ -250,7 +250,7 @@ function illustPanel(n) {
         <div class="field"><label for="ill-ask">바라는 것 <span class="hint">선택. 예: 뒷모습으로, 비 오는 밤, 두 사람만</span></label>
           <input id="ill-ask" type="text" value="${esc(S.illAsk)}" placeholder="비우면 장면 그대로"></div>
         <div class="row" style="gap:6px">
-          <button type="button" class="btn primary" data-action="illMake" data-arg="sel"${sel && !busy ? '' : ' disabled'}>고른 부분으로 만들기</button>
+          <button type="button" class="btn" data-action="illMake" data-arg="sel"${sel && !busy ? '' : ' disabled'}>고른 부분으로 만들기</button>
           <button type="button" class="btn" data-action="illMake" data-arg="auto"${busy ? ' disabled' : ''}>AI가 장면 고르기</button></div>
         ${cast.length ? `<div class="small">이 화 인물 외형 태그: ${castLine} · 이름을 누르면 인물 카드에서 고쳐요</div>` : ''}
       </div>

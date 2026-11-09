@@ -7,6 +7,7 @@
 - 웹 화면 CSS 한 파일
 - 색 토큰은 두 `:root` 블록(밝은 · 어두운)에 있고 `docs/design/tokens.json` 과 같다(`tests/test_design_tokens.py`)
 - 간격 · 모서리 · 크기 · 그림자 · 쌓는 층은 맨 위 `:root` 의 변수(`--space-*` · `--radius-*` · `--shadow-*` · `--z-*`)로 쓴다(같은 시험)
+- 둥글기 · 글자 크기는 토큰 단계 안의 값만 쓴다. 단계 밖 값은 시험의 예외 목록에 선택자 · 까닭과 함께 둔다(`tests/test_css_scale.py`)
 - z-index 는 `--z-*` 사다리만 쓴다(`docs/design/layout.md` '쌓는 층')
 - 손가락 기기 · 640px 이하에서 작은 누름 영역을 44px 로 키우는 규칙은 '휴대폰' 절 바로 앞 한 블록에 모은다
 - 높이 500px 이하(가로 휴대폰) 규칙은 `@media (max-height: 500px)` 로 건다. 붙여 두는 칸을 풀고 대화 시트를 키운다(`docs/design/layout.md` '오른쪽 패널')
@@ -16,6 +17,7 @@
 - 기능마다 `/* ----- 이름 (파일.js) ----- */` 절로 나눈다
 - 공용 목차 틀의 화면별 칸 규칙은 `@container outline` 으로 건다
 - 컴포넌트 규칙을 바꾸면 `docs/design/components/bundle.css` 의 그 줄도 같게 고친다
+- 목록 · 표 덩어리는 카드 대신 구역 `.sec`(위 선 하나와 제목)으로 그린다(`docs/design/components/Card` '구역')
 - 몇몇 화면(`palette.js` · `foreshadow.js` · `stage.js` · `revlab.js` 등)은 CSS 를 JS 에서 주입한다
 
 ### `canon/static/app.js`
@@ -142,6 +144,7 @@
 - 사이드바
 - 다시 그리기와 포커스
 - `drawApp` 은 `paintApp` 으로 `#app` 을 그린다. `data-keep` 칸은 그 칸과 조상을 제자리에 두고 형제만 새 것으로 바꾼다(`keepSwap`)
+- 작품 화면의 `<main>` 안(모르는 화면 알림 · 실패 띠 · 초안 띠 · 화면 본문)은 `mainHtml` 이 그린다. 주 버튼 셈 시험(`tests/test_primary_count_js.py`)도 이 함수로 main 을 그린다
 - Chrome 은 요소를 문서에서 떼거나 옮기기만 해도(`moveBefore` 포함) 그 칸의 Ctrl+Z 기록을 지운다. 그래서 `data-keep` 칸은 떼었다 끼우지 않는다
 - `keepSwap` 은 키가 새 HTML 에 없거나, 조상 깊이 · 태그가 다르거나, `value` 가 다르면 지키지 않고 `#app` 을 통째로 바꾼다(`tests/test_keep_editor_js.py`)
 - `afterDraw` 는 포커스가 그대로 남은 칸(지킨 칸)의 커서 · 칸 안 스크롤을 다시 옮기지 않는다
@@ -168,6 +171,7 @@
 - 화면이 주는 기본 대상 `chatDefaultTarget`: 집필 · 검수 · 상태 승인 `text:N`, 설정 도우미 `setup`, 문체 `style`, 플롯 화면은 고른 아크(`plotScope`), 그 밖 ''
 - 패널은 늘 대화 에이전트(주제 `plot`)다. 옛 대화 셋(`text:<화>` · `style` · `setup`)의 패널 · 보내기 · 패널 머리 전환 줄은 04e 에서 지웠다
 - 플롯 · 설정 도우미 · 문체 화면 머리의 '대화로 다듬기' `chatButton()` 과 사이드바 대화 버튼은 `toggleChat` 으로 대화 에이전트를 연다
+- `chatButton()` 은 머리 줄 맨 끝의 아이콘 버튼(`.chat-toggle`, 기호 `SIDE_ICON.chat`, 이름은 `aria-label`)이다. 켜져도 `accent` 테두리를 그리지 않는다
 - 집필 화면 머리의 'AI에게 고치기'는 `chatButton` 을 쓰지 않고 대화 에이전트를 연다(`agent.js` `agentOpenText`, 04b)
 - 열림 상태(`S.chatOpen`, localStorage `canon.chat`)는 `chatOpenSaved` · `chatSetOpen` 만 읽고 쓴다(`tests/test_agent_js.py`)
 - 900px 이하(`chatNarrow`)에서 `chatOpenSaved` 는 `canon.chat` 을 읽지 않고 `chatSetOpen` 은 쓰지 않는다. 화면을 새로 열면 시트가 닫혀 있고, 넓은 화면의 기억은 그대로다
@@ -296,6 +300,7 @@
 - 사이드바가 없는 새 플레이 화면은 `aiNote(true)` 로 상자를 늘 보인다
 - 작품 홈
   - 지금 화 `homeNowCard` · 확인할 것 `homeTodos`(말투 빈 인물 `homeSpeechGaps`, 시점 인물 서술 말투 빈칸 `homeVoiceGap`) · 전 화수 막대 `homeProgress` · 줄인 목록 `homeCast` · `homeForeshadows`
+  - 확인할 것 · 주요 인물 · 열린 복선 · 확정 사실은 카드 없이 구역(`.sec`)이다. 지금 화만 카드다
   - 계산 함수는 작품을 받는 순수 함수 `tests/test_home_js.py`
   - 확정 사실 줄 끝의 'n화' 링크는 그 화 상태 승인 기록(`/review/n`)으로 간다. 들어온 화는 `factsLearned`(`context.facts_learned` 와 같은 규칙)
 - 장르 · 화 진행 막대와 연재 일정(`epSteps`, 검수 칸 `checkState`, 화를 열 단계 화면 `epStage`: 다음 할 일 · 화 칸 · 팔레트, 작품 목록 다음 할 일 `projectNext` 는 서버 `findings.check_done`, `releasePlan`, `Project.release`)
@@ -487,6 +492,7 @@
   - 주소 `arc/<화>`
   - 목차는 이웃 화 목록 `epTocItems`
   - 카드 한 열: 이어받는 것 · 줄거리 · 인물 · 시점 · 끝과 이음 · 복선 · 접은 화 도구
+  - 새 인물 제안 · 설정 없는 인물의 '인물로 등록' · '인물로 만들기'는 보조 버튼이다. 주 버튼은 'n화 확정' · 'n화 쓰기' 하나다
   - 사건마다 한 칸 `eventsField`
   - 글이 있는 사건을 빼면(`dropEvent`) 저장 띠의 '방금 지운 n화 사건 k 되살리기'로 그 화 사건 목록을 빼기 전으로 돌린다(`rememberRemoved`)
   - 옮기기 전 저장 `openPlot` · `closePlot`
@@ -656,6 +662,7 @@
 
 - 1단계 설정 도우미
   - 공용 목차 틀 `outline.js` 의 왼쪽 목차 + 오른쪽 카드 한 열 `.setup-secs`
+  - 기획서의 인물 목록 · 관계 목록 · 상태창 줄은 카드 없이 구역(`.sec`)이다
   - 720px 이하는 위에 붙는 목차 버튼 · 걸음 막대(`.outline.steps`)와 아래 버튼 줄 `.setup-foot`
   - 새 작품 마법사 `viewSetupWizard`: 필수 칸 `setupReqs` · 걸음 목차 `wizStepper` · `wizStepState` · 세계 종류 · 시대 칩 `withWorldKind` · `worldRecs`
   - 마법사 머리에 빈칸 AI 제안받기(`suggest`) 버튼을 둔다. 옛 설정 대화 패널 아래에 있던 것을 04e 에서 옮겼다
@@ -672,6 +679,7 @@
 - 2단계 문체 · 문체 라이브러리
   - 왼쪽 목차 `styleToc` · 목차 줄 `styleTocItems` + 카드 한 열
   - 프로필 카드 `pfCard`: 읽는 모양 `pfRead` 이 기본
+  - 읽는 문체 칸은 구역(`.sec.pf-sec`), 고치는 칸은 카드(`.card.pf-sec.editing`)다. 맨 위 라이브러리 · 지표 줄과 닫힌 원문 칸도 구역이다
   - '고치기'로 그 카드만 `pfEdit`(기억 `S.styleOpen`, 빈 카드 `styleCardEmpty` 는 바로 고치는 칸)
   - 서술 카드의 읽는 모양은 값이 있는 줄만 보이고, 빈 줄은 '빈 칸 n개 채우기' 버튼 하나로 묶는다(`foldBlank`)
   - '빈 칸 n개 채우기'(`styleFill`)는 빈 칸을 그 자리에서 고치는 칸으로 편다. 펼칠 때 비어 있던 칸을 `S.styleFill` 에 기억해, 쓰는 동안 다시 그려도 접히거나 자리를 옮기지 않는다
@@ -725,6 +733,7 @@
   - 640px 이하는 칸의 보조 버튼을 머리 줄 대신 칸 위 한 줄(`.ep-tools`)에 둔다. 폭이 640px 를 넘나들면 다시 그린다
   - 머리 `.w-stick` 에 붙는 본문 띠와 이번 화 플롯 띠 `plotStrip`(사건 진행 줄: 쓴 사건 체크 `doneEvents` → `Episode.events_done`, 막는 조건 `eventsLock`, 엔딩 훅 도착점) · 펼침 기억 `plotOpenOf`
   - 작가 연출 지시 칸 `dirCard`(집필 칸만): 지금 걸린 아크 지시 · 화 지시를 늘 보이고 '고치기'로 두 칸을 열어 바로 저장한다(`dirSave` → `PUT …/direction`, 막는 조건은 `eventsLock` 과 같다)
+  - `dirCard` 는 읽는 동안 구역(`.sec.w-dir`), 고치는 동안 카드다. 고치는 칸의 저장은 보조 버튼이다(머리 주 버튼 하나)
   - 머리 높이 `syncWriteTop`
   - 머리 줄에 지금 본문을 쓴 모델(`.w-model`, `writerLabel`). 기록이 없는 화는 보이지 않는다
   - 경고의 'AI에게 고치기'가 그 화를 고치는 동안 본문 칸 위에 잠금 안내(`role="status"`)를 둔다
@@ -762,6 +771,7 @@
   - 640px 이하에서 Esc 로 대화를 닫아 포커스가 비면 ⋯ 메뉴 버튼으로 돌린다(머리 줄의 대화 버튼이 숨어 있어서)
   - 반영이 끝난 화의 머리 primary `nextStepBtn` 은 지금 보는 화면으로 가는 일이면 두지 않는다
   - 동작이 있는 다음 할 일(완결 원고 내보내기)은 `nextStepBtn` 이 늘 둔다
+  - 완결 원고 내보내기는 그 화의 일이 아니라서 `nextStepBtn` 이 보조 버튼(`.btn`)으로 그린다. 작품 홈은 주 버튼 그대로다
   - 본문 없는 화는 AI로 쓰기가 기본이고 머리 primary(`writeGo`, 스토리보드를 만든 화는 `boardGo`, 작업이 돌면 진행 줄 `wsBusy`)와 그 아래 쓰기 시작 칸(`writeStart`: 스토리보드 고르기 `S.wsBoard` · 직접 쓰기 · 컨텍스트)
   - 직접 쓰기(`startManual`)로 빈 칸을 연 화는 본문 칸 위 `manualNote` 의 'AI로 쓰기로 돌아가기'(`backToStart`)로 쓰기 시작 칸에 돌아간다. 쓴 글이 있으면 묻고 임시 보관 초안도 지운다. 그 화에 AI 작업이 돌면 끈다
   - 멈춘 작업이 그 화에서 AI 응답을 기다리면 `writeGo` 가 primary 를 잠그고 쓰기 시작 칸과 만든 스토리보드 칸이 `epWaitNote` 로 까닭을 보인다

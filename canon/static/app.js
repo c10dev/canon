@@ -2684,6 +2684,13 @@ function paintApp(html) {
   app.innerHTML = html;
 }
 
+/** 작품 화면의 <main> 안: 모르는 화면 알림 · 실패 띠 · 초안 띠 · 화면 본문. 대화 패널(chatDock)은 main 밖이다.
+    주 버튼 셈 시험(tests/test_primary_count_js.py)도 이 함수로 main 을 그린다 */
+function mainHtml(page, n, body, unknown = false) {
+  const miss = unknown ? `<div class="note warn between" role="status"><span>'${esc(page)}' 화면은 없어요. 작품 홈을 보여 드려요.</span><a class="btn small" href="${base()}">작품 홈 주소로</a></div>` : '';
+  return `${miss}${failStrip(page, n)}${draftStrip(page, n)}${branchPlace(page, body)}`;
+}
+
 function drawApp() {
   renderSavebar();
   // 버튼 줄 안의 저장 칸(.savebar-slot)에 든 띠는 다시 그리면 함께 사라진다. 잠시 밖으로 빼 두었다가 그린 뒤 새 칸으로 옮긴다 (render)
@@ -2729,8 +2736,7 @@ function drawApp() {
   const unknown = page && !views[page];
   chatScreen(views[page] ? page : '', n);  // 화면이 주는 대화 에이전트의 기본 대상 (chat.js). 화면 파일은 그리는 동안 옛 대화 주제를 더한다
   const body = (views[page] || viewHome)(n);
-  const miss = unknown ? `<div class="note warn between" role="status"><span>'${esc(page)}' 화면은 없어요. 작품 홈을 보여 드려요.</span><a class="btn small" href="${base()}">작품 홈 주소로</a></div>` : '';
-  paintApp(`<div class="shell">${sidebar(page === 'convert' || unknown ? 'home' : page || 'home')}<main class="main">${miss}${failStrip(page, n)}${draftStrip(page, n)}${branchPlace(page, body)}</main>${chatDock()}</div>`);
+  paintApp(`<div class="shell">${sidebar(page === 'convert' || unknown ? 'home' : page || 'home')}<main class="main">${mainHtml(page, n, body, unknown)}</main>${chatDock()}</div>`);
   syncPending();
   keepDrafts();  // 저장 · 버리기 · AI 본문으로 초안이 사라졌으면 임시본도 바로 지운다
   syncChat();

@@ -116,7 +116,7 @@ function learnCard() {
   const past = r && !open ? `<div class="note plain">${esc(r.summary || '')}<div class="small">${fmtDate(r.at)} · 수정 ${r.edits_used}건을 봤어요</div></div>
       ${r.suggestions.length ? `<div class="learn-list">${r.suggestions.map(suggestionRow).join('')}</div>` : '<div class="small">두 번 이상 되풀이된 고침을 찾지 못했어요. 본문을 더 고친 뒤 다시 찾아 보세요.</div>'}
       <div class="row"><button class="btn small ghost" data-action="learnDismiss">후보 지우기</button></div>` : '';
-  return `<section class="card pf-sec" id="pf-learn" tabindex="-1">
+  return `<section class="sec pf-sec" id="pf-learn" tabindex="-1">
       <div class="pf-head"><h2>내 수정에서 배우기</h2><button class="btn small" data-action="learnRun"${short ? ` disabled${st ? ` title="배울 수 있는 기록이 ${st.min}건 이상이면 찾을 수 있어요"` : ''}` : ''}>${r ? '다시 찾기' : '수정 기록에서 규칙 찾기'}</button></div>
       <p class="small pf-sub">AI 본문을 고친 기록에서 되풀이되는 고침을 찾아 규칙 후보로 보여 줘요.${count ? ` ${count}.` : ''}${help(`근거가 두 번 이상인 것만 내고, 고른 것만 이 작품 문체에 넣어요. 되돌린 수정, 동선 맞추기, 새로 써 넣기만 한 것은 보지 않아요.${st ? ` 배울 수 있는 기록이 ${st.min}건 이상이면 찾을 수 있어요.` : ''}`)}</p>
       ${open ? '<p class="small">찾은 후보는 맨 위 \'확인할 것\'에서 골라요.</p>' : past}
