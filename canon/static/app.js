@@ -1005,7 +1005,11 @@ function showError(e, opt = {}) {
 
 // run() 이 기다리는 요청. 5초가 넘으면 화면 가운데 상자에 경과 시간과 '기다리지 않기'를 보인다 (api 가 이 신호를 쓴다)
 let runAbort = null;
+// 가림막을 어둡게 그리기까지 기다리는 시간. 저장 · 지우기처럼 이 안에 끝나는 일은 화면이 어두워지지 않는다
+const BUSY_DELAY = 400;
 
+/** 짧은 기다림. fn 이 도는 동안 뒤 화면을 막고, BUSY_DELAY 가 지나면 가림막을 어둡게 그린다.
+    opt.now: 가림막을 바로 그린다. opt.render: 'always' | 'success' | 'never'. opt.retry: false 면 '다시 시도'를 붙이지 않는다 */
 async function run(label, fn, opt = {}) {
   const when = opt.render || 'always';
   let ok = false;
@@ -1014,9 +1018,16 @@ async function run(label, fn, opt = {}) {
   $('#busy-label').textContent = label;
   $('#busy-sec').textContent = '';  // 경과 초는 낭독하지 않는다(매초 바뀐다). 이름은 상자에 포커스할 때 한 번 읽힌다
   $('#busy-stop').hidden = true;
-  $('#busy').hidden = false;
+  // 가림막은 바로 띄워 클릭을 막되, BUSY_DELAY 동안은 투명하게(busy-wait) 둔다. hidden 을 보는 단축키 막기(hub.js · palette.js)도 그대로 걸린다
+  const box = $('#busy');
+  box.classList.toggle('busy-wait', !opt.now);
+  box.hidden = false;
+  const reveal = opt.now ? null : setTimeout(() => box.classList.remove('busy-wait'), BUSY_DELAY);
   // 기다리는 동안 뒤 화면을 키보드로도 못 건드리게 막고 포커스를 상자로 옮긴다. 끝나면 누른 버튼으로 돌려준다
   const back = document.activeElement;
+  // 누른 버튼에 기다림을 단다. 투명한 동안에도 버튼의 돌림표(run-wait)로 눌렸음을 보인다. 이미 aria-busy 가 있는 버튼(jobBtn)은 두지 않는다
+  const pressed = back && back.matches && back.matches('button, [role="button"]') && !back.hasAttribute('aria-busy') ? back : null;
+  if (pressed) { pressed.setAttribute('aria-busy', 'true'); pressed.classList.add('run-wait'); }
   const walls = ['#app', '#hub-pop', '#savebar'].map((q) => $(q)).filter(Boolean);
   walls.forEach((el) => { el.inert = true; });
   $('#busy .busy-box').focus();
@@ -1032,10 +1043,14 @@ async function run(label, fn, opt = {}) {
     showError(e, opt.retry === false ? {} : { retry: () => run(label, fn, opt) });  // 같은 동작을 같은 방식으로 한 번 더
   } finally {
     clearInterval(tick);
+    clearTimeout(reveal);
     runAbort = null;
+    // 버튼의 기다림은 포커스를 돌려주기 전에 뗀다. aria-busy 가 남으면 작업 결과가 포커스를 가져간다 (pollJobs)
+    if (pressed) { pressed.removeAttribute('aria-busy'); pressed.classList.remove('run-wait'); }
     // 그리는 사이 새로 생긴 저장 띠 · 알림 창도 함께 푼다
     [...walls, ...['#app', '#hub-pop', '#savebar'].map((q) => $(q)).filter(Boolean)].forEach((el) => { el.inert = false; });
-    $('#busy').hidden = true;
+    box.hidden = true;
+    box.classList.remove('busy-wait');
     if (back && back.isConnected && back !== document.body) back.focus({ preventScroll: true });  // 다시 그리기가 이 자리를 기억한다
     if (when === 'always' || (when === 'success' && ok)) render();
   }

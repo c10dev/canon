@@ -505,6 +505,11 @@ pre.brief.fold { max-height: 240px; overflow: hidden; -webkit-mask-image: linear
 #toast .t .x { border: none; background: transparent; color: inherit; cursor: pointer; font-size: 0.875rem; min-width: 32px; min-height: 32px; margin: calc(-1 * var(--space-6)) calc(-1 * var(--space-8)) calc(-1 * var(--space-6)) 0; }
 #busy { position: fixed; inset: 0; background: var(--overlay); display: flex; align-items: center; justify-content: center; z-index: var(--z-busy); }
 #busy[hidden] { display: none; }
+#busy.busy-wait { opacity: 0; cursor: progress; }  /* run(): 400ms(BUSY_DELAY) 동안은 투명하게 클릭만 막는다. 상자는 포커스를 받아야 해서 visibility 를 쓰지 않는다 */
+.run-wait { cursor: progress; }
+.run-wait::after { content: ""; width: 12px; height: 12px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: spin 0.9s linear infinite; display: inline-block; vertical-align: -0.15em; margin-inline-start: var(--space-6); flex: none; }  /* run() 이 기다리는 동안 누른 버튼의 돌림표. 글자색을 따라 primary 버튼에서도 보인다 */
+.btn.run-wait::after { margin-inline-start: 0; }  /* .btn 은 gap 이 띄운다 */
+@media (prefers-reduced-motion: reduce) { .run-wait::after { animation-duration: 3s; } }
 #busy-stop[hidden] { display: none; }
 .busy-box { padding: var(--space-24) 28px; border-radius: var(--radius-12); background: var(--surface); display: flex; flex-wrap: wrap; gap: var(--space-14); align-items: center; font-size: 0.875rem; max-width: 360px; line-height: 1.5; }  /* 단계 밖 28px: 작업 중 상자 좌우 */
 .busy-box:focus { outline: none; }

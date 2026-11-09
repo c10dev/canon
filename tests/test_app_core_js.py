@@ -230,3 +230,78 @@ def test_app_starts_when_storage_is_blocked():
       return [start, S.mode];
     })()""", {}, block_storage=True)
     assert got == ["api", "brief"]
+
+
+# run() 의 가림막 늦추기: 가짜 시계와 가짜 화면. '보인다'는 #busy 가 hidden 이 아니고 투명 표시(busy-wait)도 없는 때다
+FAKE_BUSY = """
+const timers = [];
+const cleared = [];
+setTimeout = (f, ms) => { timers.push({ f, ms }); return timers.length; };
+clearTimeout = (id) => { if (id) cleared.push(id); };
+clearInterval = () => {};
+render = () => {};
+toast = () => {};
+AbortController = class { constructor() { this.signal = {}; } abort() {} };
+const el = (extra = {}) => {
+  const cls = new Set();
+  const attrs = {};
+  return Object.assign({ hidden: true, inert: false, textContent: '', focused: 0, isConnected: true,
+    classList: { add: (c) => cls.add(c), remove: (c) => cls.delete(c), toggle: (c, on) => (on ? cls.add(c) : cls.delete(c)), contains: (c) => cls.has(c) },
+    setAttribute: (k, v) => { attrs[k] = String(v); }, removeAttribute: (k) => { delete attrs[k]; },
+    getAttribute: (k) => (k in attrs ? attrs[k] : null), hasAttribute: (k) => k in attrs,
+    focus() { this.focused += 1; } }, extra);
+};
+const btn = el({ matches: (q) => q.includes('button') });
+const page = { '#busy': el(), '#busy-label': el(), '#busy-sec': el(), '#busy-stop': el(), '#busy .busy-box': el(), '#app': el(), '#hub-pop': el(), '#savebar': el() };
+document = { querySelector: (q) => page[q] || null, activeElement: btn, body: {} };
+const busy = page['#busy'];
+const shown = () => !busy.hidden && !busy.classList.contains('busy-wait');
+"""
+
+
+@needs_node
+def test_run_quick_work_never_darkens_screen():
+    got = run_js(["app.js"], FAKE_BUSY + """(async () => {
+      const during = {};
+      const ok = await run('저장하는 중', async () => {
+        Object.assign(during, { shown: shown(), blocking: !busy.hidden, inert: page['#app'].inert, boxFocus: page['#busy .busy-box'].focused,
+          btnBusy: btn.getAttribute('aria-busy'), spin: btn.classList.contains('run-wait') });
+      }, { render: 'never' });
+      return { ok, during, delay: timers.map((t) => t.ms), cleared: cleared.length, everShown: shown(), hidden: busy.hidden,
+        inert: page['#app'].inert, btnBusy: btn.getAttribute('aria-busy'), spin: btn.classList.contains('run-wait'), backFocus: btn.focused };
+    })()""", {})
+    assert got == {
+        "ok": True,
+        # 투명한 막은 바로 깔려 클릭을 막고, 뒤 화면 inert 와 상자 포커스도 바로 건다. 누른 버튼엔 기다림을 단다
+        "during": {"shown": False, "blocking": True, "inert": True, "boxFocus": 1, "btnBusy": "true", "spin": True},
+        "delay": [400], "cleared": 1, "everShown": False, "hidden": True,
+        "inert": False, "btnBusy": None, "spin": False, "backFocus": 1,
+    }
+
+
+@needs_node
+def test_run_slow_work_darkens_after_delay():
+    got = run_js(["app.js"], FAKE_BUSY + """(async () => {
+      let done;
+      const out = {};
+      const p = run('지우는 중', () => new Promise((r) => { done = r; }), { render: 'never' });
+      out.before = shown();
+      timers[0].f();  // 400ms 가 지났다
+      out.after = shown();
+      done();
+      await p;
+      out.end = { shown: shown(), hidden: busy.hidden, wait: busy.classList.contains('busy-wait') };
+      return out;
+    })()""", {})
+    assert got == {"before": False, "after": True, "end": {"shown": False, "hidden": True, "wait": False}}
+
+
+@needs_node
+def test_run_now_darkens_at_once_and_keeps_job_button():
+    got = run_js(["app.js"], FAKE_BUSY + """(async () => {
+      btn.setAttribute('aria-busy', 'true');  // jobBtn 이 단 기다림은 run 이 떼지 않는다
+      let at = null;
+      await run('옮기는 중', async () => { at = { shown: shown(), spin: btn.classList.contains('run-wait') }; }, { render: 'never', now: true });
+      return { at, timers: timers.length, btnBusy: btn.getAttribute('aria-busy') };
+    })()""", {})
+    assert got == {"at": {"shown": True, "spin": False}, "timers": 0, "btnBusy": "true"}
