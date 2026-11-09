@@ -122,7 +122,8 @@ function draftBox(n, text) {
   // 손가락 기기에서는 글이 있는 본문을 고르기 전용으로 둔다: 눌러도 키보드가 오르지 않고, 문장을 눌러 · 끌어 고른다 (passage.js pickStart). 고치기는 고른 부분 도구의 '직접 수정'으로 한다
   const pick = !locked && !fixing && !!text.trim() && typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
   const lock = locked ? ' readonly aria-describedby="draft-lock"' : fixing ? ' readonly' : pick ? ' readonly data-pick aria-describedby="pick-hint"' : '';
-  const ta = `<textarea aria-label="${n}화 본문" data-draft="${n}"${lock} placeholder="여기에 본문을 쓰세요">${esc(text)}</textarea>`;
+  // data-keep: 저장 · 알림으로 화면을 다시 그려도 이 칸을 같은 요소로 남겨 Ctrl+Z 기록을 지킨다 (app.js paintApp)
+  const ta = `<textarea aria-label="${n}화 본문" data-draft="${n}" data-keep="draft-${n}"${lock} placeholder="여기에 본문을 쓰세요">${esc(text)}</textarea>`;
   const hint = pick ? '<p class="small pick-hint" id="pick-hint">문장을 누르면 골라져요. 누른 채 위아래로 끌면 여러 문장을 골라요.</p>' : '';
   return hint + ((marksOn && markable()) || nameable() || findingMarked(n, text) || tofixMarks(n, text).length || rvMarked(n, text) ? `<div class="hl-wrap"><div class="hl-layer" aria-hidden="true"><div class="hl-in"></div></div>${ta}</div>` : ta);
 }

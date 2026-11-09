@@ -120,6 +120,10 @@
 - 라우팅
 - 사이드바
 - 다시 그리기와 포커스
+- `drawApp` 은 `paintApp` 으로 `#app` 을 그린다. `data-keep` 칸은 그 칸과 조상을 제자리에 두고 형제만 새 것으로 바꾼다(`keepSwap`)
+- Chrome 은 요소를 문서에서 떼거나 옮기기만 해도(`moveBefore` 포함) 그 칸의 Ctrl+Z 기록을 지운다. 그래서 `data-keep` 칸은 떼었다 끼우지 않는다
+- `keepSwap` 은 키가 새 HTML 에 없거나, 조상 깊이 · 태그가 다르거나, `value` 가 다르면 지키지 않고 `#app` 을 통째로 바꾼다(`tests/test_keep_editor_js.py`)
+- `afterDraw` 는 포커스가 그대로 남은 칸(지킨 칸)의 커서 · 칸 안 스크롤을 다시 옮기지 않는다
 - 화면 코드는 화면 파일(`settings.js` · `home.js` · `setup.js` · `style.js` · `plot.js` · `write.js` · `review.js` · `research.js` 등)에 있다
 - 화면 파일은 `viewX` 와 `Object.assign(actions, {...})` 로 붙는다
 - 화면 파일은 `index.html` 에서 `app.js` 바로 뒤에 읽는다
@@ -294,6 +298,7 @@
 - 집필 화면 문체 표시
 - 손가락 기기에서 밑줄 친 곳은 같은 자리를 2초 안에 한 번 더 눌러야 이름 카드 · 도구를 띄운다(`markTap`). 빠른 두 번 누름으로 낱말이 골라지면 그것도 두 번째 누름으로 친다
 - 손가락 기기에서 글이 있는 본문 칸은 읽기 전용 고르기 칸이다(`draftBox` 의 `data-pick`, 문장 고르기는 `passage.js`). AI가 처음 쓰는 중이라 잠긴 칸과 빈 본문은 그대로다
+- `draftBox` 의 본문 칸은 `data-keep="draft-<화>"` 다(`app.js` `paintApp`)
 - 장치마다 이번 화 배지(`deviceBadges`, 본문 띠의 '문체 장치' 메뉴 `styleMenu`)
 - `styleMenu` 버튼은 640px 이하 집필 화면에서 `Aa` 아이콘만 보인다(이름은 `aria-label`)
 - 본문에서 장치 글자 · 금지 표현 밑줄(고치는 본문은 textarea 뒤에 깐 칸 `hl-layer`, 스크롤은 CSS 스크롤 타임라인 `hl-follow` 로 따라가고 안 되는 브라우저만 `scrollTop`, 읽기 전용은 `<mark>`)
@@ -647,6 +652,7 @@
 - 본문 다시 생성 확인은 지금 본문이 이전 판으로 남는다고 말하고 위험 버튼으로 두지 않는다
 - 저장 띠의 '고친 것 버리기'(`dropText`)는 묻고 나서 그 화의 저장하지 않은 본문과 임시 보관 초안을 지운다
 - 본문 저장(`saveText`)은 고침을 시작한 저장 본문(`textBase`)을 함께 보낸다. 다른 탭 · 기기가 먼저 저장했으면(409 `stale_text`) `textConflict` 가 묻는다
+- 본문 칸은 `data-keep` 칸이라 저장 · 알림으로 다시 그려도 Ctrl+Z 가 듣는다. 서버가 본문을 바꿨거나 밑줄 층(`.hl-wrap`)이 생기거나 사라지면 새 칸이 되어 기록이 사라진다
 - `textConflict` 의 '다시 불러오기'는 작품을 다시 받고 칸의 글은 둔다. '내 글로 덮어쓰기'는 `force` 로 다시 보낸다
 - 작업지시서(본문 · 검수 · 상태 승인 걸음, `viewBrief`)
 - 작업지시서는 화 머리와 공용 목차 틀이다(걸음 목차 `briefToc`: 끝남 ✓ · 지금 · 본문 뒤, 4번째는 상태 승인 화면으로 가는 줄)

@@ -2541,6 +2541,7 @@ function afterDraw(f) {
   if (target && focusEl(target)) return;
   if (!f) return;
   const el = findMark(f);
+  if (el && el === document.activeElement) return;  // data-keep 로 지킨 칸(paintApp): 포커스 · 커서 · 칸 안 스크롤이 그대로 남았으니 다시 옮기지 않는다
   if (!el || !focusEl(el)) return;
   if (f.start != null && typeof el.setSelectionRange === 'function') {
     try { el.setSelectionRange(f.start, f.end); } catch { /* 고를 수 없는 칸 */ }
@@ -2558,6 +2559,71 @@ function pageTitle() {
   return [stage, name, work !== name ? work : '', 'Canon'].filter(Boolean).join(' · ');
 }
 
+// ---------- 다시 그려도 지키는 칸 (data-keep) ----------
+// 브라우저의 되돌리기(Ctrl+Z) 기록은 요소에 붙어 있다. Chrome 은 요소를 문서에서 떼거나 옮기기만 해도(moveBefore 포함) 기록을 지운다.
+// 그래서 data-keep 칸은 떼었다 끼우지 않는다. 그 칸과 #app 까지의 조상은 제자리에 두고, 속성만 새 HTML 대로 맞추고, 나머지 형제를 새 것으로 바꾼다.
+
+/** 옛 요소 old 의 속성을 새 요소 fresh 와 같게 맞춘다 (없어진 속성은 지운다). */
+function syncAttrs(old, fresh) {
+  [...old.attributes].forEach((a) => { if (!fresh.hasAttribute(a.name)) old.removeAttribute(a.name); });
+  [...fresh.attributes].forEach((a) => { if (old.getAttribute(a.name) !== a.value) old.setAttribute(a.name, a.value); });
+}
+
+/** oldRoot(#app) 안의 data-keep 칸을 newRoot(새 HTML 을 읽은 조각) 의 같은 키 자리에 남기고 나머지를 새 것으로 바꾼다.
+    지킨 칸 목록을 돌려준다. 지킬 칸이 없으면(키가 새 HTML 에 없음 · 조상 모양이 다름 · 값이 다름) 아무것도 바꾸지 않고 null.
+    값이 다르면 서버가 본문을 바꾼 것(AI 본문 채택 · 버전 되돌리기 · 다시 불러오기)이라 새 칸을 쓴다 */
+function keepSwap(oldRoot, newRoot) {
+  const fresh = new Map();
+  newRoot.querySelectorAll('[data-keep]').forEach((el) => fresh.set(el.dataset.keep, el));
+  const pair = new Map();  // 새 노드 → 남길 옛 노드
+  const kept = [];
+  oldRoot.querySelectorAll('[data-keep]').forEach((old) => {
+    const nu = fresh.get(old.dataset.keep);
+    if (!nu || nu.tagName !== old.tagName || nu.value !== old.value) return;
+    const chain = [];
+    let a = old;
+    let b = nu;
+    for (; a !== oldRoot && b !== newRoot; a = a.parentNode, b = b.parentNode) {
+      if (!a || !b || a.tagName !== b.tagName || (pair.has(b) && pair.get(b) !== a)) return;
+      chain.push([b, a]);
+    }
+    if (a !== oldRoot || b !== newRoot) return;  // 깊이가 다르다
+    chain.forEach(([n, o]) => pair.set(n, o));
+    kept.push(old);
+  });
+  if (!kept.length) return null;
+  pair.set(newRoot, oldRoot);
+  const fill = (o, n) => {
+    const keepKids = new Set([...n.childNodes].filter((c) => pair.has(c)).map((c) => pair.get(c)));
+    [...o.childNodes].forEach((c) => { if (!keepKids.has(c)) o.removeChild(c); });
+    let cur = null;  // 마지막으로 놓은 자식. 새 자식은 그 바로 뒤에 넣고, 남길 자식은 옮기지 않는다
+    [...n.childNodes].forEach((c) => {
+      const o2 = pair.get(c);
+      if (o2) {
+        syncAttrs(o2, c);
+        if (!o2.hasAttribute('data-keep')) fill(o2, c);
+        cur = o2;
+      } else {
+        o.insertBefore(c, cur ? cur.nextSibling : o.firstChild);
+        cur = c;
+      }
+    });
+  };
+  fill(oldRoot, newRoot);
+  return kept;
+}
+
+/** #app 을 html 로 다시 그린다. data-keep 칸은 keepSwap 으로 지키고, 지킬 칸이 없으면 innerHTML 을 통째로 바꾼다. */
+function paintApp(html) {
+  const app = $('#app');
+  if (app.querySelector('[data-keep]')) {
+    const tpl = document.createElement('template');
+    tpl.innerHTML = html;
+    if (keepSwap(app, tpl.content)) return;
+  }
+  app.innerHTML = html;
+}
+
 function drawApp() {
   renderSavebar();
   // 버튼 줄 안의 저장 칸(.savebar-slot)에 든 띠는 다시 그리면 함께 사라진다. 잠시 밖으로 빼 두었다가 그린 뒤 새 칸으로 옮긴다 (render)
@@ -2570,7 +2636,7 @@ function drawApp() {
   if ((p !== 'p' || !P()) && typeof hideTool === 'function') hideTool();
   // 작품 밖 화면: 작품 밖 사이드바(outSidebar) 옆에 본문. 본문 폭은 화면마다 다르다
   const outside = (id, width, body) => {
-    $('#app').innerHTML = `<div class="shell">${outSidebar(id)}<main class="main out-main" style="--out-w:${width}px">${body}</main></div>`;
+    paintApp(`<div class="shell">${outSidebar(id)}<main class="main out-main" style="--out-w:${width}px">${body}</main></div>`);
   };
   if (p === 'usage') return outside('usage', 1180, viewUsage());
   if (p === 'revlab') {
@@ -2591,7 +2657,7 @@ function drawApp() {
     return;
   }
   if (p === 'play') {
-    $('#app').innerHTML = viewPlayRoute();
+    paintApp(viewPlayRoute());
     playAfterDraw();
     return;
   }
@@ -2602,7 +2668,7 @@ function drawApp() {
   const unknown = page && !views[page];
   const body = (views[page] || viewHome)(n);
   const miss = unknown ? `<div class="note warn between" role="status"><span>'${esc(page)}' 화면은 없어요. 작품 홈을 보여 드려요.</span><a class="btn small" href="${base()}">작품 홈 주소로</a></div>` : '';
-  $('#app').innerHTML = `<div class="shell">${sidebar(page === 'convert' || unknown ? 'home' : page || 'home')}<main class="main">${miss}${failStrip(page, n)}${draftStrip(page, n)}${branchPlace(page, body)}</main></div>`;
+  paintApp(`<div class="shell">${sidebar(page === 'convert' || unknown ? 'home' : page || 'home')}<main class="main">${miss}${failStrip(page, n)}${draftStrip(page, n)}${branchPlace(page, body)}</main></div>`);
   syncPending();
   keepDrafts();  // 저장 · 버리기 · AI 본문으로 초안이 사라졌으면 임시본도 바로 지운다
   syncChat();
