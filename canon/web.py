@@ -3151,8 +3151,9 @@ def _job_write(name: str, body: "JobIn", p: Project, kind: str, n: int | None, l
                 job.note = f"{n}화 본문 쓰는 중"
                 cut: list = []
                 rec: list = []
+                # 흘려 받을 수 있는 백엔드면 쓰는 글을 작업의 부분 글(Job.partial)로 보인다. 집필 화면이 읽기 전용 미리보기에 그린다
                 text = pipeline.write_episode(llm, store.load(name), n, use_board=body.board != "none", use_cues=use_cues, cut=cut,
-                                              sent=rec)
+                                              sent=rec, on_chunk=job.set_partial)
 
                 def save(q):
                     pipeline.replace_text(q.episode(n), text, written_by=pipeline.writer_of(llm), meta_cut=cut)  # 지금 본문이 있으면 '이전 판'에 남는다
@@ -3162,6 +3163,7 @@ def _job_write(name: str, body: "JobIn", p: Project, kind: str, n: int | None, l
                     cue.mark_used(q, n, use_cues)  # 큐 시트 없이 쓴 본문: 다시 생성도 넣지 않고 화면이 '쓴 큐 시트'로 보이지 않는다
                     sent.keep(name, n, rec, text)  # 이 본문이 받은 요청 그대로 (작품 폴더 sent/)
                 _edit(name, save)
+                job.set_partial("")  # 본문을 저장했다. 이어지는 검수 동안 미리보기를 남기지 않는다
                 return None
     else:
         if not e.text:
