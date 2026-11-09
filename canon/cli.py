@@ -1309,6 +1309,7 @@ def _update(name: str, p: Project, n: int, yes: bool, from_json: str | None = No
     _print_delta(delta)
     if not yes:  # 미리 보기가 반영 결과와 같도록 먼저 묻는다
         _ask_flagged(p, delta)
+        _ask_near_facts(delta)
     _print_relation_preview(p, delta, hold=yes)
     if findings.open_findings(p.episode(n)):
         _print_issues(p, n, closed=False)
@@ -1318,6 +1319,7 @@ def _update(name: str, p: Project, n: int, yes: bool, from_json: str | None = No
     if not confirm("이 변경을 반영할까요? (아니오면 project.json 수정 후 다시 update)", yes):
         return False
     held = 0
+    kept_facts = len(delta.dismissed.new_facts)
     if yes:  # -y 는 자동 집필처럼 인물 설정 · 호칭을 바꾸지 않고 남겨 둔다
         held = features.hold(p, delta)
     else:
@@ -1331,7 +1333,25 @@ def _update(name: str, p: Project, n: int, yes: bool, from_json: str | None = No
     print(f"{n}화 확정 완료")
     if held:
         print(f"설정 바꾸기 · 호칭 제안 {held}개는 반영하지 않고 남겨 뒀어요. 웹의 인물 · 관계도 화면에서 적용하거나 버리세요")
+    if yes and len(delta.dismissed.new_facts) > kept_facts:
+        print(f"이미 있는 사실과 비슷한 새 사실 {len(delta.dismissed.new_facts) - kept_facts}개는 반영하지 않고 빼 뒀어요. 웹의 상태 승인 화면 반영 기록에서 확정 사실에 넣을 수 있어요")
     return True
+
+
+def _ask_near_facts(d: StateDelta) -> None:
+    """이미 있는 확정 사실과 비슷한 새 사실(features._near_facts 가 d.fact_near 에 적은 것)을 보여 주고 따로 묻는다.
+    웹 상태 승인 화면처럼 기본은 빼고, 빼면 반영 기록의 빼 둔 항목에 남긴다."""
+    near = [x for x in d.fact_near if x.fact in d.new_facts]
+    if not near:
+        return
+    print("\n--- 이미 있는 사실과 비슷해 기본으로 빼 둔 새 사실 (새 사실 ← 이미 있는 사실) ---")
+    for x in near:
+        print(f"- {x.fact}  ← {x.like}")
+    if not confirm(f"새 사실 {len(near)}개도 반영할까요? (아니오면 빼고 반영해요)", False):
+        gone = {x.fact for x in near}
+        d.dismissed.new_facts += [f for f in d.new_facts if f in gone and f not in d.dismissed.new_facts]
+        d.new_facts = [f for f in d.new_facts if f not in gone]
+    d.fact_near = []
 
 
 def _ask_flagged(p: Project, d: StateDelta) -> None:
@@ -1440,7 +1460,7 @@ def cmd_auto(a: argparse.Namespace) -> None:
         return
     policy = autorun.Policy(check=not a.no_check, max_issues=a.max_issues, ignore_minor=a.ignore_minor,
                             stop_on_critical=not a.no_stop_critical, max_shift=a.max_shift,
-                            stop_on_stage=a.stop_on_stage, stop_on_warnings=a.stop_on_warnings,
+                            stop_on_stage=a.stop_on_stage, stop_on_warnings=a.stop_on_warnings, stop_on_audit=a.stop_on_audit,
                             confirm_plots=a.confirm_plots, review_every=a.review_every,
                             hand_pick_opening=not a.auto_opening, polish=a.polish)
     if not a.resume:
@@ -2258,7 +2278,7 @@ def cmd_play(a: argparse.Namespace) -> None:
         print(f"플레이를 끝냈어요: {info.ending}. 되감으면 다시 이어 갈 수 있어요")
 
 
-STAGE_LABELS = {"plan": "계획", "write": "본문", "check": "검수", "state": "상태 변경안", "name": "이름 추천",
+STAGE_LABELS = {"plan": "계획", "write": "본문", "check": "검수", "state": "상태 변경안", "audit": "누락 검사", "name": "이름 추천",
                 "revise": "부분 수정", "illustration": "삽화 프롬프트", "play": "플레이 장면", "chat": "플롯 대화", "research": "연구"}
 
 
@@ -2713,7 +2733,8 @@ def _write_commands(sub, add) -> None:
     sp.add_argument("--no-stop-critical", action="store_true", help="심각도 '치명'인 어긋남이 있어도 개수만 봄 (기본: 하나라도 있으면 멈춤)")
     sp.add_argument("--max-shift", type=float, default=0.3, help="관계 온기·신뢰가 한 화에 이보다 많이 바뀌면 멈춤 (0: 안 봄)")
     sp.add_argument("--stop-on-stage", action="store_true", help="관계 단계가 바뀌면 멈춤")
-    sp.add_argument("--stop-on-warnings", action="store_true", help="상태 변경안 경고가 있으면 멈춤")
+    sp.add_argument("--stop-on-warnings", action="store_true", help="상태 변경안 경고가 있으면 멈춤 ('[누락 의심]'은 세지 않음)")
+    sp.add_argument("--stop-on-audit", action="store_true", help="상태 변경안 누락 검사가 '[누락 의심]'을 내면 멈춤 (작품 설정 state_audit 를 켤 때만)")
     sp.add_argument("--auto-opening", action="store_true", help="1~3화도 멈추지 않고 정책대로 반영 (기본은 1~3화에서 멈춤)")
     sp.add_argument("--polish", action="store_true", help="화마다 쓴 뒤 서술 문장만 다듬은 판으로 바꾸기 (본문 부분 수정 단계 모델, 쓴 판은 이전 판에 남음)")
     sp.add_argument("--confirm-plots", action="store_true", help="초안 플롯을 자동 확정하고 진행")

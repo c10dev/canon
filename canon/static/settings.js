@@ -6,10 +6,10 @@
 // ----- 단계 (settings.STAGES 와 같은 순서) -----
 
 const STAGES = [['plan', '계획', '설정 제안 · 문체 분석 · 기승전결 · 화별 플롯'], ['board', '스토리보드 · 큐 시트', '쓰기 전 화별 스토리보드와 큐 시트'], ['write', '본문 쓰기', '화 본문'], ['check', '검수', '모순 찾기'],
-  ['state', '상태 변경안', '본문에서 바뀐 상태 뽑기'], ['name', '이름 · 지명 추천', ''], ['revise', '본문 부분 수정', '고른 부분 고치기 · 서술 다듬기'],
+  ['state', '상태 변경안', '본문에서 바뀐 상태 뽑기'], ['audit', '상태 변경안 누락 검사', '작품 설정에서 켤 때만, 싼 모델 권장'], ['name', '이름 · 지명 추천', ''], ['revise', '본문 부분 수정', '고른 부분 고치기 · 서술 다듬기'],
   ['illustration', '삽화 프롬프트', ''], ['play', '플레이 장면', '플레이 모드'], ['chat', '플롯 대화', '기승전결 · 플롯 화면의 AI 대화']];
 // 백엔드를 비우면 따르는 단계 (settings.STAGE_PARENT 와 같다)
-const STAGE_PARENT = { board: 'plan', name: 'plan', revise: 'write', illustration: 'plan', play: 'write', chat: 'plan' };
+const STAGE_PARENT = { board: 'plan', audit: 'state', name: 'plan', revise: 'write', illustration: 'plan', play: 'write', chat: 'plan' };
 const stageName = (s) => (STAGES.find(([x]) => x === s) || [s, s])[1];
 // '본문 쓰기를 따름' · '계획을 따름' (조사 josa 는 app.js)
 const stageFollow = (s) => `${stageName(s)}${josa(stageName(s), '을', '를')} 따름`;
@@ -99,6 +99,7 @@ const SET_ROWS = [
   { id: 'scope', cat: 'writing', sec: '검수', label: '바뀐 곳만 새로 짚기', words: '검수 다시 검수 바뀐 문단 새 지적 회차' },
   { id: 'motion', cat: 'writing', sec: '검수', label: '동선 따로 보기', words: '검수 동선 손 자세 향한 쪽 물건' },
   { id: 'widen', cat: 'writing', sec: '검수', label: '넓혀 찾기', words: '검수 넓히기 옛 화 장편' },
+  { id: 'audit', cat: 'writing', sec: '검수', label: '상태 변경안 누락 검사', words: '상태 변경안 누락 빠진 것 검사 경고' },
   { id: 'numbers', cat: 'writing', sec: '보기 · 보관', label: '관계를 숫자로 보기', words: '관계 숫자 말' },
   { id: 'snapshots', cat: 'writing', sec: '보기 · 보관', label: '스냅샷 모두 남기기', words: '스냅샷 되돌리기 장편 보관' },
   { id: 'backup-list', cat: 'backup', sec: '백업에서 되돌리기', label: '백업에서 되돌리기', words: '백업 되돌리기 복원 이전 판 시간별 지우기 전 실수' },
@@ -348,6 +349,9 @@ function setRowHtml(id) {
     case 'scope':
       return p ? setRow(id, '바뀐 곳만 새로 짚기', '다시 검수할 때 지난 검수 뒤 고친 문단과 앞뒤 문단에서 나온 새 지적만 넣어요. 바뀌지 않은 문단은 지난 검수가 이미 봐서, 고칠 때마다 새 지적이 또 나오는 일을 줄여요. 치명 지적은 어디서 나와도 넣어요.',
         SW(id, p.settings.check_scope !== false, '바뀐 곳만 새로 짚기'), { wide: false }) : '';
+    case 'audit':
+      return p ? setRow(id, '상태 변경안 누락 검사', '상태 변경안을 받은 뒤 싼 모델로 본문을 한 번 더 읽어 비밀 공개 · 관계 사건 · 약속 · 부상 · 정체 공개 · 장소 이동 · 소지품이 빠졌는지 찾아요. 찾은 것은 \'[누락 의심]\' 경고로만 붙고 반영되지 않아요. 화마다 상태 변경안 호출이 1번 늘어요. 모델은 단계별 모델의 \'상태 변경안 누락 검사\'에서 골라요.',
+        SW(id, !!p.settings.state_audit, '상태 변경안 누락 검사'), { wide: false }) : '';
     case 'motion':
       return p ? setRow(id, '동선 따로 보기', '검수할 때 이번 화 본문만 넣고 인물의 자리 · 향한 쪽 · 손 · 물건이 어긋난 곳을 한 번 더 찾아요. 본 검수와 동시에 불러서 기다리는 시간은 그대로고, 검수 호출이 1번 늘어요.',
         SW(id, p.settings.check_motion !== false, '동선 따로 보기'), { wide: false }) : '';
@@ -889,6 +893,7 @@ Object.assign(actions, {
       echoes: () => { const on = p.settings.recent_echoes === false; return setProjectSave(key, 'recent-echoes', { on }, (x) => { x.settings.recent_echoes = on; }); },
       'after-write': () => { const on = !p.settings.check_after_write; return setProjectSave(key, 'check-after-write', { on }, (x) => { x.settings.check_after_write = on; }); },
       scope: () => { const on = p.settings.check_scope === false; return setProjectSave(key, 'check-scope', { on }, (x) => { x.settings.check_scope = on; }); },
+      audit: () => { const on = !p.settings.state_audit; return setProjectSave(key, 'state-audit', { on }, (x) => { x.settings.state_audit = on; }); },
       motion: () => { const on = p.settings.check_motion === false; return setProjectSave(key, 'check-motion', { on }, (x) => { x.settings.check_motion = on; }); },
       widen: () => { const on = !p.settings.check_widen; return setProjectSave(key, 'check-widen', { on }, (x) => { x.settings.check_widen = on; }); },
       numbers: () => { const on = !p.settings.show_numbers; return setProjectSave(key, 'view', { show_numbers: on }, (x) => { x.settings.show_numbers = on; }); },

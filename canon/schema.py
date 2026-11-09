@@ -256,6 +256,7 @@ class Settings(BaseModel):
     check_widen: bool = Field(False, description="장편 검수 넓히기: 검수 뒤 진술마다 옛 화를 더 찾아, 첫 검수에 없던 근거가 나온 진술만 다시 묻는다 (검수 호출 2번 더)")
     check_after_write: bool = Field(False, description="웹에서 본문을 처음 쓰면 같은 작업에서 바로 검수한다 (web._job_write). 새 판(다시 생성)은 검수하지 않는다")
     check_scope: bool = Field(True, description="다시 검수(두 번째 회차부터)는 지난 검수 뒤 바뀐 문단에서 나온 새 지적만 넣는다 (pipeline.check_scope · findings.scoped)")
+    state_audit: bool = Field(False, description="상태 변경안을 받은 뒤 audit 단계 모델로 본문에 있는데 빠진 것을 한 번 더 찾아 '[누락 의심]' 경고로만 붙인다 (pipeline.audit_delta). 반영하지 않는다")
     heat_plan: bool = Field(False, description="단편 기승전결을 기획할 때 열 계획(화별 열 눈금 · 몫, 판돈 · 제약 · 관객 · 금지선, 뒤집힘)을 함께 받는다 (canon/heatplan.py)")
     heat_words: list[str] = Field(default_factory=list, description="정점 대목을 찾을 때 세는 낱말 (작가가 적음, metrics.peak_window). 비우면 정점 대목 경고를 하지 않는다")
     check_motion: bool = Field(True, description="검수 때 동선만 따로 한 번 더 본다 (pipeline.motion_check: 이번 화 본문만 넣는 check 호출 1번 더, 본 검수와 동시에 부름)")
@@ -2020,6 +2021,12 @@ class DismissedItems(BaseModel):
     address_changes: list[AddressChange] = Field(default_factory=list)
 
 
+class FactNear(BaseModel):
+    """새 사실 하나와 그와 비슷한 이미 있는 확정 사실 (context.near_fact)."""
+    fact: str
+    like: str
+
+
 class AddedItems(BaseModel):
     """반영할 때 실제로 새로 더해진 항목 (pipeline.apply_delta · apply_restate 가 적는다). 반영 취소가 이것만 뺀다."""
     relationships: list[list[str]] = Field(default_factory=list, description="새로 더한 관계 쌍 [a, b]")
@@ -2054,6 +2061,9 @@ class StateDelta(BaseModel):
     # 프로그램이 채운다 (pace.clean_delta). AI 응답 형식에서 뺀다. 상태 승인 화면이 이 차례의 relationship_updates 를 기본으로 체크하지 않는다
     rel_flagged: SkipJsonSchema[list[int]] = Field(
         default_factory=list, description="relationship_updates 가운데 유형 · 설명의 극성이 반영 뒤 관계 단계와 반대인 것의 차례")
+    # 프로그램이 채운다 (features._near_facts). AI 응답 형식에서 뺀다. 상태 승인 화면이 이 새 사실을 기본으로 체크하지 않고, 자동 반영은 뺀다
+    fact_near: SkipJsonSchema[list[FactNear]] = Field(
+        default_factory=list, description="new_facts 가운데 이미 있는 확정 사실과 글 조각이 많이 겹치는 것과 그 옛 사실. 글로 짚어 차례가 바뀌어도 맞는다")
     # 프로그램이 채운다 (pipeline.extract_state). AI 응답 형식에서 뺀다. 반영할 때 지금 본문과 다르면 web 반영이 막는다
     basis: SkipJsonSchema[str] = Field("", description="변경안을 만든 본문의 지문 (pipeline.text_basis). 비면 모름")
     # 프로그램이 채운다 (features.clean). AI 응답 형식에서 뺀다. warnings 와 같은 차례이고, 짧으면 모자란 칸은 "" 로 본다
@@ -2107,6 +2117,21 @@ class RelationshipChange(BaseModel):
     b: str = Field(description="인물 id")
     type: str = Field(description="연인, 라이벌, 사제, 가족 등")
     description: str = ""
+
+
+AuditKind = Literal["비밀 공개", "관계 사건", "약속", "부상", "정체 공개", "장소 이동", "소지품"]
+
+
+class AuditItem(BaseModel):
+    """상태 변경안 누락 검사가 짚은 것 하나 (pipeline.audit_delta)."""
+    kind: AuditKind = Field(description="빠진 것의 종류")
+    missing: str = Field(description="본문에는 있는데 변경안에 없는 것, 한 문장")
+    quote: str = Field(description="그 근거인 본문 문장을 글자 그대로")
+
+
+class AuditReport(BaseModel):
+    """상태 변경안 누락 검사 응답. 빠진 것이 없으면 빈 목록."""
+    items: list[AuditItem] = Field(default_factory=list, description="본문에 있는데 변경안에 빠진 것. 최대 6개, 확실한 것만")
 
 
 class StateDeltaAI(StateDelta):
