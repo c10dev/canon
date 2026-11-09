@@ -21,7 +21,7 @@ from .llm import _inline_refs, dump
 from .schema import Birth, Character, ChatMessage, Claim, ConsistencyIssue, ConsistencyReport, Foreshadow, PlayInfo, PlotBatch, Project, Selection, StateDelta, StateDeltaAI, StoryElement
 from .schema import ArcPlan, ArcProposal, CueSheetDraft, HeatArcPlan, HeatArcProposal, HeatProposal, SeriesPlan, StoryboardDraft
 from .schema import PassageRevision, PlotAgentStep, SetupRevision, StyleRevision
-from . import address, board, charlog, echoes, foreshadows, heatplan, knows, pairlog, stage, statwin, timeline
+from . import address, board, charlog, coord, echoes, foreshadows, heatplan, knows, pairlog, stage, statwin, timeline
 from . import offscreen
 from .maps import prompt as mapprompt
 
@@ -950,13 +950,27 @@ def lines_block(p: Project) -> str:
     return f"\n[이야기 줄기 (메인에서 갈라졌다 합류하는 서브플롯 · 회상 · 외전)]\n{b}" if b else ""
 
 
+# 쓰기 재료 조율(coord.on)의 플롯 사건 규칙. 감독은 무엇이 바뀌는지만 정한다 (조율판 실측 2026-11-09, coord.py)
+COORD_PLOT_RULE = ("- events 에는 사건마다 무엇이 바뀌는지(발견, 결정, 관계, 감정)를 씁니다. 인물이 어떤 동작을 하는지(손, 자세, 물건을 꺼내고 넣기, "
+                   "옷을 접기, 이동 경로)는 정하지 않습니다. 동작은 본문을 쓸 때 정합니다.\n")
+
+
+def coord_prompt(p: Project, n: int) -> str:
+    """조율 메모 만들기 (pipeline.make_coord). 플롯 summary · events · ending_hook 만 넣는다. 글은 조율판 실측 그대로 (2026-11-09)."""
+    plot = p.episode(n).plot
+    return ("아래 화 플롯을 감독의 조율 메모로 줄입니다. 감독은 장면에서 무엇이 바뀌어야 하는지만 정하고, "
+            "인물이 어떤 동작을 하는지(손, 자세, 물건을 꺼내고 넣기, 옷을 접기, 이동 경로, 몇 시 몇 분)는 정하지 않습니다. "
+            "핵심 대사(따옴표 안)는 작가가 정한 것이라 글자 그대로 남깁니다.\n\n"
+            + json.dumps({"summary": plot.summary, "events": plot.events, "ending_hook": plot.ending_hook}, ensure_ascii=False, indent=1))
+
+
 def plot_rules(p: Project, opening: bool = False) -> str:
     """화별 플롯을 쓸 때 지킬 규칙. 초안 생성과 대화형 수정이 같이 쓴다.
     opening 이면 1~3화 규칙과 장르별 초반 박자를 붙인다 (다룰 화에 1~3화가 있을 때만, 장편 뒤쪽 프롬프트를 키우지 않게)."""
     pov_rule = pov_plot_rule(p)
     common = f"""- 각 화는 소속 구간(act)의 goal 을 향해 전진해야 하며, 구간의 key_turn 은 해당 구간 안의 특정 화에 배치합니다.
 - 한 화에 사건 3~6개, 분량은 약 {p.meta.words_per_episode}자 기준.
-- emotional_shift 는 '인물: 처음 → 끝 (계기)' 모양의 짧은 줄로 적습니다 (예: "서연: 전화를 피함 → 먼저 전화를 검 (아버지의 편지)"). 본문 문장처럼 쓰지 않습니다. 문장으로 쓰면 본문에 그대로 옮겨집니다.
+{COORD_PLOT_RULE if coord.on(p) else ""}- emotional_shift 는 '인물: 처음 → 끝 (계기)' 모양의 짧은 줄로 적습니다 (예: "서연: 전화를 피함 → 먼저 전화를 검 (아버지의 편지)"). 본문 문장처럼 쓰지 않습니다. 문장으로 쓰면 본문에 그대로 옮겨집니다.
 - 모든 화가 같은 모양이 되지 않도록, 필요한 화에는 회상, 시간 건너뛰기, 곁가지 사건, 주인공의 잘못된 선택을 씁니다. 갈등은 너무 깔끔하게 정리하지 않습니다.
 - 이야기 요소는 시점을 지킵니다. 'n화부터 생김'은 그 화 전에 사실로 쓰지 않고, '나올 화'에는 그 요소를 사건으로 넣고, '드러나는 화' 전에는 암시만 둡니다.
 - characters 에는 인물 id 만 씁니다.
@@ -1375,7 +1389,7 @@ def attire_write_rule(p: Project, board: bool = False) -> str:
         if mode == "lean":  # 꼭 쓸 것만은 끝 차림 목록을 넣지 않고 차림이 바뀌는 순간만 넣는다
             return ("\n\n차림: appearance 의 옷차림보다 [인물 현재 상태]의 attire 를 지키고, 스토리보드의 '차림이 바뀌는 순간'에만 바꿉니다. "
                     "차림은 장면마다 묘사하지 않고 필요할 때만 씁니다.")
-        src = "고정점" if mode == "fixed" else "스토리보드"
+        src = "고정점" if mode in ("fixed", "coord") else "스토리보드"  # 조율도 고정점만 위에 선다 (board.fixed_only)
         return f"\n\n차림: appearance 의 옷차림보다 [인물 현재 상태]의 attire 와 {src}의 끝 차림을 지키고, 차림은 장면마다 묘사하지 않고 필요할 때만 씁니다."
     return ("\n\n차림: [인물 현재 상태]의 attire 는 직전 화가 끝났을 때 그 인물의 옷, 몸에 남은 상처 · 얼룩, 지닌 물건입니다. "
             "인물 설정의 appearance 에 적힌 옷차림은 평소 모습이라 attire 와 다르면 attire 를 따르고, 이 화에서 갈아입거나 다치면 그 뒤로는 바뀐 차림을 따릅니다. "
@@ -2570,7 +2584,7 @@ def passage_head(p: Project, n: int) -> str:
 {fact_rows(p, facts)}{f"{chr(10)}{chr(10)}# 이야기 요소 (이번 화와 관련된 설정, 어기지 말 것){chr(10)}{els}" if els else ""}
 {extra_block(extra)}
 # 이번 화 플롯
-{dump(write_plot(ep.plot))}{f"{chr(10)}{chr(10)}# 이번 화 서술 시점 (스타일 프로필보다 우선){chr(10)}{pov}" if (pov := pov_block(p, n)) else ""}"""
+{dump(write_plot(ep.plot, coord.memo(p, n)))}{f"{chr(10)}{chr(10)}# 이번 화 서술 시점 (스타일 프로필보다 우선){chr(10)}{pov}" if (pov := pov_block(p, n)) else ""}"""
 
 
 def passage_prompt(p: Project, n: int, sel: Selection, message: str, preset: str = "", head: str | None = None) -> str:
@@ -3015,7 +3029,7 @@ def context_parts(p: Project, n: int, *, use_board: bool = True, pre: str = "", 
         Part("story", f"\n\n# 지금까지의 줄거리\n{story_so_far(p, n) or '없음 (첫 화)'}"),
         Part("structure", f"\n\n{where}"),
         *lines, *prev_head, *prev_rest,
-        Part("plot", f"\n\n# 이번 화 플롯\n{dump(write_plot(ep.plot) if write else ep.plot)}"),
+        Part("plot", f"\n\n# 이번 화 플롯\n{dump(write_plot(ep.plot, coord.memo(p, n)) if write else ep.plot)}"),
         Part("pov", pov), Part("devices", dev), Part("material", material_block(p, n))]
     return follow_parts(p, parts, trace)
 
@@ -3060,7 +3074,7 @@ def serial_parts(p: Project, n: int, *, where: str, act_line: str, lines: list[P
     if head_only:
         return head
     return head + list(prev_rest) + [
-        Part("plot", f"\n\n# 이번 화 플롯\n{dump(write_plot(p.episode(n).plot) if write else p.episode(n).plot)}"), *tail]
+        Part("plot", f"\n\n# 이번 화 플롯\n{dump(write_plot(p.episode(n).plot, coord.memo(p, n)) if write else p.episode(n).plot)}"), *tail]
 
 
 def write_head(p: Project, n: int) -> str:
@@ -3333,7 +3347,8 @@ def episode_parts(p: Project, n: int, approach: str = "", use_board: bool = True
             + priority_line(p, n, sb is not None)
             + statwin.write_rule(p, n, show_format=not windows, budget=context.budget(p, "stat_lines"), trace=trace)
             + attire_write_rule(p, board=sb is not None)
-            + ending_line(p, n))
+            + ending_line(p, n)
+            + (f"\n\n{coord.NOTE}" if coord.memo(p, n) else ""))  # 쓰기 재료 조율: 조율 메모를 넣었을 때만
     parts.append(Part("instructions", tail))
     if sheet and sheet.cues:
         parts.append(Part("cues", cue_write_block(p, sheet)))
@@ -3450,9 +3465,11 @@ def shift_label(text: str) -> bool:
     return "→" in text or "->" in text
 
 
-def write_plot(plot):
+def write_plot(plot, memo=None):
     """쓰기 요청에 넣는 플롯. 라벨 모양이 아닌 emotional_shift(예전 플롯의 행동 문장)는 뺀다. 플롯 화면은 그대로 본다.
-    검수 · 상태 변경안 · 부분 수정도 이것을 넣는다: 쓰기가 받지 않은 문장을 '플롯 누락'으로 짚지 않게 (2026-11-04, 84화 고정점만 쓴 판 셋이 모두 이 지적을 받았다)."""
+    검수 · 상태 변경안 · 부분 수정도 이것을 넣는다: 쓰기가 받지 않은 문장을 '플롯 누락'으로 짚지 않게 (2026-11-04, 84화 고정점만 쓴 판 셋이 모두 이 지적을 받았다).
+    memo 는 쓰기 재료 조율의 조율 메모(coord.memo)다. 주면 summary · events · ending_hook 을 그것으로 바꾼다. 검수도 같은 글을 받는다."""
+    plot = coord.plot(plot, memo)
     return plot if shift_label(plot.emotional_shift) else plot.model_copy(update={"emotional_shift": ""})
 
 
@@ -3501,9 +3518,10 @@ def board_block(p: Project, n: int, write: bool = False, budget: int = 0, trace:
     dl = board.deadline_rows(p, n, b, budget, trace)
     if dl:
         out += ["열린 기한:"] + dl
-    if b.handover:
+    rows = [h for h in (coord.handover(b.handover) if write and coord.on(p) else b.handover) if h.text.strip()]  # 조율이면 몸 · 물건 줄을 뺀다
+    if rows:
         out.append("직전 화에서 이어받을 것:")
-        out += [f"- {f'[{h.kind}] ' if h.kind.strip() else ''}{h.text.strip()}" for h in b.handover if h.text.strip()]
+        out += [f"- {f'[{h.kind}] ' if h.kind.strip() else ''}{h.text.strip()}" for h in rows]
     if b.scenes and not fixed:
         out.append("장면:")
         for k, sc in enumerate(b.scenes, 1):
@@ -3529,7 +3547,7 @@ def board_block(p: Project, n: int, write: bool = False, budget: int = 0, trace:
         where = (lambda m: "") if fixed else (lambda m: f"{m.scene}장면에서 " if m.scene else "장면 사이에 ")
         out += [f"- {name.get(m.character_id, m.character_id)}: {where(m)}{m.to}(으)로" for m in b.moves]
     if b.attire:
-        out.append("끝 차림 (바뀐 인물만):")
+        out.append(coord.ATTIRE_HEAD if write and coord.on(p) else "끝 차림 (바뀐 인물만):")
         out += [f"- {name.get(a.character_id, a.character_id)} = {a.end.strip()}" for a in b.attire if a.end.strip()]
     if b.protect:
         out.append("이번 화에서 깨지 않을 것 (다음 화가 전제함):")
@@ -4194,7 +4212,7 @@ def state_prompt(p: Project, n: int, cuts: tuple[int, int] | None = None, head: 
     secret_block = "" if shared else f"""[현재 비밀]{cut_note(secrets_cut, "이번 화 인물과 관련된 것만", "목록에 없는 비밀의 id 는 쓰지 않습니다")}
 {dump(secrets) or "없음"}
 """
-    plot = f"[이번 화 플롯]: 위 자료의 '{n}화 플롯' 칸을 봅니다.\n" if head else f"[이번 화 플롯]\n{dump(write_plot(ep.plot))}\n"
+    plot = f"[이번 화 플롯]: 위 자료의 '{n}화 플롯' 칸을 봅니다.\n" if head else f"[이번 화 플롯]\n{dump(write_plot(ep.plot, coord.memo(p, n)))}\n"
     facts = state_facts_block(p, n, ids, facts_budget) if p.serial and not head else ""
     fact_rule = ""
     if p.serial and (head or facts):
@@ -4605,7 +4623,7 @@ def check_material(p: Project, n: int, mode: str = "", sized: bool = False, lang
 {past or "None (first episode)"}
 
 # Plot of episode {n}
-{dump(write_plot(ep.plot))}{line}{pov}{protect_block(ep)}
+{dump(write_plot(ep.plot, coord.memo(p, n)))}{line}{pov}{protect_block(ep)}
 
 # Text of episode {n} (under review)
 {ep.text}"""
@@ -4627,7 +4645,7 @@ def check_material(p: Project, n: int, mode: str = "", sized: bool = False, lang
 {past or "없음 (첫 화)"}
 
 # {n}화 플롯
-{dump(write_plot(ep.plot))}{line}{pov}{protect_block(ep)}
+{dump(write_plot(ep.plot, coord.memo(p, n)))}{line}{pov}{protect_block(ep)}
 
 # {n}화 본문 (검수 대상)
 {ep.text}"""

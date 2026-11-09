@@ -212,6 +212,7 @@
   - `mock_audit.py` 상태 변경안 누락 검사 (본문 앞 두 문장과 본문에 없는 인용 하나)
   - `mock_birth.py` 출생 배경
   - `mock_board.py` 스토리보드
+  - `mock_coord.py` 쓰기 재료 조율의 조율 메모
   - `mock_cue.py` 큐 시트와 큐 본문
   - `mock_fixrecheck.py` 고친 곳만 다시 보기
   - `mock_foreshadow_judge.py` 복선 판정(`ForeshadowBreaks`, 회수하지 않을 복선 id 가 본문에 나오면 '미리 회수')

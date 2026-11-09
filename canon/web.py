@@ -31,7 +31,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from . import address, agent, archetypes, autorun, board, cancel, cast, charlog, dynamics, elements, genres, illust, jobs, knows, library, metrics, naming, pipeline, prompts, publish, refs, research, settings, store, usage
+from . import address, agent, archetypes, autorun, board, cancel, cast, charlog, coord, dynamics, elements, genres, illust, jobs, knows, library, metrics, naming, pipeline, prompts, publish, refs, research, settings, store, usage
 from .llm import BadKey, GeminiLLM, LocalLLM, MissingKey, explain_error, get_llm, make_llm, with_note
 from . import context as ctxrules  # 이름 context 는 컨텍스트 보기 엔드포인트가 쓴다
 from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록)
@@ -3070,11 +3070,13 @@ def _job_write(name: str, body: "JobIn", p: Project, kind: str, n: int | None, l
             make = body.board == "make"
             use_cues = body.cues != "none"
             make_cues = use_cues and cue.on(p) and not e.text and cue.remake(p, n)  # 없거나 낡은 AI · 뼈대 시트
-            plan = get_llm("board") if make or make_cues else None  # 스토리보드 · 큐 시트 단계 (비우면 계획 단계)
+            make_coord = coord.remake(p, n)  # 쓰기 재료 조율: 조율 메모가 없거나 낡았으면 쓰기 전에 만든다
+            plan = get_llm("board") if make or make_cues or make_coord else None  # 스토리보드 · 큐 시트 · 조율 메모 단계 (비우면 계획 단계)
             then_check = p.settings.check_after_write and not e.text  # 처음 쓰는 본문만 바로 검수한다 (Settings.check_after_write)
             checker = get_llm("check") if then_check else None  # 키가 없으면 시작할 때 바로 알린다
-            label = f"{n}화 {'스토리보드와 ' if make else ''}{'큐 시트와 ' if make_cues else ''}본문{'과 검수' if then_check else ''}"
-            total, owned = 1 + make + make_cues + then_check, {n}
+            label = (f"{n}화 {'스토리보드와 ' if make else ''}{'큐 시트와 ' if make_cues else ''}{'조율 메모와 ' if make_coord else ''}"
+                     f"본문{'과 검수' if then_check else ''}")
+            total, owned = 1 + make + make_cues + make_coord + then_check, {n}
 
             def fn(job: jobs.Job):
                 if not then_check:
@@ -3116,6 +3118,16 @@ def _job_write(name: str, body: "JobIn", p: Project, kind: str, n: int | None, l
                     q = store.load(name)  # 방금 만든 스토리보드면 그 요청 글로 시작해 캐시가 맞게 한다 (pipeline.cue_lead)
                     s = pipeline.make_cue_sheet(plan, q, n, lead=pipeline.cue_lead(q, n, lead, made_at))
                     _edit(name, lambda q: cue.set_episode(q, n, s, by="ai"))
+                    job.done += 1
+                if make_coord:  # 스토리보드 다음: 조율 메모는 플롯만 본다. 실패하면 원래 플롯으로 쓴다
+                    job.note = f"{n}화 조율 메모 만드는 중"
+                    try:
+                        m = pipeline.make_coord(plan, store.load(name), n)
+                        _edit(name, lambda q: setattr(q.episode(n), "coord", m))
+                    except cancel.Cancelled:
+                        raise
+                    except Exception:
+                        logging.getLogger("canon").warning("%s %s화 조율 메모 실패, 원래 플롯으로 씀", name, n, exc_info=True)
                     job.done += 1
                 job.note = f"{n}화 본문 쓰는 중"
                 cut: list = []
@@ -5683,13 +5695,14 @@ def set_storyboard_setting(name: str, body: BoardSetting) -> Project:
 
 
 class WriteMaterial(BaseModel):
-    mode: Literal["", "scenes", "lean", "fixed"]
+    mode: Literal["", "scenes", "lean", "fixed", "coord"]
 
 
 @app.put("/api/projects/{name}/write-material")
 def set_write_material(name: str, body: WriteMaterial) -> Project:
     """쓰기 재료의 양 (Settings.write_material). fixed 면 스토리보드 장면 · 큐 시트를 빼고 고정점만 넣는다 (board.fixed_only).
-    lean 이면 스토리보드를 어기면 안 되는 것 · 이번 화에 쓸 것으로 나누고 설계 메모를 뺀다 (board.lean)."""
+    lean 이면 스토리보드를 어기면 안 되는 것 · 이번 화에 쓸 것으로 나누고 설계 메모를 뺀다 (board.lean).
+    coord 면 고정점만에 더해 플롯 사건을 조율 메모로 바꿔 넣는다 (coord.on)."""
     p = _load(name)
     p.settings.write_material = body.mode
     return _save(name, p)

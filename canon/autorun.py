@@ -27,7 +27,7 @@ from typing import Any, Callable, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from . import anchor, atlas, board, cue, dynamics, features, findings, jobs, pipeline, prompts, settings, store, timeline, usage
+from . import anchor, atlas, board, coord, cue, dynamics, features, findings, jobs, pipeline, prompts, settings, store, timeline, usage
 from . import stage as stage_mod
 from . import sent
 from .llm import BatchLLM, Interrupted, QuotaSpent, SchemaMismatch, explain_error, get_llm
@@ -40,7 +40,7 @@ _log = logging.getLogger("canon")
 LOG_KEEP = 500
 STEP_NAMES = {"board": "스토리보드", "write": "본문", "revise": "서술 다듬기", "check": "검수", "state": "상태 변경안"}
 # 루프 단계(Run.step) 이름: 서버 재시작 뒤 어느 단계를 다시 하는지 알릴 때
-RUN_STEPS = {"board": "스토리보드 만들기", "cues": "큐 시트 만들기", "write": "본문 쓰기", "polish": "서술 다듬기", "review": "검수와 상태 변경안 만들기", "confirm": "플롯 확정"}
+RUN_STEPS = {"board": "스토리보드 만들기", "cues": "큐 시트 만들기", "coord": "조율 메모 만들기", "write": "본문 쓰기", "polish": "서술 다듬기", "review": "검수와 상태 변경안 만들기", "confirm": "플롯 확정"}
 # 지울 수 있는 인물 상태 칸 이름 (CharacterState.cleared, Policy.stop_on_clear 의 멈춘 이유)
 CLEAR_NAMES = {"current_goal": "목표", "location": "위치", "notes": "메모", "attire": "차림", "emotional_state": "감정"}
 # 화 상태 이름 (화면 STATUS 와 같은 말)
@@ -572,6 +572,7 @@ class Runner:
     def __init__(self, ctl: Control, job: Optional[jobs.Job] = None, echo: Callable[[str], None] | None = None):
         self.ctl, self.name, self.job, self.echo = ctl, ctl.name, job, echo
         self.no_cues: set[int] = set()  # 낡은 큐 시트를 다시 받았는데 비어 온 화: 낡은 시트를 넣지 않고 쓴다 (_cues, _write)
+        self.no_coord: set[int] = set()  # 조율 메모를 받지 못한 화: 원래 플롯으로 쓴다 (_coord)
         self.board_lead: tuple[int, str, list[str]] | None = None  # 방금 만든 스토리보드 (화, made_at, 보낸 요청 글). _cues 가 앞에 둔다
 
     @property
@@ -681,6 +682,8 @@ class Runner:
                         continue  # 새 스토리보드를 저장했다. 다시 읽고 쓴다
                     if self._cues(p, n):
                         continue  # 새 큐 시트를 저장했다. 다시 읽고 쓴다
+                    if self._coord(p, n):
+                        continue  # 새 조율 메모를 저장했다. 다시 읽고 쓴다
                     self._write(p, n)
                     continue
                 if n in run.polish_due:
@@ -784,6 +787,31 @@ class Runner:
             cue.set_episode(q, n, made, by="ai")
         _edit(self.name, put)
         self.log(f"{n}화 큐 시트: 큐 {len(made.cues)}개", **use)
+        return True
+
+    def _coord(self, p: Project, n: int) -> bool:
+        """쓰기 전 조율 메모 (쓰기 재료 조율, coord.remake). 없거나 낡았으면 만들어 저장하고 True.
+        받지 못하면 경고만 남기고 원래 플롯으로 쓴다 (조율 메모는 확정 값이 아니라 연출 메모라 멈추지 않는다)."""
+        if n in self.no_coord or not coord.remake(p, n):
+            return False
+        self._set(n, "coord")
+        self.log(f"{n}화 조율 메모를 만드는 중")
+        try:
+            made, use = self.call("board", n, lambda llm: pipeline.make_coord(llm, p, n))
+        except ValueError as e:
+            self.log(f"{n}화 조율 메모를 받지 못했어요 ({e}). 원래 플롯으로 써요", "warn")
+            self.no_coord.add(n)
+            return False
+
+        def put(q: Project) -> None:
+            st = q.episode(n).status
+            if st != "confirmed":
+                raise _Halt("paused", f"{n}화 상태가 {_status_to(st)} 바뀌어 멈췄어요", [
+                    f"조율 메모를 만드는 사이 {n}화가 '{EP_STATUS.get(st, st)}' 상태로 바뀌어 만든 메모는 버렸어요",
+                    f"이어 가면 {n}화의 지금 상태에서 다시 시작해요"], kind="changed")
+            q.episode(n).coord = made
+        _edit(self.name, put)
+        self.log(f"{n}화 조율 메모: 사건 {len(made.events)}개", **use)
         return True
 
     def _write(self, p: Project, n: int) -> None:

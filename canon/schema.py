@@ -275,7 +275,7 @@ class Settings(BaseModel):
     stage_extract: bool = Field(True, description="검수 때 본문에서 장면 연출을 함께 뽑는다 (계획 장면이 있는 사건마다 check 호출 1번 더, 본문이 그대로인 사건은 건너뜀)")
     storyboard: Optional[bool] = Field(None, description="화마다 쓰기 전에 스토리보드를 만들고, 쓰기 프롬프트에 직전 화 본문 전체를 넣는다. 비우면 장편 켬 · 단편 끔 (board.on)")
     cue_sheet: Optional[bool] = Field(None, description="화마다 쓰기 전에 큐 시트(큐마다 기능 · 긴장 · 템포 · 편성 · 핵심 대사 · 분량)를 만들어 쓰기 프롬프트 끝에 넣는다. 비우면 장편 켬 · 단편 끔 (cue.on)")
-    write_material: Literal["", "scenes", "lean", "fixed"] = Field("", description="쓰기 재료의 양. fixed(고정점만)면 스토리보드의 장면 목록을 쓰기 요청에서 빼고 고정점(시간 · 기한 · 이어받을 것 · 상태창 · 이동 · 끝 차림 · 깨지 않을 것)만 넣으며, 큐 시트를 만들거나 넣지 않는다. lean(꼭 쓸 것만)이면 스토리보드를 '어기면 안 되는 것'과 '이번 화에 쓸 것'으로 나눠 넣고 장면 끝 상태 · 깨지 않을 것 · 큐 끝 상태 같은 설계 메모를 뺀다 (board.lean). scenes 와 비움은 지금처럼 장면까지 넣는다 (board.fixed_only)")
+    write_material: Literal["", "scenes", "lean", "fixed", "coord"] = Field("", description="쓰기 재료의 양. coord(조율)면 고정점만처럼 장면 목록 · 큐 시트를 빼고, 플롯 사건을 조율 메모(Episode.coord, '무엇이 바뀌는가' 한 줄씩)로 바꿔 넣으며, 이어받을 것의 몸 · 물건 줄을 빼고 끝 차림은 지키기만 하게 한다 (coord.on). fixed(고정점만)면 스토리보드의 장면 목록을 쓰기 요청에서 빼고 고정점(시간 · 기한 · 이어받을 것 · 상태창 · 이동 · 끝 차림 · 깨지 않을 것)만 넣으며, 큐 시트를 만들거나 넣지 않는다. lean(꼭 쓸 것만)이면 스토리보드를 '어기면 안 되는 것'과 '이번 화에 쓸 것'으로 나눠 넣고 장면 끝 상태 · 깨지 않을 것 · 큐 끝 상태 같은 설계 메모를 뺀다 (board.lean). scenes 와 비움은 지금처럼 장면까지 넣는다 (board.fixed_only)")
     recent_echoes: bool = Field(True, description="장편 본문 쓰기 요청에 '최근 화에서 되풀이한 구절' 블록을 넣는다 (echoes.recent: 직전 5화 본문에서 3개 화 이상에 그대로 나온 서술 구절, prompts.echo_block). 단편에는 넣지 않는다")
     keep_snapshots: bool = Field(False, description="장편에서도 화별 스냅샷을 지우지 않고 모두 남긴다 (연구용 작품: 어느 화로든 되돌릴 수 있다). 끄면 0화 · 아크 끝 · 최근 20화만 남긴다 (pipeline.prune_snapshots)")
     model_preset: str = Field("", description="이 작품이 쓰는 단계 프리셋 id (settings.presets: 단계별 백엔드 · 모델 묶음). 비우면 전체 설정을 따른다. 고른 프리셋이 지워졌으면 전체 설정을 따른다 (settings.project_preset)")
@@ -1702,6 +1702,7 @@ class Episode(BaseModel):
     storyboard: Optional["Storyboard"] = Field(None, description="쓰기 재료: 장면 순서와 이번 화 확정 값 (pipeline.make_storyboard). 상태 승인 대상이 아니다")
     storyboard_prev: Optional["Storyboard"] = Field(None, description="AI 가 요청대로 고치기 전 스토리보드 (적용 취소용, pipeline.undo_storyboard). 다른 방법으로 바꾸면 비운다")
     cue_sheet: Optional["CueSheet"] = Field(None, description="쓰기 재료: 큐 시트 (pipeline.make_cue_sheet, cue.set_episode). 쓰기 프롬프트 끝에 넣는다 (prompts.cue_write_block). 상태 승인 대상이 아니다")
+    coord: Optional["CoordMemo"] = Field(None, description="쓰기 재료 조율(coord.on)의 조율 메모: 플롯 summary · events · ending_hook 을 '무엇이 바뀌는가'로 줄인 것 (pipeline.make_coord). 플롯이 바뀌면 낡아 쓰지 않는다 (coord.fresh). 상태 승인 대상이 아니다")
     style_basis: str = Field("", description="AI 가 지금 본문을 쓸 때의 문체 지문 (anchor.style_basis). 비면 모름 (손으로 쓴 본문, 다시 생성 판을 고른 본문)")
     direction: str = Field("", description="작가 연출 지시: 이 화를 쓸 때만 쓰기 요청 끝에 넣는다 (prompts.direction_block). 본문을 쓴 뒤에는 기록으로 남고 다음 화에는 넣지 않는다")
 
@@ -2796,6 +2797,19 @@ class CueSheet(CueSheetDraft):
     made_by: SkipJsonSchema[Literal["ai", "board", "author", "both"]] = "ai"
     basis: SkipJsonSchema[str] = Field("", description="화에 붙인 큐 시트를 만들 때 입력의 지문 (cue.ep_basis). 지금 값과 다르면 낡은 것. 실험 시트는 비움")
     skipped: SkipJsonSchema[bool] = Field(False, description="지금 본문을 이 큐 시트 없이 썼다 (쓰기 작업의 cues: none). 다시 생성도 넣지 않고, 실현도를 세지 않는다")
+
+
+class CoordDraft(BaseModel):
+    """LLM 응답 형식 (pipeline.make_coord): 화 플롯을 감독의 조율 메모로 줄인 것. 칸 설명은 조율판 실측(2026-11-09) 글 그대로."""
+    summary: str = Field(description="이 화에서 바뀌는 것을 3~4문장으로. 동작 · 물건 자리 · 이동 경로 · 시각은 쓰지 않는다")
+    events: list[str] = Field(description="사건마다 한 문장: 무엇이 바뀌는가(발견, 결정, 관계, 감정). 원래 사건 수와 같게. 따옴표 안 핵심 대사는 그대로 남긴다")
+    ending_hook: str = Field(description="마지막 장면이 남기는 것 한두 문장. 동작 지시 없이")
+
+
+class CoordMemo(CoordDraft):
+    """화에 저장하는 조율 메모 (Episode.coord)."""
+    basis: SkipJsonSchema[str] = Field("", description="만들 때 플롯의 지문 (coord.basis). 지금 값과 다르면 낡은 것")
+    made_at: SkipJsonSchema[str] = ""
 
 
 class CueTake(BaseModel):
