@@ -1318,6 +1318,22 @@ details.vis summary .small { margin-left: var(--space-6); font-weight: 400; }
 .learn-pair del { background: var(--red-soft); color: var(--del-ink); }
 .learn-pair ins { background: var(--green-soft); color: var(--green-ink); }
 .version-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: var(--space-8); }
+/* 규칙 묶음 (regexrules.js): 편집 화면의 규칙 카드, 바뀐 곳 목록(편집 화면 시험 · 집필 화면 알림) */
+.rx-page { display: flex; flex-direction: column; gap: var(--gap-stack); max-width: var(--measure); }
+.rx-page > p.small:empty { display: none; }
+.rx-rules { list-style: none; padding: 0; margin: var(--space-8) 0 var(--gap-group); display: flex; flex-direction: column; gap: var(--gap-group); }
+.rx-rule.off { background: var(--bg); }
+.rx-opts { gap: var(--gap-group); align-items: center; }
+.rx-on { display: inline-flex; align-items: center; gap: var(--space-6); min-height: var(--touch-min); }
+.rx-mono input, .rx-mono textarea { font-family: var(--mono); }
+.rx-changes { list-style: none; padding: 0; margin: var(--space-8) 0 0; display: flex; flex-direction: column; gap: var(--space-6); }
+.rx-change { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-6) var(--space-8); }
+.rx-change.undone .rx-diff { color: var(--muted); }
+.rx-name { font-weight: 700; font-size: 0.8125rem; }
+.rx-diff { flex: 1; min-width: 200px; font-family: var(--serif); font-size: 0.8125rem; line-height: 1.7; white-space: pre-wrap; word-break: break-all; }
+.rx-diff del { background: var(--red-soft); color: var(--del-ink); text-decoration: line-through; text-decoration-color: currentColor; }
+.rx-diff ins { background: var(--green-soft); color: var(--green-ink); text-decoration: none; }
+.rx-result { display: flex; flex-direction: column; gap: var(--gap-group); }
 .version-row { padding: var(--space-8) var(--space-10); border: 1px solid var(--line); border-radius: var(--radius-10); display: flex; flex-direction: column; gap: var(--space-4); }
 .version-row details > div { padding-top: var(--space-4); }
 
@@ -2742,6 +2758,7 @@ body.chat-open .ep-cols > .ep-side { position: static; max-height: none; overflo
 .chk-title { font-size: 0.9375rem; line-height: 1.5; }
 .chk-quote { margin: 0; padding: var(--space-8) var(--space-10); border-left: 3px solid var(--line-strong); background: var(--bg); font-family: var(--serif); font-size: 0.8125rem; line-height: 1.7; }
 .chk-quote.now { border-left-color: var(--amber); }
+.chk-pattern { display: block; padding: var(--space-8) var(--space-10); border-left: 3px solid var(--line-strong); background: var(--bg); font-family: var(--mono); font-size: 0.8125rem; white-space: pre-wrap; word-break: break-all; }  /* 정규식 경고 지적의 패턴 (근거 인용문 대신) */
 mark.hl.issue { background: var(--amber-soft); text-decoration-color: var(--amber); }
 mark.hl.issue.sel { text-decoration-thickness: 3px; outline: 2px solid var(--sel-line); outline-offset: 1px; }  /* 고른 지적: 고른 것의 테두리 색 (warn-line 은 테두리용이라 면에 쓰지 않는다) */
 mark.hl.issue.sel.near { outline-style: dashed; }  /* 문장이 바뀌어 비슷한 문장을 짚음 */

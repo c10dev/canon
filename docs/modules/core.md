@@ -11,6 +11,9 @@
 - 낡은 AI 큐 시트를 다시 받았는데 비어 오면 그 화는 낡은 시트를 넣지 않고 쓰고 `CueSheet.skipped` 로 적는다(`Runner.no_cues`)
 - 쓰기 재료 조율이면 스토리보드보다 먼저 조율 메모를 만든다(`_coord`, `coord.remake`, board 단계). 스토리보드도 그 메모를 플롯으로 본다. 사건 수가 달라 받지 못하면 경고만 남기고 원래 플롯으로 쓴다(`Runner.no_coord`)
 - 쓰기(`_write`)와 다듬기(`_polish`)는 본문을 넣는 `_edit` 안에서 보낸 프롬프트 기록을 남긴다(`sent.keep`). 다듬은 글을 버리면 기록도 남기지 않는다
+- 쓰기 · 다듬기는 손으로 쓸 때와 같이 작품이 켠 고침 규칙을 건다. 쓰기는 `write_episode(ruled=)`, 다듬기는 `pipeline.apply_rules` 로 `polish_episode` 결과를 감싼다
+- 자동 집필이 건 규칙 걸기 기록은 kind 를 `auto` 로 남긴다(`_auto`). 쓰기는 `put` 에서 `ep.rule_runs` 에, 다듬기는 `replace_text(rule_runs=)` 로 넣는다
+- 정규식 경고 규칙 지적(`origin = "regex"`)은 멈춤 규칙(`Policy.max_issues` 등)에 세지 않는다(`findings.counted`)
 - `_cues` 는 같은 실행의 `_board` 가 방금 만든 스토리보드(`Runner.board_lead`: 화 · made_at · 요청 글)면 그 요청 글로 시작하는 큐 시트 요청을 보낸다(`pipeline.cue_lead`)
 - 스토리보드 · 큐 시트는 `board` 단계 모델로 부르고 배치로 보내지 않는다. 비용 추정 `calls` 의 키도 `board` 다
 - 옛 실행 로그의 스토리보드 단계 `plan` 은 `_measured` 가 `board` 로 읽는다
@@ -29,6 +32,7 @@
 - 지운 칸 멈춤(`Policy.stop_on_clear`, `CharacterState.cleared`). 칸 이름은 `CLEAR_NAMES` 로 상태 승인 화면과 같은 말로 적는다
 - 상태 변경안의 본문 지문(`StateDelta.basis`)이 지금 본문과 다르면 검토 대기로 두지도 반영하지도 않고 `paused` · `changed` 로 멈춘다(`_same_text`)
 - 본문이 출력 길이 한도에 걸려 끊기면(`pipeline.WriteCut`) 그 화를 반영하지 않고 `paused` · `cut` 으로 멈춘다. 이어 가면 그 화 본문을 다시 쓴다
+- 이어 가며 다시 쓰기(`back`)는 지난 본문을 이전 판(`TextVersion`)으로 남기며 `meta_cut` · `rule_runs` 도 그 판으로 옮기고 화에서 비운다
 - 배치(`llm.BatchLLM`) 켜고 끄기
 - 배치를 취소하지 못하면 배치 이름을 서버 로그(`canon` 로거)에 경고로 남긴다(`_cancel_batches`)
 - 기다리는 배치마다 보낸 프롬프트 지문을 `Run.batch_keys` 에 남긴다. 이어 갈 때 다르면 `BatchLLM` 이 그 배치를 취소하고 다시 보낸다(일시정지 중 본문 · 플롯을 고친 경우)
@@ -96,6 +100,9 @@
 
 - 명령줄 (`python -m canon ...`)
 - `import` 는 웹 본문 저장과 같은 규칙을 따른다: 초안 화는 거절하고, 확정 화는 앞 화가 모두 반영돼야 넣는다(`pipeline.require_previous`)
+- `import` 는 받은 본문에 작품이 켠 고침 규칙을 건다(kind import, `pipeline.apply_rules`). 웹의 받은 본문 붙여 넣기(`Text.source = "import"`)와 같다
+- `write` · `import` · `rewrite` 는 고친 곳 수를 '규칙으로 N곳 고쳤어요' 로, 시간 한도로 건너뛴 묶음을 '! 규칙 묶음 ○○을 거는 데 너무 오래 걸려서 건너뛰었어요' 로 찍는다(`_print_rules`)
+- `fix` 는 `revise_passage(rules=True)` 로 후보마다 규칙을 걸고 후보 머리에 고친 곳 수를 붙인다. `rework` 는 제안의 `ruled` 를 `accept_rework` 에 넘긴다
 - 전체 명령 목록은 `python -m canon --help`
 - 해석기는 `build_parser` 가 만들고, 명령은 갈래 함수(`_plan_commands` · `_write_commands` · `_tool_commands` · `_app_commands` · `_data_commands` · `_lab_commands`)가 더한다. 새 명령은 맞는 갈래 함수에 넣는다
 - 단편 흐름: `new` → `style` → `arc` → `plot` → (사용자 수정) → `confirm` → (스토리보드 → 큐 시트, 웹 집필 화면 · 자동 집필) → `write` → `check` → `update` 반복
@@ -146,6 +153,8 @@
   - `rewrite`: 피드백 · 검수 결과 등을 반영해 그 화를 다시 생성(새 판과 바꿀지 고르기, 이전 판 되돌리기)
   - `rewrite --polish`: 대사 · 사건은 그대로 두고 서술 문장만 다듬은 새 판(revise 단계 모델)
   - `rework`: 재구성의 다듬기 화
+  - `rules`: 정규식 규칙 묶음 목록(`list`, 기본) · 글 파일에 걸어 보기 `test <묶음 id> <파일>`(저장 안 함)
+  - `rules use <작품> <묶음 id>` · `rules drop <작품> <묶음 id>`: 작품에서 묶음을 켜고 끈다. 켜면 맨 뒤(가장 나중에 걸기)에 붙고 `jobs.project_lock` 안에서 저장한다
   - `setupchat`: 설정을 말로 다듬기
   - `stats`: 화별 문체 지표 확인
   - `styles versions` · `restore`: 문체 버전
@@ -285,6 +294,7 @@
 - 열린 지적(`open_findings`)
 - 검수가 끝났는지(`check_done`, `home.js` `checkState` 의 done 과 같은 규칙, 작품 목록 `open_checked`)
 - 자동 집필이 세는 지적(`counted`, 사소 빼기)
+- `counted` 는 정규식 경고 규칙 지적을 세지 않는다(자동 집필 멈춤 · 검토 이유)
 - 작가가 정하기(`set_status` · `set_severity`, 웹 `set_finding`, 명령줄 `check --keep` · `--sev`)
 - 웹 `set_findings`(`PUT …/findings`)는 열린 지적 여러 개를 한꺼번에 kept · wrong 으로 정한다. 없는 id · 열리지 않은 지적이 섞이면 아무것도 바꾸지 않는다
 - 명령줄 `check --recheck-fixed` 는 고친 곳만 다시 보기(`pipeline.recheck_fixed`)
@@ -299,7 +309,9 @@
 - 새 판(`new_version`: 결정한 지적만 남김)
 - 세션 비우기(`clear`)
 - 합치기는 출처(`ConsistencyIssue.origin`: ai · rule)가 같은 지적끼리
+- 정규식 경고 규칙 지적(`origin = "regex"`)은 같은 규칙(`regex_rule`)끼리만 잇는다(`_match`). 한 문장에 두 규칙이 걸려도 결정이 섞이지 않는다
 - 규칙 지적의 다시 검수는 `pipeline.recheck_finding` 이 LLM 없이 판정만
+- 정규식 경고 지적의 다시 검수도 LLM 없이 그 규칙만 지금 본문에 다시 걸어(`regexrules.hits(only=)`) 같은 문장에 걸리는지 본다
 - 고침안 · 다시 검수의 AI 호출은 `pipeline.propose_fixes` · `apply_fix` · `undo_fix` · `recheck_finding`
 - 고침안 한꺼번에: 받을 지적 `pipeline.fix_targets`(넣을 수 있는 안 `fix_usable` 이 없는 열린 지적, `check.js` `fbNeed` 와 같은 셈), 웹 작업 `fixes`(`FIX_WORKERS` 개씩 동시에, 받는 대로 `store_fixes`), 고른 안 넣기 `apply_fixes`(웹 `POST …/fixes/apply`, 못 넣은 것은 까닭과 함께)
 - 웹 작업 `fixes` 는 지적을 `FIX_BATCH`(8)개씩 묶어 `pipeline.propose_fixes_batch` 로 한 번에 묻는다(LLM `FixBatch` → `FixItem`, 지적 id 로 맞춤)
@@ -459,6 +471,11 @@
 - 다시 생성 · 서술 다듬기 · 큐 시트 집필도 `_write` 를 거쳐 같은 한도와 거부를 쓴다. 부분 수정(`PassageRevision`)은 JSON 이라 끊기면 형식 불일치로 끝난다
 - `_write` 에 `sent` 목록을 주면 받은 호출의 요청 기록(`sent.SentPrompt`: 시도 번호 · 다시 부른 까닭)을 채운다. 파일에는 쓰지 않는다(`canon/sent.py`)
 - `write_episode(sent=)` · `rewrite_episode(sent)` · `polish_episode(sent)` 가 그 목록을 넘긴다. `polish_episode` 는 다듬기 재시도까지 호출 번호를 이어 센다
+- 고침 규칙(`regexrules.py`)은 `write_episode(ruled=)` · `rewrite_episode(ruled)` · `polish_episode(ruled)` 에 목록을 줄 때만 건다. `sent` 와 같은 호출자 · 같은 넘김 길이다
+- 규칙은 저장하는 가장 바깥 입구에서 한 번만 건다(`apply_rules`). `_write` 는 걸지 않고, 다듬기 모드의 `rewrite_episode` 는 `ruled` 를 `polish_episode` 에 넘기고 자기는 걸지 않는다
+- `polish_episode` 는 검사를 통과한 판과 덜 늘린 판 모두에 건다. 검사(`polish_problem` · `polish_tics`)는 규칙을 걸기 전 글로 한다
+- 실험 · 비교 쓰기(`promptlab` · `stattrial` · `blocktrial` · `opening` · `compare_drafts` · `cue.run` · `revlab` · `write_scored` · `play_cues`)는 `ruled` 를 넘기지 않아 규칙이 걸리지 않는다
+- `WriteCut` 이나 세 번 실패로 끝난 쓰기는 본문을 돌려주지 않으므로 규칙 걸기 기록도 없다
 - 방금 만든 스토리보드 다음의 큐 시트: `make_storyboard(lead=)` 가 보낸 요청 글을 채우고, `cue_lead` 가 그 스토리보드가 AI 가 만든 그대로 · 낡지 않음일 때만 그 글을 돌려준다. `make_cue_sheet(lead=)` 는 그 글로 시작하는 요청을 보낸다(자동 집필 `_cues`, 웹 쓰기 작업 `board: make`)
 - 문체 분석 `analyze_style` 뒤 `count_markers` 가 표지 · 장치 단서를 거른다: 원문에 없는 것, 한글 2자 미만(`MARKER_MIN_HANGUL`), 인물 이름(2자 이상)이 든 것
 - `count_markers` 는 원문 표본에 없는(공백 빼고 견줌) 장치 예시를 비운다
@@ -475,6 +492,12 @@
   - 검수하는 동안 본문이 바뀌었으면 회차 시각을 1초 앞당긴다(`_second_before`). 시각이 초까지라 시작과 같은 초에 고친 것도 세려는 것이다
   - `check_episode` 는 범위를 `prompts.check_prompt(scope=)` 로 넘겨 요청 맨 뒤에 `prompts.scope_block` 을 붙이고 `report._scope` 에 남긴다
   - `Settings.check_scope`(기본 켬), 웹 `PUT …/check-scope`
+  - `apply_check` 는 장면 연출 규칙 지적 곁에 정규식 경고 규칙 지적(`regexrules.hits`)을 합친다. 다시 검수 범위(`findings.scoped`)로 거르지 않는다
+  - `apply_check(hits=)` 는 `check_hits` 가 미리 건 정규식 경고 지적을 받는다. 건 본문이 지금 본문과 같을 때만 쓰고 다르면 다시 건다
+  - 웹 검수 작업(`_run_check`) · 검수 결과 가져오기(`import_check`) · 자동 집필은 `check_hits` 를 작품 잠금(`_edit`) 밖에서 부른다. 명령줄은 `apply_check` 안에서 건다
+  - 정규식 경고 지적은 거른 뒤의 AI 지적이 같은 문장을 짚었을 때만 뺀다(`_same_quote`). 그 AI 지적이 범위 밖이라 빠지면 경고 지적은 남는다
+  - `recheck_finding` · `recheck_fixed` 는 `origin = "regex"` 지적을 LLM 없이 그 규칙만 다시 걸어 판정한다('정규식 규칙에 아직 걸려요' · '정규식 규칙에 더 걸리지 않아요')
+  - 그 규칙을 걸지 못하면(`hits(strict=True)` 의 `RuleSkipped`: 시간 한도 · 일꾼 오류 · 묶음을 껐거나 규칙이 없어짐) 닫지 않고 `resolved` 거짓에 그 이유를 단다
 - 문체 경고 `style_drift` 는 `Settings.heat_words` 가 있으면 정점 대목 경고(`metrics.peak_window` · `peak_drift`)를 더한다
 - `style_drift` 는 인물 말투의 대사 예시를 본문에 그대로 쓴 문장을 '말투 예시 대사를 그대로 쓴 문장' 경고로 더한다(`speech_copied`, `metrics.speech_copied`)
 - 장면 연출은 플롯에서 초안 `draft_stage` · 본문에서 뽑기 `extract_stage`(박자가 빈 응답이면 한 번 다시 묻기) · 검수 때 함께 뽑기 `stage_extract_all` · 적용 `apply_stage` · 적용 취소 `undo_stage`(`stage.py`)
@@ -483,8 +506,15 @@
 - 다음 아크 기획 앞 화면 밖 근황 제안 `plan_offscreen`(작업 `offscreen`, 규칙은 story.md 의 `canon/offscreen.py` 절). 저장하지 않고 시점 화를 `OffscreenSet.at` 에 적는다
 - 단편 → 장편 전환은 이어 쓰기 `propose_conversion`/`apply_conversion`
 - 재구성 `propose_rebuild`/`apply_rebuild`(옛 상태 변경안 재사용 `carried_delta`, 다듬기 `propose_rework`/`accept_rework`)
+- `apply_rebuild` 는 그대로 둠 · 다듬기 화에 옛 화의 `meta_cut` 과 `rule_runs`(깊은 사본)를 옮긴다. 그래서 옮긴 본문에서도 규칙이 고친 곳을 되돌릴 수 있다
 - 되돌리기 `undo_conversion`
 - 경고 바로 고치기 `apply_first`: 부분 수정 대화에 남기고 같은 작품에서 첫 후보를 넣는다(메시지 번호가 어긋나지 않게)
+- `revise_passage(rules=True)` 는 후보마다 고침 규칙을 걸고 바뀐 곳을 `PassageCandidate.ruled`(후보 글 안 자리)에 둔다. 웹 부분 수정 대화 · `fix-now` · 명령줄 `fix` 만 켠다
+- `revise_passage` 는 후보 글을 다듬고(표시 지우기 · 앞뒤 공백) 규칙을 건 뒤 원문 · 앞 후보와 견준다. 규칙을 건 후보가 원문과 같으면 빼고 '원문과 다른 후보가 없었어요' 를 단다
+- `apply_passage` 는 고른 후보의 `ruled` 를 본문 안 자리로 옮겨 kind passage 기록 하나로 남긴다(`add_run`). `apply_first` 도 이 길이다
+- 작가가 후보 글을 고쳐 넣으면 `still_ruled` 가 `locate` 로 아직 찾히는 곳만 남긴다. 지우기 규칙이 바꾼 곳은 찾을 수 없어 빠진다. 하나도 없으면 기록하지 않는다
+- 후보 글 그대로 넣으면 `apply_passage` 는 자리를 후보 글의 앞 공백만큼 옮긴다. 작가가 보낸 글의 앞 공백은 쓰지 않는다
+- 비교 채택 `adopt_draft` 는 고른 비교본에 고침 규칙을 한 번 건다(kind adopt). 다섯 비교본 모두 규칙 없이 쓴 글이라 여기서 건다
 - 부분 수정 `revise_passage` 는 `passage_head` 길이를 캐시 경계(`llm.PREFIX_HINT`)로 넘긴다. 같은 화에서 이어 고치면 앞부분을 캐시에서 읽는다
 - 경계가 없을 때는 【고칠 부분】 자리가 호출마다 달라 `shared_cut` 의 자리도 달라졌다. 1분 간격 호출도 시스템 프롬프트(751토큰)만 읽었다(2026-11-07 서버 실측)
 
@@ -626,12 +656,88 @@
 - 다음 아크 기획은 조연 상태 뒤에 화면 밖 근황(`offscreen_block`, `offscreen.OFFSCREEN_MAX` 명까지, 넘으면 뺀 수)을 넣는다. 근황이 있을 때만 요구사항에 이어 쓰기 줄을 더한다
 - 화면 밖 근황 제안 `offscreen_prompt`(종류 `OFFSCREEN_KINDS`): 인물마다 마지막으로 나온 화 요약 문장(`seen_sentence`) · 마지막 상태 · 주역과의 관계 · 지금 근황
 
+### `canon/regexrules.py`
+
+- 정규식 규칙 묶음: 작가가 만든 경고(`warn`) · 고침(`fix`) 규칙을 묶음으로 저장하고, 작품이 켠 묶음을 본문에 건다
+- 작품은 `Settings.rule_bundles` 에 묶음 id 만 적는다. 목록 차례가 거는 차례다. 묶음을 고치면 켠 작품 모두에 다음 걸기부터 적용된다
+- 명세서는 [docs/context/specs/06-regex-rules.md](../context/specs/06-regex-rules.md). RisuAI 필드 대응은 [docs/context/compat.md](../context/compat.md) 2절
+- 저장소는 `library.py` 와 같은 꼴이다: `<CANON_HOME>/.rules/<id>.json` 파일 하나가 묶음 하나(`root`, 환경 변수 `CANON_RULES`). 모듈 캐시는 없다
+- `save` 는 `model_dump_json(by_alias=True)` 로 써서 `RegexRule.in_` 을 JSON 키 `in` 으로 남긴다. 규칙 검사는 하지 않는다
+- 규칙 목록이 바뀔 때만 새 버전을 남긴다(`_snapshot`, `VERSION_KEEP` = 30). 메모가 비면 더한 · 뺀 · 고친 규칙 이름을 적는다
+- `create` · `update` 는 `check` 로 모든 규칙을 검사한다. 오류가 있으면 '<규칙 이름 또는 N번 규칙> · 이 정규식은 저장할 수 없어요: …' 줄을 이은 ValueError 를 낸다
+- `summary` 는 목록 한 줄이다: warn · fix 는 `action` 별 수(fix 에 내보내기 규칙도 든다), export 는 내보내기 규칙 수, used_by 는 켠 작품 수
+- `versions` 는 버전마다 앞 버전과 견준 더한 · 뺀 · 고친 규칙 이름을 붙인다. `restore` 는 옛 규칙 목록을 새 버전으로 남긴다
+- `used_by` 는 그 묶음을 켠 작품 이름들이다. 지운 묶음 id 는 작품 설정에 남고 `bundles_of` 가 건너뛴다(`missing`)
+- 찾을 정규식(`in`)은 JavaScript 꼴로 저장한다. `convert_in` 이 `(?<이름>` · `\k<이름>` 을 Python 꼴로 바꾸고 뒤 보기 · 이스케이프 · `[...]` 안은 그대로 둔다
+- `convert_in` 은 반복 `{n}` · `{n,}` · `{n,m}` 으로 읽히지 않는 `{` 를 `\{` 로 바꾼다. JavaScript 는 `a{,3}` 의 `{` 를 글자로 읽고 Python 3.14 는 `{0,3}` 으로 읽는다
+- 바꿀 글(`out`)은 `to_python` 이 맞은 곳마다 부를 함수로 바꾼다. RisuAI 처럼 `$n` 을 먼저 줄바꿈으로 바꾸고 `{{data}}` 를 `$&` 로 읽는다
+- 그 뒤 JavaScript `String.replace` 처럼 `$$` · `$&` · `` $` `` · `$'` · `$1`~`$99` · `$<이름>` 을 푼다. 없는 번호(`$0` 포함)는 글자 그대로, 역슬래시도 글자 그대로다
+- 플래그 `flags`: g 는 모든 자리(없으면 첫 자리만), i · m · s 는 `re` 값, u · d 는 버린다
+- `validate` 는 저장을 막는 오류 목록이다: `in` 이 `MAX_IN`(500자)을 넘음, 컴파일 오류, 받지 않는 플래그 · 꺾쇠 메타, Python 에만 있는 문법, 겹친 반복, `@@` 로 여는 `out`, 내보내기 + 경고
+- `\p{…}` 컴파일 오류는 `[가-힣]` · `[^\W\d_]` 로 바꿔 쓰라고 안내한다
+- `re.compile` 의 `OverflowError`(`a{4294967296}`) · `RecursionError` · `ValueError` 도 컴파일 오류로 막는다(`_BAD_PATTERN`). 자식 프로세스는 그런 규칙을 건너뛴다
+- 겹친 반복(`_nested`)은 정적으로 찾는다: 끝없는 반복이 든 묶음을 다시 끝없이 반복하거나 같은 갈래가 둘인 묶음을 반복하는 꼴(`(a+)+` · `(a|a)*` · `(\w+\s?)+`)
+- `notices` 는 저장을 막지 않는 알림이다: `out` 안의 `{{…}}`(`{{data}}` 빼고)는 풀지 않고 글자 그대로 넣는다고 알린다
+- 고침 걸기 `run(p, text, kind)`: 켠 묶음 차례, 묶음 안 목록 차례로 켠 `type = "output"` · `action = "fix"` 규칙을 앞 결과에 이어 건다
+- `run` 은 바뀐 곳도 건너뜀도 없으면 기록 대신 None 을 돌려준다
+- 묶음이 없거나 고침 규칙이 없으면 `run` 은 자식 프로세스를 띄우지 않고 바로 돌아간다. 묶음을 켜지 않은 작품은 예전과 같다
+- 바뀐 곳(`RuleChange`)의 `start` 는 마지막 본문 안 자리다. 뒤 규칙이 앞에서 바꾼 길이 차이만큼 민다(`_fix`)
+- 기록의 바뀐 곳은 마지막 본문 안에서 서로 겹치지 않고 자리 순서로 놓인다
+- 뒤 규칙이 맞은 곳이 앞서 바뀐 곳과 겹치면(빈 곳은 안쪽에 있거나 같은 점) 바뀐 곳 하나로 합친다(`_touch`)
+- 합친 곳의 `before` 는 합친 구역의 걸기 전 글, `after` 는 지금 글이다. `bundle` · `rule` 은 뒤 규칙, `name` 은 규칙 이름들을 ' · ' 로 잇는다
+- 합쳐서 `before` 와 `after` 가 같아진 곳은 기록에서 뺀다
+- 기록 id(`r<N>`)는 화에 넣을 때 `add_runs` 가 붙인다. 화마다 최근 `RULE_RUN_KEEP`(50)개만 남긴다
+- 걸기는 오래 사는 자식 프로세스 하나(`multiprocessing` spawn, 파이프, 잠금)에서 돈다. `re` 는 도는 동안 GIL 을 놓지 않아 스레드로는 시간 한도를 둘 수 없다
+- 한 번의 걸기가 `TIME_LIMIT`(2초)를 넘거나 자식이 죽으면 자식을 끝낸다. 다음 걸기 때 새로 띄운다
+- 그때 본문은 걸기 전 그대로이고 기록의 `skipped` 에 멈춘 묶음 이름을 남기고 서버 로그에 적는다. 부르는 쪽에 오류를 내지 않는다
+- 시간 한도는 자식이 준비된 뒤부터 센다(띄우기는 `START_LIMIT` 60초까지 기다림)
+- 자식은 `atexit` 에 건 `shutdown` 이 닫는다. 시험은 `worker_alive` 로 떠 있는지 본다
+- 내보내기 걸기 `export_text`: 켠 `type = "export"` 규칙을 같은 방식으로 걸고 기록하지 않는다(`publish.export`)
+- 경고 찾기 `hits(p, text, n, only="")`: 켠 경고 규칙(`type = "output"`)이 걸린 문장마다 지적 하나다. 같은 규칙 · 같은 문장은 하나만 낸다
+- `hits` 의 `only` 는 규칙 하나('<묶음 id>/<규칙 id>')만 건다. 시간 한도를 넘으면 빈 목록이다
+- `hits(…, strict=True)` 는 시간 한도 · 일꾼 오류 때 빈 목록 대신 `RuleSkipped` 를 낸다. `str(e)` 가 화면에 보일 이유다. 기본(`strict=False`)은 예전과 같다
+- `strict=True` 에서 `only` 규칙이 없으면(묶음을 껐거나 지움, 규칙을 지웠거나 껐음, 경고 규칙이 아님) `RuleSkipped(RULE_GONE)` 을 낸다
+- 그래서 `strict=True` 의 빈 목록은 '걸었는데 맞은 곳이 없음' 만 뜻한다
+- 경고 지적은 갈래 '표기', 심각도 low, `origin = "regex"`, `regex_rule` '<묶음 id>/<규칙 id>' 다
+- 경고 지적의 설명은 규칙 이름(없으면 '정규식 규칙에 걸렸어요'), `current_quote` 는 걸린 문장, `source_quote` 는 패턴, `source_episode` 는 이번 화다
+- `trial` 은 규칙 시험이다(저장 안 함): 고친 글 · 바뀐 곳 · 그 글의 경고 지적 · 내보내기 규칙까지 건 글(`exported`) · 건너뛴 묶음
+- 되돌리기 `undo_change(p, n, rid, k)` 는 `pipeline.undo_edit` 과 같은 길이다: `after` 를 `start` 근처에서 찾아(`pipeline.locate`) `before` 로 바꾸고 `before_change` 를 부른다
+- 지우기 규칙이 바꾼 곳(`after` 가 빈 글)은 `start` 가 본문 길이 안이면 그 자리에 `before` 를 넣고, 밖이면 '되돌릴 자리를 찾을 수 없어요' 로 막는다
+- 되돌린 곳은 지우지 않고 `undone` 으로 둔다. 같은 기록의 아직 되돌리지 않은 뒤쪽 곳은 길이 차이만큼 민다(`_undo`)
+- 뒤쪽 곳은 목록에서 그 곳 뒤에 있는 곳이다. 같은 자리의 빈 곳이 여럿이어도 차례가 맞다
+- `after` 가 `start` 에 없어 `locate` 가 찾은 가까운 같은 글이 같은 기록의 아직 되돌리지 않은 다른 곳과 겹치면 '되돌릴 자리를 찾을 수 없어요' 로 막는다
+- `undo_run(p, n, rid)` 는 거꾸로 하나씩 되돌리고 찾지 못한 곳은 남긴다. (되돌린 것, 남긴 것)을 돌려준다
+- 알려진 한계: 지우기 규칙이 바꾼 곳 앞을 작가가 고쳐 길이가 바뀌면 다른 자리에 되돌린다(`pipeline.undo_edit` 과 같다)
+- 대화 에이전트(`agent.py`)는 규칙 묶음과 `Settings.rule_bundles` 를 읽지도 쓰지도 않는다
+- LLM 을 부르지 않는다
+- 시험은 `tests/test_regexrules.py` · `test_regexrules_paths.py`(저장 경로) · `test_regexrules_web.py` · `test_regexrules_js.py`
+
 ### `canon/reshape.py`
 
 - 단편을 씨앗으로 장편 앞부분을 다시 짜는 재구성(웹 `rebuild` 작업)
 - 재구성은 상태 · 관계와 함께 상태창 · 설정 바꾸기 · 호칭 · 말씨 기록도 1화 전으로 돌린다(`statwin` · `charlog` · `address.revert(p, 0)`)
 - 재구성은 반영 뒤 지금 상태를 고친 기록도 1화 전 것만 남긴다(`stateedit.revert(p, 0)`)
 - `pipeline.py` 에서 옮긴 구역이다. `pipeline` 맨 끝의 `_attach_split` 이 `EXPORTS` 의 이름을 `pipeline` 에도 둬서 `pipeline.<이름>` 으로 그대로 부른다
+- 다듬기 제안 `propose_rework` 는 작품이 켠 고침 규칙을 늘 건다(kind rework). 바뀐 곳은 `Rework.ruled`(제안 글 안 자리)에 둔다
+- 서버는 제안을 저장하지 않으므로 받아들일 때 화면 · 명령줄이 `ruled` 를 되돌려 보낸다(`accept_rework` 의 다섯째 인자)
+- `accept_rework` 는 넣은 본문에 아직 있는 바뀐 곳만(`pipeline.still_ruled`) 규칙 걸기 기록 하나로 남긴다. 하나도 없으면 남기지 않는다
+
+### `canon/routes/regexrules.py`
+
+- 규칙 묶음 라우트(`web.ROUTES` 의 `regexrules`, 서버 `regexrules.py`): `GET` · `POST /api/rules`, `GET` · `PUT` · `DELETE /api/rules/{bid}`(없는 id 는 404)
+- 묶음 응답은 `model_dump(by_alias=True)`(규칙 키 `in`)에 켠 작품 이름 `used_by` 와 저장을 막지 않는 알림 `notices` 를 더한다
+- 만들기 · 고치기 몸통은 `{name, notes, rules, note}` 다. 규칙 검사에 걸리면 400 이고 `detail` 은 이유 줄을 줄바꿈으로 이은 글이다
+- `PUT` 은 규칙마다 원래 `id` 를 받아야 버전 비교가 맞는다. `RegexRule.id` 가 비면 새 id 를 만든다
+- 버전 `GET /api/rules/{bid}/versions`, 되돌리기 `POST /api/rules/{bid}/versions/{number}/restore`
+- 시험 `POST /api/rules/test`(`RuleTestIn`): `rules` 를 주면 검사한 뒤 그 규칙을, 비우면 `bundle` 의 저장된 규칙을 건다
+- 시험은 `text` 가 비면 `project` 의 `episode` 화 본문에 건다. 저장하지 않는다
+- 작품의 켠 묶음 `PUT /api/projects/{name}/rule-bundles`(`{bundles}`)는 차례를 지켜 통째로 바꾸고 겹친 id 는 앞 것만 둔다. 없는 묶음 id 는 400 이다
+- 이미 켜져 있던 id 는 묶음이 지워졌어도 받는다. 설정 화면이 '찾을 수 없는 묶음이에요' 를 보이면서 다른 것을 저장할 수 있게 하려는 것이다
+- 켠 묶음 저장은 자동 집필 중에도 받는다. 규칙을 걸 때 설정을 읽으므로 다음 걸기부터 따른다
+- 되돌리기 `POST …/episodes/{n}/rule-runs/{rid}/undo` 는 `{project, undone, left}`(되돌린 곳 · 남긴 곳 수)를 돌려준다
+- 곳 하나 되돌리기 `POST …/rule-runs/{rid}/changes/{k}/undo`(k 는 0부터)는 작품을 돌려준다
+- 두 되돌리기는 `_text_guard` 를 먼저 본다. 이미 되돌린 곳 · 없는 기록 · 없는 곳은 400 이다
+- 시험은 `tests/test_regexrules_web.py`
 
 ### `canon/schema.py`
 
@@ -665,6 +771,19 @@
 - 쓴 모델은 집필 화면 머리 · 이전 판 · 새 판 카드 · 작품 홈 화 칸 툴팁에 보인다(`app.js` `writerLabel`)
 - 쓰기가 본문 앞뒤에서 뗀 작업 설명(`Episode.meta_cut`, 판마다 `TextVersion.meta_cut`, `MetaCut`: 글 · 앞 head | 뒤 tail)도 프롬프트 밖이다. 집필 화면에서 되살리기 `pipeline.restore_cut`(수정 기록에 남음) · 지우기 `drop_cut`
 - 뗀 문단은 `write_episode(cut=)` · `rewrite_episode(cut)` 에 빈 목록을 주고 받아 `replace_text(meta_cut=)` · `set_candidate(meta_cut=)` 로 저장한다(웹 쓰기 작업 · 동기 쓰기 · 다시 생성 작업, 명령줄 `write` · `run` · `rewrite`, 자동 집필). 실험 · 비교 쓰기는 받지 않는다
+- 정규식 규칙 묶음 모델(`RegexRule` · `RuleBundle` · `RuleBundleVersion`)은 작가가 만든 것이라 LLM 이 채우지 않는다. `RegexRule.in_` 의 JSON 키는 `in` 이다(`populate_by_name`)
+- `RegexRule.id` 가 빈 글이거나 빈칸이면 검사기(`_fill_id`)가 새 id(`uuid4().hex[:8]`)로 바꾼다. 두 규칙이 빈 id 를 나눠 쓰지 않게 하려는 것이다
+- 작품이 켠 묶음은 `Settings.rule_bundles`(id 목록, 거는 차례). 기본값이 빈 목록이라 옛 작품이 읽히고 동작도 같다
+- 고침 규칙 기록(`Episode.rule_runs`, 판마다 `TextVersion.rule_runs`, `RuleRun`: id `r<N>` · 시각 · kind · 바뀐 곳 `RuleChange` · 건너뛴 묶음 `skipped`)도 프롬프트 밖이다
+- `RuleRun.kind` 는 write · rewrite · polish · passage · import · auto · adopt · rework 다(`RuleRunKind`)
+- `RuleChange` 는 묶음 id · 묶음 버전 · 규칙 id · 걸 때의 규칙 이름(`name`) · 본문 안 자리 `start` · 전 · 뒤 글 · `undone` 이다
+- 규칙 기록은 `meta_cut` 과 같은 길로 판을 따라간다: `replace_text(rule_runs=)` · `set_candidate(rule_runs=)` · `adopt_candidate`, `restore_version` 은 그 판의 기록을 되살리고 규칙을 다시 걸지 않는다
+- `meta_cut` 을 비우는 자리(`pipeline._delete_last` · 웹 `put_text` 의 빈 화 · 빈 글 분기 · 자동 집필 `back` · `branches.fork` clear)는 `rule_runs` 도 비운다
+- 새 기록의 id 는 `pipeline._new_runs` 가 화의 지금 기록 · 모든 판 · 후보를 통틀어 겹치지 않게 붙인다
+- `rule_runs` 는 `web.JOB_EP_FIELDS` 에 넣지 않는다. `edits` · `meta_cut` 처럼 본문과 함께 화면 값을 따른다
+- 프로그램 칸 `PassageCandidate.ruled` · `Rework.ruled`(`SkipJsonSchema`)는 후보 · 제안 글 안 자리의 바뀐 곳이다. LLM 응답 형식은 그대로다
+- `ConsistencyIssue.origin` 의 regex 는 정규식 경고 규칙 지적이고 `regex_rule`('<묶음 id>/<규칙 id>')을 채운다. 둘 다 `SkipJsonSchema` 다
+- `ConsistencyIssue.type` 은 `IssueType | SkipJsonSchema[Literal["표기"]]` 다. 정규식 경고 지적만 '표기' 를 쓰고 `ConsistencyReport` · `PlantSet` · `ConsistencyReportEn` 스키마는 그대로다
 - 서술 다듬기 `polish_episode`(다시 생성의 방식 `polish`, 프롬프트 `prompts.polish_prompt` · `POLISH_RULES`, 문장 끝 몫은 쓰기와 같은 `ending_rule`)
 - 다듬은 글은 대사 · 효과음 줄(`fixed_lines`)이 같고 글자 수가 `POLISH_SPAN` 안이어야 쓴다(`polish_problem`, `POLISH_TRIES` 번까지 다시 부름)
 - 효과음 줄은 줄표로 여는 줄과 줄표 없이 소리나 몸짓만 적은 한 줄 문단(`metrics.is_sfx_line`)이다
@@ -713,6 +832,8 @@
 - 명령줄 `rewrite` 는 확인을 묻는 동안 잠그지 않고, 기록(`hold` · `adopt` · `drop_candidate`)과 저장만 `project_lock` 안에서 한다
 - 파일 안의 화 번호(`SentFile.episode`)보다 파일 자리를 믿는다. 화를 넣고 빼면 파일만 옮기기 때문이다(`_read`)
 - `write_scored` · `play_cues` · 비교(`compare_drafts` · `adopt_draft`) · 실험 · 가져온 본문은 기록하지 않는다. 그 본문에는 앞 기록이 남아 `matches` 가 거짓이 된다
+- 고침 규칙은 호출자가 건 뒤의 본문을 `sent.keep` 에 넘기므로 기록의 지문(`pipeline.text_basis`)이 저장 본문과 맞는다
+- 규칙 되돌리기로 본문이 바뀌면 직접 고친 것과 같이 `matches` 가 거짓이 된다
 - 화를 넣고 빼면 `store.renumber_side_files` 가 큐 시트 실험 · 비교본과 같이 옮긴다. 뺀 화 · 본문만 지운 화(`delete_last(keep_plot)`)의 기록은 `sent/removed/` 에 남긴다(`set_aside`)
 - 반영 취소(`pipeline.revert`)는 뒤 화 본문을 남기므로 기록도 그대로 둔다
 - 갈래 · 복제 · 플레이 사본은 `sent/` 를 함께 옮긴다. 함께 쓰는 앞 화 본문의 기록이라서다
@@ -785,6 +906,31 @@
 - 목표 · 정책을 바꾸면 추정(`S.autoEst`)을 비우고 다시 잰다. 추정이 오기 전에는 시작 버튼을 막는다
 - 추정은 요청 순번(`autoEstSeq`)으로 마지막 요청의 답만 받는다
 - 시험은 `tests/test_tools_js.py`
+
+### `canon/static/regexrules.js`
+
+- 규칙 묶음 화면(`#/rules`, 작품 밖, 서버 `regexrules.py` · `routes/regexrules.py`)
+- `index.html` 은 `style.js` 바로 뒤에서 이 파일을 읽는다. 읽을 때 바로 부르는 곳은 없다
+- 목록 `viewRuleList`: 묶음 이름, 경고 · 고침 · 내보내기 수(`ruleCounts`), 켠 작품 수
+- 편집 `viewRuleBundle`(`#/rules/new` · `#/rules/<id>`, 불러오기 `ruleLoad`): 규칙마다 카드 하나(`ruleCard`)
+- 규칙 카드는 이름 · 찾을 정규식 · 바꿀 글 · 플래그 · 경고/고침 · 쓴 본문/내보내기 · 켬과 빼기 · 위아래 옮기기를 둔다. 더하기는 `ruleAdd`
+- 새 규칙은 화면에서 8자리 id 를 정한다(`ruleBlank`). 저장 몸통(`ruleBody`)은 규칙마다 id 를 그대로 보낸다
+- 종류를 내보내기로 고르면 동작을 고침으로 두고 경고를 막는다(서버 검사와 같다)
+- 내보내기 규칙의 카드는 '경고' 단추를 꺼 둔다. `ruleSet` 도 내보내기 규칙을 경고로 바꾸지 않는다
+- 저장하지 않은 편집은 `S.ruleDirty` 다. 저장 띠 대신 '저장하지 않은 변경이 있어요'(`#rx-dirty`)와 '저장 전으로 되돌리기' 를 둔다
+- 저장이 400 이면 서버가 준 이유 줄을 편집 칸에 보인다. 알림(`notices`)은 마지막 저장 응답의 것이다
+- 시험 칸 `ruleTestCard`: 붙여 넣은 글이나 작품의 한 화에 지금 칸의 규칙을 걸어 바뀐 곳과 걸린 곳을 보인다(`POST /api/rules/test`, 저장 안 함)
+- 버전 칸 `ruleVersionsCard` 와 '이 버전으로 되돌리기' 는 문체 라이브러리와 같은 모양이다
+- 다른 화면이 쓰는 순수 함수: `ruleRunSay`(걸기 한 번의 알림 문장) · `ruledLine`(바뀐 곳 수와 규칙 이름) · `ruleSkipSay`(건너뜀 알림)
+- 그 화면들(`write.js` · `rewrite.js` · `passage.js` · `convert.js` · `settings.js`)은 이 파일의 함수를 `typeof … === 'function'` 으로 확인하고 부른다. 일부 파일만 읽는 JS 시험이 있다
+- 집필 화면 알림 `ruleRunsNote(n, can)`: 아직 되돌리지 않은 곳이 있는 걸기마다 접은 '규칙으로 N곳 고쳤어요'(최근 것 먼저)
+- 알림을 펴면 바뀐 곳마다 규칙 이름 · 전 → 뒤 · '되돌리기' 가 있다. 되돌린 곳은 '되돌림' 표시로 남는다
+- 아직 되돌리지 않은 곳이 둘 이상이면 '모두 되돌리기'(묻고 함)가 있고, 남긴 곳이 있으면 그 수를 알린다
+- 곳 하나를 되돌린 뒤에도 알림을 편 채 둔다(`S.ruleRunOpen`)
+- 마지막 걸기가 건너뛰었으면 '규칙 묶음 ○○을 거는 데 너무 오래 걸려서 건너뛰었어요' 를 보인다
+- `can` 이 거짓(자동 집필 중 · 고칠 수 없는 화)이면 되돌리기 버튼 없이 보기만 한다
+- 되돌리기 전에 저장하지 않은 본문 수정이 있으면 묻고 먼저 저장한다(`ruleUndoRun`). 서버는 저장된 본문을 되돌린다
+- 시험은 `tests/test_regexrules_js.py`
 
 ### `canon/store.py`
 
@@ -863,7 +1009,7 @@
 - `/api/config/health` 는 Claude 단계가 있으면 `claude_api`(Anthropic 키 유무)와 `claude` · `claude_message`(구독 설치 · 로그인, `claude.status` 를 60초 기억)를 싣는다. 설정 저장은 기억을 지우고, `/api/claude/status` 는 새로 읽은 값으로 바꾸고, error 는 기억하지 않는다
 - 키 없음(`MissingKey`) 답의 문구는 낸 백엔드의 것(Gemini · Vertex · Anthropic)을 쓴다
 - 대화 세션 칸만 바꾸는 요청(세션 만들기 · 이름 · 대상 · 권한 모드 · 보관, `_session_edit`)은 화면 저장으로 치지 않는다(`store.writer` 를 비움). 저장하지 않은 변경이 있는 탭의 다음 저장이 다른 탭과의 충돌(409)을 그대로 받는다
-- 기능별 라우트 일곱 묶음은 `canon/routes/` 에 있다(`ROUTES`: 문단 연습장 · 레퍼런스 · 지도 · 역설계 · 쇠맛 · 플레이 · 연구). 맨 끝의 `_attach_routes` 가 붙인다
+- 기능별 라우트 아홉 묶음은 `canon/routes/` 에 있다(`ROUTES`: 문단 연습장 · 프롬프트 놀이터 · 레퍼런스 · 지도 · 역설계 · 쇠맛 · 플레이 · 연구 · 규칙 묶음). 맨 끝의 `_attach_routes` 가 붙인다
 - 붙인 라우트는 `app.routes` 에 감싼 모양으로만 들어가서, 응답 모양을 바꾸는 코드는 `_ROUTERS` 의 라우트도 함께 본다(`_SNAPSHOT_LIGHT`)
 - `serve` 는 로깅 설정이 없으면 INFO 수준, 시각 · 수준 · 로거 이름을 붙인 형식으로 정한다. 업데이트 · 자동 집필 이어 가기 안내도 이 로그로 낸다
 - 작품 GET 과 작품을 돌려주는 응답은 스냅샷을 화 번호만 보낸다(`_SNAPSHOT_LIGHT`). 작품 저장(PUT)은 디스크 스냅샷을 지킨다
@@ -916,8 +1062,14 @@
 - 다시 맞추기(`POST …/restate`)도 변경안 지문이 반영 뒤 고친 지금 본문과 다르면 같은 409(`stale_delta`)로 막는다. `?force=1` 이면 반영한다
 - 빈 지문(옛 결과 · 손으로 만든 변경안)은 맞춰 보지 않는다. 채팅 앱 변경안 가져오기 `state/parse` 도 지문을 채운다
 - 본문 저장 `PUT …/episodes/{n}/text` 는 고침을 시작한 저장 본문(`Text.base`)이 지금 본문과 다르면 409(`code` `stale_text`)로 막는다. `?force=true` 이면 저장한다
+- 본문 저장의 `Text.source = "import"`(작업지시서 화면의 받은 본문 붙여 넣기)는 명령줄 `import` 와 같다: 고침 규칙(kind import)을 걸고 `replace_text(written_by="import", rule_runs=)` 로 넣는다
+- import 분기는 규칙을 작품 잠금 밖에서 건 뒤 잠그고 다시 읽는다. 409 · 플롯 초안 · 이전 화 검사를 다시 하고 넣어 그사이 다른 저장을 덮지 않는다
+- 그래서 받은 본문은 지금 본문을 이전 판에 남기고 수정 기록(`typed`)을 남기지 않는다. 확정 화에 넣을 때는 `require_previous` 를 본다. 빈 글은 보통 저장 길로 간다
+- 작가가 친 본문(`source` 없음)에는 규칙을 걸지 않는다. 빈 화에 넣거나 본문을 비우는 분기는 `meta_cut` 과 함께 `rule_runs` 도 비운다
+- `Text.source` 는 빈 글과 import 만 받는다. 다른 값은 422 다
 - `base` 가 없는 요청(옛 화면 · 명령줄 · 시험)은 맞춰 보지 않는다(`tests/test_text_conflict.py`)
 - 경고의 'AI에게 고치기' `POST …/episodes/{n}/fix-now`(`fix_now`)는 후보 받기와 첫 후보 넣기(`pipeline.apply_first`)를 한 요청에서 한다. 작품과 넣은 수정 id(`edit`, 후보가 없으면 '')를 돌려준다
+- 부분 수정 대화(`chat_send` 의 `text:<화>`)와 `fix-now` 는 `revise_passage(rules=True)` 로 후보마다 고침 규칙을 건다
 - 본문 부분 수정 대화 `POST …/chat/text:<화>` 와 `fix-now` 는 AI를 부르기 전에 `_text_guard` 를 본다. `fix-now` 는 AI 답을 받은 뒤 한 번 더 본다
 - 오래 걸리는 AI 작업은 `jobs.start` 로 돌린다
 - `start_job` 은 작업 종류마다 `JOB_MAKERS` 의 준비 함수(`_job_<종류>`)를 부른다. 함수는 (이름표, 전체 걸음, 맡은 화, 할 일)을 돌려준다. 새 작업은 함수를 더하고 `JOB_MAKERS` 에 넣는다
@@ -930,11 +1082,16 @@
 - 쓴 뒤 검수가 실패해도 작업은 끝남이고 결과에 `check_error` 를 싣는다. 성공하면 결과 `check` 는 작업 `check` 의 결과와 같다
 - 쓴 뒤 검수가 도는 (작품, 화)는 `_WRITE_CHECKS` 에 두고, 그동안 작업 `check` 는 400 으로 거절한다. 새 판(다시 생성)은 검수하지 않는다
 - 작업 `write` 는 본문을 저장하는 `_edit` 안에서 보낸 프롬프트 기록을 남긴다(`sent.keep`). 다시 생성은 새 판과 함께 `sent.hold` 로 둔다
+- 작업 `write` · 동기 쓰기 · 다시 생성 작업은 `ruled` 목록을 넘겨 고침 규칙을 걸고 `replace_text(rule_runs=)` · `set_candidate(rule_runs=)` 로 저장한다
+- 작업 `write` 의 결과는 규칙 걸기 기록이 있으면 `{"rule_run": 마지막 기록}` 이고 없으면 예전처럼 None 이다(`_rule_note`). 쓴 뒤 검수 결과에도 같은 칸이 붙는다
+- 다시 생성 작업 결과는 `{"candidate": True}` 에 같은 `rule_run` 칸이 붙는다
+- 재구성 다듬기 받아들이기(`ReworkIn.ruled`)는 제안의 바뀐 곳을 받아 `accept_rework` 에 넘긴다. 다듬기 작업 결과(`Rework`)에는 `ruled` 가 실린다
 - 새 판 고르기 `POST …/candidate/adopt` · 버리기 `DELETE …/candidate` 는 저장과 같은 잠금 안에서 `sent.adopt` · `sent.drop_candidate` 를 부른다
 - 동기 쓰기 `POST …/episodes/{n}/write` 도 `project_lock` 안에서 `sent.keep` 뒤 `_save_locked` 로 저장한다
 - 화 지우기 `delete_episode` 가 화를 남기면(`keep_plot`) 그 화의 기록을 `sent/removed/` 로 옮기고 notes 에 적는다
 - 프롬프트 원문 `GET …/episodes/{n}/prompt?source=auto|sent|rebuilt`: auto 는 기록이 있으면 보낸 그대로(`source: sent`), 없으면 지금 데이터로 다시 만든 것
 - 보낸 그대로는 요청 끝에 `tail`(정책 줄)을 붙여 준다. `note`(`_sent_note`)는 쓰기 종류 · 모델 · 받은 호출 번호 · 다시 부른 까닭 · 그 뒤 본문이 바뀌었는지를 적는다
+- `_sent_note` 의 '그 뒤로 본문이 바뀌었어요' 까닭 목록에 '규칙 되돌리기' 가 든다
 - 다시 만든 것은 `has_sent` 와 `note` 로 기록이 있는지(실제와 다를 수 있음) · 없는지를 알린다. 쓰기 전 화는 `note` 가 비었다
 - `start_job` 은 같은 화에서 멈춘 작업이 AI 응답을 기다리면 `EP_AI_KINDS` 작업을 409 로 막는다(`_waiting_409`, 역설계 실험 `rev_job` 과 같은 문구)
 - 멈춘 스토리보드 작업의 늦은 응답은 그 화에 스토리보드 · 본문이 없고 플롯이 확정돼 있으면 남긴다(`_keep_late_board`, 결과 `{kept}`)

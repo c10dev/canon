@@ -3,13 +3,15 @@
 pipeline 이 맨 끝에서 이 모듈을 불러 여기서 정한 이름(EXPORTS)을 pipeline 에도 둔다 (pipeline.<이름> 으로 부르는 코드가 그대로 돈다)."""
 from __future__ import annotations
 
-from . import address, charlog, prompts, stateedit, statwin, storylines
+from . import address, charlog, prompts, regexrules, stateedit, statwin, storylines
 from .llm import LLM
-from .schema import ArcPlan, Conversion, Episode, EpisodePlot, Project, RebuildEpisode, Rework, SerialRebuild, ShortArchive, TextEdit
+from .schema import ArcPlan, Conversion, Episode, EpisodePlot, Project, RebuildEpisode, Rework, RuleChange, RuleRun, SerialRebuild, ShortArchive, TextEdit
 from .pipeline import (  # pipeline 의 공용 도우미
     ARC_MIN,
     _editable,
+    add_run,
     record_typed,
+    still_ruled,
     validate_arc,
     validate_story_arcs,
 )
@@ -196,7 +198,8 @@ def apply_rebuild(p: Project, prop: SerialRebuild, at: str = "") -> tuple[Projec
         src = archive.source(x.sources[0]) if x.sources else None
         if x.use in ("keep", "revise") and src is not None:
             plot = src.plot.model_copy(deep=True, update={"number": x.number, "act": act.name if act else src.plot.act})
-            eps.append(Episode(plot=plot, text=src.text, status="written", written_by=src.written_by, meta_cut=src.meta_cut))
+            eps.append(Episode(plot=plot, text=src.text, status="written", written_by=src.written_by, meta_cut=list(src.meta_cut),
+                               rule_runs=[r.model_copy(deep=True) for r in src.rule_runs]))  # 옮긴 본문의 고침 규칙 기록도 같이 (되돌리기)
         else:
             chars = list(dict.fromkeys(c for s in x.sources if archive.source(s) for c in archive.source(s).plot.characters))
             eps.append(Episode(plot=EpisodePlot(number=x.number, act=act.name if act else "기", title=x.title, summary=x.summary,
@@ -231,7 +234,8 @@ def apply_rebuild(p: Project, prop: SerialRebuild, at: str = "") -> tuple[Projec
 
 
 def propose_rework(llm: LLM, p: Project, n: int) -> Rework:
-    """'다듬기'로 고른 화의 옛 본문을 새 자리에 맞게 고친다. 저장하지 않는다."""
+    """'다듬기'로 고른 화의 옛 본문을 새 자리에 맞게 고친다. 저장하지 않는다.
+    AI 가 다듬은 글이라 작품이 켠 고침 규칙을 여기서 걸고 바뀐 곳을 rw.ruled 에 둔다. 받아들일 때(accept_rework) 그 값을 되돌려 받는다."""
     x = p.archive.entry(n) if p.archive else None
     ep = _editable(p, n)
     if x is None or x.use != "revise":
@@ -240,11 +244,15 @@ def propose_rework(llm: LLM, p: Project, n: int) -> Rework:
     rw.text = rw.text.strip()
     if not rw.text or rw.text == ep.text:
         raise ValueError("고친 본문이 원문과 같아요. 다듬을 것을 지도에 적고 다시 받으세요")
+    text, run = regexrules.run(p, rw.text, "rework")
+    if run is not None and run.changes:
+        rw.text, rw.ruled = text, run.changes
     return rw
 
 
-def accept_rework(p: Project, n: int, text: str, proposed: str = "") -> TextEdit | None:
-    """다듬은 본문을 넣는다. proposed 는 AI 가 낸 글로, 작가가 손봤으면 수정 기록에 함께 남긴다."""
+def accept_rework(p: Project, n: int, text: str, proposed: str = "", ruled: list[RuleChange] | None = None) -> TextEdit | None:
+    """다듬은 본문을 넣는다. proposed 는 AI 가 낸 글로, 작가가 손봤으면 수정 기록에 함께 남긴다.
+    ruled 는 제안의 고침 규칙 기록(Rework.ruled, proposed 안 자리)이다. 넣은 본문에 아직 있는 곳만 규칙 걸기 기록 하나로 남긴다."""
     ep = _editable(p, n)
     x = p.archive.entry(n) if p.archive else None
     if x is None or x.use != "revise":
@@ -258,6 +266,11 @@ def accept_rework(p: Project, n: int, text: str, proposed: str = "") -> TextEdit
     if edit is not None:
         edit.source, edit.instruction = "ai", x.note or "재구성 다듬기"
         edit.proposed = proposed.strip() if proposed.strip() and proposed.strip() != new else ""
+    if ruled:
+        same = bool(proposed.strip()) and proposed.strip() == new
+        spots = still_ruled(ruled, new, same, -(len(proposed) - len(proposed.lstrip())))
+        if spots:
+            add_run(ep, RuleRun(kind="rework", changes=spots))
     return edit
 
 

@@ -198,6 +198,7 @@
   - `CANON_PORT`: `scripts/canon-mac.command` 가 띄우는 웹 포트(기본 8000)
   - `CANON_PROMPTLAB`: 프롬프트 놀이터 세션 폴더(기본 `<CANON_HOME>/.promptlab`, `promptlab.py`)
   - `CANON_REFS`: 레퍼런스 원고 폴더(기본 `<CANON_HOME>/.refs`, `refs.py`)
+  - `CANON_RULES`: 정규식 규칙 묶음 폴더(기본 `<CANON_HOME>/.rules`, `regexrules.py`)
   - `CANON_STUDIO`: 문단 연습장 세션 폴더(기본 `<CANON_HOME>/.studio`, `studio.py`)
   - `CANON_STYLES`: 문체 라이브러리 폴더(기본 `<CANON_HOME>/.styles`, `library.py`)
   - `CANON_USAGE`: 사용량 기록 파일(기본 `projects/.usage/usage.jsonl`)

@@ -35,6 +35,7 @@
 - 서버 오류 문구 `fmtErr`: 검증 오류(detail 이 목록)는 영어 원문 대신 `VALIDATION_REASON`(web.py `_VALIDATION_REASON` 과 같음, `tests/test_fmterr_js.py`)과 칸 이름 `FIELD_NAME` 으로 쓴다
 - 저장하지 않고 이동하면 묻는 창은 작품 변경만 있을 때 '저장하고 이동'(askConfirm 의 `alt`)을 주 버튼으로 준다
 - 화면 이동 확인은 `leaveUnsaved`(작품 · 라이브러리 · 장면 연출 변경, `S.editDrafts`)를 본다
+- 규칙 묶음 편집(`S.ruleDirty`, `regexrules.js`)도 `leaveUnsaved` · 패널 뒤로 가기 확인 · 저장 띠의 저장 가능 검사에 든다. 버리고 이동을 고르면 비운다
 - `goThen(hash, fn)` 은 화면을 옮기고 `routeNow` 가 그 주소를 다 그린 뒤 `fn` 을 한 번 부른다. 이동 확인에서 '취소'를 고르면 버린다
 - 새로고침 · 탭 닫기(`beforeunload`)는 `hasUnsaved` 를 본다: `leaveUnsaved` 에 본문 초안 · 지시서 결과 · 상태 변경안 · 문체 예시 · 가격표(`S.priceDirty`)를 더한다
 - `hasUnsaved` 는 화면을 옮겨도 S 에 남는 고치던 입력도 더한다: 모듈이 `onKeptDraft(함수)` 로 맡긴 검사가 하나라도 true 면 묻는다(`keptDraftOpen`)
@@ -77,7 +78,10 @@
 - 본문을 쓴 모델 글자 `writerLabel`(`Episode.written_by` · `TextVersion.model` → '모델 · 백엔드', 백엔드 이름 `WRITER_BACKEND`, `tests/test_write_js.py`)
 - 단계 이름 `stepLabel`(사이드바와 같은 이름, 다른 화면 문구도 이것을 쓴다)
 - 작품 밖 화면(작품 목록 · 새 작품 `#/new` · 사용량 · 문체 라이브러리 · 레퍼런스 원고 · 역설계 실험 · 쇠맛 실험실)의 사이드바 `outSidebar`
+- 규칙 묶음 `#/rules`(`regexrules.js`)도 작품 밖 화면이다. 길 읽기가 `ruleLoad` 와 `GET /api/rules` 를 부르고 그리기 분기가 `viewRuleList` · `viewRuleBundle` 을 그린다
+- 아래 메뉴 foot 목록의 '문체 라이브러리' 뒤에 '규칙 묶음'(`#/rules`)이 있다
   - 항목은 순수 함수 `outNav`: 작품 목록 · 새 작품 · 새 플레이, 최근 작품 셋, 작품 밖 도구(아직 열지 않은 화면 자리는 `.nav-off`)
+  - `outNav` 의 넷째 인자는 규칙 묶음 목록(`S.ruleList`)이다. 도구 줄 '📏 규칙 묶음'(`#/rules`)에 묶음 수를 단다
   - 본문 `.out-main` 폭 `--out-w` · `@container out`
   - 작품을 읽지 못한 화면(주소가 틀림 · 불러오기 오류)도 작품 밖 사이드바 안에 그린다(본문 720px)
 - 사이드바
@@ -214,7 +218,11 @@
 - 고침안과 함께 직접 고친 곳이 있으면(`chkOtherEdits`) 안내는 고친 곳만 다시 보기로 먼저 닫고 직접 고친 곳은 다시 검수로 보라고 알린다
 - 마지막 회차가 바뀐 곳만 새로 짚었으면 회차 띠에 '바뀐 곳만'을 붙이고, 넣지 않은 새 지적(`CheckRound.outside`)이 있으면 그 수와 끄는 곳을 알린다
 - 장면 연출 규칙 지적은 '규칙' 표시(`ruleChip`)와 '장면 연출에서 보기'(`stageLink`, `stgGo`)
+- 정규식 경고 규칙 지적(`origin = "regex"`)은 '정규식 · {규칙 이름}' 표시다(`ruleChip`). 이름(`regexName`)은 설명이 서버 기본 '정규식 규칙에 걸렸어요' 면 뺀다
+- 정규식 지적은 목록의 근거 줄을 '정규식 규칙' 으로 쓰고(`srcLine`) 상세에서 근거 인용 대신 패턴 코드 칸(`.chk-pattern`)을 보인다
+- 정규식 지적의 고치기 칸은 '근거 쪽이 틀렸어요' 를 숨기고 잘못 짚음을 '규칙이 잘못 짚었어요' 로 쓴다
 - 다시 검수 버튼은 '판정 다시 보기'(LLM 없음)
+- '판정 다시 보기'(`recheckBtn`, 글 `RECHECK_LOCAL`)는 정규식 지적에도 보인다. 지금 본문에 그 경고 규칙만 다시 걸고 알림도 규칙 말로 쓴다
 - 머리의 '검수 옵션 ▾' 메뉴(`checkOptsMenu`): 넓혀 찾기(장편, `Settings.check_widen`) · 동선 따로 보기(`Settings.check_motion`) · 연출 함께 뽑기(`Settings.stage_extract`)를 체크 줄과 설명으로 모은다. 머리 줄에는 검수 · 상태 승인 버튼만 둔다
 - `checkOptsMenu` 에는 쓴 뒤 바로 검수(`Settings.check_after_write`, `toggleCheckAfterWrite`)와 바뀐 곳만 새로 짚기(`Settings.check_scope`, `toggleCheckScope`)도 있다
 - 표시 `findingFlag` · 밑줄 `findingMarks` · `findingOrder` · `roundChanges` · `nearQuote` · `fixMissing` 은 순수 함수(`tests/test_check_js.py`)
@@ -226,6 +234,8 @@
 - 받은 그대로의 계획을 `S.convOrig` · `S.rbOrig` 에 둔다. 칸이나 체크를 고친 뒤 '다시 받기'를 누르면 먼저 묻는다(`planEdited` · `planRefetchOk`, `tests/test_convert_js.py`)
 - 되돌리기
 - 집필 화면의 재구성 안내 · 다듬기 비교(`rebuildNote`)도 여기 있다
+- 다듬기 제안 카드는 제안의 `ruled` 로 '규칙으로 N곳 고쳤어요' 와 규칙 이름을 보인다(`ruledLine`)
+- 받아들이기(`reworkAccept`)는 `ruled` 를 되돌려 보낸다. 서버가 넣는 글에 아직 남은 곳만 기록한다(`reshape.accept_rework`)
 
 ### `canon/static/flow.js`
 
@@ -433,6 +443,8 @@
 - 상태 정리 경고에서 «» 문장을 찾아 고르기(`warnQuote`, `warnItems`, `warnPick`)
 - 경고의 'AI에게 고치기'는 대화 패널을 거치지 않고 첫 후보를 바로 본문에 넣는다(`aiFixNow`: 저장 → `POST …/fix-now` 한 번 → 되돌리기 · 상태 승인으로 알림). 후보가 없으면 대화 패널을 연다
 - `aiFixNow` 는 AI를 기다리는 동안 화면을 잠그지 않는다. 그 화 본문 칸만 잠그고(`S.aiFix`, `aiFixing`) 다른 화면으로 가도 끝나면 알린다
+- `aiFixNow` 알림은 그 사이 새로 생긴 규칙 걸기의 고친 곳 수를 '규칙으로 N곳도 고쳤어요' 로 붙인다
+- 후보 카드(`passageProposal`)는 후보의 `ruled` 로 '규칙으로 N곳 고쳤어요' 와 규칙 이름을 보인다(`ruledLine`). 단어 차이만으로는 AI 가 바꾼 곳과 규칙이 바꾼 곳이 섞이기 때문이다
 - 바로 넣는 것은 경고에 옮겨 적은 글이 본문에 그대로 한 번만 있을 때다(`warnSpot` 의 `exact`). 아니면 그 문장을 골라 경고를 대화 입력칸에 넣고 보내기는 작가가 한다
 - 경고 줄 뒤의 버튼 · 표시는 `warnTools` 하나가 그린다(집필 `warnItems` · 상태 승인 `rvWarnLine`): 고치는 중, 'AI가 고침'(`warnFixed`: 되돌리지 않은 AI 수정의 요청 글이 그 경고), 버튼
 - 되돌리기 알림 `undoToast` 는 `toast` 의 동작 알림이다. 누르거나 포커스가 있는 동안 닫히지 않고 알림 창 '최근 알림'에 남는다
@@ -561,9 +573,11 @@
 - 집필 화면의 다시 생성 열(`rwColumn`, 대화 패널 자리 `.tool-col`에 뜨고 대화 패널과 하나만 열림. 빠른 요청, 피드백, 함께 넣을 재료, 처음부터 / 고쳐 쓰기, 살릴 부분)
 - 방식 '서술만 다듬기'(`polish`)는 다른 칸을 감추고 정해진 규칙만 보낸다. 버튼은 '다듬은 판 만들기'
 - 새 판 비교(나란히 · 바뀐 곳 `textDiff`)와 고르기. 새 판을 쓸 때 뗀 작업 설명이 있으면 그 수를 한 줄로(`TextVersion.meta_cut`, 고르면 화로 따라감)
+- 새 판 카드는 새 판에 건 고침 규칙(`TextVersion.rule_runs`)의 고친 곳 수 · 규칙 이름과 건너뛴 묶음을 보인다(`rwRuleLine`). 되돌리기는 새 판으로 바꾼 뒤 집필 화면에서 한다
 - 이전 판 목록과 되돌리기
 - 서버는 `pipeline.rewrite_episode` · `set_candidate` · `adopt_candidate` · `drop_candidate` · `restore_version`
 - 쓰기 작업 끝 알림(`JOB_DONE_MSG.write`)은 쓴 뒤 바로 검수의 짚은 곳 수나 못 한 까닭(`check_error`)을 함께 알린다
+- `JOB_DONE_MSG.write` 는 작업 결과의 `rule_run` 이 있으면 고친 곳 수 · 건너뛴 묶음을 붙인다(`ruleRunSay`). 쓰기 · 다시 생성 모두다
 - 프롬프트는 `prompts.rewrite_prompt`
 
 ### `canon/static/settings.js`
@@ -608,6 +622,11 @@
   - 캐시 앞부분 블록(`front`)이나 그 블록이 쓰는 예산을 바꾸면 저장 알림에 '다음 요청부터 캐시가 처음부터 다시 쌓여요'를 붙인다
   - 블록 설정을 저장하면 집필 화면이 든 컨텍스트 블록 표를 다시 받는다(`ctxReload`)
   - `ctxReload` 는 들고 있던 프롬프트 원문(`S.promptText`)과 토큰 센 값(`S.ctxCount`)을 버린다. 다음에 열 때 새 요청을 받는다
+  - 이 작품 › 쓰기 갈래 '정규식 규칙'(`SET_ROWS` 의 `regex-rules`, `ruleBundleRows`): 켠 묶음을 거는 차례대로(↑ ↓ · 스위치) 먼저, 끈 묶음을 뒤에 보인다
+  - 묶음 목록은 대화상자를 열 때 `GET /api/rules` 로 받는다(`loadRuleBundles`, `SET.rules`). '규칙 묶음 관리' 는 `#/rules` 로 간다
+  - 지워진 묶음 id 는 '찾을 수 없는 묶음이에요' 로 보이고 끄기만 된다
+  - 켜기 · 끄기(`setRuleBundle`, 켜면 맨 뒤)와 차례 옮기기(`setRuleMove`)는 `setRulesSave` 가 줄을 서서 `PUT …/rule-bundles` 로 보낸다. `setProjectSave` 는 쓰지 않는다
+  - 작품에 저장하지 않은 수정이 있으면 응답의 `settings.rule_bundles` 만 맞춘다. 서버가 거절하면 바꾸기 전으로 되돌리고 문구를 줄 아래에 보인다
   - 이 작품 › 백업 갈래(`backup-list`): 백업마다 한 줄(`backupRows` · `backupDesc`), 열 때 `GET …/backups` 로 받고 되돌리기는 `setRestore`(되돌린 뒤 `PER_PROJECT` 초안 · 변경안을 비움)
   - `tests/test_settings_js.py` · `tests/test_model_preset.py`
 
@@ -718,6 +737,8 @@
   - 멈춘 작업이 그 화에서 AI 응답을 기다리면 `writeGo` 가 primary 를 잠그고 쓰기 시작 칸과 만든 스토리보드 칸이 `epWaitNote` 로 까닭을 보인다
   - 본문 띠의 저장 칸 `.savebar-slot`
   - 쓰기가 본문 앞뒤에서 뗀 작업 설명(`Episode.meta_cut`)은 접은 알림 `metaCutNote`: 문단마다 '본문에 되살리기'(`metaCutRestore`, 수정 기록에 남음) · '지우기'(`metaCutDrop`, 되살릴 수 없다고 위험 확인을 묻는다). 자동 집필 중이거나 고칠 수 없는 화는 버튼 없이 보기만(`tests/test_meta_cut.py`)
+  - 고침 규칙 기록은 `metaCutNote` 바로 뒤의 `ruleRunsNote`(`regexrules.js`)가 보인다. 자동 집필 중이거나 고칠 수 없는 화이면 되돌리기 없이 보기만 한다
+  - 작업지시서 화면의 받은 본문 붙여 넣기(`importText`)는 `source: "import"` 를 보내 서버가 고침 규칙을 걸게 한다. 새 걸기의 고친 곳 수를 저장 알림에 붙인다
 - 그 화 플롯이 없으면 `noEpisode(n)` 이 몇 화까지 있는지와 마지막 화 · 플롯 만들기로 가는 길을 보인다. 플롯이 하나도 없을 때만 '아직 화별 플롯이 없어요'
 - k화로 가는 링크 `epGo(k)`: 플롯 초안이면 플롯 페이지(플롯 확정), 본문이 있으면 검수 · 상태 승인, 나머지는 집필. 순서 안내(`orderNote`)와 검수 · 상태 승인의 빈 화면이 쓴다
 - 본문 다시 생성 확인은 지금 본문이 이전 판으로 남는다고 말하고 위험 버튼으로 두지 않는다

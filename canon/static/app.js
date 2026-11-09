@@ -1583,7 +1583,7 @@ function discardEditDrafts() {
 /** 화면을 옮기면 사라지는 입력: 저장하지 않은 작품 · 라이브러리 · 장면 연출 변경과 인라인 편집기 입력.
     본문 초안 · 상태 변경안 · 가격표처럼 화면을 옮겨도 남는 것은 세지 않는다 (hashchange 확인이 쓴다) */
 function leaveUnsaved() {
-  return S.dirty || S.libDirty || S.stgDirty || editDraftOpen();
+  return S.dirty || S.libDirty || S.stgDirty || S.ruleDirty || editDraftOpen();
 }
 
 // 화면을 옮겨도 S 에 남지만 페이지를 떠나면 사라지는 입력(스토리보드 · 큐 시트 고침, 역설계 고치던 글 등).
@@ -2207,7 +2207,7 @@ window.addEventListener('popstate', () => {
   const st = history.state;
   if (!st || !st.panel) return;
   // 창 없이 남은 기록: 움직인 쪽으로 한 칸 더 간다 (뒤로 가기는 뒤로, 앞으로 가기는 앞으로)
-  if (S.dirty || S.libDirty || S.stgDirty) return;  // 저장하지 않은 변경을 묻는 hashchange 가 두 번 돌지 않게 건너뛰지 않는다
+  if (S.dirty || S.libDirty || S.stgDirty || S.ruleDirty) return;  // 저장하지 않은 변경을 묻는 hashchange 가 두 번 돌지 않게 건너뛰지 않는다
   panelSkip += 1;
   if (typeof st.idx === 'number' && st.idx >= navScroll.idx) history.forward(); else history.back();
 });
@@ -2239,7 +2239,7 @@ window.addEventListener('hashchange', async () => {
     const ask = ++navAsk;
     history.replaceState({ idx: navScroll.idx }, '', lastHash);
     // 작품 변경만 있으면 '저장하고 이동'을 주 버튼으로 준다. 라이브러리 · 장면 연출은 저장하는 곳이 달라 버리고 갈지만 묻는다
-    const canSave = S.dirty && !S.libDirty && !S.stgDirty && !editDraftOpen() && !S.conflict;
+    const canSave = S.dirty && !S.libDirty && !S.stgDirty && !S.ruleDirty && !editDraftOpen() && !S.conflict;
     const go = await askConfirm(canSave ? '저장하지 않고 이동하면 그 변경은 사라져요.' : '저장하지 않고 이동하면 그 변경은 사라져요. 이동할까요?',
       { title: '저장하지 않은 변경이 있어요', ok: canSave ? '저장하지 않고 이동' : '이동하기', danger: true, alt: canSave ? '저장하고 이동' : '' });
     if (!go) afterRoute = null;  // 머물기를 골랐다. 옮긴 뒤 할 일도 버린다 (goThen)
@@ -2268,6 +2268,7 @@ window.addEventListener('hashchange', async () => {
   navScroll.idx = history.state.idx;
   lastHash = location.hash;
   S.libDirty = false;
+  S.ruleDirty = false;  // 규칙 묶음 편집도 버리고 이동을 골랐다 (regexrules.js)
   discardEditDrafts();  // 버리고 이동을 골랐거나 남은 입력이 없었다. 버린 초안을 비우고 모든 키를 지운다 (S.editDrafts 약속)
   await route();
 });
@@ -2338,10 +2339,11 @@ async function routeNow() {
     }
     if (!S.genres) S.genres = await api('GET', '/genres').catch(() => []);
     if (!S.namingStyles) S.namingStyles = await api('GET', '/naming/styles').catch(() => []);
-    if (['usage', 'revlab', 'soelab', 'styles', 'refs', 'studio', 'promptlab'].includes(parts[0])) {  // 작품 밖 사이드바의 최근 작품 · 문체 · 원고 수 (처음 한 번만, 작품 목록에 오면 다시 읽는다)
+    if (['usage', 'revlab', 'soelab', 'styles', 'rules', 'refs', 'studio', 'promptlab'].includes(parts[0])) {  // 작품 밖 사이드바의 최근 작품 · 문체 · 원고 수 (처음 한 번만, 작품 목록에 오면 다시 읽는다)
       if (!S.projects) S.projects = await api('GET', '/projects').catch(() => null);
       if (!S.libs) S.libs = await api('GET', '/styles').catch(() => null);
       if (!S.refList) S.refList = await api('GET', '/refs').then((r) => r.refs).catch(() => null);
+      if (!S.ruleList) S.ruleList = await api('GET', '/rules').catch(() => null);
     }
     if (parts[0] === 'usage') {
       S.name = null;
@@ -2367,6 +2369,10 @@ async function routeNow() {
       S.name = null;
       S.project = null;
       await pgLoad(parts[1]);
+    } else if (parts[0] === 'rules') {  // 규칙 묶음 (regexrules.js): 목록 · 새 묶음(rules/new) · 묶음 편집(rules/<id>)
+      S.name = null;
+      S.project = null;
+      await ruleLoad(parts[1]);
     } else if (parts[0] === 'styles') {
       S.name = null;
       S.project = null;
@@ -2480,6 +2486,7 @@ async function routeNow() {
       S.projects = await api('GET', '/projects');
       S.libs = await api('GET', '/styles').catch(() => []);
       S.refList = await api('GET', '/refs').then((r) => r.refs).catch(() => null);
+      S.ruleList = await api('GET', '/rules').catch(() => null);
       if (parts[0] === 'new') S.focusTarget = '#np-title';  // 사이드바 '새 작품'(#/new): 작품 목록 위에 새 작품 칸을 펴고 제목 칸으로
     }
   } catch (e) {
@@ -2694,6 +2701,7 @@ function drawApp() {
   if (p === 'studio') return outside('studio', 1180, viewStudio());
   if (p === 'promptlab') return outside('promptlab', 1280, viewPromptLab());
   if (p === 'styles') return outside('styles', 1180, S.route[1] && S.lib ? viewLibEntry() : viewLibrary());
+  if (p === 'rules') return outside('rules', 1180, S.route[1] && S.ruleB ? viewRuleBundle() : viewRuleList());
   if (S.loadError) {
     // 작품을 읽지 못한 화면도 작품 밖 사이드바 안에 그린다 (900px 이하 위쪽 띠의 메뉴 · 알림 · 찾기가 남는다)
     outside('', 720, `<div class="card empty" role="alert">${S.loadMissing
@@ -2848,7 +2856,7 @@ function navItems() {
     auto: ['auto', base() + '/auto', '🤖', autoMenuLabel()],
     tools,
     apart: [['research', base() + '/research', '🔬', '연구 · 모델 실험'], ['cue', base() + '/cue', '🎼', '큐 시트 집필 실험'], ['revlab', '#/revlab', '🔁', '역설계 실험'], ['soelab', '#/soelab', '🧪', '쇠맛 실험실'], ['usage', base() + '/usage', '💰', '사용량 · 비용']],
-    foot: [['#/settings', '설정'], ['#/usage', '모든 작품 사용량 · 비용'], ['#/styles', '문체 라이브러리'], ['#/studio', '문단 연습장'], ['#/promptlab', '프롬프트 놀이터'], ['#/refs', '레퍼런스 원고'], ['#/revlab', '역설계 실험'], ['#/soelab', '쇠맛 실험실'], ['#/', '작품 목록']],
+    foot: [['#/settings', '설정'], ['#/usage', '모든 작품 사용량 · 비용'], ['#/styles', '문체 라이브러리'], ['#/rules', '규칙 묶음'], ['#/studio', '문단 연습장'], ['#/promptlab', '프롬프트 놀이터'], ['#/refs', '레퍼런스 원고'], ['#/revlab', '역설계 실험'], ['#/soelab', '쇠맛 실험실'], ['#/', '작품 목록']],
   };
 }
 
@@ -3012,10 +3020,10 @@ function sidebar(active) {
   </nav>`;
 }
 
-/** 작품 밖 사이드바의 항목 (순수 함수, tests/test_sidebar_js.py). list 작품 목록(GET /projects, 고친 때 순서), libs 문체 라이브러리.
+/** 작품 밖 사이드바의 항목 (순수 함수, tests/test_sidebar_js.py). list 작품 목록(GET /projects, 고친 때 순서), libs 문체 라이브러리, rules 규칙 묶음(GET /rules).
     main: 작품 목록 · 새 작품 · 새 플레이, alerts · fails: 모든 작품의 확인할 것 수 · 그 가운데 멈춘 작업 수, recent: 최근 작품 셋(플레이 사본 빼고, 기호는 제목 첫 글자, 멈춘 작업 수 · 결과 수),
     tools: 작품 밖 도구 [id, 주소, 기호, 이름, 배지 글자]. 주소가 빈 도구는 아직 열지 않은 화면이다 */
-function outNav(list = [], libs = [], refList = []) {
+function outNav(list = [], libs = [], refList = [], rules = []) {
   const works = list.filter((x) => !x.play);
   const alerts = (x) => x.alerts || [];
   return {
@@ -3024,7 +3032,9 @@ function outNav(list = [], libs = [], refList = []) {
       fail: alerts(x).filter((a) => a.kind === 'fail').length, result: alerts(x).filter((a) => a.kind === 'result').length })),
     alerts: list.reduce((k, x) => k + alerts(x).length, 0),
     fails: list.reduce((k, x) => k + alerts(x).filter((a) => a.kind === 'fail').length, 0),
-    tools: [['styles', '#/styles', '🖋️', '문체 라이브러리', libs.length ? String(libs.length) : ''], ['studio', '#/studio', '✍️', '문단 연습장', ''],
+    tools: [['styles', '#/styles', '🖋️', '문체 라이브러리', libs.length ? String(libs.length) : ''],
+      ['rules', '#/rules', '📏', '규칙 묶음', rules.length ? String(rules.length) : ''],
+      ['studio', '#/studio', '✍️', '문단 연습장', ''],
       ['promptlab', '#/promptlab', '🧫', '프롬프트 놀이터', ''],
       ['refs', '#/refs', '📑', '레퍼런스 원고', refList.length ? String(refList.length) : ''],
       ['revlab', '#/revlab', '🔁', '역설계 실험', ''],
@@ -3035,7 +3045,7 @@ function outNav(list = [], libs = [], refList = []) {
 /** 작품 밖 화면(작품 목록 · 새 작품 · 사용량 · 문체 라이브러리 · 역설계 실험)의 사이드바. 작품 사이드바와 같은 틀(맨 위 줄 · 레일 · 900px 이하 띠와 서랍 · 아래 고정 줄)에
     작품 칸 대신 작품 밖 메뉴: 작품 목록 · 새 작품 · 새 플레이, 최근 작품, 작품 밖 도구. active 는 지금 화면 id */
 function outSidebar(active) {
-  const { main, recent, alerts, fails, tools } = outNav(S.projects || [], S.libs || [], S.refList || []);
+  const { main, recent, alerts, fails, tools } = outNav(S.projects || [], S.libs || [], S.refList || [], S.ruleList || []);
   const link = (item, badge = '') => navLink(item, active, badge);
   const recentLinks = recent.map((r) => link([`p:${r.name}`, r.href, r.mark, esc(r.label)],
     r.fail ? navBadge(r.fail, `멈춘 작업 ${r.fail}개`, 'red') : r.result ? navBadge('결과', '검토를 기다리는 결과가 있어요', 'amber') : '')).join('');

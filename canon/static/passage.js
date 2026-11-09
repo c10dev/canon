@@ -168,7 +168,7 @@ function passageProposal(m, i) {
       ? `<button class="btn small primary" data-action="passageApply" data-arg="${key}">손본 글로 바꾸기</button><button class="btn small" data-action="passageTweak" data-arg="${key}">취소</button>`
       : `<button class="btn small primary" data-action="passageApply" data-arg="${key}">이걸로 바꾸기</button><button class="btn small" data-action="passageTweak" data-arg="${key}">손봐서 넣기</button>`;
     return `<div class="cand${chosen ? ' chosen' : ''}"><div class="between"><strong>후보 ${k + 1}${chosen ? ' · 넣음' : ''}</strong><span class="small">${(c.text.length - orig.length >= 0 ? '+' : '') + (c.text.length - orig.length)}자</span></div>
-      ${c.note ? `<div class="small">${esc(c.note)}</div>` : ''}${body}${btns ? `<div class="row">${btns}</div>` : ''}</div>`;
+      ${c.note ? `<div class="small">${esc(c.note)}</div>` : ''}${(c.ruled || []).length && typeof ruledLine === 'function' ? `<div class="small">${esc(ruledLine(c.ruled))}</div>` : ''}${body}${btns ? `<div class="row">${btns}</div>` : ''}</div>`;
   }).join('');
   const done = m.outcome === 'applied' ? `<span class="chip finalized">${Number(m.applied[0]) + 1}번 후보를 넣음</span>`
     : m.outcome === 'dismissed' ? '<span class="chip">넣지 않음</span>' : '';
@@ -721,6 +721,7 @@ async function aiFixNow(n, q, at, w) {
   S.aiFix = { name, n, w };
   render();
   const gen = S.gen;
+  const seen = ((ep(n) || {}).rule_runs || []).map((r) => r.id);  // 넣은 뒤 새로 생긴 규칙 걸기만 센다
   let out;
   try {
     out = await api('POST', `/projects/${enc(name)}/episodes/${n}/fix-now`, { message: warnMsg(w), selection: { start: at, text: q } });
@@ -751,7 +752,8 @@ async function aiFixNow(n, q, at, w) {
   render();
   const acts = [{ label: '되돌리기', run: () => actions.undoEdit(out.edit) }];
   if (!(S.route[2] === 'review' && Number(S.route[3]) === n)) acts.push({ label: '상태 승인으로', run: () => { location.hash = `${base()}/review/${n}`; } });
-  toast(`AI가 ${n}화 경고 문장을 고쳤어요.`, false, { actions: acts });
+  const ruled = (ep(n).rule_runs || []).filter((r) => !seen.includes(r.id)).reduce((k, r) => k + (r.changes || []).length, 0);
+  toast(`AI가 ${n}화 경고 문장을 고쳤어요.${ruled ? ` 규칙으로 ${ruled}곳도 고쳤어요.` : ''}`, false, { actions: acts });
 }
 
 Object.assign(actions, {

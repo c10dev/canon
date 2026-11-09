@@ -1,6 +1,6 @@
 # 06. 정규식 규칙 묶음 (경고 · 고침)
 
-상태: 구현 (2026-11-09 정할 것을 모두 정함) · 계획: [plan.md](../plan.md) 의 6번 · 먼저: —
+상태: 진행 (claude/regex-rules) · 계획: [plan.md](../plan.md) 의 6번 · 먼저: —
 
 ## 목표
 
@@ -169,7 +169,11 @@ AI 가 본문을 쓰면 작가가 보기 전에 고침(`fix`) 규칙이 본문�
 |---|---|
 | `canon/regexrules.py` (새 파일) | 규칙 묶음 저장소(`root` · `load` · `save` · `entries` · `delete` · `versions` · `restore`, `canon/library.py` 와 같은 꼴) |
 | `canon/regexrules.py` | 규칙 검사 `validate`(컴파일, 플래그, `out` 문법, 길이, 겹친 반복) |
-| `canon/regexrules.py` | 규칙 걸기 `run(p, text, kind)` → (바뀐 본문, `RuleChange` 목록), 경고 찾기 `hits(p, text)` → 지적 목록 |
+| `canon/regexrules.py` | 규칙 걸기 `run(p, text, kind)` → (바뀐 본문, `RuleRun` 또는 None), 경고 찾기 `hits(p, text, n, only="")` → 지적 목록 |
+| `canon/regexrules.py` | `hits(…, strict=True)`: 시간 한도 · 일꾼 오류 · 없는 `only` 규칙이면 `RuleSkipped`(이유는 `str`)를 낸다. 다시 검수가 '건너뜀' 과 '맞은 곳 없음' 을 가른다 |
+| `canon/regexrules.py` | 묶음 검사 `check(rules)`(오류 줄 앞에 규칙 이름), `create` · `update` 가 부른다. `save` 는 검사하지 않는다 |
+| `canon/regexrules.py` | 기록 붙이기 `add_runs`(id `r<N>` · 최근 `RULE_RUN_KEEP` = 50개), 내보내기 걸기 `export_text`, 규칙 시험 `trial`, 저장을 막지 않는 알림 `notices` |
+| `canon/regexrules.py` | 자식 프로세스 일꾼(spawn · 파이프 · 잠금, `atexit` 의 `shutdown`, 시험용 `worker_alive`) |
 | `canon/regexrules.py` | `out` 을 Python 꼴로 바꾸는 `to_python`, 플래그를 `re` 값으로 바꾸는 `flags` |
 | `canon/regexrules.py` | `in` 을 Python 꼴로 바꾸는 함수(정할 것 15) |
 | `canon/regexrules.py` | 되돌리기 `undo_run(p, n, rid)` · `undo_change(p, n, rid, k)` |
@@ -183,34 +187,46 @@ AI 가 본문을 쓰면 작가가 보기 전에 고침(`fix`) 규칙이 본문�
 | `canon/pipeline.py` | `set_candidate` · `adopt_candidate`: 새 판 후보의 기록을 후보와 함께 두고, 채택할 때 화로 옮긴다 |
 | `canon/pipeline.py` | `apply_passage`: 고른 후보의 `ruled` 를 본문 안 자리로 옮겨 `RuleRun` 하나로 남긴다 |
 | `canon/pipeline.py` | `apply_passage`: 작가가 후보 글을 고쳐 넣으면 `pipeline.locate` 로 아직 찾히는 바뀐 곳만 남긴다. 하나도 없으면 `RuleRun` 을 남기지 않는다 |
+| `canon/pipeline.py` | `revise_passage`: 후보 글을 다듬고 규칙을 건 뒤 원문 · 앞 후보와 견준다. 규칙을 건 후보가 원문과 같으면 뺀다 |
+| `canon/pipeline.py` | `apply_passage`: 후보 글 그대로 넣으면 자리를 후보 글의 앞 공백만큼 옮긴다 |
 | `canon/pipeline.py` | `apply_first`: `apply_passage` 를 거치므로 부분 수정과 같이 첫 후보의 `ruled` 를 남긴다 |
 | `canon/pipeline.py` | `adopt_draft`: 비교에서 고른 본문에 고침 규칙을 걸고 `replace_text` 에 `rule_runs` 를 넘긴다 |
+| `canon/pipeline.py` | 새 도우미: `apply_rules(p, text, kind, ruled)`(목록을 받았을 때만 건다), `still_ruled`(아직 있는 바뀐 곳), `add_run`, `_new_runs`(화 · 판 · 후보를 통틀어 겹치지 않는 id) |
 | `canon/reshape.py` | `propose_rework`: 재구성 다듬기 결과에 고침 규칙을 걸고 바뀐 곳을 제안과 함께 돌려준다. `pipeline` 은 `_attach_split` 으로 이 이름을 다시 내보낼 뿐이라 부르는 쪽(`pipeline.propose_rework`)은 그대로 둔다 |
 | `canon/reshape.py` | `accept_rework`: 제안의 바뀐 곳을 `Episode.rule_runs` 에 넣는다. 바뀐 곳을 얻는 방식은 정할 것 13 |
+| `canon/reshape.py` | `apply_rebuild`: 그대로 둠 · 다듬기 화에 옛 화의 `rule_runs` 를 깊은 사본으로 옮긴다 |
 | `canon/pipeline.py` | `_delete_last`: `ep.edits` · `ep.meta_cut` 을 비우는 자리에서 `ep.rule_runs` 도 비운다(웹 화 지우기도 이 길) |
 | `canon/branches.py` | `fork`(mode `"clear"`): 지난 본문을 `TextVersion` 으로 남길 때 `rule_runs` 도 그 판에 넣고 `ep.rule_runs` 를 비운다 |
 | `canon/pipeline.py` | `apply_check`: 경고 규칙 지적을 합친다 (정할 것 7 · 17) |
+| `canon/pipeline.py` | `check_hits` · `apply_check(hits=)`: 웹은 경고 규칙을 작품 잠금 밖에서 미리 건다. 건 본문이 지금 본문과 다르면 다시 건다 |
 | `canon/pipeline.py` | `recheck_finding` · `recheck_fixed`: `origin == "rule"` 분기 곁에 `origin == "regex"` 분기를 더해 LLM 없이 `regexrules.hits` 로 다시 판정한다 (정할 것 7) |
+| `canon/pipeline.py` | `recheck_finding`: `hits(strict=True)` 가 `RuleSkipped` 를 내면 닫지 않고 `resolved` 거짓에 그 이유를 단다 |
 | `canon/findings.py` | `_match`: `origin = "regex"` 끼리는 `regex_rule` 도 같아야 잇는다 (정할 것 7) |
+| `canon/findings.py` | `counted`: 경고 규칙 지적을 세지 않는다 (정할 것 8) |
 | `canon/autorun.py` | `Runner._write`: `replace_text` 를 거치지 않고 `put` 에서 본문을 바로 넣으므로 `put` 에서 `ep.rule_runs` 도 넣는다 |
-| `canon/autorun.py` | `Runner._polish`: `pipeline.replace_text` 를 부르므로 `rule_runs` 를 그 인자로 넘긴다 |
+| `canon/autorun.py` | `Runner._polish`: `pipeline.replace_text` 를 부르므로 `rule_runs` 를 그 인자로 넘긴다. `polish_episode` 결과를 `pipeline.apply_rules` 로 감싼다(인자를 더하지 않아 옛 시험의 대역 함수가 그대로 맞음) |
+| `canon/autorun.py` | 자동 집필이 건 기록의 kind 를 `auto` 로 바꾼다(`_auto`) |
 | `canon/autorun.py` | 이어 가며 다시 쓰기(`back`): 지난 본문을 `TextVersion` 으로 남길 때 `rule_runs` 도 그 판에 넣고 `ep.rule_runs` 를 비운다 |
 | `canon/web.py` | `_job_write` 의 `save`, 동기 `write_episode`, 새 판 후보 · 부분 수정 경로에 `ruled` 를 넘긴다 |
 | `canon/web.py` | `fix_now` · `_job_rework` 가 위 함수의 바뀐 곳을 넘긴다 |
 | `canon/web.py` | `ReworkIn`: 제안의 바뀐 곳을 받는다 (정할 것 13) |
 | `canon/web.py` | `put_text`: 빈 화에 본문을 넣거나 본문을 비우는 분기에서 `ep.meta_cut` 과 같이 `ep.rule_runs` 를 비운다(판을 남기지 않음) |
 | `canon/web.py` | `_sent_note`: 바뀐 까닭 목록에 '규칙 되돌리기' 를 더한다 |
-| `canon/web.py` | 웹 붙여 넣기 길 (정할 것 10) |
-| `canon/web.py` 또는 새 `canon/routes/regexrules.py` | 묶음 엔드포인트, 규칙 시험 엔드포인트, 고침 되돌리기 엔드포인트 |
-| `canon/web.py` | 켠 묶음 저장 라우트 `PUT /api/projects/{name}/rule-bundles` |
+| `canon/web.py` | 웹 붙여 넣기 길 (정할 것 10): `Text.source: Literal["", "import"]`. import 는 명령줄 `import` 와 같이 `apply_rules` 뒤 `replace_text(written_by="import", rule_runs=)` 로 넣는다(지금 본문은 이전 판, 수정 기록 없음) |
+| `canon/web.py` | `put_text` import 분기: 규칙을 작품 잠금 밖에서 건 뒤 잠그고 다시 읽어 검사하고 넣는다 |
+| `canon/web.py` | 쓰기 작업 결과에 마지막 기록 `rule_run` 을 싣는다(`_rule_note`). 기록이 없으면 예전과 같다 |
+| 새 `canon/routes/regexrules.py` (`web.ROUTES` 에 더함) | 묶음 엔드포인트, 규칙 시험 엔드포인트, 고침 되돌리기 엔드포인트 |
+| 새 `canon/routes/regexrules.py` | 켠 묶음 저장 라우트 `PUT /api/projects/{name}/rule-bundles`. 이미 켜져 있던 id 는 묶음이 지워졌어도 받는다 |
 | `canon/cli.py` | `write` · `import` 가 규칙을 건다. 새 명령 `rules` |
 | `canon/cli.py` | `rewrite`(`cmd_rewrite`, 새 판 후보와 `--adopt`)가 `rewrite_episode` 에 `ruled` 를 넘기고 `set_candidate` 로 기록을 잇는다 |
 | `canon/cli.py` | `fix`(`cmd_fix`)가 `revise_passage` 에 규칙을 걸게 하고 `apply_passage` 로 기록을 남긴다 |
 | `canon/cli.py` | `rework`(`cmd_rework`)의 `accept_rework` 호출이 제안의 바뀐 곳도 넘긴다 (정할 것 13) |
+| `canon/schema.py` | `RuleRun.kind` 에 `adopt` · `rework` 를 더하고 `RuleChange.name`(걸 때의 규칙 이름)을 둔다 |
 | `canon/publish.py` | `export` 가 화마다 내보내기 규칙을 건다 (정할 것 9) |
 | `canon/publish.py` | 모듈 설명의 "글 내용은 바꾸지 않고"를 고친다 (정할 것 9) |
 | `canon/static/regexrules.js` (새 파일) | 묶음 목록 · 편집 · 시험 화면 |
-| `canon/static/index.html` | `regexrules.js` 를 읽는 `<script src="/static/regexrules.js">` 줄을 `app.js` 뒤에 더한다. 화면 파일은 이 script 줄로만 읽힌다 |
+| `canon/static/regexrules.js` | 내보내기 규칙은 '경고' 단추를 꺼 두고 `ruleSet` 도 경고로 바꾸지 않는다 |
+| `canon/static/index.html` | `regexrules.js` 를 읽는 `<script src="/static/regexrules.js">` 줄을 `app.js` 뒤(`style.js` 바로 뒤)에 더한다. 화면 파일은 이 script 줄로만 읽힌다 |
 | `canon/static/settings.js` | 작품 설정에 켤 묶음 고르기 |
 | `canon/static/write.js` · `canon/static/rewrite.js` | 뗀 작업 설명 문단 알림 곁에 고침 알림과 되돌리기 |
 | `canon/static/passage.js` | 부분 수정 후보 카드(`passageProposal`)에 후보의 `ruled` 로 '규칙으로 N곳 고쳤어요' 와 규칙 이름을 보인다 |
@@ -219,12 +235,13 @@ AI 가 본문을 쓰면 작가가 보기 전에 고침(`fix`) 규칙이 본문�
 | `canon/static/check.js` | 경고 규칙 지적 표시(묶음 · 규칙 이름), 근거 칸 (정할 것 18) |
 | `canon/static/check.js` | '판정 다시 보기' 버튼 조건과 문구에 `"regex"` 를 더한다 |
 | `canon/static/app.js` | 아래 메뉴 foot 목록에 '규칙 묶음' |
+| `canon/static/app.js` | 묶음 편집의 저장하지 않은 변경 `S.ruleDirty` 를 `leaveUnsaved` · 패널 뒤로 가기 · 저장 가능 검사에 더한다 |
 | `canon/static/app.js` | 작품 밖 사이드바 `outNav` 의 tools 목록에 '규칙 묶음' |
 | `canon/static/app.js` | 작품 밖 화면 id 목록에 `rules` |
 | `canon/static/app.js` | 길 읽기에서 `parts[0] === 'styles'` 와 같은 꼴로 `/api/rules` 를 불러오는 분기 |
 | `canon/static/app.js` | `if (p === 'styles') return outside(...)` 와 같은 꼴의 그리기 분기. 없으면 `#/rules` 가 작품 목록 화면으로 떨어진다 |
 | `tests/conftest.py` | `_isolate` 가 지우는 목록에 `CANON_RULES` |
-| `tests/conftest.py` | `regexrules` 가 모듈 캐시를 두면 `_fresh_caches` 의 목록에 더한다 |
+| `tests/conftest.py` | `regexrules` 가 모듈 캐시를 두면 `_fresh_caches` 의 목록에 더한다. 구현은 캐시를 두지 않아 더하지 않았다 |
 
 - 비교 채택의 호출자(웹 `canon/routes/research.py` 의 `research_pick`, 명령줄 `compare --pick`)는 `research.pick_compare` → `pipeline.adopt_draft` 를 부른다. 규칙은 `adopt_draft` 안에서 걸리므로 이 호출자들은 고치지 않는다.
 - `web.adopt_candidate` 는 다시 생성 후보 채택이라 비교 채택과 다른 경로다.
@@ -252,7 +269,7 @@ AI 가 본문을 쓰면 작가가 보기 전에 고침(`fix`) 규칙이 본문�
 
 | 필드 | 타입 | 기본값 | 뜻 |
 |---|---|---|---|
-| `id` | str | 새로 만든 짧은 id | 기록 · 지적이 가리키는 이름 |
+| `id` | str | 새로 만든 짧은 id (빈 글 · 빈칸도 새 id 로 바꾼다) | 기록 · 지적이 가리키는 이름 |
 | `comment` | str | `""` | 규칙 이름. 화면과 지적에 보인다 |
 | `in_` (JSON 키 `in`) | str | `""` | 찾을 정규식. 비면 걸지 않는다 |
 | `out` | str | `""` | 바꿀 글(정할 것 4). 경고 규칙에서는 쓰지 않는다 |
@@ -282,11 +299,14 @@ AI 가 본문을 쓰면 작가가 보기 전에 고침(`fix`) 규칙이 본문�
 
 고침 기록 (정할 것 1의 추천안):
 
-- `RuleChange`: `bundle`(묶음 id), `version`(묶음 버전), `rule`(규칙 id), `start`(그 단계의 본문 안 자리), `before`, `after`, `undone: bool = False`.
-- `RuleRun`: `id`(`r<N>`), `at`, `kind: Literal["write", "rewrite", "polish", "passage", "import", "auto"]`, `changes: list[RuleChange]`, `skipped: str = ""`(시간 한도로 건너뛴 묶음).
+- `RuleChange`: `bundle`(묶음 id), `version`(묶음 버전), `rule`(규칙 id), `name`(걸 때의 규칙 이름, 화면 표시용), `start`, `before`, `after`, `undone: bool = False`.
+- `start` 는 그 규칙 걸기가 끝난 마지막 본문 안 자리다. 뒤 규칙이 앞에서 바꾼 길이 차이만큼 민다. 부분 수정 후보 · 재구성 제안의 `ruled` 에서는 후보 글 안 자리다.
+- 한 기록의 바뀐 곳은 마지막 본문 안에서 겹치지 않고 자리 순서다. 뒤 규칙이 앞서 바뀐 곳과 겹치게 맞으면 하나로 합친다: 합친 구역의 걸기 전 글 → 지금 글, 규칙은 뒤 규칙, 이름은 ' · ' 로 잇는다. 그래서 곳 하나 · 한 번 전체 되돌리기가 걸기 전 글을 그대로 돌려준다(2026-11-09).
+- `RuleRun`: `id`(`r<N>`, 화 안에서 겹치지 않음), `at`, `kind: Literal["write", "rewrite", "polish", "passage", "import", "auto", "adopt", "rework"]`(`RuleRunKind`), `changes: list[RuleChange]`, `skipped: str = ""`(시간 한도로 건너뛴 묶음 이름).
 - `Episode.rule_runs: list[RuleRun] = []`, `TextVersion.rule_runs: list[RuleRun] = []`.
+- 경고 지적의 `ConsistencyIssue.regex_rule` 은 '<묶음 id>/<규칙 id>' 꼴이다.
 - 기록은 `replace_text` · `set_candidate` · `adopt_candidate` 에서 판을 따라간다. `restore_version` 도 `meta_cut` 처럼 남겨 둔 판의 `rule_runs` 를 `replace_text` 에 넘겨 화로 되돌린다.
-- 화마다 남기는 기록 수는 정할 때 함께 정한다. 출발값은 `EDIT_KEEP` 과 같은 50 이다.
+- 화마다 남기는 기록 수는 `regexrules.RULE_RUN_KEEP` = 50 이다(`EDIT_KEEP` 과 같다).
 - `ep.meta_cut` 을 비우는 자리에서는 `ep.rule_runs` 도 비운다. 지운 본문의 기록이 남지 않게 하려는 것이다.
 - 그런 자리는 넷이다: `pipeline._delete_last`(웹 화 지우기도 이 길), 웹 `put_text` 에서 빈 화에 본문을 넣거나 본문을 비우는 분기, 자동 집필 다시 쓰기의 `back`(`autorun.py`), 갈래 나누기 `branches.fork`(mode `"clear"`).
 - 이 가운데 `back` 과 `fork` 는 지난 본문을 `TextVersion(kind="previous", meta_cut=…)` 으로 남긴다. `rule_runs` 도 그 판의 `TextVersion.rule_runs` 로 옮긴 뒤 비운다.
@@ -336,6 +356,7 @@ AI 가 본문을 쓰면 작가가 보기 전에 고침(`fix`) 규칙이 본문�
 - 검사 함수의 오류 문구는 한글은 `[가-힣]`, 글자 전체는 `[^\W\d_]` 처럼 바꿔 쓰라고 안내한다.
 - 뒤 보기: `re` 는 길이가 바뀌는 뒤 보기(`(?<=a+)`)와 길이가 다른 갈래(`(?<=ab|c)`)를 받지 않는다. 길이가 같은 갈래(`(?<=ab|cd)`)는 받는다.
 - JS 의 `\u{…}` · `\c` · `[^]` 도 `re` 가 받지 않는다. 이것들은 컴파일 오류로 저장이 막힌다.
+- 반복이 아닌 `{`: JS 는 `a{,3}` 의 `{` 를 글자로 읽고 Python 3.14 는 `{0,3}` 으로 읽는다. `convert_in` 이 반복 `{n}` · `{n,}` · `{n,m}` 이 아닌 `{` 를 `\{` 로 바꿔 JS 와 맞춘다(2026-11-09).
 - 거꾸로 Python 에만 있는 문법(`a++`, `(?>…)`, `\A`, `\Z`, `(?P<…>)`)은 컴파일을 통과한다. 저장할 때 막을지는 정할 것 15 에서 정한다.
 
 거는 자리 (Q21):
@@ -444,7 +465,7 @@ AI 가 본문을 쓰면 작가가 보기 전에 고침(`fix`) 규칙이 본문�
 
 명령줄:
 
-- `python -m canon rules list`: 묶음 목록.
+- `python -m canon rules list`: 묶음 목록. 수는 웹 목록과 같이 경고 · 고침(내보내기 뺌) · 내보내기(있을 때만)다.
 - `python -m canon rules test <묶음 id> <파일>`: 글 파일에 걸어 본 결과를 찍는다.
 - `python -m canon rules use <작품> <묶음 id>` · `rules drop <작품> <묶음 id>`: 작품에서 켜고 끈다.
 - `write` · `import` · `rewrite` · `fix` 는 고친 곳 수를 '규칙으로 N곳 고쳤어요' 로 찍는다.
@@ -479,9 +500,12 @@ AI 가 본문을 쓰면 작가가 보기 전에 고침(`fix`) 규칙이 본문�
 - 비교 채택은 다섯 비교본(`compare_drafts` · `opening_drafts` · `cue.run` · `stattrial` · `blocktrial`)마다 규칙이 한 번 걸리는지 본다.
 - 판 되살리기(`restore_version`)가 그 판의 기록을 되살리고 규칙을 다시 걸지 않는지 본다.
 - 다듬기 모드의 `rewrite_episode` 가 규칙을 한 번만 걸고 `RuleRun` 을 하나만 남기는지 본다.
+- '한 번만 건다' 시험은 두 번 걸면 바뀌는 규칙('바람' → '바람바람')으로도 본다(쓰기 · 가져오기 · 새 판 · 다듬기 · 자동 집필 · 비교 채택 · 웹 쓰기 작업).
 - `polish_episode` 의 덜 늘린 판에도 규칙이 걸리는지 본다.
 - `WriteCut` · 세 번 실패로 끝난 쓰기는 `RuleRun` 을 남기지 않는지 본다.
 - 작가가 후보 글을 고쳐 `apply_passage` 로 넣으면 찾히지 않는 바뀐 곳이 기록에서 빠지는지 본다.
+- 규칙을 건 후보가 원문과 같으면 `revise_passage` 가 빼고 `apply_first` 가 터지지 않는지 본다.
+- 앞에 줄바꿈이 있는 후보와 지우기 규칙을 넣고 되돌리면 본문이 그대로 돌아오는지 본다(작가가 앞 공백을 붙여 보낸 글 포함).
 - `_delete_last` 뒤에 `ep.rule_runs` 가 비는지 본다.
 - 웹 `put_text` 의 빈 글 저장, `autorun` 의 `back`, `branches.fork`(mode `"clear"`) 뒤에 `ep.rule_runs` 가 비고, `back` · `fork` 는 기록이 `TextVersion.rule_runs` 로 옮겨지는지 본다.
 - 보낸 프롬프트 기록의 지문(`pipeline.text_basis`)이 규칙을 건 뒤 저장 본문과 맞는지 본다.
@@ -490,6 +514,7 @@ AI 가 본문을 쓰면 작가가 보기 전에 고침(`fix`) 규칙이 본문�
 - 검수: 경고 규칙 지적이 `origin = "regex"` 로 합쳐지고, 그대로 둠으로 정한 지적이 다시 나와도 그대로인지.
 - 검수: 한 문장에 경고 규칙 둘이 걸려도 `findings._match` 가 규칙마다 따로 잇는지.
 - 검수: `recheck_finding` · `recheck_fixed` 가 `origin = "regex"` 지적을 검수 모델 없이 다시 판정하는지.
+- 검수: 시간 한도에 걸리거나 묶음을 끈 경고 규칙 지적은 다시 검수가 닫지 않는지.
 - 검수: 다시 검수 범위와 `_same_quote` 처리가 정할 것 17 대로인지.
 - 켠 묶음 저장 라우트가 없는 묶음 id 를 거절하고 차례를 지키는지.
 - 내보내기: `export` 규칙이 걸리고 `raw` 형식에는 안 걸리며 저장된 본문은 그대로인지.

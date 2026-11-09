@@ -209,6 +209,7 @@
 - 갈래 정보(`BranchInfo`)는 `project.json` 밖의 `branch.json`(`store.load_branch` · `save_branch` · `drop_branch`, 화면 저장이 덮지 않게)
 - 만들기(`make` → `fork`: 복사본을 `pipeline.revert(n-1)`, 뒤 아크 · 부 요약 비움, `clear` 는 n화부터 본문을 이전 판으로)
 - `clear` 갈래는 비운 화의 고칠 곳 · 다 쓴 사건 체크 · 복선 문장(작가 것도)을 함께 뺀다
+- `clear` 갈래는 이전 판으로 남기는 본문의 `meta_cut` · `rule_runs` 도 그 판(`TextVersion`)으로 옮기고 화에서 비운다
 - 함께 쓰는 앞 화 고침(`shared_edited`, `base` 해시)
 - 집안 계산(`family`, `order`, `diverge`, `promote` · `promote_saved`, `remove`, `{폴더: BranchInfo}` 만 받는 순수 함수)
 - 비교(`compare` · `compare_saved`)
@@ -445,6 +446,9 @@
 - 복사 · 내보내기
 - 본문을 다른 사이트에 붙여 넣기 좋게 다듬기(줄바꿈 형식 `FORMATS`, 마크다운 흔적 지우기, HTML)
 - 여러 화 잇기(`export`)
+- 작품이 켠 정규식 규칙 묶음의 내보내기 규칙(`type = "export"`)은 `export` 가 화마다 본문을 꺼낸 뒤 글 · HTML 로 정리하기 전에 건다(`regexrules.export_text`)
+- 내보내기 규칙은 저장 전 화면 본문(`drafts`)에도 걸고, 원문 그대로(`raw`) 형식에는 걸지 않는다. 저장된 본문은 바뀌지 않는다
+- 고정 정리(폭 없는 글자 · 마크다운 흔적 · 공백)는 코드로 두고 규칙 묶음으로 옮기지 않는다
 - LLM 호출 없음
 - 화면은 `static/publish.js`
 

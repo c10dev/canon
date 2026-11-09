@@ -13,10 +13,11 @@ from . import dynamics, elements, illust, metrics, naming, prompts, renumber, se
 from .judge import Judge, Question
 from .llm import LLM, PREFIX_HINT, Interrupted, OutputCut, dump, family_text, out_cap, was_cut
 from . import anchor, board, cancel, charlog, context, features, findings, foreshadows, heatplan, knows, metatail, stage, statwin, usage
-from . import offscreen
+from . import offscreen, regexrules
 from .sent import SentPrompt, SentRetry
 from .sent import record as sent_record
 from .schema import CoordDraft, CoordMemo, OffscreenSet
+from .schema import RuleChange, RuleRun
 from .schema import CueSheet, CueSheetDraft, Finding, MetaCut, FindingRecheck, FixBatch, FixOption, FixPatch, FixRecheckItem, FixRecheckReport, FixSet, RevArcSet, RevEpisodeDraft, RevLineSet
 from .schema import ParagraphAnatomy, ReaderCheck, SceneCard, SceneVariant, SceneVariants, StudioCandidate, StudioDraft
 from .schema import (
@@ -2385,6 +2386,7 @@ def _delete_last(p: Project, n: int, keep_plot: bool) -> list[str]:
     ep.edits, ep.hook, ep.illustrations = [], None, []
     findings.clear(ep)
     ep.candidate, ep.versions, ep.made_by, ep.written_by, ep.meta_cut, ep.time = None, [], None, "", [], StoryTime()
+    ep.rule_runs = []  # 지운 본문에 고침 규칙을 건 기록
     ep.events_done = []  # 본문이 없으니 쓴 사건 체크도 비운다
     ep.to_fix = []  # 지운 본문 문장에 단 고칠 곳
     p.foreshadow_clues = [c for c in p.foreshadow_clues if c.episode != n]  # 지운 본문 문장에 건 복선 근거
@@ -2479,17 +2481,32 @@ def write_out_tokens(p: Project, n: int | None = None) -> int:
 
 
 def write_episode(llm: LLM, p: Project, n: int, approach: str = "", use_board: bool = True, use_cues: bool = True,
-                  cut: list[MetaCut] | None = None, sent: list[SentPrompt] | None = None) -> str:
+                  cut: list[MetaCut] | None = None, sent: list[SentPrompt] | None = None,
+                  ruled: list[RuleRun] | None = None) -> str:
     """approach: 1~3화를 여러 안으로 쓸 때 여는 방식 (prompts.OPENING_APPROACHES).
     use_board: 그 화에 스토리보드가 있으면 쓰기 프롬프트에 넣는다. 끄면 스토리보드 없이 쓴다.
     use_cues: 그 화에 큐 시트가 있으면 쓰기 프롬프트 끝에 넣는다. 끄면 큐 시트 없이 쓴다.
     cut: 목록을 주면 본문 앞뒤에서 뗀 작업 설명 문단을 채운다 (_write). 저장하는 호출자가 replace_text(meta_cut=)로 넘긴다.
-    sent: 목록을 주면 받은 호출의 요청 기록(sent.SentPrompt)을 채운다. 본문을 저장하는 호출자가 sent.keep 으로 남긴다."""
+    sent: 목록을 주면 받은 호출의 요청 기록(sent.SentPrompt)을 채운다. 본문을 저장하는 호출자가 sent.keep 으로 남긴다.
+    ruled: 목록을 주면 작품이 켠 고침 규칙을 받은 본문에 걸고 그 기록(RuleRun)을 더한다. 본문을 저장하는 호출자만 넘긴다
+    (실험 · 비교 쓰기는 넘기지 않아 규칙이 걸리지 않는다). 저장하는 호출자가 replace_text(rule_runs=)로 넘긴다."""
     ep = p.episode(n)
     if ep.status == "draft":
         raise ValueError(f"{n}화 플롯이 아직 확정되지 않았어요 (confirm 먼저)")
     require_previous(p, n)
-    return _write(llm, p, n, prompts.episode_prompt(p, n, approach, use_board=use_board, use_cues=use_cues), cut, sent)
+    text = _write(llm, p, n, prompts.episode_prompt(p, n, approach, use_board=use_board, use_cues=use_cues), cut, sent)
+    return apply_rules(p, text, "write", ruled)
+
+
+def apply_rules(p: Project, text: str, kind: str, ruled: list[RuleRun] | None) -> str:
+    """ruled 목록을 받았으면 작품이 켠 고침 규칙(regexrules.run)을 text 에 걸고 기록을 ruled 에 더한다. 안 받았으면 text 그대로.
+    규칙은 본문을 저장하는 가장 바깥 입구에서 한 번만 건다 (_write 는 걸지 않는다)."""
+    if ruled is None:
+        return text
+    text, run = regexrules.run(p, text, kind)
+    if run is not None:
+        ruled.append(run)
+    return text
 
 
 # ---------- 4-0. 화별 스토리보드 ----------
@@ -2819,7 +2836,9 @@ def adopt_draft(p: Project, n: int, text: str, model: str = "") -> None:
     ep = p.episode(n)
     if ep.status == "finalized":
         raise ValueError(f"{n}화는 상태 반영이 끝났어요. 바꾸려면 상태 승인 화면에서 {n}화부터 반영을 취소한 뒤 다시 하세요 (명령줄은 revert {n - 1})")
-    replace_text(ep, text, written_by=model)
+    runs: list[RuleRun] = []
+    text = apply_rules(p, text, "adopt", runs)  # 비교본은 규칙 없이 쓴 글이라 고른 본문에 여기서 한 번 건다
+    replace_text(ep, text, written_by=model, rule_runs=runs)
 
 
 # ---------- 4-0. 다시 생성 ----------
@@ -2880,16 +2899,17 @@ def rewrite_prompt(p: Project, n: int, req: RewriteRequest) -> str:
 
 
 def rewrite_episode(llm: LLM, p: Project, n: int, req: RewriteRequest, cut: list[MetaCut] | None = None,
-                    sent: list[SentPrompt] | None = None) -> str:
-    """피드백을 반영해 그 화를 다시 쓴다. 저장하지 않는다 (set_candidate 로 새 판에 둔다). cut · sent 는 write_episode 와 같다.
+                    sent: list[SentPrompt] | None = None, ruled: list[RuleRun] | None = None) -> str:
+    """피드백을 반영해 그 화를 다시 쓴다. 저장하지 않는다 (set_candidate 로 새 판에 둔다). cut · sent · ruled 는 write_episode 와 같다.
+    다듬기 모드는 ruled 를 polish_episode 에 그대로 넘기고 여기서는 걸지 않는다 (두 번 걸지 않는다).
     sent 기록은 새 판을 둘 때 sent.hold 로, 작가가 고르면 sent.adopt 로 남긴다."""
     ep = _editable(p, n)
     require_previous(p, n)
     if req.mode == "revise" and not ep.text.strip():
         raise ValueError("고쳐 쓸 지난 판이 없어요")
     if req.mode == "polish":
-        return polish_episode(llm, p, n, cut, sent)
-    return _write(llm, p, n, rewrite_prompt(p, n, clean_rewrite(req)), cut, sent, "rewrite")
+        return polish_episode(llm, p, n, cut, sent, ruled)
+    return apply_rules(p, _write(llm, p, n, rewrite_prompt(p, n, clean_rewrite(req)), cut, sent, "rewrite"), "rewrite", ruled)
 
 
 POLISH_TRIES = 2
@@ -2929,12 +2949,13 @@ def polish_tics(old: str, new: str) -> str:
 
 
 def polish_episode(llm: LLM, p: Project, n: int, cut: list[MetaCut] | None = None,
-                   sent: list[SentPrompt] | None = None) -> str:
+                   sent: list[SentPrompt] | None = None, ruled: list[RuleRun] | None = None) -> str:
     """지금 본문의 서술 문장만 다듬는다 (prompts.polish_prompt). 저장하지 않는다 (set_candidate 로 새 판에 둔다).
     대사 · 효과음 줄이 바뀐 글은 POLISH_TRIES 번까지 다시 부르고, 그래도 바뀌면 멈춘다. 다듬기 모델은 revise 단계를 부른 쪽이 고른다.
     말줄임 · 물음을 너무 늘린 글(polish_tics, 서술 말투가 있는 화는 보지 않음)도 다시 부른다. 끝내 줄지 않으면 멈추지 않고
     그중 덜 늘린 판을 낸다: 작가가 새 판을 견줘 고르니, 글은 나아졌을 수 있다.
-    sent 는 낸 판의 요청 기록을 채운다. 시도 번호는 다듬기 재시도까지 이어 센다 (버린 판의 까닭은 polish · tics)."""
+    sent 는 낸 판의 요청 기록을 채운다. 시도 번호는 다듬기 재시도까지 이어 센다 (버린 판의 까닭은 polish · tics).
+    ruled 를 주면 검사를 통과한 판과 덜 늘린 판 모두에 고침 규칙을 건다. 검사는 규칙을 걸기 전 글로 한다."""
     ep = _editable(p, n)
     old = ep.text.strip()
     if not old:
@@ -2971,7 +2992,7 @@ def polish_episode(llm: LLM, p: Project, n: int, cut: list[MetaCut] | None = Non
         tic = polish_tics(old, new) if look else ""
         if not tic:
             done(rec, part, [*retries, *rec.retries])
-            return new
+            return apply_rules(p, new, "polish", ruled)
         log.warning("%s화 서술 다듬기를 다시 불러요: %s", n, tic)
         retries.extend([*rec.retries, SentRetry(call=calls, reason="tics", note=tic)])
         t = metrics.narration_tics(new)
@@ -2981,7 +3002,7 @@ def polish_episode(llm: LLM, p: Project, n: int, cut: list[MetaCut] | None = Non
         log.warning("%s화 서술 다듬기: 말줄임 · 물음이 줄지 않아 덜 늘린 판을 냈어요", n)
         picked = best[3]
         done(picked, best[2], [r for r in retries if r.call != picked.attempt])
-        return best[1]
+        return apply_rules(p, best[1], "polish", ruled)
     raise ValueError(f"{n}화 서술 다듬기를 쓰지 않았어요. {why}. 다시 시도해 주세요")
 
 
@@ -3005,34 +3026,46 @@ def writer_of(llm: LLM) -> str:
 
 
 def set_candidate(p: Project, n: int, text: str, req: RewriteRequest, model: str = "",
-                  meta_cut: list[MetaCut] | None = None) -> TextVersion:
+                  meta_cut: list[MetaCut] | None = None, rule_runs: list[RuleRun] | None = None) -> TextVersion:
     """새 판을 고르기 대기에 둔다. 고르지 않은 앞 새 판은 versions 로 보낸다. model: 새 판을 쓴 모델 (writer_of).
-    meta_cut: 새 판을 쓸 때 뗀 작업 설명 문단. 판에 남고 판을 고르면 화로 따라간다."""
+    meta_cut: 새 판을 쓸 때 뗀 작업 설명 문단. 판에 남고 판을 고르면 화로 따라간다.
+    rule_runs: 새 판에 고침 규칙을 건 기록 (rewrite_episode(ruled=)). meta_cut 과 같이 판을 따라간다."""
     ep = p.episode(n)
     if ep.candidate:
         ep.candidate.kind = "rejected"
         _keep_version(ep, ep.candidate)
     ep.candidate = TextVersion(id=_version_id(ep), at=_now(), text=text, request=clean_rewrite(req), model=model,
-                               meta_cut=list(meta_cut or []))
+                               meta_cut=list(meta_cut or []), rule_runs=_new_runs(ep, rule_runs))
     return ep.candidate
 
 
+def _new_runs(ep: Episode, runs: list[RuleRun] | None) -> list[RuleRun]:
+    """새 본문 · 새 판에 붙일 고침 규칙 기록. id 가 빈 기록에 그 화에서 겹치지 않는 r<N> 을 붙이고 최근 regexrules.RULE_RUN_KEEP 개만 남긴다."""
+    runs = list(runs or [])
+    if not runs:
+        return []
+    have = [*ep.rule_runs, *(r for v in ep.versions for r in v.rule_runs), *(ep.candidate.rule_runs if ep.candidate else [])]
+    return regexrules.add_runs(have, runs)[-len(runs):]
+
+
 def replace_text(ep: Episode, text: str, made_by: RewriteRequest | None = None, written_by: str = "",
-                 meta_cut: list[MetaCut] | None = None) -> None:
+                 meta_cut: list[MetaCut] | None = None, rule_runs: list[RuleRun] | None = None) -> None:
     """지금 본문을 versions 에 남기고 text 로 바꾼다. 검수 결과는 지난 판 것이라 결정한 지적만 남긴다 (findings.new_version).
     상태 반영이 끝난 화는 반영을 그대로 두고 before_change 로 반영 뒤 고침만 표시한다.
     written_by: 새 본문을 쓴 모델 (writer_of) 이나 'import'. 모르면 비운다. 남기는 지난 판에는 지난 본문의 모델이 따라간다.
-    meta_cut: 새 본문을 쓸 때 뗀 작업 설명 문단. 지난 판에는 지난 본문의 뗀 문단이 따라간다."""
+    meta_cut: 새 본문을 쓸 때 뗀 작업 설명 문단. 지난 판에는 지난 본문의 뗀 문단이 따라간다.
+    rule_runs: 새 본문에 고침 규칙을 건 기록. meta_cut 과 같이 지난 판에는 지난 본문의 기록이 따라간다."""
     done = ep.status == "finalized"
     if text == ep.text:
         ep.status = "finalized" if done else "written"
         return
     if ep.text.strip():
         _keep_version(ep, TextVersion(id=_version_id(ep), at=_now(), text=ep.text, kind="previous", request=ep.made_by,
-                                      model=ep.written_by, meta_cut=ep.meta_cut))
+                                      model=ep.written_by, meta_cut=ep.meta_cut, rule_runs=ep.rule_runs))
     before_change(ep)
     ep.text, ep.made_by, ep.written_by, ep.status = text, made_by, written_by, "finalized" if done else "written"
     ep.meta_cut = list(meta_cut or [])
+    ep.rule_runs = _new_runs(ep, rule_runs)
     ep.style_basis = ""  # 이 판을 쓸 때의 문체를 모른다. AI 가 방금 쓴 본문이면 부른 쪽이 anchor.stamp 로 남긴다
     findings.new_version(ep)
 
@@ -3043,7 +3076,7 @@ def adopt_candidate(p: Project, n: int) -> None:
     if ep.candidate is None:
         raise ValueError(f"{n}화에 고를 새 판이 없어요")
     c, ep.candidate = ep.candidate, None
-    replace_text(ep, c.text, c.request, c.model, c.meta_cut)
+    replace_text(ep, c.text, c.request, c.model, c.meta_cut, c.rule_runs)
 
 
 def drop_candidate(p: Project, n: int) -> None:
@@ -3062,7 +3095,7 @@ def restore_version(p: Project, n: int, vid: str) -> None:
     v = next((x for x in ep.versions if x.id == vid), None)
     if v is None:
         raise KeyError(f"남겨 둔 판이 없어요: {vid}")
-    replace_text(ep, v.text, v.request, v.model, v.meta_cut)
+    replace_text(ep, v.text, v.request, v.model, v.meta_cut, v.rule_runs)  # 그 판의 기록만 되살린다. 규칙은 다시 걸지 않는다
     ep.versions = [x for x in ep.versions if x is not v]
 
 
@@ -3210,8 +3243,11 @@ def redo_edit(p: Project, n: int, eid: str) -> TextEdit:
     return edit
 
 
-def revise_passage(llm: LLM, p: Project, n: int, sel: Selection, message: str = "", preset: str = "") -> PassageRevision:
-    """고른 부분의 고친 후보를 만든다. 저장하지 않는다. 원문과 같거나 겹치는 후보는 뺀다."""
+def revise_passage(llm: LLM, p: Project, n: int, sel: Selection, message: str = "", preset: str = "",
+                   rules: bool = False) -> PassageRevision:
+    """고른 부분의 고친 후보를 만든다. 저장하지 않는다. 원문과 같거나 겹치는 후보는 뺀다.
+    rules: 참이면 후보마다 작품이 켠 고침 규칙을 걸고 바뀐 곳을 PassageCandidate.ruled 에 채운다 (자리는 후보 글 안).
+    대화 기록에 남은 그 값을 apply_passage 가 본문 기록으로 옮긴다. 본문을 저장하는 호출자만 켠다."""
     if preset and preset not in prompts.PASSAGE_PRESETS:
         raise ValueError(f"모르는 빠른 요청이에요: {preset}")
     if not message.strip() and not preset:
@@ -3223,11 +3259,18 @@ def revise_passage(llm: LLM, p: Project, n: int, sel: Selection, message: str = 
                    hint={"selection": sel.text, "preset": preset, "message": message, PREFIX_HINT: len(head)})
     keep, seen = [], {sel.text.strip()}
     for c in rev.candidates:
-        c.text = c.text.strip().replace("【고칠 부분】", "").replace("【여기까지】", "")
-        if c.text and c.text not in seen:
-            seen.add(c.text)
+        if len(keep) == 3:
+            break
+        c.text = c.text.replace("【고칠 부분】", "").replace("【여기까지】", "").strip()  # 규칙 전에 다듬어 자리가 후보 글 안에서 어긋나지 않게
+        if rules and c.text:  # 규칙을 먼저 걸고 원문 · 앞 후보와 견준다. 규칙을 건 후보가 원문과 같으면 뺀다
+            new, run = regexrules.run(p, c.text, "passage")
+            if run is not None and run.changes:
+                c.text, c.ruled = new, run.changes
+        key = c.text.strip()
+        if key and key not in seen:
+            seen.add(key)
             keep.append(c)
-    rev.candidates = keep[:3]
+    rev.candidates = keep
     fix = not preset and message.strip().startswith(prompts.PASSAGE_FIX_HEADS)
     if not keep and not (fix and rev.reply.strip()):  # 고치기 요청은 '본문이 맞다'는 답일 수 있다 (prompts.TEXT_RIGHT_RULE)
         rev.reply = rev.reply.rstrip() + "\n\n※ 원문과 다른 후보가 없었어요. 요청을 조금 더 구체적으로 적어 주세요."
@@ -3259,13 +3302,45 @@ def apply_passage(p: Project, n: int, i: int, k: int, text: str | None = None) -
     if not 0 <= k < len(cands):
         raise ValueError("후보 번호가 맞지 않아요")
     user = next((x for x in reversed(msgs[:i]) if x.role == "user"), None)
-    after = (text if text is not None else cands[k].text).strip()
+    raw = text if text is not None else cands[k].text
+    after = raw.strip()
     if not after:
         raise ValueError("넣을 글이 비었어요")
     edit = edit_text(p, n, m.selection, after, "ai", instruction=user.text if user else "", preset=m.preset,
                      proposed=cands[k].text, rejected=[c.text for j, c in enumerate(cands) if j != k])
     m.outcome, m.applied = "applied", [str(k)]
+    cand = cands[k].text
+    same = cand.strip() == after
+    spots = still_ruled(cands[k].ruled, after, same, -(len(cand) - len(cand.lstrip())))  # 자리는 후보 글 안이라 후보 글의 앞 공백만큼 옮긴다
+    if spots:
+        add_run(p.episode(n), RuleRun(kind="passage", changes=[c.model_copy(update={"start": edit.start + c.start}) for c in spots]))
     return edit
+
+
+def still_ruled(changes: list[RuleChange], text: str, same: bool, shift: int = 0) -> list[RuleChange]:
+    """고침 규칙이 바꾼 곳 가운데 text 에 아직 있는 것 (start 는 text 안 자리로 고친 사본).
+    same 이면 규칙을 건 글 그대로라 자리만 shift 만큼 옮긴다. 작가가 고쳤으면 바뀐 글을 locate 로 찾고, 못 찾은 곳과
+    지우기 규칙이 바꾼 곳(after 가 빈 글, 찾을 수 없음)은 뺀다."""
+    out = []
+    for c in changes:
+        at = c.start + shift
+        if same:
+            if 0 <= at <= len(text):
+                out.append(c.model_copy(update={"start": at}))
+            continue
+        if not c.after:
+            continue
+        try:
+            out.append(c.model_copy(update={"start": locate(text, c.after, max(at, 0))}))
+        except ValueError:
+            continue
+    return out
+
+
+def add_run(ep: Episode, run: RuleRun) -> RuleRun:
+    """지금 본문의 고침 규칙 기록에 run 을 더한다 (id 를 붙이고 최근 regexrules.RULE_RUN_KEEP 개만 남김)."""
+    ep.rule_runs = [*ep.rule_runs, *_new_runs(ep, [run])][-regexrules.RULE_RUN_KEEP:]
+    return run
 
 
 def apply_first(p: Project, n: int, sel: Selection, message: str, rev: PassageRevision) -> TextEdit | None:
@@ -3647,9 +3722,18 @@ def check_two_step(llm: LLM, judge: Judge, p: Project, n: int, hint: dict | None
     return report, stats
 
 
-def apply_check(p: Project, r: ConsistencyReport, source: CheckSource = "api", widen: bool = False) -> CheckRound:
+def check_hits(p: Project, n: int) -> tuple[str, list[ConsistencyIssue]]:
+    """apply_check 에 넘길 정규식 경고 지적을 미리 건다: (건 본문, 지적). 규칙 걸기는 몇 초 걸릴 수 있어
+    작품을 잠그고 apply_check 를 부르는 쪽(web._edit)이 잠그기 전에 부른다."""
+    text = p.episode(n).text
+    return text, regexrules.hits(p, text, n)
+
+
+def apply_check(p: Project, r: ConsistencyReport, source: CheckSource = "api", widen: bool = False,
+                hits: tuple[str, list[ConsistencyIssue]] | None = None) -> CheckRound:
     """검수 결과는 참고용 경고라 승인 없이 화에 붙여 둔다. 지적 목록에 회차 하나로 합친다 (findings.merge:
-    작가가 그대로 둠 · 잘못 짚음으로 정한 지적은 다시 나와도 그대로). 회차 시각과 지문은 check_episode 가 시작할 때 남긴 값이다."""
+    작가가 그대로 둠 · 잘못 짚음으로 정한 지적은 다시 나와도 그대로). 회차 시각과 지문은 check_episode 가 시작할 때 남긴 값이다.
+    hits: check_hits 가 미리 건 정규식 경고 지적. 그 본문이 지금 본문과 같을 때만 쓰고, 다르면 다시 건다."""
     ep = p.episode(r.episode)
     if not ep.text:
         raise ValueError(f"{r.episode}화 본문이 없어요")
@@ -3659,11 +3743,14 @@ def apply_check(p: Project, r: ConsistencyReport, source: CheckSource = "api", w
     rule = [x for x in stage.episode_issues(p, ep) if not any(_same_quote(x.current_quote, y.current_quote) for y in r.issues)]
     judged = any(stage.scenes_of(ep, i)[1] is not None for i in range(len(ep.plot.events)))
     issues, outside = findings.scoped(ep, r.issues, r._scope)  # 다시 검수: 바뀌지 않은 문단의 새 지적은 넣지 않는다
+    # 정규식 경고 규칙: 다시 검수 범위로 거르지 않는다. 거른 뒤의 AI 지적이 같은 문장을 짚었을 때만 뺀다
+    found = hits[1] if hits is not None and hits[0] == ep.text else regexrules.hits(p, ep.text, r.episode)
+    regex = [x for x in found if not any(_same_quote(x.current_quote, y.current_quote) for y in issues)]
     # 회차 시각 · 지문은 검수를 시작할 때 것이다. 그래야 검수하는 동안 고친 곳이 '검수 뒤 고침'으로 남는다 (check_done · check_scope)
     at = r._at or _now()
     if r._basis and r._basis != text_basis(ep.text):  # 검수하는 동안 본문이 바뀌었다. 시각은 초까지라 시작과 같은 초에 고친 것도 세게 1초 앞당긴다
         at = _second_before(at)
-    rnd = findings.merge(ep, [*issues, *rule], at, r._basis or text_basis(ep.text), source, widen, judged)
+    rnd = findings.merge(ep, [*issues, *rule, *regex], at, r._basis or text_basis(ep.text), source, widen, judged)
     rnd.scoped, rnd.outside = bool(r._scope), len(outside)
     return rnd
 
@@ -4087,6 +4174,13 @@ def recheck_finding(llm: LLM, p: Project, n: int, fid: str) -> FindingRecheck:
         if not f.current_quote.strip() or f.current_quote.strip() not in ep.text:
             return FindingRecheck(resolved=True, reason="짚은 문장이 본문에서 바뀌었어요")
         return FindingRecheck(resolved=not still, reason=still[0].description if still else "장면 연출 규칙 판정에 더 걸리지 않아요")
+    if f.origin == "regex":  # 정규식 경고 규칙 지적: LLM 없이 그 규칙만 지금 본문에 다시 건다
+        try:  # 시간 한도에 걸렸거나 규칙이 없어졌으면 '안 걸림' 으로 닫지 않고 열어 둔다
+            hit = regexrules.hits(p, ep.text, n, only=f.regex_rule, strict=True)
+        except regexrules.RuleSkipped as e:
+            return FindingRecheck(resolved=False, reason=f"{e}. 판정하지 못해 지적을 열어 두었어요")
+        still = [x for x in hit if _same_quote(x.current_quote, f.current_quote)]
+        return FindingRecheck(resolved=not still, reason="정규식 규칙에 아직 걸려요" if still else "정규식 규칙에 더 걸리지 않아요")
     changes = [(e.before, e.after) for e in ep.edits if f.fix_group and e.group == f.fix_group and not e.undone]
     material = prompts.check_material(p, n)  # 검수와 같은 앞부분. 끝나는 곳을 캐시 경계로 알린다
     return llm.json(prompts.SYSTEM_CHECKER, prompts.recheck_prompt(p, n, f, changes, _decided(ep), material), FindingRecheck,
@@ -4121,13 +4215,13 @@ def fix_recheck_basis(ep: Episode) -> tuple[str, str, dict[str, str]]:
 def recheck_fixed(llm: LLM, p: Project, n: int) -> FixRecheckReport:
     """고친 곳만 다시 보기: 지난 검수 뒤 고침안을 넣은 열린 지적들을 한 번의 호출로 다시 본다 (findings.fix_recheck_targets).
     검수 자료 전체 대신 작품 설정과 고친 곳 둘레 문단(직접 고친 곳 포함)만 보낸다. 저장하지 않는다 (apply_fix_recheck).
-    장면 연출 규칙 지적은 LLM 없이 판정만 다시 한다 (recheck_finding). 돌려준 결과가 없는 지적은 결과에 없다."""
+    장면 연출 규칙 · 정규식 경고 규칙 지적은 LLM 없이 판정만 다시 한다 (recheck_finding). 돌려준 결과가 없는 지적은 결과에 없다."""
     ep = _editable(p, n)
     targets = findings.fix_recheck_targets(ep)
     if not targets:
         raise ValueError("고친 곳만 다시 볼 지적이 없어요. 지난 검수 뒤 고침안 말고도 고친 곳이 있으면 다시 검수하세요")
-    out = [FixRecheckItem(id=f.id, **recheck_finding(llm, p, n, f.id).model_dump()) for f in targets if f.origin == "rule"]
-    ai = [f for f in targets if f.origin != "rule"]
+    out = [FixRecheckItem(id=f.id, **recheck_finding(llm, p, n, f.id).model_dump()) for f in targets if f.origin in ("rule", "regex")]
+    ai = [f for f in targets if f.origin not in ("rule", "regex")]
     if ai:
         groups = {f.id: [e for e in ep.edits if e.group == f.fix_group and not e.undone] for f in ai}
         items = [(f, f.id, [(e.before, e.after) for e in groups[f.id]]) for f in ai]
