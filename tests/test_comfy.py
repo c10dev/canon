@@ -7,7 +7,9 @@ import pytest
 from canon import comfy, illust, store
 from canon.schema import Character, CharacterVisual, IllustImage, Meta, Project
 
+from .jsvm import needs_node, run_js
 from .test_ai_jobs import _run, _wait
+from .test_ai_jobs_more import FILES
 from .test_illust import _ill
 from .test_passage import TEXT, _written
 
@@ -254,3 +256,50 @@ def test_settings_file_when_no_env(monkeypatch, tmp_path):
     assert comfy.status()["checkpoint"] == "wai.safetensors" and comfy.timeout() == comfy.DEFAULT_TIMEOUT
     monkeypatch.setenv("CANON_COMFY_URL", "mock")
     assert comfy.url() == "mock"
+
+
+@needs_node
+def test_js_draw_checkbox_and_panel():
+    """ComfyUI 가 켜지면 카드 제목 · 설정에 보이고, '바로 그리기' 를 켜면 작업 illust 에 draw 를 보낸다."""
+    got = run_js(FILES, """(async () => {
+      S.name = 't'; S.route = ['p', 't', 'write', '1'];
+      S.project = { meta: {}, characters: [], illust: { model: 'v4' }, episodes: [{ plot: { number: 1, characters: [] }, text: 'x', illustrations: [] }] };
+      S.illModels = [{ id: 'v4', label: 'V4' }];
+      render = () => {};
+      const started = [];
+      startJob = async (...a) => { started.push(a[2]); };
+      saveIfDirty = async () => {}; flushText = async () => {};
+      S.comfy = { on: false };
+      const off = illustPanel(1);
+      await ilMake(1, null);
+      S.comfy = { on: true, workflow: 'sdxl-regional.api.json', checkpoint: '' };
+      const on = illustPanel(1);
+      S.illDraw = true;
+      await ilMake(1, null);
+      const msg = JOB_RESULT.illust({ kind: 'illust', ep: 1, result: { id: 'i1', file: 'a.png', missing_look: [], notes: [] } }).msg;
+      return { started, offHas: off.includes('ill-draw') || off.includes('ComfyUI'), onTitle: on.includes('ComfyUI 연결됨'),
+               onBox: on.includes('id="ill-draw"'), onFlow: on.includes('sdxl-regional.api.json'), msg };
+    })()""", {})
+    assert got["started"][0].get("draw") is None and got["started"][1]["draw"] is True
+    assert not got["offHas"] and got["onTitle"] and got["onBox"] and got["onFlow"]
+    assert got["msg"] == "1화 삽화 프롬프트를 만들고 ComfyUI로 그렸어요."
+
+
+def test_illust_job_draws_right_after(client, monkeypatch):
+    """작업 illust 의 draw: 삽화 프롬프트를 만든 뒤 같은 작업 안에서 ComfyUI 로 그린다."""
+    monkeypatch.setenv("CANON_COMFY_URL", "mock")
+    monkeypatch.setenv("CANON_COMFY_CKPT", "anime.safetensors")
+    _written(client)
+    j = _run(client, "lh", {"kind": "illust", "ep": 1, "draw": True})
+    assert j["label"].endswith("· 그리기") and j["result"]["id"] == "i1" and j["result"]["file"]
+    ill = store.load("lh").episodes[0].illustrations[0]
+    assert [im.file for im in ill.images] == [j["result"]["file"]]
+
+    # 그리기를 끄면 프롬프트만 만든다
+    j = _run(client, "lh", {"kind": "illust", "ep": 1})
+    assert "file" not in j["result"] and not store.load("lh").episodes[0].illustrations[1].images
+
+    # ComfyUI 주소가 없으면 그리기를 켠 작업은 시작하지 않는다
+    monkeypatch.delenv("CANON_COMFY_URL")
+    r = client.post("/api/projects/lh/jobs", json={"kind": "illust", "ep": 1, "draw": True})
+    assert r.status_code == 400 and "comfy_url" in r.json()["detail"]
