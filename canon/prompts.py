@@ -2408,18 +2408,21 @@ AGENT_PLOT_TOOLS = """[도구] 한 단계에 하나만 부릅니다
 - read_summaries (args: from, to): 그 범위에서 이미 쓴 화의 실제 줄거리
 - find_text (args: query): 이미 쓴 본문에서 query 와 겹치는 단락
 - read_cast (args: ids, 쉼표로): 인물 설정 전체
+- read_rules: 이 작품이 켠 정규식 규칙 묶음과 규칙. 규칙을 고치거나 겹치지 않게 더할 때 먼저 봅니다
 - edit_plot: edit 에 바꿀 것만 채운 변경안을 넣습니다 (아래 [변경안 규칙]). 작가의 권한 안이면 바로 저장되고, 아니면 작가에게 물어집니다. 결과로 저장된 것 · 물은 것 · 막힌 것을 받습니다
 - insert_episodes (args: at, count, titles, summaries): at 화 앞에 새 화 count 개를 넣고 at 화부터 뒤 화를 그만큼 뒤로 밉니다. titles · summaries 는 새 화마다 '|' 로 나눕니다. 본문만 있고 상태를 반영하지 않은 화도 함께 밀립니다(본문은 그대로). 늘 작가에게 묻고 턴이 끝납니다. 승인되면 같은 턴에서 이어 가며, 새 화 플롯은 edit_plot 으로 채웁니다
 - remove_episode (args: n): 본문이 없는 n 화를 빼고 뒤 화를 한 칸씩 당깁니다. 늘 작가에게 묻습니다
 - revise_text (args: quote, request, n, preset): n 화 본문(비우면 다듬을 곳의 화)에서 quote 부분을 request 대로 고친 후보 2~3개를 만들어 작가에게 보입니다. quote 는 본문 원문 그대로 옮긴 한 문장~몇 문단이고, 모르면 find_text 로 먼저 찾습니다. preset 은 비웁니다. 작가가 고른 후보만 본문에 들어가고, 늘 작가에게 묻고 턴이 끝납니다
 - edit_setup (args: request): 작가가 설정(제목, 로그라인, 주제, 톤, 메모, 세계관, 인물 칸, 새 인물, 관계)을 바꾸라고 할 때 부릅니다. 설정 편집자가 바뀌는 칸만 담은 변경안을 만들고, 권한 모드와 상관없이 늘 작가에게 칸마다 물으며 턴이 끝납니다. 작가가 고른 칸만 들어갑니다. 편집자는 이 대화를 보지 못하므로 request 에 무엇을 어떻게 바꿀지(작가의 말과 이번 턴에 정한 방향)를 그것만 읽어도 알게 씁니다. 관계 수치는 적지 않습니다
 - edit_style (args: request, episode): 작품 문체(스타일 프로필)를 바꾸는 변경안을 문체 편집자에게 맡깁니다. request 에는 작가가 바라는 문체를 작가의 말과 지난 대화를 살려 한두 문장으로, episode 에는 작가가 참고하라고 한 화 번호(본문이 있는 화, 없으면 빈칸)를 넣습니다. 바꿀 칸과 시험 문단이 카드로 작가에게 물어지고 턴이 끝납니다. 플롯 · 본문 · 설정 일에는 부르지 않습니다
+- propose_regex (args: in, out, action, type, flag, comment, rule, enabled, bundle): 작가가 본문 표기를 잡는 규칙을 청하면 정규식 규칙 하나를 더하거나 고치자고 제안합니다. in 은 찾을 정규식으로 JavaScript 정규식 꼴(예: [.]{3,})이고, out 은 바꿀 글로 JavaScript String.replace 꼴($1 · $&)입니다. action 은 warn(검수 때 걸린 곳을 보임, 기본) · fix(본문을 바꿈), type 은 output(쓴 본문, 기본) · export(내보낼 때만), flag 는 기본 g, comment 는 규칙 이름입니다. 이미 있는 규칙을 고치려면 rule 에 read_rules 로 본 그 규칙 id 를 넣고 바꿀 인자만 채웁니다(끄기는 enabled=false). bundle 은 넣을 묶음 id 로, 켠 묶음이 둘 이상일 때만 채웁니다. 한 번에 규칙 하나만 다루고, 지금 본문에 걸어 본 결과와 함께 늘 작가에게 물으며 턴이 끝납니다. 작가가 적용하기 전에는 어디에도 걸리지 않습니다. 규칙과 묶음을 지우는 일은 하지 않습니다
 - ask: question 과 options (서로 다른 방향 2~3개) 를 넣습니다. 작가의 답을 기다리며 턴이 끝납니다
 - 턴을 끝낼 때는 tool 칸을 빈 글("")로 두고 reply 칸에 답을 씁니다. reply 는 칸 이름이지 도구 이름이 아닙니다
 
 [작가가 화면에서 할 수 있는 일] 도구로 못 하는 일을 작가에게 맡길 때는 이 목록에 있는 것만 말합니다. 없는 메뉴나 설정을 지어내지 않습니다
 - 집필 화면: 본문 쓰기, 다시 생성, 본문 고르기 고치기 / 검수 화면: 검수 / 상태 승인 화면: 상태 반영
 - 플롯 화면: 화 끼워 넣기 · 빼기 (위 도구와 같다), 마지막으로 쓴 화 지우기
+- 규칙 묶음 화면: 정규식 규칙 · 묶음 지우기 / 설정 화면: 규칙 묶음 켜기 · 끄기 · 차례 바꾸기
 - 상태를 반영한 화와 연재처에 올린 화는 번호를 옮길 수 없고, 이미 있는 본문을 다른 화로 떼어 옮기는 기능은 없습니다"""
 
 
@@ -2433,7 +2436,13 @@ def _agent_turn_line(t) -> str:
     notes = ([f"바꿈: {', '.join(done)}"] if done else []) + ([f"되돌림: {', '.join(back)}"] if back else [])
     if t.approval:
         state = {"wait": "작가 답 기다림", "approved": "작가가 승인함", "denied": "작가가 거절함"}[t.approval.state]
-        what = f"본문 후보 {len(t.approval.keys)}개" if t.approval.passage else ", ".join(t.approval.keys)
+        if t.approval.passage:
+            what = f"본문 후보 {len(t.approval.keys)}개"
+        elif t.approval.regex:  # 규칙 카드는 keys 가 ['rule'] 하나라 규칙 이름으로 적는다
+            r = t.approval.regex.rule
+            what = f"정규식 규칙 {r.comment.strip() or r.in_}"
+        else:
+            what = ", ".join(t.approval.keys)
         notes.append(f"물음({state}): {what}")
     if t.ask:
         notes.append("되물음: " + (" / ".join(f"{i}. {o.title}" for i, o in enumerate(t.ask.options, 1)) or t.ask.question))

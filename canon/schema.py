@@ -1180,6 +1180,8 @@ AGENT_TOOL_NAMES = (
     "revise_text",
     "edit_setup",
     "edit_style",
+    "propose_regex",
+    "read_rules",
 )
 AGENT_END_TOOLS = ("done", "end", "finish", "none", "reply")  # 모델이 턴 끝을 도구 이름처럼 적는 말. 빈 tool 과 같이 받는다
 
@@ -1189,7 +1191,7 @@ class PlotAgentStep(BaseModel):
     thought: str = Field("", description="작가에게 보일 한 줄: 이 단계에서 무엇을 왜 하는지")
     tool: Literal[AGENT_TOOL_NAMES] = Field(  # type: ignore[valid-type]
         "", description="부를 도구 이름 ([도구] 목록에 있는 것). 턴을 끝낼 때는 빈 글로 두고 reply 칸에 답을 쓴다. reply 는 도구 이름이 아니다")
-    args: list[ToolArg] = Field(default_factory=list, description="읽기 도구와 insert_episodes · remove_episode · revise_text · edit_setup 의 인자")
+    args: list[ToolArg] = Field(default_factory=list, description="읽기 도구와 insert_episodes · remove_episode · revise_text · edit_setup · propose_regex 의 인자")
     edit: PlotRevision = Field(default_factory=lambda: PlotRevision(reply=""),
                                description="edit_plot 일 때만: 바꿀 것만 채운 변경안. reply 는 한 줄 설명. 다른 도구면 비워 둔다")
     question: str = Field("", description="ask 일 때만: 작가에게 묻는 말")
@@ -1239,7 +1241,7 @@ class RenumberOp(BaseModel):
 
 
 class WriteItem(BaseModel):
-    """바로 쓴 것 한 부분. key 는 'parts' · 'arc' · 'acts' · 'draft'(다음 아크 초안) · 화 번호 · 'renumber'(화 넣기 · 빼기) · 'text'(본문 고치기) · 문체 칸 이름(edit_style)."""
+    """바로 쓴 것 한 부분. key 는 'parts' · 'arc' · 'acts' · 'draft'(다음 아크 초안) · 화 번호 · 'renumber'(화 넣기 · 빼기) · 'text'(본문 고치기) · 문체 칸 이름(edit_style) · 'rule'(propose_regex)."""
     key: str
     label: str = ""
     state: Literal["done", "reverted", "kept"] = "done"
@@ -1260,6 +1262,28 @@ class WriteRecord(BaseModel):
     setup: Optional[SetupRevision] = Field(None, description="설정 도구(tool 'edit_setup')가 쓴 변경안. items 의 key 는 setupchat.part_ids")
     setup_before: Optional[SetupBefore] = Field(None, description="설정 도구가 쓰기 전 설정. 되돌리기는 setupchat.undo_revision")
     style: Optional[StyleCard] = Field(None, description="문체 변경안을 적용한 기록 (tool 'edit_style'). 되돌리기는 agent_style.undo")
+    regex: Optional[RegexCard] = Field(None, description="정규식 규칙 제안을 적용한 기록 (tool 'propose_regex'). 되돌리기는 agent_regex.undo")
+
+
+class RegexCard(BaseModel):
+    """대화 에이전트의 정규식 규칙 제안 카드와 적용 기록 (canon/agent_regex.py, docs/context/specs/06b-rule-propose.md). AI 가 채우지 않는다.
+    승인 카드(Approval.regex)는 적용 전 값, 적용 기록(WriteRecord.regex)은 적용한 묶음 id 와 버전까지 남긴다. 되돌리기는 agent_regex.undo."""
+    bundle: str = Field("", description="묶음 id. 새 묶음 카드는 빈 글이고 적용하면 만든 id 를 채운다")
+    bundle_name: str = Field("", description="카드에 보일 묶음 이름")
+    new_bundle: bool = Field(False, description="켠 묶음이 없어 적용할 때 새 묶음을 만들고 이 작품에서 켜는 카드")
+    project: str = Field("", description="카드를 만든 작품의 폴더 이름 (Project 에는 폴더 이름 칸이 없다)")
+    used_by: list[str] = Field(default_factory=list, description="카드를 만들 때 그 묶음을 켠 다른 작품 폴더 이름 (이 작품은 뺀다)")
+    rule: RegexRule = Field(description="넣을 규칙 (적용 뒤 값)")
+    before: Optional[RegexRule] = Field(None, description="고치기의 적용 전 규칙. 새 규칙이면 None")
+    episode: int = Field(0, description="시험한 화. 0 이면 시험하지 않음")
+    changes: list[RuleChange] = Field(default_factory=list, description="시험에서 바뀐 곳 (앞의 10개)")
+    hits: list["ConsistencyIssue"] = Field(default_factory=list, description="시험에서 걸린 곳 (앞의 10개)")
+    change_count: int = Field(0, description="시험에서 바뀐 곳 전체 수")
+    hit_count: int = Field(0, description="시험에서 걸린 곳 전체 수")
+    export_changed: bool = Field(False, description="내보내기 규칙 카드: 시험한 화를 내보낼 때 글이 바뀌는지")
+    timed_out: bool = Field(False, description="끄기 카드: 적용 전 규칙을 걸어 보니 시간 한도를 넘어 더 걸리지 않을 곳을 세지 못했다")
+    notices: list[str] = Field(default_factory=list, description="저장을 막지 않는 알림 (regexrules.notices)")
+    version: int = Field(0, description="적용한 뒤 묶음 버전. 카드에서는 0")
 
 
 class Approval(BaseModel):
@@ -1267,7 +1291,7 @@ class Approval(BaseModel):
     tool: str = "edit_plot"
     target: str = ""
     revision: Optional[PlotRevision] = None
-    keys: list[str] = Field(default_factory=list, description="묻는 부분 ('parts' · 'arc' · 'acts' · 화 번호 · 'renumber' · 본문 고치기의 후보 번호)")
+    keys: list[str] = Field(default_factory=list, description="묻는 부분 ('parts' · 'arc' · 'acts' · 화 번호 · 'renumber' · 본문 고치기의 후보 번호 · 정규식 규칙 제안의 'rule')")
     kinds: list[str] = Field(default_factory=list, description="묻는 까닭이 된 종류 (agent.KIND_LABELS). '이 세션에서 묻지 않기'가 auto_kinds 에 더한다")
     state: Literal["wait", "approved", "denied"] = "wait"
     picked: list[str] = Field(default_factory=list)
@@ -1280,6 +1304,7 @@ class Approval(BaseModel):
     setup: Optional[SetupRevision] = Field(None, description="설정 변경안을 묻는 카드 (tool 'edit_setup'). keys 는 setupchat.part_ids")
     defaults: list[str] = Field(default_factory=list, description="카드가 처음 체크해 두는 부분 (agent_setup.defaults). 채운 칸 · 인물 칸은 빠진다")
     style: Optional[StyleCard] = Field(None, description="문체 변경안을 묻는 카드 (tool 'edit_style'). 권한 모드와 상관없이 늘 묻는다")
+    regex: Optional[RegexCard] = Field(None, description="정규식 규칙 제안 카드 (tool 'propose_regex'). keys 는 ['rule']. 권한 모드와 상관없이 늘 묻는다")
 
 
 class AskCard(BaseModel):
@@ -3534,6 +3559,8 @@ Episode.model_rebuild()
 PlotUndo.model_rebuild()
 ChatMessage.model_rebuild()
 RenumberOp.model_rebuild()
+RegexCard.model_rebuild()
+Approval.model_rebuild()
 WriteRecord.model_rebuild()
 AgentTurn.model_rebuild()
 AgentSession.model_rebuild()

@@ -10,6 +10,7 @@
    결과는 후보 카드(agentTextApproval)이고 권한 모드와 상관없이 늘 묻는다. 고른 후보 하나만 본문에 들어가고 수정 기록에 남는다.
    문체 도구(서버 agent_style, edit_style)는 문체 변경안 카드(agentStyleApproval)로 늘 묻는다. 칸 이름 · 비교 · 시험 문단은 stylechat.js 의
    STYLE_LABEL · styleEditDiff · sampleBlock 을 그대로 쓴다. 문체 대상이면 '+ 재료'에서 참고할 화를 골라 입력 상자 위 칩으로 붙인다(S.styleRefEp).
+   정규식 규칙 제안(서버 agent_regex, propose_regex)은 규칙 카드(agentRegexApproval)로 늘 묻는다. 시험 결과의 바뀐 곳은 regexrules.js 의 ruleChangeHtml 을 쓴다.
    권한 이름은 agent.MODE_LABELS · KIND_LABELS 와 같다. */
 'use strict';
 
@@ -17,8 +18,8 @@ const AGENT_MODES = { ask: ['물어보기', '쓰기마다 그 자리에서 승�
   draft: ['빈 곳 · 초안만 자동', '초안 화 · 새 화 · 다음 아크 초안은 바로 쓰고, 확정한 화와 범위는 물어요.'],
   all: ['모두 자동', '막힌 것 말고는 묻지 않고 써요. 턴마다 되돌릴 수 있어요.'] };
 const AGENT_KINDS = { draft: '초안 화', next: '다음 아크 초안', confirmed: '확정한 화', arc: '아크 칸', acts: '구간 · 범위', parts: '부 구성',
-  renumber: '화 넣기 · 빼기', outside: '다듬을 곳 밖', text: '본문 고치기', setup: '설정 칸', style: '문체' };
-const AGENT_ALWAYS = ['renumber', 'text', 'setup', 'style'];  // 서버 agent.ALWAYS_ASK: 권한 모드와 상관없이 묻고 '이 세션에서 묻지 않기'를 두지 않는다
+  renumber: '화 넣기 · 빼기', outside: '다듬을 곳 밖', text: '본문 고치기', setup: '설정 칸', style: '문체', rule: '규칙' };
+const AGENT_ALWAYS = ['renumber', 'text', 'setup', 'style', 'rule'];  // 서버 agent.ALWAYS_ASK: 권한 모드와 상관없이 묻고 '이 세션에서 묻지 않기'를 두지 않는다
 const AGENT_CMDS = [['/여러안', '바꾸기 전에 방향 여러 안으로 물어요'], ['/대상', '대상 고정을 풀고 지금 보는 곳으로'],
   ['/새세션', '지금 보는 곳으로 새 세션'], ['/되돌리기', '마지막으로 바꾼 턴 되돌리기']];
 const AGENT_STEP_ICON = { read: '읽', write: '씀', wait: '물', block: '막', ask: '?', note: '·' };
@@ -339,7 +340,7 @@ function agentToolName(tool) {
   return { read_plots: '화 플롯 읽기', read_summaries: '화 요약 목록', find_text: '본문 단락 찾기', read_cast: '인물 읽기',
     edit_plot: '플롯 고치기', insert_episodes: '화 넣기', remove_episode: '화 빼기', ask: '되묻기', approval: '작가의 답',
     ask_empty: '빈 되묻기', edit_empty: '빈 고치기', reply: '예고만 한 답', revise_text: '본문 고치기',
-    edit_setup: '설정 고치기', edit_style: '문체 고치기' }[tool] || tool;
+    edit_setup: '설정 고치기', edit_style: '문체 고치기', propose_regex: '정규식 규칙 제안', read_rules: '규칙 읽기' }[tool] || tool;
 }
 
 const agentClip = (t, n) => (t.length > n ? `${t.slice(0, n)}…` : t);
@@ -395,6 +396,7 @@ function agentMats() {
 /** 바로 쓴 것 한 부분의 바뀐 칸. 쓰기 전 · 뒤 값(before · after)으로 비교한다 (지금 값은 이미 바뀌었다). */
 function agentItemDiff(w, item) {
   if (w.setup) return agentSetupItemDiff(w, item);  // 설정 도구 (agentsetup.js)
+  if (w.regex) return agentRxFields(w.regex.rule, w.regex.before);  // 정규식 규칙: 적용 전 · 뒤 규칙 칸
   const b = w.before || {};
   const a = w.after || {};
   if (/^\d+$/.test(item.key)) {
@@ -453,6 +455,86 @@ function agentStyleApproval(t, i, last) {
   </div>`;
 }
 
+// 규칙 칸 (서버 schema.RegexRule). 작품 저장 모양은 키가 in_, 승인 · 되돌리기 응답은 in 이라 둘 다 읽는다
+const AGENT_RX_FIELDS = [['comment', '이름'], ['in', '찾을 정규식'], ['out', '바꿀 글'], ['action', '동작'], ['type', '적용 범위'], ['flag', '플래그'], ['enabled', '켬']];
+
+function agentRxVal(r, k) {
+  if (!r) return '';
+  if (k === 'in') return r.in ?? r.in_ ?? '';
+  if (k === 'action') return r.action === 'fix' ? '고침' : '경고';
+  if (k === 'type') return r.type === 'export' ? '내보내기' : '쓴 본문';
+  if (k === 'enabled') return r.enabled === false ? '끔' : '켬';
+  return r[k] ?? '';
+}
+
+/** 규칙 칸: 새 규칙이면 채운 칸, 고치기면 바뀐 칸마다 전 · 뒤 (diffField) */
+function agentRxFields(rule, before) {
+  if (before) return AGENT_RX_FIELDS.map(([k, l]) => diffField(l, k, agentRxVal(before, k), agentRxVal(rule, k))).join('');
+  // 새 규칙은 견줄 전 값이 없어 칸 값만 보인다 (diffField 의 ins 는 '바꾸면' 머리말이 붙는다)
+  return AGENT_RX_FIELDS.filter(([k]) => k !== 'enabled' && agentRxVal(rule, k) !== '')
+    .map(([k, l]) => `<div class="diff-row"><span class="act-label">${l}</span><span>${esc(agentRxVal(rule, k))}</span></div>`).join('');
+}
+
+/** 켠 규칙을 끄는 카드인지 (서버 agent_regex.turned_off). 시험 결과는 적용 전 규칙으로 건 '더 걸리지 않을 곳'이다 */
+const agentRxOff = (c) => !!c.before && c.before.enabled !== false && c.rule.enabled === false;
+
+function agentRxSay(r) {
+  if (r.enabled === false) return '이 규칙을 꺼요. 다음 걸기부터 걸리지 않아요';
+  if (r.type === 'export') return '내보낼 때만 걸려요';
+  return r.action === 'fix' ? '적용하면 다음에 본문을 쓸 때부터 본문을 바꿔요' : '검수할 때 걸린 곳을 보여요';
+}
+
+/** 규칙 카드의 시험 결과: 바뀐 곳(ruleChangeHtml) · 걸린 곳(규칙 화면의 시험과 같은 모양) */
+function agentRxTrial(c) {
+  if (!c.episode) return '<div class="small">시험할 본문이 없어요.</div>';
+  if (c.timed_out) return `<div class="small">${c.episode}화에 걸어 보니 시험 시간이 넘었어요. 끄면 이 규칙은 더 걸리지 않아요.</div>`;  // 느린 규칙 끄기 (서버 agent_regex.prepare)
+  const off = agentRxOff(c);
+  const tried = off ? c.before : c.rule;
+  if (tried.type === 'export') {
+    const say = off ? (c.export_changed ? '글이 더 바뀌지 않아요' : '바뀌던 곳이 없어요') : (c.export_changed ? '글이 바뀌어요' : '바뀌는 곳이 없어요');
+    return `<div class="small">${c.episode}화를 내보낼 때 ${say}.</div>`;
+  }
+  const line = off ? `${c.episode}화에서 적용하면 더 걸리지 않을 곳 ${c.change_count}곳 · ${c.hit_count}곳이에요`
+    : `${c.episode}화에 걸어 보면 바뀌는 곳 ${c.change_count}곳 · 걸리는 곳 ${c.hit_count}곳이에요`;
+  const change = (x) => (typeof ruleChangeHtml === 'function' ? ruleChangeHtml(x) : `<span class="rx-diff"><del>${esc(x.before)}</del> → <ins>${esc(x.after)}</ins></span>`);
+  const rows = c.changes.map((x) => `<li class="rx-change">${change(x)}</li>`)
+    .concat(c.hits.map((h) => `<li class="rx-change"><span class="rx-name">${esc(h.description)}</span><span class="rx-diff">${esc(h.current_quote)}</span></li>`)).join('');
+  const more = c.change_count > c.changes.length || c.hit_count > c.hits.length ? `<div class="small">앞의 ${c.changes.length + c.hits.length}곳만 보여요.</div>` : '';
+  return `<div class="small">${line}</div>${rows ? `<ul class="rx-changes">${rows}</ul>` : ''}${more}`;
+}
+
+/** 정규식 규칙 제안 카드: 규칙 칸(고치기면 전 · 뒤)과 지금 본문에 걸어 본 결과. 권한 모드와 상관없이 늘 묻고 '묻지 않기'는 없다 (서버 agent_regex) */
+function agentRegexApproval(t, i, last) {
+  const a = t.approval;
+  const c = a.regex;
+  const wait = a.state === 'wait' && t.end === 'wait' && last;
+  const head = { wait: '<span class="chip warn">승인 기다림</span>', approved: '<span class="chip ok">적용함</span>', denied: '<span class="chip">적용 안 함</span>' }[a.state];
+  const where = c.new_bundle && wait ? `새 묶음 ${c.bundle_name}` : c.bundle_name;
+  const name = `정규식 규칙 · ${esc(where)}`;
+  const rule = esc(c.rule.comment || agentRxVal(c.rule, 'in'));
+  if (!wait) return `<div class="approval settled"><div class="row">${head}<strong>${name}</strong><span class="small">${rule}</span></div></div>`;
+  const others = (c.used_by || []).length;
+  return `<div class="approval">
+    <div class="row">${head}<strong>${name}</strong></div>
+    <span class="small">규칙은 권한 모드와 상관없이 물어봐요. 적용해야 규칙 묶음에 들어가고, 적용한 뒤에도 되돌릴 수 있어요.</span>
+    <div class="prop-part"><strong>${c.before ? '규칙 고치기' : '새 규칙'}</strong><div class="diff">${agentRxFields(c.rule, c.before)}</div>
+      <div class="small">${esc(agentRxSay(c.rule))}</div></div>
+    <div class="prop-part"><strong>시험</strong>${agentRxTrial(c)}</div>
+    ${c.new_bundle ? '<div class="small">적용하면 새 묶음을 만들고 이 작품에서 켜요.</div>' : ''}
+    ${others ? `<div class="small">다른 작품 ${others}개에도 걸려요.</div>` : ''}
+    ${(c.notices || []).map((x) => `<div class="small">${esc(x)}</div>`).join('')}
+    <div class="row proposal-actions"><button type="button" class="btn small" data-action="agentDecide" data-arg="${i}|0">적용 안 함</button>
+      <button type="button" class="btn small primary" data-action="agentDecide" data-arg="${i}|1">적용</button></div>
+  </div>`;
+}
+
+/** 규칙 카드를 적용한 뒤 알림 (턴을 끝내므로 '이어서 돌아요'가 없다) */
+function agentRxDone(r) {
+  if (r.enabled === false) return '규칙을 껐어요. 다음 걸기부터 걸리지 않아요';
+  if (r.type === 'export') return '규칙을 넣었어요. 다음에 내보낼 때부터 걸려요';
+  return r.action === 'fix' ? '규칙을 넣었어요. 다음에 본문을 쓸 때부터 걸려요' : '규칙을 넣었어요. 다음 검수부터 걸려요';
+}
+
 /** 화 넣기 · 빼기의 안내 줄 (agent.apply_op 이 낸 notes, 새 화 제목) */
 function agentOpNotes(op) {
   const titles = op.kind === 'insert' ? op.titles.map((t, k) => `<li>${op.at + k}화 ${esc(t || '제목 없음')}${op.summaries[k] ? ` · <span class="small">${esc(op.summaries[k])}</span>` : ''}</li>`).join('') : '';
@@ -490,7 +572,7 @@ function agentWrites(s, t, i) {
       const act = x.key === 'draft'
         ? `<button type="button" class="btn small" data-action="agentPutDraft" data-arg="${i}|${wi}">초안에 다시 넣기</button>`
         : x.state === 'done' && !w.style ? `<button type="button" class="btn small" data-action="agentUndo" data-arg="${i}|${wi}|${x.key}">되돌리기</button>` : '';
-      const mark = w.style && x.state === 'done' ? '<span class="chip ok">적용함</span>' : chip[x.state];  // 문체 칸은 작가가 카드에서 골라 넣었다
+      const mark = (w.style || w.regex) && x.state === 'done' ? '<span class="chip ok">적용함</span>' : chip[x.state];  // 문체 칸 · 규칙은 작가가 카드에서 골라 넣었다
       return `<div class="prop-part"><div class="between"><span class="prop-head"><strong>${esc(x.label)}</strong>${mark}</span>${act}</div>
         ${x.reason ? `<span class="small">${esc(x.reason)}</span>` : ''}
         ${diff ? (open ? `<div class="diff">${diff}</div>` : `<details><summary class="small">바뀐 칸 보기</summary><div class="diff">${diff}</div></details>`) : ''}</div>`;
@@ -531,6 +613,7 @@ function agentTextApproval(t, i, last) {
 
 function agentApproval(t, i, last) {
   const a = t.approval;
+  if (a.regex) return agentRegexApproval(t, i, last);  // 정규식 규칙 제안: 늘 묻는다 (서버 agent_regex)
   if (a.op) return agentOpApproval(t, i, last);
   if (a.passage) return agentTextApproval(t, i, last);
   if (a.setup) return agentSetupApproval(t, i, last);  // 설정 도구: 칸마다 늘 묻는다 (agentsetup.js)
@@ -1011,7 +1094,10 @@ Object.assign(actions, {
     if (yes === '1' && !picked.length) return toast('쓸 곳을 체크해서 고르세요', true);
     const res = await agentAct(() => api('POST', `/projects/${enc(S.name)}/sessions/${s.id}/turns/${i}/approval`,
       { approve: yes === '1', picked, remember: !!S.agentRemember[i] }));
-    if (res && yes === '1') toast(a.style ? `적용했어요: ${picked.map((k) => STYLE_LABEL[k] || k).join(', ')}. 다음 화부터 이 문체로 써요` : '승인한 곳을 썼어요. 이어서 돌아요');
+    if (res && yes === '1') {
+      toast(a.regex ? agentRxDone(a.regex.rule)
+        : a.style ? `적용했어요: ${picked.map((k) => STYLE_LABEL[k] || k).join(', ')}. 다음 화부터 이 문체로 써요` : '승인한 곳을 썼어요. 이어서 돌아요');
+    }
   },
   /** 본문 고치기 카드의 '이걸로 넣기' (arg '턴:후보') */
   agentPickCand(arg) {

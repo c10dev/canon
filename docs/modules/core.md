@@ -675,6 +675,8 @@
 - `save` 는 `model_dump_json(by_alias=True)` 로 써서 `RegexRule.in_` 을 JSON 키 `in` 으로 남긴다. 규칙 검사는 하지 않는다
 - 규칙 목록이 바뀔 때만 새 버전을 남긴다(`_snapshot`, `VERSION_KEEP` = 30). 메모가 비면 더한 · 뺀 · 고친 규칙 이름을 적는다
 - `create` · `update` 는 `check` 로 모든 규칙을 검사한다. 오류가 있으면 '<규칙 이름 또는 N번 규칙> · 이 정규식은 저장할 수 없어요: …' 줄을 이은 ValueError 를 낸다
+- `set_rule(bid, rid, rule, note)` 는 묶음을 다시 읽어 그 id 의 규칙 하나만 바꾼다(없으면 끝에 더하고 `None` 이면 뺀다). `check` 를 거쳐 저장한다(대화 에이전트의 규칙 제안 `agent_regex`)
+- `set_rule` 은 저장한 규칙을 끄기만 하면(`switched_off`) 그 규칙을 `check` 에서 건너뛴다(`check` 의 `skip` 인자). 지금 검사에 걸리는 옛 규칙도 끌 수 있다
 - `summary` 는 목록 한 줄이다: warn · fix 는 `action` 별 수(fix 에 내보내기 규칙도 든다), export 는 내보내기 규칙 수, used_by 는 켠 작품 수
 - `versions` 는 버전마다 앞 버전과 견준 더한 · 뺀 · 고친 규칙 이름을 붙인다. `restore` 는 옛 규칙 목록을 새 버전으로 남긴다
 - `used_by` 는 그 묶음을 켠 작품 이름들이다. 지운 묶음 id 는 작품 설정에 남고 `bundles_of` 가 건너뛴다(`missing`)
@@ -711,6 +713,7 @@
 - 경고 지적은 갈래 '표기', 심각도 low, `origin = "regex"`, `regex_rule` '<묶음 id>/<규칙 id>' 다
 - 경고 지적의 설명은 규칙 이름(없으면 '정규식 규칙에 걸렸어요'), `current_quote` 는 걸린 문장, `source_quote` 는 패턴, `source_episode` 는 이번 화다
 - `trial` 은 규칙 시험이다(저장 안 함): 고친 글 · 바뀐 곳 · 그 글의 경고 지적 · 내보내기 규칙까지 건 글(`exported`) · 건너뛴 묶음
+- `trial(…, strict=True)` 는 경고 규칙의 건너뜀(`RuleSkipped` 문구)과 내보내기 규칙의 건너뜀(묶음 이름)도 `skipped` 에 담는다. 규칙 화면의 시험은 거짓으로 예전과 같다
 - 되돌리기 `undo_change(p, n, rid, k)` 는 `pipeline.undo_edit` 과 같은 길이다: `after` 를 `start` 근처에서 찾아(`pipeline.locate`) `before` 로 바꾸고 `before_change` 를 부른다
 - 지우기 규칙이 바꾼 곳(`after` 가 빈 글)은 `start` 가 본문 길이 안이면 그 자리에 `before` 를 넣고, 밖이면 '되돌릴 자리를 찾을 수 없어요' 로 막는다
 - 되돌린 곳은 지우지 않고 `undone` 으로 둔다. 같은 기록의 아직 되돌리지 않은 뒤쪽 곳은 길이 차이만큼 민다(`_undo`)
@@ -718,7 +721,7 @@
 - `after` 가 `start` 에 없어 `locate` 가 찾은 가까운 같은 글이 같은 기록의 아직 되돌리지 않은 다른 곳과 겹치면 '되돌릴 자리를 찾을 수 없어요' 로 막는다
 - `undo_run(p, n, rid)` 는 거꾸로 하나씩 되돌리고 찾지 못한 곳은 남긴다. (되돌린 것, 남긴 것)을 돌려준다
 - 알려진 한계: 지우기 규칙이 바꾼 곳 앞을 작가가 고쳐 길이가 바뀌면 다른 자리에 되돌린다(`pipeline.undo_edit` 과 같다)
-- 대화 에이전트(`agent.py`)는 규칙 묶음과 `Settings.rule_bundles` 를 읽지도 쓰지도 않는다
+- 대화 에이전트는 읽기 도구(`agent.read_rules`)로 이 작품이 켠 묶음을 읽고, 작가가 규칙 제안 카드로 적용할 때만 쓴다(`agent_regex.py`, 06b)
 - LLM 을 부르지 않는다
 - 시험은 `tests/test_regexrules.py` · `test_regexrules_paths.py`(저장 경로) · `test_regexrules_web.py` · `test_regexrules_js.py`
 
@@ -930,6 +933,7 @@
 - 저장하지 않은 편집은 `S.ruleDirty` 다. 저장 띠 대신 '저장하지 않은 변경이 있어요'(`#rx-dirty`)와 '저장 전으로 되돌리기' 를 둔다
 - 저장이 400 이면 서버가 준 이유 줄을 편집 칸에 보인다. 알림(`notices`)은 마지막 저장 응답의 것이다
 - 시험 칸 `ruleTestCard`: 붙여 넣은 글이나 작품의 한 화에 지금 칸의 규칙을 걸어 바뀐 곳과 걸린 곳을 보인다(`POST /api/rules/test`, 저장 안 함)
+- `ruleChangeHtml` 은 대화 에이전트의 규칙 카드(`agent.js`)도 쓴다
 - 버전 칸 `ruleVersionsCard` 와 '이 버전으로 되돌리기' 는 문체 라이브러리와 같은 모양이다
 - 다른 화면이 쓰는 순수 함수: `ruleRunSay`(걸기 한 번의 알림 문장) · `ruledLine`(바뀐 곳 수와 규칙 이름) · `ruleSkipSay`(건너뜀 알림)
 - 그 화면들(`write.js` · `rewrite.js` · `passage.js` · `convert.js` · `settings.js`)은 이 파일의 함수를 `typeof … === 'function'` 으로 확인하고 부른다. 일부 파일만 읽는 JS 시험이 있다

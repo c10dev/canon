@@ -41,6 +41,7 @@
 - 본문 대상 `text:N` 의 쓰기 도구는 본문 고치기 `revise_text`(`agent_text.py`)다
 - 설정 쓰기 도구는 `edit_setup`(`agent_setup.py`)이다. 대상과 상관없이 쓸 수 있다
 - 문체 쓰기 도구는 `edit_style`(`agent_style.py`)이다. 대상과 상관없이 쓸 수 있다
+- 규칙 제안 도구는 `propose_regex`(`agent_regex.py`)다. 대상과 상관없이 쓸 수 있다
 - 플롯 화면 밖에서 작품 전체('')를 대상으로 보낸 턴도 플롯 쓰기를 모두 `outside` 로 묻는다(`off_plot`, 2026-11-09 사용자 결정). 플롯 화면(`PLOT_SCREENS`)은 지금 규칙 그대로다
 - 턴은 작가가 보던 화면을 `AgentTurn.screen` 에 남긴다. `SCREENS`(웹 drawApp 의 views 표와 'home')에 없거나 비면 '' 이고 플롯 화면과 같게 다룬다
 - 턴을 열 때 화면 대상이 오면(`add_turn` 의 `target`) 고정하지 않은 세션의 대상을 그 값으로 바꾼다. 고정은 `AgentSession.pinned`(옛 세션은 False)
@@ -59,12 +60,13 @@
 - 도구 이름만 오고 칸이 빈 단계는 같은 단계에서 그 칸만 담은 형식으로 한 번 더 부른다(`fill`: ask 는 `AgentAsk`, edit_plot 은 `PlotRevision`, 방향 안만 오면 되묻기로). 그래도 비면 되돌림 단계(`ask_empty` · `edit_empty`)
 - `fill` 이 다시 부르는 동안 작업 진행 줄(`cancel.say` → `Job.retry`)에 까닭을 띄우고 끝나면 지운다
 - 모델이 'reply' · 'done' 같은 끝 이름(`schema.AGENT_END_TOOLS`)을 tool 에 적으면 빈 글로 받는다
-- 도구는 읽기(`read_plots` · `read_summaries` · `find_text`(`context.recall`) · `read_cast`, 결과 `RESULT_LIMIT` 자)와 쓰기 `edit_plot`
+- 도구는 읽기(`read_plots` · `read_summaries` · `find_text`(`context.recall`) · `read_cast` · `read_rules`, 결과 `RESULT_LIMIT` 자)와 쓰기 `edit_plot`
+- 읽기 도구 `read_rules`(함수 `read_rules`)는 이 작품이 켠 정규식 규칙 묶음마다 id · 이름 · 켠 작품 수와 규칙 칸을 돌려준다. 켜지 않은 묶음은 보이지 않는다
 - 되묻기 `ask`
 - 화 넣기 · 빼기 `insert_episodes` · `remove_episode`(`RENUMBER_TOOLS`, `RenumberOp`): 복사본에 해 보고(`preview`) 늘 승인 카드로 묻는다(`permit` 의 `renumber`). 쓰기 `apply_op`, 되돌리기 반대 동작 `inverse`, 자동 집필 번호 `shift`. 번호를 옮긴 뒤에는 턴을 다시 찾는다(작품 칸이 통째로 바뀜)
 - 화 넣기 · 빼기가 빼는 옛 화 번호 `dropped`(되돌리기면 넣었던 화들): 웹이 `store.renumber_side_files` 의 `gone` 으로 넘긴다
-- 늘 카드로 묻는 도구는 `CARD_TOOLS`(도구 이름 → 모듈)에 한 줄씩 등록한다. 몸통은 제 파일에 두고 모듈은 `agent_text.py` 머리에 적은 이름들을 둔다. 04c · 04d 도 같은 방식으로 더한다
-- 권한 모드('모두 자동' 포함)와 '이 세션에서 묻지 않기'를 따르지 않고 늘 묻는 종류는 `ALWAYS_ASK`(`renumber` 와 `CARD_TOOLS` 의 종류)다
+- 늘 카드로 묻는 도구는 `CARD_TOOLS`(도구 이름 → 모듈)에 한 줄씩 등록한다. 몸통은 제 파일에 두고 모듈은 `agent_text.py` 머리에 적은 이름들을 둔다. 04c · 04d · 06b(`agent_regex`)도 같은 방식으로 더한다
+- 권한 모드('모두 자동' 포함)와 '이 세션에서 묻지 않기'를 따르지 않고 늘 묻는 종류는 `ALWAYS_ASK`(`renumber` 와 `CARD_TOOLS` 의 종류, 규칙 제안의 `rule` 포함)다
 - `permit` 은 `ALWAYS_ASK` 종류에 늘 'ask' 를 낸다. `decide` 의 `remember` 는 이 종류를 `auto_kinds` 에 넣지 않는다
 - `run_turn` 은 카드 도구의 AI 호출(`prepare`)을 잠금 밖에서 부르고, 그 결과를 `_step` 에 넘겨 잠금 안에서 기록한다(`record`)
 - 지름길: 턴의 첫 단계에서 `card_shortcut` 이 단계를 정하면 에이전트 단계(`PlotAgentStep`)를 부르지 않는다. 재료나 빠른 요청이 붙은 턴이다(`agent_text.shortcut`)
@@ -92,6 +94,38 @@
 - mock 단계는 `aim` 이 문체이거나 말에 '문체'가 들면 `edit_style` 을 부른다. 'N화 참고' 는 episode 인자, 문체 대상의 '?' 물음은 답만 한다
 - 단계 프롬프트는 바뀌지 않는 블록(도구 · 규칙 · 요구사항)이 앞, 턴 블록과 이번 턴 단계가 뒤, 남은 단계 수가 맨 끝 한 줄이다(단계 k+1 요청이 단계 k 요청을 품음)
 - 이름 후보는 `random.Random(session.id)` 로 뽑아 단계마다 같다(`plot_chat_parts` 의 rng)
+
+### `canon/agent_regex.py`
+
+- 대화 에이전트의 정규식 규칙 제안 도구 `propose_regex`(종류 `rule`, 이름표 '규칙'). `agent.CARD_TOOLS` 가 등록한다
+- 명세서는 [docs/context/specs/06b-rule-propose.md](../context/specs/06b-rule-propose.md)
+- 에이전트 단계(`PlotAgentStep.args`)가 규칙 칸을 채운다. `prepare` 는 AI 를 부르지 않는다(LLM 호출은 에이전트의 `chat` 단계 하나)
+- 인자: `bundle` · `rule`(고칠 규칙 id, 비우면 새 규칙) · `comment` · `in` · `out` · `action` · `type` · `flag` · `enabled`
+- 고치기에서 비운 인자는 지금 값을 두고, 새 규칙에서 비운 인자는 `RegexRule` 기본값(warn · output · g)을 쓴다
+- 도구 한 번에 규칙 하나를 더하거나 고친다. 지우기는 하지 않는다. 끄기는 `enabled=false` 고치기다
+- 넣을 묶음은 이 작품이 켠 묶음(`regexrules.bundles_of`)에서만 고른다. `bundle` 이 비고 켠 묶음이 둘 이상이면 묶음 이름을 돌려주며 막는다
+- 켠 묶음이 없으면 새 묶음('<작품 제목> 규칙') 카드다. 적용할 때 묶음을 만들고 `Settings.rule_bundles` 끝에 켠다. 이미 있는 묶음은 켜거나 끄지 않는다
+- 고치기는 그 규칙이 든 켠 묶음이다. 켜지 않은 묶음 id 나 없는 규칙 id 는 막는다
+- `prepare` 는 규칙 하나를 `regexrules.validate` 로, 넣은 뒤 묶음 전체를 `check` 로 검사한다. 빈 `in`, 같은 규칙(같은 in · out · action · type · flag)도 막는다
+- 끄기만 하는 카드(`regexrules.switched_off`)는 그 규칙을 검사하지 않는다. 지금 검사에 걸리는 옛 규칙도 끌 수 있다
+- 막히면 `record` 가 카드 없이 `block` 단계를 남기고 까닭을 `why` 와 결과로 AI 에게 돌려준다. AI 는 같은 턴에서 고쳐 다시 부를 수 있다
+- 시험: 규칙 하나만 `regexrules.trial(strict=True)` 로 건다. 화는 본문 대상(`text:N`) · 턴의 화 · 본문이 있는 가장 뒤 화 차례다
+- 시험이 시간 한도를 넘으면 막는다. 본문이 있는 화가 없으면 시험 없이 카드를 띄운다
+- 끄기 카드(`turned_off`)는 적용 전 규칙을 걸어 '더 걸리지 않을 곳'을 보인다
+- 끄기 카드는 그 시험이 시간 한도를 넘어도 막지 않고 카드에 `timed_out` 을 남긴다
+- 카드(`Approval.regex`, `schema.RegexCard`)는 바뀐 곳 · 걸린 곳을 각 `CARD_LIMIT`(10)개와 전체 수로 남긴다. 내보내기 규칙은 `export_changed`
+- 카드의 `used_by` 는 그 묶음을 켠 다른 작품이다(`regexrules.used_by` 에서 이 작품 `project` 를 뺀다)
+- `decide` 는 묶음을 다시 읽어 규칙 하나만 넣는다(`regexrules.set_rule`, 버전 메모 '대화 에이전트 제안: <규칙 이름>'). 답하면 턴을 끝낸다
+- `decide` 는 묶음을 지웠거나, 이 작품에서 껐거나, 고칠 규칙이 카드를 만든 뒤 바뀌었으면 ValueError 로 막고 카드를 둔다(웹 400)
+- 적용해도 이미 쓴 화의 본문에는 다시 걸지 않는다. 경고 규칙은 다음 검수부터 걸린다(`effect`)
+- `undo` 는 지금 규칙이 적용 뒤 값과 같을 때만 그 규칙 하나를 돌린다. 새 규칙은 빼고 고치기는 적용 전 규칙으로 바꾼다(메모 '대화 에이전트 제안 되돌림')
+- 그 뒤 규칙을 고쳤으면 `KEPT`, 묶음이나 규칙이 없으면 `GONE` 으로 남긴다
+- 새 묶음 되돌리기는 이 작품에서 끈다. 묶음에 그 규칙만 남았고 다른 작품이 켜지 않았으면 묶음 파일도 지운다
+- 다른 작품 수는 `used_by` 의 수에서 지금 작품이 켰으면 1을 뺀다. 복제 · 이름 바꾸기로 폴더 이름이 카드의 `project` 와 달라도 맞다
+- `compact`: 오래된 턴의 `WriteRecord.regex` 를 지운다
+- 규칙 묶음 파일은 작품 잠금 밖이다. 규칙 화면과 함께 고치면 나중 저장이 이긴다
+- 화면 카드는 `static/agent.js` 의 `agentRegexApproval`
+- 시험 `tests/test_agent_regex.py`
 
 ### `canon/agent_setup.py`
 
@@ -555,6 +589,10 @@
 - `agentDecide` 는 설정 카드면 `agentSetupPicks`(체크했고 막히지 않은 부분)를 보낸다
 - 문체 변경안 카드 `agentStyleApproval`: 칸마다 체크 · 지금 값과 비교(`stylechat.js` `styleEditDiff`) · 시험 문단(`sampleBlock`)을 보인다. '이 세션에서 묻지 않기'는 그리지 않는다
 - 적용한 문체 기록은 칸별 되돌리기 없이 '적용 취소' 하나로 턴의 기록을 돌린다
+- 정규식 규칙 제안 카드 `agentRegexApproval`: 규칙 칸(고치기면 칸마다 전 · 뒤), 동작 문구, 시험 줄과 바뀐 곳(`regexrules.js` `ruleChangeHtml`) · 걸린 곳
+- 규칙 카드는 다른 작품 수 · 새 묶음 안내 · 알림(`notices`)을 보이고 '이 세션에서 묻지 않기'는 그리지 않는다. 규칙 키는 `in` 과 `in_` 을 다 읽는다
+- 규칙 카드를 적용하면 언제부터 걸리는지 알린다(`agentRxDone`). 턴이 끝나므로 '이어서 돌아요'가 없다
+- 적용한 규칙 항목은 '적용함'으로 보이고 '바뀐 칸 보기'는 적용 전 · 뒤 규칙 칸이다(`agentItemDiff` 의 `w.regex`)
 - 입력 상자(+ 재료, `/` 빠른 요청 `AGENT_CMDS`, 보내기 · 멈추기)와 상태 줄(권한 모드 · 대상 · 대상 고정 · 모델 · 단계 상한)
 - 재료 칩(`agentMats`, `S.agentMaterial`): 집필 화면에서 고른 본문이 입력 상자 위에 붙는다. 붙이기는 `agentAttach`(`passage.js` 가 부른다), 떼기는 ✕(`agentMaterialDrop`)
 - 본문에서 사라진 재료는 칩을 감추고 보내지 않는다(`agentMaterialNow`)
@@ -564,6 +602,7 @@
 - 재료가 붙은 말은 `selection`, 빠른 요청은 `preset` 으로 보낸다. 서버가 에이전트 단계 없이 본문 고치기를 바로 부른다. 보낸 재료는 뗀다
 - 본문 고치기 카드(`agentTextApproval`): 후보마다 원문과 낱말 비교(`wordDiff`), '이걸로 넣기' · '손봐서 넣기', 아래 '모두 넣지 않기'
 - 늘 묻는 종류(`AGENT_ALWAYS`, 서버 `agent.ALWAYS_ASK`)의 카드는 '이 세션에서 묻지 않기'를 두지 않는다
+- `AGENT_ALWAYS` 는 `agent.ALWAYS_ASK` 와 같다(`tests/test_agent_js.py`)
 - 카드에 답하기(`agentTextDecide`)는 그 화 본문 초안을 먼저 저장한다(`flushText`). 넣으면 넣은 글을, 넣지 않으면 고른 부분을 재료로 다시 붙인다
 - 바로 쓴 것의 본문 고치기 항목은 수정 기록(`agentTextEdit`)으로 바뀐 글을 보인다. 수정 기록에서 되돌렸으면 되돌린 것으로 보인다
 - 마지막 턴이 본문 후보를 기다리면 패널에 `has-cands` 를 단다(휴대폰 시트가 높아진다)
