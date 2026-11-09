@@ -2948,9 +2948,9 @@ def _job_names_ai(name: str, body: "JobIn", p: Project, kind: str, n: int | None
     """작업 names_ai: AI 가 이름(target 인물) · 지명(place_kind) 후보에서 골라 이유를 붙인다. 저장된 작품을 읽고 저장하지 않는다."""
     req = NamesIn(character=body.target, place_kind=body.place_kind, ai=True, n=8)
     if req.character:
-        label = f"{_job_char(p, req.character).name or req.character} 이름 고르기"
+        label = f"{_job_char(p, req.character).name or req.character} 이름 후보"
     else:
-        label = f"{req.place_kind or '지명'} 지명 고르기"
+        label = f"{req.place_kind} 지명 후보" if req.place_kind else "지명 후보"
 
     def fn(job: jobs.Job):
         return _names_out(store.load(name), req, llm)
@@ -2962,7 +2962,7 @@ def _job_style_ai(name: str, body: "JobIn", p: Project, kind: str, n: int | None
     (style_learning · style_example)에 둔다. 문체와 본문은 바꾸지 않는다 (고른 규칙만 /style/learn/apply 로)."""
     if kind == "style_learn":
         pipeline.check_learnable(p)
-        label = "문체 규칙 찾기"
+        label = "문체 규칙 후보"
 
         def fn(job: jobs.Job):
             r = pipeline.learn_style(llm, store.load(name))
@@ -2972,7 +2972,7 @@ def _job_style_ai(name: str, body: "JobIn", p: Project, kind: str, n: int | None
         at = body.episodes[0] if body.episodes else 0
         pipeline.check_example(p, at)
         scene = body.note
-        label = "문체 예시 쓰기"
+        label = "문체 예시"
 
         def fn(job: jobs.Job):
             ex = pipeline.style_example(llm, store.load(name), scene, at)

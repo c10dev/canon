@@ -18,7 +18,7 @@ Object.assign(S, {
 
 // 외형 태그 AI 제안은 백그라운드 작업으로 돈다 (web._job_char_ai). 기다리는 동안 다른 칸을 읽고 고칠 수 있다.
 // 작업은 저장된 인물 설정을 읽으므로 묻지 않고 먼저 저장한다 (startJob opt.quiet)
-JOB_PAGES.char_look = ['cast', 'write'];
+JOB_PAGES.char_look = ['cast'];
 JOB_LINK.char_look = (j) => `#/p/${enc(j.project)}/cast/${enc(j.target)}`;
 JOB_DONE_MSG.char_look = (j) => `${j.label} 제안이 도착했어요.`;
 SCREEN_ONLY_JOBS.add('char_look');

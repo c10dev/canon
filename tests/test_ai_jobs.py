@@ -174,7 +174,7 @@ def test_job_target_in_public_and_busy_key():
 FILES = __import__("re").findall(r'src="/static/([a-z-]+\.js)"', (STATIC / "index.html").read_text(encoding="utf-8"))
 
 
-KINDS = {"char_body": ["cast"], "char_voice": ["cast"], "char_look": ["cast", "write"], "statwin_suggest": ["statwin"],
+KINDS = {"char_body": ["cast"], "char_voice": ["cast"], "char_look": ["cast"], "statwin_suggest": ["statwin"],
          "statwin_init": ["statwin"], "names_ai": ["setup", "arc", "review"], "style_learn": ["style"], "style_example": ["style"]}
 
 

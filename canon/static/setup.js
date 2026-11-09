@@ -293,7 +293,7 @@ function refreshRel(i) {
 // 작업은 저장된 작품을 읽으므로 묻지 않고 먼저 저장한다 (startJob opt.quiet). 코드만 뽑는 '이름 후보 뽑기'는 그대로 바로 받는다
 JOB_PAGES.names_ai = ['setup', 'arc', 'review'];
 JOB_LINK.names_ai = (j) => `#/p/${enc(j.project)}/setup`;
-JOB_DONE_MSG.names_ai = (j) => `${j.label} 결과가 도착했어요. 마음에 드는 이름을 고르세요.`;
+JOB_DONE_MSG.names_ai = (j) => `${j.label}${josa(j.label, '이', '가')} 도착했어요. 마음에 드는 이름을 고르세요.`;
 SCREEN_ONLY_JOBS.add('names_ai');
 JOB_BTNS.nameAI = (cid) => ['names_ai', cid];
 JOB_BTNS.placeAI = () => ['names_ai', ''];
