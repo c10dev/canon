@@ -1736,7 +1736,9 @@ const actions = {
   },
   navFold(k) {
     S.navFolds[k] = !navFoldOpen(k);
-    try { localStorage.setItem(navFoldKey(k), S.navFolds[k] ? '1' : '0'); } catch { /* 저장소를 막은 브라우저: 이번 화면에서만 기억한다 */ }
+    if (!NAV_FOLD_NOKEEP.has(k)) {
+      try { localStorage.setItem(navFoldKey(k), S.navFolds[k] ? '1' : '0'); } catch { /* 저장소를 막은 브라우저: 이번 화면에서만 기억한다 */ }
+    }
     S.focusTarget = `#app [data-action="navFold"][data-arg="${k}"]`;
     render();
   },
@@ -2317,6 +2319,7 @@ async function routeNow() {
   const here = location.hash.split('/').slice(0, 4).join('/');
   // 한 화 화면에서 칸만 바꾸면 제목 대신 단계 띠의 지금 칸으로 포커스를 둔다 (누른 칸은 다시 그려져 사라진다)
   if (here !== lastRoute) S.focusTarget = navFlowSwitch ? '#app .flow-bar [aria-current="step"]' : '#app main h1';
+  if (here !== lastRoute && S.navFolds) NAV_FOLD_NOKEEP.forEach((k) => delete S.navFolds[k]);  // 아직 안 쓴 도구는 다른 화면으로 가면 다시 접는다
   navFlowSwitch = false;
   lastRoute = here;
   const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean).map(decodeURIComponent);
@@ -2768,15 +2771,18 @@ function stepLabel(id) {
   return { setup: '설정 도우미', style: '문체 레퍼런스', write: '집필', check: '검수', review: '상태 승인' }[id];
 }
 
-/** 사이드바 접는 묶음(작품 도구 · 아직 안 쓴 도구 · 실험)의 처음 펼침. 사람이 머리를 눌러 바꾼 것은 브라우저에 둔다.
-    아직 안 쓴 도구는 예전 '더 보기'와 같은 키(canon.navMore)를 쓴다 */
-const NAV_FOLDS = { tools: true, more: false, lab: false, recent: true, out: true };
-const navFoldKey = (k) => (k === 'more' ? 'canon.navMore' : `canon.nav.${k}`);
+/** 사이드바 접는 묶음(작품 도구 · 아직 안 쓴 도구 · 최근 작품 · 작품 밖 도구)의 처음 펼침. 사람이 머리를 눌러 바꾼 것은 브라우저에 둔다.
+    아직 안 쓴 도구(NAV_FOLD_NOKEEP)는 기억하지 않는다: 화면을 옮기면 다시 접힌다 (routeNow) */
+const NAV_FOLDS = { tools: true, more: false, recent: true, out: true };
+const NAV_FOLD_NOKEEP = new Set(['more']);
+const navFoldKey = (k) => `canon.nav.${k}`;
 function navFoldOpen(k) {
   S.navFolds = S.navFolds || {};
   if (S.navFolds[k] === undefined) {
     let v = null;
-    try { v = localStorage.getItem(navFoldKey(k)); } catch { /* 저장소를 막은 브라우저: 이번 화면에서만 기억한다 */ }
+    if (!NAV_FOLD_NOKEEP.has(k)) {
+      try { v = localStorage.getItem(navFoldKey(k)); } catch { /* 저장소를 막은 브라우저: 이번 화면에서만 기억한다 */ }
+    }
     S.navFolds[k] = v === null ? NAV_FOLDS[k] : v === '1';
   }
   return S.navFolds[k];
@@ -2823,7 +2829,8 @@ document.addEventListener('keydown', (e) => {
 
 /** 사이드바 항목. palette.js 의 명령 팔레트도 같은 이름 · 주소를 쓴다.
     steps: 작품 홈과 단계 [id, 주소, 기호, 이름], auto: 자동 집필, tools: 작품 도구 [..., 데이터가 있는지],
-    apart: 본편과 분리한 화면 (사이드바 '실험' 묶음), foot: 작품 밖 화면 [주소, 이름] (사이드바 아래 설정 · ⋯ 메뉴). */
+    apart: 본편과 분리한 실험 화면 (사이드바에 그리지 않고 찾기 팔레트로만 부른다. 역설계 · 쇠맛 · 사용량은 작품 밖 사이드바에도 있다),
+    foot: 작품 밖 화면 [주소, 이름] (사이드바 아래 설정 · ⋯ 메뉴). */
 function navItems() {
   const p = P();
   const cur = navEp();
@@ -2992,10 +2999,10 @@ function sideFoot(links) {
     </div>`;
 }
 
-/** 사이드바. 넓은 폭: 맨 위 줄 · 작품 칸 · 단계 · 접는 묶음 · 아래 고정 줄(설정). 레일(접음)은 같은 마크업을 app.css 가 기호만 남겨 그린다.
+/** 사이드바. 넓은 폭: 맨 위 줄 · 작품 칸 · 단계 · 작품 도구 묶음(안에 아직 안 쓴 도구) · 아래 고정 줄(설정). 레일(접음)은 같은 마크업을 app.css 가 기호만 남겨 그린다.
     900px 이하: 위쪽 띠(메뉴 · 작품 제목 · 알림 · 찾기)와 메뉴를 누르면 왼쪽에서 나오는 서랍(.side-menu) */
 function sidebar(active) {
-  const { steps, auto, tools, apart, foot } = navItems();
+  const { steps, auto, tools, foot } = navItems();  // 실험(apart)은 찾기 팔레트로만 부른다 (palette.js)
   const b = navBadges(P(), navEp(), S.pending.name === S.name ? Object.values(S.pending.results) : [], autoEp());
   const badge = {
     check: b.check ? navBadge(b.check, `열린 지적 ${b.check}개`, 'red') : '',
@@ -3016,7 +3023,6 @@ function sidebar(active) {
     <div class="drawer-work">${workCard()}</div>
     <div class="nav">${steps.map(link).join('')}${link(auto)}</div>
     ${navFold('tools', '작품 도구', 0, shown.map(link).join('') + more, navFoldOpen('tools') || here(tools))}
-    ${navFold('lab', '실험 · 본편과 분리', apart.length, apart.map(link).join(''), navFoldOpen('lab') || here(apart))}
     ${sideFoot(foot.filter(([href]) => href !== '#/settings').reverse())}
     </div>
     ${S.menuOpen ? '<div class="side-scrim" data-action="toggleMenu" aria-hidden="true"></div>' : ''}

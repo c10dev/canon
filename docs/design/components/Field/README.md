@@ -11,6 +11,7 @@
 - 이름표는 `label`(13px, 500), 칸과 사이 `gap-label`(6px).
 - 입력칸 묶음 ↔ 묶음은 `gap-group`(12px)이다. 카드 안에 바로 놓으면 카드 간격이 그 값이고, 두 칸은 `.grid-2`(사이 12px).
 - 읽기 전용은 `readonly`: `bg` 면, `muted` 글자, 점선 테두리.
+- 칸 옆 AI 후보 버튼(`.ai-mini`, ✦)은 그 칸에 포인터나 포커스가 있을 때만 보인다(투명도 0 → 1, 숨은 동안 누를 수 없음). 자리는 비워 두어 나타나도 칸이 움직이지 않는다. 후보를 펼친 칸은 늘 보인다.
 - 체크박스는 `checkbox`(20px), `accent` 색.
 - 숫자 칸(`type=number`)은 휴대폰 숫자 자판을 띄운다. 앱이 `inputmode` 를 붙인다(소수 칸은 `decimal`, 나머지는 `numeric`).
 - 켜기 · 끄기는 스위치(`.set-sw`, `role="switch"`, `aria-checked`)다. 누름 영역 52 × 44px, 막대 44 × 26px. 꺼지면 `line-strong`, 켜지면 `accent` 막대, 손잡이는 흰색. 설정 대화상자가 쓴다.
@@ -21,4 +22,5 @@
 
 - 이름표 없는 입력칸을 두지 않는다. 보이는 이름표가 없으면 `aria-label`.
 - 포커스 링(`accent` 3px)을 지우지 않는다.
+- 칸에 딸린 버튼을 숨길 때 `display: none` · `visibility: hidden` 을 쓰지 않는다. Tab 으로 닿지 못한다. 투명도로 숨기고 `:focus-within` 에서 보인다.
 - 원고를 고치는 칸은 `serif`(`.field.passage textarea`).

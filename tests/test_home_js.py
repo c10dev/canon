@@ -132,3 +132,23 @@ def test_home_now_card_auto_heading_is_status():
     p = project(episodes=eps(1, 3), characters=[Character(id="c1", name="가", role="")])
     got = js(p, "(() => { S.project = data.p; S.name = 't'; S.route = ['p', 't']; S.auto = { active: true, run: { ep: 2 } }; const [l, h] = nextStep(); return homeNowCard(l, h); })()")
     assert '<h2 id="home-now-h">자동 집필이 2화를 쓰는 중이에요</h2>' in got
+
+
+@needs_node
+def test_home_head_more_menu():
+    """작품 홈 머리는 주 버튼 하나와 ⋯ 메뉴다. 메뉴 안: 장편으로 늘리기 · 기승전결 · 플롯 · 갈래 만들기 (조건마다)."""
+    p = project(episodes=eps(3, 3, text="본문"), characters=[Character(id="c1", name="가", role="")])
+    p.meta.target_episodes = 3
+    got = js(p, """(() => {
+      S.project = data.p; S.name = 't'; S.route = ['p', 't'];
+      const shut = homeHeadMore(3, false);
+      S.popMenu = 'home-more';
+      return { shut, open: homeHeadMore(3, false), arcNext: homeHeadMore(0, true) };
+    })()""")
+    assert 'data-arg="home-more"' in got["shut"] and 'aria-label="작품 더 보기 메뉴"' in got["shut"]
+    assert "갈래 만들기" not in got["shut"]  # 닫힌 메뉴는 안을 그리지 않는다
+    o = got["open"]
+    assert '<a class="pop-item" href="#/p/t/convert">장편으로 늘리기</a>' in o
+    assert '<a class="pop-item" href="#/p/t/arc">기승전결 · 플롯</a>' in o
+    assert 'data-action="branchOpen"' in o and "btn primary" not in o
+    assert got["arcNext"] == ""  # 반영한 화가 없고 다음 할 일이 플롯 화면이면 넣을 것이 없어 ⋯ 도 없다

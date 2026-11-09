@@ -164,6 +164,7 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 .pop-item { width: 100%; min-height: 44px; padding: 0 10px; border: none; border-radius: 8px; background: transparent; color: var(--text); font: inherit; font-size: 0.8125rem; text-align: left; display: flex; align-items: center; gap: 10px; cursor: pointer; }
 @media (hover: hover) { .pop-item:hover { background: var(--bg); } }
 .pop-item .small { margin-left: auto; }
+a.pop-item { color: var(--text); text-decoration: none; }  /* 링크 줄도 동작 줄과 같은 모양 */
 .pop-radio { min-height: 40px; padding: 6px 2px; display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
 .pop-radio input { width: 20px; height: 20px; margin: 0; flex: none; accent-color: var(--accent); }
 .pop-radio > span { display: flex; flex-direction: column; gap: 2px; line-height: 1.45; }

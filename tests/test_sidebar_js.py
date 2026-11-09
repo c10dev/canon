@@ -58,12 +58,63 @@ def test_sidebar_render():
     assert 'data-action="navFold" data-arg="tools"' in w and 'data-action="toggleRail"' in w and 'data-action="openPalette"' in w
     assert 'class="side-set" href="#/settings"' in w and 'data-arg="side-more"' in w
     assert "토스페이스" in w and 'id="hub-slot"' in w
-    # 시험 대역의 저장소는 '1' 을 돌려주지 않아 묶음이 접힌다. 지금 보는 화면이 든 묶음만 펼쳐 그린다
-    assert re.search(r'id="fold-more" hidden', w) and re.search(r'id="fold-lab" hidden', w)
+    # 아직 안 쓴 도구는 접혀 있고, 지금 보는 화면이 든 묶음만 펼쳐 그린다
+    assert re.search(r'id="fold-more" hidden', w)
     assert not re.search(r'id="fold-more" hidden', got["folded"])
-    assert not re.search(r'id="fold-lab" hidden', got["lab"])
+    # 실험 묶음은 작품 안 사이드바에 없다. 실험 화면을 보는 동안에도 그리지 않는다 (찾기 팔레트로 부른다)
+    for html in (w, got["lab"]):
+        assert 'data-arg="lab"' not in html and "실험 · 본편과 분리" not in html
+        assert "연구 · 모델 실험" not in html and "큐 시트 집필 실험" not in html
     assert 'class="side open"' in got["open"] and 'class="side-scrim"' in got["open"]
     assert 'class="side-scrim"' not in w
+
+
+@needs_node
+def test_more_fold_not_kept():
+    """아직 안 쓴 도구는 펼침을 브라우저에 두지 않고, 다른 화면으로 가면 다시 접힌다."""
+    got = run_js(FILES, """(() => {
+      const kept = [];
+      render = () => {};  // 그리기는 이 시험 밖이다
+      localStorage = {  // 예전 키가 남아 있어도 보지 않는다
+        getItem: (k) => (k === 'canon.navMore' || k === 'canon.nav.more' ? '1' : null),
+        setItem: (k, v) => kept.push([k, v]),
+      };
+      S.project = data; S.name = 't'; S.route = ['p', 't', 'cast'];
+      const first = navFoldOpen('more');
+      actions.navFold('more');
+      const opened = navFoldOpen('more');
+      actions.navFold('tools');  // 작품 도구는 그대로 기억한다
+      return { first, opened, kept };
+    })()""", project())
+    assert got["first"] is False and got["opened"] is True
+    assert got["kept"] == [["canon.nav.tools", "0"]]
+
+
+@needs_node
+def test_palette_finds_every_project_screen():
+    """작품 안 화면은 사이드바에 있든 없든 모두 찾기 팔레트에서 이름으로 찾아진다."""
+    got = run_js(FILES, """(() => {
+      S.project = data; S.name = 't'; S.route = ['p', 't'];
+      S.pending = { name: 't', results: {}, failures: {} };
+      const nav = navItems();
+      const items = paletteItems(palContext());
+      const screens = [...nav.steps, nav.auto, ...nav.tools, ...nav.apart].map((x) => [x[3], x[1]]);
+      const foot = nav.foot.map(([href, label]) => [label, href]);
+      const side = sidebar('home');
+      return {
+        apart: nav.apart.map((x) => x[3]),
+        missing: [...screens, ...foot].filter(([label, href]) => {
+          const top = paletteMatch(items, label)[0];
+          return !top || top.href !== href && !(href === '#/settings' && top.label === '설정');
+        }),
+        dup: items.filter((it) => it.kind === 'screen').map((it) => it.href).filter((h, i, a) => a.indexOf(h) !== i),
+        notInSide: [...screens].filter(([, href]) => !side.includes(`href="${href}"`)).map(([label]) => label),
+      };
+    })()""", project())
+    assert got["missing"] == []
+    assert got["dup"] == []  # 역설계 · 쇠맛은 실험과 작품 밖 화면(foot)에 다 있지만 한 번만 나온다
+    assert set(got["apart"]) == {"연구 · 모델 실험", "큐 시트 집필 실험", "역설계 실험", "쇠맛 실험실", "사용량 · 비용"}
+    assert set(got["apart"]) <= set(got["notInSide"])  # 사이드바에서 뺀 실험 화면도 팔레트에 있다 (위 missing)
 
 
 @needs_node

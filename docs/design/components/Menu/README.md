@@ -11,6 +11,7 @@
 - 창 아래가 화면 밖으로 나가면(가로 휴대폰, 화면 아래쪽 버튼) 앱이 위 · 아래 중 넓은 쪽으로 펼치고 그쪽 남은 높이 안에서 굴린다(`fitMenus`, `.pop-panel.up`). 쓴 사람이 정한 위로 펼침은 그대로 둔다.
 - 창 안의 부품:
   - 동작 줄 `.pop-item`: 44px, `radius-8`, 마우스를 올리면 `bg` 면. 덧붙임은 오른쪽 끝 `.small`. 위험한 동작은 `.pop-item.danger`.
+  - 다른 화면으로 가는 줄은 `<a class="pop-item">`이다. 밑줄 없이 `text` 글자로 동작 줄과 같게 그린다.
   - 고르기 줄 `.pop-radio` · `.pop-check`: 40px, 20px 라디오 · 체크박스(`accent` 색), 이름 아래 설명. 손가락 기기와 640px 이하에서는 44px.
   - 묶음 `.pop-sec`과 묶음 이름 `.pop-legend`(12px 700 `muted`), 나누는 선 `.pop-sep`(`rule`).
   - 지우기 같은 위험한 묶음은 `<details class="pop-danger">`로 한 번 더 접는다. 머리 글자는 `red`.
