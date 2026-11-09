@@ -2,9 +2,10 @@
 import importlib.util
 from pathlib import Path
 
-from canon import pipeline, store
+from canon import pipeline, prompts, store
 from canon.mock import MockLLM
-from canon.schema import Character, CharacterState, StoryElement
+from canon.llm import dump
+from canon.schema import Character, CharacterState, Foreshadow, StoryElement
 from tests.test_serial import _plan_arc, _serial
 
 LLM = MockLLM()
@@ -88,3 +89,70 @@ def test_sticky_and_scope_simulation(tmp_path, monkeypatch):
     assert "smith" in row("now|none", 4)["miss"]
     assert "smith" not in row("now|sticky1", 4)["miss"] and row("now|sticky1", 4)["why"]["smith"] == "sticky"
     assert all(not e["align"] for e in r["episodes"]["exact"])  # simulate-now 도 실제 선택과 같다
+
+
+def _fs_project(count=13):
+    """1~4화를 쓴 장편에 1화에 심은 열린 복선 count 개 (fs-t00~). 모든 스냅샷에도 둔다."""
+    p = _project()
+    fs = [Foreshadow(id=f"fs-t{i:02d}", description=f"떡밥 {i}", planted_ep=1) for i in range(count)]
+    p.foreshadows = [f.model_copy() for f in fs]
+    for s in p.snapshots:
+        s.foreshadows = [f.model_copy() for f in fs] if s.episode >= 1 else []
+    return p, fs
+
+
+def test_foreshadow_trim_counts(tmp_path, monkeypatch):
+    """복선 블록 흉내: 화마다 한 줄 꼴과 JSON 꼴 글자, 한 줄 블록이 실제 쓰기 프롬프트에 있는지."""
+    monkeypatch.setattr(store, "ROOT", tmp_path)
+    p, fs = _fs_project()
+    store.save("측정", p)
+    cm = _script()
+    r = cm.run_project("측정", fs_only=True)
+    assert r["unchanged"] and not r["sim"]["exact"]  # fs_only 는 범위 · 조건 흉내를 건너뛴다
+    for mode in ("exact", "approx"):
+        eps = {e["episode"]: e for e in r["episodes"][mode]}
+        assert all("foreshadow-block" not in e["align"] for e in eps.values())
+        e4 = eps[4]["fs_trim"]
+        assert e4["n_rel"] == 13 and e4["fs_cut"] == 0 and "line_block" not in e4
+        assert e4["json_chars"] == len(f"# 열린 복선\n{dump(fs)}")
+        assert e4["line_chars"] == len(prompts.serial_foreshadow_block(fs, 0)) < e4["json_chars"]
+        assert e4["overhead"] == len(dump(fs)) - sum(len(f.description) for f in fs)
+
+    s = cm.fs_summary([r], "exact")
+    row = s["측정"]
+    assert s["ALL"] == row
+    assert row["episodes"] == 4 and row["with_fs"] == 4 and row["n_rel"]["max"] == 13 and row["desc_len"]["n"] == 13
+    exact = [e["fs_trim"] for e in r["episodes"]["exact"]]
+    old, new = sum(e["json_chars"] for e in exact), sum(e["line_chars"] for e in exact)
+    assert row["json_chars"] == old and row["line_chars"] == new and abs(row["cut_rel"] - (1 - new / old)) < 1e-12
+
+    v = cm.fs_verdict(s, ("측정",))
+    assert v["per"] == {"ALL": row["cut_rel"] >= cm.FS_CHARS, "측정": row["cut_rel"] >= cm.FS_CHARS}
+    assert v["pass"] == (row["cut_rel"] >= cm.FS_CHARS) and v["missing"] == []
+    assert cm.fs_verdict(s)["missing"] == list(cm.FS_WORKS)  # 독립 작품이 결과에 없으면 통과가 아니다
+    assert not cm.fs_verdict(s)["pass"]
+    assert "| 측정 | 4 | 4 |" in cm.fs_table(s, v)
+
+
+def test_foreshadow_verdict_rules():
+    """복선이 없는 화는 글자 합에서 빼고, 줄어듦이 FS_CHARS 보다 작은 작품이 있으면 통과가 아니다."""
+    cm = _script()
+
+    def ep(n_rel, old, new):
+        return {"n_rel": n_rel, "fs_cut": 0, "json_chars": old, "line_chars": new, "desc": {f"fs-{old}-{i}": 10 for i in range(n_rel)},
+                "overhead": 5 * n_rel}
+
+    def work(name, eps):
+        return {"project": name, "episodes": {"exact": [{"episode": i + 1, "fs_trim": e} for i, e in enumerate(eps)]}}
+
+    good = work("좋음", [ep(3, 1000, 500), ep(0, 15, 15)])
+    bad = work("나쁨", [ep(3, 1000, 700)])
+    s = cm.fs_summary([good, bad])
+    assert s["좋음"]["with_fs"] == 1 and s["좋음"]["json_chars"] == 1000 and s["좋음"]["cut_rel"] == 0.5
+    assert s["ALL"]["cut_rel"] == 1 - 1200 / 2000
+    assert cm.fs_verdict(s, ("좋음",))["pass"]
+    v = cm.fs_verdict(s, ("좋음", "나쁨"))
+    assert not v["pass"] and v["per"]["나쁨"] is False
+    assert "못 넘음" in cm.fs_table(s, v)
+    empty = cm.fs_summary([work("빈", [ep(0, 15, 15)])])
+    assert empty["빈"]["cut_rel"] is None and not cm.fs_verdict(empty, ("빈",))["pass"]

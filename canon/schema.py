@@ -1416,6 +1416,19 @@ class FixRecheckReport(BaseModel):
     results: list[FixRecheckItem] = Field(default_factory=list, description="요청한 지적마다 하나씩")
 
 
+class ForeshadowBreak(BaseModel):
+    """복선 판정: 본문이 열린 복선 하나를 어긴 곳 (blocktrial 의 fs_ 조건, 작품에 저장하지 않음)."""
+    foreshadow: str = Field(description="어긴 복선 id. 요청에 적은 그대로")
+    quote: str = Field(description="어긴 본문 문장. 원문 그대로")
+    reason: str = Field(description="어긴 까닭 한두 문장")
+    kind: Literal["모순", "미리 회수"] = Field(description="모순: 복선 설명과 어긋남. 미리 회수: 회수 예정 전에 복선을 풀어 버림")
+
+
+class ForeshadowBreaks(BaseModel):
+    """복선 판정 응답 (prompts.foreshadow_judge_prompt). 어긴 곳이 없으면 빈 목록."""
+    items: list[ForeshadowBreak] = Field(default_factory=list, description="본문이 어긴 복선마다 하나씩")
+
+
 FindingEventKind = Literal["found", "again", "gone", "author", "fix", "undo", "recheck"]
 
 

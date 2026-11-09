@@ -7,10 +7,15 @@
 같은 자료로 이름을 찾는 범위(플롯 · 스토리보드 · 직전 화 끝)와 새 활성 조건(N화 유지, 한 단계 되부름)을 흉내 낸다.
 재구성: 직전 화 스냅샷이 있으면 stattrial.before 꼴로 되돌린 사본(exact), 모든 화는 뒤에 생긴 것을 걸러낸 사본(approx)으로도 센다.
 선택은 prompts.build_episode_context 의 과정을 옮겨 쓰고, 화마다 만든 프롬프트의 블록과 맞춰 본다(어긋나면 align 에 적는다).
+열린 복선 블록 줄이기 흉내(docs/context/specs/10-foreshadow-trim.md 의 확인 (가)): 장편 화마다 prompts.serial_foreshadow_block 으로
+한 줄 꼴과 예전 JSON 꼴 블록을 찍어 줄어든 글자를 센다. 한 줄 꼴은 고른 복선을 빼거나 자르지 않는다.
 
 실행 (작품 폴더를 임시 CANON_HOME 에 복사해 둔다. 이 스크립트는 store.save 를 부르지 않는다):
   CANON_HOME=<임시 폴더> CANON_LLM=mock python scripts/context_measure.py --projects 작품1 작품2 \\
       --out reports/결과.json --sheets "reports/판정 시트"
+  복선 흉내만 (범위 · 조건 흉내를 건너뛰고 표를 찍는다):
+  CANON_HOME=<임시 폴더> CANON_LLM=mock python scripts/context_measure.py --projects 작품1 작품2 --fs-only --fs-table \\
+      --out reports/복선.json
 """
 from __future__ import annotations
 
@@ -39,6 +44,10 @@ SEED = 7
 KINDS = ("char", "element", "foreshadow")
 # 예산을 넘길 때 남기는 차례 (README Q17): 늘 넣기 > 키 직접 매칭 > 되부름 > N화 유지
 RANK = {"direct": 1, "recursion": 2, "sticky": 3}
+# 열린 복선 블록 줄이기 흉내 (spec 10 의 확인 (가))
+FS_CHARS = 0.40  # 문턱: 블록 글자가 예전 JSON 꼴보다 이만큼 이상 준다
+# 작품 기준의 독립 작품 셋. nsfw_saintess-claude 는 nsfw_saintess 의 사본이라 넣지 않는다 (정할 것 8)
+FS_WORKS = ("nsfw_saintess", "subway-1-수정본", "불타는-세상에서-내-캠핑카만-진화한다")
 
 
 # ---------- 재구성 ----------
@@ -234,7 +243,8 @@ def align(q: Project, prompt: str, sel: dict) -> list[str]:
         bad.append("named")
     if ids_in(block(secs, "인물 현재 상태"), "character_id") != sel["states"]:
         bad.append("states")
-    if ids_in(block(secs, "열린 복선")) != sel["fs"]:
+    fs_text = block(secs, "열린 복선")  # 단편은 JSON, 장편은 한 줄 꼴 (prompts.foreshadow_line)
+    if ids_in(fs_text) | set(re.findall(r"^- (\S+) \(\d+화에 심음", fs_text, re.M)) != sel["fs"]:
         bad.append("foreshadow")
     names = {el.id: el.name for el in q.elements}
     got = set(re.findall(r"^- \[[^\]]+\] (.+?)(?: \(다른 이름: .*?\))?: ", block(secs, "이야기 요소"), re.M))
@@ -288,6 +298,11 @@ def measure(p: Project, n: int, mode: str, check: bool = True) -> dict:
     loose = {c.foreshadow for d in p.history if d.episode == n for c in d.dismissed.foreshadow_clues}
     fs_named = {f.id for f in fs_open if clue.get(f.id) or (orig.get(f.id) and orig[f.id].payoff_ep == n)}
     planted_now = sorted(f.id for f in p.foreshadows if f.planted_ep == n)
+    fs_trim = None
+    if q.serial:
+        fs_trim = fs_sim(fs_sel, fs_cut)
+        if fs_trim.pop("line_block") not in prompt:
+            bad.append("foreshadow-block")
 
     items = []
     for c in chars:
@@ -320,8 +335,82 @@ def measure(p: Project, n: int, mode: str, check: bool = True) -> dict:
                       "scan_hits": []})
     return {"episode": n, "mode": mode, "prompt_chars": len(prompt), "mutated": mutated, "align": bad,
             "has_board": bool(board), "named_cut": named_cut, "extra_cut": base["extra_cut"], "fs_cut": fs_cut,
-            "final_differs": bool(alt), "new_chars": new_chars, "planted_now": planted_now,
+            "final_differs": bool(alt), "new_chars": new_chars, "planted_now": planted_now, "fs_trim": fs_trim,
             "items": items, "_L": light(q, n, base), "_scan": {"plot": plot, "board": board, "last": last}, "_body": text}
+
+
+# ---------- 열린 복선 블록 줄이기 흉내 (spec 10 의 확인 (가)) ----------
+
+def fs_sim(fs: list, fs_cut: int) -> dict:
+    """화 하나의 블록 흉내: 한 줄 꼴과 예전 JSON 꼴의 글자, 설명 길이, 복선 하나의 JSON 덧붙는 글자."""
+    line = prompts.serial_foreshadow_block(fs, fs_cut, as_json=False)
+    old = prompts.serial_foreshadow_block(fs, fs_cut, as_json=True)
+    return {"n_rel": len(fs), "fs_cut": fs_cut, "json_chars": len(old), "line_chars": len(line),
+            "desc": {f.id: len(f.description) for f in fs},
+            "overhead": len(prompts.dump(fs)) - sum(len(f.description) for f in fs) if fs else 0, "line_block": line}
+
+
+def dist(xs: list[float]) -> dict:
+    """개수 · 최소 · 사분위 · 최대 · 평균 (가까운 순위)."""
+    if not xs:
+        return {"n": 0}
+    v = sorted(xs)
+    at = lambda f: v[min(len(v) - 1, int(f * len(v)))]  # noqa: E731
+    return {"n": len(v), "min": v[0], "p25": at(0.25), "median": at(0.5), "p75": at(0.75), "max": v[-1], "mean": sum(v) / len(v)}
+
+
+def fs_summary(results: list[dict], mode: str = "exact") -> dict:
+    """작품마다와 합친 값(ALL): 고른 수 · 설명 길이 · JSON 덧붙는 글자 분포와 두 꼴의 글자 합, 줄어든 몫.
+    글자 합은 고른 복선이 하나라도 있는 화만으로 센다."""
+    out = {}
+    for r in results + [{"project": "ALL"}]:
+        name = r["project"]
+        rs = results if name == "ALL" else [r]
+        eps = [e["fs_trim"] for x in rs for e in x["episodes"][mode] if e.get("fs_trim")]
+        if not eps:
+            continue
+        desc: dict[str, int] = {}
+        for e in eps:
+            desc.update(e["desc"])
+        with_fs = [e for e in eps if e["n_rel"]]
+        old, new = sum(e["json_chars"] for e in with_fs), sum(e["line_chars"] for e in with_fs)
+        out[name] = {"episodes": len(eps), "with_fs": len(with_fs), "n_rel": dist([e["n_rel"] for e in eps]),
+                     "desc_len": dist(list(desc.values())),
+                     "overhead_per_fs": sum(e["overhead"] for e in with_fs) / sum(e["n_rel"] for e in with_fs) if with_fs else None,
+                     "json_chars": old, "line_chars": new, "cut_rel": 1 - new / old if old else None}
+    return out
+
+
+def fs_verdict(summary: dict, works: tuple[str, ...] = FS_WORKS) -> dict:
+    """합친 값(ALL)과 독립 작품 셋 각각의 줄어든 몫이 FS_CHARS 이상인지. 결과에 없는 작품은 missing 에 적고 통과로 보지 않는다."""
+    if "ALL" not in summary:
+        return {}
+    names = ["ALL", *works]
+    per = {nm: summary[nm]["cut_rel"] is not None and summary[nm]["cut_rel"] >= FS_CHARS for nm in names if nm in summary}
+    missing = [nm for nm in names if nm not in summary]
+    return {"per": per, "missing": missing, "pass": not missing and all(per.values())}
+
+
+def pct(x: float | None) -> str:
+    return "-" if x is None else f"{x * 100:.1f}%"
+
+
+def fs_table(summary: dict, verdict: dict) -> str:
+    """작품마다와 합친 값의 마크다운 표."""
+    lines = ["| 작품 | 화 | 복선 있는 화 | 고른 수 중앙 · 최대 | 설명 평균 | JSON 덧붙는 글자 | JSON 글자 | 한 줄 글자 | 줄어듦 | 판정 |",
+             "|---|---|---|---|---|---|---|---|---|---|"]
+    for name, row in summary.items():
+        n, d, over = row["n_rel"], row["desc_len"], row["overhead_per_fs"]
+        ok = verdict.get("per", {}).get(name)
+        desc = f"{d['mean']:.0f}" if d["n"] else "-"
+        extra = "-" if over is None else f"{over:.0f}"
+        mark = "-" if ok is None else "통과" if ok else "못 넘음"
+        lines.append(f"| {name} | {row['episodes']} | {row['with_fs']} | {n.get('median', '-')} · {n.get('max', '-')} | {desc} | {extra} | "
+                     f"{row['json_chars']:,} | {row['line_chars']:,} | {pct(row['cut_rel'])} | {mark} |")
+    if verdict:
+        lines += ["", f"작품 기준(합친 값 + 독립 작품 셋, 줄어듦 {FS_CHARS:.0%} 이상): " + ("통과" if verdict["pass"] else "못 넘음")
+                  + (f" (없는 작품: {', '.join(verdict['missing'])})" if verdict["missing"] else ""), ""]
+    return "\n".join(lines)
 
 
 # ---------- 범위 · 조건 흉내 ----------
@@ -447,7 +536,8 @@ def seed_of(p: Project, j: int) -> dict:
     return {"episode": j, "_L": light(q, j, {}), "_scan": {"plot": elements.plot_text(ep), "board": prompts.board_block(q, j), "last": last}}
 
 
-def run_project(name: str, approx_all: bool = True, check: bool = True) -> dict:
+def run_project(name: str, approx_all: bool = True, check: bool = True, fs_only: bool = False) -> dict:
+    """fs_only 면 범위 · 조건 흉내를 건너뛴다 (복선 흉내는 measure 가 화마다 한다)."""
     p = store.load(name)
     before = digest(p)
     fin = sorted(e.plot.number for e in p.episodes if e.status == "finalized")
@@ -462,14 +552,14 @@ def run_project(name: str, approx_all: bool = True, check: bool = True) -> dict:
         if mode == "approx":
             pool = {m["episode"]: m for m in ms}
         have = {m["episode"]: m for m in ms}
-        need = sorted({j for m in ms for j in range(m["episode"] - max(STICKY), m["episode"])} & set(fin))
+        need = [] if fs_only else sorted({j for m in ms for j in range(m["episode"] - max(STICKY), m["episode"])} & set(fin))
         seeds = {s: {} for s in sc}
         for j in need:
             mj = have.get(j) or pool.get(j) or seed_of(p, j)
             for s, parts in sc.items():
                 seeds[s][j] = direct_hits(mj, *parts)
         sim = {}
-        for s, parts in sc.items():
+        for s, parts in ({} if fs_only else sc).items():
             for cond in conds:
                 rows = []
                 for m in ms:
@@ -693,13 +783,18 @@ def main(argv: list[str] | None = None) -> dict:
     ap.add_argument("--tail", default=",".join(map(str, TAILS)))
     ap.add_argument("--sticky", default=",".join(map(str, STICKY)))
     ap.add_argument("--no-approx", action="store_true", help="스냅샷 없는 화의 근사를 끈다")
+    ap.add_argument("--fs-works", default=",".join(FS_WORKS), help="작품 기준의 독립 작품 (쉼표로)")
+    ap.add_argument("--fs-mode", default="exact", choices=("exact", "approx"), help="복선 표와 판정에 쓸 재구성")
+    ap.add_argument("--fs-only", action="store_true", help="범위 · 조건 흉내를 건너뛰고 복선 흉내만 한다")
+    ap.add_argument("--fs-table", action="store_true", help="복선 흉내 표를 표준 출력에 찍는다")
     a = ap.parse_args(argv)
     TAILS = tuple(int(x) for x in a.tail.split(","))
     STICKY = tuple(int(x) for x in a.sticky.split(","))
+    works = tuple(x for x in a.fs_works.split(",") if x)
     t0 = time.time()
     results = []
     for nm in a.projects:
-        r = run_project(nm, approx_all=not a.no_approx)
+        r = run_project(nm, approx_all=not a.no_approx, fs_only=a.fs_only)
         print(f"{nm}: exact {len(r['episodes']['exact'])}화 · approx {len(r['episodes']['approx'])}화 · 원본 그대로 {r['unchanged']} "
               f"({time.time() - t0:.0f}초)", file=sys.stderr)
         results.append(r)
@@ -708,9 +803,15 @@ def main(argv: list[str] | None = None) -> dict:
     keys = list(summary["exact"]["ALL"]["sim"]) if "ALL" in summary["exact"] else []
     verdicts = {k: {"scope": verdict(summary["exact"], names, k), "cond": verdict(summary["exact"], names, k, miss_drop=0.10, waste_rise=0.15),
                     "scope_board": verdict(summary["exact"], names, k, table="sim_board")} for k in keys}
+    fs = {m: fs_summary(results, m) for m in ("exact", "approx")}
+    fs_v = fs_verdict(fs[a.fs_mode], works)
     out = {"commit": os.popen("git -C " + str(Path(__file__).resolve().parents[1]) + " rev-parse --short HEAD").read().strip(),
            "projects": names, "summary": summary, "verdicts": verdicts,
+           "foreshadow": {"mode": a.fs_mode, "works": list(works), "thresholds": {"chars": FS_CHARS},
+                          "summary": fs, "verdict": fs_v},
            "results": [{k: v for k, v in r.items() if not k.startswith("_")} for r in results], "seconds": round(time.time() - t0)}
+    if a.fs_table:
+        print(fs_table(fs[a.fs_mode], fs_v))
     if a.sheets:
         out["sheets"] = write_sheets(results, Path(a.sheets))
     if a.out:

@@ -5,13 +5,23 @@
 ### `canon/blocktrial.py`
 
 - 쓰기 블록 시험(명령줄 `blocktrial`)
-- 블록 하나를 뺀 사본 조건 `CONDITIONS`(base · no_board · no_cues · no_profile · no_relations · no_address · no_knows, 사본 바꾸기와 `write_episode` 인자)
+- 블록 하나를 뺀 사본 조건 `CONDITIONS`(base · no_board · no_cues · no_profile · no_relations · no_address · no_knows · fs_json · fs_line, 사본 바꾸기와 `write_episode` 인자와 문맥 고리)
+- 문맥 고리(`CONDITIONS` 의 다섯째 칸, `hook`)는 그 조건의 `write_episode` · `episode_prompt` 호출을 감싼다
+- 문맥 고리는 `run` · `estimate` · `prompt_size` 가 쓴다
+- fs_json 은 고리로 `prompts.FORESHADOW_JSON` 을 참으로 두어 장편 쓰기의 열린 복선을 예전 JSON 꼴로 넣는다
+- fs_line 은 지금 방식인 한 줄 꼴이다(spec 10 의 확인 (나))
+- fs_json · fs_line 을 함께 고르면 두 조건의 쓰기 요청이 글자까지 같은 화(단편 화)는 그 둘만 건너뛰고 `skipped` 에 적는다(`plan`, `run` · `estimate` 둘 다)
+- 이름이 fs_ 로 시작하는 조건(`judged`)은 본문마다 같은 `llm` 으로 복선 판정(`judge`: `prompts.foreshadow_judge_prompt`, 응답 `ForeshadowBreaks`)을 한 번 부른다
+- 판정 결과는 본문 기록의 `breaks` 와 kind 별 수 `contradictions`('모순') · `early_payoffs`('미리 회수')다
+- 판정 결과의 `summary` 는 본문 하나당 평균이고, `describe` 는 '/화' 로 찍는다
 - 시험할 화(`candidates`, 뒤쪽부터 `default_pick`)
 - 사본은 `stattrial.before`
 - LLM 없는 채점(`score`: 쇠맛 · 상투 · 쉼표 · 문장 길이 · 반복 구 · 문체 거리 · 설계 메모 옮김 `pipeline.memo_copied` · 예시 옮김)
 - `score` 의 `speech_copied` 는 인물 말투의 대사 예시를 그대로 쓴 문장 수다(`pipeline.speech_copied`, 명령줄 '말투 예시 옮김')
 - 비용 추정(`estimate`)
 - 비용 추정의 토큰은 본문 단계 백엔드 · 모델의 `usage.token_rate` 로 센다
+- fs_ 조건의 비용 추정은 판정 요청 토큰(`judge_input_tokens` · `judge_output_tokens`)도 세어 금액에 더한다
+- 판정 요청의 본문 자리는 화당 분량으로, 응답은 `JUDGE_OUTPUT_TOKENS` 로 어림한다
 - 실행(`run`: 실험 기록 · 블라인드 비교본 kind blocks)
 - 도중에 실패하거나 멈추면 그때까지 쓴 본문을 기록에 남기고 `stopped` 에 까닭을 적은 뒤 오류를 다시 낸다(`research.stopped_note`)
 - 작품은 저장하지 않는다
@@ -447,6 +457,10 @@
 - 시험할 화(`candidates`, 추천 `default_pick`)
 - 그 화를 쓰기 직전 사본(`before`, `pipeline.revert`)
 - 컨텍스트 놓침 실측 `scripts/context_measure.py` 도 이 사본으로 화마다 쓰기 프롬프트를 다시 만든다(LLM 없음, `docs/context/specs/01-measure.md`, 시험 `tests/test_context_measure.py`)
+- `scripts/context_measure.py` 의 열린 복선 블록 흉내는 장편 화마다 `prompts.serial_foreshadow_block` 으로 한 줄 꼴과 예전 JSON 꼴을 찍어 줄어든 글자를 센다(LLM 없음, `docs/context/specs/10-foreshadow-trim.md` 의 확인 (가))
+- 복선 흉내는 한 줄 블록이 실제 쓰기 프롬프트에 없으면 `align` 에 `foreshadow-block` 을 적는다
+- 복선 흉내의 옵션은 `--fs-works` · `--fs-mode` · `--fs-only` · `--fs-table` 이고 결과 JSON 에 `foreshadow` 키를 더한다
+- 복선 흉내의 판정은 합친 값과 독립 작품 셋(`FS_WORKS`)의 블록 글자가 모두 `FS_CHARS`(40%) 이상 줄어야 통과다
 - 원래 반영의 바뀐 항목(`changes`)
 - LLM 없는 채점(`score`: 바뀌지 않을 값 · 바뀔 값 오류, 없던 항목, 플롯에 없던 상태창)
 - 비용 추정(`estimate`, 실제 요청 글자 수와 `usage` 가격표)

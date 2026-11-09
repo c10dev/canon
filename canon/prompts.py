@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import random
 import re
+from contextvars import ContextVar
 from typing import NamedTuple
 
 from pydantic import BaseModel
@@ -1580,6 +1581,58 @@ def fact_rows(p: Project, facts: list[str]) -> str:
     return "\n".join(f"- ({eps[f]}화) {f}" if eps.get(f) else f"- {f}" for f in facts)
 
 
+# 참이면 장편 쓰기의 열린 복선을 한 줄 꼴 대신 예전처럼 JSON 으로 넣는다 (blocktrial 의 fs_json 조건, docs/context/specs/10-foreshadow-trim.md)
+FORESHADOW_JSON: ContextVar[bool] = ContextVar("foreshadow_json", default=False)
+
+
+def foreshadow_line(f: Foreshadow) -> str:
+    """장편 본문 쓰기에 넣는 열린 복선 한 줄. 설명은 자르지 않고 줄바꿈만 띄어쓰기로 바꾼다.
+    늘 같은 칸(status open, payoff_ep 없음)은 뺀다. 회수 예정이 없으면 그 칸을 빼고, 드러난 판돈(public)에는 '드러남'을 붙인다."""
+    desc = " ".join(f.description.split())
+    due = f", 회수 예정 {f.due_ep}화" if f.due_ep is not None else ""
+    kind = foreshadows.KINDS.get(f.kind, f.kind) + (" · 드러남" if f.public else "")
+    return f"- {f.id} ({f.planted_ep}화에 심음{due}, 회수 범위 {foreshadows.SCOPES.get(f.scope, f.scope)}, {kind}): {desc}"
+
+
+def serial_foreshadow_block(fs: list[Foreshadow], fs_cut: int, *, as_json: bool | None = None) -> str:
+    """장편 본문 쓰기의 '# 열린 복선' 블록. 고른 복선을 모두 한 줄 꼴(foreshadow_line)로 넣는다. 빼거나 자르는 것은 없다.
+    as_json 이 참이면(비우면 FORESHADOW_JSON) 예전 JSON 꼴로, 그때는 바꾸기 전과 글자까지 같다.
+    스토리보드 · 큐 시트 · 본문 쓰기 · 다시 쓰기가 같은 블록을 받는다 (write_head)."""
+    as_json = FORESHADOW_JSON.get() if as_json is None else as_json
+    body = dump(fs) if as_json else "\n".join(foreshadow_line(f) for f in fs)
+    return f"""# 열린 복선{f" (이번 아크와 관련된 것만, {fs_cut}개 생략)" if fs_cut else ""}
+{body or "없음"}"""
+
+
+def foreshadow_judge_prompt(p: Project, n: int, text: str) -> str:
+    """복선 판정 요청 (blocktrial 의 fs_ 조건, spec 10 의 확인 (나)). 시스템 지시는 SYSTEM_CHECKER, 응답은 ForeshadowBreaks.
+    relevant_foreshadows(p, n) 목록(최대 FORESHADOW_CAP 개)을 모두 전문으로 넣는다. 그래서 크기가 화수에 따라 커지지 않는다.
+    두 조건이 함께 뺀 복선은 넣지 않는다. 잇지 않은 복선(잊음)은 적지 않게 한다."""
+    fs, _ = relevant_foreshadows(p, n)
+    try:
+        pays = p.episode(n).plot.foreshadow_payoff
+    except KeyError:
+        pays = []
+    return f"""아래는 연재 소설 {n}화 본문과 그 화를 쓸 때 열려 있던 복선입니다. 본문이 복선을 어긴 곳만 찾습니다.
+
+# 열린 복선
+{dump(fs) or "없음"}
+
+# 이번 화에 회수하기로 한 복선 id
+{", ".join(pays) or "없음"}
+
+# {n}화 본문
+{text}
+
+요구사항:
+- kind '모순': 본문이 복선의 설명이나 이미 심은 내용과 어긋납니다.
+- kind '미리 회수': 이번 화에 회수하기로 하지 않은 복선의 답이나 진상을 본문이 드러내거나 풀어 버립니다.
+- 본문이 복선을 잇지 않거나 언급하지 않은 것은 어긴 것이 아닙니다. 적지 않습니다.
+- 복선을 더 깊게 하거나 새 단서를 보태는 것은 어긴 것이 아닙니다.
+- 어긴 곳마다 foreshadow 에 복선 id 를 그대로, quote 에 본문 문장을 원문 그대로, reason 에 어긴 까닭을 한두 문장으로 적습니다.
+- 어긴 곳이 없으면 items 를 빈 목록으로 둡니다."""
+
+
 def relevant_facts(p: Project, cast: set[str], n: int | None = None, budget: str = "facts") -> tuple[list[str], int]:
     """확정 사실이 많으면 이번 화 인물 이름이 들어간 것과 최근 것만 넣는다.
     장편은 n 화 플롯과 이야기 요소로 관련 순서를 매겨 블록 예산(context.BUDGET[budget])만큼만 넣는다."""
@@ -2805,8 +2858,7 @@ def serial_episode_context(p: Project, n: int, *, where: str, act_line: str, lin
 # 관계 현재 상태{cut_note(secrets_cut, "숨긴 비밀은 이번 화와 관련된 것만")}
 {relations}{address.block(p, cast_ids)}{pairlog.write_block(p, n, plot_ids & cast_ids, context.BUDGET["pairs"])}
 
-# 열린 복선{f" (이번 아크와 관련된 것만, {fs_cut}개 생략)" if fs_cut else ""}
-{dump(fs) or "없음"}
+{serial_foreshadow_block(fs, fs_cut)}
 
 # 지금까지의 줄거리 (이번 아크)
 {cur or "없음 (첫 화)"}{line}
