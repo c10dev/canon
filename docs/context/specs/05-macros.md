@@ -74,7 +74,7 @@
 | `canon/macros.py` (새 파일) | 매크로 찾기 · 펼치기. LLM 을 부르지 않고 `Project` 를 바꾸지 않는다. 값은 아래 `MacroEnv` 로 받는다. |
 | `canon/prompts.py` | `macro_env(p, n, ...)` 새 함수: 주인공 · 시점 인물 · 화 번호 · 상태창 값을 모아 `MacroEnv` 를 만든다. |
 | `canon/prompts.py` | `meta_text` 가 `Meta.notes` 를 펼친다(정할 것 11 의 제한). |
-| `canon/prompts.py` | `build_episode_context`, `passage_head`, 검수 재료(`elements.active_block` 을 부르는 곳)가 `MacroEnv` 를 이야기 요소 블록에 넘긴다. `serial_episode_context` 는 `build_episode_context` 가 만든 `els` 를 받기만 해서 고치지 않는다. |
+| `canon/prompts.py` | `build_episode_context`, `passage_head`, 검수 재료(`elements.active_block` 을 부르는 곳)가 `MacroEnv` 를 이야기 요소 블록에 넘긴다. `serial_parts` 는 `build_episode_context` 가 만든 `els` 를 받기만 해서 고치지 않는다. |
 | `canon/context.py` | 2번이 만든 이야기 요소 선택 · 예산 세기 길에 `MacroEnv` 를 넘긴다. 정할 것 15 를 추천대로 정하면 재귀 훑기에 펼친 글을 쓴다. |
 | `canon/prompts.py` | 플레이 모드의 이야기 요소 줄(`elements.describe(p, el, n)` 를 부르는 곳)도 같은 길로 넘긴다. |
 | `canon/elements.py` | `describe`, `episode_block`, `active_block`, `plan_block` 이 선택 인자 `env` 를 받아 설명을 펼친다. `env` 가 없으면 지금과 같다. |

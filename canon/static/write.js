@@ -220,12 +220,68 @@ function syncWriteTop() {
   }
 }
 
-/** AI에게 보내는 컨텍스트 목록. 본문이 없는 화는 쓰기 버튼 아래에, 본문이 생긴 뒤에는 ⋯ 메뉴의 대화상자(ctxDialogHtml)에 보인다 */
-function ctxList() {
-  return `<ol class="panel-list">${S.context.map((c) => `<li><span>${esc(c.title)}</span><span class="small">${c.chars.toLocaleString()}자</span></li>`).join('')}</ol>
+/** AI에게 보내는 컨텍스트 블록 표 (GET …/context 의 블록 목록, prompts.BLOCKS 차례). 줄마다 이름 · 글자 · 추정 토큰 · 예산(장편) · 상태.
+    full 이면(대화상자) 줄을 펼쳐 원문 · 넣은 항목 · 뺀 항목과 이유를 본다. 쓰기 시작 칸 · 만든 스토리보드 칸의 펼치는 곳은 요약 줄만 */
+S.ctxBlkOpen = new Set();  // 대화상자에서 펼친 블록 id (다시 채워도 남긴다)
+const ctxOn = (c) => c.on !== false && c.chars > 0;
+/** 블록 상태: [글, 칩 종류] (넣음 · 작가가 끔 · 비어 있음 · 잠금) */
+function ctxState(c) {
+  if (c.on === false) return ['작가가 끔', ''];
+  if (!c.chars) return ['비어 있음', ''];
+  if (c.locked) return ['잠금', 'confirmed'];
+  return ['넣음', 'ok'];
+}
+const ctxNum = (v) => Number(v || 0).toLocaleString();
+function ctxCells(c, ser) {
+  const [st, kind] = ctxState(c);
+  const bud = (c.budgets || []).map((b) => (b.value !== b.default ? `<strong>${ctxNum(b.value)}자</strong>` : `${ctxNum(b.value)}자`)).join(' · ');
+  const cell = (v) => (v ? `<span class="ctx-num">${v}</span>` : '<span class="ctx-num none">—</span>');  // 빈 칸은 좁은 폭에서 숨긴다
+  return `<span class="ctx-name">${esc(c.title)}</span>
+    ${cell(c.on === false ? '' : `${ctxNum(c.chars)}자`)}
+    ${cell(c.on === false || typeof c.tokens !== 'number' ? '' : `약 ${ctxNum(c.tokens)}토큰`)}
+    ${ser ? cell(bud ? `예산 ${bud}` : '') : ''}
+    <span class="ctx-st"><span class="chip${kind ? ` ${kind}` : ''}">${st}</span></span>`;
+}
+// 블록 설정 대신 넣고 빼기를 정하는 설정 (prompts.Block.note)
+const CTX_NOTE = {
+  write_material: "넣는 모양은 '쓰기 재료' 설정이 정해요.",
+  recent_echoes: "넣을지는 '되풀이한 구절 피하기' 설정이 정해요.",
+  use_cues: '넣을지는 큐 시트가 정해요. 이 화에 큐 시트가 있고 쓸 때 큐 시트를 쓰면 들어가요.',
+};
+/** 펼친 블록 안: 왜 이 상태인지 · 예산 · 넣은 항목과 이유 · 뺀 항목과 이유 · 원문 */
+function ctxMore(c) {
+  const out = [];
+  const why = c.on === false ? '블록 설정에서 껐어요. 요청에 넣지 않아요.' : c.locked ? '이 블록은 끌 수 없어요.' : CTX_NOTE[c.note] || '';
+  if (why) out.push(`<p class="small">${why}</p>`);
+  if ((c.budgets || []).length) {
+    out.push(`<p class="small">예산: ${c.budgets.map((b) => `${esc(BUDGET_LABEL[b.key] || b.key)} ${ctxNum(b.value)}자${b.value !== b.default ? `(기본 ${ctxNum(b.default)}자)` : ''}`).join(' · ')}</p>`);
+  }
+  const list = (title, rows) => (rows && rows.length ? `<div class="ctx-sub"><strong class="small">${title} ${rows.length}개</strong>
+    <ul class="ctx-items">${rows.map((r) => `<li><span>${esc(r.name)}</span><span class="small">${esc(r.reason)}</span></li>`).join('')}</ul></div>` : '');
+  out.push(list('넣은 항목', c.items), list('뺀 항목', c.dropped));
+  if (c.text) out.push(`<pre class="brief mono ctx-text" tabindex="0" aria-label="${esc(c.title)} 원문">${esc(c.text)}</pre>`);
+  else if (c.on !== false) out.push('<p class="small">이번 화에는 넣을 내용이 없어요.</p>');
+  return `<div class="ctx-more">${out.join('')}</div>`;
+}
+function ctxList(full = false) {
+  const ser = serial();
+  const cls = `ctx-tbl${ser ? ' has-budget' : ''}`;
+  const rows = S.context.map((c, i) => {
+    const key = String(c.id || i);
+    const off = c.on === false ? ' is-off' : '';
+    if (!full) return `<li class="ctx-row${off}">${ctxCells(c, ser)}</li>`;
+    return `<details class="ctx-blk" data-ctx-blk="${esc(key)}"${S.ctxBlkOpen.has(key) ? ' open' : ''}><summary class="ctx-row${off}" id="w-ctx-b-${esc(key)}">${ctxCells(c, ser)}</summary>${ctxMore(c)}</details>`;
+  }).join('');
+  return `${full ? `<div class="${cls}">${rows}</div>` : `<ol class="${cls}">${rows}</ol>`}
     <div class="small">이전 본문 전체 대신 이 데이터만 매번 같은 순서로 넣어요.</div>`;
 }
-const ctxTotal = () => `${S.context.length}개 블록 · 합계 ${S.context.reduce((s, c) => s + c.chars, 0).toLocaleString()}자`;
+/** 합계 줄: 넣은 블록 수 · 글자 합 · 추정 토큰 합 (토큰이 없는 옛 응답이면 글자까지) */
+function ctxTotal() {
+  const on = S.context.filter(ctxOn);
+  const chars = on.reduce((s, c) => s + c.chars, 0);
+  const tok = on.every((c) => typeof c.tokens === 'number') ? on.reduce((s, c) => s + c.tokens, 0) : null;
+  return `${on.length}개 블록 · 합계 ${chars.toLocaleString()}자${tok === null ? '' : ` · 약 ${tok.toLocaleString()}토큰(추정)`}`;
+}
 const promptBtn = (n) => `<button type="button" class="btn small" data-action="togglePrompt" data-arg="${n}">${S.promptText ? '프롬프트 닫기' : '프롬프트 원문 보기'}</button>${S.promptText ? `${promptSource(n)}<pre class="brief mono" style="max-height:420px">${esc(S.promptText)}</pre>` : ''}`;
 // 보낸 그대로(sent/ 기록) · 지금 데이터로 다시 만든 것 두 갈래. 기록이 없는 화는 다시 만든 것만 보이고 그렇다고 밝힌다 (web.prompt)
 function promptSource(n) {
@@ -246,10 +302,30 @@ async function loadPrompt(n, source) {
   });
 }
 
+// 대화상자에서 펼친 블록을 기억한다. details 의 toggle 은 거품이 없어 잡는 단계에서 듣는다
+document.addEventListener('toggle', (e) => {
+  const id = e.target.dataset && e.target.dataset.ctxBlk;
+  if (id === undefined) return;
+  if (e.target.open) S.ctxBlkOpen.add(id);
+  else S.ctxBlkOpen.delete(id);
+}, true);
+
+/** '실제 토큰 세기' 결과 줄. 같은 작품 · 화 · 합계일 때만 보인다 (블록 설정을 바꾸면 다시 센다) */
+function ctxCountHtml(n) {
+  const r = S.ctxCount && S.ctxCount.k === `${S.name}:${n}` && S.ctxCount.sig === ctxTotal() ? S.ctxCount : null;
+  const busy = r && r.busy;
+  const line = !r || busy ? '' : r.error ? esc(r.error)
+    : typeof r.tokens === 'number' ? `실제 ${ctxNum(r.tokens)}토큰 · 추정 ${ctxNum(r.estimate)}토큰${r.note ? ` · ${esc(r.note)}` : ''}`
+      : esc(r.note || '이 백엔드는 토큰을 셀 수 없어요');
+  return `<button type="button" class="btn small" id="w-ctx-count" data-action="ctxCount" data-arg="${n}"${busy ? ' aria-disabled="true" aria-busy="true"' : ''}>${busy ? '토큰을 세는 중' : '실제 토큰 세기'}</button>
+    <span class="small" role="status">${line}</span>`;
+}
+
 function ctxDialogHtml(n) {
+  const link = serial() ? '<button type="button" class="link-btn small" data-action="ctxSettings">블록 설정 바꾸기</button>' : '';
   return `<div class="dlg-body">
     <div class="between"><strong id="w-ctx-title">AI에게 보내는 컨텍스트</strong><button type="button" class="btn small" data-action="closeDialog" data-arg="w-ctx">닫기</button></div>
-    ${S.context ? `<div class="small">${ctxTotal()}</div>${ctxList()}<div>${promptBtn(n)}</div>` : '<div class="small">플롯을 확정하면 보여요.</div>'}
+    ${S.context ? `<div class="ctx-foot"><span class="small">${ctxTotal()}</span>${link}</div><div class="ctx-foot">${ctxCountHtml(n)}</div>${ctxList(true)}<div>${promptBtn(n)}</div>` : '<div class="small">플롯을 확정하면 보여요.</div>'}
   </div>`;
 }
 
@@ -270,7 +346,7 @@ function writeMenu(n, starting, seg, narrow = '', copy = '', extra = '') {
   // extra: 한 화 화면에서 연 칸의 메뉴 (상태 승인 칸의 변경안 갈래, review.js rvMenu). 머리 ⋯ 메뉴를 하나로 둔다
   if (extra) parts.push(`<div class="pop-sec"><span class="pop-legend">변경안</span>${extra}</div>`);
   if (seg && !starting) parts.push(`<div class="pop-sec"><span class="pop-legend">생성 방식</span>${seg}</div>`);
-  if (S.context && e.status !== 'draft' && !starting) parts.push(`<button type="button" class="pop-item" data-action="openCtx" data-arg="${n}" aria-haspopup="dialog">컨텍스트 · 프롬프트 원문 보기<span class="small">${S.context.length}개 블록</span></button>`);
+  if (S.context && e.status !== 'draft' && !starting) parts.push(`<button type="button" class="pop-item" data-action="openCtx" data-arg="${n}" aria-haspopup="dialog">컨텍스트 · 프롬프트 원문 보기<span class="small">${S.context.filter(ctxOn).length}개 블록</span></button>`);
   // 채팅 앱 작업지시서: 본문이 없으면 본문 작성 지시서, 있으면 검수 · 상태 승인 지시서 (briefTabFor)
   const kind = briefTabFor(n);
   if (e.status !== 'finalized' || e.text) parts.push(`<div class="pop-sec"><span class="pop-legend">채팅 앱 작업지시서</span>
@@ -791,6 +867,28 @@ Object.assign(actions, {
   async switchPrompt(n) {
     await loadPrompt(n, S.promptInfo?.source === 'sent' ? 'rebuilt' : 'sent');
     if (document.getElementById('w-ctx')?.open) showDialog('w-ctx', ctxDialogHtml(n));
+  },
+  /** '실제 토큰 세기': 쓰기 단계 백엔드의 count_tokens 로 시스템 프롬프트와 요청 전체를 한 번 센다. 셀 수 없는 백엔드는 tokens 가 null */
+  async ctxCount(n) {
+    n = Number(n);
+    const k = `${S.name}:${n}`;
+    if (S.ctxCount && S.ctxCount.k === k && S.ctxCount.busy) return;
+    const sig = ctxTotal();
+    const paint = () => { if (document.getElementById('w-ctx')?.open) showDialog('w-ctx', ctxDialogHtml(n)); };
+    S.ctxCount = { k, sig, busy: true };
+    paint();
+    try {
+      S.ctxCount = { k, sig, ...(await api('POST', `/projects/${enc(S.name)}/episodes/${n}/count-tokens`)) };
+    } catch (e) {
+      S.ctxCount = { k, sig, error: e.message };
+    }
+    paint();
+  },
+  /** '블록 설정 바꾸기': 대화상자를 닫고 설정의 이 작품 › 집필 · 검수를 프롬프트 블록 줄에서 연다 (대화상자를 겹쳐 열지 않는다) */
+  ctxSettings() {
+    document.getElementById('w-ctx')?.close();
+    openSettings('writing');
+    document.getElementById('row-blocks')?.scrollIntoView({ block: 'start' });
   },
 
   // 작업지시서

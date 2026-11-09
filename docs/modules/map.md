@@ -192,6 +192,7 @@
   - `travel_block`: 지하철이 빠른 줄은 '지하철로 약 n분 (역 → 역 n정거장, …)'
   - `travel_check_rule`
   - `spot_block`
+- `travel_block(trace=)` · `spot_block(trace=)` 는 예산으로 뺀 줄을 보기의 'travel' · 'spots' 블록에 적는다(`context.trace_drops`). 쓰기 요청만 넘긴다
 - `prompts.py` 가 부른다
 - LLM 호출 없음
 

@@ -131,11 +131,12 @@ def time_line(p: Project, n: int, b: Storyboard) -> str:
     return f"{start or '시작 시간대 모름'}에 시작해 {end or '끝 시간대 모름'}에 끝납니다."
 
 
-def deadline_rows(p: Project, n: int, b: Storyboard) -> list[str]:
-    """이번 화 날 범위에 걸리거나 아직 열린 기한 줄 (timeline.deadline_lines, 예산 그대로)."""
+def deadline_rows(p: Project, n: int, b: Storyboard, budget: int = 0, trace=None) -> list[str]:
+    """이번 화 날 범위에 걸리거나 아직 열린 기한 줄 (timeline.deadline_lines). budget 을 비우면 BUDGET['deadlines'].
+    쓰기 요청의 스토리보드 블록만 작품 예산(context.budget)을 넘긴다. trace 를 주면 뺀 기한을 'board' 블록에 적는다."""
     if not timeline.enabled(p):
         return []
-    return timeline.deadline_lines(p, n)[0]
+    return timeline.deadline_lines(p, n, budget, trace=trace, block="board")[0]
 
 
 # ---------- 상태창 ----------

@@ -32,13 +32,15 @@ from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from . import address, agent, archetypes, autorun, board, cancel, cast, charlog, dynamics, elements, genres, illust, jobs, knows, library, metrics, naming, pipeline, prompts, publish, refs, research, settings, store, usage
-from .llm import BadKey, GeminiLLM, LocalLLM, MissingKey, explain_error, get_llm, make_llm
+from .llm import BadKey, GeminiLLM, LocalLLM, MissingKey, explain_error, get_llm, make_llm, with_note
+from . import context as ctxrules  # 이름 context 는 컨텍스트 보기 엔드포인트가 쓴다
 from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록)
 from .schema import (Ability, ArcPlan, BodySuggestion, StatInitSuggestion, StatSkin, StatWindowSuggestion, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
 from . import abilities, anchor, atlas, findings, foreshadows, heatplan, setupchat, stateedit, stattrial, statwin, timeline
 from .schema import AgentSession, ChatScope, HeatArcProposal, KnowsFoldSet, Deadline, Storyboard, StoryTime, Foreshadow, StatValue
 from .schema import OffscreenSet
+from .schema import BlockSetting, BudgetSetting
 from . import offscreen
 from .metrics import StyleMetrics
 from .schema import CharacterState, ConsistencyReport, FindingStatus, Severity, StoryEvent
@@ -3965,18 +3967,156 @@ def opening_plot_undo(name: str, n: int) -> Project:
     return _edit(name, lambda p: pipeline.undo_opening(p, n))
 
 
+def _view_args(p: Project, n: int) -> dict:
+    """프롬프트 보기 · 토큰 세기가 쓰는 본문 쓰기 요청 인자: 스토리보드가 있으면 넣고, 큐 시트가 있고 건너뛰지 않았으면 넣는다."""
+    ep = p.episode(n)
+    sheet = ep.cue_sheet
+    return {"use_board": ep.storyboard is not None, "use_cues": sheet is not None and not sheet.skipped}
+
+
+def _budget_rows(p: Project, keys) -> list[dict]:
+    """예산 키마다 {key, value, default, min, max}. 단편은 블록 설정 · 예산을 따르지 않으므로 빈 목록."""
+    if not p.serial:
+        return []
+    out = []
+    for k in keys:
+        lo, hi = ctxrules.budget_range(k)
+        out.append({"key": k, "value": ctxrules.budget(p, k), "default": ctxrules.BUDGET[k], "min": lo, "max": hi})
+    return out
+
+
+def _block_head(p: Project, b: prompts.Block) -> dict:
+    return {"id": b.id, "title": prompts.block_title(p, b.id), "locked": b.locked, "toggle": prompts.toggleable(b), "front": b.front,
+            "note": b.note, "on": prompts.block_on(p, b.id)}
+
+
 @app.get("/api/projects/{name}/episodes/{n}/context")
 def context(name: str, n: int) -> list[dict]:
-    """본문 생성에 들어가는 컨텍스트를 섹션별 글자 수로 보여준다."""
+    """본문 쓰기 요청을 블록(prompts.BLOCKS)마다 보여준다: 글자 · 추정 토큰 · 예산 · 넣은 항목과 뺀 항목(이유) · 원문.
+    실제 요청과 같은 조각(prompts.episode_parts)에서 만든다. 빈 블록은 빼고, 장편에서 작가가 끈 블록은 on=false 와 빈 글로 보인다."""
     p = _load(name)
-    rules = prompts.opening_rules(p, n)
-    text = prompts.build_episode_context(p, n) + (f"\n\n{rules}" if rules else "")
-    out = []
-    for block in re.split(r"^# ", text, flags=re.M):
-        if block.strip():
-            title, _, body = block.partition("\n")
-            out.append({"title": title.strip(), "chars": len(body.strip())})
-    return out
+    trace = ctxrules.Trace()
+    parts = prompts.episode_parts(p, n, **_view_args(p, n), trace=trace)
+    texts: dict[str, str] = {}
+    for x in parts:  # 같은 블록의 조각(장편 시간 · 연출이 둘로 나뉘는 경우 등)은 차례대로 합친다
+        texts[x.id] = texts.get(x.id, "") + x.text
+    rows = []
+    for bid, raw in texts.items():
+        text = raw.strip("\n")
+        if not text:
+            continue
+        b = prompts.BLOCK_BY_ID[bid]
+        rows.append({**_block_head(p, b), "chars": len(text), "tokens": ctxrules.est_tokens(text),
+                     "budgets": _budget_rows(p, b.keys),
+                     "items": [{"name": a, "reason": r} for a, r in trace.items.get(bid, [])],
+                     "dropped": [{"name": a, "reason": r} for a, r in trace.dropped.get(bid, [])], "text": text})
+    off = [b for b in prompts.BLOCKS if b.id not in texts and not prompts.block_on(p, b.id)]
+    if not off:
+        return rows
+    order = _all_on_order(p, n)  # 끈 블록은 모두 켰을 때 요청에 놓일 자리에 넣는다 (끄고 켜도 줄이 옮겨 다니지 않게)
+    for b in off:
+        at = next((i for i, r in enumerate(rows) if order[r["id"]] > order[b.id]), len(rows))
+        rows.insert(at, {**_block_head(p, b), "chars": 0, "tokens": 0, "budgets": _budget_rows(p, b.keys),
+                         "items": [], "dropped": [], "text": ""})
+    return rows
+
+
+def _all_on_order(p: Project, n: int) -> dict[str, float]:
+    """블록을 모두 켰을 때(작품 예산은 그대로) 본문 쓰기 요청의 블록 차례. 그때도 비는 블록은 BLOCKS 차례로 이웃 사이에 둔다.
+    장편은 스토리보드가 없으면 시간 · 이동 · 연출이 직전 화 뒤로 가므로 BLOCKS 차례와 다르다."""
+    q = p.model_copy(update={"settings": p.settings.model_copy(update={"blocks": []})})
+    seen: list[str] = []
+    for x in prompts.episode_parts(q, n, **_view_args(q, n)):
+        if x.id not in seen:
+            seen.append(x.id)
+    rank = {bid: float(i) for i, bid in enumerate(seen)}
+    at = {b.id: i for i, b in enumerate(prompts.BLOCKS)}
+    for b in prompts.BLOCKS:
+        if b.id not in rank:  # 다음에 오는 블록(BLOCKS 차례)이 요청에 있으면 그 바로 앞, 없으면 맨 뒤
+            nxt = next((rank[x] for x in seen if at[x] > at[b.id]), float(len(seen)))
+            rank[b.id] = nxt - 0.5 + at[b.id] / (10 * len(at))
+    return rank
+
+
+@app.get("/api/projects/{name}/blocks")
+def blocks_get(name: str) -> dict:
+    """작품의 쓰기 요청 블록 설정. blocks 는 BLOCKS 차례, budgets 는 장편만 (context.WRITE_KEYS 차례)."""
+    p = _view(name)
+    return {"serial": p.serial, "blocks": [{**_block_head(p, b), "keys": list(b.keys)} for b in prompts.BLOCKS],
+            "budgets": _budget_rows(p, ctxrules.WRITE_KEYS)}
+
+
+class BlocksIn(BaseModel):
+    blocks: list[BlockSetting] = []
+    budgets: list[BudgetSetting] = []
+
+
+def _budget_label(key: str) -> str:
+    """예산 키를 쓰는 블록 이름 (오류 문구용)."""
+    return " · ".join(b.title for b in prompts.BLOCKS if key in b.keys) or key
+
+
+@app.put("/api/projects/{name}/blocks")
+def blocks_put(name: str, body: BlocksIn) -> Project:
+    """블록 설정과 예산을 통째로 바꾼다. 기본값과 다른 것(끈 블록, 기본과 다른 예산)만 저장한다. 장편만 받는다.
+    설정은 요청을 조립할 때 읽으므로 자동 집필 중이면 다음 화부터 따른다."""
+    p = _view(name)
+    if not p.serial:
+        raise ValueError("단편은 블록 설정을 쓰지 않아요")
+    off: dict[str, BlockSetting] = {}
+    for s in body.blocks:
+        b = prompts.BLOCK_BY_ID.get(s.id)
+        if b is None:
+            raise ValueError(f"'{s.id}' 블록은 없어요")
+        if s.on:
+            off.pop(s.id, None)
+            continue
+        if b.locked:
+            raise ValueError(f"'{b.title}' 블록은 끌 수 없어요")
+        if not prompts.toggleable(b):
+            raise ValueError(f"'{b.title}' 블록은 다른 설정이 넣고 빼기를 정해요")
+        off[s.id] = BlockSetting(id=s.id, on=False)
+    budgets: dict[str, BudgetSetting] = {}
+    for g in body.budgets:
+        if g.key not in ctxrules.WRITE_KEYS:
+            raise ValueError(f"'{g.key}' 예산은 없어요")
+        if not ctxrules.budget_ok(g.key, g.value):
+            lo, hi = ctxrules.budget_range(g.key)
+            raise ValueError(f"{_budget_label(g.key)} 예산은 {lo:,}~{hi:,}자 사이에서 100자 단위로 정해요")
+        budgets.pop(g.key, None)
+        if g.value != ctxrules.BUDGET[g.key]:
+            budgets[g.key] = BudgetSetting(key=g.key, value=g.value)
+
+    def put(q: Project) -> None:
+        q.settings.blocks = list(off.values())
+        q.settings.budgets = list(budgets.values())
+
+    return _edit(name, put)
+
+
+COUNT_NONE = "이 백엔드는 토큰을 셀 수 없어요"
+
+
+@app.post("/api/projects/{name}/episodes/{n}/count-tokens")
+def count_tokens(name: str, n: int) -> dict:
+    """본문 쓰기 요청 전체(시스템 프롬프트 + 요청 + 보내기 직전에 붙는 줄)를 쓰기 단계 백엔드의 count_tokens 로 한 번 센다.
+    셀 수 없는 백엔드(mock · 배치 · Claude Code)나 오류면 tokens 가 null. 센 호출은 사용량에 '토큰 세기'로 토큰 0 · 비용 0 으로 남긴다."""
+    p = _load(name)
+    text = with_note(prompts.writer_system(p) + "\n\n" + prompts.episode_prompt(p, n, **_view_args(p, n)))
+    estimate = ctxrules.est_tokens(text)
+    started = time.time()
+    try:
+        model = get_llm("write")
+        counter = getattr(model, "count_tokens", None)
+        tokens = counter(text) if counter else None
+    except Exception:  # 키가 없거나 백엔드가 세기를 받지 않는다: 추정만 보인다
+        logging.getLogger("canon").info("토큰 세기 실패", exc_info=True)
+        tokens = None
+    if tokens is None:
+        return {"tokens": None, "estimate": estimate, "note": COUNT_NONE}
+    with usage.scope(episode=n, task="토큰 세기"):
+        usage.record(model, {"prompt_tokens": 0, "completion_tokens": 0}, started)
+    return {"tokens": int(tokens), "estimate": estimate, "note": ""}
 
 
 # ---------- 4-2. 복사 · 내보내기 (canon/publish.py) ----------

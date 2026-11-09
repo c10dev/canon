@@ -14,8 +14,8 @@ RisuAI 에서 빌려 오기로 한 생각(로어북식 조건부 넣기(활성�
 | 차례 | # | 일감 | 상태 | 명세서 | 먼저 끝날 것 |
 |---|---|---|---|---|---|
 | — | 1 | 지금 넣기가 놓치는 것 측정 (LLM 비용 없음) | 끝 ([#408](https://github.com/c10dev/canon/pull/408) 머지): 찾는 범위 지금 그대로, 새 조건은 측정에서 이득 없음 | [01-measure.md](specs/01-measure.md) | — |
-| 1 | 10 | 열린 복선 블록 줄이기 (고른 복선을 모두 한 줄 꼴로, 2026-11-09 바꿈) | PR (2026-11-09): 확인 (가) 49.5% 줄어듦, 확인 (나) 모순 늘지 않음 | [10-foreshadow-trim.md](specs/10-foreshadow-trim.md) | 1 |
-| 2 | 3 | 프롬프트 보기 강화와 블록 설정 (끄고 켜기 · 블록 예산, 장편만) | 설계 | [03-prompt-view.md](specs/03-prompt-view.md) | — |
+| 1 | 10 | 열린 복선 블록 줄이기 (고른 복선을 모두 한 줄 꼴로, 2026-11-09 바꿈) | 끝 ([#420](https://github.com/c10dev/canon/pull/420) 머지): 확인 (가) 49.5% 줄어듦, 확인 (나) 모순 늘지 않음 | [10-foreshadow-trim.md](specs/10-foreshadow-trim.md) | 1 |
+| 2 | 3 | 프롬프트 보기 강화와 블록 설정 (끄고 켜기 · 블록 예산, 장편만) | PR (2026-11-09) | [03-prompt-view.md](specs/03-prompt-view.md) | — |
 | 3 | 6 | 정규식 규칙 묶음 (경고 · 고침) | 설계 | [06-regex-rules.md](specs/06-regex-rules.md) | — |
 | 3 | 6b | 대화 에이전트의 정규식 규칙 제안 (작가가 적용) | 설계 | [06-regex-rules.md](specs/06-regex-rules.md) 의 정할 것 12 | 6 |
 | 4 | 4 | 다른 이름 채우기 (인물 다른 이름 칸, 요소 부분 이름, AI 가 제안하고 작가가 적용) | 설계 (2026-11-08 좁힘) | [04-key-suggest.md](specs/04-key-suggest.md) | — |
@@ -46,7 +46,7 @@ RisuAI 에서 빌려 오기로 한 생각(로어북식 조건부 넣기(활성�
 같은 줄을 고치는 일감은 동시에 하지 않는다(AGENTS.md 의 worktree 규칙).
 
 8 은 캐시 경계를 지킨다.
-지금 끝난 부와 아크의 접은 줄거리(`prompts.story_parts` 의 앞쪽)는 장편 본문 쓰기 프롬프트에서 아크 동안 그대로인 자리에 있다(`prompts.serial_episode_context`).
+지금 끝난 부와 아크의 접은 줄거리(`prompts.story_parts` 의 앞쪽)는 장편 본문 쓰기 프롬프트에서 아크 동안 그대로인 자리에 있다(`prompts.serial_parts`).
 이번 화와의 관련도로 묶음을 고르면 이 블록이 화마다 바뀌어 그 뒤 프롬프트가 캐시에서 빠질 수 있다(AGENTS.md 의 '바뀌지 않는 블록이 앞' 원칙).
 고를 방법은 [08-past-select.md](specs/08-past-select.md) 의 정할 것 4 에서 정한다: 아크마다 한 번 고르기, 또는 관련도로 고른 묶음만 화마다 바뀌는 뒤쪽으로 옮기기.
 8 은 고치기 전과 뒤의 캐시 적중을 잰다.

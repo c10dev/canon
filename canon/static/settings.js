@@ -102,6 +102,8 @@ const SET_ROWS = [
   { id: 'audit', cat: 'writing', sec: '검수', label: '상태 변경안 누락 검사', words: '상태 변경안 누락 빠진 것 검사 경고' },
   { id: 'numbers', cat: 'writing', sec: '보기 · 보관', label: '관계를 숫자로 보기', words: '관계 숫자 말' },
   { id: 'snapshots', cat: 'writing', sec: '보기 · 보관', label: '스냅샷 모두 남기기', words: '스냅샷 되돌리기 장편 보관' },
+  { id: 'blocks', cat: 'writing', sec: '프롬프트 블록', label: '블록 켜기 · 끄기', words: '프롬프트 블록 컨텍스트 요청 끄기 켜기 장편 캐시' },
+  { id: 'budgets', cat: 'writing', sec: '프롬프트 블록', label: '블록 예산', words: '프롬프트 블록 예산 글자 컨텍스트 기본값 장편 캐시' },
   { id: 'backup-list', cat: 'backup', sec: '백업에서 되돌리기', label: '백업에서 되돌리기', words: '백업 되돌리기 복원 이전 판 시간별 지우기 전 실수' },
   { id: 'elsewhere', cat: 'writing', sec: '다른 화면에서 정해요', label: '작품 정보 · 연재 일정 · 자동 집필', words: '제목 장르 화수 분량 연재 일정 자동 집필 멈춤 정책' },
   { id: 'write-mode', cat: 'screen', sec: '집필 화면', label: '집필 생성 방식', words: 'AI로 쓰기 채팅 앱 작업지시서 생성 방식' },
@@ -363,6 +365,10 @@ function setRowHtml(id) {
     case 'snapshots':
       return serialOn() ? setRow(id, `스냅샷 모두 남기기 ${SET_CHIP('장편')}`, `지금 ${p.snapshots.length}개 · ${p.settings.keep_snapshots ? '모두 남겨요. 끄면 다음 반영 때 0화 · 아크 끝 · 최근 20화만 남기고 지워요.' : '0화 · 아크 끝 · 최근 20화만 남겨요. 지운 화는 되살리지 못해요.'}`,
         SW(id, !!p.settings.keep_snapshots, '스냅샷 모두 남기기'), { wide: false }) : '';
+    case 'blocks':
+      return p ? blockRows() : '';
+    case 'budgets':
+      return serialOn() ? budgetRows() : '';
     case 'backup-list':
       return p ? backupRows() : '';
     case 'elsewhere':
@@ -399,6 +405,153 @@ function setRowHtml(id) {
       }
       return STAGES.some(([s]) => id === `stage-${s}`) ? stageRow(id.slice(6), c) : '';
   }
+}
+
+// ----- 프롬프트 블록 (Settings.blocks · Settings.budgets, 장편 쓰기 가족 요청만 따른다. GET · PUT …/blocks) -----
+
+// 예산 키의 화면 이름 (context.WRITE_KEYS). 집필 화면 컨텍스트 대화상자(write.js ctxMore)도 쓴다. 값은 모두 글자 수다
+const BUDGET_LABEL = {
+  address: '호칭 · 말씨', cast: '조연 · 단역 설정', deadlines: '열린 기한', facts: '확정된 사실', pairs: '두 사람 사이에 있었던 일',
+  relations: '관계 줄', secrets: '숨긴 비밀', spots: '장소가 놓인 건물', stage: '장면 연출', stat_lines: '상태창 도감 줄',
+  states: '인물 현재 상태', story_arc: '이번 아크 줄거리', story_past: '끝난 부와 아크 줄거리', travel: '이동 거리',
+};
+// 블록 설정 대신 넣고 빼기를 정하는 설정 (prompts.Block.note): [설명, 그 설정 줄 id]
+const BLOCK_NOTE = {
+  write_material: ["넣는 모양은 '쓰기 재료' 설정이 정해요.", 'write-material'],
+  recent_echoes: ["넣을지는 '되풀이한 구절 피하기' 설정이 정해요.", 'echoes'],
+  use_cues: ['넣을지는 큐 시트가 정해요. 그 화에 큐 시트가 있고 쓸 때 큐 시트를 쓰면 들어가요.', ''],
+};
+const CACHE_NOTE = '다음 요청부터 캐시가 처음부터 다시 쌓여요';
+const LOCK_ICON = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="1.5"></rect><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"></path></svg>';
+const blockToggle = (b) => (b.toggle !== undefined ? b.toggle : !b.locked && !b.note);
+
+/** 블록 켜기 · 끄기 줄들. 단편은 블록 설정을 쓰지 않는다는 한 줄 (서버도 단편 저장을 거절한다) */
+function blockRows() {
+  if (!serialOn()) return setRow('blocks', '프롬프트 블록', '단편은 블록 설정을 쓰지 않아요. 쓰기 요청을 늘 같은 블록 · 같은 예산으로 만들어요.', '', { wide: false });
+  const got = SET.blocks;
+  if (!got || got.name !== S.name) return setRow('blocks', '블록 켜기 · 끄기', '블록 목록을 불러오는 중이에요.', '');
+  if (got.error) return setRow('blocks', '블록 켜기 · 끄기', `블록 목록을 불러오지 못했어요: ${esc(got.error)}`, '');
+  const head = setRow('blocks', '블록 켜기 · 끄기', '본문 쓰기 · 고쳐 쓰기 · 스토리보드 · 큐 시트 요청에 넣을 블록을 골라요. 블록 차례와 문구는 바뀌지 않고, 끈 블록은 머리글째 빠져요. 검수 · 상태 변경안 요청은 이 설정을 따르지 않아요. 블록마다 글자 수는 집필 화면의 \'AI에게 보내는 컨텍스트\'에서 봐요.', '', { wide: false });
+  return `${head}<ul class="set-subs" aria-label="프롬프트 블록">${got.blocks.filter((b) => b.note !== 'short').map(blockSub).join('')}</ul>`;
+}
+
+function blockSub(b) {
+  let desc = '';
+  let ctl;
+  if (b.locked) {
+    desc = '이 블록은 끌 수 없어요.';
+    ctl = `<span class="chip">${LOCK_ICON}&nbsp;잠금</span>`;
+  } else if (!blockToggle(b)) {
+    const [text, row] = BLOCK_NOTE[b.note] || ['다른 설정이 정해요.', ''];
+    desc = text;
+    ctl = row && setRowHtml(row) ? `<button type="button" class="btn ghost" data-action="setJump" data-arg="${row}">그 설정 보기</button>` : SET_CHIP('다른 설정');
+  } else {
+    if (b.front) desc = `캐시 앞부분 블록이에요. 바꾸면 ${CACHE_NOTE}.`;
+    ctl = `<button type="button" class="set-sw" role="switch" aria-checked="${b.on !== false}" aria-label="${esc(b.title)}" data-action="setBlock" data-arg="${esc(b.id)}"></button>`;
+  }
+  return `<li class="set-sub"><span>${esc(b.title)}${desc ? `<span class="set-desc">${desc}</span>` : ''}</span>${ctl}</li>`;
+}
+
+/** 블록 예산 줄들 (장편만): 키마다 숫자 칸 · 기본값 · 범위 · 쓰는 블록, 기본값과 다르면 '기본값으로' */
+function budgetRows() {
+  const got = SET.blocks;
+  if (!got || got.name !== S.name || got.error || !(got.budgets || []).length) return '';
+  const num = (v) => Number(v).toLocaleString();
+  const rows = got.budgets.map((g) => {
+    const users = got.blocks.filter((b) => (b.keys || []).includes(g.key));
+    const front = users.some((b) => b.front);
+    const named = users.filter((b) => b.title !== BUDGET_LABEL[g.key]);  // 이름이 예산 이름과 같은 블록은 다시 적지 않는다
+    const desc = [`기본 ${num(g.default)}자 · ${num(g.min)}~${num(g.max)}자`, named.length ? `쓰는 블록 ${named.map((b) => esc(b.title)).join(' · ')}` : '', front ? `바꾸면 ${CACHE_NOTE}` : ''].filter(Boolean).join(' · ');
+    // 기본값이면 쓸 수 없게 두어 줄마다 칸 자리를 맞춘다
+    const reset = `<button type="button" class="btn ghost" data-action="setBudgetReset" data-arg="${esc(g.key)}"${g.value === g.default ? ' disabled' : ''}>기본값으로</button>`;
+    return `<li class="set-sub"><span><label for="set-bud-${esc(g.key)}">${esc(BUDGET_LABEL[g.key] || g.key)}</label><span class="set-desc">${desc}</span></span>
+      <div class="set-bud"><input class="set-inp set-num" id="set-bud-${esc(g.key)}" type="number" inputmode="numeric" min="${g.min}" max="${g.max}" step="100" value="${g.value}" data-setbudget="${esc(g.key)}"><span class="set-desc">자</span>${reset}</div></li>`;
+  }).join('');
+  const head = setRow('budgets', '블록 예산', '블록마다 넣을 글자 수의 상한이에요. 넘으면 이번 화와 덜 관련된 항목부터 빼요. 100자 단위로 기본값의 1/4~4배까지 정해요. 아예 빼려면 블록을 꺼요.', '', { wide: false });
+  return `${head}<ul class="set-subs" aria-label="블록 예산">${rows}</ul>`;
+}
+
+async function loadBlocks() {
+  if (!serialOn()) return;
+  const name = S.name;
+  try {
+    SET.blocks = { name, ...(await api('GET', `/projects/${enc(name)}/blocks`)) };
+  } catch (e) {
+    SET.blocks = { name, error: e.message };
+  }
+  setPaint();
+}
+
+/** 블록 설정 보내기 몸통: 기본값과 다른 것만 (PUT …/blocks 는 두 목록을 통째로 바꾼다) */
+function blocksBody(got) {
+  return {
+    blocks: got.blocks.filter((b) => blockToggle(b) && b.on === false).map((b) => ({ id: b.id, on: false })),
+    budgets: got.budgets.filter((g) => g.value !== g.default).map((g) => ({ key: g.key, value: g.value })),
+  };
+}
+
+/** 서버가 돌려준 작품 설정(Settings.blocks · budgets)으로 화면의 켜기 · 예산 값을 맞춘다 */
+function blocksSync(got, st) {
+  for (const b of got.blocks) if (blockToggle(b)) b.on = !(st.blocks || []).some((x) => x.id === b.id && x.on === false);
+  for (const g of got.budgets) g.value = ((st.budgets || []).find((x) => x.key === g.key) || { value: g.default }).value;
+}
+
+// 블록 설정 저장 줄: 저장은 하나씩 차례로 보낸다. 앞 저장이 끝나야 다음 저장이 그때의 화면 값(마지막 바꾼 값)을 보낸다
+let blockSaveChain = Promise.resolve();
+
+/** 블록 설정을 저장한다. change 가 SET.blocks 를 바로 고치고(화면에 먼저 보임), 저장은 줄을 서서 차례로 보낸다.
+    겹친 저장(예산 칸을 떠나며 스위치 누르기, 스위치 빠르게 두 번)이 늦게 끝나 서로 덮지 않게 한다. 마지막 저장이 끝나면 서버 값으로 맞춘다.
+    서버가 거절하면 이 저장이 바꾼 값만 되돌리고(그 뒤에 다시 바꾼 값은 두고) 그 문구를 줄 아래에 보인다. 캐시 앞부분 블록 · 그 예산을 바꿨으면 캐시 안내를 붙인다 */
+function setBlocksSave(row, change, front) {
+  const got = SET.blocks;
+  if (!got || got.error) return Promise.resolve();
+  const snap = () => ({ on: Object.fromEntries(got.blocks.map((b) => [b.id, b.on])), value: Object.fromEntries(got.budgets.map((g) => [g.key, g.value])) });
+  const before = snap();
+  change(got);
+  const after = snap();
+  setPaint();
+  setNote(row, '저장하는 중…');
+  got.pending = (got.pending || 0) + 1;
+  const send = async () => {
+    if (SET.blocks !== got) return;  // 대화상자를 다시 열었거나 작품을 바꿨다
+    const name = S.name;
+    try {
+      const p = await api('PUT', `/projects/${enc(name)}/blocks`, blocksBody(got));
+      if (S.name === name) {
+        if (!S.dirty) S.project = p;
+        else Object.assign(P().settings, { blocks: p.settings.blocks, budgets: p.settings.budgets });  // 저장하지 않은 작품 수정은 두고 블록 설정만 맞춘다
+      }
+      if (got.pending === 1) blocksSync(got, p.settings);  // 기다리는 저장이 없으면 서버 값으로 맞춘다
+      SET.note[row] = { text: front ? `저장했어요. ${CACHE_NOTE}` : '저장했어요', kind: 'ok' };
+      ctxReload();
+    } catch (e) {
+      for (const b of got.blocks) if (before.on[b.id] !== after.on[b.id] && b.on === after.on[b.id]) b.on = before.on[b.id];
+      for (const g of got.budgets) if (before.value[g.key] !== after.value[g.key] && g.value === after.value[g.key]) g.value = before.value[g.key];
+      SET.note[row] = { text: e.message, kind: 'err' };
+    } finally {
+      got.pending -= 1;
+    }
+    setPaint();
+  };
+  const done = blockSaveChain.then(send);
+  blockSaveChain = done.catch(() => {});
+  return done;
+}
+
+/** 블록 설정이 바뀌었다: 들고 있던 프롬프트 원문 · 토큰 센 값은 옛 요청이라 버린다 (다음에 열 때 다시 받는다).
+    집필 화면이 컨텍스트 블록 표를 들고 있으면 바뀐 설정으로 다시 받는다. 대화상자를 닫은 뒤 오면 그때 다시 그린다 */
+function ctxReload() {
+  S.promptText = null;
+  S.promptInfo = null;
+  S.ctxCount = null;
+  const n = Number(S.route[3]);
+  if (!S.context || !n) return;
+  const name = S.name;
+  api('GET', `/projects/${enc(name)}/episodes/${n}/context`).then((c) => {
+    if (S.name !== name) return;
+    S.context = c;
+    if (!document.getElementById('set-dlg')?.open && !setTypingBehind()) render();
+  }).catch(() => {});
 }
 
 const BACKUP_KINDS = { hourly: '시간별', prev: '직전 판', delete: '화 지우기 전', serial: '장편 전환 전', restore: '되돌리기 전' };
@@ -670,6 +823,8 @@ async function openSettings(cat) {
   claudeStatusLoad();
   SET.backups = null;
   loadBackups();
+  SET.blocks = null;
+  loadBlocks();
   if (!S.copyFormats) api('GET', '/publish/formats').then((f) => { S.copyFormats = f; setPaint(); }).catch(() => {});
 }
 let setOpener = null;
@@ -747,6 +902,14 @@ async function setChange(e) {
   if (el.dataset.setstage) return setSave(row, { stages: { [el.dataset.setstage]: v } });
   if (el.dataset.setstagemodel) return setSave(row, { stage_models: { [el.dataset.setstagemodel]: v } });
   if (el.dataset.setstageeffort) return setSave(row, { stage_efforts: { [el.dataset.setstageeffort]: v } });
+  if (el.dataset.setbudget) {
+    const key = el.dataset.setbudget;
+    const g = ((SET.blocks || {}).budgets || []).find((x) => x.key === key);
+    const n = Number(v);
+    if (!g || !v || n === g.value) return;
+    const front = (SET.blocks.blocks || []).some((b) => b.front && (b.keys || []).includes(key));
+    return setBlocksSave('budgets', () => { g.value = Number.isFinite(n) ? n : g.value; }, front);
+  }
   const f = el.dataset.setfield;
   if (!f || el.readOnly) return;
   if (['provider', 'model', 'local_url', 'local_model', 'claude_model', 'claude_bin', 'vertex_credentials', 'vertex_project', 'vertex_location'].includes(f)) {
@@ -821,6 +984,26 @@ Object.assign(actions, {
     await setSave(u.row, { stages: u.stages, stage_models: u.stage_models }, '프리셋을 고르기 전 칸으로 되돌렸어요');
     if (SET.note[u.row]?.kind === 'err') { SET.undo = u; setPaint(); }  // 못 되돌렸으면 다시 누를 수 있게 둔다
     $('#set-dlg [data-setfield="preset"]')?.focus({ preventScroll: true });
+  },
+  /** 블록 하나를 켜고 끈다 (장편, 끌 수 있는 블록만) */
+  setBlock(id) {
+    const b = ((SET.blocks || {}).blocks || []).find((x) => x.id === String(id));
+    if (!b || !blockToggle(b)) return;
+    return setBlocksSave('blocks', () => { b.on = b.on === false; }, !!b.front);
+  },
+  setBudgetReset(key) {
+    const got = SET.blocks || {};
+    const g = (got.budgets || []).find((x) => x.key === String(key));
+    if (!g || g.value === g.default) return;
+    const front = (got.blocks || []).some((b) => b.front && (b.keys || []).includes(g.key));
+    return setBlocksSave('budgets', () => { g.value = g.default; }, front).then(() => document.getElementById(`set-bud-${g.key}`)?.focus({ preventScroll: true }));
+  },
+  /** 블록을 정하는 다른 설정 줄로 옮겨 그 칸에 포커스를 둔다 */
+  setJump(row) {
+    const el = document.getElementById(`row-${row}`);
+    if (!el) return;
+    el.scrollIntoView({ block: 'center' });
+    el.querySelector('.set-rc select, .set-rc input, .set-rc button')?.focus({ preventScroll: true });
   },
   setOpenSec(sec) {
     SET.open[sec] = true;

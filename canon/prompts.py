@@ -1213,13 +1213,18 @@ PAST_DROPPED = "(오래된 줄거리 {}묶음은 분량 때문에 뺐습니다)"
 _PAST_DROPPED_RE = re.compile(r"^\(오래된 줄거리 (\d+)묶음은 분량 때문에 뺐습니다\)$")
 
 
-def story_parts(p: Project, n: int, plans: bool = False) -> tuple[str, str]:
+def story_parts(p: Project, n: int, plans: bool = False, *, past_budget: int = 0, arc_budget: int = 0,
+                trace: context.Trace | None = None) -> tuple[str, str]:
     """(끝난 부와 아크의 접은 줄거리, 이번 아크의 화별 요약). 앞쪽은 아크가 끝날 때만 바뀌어 캐시가 맞는 자리에 둘 수 있다.
     장편은 블록 예산(context.BUDGET)을 넘으면 오래된 것부터 더 짧게 접는다. 요약이 아직 승인되지 않은 아크는
     화별 요약 → 화마다 첫 문장 → 아크 한 줄 순서로 줄고, 승인된 요약은 마지막에야 첫 문장으로 줄인다.
     plans: 쓰기 전에 앞 아크를 미리 기획해 둔 장편에서 뒤 아크를 기획할 때(플롯 초안 · 플롯 대화 · 다음 아크) 켠다.
     이번 아크 앞의 아크에서 아직 반영하지 않은 화(요약 없음)는 플롯 요약으로, 플롯이 하나도 없는 아크는 아크 기획으로 채운다.
-    이번 아크의 화는 그 프롬프트들이 플롯 전체로 따로 넣으므로 요약이 있는 화만 둔다."""
+    이번 아크의 화는 그 프롬프트들이 플롯 전체로 따로 넣으므로 요약이 있는 화만 둔다.
+    past_budget · arc_budget 을 비우면 BUDGET['story_past'] · BUDGET['story_arc']. 쓰기 가족만 작품 예산(context.budget)을 넘긴다.
+    trace 를 주면 접은 줄거리에 넣은 묶음과 뺀 묶음을 부 · 아크 이름으로 'story_past' 블록에, 첫 문장으로 줄인 이번 아크 화를 'story_arc' 블록에 적는다."""
+    past_budget = past_budget or context.BUDGET["story_past"]
+    arc_budget = arc_budget or context.BUDGET["story_arc"]
     eps = sorted((e for e in p.episodes if e.plot.number < n and e.summary), key=lambda e: e.plot.number)
     told = lambda e: e.summary or (PLAN_ONLY if e.status in ("draft", "confirmed") else "(반영 전, 플롯) ") + e.plot.summary  # noqa: E731
     line = lambda e: f"{e.plot.number}화 {storylines.summary_tag(p, e)}{timeline.tag(p, e)}{e.plot.title}: {told(e)}"  # noqa: E731
@@ -1263,14 +1268,19 @@ def story_parts(p: Project, n: int, plans: bool = False) -> tuple[str, str]:
     size = lambda: sum(len(e[k]) + 2 for e, k in zip(entries, level))  # noqa: E731
     for target in (1, 2):  # 오래된 것부터 한 단계씩 접는다
         for i in range(len(entries)):
-            if size() <= context.BUDGET["story_past"]:
+            if size() <= past_budget:
                 break
             level[i] = max(level[i], target)
     dropped = 0  # 한 줄로 접어도 넘치면 오래된 묶음부터 빼고 뺀 수를 적는다 (마지막 묶음은 남긴다)
-    while len(entries) > 1 and size() > context.BUDGET["story_past"]:
-        entries.pop(0)
+    while len(entries) > 1 and size() > past_budget:
+        gone = entries.pop(0)
         level.pop(0)
         dropped += 1
+        if trace is not None:
+            trace.drop("story_past", _entry_name(gone[0]), context.DROP_BUDGET)
+    if trace is not None:
+        for e in entries:
+            trace.item("story_past", _entry_name(e[0]), context.REASON_FIT)
     past = "\n\n".join(([PAST_DROPPED.format(dropped)] if dropped else []) + [e[k] for e, k in zip(entries, level)])
 
     tail = [e for e in eps if e.plot.number >= arc_start]
@@ -1281,11 +1291,18 @@ def story_parts(p: Project, n: int, plans: bool = False) -> tuple[str, str]:
     rows = [line(e) for e in tail]
     keep = 8  # 이번 아크가 길면 최근 8화를 빼고 오래된 화부터 첫 문장으로
     for i in range(max(0, len(tail) - keep)):
-        if sum(len(r) + 1 for r in rows) <= context.BUDGET["story_arc"]:
+        if sum(len(r) + 1 for r in rows) <= arc_budget:
             break
         rows[i] = short(tail[i])
+        if trace is not None:  # 예산 때문에 첫 문장으로 줄인 화
+            trace.drop("story_arc", f"{tail[i].plot.number}화 {context.trace_label(tail[i].plot.title)} (첫 문장만)", context.DROP_BUDGET)
     cur = f"[이번 아크{f' {cur_arc.number} {cur_arc.title}' if cur_arc else ''}]\n" + "\n".join(rows) if tail else ""
     return past, cur
+
+
+def _entry_name(text: str) -> str:
+    """접은 줄거리 묶음의 이름: 맨 앞 '[…]' 머리 (부 · 아크 이름과 화 범위)."""
+    return text[:text.index("]") + 1] if text.startswith("[") and "]" in text else context.first_sentence(text, 40)
 
 
 def structure_text(p: Project, n: int, head: str = "[지금 부와 아크]") -> str:
@@ -1299,7 +1316,7 @@ def structure_text(p: Project, n: int, head: str = "[지금 부와 아크]") -> 
     return head + "\n" + ("\n".join(lines) or "아직 없음")
 
 
-def state_view(p: Project, states: list, n: int | None = None, query: str = "") -> tuple[list, int]:
+def state_view(p: Project, states: list, n: int | None = None, query: str = "", *, trace: context.Trace | None = None) -> tuple[list, int]:
     """장편에서는 화마다 쌓이는 knows 를 n화와 관련된 것부터 고른 사본을 쓴다 (context.pick_knows). 저장된 상태는 그대로다.
     고른 줄 앞에는 알게 된 화, 맨 앞에는 아크 요약 뒤 접은 줄을 붙인다 (knows.view).
     query 는 이번 화 플롯이나 본문, 이름은 넘긴 상태의 인물, 요소 · 장소는 n화의 것(context.query_terms). (사본, 뺀 수)"""
@@ -1309,8 +1326,9 @@ def state_view(p: Project, states: list, n: int | None = None, query: str = "") 
     terms = context.query_terms(p, n) if n is not None else []
     out, cut = [], 0
     eps = knows.learned(p)
+    who = {c.id: c.name or c.id for c in p.characters}
     for s in states:
-        picked, k = context.pick_knows(s.knows, query, names, terms)
+        picked, k = context.pick_knows(s.knows, query, names, terms, trace=trace, who=who.get(s.character_id, s.character_id))
         out.append(s.model_copy(update={"knows": knows.view(p, s, picked, eps.get(s.character_id, {}))}))
         cut += k
     return out, cut
@@ -1500,11 +1518,14 @@ def seen_sentence(p: Project, c: Character, m: int) -> str:
     return line[:RETURN_SENTENCE - 1] + "…" if len(line) > RETURN_SENTENCE else line
 
 
-def return_block(p: Project, ids: set[str], n: int) -> str:
-    """장편 본문 쓰기의 인물 상태 뒤에 붙는 '오랜만에 다시 나오는 인물'. 없으면 빈 글."""
+def return_block(p: Project, ids: set[str], n: int, *, trace: context.Trace | None = None) -> str:
+    """장편 본문 쓰기의 인물 상태 뒤에 붙는 '오랜만에 다시 나오는 인물'. 없으면 빈 글. trace 를 주면 인물 이름을 'returns' 블록에 적는다."""
     rows = return_lines(p, ids, n)
     if not rows:
         return ""
+    if trace is not None:
+        for r in rows:
+            trace.item("returns", r[2:r.index(":")] if ":" in r else r[2:], context.REASON_RETURN)
     away = ("\n화면 밖 근황은 적힌 화 끝 시점의 것입니다. 그 뒤 줄거리 · 현재 상태와 어긋나면 줄거리와 현재 상태를 따르고, "
             "근황은 다시 나온 장면에서 대사나 행동으로 드러냅니다") if any("화면 밖 근황 (" in r for r in rows) else ""
     return (f"\n\n# 오랜만에 다시 나오는 인물 ({context.RETURN_GAP}화 넘게 나오지 않음. 그동안 바뀐 것은 줄거리와 인물 현재 상태를 따르고, "
@@ -1554,11 +1575,18 @@ def new_cast_rule(p: Project, rng: random.Random | None = None) -> str:
 {naming.new_cast_hint(p, rng)}"""
 
 
-def relevant_foreshadows(p: Project, n: int) -> tuple[list[Foreshadow], int]:
+def _fs_name(f: Foreshadow) -> str:
+    return f"{f.id}: {context.first_sentence(f.description, 60)}"
+
+
+def relevant_foreshadows(p: Project, n: int, *, trace: context.Trace | None = None) -> tuple[list[Foreshadow], int]:
     """n화에 넣을 열린 복선과 뺀 개수. 단편은 전부. 장편은 이번 아크에 회수할 것, 회수 예정이 지난 것,
-    작품 단위 복선, 최근에 심은 것만 넣는다."""
+    작품 단위 복선, 최근에 심은 것만 넣는다. trace 를 주면 넣은 까닭과 뺀 까닭('아크와 무관' · '개수 상한')을 'foreshadows' 블록에 적는다."""
     opened = [f for f in p.foreshadows if f.status == "open"]
     if not p.serial:
+        if trace is not None:
+            for f in opened:
+                trace.item("foreshadows", _fs_name(f), context.REASON_ALL)
         return opened, 0
     arc = p.arc_for(n)
     end = arc.end_ep if arc else n
@@ -1568,7 +1596,15 @@ def relevant_foreshadows(p: Project, n: int) -> tuple[list[Foreshadow], int]:
         return ((arc is not None and f.id in arc.payoffs) or (f.due_ep is not None and f.due_ep <= end)
                 or f.scope == "series" or f.planted_ep >= min(lo, n - FORESHADOW_RECENT))
 
-    picked = context.rank_foreshadows(p, [f for f in opened if keep(f)], n, FORESHADOW_CAP)
+    kept = [f for f in opened if keep(f)]
+    picked = context.rank_foreshadows(p, kept, n, FORESHADOW_CAP)
+    if trace is not None:
+        ids = {f.id for f in picked}
+        for f in opened:
+            if f.id in ids:
+                trace.item("foreshadows", _fs_name(f), context.foreshadow_reason(p, f, n))
+            else:
+                trace.drop("foreshadows", _fs_name(f), context.DROP_CAP if f in kept else context.DROP_ARC)
     return picked, len(opened) - len(picked)
 
 
@@ -1633,18 +1669,30 @@ def foreshadow_judge_prompt(p: Project, n: int, text: str) -> str:
 - 어긴 곳이 없으면 items 를 빈 목록으로 둡니다."""
 
 
-def relevant_facts(p: Project, cast: set[str], n: int | None = None, budget: str = "facts") -> tuple[list[str], int]:
+def relevant_facts(p: Project, cast: set[str], n: int | None = None, budget: str = "facts", *, limit: int = 0,
+                   trace: context.Trace | None = None) -> tuple[list[str], int]:
     """확정 사실이 많으면 이번 화 인물 이름이 들어간 것과 최근 것만 넣는다.
-    장편은 n 화 플롯과 이야기 요소로 관련 순서를 매겨 블록 예산(context.BUDGET[budget])만큼만 넣는다."""
+    장편은 n 화 플롯과 이야기 요소로 관련 순서를 매겨 블록 예산만큼만 넣는다. 예산은 limit(글자), 비우면 context.BUDGET[budget].
+    쓰기 가족만 작품 예산(context.budget)을 limit 으로 넘긴다. trace 를 주면 넣은 사실과 뺀 사실을 'facts' 블록에 적는다."""
     if len(p.facts) <= FACTS_FILTER_FROM:
+        if trace is not None:
+            for f in p.facts:
+                trace.item("facts", f, context.REASON_ALL)
         return p.facts, 0
     if p.serial:
         query = elements.plot_text(p.episode(n)) if n is not None and any(e.plot.number == n for e in p.episodes) else ""
         terms = context.query_terms(p, n) if n is not None else []
-        return context.pick_facts(p, cast, query, context.BUDGET[budget], terms)
+        return context.pick_facts(p, cast, query, limit or context.BUDGET[budget], terms, trace)
     names = [c.name for c in p.characters if c.id in cast and c.name]
     recent = set(p.facts[-FACTS_RECENT:])
     picked = [f for f in p.facts if f in recent or any(nm in f for nm in names)]
+    if trace is not None:
+        for f in p.facts:
+            if f in recent:
+                trace.item("facts", f, context.REASON_RECENT)
+            elif any(nm in f for nm in names):
+                trace.item("facts", f, context.REASON_NAME_IN)
+        context.trace_unrelated(trace, "facts", len(p.facts) - len(picked))
     return picked, len(p.facts) - len(picked)
 
 
@@ -2650,10 +2698,11 @@ STAGE_RULE = ("아래 배치는 장면의 배경 제약이다. 본문이 이 배
               "'지시'는 작가가 정한 박자의 흐름이니 따른다.")
 
 
-def stage_block(p: Project, n: int, budget: int = 0, board: bool = False) -> str:
+def stage_block(p: Project, n: int, budget: int = 0, board: bool = False, *, trace: context.Trace | None = None) -> str:
     """n화를 쓸 때 넣는 장면 연출: 작가가 짠 계획 장면만, 박자마다 지시(작가 설명)와 배치(배경 제약) 줄로 (stage.episode_lines).
     board 이면 머리마다 그 사건을 맡은 스토리보드 장면 번호를 붙인다(스토리보드 블록 바로 뒤에 넣을 때).
-    예산(context.BUDGET["stage"])을 넘으면 사건 순서대로 넣고 남은 장면 수를 적는다. 첫 장면은 넘어도 넣는다. 장면이 없으면 빈 글."""
+    예산(context.BUDGET["stage"])을 넘으면 사건 순서대로 넣고 남은 장면 수를 적는다. 첫 장면은 넘어도 넣는다. 장면이 없으면 빈 글.
+    trace 를 주면 뺀 장면을 머리 줄 이름으로 'stage' 블록에 적는다."""
     ep = next((e for e in p.episodes if e.plot.number == n), None)
     scenes = stage.episode_lines(p, ep, board)[0] if ep else []
     budget = budget or context.BUDGET["stage"]
@@ -2662,6 +2711,7 @@ def stage_block(p: Project, n: int, budget: int = 0, board: bool = False) -> str
         text = "\n".join(lines)
         if size + len(text) > budget and keep:
             cut += 1
+            context.trace_drops(trace, "stage", [text])
             continue
         keep.append(text)
         size += len(text) + 1
@@ -2698,8 +2748,142 @@ def pov_block(p: Project, n: int) -> str:
     return "\n".join(lines)
 
 
+# ---------- 쓰기 요청 블록 (spec 03 프롬프트 보기와 블록 설정) ----------
+# 쓰기 가족 요청을 블록 조각(Part)의 목록으로 조립하고 이어 붙여 요청 글을 만든다. 보기(web 컨텍스트)와 실제 요청이 같은 조각에서 나온다.
+# 장편만 작품 설정(Settings.blocks)으로 블록을 끈다. 끈 블록은 머리글과 앞 구분 줄째 빠지고, 요청 안에는 끈 사실을 적지 않는다.
+# 블록 차례와 문구는 여기서만 정한다 (Q10). 설정이 빈 작품은 고치기 전과 요청이 한 글자도 같다.
+
+class Block(NamedTuple):
+    id: str
+    title: str  # 화면 이름
+    locked: bool  # 끌 수 없다 (작품 설정에 off 가 있어도 넣는다)
+    keys: tuple[str, ...] = ()  # 이 블록이 쓰는 예산 키 (context.WRITE_KEYS)
+    front: bool = False  # 캐시 앞부분(static_context, 장편 부 · 아크 구조와 접은 줄거리). 바꾸면 캐시가 처음부터 다시 쌓인다
+    note: str = ""  # 블록 설정 대신 넣고 빼기를 정하는 기존 설정. "short" 는 단편 요청에만 있는 블록
+
+
+# 대략의 요청 차례. 실제 차례는 조립 함수가 정한다 (장편은 스토리보드가 없을 때 시간 · 이동 · 연출을 직전 화 본문 뒤로 미룬다)
+BLOCKS: tuple[Block, ...] = (
+    Block("work", "작품 정보", False, front=True),
+    Block("world", "세계관", False, front=True),
+    Block("style", "문체", True, front=True),
+    Block("characters", "인물 설정", True, front=True),
+    Block("structure", "현재 부 · 아크 / 현재 구간", False, front=True),
+    Block("story_past", "끝난 부와 아크 줄거리", False, ("story_past",), front=True),
+    Block("position", "이번 화 위치", False),
+    Block("facts", "확정된 사실", False, ("facts",)),
+    Block("elements", "이야기 요소", False),
+    Block("cast", "이번 화 등장 인물과 조연 · 단역 설정", True, ("cast",)),
+    Block("named", "이름이 나온 조연 · 단역", False, ("cast",)),
+    # 잠금: 상태창 줄(statwin.write_rule) · 스토리보드 · 옷차림 규칙이 '[인물 현재 상태]'를 가리킨다 (끄면 가리킬 곳이 없다)
+    Block("states", "인물 현재 상태", True, ("states",)),
+    Block("returns", "오랜만에 다시 나오는 인물", False),
+    Block("relations", "관계", False, ("relations", "secrets")),
+    Block("address", "호칭 · 말씨", False, ("address",)),
+    Block("pairs", "두 사람 사이에 있었던 일", False, ("pairs",)),
+    Block("foreshadows", "열린 복선", False),
+    Block("story", "지금까지의 줄거리", False, note="short"),
+    Block("story_arc", "이번 아크 줄거리", False, ("story_arc",)),
+    Block("storyline", "이야기 줄기", False),
+    Block("time", "작품 속 시간", False, ("deadlines",)),
+    Block("travel", "이동 거리", False, ("travel",)),
+    Block("spots", "장소가 놓인 건물", False, ("spots",)),
+    Block("stage", "장면 연출", False, ("stage",)),
+    Block("prev", "직전 화", False),
+    Block("board", "스토리보드", False, ("deadlines",), note="write_material"),
+    Block("extra", "요청이 덧붙인 재료", True),
+    Block("plot", "이번 화 플롯", True),
+    Block("pov", "서술 시점", False),
+    Block("devices", "가끔 쓰는 장치", False),
+    Block("echo", "되풀이한 구절", False, note="recent_echoes"),
+    Block("material", "원고 재료", False),
+    Block("instructions", "지시문", True, ("stat_lines",)),
+    Block("cues", "큐 시트", False, note="use_cues"),
+    Block("direction", "작가 연출 지시", True),
+)
+BLOCK_BY_ID = {b.id: b for b in BLOCKS}
+
+
+def toggleable(b: Block) -> bool:
+    """작품 설정으로 끄고 켤 수 있는 블록: 잠기지 않았고 다른 설정이 정하지 않는다."""
+    return not b.locked and not b.note
+
+
+class Part(NamedTuple):
+    id: str  # BLOCKS 의 id
+    text: str  # 앞 구분 줄을 품은 글. "".join(parts) 가 요청 글이다
+
+
+def block_on(p: Project, block_id: str) -> bool:
+    """이 블록을 넣는지. 단편 · 잠긴 블록 · 다른 설정이 정하는 블록 · 모르는 id 는 늘 참. 장편은 작품 설정(Settings.blocks)이 끈 것만 거짓."""
+    b = BLOCK_BY_ID.get(block_id)
+    if not p.serial or b is None or not toggleable(b):
+        return True
+    return not any(s.id == block_id and not s.on for s in p.settings.blocks)
+
+
+def block_title(p: Project, block_id: str) -> str:
+    """화면에 보일 블록 이름. 'structure' 는 장편 '현재 부와 아크', 단편 '현재 구간' (요청 머리글과 같은 말)."""
+    if block_id == "structure":
+        return "현재 부와 아크" if p.serial else "현재 구간"
+    b = BLOCK_BY_ID.get(block_id)
+    return b.title if b else block_id
+
+
+def follow_parts(p: Project, parts: list[Part], trace: context.Trace | None = None) -> list[Part]:
+    """빈 조각을 빼고, 장편이면 꺼진 블록을 뺀다. 맨 앞 조각이 빠져 앞 구분 줄이 맨 앞에 오면 지운다.
+    trace 를 주면 꺼진 블록의 넣은 항목 · 뺀 항목을 지운다 (보기가 꺼진 블록의 항목을 보이지 않게)."""
+    if trace is not None:
+        for bid in set(trace.items) | set(trace.dropped):
+            if not block_on(p, bid):
+                trace.forget(bid)
+    out = [x for x in parts if x.text and block_on(p, x.id)]
+    if out and len(out) < len([x for x in parts if x.text]) and out[0].text.startswith("\n"):
+        out[0] = Part(out[0].id, out[0].text.lstrip("\n"))
+    return out
+
+
+def join_parts(parts: list[Part]) -> str:
+    return "".join(x.text for x in parts)
+
+
+def static_parts(p: Project, follow: bool = False, trace: context.Trace | None = None) -> list[Part]:
+    """작품 내내 바뀌지 않는 블록: 작품 정보, 세계관, 문체, 인물 설정.
+    예시 문단이 있는 작품은 예시 문단을 스타일 프로필 앞에 둔다 (문체는 서술보다 예시로).
+    follow 를 켜면 작품 블록 설정을 따른다 (쓰기 가족만). 검수 · 상태 변경안 · 다듬기는 기본(따르지 않음)으로 같은 앞부분을 쓴다."""
+    chars = static_characters(p)
+    if trace is not None:
+        for c in chars:
+            trace.item("characters", c.name or c.id, context.REASON_ALWAYS)
+    parts = [Part("work", f"# 작품 정보\n{meta_text(p)}"),
+             Part("world", f"\n\n# 세계관 (깨면 안 되는 규칙 포함)\n{dump(p.world)}"),
+             Part("style", f"\n\n{style_block(p)}"),
+             Part("characters", f"\n\n# 인물 설정{static_note(p)}\n{dump(cast_view(chars))}")]
+    return follow_parts(p, parts, trace) if follow else [x for x in parts if x.text]
+
+
 def build_episode_context(p: Project, n: int, *, use_board: bool = True, pre: str = "", between: str = "",
                           full_prev: bool | None = None, write: bool = False, head_only: bool = False) -> str:
+    """context_parts 를 이어 붙인 글. 쓰기 가족(본문 쓰기 · 고쳐 쓰기 · 스토리보드 · 큐 시트 · write_head)과 보기만 부르므로 작품 블록 설정을 따른다."""
+    return join_parts(context_parts(p, n, use_board=use_board, pre=pre, between=between, full_prev=full_prev,
+                                    write=write, head_only=head_only))
+
+
+def _cast_text(names: str, eb: str) -> str:
+    """'# 이번 화 등장 인물' 조각. eb 는 extra_block 글(앞뒤 줄바꿈 하나씩)이고 뒤 줄바꿈은 다음 조각의 앞 구분 줄이 된다."""
+    return f"\n\n# 이번 화 등장 인물\n{names or '설정의 인물 전원'}" + (f"\n{eb[:-1]}" if eb else "")
+
+
+def _pre_parts(pre: str) -> list[Part]:
+    """직전 화 본문 바로 앞에 붙는 pre(끝이 빈 줄)를 '요청이 덧붙인 재료' 조각과 구분 줄로 나눈다."""
+    if not pre:
+        return []
+    return [Part("extra", "\n\n" + pre[:-2])] if pre.endswith("\n\n") else [Part("extra", "\n\n" + pre)]
+
+
+def context_parts(p: Project, n: int, *, use_board: bool = True, pre: str = "", between: str = "",
+                  full_prev: bool | None = None, write: bool = False, head_only: bool = False,
+                  trace: context.Trace | None = None) -> list[Part]:
     """앞쪽은 화가 바뀌어도 그대로인 블록, 뒤쪽은 화마다 바뀌는 블록이다.
     Claude API 캐시는 앞부분이 같은 요청에 맞으므로(claude.cache_blocks) 이 순서를 지킨다.
     Gemini 4 암묵적 캐시는 화 사이 겹침을 쓰지 않고 앞 요청을 통째로 품은 요청에만 맞는다 (DESIGN.md 실측).
@@ -2709,14 +2893,17 @@ def build_episode_context(p: Project, n: int, *, use_board: bool = True, pre: st
     pre 는 직전 화 본문 바로 앞(장편은 바로 뒤), between 은 이번 화 플롯 바로 앞에 넣는 블록 (스토리보드 만들기 프롬프트가 쓴다).
     full_prev 는 직전 화 원문 전체를 넣을지. 비우면 넣는 스토리보드가 있을 때만 (prev_block).
     write 는 본문을 쓰는 요청(episode_prompt · rework_prompt): 이번 화 플롯을 write_plot 으로 넣는다.
-    head_only 는 장편에서 직전 화 본문까지만 돌려준다 (write_head)."""
+    head_only 는 장편에서 직전 화 본문까지만 돌려준다 (write_head).
+    블록 조각(Part)의 목록을 돌려준다. 작품 블록 설정과 예산(context.budget)을 따르고, 단편은 둘 다 무시한다.
+    trace(context.Trace)를 주면 블록마다 넣은 항목과 뺀 항목을 이유와 함께 적는다."""
+    B = lambda key: context.budget(p, key)  # noqa: E731
     ep = p.episode(n)
     sb = ep.storyboard if use_board else None
     act = p.act_for(n)
     together = p.acts_for(n)[1:]  # 짧은 작품에서 이 화에 함께 들어간 뒤 구간
     cast_ids = set(ep.plot.characters) or {c.id for c in static_characters(p)} or {c.id for c in p.characters}
     cast_names = ", ".join(f"{c.name}({c.id})" for c in p.characters if c.id in cast_ids)  # '넣지 않음' 인물도 이름은 남긴다
-    facts, facts_cut = relevant_facts(p, cast_ids, n)
+    facts, facts_cut = relevant_facts(p, cast_ids, n, limit=B("facts"), trace=trace)
     plot_ids = cast_ids
     cast_ids = context.without_off(p, cast_ids)  # 상태 · 관계 · 설정은 '넣지 않음' 인물을 뺀다
     last_text = next((e.text for e in reversed(p.episodes) if e.plot.number == n - 1 and e.text), "")
@@ -2726,16 +2913,23 @@ def build_episode_context(p: Project, n: int, *, use_board: bool = True, pre: st
         always = [c for c in static_characters(p) if c.tier != "main"]
         used = len(dump(cast_view(always))) if always else 0
         size = lambda c: len(dump(cast_view([c])))  # noqa: E731
-        extra, extra_cut = context.fit_cast(extra, used, size, context.BUDGET["cast"])
-        # 플롯 인물 목록에 없지만 플롯 글이나 직전 화 끝에 이름이 나온 조연 · 단역도 남은 예산만큼 설정 · 상태 · 관계를 넣는다
-        seen = context.named_ids(p, elements.plot_text(ep) + "\n" + last_text[-context.NAMED_TAIL:]) - plot_ids
+        # 작가가 예산을 낮춰도 이번 화 플롯에 적힌 조연 · 단역은 기본 예산만큼은 지킨다 (spec 03 정할 것 11). 높이면 둘 다 넓어진다
+        extra, extra_cut = context.fit_cast(extra, used, size, max(B("cast"), context.BUDGET["cast"]), trace)
         used += len(dump(cast_view(extra))) if extra else 0
-        named, named_cut = context.fit_named(side_characters(p, seen), used, size, context.BUDGET["cast"])
-        cast_ids = cast_ids | {c.id for c in named}
+        if block_on(p, "named"):  # 블록을 끄면 이름이 나온 인물을 고르지 않아 상태 · 관계 · 호칭 · 사건 줄에서도 빠진다
+            # 플롯 인물 목록에 없지만 플롯 글이나 직전 화 끝에 이름이 나온 조연 · 단역도 남은 예산만큼 설정 · 상태 · 관계를 넣는다
+            seen = context.named_ids(p, elements.plot_text(ep) + "\n" + last_text[-context.NAMED_TAIL:]) - plot_ids
+            named, named_cut = context.fit_named(side_characters(p, seen), used, size, B("cast"), trace)
+            cast_ids = cast_ids | {c.id for c in named}
+    if trace is not None:  # '넣지 않음' 인물은 이름만 남고 설정이 들어가지 않아 항목으로 적지 않는다. 예산으로 뺀 조연 · 단역은 뺀 항목에만 (fit_cast)
+        cut = {c.id for c in side_characters(p, plot_ids & cast_ids)} - {c.id for c in extra}
+        for c in p.characters:
+            if c.id in cast_ids and c.id in plot_ids and c.id not in cut:
+                trace.item("cast", c.name or c.id, context.REASON_PLOT if c.id in ep.plot.characters else context.REASON_ALWAYS)
     states = [s for s in p.states if s.character_id in cast_ids]
     rels = [r for r in p.relationships if r.a in cast_ids and r.b in cast_ids]
-    fs, fs_cut = relevant_foreshadows(p, n)
-    if p.serial:  # 아크 안 구간은 아크 안에서도 바뀌어 serial_episode_context 가 접은 줄거리 뒤에 둔다 (act_line)
+    fs, fs_cut = relevant_foreshadows(p, n, trace=trace)
+    if p.serial:  # 아크 안 구간은 아크 안에서도 바뀌어 serial_parts 가 접은 줄거리 뒤에 둔다 (act_line)
         where = structure_text(p, n, "# 현재 부와 아크")
     else:
         where = f"""# 현재 구간: {act.name if act else "?"} ({act.start_ep if act else "?"}~{act.end_ep if act else "?"}화)
@@ -2755,18 +2949,19 @@ def build_episode_context(p: Project, n: int, *, use_board: bool = True, pre: st
     els = f"\n\n# 이야기 요소 (이번 화와 관련된 설정, 어기지 말 것)\n{els}" if els else ""
     line = storylines.episode_block(p, n)
     line = f"\n\n# 이번 화의 이야기 줄기\n{line}" if line else ""
-    tl = timeline.episode_block(p, n) if sb is None else ""  # 스토리보드가 있으면 그 시간 · 이동 값을 쓴다 (board_block)
+    tl = timeline.episode_block(p, n, B("deadlines"), trace=trace) if sb is None else ""  # 스토리보드가 있으면 그 시간 · 이동 값을 쓴다 (board_block)
     tl = f"\n\n# 작품 속 시간 (어기지 말 것)\n{tl}" if tl else ""
-    tr = mapprompt.travel_block(p, n) if sb is None else ""
+    tr = mapprompt.travel_block(p, n, B("travel"), trace=trace) if sb is None else ""
     tr = f"\n\n# 이동 거리 (지도 기준)\n{tr}" if tr else ""
-    sp = mapprompt.spot_block(p, n)
+    sp = mapprompt.spot_block(p, n, B("spots"), trace=trace)
     sp = f"\n\n# 장소가 놓인 건물 (지도 기준)\n{sp}" if sp else ""
-    stg = stage_block(p, n, board=sb is not None)
+    stg = stage_block(p, n, B("stage"), board=sb is not None, **({"trace": trace} if trace is not None else {}))  # 시험이 바꿔 끼운 stage_block 도 받게
     stg = f"\n\n# 장면 연출 (작가가 짠 자리 · 자세 · 접촉)\n{stg}" if stg else ""
     # 장편은 스토리보드가 없을 때만 들어가는 블록(시간 · 이동 · 연출, pre)을 직전 화 본문 뒤로 미룬다. 그러면 스토리보드 만들기 ·
     # 큐 시트 · 스토리보드로 본문 쓰기가 직전 화 본문 끝까지 같은 앞부분(write_head)이 되어 캐시를 함께 쓴다 (쓰기 가족).
     late = p.serial and sb is None
-    line += sp if late else tl + tr + sp + (stg if sb is None else "")
+    lines = [Part("storyline", line)] + ([Part("spots", sp)] if late else
+                                         [Part("time", tl), Part("travel", tr), Part("spots", sp), Part("stage", stg if sb is None else "")])
     pov = pov_block(p, n)
     pov = f"\n\n# 이번 화 서술 시점\n{pov}" if pov else ""  # 무엇이 먼저인지는 episode_prompt 의 priority_line 한 줄에
     dev = device_block(p, n)
@@ -2775,101 +2970,88 @@ def build_episode_context(p: Project, n: int, *, use_board: bool = True, pre: st
     facts_text = fact_rows(p, facts)
     full = sb is not None if full_prev is None else full_prev
     if late:
-        prev_head = prev_block(p, n, last_text, full)
-        prev_rest = tl + tr + stg + (f"\n\n{pre.rstrip()}" if pre else "") + between
+        prev_head = [Part("prev", "\n\n" + prev_block(p, n, last_text, full))]
+        prev_rest = [Part("time", tl), Part("travel", tr), Part("stage", stg),
+                     Part("extra", f"\n\n{pre.rstrip()}" if pre else ""), Part("extra", between)]
     else:
-        prev_head = pre + prev_block(p, n, last_text, full)
-        prev_rest = (f"\n\n{board_block(p, n, write=write)}{stg}" if sb is not None else "") + between
-    prev = prev_head + prev_rest
+        prev_head = _pre_parts(pre) + [Part("prev", ("\n\n" if not pre or pre.endswith("\n\n") else "") + prev_block(p, n, last_text, full))]
+        prev_rest = ([Part("board", f"\n\n{board_block(p, n, write=write, budget=B('deadlines'), trace=trace)}"), Part("stage", stg)] if sb is not None else []) \
+            + [Part("extra", between)]
     if p.serial:
         act_line = f"현재 아크 안 구간: {act.name if act else '?'} ({act.start_ep if act else '?'}~{act.end_ep if act else '?'}화) 목표: {act.goal if act else ''}"
         heat = heat_step_line(p, n)
         if heat:
             act_line += f"\n이번 화 열 계획 (작가가 정함): {heat}"
-        return serial_episode_context(p, n, where=where, act_line=act_line, line=line, facts=facts_text, facts_cut=facts_cut, els=els, write=write,
-                                      cast_names=cast_names, extra=extra_block(extra, extra_cut) + named_block(named, named_cut),
-                                      states=states, rels=rels, cast_ids=cast_ids,
-                                      fs=fs, fs_cut=fs_cut, prev=prev_head, prev_rest=prev_rest, head_only=head_only,
-                                      tail="" if head_only else f"{pov}{dev}{echo_block(p, n) if write else ''}{material_block(p, n)}")
+        tail = [] if head_only else [Part("pov", pov), Part("devices", dev), Part("echo", echo_block(p, n) if write else ""),
+                                     Part("material", material_block(p, n))]
+        parts = serial_parts(p, n, where=where, act_line=act_line, lines=lines, facts=facts_text, facts_cut=facts_cut, els=els, write=write,
+                             cast_names=cast_names, extra=extra_block(extra, extra_cut), named=named_block(named, named_cut),
+                             states=states, rels=rels, cast_ids=cast_ids, fs=fs, fs_cut=fs_cut, prev=prev_head, prev_rest=prev_rest,
+                             head_only=head_only, tail=tail, trace=trace, named_ids={c.id for c in named})
+        return follow_parts(p, parts, trace)
 
-    return f"""{static_context(p)}
-
-# 확정된 사실{f" (이번 화와 관련된 것만, {facts_cut}개 생략)" if facts_cut else ""}
-{facts_text}{els}
-
-# 이번 화 등장 인물
-{cast_names or "설정의 인물 전원"}
-{extra_block(extra)}
-# 인물 현재 상태 ({n - 1}화 종료 시점)
-{dump(write_states(p, state_view(p, states)[0])) or "1화 시작 시점, 설정 그대로"}
-
-# 관계 현재 상태
-{describe_relations(p, cast_ids) or dump(rels) or "없음"}{address.block(p, cast_ids)}
-
-# 열린 복선{f" (이번 아크와 관련된 것만, {fs_cut}개 생략)" if fs_cut else ""}
-{dump(fs) or "없음"}
-
-# 지금까지의 줄거리
-{story_so_far(p, n) or "없음 (첫 화)"}
-
-{where}{line}
-
-{prev}
-
-# 이번 화 플롯
-{dump(write_plot(ep.plot) if write else ep.plot)}{pov}{dev}{material_block(p, n)}"""
+    if trace is not None:
+        who = {c.id: c.name or c.id for c in p.characters}
+        for s in states:
+            trace.item("states", who.get(s.character_id, s.character_id),
+                       context.REASON_PLOT if s.character_id in ep.plot.characters else context.REASON_ALWAYS)
+    parts = static_parts(p, False, trace) + [
+        Part("facts", f"\n\n# 확정된 사실{f' (이번 화와 관련된 것만, {facts_cut}개 생략)' if facts_cut else ''}\n{facts_text}"),
+        Part("elements", els),
+        Part("cast", _cast_text(cast_names, extra_block(extra))),
+        Part("states", f"\n\n# 인물 현재 상태 ({n - 1}화 종료 시점)\n{dump(write_states(p, state_view(p, states)[0])) or '1화 시작 시점, 설정 그대로'}"),
+        Part("relations", f"\n\n# 관계 현재 상태\n{describe_relations(p, cast_ids) or dump(rels) or '없음'}"),
+        Part("address", address.block(p, cast_ids, budget=B("address"), trace=trace)),
+        Part("foreshadows", f"\n\n# 열린 복선{f' (이번 아크와 관련된 것만, {fs_cut}개 생략)' if fs_cut else ''}\n{dump(fs) or '없음'}"),
+        Part("story", f"\n\n# 지금까지의 줄거리\n{story_so_far(p, n) or '없음 (첫 화)'}"),
+        Part("structure", f"\n\n{where}"),
+        *lines, *prev_head, *prev_rest,
+        Part("plot", f"\n\n# 이번 화 플롯\n{dump(write_plot(ep.plot) if write else ep.plot)}"),
+        Part("pov", pov), Part("devices", dev), Part("material", material_block(p, n))]
+    return follow_parts(p, parts, trace)
 
 
-def serial_episode_context(p: Project, n: int, *, where: str, act_line: str, line: str, facts: str, facts_cut: int, els: str,
-                           cast_names: str, extra: str, states: list, rels: list, cast_ids: set[str],
-                           fs: list, fs_cut: int, prev: str, tail: str, write: bool = False, prev_rest: str = "",
-                           head_only: bool = False) -> str:
-    """장편 본문 쓰기 컨텍스트. 바뀌는 빈도 순서로 놓는다: 작품 고정(static_context) → 아크 동안 그대로인 것
+def serial_parts(p: Project, n: int, *, where: str, act_line: str, lines: list[Part], facts: str, facts_cut: int, els: str,
+                 cast_names: str, extra: str, named: str, states: list, rels: list, cast_ids: set[str],
+                 fs: list, fs_cut: int, prev: list[Part], tail: list[Part], write: bool = False, prev_rest: list[Part] = (),
+                 head_only: bool = False, trace: context.Trace | None = None, named_ids: set[str] = frozenset()) -> list[Part]:
+    """장편 본문 쓰기 컨텍스트의 블록 조각. 바뀌는 빈도 순서로 놓는다: 작품 고정(static_context) → 아크 동안 그대로인 것
     (부 · 아크 구조, 끝난 아크의 접은 줄거리) → 화마다 바뀌는 것(아크 안 구간 act_line 부터). 앞부분이 같을수록 캐시가 길게 맞는다.
-    prev 는 직전 화 본문, prev_rest 는 그 뒤에 붙일 블록이다. head_only 면 직전 화 본문까지만 돌려준다 (write_head)."""
-    past, cur = story_parts(p, n)
-    secrets, secrets_cut = context.pick_secrets(p, cast_ids, elements.plot_text(p.episode(n)), context.BUDGET["secrets"])
-    states, knows_cut = state_view(p, states, n, elements.plot_text(p.episode(n)))
+    prev 는 직전 화 본문, prev_rest 는 그 뒤에 붙일 블록이다. head_only 면 직전 화 본문까지만 돌려준다 (write_head).
+    예산은 작품 예산(context.budget)을 읽는다. 꺼진 블록은 부르는 쪽(context_parts)이 뺀다."""
+    B = lambda key: context.budget(p, key)  # noqa: E731
+    query = elements.plot_text(p.episode(n))
+    past, cur = story_parts(p, n, past_budget=B("story_past"), arc_budget=B("story_arc"), trace=trace)
+    secrets, secrets_cut = context.pick_secrets(p, cast_ids, query, B("secrets"))
+    secret_cand = context.open_secrets(p, cast_ids) if trace is not None else []
+    states, knows_cut = state_view(p, states, n, query, trace=trace)
     plot_ids = set(p.episode(n).plot.characters)
     shown = {s.character_id for s in states}
-    states, states_cut = fit_states(p, write_states(p, states), plot_ids, context.BUDGET["states"])
+    states, states_cut = fit_states(p, write_states(p, states), plot_ids, B("states"), trace=trace, named=named_ids)
     cast_ids = cast_ids - (shown - {s.character_id for s in states})  # 상태를 뺀 인물은 관계 · 호칭 · 다시 나옴에서도 뺀다
     rels = [r for r in rels if r.a in cast_ids and r.b in cast_ids]
-    relations = serial_relations(p, cast_ids, plot_ids, secrets) or dump(rels) or "없음"
-    head = f"""{static_context(p)}
-
-{where}
-
-# 지금까지의 줄거리 (끝난 부와 아크)
-{past or "없음"}
-
-# 이번 화 위치
-{act_line}
-
-# 확정된 사실{f" (이번 화와 관련된 것만, {facts_cut}개 생략)" if facts_cut else ""}
-{facts}{els}
-
-# 이번 화 등장 인물
-{cast_names or "설정의 인물 전원"}
-{extra}
-# 인물 현재 상태 ({n - 1}화 종료 시점){knows_note(knows_cut)}{states_cut}
-{dump(states) or "1화 시작 시점, 설정 그대로"}{return_block(p, cast_ids, n)}
-
-# 관계 현재 상태{cut_note(secrets_cut, "숨긴 비밀은 이번 화와 관련된 것만")}
-{relations}{address.block(p, cast_ids)}{pairlog.write_block(p, n, plot_ids & cast_ids, context.BUDGET["pairs"])}
-
-{serial_foreshadow_block(fs, fs_cut)}
-
-# 지금까지의 줄거리 (이번 아크)
-{cur or "없음 (첫 화)"}{line}
-
-{prev}"""
+    context.trace_secrets(trace, secret_cand, secrets, cast_ids)  # 상태 예산으로 인물을 뺀 뒤라야 요청에 찍히는 비밀을 안다
+    relations = serial_relations(p, cast_ids, plot_ids, secrets, budget=B("relations"), trace=trace) or dump(rels) or "없음"
+    head = static_parts(p, False, trace) + [
+        Part("structure", f"\n\n{where}"),
+        Part("story_past", f"\n\n# 지금까지의 줄거리 (끝난 부와 아크)\n{past or '없음'}"),
+        Part("position", f"\n\n# 이번 화 위치\n{act_line}"),
+        Part("facts", f"\n\n# 확정된 사실{f' (이번 화와 관련된 것만, {facts_cut}개 생략)' if facts_cut else ''}\n{facts}"),
+        Part("elements", els),
+        Part("cast", _cast_text(cast_names, extra)),
+        Part("named", f"\n{named[:-1]}" if named else ""),
+        Part("states", f"\n\n# 인물 현재 상태 ({n - 1}화 종료 시점){knows_note(knows_cut)}{states_cut}\n{dump(states) or '1화 시작 시점, 설정 그대로'}"),
+        Part("returns", return_block(p, cast_ids, n, trace=trace)),
+        Part("relations", f"\n\n# 관계 현재 상태{cut_note(secrets_cut, '숨긴 비밀은 이번 화와 관련된 것만')}\n{relations}"),
+        Part("address", address.block(p, cast_ids, budget=B("address"), trace=trace)),
+        Part("pairs", pairlog.write_block(p, n, plot_ids & cast_ids, B("pairs"), trace)),
+        Part("foreshadows", f"\n\n{serial_foreshadow_block(fs, fs_cut)}"),
+        Part("story_arc", f"\n\n# 지금까지의 줄거리 (이번 아크)\n{cur or '없음 (첫 화)'}"),
+        *lines, *prev]
     if head_only:
         return head
-    return f"""{head}{prev_rest}
-
-# 이번 화 플롯
-{dump(write_plot(p.episode(n).plot) if write else p.episode(n).plot)}{tail}"""
+    return head + list(prev_rest) + [
+        Part("plot", f"\n\n# 이번 화 플롯\n{dump(write_plot(p.episode(n).plot) if write else p.episode(n).plot)}"), *tail]
 
 
 def write_head(p: Project, n: int) -> str:
@@ -2883,12 +3065,15 @@ def write_head(p: Project, n: int) -> str:
 STATES_KNOWS_SHORT = 3  # 상태 예산을 넘을 때 플롯 밖 인물에게 남기는 최근 아는 정보 수
 
 
-def fit_states(p: Project, states: list, plot_ids: set[str], budget: int) -> tuple[list, str]:
+def fit_states(p: Project, states: list, plot_ids: set[str], budget: int, *, trace: context.Trace | None = None,
+               named: set[str] = frozenset()) -> tuple[list, str]:
     """장편 쓰기의 인물 상태를 예산(글자)에 맞춘다. 플롯 인물은 그대로 두고, 넘으면 플롯 밖 인물(이름이 나온 조연 등)의
     아는 정보를 접은 줄(knows.view 가 앞에 붙임)과 최근 STATES_KNOWS_SHORT 개로 줄이고, 그래도 넘으면 그 인물 상태를 뒤에서부터 뺀다.
-    (상태, 머리글에 붙일 뺀 수 글). 뺀 인물은 돌려준 상태에 없다."""
+    (상태, 머리글에 붙일 뺀 수 글). 뺀 인물은 돌려준 상태에 없다. trace 를 주면 넣은 인물과 뺀 인물을 'states' 블록에 적는다.
+    named 는 이름으로 켠 인물 id 로 trace 의 넣은 이유에만 쓴다 (플롯 인물 '플롯 등장', named '이름 발견', 그 밖 '늘 넣기')."""
     size = lambda xs: len(dump(xs))  # noqa: E731
     if size(states) <= budget:
+        _trace_states(p, trace, states, [], plot_ids, named)
         return states, ""
 
     def short(s):
@@ -2899,27 +3084,57 @@ def fit_states(p: Project, states: list, plot_ids: set[str], budget: int) -> tup
         return s.model_copy(update={"knows": s.knows[:folded] + s.knows[folded:][-STATES_KNOWS_SHORT:]})
     short = [short(s) for s in states]
     trimmed = sum(1 for a, b in zip(states, short) if a is not b)
+    if trace is not None:  # 아는 정보를 줄인 인물: '인물: 아는 정보 k개 줄임'
+        who = {c.id: c.name or c.id for c in p.characters}
+        for a, b in zip(states, short):
+            if a is not b:
+                trace.drop("states", f"{who.get(a.character_id, a.character_id)}: 아는 정보 {len(a.knows) - len(b.knows)}개 줄임",
+                           context.DROP_BUDGET)
     out = list(short)
-    dropped = 0
+    dropped, gone = 0, []
     while size(out) > budget:
         i = next((k for k in range(len(out) - 1, -1, -1) if out[k].character_id not in plot_ids), None)
         if i is None:
             break
-        out.pop(i)
+        gone.append(out.pop(i))
         dropped += 1
+    _trace_states(p, trace, out, gone, plot_ids, named)
     notes = ([f"플롯 밖 {trimmed}명은 아는 정보를 최근 {STATES_KNOWS_SHORT}개만"] if trimmed else []) + \
             ([f"플롯 밖 {dropped}명 상태 · 관계 생략"] if dropped else [])
     return out, f" (분량 예산: {', '.join(notes)})" if notes else ""
 
 
-def serial_relations(p: Project, cast_ids: set[str], plot_ids: set[str], secrets) -> str:
-    """장편 쓰기의 관계 줄. 이번 화 플롯 인물끼리의 줄을 먼저, 그 밖 줄은 예산(context.BUDGET['relations'])까지. 넘친 줄 수를 적는다."""
+def _trace_states(p: Project, trace: context.Trace | None, kept: list, gone: list, plot_ids: set[str], named: set[str]) -> None:
+    if trace is None:
+        return
+    who = {c.id: c.name or c.id for c in p.characters}
+    for s in kept:
+        cid = s.character_id
+        why = context.REASON_PLOT if cid in plot_ids else context.REASON_NAMED if cid in named else context.REASON_ALWAYS
+        trace.item("states", who.get(cid, cid), why)
+    for s in gone:
+        trace.drop("states", who.get(s.character_id, s.character_id), context.DROP_BUDGET)
+
+
+def serial_relations(p: Project, cast_ids: set[str], plot_ids: set[str], secrets, *, budget: int = 0,
+                     trace: context.Trace | None = None) -> str:
+    """장편 쓰기의 관계 줄. 이번 화 플롯 인물끼리의 줄을 먼저, 그 밖 줄은 예산(budget, 비우면 context.BUDGET['relations'])까지.
+    넘친 줄 수를 적는다. trace 를 주면 넣은 줄과 뺀 줄을 'relations' 블록에 적는다 (고른 비밀 줄은 context.trace_secrets 가 적는다)."""
     core_ids = cast_ids & plot_ids
     pairs = set(describe_relations(p, core_ids, secrets=[]).splitlines()) if len(core_ids) >= 2 else set()
     every = describe_relations(p, cast_ids, secrets=secrets).splitlines()
     keep = [x for x in every if x in pairs or x.startswith("숨긴 비밀")]  # 플롯 인물끼리 줄과 고른 비밀(pick_secrets)은 늘 넣는다
     rest = [x for x in every if x not in keep]
-    lines, cut = context.fit_lines(keep + rest, context.BUDGET["relations"], first=len(keep))
+    lines, cut = context.fit_lines(keep + rest, budget or context.BUDGET["relations"], first=len(keep))
+    if trace is not None:
+        got = set(lines)
+        for x in every:
+            if x.startswith("숨긴 비밀"):
+                continue
+            if x in got:
+                trace.item("relations", x, context.REASON_PLOT if x in pairs else context.REASON_FIT)
+            else:
+                trace.drop("relations", x, context.DROP_BUDGET)
     return "\n".join(lines) + (f"\n(플롯 밖 인물이 낀 관계 {cut}줄 생략)" if cut else "")
 
 
@@ -2999,19 +3214,10 @@ def style_block(p: Project, markers: str | None = None) -> str:
     return f"{example}\n\n{profile}" if passages else f"{profile}\n\n{example}"
 
 
-def static_context(p: Project) -> str:
-    """작품 내내 바뀌지 않는 블록: 작품 정보, 세계관, 문체, 인물 설정.
-    예시 문단이 있는 작품은 예시 문단을 스타일 프로필 앞에 둔다 (문체는 서술보다 예시로)."""
-    return f"""# 작품 정보
-{meta_text(p)}
-
-# 세계관 (깨면 안 되는 규칙 포함)
-{dump(p.world)}
-
-{style_block(p)}
-
-# 인물 설정{static_note(p)}
-{dump(cast_view(static_characters(p)))}"""
+def static_context(p: Project, follow: bool = False) -> str:
+    """작품 내내 바뀌지 않는 블록 (static_parts 를 이은 글). follow 를 켜야 작품 블록 설정을 따른다.
+    검수 · 상태 변경안 · 다듬기 · 부분 고치기와 pipeline 의 캐시 경계 힌트는 기본(따르지 않음)을 쓴다."""
+    return join_parts(static_parts(p, follow))
 
 
 def static_note(p: Project) -> str:
@@ -3086,10 +3292,17 @@ def _anchor_markers(p: Project) -> list:
 
 def episode_prompt(p: Project, n: int, approach: str = "", use_board: bool = True, use_cues: bool = True,
                    direction: bool = True) -> str:
-    """approach 는 1~3화를 여러 안으로 쓸 때 안마다 다르게 주는 여는 방식(OPENING_APPROACHES).
+    """episode_parts 를 이은 본문 쓰기 요청."""
+    return join_parts(episode_parts(p, n, approach, use_board, use_cues, direction))
+
+
+def episode_parts(p: Project, n: int, approach: str = "", use_board: bool = True, use_cues: bool = True,
+                  direction: bool = True, *, trace: context.Trace | None = None) -> list[Part]:
+    """본문 쓰기 요청의 블록 조각. approach 는 1~3화를 여러 안으로 쓸 때 안마다 다르게 주는 여는 방식(OPENING_APPROACHES).
     use_board 를 끄면 스토리보드가 있어도 넣지 않는다 (스토리보드 없이 쓰기).
     그 화에 큐 시트(Episode.cue_sheet)가 있으면 그 뒤에 붙인다. use_cues 를 끄거나 쓰기 재료가 고정점만이면 넣지 않는다 (큐 시트 없이 쓰기).
-    작가 연출 지시(direction_block)는 맨 끝이다. direction 을 끄면 빼고, 큐 시트를 따로 붙이는 호출자가 자기 글 끝에 붙인다."""
+    작가 연출 지시(direction_block)는 맨 끝이다. direction 을 끄면 빼고, 큐 시트를 따로 붙이는 호출자가 자기 글 끝에 붙인다.
+    컨텍스트(context_parts) 뒤의 지시문 꼬리는 끌 수 없는 '지시문' 한 조각이다. 작품 블록 설정 · 예산을 따른다 (장편만)."""
     rules = opening_rules(p, n, approach)
     ep = p.episode(n)
     sheet = ep.cue_sheet if use_cues and not board.fixed_only(p) else None  # 고정점만이면 시트가 있어도 넣지 않는다
@@ -3099,23 +3312,25 @@ def episode_prompt(p: Project, n: int, approach: str = "", use_board: bool = Tru
             else "직전 화 마지막 장면과 자연스럽게 이어지고, ")
     if n > OPENING_EPISODES:  # 1~3화는 opening_rules 가 설명 문장을 다룬다
         flow += RETOLD_LINE
-    return (
-        build_episode_context(p, n, use_board=use_board, write=True)
-        + (f"\n\n{rules}" if rules else "")
-        + f"\n\n위 자료를 바탕으로 {n}화 본문을 약 {p.meta.words_per_episode}자 분량으로 쓰세요. "
-        + flow + "플롯의 ending_hook 으로 끝납니다. "
-        "문체는 스타일 프로필과 문체 예시 문단을 따르고, banned_phrases 의 표현은 쓰지 않습니다. "
-        + ("플롯의 emotional_shift 는 감정 이름으로 서술하지 말고 행동과 대사로 보여 줍니다. " if shift_label(ep.plot.emotional_shift) else "")
-        + "인물의 말투는 speech_style 을 따릅니다. speech_style 의 대사 예시는 말투를 보여 주는 예입니다. "
-        "그 문장을 그대로 쓰지 않고 어미 · 호칭 · 길이만 따릅니다. 작가가 정한 말버릇은 써도 됩니다. "
-        + focus_line(p, sb)
-        + priority_line(p, n, sb is not None)
-        + statwin.write_rule(p, n, show_format=not windows)
-        + attire_write_rule(p, board=sb is not None)
-        + ending_line(p, n)
-        + (cue_write_block(p, sheet) if sheet and sheet.cues else "")
-        + (direction_block(p, n) if direction else "")
-    )
+    parts = context_parts(p, n, use_board=use_board, write=True, trace=trace)
+    tail = ((f"\n\n{rules}" if rules else "")
+            + f"\n\n위 자료를 바탕으로 {n}화 본문을 약 {p.meta.words_per_episode}자 분량으로 쓰세요. "
+            + flow + "플롯의 ending_hook 으로 끝납니다. "
+            "문체는 스타일 프로필과 문체 예시 문단을 따르고, banned_phrases 의 표현은 쓰지 않습니다. "
+            + ("플롯의 emotional_shift 는 감정 이름으로 서술하지 말고 행동과 대사로 보여 줍니다. " if shift_label(ep.plot.emotional_shift) else "")
+            + "인물의 말투는 speech_style 을 따릅니다. speech_style 의 대사 예시는 말투를 보여 주는 예입니다. "
+            "그 문장을 그대로 쓰지 않고 어미 · 호칭 · 길이만 따릅니다. 작가가 정한 말버릇은 써도 됩니다. "
+            + focus_line(p, sb)
+            + priority_line(p, n, sb is not None)
+            + statwin.write_rule(p, n, show_format=not windows, budget=context.budget(p, "stat_lines"), trace=trace)
+            + attire_write_rule(p, board=sb is not None)
+            + ending_line(p, n))
+    parts.append(Part("instructions", tail))
+    if sheet and sheet.cues:
+        parts.append(Part("cues", cue_write_block(p, sheet)))
+    if direction:
+        parts.append(Part("direction", direction_block(p, n)))
+    return [x for x in parts if x.text]
 
 
 def direction_texts(p: Project, n: int) -> tuple[str, str]:
@@ -3234,12 +3449,14 @@ def write_plot(plot):
 
 def priority_line(p: Project, n: int, has_board: bool) -> str:
     """쓰기 자료가 서로 부딪힐 때 따를 차례를 한 줄로. 블록 머리마다 '…보다 우선'을 흩어 두지 않는다 (쇠맛 연구, 2026-10-30).
-    차례를 정할 블록이 하나뿐이면 빈 글."""
+    차례를 정할 블록이 하나뿐이면 빈 글. 쓰기 가족만 부르므로 작품 블록 설정이 끈 블록은 말하지 않는다."""
     order = ([("고정점" if board.fixed_only(p) else "스토리보드")] if has_board else []) + ["이번 화 플롯"]
     directed = any(direction_texts(p, n))
     if directed:  # 플롯은 무엇을, 연출 지시는 어떻게를 정한다
         order.append("작가 연출 지시")
-    near = [x for x, on in (("서술 시점", pov_block(p, n)), ("가끔 쓰는 장치", device_block(p, n))) if on]
+    # 작품 블록 설정이 끈 블록(장편 서술 시점 · 가끔 쓰는 장치)은 요청에 없으니 차례에서도 뺀다. 고정점 · 스토리보드 · 플롯 · 연출 지시 · 문체는 끌 수 없다
+    near = [x for x, bid, on in (("서술 시점", "pov", pov_block(p, n)), ("가끔 쓰는 장치", "devices", device_block(p, n)))
+            if on and block_on(p, bid)]
     if near:
         order.append(" · ".join(near))
     if near or directed:
@@ -3254,13 +3471,15 @@ def priority_line(p: Project, n: int, has_board: bool) -> str:
 # (같은 모델이면 캐시가 맞는다). 쓰기 프롬프트에는 Canon 이 값을 센 글(board_block)로 넣고 JSON 을 그대로 넣지 않는다.
 # 경고와 근거(warnings, stat_basis, checks)는 쓰기에 넣지 않는다.
 
-def board_block(p: Project, n: int, write: bool = False) -> str:
+def board_block(p: Project, n: int, write: bool = False, budget: int = 0, trace: context.Trace | None = None) -> str:
     """쓰기 프롬프트의 스토리보드 블록: 직전 화 본문 뒤, 이번 화 플롯 바로 앞. 스토리보드가 없으면 빈 글.
     쓰기 재료가 고정점만이면(board.fixed_only) 장면 목록과 장면 번호를 빼고 고정점만 넣는다. 장면 메모가 본문에 옮겨지는 것을 막는다.
     write 는 본문을 쓰는 요청이다. 쓰기 재료가 꼭 쓸 것만이면(board.lean) 그때만 lean_board_block 으로 거른다.
-    큐 시트 만들기 같은 설계 요청은 write 를 끄고 스토리보드 전체를 본다."""
+    큐 시트 만들기 같은 설계 요청은 write 를 끄고 스토리보드 전체를 본다.
+    budget 은 열린 기한 예산 (board.deadline_rows, 비우면 BUDGET['deadlines']). 쓰기 가족이 작품 예산(context.budget)을 넘긴다.
+    trace 를 주면 예산으로 뺀 기한을 'board' 블록에 적는다."""
     if write and board.lean(p):
-        return lean_board_block(p, n)
+        return lean_board_block(p, n, budget, trace)
     b = p.episode(n).storyboard
     if b is None:
         return ""
@@ -3270,7 +3489,7 @@ def board_block(p: Project, n: int, write: bool = False) -> str:
     head = ("# 이번 화 고정점 (반드시 지킬 것. 장면 나눔과 대사, 문장은 직접 씁니다)" if fixed
             else "# 이번 화 스토리보드 (장면 순서와 확정 값. 대사와 문장은 정하지 않았으니 직접 씁니다)")
     out = [head, f"시간: {board.time_line(p, n, b)}"]
-    dl = board.deadline_rows(p, n, b)
+    dl = board.deadline_rows(p, n, b, budget, trace)
     if dl:
         out += ["열린 기한:"] + dl
     if b.handover:
@@ -3315,7 +3534,7 @@ def board_block(p: Project, n: int, write: bool = False) -> str:
     return "\n".join(out)
 
 
-def lean_board_block(p: Project, n: int) -> str:
+def lean_board_block(p: Project, n: int, budget: int = 0, trace: context.Trace | None = None) -> str:
     """쓰기 재료 '꼭 쓸 것만'(board.lean)의 스토리보드 블록. 집필에는 이번 화 목표와 꼭 써야 하는 것만 넣는다.
     앞 블록은 어기면 안 되지만 본문에 꺼내지 않아도 되는 것(시간 · 기한 · 첫 장면에 닿는 이어받을 것), 뒤 블록은 이번 화에 쓸 것이다.
     쓰기 요청에 가까운 글이 본문에 더 반영되도록 쓸 것을 뒤에 둔다. 장면 끝 상태, 깨지 않을 것, 이어받을 것 중 숨긴 것 · 인물 · 숫자 · 질문,
@@ -3326,7 +3545,7 @@ def lean_board_block(p: Project, n: int) -> str:
     name = {c.id: c.name or c.id for c in p.characters}
     who = lambda ids: ", ".join(name.get(x, x) for x in ids)  # noqa: E731
     keep = ["# 이번 화에서 어기면 안 되는 것 (지키기만 합니다. 본문에 일부러 꺼내 설명하지 않습니다)", f"시간: {board.time_line(p, n, b)}"]
-    dl = board.deadline_rows(p, n, b)
+    dl = board.deadline_rows(p, n, b, budget, trace)
     if dl:
         keep += ["열린 기한:"] + dl
     hand = [h for h in b.handover if h.text.strip() and (not h.kind.strip() or h.kind.strip() in board.LEAN_HANDOVER)]
@@ -3504,7 +3723,7 @@ def cue_sheet_prompt(p: Project, n: int, lead: str = "") -> str:
     장면 연출은 lead 에 이미 있어 다시 넣지 않는다. lead 의 다음 화 플롯 · 시간 · 이동 블록은 지울 수 없어 첫 줄에서 쓰임을 정한다."""
     if lead:
         return (lead + "\n\n아래는 위 요청으로 만든 스토리보드를 Canon 이 값을 세어 적은 글입니다. 스토리보드 JSON 을 다시 만들지 않습니다.\n\n"
-                + board_block(p, n) + "\n\n"
+                + board_block(p, n, budget=context.budget(p, "deadlines")) + "\n\n"
                 + _cue_request(p, n, f"위 자료와 바로 위 스토리보드로 {n}화의 큐 시트(악보)를 JSON 으로 만듭니다. 본문을 쓰지 않습니다.\n"
                                f"[다음 화 플롯]의 사건은 큐에 넣지 않습니다. 시간 · 이동 · 장면 순서는 바로 위 스토리보드를 따릅니다.") + heat_cue_rule(p, n))
     return build_episode_context(p, n) + "\n\n" + _cue_request(

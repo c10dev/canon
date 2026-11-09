@@ -26,6 +26,7 @@
 - 상태 변경안의 바뀜(`StateDelta.address_changes`, `AddressChange`) 정리 · 반영 · 되돌리기(features 훅 `clean_delta` · `apply_delta` · `revert`, 기록 `Project.address_log`)
 - 자동 집필 · `run -y` · 플레이의 남겨 두기(`hold`, `Project.address_held`, `take_held` · `drop_held`)
 - 프롬프트 블록(`block`, 장편 예산 `context.BUDGET["address"]`) · 검수 규칙(`check_rule`) · 상태 규칙(`state_rule`)
+- `block(budget=, trace=)`: 쓰기 가족만 작품 예산(`context.budget`)을 넘기고, trace 에 예산으로 뺀 줄을 적는다
 - 자주 쓰는 말씨 `SPEECH_LEVELS`
 - LLM 호출 없음
 - 화면은 `static/address.js` (두 사람 상세 `addressCard` · 인물 카드 `addressHeldCard` · 상태 승인 '직접 정할 것' 줄 `addressDeltaRows`, 말씨 목록 `ADDRESS_LEVELS` 는 `SPEECH_LEVELS` 와 같음 `tests/test_address.py`)
@@ -326,6 +327,7 @@
 - 두 사람 사이 이력(장편)
 - 승인된 관계 사건(`Project.events`)을 쌍마다 모으기(`history`)
 - 쓰기 블록(`write_block` · `write_lines`: 이번 화 플롯 인물끼리 한 줄 라벨, 근거 문장 없음, 예산 `context.BUDGET['pairs']`)
+- `write_block(trace=)` · `write_lines(trace=)` 는 예산으로 뺀 줄을 보기의 'pairs' 블록에 적는다(`context.trace_drops`)
 - 검수 블록(`check_block`: 갈래별 처음 일어난 화와 근거 문장, 예산 `check_pairs`, `prompts.pair_check_block`) · 확인할 것(`check_rule`)
 - 새 데이터 없음
 - LLM 호출 없음
@@ -725,6 +727,8 @@
 - 프롬프트 규칙
   - `write_rule(p, n)`: 넣는 방식 `Project.stat_window.prompt` 가 json 이면 지금처럼
   - `write_rule` 은 lines 면 이번 화 인물(`episode_cast`)의 수치 줄과 도감 줄을 예산 `context.BUDGET['stat_lines']` 까지 넣는 `lines_block`(서식 예시는 플롯에 상태창 장면이 있을 때만 `wants_window`)
+  - `write_rule(budget=)` · `lines_block(budget=)` 은 도감 줄 예산을 받는다. 본문 쓰기 요청이 작품 예산(`context.budget`)을 넘긴다
+  - `write_rule(trace=)` · `lines_block(trace=)` 는 예산으로 뺀 도감 줄을 보기의 'instructions' 블록에 적는다
   - `write_rule` 은 none 이면 빈 글
   - 쓰기 컨텍스트의 인물 상태는 `prompts.write_states` 가 lines · none 에서 stats 를 뺀다
   - `state_rule`
@@ -753,6 +757,8 @@
 - 플롯의 시점(`EpisodePlot.time`)
 - 기한(`Timeline.deadlines`, `Deadline`)과 남은 날(`left`)
 - 기한 예산(`deadline_lines`)은 오늘에서 가까운 기한(지났든 남았든)부터 넣는다. 줄 차례는 지난 기한 → 가까운 기한 그대로다
+- 쓰기 블록 `episode_block(budget=)` 은 기한 예산을 `deadline_lines` 에 넘긴다. 쓰기 가족만 작품 예산(`context.budget`)을 넘긴다
+- `deadline_lines(trace=, block=)` 는 예산으로 뺀 기한을 보기의 그 블록('time' 또는 'board')에 적는다. `episode_block(trace=)` 는 'time' 으로 넘긴다
 - 그래서 오래 지나 닫히지 않은 기한이 쌓여도 다가오는 기한이 프롬프트에서 빠지지 않는다
 - 상태 변경안 정리 · 반영 · 되돌리기(`clean_delta`, `apply_delta`, `revert`, 기한은 `Snapshot.deadlines`)
 - 작가가 기한 고치기(`upsert`, `remove`)

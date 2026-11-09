@@ -565,6 +565,18 @@
   - Claude 구독 계정 줄(`claudeAccountRow`, 같이 · Canon 전용)과 '로그인 시작' · '로그아웃'(`claude.js`, 띄운 뒤 3초마다 상태를 다시 봄)
   - 이 브라우저 › 알림 갈래의 줄은 `notify.js` 의 값을 그리고 고친다(`notifyPref` · `notifyTurnOn` · `notifyTest`)
   - 집필 묶음의 '되풀이한 구절 피하기' 줄(`echoes`, 장편만, `PUT …/recent-echoes`)
+  - 이 작품 › 집필 · 검수의 '프롬프트 블록' 묶음: 블록 켜기 · 끄기(`blocks`, `blockRows`)와 블록 예산(`budgets`, `budgetRows`)
+  - 프롬프트 블록은 열 때 `GET …/blocks` 로 받아 `SET.blocks` 에 둔다(`loadBlocks`, 장편만)
+  - 단편은 프롬프트 블록 묶음에 블록 설정을 쓰지 않는다는 한 줄만 보인다
+  - 끌 수 있는 블록은 스위치(`setBlock`), 잠긴 블록은 잠금 칩과 '이 블록은 끌 수 없어요'
+  - 다른 설정이 정하는 블록은 그 설정 이름을 적고, 같은 갈래에 그 줄이 있으면 '그 설정 보기'(`setJump`)로 옮긴다(`BLOCK_NOTE`)
+  - 예산 줄은 키마다 숫자 칸(100 단위, 서버가 준 범위)과 기본값 · 범위 · 쓰는 블록, '기본값으로'(`setBudgetReset`). 예산 이름은 `BUDGET_LABEL`(집필 화면 대화상자도 쓴다)
+  - 저장 `setBlocksSave` 는 기본값과 다른 것만 모아(`blocksBody`) `PUT …/blocks` 로 두 목록을 통째로 보낸다
+  - 블록 저장은 줄을 서서 하나씩 보낸다(`blockSaveChain`). 앞 저장이 끝나야 다음 저장이 그때 화면 값(마지막 변경)을 보낸다
+  - 서버가 거절하면 그 저장이 바꾼 값만 되돌리고(뒤에 다시 바꾼 값은 둔다) 서버 문구를 줄 아래에 보인다. 기다리는 저장이 없으면 서버 응답으로 맞춘다(`blocksSync`)
+  - 캐시 앞부분 블록(`front`)이나 그 블록이 쓰는 예산을 바꾸면 저장 알림에 '다음 요청부터 캐시가 처음부터 다시 쌓여요'를 붙인다
+  - 블록 설정을 저장하면 집필 화면이 든 컨텍스트 블록 표를 다시 받는다(`ctxReload`)
+  - `ctxReload` 는 들고 있던 프롬프트 원문(`S.promptText`)과 토큰 센 값(`S.ctxCount`)을 버린다. 다음에 열 때 새 요청을 받는다
   - 이 작품 › 백업 갈래(`backup-list`): 백업마다 한 줄(`backupRows` · `backupDesc`), 열 때 `GET …/backups` 로 받고 되돌리기는 `setRestore`(되돌린 뒤 `PER_PROJECT` 초안 · 변경안을 비움)
   - `tests/test_settings_js.py` · `tests/test_model_preset.py`
 
@@ -623,6 +635,16 @@
   - 프롬프트 원문 보기(`togglePrompt` · `loadPrompt`)는 그 화에 보낸 프롬프트 기록이 있으면 보낸 그대로를 먼저 보인다(`web.prompt` 의 `source=auto`)
   - 원문 위 설명 줄 `promptSource`: 보낸 시각(`fmtDateTime`) · 서버 `note`, 두 갈래를 오가는 버튼 `switchPrompt`('지금 데이터로 다시 만든 것 보기' · '보낸 그대로 보기')
   - 기록이 없는 화는 다시 만든 것만 보이고 설명 줄이 그렇다고 밝힌다. 갈래와 설명은 `S.promptInfo` 에 둔다
+  - 컨텍스트 블록 표 `ctxList`: `GET …/context` 의 블록마다 이름 · 글자 · 추정 토큰 · 예산(장편) · 상태 칩 한 줄(`.ctx-tbl`)
+  - 블록 상태 `ctxState`: 넣음 · 작가가 끔(`on` 거짓) · 비어 있음(글자 0) · 잠금
+  - 컨텍스트 대화상자(`#w-ctx`, `ctxDialogHtml`)는 `ctxList(true)` 로 줄마다 펼친다(`ctxMore`: 상태 까닭 · 예산 · 넣은 항목과 이유 · 뺀 항목과 이유 · 블록 원문)
+  - 다른 설정이 정하는 블록(`note`)은 펼친 곳에 그 설정 이름을 적는다(`CTX_NOTE`: 쓰기 재료 · 되풀이한 구절 피하기 · 큐 시트)
+  - 펼친 블록은 `S.ctxBlkOpen` 에 남아 대화상자를 다시 채워도 열려 있다
+  - 쓰기 시작 칸 · 만든 스토리보드 칸의 펼치는 곳(`details[data-ctx-toggle]`)은 `ctxList()` 요약 줄만 보인다
+  - 합계 줄 `ctxTotal`: 'N개 블록 · 합계 X자 · 약 Y토큰(추정)'. 넣은 블록만 세고, `tokens` 가 없는 옛 응답이면 토큰을 빼고 보인다
+  - 대화상자의 '실제 토큰 세기'(`ctxCount` → `POST …/count-tokens`)는 결과를 `ctxCountHtml` 줄에 보인다. 셀 수 없는 백엔드는 서버 문구를 그대로 보인다
+  - 토큰을 센 결과는 같은 작품 · 화 · 합계 줄일 때만 보인다. 블록 설정을 바꾸면 다시 센다
+  - 대화상자의 '블록 설정 바꾸기'(`ctxSettings`, 장편만)는 대화상자를 닫고 설정의 집필 · 검수 갈래를 프롬프트 블록 줄에서 연다
   - 생성 방식 바꾸기(`setMode`)는 localStorage 에 못 적어도 이번 화면에서는 바꾼다
   - 640px 이하 머리(`.w-head`)는 ⋯ 메뉴와 primary 만 남긴다(app.css)
   - 머리와 단계 띠는 `.w-headwrap` 으로 묶는다
