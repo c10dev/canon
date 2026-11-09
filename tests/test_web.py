@@ -445,10 +445,14 @@ def test_usage_page_records_web_calls(client, monkeypatch):
     # 작업 · 추론 강도 묶음과 캐시 비율 · 평균 시간도 응답 모델을 지나 나온다
     assert s["by_effort"][0]["effort"] == "기본" and s["by_task"][0]["calls"] == 1
     assert s["total"]["cache_rate"] == 0.0 and "seconds_avg" in s["by_stage"][0]
+    # 캐시 읽기 아낌 · 쓰기 할증도 응답 모델을 지나 나온다 (이 호출은 캐시가 없어 0)
+    assert s["total"]["cache_saved"] == 0.0 and s["total"]["cache_premium"] == 0.0
+    assert "cache_saved" in s["by_model"][0] and "cache_premium" in s["recent"][0]
     assert s["total"]["cost"] == round((5000 * 0.75 + 800 * 3.75) / 1e6, 6)
     assert client.get("/api/usage?project=없음").json()["total"]["calls"] == 0
 
     t = client.get("/api/usage/prices").json()
+    assert t["claude_url"].startswith("https://") and "cache_write" in t["rows"][0]
     rows = [dict(r, input=0.5) if r["model"] == "gemini-3.8-flash" and not r["since"] else r for r in t["rows"]]
     t = client.put("/api/usage/prices", json={"rows": rows}).json()
     assert any(r["custom"] for r in t["rows"])

@@ -55,6 +55,9 @@ def test_run_cost():
     p = usage.prices()[0]
     got = promptlab.run_cost("gemini", p.model, {"prompt_tokens": 1000, "completion_tokens": 100, "thought_tokens": 100})
     assert got == pytest.approx(usage.cost(usage.rate(p.model), 1000, 200))
+    # claude-api 시도의 캐시 쓰기는 사용량 화면처럼 캐시 쓰기 값으로 센다
+    tok = {"prompt_tokens": 1_000_000, "completion_tokens": 0, "cached_tokens": 0, "written": 1_000_000, "written_1h": 0}
+    assert promptlab.run_cost("claude-api", "claude-opus-5-5", tok) == pytest.approx(4 * 1.25)
 
 
 def test_room(home, monkeypatch):

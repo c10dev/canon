@@ -31,6 +31,8 @@ class UsageBucket(_Out):
     resent: int = Field(0, description="한 호출 안에서 다시 보낸 입력 어림값. cache_rate 를 셀 때 in · cached 에서 뺐다")
     cache_rate: float = Field(0.0, description="캐시 토큰 / 입력 토큰 (0~1, 다시 보낸 입력은 뺌). 입력이 없으면 0")
     seconds_avg: float = Field(0.0, description="호출당 평균 초")
+    cache_saved: float = Field(0.0, description="캐시 읽기로 아낀 비용 USD (usage.row_cache)")
+    cache_premium: float = Field(0.0, description="캐시 쓰기 할증 USD (usage.row_cache)")
 
 
 class UsageTotal(UsageBucket):
@@ -73,6 +75,8 @@ class UsageCall(_Out):
     blocks: list[list[str | int]] | None = Field(None, description="프롬프트 머리글별 글자 수 [이름, 글자 수], 큰 것부터")
     cost: float | None = Field(None, description="추정 비용 USD. 가격을 모르면 null")
     saved: float = 0.0
+    cache_saved: float = Field(0.0, description="캐시 읽기로 아낀 비용 USD (usage.row_cache)")
+    cache_premium: float = Field(0.0, description="캐시 쓰기 할증 USD (usage.row_cache)")
 
 
 class UsageSummary(_Out):
@@ -109,6 +113,7 @@ class PriceTable(_Out):
     checked: str
     url: str
     billing_url: str
+    claude_url: str = Field("", description="기본 가격표의 Claude 줄을 옮긴 Anthropic 가격표")
 
 
 @router.get("/api/usage")

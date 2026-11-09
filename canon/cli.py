@@ -2324,11 +2324,13 @@ def cmd_claude(a: argparse.Namespace) -> None:
 def cmd_usage(a: argparse.Namespace) -> None:
     if a.prices:
         t = usage.price_table()
-        print(f"USD / 100만 토큰. 기본값은 {t['checked']} Google 가격표 ({t['url']})")
-        print(f"{'모델':<26}{'적용':>11}{'입력':>8}{'출력':>8}{'캐시':>8}{'배치입력':>9}{'배치출력':>9}")
+        print(f"USD / 100만 토큰. 기본값은 {t['checked']} Google 가격표 ({t['url']}) · Anthropic 가격표 ({t['claude_url']})")
+        print(f"{'모델':<26}{'적용':>11}{'입력':>8}{'출력':>8}{'캐시':>8}{'캐시쓰기':>9}{'1시간쓰기':>9}{'배치입력':>9}{'배치출력':>9}")
         for r in t["rows"]:
             mark = " (사용자 수정)" if r["custom"] else (" (예고)" if r["upcoming"] else "")
             print(f"{r['model']:<26}{r['since'] or '처음부터':>11}{r['input']:>8g}{r['output']:>8g}{r['cached'] if r['cached'] is not None else r['input']:>8g}"
+                  f"{r['cache_write'] if r['cache_write'] is not None else r['input'] * 1.25:>9g}"
+                  f"{r['cache_write_1h'] if r['cache_write_1h'] is not None else r['input'] * 2:>9g}"
                   f"{r['batch_input'] if r['batch_input'] is not None else r['input'] / 2:>9g}"
                   f"{r['batch_output'] if r['batch_output'] is not None else r['output'] / 2:>9g}{mark}")
         print("고치려면 웹 사용량 · 비용 화면의 'AI 요금 가격표'에서 고쳐요. 로컬 모델은 0원으로 세요.")
@@ -2340,6 +2342,8 @@ def cmd_usage(a: argparse.Namespace) -> None:
     print(f"  입력 {t['in']:,} 토큰 (캐시 {t['cached']:,}), 출력 {t['out']:,} 토큰 (생각 토큰 포함)")
     if t["batch"]:
         print(f"  배치 {t['batch']}번으로 아낀 비용 {_usd(t['saved'])}")
+    if t["cache_saved"] or t["cache_premium"]:
+        print(f"  캐시 읽기로 아낀 비용 {_usd(t['cache_saved'])}, 캐시 쓰기 할증 {_usd(t['cache_premium'])}")
     if t["failed"] or t["retries"]:
         print(f"  실패 {t['failed']}번, 다시 요청 {t['retries']}번 (여기에 쓴 비용 {_usd(t['wasted'])})")
     for title, key, label in (("작품별", "by_project", lambda r: r["project"] or "(작품 밖)"),
