@@ -3566,7 +3566,7 @@ def check_episode(llm: LLM, p: Project, n: int, widen: bool | None = None, motio
     with ThreadPoolExecutor(max_workers=1) as pool:
         side = (pool.submit(contextvars.copy_context().run, motion_check, part("motion") if part else llm, p, n)
                 if (p.settings.check_motion if motion is None else motion) else None)
-        material = prompts.check_material(p, n)  # 검수 가족(고침안 · 다시 검수 · 상태)과 같은 앞부분. 본문 바로 앞을 캐시 경계로 알린다 (check_cache_cut)
+        material = prompts.check_material(p, n)  # 검수 가족(고침안 · 다시 검수)과 같은 앞부분. 본문 바로 앞을 캐시 경계로 알린다 (check_cache_cut)
         report = llm.json(prompts.SYSTEM_CHECKER, prompts.check_prompt(p, n, material=material, scope=parts), ConsistencyReport,
                           hint={"episode": n, PREFIX_HINT: prompts.check_cache_cut(material, n)})
         report.episode = n
@@ -4351,13 +4351,9 @@ def extract_state(llm: LLM, p: Project, n: int, audit: LLM | None = None) -> Sta
     if carried is not None:
         return carried
     basis = text_basis(p.episode(n).text)  # 프롬프트에 넣은 본문의 지문. 부르는 사이 p 가 바뀌어도 이 본문 기준이다
+    # 검수 자료(check_material)로 시작해 검수 캐시를 읽던 판은 뺐다 (2026-11-09 실측: 입력 2배, 느리고 연속성 경고를 덜 잡음)
     hint = {"episode": n, "stats": statwin.enabled(p)}
-    if getattr(llm, "family_cache", False):  # 캐시 가족을 받는 백엔드(Claude)는 검수 자료로 시작해 검수가 쓴 캐시를 읽는다
-        material = prompts.check_material(p, n)
-        prompt, hint[PREFIX_HINT] = prompts.state_prompt(p, n, head=material), prompts.check_cache_cut(material, n)
-    else:
-        prompt = prompts.state_prompt(p, n)
-    raw = llm.json(prompts.SYSTEM_EDITOR, prompt, StateDeltaAI, hint=hint)
+    raw = llm.json(prompts.SYSTEM_EDITOR, prompts.state_prompt(p, n), StateDeltaAI, hint=hint)
     delta = to_delta(raw, n)  # 관계 수치 칸은 응답 형식에 없고, 있어도 버린다
     clean_delta(p, delta)
     delta.basis = basis

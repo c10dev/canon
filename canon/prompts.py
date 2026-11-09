@@ -4208,11 +4208,9 @@ def state_facts_block(p: Project, n: int, ids: set[str], budget: str = "state_fa
             + fact_rows(p, facts) + "\n")
 
 
-def state_prompt(p: Project, n: int, cuts: tuple[int, int] | None = None, head: str = "", facts_budget: str = "state_facts") -> str:
+def state_prompt(p: Project, n: int, cuts: tuple[int, int] | None = None, facts_budget: str = "state_facts") -> str:
     """상태 변경안. cuts 는 (뺀 비밀 수, 뺀 복선 수)로 머리글의 뺀 수를 바꾼다: 미리 거른 보기를 넘기는 플레이(play_view)가 원래 작품 기준 수를 준다.
-    head 에 검수 자료(check_material, 끝이 n화 본문)를 주면 그 뒤에 상태 칸을 붙이고 본문은 다시 넣지 않는다. 검수 가족과 캐시를 함께 쓰려는
-    것이라 캐시 가족을 받는 백엔드만 준다 (pipeline.extract_state). 비우면 예전 모양이다 (다른 백엔드 · 작업지시서).
-    장편이고 head 가 없으면 '[이미 있는 확정 사실]'을 넣는다(state_facts_block, 예산 키 facts_budget). 단편은 넣지 않는다."""
+    장편은 '[이미 있는 확정 사실]'을 넣는다(state_facts_block, 예산 키 facts_budget). 단편은 넣지 않는다."""
     ep = p.episode(n)
     secrets_cut = fs_cut = 0
     if p.serial:  # 장편: 이번 화 플롯 인물 · 본문에 이름이 나온 인물과 주역만 자세히, 나머지는 한 줄 목록으로 ('넣지 않음' 인물은 한 줄 목록에)
@@ -4235,30 +4233,21 @@ def state_prompt(p: Project, n: int, cuts: tuple[int, int] | None = None, head: 
             others = ", ".join(f"{c.id}: {c.name}({c.role})" for c in p.characters if c.id in off)
     if cuts is not None:
         secrets_cut, fs_cut = cuts
-    lead = (f"{head}\n\n위 [{n}화 본문 (검수 대상)]을 읽고 상태 변경안을 작성하세요. 아래는 상태 변경안에 쓸 자료입니다."
-            if head else f"{n}화 본문을 읽고 상태 변경안을 작성하세요.")
-    text = "" if head else f"\n[{n}화 본문]\n{ep.text}\n"
-    # 장편 검수 자료(budget)는 같은 인물로 설정 · 이전 상태 · 비밀을 같은 방식으로 고른다 (_check_budget). 인물이 같으면 그 칸을 다시 넣지 않는다
-    shared = bool(head) and p.serial and ids == check_cast(p, n)
-    if shared:
-        cast = (f"[인물 설정] · [이전 인물 상태] · [현재 비밀]: 위 자료의 '인물 설정' · '조연 · 단역 설정', "
-                f"'인물 현재 상태 ({n - 1}화 종료 시점)', '비밀' 칸을 봅니다. 그 비밀 목록에 없는 비밀의 id 는 쓰지 않습니다.\n"
-                + (f"[다른 인물 (id: 이름, 역할) — 다시 만들지 않습니다]{chr(10)}{others}{chr(10)}" if others else ""))
-    else:
-        cast = f"""[인물 설정]
+    lead = f"{n}화 본문을 읽고 상태 변경안을 작성하세요."
+    text = f"\n[{n}화 본문]\n{ep.text}\n"
+    cast = f"""[인물 설정]
 {dump(chars)}
 {f"[다른 인물 (id: 이름, 역할) — 다시 만들지 않습니다]{chr(10)}{others}{chr(10)}" if others else ""}[이전 인물 상태]{knows_note(knows_cut)}
 {dump(states) or "설정 그대로"}
 """
-    secret_block = "" if shared else f"""[현재 비밀]{cut_note(secrets_cut, "이번 화 인물과 관련된 것만", "목록에 없는 비밀의 id 는 쓰지 않습니다")}
+    secret_block = f"""[현재 비밀]{cut_note(secrets_cut, "이번 화 인물과 관련된 것만", "목록에 없는 비밀의 id 는 쓰지 않습니다")}
 {dump(secrets) or "없음"}
 """
-    plot = f"[이번 화 플롯]: 위 자료의 '{n}화 플롯' 칸을 봅니다.\n" if head else f"[이번 화 플롯]\n{dump(write_plot(ep.plot, coord.memo(p, n)))}\n"
-    facts = state_facts_block(p, n, ids, facts_budget) if p.serial and not head else ""
+    plot = f"[이번 화 플롯]\n{dump(write_plot(ep.plot, coord.memo(p, n)))}\n"
+    facts = state_facts_block(p, n, ids, facts_budget) if p.serial else ""
     fact_rule = ""
-    if p.serial and (head or facts):
-        where = "위 자료의 확정 사실(Confirmed facts) 칸" if head else "[이미 있는 확정 사실]"
-        fact_rule = f"\n- new_facts 에는 {where}에 없는 새 사실만 적습니다. 이미 있는 사실을 말만 바꿔 다시 적지 않습니다."
+    if p.serial and facts:
+        fact_rule = "\n- new_facts 에는 [이미 있는 확정 사실]에 없는 새 사실만 적습니다. 이미 있는 사실을 말만 바꿔 다시 적지 않습니다."
     return f"""{lead}
 
 {cast}[이전 관계]
@@ -4693,7 +4682,7 @@ def check_material(p: Project, n: int, mode: str = "", sized: bool = False, lang
 
 
 def check_cache_cut(material: str, n: int) -> int:
-    """검수 가족(검수 · 고침안 · 다시 검수 · 상태 변경안)의 캐시 경계: check_material 의 맨 끝 블록인 이번 화 본문 바로 앞.
+    """검수 가족(검수 · 고침안 · 다시 검수)의 캐시 경계: check_material 의 맨 끝 블록인 이번 화 본문 바로 앞.
     본문 끝을 경계로 두면 고침안이나 작가가 본문을 한 글자만 고쳐도 앞부분 캐시를 통째로 버린다
     (2026-11-09 subway 57~88화: 상태 변경안 35번 중 17번이 검수 캐시를 못 읽고 앞부분 약 11만 토큰을 새로 썼다).
     본문 블록을 찾지 못하면 자료 끝."""

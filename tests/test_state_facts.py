@@ -24,9 +24,6 @@ def test_serial_state_prompt_lists_facts_and_rule():
     assert HEAD in out and "- 등대지기는 매일 밤 불을 켠다" in out
     assert "new_facts 에는 [이미 있는 확정 사실]" + RULE in out
     assert out.index(HEAD) < out.index("[이미 있는 장소]")
-    # 검수 자료를 앞에 두는 요청은 그 자료에 사실이 있어 블록을 다시 넣지 않고, 요구사항은 그 칸을 가리킨다
-    head = prompts.state_prompt(p, n, head="# 검수 자료")
-    assert HEAD not in head and "new_facts 에는 위 자료의 확정 사실(Confirmed facts) 칸" + RULE in head
 
 
 def test_short_state_prompt_unchanged():

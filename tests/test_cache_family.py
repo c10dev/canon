@@ -67,26 +67,14 @@ def test_short_has_no_write_head():
     assert prompts.write_head(_short(), 4) == ""
 
 
-def test_state_starts_with_check_material_only_for_family_backends():
+def test_state_does_not_start_with_check_material():
+    # 검수 자료로 시작하는 상태 변경안은 뺐다 (2026-11-09 실측: 입력 2배, 느리고 연속성 경고를 덜 잡음). 가족 백엔드도 예전 모양이다
     p = _project()
     n = max(e.plot.number for e in p.episodes if e.text)
-    p.episode(n).text = "이번 화만의 본문 " + "라" * 300
-    material = prompts.check_material(p, n)
     rec = Recorder()
     pipeline.extract_state(rec, p, n)
     _, prompt, hint = rec.seen[-1]
-    assert prompt.startswith(material) and hint[PREFIX_HINT] == prompts.check_cache_cut(material, n) < len(material)
-    assert prompt.count(p.episode(n).text) == 1  # 본문은 앞부분에 한 번만
-    tail = prompt[len(material):]
-    assert "[인물 설정] · [이전 인물 상태] · [현재 비밀]: 위 자료의" in tail  # 장편은 검수 자료와 같은 칸을 다시 넣지 않는다
-    assert "\n[현재 비밀]" not in tail and "\n[이번 화 플롯]\n" not in tail
-    assert "[열린 복선]" in tail and "요구사항:" in tail
-
-    plain = MockLLM()
-    seen = []
-    plain.json = lambda system, prompt, schema, hint=None: seen.append(prompt) or MockLLM.json(plain, system, prompt, schema, hint)
-    pipeline.extract_state(plain, p, n)
-    assert seen[-1].startswith(f"{n}화 본문을 읽고")  # 다른 백엔드는 예전 모양이다
+    assert prompt == prompts.state_prompt(p, n) and prompt.startswith(f"{n}화 본문을 읽고") and PREFIX_HINT not in hint
 
 
 def test_check_passes_material_boundary():
