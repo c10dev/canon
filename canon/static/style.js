@@ -3,6 +3,11 @@
 
 // ----- 2. 문체 -----
 
+Object.assign(S, {
+  styleNow: null,   // { name, n, metrics }: 마지막으로 본문을 쓴 화의 문체 지표 (styleNowLoad). 맨 위 요약 줄이 레퍼런스와 견준다
+  styleFill: {},    // pfKey → 펼친 빈 칸 열쇠 배열: 서술 카드의 '빈 칸 n개 채우기'
+});
+
 function emptyProfile() {
   return {
     narration_pov: '', tense: '', sentence_rhythm: '', description_density: '', dialogue_ratio: '', dialogue_style: '',
@@ -120,7 +125,7 @@ function pfCard(id, label, base, root, hot) {
     empty && !pfOpen(root, id) ? '' : `<button type="button" class="btn small" data-action="styleEdit" data-arg="${root}|${id}" aria-expanded="${editing}">${editing ? '다 고쳤어요' : '고치기'}</button>`,
   ].join('');
   const sub = { markers: '어미 · 조사 · 말버릇과 원문 빈도. 넘치거나 빠지면 경고해요', devices: '특정 상황에만, 몇 화에 한 번 쓰는 장면 장치', passages: '본문 생성 때 원문 그대로 보여 줘요, 2~4개' }[id];
-  const body = editing ? pfEdit(id, base, root, hot) : pfRead(id, prof, root, hot);
+  const body = editing ? pfEdit(id, base, root, hot) : pfRead(id, prof, root, hot, base);
   return `<section class="card pf-sec${editing ? ' editing' : ''}" id="pf-${id}" tabindex="-1"${empty ? ` data-pf-key="${esc(pfKey(root, id))}"` : ''}>
       <div class="pf-head"><h2>${label}${isHot ? ' <span class="chip hot">대화 변경안</span>' : ''}${editing && !empty ? ' <span class="small pf-state">고치는 중</span>' : ''}</h2><div class="row">${btns}</div></div>
       ${sub ? `<p class="small pf-sub">${sub}</p>` : ''}${body}</section>`;
@@ -132,11 +137,31 @@ function profileCards(base, root = '', hot = new Set()) {
 
 const pfNone = '<span class="muted">비어 있음</span>';
 
+/** 빈 줄 묶기: 값이 있는 줄(shown)과 '빈 칸 n개 채우기' 버튼 하나로 묶을 줄(blank)로 나눈다.
+    open 은 펼칠 때 비어 있던 열쇠(null 이면 접힘). 펼친 동안 채운 칸은 blank 에 남아, 다시 그려도 고치던 칸이 읽는 줄로 옮겨 가지 않는다 */
+function foldBlank(keys, has, open = null) {
+  const blank = keys.filter((k) => (open && open.includes(k)) || !has(k));
+  return { shown: keys.filter((k) => !blank.includes(k)), blank };
+}
+
+/** 서술 카드에서 펼친 빈 칸 (S.styleFill, pfKey 마다). 다시 그려도 펼친 채로 둔다 */
+const pfFill = (root) => (S.styleFill || {})[pfKey(root, 'narr')] || null;
+
+/** 서술 카드 줄에 값이 있다. 대화 변경안이 바꿀 칸은 비어도 보인다 */
+const narrHas = (prof, hot) => (k) => hot.has(k) || String(prof[k] || '').trim() !== '';
+
 /** 카드의 읽는 모양 */
-function pfRead(id, prof, root, hot) {
-  const list = (xs) => (xs || []).length ? `<ul class="pf-list">${xs.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : `<div class="small">${pfNone}</div>`;
+function pfRead(id, prof, root, hot, base = 'style') {
+  const list = (xs) => (xs || []).length ? `<ul class="pf-list">${xs.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : '';
   if (id === 'narr') {
-    return `<dl class="pf-dl">${STYLE_KEYS.slice(0, NARR_KEYS.length).map(([k, l]) => `<dt${hot.has(k) ? ' class="hot"' : ''}>${l}${hot.has(k) ? ' <span class="chip hot">변경안</span>' : ''}</dt><dd>${String(prof[k] || '').trim() ? esc(prof[k]) : pfNone}</dd>`).join('')}</dl>`;
+    const label = Object.fromEntries(STYLE_KEYS.slice(0, NARR_KEYS.length));
+    const open = pfFill(root);
+    const { shown, blank } = foldBlank(NARR_KEYS, narrHas(prof, hot), open);
+    const dl = shown.length ? `<dl class="pf-dl">${shown.map((k) => `<dt${hot.has(k) ? ' class="hot"' : ''}>${label[k]}${hot.has(k) ? ' <span class="chip hot">변경안</span>' : ''}</dt><dd>${String(prof[k] || '').trim() ? esc(prof[k]) : pfNone}</dd>`).join('')}</dl>` : '';
+    if (!blank.length) return dl;
+    const fields = open ? `<div class="grid-2 pf-fill">${blank.map((k) => input(hot.has(k) ? `${label[k]} · 대화 변경안` : label[k], `${base}.${k}`,
+      { rows: 1, autogrow: true, cls: hot.has(k) ? 'chat-target' : '', ...(root ? { root } : {}) })).join('')}</div>` : '';
+    return `${dl}${fields}<div class="row"><button type="button" class="btn small ghost" data-action="styleFill" data-arg="${root}" aria-expanded="${!!open}">${open ? '빈 칸 접기' : `빈 칸 ${blank.length}개 채우기`}</button></div>`;
   }
   if (id === 'rules') {
     const tag = (k) => (hot.has(k) ? ' <span class="chip hot">변경안</span>' : '');
@@ -145,7 +170,7 @@ function pfRead(id, prof, root, hot) {
         <div><div class="pf-lbl"><i class="sw no" aria-hidden="true"></i>피할 것 ${(prof.donts || []).length}${tag('donts')}</div>${list(prof.donts)}</div>
       </div>
       <div><div class="pf-lbl">금지 표현 ${(prof.banned_phrases || []).length}${tag('banned_phrases')} <span class="small">본문에 나오면 경고해요</span></div>
-        ${(prof.banned_phrases || []).length ? `<div class="row">${prof.banned_phrases.map((x) => `<span class="chip pf-quote">${esc(x)}</span>`).join('')}</div>` : `<div class="small">${pfNone}</div>`}</div>${root ? '' : heatWordsRead()}`;
+        ${(prof.banned_phrases || []).length ? `<div class="row">${prof.banned_phrases.map((x) => `<span class="chip pf-quote">${esc(x)}</span>`).join('')}</div>` : ''}</div>${root ? '' : heatWordsRead()}`;
   }
   if (id === 'markers') {
     return `<table class="pf-table"><thead><tr><th scope="col">표지</th><th scope="col">쓰임</th><th scope="col" class="num">1,000자당</th></tr></thead>
@@ -171,7 +196,7 @@ const HEAT_WORDS_WHY = '이 낱말이 가장 몰린 대목을 정점으로 보�
 function heatWordsRead() {
   const xs = P().settings.heat_words || [];
   return `<div><div class="pf-lbl">열 낱말 ${xs.length} <span class="small">${esc(HEAT_WORDS_WHY)}</span></div>
-    ${xs.length ? `<div class="row">${xs.map((x) => `<span class="chip pf-quote">${esc(x)}</span>`).join('')}</div>` : `<div class="small">${pfNone}</div>`}</div>`;
+    ${xs.length ? `<div class="row">${xs.map((x) => `<span class="chip pf-quote">${esc(x)}</span>`).join('')}</div>` : ''}</div>`;
 }
 
 function heatWordsEdit() {
@@ -268,14 +293,14 @@ function styleLibraryRow() {
       <span class="row sty-acts">${linkBtns}${menuBtn('style-lib', '⋯', menu, { cls: 'btn small', aria: '다른 문체 적용 · 라이브러리에 새로 저장' })}</span></div>${detail}`;
 }
 
-/** 맨 위 카드: 라이브러리 줄 + 기준 지표 칩 한 줄 */
+/** 맨 위 카드: 라이브러리 줄 + 레퍼런스와 가장 어긋난 지표 한 줄. 지표 칩은 '지표 풀이' 를 열면 보인다 */
 function styleStatus() {
   const b = P().style_baseline;
+  const now = S.styleNow && S.styleNow.name === S.name ? S.styleNow : null;
   return `<section class="card tight pf-sec sty-top" id="pf-status" tabindex="-1" aria-label="라이브러리와 기준 지표">
       ${styleLibraryRow()}
-      <div class="sty-row">${b ? `<span class="metric-chips">${baselineItems(b).map(([k, v, why]) => `<span title="${esc(why)}">${k} <strong>${v}</strong></span>`).join('')}</span>`
-        : '<span class="small">원문을 분석하면 문장 길이, 대사 비율 같은 기준 지표를 재요</span>'}
-        ${b ? `<span class="sty-acts">${menuBtn('style-metrics', '지표 풀이', () => baselineRows(b), { cls: 'btn small ghost' })}</span>` : ''}</div>
+      <div class="sty-row">${b ? metricSummary(b, now) : '<span class="small">원문을 분석하면 문장 길이, 대사 비율 같은 기준 지표를 재요</span>'}
+        ${b ? `<span class="sty-acts">${menuBtn('style-metrics', '지표 풀이', () => `${metricChips(b)}${baselineRows(b, undefined, now)}`, { cls: 'btn small ghost' })}</span>` : ''}</div>
     </section>`;
 }
 
@@ -431,10 +456,73 @@ function viewLibrary() {
 }
 
 /** 기준 지표 표. 지표마다 무엇을 쟀는지 한 줄 풀이를 붙인다 (metrics.measure 의 계산과 같게 쓴다).
-    when 은 비었을 때 언제 재는지: 작품은 '문체 분석을 하면', 라이브러리는 원문을 넣고 저장할 때 잰다 (library.create · update). */
-function baselineRows(b, when = '문체 분석을 하면') {
+    when 은 비었을 때 언제 재는지: 작품은 '문체 분석을 하면', 라이브러리는 원문을 넣고 저장할 때 잰다 (library.create · update).
+    now 가 있으면 그 화({ n, metrics })의 값을 지표마다 곁에 적는다 (맨 위 요약 줄이 무엇과 견줬는지). */
+function baselineRows(b, when = '문체 분석을 하면', now = null) {
   if (!b) return `<div class="small">${when} 문장 길이, 대사 비율 같은 기준 지표를 재요. 본문을 쓴 뒤 문체가 얼마나 벗어났는지 비교하는 기준이 돼요.</div>`;
-  return `<dl class="metric-list">${baselineItems(b, true).map(([k, v, why]) => `<dt title="${esc(why)}">${k}</dt><dd>${v}<span class="small" style="display:block;font-weight:400">${esc(why)}</span></dd>`).join('')}</dl>`;
+  const cur = now ? baselineItems(now.metrics, true) : [];
+  return `<dl class="metric-list">${baselineItems(b, true).map(([k, v, why], i) => `<dt title="${esc(why)}">${k}</dt><dd>${v}${cur[i] && cur[i][1] !== '–' ? ` <span class="small" style="font-weight:400">· ${now.n}화 ${cur[i][1]}</span>` : ''}<span class="small" style="display:block;font-weight:400">${esc(why)}</span></dd>`).join('')}</dl>`;
+}
+
+/** 기준 지표 칩. 값이 없는 지표('–')는 칩을 그리지 않는다 (풀이 표에는 남아 왜 없는지 적는다) */
+function metricChips(b) {
+  const xs = baselineItems(b).filter(([, v]) => v !== '–');
+  return xs.length ? `<span class="metric-chips">${xs.map(([k, v, why]) => `<span title="${esc(why)}">${k} <strong>${v}</strong></span>`).join('')}</span>` : '';
+}
+
+// ----- 지표 요약: 마지막으로 본문을 쓴 화를 레퍼런스(작품의 기준 지표 style_baseline)와 견준다 -----
+
+/** 요약에 쓰는 지표 [경고 폭, 비율로 견주는지, 높을 때만 보는지, 높을 때 글, 낮을 때 글].
+    폭 · 비율 · 높을 때만은 metrics.THRESHOLDS · UPPER_ONLY 와 같게 둔다 (tests/test_style_js.py 가 맞춰 본다).
+    효과음 줄 · '소리' 낱말은 경고 기준이 없어 요약에 넣지 않는다 */
+const METRIC_GAPS = {
+  sentence_len_mean: [0.3, true, false, '문장이 레퍼런스보다 길어요', '문장이 레퍼런스보다 짧아요'],
+  sentence_len_cv: [0.35, true, false, '문장 길이가 레퍼런스보다 들쭉날쭉해요', '문장 길이가 레퍼런스보다 고르게 이어져요'],
+  paragraph_len_mean: [0.5, true, false, '문단이 레퍼런스보다 길어요', '문단이 레퍼런스보다 짧아요'],
+  dialogue_ratio: [0.15, false, false, '대사가 레퍼런스보다 많아요', '대사가 레퍼런스보다 적어요'],
+  past_tense_ratio: [0.2, false, false, '과거형 서술이 레퍼런스보다 많아요', '과거형 서술이 레퍼런스보다 적어요'],
+  mattr: [0.08, false, false, '어휘가 레퍼런스보다 다양해요', '같은 말을 레퍼런스보다 자주 되풀이해요'],
+  comma_sentence_ratio: [0.15, false, true, '쉼표 문장이 레퍼런스보다 많아요', ''],
+  dialogue_tilde_ratio: [0.15, false, false, '물결표 대사가 레퍼런스보다 많아요', '물결표 대사가 레퍼런스보다 적어요'],
+  dialogue_line_len: [0.3, true, false, '대사 한 줄이 레퍼런스보다 길어요', '대사 한 줄이 레퍼런스보다 짧아요'],
+};
+const GAP_MIN = 0.5;  // 경고 폭의 절반도 안 어긋난 지표는 요약에 올리지 않는다
+
+/** 레퍼런스(base)와 지금(cur)이 가장 어긋난 지표를 많아야 n개 [{ key, score, warn, up }].
+    점수는 차이를 경고 폭으로 나눈 값이다. 차이는 비율 지표면 (지금 - 기준) / 기준, 나머지는 지금 - 기준 (metrics.drift 와 같은 셈).
+    점수가 1을 넘으면 경고가 난 지표(warn)이고 맨 앞에 둔다. 어느 쪽이든 값이 없거나, 비율 지표의 기준이 0이거나,
+    높을 때만 보는 지표가 낮아졌으면 뺀다 */
+function metricGaps(base, cur, n = 2) {
+  if (!base || !cur) return [];
+  const out = [];
+  for (const [key, [limit, relative, upper]] of Object.entries(METRIC_GAPS)) {
+    const b = base[key];
+    const c = cur[key];
+    if (b == null || c == null || (relative && !b)) continue;
+    const diff = relative ? (c - b) / b : c - b;
+    if (upper && diff <= 0) continue;
+    const score = Math.abs(diff) / limit;
+    if (score < GAP_MIN) continue;
+    out.push({ key, score, warn: score > 1, up: diff > 0 });
+  }
+  return out.sort((x, y) => (y.warn - x.warn) || (y.score - x.score)).slice(0, n);
+}
+
+/** 맨 위 요약 줄. 견줄 화(now)가 없으면 줄을 두지 않는다 */
+function metricSummary(base, now) {
+  if (!base || !now) return '';
+  const said = metricGaps(base, now.metrics).map((g) => `${g.warn ? '<span class="chip warn">경고</span> ' : ''}${METRIC_GAPS[g.key][g.up ? 3 : 4]}.`);
+  return `<p class="small sty-sum"><strong>${now.n}화</strong> · ${said.length ? said.join(' ') : '레퍼런스와 크게 어긋난 지표가 없어요.'}</p>`;
+}
+
+/** 마지막으로 본문을 쓴 화의 문체 지표 (GET /episodes/{n}/style, LLM 없음). 기준 지표가 없으면 부르지 않는다 */
+async function styleNowLoad() {
+  S.styleNow = null;
+  const last = [...P().episodes].reverse().find((e) => (e.text || '').trim());
+  if (!last || !P().style_baseline) return;
+  const n = last.plot.number;
+  const r = await api('GET', `/projects/${enc(S.name)}/episodes/${n}/style`).catch(() => null);
+  if (r && r.metrics) S.styleNow = { name: S.name, n, metrics: r.metrics };
 }
 
 /** 기준 지표 [이름, 값, 풀이]. long 이면 표의 긴 이름, 아니면 띠 칩의 짧은 이름. */
@@ -511,7 +599,7 @@ function viewLibEntry() {
       <section class="card pf-sec" id="pf-source" tabindex="-1">
         <div class="pf-head"><h2>원문 · 기준 지표</h2><span class="small"><span id="lib-sample-count">${(e.sample || '').length.toLocaleString()}</span>자 · 2,000자 이상 권장</span></div>
         ${input('분석할 소설 본문', 'sample', { root: 'lib', rows: 10, style: 'font-family:var(--serif);line-height:1.9', hint: '이 컴퓨터의 라이브러리 폴더에만 저장돼요' })}
-        <div class="sty-row">${b ? `<span class="metric-chips">${baselineItems(b).map(([k, v, why]) => `<span title="${esc(why)}">${k} <strong>${v}</strong></span>`).join('')}</span>` : '<span class="small">원문을 넣고 저장하면 문장 길이, 대사 비율 같은 기준 지표를 재요.</span>'}
+        <div class="sty-row">${b ? metricChips(b) : '<span class="small">원문을 넣고 저장하면 문장 길이, 대사 비율 같은 기준 지표를 재요.</span>'}
           <span class="sty-acts">${b ? menuBtn('lib-metrics', '지표 풀이', () => baselineRows(b), { cls: 'btn small ghost' }) : ''}${(() => { const lb = jobBtn('lib_style', null, '문체 분석', LIB_JOBS); return `<button class="btn small" data-action="libAnalyze"${lb.attr}>${lb.label}</button>`; })()}</span></div>
       </section>
       ${profileCards('profile', 'lib')}
@@ -536,6 +624,7 @@ function styleKeepOpen(root, id) {
 /** 분석 · 적용으로 문체가 통째로 바뀌면 이 작품의 고치던 카드를 닫는다 (새 값을 읽는 모양으로 보이게) */
 function styleCloseCards() {
   S.styleOpen = Object.fromEntries(Object.entries(S.styleOpen || {}).filter(([k]) => !k.startsWith(`${S.name}:`)));
+  S.styleFill = Object.fromEntries(Object.entries(S.styleFill || {}).filter(([k]) => !k.startsWith(`${S.name}:`)));
 }
 Object.assign(actions, {
   // 문체
@@ -553,10 +642,21 @@ Object.assign(actions, {
     const k = pfKey(root, id);
     const on = !(S.styleOpen || {})[k];
     S.styleOpen = { ...S.styleOpen, [k]: on };
+    if (S.styleFill) delete S.styleFill[k];  // 다 고치면 빈 칸은 다시 묶는다
     render();
     const sec = document.getElementById(`pf-${id}`);
     if (on) focusEl(sec && sec.querySelector('textarea, input'));
     else $(`#pf-${id} [data-action="styleEdit"]`)?.focus();
+  },
+  /** 서술 카드의 '빈 칸 n개 채우기' ↔ '빈 칸 접기'. 펼칠 때 비어 있던 칸을 기억해, 쓰는 동안 다시 그려도 그 칸들을 그대로 둔다 */
+  styleFill(root) {
+    const k = pfKey(root, 'narr');
+    const open = !!(S.styleFill || {})[k];
+    const prof = getPath(bindRoot(root), root ? 'profile' : 'style');
+    S.styleFill = { ...S.styleFill, [k]: open ? null : foldBlank(NARR_KEYS, narrHas(prof, root ? new Set() : styleChatKeys())).blank };
+    render();
+    if (!open) focusEl($('#pf-narr .pf-fill textarea, #pf-narr .pf-fill input'));
+    else $('#pf-narr [data-action="styleFill"]')?.focus();
   },
   /** 빈 작품의 '직접 채우기': 빈 카드를 모두 연다 */
   styleManual() {

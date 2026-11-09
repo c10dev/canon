@@ -610,10 +610,20 @@
   - 왼쪽 목차 `styleToc` · 목차 줄 `styleTocItems` + 카드 한 열
   - 프로필 카드 `pfCard`: 읽는 모양 `pfRead` 이 기본
   - '고치기'로 그 카드만 `pfEdit`(기억 `S.styleOpen`, 빈 카드 `styleCardEmpty` 는 바로 고치는 칸)
+  - 서술 카드의 읽는 모양은 값이 있는 줄만 보이고, 빈 줄은 '빈 칸 n개 채우기' 버튼 하나로 묶는다(`foldBlank`)
+  - '빈 칸 n개 채우기'(`styleFill`)는 빈 칸을 그 자리에서 고치는 칸으로 편다. 펼칠 때 비어 있던 칸을 `S.styleFill` 에 기억해, 쓰는 동안 다시 그려도 접히거나 자리를 옮기지 않는다
+  - 대화 변경안이 바꿀 빈 칸은 묶지 않고 '비어 있음'과 '변경안'으로 보인다
+  - '지킬 · 피할 것' 카드에서 수가 0인 묶음은 '비어 있음'을 따로 적지 않는다
   - 목차 수 `styleCount`
   - 서술 카드 칸은 `NARR_KEYS`(효과음 표기 포함). 목차 수는 채운 칸 / 전체 칸
   - 기준 지표 `baselineItems` 에 효과음 줄(`sfxRate`: 1,000자당 수와 가장 많은 끝 표시) · '소리' 낱말 밀도
   - 기준 지표 `baselineItems` 에 물결표 대사 줄 비율 · 대사 한 줄 길이(값이 없으면 –)
+  - 맨 위 카드는 지표 칩 대신 요약 한 줄(`metricSummary`)이다. 마지막으로 본문을 쓴 화(`styleNowLoad` → `GET …/episodes/{n}/style`, `S.styleNow`)를 작품 기준 지표와 견준다
+  - 요약은 가장 어긋난 지표 둘이다(`metricGaps`). 점수는 차이를 경고 폭으로 나눈 값이고, 1을 넘으면 '경고' 칩을 단다. 경고 폭의 절반보다 작은 차이는 올리지 않는다
+  - 요약의 경고 폭 표 `METRIC_GAPS` 는 `metrics.THRESHOLDS` · `UPPER_ONLY` 와 같게 둔다(`tests/test_style_js.py`)
+  - 견줄 화나 기준 지표가 없으면 요약 줄을 두지 않는다
+  - 지표 칩(`metricChips`)은 '지표 풀이'를 열면 보이고, 값이 없는 지표는 칩을 그리지 않는다. 라이브러리 항목의 칩도 같다
+  - 지표 풀이 표(`baselineRows`)는 '–'를 남겨 왜 없는지 적고, 견준 화가 있으면 지표마다 그 화의 값을 곁에 적는다
   - '지킬 · 피할 것' 카드의 열 낱말 칸(`heatWordsRead` · `heatWordsEdit`, `Settings.heat_words` 에 묶음): 작품 화면에만 있고 라이브러리 문체에는 없음
   - 빈 문체는 세 갈래 `stylePickCard` · `styleManual`
   - 프로필 카드 뒤에 작품 정착 문체 카드(`static/anchor.js` 의 `anchorCard`)

@@ -2419,6 +2419,7 @@ async function routeNow() {
         await loadStyleLink();
         await learnLoad();
         await anchorLoad();
+        await styleNowLoad();
       }
       // 한 화 화면의 본문 칸 재료: 집필 · 검수 · 상태 승인 어느 칸에서 열어도 같은 본문 칸을 그린다
       if (FLOW_PAGES.includes(parts[2]) && n && ep(n) && ep(n).status !== 'draft') {
