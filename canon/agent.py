@@ -15,7 +15,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 
-from . import cancel, context, jobs, pipeline, prompts, renumber, store
+from . import cancel, context, jobs, pipeline, prompts, renumber, store, usage
 from .llm import LLM, dump, out_cap, wait_cap
 from .logline import josa
 from .schema import (AgentAsk, AgentSession, AgentTurn, Approval, AskCard, ChatScope, PlotAgentStep, PlotRevision, Project, RenumberOp,
@@ -37,6 +37,9 @@ MAX_INSERT = 10  # 한 번에 넣는 새 화 수
 # 한 단계의 AI 호출 한도. 보통 5~30초, 길어도 4분 남짓이다(2026-11-03 사용량 기록 13건, 가장 긴 것 263초).
 # 응답이 없으면 STEP_WAIT 초 뒤 한 번 다시 부르고, 또 없으면 오류로 턴을 멈춘다 (llm.wait_cap)
 STEP_WAIT = 300
+# Claude Code(구독) 단계의 한도. 2026-11-05~09 서버의 claude-opus-5-5 high 단계 25건 중 3건이 300초에 끊겼다.
+# Opus 출력은 초당 36~100토큰 남짓이라(출력 2천 토큰 넘는 호출 281건) STEP_OUT_TOKENS 를 다 쓰면 455초쯤 걸린다
+STEP_WAIT_CLAUDE = 480
 STEP_OUT_TOKENS = 16384  # 가장 긴 단계 출력은 생각 포함 약 9,100토큰이었다. 같은 글을 되풀이하면 여기서 끊는다
 # 할 일을 예고만 하고 끝낸 답의 끝말. 2026-11-04 '아크 1을 서사 분석' 턴이 첫 단계에서 이 한 문장만 내고 끝났다
 # ("…분석해 작가님께 전달합니다.", gemini-4-argon, 출력 81토큰). 이런 답은 한 번 되돌려 내용을 쓰게 한다
@@ -613,6 +616,11 @@ def _step(p: Project, sid: str, t: int, step: PlotAgentStep, move: bool = True, 
     return end
 
 
+def step_wait(llm: LLM) -> float:
+    """한 단계 호출을 기다리는 초. Claude Code(구독)는 STEP_WAIT_CLAUDE, 나머지는 STEP_WAIT."""
+    return STEP_WAIT_CLAUDE if usage.backend_of(llm) == "claude" else STEP_WAIT
+
+
 def run_turn(llm: LLM, name: str, sid: str, t: int, job=None) -> dict:
     """t 번째 턴을 MAX_STEPS 단계까지 돌린다. 단계마다 저장해 화면이 진행을 본다. 끝 상태를 돌려준다."""
     for i in range(MAX_STEPS):
@@ -623,9 +631,9 @@ def run_turn(llm: LLM, name: str, sid: str, t: int, job=None) -> dict:
         hint = {**pipeline.plot_chat_hint(p, turn.user, scope), "agent": True, "mode": turn.mode,
                 "steps": [x.kind for x in turn.steps], "tools": [x.tool for x in turn.steps]}
         if job is not None:
-            job.step_at = time.time()
+            job.step_at, job.step_wait = time.time(), step_wait(llm)
         prompt = prompts.agent_plot_prompt(p, s, turn, scope, MAX_STEPS - i)
-        with wait_cap(STEP_WAIT), out_cap(STEP_OUT_TOKENS):
+        with wait_cap(step_wait(llm)), out_cap(STEP_OUT_TOKENS):
             step = llm.json(prompts.SYSTEM_AGENT_PLOT, prompt, PlotAgentStep, hint=hint)
             step = fill(llm, prompts.SYSTEM_AGENT_PLOT, prompt, step, hint)
         move, held = not store.shares_text(name), store.pending_eps(name)

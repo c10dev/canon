@@ -305,9 +305,22 @@ def test_step_call_waits_less_and_caps_output(client, monkeypatch):
     assert agent.run_turn(Fake(), "lh", sid, t, job)["end"] == "done"
     assert seen == {"wait": agent.STEP_WAIT, "out": agent.STEP_OUT_TOKENS}
     assert job.step_at >= before and job.public()["step_at"] == job.step_at
+    assert job.public()["step_wait"] == agent.STEP_WAIT  # 화면이 늦음 안내에 이 한도를 보인다
     turn = agent.turn_of(store.load("lh"), sid, t)[1]
     assert turn.ended and turn.ended >= turn.at  # 화면이 걸린 시간을 보인다
     assert llm.gemini_timeout() == llm.GEMINI_TIMEOUT  # 단계 밖은 그대로
+
+
+def test_step_wait_is_longer_for_claude_code():
+    """Claude Code(구독) 단계는 STEP_WAIT_CLAUDE 까지 기다린다. Opus 가 출력 한도를 다 쓰면 300초를 넘긴다."""
+    from canon import agent
+    from canon.claude import ClaudeAPILLM, ClaudeCodeLLM
+    from canon.llm import GeminiLLM
+
+    assert agent.step_wait(ClaudeCodeLLM.__new__(ClaudeCodeLLM)) == agent.STEP_WAIT_CLAUDE
+    assert agent.step_wait(ClaudeAPILLM.__new__(ClaudeAPILLM)) == agent.STEP_WAIT
+    assert agent.step_wait(GeminiLLM.__new__(GeminiLLM)) == agent.STEP_WAIT
+    assert agent.STEP_WAIT_CLAUDE >= agent.STEP_OUT_TOKENS / 36  # 가장 느린 Opus 출력(초당 약 36토큰)으로도 한도를 다 쓸 수 있게
 
 
 def test_wait_cap_never_raises_the_limit(monkeypatch):

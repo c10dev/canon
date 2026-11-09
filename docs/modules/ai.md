@@ -52,7 +52,9 @@
 - `modelUsage` 에 모델이 둘 이상이면(거절 뒤 대체 모델) 가장 작은 모델 입력을 한 번 크기로 보고 넘친 몫도 `resent` 로 본다. 두 값 가운데 큰 쪽
 - 캐시에 새로 쓴 입력은 `written`, 그 가운데 1시간 캐시 몫은 `written_1h` 다(`_written`, 응답의 `cache_creation_input_tokens` · `cache_creation.ephemeral_1h_input_tokens`). 구독과 API 경로가 같다
 - 두 백엔드도 `llm.wait_cap` · `llm.out_cap` 을 따른다(`llm.caps` 로 읽음)
-- 구독은 제한 시간을 `min(CANON_CLAUDE_TIMEOUT, wait_cap)` 으로 둔다. 넘기면 다시 부르지 않고 `ClaudeCodeError`
+- 구독은 제한 시간을 `min(CANON_CLAUDE_TIMEOUT, wait_cap)` 으로 둔다. 넘기면 `ClaudeTimedOut`(`ClaudeCodeError` 의 갈래)
+- 구독이 `wait_cap` 으로 줄인 한도를 넘기면 `llm.TIMEOUT_RETRIES`(1)번 다시 부른다(`_slow_retry`, 작업 진행 줄에 '다시 불러요')
+- 줄이지 않은 한도(`CANON_CLAUDE_TIMEOUT`)를 넘기면 다시 부르지 않는다. 900초를 두 번 기다리지 않게 하려는 것이다
 - API 는 `max_tokens` 를 `min(MAX_TOKENS, out_cap)` 으로, SDK 요청 옵션 `timeout` 을 `wait_cap` 으로 보낸다
 - API 응답이 `max_tokens` 로 끝나면 `llm.OutputCut` 을 낸다. 본문 쓰기(`pipeline._write`)는 끊긴 본문으로 세어 다시 부른다
 - 구독은 `out_cap` 이 있을 때만 그 호출의 하위 환경에 `CLAUDE_CODE_MAX_OUTPUT_TOKENS` 를 넣는다(`child_env(extra)`). 없으면 넣지 않는다
