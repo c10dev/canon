@@ -16,7 +16,7 @@ from . import anchor, board, cancel, charlog, context, features, findings, fores
 from . import offscreen
 from .sent import SentPrompt, SentRetry
 from .sent import record as sent_record
-from .schema import OffscreenSet
+from .schema import CoordDraft, CoordMemo, OffscreenSet
 from .schema import CueSheet, CueSheetDraft, Finding, MetaCut, FindingRecheck, FixBatch, FixOption, FixPatch, FixRecheckItem, FixRecheckReport, FixSet, RevArcSet, RevEpisodeDraft, RevLineSet
 from .schema import ParagraphAnatomy, ReaderCheck, SceneCard, SceneVariant, SceneVariants, StudioCandidate, StudioDraft
 from .schema import (
@@ -2715,6 +2715,20 @@ def make_cue_sheet(llm: LLM, p: Project, n: int, lead: str = "") -> CueSheet:
                            "scenes": len(ep.storyboard.scenes) if ep.storyboard else 0, "size": p.meta.words_per_episode,
                            **write_family(p, n, prompt)})
     return CueSheet(**cue.clean(p, d).model_dump(), made_at=_now(), made_by="ai")
+
+
+def make_coord(llm: LLM, p: Project, n: int) -> CoordMemo:
+    """n화 조율 메모를 만든다 (쓰기 재료 조율, coord.py). 저장은 호출자가 한다 (Episode.coord).
+    사건 수가 플롯과 다르게 오면 쓰지 않는다 (ValueError): 원래 플롯으로 쓰면 된다."""
+    from . import coord
+
+    ep = p.episode(n)
+    if ep.status == "draft":
+        raise ValueError(f"{n}화 플롯이 아직 확정되지 않았어요 (confirm 먼저)")
+    d = llm.json(prompts.SYSTEM_PLANNER, prompts.coord_prompt(p, n), CoordDraft, hint={"episode": n, "events": len(ep.plot.events)})
+    if len(d.events) != len(ep.plot.events):
+        raise ValueError(f"{n}화 조율 메모의 사건 수({len(d.events)})가 플롯({len(ep.plot.events)})과 달라요")
+    return CoordMemo(**d.model_dump(), basis=coord.basis(ep.plot), made_at=_now())
 
 
 def write_scored(llm: LLM, p: Project, n: int, sheet: CueSheet) -> tuple[str, int]:

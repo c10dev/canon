@@ -9,6 +9,7 @@
 - 다른 프로세스가 쥔 실행이면 `wanted` 는 주인이 아직 읽지 않은 `autorun.want` 를 돌려준다. 주인이 읽어 지우면 빈 값으로 돌아간다
 - 목표 화까지 (스토리보드 `_board`, `Policy.storyboard` · `stop_on_board_warnings`) → (큐 시트 `_cues`, `Policy.cue_sheet`) → write → (서술 다듬기 `_polish`, `Policy.polish`, 다듬을 화 `Run.polish_due`) → check + state → 정책(`Policy`) 통과 시 반영을 반복
 - 낡은 AI 큐 시트를 다시 받았는데 비어 오면 그 화는 낡은 시트를 넣지 않고 쓰고 `CueSheet.skipped` 로 적는다(`Runner.no_cues`)
+- 쓰기 재료 조율이면 큐 시트 다음, 쓰기 전에 조율 메모를 만든다(`_coord`, `coord.remake`, board 단계). 사건 수가 달라 받지 못하면 경고만 남기고 원래 플롯으로 쓴다(`Runner.no_coord`)
 - 쓰기(`_write`)와 다듬기(`_polish`)는 본문을 넣는 `_edit` 안에서 보낸 프롬프트 기록을 남긴다(`sent.keep`). 다듬은 글을 버리면 기록도 남기지 않는다
 - `_cues` 는 같은 실행의 `_board` 가 방금 만든 스토리보드(`Runner.board_lead`: 화 · made_at · 요청 글)면 그 요청 글로 시작하는 큐 시트 요청을 보낸다(`pipeline.cue_lead`)
 - 스토리보드 · 큐 시트는 `board` 단계 모델로 부르고 배치로 보내지 않는다. 비용 추정 `calls` 의 키도 `board` 다
@@ -72,6 +73,7 @@
 - 기한 줄(`deadline_rows`)은 예산 인자를 받는다. 쓰기 요청의 스토리보드 블록만 작품 예산(`context.budget`)을 넘긴다
 - `deadline_rows(trace=)` 는 예산으로 뺀 기한을 보기의 'board' 블록에 적는다
 - 쓰기 재료 꼭 쓸 것만(`lean`)과 그때 쓰기 요청에 남기는 이어받을 것의 종류(`LEAN_HANDOVER`)
+- 고정점만(`fixed_only`)은 쓰기 재료 조율(`coord`)에서도 참이다
 - 중심 장면 번호(`focus`, 장면 수 밖이면 0)
 - 상태창 단계마다 바뀌기 전 · 뒤 값(`steps`, `statwin.resolve`) · 창 글(`window_text`)
 - Canon 경고(`checks`: 맡은 장면 없는 사건 · 모르는 id · 값 범위 · 관계 단계를 두 칸 넘게 옮기는 플롯 `pace.plot_warnings`)
@@ -183,6 +185,21 @@
 - 진술과 겹치는 줄 · 사실(`related_lines` · `related_facts`, 셈이 있는 진술은 셈이 있는 줄을 앞세움 `has_count`)
 - LLM 호출 없음
 - 단편 경로는 쓰지 않는다
+
+### `canon/coord.py`
+
+- 쓰기 재료 조율(`Settings.write_material = "coord"`, `on`): 감독은 무엇이 바뀌는지만 정하고 동작은 본문을 쓰는 AI 가 정한다
+- 고정점만(`board.fixed_only`) 위에 선다. 장면 목록 · 큐 시트를 쓰기 요청에 넣지 않는다
+- 조율 메모(`Episode.coord`, `CoordMemo`): 플롯 summary · events · ending_hook 을 '무엇이 바뀌는가' 한 줄씩으로 줄인 것. 핵심 대사는 그대로다
+- 입력 지문(`basis`: 플롯 summary · events · ending_hook) · 지금 플롯으로 만든 것인지(`fresh`) · 쓰기 요청에 넣을 메모(`memo`, 조율이 아니거나 낡으면 None)
+- 새로 만들지(`remake`: 조율이고 메모가 없거나 낡음, 웹 쓰기 작업 · 자동 집필 `_coord`)
+- 웹 쓰기 작업은 스토리보드 · 큐 시트 다음, 본문 앞에 조율 메모를 만든다(board 단계, 이름표 '조율 메모와'). 실패하면 경고 로그만 남기고 원래 플롯으로 쓴다
+- 플롯 바꾸기(`plot`): `prompts.write_plot(memo=)` 가 부른다. 쓰기 · 검수 · 상태 변경안 · 부분 수정이 같은 글을 받는다
+- 쓰기 요청의 이어받을 것에서 몸 · 물건 줄을 뺀다(`handover`, `DROP_HANDOVER`)
+- 끝 차림 머리(`ATTIRE_HEAD`): 어긋나지만 않게 지키고 본문에 꺼내지 않는다
+- 쓰기 요청 끝 단락(`NOTE`)은 조율 메모를 넣었을 때만 붙는다
+- 글은 조율판 실측(2026-11-09, `reports/action-justify-2026-11-09`) 그대로다
+- LLM 호출 없음. 만들기는 `pipeline.make_coord`
 
 ### `canon/cue.py`
 
@@ -418,6 +435,7 @@
   - 빈칸 제안은 이미 있는 인물도 빈 칸만 `fill_character`
 - 스토리보드: `make_storyboard` · `set_storyboard` · 낡음 지문 `board_basis`, `write_episode(use_board=)`, AI 고치기 `revise_storyboard` → `apply_storyboard_revision`(고치기 전 것은 `Episode.storyboard_prev`) · 적용 취소 `undo_storyboard`
 - 큐 시트: `make_cue_sheet`, 넣기는 `cue.set_episode`, `write_episode(use_cues=)`
+- 조율 메모: `make_coord`(plan 계열 시스템 프롬프트, `prompts.coord_prompt`). 사건 수가 플롯과 다르면 ValueError. 저장은 호출자가 `Episode.coord` 에 한다
 - 쓰기 가족: 스토리보드 · 큐 시트 요청이 `prompts.write_head` 로 시작하면 `write_family` 가 그 길이를 캐시 경계 hint 로 준다
 - 쓰기 가족: `_write` 는 `llm.family_text` 로 부른다. 요청이 `write_head` 로 시작하면 본문 쓰기도 같은 캐시를 읽는다
 - 본문 쓰기 출력 한도: `_write` 는 끊긴 응답을 알아채는 백엔드(`llm.knows_cut`: Gemini · Claude API · mock)에만 `out_cap(write_out_tokens(p, n))` 을 건다
@@ -531,6 +549,7 @@
 - lead 안에 장면 연출이 이미 있어 다시 넣지 않는다. 요구사항 첫 줄이 다음 화 플롯 사건을 큐에 넣지 말고 시간 · 이동 · 장면 순서는 스토리보드를 따르라고 적는다
 - 쓰기에 넣는 `board_block`(직전 화 본문 뒤, 이번 화 플롯 바로 앞, 시간 · 이동 블록을 대신함)
 - `board_block(write=True)` 는 쓰기 재료가 꼭 쓸 것만이면 `lean_board_block` 을 돌려준다. 큐 시트 만들기는 write 를 끄고 전체를 본다
+- `board_block(write=True)` 는 쓰기 재료 조율이면 이어받을 것의 몸 · 물건 줄을 빼고 끝 차림 머리를 `coord.ATTIRE_HEAD` 로 바꾼다
 - `lean_board_block` 은 '어기면 안 되는 것'(시간 · 기한 · 이어받을 것 중 `board.LEAN_HANDOVER`)을 앞에, '이번 화에 쓸 것'(장면 · 중심 장면 · 뜨는 상태창 · 이동 · 차림이 바뀌는 순간)을 뒤에 둔다
 - `lean_board_block` 은 장면 끝 상태 · 깨지 않을 것 · 끝 차림 목록 · 창이 뜨지 않는 상태창 변화를 넣지 않는다
 - 쓰기 요청의 무게 문장 `focus_line`: 꼭 쓸 것만이고 중심 장면이 있으면 그 장면에 분량의 절반쯤, 아니면 `FOCUS_LINE`
@@ -553,6 +572,10 @@
 - 쇠맛을 줄이는 쓰기 규칙: 블록 차례 한 줄 `priority_line`
 - 문체 분석 요청 `style_prompt` 은 효과음 표기 칸(`sound_effects`)을 묻고, 원문에서 센 효과음 줄 요약(`sfx_note`)을 붙인다
 - 이번 화 플롯은 쓰기 · 검수(`check_material`) · 상태 변경안(`state_prompt`) · 부분 수정(`passage_prompt`)이 모두 `write_plot` 으로 넣는다(라벨 모양이 아닌 예전 `emotional_shift` 를 뺌). 플롯 화면 · 흡입력 판정은 그대로
+- `write_plot(memo=)` 는 쓰기 재료 조율의 조율 메모(`coord.memo`)가 있으면 summary · events · ending_hook 을 그것으로 바꾼다
+- 쓰기 재료 조율이면 `episode_parts` 의 지시문 끝에 `coord.NOTE` 를 붙인다(조율 메모를 넣었을 때만)
+- 조율 메모 만들기 요청 `coord_prompt`: 플롯 summary · events · ending_hook 만 넣는다
+- 쓰기 재료 조율이면 `plot_rules` 에 `COORD_PLOT_RULE`(사건은 무엇이 바뀌는지만, 동작은 정하지 않음)을 넣는다
 - 상태 변경안 요구사항은 빈 칸이 '그대로 둠'이라 지울 칸 이름을 `cleared` 에 넣게 한다(`state_prompt`)
 - 장편 관계 줄 `serial_relations` · 인물 상태 `fit_states`(예산 `context.BUDGET` 의 `relations` · `states`)
 - 예산으로 뺀 비밀 · 복선 수는 장편 쓰기(관계 머리글) · 상태 변경안 · 검수 비밀 칸 · 다음 아크 기획(관계 머리글)에 `cut_note` 로 적는다
@@ -654,6 +677,7 @@
 - 스토리보드 켜기는 `Settings.storyboard`(비우면 장편 켬 · 단편 끔)
 - 쓰기 재료는 `Settings.write_material`(fixed 면 고정점만: `board.fixed_only`, 장면 목록 · 큐 시트를 쓰기 요청에서 뺌, `cue.on` 끔)
 - 쓰기 재료 lean 은 꼭 쓸 것만(`board.lean`): 쓰기 요청의 스토리보드를 거르고 큐 끝 상태를 뺀다. 데이터 · 큐 시트 만들기 · 검수는 그대로다
+- 쓰기 재료 coord 는 조율(`coord.on`): 고정점만에 더해 플롯 사건을 조율 메모(`Episode.coord`, `CoordMemo`, 응답 형식 `CoordDraft`)로 바꿔 넣는다. 조율 메모도 상태 승인 대상이 아니다
 - 스토리보드의 중심 장면은 `Storyboard.focus`(1부터, 0 은 고르지 않음, `board.focus` 가 장면 수 밖이면 0). 꼭 쓸 것만에서만 쓰기 · 큐 시트 지시가 된다
 - 화별 큐 시트(`Episode.cue_sheet`, `CueSheet`)도 상태 승인 대상이 아니다
 - 큐 시트 켜기는 `Settings.cue_sheet`(비우면 장편 켬 · 단편 끔)

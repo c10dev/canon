@@ -30,8 +30,9 @@ def on(p: Project) -> bool:
 def fixed_only(p: Project) -> bool:
     """쓰기 재료가 '고정점만'인지 (Settings.write_material). 그러면 쓰기 요청에 스토리보드 장면을 넣지 않고 큐 시트를 쓰지 않는다.
     실측(2026-11-04, 장편 84화): Claude 는 고정점만 준 판이 블라인드 비교를 모두 이겼고, Gemini 4 Argon 은 장면 · 큐 시트를 준 판이 이겼다.
-    두 모델 모두 고정점 어김은 0이었다. 그래서 기본값은 지금처럼 장면까지 넣는다."""
-    return p.settings.write_material == "fixed"
+    두 모델 모두 고정점 어김은 0이었다. 그래서 기본값은 지금처럼 장면까지 넣는다.
+    쓰기 재료 조율(coord)도 고정점만 위에 서므로 참이다 (coord.on)."""
+    return p.settings.write_material in ("fixed", "coord")
 
 
 # 쓰기 재료 '꼭 쓸 것만'에서 쓰기 요청에 남기는 이어받을 것의 종류. 첫 장면에 바로 닿는 것만 남기고 숨긴 것 · 인물 · 숫자 · 질문은 뺀다.

@@ -79,8 +79,8 @@ function cueVoiceGaps(sheet, chars) {
   return [...out.values()];
 }
 
-/** 쓰기 재료가 고정점만인지 (board.fixed_only). 그러면 큐 시트를 만들지도 넣지도 않는다. */
-const fixedOnly = () => !!(P().settings && P().settings.write_material === 'fixed');
+/** 쓰기 재료가 고정점만인지 (board.fixed_only, 조율도 참). 그러면 큐 시트를 만들지도 넣지도 않는다. */
+const fixedOnly = () => !!(P().settings && ['fixed', 'coord'].includes(P().settings.write_material));
 
 /** 이 작품이 화마다 큐 시트를 쓰는지 (cue.on: 작가가 정하지 않았으면 장편 켬 · 단편 끔, 스토리보드와 같은 규칙. 고정점만이면 끔). */
 function cueOn() {
