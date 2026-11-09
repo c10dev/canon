@@ -503,6 +503,13 @@ function releaseRow(p) {
 const HOME_CAST = 4;    // 주요 인물 수
 const HOME_FS = 5;      // 열린 복선 수
 const HOME_FACTS = 5;   // 확정 사실 수
+
+/** {확정 사실: 들어온 화}. 반영 기록(history)의 new_facts 로 센다 (context.facts_learned 와 같은 규칙) */
+function factsLearned(p) {
+  const out = Object.create(null);
+  [...(p.history || [])].sort((a, b) => a.episode - b.episode).forEach((h) => (h.new_facts || []).forEach((f) => { if (!(f in out)) out[f] = h.episode; }));
+  return out;
+}
 const HOME_SOON = 3;    // 기한이 이 날수 안이면 확인할 것에 올린다
 
 /** 화 상태별 수: 전 화수 막대와 그 아래 글. none 은 아직 플롯이 없는 화 */
@@ -706,6 +713,9 @@ function viewHome() {
   const openFs = homeForeshadows(p);
   const fsRows = openFs.slice(0, HOME_FS).map((f) => `<li><span class="chip">${f.planted_ep}화</span><span class="home-fs-d">${esc(f.description)}</span><span class="small${f.overdue ? ' home-late' : ''}">${f.overdue ? `${f.due_ep}화 예정 지남` : f.due_ep ? `${f.due_ep}화 회수 예정` : `${f.age}화째`}</span></li>`).join('');
   const facts = [...p.facts].reverse();
+  const learned = factsLearned(p);
+  // 사실이 들어온 화 링크 (반영 기록에서 센다, context.facts_learned). 기록에 없는 사실(설정 단계 · 직접 적음 · 인과율)은 붙이지 않는다
+  const factLi = (f) => `<li>${esc(f)}${learned[f] ? ` <a class="small" href="${base()}/review/${learned[f]}">${learned[f]}화</a>` : ''}</li>`;
 
   return `${header(`${esc(m.genre || '장르 미정')}${m.adult ? ' · 성인' : ''} · ${serial() ? '장편 연재 · ' : ''}전 ${m.target_episodes}화 · 화당 ${Number(m.words_per_episode).toLocaleString()}자`, m.title || S.name, m.logline ? `<span class="home-logline" title="${esc(m.logline)}">${esc(m.logline)}</span>` : '', `${!serial() && fin && fin === m.target_episodes ? `<a class="btn" href="${base()}/convert">장편으로 늘리기</a>` : ''}${isArcHref(nextHref) ? '' : `<a class="btn" href="${base()}/arc">${stepLabel('arc')}</a>`}${fin ? '<button type="button" class="btn" data-action="branchOpen" title="이 작품은 그대로 두고, 사본에서 다른 전개를 써요">갈래 만들기</button>' : ''}${nextStepHtml(next)}`)}
     ${autoLockNote()}
@@ -726,8 +736,8 @@ function viewHome() {
       <section class="card" aria-labelledby="home-fs-h"><div class="between"><h2 id="home-fs-h">열린 복선</h2><span class="small">${openFs.length > HOME_FS ? `${openFs.length}개 중 오래된 ${HOME_FS}개` : `${openFs.length}개`}</span></div>
         ${fsRows ? `<ul class="home-list home-fs">${fsRows}</ul>` : '<div class="small">없음</div>'}<a class="card-more" href="${base()}/foreshadow">복선 ${p.foreshadows.length}개 · 복선 센터</a></section>
       <section class="card" aria-labelledby="home-fact-h"><div class="between"><h2 id="home-fact-h">확정 사실</h2><span class="small">${p.facts.length > HOME_FACTS ? `${p.facts.length}개 중 최근 ${HOME_FACTS}개` : `${p.facts.length}개`}</span></div>
-        ${facts.length ? `<ul class="home-facts">${facts.slice(0, HOME_FACTS).map((f) => `<li>${esc(f)}</li>`).join('')}</ul>` : '<div class="small">없음</div>'}
-        ${p.facts.length > HOME_FACTS ? `<details><summary class="small">전체 ${p.facts.length}개 보기</summary><ol class="home-facts all">${p.facts.map((f) => `<li>${esc(f)}</li>`).join('')}</ol></details>` : ''}
+        ${facts.length ? `<ul class="home-facts">${facts.slice(0, HOME_FACTS).map(factLi).join('')}</ul>` : '<div class="small">없음</div>'}
+        ${p.facts.length > HOME_FACTS ? `<details><summary class="small">전체 ${p.facts.length}개 보기</summary><ol class="home-facts all">${p.facts.map(factLi).join('')}</ol></details>` : ''}
       </section>
     </div>`;
 }

@@ -12,11 +12,14 @@ from . import dynamics, elements, illust, metrics, naming, prompts, renumber, se
 from .judge import Judge, Question
 from .llm import LLM, PREFIX_HINT, Interrupted, OutputCut, dump, family_text, out_cap, was_cut
 from . import anchor, board, cancel, charlog, context, features, findings, foreshadows, heatplan, knows, metatail, stage, statwin, usage
+from . import offscreen
+from .schema import OffscreenSet
 from .schema import CueSheet, CueSheetDraft, Finding, MetaCut, FindingRecheck, FixBatch, FixOption, FixPatch, FixRecheckItem, FixRecheckReport, FixSet, RevArcSet, RevEpisodeDraft, RevLineSet
 from .schema import ParagraphAnatomy, ReaderCheck, SceneCard, SceneVariant, SceneVariants, StudioCandidate, StudioDraft
 from .schema import (
     AddedItems,
     Act,
+    AuditReport,
     ArcEdit,
     ArcPlan,
     HeatArcPlan,
@@ -1215,6 +1218,13 @@ def fold_knows(llm: LLM, p: Project, number: int) -> KnowsFoldSet:
     return knows.clean_fold(p, number, fs)
 
 
+def plan_offscreen(llm: LLM, p: Project) -> OffscreenSet:
+    """다음 아크 기획 앞, context.RETURN_GAP 화 넘게 나오지 않은 인물(offscreen.targets)마다 화면 밖 근황 제안. 저장하지 않는다 (offscreen.apply)."""
+    want, cut = offscreen.ready(p)
+    s = llm.json(prompts.SYSTEM_PLANNER, prompts.offscreen_prompt(p, want, cut), OffscreenSet, hint={"ids": list(want)})
+    return offscreen.clean(p, s, want)
+
+
 def pending_recaps(p: Project) -> list[tuple[str, int]]:
     """모든 화가 끝났는데 요약이 없는 아크와 부. 요약이 있는 부의 아크는 부 요약이 대신 들어가므로(prompts.story_so_far) 빼 둔다."""
     summed = [x for x in p.parts if x.summary]
@@ -1262,6 +1272,7 @@ def carried_delta(p: Project, n: int) -> StateDelta | None:
     if src is None or old is None or src.text != p.episode(n).text:
         return None
     d = old.model_copy(deep=True, update={"episode": n})
+    drop_audit_warnings(d)
     for e in [*d.events, *d.dismissed.events]:  # 빼 둔 항목(dismissed)도 번호를 맞춘다
         e.episode = n
     for f in [*d.foreshadow_planted, *d.dismissed.foreshadow_planted]:
@@ -4134,7 +4145,9 @@ def text_basis(text: str) -> str:
 
 # ---------- 6. 상태 갱신 ----------
 
-def extract_state(llm: LLM, p: Project, n: int) -> StateDelta:
+def extract_state(llm: LLM, p: Project, n: int, audit: LLM | None = None) -> StateDelta:
+    """n화 상태 변경안. 작품 설정 state_audit 를 켜면 받은 뒤 누락 검사(audit_delta)를 한 번 더 부른다.
+    audit 를 주지 않으면 audit 단계 모델(get_llm('audit'))을 쓴다. 반영 기록에서 돌아온 변경안(carried_delta)은 다시 검사하지 않는다."""
     if not p.episode(n).text:
         raise ValueError(f"{n}화 본문이 없어요")
     carried = carried_delta(p, n)
@@ -4151,7 +4164,52 @@ def extract_state(llm: LLM, p: Project, n: int) -> StateDelta:
     delta = to_delta(raw, n)  # 관계 수치 칸은 응답 형식에 없고, 있어도 버린다
     clean_delta(p, delta)
     delta.basis = basis
+    if p.settings.state_audit:
+        if audit is None:
+            from .llm import get_llm
+            audit = get_llm("audit")
+        audit_delta(audit, p, n, delta)
     return delta
+
+
+AUDIT_MARK = "[누락 의심]"  # 누락 검사 경고의 머리. 자동 집필 정책은 이 경고를 따로 센다 (autorun.Policy.stop_on_audit)
+AUDIT_MAX = 6
+AUDIT_QUOTE_MIN = 8  # 띄어쓰기 · 문장 부호를 뺀 인용 글자 수 하한. '그는' 같은 짧은 인용은 어디에나 있어 근거가 못 된다
+
+
+def drop_audit_warnings(d: StateDelta) -> None:
+    """누락 검사 경고를 warn_to 와 함께 뺀다. 옛 본문 기준의 누락 의심을 다시 쓰는 변경안(carried_delta · 반영 취소)에 남기지 않는다."""
+    features.align_warn_to(d)
+    keep = [i for i, w in enumerate(d.warnings) if not w.startswith(AUDIT_MARK)]
+    d.warnings, d.warn_to = [d.warnings[i] for i in keep], [d.warn_to[i] for i in keep]
+
+
+def audit_delta(llm: LLM, p: Project, n: int, d: StateDelta) -> list[str]:
+    """받은 상태 변경안에 본문의 비밀 공개 · 관계 사건 · 약속 · 부상 · 정체 공개 · 장소 이동 · 소지품이 빠졌는지 한 번 더 묻는다.
+    본문에서 찾을 수 없는 인용은 버리고 AUDIT_MAX 개까지 '[누락 의심]' 경고로만 d.warnings 끝에 붙인다(warn_to 는 "").
+    변경안 칸은 바꾸지 않는다. 검사가 실패하면 경고를 붙이지 않고 변경안은 그대로 둔다. 붙인 경고."""
+    text = p.episode(n).text
+    try:
+        rep = llm.json(prompts.SYSTEM_EDITOR, prompts.audit_prompt(p, n, d), AuditReport, hint={"episode": n, "text": text})
+    except Interrupted:
+        raise
+    except Exception as e:  # 누락 검사는 덤이라 변경안을 막지 않는다
+        logging.getLogger("canon").warning("%s화 상태 변경안 누락 검사가 실패했어요: %s", n, e)
+        return []
+    out: list[str] = []
+    for x in rep.items:
+        q = x.quote.strip().strip("«»")
+        if len(foreshadows.norm(q)) < AUDIT_QUOTE_MIN or not x.missing.strip() or not findings.in_text(text, q):
+            continue
+        w = f"{AUDIT_MARK} {x.kind}: {x.missing.strip()} «{q}»"
+        if w not in out and w not in d.warnings:
+            out.append(w)
+        if len(out) >= AUDIT_MAX:
+            break
+    features.align_warn_to(d)
+    d.warnings += out
+    d.warn_to += [""] * len(out)
+    return out
 
 
 def clean_delta(p: Project, d: StateDelta) -> None:
@@ -4494,6 +4552,27 @@ def apply_restate(p: Project, d: StateDelta) -> dict:
         rec.new_places += [x.model_copy(deep=True) for x in places]
     ep.final_text = ""
     return {"summary": bool(summary), "facts": len(facts), "foreshadows": len(plants), "clues": len(clues), "places": len(places)}
+
+
+def take_dismissed_fact(p: Project, n: int, i: int) -> str:
+    """n화 반영 기록에서 빼 둔 새 사실(dismissed.new_facts) 하나를 확정 사실에 넣는다. 자동 반영이 이미 있는 사실과 비슷해 뺀 것을
+    작가가 나중에 고르는 길이다. 그 화와 뒤 화의 스냅샷 · 반영 기록에도 넣어 반영 취소와 맞춘다(apply_restate 와 같다).
+    넣은 사실. 이미 있는 사실이면 빼 둔 목록에서만 지우고 빈 글."""
+    rec = next((h for h in reversed(p.history) if h.episode == n), None)
+    if rec is None or not 0 <= i < len(rec.dismissed.new_facts):
+        raise ValueError(f"{n}화 반영 기록에 빼 둔 사실이 없어요. 화면을 새로 고쳐 보세요")
+    fact = rec.dismissed.new_facts.pop(i).strip()
+    rec.fact_near = [x for x in rec.fact_near if x.fact != fact]  # 작가가 고른 사실이라 반영 취소로 다시 놓일 때 기본으로 빼지 않는다
+    if not fact or fact in p.facts:
+        return ""
+    p.facts.append(fact)
+    for snap in p.snapshots:
+        if snap.episode >= n and fact not in snap.facts:
+            snap.facts.append(fact)
+    rec.new_facts.append(fact)
+    if rec.added is not None:
+        rec.added.facts.append(fact)
+    return fact
 
 
 def keep_state(p: Project, n: int) -> None:

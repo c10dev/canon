@@ -72,7 +72,8 @@ class Policy(BaseModel):
     stop_on_critical: bool = Field(True, description="심각도 '치명'인 어긋남이 하나라도 있으면 멈춤 (max_issues 와 상관없이)")
     max_shift: float = Field(0.3, description="한 인물이 다른 인물을 보는 온기나 신뢰가 한 화에 이만큼 넘게 바뀌면 멈춤. 0 이면 보지 않음")
     stop_on_stage: bool = Field(False, description="관계 단계(호감 → 균열 등)가 바뀌면 멈춤")
-    stop_on_warnings: bool = Field(False, description="상태 변경안에 경고(플롯 누락, 설정 위반)가 있으면 멈춤")
+    stop_on_warnings: bool = Field(False, description="상태 변경안에 경고(플롯 누락, 설정 위반)가 있으면 멈춤. 누락 검사의 '[누락 의심]' 경고는 세지 않는다 (stop_on_audit)")
+    stop_on_audit: bool = Field(False, description="상태 변경안 누락 검사(작품 설정 state_audit)가 '[누락 의심]' 경고를 하나라도 내면 멈춤")
     confirm_plots: bool = Field(False, description="초안 플롯을 만나면 자동으로 확정하고 쓴다. 끄면 그 화에서 멈춤")
     review_every: int = Field(0, description="이번 실행에서 N화를 반영할 때마다 멈춤. 0 이면 멈추지 않음")
     hand_pick_opening: bool = Field(True, description="1~3화는 쓰고 검수한 뒤 반영하기 전에 멈춤. 독자가 계속 읽을지 정하는 화라 작가가 읽고 고른다")
@@ -319,8 +320,13 @@ def review_reasons(p: Project, delta: StateDelta, report: Optional[ConsistencyRe
         out.append(f"검수에서 치명적인 어긋남 {len(crit)}개: {crit[0].description}")
     if policy.hand_pick_opening and prompts.is_opening(delta.episode):
         out.append(f"{delta.episode}화는 초반 화라 직접 읽고 반영하도록 멈춰요 (집필 화면에서 초반 점검과 여는 방식 비교를 쓸 수 있어요)")
-    if policy.stop_on_warnings and delta.warnings:
-        out.append(f"상태 변경안 경고 {len(delta.warnings)}개: {delta.warnings[0]}")
+    # 누락 검사 경고는 따로 센다. stop_on_warnings 를 켠 작가가 덤 검사 때문에 자주 멈추지 않게
+    audits = [w for w in delta.warnings if w.startswith(pipeline.AUDIT_MARK)]
+    warns = [w for w in delta.warnings if not w.startswith(pipeline.AUDIT_MARK)]
+    if policy.stop_on_warnings and warns:
+        out.append(f"상태 변경안 경고 {len(warns)}개: {warns[0]}")
+    if policy.stop_on_audit and audits:
+        out.append(f"상태 변경안 누락 의심 {len(audits)}개: {audits[0][len(pipeline.AUDIT_MARK):].strip()}")
     if policy.max_style_distance > 0 and not anchor.voiced(p, delta.episode):
         r = anchor.rolling(p, delta.episode)
         if r is not None and r > policy.max_style_distance:
@@ -464,6 +470,8 @@ def estimate(p: Project, target: int, batch: bool, policy: Policy, name: str | N
             missing.append(n)
             continue
         calls = [("state", prompts.SYSTEM_EDITOR, prompts.state_prompt(sim, n), JSON_OUTPUT_RESERVE)]
+        if sim.settings.state_audit:  # 누락 검사 한 번: 본문 + 변경안 줄임. 상태 변경안 단계 값으로 어림한다 (audit 모델이 더 싸면 넘게 잡힘)
+            calls.append(("state", prompts.SYSTEM_EDITOR, prompts.audit_prompt(sim, n, StateDelta(episode=n, summary="")) + " " * 1500, JSON_OUTPUT_RESERVE))
         if policy.check:
             calls.append(("check", prompts.SYSTEM_CHECKER, prompts.check_prompt(sim, n, sized=True), JSON_OUTPUT_RESERVE))
             if sim.serial and sim.settings.check_widen:  # 검수 넓히기: 진술 뽑기 + 다시 묻기 (근거는 진술마다 다 찬다고 본다)

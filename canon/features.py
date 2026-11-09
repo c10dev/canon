@@ -14,12 +14,44 @@ from __future__ import annotations
 
 from typing import Callable
 
-from . import address, attire, cast, charlog, elements, foreshadows, knows, naming, pace, stateedit, statwin, timeline
+from . import address, attire, cast, charlog, context, elements, foreshadows, knows, naming, offscreen, pace, stateedit, statwin, timeline
 from .maps import travel
-from .schema import Project, Snapshot, StateDelta
+from .schema import FactNear, Project, Snapshot, StateDelta
 
 # 정리 훅이 돌려주는 경고 한 줄: 글, 또는 (글, 그 경고가 다루는 인물 id)
 Warn = str | tuple[str, str]
+
+
+def _untag_facts(p: Project, d: StateDelta) -> None:
+    """프롬프트가 장편 사실 줄 앞에 붙인 '(n화)' 표시(prompts.fact_rows)를 새 사실이 따라 적었으면 뗀다. 빈 사실은 뺀다. 단편은 표시를 붙이지 않아 그대로 둔다."""
+    if not p.serial:
+        return
+    d.new_facts = [f for f in (context.FACT_TAG.sub("", x).strip() for x in d.new_facts) if f]
+
+
+def _near_facts(p: Project, d: StateDelta) -> None:
+    """새 사실 가운데 이미 있는 확정 사실과 비슷한 것(context.near_fact)을 d.fact_near 에 적는다. 경고는 내지 않는다.
+    상태 승인 화면은 이 사실을 기본으로 체크하지 않고, 사람 검토 없는 반영은 뺀다(_hold_near_facts). 장편만 본다(단편 경로는 그대로)."""
+    if not p.serial:
+        d.fact_near = []
+        return
+    d.fact_near = [FactNear(fact=f, like=like) for f in dict.fromkeys(d.new_facts) if f not in p.facts and (like := context.near_fact(f, p.facts))]
+
+
+def _hold_near_facts(p: Project, d: StateDelta) -> int:
+    """HOLD 훅 (자동 집필 · run -y · 플레이): 비슷한 새 사실은 반영하지 않고 d.dismissed 로 옮긴다.
+    반영 기록의 '빼 둔 항목'에서 작가가 나중에 확정 사실로 넣는다(pipeline.take_dismissed_fact). 인물 화면에 남기는 칸이 아니라 0 을 센다."""
+    near = {x.fact for x in d.fact_near} if p.serial else set()
+    gone = [f for f in d.new_facts if f in near]
+    if not gone:
+        return 0
+    d.new_facts = [f for f in d.new_facts if f not in near]
+    d.dismissed.new_facts += [f for f in gone if f not in d.dismissed.new_facts]
+    d.warn_to += [""] * (len(d.warnings) - len(d.warn_to))  # 경고와 같은 차례를 지킨다 (features.clean)
+    for f in gone:
+        d.warn_to.append("")
+        d.warnings.append(f"확정 사실: 이미 있는 사실과 비슷해 자동 반영에서 뺐어요: {f}")
+    return 0
 
 
 def _clean_places(p: Project, d: StateDelta) -> list[str]:
@@ -70,6 +102,7 @@ CLEAN: tuple[Callable[[Project, StateDelta], list[Warn] | None], ...] = (
     charlog.clean_delta,
     address.clean_delta,       # 호칭 · 말씨 바뀜: 있는 인물 사이의 지금 값과 다른 칸만
     knows.clean_delta,         # 프롬프트가 아는 정보 앞에 붙인 '(n화)' 표시를 뗀다
+    _untag_facts,              # 프롬프트가 사실 줄 앞에 붙인 '(n화)' 표시를 뗀다 (비슷한 사실 보기 전에)
     attire.clean_delta,        # 차림의 '가방' · '옷'처럼 종류를 모르는 물건
     _clean_places,
     _new_cast_gaps,            # 말투가 빈 새 인물
@@ -77,6 +110,7 @@ CLEAN: tuple[Callable[[Project, StateDelta], list[Warn] | None], ...] = (
     _new_cast_names,           # 새 인물 이름 점검 · 한 화의 새 인물 수
     cast.clean_delta,          # 본문에 나와 변경안이 다룬 인물을 그 화 등장 인물에 붙일 목록 (경고 없음)
     pace.clean_delta,          # 관계 유형 · 감정 글이 반영 뒤 관계 단계와 반대인지, 한 쌍의 결정적 사건 남발 (등장 인물 붙이기 뒤)
+    _near_facts,               # 이미 있는 확정 사실과 비슷한 새 사실 (경고 없음, 기본 체크 풀기)
     travel.delta_warnings,     # 지도 거리와 작품 속 시간으로 보아 너무 빨리 옮겨 간 인물 (장소 정리 뒤)
     statwin.window_warnings,   # 본문 상태창이 반영할 값과 다름
     statwin.range_warnings,    # '지금/한도' 수치가 0 아래거나 한도 위
@@ -85,7 +119,10 @@ CLEAN: tuple[Callable[[Project, StateDelta], list[Warn] | None], ...] = (
 # 반영 (pipeline.apply_delta): 새 인물을 더한 직후. 작가가 고른 설정 바꾸기 · 호칭 제안만 온다 (자동 집필은 hold 로 미리 뺀다)
 APPLY_FIRST: tuple[Callable[[Project, StateDelta], None], ...] = (charlog.apply_delta, address.apply_delta, _add_places)
 # 반영: 상태 · 관계 · 사실 · 복선을 반영한 뒤, 반영 기록과 스냅샷 전
-APPLY_LAST: tuple[Callable[[Project, StateDelta], None], ...] = (foreshadows.apply_delta, timeline.apply_delta, cast.apply_delta)
+APPLY_LAST: tuple[Callable[[Project, StateDelta], None], ...] = (
+    foreshadows.apply_delta, timeline.apply_delta, cast.apply_delta,
+    offscreen.apply_delta,  # 다시 나온 인물의 화면 밖 근황을 비운다 (등장 인물 붙이기 뒤)
+)
 
 # 되돌리기 (pipeline.revert): 스냅샷으로 상태를 덮기 전
 REVERT_FIRST: tuple[Callable[[Project, int, Snapshot], None], ...] = (_unregister_places, _revert_two(cast.revert))
@@ -94,7 +131,7 @@ REVERT_LAST: tuple[Callable[[Project, int, Snapshot], None], ...] = (
     _revert_two(foreshadows.revert), _revert_two(statwin.revert), _revert_timeline, _revert_two(charlog.revert), _revert_two(address.revert), _revert_two(knows.revert),
     _revert_two(stateedit.revert))
 # 사람 검토 없이 반영하기 전 (자동 집필 · run -y · 플레이): 작가가 골라야 바뀌는 제안을 빼서 남겨 둔다. 남긴 개수를 센다
-HOLD: tuple[Callable[[Project, StateDelta], int], ...] = (charlog.hold, address.hold, pace.hold)
+HOLD: tuple[Callable[[Project, StateDelta], int], ...] = (charlog.hold, address.hold, pace.hold, _hold_near_facts)
 
 
 def align_warn_to(d: StateDelta) -> None:

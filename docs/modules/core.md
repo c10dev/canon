@@ -14,6 +14,8 @@
 - 옛 실행 로그의 스토리보드 단계 `plan` 은 `_measured` 가 `board` 로 읽는다
 - 관계 정책(`max_shift` · `stop_on_stage`)은 작품 복사본에 `features.hold` 로 뺀 변경안을 반영해 본다(`review_reasons`)
 - 그래서 관계 정책은 실제 반영(`put`)과 같은 제안만 센다
+- 변경안 경고 멈춤(`Policy.stop_on_warnings`)은 누락 검사의 '[누락 의심]' 경고를 세지 않는다. 그 경고는 `Policy.stop_on_audit`(기본 꺼짐)가 따로 본다
+- 비용 · 시간 추정(`estimate`)은 누락 검사를 켠 작품에서 상태 변경안 호출을 화마다 하나 더 센다(상태 변경안 단계 값으로 어림)
 - 이야기 데이터 정책은 `_story_reasons` 가 본다. 모두 기본으로 꺼져 있어(0 · false) 켜기 전과 같이 돈다
 - 새 인물 멈춤(`Policy.stop_on_new_characters`, `StateDelta.new_characters`)
 - 새 비밀 멈춤(`Policy.stop_on_secrets`, `StateDelta.secrets_added`)
@@ -94,6 +96,8 @@
 - `update -y` 의 관계 미리 보기는 반영처럼 `features.hold` 로 뺀 제안을 빼고 계산한다(`_print_relation_preview`)
 - `update` 는 반영 전제(`pipeline.check_applicable`)에 걸리면 변경안을 만들지 않고 까닭을 알린다. 반영 완료한 화는 앞 화로 되돌리는 `revert <작품> <n-1>` 을 알려 준다
 - `update`(`-y` 없이)는 관계 미리 보기 전에 관계 단계와 반대인 관계 바뀜(`StateDelta.rel_flagged`)을 따로 보여 주고 묻는다. 기본은 빼고, 뺀 것은 `d.dismissed` 에 남긴다(`_ask_flagged`)
+- `update`(`-y` 없이)는 이미 있는 확정 사실과 비슷한 새 사실(`StateDelta.fact_near`)도 옛 사실과 나란히 보여 주고 묻는다. 기본은 빼고 `d.dismissed` 에 남긴다(`_ask_near_facts`)
+- `update -y` 는 비슷한 새 사실을 반영하지 않고 빼 둔 수를 알린다(`features.hold`)
 - 장편(`new --serial`)은 `arc` 대신 `series` 를 한 번 부른다
 - 장편은 아크마다 `nextarc` → `plot` → `confirm` → `run` → `recap` 을 되풀이한다
 - `auto --stop` 은 다른 곳(웹 서버)에서 도는 실행이면 중지를 청했다고 알린다(`autorun.elsewhere`)
@@ -149,6 +153,9 @@
 - 블록 재기(`blocks`, 사용량 기록 · 연구 화면)
 - 블록 글자 예산(`BUDGET`)
 - 관련 사실(`pick_facts`) · 비밀(`pick_secrets`) · 떡밥(`rank_foreshadows`) · 인물이 아는 정보(`pick_knows`, 뺀 수는 `prompts.knows_note`) 고르기
+- 확정 사실이 들어온 화(`facts_learned`): 반영 기록의 `new_facts` 로 센다. 고친 화 다시 맞추기 · 빼 둔 사실 넣기도 그 기록에 더해 잡힌다. 저장하지 않는다
+- `facts_learned` 에 인과율 `apply_impact` 로 넣은 사실은 없다(반영 기록을 남기지 않음). 설정 단계 · 직접 적은 사실도 없다
+- 비슷한 확정 사실(`near_fact`): 새 사실의 한글 3글자 조각 가운데 `FACT_NEAR`(0.5) 이상이 한 옛 사실과 겹치면 그 옛 사실. 조각이 `FACT_NEAR_MIN`(3)보다 적으면 보지 않는다
 - 기획 프롬프트 인물(`planning_cast`)
 - 인물 이름(`names_of`: 세 글자 이름은 성을 뗀 이름도, `metrics.name_forms`)
 - 이름으로 켜는 인물(`named_ids` · `name_pattern`, 남은 예산 `fit_named`) · 마지막으로 나온 화(`last_seen`)
@@ -222,6 +229,10 @@
 - 글만 돌려준 경고, 훅이 `d.warnings` 에 바로 붙인 경고, AI 경고는 대상이 "" 다
 - `align_warn_to` 가 `warn_to` 길이를 `warnings` 에 맞춘다
 - 사람 검토 없이 반영할 때(자동 집필 · `run -y` · 플레이)는 `hold`(`HOLD`)가 작가가 골라야 하는 제안을 빼서 남겨 둔다. 관계 단계와 반대인 유형 바뀜(`pace.hold`)은 남기지 않고 빼서 경고에 적는다
+- 정리 훅 `_near_facts` 는 이미 있는 확정 사실과 비슷한 새 사실을 `StateDelta.fact_near`(새 사실, 옛 사실)에 적는다. 경고는 내지 않는다
+- `_near_facts` · `_hold_near_facts` 는 장편만 본다. 단편은 표시도 빼기도 하지 않는다
+- 정리 훅 `_untag_facts` 는 새 사실이 따라 적은 '(n화)' 표시(`context.FACT_TAG`)를 뗀다. 비슷한 사실 보기 전에 돈다. 장편만 본다
+- HOLD 훅 `_hold_near_facts` 는 그 새 사실을 `d.dismissed.new_facts` 로 옮기고 경고에 적는다. 작가는 반영 기록에서 나중에 넣는다(`pipeline.take_dismissed_fact`)
 - 상태를 가진 기능을 더할 때는 `pipeline.py` 를 고치지 않고 기능 모듈에 훅을 두고 이 목록에 넣는다(목록 순서가 부르는 순서)
 - LLM 호출 없음
 
@@ -270,6 +281,14 @@
 - 고침안(한 지적 · 묶음) · 다시 검수는 `check_material` 길이를 캐시 경계(`llm.PREFIX_HINT`)로 넘긴다. 세 프롬프트 함수는 미리 만든 자료를 `material` 로 받는다
 - 검수(`check_episode`)도 `check_material` 길이를 캐시 경계로 넘긴다. `check_prompt(material=)` 가 미리 만든 자료를 받는다
 - 상태 변경안(`extract_state`)은 백엔드가 `family_cache` 면 `state_prompt(head=check_material)` 로 검수 자료로 시작하고 그 길이를 캐시 경계로 넘긴다. 다른 백엔드는 예전 프롬프트다
+- 작품 설정 `Settings.state_audit`(기본 꺼짐)를 켜면 `extract_state` 가 정리한 변경안을 `audit_delta` 로 한 번 더 본다(`audit` 단계 모델, 인자 `audit` 로 바꿀 수 있음)
+- `audit_delta` 는 n화 본문과 변경안 줄임(`prompts.audit_prompt`)을 넣고 `AuditReport` 를 받는다. 종류는 비밀 공개 · 관계 사건 · 약속 · 부상 · 정체 공개 · 장소 이동 · 소지품
+- `audit_delta` 는 본문에서 찾을 수 없는 인용(`findings.in_text`)을 버리고 `AUDIT_MAX`(6)개까지 '[누락 의심]'(`AUDIT_MARK`) 경고로만 붙인다. `warn_to` 는 "" 로 차례를 맞춘다
+- `audit_delta` 는 변경안 칸을 바꾸지 않고, 실패하면 경고 없이 넘어간다. 반영 기록에서 돌아온 변경안(`carried_delta`)은 다시 보지 않는다
+- 띄어쓰기 · 문장 부호를 뺀 인용이 `AUDIT_QUOTE_MIN`(8)자보다 짧으면 버린다
+- 다시 쓰는 변경안(`carried_delta`, 반영 취소 `web._revert_kept`)은 옛 '[누락 의심]' 경고를 뺀다(`drop_audit_warnings`)
+- 배치 자동 집필에서도 누락 검사는 실시간 호출이다(상태 변경안만 배치). 사용량에는 그대로 잡힌다
+- 작업지시서(`brief`, 채팅 앱) 경로에는 누락 검사가 없다
 - 결정은 검수 프롬프트에 넣지 않는다
 - LLM 호출 없음
 
@@ -345,6 +364,8 @@
   - `drop_invalid` 가 뺀 항목은 `d.dismissed` 의 같은 칸에 남는다(반영 기록에서 보이고 반영 취소로 돌아오면 체크를 푼 채 다시 놓인다)
   - 관계 바뀜 행을 빼는 곳(`drop_invalid` · `pace.hold` · `_ask_flagged`)은 `StateDelta.drop_rel_rows` 를 써서 `rel_flagged` 를 남은 행의 차례로 다시 매긴다
   - `apply_delta` 는 기록(history)에 넣기 전 `rel_flagged` 에서 범위 밖 · 겹친 차례를 버린다(반영 취소로 다시 놓일 때 맞는 행을 기본으로 빼 둔다)
+  - `take_dismissed_fact` 는 n화 반영 기록의 빼 둔 새 사실 하나를 확정 사실에 넣는다. 그 화와 뒤 화 스냅샷, 그 화 기록의 `new_facts` · `added.facts` 에도 넣어 반영 취소가 함께 뺀다
+  - `take_dismissed_fact` 는 그 기록의 `fact_near` 에서도 그 사실을 지운다. 이미 있는 사실이면 빼 둔 목록에서만 지운다
   - `apply_delta` 는 새 관계 · 심은 복선 · 비밀을 복사해 넣는다(반영 뒤 계산이 바꿔도 반영 기록의 값은 보낸 그대로 남아 다시 계산할 때 두 번 세지 않는다)
   - `apply_delta` 는 한 변경안 안에서 같은 사실 · 같은 복선 id · 같은 비밀 id 가 또 오면 처음 것만 반영한다(`_first_new`)
   - `apply_delta` 는 심은 복선을 `apply_restate` 처럼 이번 화에 심은 열린 복선(`planted_ep` 이번 화, `status` open, `payoff_ep` 없음)으로 맞춘다
@@ -406,6 +427,7 @@
 - 장면 연출은 플롯에서 초안 `draft_stage` · 본문에서 뽑기 `extract_stage`(박자가 빈 응답이면 한 번 다시 묻기) · 검수 때 함께 뽑기 `stage_extract_all` · 적용 `apply_stage` · 적용 취소 `undo_stage`(`stage.py`)
 - 동선 지적 고침안은 새 문장을 더한 안을 거른다(`clean_fixes` 의 `_adds_sentence`)
 - 장편은 부 계획(`plan_series`) → 다음 아크(`plan_next_arc`/`apply_arc`, 기획 전 경고 `plan_ahead`: 본문 없는 아크 2개 이상 · 요약 없는 끝난 아크 · 부, 막지 않음) → 아크 · 부 요약(`recap`/`apply_recap`)
+- 다음 아크 기획 앞 화면 밖 근황 제안 `plan_offscreen`(작업 `offscreen`, 규칙은 story.md 의 `canon/offscreen.py` 절). 저장하지 않고 시점 화를 `OffscreenSet.at` 에 적는다
 - 단편 → 장편 전환은 이어 쓰기 `propose_conversion`/`apply_conversion`
 - 재구성 `propose_rebuild`/`apply_rebuild`(옛 상태 변경안 재사용 `carried_delta`, 다듬기 `propose_rework`/`accept_rework`)
 - 되돌리기 `undo_conversion`
@@ -443,6 +465,7 @@
 - 인물 고르기는 `static_characters` · `side_characters` · `roster_line` · `cast_block` 이 `Character.context` 를 따른다
 - 장편은 플롯 인물 목록 밖이라도 이름이 나온 조연을 넣는다(쓰기 `named_block`, 검수 `check_cast`, 상태 변경안)
 - 오랜만에 나오는 인물은 `return_block`
+- `return_lines` 는 작가가 정한 화면 밖 근황(`CharacterState.offscreen`)이 있으면 시점 화와 함께 그 줄 끝에 붙인다. 근황이 없으면 글이 예전과 같다
 - 스토리보드 만들기 `storyboard_prompt`(Canon 이 센 값 `canon_values_block`), 고치기 `storyboard_revise_prompt`(만들기 프롬프트 뒤에 지금 스토리보드와 요청)
 - 큐 시트 만들기 `cue_sheet_prompt(lead=)`: lead 를 주면 스토리보드 요청 글 그대로 + `board_block` + 큐 시트 요구사항(`_cue_request`). 응답 형식은 같다
 - lead 안에 장면 연출이 이미 있어 다시 넣지 않는다. 요구사항 첫 줄이 다음 화 플롯 사건을 큐에 넣지 말고 시간 · 이동 · 장면 순서는 스토리보드를 따르라고 적는다
@@ -461,6 +484,14 @@
 - 상태 변경안의 뺀 수 안내에는 '목록에 없는 비밀 · 복선의 id 는 쓰지 않습니다'를 붙인다
 - 플레이는 `state_prompt(cuts=)` 로 `play_view` 의 뺀 수를 넘겨 머리글이 원래 작품 기준 수를 적는다
 - `state_prompt(head=)` 는 검수 자료 뒤에 상태 칸을 붙이고 본문 · 이번 화 플롯을 다시 넣지 않는다
+- 장편 `state_prompt` 는 head 가 없으면 `[이미 있는 확정 사실 — 다시 적지 않습니다]` 블록(`state_facts_block`)을 이번 화 플롯 뒤에 넣는다
+- `state_facts_block` 은 `context.pick_facts` 로 본문 · 플롯과 관련된 것과 최근 것을 예산 `state_facts` 만큼 고르고 뺀 수를 머리글에 적는다
+- 플레이 상태 변경안(`play_state_prompt`)은 같은 블록을 예산 `play_state_facts` 로 넣는다
+- 장편 요구사항에는 '확정 사실에 없는 새 사실만' 한 줄을 넣는다. head 가 있으면 검수 자료의 확정 사실 칸을 가리킨다
+- 단편 `state_prompt` 에는 사실 블록도 그 요구사항도 넣지 않는다
+- 사실 줄은 `fact_rows` 로 쓴다. 장편은 들어온 화를 '(n화)'로 앞에 붙인다(`context.facts_learned`, 0화 · 모름은 붙이지 않음)
+- `fact_rows` 를 쓰는 곳은 쓰기 맥락 · 부분 고치기 머리 · 화별 플롯 · 다음 아크 기획 · 상태 변경안이다
+- 검수 자료 · 넓혀 찾기 · 인과율 영향 분석 · 플레이 장면의 사실 줄에는 '(n화)'를 붙이지 않는다. 인과율 `rep.new_facts` 는 정리 훅을 거치지 않는다
 - 장편이고 상태 인물이 `check_cast` 와 같으면 인물 설정 · 이전 인물 상태 · 비밀 칸도 넣지 않고 검수 자료의 칸을 보라고 적는다(같은 함수로 고름)
 - 예시 문단이 있는 작품의 스타일 프로필 `style_rules_view`(칸마다 `STYLE_FIELD_LIMIT`, 예시 문단이 앞)
 - 스토리보드 깨지 않을 것을 검수에 `protect_block` · `protect_check_rule`
@@ -481,6 +512,8 @@
 - 검수 요구사항의 관계 단계 한 줄(`stage_check_rule`, 관계 수치가 있을 때만)
 - 관계 설정 `rels(plan=)`: 가 닿을 곳(`Relationship.destination`)은 기획 프롬프트에만, 말로 넣는 기획은 `destination_block`
 - 다음 아크 기획(`next_arc_prompt`)은 관련 확정 사실(`plan_facts`) · 작품 속 시간(`time_plan`, 끝 줄 `ARC_TIME_RULE`) · 주역 밖 기획 인물 상태(`plan_side_states`)를 예산(`context.BUDGET` 의 `plan_facts` · `plan_states`) 안에서 넣는다
+- 다음 아크 기획은 조연 상태 뒤에 화면 밖 근황(`offscreen_block`, `offscreen.OFFSCREEN_MAX` 명까지, 넘으면 뺀 수)을 넣는다. 근황이 있을 때만 요구사항에 이어 쓰기 줄을 더한다
+- 화면 밖 근황 제안 `offscreen_prompt`(종류 `OFFSCREEN_KINDS`): 인물마다 마지막으로 나온 화 요약 문장(`seen_sentence`) · 마지막 상태 · 주역과의 관계 · 지금 근황
 
 ### `canon/reshape.py`
 
@@ -500,8 +533,10 @@
 - 인물 프롬프트 넣기(`Character.context`: auto 비중대로 · always 늘 · off 이름만)도 작가 전용이라 같은 방식으로 빠진다
 - 인물 상태의 지울 칸(`CharacterState.cleared`)은 변경안에만 쓴다. 비었으면 직렬화에서 빼서 저장한 상태 · 프롬프트에 들어가지 않는다
 - 지울 칸에 값이 함께 오면 검증(`_blank_cleared`)이 그 칸을 비워 차림 · 이동 거리 경고가 새 값으로 보지 않는다
+- 화면 밖 근황(`CharacterState.offscreen` · `offscreen_ep`)은 AI 응답 형식(`SkipJsonSchema`)과 프롬프트 직렬화에서 빠진다. 비었으면 저장하지도 않는다
 - 인물 프롬프트 넣기를 고르는 규칙은 `context.core_ids` · `off_ids` · `without_off`(모두 auto 면 예전 규칙과 같다)
 - 상태 변경안의 본문 지문(`StateDelta.basis`)도 프로그램이 채워 AI 응답 형식에서 빠진다(`SkipJsonSchema`). 비면 모름
+- 비슷한 새 사실 표시(`StateDelta.fact_near`, `FactNear`: 새 사실 · 옛 사실)도 프로그램 칸이다(`SkipJsonSchema`, `features._near_facts`)
 - 상태 변경안의 AI 응답 형식은 `StateDeltaAI` 다(`extract_state` · `play.settle` · `state_brief`). 관계 바뀜 `RelationshipChange` 와 사건 `AIStoryEvent` 에 관계 수치 · 보는 방식 · 가 닿을 곳 · 화 번호 · 수동보정 칸이 없다
 - `to_delta` 가 받은 `StateDeltaAI`(또는 `StateDelta` 를 돌려주는 가짜 LLM)를 n화 `StateDelta` 로 바꾸며 그 칸들을 버린다. 채팅 앱 JSON 가져오기(`web.parse_state`, 명령줄 `update --from-json`)도 거친다
 - 사건 종류 목록에서 수동보정은 응답 형식에서만 빠지고 읽기는 한다(예전 JSON). 반영이 뺀다
@@ -560,6 +595,7 @@
 - 환경 변수가 있으면 파일보다 우선한다
 - 단계 이름 목록은 `STAGES`
 - 스토리보드 · 큐 시트 단계 `board` 는 따로 정하지 않으면 계획 단계를 따른다(`STAGE_PARENT`). 웹 쓰기 작업 · 스토리보드 · 큐 시트 작업과 자동 집필이 이 단계로 부른다
+- 상태 변경안 누락 검사 단계 `audit` 는 따로 정하지 않으면 상태 변경안 단계를 따른다. 기본 프리셋은 싼 모델(flash · haiku)을 둔다
 - 단계별 환경 변수 이름은 `stage_env`
 - 기본 모델은 `DEFAULT_MODEL`
 - 작품별 단계 프리셋은 `project_preset` · `stage_provider` · `stage_model`
@@ -573,6 +609,7 @@
 ### `canon/static/auto.js`
 
 - 자동 집필 화면(`viewAuto`, 서버 `autorun.py`)
+- 누락 의심 멈춤(`stop_on_audit`) 칸은 작품 설정 `state_audit` 를 켰을 때만 보인다
 - 일시정지 · 중지를 누른 뒤 지금 단계가 끝날 때까지 머리 버튼이 '멈추는 중…' · '중지하는 중…'(`AutoView.want`, aria-busy)이다
 - 서버 재시작 칸은 '끊긴 호출 비용은 빠졌어요' 를 글로 보인다(title 에만 두지 않음)
 - 실행이 있으면 공용 목차 틀이다(목차 `autoToc`: 지금 실행 · 멈춘 이유 · 검토 없이 반영한 화 · 진행 기록 · 승인 정책)
@@ -657,6 +694,8 @@
 - 작품 저장(PUT · PATCH)은 단편 열 계획을 1화부터 끝 화까지 맞춘다(`heatplan.fit` · `fit_turn`). 화수를 바꿔도 빈틈이 생기지 않는다
 - 장편은 아크마다 그 아크 범위로 열 계획을 맞춘다. 다음 아크 적용(`/arcs/apply`)은 판돈이 든 제안(`HeatArcProposal`)도 받는다
 - 작업 `heat`(`_job_heat`): 이미 있는 기승전결 · 아크 위 열 계획 제안. 결과는 검토를 기다리는 결과(`PENDING_KINDS`)로 남는다
+- 작업 `offscreen`(`_job_offscreen`, 계획 단계 모델): 화면 밖 근황 제안. 결과는 `PENDING_KINDS` 로 남는다
+- 화면 밖 근황 저장 `POST …/offscreen`(`OffscreenSet`, 고른 인물만) · 지우기 `DELETE …/offscreen/{인물 id}`. 장편에서만 받는다
 - 문체 라이브러리 분석 작업 `POST /api/styles/analyze/job`(kind `lib_style`, project `LIB_JOBS` = `.styles`)
 - 맨 바깥 미들웨어 `_guard_host` 는 Host 가 IP 주소 · localhost · `*.ts.net` · 이 컴퓨터 이름 · `CANON_ALLOWED_HOSTS` 의 이름이 아니면 403 으로 막는다(DNS 리바인딩)
 - `_guard_host` 는 POST · PUT · PATCH · DELETE 에 Origin 이 있으면 그 이름이 Host 나 X-Forwarded-Host 와 같아야 받는다(CSRF). Origin 이 없는 요청(명령줄 · curl)은 받는다
@@ -713,6 +752,8 @@
 - `start_job` 은 같은 화에서 멈춘 작업이 AI 응답을 기다리면 `EP_AI_KINDS` 작업을 409 로 막는다(`_waiting_409`, 역설계 실험 `rev_job` 과 같은 문구)
 - 멈춘 스토리보드 작업의 늦은 응답은 그 화에 스토리보드 · 본문이 없고 플롯이 확정돼 있으면 남긴다(`_keep_late_board`, 결과 `{kept}`)
 - `_keep_pending` 은 멈춘 작업의 결과를 pending.json 에 남기지 않고 지난 실패도 지우지 않는다
+- 빼 둔 새 사실 넣기 `POST …/episodes/{n}/dismissed-facts/{i}`(`pipeline.take_dismissed_fact`)
+- 상태 변경안 누락 검사 켜기 · 끄기 `PUT …/state-audit`(`Settings.state_audit`)
 - 반영 취소(`POST …/revert/{n}`)는 n+1화부터의 반영 기록을 pending.json 의 상태 변경안(`state:<화>`)으로 남긴다(`_revert_kept`)
 - 남긴 변경안의 base 는 반영 때 본문이다(반영 뒤 고쳤으면 `final_text`)
 - 반영 뒤 고친 화에서 이미 뽑아 둔 상태 변경안은 반영 기록으로 덮지 않는다

@@ -17,9 +17,10 @@ from pydantic import BaseModel
 from . import context, elements, genres, illust, metrics, naming, storylines
 from .dynamics import VIEWS, describe_relations
 from .llm import _inline_refs, dump
-from .schema import Birth, Character, ChatMessage, Claim, ConsistencyIssue, ConsistencyReport, Foreshadow, PlayInfo, PlotBatch, Project, Selection, StateDeltaAI, StoryElement
+from .schema import Birth, Character, ChatMessage, Claim, ConsistencyIssue, ConsistencyReport, Foreshadow, PlayInfo, PlotBatch, Project, Selection, StateDelta, StateDeltaAI, StoryElement
 from .schema import ArcPlan, ArcProposal, CueSheetDraft, HeatArcPlan, HeatArcProposal, HeatProposal, SeriesPlan, StoryboardDraft
 from . import address, board, charlog, echoes, foreshadows, heatplan, knows, pairlog, stage, statwin, timeline
+from . import offscreen
 from .maps import prompt as mapprompt
 
 # AI 글티('쇠맛')를 줄이는 기본 문체 규칙. 작품의 스타일 프로필과 부딪히면 스타일 프로필을 따른다.
@@ -1468,13 +1469,21 @@ def return_lines(p: Project, ids: set[str], n: int) -> list[str]:
         if n - m < context.RETURN_GAP:
             continue
         c = by_id[cid]
-        pat = context.name_pattern(c)
-        sents = [s for s in re.split(r"(?<=[.!?。])\s+", " ".join(p.episode(m).summary.split())) if s]
-        line = next((s for s in sents if pat and pat.search(s)), "")  # 이름이 없는 문장은 다른 인물 이야기라 옮기지 않는다
-        if len(line) > RETURN_SENTENCE:
-            line = line[:RETURN_SENTENCE - 1] + "…"
-        rows.append(f"- {c.name}: 마지막으로 나온 화 {m}화 ({n - m}화 전)" + (f". {m}화 요약: {line}" if line else ""))
+        line = seen_sentence(p, c, m)
+        st = p.state_of(cid)
+        row = f"- {c.name}: 마지막으로 나온 화 {m}화 ({n - m}화 전)" + (f". {m}화 요약: {line}" if line else "")
+        if st and st.offscreen:  # 요약 문장이 마침표로 끝나면 마침표를 겹쳐 찍지 않는다
+            row += ("" if row.endswith((".", "!", "?", "。", "…")) else ".") + f" 화면 밖 근황 ({st.offscreen_ep}화 끝 시점, 작가가 정함): {st.offscreen}"
+        rows.append(row)
     return rows
+
+
+def seen_sentence(p: Project, c: Character, m: int) -> str:
+    """m화 요약에서 인물 c 의 이름이 나온 첫 문장 (RETURN_SENTENCE 자까지). 없으면 빈 글."""
+    pat = context.name_pattern(c)
+    sents = [s for s in re.split(r"(?<=[.!?。])\s+", " ".join(p.episode(m).summary.split())) if s]
+    line = next((s for s in sents if pat and pat.search(s)), "")  # 이름이 없는 문장은 다른 인물 이야기라 옮기지 않는다
+    return line[:RETURN_SENTENCE - 1] + "…" if len(line) > RETURN_SENTENCE else line
 
 
 def return_block(p: Project, ids: set[str], n: int) -> str:
@@ -1482,8 +1491,21 @@ def return_block(p: Project, ids: set[str], n: int) -> str:
     rows = return_lines(p, ids, n)
     if not rows:
         return ""
+    away = ("\n화면 밖 근황은 적힌 화 끝 시점의 것입니다. 그 뒤 줄거리 · 현재 상태와 어긋나면 줄거리와 현재 상태를 따르고, "
+            "근황은 다시 나온 장면에서 대사나 행동으로 드러냅니다") if any("화면 밖 근황 (" in r for r in rows) else ""
     return (f"\n\n# 오랜만에 다시 나오는 인물 ({context.RETURN_GAP}화 넘게 나오지 않음. 그동안 바뀐 것은 줄거리와 인물 현재 상태를 따르고, "
-            "독자가 누구인지 알아보게 처음 나올 때 한두 문장으로 짚어 줍니다)\n" + "\n".join(rows))
+            "독자가 누구인지 알아보게 처음 나올 때 한두 문장으로 짚어 줍니다)" + away + "\n" + "\n".join(rows))
+
+
+def offscreen_block(p: Project) -> str:
+    """다음 아크 기획의 화면 밖 근황 (offscreen.listed). 근황이 없으면 빈 글."""
+    rows, cut = offscreen.listed(p)
+    if not rows:
+        return ""
+    name = {c.id: c.name for c in p.characters}
+    lines = "\n".join(f"- {name.get(s.character_id, s.character_id)} ({s.character_id}, {s.offscreen_ep}화 끝 시점): {s.offscreen}" for s in rows)
+    more = f" (그 밖에 {cut}명은 뺐습니다)" if cut else ""
+    return f"\n[오래 나오지 않은 인물의 화면 밖 근황 (작가가 정한 것)]{more}\n{lines}"
 
 
 def candidates_block(p: Project) -> str:
@@ -1534,6 +1556,15 @@ def relevant_foreshadows(p: Project, n: int) -> tuple[list[Foreshadow], int]:
 
     picked = context.rank_foreshadows(p, [f for f in opened if keep(f)], n, FORESHADOW_CAP)
     return picked, len(opened) - len(picked)
+
+
+def fact_rows(p: Project, facts: list[str]) -> str:
+    """사실 목록 줄. 장편은 반영 기록으로 센 들어온 화를 '(n화)'로 앞에 붙인다(context.facts_learned, 0화 · 모름은 붙이지 않음).
+    상태 변경안이 따라 적은 표시는 features._untag_facts 가 뗀다. 검수 · 인과율 · 플레이 장면 요청은 이 함수를 쓰지 않는다. 비면 '없음'."""
+    if not facts:
+        return "없음"
+    eps = context.facts_learned(p) if p.serial else {}
+    return "\n".join(f"- ({eps[f]}화) {f}" if eps.get(f) else f"- {f}" for f in facts)
 
 
 def relevant_facts(p: Project, cast: set[str], n: int | None = None, budget: str = "facts") -> tuple[list[str], int]:
@@ -1623,7 +1654,7 @@ def plot_facts_states(p: Project, ids: set[str], start: int, query: str, numbers
     side, side_cut, side_knows_cut = plan_side_states(p, ids, start, query, "plot_states")
     return f"""
 [확정된 사실 (어기지 않음. 이번 범위와 관련된 것과 최근 것)]{f" (그 밖에 {facts_cut}개는 관련이 적어 뺐습니다)" if facts_cut else ""}
-{chr(10).join("- " + f for f in facts) or "없음"}
+{fact_rows(p, facts)}
 [인물 현재 상태 (위치 · 부상 · 목표 · 아는 정보. 플롯이 어기지 않게)]{knows_note(knows_cut)}
 {dump(main_states) or "설정 그대로"}
 [조연 · 최근 인물 현재 상태 (최근에 나온 순서)]{f" (그 밖에 {side_cut}명은 예산을 넘겨 뺐습니다)" if side_cut else ""}{knows_note(side_knows_cut)}
@@ -1674,7 +1705,7 @@ def next_arc_prompt(p: Project, start: int, length: int, note: str) -> str:
 [인물 현재 상태]{knows_note(knows_cut)}
 {dump(main_states) or "설정 그대로"}
 [조연 · 최근 인물 현재 상태 (최근에 나온 순서)]{f" (그 밖에 {side_cut}명은 예산을 넘겨 뺐습니다)" if side_cut else ""}{knows_note(side_knows_cut)}
-{dump(side_states) or "없음"}
+{dump(side_states) or "없음"}{offscreen_block(p)}
 [부 구성]
 {dump(p.parts) if p.parts else "부 구성 없음 (작품 전체가 한 부)"}
 
@@ -1687,7 +1718,7 @@ def next_arc_prompt(p: Project, start: int, length: int, note: str) -> str:
 [열린 복선]{f" (그 밖에 {fs_more}개는 오래된 아크 단위 복선이라 뺐습니다)" if fs_more else ""}
 {fs_lines or "없음"}
 [확정된 사실 (이 아크와 관련된 것과 최근 것)]{f" (그 밖에 {facts_cut}개는 관련이 적어 뺐습니다)" if facts_cut else ""}
-{chr(10).join("- " + f for f in facts) or "없음"}{time_plan(p, start, ARC_TIME_RULE)}
+{fact_rows(p, facts)}{time_plan(p, start, ARC_TIME_RULE)}
 [작가의 요청]
 {note.strip() or "없음"}
 
@@ -1698,7 +1729,7 @@ def next_arc_prompt(p: Project, start: int, length: int, note: str) -> str:
 - acts 는 아크 안의 기승전결로, {start}화부터 end_ep 까지 기, 승, 전, 결 순서로 빈틈없이 이어집니다. 마지막 1~2화는 정리와 다음 아크 떡밥에 씁니다.
 {"- 첫 아크입니다. 기 구간은 소개가 아니라 발단으로, 1화에 사건이 시작되고 1~3화 안에 주인공의 결핍, 작품의 핵심 장치, 작은 보상 하나가 나옵니다." + chr(10) if start == 1 else ""}- 직전 아크와 같은 모양의 갈등을 되풀이하지 않습니다. 걸린 것이나 상대가 조금씩 커지게 합니다.
 - payoffs 에는 이 아크에서 회수할 열린 복선 id 를 넣습니다. '오래됨' 표시가 있는 복선은 회수하거나 아크 안에서 다시 떠올립니다.
-- cast 에는 이 아크에 주로 나오는 인물 id 를 넣습니다. 새 인물이 필요하면 new_characters 에 전체 설정(speech_style 포함)을 넣고 tier 는 support 나 minor 로 둡니다. 이미 있는 인물을 다시 만들지 않습니다.
+{"- 화면 밖 근황이 있는 인물을 이 아크에 다시 데려오면 그 근황에서 이어지게 하고, 근황과 어긋나는 일을 지어내지 않습니다." + chr(10) if offscreen.listed(p)[0] else ""}- cast 에는 이 아크에 주로 나오는 인물 id 를 넣습니다. 새 인물이 필요하면 new_characters 에 전체 설정(speech_style 포함)을 넣고 tier 는 support 나 minor 로 둡니다. 이미 있는 인물을 다시 만들지 않습니다.
 - reply 에는 왜 이 아크인지, 어떤 복선을 회수하고 무엇을 다음으로 남기는지 2~4문장으로 씁니다.
 {pov_plan_rule(p, "아크")}
 - summary 는 비워 둡니다."""
@@ -1760,6 +1791,53 @@ def fold_prompt(p: Project, number: int, want: dict[str, list[str]]) -> str:
 - 위 목록과 이미 접은 줄에 없는 것을 지어내지 않습니다. 이 인물이 모르는 것을 넣지 않습니다.
 - 이미 접은 줄이 있으면 그것까지 합쳐 다시 씁니다.
 - 한 줄에 한 가지, {knows.FOLD_LINE_MAX}자 이하로 씁니다. '그', '그녀' 대신 이름을 씁니다. 줄 앞에 화 표시를 붙이지 않습니다."""
+
+
+OFFSCREEN_KINDS = {"daily": "하던 일을 이어 감", "change": "처지 · 관계 · 몸이 바뀜", "hook": "다시 나올 때 들고 올 목적이나 소식"}
+
+
+def offscreen_prompt(p: Project, want: dict[str, int], cut: int = 0) -> str:
+    """다음 아크 기획 앞 화면 밖 근황 (pipeline.plan_offscreen). want 는 offscreen.targets: {인물 id: 마지막으로 나온 화}."""
+    start = offscreen.start(p)
+    by_id = {c.id: c for c in p.characters}
+    near = context.core_ids(p) | set(want)
+    blocks = []
+    for cid, m in want.items():
+        c = by_id[cid]
+        st = p.state_of(cid)
+        now = {k: v for k, v in (st.model_dump(include={"location", "current_goal", "emotional_state", "notes"}) if st else {}).items() if v}
+        ties = [f"- {by_id[o].name if o in by_id else o}: {r.type}{f' ({r.description})' if r.description else ''}"
+                for r in p.relationships if cid in (r.a, r.b) and (o := r.b if r.a == cid else r.a) in near]
+        seen = seen_sentence(p, c, m)
+        old = f"\n지금 적힌 근황 ({st.offscreen_ep}화 끝 시점): {st.offscreen}" if st and st.offscreen else ""
+        blocks.append(f"## {c.name} ({cid}, {c.role or '역할 없음'}, {c.tier})\n"
+                      f"마지막으로 나온 화: {m}화 ({start - m}화 전){f'. {m}화 요약: {seen}' if seen else ''}\n"
+                      f"목표: {c.goal or '없음'}\n마지막 상태: {dump(now) if now else '없음'}\n"
+                      f"관계:\n{chr(10).join(ties) or '없음'}{old}")
+    kinds = "\n".join(f"  - {k}: {v}" for k, v in OFFSCREEN_KINDS.items())
+    more = f" (그 밖에 {cut}명은 수가 많아 이번에는 뺐습니다)" if cut else ""
+    return f"""장편 연재의 다음 아크가 {start}화에서 시작합니다. 아래 인물들은 {context.RETURN_GAP}화 넘게 본문에 나오지 않았습니다.
+인물마다 마지막으로 나온 화 뒤 {start - 1}화 끝까지 화면 밖에서 어떻게 지냈는지 근황을 제안하세요.
+작가가 고른 근황은 이 인물이 다시 나오는 화의 쓰기 프롬프트와 다음 아크 기획에 들어갑니다.
+
+[작품]
+{meta_text(p)}
+[지금까지의 줄거리]
+{story_so_far(p, start, plans=True) or "없음"}
+
+[오래 나오지 않은 인물]{more}
+{chr(10).join(blocks)}
+
+요구사항:
+- lines 에 위 인물마다 하나씩 character_id, text, kind 를 넣습니다.
+- text 는 1~2문장, {offscreen.TEXT_MAX}자 이하로 씁니다. 어디서 무엇을 하며 지냈는지 다시 나오는 장면에서 쓸 수 있게 구체적으로 씁니다.
+- 줄거리, 마지막 상태, 관계와 어긋나지 않게 씁니다. 화면 밖에서 줄거리의 큰 사건을 일으키거나 해결하게 하지 않습니다.
+- 죽음, 정체 폭로, 관계를 끊는 일처럼 이야기를 크게 바꾸는 일은 넣지 않습니다. 그것은 작가가 본문에서 정합니다.
+- 지금 적힌 근황이 있으면 그 뒤로 이어지게 씁니다.
+- 줄거리에서 이미 죽었거나 이야기에서 떠난 인물이면 일상을 지어내지 않고 text 에 그 사실만 짧게 적습니다.
+- kind 는 근황의 종류입니다.
+{kinds}
+- '그', '그녀' 대신 이름을 씁니다."""
 
 
 # ---------- 이야기 줄기 제안 ----------
@@ -2366,7 +2444,7 @@ def passage_head(p: Project, n: int) -> str:
     return f"""{static_context(p)}
 
 # 확정된 사실{f" (이번 화와 관련된 것만, {facts_cut}개 생략)" if facts_cut else ""}
-{chr(10).join("- " + f for f in facts) or "없음"}{f"{chr(10)}{chr(10)}# 이야기 요소 (이번 화와 관련된 설정, 어기지 말 것){chr(10)}{els}" if els else ""}
+{fact_rows(p, facts)}{f"{chr(10)}{chr(10)}# 이야기 요소 (이번 화와 관련된 설정, 어기지 말 것){chr(10)}{els}" if els else ""}
 {extra_block(extra)}
 # 이번 화 플롯
 {dump(write_plot(ep.plot))}{f"{chr(10)}{chr(10)}# 이번 화 서술 시점 (스타일 프로필보다 우선){chr(10)}{pov}" if (pov := pov_block(p, n)) else ""}"""
@@ -2628,7 +2706,7 @@ def build_episode_context(p: Project, n: int, *, use_board: bool = True, pre: st
     dev = device_block(p, n)
     dev = f"\n\n# 가끔 쓰는 장치 (최근 화에서 쓴 화를 센 것)\n{dev}" if dev else ""
 
-    facts_text = chr(10).join("- " + f for f in facts) or "없음"
+    facts_text = fact_rows(p, facts)
     full = sb is not None if full_prev is None else full_prev
     if late:
         prev_head = prev_block(p, n, last_text, full)
@@ -3621,10 +3699,68 @@ def rewrite_prompt(p: Project, n: int, req, materials: dict[str, list[str]], old
     return episode_prompt(p, n, use_cues=not (s and s.skipped)) + "\n\n" + rewrite_block(p, n, req, materials, old)
 
 
-def state_prompt(p: Project, n: int, cuts: tuple[int, int] | None = None, head: str = "") -> str:
+AUDIT_KINDS = ("비밀 공개", "관계 사건", "약속", "부상", "정체 공개", "장소 이동", "소지품")  # schema.AuditKind 와 같은 차례
+
+
+def _audit_delta_lines(p: Project, d: StateDelta) -> str:
+    """누락 검사에 넣는 변경안 줄임. 일곱 종류를 견줄 칸만 사람 말로 적는다."""
+    nm = {c.id: c.name or c.id for c in p.characters} | {c.id: c.name or c.id for c in d.new_characters}
+    out = [f"(참고) 요약: {d.summary or '없음'}"]
+    secrets = {s.id: s.content for s in [*p.secrets, *d.secrets_added]}
+    out += [f"인물 상태 · {nm.get(u.character_id, u.character_id)}: " + " / ".join(x for x in (u.emotional_state, u.current_goal,
+            f"위치 {u.location}" if u.location else "", f"차림 {u.attire}" if u.attire else "", f"메모 {u.notes}" if u.notes else "",
+            *(f"앎 {k}" for k in u.knows)) if x)
+            for u in d.character_updates]
+    out += [f"관계 사건 · {nm.get(e.actor, e.actor)} → {nm.get(e.target, e.target)}: {e.kind}"
+            + (f" (드러난 비밀: {secrets.get(e.reveals_secret, e.reveals_secret)})" if e.reveals_secret else "") for e in d.events]
+    out += [f"관계 바뀜 · {nm.get(r.a, r.a)} ↔ {nm.get(r.b, r.b)}: {r.type} {r.description}".rstrip() for r in d.relationship_updates]
+    out += [f"새 비밀 · {nm.get(s.owner, s.owner)}: {s.content}" for s in d.secrets_added]
+    out += [f"새 사실: {f}" for f in d.new_facts]
+    out += [f"새 장소: {x.name}" for x in d.new_places]
+    out += [f"새 인물: {c.name or c.id}" for c in d.new_characters]
+    out += [f"기한: {k.what}{f' ({k.note})' if k.note else ''}" for k in d.deadlines_added]
+    out += [f"설정 바꾸기 · {nm.get(x.character_id, x.character_id)} {x.field}: {x.value}" for x in d.setting_changes]
+    out += [f"호칭 · 말씨 · {nm.get(x.speaker, x.speaker)} → {nm.get(x.listener, x.listener)}: {' '.join(v for v in (x.calls, x.speech) if v)}"
+            for x in d.address_changes]
+    return "\n".join(out)
+
+
+def audit_prompt(p: Project, n: int, d: StateDelta) -> str:
+    """상태 변경안 누락 검사(pipeline.audit_delta). n화 본문과 받은 변경안 줄임만 넣는다. 작업지시서(brief)에는 이 단계가 없다."""
+    return f"""아래는 {n}화 본문과, 그 본문에서 뽑은 상태 변경안입니다. 변경안에 빠진 것을 찾으세요.
+
+[{n}화 본문]
+{p.episode(n).text}
+
+[받은 상태 변경안]
+{_audit_delta_lines(p, d)}
+
+요구사항:
+- 본문에서 실제로 일어났는데 위 변경안의 칸 줄(인물 상태 · 관계 사건 · 관계 바뀜 · 새 비밀 · 새 사실 · 새 장소 · 새 인물 · 기한 · 설정 바꾸기 · 호칭 · 말씨)에 적히지 않은 것을 items 에 넣습니다. '(참고) 요약'에만 나오는 일은 칸에 없으니 빠진 것입니다. 칸 줄에 말만 달리 적혀 있으면 빠진 것이 아닙니다.
+- 관계 사건은 두 인물 사이에 도움 · 배신 · 고백 · 다툼 · 약속처럼 관계를 움직인 일입니다. 관계 사건 줄에 그 두 사람의 사건이 없으면 빠진 것입니다.
+- kind 는 {", ".join(AUDIT_KINDS)} 가운데 하나입니다. 이 일곱 가지 밖의 것(감정 변화, 분위기, 사소한 행동)은 넣지 않습니다.
+- 장소 이동은 인물이 다른 장소로 옮겨 가 화가 끝날 때 위치가 바뀌었는데 그 인물의 인물 상태 줄에 위치가 없거나 다른 것, 소지품은 뒤 화까지 이어질 물건을 얻거나 잃은 것, 부상은 뒤 화까지 남을 상처입니다.
+- quote 에는 근거인 본문 문장을 글자 그대로 옮깁니다. 본문에서 찾을 수 없는 문장은 버려집니다.
+- missing 에는 무엇이 빠졌는지 한 문장으로 적습니다.
+- 확실한 것만, 많아야 6개입니다. 빠진 것이 없으면 빈 목록을 냅니다."""
+
+
+def state_facts_block(p: Project, n: int, ids: set[str], budget: str = "state_facts") -> str:
+    """장편 상태 변경안의 '[이미 있는 확정 사실]'. 새 사실을 다시 적지 않게 이번 화 본문 · 플롯과 관련된 것과 최근 것을 예산만큼 넣고 뺀 수를 적는다.
+    검수 자료를 앞에 두는 요청(head)은 그 자료에 확정 사실이 있어 부르지 않는다. 사실이 없으면 빈 글."""
+    if not p.facts:
+        return ""
+    ep = p.episode(n)
+    facts, cut = context.pick_facts(p, ids, ep.text + "\n" + elements.plot_text(ep), context.BUDGET[budget], context.query_terms(p, n))
+    return (f"[이미 있는 확정 사실 — 다시 적지 않습니다]{cut_note(cut, '이번 화와 관련된 것과 최근 것만')}\n"
+            + fact_rows(p, facts) + "\n")
+
+
+def state_prompt(p: Project, n: int, cuts: tuple[int, int] | None = None, head: str = "", facts_budget: str = "state_facts") -> str:
     """상태 변경안. cuts 는 (뺀 비밀 수, 뺀 복선 수)로 머리글의 뺀 수를 바꾼다: 미리 거른 보기를 넘기는 플레이(play_view)가 원래 작품 기준 수를 준다.
     head 에 검수 자료(check_material, 끝이 n화 본문)를 주면 그 뒤에 상태 칸을 붙이고 본문은 다시 넣지 않는다. 검수 가족과 캐시를 함께 쓰려는
-    것이라 캐시 가족을 받는 백엔드만 준다 (pipeline.extract_state). 비우면 예전 모양이다 (다른 백엔드 · 작업지시서)."""
+    것이라 캐시 가족을 받는 백엔드만 준다 (pipeline.extract_state). 비우면 예전 모양이다 (다른 백엔드 · 작업지시서).
+    장편이고 head 가 없으면 '[이미 있는 확정 사실]'을 넣는다(state_facts_block, 예산 키 facts_budget). 단편은 넣지 않는다."""
     ep = p.episode(n)
     secrets_cut = fs_cut = 0
     if p.serial:  # 장편: 이번 화 플롯 인물 · 본문에 이름이 나온 인물과 주역만 자세히, 나머지는 한 줄 목록으로 ('넣지 않음' 인물은 한 줄 목록에)
@@ -3666,13 +3802,18 @@ def state_prompt(p: Project, n: int, cuts: tuple[int, int] | None = None, head: 
 {dump(secrets) or "없음"}
 """
     plot = f"[이번 화 플롯]: 위 자료의 '{n}화 플롯' 칸을 봅니다.\n" if head else f"[이번 화 플롯]\n{dump(write_plot(ep.plot))}\n"
+    facts = state_facts_block(p, n, ids, facts_budget) if p.serial and not head else ""
+    fact_rule = ""
+    if p.serial and (head or facts):
+        where = "위 자료의 확정 사실(Confirmed facts) 칸" if head else "[이미 있는 확정 사실]"
+        fact_rule = f"\n- new_facts 에는 {where}에 없는 새 사실만 적습니다. 이미 있는 사실을 말만 바꿔 다시 적지 않습니다."
     return f"""{lead}
 
 {cast}[이전 관계]
 {relations}{address.block(p, ids if p.serial else context.without_off(p, None), "[호칭 · 말씨]")}
 {secret_block}[열린 복선]{cut_note(fs_cut, "이번 아크와 관련된 것만", "목록에 없는 복선의 id 는 쓰지 않습니다")}
 {dump(fs) or "없음"}
-{plot}[이미 있는 장소]
+{plot}{facts}[이미 있는 장소]
 {places_line(p, ep.text)}
 {f"[작품 속 시간]{chr(10)}{timeline.state_block(p, n)}{chr(10)}" if timeline.enabled(p) else ""}{text}
 요구사항:
@@ -3687,7 +3828,7 @@ def state_prompt(p: Project, n: int, cuts: tuple[int, int] | None = None, head: 
 - 아래 [이미 있는 장소]에 없는 장소(지형, 마을, 건물, 가게 등)가 이름을 갖고 처음 나왔으면 new_places 에 넣습니다. name 은 본문에 쓴 그대로, kind 는 종류 한 단어, description 은 본문에서 드러난 것만 한 줄입니다. 이름 없는 길, 방, 골목은 넣지 않습니다.
 - 이미 있는 장소를 다른 이름이나 표기로 부른 것이면 new_places 에 넣지 않고 warnings 에 적습니다.
 - character_updates 의 location 에는 [이미 있는 장소]나 new_places 의 이름을 표기 그대로 앞에 씁니다 (예: '하르덴 왕궁 서재'). 옮겨 가는 중이면 '하르덴에서 벨라 항구로 가는 배 위'처럼 떠난 곳과 갈 곳을 함께 씁니다.
-- warnings 에는 플롯 사건 누락, 설정/말투 위반, 확정 사실과의 모순을 적습니다. 본문 문장이 걸리면 그 문장을 «» 안에 글자 그대로 넣어 작가가 바로 찾게 합니다.{storylines.state_rule(p, n)}{foreshadows.state_rule(p)}{statwin.state_rule(p)}{ATTIRE_STATE_RULE}{LAYER_STATE_RULE}{charlog.state_rule(p)}{address.state_rule(p)}{timeline.state_rule(p, n)}"""
+- warnings 에는 플롯 사건 누락, 설정/말투 위반, 확정 사실과의 모순을 적습니다. 본문 문장이 걸리면 그 문장을 «» 안에 글자 그대로 넣어 작가가 바로 찾게 합니다.{fact_rule}{storylines.state_rule(p, n)}{foreshadows.state_rule(p)}{statwin.state_rule(p)}{ATTIRE_STATE_RULE}{LAYER_STATE_RULE}{charlog.state_rule(p)}{address.state_rule(p)}{timeline.state_rule(p, n)}"""
 
 
 def _check_full(p: Project, n: int) -> tuple[str, str, str, str, str, str]:
@@ -5655,4 +5796,4 @@ def play_state_prompt(p: Project, n: int) -> str:
     view, secrets_cut, fs_cut = play_view(p, n, play_state_cast(p, n))
     cut = (f"\n- [현재 비밀]과 [열린 복선]은 이번 구간 인물과 관련된 것만 넣었습니다 (비밀 {secrets_cut}개, 복선 {fs_cut}개 생략). "
            "목록에 없는 비밀 · 복선의 id 는 쓰지 않습니다.") if secrets_cut or fs_cut else ""
-    return state_prompt(view, n, (secrets_cut, fs_cut)) + PLAY_STATE_RULE + cut
+    return state_prompt(view, n, (secrets_cut, fs_cut), facts_budget="play_state_facts") + PLAY_STATE_RULE + cut

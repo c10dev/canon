@@ -930,6 +930,7 @@ function nextArcPanel(start) {
     ${input('이번 아크에 바라는 것 (선택)', 'note', { root: 'arcForm', rows: 3, autogrow: true, placeholder: '예: 학교 밖으로 무대를 넓히고, 라이벌과 처음 손잡게' })}
     ${heatPlanToggle('plan-note')}
     ${planAhead(p).notes.map((x) => `<div class="note warn">${esc(x)}</div>`).join('')}
+    ${typeof offscreenBox === 'function' ? offscreenBox(start) : ''}
     <div class="row"><button class="btn primary" data-action="planNextArc"${btn.attr}>${btn.label}</button><span class="small">지금까지 실제로 쓴 줄거리(요약), 부 목표, 열린 복선을 보고 아크 하나를 제안해요. 적용 전에 고칠 수 있어요.</span></div>
   </section>`;
 }
@@ -1302,7 +1303,9 @@ Object.assign(actions, {
       S.selArc = S.arcDraft.arc.number;
       S.arcDraft = null;
       S.arcForm = { length: 0, note: '' };
-      toast('아크를 적용했어요. 화별 플롯 초안을 만드세요.');
+      const staleAway = !!S.offscreenDraft;
+      S.offscreenDraft = null;  // 근황 시점(다음 아크 시작 화 앞)이 바뀌어 저장할 수 없다 (offscreen.check_fresh)
+      toast(`아크를 적용했어요. 화별 플롯 초안을 만드세요.${staleAway ? ' 저장하지 않은 화면 밖 근황 제안은 시점이 바뀌어 버렸어요.' : ''}`);
     });
   },
   async removeLastArc() {
