@@ -57,6 +57,12 @@ class StylePromptTest(unittest.TestCase):
         self.assertTrue(prompts.SYSTEM_PLANNER.startswith(prompts.PREAMBLE))
         self.assertNotIn("당신은", prompts.SYSTEM_PLANNER)
         self.assertIn("모든 출력은 한국어로 작성합니다", prompts.SYSTEM_PLANNER)
+        # 대화로 다듬기(설정 · 문체 · 플롯 · 대화 에이전트)와 상태 변경안도 같은 머리말로 시작하고 역할 문장이 없다
+        for text in (prompts.SYSTEM_SETUP_CHAT, prompts.SYSTEM_STYLE_COACH, prompts.SYSTEM_PLOT_CHAT,
+                     prompts.SYSTEM_AGENT_PLOT, prompts.SYSTEM_EDITOR):
+            self.assertTrue(text.startswith(prompts.PREAMBLE))
+            self.assertNotIn("당신은", text)
+            self.assertIn("모든 출력은 한국어로 작성합니다", text)
 
     def test_vivid_rules(self):
         # 금지만 하던 비유 규칙을 대신 할 일로 바꾸고, 감각 · 늘려 쓰기 · 튀는 생각 규칙은 문체 원문이 있어도 넣는다

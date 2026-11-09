@@ -491,6 +491,8 @@
 - 프롬프트 템플릿
 - 본문을 쓰는 시스템 프롬프트(`writer_system` · `reviser_system` · `paragraph_system`)는 작가가 정한 머리말(`PREAMBLE`)로 시작한다
 - 기획 단계 시스템 프롬프트 `SYSTEM_PLANNER`(설정 제안 · 문체 분석 · 구조 · 플롯 · 스토리보드 · 큐 시트 등)도 같은 머리말로 시작한다
+- 대화로 다듬기 시스템 프롬프트(`SYSTEM_SETUP_CHAT` · `SYSTEM_STYLE_COACH` · `SYSTEM_PLOT_CHAT` · `SYSTEM_AGENT_PLOT`)도 같은 머리말로 시작한다
+- 상태 변경안 시스템 프롬프트 `SYSTEM_EDITOR`도 같은 머리말로 시작한다. 줄거리 접기(`recap_prompt` · `fold_prompt`) · 상태 감사(`audit_prompt`) · 플레이 상태(`play_state_prompt`)도 이 글을 쓴다
 - 그 머리말 뒤의 지시에는 '당신은 소설가입니다' · '당신은 기획 전문 편집자입니다' 같은 역할 문장을 두지 않고 할 일만 적는다
 - 성인 · 전연령 작품은 같은 머리말을 받는다(수위 지시를 프롬프트에 두지 않는 규칙, `test_no_rating_instruction_in_prompts`)
 - 머리말이 영어라서 머리말을 받는 지시는 모두 '모든 출력은 한국어로 작성합니다'를 둔다
