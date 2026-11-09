@@ -695,7 +695,7 @@
 - 대화 에이전트의 문체 카드(`agent.js` `agentStyleApproval`)가 `STYLE_LABEL` · `styleEditDiff` · `sampleBlock` · `epSelect` 를 함께 쓴다
 - 참고할 화 `S.styleRefEp` 는 에이전트 패널의 칩이 쓴다
 - 서버의 적용 · 취소 몸통은 `pipeline.apply_style_edits` · `undo_style_edits` 이고, 대화의 `apply_style_chat` · `undo_style_chat` 은 메시지 칸만 맡는다
-- 적용 취소의 라이브러리 새 버전 칸(`linkPushBox`)은 작품이 라이브러리 항목에 이어져 있을 때만 그린다
+- 적용 취소의 라이브러리 새 버전 칸(`linkPushBox`)은 `S.styleLink`(문체 화면이 `loadStyleLink` 로 받는다)가 이어진 상태일 때만 그린다. 다른 화면에서 연 '이전 대화'에는 없을 수 있다
 
 ### `canon/static/write.js`
 
