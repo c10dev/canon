@@ -1914,6 +1914,20 @@ pre.brief.ctx-text { max-height: 280px; padding: var(--space-12); font-size: 0.7
   /* 휴대폰 키보드가 오르면(--kb, app.js visualViewport) 시트가 키보드 위에 서고, 남은 높이에 맞춰 줄어든다 */
 }
 @media (min-width: 721px) and (max-width: 900px) { body.chat-open .savebar { left: 50%; } }
+/* 닫힌 대화 시트의 입구 (chat.js chatBand): 900px 이하 화면 아래 한 줄 '대화 열기' 띠. 넓은 폭은 머리의 대화 버튼을 쓴다.
+   시트는 작가가 열 때만 연다. 띠가 있으면 저장 띠 · 화 플롯 버튼 줄은 띠 위로 올라서고 본문 아래를 띠 높이만큼 더 비운다 */
+.chat-band { display: none; }
+@media (max-width: 900px) {
+  .chat-band { position: fixed; left: 0; right: 0; bottom: 0; z-index: var(--z-panel); display: flex; align-items: center; gap: var(--space-8); min-height: calc(var(--touch-min) + env(safe-area-inset-bottom, 0px)); padding: 0 var(--space-16) env(safe-area-inset-bottom, 0px); border: none; border-top: 1px solid var(--line); background: var(--surface); color: var(--text); font: inherit; font-size: 0.875rem; text-align: left; cursor: pointer; box-shadow: var(--shadow-bar); }
+  .chat-band-label { font-weight: 600; }
+  .chat-band-topic { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
+  .chat-band-dot { flex: none; width: 10px; height: 10px; border-radius: var(--radius-pill); background: var(--accent); }  /* 새 답 점: 알림 버튼 점(.hub-dot)과 같은 크기 · 색 */
+  html.kb-open .chat-band { display: none; }  /* 본문을 쓰느라 키보드가 오르면 띠를 감춰 남은 화면을 본문 칸에 준다 */
+  body.chat-band-on .main { padding-bottom: calc(96px + var(--touch-min) + env(safe-area-inset-bottom, 0px) + var(--sb, 0px) + var(--ab, 0px)); }
+  body.chat-band-on .savebar:not(.inline) { bottom: calc(var(--touch-min) + env(safe-area-inset-bottom, 0px) + 12px); }
+  body.chat-band-on .plot-page .page-actions { bottom: calc(var(--touch-min) + env(safe-area-inset-bottom, 0px) + 12px); }
+  body.chat-band-on .setup-foot { bottom: calc(var(--sb, 0px) + var(--touch-min) + env(safe-area-inset-bottom, 0px)); }  /* 설정 도우미 아래 버튼 줄도 띠 위에 붙는다 */
+}
 /* 가로 휴대폰(높이 500px 이하): 60svh 시트는 머리 · 고른 글 · 입력칸만으로 차서 입력칸이 잘린다. 위쪽 띠 아래를 다 쓴다 */
 @media (max-width: 900px) and (max-height: 500px) {
   .chat-panel, .tool-col { height: calc(100svh - var(--kb, 0px) - var(--band, 0px)); }

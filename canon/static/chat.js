@@ -34,13 +34,26 @@ const CHAT_TOPICS = {
 
 // 패널 열림 상태는 S.chatOpen 과 브라우저의 'canon.chat' 에 둔다. 읽고 쓰는 곳은 이 두 함수뿐이다 (휴대폰 시트 일감 08 도 여기를 고친다)
 const CHAT_OPEN_KEY = 'canon.chat';
+/** 900px 이하(아래쪽 시트)인지. 그때는 열림 상태를 기억하지 않고, 화면을 옮기면 닫고, 닫힌 시트 대신 아래 띠를 둔다 (일감 08) */
+const chatNarrow = () => mq('narrow').matches === true;
+/** 기억한 열림 상태. 900px 이하는 읽지 않는다: 시트가 화면을 새로 열 때마다 저절로 떠서 본문을 덮었다 */
 function chatOpenSaved() {
+  if (chatNarrow()) return false;
   try { return localStorage.getItem(CHAT_OPEN_KEY) === '1'; } catch { return false; }
 }
-/** 패널을 열거나 닫는다. save: 다음에 열 때도 기억할지 (다시 생성 열이 자리를 잠깐 빌릴 때는 기억하지 않는다) */
+/** 패널을 열거나 닫는다. save: 다음에 열 때도 기억할지 (다시 생성 열이 자리를 잠깐 빌릴 때는 기억하지 않는다).
+    900px 이하에서 열고 닫은 것은 넓은 화면의 기억을 바꾸지 않는다 */
 function chatSetOpen(on, { save = true } = {}) {
   S.chatOpen = !!on;
-  if (save) { try { localStorage.setItem(CHAT_OPEN_KEY, S.chatOpen ? '1' : '0'); } catch { /* 저장 못 해도 동작에는 상관없다 */ } }
+  if (save && !chatNarrow()) { try { localStorage.setItem(CHAT_OPEN_KEY, S.chatOpen ? '1' : '0'); } catch { /* 저장 못 해도 동작에는 상관없다 */ } }
+}
+/** 화면을 옮길 때 부른다 (app.js routeNow). 900px 이하에서 주소가 바뀌었으면 시트를 닫는다. 같은 주소를 다시 그릴 때는 그대로다.
+    기록은 건드리지 않는다: hashchange 가 떠 있던 창(panelCur)을 이미 놓았고, 되돌리면 이동이 꼬인다. 그리기는 routeNow 가 한다 */
+let chatNavAt = null;  // 지난번에 본 주소
+function chatCloseOnNav() {
+  const at = location.hash;
+  if (chatNavAt !== null && at !== chatNavAt && S.chatOpen && chatNarrow()) chatSetOpen(false);
+  chatNavAt = at;
 }
 
 Object.assign(S, {
@@ -54,6 +67,7 @@ Object.assign(S, {
   chatHere: { target: '', legacy: '', hold: false },  // 지금 화면이 주는 기본 대상 · 옛 대화 주제 · 패널 자리를 다른 열이 쓰는지 (drawApp 이 정한다)
   chatOld: '',        // 옛 대화를 보이는 주제 종류 ('setup' · 'style' · 'text'). 그 주제를 주는 화면에서만 옛 패널을 그린다
   chatOptions: false, // 플롯 대화: 변경안 대신 방향 여러 안을 받는다
+  chatSeen: {},       // 닫힌 띠의 새 답 점: 대화(chatLastReply 의 scope)마다 본 마지막 AI 답 번호
 });
 
 const PLOT_FIELDS = [
@@ -171,7 +185,7 @@ function chatDefaultTarget(page, n) {
 
 /** drawApp 이 화면을 그리기 전에 부른다. 화면 파일은 그리는 동안 chatLegacy 로 옛 대화 주제를 더한다 */
 function chatScreen(page, n) {
-  S.chatHere = { target: chatDefaultTarget(page, n), legacy: '', hold: false };
+  S.chatHere = { target: chatDefaultTarget(page, n), legacy: '', hold: false, page };
 }
 
 /** 화면이 그리는 동안 부른다: 이 화면에 남은 옛 대화 주제(04b~04d 전까지). hold 면 패널 자리를 다른 열(다시 생성)이 쓴다. 그릴 글은 없다 */
@@ -191,9 +205,28 @@ function chatShownTopic() {
   return l && S.chatOld && l.split(':')[0] === S.chatOld ? l : 'plot';
 }
 
-/** drawApp 이 셸 끝에 붙이는 패널 (닫혀 있거나 다른 열이 자리를 쓰면 빈 글) */
+/** drawApp 이 셸 끝에 붙이는 패널 (다른 열이 자리를 쓰면 빈 글). 닫혀 있으면 900px 이하에서 '대화 열기' 띠, 넓은 폭은 빈 글 */
 function chatDock() {
-  return S.chatHere.hold ? '' : chatPanel();
+  if (S.chatHere.hold) return '';
+  return S.chatOpen ? chatPanel() : chatBand();
+}
+
+/** 닫힌 시트의 입구: 900px 이하 화면 아래 한 줄 '대화 열기' 띠. 누르면 대화 에이전트를 연다(toggleChat).
+    닫혀 있는 동안 새 AI 답이 오면 점을 단다. 휴대폰 상태 승인 화면에는 두지 않는다(대화는 메뉴에서 연다) */
+function chatBand() {
+  chatPanel();  // 닫힌 패널의 정리 (S.agentShown)
+  if (!chatNarrow() || S.chatHere.page === 'review') return '';
+  const r = chatLastReply('plot');
+  if (!(r.scope in S.chatSeen)) S.chatSeen[r.scope] = r.id;  // 처음 보는 대화: 옛 답에는 점을 달지 않는다
+  const fresh = r.id !== S.chatSeen[r.scope];
+  return `<button type="button" class="chat-band" data-action="toggleChat" aria-expanded="false">
+    <span class="chat-band-label">대화 열기</span><span class="chat-band-topic">대화 에이전트</span>${fresh ? '<span class="chat-band-dot" aria-hidden="true"></span><span class="sr-only">새 답</span>' : ''}</button>`;
+}
+
+/** 열린 패널이 그린 대화의 마지막 답을 본 것으로 둔다 (닫힌 띠의 점을 지운다) */
+function chatMarkSeen(topic) {
+  const r = chatLastReply(topic);
+  S.chatSeen[r.scope] = r.id;
 }
 
 /** 패널 머리의 전환: 이 화면에 옛 대화가 남아 있으면 대화 에이전트와 옛 대화 사이를 고른다 */
@@ -498,6 +531,7 @@ function chatPanel(topic = chatShownTopic()) {
     S.agentShown = null;  // 다시 열 때는 대상 바뀜을 알리지 않는다 (agent.js)
     return '';
   }
+  chatMarkSeen(topic);
   const t = chatConf(topic);
   if (S.chatTopic !== topic) S.chatScroll = true;
   S.chatTopic = topic;
@@ -546,9 +580,9 @@ function chatWaitTick() {
 }
 
 function redrawChat() {
-  const el = document.querySelector('.chat-panel');
+  const el = document.querySelector('.chat-panel, .chat-band');  // 닫힌 띠도 다시 그려 새 답 점을 단다
   if (!el) return;
-  const html = chatPanel();
+  const html = chatDock();
   if (html) el.outerHTML = html;
   else el.remove();
   syncChat();
@@ -557,12 +591,12 @@ function redrawChat() {
 // 화면 낭독기에 새 AI 답만 알린다. 대화 패널은 통째로 다시 그려서 #chat-log 를 알림 칸으로 두면 기록 전체를 다시 읽거나 아예 읽지 않는다.
 // 그래서 #chat-log 는 role=log 로 이름만 주고(aria-live=off), 패널 밖에 한 번 만든 숨은 알림 칸 #chat-live 에 가장 새 답만 넣는다
 let chatHeard = null;  // 마지막으로 본 답 { scope, id, text }. 패널을 처음 열거나 대화를 바꾸면 옛 답은 알리지 않고 기억만 한다
-function chatLastReply() {
-  if (S.chatTopic === 'plot' && typeof agentLastReply === 'function') return agentLastReply();
-  const msgs = chatMessages(S.chatTopic);
+function chatLastReply(topic = S.chatTopic) {
+  if (topic === 'plot' && typeof agentLastReply === 'function') return agentLastReply();
+  const msgs = chatMessages(topic);
   let i = msgs.length - 1;
   while (i >= 0 && msgs[i].role === 'user') i -= 1;
-  return { scope: `${S.name}|${S.chatTopic}`, id: String(i), text: i >= 0 ? msgs[i].text || '' : '' };
+  return { scope: `${S.name}|${topic}`, id: String(i), text: i >= 0 ? msgs[i].text || '' : '' };
 }
 function chatLive() {
   let live = document.getElementById('chat-live');
@@ -594,6 +628,7 @@ function chatAnnounce() {
 function syncChat() {
   const open = !!document.querySelector('.chat-panel, .tool-col');  // 집필 화면의 다시 생성 열(rewrite.js)도 같은 자리를 쓴다
   document.body.classList.toggle('chat-open', open);
+  document.body.classList.toggle('chat-band-on', !open && !!document.querySelector('.chat-band'));  // 900px 이하 닫힌 띠 (app.css)
   syncRail();  // 901~1599px 에서 패널을 열면 사이드바를 레일로 접는다 (app.js)
   stackBottom();
   chatAnnounce();

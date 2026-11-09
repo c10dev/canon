@@ -2308,6 +2308,7 @@ async function routeNow() {
   if (goingTo) goingTo.setAttribute('aria-current', 'page');
   S.menuOpen = false;
   S.popMenu = null;
+  if (typeof chatCloseOnNav === 'function') chatCloseOnNav();  // 900px 이하에서 화면을 옮기면 대화 시트를 닫는다 (chat.js)
   // 다른 화면으로 옮기면 제목으로 포커스를 옮겨 스크린리더가 새 화면을 읽고, 다음 Tab 이 본문에서 시작하게 한다
   const here = location.hash.split('/').slice(0, 4).join('/');
   // 한 화 화면에서 칸만 바꾸면 제목 대신 단계 띠의 지금 칸으로 포커스를 둔다 (누른 칸은 다시 그려져 사라진다)

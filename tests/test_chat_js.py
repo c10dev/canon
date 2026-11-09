@@ -85,3 +85,68 @@ def test_server_reads_screen_targets():
             pipeline.chat_focus(p, "text:99")
     serial = _projects()[2]
     assert pipeline.chat_target(serial, "text:6")[0] == "arc:2"
+
+
+# 900px 이하(휴대폰 · 세로 태블릿) 대화 시트: 열림 상태를 기억하지 않고, 화면을 옮기면 닫고, 닫히면 '대화 열기' 띠가 된다
+# (docs/design/layout.md '오른쪽 패널')
+SCREEN = """
+const screen = (narrow, saved) => {
+  window = { matchMedia: (q) => ({ matches: narrow && q === '(max-width: 900px)' }) };
+  const store = { 'canon.chat': saved };
+  localStorage = { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = v; } };
+  return store;
+};
+"""
+
+
+@needs_node
+def test_narrow_screen_does_not_restore_open_sheet():
+    expr = SCREEN + """[[false, '1'], [true, '1'], [false, '0'], [true, '0']].map(([narrow, saved]) => {
+      screen(narrow, saved); return chatOpenSaved(); })"""
+    assert run_js(["app.js", "chat.js"], expr, None) == [True, False, False, False]
+
+
+@needs_node
+def test_narrow_screen_does_not_overwrite_wide_memory():
+    expr = SCREEN + """[false, true].map((narrow) => { const store = screen(narrow, '1'); chatSetOpen(false); return store['canon.chat']; })"""
+    assert run_js(["app.js", "chat.js"], expr, None) == ["0", "1"]
+
+
+@needs_node
+def test_moving_screen_closes_sheet_only_when_narrow():
+    expr = SCREEN + """[true, false].map((narrow) => {
+      screen(narrow, null);
+      location = { hash: '#/p/demo/write/3' };
+      chatCloseOnNav();
+      S.chatOpen = true;
+      chatCloseOnNav();                      // 같은 주소를 다시 그린다: 그대로
+      const same = S.chatOpen;
+      location = { hash: '#/p/demo/review/3' };
+      chatCloseOnNav();                      // 집필 → 상태 승인
+      return [same, S.chatOpen];
+    })"""
+    assert run_js(["app.js", "chat.js"], expr, None) == [[True, False], [True, True]]
+
+
+def test_route_closes_sheet():
+    """화면 이동(app.js routeNow)이 chatCloseOnNav 를 부른다."""
+    from .jsvm import STATIC
+    src = (STATIC / "app.js").read_text(encoding="utf-8")
+    body = src[src.index("async function routeNow()"):]
+    assert "chatCloseOnNav()" in body[: body.index("\n}\n")]
+
+
+@needs_node
+def test_closed_sheet_band_on_narrow_screen():
+    """닫힌 시트는 900px 이하 작품 화면에서만 '대화 열기' 띠가 된다. 상태 승인 화면 · 다시 생성 열에는 없다. 닫힌 사이 온 새 답에 점을 단다."""
+    p = Project(episodes=[episode(1)])
+    expr = SCREEN + """S.project = data; S.name = 'demo'; S.chatOpen = false;
+      const dock = (page, opt) => { chatScreen(page, 1); if (opt) chatLegacy('text:1', opt); return chatDock(); };
+      screen(false, null); const wide = dock('write');
+      screen(true, null); const band = dock('write'); const review = dock('review'); const hold = dock('write', { hold: true }); const cast = dock('cast');
+      S.project.chats = [{ topic: 'plot', messages: [{ role: 'user', text: '고쳐 줘' }, { role: 'ai', text: '고쳤어요' }] }];
+      const fresh = dock('write');
+      S.chatOpen = true; dock('write'); S.chatOpen = false;  // 열어서 봤다
+      [wide, band.includes('class="chat-band"'), band.includes('chat-band-dot'), review, hold, cast.includes('chat-band'),
+       fresh.includes('chat-band-dot'), dock('write').includes('chat-band-dot')]"""
+    assert run_js(["app.js", "chat.js"], expr, dump(p)) == ["", True, False, "", "", True, True, False]
