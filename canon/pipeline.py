@@ -599,15 +599,14 @@ def _marker_source(p: Project) -> str:
     return _own_text(p)
 
 
-def apply_style_chat(p: Project, i: int, keys: list[str]) -> list[str]:
-    """i 번째 메시지의 문체 변경안에서 고른 칸만 작품 문체에 넣는다. 적용하기 전 문체를 메시지에 남긴다. 넣은 칸 이름을 돌려준다."""
-    m = _style_message(p, i)
-    if m.outcome:
-        raise ValueError("이미 처리한 변경안이에요")
-    picked = [e for e in m.style.edits if e.key in set(keys)]
+def apply_style_edits(p: Project, rev: StyleRevision, keys: list[str], episode: int = 0) -> tuple[list[str], StyleProfile]:
+    """문체 변경안에서 고른 칸만 작품 문체에 넣는다. (넣은 칸 이름, 넣기 전 문체) 를 돌려준다. 고른 칸이 없으면 ValueError.
+    모든 칸을 넣었고 시험 문단이 있으면 예시 칸(style_example)으로 옮긴다. episode 는 시험 문단이 고쳐 쓴 화.
+    문체 대화(apply_style_chat)와 대화 에이전트의 문체 도구(agent_style.apply)가 함께 쓴다."""
+    picked = [e for e in rev.edits if e.key in set(keys)]
     if not picked:
         raise ValueError("적용할 칸을 고르세요")
-    m.style_before = p.style.model_copy(deep=True)
+    before = p.style.model_copy(deep=True)
     src = None
     for e in picked:
         value = [x.model_copy(deep=True) for x in style_value(e)] if e.key in ("markers", "devices") else \
@@ -618,12 +617,35 @@ def apply_style_chat(p: Project, i: int, keys: list[str]) -> list[str]:
                     src = _marker_source(p) if src is None else src
                     mk.per_1k = metrics.marker_rate(src, mk.text)
         setattr(p.style, e.key, value)
-    m.applied, m.outcome = [e.key for e in picked], "applied"
-    if m.style.preview and len(picked) == len(m.style.edits):  # 시험 문단이 그린 문체가 그대로 들어갔으면 예시 칸으로 옮긴다
-        asked = p.chat("style").messages[i - 1] if i else None
-        p.style_example = StyleExample(text=m.style.preview, source=m.style.preview_source,
-                                       episode=asked.episode if asked and m.style.preview_source else 0,
+    if rev.preview and len(picked) == len(rev.edits):  # 시험 문단이 그린 문체가 그대로 들어갔으면 예시 칸으로 옮긴다
+        p.style_example = StyleExample(text=rev.preview, source=rev.preview_source,
+                                       episode=episode if rev.preview_source else 0,
                                        by="chat", profile=p.style.model_copy(deep=True), at=_now())
+    return [e.key for e in picked], before
+
+
+def undo_style_edits(p: Project, rev: StyleRevision, applied: list[str], before: StyleProfile) -> tuple[list[str], list[str]]:
+    """적용한 문체 칸을 넣기 전으로 돌린다. 그 뒤에 다시 고친 칸은 건드리지 않는다. (되돌린 칸, 그대로 둔 칸) 을 돌려준다."""
+    by = {e.key: e for e in rev.edits}
+    done, kept = [], []
+    for k in applied:
+        now = getattr(p.style, k)
+        if k in by and _style_same(k, now, style_value(by[k])):
+            setattr(p.style, k, getattr(before, k))
+            done.append(k)
+        else:
+            kept.append(k)
+    return done, kept
+
+
+def apply_style_chat(p: Project, i: int, keys: list[str]) -> list[str]:
+    """i 번째 메시지의 문체 변경안에서 고른 칸만 작품 문체에 넣는다. 적용하기 전 문체를 메시지에 남긴다. 넣은 칸 이름을 돌려준다."""
+    m = _style_message(p, i)
+    if m.outcome:
+        raise ValueError("이미 처리한 변경안이에요")
+    asked = p.chat("style").messages[i - 1] if i else None
+    m.applied, m.style_before = apply_style_edits(p, m.style, keys, asked.episode if asked else 0)
+    m.outcome = "applied"
     return m.applied
 
 
@@ -633,15 +655,7 @@ def undo_style_chat(p: Project, i: int) -> tuple[list[str], list[str]]:
     m = _style_message(p, i)
     if m.outcome != "applied" or m.style_before is None:
         raise ValueError("적용한 변경안이 아니에요")
-    by = {e.key: e for e in m.style.edits}
-    done, kept = [], []
-    for k in m.applied:
-        now = getattr(p.style, k)
-        if k in by and _style_same(k, now, style_value(by[k])):
-            setattr(p.style, k, getattr(m.style_before, k))
-            done.append(k)
-        else:
-            kept.append(k)
+    done, kept = undo_style_edits(p, m.style, m.applied, m.style_before)
     m.outcome, m.applied, m.style_before = "", [], None
     return done, kept
 

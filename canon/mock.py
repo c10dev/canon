@@ -331,7 +331,8 @@ def _agent_step(hint: dict) -> PlotAgentStep:
     대상이 본문 · 설정 · 문체(hint 'aim')이면 '플롯'이 든 말만 고치고 나머지는 읽은 뒤 답만 한다.
     'N화 앞에 M화' 는 화 넣기, 'N화 빼' 는 화 빼기를 묻고, '빈 물음' 은 묻는 말 없는 ask 를 내고, '분석' 은 처음에 예고만 하고, 되돌림 단계(tool 'reply')를 보면 내용을 쓴다.
     대상이 설정이거나 '설정을' 이 든 말이 MOCK_SETUP_WORDS 를 담으면 설정 도구(edit_setup)를 부른다.
-    본문 대상에서 «원문» 이 든 말은 본문 고치기(revise_text)를 그 원문으로 부르고, 막혔으면 답만 한다."""
+    본문 대상에서 «원문» 이 든 말은 본문 고치기(revise_text)를 그 원문으로 부르고, 막혔으면 답만 한다.
+    대상이 문체이거나 말에 '문체'가 들면 문체 도구(edit_style)를 부른다. 'N화 참고' 는 episode 인자, 문체 대상의 '?' 물음은 답만 한다."""
     msg, steps, tools = hint["message"], hint.get("steps", []), hint.get("tools", [])
     if "끝없이" in msg:
         return PlotAgentStep(thought="더 읽어 봐요", tool="read_plots",
@@ -373,11 +374,19 @@ def _agent_step(hint: dict) -> PlotAgentStep:
         return PlotAgentStep(thought="설정 변경안을 받아요", tool="edit_setup", args=[ToolArg(name="request", value=msg)])
     if "edit_setup" in tools and "approval" not in tools:  # 바뀌는 칸이 없어 카드 없이 돌아왔다
         return PlotAgentStep(reply="설정은 지금 그대로가 좋아 보여요.")
+    style_aim = hint.get("aim") == "style" and "플롯" not in msg
+    if (style_aim or "문체" in msg) and "edit_style" not in tools and not msg.rstrip().endswith("?"):
+        ref = re.search(r"(\d+)화 참고", msg)
+        return PlotAgentStep(thought="문체 편집자에게 맡겨요", tool="edit_style",
+                             args=[ToolArg(name="request", value=msg), ToolArg(name="episode", value=ref.group(1) if ref else "")])
+    if style_aim:  # 문체 도구가 막혔거나 물음이면 답만 한다
+        return PlotAgentStep(reply="문체 변경안을 만들지 못했어요. 참고할 화를 바꿔 다시 말해 주세요." if "edit_style" in tools
+                             else f"지금 문체를 봤어요: '{msg}'")
     if "approval" in tools:
         return PlotAgentStep(reply="작가의 답대로 마쳤어요.")
     if "edit_plot" in tools or msg.rstrip().endswith("?"):
         return PlotAgentStep(reply=f"'{msg}' 를 반영했어요.")
-    if hint.get("aim") in ("text", "setup", "style") and "플롯" not in msg and steps:  # 본문 · 설정 · 문체 대상: 쓰기 도구가 없어 읽고 답만 한다
+    if hint.get("aim") in ("text", "setup") and "플롯" not in msg and steps:  # 본문 · 설정 대상: 쓰기 도구가 없어 읽고 답만 한다
         return PlotAgentStep(reply=f"읽어 봤어요. 이 대상은 아직 바로 고치는 도구가 없어 제안만 드려요: '{msg}'")
     if not steps:
         return PlotAgentStep(thought="지금 플롯부터 봐요", tool="read_plots",
