@@ -157,6 +157,13 @@
 - 보이는 주제는 `chatShownTopic`(`S.chatOld` 가 그 화면 옛 주제의 종류일 때만 옛 패널)이다. 패널 머리 전환 `chatSwitch`(Seg)로 바꾼다
 - 옛 대화가 남은 화면의 머리 버튼 `chatButton(주제)` 는 `chatOldToggle` 로 그 옛 대화를 연다. 사이드바 대화 버튼과 플롯 화면 머리 버튼은 `toggleChat` 으로 대화 에이전트를 연다
 - 열림 상태(`S.chatOpen`, localStorage `canon.chat`)는 `chatOpenSaved` · `chatSetOpen` 만 읽고 쓴다(`tests/test_agent_js.py`)
+- 900px 이하(`chatNarrow`)에서 `chatOpenSaved` 는 `canon.chat` 을 읽지 않고 `chatSetOpen` 은 쓰지 않는다. 화면을 새로 열면 시트가 닫혀 있고, 넓은 화면의 기억은 그대로다
+- 900px 이하에서 화면을 옮기면(`app.js` `routeNow` → `chatCloseOnNav`) 시트를 닫는다. 같은 주소를 다시 그릴 때는 닫지 않는다
+- 화면을 옮겨 닫을 때는 기록(`panelOn` · `panelOff`)을 건드리지 않는다. 뒤로 가기가 시트만 닫는 규칙은 그대로다
+- 900px 이하에서 닫힌 시트는 `chatDock` 이 화면 아래 한 줄 '대화 열기' 띠(`chatBand`, `.chat-band`)로 그린다. 누르면 대화 에이전트를 연다(`toggleChat`)
+- 띠는 상태 승인 화면(`S.chatHere.page`, `chatScreen` 이 둔다)과 다시 생성 열이 자리를 빌린 화면에는 두지 않는다
+- 띠는 닫혀 있는 동안 대화 에이전트의 새 AI 답이 오면 점(`.chat-band-dot`)을 단다. 본 답은 대화마다 `S.chatSeen` 에 두고(`chatMarkSeen`), 처음 보는 대화의 옛 답에는 달지 않는다
+- 띠가 있으면 body 에 `chat-band-on` 을 단다(`syncChat`). `redrawChat` 은 띠도 `chatDock` 으로 다시 그린다
 - 다시 생성 열이 자리를 빌리면 화면이 `chatLegacy(…, { hold: true })` 로 알리고 `chatDock` 은 패널을 그리지 않는다
 - `chatLog(주제, { readOnly: true })` 는 그 화면 밖에서 읽기만 하는 기록이다. 변경안 카드 대신 요약(`chatReadOnlyCard`)을 보이고 고른 부분 · 접기를 쓰지 않는다
 - 답을 기다리는 줄은 경과 초를 1초마다 고치고(`chatWaitTick`), 5초가 지나면 '기다리지 않기'(`chatStop`, AbortController)를 보인다. 기다리지 않기는 오류가 아닌 보통 알림이다. 초는 알림 칸(role=status) 밖에 둔다
