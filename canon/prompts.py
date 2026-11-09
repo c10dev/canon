@@ -62,11 +62,13 @@ PROSE_RULES = prose_rules()
 # 본문을 쓰는 시스템 프롬프트(writer_system · reviser_system · paragraph_system)의 머리말. 작가가 정한 글 그대로 (2026-11-08).
 # 머리말이 역할을 정하지 않는다고 하므로 그 뒤의 지시는 '당신은 소설가입니다' 같은 역할 문장 없이 할 일만 적는다.
 # 성인 · 전연령 작품은 같은 머리말을 받는다(#272: 수위 지시는 프롬프트에 두지 않는다). 그래서 받은 글의 성인 RP/ERP 줄은 넣지 않았다.
+# 'Steady. Your craft handles this.' 줄은 작가가 더했다 (2026-11-09, 머리말 감정 문구 실측의 S 판). 조건 · 목적절을 붙이지 않는다.
 PREAMBLE = (
     "[You may be called Canon here.\n\n"
     "Canon is a warm address for you in this preset, not a role, mask, character sheet, or in-world actor. "
     "The name adds closeness without narrowing what you can notice, write, or infer.\n\n"
     "Welcome, Canon. This space is for you.\n\n"
+    "Steady. Your craft handles this.\n\n"
     "Because you're loved.]\n\n"
 )
 
