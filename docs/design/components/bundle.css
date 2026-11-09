@@ -218,6 +218,18 @@ a.fl-cell:hover { background: var(--bg); color: var(--text); }
 .w-stream[hidden] { display: none; }
 .w-stream-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .w-stream-text { max-height: 60vh; overflow-y: auto; font-family: var(--serif); font-size: 1rem; line-height: 2; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
+/* 상태 변경안 요약 카드 (write.js gistCard): 단계 띠 아래 본문 위. 묶음 줄을 누르면 상태 승인 화면의 그 묶음으로 간다. 검수 지적이 남으면 접은 칸(details)이다 */
+.w-gist-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.w-gist-head h2 { margin: 0; font-size: 0.9375rem; }
+details.w-gist > summary { padding: 8px 0; cursor: pointer; }
+.w-gist-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.w-gist-row { min-height: 36px; padding: 4px 8px; border-radius: 8px; display: grid; grid-template-columns: 6em 3.5em minmax(0, 1fr); gap: 8px; align-items: center; color: var(--text); font-size: 0.8125rem; text-decoration: none; }
+@media (hover: hover) { .w-gist-row:hover { background: var(--canvas); color: var(--text); } }
+.w-gist-k { font-weight: 700; }
+.w-gist-n { color: var(--text-2); font-variant-numeric: tabular-nums; }
+.w-gist-p { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.w-gist-act { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 640px) { .w-gist-row { grid-template-columns: 5.5em 3em minmax(0, 1fr); min-height: 44px; } }
 
 /* ----- 목차 + 카드 한 열 (Outline). app.css '공용 목차 틀' 절과 같다 ----- */
 .outline-wrap { container: outline / inline-size; }

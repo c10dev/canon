@@ -537,11 +537,18 @@
   - 머리 버튼 줄의 반영 버튼 · `.savebar-slot`
   - 변경안 메뉴 `rvMenu`(다시 만들기 · 지시서 · 버리기)는 `write.js` `writeMenu` 의 맨 위 '변경안' 갈래로 들어간다. 머리 ⋯ 메뉴는 하나다
   - 반영 `applyDelta`: 본문을 고친 것을 확인창에서 받았으면 `?force=1` 로 보낸다. 서버가 409(`stale_delta`)를 주면 기다림 상자를 닫고 한 번 더 묻는다
+  - 요약 카드의 '추천대로 반영' `gistApply` 는 `pickEp` 로 그 화 체크를 맞춘 뒤 `applyDelta(n, true)` 를 부른다. 상태 승인 화면에서 아무것도 바꾸지 않고 반영할 때와 같은 요청이다
+  - `gistApply` 는 받은 그대로에서 고친 변경안(`deltaTouched`)이면 보내지 않는다
+  - `applyDelta` 의 `stay` 는 반영한 뒤 화면을 옮기지 않고 되돌리기 알림도 띄우지 않는다. `S.gistDone` 을 남겨 요약 카드가 반영 뒤 동작을 그린다
+  - 요약 카드 묶음 줄 `gistGo` 는 상태 승인 화면의 그 갈래를 펴고(`S.rvOpen`) 그 자리로 간다. 설정 바꾸기는 직접 정할 것의 첫 칸, 요약은 요약 칸이다
   - `reviewPanel` 이 머리 보조 버튼 · 주 버튼 · 칸 위 알림 · 오른쪽 칸 `.rv-panel` · 좁은 폭 반영 바를 돌려준다(`viewReview` 는 `write.js` `viewEpisode(n, 'review')`)
   - 왼쪽 본문은 `viewEpisode` 가 그리는 고치는 본문이고 근거 밑줄 `rvRanges` 를 긋는다(`marks.js` `rvMarked` 가 밑줄 칸을 깐다)
   - 고치는 본문의 근거 밑줄을 누르면 `marks.js` 가 `rvGoItem` 으로 그 항목에 간다. 항목의 '본문 보기'(`rvQuote`)는 넓은 폭에서 본문 칸의 그 문장을 고른다
   - 반영 `applyDelta` 는 저장하지 않은 본문 고침을 먼저 저장하고(`flushText`) 고친 본문이라 한 번 묻는다
   - 오른쪽 직접 정할 것 · 요약 · 그대로 반영할 것(갈래 접기 `S.rvOpen`, 고른 수 `rvKeyCount`) · 관계 계산
+  - 변경안 묶음 요지 `deltaGist`(순수 함수): 묶음(요약 · 인물 상태 · 관계 사건 · 복선 · 사실 · 설정 바꾸기 · 그 밖)마다 줄 수 · 고른 수 · 한 줄 요지
+  - `deltaGist` 는 기본으로 반영하지 않는 설정 바꾸기 · 호칭 수 문구(`skip`)와 검수 지적이 남았을 때 접기(`fold` · `head`)도 돌려준다(`tests/test_inline_review_js.py`)
+  - 그대로 반영할 것의 관계 사건 · 확정 사실 · 복선 갈래 한 줄은 `deltaGist` 요지를 쓴다. 집필 화면 요약 카드(`write.js` `gistCard`)와 같다
   - 관계 사건 종류 고르기는 색(`kindStyle`) 옆에 칩 `kindTag`(＋ 좋은 사건 · － 나쁜 사건, 기호는 `aria-hidden`)을 둔다. 종류를 바꾸면 칩도 맞춘다
   - 경고를 인물 줄에 붙이기 `rvWarnSplit`
   - '[누락 의심]' 경고는 `rvWarnSplit` 이 따로 모아(`audit`) '변경안 누락 의심' 줄에 둔다. 본문을 고칠 일이 아니라 '이 문장 고르기'만 둔다(`warnTools` 의 `pickOnly`)
@@ -672,6 +679,11 @@
 - 4단계 집필
   - 한 화 화면 `viewEpisode(n, panel)`: 집필 · 검수 · 상태 승인 세 주소가 같은 머리 · 단계 띠 · 본문 칸을 그린다(`viewWrite` · `viewCheck` · `viewReview` 는 감싼 이름)
   - 집필 칸은 오른쪽 칸 없이 본문 칸 하나
+  - 집필 칸은 변경안이 생긴 화(`S.deltas[n]`, 본문을 쓴 화)에서 단계 띠 아래 · 본문 위에 상태 변경안 요약 카드 `gistCard`(`.w-gist`)를 둔다
+  - `gistCard` 는 `review.js` `deltaGist` 로 묶음마다 줄 수와 한 줄 요지를 보인다. 관계는 사건만 적고 수치는 없다
+  - `gistCard` 의 버튼은 '추천대로 반영'(`gistApply`) · '상태 승인으로' 둘이고 보조 버튼이다. 설정 바꾸기 · 호칭이 있으면 반영하지 않는다고 적는다
+  - 검수 지적이 남았으면 `gistCard` 는 접은 칸(`details`, 펼침은 `S.rvOpen['n:gist']`)이고 요약 줄에 지적 수를 먼저 적는다
+  - 카드에서 반영한 화(`S.gistDone`)는 같은 자리에 다음 할 일(`nextStepHtml`) · 반영 취소(`revertFrom`, 스냅샷이 없으면 `revertGone`)를 둔다. 다른 화를 열면 지운다
   - 검수 · 상태 승인 칸은 `check.js` `checkPanel` · `review.js` `reviewPanel` 의 오른쪽 칸을 `episodeCols` 가 본문 옆에 둔다(`.ep-cols`: 넓은 폭은 왼쪽 본문 · 오른쪽 칸, 좁은 폭은 칸 먼저)
   - 칸을 열면 머리 주 버튼은 그 칸의 것이다. 본문이 없는 화는 칸을 열지 않고 집필처럼 그린 뒤 먼저 쓰라고 알린다
   - 640px 이하는 칸의 보조 버튼을 머리 줄 대신 칸 위 한 줄(`.ep-tools`)에 둔다. 폭이 640px 를 넘나들면 다시 그린다

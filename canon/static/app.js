@@ -615,7 +615,7 @@ function isTyping() {
 }
 
 // 작업이 끝나 결과를 그린 뒤 포커스를 옮길 곳 (없으면 제안 카드의 첫 버튼)
-const RESULT_FOCUS = { state: '#app [data-pick], #app [data-action="applyDelta"]', write: '#app textarea[data-draft], #app .rw-compare button',
+const RESULT_FOCUS = { state: '#app [data-pick], #app [data-action="applyDelta"], #app [data-action="gistApply"]', write: '#app textarea[data-draft], #app .rw-compare button',
   recap_part: '#app .part-edit textarea[data-root="recaps"]', recap_arc: '#app textarea[data-root="recaps"]' };  // 요약 제안 칸은 서랍 · 카드 아래쪽이라 그리로 데려간다
 
 /** #app 안에서 글자를 고르고 있다 (본문 부분 수정 · 삽화 도구를 띄우려고 드래그한 선택). */

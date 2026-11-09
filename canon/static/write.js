@@ -533,6 +533,7 @@ function viewEpisode(n, panel = 'write') {
 
   return `<div class="w-headwrap"><header class="page-head w-head${pane && pane.head ? ` ${pane.head}` : ''}"><div class="row" style="gap:12px">${epNav(panel, n)}<div class="w-tl"><div class="lead" style="gap:2px"><div class="eyebrow">${act ? actLabel(act.name) + ' 구간 · ' : ''}${n} / ${P().meta.target_episodes}화</div><h1 style="font-size:var(--w-h1, 1.5rem)">${n}화 ${esc(e.plot.title)}</h1></div>${povBadge(n)}<span class="chip ${e.status}">${STATUS[e.status]}</span>${e.auto ? '<span class="chip ai">자동 반영</span>' : ''}${e.text && writerLabel(e.written_by) ? `<span class="small w-model" title="이 본문을 쓴 모델이에요. 직접 고쳐도 바뀌지 않아요">쓴 모델 · ${esc(writerLabel(e.written_by))}</span>` : ''}</div></div><div class="row">${right}</div></header>${flowBar(n, panel)}</div>
     ${panel !== 'write' ? autoLockNote() : ''}${waitNote}
+    ${panel === 'write' ? gistCard(n) : ''}
     ${e.auto ? `<div class="note info">이 화는 자동 집필이 검토 없이 반영했어요. 읽어 보고 문제가 있으면 <a href="${base()}/auto">자동 집필</a>에서 이 화부터 되돌릴 수 있어요.</div>` : ''}
     ${rebuildNote(n)}
     ${fin}
@@ -575,6 +576,39 @@ function viewEpisode(n, panel = 'write') {
     ${e.text ? illustPanel(n) : ''}
     ${openingPanel(n)}`)}
     ${e.text && editable && S.rwOpen === n ? rewritePanel(n) : ''}${chatLegacy(e.text && editable ? `text:${n}` : '', { hold: !!(e.text && editable) && S.rwOpen === n })}`;
+}
+
+/** 상태 변경안 요약 카드 (docs/ux 06). 집필 칸의 단계 띠 아래 · 본문 위에 두고, 변경안이 생긴 화에서만 보인다.
+    묶음마다 줄 수와 한 줄 요지(review.js deltaGist)를 보이고, 줄을 누르면 상태 승인 화면의 그 묶음으로 간다(gistGo).
+    '추천대로 반영'(gistApply)은 상태 승인 화면에서 아무것도 바꾸지 않고 반영하는 것과 같은 요청이다. 상태 승인에서 체크나 칸을 고쳤으면 두지 않는다.
+    검수 지적이 남았으면 접어 두고 지적 수를 먼저 보인다. 반영한 뒤에는 같은 자리에 다음 화로 · 반영 취소를 둔다(S.gistDone).
+    관계 수치는 보이지 않는다: AI 는 사건만 적고 수치는 dynamics.py 가 계산한다. 버튼은 보조 버튼이다(머리 줄 주 버튼 하나) */
+function gistCard(n) {
+  const e = ep(n);
+  const done = S.gistDone;
+  if (done && (done.name !== S.name || done.n !== n || e.status !== 'finalized')) S.gistDone = null;
+  if (S.gistDone) {
+    const canRevert = P().snapshots.some((s) => s.episode === n - 1);
+    const undo = P().episodes.filter((x) => x.status === 'finalized' && x.plot.number >= n).map((x) => x.plot.number);
+    const next = nextStepHtml(nextStep(), 'btn').replace(/^<(a|button) /, '<$1 data-gist-next ');
+    return `<section class="card tight w-gist" aria-labelledby="w-gist-h"><div class="w-gist-head"><h2 id="w-gist-h">${n}화를 반영했어요</h2></div>
+      <div class="w-gist-act">${next}${canRevert ? `<button type="button" class="btn danger" data-action="revertFrom" data-arg="${n}">${rangeText(undo)}화 반영 취소</button>` : `<span class="small">${revertGone()}</span>`}</div></section>`;
+  }
+  const d = S.deltas[n];
+  if (!d || e.status !== 'written' || !e.text) return '';
+  pickEp(n);
+  const g = deltaGist(d, { picks: S.picks, name: charName, field: typeof scLabel === 'function' ? scLabel : undefined, fs: P().foreshadows, open: checkState(e).open });
+  const review = `${base()}/review/${n}`;
+  const rows = g.groups.filter((x) => x.count).map((x) => `<li><a class="w-gist-row" href="${review}" data-action="gistGo" data-arg="${n}:${x.key}"><span class="w-gist-k">${x.label}</span><span class="w-gist-n">${x.picked === x.count ? x.count : `${x.picked}/${x.count}`}</span><span class="w-gist-p">${esc(x.peek)}</span></a></li>`).join('');
+  const apply = deltaTouched(n) ? '<span class="small">상태 승인에서 고친 것이 있어요</span>'
+    : `<button type="button" class="btn" data-action="gistApply" data-arg="${n}"${autoOn() ? ' disabled' : ''}>추천대로 반영</button>${g.skip ? `<span class="small">${g.skip}</span>` : ''}`;
+  const body = `<ul class="w-gist-list">${rows}</ul><div class="w-gist-act">${apply}<a class="btn ghost" href="${review}">상태 승인으로</a></div>`;
+  const count = `<span class="small">${g.picked}/${g.total}건 고름</span>`;
+  if (g.fold) {
+    const open = !!(S.rvOpen && S.rvOpen[`${n}:gist`]);
+    return `<details class="card tight w-gist" data-rv-grp="${n}:gist"${open ? ' open' : ''}><summary><strong>${g.head}</strong> · ${n}화 상태 변경안 ${count}</summary>${body}</details>`;
+  }
+  return `<section class="card tight w-gist" aria-labelledby="w-gist-h"><div class="w-gist-head"><h2 id="w-gist-h">${n}화 상태 변경안</h2>${count}</div>${body}</section>`;
 }
 
 /** 쓰는 중인 본문 미리보기 (docs/ux 05). 흘려 받을 수 있는 백엔드면 서버가 도는 쓰기 작업에 지금까지 받은 글(partial)을 싣는다.
