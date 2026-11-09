@@ -68,7 +68,7 @@ def test_wired_into_setup():
       return { slots: (slots.match(/data-action="fieldIdeas"/g) || []).length, field, plain, wizard, mode: S.setupModes.demo,
                docIdeas: (doc.match(/data-action="fieldIdeas"/g) || []).length, hasTheme: doc.includes('id="f-meta-theme"') };
     })()"""
-    got = run_js(["app.js", "home.js", "setup.js", "archetypes.js", "statwin.js", "illust.js", "charlog.js", "chat.js", "setupchat.js", "ideas.js"],
+    got = run_js(["app.js", "home.js", "setup.js", "archetypes.js", "statwin.js", "illust.js", "charlog.js", "aliases.js", "chat.js", "setupchat.js", "ideas.js"],
                  expr, {"project": dump(Project())})
     assert got["slots"] == 5
     assert got["field"].index('class="lab-row"') < got["field"].index("<b>A</b>") < got["field"].index('class="in-ai"') < got["field"].index("<b>B</b>") < got["field"].index("<b>C</b>")

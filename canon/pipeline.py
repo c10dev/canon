@@ -16,7 +16,7 @@ from . import anchor, board, cancel, charlog, context, features, findings, fores
 from . import offscreen, regexrules
 from .sent import SentPrompt, SentRetry
 from .sent import record as sent_record
-from .schema import CoordDraft, CoordMemo, OffscreenSet
+from .schema import AliasSuggestion, CoordDraft, CoordMemo, OffscreenSet
 from .schema import RuleChange, RuleRun
 from .schema import CueSheet, CueSheetDraft, Finding, MetaCut, FindingRecheck, FixBatch, FixOption, FixPatch, FixRecheckItem, FixRecheckReport, FixSet, RevArcSet, RevEpisodeDraft, RevLineSet
 from .schema import ParagraphAnatomy, ReaderCheck, SceneCard, SceneVariant, SceneVariants, StudioCandidate, StudioDraft
@@ -3498,6 +3498,24 @@ def suggest_body(llm: LLM, p: Project, cid: str) -> BodySuggestion:
         s.measurements = ""
     return s
 
+
+def suggest_aliases(llm: LLM, p: Project, targets: list) -> AliasSuggestion:
+    """다른 이름 제안 (docs/context/specs/04-key-suggest.md). targets 는 aliases.targets 가 고른 항목.
+    재료 단락을 고르고 한 번 부른 뒤 aliases.clean · hits 를 거쳐 돌려준다. 저장하지 않는다 (작가가 고른 말을 칸에 넣고 작품 저장)."""
+    from . import aliases
+
+    for it in targets:
+        aliases.material(p, it)
+    empty = [it for it in targets if not it.passages]
+    targets = [it for it in targets if it.passages]
+    if not targets:  # 쓴 본문에서 찾은 단락이 하나도 없으면 부르지 않는다 (근거 검사가 어차피 모두 뺀다)
+        return AliasSuggestion(notices=["본문에서 찾은 단락이 없어 제안을 받지 않았어요"])
+    s = llm.json(prompts.SYSTEM_PLANNER, prompts.alias_prompt(p, targets), AliasSuggestion,
+                 hint={"material": {it.key: it.text for it in targets}})
+    s = aliases.clean(p, s, {it.key: it.text for it in targets})
+    if empty:
+        s.notices.append(f"본문에서 찾은 단락이 없는 {len(empty)}개는 묻지 않았어요")
+    return aliases.hits(p, s)
 
 def suggest_stat_window(llm: LLM, p: Project, request: str = "") -> StatWindowSuggestion:
     """상태창 꾸미기 안 (본문 서식 · 창 이름 · 항목 틀 · 화면 스킨). 저장하지 않는다 (작가가 고른 안만 statwin-template 로 저장)."""

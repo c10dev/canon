@@ -92,6 +92,29 @@ class BodySuggestion(BaseModel):
     note: str = Field("", description="작가에게 하는 한두 문장: 설정에서 무엇을 근거로 정했는지")
 
 
+class AliasHit(BaseModel):
+    """제안한 다른 이름 하나가 최근 쓴 화 본문에서 찾히는 화 (aliases.hits 가 채운다, LLM 이 쓰지 않는다)."""
+    alias: str
+    episodes: list[int] = Field(default_factory=list, description="이 말이 본문에 나온 최근 쓴 화")
+    only: list[int] = Field(default_factory=list, description="그 가운데 이름 · 지금 다른 이름으로는 찾히지 않는 화")
+    clash: str = Field("", description="이름 · 다른 이름이 같거나 서로 품는 다른 항목의 이름. 없으면 빈 글")
+
+
+class AliasIdea(BaseModel):
+    """항목 하나에 더할 다른 이름 (pipeline.suggest_aliases)."""
+    target: str = Field(description="항목 열쇠: 'c:<인물 id>' 또는 'e:<요소 id>'. '## ' 뒤에 적힌 열쇠 그대로")
+    aliases: list[str] = Field(default_factory=list, description="더할 다른 이름. 재료 단락에 글자 그대로 나온 말만, 두 글자 이상")
+    reason: str = Field("", description="작가에게 보일 한두 문장: 어느 단락에서 어떻게 불렸는지")
+    hits: SkipJsonSchema[list[AliasHit]] = Field(default_factory=list)
+
+
+class AliasSuggestion(BaseModel):
+    """인물 · 이야기 요소의 다른 이름 AI 제안. 작가가 고른 말만 칸에 넣는다 (canon/aliases.py, pipeline.suggest_aliases)."""
+    items: list[AliasIdea] = Field(default_factory=list, description="다른 이름을 더할 항목만")
+    notices: SkipJsonSchema[list[str]] = Field(default_factory=list)
+    recent: SkipJsonSchema[int] = Field(0, description="화 수 세기가 본 최근 쓴 화 수 (aliases.hits)")
+
+
 class Character(BaseModel):
     id: str = Field(description="영문 소문자 식별자, 예: hero, rival")
     name: str
@@ -117,14 +140,18 @@ class Character(BaseModel):
     # 고르는 규칙은 context.core_ids · off_ids
     context: SkipJsonSchema[Literal["auto", "always", "off"]] = Field(
         "auto", description="프롬프트에 넣기: auto 등장할 때(비중대로), always 항상, off 넣지 않음(이름만)")
+    # 본문에서 다르게 부르는 말 (두 글자 이상). 이름과 같이 '이 인물이 나온다'를 찾는 데만 쓴다 (context.name_pattern).
+    # 작가가 칸에 적거나 다른 이름 제안(canon/aliases.py)에서 골라 넣는다. 설정 단계 응답 형식이 채우지 않게 JSON 스키마에서 뺀다
+    aliases: SkipJsonSchema[list[str]] = Field(default_factory=list)
 
     @model_serializer(mode="wrap")
     def _prompt_view(self, handler: SerializerFunctionWrapHandler, info: SerializationInfo):
-        """프롬프트용 직렬화(llm.dump 의 context prompt)에서는 신체 프로필과 넣기 방식을 뺀다. 저장과 화면 응답은 그대로."""
+        """프롬프트용 직렬화(llm.dump 의 context prompt)에서는 신체 프로필, 넣기 방식, 다른 이름을 뺀다. 저장과 화면 응답은 그대로."""
         data = handler(self)
         if isinstance(data, dict) and info.context and info.context.get("prompt"):
             data.pop("body", None)
             data.pop("context", None)
+            data.pop("aliases", None)
         return data
 
 
@@ -1030,7 +1057,7 @@ class PlotRevision(BaseModel):
 SetupKey = Literal["title", "logline.who", "logline.why", "logline.goal", "logline.block", "logline.stake", "theme", "tone", "notes",
                    "world.setting", "world.era", "world.rules", "world.locations", "world.name_rules"]
 CharField = Literal["name", "role", "age", "gender", "appearance", "personality", "background", "goal", "wound", "speech_style",
-                    "secrets", "arc"]
+                    "secrets", "arc", "aliases"]
 
 
 class SetupEdit(BaseModel):
@@ -1046,7 +1073,7 @@ class CharacterEdit(BaseModel):
     id: str = Field(description="[인물]에 있는 인물 id")
     field: CharField = Field(description="바꿀 칸 이름")
     text: str = Field("", description="글 칸일 때: 바뀐 뒤 글 전체")
-    items: list[str] = Field(default_factory=list, description="secrets 일 때: 바뀐 뒤 목록 전체")
+    items: list[str] = Field(default_factory=list, description="secrets · aliases(본문에서 다르게 부르는 말, 두 글자 이상) 일 때: 바뀐 뒤 목록 전체")
     why: str = Field("", description="왜 이렇게 바꾸는지 한 줄")
 
 

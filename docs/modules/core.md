@@ -190,6 +190,7 @@
 - 기획 프롬프트 인물(`planning_cast`)
 - 인물 이름(`names_of`: 세 글자 이름은 성을 뗀 이름도, `metrics.name_forms`)
 - 이름으로 켜는 인물(`named_ids` · `name_pattern`, 남은 예산 `fit_named`) · 마지막으로 나온 화(`last_seen`)
+- `name_pattern` 은 인물 다른 이름(`Character.aliases`)의 두 글자 이상 말을 이름과 같은 꼴(앞 경계, 성 떼기 없음)로 더한다. `names_of` 는 다른 이름을 보지 않는다
 - 검수용 옛 본문 단락 찾기(`recall`, 질문 여러 개는 색인 `PassageIndex` 하나로, 검수 넓히기도 이 색인)
 - 단락 색인은 `passage_index` 로 만든다. 넣을 화와 본문이 같으면 최근 `INDEX_KEEP` 개 가운데 만든 것을 다시 써서, 검수와 검수 넓히기가 색인을 한 번만 만든다
 - 진술과 겹치는 줄 · 사실(`related_lines` · `related_facts`, 셈이 있는 진술은 셈이 있는 줄을 앞세움 `has_count`)
@@ -400,6 +401,8 @@
 - 장편 전환(`serialize.py`) · 재구성(`reshape.py`) · 초반 1~3화(`opening.py`)는 따로 둔 모듈이다(`SPLIT`). 새 공용 도우미는 이 파일에 두고 그 모듈이 불러 쓴다
 - 단계별 로직
 - 차례: 설정 제안 → 스타일 분석 → 기승전결 → 화별 플롯 → 스토리보드 → 큐 시트 → 본문 → 검수 → 상태 추출/반영
+- 다른 이름 제안 `suggest_aliases`: `aliases.material` 로 재료를 고르고 `SYSTEM_PLANNER` · `prompts.alias_prompt` 로 한 번 부른 뒤 `aliases.clean` · `hits` 를 거친다. 저장하지 않는다
+- `suggest_aliases` 는 본문에서 찾은 단락이 없는 항목을 묻지 않는다. 모든 항목이 그러면 LLM 을 부르지 않고 알림만 돌려준다
 - 기승전결 `plan_arc` 는 `Settings.heat_plan` 을 켠 단편이면 완급 계획을 함께 받는다(응답 `HeatArcPlan`, 요구 `prompts.heat_arc_rules`)
 - 완급 계획 정리 `clean_heat_plan`: `heatplan.fit` · `fit_turn`, 판돈은 단서 · 빈 것을 빼고 심는 화를 자르고 겹치지 않는 id(`fs-<화>-h<k>`)
 - 완급 계획 적용 `apply_heat_plan`: 계획 · 원칙 · 뒤집힘을 바꾸고 판돈은 같은 id 가 없을 때만 복선에 더함. 명령줄 `arc` 와 화면 구조 제안 고르기(`heatApply`)가 쓴다
@@ -542,6 +545,9 @@
 - 본문 지시처럼 한국어 출력 줄이 글 가운데 있으면 `system_prompt(…, korean=False)`로 부른다
 - 머리말을 아직 받지 않는 `SYSTEM_*` 상수는 `tests/test_style_prompts.py` 의 `NO_PREAMBLE` 에 묶음과 함께 적는다. 새 상수가 머리말을 빠뜨리면 이 시험이 실패한다
 - 본문 쓰기 지시는 설정 · 사실을 '절대' 같은 강한 말 대신 이유('앞 화와 이어져야 하므로')를 붙여 지키게 한다
+- `cast_view` 는 인물 다른 이름(`aliases`)을 빼서 앞 블록 '# 인물 설정' 캐시를 지킨다. 인물의 프롬프트용 직렬화(`_prompt_view`)도 뺀다
+- `setup_chat_prompt` 는 다른 이름을 채운 인물만 `aliases` 칸을 보인다(빈 인물은 전과 같은 글)
+- 다른 이름 제안 `alias_prompt(p, items)`: 작품 · 모든 항목 이름 목록이 앞, 항목별 재료 단락이 뒤, 요청이 맨 뒤다. 쓰기 프롬프트 · 작업지시서에는 들어가지 않는다
 - 화별 컨텍스트 조립(`build_episode_context`)
 - 쓰기 요청 블록 표 `BLOCKS`(`Block`: id · 화면 이름 · 잠금 · 쓰는 예산 키 · 캐시 앞부분 `front` · 대신 정하는 설정 `note`)와 id 찾기 `BLOCK_BY_ID`
 - 끌 수 있는 블록(`toggleable`)은 잠기지 않았고 `note` 가 없는 블록이다. `note` 의 "short" 는 단편 요청에만 있는 블록이다
@@ -761,6 +767,9 @@
 - 이 칸을 다루는 AI 호출은 신체 프로필 제안(`pipeline.suggest_body`)뿐이다
 - 미성년(`cast.is_minor_age`)이면 쓰리사이즈를 제안하지 않는다
 - 인물 프롬프트 넣기(`Character.context`: auto 비중대로 · always 늘 · off 이름만)도 작가 전용이라 같은 방식으로 빠진다
+- 인물 다른 이름(`Character.aliases`)도 AI 응답 형식(`SkipJsonSchema`)과 프롬프트 직렬화에서 빠진다. 설정 단계 응답이 채우지 않고 다른 이름 제안으로만 AI 가 낸다
+- `CharField` 에 `aliases` 가 있어 설정 도우미 · `edit_setup` 이 목록(`items`)으로 고친다
+- 다른 이름 제안 응답 `AliasSuggestion`(`items: AliasIdea`) · 프로그램이 채우는 `AliasHit` · `notices` · `recent`(`canon/aliases.py`)
 - ComfyUI 그림 기록 `IllustImage`(파일 · 시드 · 보낸 프롬프트 · 틀 이름 · 알림)는 `Illustration.images` 에 둔다(`canon/comfy.py`)
 - 인물 상태의 지울 칸(`CharacterState.cleared`)은 변경안에만 쓴다. 비었으면 직렬화에서 빼서 저장한 상태 · 프롬프트에 들어가지 않는다
 - 지울 칸에 값이 함께 오면 검증(`_blank_cleared`)이 그 칸을 비워 차림 · 이동 거리 경고가 새 값으로 보지 않는다
@@ -1094,6 +1103,8 @@
 - 화면을 막던 AI 제안도 작업이다: `char_body` · `char_voice` · `char_look`(`_job_char_ai`), `statwin_suggest` · `statwin_init`(`_job_statwin_ai`), `names_ai`(`_job_names_ai`), `style_learn` · `style_example`(`_job_style_ai`)
 - 그 가운데 여섯은 제안만 돌려주고 작품을 바꾸지 않는다. `style_learn` · `style_example` 은 옛 동기 경로처럼 제안 칸(`style_learning` · `style_example`)에만 `_edit` 로 쓴다
 - 인물 작업과 `names_ai` 는 `JobIn.target`(인물 id)을 `Job.target` 으로 넘긴다(`_job_target`). 지명은 `JobIn.place_kind` 를 쓰고 대상이 빈 글이다
+- 다른 이름 제안 작업 `aliases`(`_job_aliases`, 단계 `plan`)는 화면 전용이다. `JobIn.target` 이 `c:<id>` · `e:<id>` 면 그 항목, `c:` · `e:` · 빈 글이면 빈 항목 여럿이다
+- `aliases` 작업은 제안만 돌려주고 작품을 바꾸지 않는다. 대상은 `_job_target` 으로 `Job.target` 에 넘긴다
 - 옛 동기 경로(`…/characters/{cid}/body` · `voice` · `look`, `statwin-suggest` · `statwin-init`, `names`, `style/learn` · `style/example`)는 시험이 쓰는 동안 남긴다
 - 남은 AI 호출도 작업이다(UX 02c): `fix_one` · `recheck_one`(`_job_finding_ai`), `illust`(`_job_illust`), `atlas_suggest` · `atlas_sort`(`_job_atlas_ai`)
 - `fix_one` · `recheck_one` 은 지적 하나(`JobIn.target`, 화는 `ep`)를 다룬다. 결과는 옛 동기 경로처럼 그 지적에 `_edit` 로 넣는다. 본문은 바꾸지 않는다

@@ -588,7 +588,7 @@ async function pollJobs(soon = false) {
     }
     if (j.status !== 'running' && !(old && old.status !== 'running')) await finishJob(j);
     // 설정 · 사용량 · 문체 라이브러리처럼 작품 밖 화면은 S.name 이 남아 있어도 다시 그리지 않는다
-    if ((S.route[0] === 'p' && (JOB_PAGES[j.kind] || []).includes(S.route[2] || 'home')) || (S.route[0] === 'revlab' && j.project === REV_JOBS) || (S.route[0] === 'styles' && j.kind === 'lib_style') || (S.route[0] === 'refs' && j.kind === 'ref_newto') || (S.route[0] === 'studio' && typeof STU_JOBS !== 'undefined' && j.project === STU_JOBS)) {
+    if ((S.route[0] === 'p' && jobPages(j).includes(S.route[2] || 'home')) || (S.route[0] === 'revlab' && j.project === REV_JOBS) || (S.route[0] === 'styles' && j.kind === 'lib_style') || (S.route[0] === 'refs' && j.kind === 'ref_newto') || (S.route[0] === 'studio' && typeof STU_JOBS !== 'undefined' && j.project === STU_JOBS)) {
       redraw = true;
       if (j.status === 'done') resultFocus = RESULT_FOCUS[j.kind] || '#app .proposal button, #app .proposal input';
     }
@@ -660,6 +660,8 @@ if (window.visualViewport && typeof window.visualViewport.addEventListener === '
 JOB_DONE_MSG.check = (j) => `${j.ep}화 검수가 끝났어요${j.result && j.result.round ? ` (${j.result.round}회차)` : ''}: 짚은 곳 ${j.result ? j.result.issues : 0}개${j.result && j.result.round > 1 ? `, 새 지적 ${j.result.added}개` : ''}${j.result && j.result.outside ? `, 바뀌지 않은 문단의 새 지적 ${j.result.outside}개는 넣지 않았어요` : ''}`;
 // 집필 · 검수 · 상태 승인은 한 화 화면(write.js viewEpisode)이라 셋을 함께 다시 그린다
 const JOB_PAGES = { check: ['check', 'write', 'review'], suggest: ['setup'], style: ['style'], arc: ['arc'], heat: ['arc'], plots: ['arc', 'home', 'causal'], plot_one: ['arc', 'lines'], write: ['write', 'check', 'review', 'home', 'causal'], state: ['review', 'write', 'check'], auto: ['auto', 'home', 'write', 'check', 'review', 'causal', 'arc', 'setup'], impact: ['causal'], series: ['arc'], nextarc: ['arc'], recap_arc: ['arc'], recap_part: ['arc'], fold_knows: ['arc'], offscreen: ['arc'], storyline: ['lines'] };
+/** 작업이 결과를 보이는 화면들. JOB_PAGES 값이 함수면 작업(대상)에 따라 고른다 (aliases: 인물은 설정, 요소는 인과율) */
+const jobPages = (j) => (typeof JOB_PAGES[j.kind] === 'function' ? JOB_PAGES[j.kind](j) : JOB_PAGES[j.kind]) || [];
 
 // 작업이 project.json 에 쓴 화만 받아 온다 (mine(화면 화, 서버 화) 이 true 인 화와 새로 생긴 화). 저장하지 않은 다른 입력은 그대로 둔다.
 // 저장하지 않은 입력이 있을 때 서버 것으로 바꾼 화 번호를 돌려준다.
@@ -786,7 +788,7 @@ async function finishJob(j) {
   const msg = JOB_DONE_MSG[j.kind];
   // 결과를 보는 화면이 따로 있고 지금 그 화면이 아니면 '가서 보기'를 붙인다 (알림 창의 같은 버튼과 같은 곳)
   const link = JOB_LINK[j.kind] ? JOB_LINK[j.kind](j) : '';
-  const onIt = here && (JOB_PAGES[j.kind] || []).includes(S.route[2] || 'home') && (j.ep == null || Number(S.route[3]) === j.ep || !S.route[3]);
+  const onIt = here && jobPages(j).includes(S.route[2] || 'home') && (j.ep == null || Number(S.route[3]) === j.ep || !S.route[3]);
   const go = link && !onIt && location.hash !== link ? [{ label: '가서 보기', run: () => { location.hash = link; } }] : [];
   // 화면 파일이 등록한 결과 놓기(JOB_RESULT)는 알림 글과 버튼을 바꿀 수 있다 ({ msg, actions }). 칸을 고치는 중이면 넣지 않고 '넣기'를 단다
   const placed = here && JOB_RESULT[j.kind] ? JOB_RESULT[j.kind](j) || {} : null;
@@ -856,7 +858,7 @@ function syncPending() {
 /** 이 화면에서 볼 만한 지난 실패. 같은 작업이 성공하거나 닫으면 사라진다. */
 function failStrip(page, n) {
   if (S.pending.name !== S.name) return '';
-  const list = Object.values(S.pending.failures).filter((f) => (JOB_PAGES[f.kind] || []).includes(page || 'home') && (f.ep == null || !['write', 'check', 'review', 'brief'].includes(page) || f.ep === n));
+  const list = Object.values(S.pending.failures).filter((f) => jobPages(f).includes(page || 'home') && (f.ep == null || !['write', 'check', 'review', 'brief'].includes(page) || f.ep === n));
   return list.map((f) => `<div class="note warn between" role="status"><span><strong>${esc(f.label)} · 끝내지 못했어요</strong>: ${esc(f.error)}${/API 키|연결/.test(f.error) ? ' <a href="#/settings/ai">AI 연결 설정</a>' : ' 같은 버튼을 다시 누르면 다시 시도해요.'}</span><button type="button" class="btn small" data-action="dismissFail" data-arg="${esc(f.key)}">닫기</button></div>`).join('');
 }
 

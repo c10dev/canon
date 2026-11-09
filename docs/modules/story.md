@@ -182,6 +182,23 @@
 - 지름길 턴이 막히면 까닭을 답으로 남기고 턴을 끝낸다. 에이전트가 부른 턴이면 막힘 결과를 받고 이어 간다
 - 모듈 머리 글에 늘 카드로 묻는 도구 모듈이 둘 이름(`TOOL` · `KIND` · `LABEL` · `shortcut` · `prepare` · `record` · `decide` · `undo`)을 적는다
 
+### `canon/aliases.py`
+
+- 다른 이름 채우기(`docs/context/specs/04-key-suggest.md`): 인물 · 이야기 요소의 다른 이름을 AI 가 제안하고 작가가 고른다
+- 항목 열쇠는 `c:<인물 id>` · `e:<요소 id>` 다(`Item`, `item`, `find`)
+- `targets` 는 열쇠 하나면 그 항목, `c:` · `e:` · 빈 글이면 다른 이름이 빈 항목을 `ALIAS_BATCH`(10)개까지 고른다. 이름이 빈 항목은 받지 않는다
+- `material` 은 쓴 화(`written` · `finalized`) 본문에서 이름 · 다른 이름이 맞은 단락과 그 앞뒤를 최근 화부터 `ALIAS_SAMPLE`(3,000)자까지 고른다
+- 예산을 넘어 뺀 맞은 단락 수(`Item.cut`)는 프롬프트에 적는다
+- 이름이 본문에 없는 요소는 `context.recall` 로 이름 · 설명과 겹치는 단락을 찾는다(임베딩 없음)
+- 인물 항목은 `Project.address_forms` 에서 그 인물을 부르는 호칭을 씨앗으로 넣는다(`_calls`)
+- `clean` 은 앞뒤 빈칸 · 따옴표만 지우고 조사는 떼지 않는다
+- `clean` 이 빼는 말: 두 글자 미만, `ALIAS_MAX_LEN`(12)자 초과, 이름(인물은 `metrics.name_forms`) · 있는 다른 이름과 같은 말, 항목 안 겹침, 재료 단락에 글자로 없는 말
+- `clean` 은 요청하지 않았거나 없는 항목을 가리키는 제안을 빼고, 뺀 수를 `AliasSuggestion.notices` 에 적는다
+- `hits` 는 최근 `ALIAS_HIT_EPS`(30)개 쓴 화에서 다른 이름마다 찾히는 화(`AliasHit.episodes`)와 이름 · 지금 다른 이름으로는 안 찾히는 화(`only`)를 센다
+- 인물 다른 이름은 그 말만 넣은 인물 사본의 `context.name_pattern` 으로, 요소는 `elements.terms` 의 부분 문자열로 찾는다. 판정을 따로 만들지 않는다
+- `clash` 는 다른 항목의 이름 · 다른 이름과 같거나 서로 품는 말이면 그 항목 이름이다. 빼지 않고 작가가 판단한다
+- LLM 을 부르지 않는다(호출은 `pipeline.suggest_aliases`). 저장하지 않는다
+
 ### `canon/anchor.py`
 
 - 이 작품의 문체: 작가가 고른 반영한 화를 이 작품의 문체 기준으로 고정한다(`Project.anchor`, `StyleAnchor`)
@@ -562,6 +579,8 @@
 - 첫 반영 뒤에는 AI 가 관계의 시작 방식과 수치를 바꾸지 않는다
 - 관계의 가 닿을 곳(`destination`)은 AI 가 비워 보내면 지금 값을 지킨다
 - 1화 반영 뒤 바꾼 인물 칸은 `charlog.record_author` 로 남긴다
+- 인물 다른 이름(`aliases`)은 `secrets` 와 같은 목록 칸이다(`CHAR_LIST_FIELDS`). 한 글자 말은 `clean` 이 뺀다
+- 다른 이름은 `charlog.LOG_FIELDS` 밖이라 `record_author` 기록에 남지 않는다
 - LLM 호출은 `pipeline.revise_setup`
 - 프롬프트는 `prompts.setup_chat_prompt`
 - 명령줄 `setupchat`
@@ -661,6 +680,17 @@
 - 쓴 뒤 비교는 쓰기 전 설정(`WriteRecord.setup_before`)과 한다(`agentSetupItemDiff`)
 - 설정 대상의 빈 세션 안내와 예시(`agentSetupIntro`, 예시는 `agent.js` `agentExamples('setup')`)
 
+### `canon/static/aliases.js`
+
+- 다른 이름 고르기 카드(서버 `aliases.py`, 작업 `aliases`)
+- 작업 표(`JOB_PAGES` · `JOB_LINK` · `JOB_DONE_MSG` · `SCREEN_ONLY_JOBS` · `JOB_BTNS.aliasAI` · `JOB_RESULT`)에 `aliases` 를 등록한다
+- `JOB_PAGES.aliases` 는 작업 대상에 따라 화면을 고르는 함수다: 인물(`c:`)은 설정, 요소(`e:`)는 인과율. `app.js` 의 `jobPages` 가 함수 값을 푼다
+- 결과는 작업 대상을 열쇠로 `S.aliasSug` 에 놓는다. 항목 하나(`c:<id>` · `e:<id>`)는 그 카드에, 여러 항목(`c:` · `e:`)은 목록 머리에 보인다
+- `aliasCard(scope)` 는 칩마다 체크 칸 · 화 수(`aliasHitText`) · 겹침('‹이름›과 겹쳐요')을 그린다. 기본으로 체크하지 않는다
+- 이미 칸에 있는 말은 '이미 있어요'로 끈다
+- '고른 다른 이름 적용'(`aliasApply`)은 고른 말을 칸에 더하고 저장 띠로 저장하게 한다. 따로 적용 엔드포인트가 없다
+- 칩 줄은 `.proposal` 안의 `.body-sug` 줄을 다시 쓴다(새 컴포넌트 없음)
+
 ### `canon/static/anchor.js`
 
 - 문체 화면의 '이 작품의 문체' 카드(`anchorCard`, 목차 줄 `anchorTocWord`)
@@ -729,6 +759,8 @@
 - 인과율 화면(주소 `causal[/<요소 id>]`, `viewCausal`, 라우터가 부르는 `causalPick`)
 - 공용 목차 틀(`outline.js`, 목차 `causalToc`: 개요 · 손볼 것 · 종류별 요소) 위에 쪽 둘: 개요 · 요소 하나
 - 개요: 손볼 것 `causalTodoCard` → 모든 요소 `causalListCard`
+- 모든 요소 카드 머리의 '빈 다른 이름 제안'은 작업 `aliases`(대상 `e:`)를 띄우고 결과 카드(`aliasCard('e:')`)를 그 아래에 둔다
+- 요소 내용 카드의 '다른 이름 제안'(고치는 중)은 대상 `e:<요소 id>` 다. 받은 카드는 읽기 · 고치기 모두에서 보인다
 - 요소 하나(`causalDetail`): 요소 내용 읽기 카드 `causalInfoCard`(고치기 `S.causalEdit`) → 관련 화 `causalLinksCard` → 영향 분석 `causalImpact`
 - 관련 화는 30화씩 칸 줄(`CZ_CHUNK`)과 나눔 버튼 `S.causalLinkTab` 으로 거른 줄 목록
 - 640px 이하는 칸 줄이 한 줄 10화다(`czChunk`). 칸은 버튼이고 화 번호 · 표시를 `aria-label` 로 읽는다. 손가락 기기 · 640px 이하에서 높이 32px

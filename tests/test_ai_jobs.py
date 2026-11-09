@@ -199,8 +199,9 @@ def test_js_registers_pages_messages_links_and_buttons():
     assert got["btns"] == sorted(["bodyAI", "voiceAI", "lookAI", "swSuggest", "swInitAI", "nameAI", "placeAI", "learnRun", "styleExampleWrite",
                                   "illMake", "atlasGenSuggest", "atlasSort",  # 뒤 여덟은 02c (test_ai_jobs_more.py)
                                   "illDraw",  # ComfyUI 그리기 (test_comfy.py)
+                                  "aliasAI",  # 다른 이름 제안 (test_aliases.py)
                                   "rsSample", "rsStage", "rsCheck", "rsBudget", "rsCompare"])
-    assert got["screen"] == sorted(["char_body", "char_voice", "char_look", "statwin_suggest", "statwin_init", "names_ai", "atlas_suggest", "atlas_sort"])
+    assert got["screen"] == sorted(["char_body", "char_voice", "char_look", "statwin_suggest", "statwin_init", "names_ai", "atlas_suggest", "atlas_sort", "aliases"])
     assert got["body"] == "#/p/%EB%93%B1%EB%8C%80/cast/ally"
 
 
