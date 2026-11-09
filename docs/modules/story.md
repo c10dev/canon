@@ -133,6 +133,7 @@
 
 - 대화 에이전트의 본문 고치기 도구 `revise_text`(종류 `text`, 04b). `agent.CARD_TOOLS` 가 등록한다
 - 후보는 `pipeline.revise_passage`(LLM 단계 `revise`), 기록은 `record_passage`, 넣기는 `apply_passage` 를 그대로 쓴다. 지금 'AI에게 고치기'와 같은 부분 수정 대화(`text:N`)와 수정 기록에 남는다
+- 후보에는 'AI에게 고치기'처럼 작품이 켠 고침 규칙을 건다(`revise_passage(rules=True)`). 넣은 후보에 남은 규칙 고침은 대화가 잘려 `edit_text` 로 넣어도 규칙 기록(kind passage)에 남는다
 - 결과는 후보 2~3개가 든 승인 카드(`Approval.passage` · `selection` · `episode` · `preset` · `at`)다. 권한 모드와 상관없이 늘 묻는다(`agent.ALWAYS_ASK`)
 - 카드에 답하면(`decide`) 고른 후보 하나만 넣는다. 작가가 손본 글(`text`)도 받는다. 거절하면 대화의 그 답을 버린 것(`dismissed`)으로 둔다. 어느 쪽이든 턴을 끝낸다
 - 넣기는 카드가 남긴 대화 답을 시각 · 고른 부분으로 찾는다(`_chat_index`). 대화가 잘려 없으면 `pipeline.edit_text` 로 같은 기록을 남긴다

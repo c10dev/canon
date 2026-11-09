@@ -181,6 +181,35 @@ def test_always_ask_and_permit():
         assert agent.permit(AgentSession(id="x", mode=mode, auto_kinds=["text", "renumber"]), "text") == "ask"
 
 
+@pytest.mark.parametrize("cut_chat", [False, True])
+def test_candidates_get_fix_rules_and_the_put_one_is_recorded(client, calls, monkeypatch, cut_chat):
+    """작품이 켠 고침 규칙을 'AI에게 고치기'처럼 후보에 건다. 넣은 후보의 규칙 고침은 그 화의 규칙 기록(kind passage)에 남는다.
+    대화 답이 잘려 edit_text 로 넣어도 같은 기록이 남는다."""
+    from canon import store
+
+    monkeypatch.delenv("CANON_RULES", raising=False)
+    _written(client)
+    r = client.post("/api/rules", json={"name": "점", "rules": [{"in": "\\.", "out": "!", "flag": "g", "action": "fix"}]})
+    assert r.status_code == 200, r.text
+    assert client.put("/api/projects/lh/rule-bundles", json={"bundles": [r.json()["id"]]}).status_code == 200
+    sid = _session(client)
+    t = _send(client, sid, "더 짧게", preset="shorter", selection=_material())
+    cands = t["approval"]["passage"]["candidates"]
+    assert all("." not in c["text"] for c in cands) and any(c["ruled"] for c in cands)
+    k = next(i for i, c in enumerate(cands) if c["ruled"])
+    if cut_chat:  # 대화가 잘려 카드의 답을 못 찾는 경우
+        p = store.load("lh")
+        p.chat("text:1").messages = []
+        store.save("lh", p)
+    r = client.post(f"/api/projects/lh/sessions/{sid}/turns/0/approval", json={"approve": True, "picked": [str(k)]})
+    assert r.status_code == 200, r.text
+    ep = client.get("/api/projects/lh").json()["episodes"][0]
+    run = ep["rule_runs"][-1]
+    assert run["kind"] == "passage" and len(run["changes"]) == len(cands[k]["ruled"])
+    for c in run["changes"]:
+        assert ep["text"][c["start"]:c["start"] + len(c["after"])] == c["after"] == "!"
+
+
 def test_prompt_lists_the_tool_and_text_focus_points_to_it(client):
     from canon import store
 

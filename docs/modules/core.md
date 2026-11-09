@@ -509,7 +509,7 @@
 - `apply_rebuild` 는 그대로 둠 · 다듬기 화에 옛 화의 `meta_cut` 과 `rule_runs`(깊은 사본)를 옮긴다. 그래서 옮긴 본문에서도 규칙이 고친 곳을 되돌릴 수 있다
 - 되돌리기 `undo_conversion`
 - 경고 바로 고치기 `apply_first`: 부분 수정 대화에 남기고 같은 작품에서 첫 후보를 넣는다(메시지 번호가 어긋나지 않게)
-- `revise_passage(rules=True)` 는 후보마다 고침 규칙을 걸고 바뀐 곳을 `PassageCandidate.ruled`(후보 글 안 자리)에 둔다. 웹 부분 수정 대화 · `fix-now` · 명령줄 `fix` 만 켠다
+- `revise_passage(rules=True)` 는 후보마다 고침 규칙을 걸고 바뀐 곳을 `PassageCandidate.ruled`(후보 글 안 자리)에 둔다. 웹 부분 수정 대화 · `fix-now` · 명령줄 `fix` · 대화 에이전트의 본문 고치기(`agent_text`)만 켠다
 - `revise_passage` 는 후보 글을 다듬고(표시 지우기 · 앞뒤 공백) 규칙을 건 뒤 원문 · 앞 후보와 견준다. 규칙을 건 후보가 원문과 같으면 빼고 '원문과 다른 후보가 없었어요' 를 단다
 - `apply_passage` 는 고른 후보의 `ruled` 를 본문 안 자리로 옮겨 kind passage 기록 하나로 남긴다(`add_run`). `apply_first` 도 이 길이다
 - 작가가 후보 글을 고쳐 넣으면 `still_ruled` 가 `locate` 로 아직 찾히는 곳만 남긴다. 지우기 규칙이 바꾼 곳은 찾을 수 없어 빠진다. 하나도 없으면 기록하지 않는다
