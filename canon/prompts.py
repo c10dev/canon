@@ -4690,6 +4690,15 @@ def check_material(p: Project, n: int, mode: str = "", sized: bool = False, lang
 {ep.text}"""
 
 
+def check_cache_cut(material: str, n: int) -> int:
+    """검수 가족(검수 · 고침안 · 다시 검수 · 상태 변경안)의 캐시 경계: check_material 의 맨 끝 블록인 이번 화 본문 바로 앞.
+    본문 끝을 경계로 두면 고침안이나 작가가 본문을 한 글자만 고쳐도 앞부분 캐시를 통째로 버린다
+    (2026-11-09 subway 57~88화: 상태 변경안 35번 중 17번이 검수 캐시를 못 읽고 앞부분 약 11만 토큰을 새로 썼다).
+    본문 블록을 찾지 못하면 자료 끝."""
+    i = max(material.rfind(f"\n\n# {n}화 본문 (검수 대상)\n"), material.rfind(f"\n\n# Text of episode {n} (under review)\n"))
+    return i if i > 0 else len(material)
+
+
 def pair_check_block(p: Project, n: int, mode: str = "") -> str:
     """장편 검수(budget)의 두 사람 사이 이력 블록 (pairlog.check_block). 단편 · full 방식은 빈 글 (단편 경로는 그대로)."""
     mode = mode or ("budget" if p.serial else "full")

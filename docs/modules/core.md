@@ -317,9 +317,10 @@
 - 웹 작업 `recheck` 는 묻기 전 상태(`fix_recheck_basis`: 검수 시각 · 본문 · 지적별 묶음)를 남긴다. 그사이 검수나 되돌리기로 바뀌었으면 `apply_fix_recheck` 가 아무것도 넣지 않고 오류로 끝낸다
 - 묶음이 바뀌었거나 그사이 닫힌 지적은 건너뛴다. 작업 결과의 풀림 · 아직 어긋남 수는 실제로 넣은 결과만 센다
 - 묶음 프롬프트 `prompts.fix_batch_prompt`: 검수 자료, id 를 단 지적 목록, 결정한 문장, 규칙 한 번, 요청은 맨 뒤
-- 고침안(한 지적 · 묶음) · 다시 검수는 `check_material` 길이를 캐시 경계(`llm.PREFIX_HINT`)로 넘긴다. 세 프롬프트 함수는 미리 만든 자료를 `material` 로 받는다
-- 검수(`check_episode`)도 `check_material` 길이를 캐시 경계로 넘긴다. `check_prompt(material=)` 가 미리 만든 자료를 받는다
-- 상태 변경안(`extract_state`)은 백엔드가 `family_cache` 면 `state_prompt(head=check_material)` 로 검수 자료로 시작하고 그 길이를 캐시 경계로 넘긴다. 다른 백엔드는 예전 프롬프트다
+- 고침안(한 지적 · 묶음) · 다시 검수는 `check_material` 의 본문 바로 앞(`prompts.check_cache_cut`)을 캐시 경계(`llm.PREFIX_HINT`)로 넘긴다. 세 프롬프트 함수는 미리 만든 자료를 `material` 로 받는다
+- 검수(`check_episode`)도 같은 자리(`check_cache_cut`)를 캐시 경계로 넘긴다. `check_prompt(material=)` 가 미리 만든 자료를 받는다
+- 경계를 본문 앞에 두는 까닭: 본문 끝에 두면 고침안이나 작가가 본문을 고칠 때마다 앞부분 캐시를 통째로 버렸다(2026-11-09, 상태 변경안 35번 중 17번). 본문 블록은 `check_material` 의 맨 끝이다
+- 상태 변경안(`extract_state`)은 백엔드가 `family_cache` 면 `state_prompt(head=check_material)` 로 검수 자료로 시작하고 `check_cache_cut` 을 캐시 경계로 넘긴다. 다른 백엔드는 예전 프롬프트다
 - 작품 설정 `Settings.state_audit`(기본 꺼짐)를 켜면 `extract_state` 가 정리한 변경안을 `audit_delta` 로 한 번 더 본다(`audit` 단계 모델, 인자 `audit` 로 바꿀 수 있음)
 - `audit_delta` 는 n화 본문과 변경안 줄임(`prompts.audit_prompt`)을 넣고 `AuditReport` 를 받는다. 종류는 비밀 공개 · 관계 사건 · 약속 · 부상 · 정체 공개 · 장소 이동 · 소지품
 - `audit_delta` 는 본문에서 찾을 수 없는 인용(`findings.in_text`)을 버리고 `AUDIT_MAX`(6)개까지 '[누락 의심]'(`AUDIT_MARK`) 경고로만 붙인다. `warn_to` 는 "" 로 차례를 맞춘다

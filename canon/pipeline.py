@@ -3492,9 +3492,9 @@ def check_episode(llm: LLM, p: Project, n: int, widen: bool | None = None, motio
     with ThreadPoolExecutor(max_workers=1) as pool:
         side = (pool.submit(contextvars.copy_context().run, motion_check, part("motion") if part else llm, p, n)
                 if (p.settings.check_motion if motion is None else motion) else None)
-        material = prompts.check_material(p, n)  # 검수 가족(고침안 · 다시 검수 · 상태)과 같은 앞부분. 끝을 캐시 경계로 알린다
+        material = prompts.check_material(p, n)  # 검수 가족(고침안 · 다시 검수 · 상태)과 같은 앞부분. 본문 바로 앞을 캐시 경계로 알린다 (check_cache_cut)
         report = llm.json(prompts.SYSTEM_CHECKER, prompts.check_prompt(p, n, material=material, scope=parts), ConsistencyReport,
-                          hint={"episode": n, PREFIX_HINT: len(material)})
+                          hint={"episode": n, PREFIX_HINT: prompts.check_cache_cut(material, n)})
         report.episode = n
         if widen_on(p, widen):
             report, _ = widen_check(llm, p, n, report)
@@ -3948,11 +3948,11 @@ def _fix_result(ep: Episode, f: Finding, fs: FixSet) -> list[FixOption]:
 
 def propose_fixes(llm: LLM, p: Project, n: int, fid: str) -> list[FixOption]:
     """열린 지적 하나의 고침안을 받는다. 저장하지 않는다 (store_fixes 가 지적에 남긴다).
-    공통 자료(check_material)가 끝나는 곳을 캐시 경계로 알려, 같은 화의 첫 호출부터 그 앞부분을 캐시에 넣는다."""
+    공통 자료(check_material)의 본문 바로 앞을 캐시 경계로 알려 (check_cache_cut), 같은 화의 첫 호출부터 그 앞부분을 캐시에 넣는다."""
     ep, f = _fixable(p, n, fid)
     material = prompts.check_material(p, n)
     fs = llm.json(prompts.reviser_system(p), prompts.fix_prompt(p, n, f, _decided(ep), material), FixSet,
-                  hint={"episode": n, "quote": f.current_quote, "text": ep.text, PREFIX_HINT: len(material)})
+                  hint={"episode": n, "quote": f.current_quote, "text": ep.text, PREFIX_HINT: prompts.check_cache_cut(material, n)})
     return _fix_result(ep, f, fs)
 
 
@@ -3975,7 +3975,7 @@ def propose_fixes_batch(llm: LLM, p: Project, n: int, fids: list[str]) -> dict[s
     material = prompts.check_material(p, n)
     fb = llm.json(prompts.reviser_system(p), prompts.fix_batch_prompt(p, n, [f for _, f in ask], _decided(ep), material), FixBatch,
                   hint={"episode": n, "text": ep.text, "findings": [{"id": f.id, "quote": f.current_quote} for _, f in ask],
-                        PREFIX_HINT: len(material)})
+                        PREFIX_HINT: prompts.check_cache_cut(material, n)})
     by_id = {f.id: f for _, f in ask}
     for item in fb.items:
         fid = item.finding.strip()
@@ -4094,9 +4094,9 @@ def recheck_finding(llm: LLM, p: Project, n: int, fid: str) -> FindingRecheck:
             return FindingRecheck(resolved=True, reason="짚은 문장이 본문에서 바뀌었어요")
         return FindingRecheck(resolved=not still, reason=still[0].description if still else "장면 연출 규칙 판정에 더 걸리지 않아요")
     changes = [(e.before, e.after) for e in ep.edits if f.fix_group and e.group == f.fix_group and not e.undone]
-    material = prompts.check_material(p, n)  # 검수와 같은 앞부분. 끝나는 곳을 캐시 경계로 알린다
+    material = prompts.check_material(p, n)  # 검수와 같은 앞부분. 본문 바로 앞을 캐시 경계로 알린다 (check_cache_cut)
     return llm.json(prompts.SYSTEM_CHECKER, prompts.recheck_prompt(p, n, f, changes, _decided(ep), material), FindingRecheck,
-                    hint={"episode": n, "quote": f.current_quote, "text": ep.text, PREFIX_HINT: len(material)})
+                    hint={"episode": n, "quote": f.current_quote, "text": ep.text, PREFIX_HINT: prompts.check_cache_cut(material, n)})
 
 
 def apply_recheck(p: Project, n: int, fid: str, res: FindingRecheck) -> list[Finding]:
@@ -4261,7 +4261,7 @@ def extract_state(llm: LLM, p: Project, n: int, audit: LLM | None = None) -> Sta
     hint = {"episode": n, "stats": statwin.enabled(p)}
     if getattr(llm, "family_cache", False):  # 캐시 가족을 받는 백엔드(Claude)는 검수 자료로 시작해 검수가 쓴 캐시를 읽는다
         material = prompts.check_material(p, n)
-        prompt, hint[PREFIX_HINT] = prompts.state_prompt(p, n, head=material), len(material)
+        prompt, hint[PREFIX_HINT] = prompts.state_prompt(p, n, head=material), prompts.check_cache_cut(material, n)
     else:
         prompt = prompts.state_prompt(p, n)
     raw = llm.json(prompts.SYSTEM_EDITOR, prompt, StateDeltaAI, hint=hint)
