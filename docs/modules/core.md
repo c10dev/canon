@@ -493,9 +493,14 @@
 - 프롬프트 템플릿
 - 본문을 쓰는 시스템 프롬프트(`writer_system` · `reviser_system` · `paragraph_system`)는 작가가 정한 머리말(`PREAMBLE`)로 시작한다
 - 기획 단계 시스템 프롬프트 `SYSTEM_PLANNER`(설정 제안 · 문체 분석 · 구조 · 플롯 · 스토리보드 · 큐 시트 등)도 같은 머리말로 시작한다
+- 대화로 다듬기 시스템 프롬프트(`SYSTEM_SETUP_CHAT` · `SYSTEM_STYLE_COACH` · `SYSTEM_PLOT_CHAT` · `SYSTEM_AGENT_PLOT`)도 같은 머리말로 시작한다
+- 상태 변경안 시스템 프롬프트 `SYSTEM_EDITOR`도 같은 머리말로 시작한다. 줄거리 접기(`recap_prompt` · `fold_prompt`) · 상태 감사(`audit_prompt`) · 플레이 상태(`play_state_prompt`)도 이 글을 쓴다
 - 그 머리말 뒤의 지시에는 '당신은 소설가입니다' · '당신은 기획 전문 편집자입니다' 같은 역할 문장을 두지 않고 할 일만 적는다
 - 성인 · 전연령 작품은 같은 머리말을 받는다(수위 지시를 프롬프트에 두지 않는 규칙, `test_no_rating_instruction_in_prompts`)
 - 머리말이 영어라서 머리말을 받는 지시는 모두 '모든 출력은 한국어로 작성합니다'를 둔다
+- 머리말을 받는 시스템 프롬프트는 `system_prompt(할 일)`로 만든다. 머리말을 앞에, 한국어 출력 줄(`KOREAN_LINE`)을 끝에 붙인다
+- 본문 지시처럼 한국어 출력 줄이 글 가운데 있으면 `system_prompt(…, korean=False)`로 부른다
+- 머리말을 아직 받지 않는 `SYSTEM_*` 상수는 `tests/test_style_prompts.py` 의 `NO_PREAMBLE` 에 묶음과 함께 적는다. 새 상수가 머리말을 빠뜨리면 이 시험이 실패한다
 - 본문 쓰기 지시는 설정 · 사실을 '절대' 같은 강한 말 대신 이유('앞 화와 이어져야 하므로')를 붙여 지키게 한다
 - 화별 컨텍스트 조립(`build_episode_context`)
 - 쓰기 요청 블록 표 `BLOCKS`(`Block`: id · 화면 이름 · 잠금 · 쓰는 예산 키 · 캐시 앞부분 `front` · 대신 정하는 설정 `note`)와 id 찾기 `BLOCK_BY_ID`

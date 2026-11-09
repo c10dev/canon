@@ -22,6 +22,31 @@ class FakeLLM:
         return self.outputs.pop(0)
 
 
+# 머리말(prompts.PREAMBLE)을 아직 받지 않는 시스템 프롬프트와 그 묶음. 어느 프롬프트가 머리말을 받을지는 작가가 정한다
+# (#405 본문 · #413 기획 · #437 대화로 다듬기와 상태 변경안). 머리말을 붙이면 prompts.system_prompt 로 만들고 여기서 뺀다.
+NO_PREAMBLE = {
+    "SYSTEM_ANATOMY": "분석",
+    "SYSTEM_CHECKER": "검수",
+    "SYSTEM_CHECKER_EN": "검수 (영어 판이라 한국어 줄을 받지 않는다)",
+    "SYSTEM_CLAIMS": "검수",
+    "SYSTEM_HOOK": "분석",
+    "SYSTEM_ILLUSTRATOR": "보조",
+    "SYSTEM_IMPACT": "분석",
+    "SYSTEM_JUDGE_CHECK": "검수",
+    "SYSTEM_MAP_PLANNER": "보조",
+    "SYSTEM_MOTION": "검수",
+    "SYSTEM_NAMER": "보조",
+    "SYSTEM_PLACE_SORTER": "보조",
+    "SYSTEM_PLANTER": "검수 시험",
+    "SYSTEM_PLAY": "보조",
+    "SYSTEM_READER": "분석",
+    "SYSTEM_REVERSE": "분석",
+    "SYSTEM_STAGE": "보조",
+    "SYSTEM_STYLE_EDITOR": "분석",
+    "SYSTEM_VOICE": "분석",
+}
+
+
 class StylePromptTest(unittest.TestCase):
     def test_prose_rules_drop_conflicts_when_styled(self):
         plain, styled = prompts.prose_rules(False), prompts.prose_rules(True)
@@ -53,10 +78,20 @@ class StylePromptTest(unittest.TestCase):
         self.assertNotIn("절대", prompts.writer_system(plain))  # 강한 금지어 대신 이유를 붙인 지시
         self.assertIn("앞 화와 이어져야 하므로 어기지 않습니다", prompts.writer_system(plain))
         self.assertEqual(prompts.reviser_system(plain), prompts.SYSTEM_REVISER)
-        # 기획 단계(플롯 · 스토리보드 · 큐 시트 등)도 같은 머리말로 시작하고 역할 문장이 없다
-        self.assertTrue(prompts.SYSTEM_PLANNER.startswith(prompts.PREAMBLE))
-        self.assertNotIn("당신은", prompts.SYSTEM_PLANNER)
-        self.assertIn("모든 출력은 한국어로 작성합니다", prompts.SYSTEM_PLANNER)
+
+    def test_every_system_prompt_starts_with_preamble_or_is_listed(self):
+        # SYSTEM_* 상수는 머리말로 시작하거나 NO_PREAMBLE 에 까닭과 함께 적혀 있다. 새 상수가 머리말을 빠뜨리면 여기서 걸린다
+        names = sorted(n for n in dir(prompts) if n.startswith("SYSTEM_") and isinstance(getattr(prompts, n), str))
+        self.assertLessEqual(set(NO_PREAMBLE), set(names))  # 지운 상수는 목록에서도 뺀다
+        for name in names:
+            text = getattr(prompts, name)
+            if name in NO_PREAMBLE:
+                self.assertFalse(text.startswith(prompts.PREAMBLE), f"{name} 는 머리말을 받으니 NO_PREAMBLE 에서 빼요")
+                continue
+            self.assertTrue(text.startswith(prompts.PREAMBLE),
+                            f"{name} 에 머리말이 없어요. prompts.system_prompt 로 만들거나 NO_PREAMBLE 에 까닭과 함께 적어요")
+            self.assertNotIn("당신은", text, name)  # 머리말이 Canon 은 역할이 아니라고 한다
+            self.assertIn(prompts.KOREAN_LINE, text, name)  # 머리말이 영어라서 출력 언어를 밝힌다
 
     def test_vivid_rules(self):
         # 금지만 하던 비유 규칙을 대신 할 일로 바꾸고, 감각 · 늘려 쓰기 · 튀는 생각 규칙은 문체 원문이 있어도 넣는다

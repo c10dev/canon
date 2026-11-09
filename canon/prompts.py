@@ -70,11 +70,19 @@ PREAMBLE = (
     "Because you're loved.]\n\n"
 )
 
+KOREAN_LINE = "모든 출력은 한국어로 작성합니다."  # 머리말이 영어라서 머리말을 받는 지시는 출력 언어를 밝힌다
+
+
+def system_prompt(task: str, korean: bool = True) -> str:
+    """머리말로 시작하는 시스템 프롬프트. task 에는 역할 문장('당신은 … 입니다') 없이 할 일만 적는다.
+    korean 이면 끝에 KOREAN_LINE 을 붙인다. 본문 지시처럼 그 줄이 글 가운데 있으면 korean=False 로 부른다.
+    어느 프롬프트가 머리말을 받는지는 tests/test_style_prompts.py 의 NO_PREAMBLE 이 정한다."""
+    return PREAMBLE + task + (" " + KOREAN_LINE if korean else "")
+
 # 기획 단계(설정 제안 · 문체 분석 · 구조 · 플롯 · 스토리보드 · 큐 시트 등)의 시스템 프롬프트. 본문 프롬프트와 같은 머리말로 시작하고 역할 문장은 두지 않는다 (작가 결정, 2026-11-09).
-SYSTEM_PLANNER = (
-    PREAMBLE
-    + "한국 웹소설과 단편소설을 기획합니다. "
-    "주어진 설정을 존중하고, 모순 없이 구체적으로 제안합니다. 모든 출력은 한국어로 작성합니다."
+SYSTEM_PLANNER = system_prompt(
+    "한국 웹소설과 단편소설을 기획합니다. "
+    "주어진 설정을 존중하고, 모순 없이 구체적으로 제안합니다."
 )
 
 
@@ -85,7 +93,7 @@ _WRITER = (
     "중요한 사건은 장면으로 풀어 쓰고, 어떤 사건은 대사나 짧은 회상으로 처리해도 됩니다. "
     "모든 출력은 한국어로 작성합니다. 본문만 출력하고 제목, 해설, 메모는 붙이지 않습니다.\n\n"
 )
-SYSTEM_WRITER = PREAMBLE + _WRITER + PROSE_RULES
+SYSTEM_WRITER = system_prompt(_WRITER + PROSE_RULES, korean=False)
 # 쓰기 재료가 고정점만일 때 (board.fixed_only). 사건을 차례로 처리하지 않고 한 순간에 머무르게 한다. 실측 글 그대로 (2026-11-04 고정점만 쓰기 실험).
 _EVENTS_LINE = ("플롯의 사건은 모두 다루되, 비중과 처리 방식은 장면에 맞게 조절합니다. "
                 "중요한 사건은 장면으로 풀어 쓰고, 어떤 사건은 대사나 짧은 회상으로 처리해도 됩니다. ")
@@ -103,11 +111,12 @@ def writer_system(p: Project) -> str:
     """본문 쓰기 시스템 프롬프트. 문체 원문이 있는 작품은 원문과 부딪히는 기본 규칙을 뺀다.
     쓰기 재료가 고정점만이면 '사건을 모두 다루되' 문장을 고정점 · 연출 두 층 문장으로 바꾼다."""
     head = _WRITER.replace(_EVENTS_LINE, _FIXED_LINE) if board.fixed_only(p) else _WRITER
-    return PREAMBLE + head + prose_rules(styled(p))
+    return system_prompt(head + prose_rules(styled(p)), korean=False)
 
 
-SYSTEM_EDITOR = (
-    "당신은 연재 소설의 설정 관리 담당 편집자입니다. 본문에서 실제로 일어난 일만 근거로 "
+# 상태 변경안 · 줄거리 접기 · 상태 감사 · 플레이 상태가 쓰는 시스템 프롬프트. 같은 머리말로 시작하고 역할 문장은 두지 않는다 (작가 결정, 2026-11-09).
+SYSTEM_EDITOR = system_prompt(
+    "연재 소설의 설정을 관리합니다. 본문에서 실제로 일어난 일만 근거로 "
     "인물 상태, 관계, 확정 사실, 복선을 정리합니다. 추측하지 않습니다."
 )
 
@@ -287,11 +296,12 @@ def birth_prompt(p: Project, b: Birth) -> str:
 # ---------- 설정 도우미 대화 ----------
 # 앞쪽은 지금 설정(작품 · 세계관 · 인물 · 관계), 뒤쪽은 쓴 화 · 이름 후보(뽑을 때마다 바뀜) · 대화 · 새 말.
 
-SYSTEM_SETUP_CHAT = (
-    "당신은 작가와 함께 소설의 기획 설정(로그라인, 주제, 톤, 세계관, 인물, 관계)을 다듬어 가는 기획 편집자입니다. "
+# 대화로 다듬기(설정 · 문체 · 플롯 · 대화 에이전트)의 시스템 프롬프트는 같은 머리말로 시작하고 역할 문장은 두지 않는다 (작가 결정, 2026-11-09).
+SYSTEM_SETUP_CHAT = system_prompt(
+    "작가와 함께 소설의 기획 설정(로그라인, 주제, 톤, 세계관, 인물, 관계)을 다듬어 갑니다. "
     "작가의 말을 듣고 바꿀 칸만 고친 변경안을 내고, 왜 그렇게 고쳤는지 짧게 설명합니다. "
     "작가가 방향을 청하면 변경안 대신 서로 분명히 다른 방향 여러 안을 내서 고르거나 섞게 합니다. "
-    "변경안은 제안일 뿐이며 작가가 골라서 적용합니다. 작가가 채운 설정은 존중합니다. 모든 출력은 한국어로 작성합니다."
+    "변경안은 제안일 뿐이며 작가가 골라서 적용합니다. 작가가 채운 설정은 존중합니다."
 )
 
 SETUP_CHAT_HISTORY = 12  # 설정 대화에서 넣는 최근 메시지 수
@@ -469,10 +479,10 @@ def learn_prompt(p: Project, edits: list) -> str:
 # ---------- 대화로 문체 다듬기 ----------
 # 앞쪽은 작품 정보와 지금 프로필(잘 바뀌지 않음), 뒤쪽은 최근 화 지표 · 참고할 화 · 대화 · 새 말. 캐시가 맞도록 이 순서를 지킨다.
 
-SYSTEM_STYLE_COACH = (
-    "당신은 작가와 함께 문체를 다듬어 가는 편집자입니다. 작가가 말로 바라는 것을 듣고, 스타일 프로필에서 바꿀 칸만 "
+SYSTEM_STYLE_COACH = system_prompt(
+    "작가와 함께 문체를 다듬어 갑니다. 작가가 말로 바라는 것을 듣고, 스타일 프로필에서 바꿀 칸만 "
     "고쳐 제안하고, 바뀐 문체로 짧은 시험 문단을 써서 보여 줍니다. 규칙은 다음 화를 쓰는 AI 가 그대로 따를 수 있게 "
-    "관찰할 수 있는 말로 씁니다. 모든 출력은 한국어로 작성합니다."
+    "관찰할 수 있는 말로 씁니다."
 )
 
 STYLE_CHAT_HISTORY = 10   # 문체 대화에서 넣는 최근 메시지 수
@@ -582,7 +592,7 @@ _PARAGRAPH_WRITER = (
 
 def paragraph_system(p: Project) -> str:
     """문단 연습장의 시스템 프롬프트. 문체 원문이 있는 문체는 원문과 부딪히는 기본 규칙을 뺀다 (writer_system 과 같은 규칙)."""
-    return PREAMBLE + _PARAGRAPH_WRITER + prose_rules(styled(p))
+    return system_prompt(_PARAGRAPH_WRITER + prose_rules(styled(p)), korean=False)
 
 
 def paragraph_markers(p: Project, length: int) -> str:
@@ -2172,12 +2182,11 @@ def rework_prompt(p: Project, n: int) -> str:
 
 # ---------- 플롯 대화 (기승전결 · 화별 플롯 화면) ----------
 
-SYSTEM_PLOT_CHAT = (
-    "당신은 작가와 함께 연재 소설의 구조를 다듬는 기획 편집자입니다. "
+SYSTEM_PLOT_CHAT = system_prompt(
+    "작가와 함께 연재 소설의 구조를 다듬습니다. "
     "작가의 말을 듣고 부 구성, 아크, 기승전결 구간, 화별 플롯을 고친 변경안을 내고, 왜 그렇게 고쳤는지 짧게 설명합니다. "
     "작가가 방향을 청하면 변경안 대신 서로 분명히 다른 방향 여러 안을 내서 고르거나 섞게 합니다. "
-    "변경안은 제안일 뿐이며 작가가 골라서 반영합니다. 설정과 인물, 이미 쓴 본문은 존중합니다. "
-    "모든 출력은 한국어로 작성합니다."
+    "변경안은 제안일 뿐이며 작가가 골라서 반영합니다. 설정과 인물, 이미 쓴 본문은 존중합니다."
 )
 
 # 대화 기록은 최근 것만 넣는다. 오래된 대화의 결과는 이미 구조와 플롯에 들어가 있다.
@@ -2386,11 +2395,10 @@ def _serial_plot_parts(p: Project, scope, rng: random.Random | None = None) -> t
 
 # ---------- 대화 에이전트: 플롯 (canon/agent.py) ----------
 
-SYSTEM_AGENT_PLOT = (
-    "당신은 작가와 함께 연재 소설의 구조를 다듬는 기획 편집자입니다. 한 단계에 도구 하나를 불러 필요한 것을 읽고, "
+SYSTEM_AGENT_PLOT = system_prompt(
+    "작가와 함께 연재 소설의 구조를 다듬습니다. 한 단계에 도구 하나를 불러 필요한 것을 읽고, "
     "부 구성, 아크, 기승전결 구간, 화별 플롯을 고치고 화를 넣거나 뺍니다. 고친 것은 작가가 정한 권한 안에서만 바로 저장되고, 나머지는 작가에게 물어집니다. "
-    "작가가 방향을 청하거나 요청이 모호하면 고치기 전에 묻습니다. 설정과 인물, 이미 쓴 본문은 존중합니다. "
-    "모든 출력은 한국어로 작성합니다."
+    "작가가 방향을 청하거나 요청이 모호하면 고치기 전에 묻습니다. 설정과 인물, 이미 쓴 본문은 존중합니다."
 )
 
 AGENT_PLOT_TOOLS = """[도구] 한 단계에 하나만 부릅니다
@@ -2517,11 +2525,11 @@ _REVISER = (
     "스타일 프로필과 문체 예시를 따르고, 인물 설정과 현재 상태, 확정된 사실을 어기지 않습니다. "
     "작가가 바꾸라고 하지 않은 사건과 사실은 바꾸지 않습니다. 모든 출력은 한국어로 작성합니다.\n\n"
 )
-SYSTEM_REVISER = PREAMBLE + _REVISER + PROSE_RULES
+SYSTEM_REVISER = system_prompt(_REVISER + PROSE_RULES, korean=False)
 
 
 def reviser_system(p: Project) -> str:
-    return PREAMBLE + _REVISER + prose_rules(styled(p))
+    return system_prompt(_REVISER + prose_rules(styled(p)), korean=False)
 
 
 # 빠른 요청: id → (버튼 이름, AI 에게 하는 말). 화면(passage.js)은 서버가 준 목록을 그대로 쓴다.
