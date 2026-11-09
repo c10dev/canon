@@ -554,6 +554,16 @@ _GEM_CACHE_FLOOR: dict[tuple, tuple[int, int]] = {}  # (vertex, 모델) → (400
 _GEM_LOCK = threading.Lock()
 
 
+# 사용량 기록 칸 cache_note 의 낱말: 캐시를 쓰거나 못 쓴 까닭. 코드 분기마다 하나다.
+# Gemini 명시 캐시(GeminiLLM._cached): hit 살아 있는 캐시를 씀 · made 새로 만들어 씀 · failed 만들거나 쓰다 실패해 일반 호출로
+#   stage_off 플롯 대화 단계가 아님 · setting_off 설정에서 끔 · model_off 오류로 잠시 끔 · unsupported 명시 캐시를 받지 않는 모델
+#   short 겹치는 앞부분이 짧음. 만료된 캐시는 _cache_find 가 조용히 지워 따로 적지 않는다 (만들거나 short 로 간다).
+# Claude(claude.worth_caching): prefix 부른 쪽이 경계를 알려 줘 캐시 표시 · recent 직전 요청을 캐시 유지 시간 안에 봐 표시
+#   short 나눌 앞부분이 없음 · not_worth 직전 요청이 오래돼 다음 요청이 읽지 못함 · unsupported 앞부분을 옮기지 못하는 Claude Code 버전
+CACHE_NOTES = ("hit", "made", "failed", "stage_off", "setting_off", "model_off", "unsupported", "short",
+               "prefix", "recent", "not_worth")
+
+
 def _sha(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
@@ -679,35 +689,39 @@ class GeminiLLM:
             if tries or timeouts or busy_tries:
                 cancel.say("")  # 다시 부른 호출이 끝났다 (성공이든 실패든)
 
-    def _cached(self, system: str, prompt: str) -> tuple[str, str] | None:
-        """명시 캐시를 쓸 수 있으면 (캐시 이름, 캐시 뒤 나머지 글). 플롯 대화 단계(chat)에서 설정이 켜져 있을 때만 쓴다.
+    def _cached(self, system: str, prompt: str) -> tuple[tuple[str, str] | None, str]:
+        """(명시 캐시를 쓸 수 있으면 (캐시 이름, 캐시 뒤 나머지 글), 그 까닭 낱말). 플롯 대화 단계(chat)에서 설정이 켜져 있을 때만 쓴다.
         같은 종류 직전 요청과 겹치는 앞부분(claude.shared_cut)이 GEMINI_CACHE_MIN_CHARS 이상이고 그 앞부분을 덮는
-        살아 있는 캐시가 없으면 새로 만든다. 살아 있는 캐시가 겹치는 앞부분의 절반 이상을 덮으면 그것을 다시 쓴다."""
+        살아 있는 캐시가 없으면 새로 만든다. 살아 있는 캐시가 겹치는 앞부분의 절반 이상을 덮으면 그것을 다시 쓴다.
+        까닭 낱말은 사용량 기록 칸 cache_note 가 된다 (CACHE_NOTES)."""
         from . import settings
         from .claude import shared_cut
 
-        if getattr(self, "stage", "") != "chat" or settings.gemini_cache()[0] == "off":
-            return None
+        if getattr(self, "stage", "") != "chat":
+            return None, "stage_off"
+        if settings.gemini_cache()[0] == "off":
+            return None, "setting_off"
         vertex = bool(getattr(self, "vertex", False))
         owner = getattr(self, "cache_owner", "")
         # 작품마다 직전 요청을 따로 기억한다. 두 작품의 대화가 번갈아 오면 서로의 겹침을 지우지 않게
         project = usage.context().get("project") or ""
         cut = shared_cut(("gemini", vertex, self.model, system, project), prompt)  # 이 요청을 직전 요청으로 기억한다
-        if time.time() < _GEM_CACHE_OFF.get((vertex, self.model), 0.0):
-            return None
+        off = _GEM_CACHE_OFF.get((vertex, self.model), 0.0)
+        if time.time() < off:
+            return None, "unsupported" if off == math.inf else "model_off"
         if settings.gemini_cache_model_key(vertex, self.model) in settings.gemini_cache_unsupported():
             with _GEM_LOCK:
                 _GEM_CACHE_OFF[(vertex, self.model)] = math.inf  # 다음부터는 설정 파일을 읽지 않는다
-            return None
+            return None, "unsupported"
         key = (vertex, self.model, _sha(system), owner)
         floor = max(GEMINI_CACHE_MIN_CHARS, _GEM_CACHE_FLOOR.get((vertex, self.model), (0, 0))[0] + 1)
         best = _cache_find(key, prompt)
         if best and (best[0] * 2 >= cut or cut < floor):
-            return best[1], prompt[best[0]:]
+            return (best[1], prompt[best[0]:]), "hit"
         if cut < floor:
-            return None
+            return None, "short"
         name = self._cache_create(key, system, prompt[:cut])
-        return (name, prompt[cut:]) if name else None
+        return ((name, prompt[cut:]), "made") if name else (None, "failed")
 
     def _cache_create(self, key: tuple, system: str, prefix: str) -> str:
         """시스템 프롬프트와 앞부분으로 캐시를 만들고 이름을 돌려준다. 실패하면 빈 글 (일반 호출로 간다)."""
@@ -789,7 +803,7 @@ class GeminiLLM:
         cancel.check()  # 멈춘 작업은 다음 호출을 보내지 않는다
         from google.genai import types
 
-        t, tokens, extra = time.time(), None, {}
+        t, tokens = time.time(), None
         self.last_raw, self.last_finish = "", ""
         if cap := _out_cap.get():
             config.setdefault("max_output_tokens", cap)  # 생각 토큰도 이 한도에 든다
@@ -797,7 +811,8 @@ class GeminiLLM:
             config.setdefault("thinking_config", types.ThinkingConfig(thinking_level=self.effort.upper()))
         if self.temperature is not None:
             config.setdefault("temperature", self.temperature)
-        hit = self._cached(system, prompt)
+        hit, note = self._cached(system, prompt)
+        extra = {"cache_note": note}  # 사용량 기록 칸. 캐시를 쓰거나 못 쓴 까닭 (CACHE_NOTES)
         cancel.check()  # 캐시를 만드는 사이 작업을 멈췄으면 생성 호출을 보내지 않는다
         try:
             resp = None
@@ -816,6 +831,7 @@ class GeminiLLM:
                     if is_rate_limit(e) or is_timeout(e) or is_transient(e):
                         raise  # 캐시 탓이 아니다. _call 이 기다려 다시 부른다
                     self._cache_failed(e, hit[0])  # 만료 · 지원하지 않음 등. 일반 호출로 넘어간다
+                    extra["cache_note"] = "failed"
             if resp is None:
                 resp = self.client.models.generate_content(
                     model=self.model,
@@ -828,7 +844,7 @@ class GeminiLLM:
             tokens = self.last_usage = _usage(resp.usage_metadata)
             reason = resp.candidates[0].finish_reason if resp.candidates else None
             self.last_finish = getattr(reason, "name", None) or str(reason or "")
-            extra = {"stop": self.last_finish, "out_chars": len(resp.text or "")}  # 사용량 기록 칸 (usage.EXTRA)
+            extra |= {"stop": self.last_finish, "out_chars": len(resp.text or "")}  # 사용량 기록 칸 (usage.EXTRA)
             if not resp.text:
                 fb = getattr(resp, "prompt_feedback", None)
                 raise EmptyResponse(self.last_finish and _enum_name(reason), _enum_name(getattr(fb, "block_reason", None)),

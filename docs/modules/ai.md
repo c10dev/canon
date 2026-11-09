@@ -21,6 +21,10 @@
 - 경계(`PREFIX_HINT`)를 받았으면 쓴다
 - 경계 없이 직전 요청과 견줘 나눴으면 직전 같은 종류 요청을 캐시 유지 시간 안에 봤을 때만 쓴다(`cut_and_recent`, `_SEEN_AT`)
 - 화마다 한 번 부르는 단계(plot_one 등)는 다음 요청이 15~17분 뒤라 5분 캐시를 읽지 못했다(2026-11-07 서버 실측: plot_one 쓰기 1,044k, 읽기 3k)
+- `worth_caching` 은 (쓸지, 까닭 낱말)을 돌려준다. 까닭은 short(cut 0) · prefix(경계를 받음) · recent(직전 요청을 방금 봄) · not_worth(직전 요청이 오래됨)
+- 까닭 낱말은 사용량 칸 `cache_note` 로 넘긴다. API 는 `cache_blocks_note` 가, 구독은 `_split` 이 `last_cache_note` 에 정한다
+- 구독이 `--system-prompt-file` 을 모르는 버전이면 `cache_note` 는 unsupported 다(캐시는 Claude Code 에 맡김)
+- 구독의 형식 고치기 재시도는 `cache_note` 도 첫 시도 값을 쓴다
 - API 는 쓰지 않을 요청에 캐시 표시를 달지 않는다(`cache_blocks`)
 - 구독은 쓰지 않을 요청에 `DISABLE_PROMPT_CACHING=1` 을 넣는다(`last_keep`). Claude Code 는 표시를 고를 수 없어 사용자 메시지까지 통째로 캐시에 쓴다
 - 구독의 쓰지 않는 호출은 캐시 게이트(`_claim`)를 거치지 않는다
@@ -142,6 +146,10 @@
 - 살아 있는 캐시가 겹치는 앞부분의 절반 이상을 덮으면 그것을 다시 쓴다. 만료 `GEMINI_CACHE_MARGIN`(60초) 전부터는 쓰지 않는다
 - 캐시를 쓰는 요청은 `GenerateContentConfig(cached_content=이름)` 과 나머지 글만 보낸다. 시스템 프롬프트는 넣지 않는다(API 가 거절한다)
 - 캐시를 만들거나 쓰다 난 오류는 모두 일반 호출로 넘어간다(`_cache_failed`). 넘어간 호출 하나만 사용량에 기록한다
+- `_cached` 는 (캐시 이름과 나머지 글 또는 None, 까닭 낱말)을 돌려준다. 까닭은 사용량 칸 `cache_note` 가 된다(`llm.CACHE_NOTES`)
+- 까닭 낱말은 분기마다 하나다: stage_off · setting_off · model_off(오류로 잠시 끔) · unsupported(받지 않는 모델) · hit · short · made · failed
+- 캐시를 만들다 실패했거나 살아 있는 캐시를 쓰다 실패해 일반 호출로 넘어간 호출은 failed 다
+- 만료된 캐시는 `_cache_find` 가 조용히 지우기만 해 따로 낱말을 두지 않는다(새로 만들면 made, 앞부분이 짧으면 short)
 - 429 · 시간 초과 · 서버 오류가 아닌 캐시 오류는 그 모델의 캐시를 `GEMINI_CACHE_BACKOFF`(1시간) 동안 끈다
 - 모델이 명시 캐시를 받지 않는다는 오류(`is_cache_unsupported`, 문구 'does not support explicit context caching')는 그 모델을 바로 끈다(`_GEM_CACHE_OFF` 값 inf)
 - 그 모델은 `settings.mark_gemini_cache_unsupported` 로 설정 파일 `gemini_cache_unsupported` 에 남기고, `_cached` 가 읽어 서버를 다시 시작해도 캐시 만들기를 보내지 않는다
@@ -245,7 +253,8 @@
 - 단계의 백엔드 · 모델은 `stage_llm`, 그 직선은 `stage_rate` 다
 - 자동 집필 · 큐 시트 · 블록 시험 · 상태창 시험 · 역설계 실험의 비용 추정이 이 직선을 쓴다
 - 장편 블록 예산(`context.BUDGET`)과 `context.est_tokens` 는 이 직선을 쓰지 않는다
-- 백엔드가 더 준 칸(`EXTRA`: turns · stop · api_seconds · models · resent · written · written_1h · out_chars)은 있을 때만 줄에 남는다. 옛 줄에는 없다
+- 백엔드가 더 준 칸(`EXTRA`: turns · stop · api_seconds · models · resent · written · written_1h · out_chars · cache_note)은 있을 때만 줄에 남는다. 옛 줄에는 없다
+- `cache_note` 는 캐시를 쓰거나 못 쓴 까닭 낱말이다(`llm.CACHE_NOTES`). Gemini 는 `_cached`, Claude 는 `worth_caching` 이 정한다
 - `stop` 은 모든 백엔드의 끝난 이유다(Gemini `STOP` · `MAX_TOKENS`, Claude `end_turn` · `max_tokens`, 로컬 `stop` · `length`). 새 칸을 두지 않고 Claude Code 의 칸을 함께 쓴다
 - `out_chars` 는 응답 전체 글자 수다(본문에서 뗀 작업 설명도 든다)
 - `with_extra(tokens, **칸)` 은 백엔드가 토큰 dict 에 칸을 더한 새 dict 를 만든다. 값이 None · 빈 글이면 넣지 않는다

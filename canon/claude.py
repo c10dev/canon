@@ -426,6 +426,7 @@ class ClaudeCodeLLM:
         self.last_attempts = 0
         self.last_raw = self.last_note = ""
         self.last_keep = True  # 이번 호출이 캐시에 쓰나. 아니면 DISABLE_PROMPT_CACHING 을 넣는다 (_split)
+        self.last_cache_note = ""  # 캐시에 쓰거나 쓰지 않는 까닭 (사용량 칸 cache_note, worth_caching)
 
     @property
     def model(self) -> str:
@@ -491,6 +492,8 @@ class ClaudeCodeLLM:
         timeout = min(self.timeout, wait) if wait else self.timeout
         t, tokens = time.time(), None
         self.last_raw = self.last_note = ""
+        if cut is None:
+            self.last_cache_note = ""  # _split 이 정한다. 재시도(cut 있음)는 첫 시도의 까닭을 그대로 쓴다
         gate, claim, reached, sent = None, None, False, 0.0
         self.last_cut = 0
         try:
@@ -546,12 +549,13 @@ class ClaudeCodeLLM:
             out = _parse(schema, raw) if schema is not None else raw
         except Exception as e:
             if sent or not isinstance(e, cancel.Cancelled):  # 앞 호출을 기다리다 멈췄으면 보내지 않았으니 기록하지 않는다
-                usage.record(self, tokens, t, ok=False, error=e, attempt=attempt, prompt=prompt)
+                usage.record(self, usage.with_extra(tokens, cache_note=self.last_cache_note), t, ok=False, error=e,
+                             attempt=attempt, prompt=prompt)
             raise
         finally:
             if gate is not None:
                 _release(gate, claim, reached, sent)
-        usage.record(self, tokens, t, attempt=attempt, prompt=prompt)
+        usage.record(self, usage.with_extra(tokens, cache_note=self.last_cache_note), t, attempt=attempt, prompt=prompt)
         return out
 
     def _split(self, system: str, prompt: str, schema: type[BaseModel] | None,
@@ -561,13 +565,14 @@ class ClaudeCodeLLM:
         cut 을 주면 그 자리를 쓴다 (형식 고치기 재시도가 첫 시도와 같은 시스템 프롬프트로 캐시를 읽게).
         prefix 를 주면 직전 요청과 견주지 않고 그 자리(단락 경계로 맞춤)에서 옮긴다. 같은 앞부분의 첫 호출부터 캐시에 넣는다.
         겹침이 짧거나 이 버전이 --system-prompt-file 을 모르면 그대로 둔다 (긴 글을 인자로 넘기면 Linux 한도 128KB 에 걸린다).
-        캐시에 쓸지(last_keep)도 정한다 (worth_caching). cut 을 주면(형식 고치기 재시도) 첫 시도의 값을 그대로 쓴다."""
+        캐시에 쓸지(last_keep)와 그 까닭(last_cache_note, 사용량 칸 cache_note)도 정한다 (worth_caching).
+        cut 을 주면(형식 고치기 재시도) 첫 시도의 값을 그대로 쓴다."""
         if "--system-prompt-file" not in _flags(self._bin()):
-            self.last_keep = True  # 앞부분을 옮기지 못하는 버전은 예전처럼 Claude Code 에 맡긴다
+            self.last_keep, self.last_cache_note = True, "unsupported"  # 앞부분을 옮기지 못하는 버전은 예전처럼 Claude Code 에 맡긴다
             return system, prompt, 0
         if cut is None:
             cut, recent = cut_and_recent(("cli", self.requested, system, schema and schema.__name__), prompt, prefix)
-            self.last_keep = worth_caching(cut, prefix, recent)
+            self.last_keep, self.last_cache_note = worth_caching(cut, prefix, recent)
         if not cut:
             return system, prompt, 0
         if prefix:  # 캐시 가족: 시스템 프롬프트를 가족 공통 글로 두고 원래 것은 사용자 메시지 앞으로 (llm.FAMILY_SYSTEM)
@@ -638,13 +643,18 @@ def cut_and_recent(key: tuple, prompt: str, prefix: int | None = None) -> tuple[
     return (cut if cut >= CACHE_MIN_CHARS else 0), recent
 
 
-def worth_caching(cut: int, prefix: int | None, recent: bool) -> bool:
-    """이 요청을 캐시에 쓸 만한가. 캐시 쓰기는 입력 값의 1.25배(1시간 캐시는 2배)라, 다음 요청이 읽을 앞부분이 있을 때만 쓴다.
-    - 나눌 앞부분이 없으면(cut 0) 쓰지 않는다. 다음 요청은 다른 자리에서 나누므로 이 요청의 캐시를 읽지 못한다.
-    - 부른 쪽이 경계를 알려 줬으면(prefix, 캐시 가족 · 부분 수정) 쓴다. 곧 같은 앞부분 요청이 온다.
-    - 경계 없이 직전 요청과 견줘 나눴으면, 직전 요청을 캐시 유지 시간 안에 봤을 때만 쓴다.
-      화마다 한 번 부르는 단계(plot_one 등)는 다음 요청이 캐시 유지 시간 뒤에 와서 읽지 못한다 (2026-11-07 서버 실측)."""
-    return bool(cut) and (bool(prefix) or recent)
+def worth_caching(cut: int, prefix: int | None, recent: bool) -> tuple[bool, str]:
+    """(이 요청을 캐시에 쓸 만한가, 그 까닭 낱말). 캐시 쓰기는 입력 값의 1.25배(1시간 캐시는 2배)라, 다음 요청이 읽을 앞부분이 있을 때만 쓴다.
+    - 나눌 앞부분이 없으면(cut 0) 쓰지 않는다 (short). 다음 요청은 다른 자리에서 나누므로 이 요청의 캐시를 읽지 못한다.
+    - 부른 쪽이 경계를 알려 줬으면(prefix, 캐시 가족 · 부분 수정) 쓴다 (prefix). 곧 같은 앞부분 요청이 온다.
+    - 경계 없이 직전 요청과 견줘 나눴으면, 직전 요청을 캐시 유지 시간 안에 봤을 때만 쓴다 (recent, 아니면 not_worth).
+      화마다 한 번 부르는 단계(plot_one 등)는 다음 요청이 캐시 유지 시간 뒤에 와서 읽지 못한다 (2026-11-07 서버 실측).
+    까닭 낱말은 사용량 기록 칸 cache_note 가 된다 (llm.CACHE_NOTES)."""
+    if not cut:
+        return False, "short"
+    if prefix:
+        return True, "prefix"
+    return (True, "recent") if recent else (False, "not_worth")
 
 
 # 구독(Claude Code)은 앞부분을 시스템 프롬프트로 옮겨 캐시한다(ClaudeCodeLLM._split). 고침안 받기처럼 같은 앞부분 요청을
@@ -699,12 +709,18 @@ def _release(gate: tuple, claim: threading.Event | None, reached: bool, sent: fl
 def cache_blocks(key: tuple, prompt: str, prefix: int | None = None) -> str | list[dict]:
     """직전 같은 종류 요청과 겹치는 앞부분을 단락 경계에서 잘라 캐시 표시를 단 블록으로 나눈다. 겹침이 짧으면 글 그대로.
     prefix 를 주면 그 자리에서 자른다 (shared_cut). 다음 요청이 읽을 만하지 않으면 표시하지 않는다 (worth_caching)."""
+    return cache_blocks_note(key, prompt, prefix)[0]
+
+
+def cache_blocks_note(key: tuple, prompt: str, prefix: int | None = None) -> tuple[str | list[dict], str]:
+    """(cache_blocks 의 값, worth_caching 의 까닭 낱말). 까닭은 사용량 기록 칸 cache_note 가 된다."""
     cut, recent = cut_and_recent(key, prompt, prefix)
-    if not worth_caching(cut, prefix, recent):
-        return prompt
+    keep, note = worth_caching(cut, prefix, recent)
+    if not keep:
+        return prompt, note
     mark = {"type": "ephemeral", "ttl": "1h"} if cache_1h() else {"type": "ephemeral"}
     return [{"type": "text", "text": prompt[:cut], "cache_control": mark},
-            {"type": "text", "text": prompt[cut:]}]
+            {"type": "text", "text": prompt[cut:]}], note
 
 
 def _api_usage(u: Any) -> dict | None:
@@ -761,7 +777,7 @@ class ClaudeAPILLM:
         limit = min(MAX_TOKENS, out_cap) if out_cap else MAX_TOKENS
         t, tokens = time.time(), None
         self.last_raw = ""
-        content = cache_blocks((self.model, system, schema and schema.__name__), with_note(prompt), prefix)
+        content, note = cache_blocks_note((self.model, system, schema and schema.__name__), with_note(prompt), prefix)
         if prefix and isinstance(content, list):  # 캐시 가족: 시스템 프롬프트를 가족 공통 글로, 원래 것은 뒤 블록 앞으로
             from .llm import FAMILY_SYSTEM, role_block
 
@@ -796,9 +812,9 @@ class ClaudeAPILLM:
             self.last_raw = text
             out = _parse(schema, text) if schema is not None else text
         except Exception as e:
-            usage.record(self, tokens, t, ok=False, error=e, attempt=attempt, prompt=prompt)
+            usage.record(self, usage.with_extra(tokens, cache_note=note), t, ok=False, error=e, attempt=attempt, prompt=prompt)
             raise
-        usage.record(self, tokens, t, attempt=attempt, prompt=prompt)
+        usage.record(self, usage.with_extra(tokens, cache_note=note), t, attempt=attempt, prompt=prompt)
         return out
 
     def json(self, system: str, prompt: str, schema: type[T], hint: dict | None = None) -> T:

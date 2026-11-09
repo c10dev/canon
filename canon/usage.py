@@ -184,7 +184,8 @@ def backend_of(llm: Any) -> Optional[str]:
 # resent 한 호출 안에서 다시 보낸 입력 어림값 (in 에 들어 있음. 캐시 비율을 셀 때 in · cached 에서 뺀다).
 # written 캐시에 새로 쓴 입력 (in 에 들어 있음), written_1h 그 가운데 1시간 캐시 몫. 옛 줄에는 없다.
 # out_chars 응답 전체 글자 수 (본문에서 뗀 작업 설명도 든다). 응답이 오지 않았으면 칸이 없다.
-EXTRA = ("turns", "stop", "api_seconds", "models", "resent", "written", "written_1h", "out_chars")
+# cache_note 캐시를 쓰거나 못 쓴 까닭 낱말 (llm.CACHE_NOTES: hit · made · short · not_worth 등).
+EXTRA = ("turns", "stop", "api_seconds", "models", "resent", "written", "written_1h", "out_chars", "cache_note")
 # scope 로 넣으면 줄에 싣는 칸. target 은 본문 쓰기 호출이 받은 목표 분량 글자 수 (pipeline._write)
 SCOPED = ("target",)
 CUT_STOPS = ("max_tokens", "length")  # 출력 길이 한도에 걸려 끊긴 끝난 이유. 소문자로 견준다 (llm.CUT_FINISH 와 Claude 의 max_tokens)

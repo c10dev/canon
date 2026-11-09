@@ -700,10 +700,10 @@ def test_hold_defers_file_write_and_discard_marks_last_row():
 def test_scope_target_reaches_row_but_other_keys_do_not():
     """scope 로 넣은 키 가운데 목표 분량(target)만 줄에 싣는다 (usage.SCOPED)."""
     llm = fake_gemini(["a"])
-    with usage.scope(target=3000, cache_note="hit"):
+    with usage.scope(target=3000, discarded="thought"):
         llm.text("s", "p")
     row = usage.read()[-1]
-    assert row["target"] == 3000 and "cache_note" not in row
+    assert row["target"] == 3000 and "discarded" not in row
 
 
 def _project():
