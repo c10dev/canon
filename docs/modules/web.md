@@ -159,10 +159,9 @@
 - 화면에 붙는 AI 대화 패널(대화 에이전트는 `agent.js` 가 그린다)(901~1599px 은 사이드바를 레일로 접고 400px, 900px 이하는 아래 시트, 규칙은 `app.css` 의 `body.chat-open`)
 - 작품 안 모든 화면에 패널 하나다. `app.js` `drawApp` 이 화면을 그리기 전에 `chatScreen`, 셸 끝에 `chatDock()` 을 부른다. 화면을 옮겨도 자리와 열림 상태는 그대로다
 - 화면이 주는 기본 대상 `chatDefaultTarget`: 집필 · 검수 · 상태 승인 `text:N`, 설정 도우미 `setup`, 문체 `style`, 플롯 화면은 고른 아크(`plotScope`), 그 밖 ''
-- 주제 `plot` 은 대화 에이전트 패널이다. 옛 대화 셋(`text:<화>` · `style` · `setup`)은 04b~04d 전까지 그 화면이 `chatLegacy(주제)` 로 알린다
-- 보이는 주제는 `chatShownTopic`(`S.chatOld` 가 그 화면 옛 주제의 종류일 때만 옛 패널)이다. 패널 머리 전환 `chatSwitch`(Seg)로 바꾼다
-- 옛 대화가 남은 화면의 머리 버튼 `chatButton(주제)` 는 `chatOldToggle` 로 그 옛 대화를 연다. 사이드바 대화 버튼과 플롯 화면 머리 버튼은 `toggleChat` 으로 대화 에이전트를 연다
-- 집필 화면 머리의 'AI에게 고치기'는 `chatButton` 을 쓰지 않고 대화 에이전트를 연다(`agent.js` `agentOpenText`, 04b). 옛 'AI에게 고치기' 대화는 패널 머리 전환으로 연다
+- 패널은 늘 대화 에이전트(주제 `plot`)다. 옛 대화 셋(`text:<화>` · `style` · `setup`)의 패널 · 보내기 · 패널 머리 전환 줄은 04e 에서 지웠다
+- 플롯 · 설정 도우미 · 문체 화면 머리의 '대화로 다듬기' `chatButton()` 과 사이드바 대화 버튼은 `toggleChat` 으로 대화 에이전트를 연다
+- 집필 화면 머리의 'AI에게 고치기'는 `chatButton` 을 쓰지 않고 대화 에이전트를 연다(`agent.js` `agentOpenText`, 04b)
 - 열림 상태(`S.chatOpen`, localStorage `canon.chat`)는 `chatOpenSaved` · `chatSetOpen` 만 읽고 쓴다(`tests/test_agent_js.py`)
 - 900px 이하(`chatNarrow`)에서 `chatOpenSaved` 는 `canon.chat` 을 읽지 않고 `chatSetOpen` 은 쓰지 않는다. 화면을 새로 열면 시트가 닫혀 있고, 넓은 화면의 기억은 그대로다
 - 900px 이하에서 화면을 옮기면(`app.js` `routeNow` → `chatCloseOnNav`) 시트를 닫는다. 같은 주소를 다시 그릴 때는 닫지 않는다
@@ -171,15 +170,15 @@
 - 띠는 상태 승인 화면(`S.chatHere.page`, `chatScreen` 이 둔다)과 다시 생성 열이 자리를 빌린 화면에는 두지 않는다
 - 띠는 닫혀 있는 동안 대화 에이전트의 새 AI 답이 오면 점(`.chat-band-dot`)을 단다. 본 답은 대화마다 `S.chatSeen` 에 두고(`chatMarkSeen`), 처음 보는 대화의 옛 답에는 달지 않는다
 - 띠가 있으면 body 에 `chat-band-on` 을 단다(`syncChat`). `redrawChat` 은 띠도 `chatDock` 으로 다시 그린다
-- 다시 생성 열이 자리를 빌리면 화면이 `chatLegacy(…, { hold: true })` 로 알리고 `chatDock` 은 패널을 그리지 않는다
-- `chatLog(주제, { readOnly: true })` 는 그 화면 밖에서 읽기만 하는 기록이다. 변경안 카드 대신 요약(`chatReadOnlyCard`)을 보이고 고른 부분 · 접기를 쓰지 않는다
-- 답을 기다리는 줄은 경과 초를 1초마다 고치고(`chatWaitTick`), 5초가 지나면 '기다리지 않기'(`chatStop`, AbortController)를 보인다. 기다리지 않기는 오류가 아닌 보통 알림이다. 초는 알림 칸(role=status) 밖에 둔다
-- 보내기(`chatSend`)는 저장하지 않은 변경이 있으면 기다림 줄을 놓기 전에 묻는다. 취소하면 보내지 않고 쓴 글은 입력칸에 남는다
+- 다시 생성 열이 자리를 빌리면 집필 화면이 `chatHold(true)` 로 알리고 `chatDock` 은 패널을 그리지 않는다
+- `chatLog('plot')` 은 옛 플롯 대화를 변경안 카드(`proposal`)와 함께 그린다. 적용 · 적용 취소 · 버림은 그대로 된다
+- `chatLog(주제, { readOnly: true })` 는 설정 · 문체 · 본문 고치기의 옛 기록이다. 변경안 카드 대신 요약(`chatReadOnlyCard`)을 보인다
+- `chatReadOnlyCard` 는 적용한 설정 · 문체 변경안에 적용한 것과 '적용 취소'(`setupChatUndo` · `styleChatUndo`)를 둔다. 넣은 본문 후보는 집필 화면 수정 기록에서 되돌린다
+- 옛 플롯 대화의 방향 안에서 고른 방향(`sendDirection`)은 대화 에이전트의 새 턴으로 보낸다(`agentStartTurn`)
+- Enter 보내기는 대화 에이전트의 `agentSend` 를 부른다
 - `#chat-log` 는 `role="log"` 이지만 패널을 통째로 다시 그려서 `aria-live="off"` 다
 - 새 답이 오면 맨 아래로 내리되, 마지막 AI 답이 칸보다 길면 그 답의 첫 줄로 간다(`chatLandAt`)
-- 마지막 AI 답에 고르지 않은 본문 후보가 있으면 패널에 `has-cands` 를 단다. 주제의 `candsFor` 가 있으면 그것도 참이어야 한다
 - 손가락 기기(`touchFirst`)에서는 패널을 열 때와 답이 온 뒤 입력칸에 포커스하지 않는다
-- 주제의 `foldFrom(msgs)` 가 돌려준 번호 앞 메시지는 '지난 요청 N개'(`.chat-fold`) 아래로 접는다. 연 상태는 `S.chatFoldOpen` 에 둔다
 - 다 접혔고 주제에 `foldNote` 가 있으면 그 안내를 보인다
 - 새 AI 답만 패널 밖 숨은 알림 칸 `#chat-live`(role=status)에 넣는다(`chatAnnounce`, 처음 연 패널 · 다른 대화의 옛 답은 알리지 않음)
 - 대상 바뀜 같은 패널 소식은 `chatSay` 로 같은 칸에 넣는다
@@ -432,26 +431,23 @@
 - 문장 범위는 `sentenceRanges`(줄바꿈과 . ! ? … 닫는 따옴표까지), 손가락 자리의 문장은 `sentenceRects` 로 한 번에 재고 `pickAt` 이 찾는다
 - 고른 문장을 2초 안에 다시 누르면 고르기를 풀고 그 자리(`pickOffset`)에 커서를 둔다. 그 클릭은 `marks.js` 가 두 번째 누름으로 쳐(`pickAgain`) 밑줄 이름 카드 · 도구를 띄운다
 - 900px 이하에서 메뉴와 직접 수정 칸은 화면 아래에 붙는다(`toolDocked`, `.sel-tool.docked`). 고른 부분 끝이 도구에 가리면 페이지를 굴린다
-- 도구의 'AI에게 고치기'(`selAi`)와 후보 넣기(`passageApply`)는 그 글을 다시 골라 휴대폰 시트 위에 보이게 굴린다. 손가락 기기는 본문 칸 포커스를 푼다
+- 도구의 'AI에게 고치기'(`selAi`)는 그 글을 다시 골라 휴대폰 시트 위에 보이게 굴린다. 손가락 기기는 본문 칸 포커스를 푼다
 - 본문을 굴릴 때 900px 이하에서 시트가 열려 있으면 위쪽 띠(`--band`)와 시트 사이를 보이는 자리로 본다(`syncPassage`)
-- `text` 주제의 `candsFor` 는 후보가 지금 고른 부분(`curSel`)의 것인지 본다. 다른 부분을 새로 골라 열면 시트를 높이지 않는다
-- `text` 주제의 `foldFrom` 은 지금 고른 부분과 이어지는 맨 뒤 대화만 편다(`passageRelated`: 같은 부분이거나, 그 답의 후보를 넣어 고른 부분이 넣은 글이 됨)
-- 답의 후보를 넣은 수정 기록은 `passageEdit` 이 찾는다. 그대로 넣으면 `proposed` 가 비고 `after` 가 후보다
-- 방금 넣은 답 아래에는 다음에 할 것 줄(`.next-acts`: 되돌리기 · 이어서 고치기 `passageMore` · 닫기)을 둔다. 되돌리면 사라진다
+- 옛 'AI에게 고치기' 대화(주제 `text:<화>`)의 패널 · 빠른 요청 줄 · 후보 카드 · 넣기는 04e 에서 지웠다. 옛 기록은 대화 에이전트의 '이전 대화'에서 읽는다
 - 수정 되돌리기 · 다시 넣기 뒤에도 손가락 기기에서는 본문 칸에 포커스하지 않는다
 - 본문에서 고르면 뜨는 도구(직접 수정, AI에게 고치기)
-- 도구의 'AI에게 고치기'(`selAi`)는 대화 에이전트를 열고 고른 부분을 재료 칩으로 붙인다(`S.agentMaterial`, 04b). 옛 'AI에게 고치기' 대화는 패널 머리의 전환으로 연다
-- 대화 에이전트 패널이 열려 있으면(`S.chatOld` 가 빔) 본문을 고르기만 해도 재료 칩을 바꾼다(`onSelect` → `agent.js` `agentAttach`)
+- 도구의 'AI에게 고치기'(`selAi`)는 대화 에이전트를 열고 고른 부분을 재료 칩으로 붙인다(`S.agentMaterial`, 04b)
+- 대화 에이전트 패널이 열려 있으면 본문을 고르기만 해도 재료 칩을 바꾼다(`onSelect` → `agent.js` `agentAttach`)
+- 검수 지적의 '대화로 고치기'(`issueAsk`)는 고칠 방향을 대화 에이전트 입력칸(`S.agentDraft`)에 넣는다
 - 도구 자리 `placeTool` 은 왼쪽을 0으로 두고 너비를 잰다. 옛 자리에서 재면 남은 폭만큼 줄어 화면 오른쪽 끝에 붙는다
-- 후보를 원문과 단어 단위로 비교
+- 후보를 원문과 단어 단위로 비교(`wordDiff`, 다시 생성 · 검수 · 에이전트 카드가 쓴다)
 - 수정 기록과 되돌리기
 - 고친 뒤 다시 할 단계 알림
 - 상태 정리 경고에서 «» 문장을 찾아 고르기(`warnQuote`, `warnItems`, `warnPick`)
-- 경고의 'AI에게 고치기'는 대화 패널을 거치지 않고 첫 후보를 바로 본문에 넣는다(`aiFixNow`: 저장 → `POST …/fix-now` 한 번 → 되돌리기 · 상태 승인으로 알림). 후보가 없으면 대화 패널을 연다
+- 경고의 'AI에게 고치기'는 대화 패널을 거치지 않고 첫 후보를 바로 본문에 넣는다(`aiFixNow`: 저장 → `POST …/fix-now` 한 번 → 되돌리기 · 상태 승인으로 알림). 후보가 없으면 AI 답을 알림에 보이고, 집필 화면이면 대화 에이전트를 열어 그 문장을 재료로 붙인다
 - `aiFixNow` 는 AI를 기다리는 동안 화면을 잠그지 않는다. 그 화 본문 칸만 잠그고(`S.aiFix`, `aiFixing`) 다른 화면으로 가도 끝나면 알린다
 - `aiFixNow` 알림은 그 사이 새로 생긴 규칙 걸기의 고친 곳 수를 '규칙으로 N곳도 고쳤어요' 로 붙인다
-- 후보 카드(`passageProposal`)는 후보의 `ruled` 로 '규칙으로 N곳 고쳤어요' 와 규칙 이름을 보인다(`ruledLine`). 단어 차이만으로는 AI 가 바꾼 곳과 규칙이 바꾼 곳이 섞이기 때문이다
-- 바로 넣는 것은 경고에 옮겨 적은 글이 본문에 그대로 한 번만 있을 때다(`warnSpot` 의 `exact`). 아니면 그 문장을 골라 경고를 대화 입력칸에 넣고 보내기는 작가가 한다
+- 바로 넣는 것은 경고에 옮겨 적은 글이 본문에 그대로 한 번만 있을 때다(`warnSpot` 의 `exact`). 아니면 그 문장을 대화 에이전트의 재료로 붙이고 경고를 입력칸(`S.agentDraft`)에 넣는다. 보내기는 작가가 한다
 - 경고 줄 뒤의 버튼 · 표시는 `warnTools` 하나가 그린다(집필 `warnItems` · 상태 승인 `rvWarnLine`): 고치는 중, 'AI가 고침'(`warnFixed`: 되돌리지 않은 AI 수정의 요청 글이 그 경고), 버튼
 - 되돌리기 알림 `undoToast` 는 `toast` 의 동작 알림이다. 누르거나 포커스가 있는 동안 닫히지 않고 알림 창 '최근 알림'에 남는다
 - 상태 승인 화면의 경고에서 집필 화면으로 옮길 때는 `goThen` 으로 그 화면을 다 그린 뒤에 고른다
@@ -649,6 +645,7 @@
   - 공용 목차 틀 `outline.js` 의 왼쪽 목차 + 오른쪽 카드 한 열 `.setup-secs`
   - 720px 이하는 위에 붙는 목차 버튼 · 걸음 막대(`.outline.steps`)와 아래 버튼 줄 `.setup-foot`
   - 새 작품 마법사 `viewSetupWizard`: 필수 칸 `setupReqs` · 걸음 목차 `wizStepper` · `wizStepState` · 세계 종류 · 시대 칩 `withWorldKind` · `worldRecs`
+  - 마법사 머리에 빈칸 AI 제안받기(`suggest`) 버튼을 둔다. 옛 설정 대화 패널 아래에 있던 것을 04e 에서 옮겼다
   - 다 채운 작품은 기획서 `viewSetupDoc`: 구역 `DOC_SECS` · 목차 상태 `docStatus` · 머리 요약 `docSummary` · 관계 점검 `relIssue` · `relWork` · 가 닿을 곳이 섞인 사이 `relDestNote`
   - 인물 · 관계는 한 줄 목록에서 하나만 편다
   - 이야기 뼈대만: 로그라인 · 관계 · 이름 후보
@@ -665,7 +662,7 @@
   - '고치기'로 그 카드만 `pfEdit`(기억 `S.styleOpen`, 빈 카드 `styleCardEmpty` 는 바로 고치는 칸)
   - 서술 카드의 읽는 모양은 값이 있는 줄만 보이고, 빈 줄은 '빈 칸 n개 채우기' 버튼 하나로 묶는다(`foldBlank`)
   - '빈 칸 n개 채우기'(`styleFill`)는 빈 칸을 그 자리에서 고치는 칸으로 편다. 펼칠 때 비어 있던 칸을 `S.styleFill` 에 기억해, 쓰는 동안 다시 그려도 접히거나 자리를 옮기지 않는다
-  - 대화 변경안이 바꿀 빈 칸은 묶지 않고 '비어 있음'과 '변경안'으로 보인다
+  - 옛 문체 대화의 변경안이 바꿀 칸 표시(`hot`)는 04e 에서 옛 패널을 지워 늘 비어 있다. 에이전트 문체 카드와 잇는 것은 남은 일이다
   - '지킬 · 피할 것' 카드에서 수가 0인 묶음은 '비어 있음'을 따로 적지 않는다
   - 목차 수 `styleCount`
   - 서술 카드 칸은 `NARR_KEYS`(효과음 표기 포함). 목차 수는 채운 칸 / 전체 칸
@@ -690,14 +687,15 @@
 
 ### `canon/static/stylechat.js`
 
-- 문체 화면의 대화로 다듬기(대화 주제 `style`: 칸별 변경안과 지금 값 비교, 시험 문단, 고른 칸 적용 · 적용 취소, 라이브러리 새 버전)와 '이 문체로 쓴 예시' 카드
-- 서버는 `pipeline.revise_style` · `apply_style_chat` · `undo_style_chat` · `style_example`
-- '예시 쓰기'는 작업 `style_example` 을 시작한다(등록은 `style.js`). 대화 전송 경로는 그대로다
+- 문체 변경안을 읽는 도우미(칸 이름 · 칸 비교 · 시험 문단), 옛 문체 대화(주제 `style`)의 적용 취소 `styleChatUndo`, '이 문체로 쓴 예시' 카드
+- 옛 문체 대화의 패널 · 보내기 · 적용은 04e 에서 지웠다. 적용 취소는 대화 에이전트의 '이전 대화'(`chat.js` `chatReadOnlyCard`)에서 부른다
+- 서버는 `pipeline.undo_style_chat` · `style_example`
+- '예시 쓰기'는 작업 `style_example` 을 시작한다(등록은 `style.js`)
 - 칸 이름은 `prompts.STYLE_KEY_LABELS` 와 같다(`tests/test_labels_js.py`)
 - 대화 에이전트의 문체 카드(`agent.js` `agentStyleApproval`)가 `STYLE_LABEL` · `styleEditDiff` · `sampleBlock` · `epSelect` 를 함께 쓴다
-- 참고할 화 `S.styleRefEp` 는 이 대화와 에이전트 패널의 칩이 함께 쓴다
+- 참고할 화 `S.styleRefEp` 는 에이전트 패널의 칩이 쓴다
 - 서버의 적용 · 취소 몸통은 `pipeline.apply_style_edits` · `undo_style_edits` 이고, 대화의 `apply_style_chat` · `undo_style_chat` 은 메시지 칸만 맡는다
-- 이 대화 패널(패널 머리 전환 줄의 옛 '대화로 다듬기')은 04b~04d 가 머지된 뒤 정리할 때까지 남긴다
+- 적용 취소의 라이브러리 새 버전 칸(`linkPushBox`)은 작품이 라이브러리 항목에 이어져 있을 때만 그린다
 
 ### `canon/static/write.js`
 
