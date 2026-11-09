@@ -572,7 +572,8 @@ async function agentStartTurn(text, mode = '') {
 function agentTurnScope(s = agentSession()) {
   const target = agentTarget(s);
   const sc = S.route[2] === 'arc' ? plotScope() : { act: '', episode: 0, draft: target === 'next' ? S.arcDraft || null : null };
-  return { act: sc.act, episode: sc.episode, draft: sc.draft, ...(s && s.pinned ? {} : { target: agentScreenTarget() }) };
+  // screen: 보던 화면. 플롯 화면 밖에서 작품 전체가 대상이면 서버가 플롯 쓰기를 늘 묻는다 (agent.off_plot)
+  return { act: sc.act, episode: sc.episode, draft: sc.draft, screen: S.route[2] || 'home', ...(s && s.pinned ? {} : { target: agentScreenTarget() }) };
 }
 
 /** 세션 동작 공통. save: AI가 작품을 읽거나 고치는 동작이면 저장하지 않은 변경을 먼저 저장한다 (묻고 나서).

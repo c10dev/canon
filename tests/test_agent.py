@@ -655,3 +655,32 @@ def test_old_project_json_lists_plot_sessions_and_old_chats(client):
     assert client.get("/api/projects/lh/sessions?topic=plot").json()["sessions"][0]["id"] == "old1"  # 옛 주소도 같은 목록
     sid = _session(client, topic="agent")
     assert [s["id"] for s in client.get("/api/projects/lh/sessions").json()["sessions"]] == ["old1", sid]
+
+
+def test_whole_work_off_plot_screen_asks_every_plot_write(client):
+    """정할 것 7 (2026-11-09 사용자 결정): 플롯 화면 밖에서는 작품 전체('')가 대상이어도 플롯 쓰기를 묻는다.
+    플롯 화면이나 화면을 보내지 않은 턴(옛 클라이언트), 모르는 화면 이름은 지금처럼 초안 화를 바로 쓴다."""
+    _project(client)
+    plot = _ep(client, 3)["plot"]
+    for screen, mode in [("cast", "draft"), ("home", "draft"), ("home", "all"), ("foreshadow", "all")]:
+        sid = _session(client, topic="agent", target="")
+        client.patch(f"/api/projects/lh/sessions/{sid}", json={"mode": mode})
+        t = _say(client, sid, "3화 전개가 너무 빨라", target="", screen=screen)
+        assert t["end"] == "wait" and t["approval"]["kinds"] == ["outside"], (screen, mode)
+        assert t["screen"] == screen and t["writes"] == []
+        assert _ep(client, 3)["plot"] == plot
+    for screen in ("arc", "", "nowhere"):
+        sid = _session(client, topic="agent", target="")
+        t = _say(client, sid, "3화 전개가 너무 빨라", target="", screen=screen)
+        assert t["end"] == "done" and [i["key"] for i in t["writes"][0]["items"]] == ["3"], screen
+        assert t["screen"] == ("arc" if screen == "arc" else "")  # 모르는 이름은 믿지 않는다
+        client.post(f"/api/projects/lh/sessions/{sid}/turns/0/undo", json={})
+
+
+def test_off_plot_prompt_says_plot_writes_ask():
+    from canon import agent, prompts
+    from canon.schema import AgentTurn, Project
+    p = Project()
+    assert agent.off_plot("", AgentTurn(screen="cast")) and not agent.off_plot("", AgentTurn(screen="arc"))
+    assert not agent.off_plot("", AgentTurn()) and not agent.off_plot("ep:3", AgentTurn(screen="cast"))
+    assert "플롯 화면 밖" in prompts.agent_focus_block(p, "", True) and prompts.agent_focus_block(p, "", False) == ""
