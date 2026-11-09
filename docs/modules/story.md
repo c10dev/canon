@@ -285,6 +285,24 @@
 - LLM 을 부르지 않는다
 - 자료와 출처는 `canon/naming_data.py`
 
+### `canon/offscreen.py`
+
+- 오래 나오지 않은 인물의 화면 밖 근황(`CharacterState.offscreen`, 시점 화 `offscreen_ep`). 장편 전용
+- 대상(`targets`): 다음 아크 시작 화 앞에서 `context.RETURN_GAP` 화 넘게 나오지 않은 인물(`context.last_seen`), 주역 → 조연 → 단역 순서로 `OFFSCREEN_MAX` 명
+- 대상에서 빼는 인물: 나온 적 없는 인물 · '넣지 않음' 인물 · 아직 본문이 없는 기획한 화의 플롯 인물
+- 제안 정리(`clean`: 대상 인물만, 인물마다 한 줄, `TEXT_MAX` 자) · 저장(`apply`, 시점 화는 다음 아크 시작 화 바로 앞 화) · 지우기(`clear`)
+- 물을 수 있는지(`ready`)는 작업을 띄우기 전에도 본다. 저장 전 `check_fresh` 가 제안의 시점 화(`OffscreenSet.at`)가 바뀌었으면 막고 그사이 대상에서 빠진 인물을 뺀다
+- 쓰기의 '오랜만에 다시 나오는 인물'(`prompts.return_lines`)과 다음 아크 기획(`listed` → `prompts.offscreen_block`)에 시점 화와 함께 들어간다
+- 아크 중간에 돌아오는 인물은 근황이 낡을 수 있어 시점 화를 늘 함께 보인다. 쓰기 블록은 어긋나면 줄거리 · 현재 상태를 따르라고 적는다
+- 그 인물이 나온 화(플롯 인물 · 상태 변경안이 다룸)를 반영하면 비운다(features 훅 `apply_delta`, 등장 인물 붙이기 뒤라 `cast_added` 도 든다)
+- 본문에 이름만 나온 화는 비우지 않는다. 플롯 밖 인물의 이름은 대개 회상 · 언급이라 공백 판정(`context.last_seen`)보다 좁게 본다
+- 반영 취소는 스냅샷이 상태와 함께 되돌린다. 스냅샷 뒤에 저장한 근황은 그 화를 되돌리면 사라진다
+- `notes` 와의 차이: `notes` 는 상태 변경안이 화마다 고치는 메모로 인물 현재 상태 칸에 늘 들어간다
+- `offscreen` 은 작가가 고른 공백기 이야기라 상태 변경안이 고치지 않고 상태 칸 직렬화에도 없다. 다시 나올 때까지만 쓴다
+- LLM 호출 없음
+- 근황 제안은 `pipeline.plan_offscreen`(작업 `offscreen`, 프롬프트 `prompts.offscreen_prompt`, 응답 `OffscreenSet` · `OffscreenLine`)
+- 명령줄 명령은 없다. 화면에서만 받는다
+
 ### `canon/pace.py`
 
 - 관계 속도: 상태 변경안의 관계 유형 · 설명이 반영 뒤 관계 단계와 반대인지 본다(features 훅 `clean_delta`, 등장 인물 붙이기 뒤)
@@ -382,6 +400,22 @@
 - 프롬프트는 `prompts.setup_chat_prompt`
 - 명령줄 `setupchat`
 
+### `canon/stateedit.py`
+
+- 반영 뒤 지금 상태 고치기: 작가가 인물의 감정 · 목표 · 위치 · 차림(`FIELDS`)을 상태 반영 뒤에도 고친다(`set_state`)
+- 고친 것은 마지막으로 반영한 화(`statwin.last_done`)의 작가 기록(`Project.state_log`: 화, 칸, 반영 값, 고친 값)으로 남기고 그 화 스냅샷도 맞춘다(`dynamics.take_snapshot`, `statwin.set_stats` 와 같은 방식)
+- 같은 화 뒤에 같은 칸을 또 고치면 한 기록으로 합치고, 반영 값으로 돌아오면 기록을 지운다
+- 그래서 기록이 있으면 마지막 반영 값과 다르다
+- 1화를 반영하기 전에는 1화 시작 전(0화) 상태를 고치고 0화 기록으로 남긴다
+- 스냅샷 0 은 있을 때만 맞춘다(없으면 첫 반영이 고친 값으로 만든다)
+- 화 되돌리기는 n화 뒤 기록을 자르기만 한다(`revert`, features 훅 `REVERT_LAST`)
+- n화 뒤 기록을 n화로 옮기지 않는다: 지금 상태는 그 화 시점에만 맞아 뒤 화 상태가 앞 화 프롬프트에 들어간다
+- 인물 화면이 스냅샷을 지운 화를 다시 계산할 때(`cast._apply_gap`)도 그 화 기록의 고친 값을 덮는다
+- 아는 정보 · 메모 · 상태창 수치(`statwin`) · 관계 수치(`수동보정` 사건)는 다루지 않는다
+- 웹 `PUT /api/projects/{name}/state/{cid}`(빠진 칸은 그대로, 빈 글은 비움)
+- 화면은 `static/cast.js` 의 지금 상태 카드
+- LLM 호출 없음
+
 ### `canon/static/abilities.js`
 
 - 스킬 도감 화면(사이드바 도구, 공용 목차 틀 `outline.js`)
@@ -462,6 +496,9 @@
 - 관계도 온기 다섯 단계 선 색은 `WARMTH_BANDS`(적대 `--warm-hostile`, 반감 `--bad`, 무덤덤 `--warm-mid`, 호감 `--good`, 아낌 `--warm-deep`)
 - 인물 쪽 `castCharPage`
   - 머리 `castHead` · 보는 시점의 상태 · 상태창 수치(바뀐 양 `castStatDelta`, 카드 | 시스템 창 보기는 localStorage, 창 모양은 작품 스킨 `stat_window.skin`) · 관계 줄 `castSheetRels`(온기 막대 `castMeter`) · 비밀 · 설정과 남겨 둔 제안 · 읽기 먼저인 'AI · 서술 · 신체 · 삽화' 카드 `castEditCard`
+    - 지금 상태 카드 `castSheetState` 는 마지막 시점에서만 '고치기'를 보인다(`S.castStateEdit`, 저장 `castStateSave` → `PUT …/state/<인물>`)
+    - 고친 칸(`castStateLog`: 그 시점 화의 `state_log` 기록)은 '직접 고침'과 반영 값을 보이고, 마지막 시점이면 되돌리기 `castStateUndo` 로 반영 값을 다시 보낸다
+    - 지금 상태 저장 · 되돌리기는 저장하지 않은 작품 변경을 먼저 저장한다(뒤에 저장하면 옛 상태로 덮는다)
     - 상태창 칸 모양은 `statwin.js` `swStatsBody` 와 같이 쓴다
     - 고치기 `S.castEdit`: AI에 넣기 `charContextField` · 서술 말투 `plot.js` `voiceField` · 신체 프로필 `bodyFields` · 삽화 외형 태그 `illust.js` `visualFields`
     - AI 제안 동작은 `research.js` `bodyAI`
@@ -565,6 +602,14 @@
 - CSS 는 JS 에서 주입(노선도 기본 모양 `.line-map` · `.lm-*` 은 app.css, 인물 화면 등장표도 쓴다)
 - 플롯 편집기의 줄기 칸(`lineField`)과 화 카드 표시(`lineBadge`)도 여기 있다
 - `storylines.span` · `tag` 와 같은 규칙이라 함께 고친다(`tests/test_lines_js.py`)
+
+### `canon/static/offscreen.js`
+
+- 화면 밖 근황 칸(`offscreenBox`): 다음 아크 기획 칸(`plot.js` `nextArcPanel`)의 'AI로 다음 아크 제안' 버튼 위
+- 다음 아크가 `RETURN_GAP` 화 뒤에 시작하거나 저장한 근황 · 제안이 있을 때만 그린다. `RETURN_GAP` 은 `context.RETURN_GAP` 과 같다(`tests/test_offscreen.py`)
+- 저장한 근황은 인물마다 시점 화와 지우기 버튼을 보인다
+- 제안(`S.offscreenDraft`, 작업 `offscreen` 결과)은 인물마다 체크 · 종류 칩 · 고칠 칸. '고른 근황 저장'은 고른 인물의 빈 칸이 아닌 근황만 보낸다(`offscreenPicked`)
+- 모양은 아는 정보 접기 칸(`.knows-fold` · `.change`)과 같다. 새 CSS 없음
 
 ### `canon/static/play.js`
 

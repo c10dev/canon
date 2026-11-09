@@ -46,6 +46,6 @@ def test_warn_split_uses_warn_to_then_names():
         "w": ["관계 상태창: 이름과 상관없이 대상으로 붙어요.", "서윤 상태창: 본문은 «HP 3»", "새 인물 민재의 말투가 비었어요.", "플롯 사건 누락"],
         "names": ["서윤", "도현"], "ids": ["hero", "rival"],
         "to": ["rival", "", "minjae"]})  # 짧은 warn_to 의 모자란 칸, 줄이 없는 인물은 이름 맞추기로 돌아간다
-    assert got == {"by": {"1": [0], "0": [1]}, "rest": [2, 3]}
+    assert got == {"by": {"1": [0], "0": [1]}, "rest": [2, 3], "audit": []}
     # warn_to 가 없는 예전 변경안은 이름 맞추기만 쓴다
-    assert run_js(["app.js", "review.js"], """rvWarnSplit(data, ['서윤'])""", ["서윤 상태창: x", "y"]) == {"by": {"0": [0]}, "rest": [1]}
+    assert run_js(["app.js", "review.js"], """rvWarnSplit(data, ['서윤'])""", ["서윤 상태창: x", "y"]) == {"by": {"0": [0]}, "rest": [1], "audit": []}

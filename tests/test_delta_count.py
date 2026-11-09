@@ -24,7 +24,8 @@ def test_delta_lists_cover_state_delta():
     lists = re.findall(r"'(\w+)'", _source("DELTA_LISTS"))
     # rel_flagged 는 고르는 항목이 아니라 relationship_updates 의 기본 체크를 정하는 차례 목록이다 (pace.clean_delta)
     # warn_to 는 고르는 항목이 아니라 warnings 와 같은 차례의 대상 인물 id 다 (features.clean)
-    want = {k for k, f in StateDelta.model_fields.items() if typing.get_origin(f.annotation) is list} - {"warnings", "rel_flagged", "warn_to"}
+    # fact_near 도 같다: new_facts 의 기본 체크를 정하는 표시다 (features._near_facts)
+    want = {k for k, f in StateDelta.model_fields.items() if typing.get_origin(f.annotation) is list} - {"warnings", "rel_flagged", "warn_to", "fact_near"}
     assert set(lists) == want
     assert len(lists) == len(set(lists))
 

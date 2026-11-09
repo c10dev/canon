@@ -1013,4 +1013,4 @@ def _broken(out: str) -> str:
 
 
 # 기능별 가짜 응답 등록 (RESPONDERS). 위의 responds 를 쓰므로 맨 끝에서 불러온다
-from . import mock_birth, mock_board, mock_cue, mock_fixrecheck, mock_heat, mock_knows, mock_play, mock_revlab, mock_stage, mock_studio  # noqa: E402,F401
+from . import mock_audit, mock_birth, mock_board, mock_cue, mock_fixrecheck, mock_heat, mock_knows, mock_offscreen, mock_play, mock_revlab, mock_stage, mock_studio  # noqa: E402,F401

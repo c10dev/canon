@@ -216,14 +216,16 @@ const warnFixed = (n, w) => ((ep(n) || {}).edits || []).some((e) => e.source ===
 const aiFixing = (n, w) => !!S.aiFix && S.aiFix.name === S.name && S.aiFix.n === n && (w === undefined || S.aiFix.w === w);
 
 /** 경고 한 줄 뒤에 붙는 것: 고치는 중 · AI가 고침 표시, 아니면 '이 문장 고르기' · 'AI에게 고치기' (warnItems · review.js rvWarnLine) */
-function warnTools(n, k, w, inline = false) {
+// pickOnly: 문장 고르기만 둔다 (누락 의심 경고는 본문을 고칠 일이 아니라 'AI에게 고치기'를 두지 않는다)
+function warnTools(n, k, w, inline = false, pickOnly = false) {
   if (aiFixing(n, w)) return '<span class="small" role="status">AI가 고치는 중이에요</span>';
   if (warnFixed(n, w)) return '<span class="chip ok">AI가 고침</span>';
   const text = textNow(n);
   const { q, exact } = editableEp(ep(n)) ? warnSpot(w, text) : { q: '' };
   if (!q) return '';
   const title = exact ? 'AI가 고친 글을 바로 본문에 넣어요. 알림의 되돌리기로 취소할 수 있어요' : '경고와 똑같은 문장이 없거나 여러 곳이라, 가장 비슷한 문장을 골라 대화 패널에서 보내게 해요';
-  return `<span class="row" style="gap:6px${inline ? ';display:inline-flex' : ''}"><button type="button" class="btn small" data-action="warnPick" data-arg="${n}:${k}">이 문장 고르기</button><button type="button" class="btn small" data-action="warnPick" data-arg="${n}:${k}:ask" title="${title}">AI에게 고치기</button></span>`;
+  const ask = pickOnly ? '' : `<button type="button" class="btn small" data-action="warnPick" data-arg="${n}:${k}:ask" title="${title}">AI에게 고치기</button>`;
+  return `<span class="row" style="gap:6px${inline ? ';display:inline-flex' : ''}"><button type="button" class="btn small" data-action="warnPick" data-arg="${n}:${k}">이 문장 고르기</button>${ask}</span>`;
 }
 
 /** 상태 변경안 경고 속 본문 문장. «» · 따옴표 안 문구를 길이 순으로 본문에서 찾고, 그대로 없으면 낱말이 가장 많이 겹치는 문장. 못 찾으면 ''. */

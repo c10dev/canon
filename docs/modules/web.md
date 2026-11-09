@@ -239,6 +239,7 @@
 - 작품 홈
   - 지금 화 `homeNowCard` · 확인할 것 `homeTodos`(말투 빈 인물 `homeSpeechGaps`, 시점 인물 서술 말투 빈칸 `homeVoiceGap`) · 전 화수 막대 `homeProgress` · 줄인 목록 `homeCast` · `homeForeshadows`
   - 계산 함수는 작품을 받는 순수 함수 `tests/test_home_js.py`
+  - 확정 사실 줄 끝의 'n화' 링크는 그 화 상태 승인 기록(`/review/n`)으로 간다. 들어온 화는 `factsLearned`(`context.facts_learned` 와 같은 규칙)
 - 장르 · 화 진행 막대와 연재 일정(`epSteps`, 검수 칸 `checkState`, 화를 열 단계 화면 `epStage`: 다음 할 일 · 화 칸 · 팔레트, 작품 목록 다음 할 일 `projectNext` 는 서버 `findings.check_done`, `releasePlan`, `Project.release`)
 - 연재 일정 줄의 'n화 올림으로 표시'(`releaseOne`)는 올린 화를 하나 늘려 저장한다
 - 저장한 뒤 알림에 '되돌리기'(`releaseUndo`)를 둔다
@@ -479,6 +480,8 @@
   - 반영 기록에서 돌아온 변경안(반영 취소 · 단편 다시 쓰기)의 `dismissed` 는 `setDelta` 가 목록 끝에 다시 놓고(`reofferDismissed`) 기본 체크를 풀어 둔다(`d.reoffer`, 화면 전용)
   - 체크를 푼 채 다시 놓인 새 인물 · 심는 복선을 가리키는 항목도 `defaultPicks` 가 기본으로 빼 둔다(`over` 로 지금 `n` · `p` 체크를 주면 그 값을 기준으로 맞춘다)
   - 반영이 끝난 화 기록(`historyView`) 아래 접힌 '빼 둔 항목 N개'(`dismissedView`)
+  - 빼 둔 사실마다 '확정 사실에 넣기'(`takeDismissedFact`, `POST …/dismissed-facts/{i}`)
+  - 이미 있는 확정 사실과 비슷한 새 사실(`d.fact_near`)은 `defaultPicks` 가 기본으로 빼 두고 그 줄에 옛 사실을 적는다
   - 변경안 체크 `S.picks` 는 한 화 것이다(`S.picksEp`, 작품마다 따로 둔다)
   - 다른 화 변경안을 열면 `pickEp` 가 그 화에서 고친 체크(`S.picksKept`)를 되살린다
   - 고친 체크가 없으면 `pickEp` 가 지금 작품 기준 기본 체크(`defaultPicks`)로 다시 센다
@@ -499,6 +502,7 @@
   - 오른쪽 직접 정할 것 · 요약 · 그대로 반영할 것(갈래 접기 `S.rvOpen`, 고른 수 `rvKeyCount`) · 관계 계산
   - 관계 사건 종류 고르기는 색(`kindStyle`) 옆에 칩 `kindTag`(＋ 좋은 사건 · － 나쁜 사건, 기호는 `aria-hidden`)을 둔다. 종류를 바꾸면 칩도 맞춘다
   - 경고를 인물 줄에 붙이기 `rvWarnSplit`
+  - '[누락 의심]' 경고는 `rvWarnSplit` 이 따로 모아(`audit`) '변경안 누락 의심' 줄에 둔다. 본문을 고칠 일이 아니라 '이 문장 고르기'만 둔다(`warnTools` 의 `pickOnly`)
   - 경고 줄 `rvWarnLine` 의 버튼과 고치는 중 · 'AI가 고침' 표시는 `passage.js` `warnTools`
   - 대상 인물 id(`StateDelta.warn_to`)가 있으면 그 인물 줄, 없으면(AI 경고 · 예전 변경안) 인물 이름으로 시작하는지로 붙인다
   - 인물 칸 그 자리에서 펴기 `rvOpen`
@@ -542,6 +546,7 @@
   - 글 칸 `textRow`(모델 이름 · 주소 · 경로)는 휴대폰 키보드 자동 대문자 · 고치기를 끈다
   - Gemini 모델 칸은 고른 모델이 `gemini_cache_unsupported` 에 있으면 설명에 '이 모델은 명시 캐시를 받지 않아요'를 붙인다
   - 작품별 단계 값 `projectStage`
+  - 이 작품 › 집필 · 검수의 '상태 변경안 누락 검사'(`audit`, `Settings.state_audit`). 단계 목록에도 `audit` 가 있다
   - '프리셋으로 채우기'는 지금 칸이 어느 프리셋과도 다르면(직접 고른 조합) 덮기 전에 묻고, 그만두면 고른 값을 되돌린다
   - 프리셋으로 채운 뒤 그 줄에 '되돌리기'(`setPresetUndo`, `SET.undo`)가 생겨 고르기 전 단계 칸을 다시 저장한다. 단계 칸을 손으로 고치거나 대화상자를 다시 열면 사라진다
   - 단계 줄의 추론 강도 칸 `effortSelect`: Claude · Gemini 단계에만, 목록은 백엔드가 받는 값(`effortOptions`)
