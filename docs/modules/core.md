@@ -482,6 +482,8 @@
 - 쓰기 요청의 무게 문장 `focus_line`: 꼭 쓸 것만이고 중심 장면이 있으면 그 장면에 분량의 절반쯤, 아니면 `FOCUS_LINE`
 - 큐 시트 만들기 `cue_focus_rule`: 꼭 쓸 것만이고 중심 장면이 있으면 그 장면 큐들의 length 합을 절반쯤으로
 - `cue_sheet_block(exits=False)` 는 큐 끝 상태를 뺀다. `cue_write_block` 이 꼭 쓸 것만일 때 쓴다
+- 큐마다 쓰는 조건(`cue_head`)은 꼭 쓸 것만이어도 큐 끝 상태를 둔다. 그 조건에서는 끝 상태가 큐를 멈추는 자리이기 때문이다
+- 다시 쓰기(`rewrite_prompt`)와 재구성(`rework_prompt`)도 `write=True` 로 조립해 꼭 쓸 것만의 거르기를 받는다
 - 직전 화 블록 `prev_block`(스토리보드를 넣는 화와 스토리보드 만들기만 원문 전체, `build_episode_context(full_prev=)`)
 - 장편은 스토리보드가 없을 때만 넣는 시간 · 이동 · 장면 연출 블록과 `pre`(스토리보드 만들기의 Canon 값 · 장소 목록)를 직전 화 본문 뒤에 둔다. 단편 차례는 그대로다
 - 장편 쓰기 가족 앞부분 `write_head`: 작품 고정 블록부터 직전 화 본문 원문까지(`build_episode_context(head_only=True)`). 스토리보드 만들기 · 큐 시트 · 스토리보드로 본문 쓰기가 이 글로 시작한다. 단편은 빈 글
