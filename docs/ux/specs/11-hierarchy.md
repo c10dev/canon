@@ -1,6 +1,6 @@
 # 11. 화면 위계 세우기
 
-상태: PR ([#461](https://github.com/c10dev/canon/pull/461)) · 계획: [plan.md](../plan.md) 의 11번 · 먼저: —
+상태: 끝 (#461) · 계획: [plan.md](../plan.md) 의 11번 · 먼저: —
 
 ## 목표
 
