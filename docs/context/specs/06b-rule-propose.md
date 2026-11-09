@@ -90,6 +90,9 @@ Q33: 정규식 규칙 제안은 6 뒤의 조각 6b 가 맡는다.
    - 다시 부르기는 `agent.MAX_STEPS` 안에서만 돈다.
    - 저장을 막지 않는 알림(`regexrules.notices`, 예: fix 규칙의 `out` 에 든 `{{…}}`)은 카드에 보인다.
    - `in` 이 빈 규칙은 `validate` 가 통과시키지만 걸리지 않으므로 막는다.
+   - 끄기만 하는 카드(`regexrules.switched_off`: `enabled` 말고 바뀐 칸이 없음)는 그 규칙을 `validate` · `check` 하지 않는다(2026-11-09 리뷰).
+   - 까닭: `_nested` 처럼 검사가 생기기 전에 저장한 옛 규칙은 지금 검사에 걸린다. 검사하면 그 규칙을 끄는 카드도 막힌다.
+   - 같은 까닭으로 `regexrules.set_rule` 도 저장한 규칙을 끄기만 하면 그 규칙을 `check` 에서 건너뛴다. 다시 켜는 되돌리기는 검사에 걸려 `kept` 로 남는다.
    - 다른 안: 검사하지 않고 카드에 오류를 보인다. 적용할 수 없는 카드가 생긴다.
 11. 카드의 시험 결과 — 정함(2026-11-09, 추천안): `prepare` 가 제안한 규칙 하나만 `regexrules.trial([rule], text)` 로 걸어 본다. 시간이 넘으면 카드를 띄우지 않는다.
    - 본문은 이 차례로 고른다: 세션 대상이 본문(`text:N`)이면 그 화, 아니면 턴이 실어 온 화(`AgentTurn.episode`)에 본문이 있으면 그 화, 아니면 본문이 있는 가장 뒤 화.
@@ -103,6 +106,8 @@ Q33: 정규식 규칙 제안은 6 뒤의 조각 6b 가 맡는다.
    - 그래서 `trial` 에 `strict` 인자를 더해 세 경로(고침 · 경고 · 내보내기)의 건너뜀을 모두 `skipped` 에 담는다. `prepare` 는 그 값으로 막는다.
    - 느린 규칙을 넣으면 걸 때마다 그 작품이 켠 모든 묶음의 같은 종류 규칙이 건너뛰어진다. 그 묶음을 켠 다른 작품도 같다(`regexrules.run` · `hits` 가 켠 묶음 전체를 `_call` 한 번으로 건다).
    - 끄기 카드(`enabled=false`)는 `_pick` 이 켠 규칙만 골라 결과가 늘 0 이다. 그래서 끄기는 적용 전 규칙(`before`)을 걸어 '적용하면 더 걸리지 않을 곳'으로 보인다.
+   - 끄기 카드는 그 시험이 시간 한도를 넘어도 막지 않는다(2026-11-09 리뷰). 끄면 그 규칙은 더 걸리지 않으므로 위의 '느린 규칙을 넣으면' 까닭이 없다.
+   - 그때 카드에 `timed_out` 을 남기고 바뀐 곳 · 걸린 곳은 비운다.
    - 그 밖의 고치기는 적용 뒤 규칙만 건다.
    - 카드에 남기는 바뀐 곳 · 걸린 곳은 각 10개까지다. 시작 값이고 카드 높이를 보고 다시 정한다. 전체 수는 따로 적는다.
    - 다른 안: 묶음 전체에 새 규칙을 더해 건다(`trial(기존 rules + [rule], text, bid, name)`). 다른 규칙의 결과가 섞인다.
@@ -161,10 +166,10 @@ Q33: 정규식 규칙 제안은 6 뒤의 조각 6b 가 맡는다.
 | `canon/agent_regex.py` | `prepare(name, p, s, turn, step)`: 인자로 `RegexRule` 을 만들고 묶음을 고르고(정할 것 6) 검사(10)와 시험(11)을 한다. AI 를 부르지 않는다. 결과는 새 `RegexCard` 또는 막힌 까닭(글) |
 | `canon/agent_regex.py` | `record(p, s, turn, step, prepared)`: 잠근 작품에서 카드 `Approval(tool, regex, keys=["rule"], kinds=["rule"])` 를 남기고 `"wait"` 를 돌려준다. 막혔으면 까닭을 `why` 에도 넣은 `block` 단계를 남기고 `""`(`agent_style.record` 꼴) |
 | `canon/agent_regex.py` | `decide(p, s, turn, approve, picked, text)`: 묶음을 다시 읽어 규칙 하나를 넣는다. 이 작품이 끈 묶음이면 막는다(14). 새 묶음이면 만들고 `Settings.rule_bundles` 에 켠다(8). `WriteRecord.regex` 를 남기고 턴을 끝낸다 |
-| `canon/agent_regex.py` | `undo(p, rec, items)`: 정할 것 13. 다른 작품 수는 `used_by(bid)` 에서 `RegexCard.project` 를 뺀 수로 센다. `compact(rec, reason)`: 오래된 턴의 전 · 뒤 값을 지운다 |
+| `canon/agent_regex.py` | `undo(p, rec, items)`: 정할 것 13. 다른 작품 수는 `used_by(bid)` 의 수에서, 지금 작품(`p.settings.rule_bundles`)이 그 묶음을 켰으면 1을 뺀 수로 센다. 복제 · 이름 바꾸기로 폴더 이름이 `RegexCard.project` 와 달라져도 맞다. `compact(rec, reason)`: 오래된 턴의 전 · 뒤 값을 지운다 |
 | `canon/agent.py` | `CARD_TOOLS` 에 `agent_regex` 한 줄, `KIND_LABELS` 에 `"rule": "규칙"`(정할 것 1 의 하위 결정 안 1) |
 | `canon/agent.py` | `READ_TOOLS` 에 `read_rules`, `read` 에 그 갈래(15). 모듈 머리글에 도구 줄 |
-| `canon/regexrules.py` | 새 함수 `set_rule(bid, rid, rule, note)`: 묶음을 읽어 id 가 `rid` 인 규칙을 `rule` 로 바꾸고(없으면 끝에 더하고, `rule` 이 `None` 이면 뺀다) `check` 뒤 저장한다 |
+| `canon/regexrules.py` | 새 함수 `set_rule(bid, rid, rule, note)`: 묶음을 읽어 id 가 `rid` 인 규칙을 `rule` 로 바꾸고(없으면 끝에 더하고, `rule` 이 `None` 이면 뺀다) `check` 뒤 저장한다. 저장한 규칙을 끄기만 하면(`switched_off`) 그 규칙은 `check` 에서 건너뛴다. `check` 에 건너뛸 규칙 id 인자 `skip` |
 | `canon/regexrules.py` | `trial` 에 `strict` 인자: 참이면 경고 규칙은 `_issues(..., strict=True)` 의 `RuleSkipped` 를, 내보내기 규칙은 `_apply` 의 세 번째 값을 `skipped` 에 담는다(정할 것 11). 규칙 화면의 시험은 지금처럼 거짓 |
 | `canon/schema.py` | `AGENT_TOOL_NAMES` 에 `"propose_regex"` · `"read_rules"`. 새 모델 `RegexCard`. `Approval.regex` · `WriteRecord.regex` |
 | `canon/schema.py` | `PlotAgentStep.args` 의 설명에 인자를 받는 도구 이름 `propose_regex` 를 더한다 |
@@ -203,6 +208,7 @@ Q33: 정규식 규칙 제안은 6 뒤의 조각 6b 가 맡는다.
 - `change_count: int = 0` 시험에서 바뀐 곳 전체 수
 - `hit_count: int = 0` 시험에서 걸린 곳 전체 수
 - `export_changed: bool = False` 내보내기 규칙 카드에서 `trial` 의 `exported` 가 `text` 와 다른지. `trial` 은 내보내기 규칙의 바뀐 곳을 돌려주지 않아 `changes` 는 늘 빈다
+- `timed_out: bool = False` 끄기 카드에서 적용 전 규칙의 시험이 시간 한도를 넘었는지(정할 것 11)
 - `notices: list[str] = []` 저장을 막지 않는 알림(`regexrules.notices`)
 - `version: int = 0` 적용한 뒤 묶음 버전. 카드에서는 0
 
@@ -276,18 +282,25 @@ Q33: 정규식 규칙 제안은 6 뒤의 조각 6b 가 맡는다.
 
 - 머리 줄: '정규식 규칙 · <묶음 이름>' 또는 '정규식 규칙 · 새 묶음 <이름>'.
 - 새 규칙이면 규칙 칸(이름, 찾을 정규식, 바꿀 글, 동작, 적용 범위, 플래그)을 보인다.
+- 새 규칙의 칸은 값만 보인다. `diffField` 의 '바꾸면' 머리말을 붙이지 않는다(견줄 전 값이 없다).
 - 고치기면 칸마다 전 · 뒤를 보인다(`diffField` 꼴).
 - 동작 문구: 경고는 '검수할 때 걸린 곳을 보여요', 고침은 '적용하면 다음에 본문을 쓸 때부터 본문을 바꿔요', 내보내기는 '내보낼 때만 걸려요'.
 - 시험 줄: '<N>화에 걸어 보면 바뀌는 곳 <a>곳 · 걸리는 곳 <b>곳이에요'. 바뀐 곳은 `ruleChangeHtml` 로 보인다.
 - 걸린 곳은 규칙 화면의 시험(`regexrules.js` 의 `ruleTestCard`)처럼 `.rx-name` 에 `description`, `.rx-diff` 에 `current_quote` 를 보인다.
 - 내보내기 규칙 카드는 시험 줄 대신 `export_changed` 로 '<N>화를 내보낼 때 글이 바뀌어요' 또는 '<N>화를 내보낼 때 바뀌는 곳이 없어요'를 보인다.
 - 끄기 카드의 시험 줄은 '<N>화에서 적용하면 더 걸리지 않을 곳 <a>곳 · <b>곳이에요'다(정할 것 11).
+- `timed_out` 인 끄기 카드는 시험 줄 대신 '<N>화에 걸어 보니 시험 시간이 넘었어요. 끄면 이 규칙은 더 걸리지 않아요'를 보인다.
 - 시험하지 않았으면 '시험할 본문이 없어요'.
 - 다른 작품이 켠 묶음이면 '다른 작품 <N>개에도 걸려요'.
 - 새 묶음이면 '적용하면 새 묶음을 만들고 이 작품에서 켜요'.
 - 알림(`notices`)은 카드 아래 줄로 보인다.
 - 버튼은 다른 카드와 같다(적용 · 적용 안 함). '이 세션에서 묻지 않기'는 없다.
-- 적용한 뒤 알림은 '규칙을 넣었어요. 다음에 본문을 쓸 때부터 걸려요'다(`agentDecide` 의 `a.regex` 갈래). 규칙 카드는 턴을 끝내므로 '이어서 돌아요'를 보이지 않는다.
+- 적용한 뒤 알림은 규칙에 따라 다르다(`agentDecide` 의 `a.regex` 갈래, `agentRxDone`). 정할 것 12 의 '언제부터 걸리는지'를 따른다.
+- 고침 규칙은 '규칙을 넣었어요. 다음에 본문을 쓸 때부터 걸려요'다.
+- 경고 규칙은 '규칙을 넣었어요. 다음 검수부터 걸려요'다.
+- 내보내기 규칙은 '규칙을 넣었어요. 다음에 내보낼 때부터 걸려요'다.
+- 끄기 카드는 '규칙을 껐어요. 다음 걸기부터 걸리지 않아요'다.
+- 규칙 카드는 턴을 끝내므로 '이어서 돌아요'를 보이지 않는다.
 - 답한 뒤에는 다른 카드처럼 `.approval.settled` 로 접는다.
 
 '바뀐 것' 목록:
@@ -334,6 +347,8 @@ Q33: 정규식 규칙 제안은 6 뒤의 조각 6b 가 맡는다.
 - 켜지 않은 묶음 id 를 주면 막힌다.
 - 나쁜 정규식(`(a+)+`)은 카드 없이 `block` 단계가 남고 그 `why` 에 `regexrules.REFUSE` 문구가 든다. 턴이 끝나면 `agent._strip` 이 `result` 를 지우므로 `result` 로 보지 않는다.
 - 시간 한도를 넘는 경고 규칙(기본 `action=warn`)은 카드 없이 막힌다(`trial(strict=True)`).
+- 시간 한도를 넘는 켠 규칙을 끄는 카드는 막히지 않고 `timed_out` 이 든다. 적용하면 규칙이 꺼진다.
+- 지금 `validate` 를 통과하지 못하는 옛 규칙(`(a+)+`)도 끄기 카드로 끌 수 있다. 같은 규칙의 다른 칸을 고치면 막힌다.
 - 카드에 시험 결과(바뀐 곳 수 · 걸린 곳 수 · 시험한 화)가 든다.
 - 내보내기 규칙 카드에 `export_changed` 가 든다.
 - 끄기 카드(`enabled=false`)의 시험 결과는 적용 전 규칙으로 건 값이다.
@@ -345,7 +360,9 @@ Q33: 정규식 규칙 제안은 6 뒤의 조각 6b 가 맡는다.
 - 적용 뒤 같은 규칙을 다시 고쳤으면 되돌리기가 `kept` 로 남긴다.
 - 묶음을 지웠으면 되돌리기가 `kept` 로 남긴다.
 - 새 묶음 되돌리기는 작품에서 끄고, 묶음에 그 규칙만 남아 있고 다른 작품이 켜지 않았으면 묶음 파일을 지운다.
-- 그때 디스크의 이 작품은 아직 그 묶음을 켠 채라 `used_by` 에 들지만, `RegexCard.project` 를 빼고 세므로 묶음 파일을 지운다.
+- 그때 디스크의 이 작품은 아직 그 묶음을 켠 채라 `used_by` 에 들지만, 지금 작품이 켰으면 1을 빼고 세므로 묶음 파일을 지운다.
+- 복제한 작품에서 그 묶음을 끄고 되돌려도 원본이 켠 묶음 파일은 지우지 않는다.
+- 이름을 바꾼 작품에서 되돌리면 묶음 파일을 지운다.
 - 카드를 만든 뒤 고칠 규칙을 바꾸면 적용이 400 이고 카드가 `wait` 로 남는다.
 - 적용 · 되돌리기에서 LLM 을 부르지 않는다(`test_agent_style.py` 의 `_usage_calls` 꼴).
 - 긴 `read_rules` 결과는 `agent._cut` 을 거쳐 `RESULT_LIMIT` 자 뒤에 자름 안내 줄('… (예산 2500자에서 잘랐어요)')로 끝난다.

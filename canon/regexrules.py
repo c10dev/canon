@@ -22,7 +22,7 @@ import time
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, Collection, Optional
 
 from . import store
 from .schema import ConsistencyIssue, Episode, Project, RegexRule, RuleBundle, RuleBundleVersion, RuleChange, RuleRun
@@ -136,10 +136,12 @@ def entries() -> list[RuleBundle]:
     return sorted(out, key=lambda b: b.updated_at, reverse=True)
 
 
-def check(rules: list[RegexRule]) -> list[str]:
-    """묶음의 규칙 모두를 검사한다. 오류마다 '<규칙 이름> · 이 정규식은 저장할 수 없어요: …'."""
+def check(rules: list[RegexRule], skip: Collection[str] = ()) -> list[str]:
+    """묶음의 규칙 모두를 검사한다. 오류마다 '<규칙 이름> · 이 정규식은 저장할 수 없어요: …'. skip 의 id 인 규칙은 건너뛴다."""
     out = []
     for k, r in enumerate(rules, 1):
+        if r.id in skip:
+            continue
         for e in validate(r):
             out.append(f"{r.comment or f'{k}번 규칙'} · {e}")
     return out
@@ -159,6 +161,33 @@ def update(bid: str, name: str, notes: str, rules: list[RegexRule], note: str = 
         raise ValueError("\n".join(errors))
     b = load(bid)
     b.name, b.notes, b.rules = name, notes, list(rules)
+    return save(b, note)
+
+
+def switched_off(old: Optional[RegexRule], new: Optional[RegexRule]) -> bool:
+    """켠 규칙을 끄기만 하는지 (enabled 말고 다른 칸은 그대로)."""
+    return old is not None and new is not None and old.enabled and not new.enabled and old.model_copy(update={"enabled": False}) == new
+
+
+def set_rule(bid: str, rid: str, rule: Optional[RegexRule], note: str = "") -> RuleBundle:
+    """묶음을 다시 읽어 id 가 rid 인 규칙 하나만 rule 로 바꾼다. 없으면 끝에 더하고, rule 이 None 이면 뺀다. 다른 규칙은 그대로다.
+    넣은 뒤 묶음 전체를 check 로 검사하고 저장한다 (대화 에이전트의 규칙 제안, agent_regex). 오류가 있으면 ValueError 로 저장하지 않는다.
+    저장한 규칙을 끄기만 하면(switched_off) 그 규칙은 검사하지 않는다. 지금 검사를 통과하지 못하는 옛 규칙도 끌 수 있게 하려는 것이다."""
+    b = load(bid)
+    rules = list(b.rules)
+    k = next((i for i, r in enumerate(rules) if r.id == rid), -1)
+    skip = {rid} if k >= 0 and switched_off(rules[k], rule) else set()
+    if rule is None:
+        if k >= 0:
+            rules.pop(k)
+    elif k >= 0:
+        rules[k] = rule.model_copy(deep=True)
+    else:
+        rules.append(rule.model_copy(deep=True))
+    errors = check(rules, skip)
+    if errors:
+        raise ValueError("\n".join(errors))
+    b.rules = rules
     return save(b, note)
 
 
@@ -815,12 +844,24 @@ def hits(p: Project, text: str, n: int, only: str = "", strict: bool = False) ->
     return _issues(pairs, text, n, strict)
 
 
-def trial(rules: list[RegexRule], text: str, bid: str = "", name: str = "시험") -> dict:
-    """규칙 시험 (저장하지 않음): 고침 규칙을 건 본문 · 바뀐 곳 · 그 본문의 경고 지적 · 내보내기 규칙까지 건 글."""
+def trial(rules: list[RegexRule], text: str, bid: str = "", name: str = "시험", strict: bool = False) -> dict:
+    """규칙 시험 (저장하지 않음): 고침 규칙을 건 본문 · 바뀐 곳 · 그 본문의 경고 지적 · 내보내기 규칙까지 건 글.
+    skipped 는 고침 규칙을 건너뛴 묶음 이름이다. strict 가 참이면 경고 규칙의 건너뜀(RuleSkipped 문구)과
+    내보내기 규칙의 건너뜀(묶음 이름)도 skipped 에 담는다 (대화 에이전트의 규칙 카드, agent_regex.prepare). 규칙 화면의 시험은 거짓이다."""
     b = RuleBundle(id=bid or "0" * 12, name=name, rules=list(rules))
     text2, changes, skipped = _apply(_pick([b], "output", "fix"), text)
-    issues = [] if skipped else _issues(_pick([b], "output", "warn"), text2, 0)
-    exported = text2 if skipped else _apply(_pick([b], "export", "fix"), text2)[0]
+    issues: list[ConsistencyIssue] = []
+    if not skipped:
+        try:
+            issues = _issues(_pick([b], "output", "warn"), text2, 0, strict)
+        except RuleSkipped as e:
+            skipped = str(e)
+    if skipped:
+        exported = text2
+    else:
+        exported, _, gone = _apply(_pick([b], "export", "fix"), text2)
+        if strict and gone:
+            skipped = gone
     return {"text": text2, "changes": [c.model_dump() for c in changes], "hits": [i.model_dump() for i in issues],
             "exported": exported, "skipped": skipped}
 

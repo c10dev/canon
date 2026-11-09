@@ -230,6 +230,8 @@
 - 가짜 문체 프로필은 시험 원문에 있는 표지 · 장치와 걸러져야 할 표지 · 장치를 함께 낸다 (`count_markers` 와 문체 넣은 쓰기 경로 시험)
 - `CUT_TEXT` 에 넣은 만큼 다음 글 응답을 앞 절반만 내고 `last_finish` 를 `MAX_TOKENS` 로 둔다(끊긴 본문 시험)
 - `MockLLM.text_stream` 은 `text` 와 같은 글을 `STREAM_PIECES`(6) 조각으로 나눠 낸다. 조각마다 멈추기 신호를 본다
+- 대화 에이전트 단계 `_agent_step` 은 말에 '규칙'과 «찾을 글»(또는 `rule=id`)이 들면 `revise_text` 갈래보다 먼저 `propose_regex` 를 부른다
+- 그 인자(`_regex_args`): 둘째 «» 는 바꿀 글, '고침' 은 fix, '나쁜 규칙' 은 겹친 반복 `(a+)+`, 말 속 `k=v` 는 그 인자다. 막혀 돌아오면 답만 한다
 - 새 기능의 가짜 응답은 `mock_<기능>.py` 에 `@responds(스키마)` 로 두고(`RESPONDERS`) `mock.py` 맨 끝에서 불러온다
   - `mock_audit.py` 상태 변경안 누락 검사 (본문 앞 두 문장과 본문에 없는 인용 하나)
   - `mock_birth.py` 출생 배경

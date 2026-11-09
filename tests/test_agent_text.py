@@ -174,7 +174,7 @@ def test_card_blocked_while_auto_and_new_turn_drops_it(client, calls, monkeypatc
 
 
 def test_always_ask_and_permit():
-    assert agent.ALWAYS_ASK == ("renumber", "text", "setup", "style")  # 04c 의 설정 도구 · 04d 의 문체 도구도 늘 묻는다
+    assert agent.ALWAYS_ASK == ("renumber", "text", "setup", "style", "rule")  # 04c 설정 · 04d 문체 · 06b 정규식 규칙 제안도 늘 묻는다
     assert agent.KIND_LABELS["text"] == "본문 고치기"
     from canon.schema import AgentSession
     for mode in ("ask", "draft", "all"):
