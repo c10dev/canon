@@ -267,6 +267,11 @@
 ### `canon/routes/research.py`
 
 - 연구 화면 웹 라우트(`/api/projects/{name}/research/...`)
+- 실험 다섯(샘플 · 단계 · 검수 시험 · 프롬프트 재기 · 블라인드 비교 쓰기)은 작업 `rs_<실험>` 으로도 돈다(`_job_research`, `JobIn.trial` 에 옛 요청 모양). 화면은 작업으로 부른다
+- 작업은 옛 경로와 같은 기록 줄을 `research/log.jsonl` 에 남기고, 사용량을 source · stage `research` 와 실험 이름으로 적는다(`_rs_scope`)
+- 기록에 결과 전체가 남는 실험(샘플 · 단계 · 검수 시험)은 작업 결과에 기록 id 만 싣는다. 프롬프트 재기는 기록이 요약뿐이라 표 전체를 싣는다
+- 실험이 고른 백엔드를 쓰므로 `OWN_LLM_KINDS` 에 든다. 모르는 백엔드 · 같은 두 백엔드 · 없는 화는 시작 전에 400 이다
+- 옛 동기 경로(`research/sample` · `stage` · `check` · `budget` · `compare/{n}`)는 시험이 쓰는 동안 남긴다
 - 사용량 응답 모델(`UsageBucket` · `UsageCall` · `PriceTable`)은 `usage.summary` · `usage.price_table` 의 칸 가운데 적힌 것만 내보낸다
 - `usage` 의 묶음 · 호출 줄 · 가격표에 새 칸을 더하면 이 응답 모델에도 더한다
 - `web.py` 맨 끝의 `_attach_routes` 가 `router` 를 앱에 붙이고 `EXPORTS` 의 이름을 `web` 에도 둔다
@@ -287,6 +292,10 @@
 ### `canon/routes/studio.py`
 
 - 문단 연습장 웹 라우트(`/api/studio/...`)
+- AI 호출 넷(AI 안 · 박자 짚기 · 다른 상황 · 독자로 읽기)은 작업으로도 돈다(`POST /api/studio/{sid}/jobs`, 종류 `stu_<kind>`)
+- 작품 밖이라 작업 목록의 project 자리는 `STU_JOBS`(`.studio`), 대상은 세션 id, 독자로 읽기는 화 자리에 시도 번호다
+- 작업은 시작할 때 카드로 부르고, 결과를 남기기 직전에 세션을 다시 읽어 그사이 바뀐 시도를 덮지 않는다
+- 옛 동기 경로(`draft` · `anatomy` · `variants` · `tries/{no}/reader`)는 시험이 쓰는 동안 남긴다
 - `web.py` 맨 끝의 `_attach_routes` 가 `router` 를 앱에 붙이고 `EXPORTS` 의 이름을 `web` 에도 둔다
 - 공용 도우미(`_load` · `_save` · `_edit` 등)는 `..web` 에서 불러 쓴다
 
@@ -445,6 +454,8 @@
 - 구조 칸 `stuStructureForm`: 박자 줄(`data-stu-beat`, 더하기 `stuBeatAdd` · 옮기기 `stuBeatMove` · 빼기 `stuBeatDrop`, 목록은 `beats`) · 가릴 것 · 감각 전환 · 본보기 보이기
 - 본보기 카드의 뜯어보기 `stuAnatomy` · 결과 `stuAnatomyHtml` · 카드에 적용 `stuAnatomyApply`, 상황 바꿔 보기 카드 `stuVariantCard`(`stuVariants`, 새 연습 `stuFromVariant`), 시도의 독자 질문 `stuReader` · `stuReaderHtml`
 - AI 호출 전 카드 저장 `stuCall`. CSS 는 JS 에서 주입(`STU_CSS`)
+- AI 안 쓰기 · 뜯어보기 · 상황 바꿔 보기 · 독자 질문은 화면을 막지 않는 작업이다(`stuStartJob`, 고친 카드를 먼저 저장). 버튼은 `stuBtn`(`jobBtn(…, STU_JOBS, 세션 id)`)으로 '만드는 중'을 그린다
+- 작업이 끝나면 그 세션을 보고 있을 때 다시 받는다(`stuJobDone`). 고치던 카드(`S.stuDirty`)는 서버 것으로 바꾸지 않고 남긴다
 - 시도 카드: 지표 칩(`stuChecks`: 지켰나 ✓ · 못 지킴 ✕ · 읽고 판단 ?), 글자 · 문장 · 대사 비율, 걸린 곳 «인용», 문체 표지 횟수
 - 고쳐 쓰기(`stuRewrite`)는 그 시도 글을 직접 쓰기 칸에 옮기고 `base` 로 남긴다. AI 안은 고치지 않고 작가 글만 고친다(`stuEditOpen`)
 - 시도 고치기 칸의 글은 `S.stuEditText`(`data-local`)에 두어 다른 버튼으로 다시 그려도 남는다. 다른 시도를 열거나 그만둘 때 고친 것이 있으면 묻는다(`tests/test_studio_js.py`)

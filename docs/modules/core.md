@@ -1096,6 +1096,8 @@
 - `atlas_suggest`(`JobIn.spec`) · `atlas_sort`(`JobIn.texts`)는 제안만 돌려주고 작품을 바꾸지 않는다. `atlas_sort` 는 정리할 위치 글이 없으면 시작 전에 400 이다
 - 옛 동기 경로(`…/findings/{fid}/fixes` · `recheck`, `…/episodes/{n}/illust`, `atlas/generate/suggest` · `atlas/sort`)는 명령줄 · 시험이 쓰는 동안 남긴다
 - 플레이 시작(`POST …/play/start`)은 작업으로 옮기지 않았다. 폴더 복사만 동기이고 AI 호출은 이미 작업 `play_turn` 이다
+- 연구 실험 작업 `rs_sample` · `rs_stage` · `rs_check` · `rs_budget` · `rs_compare` 는 `routes/research.py` 가 `JOB_MAKERS` 에 더한다. 요청은 `JobIn.trial` 이다
+- `OWN_LLM_KINDS` 의 작업은 단계 LLM 대신 작업이 고른 백엔드를 쓴다. `start_job` 은 그 작업에 `get_llm` 을 부르지 않는다
 - 쓴 뒤 바로 검수(`Settings.check_after_write`, 기본 끔, `PUT …/check-after-write`): 처음 쓰는 본문이면 작업 `write` 가 저장 뒤 검수 걸음(`_run_check`, 작업 `check` 와 같은 함수)을 잇는다
 - 쓴 뒤 검수 걸음 전에 그 화를 내려놓고(`Job.release`) `Job.step_ep` 를 그 화로 둔다. 화면은 본문을 먼저 받고 작가는 검수하는 동안 고칠 수 있다
 - 쓴 뒤 검수가 실패해도 작업은 끝남이고 결과에 `check_error` 를 싣는다. 성공하면 결과 `check` 는 작업 `check` 의 결과와 같다

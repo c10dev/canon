@@ -647,6 +647,60 @@ function rsGot(sec, x) {
   delete S.rs.open[sec];
 }
 
+// 실험 다섯(샘플 생성 · 단계 시험 · 검수 시험 · 컨텍스트 크기 · 블라인드 비교 쓰기)은 백그라운드 작업 rs_<쪽>으로 돈다 (routes/research._job_research).
+// 기다리는 동안 다른 칸을 고칠 수 있다. 서버가 옛 경로처럼 research/log.jsonl 에 기록을 남기고, 끝나면 화면이 기록을 다시 읽어 결과 카드에 놓는다.
+// 작업은 실험이 고른 백엔드를 쓴다. startJob 이 저장하지 않은 작품 변경을 묻지 않고 먼저 저장한다 (opt.quiet)
+const RS_JOB_SECS = ['sample', 'stage', 'check', 'budget', 'compare'];
+const RS_DONE = { sample: '샘플 생성이 끝났어요.', stage: '단계 시험이 끝났어요.', check: '검수 시험이 끝났어요.', budget: '화별 프롬프트를 쟀어요.' };
+for (const sec of RS_JOB_SECS) {
+  const kind = `rs_${sec}`;
+  JOB_PAGES[kind] = ['research'];
+  JOB_LINK[kind] = (j) => `#/p/${enc(j.project)}/research/${sec}`;
+  JOB_DONE_MSG[kind] = sec === 'compare' ? (j) => `${j.ep}화 블라인드 비교본을 썼어요. 가려 읽고 골라 보세요.` : RS_DONE[sec];
+}
+JOB_BTNS.rsSample = () => ['rs_sample'];
+JOB_BTNS.rsStage = () => ['rs_stage'];
+JOB_BTNS.rsCheck = () => ['rs_check'];
+JOB_BTNS.rsBudget = () => ['rs_budget'];
+JOB_BTNS.rsCompare = () => ['rs_compare', undefined, S.rs && S.rs.compareEp];
+/** 결과를 받은 뒤 연구 화면을 다시 그린다. 입력 중이면 미뤄 두고 입력을 마치면 그린다 (app.js focusout) */
+function rsRepaint() {
+  if (S.route[2] !== 'research') return;
+  if (isTyping() || selecting()) S.renderPending = true;
+  else render();
+}
+/** 연구 화면 상태(S.rs)가 그 작품 것이다. 아니면 결과는 기록에 남았으니 화면을 열 때 기록에서 본다 */
+const rsMine = (j) => !!S.rs && S.rs.name === j.project;
+for (const sec of ['sample', 'stage', 'check']) {
+  /** 기록에 결과 전체가 남는 실험: 작업 결과는 기록 id 다. 기록을 다시 읽고 그 줄을 결과 카드에 놓는다 */
+  JOB_RESULT[`rs_${sec}`] = (j) => {
+    if (!rsMine(j)) return null;
+    const id = (j.result || {}).id;
+    rsLoadLog().then(() => {
+      const x = (S.rs.latest || {})[sec];
+      if (x && x.id === id) rsGot(sec, x);
+      rsRepaint();
+    }).catch(() => {});
+    return null;
+  };
+}
+JOB_RESULT.rs_budget = (j) => {
+  if (!rsMine(j)) return null;
+  rsGot('budget', j.result);  // 기록에는 요약만 남아 표 전체는 작업 결과로 온다
+  rsLoadLog().then(rsRepaint).catch(() => {});
+  return null;
+};
+/** 비교본은 compare/ 에 남았다. 그 화를 보고 있으면 받아서 바꾼다 */
+JOB_RESULT.rs_compare = (j) => {
+  if (!rsMine(j)) return null;
+  const n = j.ep;
+  Promise.all([S.rs.compareEp === n ? api('GET', `/projects/${enc(j.project)}/research/compare/${n}`) : null, rsLoadLog()]).then(([r]) => {
+    if (r && S.rs.compareEp === n) { S.rs.compare = r.compare; S.rs.pickResult = null; }
+    rsRepaint();
+  }).catch(() => {});
+  return null;
+};
+
 // 신체 프로필 · 서술 말투 AI 제안은 백그라운드 작업으로 돈다 (web._job_char_ai). 기다리는 동안 다른 칸을 읽고 고칠 수 있다.
 // 작업은 저장된 인물 설정을 읽으므로 방금 고친 나이 · 외모도 보게 묻지 않고 먼저 저장한다 (startJob opt.quiet)
 JOB_PAGES.char_body = ['cast'];
@@ -794,39 +848,20 @@ Object.assign(actions, {
     if (!S.rs.prompt.trim()) return toast('요청 문장을 넣어요', true);
     if (!S.rs.runs.length) return toast('백엔드를 하나 이상 골라요', true);
     const t = S.rs.temperature === '' ? null : Number(S.rs.temperature);
-    await run(`${S.rs.runs.length}개 백엔드로 생성하는 중… (백엔드마다 차례로)`, async () => {
-      const x = await api('POST', `/projects/${enc(S.name)}/research/sample`,
-        { runs: S.rs.runs.map(rsBackend), system: S.rs.system, prompt: S.rs.prompt, temperature: t });
-      rsGot('sample', x);
-      await rsLoadLog();
-    });
+    await startJob('rs_sample', null, { trial: { runs: S.rs.runs.map(rsBackend), system: S.rs.system, prompt: S.rs.prompt, temperature: t } }, { quiet: true });
   },
   async rsStage() {
-    await run(`${S.rs.stages[S.rs.stage] || S.rs.stage} 시험하는 중… (저장하지 않음)`, async () => {
-      const x = await api('POST', `/projects/${enc(S.name)}/research/stage`,
-        { backend: rsBackend(S.rs.stageBackend), stage: S.rs.stage, sample: S.rs.stageText });
-      rsGot('stage', x);
-      await rsLoadLog();
-    });
+    await startJob('rs_stage', null, { trial: { backend: rsBackend(S.rs.stageBackend), stage: S.rs.stage, sample: S.rs.stageText } }, { quiet: true });
   },
   async rsCheck() {
     const n = Number(S.rs.checkEp || ($('#rs-check-ep') || {}).value);
     if (!n) return toast('본문이 있는 화를 골라요', true);
-    await run(`${n}화에 모순을 심고 검수 방식마다 검수하는 중… (저장하지 않음)`, async () => {
-      const x = await api('POST', `/projects/${enc(S.name)}/research/check`,
-        { backend: rsBackend(S.rs.checkBackend), episode: n, plants: Number(S.rs.checkPlants) || 3,
-          ...(S.rs.checkTwoStep ? { judge: rsBackend(S.rs.checkJudge) } : {}), stage: !!S.rs.checkStage,
-          ...(S.rs.checkEnglish ? { langs: ['ko', 'en'] } : {}) });
-      rsGot('check', x);
-      await rsLoadLog();  // 기록과 갈래별 합계를 함께 새로
-    });
+    await startJob('rs_check', null, { trial: { backend: rsBackend(S.rs.checkBackend), episode: n, plants: Number(S.rs.checkPlants) || 3,
+      ...(S.rs.checkTwoStep ? { judge: rsBackend(S.rs.checkJudge) } : {}), stage: !!S.rs.checkStage,
+      ...(S.rs.checkEnglish ? { langs: ['ko', 'en'] } : {}) } }, { quiet: true });  // 끝나면 기록과 갈래별 합계를 함께 새로 (JOB_RESULT.rs_check)
   },
   async rsBudget() {
-    await run('화별 프롬프트를 재는 중', async () => {
-      const x = await api('POST', `/projects/${enc(S.name)}/research/budget`, rsBackend(S.rs.budgetBackend));
-      rsGot('budget', x);
-      await rsLoadLog();
-    });
+    await startJob('rs_budget', null, { trial: rsBackend(S.rs.budgetBackend) }, { quiet: true });
   },
   async rsCompareEp(n) {
     S.rs.compareEp = Number(n || $('#rs-cmp-ep').value);
@@ -838,12 +873,7 @@ Object.assign(actions, {
   async rsCompare() {
     const n = S.rs.compareEp;
     if (S.rs.compare && !S.rs.compare.picked && !(await askConfirm(`${n}화의 고르지 않은 비교본을 새로 쓴 것으로 바꿀까요?`, { ok: '바꾸기', danger: true }))) return;
-    await run(`${n}화를 두 백엔드로 쓰는 중… (몇 분 걸릴 수 있어요)`, async () => {
-      S.rs.compare = (await api('POST', `/projects/${enc(S.name)}/research/compare/${n}`,
-        { a: rsBackend(S.rs.compareA), b: rsBackend(S.rs.compareB) })).compare;
-      S.rs.pickResult = null;
-      await rsLoadLog();
-    });
+    await startJob('rs_compare', n, { trial: { a: rsBackend(S.rs.compareA), b: rsBackend(S.rs.compareB) } }, { quiet: true });  // 몇 분 걸릴 수 있다
   },
   async rsPickDraft(k) {
     const n = S.rs.compareEp;

@@ -2579,6 +2579,7 @@ class JobIn(BaseModel):
     model: str = ""  # illust: 삽화 모델 (illust.MODELS)
     spec: MapSpec | None = None  # atlas_suggest: 지도 화면에서 지금 고른 설정
     texts: list[str] | None = None  # atlas_sort: 정리할 위치 글 (비우면 맞지 않은 글 모두)
+    trial: dict | None = None  # rs_*: 연구 실험 요청 (routes/research 의 SampleIn · StageIn · CheckTrialIn · Backend · CompareIn 모양)
 
 
 def _edit(name: str, fn) -> Project:
@@ -3469,6 +3470,10 @@ JOB_MAKERS: dict[str, Callable] = {
 }
 
 
+# 단계 LLM 대신 작업이 고른 백엔드를 쓰는 작업 (연구 실험 rs_*, routes/research 가 더한다). start_job 이 get_llm 을 부르지 않는다
+OWN_LLM_KINDS: set[str] = set()
+
+
 @app.post("/api/projects/{name}/jobs")
 def start_job(name: str, body: JobIn) -> dict:
     """오래 걸리는 AI 작업을 시작하고 바로 돌아온다. 결과는 GET /api/jobs 로 본다."""
@@ -3482,7 +3487,7 @@ def start_job(name: str, body: JobIn) -> dict:
              "hook": "check", "check": "check", "recheck": "check", "opening_drafts": "write", "stattrial": "write", "stage_extract": "check", "cue_run": "write",
              "board": "board", "cues": "board", "char_look": "illustration", "names_ai": "name", "style_example": "write",
              "fix_one": "revise", "recheck_one": "check", "illust": "illustration", "atlas_sort": "state"}.get(kind, "plan")  # 나머지는 plan
-    llm = get_llm(stage)  # 키가 없으면 여기서 바로 오류를 보여 준다
+    llm = None if kind in OWN_LLM_KINDS else get_llm(stage)  # 키가 없으면 여기서 바로 오류를 보여 준다
 
     maker = JOB_MAKERS.get(kind)
     if maker is None:
