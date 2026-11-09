@@ -45,7 +45,7 @@ class SentPrompt(BaseModel):
     system: str = ""
     prompt: str = ""
     head_chars: int = 0  # prompt 앞 몇 글자가 캐시 앞부분(prompts.write_head)이었나. 0 이면 경계 없이 보냈다
-    family: bool = False  # 백엔드가 캐시 가족 경계를 받았다 (Claude 는 시스템을 llm.FAMILY_SYSTEM 으로 바꾸고 system 을 요청 앞에 둔다)
+    family: bool = False  # 백엔드가 캐시 가족 경계를 받았다 (Claude 는 시스템을 prompts.FAMILY_SYSTEM 으로 바꾸고 system 을 요청 앞에 둔다)
     tail: str = ""  # 실제 백엔드가 요청 끝에 붙이는 정책 줄 (llm.with_note). 가짜 응답(mock)은 붙이지 않는다
     attempt: int = 1  # 받은 호출 번호
     retries: list[SentRetry] = Field(default_factory=list)

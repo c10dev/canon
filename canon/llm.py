@@ -104,15 +104,16 @@ PREFIX_HINT = "prefix_chars"
 
 
 # 캐시 가족: 같은 앞부분(검수 자료, 장편 쓰기 자료)을 쓰는 호출들. Claude 는 PREFIX_HINT 를 받으면 시스템 프롬프트를
-# 가족 공통 글(FAMILY_SYSTEM)로 바꾸고 단계마다 다른 시스템 프롬프트는 사용자 메시지 앞(role_block)으로 옮긴다.
-# 시스템 프롬프트가 다르면 캐시가 맞지 않기 때문이다. 이 글을 바꾸면 쌓인 캐시를 모두 새로 쓴다.
-FAMILY_SYSTEM = ("당신은 연재 소설 작업을 돕는 편집자입니다. 아래 자료는 이 작품의 설정과 본문입니다. "
-                 "이번 요청에서 맡을 역할과 할 일은 사용자 메시지에 있습니다. 그 역할과 요구사항을 따릅니다.")
+# 가족 공통 글(prompts.FAMILY_SYSTEM)로 바꾸고 단계마다 다른 시스템 프롬프트는 사용자 메시지 앞(role_block)으로 옮긴다.
+# 시스템 프롬프트가 다르면 캐시가 맞지 않기 때문이다. 공통 글은 머리말(prompts.PREAMBLE)로 시작해서 prompts.py 에 둔다.
 
 
 def role_block(system: str) -> str:
-    """가족 호출에서 사용자 메시지 맨 앞에 두는 원래 시스템 프롬프트."""
-    return f"# 이번 요청에서 맡을 역할\n{system.strip()}\n\n"
+    """가족 호출에서 사용자 메시지 맨 앞에 두는 원래 시스템 프롬프트. 머리말은 시스템 자리의 공통 글에 이미 있어 뺀다.
+    이 글을 바꾸면 쌓인 캐시를 모두 새로 쓴다."""
+    from .prompts import PREAMBLE
+
+    return f"# 이번 요청에서 할 일\n{system.removeprefix(PREAMBLE).strip()}\n\n"
 
 
 def family_text(llm: Any, system: str, prompt: str, head: str) -> str:

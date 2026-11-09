@@ -33,7 +33,7 @@
 - 대가: Claude Code 가 한 호출 안에서 같은 요청을 다시 보내면(`resent`) 그 요청도 캐시를 읽지 못한다
 - API 는 그 끝에 `cache_control` 을 단다(`cache_blocks`)
 - 구독은 캐시 표시를 고를 수 없어 그 앞부분을 시스템 프롬프트 뒤로 옮겨 `--system-prompt-file` 로 넘긴다(`ClaudeCodeLLM._split`)
-- 캐시 가족: 경계(`PREFIX_HINT`)를 받은 호출은 시스템 프롬프트를 가족 공통 글 `llm.FAMILY_SYSTEM` 으로 둔다. 원래 시스템 프롬프트는 사용자 메시지 맨 앞(`llm.role_block`)으로 옮긴다
+- 캐시 가족: 경계(`PREFIX_HINT`)를 받은 호출은 시스템 프롬프트를 가족 공통 글 `prompts.FAMILY_SYSTEM` 으로 둔다. 원래 시스템 프롬프트는 사용자 메시지 맨 앞(`llm.role_block`)으로 옮긴다
 - 시스템 프롬프트가 다르면 캐시가 맞지 않아서다. 그래서 검수 · 고침안 · 다시 검수 · 상태 변경안이 한 앞부분을, 스토리보드 · 큐 시트 · 본문 쓰기가 다른 한 앞부분을 함께 쓴다
 - 구독의 가족 호출은 `--json-schema` 를 쓰지 않는다. 스키마마다 다른 도구가 붙고 도구는 시스템 프롬프트보다 앞이라 캐시가 갈린다
 - 구독의 가족 호출은 요청 끝에 `json_instruction`(스키마 JSON 과 'JSON 객체 하나만' 지시)을 붙이고 받은 글을 `_parse` 로 검증한다. 형식이 틀리면 다른 호출처럼 한 번 고쳐 묻는다
@@ -95,7 +95,8 @@
 - 로컬 모델 목록은 `LOCAL_LIST_TIMEOUT`(30초)까지만 기다린다. 멈춘 서버에서 모델 이름을 찾느라 본 호출만큼 더 기다리지 않게
 - 단계별 선택(`get_llm(stage)`)
 - 단계 이름은 `settings.STAGES` 다
-- 캐시 가족 공통 시스템 프롬프트 `FAMILY_SYSTEM` · 역할 블록 `role_block`. 이 글을 바꾸면 쌓인 캐시를 모두 새로 쓴다
+- 캐시 가족의 역할 블록 `role_block`. 제목은 '# 이번 요청에서 할 일'이고, 옮긴 시스템 프롬프트에서 머리말을 뺀다. 이 글을 바꾸면 쌓인 캐시를 모두 새로 쓴다
+- 캐시 가족 공통 시스템 프롬프트 `FAMILY_SYSTEM` 은 머리말로 시작해서 `prompts.py` 에 둔다(`llm.py` 가 `prompts` 보다 먼저 불려 머리말을 가져오지 못한다)
 - `family_text(llm, system, prompt, head)` 는 요청이 head 로 시작하고 백엔드가 `family_cache` 면 `text` 에 경계 hint 를 넘긴다. 아니면 `text(system, prompt)` 만 부른다(다른 백엔드 · 시험용 가짜 LLM)
 - Gemini 429 요청 한도는 `GeminiLLM._call` 이 `RATE_WAITS`(30 · 60 · 120초)만큼 기다려 다시 부른다(기다리기 전 `cancel.check`, 실패한 시도는 하나씩 사용량에 실패로)
 - 429 오류에 서버가 `RetryInfo.retryDelay` 를 주면 `rate_pause` 가 그 값(올림, `RATE_WAITS` 의 가장 긴 값까지)을 기다린다(`retry_delay`)

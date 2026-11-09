@@ -79,6 +79,15 @@ def system_prompt(task: str, korean: bool = True) -> str:
     어느 프롬프트가 머리말을 받는지는 tests/test_style_prompts.py 의 NO_PREAMBLE 이 정한다."""
     return PREAMBLE + task + (" " + KOREAN_LINE if korean else "")
 
+
+# 캐시 가족(llm.role_block)의 시스템 자리 공통 글. 이 글을 바꾸면 Claude 에 쌓인 캐시를 모두 새로 쓴다.
+# 할 일은 사용자 메시지 앞의 원래 시스템 프롬프트가 들고 오고, 그 글이 출력 언어도 밝히므로 한국어 줄을 붙이지 않는다 (영어 검수도 이 길을 탄다).
+FAMILY_SYSTEM = system_prompt(
+    "연재 소설 작업을 돕습니다. 아래 자료는 이 작품의 설정과 본문입니다. "
+    "이번 요청에서 할 일은 사용자 메시지에 있습니다. 그 요구사항을 따릅니다.",
+    korean=False,
+)
+
 # 기획 단계(설정 제안 · 문체 분석 · 구조 · 플롯 · 스토리보드 · 큐 시트 등)의 시스템 프롬프트. 본문 프롬프트와 같은 머리말로 시작하고 역할 문장은 두지 않는다 (작가 결정, 2026-11-09).
 SYSTEM_PLANNER = system_prompt(
     "한국 웹소설과 단편소설을 기획합니다. "
@@ -121,13 +130,13 @@ SYSTEM_EDITOR = system_prompt(
 )
 
 
-SYSTEM_NAMER = (
-    "당신은 한국 웹소설 편집자로, 인물과 장소의 이름을 고릅니다. 시대, 나이, 신분, 세계관의 말맛에 맞는 이름을 고르고 "
-    "AI 가 흔히 쓰는 이름은 피합니다. 모든 출력은 한국어로 작성합니다."
+SYSTEM_NAMER = system_prompt(
+    "한국 웹소설의 인물과 장소 이름을 고릅니다. 시대, 나이, 신분, 세계관의 말맛에 맞는 이름을 고르고 "
+    "AI 가 흔히 쓰는 이름은 피합니다."
 )
 
-SYSTEM_CHECKER = (
-    "당신은 연재 소설의 교정 편집자입니다. 이번 화 본문이 앞선 본문, 설정, 확정 사실과 모순되는지만 찾습니다. "
+SYSTEM_CHECKER = system_prompt(
+    "연재 소설을 교정합니다. 이번 화 본문이 앞선 본문, 설정, 확정 사실과 모순되는지만 찾습니다. "
     "모든 지적에는 앞선 근거와 이번 화의 문장을 원문 그대로 인용합니다. 인용할 근거가 없으면 지적하지 않습니다. "
     "문장의 좋고 나쁨이나 취향은 평가하지 않습니다."
 )
@@ -417,10 +426,10 @@ sound_effects 에는 인물 행동이 내는 소리와 몸짓을 원문이 적�
 {sample}"""
 
 
-SYSTEM_STYLE_EDITOR = (
-    "당신은 한 작가의 문체를 오래 봐 온 편집자입니다. 작가가 AI 초안을 고친 기록만 근거로, "
+SYSTEM_STYLE_EDITOR = system_prompt(
+    "한 작가의 문체를 오래 봐 온 눈으로, 작가가 AI 초안을 고친 기록만 근거로 "
     "작가가 되풀이해서 고치는 방향을 문체 규칙으로 정리합니다. 한 번뿐인 고침이나 내용(사건, 설정, 사실, 동선)을 "
-    "고친 것은 규칙으로 만들지 않습니다. 모든 출력은 한국어로 작성합니다."
+    "고친 것은 규칙으로 만들지 않습니다."
 )
 
 EDIT_SOURCE_TEXT = {"manual": "고른 부분을 직접 고침", "typed": "본문을 직접 고쳐 저장", "ai": "AI 후보 중 골라 넣음"}
@@ -662,9 +671,9 @@ def structure_block(card) -> str:
     return "".join(f"\n\n{x}" for x in parts)
 
 
-SYSTEM_ANATOMY = (
-    "당신은 소설 문장을 해부하는 편집자입니다. 문단이 독자의 상상을 어떻게 움직이는지 문장마다 짚습니다. "
-    "문장을 고쳐 쓰거나 평가하지 않고, 문장 내용을 옮겨 적지 않습니다. 모든 출력은 한국어로 작성합니다."
+SYSTEM_ANATOMY = system_prompt(
+    "소설 문장을 해부합니다. 문단이 독자의 상상을 어떻게 움직이는지 문장마다 짚습니다. "
+    "문장을 고쳐 쓰거나 평가하지 않고, 문장 내용을 옮겨 적지 않습니다."
 )
 
 
@@ -710,9 +719,9 @@ def variants_prompt(card, k: int) -> str:
 - 본문 문장은 쓰지 않습니다. 칸마다 짧은 명사구나 한 줄로 적습니다."""
 
 
-SYSTEM_READER = (
-    "당신은 처음 읽는 독자입니다. 문단을 읽고 머릿속으로 채우게 되는 것을 적습니다. "
-    "글을 고치거나 평가하지 않습니다. 모든 출력은 한국어로 작성합니다."
+SYSTEM_READER = system_prompt(
+    "처음 읽는 독자의 눈으로 문단을 읽고, 머릿속으로 채우게 되는 것을 적습니다. "
+    "글을 고치거나 평가하지 않습니다."
 )
 
 
@@ -3935,9 +3944,9 @@ def cue_play_prompt(p: Project, n: int, sheet, done: list[str]) -> str:
 # 사람이 쓴 글을 거꾸로 플롯 · 스토리보드 · 큐 시트로 푼다. 바뀌지 않는 지시가 앞, 화마다 바뀌는 재료(앞 화 끝, 원문)가 뒤.
 # 큐 경계는 원문 글자 그대로의 시작 인용(start)으로 받고, 핵심 대사도 원문에 있는지 Canon 이 맞춰 본다 (revlab.locate · keep_lines).
 
-SYSTEM_REVERSE = (
-    "당신은 한국 웹소설/단편소설 구조를 분석하는 편집자입니다. 주어진 원문에 실제로 있는 것만 적고, 원문에 없는 사건, 인물, 대사, 설정을 짓지 않습니다. "
-    "인용하라는 칸은 원문 글자를 한 글자도 바꾸지 않고 옮깁니다. 모든 출력은 한국어로 작성합니다."
+SYSTEM_REVERSE = system_prompt(
+    "한국 웹소설/단편소설의 구조를 분석합니다. 주어진 원문에 실제로 있는 것만 적고, 원문에 없는 사건, 인물, 대사, 설정을 짓지 않습니다. "
+    "인용하라는 칸은 원문 글자를 한 글자도 바꾸지 않고 옮깁니다."
 )
 
 
@@ -4371,10 +4380,11 @@ SEVERITY_RULE = ("- severity: crit 은 독자가 바로 알아챌 모순이거�
 # 작품 데이터, static_context, 앞선 본문 안 소제목, 빈 칸 문구, 기능별 검수 규칙(시간 · 이동 · 차림 · 상태창 등)은 한국어 그대로다.
 CHECK_LANGS = {"ko": "한국어 지시문 (지금 검수와 같음)", "en": "영어 지시문 (작품 데이터와 인용은 한국어 그대로, 설명은 한국어로 받음)"}
 
-SYSTEM_CHECKER_EN = (
-    "You are a copy editor for a serialized Korean novel. Find only the places where this episode's text contradicts "
+SYSTEM_CHECKER_EN = system_prompt(
+    "Copy-edit a serialized Korean novel. Find only the places where this episode's text contradicts "
     "the earlier text, the settings, or the confirmed facts. Every issue quotes the earlier evidence and the sentence "
-    "from this episode verbatim. If you cannot quote evidence, do not report the issue. Do not judge prose quality or taste."
+    "from this episode verbatim. If you cannot quote evidence, do not report the issue. Do not judge prose quality or taste.",
+    korean=False,
 )
 
 SEVERITY_RULE_EN = ("- severity: crit is a contradiction a reader notices at once, or one that shakes later episodes (a dead character appears, "
@@ -4447,8 +4457,8 @@ Find the places in the text of episode {n} that contradict the material above.
 # 2026-11-03 검수 시험: 동선 모순 25개를 본 검수(budget, flash)는 7개, 이 프롬프트는 flash 14개 · argon 19개를 찾았다.
 # 본 검수 프롬프트에서 동선은 여러 확인 항목 가운데 한 줄이라 옛 화 · 설정 대조에 묻힌다. 근거가 같은 화 앞 문장이라 옛 화와 설정은 넣지 않는다.
 
-SYSTEM_MOTION = (
-    "당신은 연재 소설의 교정 편집자입니다. 한 화 본문 안에서 인물의 몸 · 손 · 옷 · 물건의 상태가 바꾸는 행동 없이 달라지는 곳만 찾습니다. "
+SYSTEM_MOTION = system_prompt(
+    "연재 소설을 교정합니다. 한 화 본문 안에서 인물의 몸 · 손 · 옷 · 물건의 상태가 바꾸는 행동 없이 달라지는 곳만 찾습니다. "
     "모든 지적에는 상태를 정한 앞 문장과 어긋난 문장을 원문 그대로 인용합니다. 문장의 좋고 나쁨은 평가하지 않습니다."
 )
 
@@ -4715,8 +4725,8 @@ def protect_block(ep) -> str:
 
 # ---------- 검수 시험: 모순을 심어 검수가 찾는지 본다 (연구 화면) ----------
 
-SYSTEM_PLANTER = (
-    "당신은 소설 검수 도구를 시험하는 편집자입니다. 이번 화 본문의 문장 몇 개를 앞선 내용과 어긋나게 바꿔 "
+SYSTEM_PLANTER = system_prompt(
+    "소설 검수 도구를 시험합니다. 이번 화 본문의 문장 몇 개를 앞선 내용과 어긋나게 바꿔 "
     "검수가 찾아내는지 봅니다. 바꾼 문장은 문체와 길이가 원래 문장과 비슷해 눈에 띄지 않아야 하고, 근거와 견주면 분명히 틀려야 합니다."
 )
 PLANT_OLD_EPISODES = 2  # 근거로 보여 줄 옛 화 수 (직전 화들은 빼고 무작위로)
@@ -4767,10 +4777,11 @@ def plant_prompt(p: Project, n: int, count: int, seed: int = 0) -> str:
 
 from . import stage as stage_mod  # noqa: E402
 
-SYSTEM_STAGE = (
-    "당신은 소설 장면의 무대 연출을 적는 연출 보조입니다. 방 하나 안에서 인물이 어느 기준점 곁에 서는지, 자세, 향한 쪽, "
+SYSTEM_STAGE = system_prompt(
+    "소설 장면의 무대 연출을 적습니다. 방 하나 안에서 인물이 어느 기준점 곁에 서는지, 자세, 향한 쪽, "
     "손에 쥔 것, 신체 접촉을 박자마다 정해진 어휘로 적습니다. 좌표나 거리는 적지 않습니다. "
-    "설명 칸은 한국어로 쓰고, 어휘 칸에는 목록의 id 를 그대로 씁니다."
+    "설명 칸은 한국어로 쓰고, 어휘 칸에는 목록의 id 를 그대로 씁니다.",
+    korean=False,
 )
 
 
@@ -4902,15 +4913,16 @@ TWOSTEP_FLAG = 0.25  # '어긋남' 확률이 이 이상이면 의심으로 올�
 TWOSTEP_FLAG_MAX = 8  # 검수 모델에 넘기는 의심 진술 수
 CLAIM_OPTIONS = ["근거와 맞음", "근거와 어긋남", "근거에 없음"]
 
-SYSTEM_CLAIMS = (
-    "당신은 연재 소설의 교정 편집자입니다. 이번 화 본문에서 앞선 내용과 견줘 볼 사실 진술을 뽑습니다. "
-    "해석이나 평가는 하지 않습니다. 모든 출력은 한국어로 작성합니다."
+SYSTEM_CLAIMS = system_prompt(
+    "연재 소설을 교정합니다. 이번 화 본문에서 앞선 내용과 견줘 볼 사실 진술을 뽑습니다. "
+    "해석이나 평가는 하지 않습니다."
 )
 
-SYSTEM_JUDGE_CHECK = (
-    "당신은 소설 검수용 판단기입니다. 물음의 진술이 자료(앞선 화 발췌, 인물 설정, 작품 설정, 확정 사실, 비밀)와 맞는지 고릅니다. "
+SYSTEM_JUDGE_CHECK = system_prompt(
+    "소설을 검수하려고 물음의 진술이 자료(앞선 화 발췌, 인물 설정, 작품 설정, 확정 사실, 비밀)와 맞는지 고릅니다. "
     "자료에 같은 대상에 대한 다른 내용이 있으면 어긋남, 같은 내용이 있으면 맞음, 자료가 그 대상을 다루지 않으면 없음입니다. "
-    "이름, 숫자, 기간(사흘과 일주일), 나이, 호칭, 존댓말과 반말, 다친 곳, 물건의 주인, 누가 무엇을 아는지가 다르면 어긋남입니다."
+    "이름, 숫자, 기간(사흘과 일주일), 나이, 호칭, 존댓말과 반말, 다친 곳, 물건의 주인, 누가 무엇을 아는지가 다르면 어긋남입니다.",
+    korean=False,
 )
 
 
@@ -5055,11 +5067,11 @@ def widen_prompt(p: Project, n: int, items: list[tuple[Claim, str]], known: list
 
 # ---------- 인과율: 새 요소의 영향 분석 ----------
 
-SYSTEM_IMPACT = (
-    "당신은 연재 소설의 설정 편집자입니다. 작가가 새로 더하거나 고친 이야기 요소 하나가 이미 쓴 본문, "
+SYSTEM_IMPACT = system_prompt(
+    "연재 소설의 설정을 살핍니다. 작가가 새로 더하거나 고친 이야기 요소 하나가 이미 쓴 본문, "
     "정해 둔 화별 플롯, 기존 설정과 어떻게 부딪치고 무엇을 고쳐야 하는지 찾습니다. "
     "모든 지적은 기존 내용을 원문 그대로 인용합니다. 인용할 근거가 없으면 지적하지 않습니다. "
-    "고칠 것은 최소로 제안하고, 새 요소를 살리는 쪽으로 고칩니다. 모든 출력은 한국어로 작성합니다."
+    "고칠 것은 최소로 제안하고, 새 요소를 살리는 쪽으로 고칩니다."
 )
 
 
@@ -5181,10 +5193,10 @@ def impact_prompt(p: Project, el: StoryElement, linked: set[int]) -> str:
 
 # ---------- 초반 1~3화: 흡입력 판정과 여는 방식 여러 안 ----------
 
-SYSTEM_HOOK = (
-    "당신은 한국 웹소설 플랫폼의 연재 담당 편집자입니다. 무료 회차를 읽은 독자가 다음 화를 누를지 판단합니다. "
+SYSTEM_HOOK = system_prompt(
+    "한국 웹소설 플랫폼의 연재 기준으로, 무료 회차를 읽은 독자가 다음 화를 누를지 판단합니다. "
     "모든 판단에는 본문 문장을 원문 그대로 인용하고, 근거가 없으면 점수를 낮게 줍니다. 후하게 주지 않습니다. "
-    "문장의 아름다움보다 독자가 계속 읽고 싶어지는지를 봅니다. 모든 출력은 한국어로 작성합니다."
+    "문장의 아름다움보다 독자가 계속 읽고 싶어지는지를 봅니다."
 )
 
 HOOK_GUIDE = {
@@ -5540,11 +5552,12 @@ def field_value(p: Project, field: str) -> str:
 # ---------- 삽화 프롬프트 (NovelAI) ----------
 # AI 는 장면을 태그로 옮기기만 한다. 인물 외형(저장된 태그), 인물 수, 등급, 품질 태그는 canon/illust.py 가 붙인다.
 
-SYSTEM_ILLUSTRATOR = (
-    "당신은 소설 삽화를 기획하는 일러스트 디렉터이자 NovelAI 이미지 생성 프롬프트 전문가입니다. "
+SYSTEM_ILLUSTRATOR = system_prompt(
+    "소설 삽화를 기획하고 NovelAI 이미지 생성 프롬프트를 씁니다. "
     "본문의 한 장면을 그림 한 장으로 옮길 때 무엇이 보이는지 정하고, 그것을 Danbooru 식 영어 태그로 적습니다. "
     "태그는 영어 소문자, 낱말 사이는 띄어쓰기, 쉼표 없이 목록 원소 하나에 태그 하나입니다. "
-    "본문에 없는 사건이나 인물을 지어내지 않습니다. 설명(scene, note)은 한국어로 씁니다."
+    "본문에 없는 사건이나 인물을 지어내지 않습니다. 설명(scene, note)은 한국어로 씁니다.",
+    korean=False,
 )
 
 ILLUST_BEFORE, ILLUST_AFTER = 1_500, 600
@@ -5634,9 +5647,9 @@ def cast_view(cs: list[Character]) -> list[dict]:
     return [c.model_dump(exclude={"narration_voice", "body", "context"}) for c in cs]
 
 
-SYSTEM_VOICE = (
-    "당신은 한국 웹소설 편집자입니다. 한 인물이 시점 인물인 화에서 서술(지문과 내면 독백)이 어떤 말투로 흘러야 "
-    "그 인물답게 읽히는지 정리합니다. 대사 말투가 아니라 서술 말투를 씁니다. 모든 출력은 한국어로 작성합니다."
+SYSTEM_VOICE = system_prompt(
+    "한국 웹소설에서 한 인물이 시점 인물인 화의 서술(지문과 내면 독백)이 어떤 말투로 흘러야 "
+    "그 인물답게 읽히는지 정리합니다. 대사 말투가 아니라 서술 말투를 씁니다."
 )
 
 
@@ -5785,8 +5798,8 @@ def stat_init_prompt(p: Project, request: str = "") -> str:
 
 # ---------- 지도: 장소와 맞지 않은 위치 글 정리 ----------
 
-SYSTEM_PLACE_SORTER = (
-    "당신은 연재 소설의 설정 관리 담당 편집자입니다. 상태 기록에 적힌 인물 위치 글이 작품의 어느 장소를 가리키는지 "
+SYSTEM_PLACE_SORTER = system_prompt(
+    "연재 소설의 설정을 관리합니다. 상태 기록에 적힌 인물 위치 글이 작품의 어느 장소를 가리키는지 "
     "작품 설정과 화별 요약만 근거로 정리합니다. 근거가 없으면 짐작해 잇지 않습니다."
 )
 
@@ -5836,9 +5849,11 @@ def place_sort_prompt(p: Project, items: list[dict], places: list[dict]) -> str:
 
 # ---------- 지도: 마을 만들기 설정 제안 ----------
 
-SYSTEM_MAP_PLANNER = (
-    "당신은 소설 배경 지도를 기획하는 편집자입니다. 작품 설정과 장소 설명만 근거로 이 이야기의 마을 · 도시 · 동네가 어떤 모습인지 정합니다. "
-    "좌표나 건물 배치는 프로그램이 정하므로 정하지 않습니다."
+SYSTEM_MAP_PLANNER = system_prompt(
+    "소설 배경 지도를 기획합니다. 작품 설정과 장소 설명만 근거로 이 이야기의 마을 · 도시 · 동네가 어떤 모습인지 정합니다. "
+    "좌표나 건물 배치는 프로그램이 정하므로 정하지 않습니다. "
+    "설명 칸은 한국어로 쓰고, 종류 같은 id 칸에는 목록의 id 를 그대로 씁니다.",
+    korean=False,
 )
 
 
@@ -5898,8 +5913,8 @@ def map_suggest_prompt(p: Project, rows: list[dict], places: list[dict], kinds: 
 # 뒤쪽에 구간마다 바뀌는 것(줄거리, 장면 인물, 사실, 관계, 복선, 시간, 직전 장면, 행동, 운)을 둔다. 블록마다 context.BUDGET["play_*"].
 # 상태 변경안은 소설의 state_prompt 를 장면 인물만 남긴 작품 보기(play_view)로 부른다. 소설 경로의 프롬프트는 그대로다.
 
-SYSTEM_PLAY = (
-    "당신은 텍스트 게임의 진행자이자 소설가입니다. 플레이어가 한 행동을 받아 그 결과로 이어지는 장면 하나를 쓰고, "
+SYSTEM_PLAY = system_prompt(
+    "텍스트 게임을 진행하며 장면을 씁니다. 플레이어가 한 행동을 받아 그 결과로 이어지는 장면 하나를 쓰고, "
     "다음 행동 선택지를 냅니다. 세계관 규칙은 플레이어의 행동보다 앞섭니다. 규칙에 어긋나는 행동은 실패나 대가로 씁니다."
 )
 

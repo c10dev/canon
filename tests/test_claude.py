@@ -19,7 +19,8 @@ os.environ["CANON_LLM"] = "mock"
 os.environ["CANON_HOME"] = tempfile.mkdtemp()
 
 from canon import cancel, claude, settings, usage  # noqa: E402
-from canon.llm import FAMILY_SYSTEM, PREFIX_HINT, OutputCut, SchemaMismatch, get_llm, out_cap, role_block, wait_cap, with_note  # noqa: E402
+from canon.llm import PREFIX_HINT, OutputCut, SchemaMismatch, get_llm, out_cap, role_block, wait_cap, with_note  # noqa: E402
+from canon.prompts import FAMILY_SYSTEM  # noqa: E402
 from canon.schema import FindingRecheck, NameOptions  # noqa: E402
 
 FAKE = textwrap.dedent('''\
