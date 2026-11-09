@@ -79,6 +79,7 @@ def test_shortcut_asks_with_candidates_even_in_all_mode_and_puts_only_the_pick(c
     assert t["end"] == "wait" and a["tool"] == "revise_text" and a["kinds"] == ["text"] and a["keys"] == ["0", "1"]
     assert a["selection"]["text"] == QUOTE and a["episode"] == 1 and a["preset"] == "shorter"
     assert t["selection"]["text"] == QUOTE and t["preset"] == "shorter"
+    assert client.get("/api/projects/lh/sessions").json()["sessions"][0]["title"] == "1화 본문 · 더 짧게"
     assert _text(client) == TEXT  # 고르기 전에는 그대로
     user, ai = _chat(client)[-2:]  # 지금 'AI에게 고치기' 대화와 같은 기록
     assert (user["preset"], ai["outcome"]) == ("shorter", "") and len(ai["passage"]["candidates"]) == 2

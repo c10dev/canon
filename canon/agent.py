@@ -204,7 +204,8 @@ def add_turn(p: Project, sid: str, message: str, *, mode: str = "", act: str = "
         s.turns[-1].approval.state = "denied"  # 답하지 않고 새로 말하면 묻던 쓰기는 하지 않는다
         s.turns[-1].steps.append(StepRecord(kind="note", tool="approval", why="작가가 답하지 않고 새로 말해서 쓰지 않았어요"))
     if not s.title:
-        s.title = message.splitlines()[0][:TITLE_LIMIT]
+        label = prompts.PASSAGE_PRESETS[preset][0] if preset in prompts.PASSAGE_PRESETS else ""
+        s.title = (f"{selection.episode}화 본문 · {label}" if label and selection is not None else message.splitlines()[0])[:TITLE_LIMIT]
     s.turns.append(turn)
     s.updated = now()
     return len(s.turns) - 1

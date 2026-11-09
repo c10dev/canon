@@ -43,6 +43,7 @@
 - 턴은 작가가 보던 화면을 `AgentTurn.screen` 에 남긴다. `SCREENS`(웹 drawApp 의 views 표와 'home')에 없거나 비면 '' 이고 플롯 화면과 같게 다룬다
 - 턴을 열 때 화면 대상이 오면(`add_turn` 의 `target`) 고정하지 않은 세션의 대상을 그 값으로 바꾼다. 고정은 `AgentSession.pinned`(옛 세션은 False)
 - 턴에 재료(`add_turn` 의 `selection`, `schema.TextMaterial`: 고른 본문과 그 화)와 빠른 요청(`preset`, `prompts.PASSAGE_PRESETS`)을 붙일 수 있다. 빠른 요청만 있고 재료가 없거나 모르는 빠른 요청이면 막는다
+- 재료와 빠른 요청으로 연 새 세션의 이름은 'N화 본문 · 빠른 요청 이름'이다
 - 설정 · 문체 · 본문 고치기의 옛 대화는 `legacy_chats` 가 (주제, 메시지 수)로 준다. 웹 세션 목록의 `older` 이고 화면은 읽기만 한다
 - 턴(`AgentTurn`)을 백그라운드 작업 `agent` 로 돌린다(`run_turn`, 단계마다 `llm.json(PlotAgentStep)`, 최대 `MAX_STEPS`=8, 단계마다 저장)
 - `first_step_prompt` 는 새 세션 첫 턴에서 `run_turn` 이 처음 보내는 요청이다. 세션(id `LAB_SID`)을 작품에 붙이지 않는다. 프롬프트 놀이터 불러오기가 쓴다
@@ -506,6 +507,7 @@
 - 카드에 답하기(`agentTextDecide`)는 그 화 본문 초안을 먼저 저장한다(`flushText`). 넣으면 넣은 글을, 넣지 않으면 고른 부분을 재료로 다시 붙인다
 - 바로 쓴 것의 본문 고치기 항목은 수정 기록(`agentTextEdit`)으로 바뀐 글을 보인다. 수정 기록에서 되돌렸으면 되돌린 것으로 보인다
 - 마지막 턴이 본문 후보를 기다리면 패널에 `has-cands` 를 단다(휴대폰 시트가 높아진다)
+- 본문 고치기 카드를 연 턴이 끝나면 작품을 다시 받는다(`agentJobUpdate` → `agentRefreshProject('')`). 카드가 남긴 부분 수정 대화를 화면 저장이 옛 사본으로 덮지 않게
 - `agentOpenText`: 집필 화면 머리의 'AI에게 고치기'. 대화 에이전트를 열고 고른 본문을 재료로 붙인다. 열려 있으면 닫는다
 - 진행은 `pollJobs` 가 `agentJobUpdate` 로 알린다
 - 도는 턴의 단계 줄은 지금 하는 일(`agentStepNow`: `Job.retry` 가 있으면 그 사정, 없으면 'AI 응답을 기다리는 중')과 직전 단계의 생각(`Job.note`)을 보인다

@@ -619,7 +619,10 @@ async function agentJobUpdate(j, old) {
     const draft = t && t.writes.flatMap((w) => w.items.filter((i) => i.key === 'draft' && i.state === 'done').map(() => w))[0];
     if (draft && !S.arcDraft) agentPutDraft(draft, t.reply);  // 다음 아크 초안은 화면 초안 칸에 놓는다 (작품은 그대로)
     const wrote = t && t.writes.some((w) => w.items.some((i) => i.state === 'done' && i.key !== 'draft'));
+    // 본문 고치기 카드는 작품을 바꾸지 않지만 부분 수정 대화(chats)에 후보를 남긴다. 화면 저장이 옛 사본으로 덮지 않게 받아 둔다
+    const card = t && t.end === 'wait' && t.approval && t.approval.passage;
     if (wrote) await agentRefreshProject();
+    else if (card) await agentRefreshProject('');
     else if (draft) { if (isTyping() || selecting()) S.renderPending = true; else render(); }
     if ($('.chat-panel')) {  // 패널이 결과를 보여 주므로 작업 목록에서는 바로 내린다
       S.jobsSeen.add(j.id);
@@ -630,10 +633,10 @@ async function agentJobUpdate(j, old) {
   if ($('.chat-panel')) agentRedraw();
 }
 
-async function agentRefreshProject() {
+async function agentRefreshProject(msg = 'AI가 플롯을 바꿨어요. 저장하지 않은 수정이 있어 화면은 그대로예요. 저장하면 겹치는 곳을 알려 줘요') {
   const fresh = await api('GET', `/projects/${enc(S.name)}`);
   if (!S.dirty) S.project = fresh;
-  else toast('AI가 플롯을 바꿨어요. 저장하지 않은 수정이 있어 화면은 그대로예요. 저장하면 겹치는 곳을 알려 줘요', true);
+  else if (msg) toast(msg, true);
   if (isTyping() || selecting()) S.renderPending = true;
   else render();
 }
