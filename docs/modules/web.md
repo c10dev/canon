@@ -735,6 +735,10 @@
   - 본문 없는 화는 AI로 쓰기가 기본이고 머리 primary(`writeGo`, 스토리보드를 만든 화는 `boardGo`, 작업이 돌면 진행 줄 `wsBusy`)와 그 아래 쓰기 시작 칸(`writeStart`: 스토리보드 고르기 `S.wsBoard` · 직접 쓰기 · 컨텍스트)
   - 직접 쓰기(`startManual`)로 빈 칸을 연 화는 본문 칸 위 `manualNote` 의 'AI로 쓰기로 돌아가기'(`backToStart`)로 쓰기 시작 칸에 돌아간다. 쓴 글이 있으면 묻고 임시 보관 초안도 지운다. 그 화에 AI 작업이 돌면 끈다
   - 멈춘 작업이 그 화에서 AI 응답을 기다리면 `writeGo` 가 primary 를 잠그고 쓰기 시작 칸과 만든 스토리보드 칸이 `epWaitNote` 로 까닭을 보인다
+  - 그 화의 작업 `write` 가 돌면 쓰기 시작 칸 아래에 읽기 전용 미리보기 `streamCard`(`#w-stream-<화>`, `.w-stream`)를 둔다. 작업의 부분 글(`partial`)이 없으면 숨긴다
+  - 미리보기는 본문 칸(`data-keep`)이 아니고 낭독 칸(`aria-live`)도 아니다. 아직 저장한 글이 아니라고 적는다
+  - `paintStream` 은 보고 있는 화의 부분 글로 미리보기의 글과 글자 수만 고친다. `app.js` 의 `pollJobs` 가 작업 목록을 받을 때마다 부르고, 화면 전체는 다시 그리지 않는다
+  - 미리보기 칸 끝을 보고 있으면 늘어나는 글을 따라 내려가고, 위를 읽고 있으면 그 자리에 둔다
   - 본문 띠의 저장 칸 `.savebar-slot`
   - 쓰기가 본문 앞뒤에서 뗀 작업 설명(`Episode.meta_cut`)은 접은 알림 `metaCutNote`: 문단마다 '본문에 되살리기'(`metaCutRestore`, 수정 기록에 남음) · '지우기'(`metaCutDrop`, 되살릴 수 없다고 위험 확인을 묻는다). 자동 집필 중이거나 고칠 수 없는 화는 버튼 없이 보기만(`tests/test_meta_cut.py`)
   - 고침 규칙 기록은 `metaCutNote` 바로 뒤의 `ruleRunsNote`(`regexrules.js`)가 보인다. 자동 집필 중이거나 고칠 수 없는 화이면 되돌리기 없이 보기만 한다

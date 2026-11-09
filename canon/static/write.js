@@ -544,6 +544,7 @@ function viewEpisode(n, panel = 'write') {
     ${editable && autoOn() ? `<div class="note warn">자동 집필이 도는 동안은 본문을 저장할 수 없어요. 쓰던 글은 이 화면에 남아 있어요. 저장하려면 <a href="${base()}/auto">자동 집필</a>을 일시정지하세요. 어색한 곳은 지금도 글을 골라 '나중에 고치기'로 담아 둘 수 있어요.</div>` : ''}
     ${e.text && editable ? candidateCard(n) : ''}
     ${fresh ? writeStart(n, blocked) : madeBoard}
+    ${writing ? streamCard(n) : ''}
     ${panel === 'write' ? dirCard(n) : ''}
     ${editable && !e.text && draft !== undefined ? manualNote(n) : ''}
     ${starting && e.status === 'confirmed' ? cueCard(n, blocked) : ''}
@@ -575,6 +576,39 @@ function viewEpisode(n, panel = 'write') {
     ${e.text ? illustPanel(n) : ''}
     ${openingPanel(n)}`)}
     ${e.text && editable && S.rwOpen === n ? rewritePanel(n) : ''}${chatLegacy(e.text && editable ? `text:${n}` : '', { hold: !!(e.text && editable) && S.rwOpen === n })}`;
+}
+
+/** 쓰는 중인 본문 미리보기 (docs/ux 05). 흘려 받을 수 있는 백엔드면 서버가 도는 쓰기 작업에 지금까지 받은 글(partial)을 싣는다.
+    본문 칸(data-keep)이 아니라 읽기 전용 칸이고, 아직 저장한 글이 아니다. 부분 글이 없으면 숨겨 둔다(흘려 받지 못하는 백엔드는 끝까지 숨는다).
+    pollJobs 가 paintStream 으로 이 자리만 고친다. 낭독 칸(aria-live)이 아니다: 다 쓴 본문만 지금처럼 알린다 */
+function streamCard(n) {
+  const j = jobFor('write', n);
+  if (!j) return '';
+  const text = j.partial || '';
+  return `<section class="card w-stream" id="w-stream-${n}" aria-label="${n}화 AI가 쓰는 중인 글"${text ? '' : ' hidden'}>
+      <div class="w-stream-head"><strong>AI가 쓰는 중이에요</strong><span class="small" data-stream-count>${text.length.toLocaleString()}자</span></div>
+      <p class="small">아직 저장하지 않은 글이에요. 다 쓰면 본문 칸에 들어가요. 멈추거나 실패하면 이 글은 남지 않아요.</p>
+      <div class="w-stream-text" data-stream-text tabindex="0">${esc(text)}</div>
+    </section>`;
+}
+
+/** 보고 있는 화의 도는 쓰기 작업 부분 글로 미리보기 칸(streamCard)만 고친다. 화면 전체를 다시 그리지 않는다 (pollJobs 가 부른다).
+    칸 끝을 보고 있었으면 늘어난 글을 따라 내려가고, 위를 읽고 있었으면 그 자리에 둔다 */
+function paintStream() {
+  const n = Number(S.route && S.route[0] === 'p' && FLOW_PAGES.includes(S.route[2]) && S.route[3]);
+  const j = n ? jobFor('write', n) : null;
+  if (!j) return false;
+  const card = document.getElementById(`w-stream-${n}`);
+  const box = card && card.querySelector('[data-stream-text]');
+  if (!box) return false;
+  const text = j.partial || '';
+  if (box.textContent === text) return false;
+  const follow = box.scrollHeight - box.scrollTop - box.clientHeight < 24;
+  box.textContent = text;
+  card.querySelector('[data-stream-count]').textContent = `${text.length.toLocaleString()}자`;
+  card.hidden = !text;
+  if (follow) box.scrollTop = box.scrollHeight;
+  return true;
 }
 
 /** 한 화 화면의 본문 자리. 칸이 없으면(집필) 본문과 그 아래 칸들을 그대로 둔다.

@@ -592,6 +592,9 @@ async function pollJobs(soon = false) {
     }
   }
   for (const j of late) if (JOB_LATE[j.kind] && await JOB_LATE[j.kind](j)) redraw = true;
+  // 도는 쓰기 작업의 부분 글(partial)은 진행(done · status)이 아니라 다시 그리지 않는다. 집필 화면의 미리보기 칸만 고친다 (write.js)
+  // 입력 중이라 다시 그리기를 미루는 동안에도 미리보기는 늘어난다. 바로 다시 그리면 그 그림이 같은 글을 싣는다
+  if (typeof paintStream === 'function') paintStream();
   if (S.route[0] === 'p' && late.some((j) => j.project === S.name && EP_AI_KINDS.has(j.kind))) redraw = true;  // 그 화의 AI 작업 버튼을 푼다 (epWaiting)
   renderHub();
   // 입력 중이거나 본문 글자를 고르고 있으면 화면을 다시 그리지 않는다 (글자 · 커서 · 선택을 잃지 않게). 데이터는 이미 반영돼 있고, 입력이나 선택을 마치면 그린다

@@ -53,6 +53,7 @@ class Job:
     step_ep: int | None = None  # 단계 하나가 마지막으로 끝낸 화. 자동 집필이 화를 반영할 때마다 고친다 (화면이 화마다 알린다)
     target: str = ""  # 같은 종류를 나눠 돌리는 대상 (인물 id 등). 대상이 다르면 함께 돈다
     alive: bool = True  # 스레드가 아직 돈다. 멈춘 작업도 이미 보낸 AI 호출의 응답을 기다리는 동안은 참 (waiting)
+    partial: str = ""  # 흘려 받는 중인 AI 글 (본문 쓰기). 저장한 글이 아니다. 작업이 도는 동안만 있고 끝나면 비운다 (set_partial)
 
     def say(self, text: str) -> None:
         """이 스레드의 AI 호출 사정을 고친다(빈 글이면 지운다). 화면에는 남은 사정 하나를 보인다 (cancel.notice)."""
@@ -63,13 +64,19 @@ class Job:
             self.retries.pop(key, None)
         self.retry = next(iter(self.retries.values()), "")
 
+    def set_partial(self, text: str) -> None:
+        """흘려 받은 글(지금까지 받은 글 전체)을 고친다. 백엔드의 text_stream 이 조각마다 부른다 (llm.family_text).
+        도는 작업만 받는다: 멈춘 뒤 늦게 온 조각이 부분 글을 되살리지 않게 한다. 빈 글이면 지운다."""
+        with _lock:
+            self.partial = text if self.status == "running" else ""
+
     def public(self) -> dict:
         return {
             "id": self.id, "project": self.project, "kind": self.kind, "ep": self.ep, "label": self.label,
             "total": self.total, "done": self.done, "note": self.note, "retry": self.retry, "status": self.status,
             "result": self.result, "error": self.error, "started": self.started, "step_at": self.step_at or self.started, "finished": self.finished,
             "step_wait": self.step_wait, "pending": sorted(self.pending), "waiting": self.waiting, "step_ep": self.step_ep,
-            "target": self.target,
+            "target": self.target, "partial": self.partial if self.status == "running" else "",
         }
 
     @property
@@ -195,6 +202,7 @@ def start(project: str, kind: str, ep: int | None, label: str, fn: Callable[[Job
         finally:
             job.finished = job.finished or time.time()
             job.alive = False
+            job.set_partial("")  # 끝나거나 멈추거나 실패하면 흘려 받던 글은 버린다 (저장한 글이 아니다)
 
     # 사용량 기록이 어느 작품의 어떤 작업인지 알도록 부른 쪽의 컨텍스트(usage.scope)를 스레드에 넘긴다
     ctx = contextvars.copy_context()
@@ -210,6 +218,7 @@ def stop(jid: str) -> Job:
     if job.status == "running":
         job.stop.set()
         job.status, job.error, job.finished = "cancelled", "멈췄어요", time.time()
+        job.set_partial("")
     return job
 
 
