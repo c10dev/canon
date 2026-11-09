@@ -20,6 +20,7 @@ from .dynamics import VIEWS, describe_relations
 from .llm import _inline_refs, dump
 from .schema import Birth, Character, ChatMessage, Claim, ConsistencyIssue, ConsistencyReport, Foreshadow, PlayInfo, PlotBatch, Project, Selection, StateDelta, StateDeltaAI, StoryElement
 from .schema import ArcPlan, ArcProposal, CueSheetDraft, HeatArcPlan, HeatArcProposal, HeatProposal, SeriesPlan, StoryboardDraft
+from .schema import PassageRevision, PlotAgentStep, SetupRevision, StyleRevision
 from . import address, board, charlog, echoes, foreshadows, heatplan, knows, pairlog, stage, statwin, timeline
 from . import offscreen
 from .maps import prompt as mapprompt
@@ -5193,18 +5194,36 @@ class BriefKind(NamedTuple):
 
 
 # 작업지시서 갈래: 열쇠 → BriefKind. 프롬프트 놀이터(promptlab.py)의 '불러오기'도 이 목록과 brief_parts 를 쓴다. 차례는 집필 흐름 차례
+# '대화로 다듬기' 갈래(설정 도우미 · 문체 · 플롯 대화 에이전트 · 본문 부분 수정)는 작가의 말 자리에 CHAT_MESSAGE 를 넣는다
 BRIEF_KINDS: dict[str, BriefKind] = {
+    "setup_chat": BriefKind("대화로 다듬기 · 설정 도우미", scope="work"),
+    "style_chat": BriefKind("대화로 다듬기 · 문체", scope="work"),
     "series": BriefKind("부 구성", scope="work", form="serial"),
     "arc": BriefKind("기승전결 구조 · 다음 아크", scope="work"),
     "heat": BriefKind("열 계획", scope="work"),
     "plots": BriefKind("플롯 초안", scope="act"),
     "plot": BriefKind("한 화 플롯", need="draft"),
+    "agent_plot": BriefKind("대화로 다듬기 · 플롯 (대화 에이전트 첫 단계)", scope="work", stage="chat"),
     "storyboard": BriefKind("스토리보드", need="confirmed", stage="board"),
     "cue": BriefKind("큐 시트", need="confirmed", stage="board"),
     "episode": BriefKind("본문 쓰기", stage="write"),
+    "passage": BriefKind("대화로 다듬기 · 본문 부분 수정", need="text", stage="revise"),
     "check": BriefKind("검수", need="text", stage="check"),
     "state": BriefKind("상태 변경안", need="text", stage="state"),
 }
+
+
+CHAT_MESSAGE = "(작가의 말)"  # 대화로 다듬기 갈래에서 작가의 말 자리. 놀이터에서 이 줄을 바꿔 돌린다
+
+
+def passage_sample(p: Project, n: int) -> Selection:
+    """본문 부분 수정 갈래가 고르는 부분: 빈 줄이 아닌 단락 가운데 한가운데 단락. 본문이 없으면 ValueError."""
+    text = p.episode(n).text
+    paras = [x for x in text.split("\n") if x.strip()]
+    if not paras:
+        raise ValueError(f"{n}화 본문이 없어요")
+    pick = paras[len(paras) // 2]
+    return Selection(start=text.find(pick), text=pick)
 
 
 def _out_format(model: type[BaseModel]) -> str:
@@ -5231,6 +5250,18 @@ def brief_request(p: Project, n: int, kind: str = "episode") -> tuple[str, str, 
         raise ValueError(f"모르는 프롬프트 갈래예요: {kind}")
     if kind == "state":
         return SYSTEM_EDITOR, state_prompt(p, n), StateDeltaAI
+    if kind == "setup_chat":  # pipeline.revise_setup (변경안 모드)
+        return SYSTEM_SETUP_CHAT, setup_chat_prompt(p, CHAT_MESSAGE), SetupRevision
+    if kind == "style_chat":  # pipeline.revise_style (참고할 화 없이)
+        from . import pipeline
+
+        return SYSTEM_STYLE_COACH, style_chat_prompt(p, CHAT_MESSAGE, 0, pipeline.style_chat_recent(p)), StyleRevision
+    if kind == "agent_plot":  # agent.run_turn: 새 세션 첫 턴의 첫 단계
+        from . import agent
+
+        return SYSTEM_AGENT_PLOT, agent.first_step_prompt(p, CHAT_MESSAGE), PlotAgentStep
+    if kind == "passage":  # pipeline.revise_passage (고른 부분은 passage_sample, 빠른 요청 없이)
+        return reviser_system(p), passage_prompt(p, n, passage_sample(p, n), CHAT_MESSAGE, head=passage_head(p, n)), PassageRevision
     if kind == "check":
         return SYSTEM_CHECKER, check_prompt(p, n), ConsistencyReport
     if kind == "plot":  # pipeline.draft_episode (웹 작업 plot_one, 뒤 화에 맞추기 켬)

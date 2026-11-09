@@ -166,7 +166,7 @@ function pgLoadCard() {
   const opt = (v, label, on) => `<option value="${esc(String(v))}"${on ? ' selected' : ''}>${esc(label)}</option>`;
   return `<section class="card" id="pg-load">
       <div class="between"><h2>Canon 프롬프트 불러오기</h2></div>
-      <p class="small">구조 · 플롯 · 스토리보드 · 큐 시트 · 집필 · 검수 같은 Canon 프롬프트를 실제로 보내는 글과 같게 조립해 시스템 · 요청 칸에 채워요. 작가의 요청 칸은 비워요. 작품은 읽기만 해요.</p>
+      <p class="small">구조 · 플롯 · 스토리보드 · 큐 시트 · 집필 · 검수 · 대화로 다듬기 같은 Canon 프롬프트를 실제로 보내는 글과 같게 조립해 시스템 · 요청 칸에 채워요. 작가의 요청 칸은 비워요. 대화로 다듬기는 작가의 말 자리에 '(작가의 말)'를 넣으니 그 줄을 바꿔 돌려요. 작품은 읽기만 해요.</p>
       <div class="grid-2"><div class="field"><label for="pg-src-kind">프롬프트</label><select id="pg-src-kind" data-pg-src="kind">${info.kinds.map((k) => opt(k.id, k.label, k.id === src.kind)).join('')}</select></div>
         <div class="field"><label for="pg-src-project">작품</label><select id="pg-src-project" data-pg-src="project">${opt('', '예시 작품 (mock으로 만든 6화 단편)', !src.project)}${works.map((w) => opt(w.name, w.title || w.name, w.name === src.project)).join('')}</select></div></div>
       ${pick ? `<div class="field"><label for="pg-src-n">${pick.label}</label><select id="pg-src-n" data-pg-src="n">${pick.options.length ? pick.options.map((x) => opt(x.n, x.label, x.n === src.n)).join('') : opt(0, pick.empty, true)}</select></div>` : '<p class="small">작품 하나를 짜는 프롬프트라 화를 고르지 않아요.</p>'}
