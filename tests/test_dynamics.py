@@ -69,17 +69,22 @@ class EventMathTest(unittest.TestCase):
         self.assertGreater(with_triad, dynamics.tension(p, "s", "d", triads=[]))
 
 
+# xdist 는 이 클래스의 시험을 여러 일꾼에 나눠 보낼 수 있고, 일꾼마다 setUpClass 를 다시 부른다.
+# 일꾼들은 같은 CANON_HOME 을 쓰므로 프로세스마다 다른 작품 이름을 쓴다 (같은 이름이면 '이미 있는 프로젝트')
+DYN = f"dyn-{os.getpid()}"
+
+
 class FlowTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        main(["new", "dyn", "--title", "등대", "--genre", "미스터리", "--logline", "x", "--episodes", "6", "-y"])
-        main(["arc", "dyn", "-y"])
-        main(["plot", "dyn"])
-        main(["confirm", "dyn", "all"])
-        main(["run", "dyn", "-y"])
+        main(["new", DYN, "--title", "등대", "--genre", "미스터리", "--logline", "x", "--episodes", "6", "-y"])
+        main(["arc", DYN, "-y"])
+        main(["plot", DYN])
+        main(["confirm", DYN, "all"])
+        main(["run", DYN, "-y"])
 
     def test_events_logged_and_snapshots_per_episode(self):
-        p = store.load("dyn")
+        p = store.load(DYN)
         self.assertEqual([s.episode for s in p.snapshots], [0, 1, 2, 3, 4, 5, 6])
         self.assertEqual(len([e for e in p.events if e.kind != "수동보정"]), 12)
         self.assertEqual(p.secrets[0].hidden_from, [])
@@ -88,7 +93,7 @@ class FlowTest(unittest.TestCase):
         self.assertEqual(rel.affinity, round(dynamics.pair_warmth(p.ties, "hero", "ally") * 5))
 
     def test_replay_matches_incremental(self):
-        p = store.load("dyn")
+        p = store.load(DYN)
         for got, want in zip(sorted(dynamics.replay(p), key=lambda t: (t.source, t.target)),
                              sorted(p.ties, key=lambda t: (t.source, t.target))):
             self.assertAlmostEqual(got.warmth, want.warmth)
@@ -97,7 +102,7 @@ class FlowTest(unittest.TestCase):
             self.assertEqual(got.stage, want.stage)
 
     def test_revert_restores_snapshot(self):
-        p = store.load("dyn")
+        p = store.load(DYN)
         snap = p.snapshot(1)
         pipeline.revert(p, 1)
         self.assertEqual([e.status for e in p.episodes], ["finalized"] + ["written"] * 5)
@@ -106,9 +111,9 @@ class FlowTest(unittest.TestCase):
         self.assertTrue(all(e.episode <= 1 for e in p.events))
 
     def test_adjust_and_toggle(self):
-        main(["view", "dyn", "numbers"])
-        main(["adjust", "dyn", "hero", "ally", "--warmth", "-0.5"])
-        p = store.load("dyn")
+        main(["view", DYN, "numbers"])
+        main(["adjust", DYN, "hero", "ally", "--warmth", "-0.5"])
+        p = store.load(DYN)
         self.assertTrue(p.settings.show_numbers)
         self.assertAlmostEqual(dynamics.find_tie(p.ties, "hero", "ally").warmth, -0.5)
         self.assertEqual(p.events[-1].kind, "수동보정")
