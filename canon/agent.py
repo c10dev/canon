@@ -1,11 +1,14 @@
 """대화 에이전트: 대화로 다듬기를 세션 단위로 두고, AI 가 한 턴에 도구를 몇 번 불러 읽고 고친다.
 
-- 세션(AgentSession)은 주제마다 여럿이고, 기본 대상(ChatScope.target)과 권한 모드를 기억한다.
+- 세션(AgentSession)은 작품 하나에 목록 하나다(새 세션 topic 'agent', 옛 'plot' 세션도 같은 목록). 대상(target)과 권한 모드를 기억한다.
+- 대상은 화면이 정한다(집필 · 검수 · 상태 승인 'text:N', 설정 도우미 'setup', 문체 'style', 그 밖 ''). 턴을 보낼 때 화면 대상이 오면
+  세션 대상을 그 값으로 바꾸고, 작가가 고정(pinned)한 세션은 바꾸지 않는다.
 - 한 턴은 백그라운드 작업(jobs.start)으로 돈다. 단계마다 llm.json(PlotAgentStep) 을 한 번 부르고, 그 결과를 저장해 화면이 단계를 본다.
 - 쓰기는 권한 모드 안이면 바로 저장하고(WriteRecord, 되돌리기 가능), 밖이면 승인 카드(Approval)를 남기고 턴을 끝낸다.
   막힌 것(본문이 있는 화)은 clean_revision 이 빼고, 까닭을 단계 결과로 AI 에게 돌려준다.
 - 쓰기는 지금 적용 함수(pipeline.plot_apply · apply_revision)와 정리 함수(clean_revision)를 감싸기만 한다. 새 계산은 없다.
-지금은 플롯 대화(topic 'plot')만 에이전트로 돈다. 설정 · 문체 · 본문 대화는 옛 단발 대화(chat_send)를 쓴다.
+쓰기 도구는 지금 플롯 도구뿐이다. 대상이 본문 · 설정 · 문체이면 플롯 쓰기는 모두 '다듬을 곳 밖'으로 묻는다.
+설정 · 문체 · 본문 고치기는 04b~04d 가 도구를 더할 때까지 옛 단발 대화(chat_send)도 쓴다.
 """
 
 from __future__ import annotations
@@ -21,7 +24,8 @@ from .logline import josa
 from .schema import (AgentAsk, AgentSession, AgentTurn, Approval, AskCard, ChatScope, PlotAgentStep, PlotRevision, Project, RenumberOp,
                      StepRecord, WriteItem, WriteRecord)
 
-TOPICS = ("plot",)
+TOPICS = ("agent", "plot")  # 'agent' 는 새 세션, 'plot' 은 옛 플롯 대화 세션. 둘 다 같은 목록에 보인다
+OTHER_FOCUS = ("text", "setup", "style")  # 화면이 주는 대상 가운데 아직 쓰기 도구가 없는 것 (chat_focus 종류)
 MAX_STEPS = 8  # 한 번 돌 때 부르는 단계 수. 닿으면 '이어 하기'로 같은 턴을 이어 간다
 RESULT_LIMIT = 2500  # 읽기 도구 결과 글자 예산 (프롬프트가 단계마다 커지지 않게)
 TITLE_LIMIT = 24
@@ -66,7 +70,10 @@ def now() -> str:
 
 # ---------- 세션 ----------
 
-def sessions(p: Project, topic: str) -> list[AgentSession]:
+def sessions(p: Project, topic: str = "agent") -> list[AgentSession]:
+    """세션 목록. 'agent' · 'plot' 은 작품 하나의 같은 목록이다 (옛 project.json 의 plot 세션도 보인다)."""
+    if topic in TOPICS:
+        return [s for s in p.agent_sessions if s.topic in TOPICS]
     return [s for s in p.agent_sessions if s.topic == topic]
 
 
@@ -84,17 +91,17 @@ def turn_of(p: Project, sid: str, t: int) -> tuple[AgentSession, AgentTurn]:
     return s, s.turns[t]
 
 
-def new_session(p: Project, topic: str, target: str = "", title: str = "") -> AgentSession:
+def new_session(p: Project, topic: str = "agent", target: str = "", title: str = "", pinned: bool = False) -> AgentSession:
     if topic not in TOPICS:
         raise ValueError(f"대화 에이전트가 아직 없는 주제예요: {topic}")
     target = pipeline.chat_session_target(p, target)
-    s = AgentSession(id=uuid.uuid4().hex[:10], topic=topic, title=title.strip()[:60], target=target, created=now(), updated=now())
+    s = AgentSession(id=uuid.uuid4().hex[:10], topic=topic, title=title.strip()[:60], target=target, pinned=pinned, created=now(), updated=now())
     p.agent_sessions.append(s)
     return s
 
 
 def update_session(p: Project, sid: str, *, title: str | None = None, mode: str | None = None,
-                   target: str | None = None, archived: bool | None = None) -> AgentSession:
+                   target: str | None = None, archived: bool | None = None, pinned: bool | None = None) -> AgentSession:
     s = session(p, sid)
     if title is not None:
         s.title = title.strip()[:60]
@@ -106,13 +113,29 @@ def update_session(p: Project, sid: str, *, title: str | None = None, mode: str 
         s.target = pipeline.chat_session_target(p, target)
     if archived is not None:
         s.archived = archived
+    if pinned is not None:
+        s.pinned = pinned
     s.updated = now()
     return s
 
 
 def legacy_count(p: Project, topic: str) -> int:
-    """옛 단발 대화(Project.chats) 메시지 수. 화면은 '이전 대화'로 보여 준다."""
+    """옛 단발 대화(Project.chats) 메시지 수. 화면은 '이전 대화'로 보여 준다. 에이전트 목록('agent')의 이전 대화는 옛 플롯 대화다."""
+    topic = "plot" if topic in TOPICS else topic
     return len(next((c.messages for c in p.chats if c.topic == topic), []))
+
+
+def legacy_chats(p: Project) -> list[tuple[str, int]]:
+    """설정 · 문체 · 본문 고치기의 옛 대화 (주제, 메시지 수). 세션 목록 아래 '이전 대화'에 읽기 전용으로 보인다.
+    차례는 설정 · 문체 · 화 번호 순이다. 메시지가 없는 주제는 뺀다."""
+    def order(topic: str) -> tuple[int, int]:
+        if topic.startswith("text:"):
+            n = topic[5:]
+            return 2, int(n) if n.isdigit() else 0
+        return (0 if topic == "setup" else 1), 0
+    out = [(c.topic, len(c.messages)) for c in p.chats
+           if c.messages and (c.topic in ("setup", "style") or c.topic.startswith("text:"))]
+    return sorted(out, key=lambda x: order(x[0]))
 
 
 def scope_of(p: Project, s: AgentSession, turn: AgentTurn) -> ChatScope:
@@ -136,8 +159,10 @@ def first_step_prompt(p: Project, message: str, target: str = "") -> str:
     return prompts.agent_plot_prompt(p, s, turn, scope_of(p, s, turn), MAX_STEPS)
 
 
-def add_turn(p: Project, sid: str, message: str, *, mode: str = "", act: str = "", episode: int = 0, draft=None) -> int:
-    """새 턴을 연다. 돌아가는 턴이나 승인을 기다리는 턴이 있으면 막는다. 턴 번호를 돌려준다."""
+def add_turn(p: Project, sid: str, message: str, *, mode: str = "", act: str = "", episode: int = 0, draft=None,
+             target: str | None = None) -> int:
+    """새 턴을 연다. 돌아가는 턴이나 승인을 기다리는 턴이 있으면 막는다. 턴 번호를 돌려준다.
+    target 은 화면이 주는 대상이다. 고정하지 않은 세션이면 세션 대상을 이 값으로 바꾼다."""
     s = session(p, sid)
     message = message.strip()
     if not message:
@@ -146,6 +171,8 @@ def add_turn(p: Project, sid: str, message: str, *, mode: str = "", act: str = "
         raise ValueError("보관한 세션이에요. 꺼낸 뒤 이어서 말하세요")
     if s.turns and s.turns[-1].end == "":
         raise ValueError("아직 돌아가는 턴이 있어요")
+    if target is not None and not s.pinned:
+        s.target = pipeline.chat_session_target(p, target)
     _compact(s)
     turn = AgentTurn(user=message, mode="options" if mode == "options" else "", act=act, episode=episode, draft=draft, at=now())
     turn.where = pipeline.chat_where(p, scope_of(p, s, turn))
@@ -251,10 +278,13 @@ def _parts(p: Project, rev: PlotRevision, target: str) -> list[tuple[str, str]]:
 
 
 def outside(p: Project, focus: str, key: str) -> bool:
-    """세션이 고른 다듬을 곳(chat_focus) 밖의 쓰기 부분인지. 부를 고르면 그 부 밖의 화, 화를 고르면 그 화 말고 모두."""
+    """세션이 고른 다듬을 곳(chat_focus) 밖의 쓰기 부분인지. 부를 고르면 그 부 밖의 화, 화를 고르면 그 화 말고 모두.
+    대상이 본문 · 설정 · 문체이면 플롯 쓰기는 모두 밖이다 (플롯 도구는 어느 화면에서든 쓰지만 늘 묻는다)."""
     kind, lo, hi, _ = pipeline.chat_focus(p, focus)
     if not kind:
         return False
+    if kind in OTHER_FOCUS:
+        return True
     if key.isdigit():
         return not lo <= int(key) <= hi
     return kind == "ep"  # 부를 고르면 부 구성 · 그 부의 아크 칸 · 구조는 안이다
@@ -640,7 +670,7 @@ def run_turn(llm: LLM, name: str, sid: str, t: int, job=None) -> dict:
         p = store.load(name)
         s, turn = turn_of(p, sid, t)
         scope = scope_of(p, s, turn)
-        hint = {**pipeline.plot_chat_hint(p, turn.user, scope), "agent": True, "mode": turn.mode,
+        hint = {**pipeline.plot_chat_hint(p, turn.user, scope), "agent": True, "mode": turn.mode, "aim": pipeline.chat_focus(p, scope.focus)[0],
                 "steps": [x.kind for x in turn.steps], "tools": [x.tool for x in turn.steps]}
         if job is not None:
             job.step_at, job.step_wait = time.time(), step_wait(llm)

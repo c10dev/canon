@@ -511,7 +511,7 @@ function viewEpisode(n, panel = 'write') {
   // 640px 이하는 보조 버튼(대화 · 다시 생성 · 작업지시서)을 머리 줄에서 숨기고 ⋯ 메뉴에 같은 동작을 둔다 (작업지시서는 메뉴에 이미 있다, app.css .w-head)
   const chatOn = e.text && editable;
   const rw = e.text && editable && (isApi || e.status === 'finalized') ? jobBtn('write', n, '다시 생성') : null;
-  const narrow = `${chatOn ? `<button type="button" class="pop-item" data-action="toggleChat" aria-pressed="${S.chatOpen}">${chatConf(`text:${n}`).title}</button>` : ''}${rw ? `<button type="button" class="pop-item" data-action="rwOpen" data-arg="${n}" aria-expanded="${S.rwOpen === n}"${rw.attr}>${rw.label}</button>` : ''}`;
+  const narrow = `${chatOn ? `<button type="button" class="pop-item" data-action="chatOldToggle" data-arg="text:${n}" aria-pressed="${chatOldOn(`text:${n}`)}">${chatConf(`text:${n}`).title}</button>` : ''}${rw ? `<button type="button" class="pop-item" data-action="rwOpen" data-arg="${n}" aria-expanded="${S.rwOpen === n}"${rw.attr}>${rw.label}</button>` : ''}`;
   const right = `${chatOn ? chatButton(`text:${n}`) : ''}
     ${rw ? `<button class="btn${S.rwOpen === n ? ' on' : ''}" data-action="rwOpen" data-arg="${n}" aria-expanded="${S.rwOpen === n}"${rw.attr}>${rw.label}</button>` : ''}
     ${!pane && editable && !isApi && e.status !== 'finalized' ? `<a class="btn" href="${base()}/brief/${n}">작업지시서</a>` : ''}
@@ -571,7 +571,7 @@ function viewEpisode(n, panel = 'write') {
     ${cuePanel(n)}
     ${e.text ? illustPanel(n) : ''}
     ${openingPanel(n)}`)}
-    ${e.text && editable ? (S.rwOpen === n ? rewritePanel(n) : chatPanel(`text:${n}`)) : ''}`;
+    ${e.text && editable && S.rwOpen === n ? rewritePanel(n) : ''}${chatLegacy(e.text && editable ? `text:${n}` : '', { hold: !!(e.text && editable) && S.rwOpen === n })}`;
 }
 
 /** 한 화 화면의 본문 자리. 칸이 없으면(집필) 본문과 그 아래 칸들을 그대로 둔다.

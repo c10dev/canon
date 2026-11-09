@@ -414,7 +414,7 @@ function viewArc() {
   // 완결: 다음 할 일은 원고 내보내기나 장편으로 늘리기다 (내려받기 형식은 집필 화면 '복사 · 내보내기'에서 고른 것)
   const done = fin ? `<div class="note ok between"><span>모든 화를 반영했어요. 원고를 내보내거나 장편으로 늘려 이어 쓸 수 있어요.</span><span class="row"><button type="button" class="btn small" data-action="downloadTxt" data-arg="1-${p.meta.target_episodes}">전체 .txt 내려받기</button><a class="btn small primary" href="${base()}/convert">장편으로 늘리기</a></span></div>` : '';
   return `${header('3단계', stepLabel('arc'), '구간을 확인하고 화 카드를 눌러 플롯을 다듬어요. 확정한 화만 본문을 쓸 수 있고, 초안을 다시 만들어도 확정한 화는 그대로예요.', chatButton() + menu + primary)}
-    ${done}${board}${chatPanel('plot')}`;
+    ${done}${board}`;
 }
 
 // AI 로 구조 · 부 구성 · 플롯 초안을 다시 받을 때 함께 보낼 한 줄 요청 (S.planNote). 비우면 AI 가 정한다 (prompts.request_block).
@@ -526,7 +526,7 @@ function viewPlotPage(n) {
   return `<nav class="crumbs small" aria-label="위치"><a href="${base()}/arc" data-action="closePlot">${stepLabel('arc')}</a>${where.map((x) => ` <span aria-hidden="true">›</span> ${x}`).join('')} <span aria-hidden="true">›</span> <strong>${n}화</strong></nav>
     <header class="page-head plot-head"><div class="row" style="gap:10px;min-width:0"><h1>${n}화 ${esc(e.plot.title) || '제목 없음'}</h1>${povBadge(n)}<span class="chip ${e.status}">${STATUS[e.status]}</span></div>
       <div class="row">${navBtn(prev, '이전')}${navBtn(next, '다음')}${chatButton()}<button type="button" class="btn" data-action="closePlot">보드로</button></div></header>
-    ${plotLayout(toc, `<div class="plot-main plot-page" aria-label="${n}화 플롯">${plotEditor(e)}</div>`)}${chatPanel('plot')}`;
+    ${plotLayout(toc, `<div class="plot-main plot-page" aria-label="${n}화 플롯">${plotEditor(e)}</div>`)}`;
 }
 
 /** 화 플롯 페이지 목차: 구간마다 묶은 화 줄. 점 색은 상태(반영 · 작성됨 · 확정 · 초안) */
@@ -840,7 +840,7 @@ function viewSerial() {
   ]);
   const tools = chatButton() + (p.conversion ? `<a class="btn" href="${base()}/convert">단편에서 전환 · 되돌리기</a>` : '') + menu + head.html;
   return `${header('3단계', stepLabel('arc'), '왼쪽 목차에서 아크를 고르면 그 아크의 구간과 화 카드가 나와요. 끝난 아크는 요약으로 접혀서 몇백 화를 써도 프롬프트 크기가 일정해요.', tools)}
-    ${plotLayout(toc, `<div class="plot-main">${partEdit}${series}${body}</div>`)}${chatPanel('plot')}`;
+    ${plotLayout(toc, `<div class="plot-main">${partEdit}${series}${body}</div>`)}`;
 }
 
 /** 장편 화면 머리의 primary: 지금 할 일 하나. 끝난 아크 · 부 요약 → 다음 아크 기획 → 초안 확정, 그 밖에는 다음 할 일(nextStep).

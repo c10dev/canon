@@ -33,8 +33,13 @@
 
 ### `canon/agent.py`
 
-- 대화 에이전트(지금은 플롯 대화 `plot`만)
-- 세션(`AgentSession`, 주제마다 여럿, 다듬을 곳 · 권한 모드 `ask|draft|all`). 다듬을 곳은 `arc:N` · `next` · 부 `part:N` · 한 화 `ep:N`(`pipeline.chat_focus`, 그 곳이 든 아크는 `chat_target`), 밖을 고치면 종류 `outside` 로 늘 묻는다(`outside`, `permit`)
+- 대화 에이전트. 작품 안 모든 화면의 대화 패널 하나가 쓴다
+- 세션 목록은 작품 하나에 하나다(`sessions`, `TOPICS`). 새 세션 topic 은 `agent` 이고, 옛 `plot` 세션도 같은 목록에 보인다
+- 세션(`AgentSession`, 다듬을 곳 · 권한 모드 `ask|draft|all`). 다듬을 곳은 `arc:N` · `next` · 부 `part:N` · 한 화 `ep:N`(`pipeline.chat_focus`, 그 곳이 든 아크는 `chat_target`), 밖을 고치면 종류 `outside` 로 늘 묻는다(`outside`, `permit`)
+- 화면이 주는 대상 `text:N`(집필 · 검수 · 상태 승인) · `setup`(설정 도우미) · `style`(문체)도 `chat_focus` 가 읽는다. `chat_target` 은 `text:N` 을 `ep:N` 처럼, `setup` · `style` 을 '' 처럼 읽는다
+- 이 세 대상에는 아직 쓰기 도구가 없다(04b~04d). 플롯 쓰기는 모두 `outside` 로 묻는다(`OTHER_FOCUS`). 작품 전체('')는 지금 규칙 그대로다
+- 턴을 열 때 화면 대상이 오면(`add_turn` 의 `target`) 고정하지 않은 세션의 대상을 그 값으로 바꾼다. 고정은 `AgentSession.pinned`(옛 세션은 False)
+- 설정 · 문체 · 본문 고치기의 옛 대화는 `legacy_chats` 가 (주제, 메시지 수)로 준다. 웹 세션 목록의 `older` 이고 화면은 읽기만 한다
 - 턴(`AgentTurn`)을 백그라운드 작업 `agent` 로 돌린다(`run_turn`, 단계마다 `llm.json(PlotAgentStep)`, 최대 `MAX_STEPS`=8, 단계마다 저장)
 - `first_step_prompt` 는 새 세션 첫 턴에서 `run_turn` 이 처음 보내는 요청이다. 세션(id `LAB_SID`)을 작품에 붙이지 않는다. 프롬프트 놀이터 불러오기가 쓴다
 - 단계 호출은 `step_wait` 초까지 기다린다: Claude Code(구독)는 `STEP_WAIT_CLAUDE`(480), 나머지는 `STEP_WAIT`(300)
@@ -60,6 +65,8 @@
 - 새 턴을 열 때 최근 `UNDO_TURNS`(20) 턴보다 오래된 턴의 쓰기 전 · 뒤 값과 초안을 지운다(`_compact`). 그 턴의 쓰기는 kept(`OLD_UNDO`)로 남는다
 - 멈추거나 실패한 턴은 `reconcile`
 - 프롬프트 `prompts.agent_plot_prompt`
+- 대상 블록 `prompts.agent_focus_block` 은 본문 · 설정 · 문체 대상에 '바로 고치는 도구가 없고, 플롯 쓰기는 작가에게 물어진다'를 알린다
+- mock 단계(`mock._agent_step`)는 힌트 `aim` 이 본문 · 설정 · 문체이면 '플롯'이 든 말만 고치고 나머지는 읽은 뒤 답만 한다
 - 단계 프롬프트는 바뀌지 않는 블록(도구 · 규칙 · 요구사항)이 앞, 턴 블록과 이번 턴 단계가 뒤, 남은 단계 수가 맨 끝 한 줄이다(단계 k+1 요청이 단계 k 요청을 품음)
 - 이름 후보는 `random.Random(session.id)` 로 뽑아 단계마다 같다(`plot_chat_parts` 의 rng)
 
@@ -444,12 +451,18 @@
 
 ### `canon/static/agent.js`
 
-- 대화 에이전트 패널(`chat.js` 의 `chatPanel('plot')` 이 부른다)
+- 대화 에이전트 패널. 작품 안 모든 화면에 하나다(`chat.js` 의 `chatPanel('plot')` 이 부르고, `app.js` `drawApp` 이 `chatDock` 으로 셸 끝에 붙인다)
+- 다음 턴의 대상은 `agentTarget`: 고정한 세션은 세션 대상, 아니면 화면 대상(`agentScreenTarget` = `S.chatHere.target`)
+- 턴은 `agentTurnScope` 로 화면 대상을 함께 보낸다(고정한 세션은 빼고). 연 구간 · 화 · 다음 아크 초안은 플롯 화면에서만 보낸다
+- 상태 줄의 대상이 바뀌면 `agentAfterDraw` 가 `.foot-target` 을 한 번 강조(`flash`)하고 `chatSay` 로 `#chat-live` 에 알린다. 패널을 처음 그릴 때는 알리지 않는다
+- 상태 줄의 핀(`agentPin`)과 다듬을 곳 메뉴(`agentTarget`)는 세션을 고정한다. `/대상` 은 고정을 풀고 화면 대상으로 돌린다
+- 본문 · 설정 · 문체 대상의 빈 세션은 예시 대신 '읽고 답하고, 플롯은 늘 묻는다' 안내를 보인다
 - 세션 동작 `agentAct(fn, { save })` 와 말 보내기 `agentStartTurn`: AI가 작품을 읽거나 고치는 동작은 저장하지 않은 변경이 있으면 저장할지 묻는다. 세션 만들기 · 대상 · 권한 모드 · 이름 · 보관은 `save: false` 로 묻지도 저장하지도 않는다
 - `agentAct` 는 응답의 `project` 가 객체일 때만 `S.project` 를 바꾼다. 이어 하기 응답은 작업 정보라 `project` 가 작품 이름 글이다
 - 세션 머리와 목록(보관함, '이전 대화'는 옛 `Project.chats` 를 `chatLog` 로)
+- '이전 대화 · 플롯'(`legacy`)은 예전처럼 골라 적용 · 취소한다. 설정 · 문체 · 본문 고치기(`legacy:<주제>`)는 `chatLog(주제, { readOnly: true })` 로 읽기만 한다
 - 턴마다 단계 줄 · 바로 쓴 것(항목 · 턴 되돌리기) · 승인 카드 · 되묻기 카드
-- 입력 상자(+ 재료, `/` 빠른 요청 `AGENT_CMDS`, 보내기 · 멈추기)와 상태 줄(권한 모드 · 대상 · 모델 · 단계 상한)
+- 입력 상자(+ 재료, `/` 빠른 요청 `AGENT_CMDS`, 보내기 · 멈추기)와 상태 줄(권한 모드 · 대상 · 대상 고정 · 모델 · 단계 상한)
 - 진행은 `pollJobs` 가 `agentJobUpdate` 로 알린다
 - 도는 턴의 단계 줄은 지금 하는 일(`agentStepNow`: `Job.retry` 가 있으면 그 사정, 없으면 'AI 응답을 기다리는 중')과 직전 단계의 생각(`Job.note`)을 보인다
 - 지금 하는 일과 늦음 안내는 1초마다 그 자리만 고친다. `Job.retry` 가 보이는 동안 일반 늦음 안내는 숨긴다

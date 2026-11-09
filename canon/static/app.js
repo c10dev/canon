@@ -2709,9 +2709,10 @@ function drawApp() {
   const views = { setup: viewSetup, style: viewStyle, arc: () => (plotPageN() ? viewPlotPage(plotPageN()) : serial() ? viewSerial() : viewArc()), write: viewWrite, check: viewCheck, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, cast: viewCast, atlas: viewAtlas, convert: viewConvert, foreshadow: viewForeshadow, tofix: viewToFix, stage: viewStage, statwin: viewStatwin, abilities: viewAbilities, timeline: viewTimeline, branches: viewBranches, cue: viewCue };
   // 모르는 화면 이름(옛 북마크, 손으로 친 주소)은 말없이 홈을 그리지 않고 알린다. 사이드바는 홈을 고른 채로 둔다
   const unknown = page && !views[page];
+  chatScreen(views[page] ? page : '', n);  // 화면이 주는 대화 에이전트의 기본 대상 (chat.js). 화면 파일은 그리는 동안 옛 대화 주제를 더한다
   const body = (views[page] || viewHome)(n);
   const miss = unknown ? `<div class="note warn between" role="status"><span>'${esc(page)}' 화면은 없어요. 작품 홈을 보여 드려요.</span><a class="btn small" href="${base()}">작품 홈 주소로</a></div>` : '';
-  paintApp(`<div class="shell">${sidebar(page === 'convert' || unknown ? 'home' : page || 'home')}<main class="main">${miss}${failStrip(page, n)}${draftStrip(page, n)}${branchPlace(page, body)}</main></div>`);
+  paintApp(`<div class="shell">${sidebar(page === 'convert' || unknown ? 'home' : page || 'home')}<main class="main">${miss}${failStrip(page, n)}${draftStrip(page, n)}${branchPlace(page, body)}</main>${chatDock()}</div>`);
   syncPending();
   keepDrafts();  // 저장 · 버리기 · AI 본문으로 초안이 사라졌으면 임시본도 바로 지운다
   syncChat();
@@ -2936,19 +2937,22 @@ const SIDE_ICON = {
   panel: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg>',
   sliders: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>',
   more: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>',
+  chat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 5h14a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1h-8l-4 3v-3H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/></svg>',
   tri: '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M3.5 2 L6.5 5 L3.5 8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
 };
 
 const TF_CREDIT = '<span class="tf-credit">이 페이지에는 토스팀에서 제공한 <a href="https://toss.im/tossface" target="_blank" rel="noopener">토스페이스</a>가 적용되어 있어요.</span>';
 
-/** 사이드바 맨 위 줄. 넓은 폭: 이름 · 알림 · 찾기 · 레일 접기. 900px 이하 위쪽 띠: 메뉴 · (작품 칸) · 알림 · 찾기. play.js 도 쓴다 */
-function sideTop({ hub = true, search = true } = {}) {
+/** 사이드바 맨 위 줄. 넓은 폭: 이름 · 알림 · (대화) · 찾기 · 레일 접기. 900px 이하 위쪽 띠: 메뉴 · (작품 칸) · 알림 · (대화) · 찾기. play.js 도 쓴다.
+    chat: 작품 안 사이드바만 대화 에이전트 패널을 여닫는 버튼을 둔다 (chat.js toggleChat) */
+function sideTop({ hub = true, search = true, chat = false } = {}) {
   const rail = railPinned();
   const mod = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl+';
   return `<div class="side-top">
       <button type="button" class="side-ico menu-toggle" data-action="toggleMenu" aria-expanded="${!!S.menuOpen}" aria-controls="side-menu" aria-label="메뉴 열기">${SIDE_ICON.menu}</button>
       <a class="brand" href="#/">Canon<span class="brand-dot" aria-hidden="true">.</span></a>
       ${hub ? `<span class="hub-slot" id="hub-slot">${hubButton()}</span>` : ''}
+      ${chat ? `<button type="button" class="side-ico chat-toggle" data-action="toggleChat" aria-pressed="${!!S.chatOpen}" aria-label="대화 에이전트" title="대화 에이전트">${SIDE_ICON.chat}</button>` : ''}
       ${search ? `<button type="button" class="side-ico pal-open" data-action="openPalette" aria-haspopup="dialog" aria-label="찾기" title="찾기 (${mod}K)">${SIDE_ICON.search}</button>` : ''}
       <button type="button" class="side-ico rail-toggle" data-action="toggleRail" aria-pressed="${rail}" aria-label="사이드바 ${rail ? '펼치기' : '접기'}" title="사이드바 ${rail ? '펼치기' : '접기'}">${SIDE_ICON.panel}</button>
     </div>`;
@@ -2992,7 +2996,7 @@ function sidebar(active) {
   const here = (xs) => xs.some((t) => t[0] === active);  // 지금 보는 화면이 든 묶음은 펼쳐 그린다 (기억하지 않는다)
   const more = folded.length ? navFold('more', '아직 안 쓴 도구', folded.length, folded.map(link).join(''), navFoldOpen('more') || here(folded)) : '';
   return `<nav class="side${S.menuOpen ? ' open' : ''}" aria-label="작품 메뉴">
-    ${sideTop()}
+    ${sideTop({ chat: true })}
     ${workCard()}
     <div class="side-menu" id="side-menu">
     ${drawerHead()}

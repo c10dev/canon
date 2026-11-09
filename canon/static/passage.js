@@ -731,7 +731,7 @@ async function aiFixNow(n, q, at, w) {
   const here = S.route[2] === 'write' && Number(S.route[3]) === n;
   if (!out.edit) {
     // 본문이 맞다고 본 답(후보 없이 근거만)도 여기로 온다. 집필 화면이면 대화 패널을 열어 답을 보이고, 요청을 더 적어 이어 고칠 수 있게 골라 둔다
-    if (here) Object.assign(S, { sel: { n, start: at, text: q }, chatOpen: true, chatScroll: true });
+    if (here) { Object.assign(S, { sel: { n, start: at, text: q }, chatOld: 'text', chatScroll: true }); chatSetOpen(true); }  // 옛 'AI에게 고치기' 대화로 연다 (chat.js)
     render();
     return toast(here ? 'AI가 고친 글을 내지 않았어요. 대화 패널에서 답을 보세요' : `AI가 ${n}화 경고 문장을 고친 글을 내지 않았어요. 집필 화면 대화 패널에서 답을 보세요`, true);
   }
@@ -790,9 +790,9 @@ Object.assign(actions, {
     S.sel = { n: t.n, start: t.start, text: t.text };
     hideTool();
     S.chatFoldOpen = false;  // 새로 고른 부분: 지난 요청은 접어 둔다 (chat.js chatLog)
-    S.chatOpen = true;
+    S.chatOld = 'text';  // 본문 고치기는 04b 전까지 옛 'AI에게 고치기' 대화가 맡는다 (chat.js chatShownTopic)
+    chatSetOpen(true);
     S.chatScroll = true;
-    try { localStorage.setItem('canon.chat', '1'); } catch { /* 저장 못 해도 동작에는 상관없다 */ }
     // 휴대폰에서는 아래 시트가 본문 아래쪽을 덮는다. 고른 글이 시트 위에 보이게 다시 고르고 굴린다 (syncPassage)
     if (focusText(t.n, t.text, t.start) !== -1) S.selFocus.quiet = true;
     if (touchFirst() && isDraftTa(document.activeElement)) document.activeElement.blur();  // 본문 칸 포커스가 남으면 키보드가 오르고 다시 그리기가 밀린다
@@ -828,7 +828,8 @@ Object.assign(actions, {
       if (ask && exact) return aiFixNow(num, q, at, w);
       if (ask) {
         // 비슷한 문장이거나 같은 글이 여러 곳: 바로 넣지 않는다. 문장을 골라 두고 경고를 대화 입력칸에 넣는다. 보내기는 작가가 한다
-        Object.assign(S, { sel: { n: num, start: at, text: q }, chatDraft: warnMsg(w), chatOpen: true, chatScroll: true });
+        Object.assign(S, { sel: { n: num, start: at, text: q }, chatDraft: warnMsg(w), chatOld: 'text', chatScroll: true });
+        chatSetOpen(true);
         render();
         return toast('경고와 똑같은 문장이 없거나 여러 곳이라, 가장 비슷한 문장을 골랐어요. 맞으면 대화 패널에서 보내세요');
       }

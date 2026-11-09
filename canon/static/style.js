@@ -94,7 +94,7 @@ const pfOpen = (root, id) => !!(S.styleOpen || {})[pfKey(root, id)];
 
 /** 대화 패널이 열려 있고 아직 고르지 않은 문체 변경안이 있으면 그 변경안이 바꿀 칸 (카드에 표시한다). */
 function styleChatKeys() {
-  if (!S.chatOpen || typeof chatMessages !== 'function') return new Set();
+  if (!S.chatOpen || S.chatOld !== 'style' || typeof chatMessages !== 'function') return new Set();  // 옛 문체 대화를 연 동안만 (chat.js chatShownTopic)
   const msgs = chatMessages('style');
   for (let i = msgs.length - 1; i >= 0; i--) {
     const m = msgs[i];
@@ -350,7 +350,7 @@ function viewStyle() {
       ${stylePickCard()}
       <section class="card tight pf-sec" id="pf-manual" tabindex="-1"><div class="sty-row"><div><h3>직접 채우기</h3><p class="small pf-sub">원문 없이 시점 · 시제부터 카드를 하나씩 채워요. 대화로 다듬기에서 말로 시작해도 돼요.</p></div>
         <span class="sty-acts"><button type="button" class="btn small" data-action="styleManual">빈 카드 열기</button></span></div></section>
-    </div></div></div>${chatPanel('style')}`;
+    </div></div></div>${chatLegacy('style')}`;
   }
   const hot = styleChatKeys();
   const r = P().style_learning;
@@ -360,7 +360,7 @@ function viewStyle() {
   return `${header('2단계', stepLabel('style'), '이 규칙과 대표 문단이 매 화 본문 생성에 함께 들어가요. 카드의 \'고치기\'로 그 카드만 고쳐요.', go(true))}
     <div class="outline-wrap style-page"><div class="outline-doc">${styleToc(rows)}<div class="sty-secs">
       ${styleDraftCard()}${styleStatus()}${todo ? learnTodoCard() : ''}${styleExampleCard()}${profileCards('style', '', hot)}${anchorCard()}${styleSourceCard()}${learnCard()}
-    </div></div></div>${chatPanel('style')}`;
+    </div></div></div>${chatLegacy('style')}`;
 }
 
 // ----- 문체 라이브러리 -----

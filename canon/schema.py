@@ -998,7 +998,7 @@ class ChatScope(BaseModel):
     """플롯 대화를 보낼 때 화면이 알려 주는 것 (AI 가 채우지 않는다).
     target: '' 기본(단편은 작품 전체, 장편은 본문이 없는 첫 아크), 'arc:3' 그 아크, 'next' 다음 아크 기획."""
     target: str = ""
-    focus: str = ""  # 세션이 고른 다듬을 곳 'part:N' · 'ep:N' (pipeline.chat_focus). target 은 그 곳이 든 아크
+    focus: str = ""  # 세션의 다듬을 곳 'part:N' · 'ep:N' · 'text:N' · 'setup' · 'style' (pipeline.chat_focus). target 은 그 곳이 든 아크
     act: str = ""  # 화면에서 연 구간 이름 (기 · 승 · 전 · 결)
     episode: int = 0  # 화면에서 연 화
     mode: Literal["", "options"] = ""  # options: 변경안 대신 방향 여러 안을 받는다
@@ -1197,11 +1197,13 @@ class AgentTurn(BaseModel):
 
 
 class AgentSession(BaseModel):
-    """대화 세션. 주제(topic)마다 여럿 둘 수 있고, 기본 대상(target)과 권한 모드를 기억한다."""
+    """대화 세션. 작품 하나에 목록 하나(topic 'agent', 옛 세션은 'plot')이고, 대상(target)과 권한 모드를 기억한다."""
     id: str
-    topic: ChatTopic = "plot"
+    topic: ChatTopic = "plot"  # 옛 project.json 의 세션은 이 칸이 없거나 'plot' 이다. 새 세션은 'agent' (agent.new_session)
     title: str = ""
-    target: str = Field("", description="다듬을 곳: '' 기본, 'arc:N', 'next', 'part:N'(부), 'ep:N'(한 화 플롯). 부 · 화는 그 곳이 든 아크로 읽는다 (pipeline.chat_target)")
+    target: str = Field("", description="다듬을 곳: '' 작품 전체, 'arc:N', 'next', 'part:N'(부), 'ep:N'(한 화 플롯), 화면이 주는 'text:N'(그 화 본문) · 'setup'(설정) · "
+                                      "'style'(문체). 부 · 화 · 본문은 그 곳이 든 아크로 읽는다 (pipeline.chat_target)")
+    pinned: bool = Field(False, description="작가가 대상을 고정했는지. 고정하면 화면을 옮겨도 대상을 바꾸지 않는다 (agent.add_turn)")
     mode: AgentMode = "draft"
     auto_kinds: list[str] = Field(default_factory=list, description="승인 카드에서 '이 세션에서 묻지 않기'로 고른 종류")
     archived: bool = False

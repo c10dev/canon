@@ -325,6 +325,7 @@ def _agent_step(hint: dict) -> PlotAgentStep:
     """대화 에이전트 흉내. 처음엔 플롯을 읽고, 다음 단계에 플롯 대화 흉내(_revision)로 고치고, 쓴 결과를 보면 끝낸다.
     '여러 안' 요청은 되묻고, '?' 로 끝나면 답만 하고, '끝없이' 는 상한 시험으로 늘 읽는다.
     '끝 이름' 은 읽은 뒤 칸 이름 reply 를 도구로 적어 끝낸다 (모델이 실제로 낸 응답 모양).
+    대상이 본문 · 설정 · 문체(hint 'aim')이면 '플롯'이 든 말만 고치고 나머지는 읽은 뒤 답만 한다.
     'N화 앞에 M화' 는 화 넣기, 'N화 빼' 는 화 빼기를 묻고, '빈 물음' 은 묻는 말 없는 ask 를 내고, '분석' 은 처음에 예고만 하고, 되돌림 단계(tool 'reply')를 보면 내용을 쓴다."""
     msg, steps, tools = hint["message"], hint.get("steps", []), hint.get("tools", [])
     if "끝없이" in msg:
@@ -360,6 +361,8 @@ def _agent_step(hint: dict) -> PlotAgentStep:
         return PlotAgentStep(reply="작가의 답대로 마쳤어요.")
     if "edit_plot" in tools or msg.rstrip().endswith("?"):
         return PlotAgentStep(reply=f"'{msg}' 를 반영했어요.")
+    if hint.get("aim") in ("text", "setup", "style") and "플롯" not in msg and steps:  # 본문 · 설정 · 문체 대상: 쓰기 도구가 없어 읽고 답만 한다
+        return PlotAgentStep(reply=f"읽어 봤어요. 이 대상은 아직 바로 고치는 도구가 없어 제안만 드려요: '{msg}'")
     if not steps:
         return PlotAgentStep(thought="지금 플롯부터 봐요", tool="read_plots",
                              args=[ToolArg(name="from", value="1"), ToolArg(name="to", value="3")])

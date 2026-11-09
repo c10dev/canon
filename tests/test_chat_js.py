@@ -64,3 +64,24 @@ def test_target_parsing_edge_matches_server():
     got = run_js(["app.js", "chat.js"], "S.project = data.p; data.t.map((t) => (plotTargetArc(t) || {}).number || null)",
                  {"p": dump(p), "t": targets})
     assert got == [_server(p, t) for t in targets]
+
+
+def test_server_reads_screen_targets():
+    """04a: 화면이 주는 대상 'text:N' · 'setup' · 'style'. 세션에는 그대로 기억하고, 플롯 쓰기는 본문 화가 든 아크 · 작품 전체로 읽는다."""
+    from canon import agent
+
+    for p in [_projects()[0].model_copy(update={"episodes": [episode(n) for n in range(1, 4)]}), _projects()[2]]:
+        assert pipeline.chat_focus(p, "setup")[0::3] == ("setup", "설정")
+        assert pipeline.chat_focus(p, "style")[0::3] == ("style", "문체")
+        kind, lo, hi, name = pipeline.chat_focus(p, "text:3")
+        assert (kind, lo, hi, name) == ("text", 3, 3, "3화 본문")
+        for t in ("text:3", "setup", "style"):
+            assert pipeline.chat_session_target(p, t) == t
+            assert all(agent.outside(p, t, k) for k in ("1", "3", "arc", "acts", "parts"))  # 플롯 쓰기는 모두 묻는다
+        assert pipeline.chat_target(p, "text:3") == pipeline.chat_target(p, "ep:3")
+        assert pipeline.chat_target(p, "setup") == pipeline.chat_target(p, "style") == pipeline.chat_target(p, "")
+        assert not agent.outside(p, "", "3")  # 작품 전체는 지금 규칙 그대로
+        with pytest.raises(ValueError):
+            pipeline.chat_focus(p, "text:99")
+    serial = _projects()[2]
+    assert pipeline.chat_target(serial, "text:6")[0] == "arc:2"
