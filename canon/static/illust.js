@@ -16,6 +16,42 @@ Object.assign(S, {
   visOpen: {},      // 인물 id → 설정 화면 '삽화 외형 태그'를 펼쳤는지 (AI 작업 뒤 다시 그려도 남긴다)
 });
 
+// 외형 태그 AI 제안은 백그라운드 작업으로 돈다 (web._job_char_ai). 기다리는 동안 다른 칸을 읽고 고칠 수 있다.
+// 작업은 저장된 인물 설정을 읽으므로 묻지 않고 먼저 저장한다 (startJob opt.quiet)
+JOB_PAGES.char_look = ['cast'];
+JOB_LINK.char_look = (j) => `#/p/${enc(j.project)}/cast/${enc(j.target)}`;
+JOB_DONE_MSG.char_look = (j) => `${j.label} 제안이 도착했어요.`;
+SCREEN_ONLY_JOBS.add('char_look');
+JOB_BTNS.lookAI = (cid) => ['char_look', cid];
+/** 외형 · 기본 옷차림 · 그림 속 성별을 견주는 값. 결과가 올 때 시작한 뒤 고쳤는지 본다 */
+const lookSnap = (cid) => JSON.stringify(['look', 'outfit', 'subject'].map((k) => (ilVisual(cid) || {})[k] || ''));
+/** 외형 태그 제안은 칸에 바로 넣는다. 그 인물의 외형 칸을 고치는 중이거나 시작한 뒤 고쳤으면 덮지 않고 알림의 '넣기'로 넣게 한다 */
+JOB_RESULT.char_look = (j) => {
+  const cid = j.target;
+  const c = P().characters.find((x) => x.id === cid);
+  const s = j.result;
+  if (!s || !c) return { msg: `${j.label} 제안이 왔지만 그 인물이 없어서 넣지 않았어요.` };
+  const put = () => {
+    setVisual(cid, 'look', s.look.join(', '));
+    if (s.outfit.length) setVisual(cid, 'outfit', s.outfit.join(', '));
+    // '자동'은 성별 칸으로 정한다(illust.subject_of). 같은 값이면 자동으로 둬서 성별 칸을 고치면 따라가게 한다
+    const g = (c.gender || '').trim().toLowerCase();
+    const auto = g.startsWith('여') || ['f', 'female', 'woman', 'girl'].includes(g) ? 'girl' : g.startsWith('남') || ['m', 'male', 'man', 'boy'].includes(g) ? 'boy' : 'other';
+    if ((ilVisual(cid) || {}).subject || s.subject !== auto) setVisual(cid, 'subject', s.subject);
+    S.looks[cid] = s.note || '';
+    S.visOpen[cid] = true;
+  };
+  const a = S.jobArgs[j.id];
+  const before = a && a.opt ? a.opt.before : undefined;
+  const el = document.activeElement;
+  if ((el && el.dataset && el.dataset.vis === cid) || (before !== undefined && lookSnap(cid) !== before)) {
+    return { msg: `${j.label} 제안이 왔지만 그 인물의 외형 칸을 고치고 있어서 넣지 않았어요. 넣으면 지금 적은 태그를 바꿔요.`,
+      actions: [{ label: '넣기', run: () => { put(); render(); toast('제안을 칸에 넣었어요. 고친 뒤 저장하세요'); } }] };
+  }
+  put();
+  return { msg: `${j.label} 제안을 칸에 넣었어요. 고친 뒤 저장하세요.` };
+};
+
 const IL_SUBJECT = { girl: '여성 (girl)', boy: '남성 (boy)', other: '그 밖 (other)' };
 const IL_RATING = { general: '전연령', sensitive: '약한 노출', questionable: '노출', explicit: '성인' };
 
@@ -384,21 +420,6 @@ Object.assign(actions, {
     const filled = v ? [['외형', v.look], ['기본 옷차림', v.outfit]].filter(([, x]) => (x || []).length).map(([k]) => k) : [];
     if (v && v.subject) filled.push('그림 속 성별');
     if (filled.length && !(await askConfirm(`지금 적힌 ${filled.join(' · ')}${josa(filled[filled.length - 1], '을', '를')} AI 제안으로 바꿀까요? 저장하기 전에는 '변경 모두 버리기'로 되돌릴 수 있어요`, { ok: '바꾸기' }))) return;
-    await run('외형 태그 만드는 중', async () => {
-      await saveIfDirty();  // AI는 저장된 인물 설정을 읽는다. 방금 고친 설정이나 새 인물도 보게 먼저 저장한다
-      const s = await api('POST', `/projects/${enc(S.name)}/characters/${enc(cid)}/look`);
-      setVisual(cid, 'look', s.look.join(', '));
-      if (s.outfit.length) setVisual(cid, 'outfit', s.outfit.join(', '));
-      // '자동'은 성별 칸으로 정한다(illust.subject_of). 같은 값이면 자동으로 둬서 성별 칸을 고치면 따라가게 한다
-      const c = P().characters.find((x) => x.id === cid);
-      const g = ((c && c.gender) || '').trim().toLowerCase();
-      const auto = g.startsWith('여') || ['f', 'female', 'woman', 'girl'].includes(g) ? 'girl' : g.startsWith('남') || ['m', 'male', 'man', 'boy'].includes(g) ? 'boy' : 'other';
-      if ((ilVisual(cid) || {}).subject || s.subject !== auto) setVisual(cid, 'subject', s.subject);
-      S.looks[cid] = s.note || '';
-      toast('제안을 칸에 넣었어요. 고친 뒤 저장하세요');
-    });
-    S.visOpen[cid] = true;
-    const d = document.querySelector(`[data-vis-open="${CSS.escape(cid)}"]`);
-    if (d) d.open = true;
+    await startJob('char_look', null, { target: cid }, { quiet: true, before: lookSnap(cid) });
   },
 });

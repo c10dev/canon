@@ -592,6 +592,7 @@
 - 읽기 전용 본문에서 고르는 도구
 - 도구 자리도 왼쪽을 0으로 두고 너비를 잰다(`passage.js` 의 `placeTool` 과 같은 규칙)
 - 인물 화면 인물 카드의 삽화 외형 태그(`visualFields`)
+- 외형 태그 AI 제안(`lookAI`)은 화면을 막지 않는 작업 `char_look`(대상 인물 id)이다. 그 인물의 외형 칸을 고치는 중이거나 시작한 뒤 고쳤으면 덮지 않고 알림의 '넣기'로 넣는다
 - 고치는 본문의 도구 버튼은 `passage.js`
 
 ### `canon/static/lines.js`
@@ -670,6 +671,7 @@
   - 복사
   - 화별 변화는 바뀐 화 목록(`swChangeParts`, 목록은 같은 이름끼리 짝지음) | 표
   - 작품 틀 · 처음 수치 쪽 `swFramePage`: 작품 틀 · 인물별 처음 수치 표 `swInitCard` · AI 처음 수치 제안
+  - 꾸미기 안 · 처음 수치 AI 제안(`swSuggest` · `swInitAI`)은 화면을 막지 않는 작업 `statwin_suggest` · `statwin_init` 이다. 결과는 제안 카드(`S.swSug` · `S.swInitSug`)에만 놓는다
   - 1화 반영 뒤 잠금 `swLocked`, 잠긴 표는 0화 기록의 시작 값 `swStartValues`
   - 틀 `SW_PRESETS` 는 `statwin.PRESETS` 와 같음
   - 꾸미기 쪽 `swDecorPage`: 창 이름 · 본문 서식(읽기 카드) · 화면 스킨 `SW_SKINS` · AI 안 고르기와 적용 취소

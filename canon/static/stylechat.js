@@ -176,11 +176,8 @@ Object.assign(actions, {
     });
   },
   async styleExampleWrite() {
-    await run('지금 문체로 예시를 쓰는 중…', async () => {
-      await saveIfDirty();
-      S.project = await api('POST', `/projects/${enc(S.name)}/style/example`, { scene: S.styleExScene || '', episode: Number(S.styleExEp) || 0 });
-      toast('예시를 썼어요');
-    });
+    // 백그라운드 작업으로 쓴다 (style.js 의 style_example 등록). 기다리는 동안 다른 칸을 고칠 수 있다
+    await startJob('style_example', null, { note: S.styleExScene || '', episodes: Number(S.styleExEp) ? [Number(S.styleExEp)] : [] }, { quiet: true });
   },
   async styleExampleClear() {
     await run('지우는 중', async () => {

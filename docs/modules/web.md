@@ -57,6 +57,7 @@
 - 상태 `S`
 - 서버 호출 `api`
 - 작품 저장 `save` 는 받은 판(`projectBase` 의 `keys` · `eps`)과 달라진 칸 · 화만 `PATCH` 로 보낸다(`patchBody`)
+- `takeField(칸, 값)` 은 작업이 작품에 쓴 최상위 제안 칸 하나(`style_learning` · `style_example`)를 받고 `projectBase.keys` 도 맞춘다. 다음 저장이 그 칸을 덮지 않는다
 - 서버가 본문 있는 화를 지켜 `X-Canon-Kept` 에 `episode` · `text` 를 담으면 `save` 는 토스트로 알리고 '저장했어요'를 띄우지 않는다
 - 빠진 화(`episode`)는 '본문이 있는 화를 빼는 저장이라' 토스트에 화 지우기를 알려 준다
 - 비운 본문(`text`)은 대개 이 화면의 옛 사본이라 '서버에는 본문이 있는 화라' 중립 토스트로 알린다. 같은 화를 플롯 보호(`locked`) 토스트가 이미 알렸으면 띄우지 않는다
@@ -100,6 +101,12 @@
 - 초안을 되살려도 본문을 고쳤다는 알림은 그대로 뜬다
 - 멈췄지만 AI 응답을 기다리는 작업(`S.jobsHeld`)이 있는 화는 `jobBtn` 이 `EP_AI_KINDS` 버튼을 '응답 기다리는 중'으로 잠근다(`epWaiting` · `epWaitNote`, 서버 `jobs.waiting_on` 과 같은 셈)
 - 멈춘 스토리보드 작업의 응답이 오면 `JOB_LATE.board` 가 남겼는지 알리고, 남겼으면 그 화를 다시 받는다
+- `startJob(kind, ep, extra, opt)` 의 `opt.quiet` 는 묻지 않고 저장한 뒤 시작한다. 화면을 막던 AI 제안(인물 · 상태창 · 이름 · 문체)이 쓴다. 그 제안은 원래 말없이 먼저 저장했다
+- `startJob` 의 `extra.target` 은 대상(인물 id)이다. `jobFor` · `jobBtn` · `jobKey` 가 대상까지 맞춰 본다(서버 `Job.target`)
+- 화면 파일은 결과 놓기 `JOB_RESULT[종류]` 를 등록한다. `finishJob` 이 부르고, `{ msg, actions }` 를 돌려주면 끝 알림의 글과 버튼을 바꾼다
+- 칸에 바로 넣는 결과(서술 말투 · 외형 태그)는 그 칸을 고치는 중이거나 시작한 뒤 고쳤으면 덮지 않는다. 알림의 '넣기'로 넣는다
+- `JOB_BTNS[data-action]` 에 등록한 버튼은 그린 뒤 `lockJobBtns` 가 도는 작업이면 '만드는 중'으로 잠근다(`aria-disabled` · `aria-busy` · `run-wait`). 화면 파일의 버튼 글자는 고치지 않는다
+- `SCREEN_ONLY_JOBS` 는 결과를 화면 제안 칸에만 놓는 작업이다. 다른 작품을 보는 동안 끝나면 결과가 남지 않았으니 다시 받으라고 알린다
 - 짧은 기다림 가림막 `run`(`#busy`): 상자 이름은 작업 이름(`#busy-label`)이고, 1초마다 바뀌는 경과 초(`#busy-sec`)는 낭독하지 않는다
 - `run` 은 가림막을 바로 띄우되 400ms(`BUSY_DELAY`) 동안 투명하게(`busy-wait`) 둔다. 그 안에 끝나면 화면이 어두워지지 않고, `inert` · 상자 포커스는 바로 걸며, 누른 버튼에는 `aria-busy` 와 돌림표(`run-wait`)를 단다. `opt.now` 는 바로 어둡게 그린다
 - 알림 말풍선(`toast`, 작업 실패는 '다시 시도' · '설정' 버튼, 기록과 자리는 `hub.js`)
@@ -322,6 +329,7 @@
 - 나만의 문체
 - 스타일 프로필의 가끔 쓰는 장치 고치는 칸(`deviceFields`)
 - 문체 화면의 맨 위 '확인할 것' 카드(고르지 않은 규칙 후보 `learnTodoCard`)와 재료 묶음의 '내 수정에서 배우기' 카드(`learnCard`, 서버 `pipeline.learn_style` / `apply_learning`)
+- '수정 기록에서 규칙 찾기'(`learnRun`)는 화면을 막지 않는 작업 `style_learn` 이다. 후보는 `takeField('style_learning')` 로 받는다
 - 라이브러리 항목의 버전 목록
 - 장치의 쓴 화 세기는 `metrics.device_last` 와 같은 규칙
 
@@ -441,6 +449,8 @@
 ### `canon/static/research.js`
 
 - 연구 화면
+- 인물 카드의 신체 프로필 제안(`bodyAI`)과 서술 말투 초안(`voiceAI`)은 화면을 막지 않는 작업 `char_body` · `char_voice`(대상 인물 id)다
+- 서술 말투 초안은 칸에 바로 넣고, 그 칸을 고치는 중이거나 시작한 뒤 고쳤으면 알림의 '넣기'로 넣는다(`JOB_RESULT.char_voice`)
 - 마우스가 없으면(`hover: none`) 표 칸 아래에 큰 블록 비중(`.rs-parts`)을 적는다
 - 공용 목차 틀 위의 카드 한 열(`.rs-wrap`, 오른쪽 열은 960px 까지)
 - 주소 `#/p/<이름>/research[/<쪽>]`(`rsLoad(쪽)` · `rsUrl`)
@@ -591,6 +601,7 @@
   - 이야기 뼈대만: 로그라인 · 관계 · 이름 후보
   - 인물 상세는 `cast.js` 인물 카드
   - 상태창 처음 수치는 `statwin.js` 로 가는 링크 `setupStatLink`
+  - AI 이름 · 지명 고르기(`nameAI` · `placeAI`)는 화면을 막지 않는 작업 `names_ai` 다. 작업은 저장된 작품을 읽어서 먼저 묻지 않고 저장한다. 코드만 뽑는 '후보 뽑기'는 그대로 바로 받는다
   - `tests/test_setup_wizard_js.py`
 
 ### `canon/static/style.js`
@@ -611,11 +622,13 @@
   - `tests/test_style_js.py`
 - 문체 라이브러리 분석도 작업(`lib_style`, project `.styles`, `POST /api/styles/analyze/job` 의 `lib`)이다. 결과(`profile`, `lib`)는 그 항목 화면 맨 위 제안 카드(`libDraftCard`, `S.libDraft`)로 오고 새 항목은 저장하면 그 id 로 옮긴다. 이 탭이 열려 있는 동안 남는다
 - '문체 분석'(`analyzeStyle`)은 화면을 막지 않는 작업 `style` 을 시작한다. 버튼은 `jobBtn` 으로 진행을 보이고, 결과는 문체 화면 맨 위 제안 카드(`styleDraftCard`, `S.styleDraft`)로 온다. '이 결과로 바꾸기'(`styleDraftApply`)를 눌러야 작품 문체 · 기준 지표에 들어가고 라이브러리 연결을 끊는다. 문체 라이브러리의 분석은 작품 밖이라 아직 가림막(run)이다
+- 지금 문체로 예시 쓰기(`stylechat.js` `styleExampleWrite`)도 화면을 막지 않는 작업 `style_example` 이다. 등록(`JOB_PAGES` · `JOB_RESULT`)은 여기 두고 예시는 `takeField('style_example')` 로 받는다
 
 ### `canon/static/stylechat.js`
 
 - 문체 화면의 대화로 다듬기(대화 주제 `style`: 칸별 변경안과 지금 값 비교, 시험 문단, 고른 칸 적용 · 적용 취소, 라이브러리 새 버전)와 '이 문체로 쓴 예시' 카드
 - 서버는 `pipeline.revise_style` · `apply_style_chat` · `undo_style_chat` · `style_example`
+- '예시 쓰기'는 작업 `style_example` 을 시작한다(등록은 `style.js`). 대화 전송 경로는 그대로다
 - 칸 이름은 `prompts.STYLE_KEY_LABELS` 와 같다(`tests/test_labels_js.py`)
 
 ### `canon/static/write.js`

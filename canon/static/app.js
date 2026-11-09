@@ -320,6 +320,12 @@ function toast(msg, err = false, opt = {}) {
 
 // 멈춘 작업이 이미 보낸 호출의 응답을 다 기다린 뒤 부른다 (pollJobs). 화면을 다시 그려야 하면 참을 돌려준다
 const JOB_LATE = {};
+// 작업 종류별 결과 놓기. 화면 파일이 제 작업을 등록한다 (applyJobResult 가 부른다). 결과를 저장하지 않고 화면 제안 칸에만 놓는다
+const JOB_RESULT = {};
+// 결과를 화면 제안 칸에만 놓는 작업 (pending.json 에 남기지 않는다). 다른 작품을 보는 동안 끝나면 결과가 남지 않는다
+const SCREEN_ONLY_JOBS = new Set();
+// 화면을 막지 않는 AI 제안 버튼: data-action → (data-arg) => [작업 종류, 대상]. 그린 뒤 lockJobBtns 가 도는 작업의 버튼을 잠근다
+const JOB_BTNS = {};
 const JOB_STOP_NOTE = {};  // 작업 종류별 멈추기 확인 문구. 없으면 응답을 버린다는 기본 문구
 const JOB_DONE_MSG = {
   suggest: '설정 제안이 도착했어요. 설정 도우미에서 확인하세요.',
@@ -362,9 +368,12 @@ JOB_LATE.board = async (j) => {
 };
 let jobTimer = null;
 
-function jobFor(kind, ep = null, name = S.name) {
-  return S.jobs.find((j) => j.status === 'running' && j.project === name && j.kind === kind && (ep == null || j.ep === ep));
+function jobFor(kind, ep = null, name = S.name, target = null) {
+  return S.jobs.find((j) => j.status === 'running' && j.project === name && j.kind === kind && (ep == null || j.ep === ep) && (target == null || (j.target || '') === target));
 }
+
+/** 작업의 열쇠 '<종류>:<화>' (대상이 있으면 ':<대상>'). 서버 _keep_pending 의 실패 열쇠와 같다 */
+const jobKey = (kind, ep, target) => `${kind}:${ep ?? ''}${target ? `:${target}` : ''}`;
 
 // 한 화를 두고 AI 를 부르는 작업. 같은 화에서 멈춘 작업이 아직 응답을 기다리면 새로 시작하지 않는다 (서버 jobs.EP_AI_KINDS, 409)
 const EP_AI_KINDS = new Set(['board', 'check', 'cues', 'fixes', 'plot_one', 'recheck', 'state', 'write']);
@@ -382,9 +391,9 @@ function epWaitNote(n) {
 }
 
 // 작업이 도는 동안 버튼은 진행 상황을 보여 주고 눌리지 않게 한다
-function jobBtn(kind, ep, idle, name = S.name) {
-  const j = jobFor(kind, ep, name);
-  if (!j && S.starting.has(`${kind}:${ep ?? ''}`)) return { label: `${idle} · 시작하는 중…`, attr: ' aria-disabled="true" aria-busy="true"' };
+function jobBtn(kind, ep, idle, name = S.name, target = null) {
+  const j = jobFor(kind, ep, name, target);
+  if (!j && S.starting.has(jobKey(kind, ep, target))) return { label: `${idle} · 시작하는 중…`, attr: ' aria-disabled="true" aria-busy="true"' };
   if (!j && EP_AI_KINDS.has(kind) && epWaiting(ep, name)) return { label: `${idle} · 응답 기다리는 중`, attr: ` aria-disabled="true" title="${EP_WAIT_TIP}"` };
   if (!j) return { label: idle, attr: '' };
   // disabled 는 포커스를 잃게 해서 키보드 사용자가 문서 처음으로 돌아간다. aria-disabled 로 막고 포커스는 남긴다
@@ -467,11 +476,13 @@ function rangeText(nums) {
   return out.join(', ');
 }
 
-async function startJob(kind, ep = null, extra = {}) {
+/** opt.quiet: 묻지 않고 저장한 뒤 시작한다. 화면을 막던 AI 제안(인물 · 상태창 · 문체)은 원래 말없이 먼저 저장했다.
+    opt.before: 결과가 올 때 견줄 시작 때 값 (JOB_RESULT 가 S.jobArgs 에서 읽는다). extra.target 은 대상 (인물 id 등) */
+async function startJob(kind, ep = null, extra = {}, opt = {}) {
   // 작업은 저장된 작품을 읽는다. 저장하지 않은 변경(검토 중인 AI 제안 포함)을 말없이 저장하지 않고 먼저 묻는다
-  if (S.dirty && !(await askConfirm('저장하지 않은 변경이 있어요. 저장하고 작업을 시작할까요?', { ok: '저장하고 시작하기' }))) return;
+  if (S.dirty && !opt.quiet && !(await askConfirm('저장하지 않은 변경이 있어요. 저장하고 작업을 시작할까요?', { ok: '저장하고 시작하기' }))) return;
   // 응답이 오기 전에 또 누르면 같은 요청을 다시 보내지 않는다 (jobBtn 이 그동안 버튼을 막는다)
-  const key = `${kind}:${ep ?? ''}`;
+  const key = jobKey(kind, ep, extra.target);
   if (S.starting.has(key)) return;
   S.starting.add(key);
   render();
@@ -485,7 +496,7 @@ async function startJob(kind, ep = null, extra = {}) {
       toast(`${j.label}${josa(j.label, '을', '를')} 시작했어요. 끝나면 알려 드릴게요. 그동안 다른 작업을 해도 돼요.`, false, { actions: offer ? [offer] : [] });
     }
     S.jobs = S.jobs.filter((x) => x.id !== j.id).concat(j);
-    S.jobArgs[j.id] = { kind, ep, extra };  // 실패하면 작업 목록의 '다시 시도'가 같은 작업을 다시 시작한다
+    S.jobArgs[j.id] = { kind, ep, extra, opt };  // 실패하면 작업 목록의 '다시 시도'가 같은 작업을 다시 시작한다
     renderHub();  // 작업 목록이 바뀌었다: 알림 버튼과 열린 알림 창 (hub.js)
     render();
     pollJobs(true);
@@ -533,7 +544,8 @@ async function pollJobs(soon = false) {
     const mine = j.project === S.name || j.project === REV_JOBS || (typeof LIB_JOBS !== 'undefined' && j.project === LIB_JOBS) || (typeof REF_JOBS !== 'undefined' && j.project === REF_JOBS);  // 레퍼런스 원고 newto 가져오기도 작품 밖이다 (refs.js)  // 문체 라이브러리 분석도 작품 밖이다 (style.js)  // 역설계 실험 작업은 작품 밖이라 어느 화면에서든 제 알림을 낸다 (revlab.js)
     if (progressed && !mine && old && old.status === 'running' && j.status !== 'running') {
       // 다른 작품을 보는 동안 끝났다. 결과는 그 작품을 열면 다시 놓인다 (pending.json)
-      toast(j.status === 'error' ? `${j.project} · ${j.label}${josa(j.label, '을', '를')} 끝내지 못했어요: ${j.error}. 그 작품을 열면 다시 시도할 수 있어요` : `${j.project} · ${j.label}${josa(j.label, '이', '가')} 끝났어요. 그 작품을 열면 결과가 보여요`, j.status === 'error');
+      const after = SCREEN_ONLY_JOBS.has(j.kind) ? '결과는 그 작품 화면에만 놓여서 남지 않았어요. 그 작품에서 다시 받으세요' : '그 작품을 열면 결과가 보여요';
+      toast(j.status === 'error' ? `${j.project} · ${j.label}${josa(j.label, '을', '를')} 끝내지 못했어요: ${j.error}. 그 작품을 열면 다시 시도할 수 있어요` : `${j.project} · ${j.label}${josa(j.label, '이', '가')} 끝났어요. ${after}`, j.status === 'error');
     }
     if (!progressed || !mine) continue;
     if (j.kind === 'agent' && typeof agentJobUpdate === 'function') await agentJobUpdate(j, old);  // 대화 에이전트 턴 (agent.js)
@@ -702,6 +714,14 @@ function takeEdited(pj, n, gen) {
   return true;
 }
 
+/** 작업이 작품에 쓴 최상위 칸 하나(문체 규칙 후보 style_learning · 문체 예시 style_example 같은 제안 칸)를 받는다.
+    받은 판(projectBase)도 맞춰서 다음 저장(PATCH)이 이 칸을 바뀐 칸으로 보내 덮지 않게 한다. 저장하지 않은 다른 입력은 그대로 둔다 */
+function takeField(k, v) {
+  if (!P()) return;
+  P()[k] = v;
+  if (projectBase) projectBase.keys.set(k, JSON.stringify(v));
+}
+
 /** nums 화만 서버에서 받는다 (GET /episodes). 작품 전체(장편은 수 MB)를 다시 받지 않으려고 쓴다.
     화면 작품이 작품 GET 으로 받은 것이고, 화를 뺀 나머지의 판(rest) · 저장 횟수 · 화 번호 목록이 서버와 같을 때만 { base, episodes } 를 돌려준다.
     하나라도 다르거나 요청이 실패하면 null (부르는 쪽이 작품 전체를 받는다). */
@@ -742,7 +762,7 @@ function patchCache(name, r) {
 
 async function finishJob(j) {
   const here = j.project === S.name && P();
-  const key = `${j.kind}:${j.ep ?? ''}`;
+  const key = jobKey(j.kind, j.ep, j.target);
   if (j.status === 'cancelled') return;  // 멈춘 작업은 결과가 없다 (멈추기를 누를 때 알렸다)
   if (j.kind === 'agent' && here && $('.chat-panel')) return;  // 열린 대화 패널이 결과를 보여 준다 (agent.js)
   if (j.status === 'error') {
@@ -763,13 +783,16 @@ async function finishJob(j) {
   const link = JOB_LINK[j.kind] ? JOB_LINK[j.kind](j) : '';
   const onIt = here && (JOB_PAGES[j.kind] || []).includes(S.route[2] || 'home') && (j.ep == null || Number(S.route[3]) === j.ep || !S.route[3]);
   const go = link && !onIt && location.hash !== link ? [{ label: '가서 보기', run: () => { location.hash = link; } }] : [];
-  toast(typeof msg === 'function' ? msg(j) : msg, false, { actions: go });
+  // 화면 파일이 등록한 결과 놓기(JOB_RESULT)는 알림 글과 버튼을 바꿀 수 있다 ({ msg, actions }). 칸을 고치는 중이면 넣지 않고 '넣기'를 단다
+  const placed = here && JOB_RESULT[j.kind] ? JOB_RESULT[j.kind](j) || {} : null;
+  if (placed) S.jobsApplied.add(j.id);
+  toast((placed && placed.msg) || (typeof msg === 'function' ? msg(j) : msg), false, { actions: [...((placed && placed.actions) || []), ...go] });
   setTimeout(() => {  // 끝난 작업은 잠시 뒤 목록에서 내린다 (실패는 직접 닫을 때까지 남긴다)
     S.jobsSeen.add(j.id);
     S.jobs = S.jobs.filter((x) => x.id !== j.id || x.status === 'running');
     renderHub();
   }, 20000);
-  if (!here) return;  // 다른 작품을 보고 있으면 결과는 작업 목록에서 열어 볼 수 있다
+  if (!here || placed) return;  // 다른 작품을 보고 있으면 결과는 작업 목록에서 열어 볼 수 있다
   applyJobResult(j);
 }
 
@@ -885,6 +908,25 @@ function applyJobResult(j) {
   }
 }
 
+/** 그린 뒤: 도는(또는 시작하는) 작업의 버튼(JOB_BTNS)을 잠그고 '만드는 중'을 보인다. 버튼 글자를 화면 파일에 두고 바꾸지 않으려고 여기서 고친다.
+    aria-disabled 로 막아 포커스는 남긴다 (jobBtn 과 같다). 아이콘만 있는 버튼(.ai-mini)은 글자 대신 이름표(title)만 바꾼다. */
+function lockJobBtns(root = document) {
+  for (const b of root.querySelectorAll('#app [data-action]')) {
+    const f = JOB_BTNS[b.dataset.action];
+    if (!f) continue;
+    const [kind, target] = f(b.dataset.arg);
+    const j = jobFor(kind, null, S.name, target ?? null);
+    const starting = !j && S.starting.has(jobKey(kind, null, target));
+    if (!j && !starting) continue;
+    const text = j ? `${j.label} 만드는 중…` : `${b.textContent.trim()} · 시작하는 중…`;
+    b.setAttribute('aria-disabled', 'true');
+    b.setAttribute('aria-busy', 'true');
+    b.classList.add('run-wait');
+    if (b.classList.contains('ai-mini')) b.title = text;
+    else b.textContent = text;
+  }
+}
+
 const JOB_LINK = {
   suggest: (j) => `#/p/${enc(j.project)}/setup`,
   style: (j) => `#/p/${enc(j.project)}/style`,
@@ -914,7 +956,7 @@ function retryJob(id) {
   S.jobsSeen.add(id);
   S.jobs = S.jobs.filter((j) => j.id !== id);
   if (a && a.retry) a.retry();  // 작품 밖 작업(역설계 실험 revlab.js)은 저마다 다시 시작한다
-  else if (a) startJob(a.kind, a.ep, a.extra);
+  else if (a) startJob(a.kind, a.ep, a.extra, { ...a.opt, before: undefined });
   renderHub();
 }
 
@@ -2484,6 +2526,7 @@ function render() {
   S.renderPending = false;
   const f = focusMark();
   drawApp();
+  lockJobBtns();
   syncRail();
   afterDraw(f);
   renderSavebar();  // 저장 칸이 생기거나 사라졌을 수 있다

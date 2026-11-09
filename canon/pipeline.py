@@ -347,12 +347,18 @@ def edit_stats(p: Project) -> dict:
     return {"total": total, "usable": len(usable), "min": LEARN_MIN, "by_source": by}
 
 
-def learn_style(llm: LLM, p: Project) -> StyleLearning:
-    """수정 기록에서 문체 규칙 후보를 찾는다. 저장하지 않는다."""
+def check_learnable(p: Project) -> list:
+    """규칙을 찾을 만큼 수정 기록이 있는지 본다. 모자라면 ValueError (작업 style_learn 이 시작 전에 부른다). 쓸 수정 기록을 돌려준다."""
     edits = learnable_edits(p)
     if len(edits) < LEARN_MIN:
         raise ValueError(f"쓸 수 있는 수정 기록이 {len(edits)}건이라 너무 적어요. 본문을 {LEARN_MIN}건 이상 고친 뒤에 해 주세요 "
                          "(되돌린 수정, 동선 맞추기, 새로 써 넣기만 한 것은 빼고 세어요)")
+    return edits
+
+
+def learn_style(llm: LLM, p: Project) -> StyleLearning:
+    """수정 기록에서 문체 규칙 후보를 찾는다. 저장하지 않는다."""
+    edits = check_learnable(p)
     r = llm.json(prompts.SYSTEM_STYLE_EDITOR, prompts.learn_prompt(p, edits), StyleLearning,
                  hint={"edits": [(ref, e.before, e.after) for ref, e in edits]})
     check_learning(p, r, dict(edits))
@@ -640,8 +646,8 @@ def undo_style_chat(p: Project, i: int) -> tuple[list[str], list[str]]:
     return done, kept
 
 
-def style_example(llm: LLM, p: Project, scene: str = "", episode: int = 0) -> StyleExample:
-    """지금 문체로 예시 글을 쓴다 (write 단계). 저장하지 않는다. episode 를 주면 그 화 한 대목을 고쳐 쓴다."""
+def check_example(p: Project, episode: int = 0) -> str:
+    """예시를 쓸 수 있는지 본다. 안 되면 ValueError (작업 style_example 이 시작 전에 부른다). 고쳐 쓸 화 본문을 돌려준다(없으면 빈 글)."""
     ref = ""
     if episode:
         ep = next((e for e in p.episodes if e.plot.number == episode), None)
@@ -650,6 +656,12 @@ def style_example(llm: LLM, p: Project, scene: str = "", episode: int = 0) -> St
         ref = ep.text
     if library_blank(p.style):
         raise ValueError("문체가 비어 있어요. 문체 분석을 하거나 스타일 프로필을 채운 뒤 예시를 써 볼 수 있어요")
+    return ref
+
+
+def style_example(llm: LLM, p: Project, scene: str = "", episode: int = 0) -> StyleExample:
+    """지금 문체로 예시 글을 쓴다 (write 단계). 저장하지 않는다. episode 를 주면 그 화 한 대목을 고쳐 쓴다."""
+    ref = check_example(p, episode)
     r = llm.json(prompts.writer_system(p), prompts.style_example_prompt(p, scene.strip(), episode), StyleSample,
                  hint={"scene": scene, "ref": ref[:prompts.STYLE_REF_LIMIT]})
     text = r.text.strip()
