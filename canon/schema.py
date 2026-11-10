@@ -2312,6 +2312,15 @@ class AddressRecord(BaseModel):
     quote: str = ""
 
 
+class ContactReach(BaseModel):
+    """이번 화 본문에서 두 인물이 접촉 사다리의 한 칸에 처음 닿음 (docs/blueprint/specs/07-contact.md). 작가가 승인하면 Project.contact_log 에 남는다."""
+    a: str = Field(description="인물 id")
+    b: str = Field(description="인물 id")
+    rung: str = Field(description="닿은 사다리 칸 id (요청에 준 목록에서만)")
+    quote: str = Field("", description="그 접촉이 나온 본문 문장 그대로")
+    episode: SkipJsonSchema[int] = Field(0, description="닿은 화. 프로그램이 채운다")
+
+
 class DismissedItems(BaseModel):
     """상태 승인 화면에서 작가가 체크를 풀어 반영하지 않은 항목. StateDelta 와 같은 이름의 칸만 둔다 (반영 기록에서 다시 볼 수 있게)."""
     character_updates: list[CharacterState] = Field(default_factory=list)
@@ -2329,6 +2338,7 @@ class DismissedItems(BaseModel):
     # 작가가 체크를 푼 설정 바꾸기 · 호칭 제안. 반영하지 않고, 반영 취소로 돌아오면 체크를 푼 채 다시 놓인다. 자동 집필은 여기 말고 setting_held · address_held 에 남긴다
     setting_changes: list[SettingChange] = Field(default_factory=list)
     address_changes: list[AddressChange] = Field(default_factory=list)
+    contacts: list[ContactReach] = Field(default_factory=list)
 
 
 class FactNear(BaseModel):
@@ -2361,6 +2371,7 @@ class StateDelta(BaseModel):
     new_places: list[NewPlace] = Field(default_factory=list, description="장소 목록과 이야기 요소에 없는데 이번 화에 이름을 갖고 처음 나온 장소 (지형, 마을, 건물, 가게 등)")
     setting_changes: list[SettingChange] = Field(default_factory=list, description="인물 설정(외모, 성격, 말투 등)이 뒤 화까지 이어지게 바뀐 칸만. 대부분의 화는 비어 있다")
     address_changes: list[AddressChange] = Field(default_factory=list, description="인물끼리 부르는 말이나 말씨(존댓말 · 반말)가 뒤 화까지 이어지게 바뀐 방향만. 대부분의 화는 비어 있다")
+    contacts: list[ContactReach] = Field(default_factory=list, description="두 인물이 이번 화 본문에서 처음 닿은 접촉 사다리 칸 (요청의 칸 목록에서만). 대부분의 화는 비어 있다")
     time: StoryTime = Field(default_factory=StoryTime, description="이번 화가 끝난 작품 속 시점")
     deadlines_added: list[Deadline] = Field(default_factory=list, description="이번 화에 새로 생기거나 날이 바뀐 기한. 바뀐 기한은 같은 id 로")
     deadlines_done: list[str] = Field(default_factory=list, description="이번 화에 닫힌 기한 id (그날이 와서 일이 일어났거나 기한이 없어짐)")
@@ -2805,6 +2816,8 @@ class Project(BaseModel):
     address_log: list[AddressRecord] = Field(default_factory=list, description="호칭 · 말씨가 바뀐 기록 (승인한 바뀜 제안, 1화 반영 뒤 작가가 고친 것)")
     knows_folds: list[KnowsFoldRecord] = Field(default_factory=list, description="아는 정보를 접은 기록 (canon/knows.py)")
     address_held: list[AddressChange] = Field(default_factory=list, description="자동 집필이 반영하지 않고 남겨 둔 호칭 · 말씨 바뀜 제안. 작가가 인물 화면에서 적용하거나 버린다")
+    contact_log: list[ContactReach] = Field(default_factory=list, description="본문에서 실제로 닿은 접촉 사다리 칸 (승인한 상태 변경안, canon/blueprint.py). 지금 칸은 이 기록에서 계산한다")
+    contact_held: list[ContactReach] = Field(default_factory=list, description="자동 집필이 반영하지 않고 남겨 둔 닿은 칸 제안. 작가가 설계도 화면에서 적용하거나 버린다")
     history: list[StateDelta] = Field(default_factory=list, description="승인된 상태 변경 기록")
     ties: list[Tie] = Field(default_factory=list, description="방향 관계 (dynamics 가 계산)")
     secrets: list[Secret] = Field(default_factory=list)

@@ -697,6 +697,8 @@
 - 스토리보드 요청 맨 끝(`plan_board_rule` 뒤)에 이번 화 설계도 `blueprint_board_rule`: 지금 칸 · 처음 닿는 범위인 칸 · 넣지 않을 다음 칸 · 이 화가 든 이정표
 - 쓰기 지시문(중심 장면 줄 뒤)에 `blueprint_write_line`: 그 화가 사다리 칸의 처음 닿는 범위일 때만 한 줄. 상한은 넣지 않는다
 - 검수 요구사항(관계 단계 확인 뒤)에 `blueprint_check_rule`: 다음 칸을 앞당긴 본문을 짚는다(type 플롯)
+- 상태 변경안 요구사항(호칭 · 말씨 뒤)에 `blueprint.state_rule`: 그 화 인물끼리 아직 닿지 않은 사다리 칸 목록과 `contacts` 적는 법
+- `StateDelta.contacts`(`ContactReach`)는 작가가 골라야 기록되고(`features.APPLY_LAST`), 사람 검토 없는 반영은 `contact_held` 로 남겨 둔다(`features.HOLD`)
 - 장편 화별 플롯 초안(`serial_plot_prompt`)과 장편 플롯 대화(`_serial_plot_parts`)는 접은 줄거리 뒤에 확정 사실 · 주역 상태 · 주역 밖 인물 상태를 넣는다(`plot_facts_states`)
 - 장편 접은 줄거리(`story_parts`)는 한 줄로 접어도 예산(`story_past`)을 넘으면 오래된 묶음부터 빼고 뺀 수를 적는다(`PAST_DROPPED`)
 - 플레이 줄거리(`play_story`)는 `story_parts` 가 뺀 수를 이어 센다
@@ -824,6 +826,7 @@
 - 지운 기록은 `_revert_kept` 가 pending.json 에 남기고, 상태 승인 화면이 빼 둔 항목을 체크를 푼 채 다시 놓는다
 - 단편 완급 계획(`Project.heat` · `heat_rule` · `heat_turn`, `HeatStep` · `HeatTurn`)은 기본값이 비어 옛 작품이 읽힌다. 규칙은 story.md 의 `canon/heatplan.py` 절
 - 설계도(`Project.blueprint`)는 기본값이 빈 `Blueprint` 라 옛 작품이 읽힌다. 규칙은 story.md 의 `canon/blueprint.py` 절
+- 닿은 칸 기록 `Project.contact_log` · 남겨 둔 제안 `contact_held` 는 빈 목록이 기본값이다
 - 작가 연출 지시 `Episode.direction` · `StoryArc.direction` 은 빈 글이 기본값이다. 아크 지시는 `ArcProposal.arc` 로 AI 가 채우는 모델이라 응답 형식(`SkipJsonSchema`)과 프롬프트 덤프(`_prompt_view`, `prompts.ARC_HEAT`)에서 뺀다
 - 복선 갈래 `Foreshadow.kind`(clue 단서 · stake 판돈 · constraint 제약 · audience 관객 · ban 금지선)는 옛 복선을 clue 로 읽는다
 - 화별 쓴 사건 체크(`Episode.events_done`, 사건 글 목록)는 집필 화면 표시용이라 `EpisodePlot` 밖에 두어 프롬프트에 들어가지 않는다

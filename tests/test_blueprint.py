@@ -366,3 +366,68 @@ def test_episode_requests_carry_lines_at_the_end():
     empty = _ep_project()
     empty.blueprint.milestones, empty.blueprint.ladders = [], []
     assert "설계도" not in prompts.storyboard_prompt(empty, 4) and "설계도" not in prompts.episode_prompt(empty, 4)
+
+
+# ---------- 실제로 닿은 칸 (specs/07-contact.md) ----------
+
+def _contact_project():
+    from canon.mock import MockLLM
+    from .test_insert import _short as _written
+    p = _written(total=8, written=0)
+    for e in p.episodes:
+        e.plot.characters = list(dict.fromkeys([*e.plot.characters, "hero", "ally"]))
+    p.blueprint.ladders = [ContactLadder(a="hero", b="ally", rungs=[ContactRung(id="cr-1", label="손등 스침", acts=["brush"], from_ep=1, to_ep=1),
+                                                                    ContactRung(id="cr-2", label="손목 잡기", acts=["hold"], from_ep=3, to_ep=3)])]
+    return p, MockLLM()
+
+
+def test_state_rule_offers_open_rungs_and_flow():
+    from canon import features, prompts
+    p, llm = _contact_project()
+    rule = blueprint.state_rule(p, 1)
+    assert "contacts 에는" in rule and "  cr-1:" in rule and "  cr-2:" in rule
+    assert "contacts 에는" in prompts.state_prompt(p, 1)
+    e = p.episode(1)
+    e.text, e.status = "본문", "written"
+    d = pipeline.extract_state(llm, p, 1)
+    assert [(x.a, x.b, x.rung, x.episode) for x in d.contacts] == [("hero", "ally", "cr-1", 1)]
+    pipeline.apply_delta(p, d)
+    assert [(x.rung, x.episode) for x in p.contact_log] == [("cr-1", 1)]
+    lad = p.blueprint.ladders[0]
+    assert blueprint.reached(p, lad) == {"cr-1": 1} and blueprint.actual_rung(p, lad).id == "cr-1"
+    assert "  cr-1:" not in blueprint.state_rule(p, 2) and "  cr-2:" in blueprint.state_rule(p, 2)  # 이미 닿은 칸은 다시 묻지 않는다
+    # 정리: 목록에 없는 칸, 이미 닿은 칸, 쌍이 다른 줄은 뺀다. 쌍 차례는 사다리에 맞춘다
+    from canon.schema import ContactReach, StateDelta
+    d2 = StateDelta(episode=2, summary="", contacts=[ContactReach(a="hero", b="ally", rung="cr-1"), ContactReach(a="ally", b="hero", rung="cr-2", quote=" 손목 "),
+                                                     ContactReach(a="hero", b="x", rung="cr-2"), ContactReach(a="hero", b="ally", rung="cr-9")])
+    blueprint.clean_delta(p, d2)
+    assert [(x.a, x.b, x.rung, x.quote, x.episode) for x in d2.contacts] == [("hero", "ally", "cr-2", "손목", 2)]
+    # 사람 검토 없는 반영은 남겨 둔다
+    assert features.hold(p, d2) >= 1 and d2.contacts == [] and [x.rung for x in p.contact_held] == ["cr-2"]
+    blueprint.take_held(p, 0)
+    assert [x.rung for x in p.contact_log] == ["cr-1", "cr-2"] and p.contact_held == []
+    # 되돌리기: 그 화 뒤 기록을 지운다
+    blueprint.revert(p, 1)
+    assert [x.rung for x in p.contact_log] == ["cr-1"]
+
+
+def test_board_rule_and_band_ignore_empty_log():
+    p, _ = _contact_project()
+    assert blueprint.state_rule(p, 1)
+    p.blueprint.ladders = []
+    assert blueprint.state_rule(p, 1) == ""  # 사다리가 없으면 지금 상태 변경안 요청 그대로
+
+
+def test_held_api(client):
+    meta = {"title": "지하철", "genre": "성인", "logline": "", "target_episodes": 8}
+    assert client.post("/api/projects", json={"name": "bph", "meta": meta}).status_code == 200
+    p = client.post("/api/projects/bph/suggest/apply", json=client.post("/api/projects/bph/suggest").json()).json()
+    a, b = p["characters"][0]["id"], p["characters"][1]["id"]
+    p["blueprint"] = {"milestones": [], "ladders": [{"a": a, "b": b, "rungs": [{"id": "cr-1", "label": "스침", "from_ep": 1, "to_ep": 1}]}]}
+    p["contact_held"] = [{"a": a, "b": b, "rung": "cr-1", "quote": "", "episode": 1}, {"a": a, "b": b, "rung": "cr-1", "quote": "", "episode": 2}]
+    client.put("/api/projects/bph", json=p)
+    out = client.post("/api/projects/bph/blueprint/held/1/drop").json()
+    assert len(out["contact_held"]) == 1
+    out = client.post("/api/projects/bph/blueprint/held/0/take").json()
+    assert out["contact_held"] == [] and [x["rung"] for x in out["contact_log"]] == ["cr-1"]
+    assert client.post("/api/projects/bph/blueprint/held/5/take").status_code == 400

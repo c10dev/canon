@@ -555,6 +555,7 @@
 ### `canon/static/review.js`
 
 - 6단계 상태 승인 · 관계 표시
+- 상태 변경안 목록 `contacts`(체크 키 'u', 기본으로 고르지 않음): 닿은 사다리 칸. 줄은 `blueprint.js` 의 `contactDeltaRows`
   - `DELTA_LISTS`
   - `setDelta`
   - `setDelta` 는 설정에 없는 인물이 끼었거나 같은 인물끼리인 관계 사건 · 관계 바뀜을 기본으로 체크하지 않는다(서버 `validate_delta` 와 같은 규칙)

@@ -5712,6 +5712,14 @@ def blueprint_apply(name: str, body: BlueprintApplyIn) -> Project:
     return _save(name, p)
 
 
+@app.post("/api/projects/{name}/blueprint/held/{i}/{act}")
+def blueprint_held(name: str, i: int, act: Literal["take", "drop"]) -> Project:
+    """자동 집필이 남겨 둔 닿은 칸 제안 하나를 기록하거나(take) 버린다(drop) (blueprint.take_held · drop_held)."""
+    p = _load(name)
+    (blueprint.take_held if act == "take" else blueprint.drop_held)(p, i)
+    return _save(name, p)
+
+
 @app.put("/api/projects/{name}/blueprint")
 def blueprint_save(name: str, body: Blueprint) -> Project:
     """설계도를 통째로 바꾼다. 작가 입력이라 바로 저장한다. 검사에 걸리면 400 (blueprint.check)."""

@@ -100,11 +100,13 @@ function bpBand(a, b, x) {
   const last = S.bp.last ? `<span class="bp-now" style="--at:${(S.bp.last / total).toFixed(4)}" title="${S.bp.last}화까지 반영" aria-hidden="true"></span>` : '';
   const dir = (s, t) => x.ms.filter((m) => m.source === s && m.target === t).map((m) => ({ ...m, text: m.stage || m.label || '이정표', cls: 'bp-is-ms' }));
   const rungs = x.ladder ? x.ladder.rungs.map((r, i) => ({ ...r, text: `${i + 1}. ${r.label || '칸'}`, cls: 'bp-is-rung' })) : [];
+  const got = x.ladder ? bpReached(x.ladder) : {};
+  const hits = x.ladder ? x.ladder.rungs.map((r, i) => [r, i]).filter(([r]) => r.id in got).map(([r, i]) => ({ from_ep: got[r.id], to_ep: got[r.id], text: `${i + 1}`, cls: 'bp-is-hit' })) : [];
   const desc = `1~${total}화 계획 띠: ${bpWho(a)} → ${bpWho(b)} 이정표 ${dir(a, b).length}개, ${bpWho(b)} → ${bpWho(a)} 이정표 ${dir(b, a).length}개, 접촉 사다리 ${rungs.length}칸`;
   const seg = full > bpSpan(p, x) ? `<div class="seg" role="group" aria-label="계획 띠 범위"><button type="button" data-action="bpWide" data-arg="" aria-pressed="${!S.bpWide}">기획한 화</button><button type="button" data-action="bpWide" data-arg="1" aria-pressed="${S.bpWide}">작품 전체</button></div>` : '';
   return `<section class="card" id="bp-band"><div class="between"><h2>계획 띠</h2><div class="row">${seg}<span class="small">1~${total}화${S.bp.last ? ` · ${S.bp.last}화까지 반영` : ''}</span></div></div>
     <div class="bp-band" role="img" aria-label="${esc(desc)}">${ticks}${last}
-      ${bpLane(`${bpWho(a)} → ${bpWho(b)}`, dir(a, b), total)}${bpLane(`${bpWho(b)} → ${bpWho(a)}`, dir(b, a), total)}${bpLane('접촉 사다리', rungs, total)}</div></section>`;
+      ${bpLane(`${bpWho(a)} → ${bpWho(b)}`, dir(a, b), total)}${bpLane(`${bpWho(b)} → ${bpWho(a)}`, dir(b, a), total)}${bpLane('접촉 사다리', rungs, total)}${hits.length ? bpLane('본문에서 닿음', hits, total) : ''}</div></section>`;
 }
 
 // ----- 카드 -----
@@ -184,10 +186,56 @@ function bpLadderCard(a, b, x) {
         <input type="text" data-bp="${at}.note" value="${esc(r.note)}" placeholder="메모" aria-label="${i + 1}번째 칸 메모"></div>`;
     }).join('') + `<div class="between"><button type="button" class="btn small" data-action="bpRungAdd">+ 칸 더하기</button>${bpSaveRow()}</div>`;
   } else if (x.ladder && x.ladder.rungs.length) {
+    const got = bpReached(x.ladder);
     body = `<ol class="bp-list">${x.ladder.rungs.map((r) => `<li><span class="chip">${esc(bpRange(r))}</span><strong>${esc(r.label || '이름 없는 칸')}</strong>
+        ${r.id in got ? `<span class="chip finalized">${got[r.id]}화에 닿음</span>` : ''}
         <span class="small">${esc([r.layer, label(r.parts, S.bp.parts), label(r.acts, S.bp.acts), label(r.places, bpPlaces()), r.lead ? `${bpWho(r.lead)} 주도` : '', r.note].filter(Boolean).join(' · '))}</span></li>`).join('')}</ol>`;
   } else body = '<span class="small">칸이 없어요. 낮은 칸부터 차례로 더해요.</span>';
   return `<section class="card pf-sec${open ? ' editing' : ''}" id="bp-ladder" tabindex="-1">${bpCardHead('접촉 사다리', 'ladder')}${body}</section>`;
+}
+
+/** 본문에서 닿은 칸 id → 처음 닿은 화 (blueprint.reached 와 같다, Project.contact_log) */
+function bpReached(lad) {
+  const ids = new Set(lad.rungs.map((r) => r.id));
+  const out = {};
+  (P().contact_log || []).forEach((x) => {
+    if (ids.has(x.rung) && [x.a, x.b].sort().join('~') === bpKey(lad.a, lad.b)) out[x.rung] = Math.min(out[x.rung] || x.episode, x.episode);
+  });
+  return out;
+}
+
+/** 사다리 칸 찾기: 칸 id → [사다리, 칸, 차례] */
+function bpRungOf(id) {
+  for (const lad of ((P().blueprint || {}).ladders || [])) {
+    const i = lad.rungs.findIndex((r) => r.id === id);
+    if (i >= 0) return [lad, lad.rungs[i], i];
+  }
+  return [null, null, -1];
+}
+
+const bpRungLabel = (id) => {
+  const [, r, i] = bpRungOf(id);
+  return r ? `${i + 1}. ${r.label || '이름 없는 칸'}` : `지워진 칸 ${id}`;
+};
+
+/** 자동 집필이 남겨 둔 닿은 칸 제안 (Project.contact_held). 하나씩 기록하거나 버린다 */
+function bpHeldCard() {
+  const held = P().contact_held || [];
+  if (!held.length) return '';
+  const rows = held.map((x, i) => `<li><span class="chip">${x.episode}화</span><strong>${esc(bpWho(x.a))} ↔ ${esc(bpWho(x.b))}</strong><span>${esc(bpRungLabel(x.rung))}</span>
+      ${x.quote ? `<span class="small">「${esc(x.quote)}」</span>` : ''}
+      <span class="row"><button type="button" class="btn small ghost" data-action="bpHeld" data-arg="${i}|drop">버리기</button><button type="button" class="btn small" data-action="bpHeld" data-arg="${i}|take">기록하기</button></span></li>`).join('');
+  return `<section class="card" id="bp-held"><h2>남겨 둔 닿은 칸 <span class="small">${held.length}</span></h2>
+    <span class="small">자동 집필이 반영하지 않고 남겨 둔 제안이에요.</span><ul class="bp-list">${rows}</ul></section>`;
+}
+
+/** 상태 승인 화면의 '직접 정할 것' 줄 (review.js 가 부른다): 이번 화 본문에서 처음 닿은 사다리 칸. 기본으로 고르지 않는다 */
+function contactDeltaRows(n, d, box) {
+  return (d.contacts || []).map((x, i) => {
+    const who = `${charName(x.a)} ↔ ${charName(x.b)}`;
+    return `<div class="change">${box('u' + i)}<div class="body"><div class="rv-row-head"><label for="pk-u${i}" class="rv-name">${esc(who)}</label><span class="chip">설계도 칸</span><span class="small">기본으로 고르지 않았어요</span>${x.quote && typeof rvQuoteBtn === 'function' ? rvQuoteBtn(n, x.quote, `${who} 닿은 칸`) : ''}</div>
+      <div>${esc(bpRungLabel(x.rung))}</div>${x.quote ? `<div class="rv-quote">${typeof quoted === 'function' ? quoted(x.quote) : esc(x.quote)}</div>` : ''}</div></div>`;
+  }).join('');
 }
 
 function bpWarnCard(warns) {
@@ -215,13 +263,13 @@ function bpOverview() {
     const x = bpOfPair(d.blueprint, d.warnings, a, b);
     return `<li><a href="${bpHref(k)}"><strong>${esc(bpWho(a))} ↔ ${esc(bpWho(b))}</strong></a><span class="small">이정표 ${x.ms.length} · 사다리 ${x.ladder ? x.ladder.rungs.length : 0}칸${x.warns.length ? ` · 경고 ${x.warns.length}` : ''}</span></li>`;
   }).join('')}</ul></section>`;
-  return tiles + bpWarnCard(d.warnings) + bpNoteCard() + list;
+  return tiles + bpWarnCard(d.warnings) + bpHeldCard() + bpNoteCard() + list;
 }
 
 function bpPairPage(key) {
   const [, a, b] = bpPairs(P(), S.bp.blueprint).find(([k]) => k === key);
   const x = bpOfPair(S.bp.blueprint, S.bp.warnings, a, b);
-  return bpBand(a, b, x) + bpWarnCard(x.warns) + bpDraftCard(key, a, b) + bpMsCard(a, b, x) + bpLadderCard(a, b, x) + bpExtractCard(key);
+  return bpBand(a, b, x) + bpWarnCard(x.warns) + bpHeldCard() + bpDraftCard(key, a, b) + bpMsCard(a, b, x) + bpLadderCard(a, b, x) + bpExtractCard(key);
 }
 
 // ----- 지금 플롯에서 거꾸로 뽑기 (docs/blueprint/specs/05-extract.md, 작업 blueprint) -----
@@ -379,6 +427,13 @@ Object.assign(actions, {
     render();
   },
   bpWide(on) { S.bpWide = !!on; render(); },
+  async bpHeld(arg) {
+    const [i, act] = String(arg).split('|');
+    await run(act === 'take' ? '기록하는 중' : '버리는 중', async () => {
+      S.project = await api('POST', `/projects/${enc(S.name)}/blueprint/held/${Number(i)}/${act}`);
+      toast(act === 'take' ? '닿은 칸을 기록했어요' : '남겨 둔 제안을 버렸어요');
+    });
+  },
   bpMsDel(i) { S.bpEdit.data.milestones.splice(Number(i), 1); render(); },
   bpRungAdd() {
     const l = S.bpEdit.data.ladders.find((x) => bpKey(x.a, x.b) === S.bpEdit.key);

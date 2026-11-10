@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Callable
 
-from . import address, attire, cast, charlog, context, elements, foreshadows, knows, naming, offscreen, pace, stateedit, statwin, timeline
+from . import address, attire, blueprint, cast, charlog, context, elements, foreshadows, knows, naming, offscreen, pace, stateedit, statwin, timeline
 from .maps import travel
 from .schema import FactNear, Project, Snapshot, StateDelta
 
@@ -101,6 +101,7 @@ CLEAN: tuple[Callable[[Project, StateDelta], list[Warn] | None], ...] = (
     timeline.clean_delta,
     charlog.clean_delta,
     address.clean_delta,       # 호칭 · 말씨 바뀜: 있는 인물 사이의 지금 값과 다른 칸만
+    blueprint.clean_delta,     # 닿은 사다리 칸: 목록에 있고 아직 닿지 않은 칸만
     knows.clean_delta,         # 프롬프트가 아는 정보 앞에 붙인 '(n화)' 표시를 뗀다
     _untag_facts,              # 프롬프트가 사실 줄 앞에 붙인 '(n화)' 표시를 뗀다 (비슷한 사실 보기 전에)
     attire.clean_delta,        # 차림의 '가방' · '옷'처럼 종류를 모르는 물건
@@ -122,6 +123,7 @@ APPLY_FIRST: tuple[Callable[[Project, StateDelta], None], ...] = (charlog.apply_
 APPLY_LAST: tuple[Callable[[Project, StateDelta], None], ...] = (
     foreshadows.apply_delta, timeline.apply_delta, cast.apply_delta,
     offscreen.apply_delta,  # 다시 나온 인물의 화면 밖 근황을 비운다 (등장 인물 붙이기 뒤)
+    blueprint.apply_delta,  # 작가가 고른 닿은 사다리 칸 기록
 )
 
 # 되돌리기 (pipeline.revert): 스냅샷으로 상태를 덮기 전
@@ -129,9 +131,9 @@ REVERT_FIRST: tuple[Callable[[Project, int, Snapshot], None], ...] = (_unregiste
 # 되돌리기: 스냅샷으로 덮고 반영 기록을 자른 뒤
 REVERT_LAST: tuple[Callable[[Project, int, Snapshot], None], ...] = (
     _revert_two(foreshadows.revert), _revert_two(statwin.revert), _revert_timeline, _revert_two(charlog.revert), _revert_two(address.revert), _revert_two(knows.revert),
-    _revert_two(stateedit.revert))
+    _revert_two(stateedit.revert), _revert_two(blueprint.revert))
 # 사람 검토 없이 반영하기 전 (자동 집필 · run -y · 플레이): 작가가 골라야 바뀌는 제안을 빼서 남겨 둔다. 남긴 개수를 센다
-HOLD: tuple[Callable[[Project, StateDelta], int], ...] = (charlog.hold, address.hold, pace.hold, _hold_near_facts)
+HOLD: tuple[Callable[[Project, StateDelta], int], ...] = (charlog.hold, address.hold, blueprint.hold, pace.hold, _hold_near_facts)
 
 
 def align_warn_to(d: StateDelta) -> None:

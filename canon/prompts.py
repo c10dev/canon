@@ -4359,6 +4359,7 @@ def _audit_delta_lines(p: Project, d: StateDelta) -> str:
     out += [f"새 인물: {c.name or c.id}" for c in d.new_characters]
     out += [f"기한: {k.what}{f' ({k.note})' if k.note else ''}" for k in d.deadlines_added]
     out += [f"설정 바꾸기 · {nm.get(x.character_id, x.character_id)} {x.field}: {x.value}" for x in d.setting_changes]
+    out += [f"닿은 사다리 칸 · {nm.get(x.a, x.a)} ↔ {nm.get(x.b, x.b)} {x.rung}" for x in d.contacts]
     out += [f"호칭 · 말씨 · {nm.get(x.speaker, x.speaker)} → {nm.get(x.listener, x.listener)}: {' '.join(v for v in (x.calls, x.speech) if v)}"
             for x in d.address_changes]
     return "\n".join(out)
@@ -4460,7 +4461,7 @@ def state_prompt(p: Project, n: int, cuts: tuple[int, int] | None = None, facts_
 {plot}{facts}[이미 있는 장소]
 {places_line(p, ep.text)}
 {f"[작품 속 시간]{chr(10)}{timeline.state_block(p, n)}{chr(10)}" if timeline.enabled(p) else ""}{text}
-""" + STATE_RULES.format(n=n) + f"""{fact_rule}{storylines.state_rule(p, n)}{foreshadows.state_rule(p)}{statwin.state_rule(p)}{ATTIRE_STATE_RULE}{LAYER_STATE_RULE}{charlog.state_rule(p)}{address.state_rule(p)}{timeline.state_rule(p, n)}"""
+""" + STATE_RULES.format(n=n) + f"""{fact_rule}{storylines.state_rule(p, n)}{foreshadows.state_rule(p)}{statwin.state_rule(p)}{ATTIRE_STATE_RULE}{LAYER_STATE_RULE}{charlog.state_rule(p)}{address.state_rule(p)}{blueprint.state_rule(p, n)}{timeline.state_rule(p, n)}"""
 
 
 def _check_full(p: Project, n: int) -> tuple[str, str, str, str, str, str]:
@@ -5622,6 +5623,7 @@ PIECES.update({
     "attire_state": Piece("차림 적기", ("continuity",), "instruction", "ATTIRE_STATE_RULE"),
     "layer_state": Piece("겉 · 속 적기", ("voice",), "instruction", "LAYER_STATE_RULE"),
     "time_state": Piece("작품 속 시간 적기", ("continuity",), "instruction", "timeline.state_rule", "작품 속 시간을 켰을 때"),
+    "contact_state": Piece("닿은 사다리 칸 적기", ("continuity",), "instruction", "blueprint.state_rule", "이 화 인물끼리 아직 닿지 않은 사다리 칸이 있을 때"),
     "canon_values": Piece("Canon 이 센 값", ("continuity",), "tail", "canon_values_block"),
     "board_rules": Piece("스토리보드 공통 요구사항", ("continuity", "output"), "instruction", "BOARD_RULES"),
     "board_scenes": Piece("장면 나누기 규칙", ("length", "continuity"), "instruction", "storyboard_prompt", "쓰기 재료 조율이면 COORD_BOARD_RULES"),
@@ -5665,7 +5667,7 @@ _EPISODE = (_WRITE_SYS + _FRONT[:3] + ("style_passages", "style_profile", "style
 _STATIC = ("work", "world", "style", "characters")
 _PLOT_RULES = ("plot_rules", "fixed_rule", "pov_plot_rule", "opening_plot_rule", "heat_plot_rules", "coord_plot_rule")
 _CHECK_RULES = ("check_rules", "time_check", "travel_check", "attire_check", "stage_check", "blueprint_check", "layer_check", "protect_check", "severity")
-_STATE_RULES = ("state_facts", "state_rules", "attire_state", "layer_state", "time_state")
+_STATE_RULES = ("state_facts", "state_rules", "attire_state", "layer_state", "contact_state", "time_state")
 
 
 def _bk(label: str, **kw) -> BriefKind:
@@ -5864,6 +5866,7 @@ _SAMPLES = {
     "motion_rules": lambda p, n: MOTION_RULES.format(n=n, severity=SEVERITY_RULE),
     "state_rules": lambda p, n: STATE_RULES.format(n=n),
     "time_state": lambda p, n: timeline.state_rule(p, n).strip() if n else "",
+    "contact_state": lambda p, n: blueprint.state_rule(p, n).strip() if n else "",
     "canon_values": lambda p, n: canon_values_block(p, n) if n else "",
     "cue_focus": lambda p, n: cue_focus_rule(p, n).strip() if n else "",
     "heat_cue": lambda p, n: heat_cue_rule(p, n).strip() if n else "",

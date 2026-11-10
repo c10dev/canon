@@ -1,6 +1,6 @@
 # 06. 스토리보드 · 쓰기 · 검수에 설계도 잇기 (6a)
 
-상태: 진행 (claude/blueprint-board) · 계획: [plan.md](../plan.md) 의 6a · 먼저: 4번
+상태: 끝 ([#481](https://github.com/c10dev/canon/pull/481)) · 계획: [plan.md](../plan.md) 의 6a · 먼저: 4번
 
 ## 목표
 
