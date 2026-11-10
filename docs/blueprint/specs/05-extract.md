@@ -1,6 +1,6 @@
 # 05. 지금 플롯에서 설계도 거꾸로 뽑기
 
-상태: 진행 (claude/blueprint-extract) · 계획: [plan.md](../plan.md) 의 5번 · 먼저: 1번, 3번
+상태: 끝 ([#480](https://github.com/c10dev/canon/pull/480)) · 계획: [plan.md](../plan.md) 의 5번 · 먼저: 1번, 3번
 
 ## 목표
 

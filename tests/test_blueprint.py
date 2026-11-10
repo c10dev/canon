@@ -319,3 +319,50 @@ def test_blueprint_job_and_apply_api(client):
     assert len(out["blueprint"]["milestones"]) == 1 and len(out["blueprint"]["ladders"][0]["rungs"]) == 2
     bad = client.post("/api/projects/bpj/blueprint/apply", json={"a": a, "b": b, "rungs": [{"label": "x", "parts": ["tail"], "from_ep": 1, "to_ep": 1}]})
     assert bad.status_code == 400
+
+
+# ---------- 스토리보드 · 쓰기 · 검수 (specs/06-episode.md) ----------
+
+def _ep_project():
+    from .test_storylines import _short
+    p = _short(8)
+    a, b = "hero", "ally"
+    for n in range(1, 9):
+        e = p.episode(n)
+        e.plot.characters = list(dict.fromkeys([*e.plot.characters, a, b]))
+    p.blueprint.milestones = [Milestone(source=a, target=b, from_ep=3, to_ep=5, stage="경계", label="정체를 안다")]
+    p.blueprint.ladders = [ContactLadder(a=a, b=b, rungs=[ContactRung(label="손목", parts=["wrist_r"], acts=["hold"], from_ep=1, to_ep=2),
+                                                         ContactRung(label="손깍지", acts=["interlace"], from_ep=4, to_ep=5),
+                                                         ContactRung(label="업기", acts=["carry"], from_ep=7, to_ep=7)])]
+    return p
+
+
+def test_board_write_check_lines():
+    from canon import prompts
+    p = _ep_project()
+    board = prompts.blueprint_board_rule(p, 4)
+    assert "이 화가 처음 닿는 범위(4~5화)인 칸: 2. 손깍지" in board and "다음 칸(7화부터)은 이 화에 넣지 않습니다: 3. 업기" in board
+    assert "이 화가 든 관계 이정표(3~5화): 경계 · 정체를 안다" in board and "이 화까지 닿을 수 있는 칸" not in board
+    assert "이 화까지 닿을 수 있는 칸: 2. 손깍지" in prompts.blueprint_board_rule(p, 6)  # 범위를 지난 화는 지금 칸
+    assert "이 화까지 닿을 수 있는 칸: 1. 손목" in prompts.blueprint_board_rule(p, 3)
+    assert "손깍지" in prompts.blueprint_write_line(p, 5) and prompts.blueprint_write_line(p, 3) == ""  # 처음 닿는 범위인 화에만
+    assert "다음 칸 (" not in prompts.blueprint_write_line(p, 4) and "넣지 않습니다" not in prompts.blueprint_write_line(p, 4)  # 쓰기에는 상한 줄이 없다
+    check = prompts.blueprint_check_rule(p, 4)
+    assert "'2. 손깍지 (손깍지 끼다)'까지 닿기로" in check and "'3. 업기 (업다)'(7화부터)" in check
+    assert prompts.blueprint_check_rule(p, 7) == ""  # 다음 칸이 없다
+    p.episode(4).plot.characters = ["hero"]
+    assert prompts.blueprint_board_rule(p, 4) == "" and prompts.blueprint_check_rule(p, 4) == ""  # 두 인물이 이 화 플롯에 함께 있을 때만
+
+
+def test_episode_requests_carry_lines_at_the_end():
+    from canon import prompts
+    p = _ep_project()
+    board = prompts.storyboard_prompt(p, 4)
+    assert "[설계도 (작가가 정한 계획, 이번 화)]" in board and board.rstrip().endswith("warnings 에 적습니다.")  # 요청 맨 끝
+    write = prompts.episode_prompt(p, 4)
+    assert "설계도에서 이 화는 처음 닿는 범위인 사다리 칸" in write and "이 화에 넣지 않습니다" not in write
+    p.episode(4).text, p.episode(4).status = "본문", "written"
+    assert "- 설계도 사다리:" in prompts.check_prompt(p, 4)
+    empty = _ep_project()
+    empty.blueprint.milestones, empty.blueprint.ladders = [], []
+    assert "설계도" not in prompts.storyboard_prompt(empty, 4) and "설계도" not in prompts.episode_prompt(empty, 4)

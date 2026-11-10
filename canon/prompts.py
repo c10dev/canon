@@ -3484,6 +3484,7 @@ def episode_parts(p: Project, n: int, approach: str = "", use_board: bool = True
             + (WRITE_SHIFT_LINE if shift_label(ep.plot.emotional_shift) else "")
             + WRITE_SPEECH_LINE
             + focus_line(p, sb)
+            + blueprint_write_line(p, n)
             + priority_line(p, n, sb is not None)
             + statwin.write_rule(p, n, show_format=not windows, budget=context.budget(p, "stat_lines"), trace=trace)
             + attire_write_rule(p, board=sb is not None)
@@ -3831,7 +3832,7 @@ def storyboard_prompt(p: Project, n: int) -> str:
 {"- attire 는 비웁니다 (쓰기 재료가 조율이라 끝 차림은 본문을 쓴 뒤 상태 변경안이 정합니다)." if coord.on(p) else "- attire 에는 이번 화에 차림이 바뀌는 인물의 끝 차림만 적습니다 (이어지는 상처와 물건까지 다시, 가방 · 옷 · 신발은 백팩 · 코트 · 운동화처럼 종류까지)."}
 - protect 에는 [다음 화 플롯]이 전제하는 것 중 이번 화가 깨기 쉬운 것을 적습니다.
 - warnings: 이번 화 플롯이 [인물 현재 상태] · [직전 화 본문] · [Canon 이 센 값] · 설정과 어긋나면 적고, resolution 에 이 스토리보드가 택한 처리를 적습니다.
-  지금 상태가 플롯보다 앞섭니다. 플롯 칸을 고쳐 적지 않습니다. 다음 화 플롯과 어긋나면 target 을 next, kind 를 next_plot 으로 적습니다.""" + plan_board_rule(p)
+  지금 상태가 플롯보다 앞섭니다. 플롯 칸을 고쳐 적지 않습니다. 다음 화 플롯과 어긋나면 target 을 next, kind 를 next_plot 으로 적습니다.""" + plan_board_rule(p) + blueprint_board_rule(p, n)
 
 
 def plan_board_rule(p: Project) -> str:
@@ -3839,6 +3840,63 @@ def plan_board_rule(p: Project) -> str:
     block = plan_rules_block(p)
     return (block + "\n- 장면을 나누고 장면 칸을 채울 때 위 [계획 규칙]을 지킵니다. 이번 화 플롯 사건과 부딪히면 플롯을 따르고 warnings 에 적습니다."
             if block else "")
+
+
+def _bp_names(p: Project) -> dict[str, str]:
+    return {c.id: c.name or c.id for c in p.characters}
+
+
+def blueprint_board_rule(p: Project, n: int) -> str:
+    """스토리보드 요청 맨 끝의 설계도 줄 (docs/blueprint/specs/06-episode.md): n 화 플롯 인물끼리의 사다리 지금 칸 · 이 화가 처음 닿는 범위인 칸 · 다음 칸,
+    그리고 n 화가 든 관계 이정표. 상한은 스토리보드만 받는다 (README 2026-11-10). 요청 끝에 두어 쓰기 가족 앞부분 캐시를 깨지 않는다. 줄이 없으면 빈 글."""
+    who, names = set(p.episode(n).plot.characters), _bp_names(p)
+    lines = []
+    for lad in p.blueprint.ladders:
+        if lad.a not in who or lad.b not in who:
+            continue
+        pair = f"{names.get(lad.a, lad.a)} ↔ {names.get(lad.b, lad.b)}"
+        now = blueprint.planned_rung(lad, n)
+        first = [r for r in lad.rungs if 0 < r.from_ep <= n <= r.to_ep]
+        nxt = next((r for r in lad.rungs if r.from_ep > n), None)
+        if now and now not in first:
+            lines.append(f"- {pair} 이 화까지 닿을 수 있는 칸: {blueprint.rung_text(p, lad, now)}")
+        lines += [f"- {pair} 이 화가 처음 닿는 범위({r.from_ep}~{r.to_ep}화)인 칸: {blueprint.rung_text(p, lad, r)}" for r in first]
+        if nxt:
+            lines.append(f"- {pair} 다음 칸({nxt.from_ep}화부터)은 이 화에 넣지 않습니다: {blueprint.rung_text(p, lad, nxt)}")
+    for m in p.blueprint.milestones:
+        if m.source in who and m.target in who and 0 < m.from_ep <= n <= m.to_ep:
+            what = " · ".join(x for x in (m.stage, m.label) if x) or "이정표"
+            lines.append(f"- {names.get(m.source, m.source)} → {names.get(m.target, m.target)} 이 화가 든 관계 이정표({m.from_ep}~{m.to_ep}화): {what}")
+    if not lines:
+        return ""
+    return ("\n[설계도 (작가가 정한 계획, 이번 화)]\n" + "\n".join(lines)
+            + "\n- 장면을 짤 때 위 칸을 넘는 접촉을 넣지 않습니다. 이번 화 플롯이 더 나아간 접촉을 요구하면 플롯을 따르고 warnings 에 적습니다.")
+
+
+def blueprint_write_line(p: Project, n: int) -> str:
+    """본문 쓰기 지시문의 설계도 한 줄: n 화가 어떤 사다리 칸에 처음 닿는 범위일 때만. 상한은 넣지 않는다 (README 2026-11-10, 앞당김 방지)."""
+    who, names = set(p.episode(n).plot.characters), _bp_names(p)
+    got = [f"{names.get(lad.a, lad.a)} ↔ {names.get(lad.b, lad.b)} '{blueprint.rung_text(p, lad, r)}'({r.from_ep}~{r.to_ep}화)"
+           for lad in p.blueprint.ladders if lad.a in who and lad.b in who for r in lad.rungs if 0 < r.from_ep <= n <= r.to_ep]
+    return f"\n설계도에서 이 화는 처음 닿는 범위인 사다리 칸이 있습니다: {', '.join(got)}." if got else ""
+
+
+def blueprint_check_rule(p: Project, n: int) -> str:
+    """검수 요구사항 한 줄: n 화 플롯 인물끼리 사다리의 다음 칸을 본문이 앞당겼는지. 다음 칸이 없으면 빈 글."""
+    who, names = set(p.episode(n).plot.characters), _bp_names(p)
+    lines = []
+    for lad in p.blueprint.ladders:
+        nxt = next((r for r in lad.rungs if r.from_ep > n), None)
+        if lad.a in who and lad.b in who and nxt:
+            now = blueprint.planned_rung(lad, n)
+            have = f"'{blueprint.rung_text(p, lad, now)}'까지" if now else "아직 어느 칸에도"
+            nb = names.get(lad.b, lad.b)
+            lines.append(f"{names.get(lad.a, lad.a)} ↔ {nb}{josa(nb, '은', '는')} 이 화까지 {have} 닿기로 했고 다음 칸은 "
+                         f"'{blueprint.rung_text(p, lad, nxt)}'({nxt.from_ep}화부터)입니다")
+    if not lines:
+        return ""
+    return ("\n- 설계도 사다리: " + "; ".join(lines) + ". 본문이 다음 칸의 접촉을 이 화에 쓰면 짚습니다. "
+            "type 은 플롯, source_episode 는 0, source_quote 는 그 칸 줄입니다.")
 
 
 
@@ -4563,7 +4621,7 @@ CHECK_RULES_EN = """Find the places in the text of episode {n} that contradict t
 
 def check_rule_lines(p: Project, n: int, mode: str = "") -> str:
     """검수 확인 목록(CHECK_RULES)의 {rules} 자리: 작품마다 붙는 확인 줄."""
-    return f"{timeline.check_rule(p, n)}{mapprompt.travel_check_rule(p, n)}{attire_check_rule(p)}{stage_check_rule(p)}{layer_check_rule(p, check_cast(p, n) if (mode or ('budget' if p.serial else 'full')) == 'budget' else None)}{address.check_rule(p)}{statwin.check_rule(p)}{protect_check_rule(p.episode(n))}{pairlog.check_rule(pair_check_block(p, n, mode))}"
+    return f"{timeline.check_rule(p, n)}{mapprompt.travel_check_rule(p, n)}{attire_check_rule(p)}{stage_check_rule(p)}{blueprint_check_rule(p, n)}{layer_check_rule(p, check_cast(p, n) if (mode or ('budget' if p.serial else 'full')) == 'budget' else None)}{address.check_rule(p)}{statwin.check_rule(p)}{protect_check_rule(p.episode(n))}{pairlog.check_rule(pair_check_block(p, n, mode))}"
 
 
 def _check_request(p: Project, n: int, mode: str, lang: str, material: str) -> str:
@@ -5553,6 +5611,9 @@ PIECES.update({
     "travel_check": Piece("이동 거리 확인", ("check", "continuity"), "instruction", "maps.prompt.travel_check_rule", "이동 거리를 셀 수 있을 때"),
     "attire_check": Piece("차림 확인", ("check",), "instruction", "attire_check_rule", "차림을 적은 인물이 있을 때"),
     "stage_check": Piece("관계 단계 확인", ("check",), "instruction", "stage_check_rule", "관계 수치가 있을 때"),
+    "blueprint_check": Piece("설계도 사다리 확인", ("check", "continuity"), "instruction", "blueprint_check_rule", "이 화 인물끼리 사다리의 다음 칸이 있을 때"),
+    "blueprint_board": Piece("설계도 (이번 화)", ("continuity",), "instruction", "blueprint_board_rule", "이 화 인물끼리 설계도 줄이 있을 때"),
+    "blueprint_write": Piece("설계도 처음 닿는 칸", ("continuity",), "instruction", "blueprint_write_line", "이 화가 사다리 칸에 처음 닿는 범위일 때"),
     "layer_check": Piece("겉 · 속 확인", ("check", "voice"), "instruction", "layer_check_rule", "겉 · 속을 적은 인물 상태가 있을 때"),
     "protect_check": Piece("깨지 않을 것 확인", ("check",), "instruction", "protect_check_rule", "스토리보드에 깨지 않을 것이 있을 때"),
     "motion_rules": Piece("동선 확인 목록", ("check",), "instruction", "MOTION_RULES"),
@@ -5596,14 +5657,14 @@ SEND_PIECES = ("policy_note", "adult_note")
 _PLAN = ("preamble", "sys_planner", "korean_line")
 _WRITE_SYS = ("preamble", "writer_task", "fixed_line", "prose_rules")
 _FRONT = tuple(b.id for b in BLOCKS if b.front)
-_WRITE_TAIL = ("opening_rules", "write_flow", "write_style", "write_shift", "write_speech", "focus_line", "priority_line", "stat_rule",
+_WRITE_TAIL = ("opening_rules", "write_flow", "write_style", "write_shift", "write_speech", "focus_line", "blueprint_write", "priority_line", "stat_rule",
                "attire_rule", "ending", "coord_note", "plan_rules")
 _EPISODE = (_WRITE_SYS + _FRONT[:3] + ("style_passages", "style_profile", "style_markers") + _FRONT[3:]
             + tuple(b.id for b in BLOCKS if not b.front and b.id not in ("instructions", "cues", "direction"))
             + ("echo_rule", "instructions") + _WRITE_TAIL + ("cues", "direction", "direction_rule"))
 _STATIC = ("work", "world", "style", "characters")
 _PLOT_RULES = ("plot_rules", "fixed_rule", "pov_plot_rule", "opening_plot_rule", "heat_plot_rules", "coord_plot_rule")
-_CHECK_RULES = ("check_rules", "time_check", "travel_check", "attire_check", "stage_check", "layer_check", "protect_check", "severity")
+_CHECK_RULES = ("check_rules", "time_check", "travel_check", "attire_check", "stage_check", "blueprint_check", "layer_check", "protect_check", "severity")
 _STATE_RULES = ("state_facts", "state_rules", "attire_state", "layer_state", "time_state")
 
 
@@ -5648,7 +5709,7 @@ KINDS: dict[str, Kind] = {
     "openings": Kind("여는 화 여러 안", "계획", "", "SYSTEM_PLANNER", "opening_plots_prompt", "OpeningPlots", "opening.suggest_openings"),
     "coord": Kind("조율 메모", "계획", "", "SYSTEM_PLANNER", "coord_prompt", "CoordDraft", "pipeline.make_coord"),
     "storyboard": Kind("스토리보드", "쓰기", "board", "SYSTEM_PLANNER", "storyboard_prompt", "StoryboardDraft", "pipeline.make_storyboard",
-                       _PLAN + ("write_head", "canon_values", "board_scenes", "board_rules"), view=True,
+                       _PLAN + ("write_head", "canon_values", "board_scenes", "board_rules", "blueprint_board"), view=True,
                        brief=_bk("스토리보드", need="confirmed", stage="board")),
     "storyboard_revise": Kind("스토리보드 고치기", "쓰기", "board", "SYSTEM_PLANNER", "storyboard_revise_prompt", "StoryboardDraft",
                               "pipeline.revise_storyboard"),
@@ -5795,6 +5856,9 @@ _SAMPLES = {
     "travel_check": lambda p, n: mapprompt.travel_check_rule(p, n).strip() if n else "",
     "attire_check": lambda p, n: attire_check_rule(p).strip(),
     "stage_check": lambda p, n: stage_check_rule(p).strip(),
+    "blueprint_check": lambda p, n: blueprint_check_rule(p, n).strip() if n else "",
+    "blueprint_board": lambda p, n: blueprint_board_rule(p, n).strip() if n else "",
+    "blueprint_write": lambda p, n: blueprint_write_line(p, n).strip() if n else "",
     "layer_check": lambda p, n: layer_check_rule(p).strip(),
     "protect_check": lambda p, n: protect_check_rule(p.episode(n)).strip() if n else "",
     "motion_rules": lambda p, n: MOTION_RULES.format(n=n, severity=SEVERITY_RULE),
