@@ -1118,6 +1118,59 @@ def heat_next_arc_rules(start: int, length: int) -> str:
     return heat_rules(f"아크 첫 화({start}화)부터 아크 끝 화(arc.end_ep)까지", length, "이 아크의 열 계획도 함께 짭니다. 앞 아크와 같은 판돈 · 같은 종류의 정점을 되풀이하지 않습니다.")
 
 
+def _bp_ids_block(p: Project) -> str:
+    """설계도 요청이 고르는 부위 · 동작 · 장소 id 목록 (거꾸로 뽑기 · 짜기가 같이 쓴다)."""
+    parts = ", ".join(f"{k}: {v.label}" for k, v in stage.PARTS.items())
+    acts = ", ".join(f"{k}: {v.label}" for k, v in stage.ACTS.items())
+    places = ", ".join(f"{el.id}: {el.name}" for el in p.elements if el.kind == "장소")
+    return f"""[고를 수 있는 부위 id]
+{parts}
+[고를 수 있는 동작 id]
+{acts}
+[고를 수 있는 장소 id]
+{places or "없음"}"""
+
+
+def blueprint_draft_prompt(p: Project, start: int, end: int, a: str, b: str) -> str:
+    """작가 설정 · 부 구성에서 두 인물의 설계도를 짠다 (pipeline.draft_blueprint, 응답 형식 BlueprintProposal, docs/blueprint/specs/08-draft.md).
+    플롯이 없어도 된다. 작가가 고른 줄만 설계도에 들어간다. 작가 메모는 요청 끝(request_block)에 붙는다."""
+    who = {c.id: c for c in p.characters}
+    na, nb = (who[x].name if x in who else x for x in (a, b))
+    pair = [who[x] for x in (a, b) if x in who]
+    rel = next((r for r in p.relationships if {r.a, r.b} == {a, b}), None)
+    rel_text = (f"지금 사이: {rel.type or '정하지 않음'}" + (f" · {rel.description}" if rel.description else "")
+                + (f"\n가 닿을 곳 (작가가 정한 방향, 지금 관계 아님): {rel.destination}" if rel.destination else "")) if rel else "없음"
+    parts = [x for x in p.parts if x.end_ep >= start and x.start_ep <= end] if p.serial else []
+    part_text = "\n".join(f"- {x.number}부 {x.title} ({x.start_ep}~{x.end_ep}화): {x.goal}" + (f" / 마무리: {x.key_turn}" if x.key_turn else "")
+                          + "".join(f"\n  · {i}" for i in x.arc_ideas) for x in parts)
+    have = "\n".join(blueprint.plan_lines(p, {a, b}, start, end))
+    return f"""{start}화부터 {end}화까지 {na}{josa(na, '과', '와')} {nb}의 설계도를 짜세요.
+설계도는 작가가 먼저 정하는 계획입니다. 관계 이정표는 한 방향 관계가 몇 화쯤 어느 관계에 닿는지, 접촉 사다리는 두 인물의 신체 접촉이 몇 화쯤 어디까지 가는지입니다. 플롯은 이 계획을 따라 나중에 짭니다.
+
+[작품]
+{meta_text(p)}
+[두 인물]
+{dump(pair)}
+[두 인물의 관계]
+{rel_text}
+[부 구성]
+{part_text or "없음"}
+[이미 적은 설계도]
+{have or "없음"}
+{_bp_ids_block(p)}
+
+요구사항:
+- 작품 설정 · 로그라인 · 부 구성 · 관계의 가 닿을 곳 · 작가의 요청에 있는 방향을 따릅니다. 거기에 없는 사건을 지어내지 않습니다.
+- milestones: {na} → {nb} 와 {nb} → {na} 를 따로, 관계가 바뀌는 고비마다 한 줄. source · target 은 인물 id({a}, {b})입니다.
+- stage 는 낯섦 · 경계 · 호감 · 신뢰 · 균열 · 적대 · 화해 가운데 맞는 말입니다. 맞는 말이 없으면 비우고 label 에 적습니다. 단계는 한 화에 한 칸씩 움직이므로 이웃한 이정표 사이에 칸 수만큼 화를 둡니다.
+- rungs: 두 인물의 신체 접촉이 한 단계씩 나아가는 칸을 낮은 칸부터 차례로. 칸의 from_ep 는 처음 닿는 화 범위의 첫 화이고, 뒤 칸일수록 from_ep 가 줄지 않습니다.
+- 화 범위는 {start}~{end}화 안에서 고르고, 부 구성이 있으면 부의 목표와 마무리에 맞는 자리에 둡니다.
+- parts · acts · places 는 위 목록의 id 만 씁니다. 맞는 id 가 없으면 비우고 label 에 씁니다. lead 는 접촉을 이끄는 인물 id 입니다.
+- 이미 적은 설계도와 같은 줄은 다시 만들지 않고, 그 줄과 어긋나지 않게 잇습니다.
+- evidence 에는 그 줄을 둔 화 번호와 그 자리에 둔 까닭(작품 설정 · 부 목표 · 작가 요청 가운데 어디서 왔는지) 한 줄을 1~2개 넣습니다.
+- reply 에는 무엇을 짰고 어디를 비웠는지 1~3문장으로 씁니다."""
+
+
 def blueprint_extract_prompt(p: Project, start: int, end: int, a: str, b: str) -> str:
     """지금 화별 플롯에서 두 인물의 설계도를 거꾸로 뽑는다 (pipeline.propose_blueprint, 응답 형식 BlueprintProposal, docs/blueprint/specs/05-extract.md).
     작가가 고른 줄만 설계도에 들어간다. 이미 적은 설계도 줄은 같은 줄을 다시 만들지 않게 넣는다."""
@@ -1127,9 +1180,6 @@ def blueprint_extract_prompt(p: Project, start: int, end: int, a: str, b: str) -
     plots = [{"number": e.plot.number, "title": e.plot.title, "summary": e.plot.summary, "events": e.plot.events,
               "emotional_shift": e.plot.emotional_shift} for e in sorted(p.episodes, key=lambda e: e.plot.number) if start <= e.plot.number <= end]
     have = "\n".join(blueprint.plan_lines(p, {a, b}, start, end))
-    parts = ", ".join(f"{k}: {v.label}" for k, v in stage.PARTS.items())
-    acts = ", ".join(f"{k}: {v.label}" for k, v in stage.ACTS.items())
-    places = ", ".join(f"{el.id}: {el.name}" for el in p.elements if el.kind == "장소")
     return f"""{start}화부터 {end}화까지의 화별 플롯에서 {na}{josa(na, '과', '와')} {nb}의 설계도를 거꾸로 뽑으세요.
 설계도는 작가가 먼저 정하는 계획입니다. 관계 이정표는 한 방향 관계가 몇 화쯤 어느 관계에 닿는지, 접촉 사다리는 두 인물의 신체 접촉이 몇 화쯤 어디까지 가는지입니다.
 
@@ -1141,12 +1191,7 @@ def blueprint_extract_prompt(p: Project, start: int, end: int, a: str, b: str) -
 {dump(plots) or "없음"}
 [이미 적은 설계도]
 {have or "없음"}
-[고를 수 있는 부위 id]
-{parts}
-[고를 수 있는 동작 id]
-{acts}
-[고를 수 있는 장소 id]
-{places or "없음"}
+{_bp_ids_block(p)}
 
 요구사항:
 - 플롯에 적힌 일만 뽑습니다. 플롯에 없는 관계 변화나 접촉을 지어내지 않습니다.
@@ -5647,6 +5692,7 @@ PIECES.update({
     "arc_req": Piece("구조 요청", ("length",), "tail", "arc_ask", "단편 arc_prompt, 장편 next_arc_prompt"),
     "heat_req": Piece("완급 계획 요청", ("length",), "tail", "heat_propose_prompt"),
     "blueprint_req": Piece("설계도 거꾸로 뽑기 요청", ("continuity",), "tail", "blueprint_extract_prompt"),
+    "blueprint_draft_req": Piece("설계도 짜기 요청", ("continuity",), "tail", "blueprint_draft_prompt"),
     "plots_req": Piece("플롯 초안 요청", ("continuity",), "tail", "plot_prompt", "장편은 serial_plot_prompt"),
     "plot_req": Piece("한 화 플롯 요청", ("continuity",), "tail", "episode_plot_prompt"),
     "agent_req": Piece("에이전트 첫 단계 요청", ("continuity",), "tail", "agent_plot_prompt"),
@@ -5698,6 +5744,8 @@ KINDS: dict[str, Kind] = {
                  _PLAN + ("heat_req", "heat_rules"), view=True, brief=_bk("완급 계획", scope="work")),
     "blueprint": Kind("설계도 거꾸로 뽑기", "계획", "plan", "SYSTEM_PLANNER", "blueprint_extract_prompt", "BlueprintProposal", "pipeline.propose_blueprint",
                       _PLAN + ("blueprint_req",)),
+    "blueprint_draft": Kind("설계도 짜기", "계획", "plan", "SYSTEM_PLANNER", "blueprint_draft_prompt", "BlueprintProposal", "pipeline.draft_blueprint",
+                            _PLAN + ("blueprint_draft_req",)),
     "plots": Kind("플롯 초안", "계획", "plan", "SYSTEM_PLANNER", "plot_prompt", "PlotBatch", "pipeline.draft_plots",
                   _PLAN + ("plots_req",) + _PLOT_RULES, also=("serial_plot_prompt",), view=True, brief=_bk("플롯 초안", scope="act")),
     "plot": Kind("한 화 플롯", "계획", "plan", "SYSTEM_PLANNER", "episode_plot_prompt", "PlotBatch", "pipeline.draft_episode",

@@ -2711,7 +2711,21 @@ def _job_blueprint(name: str, body: "JobIn", p: Project, kind: str, n: int | Non
 
     def fn(job: jobs.Job):
         prop = pipeline.propose_blueprint(llm, store.load(name), arc, a, b, note)
-        return prop.model_dump() | {"arc": arc, "a": a, "b": b, "start": start, "end": end}
+        return prop.model_dump() | {"arc": arc, "a": a, "b": b, "start": start, "end": end, "mode": "extract"}
+    return label, 1, set(), fn
+
+
+def _job_blueprint_draft(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 blueprint_draft: 설정 · 부 구성에서 두 인물(target 'a~b')의 설계도를 짠다. ep 는 장편 부 번호(단편은 비움), note 는 작가 메모. 결과는 고르기를 기다린다."""
+    a, _, b = body.target.partition("~")
+    start, end = blueprint.draft_range(p, n or 0)
+    names = {c.id: c.name or c.id for c in p.characters}
+    label = f"{names.get(a, a)} ↔ {names.get(b, b)} 설계도 짜기 ({start}~{end}화)"
+    part, note = n or 0, body.note
+
+    def fn(job: jobs.Job):
+        prop = pipeline.draft_blueprint(llm, store.load(name), part, a, b, note)
+        return prop.model_dump() | {"arc": 0, "part": part, "a": a, "b": b, "start": start, "end": end, "mode": "draft"}
     return label, 1, set(), fn
 
 
@@ -3170,7 +3184,7 @@ def _job_atlas_ai(name: str, body: "JobIn", p: Project, kind: str, n: int | None
 
 def _job_target(kind: str, body: "JobIn") -> str:
     """같은 종류를 대상마다 따로 돌리는 작업의 대상: 인물 id, 지적 id. 이름 고르기는 지명이면 빈 글이다."""
-    return body.target if kind in ("char_body", "char_voice", "char_look", "names_ai", "fix_one", "recheck_one", "illust_render", "aliases", "blueprint") else ""
+    return body.target if kind in ("char_body", "char_voice", "char_look", "names_ai", "fix_one", "recheck_one", "illust_render", "aliases", "blueprint", "blueprint_draft") else ""
 
 
 def _job_plots(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
@@ -3500,6 +3514,7 @@ JOB_MAKERS: dict[str, Callable] = {
     "nextarc": _job_nextarc,
     "heat": _job_heat,
     "blueprint": _job_blueprint,
+    "blueprint_draft": _job_blueprint_draft,
     "convert": _job_convert,
     "rebuild": _job_rebuild,
     "rework": _job_rework,
@@ -3583,7 +3598,7 @@ def start_job(name: str, body: JobIn) -> dict:
 
 # 결과가 반영 전 제안인 작업. 화면이 반영하거나 버릴 때까지 pending.json 에 둔다
 # (본문 · 플롯 · 판정 같은 작업은 서버가 이미 작품에 썼다)
-PENDING_KINDS = {"arc", "heat", "blueprint", "suggest", "style", "series", "nextarc", "convert", "rebuild", "rework", "storyline", "recap_arc", "recap_part", "fold_knows", "offscreen", "state", "openings"}
+PENDING_KINDS = {"arc", "heat", "blueprint", "blueprint_draft", "suggest", "style", "series", "nextarc", "convert", "rebuild", "rework", "storyline", "recap_arc", "recap_part", "fold_knows", "offscreen", "state", "openings"}
 
 
 def _keep_pending(name: str, kind: str, n: int | None, label: str, fn, target: str = ""):

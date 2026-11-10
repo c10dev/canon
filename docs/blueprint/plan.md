@@ -16,7 +16,8 @@
 | 4 | 4 | 기획 프롬프트(다음 아크 · 장편 화별 플롯)에 지금 범위와 다음 이정표, 예산, mock, 앞당김 실측 | 끝 ([#479](https://github.com/c10dev/canon/pull/479) 머지) | [04-plan-prompt.md](specs/04-plan-prompt.md) | 1 |
 | 5 | 5 | 지금 플롯에서 설계도 거꾸로 뽑기(아크 단위)와 승인 화면 | 끝 ([#480](https://github.com/c10dev/canon/pull/480) 머지) | [05-extract.md](specs/05-extract.md) | 1, 3 |
 | 6 | 6a | 스토리보드 · 쓰기 · 검수 연결 (프롬프트 줄) | 끝 ([#481](https://github.com/c10dev/canon/pull/481) 머지) | [06-episode.md](specs/06-episode.md) | 4 |
-| 7 | 6b | 실제 접촉 기록: 상태 변경안이 닿은 칸을 닫힌 목록에서 고르고 작가가 승인, 자동 집필 · `-y` 는 남겨 둠 | 진행 (claude/blueprint-contact) | [07-contact.md](specs/07-contact.md) | 6a |
+| 7 | 6b | 실제 접촉 기록: 상태 변경안이 닿은 칸을 닫힌 목록에서 고르고 작가가 승인, 자동 집필 · `-y` 는 남겨 둠 | 끝 ([#482](https://github.com/c10dev/canon/pull/482) 머지) | [07-contact.md](specs/07-contact.md) | 6a |
+| 8 | 8 | AI 로 설계도 짜기 (설정 · 부 구성 · 작가 메모, 플롯 없이) | 진행 (claude/blueprint-draft) | [08-draft.md](specs/08-draft.md) | 5 |
 
 - 명세서가 '—'인 일감은 시작할 때 `specs/NN-이름.md` 로 쓴다.
 - 4 와 6 은 `prompts.py` 를 고친다. 규칙 층(`Settings.rule_layers`, 브랜치 `claude/style-rule-layers`)도 스토리보드 요청 끝을 고치므로 시작 전에 견준다.

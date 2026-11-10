@@ -261,7 +261,7 @@ function bpOverview() {
     <div class="ab-tile${d.warnings.length ? ' warn' : ''}"><span class="small">경고</span><b>${d.warnings.length}</b></div></div>`;
   const list = `<section class="card"><h2>관계</h2><ul class="bp-list">${pairs.map(([k, a, b]) => {
     const x = bpOfPair(d.blueprint, d.warnings, a, b);
-    return `<li><a href="${bpHref(k)}"><strong>${esc(bpWho(a))} ↔ ${esc(bpWho(b))}</strong></a><span class="small">이정표 ${x.ms.length} · 사다리 ${x.ladder ? x.ladder.rungs.length : 0}칸${x.warns.length ? ` · 경고 ${x.warns.length}` : ''}</span></li>`;
+    return `<li><a href="${bpHref(k)}"><strong>${esc(bpWho(a))} ↔ ${esc(bpWho(b))}</strong></a><span class="small">이정표 ${x.ms.length} · 사다리 ${x.ladder ? x.ladder.rungs.length : 0}칸${x.warns.length ? ` · 경고 ${x.warns.length}` : ''}</span><a class="btn small" href="${bpHref(k)}">여정 짜기</a></li>`;
   }).join('')}</ul></section>`;
   return tiles + bpWarnCard(d.warnings) + bpHeldCard() + bpNoteCard() + list;
 }
@@ -279,10 +279,15 @@ function bpExtractCard(key) {
   const p = P();
   const has = (s) => p.episodes.some((e) => e.plot.number >= s.start_ep && e.plot.number <= s.end_ep);
   const arcs = serial() ? (p.story_arcs || []).filter(has) : [];
-  if (serial() && !arcs.length) return '';
-  const pick = serial() ? `<select id="bp-arc" aria-label="뽑을 아크">${arcs.map((s) => `<option value="${s.number}">아크 ${s.number} · ${s.start_ep}~${s.end_ep}화</option>`).join('')}</select>` : '';
-  return `<section class="card" id="bp-extract"><div class="between"><h2>지금 플롯에서 뽑기</h2>
-    <div class="row">${pick}<button type="button" class="btn small" data-action="bpExtract" data-arg="${esc(key)}">AI로 뽑기</button></div></div></section>`;
+  const parts = serial() ? p.parts || [] : [];
+  const partPick = parts.length ? `<select id="bp-part" aria-label="짤 부">${parts.map((x) => `<option value="${x.number}">${x.number}부 · ${x.start_ep}~${x.end_ep}화</option>`).join('')}</select>` : '';
+  const draft = `<div class="field"><label for="bp-note-ai">AI로 짜기 <span class="hint">설정 · 부 구성 · 이 메모로 이정표와 사다리 칸을 제안받아요</span></label>
+      <textarea id="bp-note-ai" rows="2" placeholder="예: 1부 끝에 스스로 단추를 푼다. 2부부터 공범이 된다"></textarea>
+      <div class="row">${partPick}<button type="button" class="btn small" data-action="bpDraftAI" data-arg="${esc(key)}">AI로 짜기</button></div></div>`;
+  const showExtract = !serial() ? p.episodes.length > 0 : arcs.length > 0;
+  const extract = showExtract ? `<div class="row"><span class="label-text">지금 플롯에서 뽑기</span>${serial() ? `<select id="bp-arc" aria-label="뽑을 아크">${arcs.map((s) => `<option value="${s.number}">아크 ${s.number} · ${s.start_ep}~${s.end_ep}화</option>`).join('')}</select>` : ''}
+      <button type="button" class="btn small" data-action="bpExtract" data-arg="${esc(key)}">AI로 뽑기</button></div>` : '';
+  return `<section class="card" id="bp-extract"><h2>AI로 설계도 받기</h2>${draft}${extract}</section>`;
 }
 
 /** 근거 줄: '12화 「…」' */
@@ -303,7 +308,7 @@ function bpDraftCard(key, a, b) {
       <span class="small">${esc([r.layer, label(r.parts, S.bp.parts), label(r.acts, S.bp.acts), label(r.places, bpPlaces()), r.lead ? `${bpWho(r.lead)} 주도` : ''].filter(Boolean).join(' · '))}</span>
       ${r.evidence.length ? `<span class="small">${esc(bpEvidence(r.evidence))}</span>` : ''}</li>`).join('');
   const none = !d.milestones.length && !d.rungs.length;
-  return `<section class="card" id="bp-draft"><div class="between"><h2>AI가 뽑은 설계도 <span class="small">${d.start}~${d.end}화</span></h2>
+  return `<section class="card" id="bp-draft"><div class="between"><h2>${d.mode === 'draft' ? 'AI가 짠 설계도' : 'AI가 뽑은 설계도'} <span class="small">${d.start}~${d.end}화</span></h2>
       <span class="row"><button type="button" class="btn small" data-action="bpDraftDrop">버리기</button>${none ? '' : '<button type="button" class="btn small primary" data-action="bpDraftUse">고른 줄 더하기</button>'}</span></div>
     ${d.reply ? `<p class="small">${esc(d.reply)}</p>` : ''}
     ${ms ? `<h3>관계 이정표</h3><ul class="bp-list">${ms}</ul>` : ''}${rungs ? `<h3>접촉 사다리</h3><ul class="bp-list">${rungs}</ul>` : ''}
@@ -313,6 +318,9 @@ function bpDraftCard(key, a, b) {
 JOB_PAGES.blueprint = ['blueprint'];
 JOB_LINK.blueprint = (j) => `#/p/${enc(j.project)}/blueprint/${enc(j.target || '')}`;
 JOB_DONE_MSG.blueprint = '설계도 제안이 도착했어요. 더할 줄을 골라 주세요.';
+JOB_PAGES.blueprint_draft = ['blueprint'];
+JOB_LINK.blueprint_draft = JOB_LINK.blueprint;
+JOB_DONE_MSG.blueprint_draft = JOB_DONE_MSG.blueprint;
 
 function viewBlueprint() {
   bpDraftMark();
@@ -378,6 +386,11 @@ function bpMerged(edit, server) {
 }
 
 Object.assign(actions, {
+  async bpDraftAI(key) {
+    const sel = document.getElementById('bp-part');
+    const note = (document.getElementById('bp-note-ai') || {}).value || '';
+    await startJob('blueprint_draft', sel ? Number(sel.value) : null, { target: key, note });  // 도착하면 쌍 쪽 카드 안 제안 (bpDraftCard)
+  },
   async bpExtract(key) {
     const sel = document.getElementById('bp-arc');
     await startJob('blueprint', sel ? Number(sel.value) : null, { target: key, note: '' });  // 도착하면 쌍 쪽 카드 안 제안 (bpDraftCard)
