@@ -1,6 +1,6 @@
 # 10. 설계도에 적은 신체 특징을 인물 신체 프로필 제안으로
 
-상태: 진행 (claude/infallible-bun-06886a) · 계획: [plan.md](../plan.md) 의 10번 · 먼저: 9
+상태: 진행 (claude/body-from-blueprint, [#486](https://github.com/c10dev/canon/pull/486)) · 계획: [plan.md](../plan.md) 의 10번 · 먼저: 9
 
 ## 목표
 

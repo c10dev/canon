@@ -19,7 +19,7 @@
 | 7 | 6b | 실제 접촉 기록: 상태 변경안이 닿은 칸을 닫힌 목록에서 고르고 작가가 승인, 자동 집필 · `-y` 는 남겨 둠 | 끝 ([#482](https://github.com/c10dev/canon/pull/482) 머지) | [07-contact.md](specs/07-contact.md) | 6a |
 | 8 | 8 | AI 로 설계도 짜기 (설정 · 부 구성 · 작가 메모, 플롯 없이) | 진행 (claude/blueprint-draft) | [08-draft.md](specs/08-draft.md) | 5 |
 | 9 | 9 | 신체 특징을 몸이 드러나는 화에만 스토리보드 · 쓰기 · 검수에 넣기 (LLM 비용 없음) | 진행 (claude/body-conditional) | [09-body.md](specs/09-body.md) | 6a |
-| 10 | 10 | 설계도 칸 메모 · 이정표 라벨에 적은 신체 특징을 인물 신체 프로필 제안 카드로 내기 (LLM 으로 뽑기, 인물 화면 카드 · 설계도 쌍 쪽 길) | 진행 (claude/infallible-bun-06886a) | [10-body-suggest.md](specs/10-body-suggest.md) | 9 |
+| 10 | 10 | 설계도 칸 메모 · 이정표 라벨에 적은 신체 특징을 인물 신체 프로필 제안 카드로 내기 (LLM 으로 뽑기, 인물 화면 카드 · 설계도 쌍 쪽 길) | 진행 ([#486](https://github.com/c10dev/canon/pull/486)) | [10-body-suggest.md](specs/10-body-suggest.md) | 9 |
 
 - 명세서가 '—'인 일감은 시작할 때 `specs/NN-이름.md` 로 쓴다.
 - 4 와 6 은 `prompts.py` 를 고친다. 규칙 층(`Settings.rule_layers`, 브랜치 `claude/style-rule-layers`)도 스토리보드 요청 끝을 고치므로 시작 전에 견준다.
