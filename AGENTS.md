@@ -20,6 +20,7 @@ AI 로 소설을 길게 쓸수록 인물 관계, 심리, 말투, 복선, 문체�
 | 장면 연출(방 안 자리 · 자세 · 신체 접촉을 박자마다 적고 재생하는 도구, `stage`)을 만들거나 고칠 때 | [docs/stage/](docs/stage/README.md): 정한 규칙, 데이터 형식, 일감 차례와 작업 명세서, 화면 시안 |
 | 컨텍스트 조립(`context.py` 의 활성화 · 프롬프트 보기와 블록 설정 · 정규식 규칙 · 선언형 규칙 · 접은 줄거리 고르기)을 고칠 때 | [docs/context/](docs/context/README.md). 일감을 끝내면 그 명세서의 상태와 `docs/context/plan.md` 를 고친다 |
 | 설계도(`canon/blueprint.py`: 관계 이정표 · 접촉 사다리, 탑다운 작품 설계)를 만들거나 고칠 때 | [docs/blueprint/](docs/blueprint/README.md): 정한 규칙, 일감 차례와 작업 명세서. 일감을 끝내면 그 명세서의 상태와 `docs/blueprint/plan.md` 를 고친다 |
+| 작품 구축 형식(로그라인 · 부와 아크 기획 · 완급 계획 · 플롯 규칙)을 웹소설 · 라이트노벨식(짧은 고구마 · 잦은 사이다 · 성장 축 · 하렘)으로 가르는 일을 할 때 | [docs/webnovel/](docs/webnovel/README.md): 바꿀 곳 조사, 제안, 일감 차례와 정할 것. 일감을 끝내면 그 명세서의 상태와 `docs/webnovel/plan.md` 를 고친다 |
 | 웹 화면(`canon/static/`)의 모양을 고칠 때 | [docs/design/](docs/design/README.md): 디자인 시스템의 원본: 문구 · 색 · 글자 · 간격 규칙(README), 화면 배치(`layout.md`), 토큰 값(`tokens.json`), 컴포넌트별 문서와 미리보기(`components/<이름>/README.md` · `preview.html`), 미리보기가 읽는 컴포넌트 CSS 사본(`components/bundle.css`) |
 | 웹 화면의 쓰는 흐름(가림막 · 다시 그릴 때 본문 칸 지키기 · 대화 에이전트 하나로 합치기 · AI 답 흘려 보이기 · 집필 화면의 상태 변경안 · 메뉴 정리)을 고칠 때 | [docs/ux/](docs/ux/README.md): 2026-11-09 관찰 결과, 일감 차례와 작업 명세서. 일감을 끝내면 그 명세서의 상태와 `docs/ux/plan.md` 를 고친다 |
 | 프롬프트 글(`prompts.py` 의 지시 · 규칙 줄 · `PREAMBLE`, `llm.POLICY_NOTE` · `ADULT_NOTE`)을 다듬거나 줄일 때 | [docs/prompts/editing.md](docs/prompts/editing.md): 편집 AI의 가치관 · 제공자 정책을 끼워 넣지 않는 원칙(0절), 뜻 지도, 확인 층 |
