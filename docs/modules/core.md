@@ -558,6 +558,7 @@
 - 본문 쓰기 지시는 설정 · 사실을 '절대' 같은 강한 말 대신 이유('앞 화와 이어져야 하므로')를 붙여 지키게 한다
 - `cast_view` 는 인물 다른 이름(`aliases`)을 빼서 앞 블록 '# 인물 설정' 캐시를 지킨다. 인물의 프롬프트용 직렬화(`_prompt_view`)도 뺀다
 - `setup_chat_prompt` 는 다른 이름을 채운 인물만 `aliases` 칸을 보인다(빈 인물은 전과 같은 글)
+- `setup_chat_prompt` 의 `history_lines` 는 대화 기록 줄이다. 대화 에이전트는 `setup_session_history` 를 넘기고, None 이면 옛 설정 대화를 읽는다(명령줄)
 - 다른 이름 제안 `alias_prompt(p, items)`: 작품 · 모든 항목 이름 목록이 앞, 항목별 재료 단락이 뒤, 요청이 맨 뒤다. 쓰기 프롬프트 · 작업지시서에는 들어가지 않는다
 - 화별 컨텍스트 조립(`build_episode_context`)
 - 쓰기 요청 블록 표 `BLOCKS`(`Block`: id · 화면 이름 · 잠금 · 쓰는 예산 키 · 캐시 앞부분 `front` · 대신 정하는 설정 `note`)와 id 찾기 `BLOCK_BY_ID`

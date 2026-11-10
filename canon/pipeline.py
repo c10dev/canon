@@ -112,12 +112,13 @@ def suggest_setup(llm: LLM, p: Project) -> SetupSuggestion:
     return s
 
 
-def revise_setup(llm: LLM, p: Project, message: str, mode: str = "") -> SetupRevision:
+def revise_setup(llm: LLM, p: Project, message: str, mode: str = "", history: list[str] | None = None) -> SetupRevision:
     """설정 도우미 대화: 작가의 말로 설정 변경안이나 방향 여러 안(mode 'options')을 만든다. 저장하지 않는다.
+    history 는 대화 기록 줄 (대화 에이전트는 prompts.setup_session_history). None 이면 옛 설정 대화를 읽는다 (명령줄).
     정리 · 적용 · 적용 취소는 canon/setupchat.py."""
     if not message.strip():
         raise ValueError("바라는 것을 적어 주세요")
-    rev = llm.json(prompts.SYSTEM_SETUP_CHAT, prompts.setup_chat_prompt(p, message, mode), SetupRevision,
+    rev = llm.json(prompts.SYSTEM_SETUP_CHAT, prompts.setup_chat_prompt(p, message, mode, history), SetupRevision,
                    hint={"message": message, "mode": mode,
                          "project": p.model_dump(include={"meta", "world", "characters", "relationships"})})
     return setupchat.clean(p, rev, mode)

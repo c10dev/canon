@@ -352,8 +352,58 @@ def _setup_chat_line(p: Project, m: ChatMessage) -> str:
     return line
 
 
-def setup_chat_prompt(p: Project, message: str, mode: str = "") -> str:
-    """설정 도우미 대화. mode 'options' 면 변경안 대신 방향 여러 안을 청한다."""
+SETUP_VALUE_CLIP = 200   # 대화 에이전트 세션의 지난 설정 변경안에서 부분마다 넣는 값 길이
+SETUP_REPLY_CLIP = 600   # 대화 에이전트 세션의 지난 편집자 답을 이만큼까지 넣는다
+
+
+def setup_part_text(p: Project, rev, pid: str) -> str:
+    """설정 변경안의 부분 하나(setupchat.part_ids)의 바뀐 뒤 값을 한 줄 글로 (지난 변경안 줄). 빈 값은 '(비움)'."""
+    from . import setupchat
+
+    v = ""
+    if e := next((x for x in rev.edits if x.key == pid), None):
+        v = setupchat.edit_value(e)
+    elif x := next((x for x in rev.characters if setupchat.char_id(x) == pid), None):
+        v = setupchat.char_value(x)
+    elif c := next((c for c in rev.new_characters if f"new:{c.id}" == pid), None):
+        v = ". ".join(s for s in (c.role, c.personality, f"목표: {c.goal}" if c.goal else "", f"약점: {c.wound}" if c.wound else "") if s)
+    elif r := next((r for r in rev.relationships if setupchat.rel_id(r) == pid), None):
+        v = ": ".join(s for s in (r.type, r.description) if s)
+    v = " / ".join(v) if isinstance(v, list) else str(v or "")
+    return _clip(v, SETUP_VALUE_CLIP) if v.strip() else "(비움)"
+
+
+def setup_session_history(p: Project, turns: list) -> list[str]:
+    """대화 에이전트 세션의 지난 턴(AgentTurn)을 설정 대화 기록 줄로 (agent_setup.prepare).
+    웹의 설정 대화는 대화 에이전트로 옮겨 옛 설정 대화(Project.chats 'setup')가 더 쌓이지 않으므로 이 세션 기록을 쓴다.
+    설정 카드가 있던 턴은 부분마다 낸 값, 작가의 결정, 나중에 되돌린 부분을 붙인다. 되물음은 안 이름을 붙인다. 다른 턴은 말과 답만 넣는다."""
+    from . import setupchat
+
+    out: list[str] = []
+    for t in turns[-(SETUP_CHAT_HISTORY // 2):]:
+        out.append(f"작가{' [방향 여러 안 요청]' if t.mode == 'options' else ''}: {t.user}")
+        line = f"편집자: {_clip(t.reply, SETUP_REPLY_CLIP)}" if t.reply.strip() else ""
+        a = t.approval
+        if a and a.setup and (parts := setupchat.part_ids(a.setup)):
+            rev = a.setup
+            result = {"approved": "작가가 적용함: " + ", ".join(setupchat.label(p, rev, k) for k in a.picked),
+                      "denied": "작가가 적용하지 않음"}.get(a.state, "아직 결정 전")
+            back = [i.label for w in t.writes if w.tool == "edit_setup" for i in w.items if i.state == "reverted"]
+            if back:
+                result += f" / 나중에 되돌림: {', '.join(back)}"
+            rows = "".join(f"\n    - {setupchat.label(p, rev, k)}: {setup_part_text(p, rev, k)}" for k in parts)
+            line = (line or "편집자:") + f"\n  (변경안: {', '.join(setupchat.label(p, rev, k) for k in parts)} / {result}){rows}"
+        if t.ask and (t.ask.options or t.ask.question.strip()):
+            asked = " / ".join(f"{i}. {o.title}: {_clip(o.idea, 200)}" for i, o in enumerate(t.ask.options, 1)) or t.ask.question
+            line = (line or "편집자:") + f"\n  (되물음: {asked})"
+        if line:
+            out.append(line)
+    return out
+
+
+def setup_chat_prompt(p: Project, message: str, mode: str = "", history_lines: list[str] | None = None) -> str:
+    """설정 도우미 대화. mode 'options' 면 변경안 대신 방향 여러 안을 청한다.
+    history_lines: 대화 기록 줄 (대화 에이전트는 setup_session_history). None 이면 옛 설정 대화(Project.chats 'setup')를 읽는다 (명령줄)."""
     from . import setupchat
 
     begun = setupchat.started(p)
@@ -365,8 +415,10 @@ def setup_chat_prompt(p: Project, message: str, mode: str = "") -> str:
     if written:
         lines = [f"- {e.plot.number}화 {e.plot.title}: {_clip(e.summary or e.plot.summary, 200)}" for e in written[-SETUP_CHAT_RECENT:]]
         story = f"\n[이미 쓴 화] 본문이 있는 화 {len(written)}개 (마지막 {written[-1].plot.number}화). 최근 화:\n" + "\n".join(lines) + "\n"
-    chat = next((c for c in p.chats if c.topic == "setup"), None)
-    history = "\n".join(_setup_chat_line(p, m) for m in (chat.messages[-SETUP_CHAT_HISTORY:] if chat else []))
+    if history_lines is None:
+        chat = next((c for c in p.chats if c.topic == "setup"), None)
+        history_lines = [_setup_chat_line(p, m) for m in (chat.messages[-SETUP_CHAT_HISTORY:] if chat else [])]
+    history = "\n".join(history_lines)
     head = f"""[작품]
 {meta_text(p)}
 
@@ -404,6 +456,7 @@ def setup_chat_prompt(p: Project, message: str, mode: str = "") -> str:
                 f"- 관계의 a_view(a 가 b 를 보는 방식)와 b_view(b 가 a 를 보는 방식)는 {', '.join(VIEWS)} 중에서 1~2개 고릅니다. 시작 호감은 프로그램이 보는 방식으로 계산합니다.")
     return head + f"""- reply 에는 작가에게 하는 대답을 2~5문장으로 씁니다. 무엇을 왜 바꿨는지, 이야기에 어떤 차이가 생기는지 말합니다. 요청이 모호하면 가장 그럴듯하게 해석해 고치고 어떻게 해석했는지 밝힙니다. 질문만 받았으면 변경 없이 대답만 합니다. 작가에게 더 물어볼 것이 있으면 reply 끝에 짧은 질문 하나를 붙입니다.
 - 작가가 앞서 낸 방향 안 중 하나를 고르거나 섞어 달라고 하면 그 방향으로 변경안을 만듭니다. options 는 비웁니다.
+- 작가의 새 말이 지난 변경안을 가리키면(예: "아까 그 인물 말고", "약점만 다시") 지난 대화에 적힌 그 변경안의 값을 기준으로 고칩니다. 작가가 적용하지 않은 변경안은 지금 설정에 없습니다.
 - 바뀌는 칸만 넣고, 칸마다 바뀐 뒤 값 전체를 씁니다. 작가가 채운 칸은 작가가 바꾸자고 했거나 요청을 이루는 데 꼭 필요할 때만 바꿉니다. 칸을 비우는 변경은 내지 않습니다.
 - edits 의 key: title 제목, logline.who 누가(이름보다 특징이 먼저 보이게), logline.why 무엇 때문에, logline.goal 무엇을 하려 하나('~한다'로 끝나는 눈에 보이는 행동), logline.block 무엇이 막나(사람이나 힘), logline.stake 무엇이 걸렸나, theme 주제(이야기가 끝까지 묻는 질문 하나), tone 톤 문장, notes 메모, world.setting 배경, world.era 시대, world.rules 깨면 안 되는 규칙, world.locations 장소, world.name_rules 이름 규칙. 로그라인은 다섯 칸으로만 고칩니다 (한 문장은 프로그램이 합칩니다). 다섯 칸이 비어 있고 logline 문장만 있으면 로그라인을 고칠 때 그 문장을 다섯 칸으로 나눠 함께 채웁니다.
 - 글 칸은 text, world.rules · world.locations · world.name_rules 는 items 에 씁니다. 목록은 그대로 둘 항목도 빠짐없이 넣습니다. 빠진 항목은 지워집니다.
@@ -2581,7 +2634,7 @@ AGENT_PLOT_TOOLS = """[도구] 한 단계에 하나만 부릅니다
 - insert_episodes (args: at, count, titles, summaries): at 화 앞에 새 화 count 개를 넣고 at 화부터 뒤 화를 그만큼 뒤로 밉니다. titles · summaries 는 새 화마다 '|' 로 나눕니다. 본문만 있고 상태를 반영하지 않은 화도 함께 밀립니다(본문은 그대로). 늘 작가에게 묻고 턴이 끝납니다. 승인되면 같은 턴에서 이어 가며, 새 화 플롯은 edit_plot 으로 채웁니다
 - remove_episode (args: n): 본문이 없는 n 화를 빼고 뒤 화를 한 칸씩 당깁니다. 늘 작가에게 묻습니다
 - revise_text (args: quote, request, n, preset): n 화 본문(비우면 다듬을 곳의 화)에서 quote 부분을 request 대로 고친 후보 2~3개를 만들어 작가에게 보입니다. quote 는 본문 원문 그대로 옮긴 한 문장~몇 문단이고, 모르면 find_text 로 먼저 찾습니다. preset 은 비웁니다. 작가가 고른 후보만 본문에 들어가고, 늘 작가에게 묻고 턴이 끝납니다
-- edit_setup (args: request): 작가가 설정(제목, 로그라인, 주제, 톤, 메모, 세계관, 인물 칸, 새 인물, 관계)을 바꾸라고 할 때 부릅니다. 설정 편집자가 바뀌는 칸만 담은 변경안을 만들고, 권한 모드와 상관없이 늘 작가에게 칸마다 물으며 턴이 끝납니다. 작가가 고른 칸만 들어갑니다. 편집자는 이 대화를 보지 못하므로 request 에 무엇을 어떻게 바꿀지(작가의 말과 이번 턴에 정한 방향)를 그것만 읽어도 알게 씁니다. 관계 수치는 적지 않습니다
+- edit_setup (args: request): 작가가 설정(제목, 로그라인, 주제, 톤, 메모, 세계관, 인물 칸, 새 인물, 관계)을 바꾸라고 할 때 부릅니다. 설정 편집자가 바뀌는 칸만 담은 변경안을 만들고, 권한 모드와 상관없이 늘 작가에게 칸마다 물으며 턴이 끝납니다. 작가가 고른 칸만 들어갑니다. request 에는 작가의 말 가운데 설정에 대한 부분을 작가가 쓴 그대로 넣습니다(줄이거나 풀어 쓰지 않음. 설정 편집자가 이 세션의 지난 대화와 지난 설정 변경안의 값을 따로 봅니다). 이번 턴에 읽어서 정한 것이 있으면 덧붙입니다. 관계 수치는 적지 않습니다
 - edit_style (args: request, episode): 작품 문체(스타일 프로필)를 바꾸는 변경안을 문체 편집자에게 맡깁니다. request 에는 작가의 말 가운데 문체에 대한 부분을 작가가 쓴 그대로(줄이거나 풀어 쓰지 않음. 문체 편집자가 이 세션의 지난 대화와 지난 문체 변경안의 값을 따로 봅니다), episode 에는 작가가 참고하라고 한 화 번호(본문이 있는 화, 없으면 빈칸)를 넣습니다. 바꿀 칸과 시험 문단이 카드로 작가에게 물어지고 턴이 끝납니다. 바꿀 칸이 없으면 편집자의 대답으로 턴이 끝납니다. 플롯 · 본문 · 설정 일에는 부르지 않습니다
 - propose_regex (args: in, out, action, type, flag, comment, rule, enabled, bundle): 작가가 본문 표기를 잡는 규칙을 청하면 정규식 규칙 하나를 더하거나 고치자고 제안합니다. in 은 찾을 정규식으로 JavaScript 정규식 꼴(예: [.]{3,})이고, out 은 바꿀 글로 JavaScript String.replace 꼴($1 · $&)입니다. action 은 warn(검수 때 걸린 곳을 보임, 기본) · fix(본문을 바꿈), type 은 output(쓴 본문, 기본) · export(내보낼 때만), flag 는 기본 g, comment 는 규칙 이름입니다. 이미 있는 규칙을 고치려면 rule 에 read_rules 로 본 그 규칙 id 를 넣고 바꿀 인자만 채웁니다(끄기는 enabled=false). bundle 은 넣을 묶음 id 로, 켠 묶음이 둘 이상일 때만 채웁니다. 한 번에 규칙 하나만 다루고, 지금 본문에 걸어 본 결과와 함께 늘 작가에게 물으며 턴이 끝납니다. 작가가 적용하기 전에는 어디에도 걸리지 않습니다. 규칙과 묶음을 지우는 일은 하지 않습니다
 - ask: question 과 options (서로 다른 방향 2~3개) 를 넣습니다. 작가의 답을 기다리며 턴이 끝납니다

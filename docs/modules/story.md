@@ -131,7 +131,12 @@
 
 - 대화 에이전트의 설정 도구 `edit_setup`(종류 `setup`, 04c). `agent.CARD_TOOLS` 가 등록한다
 - `prepare`: 잠금 밖에서 `pipeline.revise_setup`(LLM 단계 `plan`)을 부른다. 옛 설정 대화와 같은 프롬프트 · 정리다
-- `prepare` 의 요청은 `request` 인자이고, 비면 작가의 이번 말이다(`request`). 편집자는 세션 대화를 보지 않는다
+- `prepare` 의 요청은 `request` 인자이고, 비면 작가의 이번 말이다(`request`)
+- `prepare` 는 설정 편집자의 대화 기록으로 이 세션의 지난 턴(최근 6턴)을 넘긴다(`prompts.setup_session_history`). 옛 설정 대화(`Project.chats` 의 `setup`)는 읽지 않는다
+- 지난 설정 카드의 줄에는 부분마다 낸 값(`prompts.setup_part_text`, 200자까지), 작가의 결정, 나중에 되돌린 부분이 붙는다
+- 지난 턴의 되물음(`AgentTurn.ask`)은 안 이름과 내용을 붙인다. 작가가 안 하나를 고르면 편집자가 그 안을 안다
+- `request` 는 작가의 말 가운데 설정에 대한 부분을 줄이지 않고 그대로 넣게 한다(`AGENT_PLOT_TOOLS`)
+- 명령줄 경로(`revise_setup` 에 `history` 없음)는 옛 설정 대화를 그대로 읽는다
 - 방향 여러 안은 에이전트의 `ask` 가 묻는다. 그래서 `revise_setup` 의 mode 는 늘 비운다
 - 지름길(`shortcut`)은 없다. 늘 에이전트 단계가 고른다
 - `record`: 잠근 작품에서 `setupchat.clean` 으로 다시 거르고 승인 카드(`Approval.setup` · `keys` · `kinds` ['setup'] · `defaults`)를 남긴 뒤 턴을 끝낸다
