@@ -1338,6 +1338,7 @@ details.vis summary .small { margin-left: var(--space-6); font-weight: 400; }
 .pc-bar { gap: var(--gap-group); align-items: flex-end; margin-bottom: var(--gap-stack); }
 .pc-nav { flex: 0 1 240px; }
 .pc-nav > .card { gap: var(--space-2); }
+@media (max-width: 640px) { .pc-nav { flex-basis: 100%; } }
 .pc-nav a { display: block; padding: var(--space-6) var(--space-8); border-radius: var(--radius-6); color: var(--text-2); text-decoration: none; }
 .pc-nav a[aria-current="page"] { background: var(--accent-soft); color: var(--accent-ink); font-weight: 700; }
 .pc-nav h3 { margin: var(--space-12) 0 var(--space-4); }
