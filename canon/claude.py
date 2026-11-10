@@ -421,7 +421,7 @@ NO_ADVISOR = '{"advisorModel": ""}'
 class ClaudeCodeLLM:
     """설치된 Claude Code 를 `claude -p` 로 부른다. 도구는 모두 끄고, 시스템 프롬프트를 Canon 것으로 바꾸고,
     세션을 남기지 않는다. 구조화 출력은 --json-schema 로 받고 pydantic 으로 검증해, 어긋나면 한 번 더 묻는다."""
-    family_cache = True  # PREFIX_HINT 를 받으면 캐시 가족으로 부른다 (llm.FAMILY_SYSTEM)
+    family_cache = True  # PREFIX_HINT 를 받으면 캐시 가족으로 부른다 (prompts.FAMILY_SYSTEM)
 
     def __init__(self, model: str | None = None, binary: str | None = None, timeout: float | None = None,
                  effort: str = ""):
@@ -587,8 +587,9 @@ class ClaudeCodeLLM:
             self.last_keep, self.last_cache_note = worth_caching(cut, prefix, recent)
         if not cut:
             return system, prompt, 0
-        if prefix:  # 캐시 가족: 시스템 프롬프트를 가족 공통 글로 두고 원래 것은 사용자 메시지 앞으로 (llm.FAMILY_SYSTEM)
-            from .llm import FAMILY_SYSTEM, role_block
+        if prefix:  # 캐시 가족: 시스템 프롬프트를 가족 공통 글로 두고 원래 것은 사용자 메시지 앞으로 (prompts.FAMILY_SYSTEM)
+            from .llm import role_block
+            from .prompts import FAMILY_SYSTEM
 
             return f"{FAMILY_SYSTEM}\n\n{prompt[:cut]}", role_block(system) + prompt[cut:].lstrip("\n"), cut
         return f"{system.rstrip()}\n\n{prompt[:cut]}", prompt[cut:].lstrip("\n"), cut
@@ -807,7 +808,8 @@ class ClaudeAPILLM:
         self.last_raw = ""
         content, note = cache_blocks_note((self.model, system, schema and schema.__name__), with_note(prompt), prefix)
         if prefix and isinstance(content, list):  # 캐시 가족: 시스템 프롬프트를 가족 공통 글로, 원래 것은 뒤 블록 앞으로
-            from .llm import FAMILY_SYSTEM, role_block
+            from .llm import role_block
+            from .prompts import FAMILY_SYSTEM
 
             content[1]["text"] = role_block(system) + content[1]["text"].lstrip("\n")
             system = FAMILY_SYSTEM

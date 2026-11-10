@@ -22,28 +22,14 @@ class FakeLLM:
         return self.outputs.pop(0)
 
 
-# 머리말(prompts.PREAMBLE)을 아직 받지 않는 시스템 프롬프트와 그 묶음. 어느 프롬프트가 머리말을 받을지는 작가가 정한다
-# (#405 본문 · #413 기획 · #437 대화로 다듬기와 상태 변경안). 머리말을 붙이면 prompts.system_prompt 로 만들고 여기서 뺀다.
-NO_PREAMBLE = {
-    "SYSTEM_ANATOMY": "분석",
-    "SYSTEM_CHECKER": "검수",
-    "SYSTEM_CHECKER_EN": "검수 (영어 판이라 한국어 줄을 받지 않는다)",
-    "SYSTEM_CLAIMS": "검수",
-    "SYSTEM_HOOK": "분석",
-    "SYSTEM_ILLUSTRATOR": "보조",
-    "SYSTEM_IMPACT": "분석",
-    "SYSTEM_JUDGE_CHECK": "검수",
-    "SYSTEM_MAP_PLANNER": "보조",
-    "SYSTEM_MOTION": "검수",
-    "SYSTEM_NAMER": "보조",
-    "SYSTEM_PLACE_SORTER": "보조",
-    "SYSTEM_PLANTER": "검수 시험",
-    "SYSTEM_PLAY": "보조",
-    "SYSTEM_READER": "분석",
-    "SYSTEM_REVERSE": "분석",
-    "SYSTEM_STAGE": "보조",
-    "SYSTEM_STYLE_EDITOR": "분석",
-    "SYSTEM_VOICE": "분석",
+# 모든 시스템 프롬프트는 머리말(prompts.PREAMBLE)로 시작한다. 한국어 출력 줄(prompts.KOREAN_LINE)을 받지 않는 것과 그 까닭.
+NO_KOREAN_LINE = {
+    "FAMILY_SYSTEM": "캐시 가족 공통 글. 할 일과 출력 언어는 사용자 메시지 앞의 원래 시스템 프롬프트가 들고 온다",
+    "SYSTEM_CHECKER_EN": "영어 검수",
+    "SYSTEM_ILLUSTRATOR": "Danbooru 영어 태그를 쓴다. 설명 칸만 한국어라고 따로 적는다",
+    "SYSTEM_JUDGE_CHECK": "답이 A~H 글자 하나다 (judge.label_probs 가 글자 토큰을 읽는다)",
+    "SYSTEM_MAP_PLANNER": "종류 칸에 목록 id 를 그대로 쓴다. 설명 칸만 한국어라고 따로 적는다",
+    "SYSTEM_STAGE": "어휘 칸에 목록 id 를 그대로 쓴다. 설명 칸만 한국어라고 따로 적는다",
 }
 
 
@@ -79,19 +65,30 @@ class StylePromptTest(unittest.TestCase):
         self.assertIn("앞 화와 이어져야 하므로 어기지 않습니다", prompts.writer_system(plain))
         self.assertEqual(prompts.reviser_system(plain), prompts.SYSTEM_REVISER)
 
-    def test_every_system_prompt_starts_with_preamble_or_is_listed(self):
-        # SYSTEM_* 상수는 머리말로 시작하거나 NO_PREAMBLE 에 까닭과 함께 적혀 있다. 새 상수가 머리말을 빠뜨리면 여기서 걸린다
+    def test_every_system_prompt_starts_with_preamble(self):
+        # SYSTEM_* 상수와 캐시 가족 공통 글은 모두 머리말로 시작하고 역할 문장이 없다. 새 상수가 머리말을 빠뜨리면 여기서 걸린다
         names = sorted(n for n in dir(prompts) if n.startswith("SYSTEM_") and isinstance(getattr(prompts, n), str))
-        self.assertLessEqual(set(NO_PREAMBLE), set(names))  # 지운 상수는 목록에서도 뺀다
+        names.append("FAMILY_SYSTEM")
+        self.assertLessEqual(set(NO_KOREAN_LINE), set(names))  # 지운 상수는 목록에서도 뺀다
         for name in names:
             text = getattr(prompts, name)
-            if name in NO_PREAMBLE:
-                self.assertFalse(text.startswith(prompts.PREAMBLE), f"{name} 는 머리말을 받으니 NO_PREAMBLE 에서 빼요")
-                continue
-            self.assertTrue(text.startswith(prompts.PREAMBLE),
-                            f"{name} 에 머리말이 없어요. prompts.system_prompt 로 만들거나 NO_PREAMBLE 에 까닭과 함께 적어요")
-            self.assertNotIn("당신은", text, name)  # 머리말이 Canon 은 역할이 아니라고 한다
-            self.assertIn(prompts.KOREAN_LINE, text, name)  # 머리말이 영어라서 출력 언어를 밝힌다
+            self.assertTrue(text.startswith(prompts.PREAMBLE), f"{name} 에 머리말이 없어요. prompts.system_prompt 로 만들어요")
+            body = text[len(prompts.PREAMBLE):]
+            self.assertNotIn("당신은", body, name)  # 머리말이 Canon 은 역할이 아니라고 한다
+            self.assertNotIn("You are", body, name)
+            if name in NO_KOREAN_LINE:
+                self.assertNotIn(prompts.KOREAN_LINE, text, f"{name} 는 한국어 줄을 받으니 NO_KOREAN_LINE 에서 빼요")
+            else:
+                self.assertIn(prompts.KOREAN_LINE, text, f"{name} 에 한국어 줄이 없어요. 머리말이 영어라서 출력 언어를 밝혀요")
+
+    def test_role_block_does_not_repeat_preamble(self):
+        # 캐시 가족: 머리말은 시스템 자리의 공통 글에 있으니 사용자 메시지로 옮긴 원래 시스템 프롬프트에서는 뺀다
+        from canon.llm import role_block
+
+        block = role_block(prompts.SYSTEM_EDITOR)
+        self.assertNotIn(prompts.PREAMBLE.strip(), block)
+        self.assertTrue(block.startswith("# 이번 요청에서 할 일\n연재 소설의 설정을 관리합니다."))
+        self.assertEqual(role_block("검수"), "# 이번 요청에서 할 일\n검수\n\n")
 
     def test_vivid_rules(self):
         # 금지만 하던 비유 규칙을 대신 할 일로 바꾸고, 감각 · 늘려 쓰기 · 튀는 생각 규칙은 문체 원문이 있어도 넣는다

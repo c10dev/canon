@@ -541,12 +541,16 @@
 - 기획 단계 시스템 프롬프트 `SYSTEM_PLANNER`(설정 제안 · 문체 분석 · 구조 · 플롯 · 스토리보드 · 큐 시트 등)도 같은 머리말로 시작한다
 - 대화로 다듬기 시스템 프롬프트(`SYSTEM_SETUP_CHAT` · `SYSTEM_STYLE_COACH` · `SYSTEM_PLOT_CHAT` · `SYSTEM_AGENT_PLOT`)도 같은 머리말로 시작한다
 - 상태 변경안 시스템 프롬프트 `SYSTEM_EDITOR`도 같은 머리말로 시작한다. 줄거리 접기(`recap_prompt` · `fold_prompt`) · 상태 감사(`audit_prompt`) · 플레이 상태(`play_state_prompt`)도 이 글을 쓴다
+- 검수 · 분석 · 보조 시스템 프롬프트(검수, 동작 검수, 판단기, 이름, 삽화, 무대 연출, 지도, 플레이 등)도 같은 머리말로 시작한다. 이제 모든 `SYSTEM_*` 상수가 머리말로 시작한다(2026-11-09)
+- 캐시 가족 공통 글 `FAMILY_SYSTEM` 도 머리말로 시작해서 `prompts.py` 에 둔다(`llm.role_block` 이 쓴다)
 - 그 머리말 뒤의 지시에는 '당신은 소설가입니다' · '당신은 기획 전문 편집자입니다' 같은 역할 문장을 두지 않고 할 일만 적는다
+- 처음 읽는 독자 · 연재 기준 판정처럼 관점이 할 일인 지시는 '처음 읽는 독자의 눈으로 …' 처럼 할 일 문장 안에 관점을 적는다
 - 성인 · 전연령 작품은 같은 머리말을 받는다(수위 지시를 프롬프트에 두지 않는 규칙, `test_no_rating_instruction_in_prompts`)
 - 머리말이 영어라서 머리말을 받는 지시는 모두 '모든 출력은 한국어로 작성합니다'를 둔다
 - 머리말을 받는 시스템 프롬프트는 `system_prompt(할 일)`로 만든다. 머리말을 앞에, 한국어 출력 줄(`KOREAN_LINE`)을 끝에 붙인다
 - 본문 지시처럼 한국어 출력 줄이 글 가운데 있으면 `system_prompt(…, korean=False)`로 부른다
-- 머리말을 아직 받지 않는 `SYSTEM_*` 상수는 `tests/test_style_prompts.py` 의 `NO_PREAMBLE` 에 묶음과 함께 적는다. 새 상수가 머리말을 빠뜨리면 이 시험이 실패한다
+- 새 `SYSTEM_*` 상수가 머리말을 빠뜨리면 `tests/test_style_prompts.py` 의 `test_every_system_prompt_starts_with_preamble` 이 실패한다
+- 한국어 출력 줄을 받지 않는 지시(영어 검수, 영어 태그, 목록 id 를 쓰는 칸이 있는 것, A~H 글자로 답하는 판단기)는 그 시험의 `NO_KOREAN_LINE` 에 까닭과 함께 적는다
 - 본문 쓰기 지시는 설정 · 사실을 '절대' 같은 강한 말 대신 이유('앞 화와 이어져야 하므로')를 붙여 지키게 한다
 - `cast_view` 는 인물 다른 이름(`aliases`)을 빼서 앞 블록 '# 인물 설정' 캐시를 지킨다. 인물의 프롬프트용 직렬화(`_prompt_view`)도 뺀다
 - `setup_chat_prompt` 는 다른 이름을 채운 인물만 `aliases` 칸을 보인다(빈 인물은 전과 같은 글)
@@ -861,7 +865,7 @@
 - 웹의 프롬프트 보기 · `/context` 는 지금 데이터로 다시 만든다. 이 기록은 그 화 본문이 실제로 받은 요청 그대로다
 - 한 기록(`SentPrompt`): 시스템 · 요청 글 · 캐시 앞부분 글자 수(`head_chars`, `head` 속성) · 모델(`usage.model_id`) · 받은 호출 번호(`attempt`) · 다시 부른 까닭(`retries`)
 - 다시 부른 까닭(`SentRetry.reason`): `cut` 끊김 · `thought` 한글 적음 · `meta` 작업 설명뿐 · `polish` 다듬기가 대사 줄을 바꿈 · `tics` 다듬기가 말줄임을 늘림
-- `family` 는 백엔드가 캐시 가족 경계를 받았는지다. 참이면 Claude 는 시스템을 `llm.FAMILY_SYSTEM` 으로 바꾸고 기록의 시스템 글을 요청 앞에 두어 보냈다
+- `family` 는 백엔드가 캐시 가족 경계를 받았는지다. 참이면 Claude 는 시스템을 `prompts.FAMILY_SYSTEM` 으로 바꾸고 기록의 시스템 글을 요청 앞에 두어 보냈다
 - `tail` 은 실제 백엔드가 요청 끝에 붙이는 정책 줄(`llm.with_note`)이다. 가짜 응답(mock)은 붙이지 않는다
 - 파일 하나(`SentFile`)에 지금 본문의 기록(`current`)과 고르기를 기다리는 새 판의 기록(`candidate`)을 둔다
 - 기록은 저장한 본문의 지문(`basis`, `pipeline.text_basis`)을 품는다. `matches(rec, text)` 가 거짓이면 그 뒤로 본문이 바뀐 것이다(직접 고침 · 판 되돌리기 · 백업 되돌리기 · 비교본 채택)
