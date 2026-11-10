@@ -88,7 +88,9 @@ function openingPanel(n) {
   const e = ep(n);
   const d = S.openingData[n];
   const blocked = P().episodes.some((x) => x.plot.number < n && x.status !== 'finalized');
-  const canWrite = e.status !== 'draft' && e.status !== 'finalized' && !blocked && S.mode === 'api';
+  // 본문이 없는 화는 집필 화면처럼 늘 AI로 쓰기다 (write.js isApi). 채팅 앱 작업지시서 방식은 본문이 생긴 뒤에만 막는다
+  const noText = !e.text && S.textDraft[n] === undefined;
+  const canWrite = e.status !== 'draft' && e.status !== 'finalized' && !blocked && (S.mode === 'api' || noText);
   const hookRunning = !!jobFor('hook', n);
   const draftsBtn = jobBtn('opening_drafts', n, '여러 안으로 쓰기');
   const fewWays = S.openingWays.length < 2;

@@ -408,6 +408,7 @@
 
 - 초반 1~3화
 - 집필 화면의 초반 점검 카드(지표 경고, 흡입력 판정, 여는 방식 비교본, 반영 끝난 화는 비교를 감춤)
+- '여러 안으로 쓰기'는 본문(저장하지 않은 초안 포함)이 없는 화면 채팅 앱 작업지시서 방식에서도 켠다. 집필 화면이 본문 없는 화를 늘 AI로 쓰기로 다루는 것(`write.js` `isApi`)과 같다(`tests/test_opening_js.py`)
 - 플롯 편집기의 여는 방식별 플롯 안(고르기 전 플롯은 `Episode.opening_prev`, 되돌리기 `pipeline.undo_opening`)
 - 서버는 `pipeline.opening_metrics` · `check_hook` · `suggest_openings` · `apply_opening` · `research.run_opening_compare`
 - 규칙은 `prompts.opening_rules` / `OPENING_APPROACHES`
