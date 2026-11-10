@@ -347,6 +347,7 @@
 - 작품을 단편으로 바꿔 고른 갈래가 없으면 본문 쓰기로 돌아간다(`pgSources`)
 - 요청 칸 아래에 Gemini · 로컬이 보낼 때 붙이는 `POLICY_NOTE` 줄을 보인다(`S.pgLimits.policyNote`)
 - 불러온 갈래가 있으면 돌리는 방식 한 줄(`pgSpecLine`)과 모델 칸 안내(`pgModelHint`, 그 단계 모델 · 추론 강도)를 보인다
+- 단계 모델이 없거나 칸에서 백엔드를 바꾼 줄의 모델 칸 안내는 그 백엔드의 기본 모델이다(`defaultModelName`)
 - 결과 카드는 받은 형식 · 추론 강도 · 출력 한도를 함께 적는다(`pgRunCard`)
 - 구조화 출력 결과는 Canon 정리와 빈 칸 수를 보이고 빈 칸 경로는 펼쳐 본다(`pgCheckHtml`)
 - 실패한 결과는 받은 원문과 끝난 이유를 펼쳐 본다(`pgRawHtml`, MAX_TOKENS 면 출력 한도)
