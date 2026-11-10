@@ -277,7 +277,8 @@ def test_adopt_draft_applies_once(demo, monkeypatch):
 
 def test_compare_pick_goes_through_adopt_draft():
     from canon import research
-    assert "pipeline.adopt_draft(" in inspect.getsource(research.pick_compare)
+    assert "_adopt(" in inspect.getsource(research.pick_compare)
+    assert "pipeline.adopt_draft(" in inspect.getsource(research._adopt)  # 새로 쓴 안은 규칙을 건다. 가져온 기존 판만 건너뛴다
 
 
 def test_rework_propose_and_accept(home_rules):

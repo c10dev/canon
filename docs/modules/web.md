@@ -531,7 +531,9 @@
 - 직접 적는 줄의 모델 칸 안내는 그 백엔드의 기본 모델(`defaultModelName`)이고, 백엔드를 바꾸면 다시 그린다
 - 컨텍스트 크기의 화별 표는 기록에 남지 않아 방금 잰 결과(`S.rs.cur`)에만 있다
 - 칸 폭 560px 이하(`@container outline`)의 결과 표는 줄마다 칸을 쌓는다(`.rs-stack`, 칸 이름 `data-label`)
-- `rsCands` · `rsClaudeKinds` · `rsParse` · `rsBrief` · `rsLogLine` · `rsCheckCalls` 는 순수 함수(`tests/test_research_js.py`)
+- `rsCands` · `rsClaudeKinds` · `rsModelId` · `rsKeptSource` · `rsKeptNote` · `rsParse` · `rsBrief` · `rsLogLine` · `rsCheckCalls` 는 순수 함수(`tests/test_research_js.py`)
+- 블라인드 비교는 쓰기 전에 기존 본문을 가져올 쪽을 알린다(`rsKeptNote`, 백엔드 모델 이름 `rsModelId`, 출처 `rsKeptSource`)
+- 고른 뒤에는 가져온 안에 '기존 본문' 칩(지금 본문이면 고친 곳 수)을 붙인다
 - 블라인드 비교 고르기(`rsPickDraft`)는 본문으로 채택한 때만 그 화 초안 · 변경안을 거둔다. 채택 전에 저장하지 않은 본문 고침이 있으면 따로 묻는다
 - 인물 화면의 신체 프로필 · 서술 말투 AI 동작(`bodyAI` · `voiceAI`)도 이 파일에 있다
 

@@ -175,6 +175,10 @@
   - 영어판은 시스템 프롬프트 `prompts.checker_system` · 자료 칸 제목 · 요구사항 · 응답 설명 `schema.ConsistencyReportEn` 만 영어다. 작품 자료 · 인용 · 기능별 검수 규칙은 한국어 그대로
   - 한국어판 · 영어판 짝 누적 `lang_tally`(두 판 모두 성공한 줄만). `check_totals` 는 한국어판만 센다
 - 블라인드 비교
+- 그 화를 이미 쓴 모델은 다시 쓰지 않고 그 판을 가져온다(`kept_draft`: 지금 본문 → 고르기를 기다리는 새 판 → 남겨 둔 판, `Episode.written_by` · `TextVersion.model` 과 모델 이름이 같을 때)
+- 두 안이 같은 모델이면 아무것도 가져오지 않는다(`kept_drafts`). 모델 이름을 모르는 백엔드(`…:default`, 이름 없는 Claude 구독)는 가져오지 않는다
+- 가져온 안과 출처는 `key.json` 의 `kept` 에 두고, 고르기 전에는 수(`kept_count`)만 준다
+- 가져온 안을 고르면 규칙을 다시 걸지 않는다(`_adopt`: 지금 본문이면 그대로, 새 판이면 `adopt_candidate`, 남겨 둔 판이면 `restore_version`)
 - 비교본 폴더 `compare/<화 두 자리>/` 는 `store.compare_dir` 가 정한다. 화를 넣고 빼면 `store.renumber_side_files` 가 옮긴다
 - 비교본(`<번호>.md`) · `key.json` · hook 보고서는 `store.write_atomic` 으로 바꿔치기해 쓴다. `log.jsonl` 은 덧붙인다
 - 고르지 않은 비교본 목록 `open_compares`
