@@ -113,9 +113,10 @@ function rsCands({ config = {}, probe = null, probeUrl = '', log = [], kinds = R
     out.push({ b: { provider: b.provider, model: b.model || '', url: b.url || '' }, sub });
   };
   if (config.provider === 'mock') add({ provider: 'mock' }, 'mock · 가짜 응답');
-  add({ provider: 'gemini' }, `Gemini · 설정값${config.model_setting ? ` ${config.model_setting}` : ''}`);
-  add({ provider: 'local' }, `로컬 · 설정값${config.local_model ? ` ${config.local_model}` : ''}`);
-  rsClaudeKinds(config).forEach((k) => add({ provider: k }, `${RS_PROV[k]} · 설정값${config.claude_model ? ` ${config.claude_model}` : ''}`));
+  // 칩 제목(rsName)이 모델 이름이라 아래 줄에는 백엔드와 '설정값'만 적는다
+  add({ provider: 'gemini' }, 'Gemini · 설정값');
+  add({ provider: 'local' }, '로컬 · 설정값');
+  rsClaudeKinds(config).forEach((k) => add({ provider: k }, `${RS_PROV[k]} · 설정값`));
   const url = probeUrl.trim() === (config.local_url || '') ? '' : probeUrl.trim();
   ((probe || {}).models || []).forEach((m) => add({ provider: 'local', model: m.id, url }, '로컬 · 서버 점검에서'));
   log.forEach((x) => {
@@ -140,11 +141,10 @@ function rsName(b) {
 
 function rsBackendFields(path, b, kinds = [['local', '로컬 서버'], ['gemini', 'Gemini'], ['claude', 'Claude 구독 로그인'], ['claude-api', 'Claude API 키'], ['mock', 'mock']]) {
   const id = 'rs-' + path.replace(/\W/g, '-');
-  const opts = kinds
-    .map(([v, l]) => `<option value="${v}"${b.provider === v ? ' selected' : ''}>${l}</option>`).join('');
+  const opts = kinds.map(([v, l]) => backendOption(v, l, b.provider)).join('');
   return `<div class="rs-backend">
-    <div class="field"><label for="${id}-p">백엔드</label><select id="${id}-p" data-rs="${path}.provider">${opts}</select></div>
-    <div class="field"><label for="${id}-m">모델 <span class="hint">비우면 설정값</span></label><input id="${id}-m" type="text" list="rs-models" value="${esc(b.model)}" data-rs="${path}.model"></div>
+    <div class="field"><label for="${id}-p">백엔드</label><select id="${id}-p" data-rs="${path}.provider" onchange="render()">${opts}</select></div>
+    <div class="field"><label for="${id}-m">모델 <span class="hint">비우면 ${esc(defaultModelName(b.provider, S.config || {}))}</span></label><input id="${id}-m" type="text" list="rs-models" value="${esc(b.model)}" data-rs="${path}.model"></div>
     <div class="field"><label for="${id}-u">서버 주소 <span class="hint">로컬만, 비우면 설정값</span></label><input id="${id}-u" type="text" value="${esc(b.url)}" data-rs="${path}.url" placeholder="${esc((S.config || {}).local_url || '')}"></div>
   </div>`;
 }
@@ -302,7 +302,7 @@ function rsSampleView() {
       <div class="field"><label for="rs-prompt">요청</label><textarea id="rs-prompt" rows="4" data-rs="prompt" placeholder="비 오는 바닷가 소도시 등대 앞, 오빠를 찾는 서윤의 장면을 600자로 써라.">${esc(S.rs.prompt)}</textarea></div>
       <details class="rs-more"><summary>시스템 지시 · 온도</summary>
         <div class="field"><label for="rs-system">시스템 지시</label><textarea id="rs-system" rows="2" data-rs="system">${esc(S.rs.system)}</textarea></div>
-        <div class="field" style="max-width:160px"><label for="rs-temp">온도 <span class="hint">로컬 · Gemini</span></label><input id="rs-temp" type="number" step="0.1" min="0" max="2" value="${esc(S.rs.temperature)}" data-rs="temperature" placeholder="설정값"></div>
+        <div class="field" style="max-width:160px"><label for="rs-temp">온도 <span class="hint">Gemini · 로컬만</span></label><input id="rs-temp" type="number" step="0.1" min="0" max="2" value="${esc(S.rs.temperature)}" data-rs="temperature" placeholder="설정값"></div>
       </details>
     </section>${rsSampleOut(rsEntry('sample'))}${rsPast('sample')}`;
 }

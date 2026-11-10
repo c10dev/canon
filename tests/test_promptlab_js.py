@@ -81,14 +81,19 @@ def test_spec_line_model_hint_and_run_facts():
         backends: [{ model: 'gemini-x', effort: 'high' }, { model: '', effort: '' }] };
       return {
         line: pgSpecLine(spec), none: pgSpecLine({ stage: '' }),
-        hint: [pgModelHint(spec, 0, { model: '' }), pgModelHint(spec, 0, { model: '내 모델' }), pgModelHint(spec, 1, { model: '' }), pgModelHint(null, 0, { model: '' })],
+        hint: [pgModelHint(spec, 0, { provider: 'gemini', model: '' }), pgModelHint(spec, 0, { provider: 'gemini', model: '내 모델' }),
+               pgModelHint(spec, 1, { provider: 'claude', model: '' }, [], { claude_model: 'claude-opus-5-5' }),
+               pgModelHint(null, 0, { provider: 'gemini', model: '' }, [], { model_setting: 'gemini-4-argon' }),
+               pgModelHint(spec, 0, { provider: 'claude', model: '' }, [{ provider: 'gemini' }], {})],
         card: pgRunCard({ backend: 'gemini', model: 'gemini-x', ok: true, text: '{}', seconds: 1, chars: 2, tokens_in: 0, tokens_out: 0, cost: 0,
           schema_name: 'StoryboardDraft', effort: 'high', out_tokens: 16384 }),
       };
     })()""", {})
     assert got["line"].startswith("실제 호출처럼 돌려요: 스토리보드 · 큐 시트 단계의 모델 · 추론 강도") and "StoryboardDraft" in got["line"] and "16,384토큰" in got["line"]
     assert got["none"] == ""
-    assert got["hint"] == ["비우면 스토리보드 · 큐 시트 단계 모델(gemini-x, 추론 강도 high)", "비우면 설정 값", "비우면 설정 값", "비우면 설정 값"]
+    assert got["hint"] == ["비우면 스토리보드 · 큐 시트 단계 모델(gemini-x, 추론 강도 high)", "비우면 스토리보드 · 큐 시트 단계 모델(gemini-x, 추론 강도 high)",
+                           "비우면 claude-opus-5-5", "비우면 gemini-4-argon",
+                           "비우면 Claude Code 기본 모델"]  # 칸에서 백엔드를 바꾼 줄은 저장된 단계 값을 쓰지 않는다
     assert "StoryboardDraft 형식" in got["card"] and "추론 강도 high" in got["card"]
 
 

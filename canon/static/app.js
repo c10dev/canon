@@ -3086,6 +3086,29 @@ function outSidebar(active) {
   </nav>`;
 }
 
+/** 모델 칸을 비웠을 때 그 백엔드가 쓸 모델 이름. c 는 설정(S.config). 연구 · 프롬프트 놀이터가 쓴다. 순수 함수(tests/test_research_js.py) */
+function defaultModelName(provider, c = {}) {
+  if (provider === 'gemini') return c.model_setting || '설정 값';
+  if (provider === 'local') return c.local_model || '서버의 모델';
+  if (provider === 'claude') return c.claude_model || 'Claude Code 기본 모델';
+  if (provider === 'claude-api') return c.claude_model || 'Claude API 기본 모델';
+  return '설정 값';
+}
+
+/** Claude 백엔드를 지금 못 쓰는 이유. API 키가 없거나, 상태 점검(S.health, web.config_health)이 설치 · 로그인을 못 찾았을 때. 쓸 수 있으면 빈 값. 순수 함수 */
+function claudeMissing(provider, c = {}, health = null) {
+  if (provider === 'claude-api' && !c.anthropic_key_hint) return '키 없음';
+  const st = provider === 'claude' && health ? health.claude : '';
+  return st === 'install' ? '설치 안 됨' : st === 'login' ? '로그인 필요' : '';
+}
+
+/** 백엔드 고르기 칸의 option 하나. 못 쓰는 Claude 는 이유를 붙이고, 지금 고른 것이 아니면 고를 수 없게 한다 */
+function backendOption(value, label, current) {
+  const why = claudeMissing(value, S.config || {}, S.health);
+  const off = why && value !== current ? ' disabled' : '';
+  return `<option value="${value}"${value === current ? ' selected' : ''}${off}>${esc(label)}${why ? ` (${why})` : ''}</option>`;
+}
+
 /** 물음표 툴팁: 늘 보일 필요 없는 설명 · 판정 기준을 누르면 펼친다 (docs/design/components/Help).
  *  글 사이 · 입력칸 이름 · 제목 설명 줄 안에 넣어도 되게 span 과 button 만 쓴다. text 는 글자 그대로 넣는다 */
 function help(text, label = '설명 보기') {

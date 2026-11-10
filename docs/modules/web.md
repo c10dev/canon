@@ -38,6 +38,8 @@
 - 저장하지 않고 이동하면 묻는 창은 작품 변경만 있을 때 '저장하고 이동'(askConfirm 의 `alt`)을 주 버튼으로 준다
 - 화면 이동 확인은 `leaveUnsaved`(작품 · 라이브러리 · 장면 연출 변경, `S.editDrafts`)를 본다
 - 규칙 묶음 편집(`S.ruleDirty`, `regexrules.js`)도 `leaveUnsaved` · 패널 뒤로 가기 확인 · 저장 띠의 저장 가능 검사에 든다. 버리고 이동을 고르면 비운다
+- 모델 칸을 비웠을 때 쓸 모델 이름 `defaultModelName`(연구 · 프롬프트 놀이터의 모델 칸 안내)
+- 백엔드 고르기 칸의 option `backendOption`: 못 쓰는 Claude(`claudeMissing`: API 키 없음, 상태 점검의 설치 안 됨 · 로그인 필요)는 이유를 붙이고, 지금 고른 것이 아니면 고를 수 없게 한다
 - `goThen(hash, fn)` 은 화면을 옮기고 `routeNow` 가 그 주소를 다 그린 뒤 `fn` 을 한 번 부른다. 이동 확인에서 '취소'를 고르면 버린다
 - 새로고침 · 탭 닫기(`beforeunload`)는 `hasUnsaved` 를 본다: `leaveUnsaved` 에 본문 초안 · 지시서 결과 · 상태 변경안 · 문체 예시 · 가격표(`S.priceDirty`)를 더한다
 - `hasUnsaved` 는 화면을 옮겨도 S 에 남는 고치던 입력도 더한다: 모듈이 `onKeptDraft(함수)` 로 맡긴 검사가 하나라도 true 면 묻는다(`keptDraftOpen`)
@@ -523,6 +525,8 @@
 - 판단기 칩은 로컬 · mock 만 고른다
 - 블라인드 비교 B 의 기본값은 A 가 Gemini 면 작가가 쓰는 Claude(없으면 로컬), 아니면 Gemini
 - 칩에 없는 백엔드는 '+ 다른 백엔드 적기'로 칸을 편다
+- 칩 아래 줄은 백엔드와 '설정값'만 적는다. 모델 이름은 칩 제목(`rsName`)에 있다
+- 직접 적는 줄의 모델 칸 안내는 그 백엔드의 기본 모델(`defaultModelName`)이고, 백엔드를 바꾸면 다시 그린다
 - 컨텍스트 크기의 화별 표는 기록에 남지 않아 방금 잰 결과(`S.rs.cur`)에만 있다
 - 칸 폭 560px 이하(`@container outline`)의 결과 표는 줄마다 칸을 쌓는다(`.rs-stack`, 칸 이름 `data-label`)
 - `rsCands` · `rsClaudeKinds` · `rsParse` · `rsBrief` · `rsLogLine` · `rsCheckCalls` 는 순수 함수(`tests/test_research_js.py`)

@@ -75,12 +75,14 @@ function pgSpecLine(spec) {
   return `실제 호출처럼 돌려요: ${parts.join(' · ')}.`;
 }
 
-/** 모델 칸 안내: 불러온 갈래가 있으면 그 단계에서 쓸 모델 · 추론 강도, 없으면 설정 값 (순수 함수) */
-function pgModelHint(spec, i, b) {
+/** 모델 칸 안내: 불러온 갈래가 있으면 그 단계에서 쓸 모델 · 추론 강도, 없으면 그 백엔드의 기본 모델(defaultModelName).
+ *  spec.backends 는 저장된 백엔드(saved) 차례라서, 칸에서 백엔드를 바꾼 줄은 단계 값을 쓰지 않는다 (순수 함수) */
+function pgModelHint(spec, i, b, saved = [], config = {}) {
   const use = spec && spec.backends && spec.backends[i];
-  if (!use || b.model) return '비우면 설정 값';
-  const effort = use.effort ? `, 추론 강도 ${use.effort}` : '';
-  return use.model ? `비우면 ${spec.stage_label} 단계 모델(${use.model}${effort})` : `비우면 설정 값${effort}`;
+  const same = use && (!saved[i] || saved[i].provider === b.provider);
+  const effort = same && use.effort ? `, 추론 강도 ${use.effort}` : '';
+  if (same && use.model) return `비우면 ${spec.stage_label} 단계 모델(${use.model}${effort})`;
+  return `비우면 ${defaultModelName(b.provider, config)}${effort}`;
 }
 
 function pgSourceLabel(src, edited) {
@@ -133,8 +135,8 @@ function pgForm() {
   const [lo, hi] = lim.temperature || [0, 2];
   const provs = lim.providers || ['gemini', 'local', 'mock'];
   const rows = f.backends.map((b, i) => `<div class="card" style="padding:var(--pad-card-tight)">
-      <div class="grid-2"><div class="field"><label for="pg-prov-${i}">백엔드</label><select id="pg-prov-${i}" data-pg-prov="${i}">${provs.map((p) => `<option value="${p}"${p === b.provider ? ' selected' : ''}>${esc(PG_PROV[p] || p)}</option>`).join('')}</select></div>
-        ${b.provider === 'mock' ? '' : input('모델', `backends.${i}.model`, { ...o, placeholder: pgModelHint(S.pg.spec, i, b) })}</div>
+      <div class="grid-2"><div class="field"><label for="pg-prov-${i}">백엔드</label><select id="pg-prov-${i}" data-pg-prov="${i}">${provs.map((p) => backendOption(p, PG_PROV[p] || p, b.provider)).join('')}</select></div>
+        ${b.provider === 'mock' ? '' : input('모델', `backends.${i}.model`, { ...o, placeholder: pgModelHint(S.pg.spec, i, b, S.pg.backends, S.config || {}) })}</div>
       ${b.provider === 'local' ? input('서버 주소', `backends.${i}.url`, { ...o, placeholder: '비우면 설정 값, 예: http://localhost:11434/v1' }) : ''}
       <div class="row"><button type="button" class="btn small" data-action="pgBackendDrop" data-arg="${i}">빼기</button></div></div>`).join('');
   const more = f.backends.length < (lim.maxBackends || 4);
@@ -147,7 +149,7 @@ function pgForm() {
       ${input('요청 프롬프트', 'prompt', { ...o, rows: 8, autogrow: true, placeholder: '모델에게 보낼 요청' })}
       ${lim.policyNote ? `<p class="small">Gemini · 로컬은 보낼 때 요청 끝에 이 한 줄을 붙여요. Canon의 모든 AI 요청에 붙는 줄이라 칸에는 넣지 않아요: <code>${esc(lim.policyNote)}</code></p>` : ''}
       <div class="small">시스템 ${(f.system || '').length.toLocaleString()}자 · 요청 ${(f.prompt || '').length.toLocaleString()}자 (한국어는 대략 1.7자에 1토큰)</div>
-      ${input('온도', 'temp', { ...o, type: 'number', kind: 'text', placeholder: '비우면 설정 값', hint: `${lo}~${hi}, Gemini · 로컬에 적용 (Claude는 온도를 받지 않아요)` })}
+      ${input('온도', 'temp', { ...o, type: 'number', kind: 'text', placeholder: '비우면 설정 값', hint: `${lo}~${hi}, Gemini · 로컬만` })}
       <h3>돌릴 백엔드</h3>${rows || '<p class="small">아직 백엔드가 없어요.</p>'}
       <div class="row"><button type="button" class="btn small" data-action="pgBackendAdd"${more ? '' : ' disabled title="더 넣을 수 없어요"'}>+ 백엔드</button>
         <button type="button" class="btn small${S.pgDirty ? ' primary' : ''}" data-action="pgSave">저장</button></div>
