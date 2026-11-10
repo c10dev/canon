@@ -1,7 +1,7 @@
 """대화 에이전트의 문체 도구 'edit_style' (docs/ux/specs/04-one-agent.md 04d): 문체 대화의 변경안을 승인 카드로 묻는다.
 
 - 에이전트가 edit_style(args: request, episode)을 고르면 prepare 가 잠금 밖에서 pipeline.revise_style(LLM 단계 'plan')을 부른다.
-  옛 문체 대화와 같은 프롬프트 · 정리(clean_style_revision)다.
+  옛 문체 대화와 같은 프롬프트 · 정리(clean_style_revision)다. 대화 기록은 이 세션의 지난 턴이다 (prompts.style_session_history: 지난 문체 카드의 칸 값과 작가의 결정).
 - record 가 잠근 작품에서 변경안을 다시 정리하고 문체 변경안 카드(Approval.style)를 남긴 뒤 턴을 끝낸다. 바꿀 칸이 없으면 편집자 답으로 끝낸다.
   권한 모드와 상관없이 늘 묻고, '이 세션에서 묻지 않기'(auto_kinds)도 받지 않는다 (agent.ALWAYS_ASK, 2026-11-09 사용자 결정).
 - decide 는 작가가 고른 칸만 pipeline.apply_style_edits 로 넣고 넣기 전 문체를 WriteRecord.style 에 남긴다. 답하면 턴을 끝낸다 (AI 를 더 부르지 않는다).
@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from . import pipeline
+from . import pipeline, prompts
 from .prompts import STYLE_KEY_LABELS
 from .schema import AgentSession, AgentTurn, Approval, PlotAgentStep, Project, StepRecord, StyleCard, WriteItem, WriteRecord
 
@@ -59,8 +59,9 @@ def prepare(name: str, p: Project, s: AgentSession, turn: AgentTurn, step: PlotA
 
     request = str({a.name: a.value for a in step.args}.get("request", "")).strip() or turn.user.strip()
     episode = ref_episode(p, s, turn, step)
+    history = prompts.style_session_history([t for t in s.turns if t is not turn])
     try:
-        rev = pipeline.revise_style(get_llm("plan"), p, request, episode)
+        rev = pipeline.revise_style(get_llm("plan"), p, request, episode, history)
     except ValueError as e:
         return str(e)
     return StyleCard(revision=rev, episode=episode)

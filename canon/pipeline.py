@@ -571,8 +571,9 @@ def clean_style_revision(p: Project, rev: StyleRevision, ref_text: str = "") -> 
     return rev
 
 
-def revise_style(llm: LLM, p: Project, message: str, episode: int = 0) -> StyleRevision:
-    """작가의 말로 문체 변경안을 만든다. 저장하지 않는다. episode 는 참고할 화 (본문이 있어야 한다)."""
+def revise_style(llm: LLM, p: Project, message: str, episode: int = 0, history: list[str] | None = None) -> StyleRevision:
+    """작가의 말로 문체 변경안을 만든다. 저장하지 않는다. episode 는 참고할 화 (본문이 있어야 한다).
+    history 는 대화 기록 줄 (대화 에이전트는 prompts.style_session_history). None 이면 옛 문체 대화를 읽는다 (명령줄)."""
     if not message.strip():
         raise ValueError("바라는 것을 적어 주세요")
     ref = ""
@@ -581,7 +582,7 @@ def revise_style(llm: LLM, p: Project, message: str, episode: int = 0) -> StyleR
         if ep is None or not ep.text.strip():
             raise ValueError(f"{episode}화에 본문이 없어요. 본문이 있는 화를 참고로 고르세요")
         ref = ep.text
-    rev = llm.json(prompts.SYSTEM_STYLE_COACH, prompts.style_chat_prompt(p, message, episode, style_chat_recent(p)), StyleRevision,
+    rev = llm.json(prompts.SYSTEM_STYLE_COACH, prompts.style_chat_prompt(p, message, episode, style_chat_recent(p), history), StyleRevision,
                    hint={"message": message, "style": p.style.model_dump(), "ref": ref[:prompts.STYLE_REF_LIMIT]})
     return clean_style_revision(p, rev, ref)
 
