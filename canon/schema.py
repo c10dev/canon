@@ -3524,6 +3524,8 @@ class PromptSource(BaseModel):
     schema_name: str = Field("", description="돌릴 때 구조화 출력으로 받는 응답 스키마 이름(schema 모듈의 모델). 비면 글로 받는다")
     stage: str = Field("", description="실제 호출의 단계(settings.STAGES). 모델 칸이 빈 백엔드를 이 단계의 모델 · 추론 강도로 돌린다")
     sig: str = Field("", description="불러온 시스템 · 요청 프롬프트의 지문. 지금 칸과 다르면 고친 것")
+    promptset: str = Field("", description="끼운 실험 판 id (promptset.py). 비면 원래 글")
+    promptset_name: str = Field("", description="끼운 실험 판 이름 (불러올 때의 이름)")
 
 
 class PromptRun(BaseModel):
@@ -3546,6 +3548,13 @@ class PromptRun(BaseModel):
     empty: list[str] = Field(default_factory=list, description="구조화 출력에서 빈 칸 경로 (앞쪽 promptlab.EMPTY_SHOWN 개)")
     empty_count: int = Field(0, description="구조화 출력의 빈 칸 수 (research.empty_fields)")
     notes: list[str] = Field(default_factory=list, description="실제 경로라면 Canon 이 이 응답을 어떻게 정리하거나 거절하는지")
+    side: str = Field("", description="원래 판과 블라인드로 돌린 시도에서 이 결과의 쪽: original · set. 비면 블라인드가 아님")
+
+
+class PromptPair(BaseModel):
+    """시스템 · 요청 프롬프트 한 벌 (실험 판을 끼우기 전 원래 판)."""
+    system: str = ""
+    prompt: str = ""
 
 
 class PromptTrial(BaseModel):
@@ -3560,6 +3569,8 @@ class PromptTrial(BaseModel):
     source_edited: bool = Field(False, description="불러온 프롬프트를 고쳐 돌렸다")
     star: bool = False
     note: str = ""
+    base: Optional[PromptPair] = Field(None, description="함께 돌린 원래 판의 시스템 · 요청. 있으면 runs 에 original · set 두 쪽이 있다")
+    blinds: list[RevBlind] = Field(default_factory=list, description="백엔드마다 원래 판 대 실험 판 가려 읽기 (차례는 backends 차례, order 는 original · set)")
 
 
 class PromptSession(BaseModel):
@@ -3571,7 +3582,26 @@ class PromptSession(BaseModel):
     temperature: Optional[float] = None
     backends: list[PromptBackend] = Field(default_factory=lambda: [PromptBackend()])
     source: Optional[PromptSource] = Field(None, description="지금 칸을 불러온 Canon 프롬프트. 다른 프롬프트를 불러오면 바뀐다")
+    base: Optional[PromptPair] = Field(None, description="실험 판을 끼운 세션의 원래 판. 있으면 돌릴 때 원래 판도 함께 돌려 블라인드로 견준다")
     trials: list[PromptTrial] = Field(default_factory=list)
+    created_at: str = ""
+    updated_at: str = ""
+
+
+class PromptSetChange(BaseModel):
+    """실험 판에서 조각 하나를 바꾼 글. 조각은 prompts.PIECES 의 id."""
+    piece: str
+    text: str = ""
+
+
+class PromptSet(BaseModel):
+    """프롬프트 관리 페이지의 실험 판 (canon/promptset.py). 작품 밖 <CANON_HOME>/.promptsets/<id>.json.
+    놀이터와 블라인드 비교에서만 끼우고 실제 집필 · 자동 집필 · 작업지시서 요청에는 넣지 않는다."""
+    id: str
+    name: str = ""
+    kind: str = Field("episode", description="견본을 조립할 갈래 (prompts.KINDS 의 조립 보기가 있는 열쇠)")
+    changes: list[PromptSetChange] = Field(default_factory=list, description="조각마다 바꾼 글. dict 가 아니라 목록")
+    note: str = ""
     created_at: str = ""
     updated_at: str = ""
 

@@ -1346,6 +1346,10 @@ details.vis summary .small { margin-left: var(--space-6); font-weight: 400; }
 .pc-piece a.chip { text-decoration: none; }
 .pc-piece > summary { cursor: pointer; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-6); }
 .pc-more { display: flex; flex-direction: column; gap: var(--space-8); margin-top: var(--space-8); }
+.pc-diff { padding: var(--space-8) var(--space-12); border-radius: var(--radius-8); background: var(--bg); font-size: 0.8125rem; line-height: 1.6; white-space: pre-wrap; word-break: break-word; max-height: 360px; overflow: auto; }
+.pc-diff-add { background: var(--green-soft); color: var(--green-ink); }
+.pc-diff-del { background: var(--red-soft); color: var(--err-ink); text-decoration: line-through; }
+.pc-diff-skip, .pc-diff-same { color: var(--muted); }
 /* 규칙 묶음 (regexrules.js): 편집 화면의 규칙 카드, 바뀐 곳 목록(편집 화면 시험 · 집필 화면 알림) */
 .rx-page { display: flex; flex-direction: column; gap: var(--gap-stack); max-width: var(--measure); }
 .rx-page > p.small:empty { display: none; }
