@@ -2478,6 +2478,7 @@ async function routeNow() {
       if (parts[2] === 'lines') lineLoad(parts[3]);  // lines/<줄기 id> 는 그 줄기 쪽
       if (parts[2] === 'statwin') await swLoad(parts[3]);
       if (parts[2] === 'abilities') await abLoad(parts[3]);
+      if (parts[2] === 'blueprint') await bpLoad(parts[3]);
       if (parts[2] === 'setup' && parts[3]) {  // 인물 화면의 '기본 설정 고치기'(setup/<인물 id>)는 그 인물 카드로 간다
         const i = S.project.characters.findIndex((c) => c.id === parts[3]);
         if (i >= 0) S.focusTarget = S.jumpTo = `#f-characters-${i}-name`;
@@ -2739,7 +2740,7 @@ function drawApp() {
   }
   if (p !== 'p' || !P()) return outside(p === 'new' ? 'new' : 'projects', 1180, viewProjects());
   const n = Number(arg) || currentEp();
-  const views = { setup: viewSetup, style: viewStyle, arc: () => (plotPageN() ? viewPlotPage(plotPageN()) : serial() ? viewSerial() : viewArc()), write: viewWrite, check: viewCheck, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, cast: viewCast, atlas: viewAtlas, convert: viewConvert, foreshadow: viewForeshadow, tofix: viewToFix, stage: viewStage, statwin: viewStatwin, abilities: viewAbilities, timeline: viewTimeline, branches: viewBranches, cue: viewCue };
+  const views = { setup: viewSetup, style: viewStyle, arc: () => (plotPageN() ? viewPlotPage(plotPageN()) : serial() ? viewSerial() : viewArc()), write: viewWrite, check: viewCheck, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, cast: viewCast, atlas: viewAtlas, convert: viewConvert, foreshadow: viewForeshadow, tofix: viewToFix, stage: viewStage, statwin: viewStatwin, abilities: viewAbilities, blueprint: viewBlueprint, timeline: viewTimeline, branches: viewBranches, cue: viewCue };
   // 모르는 화면 이름(옛 북마크, 손으로 친 주소)은 말없이 홈을 그리지 않고 알린다. 사이드바는 홈을 고른 채로 둔다
   const unknown = page && !views[page];
   chatScreen(views[page] ? page : '', n);  // 화면이 주는 대화 에이전트의 기본 대상 (chat.js). 화면 파일은 그리는 동안 옛 대화 주제를 더한다
@@ -2865,6 +2866,7 @@ function navItems() {
   const has = (xs) => (xs || []).length > 0;
   const tools = [
     ['cast', base() + '/cast', '👥', '인물 · 관계도', has(p.characters)],
+    ['blueprint', base() + '/blueprint', '🧭', '설계도', has((p.blueprint || {}).milestones) || has((p.blueprint || {}).ladders)],
     ['atlas', base() + '/atlas', '🗺️', '지도', has(p.world.locations) || (p.elements || []).some((el) => el.kind === '장소')],
     ['foreshadow', base() + '/foreshadow', '🪝', '복선 센터', has(p.foreshadows)],
     ['tofix', base() + '/tofix', '📌', '고칠 곳', p.episodes.some((e) => has(e.to_fix))],

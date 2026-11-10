@@ -38,7 +38,7 @@ from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록
 from .schema import (Ability, ArcPlan, BodySuggestion, StatInitSuggestion, StatSkin, StatWindowSuggestion, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      RuleChange, RuleRun, StorylineProposal, StyleEntry, StyleProfile)
 from . import abilities, anchor, atlas, findings, foreshadows, heatplan, setupchat, stateedit, stattrial, statwin, timeline
-from .schema import AgentSession, ChatScope, HeatArcProposal, KnowsFoldSet, Deadline, Storyboard, StoryTime, Foreshadow, StatValue
+from .schema import AgentSession, Blueprint, ChatScope, HeatArcProposal, KnowsFoldSet, Deadline, Storyboard, StoryTime, Foreshadow, StatValue
 from .schema import OffscreenSet
 from .schema import MapSpec
 from .schema import TextMaterial
@@ -5647,6 +5647,48 @@ def abilities_view(name: str) -> AbilitiesView:
 def abilities_lookup(name: str, item: str, cid: str = "", stat: str = "") -> AbilityLookup:
     """상태창 조각 하나(예: 화염구 Lv4)의 도감 항목과, 그 인물의 등급 효과 · 얻은 화 · 바뀐 기록."""
     return abilities.lookup(_load(name), item, cid, stat)
+
+
+# ---------- 설계도 (canon/blueprint.py, docs/blueprint/) ----------
+class BlueprintWarn(BaseModel):
+    source: str
+    target: str
+    text: str
+
+
+class BlueprintPick(BaseModel):
+    """사다리 칸에서 고르는 부위 · 동작 (stage.PARTS · stage.ACTS)."""
+    id: str
+    label: str
+
+
+class BlueprintView(BaseModel):
+    blueprint: Blueprint
+    warnings: list[BlueprintWarn]
+    parts: list[BlueprintPick]
+    acts: list[BlueprintPick]
+    last: int = Field(0, description="마지막으로 반영한 화")
+
+
+@app.get("/api/projects/{name}/blueprint")
+def blueprint_view(name: str) -> BlueprintView:
+    """설계도와 경고(blueprint.warning_rows), 사다리 칸이 고르는 부위 · 동작 이름."""
+    from .stage import ACTS, PARTS
+    p = _load(name)
+    return BlueprintView(blueprint=p.blueprint, warnings=[BlueprintWarn(source=s, target=t, text=w) for s, t, w in blueprint.warning_rows(p)],
+                         parts=[BlueprintPick(id=k, label=v.label) for k, v in PARTS.items()],
+                         acts=[BlueprintPick(id=k, label=v.label) for k, v in ACTS.items()],
+                         last=max((e.plot.number for e in p.episodes if e.status == "finalized"), default=0))
+
+
+@app.put("/api/projects/{name}/blueprint")
+def blueprint_save(name: str, body: Blueprint) -> Project:
+    """설계도를 통째로 바꾼다. 작가 입력이라 바로 저장한다. 검사에 걸리면 400 (blueprint.check)."""
+    p = _load(name)
+    disk = p.model_copy(deep=True)
+    p.blueprint = body
+    blueprint.check(p, disk)
+    return _save(name, p)
 
 
 @app.put("/api/projects/{name}/abilities")

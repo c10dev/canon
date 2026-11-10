@@ -31,7 +31,7 @@ from .schema import (AgentAsk, AgentSession, AgentTurn, Approval, AskCard, ChatS
 TOPICS = ("agent", "plot")  # 'agent' 는 새 세션, 'plot' 은 옛 플롯 대화 세션. 둘 다 같은 목록에 보인다
 OTHER_FOCUS = ("text", "setup", "style")  # 화면이 주는 대상 가운데 플롯이 아닌 것 (chat_focus 종류). 플롯 쓰기는 모두 '다듬을 곳 밖'이다
 # 턴이 실어 오는 화면 이름: 웹 app.js drawApp 의 views 표와 작품 홈('home'). 모르는 이름은 '' (플롯 화면과 같다)로 받는다 (tests/test_agent_js.py)
-SCREENS = ("abilities", "arc", "atlas", "auto", "branches", "brief", "cast", "causal", "check", "convert", "cue", "foreshadow",
+SCREENS = ("abilities", "arc", "atlas", "auto", "blueprint", "branches", "brief", "cast", "causal", "check", "convert", "cue", "foreshadow",
            "home", "lines", "research", "review", "setup", "stage", "statwin", "style", "timeline", "tofix", "usage", "write")
 PLOT_SCREENS = ("arc",)  # 플롯 화면 (구간 · 아크 · 화 플롯 페이지). 여기서는 작품 전체('') 대상도 지금 규칙 그대로다
 MAX_STEPS = 8  # 한 번 돌 때 부르는 단계 수. 닿으면 '이어 하기'로 같은 턴을 이어 간다

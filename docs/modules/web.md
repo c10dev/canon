@@ -682,6 +682,7 @@
   - 마법사 머리에 빈칸 AI 제안받기(`suggest`) 버튼을 둔다. 옛 설정 대화 패널 아래에 있던 것을 04e 에서 옮겼다
   - 다 채운 작품은 기획서 `viewSetupDoc`: 구역 `DOC_SECS` · 목차 상태 `docStatus` · 머리 요약 `docSummary` · 관계 점검 `relIssue` · `relWork` · 가 닿을 곳이 섞인 사이 `relDestNote`
   - 인물 · 관계는 한 줄 목록에서 하나만 편다
+  - 관계 카드의 '여정' 줄 `relJourney`: 설계도의 그 쌍 이정표 · 사다리 칸 수와 설계도 쪽 링크(`blueprint.js`)
   - 이야기 뼈대만: 로그라인 · 관계 · 이름 후보
   - 인물 상세는 `cast.js` 인물 카드
   - 상태창 처음 수치는 `statwin.js` 로 가는 링크 `setupStatLink`
