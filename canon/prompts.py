@@ -194,7 +194,7 @@ def blueprint_plan_block(p: Project, ids: set[str] | None, start: int, end: int)
 
 def blueprint_ability_block(p: Project, ids: set[str] | None, start: int, end: int) -> str:
     """장편 기획의 설계도 능력 일정 블록 (docs/blueprint/specs/10-ability.md). 설계도 블록 바로 뒤에 둔다.
-    아직 얻지 못한 줄 가운데 범위를 지난 것 · start~end 에 걸린 것 · 인물마다 그 뒤 첫 것만 넣는다. 예산(context.BUDGET["ability_plan"])을 넘으면 뒤 줄부터 빼고 수를 적는다.
+    아직 얻지 못한 줄 가운데 start 앞의 것 · start~end 에 걸린 것 · 인물마다 그 뒤 첫 것만 넣는다. 예산(context.BUDGET["ability_plan"])을 넘으면 뒤 줄부터 빼고 수를 적는다.
     능력 일정이 비었거나 걸린 줄이 없으면 빈 글 (지금 프롬프트와 같다)."""
     lines, cut = context.fit_lines(blueprint.ability_plan_lines(p, ids, start, end), context.BUDGET["ability_plan"])
     if not lines:

@@ -119,7 +119,8 @@ def check(p: Project, before: Project | None = None) -> None:
                 last = r.from_ep
     same: set[tuple[str, str, str]] = set()
     for x in p.blueprint.ability_plans:
-        x.ability, x.grade, x.condition = abilities.split(x.ability)[0], x.grade.strip(), x.condition.strip()
+        name, tail = abilities.split(x.ability)
+        x.ability, x.grade, x.condition = name, x.grade.strip() or tail, x.condition.strip()  # 이름 칸에 적은 등급 꼬리는 등급 칸이 비었으면 그리로 옮긴다
         if not x.ability:
             raise ValueError(f"능력 일정 {who(x.character)}의 능력 이름이 비었어요")
         what = f"능력 일정 {who(x.character)}의 {ability_text(x)}"
@@ -500,7 +501,7 @@ def _last_done(p: Project) -> int:
 
 def ability_states(p: Project) -> list[dict]:
     """일정 줄마다 계획 대 실제: [{id, got, state, linked}]. got 은 얻은 화(없으면 None), linked 는 도감 항목이 있는지.
-    state: 얻음(범위 안) · 앞섬(범위보다 먼저) · 늦음(범위 뒤) · 지남(범위가 마지막 반영 화보다 앞인데 기록에 없음) · 예정 · 미정(화 범위 없음)."""
+    state: 얻음(범위 안) · 앞섬(범위보다 먼저) · 늦음(범위 뒤) · 지남(범위 끝 화까지 반영했는데 기록에 없음) · 예정 · 미정(화 범위 없음)."""
     last = _last_done(p)
     out = []
     for x in p.blueprint.ability_plans:
@@ -508,7 +509,7 @@ def ability_states(p: Project) -> list[dict]:
         if x.from_ep <= 0:
             state = "얻음" if got is not None else "미정"
         elif got is None:
-            state = "지남" if x.to_ep < last else "예정"
+            state = "지남" if x.to_ep <= last else "예정"
         else:
             state = "앞섬" if got < x.from_ep else "늦음" if got > x.to_ep else "얻음"
         out.append({"id": x.id, "got": got, "state": state, "linked": abilities.find(p, x.ability) is not None})
@@ -548,11 +549,15 @@ def ability_line(p: Project, x: AbilityPlan, when: str = "") -> str:
 
 
 def ability_plan_lines(p: Project, ids: set[str] | None, start: int, end: int) -> list[str]:
-    """기획 프롬프트의 능력 일정 줄: 아직 얻지 못한 줄 가운데 범위를 지난 것, start~end 에 걸친 것, 인물마다 그 뒤 첫 것."""
+    """기획 프롬프트의 능력 일정 줄: 아직 얻지 못한 줄 가운데 start 앞의 것, start~end 에 걸친 것, 인물마다 그 뒤 첫 것.
+    start 앞의 줄은 범위 끝 화까지 반영했으면 '얻지 못함', 아직 반영하지 않은 화면 '앞 화에서 얻을 예정'으로 적는다 (같은 능력을 이 범위에 또 넣지 않게)."""
     out, after = [], set()
+    last = _last_done(p)
     for x in _open_plans(p, ids):
-        if x.to_ep < start:
+        if x.to_ep < start and x.to_ep <= last:
             out.append(f"- {_rng(x)}에 얻기로 했으나 아직 얻지 못함: {ability_line(p, x)}")
+        elif x.to_ep < start:
+            out.append(f"- 앞 화({_rng(x)})에서 얻을 예정: {ability_line(p, x)}")
         elif x.from_ep <= end:
             out.append(f"- {_rng(x)}에 얻음: {ability_line(p, x)}")
         elif x.character not in after:

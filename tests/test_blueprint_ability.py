@@ -29,10 +29,11 @@ def test_old_project_reads_and_ids_fill():
     p = Project.model_validate({"blueprint": {"milestones": [], "ladders": [], "note": "x"}})
     assert p.blueprint.ability_plans == []
     p = _proj()
-    p.blueprint.ability_plans = [AbilityPlan(character="a", ability=" 화염구 Lv3 ", grade=" Lv3 "), AbilityPlan(id="ap-1", character="j", ability="은신")]
+    p.blueprint.ability_plans = [AbilityPlan(character="a", ability=" 화염구 Lv3 ", grade=" Lv2 "), AbilityPlan(id="ap-1", character="j", ability="은신 (중급)")]
     blueprint.check(p)
     assert [x.id for x in p.blueprint.ability_plans] == ["ap-2", "ap-1"]
-    assert (p.blueprint.ability_plans[0].ability, p.blueprint.ability_plans[0].grade) == ("화염구", "Lv3")  # 이름의 등급 꼬리는 뗀다
+    assert (p.blueprint.ability_plans[0].ability, p.blueprint.ability_plans[0].grade) == ("화염구", "Lv2")  # 이름의 등급 꼬리는 뗀다
+    assert (p.blueprint.ability_plans[1].ability, p.blueprint.ability_plans[1].grade) == ("은신", "(중급)")  # 등급 칸이 비었으면 꼬리를 등급으로 옮긴다
 
 
 @pytest.mark.parametrize("rows, match", [
@@ -131,6 +132,8 @@ def test_plan_lines_and_block():
     assert lines == [f"- 1~2화에 얻기로 했으나 아직 얻지 못함: {hero} 화염구 (조건: 첫 사냥)", f"- 4~5화에 얻음: {hero} 빙결 중급 (조건: 호수에 빠진다)",
                      f"- 6화에 얻음: {ally} 치유", f"- 7~8화에 얻음 (이 범위 뒤): {hero} 빙결 상급"]  # 범위 뒤는 인물마다 첫 줄만
     assert all("치유" not in x for x in blueprint.ability_plan_lines(p, {"hero"}, 4, 6))  # 기획 인물만
+    later = blueprint.ability_plan_lines(p, {"hero"}, 7, 8)  # 3화까지 반영: 4~5화 줄은 아직 쓰지 않은 화라 '얻지 못함'이 아니다
+    assert later[:2] == [f"- 1~2화에 얻기로 했으나 아직 얻지 못함: {hero} 화염구 (조건: 첫 사냥)", f"- 앞 화(4~5화)에서 얻을 예정: {hero} 빙결 중급 (조건: 호수에 빠진다)"]
     block = prompts.blueprint_ability_block(p, None, 4, 6)
     assert block.startswith("\n[설계도: 능력 일정 (작가가 정한 계획. 지금 가진 능력이 아니다.") and "생략" not in block
     assert prompts.blueprint_ability_block(_grown(), None, 1, 8) == ""

@@ -299,7 +299,7 @@
 - 화면은 `static/blueprint.js`
 - 기획 프롬프트 줄 `plan_lines(p, ids, start, end)`: 화 범위를 적은 줄만, 범위에 걸린 이정표 · 사다리 칸과 그 뒤 첫 것. 두 인물이 모두 ids 에 들 때만
 - 사다리 칸 한 줄 `rung_text`: '차례. 이름 (겹 · 부위 · 동작 · 장소 · 주도 · 메모)', 부위 · 동작은 장면 연출의 이름
-- 기획 프롬프트의 능력 일정 줄 `ability_plan_lines(p, ids, start, end)`: 아직 얻지 못한 줄 가운데 범위를 지난 것 · 범위에 걸린 것 · 인물마다 그 뒤 첫 것
+- 기획 프롬프트의 능력 일정 줄 `ability_plan_lines(p, ids, start, end)`: 아직 얻지 못한 줄 가운데 범위 앞의 것(반영을 마쳤으면 '얻지 못함', 아니면 '앞 화에서 얻을 예정') · 범위에 걸린 것 · 인물마다 그 뒤 첫 것
 - 화 단계의 능력 일정 줄 재료 `ability_due(p, n)`(그 화가 얻는 범위) · `ability_next(p, n, per)`(인물마다 뒤 줄 per 개). 그 화 플롯 인물의 아직 얻지 못한 줄만
 - 상태 변경안 요구사항 `ability_state_rule(p, n)`: 처음 화가 그 화 이하인 줄의 능력 이름을 그대로 적게 한다. 상태창이 없으면 빈 글
 - 스토리보드 · 쓰기 · 검수 요청의 설계도 줄은 `prompts.blueprint_board_rule` · `blueprint_write_line` · `blueprint_check_rule`(그 화 플롯 인물끼리만)
