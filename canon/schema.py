@@ -91,6 +91,21 @@ class BodySuggestion(BaseModel):
     measurements: str = Field("", description="쓰리사이즈 가슴-허리-엉덩이 cm (예: 84-58-86). 미성년 인물이면 빈칸")
     features: str = Field("", description="바뀌지 않는 신체 특징 1~3개를 쉼표로 (손잡이, 점 · 흉터 위치, 목소리 등)")
     note: str = Field("", description="작가에게 하는 한두 문장: 설정에서 무엇을 근거로 정했는지")
+    evidence: SkipJsonSchema[list[str]] = Field(default_factory=list, description="설계도에서 가져오기의 근거 구절 (pipeline.suggest_body_from_blueprint 가 채운다, LLM 이 쓰지 않는다)")
+
+
+class BodyFeatureDraft(BaseModel):
+    """설계도 줄에서 찾은 신체 특징 하나와 그 근거 구절."""
+    text: str = Field(description="신체 특징 한 묶음 (예: 왼쪽 옆구리의 흉터)")
+    quote: str = Field(description="근거: 설계도 줄에서 그대로 옮긴 구절")
+
+
+class BlueprintBodyDraft(BaseModel):
+    """설계도 칸 메모 · 이정표 라벨에서 찾은 한 인물의 신체 특징 (pipeline.suggest_body_from_blueprint). 작가가 골라야 Character.body 에 들어간다."""
+    features: list[BodyFeatureDraft] = Field(default_factory=list, description="이 인물의 바뀌지 않는 신체 특징 가운데 지금 프로필에 없는 것")
+    build: str = Field("", description="설계도 줄에 이 인물의 체형이 적혀 있을 때만 한 줄. 없으면 빈칸")
+    build_quote: str = Field("", description="체형의 근거: 설계도 줄에서 그대로 옮긴 구절")
+    note: str = Field("", description="작가에게 하는 한두 문장: 무엇을 찾았고, 누구 것인지 몰라 뺀 것이 있으면 무엇인지")
 
 
 class AliasHit(BaseModel):

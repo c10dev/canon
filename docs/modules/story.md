@@ -269,6 +269,8 @@
 - 범위를 적은 사다리 칸끼리는 칸 차례대로 처음 닿는 화가 줄지 않아야 한다
 - 계획 칸 `planned_rung(ladder, n)`: 처음 닿는 화가 n 화 이하인 칸 가운데 차례가 가장 뒤. 쌍 찾기 `ladder`
 - 몸이 드러나는 쌍 `exposed(p, n)`: 그 화 플롯 인물끼리, 처음 닿는 화가 n 화 이하인 칸 가운데 겹이 옷 안 · 맨살(`BODY_LAYERS`)인 칸이 있는 쌍의 두 인물. 뒤 칸이 옷 위여도 이어진다
+- 신체 특징 가져오기 재료 `body_lines(p, cid)`: 이 인물이 든 이정표의 라벨 · 계기와 이 인물이 든 사다리의 칸 이름 · 메모, 상대 이름을 붙여 `BODY_LINES_MAX`(60)줄까지. (줄, 뺀 수)
+- `body_lines` 를 쓰는 AI 호출은 `pipeline.suggest_body_from_blueprint` 다(`docs/blueprint/specs/10-body-suggest.md`)
 - 화 끼워 넣기 · 빼기 `move`(`renumber.move_points` 가 부름): 범위 안에 넣으면 범위가 늘고, 끝 화를 빼면 범위가 준다
 - 재구성 `remap`(`reshape` 가 부름): 옮기지 못한 범위는 비우고 알림에 적는다
 - 이정표 경고 `warnings`(막지 않음): 이웃한 두 이정표 사이 칸 모자람, 범위가 겹치는데 단계가 다름, 지금 단계에서 다음 이정표까지 칸 모자람
@@ -761,6 +763,8 @@
 - 본문에서 닿은 칸 `bpReached`(서버 `blueprint.reached` 와 같다): 사다리 카드의 'n화에 닿음', 계획 띠의 '본문에서 닿음' 줄
 - 남겨 둔 닿은 칸 카드 `bpHeldCard`(개요 · 쌍 쪽, '기록하기' · '버리기' → `POST …/blueprint/held/{i}/{take|drop}`)
 - 상태 승인 화면 '직접 정할 것'의 닿은 칸 줄 `contactDeltaRows`(review.js 가 부른다, 체크 키 'u')
+- 'AI로 설계도 받기' 카드 맨 아래 신체 특징 줄 `bpBodyRow`: 작가 글이 있는 인물마다 '<이름> 신체 프로필' 버튼(`cast.js` `bodyBpHas`)
+- 그 버튼 `bpBodyGo` 는 인물 화면으로 가서 그 인물의 'AI · 서술 · 신체 · 삽화' 카드와 신체 프로필 칸을 편다. 제안 카드는 인물 화면에만 있다
 
 ### `canon/static/branches.js`
 
@@ -806,6 +810,8 @@
     - 상태창 칸 모양은 `statwin.js` `swStatsBody` 와 같이 쓴다
     - 고치기 `S.castEdit`: AI에 넣기 `charContextField` · 서술 말투 `plot.js` `voiceField` · 신체 프로필 `bodyFields` · 삽화 외형 태그 `illust.js` `visualFields`
     - AI 제안 동작은 `research.js` `bodyAI`
+    - 설계도에 이 인물의 작가 글이 있으면(`bodyBpHas`, 서버 `blueprint.body_lines` 와 같은 규칙) '설계도에서 가져오기'(`research.js` `bodyBpAI`)를 둔다
+    - 설계도에서 가져온 제안은 같은 카드 `bodySuggestCard` 에 '설계도에서 찾은 특징' 제목과 근거 줄(`evidence`)로 온다(`S.bodySug[id].from` 'blueprint')
     - 신체 프로필 안내는 몸이 드러나는 화에만 AI에 넣는다고 알린다(미성년 인물은 넣지 않는다고)
   - 타임라인(앞뒤 `CAST_TL_NEAR` 화)
 - 두 사람 쪽 `castPairDetail`(추이 그래프 · 보정 · 호칭)
