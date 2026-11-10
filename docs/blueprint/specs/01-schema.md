@@ -1,6 +1,6 @@
 # 01. 스키마 · 저장 검사 · 화 번호 옮기기
 
-상태: 진행 (claude/blueprint) · 계획: [plan.md](../plan.md) 의 1번 · 먼저: —
+상태: 끝 ([#476](https://github.com/c10dev/canon/pull/476)) · 계획: [plan.md](../plan.md) 의 1번 · 먼저: —
 
 ## 목표
 

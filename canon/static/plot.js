@@ -275,6 +275,25 @@ function pacePlot(p, n) {
         + '계기 화와 받아들이는 화를 나누거나 앞 화에 다리를 놓아 주세요.');
     }
   }
+  return out.concat(paceMilestone(p, n));
+}
+/** n 화 플롯이 설계도의 관계 이정표를 앞지름 (pace.milestone_warnings) */
+function paceMilestone(p, n) {
+  const ms = ((p.blueprint || {}).milestones || []).filter((m) => m.stage && m.from_ep > 0);
+  if (!ms.length) return [];
+  const nm = Object.fromEntries(p.characters.map((c) => [c.id, c.name || c.id]));
+  const out = [];
+  for (const [a, b, goal] of paceShifts(p, n)) {
+    if (paceMasked(p, a, b)) continue;
+    for (const [s, t] of [[a, b], [b, a]]) {
+      const hit = ms.filter((m) => m.source === s && m.target === t && goal.includes(m.stage)).sort((x, y) => x.from_ep - y.from_ep);
+      if (hit.length && hit[0].from_ep > n) {
+        const m = hit[0];
+        out.push(`${n}화 플롯: ${nm[s] || s} → ${nm[t] || t} 관계를 ${m.stage} 쪽으로 옮겨요. `
+          + `설계도는 ${m.from_ep}~${m.to_ep}화에 ${m.stage}에 닿기로 했어요. 이 화의 바뀜을 미루거나 설계도를 고쳐 주세요.`);
+      }
+    }
+  }
   return out;
 }
 
@@ -294,7 +313,7 @@ function plotTodos(p, start, end) {
   const noHook = eps.filter((e) => e.plot.number !== p.meta.target_episodes && !(e.plot.ending_hook || '').trim()).map((e) => e.plot.number);
   if (noHook.length) out.push({ kind: 'hook', n: noHook[0], text: `엔딩 훅 빈 화 · ${rangeText(noHook)}화`, sub: '' });
   eps.forEach((e) => pacePlot(p, e.plot.number).forEach((w) => out.push({ kind: 'pace', n: e.plot.number,
-    text: `관계를 한 화에 너무 많이 옮김 · ${e.plot.number}화`, sub: w.replace(/^\d+화 플롯: /, '') })));
+    text: `${w.includes('설계도는') ? '설계도보다 앞섬' : '관계를 한 화에 너무 많이 옮김'} · ${e.plot.number}화`, sub: w.replace(/^\d+화 플롯: /, '') })));
   return out;
 }
 

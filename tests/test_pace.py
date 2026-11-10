@@ -1,7 +1,7 @@
 """관계 속도 테스트 (mock LLM): 글 극성, 관계 유형이 반영 뒤 단계와 반대일 때 경고 · 기본 체크 해제, 두 층 감정은 빼기,
 결정적 사건 남발, 사람 검토 없이 반영할 때 빼기. 실행: python -m pytest tests"""
 from canon import dynamics, features, pace, pipeline, prompts
-from canon.schema import Character, CharacterState, Relationship, StateDelta, StoryEvent
+from canon.schema import Character, CharacterState, Milestone, Relationship, StateDelta, StoryEvent
 
 from .test_storylines import _short
 from .test_timeline import _play
@@ -136,6 +136,30 @@ def test_plot_mask_is_skipped():
     hero, ally = _name(p, "hero"), _name(p, "ally")
     p.state_of("hero").emotional_state = f"겉: {ally}에게 웃음 / 속: {ally}를 경계"
     _plot(p, 2, f"{hero}와 {ally}는 친구가 된다.")
+    assert pace.plot_warnings(p, 2) == []
+
+
+def test_plot_ahead_of_milestone_warns():
+    p = _play(_short(8), 1, 1)
+    _set(p, "화해", 0.2)  # 한 칸 거리라 관계 속도 경고는 없다
+    hero, ally = _name(p, "hero"), _name(p, "ally")
+    p.blueprint.milestones = [Milestone(source="hero", target="ally", from_ep=6, to_ep=7, stage="신뢰", label="믿게 됨")]
+    _plot(p, 2, f"{hero}와 {ally}는 친구가 된다.")
+    w = pace.plot_warnings(p, 2)
+    assert len(w) == 1 and "설계도는 6~7화에 신뢰" in w[0] and w[0].startswith(f"2화 플롯: {hero} → {ally}")
+    assert [n for n, _ in pace.plan_warnings(p)] == [2]
+    p.blueprint.milestones.append(Milestone(source="hero", target="ally", from_ep=2, to_ep=3, stage="호감"))
+    assert pace.plot_warnings(p, 2) == []  # 이 화 범위에 바라는 단계의 이정표가 있다
+    p.blueprint.milestones.pop()
+    p.state_of("hero").emotional_state = f"겉: {ally}에게 웃음 / 속: {ally}를 경계"
+    assert pace.plot_warnings(p, 2) == []  # 두 층 감정으로 가린 쌍
+
+
+def test_milestone_without_range_is_ignored():
+    p = _play(_short(8), 1, 1)
+    _set(p, "화해", 0.2)
+    p.blueprint.milestones = [Milestone(source="ally", target="hero", stage="신뢰")]
+    _plot(p, 2, f"{_name(p, 'hero')}와 {_name(p, 'ally')}는 친구가 된다.")
     assert pace.plot_warnings(p, 2) == []
 
 

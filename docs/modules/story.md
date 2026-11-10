@@ -270,8 +270,10 @@
 - 계획 칸 `planned_rung(ladder, n)`: 처음 닿는 화가 n 화 이하인 칸 가운데 차례가 가장 뒤. 쌍 찾기 `ladder`
 - 화 끼워 넣기 · 빼기 `move`(`renumber.move_points` 가 부름): 범위 안에 넣으면 범위가 늘고, 끝 화를 빼면 범위가 준다
 - 재구성 `remap`(`reshape` 가 부름): 옮기지 못한 범위는 비우고 알림에 적는다
+- 이정표 경고 `warnings`(막지 않음): 이웃한 두 이정표 사이 칸 모자람, 범위가 겹치는데 단계가 다름, 지금 단계에서 다음 이정표까지 칸 모자람
+- 플롯이 이정표를 앞지르는 경고는 `pace.milestone_warnings`
 - 계획값이라 관계 수치(`Tie`) · 플롯을 바꾸지 않는다
-- 아직 프롬프트 · 화면 · 명령줄이 쓰지 않는다(`docs/blueprint/plan.md` 일감 3 · 4 · 6)
+- 아직 프롬프트가 쓰지 않는다. `warnings` 를 보이는 화면은 일감 3(`docs/blueprint/plan.md`)
 - LLM 호출 없음
 
 ### `canon/branches.py`
@@ -361,6 +363,7 @@
 - 숫자를 말로 바꾸기
 - 단계에 들어온 화(`Tie.stage_since`, `run_episode` 가 적고 `replay` 가 다시 채움)를 관계 줄에 '(n화부터)'로(`since`)
 - 말로 고른 보는 방식(`VIEWS`)으로 시작 관계 만들기
+- 단계 칸 수 `stage_steps`(`STAGE_EDGES` 너비 우선, `pace` · `blueprint` 가 씀)
 - LLM 을 부르지 않는 순수 계산
 
 ### `canon/elements.py`
@@ -509,6 +512,7 @@
 - 한 쌍 한 화 결정적(3) 사건 `BIG`(3)개 이상 경고
 - 쓰기 전 플롯: 화 플롯이 바라는 관계 바뀜(`plot_shifts`: 바뀜 말 `SHIFTS` · 가장 뒤 말 `_last_shift` · 이름 `name_forms`)
 - 지금 단계에서 칸 수가 쓸 수 있는 칸보다 많으면 경고(`plot_warnings` · 안 쓴 화 모두 `plan_warnings`)
+- 플롯이 설계도의 관계 이정표를 앞지르면 경고(`milestone_warnings`, `plot_warnings` 끝에 붙음): 바라는 단계의 이정표가 모두 이 화보다 뒤일 때
 - 보이는 곳은 `board.checks` 와 `static/plot.js` `pacePlot`(같은 규칙, `tests/test_plot_pace_js.py`)
 - LLM 호출 없음
 

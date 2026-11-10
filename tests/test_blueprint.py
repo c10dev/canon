@@ -152,3 +152,28 @@ def test_web_save_checks_blueprint(client):
     p["blueprint"]["ladders"][0]["rungs"][0]["parts"] = ["tail"]
     r = client.put("/api/projects/bp", json=p)
     assert r.status_code == 400 and "모르는 부위" in r.json()["detail"]
+
+
+def test_warnings():
+    from canon import dynamics
+    p = _proj()
+    assert blueprint.warnings(p) == []
+    p.blueprint.milestones = [Milestone(source="a", target="j", from_ep=1, to_ep=2, stage="적대"),
+                              Milestone(source="a", target="j", from_ep=3, to_ep=4, stage="신뢰"),  # 적대 → 신뢰 2칸, 1~4화 3화: 괜찮다
+                              Milestone(source="j", target="a", from_ep=2, to_ep=3, stage="낯섦"),
+                              Milestone(source="j", target="a", from_ep=3, to_ep=4, stage="적대"),  # 범위가 겹치고 단계가 다르다
+                              Milestone(source="a", target="j", stage="화해")]  # 범위 없는 줄은 보지 않는다
+    w = blueprint.warnings(p)
+    assert len(w) == 1 and "겹쳐요" in w[0] and "지훈 → 아영" in w[0]
+    ms = p.blueprint.milestones
+    ms[0].to_ep, ms[1].from_ep, ms[1].to_ep = 1, 2, 3
+    assert not any("아영 → 지훈" in x for x in blueprint.warnings(p))  # 2칸에 1~3화 2화: 괜찮다
+    ms[1].to_ep = 2
+    assert any("적대에서 신뢰까지 2칸인데 1화부터 2화까지 1화뿐이에요" in x for x in blueprint.warnings(p))
+    # 지금 단계에서 다음 이정표까지
+    q = _proj()
+    q.ties = [dynamics.Tie(source="a", target="j", stage="적대")]
+    q.blueprint.milestones = [Milestone(source="a", target="j", from_ep=1, to_ep=1, stage="신뢰")]
+    assert blueprint.warnings(q) == ["관계 이정표 아영 → 지훈: 지금 적대에서 1화까지 신뢰에 닿으려면 2칸인데 1화 남았어요(한 화에 한 칸)."]
+    q.ties[0].stage = "균열"
+    assert blueprint.warnings(q) == []  # 균열 → 신뢰는 한 칸

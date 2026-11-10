@@ -51,6 +51,21 @@ STAGE_EDGES: dict[str, tuple[str, ...]] = {
 }
 
 
+def stage_steps(start: str, goals: Iterable[str]) -> int:
+    """start 에서 goals 가운데 가장 가까운 단계까지 칸 수 (STAGE_EDGES 의 너비 우선). 닿지 못하면 0."""
+    goals = set(goals)
+    seen, q = {start: 0}, deque([start])
+    while q:
+        cur = q.popleft()
+        if cur in goals:
+            return seen[cur]
+        for nxt in STAGE_EDGES.get(cur, ()):
+            if nxt not in seen:
+                seen[nxt] = seen[cur] + 1
+                q.append(nxt)
+    return 0
+
+
 def clip(v: float, lo: float = -1.0, hi: float = 1.0) -> float:
     return max(lo, min(hi, v))
 
