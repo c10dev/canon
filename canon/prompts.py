@@ -523,25 +523,79 @@ STYLE_KEY_LABELS = {
 }
 
 
+STYLE_VALUE_CLIP = 200   # 지난 변경안의 칸 값을 이만큼까지 넣는다
+STYLE_REPLY_CLIP = 600   # 대화 에이전트 세션의 지난 편집자 답을 이만큼까지 넣는다
+
+
+def _style_label(key: str) -> str:
+    return STYLE_KEY_LABELS.get(key, key)
+
+
+def style_edit_text(e) -> str:
+    """StyleEdit 하나의 바뀐 뒤 값을 한 줄 글로 (지난 변경안 줄). 빈 값은 '(비움)'."""
+    if e.key == "markers":
+        v = ", ".join(f"'{m.text}'" + (f"({m.note})" if m.note else "") for m in e.markers)
+    elif e.key == "devices":
+        v = ", ".join(d.name + (f"({d.when})" if d.when else "") for d in e.devices)
+    elif e.key in ("dos", "donts", "banned_phrases"):
+        v = " / ".join(e.items)
+    else:
+        v = e.text
+    return _clip(v, STYLE_VALUE_CLIP) if v.strip() else "(비움)"
+
+
+def _style_card_note(rev, result: str) -> str:
+    """지난 문체 변경안: 칸 이름, 작가의 결정, 칸마다 낸 값. 작가가 '그건 너무 짧아' 처럼 지난 안을 가리킬 때 기준이 된다."""
+    keys = ", ".join(_style_label(e.key) for e in rev.edits)
+    rows = "".join(f"\n    - {_style_label(e.key)}: {style_edit_text(e)}" for e in rev.edits)
+    return f"\n  (변경안: {keys} / {result}){rows}"
+
+
 def _style_chat_line(m: ChatMessage) -> str:
     if m.role == "user":
         return f"작가{f' ({m.episode}화 참고)' if m.episode else ''}: {m.text}"
     line = f"편집자: {m.text}"
     if m.style and m.style.edits:
-        keys = ", ".join(STYLE_KEY_LABELS.get(e.key, e.key) for e in m.style.edits)
-        applied = ", ".join(STYLE_KEY_LABELS.get(x, x) for x in m.applied)
+        applied = ", ".join(_style_label(x) for x in m.applied)
         result = {"applied": f"작가가 적용함: {applied}", "dismissed": "작가가 적용하지 않음"}.get(m.outcome, "아직 결정 전")
-        line += f"\n  (변경안: {keys} / {result})"
+        line += _style_card_note(m.style, result)
     return line
 
 
-def style_chat_prompt(p: Project, message: str, episode: int = 0, recent: list[str] | None = None) -> str:
-    """recent: 최근 화 문체 지표와 경고 줄 (pipeline.style_chat_recent). episode: 작가가 참고하라고 고른 화."""
+def style_session_history(turns: list) -> list[str]:
+    """대화 에이전트 세션의 지난 턴(AgentTurn)을 문체 대화 기록 줄로 (agent_style.prepare).
+    웹의 문체 대화는 대화 에이전트로 옮겨 옛 문체 대화(Project.chats 'style')가 더 쌓이지 않으므로 이 세션 기록을 쓴다.
+    문체 카드가 있던 턴은 칸마다 낸 값, 작가의 결정, 나중에 되돌린 칸을 붙인다. 다른 도구의 턴은 말과 답만 넣는다."""
+    out: list[str] = []
+    for t in turns[-(STYLE_CHAT_HISTORY // 2):]:
+        out.append(f"작가: {t.user}")
+        line = f"편집자: {_clip(t.reply, STYLE_REPLY_CLIP)}" if t.reply.strip() else ""
+        a = t.approval
+        if a and a.style and a.style.revision.edits:
+            result = {"approved": "작가가 적용함: " + ", ".join(_style_label(k) for k in a.picked),
+                      "denied": "작가가 적용하지 않음"}.get(a.state, "아직 결정 전")
+            back = [_style_label(i.key) for w in t.writes if w.tool == "edit_style" for i in w.items if i.state == "reverted"]
+            if back:
+                result += f" / 나중에 되돌림: {', '.join(back)}"
+            if a.style.episode:
+                result += f" / {a.style.episode}화 참고"
+            line = (line or "편집자:") + _style_card_note(a.style.revision, result)
+        if line:
+            out.append(line)
+    return out
+
+
+def style_chat_prompt(p: Project, message: str, episode: int = 0, recent: list[str] | None = None,
+                      history_lines: list[str] | None = None) -> str:
+    """recent: 최근 화 문체 지표와 경고 줄 (pipeline.style_chat_recent). episode: 작가가 참고하라고 고른 화.
+    history_lines: 대화 기록 줄 (대화 에이전트는 style_session_history). None 이면 옛 문체 대화(Project.chats 'style')를 읽는다 (명령줄 chat)."""
     st = p.style
     voices = [f"- {c.name}: {_clip(c.narration_voice, 200)}" for c in p.characters if c.narration_voice.strip()]
     samples = "\n\n---\n\n".join(_clip(x, 600) for x in st.sample_passages) or "없음"
-    chat = next((c for c in p.chats if c.topic == "style"), None)
-    history = "\n".join(_style_chat_line(m) for m in (chat.messages[-STYLE_CHAT_HISTORY:] if chat else []))
+    if history_lines is None:
+        chat = next((c for c in p.chats if c.topic == "style"), None)
+        history_lines = [_style_chat_line(m) for m in (chat.messages[-STYLE_CHAT_HISTORY:] if chat else [])]
+    history = "\n".join(history_lines)
     ref = ""
     if episode and (ep := next((e for e in p.episodes if e.plot.number == episode and e.text), None)):
         body = ep.text if len(ep.text) <= STYLE_REF_LIMIT else ep.text[:STYLE_REF_LIMIT] + "\n…(뒤 생략)"
@@ -569,6 +623,7 @@ def style_chat_prompt(p: Project, message: str, episode: int = 0, recent: list[s
 
 요구사항:
 - reply 에는 작가에게 하는 대답을 2~5문장으로 씁니다. 무엇을 왜 바꿨는지, 다음 화에 어떻게 달라질지 말합니다. 요청이 모호하면 가장 그럴듯하게 해석해 고치고 어떻게 해석했는지 밝힙니다. 질문만 받았거나 되물어야 하면 edits 를 비우고 대답만 합니다.
+- 작가의 새 말이 지난 변경안을 가리키면(예: "그건 너무 짧아", "반만 줄여", "대사 칸만 다시") 지난 대화에 적힌 그 변경안의 값을 기준으로 고칩니다. 작가가 적용하지 않은 변경안은 지금 스타일 프로필에 없습니다.
 - edits 에는 바뀌는 칸만 넣고, 칸마다 바뀐 뒤 값 전체를 씁니다. 글 칸은 text, dos · donts · banned_phrases 는 items, markers 는 markers, devices 는 devices 하나만 채웁니다. 목록 칸은 그대로 둘 항목도 빠짐없이 넣습니다. 빠진 항목은 지워집니다.
 - 규칙은 관찰할 수 있게 씁니다 (예: "문장은 대개 25자 안팎, 감정이 터질 때만 한 문장을 길게"). "자연스럽게", "생생하게" 같은 막연한 말은 쓰지 않습니다.
 - 새 규칙이 지금 규칙과 부딪히면 지금 규칙을 고치거나 뺍니다. 같은 뜻의 규칙을 두 칸에 겹쳐 쓰지 않습니다.
@@ -2527,7 +2582,7 @@ AGENT_PLOT_TOOLS = """[도구] 한 단계에 하나만 부릅니다
 - remove_episode (args: n): 본문이 없는 n 화를 빼고 뒤 화를 한 칸씩 당깁니다. 늘 작가에게 묻습니다
 - revise_text (args: quote, request, n, preset): n 화 본문(비우면 다듬을 곳의 화)에서 quote 부분을 request 대로 고친 후보 2~3개를 만들어 작가에게 보입니다. quote 는 본문 원문 그대로 옮긴 한 문장~몇 문단이고, 모르면 find_text 로 먼저 찾습니다. preset 은 비웁니다. 작가가 고른 후보만 본문에 들어가고, 늘 작가에게 묻고 턴이 끝납니다
 - edit_setup (args: request): 작가가 설정(제목, 로그라인, 주제, 톤, 메모, 세계관, 인물 칸, 새 인물, 관계)을 바꾸라고 할 때 부릅니다. 설정 편집자가 바뀌는 칸만 담은 변경안을 만들고, 권한 모드와 상관없이 늘 작가에게 칸마다 물으며 턴이 끝납니다. 작가가 고른 칸만 들어갑니다. 편집자는 이 대화를 보지 못하므로 request 에 무엇을 어떻게 바꿀지(작가의 말과 이번 턴에 정한 방향)를 그것만 읽어도 알게 씁니다. 관계 수치는 적지 않습니다
-- edit_style (args: request, episode): 작품 문체(스타일 프로필)를 바꾸는 변경안을 문체 편집자에게 맡깁니다. request 에는 작가가 바라는 문체를 작가의 말과 지난 대화를 살려 한두 문장으로, episode 에는 작가가 참고하라고 한 화 번호(본문이 있는 화, 없으면 빈칸)를 넣습니다. 바꿀 칸과 시험 문단이 카드로 작가에게 물어지고 턴이 끝납니다. 플롯 · 본문 · 설정 일에는 부르지 않습니다
+- edit_style (args: request, episode): 작품 문체(스타일 프로필)를 바꾸는 변경안을 문체 편집자에게 맡깁니다. request 에는 작가의 말 가운데 문체에 대한 부분을 작가가 쓴 그대로(줄이거나 풀어 쓰지 않음. 문체 편집자가 이 세션의 지난 대화와 지난 문체 변경안의 값을 따로 봅니다), episode 에는 작가가 참고하라고 한 화 번호(본문이 있는 화, 없으면 빈칸)를 넣습니다. 바꿀 칸과 시험 문단이 카드로 작가에게 물어지고 턴이 끝납니다. 바꿀 칸이 없으면 편집자의 대답으로 턴이 끝납니다. 플롯 · 본문 · 설정 일에는 부르지 않습니다
 - propose_regex (args: in, out, action, type, flag, comment, rule, enabled, bundle): 작가가 본문 표기를 잡는 규칙을 청하면 정규식 규칙 하나를 더하거나 고치자고 제안합니다. in 은 찾을 정규식으로 JavaScript 정규식 꼴(예: [.]{3,})이고, out 은 바꿀 글로 JavaScript String.replace 꼴($1 · $&)입니다. action 은 warn(검수 때 걸린 곳을 보임, 기본) · fix(본문을 바꿈), type 은 output(쓴 본문, 기본) · export(내보낼 때만), flag 는 기본 g, comment 는 규칙 이름입니다. 이미 있는 규칙을 고치려면 rule 에 read_rules 로 본 그 규칙 id 를 넣고 바꿀 인자만 채웁니다(끄기는 enabled=false). bundle 은 넣을 묶음 id 로, 켠 묶음이 둘 이상일 때만 채웁니다. 한 번에 규칙 하나만 다루고, 지금 본문에 걸어 본 결과와 함께 늘 작가에게 물으며 턴이 끝납니다. 작가가 적용하기 전에는 어디에도 걸리지 않습니다. 규칙과 묶음을 지우는 일은 하지 않습니다
 - ask: question 과 options (서로 다른 방향 2~3개) 를 넣습니다. 작가의 답을 기다리며 턴이 끝납니다
 - 턴을 끝낼 때는 tool 칸을 빈 글("")로 두고 reply 칸에 답을 씁니다. reply 는 칸 이름이지 도구 이름이 아닙니다
@@ -2554,6 +2609,8 @@ def _agent_turn_line(t) -> str:
         elif t.approval.regex:  # 규칙 카드는 keys 가 ['rule'] 하나라 규칙 이름으로 적는다
             r = t.approval.regex.rule
             what = f"정규식 규칙 {r.comment.strip() or r.in_}"
+        elif t.approval.style:  # 문체 카드는 칸마다 낸 값을 짧게 붙인다. 작가가 '그건 너무 짧아' 처럼 지난 안을 가리킬 때 기준이 된다
+            what = "; ".join(f"{_style_label(e.key)} '{_clip(style_edit_text(e), 80)}'" for e in t.approval.style.revision.edits)
         else:
             what = ", ".join(t.approval.keys)
         notes.append(f"물음({state}): {what}")
@@ -2586,7 +2643,7 @@ def agent_focus_block(p: Project, focus: str, off_plot: bool = False) -> str:
     if kind in ("setup", "style"):
         # 2026-11-09 사용자 결정: 화면이 대상을 정하고, 플롯 도구는 어느 화면에서든 쓰되 대상 밖이면 묻는다
         what = {"setup": "설정(기본 정보 · 세계관 · 인물)을 보고 있습니다. 인물에 대한 물음은 read_cast 로 읽고 reply 로 답합니다",
-                "style": "문체 화면에 있습니다. 문체에 대한 물음만 있으면 reply 로 답합니다"}[kind]
+                "style": "문체 화면에 있습니다. 이 프롬프트에는 스타일 프로필 전체가 없으므로 문체에 대한 물음도 edit_style 로 문체 편집자에게 넘깁니다(편집자는 프로필 전체를 보고, 바꿀 것이 없으면 대답만 합니다)"}[kind]
         how = {"setup": "설정을 바꾸라는 말이면 edit_setup 을 부릅니다(늘 작가에게 칸마다 물어집니다). ",
                "style": "문체를 바꾸자는 말이면 edit_style 을 부릅니다(늘 작가에게 칸마다 물어집니다). "}[kind]
         return (f"[이 세션에서 다듬을 곳] {name}. 작가는 {what}. {how}"

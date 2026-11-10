@@ -91,7 +91,7 @@
 - mock 단계(`mock._agent_step`)는 힌트 `aim` 이 본문 · 설정이면 '플롯'이 든 말만 고치고 나머지는 읽은 뒤 답만 한다
 - mock 단계는 본문 대상에서 «원문» 이 든 말이면 `revise_text` 를 그 원문으로 부르고, 막혔으면 답만 한다
 - mock 단계는 대상이 설정이거나 '설정을' 이 든 말이 `mock.MOCK_SETUP_WORDS`('날카롭', '다듬' 등)를 담으면 `edit_setup` 을 부른다
-- mock 단계는 `aim` 이 문체이거나 말에 '문체'가 들면 `edit_style` 을 부른다. 'N화 참고' 는 episode 인자, 문체 대상의 '?' 물음은 답만 한다
+- mock 단계는 `aim` 이 문체이거나 말에 '문체'가 들면 `edit_style` 을 부른다. 'N화 참고' 는 episode 인자. 문체 대상의 '?' 물음도 `edit_style` 에 넘긴다
 - 단계 프롬프트는 바뀌지 않는 블록(도구 · 규칙 · 요구사항)이 앞, 턴 블록과 이번 턴 단계가 뒤, 남은 단계 수가 맨 끝 한 줄이다(단계 k+1 요청이 단계 k 요청을 품음)
 - 이름 후보는 `random.Random(session.id)` 로 뽑아 단계마다 같다(`plot_chat_parts` 의 rng)
 
@@ -151,7 +151,12 @@
 - 대화 에이전트의 문체 도구 `edit_style`(종류 `style`, 04d). `agent.CARD_TOOLS` 가 등록한다
 - 화면 칸 이름표 `STYLE_LABELS`: `prompts.STYLE_KEY_LABELS` 에서 화면 이름만 바꾼 표(`markers` 는 '문체 버릇'). 카드 · 명령줄 · `stylechat.js` `STYLE_KEYS` 가 같은 이름을 쓴다(`tests/test_labels_js.py`)
 - `prepare`: 잠금 밖에서 `pipeline.revise_style`(LLM 단계 `plan`)을 부른다. 옛 문체 대화와 같은 프롬프트 · 정리다
+- `prepare` 는 문체 편집자의 대화 기록으로 이 세션의 지난 턴을 넘긴다(`prompts.style_session_history`). 옛 문체 대화(`Project.chats` 의 `style`)는 읽지 않는다
+- 지난 문체 카드의 줄에는 칸마다 낸 값(`prompts.style_edit_text`, 200자까지), 작가의 결정, 나중에 되돌린 칸, 참고한 화가 붙는다
+- 에이전트의 지난 대화 줄(`prompts._agent_turn_line`)도 문체 카드의 칸 값을 80자까지 붙인다
 - 인자는 `request`(비우면 작가의 이번 말)와 `episode`(참고할 화)다
+- `request` 는 작가의 말 가운데 문체에 대한 부분을 줄이지 않고 그대로 넣게 한다(`AGENT_PLOT_TOOLS`)
+- 문체 대상(`agent_focus_block` 의 `style`)에서는 물음도 `edit_style` 로 넘긴다. 바꿀 칸이 없으면 편집자 답으로 턴이 끝난다
 - 참고할 화 `ref_episode`: 인자가 먼저이고, 비었으면 문체 대상 턴의 `AgentTurn.episode`(화면의 '참고할 화' 칩)를 쓴다
 - 본문이 없는 화를 참고로 고르면 막힘 단계로 AI 에게 돌려준다
 - 지름길(`shortcut`)은 없다. 참고할 화 칩은 지울 때까지 남아 말 하나의 뜻을 정하지 않는다

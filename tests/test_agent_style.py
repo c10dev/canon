@@ -177,6 +177,95 @@ def test_style_screen_prompt_points_to_edit_style():
     assert "- edit_style (args: request, episode)" in prompts.AGENT_PLOT_TOOLS
 
 
+def _prompts(monkeypatch):
+    """응답 형식 이름마다 받은 요청 프롬프트를 모은다."""
+    from canon import mock
+    seen: dict[str, list[str]] = {}
+    orig = mock.MockLLM.json
+
+    def spy(self, system, prompt, schema, hint=None, **kw):
+        seen.setdefault(schema.__name__, []).append(prompt)
+        return orig(self, system, prompt, schema, hint=hint, **kw)
+    monkeypatch.setattr(mock.MockLLM, "json", spy)
+    return seen
+
+
+def test_editor_sees_denied_card_values_of_this_session(client, monkeypatch):
+    """문체 편집자는 이 세션의 지난 문체 카드를 칸 값과 작가의 결정까지 본다. 그래야 '그건 너무 짧아'를 지난 안 기준으로 고친다.
+    에이전트의 지난 대화 줄에도 칸 값이 붙는다."""
+    _project(client)
+    seen = _prompts(monkeypatch)
+    sid = _session(client, topic="agent", target="style")
+    _say(client, sid, "대사를 더 짧게 끊어 줘", target="style")
+    assert "[지금까지의 대화]\n없음 (첫 대화)" in seen["StyleRevision"][0]
+    client.post(f"/api/projects/lh/sessions/{sid}/turns/0/approval", json={"approve": False})
+    _say(client, sid, "그건 너무 짧아. 반만 줄여 줘", target="style")
+    editor = seen["StyleRevision"][1]
+    assert "작가: 대사를 더 짧게 끊어 줘" in editor
+    assert "(변경안: 문장 리듬, 지킬 것 / 작가가 적용하지 않음)" in editor
+    assert "    - 문장 리듬: 짧은 문장 위주, 감정이 터질 때만 길게 (대사를 더 짧게 끊어 줘)" in editor
+    assert "대사는 한 줄을 넘기지 않는다" in editor
+    assert "지난 변경안을 가리키면" in editor
+    assert "물음(작가가 거절함): 문장 리듬 '짧은 문장 위주" in seen["PlotAgentStep"][-1]
+
+
+def test_editor_history_marks_picked_and_reverted_fields(client, monkeypatch):
+    _project(client)
+    p = client.get("/api/projects/lh").json()
+    p["episodes"][1]["text"], p["episodes"][1]["status"] = "바람이 불었다. 그는 문을 열었다.", "written"
+    assert client.put("/api/projects/lh", json=p).status_code == 200
+    seen = _prompts(monkeypatch)
+    sid = _session(client, topic="agent", target="style")
+    _say(client, sid, "대사를 더 짧게 끊어 줘", target="style", episode=2)
+    client.post(f"/api/projects/lh/sessions/{sid}/turns/0/approval", json={"approve": True, "picked": ["dos"]})
+    client.post(f"/api/projects/lh/sessions/{sid}/turns/0/undo", json={})
+    _say(client, sid, "다시 해 줘", target="style")
+    assert "/ 작가가 적용함: 지킬 것 / 나중에 되돌림: 지킬 것 / 2화 참고)" in seen["StyleRevision"][-1]
+
+
+def test_editor_ignores_old_style_chat_in_agent_path(client, monkeypatch):
+    """옛 문체 대화(Project.chats 'style')는 웹에서 더 쌓이지 않는다. 대화 에이전트 경로의 문체 편집자는 그 기록을 지금 대화로 읽지 않는다."""
+    _project(client)
+    path = store.project_dir("lh") / "project.json"
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["chats"] = [{"topic": "style", "messages": [{"role": "user", "text": "옛날에 한 말"}]}]
+    path.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+    seen = _prompts(monkeypatch)
+    sid = _session(client, topic="agent", target="style")
+    _say(client, sid, "대사를 더 짧게 끊어 줘", target="style")
+    assert "옛날에 한 말" not in seen["StyleRevision"][0]
+
+
+def test_style_target_question_goes_to_editor_and_ends_with_reply(client, monkeypatch):
+    """문체 대상의 물음도 문체 편집자(스타일 프로필 전체를 봄)에게 넘긴다. 바꿀 칸이 없으면 카드 없이 편집자 답으로 끝난다."""
+    _project(client)
+    before = _style(client)
+    seen = _prompts(monkeypatch)
+    sid = _session(client, topic="agent", target="style")
+    t = _say(client, sid, "지금 리듬은 어때?", target="style")
+    assert len(seen["StyleRevision"]) == 1 and len(seen["PlotAgentStep"]) == 1
+    assert t["end"] == "done" and t["approval"] is None and t["reply"].startswith("지금 프로필은 짧은 문장 위주예요")
+    assert _style(client) == before
+
+
+def test_style_session_history_lines():
+    from canon import prompts
+    from canon.schema import AgentTurn, Approval, StyleCard, StyleDevice, StyleEdit, StyleMarker, StyleRevision
+    rev = StyleRevision(reply="", edits=[
+        StyleEdit(key="banned_phrases", items=[]),
+        StyleEdit(key="markers", markers=[StyleMarker(text="-거든", note="변명할 때")]),
+        StyleEdit(key="devices", devices=[StyleDevice(name="자문자답", when="혼자 설렐 때")]),
+        StyleEdit(key="vocabulary", text="가" * 300)])
+    t = AgentTurn(user="바꿔 줘", approval=Approval(tool="edit_style", style=StyleCard(revision=rev), keys=[], state="wait"))
+    lines = prompts.style_session_history([AgentTurn(user=f"말{i}", reply="답") for i in range(9)] + [t])
+    assert len(lines) == 10 and lines[0] == "작가: 말5"  # 최근 다섯 턴
+    card = lines[-1]
+    assert card.startswith("편집자:\n  (변경안: 금지 표현, 문체 표지, 가끔 쓰는 장치, 어휘 / 아직 결정 전)")
+    assert "- 금지 표현: (비움)" in card and "- 문체 표지: '-거든'(변명할 때)" in card
+    assert "- 가끔 쓰는 장치: 자문자답(혼자 설렐 때)" in card
+    assert "- 어휘: " + "가" * prompts.STYLE_VALUE_CLIP + "…" in card
+
+
 
 # ---------- 화면 (static/agent.js) ----------
 

@@ -333,7 +333,7 @@ def _agent_step(hint: dict) -> PlotAgentStep:
     'N화 앞에 M화' 는 화 넣기, 'N화 빼' 는 화 빼기를 묻고, '빈 물음' 은 묻는 말 없는 ask 를 내고, '분석' 은 처음에 예고만 하고, 되돌림 단계(tool 'reply')를 보면 내용을 쓴다.
     대상이 설정이거나 '설정을' 이 든 말이 MOCK_SETUP_WORDS 를 담으면 설정 도구(edit_setup)를 부른다.
     본문 대상에서 «원문» 이 든 말은 본문 고치기(revise_text)를 그 원문으로 부르고, 막혔으면 답만 한다.
-    대상이 문체이거나 말에 '문체'가 들면 문체 도구(edit_style)를 부른다. 'N화 참고' 는 episode 인자, 문체 대상의 '?' 물음은 답만 한다.
+    대상이 문체이거나 말에 '문체'가 들면 문체 도구(edit_style)를 부른다. 'N화 참고' 는 episode 인자. 문체 대상의 '?' 물음도 문체 도구에 넘기고, 다른 대상의 '?' 물음은 넘기지 않는다.
     말에 '규칙'과 «찾을 글»(또는 'rule=id')이 들면 정규식 규칙 제안(propose_regex)을 부른다 (_regex_args). 막혀 돌아오면 답만 한다."""
     msg, steps, tools = hint["message"], hint.get("steps", []), hint.get("tools", [])
     if "끝없이" in msg:
@@ -383,13 +383,12 @@ def _agent_step(hint: dict) -> PlotAgentStep:
     if "edit_setup" in tools and "approval" not in tools:  # 바뀌는 칸이 없어 카드 없이 돌아왔다
         return PlotAgentStep(reply="설정은 지금 그대로가 좋아 보여요.")
     style_aim = hint.get("aim") == "style" and "플롯" not in msg
-    if (style_aim or "문체" in msg) and "edit_style" not in tools and not msg.rstrip().endswith("?"):
+    if (style_aim or ("문체" in msg and not msg.rstrip().endswith("?"))) and "edit_style" not in tools:
         ref = re.search(r"(\d+)화 참고", msg)
         return PlotAgentStep(thought="문체 편집자에게 맡겨요", tool="edit_style",
                              args=[ToolArg(name="request", value=msg), ToolArg(name="episode", value=ref.group(1) if ref else "")])
-    if style_aim:  # 문체 도구가 막혔거나 물음이면 답만 한다
-        return PlotAgentStep(reply="문체 변경안을 만들지 못했어요. 참고할 화를 바꿔 다시 말해 주세요." if "edit_style" in tools
-                             else f"지금 문체를 봤어요: '{msg}'")
+    if style_aim:  # 문체 도구가 막혀 돌아왔으면 답만 한다
+        return PlotAgentStep(reply="문체 변경안을 만들지 못했어요. 참고할 화를 바꿔 다시 말해 주세요.")
     if "approval" in tools:
         return PlotAgentStep(reply="작가의 답대로 마쳤어요.")
     if "edit_plot" in tools or msg.rstrip().endswith("?"):
