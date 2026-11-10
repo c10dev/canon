@@ -157,6 +157,90 @@ def test_setup_tool_from_another_target(client):
     assert t["end"] == "wait" and t["approval"]["tool"] == "edit_setup"
 
 
+def _prompts(monkeypatch):
+    """응답 형식 이름마다 받은 요청 프롬프트를 모은다."""
+    from canon import mock
+    seen: dict[str, list[str]] = {}
+    orig = mock.MockLLM.json
+
+    def spy(self, system, prompt, schema, hint=None, **kw):
+        seen.setdefault(schema.__name__, []).append(prompt)
+        return orig(self, system, prompt, schema, hint=hint, **kw)
+    monkeypatch.setattr(mock.MockLLM, "json", spy)
+    return seen
+
+
+def test_editor_sees_denied_card_values_of_this_session(client, monkeypatch):
+    """설정 편집자는 이 세션의 지난 설정 카드를 부분 값과 작가의 결정까지 본다. 그래야 '아까 그 인물 말고', '약점만 다시'를 지난 안 기준으로 고친다."""
+    _project(client)
+    hero = _setup(client)["characters"][0]["name"]
+    seen = _prompts(monkeypatch)
+    sid = _session(client, topic="agent", target="setup")
+    _say(client, sid, ASK)
+    assert "[지금까지의 대화]\n없음 (첫 대화)" in seen["SetupRevision"][0]
+    assert _decide(client, sid, 0, [], approve=False).status_code == 200
+    t = _say(client, sid, "아까 그 인물 말고, 약점만 다시 다듬어 줘")
+    assert t["approval"]["tool"] == "edit_setup"
+    editor = seen["SetupRevision"][1]
+    assert f"작가: {ASK}" in editor
+    assert "/ 작가가 적용하지 않음)" in editor and "(변경안: 로그라인 · 무엇이 막나, 주제, 깨면 안 되는 규칙" in editor
+    assert f"    - 주제: 잃은 것을 놓아줄 수 있나 ({ASK})" in editor
+    assert f"    - {hero} 두려운 것 · 약점: 버려질까 두렵다 ({ASK})" in editor
+    assert "    - 새 인물 한결: 조력자. 목표: 마을의 비밀을 지킨다" in editor
+    assert f"    - 관계 {hero} ↔ 한결: 사제" in editor
+    assert "    - 깨면 안 되는 규칙: " in editor and " / 밤에는 등대 불을 끄지 않는다" in editor  # 목록 칸은 ' / ' 로 잇는다
+    assert "지난 변경안을 가리키면" in editor
+    assert editor.index("[지금까지의 대화]") < editor.index("[작가의 새 말]\n아까 그 인물 말고")
+
+
+def test_editor_history_marks_picked_and_reverted_parts(client, monkeypatch):
+    _project(client)
+    seen = _prompts(monkeypatch)
+    sid = _session(client, topic="agent", target="setup")
+    _say(client, sid, ASK)
+    assert _decide(client, sid, 0, ["logline.block", "new:mentor"]).status_code == 200
+    client.post(f"/api/projects/lh/sessions/{sid}/turns/0/undo", json={"write": 0, "key": "logline.block"})
+    _say(client, sid, "다시 다듬어 줘")
+    assert "/ 작가가 적용함: 로그라인 · 무엇이 막나, 새 인물 한결 / 나중에 되돌림: 로그라인 · 무엇이 막나)" in seen["SetupRevision"][-1]
+
+
+def test_editor_ignores_old_setup_chat_in_agent_path_but_cli_reads_it(client, monkeypatch):
+    """옛 설정 대화(Project.chats 'setup')는 웹에서 더 쌓이지 않는다. 대화 에이전트 경로는 그 기록을 읽지 않고, 명령줄 경로(history 없음)는 그대로 읽는다."""
+    from canon import pipeline
+    from canon.mock import MockLLM
+
+    _project(client)
+    path = store.project_dir("lh") / "project.json"
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["chats"] = [{"topic": "setup", "messages": [{"role": "user", "text": "옛날에 한 말"}]}]
+    path.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+    seen = _prompts(monkeypatch)
+    sid = _session(client, topic="agent", target="setup")
+    _say(client, sid, ASK)
+    assert "옛날에 한 말" not in seen["SetupRevision"][0]
+    pipeline.revise_setup(MockLLM(), store.load("lh"), ASK)
+    assert "작가: 옛날에 한 말" in seen["SetupRevision"][1]
+
+
+def test_setup_session_history_lines():
+    from canon import prompts, setupchat
+    from canon.schema import AgentTurn, Approval, AskCard, Direction
+
+    p = Project.model_validate({"meta": {"title": "등대"}, "characters": [{"id": "hero", "name": "서윤", "role": "주인공"}]})
+    rev = SetupRevision(reply="", edits=[SetupEdit(key="world.rules", items=[]), SetupEdit(key="tone", text="가" * 300)],
+                        characters=[CharacterEdit(id="hero", field="secrets", items=["동생이 살아 있다", "등대 열쇠"])])
+    card = AgentTurn(user="바꿔 줘", approval=Approval(tool="edit_setup", setup=rev, keys=setupchat.part_ids(rev), state="wait"))
+    ask = AgentTurn(user="방향을 물어봐 줘", mode="options", reply="두 갈래예요.",
+                    ask=AskCard(question="어느 쪽?", options=[Direction(title="복수", idea="되찾으려 한다."), Direction(title="구원", idea="이해하게 된다.")]))
+    lines = prompts.setup_session_history(p, [AgentTurn(user=f"말{i}", reply="답") for i in range(9)] + [ask, card])
+    assert len(lines) == 12 and lines[0] == "작가: 말5"  # 최근 여섯 턴 (SETUP_CHAT_HISTORY // 2)
+    assert lines[-4] == "작가 [방향 여러 안 요청]: 방향을 물어봐 줘"
+    assert lines[-3] == "편집자: 두 갈래예요.\n  (되물음: 1. 복수: 되찾으려 한다. / 2. 구원: 이해하게 된다.)"
+    assert lines[-1].startswith("편집자:\n  (변경안: 깨면 안 되는 규칙, 톤, 서윤 숨기는 것 / 아직 결정 전)")
+    assert "- 깨면 안 되는 규칙: (비움)" in lines[-1] and "- 서윤 숨기는 것: 동생이 살아 있다 / 등대 열쇠" in lines[-1]
+    assert "- 톤: " + "가" * prompts.SETUP_VALUE_CLIP + "…" in lines[-1]
+
+
 def test_prompt_lists_the_setup_tool(client):
     _project(client)
     p = store.load("lh")

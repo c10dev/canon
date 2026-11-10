@@ -2,6 +2,7 @@
 
 - 에이전트가 edit_setup(args: request)을 고르면 prepare 가 잠금 밖에서 pipeline.revise_setup(LLM 단계 'plan')을 부른다.
   옛 설정 대화와 같은 프롬프트 · 정리(setupchat.clean)다. 방향 여러 안은 에이전트의 ask 가 묻으므로 mode 는 늘 비운다.
+  대화 기록은 이 세션의 지난 턴이다 (prompts.setup_session_history: 지난 설정 카드의 부분 값, 작가의 결정, 되돌린 부분, 되물음).
 - record 가 잠근 작품에서 변경안을 다시 정리하고 승인 카드(Approval tool 'edit_setup')를 남긴 뒤 턴을 끝낸다.
   권한 모드와 상관없이 늘 묻고, '이 세션에서 묻지 않기'(auto_kinds)도 받지 않는다 (agent.ALWAYS_ASK, 2026-11-09 사용자 결정).
 - 카드가 처음 체크해 두는 부분(defaults)은 서버가 정한다. 이미 채운 칸과 인물 칸(인물 설정 바꾸기)은 꺼 두고, 빈 칸 · 새 인물 · 새 관계만 켠다.
@@ -15,7 +16,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from . import pipeline, setupchat
+from . import pipeline, prompts, setupchat
 from .schema import AgentSession, AgentTurn, Approval, PlotAgentStep, Project, SetupRevision, StepRecord, WriteItem, WriteRecord
 
 TOOL = "edit_setup"
@@ -29,7 +30,7 @@ def _now() -> str:
 
 
 def request(turn: AgentTurn, step: PlotAgentStep) -> str:
-    """설정 편집자에게 넘길 말. revise_setup 은 세션 대화를 보지 않으므로 비면 작가의 이번 말을 쓴다."""
+    """설정 편집자에게 넘길 말. 비면 작가의 이번 말을 쓴다. 지난 턴은 prepare 가 대화 기록으로 따로 넘긴다."""
     args = {a.name: a.value for a in step.args}
     return str(args.get("request", "")).strip() or turn.user.strip()
 
@@ -43,8 +44,9 @@ def prepare(name: str, p: Project, s: AgentSession, turn: AgentTurn, step: PlotA
     """잠금 밖에서 설정 변경안을 받는다 (AI 호출 한 번, 단계 'plan'). 받지 못하면 까닭(글)을 돌려준다. AI 오류는 그대로 올려 턴을 멈춘다."""
     from .llm import get_llm
 
+    history = prompts.setup_session_history(p, [t for t in s.turns if t is not turn])
     try:
-        return pipeline.revise_setup(get_llm("plan"), p, request(turn, step))
+        return pipeline.revise_setup(get_llm("plan"), p, request(turn, step), history=history)
     except ValueError as e:
         return str(e)
 
