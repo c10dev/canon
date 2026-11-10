@@ -139,6 +139,19 @@ const pfFill = (root) => (S.styleFill || {})[pfKey(root, 'narr')] || null;
 /** 서술 카드 줄에 값이 있다. 대화 변경안이 바꿀 칸은 비어도 보인다 */
 const narrHas = (prof, hot) => (k) => hot.has(k) || String(prof[k] || '').trim() !== '';
 
+// 지킬 것 · 피할 것의 층 (Settings.rule_layers, prompts.rule_layer). 작품 문체 · 장편에만 보인다. 없는 줄은 집필
+const RULE_LAYER_NAMES = { write: '집필', plan: '계획' };
+const RULE_LIMIT = 20;  // pipeline.RULE_LIMIT 와 같다
+const RULE_LAYER_WHY = '집필 칩은 본문 쓰기에 넣는 규칙이에요. 누르면 계획으로 바뀌어, 스토리보드를 만들 때 넣고 스토리보드 없이 쓰는 화는 쓰기 지시 끝에 넣어요. 장면을 짤 때 지킬 규칙(사건 · 위험 · 전개)에 맞아요.';
+const ruleLayered = (root) => !root && P().meta.form === 'serial';
+function ruleLayerOf(text) {
+  const r = (P().settings.rule_layers || []).find((x) => x.text === text);
+  return r ? r.layer : 'write';
+}
+function writeRuleCount(prof) {
+  return [...(prof.dos || []), ...(prof.donts || [])].filter((x) => ruleLayerOf(x) === 'write').length;
+}
+
 /** 카드의 읽는 모양 */
 function pfRead(id, prof, root, hot, base = 'style') {
   const list = (xs) => (xs || []).length ? `<ul class="pf-list">${xs.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : '';
@@ -154,9 +167,20 @@ function pfRead(id, prof, root, hot, base = 'style') {
   }
   if (id === 'rules') {
     const tag = (k) => (hot.has(k) ? ' <span class="chip hot">변경안</span>' : '');
+    const layered = ruleLayered(root);
+    const rules = (key) => {
+      const xs = prof[key] || [];
+      if (!layered || !xs.length) return list(xs);
+      return `<ul class="pf-list">${xs.map((x, i) => {
+        const l = ruleLayerOf(x);
+        return `<li><button type="button" class="chip rl ${l}" data-action="ruleLayer" data-arg="${key}|${i}" aria-label="${RULE_LAYER_NAMES[l]} 층, 눌러서 바꾸기">${RULE_LAYER_NAMES[l]}</button>${esc(x)}</li>`;
+      }).join('')}</ul>`;
+    };
+    const n = layered ? writeRuleCount(prof) : 0;
+    const over = n > RULE_LIMIT ? ` <span class="chip warn">집필 ${n}개 · ${RULE_LIMIT}개 넘음</span>` : '';
     return `<div class="grid-2">
-        <div><div class="pf-lbl"><i class="sw ok" aria-hidden="true"></i>지킬 것 ${(prof.dos || []).length}${tag('dos')}</div>${list(prof.dos)}</div>
-        <div><div class="pf-lbl"><i class="sw no" aria-hidden="true"></i>피할 것 ${(prof.donts || []).length}${tag('donts')}</div>${list(prof.donts)}</div>
+        <div><div class="pf-lbl"><i class="sw ok" aria-hidden="true"></i>지킬 것 ${(prof.dos || []).length}${tag('dos')}${layered ? help(RULE_LAYER_WHY, '층 설명 보기') : ''}${over}</div>${rules('dos')}</div>
+        <div><div class="pf-lbl"><i class="sw no" aria-hidden="true"></i>피할 것 ${(prof.donts || []).length}${tag('donts')}</div>${rules('donts')}</div>
       </div>
       <div><div class="pf-lbl">금지 표현 ${(prof.banned_phrases || []).length}${tag('banned_phrases')}${help('본문에 나오면 경고해요.')}</div>
         ${(prof.banned_phrases || []).length ? `<div class="row">${prof.banned_phrases.map((x) => `<span class="chip pf-quote">${esc(x)}</span>`).join('')}</div>` : ''}</div>${root ? '' : heatWordsRead()}`;
@@ -709,6 +733,17 @@ Object.assign(actions, {
     styleKeepOpen(root, 'markers');
     render();
     focusEl($('#pf-markers .mk-row:last-child input'));
+  },
+  ruleLayer(arg) {
+    const [key, i] = arg.split('|');
+    const text = (P().style[key] || [])[Number(i)];
+    if (text === undefined) return;
+    const next = ruleLayerOf(text) === 'write' ? 'plan' : 'write';
+    const st = P().settings;
+    st.rule_layers = (st.rule_layers || []).filter((x) => x.text !== text);
+    if (next !== 'write') st.rule_layers.push({ text, layer: next });
+    markDirty();
+    render();
   },
   removeMarker(arg) {
     const [root, i] = arg.split('|');

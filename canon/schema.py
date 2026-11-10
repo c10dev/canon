@@ -291,6 +291,16 @@ class BudgetSetting(BaseModel):
     value: int = Field(description="글자 예산. context.budget_range 안의 100 단위 값")
 
 
+RuleLayerName = Literal["write", "plan"]
+RULE_LAYERS: list[str] = ["write", "plan"]
+
+
+class RuleLayer(BaseModel):
+    """스타일 프로필 지킬 것 · 피할 것 한 줄을 어느 단계에 넣을지 (prompts.rule_layer). 작가가 고른다. 목록에 없는 줄은 write 다."""
+    text: str = Field(description="StyleProfile.dos · donts 의 한 줄을 적힌 그대로. 글이 바뀌면 그 줄은 write 로 돌아간다")
+    layer: RuleLayerName = Field("write", description="write: 본문 쓰기 프롬프트의 스타일 프로필 / plan: 스토리보드 만들기 요청, 스토리보드 없이 쓰는 화는 쓰기 요청 지시문")
+
+
 class Settings(BaseModel):
     show_numbers: bool = Field(False, description="CLI 에서 관계를 숫자로 보여줄지(True), 말로 보여줄지(False)")
     check_widen: bool = Field(False, description="장편 검수 넓히기: 검수 뒤 진술마다 옛 화를 더 찾아, 첫 검수에 없던 근거가 나온 진술만 다시 묻는다 (검수 호출 2번 더)")
@@ -310,6 +320,7 @@ class Settings(BaseModel):
     blocks: list[BlockSetting] = Field(default_factory=list, description="쓰기 요청 블록 끄기 (prompts.block_on). 비우면 모든 블록을 넣는다. 장편만 따른다")
     budgets: list[BudgetSetting] = Field(default_factory=list, description="쓰기 요청 예산 바꾸기 (context.budget). 비우면 context.BUDGET 기본값. 장편만 따른다")
     rule_bundles: list[str] = Field(default_factory=list, description="켠 정규식 규칙 묶음 id (canon/regexrules.py). 목록 차례가 거는 차례다. 지워진 묶음은 건너뛴다")
+    rule_layers: list[RuleLayer] = Field(default_factory=list, description="지킬 것 · 피할 것의 층 (prompts.rule_layer). 비우면 모든 줄을 본문 쓰기 프롬프트에 넣는다. 저장할 때 프로필에 없는 줄은 지운다")
 
 
 # ---------- 정규식 규칙 묶음 (canon/regexrules.py) ----------

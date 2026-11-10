@@ -3256,9 +3256,34 @@ def style_rules_view(p: Project) -> dict:
     예시 문단이 있는 작품은 글 칸을 STYLE_FIELD_LIMIT 까지만 넣는다. 말로 서술한 문체 규칙이 길수록 쉼표 많은 긴 문장으로 쏠리고,
     예시 문단은 그러지 않았다 (문체 반영도 실험을 다시 잰 쇠맛 연구, 2026-10-30). 저장된 프로필은 그대로다."""
     rules = p.style.model_dump(exclude={"markers", "devices"}) | {"sample_passages": []}
+    rules["dos"], rules["donts"] = layer_rules(p, "write")  # 다른 층으로 옮긴 줄은 그 단계 요청에만 넣는다
     if styled(p):
         rules = {k: clip_sentences(v, STYLE_FIELD_LIMIT) if isinstance(v, str) else v for k, v in rules.items()}
     return rules
+
+
+def rule_layer(p: Project, text: str) -> str:
+    """지킬 것 · 피할 것 한 줄의 층 (Settings.rule_layers). 목록에 없으면 write."""
+    return next((r.layer for r in p.settings.rule_layers if r.text == text), "write")
+
+
+def layer_rules(p: Project, layer: str) -> tuple[list[str], list[str]]:
+    """그 층의 (지킬 것, 피할 것). 프로필 차례를 지킨다."""
+    got = {r.text: r.layer for r in p.settings.rule_layers}
+    return ([x for x in p.style.dos if got.get(x, "write") == layer],
+            [x for x in p.style.donts if got.get(x, "write") == layer])
+
+
+PLAN_RULES_HEAD = "# 계획 규칙 (작가가 장면을 짤 때 지키라고 고른 규칙)"
+
+
+def plan_rules_block(p: Project) -> str:
+    """계획 층 규칙 블록. 스토리보드 만들기 요청 끝과, 스토리보드 없이 쓰는 화의 쓰기 요청 지시문에 넣는다. 없으면 빈 글."""
+    dos, donts = layer_rules(p, "plan")
+    if not (dos or donts):
+        return ""
+    rows = [f"- 지킬 것: {x}" for x in dos] + [f"- 피할 것: {x}" for x in donts]
+    return f"\n\n{PLAN_RULES_HEAD}\n" + "\n".join(rows)
 
 
 def style_passages(p: Project) -> list[str]:
@@ -3405,7 +3430,8 @@ def episode_parts(p: Project, n: int, approach: str = "", use_board: bool = True
             + statwin.write_rule(p, n, show_format=not windows, budget=context.budget(p, "stat_lines"), trace=trace)
             + attire_write_rule(p, board=sb is not None)
             + ending_line(p, n)
-            + (f"\n\n{coord.NOTE}" if coord.memo(p, n) else ""))  # 쓰기 재료 조율: 조율 메모를 넣었을 때만
+            + (f"\n\n{coord.NOTE}" if coord.memo(p, n) else "")  # 쓰기 재료 조율: 조율 메모를 넣었을 때만
+            + ("" if sb is not None and not coord.on(p) else plan_rules_block(p)))  # 스토리보드가 받았으면 넣지 않는다. 조율은 장면을 본문이 짠다
     parts.append(Part("instructions", tail))
     if sheet and sheet.cues:
         parts.append(Part("cues", cue_write_block(p, sheet)))
@@ -3747,7 +3773,14 @@ def storyboard_prompt(p: Project, n: int) -> str:
 {"- attire 는 비웁니다 (쓰기 재료가 조율이라 끝 차림은 본문을 쓴 뒤 상태 변경안이 정합니다)." if coord.on(p) else "- attire 에는 이번 화에 차림이 바뀌는 인물의 끝 차림만 적습니다 (이어지는 상처와 물건까지 다시, 가방 · 옷 · 신발은 백팩 · 코트 · 운동화처럼 종류까지)."}
 - protect 에는 [다음 화 플롯]이 전제하는 것 중 이번 화가 깨기 쉬운 것을 적습니다.
 - warnings: 이번 화 플롯이 [인물 현재 상태] · [직전 화 본문] · [Canon 이 센 값] · 설정과 어긋나면 적고, resolution 에 이 스토리보드가 택한 처리를 적습니다.
-  지금 상태가 플롯보다 앞섭니다. 플롯 칸을 고쳐 적지 않습니다. 다음 화 플롯과 어긋나면 target 을 next, kind 를 next_plot 으로 적습니다."""
+  지금 상태가 플롯보다 앞섭니다. 플롯 칸을 고쳐 적지 않습니다. 다음 화 플롯과 어긋나면 target 을 next, kind 를 next_plot 으로 적습니다.""" + plan_board_rule(p)
+
+
+def plan_board_rule(p: Project) -> str:
+    """스토리보드 만들기 요청 맨 끝의 계획 규칙 (plan_rules_block). 요청 끝에 두어 쓰기 가족 앞부분 캐시를 깨지 않는다."""
+    block = plan_rules_block(p)
+    return (block + "\n- 장면을 나누고 장면 칸을 채울 때 위 [계획 규칙]을 지킵니다. 이번 화 플롯 사건과 부딪히면 플롯을 따르고 warnings 에 적습니다."
+            if block else "")
 
 
 
@@ -5448,6 +5481,7 @@ PIECES.update({
     "attire_rule": Piece("차림 이어 쓰기", ("continuity",), "instruction", "attire_write_rule", "차림을 적은 인물이 있을 때"),
     "ending": Piece("문장 끝 섞기", ("style",), "instruction", "ending_rule", "시점 인물의 서술 말투로 쓰는 화는 뺀다 (ending_line)"),
     "coord_note": Piece("조율 메모 안내", ("continuity",), "instruction", "coord.NOTE", "쓰기 재료 조율로 조율 메모를 넣었을 때"),
+    "plan_rules": Piece("계획 규칙", ("style",), "instruction", "plan_rules_block", "계획 층으로 옮긴 지킬 것 · 피할 것이 있고 스토리보드 없이 쓰는 화나 쓰기 재료가 조율인 화. 스토리보드 만들기는 요청 끝 (plan_board_rule)"),
     "direction_rule": Piece("연출 지시 읽는 법", ("style",), "instruction", "DIRECTION_RULE", "작가 연출 지시가 있을 때"),
     "echo_rule": Piece("되풀이 피하기 규칙", ("style",), "tail", "ECHO_RULE", "되풀이한 구절 블록이 있을 때"),
     "rewrite_block": Piece("다시 생성 요청", ("style",), "instruction", "rewrite_block"),
@@ -5504,7 +5538,7 @@ _PLAN = ("preamble", "sys_planner", "korean_line")
 _WRITE_SYS = ("preamble", "writer_task", "fixed_line", "prose_rules")
 _FRONT = tuple(b.id for b in BLOCKS if b.front)
 _WRITE_TAIL = ("opening_rules", "write_flow", "write_style", "write_shift", "write_speech", "focus_line", "priority_line", "stat_rule",
-               "attire_rule", "ending", "coord_note")
+               "attire_rule", "ending", "coord_note", "plan_rules")
 _EPISODE = (_WRITE_SYS + _FRONT[:3] + ("style_passages", "style_profile", "style_markers") + _FRONT[3:]
             + tuple(b.id for b in BLOCKS if not b.front and b.id not in ("instructions", "cues", "direction"))
             + ("echo_rule", "instructions") + _WRITE_TAIL + ("cues", "direction", "direction_rule"))
@@ -5690,6 +5724,7 @@ _SAMPLES = {
     "attire_rule": lambda p, n: attire_write_rule(p, board=_sample_board(p, n) is not None).strip(),
     "ending": lambda p, n: ending_line(p, n).strip() if n else ending_rule(p),
     "coord_note": lambda p, n: coord.NOTE if n and coord.memo(p, n) else "",
+    "plan_rules": lambda p, n: plan_rules_block(p).strip() if n and (_sample_board(p, n) is None or coord.on(p)) else "",
     "direction_rule": lambda p, n: DIRECTION_RULE if n and any(direction_texts(p, n)) else "",
     "echo_rule": lambda p, n: ECHO_RULE if n and echo_block(p, n) else "",
     "polish_ending": lambda p, n: "" if n and voiced(p, n) else POLISH_ENDING.format(rule=ending_rule(p)),

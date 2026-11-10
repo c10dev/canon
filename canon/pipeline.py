@@ -320,7 +320,7 @@ LEARN_SUPPORT = 2      # 후보마다 확인된 근거 수정 최소
 LEARN_MAX_CHARS = 1500  # 이보다 긴 고침은 내용을 다시 쓴 것으로 보고 뺀다
 LEARN_SKIP_PRESETS = {"blocking"}  # 문체가 아니라 동선 · 설정을 맞춘 고침
 LEARN_KEEP = 8
-RULE_LIMIT = 20  # 지킬 것 + 피할 것이 이보다 많으면 반영할 때 알린다
+RULE_LIMIT = 20  # 본문 쓰기에 넣는(write 층) 지킬 것 + 피할 것이 이보다 많으면 반영할 때 알린다 (rule_limit_note)
 
 
 def learnable_edits(p: Project) -> list[tuple[str, TextEdit]]:
@@ -452,11 +452,25 @@ def apply_learning(p: Project, picks: list[int]) -> tuple[list[StyleRuleSuggesti
             st.devices.append(StyleDevice(name=s.text, when=s.note, cues=s.cues, every=s.every))
         s.applied = True
         done.append(s)
-    notes = []
-    if len(st.dos) + len(st.donts) > RULE_LIMIT:
-        notes.append(f"지킬 것 · 피할 것이 {len(st.dos) + len(st.donts)}개예요. {RULE_LIMIT}개가 넘으면 프롬프트가 길어지고 "
-                     "규칙끼리 부딪히기 쉬우니 비슷한 것을 합쳐 주세요")
-    return done, notes
+    note = rule_limit_note(p)
+    return done, [note] if note else []
+
+
+def rule_limit_note(p: Project) -> str:
+    """본문 쓰기 프롬프트에 들어가는(write 층) 지킬 것 · 피할 것이 RULE_LIMIT 를 넘으면 알림 글. 아니면 빈 글."""
+    dos, donts = prompts.layer_rules(p, "write")
+    k = len(dos) + len(donts)
+    if k <= RULE_LIMIT:
+        return ""
+    return (f"본문 쓰기에 넣는 지킬 것 · 피할 것이 {k}개예요. {RULE_LIMIT}개가 넘으면 규칙을 빠뜨리기 쉬우니 "
+            "비슷한 것을 합치거나, 장면을 짤 때 지킬 규칙은 '계획' 층으로 옮겨 주세요")
+
+
+def prune_rule_layers(p: Project) -> None:
+    """프로필에 없는 줄과 write 층(기본값)을 Settings.rule_layers 에서 지운다. 같은 줄이 둘이면 뒤의 것을 쓴다."""
+    have = set(p.style.dos) | set(p.style.donts)
+    got = {r.text: r for r in p.settings.rule_layers if r.text in have and r.layer != "write"}
+    p.settings.rule_layers = list(got.values())
 
 
 # ---------- 2-2. 대화로 문체 다듬기 ----------
