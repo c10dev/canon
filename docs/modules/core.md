@@ -674,6 +674,7 @@
 - `style_rules_view` 의 지킬 것 · 피할 것은 write 층 줄만 넣는다(`layer_rules`, 층은 `rule_layer`, `Settings.rule_layers`)
 - 계획 층 줄은 `plan_rules_block`('# 계획 규칙')으로 스토리보드 만들기 요청 끝과, 스토리보드 없이 쓰는 화의 쓰기 요청 지시문 끝(`episode_parts`)에 넣는다
 - 스토리보드로 쓰는 화의 쓰기 요청에는 계획 규칙을 넣지 않는다. 스토리보드가 이미 받았다
+- 쓰기 재료가 조율(`coord.on`)이면 스토리보드가 있어도 쓰기 요청에 계획 규칙을 넣는다. 조율 스토리보드는 장면 칸을 비우고 본문이 장면을 짠다
 - 스토리보드 깨지 않을 것을 검수에 `protect_block` · `protect_check_rule`
 - 지시 수 · 크기 상한 시험 `tests/test_write_budget.py`
 - 장편 본문 쓰기 요청(`build_episode_context(write=True)`)의 뒤쪽, 가끔 쓰는 장치 뒤에 '최근 화에서 되풀이한 구절' 블록 `echo_block`(`echoes.recent`, `Settings.recent_echoes`, 단편 · 스토리보드 만들기에는 넣지 않음)

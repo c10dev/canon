@@ -3431,7 +3431,7 @@ def episode_parts(p: Project, n: int, approach: str = "", use_board: bool = True
             + attire_write_rule(p, board=sb is not None)
             + ending_line(p, n)
             + (f"\n\n{coord.NOTE}" if coord.memo(p, n) else "")  # 쓰기 재료 조율: 조율 메모를 넣었을 때만
-            + ("" if sb is not None else plan_rules_block(p)))  # 스토리보드가 있으면 계획 규칙은 스토리보드가 이미 받았다
+            + ("" if sb is not None and not coord.on(p) else plan_rules_block(p)))  # 스토리보드가 받았으면 넣지 않는다. 조율은 장면을 본문이 짠다
     parts.append(Part("instructions", tail))
     if sheet and sheet.cues:
         parts.append(Part("cues", cue_write_block(p, sheet)))
@@ -3779,7 +3779,7 @@ def storyboard_prompt(p: Project, n: int) -> str:
 def plan_board_rule(p: Project) -> str:
     """스토리보드 만들기 요청 맨 끝의 계획 규칙 (plan_rules_block). 요청 끝에 두어 쓰기 가족 앞부분 캐시를 깨지 않는다."""
     block = plan_rules_block(p)
-    return (block + "\n- 장면 목표 · 전환점 · 장면 끝 상태를 정할 때 위 [계획 규칙]을 지킵니다. 이번 화 플롯 사건과 부딪히면 플롯을 따르고 warnings 에 적습니다."
+    return (block + "\n- 장면을 나누고 장면 칸을 채울 때 위 [계획 규칙]을 지킵니다. 이번 화 플롯 사건과 부딪히면 플롯을 따르고 warnings 에 적습니다."
             if block else "")
 
 
@@ -5481,7 +5481,7 @@ PIECES.update({
     "attire_rule": Piece("차림 이어 쓰기", ("continuity",), "instruction", "attire_write_rule", "차림을 적은 인물이 있을 때"),
     "ending": Piece("문장 끝 섞기", ("style",), "instruction", "ending_rule", "시점 인물의 서술 말투로 쓰는 화는 뺀다 (ending_line)"),
     "coord_note": Piece("조율 메모 안내", ("continuity",), "instruction", "coord.NOTE", "쓰기 재료 조율로 조율 메모를 넣었을 때"),
-    "plan_rules": Piece("계획 규칙", ("style",), "instruction", "plan_rules_block", "계획 층으로 옮긴 지킬 것 · 피할 것이 있고 스토리보드 없이 쓰는 화. 스토리보드 만들기는 요청 끝 (plan_board_rule)"),
+    "plan_rules": Piece("계획 규칙", ("style",), "instruction", "plan_rules_block", "계획 층으로 옮긴 지킬 것 · 피할 것이 있고 스토리보드 없이 쓰는 화나 쓰기 재료가 조율인 화. 스토리보드 만들기는 요청 끝 (plan_board_rule)"),
     "direction_rule": Piece("연출 지시 읽는 법", ("style",), "instruction", "DIRECTION_RULE", "작가 연출 지시가 있을 때"),
     "echo_rule": Piece("되풀이 피하기 규칙", ("style",), "tail", "ECHO_RULE", "되풀이한 구절 블록이 있을 때"),
     "rewrite_block": Piece("다시 생성 요청", ("style",), "instruction", "rewrite_block"),
@@ -5724,7 +5724,7 @@ _SAMPLES = {
     "attire_rule": lambda p, n: attire_write_rule(p, board=_sample_board(p, n) is not None).strip(),
     "ending": lambda p, n: ending_line(p, n).strip() if n else ending_rule(p),
     "coord_note": lambda p, n: coord.NOTE if n and coord.memo(p, n) else "",
-    "plan_rules": lambda p, n: plan_rules_block(p).strip() if n and _sample_board(p, n) is None else "",
+    "plan_rules": lambda p, n: plan_rules_block(p).strip() if n and (_sample_board(p, n) is None or coord.on(p)) else "",
     "direction_rule": lambda p, n: DIRECTION_RULE if n and any(direction_texts(p, n)) else "",
     "echo_rule": lambda p, n: ECHO_RULE if n and echo_block(p, n) else "",
     "polish_ending": lambda p, n: "" if n and voiced(p, n) else POLISH_ENDING.format(rule=ending_rule(p)),

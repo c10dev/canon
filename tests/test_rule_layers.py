@@ -53,6 +53,15 @@ def test_plan_rules_skip_write_request_with_storyboard():
     assert PLAN_DO not in out and prompts.PLAN_RULES_HEAD not in out
 
 
+def test_coord_keeps_plan_rules_in_write_request():
+    from canon.mock import MockLLM
+    p, n = _layered()
+    p.settings.write_material = "coord"  # 조율은 스토리보드가 장면 칸을 비우고 본문이 장면을 짠다
+    p.settings.rule_layers = [RuleLayer(text=PLAN_DO, layer="plan")]
+    pipeline.set_storyboard(p, n, pipeline.make_storyboard(MockLLM(), p, n), by="ai")
+    assert prompts.episode_prompt(p, n).count(PLAN_DO) == 1
+
+
 def test_rule_limit_counts_write_layer_only():
     p, _ = _layered()
     p.style.dos = [f"규칙 {i}" for i in range(pipeline.RULE_LIMIT + 1)]
