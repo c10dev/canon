@@ -1,12 +1,14 @@
 """설계도 화면(static/blueprint.js): 쌍 목록 · 그리기 · 저장할 몫 합치기. node 가 있을 때만 돈다."""
 import typing
 
-from canon.schema import Character, ContactLadder, ContactReach, ContactRung, Milestone, Project, Relationship, RelStage
+from canon.schema import AbilityPlan, Character, ContactLadder, ContactReach, ContactRung, Milestone, Project, Relationship, RelStage
 
 from .jsvm import dump, needs_node, run_js
 from .test_primary_count_js import FILES
 
 VIEW = {"warnings": [{"source": "a", "target": "j", "text": "관계 이정표 아영 → 지훈: 경고"}],
+        "plans": [{"id": "ap-1", "got": 3, "state": "앞섬", "linked": True}, {"id": "ap-2", "got": None, "state": "예정", "linked": False}],
+        "ability_warnings": [{"character": "a", "text": "능력 일정 아영의 은신 Lv2: 3화에 얻었어요."}],
         "parts": [{"id": "hand_r", "label": "오른 손"}], "acts": [{"id": "brush", "label": "스치다"}], "last": 3}
 
 
@@ -120,3 +122,34 @@ def test_ai_card_and_draft_title():
     assert "AI가 짠 설계도" in _run("viewBlueprint()", p, {"bpSel": "a~j", "bpDraft": draft})
     assert "여정 짜기" in _run("viewBlueprint()", p)
     assert _run("pendingShown({ kind: 'blueprint_draft' })", p, {"bpDraft": draft}) is True
+
+
+@needs_node
+def test_ability_page_and_merge():
+    p = _proj()
+    p.blueprint.ability_plans = [AbilityPlan(id="ap-1", character="a", ability="은신", grade="Lv2", condition="밤 훈련", from_ep=5, to_ep=8),
+                                 AbilityPlan(id="ap-2", character="j", ability="추적", from_ep=20, to_ep=22)]
+    html = _run("viewBlueprint()", p)
+    assert "능력 일정" in html and "2줄" in html and "blueprint/%40ability" in html
+    html = _run("viewBlueprint()", p, {"bpSel": "@ability"})
+    assert 'id="bp-band"' in html and "은신 Lv2" in html and "3화에 얻음 · 계획보다 먼저" in html and "조건: 밤 훈련" in html and "도감에 없음" in html
+    assert "능력 일정 아영의 은신 Lv2: 3화에 얻었어요." in html and "관계 이정표 아영 → 지훈: 경고" not in html  # 이 쪽은 능력 경고만
+    html = _run("(S.bpEdit = { card: 'ap', key: '@ability', data: JSON.parse(JSON.stringify(S.project.blueprint)), orig: '' }, viewBlueprint())", p, {"bpSel": "@ability"})
+    assert 'data-bp="ability_plans.0.ability"' in html and 'data-action="bpApAdd"' in html and html.count('data-action="bpSave"') == 1
+    expr = """(() => {
+      const data = JSON.parse(JSON.stringify(S.project.blueprint));
+      data.ability_plans[0].grade = 'Lv3';
+      data.ability_plans.push({ id: '', character: 'a', ability: ' ', grade: '', condition: '', from_ep: 0, to_ep: 0 });
+      data.milestones = [];
+      return bpMerged({ card: 'ap', key: '@ability', data }, S.project.blueprint);
+    })()"""
+    got = _run(expr, p)
+    assert [x["grade"] for x in got["ability_plans"]] == ["Lv3", ""] and len(got["milestones"]) == 2  # 능력 일정 몫만 바꾸고 빈 줄은 뺀다
+
+
+@needs_node
+def test_overview_opens_without_relationships():
+    p = _proj()
+    p.relationships, p.blueprint.milestones, p.blueprint.ladders = [], [], []
+    html = _run("viewBlueprint()", p)
+    assert "관계가 아직 없어요" in html and 'id="bp-growth"' in html

@@ -115,6 +115,7 @@ CLEAN: tuple[Callable[[Project, StateDelta], list[Warn] | None], ...] = (
     travel.delta_warnings,     # 지도 거리와 작품 속 시간으로 보아 너무 빨리 옮겨 간 인물 (장소 정리 뒤)
     statwin.window_warnings,   # 본문 상태창이 반영할 값과 다름
     statwin.range_warnings,    # '지금/한도' 수치가 0 아래거나 한도 위
+    blueprint.ability_delta_warnings,  # 반영하면 설계도 능력 일정의 화 범위보다 먼저 얻게 됨
 )
 
 # 반영 (pipeline.apply_delta): 새 인물을 더한 직후. 작가가 고른 설정 바꾸기 · 호칭 제안만 온다 (자동 집필은 hold 로 미리 뺀다)

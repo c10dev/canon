@@ -2870,7 +2870,7 @@ function navItems() {
   const has = (xs) => (xs || []).length > 0;
   const tools = [
     ['cast', base() + '/cast', '👥', '인물 · 관계도', has(p.characters)],
-    ['blueprint', base() + '/blueprint', '🧭', '설계도', has((p.blueprint || {}).milestones) || has((p.blueprint || {}).ladders)],
+    ['blueprint', base() + '/blueprint', '🧭', '설계도', has((p.blueprint || {}).milestones) || has((p.blueprint || {}).ladders) || has((p.blueprint || {}).ability_plans)],
     ['atlas', base() + '/atlas', '🗺️', '지도', has(p.world.locations) || (p.elements || []).some((el) => el.kind === '장소')],
     ['foreshadow', base() + '/foreshadow', '🪝', '복선 센터', has(p.foreshadows)],
     ['tofix', base() + '/tofix', '📌', '고칠 곳', p.episodes.some((e) => has(e.to_fix))],

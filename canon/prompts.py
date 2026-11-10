@@ -192,6 +192,17 @@ def blueprint_plan_block(p: Project, ids: set[str] | None, start: int, end: int)
             + "\n".join(lines) + note + (f"\n(그 밖 {cut}줄 생략)" if cut else ""))
 
 
+def blueprint_ability_block(p: Project, ids: set[str] | None, start: int, end: int) -> str:
+    """장편 기획의 설계도 능력 일정 블록 (docs/blueprint/specs/10-ability.md). 설계도 블록 바로 뒤에 둔다.
+    아직 얻지 못한 줄 가운데 범위를 지난 것 · start~end 에 걸린 것 · 인물마다 그 뒤 첫 것만 넣는다. 예산(context.BUDGET["ability_plan"])을 넘으면 뒤 줄부터 빼고 수를 적는다.
+    능력 일정이 비었거나 걸린 줄이 없으면 빈 글 (지금 프롬프트와 같다)."""
+    lines, cut = context.fit_lines(blueprint.ability_plan_lines(p, ids, start, end), context.BUDGET["ability_plan"])
+    if not lines:
+        return ""
+    return ("\n[설계도: 능력 일정 (작가가 정한 계획. 지금 가진 능력이 아니다. 능력은 그 화 범위 안에서 얻고, 범위보다 앞당기지 않는다)]\n"
+            + "\n".join(lines) + (f"\n(그 밖 {cut}줄 생략)" if cut else ""))
+
+
 def plan_stage_block(p: Project, ids: set[str]) -> str:
     """장편 화별 플롯 초안의 지금 관계 단계 (마지막 반영 뒤). 방향마다 한 줄 라벨, 주역끼리 먼저, 예산(context.BUDGET["plan_stages"])까지.
     관계 수치가 아직 없으면(첫 반영 전) 빈 글. 플롯이 한 화에 단계를 두 칸 넘게 옮기지 않게 하는 재료다 (pace.plot_warnings)."""
@@ -959,7 +970,7 @@ def serial_plot_prompt(p: Project, start: int, end: int, ahead: bool = True, red
 [등장할 수 있는 다른 인물 (id: 이름, 역할)]
 {roster_line(p, ids) or "없음"}
 [관계]
-{rels(p, ids | {c.id for c in static_characters(p)})}{plan_stage_block(p, ids | {c.id for c in static_characters(p)})}{blueprint_plan_block(p, ids | {c.id for c in static_characters(p)}, start, end)}
+{rels(p, ids | {c.id for c in static_characters(p)})}{plan_stage_block(p, ids | {c.id for c in static_characters(p)})}{blueprint_plan_block(p, ids | {c.id for c in static_characters(p)}, start, end)}{blueprint_ability_block(p, ids | {c.id for c in static_characters(p)}, start, end)}
 [이야기 요소 (작가가 더한 설정과 사건, 시점 포함)]
 {elements.plan_block(p) or "없음"}{lines_block(p)}
 
@@ -2063,7 +2074,7 @@ def next_arc_prompt(p: Project, start: int, length: int, note: str) -> str:
 [다른 인물 (id: 이름, 역할)]
 {roster_line(p, set()) or "없음"}
 [관계 (주역 · 조연 · 최근 아크 인물)]{cut_note(plan_secrets_cut, "숨긴 비밀은 이 아크와 관련된 것만")}
-{describe_relations(p, ids, secrets=plan_secrets) or rels(p, ids)}{destination_block(p, ids)}{blueprint_plan_block(p, ids, start, min(limit, start + (length or PLAN_SPAN) - 1))}
+{describe_relations(p, ids, secrets=plan_secrets) or rels(p, ids)}{destination_block(p, ids)}{blueprint_plan_block(p, ids, start, min(limit, start + (length or PLAN_SPAN) - 1))}{blueprint_ability_block(p, ids, start, min(limit, start + (length or PLAN_SPAN) - 1))}
 [이야기 요소 (작가가 더한 설정과 사건, 시점 포함)]
 {elements.plan_block(p) or "없음"}{lines_block(p)}
 [인물 현재 상태]{knows_note(knows_cut)}
@@ -3640,6 +3651,7 @@ def episode_parts(p: Project, n: int, approach: str = "", use_board: bool = True
             + WRITE_SPEECH_LINE
             + focus_line(p, sb)
             + blueprint_write_line(p, n)
+            + ability_write_line(p, n)
             + body_rule(p, n)
             + priority_line(p, n, sb is not None)
             + statwin.write_rule(p, n, show_format=not windows, budget=context.budget(p, "stat_lines"), trace=trace)
@@ -3988,7 +4000,7 @@ def storyboard_prompt(p: Project, n: int) -> str:
 {"- attire 는 비웁니다 (쓰기 재료가 조율이라 끝 차림은 본문을 쓴 뒤 상태 변경안이 정합니다)." if coord.on(p) else "- attire 에는 이번 화에 차림이 바뀌는 인물의 끝 차림만 적습니다 (이어지는 상처와 물건까지 다시, 가방 · 옷 · 신발은 백팩 · 코트 · 운동화처럼 종류까지)."}
 - protect 에는 [다음 화 플롯]이 전제하는 것 중 이번 화가 깨기 쉬운 것을 적습니다.
 - warnings: 이번 화 플롯이 [인물 현재 상태] · [직전 화 본문] · [Canon 이 센 값] · 설정과 어긋나면 적고, resolution 에 이 스토리보드가 택한 처리를 적습니다.
-  지금 상태가 플롯보다 앞섭니다. 플롯 칸을 고쳐 적지 않습니다. 다음 화 플롯과 어긋나면 target 을 next, kind 를 next_plot 으로 적습니다.""" + plan_board_rule(p) + blueprint_board_rule(p, n) + body_rule(p, n)
+  지금 상태가 플롯보다 앞섭니다. 플롯 칸을 고쳐 적지 않습니다. 다음 화 플롯과 어긋나면 target 을 next, kind 를 next_plot 으로 적습니다.""" + plan_board_rule(p) + blueprint_board_rule(p, n) + ability_board_rule(p, n) + body_rule(p, n)
 
 
 def plan_board_rule(p: Project) -> str:
@@ -4053,6 +4065,36 @@ def blueprint_check_rule(p: Project, n: int) -> str:
         return ""
     return ("\n- 설계도 사다리: " + "; ".join(lines) + ". 본문이 다음 칸의 접촉을 이 화에 쓰면 짚습니다. "
             "type 은 플롯, source_episode 는 0, source_quote 는 그 칸 줄입니다.")
+
+
+def _ab_rng(x) -> str:
+    return f"{x.from_ep}화" if x.from_ep == x.to_ep else f"{x.from_ep}~{x.to_ep}화"
+
+
+def ability_board_rule(p: Project, n: int) -> str:
+    """스토리보드 요청 끝의 능력 일정 줄 (docs/blueprint/specs/10-ability.md): n 화 플롯 인물이 이 화 범위에 얻기로 한 능력과 인물마다 다음 줄 하나.
+    아직 얻지 못한 줄만 본다 (blueprint.got_ep). 줄이 없으면 빈 글."""
+    lines = [f"- 이 화가 얻는 범위({_ab_rng(x)})인 능력: {blueprint.ability_line(p, x)}" for x in blueprint.ability_due(p, n)]
+    lines += [f"- 다음 능력({x.from_ep}화부터)은 이 화에 얻지 않습니다: {blueprint.ability_line(p, x)}" for x in blueprint.ability_next(p, n)]
+    if not lines:
+        return ""
+    return ("\n[설계도: 능력 일정 (작가가 정한 계획, 이번 화)]\n" + "\n".join(lines)
+            + "\n- 장면을 짤 때 위 범위보다 앞서 능력을 얻거나 등급이 오르는 장면을 넣지 않습니다. 이번 화 플롯이 요구하면 플롯을 따르고 warnings 에 적습니다.")
+
+
+def ability_write_line(p: Project, n: int) -> str:
+    """본문 쓰기 지시문의 능력 일정 한 줄: n 화가 얻는 범위이고 아직 얻지 못한 능력이 있을 때만. 다음 줄 · 상한은 넣지 않는다 (앞당김 방지)."""
+    got = [blueprint.ability_line(p, x, _ab_rng(x)) for x in blueprint.ability_due(p, n)]
+    return f"\n설계도에서 이 화는 능력을 얻는 범위입니다: {'; '.join(got)}." if got else ""
+
+
+def ability_check_rule(p: Project, n: int) -> str:
+    """검수 요구사항 한 줄: n 화 플롯 인물이 뒤 화에 얻기로 한 능력(인물마다 둘까지)을 본문이 앞당겼는지. 없으면 빈 글."""
+    rows = [blueprint.ability_line(p, x, f"{x.from_ep}화부터") for x in blueprint.ability_next(p, n, 2)]
+    if not rows:
+        return ""
+    return ("\n- 설계도 능력 일정: 아직 얻지 않기로 한 능력은 " + "; ".join(rows) + "입니다. 본문에서 그 인물이 이 화에 그 능력을 얻거나 그 등급에 오르면 짚습니다. "
+            "type 은 플롯, source_episode 는 0, source_quote 는 그 일정 줄입니다.")
 
 
 
@@ -4644,7 +4686,7 @@ def state_prompt(p: Project, n: int, cuts: tuple[int, int] | None = None, facts_
 {plot}{facts}[이미 있는 장소]
 {places_line(p, ep.text)}
 {f"[작품 속 시간]{chr(10)}{timeline.state_block(p, n)}{chr(10)}" if timeline.enabled(p) else ""}{text}
-""" + STATE_RULES.format(n=n) + f"""{fact_rule}{storylines.state_rule(p, n)}{foreshadows.state_rule(p)}{statwin.state_rule(p)}{ATTIRE_STATE_RULE}{LAYER_STATE_RULE}{charlog.state_rule(p)}{address.state_rule(p)}{blueprint.state_rule(p, n)}{timeline.state_rule(p, n)}"""
+""" + STATE_RULES.format(n=n) + f"""{fact_rule}{storylines.state_rule(p, n)}{foreshadows.state_rule(p)}{statwin.state_rule(p)}{ATTIRE_STATE_RULE}{LAYER_STATE_RULE}{charlog.state_rule(p)}{address.state_rule(p)}{blueprint.state_rule(p, n)}{blueprint.ability_state_rule(p, n)}{timeline.state_rule(p, n)}"""
 
 
 def _check_full(p: Project, n: int) -> tuple[str, str, str, str, str, str]:
@@ -4805,7 +4847,7 @@ CHECK_RULES_EN = """Find the places in the text of episode {n} that contradict t
 
 def check_rule_lines(p: Project, n: int, mode: str = "") -> str:
     """검수 확인 목록(CHECK_RULES)의 {rules} 자리: 작품마다 붙는 확인 줄."""
-    return f"{timeline.check_rule(p, n)}{mapprompt.travel_check_rule(p, n)}{attire_check_rule(p)}{stage_check_rule(p)}{blueprint_check_rule(p, n)}{body_check_rule(p, n)}{layer_check_rule(p, check_cast(p, n) if (mode or ('budget' if p.serial else 'full')) == 'budget' else None)}{address.check_rule(p)}{statwin.check_rule(p)}{protect_check_rule(p.episode(n))}{pairlog.check_rule(pair_check_block(p, n, mode))}"
+    return f"{timeline.check_rule(p, n)}{mapprompt.travel_check_rule(p, n)}{attire_check_rule(p)}{stage_check_rule(p)}{blueprint_check_rule(p, n)}{ability_check_rule(p, n)}{body_check_rule(p, n)}{layer_check_rule(p, check_cast(p, n) if (mode or ('budget' if p.serial else 'full')) == 'budget' else None)}{address.check_rule(p)}{statwin.check_rule(p)}{protect_check_rule(p.episode(n))}{pairlog.check_rule(pair_check_block(p, n, mode))}"
 
 
 def _check_request(p: Project, n: int, mode: str, lang: str, material: str) -> str:
@@ -5809,6 +5851,10 @@ PIECES.update({
     "layer_state": Piece("겉 · 속 적기", ("voice",), "instruction", "LAYER_STATE_RULE"),
     "time_state": Piece("작품 속 시간 적기", ("continuity",), "instruction", "timeline.state_rule", "작품 속 시간을 켰을 때"),
     "contact_state": Piece("닿은 사다리 칸 적기", ("continuity",), "instruction", "blueprint.state_rule", "이 화 인물끼리 아직 닿지 않은 사다리 칸이 있을 때"),
+    "ability_board": Piece("설계도 능력 일정 (이번 화)", ("continuity",), "instruction", "ability_board_rule", "이 화 인물의 능력 일정 줄이 있을 때"),
+    "ability_write": Piece("설계도 능력 얻는 범위", ("continuity",), "instruction", "ability_write_line", "이 화가 능력을 얻는 범위일 때"),
+    "ability_check": Piece("설계도 능력 일정 확인", ("check", "continuity"), "instruction", "ability_check_rule", "이 화 인물이 뒤 화에 얻기로 한 능력이 있을 때"),
+    "ability_state": Piece("일정의 능력 이름 적기", ("continuity",), "instruction", "blueprint.ability_state_rule", "이 화 인물이 얻을 때가 된 능력이 있을 때"),
     "canon_values": Piece("Canon 이 센 값", ("continuity",), "tail", "canon_values_block"),
     "board_rules": Piece("스토리보드 공통 요구사항", ("continuity", "output"), "instruction", "BOARD_RULES"),
     "board_scenes": Piece("장면 나누기 규칙", ("length", "continuity"), "instruction", "storyboard_prompt", "쓰기 재료 조율이면 COORD_BOARD_RULES"),
@@ -5845,15 +5891,15 @@ SEND_PIECES = ("policy_note", "adult_note")
 _PLAN = ("preamble", "sys_planner", "korean_line")
 _WRITE_SYS = ("preamble", "writer_task", "fixed_line", "prose_rules")
 _FRONT = tuple(b.id for b in BLOCKS if b.front)
-_WRITE_TAIL = ("opening_rules", "write_flow", "write_style", "write_shift", "write_speech", "focus_line", "blueprint_write", "body_rule", "priority_line", "stat_rule",
+_WRITE_TAIL = ("opening_rules", "write_flow", "write_style", "write_shift", "write_speech", "focus_line", "blueprint_write", "ability_write", "body_rule", "priority_line", "stat_rule",
                "attire_rule", "ending", "coord_note", "plan_rules")
 _EPISODE = (_WRITE_SYS + _FRONT[:3] + ("style_passages", "style_profile", "style_markers") + _FRONT[3:]
             + tuple(b.id for b in BLOCKS if not b.front and b.id not in ("instructions", "cues", "direction"))
             + ("echo_rule", "instructions") + _WRITE_TAIL + ("cues", "direction", "direction_rule"))
 _STATIC = ("work", "world", "style", "characters")
 _PLOT_RULES = ("plot_rules", "fixed_rule", "pov_plot_rule", "opening_plot_rule", "heat_plot_rules", "coord_plot_rule")
-_CHECK_RULES = ("check_rules", "time_check", "travel_check", "attire_check", "stage_check", "blueprint_check", "body_check", "layer_check", "protect_check", "severity")
-_STATE_RULES = ("state_facts", "state_rules", "attire_state", "layer_state", "contact_state", "time_state")
+_CHECK_RULES = ("check_rules", "time_check", "travel_check", "attire_check", "stage_check", "blueprint_check", "ability_check", "body_check", "layer_check", "protect_check", "severity")
+_STATE_RULES = ("state_facts", "state_rules", "attire_state", "layer_state", "contact_state", "ability_state", "time_state")
 
 
 def _bk(label: str, **kw) -> BriefKind:
@@ -5899,7 +5945,7 @@ KINDS: dict[str, Kind] = {
     "openings": Kind("여는 화 여러 안", "계획", "", "SYSTEM_PLANNER", "opening_plots_prompt", "OpeningPlots", "opening.suggest_openings"),
     "coord": Kind("조율 메모", "계획", "", "SYSTEM_PLANNER", "coord_prompt", "CoordDraft", "pipeline.make_coord"),
     "storyboard": Kind("스토리보드", "쓰기", "board", "SYSTEM_PLANNER", "storyboard_prompt", "StoryboardDraft", "pipeline.make_storyboard",
-                       _PLAN + ("write_head", "canon_values", "board_scenes", "board_rules", "blueprint_board", "body_rule"), view=True,
+                       _PLAN + ("write_head", "canon_values", "board_scenes", "board_rules", "blueprint_board", "ability_board", "body_rule"), view=True,
                        brief=_bk("스토리보드", need="confirmed", stage="board")),
     "storyboard_revise": Kind("스토리보드 고치기", "쓰기", "board", "SYSTEM_PLANNER", "storyboard_revise_prompt", "StoryboardDraft",
                               "pipeline.revise_storyboard"),
@@ -6057,6 +6103,10 @@ _SAMPLES = {
     "state_rules": lambda p, n: STATE_RULES.format(n=n),
     "time_state": lambda p, n: timeline.state_rule(p, n).strip() if n else "",
     "contact_state": lambda p, n: blueprint.state_rule(p, n).strip() if n else "",
+    "ability_board": lambda p, n: ability_board_rule(p, n).strip() if n else "",
+    "ability_write": lambda p, n: ability_write_line(p, n).strip() if n else "",
+    "ability_check": lambda p, n: ability_check_rule(p, n).strip() if n else "",
+    "ability_state": lambda p, n: blueprint.ability_state_rule(p, n).strip() if n else "",
     "canon_values": lambda p, n: canon_values_block(p, n) if n else "",
     "cue_focus": lambda p, n: cue_focus_rule(p, n).strip() if n else "",
     "heat_cue": lambda p, n: heat_cue_rule(p, n).strip() if n else "",
