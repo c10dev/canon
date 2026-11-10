@@ -154,7 +154,8 @@
 - `OutputCut`(RuntimeError): 끝난 이유 대신 오류로 끊김을 알리는 백엔드가 낸다(Claude API `max_tokens`)
 - Gemini 추론 강도(`GeminiLLM.effort`, `settings.GEMINI_EFFORTS`)는 `thinking_config.thinking_level` 로 넘긴다(일반 호출과 배치)
 - Gemini 온도(`GeminiLLM.temperature`)는 정했을 때만 `temperature` 로 넘긴다. 연구 화면 샘플 생성과 프롬프트 놀이터가 쓴다(`research.make_backend`)
-- 프롬프트 놀이터는 `research.make_backend` 에 단계를 넘겨 그 단계의 모델 · 추론 강도로 Gemini · 로컬을 만든다
+- 프롬프트 놀이터는 `research.make_backend` 에 단계를 넘겨 그 단계의 모델 · 추론 강도로 Gemini · 로컬 · Claude 를 만든다
+- Claude 백엔드에는 놀이터의 온도를 넘기지 않는다(Opus 5.5 는 `temperature` 를 400 으로 거절한다)
 - 강도를 비우면 `thinking_config` 를 보내지 않는다(모델 기본값)
 - Gemini 명시 캐시(`GeminiLLM._cached`)는 플롯 대화 단계(`stage == "chat"`)에서 `settings.gemini_cache` 가 켜져 있을 때만 쓴다
 - 같은 종류 직전 요청과 겹치는 앞부분은 `claude.shared_cut` 으로 찾는다(열쇠 `("gemini", vertex, 모델, 시스템, 작품)`, 단락 경계)

@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import contextvars
 import json
 import random
 import re
@@ -13,6 +14,7 @@ import socket
 import time
 import urllib.error
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
@@ -31,8 +33,12 @@ STAGES = {"setup": "설정 제안", "style": "문체 분석", "arc": "기승전�
 _RANGE_RE = re.compile(r"(-?\d+(?:\.\d+)?)[^\d~-]{0,10}~\s*(-?\d+(?:\.\d+)?)")
 
 
+# 실험에서 고를 수 있는 백엔드. claude 는 설치된 Claude Code 의 구독 로그인, claude-api 는 Anthropic API 키다 (llm.make_llm)
+PROVIDERS = ("gemini", "local", "claude", "claude-api", "mock")
+
+
 class Backend(BaseModel):
-    """실험에 쓸 백엔드. model, url 이 비면 설정 화면 값을 쓴다."""
+    """실험에 쓸 백엔드. model, url 이 비면 설정 화면 값을 쓴다. provider 는 PROVIDERS 중 하나다."""
     provider: str = "local"
     model: str = ""
     url: str = ""
@@ -44,7 +50,7 @@ def label(b: Backend) -> str:
 
 def stage_defaults(b: Backend, stage: str = "", preset: dict | None = None) -> tuple[str, str]:
     """그 단계의 (모델, 추론 강도). 모델 칸을 적었으면 그 모델. 단계 모델은 그 단계 백엔드가 b 와 같을 때만 쓴다 (다른 백엔드의 모델 이름이라서).
-    추론 강도는 Gemini 만 받는다(settings.provider_effort). 단계가 없으면 둘 다 빈칸(설정 값 · 모델 기본값)."""
+    추론 강도는 Gemini · Claude 만 받는다(settings.provider_effort). 단계가 없으면 둘 다 빈칸(설정 값 · 모델 기본값)."""
     if not stage or b.provider == "mock":
         return b.model, ""
     model = b.model or (settings.stage_model(stage, preset)[0] if settings.stage_provider(stage, preset)[0] == b.provider else "")
@@ -52,7 +58,8 @@ def stage_defaults(b: Backend, stage: str = "", preset: dict | None = None) -> t
 
 
 def make_backend(b: Backend, temperature: float | None = None, stage: str = "", preset: dict | None = None) -> LLM:
-    """stage 를 주면 모델 칸이 빈 백엔드는 그 단계의 모델 · 추론 강도로 만든다 (stage_defaults, 프롬프트 놀이터가 불러온 갈래의 단계)."""
+    """stage 를 주면 모델 칸이 빈 백엔드는 그 단계의 모델 · 추론 강도로 만든다 (stage_defaults, 프롬프트 놀이터가 불러온 갈래의 단계).
+    temperature 는 Gemini · 로컬만 받는다. Claude 는 받지 않는다(Opus 5.5 는 temperature 를 400 으로 거절한다)."""
     model, effort = stage_defaults(b, stage, preset)
     if b.provider == "local":
         sampling = settings.local_sampling()
@@ -61,9 +68,11 @@ def make_backend(b: Backend, temperature: float | None = None, stage: str = "", 
         return LocalLLM(base_url=b.url or None, model=model or None, sampling=sampling)
     if b.provider == "gemini":
         return GeminiLLM(model=model or None, effort=effort, temperature=temperature)
+    if b.provider in settings.CLAUDE_PROVIDERS:
+        return make_llm(b.provider, model or None, effort)
     if b.provider == "mock":
         return make_llm("mock")
-    raise ValueError(f"알 수 없는 백엔드: {b.provider} (gemini | local | mock)")
+    raise ValueError(f"알 수 없는 백엔드: {b.provider} ({' | '.join(PROVIDERS)})")
 
 
 def _model_name(llm: LLM) -> str:
@@ -179,31 +188,40 @@ RAW_MAX = 30000  # 실패한 결과에 남기는 원문 글자 수 상한 (세�
 
 def sample(runs: list[Backend], system: str, prompt: str, temperature: float | None = None, schema: type[BaseModel] | None = None,
            stage: str = "", preset: dict | None = None, out_tokens: int = 0) -> list[dict]:
-    """같은 요청을 백엔드마다 차례로 보낸다. 한 쪽이 실패해도 나머지는 돌린다.
+    """같은 요청을 백엔드마다 동시에 보내고, 결과는 runs 차례로 돌려준다. 한 쪽이 실패해도 나머지는 돌린다.
     schema 를 주면 실제 호출처럼 llm.json(구조화 출력)으로 받아 검증한 JSON 을 글로 돌려준다. 검증에 실패하면 그 백엔드는 실패다.
     mock 은 부른 쪽의 hint 로 응답을 지어 hint 없이는 스키마 응답을 못 만든다. 그래서 mock 은 schema 를 받아도 글로 받는다(row 의 schema 가 빈칸).
-    stage 는 모델 칸이 빈 백엔드에 그 단계의 모델 · 추론 강도를 쓰게 하고(make_backend), out_tokens 는 출력 한도(llm.out_cap)다."""
-    out = []
-    for b in runs:
-        structured = schema is not None and b.provider != "mock"  # 형식은 pipeline 이 쓰는 것과 같아 test_schema_nodict 가 따로 보지 않는다
-        row: dict[str, Any] = {"backend": label(b), "schema": schema.__name__ if structured else ""}
-        t = time.perf_counter()
-        llm = None
-        try:
-            llm = make_backend(b, temperature, stage, preset)
-            with out_cap(out_tokens) if out_tokens else nullcontext():
-                text = llm.json(system, prompt, schema).model_dump_json(indent=2) if structured else llm.text(system, prompt)
-            m = metrics.measure(text)
-            row.update(ok=True, model=_model_name(llm), effort=getattr(llm, "effort", "") or "", text=text, chars=len(text),
-                       usage=getattr(llm, "last_usage", None),
-                       sentence_len_mean=m.sentence_len_mean, dialogue_ratio=m.dialogue_ratio, mattr=m.mattr)
-        except Exception as e:  # 백엔드마다 오류 종류가 달라 메시지만 남긴다
-            row.update(ok=False, error=f"{type(e).__name__}: {e}")
-            # 받은 원문과 끝난 이유: 구조화 출력이 어긋나 실패했을 때 모델이 실제로 낸 글을 본다 (형식 고치기 재요청의 답)
-            row.update(raw=str(getattr(llm, "last_raw", "") or "")[:RAW_MAX], finish=str(getattr(llm, "last_finish", "") or ""))
-        row["seconds"] = round(time.perf_counter() - t, 2)
-        out.append(row)
-    return out
+    stage 는 모델 칸이 빈 백엔드에 그 단계의 모델 · 추론 강도를 쓰게 하고(make_backend), out_tokens 는 출력 한도(llm.out_cap)다.
+    스레드마다 부른 쪽의 컨텍스트 사본을 넘겨 사용량 기록(usage.scope)의 작품 · 작업 정보가 따라가게 한다."""
+    if len(runs) <= 1:
+        return [_sample_one(b, system, prompt, temperature, schema, stage, preset, out_tokens) for b in runs]
+    with ThreadPoolExecutor(max_workers=len(runs)) as pool:
+        futures = [pool.submit(contextvars.copy_context().run, _sample_one, b, system, prompt, temperature, schema, stage, preset, out_tokens)
+                   for b in runs]
+        return [f.result() for f in futures]
+
+
+def _sample_one(b: Backend, system: str, prompt: str, temperature: float | None, schema: type[BaseModel] | None,
+                stage: str, preset: dict | None, out_tokens: int) -> dict:
+    """sample 의 백엔드 하나. 오류는 던지지 않고 줄에 남긴다."""
+    structured = schema is not None and b.provider != "mock"  # 형식은 pipeline 이 쓰는 것과 같아 test_schema_nodict 가 따로 보지 않는다
+    row: dict[str, Any] = {"backend": label(b), "schema": schema.__name__ if structured else ""}
+    t = time.perf_counter()
+    llm = None
+    try:
+        llm = make_backend(b, temperature, stage, preset)
+        with out_cap(out_tokens) if out_tokens else nullcontext():
+            text = llm.json(system, prompt, schema).model_dump_json(indent=2) if structured else llm.text(system, prompt)
+        m = metrics.measure(text)
+        row.update(ok=True, model=_model_name(llm), effort=getattr(llm, "effort", "") or "", text=text, chars=len(text),
+                   usage=getattr(llm, "last_usage", None),
+                   sentence_len_mean=m.sentence_len_mean, dialogue_ratio=m.dialogue_ratio, mattr=m.mattr)
+    except Exception as e:  # 백엔드마다 오류 종류가 달라 메시지만 남긴다
+        row.update(ok=False, error=f"{type(e).__name__}: {e}")
+        # 받은 원문과 끝난 이유: 구조화 출력이 어긋나 실패했을 때 모델이 실제로 낸 글을 본다 (형식 고치기 재요청의 답)
+        row.update(raw=str(getattr(llm, "last_raw", "") or "")[:RAW_MAX], finish=str(getattr(llm, "last_finish", "") or ""))
+    row["seconds"] = round(time.perf_counter() - t, 2)
+    return row
 
 
 # ---------- 단계 시험 ----------

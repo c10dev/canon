@@ -67,13 +67,13 @@
 ### `canon/promptlab.py`
 
 - 프롬프트 놀이터(작품 밖 `<CANON_HOME>/.promptlab/<id>.json`, `CANON_PROMPTLAB` 으로 경로 변경, 화면은 `static/promptlab.js`, 웹 `/api/promptlab/...`)
-- 시스템 · 요청 프롬프트를 직접 써서 고른 백엔드(`PROVIDERS`: gemini · local · mock)로 돌리고 결과를 시도로 남긴다. 작품과 상관없다
+- 시스템 · 요청 프롬프트를 직접 써서 고른 백엔드(`PROVIDERS` = `research.PROVIDERS`: gemini · local · claude · claude-api · mock)로 돌리고 결과를 시도로 남긴다. 작품과 상관없다
 - 세션 `PromptSession` 은 지금 칸(제목 · 시스템 · 요청 · 온도 · 백엔드 `PromptBackend`)과 시도 `PromptTrial`
 - 시도는 그때의 시스템 · 요청 · 온도와 백엔드마다 결과 `PromptRun`(글 · 오류 · 초 · 글자 · 토큰 · 어림 비용), 고름 `star`, 메모 `note`
 - 저장 `load` · `save`(`store.write_atomic`) · `sessions` · `create` · `update` · `delete` · `duplicate`(프롬프트 · 백엔드만 복사)
 - 백엔드 정리 `clean_backends`: 모르는 백엔드는 막고 같은 것은 한 번만, 주소는 로컬만 남기고 `MAX_BACKENDS` 개까지
 - 제목은 비우면 요청 첫 줄로 짓는다(`title_of`). 작가가 적은 제목은 프롬프트를 바꿔도 남는다
-- 돌리기 `run` 은 `research.sample` 을 그대로 부른다(차례로 부름, 한 쪽이 실패해도 나머지는 돎). 세션은 바꾸지 않고 `add_trial` 로 붙인다
+- 돌리기 `run` 은 `research.sample` 을 그대로 부른다(동시에 부름, 한 쪽이 실패해도 나머지는 돎). 세션은 바꾸지 않고 `add_trial` 로 붙인다
 - 불러온 갈래가 있으면 `run_spec` 대로 돌린다: 응답 스키마(구조화 출력 `llm.json`), 그 단계의 모델 · 추론 강도, 출력 한도
 - 출력 한도 `OUT_TOKENS`(갈래 → 모듈 · 이름): 스토리보드 · 큐 시트는 `pipeline.BOARD_OUT_TOKENS` · `CUE_OUT_TOKENS`, 대화 에이전트는 `agent.STEP_OUT_TOKENS`, 나머지는 기본 한도
 - 고른 작품에서 불러왔으면 그 작품의 단계 프리셋(`settings.project_preset`)을 쓴다
@@ -152,10 +152,12 @@
 - 연구 화면(모델 실험) 로직
 - 서버 점검
 - 샘플 비교
+- 실험 백엔드 `PROVIDERS`: gemini · local · claude · claude-api · mock. `make_backend` 가 Claude 두 백엔드는 `llm.make_llm` 으로 만들고 온도는 넘기지 않는다
+- 샘플 생성 `sample` 은 백엔드마다 스레드를 띄워 동시에 부르고(`_sample_one`), 결과는 고른 차례로 준다. 스레드마다 `contextvars.copy_context()` 로 사용량 기록 정보를 넘긴다
 - 샘플 생성 `sample` 은 실패하면 받은 원문(`last_raw`, `RAW_MAX` 자까지)과 끝난 이유(`last_finish`)를 줄에 남긴다
 - 샘플 생성 `sample` 은 schema 를 주면 `llm.json` 으로 받아 검증한 JSON 을 글로 돌려준다. mock 은 hint 없이 스키마 응답을 짓지 못해 글로 받는다
 - `sample` 의 stage · out_tokens: 모델 칸이 빈 백엔드는 그 단계의 모델 · 추론 강도(`stage_defaults`)로 만들고 출력 한도(`llm.out_cap`)를 건다
-- `stage_defaults`: 단계 모델은 그 단계 백엔드가 같을 때만 쓰고, 추론 강도는 `settings.provider_effort` 로 바꿔 Gemini 에만 넘긴다
+- `stage_defaults`: 단계 모델은 그 단계 백엔드가 같을 때만 쓰고, 추론 강도는 `settings.provider_effort` 로 바꿔 Gemini · Claude 에만 넘긴다
 - 단계 시험
 - 컨텍스트 크기
 - 검수 시험

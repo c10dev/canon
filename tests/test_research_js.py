@@ -10,7 +10,7 @@ def test_backend_chips_dedupe_and_filter():
     got = run_js(FILES, """[
       rsCands({ config: data.config, probe: data.probe, probeUrl: 'http://gpu:8001/v1', log: data.log }).map((c) => [c.b.provider, c.b.model, c.b.url, c.sub]),
       rsCands({ config: data.config, log: data.log, kinds: ['local', 'mock'] }).map((c) => c.b.provider + ':' + c.b.model),
-      [rsParse('local:qwen3-32b'), rsParse('gemini'), rsParse('claude:x')],
+      [rsParse('local:qwen3-32b'), rsParse('gemini'), rsParse('claude:x'), rsParse('openai:x')],
     ]""", {"config": {"provider": "gemini", "model_setting": "gemini-4-argon", "local_url": "http://gpu:8001/v1", "local_model": "qwen3-32b"},
            "probe": {"models": [{"id": "qwen3-32b"}, {"id": "gemma-4-27b"}]},
            "log": [{"kind": "sample", "rows": [{"backend": "local:qwen3-32b"}, {"backend": "gemini"}]}, {"kind": "compare", "backends": ["local:gemma-4-27b", "mock"]}]})
@@ -20,7 +20,25 @@ def test_backend_chips_dedupe_and_filter():
                      ["local", "qwen3-32b", "", "로컬 · 서버 점검에서"], ["local", "gemma-4-27b", "", "로컬 · 서버 점검에서"],
                      ["mock", "", "", "기록에서"]]
     assert local_only == ["local:", "local:qwen3-32b", "local:gemma-4-27b", "mock:"]  # 판단기 칩은 로컬 · mock 만
-    assert parsed == [{"provider": "local", "model": "qwen3-32b", "url": ""}, {"provider": "gemini", "model": "", "url": ""}, None]
+    assert parsed == [{"provider": "local", "model": "qwen3-32b", "url": ""}, {"provider": "gemini", "model": "", "url": ""},
+                      {"provider": "claude", "model": "x", "url": ""}, None]
+
+
+@needs_node
+def test_claude_chips_only_when_set_up():
+    got = run_js(FILES, """[
+      rsClaudeKinds({ provider: 'gemini' }),
+      rsClaudeKinds({ provider: 'gemini', stages: { check: { provider: 'claude' } } }),
+      rsClaudeKinds({ provider: 'gemini', anthropic_key_hint: '…abcd' }),
+      rsCands({ config: data.config, log: data.log }).map((c) => [c.b.provider, c.b.model, c.sub]),
+      rsCands({ config: data.config, log: data.log, kinds: ['local', 'mock'] }).map((c) => c.b.provider),
+    ]""", {"config": {"provider": "claude", "model_setting": "gemini-4-argon", "claude_model": "claude-opus-5-5", "stages": {"write": {"provider": "gemini"}}},
+           "log": [{"kind": "compare", "backends": ["claude-api:claude-opus-5-5", "gemini"]}]})
+    plain, by_stage, by_key, chips, judge = got
+    assert plain == [] and by_stage == ["claude"] and by_key == ["claude-api"]  # 쓰지 않는 Claude 는 칩으로 내놓지 않는다
+    assert chips == [["gemini", "", "Gemini · 설정값 gemini-4-argon"], ["local", "", "로컬 · 설정값"],
+                     ["claude", "", "Claude 구독 · 설정값 claude-opus-5-5"], ["claude-api", "claude-opus-5-5", "기록에서"]]
+    assert judge == ["local"]  # 판단기 칩에는 Claude 가 없다
 
 
 @needs_node

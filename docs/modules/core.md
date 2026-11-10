@@ -125,6 +125,7 @@
   - `branches`: 갈래 보기
   - `cast`: 인물별 등장 · 지금 관계 · 화별 타임라인(바뀐 설정 포함) 보기
   - `compare`: 같은 화를 두 백엔드로 써서 가려 비교
+  - `compare --a` · `--b` 는 `research.PROVIDERS` 에서 고른다(Claude 구독 · API 키 포함)
   - `convert`: 단편을 장편으로 바꾸기(단편 전체가 아크 1)
   - `convert --rebuild`: 단편을 씨앗으로 앞부분을 다시 짜기
   - `convert --undo`: 전환 되돌리기
