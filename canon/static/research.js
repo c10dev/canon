@@ -139,6 +139,36 @@ function rsName(b) {
   return 'mock';
 }
 
+/** 백엔드가 쓸 모델 이름 '<백엔드>:<모델>' (Episode.written_by 와 같은 모양). 모델 칸이 비면 설정값. 모르면 ''. 순수 함수 */
+function rsModelId(b, config = {}) {
+  const dflt = { gemini: config.model_setting, local: config.local_model, claude: config.claude_model,
+    'claude-api': config.claude_model || 'claude-opus-5-5' }[b.provider];  // claude.DEFAULT_API_MODEL
+  const m = (b.model || '').trim() || dflt || '';
+  return m && b.provider !== 'mock' ? `${b.provider}:${m}` : '';
+}
+
+/** 이 화에 그 모델이 이미 쓴 판: 지금 본문 → 새 판 → 남겨 둔 판(최근 것부터). research.kept_draft 와 같은 차례. 없으면 ''. 순수 함수 */
+function rsKeptSource(e, id) {
+  if (!e || !id) return '';
+  if ((e.text || '').trim() && e.written_by === id) return 'text';
+  if (e.candidate && (e.candidate.text || '').trim() && e.candidate.model === id) return 'candidate';
+  if ((e.versions || []).some((v) => (v.text || '').trim() && v.model === id)) return 'version';
+  return '';
+}
+
+const RS_KEPT = { text: '지금 본문', candidate: '고르기를 기다리는 새 판', version: '남겨 둔 지난 판' };
+
+/** 비교본 쓰기 전 안내: 기존 본문을 가져올 쪽. 두 쪽이 같은 모델이면 둘 다 새로 쓴다(research.kept_drafts) */
+function rsKeptNote(e, a, b, config) {
+  const ids = [rsModelId(a, config), rsModelId(b, config)];
+  if (ids[0] && ids[0] === ids[1]) return '';
+  const lines = ['A', 'B'].map((side, i) => {
+    const src = rsKeptSource(e, ids[i]);
+    return src ? `${side}(${ids[i].split(':').slice(1).join(':')})는 이 화를 이미 쓴 모델이라 새로 쓰지 않고 ${RS_KEPT[src]}을 가져와요.` : '';
+  }).filter(Boolean);
+  return lines.join(' ');
+}
+
 function rsBackendFields(path, b, kinds = [['local', '로컬 서버'], ['gemini', 'Gemini'], ['claude', 'Claude 구독 로그인'], ['claude-api', 'Claude API 키'], ['mock', 'mock']]) {
   const id = 'rs-' + path.replace(/\W/g, '-');
   const opts = kinds.map(([v, l]) => backendOption(v, l, b.provider)).join('');
@@ -454,23 +484,29 @@ function rsCompareView() {
   const reveal = c && c.order;
   const others = S.rs.openCmp.filter((x) => x.episode !== n);
   const card = (d, open) => `<section class="card tight${c.picked === d.n ? ' rs-picked' : ''}">
-      <div class="between"><h3>${d.n}번${reveal ? ` <span class="chip ai">${esc(c.order[d.n - 1])}</span>` : ''}</h3>
+      <div class="between"><h3>${d.n}번${reveal ? ` <span class="chip ai">${esc(c.order[d.n - 1])}</span>${keptChip(c.order[d.n - 1])}` : ''}</h3>
         ${c.picked ? (c.picked === d.n ? '<span class="chip ok">고름</span>' : '') : `<button class="btn small" data-action="rsPick" data-arg="cmp|${d.n}">${d.n}번 고르기</button>`}</div>
       ${blindProse(c, d)}
       ${blindMetrics(open, `<div class="small">${rsNum(d.chars)}자 · 문장 평균 ${rsNum(d.sentence_len_mean, 1)} · 대사 ${rsNum(d.dialogue_ratio, 2)} · 어휘 ${rsNum(d.mattr, 3)}</div>
         ${d.warnings.length ? `<div class="note warn">${d.warnings.map(esc).join('<br>')}</div>` : ''}`)}
     </section>`;
+  const keptChip = (label) => {
+    const k = (c.kept || {})[label];
+    return k ? ` <span class="chip" title="새로 쓰지 않고 이 화에 있던 판을 가져왔어요">기존 본문${k.edits ? ` · 고친 곳 ${k.edits}` : ''}</span>` : '';
+  };
+  const keptNote = e && !blocked.length ? rsKeptNote(e, S.rs.compareA, S.rs.compareB, S.config || {}) : '';
   const wins = S.rs.pickResult ? Object.entries(S.rs.pickResult.wins).map(([k, v]) => `${esc(k)} ${v}`).join(', ') : '';
   return `<section class="card" aria-labelledby="rs-set-h"><h2 id="rs-set-h">무엇을 견줄까요</h2>
       <div class="field" style="max-width:360px"><label for="rs-cmp-ep">화</label>
         <select id="rs-cmp-ep" onchange="actions.rsCompareEp()">${eps.map((x) => `<option value="${x.plot.number}"${x.plot.number === n ? ' selected' : ''}>${x.plot.number}화 ${esc(x.plot.title)} · ${STATUS[x.status]}${need(x.plot.number)}</option>`).join('') || '<option>확정된 화가 없어요</option>'}</select></div>
       <div class="grid-2">${rsPicker('compareA', 'A')}${rsPicker('compareB', 'B')}</div>
       <label class="rs-opt${S.rs.adopt && !fin ? ' on' : ''}"><input type="checkbox" data-rs="adopt"${S.rs.adopt && !fin ? ' checked' : ''}${fin ? ' disabled' : ''}><span><strong>고른 쪽을 본문으로 채택</strong></span><span class="c"></span><span class="s">끄면 고른 기록만 남기고 작품은 그대로 둬요. 반영이 끝난 화는 채택할 수 없어요.</span></label>
+      ${keptNote ? `<div class="note info">${esc(keptNote)}</div>` : ''}
       ${blocked.length ? orderNote(blocked) : fin ? '<div class="note plain">이 화는 반영이 끝난 화라 골라도 본문은 바뀌지 않고 고른 기록만 남아요.</div>' : ''}
       ${others.length ? `<div class="note info">아직 고르지 않은 비교본이 더 있어요: ${others.map((x) => `<button type="button" class="btn small" data-action="rsGoCompare" data-arg="${x.episode}">${x.episode}화</button>`).join(' ')}</div>` : ''}
     </section>
-    ${S.rs.pickResult ? `<div class="note ok" role="status">고른 쪽: ${esc(S.rs.pickResult.picked)}. 지금까지 고른 횟수: ${wins}</div>` : ''}
-    ${c ? `<section class="card" aria-labelledby="rs-res-h"><div><h2 id="rs-res-h">${n}화 비교본 ${c.drafts.length}개</h2><span class="small">${esc(fmtWhen(c.created))}에 썼어요${c.picked ? '' : ' · 고르기 전까지 백엔드를 가려요'}</span></div>
+    ${S.rs.pickResult ? `<div class="note ok" role="status">고른 쪽: ${esc(S.rs.pickResult.picked)}${S.rs.pickResult.kept && S.rs.pickResult.adopted ? ` (${S.rs.pickResult.kept.source === 'text' ? '지금 본문이라 본문은 그대로예요' : '이 화에 있던 판으로 바꿨어요'})` : ''}. 지금까지 고른 횟수: ${wins}</div>` : ''}
+    ${c ? `<section class="card" aria-labelledby="rs-res-h"><div><h2 id="rs-res-h">${n}화 비교본 ${c.drafts.length}개</h2><span class="small">${esc(fmtWhen(c.created))}에 썼어요${c.picked ? '' : ' · 고르기 전까지 백엔드를 가려요'}${!c.picked && c.kept_count ? ` · ${c.kept_count === c.drafts.length ? '모든 안' : `${c.kept_count}개 안`}은 이 화에 있던 판이에요` : ''}</span></div>
       ${blindDeck(c, card)}</section>` : ''}
     ${rsPast('compare', ['compare', 'pick'])}`;
 }

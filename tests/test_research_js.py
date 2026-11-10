@@ -61,6 +61,29 @@ def test_default_model_and_claude_missing():
 
 
 @needs_node
+def test_kept_note_names_the_side_that_reuses_text():
+    got = run_js(FILES, """[
+      rsModelId({ provider: 'gemini', model: '' }, data.config),
+      rsModelId({ provider: 'claude', model: '' }, data.config),
+      rsModelId({ provider: 'claude-api', model: '' }, {}),
+      rsModelId({ provider: 'local', model: '' }, {}),
+      rsModelId({ provider: 'mock' }, data.config),
+      rsKeptSource(data.ep, 'claude:claude-opus-5-5'),
+      rsKeptSource(data.ep, 'gemini:gemini-3.8-flash'),
+      rsKeptSource(data.ep, 'gemini:gemini-4-argon'),
+      rsKeptNote(data.ep, { provider: 'gemini', model: '' }, { provider: 'claude', model: '' }, data.config),
+      rsKeptNote(data.ep, { provider: 'claude', model: '' }, { provider: 'claude', model: 'claude-opus-5-5' }, data.config),
+    ]""", {"config": {"model_setting": "gemini-4-argon", "claude_model": "claude-opus-5-5"},
+           "ep": {"text": "본문", "written_by": "claude:claude-opus-5-5", "candidate": None,
+                  "versions": [{"text": "옛 판", "model": "gemini:gemini-3.8-flash"}, {"text": "", "model": "gemini:gemini-4-argon"}]}})
+    gem, sub, api, local, mock, cur, old, empty, note, same = got
+    assert (gem, sub, api, local, mock) == ("gemini:gemini-4-argon", "claude:claude-opus-5-5", "claude-api:claude-opus-5-5", "", "")
+    assert (cur, old, empty) == ("text", "version", "")  # 빈 판은 가져오지 않는다
+    assert note == "B(claude-opus-5-5)는 이 화를 이미 쓴 모델이라 새로 쓰지 않고 지금 본문을 가져와요."
+    assert same == ""  # 두 쪽이 같은 모델이면 둘 다 새로 쓴다
+
+
+@needs_node
 def test_brief_marks_what_needs_a_look():
     latest = {
         "budget": {"time": "t1", "backend": "local:qwen3-32b", "limit": 32768, "first_over": 8, "first_tight": 7},

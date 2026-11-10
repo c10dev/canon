@@ -1582,6 +1582,8 @@ def cmd_compare(a: argparse.Namespace) -> None:
         r = research.pick_compare(a.name, p, a.n, a.pick)
         store.save(a.name, p)
         print(f"{a.pick}번은 {r['picked']} 였어요 (다른 쪽: {', '.join(r['others'])}). {a.n}화 본문으로 저장했어요.")
+        if r.get("kept"):
+            print("고른 안은 이 화에 있던 판이라 다시 쓰지 않았어요" + (" (지금 본문 그대로)" if r["kept"]["source"] == "text" else ""))
         print("지금까지 고른 횟수: " + ", ".join(f"{prov} {cnt}" for prov, cnt in sorted(r["wins"].items())))
         return
     if a.a == a.b:
@@ -1593,6 +1595,8 @@ def cmd_compare(a: argparse.Namespace) -> None:
         print(f"{d['n']:>3} {d['chars']:>6} {d['sentence_len_mean']:>7} {d['dialogue_ratio']:>5} {_num(d['mattr']):>6}  {len(d['warnings']) or ''}")
         for w in d["warnings"]:
             print(f"      ! {w}")
+    if c.get("kept_count"):
+        print(f"\n{c['kept_count']}개 안은 그 모델이 이 화에 이미 쓴 판을 가져왔어요 (새로 쓰지 않음)")
     out = research.compare_dir(a.name, a.n)
     print(f"\n저장: {out}/1.md, 2.md (key.json은 열지 마세요)\n읽어 보고 고르세요: compare {a.name} {a.n} --pick 1|2")
 
