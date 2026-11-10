@@ -14,8 +14,9 @@
 | 2 | 2 | 관계 이정표 경고: 관계 속도 점검(`pace`) 넓히기, 이정표끼리 · 지금에서 다음까지 칸 검사(`blueprint.warnings`, 막지 않음) | 끝 ([#477](https://github.com/c10dev/canon/pull/477) 머지) | [02-milestone-warn.md](specs/02-milestone-warn.md) | 1 |
 | 3 | 3 | 설계도 화면: 여정 편집과 계획 띠 (사이드바 도구, 관계 카드에서 링크) | 끝 ([#478](https://github.com/c10dev/canon/pull/478) 머지) | [03-journey.md](specs/03-journey.md) | 1 |
 | 4 | 4 | 기획 프롬프트(다음 아크 · 장편 화별 플롯)에 지금 범위와 다음 이정표, 예산, mock, 앞당김 실측 | 끝 ([#479](https://github.com/c10dev/canon/pull/479) 머지) | [04-plan-prompt.md](specs/04-plan-prompt.md) | 1 |
-| 5 | 5 | 지금 플롯에서 설계도 거꾸로 뽑기(아크 단위)와 승인 화면 | 진행 (claude/blueprint-extract) | [05-extract.md](specs/05-extract.md) | 1, 3 |
-| 6 | 6 | 스토리보드 · 쓰기 · 검수 연결, 실제 접촉 기록(상태 변경안의 닫힌 목록) | 설계 | — | 4 |
+| 5 | 5 | 지금 플롯에서 설계도 거꾸로 뽑기(아크 단위)와 승인 화면 | 끝 ([#480](https://github.com/c10dev/canon/pull/480) 머지) | [05-extract.md](specs/05-extract.md) | 1, 3 |
+| 6 | 6a | 스토리보드 · 쓰기 · 검수 연결 (프롬프트 줄) | 진행 (claude/blueprint-board) | [06-episode.md](specs/06-episode.md) | 4 |
+| 7 | 6b | 실제 접촉 기록: 상태 변경안이 닿은 칸을 닫힌 목록에서 고르고 작가가 승인, 자동 집필 · `-y` 는 남겨 둠 | 설계 | — | 6a |
 
 - 명세서가 '—'인 일감은 시작할 때 `specs/NN-이름.md` 로 쓴다.
 - 4 와 6 은 `prompts.py` 를 고친다. 규칙 층(`Settings.rule_layers`, 브랜치 `claude/style-rule-layers`)도 스토리보드 요청 끝을 고치므로 시작 전에 견준다.

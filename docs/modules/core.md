@@ -694,6 +694,9 @@
 - 장편 화별 플롯 초안은 `[관계]` 뒤에 지금 관계 단계 라벨(`plan_stage_block`, 예산 `context.BUDGET["plan_stages"]`), 장편 `plot_rules` 에 '단계는 한 화에 한 칸' 한 줄
 - 장편 화별 플롯 초안은 지금 관계 단계 뒤에, 다음 아크 기획은 가 닿을 곳 뒤에 설계도 블록(`blueprint_plan_block`, 예산 `context.BUDGET["blueprint"]`)을 넣는다. 설계도가 비면 빈 글
 - 길이를 정하지 않은 다음 아크의 설계도 범위는 시작 화부터 `PLAN_SPAN`(30)화, 부 끝까지
+- 스토리보드 요청 맨 끝(`plan_board_rule` 뒤)에 이번 화 설계도 `blueprint_board_rule`: 지금 칸 · 처음 닿는 범위인 칸 · 넣지 않을 다음 칸 · 이 화가 든 이정표
+- 쓰기 지시문(중심 장면 줄 뒤)에 `blueprint_write_line`: 그 화가 사다리 칸의 처음 닿는 범위일 때만 한 줄. 상한은 넣지 않는다
+- 검수 요구사항(관계 단계 확인 뒤)에 `blueprint_check_rule`: 다음 칸을 앞당긴 본문을 짚는다(type 플롯)
 - 장편 화별 플롯 초안(`serial_plot_prompt`)과 장편 플롯 대화(`_serial_plot_parts`)는 접은 줄거리 뒤에 확정 사실 · 주역 상태 · 주역 밖 인물 상태를 넣는다(`plot_facts_states`)
 - 장편 접은 줄거리(`story_parts`)는 한 줄로 접어도 예산(`story_past`)을 넘으면 오래된 묶음부터 빼고 뺀 수를 적는다(`PAST_DROPPED`)
 - 플레이 줄거리(`play_story`)는 `story_parts` 가 뺀 수를 이어 센다
