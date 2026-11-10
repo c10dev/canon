@@ -96,6 +96,8 @@
 - 스토리보드 · 큐 시트는 플롯을 확정한 화만 조립한다(`pipeline` 과 같다). 앞 화가 끝났는지(`require_previous`)는 보지 않는다
 - 불러오기 재료는 예시 작품(`example_project`, mock LLM 으로 만든 저장하지 않는 6화 단편, 한 번 만들어 사본을 줌)이나 고른 작품(`store.load`, 읽기만)
 - 예시 작품은 1 · 2화에 본문과 상태 반영이 있고 3화는 플롯만 확정했다. 갈래마다 조립하는 화는 `EXAMPLE_N`, 없는 갈래는 `default_n`
+- 예시 장편 `example_serial`: mock LLM 으로 만든 저장하지 않는 300화 장편이다. 첫 아크는 본문과 상태 반영까지, 둘째 아크는 끝 세 화만 플롯 초안이다
+- 예시 장편은 프롬프트 관리 페이지(`routes/prompts.py`)의 견본이다. 한 번 만들어 사본을 준다
 - 단계 이름 `STAGE_LABELS` 에는 부분 수정(`revise`) · 플롯 대화(`chat`)도 있다
 - 고른 작품의 기본 화 `default_n`: 본문이 있어야 하는 갈래는 본문이 있는 마지막 화, 나머지는 본문이 없는 첫 화
 - 확정 · 초안이어야 하는 갈래는 본문이 없고 그 조건에 맞는 첫 화, 플롯 초안은 초안이 든 첫 구간
@@ -258,6 +260,22 @@
 - 도는 동안 바뀐 시도(별표 · 메모)를 덮지 않게 저장 직전에 세션을 다시 읽는다
 - 불러오기 고르기 재료 `GET /api/promptlab/sources?project=` · 불러오기 `POST /api/promptlab/{id}/load`(갈래 · 작품 · 화)
 
+### `canon/routes/prompts.py`
+
+- 프롬프트 관리 페이지 웹 라우트(`/api/prompts/...`). LLM 을 부르지 않고 아무것도 저장하지 않는다
+- `web.py` 맨 끝의 `_attach_routes` 가 `router` 를 앱에 붙이고 `EXPORTS` 의 이름을 `web` 에도 둔다
+- 표 `GET /api/prompts/kinds`: 갈래(`prompts.KINDS`) · 조각(`prompts.PIECES`, 조각마다 들어가는 갈래) · 주제 꼬리표 · 자리 · 묶음 차례
+- 한 갈래 `GET /api/prompts/kinds/{id}?project=&n=`: 조립 보기가 있으면 `prompts.view_request` 로 견본 요청을 조립하고 조각마다 견본 글 · 글자 · 추정 토큰 · `found` 를 붙인다
+- `found` 는 조각 글이 조립한 요청에 있는지(`prompts.found_in`)다. 보내기 직전 조각(`SEND_PIECES`)은 조립한 글에 없어 `None` 이다
+- 견본 `project`: 빈 값은 예시 작품, `:serial` 은 예시 장편(`promptlab.example_serial`), 그 밖은 작품 폴더 이름(`promptlab._project`, 읽기만)
+- 장편에만 있는 갈래(부 구성)는 예시 작품을 골라도 예시 장편으로 조립한다
+- 화를 주지 않으면 놀이터 불러오기와 같은 기본 화(`promptlab._default`)다. 다시 생성 · 서술 다듬기 · 동선 검수는 본문이 있는 마지막 화다
+- 만들 수 없는 견본(본문이 없는 화, 단편의 장편 갈래)은 200 으로 `error` 에 까닭을 담는다. 모르는 갈래 · 작품은 404
+- 조립 보기가 없는 갈래는 표 줄과 그 갈래의 조각만 준다
+- 주제 `GET /api/prompts/topics/{tag}`: 그 꼬리표를 단 조각을 모든 갈래에서 모아, 조립 보기가 있는 첫 갈래로 만든 견본 글을 붙인다
+- 조각 `GET /api/prompts/pieces/{id}`: 조각 하나와 그 견본 글
+- 시험 `tests/test_prompt_registry.py` 의 `test_routes`
+
 ### `canon/routes/refs.py`
 
 - 레퍼런스 원고 웹 라우트(`/api/refs/...`)
@@ -357,6 +375,26 @@
 - 머리 주 버튼은 '돌리기'(백엔드가 둘 이상이면 곳 수). 시도가 꽉 차거나 백엔드가 없으면 막는다
 - 공용 클래스(`.cols` · `.card` · `.grid-auto` · `.chip` · `.rw-text`)만 쓰고 CSS 를 더하지 않는다
 - 순수 함수 · 화면 시험 `tests/test_promptlab_js.py`
+
+### `canon/static/prompts.js`
+
+- 프롬프트 관리 화면(작품 밖 `#/prompts[/<갈래>|/topic/<꼬리표>|/piece/<조각>]`, 서버 `routes/prompts.py`)
+- `app.js` 라우팅이 작품 밖 사이드바 옆에 `viewPrompts` 를 그린다(불러오기 `pcLoad`, 본문 폭 1280px)
+- 작품 밖 도구 🧩(놀이터 바로 뒤) · 작품 사이드바 ⋯ 메뉴 · 찾기 팔레트에서 들어온다
+- 집필 화면 컨텍스트 대화상자의 펼친 블록에 '프롬프트 관리에서 보기' 링크가 있다(`write.js` `ctxMore`, 조각 id 는 블록 id 그대로)
+- 머리의 `.seg` 로 갈래별 · 주제별을 바꾼다. 주 버튼은 없다
+- 찾기 칸(`S.pcQ`)은 왼쪽 갈래 목록과 조각 줄을 이름 · 코드 이름 · 글로 거른다(`pcMatch`)
+- 견본 칸(`S.pcSample`): 예시 작품 · 예시 장편 · `S.projects` 의 작품. 바꾸면 지금 화면을 다시 읽는다
+- 왼쪽 갈래 목록 `pcGroups`: 조립 보기가 있는 갈래를 묶음 차례로, 나머지는 접힌 '표에만' 아래에 묶음별로
+- 갈래 보기 `pcKindView`: 단계 · 응답 · 시스템 · 요청 · 호출 이름, 견본 합계(추정 토큰), 자리마다 카드와 캐시 설명(`PC_PLACE_NOTE`)
+- 조각 줄 `pcPieceRow`: 이름 · 꼬리표 칩(주제 보기로 감) · 코드 이름 · 글자 수 · 횟수 처방 칩 · '이 견본에는 없음' 칩. 펼치면 들어가는 조건과 견본 글
+- 펼친 조각은 `S.pcOpen` 에 남긴다
+- 횟수 처방 `pcCounts`(`PC_COUNT_RX`): '열에 셋쯤' · '화에 셋까지' · '한두 번' · '3~7개' · '세 줄 넘게' 같은 숫자 지시를 표시만 한다
+- '놀이터에서 열기'(`pcPlayground`): 작업지시서 갈래는 놀이터의 불러오기로, 그 밖이나 예시 장편은 조립한 글 그대로 새 놀이터 세션을 만든다
+- 주제 보기 `pcTopicView`: 꼬리표를 단 조각을 자리 차례로(`pcTopic`) 모으고, 조각마다 자리 · 들어가는 갈래 · 견본을 만든 갈래를 적는다
+- 조각 보기 `pcPieceView`: 자리 · 코드 · 조건 · 꼬리표 · 들어가는 갈래 링크 · 견본 글
+- CSS 는 `.pc-` 묶음(왼쪽 목록 · 조각 줄)만 더했다
+- 순수 함수 · 화면 시험 `tests/test_prompts_page_js.py`
 
 ### `canon/static/refs.js`
 
