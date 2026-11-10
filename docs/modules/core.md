@@ -691,6 +691,8 @@
 - `episode_prompt` 는 speech_style 의 대사 예시를 그대로 쓰지 말고 어미 · 호칭 · 길이만 따르라고 적는다. 작가가 정한 말버릇은 써도 된다(`brief` 도 같은 글)
 - 화별 플롯 초안(`plot_prompt` · `serial_plot_prompt`)은 범위 안 · 범위 뒤 3화(`PLAN_AHEAD`)의 이미 정해진 화를 `fixed_plots` · `fixed_block` 으로 넣고 요구사항에 `fixed_rule` 을 붙인다(장편은 `context.BUDGET["plan_fixed"]`, 한 화 초안은 `ahead=False`)
 - 장편 화별 플롯 초안은 `[관계]` 뒤에 지금 관계 단계 라벨(`plan_stage_block`, 예산 `context.BUDGET["plan_stages"]`), 장편 `plot_rules` 에 '단계는 한 화에 한 칸' 한 줄
+- 장편 화별 플롯 초안은 지금 관계 단계 뒤에, 다음 아크 기획은 가 닿을 곳 뒤에 설계도 블록(`blueprint_plan_block`, 예산 `context.BUDGET["blueprint"]`)을 넣는다. 설계도가 비면 빈 글
+- 길이를 정하지 않은 다음 아크의 설계도 범위는 시작 화부터 `PLAN_SPAN`(30)화, 부 끝까지
 - 장편 화별 플롯 초안(`serial_plot_prompt`)과 장편 플롯 대화(`_serial_plot_parts`)는 접은 줄거리 뒤에 확정 사실 · 주역 상태 · 주역 밖 인물 상태를 넣는다(`plot_facts_states`)
 - 장편 접은 줄거리(`story_parts`)는 한 줄로 접어도 예산(`story_past`)을 넘으면 오래된 묶음부터 빼고 뺀 수를 적는다(`PAST_DROPPED`)
 - 플레이 줄거리(`play_story`)는 `story_parts` 가 뺀 수를 이어 센다

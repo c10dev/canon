@@ -21,7 +21,7 @@ from .llm import _inline_refs, dump
 from .schema import Birth, Character, ChatMessage, Claim, ConsistencyIssue, ConsistencyReport, Foreshadow, PlayInfo, PlotBatch, Project, Selection, StateDelta, StateDeltaAI, StoryElement
 from .schema import ArcPlan, ArcProposal, CueSheetDraft, HeatArcPlan, HeatArcProposal, HeatProposal, SeriesPlan, StoryboardDraft
 from .schema import PassageRevision, PlotAgentStep, SetupRevision, StyleRevision
-from . import address, board, charlog, coord, echoes, foreshadows, heatplan, knows, pairlog, stage, statwin, timeline
+from . import address, blueprint, board, charlog, coord, echoes, foreshadows, heatplan, knows, pairlog, stage, statwin, timeline
 from . import offscreen
 from .maps import prompt as mapprompt
 
@@ -174,6 +174,21 @@ def destination_block(p: Project, ids: set[str] | None = None) -> str:
     lines = [f"- {name.get(r.a, r.a)} ↔ {name.get(r.b, r.b)}: {r.destination}" for r in p.relationships
              if r.destination.strip() and (ids is None or (r.a in ids and r.b in ids))]
     return "\n[관계가 가 닿을 곳 (작가가 정한 방향, 지금 관계 아님. 한 화에 한 단계씩 다가감)]\n" + "\n".join(lines) if lines else ""
+
+
+PLAN_SPAN = 30  # 길이를 정하지 않은 다음 아크 기획에서 설계도 줄을 고르는 화 수 (아크는 보통 10~25화, 길어야 30화)
+
+
+def blueprint_plan_block(p: Project, ids: set[str] | None, start: int, end: int) -> str:
+    """장편 기획(다음 아크 · 화별 플롯 초안)의 설계도 블록 (docs/blueprint/specs/04-plan-prompt.md). 작가가 정한 계획이라 지금 관계와 따로 둔다.
+    start~end 에 걸친 이정표 · 사다리 칸과 그 뒤 첫 것만 넣어 화수가 늘어도 커지지 않는다. 예산(context.BUDGET["blueprint"])을 넘으면 뒤 줄부터 빼고 수를 적는다.
+    설계도가 비었거나 이 범위에 걸린 줄이 없으면 빈 글 (지금 프롬프트와 같다)."""
+    lines, cut = context.fit_lines(blueprint.plan_lines(p, ids, start, end), context.BUDGET["blueprint"])
+    if not lines:
+        return ""
+    note = f"\n- 설계 원칙: {p.blueprint.note.strip()}" if p.blueprint.note.strip() else ""
+    return ("\n[설계도 (작가가 정한 계획. 지금 관계가 아니다. 이정표는 그 화 범위 안에서 닿고, 사다리 칸은 처음 닿는 화 범위보다 앞당기지 않는다)]\n"
+            + "\n".join(lines) + note + (f"\n(그 밖 {cut}줄 생략)" if cut else ""))
 
 
 def plan_stage_block(p: Project, ids: set[str]) -> str:
@@ -835,7 +850,7 @@ def serial_plot_prompt(p: Project, start: int, end: int, ahead: bool = True, red
 [등장할 수 있는 다른 인물 (id: 이름, 역할)]
 {roster_line(p, ids) or "없음"}
 [관계]
-{rels(p, ids | {c.id for c in static_characters(p)})}{plan_stage_block(p, ids | {c.id for c in static_characters(p)})}
+{rels(p, ids | {c.id for c in static_characters(p)})}{plan_stage_block(p, ids | {c.id for c in static_characters(p)})}{blueprint_plan_block(p, ids | {c.id for c in static_characters(p)}, start, end)}
 [이야기 요소 (작가가 더한 설정과 사건, 시점 포함)]
 {elements.plan_block(p) or "없음"}{lines_block(p)}
 
@@ -1852,7 +1867,7 @@ def next_arc_prompt(p: Project, start: int, length: int, note: str) -> str:
 [다른 인물 (id: 이름, 역할)]
 {roster_line(p, set()) or "없음"}
 [관계 (주역 · 조연 · 최근 아크 인물)]{cut_note(plan_secrets_cut, "숨긴 비밀은 이 아크와 관련된 것만")}
-{describe_relations(p, ids, secrets=plan_secrets) or rels(p, ids)}{destination_block(p, ids)}
+{describe_relations(p, ids, secrets=plan_secrets) or rels(p, ids)}{destination_block(p, ids)}{blueprint_plan_block(p, ids, start, min(limit, start + (length or PLAN_SPAN) - 1))}
 [이야기 요소 (작가가 더한 설정과 사건, 시점 포함)]
 {elements.plan_block(p) or "없음"}{lines_block(p)}
 [인물 현재 상태]{knows_note(knows_cut)}

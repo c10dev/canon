@@ -275,7 +275,10 @@
 - 계획값이라 관계 수치(`Tie`) · 플롯을 바꾸지 않는다
 - 경고에 방향을 붙인 `warning_rows`(보는 인물, 보이는 인물, 글). `warnings` 는 그 글만
 - 웹은 `GET` · `PUT /api/projects/{name}/blueprint`(보기 `BlueprintView`: 설계도 · 방향 붙은 경고 · 부위 · 동작 이름 · 마지막 반영 화, 저장은 설계도 통째와 `check`)
-- 화면은 `static/blueprint.js`. 아직 프롬프트가 쓰지 않는다(`docs/blueprint/plan.md` 일감 4 · 6)
+- 화면은 `static/blueprint.js`
+- 기획 프롬프트 줄 `plan_lines(p, ids, start, end)`: 화 범위를 적은 줄만, 범위에 걸린 이정표 · 사다리 칸과 그 뒤 첫 것. 두 인물이 모두 ids 에 들 때만
+- 사다리 칸 한 줄 `rung_text`: '차례. 이름 (겹 · 부위 · 동작 · 장소 · 주도 · 메모)', 부위 · 동작은 장면 연출의 이름
+- 쓰기 · 스토리보드 · 검수 프롬프트는 아직 설계도를 쓰지 않는다(`docs/blueprint/plan.md` 일감 6)
 - LLM 호출 없음
 
 ### `canon/branches.py`
