@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from typing import Callable, Iterator, Optional
 
+from . import dynamics
 from .schema import ContactLadder, ContactRung, Milestone, Project
 
 Ranged = Milestone | ContactRung
@@ -153,3 +154,32 @@ def remap(p: Project, remap_one: Callable[[int], int]) -> list[str]:
         else:
             x.from_ep, x.to_ep = lo, max(hi, lo)
     return [f"설계도의 {x} 화 범위를 새 화로 옮기지 못해 비웠어요" for x in lost]
+
+
+def warnings(p: Project) -> list[str]:
+    """관계 이정표 경고 (막지 않음, docs/blueprint/specs/02-milestone-warn.md). 단계와 화 범위를 모두 적은 이정표만 본다.
+    이웃한 두 이정표 사이 칸이 모자람, 범위가 겹치는데 단계가 다름, 지금 단계에서 다음 이정표까지 칸이 모자람."""
+    names = {c.id: c.name or c.id for c in p.characters}
+    last = max((e.plot.number for e in p.episodes if e.status == "finalized"), default=0)
+    by_dir: dict[tuple[str, str], list[Milestone]] = {}
+    for m in p.blueprint.milestones:
+        if m.stage and m.from_ep > 0:
+            by_dir.setdefault((m.source, m.target), []).append(m)
+    out = []
+    for (s, t), ms in by_dir.items():
+        ms.sort(key=lambda m: (m.from_ep, m.to_ep))
+        who = f"{names.get(s, s)} → {names.get(t, t)}"
+        for x, y in zip(ms, ms[1:]):
+            if y.from_ep <= x.to_ep and x.stage != y.stage:
+                out.append(f"관계 이정표 {who}: {x.from_ep}~{x.to_ep}화({x.stage})와 {y.from_ep}~{y.to_ep}화({y.stage})의 범위가 겹쳐요.")
+                continue
+            need, room = dynamics.stage_steps(x.stage, (y.stage,)), y.to_ep - x.from_ep
+            if need > room:
+                out.append(f"관계 이정표 {who}: {x.stage}에서 {y.stage}까지 {need}칸인데 {x.from_ep}화부터 {y.to_ep}화까지 {room}화뿐이에요(한 화에 한 칸).")
+        tie = dynamics.find_tie(p.ties, s, t)
+        nxt = next((m for m in ms if m.to_ep > last), None)
+        if tie and nxt and tie.stage != nxt.stage:
+            need, room = dynamics.stage_steps(tie.stage, (nxt.stage,)), nxt.to_ep - last
+            if need > room:
+                out.append(f"관계 이정표 {who}: 지금 {tie.stage}에서 {nxt.to_ep}화까지 {nxt.stage}에 닿으려면 {need}칸인데 {room}화 남았어요(한 화에 한 칸).")
+    return out

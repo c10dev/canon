@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 import re
-from collections import Counter, deque
+from collections import Counter
 from itertools import combinations
 
 from . import dynamics, metrics, prompts
@@ -174,17 +174,8 @@ UP = {"호감", "신뢰", "화해"}
 
 
 def _steps(start: str, goals: tuple[str, ...]) -> int:
-    """start 에서 goals 가운데 가장 가까운 단계까지 칸 수 (dynamics.STAGE_EDGES 의 너비 우선)."""
-    seen, q = {start: 0}, deque([start])
-    while q:
-        cur = q.popleft()
-        if cur in goals:
-            return seen[cur]
-        for nxt in dynamics.STAGE_EDGES.get(cur, ()):
-            if nxt not in seen:
-                seen[nxt] = seen[cur] + 1
-                q.append(nxt)
-    return 0
+    """start 에서 goals 가운데 가장 가까운 단계까지 칸 수 (dynamics.stage_steps)."""
+    return dynamics.stage_steps(start, goals)
 
 
 def name_forms(name: str) -> list[str]:
@@ -236,6 +227,26 @@ def plot_warnings(p: Project, n: int) -> list[str]:
             out.append(f"{n}화 플롯: {nm.get(far.source, far.source)} → {nm.get(far.target, far.target)} 지금 단계는 {far.stage}예요. "
                        f"이 화는 {SIGN_WORD[sign]} 쪽을 바라는데 단계가 {need}칸 움직여야 해요(한 화에 한 칸). "
                        "계기 화와 받아들이는 화를 나누거나 앞 화에 다리를 놓아 주세요.")
+    return out + milestone_warnings(p, n)
+
+
+def milestone_warnings(p: Project, n: int) -> list[str]:
+    """n 화 플롯이 설계도의 관계 이정표를 앞지르면 알린다 (docs/blueprint/specs/02-milestone-warn.md).
+    방향마다, 플롯이 바라는 단계를 가진 이정표가 있는데 그 처음 화가 모두 n 보다 뒤일 때. 화면 static/plot.js paceMilestone 이 같은 규칙이다."""
+    ms = [m for m in p.blueprint.milestones if m.stage and m.from_ep > 0]
+    if not ms:
+        return []
+    nm = _names(p)
+    out = []
+    for a, b, goal in plot_shifts(p, n):
+        if _masked(p, StateDelta(episode=n, summary=""), a, b):
+            continue
+        for s, t in ((a, b), (b, a)):
+            hit = sorted((m for m in ms if m.source == s and m.target == t and m.stage in goal), key=lambda m: m.from_ep)
+            if hit and hit[0].from_ep > n:
+                m = hit[0]
+                out.append(f"{n}화 플롯: {nm.get(s, s)} → {nm.get(t, t)} 관계를 {m.stage} 쪽으로 옮겨요. "
+                           f"설계도는 {m.from_ep}~{m.to_ep}화에 {m.stage}에 닿기로 했어요. 이 화의 바뀜을 미루거나 설계도를 고쳐 주세요.")
     return out
 
 

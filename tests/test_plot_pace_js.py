@@ -33,6 +33,23 @@ def test_plot_pace_matches_python():
 
 
 @needs_node
+def test_plot_milestone_matches_python():
+    from canon.schema import Milestone
+    p = _play(_short(8), 1, 1)
+    _set(p, "화해", 0.2)
+    hero, ally = _name(p, "hero"), _name(p, "ally")
+    p.blueprint.milestones = [Milestone(source="hero", target="ally", from_ep=6, to_ep=7, stage="신뢰"),
+                              Milestone(source="ally", target="hero", from_ep=5, to_ep=6, stage="호감"),
+                              Milestone(source="ally", target="hero", from_ep=3, to_ep=4, stage="적대")]
+    _plot(p, 2, f"{hero}와 {ally}는 친구가 된다.")
+    _plot(p, 3, f"{hero}는 {ally}와 결별하고 원수가 된다.")
+    got = same(p, [2, 3])
+    assert len(got["2"]) == 2 and len(got["3"]) == 0
+    todos = run_js(FILES, "plotTodos(data.p, 1, 8)", {"p": dump(p)})
+    assert any(t["text"] == "설계도보다 앞섬 · 2화" for t in todos)
+
+
+@needs_node
 def test_plot_todos_show_pace():
     p = _play(_short(8), 1, 1)
     _set(p, "적대", -0.6)
