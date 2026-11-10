@@ -273,7 +273,9 @@
 - 이정표 경고 `warnings`(막지 않음): 이웃한 두 이정표 사이 칸 모자람, 범위가 겹치는데 단계가 다름, 지금 단계에서 다음 이정표까지 칸 모자람
 - 플롯이 이정표를 앞지르는 경고는 `pace.milestone_warnings`
 - 계획값이라 관계 수치(`Tie`) · 플롯을 바꾸지 않는다
-- 아직 프롬프트가 쓰지 않는다. `warnings` 를 보이는 화면은 일감 3(`docs/blueprint/plan.md`)
+- 경고에 방향을 붙인 `warning_rows`(보는 인물, 보이는 인물, 글). `warnings` 는 그 글만
+- 웹은 `GET` · `PUT /api/projects/{name}/blueprint`(보기 `BlueprintView`: 설계도 · 방향 붙은 경고 · 부위 · 동작 이름 · 마지막 반영 화, 저장은 설계도 통째와 `check`)
+- 화면은 `static/blueprint.js`. 아직 프롬프트가 쓰지 않는다(`docs/blueprint/plan.md` 일감 4 · 6)
 - LLM 호출 없음
 
 ### `canon/branches.py`
@@ -724,6 +726,19 @@
 - 이 작품의 문체와 레퍼런스 기준 비교 표(`anchorCompare`)
 - 화별 문체 거리 추이 SVG(`anchorChart`: 사람 연재 띠 · 경고 점선 · 최근 5화 평균 선 · 문체를 바꾼 화 세로선)
 - 서버는 `web.py` 의 '2-0. 작품 정착 문체'
+
+### `canon/static/blueprint.js`
+
+- 설계도 쪽(사이드바 도구 '설계도', 🧭): 공용 목차 + 카드 한 열(스킬 도감과 같은 틀 `.ab-wrap`)
+- 주소 `blueprint`(개요) · `blueprint/<쌍 키>`. 쌍 키는 두 인물 id 를 정렬해 `~` 로 이은 것(`bpKey`)
+- 쌍 목록 `bpPairs`: 관계 설정의 쌍(그 차례와 a · b 차례)에 설계도에만 있는 쌍을 더한다
+- 개요: 수 타일 · 경고 · 설계 원칙 카드 · 쌍 목록
+- 쌍 쪽: 계획 띠 `bpBand`(두 방향 이정표 · 접촉 사다리, 아크 · 구간 경계, 마지막 반영 화) · 그 쌍의 경고 · 관계 이정표 카드 · 접촉 사다리 카드
+- 계획 띠 기본 범위 `bpSpan`: 기획한 화와 그 쌍 설계도 끝 화 가운데 큰 것. '작품 전체'(`S.bpWide`)로 바꾼다
+- 카드는 읽는 모양이 기본이고 '고치기'로 그 카드만 편다(`S.bpEdit`: 설계도 사본, 저장하지 않은 글은 `S.editDrafts.bp`)
+- 사다리 칸의 부위 · 동작 · 장소는 접는 칩 묶음 `bpChips`(펴 둔 묶음은 `S.bpPickOpen`)
+- 저장 `bpSave` 는 서버 설계도에 고친 카드 몫만 바꿔 넣어(`bpMerged`) `PUT …/blueprint` 로 보낸다. 칸을 다 지운 사다리는 뺀다
+- 단계 말 `BP_STAGES` 는 `schema.RelStage` 와 같다(`tests/test_blueprint_js.py`)
 
 ### `canon/static/branches.js`
 

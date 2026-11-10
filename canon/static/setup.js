@@ -248,6 +248,7 @@ function relRow(r, i) {
     ${relDestNote(r)}
     ${input('설명', b + '.description', { rows: 2, hint: '두 사람 사이의 사정. 매 화 프롬프트에 들어가요', placeholder: '예: 겉으로는 깍듯하지만 서로 약점을 쥐고 있다' })}
     ${input('가 닿을 곳', b + '.destination', { hint: '이야기에서 이 관계가 어디로 가나. 플롯 · 아크 기획에만 쓰고 매 화 프롬프트에는 넣지 않아요', placeholder: '예: 연인, 원수, 서로를 인정하는 맞수' })}
+    ${relJourney(r)}
     ${started ? `<div class="small">지금 호감 ${r.affinity} · 긴장 ${r.tension}. 첫 반영 뒤에는 본문의 관계 사건으로 바뀌어요.</div>` : `${view('a_view', r.a, r.b)}${view('b_view', r.b, r.a)}`}
     <div class="rel-line"><span class="label-text">원하는 게 부딪치나</span><div class="genre-opts" role="group" aria-label="목표 충돌">${chips(CONFLICTS, (w) => conflictWord(r.goal_conflict || 0) === w, 'setConflict')}</div></div>
     </div>
@@ -260,6 +261,18 @@ const REL_DEST_RE = /에서\s*\S+?\s*(?:으로|로)\s*$/;
 function relDestNote(r) {
   return REL_DEST_RE.test((r.type || '').trim())
     ? '<div class="note" role="status">어떤 사이에 가 닿을 곳이 섞인 것 같아요. 어떤 사이에는 지금 관계만 두고, 가는 곳은 아래 \'가 닿을 곳\'에 적어 주세요.</div>' : '';
+}
+
+/** 관계 카드의 여정 줄: 설계도(blueprint.js)에 이 쌍의 이정표 · 사다리 칸이 몇 개인지와 설계도 쪽 링크 */
+function relJourney(r) {
+  if (!r.a || !r.b || r.a === r.b) return '';
+  const bp = P().blueprint || { milestones: [], ladders: [] };
+  const inPair = (s, t) => (s === r.a && t === r.b) || (s === r.b && t === r.a);
+  const ms = bp.milestones.filter((m) => inPair(m.source, m.target)).length;
+  const lad = bp.ladders.find((l) => inPair(l.a, l.b));
+  const rungs = lad ? lad.rungs.length : 0;
+  return `<div class="rel-line"><span class="label-text">여정</span><span class="small">이정표 ${ms} · 사다리 ${rungs}칸</span>
+    <a class="btn small" href="${base()}/blueprint/${enc([r.a, r.b].sort().join('~'))}">여정 고치기</a></div>`;
 }
 
 /** 같은 인물끼리이거나 앞선 관계와 같은 쌍이면 알린다 (relIssue) */

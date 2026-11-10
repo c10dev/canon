@@ -11,8 +11,8 @@
 | 차례 | # | 일감 | 상태 | 명세서 | 먼저 끝날 것 |
 |---|---|---|---|---|---|
 | 1 | 1 | 스키마 · 저장 검사 · 화 번호 옮기기 (프롬프트 · 화면 없음, LLM 비용 없음) | 끝 ([#476](https://github.com/c10dev/canon/pull/476) 머지) | [01-schema.md](specs/01-schema.md) | — |
-| 2 | 2 | 관계 이정표 경고: 관계 속도 점검(`pace`) 넓히기, 이정표끼리 · 지금에서 다음까지 칸 검사(`blueprint.warnings`, 막지 않음) | 진행 (claude/blueprint-warn) | [02-milestone-warn.md](specs/02-milestone-warn.md) | 1 |
-| 3 | 3 | 관계 화면의 '여정' 편집과 계획 띠 | 설계 | — | 1 |
+| 2 | 2 | 관계 이정표 경고: 관계 속도 점검(`pace`) 넓히기, 이정표끼리 · 지금에서 다음까지 칸 검사(`blueprint.warnings`, 막지 않음) | 끝 ([#477](https://github.com/c10dev/canon/pull/477) 머지) | [02-milestone-warn.md](specs/02-milestone-warn.md) | 1 |
+| 3 | 3 | 설계도 화면: 여정 편집과 계획 띠 (사이드바 도구, 관계 카드에서 링크) | 진행 (claude/blueprint-journey) | [03-journey.md](specs/03-journey.md) | 1 |
 | 4 | 4 | 기획 프롬프트(다음 아크 · 장편 화별 플롯)에 지금 범위와 다음 이정표, 예산, mock, 앞당김 실측 | 설계 | — | 1 |
 | 5 | 5 | 지금 플롯에서 설계도 거꾸로 뽑기(아크 단위)와 승인 화면 | 설계 | — | 1, 3 |
 | 6 | 6 | 스토리보드 · 쓰기 · 검수 연결, 실제 접촉 기록(상태 변경안의 닫힌 목록) | 설계 | — | 4 |

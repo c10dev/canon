@@ -177,3 +177,20 @@ def test_warnings():
     assert blueprint.warnings(q) == ["관계 이정표 아영 → 지훈: 지금 적대에서 1화까지 신뢰에 닿으려면 2칸인데 1화 남았어요(한 화에 한 칸)."]
     q.ties[0].stage = "균열"
     assert blueprint.warnings(q) == []  # 균열 → 신뢰는 한 칸
+
+
+def test_blueprint_api(client):
+    meta = {"title": "지하철", "genre": "성인", "logline": "", "target_episodes": 10}
+    assert client.post("/api/projects", json={"name": "bpa", "meta": meta}).status_code == 200
+    p = client.post("/api/projects/bpa/suggest/apply", json=client.post("/api/projects/bpa/suggest").json()).json()
+    a, b = p["characters"][0]["id"], p["characters"][1]["id"]
+    v = client.get("/api/projects/bpa/blueprint").json()
+    assert v["blueprint"] == {"milestones": [], "ladders": [], "note": ""} and v["warnings"] == [] and v["last"] == 0
+    assert {"id": "hand_r", "label": "오른 손"} in v["parts"] and {"id": "brush", "label": "스치다"} in v["acts"]
+    body = {"milestones": [{"source": a, "target": b, "from_ep": 1, "to_ep": 1, "stage": "신뢰"}], "ladders": [], "note": "원칙"}
+    p = client.put("/api/projects/bpa/blueprint", json=body).json()
+    assert p["blueprint"]["milestones"][0]["id"] == "ms-1" and p["blueprint"]["note"] == "원칙"
+    v = client.get("/api/projects/bpa/blueprint").json()
+    assert [w["source"] for w in v["warnings"]] == [a] and "신뢰에 닿으려면" in v["warnings"][0]["text"]
+    r = client.put("/api/projects/bpa/blueprint", json={**body, "milestones": [{"source": a, "target": a}]})
+    assert r.status_code == 400 and "같은 인물끼리" in r.json()["detail"]
