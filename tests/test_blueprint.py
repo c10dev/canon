@@ -252,3 +252,70 @@ def test_serial_planning_prompts_carry_blueprint():
     assert "처음 웃는다" in plot and plot.index("[설계도") > plot.index("[관계]")
     nxt = prompts.next_arc_prompt(p, arc.start_ep, 0, "")
     assert "처음 웃는다" in nxt
+
+
+# ---------- 거꾸로 뽑기 (specs/05-extract.md) ----------
+
+def test_propose_blueprint_cleans_mock_and_applies():
+    from canon.mock import MockLLM
+    from .test_serial import _plan_arc, _serial
+    p = _serial()
+    _plan_arc(p)
+    a, b = p.characters[0].id, p.characters[1].id
+    arc = p.story_arcs[0]
+    prop = pipeline.propose_blueprint(MockLLM(), p, arc.number, a, b)
+    assert [(m.source, m.target) for m in prop.milestones] == [(a, b), (b, a)]  # 쌍 밖 줄은 뺐다
+    assert [r.label for r in prop.rungs] == ["손목 잡기", "손등 스침"]  # 범위 밖 칸은 빼고 처음 닿는 화 차례
+    first, second = prop.rungs
+    assert first.lead == "" and second.parts == ["hand_r"] and [e.episode for e in second.evidence] == [second.from_ep]
+    before = p.model_copy(deep=True)
+    blueprint.apply_picks(p, a, b, [prop.milestones[0]], prop.rungs)
+    assert [m.label for m in p.blueprint.milestones] == ["상대를 경계한다"] and p.blueprint.milestones[0].id == "ms-1"
+    lad = blueprint.ladder(p, a, b)
+    assert [r.label for r in lad.rungs] == ["손목 잡기", "손등 스침"]
+    assert before.blueprint.milestones == []  # 사본에서 검사한 뒤에만 바꾼다
+    with pytest.raises(ValueError, match="서로 다른 두 인물"):
+        pipeline.propose_blueprint(MockLLM(), p, arc.number, a, a)
+    with pytest.raises(ValueError, match="아크 99"):
+        pipeline.propose_blueprint(MockLLM(), p, 99, a, b)
+
+
+def test_apply_picks_inserts_rungs_by_first_episode_and_refuses_bad():
+    from canon.schema import RungDraft
+    p = _proj()
+    p.blueprint.ladders = [_ladder(ContactRung(id="cr-1", label="처음", from_ep=1, to_ep=1), ContactRung(id="cr-2", label="정하지 않음"),
+                                   ContactRung(id="cr-3", label="나중", from_ep=10, to_ep=10))]
+    blueprint.apply_picks(p, "a", "j", [], [RungDraft(label="가운데", from_ep=5, to_ep=6)])
+    assert [r.label for r in p.blueprint.ladders[0].rungs] == ["처음", "정하지 않음", "가운데", "나중"]
+    with pytest.raises(ValueError, match="모르는 부위"):
+        blueprint.apply_picks(p, "a", "j", [], [RungDraft(label="틀림", parts=["tail"], from_ep=11, to_ep=11)])
+    assert len(p.blueprint.ladders[0].rungs) == 4  # 거절하면 그대로
+
+
+def test_extract_prompt_lists_ids_and_existing_lines():
+    from canon import prompts
+    p = _planned()
+    s = prompts.blueprint_extract_prompt(p, 6, 15, "a", "j")
+    assert "아영과 지훈의 설계도를 거꾸로" in s and "hand_r: 오른 손" in s and "interlace: 손깍지 끼다" in s and "el-1: 4-2번 칸" in s
+    assert "- 아영 ↔ 지훈 8~9화에 처음 닿는 칸: 2. 손목" in s  # 이미 적은 줄
+
+
+def test_blueprint_job_and_apply_api(client):
+    from .test_web import _wait
+    meta = {"title": "지하철", "genre": "성인", "logline": "", "target_episodes": 8}
+    assert client.post("/api/projects", json={"name": "bpj", "meta": meta}).status_code == 200
+    p = client.post("/api/projects/bpj/suggest/apply", json=client.post("/api/projects/bpj/suggest").json()).json()
+    p["arc"] = client.post("/api/projects/bpj/arc").json()["acts"]
+    client.put("/api/projects/bpj", json=p)
+    client.post("/api/projects/bpj/plots", json={})
+    a, b = p["characters"][0]["id"], p["characters"][1]["id"]
+    job = client.post("/api/projects/bpj/jobs", json={"kind": "blueprint", "target": f"{a}~{b}"}).json()
+    done = _wait(client, job["id"])
+    assert done["status"] == "done" and done["result"]["a"] == a and done["result"]["start"] == 1
+    pending = client.get("/api/projects/bpj/pending").json()["results"]
+    assert any(k.startswith("blueprint:") and k.endswith(f"{a}~{b}") for k in pending)
+    res = done["result"]
+    out = client.post("/api/projects/bpj/blueprint/apply", json={"a": a, "b": b, "milestones": res["milestones"][:1], "rungs": res["rungs"]}).json()
+    assert len(out["blueprint"]["milestones"]) == 1 and len(out["blueprint"]["ladders"][0]["rungs"]) == 2
+    bad = client.post("/api/projects/bpj/blueprint/apply", json={"a": a, "b": b, "rungs": [{"label": "x", "parts": ["tail"], "from_ep": 1, "to_ep": 1}]})
+    assert bad.status_code == 400

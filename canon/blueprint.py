@@ -241,3 +241,77 @@ def plan_lines(p: Project, ids: set[str] | None, start: int, end: int) -> list[s
         if nxt:
             out.append(f"- {who} 다음 칸 (이 범위 뒤 {_rng(nxt)}): {rung_text(p, lad, nxt)}")
     return out
+
+
+# ---------- 지금 플롯에서 거꾸로 뽑기 (docs/blueprint/specs/05-extract.md) ----------
+
+def extract_range(p: Project, arc: int) -> tuple[int, int]:
+    """뽑을 화 범위. 장편은 아크 번호의 범위, 단편(또는 0)은 플롯이 있는 첫 화부터 마지막 화까지."""
+    if p.serial and arc:
+        a = next((x for x in p.story_arcs if x.number == arc), None)
+        if a is None:
+            raise ValueError(f"아크 {arc}가 없어요")
+        return a.start_ep, a.end_ep
+    eps = [e.plot.number for e in p.episodes]
+    if not eps:
+        raise ValueError("플롯이 있는 화가 없어요")
+    return min(eps), max(eps)
+
+
+def _clip(x, start: int, end: int) -> bool:
+    """제안 줄의 화 범위를 start~end 로 자른다. 범위 밖이면 False."""
+    lo, hi = (x.from_ep or 0), (x.to_ep or x.from_ep or 0)
+    if lo <= 0 or lo > end or hi < start:
+        return False
+    x.from_ep, x.to_ep = max(lo, start), min(max(hi, lo), end)
+    return True
+
+
+def clean_proposal(p: Project, prop, a: str, b: str, start: int, end: int):
+    """AI 제안 정리 (BlueprintProposal): 두 인물 사이 줄만, 화 범위는 start~end 로 자르고, 모르는 부위 · 동작 · 장소 id 와 쌍 밖 주도 인물은 뺀다.
+    근거는 범위 안 화만 세 개까지 남긴다. 이정표는 화 차례, 사다리 칸은 처음 닿는 화 차례로 놓는다. 작가 데이터가 아니라 AI 제안이라 지운다."""
+    from .stage import ACTS, PARTS
+    places = {el.id for el in p.elements if el.kind == "장소"}
+    pair = {a, b}
+
+    def ev(x) -> None:
+        x.evidence = [e for e in x.evidence if start <= e.episode <= end and e.quote.strip()][:3]
+    ms = []
+    for m in prop.milestones:
+        if {m.source, m.target} == pair and m.source != m.target and _clip(m, start, end):
+            ev(m)
+            ms.append(m)
+    rungs = []
+    for r in prop.rungs:
+        if not _clip(r, start, end):
+            continue
+        r.parts = list(dict.fromkeys(x for x in r.parts if x in PARTS))
+        r.acts = list(dict.fromkeys(x for x in r.acts if x in ACTS))
+        r.places = list(dict.fromkeys(x for x in r.places if x in places))
+        r.lead = r.lead if r.lead in pair else ""
+        ev(r)
+        rungs.append(r)
+    prop.milestones = sorted(ms, key=lambda m: (m.from_ep, m.to_ep))
+    prop.rungs = sorted(rungs, key=lambda r: (r.from_ep, r.to_ep))
+    return prop
+
+
+def apply_picks(p: Project, a: str, b: str, milestones: list, rungs: list) -> None:
+    """작가가 고른 제안 줄을 설계도에 더한다. 이정표는 뒤에 붙이고, 사다리 칸은 그 쌍 사다리에 처음 닿는 화 차례로 끼운다.
+    범위를 비운 칸(정하지 않음)은 자리를 지킨다. 더한 뒤 check 로 검사해 어긋나면 ValueError 이고 아무것도 바꾸지 않는다."""
+    q = p.model_copy(deep=True)
+    for m in milestones:
+        q.blueprint.milestones.append(Milestone(source=m.source, target=m.target, from_ep=m.from_ep, to_ep=m.to_ep,
+                                                stage=m.stage, label=m.label, trigger=m.trigger))
+    if rungs:
+        lad = ladder(q, a, b)
+        if lad is None:
+            lad = ContactLadder(a=a, b=b)
+            q.blueprint.ladders.append(lad)
+        for r in rungs:
+            new = ContactRung(label=r.label, parts=r.parts, acts=r.acts, layer=r.layer, places=r.places, lead=r.lead,
+                              note=r.note, from_ep=r.from_ep, to_ep=r.to_ep)
+            at = next((i for i, x in enumerate(lad.rungs) if x.from_ep > new.from_ep), len(lad.rungs))
+            lad.rungs.insert(at, new)
+    check(q, p)
+    p.blueprint = q.blueprint

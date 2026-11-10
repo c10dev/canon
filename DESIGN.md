@@ -236,6 +236,7 @@ AI 는 숫자를 매기지 않고 사건만 뽑는다. 같은 사건은 항상 �
 - `plot_warnings`: 지금 단계(마지막 반영 뒤)에서 가 닿을 단계까지 칸 수(`STAGE_EDGES` 너비 우선)가 쓸 수 있는 칸보다 많으면 알린다. 쓸 수 있는 칸은 1 에, 마지막 반영 화와 그 화 사이의 안 쓴 화가 같은 쌍을 같은 쪽으로 옮기는 만큼 더한다. 두 층 감정으로 숨긴 쌍은 보지 않는다.
 - 설계도(`canon/blueprint.py`, `docs/blueprint/`)에 관계 이정표가 있으면 `plot_warnings` 가 '플롯이 이정표를 앞지름'도 알린다(`pace.milestone_warnings`): 플롯이 바라는 단계의 이정표가 모두 그 화보다 뒤일 때. `blueprint.warnings` 는 이정표끼리 칸이 모자라거나 범위가 겹치는 것, 지금 단계에서 다음 이정표까지 칸이 모자라는 것을 알린다. 모두 막지 않는다.
 - 장편 기획(화별 플롯 초안 · 다음 아크)은 설계도 블록을 받는다(`prompts.blueprint_plan_block`, 예산 `context.BUDGET["blueprint"]`): 그 범위에 걸린 이정표 · 사다리 칸과 그 뒤 첫 것만이라 화수가 늘어도 커지지 않는다. 쓰기 요청은 받지 않는다. 앞당김 실측은 `docs/blueprint/specs/04-plan-prompt.md`.
+- 지금 플롯에서 설계도 거꾸로 뽑기(작업 `blueprint`, `pipeline.propose_blueprint`)는 아크 하나 · 두 인물씩 제안을 받고, 작가가 고른 줄만 `blueprint.apply_picks` 로 더한다. 실호출 확인은 `docs/blueprint/specs/05-extract.md`.
 - 설계도 화면은 사이드바 도구 '설계도'(`static/blueprint.js`)다. 저장은 `PUT /api/projects/{name}/blueprint` 로 설계도를 통째로 보내고 서버가 `blueprint.check` 로 검사한다. 경고는 서버가 방향을 붙여 준다(`warning_rows`).
 - 보이는 곳: 스토리보드의 Canon 경고(`board.checks`, 자동 집필을 멈추지 않음), 플롯 화면 '확인할 것'(`plot.js` `pacePlot`, 같은 규칙을 `tests/test_plot_pace_js.py` 가 node 로 맞춰 본다).
 - 장편 화별 플롯 초안 프롬프트는 `[관계]` 뒤에 지금 관계 단계를 방향마다 한 줄 라벨로 넣고(`prompts.plan_stage_block`, 예산 `context.BUDGET["plan_stages"]`), 장편 플롯 규칙(`plot_rules`)에 '단계는 한 화에 한 칸, 두 칸 넘는 변화는 계기 화와 받아들이는 화로 나눈다'를 한 줄 넣었다. 단편 플롯 초안은 그대로다.

@@ -12,12 +12,13 @@ from typing import Callable
 from . import dynamics, elements, illust, metrics, naming, prompts, renumber, setupchat, storylines
 from .judge import Judge, Question
 from .llm import LLM, PREFIX_HINT, Interrupted, OutputCut, dump, family_text, out_cap, was_cut
-from . import anchor, board, cancel, charlog, context, features, findings, foreshadows, heatplan, knows, metatail, stage, statwin, usage
+from . import anchor, blueprint, board, cancel, charlog, context, features, findings, foreshadows, heatplan, knows, metatail, stage, statwin, usage
 from . import offscreen, regexrules
 from .sent import SentPrompt, SentRetry
 from .sent import record as sent_record
 from .schema import AliasSuggestion, CoordDraft, CoordMemo, OffscreenSet
 from .schema import RuleChange, RuleRun
+from .schema import BlueprintProposal
 from .schema import CueSheet, CueSheetDraft, Finding, MetaCut, FindingRecheck, FixBatch, FixOption, FixPatch, FixRecheckItem, FixRecheckReport, FixSet, RevArcSet, RevEpisodeDraft, RevLineSet
 from .schema import ParagraphAnatomy, ReaderCheck, SceneCard, SceneVariant, SceneVariants, StudioCandidate, StudioDraft
 from .schema import (
@@ -837,6 +838,18 @@ def propose_heat(llm: LLM, p: Project, number: int = 0, note: str = "") -> HeatP
     written = {e.plot.number for e in p.episodes if e.text}
     prop.heat = [old[s.ep] if s.ep in written and s.ep in old else s for s in prop.heat]
     return prop
+
+
+def propose_blueprint(llm: LLM, p: Project, arc: int, a: str, b: str, note: str = "") -> BlueprintProposal:
+    """지금 화별 플롯에서 두 인물의 설계도(관계 이정표 · 접촉 사다리)를 거꾸로 뽑는다 (docs/blueprint/specs/05-extract.md). 저장하지 않는다.
+    장편은 아크 하나(arc), 단편은 작품 전체. 작가가 고른 줄만 blueprint.apply_picks 로 들어간다."""
+    names = {c.id for c in p.characters}
+    if a == b or a not in names or b not in names:
+        raise ValueError("서로 다른 두 인물을 골라 주세요")
+    start, end = blueprint.extract_range(p, arc)
+    ask = prompts.blueprint_extract_prompt(p, start, end, a, b) + prompts.request_block(note)
+    prop = llm.json(prompts.SYSTEM_PLANNER, ask, BlueprintProposal, hint={"start": start, "end": end, "a": a, "b": b})
+    return blueprint.clean_proposal(p, prop, a, b, start, end)
 
 
 ACT_NAMES = ["기", "승", "전", "결"]

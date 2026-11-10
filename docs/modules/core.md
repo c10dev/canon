@@ -409,6 +409,7 @@
 - 완급 계획 정리 `clean_heat_plan`: `heatplan.fit` · `fit_turn`, 판돈은 단서 · 빈 것을 빼고 심는 화를 자르고 겹치지 않는 id(`fs-<화>-h<k>`)
 - 완급 계획 적용 `apply_heat_plan`: 계획 · 원칙 · 뒤집힘을 바꾸고 판돈은 같은 id 가 없을 때만 복선에 더함. 명령줄 `arc` 와 화면 구조 제안 고르기(`heatApply`)가 쓴다
 - 완급 계획을 받을 범위 `heat_target`(단편 작품 전체, 장편은 아크 번호 또는 다 쓰지 않은 첫 아크)과 받기 `propose_heat`(본문 있는 화는 지금 계획 줄을 지킨다)
+- 설계도 거꾸로 뽑기 `propose_blueprint`(아크 하나 · 두 인물, `prompts.blueprint_extract_prompt`, 응답 `BlueprintProposal`, 정리 `blueprint.clean_proposal`). 저장하지 않는다
 - 다음 아크 `plan_next_arc` 는 `heat_plan` 을 켜면 `HeatArcProposal` 로 묻고(`prompts.heat_next_arc_rules`), `clean_arc` 가 완급 계획을 아크 범위에 맞춰 `arc.heat` 로 옮기고, `apply_arc` 가 판돈을 복선에 더한다
 - 화별 플롯
   - 대화로 다듬기 `revise_plot`/`apply_revision` 포함
@@ -1059,6 +1060,7 @@
 - 작품 저장(PUT · PATCH)은 단편 완급 계획을 1화부터 끝 화까지 맞춘다(`heatplan.fit` · `fit_turn`). 화수를 바꿔도 빈틈이 생기지 않는다
 - 장편은 아크마다 그 아크 범위로 완급 계획을 맞춘다. 다음 아크 적용(`/arcs/apply`)은 판돈이 든 제안(`HeatArcProposal`)도 받는다
 - 작업 `heat`(`_job_heat`): 이미 있는 기승전결 · 아크 위 완급 계획 제안. 결과는 검토를 기다리는 결과(`PENDING_KINDS`)로 남는다
+- 작업 `blueprint`(`_job_blueprint`): 대상 'a~b' 두 인물의 설계도 거꾸로 뽑기(ep 는 장편 아크 번호). 결과는 `PENDING_KINDS` 로 남고, 고른 줄은 `POST /api/projects/{name}/blueprint/apply`(`BlueprintApplyIn`)
 - 작업 `offscreen`(`_job_offscreen`, 계획 단계 모델): 화면 밖 근황 제안. 결과는 `PENDING_KINDS` 로 남는다
 - 화면 밖 근황 저장 `POST …/offscreen`(`OffscreenSet`, 고른 인물만) · 지우기 `DELETE …/offscreen/{인물 id}`. 장편에서만 받는다
 - 문체 라이브러리 분석 작업 `POST /api/styles/analyze/job`(kind `lib_style`, project `LIB_JOBS` = `.styles`)

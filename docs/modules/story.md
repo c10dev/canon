@@ -279,6 +279,9 @@
 - 기획 프롬프트 줄 `plan_lines(p, ids, start, end)`: 화 범위를 적은 줄만, 범위에 걸린 이정표 · 사다리 칸과 그 뒤 첫 것. 두 인물이 모두 ids 에 들 때만
 - 사다리 칸 한 줄 `rung_text`: '차례. 이름 (겹 · 부위 · 동작 · 장소 · 주도 · 메모)', 부위 · 동작은 장면 연출의 이름
 - 쓰기 · 스토리보드 · 검수 프롬프트는 아직 설계도를 쓰지 않는다(`docs/blueprint/plan.md` 일감 6)
+- 거꾸로 뽑기 범위 `extract_range`: 장편은 아크 하나, 단편은 플롯이 있는 첫 화부터 마지막 화까지
+- AI 제안 정리 `clean_proposal`(`BlueprintProposal`): 두 인물 사이 줄만, 화 범위를 자르고 모르는 id · 쌍 밖 주도 인물 · 범위 밖 근거를 뺀다
+- 고른 제안 줄 더하기 `apply_picks`: 이정표는 뒤에, 사다리 칸은 처음 닿는 화 차례로 끼운다. 사본에서 `check` 한 뒤에만 바꾼다
 - LLM 호출 없음
 
 ### `canon/branches.py`
@@ -742,6 +745,8 @@
 - 사다리 칸의 부위 · 동작 · 장소는 접는 칩 묶음 `bpChips`(펴 둔 묶음은 `S.bpPickOpen`)
 - 저장 `bpSave` 는 서버 설계도에 고친 카드 몫만 바꿔 넣어(`bpMerged`) `PUT …/blueprint` 로 보낸다. 칸을 다 지운 사다리는 뺀다
 - 단계 말 `BP_STAGES` 는 `schema.RelStage` 와 같다(`tests/test_blueprint_js.py`)
+- 쌍 쪽 맨 아래 '지금 플롯에서 뽑기' `bpExtractCard`: 장편은 플롯이 있는 아크를 골라 작업 `blueprint`(대상 쌍 키)
+- 도착한 제안은 `S.bpDraft` 로 계획 띠 · 경고 다음 카드 `bpDraftCard`(줄마다 고르기 · 근거). '고른 줄 더하기'는 `POST …/blueprint/apply`
 
 ### `canon/static/branches.js`
 

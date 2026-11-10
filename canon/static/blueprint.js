@@ -221,8 +221,50 @@ function bpOverview() {
 function bpPairPage(key) {
   const [, a, b] = bpPairs(P(), S.bp.blueprint).find(([k]) => k === key);
   const x = bpOfPair(S.bp.blueprint, S.bp.warnings, a, b);
-  return bpBand(a, b, x) + bpWarnCard(x.warns) + bpMsCard(a, b, x) + bpLadderCard(a, b, x);
+  return bpBand(a, b, x) + bpWarnCard(x.warns) + bpDraftCard(key, a, b) + bpMsCard(a, b, x) + bpLadderCard(a, b, x) + bpExtractCard(key);
 }
+
+// ----- 지금 플롯에서 거꾸로 뽑기 (docs/blueprint/specs/05-extract.md, 작업 blueprint) -----
+
+/** 뽑을 범위를 고르는 칸: 장편은 플롯이 있는 아크, 단편은 작품 전체. 결과는 카드 안 제안(bpDraftCard)으로 온다 */
+function bpExtractCard(key) {
+  const p = P();
+  const has = (s) => p.episodes.some((e) => e.plot.number >= s.start_ep && e.plot.number <= s.end_ep);
+  const arcs = serial() ? (p.story_arcs || []).filter(has) : [];
+  if (serial() && !arcs.length) return '';
+  const pick = serial() ? `<select id="bp-arc" aria-label="뽑을 아크">${arcs.map((s) => `<option value="${s.number}">아크 ${s.number} · ${s.start_ep}~${s.end_ep}화</option>`).join('')}</select>` : '';
+  return `<section class="card" id="bp-extract"><div class="between"><h2>지금 플롯에서 뽑기</h2>
+    <div class="row">${pick}<button type="button" class="btn small" data-action="bpExtract" data-arg="${esc(key)}">AI로 뽑기</button></div></div></section>`;
+}
+
+/** 근거 줄: '12화 「…」' */
+const bpEvidence = (ev) => (ev || []).map((e) => `${e.episode}화 「${e.quote}」`).join(' · ');
+
+/** AI 제안 카드: 줄마다 고르기(기본으로 고름)와 근거. '고른 줄 더하기'는 POST …/blueprint/apply */
+function bpDraftCard(key, a, b) {
+  const d = S.bpDraft;
+  if (!d || bpKey(d.a, d.b) !== key) return '';
+  d.pickMs ||= d.milestones.map(() => true);
+  d.pickRungs ||= d.rungs.map(() => true);
+  const box = (kind, i, on, label) => `<input type="checkbox" data-action="bpDraftPick" data-arg="${kind}|${i}"${on ? ' checked' : ''} aria-label="${esc(label)}">`;
+  const ms = d.milestones.map((m, i) => `<li>${box('ms', i, d.pickMs[i], `이정표 ${i + 1} 고르기`)}<span class="chip">${esc(bpRange(m))}</span>
+      <span>${esc(bpWho(m.source))} → ${esc(bpWho(m.target))}</span>${m.stage ? `<span class="chip confirmed">${esc(m.stage)}</span>` : ''}<span>${esc(m.label)}</span>
+      ${m.evidence.length ? `<span class="small">${esc(bpEvidence(m.evidence))}</span>` : ''}</li>`).join('');
+  const label = (ids, picks) => ids.map((id) => (picks.find((x) => x.id === id) || { label: id }).label).join(', ');
+  const rungs = d.rungs.map((r, i) => `<li>${box('rung', i, d.pickRungs[i], `사다리 칸 ${i + 1} 고르기`)}<span class="chip">${esc(bpRange(r))}</span><strong>${esc(r.label)}</strong>
+      <span class="small">${esc([r.layer, label(r.parts, S.bp.parts), label(r.acts, S.bp.acts), label(r.places, bpPlaces()), r.lead ? `${bpWho(r.lead)} 주도` : ''].filter(Boolean).join(' · '))}</span>
+      ${r.evidence.length ? `<span class="small">${esc(bpEvidence(r.evidence))}</span>` : ''}</li>`).join('');
+  const none = !d.milestones.length && !d.rungs.length;
+  return `<section class="card" id="bp-draft"><div class="between"><h2>AI가 뽑은 설계도 <span class="small">${d.start}~${d.end}화</span></h2>
+      <span class="row"><button type="button" class="btn small" data-action="bpDraftDrop">버리기</button>${none ? '' : '<button type="button" class="btn small primary" data-action="bpDraftUse">고른 줄 더하기</button>'}</span></div>
+    ${d.reply ? `<p class="small">${esc(d.reply)}</p>` : ''}
+    ${ms ? `<h3>관계 이정표</h3><ul class="bp-list">${ms}</ul>` : ''}${rungs ? `<h3>접촉 사다리</h3><ul class="bp-list">${rungs}</ul>` : ''}
+    ${none ? '<span class="small">뽑은 줄이 없어요.</span>' : ''}</section>`;
+}
+
+JOB_PAGES.blueprint = ['blueprint'];
+JOB_LINK.blueprint = (j) => `#/p/${enc(j.project)}/blueprint/${enc(j.target || '')}`;
+JOB_DONE_MSG.blueprint = '설계도 제안이 도착했어요. 더할 줄을 골라 주세요.';
 
 function viewBlueprint() {
   bpDraftMark();
@@ -288,6 +330,31 @@ function bpMerged(edit, server) {
 }
 
 Object.assign(actions, {
+  async bpExtract(key) {
+    const sel = document.getElementById('bp-arc');
+    await startJob('blueprint', sel ? Number(sel.value) : null, { target: key, note: '' });  // 도착하면 쌍 쪽 카드 안 제안 (bpDraftCard)
+  },
+  bpDraftPick(arg) {
+    const [kind, i] = String(arg).split('|');
+    const list = kind === 'ms' ? S.bpDraft.pickMs : S.bpDraft.pickRungs;
+    list[Number(i)] = !list[Number(i)];
+  },
+  async bpDraftDrop() {
+    if (!(await confirmDrop('AI 설계도 제안'))) return;
+    S.bpDraft = null;
+    render();
+  },
+  async bpDraftUse() {
+    const d = S.bpDraft;
+    const body = { a: d.a, b: d.b, milestones: d.milestones.filter((_, i) => d.pickMs[i]), rungs: d.rungs.filter((_, i) => d.pickRungs[i]) };
+    if (!body.milestones.length && !body.rungs.length) { toast('더할 줄을 골라 주세요', true); return; }
+    await run('설계도에 더하는 중', async () => {
+      S.project = await api('POST', `/projects/${enc(S.name)}/blueprint/apply`, body);
+      S.bpDraft = null;
+      S.bp = await api('GET', `/projects/${enc(S.name)}/blueprint`);
+      toast(`이정표 ${body.milestones.length}줄 · 사다리 ${body.rungs.length}칸을 더했어요`);
+    });
+  },
   async bpEditOpen(card) {
     if (bpDirty() && !(await bpDropOk())) return;
     const data = JSON.parse(JSON.stringify(S.bp.blueprint));
