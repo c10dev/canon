@@ -68,6 +68,6 @@ def test_rules_card_shows_heat_words_on_work_only():
       const lib = pfCard('rules', '지킬 · 피할 것', 'profile', 'lib', new Set());
       return { read, edit, lib }; })()"""
     got = run_js(FILES, expr, {"p": dump(p)})
-    assert "열 낱말 2" in got["read"] and ">떨림<" in got["read"]
+    assert "절정 낱말 2" in got["read"] and ">떨림<" in got["read"]
     assert 'data-bind="settings.heat_words"' in got["edit"]
-    assert "열 낱말" not in got["lib"]
+    assert "절정 낱말" not in got["lib"]

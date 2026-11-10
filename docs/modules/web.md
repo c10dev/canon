@@ -7,6 +7,7 @@
 - 웹 화면 CSS 한 파일
 - 색 토큰은 두 `:root` 블록(밝은 · 어두운)에 있고 `docs/design/tokens.json` 과 같다(`tests/test_design_tokens.py`)
 - 간격 · 모서리 · 크기 · 그림자 · 쌓는 층은 맨 위 `:root` 의 변수(`--space-*` · `--radius-*` · `--shadow-*` · `--z-*`)로 쓴다(같은 시험)
+- 둥글기 · 글자 크기는 토큰 단계 안의 값만 쓴다. 단계 밖 값은 시험의 예외 목록에 선택자 · 까닭과 함께 둔다(`tests/test_css_scale.py`)
 - z-index 는 `--z-*` 사다리만 쓴다(`docs/design/layout.md` '쌓는 층')
 - 손가락 기기 · 640px 이하에서 작은 누름 영역을 44px 로 키우는 규칙은 '휴대폰' 절 바로 앞 한 블록에 모은다
 - 높이 500px 이하(가로 휴대폰) 규칙은 `@media (max-height: 500px)` 로 건다. 붙여 두는 칸을 풀고 대화 시트를 키운다(`docs/design/layout.md` '오른쪽 패널')
@@ -16,6 +17,7 @@
 - 기능마다 `/* ----- 이름 (파일.js) ----- */` 절로 나눈다
 - 공용 목차 틀의 화면별 칸 규칙은 `@container outline` 으로 건다
 - 컴포넌트 규칙을 바꾸면 `docs/design/components/bundle.css` 의 그 줄도 같게 고친다
+- 목록 · 표 덩어리는 카드 대신 구역 `.sec`(위 선 하나와 제목)으로 그린다(`docs/design/components/Card` '구역')
 - 몇몇 화면(`palette.js` · `foreshadow.js` · `stage.js` · `revlab.js` 등)은 CSS 를 JS 에서 주입한다
 
 ### `canon/static/app.js`
@@ -35,6 +37,9 @@
 - 서버 오류 문구 `fmtErr`: 검증 오류(detail 이 목록)는 영어 원문 대신 `VALIDATION_REASON`(web.py `_VALIDATION_REASON` 과 같음, `tests/test_fmterr_js.py`)과 칸 이름 `FIELD_NAME` 으로 쓴다
 - 저장하지 않고 이동하면 묻는 창은 작품 변경만 있을 때 '저장하고 이동'(askConfirm 의 `alt`)을 주 버튼으로 준다
 - 화면 이동 확인은 `leaveUnsaved`(작품 · 라이브러리 · 장면 연출 변경, `S.editDrafts`)를 본다
+- 규칙 묶음 편집(`S.ruleDirty`, `regexrules.js`)도 `leaveUnsaved` · 패널 뒤로 가기 확인 · 저장 띠의 저장 가능 검사에 든다. 버리고 이동을 고르면 비운다
+- 모델 칸을 비웠을 때 쓸 모델 이름 `defaultModelName`(연구 · 프롬프트 놀이터의 모델 칸 안내)
+- 백엔드 고르기 칸의 option `backendOption`: 못 쓰는 Claude(`claudeMissing`: API 키 없음, 상태 점검의 설치 안 됨 · 로그인 필요)는 이유를 붙이고, 지금 고른 것이 아니면 고를 수 없게 한다
 - `goThen(hash, fn)` 은 화면을 옮기고 `routeNow` 가 그 주소를 다 그린 뒤 `fn` 을 한 번 부른다. 이동 확인에서 '취소'를 고르면 버린다
 - 새로고침 · 탭 닫기(`beforeunload`)는 `hasUnsaved` 를 본다: `leaveUnsaved` 에 본문 초안 · 지시서 결과 · 상태 변경안 · 문체 예시 · 가격표(`S.priceDirty`)를 더한다
 - `hasUnsaved` 는 화면을 옮겨도 S 에 남는 고치던 입력도 더한다: 모듈이 `onKeptDraft(함수)` 로 맡긴 검사가 하나라도 true 면 묻는다(`keptDraftOpen`)
@@ -77,11 +82,18 @@
 - 본문을 쓴 모델 글자 `writerLabel`(`Episode.written_by` · `TextVersion.model` → '모델 · 백엔드', 백엔드 이름 `WRITER_BACKEND`, `tests/test_write_js.py`)
 - 단계 이름 `stepLabel`(사이드바와 같은 이름, 다른 화면 문구도 이것을 쓴다)
 - 작품 밖 화면(작품 목록 · 새 작품 `#/new` · 사용량 · 문체 라이브러리 · 레퍼런스 원고 · 역설계 실험 · 쇠맛 실험실)의 사이드바 `outSidebar`
+- 규칙 묶음 `#/rules`(`regexrules.js`)도 작품 밖 화면이다. 길 읽기가 `ruleLoad` 와 `GET /api/rules` 를 부르고 그리기 분기가 `viewRuleList` · `viewRuleBundle` 을 그린다
+- 아래 메뉴 foot 목록의 '문체 라이브러리' 뒤에 '규칙 묶음'(`#/rules`)이 있다
+- 프롬프트 관리 `#/prompts[/…]`(`prompts.js`)도 작품 밖 화면이다. 길 읽기가 `pcLoad` 를 부르고 그리기 분기가 `viewPrompts` 를 그린다(본문 1280px)
   - 항목은 순수 함수 `outNav`: 작품 목록 · 새 작품 · 새 플레이, 최근 작품 셋, 작품 밖 도구(아직 열지 않은 화면 자리는 `.nav-off`)
+  - `outNav` 의 넷째 인자는 규칙 묶음 목록(`S.ruleList`)이다. 도구 줄 '📏 규칙 묶음'(`#/rules`)에 묶음 수를 단다
+  - 도구 줄의 '🧩 프롬프트 관리'(`#/prompts`, `prompts.js`)는 '🧫 프롬프트 놀이터' 바로 뒤다(일감 12 정할 것 6). 작품 사이드바 ⋯ 메뉴(`foot`)에도 놀이터 뒤에 있다
   - 본문 `.out-main` 폭 `--out-w` · `@container out`
   - 작품을 읽지 못한 화면(주소가 틀림 · 불러오기 오류)도 작품 밖 사이드바 안에 그린다(본문 720px)
 - 사이드바
-  - `sidebar`: 맨 위 줄 `sideTop` · 작품 칸 · 단계 · 접는 묶음 `navFold`(작품 도구 · 아직 안 쓴 도구 · 실험, 펼침 `navFoldOpen`) · 아래 고정 줄 `sideFoot`(설정 · ⋯ 메뉴)
+  - `sidebar`: 맨 위 줄 `sideTop` · 작품 칸 · 단계 · 접는 묶음 `navFold`(작품 도구 · 그 안의 아직 안 쓴 도구, 펼침 `navFoldOpen`) · 아래 고정 줄 `sideFoot`(설정 · ⋯ 메뉴)
+  - 실험 화면(`navItems` 의 `apart`: 연구 · 큐 시트 · 역설계 · 쇠맛 · 사용량)은 작품 안 사이드바에 그리지 않는다. 찾기 팔레트로 부른다
+  - 아직 안 쓴 도구(`NAV_FOLD_NOKEEP`)는 펼침을 브라우저에 두지 않는다. `routeNow` 가 화면을 옮길 때 다시 접는다
   - 줄 끝 배지 `navBadges`(순수 함수, `tests/test_sidebar_js.py`) · `navBadge`
   - 64px 레일로 접기 `toggleRail` · `syncRail`(901~1599px 에서 대화 패널을 열면 저절로)
   - 작품 안 사이드바의 맨 위 줄은 찾기 앞에 대화 버튼을 둔다(`sideTop({ chat: true })`, `chat.js` `toggleChat`). 작품 밖 · 플레이 사이드바에는 없다
@@ -90,6 +102,7 @@
 - 휴대폰 키보드 높이 `--kb`(`visualViewport`, 80px 아래와 두 손가락 확대는 0): 아래 시트 · 찾기 팔레트가 키보드 위에 선다
 - 숫자 칸 자판 `numberKeypads`: `inputmode` 가 없는 `type=number` 칸에 붙인다(소수 `step` 은 decimal, 아니면 numeric). `MutationObserver` 로 그려질 때마다 한곳에서 붙인다
 - 사이드바 아이콘(`navItems` · `navMark`: 단계는 번호, 그 밖은 토스페이스 이모지 `.tf`, 출처 문구는 사이드바 아래, Swift `Screen.mark` 와 같은 글자)
+- 드문 도구(아직 안 쓴 도구 · 작품 밖 도구)는 `navLink(…, rare)` 로 `.num.rare` 를 달아 펴진 사이드바에서 이모지를 숨긴다(레일에서는 보인다)
 - 사이드바 작품 칸(`workCard`: 제목 · 갈래 · 플레이 사본(`play.js` `playSideTag`) · 장편은 지금 부 · 아크(`partOf` · `arcOf`), 화 칸 띠는 단편 전체 · 장편 지금 아크, 다음 할 일은 `home.js` `nextStep`, 좁은 폭 위쪽 띠 줄이기는 `app.css` `.work-card`)
 - 한 화 화면(집필 · 검수 · 상태 승인)이면 작품 칸에 화 제목 · 작품 이름 · 화 상태 줄(`.work-ep`)을 더한다. 640px 이하 위쪽 띠에서만 보인다
 - `.work-ep` 둘째 줄 끝에 시점 인물(`plot.js` `povChar`)을 '이름 시점'으로 붙인다. `povChar` 가 없으면(시험에서 plot.js 를 안 읽음) 뺀다
@@ -107,6 +120,9 @@
 - 화면 파일은 결과 놓기 `JOB_RESULT[종류]` 를 등록한다. `finishJob` 이 부르고, `{ msg, actions }` 를 돌려주면 끝 알림의 글과 버튼을 바꾼다
 - 칸에 바로 넣는 결과(서술 말투 · 외형 태그)는 그 칸을 고치는 중이거나 시작한 뒤 고쳤으면 덮지 않는다. 알림의 '넣기'로 넣는다
 - `JOB_BTNS[data-action]` 에 등록한 버튼은 그린 뒤 `lockJobBtns` 가 도는 작업이면 '만드는 중'으로 잠근다(`aria-disabled` · `aria-busy` · `run-wait`). 화면 파일의 버튼 글자는 고치지 않는다
+- `JOB_BTNS` 는 `[종류, 대상, 화]` 를 돌려준다. 화는 한 화를 두고 도는 작업(삽화 `illust`)만 준다
+- `lockJobBtns` 는 `#app` 안 버튼만 본다. `#app` 밖 고치는 창(`#sel-tool`)의 버튼은 화면 파일이 `jobBtn` 으로 그린다
+- 작업이 그 화에 쓴 결과(`fix_one` · `recheck_one` · `illust` · `illust_render`)는 `pollJobs` 가 끝날 때 그 화만 받아 온다(`mergeEpisodes`)
 - `SCREEN_ONLY_JOBS` 는 결과를 화면 제안 칸에만 놓는 작업이다. 다른 작품을 보는 동안 끝나면 결과가 남지 않았으니 다시 받으라고 알린다
 - 짧은 기다림 가림막 `run`(`#busy`): 상자 이름은 작업 이름(`#busy-label`)이고, 1초마다 바뀌는 경과 초(`#busy-sec`)는 낭독하지 않는다
 - `run` 은 가림막을 바로 띄우되 400ms(`BUSY_DELAY`) 동안 투명하게(`busy-wait`) 둔다. 그 안에 끝나면 화면이 어두워지지 않고, `inert` · 상자 포커스는 바로 걸며, 누른 버튼에는 `aria-busy` 와 돌림표(`run-wait`)를 단다. `opt.now` 는 바로 어둡게 그린다
@@ -119,6 +135,10 @@
 - 입력 바인딩(`data-bind`)
 - 공통 동작(`actions` 의 저장 · 되돌리기 · 작품 관리)
 - 펼침 메뉴(`menuBtn`, 열린 메뉴 `S.popMenu`, Esc · 바깥 누르기로 닫기)와 `#app` 밖 대화상자(`showDialog`)
+- 물음표 툴팁 `help(text)`: 늘 보일 필요 없는 설명 · 판정 기준을 누르면 펼친다(디자인 시스템 Help)
+- `help` 는 span · button 만 써서 `<p>` · `<label>` · 제목 안에 넣어도 된다. 누르면 그 툴팁만 열리고 바깥 누르기 · Esc 로 닫힌다
+- `help` 버튼 누르기는 캡처 단계에서 기본 동작을 막는다. `<label>` 안에 있어도 체크박스 · 입력칸을 건드리지 않는다
+- `input(label, path, { help })` 은 입력칸 이름 뒤에 `help` 를 붙인다(`hint` 는 늘 보이는 글)
 - 확인 대화상자 `askConfirm`(Promise<boolean>) · `askText`(Promise<string|null>): 브라우저 `confirm` · `prompt` 대신 쓴다(디자인 시스템 Dialog)
 - 확인 대화상자를 부르는 동작은 `async` 로 두고 `await` 로 답을 기다린다
 - `danger` 이고 `alt` · 입력칸이 없으면 첫 포커스는 취소 버튼이다. 열자마자 Enter 로 위험한 동작을 고르지 않게 한다
@@ -129,6 +149,7 @@
 - 사이드바
 - 다시 그리기와 포커스
 - `drawApp` 은 `paintApp` 으로 `#app` 을 그린다. `data-keep` 칸은 그 칸과 조상을 제자리에 두고 형제만 새 것으로 바꾼다(`keepSwap`)
+- 작품 화면의 `<main>` 안(모르는 화면 알림 · 실패 띠 · 초안 띠 · 화면 본문)은 `mainHtml` 이 그린다. 주 버튼 셈 시험(`tests/test_primary_count_js.py`)도 이 함수로 main 을 그린다
 - Chrome 은 요소를 문서에서 떼거나 옮기기만 해도(`moveBefore` 포함) 그 칸의 Ctrl+Z 기록을 지운다. 그래서 `data-keep` 칸은 떼었다 끼우지 않는다
 - `keepSwap` 은 키가 새 HTML 에 없거나, 조상 깊이 · 태그가 다르거나, `value` 가 다르면 지키지 않고 `#app` 을 통째로 바꾼다(`tests/test_keep_editor_js.py`)
 - `afterDraw` 는 포커스가 그대로 남은 칸(지킨 칸)의 커서 · 칸 안 스크롤을 다시 옮기지 않는다
@@ -153,10 +174,10 @@
 - 화면에 붙는 AI 대화 패널(대화 에이전트는 `agent.js` 가 그린다)(901~1599px 은 사이드바를 레일로 접고 400px, 900px 이하는 아래 시트, 규칙은 `app.css` 의 `body.chat-open`)
 - 작품 안 모든 화면에 패널 하나다. `app.js` `drawApp` 이 화면을 그리기 전에 `chatScreen`, 셸 끝에 `chatDock()` 을 부른다. 화면을 옮겨도 자리와 열림 상태는 그대로다
 - 화면이 주는 기본 대상 `chatDefaultTarget`: 집필 · 검수 · 상태 승인 `text:N`, 설정 도우미 `setup`, 문체 `style`, 플롯 화면은 고른 아크(`plotScope`), 그 밖 ''
-- 주제 `plot` 은 대화 에이전트 패널이다. 옛 대화 셋(`text:<화>` · `style` · `setup`)은 04b~04d 전까지 그 화면이 `chatLegacy(주제)` 로 알린다
-- 보이는 주제는 `chatShownTopic`(`S.chatOld` 가 그 화면 옛 주제의 종류일 때만 옛 패널)이다. 패널 머리 전환 `chatSwitch`(Seg)로 바꾼다
-- 옛 대화가 남은 화면의 머리 버튼 `chatButton(주제)` 는 `chatOldToggle` 로 그 옛 대화를 연다. 사이드바 대화 버튼과 플롯 화면 머리 버튼은 `toggleChat` 으로 대화 에이전트를 연다
-- 집필 화면 머리의 'AI에게 고치기'는 `chatButton` 을 쓰지 않고 대화 에이전트를 연다(`agent.js` `agentOpenText`, 04b). 옛 'AI에게 고치기' 대화는 패널 머리 전환으로 연다
+- 패널은 늘 대화 에이전트(주제 `plot`)다. 옛 대화 셋(`text:<화>` · `style` · `setup`)의 패널 · 보내기 · 패널 머리 전환 줄은 04e 에서 지웠다
+- 플롯 · 설정 도우미 · 문체 화면 머리의 '대화로 다듬기' `chatButton()` 과 사이드바 대화 버튼은 `toggleChat` 으로 대화 에이전트를 연다
+- `chatButton()` 은 머리 줄 맨 끝의 아이콘 버튼(`.chat-toggle`, 기호 `SIDE_ICON.chat`, 이름은 `aria-label`)이다. 켜져도 `accent` 테두리를 그리지 않는다
+- 집필 화면 머리의 'AI에게 고치기'는 `chatButton` 을 쓰지 않고 대화 에이전트를 연다(`agent.js` `agentOpenText`, 04b)
 - 열림 상태(`S.chatOpen`, localStorage `canon.chat`)는 `chatOpenSaved` · `chatSetOpen` 만 읽고 쓴다(`tests/test_agent_js.py`)
 - 900px 이하(`chatNarrow`)에서 `chatOpenSaved` 는 `canon.chat` 을 읽지 않고 `chatSetOpen` 은 쓰지 않는다. 화면을 새로 열면 시트가 닫혀 있고, 넓은 화면의 기억은 그대로다
 - 900px 이하에서 화면을 옮기면(`app.js` `routeNow` → `chatCloseOnNav`) 시트를 닫는다. 같은 주소를 다시 그릴 때는 닫지 않는다
@@ -165,15 +186,15 @@
 - 띠는 상태 승인 화면(`S.chatHere.page`, `chatScreen` 이 둔다)과 다시 생성 열이 자리를 빌린 화면에는 두지 않는다
 - 띠는 닫혀 있는 동안 대화 에이전트의 새 AI 답이 오면 점(`.chat-band-dot`)을 단다. 본 답은 대화마다 `S.chatSeen` 에 두고(`chatMarkSeen`), 처음 보는 대화의 옛 답에는 달지 않는다
 - 띠가 있으면 body 에 `chat-band-on` 을 단다(`syncChat`). `redrawChat` 은 띠도 `chatDock` 으로 다시 그린다
-- 다시 생성 열이 자리를 빌리면 화면이 `chatLegacy(…, { hold: true })` 로 알리고 `chatDock` 은 패널을 그리지 않는다
-- `chatLog(주제, { readOnly: true })` 는 그 화면 밖에서 읽기만 하는 기록이다. 변경안 카드 대신 요약(`chatReadOnlyCard`)을 보이고 고른 부분 · 접기를 쓰지 않는다
-- 답을 기다리는 줄은 경과 초를 1초마다 고치고(`chatWaitTick`), 5초가 지나면 '기다리지 않기'(`chatStop`, AbortController)를 보인다. 기다리지 않기는 오류가 아닌 보통 알림이다. 초는 알림 칸(role=status) 밖에 둔다
-- 보내기(`chatSend`)는 저장하지 않은 변경이 있으면 기다림 줄을 놓기 전에 묻는다. 취소하면 보내지 않고 쓴 글은 입력칸에 남는다
+- 다시 생성 열이 자리를 빌리면 집필 화면이 `chatHold(true)` 로 알리고 `chatDock` 은 패널을 그리지 않는다
+- `chatLog('plot')` 은 옛 플롯 대화를 변경안 카드(`proposal`)와 함께 그린다. 적용 · 적용 취소 · 버림은 그대로 된다
+- `chatLog(주제, { readOnly: true })` 는 설정 · 문체 · 본문 고치기의 옛 기록이다. 변경안 카드 대신 요약(`chatReadOnlyCard`)을 보인다
+- `chatReadOnlyCard` 는 적용한 설정 · 문체 변경안에 적용한 것과 '적용 취소'(`setupChatUndo` · `styleChatUndo`)를 둔다. 넣은 본문 후보는 집필 화면 수정 기록에서 되돌린다
+- 옛 플롯 대화의 방향 안에서 고른 방향(`sendDirection`)은 대화 에이전트의 새 턴으로 보낸다(`agentStartTurn`)
+- Enter 보내기는 대화 에이전트의 `agentSend` 를 부른다
 - `#chat-log` 는 `role="log"` 이지만 패널을 통째로 다시 그려서 `aria-live="off"` 다
 - 새 답이 오면 맨 아래로 내리되, 마지막 AI 답이 칸보다 길면 그 답의 첫 줄로 간다(`chatLandAt`)
-- 마지막 AI 답에 고르지 않은 본문 후보가 있으면 패널에 `has-cands` 를 단다. 주제의 `candsFor` 가 있으면 그것도 참이어야 한다
 - 손가락 기기(`touchFirst`)에서는 패널을 열 때와 답이 온 뒤 입력칸에 포커스하지 않는다
-- 주제의 `foldFrom(msgs)` 가 돌려준 번호 앞 메시지는 '지난 요청 N개'(`.chat-fold`) 아래로 접는다. 연 상태는 `S.chatFoldOpen` 에 둔다
 - 다 접혔고 주제에 `foldNote` 가 있으면 그 안내를 보인다
 - 새 AI 답만 패널 밖 숨은 알림 칸 `#chat-live`(role=status)에 넣는다(`chatAnnounce`, 처음 연 패널 · 다른 대화의 옛 답은 알리지 않음)
 - 대상 바뀜 같은 패널 소식은 `chatSay` 로 같은 칸에 넣는다
@@ -200,6 +221,10 @@
 - `chkPut` 은 성공 여부를 돌려준다. 메모 저장이 실패하면 초안을 그대로 두고 저장했다고 알리지 않는다
 - 문장에서 뜨는 고치는 창(`fixPanel`, `passage.js` 떠 있는 도구 mode `finding`: 고침안 `fixGet` · 딸린 곳 빼기 `fixSkip` · 적용 `fixApply` · 묶음 되돌리기 `fixUndo` · 이 지적만 다시 검수 `chkRecheck` · 다른 처리 길)
 - 이 지적만 다시 검수의 결과(아직 어긋남 · 딸린 지적 더함)는 보통 알림이다. 아직 어긋나면 '처리 기록 보기' 버튼을 붙인다
+- AI 고침안 받기(`fixGet`)와 AI 검수 지적의 이 지적만 다시 검수(`chkRecheck`)는 화면을 막지 않는 작업 `fix_one` · `recheck_one`(대상 지적 id)이다
+- 장면 연출 규칙 · 정규식 지적의 '판정 다시 보기'는 AI를 부르지 않아 그대로 바로 한다(`POST …/findings/{id}/recheck`)
+- 고치는 창은 `#app` 밖이라 `fixPanel` · `recheckBtn` 이 `jobBtn('fix_one' | 'recheck_one', 화, …, 지적 id)` 로 '만드는 중'을 그린다
+- 지적 작업이 끝났을 때 작가가 그 지적을 보고 있고 입력 중이 아니면 고치는 창을 연다(`afterFix`). 아니면 알림의 '보기'가 그 지적을 고르고 연다(`findingGo`)
 - 고침안 한꺼번에의 띠(`fbBar`): 열린 지적 모두 고침안 받기 `fixAll`(작업 `fixes`), 한꺼번에 검토 열기 `fbOpen`
 - 그 아래 더 거르기 칸(`chkNarrow`): 심각도 `S.chkSev` · 종류 `S.chkType` · 문장 바뀜 `S.chkChanged`, 수는 다른 칸의 거르기를 적용해 센다. 지적이 셋 미만이고 거르지 않았으면 두지 않는다
 - 열림 목록을 더 걸렀으면 '거른 지적 N개를 한꺼번에' 줄(`chkBulk`)이 그대로 둠 · 잘못 짚음을 묻고 `PUT …/findings`(web `set_findings`)로 한 번에 정한다
@@ -214,7 +239,11 @@
 - 고침안과 함께 직접 고친 곳이 있으면(`chkOtherEdits`) 안내는 고친 곳만 다시 보기로 먼저 닫고 직접 고친 곳은 다시 검수로 보라고 알린다
 - 마지막 회차가 바뀐 곳만 새로 짚었으면 회차 띠에 '바뀐 곳만'을 붙이고, 넣지 않은 새 지적(`CheckRound.outside`)이 있으면 그 수와 끄는 곳을 알린다
 - 장면 연출 규칙 지적은 '규칙' 표시(`ruleChip`)와 '장면 연출에서 보기'(`stageLink`, `stgGo`)
+- 정규식 경고 규칙 지적(`origin = "regex"`)은 '정규식 · {규칙 이름}' 표시다(`ruleChip`). 이름(`regexName`)은 설명이 서버 기본 '정규식 규칙에 걸렸어요' 면 뺀다
+- 정규식 지적은 목록의 근거 줄을 '정규식 규칙' 으로 쓰고(`srcLine`) 상세에서 근거 인용 대신 패턴 코드 칸(`.chk-pattern`)을 보인다
+- 정규식 지적의 고치기 칸은 '근거 쪽이 틀렸어요' 를 숨기고 잘못 짚음을 '규칙이 잘못 짚었어요' 로 쓴다
 - 다시 검수 버튼은 '판정 다시 보기'(LLM 없음)
+- '판정 다시 보기'(`recheckBtn`, 글 `RECHECK_LOCAL`)는 정규식 지적에도 보인다. 지금 본문에 그 경고 규칙만 다시 걸고 알림도 규칙 말로 쓴다
 - 머리의 '검수 옵션 ▾' 메뉴(`checkOptsMenu`): 넓혀 찾기(장편, `Settings.check_widen`) · 동선 따로 보기(`Settings.check_motion`) · 연출 함께 뽑기(`Settings.stage_extract`)를 체크 줄과 설명으로 모은다. 머리 줄에는 검수 · 상태 승인 버튼만 둔다
 - `checkOptsMenu` 에는 쓴 뒤 바로 검수(`Settings.check_after_write`, `toggleCheckAfterWrite`)와 바뀐 곳만 새로 짚기(`Settings.check_scope`, `toggleCheckScope`)도 있다
 - 표시 `findingFlag` · 밑줄 `findingMarks` · `findingOrder` · `roundChanges` · `nearQuote` · `fixMissing` 은 순수 함수(`tests/test_check_js.py`)
@@ -226,6 +255,8 @@
 - 받은 그대로의 계획을 `S.convOrig` · `S.rbOrig` 에 둔다. 칸이나 체크를 고친 뒤 '다시 받기'를 누르면 먼저 묻는다(`planEdited` · `planRefetchOk`, `tests/test_convert_js.py`)
 - 되돌리기
 - 집필 화면의 재구성 안내 · 다듬기 비교(`rebuildNote`)도 여기 있다
+- 다듬기 제안 카드는 제안의 `ruled` 로 '규칙으로 N곳 고쳤어요' 와 규칙 이름을 보인다(`ruledLine`)
+- 받아들이기(`reworkAccept`)는 `ruled` 를 되돌려 보낸다. 서버가 넣는 글에 아직 남은 곳만 기록한다(`reshape.accept_rework`)
 
 ### `canon/static/flow.js`
 
@@ -263,7 +294,8 @@
 - 버튼에 쓰는 글 `nextStepLabel`: 동작이 있으면 동작 글, 없으면 글
 - 다음 할 일 버튼 `nextStepHtml`: 동작이 있으면 `data-action` button, 없으면 a
 - `nextStepHtml` 은 작품 홈 머리와 집필 머리(`write.js` `nextStepBtn`)가 쓴다
-- 작품 홈 머리는 다음 할 일이 이야기 구조 화면(`/arc`, `/arc/n`, `isArcHref`)이면 이야기 구조 보조 버튼을 두지 않는다
+- 작품 홈 머리는 다음 할 일 버튼과 ⋯ 메뉴 `homeHeadMore` 둘이다. 메뉴 안은 장편으로 늘리기 · 이야기 구조 · 갈래 만들기이고 조건이 맞을 때만 든다
+- 작품 홈 머리 ⋯ 메뉴는 다음 할 일이 이야기 구조 화면(`/arc`, `/arc/n`, `isArcHref`)이면 이야기 구조 줄을 두지 않는다. 메뉴가 비면 ⋯ 도 없다
 - 작품 홈 '다음 할 일' 카드는 자동 집필이 돌 때 제목을 '자동 집필이 n화를 쓰는 중이에요'로 쓴다. '자동 집필로'는 버튼과 링크에만 쓴다
 - 사이드바 자동 집필 메뉴 이름 `autoMenuLabel`: 돌면 '자동 집필 · 쓰는 중', 멈추면 그 까닭
 - 작품 목록 `projectGo` 는 플롯 전 작품의 설정 필수 칸이 비면(`setup_ready` false) '설정 마저 채우기'로 보낸다
@@ -273,6 +305,7 @@
 - 사이드바가 없는 새 플레이 화면은 `aiNote(true)` 로 상자를 늘 보인다
 - 작품 홈
   - 지금 화 `homeNowCard` · 확인할 것 `homeTodos`(말투 빈 인물 `homeSpeechGaps`, 시점 인물 서술 말투 빈칸 `homeVoiceGap`) · 전 화수 막대 `homeProgress` · 줄인 목록 `homeCast` · `homeForeshadows`
+  - 확인할 것 · 주요 인물 · 열린 복선 · 확정 사실은 카드 없이 구역(`.sec`)이다. 지금 화만 카드다
   - 계산 함수는 작품을 받는 순수 함수 `tests/test_home_js.py`
   - 확정 사실 줄 끝의 'n화' 링크는 그 화 상태 승인 기록(`/review/n`)으로 간다. 들어온 화는 `factsLearned`(`context.facts_learned` 와 같은 규칙)
 - 장르 · 화 진행 막대와 연재 일정(`epSteps`, 검수 칸 `checkState`, 화를 열 단계 화면 `epStage`: 다음 할 일 · 화 칸 · 팔레트, 작품 목록 다음 할 일 `projectNext` 는 서버 `findings.check_done`, `releasePlan`, `Project.release`)
@@ -288,6 +321,7 @@
 - 진행 줄은 AI 호출이 기다리거나 다시 부르는 중이면 `Job.retry` 를 note 대신 보이고 남은 시간 어림을 뺀다
 - 손가락 기기에서는 알림 창 아래 'Esc로 닫아요' 안내를 비운다
 - AI 작업과 알림을 버튼 하나에 모은다
+- 작품 밖 작업 줄은 칩으로 어디 것인지 보인다: 역설계 실험 · 레퍼런스 원고 · 문단 연습장(`.studio`) · 문체 라이브러리(`hubWhere`)
 - 버튼(`hubButton`, 사이드바 · 작품 밖 사이드바의 `#hub-slot`)
 - 버튼 아래 창(`#hub-pop`: 확인할 것 · 진행하는 중 · 최근 알림 · 접힌 끝난 작업과 지난 알림, `hubOpen` · `hubClose`)
 - 말풍선과 창 자리(`placeHub`, `#toast`)
@@ -299,8 +333,9 @@
 
 ### `canon/static/ideas.js`
 
-- 설정 칸 하나의 AI 후보(✦)
+- 설정 칸 하나의 AI 후보
 - 칸 옆 버튼(`ideaBtn`, `.ai-mini`)과 칸 바로 아래 후보 목록(`ideaList`)
+- 칸 옆 버튼은 그 칸(`.field`)에 포인터나 포커스가 있을 때만 보인다(app.css, 투명도). Tab 순서에는 남아 키보드로 닿으면 보인다
 - 고르기(`useIdea`, 로그라인 칸이면 합친 문장도) · 다시 받기 · 닫기
 - 마법사 · 기획서 칸에는 `input()` 의 `aside` · `beside` · `after` 로 붙인다
 - 고르기 전에는 칸을 바꾸지 않는다
@@ -337,6 +372,7 @@
 - 집필 화면 본문 속 이름
 - 손가락 기기에서는 이름 목록 안내에서 Alt+Enter 를 빼고 '본문의 이름을 누르면 떠요' 만 보인다
 - 인물 이름 · 장소(`atlas.places` 와 같은 목록 `mentionPlaces`)를 정규식 하나로 찾기(`mentionRanges`, 조사 · 긴 낱말 규칙, 치는 중에는 자리 옮기기 `mentionShift`)
+- 인물 다른 이름(`Character.aliases`)은 이 화면에서 쓰지 않는다. 이름만 찾는다
 - 밑줄은 `marks.js` 의 `markHtml` 이 함께 그림
 - 이름 카드 자리 `mnPlace` 도 왼쪽을 0으로 두고 너비를 잰다(`passage.js` 의 `placeTool` 과 같은 규칙)
 - 이름 카드(이 화 시작 시점 `/cast` 프레임을 `S.mnCast` 에 따로 받아 `cast.js` 함수로 읽음, 장소는 설명과 지도)
@@ -398,6 +434,8 @@
 - 명령 팔레트
 - Ctrl+K(맥은 ⌘K, 입력칸 안에서도) · 좁은 화면 사이드바 '찾기'(`openPalette`)
 - 화면(사이드바 `navItems` 와 같은 이름) · 화 번호 · 인물 이름 · 설정 칸(칸 이름과 값, `palSetupFields`, 고르면 `S.jumpTo` 로 설정 도우미 기획서의 그 칸) · 설정 대화상자의 줄(`SET_ROWS`, 고르면 그 갈래를 연다) · 다음 할 일 · 저장(`saveShortcut`) · 알림 창(`hubOpen`)을 찾는다
+- 사이드바에 그리지 않는 실험 화면(`navItems` 의 `apart`)도 찾는다. 작품 밖 화면(`foot`)과 주소가 같은 실험은 한 번만 넣는다
+- 작품 안 화면 이름이 모두 팔레트에서 찾아지는지 `tests/test_sidebar_js.py` 가 본다
 - 작품 밖은 작품 목록 · 설정 · 알림 창과 설정 줄만
 - 검색 `paletteItems` · `paletteMatch` 는 순수 함수(`tests/test_palette_js.py` 가 node 로 맞춰 본다)
 - 640px 이하는 찾기 칸 오른쪽에 닫기 버튼 `.pal-x`(화면을 거의 다 덮고 Esc 가 없다)
@@ -416,24 +454,23 @@
 - 문장 범위는 `sentenceRanges`(줄바꿈과 . ! ? … 닫는 따옴표까지), 손가락 자리의 문장은 `sentenceRects` 로 한 번에 재고 `pickAt` 이 찾는다
 - 고른 문장을 2초 안에 다시 누르면 고르기를 풀고 그 자리(`pickOffset`)에 커서를 둔다. 그 클릭은 `marks.js` 가 두 번째 누름으로 쳐(`pickAgain`) 밑줄 이름 카드 · 도구를 띄운다
 - 900px 이하에서 메뉴와 직접 수정 칸은 화면 아래에 붙는다(`toolDocked`, `.sel-tool.docked`). 고른 부분 끝이 도구에 가리면 페이지를 굴린다
-- 도구의 'AI에게 고치기'(`selAi`)와 후보 넣기(`passageApply`)는 그 글을 다시 골라 휴대폰 시트 위에 보이게 굴린다. 손가락 기기는 본문 칸 포커스를 푼다
+- 도구의 'AI에게 고치기'(`selAi`)는 그 글을 다시 골라 휴대폰 시트 위에 보이게 굴린다. 손가락 기기는 본문 칸 포커스를 푼다
 - 본문을 굴릴 때 900px 이하에서 시트가 열려 있으면 위쪽 띠(`--band`)와 시트 사이를 보이는 자리로 본다(`syncPassage`)
-- `text` 주제의 `candsFor` 는 후보가 지금 고른 부분(`curSel`)의 것인지 본다. 다른 부분을 새로 골라 열면 시트를 높이지 않는다
-- `text` 주제의 `foldFrom` 은 지금 고른 부분과 이어지는 맨 뒤 대화만 편다(`passageRelated`: 같은 부분이거나, 그 답의 후보를 넣어 고른 부분이 넣은 글이 됨)
-- 답의 후보를 넣은 수정 기록은 `passageEdit` 이 찾는다. 그대로 넣으면 `proposed` 가 비고 `after` 가 후보다
-- 방금 넣은 답 아래에는 다음에 할 것 줄(`.next-acts`: 되돌리기 · 이어서 고치기 `passageMore` · 닫기)을 둔다. 되돌리면 사라진다
+- 옛 'AI에게 고치기' 대화(주제 `text:<화>`)의 패널 · 빠른 요청 줄 · 후보 카드 · 넣기는 04e 에서 지웠다. 옛 기록은 대화 에이전트의 '이전 대화'에서 읽는다
 - 수정 되돌리기 · 다시 넣기 뒤에도 손가락 기기에서는 본문 칸에 포커스하지 않는다
 - 본문에서 고르면 뜨는 도구(직접 수정, AI에게 고치기)
-- 도구의 'AI에게 고치기'(`selAi`)는 대화 에이전트를 열고 고른 부분을 재료 칩으로 붙인다(`S.agentMaterial`, 04b). 옛 'AI에게 고치기' 대화는 패널 머리의 전환으로 연다
-- 대화 에이전트 패널이 열려 있으면(`S.chatOld` 가 빔) 본문을 고르기만 해도 재료 칩을 바꾼다(`onSelect` → `agent.js` `agentAttach`)
+- 도구의 'AI에게 고치기'(`selAi`)는 대화 에이전트를 열고 고른 부분을 재료 칩으로 붙인다(`S.agentMaterial`, 04b)
+- 대화 에이전트 패널이 열려 있으면 본문을 고르기만 해도 재료 칩을 바꾼다(`onSelect` → `agent.js` `agentAttach`)
+- 검수 지적의 '대화로 고치기'(`issueAsk`)는 고칠 방향을 대화 에이전트 입력칸(`S.agentDraft`)에 넣는다
 - 도구 자리 `placeTool` 은 왼쪽을 0으로 두고 너비를 잰다. 옛 자리에서 재면 남은 폭만큼 줄어 화면 오른쪽 끝에 붙는다
-- 후보를 원문과 단어 단위로 비교
+- 후보를 원문과 단어 단위로 비교(`wordDiff`, 다시 생성 · 검수 · 에이전트 카드가 쓴다)
 - 수정 기록과 되돌리기
 - 고친 뒤 다시 할 단계 알림
 - 상태 정리 경고에서 «» 문장을 찾아 고르기(`warnQuote`, `warnItems`, `warnPick`)
-- 경고의 'AI에게 고치기'는 대화 패널을 거치지 않고 첫 후보를 바로 본문에 넣는다(`aiFixNow`: 저장 → `POST …/fix-now` 한 번 → 되돌리기 · 상태 승인으로 알림). 후보가 없으면 대화 패널을 연다
+- 경고의 'AI에게 고치기'는 대화 패널을 거치지 않고 첫 후보를 바로 본문에 넣는다(`aiFixNow`: 저장 → `POST …/fix-now` 한 번 → 되돌리기 · 상태 승인으로 알림). 후보가 없으면 AI 답을 알림에 보이고, 집필 화면이면 대화 에이전트를 열어 그 문장을 재료로 붙인다
 - `aiFixNow` 는 AI를 기다리는 동안 화면을 잠그지 않는다. 그 화 본문 칸만 잠그고(`S.aiFix`, `aiFixing`) 다른 화면으로 가도 끝나면 알린다
-- 바로 넣는 것은 경고에 옮겨 적은 글이 본문에 그대로 한 번만 있을 때다(`warnSpot` 의 `exact`). 아니면 그 문장을 골라 경고를 대화 입력칸에 넣고 보내기는 작가가 한다
+- `aiFixNow` 알림은 그 사이 새로 생긴 규칙 걸기의 고친 곳 수를 '규칙으로 N곳도 고쳤어요' 로 붙인다
+- 바로 넣는 것은 경고에 옮겨 적은 글이 본문에 그대로 한 번만 있을 때다(`warnSpot` 의 `exact`). 아니면 그 문장을 대화 에이전트의 재료로 붙이고 경고를 입력칸(`S.agentDraft`)에 넣는다. 보내기는 작가가 한다
 - 경고 줄 뒤의 버튼 · 표시는 `warnTools` 하나가 그린다(집필 `warnItems` · 상태 승인 `rvWarnLine`): 고치는 중, 'AI가 고침'(`warnFixed`: 되돌리지 않은 AI 수정의 요청 글이 그 경고), 버튼
 - 되돌리기 알림 `undoToast` 는 `toast` 의 동작 알림이다. 누르거나 포커스가 있는 동안 닫히지 않고 알림 창 '최근 알림'에 남는다
 - 상태 승인 화면의 경고에서 집필 화면으로 옮길 때는 `goThen` 으로 그 화면을 다 그린 뒤에 고른다
@@ -448,8 +485,8 @@
   - 목차의 진행 막대 `plotMeter` · 구간 줄 `actTocItems`(누르면 `jumpAct`) · 확인할 것 `plotTodos`(관계를 한 화에 너무 많이 옮기는 화 `pacePlot`, `pace.plot_warnings` 와 같은 규칙 `tests/test_plot_pace_js.py`)
   - 머리의 'AI로 다시 만들기 ▾' `plotAiMenu`(요청 칸 `S.planNote`)
   - 구간 한 줄 머리 + 화 카드 격자 `actBoard`
-  - 단편은 보드 위에 열 계획 카드(`heatplan.js` `heatCard`, story.md)
-  - 장편은 고른 아크 보드 위에 그 아크의 열 계획 카드(`heatCard(p, arc)`)
+  - 단편은 보드 위에 완급 계획 카드(`heatplan.js` `heatCard`, story.md)
+  - 장편은 고른 아크 보드 위에 그 아크의 완급 계획 카드(`heatCard(p, arc)`)
   - 구간 · 아크 · 부 고치기는 서랍 없이 그 자리에서 `actEditor` · `arcEditor` · `partEditor`
   - 아크 주요 인물 이름 체크 `arcCastField`
 - 640px 이하 사건 줄의 도구(연출 · 위로 · 아래로 · 빼기)는 숨기지 않고 사건 글 아래 줄 오른쪽에 둔다
@@ -461,6 +498,7 @@
   - 주소 `arc/<화>`
   - 목차는 이웃 화 목록 `epTocItems`
   - 카드 한 열: 이어받는 것 · 줄거리 · 인물 · 시점 · 끝과 이음 · 복선 · 접은 화 도구
+  - 새 인물 제안 · 설정 없는 인물의 '인물로 등록' · '인물로 만들기'는 보조 버튼이다. 주 버튼은 'n화 확정' · 'n화 쓰기' 하나다
   - 사건마다 한 칸 `eventsField`
   - 글이 있는 사건을 빼면(`dropEvent`) 저장 띠의 '방금 지운 n화 사건 k 되살리기'로 그 화 사건 목록을 빼기 전으로 돌린다(`rememberRemoved`)
   - 옮기기 전 저장 `openPlot` · `closePlot`
@@ -470,6 +508,7 @@
 ### `canon/static/research.js`
 
 - 연구 화면
+- 실험 다섯(샘플 생성 · 단계 시험 · 컨텍스트 크기 · 검수 시험 · 블라인드 비교 쓰기)은 화면을 막지 않는 작업 `rs_<쪽>` 이다. 끝나면 기록을 다시 읽어 결과 카드에 놓는다(`JOB_RESULT.rs_*`, `rsRepaint`)
 - 인물 카드의 신체 프로필 제안(`bodyAI`)과 서술 말투 초안(`voiceAI`)은 화면을 막지 않는 작업 `char_body` · `char_voice`(대상 인물 id)다
 - 서술 말투 초안은 칸에 바로 넣고, 그 칸을 고치는 중이거나 시작한 뒤 고쳤으면 알림의 '넣기'로 넣는다(`JOB_RESULT.char_voice`)
 - 마우스가 없으면(`hover: none`) 표 칸 아래에 큰 블록 비중(`.rs-parts`)을 적는다
@@ -484,10 +523,17 @@
 - 머리 주 버튼은 쪽마다 하나(`rsPrimary`)
 - 백엔드는 칩으로 고른다(`rsPicker`, 샘플 생성은 여럿 `rsMultiPicker`)
 - 칩 후보는 설정값 · 서버 점검 모델 · 기록에 남은 백엔드(`rsCands`)
+- Claude 칩(구독 · API 키)은 설정에서 그 백엔드를 쓸 때만 후보에 든다(`rsClaudeKinds`: 전체 · 단계 백엔드로 골랐거나, 실행 파일 경로나 API 키가 있을 때)
+- 판단기 칩은 로컬 · mock 만 고른다
+- 블라인드 비교 B 의 기본값은 A 가 Gemini 면 작가가 쓰는 Claude(없으면 로컬), 아니면 Gemini
 - 칩에 없는 백엔드는 '+ 다른 백엔드 적기'로 칸을 편다
+- 칩 아래 줄은 백엔드와 '설정값'만 적는다. 모델 이름은 칩 제목(`rsName`)에 있다
+- 직접 적는 줄의 모델 칸 안내는 그 백엔드의 기본 모델(`defaultModelName`)이고, 백엔드를 바꾸면 다시 그린다
 - 컨텍스트 크기의 화별 표는 기록에 남지 않아 방금 잰 결과(`S.rs.cur`)에만 있다
 - 칸 폭 560px 이하(`@container outline`)의 결과 표는 줄마다 칸을 쌓는다(`.rs-stack`, 칸 이름 `data-label`)
-- `rsCands` · `rsParse` · `rsBrief` · `rsLogLine` · `rsCheckCalls` 는 순수 함수(`tests/test_research_js.py`)
+- `rsCands` · `rsClaudeKinds` · `rsModelId` · `rsKeptSource` · `rsKeptNote` · `rsParse` · `rsBrief` · `rsLogLine` · `rsCheckCalls` 는 순수 함수(`tests/test_research_js.py`)
+- 블라인드 비교는 쓰기 전에 기존 본문을 가져올 쪽을 알린다(`rsKeptNote`, 백엔드 모델 이름 `rsModelId`, 출처 `rsKeptSource`)
+- 고른 뒤에는 가져온 안에 '기존 본문' 칩(지금 본문이면 고친 곳 수)을 붙인다
 - 블라인드 비교 고르기(`rsPickDraft`)는 본문으로 채택한 때만 그 화 초안 · 변경안을 거둔다. 채택 전에 저장하지 않은 본문 고침이 있으면 따로 묻는다
 - 인물 화면의 신체 프로필 · 서술 말투 AI 동작(`bodyAI` · `voiceAI`)도 이 파일에 있다
 
@@ -537,11 +583,18 @@
   - 머리 버튼 줄의 반영 버튼 · `.savebar-slot`
   - 변경안 메뉴 `rvMenu`(다시 만들기 · 지시서 · 버리기)는 `write.js` `writeMenu` 의 맨 위 '변경안' 갈래로 들어간다. 머리 ⋯ 메뉴는 하나다
   - 반영 `applyDelta`: 본문을 고친 것을 확인창에서 받았으면 `?force=1` 로 보낸다. 서버가 409(`stale_delta`)를 주면 기다림 상자를 닫고 한 번 더 묻는다
+  - 요약 카드의 '추천대로 반영' `gistApply` 는 `pickEp` 로 그 화 체크를 맞춘 뒤 `applyDelta(n, true)` 를 부른다. 상태 승인 화면에서 아무것도 바꾸지 않고 반영할 때와 같은 요청이다
+  - `gistApply` 는 받은 그대로에서 고친 변경안(`deltaTouched`)이면 보내지 않는다
+  - `applyDelta` 의 `stay` 는 반영한 뒤 화면을 옮기지 않고 되돌리기 알림도 띄우지 않는다. `S.gistDone` 을 남겨 요약 카드가 반영 뒤 동작을 그린다
+  - 요약 카드 묶음 줄 `gistGo` 는 상태 승인 화면의 그 갈래를 펴고(`S.rvOpen`) 그 자리로 간다. 설정 바꾸기는 직접 정할 것의 첫 칸, 요약은 요약 칸이다
   - `reviewPanel` 이 머리 보조 버튼 · 주 버튼 · 칸 위 알림 · 오른쪽 칸 `.rv-panel` · 좁은 폭 반영 바를 돌려준다(`viewReview` 는 `write.js` `viewEpisode(n, 'review')`)
   - 왼쪽 본문은 `viewEpisode` 가 그리는 고치는 본문이고 근거 밑줄 `rvRanges` 를 긋는다(`marks.js` `rvMarked` 가 밑줄 칸을 깐다)
   - 고치는 본문의 근거 밑줄을 누르면 `marks.js` 가 `rvGoItem` 으로 그 항목에 간다. 항목의 '본문 보기'(`rvQuote`)는 넓은 폭에서 본문 칸의 그 문장을 고른다
   - 반영 `applyDelta` 는 저장하지 않은 본문 고침을 먼저 저장하고(`flushText`) 고친 본문이라 한 번 묻는다
   - 오른쪽 직접 정할 것 · 요약 · 그대로 반영할 것(갈래 접기 `S.rvOpen`, 고른 수 `rvKeyCount`) · 관계 계산
+  - 변경안 묶음 요지 `deltaGist`(순수 함수): 묶음(요약 · 인물 상태 · 관계 사건 · 복선 · 사실 · 설정 바꾸기 · 그 밖)마다 줄 수 · 고른 수 · 한 줄 요지
+  - `deltaGist` 는 기본으로 반영하지 않는 설정 바꾸기 · 호칭 수 문구(`skip`)와 검수 지적이 남았을 때 접기(`fold` · `head`)도 돌려준다(`tests/test_inline_review_js.py`)
+  - 그대로 반영할 것의 관계 사건 · 확정 사실 · 복선 갈래 한 줄은 `deltaGist` 요지를 쓴다. 집필 화면 요약 카드(`write.js` `gistCard`)와 같다
   - 관계 사건 종류 고르기는 색(`kindStyle`) 옆에 칩 `kindTag`(＋ 좋은 사건 · － 나쁜 사건, 기호는 `aria-hidden`)을 둔다. 종류를 바꾸면 칩도 맞춘다
   - 경고를 인물 줄에 붙이기 `rvWarnSplit`
   - '[누락 의심]' 경고는 `rvWarnSplit` 이 따로 모아(`audit`) '변경안 누락 의심' 줄에 둔다. 본문을 고칠 일이 아니라 '이 문장 고르기'만 둔다(`warnTools` 의 `pickOnly`)
@@ -561,9 +614,11 @@
 - 집필 화면의 다시 생성 열(`rwColumn`, 대화 패널 자리 `.tool-col`에 뜨고 대화 패널과 하나만 열림. 빠른 요청, 피드백, 함께 넣을 재료, 처음부터 / 고쳐 쓰기, 살릴 부분)
 - 방식 '서술만 다듬기'(`polish`)는 다른 칸을 감추고 정해진 규칙만 보낸다. 버튼은 '다듬은 판 만들기'
 - 새 판 비교(나란히 · 바뀐 곳 `textDiff`)와 고르기. 새 판을 쓸 때 뗀 작업 설명이 있으면 그 수를 한 줄로(`TextVersion.meta_cut`, 고르면 화로 따라감)
+- 새 판 카드는 새 판에 건 고침 규칙(`TextVersion.rule_runs`)의 고친 곳 수 · 규칙 이름과 건너뛴 묶음을 보인다(`rwRuleLine`). 되돌리기는 새 판으로 바꾼 뒤 집필 화면에서 한다
 - 이전 판 목록과 되돌리기
 - 서버는 `pipeline.rewrite_episode` · `set_candidate` · `adopt_candidate` · `drop_candidate` · `restore_version`
 - 쓰기 작업 끝 알림(`JOB_DONE_MSG.write`)은 쓴 뒤 바로 검수의 짚은 곳 수나 못 한 까닭(`check_error`)을 함께 알린다
+- `JOB_DONE_MSG.write` 는 작업 결과의 `rule_run` 이 있으면 고친 곳 수 · 건너뛴 묶음을 붙인다(`ruleRunSay`). 쓰기 · 다시 생성 모두다
 - 프롬프트는 `prompts.rewrite_prompt`
 
 ### `canon/static/settings.js`
@@ -608,6 +663,11 @@
   - 캐시 앞부분 블록(`front`)이나 그 블록이 쓰는 예산을 바꾸면 저장 알림에 '다음 요청부터 캐시가 처음부터 다시 쌓여요'를 붙인다
   - 블록 설정을 저장하면 집필 화면이 든 컨텍스트 블록 표를 다시 받는다(`ctxReload`)
   - `ctxReload` 는 들고 있던 프롬프트 원문(`S.promptText`)과 토큰 센 값(`S.ctxCount`)을 버린다. 다음에 열 때 새 요청을 받는다
+  - 이 작품 › 쓰기 갈래 '정규식 규칙'(`SET_ROWS` 의 `regex-rules`, `ruleBundleRows`): 켠 묶음을 거는 차례대로(↑ ↓ · 스위치) 먼저, 끈 묶음을 뒤에 보인다
+  - 묶음 목록은 대화상자를 열 때 `GET /api/rules` 로 받는다(`loadRuleBundles`, `SET.rules`). '규칙 묶음 관리' 는 `#/rules` 로 간다
+  - 지워진 묶음 id 는 '찾을 수 없는 묶음이에요' 로 보이고 끄기만 된다
+  - 켜기 · 끄기(`setRuleBundle`, 켜면 맨 뒤)와 차례 옮기기(`setRuleMove`)는 `setRulesSave` 가 줄을 서서 `PUT …/rule-bundles` 로 보낸다. `setProjectSave` 는 쓰지 않는다
+  - 작품에 저장하지 않은 수정이 있으면 응답의 `settings.rule_bundles` 만 맞춘다. 서버가 거절하면 바꾸기 전으로 되돌리고 문구를 줄 아래에 보인다
   - 이 작품 › 백업 갈래(`backup-list`): 백업마다 한 줄(`backupRows` · `backupDesc`), 열 때 `GET …/backups` 로 받고 되돌리기는 `setRestore`(되돌린 뒤 `PER_PROJECT` 초안 · 변경안을 비움)
   - `tests/test_settings_js.py` · `tests/test_model_preset.py`
 
@@ -615,14 +675,18 @@
 
 - 1단계 설정 도우미
   - 공용 목차 틀 `outline.js` 의 왼쪽 목차 + 오른쪽 카드 한 열 `.setup-secs`
+  - 기획서의 인물 목록 · 관계 목록 · 상태창 줄은 카드 없이 구역(`.sec`)이다
   - 720px 이하는 위에 붙는 목차 버튼 · 걸음 막대(`.outline.steps`)와 아래 버튼 줄 `.setup-foot`
   - 새 작품 마법사 `viewSetupWizard`: 필수 칸 `setupReqs` · 걸음 목차 `wizStepper` · `wizStepState` · 세계 종류 · 시대 칩 `withWorldKind` · `worldRecs`
+  - 마법사 머리에 빈칸 AI 제안받기(`suggest`) 버튼을 둔다. 옛 설정 대화 패널 아래에 있던 것을 04e 에서 옮겼다
   - 다 채운 작품은 기획서 `viewSetupDoc`: 구역 `DOC_SECS` · 목차 상태 `docStatus` · 머리 요약 `docSummary` · 관계 점검 `relIssue` · `relWork` · 가 닿을 곳이 섞인 사이 `relDestNote`
   - 인물 · 관계는 한 줄 목록에서 하나만 편다
   - 이야기 뼈대만: 로그라인 · 관계 · 이름 후보
   - 인물 상세는 `cast.js` 인물 카드
   - 상태창 처음 수치는 `statwin.js` 로 가는 링크 `setupStatLink`
   - AI 이름 · 지명 고르기(`nameAI` · `placeAI`)는 화면을 막지 않는 작업 `names_ai` 다. 작업은 저장된 작품을 읽어서 먼저 묻지 않고 저장한다. 코드만 뽑는 '후보 뽑기'는 그대로 바로 받는다
+  - 인물 카드의 '다른 이름' 칸과 '다른 이름 제안'(`charAliasField`, 작업 `aliases` 대상 `c:<id>`). 고르기 카드는 `aliases.js` 의 `aliasCard`
+  - 인물 구역 머리의 '빈 다른 이름 제안'은 대상 `c:` 작업이고 결과 카드를 구역 머리 아래에 둔다
   - `tests/test_setup_wizard_js.py`
 
 ### `canon/static/style.js`
@@ -630,10 +694,11 @@
 - 2단계 문체 · 문체 라이브러리
   - 왼쪽 목차 `styleToc` · 목차 줄 `styleTocItems` + 카드 한 열
   - 프로필 카드 `pfCard`: 읽는 모양 `pfRead` 이 기본
+  - 읽는 문체 칸은 구역(`.sec.pf-sec`), 고치는 칸은 카드(`.card.pf-sec.editing`)다. 맨 위 라이브러리 · 지표 줄과 닫힌 원문 칸도 구역이다
   - '고치기'로 그 카드만 `pfEdit`(기억 `S.styleOpen`, 빈 카드 `styleCardEmpty` 는 바로 고치는 칸)
   - 서술 카드의 읽는 모양은 값이 있는 줄만 보이고, 빈 줄은 '빈 칸 n개 채우기' 버튼 하나로 묶는다(`foldBlank`)
   - '빈 칸 n개 채우기'(`styleFill`)는 빈 칸을 그 자리에서 고치는 칸으로 편다. 펼칠 때 비어 있던 칸을 `S.styleFill` 에 기억해, 쓰는 동안 다시 그려도 접히거나 자리를 옮기지 않는다
-  - 대화 변경안이 바꿀 빈 칸은 묶지 않고 '비어 있음'과 '변경안'으로 보인다
+  - 옛 문체 대화의 변경안이 바꿀 칸 표시(`hot`)는 04e 에서 옛 패널을 지워 늘 비어 있다. 에이전트 문체 카드와 잇는 것은 남은 일이다
   - '지킬 · 피할 것' 카드에서 수가 0인 묶음은 '비어 있음'을 따로 적지 않는다
   - 목차 수 `styleCount`
   - 서술 카드 칸은 `NARR_KEYS`(효과음 표기 포함). 목차 수는 채운 칸 / 전체 칸
@@ -643,12 +708,12 @@
   - 요약은 가장 어긋난 지표 둘이다(`metricGaps`). 점수는 차이를 경고 폭으로 나눈 값이고, 1을 넘으면 '경고' 칩을 단다. 경고 폭의 절반보다 작은 차이는 올리지 않는다
   - 요약의 경고 폭 표 `METRIC_GAPS` 는 `metrics.THRESHOLDS` · `UPPER_ONLY` 와 같게 둔다(`tests/test_style_js.py`)
   - 견줄 화나 기준 지표가 없으면 요약 줄을 두지 않는다
-  - 정착 문체를 정해도 요약은 레퍼런스(`style_baseline`)와 견준다. 검수 화면의 문체 경고는 정착 문체를 보므로 둘이 다를 수 있다
+  - 이 작품의 문체를 정해도 요약은 레퍼런스(`style_baseline`)와 견준다. 검수 화면의 문체 경고는 이 작품의 문체를 보므로 둘이 다를 수 있다
   - 지표 칩(`metricChips`)은 '지표 풀이'를 열면 보이고, 값이 없는 지표는 칩을 그리지 않는다. 라이브러리 항목의 칩도 같다
   - 지표 풀이 표(`baselineRows`)는 '–'를 남겨 왜 없는지 적고, 견준 화가 있으면 지표마다 그 화의 값을 곁에 적는다
-  - '지킬 · 피할 것' 카드의 열 낱말 칸(`heatWordsRead` · `heatWordsEdit`, `Settings.heat_words` 에 묶음): 작품 화면에만 있고 라이브러리 문체에는 없음
+  - '지킬 · 피할 것' 카드의 절정 낱말 칸(`heatWordsRead` · `heatWordsEdit`, `Settings.heat_words` 에 묶음): 작품 화면에만 있고 라이브러리 문체에는 없음
   - 빈 문체는 세 갈래 `stylePickCard` · `styleManual`
-  - 프로필 카드 뒤에 작품 정착 문체 카드(`static/anchor.js` 의 `anchorCard`)
+  - 프로필 카드 뒤에 이 작품의 문체 카드(`static/anchor.js` 의 `anchorCard`)
   - 라이브러리 항목도 같은 카드
   - 목차 틀은 공용 `outline.js`(`styleToc`)
   - `tests/test_style_js.py`
@@ -658,25 +723,32 @@
 
 ### `canon/static/stylechat.js`
 
-- 문체 화면의 대화로 다듬기(대화 주제 `style`: 칸별 변경안과 지금 값 비교, 시험 문단, 고른 칸 적용 · 적용 취소, 라이브러리 새 버전)와 '이 문체로 쓴 예시' 카드
-- 서버는 `pipeline.revise_style` · `apply_style_chat` · `undo_style_chat` · `style_example`
-- '예시 쓰기'는 작업 `style_example` 을 시작한다(등록은 `style.js`). 대화 전송 경로는 그대로다
+- 문체 변경안을 읽는 도우미(칸 이름 · 칸 비교 · 시험 문단), 옛 문체 대화(주제 `style`)의 적용 취소 `styleChatUndo`, '이 문체로 쓴 예시' 카드
+- 옛 문체 대화의 패널 · 보내기 · 적용은 04e 에서 지웠다. 적용 취소는 대화 에이전트의 '이전 대화'(`chat.js` `chatReadOnlyCard`)에서 부른다
+- 서버는 `pipeline.undo_style_chat` · `style_example`
+- '예시 쓰기'는 작업 `style_example` 을 시작한다(등록은 `style.js`)
 - 칸 이름은 `prompts.STYLE_KEY_LABELS` 와 같다(`tests/test_labels_js.py`)
 - 대화 에이전트의 문체 카드(`agent.js` `agentStyleApproval`)가 `STYLE_LABEL` · `styleEditDiff` · `sampleBlock` · `epSelect` 를 함께 쓴다
-- 참고할 화 `S.styleRefEp` 는 이 대화와 에이전트 패널의 칩이 함께 쓴다
+- 참고할 화 `S.styleRefEp` 는 에이전트 패널의 칩이 쓴다
 - 서버의 적용 · 취소 몸통은 `pipeline.apply_style_edits` · `undo_style_edits` 이고, 대화의 `apply_style_chat` · `undo_style_chat` 은 메시지 칸만 맡는다
-- 이 대화 패널(패널 머리 전환 줄의 옛 '대화로 다듬기')은 04b~04d 가 머지된 뒤 정리할 때까지 남긴다
+- 적용 취소의 라이브러리 새 버전 칸(`linkPushBox`)은 `S.styleLink`(문체 화면이 `loadStyleLink` 로 받는다)가 이어진 상태일 때만 그린다. 다른 화면에서 연 '이전 대화'에는 없을 수 있다
 
 ### `canon/static/write.js`
 
 - 4단계 집필
   - 한 화 화면 `viewEpisode(n, panel)`: 집필 · 검수 · 상태 승인 세 주소가 같은 머리 · 단계 띠 · 본문 칸을 그린다(`viewWrite` · `viewCheck` · `viewReview` 는 감싼 이름)
   - 집필 칸은 오른쪽 칸 없이 본문 칸 하나
+  - 집필 칸은 변경안이 생긴 화(`S.deltas[n]`, 본문을 쓴 화)에서 단계 띠 아래 · 본문 위에 상태 변경안 요약 카드 `gistCard`(`.w-gist`)를 둔다
+  - `gistCard` 는 `review.js` `deltaGist` 로 묶음마다 줄 수와 한 줄 요지를 보인다. 관계는 사건만 적고 수치는 없다
+  - `gistCard` 의 버튼은 '추천대로 반영'(`gistApply`) · '상태 승인으로' 둘이고 보조 버튼이다. 설정 바꾸기 · 호칭이 있으면 반영하지 않는다고 적는다
+  - 검수 지적이 남았으면 `gistCard` 는 접은 칸(`details`, 펼침은 `S.rvOpen['n:gist']`)이고 요약 줄에 지적 수를 먼저 적는다
+  - 카드에서 반영한 화(`S.gistDone`)는 같은 자리에 다음 할 일(`nextStepHtml`) · 반영 취소(`revertFrom`, 스냅샷이 없으면 `revertGone`)를 둔다. 다른 화를 열면 지운다
   - 검수 · 상태 승인 칸은 `check.js` `checkPanel` · `review.js` `reviewPanel` 의 오른쪽 칸을 `episodeCols` 가 본문 옆에 둔다(`.ep-cols`: 넓은 폭은 왼쪽 본문 · 오른쪽 칸, 좁은 폭은 칸 먼저)
   - 칸을 열면 머리 주 버튼은 그 칸의 것이다. 본문이 없는 화는 칸을 열지 않고 집필처럼 그린 뒤 먼저 쓰라고 알린다
   - 640px 이하는 칸의 보조 버튼을 머리 줄 대신 칸 위 한 줄(`.ep-tools`)에 둔다. 폭이 640px 를 넘나들면 다시 그린다
   - 머리 `.w-stick` 에 붙는 본문 띠와 이번 화 플롯 띠 `plotStrip`(사건 진행 줄: 쓴 사건 체크 `doneEvents` → `Episode.events_done`, 막는 조건 `eventsLock`, 엔딩 훅 도착점) · 펼침 기억 `plotOpenOf`
   - 작가 연출 지시 칸 `dirCard`(집필 칸만): 지금 걸린 아크 지시 · 화 지시를 늘 보이고 '고치기'로 두 칸을 열어 바로 저장한다(`dirSave` → `PUT …/direction`, 막는 조건은 `eventsLock` 과 같다)
+  - `dirCard` 는 읽는 동안 구역(`.sec.w-dir`), 고치는 동안 카드다. 고치는 칸의 저장은 보조 버튼이다(머리 주 버튼 하나)
   - 머리 높이 `syncWriteTop`
   - 머리 줄에 지금 본문을 쓴 모델(`.w-model`, `writerLabel`). 기록이 없는 화는 보이지 않는다
   - 경고의 'AI에게 고치기'가 그 화를 고치는 동안 본문 칸 위에 잠금 안내(`role="status"`)를 둔다
@@ -687,6 +759,7 @@
   - 컨텍스트 블록 표 `ctxList`: `GET …/context` 의 블록마다 이름 · 글자 · 추정 토큰 · 예산(장편) · 상태 칩 한 줄(`.ctx-tbl`)
   - 블록 상태 `ctxState`: 넣음 · 작가가 끔(`on` 거짓) · 비어 있음(글자 0) · 잠금
   - 컨텍스트 대화상자(`#w-ctx`, `ctxDialogHtml`)는 `ctxList(true)` 로 줄마다 펼친다(`ctxMore`: 상태 까닭 · 예산 · 넣은 항목과 이유 · 뺀 항목과 이유 · 블록 원문)
+  - 펼친 블록은 '프롬프트 관리에서 보기' 링크(`#/prompts/piece/<블록 id>`)로 그 조각의 자리 · 코드 출처 · 들어가는 갈래를 연다
   - 다른 설정이 정하는 블록(`note`)은 펼친 곳에 그 설정 이름을 적는다(`CTX_NOTE`: 쓰기 재료 · 되풀이한 구절 피하기 · 큐 시트)
   - 펼친 블록은 `S.ctxBlkOpen` 에 남아 대화상자를 다시 채워도 열려 있다
   - 쓰기 시작 칸 · 만든 스토리보드 칸의 펼치는 곳(`details[data-ctx-toggle]`)은 `ctxList()` 요약 줄만 보인다
@@ -710,14 +783,22 @@
   - 640px 이하에서 머리의 위치 줄과 쓴 모델은 숨긴다
   - 640px 이하에서 단계 띠는 한 줄 칸이다
   - 640px 이하에서 안내만 하는 반영 끝난 화 알림은 첫 문장을 요약으로 둔 접은 칸(`finNote`, `.w-fin-s`)이다
+  - 본문을 아직 고치지 않은 반영 끝난 화 알림은 한 문장과 물음표 툴팁(`help`)이라 접지 않는다
   - 640px 이하에서 Esc 로 대화를 닫아 포커스가 비면 ⋯ 메뉴 버튼으로 돌린다(머리 줄의 대화 버튼이 숨어 있어서)
   - 반영이 끝난 화의 머리 primary `nextStepBtn` 은 지금 보는 화면으로 가는 일이면 두지 않는다
   - 동작이 있는 다음 할 일(완결 원고 내보내기)은 `nextStepBtn` 이 늘 둔다
+  - 완결 원고 내보내기는 그 화의 일이 아니라서 `nextStepBtn` 이 보조 버튼(`.btn`)으로 그린다. 작품 홈은 주 버튼 그대로다
   - 본문 없는 화는 AI로 쓰기가 기본이고 머리 primary(`writeGo`, 스토리보드를 만든 화는 `boardGo`, 작업이 돌면 진행 줄 `wsBusy`)와 그 아래 쓰기 시작 칸(`writeStart`: 스토리보드 고르기 `S.wsBoard` · 직접 쓰기 · 컨텍스트)
   - 직접 쓰기(`startManual`)로 빈 칸을 연 화는 본문 칸 위 `manualNote` 의 'AI로 쓰기로 돌아가기'(`backToStart`)로 쓰기 시작 칸에 돌아간다. 쓴 글이 있으면 묻고 임시 보관 초안도 지운다. 그 화에 AI 작업이 돌면 끈다
   - 멈춘 작업이 그 화에서 AI 응답을 기다리면 `writeGo` 가 primary 를 잠그고 쓰기 시작 칸과 만든 스토리보드 칸이 `epWaitNote` 로 까닭을 보인다
+  - 그 화의 작업 `write` 가 돌면 쓰기 시작 칸 아래에 읽기 전용 미리보기 `streamCard`(`#w-stream-<화>`, `.w-stream`)를 둔다. 작업의 부분 글(`partial`)이 없으면 숨긴다
+  - 미리보기는 본문 칸(`data-keep`)이 아니고 낭독 칸(`aria-live`)도 아니다. 아직 저장한 글이 아니라고 적는다
+  - `paintStream` 은 보고 있는 화의 부분 글로 미리보기의 글과 글자 수만 고친다. `app.js` 의 `pollJobs` 가 작업 목록을 받을 때마다 부르고, 화면 전체는 다시 그리지 않는다
+  - 미리보기 칸 끝을 보고 있으면 늘어나는 글을 따라 내려가고, 위를 읽고 있으면 그 자리에 둔다
   - 본문 띠의 저장 칸 `.savebar-slot`
   - 쓰기가 본문 앞뒤에서 뗀 작업 설명(`Episode.meta_cut`)은 접은 알림 `metaCutNote`: 문단마다 '본문에 되살리기'(`metaCutRestore`, 수정 기록에 남음) · '지우기'(`metaCutDrop`, 되살릴 수 없다고 위험 확인을 묻는다). 자동 집필 중이거나 고칠 수 없는 화는 버튼 없이 보기만(`tests/test_meta_cut.py`)
+  - 고침 규칙 기록은 `metaCutNote` 바로 뒤의 `ruleRunsNote`(`regexrules.js`)가 보인다. 자동 집필 중이거나 고칠 수 없는 화이면 되돌리기 없이 보기만 한다
+  - 작업지시서 화면의 받은 본문 붙여 넣기(`importText`)는 `source: "import"` 를 보내 서버가 고침 규칙을 걸게 한다. 새 걸기의 고친 곳 수를 저장 알림에 붙인다
 - 그 화 플롯이 없으면 `noEpisode(n)` 이 몇 화까지 있는지와 마지막 화 · 플롯 만들기로 가는 길을 보인다. 플롯이 하나도 없을 때만 '아직 화별 플롯이 없어요'
 - k화로 가는 링크 `epGo(k)`: 플롯 초안이면 플롯 페이지(플롯 확정), 본문이 있으면 검수 · 상태 승인, 나머지는 집필. 순서 안내(`orderNote`)와 검수 · 상태 승인의 빈 화면이 쓴다
 - 본문 다시 생성 확인은 지금 본문이 이전 판으로 남는다고 말하고 위험 버튼으로 두지 않는다

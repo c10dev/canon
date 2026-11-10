@@ -98,7 +98,7 @@ function voiceField(c, b) {
     ${note ? `<div class="note info">${esc(note)}</div>` : ''}
     ${eps.length ? `<div class="small">이 말투가 들어가는 화: ${rangeText(eps)}화</div>`
       : (c.narration_voice || '').trim() ? `<div class="note warn">아직 ${esc(c.name || '이 인물')} 시점인 화가 없어서 이 말투는 어느 화에도 들어가지 않아요. <a href="${base()}/arc">${stepLabel('arc')}</a>에서 시점 인물을 정하세요.</div>` : ''}
-    <div class="small">대사는 위의 말투(대사)를 따라요. 이 말투로 쓴 화는 어미 관련 문체 경고(과거형 비율, 문체 거리, 표지)를 빼요.</div>
+    <div class="small">대사는 위의 말투(대사)를 따라요. 이 말투로 쓴 화는 어미 관련 문체 경고(과거형 비율, 문체 거리, 버릇)를 빼요.</div>
     <div class="row" style="flex-wrap:nowrap"><input type="text" id="voice-req-${esc(c.id)}" aria-label="${esc(c.name || '이 인물')} 서술 말투 AI 요청" placeholder="AI에게 바랄 점 (예: 더 냉소적으로, 문장을 짧게)" style="flex:1">
       <button type="button" class="btn small" style="flex:none" data-action="voiceAI" data-arg="${esc(c.id)}">설정으로 AI 초안 받기</button></div>`;
   return eps.length || (c.narration_voice || '').trim() || note ? body
@@ -412,8 +412,8 @@ function viewArc() {
   // 장편으로 늘리기는 모든 화를 반영한 뒤에 쓸 수 있다 (작품 홈과 같은 이름)
   const fin = eps.length && eps.every((e) => e.status === 'finalized') && eps.length === p.meta.target_episodes;
   // 완결: 다음 할 일은 원고 내보내기나 장편으로 늘리기다 (내려받기 형식은 집필 화면 '복사 · 내보내기'에서 고른 것)
-  const done = fin ? `<div class="note ok between"><span>모든 화를 반영했어요. 원고를 내보내거나 장편으로 늘려 이어 쓸 수 있어요.</span><span class="row"><button type="button" class="btn small" data-action="downloadTxt" data-arg="1-${p.meta.target_episodes}">전체 .txt 내려받기</button><a class="btn small primary" href="${base()}/convert">장편으로 늘리기</a></span></div>` : '';
-  return `${header('3단계', stepLabel('arc'), '구간을 확인하고 화 카드를 눌러 플롯을 다듬어요. 확정한 화만 본문을 쓸 수 있고, 초안을 다시 만들어도 확정한 화는 그대로예요.', chatButton() + menu + primary)}
+  const done = fin ? `<div class="note ok between"><span>모든 화를 반영했어요.</span><span class="row"><button type="button" class="btn small" data-action="downloadTxt" data-arg="1-${p.meta.target_episodes}">전체 .txt 내려받기</button><a class="btn small primary" href="${base()}/convert">장편으로 늘리기</a></span></div>` : '';
+  return `${header('3단계', stepLabel('arc'), `확정한 화만 본문을 쓸 수 있어요.${help('초안을 다시 만들어도 확정한 화는 그대로예요.')}`, menu + primary + chatButton())}
     ${done}${board}`;
 }
 
@@ -525,7 +525,7 @@ function viewPlotPage(n) {
   const toc = plotToc(arc ? `아크 ${arc.number}의 화` : '화 목록', `${act ? `${act.name} 구간 · ` : ''}${n}화 ${esc(e.plot.title)}`, epTocItems(nums, n));
   return `<nav class="crumbs small" aria-label="위치"><a href="${base()}/arc" data-action="closePlot">${stepLabel('arc')}</a>${where.map((x) => ` <span aria-hidden="true">›</span> ${x}`).join('')} <span aria-hidden="true">›</span> <strong>${n}화</strong></nav>
     <header class="page-head plot-head"><div class="row" style="gap:10px;min-width:0"><h1>${n}화 ${esc(e.plot.title) || '제목 없음'}</h1>${povBadge(n)}<span class="chip ${e.status}">${STATUS[e.status]}</span></div>
-      <div class="row">${navBtn(prev, '이전')}${navBtn(next, '다음')}${chatButton()}<button type="button" class="btn" data-action="closePlot">보드로</button></div></header>
+      <div class="row">${navBtn(prev, '이전')}${navBtn(next, '다음')}<button type="button" class="btn" data-action="closePlot">보드로</button>${chatButton()}</div></header>
     ${plotLayout(toc, `<div class="plot-main plot-page" aria-label="${n}화 플롯">${plotEditor(e)}</div>`)}`;
 }
 
@@ -640,9 +640,9 @@ function castField(e, locked) {
   const candNotes = cands.map((c) => `<div class="note info"><strong>새 인물 제안 · ${esc(c.name || c.id)}</strong> <span class="small">${esc(c.role)} · ${c.tier === 'minor' ? '단역' : '조연'}</span>
     ${c.personality || c.goal ? `<br>${esc(c.personality || c.goal)}` : ''}${c.speech_style ? `<br><span class="small">말투: ${esc(c.speech_style)}</span>` : ''}
     <br><span class="small">AI 플롯이나 아크 기획이 데려온 인물이에요. 지금 등록하거나, 이 화를 확정하면 함께 등록돼요.</span>
-    ${btns([['registerCast', ['인물로 등록', c.id], 'primary'], ['dropCast', ['이 화에서 빼기', c.id]]])}</div>`).join('');
+    ${btns([['registerCast', ['인물로 등록', c.id]], ['dropCast', ['이 화에서 빼기', c.id]]])}</div>`).join('');
   const unknownNotes = unknown.map((id) => `<div class="note warn"><strong>설정 없는 인물 · ${esc(id)}</strong><br><span class="small">플롯에 이름만 있고 인물 설정이 없어 본문을 쓸 때 이 인물 정보가 들어가지 않아요.</span>
-    ${btns([['makeCast', ['인물로 만들기', id], 'primary'], ['dropCast', ['이 화에서 빼기', id]]])}</div>`).join('');
+    ${btns([['makeCast', ['인물로 만들기', id]], ['dropCast', ['이 화에서 빼기', id]]])}</div>`).join('');
   const edit = cs.findIndex((c) => c.id === S.castEdit);
   // '+ 새 인물'은 '인물 · 시점' 카드 머리에 있다 (plotEditor)
   return `<fieldset class="field cast-field"><legend class="label">등장 인물</legend>
@@ -838,7 +838,7 @@ function viewSerial() {
     ...(canDraft && g.plotted ? [{ action: 'draftArcPlots', arg: arc.number, label: `아크 ${arc.number} 초안 다시 만들기`, sub: '확정한 화는 그대로 두고 초안만 다시 받아요', kind: 'plots', ep: arc.number }] : []),
     ...(p.parts.length ? [{ action: 'planSeries', label: seriesLabel, sub: '부의 범위 · 목표 · 아크 후보를 새로 받아요. 적용 전에 확인해요', kind: 'series' }] : []),
   ]);
-  const tools = chatButton() + (p.conversion ? `<a class="btn" href="${base()}/convert">단편에서 전환 · 되돌리기</a>` : '') + menu + head.html;
+  const tools = (p.conversion ? `<a class="btn" href="${base()}/convert">단편에서 전환 · 되돌리기</a>` : '') + menu + head.html + chatButton();
   return `${header('3단계', stepLabel('arc'), '왼쪽 목차에서 아크를 고르면 그 아크의 구간과 화 카드가 나와요. 끝난 아크는 요약으로 접혀서 몇백 화를 써도 프롬프트 크기가 일정해요.', tools)}
     ${plotLayout(toc, `<div class="plot-main">${partEdit}${series}${body}</div>`)}`;
 }
@@ -918,7 +918,7 @@ function nextArcPanel(start) {
       <div class="grid-2">${input('주요 인물 id', 'arc.cast', { root: 'arcDraft', kind: 'list', rows: 3 })}${input('회수할 복선 id', 'arc.payoffs', { root: 'arcDraft', kind: 'list', rows: 3 })}</div>
       ${d.new_characters.length ? `<div class="field"><span class="label">새 인물 (인물 후보로 들어와요. 이 인물이 나오는 화를 확정하면 조연으로 등록돼요)</span>${d.new_characters.map((c) => `<div class="note plain"><strong>${esc(c.name)}</strong> <span class="small">${esc(c.id)} · ${esc(c.role)}</span><br>${esc(c.personality || c.goal)}<br><span class="small">말투: ${esc(c.speech_style)}</span></div>`).join('')}</div>` : ''}
       ${(a.heat || []).length ? heatProposalPart({ ...a, stakes: d.stakes || [] }, null) : ''}
-      <div class="small">끝 화를 바꾸면 결 구간이 따라 늘거나 줄어요. 다른 구간 범위는 적용한 뒤 구간 고치기에서 바꿀 수 있어요.${(a.heat || []).length ? ' 열 계획도 새 범위에 맞춰 채우거나 잘라요.' : ''}</div>
+      <div class="small">끝 화를 바꾸면 결 구간이 따라 늘거나 줄어요. 다른 구간 범위는 적용한 뒤 구간 고치기에서 바꿀 수 있어요.${(a.heat || []).length ? ' 완급 계획도 새 범위에 맞춰 채우거나 잘라요.' : ''}</div>
     </section>`;
   }
   const btn = jobBtn('nextarc', null, 'AI로 다음 아크 제안');

@@ -10,8 +10,9 @@ from __future__ import annotations
 
 import re
 from typing import Literal, Optional
+from uuid import uuid4
 
-from pydantic import BaseModel, Field, PrivateAttr, SerializationInfo, SerializerFunctionWrapHandler, field_validator, model_serializer, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, SerializationInfo, SerializerFunctionWrapHandler, field_validator, model_serializer, model_validator
 from pydantic.json_schema import SkipJsonSchema
 
 from .metrics import StyleMetrics
@@ -91,6 +92,29 @@ class BodySuggestion(BaseModel):
     note: str = Field("", description="작가에게 하는 한두 문장: 설정에서 무엇을 근거로 정했는지")
 
 
+class AliasHit(BaseModel):
+    """제안한 다른 이름 하나가 최근 쓴 화 본문에서 찾히는 화 (aliases.hits 가 채운다, LLM 이 쓰지 않는다)."""
+    alias: str
+    episodes: list[int] = Field(default_factory=list, description="이 말이 본문에 나온 최근 쓴 화")
+    only: list[int] = Field(default_factory=list, description="그 가운데 이름 · 지금 다른 이름으로는 찾히지 않는 화")
+    clash: str = Field("", description="이름 · 다른 이름이 같거나 서로 품는 다른 항목의 이름. 없으면 빈 글")
+
+
+class AliasIdea(BaseModel):
+    """항목 하나에 더할 다른 이름 (pipeline.suggest_aliases)."""
+    target: str = Field(description="항목 열쇠: 'c:<인물 id>' 또는 'e:<요소 id>'. '## ' 뒤에 적힌 열쇠 그대로")
+    aliases: list[str] = Field(default_factory=list, description="더할 다른 이름. 재료 단락에 글자 그대로 나온 말만, 두 글자 이상")
+    reason: str = Field("", description="작가에게 보일 한두 문장: 어느 단락에서 어떻게 불렸는지")
+    hits: SkipJsonSchema[list[AliasHit]] = Field(default_factory=list)
+
+
+class AliasSuggestion(BaseModel):
+    """인물 · 이야기 요소의 다른 이름 AI 제안. 작가가 고른 말만 칸에 넣는다 (canon/aliases.py, pipeline.suggest_aliases)."""
+    items: list[AliasIdea] = Field(default_factory=list, description="다른 이름을 더할 항목만")
+    notices: SkipJsonSchema[list[str]] = Field(default_factory=list)
+    recent: SkipJsonSchema[int] = Field(0, description="화 수 세기가 본 최근 쓴 화 수 (aliases.hits)")
+
+
 class Character(BaseModel):
     id: str = Field(description="영문 소문자 식별자, 예: hero, rival")
     name: str
@@ -116,14 +140,18 @@ class Character(BaseModel):
     # 고르는 규칙은 context.core_ids · off_ids
     context: SkipJsonSchema[Literal["auto", "always", "off"]] = Field(
         "auto", description="프롬프트에 넣기: auto 등장할 때(비중대로), always 항상, off 넣지 않음(이름만)")
+    # 본문에서 다르게 부르는 말 (두 글자 이상). 이름과 같이 '이 인물이 나온다'를 찾는 데만 쓴다 (context.name_pattern).
+    # 작가가 칸에 적거나 다른 이름 제안(canon/aliases.py)에서 골라 넣는다. 설정 단계 응답 형식이 채우지 않게 JSON 스키마에서 뺀다
+    aliases: SkipJsonSchema[list[str]] = Field(default_factory=list)
 
     @model_serializer(mode="wrap")
     def _prompt_view(self, handler: SerializerFunctionWrapHandler, info: SerializationInfo):
-        """프롬프트용 직렬화(llm.dump 의 context prompt)에서는 신체 프로필과 넣기 방식을 뺀다. 저장과 화면 응답은 그대로."""
+        """프롬프트용 직렬화(llm.dump 의 context prompt)에서는 신체 프로필, 넣기 방식, 다른 이름을 뺀다. 저장과 화면 응답은 그대로."""
         data = handler(self)
         if isinstance(data, dict) and info.context and info.context.get("prompt"):
             data.pop("body", None)
             data.pop("context", None)
+            data.pop("aliases", None)
         return data
 
 
@@ -281,6 +309,72 @@ class Settings(BaseModel):
     model_preset: str = Field("", description="이 작품이 쓰는 단계 프리셋 id (settings.presets: 단계별 백엔드 · 모델 묶음). 비우면 전체 설정을 따른다. 고른 프리셋이 지워졌으면 전체 설정을 따른다 (settings.project_preset)")
     blocks: list[BlockSetting] = Field(default_factory=list, description="쓰기 요청 블록 끄기 (prompts.block_on). 비우면 모든 블록을 넣는다. 장편만 따른다")
     budgets: list[BudgetSetting] = Field(default_factory=list, description="쓰기 요청 예산 바꾸기 (context.budget). 비우면 context.BUDGET 기본값. 장편만 따른다")
+    rule_bundles: list[str] = Field(default_factory=list, description="켠 정규식 규칙 묶음 id (canon/regexrules.py). 목록 차례가 거는 차례다. 지워진 묶음은 건너뛴다")
+
+
+# ---------- 정규식 규칙 묶음 (canon/regexrules.py) ----------
+# 작가가 만든 규칙이라 LLM 이 채우지 않는다. 필드는 RisuAI 정규식 스크립트를 따른다 (docs/context/compat.md 2절)
+
+class RegexRule(BaseModel):
+    """정규식 규칙 하나. in · out 은 JavaScript 꼴로 저장하고 regexrules 가 Python re 꼴로 바꿔 건다."""
+    model_config = ConfigDict(populate_by_name=True)
+    id: str = Field(default_factory=lambda: uuid4().hex[:8])
+    comment: str = Field("", description="규칙 이름. 화면과 지적에 보인다")
+    in_: str = Field("", alias="in", description="찾을 정규식 (JavaScript 꼴). 비면 걸지 않는다")
+    out: str = Field("", description="바꿀 글 (JavaScript String.replace 꼴: $1 · $& · $<이름> · $$). 경고 규칙에서는 쓰지 않는다")
+    type: Literal["output", "export"] = Field("output", description="output: 쓴 본문에 건다 / export: 내보낼 때만 건다")
+    flag: str = Field("g", description="플래그 글자 (g · i · m · s · u · d)")
+    action: Literal["warn", "fix"] = Field("warn", description="warn: 검수 때 걸린 곳을 보인다 / fix: 본문을 바꾼다")
+    enabled: bool = True
+
+    @field_validator("id")
+    @classmethod
+    def _fill_id(cls, v: str) -> str:
+        """빈 id("" · 빈칸)는 새 id 로 바꾼다. 기록 · 지적이 규칙을 id 로 가리키므로 두 규칙이 빈 id 를 나눠 쓰면 안 된다."""
+        return v if v.strip() else uuid4().hex[:8]
+
+
+class RuleBundleVersion(BaseModel):
+    number: int
+    at: str = ""
+    note: str = ""
+    rules: list[RegexRule] = Field(default_factory=list)
+
+
+class RuleBundle(BaseModel):
+    """규칙 묶음 하나. <CANON_HOME>/.rules/<id>.json 파일 하나다 (CANON_RULES 로 경로 변경)."""
+    id: str
+    name: str
+    notes: str = ""
+    rules: list[RegexRule] = Field(default_factory=list)
+    created_at: str = ""
+    updated_at: str = ""
+    version: int = 1
+    versions: list[RuleBundleVersion] = Field(default_factory=list, description="규칙 목록이 바뀔 때마다 남긴 버전 (최근 것만)")
+
+
+class RuleChange(BaseModel):
+    """고침 규칙이 바꾼 곳 하나. start 는 그 규칙 걸기가 끝난 본문 안 자리다 (부분 수정 후보에서는 후보 글 안 자리)."""
+    bundle: str
+    version: int = 0
+    rule: str
+    name: str = Field("", description="걸 때의 규칙 이름 (화면 표시용)")
+    start: int
+    before: str
+    after: str
+    undone: bool = False
+
+
+RuleRunKind = Literal["write", "rewrite", "polish", "passage", "import", "auto", "adopt", "rework"]
+
+
+class RuleRun(BaseModel):
+    """고침 규칙을 한 번 건 기록. 바뀐 곳이 없고 건너뛰지도 않았으면 남기지 않는다."""
+    id: str = Field("", description="r<N>. 화 안에서 겹치지 않는다")
+    at: str = ""
+    kind: RuleRunKind = "write"
+    changes: list[RuleChange] = Field(default_factory=list)
+    skipped: str = Field("", description="시간 한도로 멈춘 묶음 이름. 이때 본문은 걸기 전 그대로다")
 
 
 # ---------- 스타일 레퍼런스 ----------
@@ -897,6 +991,7 @@ class Rework(BaseModel):
     """재구성에서 '다듬기'로 고른 화를 AI 가 고친 본문. 작가가 비교해 보고 받아들인다."""
     text: str = Field(description="고친 본문 전체")
     reply: str = Field("", description="무엇을 고쳤는지 2~3문장")
+    ruled: SkipJsonSchema[list[RuleChange]] = Field(default_factory=list, description="고침 규칙이 text 에서 바꾼 곳 (프로그램이 채운다)")
 
 
 class ShortArchive(BaseModel):
@@ -962,7 +1057,7 @@ class PlotRevision(BaseModel):
 SetupKey = Literal["title", "logline.who", "logline.why", "logline.goal", "logline.block", "logline.stake", "theme", "tone", "notes",
                    "world.setting", "world.era", "world.rules", "world.locations", "world.name_rules"]
 CharField = Literal["name", "role", "age", "gender", "appearance", "personality", "background", "goal", "wound", "speech_style",
-                    "secrets", "arc"]
+                    "secrets", "arc", "aliases"]
 
 
 class SetupEdit(BaseModel):
@@ -978,7 +1073,7 @@ class CharacterEdit(BaseModel):
     id: str = Field(description="[인물]에 있는 인물 id")
     field: CharField = Field(description="바꿀 칸 이름")
     text: str = Field("", description="글 칸일 때: 바뀐 뒤 글 전체")
-    items: list[str] = Field(default_factory=list, description="secrets 일 때: 바뀐 뒤 목록 전체")
+    items: list[str] = Field(default_factory=list, description="secrets · aliases(본문에서 다르게 부르는 말, 두 글자 이상) 일 때: 바뀐 뒤 목록 전체")
     why: str = Field("", description="왜 이렇게 바꾸는지 한 줄")
 
 
@@ -1017,6 +1112,7 @@ class ChatScope(BaseModel):
 class PassageCandidate(BaseModel):
     text: str = Field(description="고칠 부분을 대신할 새 글. 앞뒤 본문은 되풀이하지 않는다")
     note: str = Field("", description="무엇을 어떻게 바꿨는지 한 줄")
+    ruled: SkipJsonSchema[list[RuleChange]] = Field(default_factory=list, description="고침 규칙이 text 에서 바꾼 곳. start 는 후보 글 안 자리 (프로그램이 채운다)")
 
 
 class PassageRevision(BaseModel):
@@ -1111,6 +1207,8 @@ AGENT_TOOL_NAMES = (
     "revise_text",
     "edit_setup",
     "edit_style",
+    "propose_regex",
+    "read_rules",
 )
 AGENT_END_TOOLS = ("done", "end", "finish", "none", "reply")  # 모델이 턴 끝을 도구 이름처럼 적는 말. 빈 tool 과 같이 받는다
 
@@ -1120,7 +1218,7 @@ class PlotAgentStep(BaseModel):
     thought: str = Field("", description="작가에게 보일 한 줄: 이 단계에서 무엇을 왜 하는지")
     tool: Literal[AGENT_TOOL_NAMES] = Field(  # type: ignore[valid-type]
         "", description="부를 도구 이름 ([도구] 목록에 있는 것). 턴을 끝낼 때는 빈 글로 두고 reply 칸에 답을 쓴다. reply 는 도구 이름이 아니다")
-    args: list[ToolArg] = Field(default_factory=list, description="읽기 도구와 insert_episodes · remove_episode · revise_text · edit_setup 의 인자")
+    args: list[ToolArg] = Field(default_factory=list, description="읽기 도구와 insert_episodes · remove_episode · revise_text · edit_setup · propose_regex 의 인자")
     edit: PlotRevision = Field(default_factory=lambda: PlotRevision(reply=""),
                                description="edit_plot 일 때만: 바꿀 것만 채운 변경안. reply 는 한 줄 설명. 다른 도구면 비워 둔다")
     question: str = Field("", description="ask 일 때만: 작가에게 묻는 말")
@@ -1170,7 +1268,7 @@ class RenumberOp(BaseModel):
 
 
 class WriteItem(BaseModel):
-    """바로 쓴 것 한 부분. key 는 'parts' · 'arc' · 'acts' · 'draft'(다음 아크 초안) · 화 번호 · 'renumber'(화 넣기 · 빼기) · 'text'(본문 고치기) · 문체 칸 이름(edit_style)."""
+    """바로 쓴 것 한 부분. key 는 'parts' · 'arc' · 'acts' · 'draft'(다음 아크 초안) · 화 번호 · 'renumber'(화 넣기 · 빼기) · 'text'(본문 고치기) · 문체 칸 이름(edit_style) · 'rule'(propose_regex)."""
     key: str
     label: str = ""
     state: Literal["done", "reverted", "kept"] = "done"
@@ -1191,6 +1289,28 @@ class WriteRecord(BaseModel):
     setup: Optional[SetupRevision] = Field(None, description="설정 도구(tool 'edit_setup')가 쓴 변경안. items 의 key 는 setupchat.part_ids")
     setup_before: Optional[SetupBefore] = Field(None, description="설정 도구가 쓰기 전 설정. 되돌리기는 setupchat.undo_revision")
     style: Optional[StyleCard] = Field(None, description="문체 변경안을 적용한 기록 (tool 'edit_style'). 되돌리기는 agent_style.undo")
+    regex: Optional[RegexCard] = Field(None, description="정규식 규칙 제안을 적용한 기록 (tool 'propose_regex'). 되돌리기는 agent_regex.undo")
+
+
+class RegexCard(BaseModel):
+    """대화 에이전트의 정규식 규칙 제안 카드와 적용 기록 (canon/agent_regex.py, docs/context/specs/06b-rule-propose.md). AI 가 채우지 않는다.
+    승인 카드(Approval.regex)는 적용 전 값, 적용 기록(WriteRecord.regex)은 적용한 묶음 id 와 버전까지 남긴다. 되돌리기는 agent_regex.undo."""
+    bundle: str = Field("", description="묶음 id. 새 묶음 카드는 빈 글이고 적용하면 만든 id 를 채운다")
+    bundle_name: str = Field("", description="카드에 보일 묶음 이름")
+    new_bundle: bool = Field(False, description="켠 묶음이 없어 적용할 때 새 묶음을 만들고 이 작품에서 켜는 카드")
+    project: str = Field("", description="카드를 만든 작품의 폴더 이름 (Project 에는 폴더 이름 칸이 없다)")
+    used_by: list[str] = Field(default_factory=list, description="카드를 만들 때 그 묶음을 켠 다른 작품 폴더 이름 (이 작품은 뺀다)")
+    rule: RegexRule = Field(description="넣을 규칙 (적용 뒤 값)")
+    before: Optional[RegexRule] = Field(None, description="고치기의 적용 전 규칙. 새 규칙이면 None")
+    episode: int = Field(0, description="시험한 화. 0 이면 시험하지 않음")
+    changes: list[RuleChange] = Field(default_factory=list, description="시험에서 바뀐 곳 (앞의 10개)")
+    hits: list["ConsistencyIssue"] = Field(default_factory=list, description="시험에서 걸린 곳 (앞의 10개)")
+    change_count: int = Field(0, description="시험에서 바뀐 곳 전체 수")
+    hit_count: int = Field(0, description="시험에서 걸린 곳 전체 수")
+    export_changed: bool = Field(False, description="내보내기 규칙 카드: 시험한 화를 내보낼 때 글이 바뀌는지")
+    timed_out: bool = Field(False, description="끄기 카드: 적용 전 규칙을 걸어 보니 시간 한도를 넘어 더 걸리지 않을 곳을 세지 못했다")
+    notices: list[str] = Field(default_factory=list, description="저장을 막지 않는 알림 (regexrules.notices)")
+    version: int = Field(0, description="적용한 뒤 묶음 버전. 카드에서는 0")
 
 
 class Approval(BaseModel):
@@ -1198,7 +1318,7 @@ class Approval(BaseModel):
     tool: str = "edit_plot"
     target: str = ""
     revision: Optional[PlotRevision] = None
-    keys: list[str] = Field(default_factory=list, description="묻는 부분 ('parts' · 'arc' · 'acts' · 화 번호 · 'renumber' · 본문 고치기의 후보 번호)")
+    keys: list[str] = Field(default_factory=list, description="묻는 부분 ('parts' · 'arc' · 'acts' · 화 번호 · 'renumber' · 본문 고치기의 후보 번호 · 정규식 규칙 제안의 'rule')")
     kinds: list[str] = Field(default_factory=list, description="묻는 까닭이 된 종류 (agent.KIND_LABELS). '이 세션에서 묻지 않기'가 auto_kinds 에 더한다")
     state: Literal["wait", "approved", "denied"] = "wait"
     picked: list[str] = Field(default_factory=list)
@@ -1211,6 +1331,7 @@ class Approval(BaseModel):
     setup: Optional[SetupRevision] = Field(None, description="설정 변경안을 묻는 카드 (tool 'edit_setup'). keys 는 setupchat.part_ids")
     defaults: list[str] = Field(default_factory=list, description="카드가 처음 체크해 두는 부분 (agent_setup.defaults). 채운 칸 · 인물 칸은 빠진다")
     style: Optional[StyleCard] = Field(None, description="문체 변경안을 묻는 카드 (tool 'edit_style'). 권한 모드와 상관없이 늘 묻는다")
+    regex: Optional[RegexCard] = Field(None, description="정규식 규칙 제안 카드 (tool 'propose_regex'). keys 는 ['rule']. 권한 모드와 상관없이 늘 묻는다")
 
 
 class AskCard(BaseModel):
@@ -1265,15 +1386,17 @@ SEVERITY: dict[str, str] = {"crit": "치명", "mid": "보통", "low": "사소"}
 
 
 class ConsistencyIssue(BaseModel):
-    type: IssueType = Field(description="사실: 확정 사실·세부 모순 / 시간: 순서·인과 / 인물 정보: 모르는 것을 앎 / 말투 / 세계관 규칙 / 플롯: 사건 누락 / 동선: 한 장면 안에서 위치·몸이 향한 쪽·자세·손에 든 것·가려진 곳이 행동 없이 바뀜 / 시점: 시점 인물이 볼 수 없거나 모르는 것을 서술, 1인칭의 나가 다른 인물로 바뀜, 표시 없이 시점 인물이 바뀜")
+    # 표기: 정규식 경고 규칙 지적 (origin regex). LLM 응답 형식에는 IssueType 만 보인다
+    type: IssueType | SkipJsonSchema[Literal["표기"]] = Field(description="사실: 확정 사실·세부 모순 / 시간: 순서·인과 / 인물 정보: 모르는 것을 앎 / 말투 / 세계관 규칙 / 플롯: 사건 누락 / 동선: 한 장면 안에서 위치·몸이 향한 쪽·자세·손에 든 것·가려진 곳이 행동 없이 바뀜 / 시점: 시점 인물이 볼 수 없거나 모르는 것을 서술, 1인칭의 나가 다른 인물로 바뀜, 표시 없이 시점 인물이 바뀜")
     description: str = Field(description="무엇이 어긋났는지 한 문장")
     source_episode: int = Field(0, description="앞선 근거가 나온 화. 설정·확정 사실·인물 상태가 근거면 0, 같은 화 앞 문장이면 이번 화")
     source_quote: str = Field(description="앞선 근거 원문 그대로 (설정이면 해당 설정 문장)")
     current_quote: str = Field(description="이번 화에서 어긋난 문장 원문 그대로")
     suggestion: str = Field("", description="고치는 방법 제안")
     severity: Severity = Field("mid", description="crit: 독자가 바로 알아챌 모순이거나 뒤 화 전개를 흔듦 / mid: 눈여겨 읽으면 보이는 어긋남 / low: 사소한 세부")
-    # 프로그램이 채운다 (LLM 응답 형식에서 뺀다). 장면 연출 규칙 판정(stage.to_issues)이 낸 지적은 rule
-    origin: SkipJsonSchema[Literal["ai", "rule"]] = Field("ai", description="ai: 검수 모델 / rule: 장면 연출 규칙 판정")
+    # 프로그램이 채운다 (LLM 응답 형식에서 뺀다). 장면 연출 규칙 판정(stage.to_issues)이 낸 지적은 rule, 정규식 경고 규칙(regexrules.hits)은 regex
+    origin: SkipJsonSchema[Literal["ai", "rule", "regex"]] = Field("ai", description="ai: 검수 모델 / rule: 장면 연출 규칙 판정 / regex: 정규식 경고 규칙")
+    regex_rule: SkipJsonSchema[str] = Field("", description="정규식 경고 규칙 지적의 '<묶음 id>/<규칙 id>'")
     stage_event: SkipJsonSchema[int] = Field(-1, description="규칙 지적의 플롯 사건 번호 (0부터). 장면 연출 화면 링크")
     stage_beat: SkipJsonSchema[int] = Field(0, description="규칙 지적의 본문 장면 박자 (1부터)")
 
@@ -1421,6 +1544,7 @@ class TextVersion(BaseModel):
     request: Optional[RewriteRequest] = Field(None, description="이 판을 만든 다시 생성 요청 (처음 쓴 판이면 비움)")
     model: str = Field("", description="이 판을 쓴 모델 (Episode.written_by 와 같은 모양). 모르면 비움. 프롬프트에 넣지 않는다")
     meta_cut: list[MetaCut] = Field(default_factory=list, description="이 판을 쓸 때 앞뒤에서 뗀 작업 설명 문단. 판을 고르면 Episode.meta_cut 으로 따라간다")
+    rule_runs: list[RuleRun] = Field(default_factory=list, description="이 판 본문에 고침 규칙을 건 기록. 판을 고르면 Episode.rule_runs 로 따라간다")
 
 
 FindingStatus = Literal["open", "fixed", "kept", "wrong"]
@@ -1737,6 +1861,7 @@ class Episode(BaseModel):
                                             "모르면(옛 본문, 화면에서 붙여 넣은 본문) 비움. 작가가 고쳐도 바꾸지 않는다(고친 것은 edits). 프롬프트에 넣지 않는다")
     meta_cut: list[MetaCut] = Field(default_factory=list, description="지금 본문을 쓸 때 앞뒤에서 뗀 작업 설명 문단 (metatail.split). "
                                                                    "집필 화면에서 본문에 되살리거나 지운다. 프롬프트에 넣지 않는다")
+    rule_runs: list[RuleRun] = Field(default_factory=list, description="지금 본문에 고침 규칙을 건 기록 (canon/regexrules.py, 최근 것만). 프롬프트에 넣지 않는다")
     final_text: str = Field("", description="상태 반영이 끝난 뒤 본문을 처음 고치기 직전의 본문. 지금 본문과 다르면 반영된 요약 · 상태가 고치기 전 본문 기준이다. 다시 맞추거나 그대로 두기로 하면 비운다")
     time: "StoryTime" = Field(default_factory=lambda: StoryTime(), description="이 화가 끝난 작품 속 시점. 상태 반영 때 채운다")
     realign: str = Field("", description="앞 화 플롯을 뒤 화에 맞추지 않고 다시 짜면서 이 화와 어긋나게 된 점. 이 화 플롯을 다시 짜거나 작가가 확인하면 비운다")
@@ -2259,7 +2384,7 @@ class FieldIdea(BaseModel):
 
 
 class FieldIdeas(BaseModel):
-    """설정 칸 하나의 AI 후보 (✦). 작가가 하나를 골라야 칸이 바뀐다 (pipeline.suggest_field)."""
+    """설정 칸 하나의 AI 후보. 작가가 하나를 골라야 칸이 바뀐다 (pipeline.suggest_field)."""
     options: list[FieldIdea]
 
 
@@ -2409,6 +2534,17 @@ class IllustCharPrompt(BaseModel):
     position: str = ""
 
 
+class IllustImage(BaseModel):
+    """ComfyUI 로 그린 그림 하나 (canon/comfy.py). 파일은 작품 폴더의 illust/ 에 둔다."""
+    file: str = Field("", description="illust/ 안 파일 이름 (16자리 16진수.png)")
+    at: str = ""
+    seed: int = 0
+    prompt: str = Field("", description="ComfyUI 에 보낸 긍정 프롬프트")
+    negative: str = Field("", description="ComfyUI 에 보낸 부정 프롬프트")
+    workflow: str = Field("", description="쓴 워크플로 파일 이름. 기본 틀이면 '기본 틀'")
+    notes: list[str] = Field(default_factory=list, description="그릴 때 알릴 것")
+
+
 class Illustration(BaseModel):
     """화에 저장한 삽화 프롬프트. draft 에서 언제든 다시 조립할 수 있다 (모델이나 외형 태그를 바꿨을 때)."""
     id: str
@@ -2425,6 +2561,7 @@ class Illustration(BaseModel):
     missing_look: list[str] = Field(default_factory=list, description="외형 태그가 저장되지 않아 AI 태그를 쓴 인물 id")
     notes: list[str] = Field(default_factory=list, description="조립하며 알릴 것")
     draft_notes: list[str] = Field(default_factory=list, description="원안을 받을 때 알릴 것 (상태 시점, 인용 대조). 다시 조립해도 notes 앞에 남는다")
+    images: list[IllustImage] = Field(default_factory=list, description="ComfyUI 로 그린 그림 (오래된 것부터, comfy.IMAGES_KEEP 개까지)")
 
 
 # ---------- 전체 프로젝트 ----------
@@ -3387,6 +3524,8 @@ class PromptSource(BaseModel):
     schema_name: str = Field("", description="돌릴 때 구조화 출력으로 받는 응답 스키마 이름(schema 모듈의 모델). 비면 글로 받는다")
     stage: str = Field("", description="실제 호출의 단계(settings.STAGES). 모델 칸이 빈 백엔드를 이 단계의 모델 · 추론 강도로 돌린다")
     sig: str = Field("", description="불러온 시스템 · 요청 프롬프트의 지문. 지금 칸과 다르면 고친 것")
+    promptset: str = Field("", description="끼운 실험 판 id (promptset.py). 비면 원래 글")
+    promptset_name: str = Field("", description="끼운 실험 판 이름 (불러올 때의 이름)")
 
 
 class PromptRun(BaseModel):
@@ -3409,6 +3548,13 @@ class PromptRun(BaseModel):
     empty: list[str] = Field(default_factory=list, description="구조화 출력에서 빈 칸 경로 (앞쪽 promptlab.EMPTY_SHOWN 개)")
     empty_count: int = Field(0, description="구조화 출력의 빈 칸 수 (research.empty_fields)")
     notes: list[str] = Field(default_factory=list, description="실제 경로라면 Canon 이 이 응답을 어떻게 정리하거나 거절하는지")
+    side: str = Field("", description="원래 판과 블라인드로 돌린 시도에서 이 결과의 쪽: original · set. 비면 블라인드가 아님")
+
+
+class PromptPair(BaseModel):
+    """시스템 · 요청 프롬프트 한 벌 (실험 판을 끼우기 전 원래 판)."""
+    system: str = ""
+    prompt: str = ""
 
 
 class PromptTrial(BaseModel):
@@ -3423,6 +3569,8 @@ class PromptTrial(BaseModel):
     source_edited: bool = Field(False, description="불러온 프롬프트를 고쳐 돌렸다")
     star: bool = False
     note: str = ""
+    base: Optional[PromptPair] = Field(None, description="함께 돌린 원래 판의 시스템 · 요청. 있으면 runs 에 original · set 두 쪽이 있다")
+    blinds: list[RevBlind] = Field(default_factory=list, description="백엔드마다 원래 판 대 실험 판 가려 읽기 (차례는 backends 차례, order 는 original · set)")
 
 
 class PromptSession(BaseModel):
@@ -3434,7 +3582,26 @@ class PromptSession(BaseModel):
     temperature: Optional[float] = None
     backends: list[PromptBackend] = Field(default_factory=lambda: [PromptBackend()])
     source: Optional[PromptSource] = Field(None, description="지금 칸을 불러온 Canon 프롬프트. 다른 프롬프트를 불러오면 바뀐다")
+    base: Optional[PromptPair] = Field(None, description="실험 판을 끼운 세션의 원래 판. 있으면 돌릴 때 원래 판도 함께 돌려 블라인드로 견준다")
     trials: list[PromptTrial] = Field(default_factory=list)
+    created_at: str = ""
+    updated_at: str = ""
+
+
+class PromptSetChange(BaseModel):
+    """실험 판에서 조각 하나를 바꾼 글. 조각은 prompts.PIECES 의 id."""
+    piece: str
+    text: str = ""
+
+
+class PromptSet(BaseModel):
+    """프롬프트 관리 페이지의 실험 판 (canon/promptset.py). 작품 밖 <CANON_HOME>/.promptsets/<id>.json.
+    놀이터와 블라인드 비교에서만 끼우고 실제 집필 · 자동 집필 · 작업지시서 요청에는 넣지 않는다."""
+    id: str
+    name: str = ""
+    kind: str = Field("episode", description="견본을 조립할 갈래 (prompts.KINDS 의 조립 보기가 있는 열쇠)")
+    changes: list[PromptSetChange] = Field(default_factory=list, description="조각마다 바꾼 글. dict 가 아니라 목록")
+    note: str = ""
     created_at: str = ""
     updated_at: str = ""
 
@@ -3461,6 +3628,8 @@ Episode.model_rebuild()
 PlotUndo.model_rebuild()
 ChatMessage.model_rebuild()
 RenumberOp.model_rebuild()
+RegexCard.model_rebuild()
+Approval.model_rebuild()
 WriteRecord.model_rebuild()
 AgentTurn.model_rebuild()
 AgentSession.model_rebuild()

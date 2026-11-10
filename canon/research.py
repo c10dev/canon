@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import contextvars
 import json
 import random
 import re
@@ -13,6 +14,7 @@ import socket
 import time
 import urllib.error
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
@@ -23,7 +25,7 @@ from pydantic import BaseModel
 from . import context, metrics, pipeline, prompts, settings, store
 from .judge import env_choice, make_judge
 from .llm import LLM, GeminiLLM, LocalLLM, make_llm, out_cap
-from .schema import ConsistencyReport, ConsistencyReportEn, PlantSet, Project, plant_kind
+from .schema import ConsistencyReport, ConsistencyReportEn, Episode, PlantSet, Project, plant_kind
 
 CHARS_PER_TOKEN = context.CHARS_PER_TOKEN
 JSON_OUTPUT_RESERVE = 2000  # 검수, 상태 변경안 출력에 남겨 둘 토큰 (추정)
@@ -31,8 +33,12 @@ STAGES = {"setup": "설정 제안", "style": "문체 분석", "arc": "기승전�
 _RANGE_RE = re.compile(r"(-?\d+(?:\.\d+)?)[^\d~-]{0,10}~\s*(-?\d+(?:\.\d+)?)")
 
 
+# 실험에서 고를 수 있는 백엔드. claude 는 설치된 Claude Code 의 구독 로그인, claude-api 는 Anthropic API 키다 (llm.make_llm)
+PROVIDERS = ("gemini", "local", "claude", "claude-api", "mock")
+
+
 class Backend(BaseModel):
-    """실험에 쓸 백엔드. model, url 이 비면 설정 화면 값을 쓴다."""
+    """실험에 쓸 백엔드. model, url 이 비면 설정 화면 값을 쓴다. provider 는 PROVIDERS 중 하나다."""
     provider: str = "local"
     model: str = ""
     url: str = ""
@@ -44,7 +50,7 @@ def label(b: Backend) -> str:
 
 def stage_defaults(b: Backend, stage: str = "", preset: dict | None = None) -> tuple[str, str]:
     """그 단계의 (모델, 추론 강도). 모델 칸을 적었으면 그 모델. 단계 모델은 그 단계 백엔드가 b 와 같을 때만 쓴다 (다른 백엔드의 모델 이름이라서).
-    추론 강도는 Gemini 만 받는다(settings.provider_effort). 단계가 없으면 둘 다 빈칸(설정 값 · 모델 기본값)."""
+    추론 강도는 Gemini · Claude 만 받는다(settings.provider_effort). 단계가 없으면 둘 다 빈칸(설정 값 · 모델 기본값)."""
     if not stage or b.provider == "mock":
         return b.model, ""
     model = b.model or (settings.stage_model(stage, preset)[0] if settings.stage_provider(stage, preset)[0] == b.provider else "")
@@ -52,7 +58,8 @@ def stage_defaults(b: Backend, stage: str = "", preset: dict | None = None) -> t
 
 
 def make_backend(b: Backend, temperature: float | None = None, stage: str = "", preset: dict | None = None) -> LLM:
-    """stage 를 주면 모델 칸이 빈 백엔드는 그 단계의 모델 · 추론 강도로 만든다 (stage_defaults, 프롬프트 놀이터가 불러온 갈래의 단계)."""
+    """stage 를 주면 모델 칸이 빈 백엔드는 그 단계의 모델 · 추론 강도로 만든다 (stage_defaults, 프롬프트 놀이터가 불러온 갈래의 단계).
+    temperature 는 Gemini · 로컬만 받는다. Claude 는 받지 않는다(Opus 5.5 는 temperature 를 400 으로 거절한다)."""
     model, effort = stage_defaults(b, stage, preset)
     if b.provider == "local":
         sampling = settings.local_sampling()
@@ -61,9 +68,11 @@ def make_backend(b: Backend, temperature: float | None = None, stage: str = "", 
         return LocalLLM(base_url=b.url or None, model=model or None, sampling=sampling)
     if b.provider == "gemini":
         return GeminiLLM(model=model or None, effort=effort, temperature=temperature)
+    if b.provider in settings.CLAUDE_PROVIDERS:
+        return make_llm(b.provider, model or None, effort)
     if b.provider == "mock":
         return make_llm("mock")
-    raise ValueError(f"알 수 없는 백엔드: {b.provider} (gemini | local | mock)")
+    raise ValueError(f"알 수 없는 백엔드: {b.provider} ({' | '.join(PROVIDERS)})")
 
 
 def _model_name(llm: LLM) -> str:
@@ -179,31 +188,40 @@ RAW_MAX = 30000  # 실패한 결과에 남기는 원문 글자 수 상한 (세�
 
 def sample(runs: list[Backend], system: str, prompt: str, temperature: float | None = None, schema: type[BaseModel] | None = None,
            stage: str = "", preset: dict | None = None, out_tokens: int = 0) -> list[dict]:
-    """같은 요청을 백엔드마다 차례로 보낸다. 한 쪽이 실패해도 나머지는 돌린다.
+    """같은 요청을 백엔드마다 동시에 보내고, 결과는 runs 차례로 돌려준다. 한 쪽이 실패해도 나머지는 돌린다.
     schema 를 주면 실제 호출처럼 llm.json(구조화 출력)으로 받아 검증한 JSON 을 글로 돌려준다. 검증에 실패하면 그 백엔드는 실패다.
     mock 은 부른 쪽의 hint 로 응답을 지어 hint 없이는 스키마 응답을 못 만든다. 그래서 mock 은 schema 를 받아도 글로 받는다(row 의 schema 가 빈칸).
-    stage 는 모델 칸이 빈 백엔드에 그 단계의 모델 · 추론 강도를 쓰게 하고(make_backend), out_tokens 는 출력 한도(llm.out_cap)다."""
-    out = []
-    for b in runs:
-        structured = schema is not None and b.provider != "mock"  # 형식은 pipeline 이 쓰는 것과 같아 test_schema_nodict 가 따로 보지 않는다
-        row: dict[str, Any] = {"backend": label(b), "schema": schema.__name__ if structured else ""}
-        t = time.perf_counter()
-        llm = None
-        try:
-            llm = make_backend(b, temperature, stage, preset)
-            with out_cap(out_tokens) if out_tokens else nullcontext():
-                text = llm.json(system, prompt, schema).model_dump_json(indent=2) if structured else llm.text(system, prompt)
-            m = metrics.measure(text)
-            row.update(ok=True, model=_model_name(llm), effort=getattr(llm, "effort", "") or "", text=text, chars=len(text),
-                       usage=getattr(llm, "last_usage", None),
-                       sentence_len_mean=m.sentence_len_mean, dialogue_ratio=m.dialogue_ratio, mattr=m.mattr)
-        except Exception as e:  # 백엔드마다 오류 종류가 달라 메시지만 남긴다
-            row.update(ok=False, error=f"{type(e).__name__}: {e}")
-            # 받은 원문과 끝난 이유: 구조화 출력이 어긋나 실패했을 때 모델이 실제로 낸 글을 본다 (형식 고치기 재요청의 답)
-            row.update(raw=str(getattr(llm, "last_raw", "") or "")[:RAW_MAX], finish=str(getattr(llm, "last_finish", "") or ""))
-        row["seconds"] = round(time.perf_counter() - t, 2)
-        out.append(row)
-    return out
+    stage 는 모델 칸이 빈 백엔드에 그 단계의 모델 · 추론 강도를 쓰게 하고(make_backend), out_tokens 는 출력 한도(llm.out_cap)다.
+    스레드마다 부른 쪽의 컨텍스트 사본을 넘겨 사용량 기록(usage.scope)의 작품 · 작업 정보가 따라가게 한다."""
+    if len(runs) <= 1:
+        return [_sample_one(b, system, prompt, temperature, schema, stage, preset, out_tokens) for b in runs]
+    with ThreadPoolExecutor(max_workers=len(runs)) as pool:
+        futures = [pool.submit(contextvars.copy_context().run, _sample_one, b, system, prompt, temperature, schema, stage, preset, out_tokens)
+                   for b in runs]
+        return [f.result() for f in futures]
+
+
+def _sample_one(b: Backend, system: str, prompt: str, temperature: float | None, schema: type[BaseModel] | None,
+                stage: str, preset: dict | None, out_tokens: int) -> dict:
+    """sample 의 백엔드 하나. 오류는 던지지 않고 줄에 남긴다."""
+    structured = schema is not None and b.provider != "mock"  # 형식은 pipeline 이 쓰는 것과 같아 test_schema_nodict 가 따로 보지 않는다
+    row: dict[str, Any] = {"backend": label(b), "schema": schema.__name__ if structured else ""}
+    t = time.perf_counter()
+    llm = None
+    try:
+        llm = make_backend(b, temperature, stage, preset)
+        with out_cap(out_tokens) if out_tokens else nullcontext():
+            text = llm.json(system, prompt, schema).model_dump_json(indent=2) if structured else llm.text(system, prompt)
+        m = metrics.measure(text)
+        row.update(ok=True, model=_model_name(llm), effort=getattr(llm, "effort", "") or "", text=text, chars=len(text),
+                   usage=getattr(llm, "last_usage", None),
+                   sentence_len_mean=m.sentence_len_mean, dialogue_ratio=m.dialogue_ratio, mattr=m.mattr)
+    except Exception as e:  # 백엔드마다 오류 종류가 달라 메시지만 남긴다
+        row.update(ok=False, error=f"{type(e).__name__}: {e}")
+        # 받은 원문과 끝난 이유: 구조화 출력이 어긋나 실패했을 때 모델이 실제로 낸 글을 본다 (형식 고치기 재요청의 답)
+        row.update(raw=str(getattr(llm, "last_raw", "") or "")[:RAW_MAX], finish=str(getattr(llm, "last_finish", "") or ""))
+    row["seconds"] = round(time.perf_counter() - t, 2)
+    return row
 
 
 # ---------- 단계 시험 ----------
@@ -610,14 +628,52 @@ def compare_dir(name: str, n: int) -> Path:
     return store.compare_dir(name, n)
 
 
+def kept_draft(ep: Episode, model: str) -> tuple[str, dict] | None:
+    """이 화에 model 이 이미 쓴 본문: 지금 본문 → 고르기를 기다리는 새 판 → 남겨 둔 판(최근 것부터). 없으면 None.
+    돌려주는 dict 는 출처(source: text · candidate · version), 판 id, 지금 본문이면 그 판이 생긴 뒤 고친 수(edits)."""
+    if not model or model in ("import", "mock:mock") or model.endswith(":default"):
+        return None
+    if ep.text.strip() and ep.written_by == model:
+        since = pipeline.text_since(ep)
+        return ep.text, {"source": "text", "id": "", "edits": sum(1 for e in ep.edits if e.at >= since)}
+    if ep.candidate and ep.candidate.text.strip() and ep.candidate.model == model:
+        return ep.candidate.text, {"source": "candidate", "id": ep.candidate.id, "edits": 0}
+    for v in reversed(ep.versions):
+        if v.text.strip() and v.model == model:
+            return v.text, {"source": "version", "id": v.id, "edits": 0}
+    return None
+
+
+def kept_drafts(ep: Episode, models: dict[str, str]) -> dict[str, tuple[str, dict]]:
+    """안마다(이름 → 모델) 가져올 기존 본문. 두 안이 같은 모델이면 같은 글이 두 번 들어가므로 아무것도 가져오지 않는다."""
+    named = [m for m in models.values() if m]
+    if len(set(named)) < len(named):
+        return {}
+    return {k: got for k, m in models.items() if (got := kept_draft(ep, m))}
+
+
+def _may_have_kept(ep: Episode, provider: str) -> bool:
+    """이 백엔드가 쓴 판이 이 화에 있을 수 있나. 없으면 모델 이름을 묻지 않는다 (로컬은 서버에 물어야 한다)."""
+    models = [ep.written_by if ep.text.strip() else "", ep.candidate.model if ep.candidate else "", *(v.model for v in ep.versions)]
+    return any(m.startswith(f"{provider}:") for m in models)
+
+
 def run_compare(name: str, p: Project, n: int, a: Backend, b: Backend) -> dict:
-    """같은 화를 두 백엔드로 쓰고 1, 2 번으로 가려 저장한다. 프롬프트는 write_episode 와 같다."""
+    """같은 화를 두 백엔드로 쓰고 1, 2 번으로 가려 저장한다. 프롬프트는 write_episode 와 같다.
+    이 화에 그 모델이 이미 쓴 본문이 있으면 다시 쓰지 않고 가져온다(kept_draft). 두 백엔드가 같은 모델이면 둘 다 새로 쓴다."""
     la, lb = label(a), label(b)
     if la == lb and a.url == b.url:
         raise ValueError("두 백엔드가 같아요")
     llms = {la: make_backend(a), lb: make_backend(b)}
-    drafts = pipeline.compare_drafts(llms, p, n)
-    return save_compare(name, n, drafts, models={k: pipeline.writer_of(x) for k, x in llms.items()})
+    ep = p.episode(n)
+    models = {k: pipeline.writer_of(x) if _may_have_kept(ep, bk.provider) else "" for (k, x), bk in zip(llms.items(), (a, b))}
+    kept = kept_drafts(ep, models)
+    drafts = {k: kept[k][0] for k in kept}
+    drafts.update(pipeline.compare_drafts({k: x for k, x in llms.items() if k not in kept}, p, n))
+    drafts = {k: drafts[k] for k in llms}  # 차례는 A, B
+    # 새로 쓴 안은 쓴 뒤의 이름을 쓴다 (Claude 구독은 호출한 뒤에야 실제 모델 이름을 안다)
+    return save_compare(name, n, drafts, models={k: models[k] if k in kept else pipeline.writer_of(x) for k, x in llms.items()},
+                        kept={k: v[1] for k, v in kept.items()})
 
 
 def run_opening_compare(name: str, p: Project, n: int, llm: LLM, approaches: list[str] | None = None) -> dict:
@@ -626,8 +682,10 @@ def run_opening_compare(name: str, p: Project, n: int, llm: LLM, approaches: lis
     return save_compare(name, n, drafts, kind="opening", models=dict.fromkeys(drafts, pipeline.writer_of(llm)))
 
 
-def save_compare(name: str, n: int, drafts: dict[str, str], kind: str = "backend", models: dict[str, str] | None = None) -> dict:
-    """kind: backend(백엔드 비교) 또는 opening(여는 방식 비교). models: 안마다 쓴 모델 (pipeline.writer_of), 고르면 본문 기록에 따라간다."""
+def save_compare(name: str, n: int, drafts: dict[str, str], kind: str = "backend", models: dict[str, str] | None = None,
+                 kept: dict[str, dict] | None = None) -> dict:
+    """kind: backend(백엔드 비교) 또는 opening(여는 방식 비교). models: 안마다 쓴 모델 (pipeline.writer_of), 고르면 본문 기록에 따라간다.
+    kept: 새로 쓰지 않고 이 화의 기존 본문을 가져온 안과 그 출처 (kept_draft). 고르기 전에는 어느 안인지 돌려주지 않는다."""
     order = random.sample(list(drafts), len(drafts))  # 1, 2 번에 누가 들어갔는지 가린다
     out = compare_dir(name, n)
     out.mkdir(parents=True, exist_ok=True)
@@ -636,7 +694,7 @@ def save_compare(name: str, n: int, drafts: dict[str, str], kind: str = "backend
     for i, key in enumerate(order, 1):
         store.write_atomic(out / f"{i}.md", drafts[key])
     store.write_atomic(out / "key.json", json.dumps({"order": order, "kind": kind, "created": datetime.now().isoformat(timespec="seconds"),
-                                                     "models": models or {}}, ensure_ascii=False))
+                                                     "models": models or {}, "kept": kept or {}}, ensure_ascii=False))
     return load_compare(name, n)
 
 
@@ -658,10 +716,32 @@ def load_compare(name: str, n: int) -> dict | None:
                        "dialogue_ratio": m.dialogue_ratio, "mattr": m.mattr, "warnings": metrics.drift(base, m),
                        "opening": pipeline.opening_metrics(p, n, text)[1] if prompts.is_opening(n) else [],
                        "hook": json.loads(hook.read_text(encoding="utf-8")) if hook.exists() else None})
-    res = {"episode": n, "kind": k.get("kind", "backend"), "created": k.get("created"), "drafts": drafts, "picked": k.get("picked")}
+    kept = k.get("kept") or {}
+    res = {"episode": n, "kind": k.get("kind", "backend"), "created": k.get("created"), "drafts": drafts, "picked": k.get("picked"),
+           "kept_count": len(kept)}
     if k.get("picked"):
         res["order"] = k["order"]
+        res["kept"] = kept  # 고른 뒤에만: 어느 백엔드가 기존 본문을 가져왔는지
     return res
+
+
+def _adopt(p: Project, n: int, text: str, model: str) -> None:
+    """고른 비교본을 본문으로. 이 화에 남은 판과 글이 같으면(기존 본문을 가져온 안) 규칙을 다시 걸지 않고 그 판을 쓴다:
+    지금 본문이면 그대로, 새 판이면 새 판 고르기, 남겨 둔 판이면 그 판으로 되돌리기. 아니면 새 안처럼 adopt_draft."""
+    ep = p.episode(n)
+    if ep.status == "finalized" or not text.strip():
+        pipeline.adopt_draft(p, n, text, model)  # 같은 오류 문구를 쓴다
+        return
+    if text == ep.text:
+        return
+    if ep.candidate and ep.candidate.text == text:
+        pipeline.adopt_candidate(p, n)
+        return
+    v = next((x for x in reversed(ep.versions) if x.text == text), None)
+    if v is not None:
+        pipeline.restore_version(p, n, v.id)
+        return
+    pipeline.adopt_draft(p, n, text, model)
 
 
 def compare_text(name: str, n: int, k: int) -> str:
@@ -687,16 +767,17 @@ def pick_compare(name: str, p: Project, n: int, k: int, adopt: bool = True) -> d
     if not 1 <= k <= len(order):
         raise ValueError(f"고를 수 있는 번호는 1~{len(order)} 이에요")
     if adopt:
-        pipeline.adopt_draft(p, n, (out / f"{k}.md").read_text(encoding="utf-8"), key.get("models", {}).get(order[k - 1], ""))
+        _adopt(p, n, (out / f"{k}.md").read_text(encoding="utf-8"), key.get("models", {}).get(order[k - 1], ""))
     key["picked"] = k
     store.write_atomic(key_path, json.dumps(key, ensure_ascii=False))
     log = out.parent / "log.jsonl"
     with log.open("a", encoding="utf-8") as f:
         f.write(json.dumps({"episode": n, "kind": key.get("kind", "backend"), "options": order, "picked": order[k - 1],
+                            "kept": sorted(key.get("kept") or {}),
                             "time": datetime.now().isoformat(timespec="seconds")}, ensure_ascii=False) + "\n")
     wins: dict[str, int] = {}
     for line in log.read_text(encoding="utf-8").splitlines():
         prov = json.loads(line)["picked"]
         wins[prov] = wins.get(prov, 0) + 1
     return {"picked": order[k - 1], "others": [o for o in order if o != order[k - 1]], "order": order,
-            "adopted": adopt, "wins": wins}
+            "adopted": adopt, "wins": wins, "kept": (key.get("kept") or {}).get(order[k - 1])}

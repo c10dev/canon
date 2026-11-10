@@ -10,17 +10,77 @@ def test_backend_chips_dedupe_and_filter():
     got = run_js(FILES, """[
       rsCands({ config: data.config, probe: data.probe, probeUrl: 'http://gpu:8001/v1', log: data.log }).map((c) => [c.b.provider, c.b.model, c.b.url, c.sub]),
       rsCands({ config: data.config, log: data.log, kinds: ['local', 'mock'] }).map((c) => c.b.provider + ':' + c.b.model),
-      [rsParse('local:qwen3-32b'), rsParse('gemini'), rsParse('claude:x')],
+      [rsParse('local:qwen3-32b'), rsParse('gemini'), rsParse('claude:x'), rsParse('openai:x')],
     ]""", {"config": {"provider": "gemini", "model_setting": "gemini-4-argon", "local_url": "http://gpu:8001/v1", "local_model": "qwen3-32b"},
            "probe": {"models": [{"id": "qwen3-32b"}, {"id": "gemma-4-27b"}]},
            "log": [{"kind": "sample", "rows": [{"backend": "local:qwen3-32b"}, {"backend": "gemini"}]}, {"kind": "compare", "backends": ["local:gemma-4-27b", "mock"]}]})
     chips, local_only, parsed = got
     # 설정값 둘 → 서버 점검 모델 → 기록 순서, 같은 백엔드는 한 번만 (설정 주소와 같은 점검 주소는 비운다)
-    assert chips == [["gemini", "", "", "Gemini · 설정값 gemini-4-argon"], ["local", "", "", "로컬 · 설정값 qwen3-32b"],
+    assert chips == [["gemini", "", "", "Gemini · 설정값"], ["local", "", "", "로컬 · 설정값"],
                      ["local", "qwen3-32b", "", "로컬 · 서버 점검에서"], ["local", "gemma-4-27b", "", "로컬 · 서버 점검에서"],
                      ["mock", "", "", "기록에서"]]
     assert local_only == ["local:", "local:qwen3-32b", "local:gemma-4-27b", "mock:"]  # 판단기 칩은 로컬 · mock 만
-    assert parsed == [{"provider": "local", "model": "qwen3-32b", "url": ""}, {"provider": "gemini", "model": "", "url": ""}, None]
+    assert parsed == [{"provider": "local", "model": "qwen3-32b", "url": ""}, {"provider": "gemini", "model": "", "url": ""},
+                      {"provider": "claude", "model": "x", "url": ""}, None]
+
+
+@needs_node
+def test_claude_chips_only_when_set_up():
+    got = run_js(FILES, """[
+      rsClaudeKinds({ provider: 'gemini' }),
+      rsClaudeKinds({ provider: 'gemini', stages: { check: { provider: 'claude' } } }),
+      rsClaudeKinds({ provider: 'gemini', anthropic_key_hint: '…abcd' }),
+      rsCands({ config: data.config, log: data.log }).map((c) => [c.b.provider, c.b.model, c.sub]),
+      rsCands({ config: data.config, log: data.log, kinds: ['local', 'mock'] }).map((c) => c.b.provider),
+    ]""", {"config": {"provider": "claude", "model_setting": "gemini-4-argon", "claude_model": "claude-opus-5-5", "stages": {"write": {"provider": "gemini"}}},
+           "log": [{"kind": "compare", "backends": ["claude-api:claude-opus-5-5", "gemini"]}]})
+    plain, by_stage, by_key, chips, judge = got
+    assert plain == [] and by_stage == ["claude"] and by_key == ["claude-api"]  # 쓰지 않는 Claude 는 칩으로 내놓지 않는다
+    assert chips == [["gemini", "", "Gemini · 설정값"], ["local", "", "로컬 · 설정값"],
+                     ["claude", "", "Claude 구독 · 설정값"], ["claude-api", "claude-opus-5-5", "기록에서"]]
+    assert judge == ["local"]  # 판단기 칩에는 Claude 가 없다
+
+
+@needs_node
+def test_default_model_and_claude_missing():
+    got = run_js(FILES, """[
+      ['gemini', 'local', 'claude', 'claude-api', 'mock'].map((p) => defaultModelName(p, data.full)),
+      ['gemini', 'local', 'claude', 'claude-api'].map((p) => defaultModelName(p, {})),
+      [claudeMissing('claude-api', {}), claudeMissing('claude-api', { anthropic_key_hint: '…abcd' }),
+       claudeMissing('claude', {}, { claude: 'install' }), claudeMissing('claude', {}, { claude: 'login' }),
+       claudeMissing('claude', {}, { claude: 'ok' }), claudeMissing('claude', {}, null), claudeMissing('gemini', {})],
+      (() => { S.config = {}; S.health = null; return [backendOption('claude-api', 'Claude API', 'gemini'), backendOption('claude-api', 'Claude API', 'claude-api')]; })(),
+    ]""", {"full": {"model_setting": "gemini-4-argon", "local_model": "qwen3-32b", "claude_model": "claude-opus-5-5"}})
+    named, empty, missing, opts = got
+    assert named == ["gemini-4-argon", "qwen3-32b", "claude-opus-5-5", "claude-opus-5-5", "설정 값"]
+    assert empty == ["설정 값", "서버의 모델", "Claude Code 기본 모델", "Claude API 기본 모델"]
+    assert missing == ["키 없음", "", "설치 안 됨", "로그인 필요", "", "", ""]
+    # 키 없는 Claude API 는 고를 수 없다. 이미 고른 줄이면 그대로 두고 이유만 붙인다
+    assert opts[0] == '<option value="claude-api" disabled>Claude API (키 없음)</option>'
+    assert opts[1] == '<option value="claude-api" selected>Claude API (키 없음)</option>'
+
+
+@needs_node
+def test_kept_note_names_the_side_that_reuses_text():
+    got = run_js(FILES, """[
+      rsModelId({ provider: 'gemini', model: '' }, data.config),
+      rsModelId({ provider: 'claude', model: '' }, data.config),
+      rsModelId({ provider: 'claude-api', model: '' }, {}),
+      rsModelId({ provider: 'local', model: '' }, {}),
+      rsModelId({ provider: 'mock' }, data.config),
+      rsKeptSource(data.ep, 'claude:claude-opus-5-5'),
+      rsKeptSource(data.ep, 'gemini:gemini-3.8-flash'),
+      rsKeptSource(data.ep, 'gemini:gemini-4-argon'),
+      rsKeptNote(data.ep, { provider: 'gemini', model: '' }, { provider: 'claude', model: '' }, data.config),
+      rsKeptNote(data.ep, { provider: 'claude', model: '' }, { provider: 'claude', model: 'claude-opus-5-5' }, data.config),
+    ]""", {"config": {"model_setting": "gemini-4-argon", "claude_model": "claude-opus-5-5"},
+           "ep": {"text": "본문", "written_by": "claude:claude-opus-5-5", "candidate": None,
+                  "versions": [{"text": "옛 판", "model": "gemini:gemini-3.8-flash"}, {"text": "", "model": "gemini:gemini-4-argon"}]}})
+    gem, sub, api, local, mock, cur, old, empty, note, same = got
+    assert (gem, sub, api, local, mock) == ("gemini:gemini-4-argon", "claude:claude-opus-5-5", "claude-api:claude-opus-5-5", "", "")
+    assert (cur, old, empty) == ("text", "version", "")  # 빈 판은 가져오지 않는다
+    assert note == "B(claude-opus-5-5)는 이 화를 이미 쓴 모델이라 새로 쓰지 않고 지금 본문을 가져와요."
+    assert same == ""  # 두 쪽이 같은 모델이면 둘 다 새로 쓴다
 
 
 @needs_node

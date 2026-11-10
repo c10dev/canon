@@ -20,6 +20,7 @@ AI 로 소설을 길게 쓸수록 인물 관계, 심리, 말투, 복선, 문체�
 | 장면 연출(방 안 자리 · 자세 · 신체 접촉을 박자마다 적고 재생하는 도구, `stage`)을 만들거나 고칠 때 | [docs/stage/](docs/stage/README.md): 정한 규칙, 데이터 형식, 일감 차례와 작업 명세서, 화면 시안 |
 | 컨텍스트 조립(`context.py` 의 활성화 · 프롬프트 보기와 블록 설정 · 정규식 규칙 · 선언형 규칙 · 접은 줄거리 고르기)을 고칠 때 | [docs/context/](docs/context/README.md). 일감을 끝내면 그 명세서의 상태와 `docs/context/plan.md` 를 고친다 |
 | 웹 화면(`canon/static/`)의 모양을 고칠 때 | [docs/design/](docs/design/README.md): 디자인 시스템의 원본: 문구 · 색 · 글자 · 간격 규칙(README), 화면 배치(`layout.md`), 토큰 값(`tokens.json`), 컴포넌트별 문서와 미리보기(`components/<이름>/README.md` · `preview.html`), 미리보기가 읽는 컴포넌트 CSS 사본(`components/bundle.css`) |
+| 웹 화면의 쓰는 흐름(가림막 · 다시 그릴 때 본문 칸 지키기 · 대화 에이전트 하나로 합치기 · AI 답 흘려 보이기 · 집필 화면의 상태 변경안 · 메뉴 정리)을 고칠 때 | [docs/ux/](docs/ux/README.md): 2026-11-09 관찰 결과, 일감 차례와 작업 명세서. 일감을 끝내면 그 명세서의 상태와 `docs/ux/plan.md` 를 고친다 |
 | 프롬프트 글(`prompts.py` 의 지시 · 규칙 줄 · `PREAMBLE`, `llm.POLICY_NOTE` · `ADULT_NOTE`)을 다듬거나 줄일 때 | [docs/prompts/editing.md](docs/prompts/editing.md): 편집 AI의 가치관 · 제공자 정책을 끼워 넣지 않는 원칙(0절), 뜻 지도, 확인 층 |
 | 스키마 · 프롬프트 · 파이프라인 · 검수 · 스토리보드 · 큐 시트 · 저장 · 작업 · 자동 집필 · 명령줄 · 웹 서버를 고칠 때 | [docs/modules/core.md](docs/modules/core.md) |
 | LLM 백엔드 · 사용량 · 판단기 · 가짜 응답(mock) · 환경 변수를 고칠 때 | [docs/modules/ai.md](docs/modules/ai.md) |
@@ -58,7 +59,7 @@ ruff check canon tests scripts      # 정적 검사 (쓰지 않는 import · 변
 ```
 
 - 시험은 `CANON_HOME` 을 임시 폴더로 두고 돌린다. `tests/conftest.py` 도 값이 없으면 임시 폴더를 정하므로, 이 값은 덤 안전장치다.
-- `tests/conftest.py` 는 `CANON_CONFIG` 를 `CANON_HOME` 안으로 돌리고 `CANON_USAGE` · `CANON_STYLES` · `CANON_REFS` · `CANON_STUDIO` · `CANON_PROMPTLAB` 을 지운다.
+- `tests/conftest.py` 는 `CANON_CONFIG` 를 `CANON_HOME` 안으로 돌리고 `CANON_USAGE` · `CANON_STYLES` · `CANON_RULES` · `CANON_REFS` · `CANON_STUDIO` · `CANON_PROMPTLAB` · `CANON_PROMPTSETS` 을 지운다.
 - 저장 위치가 저장소의 `projects/` 이면 `tests/conftest.py` 가 시험을 시작하지 않는다(`tests/test_conftest_isolation.py`).
 - 공통 `client` fixture 는 `tests/conftest.py` 에 있다. `canon.web` 을 다시 불러오지 않고 `store.ROOT` 만 시험 폴더로 바꾼다.
 - 시험은 `importlib.reload(store)` · `reload(web)` 를 쓰지 않는다(한 번에 1~2.5초). 저장 위치는 `monkeypatch.setattr(store, "ROOT", tmp_path)` 로 바꾼다(`tests/test_conftest_isolation.py`).
@@ -99,6 +100,7 @@ ruff check canon tests scripts      # 정적 검사 (쓰지 않는 import · 변
 - 스키마 필드를 바꾸면 기존 `project.json` 이 읽히도록 기본값을 둔다.
 - 기능을 바꾸면 README.md 와 DESIGN.md 의 해당 부분도 고친다.
 - 화면 모양(색, 글자, 간격, 컴포넌트, 배치, 폭 구간)을 바꾸면 같은 변경 안에서 `docs/design/` 도 고친다. 색 토큰을 더하거나 바꾸면 `canon/static/app.css` 의 두 `:root` 블록과 `docs/design/tokens.json` 을 함께 고친다(`tests/test_design_tokens.py` 가 맞춰 본다). 컴포넌트 규칙을 바꾸면 `components/bundle.css` 의 그 줄도 app.css 와 같게 고친다. Claude 디자인 시스템 페이지는 이 폴더에서 다시 올리는 보기라 그 페이지만 고치지 않는다.
+- 화면에 늘 보이는 버튼 · 안내 문장 · 메뉴를 더하면 `docs/design/README.md` 의 '덜기' 절을 따른다.
 - 여러 에이전트 세션이 동시에 일할 때는 코드를 고치는 세션마다 자기 git worktree 와 브랜치를 쓴다. 같은 폴더 · 같은 브랜치에서 둘 이상이 고치면 변경이 섞여 커밋할 때 hunk 를 손으로 골라야 한다. 읽기만 하는 세션은 같은 폴더를 써도 된다.
 
 ## 문서 줄 규칙

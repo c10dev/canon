@@ -233,7 +233,7 @@ function plHeroCard(g, primary = true) {
 
 /** 처음 실행(작품 없음)의 옆 카드: 단계 1~6 (이름은 사이드바와 같다) */
 function plStepsCard() {
-  const steps = [['설정 도우미', '로그라인 · 세계 · 인물 · 관계'], ['문체 레퍼런스', '예시 문단에서 문체 프로필'], ['기승전결 · 플롯', '화마다 사건과 끝 장면'],
+  const steps = [['설정 도우미', '로그라인 · 세계 · 인물 · 관계'], ['문체 레퍼런스', '예시 문단에서 문체'], ['기승전결 · 플롯', '화마다 사건과 끝 장면'],
     ['집필', 'AI로 쓰거나 직접 쓰기'], ['검수', '앞 화와 어긋난 곳 찾기'], ['상태 승인', '바뀐 관계 · 상태를 골라 반영']];
   return `<section class="card tight pl-steps" aria-labelledby="pl-steps-h"><h2 id="pl-steps-h">이렇게 써요</h2>
     <ol>${steps.map(([t, s], i) => `<li><span class="n" aria-hidden="true">${i + 1}</span><span><strong>${t}</strong><span class="small">${s}</span></span></li>`).join('')}</ol></section>`;
@@ -380,6 +380,18 @@ function nextStep() {
   return ['완결 원고 보기', `${base()}/write/${e.plot.number}`, 'exportAll', '완결 원고 내보내기'];
 }
 
+/** 작품 홈 머리의 ⋯ 메뉴. 머리에는 이 메뉴와 주 버튼(다음 할 일, 오른쪽 끝) 하나만 둔다. fin 반영한 화 수, arcNext 다음 할 일이 플롯 화면인지.
+    든 것: 장편으로 늘리기(모든 화를 반영한 단편) · 기승전결 · 플롯(다음 할 일이 그 화면이 아닐 때) · 갈래 만들기(반영한 화가 있을 때). 비면 그리지 않는다 */
+function homeHeadMore(fin, arcNext) {
+  const m = P().meta;
+  const items = [
+    !serial() && fin && fin === m.target_episodes ? `<a class="pop-item" href="${base()}/convert">장편으로 늘리기</a>` : '',
+    arcNext ? '' : `<a class="pop-item" href="${base()}/arc">${stepLabel('arc')}</a>`,
+    fin ? '<button type="button" class="pop-item" data-action="branchOpen" title="이 작품은 그대로 두고, 사본에서 다른 전개를 써요">갈래 만들기</button>' : '',
+  ].filter(Boolean);
+  return items.length ? menuBtn('home-more', '<span aria-hidden="true">⋯</span>', () => items.join(''), { aria: '작품 더 보기 메뉴', title: '더 보기' }) : '';
+}
+
 /** 다음 할 일을 버튼에 쓰는 글. 동작이 있으면 동작 글 */
 function nextStepLabel(next) {
   return next[2] ? next[3] || next[0] : next[0];
@@ -485,7 +497,7 @@ function releaseRow(p) {
   const low = r.bufferDays !== null && r.bufferDays < 3;
   const goal = r.perWeek
     ? `하루 목표 ${fmt(r.perDay)}화 (약 ${Math.round(r.perDay * p.meta.words_per_episode).toLocaleString()}자)`
-    : '일주일에 올리는 화 수를 정하면 비축 일수와 하루 목표를 계산해요';
+    : `하루 목표 없음${help('일주일에 올리는 화 수를 정하면 비축 일수와 하루 목표를 계산해요.')}`;
   const warn = r.over ? `<div class="note warn">올린 화(${r.released}화)가 반영을 마친 화(${r.ready}화)보다 뒤예요. 올린 화를 고치거나 남은 화를 반영하세요.</div>`
     : low ? `<div class="note warn">비축이 ${r.buffer ? `${r.buffer}화(약 ${r.bufferDays}일분)뿐이에요` : '없어요'}. 오늘 ${Math.max(1, Math.ceil(r.perDay))}화를 반영하면 일정을 지킬 수 있어요.</div>` : '';
   return `<div class="release-row">
@@ -630,7 +642,7 @@ function homeNowCard(nextLabel, nextHref) {
     const why = nextHref.endsWith('/setup') ? '인물과 세계를 정하면 이야기 구조를 짤 수 있어요.'
       : nextHref.endsWith('/auto') ? (autoOn() ? '자동 집필이 쓰는 동안에는 손으로 쓰거나 반영하지 않아요.' : '자동 집필이 사람의 검토를 기다려요.')
       : isArcHref(nextHref) ? (serial() && p.story_arcs.length ? `${plannedUntil()}화까지 기획했어요. 다음 아크를 기획하면 이어서 쓸 수 있어요.` : '구조를 짜면 화별 플롯을 만들 수 있어요.')
-      : `${p.meta.target_episodes}화를 모두 반영했어요. 전체 원고를 한꺼번에 복사하거나 .txt로 내려받을 수 있어요.`;
+      : `${p.meta.target_episodes}화를 모두 반영했어요.`;
     // 자동 집필이 돌 때 다음 할 일 글은 버튼용 '자동 집필로'라 제목은 상태로 쓴다
     const head = autoOn() && nextHref.endsWith('/auto') ? `자동 집필이 ${autoEp() ? `${autoEp()}화를 ` : ''}쓰는 중이에요` : nextLabel;
     return `<section class="card home-now" aria-labelledby="home-now-h"><span class="eyebrow">다음 할 일</span><h2 id="home-now-h">${esc(head)}</h2><p class="desc">${why}</p></section>`;
@@ -660,9 +672,9 @@ function homeNowCard(nextLabel, nextHref) {
 
 function homeTodoCard() {
   const items = homeTodos(P(), base(), typeof povChar === 'function' ? (n) => povChar(n).c : null);
-  return `<section class="card home-todo" aria-labelledby="home-todo-h"><div class="between"><h2 id="home-todo-h">확인할 것</h2><span class="small">${items.length ? `${items.length}개` : ''}</span></div>
+  return `<section class="sec home-todo" aria-labelledby="home-todo-h"><div class="between"><h2 id="home-todo-h">확인할 것</h2><span class="small">${items.length ? `${items.length}개` : ''}</span></div>
     ${items.length ? `<ul>${items.map((x) => `<li><span class="home-tag ${x.kind}">${x.tag}</span><div><strong>${esc(x.label)}</strong><div class="small">${esc(x.sub)}</div></div><a class="btn small" href="${x.href}">${esc(x.link)}</a></li>`).join('')}</ul>`
-    : '<p class="small">확인할 것이 없어요. 반영 때 검수 경고, 요약 없는 아크, 다가오는 기한, 회수 예정이 지난 복선이 여기 모여요.</p>'}</section>`;
+    : `<p class="small">확인할 것이 없어요.${help('반영 때 검수 경고, 요약 없는 아크, 다가오는 기한, 회수 예정이 지난 복선이 여기 모여요.')}</p>`}</section>`;
 }
 
 /** 전 화수를 상태별로 나눈 막대와 수. 예전 '진행 단계' 카드의 수도 여기 한 줄로 */
@@ -720,7 +732,7 @@ function viewHome() {
   // 사실이 들어온 화 링크 (반영 기록에서 센다, context.facts_learned). 기록에 없는 사실(설정 단계 · 직접 적음 · 인과율)은 붙이지 않는다
   const factLi = (f) => `<li>${esc(f)}${learned[f] ? ` <a class="small" href="${base()}/review/${learned[f]}">${learned[f]}화</a>` : ''}</li>`;
 
-  return `${header(`${esc(m.genre || '장르 미정')}${m.adult ? ' · 성인' : ''} · ${serial() ? '장편 연재 · ' : ''}전 ${m.target_episodes}화 · 화당 ${Number(m.words_per_episode).toLocaleString()}자`, m.title || S.name, m.logline ? `<span class="home-logline" title="${esc(m.logline)}">${esc(m.logline)}</span>` : '', `${!serial() && fin && fin === m.target_episodes ? `<a class="btn" href="${base()}/convert">장편으로 늘리기</a>` : ''}${isArcHref(nextHref) ? '' : `<a class="btn" href="${base()}/arc">${stepLabel('arc')}</a>`}${fin ? '<button type="button" class="btn" data-action="branchOpen" title="이 작품은 그대로 두고, 사본에서 다른 전개를 써요">갈래 만들기</button>' : ''}${nextStepHtml(next)}`)}
+  return `${header(`${esc(m.genre || '장르 미정')}${m.adult ? ' · 성인' : ''} · ${serial() ? '장편 연재 · ' : ''}전 ${m.target_episodes}화 · 화당 ${Number(m.words_per_episode).toLocaleString()}자`, m.title || S.name, m.logline ? `<span class="home-logline" title="${esc(m.logline)}">${esc(m.logline)}</span>` : '', `${homeHeadMore(fin, isArcHref(nextHref))}${nextStepHtml(next)}`)}
     ${autoLockNote()}
     ${aiNote()}
     <div class="home-top">${homeNowCard(nextLabel, nextHref)}${homeTodoCard()}</div>
@@ -734,11 +746,11 @@ function viewHome() {
     ${branchHomeCard()}
     ${playHomeCard()}
     <div class="grid-auto home-lists">
-      <section class="card" aria-labelledby="home-cast-h"><div class="between"><h2 id="home-cast-h">주요 인물</h2><span class="small">${fin ? fin + '화 기준' : '시작 시점'}${p.characters.length > HOME_CAST ? ` · ${p.characters.length}명 중 ${HOME_CAST}명` : ''}</span></div>
+      <section class="sec" aria-labelledby="home-cast-h"><div class="between"><h2 id="home-cast-h">주요 인물</h2><span class="small">${fin ? fin + '화 기준' : '시작 시점'}${p.characters.length > HOME_CAST ? ` · ${p.characters.length}명 중 ${HOME_CAST}명` : ''}</span></div>
         ${states ? `<ul class="home-list">${states}</ul>` : '<div class="small">인물이 없어요</div>'}<a class="card-more" href="${base()}/cast">인물 ${p.characters.length}명 · 관계 ${p.relationships.length}개 모두 보기</a></section>
-      <section class="card" aria-labelledby="home-fs-h"><div class="between"><h2 id="home-fs-h">열린 복선</h2><span class="small">${openFs.length > HOME_FS ? `${openFs.length}개 중 오래된 ${HOME_FS}개` : `${openFs.length}개`}</span></div>
+      <section class="sec" aria-labelledby="home-fs-h"><div class="between"><h2 id="home-fs-h">열린 복선</h2><span class="small">${openFs.length > HOME_FS ? `${openFs.length}개 중 오래된 ${HOME_FS}개` : `${openFs.length}개`}</span></div>
         ${fsRows ? `<ul class="home-list home-fs">${fsRows}</ul>` : '<div class="small">없음</div>'}<a class="card-more" href="${base()}/foreshadow">복선 ${p.foreshadows.length}개 · 복선 센터</a></section>
-      <section class="card" aria-labelledby="home-fact-h"><div class="between"><h2 id="home-fact-h">확정 사실</h2><span class="small">${p.facts.length > HOME_FACTS ? `${p.facts.length}개 중 최근 ${HOME_FACTS}개` : `${p.facts.length}개`}</span></div>
+      <section class="sec" aria-labelledby="home-fact-h"><div class="between"><h2 id="home-fact-h">확정 사실</h2><span class="small">${p.facts.length > HOME_FACTS ? `${p.facts.length}개 중 최근 ${HOME_FACTS}개` : `${p.facts.length}개`}</span></div>
         ${facts.length ? `<ul class="home-facts">${facts.slice(0, HOME_FACTS).map(factLi).join('')}</ul>` : '<div class="small">없음</div>'}
         ${p.facts.length > HOME_FACTS ? `<details><summary class="small">전체 ${p.facts.length}개 보기</summary><ol class="home-facts all">${p.facts.map(factLi).join('')}</ol></details>` : ''}
       </section>
@@ -794,7 +806,7 @@ function genrePicker() {
 }
 
 function adultCheck(attrs) {
-  return `<label class="check-row"><input type="checkbox" ${attrs}><span><strong>성인물</strong> <span class="small">성인 독자 대상. 끄면 노골적인 성적 묘사와 과도한 잔혹 묘사를 피하도록 지시해요</span></span></label>`;
+  return `<label class="check-row"><input type="checkbox" ${attrs}><span><strong>성인물</strong> <span class="small">성인 독자 대상</span>${help('끄면 노골적인 성적 묘사와 과도한 잔혹 묘사를 피하도록 지시해요.')}</span></label>`;
 }
 
 Object.assign(actions, {

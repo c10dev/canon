@@ -112,6 +112,8 @@ RisuAI 프리셋 다듬기 지침(v1.4, 2026-09-15)의 원칙을 Canon 의 구�
 | 응답 형식 | `.json(…)` 스키마, `mock.py` | Gemini 가 dict 칸을 받지 못함(`test_schema_nodict.py`) |
 
 - API 경로와 작업지시서 경로는 같은 함수를 쓴다. 한 곳만 고치고 `brief` 출력도 본다.
+- 조각을 고치면 `prompts.PIECES` 의 그 줄(주제 꼬리표 · 들어가는 조건)도 함께 본다. 프롬프트 관리 페이지(`#/prompts`)가 그 표로 조각을 찾는다.
+- 새 `SYSTEM_*` 상수나 `*_prompt` 함수를 더하면 `prompts.KINDS` 나 `PIECES` 에 적는다(`tests/test_prompt_registry.py`).
 - 한 규칙을 여러 프롬프트가 함께 쓰면(예: `MINIMAL_FIX_RULES`, `write_plot`) 모든 사용처를 같이 본다.
 - 단편(`form = "short"`) 경로는 장편 작업에서 바꾸지 않는다.
 

@@ -28,7 +28,7 @@ JOB_RESULT.style_example = (j) => {
   return null;
 };
 
-const STYLE_CARDS = [['narr', '서술'], ['rules', '지킬 · 피할 것'], ['markers', '문체 표지'], ['devices', '가끔 쓰는 장치'], ['passages', '대표 문단']];
+const STYLE_CARDS = [['narr', '서술'], ['rules', '지킬 · 피할 것'], ['markers', '문체 버릇'], ['devices', '가끔 쓰는 장치'], ['passages', '대표 문단']];
 const NARR_KEYS = ['narration_pov', 'tense', 'sentence_rhythm', 'description_density', 'dialogue_ratio', 'dialogue_style',
   'inner_monologue', 'pacing', 'scene_transition', 'vocabulary', 'sound_effects'];
 
@@ -56,7 +56,7 @@ function styleTocItems(st, { hot = new Set(), todo = 0, example = '', link = '',
   STYLE_CARDS.forEach(([id, label]) => rows.push([id, label, styleCount(id, st), styleCardKeys(id).some((k) => hot.has(k)) ? 'hot' : '']));
   rows.push(['-', '재료', '', '']);
   rows.push(['status', '라이브러리 · 기준 지표', link, link === '다름' ? 'warn' : '']);
-  if (S.anchorView) { const w = anchorTocWord(); rows.push(['anchor', '작품 정착 문체', w, w === '멀어짐' || w === '다시 재기' ? 'warn' : '']); }
+  if (S.anchorView) { const w = anchorTocWord(); rows.push(['anchor', '이 작품의 문체', w, w === '멀어짐' || w === '다시 재기' ? 'warn' : '']); }
   rows.push(['source', '원문 · 다시 분석', '', '']);
   rows.push(['learn', '내 수정에서 배우기', learn, '']);
   return rows;
@@ -97,17 +97,6 @@ outlineSpy('sty-toc', {
 const pfKey = (root, id) => (root ? `lib:${(S.lib && S.lib.id) || 'new'}:${id}` : `${S.name}:${id}`);
 const pfOpen = (root, id) => !!(S.styleOpen || {})[pfKey(root, id)];
 
-/** 대화 패널이 열려 있고 아직 고르지 않은 문체 변경안이 있으면 그 변경안이 바꿀 칸 (카드에 표시한다). */
-function styleChatKeys() {
-  if (!S.chatOpen || S.chatOld !== 'style' || typeof chatMessages !== 'function') return new Set();  // 옛 문체 대화를 연 동안만 (chat.js chatShownTopic)
-  const msgs = chatMessages('style');
-  for (let i = msgs.length - 1; i >= 0; i--) {
-    const m = msgs[i];
-    if (m.style) return new Set(m.outcome ? [] : m.style.edits.map((e) => e.key));
-  }
-  return new Set();
-}
-
 /** 이름 없이 aria-label 만 단 입력칸 (표지 표처럼 칸 이름이 표 머리에 있을 때). app.js 의 input 과 같은 바인딩 */
 function bareInput(path, label, { root = '', kind = 'text', cls = '', placeholder = '' } = {}) {
   return `<input id="f-${path.replace(/\./g, '-')}" type="text" class="${cls}" value="${esc(bindValue(path, kind, root))}" data-bind="${path}" data-kind="${kind}"${root ? ` data-root="${root}"` : ''} aria-label="${esc(label)}" placeholder="${esc(placeholder)}">`;
@@ -119,14 +108,14 @@ function pfCard(id, label, base, root, hot) {
   const empty = styleCardEmpty(id, prof);
   const editing = empty || pfOpen(root, id);
   const isHot = styleCardKeys(id).some((k) => hot.has(k));
-  const add = editing ? { markers: ['addMarker', '+ 표지 더하기'], devices: ['deviceAdd', '+ 장치 더하기'], passages: ['addPassage', '+ 문단 더하기'] }[id] : null;
+  const add = editing ? { markers: ['addMarker', '+ 버릇 더하기'], devices: ['deviceAdd', '+ 장치 더하기'], passages: ['addPassage', '+ 문단 더하기'] }[id] : null;
   const btns = [
     add ? `<button type="button" class="btn small" data-action="${add[0]}" data-arg="${root}">${add[1]}</button>` : '',
     empty && !pfOpen(root, id) ? '' : `<button type="button" class="btn small" data-action="styleEdit" data-arg="${root}|${id}" aria-expanded="${editing}">${editing ? '다 고쳤어요' : '고치기'}</button>`,
   ].join('');
-  const sub = { markers: '어미 · 조사 · 말버릇과 원문 빈도. 넘치거나 빠지면 경고해요', devices: '특정 상황에만, 몇 화에 한 번 쓰는 장면 장치', passages: '본문 생성 때 원문 그대로 보여 줘요, 2~4개' }[id];
+  const sub = { markers: `어미 · 조사 · 말버릇${help('레퍼런스 원문에서 센 1,000자당 빈도보다 넘치거나 빠지면 경고해요.')}`, devices: '특정 상황에만, 몇 화에 한 번 쓰는 장면 장치', passages: '본문 생성 때 원문 그대로 보여 줘요, 2~4개' }[id];
   const body = editing ? pfEdit(id, base, root, hot) : pfRead(id, prof, root, hot, base);
-  return `<section class="card pf-sec${editing ? ' editing' : ''}" id="pf-${id}" tabindex="-1"${empty ? ` data-pf-key="${esc(pfKey(root, id))}"` : ''}>
+  return `<section class="${editing ? 'card pf-sec editing' : 'sec pf-sec'}" id="pf-${id}" tabindex="-1"${empty ? ` data-pf-key="${esc(pfKey(root, id))}"` : ''}>
       <div class="pf-head"><h2>${label}${isHot ? ' <span class="chip hot">대화 변경안</span>' : ''}${editing && !empty ? ' <span class="small pf-state">고치는 중</span>' : ''}</h2><div class="row">${btns}</div></div>
       ${sub ? `<p class="small pf-sub">${sub}</p>` : ''}${body}</section>`;
 }
@@ -169,11 +158,11 @@ function pfRead(id, prof, root, hot, base = 'style') {
         <div><div class="pf-lbl"><i class="sw ok" aria-hidden="true"></i>지킬 것 ${(prof.dos || []).length}${tag('dos')}</div>${list(prof.dos)}</div>
         <div><div class="pf-lbl"><i class="sw no" aria-hidden="true"></i>피할 것 ${(prof.donts || []).length}${tag('donts')}</div>${list(prof.donts)}</div>
       </div>
-      <div><div class="pf-lbl">금지 표현 ${(prof.banned_phrases || []).length}${tag('banned_phrases')} <span class="small">본문에 나오면 경고해요</span></div>
+      <div><div class="pf-lbl">금지 표현 ${(prof.banned_phrases || []).length}${tag('banned_phrases')}${help('본문에 나오면 경고해요.')}</div>
         ${(prof.banned_phrases || []).length ? `<div class="row">${prof.banned_phrases.map((x) => `<span class="chip pf-quote">${esc(x)}</span>`).join('')}</div>` : ''}</div>${root ? '' : heatWordsRead()}`;
   }
   if (id === 'markers') {
-    return `<table class="pf-table"><thead><tr><th scope="col">표지</th><th scope="col">쓰임</th><th scope="col" class="num">1,000자당</th></tr></thead>
+    return `<table class="pf-table"><thead><tr><th scope="col">버릇</th><th scope="col">쓰임</th><th scope="col" class="num">1,000자당</th></tr></thead>
       <tbody>${prof.markers.map((m) => `<tr><td class="pf-quote">${esc(m.text) || pfNone}</td><td>${esc(m.note)}</td><td class="num">${Number(m.per_1k || 0).toFixed(1)}</td></tr>`).join('')}</tbody></table>`;
   }
   if (id === 'devices') {
@@ -191,16 +180,16 @@ function pfRead(id, prof, root, hot, base = 'style') {
 }
 
 // 열 낱말(Settings.heat_words): 작품에만 있다(라이브러리 문체에는 없음). 화마다 이 낱말이 가장 몰린 대목의 문장 길이를 재서 기준보다 길면 경고한다 (metrics.peak_window)
-const HEAT_WORDS_WHY = '이 낱말이 가장 몰린 대목을 정점으로 보고, 그 대목의 문장이 기준보다 30% 넘게 길면 경고해요. 비우면 재지 않아요';
+const HEAT_WORDS_WHY = '이 낱말이 가장 몰린 대목을 정점으로 보고, 그 대목의 문장이 기준보다 30% 넘게 길면 경고해요. 비우면 재지 않아요.';
 
 function heatWordsRead() {
   const xs = P().settings.heat_words || [];
-  return `<div><div class="pf-lbl">열 낱말 ${xs.length} <span class="small">${esc(HEAT_WORDS_WHY)}</span></div>
+  return `<div><div class="pf-lbl">절정 낱말 ${xs.length}${help(HEAT_WORDS_WHY)}</div>
     ${xs.length ? `<div class="row">${xs.map((x) => `<span class="chip pf-quote">${esc(x)}</span>`).join('')}</div>` : ''}</div>`;
 }
 
 function heatWordsEdit() {
-  return input('열 낱말', 'settings.heat_words', { kind: 'list', rows: 2, autogrow: true, hint: HEAT_WORDS_WHY, placeholder: '정점 대목에 몰려 나오는 낱말, 한 줄에 하나씩' });
+  return input('절정 낱말', 'settings.heat_words', { kind: 'list', rows: 2, autogrow: true, help: HEAT_WORDS_WHY, placeholder: '정점 대목에 몰려 나오는 낱말, 한 줄에 하나씩' });
 }
 
 /** 카드의 고치는 칸. 칸은 글 길이만큼 늘어난다. 대화 변경안이 바꿀 칸은 테두리로 표시한다 */
@@ -220,11 +209,11 @@ function pfEdit(id, base, root, hot) {
   if (id === 'markers') {
     prof.markers = prof.markers || [];
     const rows = prof.markers.map((_, i) => `<div class="mk-row">
-        <div class="mk-text">${bareInput(`${base}.markers.${i}.text`, `표지 ${i + 1}`, { root, cls: 'pf-quote', placeholder: '원문에 적힌 그대로, 예: 것이었다' })}</div>
-        <div class="mk-note">${bareInput(`${base}.markers.${i}.note`, `표지 ${i + 1} 쓰임`, { root, placeholder: '어디에 어떻게 쓰는지' })}</div>
-        <div class="mk-rate">${bareInput(`${base}.markers.${i}.per_1k`, `표지 ${i + 1} 1,000자당`, { root, kind: 'float' })}</div>
-        <button type="button" class="btn icon-btn danger mk-del" data-action="removeMarker" data-arg="${root}|${i}" aria-label="표지 ${i + 1} 지우기">✕</button></div>`).join('');
-    return rows ? `<div class="mk-grid"><div class="mk-row mk-th" aria-hidden="true"><span class="mk-text">표지 (원문 그대로)</span><span class="mk-note">쓰임</span><span class="mk-rate">1,000자당</span><span class="mk-del"></span></div>${rows}</div>
+        <div class="mk-text">${bareInput(`${base}.markers.${i}.text`, `버릇 ${i + 1}`, { root, cls: 'pf-quote', placeholder: '원문에 적힌 그대로, 예: 것이었다' })}</div>
+        <div class="mk-note">${bareInput(`${base}.markers.${i}.note`, `버릇 ${i + 1} 쓰임`, { root, placeholder: '어디에 어떻게 쓰는지' })}</div>
+        <div class="mk-rate">${bareInput(`${base}.markers.${i}.per_1k`, `버릇 ${i + 1} 1,000자당`, { root, kind: 'float' })}</div>
+        <button type="button" class="btn icon-btn danger mk-del" data-action="removeMarker" data-arg="${root}|${i}" aria-label="버릇 ${i + 1} 지우기">✕</button></div>`).join('');
+    return rows ? `<div class="mk-grid"><div class="mk-row mk-th" aria-hidden="true"><span class="mk-text">버릇 (원문 그대로)</span><span class="mk-note">쓰임</span><span class="mk-rate">1,000자당</span><span class="mk-del"></span></div>${rows}</div>
         <p class="small">빈도는 저장할 때 원문에서 다시 세요.</p>`
       : '<div class="small">아직 없어요. 문체 분석을 하면 원문에서 골라 빈도를 세어요.</div>';
   }
@@ -269,7 +258,7 @@ function styleLibraryRow() {
   const l = S.styleLink || { state: 'none' };
   const blank = styleBlank(P().style);
   const status = {
-    none: `<span class="small">${blank ? '아직 문체가 없어요. 카드를 채우거나 라이브러리에서 고르세요.' : '이 작품에서 직접 만든 문체예요. 라이브러리에 없어요.'}</span>`,
+    none: `<span class="small">${blank ? '아직 문체가 없어요. 카드를 채우거나 라이브러리에서 고르세요.' : '라이브러리에 없는, 이 작품에서 직접 만든 문체예요.'}</span>`,
     missing: '<span class="small">가져온 라이브러리 항목이 지워졌어요. 작품에 복사된 문체는 그대로 써요.</span>',
     same: `<span class="chip finalized">라이브러리와 같음</span> <a href="#/styles/${esc(l.id)}">${esc(l.name)}</a> <span class="small">${l.version}번 버전</span>`,
     changed: `<span class="chip written">라이브러리와 다름</span> <a href="#/styles/${esc(l.id)}">${esc(l.name)}</a> <span class="small">${styleChangeWho(l)}</span>`,
@@ -297,7 +286,7 @@ function styleLibraryRow() {
 function styleStatus() {
   const b = P().style_baseline;
   const now = S.styleNow && S.styleNow.name === S.name ? S.styleNow : null;
-  return `<section class="card tight pf-sec sty-top" id="pf-status" tabindex="-1" aria-label="라이브러리와 기준 지표">
+  return `<section class="sec pf-sec sty-top" id="pf-status" tabindex="-1" aria-label="라이브러리와 기준 지표">
       ${styleLibraryRow()}
       <div class="sty-row">${b ? metricSummary(b, now) : '<span class="small">원문을 분석하면 문장 길이, 대사 비율 같은 기준 지표를 재요</span>'}
         ${b ? `<span class="sty-acts">${menuBtn('style-metrics', '지표 풀이', () => `${metricChips(b)}${baselineRows(b, undefined, now)}`, { cls: 'btn small ghost' })}</span>` : ''}</div>
@@ -323,9 +312,9 @@ function styleDraftCard() {
   if (!d || !d.profile) return '';
   const p = d.profile;
   const bits = [p.narration_pov && `시점 ${p.narration_pov}`, p.tense && `시제 ${p.tense}`, p.dialogue_ratio && `대화 비중 ${p.dialogue_ratio}`,
-    (p.markers || []).length && `문체 표지 ${p.markers.length}개`, (p.sample_passages || []).length && `대표 문단 ${p.sample_passages.length}개`, (p.devices || []).length && `장치 ${p.devices.length}개`].filter(Boolean);
+    (p.markers || []).length && `문체 버릇 ${p.markers.length}개`, (p.sample_passages || []).length && `대표 문단 ${p.sample_passages.length}개`, (p.devices || []).length && `장치 ${p.devices.length}개`].filter(Boolean);
   return `<section class="card proposal" aria-labelledby="sty-draft-h"><h2 id="sty-draft-h">문체 분석 결과가 도착했어요</h2>
-    <p class="small">${esc(bits.join(' · ') || '뽑은 칸이 적어요')}. 바꾸면 지금 스타일 프로필 대신 이 결과가 들어가요. 저장하기 전에는 되돌릴 수 있어요.</p>
+    <p class="small">${esc(bits.join(' · ') || '뽑은 칸이 적어요')}. 바꾸면 지금 문체 대신 이 결과가 들어가요. 저장하기 전에는 되돌릴 수 있어요.</p>
     ${proposalActions(['styleDraftDrop'], ['styleDraftApply'], '이 결과로 바꾸기')}</section>`;
 }
 
@@ -341,9 +330,9 @@ const sampleCount = () => `<span class="small"><span id="sample-count">${S.style
 /** 재료 카드: 원문을 다시 붙여 넣어 분석. 원문 칸은 열 때만 */
 function styleSourceCard() {
   const open = S.styleSampleOpen || S.styleSample.trim();
-  return `<section class="card pf-sec" id="pf-source" tabindex="-1">
+  return `<section class="${open ? 'card' : 'sec'} pf-sec" id="pf-source" tabindex="-1">
       <div class="pf-head"><h2><label for="sample">원문 · 다시 분석</label></h2><div class="row">${open ? sampleCount() : ''}<button type="button" class="btn small" data-action="toggleStyleSample" aria-expanded="${!!open}">${open ? '접기' : '원문 붙여 넣기'}</button></div></div>
-      ${open ? styleSampleBox(false) : '<p class="small pf-sub">원문을 다시 분석하면 지금 카드를 분석 결과로 바꿔요. 저장하기 전에는 되돌릴 수 있어요.</p>'}
+      ${open ? styleSampleBox(false) : ''}
     </section>`;
 }
 
@@ -351,7 +340,7 @@ function styleSourceCard() {
 function stylePickCard() {
   const libs = S.libs || [];
   const chips = (x) => [x.narration_pov, x.tense].filter(Boolean).map((v) => `<span class="chip">${esc(v)}</span>`).join('')
-    + [['대표 문단', x.passages], ['지킬 · 피할 것', x.rules], ['표지', x.markers], ['장치', x.devices]].filter(([, v]) => v).map(([k, v]) => `<span class="chip">${k} ${v}</span>`).join('');
+    + [['대표 문단', x.passages], ['지킬 · 피할 것', x.rules], ['버릇', x.markers], ['장치', x.devices]].filter(([, v]) => v).map(([k, v]) => `<span class="chip">${k} ${v}</span>`).join('');
   const rows = libs.map((x) => `<div class="sty-lib-item"><div class="sty-lib-main"><strong>${esc(x.name)}</strong>${x.source ? ` <span class="small">· ${esc(x.source)}</span>` : ''}
         <div class="row">${chips(x)}<span class="small">${x.used_by.length ? `쓰는 작품 ${x.used_by.length}` : '쓰는 작품 없음'}</span></div></div>
       <button type="button" class="btn small" data-action="useLibStyle" data-arg="${esc(x.id)}" aria-label="${esc(x.name)} 적용">적용</button></div>`).join('');
@@ -365,7 +354,7 @@ function viewStyle() {
   styleSeen = { name: S.name, title: P().meta.title || S.name };
   const st = P().style;
   const next = stepLabel('arc');
-  const go = (primary) => `${chatButton('style')}<a class="btn${primary ? ' primary' : ''}" href="${base()}/arc">${next}${josa(next, '으로', '로')}</a>`;
+  const go = (primary) => `<a class="btn${primary ? ' primary' : ''}" href="${base()}/arc">${next}${josa(next, '으로', '로')}</a>${chatButton()}`;
   // 문체가 비었으면 시작하는 세 갈래(원문 · 라이브러리 · 직접 채우기)만 보인다. '문체 분석'이 주 버튼이다
   if (styleBlank(st) && !(S.styleManual || {})[S.name]) {
     const rows = [['source', '원문 붙여 넣기', '', ''], ['pick', '라이브러리에서 고르기', String((S.libs || []).length), ''], ['manual', '직접 채우기', '', '']];
@@ -375,17 +364,17 @@ function viewStyle() {
       ${stylePickCard()}
       <section class="card tight pf-sec" id="pf-manual" tabindex="-1"><div class="sty-row"><div><h3>직접 채우기</h3><p class="small pf-sub">원문 없이 시점 · 시제부터 카드를 하나씩 채워요. 대화로 다듬기에서 말로 시작해도 돼요.</p></div>
         <span class="sty-acts"><button type="button" class="btn small" data-action="styleManual">빈 카드 열기</button></span></div></section>
-    </div></div></div>${chatLegacy('style')}`;
+    </div></div></div>`;
   }
-  const hot = styleChatKeys();
+  const hot = new Set();  // 옛 문체 대화 변경안이 바꿀 칸 표시. 04e 에서 옛 패널을 지워 늘 비어 있다
   const r = P().style_learning;
   const todo = r ? r.suggestions.filter((s) => !s.applied).length : 0;
   const ex = P().style_example;
   const rows = styleTocItems(st, { hot, todo, example: ex ? (exampleStale(ex) ? '바뀜' : '있음') : '', link: styleLinkWord(S.styleLink), learn: S.editStats ? `${S.editStats.usable}건` : '' });
-  return `${header('2단계', stepLabel('style'), '이 규칙과 대표 문단이 매 화 본문 생성에 함께 들어가요. 카드의 \'고치기\'로 그 카드만 고쳐요.', go(true))}
+  return `${header('2단계', stepLabel('style'), '이 규칙과 대표 문단이 매 화 본문 생성에 함께 들어가요.', go(true))}
     <div class="outline-wrap style-page"><div class="outline-doc">${styleToc(rows)}<div class="sty-secs">
       ${styleDraftCard()}${styleStatus()}${todo ? learnTodoCard() : ''}${styleExampleCard()}${profileCards('style', '', hot)}${anchorCard()}${styleSourceCard()}${learnCard()}
-    </div></div></div>${chatLegacy('style')}`;
+    </div></div></div>`;
 }
 
 // ----- 문체 라이브러리 -----
@@ -443,7 +432,7 @@ function viewLibrary() {
       ${x.source ? `<div class="small">${esc(x.source)}</div>` : ''}
       <div class="row">
         ${x.narration_pov ? `<span class="chip">${esc(x.narration_pov)}</span>` : ''}${x.tense ? `<span class="chip">${esc(x.tense)}</span>` : ''}
-        <span class="chip">대표 문단 ${x.passages}</span><span class="chip">지킬·피할 것 ${x.rules}</span>${[['금지 표현', x.banned], ['표지', x.markers], ['장치', x.devices]].filter(([, v]) => v).map(([k, v]) => `<span class="chip">${k} ${v}</span>`).join('')}
+        <span class="chip">대표 문단 ${x.passages}</span><span class="chip">지킬·피할 것 ${x.rules}</span>${[['금지 표현', x.banned], ['버릇', x.markers], ['장치', x.devices]].filter(([, v]) => v).map(([k, v]) => `<span class="chip">${k} ${v}</span>`).join('')}
         ${x.sample_chars ? `<span class="chip">원문 ${x.sample_chars.toLocaleString()}자</span>` : ''}
       </div>
       ${x.notes ? `<div class="small" style="white-space:pre-line">${esc(x.notes)}</div>` : ''}
@@ -566,9 +555,9 @@ function libDraftCard() {
   const d = S.libDraft;
   if (!d || !S.lib || (S.lib.id || 'new') !== d.lib) return '';
   const p = d.profile;
-  const bits = [p.narration_pov && `시점 ${p.narration_pov}`, p.tense && `시제 ${p.tense}`, (p.markers || []).length && `문체 표지 ${p.markers.length}개`, (p.sample_passages || []).length && `대표 문단 ${p.sample_passages.length}개`].filter(Boolean);
+  const bits = [p.narration_pov && `시점 ${p.narration_pov}`, p.tense && `시제 ${p.tense}`, (p.markers || []).length && `문체 버릇 ${p.markers.length}개`, (p.sample_passages || []).length && `대표 문단 ${p.sample_passages.length}개`].filter(Boolean);
   return `<section class="card proposal" aria-labelledby="lib-draft-h"><h2 id="lib-draft-h">문체 분석 결과가 도착했어요</h2>
-    <p class="small">${esc(bits.join(' · ') || '뽑은 칸이 적어요')}. 바꾸면 지금 프로필 대신 이 결과가 들어가요. 저장하기 전에는 되돌릴 수 있어요.</p>
+    <p class="small">${esc(bits.join(' · ') || '뽑은 칸이 적어요')}. 바꾸면 지금 문체 대신 이 결과가 들어가요. 저장하기 전에는 되돌릴 수 있어요.</p>
     ${proposalActions(['libDraftDrop'], ['libDraftApply'], '이 결과로 바꾸기')}</section>`;
 }
 
@@ -580,7 +569,7 @@ function viewLibEntry() {
   const right = `${libBackBtn()}<a class="btn" href="#/styles">목록으로</a>${isNew ? '' : `<button class="btn" data-action="libDuplicate" data-arg="${esc(e.id)}">복제</button><button class="btn danger" data-action="libDelete" data-arg="${esc(e.id)}">지우기</button><button class="btn" data-action="libRevert"${S.libDirty ? '' : ' disabled'}>저장 전으로</button>`}<button class="btn primary" data-action="libSave">저장</button>`;
   const prof = e.profile;
   const rows = [['info', '이름 · 출처', '', ''], ['source', '원문 · 기준 지표', e.sample ? `${e.sample.length.toLocaleString()}자` : '', ''],
-    ['-', '스타일 프로필', '', ''], ...STYLE_CARDS.map(([id, label]) => [id, label, styleCount(id, prof), '']),
+    ['-', '문체', '', ''], ...STYLE_CARDS.map(([id, label]) => [id, label, styleCount(id, prof), '']),
     ...(isNew ? [] : [['-', '쓰임', '', ''], ['apply', '작품에 적용', String(used.length), ''], ['versions', '버전', String((S.libVersions || []).length), '']])];
   const b = e.baseline;
   const apply = isNew ? '' : `<section class="card tight pf-sec" id="pf-apply" tabindex="-1">
@@ -653,7 +642,7 @@ Object.assign(actions, {
     const k = pfKey(root, 'narr');
     const open = !!(S.styleFill || {})[k];
     const prof = getPath(bindRoot(root), root ? 'profile' : 'style');
-    S.styleFill = { ...S.styleFill, [k]: open ? null : foldBlank(NARR_KEYS, narrHas(prof, root ? new Set() : styleChatKeys())).blank };
+    S.styleFill = { ...S.styleFill, [k]: open ? null : foldBlank(NARR_KEYS, narrHas(prof, new Set())).blank };
     render();
     if (!open) focusEl($('#pf-narr .pf-fill textarea, #pf-narr .pf-fill input'));
     else $('#pf-narr [data-action="styleFill"]')?.focus();
@@ -682,7 +671,7 @@ Object.assign(actions, {
     const has = !styleBlank(P().style);
     const l = S.styleLink || {};
     const unlink = ['same', 'changed'].includes(l.state) ? `\n라이브러리 '${l.name}' 연결도 끊겨요. 라이브러리 항목은 그대로예요.` : '';
-    if ((has || unlink) && !(await askConfirm(`분석 결과로 지금 스타일 프로필을 바꿀까요? 저장하기 전에는 '변경 모두 버리기'로 되돌릴 수 있어요.${unlink}`, { ok: '바꾸기' }))) return;
+    if ((has || unlink) && !(await askConfirm(`분석 결과로 지금 문체를 바꿀까요? 저장하기 전에는 '변경 모두 버리기'로 되돌릴 수 있어요.${unlink}`, { ok: '바꾸기' }))) return;
     if (S.styleDraft !== d) { render(); return toast('묻는 사이 새 분석 결과가 도착했어요. 카드를 다시 확인하세요'); }
     P().style = d.profile;
     styleCloseCards();
@@ -723,7 +712,7 @@ Object.assign(actions, {
   },
   removeMarker(arg) {
     const [root, i] = arg.split('|');
-    if (!root) rememberRemoved('문체 표지', ['style.markers']);
+    if (!root) rememberRemoved('문체 버릇', ['style.markers']);
     styleProf(root).markers.splice(Number(i), 1);
     styleKeepOpen(root, 'markers');
     render();
@@ -734,7 +723,7 @@ Object.assign(actions, {
     const e = (S.libs || []).find((x) => x.id === id);
     const l = S.styleLink || { state: 'none' };
     const lost = l.state === 'same' ? '' : '\n지금 문체는 라이브러리에 없어서 되돌릴 수 없어요. 남겨 두려면 취소하고 \'이 문체를 라이브러리에 새로 저장\'을 먼저 누르세요.';
-    if (!(await askConfirm(`'${e ? e.name : id}' 문체를 이 작품에 적용할까요? 지금 작품의 스타일 프로필은 바뀌어요.${lost}`, { ok: '적용하기' }))) return;
+    if (!(await askConfirm(`'${e ? e.name : id}' 문체를 이 작품에 적용할까요? 지금 작품의 문체는 바뀌어요.${lost}`, { ok: '적용하기' }))) return;
     await run('적용하는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/style/apply`, { style_id: id });
@@ -808,7 +797,7 @@ Object.assign(actions, {
     const d = S.libDraft;
     if (!d || !S.lib || (S.lib.id || 'new') !== d.lib) return;
     const has = !styleBlank(S.lib.profile);
-    if (has && !(await askConfirm('분석 결과로 지금 프로필을 바꿀까요? 저장 전까지는 되돌릴 수 있어요.', { ok: '바꾸기' }))) return;
+    if (has && !(await askConfirm('분석 결과로 지금 문체를 바꿀까요? 저장 전까지는 되돌릴 수 있어요.', { ok: '바꾸기' }))) return;
     if (S.libDraft !== d) { render(); return toast('묻는 사이 새 분석 결과가 도착했어요. 카드를 다시 확인하세요'); }
     S.lib.profile = d.profile;
     S.libDraft = null;
@@ -891,7 +880,7 @@ Object.assign(actions, {
     const name = $('#lib-target').value;
     if (!name) return toast('적용할 작품을 고르세요', true);
     if (S.libDirty) return toast('먼저 저장하세요. 저장된 문체가 작품에 복사돼요.', true);
-    if (!(await askConfirm(`'${S.lib.name}' 문체를 '${name}' 작품에 적용할까요? 그 작품의 스타일 프로필은 바뀌어요.\n그 작품의 지금 문체를 라이브러리에 저장해 두지 않았다면 되돌릴 수 없어요.`, { ok: '적용하기', danger: true }))) return;
+    if (!(await askConfirm(`'${S.lib.name}' 문체를 '${name}' 작품에 적용할까요? 그 작품의 문체는 바뀌어요.\n그 작품의 지금 문체를 라이브러리에 저장해 두지 않았다면 되돌릴 수 없어요.`, { ok: '적용하기', danger: true }))) return;
     await run('적용하는 중', async () => {
       await api('POST', `/projects/${enc(name)}/style/apply`, { style_id: S.lib.id });
       S.lib = await api('GET', `/styles/${S.lib.id}`);

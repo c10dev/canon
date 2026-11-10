@@ -81,12 +81,12 @@ def fit(steps: list[HeatStep], start: int, end: int) -> tuple[list[HeatStep], li
             level = min(max(s.level, LEVEL_MIN), LEVEL_MAX)
             seen[s.ep] = s.model_copy(update={"level": level, "kind": s.kind.strip() if s.role == "peak" else ""})
     if outside:
-        notes.append(f"범위({start}~{end}화) 밖의 {_eps(sorted(set(outside)))}를 열 계획에서 뺐어요")
+        notes.append(f"범위({start}~{end}화) 밖의 {_eps(sorted(set(outside)))}를 완급 계획에서 뺐어요")
     missing = [n for n in range(start, end + 1) if n not in seen]
     for n in missing:
         seen[n] = HeatStep(ep=n, level=FILL_LEVEL, role=FILL_ROLE)
     if missing:
-        notes.append(f"열 계획에 없던 {_eps(missing)}를 열 {FILL_LEVEL} · {ROLES[FILL_ROLE]}로 채웠어요")
+        notes.append(f"완급 계획에 없던 {_eps(missing)}를 세기 {FILL_LEVEL} · {ROLES[FILL_ROLE]}로 채웠어요")
     return [seen[n] for n in range(start, end + 1)], notes
 
 
@@ -168,7 +168,7 @@ def _scope_warnings(p: Project, sc: Scope) -> list[HeatWarn]:
     if len(steps) >= FLAT_MIN_EPS:
         cv = pstdev(levels) / mean(levels) if mean(levels) else 0.0
         if cv < CV_MIN:
-            warn(sc.start if p.serial else 0, "flat", f"열 눈금의 기복이 작아요 (변동계수 {cv:.2f}, {CV_MIN} 이상을 권해요). 아끼는 화와 터뜨리는 화의 차이를 키워 보세요")
+            warn(sc.start if p.serial else 0, "flat", f"세기 눈금의 기복이 작아요 (변동계수 {cv:.2f}, {CV_MIN} 이상을 권해요). 아끼는 화와 터뜨리는 화의 차이를 키워 보세요")
     end = max(sc.end, max(s.ep for s in steps))
     size = end - sc.start + 1
     gi = next((a for a in sc.acts if a.name == "기"), None)
@@ -176,7 +176,7 @@ def _scope_warnings(p: Project, sc: Scope) -> list[HeatWarn]:
     for run in runs:
         for s in run:
             if s.ep - sc.start + 1 <= size * EARLY_SHARE or (gi and gi.start_ep <= s.ep <= gi.end_ep):
-                warn(s.ep, "early_peak", f"{s.ep}화의 터뜨리기가 일러요. 앞쪽은 쌓기 · 미루기로 열을 아껴요")
+                warn(s.ep, "early_peak", f"{s.ep}화의 터뜨리기가 일러요. 앞쪽은 쌓기 · 미루기로 세기를 아껴요")
         first = run[0].ep
         if not any(f.kind == "stake" and f.planted_ep < first and (f.status == "open" or (f.payoff_ep or 0) >= first)
                    for f in p.foreshadows):

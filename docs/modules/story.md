@@ -41,12 +41,15 @@
 - 본문 대상 `text:N` 의 쓰기 도구는 본문 고치기 `revise_text`(`agent_text.py`)다
 - 설정 쓰기 도구는 `edit_setup`(`agent_setup.py`)이다. 대상과 상관없이 쓸 수 있다
 - 문체 쓰기 도구는 `edit_style`(`agent_style.py`)이다. 대상과 상관없이 쓸 수 있다
+- 규칙 제안 도구는 `propose_regex`(`agent_regex.py`)다. 대상과 상관없이 쓸 수 있다
 - 플롯 화면 밖에서 작품 전체('')를 대상으로 보낸 턴도 플롯 쓰기를 모두 `outside` 로 묻는다(`off_plot`, 2026-11-09 사용자 결정). 플롯 화면(`PLOT_SCREENS`)은 지금 규칙 그대로다
 - 턴은 작가가 보던 화면을 `AgentTurn.screen` 에 남긴다. `SCREENS`(웹 drawApp 의 views 표와 'home')에 없거나 비면 '' 이고 플롯 화면과 같게 다룬다
 - 턴을 열 때 화면 대상이 오면(`add_turn` 의 `target`) 고정하지 않은 세션의 대상을 그 값으로 바꾼다. 고정은 `AgentSession.pinned`(옛 세션은 False)
 - 턴에 재료(`add_turn` 의 `selection`, `schema.TextMaterial`: 고른 본문과 그 화)와 빠른 요청(`preset`, `prompts.PASSAGE_PRESETS`)을 붙일 수 있다. 빠른 요청만 있고 재료가 없거나 모르는 빠른 요청이면 막는다
 - 재료와 빠른 요청으로 연 새 세션의 이름은 'N화 본문 · 빠른 요청 이름'이다
 - 설정 · 문체 · 본문 고치기의 옛 대화는 `legacy_chats` 가 (주제, 메시지 수)로 준다. 웹 세션 목록의 `older` 이고 화면은 읽기만 한다
+- 그 옛 대화 셋의 보내기(`web.py` `chat_send` 의 `setup` · `style` · `text:N`)는 04e 에서 지웠다. 새 말은 이 에이전트의 도구가 받는다
+- 옛 기록의 적용 취소(`chat/setup/{i}/undo` · `chat/style/{i}/undo`)와 본문 되돌리기(수정 기록)는 그대로 쓴다
 - 턴(`AgentTurn`)을 백그라운드 작업 `agent` 로 돌린다(`run_turn`, 단계마다 `llm.json(PlotAgentStep)`, 최대 `MAX_STEPS`=8, 단계마다 저장)
 - `first_step_prompt` 는 새 세션 첫 턴에서 `run_turn` 이 처음 보내는 요청이다. 세션(id `LAB_SID`)을 작품에 붙이지 않는다. 프롬프트 놀이터 불러오기가 쓴다
 - 단계 호출은 `step_wait` 초까지 기다린다: Claude Code(구독)는 `STEP_WAIT_CLAUDE`(480), 나머지는 `STEP_WAIT`(300)
@@ -57,12 +60,13 @@
 - 도구 이름만 오고 칸이 빈 단계는 같은 단계에서 그 칸만 담은 형식으로 한 번 더 부른다(`fill`: ask 는 `AgentAsk`, edit_plot 은 `PlotRevision`, 방향 안만 오면 되묻기로). 그래도 비면 되돌림 단계(`ask_empty` · `edit_empty`)
 - `fill` 이 다시 부르는 동안 작업 진행 줄(`cancel.say` → `Job.retry`)에 까닭을 띄우고 끝나면 지운다
 - 모델이 'reply' · 'done' 같은 끝 이름(`schema.AGENT_END_TOOLS`)을 tool 에 적으면 빈 글로 받는다
-- 도구는 읽기(`read_plots` · `read_summaries` · `find_text`(`context.recall`) · `read_cast`, 결과 `RESULT_LIMIT` 자)와 쓰기 `edit_plot`
+- 도구는 읽기(`read_plots` · `read_summaries` · `find_text`(`context.recall`) · `read_cast` · `read_rules`, 결과 `RESULT_LIMIT` 자)와 쓰기 `edit_plot`
+- 읽기 도구 `read_rules`(함수 `read_rules`)는 이 작품이 켠 정규식 규칙 묶음마다 id · 이름 · 켠 작품 수와 규칙 칸을 돌려준다. 켜지 않은 묶음은 보이지 않는다
 - 되묻기 `ask`
 - 화 넣기 · 빼기 `insert_episodes` · `remove_episode`(`RENUMBER_TOOLS`, `RenumberOp`): 복사본에 해 보고(`preview`) 늘 승인 카드로 묻는다(`permit` 의 `renumber`). 쓰기 `apply_op`, 되돌리기 반대 동작 `inverse`, 자동 집필 번호 `shift`. 번호를 옮긴 뒤에는 턴을 다시 찾는다(작품 칸이 통째로 바뀜)
 - 화 넣기 · 빼기가 빼는 옛 화 번호 `dropped`(되돌리기면 넣었던 화들): 웹이 `store.renumber_side_files` 의 `gone` 으로 넘긴다
-- 늘 카드로 묻는 도구는 `CARD_TOOLS`(도구 이름 → 모듈)에 한 줄씩 등록한다. 몸통은 제 파일에 두고 모듈은 `agent_text.py` 머리에 적은 이름들을 둔다. 04c · 04d 도 같은 방식으로 더한다
-- 권한 모드('모두 자동' 포함)와 '이 세션에서 묻지 않기'를 따르지 않고 늘 묻는 종류는 `ALWAYS_ASK`(`renumber` 와 `CARD_TOOLS` 의 종류)다
+- 늘 카드로 묻는 도구는 `CARD_TOOLS`(도구 이름 → 모듈)에 한 줄씩 등록한다. 몸통은 제 파일에 두고 모듈은 `agent_text.py` 머리에 적은 이름들을 둔다. 04c · 04d · 06b(`agent_regex`)도 같은 방식으로 더한다
+- 권한 모드('모두 자동' 포함)와 '이 세션에서 묻지 않기'를 따르지 않고 늘 묻는 종류는 `ALWAYS_ASK`(`renumber` 와 `CARD_TOOLS` 의 종류, 규칙 제안의 `rule` 포함)다
 - `permit` 은 `ALWAYS_ASK` 종류에 늘 'ask' 를 낸다. `decide` 의 `remember` 는 이 종류를 `auto_kinds` 에 넣지 않는다
 - `run_turn` 은 카드 도구의 AI 호출(`prepare`)을 잠금 밖에서 부르고, 그 결과를 `_step` 에 넘겨 잠금 안에서 기록한다(`record`)
 - 지름길: 턴의 첫 단계에서 `card_shortcut` 이 단계를 정하면 에이전트 단계(`PlotAgentStep`)를 부르지 않는다. 재료나 빠른 요청이 붙은 턴이다(`agent_text.shortcut`)
@@ -91,6 +95,38 @@
 - 단계 프롬프트는 바뀌지 않는 블록(도구 · 규칙 · 요구사항)이 앞, 턴 블록과 이번 턴 단계가 뒤, 남은 단계 수가 맨 끝 한 줄이다(단계 k+1 요청이 단계 k 요청을 품음)
 - 이름 후보는 `random.Random(session.id)` 로 뽑아 단계마다 같다(`plot_chat_parts` 의 rng)
 
+### `canon/agent_regex.py`
+
+- 대화 에이전트의 정규식 규칙 제안 도구 `propose_regex`(종류 `rule`, 이름표 '규칙'). `agent.CARD_TOOLS` 가 등록한다
+- 명세서는 [docs/context/specs/06b-rule-propose.md](../context/specs/06b-rule-propose.md)
+- 에이전트 단계(`PlotAgentStep.args`)가 규칙 칸을 채운다. `prepare` 는 AI 를 부르지 않는다(LLM 호출은 에이전트의 `chat` 단계 하나)
+- 인자: `bundle` · `rule`(고칠 규칙 id, 비우면 새 규칙) · `comment` · `in` · `out` · `action` · `type` · `flag` · `enabled`
+- 고치기에서 비운 인자는 지금 값을 두고, 새 규칙에서 비운 인자는 `RegexRule` 기본값(warn · output · g)을 쓴다
+- 도구 한 번에 규칙 하나를 더하거나 고친다. 지우기는 하지 않는다. 끄기는 `enabled=false` 고치기다
+- 넣을 묶음은 이 작품이 켠 묶음(`regexrules.bundles_of`)에서만 고른다. `bundle` 이 비고 켠 묶음이 둘 이상이면 묶음 이름을 돌려주며 막는다
+- 켠 묶음이 없으면 새 묶음('<작품 제목> 규칙') 카드다. 적용할 때 묶음을 만들고 `Settings.rule_bundles` 끝에 켠다. 이미 있는 묶음은 켜거나 끄지 않는다
+- 고치기는 그 규칙이 든 켠 묶음이다. 켜지 않은 묶음 id 나 없는 규칙 id 는 막는다
+- `prepare` 는 규칙 하나를 `regexrules.validate` 로, 넣은 뒤 묶음 전체를 `check` 로 검사한다. 빈 `in`, 같은 규칙(같은 in · out · action · type · flag)도 막는다
+- 끄기만 하는 카드(`regexrules.switched_off`)는 그 규칙을 검사하지 않는다. 지금 검사에 걸리는 옛 규칙도 끌 수 있다
+- 막히면 `record` 가 카드 없이 `block` 단계를 남기고 까닭을 `why` 와 결과로 AI 에게 돌려준다. AI 는 같은 턴에서 고쳐 다시 부를 수 있다
+- 시험: 규칙 하나만 `regexrules.trial(strict=True)` 로 건다. 화는 본문 대상(`text:N`) · 턴의 화 · 본문이 있는 가장 뒤 화 차례다
+- 시험이 시간 한도를 넘으면 막는다. 본문이 있는 화가 없으면 시험 없이 카드를 띄운다
+- 끄기 카드(`turned_off`)는 적용 전 규칙을 걸어 '더 걸리지 않을 곳'을 보인다
+- 끄기 카드는 그 시험이 시간 한도를 넘어도 막지 않고 카드에 `timed_out` 을 남긴다
+- 카드(`Approval.regex`, `schema.RegexCard`)는 바뀐 곳 · 걸린 곳을 각 `CARD_LIMIT`(10)개와 전체 수로 남긴다. 내보내기 규칙은 `export_changed`
+- 카드의 `used_by` 는 그 묶음을 켠 다른 작품이다(`regexrules.used_by` 에서 이 작품 `project` 를 뺀다)
+- `decide` 는 묶음을 다시 읽어 규칙 하나만 넣는다(`regexrules.set_rule`, 버전 메모 '대화 에이전트 제안: <규칙 이름>'). 답하면 턴을 끝낸다
+- `decide` 는 묶음을 지웠거나, 이 작품에서 껐거나, 고칠 규칙이 카드를 만든 뒤 바뀌었으면 ValueError 로 막고 카드를 둔다(웹 400)
+- 적용해도 이미 쓴 화의 본문에는 다시 걸지 않는다. 경고 규칙은 다음 검수부터 걸린다(`effect`)
+- `undo` 는 지금 규칙이 적용 뒤 값과 같을 때만 그 규칙 하나를 돌린다. 새 규칙은 빼고 고치기는 적용 전 규칙으로 바꾼다(메모 '대화 에이전트 제안 되돌림')
+- 그 뒤 규칙을 고쳤으면 `KEPT`, 묶음이나 규칙이 없으면 `GONE` 으로 남긴다
+- 새 묶음 되돌리기는 이 작품에서 끈다. 묶음에 그 규칙만 남았고 다른 작품이 켜지 않았으면 묶음 파일도 지운다
+- 다른 작품 수는 `used_by` 의 수에서 지금 작품이 켰으면 1을 뺀다. 복제 · 이름 바꾸기로 폴더 이름이 카드의 `project` 와 달라도 맞다
+- `compact`: 오래된 턴의 `WriteRecord.regex` 를 지운다
+- 규칙 묶음 파일은 작품 잠금 밖이다. 규칙 화면과 함께 고치면 나중 저장이 이긴다
+- 화면 카드는 `static/agent.js` 의 `agentRegexApproval`
+- 시험 `tests/test_agent_regex.py`
+
 ### `canon/agent_setup.py`
 
 - 대화 에이전트의 설정 도구 `edit_setup`(종류 `setup`, 04c). `agent.CARD_TOOLS` 가 등록한다
@@ -113,6 +149,7 @@
 ### `canon/agent_style.py`
 
 - 대화 에이전트의 문체 도구 `edit_style`(종류 `style`, 04d). `agent.CARD_TOOLS` 가 등록한다
+- 화면 칸 이름표 `STYLE_LABELS`: `prompts.STYLE_KEY_LABELS` 에서 화면 이름만 바꾼 표(`markers` 는 '문체 버릇'). 카드 · 명령줄 · `stylechat.js` `STYLE_KEYS` 가 같은 이름을 쓴다(`tests/test_labels_js.py`)
 - `prepare`: 잠금 밖에서 `pipeline.revise_style`(LLM 단계 `plan`)을 부른다. 옛 문체 대화와 같은 프롬프트 · 정리다
 - 인자는 `request`(비우면 작가의 이번 말)와 `episode`(참고할 화)다
 - 참고할 화 `ref_episode`: 인자가 먼저이고, 비었으면 문체 대상 턴의 `AgentTurn.episode`(화면의 '참고할 화' 칩)를 쓴다
@@ -133,6 +170,7 @@
 
 - 대화 에이전트의 본문 고치기 도구 `revise_text`(종류 `text`, 04b). `agent.CARD_TOOLS` 가 등록한다
 - 후보는 `pipeline.revise_passage`(LLM 단계 `revise`), 기록은 `record_passage`, 넣기는 `apply_passage` 를 그대로 쓴다. 지금 'AI에게 고치기'와 같은 부분 수정 대화(`text:N`)와 수정 기록에 남는다
+- 후보에는 'AI에게 고치기'처럼 작품이 켠 고침 규칙을 건다(`revise_passage(rules=True)`). 넣은 후보에 남은 규칙 고침은 대화가 잘려 `edit_text` 로 넣어도 규칙 기록(kind passage)에 남는다
 - 결과는 후보 2~3개가 든 승인 카드(`Approval.passage` · `selection` · `episode` · `preset` · `at`)다. 권한 모드와 상관없이 늘 묻는다(`agent.ALWAYS_ASK`)
 - 카드에 답하면(`decide`) 고른 후보 하나만 넣는다. 작가가 손본 글(`text`)도 받는다. 거절하면 대화의 그 답을 버린 것(`dismissed`)으로 둔다. 어느 쪽이든 턴을 끝낸다
 - 넣기는 카드가 남긴 대화 답을 시각 · 고른 부분으로 찾는다(`_chat_index`). 대화가 잘려 없으면 `pipeline.edit_text` 로 같은 기록을 남긴다
@@ -144,16 +182,33 @@
 - 지름길 턴이 막히면 까닭을 답으로 남기고 턴을 끝낸다. 에이전트가 부른 턴이면 막힘 결과를 받고 이어 간다
 - 모듈 머리 글에 늘 카드로 묻는 도구 모듈이 둘 이름(`TOOL` · `KIND` · `LABEL` · `shortcut` · `prepare` · `record` · `decide` · `undo`)을 적는다
 
+### `canon/aliases.py`
+
+- 다른 이름 채우기(`docs/context/specs/04-key-suggest.md`): 인물 · 이야기 요소의 다른 이름을 AI 가 제안하고 작가가 고른다
+- 항목 열쇠는 `c:<인물 id>` · `e:<요소 id>` 다(`Item`, `item`, `find`)
+- `targets` 는 열쇠 하나면 그 항목, `c:` · `e:` · 빈 글이면 다른 이름이 빈 항목을 `ALIAS_BATCH`(10)개까지 고른다. 이름이 빈 항목은 받지 않는다
+- `material` 은 쓴 화(`written` · `finalized`) 본문에서 이름 · 다른 이름이 맞은 단락과 그 앞뒤를 최근 화부터 `ALIAS_SAMPLE`(3,000)자까지 고른다
+- 예산을 넘어 뺀 맞은 단락 수(`Item.cut`)는 프롬프트에 적는다
+- 이름이 본문에 없는 요소는 `context.recall` 로 이름 · 설명과 겹치는 단락을 찾는다(임베딩 없음)
+- 인물 항목은 `Project.address_forms` 에서 그 인물을 부르는 호칭을 씨앗으로 넣는다(`_calls`)
+- `clean` 은 앞뒤 빈칸 · 따옴표만 지우고 조사는 떼지 않는다
+- `clean` 이 빼는 말: 두 글자 미만, `ALIAS_MAX_LEN`(12)자 초과, 이름(인물은 `metrics.name_forms`) · 있는 다른 이름과 같은 말, 항목 안 겹침, 재료 단락에 글자로 없는 말
+- `clean` 은 요청하지 않았거나 없는 항목을 가리키는 제안을 빼고, 뺀 수를 `AliasSuggestion.notices` 에 적는다
+- `hits` 는 최근 `ALIAS_HIT_EPS`(30)개 쓴 화에서 다른 이름마다 찾히는 화(`AliasHit.episodes`)와 이름 · 지금 다른 이름으로는 안 찾히는 화(`only`)를 센다
+- 인물 다른 이름은 그 말만 넣은 인물 사본의 `context.name_pattern` 으로, 요소는 `elements.terms` 의 부분 문자열로 찾는다. 판정을 따로 만들지 않는다
+- `clash` 는 다른 항목의 이름 · 다른 이름과 같거나 서로 품는 말이면 그 항목 이름이다. 빼지 않고 작가가 판단한다
+- LLM 을 부르지 않는다(호출은 `pipeline.suggest_aliases`). 저장하지 않는다
+
 ### `canon/anchor.py`
 
-- 작품 정착 문체: 작가가 고른 반영한 화를 이 작품의 문체 기준으로 고정한다(`Project.anchor`, `StyleAnchor`)
+- 이 작품의 문체: 작가가 고른 반영한 화를 이 작품의 문체 기준으로 고정한다(`Project.anchor`, `StyleAnchor`)
 - 고를 수 있는 화 `usable`(반영 끝, 본문 있음, 서술 말투 화 아님) · 처음 추천 `suggest`(앞 5화, 저장하지 않음)
 - 재기 `measure` · `set_anchor`(합쳐 6,000자 이상, 대표 문단은 고른 화 본문에 글자 그대로 있어야 함, 표지 빈도는 고른 화에서 다시 셈)
 - 잴 때 고른 화 뒤 10화가 떨어진 평균 거리 `later`(크면 고른 화가 작품을 대표하지 못함)
 - 대표 문단 후보 `candidates`(문단 묶음 중 문장 길이 · 대사 비율이 기준에 가까운 것, 대사 위주 · 서술 위주 하나씩 먼저)
-- 본문 지문 `basis` · 낡음 `stale`(정착 화 본문을 고치거나 지우면 다시 재라고 알림, 번호만 옮기면 그대로)
+- 본문 지문 `basis` · 낡음 `stale`(고른 화 본문을 고치거나 지우면 다시 재라고 알림, 번호만 옮기면 그대로)
 - 기준이 있으면 `pipeline.style_baseline` 이 이것을 쓰고 표지 빈도는 `markers`, 쓰기 예시는 `prompts.style_passages`
-- 흐름 `distance` · `rolling`(최근 5화, 서술 말투 화 · 정착 화 빼고) · 경고 `warning`(`DRIFT_WARN` 1.15, `pipeline.style_drift` 가 붙임)
+- 흐름 `distance` · `rolling`(최근 5화, 서술 말투 화 · 고른 화 빼고) · 경고 `warning`(`DRIFT_WARN` 1.15, `pipeline.style_drift` 가 붙임)
 - 문턱은 사람 웹소설 4편 실측: 같은 작품은 80화 뒤 0.85~1.05(`HUMAN_BAND`), 다른 작품끼리 평균 1.33(`OTHER_AUTHOR`)
 - AI 가 쓴 본문의 문체 지문 `stamp` · `style_basis`(`Episode.style_basis`, `pipeline.replace_text` 가 비움)
 - 화면 값 `view` · 추이 `trend`(문체를 바꾼 화 `changed`)
@@ -209,6 +264,7 @@
 - 갈래 정보(`BranchInfo`)는 `project.json` 밖의 `branch.json`(`store.load_branch` · `save_branch` · `drop_branch`, 화면 저장이 덮지 않게)
 - 만들기(`make` → `fork`: 복사본을 `pipeline.revert(n-1)`, 뒤 아크 · 부 요약 비움, `clear` 는 n화부터 본문을 이전 판으로)
 - `clear` 갈래는 비운 화의 고칠 곳 · 다 쓴 사건 체크 · 복선 문장(작가 것도)을 함께 뺀다
+- `clear` 갈래는 이전 판으로 남기는 본문의 `meta_cut` · `rule_runs` 도 그 판(`TextVersion`)으로 옮기고 화에서 비운다
 - 함께 쓰는 앞 화 고침(`shared_edited`, `base` 해시)
 - 집안 계산(`family`, `order`, `diverge`, `promote` · `promote_saved`, `remove`, `{폴더: BranchInfo}` 만 받는 순수 함수)
 - 비교(`compare` · `compare_saved`)
@@ -243,6 +299,40 @@
 - LLM 호출 없음
 - 화면은 `static/charlog.js`
 
+### `canon/comfy.py`
+
+- 저장한 삽화 프롬프트(`Illustration`)를 ComfyUI로 그려 작품 폴더 `illust/` 에 PNG로 둔다
+- LLM 호출 없음. 사용량 기록(`usage.record`)은 LLM 토큰만 세므로 부르지 않는다
+- ComfyUI 주소는 `CANON_COMFY_URL` 이다. GPU 서버의 ComfyUI를 SSH 터널로 이어 쓴다
+- `CANON_COMFY_URL=mock` 이면 가짜 ComfyUI(`_fake`)가 시드로 색을 정한 작은 PNG를 준다. 시험과 수동 확인이 쓴다
+- 워크플로 틀은 ComfyUI의 'Export (API)' JSON이다(`CANON_COMFY_WORKFLOW`). 화면용 JSON(`nodes` · `links`)은 받지 않는다
+- 틀을 정하지 않으면 SDXL 체크포인트 하나로 그리는 기본 틀(`DEFAULT_WORKFLOW`, 체크포인트는 `CANON_COMFY_CKPT`)을 쓴다
+- 틀의 글 칸에 적은 자리표 `{{prompt}}` · `{{negative}}` · `{{seed}}` · `{{width}}` · `{{height}}` · `{{checkpoint}}` 를 채운다(`fill`, 한 줄 프롬프트만 쓰는 `workflow`)
+- 인물을 영역별로 그리는 틀(리저널)은 기본 칸 `{{main}}` 과 인물 칸 `{{char1}}` ~ `{{char3}}` 를 쓴다
+- 인물이 둘 이상이고 틀에 인물 칸이 둘 이상이면 인물을 자리 순(왼쪽 → 가운데 → 오른쪽)으로 인물 칸에 넣고 기본 칸에는 장면만 둔다
+- 그렇지 않으면 기본 칸에 모두 넣고 인물 칸은 비운다. 인물 칸보다 인물이 많으면 남는 인물은 기본 칸에 넣고 알린다
+- `{{multi:A:B}}` 는 인물을 인물 칸에 나눠 넣으면 A, 아니면 B 다(예: 리저널 모드 번호 `{{multi:3:1}}`)
+- 칸 값이 숫자 자리표 하나뿐이면 정수로 바꾼다. 글 안의 자리표는 글로 바꾼다("masterpiece, {{prompt}}")
+- `{{prompt}}` 가 없는 틀은 `positive` · `negative` 입력을 따라가 그 노드의 `text` 칸을 채우고, `seed` · `noise_seed` 칸에 시드를 넣는다
+- 크기는 `CANON_COMFY_SIZE`(기본 832x1216), 기다리는 시간은 `CANON_COMFY_TIMEOUT`(기본 600초)
+- NovelAI용으로 조립한 프롬프트를 SD 태그 조각으로 옮긴다(`parts_of` → `Parts`: 기본 태그 · 자리 순 인물 태그 · 영어 문장 · 부정 태그)
+- 인물을 한 줄로 합쳐 보낼 때는 인물이 둘 이상이면 섞일 수 있다고 알린다(`MIXED`, 한 줄 프롬프트는 `prompt_of`)
+- 인물 칸의 girl · boy · other 는 인물 수 태그와 겹쳐 뺀다
+- 가중치 `1.2::tag ::` 는 `(tag:1.2)`, `{tag}` · `[tag]` 는 1.05배씩 · 1/1.05배씩으로 옮긴다. 0 이하 가중치 태그는 빼고 알린다(`sd_tag`)
+- `source#` · `target#` · `mutual#` 를 떼고, 태그 속 괄호는 `\(` `\)` 로 막는다
+- `rating:general` · `sensitive` · `explicit` 는 같은 낱말로, `questionable` 은 `nsfw` 로 옮긴다
+- '품질 태그 직접 넣기'로 붙은 NovelAI 품질 태그는 뺀다. 체크포인트에 맞는 품질 태그는 틀에 적는다
+- 영어 장면 문장은 그 문장을 넣는 모델(V5)로 조립했을 때만 끝에 한 덩어리로 붙인다
+- 그리기(`render`): `/prompt` 로 보내고 `/history/<id>` 를 1초마다 보고, 저장 노드(`type: output`) 그림을 `/view` 로 받는다
+- 그림을 여러 번 저장하는 틀은 제목에 '최종' · 'final' 이 든 노드의 그림을 받는다(`FINAL_TITLES`)
+- ComfyUI 오류 응답은 `error.message` 와 노드 오류를 한 줄로 옮긴다(`_reason`). 그리다 난 오류는 `execution_error` 의 `exception_message` 를 싣는다
+- 작업을 멈추거나 시간을 넘기면 ComfyUI 대기열에서 빼고 끊는다(`_drop`: `/queue` delete, `/interrupt`)
+- 그림 기록은 `Illustration.images`(`IllustImage`: 파일 · 시드 · 보낸 프롬프트 · 틀 이름 · 알림)이고 삽화마다 `IMAGES_KEEP`(8)장까지 남긴다
+- 파일 이름은 16자리 16진수 `.png` 다. 그 밖의 이름은 열지 않는다(`image_path`)
+- 작품 데이터가 가리키지 않는 그림 파일은 `prune` 이 지운다. 그림을 더하거나 지울 때, 삽화를 지울 때 부른다
+- 파일 쓰기 · 그림 기록 · `prune` 은 한 작품 잠금(`web._edit`) 안에서 한다. 밖에서 하면 함께 도는 그리기의 새 파일을 다른 정리가 지운다
+- 그리는 동안 그 삽화가 지워졌으면 파일을 쓰지 않고 작업이 실패한다
+
 ### `canon/dynamics.py`
 
 - 관계 역학
@@ -274,7 +364,7 @@
 - AI 문장 정리(`clean_delta`)와 반영 · 되돌리기
 - 이미 회수한 복선을 또 회수하는 제안의 경고(`resolved_warnings`, features 정리 훅)
 - 작가가 걸기 · 복선 고치기(그 화 이후 스냅샷도)
-- 더하기 · 고치기는 열 계획 갈래(`kind`, `KINDS`)와 판돈 드러남(`public`)도 받는다
+- 더하기 · 고치기는 완급 계획 갈래(`kind`, `KINDS`)와 판돈 드러남(`public`)도 받는다
 - 센터 계산(`center`: 회수율, 끊어진 연결, 예정 지남, 오래 묵음, 플롯 회수 계획)
 - 명령줄 `foreshadows`
 - LLM 호출 없음
@@ -287,7 +377,7 @@
 
 ### `canon/heatplan.py`
 
-- 열 계획: 화마다 긴장과 보상(열)을 얼마나(`HeatStep.level` 0~5), 어떤 몫(`role`: 쌓기 · 미루기 · 터뜨리기 · 뒷날 · 쉬기)으로 쓰나
+- 완급 계획: 화마다 긴장과 보상(열)을 얼마나(`HeatStep.level` 0~5), 어떤 몫(`role`: 쌓기 · 미루기 · 터뜨리기 · 뒷날 · 쉬기)으로 쓰나
 - 단편은 작품 전체에 계획 하나(`Project.heat` · `heat_rule` · `heat_turn`)를 둔다. 장편은 아크마다 하나(`StoryArc.heat` · …)를 둔다
 - 계획이 덮는 범위 `Scope`(`scopes` · `scope_for`): 단편은 작품 전체, 장편은 계획이 있는 아크마다. `plan(p, n)` 은 장편이면 n화가 든 아크의 계획
 - 화 번호로 찾기 `step`, 뒤집힘(`HeatTurn`: 반격을 심은 화 · 들킨 화 · 상대가 쥐는 것) `turn`
@@ -296,13 +386,13 @@
 - 경고 `warnings`(`HeatWarn`, 막지 않음): 기복이 작음 · 이른 정점 · 판돈 없는 정점 · 관객 · 제약 없는 정점 · 같은 종류 정점 · 커지지 않은 판돈 · 관객이 본 일의 결과 없음 · 늦은 뒤집힘 · 쌓기 화의 높은 긴장(`WARN_CODES`)
 - 장편 경고는 아크마다 따로 본다(`_scope_warnings`). 기복 경고는 아크 첫 화를, 이른 정점은 아크 안 앞쪽인지를 본다
 - 잇닿은 터뜨리기 화는 한 정점으로 묶는다(`peak_runs`). 종류 · 판돈 견주기는 정점끼리 한다
-- 기복은 열 눈금 변동계수가 `CV_MIN` 미만이면 경고한다(`FLAT_MIN_EPS` 화 넘는 계획만). 이른 정점은 기 구간이나 작품 앞 `EARLY_SHARE` 안
+- 기복은 세기 눈금 변동계수가 `CV_MIN` 미만이면 경고한다(`FLAT_MIN_EPS` 화 넘는 계획만). 이른 정점은 기 구간이나 작품 앞 `EARLY_SHARE` 안
 - 관객 결과는 관객 복선을 처음 거둔 화의 다음 화 플롯(요약 · 사건 · 회수 id)에 그 복선 id 가 있는지로만 본다
 - 한 화를 가리키는 경고와 계획 전체 경고 `warnings_for`. 명령줄 `confirm` 이 확정한 화의 경고를 보인다
-- 실제 열 참고값 `actual`(`HeatActual`): 열 낱말 밀도 `density`(`Settings.heat_words`, 공백 뺀 1천 자당) · 큐 긴장 평균 `cue_tension`(목표 글자 수로 가중, 건너뛴 시트는 뺌)
+- 실제 열 참고값 `actual`(`HeatActual`): 절정 낱말 밀도 `density`(`Settings.heat_words`, 공백 뺀 1천 자당) · 큐 긴장 평균 `cue_tension`(목표 글자 수로 가중, 건너뛴 시트는 뺌)
 - 판돈 · 제약 · 관객 · 금지선은 복선 갈래(`Foreshadow.kind`)로 둔다. 판돈이 남에게 드러났는지는 `Foreshadow.public`
-- 설정 `Settings.heat_plan`(기본 끔)을 켜면 단편은 기승전결과(`HeatArcPlan`), 장편은 다음 아크와(`HeatArcProposal`) 함께 열 계획을 받는다. 화면은 `static/heatplan.js`, 프롬프트는 `prompts.heat_*`
-- 이미 있는 기승전결이나 아크 위에 열 계획만 받기는 `pipeline.propose_heat`(응답 `HeatProposal`, 웹 작업 `heat`, 명령줄 `heat`)
+- 설정 `Settings.heat_plan`(기본 끔)을 켜면 단편은 기승전결과(`HeatArcPlan`), 장편은 다음 아크와(`HeatArcProposal`) 함께 완급 계획을 받는다. 화면은 `static/heatplan.js`, 프롬프트는 `prompts.heat_*`
+- 이미 있는 기승전결이나 아크 위에 완급 계획만 받기는 `pipeline.propose_heat`(응답 `HeatProposal`, 웹 작업 `heat`, 명령줄 `heat`)
 - LLM 호출 없음
 
 ### `canon/illust.py`
@@ -445,6 +535,9 @@
 - 복사 · 내보내기
 - 본문을 다른 사이트에 붙여 넣기 좋게 다듬기(줄바꿈 형식 `FORMATS`, 마크다운 흔적 지우기, HTML)
 - 여러 화 잇기(`export`)
+- 작품이 켠 정규식 규칙 묶음의 내보내기 규칙(`type = "export"`)은 `export` 가 화마다 본문을 꺼낸 뒤 글 · HTML 로 정리하기 전에 건다(`regexrules.export_text`)
+- 내보내기 규칙은 저장 전 화면 본문(`drafts`)에도 걸고, 원문 그대로(`raw`) 형식에는 걸지 않는다. 저장된 본문은 바뀌지 않는다
+- 고정 정리(폭 없는 글자 · 마크다운 흔적 · 공백)는 코드로 두고 규칙 묶음으로 옮기지 않는다
 - LLM 호출 없음
 - 화면은 `static/publish.js`
 
@@ -458,7 +551,7 @@
 - 새 화 AI 초안은 `draft_episode`(`prompts.episode_plot_prompt`)
 - 본문이 있거나 반영한 마지막 화 지우기는 `delete_last`(반영 취소 → 본문 비우기 → 화 빼기, 웹은 `before-delete-<화>.json` 백업)
 - 화 번호를 품은 칸을 새로 만들면 `move_points` 에도 넣는다
-- 정착 문체 화 번호도 옮긴다(`anchor.move`)
+- 이 작품의 문체로 고른 화 번호도 옮긴다(`anchor.move`)
 - 화면은 `static/insert.js` (넣을 수 있는 자리 `lastFixed` 는 `last_fixed` 와 같은 규칙, `tests/test_insert_js.py`)
 - `insert.js` 의 화 지우기 버튼을 막은 이유(AI 작업 중, 자동 집필 중, 스냅샷 없음)를 버튼 아래 글로도 보인다
 - 화 지우기 확인 창은 지우기 전 작품을 설정 › 백업에서 되돌릴 수 있다고 알린다
@@ -486,6 +579,8 @@
 - 첫 반영 뒤에는 AI 가 관계의 시작 방식과 수치를 바꾸지 않는다
 - 관계의 가 닿을 곳(`destination`)은 AI 가 비워 보내면 지금 값을 지킨다
 - 1화 반영 뒤 바꾼 인물 칸은 `charlog.record_author` 로 남긴다
+- 인물 다른 이름(`aliases`)은 `secrets` 와 같은 목록 칸이다(`CHAR_LIST_FIELDS`). 한 글자 말은 `clean` 이 뺀다
+- 다른 이름은 `charlog.LOG_FIELDS` 밖이라 `record_author` 기록에 남지 않는다
 - LLM 호출은 `pipeline.revise_setup`
 - 프롬프트는 `prompts.setup_chat_prompt`
 - 명령줄 `setupchat`
@@ -526,24 +621,31 @@
 
 ### `canon/static/agent.js`
 
-- 대화 에이전트 패널. 작품 안 모든 화면에 하나다(`chat.js` 의 `chatPanel('plot')` 이 부르고, `app.js` `drawApp` 이 `chatDock` 으로 셸 끝에 붙인다)
+- 대화 에이전트 패널. 작품 안 모든 화면에 하나다(`chat.js` 의 `chatPanel()` 이 부르고, `app.js` `drawApp` 이 `chatDock` 으로 셸 끝에 붙인다)
 - 다음 턴의 대상은 `agentTarget`: 고정한 세션은 세션 대상, 아니면 화면 대상(`agentScreenTarget` = `S.chatHere.target`)
 - 턴은 `agentTurnScope` 로 화면 대상을 함께 보낸다(고정한 세션은 빼고). 연 구간 · 화 · 다음 아크 초안은 플롯 화면에서만 보낸다
 - 턴은 보던 화면 이름(`screen`, 작품 홈은 'home')도 보낸다. 서버가 `agent.SCREENS` 로 확인한다
 - 상태 줄의 대상이 바뀌면 `agentAfterDraw` 가 `.foot-target` 을 한 번 강조(`flash`)하고 `chatSay` 로 `#chat-live` 에 알린다. 패널을 처음 그릴 때는 알리지 않는다
 - 상태 줄의 핀(`agentPin`)과 다듬을 곳 메뉴(`agentTarget`)는 세션을 고정한다. `/대상` 은 고정을 풀고 화면 대상으로 돌린다
-- 문체 대상의 빈 세션은 문체 도구 안내와 `CHAT_TOPICS.style.examples` 예시를 보인다
+- 문체 대상의 빈 세션은 문체 도구 안내를 보인다. 옛 문체 대화에서 빌려 오던 예시 알약은 04e 에서 그 대화와 함께 뺐다(예시는 일감 10)
+- 빈 세션의 예시 요청은 `agentExamples(대상)` 이 틀 문장에 작품 값(인물 이름 · 화 번호 · 아크 번호)을 채워 둘까지 낸다. AI 를 부르지 않는다(`tests/test_ai_tells_js.py`)
+- 채울 값이 없으면 예시 버튼 줄을 그리지 않고(`agentExampleRow`) 입력칸 예시 글만 남는다. 본문 · 문체 대상은 예시가 없다
 - 본문 대상의 빈 세션은 '드래그하면 재료로 붙고, `/` 빠른 요청을 고르면 후보를 골라 넣는다' 안내를 보인다
 - 설정 대상의 빈 세션은 `agentSetupIntro`(설정 도구 안내와 예시)를 보인다
 - 세션 동작 `agentAct(fn, { save })` 와 말 보내기 `agentStartTurn`: AI가 작품을 읽거나 고치는 동작은 저장하지 않은 변경이 있으면 저장할지 묻는다. 세션 만들기 · 대상 · 권한 모드 · 이름 · 보관은 `save: false` 로 묻지도 저장하지도 않는다
 - `agentAct` 는 응답의 `project` 가 객체일 때만 `S.project` 를 바꾼다. 이어 하기 응답은 작업 정보라 `project` 가 작품 이름 글이다
 - 세션 머리와 목록(보관함, '이전 대화'는 옛 `Project.chats` 를 `chatLog` 로)
 - '이전 대화 · 플롯'(`legacy`)은 예전처럼 골라 적용 · 취소한다. 설정 · 문체 · 본문 고치기(`legacy:<주제>`)는 `chatLog(주제, { readOnly: true })` 로 읽기만 한다
+- 읽기만 하는 설정 · 문체 기록도 적용한 변경안은 '적용 취소'를 둔다(`chat.js` `chatReadOnlyCard`). 본문 고치기 기록의 안내는 집필 화면 수정 기록에서 되돌리라고 적는다
 - 턴마다 단계 줄 · 바로 쓴 것(항목 · 턴 되돌리기) · 승인 카드 · 되묻기 카드
 - 설정 도구의 승인 카드(`Approval.setup`)와 쓴 것 비교(`WriteRecord.setup`)는 `agentsetup.js` 가 그린다(`agentApproval` · `agentItemDiff` 가 넘긴다)
 - `agentDecide` 는 설정 카드면 `agentSetupPicks`(체크했고 막히지 않은 부분)를 보낸다
 - 문체 변경안 카드 `agentStyleApproval`: 칸마다 체크 · 지금 값과 비교(`stylechat.js` `styleEditDiff`) · 시험 문단(`sampleBlock`)을 보인다. '이 세션에서 묻지 않기'는 그리지 않는다
 - 적용한 문체 기록은 칸별 되돌리기 없이 '적용 취소' 하나로 턴의 기록을 돌린다
+- 정규식 규칙 제안 카드 `agentRegexApproval`: 규칙 칸(고치기면 칸마다 전 · 뒤), 동작 문구, 시험 줄과 바뀐 곳(`regexrules.js` `ruleChangeHtml`) · 걸린 곳
+- 규칙 카드는 다른 작품 수 · 새 묶음 안내 · 알림(`notices`)을 보이고 '이 세션에서 묻지 않기'는 그리지 않는다. 규칙 키는 `in` 과 `in_` 을 다 읽는다
+- 규칙 카드를 적용하면 언제부터 걸리는지 알린다(`agentRxDone`). 턴이 끝나므로 '이어서 돌아요'가 없다
+- 적용한 규칙 항목은 '적용함'으로 보이고 '바뀐 칸 보기'는 적용 전 · 뒤 규칙 칸이다(`agentItemDiff` 의 `w.regex`)
 - 입력 상자(+ 재료, `/` 빠른 요청 `AGENT_CMDS`, 보내기 · 멈추기)와 상태 줄(권한 모드 · 대상 · 대상 고정 · 모델 · 단계 상한)
 - 재료 칩(`agentMats`, `S.agentMaterial`): 집필 화면에서 고른 본문이 입력 상자 위에 붙는다. 붙이기는 `agentAttach`(`passage.js` 가 부른다), 떼기는 ✕(`agentMaterialDrop`)
 - 본문에서 사라진 재료는 칩을 감추고 보내지 않는다(`agentMaterialNow`)
@@ -553,11 +655,13 @@
 - 재료가 붙은 말은 `selection`, 빠른 요청은 `preset` 으로 보낸다. 서버가 에이전트 단계 없이 본문 고치기를 바로 부른다. 보낸 재료는 뗀다
 - 본문 고치기 카드(`agentTextApproval`): 후보마다 원문과 낱말 비교(`wordDiff`), '이걸로 넣기' · '손봐서 넣기', 아래 '모두 넣지 않기'
 - 늘 묻는 종류(`AGENT_ALWAYS`, 서버 `agent.ALWAYS_ASK`)의 카드는 '이 세션에서 묻지 않기'를 두지 않는다
+- `AGENT_ALWAYS` 는 `agent.ALWAYS_ASK` 와 같다(`tests/test_agent_js.py`)
 - 카드에 답하기(`agentTextDecide`)는 그 화 본문 초안을 먼저 저장한다(`flushText`). 넣으면 넣은 글을, 넣지 않으면 고른 부분을 재료로 다시 붙인다
 - 바로 쓴 것의 본문 고치기 항목은 수정 기록(`agentTextEdit`)으로 바뀐 글을 보인다. 수정 기록에서 되돌렸으면 되돌린 것으로 보인다
 - 마지막 턴이 본문 후보를 기다리면 패널에 `has-cands` 를 단다(휴대폰 시트가 높아진다)
 - 본문 고치기 카드를 연 턴이 끝나면 작품을 다시 받는다(`agentJobUpdate` → `agentRefreshProject('')`). 카드가 남긴 부분 수정 대화를 화면 저장이 옛 사본으로 덮지 않게
 - `agentOpenText`: 집필 화면 머리의 'AI에게 고치기'. 대화 에이전트를 열고 고른 본문을 재료로 붙인다. 열려 있으면 닫는다
+- Enter 보내기(`chat.js`)는 `agentSend` 를 바로 부른다. 옛 `chatSend` 를 가로채던 줄은 04e 에서 지웠다
 - 문체 대상이면 '+ 재료'에서 참고할 화(`epSelect('styleRefEp')`)를 골라 입력 상자 위 칩(`agentRefChip`)으로 붙인다. 턴의 `episode` 로 간다(`agentTurnScope`)
 - 진행은 `pollJobs` 가 `agentJobUpdate` 로 알린다
 - 도는 턴의 단계 줄은 지금 하는 일(`agentStepNow`: `Job.retry` 가 있으면 그 사정, 없으면 'AI 응답을 기다리는 중')과 직전 단계의 생각(`Job.note`)을 보인다
@@ -574,15 +678,27 @@
 - 고르지 않은 새 인물과 이어진 관계는 끈다(`agentSetupBlocked`). 새 인물 체크를 바꾸면 패널을 다시 그린다
 - '이 세션에서 묻지 않기' 칸은 없다. 넷 이상인 카드는 모두 고르기 · 모두 빼기(`agentSetupPickAll`)
 - 쓴 뒤 비교는 쓰기 전 설정(`WriteRecord.setup_before`)과 한다(`agentSetupItemDiff`)
-- 설정 대상의 빈 세션 안내와 예시(`agentSetupIntro`, `AGENT_SETUP_EXAMPLES`)
+- 설정 대상의 빈 세션 안내와 예시(`agentSetupIntro`, 예시는 `agent.js` `agentExamples('setup')`)
+
+### `canon/static/aliases.js`
+
+- 다른 이름 고르기 카드(서버 `aliases.py`, 작업 `aliases`)
+- 작업 표(`JOB_PAGES` · `JOB_LINK` · `JOB_DONE_MSG` · `SCREEN_ONLY_JOBS` · `JOB_BTNS.aliasAI` · `JOB_RESULT`)에 `aliases` 를 등록한다
+- `JOB_PAGES.aliases` 는 작업 대상에 따라 화면을 고르는 함수다: 인물(`c:`)은 설정, 요소(`e:`)는 인과율. `app.js` 의 `jobPages` 가 함수 값을 푼다
+- 결과는 작업 대상을 열쇠로 `S.aliasSug` 에 놓는다. 항목 하나(`c:<id>` · `e:<id>`)는 그 카드에, 여러 항목(`c:` · `e:`)은 목록 머리에 보인다
+- `aliasCard(scope)` 는 칩마다 체크 칸 · 화 수(`aliasHitText`) · 겹침('‹이름›과 겹쳐요')을 그린다. 기본으로 체크하지 않는다
+- 이미 칸에 있는 말은 '이미 있어요'로 끈다
+- '고른 다른 이름 적용'(`aliasApply`)은 고른 말을 칸에 더하고 저장 띠로 저장하게 한다. 따로 적용 엔드포인트가 없다
+- 칩 줄은 `.proposal` 안의 `.body-sug` 줄을 다시 쓴다(새 컴포넌트 없음)
 
 ### `canon/static/anchor.js`
 
-- 문체 화면의 '작품 정착 문체' 카드(`anchorCard`, 목차 줄 `anchorTocWord`)
+- 문체 화면의 '이 작품의 문체' 카드(`anchorCard`, 목차 줄 `anchorTocWord`)
+- 고르기 전 · 저장한 뒤는 구역(`.sec`), 고르는 동안은 카드다. '화 고르기' · '이 작품의 문체로 저장'은 보조 버튼이다(문체 화면 주 버튼 하나)
 - 화 칩으로 고르기 · 대표 문단 후보 고르기(4개까지) · 저장 · 다시 재기 · 지우기(`anchorChooser`)
 - 다시 고를 때 후보를 열지 않으면 지금 대표 문단을 그대로 저장한다(`anchorBody`)
 - 후보를 열면 지금 대표 문단을 맨 앞에 체크해 둔다. 저장할 때 지금 문단이 빠지면 묻는다
-- 정착 문체와 레퍼런스 기준 비교 표(`anchorCompare`)
+- 이 작품의 문체와 레퍼런스 기준 비교 표(`anchorCompare`)
 - 화별 문체 거리 추이 SVG(`anchorChart`: 사람 연재 띠 · 경고 점선 · 최근 5화 평균 선 · 문체를 바꾼 화 세로선)
 - 서버는 `web.py` 의 '2-0. 작품 정착 문체'
 
@@ -643,6 +759,8 @@
 - 인과율 화면(주소 `causal[/<요소 id>]`, `viewCausal`, 라우터가 부르는 `causalPick`)
 - 공용 목차 틀(`outline.js`, 목차 `causalToc`: 개요 · 손볼 것 · 종류별 요소) 위에 쪽 둘: 개요 · 요소 하나
 - 개요: 손볼 것 `causalTodoCard` → 모든 요소 `causalListCard`
+- 모든 요소 카드 머리의 '빈 다른 이름 제안'은 작업 `aliases`(대상 `e:`)를 띄우고 결과 카드(`aliasCard('e:')`)를 그 아래에 둔다
+- 요소 내용 카드의 '다른 이름 제안'(고치는 중)은 대상 `e:<요소 id>` 다. 받은 카드는 읽기 · 고치기 모두에서 보인다
 - 요소 하나(`causalDetail`): 요소 내용 읽기 카드 `causalInfoCard`(고치기 `S.causalEdit`) → 관련 화 `causalLinksCard` → 영향 분석 `causalImpact`
 - 관련 화는 30화씩 칸 줄(`CZ_CHUNK`)과 나눔 버튼 `S.causalLinkTab` 으로 거른 줄 목록
 - 640px 이하는 칸 줄이 한 줄 10화다(`czChunk`). 칸은 버튼이고 화 번호 · 표시를 `aria-label` 로 읽는다. 손가락 기기 · 640px 이하에서 높이 32px
@@ -690,9 +808,10 @@
 
 ### `canon/static/heatplan.js`
 
-- 열 계획 카드 `heatCard(p, arc)`: 단편은 기승전결 보드 위, 장편은 고른 아크의 보드 위. 다루는 범위와 저장 경로는 `heatHost` · `heatNowHost`(장편은 `S.selArc`)
+- 완급 계획 카드 `heatCard(p, arc)`: 단편은 기승전결 보드 위, 장편은 고른 아크의 보드 위. 다루는 범위와 저장 경로는 `heatHost` · `heatNowHost`(장편은 `S.selArc`)
+- 완급 계획은 카드 없이 구역(`.sec.heat-card`)이다. 제안 `heatDraftCard` 만 카드다
 - 계획이 없으면 '직접 적기'(`heatStart`)가 기승전결 구간으로 밑그림을 깐다(`heatDefaultFor`: 앞은 쌓기, 13화 이상이면 승 끝 낮은 정점, 전 끝 큰 정점, 결은 뒷날 · 쉬기)
-- 'AI로 열 계획 받기'(`heatPropose`, 작업 `heat`, 장편은 아크 번호)의 결과는 카드 안 제안 `heatDraftCard`(`S.heatDraft`)로 두고, 고르면(`heatDraftUse`) 넣는다
+- 'AI로 완급 계획 받기'(`heatPropose`, 작업 `heat`, 장편은 아크 번호)의 결과는 카드 안 제안 `heatDraftCard`(`S.heatDraft`)로 두고, 고르면(`heatDraftUse`) 넣는다
 - 화마다 막대 하나(`heatBar`, 높이는 열 0~5, 터뜨리기는 amber). 쓴 화는 큐 긴장 평균을 가로 눈금으로 겹친다
 - 막대를 누르면(`heatPick`) 눈금 · 몫 나눔 버튼(`heatLevel` · `heatRole`)과 정점 종류 · 한 줄 칸(`heat.<i>.kind` · `note`)을 편다
 - 몫을 터뜨리기 밖으로 바꾸면 정점 종류를 지운다
@@ -702,11 +821,19 @@
 - 뒤집힘 칸(`heat_turn.plant_ep` · `fail_ep` · `gain`)과 열 원칙 칸(`heat_rule`)
 - 지우기 `heatClear`
 - 구조 제안 미리보기 `heatProposalPart`(누를 수 없는 막대), 고르기 `heatApply`, 'AI로 구조 만들기 · 다시 제안'의 켜기 칸 `heatPlanToggle`(`settings.heat_plan`)
-- 다음 아크 제안 카드도 열 계획 미리보기를 붙이고, 다음 아크 기획 칸에 켜기 칸을 둔다
+- 다음 아크 제안 카드도 완급 계획 미리보기를 붙이고, 다음 아크 기획 칸에 켜기 칸을 둔다
 
 ### `canon/static/illust.js`
 
 - 집필 화면 삽화 프롬프트 카드(칸별 복사, 다시 조립, 외형 고정)
+- '고른 부분으로 만들기'는 보조 버튼이다. 집필 화면의 주 버튼은 머리의 다음 일 하나다
+- 서버에 ComfyUI를 이어 두면(`GET /api/comfy` 의 `on`, `S.comfy`) 카드 아래 줄에 'ComfyUI로 그리기' · '다시 그리기'(`illDraw`)를 둔다
+- ComfyUI가 켜져 있으면 패널 제목에 'ComfyUI 연결됨', 삽화 설정에 워크플로 틀 이름과 체크포인트를 보인다. 틀과 주소는 서버 설정 파일의 `comfy_*` 칸에서 바꾼다고 알린다
+- 만들기 버튼 아래 '만든 뒤 바로 ComfyUI로 그리기'(`#ill-draw`, `S.illDraw`)를 켜면 작업 `illust` 에 `draw` 를 보낸다. 보는 사람마다 localStorage `canon.illDraw` 에 기억한다
+- 그리기는 화면을 막지 않는 작업 `illust_render`(대상은 삽화 id, 화는 `ep`)다. 끝나면 그 화를 받아 온다
+- 그린 그림은 카드에 새것부터 가로로 늘어놓는다(`ilImages`). 그림을 누르면 새 탭에서 크게 보고, 그림마다 지우기(`illImgDelete`)가 있다
+- 맨 새 그림의 알림과 ComfyUI에 보낸 프롬프트 · 틀 이름은 접어 둔다
+- 삽화 프롬프트 만들기(`ilMake`, 고른 부분 · AI가 장면 고르기)는 화면을 막지 않는 작업 `illust` 다. 끝나면 그 화를 받아 오고, 그 화를 보고 있으면 새 삽화로 내려간다
 - 카드의 인용 칸은 고른 부분, 없으면 AI 인용이다. 둘 다 비면(인용을 본문에서 못 찾음) 그리지 않는다
 - 읽기 전용 본문에서 고르는 도구
 - 도구 자리도 왼쪽을 0으로 두고 너비를 잰다(`passage.js` 의 `placeTool` 과 같은 규칙)
@@ -743,6 +870,7 @@
 ### `canon/static/play.js`
 
 - 플레이 화면(DESIGN.md 10.4, 시안 안 A)
+- 작품 홈의 '이 세계로 플레이' 줄(`playHomeCard`)은 구역(`.sec`)이다. 플레이 사본의 '플레이로 돌아가기'는 보조 버튼이다(머리 주 버튼과 같은 일)
 - 1100px 이하(한 열)에서 시계 줄(`.pclock`)은 위쪽 띠 아래에 붙는다. 높이 500px 이하(가로 휴대폰)에서는 붙이지 않는다
 - 멈춘 상태 글은 손가락 기기에서 '▶를 누르면 다시' 다(`playKeys`)
 - 손가락 기기(`pointer: coarse`)에서는 숫자 키 · Ctrl+Enter · 아무 키 안내를 숨긴다(`playKeys`)
@@ -769,11 +897,9 @@
 
 ### `canon/static/setupchat.js`
 
-- 설정 도우미의 대화로 다듬기 패널(`CHAT_TOPICS.setup`)
-- 칸별 변경안과 지금 값 비교(이미 채운 칸을 바꾸는 부분은 기본으로 체크하지 않음)
-- 새 인물을 고르지 않으면 그 인물과의 관계는 끔
-- 방향 여러 안(`chat.js` 의 `optionsCard`)
-- 적용 · 적용 취소
+- 설정 변경안을 읽는 도우미: 칸 이름 · 지금 값(`setupKeyValue`) · 부분 이름(`setupLabel`) · 관계 비교(`setupRelDiff`) · 새 인물 카드(`setupNewCard`). 대화 에이전트의 설정 카드(`agentsetup.js`)가 쓴다
+- 옛 설정 대화(주제 `setup`)의 적용 취소 `setupChatUndo`. 대화 에이전트의 '이전 대화'(`chat.js` `chatReadOnlyCard`)에서 부른다
+- 옛 설정 대화의 패널 · 보내기 · 변경안 카드 · 적용 · 방향 여러 안은 04e 에서 지웠다
 - 칸 이름(`SETUP_KEYS`, `SETUP_CHAR_LABEL`)과 부분 id 는 `setupchat.KEY_LABELS` · `CHAR_LABELS` · `part_ids` 와 같다
 
 ### `canon/static/statwin.js`

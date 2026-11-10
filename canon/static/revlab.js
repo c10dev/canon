@@ -325,7 +325,7 @@ const REV_METRICS = [  // [이름, 값, 원문과 크게 다르면 표시할지 
   ['쇠맛 경고', (s) => s.ai_patterns, true],
   ['문체 거리 (원문 다른 화 1.0)', (s) => s.style_distance, true],
   ['쉼표 문장', (s) => s.comma_ratio, true, (v) => cuePct(v)],
-  ['표지 빈도 경고', (s) => (s.marker_warns ? s.marker_warns.length : null), true],
+  ['버릇 빈도 경고', (s) => (s.marker_warns ? s.marker_warns.length : null), true],
   ['원문 옮김', (s) => (s.copied ? s.copied.length : null), 'any'],
   ['장치 예시 옮김', (s) => (s.copied_examples ? s.copied_examples.length : null), 'any'],
   ['템포 (원문 큐 경계)', (s) => ((s.rows || []).length ? cueYes(s.tempo_order) : null), false],
@@ -349,7 +349,7 @@ function revMetricRows(scores) {
     })),
     notes: [
       ...[...new Set(scores.map((s) => s.style_note).filter(Boolean))],
-      ...scores.filter((s) => (s.marker_warns || []).length).map((s) => `${s.label} 표지: ${s.marker_warns.join(', ')}`),
+      ...scores.filter((s) => (s.marker_warns || []).length).map((s) => `${s.label} 버릇: ${s.marker_warns.join(', ')}`),
       ...scores.filter((s) => (s.copied || []).length + (s.copied_examples || []).length)
         .map((s) => `${s.label} 옮긴 문장: ${[...(s.copied || []), ...(s.copied_examples || [])].map((x) => `“${x}”`).join(' ')}`),
     ],
@@ -866,7 +866,7 @@ function revLabCards() {
   const card = (k, title, right, body) => `<a class="card tight rev-tile" href="#/revlab/${L.id}/${k}"><div class="between"><h3>${title}</h3><span class="small">${right}</span></div><p class="small">${body}</p></a>`;
   return `<div class="rev-tiles">
     ${card('cast', '인물 · 관계 · 배경', L.cast.length ? `${L.cast.length}명` : '', L.cast.length ? `${esc(L.cast.slice(0, 4).map((x) => x.name).join(' · '))}${c.setting ? `. ${esc(c.setting.slice(0, 40))}` : ''}` : '역설계하면 모아요.')}
-    ${card('style', '문체 프로필', st ? `${L.style_id}번 · 표지 ${(st.markers || []).length}` : '', st ? esc([st.narration_pov, st.tense, st.sentence_rhythm].filter(Boolean).join(' · ').slice(0, 80)) : '만들면 되돌려 쓰기에 넣을 수 있어요.')}
+    ${card('style', '문체 프로필', st ? `${L.style_id}번 · 버릇 ${(st.markers || []).length}` : '', st ? esc([st.narration_pov, st.tense, st.sentence_rhythm].filter(Boolean).join(' · ').slice(0, 80)) : '만들면 되돌려 쓰기에 넣을 수 있어요.')}
     ${card('lines', '이야기 줄기', L.lines_at ? `${L.lines.length}개` : '', L.lines_at ? `메인: ${esc((L.main || '정하지 않음').slice(0, 60))}` : '모든 화를 역설계하면 찾아요.')}
     ${card('shape', '구조 · 호흡', L.arcs ? `아크 ${L.arcs.arcs.length}개${L.arcs.parts.length ? ` · ${L.arcs.parts.length}부` : ''}` : '', L.arcs ? esc(L.arcs.arcs.map((a) => a.title).join(' → ').slice(0, 80)) : '화마다 긴장 흐름 · 끝맺음 · 분량을 이어 보고 아크로 나눠요.')}
     ${card('ai', 'AI 모델', L.ai.custom ? '이 실험만' : '설정을 따름', L.ai.stages.map((x) => `${x.stage === 'plan' ? '역설계' : '되돌려 쓰기'} ${esc(revAiText(x.use))}`).join(' · '))}</div>`;
@@ -900,17 +900,17 @@ function revStyleCard() {
   const kv = (k, v) => (v ? `<dt>${k}</dt><dd>${esc(v)}</dd>` : '');
   const body = st ? `<dl class="rev-kv">${kv('시점', st.narration_pov)}${kv('시제', st.tense)}${kv('문장 리듬', st.sentence_rhythm)}${kv('묘사 밀도', st.description_density)}
       ${kv('대사 비중', st.dialogue_ratio)}${kv('대사 방식', st.dialogue_style)}${kv('속생각', st.inner_monologue)}${kv('속도', st.pacing)}${kv('장면 전환', st.scene_transition)}${kv('어휘', st.vocabulary)}${kv('효과음 표기', st.sound_effects)}</dl>
-      ${(st.markers || []).length ? `<div class="small">표지: ${st.markers.map((m) => `«${esc(m.text)}»`).join(' · ')}</div>` : ''}
+      ${(st.markers || []).length ? `<div class="small">버릇: ${st.markers.map((m) => `«${esc(m.text)}»`).join(' · ')}</div>` : ''}
       <div class="small">${esc(L.style_model)} · ${esc(fmtDateTime(L.style_at))}${cur && !cur.basis_ok ? ' <span class="chip">원문 앞부분이 바뀌었어요</span>' : ''}</div>`
     : list.length ? '<p class="small">지금 고른 프로필이 없어요. 아래 기록에서 고르거나 새로 만드세요.</p>'
-      : '<p class="small">원문 앞부분으로 문체 프로필(시점 · 문장 리듬 · 대사 방식 · 표지)을 만들어요. 원문을 베끼지 않게 예시 문단은 넣지 않아요. 되돌려 쓰기에서 문체를 넣은 판과 넣지 않은 판을 견주면 차이가 구조에서 오는지 문체에서 오는지 갈라 볼 수 있어요.</p>';
+      : '<p class="small">원문 앞부분으로 문체 프로필(시점 · 문장 리듬 · 대사 방식 · 버릇)을 만들어요. 원문을 베끼지 않게 예시 문단은 넣지 않아요. 되돌려 쓰기에서 문체를 넣은 판과 넣지 않은 판을 견주면 차이가 구조에서 오는지 문체에서 오는지 갈라 볼 수 있어요.</p>';
   const rows = list.map((x) => {
     const open = S.revStyleDiff && S.revStyleDiff.id === x.id;
     const chips = `${x.current ? ' <span class="chip finalized">지금</span>' : ''}${x.basis_ok ? '' : ' <span class="chip">다른 원문</span>'}`;
     const diff = open ? (S.revStyleDiff.changes == null ? '<div class="small">견줄 지금 프로필이 없어요.</div>'
       : S.revStyleDiff.changes.length ? S.revStyleDiff.changes.map(changeLines).join('') : '<div class="small">지금 프로필과 같아요.</div>') : '';
     return `<li class="version-row">
-        <div class="between"><span><strong>${x.id}번</strong> <span class="small">${esc(fmtDateTime(x.at))}${x.model ? ` · ${esc(x.model)}` : ''} · 표지 ${x.markers}${x.takes ? ` · 쓴 판 ${x.takes}` : ''}</span>${chips}</span>
+        <div class="between"><span><strong>${x.id}번</strong> <span class="small">${esc(fmtDateTime(x.at))}${x.model ? ` · ${esc(x.model)}` : ''} · 버릇 ${x.markers}${x.takes ? ` · 쓴 판 ${x.takes}` : ''}</span>${chips}</span>
           <span class="row">${x.current ? '' : `<button type="button" class="btn small" data-action="revStyleUse" data-arg="${x.id}"${busy ? ' disabled' : ''}>이 프로필 쓰기</button>
             <button type="button" class="btn small ghost" data-action="revStyleDiff" data-arg="${x.id}" aria-expanded="${open}">${open ? '견주기 닫기' : '지금과 견주기'}</button>`}
             ${x.library ? `<a class="btn small ghost" href="#/styles/${enc(x.library)}">라이브러리에서 보기</a>` : `<button type="button" class="btn small ghost" data-action="revStyleToLib" data-arg="${x.id}">라이브러리에 저장</button>`}

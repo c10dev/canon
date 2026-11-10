@@ -98,7 +98,7 @@ def test_drift_warning_after_window_moves_away(monkeypatch):
     far = anchor.rolling(p, 14)
     assert far > anchor.DRIFT_WARN
     w = anchor.warning(p, 14)
-    assert w.startswith("정착 문체에서 멀어짐")
+    assert w.startswith("이 작품의 문체에서 멀어짐")
     assert w in pipeline.style_drift(p, 14)[1]
     t = anchor.trend(p)
     assert [x["n"] for x in t] == list(range(1, 15)) and t[0]["anchor"] and not t[5]["anchor"]
@@ -148,11 +148,11 @@ def test_autorun_policy_stops_on_style_distance():
     p = _project(plain=8, polite=6)
     anchor.set_anchor(p, [1, 2, 3])
     d = StateDelta(episode=14, summary="요약")
-    assert not any("정착 문체" in r for r in autorun.review_reasons(p, d, None, autorun.Policy(check=False)))
+    assert not any("이 작품의 문체" in r for r in autorun.review_reasons(p, d, None, autorun.Policy(check=False)))
     reasons = autorun.review_reasons(p, d, None, autorun.Policy(check=False, max_style_distance=SYNTH_WARN))
-    assert any(r.startswith("정착 문체에서 멀어졌어요") for r in reasons)
+    assert any(r.startswith("이 작품의 문체에서 멀어졌어요") for r in reasons)
     near = autorun.review_reasons(p, StateDelta(episode=8, summary="요약"), None, autorun.Policy(check=False, max_style_distance=SYNTH_WARN))
-    assert not any("정착 문체" in r for r in near)
+    assert not any("이 작품의 문체" in r for r in near)
 
 
 def test_stamp_and_replace_text():

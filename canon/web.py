@@ -31,15 +31,16 @@ from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from . import address, agent, archetypes, autorun, board, cancel, cast, charlog, coord, dynamics, elements, genres, illust, jobs, knows, library, metrics, naming, pipeline, prompts, publish, refs, research, settings, store, usage
+from . import address, agent, aliases, archetypes, autorun, board, cancel, cast, charlog, comfy, coord, dynamics, elements, genres, illust, jobs, knows, library, metrics, naming, pipeline, prompts, publish, refs, research, settings, store, usage
 from .llm import BadKey, GeminiLLM, LocalLLM, MissingKey, explain_error, get_llm, make_llm, with_note
 from . import context as ctxrules  # 이름 context 는 컨텍스트 보기 엔드포인트가 쓴다
 from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록)
 from .schema import (Ability, ArcPlan, BodySuggestion, StatInitSuggestion, StatSkin, StatWindowSuggestion, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
-                     StorylineProposal, StyleEntry, StyleProfile)
+                     RuleChange, RuleRun, StorylineProposal, StyleEntry, StyleProfile)
 from . import abilities, anchor, atlas, findings, foreshadows, heatplan, setupchat, stateedit, stattrial, statwin, timeline
 from .schema import AgentSession, ChatScope, HeatArcProposal, KnowsFoldSet, Deadline, Storyboard, StoryTime, Foreshadow, StatValue
 from .schema import OffscreenSet
+from .schema import MapSpec
 from .schema import TextMaterial
 from . import agent_text
 from .schema import BlockSetting, BudgetSetting
@@ -1293,7 +1294,7 @@ class FieldIdeasIn(BaseModel):
 
 @app.post("/api/projects/{name}/field-ideas")
 def field_ideas(name: str, body: FieldIdeasIn) -> FieldIdeas:
-    """설정 칸 하나의 AI 후보 (✦). 저장하지 않는다. 작가가 고른 후보만 화면이 칸에 넣는다."""
+    """설정 칸 하나의 AI 후보. 저장하지 않는다. 작가가 고른 후보만 화면이 칸에 넣는다."""
     p = body.project or _load(name)
     return pipeline.suggest_field(get_llm(pipeline.field_stage(body.field)), p, body.field, max(1, min(body.n, 5)))
 
@@ -1547,7 +1548,7 @@ def keep_style(name: str, body: StyleKeep) -> StyleKept:
         _save(name, p)
     else:
         if library.blank(p.style) and not body.sample.strip():  # 원문만 있으면 라이브러리에서 나중에 분석할 수 있다
-            raise HTTPException(400, "문체가 비어 있어요. 원문을 넣거나 문체 분석 · 스타일 프로필을 채운 뒤 저장할 수 있어요")
+            raise HTTPException(400, "문체가 비어 있어요. 원문을 분석하거나 문체 카드를 채운 뒤 저장할 수 있어요")
         e = library.from_project(p, body.name or f"{p.meta.title or name} 문체", body.sample, body.source)
         if body.sample.strip():  # 웹에서 분석한 원문의 기준 지표를 작품에도 남긴다
             p.style_baseline = e.baseline
@@ -1887,6 +1888,7 @@ def apply_rebuild(name: str, prop: SerialRebuild) -> dict:
 class ReworkIn(BaseModel):
     text: str
     proposed: str = ""  # AI 가 낸 글 (작가가 손봤으면 수정 기록에 남긴다)
+    ruled: list[RuleChange] = []  # 제안을 만들 때 고침 규칙이 바꾼 곳 (Rework.ruled, proposed 안 자리). 넣은 본문에 아직 있는 곳만 기록한다
 
 
 @app.post("/api/projects/{name}/episodes/{n}/rework")
@@ -1894,7 +1896,7 @@ def accept_rework(name: str, n: int, body: ReworkIn) -> Project:
     """재구성에서 다듬기로 고른 화에 다듬은 본문을 넣는다."""
     _not_auto(name)
     p = _load(name)
-    pipeline.accept_rework(p, n, body.text, body.proposed)
+    pipeline.accept_rework(p, n, body.text, body.proposed, body.ruled)
     return _save(name, p)
 
 
@@ -2126,6 +2128,8 @@ def restore_backup(name: str, body: RestoreIn) -> Project:
 # ---------- 3-1. 대화로 다듬기 ----------
 # 대화 기록은 project.json 의 chats 에 화면(topic)별로 남는다. 플롯 화면은 'plot', 집필 화면의 본문 부분 수정은
 # 화마다 'text:<화>', 문체 화면은 'style', 설정 도우미는 'setup' 이다 (4-1 · 2-2 · canon/setupchat.py 참고).
+# 'plot' 밖의 셋은 옛 기록이다(04e). 새 말은 대화 에이전트가 받고, 여기서는 적용 · 적용 취소 · 버림 · 지우기만 남긴다.
+# 상태 정리 경고의 'AI에게 고치기'(fix-now)는 지금도 'text:<화>' 기록에 요청과 후보를 남긴다.
 
 TEXT_TOPIC = re.compile(r"^text:(\d+)$")
 
@@ -2139,35 +2143,22 @@ def _chat(p: Project, topic: str):
 
 class ChatIn(BaseModel):
     message: str = ""
-    selection: Selection | None = None  # 본문 부분 수정: 고른 부분
-    preset: str = ""  # 본문 부분 수정: 빠른 요청 id (prompts.PASSAGE_PRESETS)
     # 플롯 대화: 화면이 알려 주는 대상과 보던 곳 (schema.ChatScope)
     target: str = ""  # '' 기본, 'arc:3' 고른 아크, 'next' 다음 아크 기획
     act: str = ""  # 연 구간 이름
-    episode: int = 0  # 연 화. 문체 대화면 참고할 화
-    mode: Literal["", "options"] = ""  # options: 방향 여러 안 (플롯 · 설정 대화)
+    episode: int = 0  # 연 화
+    mode: Literal["", "options"] = ""  # options: 방향 여러 안
     draft: ArcProposal | None = None  # target 'next': 화면의 다음 아크 초안
 
 
 @app.post("/api/projects/{name}/chat/{topic}")
 def chat_send(name: str, topic: str, body: ChatIn) -> Project:
-    """작가의 말을 보내고 AI 답과 변경안을 대화 기록에 남긴다. 구조와 플롯, 본문은 바꾸지 않는다."""
+    """옛 플롯 대화에 작가의 말을 보내고 AI 답과 변경안을 대화 기록에 남긴다. 구조와 플롯, 본문은 바꾸지 않는다.
+    설정 · 문체 · 본문 고치기('text:N')의 보내기는 대화 에이전트의 도구가 맡는다(agent_setup · agent_style · agent_text). 그 옛 기록은 읽기 · 적용 취소만 한다."""
     p = _load(name)
     _chat(p, topic)
-    if m := TEXT_TOPIC.match(topic):
-        n = int(m.group(1))
-        if body.selection is None:
-            raise ValueError("본문에서 고칠 부분을 고르세요")
-        _text_guard(name, n)  # 넣기(chat_apply)에서 막힐 요청이면 AI를 부르기 전에 막는다
-        sel = Selection(start=pipeline.locate(p.episode(n).text, body.selection.text, body.selection.start), text=body.selection.text)
-        rev = pipeline.revise_passage(get_llm("revise"), p, n, sel, body.message, body.preset)
-        return _edit(name, lambda q: pipeline.record_passage(q, n, sel, body.message, body.preset, rev))
-    if topic == "style":
-        rev = pipeline.revise_style(get_llm("plan"), p, body.message, body.episode)
-        return _edit(name, lambda q: pipeline.record_style_chat(q, body.message, body.episode, rev))
-    if topic == setupchat.TOPIC:
-        rev = pipeline.revise_setup(get_llm("plan"), p, body.message, body.mode)
-        return _edit(name, lambda q: setupchat.record(q, body.message, body.mode, rev))
+    if topic != "plot":
+        raise HTTPException(404, "이 대화는 이제 보낼 수 없어요. 대화 에이전트에게 말해 주세요")
     target, _ = pipeline.chat_target(p, body.target)  # 기다리는 동안 아크가 붙어도 처음 대상을 기록한다
     scope = ChatScope(target=target, act=body.act, episode=body.episode, mode=body.mode, draft=body.draft)
     rev = pipeline.revise_plot(get_llm("plan"), p, body.message, scope)
@@ -2232,7 +2223,7 @@ def fix_now(name: str, n: int, body: FixNowIn) -> dict:
     p = _load(name)
     _chat(p, f"text:{n}")
     sel = Selection(start=pipeline.locate(p.episode(n).text, body.selection.text, body.selection.start), text=body.selection.text)
-    rev = pipeline.revise_passage(get_llm("revise"), p, n, sel, body.message)
+    rev = pipeline.revise_passage(get_llm("revise"), p, n, sel, body.message, rules=True)  # 첫 후보가 바로 본문에 들어가므로 고침 규칙을 건다
     _text_guard(name, n)  # AI를 기다리는 사이 자동 집필이나 본문 작업이 시작했을 수 있다
     out: dict = {}
     q = _edit(name, lambda x: out.update(edit=pipeline.apply_first(x, n, sel, body.message, rev)))
@@ -2582,8 +2573,14 @@ class JobIn(BaseModel):
     board: Literal["", "make", "none"] = ""  # write: make 면 스토리보드를 새로 만든 뒤 쓴다(바로 쓰기), none 이면 스토리보드 없이 쓴다
     cues: Literal["", "none"] = ""  # write: 큐 시트를 쓰는 작품(cue.on)인데 그 화에 없으면 만든 뒤 쓴다. none 이면 큐 시트 없이 쓴다
     text: str = ""  # style: 분석할 예시 원문 (200자 이상)
-    target: str = ""  # char_body, char_voice, char_look, names_ai: 인물 id (names_ai 는 비우면 지명)
+    target: str = ""  # char_body, char_voice, char_look, names_ai: 인물 id (names_ai 는 비우면 지명). illust_render: 삽화 id. aliases: 'c:<인물 id>' · 'e:<요소 id>' (비우거나 'c:' · 'e:' 면 다른 이름이 빈 항목)
     place_kind: str = ""  # names_ai: 지명 종류 (target 이 비었을 때)
+    selection: Selection | None = None  # illust: 그릴 부분 (비우면 AI 가 장면을 고른다)
+    model: str = ""  # illust: 삽화 모델 (illust.MODELS)
+    draw: bool = False  # illust: 만든 뒤 바로 ComfyUI 로 그린다 (illust_render 와 같은 일을 한 작업 안에서)
+    spec: MapSpec | None = None  # atlas_suggest: 지도 화면에서 지금 고른 설정
+    texts: list[str] | None = None  # atlas_sort: 정리할 위치 글 (비우면 맞지 않은 글 모두)
+    trial: dict | None = None  # rs_*: 연구 실험 요청 (routes/research 의 SampleIn · StageIn · CheckTrialIn · Backend · CompareIn 모양)
 
 
 def _edit(name: str, fn) -> Project:
@@ -2694,7 +2691,7 @@ def _job_nextarc(name: str, body: "JobIn", p: Project, kind: str, n: int | None,
 def _job_heat(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
     """작업 heat: 이미 있는 기승전결 위에 열 계획만 받는다. 장편은 ep 가 아크 번호(없으면 다 쓰지 않은 첫 아크)."""
     start, end, _acts, _where, arc = pipeline.heat_target(p, n or 0)
-    label = f"아크 {arc.number} 열 계획 제안" if arc else "열 계획 제안"
+    label = f"아크 {arc.number} 완급 계획 제안" if arc else "완급 계획 제안"
     note, number = body.note, arc.number if arc else 0
 
     def fn(job: jobs.Job):
@@ -2750,7 +2747,8 @@ def _run_check(name: str, n: int, llm) -> dict:
     _fill_old_spots(name)
     q0 = store.load(name)
     rep = pipeline.check_episode(llm, q0, n)
-    r = _edit(name, lambda q: pipeline.apply_check(q, rep, "api", pipeline.widen_on(q0))).episode(n).rounds[-1]
+    pre = pipeline.check_hits(store.load(name), n)  # 정규식 경고 규칙은 잠그기 전에 건다 (작품을 오래 잠그지 않게)
+    r = _edit(name, lambda q: pipeline.apply_check(q, rep, "api", pipeline.widen_on(q0), pre)).episode(n).rounds[-1]
     for prop in rep._stage_held:  # 작가가 손본 본문 장면은 덮지 않고 장면 연출 화면의 비교로 남긴다
         _stage_keep(name, prop)
     return {"issues": r.found, "round": r.no, "added": r.added, "stage": len(rep._stage),  # 짚은 곳: 검수 모델 + 장면 연출 규칙
@@ -2958,6 +2956,19 @@ def _job_char_ai(name: str, body: "JobIn", p: Project, kind: str, n: int | None,
     return label, 1, set(), fn
 
 
+def _job_aliases(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 aliases: 인물 · 이야기 요소의 다른 이름 제안 (canon/aliases.py). target 'c:<id>' · 'e:<id>' 는 그 항목 하나,
+    'c:' · 'e:' · 빈 글은 다른 이름이 빈 항목을 ALIAS_BATCH 개까지. 저장하지 않는다 (작가가 고른 말을 칸에 넣고 작품 저장)."""
+    picked = aliases.targets(p, body.target.strip())  # 없는 항목 · 고를 항목 없음은 400
+    keys = [it.key for it in picked]
+    one = bool(body.target.partition(":")[2])
+    label = f"{picked[0].name} 다른 이름 제안" if one else f"빈 다른 이름 제안 {len(picked)}개"
+
+    def fn(job: jobs.Job):
+        q = store.load(name)
+        return pipeline.suggest_aliases(llm, q, [it for k in keys if (it := aliases.item(q, k))]).model_dump()
+    return label, 1, set(), fn
+
 def _job_statwin_ai(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
     """작업 statwin_suggest · statwin_init: 상태창 꾸미기 안 · 처음 수치 제안. 저장하지 않는다 (작가가 고른 안만 상태창 라우트로 저장)."""
     ask = body.note.strip()
@@ -3011,9 +3022,139 @@ def _job_style_ai(name: str, body: "JobIn", p: Project, kind: str, n: int | None
     return label, 1, set(), fn
 
 
+def _job_finding_ai(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 fix_one · recheck_one: 열린 지적 하나(target)의 AI 고침안 받기 · 그 지적만 다시 검수.
+    고침안은 지적에 남기고 본문은 바꾸지 않는다 (작가가 고른 안만 .../fixes/{k}/apply 로 넣는다). 다시 검수는 결과를 지적에 넣는다 (옛 동기 경로와 같다)."""
+    fid = body.target
+    if n is None or not fid:
+        raise ValueError("화 번호(ep)와 지적 id(target)가 필요해요")
+    if kind == "fix_one":
+        pipeline._fixable(p, n, fid)
+        label = f"{n}화 {fid} 고침안"
+
+        def fn(job: jobs.Job):
+            opts = pipeline.propose_fixes(llm, store.load(name), n, fid)
+            cancel.check()
+            _edit(name, lambda q: pipeline.store_fixes(q, n, fid, opts))
+            return {"fid": fid, "fixes": len(opts)}
+    else:
+        pipeline._open_finding(p, n, fid)
+        label = f"{n}화 {fid} 다시 검수"
+
+        def fn(job: jobs.Job):
+            res = pipeline.recheck_finding(llm, store.load(name), n, fid)
+            cancel.check()
+            kids: list = []
+            q = _edit(name, lambda q: kids.extend(pipeline.apply_recheck(q, n, fid, res)))
+            f = findings.find(q.episode(n), fid)
+            return {"fid": fid, "resolved": f.status == "fixed", "kids": [k.id for k in kids], "reason": res.reason}
+    return label, 1, set(), fn
+
+
+# 한 화의 지적을 통째로 다루는 작업과 지적 하나를 다루는 작업. 같은 화에서 함께 돌면 늦게 끝난 쪽이 앞 결과를 엇갈리게 덮는다
+_FINDING_BATCH = ("check", "fixes", "recheck")
+_FINDING_ONE = ("fix_one", "recheck_one")
+
+
+def _finding_clash(name: str, kind: str, n: int | None, target: str) -> None:
+    """지적 작업끼리 부딪히면 시작 전에 400. 지적 하나 작업은 그 화의 통째 작업 · 같은 지적의 다른 작업이 도는 동안,
+    통째 작업은 그 화의 지적 하나 작업이 도는 동안 시작하지 않는다. 다른 지적끼리는 함께 돈다."""
+    if n is None or kind not in _FINDING_BATCH + _FINDING_ONE:
+        return
+    for j in jobs.listing(name):
+        if j.status != "running" or j.ep != n or (j.kind == kind and (j.target or "") == target):
+            continue  # 같은 작업은 jobs.start 가 이미 도는 것을 돌려준다
+        one = kind in _FINDING_ONE and (j.kind in _FINDING_BATCH or (j.kind in _FINDING_ONE and j.target == target))
+        if one or (kind in _FINDING_BATCH and j.kind in _FINDING_ONE):
+            raise ValueError(f"'{j.label}'{josa(j.label, '이', '가')} 도는 중이에요. 끝난 뒤 다시 하세요")
+
+
+def _job_illust(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 illust: 고른 부분(없으면 AI 가 고른 장면)의 삽화 프롬프트를 만들어 그 화에 더한다 (옛 동기 경로 .../illust 와 같다).
+    본문은 바꾸지 않는다. 삽화 프롬프트는 이야기 데이터가 아니라 그림 도구에 넘길 글이라 옛 경로처럼 바로 남긴다."""
+    if n is None or not p.episode(n).text:
+        raise ValueError(f"{n}화 본문이 없어요")
+    if body.model and body.model not in illust.MODELS:
+        raise ValueError(f"모르는 모델이에요: {body.model}")
+    if body.draw and not comfy.url():
+        raise ValueError("ComfyUI 주소가 없어요. CANON_COMFY_URL이나 설정 파일의 comfy_url에 ComfyUI 주소를 적으세요")
+    sel, ask, model, draw = body.selection, body.note, body.model, body.draw
+    label = f"{n}화 {'삽화 태그' if sel else '삽화 장면 고르기'}" + (" · 그리기" if draw else "")
+
+    def fn(job: jobs.Job):
+        ill = pipeline.illustrate(llm, store.load(name), n, sel, ask, model)
+        cancel.check()
+        _edit(name, lambda q: pipeline.add_illustration(q, n, ill))
+        out = {"id": ill.id, "missing_look": list(ill.missing_look)}
+        if draw:
+            cancel.say("ComfyUI가 그리는 중이에요")
+            try:
+                out.update(_draw_into(name, n, ill.id))
+            except comfy.ComfyError as e:
+                raise comfy.ComfyError(f"삽화 프롬프트는 만들었지만 그리지 못했어요. {e}") from e
+        return out
+    return label, 1, set(), fn
+
+
+def _draw_into(name: str, n: int, iid: str) -> dict:
+    """삽화 프롬프트 하나를 ComfyUI 로 그려 그 삽화에 그림을 더한다 (작업 illust_render · illust 의 draw).
+    파일 쓰기 · 기록 · 정리(prune)는 한 작품 잠금(_edit) 안에서 한다. 밖에서 쓰면 함께 도는 그리기나 지우기의 정리가 새 파일을 지운다.
+    그 삽화가 그리는 사이 지워졌으면 파일을 쓰지 않고 실패한다."""
+    q = store.load(name)
+    data, img = comfy.render(q, comfy.find(q, n, iid))
+    cancel.check()
+
+    def put(r: Project) -> None:
+        comfy.find(r, n, iid)
+        img.file = comfy.save_image(name, data)
+        comfy.add_image(r, n, iid, img)
+        comfy.prune(name, r)
+    _edit(name, put)
+    return {"file": img.file, "notes": list(img.notes)}
+
+
+def _job_illust_render(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 illust_render: 삽화 프롬프트 하나(body.target)를 ComfyUI 로 그려 그 삽화에 그림을 더한다(_draw_into). LLM 을 부르지 않는다.
+    삽화 프롬프트처럼 이야기 데이터가 아니라 바로 남긴다."""
+    if n is None:
+        raise ValueError("그릴 화가 없어요")
+    iid = body.target
+    comfy.find(p, n, iid)
+    if not comfy.url():
+        raise ValueError("ComfyUI 주소가 없어요. CANON_COMFY_URL에 ComfyUI 주소를 적으세요")
+
+    def fn(job: jobs.Job):
+        return {"id": iid, **_draw_into(name, n, iid)}
+    return f"{n}화 삽화 그리기", 1, set(), fn
+
+
+def _job_atlas_ai(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 atlas_suggest · atlas_sort: 지도 만들기 설정 제안 · 장소와 맞지 않은 위치 글 정리 제안. 저장하지 않는다
+    (화면 칸에만 놓고, 작가가 미리보기 · 적용을 눌러야 지도에 들어간다)."""
+    if kind == "atlas_suggest":
+        spec = body.spec
+        label = "지도 설정 제안"
+
+        def fn(job: jobs.Job):
+            return pipeline.suggest_map(llm, store.load(name), spec)
+    else:
+        texts = body.texts
+        items = atlas.unmatched(p, atlas.frames(p, atlas.places(p)))
+        if texts is not None:
+            want = {t.strip() for t in texts}
+            items = [it for it in items if it["text"] in want]
+        if not items:
+            raise ValueError("장소와 맞지 않은 위치 글이 없어요")
+        label = f"위치 글 {len(items)}개 정리"
+
+        def fn(job: jobs.Job):
+            return pipeline.sort_places(llm, store.load(name), texts)
+    return label, 1, set(), fn
+
+
 def _job_target(kind: str, body: "JobIn") -> str:
-    """같은 종류를 대상마다 따로 돌리는 작업의 대상: 인물 id. 이름 고르기는 지명이면 빈 글이다."""
-    return body.target if kind in ("char_body", "char_voice", "char_look", "names_ai") else ""
+    """같은 종류를 대상마다 따로 돌리는 작업의 대상: 인물 id, 지적 id. 이름 고르기는 지명이면 빈 글이다."""
+    return body.target if kind in ("char_body", "char_voice", "char_look", "names_ai", "fix_one", "recheck_one", "illust_render", "aliases") else ""
 
 
 def _job_plots(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
@@ -3061,6 +3202,11 @@ def _job_plot_one(name: str, body: "JobIn", p: Project, kind: str, n: int | None
     return label, total, owned, fn
 
 
+def _rule_note(ruled: list[RuleRun]) -> dict:
+    """쓰기 작업 결과에 붙이는 마지막 고침 규칙 기록 (화면이 '규칙으로 N곳 고쳤어요' · 건너뜀 알림을 보인다). 없으면 빈 dict."""
+    return {"rule_run": ruled[-1].model_dump()} if ruled else {}
+
+
 def _job_write(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
     """작업 write · state: (이름표, 전체 걸음, 맡은 화, 할 일)."""
     if n is None:
@@ -3078,13 +3224,14 @@ def _job_write(name: str, body: "JobIn", p: Project, kind: str, n: int | None, l
             def fn(job: jobs.Job):
                 cut: list = []
                 rec: list = []
-                text = pipeline.rewrite_episode(use, store.load(name), n, req, cut, rec)
+                ruled: list[RuleRun] = []
+                text = pipeline.rewrite_episode(use, store.load(name), n, req, cut, rec, ruled)
 
                 def put(q: Project) -> None:  # 새 판을 낳은 요청은 대기 칸에 둔다. 작가가 고르면 지금 기록이 된다 (sent.adopt)
-                    v = pipeline.set_candidate(q, n, text, req, pipeline.writer_of(use), cut)
+                    v = pipeline.set_candidate(q, n, text, req, pipeline.writer_of(use), cut, ruled)
                     sent.hold(name, n, rec, text, v.id)
                 _edit(name, put)
-                return {"candidate": True}
+                return {"candidate": True, **_rule_note(ruled)}
         else:
             make = body.board == "make"
             use_cues = body.cues != "none"
@@ -3103,7 +3250,7 @@ def _job_write(name: str, body: "JobIn", p: Project, kind: str, n: int | None, l
                 with _WRITE_CHECKS_LOCK:
                     _WRITE_CHECKS.add((name, n))
                 try:
-                    write(job)
+                    wrote = write(job)
                     # 본문은 저장했다. 맡은 화를 내려놓아 검수하는 동안에도 작가가 읽고 고칠 수 있게 하고, 화면이 본문을 먼저 받게 알린다.
                     # 그사이 고친 곳은 검수 회차가 시작 시각으로 남아 '검수 뒤 고침'으로 보인다 (pipeline.check_episode)
                     job.done += 1
@@ -3112,12 +3259,12 @@ def _job_write(name: str, body: "JobIn", p: Project, kind: str, n: int | None, l
                     job.note = f"{n}화 검수 중"
                     try:
                         with usage.scope(episode=n, task="check"):
-                            return {"check": _run_check(name, n, checker)}
+                            return {"check": _run_check(name, n, checker), **(wrote or {})}
                     except cancel.Cancelled:
                         raise
                     except Exception as err:  # 검수가 실패해도 쓴 본문은 남는다. 까닭만 알린다
                         logging.getLogger("canon").warning("%s %s화 쓴 뒤 검수 실패", name, n, exc_info=True)
-                        return {"check_error": explain_error(err)}
+                        return {"check_error": explain_error(err), **(wrote or {})}
                 finally:
                     with _WRITE_CHECKS_LOCK:
                         _WRITE_CHECKS.discard((name, n))
@@ -3151,18 +3298,22 @@ def _job_write(name: str, body: "JobIn", p: Project, kind: str, n: int | None, l
                 job.note = f"{n}화 본문 쓰는 중"
                 cut: list = []
                 rec: list = []
+                # 흘려 받을 수 있는 백엔드면 쓰는 글을 작업의 부분 글(Job.partial)로 보인다. 집필 화면이 읽기 전용 미리보기에 그린다
+                ruled: list[RuleRun] = []
                 text = pipeline.write_episode(llm, store.load(name), n, use_board=body.board != "none", use_cues=use_cues, cut=cut,
-                                              sent=rec)
+                                              sent=rec, ruled=ruled, on_chunk=job.set_partial)
 
                 def save(q):
-                    pipeline.replace_text(q.episode(n), text, written_by=pipeline.writer_of(llm), meta_cut=cut)  # 지금 본문이 있으면 '이전 판'에 남는다
+                    pipeline.replace_text(q.episode(n), text, written_by=pipeline.writer_of(llm), meta_cut=cut,
+                                          rule_runs=ruled)  # 지금 본문이 있으면 '이전 판'에 남는다
                     anchor.stamp(q, n)
                     if q.episode(n).storyboard is not None:  # 스토리보드 없이 쓴 본문은 검수가 그 전제를 대조하지 않는다
                         q.episode(n).storyboard.skipped = body.board == "none"
                     cue.mark_used(q, n, use_cues)  # 큐 시트 없이 쓴 본문: 다시 생성도 넣지 않고 화면이 '쓴 큐 시트'로 보이지 않는다
                     sent.keep(name, n, rec, text)  # 이 본문이 받은 요청 그대로 (작품 폴더 sent/)
                 _edit(name, save)
-                return None
+                job.set_partial("")  # 본문을 저장했다. 이어지는 검수 동안 미리보기를 남기지 않는다
+                return _rule_note(ruled) or None
     else:
         if not e.text:
             raise ValueError(f"{n}화 본문이 없어요")
@@ -3361,12 +3512,25 @@ JOB_MAKERS: dict[str, Callable] = {
     "char_body": _job_char_ai,
     "char_voice": _job_char_ai,
     "char_look": _job_char_ai,
+    "aliases": _job_aliases,
     "statwin_suggest": _job_statwin_ai,
     "statwin_init": _job_statwin_ai,
     "names_ai": _job_names_ai,
     "style_learn": _job_style_ai,
     "style_example": _job_style_ai,
+    "fix_one": _job_finding_ai,
+    "recheck_one": _job_finding_ai,
+    "illust": _job_illust,
+    "illust_render": _job_illust_render,
+    "atlas_suggest": _job_atlas_ai,
+    "atlas_sort": _job_atlas_ai,
 }
+
+
+# 단계 LLM 대신 작업이 고른 백엔드를 쓰는 작업 (연구 실험 rs_*, routes/research 가 더한다). start_job 이 get_llm 을 부르지 않는다
+OWN_LLM_KINDS: set[str] = set()
+# LLM 을 부르지 않는 작업 (ComfyUI 그리기). start_job 이 get_llm 을 부르지 않아 키가 없어도 돈다
+NO_LLM_KINDS = {"illust_render"}
 
 
 @app.post("/api/projects/{name}/jobs")
@@ -3374,23 +3538,26 @@ def start_job(name: str, body: JobIn) -> dict:
     """오래 걸리는 AI 작업을 시작하고 바로 돌아온다. 결과는 GET /api/jobs 로 본다."""
     p = _load(name)
     kind, n = body.kind, body.ep
-    if kind in ("write", "state", "plots", "plot_one", "check", "board", "recheck"):
+    if kind in ("write", "state", "plots", "plot_one", "check", "board", "recheck", "recheck_one"):
         _not_auto(name)
     if kind in jobs.EP_AI_KINDS and (old := jobs.waiting_on(name, n)):  # 같은 화에 호출이 겹치면 요청 한도(429)에 더 걸린다
         _waiting_409(old)
     stage = {"write": "write", "state": "state", "recap_arc": "state", "recap_part": "state", "fold_knows": "state", "rework": "revise", "fixes": "revise",
              "hook": "check", "check": "check", "recheck": "check", "opening_drafts": "write", "stattrial": "write", "stage_extract": "check", "cue_run": "write",
-             "board": "board", "cues": "board", "char_look": "illustration", "names_ai": "name", "style_example": "write"}.get(kind, "plan")  # 나머지는 plan
-    llm = get_llm(stage)  # 키가 없으면 여기서 바로 오류를 보여 준다
+             "board": "board", "cues": "board", "char_look": "illustration", "names_ai": "name", "style_example": "write",
+             "fix_one": "revise", "recheck_one": "check", "illust": "illustration", "atlas_sort": "state", "aliases": "plan"}.get(kind, "plan")  # 나머지는 plan
+    llm = None if kind in OWN_LLM_KINDS or kind in NO_LLM_KINDS else get_llm(stage)  # 키가 없으면 여기서 바로 오류를 보여 준다
 
     maker = JOB_MAKERS.get(kind)
     if maker is None:
         raise ValueError(f"모르는 작업이에요: {kind}")
-    label, total, owned, fn = maker(name, body, p, kind, n, llm)
     target = _job_target(kind, body)
+    _finding_clash(name, kind, n, target)
+    label, total, owned, fn = maker(name, body, p, kind, n, llm)
 
     try:
-        with usage.scope(episode=n if kind in ("write", "board", "state", "check", "fixes", "recheck", "rework", "hook", "openings", "opening_drafts", "plot_one", "cue_sheet", "cue_run", "cues") else None, task=kind):
+        with usage.scope(episode=n if kind in ("write", "board", "state", "check", "fixes", "recheck", "rework", "hook", "openings", "opening_drafts", "plot_one", "cue_sheet", "cue_run", "cues",
+                                       "fix_one", "recheck_one", "illust", "illust_render") else None, task=kind):
             job = jobs.start(name, kind, n, label, _keep_pending(name, kind, n, label, fn, target), total=total, owned=owned, target=target)
     except jobs.Busy as b:
         return {**b.job.public(), "already": True}
@@ -3548,9 +3715,10 @@ def get_job(jid: str) -> dict:
 def write_episode(name: str, n: int) -> Project:
     p = _load(name)
     _not_auto(name)
-    llm, cut, rec = get_llm("write"), [], []
-    text = pipeline.write_episode(llm, p, n, cut=cut, sent=rec)
-    pipeline.replace_text(p.episode(n), text, written_by=pipeline.writer_of(llm), meta_cut=cut)  # 지금 본문이 있으면 '이전 판'에 남는다
+    llm, cut, rec, ruled = get_llm("write"), [], [], []
+    text = pipeline.write_episode(llm, p, n, cut=cut, sent=rec, ruled=ruled)
+    pipeline.replace_text(p.episode(n), text, written_by=pipeline.writer_of(llm), meta_cut=cut,
+                          rule_runs=ruled)  # 지금 본문이 있으면 '이전 판'에 남는다
     cue.mark_used(p, n, True)
     anchor.stamp(p, n)
     with jobs.project_lock(name):
@@ -3561,6 +3729,7 @@ def write_episode(name: str, n: int) -> Project:
 class Text(BaseModel):
     text: str
     base: str | None = None  # 이 고침을 시작한 저장 본문. 주면 지금 저장 본문과 맞춰 보고, 없으면(옛 화면 · 명령줄) 맞춰 보지 않는다
+    source: Literal["", "import"] = ""  # import: 작업지시서 화면에 붙여 넣은 밖의 AI 본문 (고침 규칙을 건다). 비우면 작가가 친 글
 
 
 @app.put("/api/projects/{name}/episodes/{n}/text")
@@ -3571,12 +3740,30 @@ def put_text(name: str, n: int, body: Text, force: bool = False) -> Project:
     _text_guard(name, n)
     p = _load(name)
     ep = p.episode(n)
+    stale = JSONResponse({"detail": f"다른 탭이나 기기에서 {n}화 본문을 먼저 저장했어요. 다시 불러와 그 본문을 보거나, 내 고침으로 덮어쓰세요",
+                          "code": "stale_text"}, status_code=409)
     if body.base is not None and not force and body.base.strip() != ep.text.strip():
-        return JSONResponse({"detail": f"다른 탭이나 기기에서 {n}화 본문을 먼저 저장했어요. 다시 불러와 그 본문을 보거나, 내 고침으로 덮어쓰세요",
-                             "code": "stale_text"}, status_code=409)
+        return stale
     if ep.status == "draft":
         raise ValueError(f"{n}화 플롯을 먼저 확정하세요")
     text = body.text.strip()
+    if body.source == "import" and text:  # 밖의 AI 가 쓴 본문: 명령줄 import 와 같이 고침 규칙을 걸고 지금 본문은 '이전 판'에 남긴다
+        if ep.status == "confirmed":
+            pipeline.require_previous(p, n)
+        runs: list[RuleRun] = []
+        text = pipeline.apply_rules(p, text, "import", runs)  # 규칙 걸기는 몇 초 걸릴 수 있어 잠그기 전에 한다
+        with jobs.project_lock(name):  # 그사이 다른 저장이 있었을 수 있어 잠그고 다시 읽어 확인한 뒤 바꾼다
+            _text_guard(name, n)  # 규칙을 거는 사이 그 화를 쓰는 작업이 시작됐을 수 있다
+            p = store.load(name)
+            ep = p.episode(n)
+            if body.base is not None and not force and body.base.strip() != ep.text.strip():
+                return stale
+            if ep.status == "draft":
+                raise ValueError(f"{n}화 플롯을 먼저 확정하세요")
+            if ep.status == "confirmed":
+                pipeline.require_previous(p, n)
+            pipeline.replace_text(ep, text, written_by="import", rule_runs=runs)
+            return _save_locked(name, p)
     if ep.status == "finalized":  # 반영이 끝난 화도 고친다. 반영된 상태는 그대로 두고 반영 뒤 고침으로 표시한다
         if not text:
             raise ValueError(f"{n}화는 상태 반영이 끝나 본문을 비울 수 없어요")
@@ -3587,7 +3774,7 @@ def put_text(name: str, n: int, body: Text, force: bool = False) -> Project:
     if text and ep.status == "confirmed":  # 손으로 쓰거나 붙여 넣은 본문도 AI 쓰기와 같은 순서 규칙을 따른다
         pipeline.require_previous(p, n)
     if not ep.text or not text:  # 빈 화에 넣은 본문은 직접 쓴 것인지 채팅 앱에서 붙여 넣은 것인지 몰라 모델을 비운다
-        ep.written_by, ep.meta_cut = "", []
+        ep.written_by, ep.meta_cut, ep.rule_runs = "", [], []  # 판을 남기지 않으므로 고침 규칙 기록도 비운다
     pipeline.record_typed(p, n, ep.text, text)
     ep.text = text
     ep.status = "written" if ep.text else "confirmed"
@@ -4373,7 +4560,35 @@ def keep_illust_look(name: str, n: int, iid: str, body: KeepLook) -> Project:
 @app.delete("/api/projects/{name}/episodes/{n}/illust/{iid}")
 def delete_illust(name: str, n: int, iid: str) -> Project:
     _load(name).episode(n)
-    return _edit(name, lambda p: pipeline.remove_illustration(p, n, iid))
+
+    def drop(p: Project) -> None:
+        pipeline.remove_illustration(p, n, iid)
+        comfy.prune(name, p)  # 지운 삽화의 그림 파일. 작품 잠금 안에서 지워 함께 도는 그리기의 새 파일을 지우지 않는다
+    return _edit(name, drop)
+
+
+# ComfyUI 로 그리기 (canon/comfy.py). 그리기는 작업 illust_render 이고, 여기는 설정 · 그림 파일 · 그림 지우기다
+
+@app.get("/api/comfy")
+def comfy_status() -> dict:
+    return comfy.status()
+
+
+@app.get("/api/projects/{name}/illust-images/{file}")
+def illust_image(name: str, file: str) -> FileResponse:
+    if not store.exists(name):
+        raise KeyError(f"작품이 없어요: {name}")
+    return FileResponse(comfy.image_path(name, file), media_type="image/png", headers={"Cache-Control": "private, max-age=31536000, immutable"})
+
+
+@app.delete("/api/projects/{name}/episodes/{n}/illust/{iid}/images/{file}")
+def delete_illust_image(name: str, n: int, iid: str, file: str) -> Project:
+    _load(name).episode(n)
+
+    def drop(p: Project) -> None:
+        comfy.remove_image(p, n, iid, file)
+        comfy.prune(name, p)
+    return _edit(name, drop)
 
 
 class VoiceRequest(BaseModel):
@@ -4429,7 +4644,7 @@ def _sent_note(rec: sent.SentPrompt, text: str) -> str:
     if rec.masked:
         parts.append(f"비밀 값 {rec.masked}개를 가렸어요")
     if not sent.matches(rec, text):
-        parts.append("그 뒤로 본문이 바뀌었어요 (직접 고침 · 판 되돌리기 · 백업 되돌리기)")
+        parts.append("그 뒤로 본문이 바뀌었어요 (직접 고침 · 규칙 되돌리기 · 판 되돌리기 · 백업 되돌리기)")
     return " · ".join(x for x in parts if x) + "."
 
 
@@ -4465,14 +4680,16 @@ def parse_state(name: str, n: int, body: Raw) -> StateDelta:
 def import_check(name: str, n: int, body: Raw) -> Project:
     """채팅 앱이 돌려준 검수 결과 JSON 을 회차 하나로 합친다 (검수 지시서, 회차 source chat).
     상태 변경안 가져오기와 같은 규칙으로 읽는다."""
-    _load(name).episode(n)
+    q0 = _load(name)
+    q0.episode(n)
     data = _json_object(body.raw)
     data["episode"] = n
     try:
         rep = ConsistencyReport.model_validate(data)
     except ValidationError as e:
         raise HTTPException(400, _validation_text(e))
-    return _edit(name, lambda q: pipeline.apply_check(q, rep, "chat"))
+    pre = pipeline.check_hits(q0, n)  # 정규식 경고 규칙은 잠그기 전에 건다
+    return _edit(name, lambda q: pipeline.apply_check(q, rep, "chat", hits=pre))
 
 
 class FindingIn(BaseModel):
@@ -5842,7 +6059,7 @@ def brief(name: str, n: int, kind: str = "episode") -> BriefText:
 # ---------- 기능별 라우트 (canon/routes/) ----------
 # 각 모듈은 위의 도우미를 web 에서 불러 쓰므로 맨 끝 가까이에서 부른다. 시험이 web 을 다시 불러오면(reload) 라우트 모듈도 다시 불러온다.
 # 모듈이 정한 이름은 web 에도 둔다(web.<이름> 으로 부르는 코드와 시험이 그대로 돈다). 붙이는 차례는 옮기기 전 web.py 의 차례다
-ROUTES = ("studio", "promptlab", "refs", "atlas", "revlab", "soelab", "play", "research")
+ROUTES = ("studio", "promptlab", "prompts", "refs", "atlas", "revlab", "soelab", "play", "research", "regexrules")
 
 
 _ROUTERS: list = []  # 붙인 라우트 모듈의 router. app.routes 에는 감싼 모양(_IncludedRouter)으로만 들어간다

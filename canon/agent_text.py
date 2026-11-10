@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 
 from . import jobs, pipeline, prompts
 from .llm import get_llm
-from .schema import (AgentSession, AgentTurn, Approval, PassageRevision, PlotAgentStep, Project, Selection, StepRecord, ToolArg,
+from .schema import (AgentSession, AgentTurn, Approval, PassageRevision, PlotAgentStep, Project, RuleRun, Selection, StepRecord, ToolArg,
                      WriteItem, WriteRecord)
 
 TOOL = "revise_text"
@@ -122,7 +122,7 @@ def prepare(name: str, p: Project, s: AgentSession, turn: AgentTurn, step: PlotA
         out.error = why
         return out
     try:
-        out.rev = pipeline.revise_passage(get_llm("revise"), p, out.n, out.sel, out.message, out.preset)
+        out.rev = pipeline.revise_passage(get_llm("revise"), p, out.n, out.sel, out.message, out.preset, rules=True)  # 'AI에게 고치기'와 같이 후보에 고침 규칙을 건다
     except (ValueError, KeyError) as e:
         out.error = str(e).strip("'")
     return out
@@ -185,6 +185,10 @@ def decide(p: Project, s: AgentSession, turn: AgentTurn, approve: bool, picked: 
                 raise ValueError("넣을 글이 비었어요")
             edit = pipeline.edit_text(p, n, a.selection, after, "ai", instruction=turn.user, preset=a.preset, proposed=cands[k].text,
                                       rejected=[c.text for j, c in enumerate(cands) if j != k])
+            cand = cands[k].text  # 넣은 글에 아직 남은 규칙 고침만 apply_passage 처럼 기록한다
+            spots = pipeline.still_ruled(cands[k].ruled, after, after == cand.strip(), -(len(cand) - len(cand.lstrip())))
+            if spots:
+                pipeline.add_run(p.episode(n), RuleRun(kind="passage", changes=[c.model_copy(update={"start": edit.start + c.start}) for c in spots]))
         name = f"{n}화 본문 · {k + 1}번 후보{' (손봄)' if text is not None and text.strip() != a.passage.candidates[k].text else ''}"
         turn.writes.append(WriteRecord(tool=TOOL, episode=n, edit=edit.id, items=[WriteItem(key="text", label=name)]))
         a.state, a.picked = "approved", [str(k)]

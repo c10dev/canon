@@ -9,7 +9,7 @@
   undo 는 setupchat.undo_revision 으로 그 뒤에 다시 고치지 않은 부분만 돌린다.
 - 관계 수치(affinity · tension)는 AI 가 적지 않는다. 새 관계의 수치는 0 으로 두고, 시작 관계는 보는 방식(a_view · b_view)으로 계산한다.
 agent.py 의 CARD_TOOLS 가 이 모듈을 등록한다 (훅 이름은 agent_text.py 머리). 오래된 턴의 쓰기 전 설정은 compact 가 지운다.
-옛 단발 설정 대화(setupchat.record · chat_send)는 04b~04d 가 다 들어올 때까지 그대로 둔다.
+옛 단발 설정 대화의 보내기(chat_send 'setup')는 04e 에서 지웠다. setupchat.record · apply · undo 는 명령줄(cli.py)과 옛 기록의 적용 취소가 쓰므로 남긴다.
 """
 from __future__ import annotations
 

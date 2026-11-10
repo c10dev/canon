@@ -36,7 +36,7 @@ def test_fit_fills_gaps_drops_outside_and_clamps():
     assert got[0].level == 0 and got[0].kind == ""  # 첫 줄을 쓰고 정점이 아니면 종류를 지운다
     assert got[2].level == 5 and got[2].kind == "관객 앞"
     assert (got[1].level, got[1].role) == (heatplan.FILL_LEVEL, heatplan.FILL_ROLE)
-    assert notes == ["범위(1~4화) 밖의 7화를 열 계획에서 뺐어요", "열 계획에 없던 2 · 4화를 열 2 · 쌓기로 채웠어요"]
+    assert notes == ["범위(1~4화) 밖의 7화를 완급 계획에서 뺐어요", "완급 계획에 없던 2 · 4화를 세기 2 · 쌓기로 채웠어요"]
 
 
 def test_fit_keeps_empty_plan_empty():
@@ -171,7 +171,7 @@ def test_cli_confirm_prints_heat_warnings(capsys):
     p = _work(pays={4: ["s1"], 5: [], 7: ["s2", "c1"]})
     store.save("heat-cli", p)
     cli.main(["confirm", "heat-cli", "4"])
-    assert "열 계획: 4화 플롯이 거두는 관객" in capsys.readouterr().out
+    assert "완급 계획: 4화 플롯이 거두는 관객" in capsys.readouterr().out
 
 
 # ---------- 서버: 복선 갈래 고치기, 저장 때 계획 맞추기 ----------

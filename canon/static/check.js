@@ -3,7 +3,8 @@
    오른쪽 지적 상세(근거 · 심각도 · 처리 상태 · 메모 · 처리 기록). 지적을 누르면 본문이 그 문장으로 옮겨 가고 문장에서 고치는 창이 뜬다
    (passage.js 의 떠 있는 도구, mode 'finding'): AI 고침안 비교와 적용(딸린 곳 포함), 묶음 되돌리기, 이 지적만 다시 검수, 다른 처리 길.
    지적과 회차는 서버 findings.merge 가 만든다 (Episode.findings · rounds). 상태 · 심각도 바꾸기는 PUT …/findings/{id},
-   고침안 POST …/findings/{id}/fixes · …/fixes/{k}/apply, 되돌리기 POST …/fix-groups/{묶음}/undo, 다시 검수 POST …/findings/{id}/recheck,
+   고침안 받기(작업 'fix_one') · 넣기 POST …/fixes/{k}/apply, 되돌리기 POST …/fix-groups/{묶음}/undo,
+   이 지적만 다시 검수(작업 'recheck_one', 장면 연출 규칙 · 정규식 지적은 AI 없이 POST …/findings/{id}/recheck),
    고친 곳만 다시 보기(작업 'recheck', 지난 검수 뒤 고침안을 넣은 열린 지적이 있을 때 머리의 주 버튼, home.js 의 fixRecheckTargets),
    한꺼번에: 열린 지적 모두 고침안 받기(작업 'fixes') → 고침안 한꺼번에 검토(지적마다 고르고 고른 것만 POST …/fixes/apply),
    문체 지표는 GET …/style. app.js 의 S, P, actions, api, render, run, home.js 의 checkState, write.js 의 epNav · nextStepBtn,
@@ -44,6 +45,56 @@ JOB_DONE_MSG.recheck = (j) => {
 JOB_PAGES.recheck = ['check'];
 JOB_LINK.recheck = (j) => `#/p/${enc(j.project)}/check/${j.ep}`;
 
+// 지적 하나의 AI 고침안 받기 · 이 지적만 다시 검수는 백그라운드 작업으로 돈다 (web._job_finding_ai). 기다리는 동안 다른 지적을 읽고 고칠 수 있다.
+// 대상은 지적 id 이고 화마다 새로 매기므로 버튼 잠금(JOB_BTNS)에 화를 함께 준다. 같은 화의 검수 · 고침안 한꺼번에 받기 · 고친 곳만 다시 보기와는
+// 함께 돌지 않는다 (web._finding_clash). 장면 연출 규칙 · 정규식 지적의 '판정 다시 보기'는 AI를 부르지 않아 그대로 바로 한다
+JOB_PAGES.fix_one = ['check'];
+JOB_PAGES.recheck_one = ['check'];
+JOB_LINK.fix_one = (j) => `#/p/${enc(j.project)}/check/${j.ep}`;
+JOB_LINK.recheck_one = (j) => `#/p/${enc(j.project)}/check/${j.ep}`;
+JOB_DONE_MSG.fix_one = (j) => `${j.ep}화 지적 ${j.target}의 고침안 ${(j.result || {}).fixes || 0}개가 도착했어요.`;
+JOB_DONE_MSG.recheck_one = (j) => `${j.ep}화 지적 ${j.target}${josa(j.target, '을', '를')} 다시 검수했어요.`;
+// 버튼은 jobBtn 으로 그린다 (fixPanel · recheckBtn). 고치는 창(#sel-tool)이 #app 밖이라 lockJobBtns(JOB_BTNS)가 닿지 않는다
+/** 끝난 지적 작업(fix_one · recheck_one)의 지적을 지금 보고 있다: 그 화 검수 칸에서 그 지적을 골라 두었다 */
+const onFinding = (n, fid) => S.route[2] === 'check' && Number(S.route[3]) === n && S.chkSel[n] === fid;
+/** 지적 작업의 알림 버튼 '보기': 그 화 검수 칸에서 그 지적을 고르고 고치는 창을 연다 */
+const findingGo = (n, fid) => ({ label: '보기', run: () => {
+  S.chkSel[n] = fid;
+  const there = S.route[2] === 'check' && Number(S.route[3]) === n;
+  if (ep(n)) afterFix(n, fid, S.project);
+  if (there) render(); else location.hash = `${base()}/check/${n}`;
+} });
+/** 고침안이 왔다: 작가가 그 지적을 보고 있고 칸을 고치는 중이 아니면 옛 동작처럼 고치는 창을 그 지적으로 연다. 아니면 알림의 '보기'로 연다 */
+JOB_RESULT.fix_one = (j) => {
+  const n = j.ep;
+  const fid = j.target;
+  if (!ep(n) || !(ep(n).findings || []).some((f) => f.id === fid)) return null;
+  if (onFinding(n, fid) && !isTyping()) { afterFix(n, fid, S.project); return null; }
+  return { actions: [findingGo(n, fid)] };
+};
+/** 이 지적만 다시 검수 결과: 옛 동작과 같은 알림. 새로 생긴 딸린 지적이 있고 작가가 그 지적을 보고 있으면 고치는 창을 딸린 지적으로 옮긴다 */
+JOB_RESULT.recheck_one = (j) => {
+  const n = j.ep;
+  const r = j.result || {};
+  const f = ep(n) && (ep(n).findings || []).find((x) => x.id === j.target);
+  if (!f) return null;
+  const kids = (r.kids || []).filter((id) => (ep(n).findings || []).some((x) => x.id === id));
+  const head = `${n}화 지적 ${f.id}: `;
+  if (kids.length) {
+    if (onFinding(n, f.id) && !isTyping()) {
+      S.chkSel[n] = kids[0];
+      S.chkFilter = 'open';
+      afterFix(n, kids[0], S.project);  // 고치는 창을 새로 생긴 딸린 지적으로 옮긴다
+      return { msg: `${head}${r.resolved ? '풀렸어요. ' : ''}고친 문장 때문에 새로 어긋난 곳 ${kids.length}개를 딸린 지적으로 더했어요` };
+    }
+    return { msg: `${head}${r.resolved ? '풀렸어요. ' : ''}고친 문장 때문에 새로 어긋난 곳 ${kids.length}개를 딸린 지적으로 더했어요`, actions: [findingGo(n, kids[0])] };
+  }
+  if (r.resolved) return { msg: `${head}풀렸어요. 고침으로 닫았어요` };
+  // 다시 검수의 보통 결과라 오류로 띄우지 않는다. 그 지적의 처리 기록으로 가는 버튼을 붙인다
+  const log = onFinding(n, f.id) ? { label: '처리 기록 보기', run: showFindingLog } : findingGo(n, f.id);
+  return { msg: `${head}아직 어긋나요. 처리 기록에 까닭을 남겼어요`, actions: [log] };
+};
+
 // 서버 schema.FINDING_STATUS · SEVERITY 와 같은 이름
 const FINDING_STATUS = { open: '열림', fixed: '고침', kept: '그대로 둠', wrong: '잘못 짚음' };
 const SEVERITY = { crit: '치명', mid: '보통', low: '사소' };
@@ -55,8 +106,22 @@ const FINDING_FLAG = { changed: '문장 바뀜', miss: '이번 회차에서 안 
 const ROUND_CHANGE = { new: '새로 나옴', again: '다시 나옴', gone: '사라짐' };
 
 /** 지적 옆 표시. findings.merge · settle 이 남긴 칸(first · last · closed_by)과 지금 본문(저장 전 글 포함)으로 센다. */
-/** 장면 연출 규칙 판정이 낸 지적 (schema.ConsistencyIssue.origin). */
-const ruleChip = (f) => f.origin === 'rule' ? '<span class="chip" title="장면 연출 규칙 판정이 짚었어요 (AI 검수가 아니에요)">규칙</span>' : '';
+/** 장면 연출 규칙 판정(origin rule)이나 정규식 경고 규칙(origin regex, regexrules.hits)이 낸 지적의 표시 (schema.ConsistencyIssue.origin).
+    정규식 지적의 description 은 규칙 이름이고, 이름이 없으면 서버가 '정규식 규칙에 걸렸어요' 를 넣는다 */
+const REGEX_NONAME = '정규식 규칙에 걸렸어요';
+const regexName = (f) => (f.description && f.description !== REGEX_NONAME ? f.description : '');
+const ruleChip = (f) => (f.origin === 'rule' ? '<span class="chip" title="장면 연출 규칙 판정이 짚었어요 (AI 검수가 아니에요)">규칙</span>'
+  : f.origin === 'regex' ? `<span class="chip" title="작품에 켠 정규식 경고 규칙이 짚었어요 (AI 검수가 아니에요)">정규식${regexName(f) ? ` · ${esc(regexName(f))}` : ''}</span>` : '');
+/** 지적 목록 줄의 근거 글: 정규식 지적은 근거 쪽이 없다 */
+const srcLine = (n, f) => (f.origin === 'regex' ? '정규식 규칙' : `근거 · ${srcLabel(n, f)}`);
+/** '판정 다시 보기'(AI 없이 다시 판정) 버튼 글과 풀이. 정규식 지적은 지금 본문에 그 규칙만 다시 건다 */
+const RECHECK_LOCAL = { rule: ['판정 다시 보기', 'AI를 부르지 않고 지금 본문 장면으로 판정만 다시 해요'], regex: ['판정 다시 보기', 'AI를 부르지 않고 지금 본문에 이 경고 규칙만 다시 걸어 봐요'] };
+const recheckBtn = (f, busy = false) => {
+  const [label, why] = RECHECK_LOCAL[f.origin] || ['이 지적만 다시 검수', ''];
+  // AI 검수 지적은 작업 recheck_one 이 도는 동안 '만드는 중'으로 잠근다. 고치는 창(#sel-tool)은 #app 밖이라 lockJobBtns 가 닿지 않아 여기서 그린다
+  const b = why ? { label, attr: '' } : jobBtn('recheck_one', chkEp(), label, S.name, f.id);
+  return `<button type="button" class="btn small" data-action="chkRecheck" data-arg="${esc(f.id)}"${why ? ` title="${why}"` : ''}${b.attr}${busy ? ' disabled' : ''}>${b.label}</button>`;
+};
 
 /** 규칙 지적의 '장면 연출에서 보기': 그 사건 본문 장면의 그 박자로 (stage.js 의 S.stgJump). */
 function stageLink(n, f) {
@@ -367,7 +432,7 @@ function chkList(n, e, text, sel, checkBtn) {
       const child = f.parent && ids.has(f.parent);
       return `<li><button type="button" class="chk-item${f.status === 'open' ? '' : ' done'}${child ? ' child' : ''}" aria-current="${f.id === sel}" data-action="chkSel" data-arg="${esc(f.id)}">
         <span class="row" style="gap:4px"><span class="chip ${SEV_CHIP[f.severity] || 'warn'}">${SEVERITY[f.severity] || '보통'}</span><span class="chip">${esc(f.type)}</span>${ruleChip(f)}<span class="chip ${FINDING_CHIP[f.status]}">${FINDING_STATUS[f.status]}</span>${no && changes[f.id] ? `<span class="chip">${ROUND_CHANGE[changes[f.id]]}</span>` : ''}${flag ? `<span class="chip${flag === 'changed' ? ' warn' : ''}">${FINDING_FLAG[flag]}</span>` : ''}${f.parent ? '<span class="chip">고치다 생김</span>' : ''}</span>
-        <span class="chk-desc">${esc(f.description)}</span><span class="small">근거 · ${esc(srcLabel(n, f))}</span></button></li>`;
+        <span class="chk-desc">${esc(f.description)}</span><span class="small">${esc(srcLine(n, f))}</span></button></li>`;
     }).join('')}</ul>`
       : no ? `${caption}<div class="empty" style="padding:16px 8px"><p class="small">${no}회차는 지적 목록을 남기지 않은 예전 회차예요.</p></div>`
       : base.length ? `${bar}<div class="empty" style="padding:16px 8px"><p class="small">거른 조건에 맞는 지적이 없어요.</p><button type="button" class="btn small" data-action="chkNarrowOff">거르기 끄기</button></div>`
@@ -397,9 +462,10 @@ function chkDetail(n, e, text, sel) {
     <h3 class="chk-title">${esc(f.description)}</h3>
     ${parent ? `<div class="small">원래 지적(${esc(findingShort(parent))})을 고친 문장 때문에 새로 어긋났어요. <button type="button" class="btn small ghost" data-action="chkSel" data-arg="${esc(parent.id)}">원래 지적 보기</button></div>` : ''}
     ${q ? `<div class="field"><span class="small">이번 화</span><blockquote class="chk-quote now">${esc(q)}</blockquote>${spot && !spot.near ? '' : `<div class="small">${spot ? '지금 본문에서는 비슷한 문장을 짚어 두었어요. 이미 고쳤을 수 있어요.' : '지금 본문에서 찾을 수 없어요. 이미 고쳤을 수 있어요.'}</div>`}</div>` : ''}
-    ${f.source_quote ? `<div class="field"><span class="small">근거 · ${src}</span><blockquote class="chk-quote">${esc(f.source_quote)}</blockquote></div>` : ''}
+    ${f.origin === 'regex' ? `<div class="field"><span class="small">정규식${regexName(f) ? ` · ${esc(regexName(f))}` : ''}</span><code class="chk-pattern">${esc(f.source_quote || '')}</code></div>`
+    : f.source_quote ? `<div class="field"><span class="small">근거 · ${src}</span><blockquote class="chk-quote">${esc(f.source_quote)}</blockquote></div>` : ''}
     ${f.suggestion ? `<div class="field"><span class="small">고칠 방향</span><div style="font-size:0.8125rem;line-height:1.55">→ ${esc(f.suggestion)}</div></div>` : ''}
-    ${spot && can ? `<div class="row"><button type="button" class="btn small" data-action="chkOpen" data-arg="${esc(f.id)}">문장에서 고치기</button>${f.status === 'open' ? `<button type="button" class="btn small" data-action="chkRecheck" data-arg="${esc(f.id)}"${f.origin === 'rule' ? ' title="AI를 부르지 않고 지금 본문 장면으로 판정만 다시 해요"' : ''}>${f.origin === 'rule' ? '판정 다시 보기' : '이 지적만 다시 검수'}</button>` : ''}</div>` : ''}
+    ${spot && can ? `<div class="row"><button type="button" class="btn small" data-action="chkOpen" data-arg="${esc(f.id)}">문장에서 고치기</button>${f.status === 'open' ? recheckBtn(f) : ''}</div>` : ''}
     ${stageLink(n, f)}
     <div class="field"><span class="small">심각도 · AI가 정하고 작가가 바꿔요</span><div class="seg chk-seg3" role="group" aria-label="심각도">${sev}</div></div>
     <div class="field"><span class="small">처리</span><div class="seg chk-seg" role="group" aria-label="처리 상태">${seg}</div></div>
@@ -448,15 +514,17 @@ function fixPanel(n, fid) {
   }
   const applied = fixApplied(e, f);
   const fixes = f.fixes || [];
+  const regex = f.origin === 'regex';  // 정규식 지적은 근거 쪽이 없다 (정할 것 18)
   const ways = `<div class="fix-ways">
-      <div class="fix-way"><strong>근거 쪽이 틀렸어요</strong><span class="small">근거(${esc(srcLabel(n, f))})를 고치는 게 맞으면 그곳으로 가요</span>${f.source_episode && f.source_episode !== n ? `<a class="btn small" href="${base()}/write/${f.source_episode}">${f.source_episode}화 본문 열기</a>` : f.source_episode === n ? '<span class="small">같은 화 앞 문장이에요. 본문에서 바로 고치세요</span>' : `<a class="btn small" href="${base()}/setup">설정 열기</a>`}</div>
+      ${regex ? '' : `<div class="fix-way"><strong>근거 쪽이 틀렸어요</strong><span class="small">근거(${esc(srcLabel(n, f))})를 고치는 게 맞으면 그곳으로 가요</span>${f.source_episode && f.source_episode !== n ? `<a class="btn small" href="${base()}/write/${f.source_episode}">${f.source_episode}화 본문 열기</a>` : f.source_episode === n ? '<span class="small">같은 화 앞 문장이에요. 본문에서 바로 고치세요</span>' : `<a class="btn small" href="${base()}/setup">설정 열기</a>`}</div>`}
       <div class="fix-way"><strong>일부러 그렇게 썼어요</strong><span class="small">그대로 둠으로 두고 이유를 남겨요. 다시 나와도 결정이 지켜져요</span><button type="button" class="btn small" data-action="setFinding" data-arg="${esc(f.id)}:kept"${busy ? ' disabled' : ''}>그대로 둠</button></div>
-      <div class="fix-way"><strong>AI가 잘못 짚었어요</strong><span class="small">모순이 아니에요. 다시 나와도 결정이 지켜져요</span><button type="button" class="btn small" data-action="setFinding" data-arg="${esc(f.id)}:wrong"${busy ? ' disabled' : ''}>잘못 짚음</button></div>
+      <div class="fix-way"><strong>${regex ? '규칙이 잘못 짚었어요' : 'AI가 잘못 짚었어요'}</strong><span class="small">${regex ? '이 문장은 이 규칙에 해당하지 않아요' : '모순이 아니에요'}. 다시 나와도 결정이 지켜져요</span><button type="button" class="btn small" data-action="setFinding" data-arg="${esc(f.id)}:wrong"${busy ? ' disabled' : ''}>잘못 짚음</button></div>
     </div>`;
-  const tools = `<div class="row"><button type="button" class="btn small" data-action="fixGet" data-arg="${esc(f.id)}"${busy ? ' disabled' : ''}>${fixes.length ? '고침안 다시 받기' : 'AI 고침안 받기'}</button>
+  const fb = jobBtn('fix_one', n, fixes.length ? '고침안 다시 받기' : 'AI 고침안 받기', S.name, f.id);  // 고치는 창은 #app 밖이라 작업 상태를 여기서 그린다
+  const tools = `<div class="row"><button type="button" class="btn small" data-action="fixGet" data-arg="${esc(f.id)}"${fb.attr}${busy ? ' disabled' : ''}>${fb.label}</button>
       <button type="button" class="btn small" data-action="selManual">직접 고치기</button>${f.suggestion ? `<button type="button" class="btn small" data-action="issueAsk" data-arg="${esc(f.id)}">대화로 고치기</button>` : ''}</div>`;
   const done = applied ? `<div class="note info fix-done"><span>고침안을 넣었어요. 고친 문장이 다른 곳과 어긋나지 않는지 이 지적만 다시 물어볼 수 있어요.</span>
-      <span class="row" style="gap:6px"><button type="button" class="btn small" data-action="fixUndo" data-arg="${esc(f.fix_group)}"${busy ? ' disabled' : ''}>한 번에 되돌리기</button><button type="button" class="btn small" data-action="chkRecheck" data-arg="${esc(f.id)}"${busy ? ' disabled' : ''}>이 지적만 다시 검수</button></span></div>` : '';
+      <span class="row" style="gap:6px"><button type="button" class="btn small" data-action="fixUndo" data-arg="${esc(f.fix_group)}"${busy ? ' disabled' : ''}>한 번에 되돌리기</button>${recheckBtn(f, busy)}</span></div>` : '';
   const list = fixes.length && !applied
     ? `<span class="small">본문을 고칠게요 · AI 고침안 ${fixes.length}개</span><ol class="fix-list">${fixes.map((o, k) => fixOptionHtml(n, e, f, o, k, text, busy)).join('')}</ol>` : '';
   return `${head}${done}${list}${applied ? '' : tools}${ways}`;
@@ -845,14 +913,18 @@ Object.assign(actions, {
     S.fixSkip[key] = [...skip].sort((a, b) => a - b);
     showTool();
   },
+  /** AI 고침안 받기 (작업 'fix_one'). 옛 동작처럼 묻지 않고 저장하고, 본문도 먼저 저장한다 (AI는 저장된 본문을 읽는다) */
   async fixGet(id) {
     const n = chkEp();
-    await run('고침안을 받는 중', async () => {
+    try {
       await saveIfDirty();
       await flushText(n);
-      Object.keys(S.fixSkip).filter((k) => k.startsWith(`${n}:${id}:`)).forEach((k) => delete S.fixSkip[k]);
-      afterFix(n, id, await api('POST', `/projects/${enc(S.name)}/episodes/${n}/findings/${enc(id)}/fixes`));
-    });
+    } catch (err) {
+      showError(err);
+      return;
+    }
+    Object.keys(S.fixSkip).filter((k) => k.startsWith(`${n}:${id}:`)).forEach((k) => delete S.fixSkip[k]);
+    await startJob('fix_one', n, { target: id }, { quiet: true });
   },
   async fixApply(arg) {
     const n = chkEp();
@@ -990,10 +1062,24 @@ Object.assign(actions, {
       toast(left ? `${before - left}곳을 되돌렸어요. ${left}곳은 그 뒤에 또 고쳐 남겼어요` : '고침안을 되돌렸어요');
     });
   },
+  /** 이 지적만 다시 검수. AI 검수 지적은 작업 'recheck_one' 으로 돌고(결과는 JOB_RESULT.recheck_one), 장면 연출 규칙 · 정규식 지적은 AI 없이 바로 판정한다 */
   async chkRecheck(id) {
     const n = chkEp();
     const had = new Set((ep(n).findings || []).map((f) => f.id));
-    await run('이 지적만 다시 검수하는 중', async () => {
+    const origin = ((ep(n).findings || []).find((x) => x.id === id) || {}).origin;
+    const regex = origin === 'regex';
+    if (origin !== 'rule' && !regex) {
+      try {
+        await saveIfDirty();
+        await flushText(n);
+      } catch (err) {
+        showError(err);
+        return;
+      }
+      await startJob('recheck_one', n, { target: id }, { quiet: true });
+      return;
+    }
+    await run('판정 다시 보는 중', async () => {
       await saveIfDirty();
       await flushText(n);
       afterFix(n, id, await api('POST', `/projects/${enc(S.name)}/episodes/${n}/findings/${enc(id)}/recheck`));
@@ -1005,7 +1091,9 @@ Object.assign(actions, {
         afterFix(n, kids[0].id, S.project);  // 고치는 창을 새로 생긴 딸린 지적으로 옮긴다
         toast(`${f.status === 'fixed' ? '풀렸어요. ' : ''}고친 문장 때문에 새로 어긋난 곳 ${kids.length}개를 딸린 지적으로 더했어요`);
       } else if (f.status === 'fixed') {
-        toast('풀렸어요. 고침으로 닫았어요');
+        toast(regex ? '이 규칙에 더 걸리지 않아요. 고침으로 닫았어요' : '풀렸어요. 고침으로 닫았어요');
+      } else if (regex) {
+        toast('아직 이 규칙에 걸려요. 처리 기록에 남겼어요', false, { actions: [{ label: '처리 기록 보기', run: showFindingLog }] });
       } else {
         // 다시 검수의 보통 결과라 오류로 띄우지 않는다. 처리 기록으로 가는 버튼을 붙인다
         toast('아직 어긋나요. 처리 기록에 까닭을 남겼어요', false, { actions: [{ label: '처리 기록 보기', run: showFindingLog }] });

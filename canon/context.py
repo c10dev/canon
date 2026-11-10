@@ -578,11 +578,13 @@ SHORT_TAIL = rf"(?:{_alt(_TITLES)})?(?:{_alt(_JOSA)})?(?:{_alt(_FOCUS)})?(?![가
 def name_pattern(c: Character) -> re.Pattern | None:
     """인물 이름을 찾는 정규식. 세 글자 한국 이름은 성을 뗀 이름도, 띄어 쓴 이름은 첫 낱말도 (2글자 이상, '마르타 부인' → '마르타').
     이름 바로 앞이 한글 · 영문이면 다른 낱말의 일부로 본다 ('김민정' 속 '민정'). 두 글자 이상은 조사가 뒤에 붙으므로 뒤는 보지 않는다.
-    한 글자 이름('진')은 다른 낱말 머리에 들기 쉬워('진짜') 뒤에 호칭 · 조사만 오고 낱말이 끝나야 한다(SHORT_TAIL)."""
+    한 글자 이름('진')은 다른 낱말 머리에 들기 쉬워('진짜') 뒤에 호칭 · 조사만 오고 낱말이 끝나야 한다(SHORT_TAIL).
+    다른 이름(Character.aliases)은 두 글자 이상만, 작가가 적은 꼴 그대로 더한다 (성 · 첫 낱말을 떼지 않는다)."""
     forms = metrics.name_forms(c.name)
     words = c.name.split()
     if len(words) > 1 and len(words[0]) >= 2:
         forms.append(words[0])
+    forms += [a.strip() for a in c.aliases if len(a.strip()) >= 2]
     forms = sorted({f for f in forms if f}, key=len, reverse=True)
     if not forms:
         return None

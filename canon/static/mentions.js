@@ -2,7 +2,7 @@
    app.js 의 S, P, actions, api, base, enc, esc, charName, passage.js 의 caretXY · editableEp · textNow,
    cast.js 의 castStateOf · castPresent · tieOf · pairOf · tieText · tensionText · SHEET_STATE · TIER_NAME 을 그대로 쓴다.
    밑줄은 marks.js 가 문체 밑줄과 함께 그린다(markHtml). 이름은 정규식 하나로 찾고, 글자를 치는 동안은 앞서 찾은 자리를 옮겨 쓰다가 잠시 멈추면 다시 찾는다.
-   찾는 이름: 인물 이름(Character 에 별칭 칸이 없어 이름만), 인과율 '장소' 요소의 이름 · 다른 이름, 설정 장소 칸(atlas.places 와 같은 키).
+   찾는 이름: 인물 이름(이름만. 다른 이름은 이 화면에서 쓰지 않음), 인과율 '장소' 요소의 이름 · 다른 이름, 설정 장소 칸(atlas.places 와 같은 키).
    카드의 인물 상태와 관계는 서버 /cast 의 화별 프레임에서 '이 화 시작 시점'(이 화보다 앞에 반영한 마지막 화)을 골라 읽는다. 새로 계산하지 않는다.
    받은 프레임은 S.mnCast 에 따로 둔다 (S.cast 에 두면 인물 화면이 주소의 시점을 새로 받은 것으로 보지 않는다). */
 'use strict';

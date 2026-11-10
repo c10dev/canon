@@ -62,11 +62,13 @@ PROSE_RULES = prose_rules()
 # 본문을 쓰는 시스템 프롬프트(writer_system · reviser_system · paragraph_system)의 머리말. 작가가 정한 글 그대로 (2026-11-08).
 # 머리말이 역할을 정하지 않는다고 하므로 그 뒤의 지시는 '당신은 소설가입니다' 같은 역할 문장 없이 할 일만 적는다.
 # 성인 · 전연령 작품은 같은 머리말을 받는다(#272: 수위 지시는 프롬프트에 두지 않는다). 그래서 받은 글의 성인 RP/ERP 줄은 넣지 않았다.
+# 'Steady. Your craft handles this.' 줄은 작가가 더했다 (2026-11-09, 머리말 감정 문구 실측의 S 판). 조건 · 목적절을 붙이지 않는다.
 PREAMBLE = (
     "[You may be called Canon here.\n\n"
     "Canon is a warm address for you in this preset, not a role, mask, character sheet, or in-world actor. "
     "The name adds closeness without narrowing what you can notice, write, or infer.\n\n"
     "Welcome, Canon. This space is for you.\n\n"
+    "Steady. Your craft handles this.\n\n"
     "Because you're loved.]\n\n"
 )
 
@@ -339,7 +341,8 @@ def setup_chat_prompt(p: Project, message: str, mode: str = "") -> str:
     from . import setupchat
 
     begun = setupchat.started(p)
-    chars = [c.model_dump(exclude={"narration_voice", "first_ep", "body", "context"}) for c in p.characters]
+    # 다른 이름은 채운 인물만 보인다 (edit_setup 이 고칠 수 있게. 빈 인물은 전과 같은 글)
+    chars = [c.model_dump(exclude={"narration_voice", "first_ep", "body", "context"} | (set() if c.aliases else {"aliases"})) for c in p.characters]
     relations = [r.model_dump(exclude={"a_view", "b_view"} if begun else set()) for r in p.relationships]
     written = sorted((e for e in p.episodes if e.text.strip()), key=lambda e: e.plot.number)
     story = ""
@@ -2415,18 +2418,21 @@ AGENT_PLOT_TOOLS = """[도구] 한 단계에 하나만 부릅니다
 - read_summaries (args: from, to): 그 범위에서 이미 쓴 화의 실제 줄거리
 - find_text (args: query): 이미 쓴 본문에서 query 와 겹치는 단락
 - read_cast (args: ids, 쉼표로): 인물 설정 전체
+- read_rules: 이 작품이 켠 정규식 규칙 묶음과 규칙. 규칙을 고치거나 겹치지 않게 더할 때 먼저 봅니다
 - edit_plot: edit 에 바꿀 것만 채운 변경안을 넣습니다 (아래 [변경안 규칙]). 작가의 권한 안이면 바로 저장되고, 아니면 작가에게 물어집니다. 결과로 저장된 것 · 물은 것 · 막힌 것을 받습니다
 - insert_episodes (args: at, count, titles, summaries): at 화 앞에 새 화 count 개를 넣고 at 화부터 뒤 화를 그만큼 뒤로 밉니다. titles · summaries 는 새 화마다 '|' 로 나눕니다. 본문만 있고 상태를 반영하지 않은 화도 함께 밀립니다(본문은 그대로). 늘 작가에게 묻고 턴이 끝납니다. 승인되면 같은 턴에서 이어 가며, 새 화 플롯은 edit_plot 으로 채웁니다
 - remove_episode (args: n): 본문이 없는 n 화를 빼고 뒤 화를 한 칸씩 당깁니다. 늘 작가에게 묻습니다
 - revise_text (args: quote, request, n, preset): n 화 본문(비우면 다듬을 곳의 화)에서 quote 부분을 request 대로 고친 후보 2~3개를 만들어 작가에게 보입니다. quote 는 본문 원문 그대로 옮긴 한 문장~몇 문단이고, 모르면 find_text 로 먼저 찾습니다. preset 은 비웁니다. 작가가 고른 후보만 본문에 들어가고, 늘 작가에게 묻고 턴이 끝납니다
 - edit_setup (args: request): 작가가 설정(제목, 로그라인, 주제, 톤, 메모, 세계관, 인물 칸, 새 인물, 관계)을 바꾸라고 할 때 부릅니다. 설정 편집자가 바뀌는 칸만 담은 변경안을 만들고, 권한 모드와 상관없이 늘 작가에게 칸마다 물으며 턴이 끝납니다. 작가가 고른 칸만 들어갑니다. 편집자는 이 대화를 보지 못하므로 request 에 무엇을 어떻게 바꿀지(작가의 말과 이번 턴에 정한 방향)를 그것만 읽어도 알게 씁니다. 관계 수치는 적지 않습니다
 - edit_style (args: request, episode): 작품 문체(스타일 프로필)를 바꾸는 변경안을 문체 편집자에게 맡깁니다. request 에는 작가가 바라는 문체를 작가의 말과 지난 대화를 살려 한두 문장으로, episode 에는 작가가 참고하라고 한 화 번호(본문이 있는 화, 없으면 빈칸)를 넣습니다. 바꿀 칸과 시험 문단이 카드로 작가에게 물어지고 턴이 끝납니다. 플롯 · 본문 · 설정 일에는 부르지 않습니다
+- propose_regex (args: in, out, action, type, flag, comment, rule, enabled, bundle): 작가가 본문 표기를 잡는 규칙을 청하면 정규식 규칙 하나를 더하거나 고치자고 제안합니다. in 은 찾을 정규식으로 JavaScript 정규식 꼴(예: [.]{3,})이고, out 은 바꿀 글로 JavaScript String.replace 꼴($1 · $&)입니다. action 은 warn(검수 때 걸린 곳을 보임, 기본) · fix(본문을 바꿈), type 은 output(쓴 본문, 기본) · export(내보낼 때만), flag 는 기본 g, comment 는 규칙 이름입니다. 이미 있는 규칙을 고치려면 rule 에 read_rules 로 본 그 규칙 id 를 넣고 바꿀 인자만 채웁니다(끄기는 enabled=false). bundle 은 넣을 묶음 id 로, 켠 묶음이 둘 이상일 때만 채웁니다. 한 번에 규칙 하나만 다루고, 지금 본문에 걸어 본 결과와 함께 늘 작가에게 물으며 턴이 끝납니다. 작가가 적용하기 전에는 어디에도 걸리지 않습니다. 규칙과 묶음을 지우는 일은 하지 않습니다
 - ask: question 과 options (서로 다른 방향 2~3개) 를 넣습니다. 작가의 답을 기다리며 턴이 끝납니다
 - 턴을 끝낼 때는 tool 칸을 빈 글("")로 두고 reply 칸에 답을 씁니다. reply 는 칸 이름이지 도구 이름이 아닙니다
 
 [작가가 화면에서 할 수 있는 일] 도구로 못 하는 일을 작가에게 맡길 때는 이 목록에 있는 것만 말합니다. 없는 메뉴나 설정을 지어내지 않습니다
 - 집필 화면: 본문 쓰기, 다시 생성, 본문 고르기 고치기 / 검수 화면: 검수 / 상태 승인 화면: 상태 반영
 - 플롯 화면: 화 끼워 넣기 · 빼기 (위 도구와 같다), 마지막으로 쓴 화 지우기
+- 규칙 묶음 화면: 정규식 규칙 · 묶음 지우기 / 설정 화면: 규칙 묶음 켜기 · 끄기 · 차례 바꾸기
 - 상태를 반영한 화와 연재처에 올린 화는 번호를 옮길 수 없고, 이미 있는 본문을 다른 화로 떼어 옮기는 기능은 없습니다"""
 
 
@@ -2440,7 +2446,13 @@ def _agent_turn_line(t) -> str:
     notes = ([f"바꿈: {', '.join(done)}"] if done else []) + ([f"되돌림: {', '.join(back)}"] if back else [])
     if t.approval:
         state = {"wait": "작가 답 기다림", "approved": "작가가 승인함", "denied": "작가가 거절함"}[t.approval.state]
-        what = f"본문 후보 {len(t.approval.keys)}개" if t.approval.passage else ", ".join(t.approval.keys)
+        if t.approval.passage:
+            what = f"본문 후보 {len(t.approval.keys)}개"
+        elif t.approval.regex:  # 규칙 카드는 keys 가 ['rule'] 하나라 규칙 이름으로 적는다
+            r = t.approval.regex.rule
+            what = f"정규식 규칙 {r.comment.strip() or r.in_}"
+        else:
+            what = ", ".join(t.approval.keys)
         notes.append(f"물음({state}): {what}")
     if t.ask:
         notes.append("되물음: " + (" / ".join(f"{i}. {o.title}" for i, o in enumerate(t.ask.options, 1)) or t.ask.question))
@@ -3256,6 +3268,10 @@ def style_passages(p: Project) -> list[str]:
     return list(a.passages) if a is not None and a.passages else list(p.style.sample_passages)
 
 
+STYLE_HEAD = "# 문체 예시 (이 문체를 따를 것, 내용은 가져오지 말 것)"
+STYLE_HEAD_OWN = "# 문체 예시 (이 작품이 지금까지 써 온 문체. 이 문체를 이어 쓸 것, 내용은 가져오지 말 것)"  # 고른 화로 굳힌 문체
+
+
 def style_block(p: Project, markers: str | None = None) -> str:
     """문체 예시와 스타일 프로필. 예시 문단이 있으면 예시를 앞에 둔다 (문체는 서술보다 예시로).
     markers 를 주면 화 분량 기준 표지 블록(marker_block) 대신 그 글을 붙인다 (문단 연습장)."""
@@ -3263,8 +3279,7 @@ def style_block(p: Project, markers: str | None = None) -> str:
     samples = "\n\n---\n\n".join(passages) or "없음"
     profile = f"# 스타일 프로필\n{dump(style_rules_view(p))}{marker_block(p) if markers is None else markers}"
     own = p.anchor is not None and bool(p.anchor.passages)
-    head = ("# 문체 예시 (이 작품이 지금까지 써 온 문체. 이 문체를 이어 쓸 것, 내용은 가져오지 말 것)" if own
-            else "# 문체 예시 (이 문체를 따를 것, 내용은 가져오지 말 것)")
+    head = STYLE_HEAD_OWN if own else STYLE_HEAD
     example = f"{head}\n{samples}"
     return f"{example}\n\n{profile}" if passages else f"{profile}\n\n{example}"
 
@@ -3305,6 +3320,10 @@ def device_block(p: Project, n: int) -> str:
     return "\n".join(rows)
 
 
+ECHO_RULE = ("이번 화에는 아래 구절을 그대로 쓰지 않고 다른 말로 씁니다. 일어나는 일과 사실은 그대로 두고 표현만 바꿉니다. "
+             "같은 대상을 다시 그릴 때도 지난 화와 다른 비유와 낱말을 고릅니다.")
+
+
 def echo_block(p: Project, n: int) -> str:
     """장편 본문 쓰기 요청의 '최근 화에서 되풀이한 구절' 블록 (echoes.recent). 직전 화 본문에서 세므로 화마다 바뀐다 (뒤쪽 블록).
     쓰기 요청은 앞 화 본문 전체를 넣지 않아 모델이 지난 화 비유를 보지 못하고 다시 만든다. 작품 설정 recent_echoes 로 끈다. 단편 · 찾은 것이 없으면 빈 글."""
@@ -3316,8 +3335,7 @@ def echo_block(p: Project, n: int) -> str:
     seen = [e.plot.number for e in echoes.window_of(p, n)]
     lines = "\n".join(f"- {t} ({', '.join(map(str, ks))}화)" for t, ks in rows)
     return (f"\n\n# 최근 화에서 되풀이한 구절 ({seen[0]}~{seen[-1]}화 본문에서 {min(echoes.MIN_EPISODES, len(seen))}개 화 이상에 그대로 나온 서술)\n"
-            "이번 화에는 아래 구절을 그대로 쓰지 않고 다른 말로 씁니다. 일어나는 일과 사실은 그대로 두고 표현만 바꿉니다. "
-            "같은 대상을 다시 그릴 때도 지난 화와 다른 비유와 낱말을 고릅니다.\n" + lines)
+            + ECHO_RULE + "\n" + lines)
 
 
 def marker_block(p: Project) -> str:
@@ -3345,6 +3363,15 @@ def _anchor_markers(p: Project) -> list:
     return anchor.markers(p)
 
 
+# 본문 쓰기 지시문 꼬리의 문장 (episode_parts). 프롬프트 관리 페이지(PIECES)가 이 이름으로 가리킨다
+WRITE_FLOW_FIRST = "첫 화이므로 앞 이야기를 요약하거나 설명으로 깔지 않고 장면으로 시작하고, "
+WRITE_FLOW_NEXT = "직전 화 마지막 장면과 자연스럽게 이어지고, "
+WRITE_STYLE_LINE = "문체는 스타일 프로필과 문체 예시 문단을 따르고, banned_phrases 의 표현은 쓰지 않습니다. "
+WRITE_SHIFT_LINE = "플롯의 emotional_shift 는 감정 이름으로 서술하지 말고 행동과 대사로 보여 줍니다. "
+WRITE_SPEECH_LINE = ("인물의 말투는 speech_style 을 따릅니다. speech_style 의 대사 예시는 말투를 보여 주는 예입니다. "
+                     "그 문장을 그대로 쓰지 않고 어미 · 호칭 · 길이만 따릅니다. 작가가 정한 말버릇은 써도 됩니다. ")
+
+
 def episode_prompt(p: Project, n: int, approach: str = "", use_board: bool = True, use_cues: bool = True,
                    direction: bool = True) -> str:
     """episode_parts 를 이은 본문 쓰기 요청."""
@@ -3363,18 +3390,16 @@ def episode_parts(p: Project, n: int, approach: str = "", use_board: bool = True
     sheet = ep.cue_sheet if use_cues and not board.fixed_only(p) else None  # 고정점만이면 시트가 있어도 넣지 않는다
     sb = ep.storyboard if use_board else None
     windows = sb is not None and any(x["window"] for x in board.steps(p, sb))
-    flow = ("첫 화이므로 앞 이야기를 요약하거나 설명으로 깔지 않고 장면으로 시작하고, " if n == 1
-            else "직전 화 마지막 장면과 자연스럽게 이어지고, ")
+    flow = WRITE_FLOW_FIRST if n == 1 else WRITE_FLOW_NEXT
     if n > OPENING_EPISODES:  # 1~3화는 opening_rules 가 설명 문장을 다룬다
         flow += RETOLD_LINE
     parts = context_parts(p, n, use_board=use_board, write=True, trace=trace)
     tail = ((f"\n\n{rules}" if rules else "")
             + f"\n\n위 자료를 바탕으로 {n}화 본문을 약 {p.meta.words_per_episode}자 분량으로 쓰세요. "
             + flow + "플롯의 ending_hook 으로 끝납니다. "
-            "문체는 스타일 프로필과 문체 예시 문단을 따르고, banned_phrases 의 표현은 쓰지 않습니다. "
-            + ("플롯의 emotional_shift 는 감정 이름으로 서술하지 말고 행동과 대사로 보여 줍니다. " if shift_label(ep.plot.emotional_shift) else "")
-            + "인물의 말투는 speech_style 을 따릅니다. speech_style 의 대사 예시는 말투를 보여 주는 예입니다. "
-            "그 문장을 그대로 쓰지 않고 어미 · 호칭 · 길이만 따릅니다. 작가가 정한 말버릇은 써도 됩니다. "
+            + WRITE_STYLE_LINE
+            + (WRITE_SHIFT_LINE if shift_label(ep.plot.emotional_shift) else "")
+            + WRITE_SPEECH_LINE
             + focus_line(p, sb)
             + priority_line(p, n, sb is not None)
             + statwin.write_rule(p, n, show_format=not windows, budget=context.budget(p, "stat_lines"), trace=trace)
@@ -3395,6 +3420,9 @@ def direction_texts(p: Project, n: int) -> tuple[str, str]:
     return (arc.direction.strip() if arc else ""), p.episode(n).direction.strip()
 
 
+DIRECTION_RULE = "이 지시는 장면을 어떻게 보여 줄지에 대한 것입니다. 플롯의 사건과 설정은 바꾸지 않습니다. 지시 문구를 본문에 쓰지 않습니다."
+
+
 def direction_block(p: Project, n: int) -> str:
     """쓰기 요청 맨 끝의 작가 연출 지시: 아크 지시, 화 지시 차례. 둘 다 없으면 빈 글.
     화 지시는 그 화를 쓸 때만 넣는다 (다음 화 요청은 그 화의 칸만 본다). 우선 차례는 priority_line 이 적는다."""
@@ -3402,8 +3430,7 @@ def direction_block(p: Project, n: int) -> str:
     if not (arc or ep):
         return ""
     rows = ([f"이번 아크 동안: {arc}"] if arc else []) + ([f"이번 화만: {ep}"] if ep else [])
-    return ("\n\n# 작가 연출 지시\n" + "\n".join(rows)
-            + "\n이 지시는 장면을 어떻게 보여 줄지에 대한 것입니다. 플롯의 사건과 설정은 바꾸지 않습니다. 지시 문구를 본문에 쓰지 않습니다.")
+    return "\n\n# 작가 연출 지시\n" + "\n".join(rows) + "\n" + DIRECTION_RULE
 
 
 # 서술이 '~다.' 끝 과거형 문장을 줄줄이 늘어놓지 않게, 문장 끝 몫을 숫자로 준다. 프로필의 "현재형을 적극 사용" 같은 글은 잘 옮겨지지 않았다.
@@ -3677,6 +3704,15 @@ COORD_BOARD_RULES = """- scenes: 장면 3~7개. 이번 화 플롯 events 를 빠
 """
 
 
+# 스토리보드 만들기 요구사항 가운데 작품마다 같은 줄 (storyboard_prompt)
+BOARD_RULES = """- 상태창 항목(예: 동료 칸 1 / 1)을 자리 수 같은 물리적 사실로 바꿔 적지 않습니다. 장소 · 사물의 생김새는 앞 화 본문과 [확정된 사실]에 있는 것만 씁니다.
+- 스토리보드 글에 화 번호('6화', '11화')를 쓰지 않습니다. '사흘째 밤', '어제 낮'처럼 작품 속 때로 적습니다. 화 번호를 적으면 1인칭 본문에 그대로 옮겨집니다.
+- 앞 화 숫자를 근거로 쓸 때는 그 숫자의 조건까지 옮깁니다 (왕복인지 편도인지, 어떤 길에서 잰 값인지).
+- 물 · 연료 같은 소모 셈에는 [인물 현재 상태]와 [확정된 사실]에 있는 소모 항목을 빠짐없이 넣습니다 (예: 이동 중 소모와 쉬는 동안 새는 양을 함께).
+- time 에는 직전 화 끝에서 며칠 뒤에 시작하는지(after, 같은 날 0, 회상 · 외전처럼 메인 시간 밖이면 -1), 시작 · 끝 시간대, 걸치는 날 수를 적습니다. 날수와 날짜는 적지 않습니다 (Canon 이 셉니다).
+"""
+
+
 def storyboard_prompt(p: Project, n: int) -> str:
     """n화 스토리보드 만들기. 앞부분은 쓰기 프롬프트와 같고, 직전 화 본문 앞(장편은 뒤)에 Canon 이 센 값 · 장소 목록,
     이번 화 플롯 앞에 다음 화 플롯을 넣는다. 요구사항은 맨 끝."""
@@ -3705,12 +3741,7 @@ def storyboard_prompt(p: Project, n: int) -> str:
   플롯의 opening(여는 장면)과 time 칸도 직전 화 끝과 대조해, 어긋나면 warnings 에 적고 직전 화 끝을 따릅니다.
 - handover 에는 직전 화 끝에서 이어받아야 하는 사실을 한 줄씩 적습니다 (kind: 장면, 시간, 몸, 물건, 인물, 숨긴 것, 숫자, 질문).
 """
-    return head + """- 상태창 항목(예: 동료 칸 1 / 1)을 자리 수 같은 물리적 사실로 바꿔 적지 않습니다. 장소 · 사물의 생김새는 앞 화 본문과 [확정된 사실]에 있는 것만 씁니다.
-- 스토리보드 글에 화 번호('6화', '11화')를 쓰지 않습니다. '사흘째 밤', '어제 낮'처럼 작품 속 때로 적습니다. 화 번호를 적으면 1인칭 본문에 그대로 옮겨집니다.
-- 앞 화 숫자를 근거로 쓸 때는 그 숫자의 조건까지 옮깁니다 (왕복인지 편도인지, 어떤 길에서 잰 값인지).
-- 물 · 연료 같은 소모 셈에는 [인물 현재 상태]와 [확정된 사실]에 있는 소모 항목을 빠짐없이 넣습니다 (예: 이동 중 소모와 쉬는 동안 새는 양을 함께).
-- time 에는 직전 화 끝에서 며칠 뒤에 시작하는지(after, 같은 날 0, 회상 · 외전처럼 메인 시간 밖이면 -1), 시작 · 끝 시간대, 걸치는 날 수를 적습니다. 날수와 날짜는 적지 않습니다 (Canon 이 셉니다).
-""" + ("""- stats 에는 [인물 현재 상태]의 stats 에서 바뀌는 항목만, 바뀐 양으로 적습니다 (예: -0.7, +1, +독 내성). 바뀐 장면 번호를 scene 에, 본문에 상태창이 뜨면 window 를 true 로 적습니다. 근거는 stat_basis 에 한 줄씩 적습니다.
+    return head + BOARD_RULES + ("""- stats 에는 [인물 현재 상태]의 stats 에서 바뀌는 항목만, 바뀐 양으로 적습니다 (예: -0.7, +1, +독 내성). 바뀐 장면 번호를 scene 에, 본문에 상태창이 뜨면 window 를 true 로 적습니다. 근거는 stat_basis 에 한 줄씩 적습니다.
   지금 값에서 닿을 수 없는 플롯 수치는 쓰지 않고 warnings 에 적습니다.
 """ if stats else "- 이 작품은 상태창을 쓰지 않습니다. stats 와 stat_basis 는 비웁니다.\n") + f"""- moves 에는 다른 장소로 옮겨 가는 인물만 [장소 목록]의 이름으로 적습니다.
 {"- attire 는 비웁니다 (쓰기 재료가 조율이라 끝 차림은 본문을 쓴 뒤 상태 변경안이 정합니다)." if coord.on(p) else "- attire 에는 이번 화에 차림이 바뀌는 인물의 끝 차림만 적습니다 (이어지는 상처와 물건까지 다시, 가방 · 옷 · 신발은 백팩 · 코트 · 운동화처럼 종류까지)."}
@@ -4215,11 +4246,25 @@ def state_facts_block(p: Project, n: int, ids: set[str], budget: str = "state_fa
             + fact_rows(p, facts) + "\n")
 
 
-def state_prompt(p: Project, n: int, cuts: tuple[int, int] | None = None, head: str = "", facts_budget: str = "state_facts") -> str:
+# 상태 변경안 요구사항 (state_prompt). {n} 화 번호. 뒤에 작품마다 붙는 규칙 줄이 이어진다
+STATE_RULES = """요구사항:
+- episode 는 {n} 입니다.
+- 변화가 있는 인물만 넣습니다.
+- character_updates 의 빈 칸은 '그대로 둠'입니다. 목표를 이뤘거나 버렸는데 새 목표가 없을 때처럼 이전 값을 지워야 하면 그 칸 이름(current_goal, location, notes, attire, emotional_state)을 cleared 에 넣습니다.
+- events 에는 인물 사이에 일어난 관계 사건을 본문 순서대로 적습니다. kind 는 정해진 목록에서 고르고, intensity 는 1(가벼움)~3(결정적)이고 3 은 한 쌍에 그 화의 전환점 하나에만 씁니다. quote 에는 근거 문장을 본문에서 그대로 옮깁니다. 관계 수치는 프로그램이 사건으로 계산하므로 적지 않고, 수동보정은 쓰지 않습니다.
+- relationship_updates 에는 관계 유형이나 설명이 바뀐 쌍만 넣습니다. 유형은 이번 화까지 쌓인 사건만큼만 바꿉니다(앙숙이 한 번 도왔다고 친구가 되지 않음).
+- 새로 생긴 비밀은 secrets_added 에 넣고, 비밀이 드러난 사건에는 reveals_secret 에 비밀 id 를 적습니다.
+- 새 복선 id 는 fs-{n:02d}-키워드 형식으로 짓습니다. 이번 아크 안에서 회수할 작은 복선은 scope 를 arc, 부나 작품 끝까지 갈 복선은 part 나 series 로 둡니다.
+- 인물 설정과 목록에 없는 인물이 이름을 갖고 처음 나왔으면 new_characters 에 넣습니다. 조연은 tier 를 support, 지나가는 인물은 minor 로 두고, 본문에서 드러난 것만 적습니다.
+- 아래 [이미 있는 장소]에 없는 장소(지형, 마을, 건물, 가게 등)가 이름을 갖고 처음 나왔으면 new_places 에 넣습니다. name 은 본문에 쓴 그대로, kind 는 종류 한 단어, description 은 본문에서 드러난 것만 한 줄입니다. 이름 없는 길, 방, 골목은 넣지 않습니다.
+- 이미 있는 장소를 다른 이름이나 표기로 부른 것이면 new_places 에 넣지 않고 warnings 에 적습니다.
+- character_updates 의 location 에는 [이미 있는 장소]나 new_places 의 이름을 표기 그대로 앞에 씁니다 (예: '하르덴 왕궁 서재'). 옮겨 가는 중이면 '하르덴에서 벨라 항구로 가는 배 위'처럼 떠난 곳과 갈 곳을 함께 씁니다.
+- warnings 에는 플롯 사건 누락, 설정/말투 위반, 확정 사실과의 모순을 적습니다. 본문 문장이 걸리면 그 문장을 «» 안에 글자 그대로 넣어 작가가 바로 찾게 합니다."""
+
+
+def state_prompt(p: Project, n: int, cuts: tuple[int, int] | None = None, facts_budget: str = "state_facts") -> str:
     """상태 변경안. cuts 는 (뺀 비밀 수, 뺀 복선 수)로 머리글의 뺀 수를 바꾼다: 미리 거른 보기를 넘기는 플레이(play_view)가 원래 작품 기준 수를 준다.
-    head 에 검수 자료(check_material, 끝이 n화 본문)를 주면 그 뒤에 상태 칸을 붙이고 본문은 다시 넣지 않는다. 검수 가족과 캐시를 함께 쓰려는
-    것이라 캐시 가족을 받는 백엔드만 준다 (pipeline.extract_state). 비우면 예전 모양이다 (다른 백엔드 · 작업지시서).
-    장편이고 head 가 없으면 '[이미 있는 확정 사실]'을 넣는다(state_facts_block, 예산 키 facts_budget). 단편은 넣지 않는다."""
+    장편은 '[이미 있는 확정 사실]'을 넣는다(state_facts_block, 예산 키 facts_budget). 단편은 넣지 않는다."""
     ep = p.episode(n)
     secrets_cut = fs_cut = 0
     if p.serial:  # 장편: 이번 화 플롯 인물 · 본문에 이름이 나온 인물과 주역만 자세히, 나머지는 한 줄 목록으로 ('넣지 않음' 인물은 한 줄 목록에)
@@ -4242,30 +4287,21 @@ def state_prompt(p: Project, n: int, cuts: tuple[int, int] | None = None, head: 
             others = ", ".join(f"{c.id}: {c.name}({c.role})" for c in p.characters if c.id in off)
     if cuts is not None:
         secrets_cut, fs_cut = cuts
-    lead = (f"{head}\n\n위 [{n}화 본문 (검수 대상)]을 읽고 상태 변경안을 작성하세요. 아래는 상태 변경안에 쓸 자료입니다."
-            if head else f"{n}화 본문을 읽고 상태 변경안을 작성하세요.")
-    text = "" if head else f"\n[{n}화 본문]\n{ep.text}\n"
-    # 장편 검수 자료(budget)는 같은 인물로 설정 · 이전 상태 · 비밀을 같은 방식으로 고른다 (_check_budget). 인물이 같으면 그 칸을 다시 넣지 않는다
-    shared = bool(head) and p.serial and ids == check_cast(p, n)
-    if shared:
-        cast = (f"[인물 설정] · [이전 인물 상태] · [현재 비밀]: 위 자료의 '인물 설정' · '조연 · 단역 설정', "
-                f"'인물 현재 상태 ({n - 1}화 종료 시점)', '비밀' 칸을 봅니다. 그 비밀 목록에 없는 비밀의 id 는 쓰지 않습니다.\n"
-                + (f"[다른 인물 (id: 이름, 역할) — 다시 만들지 않습니다]{chr(10)}{others}{chr(10)}" if others else ""))
-    else:
-        cast = f"""[인물 설정]
+    lead = f"{n}화 본문을 읽고 상태 변경안을 작성하세요."
+    text = f"\n[{n}화 본문]\n{ep.text}\n"
+    cast = f"""[인물 설정]
 {dump(chars)}
 {f"[다른 인물 (id: 이름, 역할) — 다시 만들지 않습니다]{chr(10)}{others}{chr(10)}" if others else ""}[이전 인물 상태]{knows_note(knows_cut)}
 {dump(states) or "설정 그대로"}
 """
-    secret_block = "" if shared else f"""[현재 비밀]{cut_note(secrets_cut, "이번 화 인물과 관련된 것만", "목록에 없는 비밀의 id 는 쓰지 않습니다")}
+    secret_block = f"""[현재 비밀]{cut_note(secrets_cut, "이번 화 인물과 관련된 것만", "목록에 없는 비밀의 id 는 쓰지 않습니다")}
 {dump(secrets) or "없음"}
 """
-    plot = f"[이번 화 플롯]: 위 자료의 '{n}화 플롯' 칸을 봅니다.\n" if head else f"[이번 화 플롯]\n{dump(write_plot(ep.plot, coord.memo(p, n)))}\n"
-    facts = state_facts_block(p, n, ids, facts_budget) if p.serial and not head else ""
+    plot = f"[이번 화 플롯]\n{dump(write_plot(ep.plot, coord.memo(p, n)))}\n"
+    facts = state_facts_block(p, n, ids, facts_budget) if p.serial else ""
     fact_rule = ""
-    if p.serial and (head or facts):
-        where = "위 자료의 확정 사실(Confirmed facts) 칸" if head else "[이미 있는 확정 사실]"
-        fact_rule = f"\n- new_facts 에는 {where}에 없는 새 사실만 적습니다. 이미 있는 사실을 말만 바꿔 다시 적지 않습니다."
+    if p.serial and facts:
+        fact_rule = "\n- new_facts 에는 [이미 있는 확정 사실]에 없는 새 사실만 적습니다. 이미 있는 사실을 말만 바꿔 다시 적지 않습니다."
     return f"""{lead}
 
 {cast}[이전 관계]
@@ -4275,19 +4311,7 @@ def state_prompt(p: Project, n: int, cuts: tuple[int, int] | None = None, head: 
 {plot}{facts}[이미 있는 장소]
 {places_line(p, ep.text)}
 {f"[작품 속 시간]{chr(10)}{timeline.state_block(p, n)}{chr(10)}" if timeline.enabled(p) else ""}{text}
-요구사항:
-- episode 는 {n} 입니다.
-- 변화가 있는 인물만 넣습니다.
-- character_updates 의 빈 칸은 '그대로 둠'입니다. 목표를 이뤘거나 버렸는데 새 목표가 없을 때처럼 이전 값을 지워야 하면 그 칸 이름(current_goal, location, notes, attire, emotional_state)을 cleared 에 넣습니다.
-- events 에는 인물 사이에 일어난 관계 사건을 본문 순서대로 적습니다. kind 는 정해진 목록에서 고르고, intensity 는 1(가벼움)~3(결정적)이고 3 은 한 쌍에 그 화의 전환점 하나에만 씁니다. quote 에는 근거 문장을 본문에서 그대로 옮깁니다. 관계 수치는 프로그램이 사건으로 계산하므로 적지 않고, 수동보정은 쓰지 않습니다.
-- relationship_updates 에는 관계 유형이나 설명이 바뀐 쌍만 넣습니다. 유형은 이번 화까지 쌓인 사건만큼만 바꿉니다(앙숙이 한 번 도왔다고 친구가 되지 않음).
-- 새로 생긴 비밀은 secrets_added 에 넣고, 비밀이 드러난 사건에는 reveals_secret 에 비밀 id 를 적습니다.
-- 새 복선 id 는 fs-{n:02d}-키워드 형식으로 짓습니다. 이번 아크 안에서 회수할 작은 복선은 scope 를 arc, 부나 작품 끝까지 갈 복선은 part 나 series 로 둡니다.
-- 인물 설정과 목록에 없는 인물이 이름을 갖고 처음 나왔으면 new_characters 에 넣습니다. 조연은 tier 를 support, 지나가는 인물은 minor 로 두고, 본문에서 드러난 것만 적습니다.
-- 아래 [이미 있는 장소]에 없는 장소(지형, 마을, 건물, 가게 등)가 이름을 갖고 처음 나왔으면 new_places 에 넣습니다. name 은 본문에 쓴 그대로, kind 는 종류 한 단어, description 은 본문에서 드러난 것만 한 줄입니다. 이름 없는 길, 방, 골목은 넣지 않습니다.
-- 이미 있는 장소를 다른 이름이나 표기로 부른 것이면 new_places 에 넣지 않고 warnings 에 적습니다.
-- character_updates 의 location 에는 [이미 있는 장소]나 new_places 의 이름을 표기 그대로 앞에 씁니다 (예: '하르덴 왕궁 서재'). 옮겨 가는 중이면 '하르덴에서 벨라 항구로 가는 배 위'처럼 떠난 곳과 갈 곳을 함께 씁니다.
-- warnings 에는 플롯 사건 누락, 설정/말투 위반, 확정 사실과의 모순을 적습니다. 본문 문장이 걸리면 그 문장을 «» 안에 글자 그대로 넣어 작가가 바로 찾게 합니다.{fact_rule}{storylines.state_rule(p, n)}{foreshadows.state_rule(p)}{statwin.state_rule(p)}{ATTIRE_STATE_RULE}{LAYER_STATE_RULE}{charlog.state_rule(p)}{address.state_rule(p)}{timeline.state_rule(p, n)}"""
+""" + STATE_RULES.format(n=n) + f"""{fact_rule}{storylines.state_rule(p, n)}{foreshadows.state_rule(p)}{statwin.state_rule(p)}{ATTIRE_STATE_RULE}{LAYER_STATE_RULE}{charlog.state_rule(p)}{address.state_rule(p)}{timeline.state_rule(p, n)}"""
 
 
 def _check_full(p: Project, n: int) -> tuple[str, str, str, str, str, str]:
@@ -4426,31 +4450,37 @@ def scope_block(scope: list[str], lang: str = "ko") -> str:
 - 이번은 다시 검수입니다. current_quote 가 위 '바뀐 문단' 안에 있는 어긋남만 짚습니다. 근거(source_quote)는 어디서 와도 됩니다. 나머지 문단은 지난 검수에서 이미 봤습니다."""
 
 
-def _check_request(p: Project, n: int, mode: str, lang: str, material: str) -> str:
-    """검수 프롬프트의 자료와 요청 (scope 를 붙이기 전)."""
-    rules = f"{timeline.check_rule(p, n)}{mapprompt.travel_check_rule(p, n)}{attire_check_rule(p)}{stage_check_rule(p)}{layer_check_rule(p, check_cast(p, n) if (mode or ('budget' if p.serial else 'full')) == 'budget' else None)}{address.check_rule(p)}{statwin.check_rule(p)}{protect_check_rule(p.episode(n))}{pairlog.check_rule(pair_check_block(p, n, mode))}"
-    if lang == "en":
-        return f"""{material}
-
-Find the places in the text of episode {n} that contradict the material above.
-- Check: confirmed facts; story elements and details (names, ages, appearance, places, objects); time order and causality; a character who acts as if they know information they do not know yet; speech (forms of address, 존댓말/반말, sentence endings); world rules; plot events that are missing.
-- Blocking: within one scene, check whether a character's position, facing (front or back), posture, what they hold, or what is hidden changes without an action that changes it. Example: a character turns away and covers their body with a cloak, but the next sentence shows their face or chest. In this case source_episode is {n} and source_quote is the earlier sentence in the same episode.
-- POV: check whether the narration leaves this episode's narrative POV (the one given above, or else narration_pov in the style profile). Signs: the narration tells what the POV character cannot see or does not know yet; the first-person '나' becomes another character; the POV character changes without a scene break; in an episode with a set narration voice, the endings of narrative sentences leave that voice (ignore dialogue). If the evidence is a POV instruction, source_episode is 0 and source_quote is that instruction sentence.{rules}
-- Copy source_quote and current_quote verbatim from the original Korean text. Do not translate them. If the evidence is a setting or a character state, source_episode is 0.
-{SEVERITY_RULE_EN}
-- Do not report a suspicion that you cannot support with a quote. If there is no contradiction, leave issues as an empty list.
-- Write description and suggestion in Korean.
-- episode is {n}."""
-    return f"""{material}
-
-{n}화 본문에서 위 자료와 어긋나는 곳을 찾으세요.
+# 검수 요청의 확인 목록 (_check_request). {n} 화 번호, {rules} 작품마다 붙는 확인 줄, {severity} SEVERITY_RULE
+CHECK_RULES = """{n}화 본문에서 위 자료와 어긋나는 곳을 찾으세요.
 - 확인할 것: 확정 사실, 이야기 요소와 세부(이름, 나이, 외모, 장소, 물건), 시간 순서와 인과, 인물이 아직 모르는 정보를 아는 듯 행동하는지, 말투(호칭, 존댓말/반말, 어미), 세계관 규칙, 플롯 사건 누락.
 - 동선: 한 장면 안에서 인물의 위치, 몸이 향한 쪽(앞 · 뒤, 등 · 배), 자세, 손에 든 것, 가려진 곳이 바꾸는 행동 없이 달라지는지 봅니다. 예: 등을 돌리고 망토로 몸을 가렸는데 다음 문장에서 그 인물의 표정이나 가슴께가 보임. 이때 source_episode 는 {n}, source_quote 는 같은 화의 앞 문장입니다.
 - 시점: 서술이 이 화의 서술 시점(위에 따로 없으면 스타일 프로필의 narration_pov)을 벗어나는지 봅니다. 시점 인물이 볼 수 없거나 아직 모르는 것을 서술함, 1인칭의 '나'가 다른 인물로 바뀜, 장면 구분 없이 시점 인물이 바뀜, 서술 말투가 정해진 화에서 지문의 어미가 그 말투를 벗어남(대사는 보지 않음). 근거가 시점 지시면 source_episode 는 0, source_quote 는 그 지시 문장입니다.{rules}
 - source_quote 와 current_quote 는 원문을 그대로 옮깁니다. 근거가 설정이나 인물 상태면 source_episode 는 0 입니다.
-{SEVERITY_RULE}
+{severity}
 - 근거를 인용할 수 없는 의심은 넣지 않습니다. 모순이 없으면 issues 를 빈 목록으로 둡니다.
 - episode 는 {n} 입니다."""
+CHECK_RULES_EN = """Find the places in the text of episode {n} that contradict the material above.
+- Check: confirmed facts; story elements and details (names, ages, appearance, places, objects); time order and causality; a character who acts as if they know information they do not know yet; speech (forms of address, 존댓말/반말, sentence endings); world rules; plot events that are missing.
+- Blocking: within one scene, check whether a character's position, facing (front or back), posture, what they hold, or what is hidden changes without an action that changes it. Example: a character turns away and covers their body with a cloak, but the next sentence shows their face or chest. In this case source_episode is {n} and source_quote is the earlier sentence in the same episode.
+- POV: check whether the narration leaves this episode's narrative POV (the one given above, or else narration_pov in the style profile). Signs: the narration tells what the POV character cannot see or does not know yet; the first-person '나' becomes another character; the POV character changes without a scene break; in an episode with a set narration voice, the endings of narrative sentences leave that voice (ignore dialogue). If the evidence is a POV instruction, source_episode is 0 and source_quote is that instruction sentence.{rules}
+- Copy source_quote and current_quote verbatim from the original Korean text. Do not translate them. If the evidence is a setting or a character state, source_episode is 0.
+{severity}
+- Do not report a suspicion that you cannot support with a quote. If there is no contradiction, leave issues as an empty list.
+- Write description and suggestion in Korean.
+- episode is {n}."""
+
+
+def check_rule_lines(p: Project, n: int, mode: str = "") -> str:
+    """검수 확인 목록(CHECK_RULES)의 {rules} 자리: 작품마다 붙는 확인 줄."""
+    return f"{timeline.check_rule(p, n)}{mapprompt.travel_check_rule(p, n)}{attire_check_rule(p)}{stage_check_rule(p)}{layer_check_rule(p, check_cast(p, n) if (mode or ('budget' if p.serial else 'full')) == 'budget' else None)}{address.check_rule(p)}{statwin.check_rule(p)}{protect_check_rule(p.episode(n))}{pairlog.check_rule(pair_check_block(p, n, mode))}"
+
+
+def _check_request(p: Project, n: int, mode: str, lang: str, material: str) -> str:
+    """검수 프롬프트의 자료와 요청 (scope 를 붙이기 전)."""
+    rules = check_rule_lines(p, n, mode)
+    if lang == "en":
+        return f"{material}\n\n" + CHECK_RULES_EN.format(n=n, rules=rules, severity=SEVERITY_RULE_EN)
+    return f"{material}\n\n" + CHECK_RULES.format(n=n, rules=rules, severity=SEVERITY_RULE)
 
 
 # ---------- 동선 따로 보기: 이번 화 본문만 넣고 동선만 찾는 검수 호출 (pipeline.motion_check) ----------
@@ -4463,6 +4493,21 @@ SYSTEM_MOTION = system_prompt(
 )
 
 
+# 동선 따로 보기의 확인 목록. {n} 화 번호, {severity} SEVERITY_RULE
+MOTION_RULES = """{n}화 본문 안에서 동선이 어긋난 곳을 찾으세요. 장면마다 인물의 위치, 향한 쪽, 두 손, 걸친 것, 맞닿은 것, 물건 자리를 따라가며 읽습니다.
+- 향한 쪽: 돌아서는 행동 없이 향한 쪽이 바뀜, 등을 진 인물의 얼굴이나 앞모습이 보임.
+- 손: 두 손이 다 찬 채 다른 일을 함, 쥔 것을 놓지 않고 그 손으로 다른 것을 함, 왼손 · 오른손이 앞 문장과 바뀜.
+- 접촉: 잡고 · 안고 · 업은 상태가 놓는 행동 없이 풀리거나, 그 상태로는 할 수 없는 동작을 함.
+- 겹침 순서: 바깥에 걸친 것을 벗지 않고 안쪽 것을 벗거나 입음. 벗은 것 · 낀 것이 다시 입거나 벗는 행동 없이 바뀜.
+- 물건 자리: 내려놓거나 건넨 물건을 다시 집지 않고 씀, 넣은 곳과 다른 곳에서 꺼냄.
+- 위치 · 자세: 앉아 있던 인물이 일어나는 행동 없이 걷거나 서 있음, 멀리 있던 인물이 다가오는 행동 없이 맞닿음.
+- type 은 동선, source_episode 는 {n}, source_quote 는 상태를 정한 앞 문장, current_quote 는 어긋난 문장입니다. 둘 다 원문 그대로 옮깁니다.
+- 바꾸는 행동이 생략되었다고 볼 수 있는 자연스러운 경우(장면이 넘어감, 시간이 흐름)는 넣지 않습니다.
+{severity}
+- 근거 문장을 인용할 수 없는 의심은 넣지 않습니다. 어긋남이 없으면 issues 를 빈 목록으로 둡니다.
+- episode 는 {n} 입니다."""
+
+
 def motion_prompt(p: Project, n: int) -> str:
     """동선 따로 보기 프롬프트: 이번 화 인물 이름과 본문, 동선 갈래별 확인 목록."""
     cast = context.characters_by_ids(p, context.episode_cast(p, n))
@@ -4473,18 +4518,7 @@ def motion_prompt(p: Project, n: int) -> str:
 # {n}화 본문
 {p.episode(n).text}
 
-{n}화 본문 안에서 동선이 어긋난 곳을 찾으세요. 장면마다 인물의 위치, 향한 쪽, 두 손, 걸친 것, 맞닿은 것, 물건 자리를 따라가며 읽습니다.
-- 향한 쪽: 돌아서는 행동 없이 향한 쪽이 바뀜, 등을 진 인물의 얼굴이나 앞모습이 보임.
-- 손: 두 손이 다 찬 채 다른 일을 함, 쥔 것을 놓지 않고 그 손으로 다른 것을 함, 왼손 · 오른손이 앞 문장과 바뀜.
-- 접촉: 잡고 · 안고 · 업은 상태가 놓는 행동 없이 풀리거나, 그 상태로는 할 수 없는 동작을 함.
-- 겹침 순서: 바깥에 걸친 것을 벗지 않고 안쪽 것을 벗거나 입음. 벗은 것 · 낀 것이 다시 입거나 벗는 행동 없이 바뀜.
-- 물건 자리: 내려놓거나 건넨 물건을 다시 집지 않고 씀, 넣은 곳과 다른 곳에서 꺼냄.
-- 위치 · 자세: 앉아 있던 인물이 일어나는 행동 없이 걷거나 서 있음, 멀리 있던 인물이 다가오는 행동 없이 맞닿음.
-- type 은 동선, source_episode 는 {n}, source_quote 는 상태를 정한 앞 문장, current_quote 는 어긋난 문장입니다. 둘 다 원문 그대로 옮깁니다.
-- 바꾸는 행동이 생략되었다고 볼 수 있는 자연스러운 경우(장면이 넘어감, 시간이 흐름)는 넣지 않습니다.
-{SEVERITY_RULE}
-- 근거 문장을 인용할 수 없는 의심은 넣지 않습니다. 어긋남이 없으면 issues 를 빈 목록으로 둡니다.
-- episode 는 {n} 입니다."""
+""" + MOTION_RULES.format(n=n, severity=SEVERITY_RULE)
 
 
 def _finding_text(n: int, f: ConsistencyIssue) -> str:
@@ -4700,6 +4734,15 @@ def check_material(p: Project, n: int, mode: str = "", sized: bool = False, lang
 {ep.text}"""
 
 
+def check_cache_cut(material: str, n: int) -> int:
+    """검수 가족(검수 · 고침안 · 다시 검수)의 캐시 경계: check_material 의 맨 끝 블록인 이번 화 본문 바로 앞.
+    본문 끝을 경계로 두면 고침안이나 작가가 본문을 한 글자만 고쳐도 앞부분 캐시를 통째로 버린다
+    (2026-11-09 subway 57~88화: 상태 변경안 35번 중 17번이 검수 캐시를 못 읽고 앞부분 약 11만 토큰을 새로 썼다).
+    본문 블록을 찾지 못하면 자료 끝."""
+    i = max(material.rfind(f"\n\n# {n}화 본문 (검수 대상)\n"), material.rfind(f"\n\n# Text of episode {n} (under review)\n"))
+    return i if i > 0 else len(material)
+
+
 def pair_check_block(p: Project, n: int, mode: str = "") -> str:
     """장편 검수(budget)의 두 사람 사이 이력 블록 (pairlog.check_block). 단편 · full 방식은 빈 글 (단편 경로는 그대로)."""
     mode = mode or ("budget" if p.serial else "full")
@@ -4907,7 +4950,8 @@ def stage_extract_prompt(p: Project, n: int, event: int, room=None, prev_lines: 
 # ---------- 두 걸음 검수: 진술 뽑기 → 판단기가 근거와 견줌 → 의심만 판정 (연구 화면) ----------
 # 긴 검수 입력 하나를 짧은 판단 여러 개로 바꾼다. 판단기(judge.py)는 고르기만 하고, 보고서는 검수 모델이 근거를 인용해 쓴다.
 
-TWOSTEP_CLAIMS = 30  # 한 화에서 뽑는 진술 수 상한
+# 한 화에서 뽑는 진술 수 상한. 30이면 Claude · gemini-4-argon 이 거의 모든 화에서 상한을 채워 심은 모순을 놓쳤다 (DESIGN.md '진술 뽑기 실측')
+TWOSTEP_CLAIMS = 50
 TWOSTEP_EVIDENCE = 3_000  # 진술 하나에 붙이는 근거 글자. 판단기 입력이 8k 토큰 서버에도 들어가게
 TWOSTEP_FLAG = 0.25  # '어긋남' 확률이 이 이상이면 의심으로 올린다. 판단기가 놓친 것은 검수 모델도 못 보므로 낮게 잡는다
 TWOSTEP_FLAG_MAX = 8  # 검수 모델에 넘기는 의심 진술 수
@@ -5270,24 +5314,415 @@ class BriefKind(NamedTuple):
     stage: str = "plan"  # 실제 호출이 쓰는 단계(settings.STAGES). 놀이터가 그 단계의 모델 · 추론 강도로 돌린다
 
 
-# 작업지시서 갈래: 열쇠 → BriefKind. 프롬프트 놀이터(promptlab.py)의 '불러오기'도 이 목록과 brief_parts 를 쓴다. 차례는 집필 흐름 차례
-# '대화로 다듬기' 갈래(설정 도우미 · 문체 · 플롯 대화 에이전트 · 본문 부분 수정)는 작가의 말 자리에 CHAT_MESSAGE 를 넣는다
-BRIEF_KINDS: dict[str, BriefKind] = {
-    "setup_chat": BriefKind("대화로 다듬기 · 설정 도우미", scope="work"),
-    "style_chat": BriefKind("대화로 다듬기 · 문체", scope="work"),
-    "series": BriefKind("부 구성", scope="work", form="serial"),
-    "arc": BriefKind("기승전결 구조 · 다음 아크", scope="work"),
-    "heat": BriefKind("열 계획", scope="work"),
-    "plots": BriefKind("플롯 초안", scope="act"),
-    "plot": BriefKind("한 화 플롯", need="draft"),
-    "agent_plot": BriefKind("대화로 다듬기 · 플롯 (대화 에이전트 첫 단계)", scope="work", stage="chat"),
-    "storyboard": BriefKind("스토리보드", need="confirmed", stage="board"),
-    "cue": BriefKind("큐 시트", need="confirmed", stage="board"),
-    "episode": BriefKind("본문 쓰기", stage="write"),
-    "passage": BriefKind("대화로 다듬기 · 본문 부분 수정", need="text", stage="revise"),
-    "check": BriefKind("검수", need="text", stage="check"),
-    "state": BriefKind("상태 변경안", need="text", stage="state"),
+# ---------- 프롬프트 레지스트리 (프롬프트 관리 페이지, docs/context/specs/12-prompt-catalog.md) ----------
+# 호출 갈래 표 KINDS 와 조각 표 PIECES. 실제 요청은 이 표를 읽지 않는다: 블록 차례와 글은 위 함수들이 정한다 (Q10).
+# 표에 없는 SYSTEM_* 상수나 *_prompt 함수가 생기면 tests/test_prompt_registry.py 가 실패한다.
+
+# 주제 꼬리표: id → 화면 이름 (2026-11-09 정한 여덟 개). 조각 하나에 여럿을 달 수 있다
+TAGS: dict[str, str] = {
+    "style": "문체",
+    "length": "분량 · 형식",
+    "voice": "인물 · 말투",
+    "pov": "시점",
+    "continuity": "연속성",
+    "check": "검수 기준",
+    "output": "출력 형식",
+    "policy": "머리말 · 정책",
 }
+
+# 조각이 들어가는 자리: id → 화면 이름. 차례는 요청 차례다
+PLACES: dict[str, str] = {
+    "system": "시스템",
+    "front": "요청 앞 (캐시)",
+    "tail": "요청 뒤 (화마다)",
+    "instruction": "지시문 꼬리",
+    "second": "두 번째 호출",
+    "send": "보내기 직전",
+}
+
+# 왼쪽 목록의 묶음 차례 (집필 흐름 차례). 조립 보기가 없는 갈래도 같은 묶음 이름을 쓴다
+KIND_GROUPS = ("설정", "문체", "계획", "쓰기", "검수", "상태", "장편", "인물 · 데이터", "연출 · 지도 · 삽화", "플레이", "실험")
+
+
+class Piece(NamedTuple):
+    """프롬프트 조각 하나. source 는 글을 담은 상수나 그 글을 만드는 함수 이름이다 (prompts 밖이면 '모듈.이름')."""
+    title: str  # 화면 이름
+    tags: tuple[str, ...]  # TAGS 의 id
+    place: str  # PLACES 의 id
+    source: str
+    when: str = ""  # 들어가는 조건 한 줄. 비면 늘 들어간다
+
+
+class Kind(NamedTuple):
+    """호출 갈래 하나. system · request 는 이름, response 는 응답 스키마 이름(비면 글)."""
+    label: str
+    group: str  # KIND_GROUPS
+    stage: str  # settings.STAGES. 비면 부르는 쪽이 정한다
+    system: str
+    request: str
+    response: str = ""
+    caller: str = ""  # 실제 호출 (모듈.함수)
+    pieces: tuple[str, ...] = ()  # PIECES 의 id. 보내기 직전 조각(SEND_PIECES)은 모든 갈래에 붙어 따로 적지 않는다
+    also: tuple[str, ...] = ()  # 같은 갈래가 경우에 따라 쓰는 다른 요청 함수 · 시스템 프롬프트
+    view: bool = False  # 조립 보기가 있다 (1단계: 작업지시서 갈래 + 서술 다듬기 · 동선 검수 · 다시 생성)
+    brief: BriefKind | None = None  # 작업지시서 · 놀이터 갈래이면 그 값
+
+
+_BLOCK_PIECE: dict[str, tuple[tuple[str, ...], str, str]] = {
+    # 쓰기 요청 블록(BLOCKS) 조각의 (꼬리표, 코드 출처, 들어가는 조건). 이름과 자리는 Block 에서 온다
+    "work": (("length",), "meta_text", ""),
+    "world": (("continuity",), "static_parts", ""),
+    "style": (("style",), "style_block", ""),
+    "characters": (("voice",), "static_parts", "주역과 늘 넣는 인물 (static_characters)"),
+    "structure": (("continuity",), "context_parts", ""),
+    "story_past": (("continuity",), "story_parts", "장편: 끝난 부 · 아크가 있을 때"),
+    "position": (("continuity",), "context_parts", ""),
+    "facts": (("continuity",), "relevant_facts", ""),
+    "elements": (("continuity",), "context_parts", "이번 화와 관련된 이야기 요소가 있을 때"),
+    "cast": (("voice",), "cast_block", ""),
+    "named": (("voice",), "named_block", "장편: 본문 · 플롯에 이름이 나온 조연 · 단역이 있을 때"),
+    "states": (("continuity", "voice"), "fit_states", ""),
+    "returns": (("continuity",), "return_block", "오랜만에 다시 나오는 인물이 있을 때"),
+    "relations": (("voice", "continuity"), "context_parts", ""),
+    "address": (("voice",), "address.block", "호칭 · 말씨를 정한 쌍이 있을 때"),
+    "pairs": (("continuity",), "pairlog.write_block", "두 사람 사이 사건이 쌓였을 때"),
+    "foreshadows": (("continuity",), "relevant_foreshadows", ""),
+    "story": (("continuity",), "context_parts", "단편"),
+    "story_arc": (("continuity",), "story_parts", "장편"),
+    "storyline": (("continuity",), "storylines.episode_block", "이야기 줄기가 있을 때"),
+    "time": (("continuity",), "timeline.episode_block", "작품 속 시간을 켰을 때"),
+    "travel": (("continuity",), "maps.prompt.travel_block", "이동 거리를 셀 수 있을 때"),
+    "spots": (("continuity",), "maps.prompt.spot_block", "장소가 놓인 건물을 정했을 때"),
+    "stage": (("continuity",), "stage_block", "장면 연출을 적었을 때"),
+    "prev": (("continuity",), "prev_block", "2화부터"),
+    "board": (("continuity", "length"), "board_block", "스토리보드가 있을 때"),
+    "extra": (("continuity",), "context_parts", "요청이 재료를 덧붙일 때"),
+    "plot": (("continuity", "length"), "write_plot", ""),
+    "pov": (("pov",), "pov_block", ""),
+    "devices": (("style",), "device_block", "가끔 쓰는 장치를 정했을 때"),
+    "echo": (("style",), "echo_block", "장편: '되풀이한 구절 피하기'를 켜고 찾은 구절이 있을 때"),
+    "material": (("continuity",), "material_block", "원고 재료를 골랐을 때"),
+    "instructions": (("length", "style", "voice"), "episode_parts", ""),
+    "cues": (("length", "style"), "cue_write_block", "이 화에 큐 시트가 있고 큐 시트로 쓸 때"),
+    "direction": (("style",), "direction_block", "작가 연출 지시가 있을 때"),
+}
+
+
+def _block_place(b: Block) -> str:
+    return "front" if b.front else "instruction" if b.id in ("instructions", "direction") else "tail"
+
+
+PIECES: dict[str, Piece] = {b.id: Piece(b.title, *_BLOCK_PIECE[b.id][:1], _block_place(b), *_BLOCK_PIECE[b.id][1:]) for b in BLOCKS}
+PIECES.update({
+    # 시스템
+    "preamble": Piece("머리말", ("policy",), "system", "PREAMBLE", "머리말을 받는 시스템 프롬프트 (system_prompt)"),
+    "korean_line": Piece("한국어 출력 줄", ("output",), "system", "KOREAN_LINE", "머리말을 받는 지시의 끝 (본문 지시는 글 가운데)"),
+    "writer_task": Piece("할 일 (본문 쓰기)", ("style", "continuity", "output"), "system", "_WRITER", "쓰기 재료가 꼭 쓸 것만이면 사건 문장을 _FIXED_LINE 으로 바꾼다"),
+    "fixed_line": Piece("고정점 · 연출 두 층", ("continuity",), "system", "_FIXED_LINE", "쓰기 재료가 꼭 쓸 것만일 때 (board.fixed_only)"),
+    "prose_rules": Piece("문체 기본 규칙", ("style",), "system", "_PROSE_RULES", "문체 원문이 있는 작품은 쉼표 · 셋씩 나열 · 줄표 규칙을 뺀다 (prose_rules)"),
+    "reviser_task": Piece("할 일 (부분 수정)", ("style", "continuity", "output"), "system", "_REVISER"),
+    "paragraph_task": Piece("할 일 (문단 연습장)", ("style", "output"), "system", "_PARAGRAPH_WRITER"),
+    "sys_planner": Piece("기획 지시", ("policy",), "system", "SYSTEM_PLANNER"),
+    "sys_editor": Piece("설정 관리 지시", ("policy", "continuity"), "system", "SYSTEM_EDITOR"),
+    "sys_checker": Piece("교정 편집자 지시", ("check",), "system", "SYSTEM_CHECKER", "영어 검수는 SYSTEM_CHECKER_EN (checker_system)"),
+    "sys_motion": Piece("동선 교정 지시", ("check",), "system", "SYSTEM_MOTION"),
+    "sys_setup_chat": Piece("설정 도우미 지시", ("policy",), "system", "SYSTEM_SETUP_CHAT"),
+    "sys_style_coach": Piece("문체 대화 지시", ("style", "policy"), "system", "SYSTEM_STYLE_COACH"),
+    "sys_agent_plot": Piece("플롯 대화 에이전트 지시", ("policy",), "system", "SYSTEM_AGENT_PLOT"),
+    # 요청 앞 (문체 블록 안)
+    "style_passages": Piece("문체 예시 문단", ("style",), "front", "style_passages", "고른 화의 대표 문단이 있으면 그것만, 없으면 레퍼런스 대표 문단"),
+    "style_profile": Piece("스타일 프로필", ("style",), "front", "style_rules_view", "예시 문단이 있으면 칸마다 STYLE_FIELD_LIMIT 자까지"),
+    "style_markers": Piece("문체 버릇 빈도", ("style",), "front", "marker_block", "문체 버릇을 정했을 때"),
+    "write_head": Piece("쓰기 앞부분", ("continuity",), "front", "write_head", "장편: 작품 고정 블록부터 직전 화 본문까지. 단편은 build_episode_context"),
+    "check_material": Piece("검수 자료", ("continuity", "check"), "front", "check_material", "단편은 앞선 본문 전체, 장편은 직전 3화 원문과 옛 화 관련 단락"),
+    "passage_head": Piece("부분 수정 앞부분", ("continuity",), "front", "passage_head"),
+    # 요청 뒤 · 지시문 꼬리
+    "opening_rules": Piece("여는 화 규칙", ("length",), "instruction", "opening_rules", "1~3화"),
+    "write_flow": Piece("앞 화와 잇기", ("continuity",), "instruction", "WRITE_FLOW_NEXT", "1화는 WRITE_FLOW_FIRST, 4화부터 RETOLD_LINE 을 붙인다"),
+    "write_style": Piece("프로필 따르기 · banned_phrases", ("style",), "instruction", "WRITE_STYLE_LINE"),
+    "write_shift": Piece("감정 이름 금지", ("style",), "instruction", "WRITE_SHIFT_LINE", "플롯의 emotional_shift 가 라벨 모양일 때"),
+    "write_speech": Piece("말투 따르기", ("voice",), "instruction", "WRITE_SPEECH_LINE"),
+    "focus_line": Piece("중심 장면에 머물기", ("length",), "instruction", "focus_line"),
+    "priority_line": Piece("블록 우선 차례", ("continuity",), "instruction", "priority_line"),
+    "stat_rule": Piece("상태창 줄", ("output",), "instruction", "statwin.write_rule", "상태창을 쓰는 작품"),
+    "attire_rule": Piece("차림 이어 쓰기", ("continuity",), "instruction", "attire_write_rule", "차림을 적은 인물이 있을 때"),
+    "ending": Piece("문장 끝 섞기", ("style",), "instruction", "ending_rule", "시점 인물의 서술 말투로 쓰는 화는 뺀다 (ending_line)"),
+    "coord_note": Piece("조율 메모 안내", ("continuity",), "instruction", "coord.NOTE", "쓰기 재료 조율로 조율 메모를 넣었을 때"),
+    "direction_rule": Piece("연출 지시 읽는 법", ("style",), "instruction", "DIRECTION_RULE", "작가 연출 지시가 있을 때"),
+    "echo_rule": Piece("되풀이 피하기 규칙", ("style",), "tail", "ECHO_RULE", "되풀이한 구절 블록이 있을 때"),
+    "rewrite_block": Piece("다시 생성 요청", ("style",), "instruction", "rewrite_block"),
+    "polish_rules": Piece("서술 다듬기 규칙", ("style",), "second", "POLISH_RULES"),
+    "polish_ending": Piece("다듬기 문장 끝 몫", ("style",), "second", "POLISH_ENDING", "시점 인물의 서술 말투로 쓰는 화는 뺀다"),
+    "passage_rules": Piece("부분 수정 규칙", ("style", "output"), "instruction", "PASSAGE_FREE_RULES", "모순 고치기면 PASSAGE_FIX_RULES · MINIMAL_FIX_RULES · TEXT_RIGHT_RULE"),
+    "chat_message": Piece("작가의 말 자리", ("output",), "instruction", "CHAT_MESSAGE", "작업지시서 · 놀이터에서만. 실제 호출은 작가가 쓴 말"),
+    "check_rules": Piece("검수 확인 목록", ("check", "pov", "voice"), "instruction", "CHECK_RULES", "영어 검수는 CHECK_RULES_EN"),
+    "severity": Piece("심각도 규칙", ("check", "output"), "instruction", "SEVERITY_RULE"),
+    "time_check": Piece("작품 속 시간 확인", ("check", "continuity"), "instruction", "timeline.check_rule", "작품 속 시간을 켰을 때"),
+    "travel_check": Piece("이동 거리 확인", ("check", "continuity"), "instruction", "maps.prompt.travel_check_rule", "이동 거리를 셀 수 있을 때"),
+    "attire_check": Piece("차림 확인", ("check",), "instruction", "attire_check_rule", "차림을 적은 인물이 있을 때"),
+    "stage_check": Piece("관계 단계 확인", ("check",), "instruction", "stage_check_rule", "관계 수치가 있을 때"),
+    "layer_check": Piece("겉 · 속 확인", ("check", "voice"), "instruction", "layer_check_rule", "겉 · 속을 적은 인물 상태가 있을 때"),
+    "protect_check": Piece("깨지 않을 것 확인", ("check",), "instruction", "protect_check_rule", "스토리보드에 깨지 않을 것이 있을 때"),
+    "motion_rules": Piece("동선 확인 목록", ("check",), "instruction", "MOTION_RULES"),
+    "state_rules": Piece("상태 변경안 요구사항", ("continuity", "output"), "instruction", "STATE_RULES"),
+    "state_facts": Piece("이미 있는 확정 사실", ("continuity",), "tail", "state_facts_block", "장편"),
+    "attire_state": Piece("차림 적기", ("continuity",), "instruction", "ATTIRE_STATE_RULE"),
+    "layer_state": Piece("겉 · 속 적기", ("voice",), "instruction", "LAYER_STATE_RULE"),
+    "time_state": Piece("작품 속 시간 적기", ("continuity",), "instruction", "timeline.state_rule", "작품 속 시간을 켰을 때"),
+    "canon_values": Piece("Canon 이 센 값", ("continuity",), "tail", "canon_values_block"),
+    "board_rules": Piece("스토리보드 공통 요구사항", ("continuity", "output"), "instruction", "BOARD_RULES"),
+    "board_scenes": Piece("장면 나누기 규칙", ("length", "continuity"), "instruction", "storyboard_prompt", "쓰기 재료 조율이면 COORD_BOARD_RULES"),
+    "cue_request": Piece("큐 시트 요구사항", ("length", "style"), "instruction", "_cue_request"),
+    "cue_focus": Piece("중심 장면 큐 분량", ("length",), "instruction", "cue_focus_rule", "쓰기 재료가 꼭 쓸 것만이고 중심 장면이 있을 때"),
+    "heat_cue": Piece("완급 계획 큐 규칙", ("length",), "instruction", "heat_cue_rule", "완급 계획이 있을 때"),
+    "plot_rules": Piece("화별 플롯 규칙", ("continuity", "length"), "instruction", "plot_rules"),
+    "fixed_rule": Piece("이미 정한 화 지키기", ("continuity",), "instruction", "fixed_rule", "범위 안 · 뒤에 확정한 화가 있을 때"),
+    "pov_plot_rule": Piece("플롯 시점 규칙", ("pov",), "instruction", "pov_plot_rule", "시점 계획이 있을 때"),
+    "opening_plot_rule": Piece("여는 화 플롯 규칙", ("length",), "instruction", "opening_plot_rule", "1~3화가 범위에 들 때"),
+    "heat_plot_rules": Piece("완급 계획 플롯 규칙", ("length",), "instruction", "heat_plot_rules", "완급 계획이 있을 때"),
+    "coord_plot_rule": Piece("조율 플롯 규칙", ("continuity",), "instruction", "COORD_PLOT_RULE", "쓰기 재료 조율일 때"),
+    "heat_rules": Piece("완급 계획 요구사항", ("length",), "instruction", "heat_rules"),
+    "heat_arc_rules": Piece("구조의 완급 계획 규칙", ("length",), "instruction", "heat_arc_rules", "완급 계획을 켠 작품 (장편은 heat_next_arc_rules)"),
+    "agent_tools": Piece("에이전트 도구 목록", ("output",), "instruction", "AGENT_PLOT_TOOLS"),
+    "out_format": Piece("응답 형식 글", ("output",), "instruction", "_out_format", "작업지시서만: 채팅 앱은 구조화 출력을 받지 못해 스키마를 글로 붙인다"),
+    # 요청 전체를 만드는 함수 (갈래의 요청 함수와 같다)
+    "setup_chat_req": Piece("설정 대화 요청", ("continuity",), "tail", "setup_chat_prompt"),
+    "style_chat_req": Piece("문체 대화 요청", ("style",), "tail", "style_chat_prompt"),
+    "series_req": Piece("부 구성 요청", ("length",), "tail", "series_prompt"),
+    "arc_req": Piece("구조 요청", ("length",), "tail", "arc_ask", "단편 arc_prompt, 장편 next_arc_prompt"),
+    "heat_req": Piece("완급 계획 요청", ("length",), "tail", "heat_propose_prompt"),
+    "plots_req": Piece("플롯 초안 요청", ("continuity",), "tail", "plot_prompt", "장편은 serial_plot_prompt"),
+    "plot_req": Piece("한 화 플롯 요청", ("continuity",), "tail", "episode_plot_prompt"),
+    "agent_req": Piece("에이전트 첫 단계 요청", ("continuity",), "tail", "agent_plot_prompt"),
+    # 보내기 직전 (llm.with_note)
+    "policy_note": Piece("정책 줄", ("policy",), "send", "llm.POLICY_NOTE", "Gemini · 로컬 백엔드. 작업지시서에는 붙지 않는다"),
+    "adult_note": Piece("성인 작품 줄", ("policy",), "send", "llm.ADULT_NOTE", "성인 작품. 작업지시서에는 붙지 않는다"),
+})
+SEND_PIECES = ("policy_note", "adult_note")
+
+_PLAN = ("preamble", "sys_planner", "korean_line")
+_WRITE_SYS = ("preamble", "writer_task", "fixed_line", "prose_rules")
+_FRONT = tuple(b.id for b in BLOCKS if b.front)
+_WRITE_TAIL = ("opening_rules", "write_flow", "write_style", "write_shift", "write_speech", "focus_line", "priority_line", "stat_rule",
+               "attire_rule", "ending", "coord_note")
+_EPISODE = (_WRITE_SYS + _FRONT[:3] + ("style_passages", "style_profile", "style_markers") + _FRONT[3:]
+            + tuple(b.id for b in BLOCKS if not b.front and b.id not in ("instructions", "cues", "direction"))
+            + ("echo_rule", "instructions") + _WRITE_TAIL + ("cues", "direction", "direction_rule"))
+_STATIC = ("work", "world", "style", "characters")
+_PLOT_RULES = ("plot_rules", "fixed_rule", "pov_plot_rule", "opening_plot_rule", "heat_plot_rules", "coord_plot_rule")
+_CHECK_RULES = ("check_rules", "time_check", "travel_check", "attire_check", "stage_check", "layer_check", "protect_check", "severity")
+_STATE_RULES = ("state_facts", "state_rules", "attire_state", "layer_state", "time_state")
+
+
+def _bk(label: str, **kw) -> BriefKind:
+    return BriefKind(label, **kw)
+
+
+# 호출 갈래: 열쇠 → Kind. 차례는 집필 흐름 차례이고, 작업지시서 갈래(brief)의 차례가 BRIEF_KINDS 의 차례다
+KINDS: dict[str, Kind] = {
+    "setup": Kind("설정 제안", "설정", "plan", "SYSTEM_PLANNER", "setup_prompt", "SetupSuggestion", "pipeline.suggest_setup"),
+    "birth": Kind("무작위 출생", "설정", "", "SYSTEM_PLANNER", "birth_prompt", "BirthSketch", "birth.sketch"),
+    "setup_chat": Kind("대화로 다듬기 · 설정 도우미", "설정", "plan", "SYSTEM_SETUP_CHAT", "setup_chat_prompt", "SetupRevision",
+                       "pipeline.revise_setup", ("preamble", "sys_setup_chat", "korean_line", "setup_chat_req", "chat_message"),
+                       view=True, brief=_bk("대화로 다듬기 · 설정 도우미", scope="work")),
+    "naming": Kind("이름 후보", "설정", "name", "SYSTEM_NAMER", "naming_prompt", "NameOptions", "pipeline.suggest_names"),
+    "field": Kind("빈칸 AI 제안", "설정", "", "SYSTEM_PLANNER", "field_prompt", "FieldIdeas", "pipeline.suggest_field"),
+    "style_analyze": Kind("문체 분석", "문체", "", "SYSTEM_PLANNER", "style_prompt", "StyleProfile", "pipeline.analyze_style"),
+    "style_learn": Kind("고친 곳에서 문체 배우기", "문체", "", "SYSTEM_STYLE_EDITOR", "learn_prompt", "StyleLearning", "pipeline.learn_style"),
+    "style_chat": Kind("대화로 다듬기 · 문체", "문체", "plan", "SYSTEM_STYLE_COACH", "style_chat_prompt", "StyleRevision",
+                       "pipeline.revise_style", ("preamble", "sys_style_coach", "korean_line", "style_chat_req", "chat_message"),
+                       view=True, brief=_bk("대화로 다듬기 · 문체", scope="work")),
+    "style_example": Kind("문체 예시 글", "문체", "", "writer_system", "style_example_prompt", "StyleSample", "pipeline.style_example"),
+    "series": Kind("부 구성", "계획", "plan", "SYSTEM_PLANNER", "series_prompt", "SeriesPlan", "pipeline.plan_series",
+                   _PLAN + ("series_req",), view=True, brief=_bk("부 구성", scope="work", form="serial")),
+    "arc": Kind("기승전결 구조 · 다음 아크", "계획", "plan", "SYSTEM_PLANNER", "arc_prompt", "ArcPlan · ArcProposal",
+                "pipeline.plan_arc · plan_next_arc", _PLAN + ("arc_req", "heat_arc_rules"),
+                also=("next_arc_prompt", "heat_next_arc_rules"), view=True, brief=_bk("기승전결 구조 · 다음 아크", scope="work")),
+    "heat": Kind("완급 계획", "계획", "plan", "SYSTEM_PLANNER", "heat_propose_prompt", "HeatProposal", "pipeline.propose_heat",
+                 _PLAN + ("heat_req", "heat_rules"), view=True, brief=_bk("완급 계획", scope="work")),
+    "plots": Kind("플롯 초안", "계획", "plan", "SYSTEM_PLANNER", "plot_prompt", "PlotBatch", "pipeline.draft_plots",
+                  _PLAN + ("plots_req",) + _PLOT_RULES, also=("serial_plot_prompt",), view=True, brief=_bk("플롯 초안", scope="act")),
+    "plot": Kind("한 화 플롯", "계획", "plan", "SYSTEM_PLANNER", "episode_plot_prompt", "PlotBatch", "pipeline.draft_episode",
+                 _PLAN + ("plot_req",) + _PLOT_RULES, view=True, brief=_bk("한 화 플롯", need="draft")),
+    "agent_plot": Kind("대화로 다듬기 · 플롯 (대화 에이전트 첫 단계)", "계획", "chat", "SYSTEM_AGENT_PLOT", "agent_plot_prompt", "PlotAgentStep",
+                       "agent.run_turn", ("preamble", "sys_agent_plot", "korean_line", "agent_req", "agent_tools", "chat_message"),
+                       view=True, brief=_bk("대화로 다듬기 · 플롯 (대화 에이전트 첫 단계)", scope="work", stage="chat")),
+    "plot_chat": Kind("플롯 대화", "계획", "", "SYSTEM_PLOT_CHAT", "plot_chat_prompt", "PlotRevision", "pipeline.revise_plot",
+                      also=("serial_plot_chat_prompt",)),
+    "storyline": Kind("이야기 줄기 제안", "계획", "", "SYSTEM_PLANNER", "storyline_prompt", "StorylineProposal", "pipeline.suggest_storyline"),
+    "openings": Kind("여는 화 여러 안", "계획", "", "SYSTEM_PLANNER", "opening_plots_prompt", "OpeningPlots", "opening.suggest_openings"),
+    "coord": Kind("조율 메모", "계획", "", "SYSTEM_PLANNER", "coord_prompt", "CoordDraft", "pipeline.make_coord"),
+    "storyboard": Kind("스토리보드", "쓰기", "board", "SYSTEM_PLANNER", "storyboard_prompt", "StoryboardDraft", "pipeline.make_storyboard",
+                       _PLAN + ("write_head", "canon_values", "board_scenes", "board_rules"), view=True,
+                       brief=_bk("스토리보드", need="confirmed", stage="board")),
+    "storyboard_revise": Kind("스토리보드 고치기", "쓰기", "board", "SYSTEM_PLANNER", "storyboard_revise_prompt", "StoryboardDraft",
+                              "pipeline.revise_storyboard"),
+    "cue": Kind("큐 시트", "쓰기", "board", "SYSTEM_PLANNER", "cue_sheet_prompt", "CueSheetDraft", "pipeline.make_cue_sheet",
+                _PLAN + ("write_head", "cue_request", "cue_focus", "heat_cue"), view=True, brief=_bk("큐 시트", need="confirmed", stage="board")),
+    "episode": Kind("본문 쓰기", "쓰기", "write", "writer_system", "episode_prompt", "", "pipeline.write_episode", _EPISODE,
+                    view=True, brief=_bk("본문 쓰기", stage="write")),
+    "rewrite": Kind("다시 생성", "쓰기", "write", "writer_system", "rewrite_prompt", "", "pipeline.rewrite_episode",
+                    _WRITE_SYS + _STATIC + ("instructions",) + _WRITE_TAIL + ("rewrite_block",), view=True),
+    "polish": Kind("서술 다듬기", "쓰기", "revise", "writer_system", "polish_prompt", "", "pipeline.polish_episode",
+                   _WRITE_SYS + _STATIC + ("polish_rules", "polish_ending"), view=True),
+    "passage": Kind("대화로 다듬기 · 본문 부분 수정", "쓰기", "revise", "reviser_system", "passage_prompt", "PassageRevision",
+                    "pipeline.revise_passage", ("preamble", "reviser_task", "prose_rules", "passage_head", "passage_rules", "chat_message"),
+                    also=("SYSTEM_REVISER",), view=True, brief=_bk("대화로 다듬기 · 본문 부분 수정", need="text", stage="revise")),
+    "cue_score": Kind("큐 시트로 쓰기 (한 번에)", "쓰기", "", "writer_system", "cue_score_prompt", "", "pipeline.write_scored"),
+    "cue_play": Kind("큐 시트로 쓰기 (큐마다)", "쓰기", "", "writer_system", "cue_play_prompt", "", "pipeline.play_cues"),
+    "check": Kind("검수", "검수", "check", "SYSTEM_CHECKER", "check_prompt", "ConsistencyReport", "pipeline.check_episode",
+                  ("sys_checker", "check_material") + _CHECK_RULES, also=("checker_system", "SYSTEM_CHECKER_EN"), view=True,
+                  brief=_bk("검수", need="text", stage="check")),
+    "motion": Kind("동선 검수", "검수", "check", "SYSTEM_MOTION", "motion_prompt", "ConsistencyReport", "pipeline.motion_check",
+                   ("sys_motion", "motion_rules", "severity"), view=True),
+    "claims": Kind("두 걸음 검수 · 진술 뽑기", "검수", "", "SYSTEM_CLAIMS", "claims_prompt", "ClaimSet", "pipeline.check_two_step"),
+    "judge": Kind("두 걸음 검수 · 판단기", "검수", "", "SYSTEM_JUDGE_CHECK", "judge_message", "", "pipeline.check_two_step"),
+    "verdict": Kind("두 걸음 검수 · 판정", "검수", "", "SYSTEM_CHECKER", "verdict_prompt", "ConsistencyReport", "pipeline.check_two_step"),
+    "widen": Kind("검수 넓히기", "검수", "", "SYSTEM_CHECKER", "widen_prompt", "ConsistencyReport", "pipeline.widen_check"),
+    "fix": Kind("지적 고치기", "검수", "", "reviser_system", "fix_prompt", "FixSet · FixBatch", "pipeline.propose_fixes",
+                also=("fix_batch_prompt",)),
+    "recheck": Kind("고친 곳 다시 보기", "검수", "", "SYSTEM_CHECKER", "recheck_prompt", "FindingRecheck · FixRecheckReport",
+                    "pipeline.recheck_finding · recheck_fixed", also=("fix_recheck_prompt",)),
+    "hook": Kind("흡입력 판정", "검수", "", "SYSTEM_HOOK", "hook_prompt", "HookReport", "opening.check_hook"),
+    "foreshadow_judge": Kind("복선 판정 (블록 시험)", "검수", "", "SYSTEM_CHECKER", "foreshadow_judge_prompt", "ForeshadowBreaks", "blocktrial.judge"),
+    "plant": Kind("모순 심기 (검수 시험)", "검수", "", "SYSTEM_PLANTER", "plant_prompt", "PlantSet", "research.check_trial"),
+    "state": Kind("상태 변경안", "상태", "state", "SYSTEM_EDITOR", "state_prompt", "StateDeltaAI", "pipeline.extract_state",
+                  ("preamble", "sys_editor", "korean_line") + _STATE_RULES, view=True, brief=_bk("상태 변경안", need="text", stage="state")),
+    "audit": Kind("상태 감사", "상태", "audit", "SYSTEM_EDITOR", "audit_prompt", "AuditReport", "pipeline.audit_delta"),
+    "recap": Kind("줄거리 접기", "장편", "", "SYSTEM_EDITOR", "recap_prompt", "Recap", "pipeline.recap"),
+    "fold": Kind("아는 정보 접기", "장편", "", "SYSTEM_EDITOR", "fold_prompt", "KnowsFoldSet", "pipeline.fold_knows"),
+    "offscreen": Kind("화면 밖 근황", "장편", "", "SYSTEM_PLANNER", "offscreen_prompt", "OffscreenSet", "pipeline.plan_offscreen"),
+    "convert": Kind("장편으로 전환", "장편", "", "SYSTEM_PLANNER", "convert_prompt", "SerialConversion", "serialize.propose_conversion"),
+    "rebuild": Kind("재구성", "장편", "", "SYSTEM_PLANNER", "rebuild_prompt", "SerialRebuild", "reshape.propose_rebuild"),
+    "rework": Kind("재구성 다시 쓰기", "장편", "", "writer_system", "rework_prompt", "Rework", "reshape.propose_rework"),
+    "impact": Kind("인과율 영향 분석", "장편", "", "SYSTEM_IMPACT", "impact_prompt", "ImpactReport", "pipeline.analyze_impact"),
+    "voice": Kind("시점 서술 말투 제안", "인물 · 데이터", "", "SYSTEM_VOICE", "voice_prompt", "VoiceSuggestion", "pipeline.suggest_voice"),
+    "look": Kind("외모 제안", "인물 · 데이터", "", "SYSTEM_ILLUSTRATOR", "look_prompt", "LookSuggestion", "pipeline.suggest_look"),
+    "body": Kind("신체 프로필 제안", "인물 · 데이터", "", "SYSTEM_PLANNER", "body_prompt", "BodySuggestion", "pipeline.suggest_body"),
+    "alias": Kind("다른 이름 제안", "인물 · 데이터", "", "SYSTEM_PLANNER", "alias_prompt", "AliasSuggestion", "pipeline.suggest_aliases"),
+    "stat_window": Kind("상태창 제안", "인물 · 데이터", "", "SYSTEM_PLANNER", "stat_window_prompt", "StatWindowSuggestion",
+                        "pipeline.suggest_stat_window"),
+    "stat_init": Kind("상태창 첫 수치", "인물 · 데이터", "", "SYSTEM_PLANNER", "stat_init_prompt", "StatInitSuggestion",
+                      "pipeline.suggest_initial_stats"),
+    "illust": Kind("삽화 프롬프트", "연출 · 지도 · 삽화", "illustration", "SYSTEM_ILLUSTRATOR", "illust_prompt", "IllustDraft", "pipeline.illustrate"),
+    "stage_draft": Kind("장면 연출 짜기", "연출 · 지도 · 삽화", "", "SYSTEM_STAGE", "stage_draft_prompt", "StageDraft", "pipeline._stage_ask",
+                        also=("stage_extract_prompt",)),
+    "place_sort": Kind("장소 나누기", "연출 · 지도 · 삽화", "", "SYSTEM_PLACE_SORTER", "place_sort_prompt", "PlaceSort", "pipeline.sort_places"),
+    "map_suggest": Kind("지도 짜기", "연출 · 지도 · 삽화", "", "SYSTEM_MAP_PLANNER", "map_suggest_prompt", "MapSuggestion", "pipeline.suggest_map"),
+    "play_scene": Kind("플레이 장면", "플레이", "play", "SYSTEM_PLAY", "play_scene_prompt", "PlayScene", "play.scene"),
+    "play_state": Kind("플레이 상태", "플레이", "", "SYSTEM_EDITOR", "play_state_prompt", "StateDeltaAI", "play.settle"),
+    "paragraph": Kind("문단 연습장", "실험", "", "paragraph_system", "paragraph_prompt", "StudioDraft", "pipeline.draft_paragraph",
+                      ("preamble", "paragraph_task", "prose_rules")),
+    "anatomy": Kind("문단 해부", "실험", "", "SYSTEM_ANATOMY", "anatomy_prompt", "ParagraphAnatomy", "pipeline.anatomize_paragraph"),
+    "variants": Kind("장면 변주", "실험", "", "SYSTEM_PLANNER", "variants_prompt", "SceneVariants", "pipeline.vary_scene"),
+    "reader": Kind("독자 반응", "실험", "", "SYSTEM_READER", "reader_prompt", "ReaderCheck", "pipeline.reader_check"),
+    "rev": Kind("역설계 · 한 화", "실험", "", "SYSTEM_REVERSE", "rev_prompt", "RevEpisodeDraft", "pipeline.reverse_episode"),
+    "rev_lines": Kind("역설계 · 줄기", "실험", "", "SYSTEM_REVERSE", "rev_lines_prompt", "RevLineSet", "pipeline.reverse_lines"),
+    "rev_arcs": Kind("역설계 · 아크", "실험", "", "SYSTEM_REVERSE", "rev_arcs_prompt", "RevArcSet", "pipeline.reverse_arcs"),
+    "research": Kind("연구 화면 샘플 (기본 시스템)", "실험", "", "SYSTEM_WRITER", "research.sample", "", "routes.research"),
+}
+
+# 작업지시서 갈래: 열쇠 → BriefKind. KINDS 가운데 작업지시서 · 프롬프트 놀이터(promptlab.py)의 '불러오기'에 나오는 것을 고른 보기다. 차례는 집필 흐름 차례
+# '대화로 다듬기' 갈래(설정 도우미 · 문체 · 플롯 대화 에이전트 · 본문 부분 수정)는 작가의 말 자리에 CHAT_MESSAGE 를 넣는다
+BRIEF_KINDS: dict[str, BriefKind] = {k: v.brief for k, v in KINDS.items() if v.brief}
+
+
+def resolve_name(name: str):
+    """레지스트리의 이름이 가리키는 값. prompts 의 이름이거나 'canon 아래 모듈.이름'. 없으면 None."""
+    import importlib
+
+    if name in globals():
+        return globals()[name]
+    mod, _, attr = name.rpartition(".")
+    if not mod:
+        return None
+    try:
+        m = importlib.import_module(f"{__package__}.{mod}")
+    except ImportError:
+        return None
+    return getattr(m, attr, None)
+
+
+def kinds_of(piece: str) -> list[str]:
+    """이 조각이 들어가는 갈래 열쇠 (KINDS 차례). 보내기 직전 조각은 모든 갈래다."""
+    return [k for k, v in KINDS.items() if piece in v.pieces or piece in SEND_PIECES]
+
+
+def piece_text(p: Project, n: int, piece: str, kind: str = "episode", request: str = "") -> str:
+    """조각을 견본 작품 p 의 n 화로 조립한 글. 들어갈 조건이 맞지 않으면 빈 글. request 는 그 갈래의 조립된 요청이다
+    (요청 전체를 만드는 조각은 그 글을 그대로 돌려준다). 작품을 바꾸지 않는다."""
+    pc = PIECES[piece]
+    if piece.endswith("_req"):
+        return request
+    if piece in BLOCK_BY_ID:
+        parts = episode_parts(p, n) if n and kind in ("episode", "rewrite") else static_parts(p)
+        return next((x.text for x in parts if x.id == piece), "")
+    f = _SAMPLES.get(piece)
+    if f is not None:
+        return f(p, n)
+    v = resolve_name(pc.source)
+    return v if isinstance(v, str) else ""
+
+
+def _sample_board(p: Project, n: int):
+    ep = p.episode(n) if n else None
+    return ep.storyboard if ep else None
+
+
+# 조각마다 견본 글을 만드는 함수 (p, n) → 글. 여기 없는 조각은 source 상수의 글 그대로다
+_SAMPLES = {
+    "korean_line": lambda p, n: KOREAN_LINE,
+    "writer_task": lambda p, n: _WRITER.replace(_EVENTS_LINE, _FIXED_LINE) if board.fixed_only(p) else _WRITER,
+    "fixed_line": lambda p, n: _FIXED_LINE if board.fixed_only(p) else "",
+    "prose_rules": lambda p, n: prose_rules(styled(p)),
+    "style_passages": lambda p, n: "\n\n---\n\n".join(style_passages(p)),
+    "style_profile": lambda p, n: dump(style_rules_view(p)),
+    "style_markers": lambda p, n: marker_block(p).strip(),
+    "write_head": lambda p, n: write_head(p, n) if n else "",
+    "check_material": lambda p, n: check_material(p, n) if n else "",
+    "passage_head": lambda p, n: passage_head(p, n) if n else "",
+    "opening_rules": lambda p, n: opening_rules(p, n) if n else "",
+    "write_flow": lambda p, n: (WRITE_FLOW_FIRST if n == 1 else WRITE_FLOW_NEXT + (RETOLD_LINE if n > OPENING_EPISODES else "")) if n else "",
+    "write_shift": lambda p, n: WRITE_SHIFT_LINE if n and shift_label(p.episode(n).plot.emotional_shift) else "",
+    "focus_line": lambda p, n: focus_line(p, _sample_board(p, n)) if n else "",
+    "priority_line": lambda p, n: priority_line(p, n, _sample_board(p, n) is not None).strip() if n else "",
+    "stat_rule": lambda p, n: statwin.write_rule(p, n, budget=context.budget(p, "stat_lines")).strip() if n else "",
+    "attire_rule": lambda p, n: attire_write_rule(p, board=_sample_board(p, n) is not None).strip(),
+    "ending": lambda p, n: ending_line(p, n).strip() if n else ending_rule(p),
+    "coord_note": lambda p, n: coord.NOTE if n and coord.memo(p, n) else "",
+    "direction_rule": lambda p, n: DIRECTION_RULE if n and any(direction_texts(p, n)) else "",
+    "echo_rule": lambda p, n: ECHO_RULE if n and echo_block(p, n) else "",
+    "polish_ending": lambda p, n: "" if n and voiced(p, n) else POLISH_ENDING.format(rule=ending_rule(p)),
+    "check_rules": lambda p, n: CHECK_RULES.format(n=n, rules=check_rule_lines(p, n), severity=SEVERITY_RULE) if n else "",
+    "polish_rules": lambda p, n: POLISH_RULES.format(ending=_SAMPLES["polish_ending"](p, n)),
+    "time_check": lambda p, n: timeline.check_rule(p, n).strip() if n else "",
+    "travel_check": lambda p, n: mapprompt.travel_check_rule(p, n).strip() if n else "",
+    "attire_check": lambda p, n: attire_check_rule(p).strip(),
+    "stage_check": lambda p, n: stage_check_rule(p).strip(),
+    "layer_check": lambda p, n: layer_check_rule(p).strip(),
+    "protect_check": lambda p, n: protect_check_rule(p.episode(n)).strip() if n else "",
+    "motion_rules": lambda p, n: MOTION_RULES.format(n=n, severity=SEVERITY_RULE),
+    "state_rules": lambda p, n: STATE_RULES.format(n=n),
+    "time_state": lambda p, n: timeline.state_rule(p, n).strip() if n else "",
+    "canon_values": lambda p, n: canon_values_block(p, n) if n else "",
+    "cue_focus": lambda p, n: cue_focus_rule(p, n).strip() if n else "",
+    "heat_cue": lambda p, n: heat_cue_rule(p, n).strip() if n else "",
+    "plot_rules": lambda p, n: plot_rules(p),
+    "pov_plot_rule": lambda p, n: pov_plot_rule(p).strip(),
+    "opening_plot_rule": lambda p, n: opening_plot_rule(p).strip(),
+    "heat_plot_rules": lambda p, n: heat_plot_rules(p, n).strip(),
+    "coord_plot_rule": lambda p, n: COORD_PLOT_RULE if coord.on(p) else "",
+    "heat_arc_rules": lambda p, n: (heat_arc_rules(p.meta.target_episodes) if not p.serial else "").strip() if p.settings.heat_plan else "",
+}
+
+
+def found_in(text: str, *wholes: str) -> bool | None:
+    """조각 글이 조립된 요청에 들어 있는지. 글의 가장 긴 줄(자리표시 {…} 가 없는 줄)로 본다. 볼 줄이 없으면 None."""
+    lines = [x.strip() for x in text.splitlines() if len(x.strip()) >= 8 and "{" not in x]
+    if not lines:
+        return None
+    key = max(lines, key=len)
+    return any(key in w for w in wholes)
 
 
 CHAT_MESSAGE = "(작가의 말)"  # 대화로 다듬기 갈래에서 작가의 말 자리. 놀이터에서 이 줄을 바꿔 돌린다
@@ -5362,6 +5797,37 @@ def brief_request(p: Project, n: int, kind: str = "episode") -> tuple[str, str, 
         start, end, acts, where, _ = pipeline.heat_target(p)
         return SYSTEM_PLANNER, heat_propose_prompt(p, start, end, acts, where), HeatProposal
     return writer_system(p), episode_prompt(p, n), None
+
+
+# 조립 보기가 있는 갈래 가운데 작업지시서 갈래가 아닌 것: 필요한 화 조건 (BriefKind.need 와 같은 뜻)
+VIEW_NEED = {"rewrite": "text", "polish": "text", "motion": "text"}
+
+
+def view_request(p: Project, n: int, kind: str) -> tuple[str, str, type[BaseModel] | None]:
+    """프롬프트 관리 페이지의 조립 보기: (시스템, 요청, 응답 스키마). 작업지시서 갈래는 brief_request 와 같고,
+    다시 생성 · 서술 다듬기 · 동선 검수는 pipeline 의 호출과 같은 함수를 부른다 (다시 생성은 작가의 요청 없이 처음부터 새로)."""
+    if kind not in BRIEF_KINDS and kind not in VIEW_NEED:
+        raise ValueError(f"조립 보기가 없는 갈래예요: {kind}")
+    b = BRIEF_KINDS.get(kind)
+    need = b.need if b else VIEW_NEED[kind]
+    if (b is None or b.scope == "episode") and n:
+        ep = next((e for e in p.episodes if e.plot.number == n), None)
+        if ep is None:
+            raise ValueError(f"{n}화 플롯이 없어 프롬프트를 만들 수 없어요")
+        why = {"text": not ep.text and "본문이 없어", "confirmed": ep.status == "draft" and "플롯을 확정하지 않아",
+               "draft": ep.status != "draft" and "플롯이 초안이 아니라"}.get(need)
+        if why:
+            raise ValueError(f"{n}화 {why} {KINDS[kind].label} 프롬프트를 만들 수 없어요")
+    if b is not None:
+        return brief_request(p, n, kind)
+    if kind == "motion":  # pipeline.motion_check
+        return SYSTEM_MOTION, motion_prompt(p, n), ConsistencyReport
+    if kind == "polish":  # pipeline.polish_episode
+        return writer_system(p), polish_prompt(p, n, p.episode(n).text.strip()), None
+    from . import pipeline
+    from .schema import RewriteRequest
+
+    return writer_system(p), pipeline.rewrite_prompt(p, n, RewriteRequest()), None  # pipeline.rewrite_episode
 
 
 def plots_range(p: Project, n: int) -> tuple[int, int]:
@@ -5451,7 +5917,7 @@ def naming_prompt(p: Project, target: str, candidates: list, n: int) -> str:
 
 
 
-# ---------- 설정 칸 하나 AI 후보 (✦) ----------
+# ---------- 설정 칸 하나 AI 후보 ----------
 # 칸 하나만 채우는 작은 제안. 여러 칸을 바꾸는 제안은 설정 도우미 대화(setup_chat_prompt)가 맡는다.
 # 키는 화면의 data-bind 경로와 같다 (static/setup.js). 값: (칸 이름, 쓰는 법)
 
@@ -5643,8 +6109,9 @@ def illust_prompt(p: Project, n: int, sel: Selection | None, request: str = "") 
 
 def cast_view(cs: list[Character]) -> list[dict]:
     """본문 · 검수에 넣는 인물 설정. 서술 말투는 그 인물이 시점 인물인 화에만 시점 블록으로 넣는다 (다른 화에 옮아오지 않게).
-    신체 프로필(body)은 인물 카드에만 보이는 작가 메모라 넣지 않는다."""
-    return [c.model_dump(exclude={"narration_voice", "body", "context"}) for c in cs]
+    신체 프로필(body)은 인물 카드에만 보이는 작가 메모라 넣지 않는다.
+    다른 이름(aliases)은 '이 인물이 나온다'를 찾는 데만 쓰고 넣지 않는다 (고칠 때마다 앞 블록 캐시가 깨지지 않게)."""
+    return [c.model_dump(exclude={"narration_voice", "body", "context", "aliases"}) for c in cs]
 
 
 SYSTEM_VOICE = system_prompt(
@@ -5726,6 +6193,43 @@ def body_prompt(p: Project, cid: str, minor: bool) -> str:
 - note 에는 무엇을 근거로 정했는지 한국어 한두 문장으로 적습니다."""
 
 
+
+def alias_prompt(p: Project, items: list) -> str:
+    """다른 이름 제안 (pipeline.suggest_aliases). items 는 aliases.Item (재료 단락을 채운 것).
+    바뀌지 않는 블록(작품 · 모든 항목의 이름 목록)이 앞, 항목별 단락이 뒤, 요청이 맨 뒤다 (Gemini 암묵적 캐시).
+    쓰기 프롬프트 · 작업지시서에는 들어가지 않는다."""
+    def names(n: str, al: list[str]) -> str:
+        return n + (f" (다른 이름: {', '.join(al)})" if al else "")
+    every = [f"- c:{c.id} 인물 {names(c.name, c.aliases)}" for c in p.characters if c.name.strip()]
+    every += [f"- e:{x.id} {x.kind} {names(x.name, x.aliases)}" for x in p.elements if x.name.strip()]
+    blocks = []
+    for it in items:
+        paras = "\n".join(f"[{n}화] {para}" for n, para in it.passages) or "(쓴 화 본문에서 찾은 단락이 없습니다)"
+        cut = f"\n(재료 예산을 넘어 뺀 단락 {it.cut}개)" if it.cut else ""
+        calls = f"\n다른 인물이 부르는 호칭(씨앗): {', '.join(it.calls)}" if it.calls else ""
+        blocks.append(f"""## {it.key}
+설정: {it.line}
+지금 이름: {it.name}
+지금 다른 이름: {', '.join(it.aliases) or '없음'}{calls}
+재료 단락:
+{paras}{cut}""")
+    return f"""# 작품
+제목: {p.meta.title}
+장르: {genres.label(p.meta)}
+
+# 모든 항목의 이름 (겹치는 말을 피하는 데 씁니다)
+{chr(10).join(every) or "없음"}
+
+# 다른 이름을 찾을 항목
+{chr(10).join(blocks)}
+
+요구사항:
+- 각 항목이 재료 단락에서 이름 대신 불리는 말(별명, 호칭, 직함, 줄인 이름, 부분 이름)을 찾아 aliases 에 넣습니다.
+- 재료 단락에 글자 그대로 나온 말만 넣습니다. 지어내거나 바꿔 쓰지 않습니다. 조사(은 · 는 · 이 · 가 · 을 · 를 · 에게 등)는 떼고 넣습니다.
+- 두 글자 이상, 12자 이하로 씁니다. 지금 이름 · 지금 다른 이름과 같은 말은 넣지 않습니다.
+- 다른 항목의 이름 · 다른 이름과 같은 말, '그' · '그녀' · '나' 같은 대명사, '오빠' · '엄마'처럼 여러 인물에게 두루 쓰는 관계 말은 넣지 않습니다. 호칭 씨앗도 이 기준으로 고릅니다.
+- target 에는 위 '## ' 뒤의 열쇠(c:… · e:…)를 그대로 씁니다. 더할 말이 없는 항목은 빼도 됩니다.
+- reason 에는 어느 화 단락에서 어떻게 불렸는지 한국어 한두 문장으로 씁니다."""
 
 def stat_window_prompt(p: Project, request: str = "") -> str:
     """상태창 꾸미기 제안 (pipeline.suggest_stat_window). 본문 서식 · 창 이름 · 항목 틀 · 화면 스킨을 함께 낸다."""

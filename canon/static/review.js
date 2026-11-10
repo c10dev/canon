@@ -88,6 +88,39 @@ const DELTA_LISTS = ['character_updates', 'events', 'secrets_added', 'relationsh
 const deltaCount = (d) => DELTA_LISTS.reduce((s, k) => s + (d[k] || []).length, 0);
 const deltaPicked = () => Object.entries(S.picks).filter(([k, v]) => v && DELTA_PICK.test(k)).length;
 
+/** 변경안 묶음 요지 (순수 함수, docs/ux 06). 집필 화면 요약 카드(write.js gistCard)와 상태 승인 화면 갈래 한 줄(peek)이 같이 쓴다.
+ * picks: 체크(요약 카드는 defaultPicks), name: 인물 id → 이름, field: 설정 칸 이름, fs: 작품 복선, open: 열린 검수 지적 수.
+ * 관계는 사건만 적는다. 관계 수치는 AI 가 적지 않고 dynamics.py 가 계산한다 (상태 승인 화면 관계 미리 보기)
+ * 돌려주는 값: groups(묶음마다 key · label · count · picked · peek), picked/total(변경안 항목), skip(기본으로 반영하지 않는 설정 바꾸기 · 호칭 문구), fold · head(검수 지적이 남았으면 접는다) */
+function deltaGist(d, { picks = {}, name = (id) => id, field = (f) => f, fs = [], open = 0 } = {}) {
+  const short = (s, k = 18) => (s.length > k ? `${s.slice(0, k)}…` : s);
+  const keys = (letter, list) => (list || []).map((_, i) => letter + i);
+  const known = (id) => fs.some((f) => f.id === id) || d.foreshadow_planted.some((f) => f.id === id);
+  const fsDesc = (id) => ([...fs, ...d.foreshadow_planted].find((x) => x.id === id) || { description: id }).description;
+  const group = (key, label, ks, peek) => ({ key, label, count: ks.length, picked: ks.filter((k) => picks[k]).length, peek });
+  const sum = (d.summary || '').trim();
+  // 그 밖: 여섯 묶음에 들지 않는 항목. 요약 카드에서 빠뜨리지 않게 한 줄로 센다
+  const etc = [['s', d.secrets_added, '비밀'], ['r', d.relationship_updates, '관계 유형'], ['n', d.new_characters, '새 인물'], ['l', d.new_places, '장소'],
+    ['k', d.deadlines_added, '기한'], ['o', d.deadlines_done, '기한 끝'], ['h', d.address_changes, '호칭']].filter(([, list]) => (list || []).length);
+  const groups = [
+    { key: 'summary', label: '요약', count: sum ? 1 : 0, picked: sum ? 1 : 0, peek: short(sum, 40) },
+    group('chars', '인물 상태', [...keys('c', d.character_updates), ...keys('a', d.cast_added)], d.character_updates.map((u) => name(u.character_id)).join(', ')),
+    group('rel', '관계 사건', keys('e', d.events), d.events.slice(0, 2).map((ev) => `${name(ev.actor)} → ${name(ev.target)} ${ev.kind}`).join(' · ')),
+    group('fs', '복선', [...keys('p', d.foreshadow_planted), ...keys('x', d.foreshadow_resolved), ...keys('q', d.foreshadow_clues)],
+      [...d.foreshadow_planted.map((f) => `심음 ${short(f.description, 12)}`), ...d.foreshadow_resolved.filter(known).map((id) => `회수 ${short(fsDesc(id), 12)}`)].join(' · ')),
+    group('facts', '사실', keys('f', d.new_facts), d.new_facts.map((f) => short(f)).join(' · ')),
+    group('setting', '설정 바꾸기', keys('t', d.setting_changes), (d.setting_changes || []).map((x) => `${name(x.character_id)} ${field(x.field)}`).join(' · ')),
+    group('etc', '그 밖', etc.flatMap(([p, list]) => keys(p, list)), etc.map(([, list, label]) => `${label} ${list.length}`).join(' · ')),
+  ];
+  const left = (p, list) => keys(p, list).filter((k) => !picks[k]).length;
+  const t = left('t', d.setting_changes);
+  const h = left('h', d.address_changes);
+  const skip = t || h ? `${[t && `설정 바꾸기 ${t}개`, h && `호칭 ${h}개`].filter(Boolean).join(' · ')}는 반영하지 않아요` : '';
+  const total = deltaCount(d);
+  const picked = Object.entries(picks).filter(([k, v]) => v && DELTA_PICK.test(k)).length;
+  return { groups, picked, total, skip, fold: open > 0, head: open > 0 ? `검수 지적 ${open}개가 남았어요` : '' };
+}
+
 /** 빼 둘 수 있는 목록과 체크 키 앞글자 (StateDelta.dismissed 의 칸, pickedDelta 와 같다) */
 const DISMISS_LISTS = [['character_updates', 'c'], ['events', 'e'], ['secrets_added', 's'], ['relationship_updates', 'r'], ['new_facts', 'f'], ['foreshadow_planted', 'p'], ['foreshadow_resolved', 'x'], ['foreshadow_clues', 'q'], ['new_characters', 'n'], ['new_places', 'l'], ['deadlines_added', 'k'], ['deadlines_done', 'o'], ['setting_changes', 't'], ['address_changes', 'h']];
 
@@ -558,16 +591,18 @@ function reviewPanel(n) {
   const keys = (letter, list, keep = () => true) => (list || []).map((_, i) => letter + i).filter((_, i) => keep(i));
   const short = (s, k = 18) => (s.length > k ? `${s.slice(0, k)}…` : s);
   const tl = tlDeltaCard(n, d, box);
+  // 갈래 한 줄은 집필 화면 요약 카드와 같은 요지를 쓴다 (deltaGist)
+  const gist = Object.fromEntries(deltaGist(d, { name: charName, fs: p.foreshadows }).groups.map((g) => [g.key, g]));
   const groups = [
     ['chars', '인물 상태', charIdx.filter((i) => !decideChar(i)).map((i) => charRow(d.character_updates[i], i)).join('') + castAddBox,
       [...keys('c', d.character_updates, (i) => !decideChar(i)), ...keys('a', d.cast_added)],
       charIdx.filter((i) => !decideChar(i)).map((i) => charName(d.character_updates[i].character_id)).join(', '), toolFoot(castLink, statLink(d.character_updates))],
-    ['rel', '관계 사건', events, keys('e', d.events), d.events.slice(0, 2).map((ev) => `${charName(ev.actor)} → ${charName(ev.target)} ${ev.kind}`).join(' · '), toolFoot(castLink)],
+    ['rel', '관계 사건', events, keys('e', d.events), gist.rel.peek, toolFoot(castLink)],
     ['secrets', '비밀 · 관계 유형', `${secrets ? `<h3>새로 생긴 비밀</h3>${secrets}` : ''}${rels ? `<h3>관계 유형 · 설명 변경</h3>${rels}` : ''}`, [...keys('s', d.secrets_added), ...keys('r', d.relationship_updates)],
       [...d.secrets_added.map((x) => short(x.content)), ...d.relationship_updates.map((r) => `${charName(r.a)} ↔ ${charName(r.b)}`)].join(' · '), toolFoot(castLink)],
-    ['facts', '확정 사실', facts, keys('f', d.new_facts), d.new_facts.map((f) => short(f)).join(' · '), ''],
+    ['facts', '확정 사실', facts, keys('f', d.new_facts), gist.facts.peek, ''],
     ['fs', '복선', fs, [...keys('p', d.foreshadow_planted), ...keys('x', d.foreshadow_resolved, (i) => knownFs(d.foreshadow_resolved[i])), ...keys('q', d.foreshadow_clues)],
-      [...d.foreshadow_planted.map((f) => `심음 ${short(f.description, 12)}`), ...d.foreshadow_resolved.filter(knownFs).map((id) => `회수 ${short([...p.foreshadows, ...d.foreshadow_planted].find((x) => x.id === id).description, 12)}`)].join(' · '), toolFoot(toolLink('foreshadow', '복선 센터'))],
+      gist.fs.peek, toolFoot(toolLink('foreshadow', '복선 센터'))],
     ['places', '새로 나온 장소', newPlaces ? `<p class="small">반영하면 인과율에 장소로 등록돼요. 그 뒤로는 이 장소가 나오는 화를 쓸 때 설명이 함께 들어가요.</p>${newPlaces}` : '', keys('l', d.new_places), (d.new_places || []).map((x) => x.name).join(', '), ''],
     ['time', '작품 속 시간', tl, [...keys('k', d.deadlines_added), ...keys('o', d.deadlines_done)], d.time && d.time.day > 0 ? `${d.time.day}일째${d.time.part ? ` ${d.time.part}` : ''}` : '', toolFoot(toolLink('timeline', '작품 속 시간'))],
   ];
@@ -840,7 +875,9 @@ Object.assign(actions, {
     }
     await startJob('state', n);
   },
-  async applyDelta(n) {
+  /** 반영. 고른 변경안(pickedDelta)을 POST …/apply 로 보낸다. 요약 카드(gistApply)도 이것을 부른다.
+      stay 면 반영한 뒤 집필 화면에 남아 요약 카드 자리에 반영 뒤 동작을 보인다 (S.gistDone, write.js gistCard) */
+  async applyDelta(n, stay = false) {
     const out = pickedDelta(n);
     // 평소에는 바로 반영한다. 고른 항목이 없거나, 경고가 남았거나, 변경안을 만든 뒤 본문을 고쳤으면 한 번 묻는다
     const count = deltaCount(out);
@@ -870,6 +907,13 @@ Object.assign(actions, {
       delete S.deltas[n];
       const r = S.auto && S.auto.run;
       const forAuto = r && r.status === 'review' && r.ep === n;
+      if (stay && !forAuto) {
+        // 요약 카드: 집필 화면에 남는다. 다음 화로 · 반영 취소는 카드 자리에 둔다 (되돌리기 알림은 띄우지 않는다)
+        S.gistDone = { name: S.name, n };
+        S.focusTarget = '#app .w-gist [data-gist-next]';
+        toast(`${n}화를 반영했어요`);
+        return;
+      }
       // 넘어간 화면 아래에 되돌리기 알림을 띄운다. 자동 집필이 맡은 화와 되돌릴 스냅샷이 없는 화는 알림만 띄운다
       if (!forAuto && !(ep(n) || {}).auto && P().snapshots.some((s) => s.episode === n - 1)) rvUndoShow(n);
       else toast(ep(n + 1) && ep(n + 1).status === 'confirmed' ? `${n}화를 마쳤어요. ${n + 1}화 집필로 왔어요` : `${n}화를 마쳤어요`);
@@ -880,6 +924,26 @@ Object.assign(actions, {
     });
     await go(edited);
     if (stale && (await askConfirm(`${stale.message}. 그래도 ${n}화를 마칠까요? 반영하면 반영 취소로만 돌아갈 수 있어요.`, { ok: '마치기' }))) await go(true);
+  },
+  /** 집필 화면 요약 카드의 '추천대로 반영' (write.js gistCard). 상태 승인 화면에서 아무것도 바꾸지 않고 반영하는 것과 같은 요청이다.
+      다른 점은 반영한 뒤 그 자리에 남아 카드에 다음 화로 · 반영 취소를 보이는 것뿐이다 */
+  gistApply(n) {
+    pickEp(n);
+    if (deltaTouched(n)) return toast('상태 승인에서 고친 것이 있어요. 상태 승인 화면에서 반영해 주세요', true);
+    return actions.applyDelta(n, true);
+  },
+  /** 요약 카드의 묶음 줄: 상태 승인 화면의 그 묶음으로 간다 ('n:key', deltaGist 의 key) */
+  gistGo(arg) {
+    const [n, key] = String(arg).split(':');
+    const grp = { chars: 'chars', rel: 'rel', fs: 'fs', facts: 'facts' }[key];
+    if (grp) (S.rvOpen ||= {})[`${n}:g:${grp}`] = true;
+    const at = { summary: '#app #dsum', setting: '#app [data-pick="t0"]' }[key] || (grp ? `#app [data-rv-grp="${n}:g:${grp}"] > summary` : '');
+    goThen(`${base()}/review/${n}`, () => {
+      const el = at && $(at);
+      if (!el) return;
+      el.focus({ preventScroll: true });
+      el.scrollIntoView({ block: 'center' });
+    });
   },
   async toggleNumbers(v) {
     const show = v === 'numbers';

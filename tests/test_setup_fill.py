@@ -1,4 +1,4 @@
-"""설정 도우미의 인물 칸 AI: 인물 칸 ✦ 후보(pipeline.suggest_field 의 characters.<번호>.<칸>)와
+"""설정 도우미의 인물 칸 AI: 인물 칸 AI 후보(pipeline.suggest_field 의 characters.<번호>.<칸>)와
 빈칸 AI 제안이 이미 있는 인물의 빈 칸만 채우기(pipeline.apply_setup · fill_character)."""
 import pytest
 
@@ -46,7 +46,7 @@ def test_character_ideas_from_pipeline():
 
 
 def test_goal_wound_secrets_speech_ideas():
-    """원하는 것 · 두려운 것 · 숨기는 것 · 말투에도 ✦ 후보. 숨기는 것은 목록 칸이라 지금 목록을 보이고 이미 있는 항목은 뺀다."""
+    """원하는 것 · 두려운 것 · 숨기는 것 · 말투에도 AI 후보. 숨기는 것은 목록 칸이라 지금 목록을 보이고 이미 있는 항목은 뺀다."""
     p = cast()
     p.characters[0].secrets = ["등대 열쇠의 사본을 몰래 가지고 있다.", " "]
     assert prompts.field_value(p, "characters.0.secrets") == "등대 열쇠의 사본을 몰래 가지고 있다."
@@ -96,7 +96,7 @@ def test_js_fill_fields_match_server():
 
 @needs_node
 def test_js_character_ideas():
-    """인물 칸 ✦: 키는 번호를 * 로, 이름이 붙은 칸 이름, 그사이 인물이 바뀌면 칸에 넣지 않는다. 쓴 칸은 묻고 바꾼다."""
+    """인물 칸 AI 후보: 키는 번호를 * 로, 이름이 붙은 칸 이름, 그사이 인물이 바뀌면 칸에 넣지 않는다. 쓴 칸은 묻고 바꾼다."""
     expr = """(async () => {
       S.project = data.project;
       S.name = 'demo';
@@ -124,7 +124,7 @@ def test_js_character_ideas():
 
 @needs_node
 def test_js_secret_idea_appends():
-    """숨기는 것 ✦: 고른 후보는 목록에 한 줄 더하고 (빈 줄은 정리, 있는 줄은 두 번 넣지 않음), 인물 카드의 네 칸에 ✦ 가 붙는다."""
+    """숨기는 것 AI 후보: 고른 후보는 목록에 한 줄 더하고 (빈 줄은 정리, 있는 줄은 두 번 넣지 않음), 인물 카드의 네 칸에 후보 버튼이 붙는다."""
     expr = """(() => {
       S.project = data.project;
       S.name = 'demo';
@@ -144,7 +144,7 @@ def test_js_secret_idea_appends():
       const args = (h) => [...h.matchAll(/data-action="fieldIdeas" data-arg="([^"]+)"/g)].map((m) => m[1]);
       return { head, once, twice: P().characters[0].secrets, speech: P().characters[0].speech_style, card: args(card), wiz: args(wiz) };
     })()"""
-    files = ["app.js", "home.js", "setup.js", "archetypes.js", "statwin.js", "illust.js", "charlog.js", "cast.js", "plot.js", "chat.js", "setupchat.js", "ideas.js"]
+    files = ["app.js", "home.js", "setup.js", "archetypes.js", "statwin.js", "illust.js", "charlog.js", "cast.js", "aliases.js", "plot.js", "chat.js", "setupchat.js", "ideas.js"]
     got = run_js(files, expr, {"project": dump(cast())})
     assert "고르면 목록에 한 줄 더해져요" in got["head"]
     assert got["once"] == ["편지를 숨겼다", "배표를 사 두었다"] and got["twice"] == got["once"]

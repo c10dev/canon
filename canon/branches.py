@@ -78,8 +78,8 @@ def fork(p: Project, n: int, mode: ForkMode = "clear") -> list[int]:
             e.candidate = None
         pipeline._keep_version(e, TextVersion(id=pipeline._version_id(e), at=pipeline._now(), text=e.text,
                                               kind="previous", request=e.made_by, model=e.written_by,
-                                              meta_cut=e.meta_cut))
-        e.text, e.status, e.made_by, e.written_by, e.meta_cut = "", "confirmed", None, "", []
+                                              meta_cut=e.meta_cut, rule_runs=e.rule_runs))
+        e.text, e.status, e.made_by, e.written_by, e.meta_cut, e.rule_runs = "", "confirmed", None, "", [], []
         e.hook, e.final_text = None, ""
         e.to_fix, e.events_done = [], []  # 본문에 단 '고칠 곳'과 다 쓴 사건 체크도 비운 본문과 함께 뺀다
         findings.clear(e)

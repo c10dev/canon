@@ -1,4 +1,5 @@
 /* 삽화 프롬프트 (NovelAI). 집필 화면에서 본문 일부를 고르면 그 장면을 NovelAI 에 붙여 넣을 프롬프트로 만든다.
+   서버에 ComfyUI 를 이어 두면(CANON_COMFY_URL) 카드의 'ComfyUI로 그리기'로 그 프롬프트를 그려 카드에 붙인다 (canon/comfy.py).
    AI는 장면을 태그로 옮기기만 하고, 인물 외형 · 인물 수 · 등급 · 품질 태그는 서버 canon/illust.py 가 붙인다.
    인물 외형 태그(Project.visuals)는 인물 화면의 인물 카드에서 정해 두면 화가 바뀌어도 같은 모습으로 나온다.
    고치는 본문 칸에서는 passage.js 의 떠 있는 도구에 '삽화 프롬프트' 가 붙고, 반영이 끝난 읽기 전용 본문에서는 여기서 작은 도구를 띄운다. */
@@ -6,6 +7,8 @@
 
 Object.assign(S, {
   illModels: null,  // 서버 illust.MODELS
+  comfy: null,      // 서버 comfy.status(): ComfyUI 로 그리기를 켰는지 (CANON_COMFY_URL · 설정 파일 comfy_url)
+  illDraw: (() => { try { return localStorage.getItem('canon.illDraw') === '1'; } catch { return false; } })(),  // 만든 뒤 바로 ComfyUI 로 그리기 (보는 사람마다 기억)
   illSel: null,     // 그릴 부분 { n, start, text }
   illAsk: '',       // 덧붙일 요청
   illScroll: false, // 다시 그린 뒤 삽화 카드로 내려갈지
@@ -50,6 +53,31 @@ JOB_RESULT.char_look = (j) => {
   }
   put();
   return { msg: `${j.label} 제안을 칸에 넣었어요. 고친 뒤 저장하세요.` };
+};
+
+// 삽화 프롬프트 만들기(고른 부분 · AI가 장면 고르기)도 백그라운드 작업으로 돈다 (web._job_illust). 기다리는 동안 본문을 읽고 고칠 수 있다.
+// 서버가 만든 삽화를 그 화에 더하면 app.js pollJobs 가 그 화만 받아 온다. 작업은 저장된 본문을 읽으므로 묻지 않고 먼저 저장한다 (옛 동작과 같다)
+JOB_PAGES.illust = ['write', 'check', 'review'];
+JOB_LINK.illust = (j) => `#/p/${enc(j.project)}/write/${j.ep}`;
+JOB_DONE_MSG.illust = (j) => `${j.ep}화 ${(j.result || {}).file ? '삽화 프롬프트를 만들고 그렸어요' : '삽화 프롬프트를 만들었어요'}.`;
+JOB_BTNS.illMake = () => ['illust', undefined, ilEpNum()];
+
+// ComfyUI 로 그리기도 백그라운드 작업이다 (web._job_illust_render, 대상은 삽화 id). 서버가 그림을 그 삽화에 붙이면 pollJobs 가 그 화만 받아 온다
+JOB_PAGES.illust_render = ['write', 'check', 'review'];
+JOB_LINK.illust_render = (j) => `#/p/${enc(j.project)}/write/${j.ep}`;
+JOB_DONE_MSG.illust_render = (j) => `${j.ep}화 삽화를 그렸어요.`;
+JOB_BTNS.illDraw = (id) => ['illust_render', id, ilEpNum()];
+JOB_RESULT.illust_render = (j) => {
+  const notes = (j.result || {}).notes || [];
+  return { msg: `${j.ep}화 삽화를 그렸어요.${notes.length ? ` ${notes.join(' ')}` : ''}` };
+};
+/** 삽화가 왔다: 그 화를 보고 있고 칸을 고치는 중이 아니면 옛 동작처럼 새 삽화로 내려간다 (syncIllust) */
+JOB_RESULT.illust = (j) => {
+  if (Number(S.route[3]) === j.ep && JOB_PAGES.illust.includes(S.route[2]) && !isTyping()) S.illScroll = true;
+  const r = j.result || {};
+  const did = `${j.ep}화 ${r.file ? '삽화 프롬프트를 만들고 ComfyUI로 그렸어요' : '삽화 프롬프트를 만들었어요'}`;
+  const notes = (r.notes || []).length ? ` ${r.notes.join(' ')}` : '';
+  return { msg: (r.missing_look || []).length ? `${did}. 외형 태그가 없는 인물은 고정해 두세요${notes}` : `${did}.${notes}` };
 };
 
 const IL_SUBJECT = { girl: '여성 (girl)', boy: '남성 (boy)', other: '그 밖 (other)' };
@@ -150,6 +178,12 @@ document.addEventListener('input', (e) => {
   if (el.id === 'ill-ask') S.illAsk = el.value;
 });
 
+document.addEventListener('change', (e) => {
+  if (e.target.id !== 'ill-draw') return;
+  S.illDraw = e.target.checked;
+  try { localStorage.setItem('canon.illDraw', S.illDraw ? '1' : '0'); } catch { /* 저장소를 막은 브라우저: 이번 화면에서만 기억한다 */ }
+});
+
 // '바라는 것' 칸에서 Enter: 고른 부분이 있으면 그 부분으로, 없으면 AI가 장면을 골라 만든다 (한글 조합 중 Enter 는 넘긴다)
 document.addEventListener('keydown', (e) => {
   if (e.target.id !== 'ill-ask' || e.key !== 'Enter' || e.isComposing || e.keyCode === 229 || !S.illModels) return;
@@ -178,6 +212,21 @@ function ilField(label, text, rows = 3, extra = '') {
     <textarea class="mono" rows="${rows}" data-autogrow readonly aria-label="${esc(label)}">${esc(text)}</textarea></div>`;
 }
 
+const ilImgUrl = (file) => `/api/projects/${enc(S.name)}/illust-images/${enc(file)}`;
+
+/** ComfyUI 로 그린 그림 (새것부터). 맨 새 그림의 보낸 프롬프트와 알림을 접어 둔다 */
+function ilImages(x) {
+  const imgs = [...(x.images || [])].reverse();
+  if (!imgs.length) return '';
+  const last = imgs[0];
+  return `<div class="ill-images">${imgs.map((im) => `<figure class="ill-image">
+      <a href="${ilImgUrl(im.file)}" target="_blank" rel="noopener"><img src="${ilImgUrl(im.file)}" loading="lazy" alt="${esc(x.draft.scene || '삽화')}"></a>
+      <figcaption class="between"><span class="small">${editTime(im.at)} · 시드 ${im.seed}</span>
+        <button type="button" class="btn small danger" data-action="illImgDelete" data-arg="${esc(x.id)}|${esc(im.file)}">지우기</button></figcaption></figure>`).join('')}</div>
+    ${(last.notes || []).map((t) => `<div class="note plain">${esc(t)}</div>`).join('')}
+    <details><summary class="small">ComfyUI에 보낸 프롬프트 · ${esc(last.workflow || '기본 틀')}</summary>${ilField('긍정 프롬프트', last.prompt, 2)}${ilField('부정 프롬프트', last.negative, 2)}</details>`;
+}
+
 function ilCard(n, x) {
   const m = ilModel(x.model);
   const names = Object.fromEntries(P().characters.map((c) => [c.id, c.name]));
@@ -200,6 +249,7 @@ function ilCard(n, x) {
     ${x.request ? `<div class="small">요청: ${esc(x.request)}</div>` : ''}
     ${missing}
     ${(x.notes || []).map((t) => `<div class="note plain">${esc(t)}</div>`).join('')}
+    ${ilImages(x)}
     ${ilField('기본 프롬프트 (Prompt)', x.base, 2)}
     ${chars}
     ${ilField('부정 프롬프트 (Undesired Content)', x.negative, 2)}
@@ -208,6 +258,7 @@ function ilCard(n, x) {
       <select aria-label="다시 조립할 모델" data-ill-rebuild="${esc(x.id)}">${(S.illModels || []).map((o) => `<option value="${esc(o.id)}"${o.id === pick ? ' selected' : ''}>${esc(o.label)}</option>`).join('')}</select>
       <button type="button" class="btn small" data-action="illRebuild" data-arg="${esc(x.id)}">다시 조립</button>
       <span class="small" style="flex:1 1 200px">AI를 다시 부르지 않고 고른 모델과 지금 외형 태그 · 화풍으로 다시 맞춰요</span>
+      ${(S.comfy || {}).on ? `<button type="button" class="btn small" data-action="illDraw" data-arg="${esc(x.id)}">${(x.images || []).length ? '다시 그리기' : 'ComfyUI로 그리기'}</button>` : ''}
       <button type="button" class="btn small danger" data-action="illDelete" data-arg="${esc(x.id)}">지우기</button></div>
   </article>`;
 }
@@ -227,23 +278,26 @@ function illustPanel(n) {
     : `<details class="ill-old"><summary><strong>${esc(x.draft.scene || '장면')}</strong> <span class="small">${esc(ilModel(x.model).label)} · ${editTime(x.at)} · ${esc(clip((x.selection ? x.selection.text : x.draft.quote) || '', 40))}</span></summary>${ilCard(n, x)}</details>`)).join('');
   const count = (e.illustrations || []).length;
   const open = S.illOpen[n] ?? (count > 0 || !!sel);
+  const comfy = S.comfy || {};
+  const comfyFlow = comfy.workflow || '기본 틀';
   return `<details class="card" id="ill-panel" data-ill-ep="${n}" aria-label="삽화 프롬프트"${open ? ' open' : ''}>
-    <summary class="between"><h2>삽화 프롬프트 <span class="small">NovelAI${count ? ` · ${count}개` : ''}</span></h2>
-      <span class="small">본문을 드래그하거나 길게 눌러 고른 뒤 '삽화 프롬프트 만들기'를 누르거나, 장면을 AI에게 맡기세요</span></summary>
+    <summary class="between"><h2>삽화 프롬프트 <span class="small">NovelAI${comfy.on ? ' · ComfyUI 연결됨' : ''}${count ? ` · ${count}개` : ''}</span></h2></summary>
     <div class="cols" style="gap:16px">
       <div style="flex:2 1 420px;min-width:0;display:flex;flex-direction:column;gap:10px">
         ${sel ? `<div class="sel-target" style="padding:0;border:0"><div class="between"><span class="small">그릴 부분 · ${sel.text.length.toLocaleString()}자</span><button type="button" class="btn small" data-action="illClear">고른 것 풀기</button></div>
           <blockquote>${esc(clip(sel.text, 300))}</blockquote></div>`
-        : '<div class="note plain">본문에서 그릴 부분을 드래그하거나 길게 눌러 고르면 여기에 담겨요. 고르지 않으면 AI가 이 화에서 그림이 될 장면을 골라요.</div>'}
+        : '<div class="note plain">본문에서 고른 부분이 여기에 담겨요. 고르지 않으면 AI가 이 화에서 그림이 될 장면을 골라요.</div>'}
         <div class="field"><label for="ill-ask">바라는 것 <span class="hint">선택. 예: 뒷모습으로, 비 오는 밤, 두 사람만</span></label>
           <input id="ill-ask" type="text" value="${esc(S.illAsk)}" placeholder="비우면 장면 그대로"></div>
         <div class="row" style="gap:6px">
-          <button type="button" class="btn primary" data-action="illMake" data-arg="sel"${sel && !busy ? '' : ' disabled'}>고른 부분으로 만들기</button>
+          <button type="button" class="btn" data-action="illMake" data-arg="sel"${sel && !busy ? '' : ' disabled'}>고른 부분으로 만들기</button>
           <button type="button" class="btn" data-action="illMake" data-arg="auto"${busy ? ' disabled' : ''}>AI가 장면 고르기</button></div>
+        ${comfy.on ? `<label class="row small" style="gap:6px"><input type="checkbox" id="ill-draw"${S.illDraw ? ' checked' : ''}><span style="flex:1 1 0;min-width:0">만든 뒤 바로 ComfyUI로 그리기 <span class="hint">2~3분 더 걸려요. 끄면 만든 삽화 카드의 'ComfyUI로 그리기'로 그려요</span></span></label>` : ''}
         ${cast.length ? `<div class="small">이 화 인물 외형 태그: ${castLine} · 이름을 누르면 인물 카드에서 고쳐요</div>` : ''}
       </div>
-      <details data-ill-settings style="flex:1 1 260px;min-width:0"${S.illSetOpen ? ' open' : ''}><summary class="small"><strong>삽화 설정</strong> · ${esc(ilModel(s.model).label)}${(s.style || []).length ? ` · 화풍 ${s.style.length}개` : ''}</summary>
+      <details data-ill-settings style="flex:1 1 260px;min-width:0"${S.illSetOpen ? ' open' : ''}><summary class="small"><strong>삽화 설정</strong> · ${esc(ilModel(s.model).label)}${comfy.on ? ` · ComfyUI ${esc(comfyFlow)}` : ''}${(s.style || []).length ? ` · 화풍 ${s.style.length}개` : ''}</summary>
       <div style="display:flex;flex-direction:column;gap:8px;padding-top:8px">
+        ${comfy.on ? `<div class="note plain small">ComfyUI로 그릴 때는 이 프롬프트를 SD 태그로 옮겨 서버의 워크플로 틀(<strong>${esc(comfyFlow)}</strong>${comfy.checkpoint ? ` · ${esc(comfy.checkpoint)}` : ''})에 넣어요. 틀과 주소는 서버 설정 파일의 comfy_* 칸에서 바꿔요. 아래 NovelAI 모델은 프롬프트를 조립하는 방식이에요.</div>` : ''}
         <div class="field"><label for="ill-model">NovelAI 모델</label>
           <select id="ill-model" data-bind="illust.model" data-kind="text">${(S.illModels || []).map((o) => `<option value="${esc(o.id)}"${o.id === s.model ? ' selected' : ''}>${esc(o.label)}</option>`).join('')}</select></div>
         ${input('화풍 태그', 'illust.style', { kind: 'tags', rows: 2, hint: '모든 삽화에 들어가요', placeholder: 'watercolor, soft lighting' })}
@@ -336,17 +390,19 @@ function ilEpNum() {
   return Number(S.route[3]) || currentEp();
 }
 
+/** 삽화 프롬프트 만들기 (작업 'illust'). AI는 저장된 본문과 설정을 읽으므로 먼저 저장한다. 결과는 JOB_RESULT.illust */
 async function ilMake(n, sel) {
-  await run(sel ? '장면을 태그로 옮기는 중' : '그릴 장면을 고르는 중', async () => {
+  try {
     await saveIfDirty();
     if (typeof flushText === 'function') await flushText(n);
-    const body = { request: S.illAsk, model: (P().illust || {}).model || '' };
-    if (sel) body.selection = { start: sel.start, text: sel.text };
-    S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/illust`, body);
-    S.illScroll = true;
-    const last = ep(n).illustrations[ep(n).illustrations.length - 1];
-    toast(last && last.missing_look.length ? '만들었어요. 외형 태그가 없는 인물은 고정해 두세요' : '삽화 프롬프트를 만들었어요');
-  });
+  } catch (err) {
+    showError(err);
+    return;
+  }
+  const extra = { note: S.illAsk, model: (P().illust || {}).model || '' };
+  if ((S.comfy || {}).on && S.illDraw) extra.draw = true;  // 만든 뒤 같은 작업에서 바로 ComfyUI로 그린다 (web._job_illust)
+  if (sel) extra.selection = { start: sel.start, text: sel.text };
+  await startJob('illust', n, extra, { quiet: true });
 }
 
 Object.assign(actions, {
@@ -389,8 +445,22 @@ Object.assign(actions, {
       toast('지금 외형 태그와 설정으로 다시 조립했어요');
     });
   },
+  async illDraw(id) {  // ComfyUI 로 그리기 (작업 'illust_render'). 서버는 저장된 삽화 프롬프트와 설정을 읽으므로 먼저 저장한다
+    await startJob('illust_render', ilEpNum(), { target: id }, { quiet: true });
+  },
+  async illImgDelete(arg) {
+    const [id, file] = String(arg).split('|');
+    if (!(await askConfirm(`이 그림을 지울까요?${S.dirty ? ' 저장하지 않은 다른 변경도 함께 저장해요.' : ''}`, { ok: '지우기', danger: true }))) return;
+    const n = ilEpNum();
+    await run('지우는 중', async () => {
+      await saveIfDirty();
+      S.project = await api('DELETE', `/projects/${enc(S.name)}/episodes/${n}/illust/${enc(id)}/images/${enc(file)}`);
+      toast('그림을 지웠어요');
+    });
+  },
   async illDelete(id) {
-    if (!(await askConfirm(`이 삽화 프롬프트를 지울까요?${S.dirty ? ' 저장하지 않은 다른 변경도 함께 저장해요.' : ''}`, { ok: '지우기', danger: true }))) return;
+    const pics = ((ep(ilEpNum()).illustrations || []).find((x) => x.id === id) || {}).images || [];
+    if (!(await askConfirm(`이 삽화 프롬프트를 지울까요?${pics.length ? ` 그린 그림 ${pics.length}장도 함께 지워요.` : ''}${S.dirty ? ' 저장하지 않은 다른 변경도 함께 저장해요.' : ''}`, { ok: '지우기', danger: true }))) return;
     const n = ilEpNum();
     await run('지우는 중', async () => {
       await saveIfDirty();

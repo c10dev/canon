@@ -4,6 +4,59 @@
 
 DRAFT_ROOTS.stuForm = () => S.stuForm;
 
+// AI 호출 넷(AI 안 쓰기 · 박자 짚기 · 다른 상황 · 독자로 읽기)은 백그라운드 작업으로 돈다 (routes/studio.studio_job, UX 02c).
+// 작품 밖이라 작업 목록의 project 자리는 STU_JOBS, 대상(target)은 세션 id, 독자로 읽기는 화(ep) 자리에 시도 번호다.
+// 버튼은 jobBtn(…, STU_JOBS, 세션 id)로 그린다 (lockJobBtns 는 지금 작품의 작업만 본다). 끝나면 그 세션을 보고 있을 때 다시 받는다 (stuJobDone)
+const STU_JOBS = '.studio';  // 작업 목록의 project 자리 (routes/studio.STU_JOBS)
+const STU_KINDS = { draft: 'AI 안', anatomy: '구조 뜯어보기', variants: '다른 상황', reader: '독자 질문' };
+/** 이 세션의 그 작업 버튼 모양 { label, attr }. no 는 독자로 읽기의 시도 번호 */
+const stuBtn = (kind, idle, no = null) => jobBtn(`stu_${kind}`, no, idle, STU_JOBS, S.stu.id);
+
+/** 문단 연습장 작업 시작 (startJob 의 작품 밖 판, revlab.js revStartJob 과 같은 꼴). 고친 카드를 먼저 저장한다. 실패하면 '다시 시도'가 같은 요청을 보낸다 */
+async function stuStartJob(kind, extra = {}) {
+  const id = S.stu.id;
+  const key = jobKey(`stu_${kind}`, kind === 'reader' ? extra.no : null, id);
+  if (S.starting.has(key)) return;
+  S.starting.add(key);
+  render();
+  try {
+    if (S.stuDirty) stuSet(await api('PUT', `/studio/${enc(id)}`, S.stuForm));
+    const j = await api('POST', `/studio/${enc(id)}/jobs`, { kind, ...extra });
+    if (!j.already) toast(`${j.label}${josa(j.label, '을', '를')} 시작했어요. 끝나면 알려 드릴게요. 그동안 카드를 고치거나 직접 써 봐도 돼요.`);
+    S.jobs = S.jobs.filter((x) => x.id !== j.id).concat(j);
+    S.jobArgs[j.id] = { retry: () => (S.stu && S.stu.id === id ? stuStartJob(kind, extra) : toast('그 연습을 연 뒤 다시 해 주세요', true)) };
+    renderHub();
+    pollJobs(true);
+  } catch (e) {
+    showError(e);
+  } finally {
+    S.starting.delete(key);
+    render();
+  }
+}
+
+/** 작업이 끝났다: 그 세션을 보고 있으면 다시 받는다. 고치던 카드(S.stuDirty)는 서버 것으로 바꾸지 않고 남긴다.
+    시도 고쳐 쓰기 · 직접 쓰기 칸(S.stuEditText · S.stuWrite)은 세션과 따로라 그대로다. 입력 중이면 다시 그리기를 미룬다 */
+function stuJobDone(j) {
+  if (j.status !== 'done' || !S.stu || S.stu.id !== j.target) return;
+  const id = j.target;
+  api('GET', `/studio/${enc(id)}`).then((s) => {
+    if (!S.stu || S.stu.id !== id) return;
+    if (S.stuDirty) S.stu = s;
+    else stuSet(s);
+    if (S.route[0] !== 'studio') return;
+    if (isTyping() || selecting()) S.renderPending = true;
+    else render();
+  }).catch(() => {});
+}
+for (const kind of Object.keys(STU_KINDS)) {
+  JOB_LINK[`stu_${kind}`] = (j) => `#/studio/${enc(j.target)}`;
+}
+JOB_DONE_MSG.stu_draft = (j) => { stuJobDone(j); return `AI 안 ${(j.result || {}).added || 0}개를 남겼어요.`; };
+JOB_DONE_MSG.stu_anatomy = (j) => { stuJobDone(j); return '본보기 문장마다 박자를 짚었어요.'; };
+JOB_DONE_MSG.stu_variants = (j) => { stuJobDone(j); return `같은 구조로 쓸 다른 상황 ${(j.result || {}).variants || 0}개를 받았어요.`; };
+JOB_DONE_MSG.stu_reader = (j) => { stuJobDone(j); return `${j.ep}번 시도를 처음 읽는 독자로 읽었어요.`; };
+
 async function stuLoad(id) {
   const home = await api('GET', '/studio');
   S.stuList = home.sessions;
@@ -61,7 +114,7 @@ function stuSession() {
   const right = `<a class="btn" href="#/studio">목록으로</a>
     <button type="button" class="btn" data-action="stuDuplicate">카드 복제</button>
     <button type="button" class="btn danger" data-action="stuDelete">지우기</button>
-    <button type="button" class="btn primary" data-action="stuDraft"${full ? ' disabled title="시도가 꽉 찼어요. 지울 시도를 고르세요"' : ''}>AI 안 ${n}개 쓰기</button>`;
+    ${(() => { const b = stuBtn('draft', `AI 안 ${n}개 쓰기`); return `<button type="button" class="btn primary" data-action="stuDraft"${b.attr}${full ? ' disabled title="시도가 꽉 찼어요. 지울 시도를 고르세요"' : ''}>${b.label}</button>`; })()}`;
   const head = header('문단 연습장', s.title, s.style_name ? `문체: ${esc(s.style_name)}` : '문체를 고르지 않았어요. 기본 문체 규칙으로 써요.', right);
   const v = stuView();
   return `${head}<div class="cols stu-read" style="--stu-lh:${v.lh};--stu-gap:${v.gap}"><div class="col">${stuCardForm()}</div><div class="col wide">${stuViewBar(v)}${stuModelCard()}${stuVariantCard()}${stuWriteCard()}${stuTries()}</div></div>`;
@@ -108,7 +161,7 @@ function stuModelCard() {
       <div class="between"><div class="row"><span class="chip">본보기</span>${c.ref ? `<span class="small">${esc(c.ref)}</span>` : ''}</div>
         <span class="small">AI에게는 보내지 않아요</span></div>
       <div class="rw-text stu-text">${stuParas(c.model)}</div>${m ? stuChecks(m) : ''}
-      <div class="row"><button type="button" class="btn small${S.stu.anatomy ? '' : ' primary'}" data-action="stuAnatomy">${S.stu.anatomy ? '다시 뜯어보기' : '구조 뜯어보기'}</button>
+      <div class="row">${(() => { const b = stuBtn('anatomy', S.stu.anatomy ? '다시 뜯어보기' : '구조 뜯어보기'); return `<button type="button" class="btn small${S.stu.anatomy ? '' : ' primary'}" data-action="stuAnatomy"${b.attr}>${b.label}</button>`; })()}
         <button type="button" class="btn small" data-action="stuModelSource"${c.source === c.model ? ' disabled title="이미 출발 글이에요"' : ''}>출발 글로 넣기</button>
         <button type="button" class="btn small" data-action="stuModelCopy">복사</button></div>${stuAnatomyHtml()}</section>`;
 }
@@ -141,7 +194,7 @@ function stuVariantCard() {
       ${v.why ? `<div class="small">${esc(v.why)}</div>` : ''}</div><button type="button" class="btn small" data-action="stuFromVariant" data-arg="${i}">이 상황으로 새 연습</button></li>`).join('');
   return `<section class="card" id="stu-variants"><div class="between"><h2>상황 바꿔 보기</h2>
       <div class="row"><label class="small stu-k">한 번에 <select data-local="stuK" aria-label="받을 상황 수">${Array.from({ length: hi - lo + 1 }, (_, j) => lo + j).map((x) => `<option${x === k ? ' selected' : ''}>${x}</option>`).join('')}</select>개</label>
-      <button type="button" class="btn small" data-action="stuVariants">${vs.length ? '다시 받기' : '다른 상황 받기'}</button></div></div>
+      ${(() => { const b = stuBtn('variants', vs.length ? '다시 받기' : '다른 상황 받기'); return `<button type="button" class="btn small" data-action="stuVariants"${b.attr}>${b.label}</button>`; })()}</div></div>
       <p class="small">${c.beats.length ? `문장 차례(${esc(c.beats.map(stuBeatLabel).join(' → '))})` : '카드의 구조'}는 그대로 두고 장소 · 인물 · 일만 바꾼 상황을 AI가 내요. 고르면 새 연습이 열리고 이 연습은 그대로 남아요.</p>
       ${list ? `<ul class="stu-vars">${list}</ul>` : ''}</section>`;
 }
@@ -297,7 +350,7 @@ function stuChecks(m) {
     <div class="small">${esc(facts)}</div>
     ${why.length ? `<div class="small">${why.map(esc).join('<br>')}</div>` : ''}
     ${hits.length ? `<div class="small">걸린 곳: ${hits.join(' · ')}</div>` : ''}
-    ${marks.length ? `<div class="small">문체 표지: ${marks.join(' · ')}</div>` : ''}
+    ${marks.length ? `<div class="small">문체 버릇: ${marks.join(' · ')}</div>` : ''}
     ${(m.copied || []).length ? `<div class="small warn-text">본보기에서 옮긴 문장: ${m.copied.map((x) => `«${esc(x)}»`).join(' · ')}</div>` : ''}`;
 }
 
@@ -314,7 +367,7 @@ function stuTryCard(t) {
       <button type="button" class="btn small${t.star ? ' primary' : ''}" data-action="stuStar" data-arg="${t.no}" aria-pressed="${t.star}">${t.star ? '★ 고름' : '☆ 고르기'}</button>
       <button type="button" class="btn small" data-action="stuRewrite" data-arg="${t.no}">고쳐 쓰기</button>
       ${t.by === 'author' ? `<button type="button" class="btn small" data-action="stuEditOpen" data-arg="${t.no}">고치기</button>` : ''}
-      <button type="button" class="btn small" data-action="stuReader" data-arg="${t.no}">${t.reader ? '독자 질문 다시' : '독자 질문'}</button>
+      ${(() => { const b = stuBtn('reader', t.reader ? '독자 질문 다시' : '독자 질문', t.no); return `<button type="button" class="btn small" data-action="stuReader" data-arg="${t.no}"${b.attr}>${b.label}</button>`; })()}
       <button type="button" class="btn small" data-action="stuCopy" data-arg="${t.no}">복사</button>
       <button type="button" class="btn small danger" data-action="stuDrop" data-arg="${t.no}">지우기</button></div>`;
   return `<section class="card" id="stu-try-${t.no}">
@@ -350,7 +403,7 @@ async function stuCall(label, path, body) {
 
 Object.assign(actions, {
   async stuAnatomy() {
-    await stuCall('본보기 문장마다 박자를 짚는 중…', '/anatomy');
+    await stuStartJob('anatomy');
   },
   async stuAnatomyApply() {
     const c = S.stu.card;
@@ -359,7 +412,7 @@ Object.assign(actions, {
     toast('구조를 카드에 적용했어요. AI 안이 이 문장 차례를 따라요');
   },
   async stuVariants() {
-    await stuCall('같은 구조로 쓸 다른 상황을 받는 중…', '/variants', { k: Number(S.stuK) || 4 });
+    await stuStartJob('variants', { k: Number(S.stuK) || 4 });
   },
   async stuFromVariant(i) {
     await run('새 연습을 만드는 중', async () => {
@@ -370,8 +423,8 @@ Object.assign(actions, {
     }, { render: 'never' });
   },
   async stuReader(no) {
-    S.stuReaderOpen = no;
-    await stuCall('처음 읽는 독자로 읽는 중…', `/tries/${no}/reader`);
+    S.stuReaderOpen = Number(no);
+    await stuStartJob('reader', { no: Number(no) });
   },
   stuBeatAdd() {
     const c = S.stuForm.card;
@@ -434,13 +487,7 @@ Object.assign(actions, {
     render();
   },
   async stuDraft() {
-    const n = Number(S.stuN) || 3;
-    await run(`AI 안 ${n}개를 쓰는 중…`, async () => {
-      if (S.stuDirty) stuSet(await api('PUT', `/studio/${enc(S.stu.id)}`, S.stuForm));
-      const before = S.stu.tries.length;
-      stuSet(await api('POST', `/studio/${enc(S.stu.id)}/draft`, { n }));
-      toast(`AI 안 ${S.stu.tries.length - before}개를 남겼어요`);
-    });
+    await stuStartJob('draft', { n: Number(S.stuN) || 3 });
   },
   async stuAddTry() {
     const text = (S.stuWrite || '').trim();

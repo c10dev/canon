@@ -277,6 +277,46 @@ class ResearchTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, r"이전 화\(1화\)의 상태 반영이 끝나지 않았어요"):
             pipeline.require_previous(store.load(self.name), 2)
 
+    def test_blind_compare_reuses_text_the_model_already_wrote(self):
+        """이 화를 이미 쓴 모델은 다시 쓰지 않고 기존 본문을 가져온다. 고르기 전에는 어느 안인지 숨기고, 고르면 규칙 없이 그 판을 쓴다."""
+        from canon.schema import TextVersion
+
+        p = store.load(self.name)
+        ep = p.episode(1)
+        ep.text, ep.written_by, ep.status = "로컬이 쓴 기존 본문이다.", "local:base-12b", "written"
+        store.save(self.name, p)
+        body = {"a": {"provider": "mock"}, "b": {"provider": "local", "model": "base-12b"}}
+        c = self.c.post(f"{self.api}/research/compare/1", json=body).json()["compare"]
+        self.assertEqual(c["kept_count"], 1)
+        self.assertNotIn("kept", c)  # 고르기 전에는 어느 쪽인지 알리지 않는다
+        self.assertIn("로컬이 쓴 기존 본문이다.", [d["text"] for d in c["drafts"]])
+        k = next(d["n"] for d in c["drafts"] if d["text"] == "로컬이 쓴 기존 본문이다.")
+        r = self.c.post(f"{self.api}/research/compare/1/pick", json={"k": k}).json()
+        self.assertEqual(r["result"]["picked"], "local:base-12b")
+        self.assertEqual(r["compare"]["kept"]["local:base-12b"]["source"], "text")
+        got = r["project"]["episodes"][0]
+        self.assertEqual((got["text"], got["versions"]), ("로컬이 쓴 기존 본문이다.", []))  # 지금 본문 그대로
+
+        # 남겨 둔 판에서 가져온 안을 고르면 그 판으로 되돌린다
+        p = store.load(self.name)
+        ep = p.episode(1)
+        ep.versions = [TextVersion(id="v1", text="예전 로컬 판이다.", kind="previous", model="local:base-12b")]
+        ep.written_by = "gemini:gemini-4-argon"
+        store.save(self.name, p)
+        c = self.c.post(f"{self.api}/research/compare/1", json=body).json()["compare"]
+        k = next(d["n"] for d in c["drafts"] if d["text"] == "예전 로컬 판이다.")
+        r = self.c.post(f"{self.api}/research/compare/1/pick", json={"k": k}).json()
+        self.assertEqual(r["compare"]["kept"]["local:base-12b"], {"source": "version", "id": "v1", "edits": 0})
+        got = r["project"]["episodes"][0]
+        self.assertEqual(got["text"], "예전 로컬 판이다.")
+        self.assertEqual([v["text"] for v in got["versions"]], ["로컬이 쓴 기존 본문이다."])  # 지난 본문은 판으로 남는다
+
+        # 두 안이 같은 모델이면 둘 다 새로 쓴다. 가져온 판을 쓴 모델 이름이 아니면 가져오지 않는다
+        ep = store.load(self.name).episode(1)
+        self.assertEqual(research.kept_drafts(ep, {"a": "local:base-12b", "b": "local:base-12b"}), {})
+        self.assertEqual(set(research.kept_drafts(ep, {"a": "local:base-12b", "b": "gemini:x"})), {"a"})
+        self.assertIsNone(research.kept_draft(ep, "local:default"))  # 모델 이름을 모르면 가져오지 않는다
+
 
 def test_history_and_latest_skip_a_torn_line(tmp_path, monkeypatch):
     """쓰다 끊긴 줄 하나가 연구 화면 전체를 막지 않는다: 그 줄만 건너뛴다."""

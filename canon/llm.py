@@ -26,7 +26,7 @@ import urllib.error
 import urllib.request
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Any, Iterator, Protocol, TypeVar
+from typing import Any, Callable, Iterator, Protocol, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
@@ -47,6 +47,8 @@ class BadKey(MissingKey):
 class LLM(Protocol):
     def json(self, system: str, prompt: str, schema: type[T], hint: dict | None = None) -> T: ...
     def text(self, system: str, prompt: str) -> str: ...
+    # 흘려 받을 수 있는 백엔드(Gemini, Claude API, 로컬, mock)는 text_stream(system, prompt, on_chunk) -> str 도 둔다.
+    # Protocol 에는 넣지 않는다: 부르는 쪽이 getattr 로 있으면 쓴다 (family_text). on_chunk 는 지금까지 받은 글 전체를 받는다
 
 
 def _inline_refs(schema: dict) -> dict:
@@ -116,12 +118,16 @@ def role_block(system: str) -> str:
     return f"# 이번 요청에서 할 일\n{system.removeprefix(PREAMBLE).strip()}\n\n"
 
 
-def family_text(llm: Any, system: str, prompt: str, head: str) -> str:
+def family_text(llm: Any, system: str, prompt: str, head: str, on_chunk: Callable[[str], None] | None = None) -> str:
     """본문 쓰기처럼 글로 받는 호출에 캐시 가족 경계를 알린다. prompt 가 head 로 시작하고 백엔드가 받으면(family_cache)
-    PREFIX_HINT 를 넘기고, 아니면 그냥 부른다 (다른 백엔드 · 시험용 가짜 LLM 은 text(system, prompt) 만 안다)."""
-    if head and prompt.startswith(head) and getattr(llm, "family_cache", False):
-        return llm.text(system, prompt, hint={PREFIX_HINT: len(head)})
-    return llm.text(system, prompt)
+    PREFIX_HINT 를 넘기고, 아니면 그냥 부른다 (다른 백엔드 · 시험용 가짜 LLM 은 text(system, prompt) 만 안다).
+    on_chunk 를 주고 백엔드가 흘려 받을 수 있으면(text_stream) 조각마다 지금까지 받은 글 전체로 on_chunk 를 부른다.
+    text_stream 이 없는 백엔드(Claude Code, 배치, 시험용 가짜 LLM)는 지금처럼 text 를 부르고 on_chunk 는 부르지 않는다."""
+    hint = {PREFIX_HINT: len(head)} if head and prompt.startswith(head) and getattr(llm, "family_cache", False) else None
+    stream = getattr(llm, "text_stream", None) if on_chunk is not None else None
+    if stream is not None:
+        return stream(system, prompt, on_chunk, hint=hint) if hint else stream(system, prompt, on_chunk)
+    return llm.text(system, prompt, hint=hint) if hint else llm.text(system, prompt)
 
 
 def prefix_of(hint: dict | None) -> int | None:
@@ -592,6 +598,38 @@ def gemini_cache_reset() -> None:
         _GEM_CACHE_FLOOR.clear()
 
 
+class _Streamed:
+    """generate_content_stream 의 조각을 모은 응답. GeminiLLM._once 가 generate_content 응답처럼 읽는다
+    (text · usage_metadata · candidates[0].finish_reason · prompt_feedback). 값은 그 값이 있는 마지막 조각의 것이다."""
+
+    def __init__(self) -> None:
+        self.parts: list[str] = []
+        self.text = ""
+        self.grew = False
+        self.usage_metadata: Any = None
+        self.candidates: list[Any] = []
+        self.prompt_feedback: Any = None
+
+    def add(self, chunk: Any) -> None:
+        try:
+            piece = chunk.text or ""
+        except (ValueError, AttributeError):  # 글 없는 조각 (생각 · 끝 표시만 온 조각)
+            piece = ""
+        self.grew = bool(piece)
+        if piece:
+            self.parts.append(piece)
+            self.text = "".join(self.parts)
+        if getattr(chunk, "usage_metadata", None) is not None:
+            self.usage_metadata = chunk.usage_metadata
+        cands = getattr(chunk, "candidates", None) or []
+        if cands and getattr(cands[0], "finish_reason", None) is not None:
+            self.candidates = cands
+        elif cands and not self.candidates:
+            self.candidates = cands
+        if getattr(chunk, "prompt_feedback", None) is not None:
+            self.prompt_feedback = chunk.prompt_feedback
+
+
 class GeminiLLM:
     knows_cut = True  # 끊긴 응답을 last_finish(MAX_TOKENS)로 알린다. pipeline._write 가 이 백엔드에만 출력 한도를 건다
     effort = ""  # 추론 강도 기본값 (시험이 __init__ 없이 만들 때도 있다)
@@ -644,8 +682,9 @@ class GeminiLLM:
     def count_tokens(self, text: str) -> int | None:
         return self.client.models.count_tokens(model=self.model, contents=text).total_tokens
 
-    def _call(self, system: str, prompt: str, attempt: int = 1, parse: Any = None, **config: Any) -> Any:
-        """부르고 사용량을 기록한다. 429(요청 한도)면 RATE_WAITS(서버가 retryDelay 를 주면 그 값) 만큼 기다려 다시 부르고, 끝내 풀리지 않으면
+    def _call(self, system: str, prompt: str, attempt: int = 1, parse: Any = None,
+              on_chunk: Callable[[str], None] | None = None, **config: Any) -> Any:
+        """부르고 사용량을 기록한다. on_chunk 가 있으면 흘려 받는다 (_once). 다시 부르면 on_chunk 는 빈 글부터 다시 받는다. 429(요청 한도)면 RATE_WAITS(서버가 retryDelay 를 주면 그 값) 만큼 기다려 다시 부르고, 끝내 풀리지 않으면
         RateLimited 를 낸다. 응답 시간을 넘기면(gemini_timeout) 바로 TIMEOUT_RETRIES 번 다시 부르고, 또 넘기면
         TimedOut 을 낸다. 500 · 502 · 503(is_transient)이면 SERVER_WAITS 만큼 기다려 다시 부르고, 끝내 풀리지 않으면
         ServerBusy 를 낸다. 셋은 따로 센다. 실패한 시도는 하나씩 실패로 기록한다."""
@@ -654,7 +693,7 @@ class GeminiLLM:
         try:
             while True:
                 try:
-                    return self._once(system, prompt, attempt, parse, **config)
+                    return self._once(system, prompt, attempt, parse, on_chunk, **config)
                 except Exception as e:
                     if is_timeout(e):
                         timeouts += 1
@@ -798,9 +837,11 @@ class GeminiLLM:
                 _GEM_CACHE_FLOOR.pop(model, None)
             _GEM_CACHE_OFF[model] = time.time() + GEMINI_CACHE_BACKOFF
 
-    def _once(self, system: str, prompt: str, attempt: int = 1, parse: Any = None, **config: Any) -> Any:
+    def _once(self, system: str, prompt: str, attempt: int = 1, parse: Any = None,
+              on_chunk: Callable[[str], None] | None = None, **config: Any) -> Any:
         """한 번 부르고 사용량을 기록한다. parse 가 있으면 응답 글을 parse 한 값을 돌려주고, parse 가 실패해도
-        (형식 불일치) 토큰은 쓴 것이라 실패로 기록한다."""
+        (형식 불일치) 토큰은 쓴 것이라 실패로 기록한다. on_chunk 가 있으면 generate_content_stream 으로 흘려 받아
+        조각마다 지금까지 받은 글 전체로 on_chunk 를 부르고 멈추기 신호를 본다. 사용량은 다 받은 뒤 한 번 기록한다."""
         cancel.check()  # 멈춘 작업은 다음 호출을 보내지 않는다
         from google.genai import types
 
@@ -820,7 +861,8 @@ class GeminiLLM:
             if hit:
                 # 캐시에 시스템 프롬프트가 들어 있어 요청에는 넣지 않는다 (함께 보내면 API 가 거절한다)
                 try:
-                    resp = self.client.models.generate_content(
+                    resp = self._generate(
+                        on_chunk,
                         model=self.model,
                         contents=with_note(hit[1].lstrip("\n")),
                         config=types.GenerateContentConfig(
@@ -834,7 +876,8 @@ class GeminiLLM:
                     self._cache_failed(e, hit[0])  # 만료 · 지원하지 않음 등. 일반 호출로 넘어간다
                     extra["cache_note"] = "failed"
             if resp is None:
-                resp = self.client.models.generate_content(
+                resp = self._generate(
+                    on_chunk,
                     model=self.model,
                     contents=with_note(prompt),
                     config=types.GenerateContentConfig(
@@ -859,6 +902,25 @@ class GeminiLLM:
         usage.record(self, usage.with_extra(tokens, **extra), t, attempt=attempt, prompt=prompt)
         return out
 
+    def _generate(self, on_chunk: Callable[[str], None] | None, **kw: Any) -> Any:
+        """generate_content 한 번. on_chunk 가 있으면 generate_content_stream 으로 받아 조각을 모은 응답(_Streamed)을 돌려준다.
+        조각 사이에서 멈추기 신호를 보고, 멈추면 스트림을 닫는다 (cancel.Cancelled). 사용량 · 끝난 이유는 마지막 조각의 값이다."""
+        if on_chunk is None:
+            return self.client.models.generate_content(**kw)
+        got = _Streamed()
+        stream = self.client.models.generate_content_stream(**kw)
+        try:
+            for chunk in stream:
+                cancel.check()
+                got.add(chunk)
+                if got.grew:
+                    on_chunk(got.text)
+        finally:
+            close = getattr(stream, "close", None)
+            if close is not None:
+                close()
+        return got
+
     def json(self, system: str, prompt: str, schema: type[T], hint: dict | None = None) -> T:
         """구조화 출력이 어긋나면 (모델이 스키마를 무시하는 일이 있다) 오류를 알려 주고 한 번 더 받는다."""
         ask = prompt
@@ -878,6 +940,11 @@ class GeminiLLM:
     def text(self, system: str, prompt: str) -> str:
         self.last_attempts = 1
         return self._call(system, prompt)
+
+    def text_stream(self, system: str, prompt: str, on_chunk: Callable[[str], None]) -> str:
+        """text 와 같지만 흘려 받는다. 조각마다 지금까지 받은 글 전체로 on_chunk 를 부른다 (family_text)."""
+        self.last_attempts = 1
+        return self._call(system, prompt, on_chunk=on_chunk)
 
     # ---------- Batch API (비용 절반, 결과까지 몇 분~최대 24시간) ----------
 
@@ -1113,6 +1180,7 @@ def _require_all(schema: Any) -> Any:
 
 
 _THINK_RE = re.compile(r"<think>.*?</think>\s*", re.S)
+_OPEN_THINK_RE = re.compile(r"<think>.*\Z", re.S)  # 흘려 받는 중 아직 닫히지 않은 생각 블록 (LocalLLM._stream)
 _FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```\s*$")
 
 
@@ -1248,8 +1316,65 @@ class LocalLLM:
             raise RuntimeError(f"서버에 {self._model} 모델이 없어요. 있는 모델: {names}")
         self.model  # noqa: B018  모델 이름 확정
 
-    def _chat(self, system: str, messages: list[dict], attempt: int = 1, parse: Any = None, **extra: Any) -> Any:
-        """한 번 부르고 사용량을 기록한다. parse 는 GeminiLLM._call 과 같다."""
+    def _stream(self, body: dict, on_chunk: Callable[[str], None]) -> dict:
+        """/chat/completions 를 stream=True 로 부르고 SSE 조각을 모아 일반 응답 모양(choices · usage)으로 돌려준다.
+        조각마다 멈추기 신호를 보고, 생각 블록(<think>, 닫히지 않은 것까지)을 뺀 지금까지의 글로 on_chunk 를 부른다.
+        stream_options(include_usage)를 받지 않는 서버가 400 을 내면 그것만 빼고 한 번 더 부른다."""
+        headers = {"Content-Type": "application/json", "Accept": "text/event-stream"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        url = self.base_url + "/chat/completions"
+        wait = min(self.timeout, _wait_cap.get() or self.timeout)
+        body = {**body, "stream": True, "stream_options": {"include_usage": True}}
+        for tried in range(2):
+            req = urllib.request.Request(url, data=json.dumps(body, ensure_ascii=False).encode(), headers=headers, method="POST")
+            try:
+                resp = urllib.request.urlopen(req, timeout=wait)
+            except urllib.error.HTTPError as e:
+                if e.code == 400 and not tried and "stream_options" in body:
+                    body = {k: v for k, v in body.items() if k != "stream_options"}
+                    continue
+                detail = e.read().decode("utf-8", "replace")[:500]
+                raise RuntimeError(f"로컬 서버 오류 {e.code} ({url}): {detail}") from e
+            except urllib.error.URLError as e:
+                if isinstance(e.reason, TimeoutError):
+                    raise RuntimeError(self._slow(url, wait)) from e
+                raise RuntimeError(f"로컬 서버에 연결하지 못했어요 ({self.base_url}): {e.reason}") from e
+            except TimeoutError as e:
+                raise RuntimeError(self._slow(url, wait)) from e
+            break
+        parts: list[str] = []
+        finish, used = "", None
+        try:
+            with resp:
+                for raw in resp:
+                    cancel.check()
+                    line = raw.decode("utf-8", "replace").strip()
+                    if not line.startswith("data:"):
+                        continue
+                    data = line[5:].strip()
+                    if data == "[DONE]":
+                        break
+                    try:
+                        msg = json.loads(data)
+                    except ValueError:
+                        continue
+                    used = msg.get("usage") or used
+                    choice = (msg.get("choices") or [{}])[0]
+                    finish = str(choice.get("finish_reason") or finish)
+                    piece = (choice.get("delta") or {}).get("content") or ""
+                    if piece:
+                        parts.append(piece)
+                        shown = _OPEN_THINK_RE.sub("", _THINK_RE.sub("", "".join(parts))).lstrip()
+                        if shown:
+                            on_chunk(shown)
+        except TimeoutError as e:
+            raise RuntimeError(self._slow(url, wait)) from e
+        return {"choices": [{"finish_reason": finish, "message": {"content": "".join(parts)}}], "usage": used}
+
+    def _chat(self, system: str, messages: list[dict], attempt: int = 1, parse: Any = None,
+              on_chunk: Callable[[str], None] | None = None, **extra: Any) -> Any:
+        """한 번 부르고 사용량을 기록한다. parse 는 GeminiLLM._call 과 같다. on_chunk 가 있으면 흘려 받는다 (_stream)."""
         cancel.check()
         t, tokens, cols = time.time(), None, {}
         self.last_finish = ""
@@ -1260,7 +1385,7 @@ class LocalLLM:
             body = {"model": self.model, "messages": [{"role": "system", "content": system}, *sent], **extra}
             if cap := _out_cap.get():
                 body.setdefault("max_tokens", cap)
-            resp = self._request("POST", "/chat/completions", body)
+            resp = self._stream(body, on_chunk) if on_chunk is not None else self._request("POST", "/chat/completions", body)
             tokens = self.last_usage = _local_usage(resp.get("usage"))
             choice = (resp.get("choices") or [{}])[0]
             self.last_finish = str(choice.get("finish_reason") or "")
@@ -1299,6 +1424,11 @@ class LocalLLM:
     def text(self, system: str, prompt: str) -> str:
         self.last_attempts = 1
         return self._chat(system, [{"role": "user", "content": prompt}], **self.sampling)
+
+    def text_stream(self, system: str, prompt: str, on_chunk: Callable[[str], None]) -> str:
+        """text 와 같지만 stream=True 로 흘려 받는다. 조각마다 지금까지 받은 글 전체로 on_chunk 를 부른다 (family_text)."""
+        self.last_attempts = 1
+        return self._chat(system, [{"role": "user", "content": prompt}], on_chunk=on_chunk, **self.sampling)
 
 
 def make_llm(provider: str, model: str | None = None, effort: str = "") -> LLM:

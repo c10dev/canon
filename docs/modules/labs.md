@@ -34,7 +34,7 @@
 
 ### `canon/metrics.py`
 
-- 문체 지표(문장 길이, 대사 비율, 과거형 비율, 어휘 다양도, 반복 구, 상투 표현, 쇠맛 패턴과 쉼표·대명사 지표, 문체 거리, 문체 표지 빈도, 예시 문단 베끼기)와 기준 대비 경고
+- 문체 지표(문장 길이, 대사 비율, 과거형 비율, 어휘 다양도, 반복 구, 상투 표현, 쇠맛 패턴과 쉼표·대명사 지표, 문체 거리, 문체 버릇 빈도, 예시 문단 베끼기)와 기준 대비 경고
 - 말투 대사 예시 뽑기 `speech_examples`(큰따옴표 · 작은따옴표 · 낫표, 바로 앞에 '말버릇' · '입버릇' 이 있으면 뺌)
 - 말투 대사 예시 옮김 `speech_copied`: 예시 문장마다 그 길이(최대 `COPY_SPAN`)로 `copied_sentences` 를 부른다. 끝 문장부호는 빼고, `SPEECH_COPY_MIN`(6)자 미만 예시는 보지 않는다
 - 1~3화 초반 지표(`measure_opening`)
@@ -54,7 +54,7 @@
 - 대사 꼴은 `drift` 가 기준값과 견줘 경고함(물결표는 차이 0.15, 길이는 30%). 옛 기준값에는 값이 없어 경고하지 않음
 - 대사 꼴을 더한 근거는 reports/지표 사각지대 2026-11-07.md(대사 비율로는 갈리지 않던 작품과 레퍼런스가 이 값으로 갈림)
 - 문단 경계 창 `_para_windows`(`tempo_curve` 와 `peak_window` 가 함께 씀)
-- 정점 대목 `peak_window`: 열 낱말(`Settings.heat_words`)이 가장 많이 든 `PEAK_WINDOW` 자 창의 자리 · 열 낱말 수 · 문장 평균 길이. 낱말이 없거나 `PEAK_MIN_HITS` 개 미만이면 None
+- 정점 대목 `peak_window`: 절정 낱말(`Settings.heat_words`)이 가장 많이 든 `PEAK_WINDOW` 자 창의 자리 · 절정 낱말 수 · 문장 평균 길이. 낱말이 없거나 `PEAK_MIN_HITS` 개 미만이면 None
 - 정점 대목 경고 `peak_drift`: 그 창의 문장 평균이 기준값보다 `PEAK_LIMIT`(30%) 넘게 길면 한 줄. `pipeline.style_drift` 가 붙임
 - 정점 대목을 더한 근거는 reports/열 판정 시트 2 2026-11-07(같은 출처끼리 문장 길이가 다른 짝 13개 중 12개에서 짧은 쪽이 더 달아오름, 작품 평균은 그 차이를 가림)
 - 효과음 끝 표시 경고 `sfx_mark_drift`(원문이 `SFX_MARK_RARE` 미만으로 쓰는 표시를 이번 화 효과음 줄 `SFX_MARK_NEW` 이상에 쓰면)
@@ -67,13 +67,18 @@
 ### `canon/promptlab.py`
 
 - 프롬프트 놀이터(작품 밖 `<CANON_HOME>/.promptlab/<id>.json`, `CANON_PROMPTLAB` 으로 경로 변경, 화면은 `static/promptlab.js`, 웹 `/api/promptlab/...`)
-- 시스템 · 요청 프롬프트를 직접 써서 고른 백엔드(`PROVIDERS`: gemini · local · mock)로 돌리고 결과를 시도로 남긴다. 작품과 상관없다
+- 시스템 · 요청 프롬프트를 직접 써서 고른 백엔드(`PROVIDERS` = `research.PROVIDERS`: gemini · local · claude · claude-api · mock)로 돌리고 결과를 시도로 남긴다. 작품과 상관없다
 - 세션 `PromptSession` 은 지금 칸(제목 · 시스템 · 요청 · 온도 · 백엔드 `PromptBackend`)과 시도 `PromptTrial`
+- 실험 판을 원래 판과 블라인드로 불러온 세션은 끼우기 전 글을 `PromptSession.base`(`PromptPair`)에 둔다
+- `base` 가 있으면 `run` 이 실험 판(지금 칸) 다음에 원래 판을 같은 백엔드로 돌린다. 결과마다 쪽 `PromptRun.side`(set · original)를 단다
+- 그런 시도는 `add_trial(base=)` 가 원래 판 사본과 백엔드마다 가려 읽기 `PromptTrial.blinds`(`RevBlind`, 보일 차례는 무작위)를 남긴다
+- 고르기 `pick(s, 시도, 백엔드 차례, 1 · 2 · 0)`: 고른 쪽(original · set · skip)과 그 전에 끝낸 가려 읽기 수 `seen` 을 적는다
+- `view` 는 블라인드 시도의 `runs` 를 비우고 `blind_view`(보일 차례의 두 결과, 고르기 전에는 쪽 · 차례를 뺌)를 준다
 - 시도는 그때의 시스템 · 요청 · 온도와 백엔드마다 결과 `PromptRun`(글 · 오류 · 초 · 글자 · 토큰 · 어림 비용), 고름 `star`, 메모 `note`
 - 저장 `load` · `save`(`store.write_atomic`) · `sessions` · `create` · `update` · `delete` · `duplicate`(프롬프트 · 백엔드만 복사)
 - 백엔드 정리 `clean_backends`: 모르는 백엔드는 막고 같은 것은 한 번만, 주소는 로컬만 남기고 `MAX_BACKENDS` 개까지
 - 제목은 비우면 요청 첫 줄로 짓는다(`title_of`). 작가가 적은 제목은 프롬프트를 바꿔도 남는다
-- 돌리기 `run` 은 `research.sample` 을 그대로 부른다(차례로 부름, 한 쪽이 실패해도 나머지는 돎). 세션은 바꾸지 않고 `add_trial` 로 붙인다
+- 돌리기 `run` 은 `research.sample` 을 그대로 부른다(동시에 부름, 한 쪽이 실패해도 나머지는 돎). 세션은 바꾸지 않고 `add_trial` 로 붙인다
 - 불러온 갈래가 있으면 `run_spec` 대로 돌린다: 응답 스키마(구조화 출력 `llm.json`), 그 단계의 모델 · 추론 강도, 출력 한도
 - 출력 한도 `OUT_TOKENS`(갈래 → 모듈 · 이름): 스토리보드 · 큐 시트는 `pipeline.BOARD_OUT_TOKENS` · `CUE_OUT_TOKENS`, 대화 에이전트는 `agent.STEP_OUT_TOKENS`, 나머지는 기본 한도
 - 고른 작품에서 불러왔으면 그 작품의 단계 프리셋(`settings.project_preset`)을 쓴다
@@ -87,15 +92,22 @@
 - 어림 비용 `run_cost`: `usage.PRICED` 백엔드만 `usage.rate` · `usage.cost` 로 센다. 로컬 · mock 은 0, 가격 · 토큰을 모르면 None
 - 세션마다 시도 `MAX_TRIALS` 개까지. 저절로 지우지 않고 막는다(`room`)
 - 되돌리기 `restore`: 그 시도의 프롬프트 · 온도 · 출처를 지금 칸으로. 백엔드는 그대로 둔다
-- 불러오기 `load_prompt`: Canon 프롬프트를 `prompts.brief_request` 로 조립해 시스템 · 요청 칸에 채운다. 스키마 글은 칸에 넣지 않고 출처(`PromptSource.schema_name` · `stage`)에 둔다
+- 불러오기 `load_prompt`: Canon 프롬프트를 `prompts.view_request` 로 조립해 시스템 · 요청 칸에 채운다. 스키마 글은 칸에 넣지 않고 출처(`PromptSource.schema_name` · `stage`)에 둔다
+- `load_prompt` 는 작업지시서 갈래 말고도 조립 보기 갈래(다시 생성 · 서술 다듬기 · 동선 검수, `prompts.VIEW_NEED`)를 받는다. `run_spec` 도 그 갈래의 스키마 · 단계로 돌린다
+- `load_prompt(promptset=)` 는 실험 판을 끼운다(`promptset.apply`). 바꾼 조각이 하나도 들지 않으면 ValueError
+- `load_prompt(blind=True)` 는 끼우기 전 글을 `base` 에 둔다. 실험 판 없이 켜면 ValueError. 다른 프롬프트를 불러오면 `base` 를 비운다
+- 출처에 끼운 판 `PromptSource.promptset` · `promptset_name` 을 남기고, 이름 끝에 ' · 실험 판 <이름>'을 붙인다. 되돌리기 `restore` 는 `base` 도 되돌린다
 - 갈래는 `prompts.BRIEF_KINDS` 그대로다. 작품에 맞는 갈래만 `kinds_for` 로 고른다(부 구성은 장편만)
 - 대화로 다듬기 갈래(설정 도우미 · 문체 · 플롯 대화 에이전트 첫 단계 · 본문 부분 수정)는 작가의 말 자리에 `prompts.CHAT_MESSAGE` 를 넣는다. 작가가 그 줄을 바꿔 돌린다
 - 대화로 다듬기 갈래는 `canon_notes` 검사가 없다(빈 칸 검사만 한다)
-- 고르는 단위(`BriefKind.scope`): 화, 플롯 초안 구간(`groups_of`, `pipeline.act_groups`), 작품 하나(구조 · 열 계획 · 부 구성, 화를 쓰지 않아 n 은 0)
+- 고르는 단위(`BriefKind.scope`): 화, 플롯 초안 구간(`groups_of`, `pipeline.act_groups`), 작품 하나(구조 · 완급 계획 · 부 구성, 화를 쓰지 않아 n 은 0)
 - 한 화 플롯은 플롯이 초안인 화만 조립한다(`pipeline.draft_episode` 와 같다)
 - 스토리보드 · 큐 시트는 플롯을 확정한 화만 조립한다(`pipeline` 과 같다). 앞 화가 끝났는지(`require_previous`)는 보지 않는다
 - 불러오기 재료는 예시 작품(`example_project`, mock LLM 으로 만든 저장하지 않는 6화 단편, 한 번 만들어 사본을 줌)이나 고른 작품(`store.load`, 읽기만)
 - 예시 작품은 1 · 2화에 본문과 상태 반영이 있고 3화는 플롯만 확정했다. 갈래마다 조립하는 화는 `EXAMPLE_N`, 없는 갈래는 `default_n`
+- 예시 장편 `example_serial`: mock LLM 으로 만든 저장하지 않는 300화 장편이다. 첫 아크는 본문과 상태 반영까지, 둘째 아크는 끝 세 화만 플롯 초안이다
+- 예시 장편은 프롬프트 관리 페이지(`routes/prompts.py`)의 견본이다. 한 번 만들어 사본을 준다
+- 불러오기 작품 값 `SERIAL`(`:serial`)은 예시 장편이다(`_project`). 작품 폴더 이름에는 ':' 을 쓸 수 없다
 - 단계 이름 `STAGE_LABELS` 에는 부분 수정(`revise`) · 플롯 대화(`chat`)도 있다
 - 고른 작품의 기본 화 `default_n`: 본문이 있어야 하는 갈래는 본문이 있는 마지막 화, 나머지는 본문이 없는 첫 화
 - 확정 · 초안이어야 하는 갈래는 본문이 없고 그 조건에 맞는 첫 화, 플롯 초안은 초안이 든 첫 구간
@@ -107,6 +119,18 @@
 - `llm.POLICY_NOTE` 는 칸에 넣지 않는다. Gemini · 로컬 백엔드가 보낼 때 붙이므로(`llm.with_note`) 칸에 넣으면 두 번 붙는다
 - 대신 `limits` 가 `policy_note` 로 그 줄을 주고 화면이 요청 칸 아래에 보인다
 - 시험 `tests/test_promptlab.py`
+
+### `canon/promptset.py`
+
+- 프롬프트 관리 페이지의 실험 판(작품 밖 `<CANON_HOME>/.promptsets/<id>.json`, `CANON_PROMPTSETS` 으로 경로 변경, 웹 `/api/promptsets/...`)
+- 판 `PromptSet`: id · 이름 · 견본 갈래 `kind`(조립 보기가 있는 갈래) · 조각마다 바꾼 글 `changes`(`PromptSetChange` 목록, dict 아님) · 메모
+- 저장 `load` · `save`(`store.write_atomic`) · `sets`(고친 때 최근 것부터) · `create` · `update` · `delete` · `duplicate`
+- `clean_changes`: 같은 조각은 마지막 글 하나, 보내기 직전 조각(`FIXED_PLACES`)과 `_req` 조각은 막고, `MAX_CHANGES` 개 · `TEXT_MAX` 자까지
+- 끼우기 `apply(p, n, 갈래, 시스템, 요청, 판)`: 그 조각의 견본 글(`prompts.piece_text`)을 조립한 글에서 찾아 바꾼 글로 한 번 바꾼다. 요청 함수 · 블록 차례는 그대로다
+- 조각마다 결과: applied(바꿈) · same(글이 같음) · absent(이 견본 요청에 그 글이 없음) · missing(코드에서 사라진 조각, 끼우지 않음)
+- 실제 집필 · 자동 집필 · 작업지시서 경로는 이 모듈을 부르지 않는다. 부르는 곳은 `promptlab.load_prompt` 와 `routes/prompts.py` 뿐이다(`tests/test_promptset.py`)
+- 이긴 판은 에이전트가 `prompts.py` 로 옮기는 PR 로 넣는다(일감 12 정할 것 1)
+- 시험 `tests/test_promptset.py`
 
 ### `canon/refs.py`
 
@@ -152,10 +176,12 @@
 - 연구 화면(모델 실험) 로직
 - 서버 점검
 - 샘플 비교
+- 실험 백엔드 `PROVIDERS`: gemini · local · claude · claude-api · mock. `make_backend` 가 Claude 두 백엔드는 `llm.make_llm` 으로 만들고 온도는 넘기지 않는다
+- 샘플 생성 `sample` 은 백엔드마다 스레드를 띄워 동시에 부르고(`_sample_one`), 결과는 고른 차례로 준다. 스레드마다 `contextvars.copy_context()` 로 사용량 기록 정보를 넘긴다
 - 샘플 생성 `sample` 은 실패하면 받은 원문(`last_raw`, `RAW_MAX` 자까지)과 끝난 이유(`last_finish`)를 줄에 남긴다
 - 샘플 생성 `sample` 은 schema 를 주면 `llm.json` 으로 받아 검증한 JSON 을 글로 돌려준다. mock 은 hint 없이 스키마 응답을 짓지 못해 글로 받는다
 - `sample` 의 stage · out_tokens: 모델 칸이 빈 백엔드는 그 단계의 모델 · 추론 강도(`stage_defaults`)로 만들고 출력 한도(`llm.out_cap`)를 건다
-- `stage_defaults`: 단계 모델은 그 단계 백엔드가 같을 때만 쓰고, 추론 강도는 `settings.provider_effort` 로 바꿔 Gemini 에만 넘긴다
+- `stage_defaults`: 단계 모델은 그 단계 백엔드가 같을 때만 쓰고, 추론 강도는 `settings.provider_effort` 로 바꿔 Gemini · Claude 에만 넘긴다
 - 단계 시험
 - 컨텍스트 크기
 - 검수 시험
@@ -171,6 +197,10 @@
   - 영어판은 시스템 프롬프트 `prompts.checker_system` · 자료 칸 제목 · 요구사항 · 응답 설명 `schema.ConsistencyReportEn` 만 영어다. 작품 자료 · 인용 · 기능별 검수 규칙은 한국어 그대로
   - 한국어판 · 영어판 짝 누적 `lang_tally`(두 판 모두 성공한 줄만). `check_totals` 는 한국어판만 센다
 - 블라인드 비교
+- 그 화를 이미 쓴 모델은 다시 쓰지 않고 그 판을 가져온다(`kept_draft`: 지금 본문 → 고르기를 기다리는 새 판 → 남겨 둔 판, `Episode.written_by` · `TextVersion.model` 과 모델 이름이 같을 때)
+- 두 안이 같은 모델이면 아무것도 가져오지 않는다(`kept_drafts`). 모델 이름을 모르는 백엔드(`…:default`, 이름 없는 Claude 구독)는 가져오지 않는다
+- 가져온 안과 출처는 `key.json` 의 `kept` 에 두고, 고르기 전에는 수(`kept_count`)만 준다
+- 가져온 안을 고르면 규칙을 다시 걸지 않는다(`_adopt`: 지금 본문이면 그대로, 새 판이면 `adopt_candidate`, 남겨 둔 판이면 `restore_version`)
 - 비교본 폴더 `compare/<화 두 자리>/` 는 `store.compare_dir` 가 정한다. 화를 넣고 빼면 `store.renumber_side_files` 가 옮긴다
 - 비교본(`<번호>.md`) · `key.json` · hook 보고서는 `store.write_atomic` 으로 바꿔치기해 쓴다. `log.jsonl` 은 덧붙인다
 - 고르지 않은 비교본 목록 `open_compares`
@@ -255,6 +285,29 @@
 - 돌리기 `POST /api/promptlab/{id}/run` 은 받은 칸을 먼저 저장하고, 작업 목록을 거치지 않고 바로 돌려준다(`usage.scope(task="promptlab")`)
 - 도는 동안 바뀐 시도(별표 · 메모)를 덮지 않게 저장 직전에 세션을 다시 읽는다
 - 불러오기 고르기 재료 `GET /api/promptlab/sources?project=` · 불러오기 `POST /api/promptlab/{id}/load`(갈래 · 작품 · 화)
+- 불러오기 몸에는 실험 판 `promptset` 과 원래 판과 블라인드 `blind` 가 있다. 돌리기는 세션의 `base` 를 시도에 넘긴다
+- 가려 읽기 고르기 `POST /api/promptlab/{id}/trials/{no}/pick`(백엔드 차례 `k` · `choice` 1 · 2 · 0)
+
+### `canon/routes/prompts.py`
+
+- 프롬프트 관리 페이지 웹 라우트(`/api/prompts/...`). LLM 을 부르지 않고 아무것도 저장하지 않는다
+- `web.py` 맨 끝의 `_attach_routes` 가 `router` 를 앱에 붙이고 `EXPORTS` 의 이름을 `web` 에도 둔다
+- 표 `GET /api/prompts/kinds`: 갈래(`prompts.KINDS`) · 조각(`prompts.PIECES`, 조각마다 들어가는 갈래) · 주제 꼬리표 · 자리 · 묶음 차례
+- 한 갈래 `GET /api/prompts/kinds/{id}?project=&n=`: 조립 보기가 있으면 `prompts.view_request` 로 견본 요청을 조립하고 조각마다 견본 글 · 글자 · 추정 토큰 · `found` 를 붙인다
+- `found` 는 조각 글이 조립한 요청에 있는지(`prompts.found_in`)다. 보내기 직전 조각(`SEND_PIECES`)은 조립한 글에 없어 `None` 이다
+- 견본 `project`: 빈 값은 예시 작품, `:serial` 은 예시 장편(`promptlab.example_serial`), 그 밖은 작품 폴더 이름(`promptlab._project`, 읽기만)
+- 장편에만 있는 갈래(부 구성)는 예시 작품을 골라도 예시 장편으로 조립한다
+- 화를 주지 않으면 놀이터 불러오기와 같은 기본 화(`promptlab._default`)다. 다시 생성 · 서술 다듬기 · 동선 검수는 본문이 있는 마지막 화다
+- 만들 수 없는 견본(본문이 없는 화, 단편의 장편 갈래)은 200 으로 `error` 에 까닭을 담는다. 모르는 갈래 · 작품은 404
+- 조립 보기가 없는 갈래는 표 줄과 그 갈래의 조각만 준다
+- 주제 `GET /api/prompts/topics/{tag}`: 그 꼬리표를 단 조각을 모든 갈래에서 모아, 조립 보기가 있는 첫 갈래로 만든 견본 글을 붙인다
+- 조각 `GET /api/prompts/pieces/{id}`: 조각 하나와 그 견본 글
+- 시험 `tests/test_prompt_registry.py` 의 `test_routes`
+- 실험 판 `GET` · `POST /api/promptsets`, `GET` · `PUT` · `DELETE /api/promptsets/{id}`, 복제 `POST …/duplicate`
+- 판 하나 · 고친 뒤 응답은 미리보기 `set_preview`: 견본 갈래(`PromptSet.kind`)를 견본 작품으로 조립한 원래 글 · 판을 끼운 글 · 조각마다 결과 · 더할 수 있는 조각(`editable`)과 견본 글
+- `editable` 은 보내기 직전 조각과 요청 전체를 만드는 조각(`_req`)을 뺀다
+- 놀이터로 `POST /api/promptsets/{id}/playground`(견본 작품 · 화 · `blind`, 기본 켬): 새 놀이터 세션에 `promptlab.load_prompt` 로 불러온다. 불러오지 못하면 만든 세션을 지운다
+- 시험 `tests/test_promptset.py` 의 `test_routes`
 
 ### `canon/routes/refs.py`
 
@@ -267,6 +320,11 @@
 ### `canon/routes/research.py`
 
 - 연구 화면 웹 라우트(`/api/projects/{name}/research/...`)
+- 실험 다섯(샘플 · 단계 · 검수 시험 · 프롬프트 재기 · 블라인드 비교 쓰기)은 작업 `rs_<실험>` 으로도 돈다(`_job_research`, `JobIn.trial` 에 옛 요청 모양). 화면은 작업으로 부른다
+- 작업은 옛 경로와 같은 기록 줄을 `research/log.jsonl` 에 남기고, 사용량을 source · stage `research` 와 실험 이름으로 적는다(`_rs_scope`)
+- 기록에 결과 전체가 남는 실험(샘플 · 단계 · 검수 시험)은 작업 결과에 기록 id 만 싣는다. 프롬프트 재기는 기록이 요약뿐이라 표 전체를 싣는다
+- 실험이 고른 백엔드를 쓰므로 `OWN_LLM_KINDS` 에 든다. 모르는 백엔드 · 같은 두 백엔드 · 없는 화는 시작 전에 400 이다
+- 옛 동기 경로(`research/sample` · `stage` · `check` · `budget` · `compare/{n}`)는 시험이 쓰는 동안 남긴다
 - 사용량 응답 모델(`UsageBucket` · `UsageCall` · `PriceTable`)은 `usage.summary` · `usage.price_table` 의 칸 가운데 적힌 것만 내보낸다
 - `usage` 의 묶음 · 호출 줄 · 가격표에 새 칸을 더하면 이 응답 모델에도 더한다
 - `web.py` 맨 끝의 `_attach_routes` 가 `router` 를 앱에 붙이고 `EXPORTS` 의 이름을 `web` 에도 둔다
@@ -287,6 +345,10 @@
 ### `canon/routes/studio.py`
 
 - 문단 연습장 웹 라우트(`/api/studio/...`)
+- AI 호출 넷(AI 안 · 박자 짚기 · 다른 상황 · 독자로 읽기)은 작업으로도 돈다(`POST /api/studio/{sid}/jobs`, 종류 `stu_<kind>`)
+- 작품 밖이라 작업 목록의 project 자리는 `STU_JOBS`(`.studio`), 대상은 세션 id, 독자로 읽기는 화 자리에 시도 번호다
+- 작업은 시작할 때 카드로 부르고, 결과를 남기기 직전에 세션을 다시 읽어 그사이 바뀐 시도를 덮지 않는다
+- 옛 동기 경로(`draft` · `anatomy` · `variants` · `tries/{no}/reader`)는 시험이 쓰는 동안 남긴다
 - `web.py` 맨 끝의 `_attach_routes` 가 `router` 를 앱에 붙이고 `EXPORTS` 의 이름을 `web` 에도 둔다
 - 공용 도우미(`_load` · `_save` · `_edit` 등)는 `..web` 에서 불러 쓴다
 
@@ -336,6 +398,7 @@
 - 작품을 단편으로 바꿔 고른 갈래가 없으면 본문 쓰기로 돌아간다(`pgSources`)
 - 요청 칸 아래에 Gemini · 로컬이 보낼 때 붙이는 `POLICY_NOTE` 줄을 보인다(`S.pgLimits.policyNote`)
 - 불러온 갈래가 있으면 돌리는 방식 한 줄(`pgSpecLine`)과 모델 칸 안내(`pgModelHint`, 그 단계 모델 · 추론 강도)를 보인다
+- 단계 모델이 없거나 칸에서 백엔드를 바꾼 줄의 모델 칸 안내는 그 백엔드의 기본 모델이다(`defaultModelName`)
 - 결과 카드는 받은 형식 · 추론 강도 · 출력 한도를 함께 적는다(`pgRunCard`)
 - 구조화 출력 결과는 Canon 정리와 빈 칸 수를 보이고 빈 칸 경로는 펼쳐 본다(`pgCheckHtml`)
 - 실패한 결과는 받은 원문과 끝난 이유를 펼쳐 본다(`pgRawHtml`, MAX_TOKENS 면 출력 한도)
@@ -343,8 +406,37 @@
 - 시도 카드: 그 시도의 프롬프트(접힘), 지금 칸과 다른지(`pgDiff`), 백엔드마다 결과 카드 `pgRunCard`(초 · 글자 · 토큰 · 어림 비용 `usd`)
 - 시도 동작: 고르기 `pgStar` · 메모 `data-pg-note` · 되돌리기 `pgRestore` · 결과 복사 `pgCopy` · 지우기 `pgDrop`
 - 머리 주 버튼은 '돌리기'(백엔드가 둘 이상이면 곳 수). 시도가 꽉 차거나 백엔드가 없으면 막는다
+- 원래 판과 블라인드인 세션은 프롬프트 카드에 '원래 판과 블라인드' 칩과 비용이 두 배라는 줄을 보인다(`S.pg.base`)
+- 블라인드 시도 카드 `pgBlindHtml`: 백엔드마다 두 결과를 '가' · '나'로 나란히, 고르기(`pgPick`) 전에는 어느 쪽이 원래 판인지 알리지 않는다. 고른 뒤 쪽 이름과 고른 쪽을 보인다
 - 공용 클래스(`.cols` · `.card` · `.grid-auto` · `.chip` · `.rw-text`)만 쓰고 CSS 를 더하지 않는다
 - 순수 함수 · 화면 시험 `tests/test_promptlab_js.py`
+
+### `canon/static/prompts.js`
+
+- 프롬프트 관리 화면(작품 밖 `#/prompts[/<갈래>|/topic/<꼬리표>|/piece/<조각>]`, 서버 `routes/prompts.py`)
+- `app.js` 라우팅이 작품 밖 사이드바 옆에 `viewPrompts` 를 그린다(불러오기 `pcLoad`, 본문 폭 1280px)
+- 작품 밖 도구 🧩(놀이터 바로 뒤) · 작품 사이드바 ⋯ 메뉴 · 찾기 팔레트에서 들어온다
+- 집필 화면 컨텍스트 대화상자의 펼친 블록에 '프롬프트 관리에서 보기' 링크가 있다(`write.js` `ctxMore`, 조각 id 는 블록 id 그대로)
+- 머리의 `.seg` 로 갈래별 · 주제별을 바꾼다. 주 버튼은 없다
+- 찾기 칸(`S.pcQ`)은 왼쪽 갈래 목록과 조각 줄을 이름 · 코드 이름 · 글로 거른다(`pcMatch`)
+- 견본 칸(`S.pcSample`): 예시 작품 · 예시 장편 · `S.projects` 의 작품. 바꾸면 지금 화면을 다시 읽는다
+- 왼쪽 갈래 목록 `pcGroups`: 조립 보기가 있는 갈래를 묶음 차례로, 나머지는 접힌 '표에만' 아래에 묶음별로
+- 갈래 보기 `pcKindView`: 단계 · 응답 · 시스템 · 요청 · 호출 이름, 견본 합계(추정 토큰), 자리마다 카드와 캐시 설명(`PC_PLACE_NOTE`)
+- 조각 줄 `pcPieceRow`: 이름 · 꼬리표 칩(주제 보기로 감) · 코드 이름 · 글자 수 · 횟수 처방 칩 · '이 견본에는 없음' 칩. 펼치면 들어가는 조건과 견본 글
+- 펼친 조각은 `S.pcOpen` 에 남긴다
+- 횟수 처방 `pcCounts`(`PC_COUNT_RX`): '열에 셋쯤' · '화에 셋까지' · '한두 번' · '3~7개' · '세 줄 넘게' 같은 숫자 지시를 표시만 한다
+- '놀이터에서 열기'(`pcPlayground`): 작업지시서 갈래는 놀이터의 불러오기로, 그 밖이나 예시 장편은 조립한 글 그대로 새 놀이터 세션을 만든다
+- 주제 보기 `pcTopicView`: 꼬리표를 단 조각을 자리 차례로(`pcTopic`) 모으고, 조각마다 자리 · 들어가는 갈래 · 견본을 만든 갈래를 적는다
+- 조각 보기 `pcPieceView`: 자리 · 코드 · 조건 · 꼬리표 · 들어가는 갈래 링크 · 견본 글
+- CSS 는 `.pc-` 묶음(왼쪽 목록 · 조각 줄)만 더했다
+- 실험 판: 머리 `.seg` 의 셋째 '실험 판'(`#/prompts/sets`), 판 편집 `#/prompts/set/<id>`. 왼쪽 열은 판 목록(`pcSetNav`)과 '+ 새 실험 판 만들기'
+- 갈래 보기의 '이 갈래로 실험 판 만들기'(`pcSetNew`)는 그 갈래를 견본 갈래로 둔 판을 만들어 편집으로 간다
+- 판 편집 `pcSetView`: 이름 · 견본 갈래 · 메모 칸, 바꾼 조각마다 결과 칩(`PC_SET_STATE`) · 바꾼 글 칸 · 원래 견본 글과의 줄 단위 차이(`pcDiffHtml`)
+- 줄 단위 차이 `pcLineDiff`(LCS)는 바뀐 줄과 앞뒤 한 줄만 보이고 나머지는 '… n줄 같음'으로 접는다. 더한 줄 · 뺀 줄은 기호와 낭독 글로도 알린다
+- 조각 더하기는 견본 글이 있는 조각만 고르고, 원래 견본 글에서 시작한다. 칸은 `S.pcSetForm`, 칸을 벗어나면 저장하고 미리보기를 다시 받는다(`pcSetSave`)
+- 판 편집의 주 버튼은 '놀이터에서 원래 판과 견주기'(`pcSetOpen`, 블라인드)다. '놀이터에서 열기'는 판만 끼운다
+- 끼운 견본 요청은 합계와 '요청 전문 보기'로 본다. 판 복제 · 지우기도 그 카드에 있다
+- 순수 함수 · 화면 시험 `tests/test_prompts_page_js.py`
 
 ### `canon/static/refs.js`
 
@@ -445,7 +537,9 @@
 - 구조 칸 `stuStructureForm`: 박자 줄(`data-stu-beat`, 더하기 `stuBeatAdd` · 옮기기 `stuBeatMove` · 빼기 `stuBeatDrop`, 목록은 `beats`) · 가릴 것 · 감각 전환 · 본보기 보이기
 - 본보기 카드의 뜯어보기 `stuAnatomy` · 결과 `stuAnatomyHtml` · 카드에 적용 `stuAnatomyApply`, 상황 바꿔 보기 카드 `stuVariantCard`(`stuVariants`, 새 연습 `stuFromVariant`), 시도의 독자 질문 `stuReader` · `stuReaderHtml`
 - AI 호출 전 카드 저장 `stuCall`. CSS 는 JS 에서 주입(`STU_CSS`)
-- 시도 카드: 지표 칩(`stuChecks`: 지켰나 ✓ · 못 지킴 ✕ · 읽고 판단 ?), 글자 · 문장 · 대사 비율, 걸린 곳 «인용», 문체 표지 횟수
+- AI 안 쓰기 · 뜯어보기 · 상황 바꿔 보기 · 독자 질문은 화면을 막지 않는 작업이다(`stuStartJob`, 고친 카드를 먼저 저장). 버튼은 `stuBtn`(`jobBtn(…, STU_JOBS, 세션 id)`)으로 '만드는 중'을 그린다
+- 작업이 끝나면 그 세션을 보고 있을 때 다시 받는다(`stuJobDone`). 고치던 카드(`S.stuDirty`)는 서버 것으로 바꾸지 않고 남긴다
+- 시도 카드: 지표 칩(`stuChecks`: 지켰나 ✓ · 못 지킴 ✕ · 읽고 판단 ?), 글자 · 문장 · 대사 비율, 걸린 곳 «인용», 문체 버릇 횟수
 - 고쳐 쓰기(`stuRewrite`)는 그 시도 글을 직접 쓰기 칸에 옮기고 `base` 로 남긴다. AI 안은 고치지 않고 작가 글만 고친다(`stuEditOpen`)
 - 시도 고치기 칸의 글은 `S.stuEditText`(`data-local`)에 두어 다른 버튼으로 다시 그려도 남는다. 다른 시도를 열거나 그만둘 때 고친 것이 있으면 묻는다(`tests/test_studio_js.py`)
 - 직접 쓰기 칸과 고친 시도 글은 페이지를 떠날 때 묻는다(`app.js` `onKeptDraft`)
@@ -490,7 +584,7 @@
 - 시도 `add_ai` · `add_author`(고친 곳이 없으면 막음) · `edit`(작가 글만 고침, 고르기는 모두) · `remove`(그 시도를 고쳐 쓴 글은 `base` 0)
 - 세션마다 시도 `MAX_TRIES` 개까지. 저절로 지우지 않고 막는다(`room`)
 - 연습 종류 `DRILLS`(`Drill`: 이름 · 프롬프트 지시 · 지표 확인). 확인이 없는 연습(소리 · 냄새 · 촉감, 자리 · 자세)은 작가가 읽고 판단한다
-- 문단 지표 `measure`: 비율 대신 개수로 센다. 길이 · 연습 확인, 걸린 곳(`metrics.pattern_spans`), 문체 표지 횟수(`metrics.marker_count`)
+- 문단 지표 `measure`: 비율 대신 개수로 센다. 길이 · 연습 확인, 걸린 곳(`metrics.pattern_spans`), 문체 버릇 횟수(`metrics.marker_count`)
 - 화 단위 지표(어휘 다양도 · 문체 거리 · 쇠맛 화당 상한)는 문단에 맞지 않아 쓰지 않는다. 문장 길이 변화폭은 4문장부터 잰다
 - 감정 이름 확인은 대사 밖 서술에서만 `EMOTION_WORDS` 와 쇠맛 패턴 '감정 이름 서술'을 본다
 - 프롬프트 재료 `world`: 고른 문체만 채운 저장하지 않는 `Project`(프롬프트는 `prompts.paragraph_system` · `paragraph_prompt`)

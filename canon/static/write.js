@@ -51,7 +51,9 @@ function finNote(html) {
     동작이 있는 다음 할 일(완결 원고 내보내기)은 이 화면에서 부르므로 늘 둔다 */
 function nextStepBtn() {
   const next = nextStep();
-  return !next[2] && next[1] === `${base()}/${S.route.slice(2).map(enc).join('/')}` ? '' : nextStepHtml(next);
+  if (!next[2] && next[1] === `${base()}/${S.route.slice(2).map(enc).join('/')}`) return '';
+  // 완결 원고 내보내기는 이 화의 일이 아니라 보조 버튼으로 둔다. 집필 화면의 주 버튼은 화 상태의 다음 일 하나다 (docs/design/README.md '주 버튼 셈')
+  return nextStepHtml(next, next[2] === 'exportAll' ? 'btn' : 'btn primary');
 }
 
 // 이번 화 플롯 띠 (본문 칸 머리). 본문이 있는 화는 마지막으로 고른 펼침을 브라우저에 기억하고, 본문이 없는 화는 펼쳐서 시작한다
@@ -116,12 +118,12 @@ function dirCard(n) {
     return `<section class="card w-dir" aria-labelledby="w-dir-h">${head}
       ${arc ? `<div class="field"><label for="dir-arc">이번 아크 동안 <span class="hint">${arcName}의 화를 쓰는 동안 넣어요</span></label><textarea id="dir-arc" rows="2" placeholder="예: 장면 끝마다 짧은 대사로 끊고, 싸움 장면은 길게 써요">${esc(typed['dir-arc'] ?? a)}</textarea></div>` : ''}
       <div class="field"><label for="dir-ep">이번 화만 <span class="hint">${n}화를 쓸 때만 넣어요</span></label><textarea id="dir-ep" rows="2" placeholder="예: 회상은 한 문단으로 줄이고 대화 장면을 길게 써요">${esc(typed['dir-ep'] ?? d)}</textarea></div>
-      <div class="row"><button type="button" class="btn primary small" data-action="dirSave" data-arg="${n}">저장</button><button type="button" class="btn small" data-action="dirCancel">취소</button></div>
+      <div class="row"><button type="button" class="btn small" data-action="dirSave" data-arg="${n}">저장</button><button type="button" class="btn small" data-action="dirCancel">취소</button></div>
     </section>`;
   }
   const rows = [arc && a ? [`이번 아크 동안 <span class="hint">${arcName}</span>`, a] : null, d ? [e.text ? `${n}화를 쓸 때 준 지시` : '이번 화만', d] : null]
     .filter(Boolean).map(([t, v]) => `<div class="field"><span class="small">${t}</span><div class="w-dir-text">${esc(v)}</div></div>`).join('');
-  return `<section class="card w-dir" aria-labelledby="w-dir-h">${head}${rows}</section>`;
+  return `<section class="sec w-dir" aria-labelledby="w-dir-h">${head}${rows}</section>`;
 }
 
 document.addEventListener('input', (ev) => {
@@ -253,6 +255,7 @@ function ctxMore(c) {
   const out = [];
   const why = c.on === false ? '블록 설정에서 껐어요. 요청에 넣지 않아요.' : c.locked ? '이 블록은 끌 수 없어요.' : CTX_NOTE[c.note] || '';
   if (why) out.push(`<p class="small">${why}</p>`);
+  if (c.id) out.push(`<a class="small" href="#/prompts/piece/${enc(c.id)}">프롬프트 관리에서 보기</a>`);  // 이 블록의 조각 (prompts.PIECES 의 id 가 BLOCKS 의 id 그대로)
   if ((c.budgets || []).length) {
     out.push(`<p class="small">예산: ${c.budgets.map((b) => `${esc(BUDGET_LABEL[b.key] || b.key)} ${ctxNum(b.value)}자${b.value !== b.default ? `(기본 ${ctxNum(b.default)}자)` : ''}`).join(' · ')}</p>`);
   }
@@ -511,8 +514,8 @@ function viewEpisode(n, panel = 'write') {
   // 640px 이하는 보조 버튼(대화 · 다시 생성 · 작업지시서)을 머리 줄에서 숨기고 ⋯ 메뉴에 같은 동작을 둔다 (작업지시서는 메뉴에 이미 있다, app.css .w-head)
   const chatOn = e.text && editable;
   const rw = e.text && editable && (isApi || e.status === 'finalized') ? jobBtn('write', n, '다시 생성') : null;
-  // 'AI에게 고치기'는 대화 에이전트를 연다 (04b: 대상 text:N, 고른 본문은 재료 칩). 옛 대화는 패널 머리의 전환으로 연다
-  const aiOn = !!S.chatOpen && !S.chatOld;
+  // 'AI에게 고치기'는 대화 에이전트를 연다 (04b: 대상 text:N, 고른 본문은 재료 칩)
+  const aiOn = !!S.chatOpen;
   const narrow = `${chatOn ? `<button type="button" class="pop-item" data-action="agentOpenText" data-arg="${n}" aria-pressed="${aiOn}">AI에게 고치기</button>` : ''}${rw ? `<button type="button" class="pop-item" data-action="rwOpen" data-arg="${n}" aria-expanded="${S.rwOpen === n}"${rw.attr}>${rw.label}</button>` : ''}`;
   const right = `${chatOn ? `<button class="btn${aiOn ? ' on' : ''}" data-action="agentOpenText" data-arg="${n}" aria-pressed="${aiOn}">AI에게 고치기</button>` : ''}
     ${rw ? `<button class="btn${S.rwOpen === n ? ' on' : ''}" data-action="rwOpen" data-arg="${n}" aria-expanded="${S.rwOpen === n}"${rw.attr}>${rw.label}</button>` : ''}
@@ -531,18 +534,21 @@ function viewEpisode(n, panel = 'write') {
   const waitNote = paneWait ? `<div class="note info" role="status">${n}화 본문이 아직 없어요. 본문을 쓰고 저장한 뒤 ${panel === 'check' ? '검수해요' : '상태를 정리해요'}.${e.status === 'draft' ? '' : ' 아래 집필 칸에서 쓸 수 있어요.'}</div>` : '';
   const hint = pane && pane.hint && e.text ? pane.hint : e.status === 'draft' ? '플롯을 확정하면 본문을 쓸 수 있어요' : e.text ? `고칠 부분을 드래그하거나 길게 누르면 직접 고치거나 AI에게 맡기거나 나중에 고칠 곳으로 담을 수 있어요${typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches ? '. 밑줄 친 곳은 한 번 더 누르면 이름 카드 · 도구가 떠요' : ''}` : '본문을 직접 고친 뒤 저장할 수 있어요';
 
-  return `<div class="w-headwrap"><header class="page-head w-head${pane && pane.head ? ` ${pane.head}` : ''}"><div class="row" style="gap:12px">${epNav(panel, n)}<div class="w-tl"><div class="lead" style="gap:2px"><div class="eyebrow">${act ? actLabel(act.name) + ' 구간 · ' : ''}${n} / ${P().meta.target_episodes}화</div><h1 style="font-size:var(--w-h1, 1.5rem)">${n}화 ${esc(e.plot.title)}</h1></div>${povBadge(n)}<span class="chip ${e.status}">${STATUS[e.status]}</span>${e.auto ? '<span class="chip ai">자동 반영</span>' : ''}${e.text && writerLabel(e.written_by) ? `<span class="small w-model" title="이 본문을 쓴 모델이에요. 직접 고쳐도 바뀌지 않아요">쓴 모델 · ${esc(writerLabel(e.written_by))}</span>` : ''}</div></div><div class="row">${right}</div></header>${flowBar(n, panel)}</div>
+  return `<div class="w-headwrap"><header class="page-head w-head${pane && pane.head ? ` ${pane.head}` : ''}"><div class="row" style="gap:12px">${epNav(panel, n)}<div class="w-tl"><div class="lead" style="gap:2px"><div class="eyebrow">${act ? actLabel(act.name) + ' 구간 · ' : ''}${n} / ${P().meta.target_episodes}화</div><h1 style="font-size:var(--w-h1, 1.375rem)">${n}화 ${esc(e.plot.title)}</h1></div>${povBadge(n)}<span class="chip ${e.status}">${STATUS[e.status]}</span>${e.auto ? '<span class="chip ai">자동 반영</span>' : ''}${e.text && writerLabel(e.written_by) ? `<span class="small w-model" title="이 본문을 쓴 모델이에요. 직접 고쳐도 바뀌지 않아요">쓴 모델 · ${esc(writerLabel(e.written_by))}</span>` : ''}</div></div><div class="row">${right}</div></header>${flowBar(n, panel)}</div>
     ${panel !== 'write' ? autoLockNote() : ''}${waitNote}
+    ${panel === 'write' ? gistCard(n) : ''}
     ${e.auto ? `<div class="note info">이 화는 자동 집필이 검토 없이 반영했어요. 읽어 보고 문제가 있으면 <a href="${base()}/auto">자동 집필</a>에서 이 화부터 되돌릴 수 있어요.</div>` : ''}
     ${rebuildNote(n)}
     ${fin}
     ${e.text ? metaCutNote(n, editable && !autoOn()) : ''}
+    ${e.text && typeof ruleRunsNote === 'function' ? ruleRunsNote(n, editable && !autoOn()) : ''}
     ${orphan ? `<div class="note warn">저장하지 않은 ${n}화 초고가 남아 있어요. 이 화는 상태 반영이 끝나 본문으로 저장할 수 없어서, 아래에는 반영된 본문을 보여요.
       <details><summary>남은 초고 보기 (${S.textDraft[n].length.toLocaleString()}자)</summary><textarea readonly id="orphan-${n}" aria-label="${n}화 남은 초고" style="width:100%;min-height:160px;margin-top:6px">${esc(S.textDraft[n])}</textarea></details>
       <div class="row" style="margin-top:6px"><button class="btn small" data-action="copyOrphan" data-arg="${n}">초고 복사</button><button class="btn small danger" data-action="dropOrphan" data-arg="${n}">초고 버리기</button></div></div>` : ''}
     ${editable && autoOn() ? `<div class="note warn">자동 집필이 도는 동안은 본문을 저장할 수 없어요. 쓰던 글은 이 화면에 남아 있어요. 저장하려면 <a href="${base()}/auto">자동 집필</a>을 일시정지하세요. 어색한 곳은 지금도 글을 골라 '나중에 고치기'로 담아 둘 수 있어요.</div>` : ''}
     ${e.text && editable ? candidateCard(n) : ''}
     ${fresh ? writeStart(n, blocked) : madeBoard}
+    ${writing ? streamCard(n) : ''}
     ${panel === 'write' ? dirCard(n) : ''}
     ${editable && !e.text && draft !== undefined ? manualNote(n) : ''}
     ${starting && e.status === 'confirmed' ? cueCard(n, blocked) : ''}
@@ -573,7 +579,73 @@ function viewEpisode(n, panel = 'write') {
     ${cuePanel(n)}
     ${e.text ? illustPanel(n) : ''}
     ${openingPanel(n)}`)}
-    ${e.text && editable && S.rwOpen === n ? rewritePanel(n) : ''}${chatLegacy(e.text && editable ? `text:${n}` : '', { hold: !!(e.text && editable) && S.rwOpen === n })}`;
+    ${e.text && editable && S.rwOpen === n ? rewritePanel(n) : ''}${chatHold(!!(e.text && editable) && S.rwOpen === n)}`;
+}
+
+/** 상태 변경안 요약 카드 (docs/ux 06). 집필 칸의 단계 띠 아래 · 본문 위에 두고, 변경안이 생긴 화에서만 보인다.
+    묶음마다 줄 수와 한 줄 요지(review.js deltaGist)를 보이고, 줄을 누르면 상태 승인 화면의 그 묶음으로 간다(gistGo).
+    '추천대로 반영'(gistApply)은 상태 승인 화면에서 아무것도 바꾸지 않고 반영하는 것과 같은 요청이다. 상태 승인에서 체크나 칸을 고쳤으면 두지 않는다.
+    검수 지적이 남았으면 접어 두고 지적 수를 먼저 보인다. 반영한 뒤에는 같은 자리에 다음 화로 · 반영 취소를 둔다(S.gistDone).
+    관계 수치는 보이지 않는다: AI 는 사건만 적고 수치는 dynamics.py 가 계산한다. 버튼은 보조 버튼이다(머리 줄 주 버튼 하나) */
+function gistCard(n) {
+  const e = ep(n);
+  const done = S.gistDone;
+  if (done && (done.name !== S.name || done.n !== n || e.status !== 'finalized')) S.gistDone = null;
+  if (S.gistDone) {
+    const canRevert = P().snapshots.some((s) => s.episode === n - 1);
+    const undo = P().episodes.filter((x) => x.status === 'finalized' && x.plot.number >= n).map((x) => x.plot.number);
+    const next = nextStepHtml(nextStep(), 'btn').replace(/^<(a|button) /, '<$1 data-gist-next ');
+    return `<section class="card tight w-gist" aria-labelledby="w-gist-h"><div class="w-gist-head"><h2 id="w-gist-h">${n}화를 반영했어요</h2></div>
+      <div class="w-gist-act">${next}${canRevert ? `<button type="button" class="btn danger" data-action="revertFrom" data-arg="${n}">${rangeText(undo)}화 반영 취소</button>` : `<span class="small">${revertGone()}</span>`}</div></section>`;
+  }
+  const d = S.deltas[n];
+  if (!d || e.status !== 'written' || !e.text) return '';
+  pickEp(n);
+  const g = deltaGist(d, { picks: S.picks, name: charName, field: typeof scLabel === 'function' ? scLabel : undefined, fs: P().foreshadows, open: checkState(e).open });
+  const review = `${base()}/review/${n}`;
+  const rows = g.groups.filter((x) => x.count).map((x) => `<li><a class="w-gist-row" href="${review}" data-action="gistGo" data-arg="${n}:${x.key}"><span class="w-gist-k">${x.label}</span><span class="w-gist-n">${x.picked === x.count ? x.count : `${x.picked}/${x.count}`}</span><span class="w-gist-p">${esc(x.peek)}</span></a></li>`).join('');
+  const apply = deltaTouched(n) ? '<span class="small">상태 승인에서 고친 것이 있어요</span>'
+    : `<button type="button" class="btn" data-action="gistApply" data-arg="${n}"${autoOn() ? ' disabled' : ''}>추천대로 반영</button>${g.skip ? `<span class="small">${g.skip}</span>` : ''}`;
+  const body = `<ul class="w-gist-list">${rows}</ul><div class="w-gist-act">${apply}<a class="btn ghost" href="${review}">상태 승인으로</a></div>`;
+  const count = `<span class="small">${g.picked}/${g.total}건 고름</span>`;
+  if (g.fold) {
+    const open = !!(S.rvOpen && S.rvOpen[`${n}:gist`]);
+    return `<details class="card tight w-gist" data-rv-grp="${n}:gist"${open ? ' open' : ''}><summary><strong>${g.head}</strong> · ${n}화 상태 변경안 ${count}</summary>${body}</details>`;
+  }
+  return `<section class="card tight w-gist" aria-labelledby="w-gist-h"><div class="w-gist-head"><h2 id="w-gist-h">${n}화 상태 변경안</h2>${count}</div>${body}</section>`;
+}
+
+/** 쓰는 중인 본문 미리보기 (docs/ux 05). 흘려 받을 수 있는 백엔드면 서버가 도는 쓰기 작업에 지금까지 받은 글(partial)을 싣는다.
+    본문 칸(data-keep)이 아니라 읽기 전용 칸이고, 아직 저장한 글이 아니다. 부분 글이 없으면 숨겨 둔다(흘려 받지 못하는 백엔드는 끝까지 숨는다).
+    pollJobs 가 paintStream 으로 이 자리만 고친다. 낭독 칸(aria-live)이 아니다: 다 쓴 본문만 지금처럼 알린다 */
+function streamCard(n) {
+  const j = jobFor('write', n);
+  if (!j) return '';
+  const text = j.partial || '';
+  return `<section class="card w-stream" id="w-stream-${n}" aria-label="${n}화 AI가 쓰는 중인 글"${text ? '' : ' hidden'}>
+      <div class="w-stream-head"><strong>AI가 쓰는 중이에요</strong><span class="small" data-stream-count>${text.length.toLocaleString()}자</span></div>
+      <p class="small">아직 저장하지 않은 글이에요. 다 쓰면 본문 칸에 들어가요. 멈추거나 실패하면 이 글은 남지 않아요.</p>
+      <div class="w-stream-text" data-stream-text tabindex="0">${esc(text)}</div>
+    </section>`;
+}
+
+/** 보고 있는 화의 도는 쓰기 작업 부분 글로 미리보기 칸(streamCard)만 고친다. 화면 전체를 다시 그리지 않는다 (pollJobs 가 부른다).
+    칸 끝을 보고 있었으면 늘어난 글을 따라 내려가고, 위를 읽고 있었으면 그 자리에 둔다 */
+function paintStream() {
+  const n = Number(S.route && S.route[0] === 'p' && FLOW_PAGES.includes(S.route[2]) && S.route[3]);
+  const j = n ? jobFor('write', n) : null;
+  if (!j) return false;
+  const card = document.getElementById(`w-stream-${n}`);
+  const box = card && card.querySelector('[data-stream-text]');
+  if (!box) return false;
+  const text = j.partial || '';
+  if (box.textContent === text) return false;
+  const follow = box.scrollHeight - box.scrollTop - box.clientHeight < 24;
+  box.textContent = text;
+  card.querySelector('[data-stream-count]').textContent = `${text.length.toLocaleString()}자`;
+  card.hidden = !text;
+  if (follow) box.scrollTop = box.scrollHeight;
+  return true;
 }
 
 /** 한 화 화면의 본문 자리. 칸이 없으면(집필) 본문과 그 아래 칸들을 그대로 둔다.
@@ -946,13 +1018,16 @@ Object.assign(actions, {
     const text = $('#imp-body').value.trim();
     if (!text) return toast('본문을 붙여 넣으세요', true);
     if (ep(n).text && !(await askConfirm(`${n}화의 지금 본문을 바꿀까요?`, { ok: '바꾸기', danger: true }))) return;
+    const seen = (ep(n).rule_runs || []).map((r) => r.id);
     await run('가져오는 중', async () => {
       await saveIfDirty();
-      S.project = await api('PUT', `/projects/${enc(S.name)}/episodes/${n}/text`, { text });
+      // 받은 본문이라 서버가 고침 규칙을 걸고 기록을 남긴다 (Text.source, 직접 친 글에는 걸지 않는다). 지금 본문은 이전 판에 남는다
+      S.project = await api('PUT', `/projects/${enc(S.name)}/episodes/${n}/text`, { text, source: 'import' });
       delete S.textDraft[n];
       delete S.deltas[n];
       delete S.briefDraft[`${S.name}:${n}:episode`];
-      toast(`${n}화 본문으로 저장했어요`);
+      const said = typeof ruleRunSay === 'function' ? (ep(n).rule_runs || []).filter((r) => !seen.includes(r.id)).map(ruleRunSay).filter(Boolean).join(' ') : '';
+      toast(`${n}화 본문으로 저장했어요.${said ? ` ${said}` : ''}`);
       location.hash = `${base()}/write/${n}`;
     });
   },

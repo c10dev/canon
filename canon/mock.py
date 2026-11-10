@@ -332,7 +332,8 @@ def _agent_step(hint: dict) -> PlotAgentStep:
     'N화 앞에 M화' 는 화 넣기, 'N화 빼' 는 화 빼기를 묻고, '빈 물음' 은 묻는 말 없는 ask 를 내고, '분석' 은 처음에 예고만 하고, 되돌림 단계(tool 'reply')를 보면 내용을 쓴다.
     대상이 설정이거나 '설정을' 이 든 말이 MOCK_SETUP_WORDS 를 담으면 설정 도구(edit_setup)를 부른다.
     본문 대상에서 «원문» 이 든 말은 본문 고치기(revise_text)를 그 원문으로 부르고, 막혔으면 답만 한다.
-    대상이 문체이거나 말에 '문체'가 들면 문체 도구(edit_style)를 부른다. 'N화 참고' 는 episode 인자, 문체 대상의 '?' 물음은 답만 한다."""
+    대상이 문체이거나 말에 '문체'가 들면 문체 도구(edit_style)를 부른다. 'N화 참고' 는 episode 인자, 문체 대상의 '?' 물음은 답만 한다.
+    말에 '규칙'과 «찾을 글»(또는 'rule=id')이 들면 정규식 규칙 제안(propose_regex)을 부른다 (_regex_args). 막혀 돌아오면 답만 한다."""
     msg, steps, tools = hint["message"], hint.get("steps", []), hint.get("tools", [])
     if "끝없이" in msg:
         return PlotAgentStep(thought="더 읽어 봐요", tool="read_plots",
@@ -363,6 +364,12 @@ def _agent_step(hint: dict) -> PlotAgentStep:
         return PlotAgentStep(reply="아크 1(1~7화)의 기승전결 구조를 분석해 작가님께 전달합니다.")
     if "끝 이름" in msg and steps:
         return PlotAgentStep.model_validate({"tool": "reply", "reply": "읽어 보니 고칠 곳이 없어요."})
+    if "propose_regex" in tools:  # 막혀서 카드 없이 돌아왔다 (카드를 남기면 턴이 끝난다)
+        return PlotAgentStep(reply="규칙을 만들지 못했어요. 막힌 까닭을 보고 다시 말해 주세요.")
+    quotes = re.findall(r"«([^»]+)»", msg)
+    if "규칙" in msg and (quotes or "rule=" in msg):  # 정규식 규칙 제안 (06b). 본문 대상의 «…» 도 revise_text 보다 먼저 받는다
+        return PlotAgentStep(thought="규칙을 제안해요", tool="propose_regex", reply="규칙을 만들어 봤어요. 적용할지 골라 주세요.",
+                             args=_regex_args(msg, quotes))
     quote = re.search(r"«([^»]+)»", msg)
     if hint.get("aim") == "text" and quote:
         if "revise_text" in tools:
@@ -393,6 +400,32 @@ def _agent_step(hint: dict) -> PlotAgentStep:
                              args=[ToolArg(name="from", value="1"), ToolArg(name="to", value="3")])
     edit = _revision({**hint, "mode": ""})
     return PlotAgentStep(thought="말한 대로 고쳐요", tool="edit_plot", edit=edit)
+
+
+MOCK_REGEX_ARGS = ("bundle", "rule", "comment", "out", "action", "type", "flag", "enabled")  # 말 속 'k=v' 로 받는 propose_regex 인자
+
+
+def _js_escape(text: str) -> str:
+    """찾을 글을 JavaScript 정규식 글자 그대로로."""
+    return re.sub(r"([\\^$.|?*+()\[\]{}/])", r"\\\1", text)
+
+
+def _regex_args(msg: str, quotes: list[str]) -> list[ToolArg]:
+    """propose_regex 인자 흉내: 첫 «…» 는 찾을 글(in), 둘째 «…» 는 바꿀 글(out). '고침' 이 들면 fix, '나쁜 규칙' 이면 겹친 반복 (a+)+.
+    'rule=id' · 'enabled=false' · 'type=export' 같은 'k=v' 는 그 인자로 넣는다."""
+    args = {"comment": "대화로 만든 규칙"} if quotes else {}
+    if quotes:
+        args["in"] = _js_escape(quotes[0])
+    if len(quotes) > 1:
+        args["out"] = quotes[1]
+    if "고침" in msg:
+        args["action"] = "fix"
+    if "나쁜 규칙" in msg:
+        args["in"] = "(a+)+"
+    for k, v in re.findall(r"(\w+)=(\S+)", msg):
+        if k in MOCK_REGEX_ARGS:
+            args[k] = v
+    return [ToolArg(name=k, value=v) for k, v in args.items()]
 
 
 def _revision(hint: dict) -> PlotRevision:
@@ -632,6 +665,24 @@ class MockLLM:
             if empty:  # 생각만 하다 한도에 걸려 글 없이 끝난 응답 (GeminiLLM 은 '응답이 비었어요' 오류를 낸다)
                 raise RuntimeError("Gemini 응답이 비었어요: MAX_TOKENS")
             out = out[:max(1, len(out) // 2)]
+        return out
+
+    def text_stream(self, system: str, prompt: str, on_chunk: Callable[[str], None]) -> str:
+        """text 와 같은 글을 STREAM_PIECES 조각으로 나눠 낸다. 조각마다 지금까지의 글 전체로 on_chunk 를 부르고 멈추기 신호를 본다.
+        CANON_MOCK_STREAM_DELAY=초 면 조각 사이에 기다린다 (화면의 부분 글 미리보기 확인용, 기본 0)."""
+        import os
+        import time
+
+        from . import cancel
+
+        out = self.text(system, prompt)
+        pause = float(os.environ.get("CANON_MOCK_STREAM_DELAY", "0") or 0)
+        step = max(1, -(-len(out) // STREAM_PIECES))
+        for end in range(step, len(out) + step, step):
+            cancel.check()
+            if pause:
+                time.sleep(pause)
+            on_chunk(out[:end])
         return out
 
     def _text(self, system: str, prompt: str) -> str:
@@ -1025,6 +1076,7 @@ def _r_consistency_report_en(prompt: str, hint: dict):
 
 BATCHES: dict[str, dict] = {}  # 프로세스 안에서만 유지되는 가짜 배치 작업
 BAD_JSON: list[str] = []  # 여기 넣은 스키마 이름은 다음 배치 응답 한 번을 형식이 틀리게 낸다 (넣은 만큼)
+STREAM_PIECES = 6  # text_stream 이 글을 나눠 내는 조각 수
 CUT_TEXT: list[bool | str] = []  # 넣은 만큼 다음 글 응답(text)을 출력 길이 한도에 걸려 끊긴 것으로 낸다 (last_finish MAX_TOKENS). "empty" 는 글 없이 끝난 응답
 
 
@@ -1041,4 +1093,4 @@ def _broken(out: str) -> str:
 
 
 # 기능별 가짜 응답 등록 (RESPONDERS). 위의 responds 를 쓰므로 맨 끝에서 불러온다
-from . import mock_audit, mock_birth, mock_board, mock_coord, mock_cue, mock_fixrecheck, mock_foreshadow_judge, mock_heat, mock_knows, mock_offscreen, mock_play, mock_revlab, mock_stage, mock_studio  # noqa: E402,F401
+from . import mock_aliases, mock_audit, mock_birth, mock_board, mock_coord, mock_cue, mock_fixrecheck, mock_foreshadow_judge, mock_heat, mock_knows, mock_offscreen, mock_play, mock_revlab, mock_stage, mock_studio  # noqa: E402,F401

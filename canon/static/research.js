@@ -12,7 +12,7 @@ const RS_SECS = [
   { k: 'probe', label: '서버 점검', group: '준비', q: '로컬 서버에 어떤 모델이 있고 컨텍스트가 얼마인지 봐요',
     desc: 'OpenAI 호환 서버(vLLM, Ollama, llama.cpp, LM Studio)의 모델 목록과 컨텍스트 길이를 봐요. 생성 호출은 하지 않아요.' },
   { k: 'sample', label: '샘플 생성', group: '실험', q: '같은 요청을 모델마다 어떻게 쓰는지 봐요',
-    desc: '같은 요청을 여러 백엔드에 차례로 보내 시간, 토큰, 문체 지표를 나란히 봐요. 작품 데이터는 쓰지 않아요.' },
+    desc: '같은 요청을 여러 백엔드에 동시에 보내 시간, 토큰, 문체 지표를 나란히 봐요. 작품 데이터는 쓰지 않아요.' },
   { k: 'stage', label: '단계 시험', group: '실험', q: '모델이 설정 · 문체 · 기승전결 형식을 지키는지 봐요',
     desc: '설정 제안, 문체 분석, 기승전결을 저장하지 않고 돌려 봐요. 건너뛴 칸, 범위를 벗어난 숫자, 다시 물은 횟수를 확인해요.' },
   { k: 'budget', label: '컨텍스트 크기', group: '실험', q: '몇 화부터 프롬프트가 모델 한도를 넘는지 봐요',
@@ -33,9 +33,11 @@ function rsInit(name) {
   const c = S.config || {};
   const backend = () => ({ provider: c.provider === 'mock' ? 'mock' : 'local', model: '', url: '' });  // 모델 · 주소가 비면 설정값 (칩 '설정값'과 같다)
   // 비교 A 는 설정의 본문 쓰기 백엔드, B 는 그와 다른 백엔드 (같으면 서버가 거절한다)
+  // Gemini 끼리면 B 는 작가가 쓰는 Claude, 없으면 로컬. Claude 나 로컬이 A 면 B 는 Gemini
   const writeProv = ((c.stages || {}).write || {}).provider || c.provider || 'gemini';
-  const cmpA = { provider: ['gemini', 'local', 'mock'].includes(writeProv) ? writeProv : 'gemini', model: '', url: '' };
-  const cmpB = { provider: cmpA.provider === 'local' ? 'gemini' : 'local', model: '', url: '' };
+  const cmpA = { provider: RS_PROV[writeProv] ? writeProv : 'gemini', model: '', url: '' };
+  const claude = rsClaudeKinds(c)[0];
+  const cmpB = { provider: cmpA.provider !== 'gemini' ? 'gemini' : (claude || 'local'), model: '', url: '' };
   S.rs = {
     name, tab: 'home', log: [], latest: {}, openCmp: [], stages: {}, probe: null, probeUrl: c.local_url || '',
     runs: [backend()], system: '너는 한국어 소설가다.', prompt: '', temperature: '',
@@ -83,7 +85,17 @@ const rsBackend = (b) => ({ provider: b.provider, model: (b.model || '').trim(),
 const rsLabel = (b) => (b.model ? `${b.provider}:${b.model}` : b.provider);
 const rsKey = (b) => `${b.provider}|${(b.model || '').trim()}|${(b.url || '').trim()}`;
 const rsNum = (v, d = 0) => (v == null ? '-' : Number(v).toLocaleString(undefined, { maximumFractionDigits: d }));
-const RS_PROV = { gemini: 'Gemini', local: '로컬', mock: 'mock' };
+const RS_PROV = { gemini: 'Gemini', local: '로컬', claude: 'Claude 구독', 'claude-api': 'Claude API', mock: 'mock' };
+const RS_KINDS = Object.keys(RS_PROV);
+
+/** 설정에서 쓰는 Claude 백엔드: 구독은 전체 · 단계 백엔드로 고르거나 실행 파일을 적었을 때, API 키는 키가 있거나 고르고 있을 때. 순수 함수 */
+function rsClaudeKinds(config = {}) {
+  const used = [config.provider, ...Object.values(config.stages || {}).map((x) => (x || {}).provider)];
+  const out = [];
+  if (used.includes('claude') || config.claude_bin) out.push('claude');
+  if (used.includes('claude-api') || config.anthropic_key_hint) out.push('claude-api');
+  return out;
+}
 
 /** 기록의 백엔드 이름('local:qwen3-32b', 'gemini')을 백엔드로 */
 function rsParse(label) {
@@ -94,15 +106,17 @@ function rsParse(label) {
 }
 
 /** 고를 수 있는 백엔드 칩: 설정값 · 서버 점검에서 본 모델 · 기록에 남은 백엔드. 같은 것은 한 번만. 순수 함수(tests/test_research_js.py) */
-function rsCands({ config = {}, probe = null, probeUrl = '', log = [], kinds = ['gemini', 'local', 'mock'] } = {}) {
+function rsCands({ config = {}, probe = null, probeUrl = '', log = [], kinds = RS_KINDS } = {}) {
   const out = [];
   const add = (b, sub) => {
     if (!b || !kinds.includes(b.provider) || out.some((x) => rsKey(x.b) === rsKey(b))) return;
     out.push({ b: { provider: b.provider, model: b.model || '', url: b.url || '' }, sub });
   };
   if (config.provider === 'mock') add({ provider: 'mock' }, 'mock · 가짜 응답');
-  add({ provider: 'gemini' }, `Gemini · 설정값${config.model_setting ? ` ${config.model_setting}` : ''}`);
-  add({ provider: 'local' }, `로컬 · 설정값${config.local_model ? ` ${config.local_model}` : ''}`);
+  // 칩 제목(rsName)이 모델 이름이라 아래 줄에는 백엔드와 '설정값'만 적는다
+  add({ provider: 'gemini' }, 'Gemini · 설정값');
+  add({ provider: 'local' }, '로컬 · 설정값');
+  rsClaudeKinds(config).forEach((k) => add({ provider: k }, `${RS_PROV[k]} · 설정값`));
   const url = probeUrl.trim() === (config.local_url || '') ? '' : probeUrl.trim();
   ((probe || {}).models || []).forEach((m) => add({ provider: 'local', model: m.id, url }, '로컬 · 서버 점검에서'));
   log.forEach((x) => {
@@ -121,16 +135,46 @@ function rsName(b) {
   if (b.model) return b.model;
   if (b.provider === 'gemini') return c.model_setting || 'Gemini';
   if (b.provider === 'local') return c.local_model || '로컬 서버';
+  if (b.provider === 'claude' || b.provider === 'claude-api') return c.claude_model || RS_PROV[b.provider];
   return 'mock';
 }
 
-function rsBackendFields(path, b, kinds = [['local', '로컬 서버'], ['gemini', 'Gemini'], ['mock', 'mock']]) {
+/** 백엔드가 쓸 모델 이름 '<백엔드>:<모델>' (Episode.written_by 와 같은 모양). 모델 칸이 비면 설정값. 모르면 ''. 순수 함수 */
+function rsModelId(b, config = {}) {
+  const dflt = { gemini: config.model_setting, local: config.local_model, claude: config.claude_model,
+    'claude-api': config.claude_model || 'claude-opus-5-5' }[b.provider];  // claude.DEFAULT_API_MODEL
+  const m = (b.model || '').trim() || dflt || '';
+  return m && b.provider !== 'mock' ? `${b.provider}:${m}` : '';
+}
+
+/** 이 화에 그 모델이 이미 쓴 판: 지금 본문 → 새 판 → 남겨 둔 판(최근 것부터). research.kept_draft 와 같은 차례. 없으면 ''. 순수 함수 */
+function rsKeptSource(e, id) {
+  if (!e || !id) return '';
+  if ((e.text || '').trim() && e.written_by === id) return 'text';
+  if (e.candidate && (e.candidate.text || '').trim() && e.candidate.model === id) return 'candidate';
+  if ((e.versions || []).some((v) => (v.text || '').trim() && v.model === id)) return 'version';
+  return '';
+}
+
+const RS_KEPT = { text: '지금 본문', candidate: '고르기를 기다리는 새 판', version: '남겨 둔 지난 판' };
+
+/** 비교본 쓰기 전 안내: 기존 본문을 가져올 쪽. 두 쪽이 같은 모델이면 둘 다 새로 쓴다(research.kept_drafts) */
+function rsKeptNote(e, a, b, config) {
+  const ids = [rsModelId(a, config), rsModelId(b, config)];
+  if (ids[0] && ids[0] === ids[1]) return '';
+  const lines = ['A', 'B'].map((side, i) => {
+    const src = rsKeptSource(e, ids[i]);
+    return src ? `${side}(${ids[i].split(':').slice(1).join(':')})는 이 화를 이미 쓴 모델이라 새로 쓰지 않고 ${RS_KEPT[src]}을 가져와요.` : '';
+  }).filter(Boolean);
+  return lines.join(' ');
+}
+
+function rsBackendFields(path, b, kinds = [['local', '로컬 서버'], ['gemini', 'Gemini'], ['claude', 'Claude 구독 로그인'], ['claude-api', 'Claude API 키'], ['mock', 'mock']]) {
   const id = 'rs-' + path.replace(/\W/g, '-');
-  const opts = kinds
-    .map(([v, l]) => `<option value="${v}"${b.provider === v ? ' selected' : ''}>${l}</option>`).join('');
+  const opts = kinds.map(([v, l]) => backendOption(v, l, b.provider)).join('');
   return `<div class="rs-backend">
-    <div class="field"><label for="${id}-p">백엔드</label><select id="${id}-p" data-rs="${path}.provider">${opts}</select></div>
-    <div class="field"><label for="${id}-m">모델 <span class="hint">비우면 설정값</span></label><input id="${id}-m" type="text" list="rs-models" value="${esc(b.model)}" data-rs="${path}.model"></div>
+    <div class="field"><label for="${id}-p">백엔드</label><select id="${id}-p" data-rs="${path}.provider" onchange="render()">${opts}</select></div>
+    <div class="field"><label for="${id}-m">모델 <span class="hint">비우면 ${esc(defaultModelName(b.provider, S.config || {}))}</span></label><input id="${id}-m" type="text" list="rs-models" value="${esc(b.model)}" data-rs="${path}.model"></div>
     <div class="field"><label for="${id}-u">서버 주소 <span class="hint">로컬만, 비우면 설정값</span></label><input id="${id}-u" type="text" value="${esc(b.url)}" data-rs="${path}.url" placeholder="${esc((S.config || {}).local_url || '')}"></div>
   </div>`;
 }
@@ -155,7 +199,7 @@ function rsMultiPicker() {
   const chips = cands.map((c, i) => `<button type="button" class="rs-pick" aria-pressed="${on(c.b)}" data-action="rsToggleRun" data-arg="${i}"><span class="tl">${esc(rsName(c.b))}</span><span class="s">${esc(c.sub)}</span></button>`).join('');
   // 직접 적는 줄(own)과 칩에 없는 백엔드는 줄마다 칸을 둔다
   const extra = S.rs.runs.map((b, i) => [b, i]).filter(([b]) => b.own || !cands.some((c) => rsKey(c.b) === rsKey(b)));
-  return `<div class="field"><span class="label" id="rs-runs-lb">백엔드 <span class="hint">${S.rs.runs.length}개 골랐어요 · 차례로 보내요</span></span>
+  return `<div class="field"><span class="label" id="rs-runs-lb">백엔드 <span class="hint">${S.rs.runs.length}개 골랐어요 · 동시에 보내요</span></span>
     <div class="rs-picks" role="group" aria-labelledby="rs-runs-lb">${chips}<button type="button" class="rs-pick add" data-action="rsAddRun">+ 백엔드 더하기</button></div>
     ${extra.map(([b, i]) => `<div class="rs-extra">${rsBackendFields(`runs.${i}`, b)}<button type="button" class="btn icon-btn" data-action="rsRemoveRun" data-arg="${i}" aria-label="백엔드 ${i + 1} 빼기">✕</button></div>`).join('')}</div>`;
 }
@@ -288,7 +332,7 @@ function rsSampleView() {
       <div class="field"><label for="rs-prompt">요청</label><textarea id="rs-prompt" rows="4" data-rs="prompt" placeholder="비 오는 바닷가 소도시 등대 앞, 오빠를 찾는 서윤의 장면을 600자로 써라.">${esc(S.rs.prompt)}</textarea></div>
       <details class="rs-more"><summary>시스템 지시 · 온도</summary>
         <div class="field"><label for="rs-system">시스템 지시</label><textarea id="rs-system" rows="2" data-rs="system">${esc(S.rs.system)}</textarea></div>
-        <div class="field" style="max-width:160px"><label for="rs-temp">온도 <span class="hint">로컬 · Gemini</span></label><input id="rs-temp" type="number" step="0.1" min="0" max="2" value="${esc(S.rs.temperature)}" data-rs="temperature" placeholder="설정값"></div>
+        <div class="field" style="max-width:160px"><label for="rs-temp">온도 <span class="hint">Gemini · 로컬만</span></label><input id="rs-temp" type="number" step="0.1" min="0" max="2" value="${esc(S.rs.temperature)}" data-rs="temperature" placeholder="설정값"></div>
       </details>
     </section>${rsSampleOut(rsEntry('sample'))}${rsPast('sample')}`;
 }
@@ -440,23 +484,29 @@ function rsCompareView() {
   const reveal = c && c.order;
   const others = S.rs.openCmp.filter((x) => x.episode !== n);
   const card = (d, open) => `<section class="card tight${c.picked === d.n ? ' rs-picked' : ''}">
-      <div class="between"><h3>${d.n}번${reveal ? ` <span class="chip ai">${esc(c.order[d.n - 1])}</span>` : ''}</h3>
+      <div class="between"><h3>${d.n}번${reveal ? ` <span class="chip ai">${esc(c.order[d.n - 1])}</span>${keptChip(c.order[d.n - 1])}` : ''}</h3>
         ${c.picked ? (c.picked === d.n ? '<span class="chip ok">고름</span>' : '') : `<button class="btn small" data-action="rsPick" data-arg="cmp|${d.n}">${d.n}번 고르기</button>`}</div>
       ${blindProse(c, d)}
       ${blindMetrics(open, `<div class="small">${rsNum(d.chars)}자 · 문장 평균 ${rsNum(d.sentence_len_mean, 1)} · 대사 ${rsNum(d.dialogue_ratio, 2)} · 어휘 ${rsNum(d.mattr, 3)}</div>
         ${d.warnings.length ? `<div class="note warn">${d.warnings.map(esc).join('<br>')}</div>` : ''}`)}
     </section>`;
+  const keptChip = (label) => {
+    const k = (c.kept || {})[label];
+    return k ? ` <span class="chip" title="새로 쓰지 않고 이 화에 있던 판을 가져왔어요">기존 본문${k.edits ? ` · 고친 곳 ${k.edits}` : ''}</span>` : '';
+  };
+  const keptNote = e && !blocked.length ? rsKeptNote(e, S.rs.compareA, S.rs.compareB, S.config || {}) : '';
   const wins = S.rs.pickResult ? Object.entries(S.rs.pickResult.wins).map(([k, v]) => `${esc(k)} ${v}`).join(', ') : '';
   return `<section class="card" aria-labelledby="rs-set-h"><h2 id="rs-set-h">무엇을 견줄까요</h2>
       <div class="field" style="max-width:360px"><label for="rs-cmp-ep">화</label>
         <select id="rs-cmp-ep" onchange="actions.rsCompareEp()">${eps.map((x) => `<option value="${x.plot.number}"${x.plot.number === n ? ' selected' : ''}>${x.plot.number}화 ${esc(x.plot.title)} · ${STATUS[x.status]}${need(x.plot.number)}</option>`).join('') || '<option>확정된 화가 없어요</option>'}</select></div>
       <div class="grid-2">${rsPicker('compareA', 'A')}${rsPicker('compareB', 'B')}</div>
       <label class="rs-opt${S.rs.adopt && !fin ? ' on' : ''}"><input type="checkbox" data-rs="adopt"${S.rs.adopt && !fin ? ' checked' : ''}${fin ? ' disabled' : ''}><span><strong>고른 쪽을 본문으로 채택</strong></span><span class="c"></span><span class="s">끄면 고른 기록만 남기고 작품은 그대로 둬요. 반영이 끝난 화는 채택할 수 없어요.</span></label>
+      ${keptNote ? `<div class="note info">${esc(keptNote)}</div>` : ''}
       ${blocked.length ? orderNote(blocked) : fin ? '<div class="note plain">이 화는 반영이 끝난 화라 골라도 본문은 바뀌지 않고 고른 기록만 남아요.</div>' : ''}
       ${others.length ? `<div class="note info">아직 고르지 않은 비교본이 더 있어요: ${others.map((x) => `<button type="button" class="btn small" data-action="rsGoCompare" data-arg="${x.episode}">${x.episode}화</button>`).join(' ')}</div>` : ''}
     </section>
-    ${S.rs.pickResult ? `<div class="note ok" role="status">고른 쪽: ${esc(S.rs.pickResult.picked)}. 지금까지 고른 횟수: ${wins}</div>` : ''}
-    ${c ? `<section class="card" aria-labelledby="rs-res-h"><div><h2 id="rs-res-h">${n}화 비교본 ${c.drafts.length}개</h2><span class="small">${esc(fmtWhen(c.created))}에 썼어요${c.picked ? '' : ' · 고르기 전까지 백엔드를 가려요'}</span></div>
+    ${S.rs.pickResult ? `<div class="note ok" role="status">고른 쪽: ${esc(S.rs.pickResult.picked)}${S.rs.pickResult.kept && S.rs.pickResult.adopted ? ` (${S.rs.pickResult.kept.source === 'text' ? '지금 본문이라 본문은 그대로예요' : '이 화에 있던 판으로 바꿨어요'})` : ''}. 지금까지 고른 횟수: ${wins}</div>` : ''}
+    ${c ? `<section class="card" aria-labelledby="rs-res-h"><div><h2 id="rs-res-h">${n}화 비교본 ${c.drafts.length}개</h2><span class="small">${esc(fmtWhen(c.created))}에 썼어요${c.picked ? '' : ' · 고르기 전까지 백엔드를 가려요'}${!c.picked && c.kept_count ? ` · ${c.kept_count === c.drafts.length ? '모든 안' : `${c.kept_count}개 안`}은 이 화에 있던 판이에요` : ''}</span></div>
       ${blindDeck(c, card)}</section>` : ''}
     ${rsPast('compare', ['compare', 'pick'])}`;
 }
@@ -647,6 +697,60 @@ function rsGot(sec, x) {
   delete S.rs.open[sec];
 }
 
+// 실험 다섯(샘플 생성 · 단계 시험 · 검수 시험 · 컨텍스트 크기 · 블라인드 비교 쓰기)은 백그라운드 작업 rs_<쪽>으로 돈다 (routes/research._job_research).
+// 기다리는 동안 다른 칸을 고칠 수 있다. 서버가 옛 경로처럼 research/log.jsonl 에 기록을 남기고, 끝나면 화면이 기록을 다시 읽어 결과 카드에 놓는다.
+// 작업은 실험이 고른 백엔드를 쓴다. startJob 이 저장하지 않은 작품 변경을 묻지 않고 먼저 저장한다 (opt.quiet)
+const RS_JOB_SECS = ['sample', 'stage', 'check', 'budget', 'compare'];
+const RS_DONE = { sample: '샘플 생성이 끝났어요.', stage: '단계 시험이 끝났어요.', check: '검수 시험이 끝났어요.', budget: '화별 프롬프트를 쟀어요.' };
+for (const sec of RS_JOB_SECS) {
+  const kind = `rs_${sec}`;
+  JOB_PAGES[kind] = ['research'];
+  JOB_LINK[kind] = (j) => `#/p/${enc(j.project)}/research/${sec}`;
+  JOB_DONE_MSG[kind] = sec === 'compare' ? (j) => `${j.ep}화 블라인드 비교본을 썼어요. 가려 읽고 골라 보세요.` : RS_DONE[sec];
+}
+JOB_BTNS.rsSample = () => ['rs_sample'];
+JOB_BTNS.rsStage = () => ['rs_stage'];
+JOB_BTNS.rsCheck = () => ['rs_check'];
+JOB_BTNS.rsBudget = () => ['rs_budget'];
+JOB_BTNS.rsCompare = () => ['rs_compare', undefined, S.rs && S.rs.compareEp];
+/** 결과를 받은 뒤 연구 화면을 다시 그린다. 입력 중이면 미뤄 두고 입력을 마치면 그린다 (app.js focusout) */
+function rsRepaint() {
+  if (S.route[2] !== 'research') return;
+  if (isTyping() || selecting()) S.renderPending = true;
+  else render();
+}
+/** 연구 화면 상태(S.rs)가 그 작품 것이다. 아니면 결과는 기록에 남았으니 화면을 열 때 기록에서 본다 */
+const rsMine = (j) => !!S.rs && S.rs.name === j.project;
+for (const sec of ['sample', 'stage', 'check']) {
+  /** 기록에 결과 전체가 남는 실험: 작업 결과는 기록 id 다. 기록을 다시 읽고 그 줄을 결과 카드에 놓는다 */
+  JOB_RESULT[`rs_${sec}`] = (j) => {
+    if (!rsMine(j)) return null;
+    const id = (j.result || {}).id;
+    rsLoadLog().then(() => {
+      const x = (S.rs.latest || {})[sec];
+      if (x && x.id === id) rsGot(sec, x);
+      rsRepaint();
+    }).catch(() => {});
+    return null;
+  };
+}
+JOB_RESULT.rs_budget = (j) => {
+  if (!rsMine(j)) return null;
+  rsGot('budget', j.result);  // 기록에는 요약만 남아 표 전체는 작업 결과로 온다
+  rsLoadLog().then(rsRepaint).catch(() => {});
+  return null;
+};
+/** 비교본은 compare/ 에 남았다. 그 화를 보고 있으면 받아서 바꾼다 */
+JOB_RESULT.rs_compare = (j) => {
+  if (!rsMine(j)) return null;
+  const n = j.ep;
+  Promise.all([S.rs.compareEp === n ? api('GET', `/projects/${enc(j.project)}/research/compare/${n}`) : null, rsLoadLog()]).then(([r]) => {
+    if (r && S.rs.compareEp === n) { S.rs.compare = r.compare; S.rs.pickResult = null; }
+    rsRepaint();
+  }).catch(() => {});
+  return null;
+};
+
 // 신체 프로필 · 서술 말투 AI 제안은 백그라운드 작업으로 돈다 (web._job_char_ai). 기다리는 동안 다른 칸을 읽고 고칠 수 있다.
 // 작업은 저장된 인물 설정을 읽으므로 방금 고친 나이 · 외모도 보게 묻지 않고 먼저 저장한다 (startJob opt.quiet)
 JOB_PAGES.char_body = ['cast'];
@@ -794,39 +898,20 @@ Object.assign(actions, {
     if (!S.rs.prompt.trim()) return toast('요청 문장을 넣어요', true);
     if (!S.rs.runs.length) return toast('백엔드를 하나 이상 골라요', true);
     const t = S.rs.temperature === '' ? null : Number(S.rs.temperature);
-    await run(`${S.rs.runs.length}개 백엔드로 생성하는 중… (백엔드마다 차례로)`, async () => {
-      const x = await api('POST', `/projects/${enc(S.name)}/research/sample`,
-        { runs: S.rs.runs.map(rsBackend), system: S.rs.system, prompt: S.rs.prompt, temperature: t });
-      rsGot('sample', x);
-      await rsLoadLog();
-    });
+    await startJob('rs_sample', null, { trial: { runs: S.rs.runs.map(rsBackend), system: S.rs.system, prompt: S.rs.prompt, temperature: t } }, { quiet: true });
   },
   async rsStage() {
-    await run(`${S.rs.stages[S.rs.stage] || S.rs.stage} 시험하는 중… (저장하지 않음)`, async () => {
-      const x = await api('POST', `/projects/${enc(S.name)}/research/stage`,
-        { backend: rsBackend(S.rs.stageBackend), stage: S.rs.stage, sample: S.rs.stageText });
-      rsGot('stage', x);
-      await rsLoadLog();
-    });
+    await startJob('rs_stage', null, { trial: { backend: rsBackend(S.rs.stageBackend), stage: S.rs.stage, sample: S.rs.stageText } }, { quiet: true });
   },
   async rsCheck() {
     const n = Number(S.rs.checkEp || ($('#rs-check-ep') || {}).value);
     if (!n) return toast('본문이 있는 화를 골라요', true);
-    await run(`${n}화에 모순을 심고 검수 방식마다 검수하는 중… (저장하지 않음)`, async () => {
-      const x = await api('POST', `/projects/${enc(S.name)}/research/check`,
-        { backend: rsBackend(S.rs.checkBackend), episode: n, plants: Number(S.rs.checkPlants) || 3,
-          ...(S.rs.checkTwoStep ? { judge: rsBackend(S.rs.checkJudge) } : {}), stage: !!S.rs.checkStage,
-          ...(S.rs.checkEnglish ? { langs: ['ko', 'en'] } : {}) });
-      rsGot('check', x);
-      await rsLoadLog();  // 기록과 갈래별 합계를 함께 새로
-    });
+    await startJob('rs_check', null, { trial: { backend: rsBackend(S.rs.checkBackend), episode: n, plants: Number(S.rs.checkPlants) || 3,
+      ...(S.rs.checkTwoStep ? { judge: rsBackend(S.rs.checkJudge) } : {}), stage: !!S.rs.checkStage,
+      ...(S.rs.checkEnglish ? { langs: ['ko', 'en'] } : {}) } }, { quiet: true });  // 끝나면 기록과 갈래별 합계를 함께 새로 (JOB_RESULT.rs_check)
   },
   async rsBudget() {
-    await run('화별 프롬프트를 재는 중', async () => {
-      const x = await api('POST', `/projects/${enc(S.name)}/research/budget`, rsBackend(S.rs.budgetBackend));
-      rsGot('budget', x);
-      await rsLoadLog();
-    });
+    await startJob('rs_budget', null, { trial: rsBackend(S.rs.budgetBackend) }, { quiet: true });
   },
   async rsCompareEp(n) {
     S.rs.compareEp = Number(n || $('#rs-cmp-ep').value);
@@ -838,12 +923,7 @@ Object.assign(actions, {
   async rsCompare() {
     const n = S.rs.compareEp;
     if (S.rs.compare && !S.rs.compare.picked && !(await askConfirm(`${n}화의 고르지 않은 비교본을 새로 쓴 것으로 바꿀까요?`, { ok: '바꾸기', danger: true }))) return;
-    await run(`${n}화를 두 백엔드로 쓰는 중… (몇 분 걸릴 수 있어요)`, async () => {
-      S.rs.compare = (await api('POST', `/projects/${enc(S.name)}/research/compare/${n}`,
-        { a: rsBackend(S.rs.compareA), b: rsBackend(S.rs.compareB) })).compare;
-      S.rs.pickResult = null;
-      await rsLoadLog();
-    });
+    await startJob('rs_compare', n, { trial: { a: rsBackend(S.rs.compareA), b: rsBackend(S.rs.compareB) } }, { quiet: true });  // 몇 분 걸릴 수 있다
   },
   async rsPickDraft(k) {
     const n = S.rs.compareEp;

@@ -1,9 +1,11 @@
 """설정 칸 하나의 AI 후보 화면(static/ideas.js)을 node 로 맞춰 본다: 칸 목록이 서버(prompts.FIELD_IDEAS)와 같고,
 받기 전에는 칸이 그대로이며, 고르면 그 칸과 합친 로그라인만 바뀐다."""
+import re
+
 from canon import prompts
 from canon.schema import Project
 
-from .jsvm import dump, needs_node, run_js
+from .jsvm import STATIC, dump, needs_node, run_js
 
 FILES = ["app.js", "home.js", "setup.js", "ideas.js"]
 
@@ -43,7 +45,7 @@ def test_pick_idea():
     assert 'hidden' in got["before"] and 'id="ideas-meta-logline_parts-who"' in got["before"]
     assert "후보를 만들고 있어요" in got["loading"] and 'data-action="useIdea"' not in got["loading"]
     assert got["shown"].count('data-action="useIdea"') == 2 and "지도 제작자" in got["shown"] and "<small>장르</small>" in got["shown"]
-    assert 'aria-expanded="true"' in got["btn"] and 'aria-controls="ideas-meta-logline_parts-who"' in got["btn"] and "✦ 후보" in got["btn"]
+    assert 'aria-expanded="true"' in got["btn"] and 'aria-controls="ideas-meta-logline_parts-who"' in got["btn"] and ">후보 받기</button>" in got["btn"] and "✦" not in got["btn"]
     assert got["untouched"] == ""  # 받기만 해서는 칸이 바뀌지 않는다
     assert got["slot"] == ["사서", "사서가 지도를 찾는다.", True, False]
     assert got["setting"] == "안개 낀 섬"
@@ -52,7 +54,7 @@ def test_pick_idea():
 
 @needs_node
 def test_wired_into_setup():
-    """로그라인 다섯 칸 · 제목 · 배경에 ✦ 가 붙고, 설정 칸으로 점프하면 마법사가 아니라 기획서로 연다."""
+    """로그라인 다섯 칸 · 제목 · 배경에 후보 버튼이 붙고, 설정 칸으로 점프하면 마법사가 아니라 기획서로 연다."""
     expr = """(() => {
       S.project = data.project;
       S.name = 'demo';
@@ -66,10 +68,19 @@ def test_wired_into_setup():
       return { slots: (slots.match(/data-action="fieldIdeas"/g) || []).length, field, plain, wizard, mode: S.setupModes.demo,
                docIdeas: (doc.match(/data-action="fieldIdeas"/g) || []).length, hasTheme: doc.includes('id="f-meta-theme"') };
     })()"""
-    got = run_js(["app.js", "home.js", "setup.js", "archetypes.js", "statwin.js", "illust.js", "charlog.js", "chat.js", "setupchat.js", "ideas.js"],
+    got = run_js(["app.js", "home.js", "setup.js", "archetypes.js", "statwin.js", "illust.js", "charlog.js", "aliases.js", "chat.js", "setupchat.js", "ideas.js"],
                  expr, {"project": dump(Project())})
     assert got["slots"] == 5
     assert got["field"].index('class="lab-row"') < got["field"].index("<b>A</b>") < got["field"].index('class="in-ai"') < got["field"].index("<b>B</b>") < got["field"].index("<b>C</b>")
     assert "lab-row" not in got["plain"] and "in-ai" not in got["plain"]
     assert got["wizard"] == "wizard" and got["mode"] == "doc"  # 빈 새 작품은 마법사지만 칸 점프는 기획서로
     assert got["docIdeas"] == 7 and got["hasTheme"]
+
+
+def test_idea_button_shows_on_focus_and_stays_in_tab_order():
+    """칸 옆 후보 버튼은 칸에 포인터 · 포커스가 있을 때만 보인다. 숨길 때 display · visibility 를 쓰면 Tab 으로 닿지 못한다."""
+    css = (STATIC / "app.css").read_text(encoding="utf-8")
+    hide = re.search(r'^\.field \.ai-mini:not\(\[aria-expanded="true"\]\) \{([^}]*)\}', css, re.M)
+    assert hide and "opacity: 0" in hide.group(1) and "pointer-events: none" in hide.group(1)
+    assert "display" not in hide.group(1) and "visibility" not in hide.group(1)
+    assert re.search(r"^\.field:hover \.ai-mini, \.field:focus-within \.ai-mini \{[^}]*opacity: 1", css, re.M)

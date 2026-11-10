@@ -18,10 +18,11 @@ Object.assign(S, {
 
 JOB_DONE_MSG.write = (j) => {
   const r = j.result || {};
-  if (r.candidate) return `${j.ep}화 새 판이 나왔어요. 지금 판과 비교해 고르세요.`;
-  if (r.check_error) return `${j.ep}화 본문을 저장했어요. 바로 검수는 하지 못했어요: ${r.check_error}`;
-  if (r.check) return `${j.ep}화 본문을 저장하고 검수했어요: 짚은 곳 ${r.check.issues}개`;
-  return `${j.ep}화 본문을 저장했어요.`;
+  const rule = typeof ruleRunSay === 'function' && r.rule_run ? ` ${ruleRunSay(r.rule_run)}` : '';  // 고침 규칙을 걸었으면 (web._rule_note)
+  if (r.candidate) return `${j.ep}화 새 판이 나왔어요. 지금 판과 비교해 고르세요.${rule}`;
+  if (r.check_error) return `${j.ep}화 본문을 저장했어요.${rule} 바로 검수는 하지 못했어요: ${r.check_error}`;
+  if (r.check) return `${j.ep}화 본문을 저장하고 검수했어요: 짚은 곳 ${r.check.issues}개.${rule}`;
+  return `${j.ep}화 본문을 저장했어요.${rule}`;
 };
 
 const RW_MODES = [
@@ -184,9 +185,20 @@ function candidateCard(n) {
       <div class="row" style="gap:6px">${side ? `<button type="button" class="btn small" aria-pressed="${S.rwSync}" data-action="rwSyncToggle" title="한 칸을 내리면 다른 칸도 같은 비율로 내려가요">스크롤 함께</button>` : ''}<div class="seg" role="group" aria-label="비교 방식"><button type="button" aria-pressed="${side}" data-action="rwViewAs" data-arg="side">나란히</button><button type="button" aria-pressed="${!side}" data-action="rwViewAs" data-arg="diff">바뀐 곳</button></div></div></div>
     ${body}
     ${(c.meta_cut || []).length ? `<div class="small">새 판을 쓸 때 AI가 붙인 작업 설명 ${c.meta_cut.length}문단을 뗐어요. 새 판으로 바꾸면 집필 화면에서 보고 되살릴 수 있어요.</div>` : ''}
+    ${rwRuleLine(c)}
     <div class="between"><span class="small" style="flex:1;min-width:200px">바꾸면 지금 판은 아래 '이전 판'에 남아 되돌릴 수 있어요(화마다 최근 6개, 고르지 않은 판부터 지워요). 검수 결과는 새 판 기준으로 다시 하세요.</span>
       <span class="row"><button type="button" class="btn" data-action="rwDrop" data-arg="${n}">지금 판 두기</button><button type="button" class="btn" data-action="rwAgain" data-arg="${n}">요청 고쳐 다시 받기</button><button type="button" class="btn primary" data-action="rwAdopt" data-arg="${n}">새 판으로 바꾸기</button></span></div>
   </section>`;
+}
+
+/** 새 판에 건 고침 규칙 (TextVersion.rule_runs): 고친 곳 수와 규칙 이름, 건너뛴 묶음. 되돌리기는 새 판으로 바꾼 뒤 집필 화면에서 */
+function rwRuleLine(c) {
+  const runs = c.rule_runs || [];
+  if (!runs.length || typeof ruledLine !== 'function') return '';
+  const ruled = runs.flatMap((r) => r.changes || []);
+  const skip = runs.map((r) => r.skipped).filter(Boolean);
+  return [ruled.length ? `<div class="small">${esc(ruledLine(ruled))}. 새 판으로 바꾸면 집필 화면에서 보고 되돌릴 수 있어요.</div>` : '',
+    ...skip.map((x) => `<div class="small">${esc(ruleSkipSay(x))}.</div>`)].join('');
 }
 
 // ----- 이전 판 -----

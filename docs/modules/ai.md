@@ -34,7 +34,7 @@
 - API 는 그 끝에 `cache_control` 을 단다(`cache_blocks`)
 - 구독은 캐시 표시를 고를 수 없어 그 앞부분을 시스템 프롬프트 뒤로 옮겨 `--system-prompt-file` 로 넘긴다(`ClaudeCodeLLM._split`)
 - 캐시 가족: 경계(`PREFIX_HINT`)를 받은 호출은 시스템 프롬프트를 가족 공통 글 `prompts.FAMILY_SYSTEM` 으로 둔다. 원래 시스템 프롬프트는 사용자 메시지 맨 앞(`llm.role_block`)으로 옮긴다
-- 시스템 프롬프트가 다르면 캐시가 맞지 않아서다. 그래서 검수 · 고침안 · 다시 검수 · 상태 변경안이 한 앞부분을, 스토리보드 · 큐 시트 · 본문 쓰기가 다른 한 앞부분을 함께 쓴다
+- 시스템 프롬프트가 다르면 캐시가 맞지 않아서다. 그래서 검수 · 고침안 · 다시 검수가 한 앞부분을, 스토리보드 · 큐 시트 · 본문 쓰기가 다른 한 앞부분을 함께 쓴다
 - 구독의 가족 호출은 `--json-schema` 를 쓰지 않는다. 스키마마다 다른 도구가 붙고 도구는 시스템 프롬프트보다 앞이라 캐시가 갈린다
 - 구독의 가족 호출은 요청 끝에 `json_instruction`(스키마 JSON 과 'JSON 객체 하나만' 지시)을 붙이고 받은 글을 `_parse` 로 검증한다. 형식이 틀리면 다른 호출처럼 한 번 고쳐 묻는다
 - 구독의 가족 호출은 캐시 게이트(`_claim`) 열쇠에서 스키마를 뺀다. 같은 앞부분이면 스키마가 달라도 기다린다
@@ -69,6 +69,8 @@
 - 두 백엔드는 호출마다(형식 고치기 재시도도) 보내기 전에 `cancel.check()` 를 부른다
 - 구독은 `_run` 이 `Popen` 으로 띄우고 `STOP_POLL`(0.25초)마다 멈추기 신호를 보다가 서면 하위 프로세스를 끝내고 `cancel.Cancelled`
 - API 는 스트림 조각마다 `cancel.check()` 를 불러 멈추면 스트림을 닫는다
+- API 는 흘려 받기(`text_stream(system, prompt, on_chunk, hint=)`)를 둔다. 같은 스트림의 `text` 이벤트마다 지금까지 받은 글 전체로 `on_chunk` 를 부르고 사용량은 다 받은 뒤 한 번 기록한다
+- 구독(`ClaudeCodeLLM`)은 `text_stream` 이 없다. 본문 쓰기도 다 끝난 뒤 한 번에 받는다
 - 화면은 `static/claude.js`
 
 ### `canon/judge.py`
@@ -83,10 +85,24 @@
 - 호출마다 `usage.record`(단계 `judge`)
 - 두 걸음 검수 `pipeline.check_two_step`(진술 `prompts.claims_prompt` → 근거 `claim_evidence` → 의심 `verdict_prompt`)가 쓴다
 - 두 걸음 검수는 아직 연구 화면에서만 쓴다
+- 판단기 평가 세트 `scripts/judge_eval.py`(시험 `tests/test_judge_eval.py`)
+- `judge_eval.py build` 는 작품 사본에 모순을 심고(`plant_prompt`) 심은 문장 · 원래 문장 · 고친 지적 · 심지 않은 문장마다 근거 묶음(`claim_evidence`)을 붙여 JSONL 로 쓴다
+- `judge_eval.py build` 는 모순을 심은 화마다 심기 전 · 뒤 본문으로 진술 뽑기(`claims_prompt`)를 한 번씩 불러, 그 문장에서 뽑은 진술로 근거를 찾는다(`--no-claims` 면 문장 그대로)
+- 평가 줄의 `has_source` 는 심을 때 고른 어긋나는 원문이 근거 묶음에 들었는지다
+- `has_source` 가 거짓이어도 다른 단락 · 확정 사실이 같은 모순의 근거가 될 수 있다
+- `judge_eval.py run` 은 판단기(local | mock)로 판정해 묶음별 문턱 재현율 · 헛지적률과 AUC 를 낸다. `--blind` 는 근거를 빼고 판정한다
+- `judge_eval.py run --shuffle SEED` 는 다른 화의 근거 묶음을 붙여 판정한다. 엉뚱한 근거로도 심은 문장을 짚으면 판단기가 문장의 티를 보는 것이다
 
 ### `canon/llm.py`
 
 - LLM 프로바이더 인터페이스(`json`, `text`)와 Gemini(API 키 또는 Vertex AI 서비스 계정 `_vertex_client`)
+- 흘려 받을 수 있는 백엔드(Gemini, Claude API, 로컬, mock)만 `text_stream(system, prompt, on_chunk) -> str` 을 둔다. `LLM` Protocol 에는 넣지 않고 부르는 쪽이 `getattr` 로 찾는다
+- `on_chunk` 는 조각마다 지금까지 받은 글 전체를 받는다. 다시 부르는 호출(시간 초과 · 서버 오류)은 빈 글부터 다시 보내 화면의 부분 글이 겹치지 않는다
+- `text_stream` 은 조각 사이에서 `cancel.check()` 를 부르고 사용량(`usage.record`)은 다 받은 뒤 한 번 기록한다
+- Gemini `text_stream` 은 `generate_content_stream` 으로 받는다. 조각을 모은 `_Streamed` 의 마지막 조각 값으로 끝난 이유(`last_finish`) · 사용량을 읽는다
+- 로컬 `text_stream` 은 `stream=True` 와 `stream_options.include_usage` 로 SSE 를 받는다(`LocalLLM._stream`). 서버가 400 을 내면 `stream_options` 만 빼고 한 번 더 부른다
+- 로컬 흘려 받기는 생각 블록(`<think>`, 아직 닫히지 않은 것까지)을 뺀 글로 `on_chunk` 를 부른다
+- 배치(`BatchLLM`)는 `text_stream` 이 없다
 - 키 · 권한 오류(401, 403, 400 API_KEY_INVALID, `is_bad_key`)는 다시 부르지 않고 `BadKey`(`KEY_HINT`, Vertex 는 `VERTEX_HINT`)를 낸다. 웹은 code `bad_key` 로 답한다
 - 요청 한도로 기다리거나 응답 지연으로 다시 부를 때 `cancel.say` 로 작업 진행 줄에 알리고, 그 호출이 끝나면 비운다
 - 로컬(OpenAI 호환) 구현
@@ -97,7 +113,8 @@
 - 단계 이름은 `settings.STAGES` 다
 - 캐시 가족의 역할 블록 `role_block`. 제목은 '# 이번 요청에서 할 일'이고, 옮긴 시스템 프롬프트에서 머리말을 뺀다. 이 글을 바꾸면 쌓인 캐시를 모두 새로 쓴다
 - 캐시 가족 공통 시스템 프롬프트 `FAMILY_SYSTEM` 은 머리말로 시작해서 `prompts.py` 에 둔다(`llm.py` 가 `prompts` 보다 먼저 불려 머리말을 가져오지 못한다)
-- `family_text(llm, system, prompt, head)` 는 요청이 head 로 시작하고 백엔드가 `family_cache` 면 `text` 에 경계 hint 를 넘긴다. 아니면 `text(system, prompt)` 만 부른다(다른 백엔드 · 시험용 가짜 LLM)
+- `family_text(llm, system, prompt, head, on_chunk=None)` 는 요청이 head 로 시작하고 백엔드가 `family_cache` 면 `text` 에 경계 hint 를 넘긴다. 아니면 `text(system, prompt)` 만 부른다(다른 백엔드 · 시험용 가짜 LLM)
+- `family_text` 는 `on_chunk` 를 받고 백엔드에 `text_stream` 이 있으면 `text` 대신 그것을 부른다. 없으면 지금처럼 `text` 를 부르고 `on_chunk` 는 부르지 않는다
 - Gemini 429 요청 한도는 `GeminiLLM._call` 이 `RATE_WAITS`(30 · 60 · 120초)만큼 기다려 다시 부른다(기다리기 전 `cancel.check`, 실패한 시도는 하나씩 사용량에 실패로)
 - 429 오류에 서버가 `RetryInfo.retryDelay` 를 주면 `rate_pause` 가 그 값(올림, `RATE_WAITS` 의 가장 긴 값까지)을 기다린다(`retry_delay`)
 - 끝내 막히면 해요체 안내 `RateLimited`(`RATE_HINT`)
@@ -138,7 +155,8 @@
 - `OutputCut`(RuntimeError): 끝난 이유 대신 오류로 끊김을 알리는 백엔드가 낸다(Claude API `max_tokens`)
 - Gemini 추론 강도(`GeminiLLM.effort`, `settings.GEMINI_EFFORTS`)는 `thinking_config.thinking_level` 로 넘긴다(일반 호출과 배치)
 - Gemini 온도(`GeminiLLM.temperature`)는 정했을 때만 `temperature` 로 넘긴다. 연구 화면 샘플 생성과 프롬프트 놀이터가 쓴다(`research.make_backend`)
-- 프롬프트 놀이터는 `research.make_backend` 에 단계를 넘겨 그 단계의 모델 · 추론 강도로 Gemini · 로컬을 만든다
+- 프롬프트 놀이터는 `research.make_backend` 에 단계를 넘겨 그 단계의 모델 · 추론 강도로 Gemini · 로컬 · Claude 를 만든다
+- Claude 백엔드에는 놀이터의 온도를 넘기지 않는다(Opus 5.5 는 `temperature` 를 400 으로 거절한다)
 - 강도를 비우면 `thinking_config` 를 보내지 않는다(모델 기본값)
 - Gemini 명시 캐시(`GeminiLLM._cached`)는 플롯 대화 단계(`stage == "chat"`)에서 `settings.gemini_cache` 가 켜져 있을 때만 쓴다
 - 같은 종류 직전 요청과 겹치는 앞부분은 `claude.shared_cut` 으로 찾는다(열쇠 `("gemini", vertex, 모델, 시스템, 작품)`, 단락 경계)
@@ -176,6 +194,12 @@
   - `CANON_CLAUDE_BIN` · `CANON_CLAUDE_MODEL` · `CANON_CLAUDE_TIMEOUT`: Claude
   - `CANON_CLAUDE_CACHE_1H`: 1 · true · on 이면 Claude 프롬프트 캐시를 1시간으로 쓴다(기본 끔, `claude.cache_1h`). 쓰기 값이 5분 캐시의 1.25배에서 2배로 오른다. 끄면 Claude Code 에 5분 캐시를 강제한다
   - `CANON_CLAUDE_CONFIG_DIR`: Canon 전용 Claude Code 설정 폴더(구독 계정을 따로 로그인)
+  - `CANON_COMFY_CKPT`: 기본 ComfyUI 워크플로가 쓰는 체크포인트 파일 이름(`canon/comfy.py`)
+  - `CANON_COMFY_SIZE`: ComfyUI 그림 크기(기본 832x1216)
+  - `CANON_COMFY_TIMEOUT`: ComfyUI 그림 하나를 기다리는 초(기본 600)
+  - `CANON_COMFY_URL`: ComfyUI 주소(예: SSH 터널 `http://127.0.0.1:18188`). `mock` 이면 가짜 ComfyUI. 비우면 그리기를 끈다
+  - `CANON_COMFY_WORKFLOW`: ComfyUI 'Export (API)' 워크플로 JSON 경로. 비우면 기본 틀
+  - `CANON_COMFY_*` 가 없으면 설정 파일의 `comfy_url` · `comfy_workflow` · `comfy_ckpt` · `comfy_size` · `comfy_timeout` 을 읽는다(`settings.comfy`). systemd 로 띄운 서버처럼 환경 변수를 넣기 어려울 때 쓴다
   - `CANON_CONFIG`: 설정 파일 위치(기본 `~/.canon/config.json`, `settings.path`)
   - `CANON_EFFORT_<단계>`: 단계별 추론 강도(low · medium · high · xhigh · max, `settings.stage_effort`). Claude · Gemini 만 쓴다
   - `CANON_GEMINI_AUTH`: Gemini 연결 방식(key | vertex)
@@ -191,6 +215,7 @@
   - `CANON_LOCAL_TIMEOUT`: 로컬 서버 응답을 기다리는 초(기본 900, 숫자가 아니거나 0 이하면 기본값, `llm.local_timeout`)
   - `CANON_MOCK_BATCH_POLLS`: 가짜 배치가 끝나기 전에 물어볼 횟수(기본 0)
   - `CANON_MOCK_DELAY`: 가짜 응답이 기다리는 초(기본 0, 화면 진행 표시 확인용)
+  - `CANON_MOCK_STREAM_DELAY`: 가짜 `text_stream` 이 조각 사이에 기다리는 초(기본 0, 부분 글 미리보기 확인용)
   - `CANON_MODEL`: Gemini 모델(기본 `gemini-4-argon`)
   - `CANON_MODEL_<단계>`: 단계별 모델(`CANON_MODEL_PLAN` · `_BOARD` · `_WRITE` · `_CHECK` · `_STATE` · `_AUDIT` · `_NAME` · `_REVISE` · `_ILLUSTRATION` · `_PLAY` · `_CHAT`)
   - `CANON_NEWTO`: 레퍼런스 원고 newto 가져오기의 newto 폴더(기본 Canon 저장소 옆 `newto`, `refs.newto_dir`)
@@ -198,7 +223,9 @@
   - `CANON_NO_BUNDLE`: 1 이면 웹 화면 스크립트를 묶지 않고 파일마다 보낸다(오류 위치 보기, `web._bundle`)
   - `CANON_PORT`: `scripts/canon-mac.command` 가 띄우는 웹 포트(기본 8000)
   - `CANON_PROMPTLAB`: 프롬프트 놀이터 세션 폴더(기본 `<CANON_HOME>/.promptlab`, `promptlab.py`)
+  - `CANON_PROMPTSETS`: 프롬프트 관리 페이지의 실험 판 폴더(기본 `<CANON_HOME>/.promptsets`, `promptset.py`)
   - `CANON_REFS`: 레퍼런스 원고 폴더(기본 `<CANON_HOME>/.refs`, `refs.py`)
+  - `CANON_RULES`: 정규식 규칙 묶음 폴더(기본 `<CANON_HOME>/.rules`, `regexrules.py`)
   - `CANON_STUDIO`: 문단 연습장 세션 폴더(기본 `<CANON_HOME>/.studio`, `studio.py`)
   - `CANON_STYLES`: 문체 라이브러리 폴더(기본 `<CANON_HOME>/.styles`, `library.py`)
   - `CANON_USAGE`: 사용량 기록 파일(기본 `projects/.usage/usage.jsonl`)
@@ -211,7 +238,11 @@
 - `MockLLM.json` 은 스키마로 `RESPONDERS` 만 찾는다. `mock.py` 의 응답도 `@responds` 함수(`_r_<스키마>`)이고 `json` 안에 스키마 분기를 두지 않는다(`tests/test_mock_registry.py`)
 - 가짜 문체 프로필은 시험 원문에 있는 표지 · 장치와 걸러져야 할 표지 · 장치를 함께 낸다 (`count_markers` 와 문체 넣은 쓰기 경로 시험)
 - `CUT_TEXT` 에 넣은 만큼 다음 글 응답을 앞 절반만 내고 `last_finish` 를 `MAX_TOKENS` 로 둔다(끊긴 본문 시험)
+- `MockLLM.text_stream` 은 `text` 와 같은 글을 `STREAM_PIECES`(6) 조각으로 나눠 낸다. 조각마다 멈추기 신호를 본다
+- 대화 에이전트 단계 `_agent_step` 은 말에 '규칙'과 «찾을 글»(또는 `rule=id`)이 들면 `revise_text` 갈래보다 먼저 `propose_regex` 를 부른다
+- 그 인자(`_regex_args`): 둘째 «» 는 바꿀 글, '고침' 은 fix, '나쁜 규칙' 은 겹친 반복 `(a+)+`, 말 속 `k=v` 는 그 인자다. 막혀 돌아오면 답만 한다
 - 새 기능의 가짜 응답은 `mock_<기능>.py` 에 `@responds(스키마)` 로 두고(`RESPONDERS`) `mock.py` 맨 끝에서 불러온다
+  - `mock_aliases.py` 다른 이름 제안(재료 단락에 있는 말 하나와 지어낸 말 하나, 없는 항목 하나. 근거 검사가 지어낸 말을 뺀다)
   - `mock_audit.py` 상태 변경안 누락 검사 (본문 앞 두 문장과 본문에 없는 인용 하나)
   - `mock_birth.py` 출생 배경
   - `mock_board.py` 스토리보드
@@ -219,7 +250,7 @@
   - `mock_cue.py` 큐 시트와 큐 본문
   - `mock_fixrecheck.py` 고친 곳만 다시 보기
   - `mock_foreshadow_judge.py` 복선 판정(`ForeshadowBreaks`, 회수하지 않을 복선 id 가 본문에 나오면 '미리 회수')
-  - `mock_heat.py` 열 계획: 기승전결과 함께(`HeatArcPlan`), 다음 아크와 함께(`HeatArcProposal`), 열 계획만(`HeatProposal`, 첫 화를 열 5로 보내 본문 있는 화 지키기를 시험)
+  - `mock_heat.py` 완급 계획: 기승전결과 함께(`HeatArcPlan`), 다음 아크와 함께(`HeatArcProposal`), 완급 계획만(`HeatProposal`, 첫 화를 열 5로 보내 본문 있는 화 지키기를 시험)
   - `mock_knows.py` 아는 정보 접기
   - `mock_offscreen.py` 화면 밖 근황
   - `mock_play.py` 장면

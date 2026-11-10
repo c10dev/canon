@@ -5,10 +5,11 @@
   python -m canon style 내소설 sample.txt   예시 텍스트로 스타일 프로필 생성 (--save 이름: 라이브러리에도 저장)
   python -m canon style 내소설 --library ID   문체 라이브러리 항목을 작품에 적용
   python -m canon styles [add 이름 파일 | show ID | rm ID | versions ID | restore ID 번호]   문체 라이브러리 (작품과 따로 저장, 버전 기록)
+  python -m canon rules [list | test ID 파일 | use 작품 ID | drop 작품 ID]   정규식 규칙 묶음 (경고 · 고침, 작품마다 켜고 끔)
   python -m canon learn 내소설 [--pick 1,3 | -y] [--push]   본문 수정 기록에서 문체 규칙 후보 찾기 (고른 것만 반영)
   python -m canon stylechat 내소설 "대사를 더 짧게" [--ep 3] [--pick 1,2 | -y] [--push]   대화로 문체 다듬기 (--example 이면 지금 문체로 예시 글)
   python -m canon arc 내소설            기승전결 구간 설계 (단편)
-  python -m canon heat 내소설 [--arc 3] [--note ..]   이미 있는 기승전결(장편은 아크) 위에 열 계획만 받기 (본문 있는 화는 그대로)
+  python -m canon heat 내소설 [--arc 3] [--note ..]   이미 있는 기승전결(장편은 아크) 위에 완급 계획만 받기 (본문 있는 화는 그대로)
   python -m canon series 내소설         장편: 총 화수를 부로 나누는 부 구성 제안
   python -m canon convert 내소설 --episodes 200 [--ending keep|reopen]   단편을 장편으로 전환 (--undo 로 되돌리기)
   python -m canon convert 내소설 --episodes 200 --rebuild [--span 36] [--ending-at arc|part|series]   단편을 씨앗으로 앞부분 재구성
@@ -87,7 +88,7 @@ from . import (address, archetypes, autorun, branches, cast, charlog, dynamics, 
 from .llm import dump, get_llm
 from .schema import FINDING_STATUS, SEVERITY, ConsistencyReport, HeatArcPlan, HeatProposal, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
 from . import abilities, anchor, atlas, blocktrial, findings, stattrial, foreshadows, setupchat, statwin, timeline
-from . import birth, cue, heatplan, jobs, labstats, play, sent, soelab, tofix
+from . import agent_style, birth, cue, heatplan, jobs, labstats, play, regexrules, sent, soelab, tofix
 from .schema import ArcProposal, ChatScope, Deadline, MapPlace, StatValue, StateDeltaAI, StoryArc, to_delta
 from .maps import kinds as placekinds
 from .maps import travel
@@ -202,6 +203,56 @@ def cmd_style(a: argparse.Namespace) -> None:
         print(f"저장: {store.save(a.name, p)}")
 
 
+def cmd_rules(a: argparse.Namespace) -> None:
+    """정규식 규칙 묶음: 목록, 글 파일에 걸어 보기(저장하지 않음), 작품에서 켜기 · 끄기 (Settings.rule_bundles)."""
+    if a.action == "test":
+        if len(a.args) != 2:
+            sys.exit("사용법: python -m canon rules test 묶음ID 글.txt")
+        b = regexrules.load(a.args[0])
+        res = regexrules.trial(b.rules, Path(a.args[1]).read_text(encoding="utf-8"), b.id, b.name)
+        if res["skipped"]:
+            print(f"! 규칙 묶음 {b.name}{logline.josa(b.name, '을', '를')} 거는 데 너무 오래 걸려서 건너뛰었어요")
+        print(f"고침 {len(res['changes'])}곳 · 경고 {len(res['hits'])}곳")
+        for c in res["changes"]:
+            print(f"  [고침] {c['name'] or c['rule']}: «{c['before'][:60]}» → «{c['after'][:60]}»")
+        for h in res["hits"]:
+            print(f"  [경고] {h['description']}: {h['current_quote'][:80]}")
+        if res["exported"] != res["text"]:
+            print("  (내보내기 규칙도 있어요. 내보낼 때만 걸려요)")
+        return
+    if a.action in ("use", "drop"):
+        if len(a.args) != 2:
+            sys.exit(f"사용법: python -m canon rules {a.action} 작품 묶음ID")
+        name, bid = a.args
+        p = store.load(name)
+        on = p.settings.rule_bundles
+        if a.action == "use":
+            b = regexrules.load(bid)
+            if bid in on:
+                print(f"'{b.name}' 묶음은 이미 켜져 있어요")
+                return
+            p.settings.rule_bundles = [*on, bid]
+            msg = f"'{b.name}' 묶음을 {name}에 켰어요 ({len(p.settings.rule_bundles)}번째로 걸어요)"
+        else:
+            if bid not in on:
+                print("이 작품에 켜져 있지 않은 묶음이에요")
+                return
+            p.settings.rule_bundles = [x for x in on if x != bid]
+            msg = "묶음을 껐어요"
+        with jobs.project_lock(name):
+            store.save(name, p)
+        print(msg)
+        return
+    rows = regexrules.entries()
+    if not rows:
+        print("규칙 묶음이 없어요. 웹 화면의 '규칙 묶음'에서 만드세요.")
+    for b in rows:
+        s = regexrules.summary(b)
+        counts = f"경고 {s['warn']} · 고침 {s['fix'] - s['export']}" + (f" · 내보내기 {s['export']}" if s["export"] else "")
+        print(f"{b.id}  {b.name}  {counts}  켠 작품 {s['used_by']}개")
+    print(f"\n저장 위치: {regexrules.root()}")
+
+
 def cmd_styles(a: argparse.Namespace) -> None:
     if a.action == "add":
         if not a.args or len(a.args) != 2:
@@ -258,7 +309,7 @@ def cmd_styles(a: argparse.Namespace) -> None:
     print(f"\n저장 위치: {library.root()}")
 
 
-RULE_KIND_TEXT = {"do": "지킬 것", "dont": "피할 것", "banned": "금지 표현", "marker": "문체 표지", "device": "가끔 쓰는 장치"}
+RULE_KIND_TEXT = {"do": "지킬 것", "dont": "피할 것", "banned": "금지 표현", "marker": "문체 버릇", "device": "가끔 쓰는 장치"}
 
 
 def cmd_learn(a: argparse.Namespace) -> None:
@@ -320,7 +371,7 @@ def cmd_stylechat(a: argparse.Namespace) -> None:
     msg = pipeline.record_style_chat(p, a.message, a.ep or 0, rev)
     print(rev.reply)
     for k, e in enumerate(rev.edits, 1):
-        label = prompts.STYLE_KEY_LABELS.get(e.key, e.key)
+        label = agent_style.STYLE_LABELS.get(e.key, e.key)
         print(f"\n{k}. [{label}]{f' {e.why}' if e.why else ''}\n   지금: {_style_value_text(getattr(p.style, e.key))}"
               f"\n   바꾸면: {_style_value_text(pipeline.style_value(e))}")
     if rev.preview:
@@ -335,7 +386,7 @@ def cmd_stylechat(a: argparse.Namespace) -> None:
             keys = []
         if keys:
             pipeline.apply_style_chat(p, i, keys)
-            print(f"적용했어요: {', '.join(prompts.STYLE_KEY_LABELS[k] for k in keys)}")
+            print(f"적용했어요: {', '.join(agent_style.STYLE_LABELS[k] for k in keys)}")
             if a.push and p.style_id and library.exists(p.style_id):
                 e = library.push_project(p, f"대화로 다듬음: {a.message[:60]}")
                 print(f"라이브러리 '{e.name}' 을 {e.version}번 버전으로 올렸어요")
@@ -418,9 +469,9 @@ def cmd_arc(a: argparse.Namespace) -> None:
 
 def _print_heat(h) -> None:
     """열 계획 제안을 찍는다 (arc · heat 명령)."""
-    print(f"\n열 계획: {h.heat_rule}")
+    print(f"\n완급 계획: {h.heat_rule}")
     for s in h.heat:
-        print(f"  {s.ep}화 열 {s.level} · {heatplan.ROLES[s.role]}{f' · {s.kind}' if s.kind else ''}{f'  {s.note}' if s.note else ''}")
+        print(f"  {s.ep}화 세기 {s.level} · {heatplan.ROLES[s.role]}{f' · {s.kind}' if s.kind else ''}{f'  {s.note}' if s.note else ''}")
     for f in h.stakes:
         print(f"  [{heatplan.KINDS[f.kind]}] {f.description} ({f.planted_ep}화에 심음)")
     if h.heat_turn.plant_ep:
@@ -437,7 +488,7 @@ def cmd_heat(a: argparse.Namespace) -> None:
     prop = pipeline.propose_heat(get_llm("plan"), p, arc.number if arc else 0, a.note or "")
     print(f"{start}~{end}화{f' (아크 {arc.number})' if arc else ''}")
     _print_heat(prop)
-    if confirm("이 열 계획으로 바꿀까요?", a.yes):
+    if confirm("이 완급 계획으로 바꿀까요?", a.yes):
         added = pipeline.apply_heat_plan(p, prop, arc)
         print(f"새 복선 {added}개 · 저장: {store.save(a.name, p)}")
 
@@ -742,8 +793,10 @@ def cmd_rework(a: argparse.Namespace) -> None:
     if rw.reply:
         print(rw.reply)
     print(f"\n----- 고친 {a.ep}화 -----\n{rw.text}\n")
+    if rw.ruled:
+        print(f"규칙으로 {len(rw.ruled)}곳 고쳤어요")
     if confirm("이 본문으로 바꿀까요?", a.yes):
-        pipeline.accept_rework(p, a.ep, rw.text)
+        pipeline.accept_rework(p, a.ep, rw.text, rw.text, rw.ruled)
         print(f"저장: {store.save(a.name, p)}")
 
 
@@ -927,7 +980,7 @@ def cmd_confirm(a: argparse.Namespace) -> None:
     nums = {e.plot.number for e in targets}
     for w in heatplan.warnings(p):
         if w.ep == 0 or w.ep in nums:
-            print(f"열 계획: {w.text}")
+            print(f"완급 계획: {w.text}")
     store.save(a.name, p)
 
 
@@ -939,9 +992,11 @@ def cmd_write(a: argparse.Namespace) -> None:
 def _write(name: str, p: Project, n: int) -> None:
     print(f"{n}화 생성 중...")
     atlas.fill_old_spots(p, store.project_dir(name) / "map")  # 건물 한 줄이 빈 옛 핀. 아래 저장에 함께 들어간다
-    llm, cut, rec = get_llm("write"), [], []
-    text = pipeline.write_episode(llm, p, n, cut=cut, sent=rec)
-    pipeline.replace_text(p.episode(n), text, written_by=pipeline.writer_of(llm), meta_cut=cut)  # 지금 본문이 있으면 '이전 판'에 남는다
+    llm, cut, rec, runs = get_llm("write"), [], [], []
+    text = pipeline.write_episode(llm, p, n, cut=cut, sent=rec, ruled=runs)
+    pipeline.replace_text(p.episode(n), text, written_by=pipeline.writer_of(llm), meta_cut=cut,  # 지금 본문이 있으면 '이전 판'에 남는다
+                          rule_runs=runs)
+    _print_rules(runs)
     cue.mark_used(p, n, True)
     anchor.stamp(p, n)
     with jobs.project_lock(name):
@@ -951,6 +1006,15 @@ def _write(name: str, p: Project, n: int) -> None:
     for w in pipeline.style_drift(p, n)[1]:
         print(f"! 문체: {w}")
     _print_opening(p, n)
+
+
+def _print_rules(runs: list) -> None:
+    """고침 규칙을 건 결과를 알린다: 바꾼 곳 수, 시간 한도로 건너뛴 묶음."""
+    for r in runs:
+        if r.changes:
+            print(f"규칙으로 {len(r.changes)}곳 고쳤어요")
+        if r.skipped:
+            print(f"! 규칙 묶음 {r.skipped}{logline.josa(r.skipped, '을', '를')} 거는 데 너무 오래 걸려서 건너뛰었어요")
 
 
 REWRITE_MODE_LABEL = {"fresh": "처음부터 새로", "revise": "지난 판 고쳐 쓰기", "polish": "서술만 다듬기"}
@@ -986,9 +1050,10 @@ def cmd_rewrite(a: argparse.Namespace) -> None:
                          mode="polish" if a.polish else "revise" if a.revise else "fresh", keep=a.keep or [])
     req = pipeline.clean_rewrite(req)
     print(f"{a.n}화 다시 생성 중... ({REWRITE_MODE_LABEL[req.mode]})")
-    llm, cut, rec = get_llm("revise" if req.mode == "polish" else "write"), [], []
-    text = pipeline.rewrite_episode(llm, p, a.n, req, cut, rec)
-    vid = pipeline.set_candidate(p, a.n, text, req, pipeline.writer_of(llm), cut).id
+    llm, cut, rec, runs = get_llm("revise" if req.mode == "polish" else "write"), [], [], []
+    text = pipeline.rewrite_episode(llm, p, a.n, req, cut, rec, runs)
+    vid = pipeline.set_candidate(p, a.n, text, req, pipeline.writer_of(llm), cut, runs).id
+    _print_rules(runs)
     print(f"\n{text[:600]}{'…' if len(text) > 600 else ''}\n\n지금 판 {len(ep.text):,}자 → 새 판 {len(text):,}자")
     adopt = confirm("새 판으로 바꿀까요? (지금 본문은 이전 판에 남아요)", a.yes)
     if adopt:
@@ -1517,6 +1582,8 @@ def cmd_compare(a: argparse.Namespace) -> None:
         r = research.pick_compare(a.name, p, a.n, a.pick)
         store.save(a.name, p)
         print(f"{a.pick}번은 {r['picked']} 였어요 (다른 쪽: {', '.join(r['others'])}). {a.n}화 본문으로 저장했어요.")
+        if r.get("kept"):
+            print("고른 안은 이 화에 있던 판이라 다시 쓰지 않았어요" + (" (지금 본문 그대로)" if r["kept"]["source"] == "text" else ""))
         print("지금까지 고른 횟수: " + ", ".join(f"{prov} {cnt}" for prov, cnt in sorted(r["wins"].items())))
         return
     if a.a == a.b:
@@ -1528,6 +1595,8 @@ def cmd_compare(a: argparse.Namespace) -> None:
         print(f"{d['n']:>3} {d['chars']:>6} {d['sentence_len_mean']:>7} {d['dialogue_ratio']:>5} {_num(d['mattr']):>6}  {len(d['warnings']) or ''}")
         for w in d["warnings"]:
             print(f"      ! {w}")
+    if c.get("kept_count"):
+        print(f"\n{c['kept_count']}개 안은 그 모델이 이 화에 이미 쓴 판을 가져왔어요 (새로 쓰지 않음)")
     out = research.compare_dir(a.name, a.n)
     print(f"\n저장: {out}/1.md, 2.md (key.json은 열지 마세요)\n읽어 보고 고르세요: compare {a.name} {a.n} --pick 1|2")
 
@@ -1613,7 +1682,10 @@ def cmd_import(a: argparse.Namespace) -> None:
         raise ValueError(f"{a.n}화 플롯을 먼저 확정하세요")
     if ep.status == "confirmed":
         pipeline.require_previous(p, a.n)
-    pipeline.replace_text(p.episode(a.n), Path(a.file).read_text(encoding="utf-8").strip(), written_by="import")  # 지금 본문은 '이전 판'에 남는다
+    runs: list = []
+    text = pipeline.apply_rules(p, Path(a.file).read_text(encoding="utf-8").strip(), "import", runs)  # 밖의 AI 가 쓴 본문에도 고침 규칙을 건다
+    pipeline.replace_text(p.episode(a.n), text, written_by="import", rule_runs=runs)  # 지금 본문은 '이전 판'에 남는다
+    _print_rules(runs)
     store.save(a.name, p)
     print(f"{a.n}화 본문을 가져왔어요. 다음: update {a.name} {a.n}  (또는 brief --state로 채팅 앱에서 정리 후 update --from-json)")
 
@@ -1624,11 +1696,11 @@ def cmd_fix(a: argparse.Namespace) -> None:
     if a.quote not in text:
         sys.exit(f"{a.n}화 본문에 그 문장이 없어요: {a.quote}")
     sel = Selection(start=text.index(a.quote), text=a.quote)
-    rev = pipeline.revise_passage(get_llm("revise"), p, a.n, sel, a.ask or "", a.preset or "")
+    rev = pipeline.revise_passage(get_llm("revise"), p, a.n, sel, a.ask or "", a.preset or "", rules=True)
     msg = pipeline.record_passage(p, a.n, sel, a.ask or "", a.preset or "", rev)
     print(rev.reply)
     for k, c in enumerate(rev.candidates, 1):
-        print(f"\n[{k}] {c.note}\n{c.text}")
+        print(f"\n[{k}] {c.note}" + (f" (규칙으로 {len(c.ruled)}곳 고쳤어요)" if c.ruled else "") + f"\n{c.text}")
     i = len(p.chat(f"text:{a.n}").messages) - 1
     if msg.passage:
         pick = "1" if a.yes else ask(f"넣을 후보 번호 (1~{len(rev.candidates)}, 비우면 넣지 않음)")
@@ -2641,7 +2713,7 @@ def _plan_commands(sub, add) -> None:
     sp = add("arc", cmd_arc)
     sp.add_argument("--note", help="AI 에게 바라는 것 (예: 3화 안에 첫 반전)")
     sp = add("heat", cmd_heat)
-    sp.add_argument("--arc", type=int, default=0, help="장편: 열 계획을 받을 아크 번호 (비우면 다 쓰지 않은 첫 아크)")
+    sp.add_argument("--arc", type=int, default=0, help="장편: 완급 계획을 받을 아크 번호 (비우면 다 쓰지 않은 첫 아크)")
     sp.add_argument("--note", help="AI 에게 바라는 것")
     sp = add("series", cmd_series)
     sp.add_argument("--note", help="AI 에게 바라는 것")
@@ -2769,8 +2841,8 @@ def _write_commands(sub, add) -> None:
     sp.add_argument("--status", action="store_true", help="진행 상태와 최근 로그")
     sp.add_argument("--stop", action="store_true", help="중지 (기다리던 배치 취소)")
     sp = add("compare", cmd_compare, "n", yes=False)
-    sp.add_argument("--a", default="gemini", choices=["gemini", "local", "mock"])
-    sp.add_argument("--b", default="local", choices=["gemini", "local", "mock"])
+    sp.add_argument("--a", default="gemini", choices=research.PROVIDERS)
+    sp.add_argument("--b", default="local", choices=research.PROVIDERS)
     sp.add_argument("--pick", type=int, help="고른 번호. 본문으로 저장하고 백엔드(여는 방식)를 공개")
     sp = add("openings", cmd_openings, "n", yes=False)
     sp.add_argument("--plot", action="store_true", help="본문 대신 플롯 안을 만든다")
@@ -2846,6 +2918,10 @@ def _tool_commands(sub, add) -> None:
     sp.add_argument("--source", default="", help="add: 원문 출처 메모")
     sp.add_argument("-y", "--yes", action="store_true", help="확인 없이 반영")
     sp.set_defaults(fn=cmd_styles)
+    sp = sub.add_parser("rules", help="정규식 규칙 묶음")
+    sp.add_argument("action", nargs="?", choices=["list", "test", "use", "drop"], default="list")
+    sp.add_argument("args", nargs="*")
+    sp.set_defaults(fn=cmd_rules)
 
 
 def _app_commands(sub, add) -> None:

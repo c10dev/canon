@@ -444,7 +444,7 @@ def test_fixes_batch_one_call(demo):
     prompt, _, hint = calls[0]
     material = prompts.check_material(p, 1)
     assert prompt.startswith(material + "\n\n# 고칠 지적 (2개)\n## 지적 f1\n")  # 문장이 없는 f3 은 묻지 않는다
-    assert hint[PREFIX_HINT] == len(material)  # 캐시 경계: 검수 자료 끝
+    assert hint[PREFIX_HINT] == prompts.check_cache_cut(material, 1)  # 캐시 경계: 검수 자료의 본문 바로 앞
     assert prompt.count(prompts.MINIMAL_FIX_RULES) == 1 and "## 지적 f2" in prompt and "갈래가 동선인 지적" in prompt
     assert [o.label for o in got["f1"]] == ["짧게 고치기", "뒤 문장까지"] and len(got["f2"]) == 2
     assert "찾을 수 없어요" in got["f3"]
@@ -461,10 +461,11 @@ def test_fixes_batch_one_call(demo):
     blank = type("Blank", (), {"json": lambda *a, **k: FixBatch(items=[FixItem(finding="f1"), FixItem(finding="f2", reply=" ")])})()
     assert pipeline.propose_fixes_batch(blank, p, 1, ["f1", "f2"]) == {}  # 고침안도 답도 빈 항목은 답이 없는 것 (따로 묻는다)
 
-    calls.clear()  # 한 지적 고침안 · 다시 검수도 검수 자료 끝을 캐시 경계로 알린다
+    calls.clear()  # 한 지적 고침안 · 다시 검수도 검수 자료의 본문 바로 앞을 캐시 경계로 알린다
     pipeline.propose_fixes(Spy(), p, 1, "f1")
     pipeline.recheck_finding(Spy(), p, 1, "f1")
-    assert [(c[1], c[2][PREFIX_HINT]) for c in calls] == [(FixSet, len(material)), (pipeline.FindingRecheck, len(material))]
+    cut = prompts.check_cache_cut(material, 1)
+    assert [(c[1], c[2][PREFIX_HINT]) for c in calls] == [(FixSet, cut), (pipeline.FindingRecheck, cut)]
     assert all(c[0].startswith(material + "\n\n# ") for c in calls)
 
 

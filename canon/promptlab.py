@@ -1,15 +1,19 @@
 """프롬프트 놀이터: 시스템 · 요청 프롬프트를 직접 써서 여러 백엔드로 돌리고, 결과 · 시간 · 토큰 · 어림 비용을 시도로 남겨 견준다.
 
 작품(project.json)과 상관없고 세션 파일 <CANON_HOME>/.promptlab/<id>.json 에 둔다 (CANON_PROMPTLAB 으로 경로 변경, 문단 연습장처럼 작품 밖).
-호출은 연구 화면의 샘플 생성(research.sample)을 그대로 쓴다. 백엔드는 gemini · local · mock 이고, 한 쪽이 실패해도 나머지는 돌린다.
+호출은 연구 화면의 샘플 생성(research.sample)을 그대로 쓴다. 백엔드는 gemini · local · claude · claude-api · mock 이고,
+동시에 부르며, 한 쪽이 실패해도 나머지는 돌린다.
 '불러오기'는 Canon 의 실제 프롬프트를 작업지시서와 같은 함수(prompts.brief_parts)로 조립해 칸에 채운다.
 재료는 예시 작품(mock LLM 으로 만든, 저장하지 않는 작품)이나 작가가 고른 작품이고, 작품은 읽기만 한다.
 시도마다 그때의 프롬프트를 함께 남겨, 고치기 전 판으로 되돌아가거나 판끼리 견줄 수 있다.
+프롬프트 관리 페이지의 실험 판(promptset.py)을 끼워 불러올 수 있다. 원래 판과 함께 블라인드로 불러온 세션은 돌릴 때마다
+원래 판도 같은 백엔드로 돌리고, 백엔드마다 두 결과를 가려 읽어 고른다 (역설계 실험의 가려 읽기 RevBlind 꼴).
 """
 from __future__ import annotations
 
 import hashlib
 import os
+import random
 import re
 import uuid
 from datetime import datetime
@@ -17,12 +21,12 @@ from pathlib import Path
 from typing import Optional
 
 from . import llm, prompts, research, store, usage
-from .schema import Project, PromptBackend, PromptRun, PromptSession, PromptSource, PromptTrial
+from .schema import Project, PromptBackend, PromptPair, PromptRun, PromptSession, PromptSource, PromptTrial, RevBlind
 
 ID_RE = re.compile(r"^[0-9a-f]{8,32}$")
 NAME_RE = re.compile(r'^[^/\\.:*?"<>|][^/\\:*?"<>|]{0,63}$')  # 작품 폴더 이름 (web.NAME_RE 와 같다)
-PROVIDERS = ("gemini", "local", "mock")
-MAX_BACKENDS = 4  # 한 번에 돌리는 백엔드 수. 차례로 부르므로 많으면 오래 걸린다
+PROVIDERS = research.PROVIDERS  # claude 는 Claude Code 구독 로그인, claude-api 는 Anthropic API 키
+MAX_BACKENDS = 4  # 한 번에 돌리는 백엔드 수. 동시에 부르므로 가장 느린 백엔드만큼 걸린다
 MAX_TRIALS = 40  # 세션마다 남기는 시도. 저절로 지우지 않고, 차면 작가가 지울 시도를 고른다
 TEXT_MAX = 300000  # 시스템 · 요청 프롬프트 한 칸의 글자 수 상한 (검수 프롬프트는 앞 화 본문을 다 넣어 길다)
 TITLE_MAX = 60
@@ -85,7 +89,7 @@ def clean_backends(bs: list[PromptBackend]) -> list[PromptBackend]:
     for b in bs:
         b = PromptBackend(provider=b.provider.strip(), model=b.model.strip(), url=b.url.strip() if b.provider.strip() == "local" else "")
         if b.provider not in PROVIDERS:
-            raise ValueError(f"알 수 없는 백엔드예요: {b.provider} (gemini · local · mock)")
+            raise ValueError(f"알 수 없는 백엔드예요: {b.provider} ({' · '.join(PROVIDERS)})")
         if b not in out:
             out.append(b)
     if len(out) > MAX_BACKENDS:
@@ -198,7 +202,7 @@ def run_spec(s: PromptSession) -> dict:
     """불러온 갈래대로 돌리는 방식: 응답 스키마(구조화 출력), 단계(모델 · 추론 강도), 출력 한도. 불러온 출처가 없으면 모두 빈칸(글로 받음).
     출처가 있으면 칸을 고쳐도 같은 방식으로 돌린다. 프롬프트를 고쳐 가며 같은 단계 호출을 견주는 곳이라서다."""
     src = s.source
-    if not src or src.kind not in prompts.BRIEF_KINDS:
+    if not src or (src.kind not in prompts.BRIEF_KINDS and src.kind not in prompts.VIEW_NEED):
         return {"schema": None, "stage": "", "out_tokens": 0, "preset": None}
     import importlib
 
@@ -209,18 +213,21 @@ def run_spec(s: PromptSession) -> dict:
     if src.kind in OUT_TOKENS:
         mod, attr = OUT_TOKENS[src.kind]
         cap = getattr(importlib.import_module(f"canon.{mod}"), attr)
-    preset = settings.project_preset(src.project) if src.project else None
+    preset = settings.project_preset(src.project) if src.project and src.project != SERIAL else None
     return {"schema": model, "stage": src.stage, "out_tokens": cap, "preset": preset}
 
 
 def run(s: PromptSession) -> list[PromptRun]:
-    """지금 프롬프트를 고른 백엔드마다 차례로 보낸다. 세션은 바꾸지 않는다 (저장 직전에 다시 읽어 add_trial 로 붙인다).
+    """지금 프롬프트를 고른 백엔드마다 동시에 보낸다. 세션은 바꾸지 않는다 (저장 직전에 다시 읽어 add_trial 로 붙인다).
     불러온 갈래가 있으면 실제 호출처럼 구조화 출력 · 그 단계의 모델과 추론 강도 · 출력 한도로 돌린다 (run_spec)."""
     can_run(s)
     spec = run_spec(s)
-    rows = research.sample([research.Backend(**b.model_dump()) for b in s.backends], s.system, s.prompt, s.temperature,
-                           schema=spec["schema"], stage=spec["stage"], preset=spec["preset"], out_tokens=spec["out_tokens"])
-    out = [to_run(b, r).model_copy(update={"out_tokens": spec["out_tokens"]}) for b, r in zip(s.backends, rows)]
+    pairs = [(s.system, s.prompt, "set" if s.base else "")] + ([(s.base.system, s.base.prompt, "original")] if s.base else [])
+    out = []
+    for system, prompt, side in pairs:  # 원래 판과 블라인드면 실험 판(지금 칸) 다음에 원래 판을 같은 백엔드로 돌린다
+        rows = research.sample([research.Backend(**b.model_dump()) for b in s.backends], system, prompt, s.temperature,
+                               schema=spec["schema"], stage=spec["stage"], preset=spec["preset"], out_tokens=spec["out_tokens"])
+        out += [to_run(b, r).model_copy(update={"out_tokens": spec["out_tokens"], "side": side}) for b, r in zip(s.backends, rows)]
     for r in out:
         if r.ok and r.schema_name and spec["schema"]:
             inspect(s, spec["schema"].model_validate_json(r.text), r)
@@ -293,13 +300,53 @@ def canon_notes(src: PromptSource, obj) -> list[str]:
 
 
 def add_trial(s: PromptSession, system: str, prompt: str, temperature: Optional[float], runs: list[PromptRun],
-              source: Optional[PromptSource] = None) -> PromptTrial:
-    """source 는 돌릴 때 칸을 불러온 출처. 지문이 다르면 고쳐 돌린 것으로 적는다."""
+              source: Optional[PromptSource] = None, base: Optional[PromptPair] = None) -> PromptTrial:
+    """source 는 돌릴 때 칸을 불러온 출처. 지문이 다르면 고쳐 돌린 것으로 적는다.
+    base 는 함께 돌린 원래 판이다. 주면 백엔드마다 가려 읽기(RevBlind, 보일 차례는 무작위)를 만든다."""
     room(s)
+    sides = sum(1 for r in runs if r.side == "set")
     t = PromptTrial(no=max((x.no for x in s.trials), default=0) + 1, at=_now(), system=system, prompt=prompt, temperature=temperature, runs=runs,
-                    source=source.model_copy() if source else None, source_edited=bool(source) and source.sig != sig(system, prompt))
+                    source=source.model_copy() if source else None, source_edited=bool(source) and source.sig != sig(system, prompt),
+                    base=base.model_copy() if base else None,
+                    blinds=[RevBlind(order=random.sample(BLIND_SIDES, 2)) for _ in range(sides)] if base else [])
     s.trials.append(t)
     return t
+
+
+BLIND_SIDES = ["original", "set"]
+
+
+def pick(s: PromptSession, no: int, k: int, choice: int) -> str:
+    """그 시도의 k 번째 백엔드 가려 읽기에서 고른다: 1 · 2 (보인 차례), 0 이면 건너뛰기. 고른 쪽(original · set · skip).
+    seen 은 이 고르기 전에 이 세션에서 끝낸 가려 읽기 수다 (같은 글을 다시 볼수록 판정이 흔들린다)."""
+    t = find(s, no)
+    if not 0 <= k < len(t.blinds):
+        raise KeyError(f"{no}번 시도에 {k + 1}번째 블라인드가 없어요")
+    b = t.blinds[k]
+    if b.picked:
+        raise ValueError("이미 고른 블라인드예요")
+    if choice not in (0, 1, 2):
+        raise ValueError("1 · 2 · 0(건너뛰기) 가운데 골라 주세요")
+    b.seen = sum(1 for x in s.trials for y in x.blinds if y.picked)
+    b.picked = b.order[choice - 1] if choice else "skip"
+    b.at = _now()
+    return b.picked
+
+
+def blind_view(t: PromptTrial) -> list[dict]:
+    """백엔드마다 가려 읽기 화면 값. 고르기 전에는 두 결과를 보일 차례로 두고 어느 쪽이 원래 판인지(side · order)를 뺀다."""
+    sets = [r for r in t.runs if r.side == "set"]
+    bases = [r for r in t.runs if r.side == "original"]
+    out = []
+    for k, b in enumerate(t.blinds):
+        if k >= len(sets) or k >= len(bases):
+            continue
+        by = {"set": sets[k], "original": bases[k]}
+        done = bool(b.picked)
+        shown = [by[side].model_dump(exclude=set() if done else {"side"}) for side in b.order]
+        out.append({"k": k, "state": "done" if done else "pending", "shown": shown, "seen": b.seen,
+                    **({"picked": b.picked, "order": b.order, "at": b.at} if done else {})})
+    return out
 
 
 def edit(s: PromptSession, no: int, star: Optional[bool] = None, note: Optional[str] = None) -> PromptTrial:
@@ -321,6 +368,7 @@ def restore(s: PromptSession, no: int) -> PromptSession:
     t = find(s, no)
     s.system, s.prompt, s.temperature = t.system, t.prompt, t.temperature
     s.source = t.source.model_copy() if t.source else None
+    s.base = t.base.model_copy() if t.base else None
     return s
 
 
@@ -359,9 +407,44 @@ def example_project() -> Project:
     return _example.model_copy(deep=True)
 
 
+EXAMPLE_SERIAL_TITLE = "예시 장편"
+_example_serial: Optional[Project] = None
+
+
+def example_serial() -> Project:
+    """mock LLM 으로 만든 장편(저장하지 않음): 첫 아크는 본문을 쓰고 상태까지 반영했고, 둘째 아크는 끝 세 화만 플롯 초안이고 나머지는 확정했다.
+    장편에만 있는 갈래(부 구성)와 장편 경로(접은 줄거리 · 예산)를 보이는 프롬프트 관리 페이지의 견본이다. 한 번 만들어 두고 사본을 준다."""
+    global _example_serial
+    if _example_serial is None:
+        from . import pipeline
+        from .mock import MockLLM
+
+        llm, p = MockLLM(), Project()
+        p.meta.title, p.meta.form, p.meta.target_episodes = EXAMPLE_SERIAL_TITLE, "serial", 300
+        pipeline.apply_setup(p, pipeline.suggest_setup(llm, p))
+        pipeline.apply_series(p, pipeline.plan_series(llm, p))
+        for k in range(2):
+            a = pipeline.apply_arc(p, pipeline.plan_next_arc(llm, p, 0))
+            pipeline.register_candidates(p, [c.id for c in p.cast_candidates if c.id in a.cast])
+            pipeline.apply_plots(p, pipeline.draft_plots(llm, p, a.start_ep, a.end_ep))
+            for n in range(a.start_ep, a.end_ep + 1 if k == 0 else a.end_ep - 2):
+                pipeline.confirm_plot(p, n)
+                if k == 0:
+                    p.episode(n).text = pipeline.write_episode(llm, p, n)
+                    p.episode(n).status = "written"
+                    pipeline.apply_delta(p, pipeline.extract_state(llm, p, n))
+        _example_serial = p
+    return _example_serial.model_copy(deep=True)
+
+
+SERIAL = ":serial"  # 불러오기 작품 값: 예시 장편 (작품 폴더 이름에는 ':' 을 쓸 수 없다)
+
+
 def _project(name: str) -> Project:
     if not name:
         return example_project()
+    if name == SERIAL:
+        return example_serial()
     if not NAME_RE.match(name) or not store.exists(name):
         raise KeyError(f"작품을 찾을 수 없어요: {name}")
     return store.load(name)  # 읽기만 한다. 저장하지 않는다
@@ -379,7 +462,7 @@ def _ready(e, need: str) -> bool:
 def default_n(p: Project, kind: str) -> int:
     """갈래마다 조립할 화의 기본값. 본문이 있어야 하는 갈래는 본문이 있는 마지막 화, 작품 하나를 짜는 갈래는 0,
     플롯 초안은 초안이 든 첫 구간의 첫 화, 나머지는 본문이 없는 첫 화(확정이 있어야 하면 그 가운데 확정한 화)."""
-    k = prompts.BRIEF_KINDS[kind]
+    k = prompts.BRIEF_KINDS.get(kind) or prompts.BriefKind("", need=prompts.VIEW_NEED[kind])  # 조립 보기 갈래(다시 생성 등)는 본문이 있는 화
     if k.scope == "work":
         return 0
     if k.scope == "act":
@@ -426,13 +509,19 @@ def sources(project: str = "") -> dict:
             "defaults": defaults}
 
 
-def load_prompt(s: PromptSession, kind: str, project: str = "", n: int = 0) -> PromptSession:
-    """Canon 프롬프트를 조립해 시스템 · 요청 칸에 채우고 출처를 남긴다. 작품은 읽기만 한다."""
-    if kind not in prompts.BRIEF_KINDS:
+def load_prompt(s: PromptSession, kind: str, project: str = "", n: int = 0, promptset: str = "", blind: bool = False) -> PromptSession:
+    """Canon 프롬프트를 조립해 시스템 · 요청 칸에 채우고 출처를 남긴다. 작품은 읽기만 한다.
+    작업지시서 갈래 말고도 프롬프트 관리 페이지의 조립 보기 갈래(다시 생성 · 서술 다듬기 · 동선 검수, prompts.VIEW_NEED)를 받는다.
+    promptset 을 주면 그 실험 판을 끼운다(promptset.apply). blind 를 켜면 끼우기 전 원래 판을 base 에 두어 돌릴 때 함께 돌린다."""
+    if kind in prompts.BRIEF_KINDS:
+        k = prompts.BRIEF_KINDS[kind]
+    elif kind in prompts.VIEW_NEED:
+        v = prompts.KINDS[kind]
+        k = prompts.BriefKind(v.label, need=prompts.VIEW_NEED[kind], stage=v.stage)
+    else:
         raise ValueError(f"모르는 프롬프트 갈래예요: {kind}")
     p = _project(project)
-    k = prompts.BRIEF_KINDS[kind]
-    if kind not in kinds_for(p):
+    if kind in prompts.BRIEF_KINDS and kind not in kinds_for(p):
         raise ValueError(f"{k.label} 프롬프트는 장편 연재 작품에서만 만들어요")
     title = p.meta.title or project or EXAMPLE_TITLE
     if k.scope == "work":
@@ -454,17 +543,30 @@ def load_prompt(s: PromptSession, kind: str, project: str = "", n: int = 0) -> P
         if k.need == "draft" and ep.status != "draft":
             raise ValueError(f"{n}화는 플롯을 확정한 화라 {k.label} 프롬프트를 만들 수 없어요. 초안인 화를 고르세요")
         where = f" {n}화"
-    system, prompt, schema = prompts.brief_request(p, n, kind)  # 스키마는 글로 붙이지 않고 돌릴 때 구조화 출력으로 넘긴다
+    system, prompt, schema = prompts.view_request(p, n, kind)  # 스키마는 글로 붙이지 않고 돌릴 때 구조화 출력으로 넘긴다
     name = ("다음 아크" if p.serial else "기승전결 구조") if kind == "arc" else k.label
     label = f"{name} · {title}{where}"
+    ps, base = None, None
+    if promptset:
+        from . import promptset as promptsets
+
+        ps = promptsets.load(promptset)
+        new_system, new_prompt, rows = promptsets.apply(p, n, kind, system, prompt, ps)
+        if not any(r["state"] == "applied" for r in rows):
+            raise ValueError(f"'{ps.name}' 판이 바꾼 조각이 이 프롬프트에 없어요. 다른 갈래나 화를 고르세요")
+        base = PromptPair(system=system, prompt=prompt) if blind else None
+        system, prompt = new_system, new_prompt
+        label += f" · 실험 판 {ps.name}"
+    elif blind:
+        raise ValueError("원래 판과 블라인드로 견주려면 실험 판을 골라 주세요")
     if max(len(system), len(prompt)) > TEXT_MAX:
         raise ValueError(f"조립한 프롬프트가 {TEXT_MAX:,}자를 넘어 불러올 수 없어요. 앞쪽 화를 고르세요")
     auto = s.title == title_of(s.prompt) or (s.source and s.title == s.source.label[:TITLE_MAX])
     if auto:  # 요청 첫 줄이나 앞서 불러온 이름으로 지은 제목이면 이번 프롬프트 이름으로 (작가가 적은 제목은 남긴다)
         s.title = label[:TITLE_MAX]
-    s.system, s.prompt = system, prompt
+    s.system, s.prompt, s.base = system, prompt, base
     s.source = PromptSource(kind=kind, label=label, project=project, n=n, schema_name=schema.__name__ if schema else "", stage=k.stage,
-                            sig=sig(s.system, s.prompt))
+                            sig=sig(s.system, s.prompt), promptset=ps.id if ps else "", promptset_name=ps.name if ps else "")
     return s
 
 
@@ -485,7 +587,12 @@ def view(s: PromptSession) -> dict:
            for b in s.backends] if spec["stage"] else []
     shown = {"schema": spec["schema"].__name__ if spec["schema"] else "", "stage": spec["stage"],
              "stage_label": STAGE_LABELS.get(spec["stage"], spec["stage"]), "out_tokens": spec["out_tokens"], "backends": use}
-    return {**s.model_dump(), **{"summary": summary(s), "source_edited": edited, "spec": shown}}
+    out = s.model_dump()
+    for t, row in zip(s.trials, out["trials"]):  # 블라인드 시도는 어느 쪽이 원래 판인지 알 수 있는 runs 대신 blinds 화면 값을 준다
+        if t.blinds:
+            row["runs"] = []
+            row["blinds"] = blind_view(t)
+    return {**out, **{"summary": summary(s), "source_edited": edited, "spec": shown}}
 
 
 def limits() -> dict:

@@ -331,7 +331,7 @@ def review_reasons(p: Project, delta: StateDelta, report: Optional[ConsistencyRe
     if policy.max_style_distance > 0 and not anchor.voiced(p, delta.episode):
         r = anchor.rolling(p, delta.episode)
         if r is not None and r > policy.max_style_distance:
-            out.append(f"정착 문체에서 멀어졌어요: 최근 {anchor.WINDOW}화 평균 문체 거리 {r} (멈춤 기준 {policy.max_style_distance})")
+            out.append(f"이 작품의 문체에서 멀어졌어요: 최근 {anchor.WINDOW}화 평균 문체 거리 {r} (멈춤 기준 {policy.max_style_distance})")
     names = _names(p)
     unknown = sorted({u.character_id for u in delta.character_updates if u.character_id not in names})
     if unknown:
@@ -558,6 +558,13 @@ class _Halt(Exception):
     def __init__(self, status: Optional[str], message: str = "", reasons: list[str] | None = None, kind: str = ""):
         super().__init__(message)
         self.status, self.message, self.reasons, self.kind = status, message, reasons or [], kind
+
+
+def _auto(runs: list) -> list:
+    """자동 집필이 건 고침 규칙 기록은 kind auto 로 남긴다 (Runner._write · _polish)."""
+    for r in runs:
+        r.kind = "auto"
+    return runs
 
 
 def _edit(name: str, fn: Callable[[Project], Any]) -> Project:
@@ -819,10 +826,11 @@ class Runner:
         self.log(f"{n}화 본문을 쓰는 중" + (" (배치)" if self.run.batch and batchable("write") else ""))
         cut: list = []
         rec: list = []
+        runs: list = []
         use_cues = n not in self.no_cues
         try:
             (text, model), usage = self.call("write", n, lambda llm: (pipeline.write_episode(llm, p, n, use_cues=use_cues, cut=cut,
-                                                                                             sent=rec),
+                                                                                             sent=rec, ruled=runs),
                                                                       pipeline.writer_of(llm)))
         except pipeline.WriteCut as e:  # 끊긴 본문은 반영하지 않는다. 이어 가면 이 화 본문을 다시 쓴다
             raise _Halt("paused", f"{n}화 본문이 출력 길이 한도에 걸려 끊겨 멈췄어요",
@@ -834,6 +842,7 @@ class Runner:
                 raise _Halt("paused", f"{n}화 상태가 {_status_to(ep.status)} 바뀌어 멈췄어요",
                             _changed_while_writing(n, ep.status), kind="changed")
             ep.text, ep.status, ep.written_by, ep.meta_cut = text, "written", model, cut
+            ep.rule_runs = pipeline._new_runs(ep, _auto(runs))  # 고침 규칙은 손으로 쓸 때와 같이 걸고, 기록은 자동 집필(auto)로 남긴다
             cue.mark_used(q, n, use_cues)  # 자동 집필은 있는 큐 시트를 넣어 쓴다. 다시 받은 시트가 비어 왔으면 빼고 쓴다
             anchor.stamp(q, n)
             sent.keep(self.name, n, rec, text)
@@ -858,6 +867,7 @@ class Runner:
         before = p.episode(n).text
         cut: list = []
         rec: list = []
+        runs: list = []
 
         def done(note: str = "", level: str = "info", **kw: Any) -> None:
             with self.ctl.lock:
@@ -867,7 +877,8 @@ class Runner:
                 self.log(note, level, **kw)
 
         try:
-            (text, model), use = self.call("revise", n, lambda llm: (pipeline.polish_episode(llm, p, n, cut, rec), pipeline.writer_of(llm)))
+            (text, model), use = self.call("revise", n, lambda llm: (pipeline.apply_rules(p, pipeline.polish_episode(llm, p, n, cut, rec), "auto", runs),
+                                                                    pipeline.writer_of(llm)))
         except ValueError as e:
             done(f"{n}화 서술 다듬기를 건너뛰고 쓴 글로 이어 가요: {e}", "warn")
             return
@@ -878,7 +889,7 @@ class Runner:
             if ep.status != "written" or ep.text != before:
                 kept["same"] = False
                 return
-            pipeline.replace_text(ep, text, made_by=RewriteRequest(mode="polish"), written_by=model, meta_cut=cut)
+            pipeline.replace_text(ep, text, made_by=RewriteRequest(mode="polish"), written_by=model, meta_cut=cut, rule_runs=runs)
             anchor.stamp(q, n)
             sent.keep(self.name, n, rec, text)
         q = _edit(self.name, put)
@@ -911,7 +922,8 @@ class Runner:
                     errors.append(e)
             if errors:
                 if "check" in results:  # 받아 온 검수는 버리지 않는다 (참고용이라 승인 없이 저장)
-                    _edit(self.name, lambda q: pipeline.apply_check(q, results["check"][0], "auto", pipeline.widen_on(q)))
+                    hits = pipeline.check_hits(store.load(self.name), n)  # 정규식 경고는 잠그기 전에 건다
+                    _edit(self.name, lambda q: pipeline.apply_check(q, results["check"][0], "auto", pipeline.widen_on(q), hits))
                 # 한쪽만 멈춤 요청을 받았으면 다른 쪽(기다리는 배치)도 같은 이유로 멈춘다
                 raise next((e for e in errors if not isinstance(e, _Halt)), errors[0])
         delta: StateDelta = results["state"][0]
@@ -919,7 +931,8 @@ class Runner:
         self.log(f"{n}화 상태 변경안: 인물 {len(delta.character_updates)}, 사건 {len(delta.events)}, "
                  f"사실 {len(delta.new_facts)}", **results["state"][1])
         if report is not None:
-            _edit(self.name, lambda q: pipeline.apply_check(q, report, "auto", pipeline.widen_on(q)))
+            hits = pipeline.check_hits(store.load(self.name), n)  # 정규식 경고는 잠그기 전에 건다
+            _edit(self.name, lambda q: pipeline.apply_check(q, report, "auto", pipeline.widen_on(q), hits))
             self.log(f"{n}화 검수: 어긋난 곳 {len(report.issues)}개", "warn" if report.issues else "info",
                      **results["check"][1])
         p = store.load(self.name)
@@ -1092,8 +1105,8 @@ def resume(name: str, approve: bool = False, rewrite: bool = False, *, foregroun
                     ep = q.episode(n)
                     if ep.text:  # 집필 화면의 다시 생성처럼 지금 본문을 이전 판으로 남긴다
                         pipeline._keep_version(ep, TextVersion(id=pipeline._version_id(ep), at=pipeline._now(), text=ep.text, kind="previous",
-                                                               model=ep.written_by, meta_cut=ep.meta_cut))
-                    ep.text, ep.status, ep.written_by, ep.meta_cut = "", "confirmed", "", []
+                                                               model=ep.written_by, meta_cut=ep.meta_cut, rule_runs=ep.rule_runs))
+                    ep.text, ep.status, ep.written_by, ep.meta_cut, ep.rule_runs = "", "confirmed", "", [], []
                     findings.clear(ep)
                 _edit(name, back)
                 r.log(f"{n}화를 다시 써요")

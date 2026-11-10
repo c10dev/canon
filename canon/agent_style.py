@@ -23,6 +23,8 @@ TOOL = "edit_style"
 KIND = "style"  # 승인 카드의 종류 (agent.KIND_LABELS). agent.ALWAYS_ASK 에 들어 늘 묻는다
 LABEL = "문체 고치기"
 KEPT = "그 뒤에 다시 고친 칸이라 그대로 뒀어요"
+# 화면에 보이는 칸 이름 (stylechat.js STYLE_KEYS 와 같다). 프롬프트는 prompts.STYLE_KEY_LABELS 를 그대로 쓴다
+STYLE_LABELS = {**STYLE_KEY_LABELS, "markers": "문체 버릇"}
 
 
 def _now() -> str:
@@ -30,7 +32,7 @@ def _now() -> str:
 
 
 def label(key: str) -> str:
-    return STYLE_KEY_LABELS.get(key, key)
+    return STYLE_LABELS.get(key, key)
 
 
 def shortcut(turn: AgentTurn) -> PlotAgentStep | None:

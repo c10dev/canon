@@ -795,12 +795,12 @@ function playSideTag() {
 function playHomeCard() {
   const q = S.homePlay;
   if (q && q.name === S.name) {
-    return `<section class="card tight note-card"><div class="between"><h2>플레이 사본이에요</h2><a class="btn small primary" href="#/play/${enc(q.name)}">플레이로 돌아가기</a></div>
+    return `<section class="card tight note-card"><div class="between"><h2>플레이 사본이에요</h2><a class="btn small" href="#/play/${enc(q.name)}">플레이로 돌아가기</a></div>
       <p class="small" style="line-height:1.6">「${esc(q.world_title)}」 세계의 플레이 '${esc(q.title)}'예요. 여기서 고친 것은 이 플레이에만 들어가요. 구간은 플레이 화면에서 이어 가세요.</p></section>`;
   }
   const fin = P().episodes.filter((e) => e.status === 'finalized').length;
-  return `<section class="card tight"><div class="between"><h2>이 세계로 플레이</h2><a class="btn small" href="#/play/new/${enc(S.name)}">새 플레이</a></div>
-    <p class="small" style="line-height:1.6">이 세계 속 인물이 되거나 무작위로 태어나서, 시간이 흐르는 동안 갈림길마다 결정해요. ${fin ? `${fin}화를 반영한 직후의 세계에서 시작하고` : '반영한 화가 없으면 이야기 시작 전에서 시작하고'}, 세계 작품은 바뀌지 않아요.</p></section>`;
+  return `<section class="sec"><div class="between"><h2>이 세계로 플레이</h2><a class="btn small" href="#/play/new/${enc(S.name)}">새 플레이</a></div>
+    <p class="small" style="line-height:1.6">이 세계 속 인물이 되어 갈림길마다 결정해요.${help(`${fin ? `${fin}화를 반영한 직후의 세계에서 시작하고` : '반영한 화가 없으면 이야기 시작 전에서 시작하고'}, 세계 작품은 바뀌지 않아요.`)}</p></section>`;
 }
 
 // ---------- 동작 ----------

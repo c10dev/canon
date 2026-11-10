@@ -224,7 +224,8 @@ function causalListCard() {
     return `<div class="cz-row"><span class="chip">${esc(x.kind)}</span><div><a class="t" href="${causalHref(x.id)}" data-action="causalShow" data-arg="${esc(x.id)}">${esc(x.name || '이름 없음')}</a>
       <div class="s">${esc(timingText(x))}${x.characters.length ? ` · ${esc(x.characters.map(charName).join(', '))}` : ''}</div></div>${st.label ? `<span class="chip${st.cls ? ` ${st.cls}` : ''}">${esc(st.label)}</span>` : '<span></span>'}</div>`;
   }).join('');
-  return `<section class="card" id="cz-all"><h2>모든 요소 ${els.length}</h2><div class="cz-rows cz-list">${rows}</div></section>`;
+  const fill = els.length ? '<button type="button" class="btn small" data-action="aliasAI" data-arg="e:" title="다른 이름이 빈 요소를 한 번에 10개까지 제안받아요">빈 다른 이름 제안</button>' : '';
+  return `<section class="card" id="cz-all"><div class="between"><h2>모든 요소 ${els.length}</h2>${fill}</div>${aliasCard('e:')}<div class="cz-rows cz-list">${rows}</div></section>`;
 }
 
 // ----- 요소 하나 -----
@@ -243,7 +244,7 @@ function causalInfoCard(el) {
         <dt>나올 화</dt><dd>${el.episodes.length ? `${esc(el.episodes.join(', '))}화` : none}</dd>
         <dt>드러나는 화</dt><dd>${el.reveal_ep ? `${el.reveal_ep}화<div class="small">그 전에는 암시만 해요.</div>` : '숨기지 않음'}</dd>
         <dt>관련 인물</dt><dd>${el.characters.length ? esc(el.characters.map(charName).join(', ')) : none}</dd>
-        <dt>다른 이름</dt><dd>${el.aliases.length ? esc(el.aliases.join(', ')) : none}</dd>
+        <dt>다른 이름</dt><dd>${el.aliases.length ? esc(el.aliases.join(', ')) : none}${aliasCard('e:' + el.id)}</dd>
         <dt>AI에 넣기</dt><dd>${esc((EL_CTX.find(([k]) => k === el.context) || EL_CTX[0])[1])}${el.context === 'auto' ? '<div class="small">그 화에 관련 인물이 나오거나, 플롯에 이름이 있거나, 나올 화일 때만 넣어요.</div>' : ''}</dd>
       </dl></section>`;
   }
@@ -259,6 +260,8 @@ function causalInfoCard(el) {
     </div>
     ${input('설명', b + '.description', { rows: 3, autogrow: true, placeholder: EL_KIND_HINT[el.kind] || '', hint: '지켜야 할 내용을 구체적으로' })}
     ${input('다른 이름', b + '.aliases', { kind: 'list', rows: 2, hint: '본문에서 다르게 부르는 말. 두 글자 이상' })}
+    <div class="row"><button type="button" class="btn small" data-action="aliasAI" data-arg="${esc('e:' + el.id)}">다른 이름 제안</button><span class="small">본문을 읽고 제안해요. 고른 말만 넣어요</span></div>
+    ${aliasCard('e:' + el.id)}
     <div class="field"><span class="label">관련 인물</span><div class="row">${chars || '<span class="small">인물이 아직 없어요.</span>'}</div></div>
     <div class="field"><span class="label">언제부터 사실인가요?</span>
       <div class="cz-ctx"><div class="seg" role="group" aria-label="사실이 되는 화">

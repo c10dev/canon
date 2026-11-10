@@ -81,14 +81,19 @@ def test_spec_line_model_hint_and_run_facts():
         backends: [{ model: 'gemini-x', effort: 'high' }, { model: '', effort: '' }] };
       return {
         line: pgSpecLine(spec), none: pgSpecLine({ stage: '' }),
-        hint: [pgModelHint(spec, 0, { model: '' }), pgModelHint(spec, 0, { model: '내 모델' }), pgModelHint(spec, 1, { model: '' }), pgModelHint(null, 0, { model: '' })],
+        hint: [pgModelHint(spec, 0, { provider: 'gemini', model: '' }), pgModelHint(spec, 0, { provider: 'gemini', model: '내 모델' }),
+               pgModelHint(spec, 1, { provider: 'claude', model: '' }, [], { claude_model: 'claude-opus-5-5' }),
+               pgModelHint(null, 0, { provider: 'gemini', model: '' }, [], { model_setting: 'gemini-4-argon' }),
+               pgModelHint(spec, 0, { provider: 'claude', model: '' }, [{ provider: 'gemini' }], {})],
         card: pgRunCard({ backend: 'gemini', model: 'gemini-x', ok: true, text: '{}', seconds: 1, chars: 2, tokens_in: 0, tokens_out: 0, cost: 0,
           schema_name: 'StoryboardDraft', effort: 'high', out_tokens: 16384 }),
       };
     })()""", {})
     assert got["line"].startswith("실제 호출처럼 돌려요: 스토리보드 · 큐 시트 단계의 모델 · 추론 강도") and "StoryboardDraft" in got["line"] and "16,384토큰" in got["line"]
     assert got["none"] == ""
-    assert got["hint"] == ["비우면 스토리보드 · 큐 시트 단계 모델(gemini-x, 추론 강도 high)", "비우면 설정 값", "비우면 설정 값", "비우면 설정 값"]
+    assert got["hint"] == ["비우면 스토리보드 · 큐 시트 단계 모델(gemini-x, 추론 강도 high)", "비우면 스토리보드 · 큐 시트 단계 모델(gemini-x, 추론 강도 high)",
+                           "비우면 claude-opus-5-5", "비우면 gemini-4-argon",
+                           "비우면 Claude Code 기본 모델"]  # 칸에서 백엔드를 바꾼 줄은 저장된 단계 값을 쓰지 않는다
     assert "StoryboardDraft 형식" in got["card"] and "추론 강도 high" in got["card"]
 
 
@@ -107,3 +112,19 @@ def test_run_card_check_and_raw():
     assert "Canon이 그대로 받는 응답이에요" in got["clean"] and "빈 칸 없음" in got["clean"]
     assert "&lt;끊긴 답" in got["failed"] and "MAX_TOKENS(출력 한도)" in got["failed"]
     assert "빈 칸" not in got["text"] and "받은 원문" not in got["text"]  # 글로 받은 결과는 검사하지 않는다
+
+
+@needs_node
+def test_blind_trial_hides_sides_until_picked():
+    run = {"backend": "mock", "model": "mock", "ok": True, "text": "글", "error": "", "seconds": 0.1, "chars": 1, "tokens_in": 0, "tokens_out": 0, "cost": 0}
+    got = run_js(["app.js", "usage.js", "promptlab.js"], """(() => {
+      fmtDateTime = () => '';
+      S.pgForm = { system: '', prompt: 'p', backends: [] };
+      const t = { no: 3, at: '', system: '', prompt: 'p', temperature: null, star: false, note: '', runs: [], base: { system: '', prompt: 'q' },
+        blinds: [{ k: 0, state: 'pending', shown: [data.run, data.run], seen: 0 }] };
+      const pending = pgTrialCard(t);
+      t.blinds = [{ k: 0, state: 'done', shown: [data.run, data.run], seen: 0, picked: 'set', order: ['original', 'set'] }];
+      return { pending, done: pgTrialCard(t) };
+    })()""", {"run": run})
+    assert 'data-action="pgPick" data-arg="3:0:1">가 고르기' in got["pending"] and "원래 판" not in got["pending"]
+    assert "고른 쪽: 실험 판" in got["done"] and 'data-action="pgPick"' not in got["done"]
