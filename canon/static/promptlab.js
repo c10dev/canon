@@ -267,7 +267,7 @@ function pgTrialCard(t) {
       <div class="row">
         <button type="button" class="btn small${t.star ? ' primary' : ''}" data-action="pgStar" data-arg="${t.no}" aria-pressed="${t.star}">${t.star ? '★ 고름' : '☆ 고르기'}</button>
         <button type="button" class="btn small" data-action="pgRestore" data-arg="${t.no}"${diff === 'same' ? ' disabled title="지금 프롬프트와 같아요"' : ''}>이 프롬프트로 되돌리기</button>
-        <button type="button" class="btn small" data-action="pgCopy" data-arg="${t.no}">결과 복사</button>
+        ${(t.blinds || []).length ? '' : `<button type="button" class="btn small" data-action="pgCopy" data-arg="${t.no}">결과 복사</button>`}
         <button type="button" class="btn small danger" data-action="pgDrop" data-arg="${t.no}">지우기</button></div></section>`;
 }
 

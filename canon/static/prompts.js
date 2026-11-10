@@ -38,6 +38,7 @@ function pcSetPut(d) {
   const ps = d.set;
   S.pcSetForm = { name: ps.name, kind: ps.kind, note: ps.note, changes: ps.changes.map((c) => ({ piece: c.piece, text: c.text })) };
   S.pcSetDirty = false;
+  if (S.pcSets) S.pcSets = S.pcSets.map((x) => (x.id === ps.id ? ps : x));  // 왼쪽 판 목록의 이름 · 조각 수도 맞춘다
 }
 
 /** 왼쪽 갈래 목록 (순수 함수, tests/test_prompts_page_js.py): 조립 보기가 있는 갈래를 묶음 차례로, 나머지는 '표에만' 아래에 묶음별로.
