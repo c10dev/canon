@@ -932,6 +932,45 @@ class Blueprint(BaseModel):
     note: str = Field("", description="설계 원칙 한 줄")
 
 
+class BlueprintEvidence(BaseModel):
+    """설계도 거꾸로 뽑기의 근거: 플롯의 화와 그 화 플롯에서 옮긴 구절."""
+    episode: int = Field(description="근거가 있는 화 번호")
+    quote: str = Field(description="그 화 플롯(요약 · 사건 · 감정 변화)에서 그대로 옮긴 구절")
+
+
+class MilestoneDraft(BaseModel):
+    """AI 가 플롯에서 뽑은 관계 이정표 제안. 작가가 고르면 Milestone 이 된다."""
+    source: str = Field(description="보는 인물 id")
+    target: str = Field(description="보이는 인물 id")
+    from_ep: int = Field(description="이 관계에 닿는 화 범위의 첫 화")
+    to_ep: int = Field(description="범위 끝 화")
+    stage: Literal["", RelStage] = Field("", description="닿는 관계 단계. 일곱 말에 맞는 것이 없으면 비운다")
+    label: str = Field(description="무엇이 바뀌었는지 한 줄")
+    trigger: str = Field("", description="그렇게 된 계기 한 줄")
+    evidence: list[BlueprintEvidence] = Field(default_factory=list, description="근거 화와 구절 1~3개")
+
+
+class RungDraft(BaseModel):
+    """AI 가 플롯에서 뽑은 접촉 사다리 칸 제안. 작가가 고르면 ContactRung 이 된다."""
+    label: str = Field(description="이 칸의 이름 한 줄")
+    parts: list[str] = Field(default_factory=list, description="닿는 부위 id (요청에 준 목록에서만)")
+    acts: list[str] = Field(default_factory=list, description="닿는 동작 id (요청에 준 목록에서만)")
+    layer: ContactLayer = Field("", description="옷 위 · 옷 안 · 맨살. 플롯에 없으면 비운다")
+    places: list[str] = Field(default_factory=list, description="장소 요소 id (요청에 준 목록에서만)")
+    lead: str = Field("", description="주도한 인물 id (두 인물 가운데 하나). 플롯에 없으면 비운다")
+    note: str = Field("", description="메모 한 줄")
+    from_ep: int = Field(description="이 칸에 처음 닿는 화")
+    to_ep: int = Field(description="범위 끝 화 (보통 처음 닿는 화와 같다)")
+    evidence: list[BlueprintEvidence] = Field(default_factory=list, description="근거 화와 구절 1~3개")
+
+
+class BlueprintProposal(BaseModel):
+    """플롯에서 거꾸로 뽑은 설계도 제안 (canon/blueprint.py clean_proposal 이 정리한다). 작가가 고른 줄만 설계도에 들어간다."""
+    milestones: list[MilestoneDraft] = Field(default_factory=list, description="두 방향의 관계 이정표, 화 차례")
+    rungs: list[RungDraft] = Field(default_factory=list, description="접촉 사다리 칸, 처음 닿는 화 차례")
+    reply: str = Field("", description="작가에게 하는 설명 1~3문장: 무엇을 뽑았고 무엇이 플롯에 없어 비웠는지")
+
+
 class Recap(BaseModel):
     """아크나 부가 끝난 뒤의 요약 제안."""
     summary: str = Field(description="다음 화를 쓸 때 참고할 요약")

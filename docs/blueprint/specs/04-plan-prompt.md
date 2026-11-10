@@ -1,6 +1,6 @@
 # 04. 기획 프롬프트에 설계도 넣기
 
-상태: 진행 (claude/blueprint-plan) · 계획: [plan.md](../plan.md) 의 4번 · 먼저: 1번
+상태: 끝 ([#479](https://github.com/c10dev/canon/pull/479)) · 계획: [plan.md](../plan.md) 의 4번 · 먼저: 1번
 
 ## 목표
 

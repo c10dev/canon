@@ -38,7 +38,7 @@ from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록
 from .schema import (Ability, ArcPlan, BodySuggestion, StatInitSuggestion, StatSkin, StatWindowSuggestion, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      RuleChange, RuleRun, StorylineProposal, StyleEntry, StyleProfile)
 from . import abilities, anchor, atlas, findings, foreshadows, heatplan, setupchat, stateedit, stattrial, statwin, timeline
-from .schema import AgentSession, Blueprint, ChatScope, HeatArcProposal, KnowsFoldSet, Deadline, Storyboard, StoryTime, Foreshadow, StatValue
+from .schema import AgentSession, Blueprint, MilestoneDraft, RungDraft, ChatScope, HeatArcProposal, KnowsFoldSet, Deadline, Storyboard, StoryTime, Foreshadow, StatValue
 from .schema import OffscreenSet
 from .schema import MapSpec
 from .schema import TextMaterial
@@ -2575,7 +2575,7 @@ class JobIn(BaseModel):
     board: Literal["", "make", "none"] = ""  # write: make 면 스토리보드를 새로 만든 뒤 쓴다(바로 쓰기), none 이면 스토리보드 없이 쓴다
     cues: Literal["", "none"] = ""  # write: 큐 시트를 쓰는 작품(cue.on)인데 그 화에 없으면 만든 뒤 쓴다. none 이면 큐 시트 없이 쓴다
     text: str = ""  # style: 분석할 예시 원문 (200자 이상)
-    target: str = ""  # char_body, char_voice, char_look, names_ai: 인물 id (names_ai 는 비우면 지명). illust_render: 삽화 id. aliases: 'c:<인물 id>' · 'e:<요소 id>' (비우거나 'c:' · 'e:' 면 다른 이름이 빈 항목)
+    target: str = ""  # blueprint: 두 인물 id 'a~b'. char_body, char_voice, char_look, names_ai: 인물 id (names_ai 는 비우면 지명). illust_render: 삽화 id. aliases: 'c:<인물 id>' · 'e:<요소 id>' (비우거나 'c:' · 'e:' 면 다른 이름이 빈 항목)
     place_kind: str = ""  # names_ai: 지명 종류 (target 이 비었을 때)
     selection: Selection | None = None  # illust: 그릴 부분 (비우면 AI 가 장면을 고른다)
     model: str = ""  # illust: 삽화 모델 (illust.MODELS)
@@ -2698,6 +2698,20 @@ def _job_heat(name: str, body: "JobIn", p: Project, kind: str, n: int | None, ll
 
     def fn(job: jobs.Job):
         return pipeline.propose_heat(llm, store.load(name), number, note).model_dump() | {"arc": number}
+    return label, 1, set(), fn
+
+
+def _job_blueprint(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 blueprint: 지금 플롯에서 두 인물(target 'a~b')의 설계도를 거꾸로 뽑는다. ep 는 장편 아크 번호(단편은 비움). 결과는 고르기를 기다린다."""
+    a, _, b = body.target.partition("~")
+    start, end = blueprint.extract_range(p, n or 0)
+    names = {c.id: c.name or c.id for c in p.characters}
+    label = f"{names.get(a, a)} ↔ {names.get(b, b)} 설계도 뽑기 ({start}~{end}화)"
+    arc, note = n or 0, body.note
+
+    def fn(job: jobs.Job):
+        prop = pipeline.propose_blueprint(llm, store.load(name), arc, a, b, note)
+        return prop.model_dump() | {"arc": arc, "a": a, "b": b, "start": start, "end": end}
     return label, 1, set(), fn
 
 
@@ -3156,7 +3170,7 @@ def _job_atlas_ai(name: str, body: "JobIn", p: Project, kind: str, n: int | None
 
 def _job_target(kind: str, body: "JobIn") -> str:
     """같은 종류를 대상마다 따로 돌리는 작업의 대상: 인물 id, 지적 id. 이름 고르기는 지명이면 빈 글이다."""
-    return body.target if kind in ("char_body", "char_voice", "char_look", "names_ai", "fix_one", "recheck_one", "illust_render", "aliases") else ""
+    return body.target if kind in ("char_body", "char_voice", "char_look", "names_ai", "fix_one", "recheck_one", "illust_render", "aliases", "blueprint") else ""
 
 
 def _job_plots(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
@@ -3485,6 +3499,7 @@ JOB_MAKERS: dict[str, Callable] = {
     "series": _job_series,
     "nextarc": _job_nextarc,
     "heat": _job_heat,
+    "blueprint": _job_blueprint,
     "convert": _job_convert,
     "rebuild": _job_rebuild,
     "rework": _job_rework,
@@ -3568,7 +3583,7 @@ def start_job(name: str, body: JobIn) -> dict:
 
 # 결과가 반영 전 제안인 작업. 화면이 반영하거나 버릴 때까지 pending.json 에 둔다
 # (본문 · 플롯 · 판정 같은 작업은 서버가 이미 작품에 썼다)
-PENDING_KINDS = {"arc", "heat", "suggest", "style", "series", "nextarc", "convert", "rebuild", "rework", "storyline", "recap_arc", "recap_part", "fold_knows", "offscreen", "state", "openings"}
+PENDING_KINDS = {"arc", "heat", "blueprint", "suggest", "style", "series", "nextarc", "convert", "rebuild", "rework", "storyline", "recap_arc", "recap_part", "fold_knows", "offscreen", "state", "openings"}
 
 
 def _keep_pending(name: str, kind: str, n: int | None, label: str, fn, target: str = ""):
@@ -5679,6 +5694,22 @@ def blueprint_view(name: str) -> BlueprintView:
                          parts=[BlueprintPick(id=k, label=v.label) for k, v in PARTS.items()],
                          acts=[BlueprintPick(id=k, label=v.label) for k, v in ACTS.items()],
                          last=max((e.plot.number for e in p.episodes if e.status == "finalized"), default=0))
+
+
+class BlueprintApplyIn(BaseModel):
+    """설계도 거꾸로 뽑기 제안에서 작가가 고른 줄."""
+    a: str
+    b: str
+    milestones: list[MilestoneDraft] = []
+    rungs: list[RungDraft] = []
+
+
+@app.post("/api/projects/{name}/blueprint/apply")
+def blueprint_apply(name: str, body: BlueprintApplyIn) -> Project:
+    """고른 제안 줄을 설계도에 더한다 (blueprint.apply_picks). 검사에 걸리면 400 이고 아무것도 바꾸지 않는다."""
+    p = _load(name)
+    blueprint.apply_picks(p, body.a, body.b, body.milestones, body.rungs)
+    return _save(name, p)
 
 
 @app.put("/api/projects/{name}/blueprint")

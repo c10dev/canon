@@ -75,3 +75,18 @@ def test_relationship_card_links_to_journey():
     p = _proj()
     html = run_js(FILES, "(S.name = 't', S.project = data.project, relJourney(data.project.relationships[0]))", {"project": dump(p)})
     assert "이정표 1 · 사다리 1칸" in html and "/blueprint/a~j" in html
+
+
+
+@needs_node
+def test_draft_card_and_pending_shown():
+    p = _proj()
+    draft = {"a": "a", "b": "j", "start": 1, "end": 15, "arc": 1, "reply": "뽑았어요",
+             "milestones": [{"source": "a", "target": "j", "from_ep": 2, "to_ep": 4, "stage": "경계", "label": "의심", "trigger": "", "evidence": [{"episode": 2, "quote": "눈을 피한다"}]}],
+             "rungs": [{"label": "스침", "parts": ["hand_r"], "acts": ["brush"], "layer": "옷 위", "places": [], "lead": "j", "note": "", "from_ep": 3, "to_ep": 3, "evidence": []}]}
+    html = _run("viewBlueprint()", p, {"bpSel": "a~j", "bpDraft": draft})
+    assert 'id="bp-draft"' in html and "2화 「눈을 피한다」" in html and 'data-action="bpDraftUse"' in html and "지훈 주도" in html
+    got = _run("[pendingShown({ kind: 'blueprint' }), (S.bpDraft = null, pendingShown({ kind: 'blueprint' }))]", p, {"bpDraft": draft})
+    assert got == [True, False]
+    html = _run("viewBlueprint()", p, {"bpSel": "a~d", "bpDraft": draft})
+    assert 'id="bp-draft"' not in html  # 다른 쌍 쪽에는 보이지 않는다
