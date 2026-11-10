@@ -78,7 +78,7 @@ KOREAN_LINE = "모든 출력은 한국어로 작성합니다."  # 머리말이 �
 def system_prompt(task: str, korean: bool = True) -> str:
     """머리말로 시작하는 시스템 프롬프트. task 에는 역할 문장('당신은 … 입니다') 없이 할 일만 적는다.
     korean 이면 끝에 KOREAN_LINE 을 붙인다. 본문 지시처럼 그 줄이 글 가운데 있으면 korean=False 로 부른다.
-    어느 프롬프트가 머리말을 받는지는 tests/test_style_prompts.py 의 NO_PREAMBLE 이 정한다."""
+    모든 SYSTEM_* 와 FAMILY_SYSTEM 이 머리말로 시작하는지는 tests/test_style_prompts.py 가 본다."""
     return PREAMBLE + task + (" " + KOREAN_LINE if korean else "")
 
 
