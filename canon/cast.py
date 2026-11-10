@@ -12,8 +12,8 @@ from __future__ import annotations
 import re
 from typing import Iterator, Optional
 
-from . import charlog, context, dynamics
-from .schema import CharacterState, Project, Snapshot, StateDelta
+from . import blueprint, charlog, context, dynamics
+from .schema import Character, CharacterState, Project, Snapshot, StateDelta
 
 STATE_FIELDS = ("emotional_state", "current_goal", "location", "attire")
 # 나이 칸으로 미성년을 가리는 말. static/cast.js 의 isMinorAge 와 같은 규칙이라 함께 고친다
@@ -28,6 +28,36 @@ def is_minor_age(age: str) -> bool:
         return True
     m = re.search(r"\d+", a)
     return bool(m) and int(m.group()) < 19
+
+
+_BODY_SPLIT = re.compile(r"[,，·/;\n]+")
+
+
+def body_items(text: str) -> list[str]:
+    """신체 특징 칸을 낱말 묶음으로: 쉼표 · 가운뎃점 · 빗금 · 줄바꿈으로 나누고 두 글자 미만은 뺀다."""
+    return [x.strip() for x in _BODY_SPLIT.split(text or "") if len(x.strip()) >= 2]
+
+
+def body_cast(p: Project, n: int) -> list[Character]:
+    """n 화 요청에 신체 프로필(체형 · 특징)을 넣을 인물, 플롯 인물 차례 (docs/blueprint/specs/09-body.md).
+    그 화 플롯 인물 가운데 (1) 설계도 사다리 계획 칸이 옷 안 · 맨살인 쌍(blueprint.exposed), (2) 특징 낱말 하나가 그 화 플롯이나 연출 지시에 그대로 나온 인물.
+    미성년 인물(is_minor_age)과 체형 · 특징이 모두 빈 인물은 뺀다."""
+    e = next((x for x in p.episodes if x.plot.number == n), None)
+    if e is None:
+        return []
+    arc = p.arc_for(n) if p.serial else None
+    pl = e.plot
+    text = "\n".join([pl.title, pl.summary, *pl.events, pl.opening, pl.emotional_shift, pl.ending_hook, e.direction, arc.direction if arc else ""])
+    shown = blueprint.exposed(p, n)
+    by_id = {c.id: c for c in p.characters}
+    out = []
+    for cid in dict.fromkeys(pl.characters):
+        c = by_id.get(cid)
+        if c is None or is_minor_age(c.age) or not (c.body.build.strip() or c.body.features.strip()):
+            continue
+        if cid in shown or any(w in text for w in body_items(c.body.features)):
+            out.append(c)
+    return out
 
 
 def _sim(p: Project, snap: Snapshot) -> Project:

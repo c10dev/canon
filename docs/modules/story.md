@@ -268,6 +268,7 @@
 - `check` 는 디스크 작품에서 이미 끊겨 있던 인물 · 장소 참조는 막지 않는다(`validate_characters` 와 같은 방식)
 - 범위를 적은 사다리 칸끼리는 칸 차례대로 처음 닿는 화가 줄지 않아야 한다
 - 계획 칸 `planned_rung(ladder, n)`: 처음 닿는 화가 n 화 이하인 칸 가운데 차례가 가장 뒤. 쌍 찾기 `ladder`
+- 몸이 드러나는 쌍 `exposed(p, n)`: 그 화 플롯 인물끼리, 처음 닿는 화가 n 화 이하인 칸 가운데 겹이 옷 안 · 맨살(`BODY_LAYERS`)인 칸이 있는 쌍의 두 인물. 뒤 칸이 옷 위여도 이어진다
 - 화 끼워 넣기 · 빼기 `move`(`renumber.move_points` 가 부름): 범위 안에 넣으면 범위가 늘고, 끝 화를 빼면 범위가 준다
 - 재구성 `remap`(`reshape` 가 부름): 옮기지 못한 범위는 비우고 알림에 적는다
 - 이정표 경고 `warnings`(막지 않음): 이웃한 두 이정표 사이 칸 모자람, 범위가 겹치는데 단계가 다름, 지금 단계에서 다음 이정표까지 칸 모자람
@@ -279,6 +280,7 @@
 - 기획 프롬프트 줄 `plan_lines(p, ids, start, end)`: 화 범위를 적은 줄만, 범위에 걸린 이정표 · 사다리 칸과 그 뒤 첫 것. 두 인물이 모두 ids 에 들 때만
 - 사다리 칸 한 줄 `rung_text`: '차례. 이름 (겹 · 부위 · 동작 · 장소 · 주도 · 메모)', 부위 · 동작은 장면 연출의 이름
 - 스토리보드 · 쓰기 · 검수 요청의 설계도 줄은 `prompts.blueprint_board_rule` · `blueprint_write_line` · `blueprint_check_rule`(그 화 플롯 인물끼리만)
+- 같은 요청의 신체 특징 줄은 `prompts.body_rule` · `body_check_rule`(인물 고르기 `cast.body_cast`)
 - 거꾸로 뽑기 범위 `extract_range`: 장편은 아크 하나, 단편은 플롯이 있는 첫 화부터 마지막 화까지
 - AI 로 짜기 범위 `draft_range`: 장편은 부 하나(0 이면 작품 전체), 단편은 1화부터 작품 화수까지
 - AI 제안 정리 `clean_proposal`(`BlueprintProposal`): 두 인물 사이 줄만, 화 범위를 자르고 모르는 id · 쌍 밖 주도 인물 · 범위 밖 근거를 뺀다
@@ -316,6 +318,8 @@
 - 지워진 화의 상태 재계산 `_apply_gap` 은 `pipeline.apply_delta` 처럼 `cleared` 칸을 비운다
 - 인물별 등장 화
 - 화별 타임라인
+- 신체 프로필을 요청에 넣을 인물 `body_cast(p, n)`: 그 화 플롯 인물 가운데 `blueprint.exposed` 이거나 특징 낱말(`body_items`)이 플롯 · 연출 지시에 그대로 나온 인물
+- `body_cast` 는 미성년 인물(`is_minor_age`)과 체형 · 특징이 빈 인물을 뺀다. 넣는 칸은 체형 · 특징뿐이다
 - 명령줄 `cast` 출력
 - 반영 때 본문에 이름이 나오고 상태 변경안이 다룬 인물을 그 화 등장 인물에 붙이기(`cast_to_add`, features 훅 `clean_delta` · `apply_delta` · `revert`, 기록 `StateDelta.cast_added`, 상태 승인 화면은 `review.js` `castAdd`)
 - LLM 호출 없음
@@ -802,6 +806,7 @@
     - 상태창 칸 모양은 `statwin.js` `swStatsBody` 와 같이 쓴다
     - 고치기 `S.castEdit`: AI에 넣기 `charContextField` · 서술 말투 `plot.js` `voiceField` · 신체 프로필 `bodyFields` · 삽화 외형 태그 `illust.js` `visualFields`
     - AI 제안 동작은 `research.js` `bodyAI`
+    - 신체 프로필 안내는 몸이 드러나는 화에만 AI에 넣는다고 알린다(미성년 인물은 넣지 않는다고)
   - 타임라인(앞뒤 `CAST_TL_NEAR` 화)
 - 두 사람 쪽 `castPairDetail`(추이 그래프 · 보정 · 호칭)
 - 관계 보정 `tieFix` 는 저장하지 않은 변경이 있으면 저장하고 보정할지 먼저 묻는다

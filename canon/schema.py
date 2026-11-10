@@ -74,7 +74,8 @@ class WorldSetting(BaseModel):
 
 
 class CharacterBody(BaseModel):
-    """신체 프로필. 작가가 정하고 인물 카드에만 보인다. 프롬프트에 넣지 않고 AI 응답 형식에서도 뺀다 (Character.body)."""
+    """신체 프로필. 작가가 정하고 AI 응답 형식에서 뺀다 (Character.body). 평소 프롬프트에 넣지 않는다.
+    체형 · 특징만 몸이 드러나는 화(설계도 사다리 옷 안 · 맨살, 특징 낱말이 플롯 · 연출 지시에 나옴)의 스토리보드 · 쓰기 · 검수에 넣는다 (cast.body_cast, docs/blueprint/specs/09-body.md)."""
     height: str = ""
     weight: str = ""
     build: str = ""

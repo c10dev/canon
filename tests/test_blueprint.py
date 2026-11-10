@@ -368,6 +368,75 @@ def test_episode_requests_carry_lines_at_the_end():
     assert "설계도" not in prompts.storyboard_prompt(empty, 4) and "설계도" not in prompts.episode_prompt(empty, 4)
 
 
+# ---------- 신체 특징을 몸이 드러나는 화에만 (specs/09-body.md) ----------
+
+def _body_project():
+    """hero ↔ ally 사다리: 1~2화 옷 위, 4~5화 맨살, 7화 옷 위. ally 에 신체 프로필, hero 는 체형만."""
+    p = _ep_project()
+    p.blueprint.milestones = []
+    p.blueprint.ladders = [ContactLadder(a="hero", b="ally", rungs=[ContactRung(label="손목", layer="옷 위", from_ep=1, to_ep=2),
+                                                                    ContactRung(label="가슴", layer="맨살", from_ep=4, to_ep=5),
+                                                                    ContactRung(label="포옹", layer="옷 위", from_ep=7, to_ep=7)])]
+    for c in p.characters:
+        c.age = "24"
+    ally = next(c for c in p.characters if c.id == "ally")
+    ally.body.build, ally.body.features = "마른 편", "함몰유두, 왼쪽 쇄골 아래 점"
+    ally.body.measurements = "84-58-86"
+    next(c for c in p.characters if c.id == "hero").body.build = "어깨가 넓다"
+    return p
+
+
+def test_body_follows_planned_layer():
+    from canon import blueprint, cast, prompts
+    p = _body_project()
+    assert blueprint.exposed(p, 3) == set() and blueprint.exposed(p, 4) == {"hero", "ally"}
+    assert blueprint.exposed(p, 8) == {"hero", "ally"}  # 맨살에 한 번 닿으면 뒤 칸(7화 옷 위)이 지나도 받는다
+    assert cast.body_cast(p, 1) == [] and prompts.body_rule(p, 2) == ""  # 옷 위 칸만이면 넣지 않는다
+    rule = prompts.body_rule(p, 4)
+    assert "[신체 특징 (작가가 정한 설정, 바뀌지 않음)]" in rule
+    assert "체형 마른 편 · 특징 함몰유두, 왼쪽 쇄골 아래 점" in rule and "체형 어깨가 넓다" in rule
+    assert "84-58-86" not in rule  # 쓰리사이즈는 넣지 않는다
+    assert "본문이 몸을 이와 다르게 묘사하면 짚습니다" in prompts.body_check_rule(p, 4) and prompts.body_check_rule(p, 3) == ""
+    p.episode(4).plot.characters = ["ally"]
+    assert prompts.body_rule(p, 4) == ""  # 두 인물이 이 화 플롯에 함께 있을 때만
+
+
+def test_body_by_plot_or_direction_words():
+    from canon import cast
+    p = _body_project()
+    p.episode(2).plot.summary = "샤워 뒤 함몰유두를 숨기려 한다"
+    assert [c.id for c in cast.body_cast(p, 2)] == ["ally"]  # 낱말이 나온 인물만, 사다리와 상관없이
+    p.episode(2).plot.summary = ""
+    p.episode(2).direction = "쇄골 아래 점이 처음 보인다"
+    assert cast.body_cast(p, 2) == []  # 낱말 묶음 그대로 나와야 한다
+    p.episode(2).direction = "왼쪽 쇄골 아래 점이 처음 보인다"
+    assert [c.id for c in cast.body_cast(p, 2)] == ["ally"]
+
+
+def test_body_skips_minor_and_empty():
+    from canon import cast
+    p = _body_project()
+    next(c for c in p.characters if c.id == "ally").age = "17"
+    assert [c.id for c in cast.body_cast(p, 4)] == ["hero"]  # 미성년 인물은 넣지 않는다
+    next(c for c in p.characters if c.id == "hero").body.build = ""
+    assert cast.body_cast(p, 4) == []  # 체형 · 특징이 빈 인물은 넣지 않는다
+
+
+def test_body_rule_in_episode_requests():
+    from canon import prompts
+    p = _body_project()
+    board = prompts.storyboard_prompt(p, 4)
+    assert board.rstrip().endswith("어긋나게 쓰지 않습니다.")  # 스토리보드 요청 맨 끝
+    write = prompts.episode_prompt(p, 4)
+    assert "[신체 특징" in write and write.index("[신체 특징") > write.index("위 자료를 바탕으로")  # 지시문 꼬리
+    assert "[신체 특징" not in prompts.episode_prompt(p, 3) and "[신체 특징" not in prompts.storyboard_prompt(p, 3)
+    assert "[신체 특징" in prompts.episode_brief(p, 4)  # 작업지시서도 같은 프롬프트
+    p.episode(4).text, p.episode(4).status = "본문", "written"
+    name = next(c for c in p.characters if c.id == "ally").name
+    check = prompts.check_prompt(p, 4)
+    assert "- 신체 특징(작가가 정한 설정): " in check and f"{name}: 체형 마른 편 · 특징 함몰유두" in check  # 검수 요구사항
+
+
 # ---------- 실제로 닿은 칸 (specs/07-contact.md) ----------
 
 def _contact_project():

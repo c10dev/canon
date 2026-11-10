@@ -423,7 +423,7 @@ function castTimeline(c) {
 }
 
 // ----- 인물 카드 -----
-// 신체 프로필 칸 (Character.body). 작가가 정하고(AI 제안은 칸별로 골라 적용) 인물 카드에만 보인다. 프롬프트에는 넣지 않는다
+// 신체 프로필 칸 (Character.body). 작가가 정하고(AI 제안은 칸별로 골라 적용) 인물 카드에 보인다. 체형 · 특징만 몸이 드러나는 화의 요청에 들어간다 (cast.body_cast)
 const BODY_FIELDS = [['height', '키'], ['weight', '몸무게'], ['build', '체형'], ['measurements', '쓰리사이즈'], ['features', '신체 특징']];
 
 /** 나이 칸으로 미성년인지. cast.is_minor_age 와 같은 규칙이라 함께 고친다 (tests/test_cast_js.py). 19 미만 숫자, 10대, 학생 · 아이 같은 말이면 미성년이다. 모르면 false.
@@ -600,14 +600,14 @@ function bodyFields(c, b) {
   const minor = isMinorAge(c.age);
   const filled = bodyRows(c).length;
   const open = (S.bodySug || {})[c.id] || (S.bodyOpen || {})[c.id];  // 제안을 받거나 적용한 뒤 다시 그려도 펼친 채로
-  return `<details${open ? ' open' : ''}><summary>신체 프로필 <span class="small">${filled ? `· ${filled}칸 채움 ` : ''}· 인물 카드에만 보여요</span></summary><div style="display:flex;flex-direction:column;gap:10px;padding-top:8px">
+  return `<details${open ? ' open' : ''}><summary>신체 프로필 <span class="small">${filled ? `· ${filled}칸 채움 ` : ''}· ${minor ? 'AI에 넣지 않아요' : '몸이 드러나는 화에만 AI에 넣어요'}</span></summary><div style="display:flex;flex-direction:column;gap:10px;padding-top:8px">
     <div class="grid-2">${input('키', b + '.body.height', { placeholder: '예: 165cm' })}${input('몸무게', b + '.body.weight', { placeholder: '예: 48kg' })}</div>
     <div class="grid-2">${input('체형', b + '.body.build', { placeholder: '예: 마른 근육형' })}${minor ? '' : input('쓰리사이즈', b + '.body.measurements', { placeholder: '예: 84-58-86' })}</div>
     ${minor ? '<div class="small">나이로 보아 미성년 인물이라 쓰리사이즈 칸은 두지 않아요.</div>' : ''}
     ${input('신체 특징', b + '.body.features', { rows: 2, placeholder: '예: 왼손잡이, 오른쪽 어깨에 화상 자국' })}
     <div class="row"><button type="button" class="btn small" data-action="bodyAI" data-arg="${esc(c.id)}">AI 제안 받기</button><span class="small">설정에 맞춰 칸을 제안해요. 고른 칸만 적용해요${minor ? ' · 쓰리사이즈는 제안하지 않아요' : ''}</span></div>
     ${bodySuggestCard(c)}
-    <div class="small">AI 프롬프트에는 넣지 않아요. 본문에 이어지게 할 외모는 설정 도우미의 '외모' 칸에 적어요.</div></div></details>`;
+    <div class="small">${minor ? '미성년 인물이라 AI 프롬프트에는 넣지 않아요.' : "평소에는 AI 프롬프트에 넣지 않아요. 체형과 신체 특징만, 설계도 접촉 사다리가 '옷 안' · '맨살'에 닿은 화나 특징 낱말이 그 화 플롯 · 연출 지시에 나온 화의 스토리보드 · 본문 · 검수에 넣어요."} 늘 보일 외모는 설정 도우미의 '외모' 칸에 적어요.</div></div></details>`;
 }
 
 /** 신체 프로필 AI 제안: 칸별로 지금 값과 비교해 고른다. 비어 있는 칸만 기본으로 고른다 */
@@ -662,7 +662,7 @@ function castEditCard(c) {
     <dl class="pf-dl">
       <dt>AI에 넣기</dt><dd>${esc(CHAR_CTX.find(([k]) => k === ctx)[1])}<div class="small">${esc(CHAR_CTX_HINT[ctx])}</div></dd>
       <dt>서술 말투</dt><dd>${c.narration_voice ? esc(c.narration_voice) : none}<div class="small">${povs ? `이 인물이 시점 인물인 ${povs}화의 지문에 넣어요` : '이 인물이 시점 인물인 화가 아직 없어요'}</div></dd>
-      <dt>신체</dt><dd>${body ? esc(body) : none}<div class="small">인물 카드에만 보여요 · AI에 넣지 않아요</div></dd>
+      <dt>신체</dt><dd>${body ? esc(body) : none}<div class="small">${isMinorAge(c.age) ? 'AI에 넣지 않아요' : '체형 · 신체 특징만 몸이 드러나는 화에 AI에 넣어요'}</div></dd>
       <dt>삽화 태그</dt><dd>${look ? `<span class="mono">${esc(look)}</span>` : none}</dd>
     </dl></section>`;
 }

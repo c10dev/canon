@@ -124,6 +124,20 @@ def planned_rung(lad: ContactLadder, n: int) -> Optional[ContactRung]:
     return next((r for r in reversed(lad.rungs) if 0 < r.from_ep <= n), None)
 
 
+BODY_LAYERS = ("옷 안", "맨살")  # 몸이 드러나는 겹 (docs/blueprint/specs/09-body.md)
+
+
+def exposed(p: Project, n: int) -> set[str]:
+    """n 화 플롯 인물끼리, 처음 닿는 화가 n 화 이하인 사다리 칸 가운데 옷 안 · 맨살 겹이 하나라도 있는 쌍의 두 인물 id.
+    한 번 그 겹에 닿으면 뒤 칸이 옷 위여도 그 뒤 화까지 이어진다. 신체 프로필을 요청에 넣을지 고르는 재료다 (cast.body_cast)."""
+    who = set(p.episode(n).plot.characters)
+    out: set[str] = set()
+    for lad in p.blueprint.ladders:
+        if lad.a in who and lad.b in who and any(r.layer in BODY_LAYERS for r in lad.rungs if 0 < r.from_ep <= n):
+            out |= {lad.a, lad.b}
+    return out
+
+
 def move(p: Project, f: Callable[[int], int], gone: int = 0) -> int:
     """화 끼워 넣기 · 빼기 (renumber.move_points). f 는 한 화 번호를 옮기는 함수, gone 은 빼는 화.
     범위의 끝 화가 빠지면 범위가 한 칸 준다. 범위가 그 한 화뿐이면 그 자리에 온 다음 화를 가리킨다. 고친 줄 수를 돌려준다."""

@@ -1,4 +1,4 @@
-"""인물 신체 프로필(Character.body): 작가만 채우고 인물 카드에만 보인다. AI 응답 형식과 프롬프트에는 들어가지 않는다."""
+"""인물 신체 프로필(Character.body): 작가만 채운다. AI 응답 형식에는 들어가지 않고, 프롬프트에는 몸이 드러나는 화에만 체형 · 특징이 들어간다 (test_blueprint 의 신체 특징 시험)."""
 import json
 
 from canon import prompts
