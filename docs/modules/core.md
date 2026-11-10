@@ -699,6 +699,8 @@
 - 스토리보드 요청 맨 끝(`plan_board_rule` 뒤)에 이번 화 설계도 `blueprint_board_rule`: 지금 칸 · 처음 닿는 범위인 칸 · 넣지 않을 다음 칸 · 이 화가 든 이정표
 - 쓰기 지시문(중심 장면 줄 뒤)에 `blueprint_write_line`: 그 화가 사다리 칸의 처음 닿는 범위일 때만 한 줄. 상한은 넣지 않는다
 - 검수 요구사항(관계 단계 확인 뒤)에 `blueprint_check_rule`: 다음 칸을 앞당긴 본문을 짚는다(type 플롯)
+- 스토리보드 요청 끝(`blueprint_board_rule` 뒤)과 쓰기 지시문(`blueprint_write_line` 뒤)에 신체 특징 블록 `body_rule`. 넣을 인물은 `cast.body_cast`
+- 검수 요구사항(`blueprint_check_rule` 뒤)에 `body_check_rule`: 같은 인물의 신체 특징과 다른 몸 묘사를 짚는다(type 사실)
 - 상태 변경안 요구사항(호칭 · 말씨 뒤)에 `blueprint.state_rule`: 그 화 인물끼리 아직 닿지 않은 사다리 칸 목록과 `contacts` 적는 법
 - `StateDelta.contacts`(`ContactReach`)는 작가가 골라야 기록되고(`features.APPLY_LAST`), 사람 검토 없는 반영은 `contact_held` 로 남겨 둔다(`features.HOLD`)
 - 장편 화별 플롯 초안(`serial_plot_prompt`)과 장편 플롯 대화(`_serial_plot_parts`)는 접은 줄거리 뒤에 확정 사실 · 주역 상태 · 주역 밖 인물 상태를 넣는다(`plot_facts_states`)
@@ -803,7 +805,8 @@
 - pydantic 데이터 스키마
 - 모든 상태는 `Project` 하나(`project.json`)에 저장
 - 스타일 프로필 효과음 표기(`StyleProfile.sound_effects`)는 글 칸이다. 대화 변경안 칸(`StyleKey`)과 `pipeline.STYLE_TEXT_KEYS` 에도 있다
-- 인물 신체 프로필(`Character.body`)은 작가 메모라 AI 응답 형식(`SkipJsonSchema`)과 프롬프트(`llm.dump` 의 context `prompt`)에서 빠진다
+- 인물 신체 프로필(`Character.body`)은 작가 메모라 AI 응답 형식(`SkipJsonSchema`)과 평소 프롬프트(`llm.dump` 의 context `prompt`)에서 빠진다
+- 체형 · 특징만 몸이 드러나는 화의 스토리보드 · 쓰기 · 검수 요청에 들어간다(`prompts.body_rule` · `body_check_rule`, `docs/blueprint/specs/09-body.md`)
 - 이 칸을 다루는 AI 호출은 신체 프로필 제안(`pipeline.suggest_body`)뿐이다
 - 미성년(`cast.is_minor_age`)이면 쓰리사이즈를 제안하지 않는다
 - 인물 프롬프트 넣기(`Character.context`: auto 비중대로 · always 늘 · off 이름만)도 작가 전용이라 같은 방식으로 빠진다
