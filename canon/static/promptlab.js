@@ -1,5 +1,5 @@
 /* 프롬프트 놀이터 (작품 밖 화면 #/promptlab[/<세션 id>]). 서버는 canon/promptlab.py · research.sample, 엔드포인트는 /api/promptlab.
-   시스템 · 요청 프롬프트를 직접 써서 고른 백엔드(gemini · local · mock)로 돌리고, 결과 · 시간 · 토큰 · 어림 비용을 시도로 남겨 견준다.
+   시스템 · 요청 프롬프트를 직접 써서 고른 백엔드(Gemini · 로컬 · Claude · mock)로 돌리고, 결과 · 시간 · 토큰 · 어림 비용을 시도로 남겨 견준다.
    프롬프트 칸은 S.pgForm 에 고치고, 칸을 벗어날 때(change) 조용히 저장한다. 돌리기는 고친 칸을 함께 보내 서버가 먼저 저장한다.
    '불러오기'는 Canon 프롬프트(작업지시서와 같은 조립, prompts.brief_parts)를 예시 작품이나 고른 작품으로 조립해 칸에 채운다. 고르기 칸은 S.pgSrc. */
 'use strict';
@@ -87,7 +87,7 @@ function pgSourceLabel(src, edited) {
   return src ? `${src.label}${edited ? ' (고침)' : ''}` : '';
 }
 
-const PG_PROV = { gemini: 'Gemini', local: '로컬', mock: '가짜 응답(mock)' };
+const PG_PROV = { gemini: 'Gemini', local: '로컬', claude: 'Claude 구독', 'claude-api': 'Claude API', mock: '가짜 응답(mock)' };
 
 function viewPromptLab() {
   return S.pg ? pgSession() : pgHome();
@@ -121,7 +121,7 @@ function pgSession() {
   const head = header('프롬프트 놀이터', s.title, `시도 ${s.trials.length}개${total}`, right);
   const trials = pgOrder(s.trials);
   return `${head}<div class="cols"><div class="col">${pgForm()}</div><div class="col wide">${trials.length ? trials.map(pgTrialCard).join('')
-    : '<section class="card empty"><h2>아직 시도가 없어요</h2><p class="small">프롬프트를 적고 머리의 \'돌리기\'를 누르면 고른 백엔드마다 차례로 보내 결과를 여기에 남겨요.</p></section>'}</div></div>`;
+    : '<section class="card empty"><h2>아직 시도가 없어요</h2><p class="small">프롬프트를 적고 머리의 \'돌리기\'를 누르면 고른 백엔드에 동시에 보내 결과를 여기에 남겨요.</p></section>'}</div></div>`;
 }
 
 // ----- 프롬프트 칸 -----
@@ -147,11 +147,11 @@ function pgForm() {
       ${input('요청 프롬프트', 'prompt', { ...o, rows: 8, autogrow: true, placeholder: '모델에게 보낼 요청' })}
       ${lim.policyNote ? `<p class="small">Gemini · 로컬은 보낼 때 요청 끝에 이 한 줄을 붙여요. Canon의 모든 AI 요청에 붙는 줄이라 칸에는 넣지 않아요: <code>${esc(lim.policyNote)}</code></p>` : ''}
       <div class="small">시스템 ${(f.system || '').length.toLocaleString()}자 · 요청 ${(f.prompt || '').length.toLocaleString()}자 (한국어는 대략 1.7자에 1토큰)</div>
-      ${input('온도', 'temp', { ...o, type: 'number', kind: 'text', placeholder: '비우면 설정 값', hint: `${lo}~${hi}, Gemini · 로컬에 적용` })}
+      ${input('온도', 'temp', { ...o, type: 'number', kind: 'text', placeholder: '비우면 설정 값', hint: `${lo}~${hi}, Gemini · 로컬에 적용 (Claude는 온도를 받지 않아요)` })}
       <h3>돌릴 백엔드</h3>${rows || '<p class="small">아직 백엔드가 없어요.</p>'}
       <div class="row"><button type="button" class="btn small" data-action="pgBackendAdd"${more ? '' : ' disabled title="더 넣을 수 없어요"'}>+ 백엔드</button>
         <button type="button" class="btn small${S.pgDirty ? ' primary' : ''}" data-action="pgSave">저장</button></div>
-      <p class="small">백엔드는 차례로 불러요. Gemini는 사용량 · 비용에 '프롬프트 놀이터'로 잡혀요.</p>
+      <p class="small">백엔드는 동시에 불러요. 사용량 · 비용에는 '프롬프트 놀이터'로 잡혀요.</p>
     </section>`;
 }
 
@@ -307,7 +307,7 @@ Object.assign(actions, {
   },
   async pgRun() {
     const n = S.pgForm.backends.length;
-    await run(n > 1 ? `백엔드 ${n}곳에 차례로 보내는 중…` : '돌리는 중…', async () => {
+    await run(n > 1 ? `백엔드 ${n}곳에 동시에 보내는 중…` : '돌리는 중…', async () => {
       pgSet(await api('POST', `/promptlab/${enc(S.pg.id)}/run`, pgBody(S.pgForm)));
       const t = S.pg.trials[S.pg.trials.length - 1];
       const bad = t ? t.runs.filter((r) => !r.ok).length : 0;

@@ -1,7 +1,8 @@
 """프롬프트 놀이터: 시스템 · 요청 프롬프트를 직접 써서 여러 백엔드로 돌리고, 결과 · 시간 · 토큰 · 어림 비용을 시도로 남겨 견준다.
 
 작품(project.json)과 상관없고 세션 파일 <CANON_HOME>/.promptlab/<id>.json 에 둔다 (CANON_PROMPTLAB 으로 경로 변경, 문단 연습장처럼 작품 밖).
-호출은 연구 화면의 샘플 생성(research.sample)을 그대로 쓴다. 백엔드는 gemini · local · mock 이고, 한 쪽이 실패해도 나머지는 돌린다.
+호출은 연구 화면의 샘플 생성(research.sample)을 그대로 쓴다. 백엔드는 gemini · local · claude · claude-api · mock 이고,
+동시에 부르며, 한 쪽이 실패해도 나머지는 돌린다.
 '불러오기'는 Canon 의 실제 프롬프트를 작업지시서와 같은 함수(prompts.brief_parts)로 조립해 칸에 채운다.
 재료는 예시 작품(mock LLM 으로 만든, 저장하지 않는 작품)이나 작가가 고른 작품이고, 작품은 읽기만 한다.
 시도마다 그때의 프롬프트를 함께 남겨, 고치기 전 판으로 되돌아가거나 판끼리 견줄 수 있다.
@@ -21,8 +22,8 @@ from .schema import Project, PromptBackend, PromptRun, PromptSession, PromptSour
 
 ID_RE = re.compile(r"^[0-9a-f]{8,32}$")
 NAME_RE = re.compile(r'^[^/\\.:*?"<>|][^/\\:*?"<>|]{0,63}$')  # 작품 폴더 이름 (web.NAME_RE 와 같다)
-PROVIDERS = ("gemini", "local", "mock")
-MAX_BACKENDS = 4  # 한 번에 돌리는 백엔드 수. 차례로 부르므로 많으면 오래 걸린다
+PROVIDERS = research.PROVIDERS  # claude 는 Claude Code 구독 로그인, claude-api 는 Anthropic API 키
+MAX_BACKENDS = 4  # 한 번에 돌리는 백엔드 수. 동시에 부르므로 가장 느린 백엔드만큼 걸린다
 MAX_TRIALS = 40  # 세션마다 남기는 시도. 저절로 지우지 않고, 차면 작가가 지울 시도를 고른다
 TEXT_MAX = 300000  # 시스템 · 요청 프롬프트 한 칸의 글자 수 상한 (검수 프롬프트는 앞 화 본문을 다 넣어 길다)
 TITLE_MAX = 60
@@ -85,7 +86,7 @@ def clean_backends(bs: list[PromptBackend]) -> list[PromptBackend]:
     for b in bs:
         b = PromptBackend(provider=b.provider.strip(), model=b.model.strip(), url=b.url.strip() if b.provider.strip() == "local" else "")
         if b.provider not in PROVIDERS:
-            raise ValueError(f"알 수 없는 백엔드예요: {b.provider} (gemini · local · mock)")
+            raise ValueError(f"알 수 없는 백엔드예요: {b.provider} ({' · '.join(PROVIDERS)})")
         if b not in out:
             out.append(b)
     if len(out) > MAX_BACKENDS:
@@ -214,7 +215,7 @@ def run_spec(s: PromptSession) -> dict:
 
 
 def run(s: PromptSession) -> list[PromptRun]:
-    """지금 프롬프트를 고른 백엔드마다 차례로 보낸다. 세션은 바꾸지 않는다 (저장 직전에 다시 읽어 add_trial 로 붙인다).
+    """지금 프롬프트를 고른 백엔드마다 동시에 보낸다. 세션은 바꾸지 않는다 (저장 직전에 다시 읽어 add_trial 로 붙인다).
     불러온 갈래가 있으면 실제 호출처럼 구조화 출력 · 그 단계의 모델과 추론 강도 · 출력 한도로 돌린다 (run_spec)."""
     can_run(s)
     spec = run_spec(s)

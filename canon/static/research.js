@@ -12,7 +12,7 @@ const RS_SECS = [
   { k: 'probe', label: '서버 점검', group: '준비', q: '로컬 서버에 어떤 모델이 있고 컨텍스트가 얼마인지 봐요',
     desc: 'OpenAI 호환 서버(vLLM, Ollama, llama.cpp, LM Studio)의 모델 목록과 컨텍스트 길이를 봐요. 생성 호출은 하지 않아요.' },
   { k: 'sample', label: '샘플 생성', group: '실험', q: '같은 요청을 모델마다 어떻게 쓰는지 봐요',
-    desc: '같은 요청을 여러 백엔드에 차례로 보내 시간, 토큰, 문체 지표를 나란히 봐요. 작품 데이터는 쓰지 않아요.' },
+    desc: '같은 요청을 여러 백엔드에 동시에 보내 시간, 토큰, 문체 지표를 나란히 봐요. 작품 데이터는 쓰지 않아요.' },
   { k: 'stage', label: '단계 시험', group: '실험', q: '모델이 설정 · 문체 · 기승전결 형식을 지키는지 봐요',
     desc: '설정 제안, 문체 분석, 기승전결을 저장하지 않고 돌려 봐요. 건너뛴 칸, 범위를 벗어난 숫자, 다시 물은 횟수를 확인해요.' },
   { k: 'budget', label: '컨텍스트 크기', group: '실험', q: '몇 화부터 프롬프트가 모델 한도를 넘는지 봐요',
@@ -33,9 +33,11 @@ function rsInit(name) {
   const c = S.config || {};
   const backend = () => ({ provider: c.provider === 'mock' ? 'mock' : 'local', model: '', url: '' });  // 모델 · 주소가 비면 설정값 (칩 '설정값'과 같다)
   // 비교 A 는 설정의 본문 쓰기 백엔드, B 는 그와 다른 백엔드 (같으면 서버가 거절한다)
+  // Gemini 끼리면 B 는 작가가 쓰는 Claude, 없으면 로컬. Claude 나 로컬이 A 면 B 는 Gemini
   const writeProv = ((c.stages || {}).write || {}).provider || c.provider || 'gemini';
-  const cmpA = { provider: ['gemini', 'local', 'mock'].includes(writeProv) ? writeProv : 'gemini', model: '', url: '' };
-  const cmpB = { provider: cmpA.provider === 'local' ? 'gemini' : 'local', model: '', url: '' };
+  const cmpA = { provider: RS_PROV[writeProv] ? writeProv : 'gemini', model: '', url: '' };
+  const claude = rsClaudeKinds(c)[0];
+  const cmpB = { provider: cmpA.provider !== 'gemini' ? 'gemini' : (claude || 'local'), model: '', url: '' };
   S.rs = {
     name, tab: 'home', log: [], latest: {}, openCmp: [], stages: {}, probe: null, probeUrl: c.local_url || '',
     runs: [backend()], system: '너는 한국어 소설가다.', prompt: '', temperature: '',
@@ -83,7 +85,17 @@ const rsBackend = (b) => ({ provider: b.provider, model: (b.model || '').trim(),
 const rsLabel = (b) => (b.model ? `${b.provider}:${b.model}` : b.provider);
 const rsKey = (b) => `${b.provider}|${(b.model || '').trim()}|${(b.url || '').trim()}`;
 const rsNum = (v, d = 0) => (v == null ? '-' : Number(v).toLocaleString(undefined, { maximumFractionDigits: d }));
-const RS_PROV = { gemini: 'Gemini', local: '로컬', mock: 'mock' };
+const RS_PROV = { gemini: 'Gemini', local: '로컬', claude: 'Claude 구독', 'claude-api': 'Claude API', mock: 'mock' };
+const RS_KINDS = Object.keys(RS_PROV);
+
+/** 설정에서 쓰는 Claude 백엔드: 구독은 전체 · 단계 백엔드로 고르거나 실행 파일을 적었을 때, API 키는 키가 있거나 고르고 있을 때. 순수 함수 */
+function rsClaudeKinds(config = {}) {
+  const used = [config.provider, ...Object.values(config.stages || {}).map((x) => (x || {}).provider)];
+  const out = [];
+  if (used.includes('claude') || config.claude_bin) out.push('claude');
+  if (used.includes('claude-api') || config.anthropic_key_hint) out.push('claude-api');
+  return out;
+}
 
 /** 기록의 백엔드 이름('local:qwen3-32b', 'gemini')을 백엔드로 */
 function rsParse(label) {
@@ -94,7 +106,7 @@ function rsParse(label) {
 }
 
 /** 고를 수 있는 백엔드 칩: 설정값 · 서버 점검에서 본 모델 · 기록에 남은 백엔드. 같은 것은 한 번만. 순수 함수(tests/test_research_js.py) */
-function rsCands({ config = {}, probe = null, probeUrl = '', log = [], kinds = ['gemini', 'local', 'mock'] } = {}) {
+function rsCands({ config = {}, probe = null, probeUrl = '', log = [], kinds = RS_KINDS } = {}) {
   const out = [];
   const add = (b, sub) => {
     if (!b || !kinds.includes(b.provider) || out.some((x) => rsKey(x.b) === rsKey(b))) return;
@@ -103,6 +115,7 @@ function rsCands({ config = {}, probe = null, probeUrl = '', log = [], kinds = [
   if (config.provider === 'mock') add({ provider: 'mock' }, 'mock · 가짜 응답');
   add({ provider: 'gemini' }, `Gemini · 설정값${config.model_setting ? ` ${config.model_setting}` : ''}`);
   add({ provider: 'local' }, `로컬 · 설정값${config.local_model ? ` ${config.local_model}` : ''}`);
+  rsClaudeKinds(config).forEach((k) => add({ provider: k }, `${RS_PROV[k]} · 설정값${config.claude_model ? ` ${config.claude_model}` : ''}`));
   const url = probeUrl.trim() === (config.local_url || '') ? '' : probeUrl.trim();
   ((probe || {}).models || []).forEach((m) => add({ provider: 'local', model: m.id, url }, '로컬 · 서버 점검에서'));
   log.forEach((x) => {
@@ -121,10 +134,11 @@ function rsName(b) {
   if (b.model) return b.model;
   if (b.provider === 'gemini') return c.model_setting || 'Gemini';
   if (b.provider === 'local') return c.local_model || '로컬 서버';
+  if (b.provider === 'claude' || b.provider === 'claude-api') return c.claude_model || RS_PROV[b.provider];
   return 'mock';
 }
 
-function rsBackendFields(path, b, kinds = [['local', '로컬 서버'], ['gemini', 'Gemini'], ['mock', 'mock']]) {
+function rsBackendFields(path, b, kinds = [['local', '로컬 서버'], ['gemini', 'Gemini'], ['claude', 'Claude 구독 로그인'], ['claude-api', 'Claude API 키'], ['mock', 'mock']]) {
   const id = 'rs-' + path.replace(/\W/g, '-');
   const opts = kinds
     .map(([v, l]) => `<option value="${v}"${b.provider === v ? ' selected' : ''}>${l}</option>`).join('');
@@ -155,7 +169,7 @@ function rsMultiPicker() {
   const chips = cands.map((c, i) => `<button type="button" class="rs-pick" aria-pressed="${on(c.b)}" data-action="rsToggleRun" data-arg="${i}"><span class="tl">${esc(rsName(c.b))}</span><span class="s">${esc(c.sub)}</span></button>`).join('');
   // 직접 적는 줄(own)과 칩에 없는 백엔드는 줄마다 칸을 둔다
   const extra = S.rs.runs.map((b, i) => [b, i]).filter(([b]) => b.own || !cands.some((c) => rsKey(c.b) === rsKey(b)));
-  return `<div class="field"><span class="label" id="rs-runs-lb">백엔드 <span class="hint">${S.rs.runs.length}개 골랐어요 · 차례로 보내요</span></span>
+  return `<div class="field"><span class="label" id="rs-runs-lb">백엔드 <span class="hint">${S.rs.runs.length}개 골랐어요 · 동시에 보내요</span></span>
     <div class="rs-picks" role="group" aria-labelledby="rs-runs-lb">${chips}<button type="button" class="rs-pick add" data-action="rsAddRun">+ 백엔드 더하기</button></div>
     ${extra.map(([b, i]) => `<div class="rs-extra">${rsBackendFields(`runs.${i}`, b)}<button type="button" class="btn icon-btn" data-action="rsRemoveRun" data-arg="${i}" aria-label="백엔드 ${i + 1} 빼기">✕</button></div>`).join('')}</div>`;
 }

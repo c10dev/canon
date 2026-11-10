@@ -68,10 +68,49 @@ def test_room(home, monkeypatch):
         promptlab.run(s)
 
 
+def test_claude_backends_are_made_with_stage_effort(home, monkeypatch):
+    """Claude 두 백엔드를 고를 수 있고, 온도는 넘기지 않고 단계의 모델 · 추론 강도만 넘긴다."""
+    from canon import research, settings
+
+    s = promptlab.create(backends=[PromptBackend(provider="claude", url="http://x"), PromptBackend(provider="claude-api", model="claude-opus-5-5")])
+    assert [(b.provider, b.url) for b in s.backends] == [("claude", ""), ("claude-api", "")]
+    made = []
+    monkeypatch.setattr(research, "make_llm", lambda provider, model=None, effort="": made.append((provider, model, effort)) or object())
+    monkeypatch.setattr(settings, "stage_effort", lambda stage, preset=None: ("max", "test"))
+    research.make_backend(research.Backend(provider="claude"), temperature=0.7, stage="write", preset={})
+    research.make_backend(research.Backend(provider="claude-api", model="claude-opus-5-5"), temperature=0.7, stage="write", preset={})
+    assert made == [("claude", None, "max"), ("claude-api", "claude-opus-5-5", "max")]
+
+
+def test_sample_calls_backends_at_once_in_order(monkeypatch):
+    """백엔드를 동시에 부르고(둘이 서로를 기다려야 끝난다), 결과는 고른 차례로, 사용량 기록의 작업 정보는 스레드에도 따라간다."""
+    import threading
+
+    from canon import research
+
+    gate = threading.Barrier(2, timeout=10)
+
+    class Slow:
+        def __init__(self, name):
+            self.model, self.name = name, name
+
+        def text(self, system, prompt):
+            gate.wait()  # 차례로 부르면 첫 백엔드가 여기서 시간 초과로 실패한다
+            return f"{self.name} {usage.context().get('task')}"
+
+    monkeypatch.setattr(research, "make_backend", lambda b, *a, **k: Slow(b.model))
+    runs = [research.Backend(provider="gemini", model="a"), research.Backend(provider="claude", model="b")]
+    with usage.scope(task="promptlab"):
+        rows = research.sample(runs, "", "요청")
+    assert [r["ok"] for r in rows] == [True, True], rows
+    assert [r["text"] for r in rows] == ["a promptlab", "b promptlab"]
+    assert [r["backend"] for r in rows] == ["gemini:a", "claude:b"]
+
+
 def test_web_flow(client):
     s = client.post("/api/promptlab", json={"prompt": "요청", "backends": [{"provider": "mock"}]}).json()
     home = client.get("/api/promptlab").json()
-    assert [x["id"] for x in home["sessions"]] == [s["id"]] and home["providers"] == ["gemini", "local", "mock"]
+    assert [x["id"] for x in home["sessions"]] == [s["id"]] and home["providers"] == ["gemini", "local", "claude", "claude-api", "mock"]
     r = client.post(f"/api/promptlab/{s['id']}/run", json={"title": "", "system": "넌 작가", "prompt": "한 문단", "backends": [{"provider": "mock"}]})
     assert r.status_code == 200, r.text
     v = r.json()

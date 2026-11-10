@@ -519,10 +519,13 @@
 - 머리 주 버튼은 쪽마다 하나(`rsPrimary`)
 - 백엔드는 칩으로 고른다(`rsPicker`, 샘플 생성은 여럿 `rsMultiPicker`)
 - 칩 후보는 설정값 · 서버 점검 모델 · 기록에 남은 백엔드(`rsCands`)
+- Claude 칩(구독 · API 키)은 설정에서 그 백엔드를 쓸 때만 후보에 든다(`rsClaudeKinds`: 전체 · 단계 백엔드로 골랐거나, 실행 파일 경로나 API 키가 있을 때)
+- 판단기 칩은 로컬 · mock 만 고른다
+- 블라인드 비교 B 의 기본값은 A 가 Gemini 면 작가가 쓰는 Claude(없으면 로컬), 아니면 Gemini
 - 칩에 없는 백엔드는 '+ 다른 백엔드 적기'로 칸을 편다
 - 컨텍스트 크기의 화별 표는 기록에 남지 않아 방금 잰 결과(`S.rs.cur`)에만 있다
 - 칸 폭 560px 이하(`@container outline`)의 결과 표는 줄마다 칸을 쌓는다(`.rs-stack`, 칸 이름 `data-label`)
-- `rsCands` · `rsParse` · `rsBrief` · `rsLogLine` · `rsCheckCalls` 는 순수 함수(`tests/test_research_js.py`)
+- `rsCands` · `rsClaudeKinds` · `rsParse` · `rsBrief` · `rsLogLine` · `rsCheckCalls` 는 순수 함수(`tests/test_research_js.py`)
 - 블라인드 비교 고르기(`rsPickDraft`)는 본문으로 채택한 때만 그 화 초안 · 변경안을 거둔다. 채택 전에 저장하지 않은 본문 고침이 있으면 따로 묻는다
 - 인물 화면의 신체 프로필 · 서술 말투 AI 동작(`bodyAI` · `voiceAI`)도 이 파일에 있다
 
