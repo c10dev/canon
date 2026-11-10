@@ -5696,7 +5696,7 @@ class AbilityPlanState(BaseModel):
     """능력 일정 한 줄의 계획 대 실제 (blueprint.ability_states)."""
     id: str
     got: int | None = Field(None, description="상태창 기록에서 계산한 얻은 화. 0 은 시작 때, 없으면 아직")
-    state: Literal["얻음", "앞섬", "늦음", "지남", "예정", "미정"]
+    state: Literal["얻음", "앞섬", "늦음", "지남", "예정", "미정", "모름"]
     linked: bool = Field(description="스킬 도감에 그 이름의 항목이 있는지")
 
 

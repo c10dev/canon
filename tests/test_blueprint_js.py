@@ -134,6 +134,8 @@ def test_ability_page_and_merge():
     html = _run("viewBlueprint()", p, {"bpSel": "@ability"})
     assert 'id="bp-band"' in html and "은신 Lv2" in html and "3화에 얻음 · 계획보다 먼저" in html and "조건: 밤 훈련" in html and "도감에 없음" in html
     assert "능력 일정 아영의 은신 Lv2: 3화에 얻었어요." in html and "관계 이정표 아영 → 지훈: 경고" not in html  # 이 쪽은 능력 경고만
+    html = _run("(S.bp.plans[1].state = '모름', viewBlueprint())", p, {"bpSel": "@ability"})
+    assert "상태창이 없어 실제를 셀 수 없어요" in html
     html = _run("(S.bpEdit = { card: 'ap', key: '@ability', data: JSON.parse(JSON.stringify(S.project.blueprint)), orig: '' }, viewBlueprint())", p, {"bpSel": "@ability"})
     assert 'data-bp="ability_plans.0.ability"' in html and 'data-action="bpApAdd"' in html and html.count('data-action="bpSave"') == 1
     expr = """(() => {

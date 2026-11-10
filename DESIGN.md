@@ -245,8 +245,9 @@ AI 는 숫자를 매기지 않고 사건만 뽑는다. 같은 사건은 항상 �
 - 지금 플롯에서 설계도 거꾸로 뽑기(작업 `blueprint`, `pipeline.propose_blueprint`)는 아크 하나 · 두 인물씩 제안을 받고, 작가가 고른 줄만 `blueprint.apply_picks` 로 더한다. 실호출 확인은 `docs/blueprint/specs/05-extract.md`.
 - 설계도 화면은 사이드바 도구 '설계도'(`static/blueprint.js`)다. 저장은 `PUT /api/projects/{name}/blueprint` 로 설계도를 통째로 보내고 서버가 `blueprint.check` 로 검사한다. 경고는 서버가 방향을 붙여 준다(`warning_rows`).
 - 설계도의 능력 일정(`AbilityPlan`, `docs/blueprint/specs/10-ability.md`)은 계획만 저장한다. 얻은 화는 상태창 기록에서 계산한다(`blueprint.got_ep`). 그래서 되돌리기 · 갈래가 따로 맞출 값이 없다.
-- 능력 일정은 아직 얻지 못한 줄만 프롬프트에 들어간다: 장편 기획은 범위에 걸린 줄과 그 뒤 첫 줄(`prompts.blueprint_ability_block`, 예산 `context.BUDGET["ability_plan"]`), 스토리보드는 이 화가 얻는 범위인 줄과 다음 줄, 쓰기는 이 화가 얻는 범위인 줄만, 검수는 뒤 화의 줄을 앞당겼는지 본다.
+- 능력 일정은 아직 얻지 못한 줄만 프롬프트에 들어간다: 장편 기획은 범위에 걸린 줄과 그 뒤 첫 줄(`prompts.blueprint_ability_block`, 예산 `context.BUDGET["ability_plan"]`), 스토리보드는 이 화가 얻는 범위인 줄과 다음 줄, 쓰기는 이 화가 얻는 범위이고 플롯에 그 능력 이름이 나오는 줄만, 검수는 뒤 화의 줄을 앞당겼는지 본다.
 - 능력 일정 경고(`blueprint.ability_warning_rows`, 상태 승인 화면은 `ability_delta_warnings`)는 막지 않는다.
+- 상태창이 없는 인물은 얻었는지 셀 수 없다. 범위 끝 화까지 반영한 줄은 '얻지 못함'으로 알리지 않고 프롬프트에서 뺀다(`blueprint.tracked`, 같은 능력을 또 얻는 장면을 막으려는 것).
 - 보이는 곳: 스토리보드의 Canon 경고(`board.checks`, 자동 집필을 멈추지 않음), 플롯 화면 '확인할 것'(`plot.js` `pacePlot`, 같은 규칙을 `tests/test_plot_pace_js.py` 가 node 로 맞춰 본다).
 - 장편 화별 플롯 초안 프롬프트는 `[관계]` 뒤에 지금 관계 단계를 방향마다 한 줄 라벨로 넣고(`prompts.plan_stage_block`, 예산 `context.BUDGET["plan_stages"]`), 장편 플롯 규칙(`plot_rules`)에 '단계는 한 화에 한 칸, 두 칸 넘는 변화는 계기 화와 받아들이는 화로 나눈다'를 한 줄 넣었다. 단편 플롯 초안은 그대로다.
 - 실제 작품 4개의 플롯에 반영 직전 관계로 다시 돌리면 바뀜이 21번 잡히고, 경고는 jev 10화(타다노 → 야마이 적대, 2칸) 하나다.

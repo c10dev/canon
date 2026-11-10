@@ -495,13 +495,19 @@ def got_ep(p: Project, x: AbilityPlan) -> Optional[int]:
     return None
 
 
+def tracked(p: Project, cid: str) -> bool:
+    """이 인물의 실제를 셀 수 있는지: 상태창 값이나 상태창 기록이 하나라도 있다. 없으면 얻은 화를 알 수 없다 (got_ep 가 늘 None)."""
+    return any(s.character_id == cid and s.stats for s in p.states) or any(r.character_id == cid for r in p.stat_log)
+
+
 def _last_done(p: Project) -> int:
     return max((e.plot.number for e in p.episodes if e.status == "finalized"), default=0)
 
 
 def ability_states(p: Project) -> list[dict]:
     """일정 줄마다 계획 대 실제: [{id, got, state, linked}]. got 은 얻은 화(없으면 None), linked 는 도감 항목이 있는지.
-    state: 얻음(범위 안) · 앞섬(범위보다 먼저) · 늦음(범위 뒤) · 지남(범위 끝 화까지 반영했는데 기록에 없음) · 예정 · 미정(화 범위 없음)."""
+    state: 얻음(범위 안) · 앞섬(범위보다 먼저) · 늦음(범위 뒤) · 지남(범위 끝 화까지 반영했는데 기록에 없음) · 예정 · 미정(화 범위 없음)
+    · 모름(범위 끝 화까지 반영했지만 그 인물에 상태창이 없어 셀 수 없음, tracked)."""
     last = _last_done(p)
     out = []
     for x in p.blueprint.ability_plans:
@@ -509,7 +515,7 @@ def ability_states(p: Project) -> list[dict]:
         if x.from_ep <= 0:
             state = "얻음" if got is not None else "미정"
         elif got is None:
-            state = "지남" if x.to_ep <= last else "예정"
+            state = "예정" if x.to_ep > last else "지남" if tracked(p, x.character) else "모름"
         else:
             state = "앞섬" if got < x.from_ep else "늦음" if got > x.to_ep else "얻음"
         out.append({"id": x.id, "got": got, "state": state, "linked": abilities.find(p, x.ability) is not None})
@@ -536,8 +542,11 @@ def ability_warning_rows(p: Project) -> list[tuple[str, str]]:
 
 
 def _open_plans(p: Project, ids: set[str] | None) -> list[AbilityPlan]:
-    """화 범위를 적었고 아직 얻지 못한 줄 (ids 가 있으면 그 인물만), 처음 화 차례."""
-    rows = [x for x in p.blueprint.ability_plans if x.from_ep > 0 and (ids is None or x.character in ids) and got_ep(p, x) is None]
+    """화 범위를 적었고 아직 얻지 못한 줄 (ids 가 있으면 그 인물만), 처음 화 차례.
+    상태창이 없는 인물(tracked 아님)은 얻었는지 알 수 없으므로, 범위 끝 화까지 반영한 줄은 얻은 것으로 보고 뺀다 (같은 능력을 또 얻게 하지 않는다)."""
+    last = _last_done(p)
+    rows = [x for x in p.blueprint.ability_plans if x.from_ep > 0 and (ids is None or x.character in ids) and got_ep(p, x) is None
+            and (x.to_ep > last or tracked(p, x.character))]
     return sorted(rows, key=lambda x: (x.from_ep, x.to_ep))
 
 
@@ -578,6 +587,22 @@ def ability_due(p: Project, n: int) -> list[AbilityPlan]:
     return [x for x in _open_plans(p, _plot_cast(p, n)) if x.from_ep <= n <= x.to_ep]
 
 
+def _squash(text: str) -> str:
+    return re.sub(r"\s+", "", text).casefold()
+
+
+def ability_in_plot(p: Project, n: int) -> list[AbilityPlan]:
+    """ability_due 가운데 능력 이름(도감의 다른 이름 포함)이 n 화 플롯이나 연출 지시에 그대로 나온 줄. 쓰기 요청은 이 줄만 받는다.
+    범위 안 모든 화에 넣으면 범위 첫 화로 앞당기기 쉽다 (신체 특징 줄 cast.body_cast 와 같은 조건)."""
+    e = next((x for x in p.episodes if x.plot.number == n), None)
+    if e is None:
+        return []
+    arc = p.arc_for(n) if p.serial else None
+    pl = e.plot
+    text = _squash("\n".join([pl.title, pl.summary, *pl.events, pl.opening, pl.emotional_shift, pl.ending_hook, e.direction, arc.direction if arc else ""]))
+    return [x for x in ability_due(p, n) if any(_squash(t) in text for t in abilities.terms(_plan_ability(p, x)) if _squash(t))]
+
+
 def ability_next(p: Project, n: int, per: int = 1) -> list[AbilityPlan]:
     """n 화 플롯 인물마다 n 화 뒤에 얻기로 한 줄 per 개까지 (가까운 것부터)."""
     seen: dict[str, int] = {}
@@ -609,13 +634,13 @@ def ability_delta_warnings(p: Project, d: StateDelta) -> list[tuple[str, str]]:
         return []
     after = statwin.after_delta(p, d)
     names = {c.id: c.name or c.id for c in p.characters}
+    lists = abilities.list_stats(p)
     out = []
     for x in rows:
         a = _plan_ability(p, x)
         ks = {abilities.key(t) for t in abilities.terms(a)}
         hit = any(abilities.key(piece) in ks and _grade_ok(a, x.grade, abilities.split(piece)[1])
-                  for name, value in after.get(x.character, {}).items() if not a.stat or name == a.stat
-                  for piece in abilities._pieces(p, value))
+                  for name, piece in abilities.list_pieces(p, after.get(x.character, {}), lists) if not a.stat or name == a.stat)
         if hit:
             out.append((f"{names.get(x.character, x.character)}의 {ability_text(x)}: 설계도는 {_rng(x)}에 얻기로 했어요. "
                         f"이 변경안을 반영하면 {d.episode}화에 얻어요.", x.character))

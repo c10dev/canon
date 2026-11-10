@@ -164,9 +164,11 @@ def test_board_write_check_state_lines():
     assert f"- 이 화가 얻는 범위(4~5화)인 능력: {hero} 빙결 중급 (조건: 호수에 빠진다)" in board
     assert f"- 다음 능력(7화부터)은 이 화에 얻지 않습니다: {hero} 빙결 상급" in board and "비행" not in board and "초급" not in board
     assert board.rstrip().endswith("warnings 에 적습니다.")
+    assert prompts.ability_write_line(p, 4) == ""  # 플롯에 능력 이름이 없으면 범위 안 화라도 쓰기 줄이 없다
+    p.episode(4).plot.events.append("호수에 빠진 서윤의 빙결이 한 단계 오른다")
     write = prompts.ability_write_line(p, 4)
+    assert prompts.ability_write_line(p, 5) == ""  # 같은 범위의 다른 화는 그 화 플롯에 이름이 없다
     assert "빙결 중급 (4~5화 · 조건: 호수에 빠진다)" in write and "상급" not in write and "얻지 않습니다" not in write  # 쓰기에는 다음 줄이 없다
-    assert prompts.ability_write_line(p, 6) == "" or "치유" in prompts.ability_write_line(p, 6)
     assert prompts.ability_write_line(p, 3) == ""  # 3화 줄은 이미 얻었다
     check = prompts.ability_check_rule(p, 4)
     assert "빙결 상급 (7화부터)" in check and "비행 (20화부터)" in check and "type 은 플롯" in check
@@ -178,15 +180,19 @@ def test_board_write_check_state_lines():
 
 def test_lines_drop_once_acquired():
     p = _scheduled()
+    p.episode(5).plot.summary = "빙결을 다시 쓴다"
+    assert "빙결 중급" in prompts.ability_write_line(p, 5)
     p.stat_log.append(StatRecord(episode=4, character_id="hero", name="특성", value="빙결(중급)", before="빙결(초급)"))
     assert prompts.ability_write_line(p, 5) == "" and "중급" not in prompts.ability_board_rule(p, 5)
 
 
 def test_episode_requests_carry_lines_and_stay_same_without_plans():
     p = _scheduled()
+    p.abilities = [Ability(id="ab-01", name="빙결", aliases=["얼음 손"])]
+    p.episode(4).plot.summary = "서윤이 얼음손을 처음 제대로 쓴다"  # 도감의 다른 이름, 띄어쓰기는 가리지 않는다
     assert "[설계도: 능력 일정 (작가가 정한 계획, 이번 화)]" in prompts.storyboard_prompt(p, 4)
     write = prompts.episode_prompt(p, 4)
-    assert "설계도에서 이 화는 능력을 얻는 범위입니다" in write and "이 화에 얻지 않습니다" not in write
+    assert "설계도에서 이 화 플롯의 능력은 얻는 범위 안입니다: " in write and "이 화에 얻지 않습니다" not in write
     assert "설계도의 능력 일정에 아래 능력이 있습니다" in prompts.state_prompt(p, 4)
     p.episode(4).text, p.episode(4).status = "본문", "written"
     assert "- 설계도 능력 일정:" in prompts.check_prompt(p, 4)
@@ -228,3 +234,30 @@ def test_view_api(client):
     bp["ability_plans"].append({"character": "nobody", "ability": "은신"})
     bad = client.put("/api/projects/apv/blueprint", json=bp)
     assert bad.status_code == 400 and "없는 인물" in bad.json()["detail"]
+
+
+def test_untracked_character_past_lines_are_not_called_missed():
+    """상태창이 없는 인물은 얻었는지 셀 수 없다: 범위 끝 화까지 반영한 줄을 '얻지 못함'으로 되풀이하지 않는다."""
+    p = _ep_project()
+    p.blueprint = Blueprint()
+    for n in range(1, 6):
+        p.episode(n).status = "finalized"
+    p.blueprint.ability_plans = [_plan(id="ap-1", grade="초급", from_ep=2, to_ep=3), _plan(id="ap-2", grade="중급", from_ep=4, to_ep=7)]
+    assert not blueprint.tracked(p, "hero")
+    assert [x["state"] for x in blueprint.ability_states(p)] == ["모름", "예정"]
+    assert [w for _, w in blueprint.ability_warning_rows(p) if "기록에 없어요" in w] == []
+    lines = blueprint.ability_plan_lines(p, None, 6, 8)
+    assert len(lines) == 1 and "4~7화에 얻음" in lines[0] and "초급" not in lines[0]
+    assert blueprint.ability_state_rule(p, 6) == ""
+    p.stat_log = [StatRecord(episode=1, character_id="hero", name="근력", value="12")]  # 상태창을 쓰는 인물이면 지남으로 센다
+    assert blueprint.tracked(p, "hero") and blueprint.ability_states(p)[0]["state"] == "지남"
+    assert "아직 얻지 못함" in blueprint.ability_plan_lines(p, None, 6, 8)[0]
+
+
+def test_delta_warning_ignores_inventory_items():
+    p = _scheduled()
+    p.blueprint.ability_plans = [_plan(ability="화염구", from_ep=7, to_ep=8)]
+    bag = StateDelta(episode=4, summary="", character_updates=[CharacterState(character_id="hero", stats=[StatValue(name="인벤토리", value="화염구, 밧줄")])])
+    assert blueprint.ability_delta_warnings(p, bag) == []  # 같은 이름의 물건은 능력이 아니다
+    new = StateDelta(episode=4, summary="", character_updates=[CharacterState(character_id="hero", stats=[StatValue(name="스킬", value="화염구")])])
+    assert len(blueprint.ability_delta_warnings(p, new)) == 1  # 새로 생긴 스킬 항목은 본다

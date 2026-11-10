@@ -702,7 +702,7 @@
 - 쓰기 지시문(중심 장면 줄 뒤)에 `blueprint_write_line`: 그 화가 사다리 칸의 처음 닿는 범위일 때만 한 줄. 상한은 넣지 않는다
 - 검수 요구사항(관계 단계 확인 뒤)에 `blueprint_check_rule`: 다음 칸을 앞당긴 본문을 짚는다(type 플롯)
 - 스토리보드 요청 끝(`blueprint_board_rule` 뒤)에 `ability_board_rule`: 이 화가 얻는 범위인 능력과 인물마다 다음 능력 하나(이 화에 얻지 않음)
-- 쓰기 지시문(`blueprint_write_line` 뒤)에 `ability_write_line`: 이 화가 얻는 범위이고 아직 얻지 못한 능력이 있을 때만 한 줄. 다음 능력은 넣지 않는다
+- 쓰기 지시문(`blueprint_write_line` 뒤)에 `ability_write_line`: 이 화가 얻는 범위이고 아직 얻지 못한 능력의 이름이 그 화 플롯 · 연출 지시에 나올 때만 한 줄. 다음 능력은 넣지 않는다
 - 검수 요구사항(`blueprint_check_rule` 뒤)에 `ability_check_rule`: 뒤 화에 얻기로 한 능력(인물마다 둘까지)을 앞당긴 본문을 짚는다(type 플롯)
 - 스토리보드 요청 끝(`blueprint_board_rule` 뒤)과 쓰기 지시문(`blueprint_write_line` 뒤)에 신체 특징 블록 `body_rule`. 넣을 인물은 `cast.body_cast`
 - 검수 요구사항(`blueprint_check_rule` 뒤)에 `body_check_rule`: 같은 인물의 신체 특징과 다른 몸 묘사를 짚는다(type 사실)

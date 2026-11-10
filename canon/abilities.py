@@ -67,6 +67,18 @@ def _pieces(p: Project, value: str) -> list[str]:
     return [] if statwin._amount(value) else statwin.items(value)
 
 
+def list_pieces(p: Project, stats: dict[str, str], lists: set[str] | None = None) -> list[tuple[str, str]]:
+    """상태창 값 {항목: 값} 에서 도감과 잇는 목록 항목의 조각만: [(항목, 조각)]. owners 와 같은 거르기다.
+    아직 상태창에 없는 새 항목은 이름이 스킬 · 특성 같은 것일 때만 본다. 인벤토리는 도감 항목이 가리킬 때만 (list_stats)."""
+    lists = list_stats(p) if lists is None else lists
+    out = []
+    for name, value in stats.items():
+        new = any(w in name for w in LIST_NAMES) and not any(w in name for w in statwin.INVENTORY)
+        if name in lists or new:
+            out += [(name, x) for x in _pieces(p, value)]
+    return out
+
+
 def owners(p: Project, a: Ability) -> list[dict]:
     """지금 이 항목을 가진 인물: [{character_id, stat, item, grade}]."""
     out = []

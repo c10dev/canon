@@ -319,6 +319,7 @@ function bpPlanChip(st) {
     const when = st.got === 0 ? '시작 때부터 있음' : `${st.got}화에 얻음`;
     return `<span class="chip${st.state === '얻음' ? ' finalized' : ''}">${when}${st.state === '앞섬' ? ' · 계획보다 먼저' : st.state === '늦음' ? ' · 계획보다 늦게' : ''}</span>`;
   }
+  if (st.state === '모름') return '<span class="small">상태창이 없어 실제를 셀 수 없어요</span>';
   return st.state === '지남' ? '<span class="chip">아직 얻지 못함</span>' : '';
 }
 

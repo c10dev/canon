@@ -4083,9 +4083,10 @@ def ability_board_rule(p: Project, n: int) -> str:
 
 
 def ability_write_line(p: Project, n: int) -> str:
-    """본문 쓰기 지시문의 능력 일정 한 줄: n 화가 얻는 범위이고 아직 얻지 못한 능력이 있을 때만. 다음 줄 · 상한은 넣지 않는다 (앞당김 방지)."""
-    got = [blueprint.ability_line(p, x, _ab_rng(x)) for x in blueprint.ability_due(p, n)]
-    return f"\n설계도에서 이 화는 능력을 얻는 범위입니다: {'; '.join(got)}." if got else ""
+    """본문 쓰기 지시문의 능력 일정 한 줄: n 화가 얻는 범위이고 아직 얻지 못한 능력의 이름이 그 화 플롯 · 연출 지시에 나올 때만 (blueprint.ability_in_plot).
+    범위 안 모든 화에 넣지 않는다. 다음 줄 · 상한도 넣지 않는다 (앞당김 방지)."""
+    got = [blueprint.ability_line(p, x, _ab_rng(x)) for x in blueprint.ability_in_plot(p, n)]
+    return f"\n설계도에서 이 화 플롯의 능력은 얻는 범위 안입니다: {'; '.join(got)}." if got else ""
 
 
 def ability_check_rule(p: Project, n: int) -> str:
@@ -5852,7 +5853,7 @@ PIECES.update({
     "time_state": Piece("작품 속 시간 적기", ("continuity",), "instruction", "timeline.state_rule", "작품 속 시간을 켰을 때"),
     "contact_state": Piece("닿은 사다리 칸 적기", ("continuity",), "instruction", "blueprint.state_rule", "이 화 인물끼리 아직 닿지 않은 사다리 칸이 있을 때"),
     "ability_board": Piece("설계도 능력 일정 (이번 화)", ("continuity",), "instruction", "ability_board_rule", "이 화 인물의 능력 일정 줄이 있을 때"),
-    "ability_write": Piece("설계도 능력 얻는 범위", ("continuity",), "instruction", "ability_write_line", "이 화가 능력을 얻는 범위일 때"),
+    "ability_write": Piece("설계도 능력 얻는 범위", ("continuity",), "instruction", "ability_write_line", "이 화가 능력을 얻는 범위이고 그 이름이 플롯에 나올 때"),
     "ability_check": Piece("설계도 능력 일정 확인", ("check", "continuity"), "instruction", "ability_check_rule", "이 화 인물이 뒤 화에 얻기로 한 능력이 있을 때"),
     "ability_state": Piece("일정의 능력 이름 적기", ("continuity",), "instruction", "blueprint.ability_state_rule", "이 화 인물이 얻을 때가 된 능력이 있을 때"),
     "canon_values": Piece("Canon 이 센 값", ("continuity",), "tail", "canon_values_block"),
