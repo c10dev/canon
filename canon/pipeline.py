@@ -2238,7 +2238,7 @@ def _renumber_notes(before: Project, after: Project, counts: dict[str, int]) -> 
         notes.append(", ".join(grown) + (f" (뒤 범위 {moved}개는 한 칸씩 옮김)." if moved > 0 else "."))
     if before.meta.target_episodes != after.meta.target_episodes:
         notes.append(f"총 화수 {before.meta.target_episodes}화 → {after.meta.target_episodes}화.")
-    labels = {"foreshadows": "복선", "elements": "인과율 요소", "storylines": "이야기 줄기", "characters": "인물 첫 등장 화"}
+    labels = {"foreshadows": "복선", "elements": "인과율 요소", "storylines": "이야기 줄기", "characters": "인물 첫 등장 화", "blueprint": "설계도 줄"}
     also = [f"{labels[k]} {v}개" for k, v in counts.items() if v]
     if also:
         notes.append(" · ".join(also) + "의 화 번호도 함께 옮겼어요.")

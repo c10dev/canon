@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from typing import Callable
 
-from . import anchor
+from . import anchor, blueprint
 from .schema import Project
 
 Point = Callable[[int], int]
@@ -75,7 +75,7 @@ def last_fixed(p: Project, move_text: bool = False) -> int:
 
 def move_points(p: Project, f: Point, gone: int = 0) -> dict[str, int]:
     """화 하나를 가리키는 번호를 f 로 옮긴다. gone 은 빼는 화 (그 화만의 기록은 지운다). 고친 곳 수를 종류별로 돌려준다."""
-    count = {"foreshadows": 0, "elements": 0, "storylines": 0, "characters": 0}
+    count = {"foreshadows": 0, "elements": 0, "storylines": 0, "characters": 0, "blueprint": 0}
 
     def mv(x, key: str):
         y = f(x) if x else x
@@ -124,6 +124,7 @@ def move_points(p: Project, f: Point, gone: int = 0) -> dict[str, int]:
         count["storylines"] += before != (s.branch_ep, s.join_ep)
     for c in [*p.characters, *p.cast_candidates]:
         c.first_ep = mv(c.first_ep, "characters")
+    count["blueprint"] += blueprint.move(p, f, gone)  # 설계도의 화 범위 (끝 화가 빠지면 범위가 준다)
     chats = []
     for c in p.chats:
         if c.topic.startswith("text:") and c.topic[5:].isdigit():

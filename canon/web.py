@@ -31,7 +31,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from . import address, agent, aliases, archetypes, autorun, board, cancel, cast, charlog, comfy, coord, dynamics, elements, genres, illust, jobs, knows, library, metrics, naming, pipeline, prompts, publish, refs, research, settings, store, usage
+from . import address, agent, aliases, archetypes, autorun, blueprint, board, cancel, cast, charlog, comfy, coord, dynamics, elements, genres, illust, jobs, knows, library, metrics, naming, pipeline, prompts, publish, refs, research, settings, store, usage
 from .llm import BadKey, GeminiLLM, LocalLLM, MissingKey, explain_error, get_llm, make_llm, with_note
 from . import context as ctxrules  # 이름 context 는 컨텍스트 보기 엔드포인트가 쓴다
 from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록)
@@ -1179,6 +1179,7 @@ def _put_locked(name: str, p: Project, disk: Project, response: Response, merged
         pipeline.validate_story_arcs(p)
     pipeline.validate_storylines(p)
     pipeline.validate_characters(p, disk)
+    blueprint.check(p, disk)
     pipeline.validate_relationships(p)
     pipeline._init_states(p)
     p.meta.genre = genres.label(p.meta)
