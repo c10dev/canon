@@ -194,3 +194,61 @@ def test_blueprint_api(client):
     assert [w["source"] for w in v["warnings"]] == [a] and "신뢰에 닿으려면" in v["warnings"][0]["text"]
     r = client.put("/api/projects/bpa/blueprint", json={**body, "milestones": [{"source": a, "target": a}]})
     assert r.status_code == 400 and "같은 인물끼리" in r.json()["detail"]
+
+
+def _planned() -> Project:
+    p = _proj()
+    p.blueprint.milestones = [Milestone(source="a", target="j", from_ep=5, to_ep=12, stage="호감", label="허락만 안전하다", trigger="오정호를 쫓아낸 날"),
+                              Milestone(source="a", target="j", from_ep=30, to_ep=40, stage="신뢰"),
+                              Milestone(source="a", target="j", from_ep=50, to_ep=60, stage="화해"),  # 다음 것 하나만 넣는다
+                              Milestone(source="j", target="a", from_ep=1, to_ep=3, stage="경계")]   # 범위 앞이라 빠진다
+    p.blueprint.ladders = [_ladder(ContactRung(label="스침", parts=["hand_r"], acts=["brush"], layer="옷 위", from_ep=1, to_ep=2),
+                                   ContactRung(label="손목", parts=["wrist_r"], acts=["hold"], places=["el-1"], lead="j", note="문 옆", from_ep=8, to_ep=9),
+                                   ContactRung(label="허리", parts=["waist"], acts=["wrap"], from_ep=25, to_ep=27),
+                                   ContactRung(label="더 뒤", from_ep=40, to_ep=41))]
+    return p
+
+
+def test_plan_lines_pick_range_and_next():
+    p = _planned()
+    assert blueprint.plan_lines(p, None, 6, 15) == [
+        "- 아영 → 지훈 5~12화: 호감 · 허락만 안전하다 (계기: 오정호를 쫓아낸 날)",
+        "- 아영 → 지훈 30~40화 (이 범위 뒤): 신뢰",
+        "- 아영 ↔ 지훈 지금까지 닿은 칸: 1. 스침 (옷 위 · 오른 손 · 스치다)",
+        "- 아영 ↔ 지훈 8~9화에 처음 닿는 칸: 2. 손목 (오른 손목 · 잡다 · 4-2번 칸 · 지훈 주도 · 문 옆)",
+        "- 아영 ↔ 지훈 다음 칸 (이 범위 뒤 25~27화): 3. 허리 (허리 · 감싸다)",
+    ]
+    assert blueprint.plan_lines(p, {"a", "x"}, 6, 15) == []  # 두 인물이 모두 기획 인물일 때만
+
+
+def test_blueprint_plan_block():
+    from canon import context, prompts
+    p = _planned()
+    assert prompts.blueprint_plan_block(_proj(), None, 1, 10) == ""  # 설계도가 비면 지금 프롬프트 그대로
+    block = prompts.blueprint_plan_block(p, None, 6, 15)
+    assert block.startswith("\n[설계도 (작가가 정한 계획. 지금 관계가 아니다.") and "2. 손목" in block and "생략" not in block
+    p.blueprint.note = "접촉은 아크마다 한 칸"
+    assert "- 설계 원칙: 접촉은 아크마다 한 칸" in prompts.blueprint_plan_block(p, None, 6, 15)
+    budget = context.BUDGET["blueprint"]
+    try:
+        context.BUDGET["blueprint"] = 120
+        small = prompts.blueprint_plan_block(p, None, 6, 15)
+    finally:
+        context.BUDGET["blueprint"] = budget
+    assert "(그 밖 " in small and "줄 생략)" in small
+
+
+def test_serial_planning_prompts_carry_blueprint():
+    from canon import prompts
+    from .test_serial import _plan_arc, _serial
+    p = _serial()
+    _plan_arc(p)
+    a, b = p.characters[0].id, p.characters[1].id
+    arc = p.story_arcs[0]
+    before = prompts.serial_plot_prompt(p, arc.start_ep, arc.end_ep)
+    assert "[설계도" not in before
+    p.blueprint.milestones = [Milestone(source=a, target=b, from_ep=arc.start_ep, to_ep=arc.end_ep, stage="호감", label="처음 웃는다")]
+    plot = prompts.serial_plot_prompt(p, arc.start_ep, arc.end_ep)
+    assert "처음 웃는다" in plot and plot.index("[설계도") > plot.index("[관계]")
+    nxt = prompts.next_arc_prompt(p, arc.start_ep, 0, "")
+    assert "처음 웃는다" in nxt

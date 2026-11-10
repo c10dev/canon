@@ -189,3 +189,55 @@ def warning_rows(p: Project) -> list[tuple[str, str, str]]:
 def warnings(p: Project) -> list[str]:
     """warning_rows 의 글만."""
     return [w for _, _, w in warning_rows(p)]
+
+
+def rung_text(p: Project, lad: ContactLadder, r: ContactRung) -> str:
+    """사다리 칸 한 줄: '2. 손목 잡기 (맨살 · 오른 손목 · 잡다 · 신도림역 · 지훈 주도 · 메모)'. 부위 · 동작은 장면 연출의 이름으로."""
+    from .stage import ACTS, PARTS
+    names = {c.id: c.name or c.id for c in p.characters}
+    places = {el.id: el.name for el in p.elements}
+    bits = [r.layer, ", ".join(PARTS[x].label if x in PARTS else x for x in r.parts), ", ".join(ACTS[x].label if x in ACTS else x for x in r.acts),
+            ", ".join(places.get(x, x) for x in r.places), f"{names.get(r.lead, r.lead)} 주도" if r.lead else "", r.note]
+    detail = " · ".join(b for b in bits if b)
+    return f"{lad.rungs.index(r) + 1}. {r.label or '이름 없는 칸'}" + (f" ({detail})" if detail else "")
+
+
+def _rng(x: Ranged) -> str:
+    return f"{x.from_ep}화" if x.from_ep == x.to_ep else f"{x.from_ep}~{x.to_ep}화"
+
+
+def plan_lines(p: Project, ids: set[str] | None, start: int, end: int) -> list[str]:
+    """기획 프롬프트의 설계도 줄 (docs/blueprint/specs/04-plan-prompt.md). 화 범위를 적은 줄만, start~end 에 걸친 것과 그 뒤 첫 것.
+    ids 가 있으면 두 인물이 모두 ids 에 든 줄만. 이정표는 방향마다, 사다리는 쌍마다 지금 칸 · 이 범위에서 처음 닿는 칸 · 다음 칸."""
+    names = {c.id: c.name or c.id for c in p.characters}
+
+    def inside(a: str, b: str) -> bool:
+        return ids is None or (a in ids and b in ids)
+    out = []
+    dirs: dict[tuple[str, str], list[Milestone]] = {}
+    for m in p.blueprint.milestones:
+        if m.from_ep > 0 and inside(m.source, m.target):
+            dirs.setdefault((m.source, m.target), []).append(m)
+    for (s, t), ms in dirs.items():
+        ms.sort(key=lambda m: (m.from_ep, m.to_ep))
+        who = f"{names.get(s, s)} → {names.get(t, t)}"
+        here = [m for m in ms if m.from_ep <= end and m.to_ep >= start]
+        after = next((m for m in ms if m.from_ep > end), None)
+        for m in here + ([after] if after else []):
+            what = " · ".join(x for x in (m.stage, m.label) if x) or "이정표"
+            tail = f" (계기: {m.trigger})" if m.trigger else ""
+            out.append(f"- {who} {_rng(m)}{' (이 범위 뒤)' if m is after else ''}: {what}{tail}")
+    for lad in p.blueprint.ladders:
+        if not inside(lad.a, lad.b):
+            continue
+        who = f"{names.get(lad.a, lad.a)} ↔ {names.get(lad.b, lad.b)}"
+        now = planned_rung(lad, start - 1)
+        if now:
+            out.append(f"- {who} 지금까지 닿은 칸: {rung_text(p, lad, now)}")
+        for r in lad.rungs:
+            if start <= r.from_ep <= end:
+                out.append(f"- {who} {_rng(r)}에 처음 닿는 칸: {rung_text(p, lad, r)}")
+        nxt = next((r for r in lad.rungs if r.from_ep > end), None)
+        if nxt:
+            out.append(f"- {who} 다음 칸 (이 범위 뒤 {_rng(nxt)}): {rung_text(p, lad, nxt)}")
+    return out

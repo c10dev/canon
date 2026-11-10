@@ -32,6 +32,7 @@ BUDGET = {
     "state_facts": 4_000,   # 장편 상태 변경안: 이미 있는 확정 사실 (prompts.state_facts_block, 검수 자료를 앞에 두는 요청에는 넣지 않음)
     "places": 3_000,        # 기획 · 검수 · 상태 변경안에 넣는 본문 · 플롯에서 나온 장소
     "plan_fixed": 8_000,    # 화별 플롯 초안: 범위 안 · 바로 뒤의 이미 정해진 화 플롯 (prompts.fixed_plots, 장편만)
+    "blueprint": 2_000,     # 장편 기획(다음 아크 · 화별 플롯 초안)의 설계도 줄: 범위에 걸린 이정표 · 사다리 칸과 그 뒤 첫 것 (prompts.blueprint_plan_block)
     "plan_stages": 1_500,   # 화별 플롯 초안: 기획 인물끼리 지금 관계 단계 한 줄씩 (prompts.plan_stage_block, 장편만). 주역끼리 먼저
     "storylines": 3_000,    # 장편 기획의 이야기 줄기 블록 (storylines.plan_block). 넘치면 합류가 끝난 줄기부터 뺀다
     "deadlines": 1_200,     # 쓰기 · 검수 · 기획 · 상태 변경안의 작품 속 열린 기한 (timeline.deadline_lines, 단편도)

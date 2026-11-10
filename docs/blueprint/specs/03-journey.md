@@ -1,6 +1,6 @@
 # 03. 설계도 화면: 여정 편집과 계획 띠
 
-상태: 진행 (claude/blueprint-journey) · 계획: [plan.md](../plan.md) 의 3번 · 먼저: 1번
+상태: 끝 ([#478](https://github.com/c10dev/canon/pull/478)) · 계획: [plan.md](../plan.md) 의 3번 · 먼저: 1번
 
 ## 목표
 
