@@ -144,7 +144,7 @@ def test_js_secret_idea_appends():
       const args = (h) => [...h.matchAll(/data-action="fieldIdeas" data-arg="([^"]+)"/g)].map((m) => m[1]);
       return { head, once, twice: P().characters[0].secrets, speech: P().characters[0].speech_style, card: args(card), wiz: args(wiz) };
     })()"""
-    files = ["app.js", "home.js", "setup.js", "archetypes.js", "statwin.js", "illust.js", "charlog.js", "cast.js", "plot.js", "chat.js", "setupchat.js", "ideas.js"]
+    files = ["app.js", "home.js", "setup.js", "archetypes.js", "statwin.js", "illust.js", "charlog.js", "cast.js", "aliases.js", "plot.js", "chat.js", "setupchat.js", "ideas.js"]
     got = run_js(files, expr, {"project": dump(cast())})
     assert "고르면 목록에 한 줄 더해져요" in got["head"]
     assert got["once"] == ["편지를 숨겼다", "배표를 사 두었다"] and got["twice"] == got["once"]

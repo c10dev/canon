@@ -61,6 +61,25 @@ def test_rows_miss_and_untouched(tmp_path, monkeypatch):
     assert main["selected"] and "설정" in main["blocks"]
 
 
+def test_character_aliases_cut_misses(tmp_path, monkeypatch):
+    """다른 이름 채우기(04): 직전 화 끝에 별명으로만 나온 대장장이는 이름으로 못 찾아 놓치고, 다른 이름을 채우면 고른다."""
+    monkeypatch.setattr(store, "ROOT", tmp_path)
+    p = _project()
+    e3, e4 = p.episode(3), p.episode(4)
+    e3.text = e3.final_text = "3화 본문. 서윤은 길을 걸었다. 대장간 아주머니가 망치를 내려놓았다."
+    e4.text = "4화 본문. 서윤은 길을 걸었다. 마르타가 손을 흔들었다."
+    cm = _script()
+
+    def smith4(q):
+        store.save("측정", q)
+        r = cm.run_project("측정")
+        return next(it for it in {e["episode"]: e for e in r["episodes"]["exact"]}[4]["items"] if it["id"] == "smith")
+    before = smith4(p)
+    assert before["appeared"] and not before["selected"]  # 놓침
+    next(c for c in p.characters if c.id == "smith").aliases = ["대장간 아주머니"]
+    after = smith4(p)
+    assert after["appeared"] and after["selected"] and after["reason"] == "direct"
+
 def test_later_place_is_not_in_earlier_episode(tmp_path, monkeypatch):
     """4화 반영이 본문에서 등록한 장소는 2 · 3 · 4화를 다시 만들 때 없다. 안 쓴 5화 플롯에 이름이 있어 revert 가 '플롯에서 나옴'으로 남겨도."""
     monkeypatch.setattr(store, "ROOT", tmp_path)

@@ -368,6 +368,7 @@
 - 집필 화면 본문 속 이름
 - 손가락 기기에서는 이름 목록 안내에서 Alt+Enter 를 빼고 '본문의 이름을 누르면 떠요' 만 보인다
 - 인물 이름 · 장소(`atlas.places` 와 같은 목록 `mentionPlaces`)를 정규식 하나로 찾기(`mentionRanges`, 조사 · 긴 낱말 규칙, 치는 중에는 자리 옮기기 `mentionShift`)
+- 인물 다른 이름(`Character.aliases`)은 이 화면에서 쓰지 않는다. 이름만 찾는다
 - 밑줄은 `marks.js` 의 `markHtml` 이 함께 그림
 - 이름 카드 자리 `mnPlace` 도 왼쪽을 0으로 두고 너비를 잰다(`passage.js` 의 `placeTool` 과 같은 규칙)
 - 이름 카드(이 화 시작 시점 `/cast` 프레임을 `S.mnCast` 에 따로 받아 `cast.js` 함수로 읽음, 장소는 설명과 지도)
@@ -673,6 +674,8 @@
   - 인물 상세는 `cast.js` 인물 카드
   - 상태창 처음 수치는 `statwin.js` 로 가는 링크 `setupStatLink`
   - AI 이름 · 지명 고르기(`nameAI` · `placeAI`)는 화면을 막지 않는 작업 `names_ai` 다. 작업은 저장된 작품을 읽어서 먼저 묻지 않고 저장한다. 코드만 뽑는 '후보 뽑기'는 그대로 바로 받는다
+  - 인물 카드의 '다른 이름' 칸과 '다른 이름 제안'(`charAliasField`, 작업 `aliases` 대상 `c:<id>`). 고르기 카드는 `aliases.js` 의 `aliasCard`
+  - 인물 구역 머리의 '빈 다른 이름 제안'은 대상 `c:` 작업이고 결과 카드를 구역 머리 아래에 둔다
   - `tests/test_setup_wizard_js.py`
 
 ### `canon/static/style.js`

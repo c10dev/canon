@@ -14,8 +14,9 @@ const SETUP_KEY_LABEL = Object.fromEntries(SETUP_KEYS);
 const SETUP_LISTS = ['world.rules', 'world.locations', 'world.name_rules'];
 const SETUP_CHAR_LABEL = {
   name: '이름', role: '역할', age: '나이', gender: '성별', goal: '원하는 것', wound: '두려운 것 · 약점', secrets: '숨기는 것',
-  speech_style: '말투 (대사)', personality: '성격', background: '배경', appearance: '외모', arc: '아크',
+  speech_style: '말투 (대사)', personality: '성격', background: '배경', appearance: '외모', arc: '아크', aliases: '다른 이름',
 };
+const SETUP_CHAR_LISTS = ['secrets', 'aliases'];  // setupchat.CHAR_LIST_FIELDS 와 같다
 
 /** 그 칸의 지금 값. o 는 작품이나 적용 전 설정(setup_before): 둘 다 meta, world 가 있다. */
 function setupKeyValue(o, k) {
@@ -25,7 +26,7 @@ function setupKeyValue(o, k) {
 }
 
 const setupEditValue = (e) => (SETUP_LISTS.includes(e.key) ? e.items : e.text);
-const setupCharValue = (x) => (x.field === 'secrets' ? x.items : x.text);
+const setupCharValue = (x) => (SETUP_CHAR_LISTS.includes(x.field) ? x.items : x.text);
 const setupRelId = (r) => `r:${r.a}:${r.b}`;
 const setupFilled = (v) => (Array.isArray(v) ? v.length > 0 : !!String(v || '').trim());
 const setupPair = (rels, a, b) => rels.find((r) => (r.a === a && r.b === b) || (r.a === b && r.b === a)) || null;

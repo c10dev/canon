@@ -37,8 +37,10 @@ KEY_LABELS: dict[str, str] = {
 LIST_KEYS = ("world.rules", "world.locations", "world.name_rules")
 CHAR_LABELS: dict[str, str] = {
     "name": "이름", "role": "역할", "age": "나이", "gender": "성별", "goal": "원하는 것", "wound": "두려운 것 · 약점", "secrets": "숨기는 것",
-    "speech_style": "말투 (대사)", "personality": "성격", "background": "배경", "appearance": "외모", "arc": "아크",
+    "speech_style": "말투 (대사)", "personality": "성격", "background": "배경", "appearance": "외모", "arc": "아크", "aliases": "다른 이름",
 }
+# 목록 칸 (items 로 받는다). 다른 이름은 찾는 데만 쓰는 칸이라 charlog 기록에 남지 않는다 (charlog.LOG_FIELDS 밖)
+CHAR_LIST_FIELDS = ("secrets", "aliases")
 REL_FIELDS = ("type", "description", "destination", "goal_conflict", "a_view", "b_view")
 
 
@@ -73,7 +75,7 @@ def edit_value(e: SetupEdit):
 
 
 def char_value(x: CharacterEdit):
-    return x.items if x.field == "secrets" else x.text
+    return x.items if x.field in CHAR_LIST_FIELDS else x.text
 
 
 def char_id(x: CharacterEdit) -> str:
@@ -169,8 +171,10 @@ def clean(p: Project, rev: SetupRevision, mode: str = "") -> SetupRevision:
             if x.id not in missing and x.id not in {n.id for n in rev.new_characters}:
                 missing.append(x.id)
             continue
-        if x.field == "secrets":
+        if x.field in CHAR_LIST_FIELDS:
             x.items, x.text = _norm(x.items), ""
+            if x.field == "aliases":  # 한 글자 다른 이름은 받지 않는다 (context.name_pattern)
+                x.items = [a for a in x.items if len(a) >= 2]
         else:
             x.text, x.items = x.text.strip(), []
         value = char_value(x)
@@ -319,7 +323,7 @@ def apply_revision(p: Project, rev: SetupRevision, parts: list[str]) -> tuple[Se
     for x in rev.characters:
         c = _char(p, x.id)
         if char_id(x) in want and c is not None:
-            setattr(c, x.field, list(x.items) if x.field == "secrets" else x.text)
+            setattr(c, x.field, list(x.items) if x.field in CHAR_LIST_FIELDS else x.text)
     for c in rev.new_characters:
         if f"new:{c.id}" in want and _char(p, c.id) is None:
             p.characters.append(c.model_copy(deep=True))

@@ -41,8 +41,8 @@ Canon 의 활성화 · 정규식 규칙 · 읽기 매크로를 Character Card V3
 
 Canon 열의 이름은 [02 명세서](specs/02-activation.md) 의 '데이터 · 스키마' 절 이름이다.
 `activation.` 으로 시작하는 이름은 `StoryElement` · `Character` · `Foreshadow` 의 `activation` 필드(`Activation` 모델) 안의 칸이다.
-지금 있는 필드는 `canon/schema.py` 의 `StoryElement`(name, aliases, description, context, since_ep, episodes, reveal_ep, characters)와 `Character`(name, context)다.
-`Character` 에는 지금 다른 이름 필드가 없다.
+지금 있는 필드는 `canon/schema.py` 의 `StoryElement`(name, aliases, description, context, since_ep, episodes, reveal_ep, characters)와 `Character`(name, aliases, context)다.
+`Character.aliases` 는 인물 다른 이름이다(2026-11-10, 04). 찾기에만 쓰고 프롬프트에 찍지 않는다.
 인물은 `context.name_pattern` 이 이름에서 조사를 가려 찾는다.
 CCv3 열은 [SPEC_V3.md](https://github.com/kwaroran/character-card-spec-v3/blob/main/SPEC_V3.md) 의 'Lorebook Fields' · 'entries Fields' · 'Decorators' 절이다.
 RisuAI 열은 RisuAI 저장소 `src/ts/storage/database.svelte.ts` 의 로어북 항목 형식과 `src/ts/process/lorebook.svelte.ts` 의 처리, `src/ts/characterCards.ts` 의 CCv3 가져오기 · 내보내기다.

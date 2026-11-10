@@ -332,7 +332,8 @@ def setup_chat_prompt(p: Project, message: str, mode: str = "") -> str:
     from . import setupchat
 
     begun = setupchat.started(p)
-    chars = [c.model_dump(exclude={"narration_voice", "first_ep", "body", "context"}) for c in p.characters]
+    # 다른 이름은 채운 인물만 보인다 (edit_setup 이 고칠 수 있게. 빈 인물은 전과 같은 글)
+    chars = [c.model_dump(exclude={"narration_voice", "first_ep", "body", "context"} | (set() if c.aliases else {"aliases"})) for c in p.characters]
     relations = [r.model_dump(exclude={"a_view", "b_view"} if begun else set()) for r in p.relationships]
     written = sorted((e for e in p.episodes if e.text.strip()), key=lambda e: e.plot.number)
     story = ""
@@ -5640,8 +5641,9 @@ def illust_prompt(p: Project, n: int, sel: Selection | None, request: str = "") 
 
 def cast_view(cs: list[Character]) -> list[dict]:
     """본문 · 검수에 넣는 인물 설정. 서술 말투는 그 인물이 시점 인물인 화에만 시점 블록으로 넣는다 (다른 화에 옮아오지 않게).
-    신체 프로필(body)은 인물 카드에만 보이는 작가 메모라 넣지 않는다."""
-    return [c.model_dump(exclude={"narration_voice", "body", "context"}) for c in cs]
+    신체 프로필(body)은 인물 카드에만 보이는 작가 메모라 넣지 않는다.
+    다른 이름(aliases)은 '이 인물이 나온다'를 찾는 데만 쓰고 넣지 않는다 (고칠 때마다 앞 블록 캐시가 깨지지 않게)."""
+    return [c.model_dump(exclude={"narration_voice", "body", "context", "aliases"}) for c in cs]
 
 
 SYSTEM_VOICE = (
@@ -5723,6 +5725,43 @@ def body_prompt(p: Project, cid: str, minor: bool) -> str:
 - note 에는 무엇을 근거로 정했는지 한국어 한두 문장으로 적습니다."""
 
 
+
+def alias_prompt(p: Project, items: list) -> str:
+    """다른 이름 제안 (pipeline.suggest_aliases). items 는 aliases.Item (재료 단락을 채운 것).
+    바뀌지 않는 블록(작품 · 모든 항목의 이름 목록)이 앞, 항목별 단락이 뒤, 요청이 맨 뒤다 (Gemini 암묵적 캐시).
+    쓰기 프롬프트 · 작업지시서에는 들어가지 않는다."""
+    def names(n: str, al: list[str]) -> str:
+        return n + (f" (다른 이름: {', '.join(al)})" if al else "")
+    every = [f"- c:{c.id} 인물 {names(c.name, c.aliases)}" for c in p.characters if c.name.strip()]
+    every += [f"- e:{x.id} {x.kind} {names(x.name, x.aliases)}" for x in p.elements if x.name.strip()]
+    blocks = []
+    for it in items:
+        paras = "\n".join(f"[{n}화] {para}" for n, para in it.passages) or "(쓴 화 본문에서 찾은 단락이 없습니다)"
+        cut = f"\n(재료 예산을 넘어 뺀 단락 {it.cut}개)" if it.cut else ""
+        calls = f"\n다른 인물이 부르는 호칭(씨앗): {', '.join(it.calls)}" if it.calls else ""
+        blocks.append(f"""## {it.key}
+설정: {it.line}
+지금 이름: {it.name}
+지금 다른 이름: {', '.join(it.aliases) or '없음'}{calls}
+재료 단락:
+{paras}{cut}""")
+    return f"""# 작품
+제목: {p.meta.title}
+장르: {genres.label(p.meta)}
+
+# 모든 항목의 이름 (겹치는 말을 피하는 데 씁니다)
+{chr(10).join(every) or "없음"}
+
+# 다른 이름을 찾을 항목
+{chr(10).join(blocks)}
+
+요구사항:
+- 각 항목이 재료 단락에서 이름 대신 불리는 말(별명, 호칭, 직함, 줄인 이름, 부분 이름)을 찾아 aliases 에 넣습니다.
+- 재료 단락에 글자 그대로 나온 말만 넣습니다. 지어내거나 바꿔 쓰지 않습니다. 조사(은 · 는 · 이 · 가 · 을 · 를 · 에게 등)는 떼고 넣습니다.
+- 두 글자 이상, 12자 이하로 씁니다. 지금 이름 · 지금 다른 이름과 같은 말은 넣지 않습니다.
+- 다른 항목의 이름 · 다른 이름과 같은 말, '그' · '그녀' · '나' 같은 대명사, '오빠' · '엄마'처럼 여러 인물에게 두루 쓰는 관계 말은 넣지 않습니다. 호칭 씨앗도 이 기준으로 고릅니다.
+- target 에는 위 '## ' 뒤의 열쇠(c:… · e:…)를 그대로 씁니다. 더할 말이 없는 항목은 빼도 됩니다.
+- reason 에는 어느 화 단락에서 어떻게 불렸는지 한국어 한두 문장으로 씁니다."""
 
 def stat_window_prompt(p: Project, request: str = "") -> str:
     """상태창 꾸미기 제안 (pipeline.suggest_stat_window). 본문 서식 · 창 이름 · 항목 틀 · 화면 스킨을 함께 낸다."""

@@ -118,6 +118,26 @@ def test_new_relationship_numbers_are_not_written_by_ai():
     assert turn.reply == "한 명 더했어요"
 
 
+def test_setup_card_adds_character_aliases_and_undo_restores():
+    """정할 것 13: edit_setup 카드로 인물 다른 이름을 넣고 되돌리면 전 값으로 돌아간다. 다른 이름은 setting_log 에 남지 않는다 (정할 것 5)."""
+    from canon.schema import AgentTurn
+
+    from .jsvm import episode
+    p = Project.model_validate({"meta": {"title": "등대"}, "characters": [{"id": "hero", "name": "서윤", "role": "주인공", "aliases": ["등대지기"]}]})
+    p.episodes = [episode(1, text="서윤은 등대에 올랐다.", status="finalized")]  # 1화 반영 뒤라 설정 칸을 고치면 기록이 남는 때
+    rev = SetupRevision(reply="별명을 더했어요", characters=[CharacterEdit(id="hero", field="aliases", items=["등대지기", " 꼬맹이 ", "꼬"])])
+    turn = AgentTurn(user="서윤 별명에 꼬맹이를 더해 줘")
+    assert agent_setup.record(p, S, turn, STEP, rev) == "wait"
+    a = turn.approval
+    assert a.keys == ["c:hero:aliases"] and a.defaults == []  # 인물 칸은 처음에 꺼 둔다
+    assert a.setup.characters[0].items == ["등대지기", "꼬맹이"]  # 한 글자 말은 정리가 뺀다
+    agent_setup.decide(p, S, turn, True, ["c:hero:aliases"])
+    assert p.characters[0].aliases == ["등대지기", "꼬맹이"] and p.setting_log == []
+    assert "서윤 다른 이름" in turn.steps[-1].label
+    done, kept, _ = agent_setup.undo(p, turn.writes[0], turn.writes[0].items)
+    assert done == ["서윤 다른 이름"] and not kept
+    assert p.characters[0].aliases == ["등대지기"] and p.setting_log == []
+
 def test_no_change_and_failed_request_continue_the_turn():
     from canon.schema import AgentTurn
 

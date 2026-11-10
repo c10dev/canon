@@ -883,7 +883,7 @@ const charIdeaInput = (label, path, opt) => input(label, path, { ...opt, aside: 
 /** 인물 한 줄. 누르면 그 자리에서 펴고, 다른 인물은 접는다 (한 번에 하나) */
 function charRow(c, i) {
   const b = `characters.${i}`;
-  const open = cardOpen(charKey(c), charNeedsWork(c));
+  const open = cardOpen(charKey(c), charNeedsWork(c)) || !!(S.aliasSug || {})['c:' + c.id];  // 받은 다른 이름 제안이 있으면 펴 둔다
   return `<details class="char-card" id="char-${i}" data-open-key="${esc(charKey(c))}"${open ? ' open' : ''}>
     <summary class="row-sum">${charAva(c)}<span class="who"><strong data-char-head="${i}">${esc(c.name || '이름 없음')}</strong>${charCtxMark(c)}
       <span class="sub" data-char-sub="${i}">${esc(charSub(c))}</span></span><span data-char-chip="${i}">${charChip(c)}</span>${foldTail(open)}</summary>
@@ -895,6 +895,7 @@ function charRow(c, i) {
       ${namePicks('c:' + c.id, 'useName', (n) => `${c.id}|${n}`)}
       <div class="grid-2">${charIdeaInput('원하는 것', b + '.goal', { hint: '작품 전체에서' })}${charIdeaInput('두려운 것 · 약점', b + '.wound')}</div>
       <div class="grid-2">${charIdeaInput('숨기는 것', b + '.secrets', { kind: 'list', rows: 2 })}${charIdeaInput('말투 (대사)', b + '.speech_style', { rows: 2, hint: '어미, 호칭, 대사 한 줄' })}</div>
+      ${charAliasField(c, b)}
       <details data-open-key="${esc('cd:' + c.id)}"${cardOpen('cd:' + c.id, false) ? ' open' : ''}><summary>더 자세히: 성격, 배경, 외모, 아크</summary><div class="row-more">
         ${charIdeaInput('성격', b + '.personality', { rows: 2 })}${charIdeaInput('배경', b + '.background', { rows: 2 })}${charIdeaInput('외모', b + '.appearance')}
         ${charIdeaInput('아크', b + '.arc', { hint: '시작 → 결말' })}${input('id', b + '.id', { hint: '관계와 플롯이 인물을 찾는 값이라 바꿀 수 없어요', readonly: true })}
@@ -903,6 +904,13 @@ function charRow(c, i) {
         <button type="button" class="btn small danger" data-action="removeCharacter" data-arg="${i}" aria-label="${esc(c.name || c.id)} 지우기">지우기</button></div>
     </div>
   </details>`;
+}
+
+/** 인물 다른 이름 칸과 AI 제안 (aliases.js). 본문에서 이 인물이 나오는지 찾는 데만 쓰고 AI 프롬프트에는 넣지 않는다 */
+function charAliasField(c, b) {
+  return `<div>${input('다른 이름', b + '.aliases', { kind: 'list', rows: 2, hint: '본문에서 다르게 부르는 말. 두 글자 이상' })}
+    <div class="row"><button type="button" class="btn small" data-action="aliasAI" data-arg="${esc('c:' + c.id)}">다른 이름 제안</button><span class="small">본문을 읽고 제안해요. 고른 말만 넣어요</span></div>
+    ${aliasCard('c:' + c.id)}</div>`;
 }
 
 function viewSetupDoc() {
@@ -945,7 +953,8 @@ function viewSetupDoc() {
         ${input('이름 규칙', 'world.name_rules', { kind: 'list', rows: 2, placeholder: "예: 북부 귀족은 성 앞에 '폰'을 붙인다" })}
       </section>
       <section class="sec" id="setup-chars" aria-labelledby="h-setup-chars">
-        ${secHead(3, `인물 <span class="small">${p.characters.length}명</span>`, `<div class="row"><button type="button" class="btn small ghost" data-action="checkNames" title="글자가 겹치는 이름, 나이와 안 맞는 이름, AI가 자주 짓는 이름을 찾아요">이름 점검</button><button type="button" class="btn small" data-action="dexRoll" title="원형 · 상처 · 말투 · 비틀기 · 이름을 무작위로 섞어 3안을 보여 줘요">도감 주사위 굴리기</button><button type="button" class="btn small" data-action="addCharacter">+ 인물 더하기</button></div>`)}
+        ${secHead(3, `인물 <span class="small">${p.characters.length}명</span>`, `<div class="row"><button type="button" class="btn small ghost" data-action="checkNames" title="글자가 겹치는 이름, 나이와 안 맞는 이름, AI가 자주 짓는 이름을 찾아요">이름 점검</button><button type="button" class="btn small" data-action="dexRoll" title="원형 · 상처 · 말투 · 비틀기 · 이름을 무작위로 섞어 3안을 보여 줘요">도감 주사위 굴리기</button>${p.characters.length ? '<button type="button" class="btn small" data-action="aliasAI" data-arg="c:" title="다른 이름이 빈 인물을 한 번에 10명까지 제안받아요">빈 다른 이름 제안</button>' : ''}<button type="button" class="btn small" data-action="addCharacter">+ 인물 더하기</button></div>`)}
+        ${aliasCard('c:')}
         <p class="small">이름 · 말투 · 성격은 화마다 바뀌지 않아요.${help('화마다 바뀌는 감정과 목표는 상태 승인에서 다뤄요. 주역은 매 화, 조연 · 단역은 나오는 화에만 AI에 들어가요.')}</p>
         ${nameCheckBox()}
         ${dexRollBox()}
@@ -1249,7 +1258,7 @@ Object.assign(actions, {
     let id = ids.has('hero') ? '' : 'hero';
     for (let n = cs.length + 1; !id; n++) if (!ids.has('char' + n)) id = 'char' + n;
     openMap()['c:' + id] = true;
-    cs.push({ id, name: '', role: id === 'hero' ? '주인공' : '조연', age: '', gender: '', appearance: '', personality: '', background: '', goal: '', wound: '', speech_style: '', secrets: [], arc: '', body: {}, context: 'auto' });
+    cs.push({ id, name: '', role: id === 'hero' ? '주인공' : '조연', age: '', gender: '', appearance: '', personality: '', background: '', goal: '', wound: '', speech_style: '', secrets: [], arc: '', body: {}, context: 'auto', aliases: [] });
     markDirty();
     render();
   },

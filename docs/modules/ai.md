@@ -239,6 +239,7 @@
 - 대화 에이전트 단계 `_agent_step` 은 말에 '규칙'과 «찾을 글»(또는 `rule=id`)이 들면 `revise_text` 갈래보다 먼저 `propose_regex` 를 부른다
 - 그 인자(`_regex_args`): 둘째 «» 는 바꿀 글, '고침' 은 fix, '나쁜 규칙' 은 겹친 반복 `(a+)+`, 말 속 `k=v` 는 그 인자다. 막혀 돌아오면 답만 한다
 - 새 기능의 가짜 응답은 `mock_<기능>.py` 에 `@responds(스키마)` 로 두고(`RESPONDERS`) `mock.py` 맨 끝에서 불러온다
+  - `mock_aliases.py` 다른 이름 제안(재료 단락에 있는 말 하나와 지어낸 말 하나, 없는 항목 하나. 근거 검사가 지어낸 말을 뺀다)
   - `mock_audit.py` 상태 변경안 누락 검사 (본문 앞 두 문장과 본문에 없는 인용 하나)
   - `mock_birth.py` 출생 배경
   - `mock_board.py` 스토리보드
