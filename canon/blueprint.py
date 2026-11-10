@@ -258,6 +258,16 @@ def extract_range(p: Project, arc: int) -> tuple[int, int]:
     return min(eps), max(eps)
 
 
+def draft_range(p: Project, part: int) -> tuple[int, int]:
+    """AI 로 짤 화 범위. 장편은 부 번호의 범위(부가 없으면 작품 전체), 단편 · 0 은 1화부터 작품 화수까지."""
+    if p.serial and part:
+        x = next((x for x in p.parts if x.number == part), None)
+        if x is None:
+            raise ValueError(f"{part}부가 없어요")
+        return x.start_ep, x.end_ep
+    return 1, max(p.meta.target_episodes, 1)
+
+
 def _clip(x, start: int, end: int) -> bool:
     """제안 줄의 화 범위를 start~end 로 자른다. 범위 밖이면 False."""
     lo, hi = (x.from_ep or 0), (x.to_ep or x.from_ep or 0)

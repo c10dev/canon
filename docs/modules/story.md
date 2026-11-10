@@ -280,6 +280,7 @@
 - 사다리 칸 한 줄 `rung_text`: '차례. 이름 (겹 · 부위 · 동작 · 장소 · 주도 · 메모)', 부위 · 동작은 장면 연출의 이름
 - 스토리보드 · 쓰기 · 검수 요청의 설계도 줄은 `prompts.blueprint_board_rule` · `blueprint_write_line` · `blueprint_check_rule`(그 화 플롯 인물끼리만)
 - 거꾸로 뽑기 범위 `extract_range`: 장편은 아크 하나, 단편은 플롯이 있는 첫 화부터 마지막 화까지
+- AI 로 짜기 범위 `draft_range`: 장편은 부 하나(0 이면 작품 전체), 단편은 1화부터 작품 화수까지
 - AI 제안 정리 `clean_proposal`(`BlueprintProposal`): 두 인물 사이 줄만, 화 범위를 자르고 모르는 id · 쌍 밖 주도 인물 · 범위 밖 근거를 뺀다
 - 고른 제안 줄 더하기 `apply_picks`: 이정표는 뒤에, 사다리 칸은 처음 닿는 화 차례로 끼운다. 사본에서 `check` 한 뒤에만 바꾼다
 - 본문에서 닿은 칸은 기록 `Project.contact_log`(`ContactReach`)에서 계산한다: `reached`(칸 id → 처음 닿은 화) · `actual_rung`. 지워진 칸의 기록은 뺀다
@@ -749,7 +750,9 @@
 - 사다리 칸의 부위 · 동작 · 장소는 접는 칩 묶음 `bpChips`(펴 둔 묶음은 `S.bpPickOpen`)
 - 저장 `bpSave` 는 서버 설계도에 고친 카드 몫만 바꿔 넣어(`bpMerged`) `PUT …/blueprint` 로 보낸다. 칸을 다 지운 사다리는 뺀다
 - 단계 말 `BP_STAGES` 는 `schema.RelStage` 와 같다(`tests/test_blueprint_js.py`)
-- 쌍 쪽 맨 아래 '지금 플롯에서 뽑기' `bpExtractCard`: 장편은 플롯이 있는 아크를 골라 작업 `blueprint`(대상 쌍 키)
+- 쌍 쪽 맨 아래 'AI로 설계도 받기' `bpExtractCard`: 메모 · 부 고르기 · 'AI로 짜기'(작업 `blueprint_draft`), 플롯이 있으면 '지금 플롯에서 뽑기'(작업 `blueprint`, 장편은 아크 고르기)
+- 제안 카드 제목은 결과의 `mode` 로 'AI가 짠 설계도' · 'AI가 뽑은 설계도'
+- 개요의 관계 목록 줄마다 '여정 짜기' 버튼(그 쌍 쪽으로)
 - 도착한 제안은 `S.bpDraft` 로 계획 띠 · 경고 다음 카드 `bpDraftCard`(줄마다 고르기 · 근거). '고른 줄 더하기'는 `POST …/blueprint/apply`
 - 본문에서 닿은 칸 `bpReached`(서버 `blueprint.reached` 와 같다): 사다리 카드의 'n화에 닿음', 계획 띠의 '본문에서 닿음' 줄
 - 남겨 둔 닿은 칸 카드 `bpHeldCard`(개요 · 쌍 쪽, '기록하기' · '버리기' → `POST …/blueprint/held/{i}/{take|drop}`)

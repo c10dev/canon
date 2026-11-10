@@ -1,6 +1,6 @@
 # 07. 본문에서 실제로 닿은 칸 기록 (6b)
 
-상태: 진행 (claude/blueprint-contact) · 계획: [plan.md](../plan.md) 의 6b · 먼저: 6a
+상태: 끝 ([#482](https://github.com/c10dev/canon/pull/482)) · 계획: [plan.md](../plan.md) 의 6b · 먼저: 6a
 
 ## 목표
 

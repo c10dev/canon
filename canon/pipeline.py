@@ -840,6 +840,11 @@ def propose_heat(llm: LLM, p: Project, number: int = 0, note: str = "") -> HeatP
     return prop
 
 
+# 설계도 제안(거꾸로 뽑기 · 짜기)의 출력 한도 (생각 토큰 포함). 2026-11-10 flash 실호출 두 번 모두 첫 시도가 같은 글을 되풀이해
+# 65,521토큰까지 썼다(약 $0.25씩). 성공한 응답은 2천 토큰 안팎이라 스토리보드와 같은 한도로 자르고 형식 고치기 재시도로 넘긴다
+BLUEPRINT_OUT_TOKENS = 16384
+
+
 def propose_blueprint(llm: LLM, p: Project, arc: int, a: str, b: str, note: str = "") -> BlueprintProposal:
     """지금 화별 플롯에서 두 인물의 설계도(관계 이정표 · 접촉 사다리)를 거꾸로 뽑는다 (docs/blueprint/specs/05-extract.md). 저장하지 않는다.
     장편은 아크 하나(arc), 단편은 작품 전체. 작가가 고른 줄만 blueprint.apply_picks 로 들어간다."""
@@ -848,7 +853,21 @@ def propose_blueprint(llm: LLM, p: Project, arc: int, a: str, b: str, note: str 
         raise ValueError("서로 다른 두 인물을 골라 주세요")
     start, end = blueprint.extract_range(p, arc)
     ask = prompts.blueprint_extract_prompt(p, start, end, a, b) + prompts.request_block(note)
-    prop = llm.json(prompts.SYSTEM_PLANNER, ask, BlueprintProposal, hint={"start": start, "end": end, "a": a, "b": b})
+    with out_cap(BLUEPRINT_OUT_TOKENS):
+        prop = llm.json(prompts.SYSTEM_PLANNER, ask, BlueprintProposal, hint={"start": start, "end": end, "a": a, "b": b})
+    return blueprint.clean_proposal(p, prop, a, b, start, end)
+
+
+def draft_blueprint(llm: LLM, p: Project, part: int, a: str, b: str, note: str = "") -> BlueprintProposal:
+    """작가 설정 · 부 구성에서 두 인물의 설계도를 짠다 (docs/blueprint/specs/08-draft.md). 플롯이 없어도 된다. 저장하지 않는다.
+    장편은 부 하나(part, 부가 없으면 작품 전체), 단편은 작품 전체. 정리와 더하기는 거꾸로 뽑기와 같다 (blueprint.clean_proposal · apply_picks)."""
+    names = {c.id for c in p.characters}
+    if a == b or a not in names or b not in names:
+        raise ValueError("서로 다른 두 인물을 골라 주세요")
+    start, end = blueprint.draft_range(p, part)
+    ask = prompts.blueprint_draft_prompt(p, start, end, a, b) + prompts.request_block(note)
+    with out_cap(BLUEPRINT_OUT_TOKENS):
+        prop = llm.json(prompts.SYSTEM_PLANNER, ask, BlueprintProposal, hint={"start": start, "end": end, "a": a, "b": b})
     return blueprint.clean_proposal(p, prop, a, b, start, end)
 
 

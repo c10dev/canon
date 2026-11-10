@@ -804,7 +804,7 @@ async function finishJob(j) {
 }
 
 // ---------- 검토를 기다리는 결과 · 실패 (서버 pending.json, web.PENDING_KINDS 와 같은 목록) ----------
-const PENDING_KINDS = ['arc', 'heat', 'blueprint', 'suggest', 'style', 'series', 'nextarc', 'convert', 'rebuild', 'rework', 'storyline', 'recap_arc', 'recap_part', 'fold_knows', 'offscreen', 'state', 'openings'];
+const PENDING_KINDS = ['arc', 'heat', 'blueprint', 'blueprint_draft', 'suggest', 'style', 'series', 'nextarc', 'convert', 'rebuild', 'rework', 'storyline', 'recap_arc', 'recap_part', 'fold_knows', 'offscreen', 'state', 'openings'];
 
 /** 그 결과가 아직 화면에 제안으로 남아 있다. 반영하거나 버리면 false 가 된다. */
 function pendingShown(r) {
@@ -813,6 +813,7 @@ function pendingShown(r) {
     case 'arc': return !!S.arcProposal;
     case 'heat': return !!S.heatDraft;
     case 'blueprint': return !!S.bpDraft;
+    case 'blueprint_draft': return !!S.bpDraft;
     case 'suggest': return !!S.suggestion;
     case 'style': return !!S.styleDraft;
     case 'series': return !!S.seriesDraft;
@@ -874,7 +875,7 @@ function applyJobResult(j) {
     // 문체 분석 결과는 바로 넣지 않고 문체 화면의 제안 카드로 둔다(style.js styleDraftCard). 작가가 '바꾸기'를 눌러야 작품 문체에 들어간다.
     // 그동안 고친 문체 칸을 덮지 않고, 다른 화면 · 새로고침에서도 pending 에서 다시 놓인다
     S.styleDraft = j.result;
-  } else if (j.kind === 'blueprint' && j.result) {
+  } else if ((j.kind === 'blueprint' || j.kind === 'blueprint_draft') && j.result) {
     S.bpDraft = j.result;  // 설계도 쪽 카드 안 제안 (blueprint.js bpDraftCard). 고른 줄만 더한다
   } else if (j.kind === 'heat' && j.result) {
     S.heatDraft = j.result;  // 열 계획 카드 안 제안 (heatplan.js heatDraftCard). result.arc 는 장편 아크 번호, 단편은 0

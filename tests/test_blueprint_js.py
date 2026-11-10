@@ -107,3 +107,16 @@ def test_review_rows_and_reached_marks():
     p.contact_held = [ContactReach(a="a", b="j", rung="cr-1", episode=5)]
     html = _run("viewBlueprint()", p)
     assert 'id="bp-held"' in html and 'data-arg="0|take"' in html
+
+
+
+@needs_node
+def test_ai_card_and_draft_title():
+    p = _proj()
+    html = _run("viewBlueprint()", p, {"bpSel": "a~j"})
+    assert 'data-action="bpDraftAI"' in html and 'id="bp-note-ai"' in html  # 플롯이 없어도 짜기는 보인다
+    assert 'data-action="bpExtract"' not in html  # 뽑을 플롯이 없다
+    draft = {"a": "a", "b": "j", "start": 1, "end": 600, "mode": "draft", "reply": "", "milestones": [], "rungs": []}
+    assert "AI가 짠 설계도" in _run("viewBlueprint()", p, {"bpSel": "a~j", "bpDraft": draft})
+    assert "여정 짜기" in _run("viewBlueprint()", p)
+    assert _run("pendingShown({ kind: 'blueprint_draft' })", p, {"bpDraft": draft}) is True

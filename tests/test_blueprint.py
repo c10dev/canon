@@ -431,3 +431,38 @@ def test_held_api(client):
     out = client.post("/api/projects/bph/blueprint/held/0/take").json()
     assert out["contact_held"] == [] and [x["rung"] for x in out["contact_log"]] == ["cr-1"]
     assert client.post("/api/projects/bph/blueprint/held/5/take").status_code == 400
+
+
+# ---------- AI 로 짜기 (specs/08-draft.md) ----------
+
+def test_draft_range_and_prompt():
+    from canon import prompts
+    from canon.mock import MockLLM
+    from .test_serial import _serial
+    p = _serial()  # 부 구성만 있고 아크 · 플롯은 없다
+    a, b = p.characters[0].id, p.characters[1].id
+    part = p.parts[0]
+    assert blueprint.draft_range(p, part.number) == (part.start_ep, part.end_ep)
+    assert blueprint.draft_range(p, 0) == (1, p.meta.target_episodes)
+    with pytest.raises(ValueError, match="99부"):
+        blueprint.draft_range(p, 99)
+    rel = next(r for r in p.relationships if {r.a, r.b} == {a, b})
+    rel.destination = "서로를 인정하는 맞수"
+    s = prompts.blueprint_draft_prompt(p, part.start_ep, part.end_ep, a, b)
+    assert "설계도를 짜세요" in s and part.goal in s and "가 닿을 곳 (작가가 정한 방향, 지금 관계 아님): 서로를 인정하는 맞수" in s
+    assert "hand_r: 오른 손" in s and "한 화에 한 칸씩" in s
+    prop = pipeline.draft_blueprint(MockLLM(), p, part.number, a, b, "1부 끝에 손을 잡는다")
+    assert prop.milestones and all(part.start_ep <= m.from_ep <= m.to_ep <= part.end_ep for m in prop.milestones)
+    assert all(part.start_ep <= r.from_ep <= part.end_ep for r in prop.rungs)
+
+
+def test_draft_job_api(client):
+    from .test_web import _wait
+    meta = {"title": "지하철", "genre": "성인", "logline": "", "target_episodes": 12}
+    assert client.post("/api/projects", json={"name": "bpd", "meta": meta}).status_code == 200
+    p = client.post("/api/projects/bpd/suggest/apply", json=client.post("/api/projects/bpd/suggest").json()).json()
+    a, b = p["characters"][0]["id"], p["characters"][1]["id"]
+    job = client.post("/api/projects/bpd/jobs", json={"kind": "blueprint_draft", "target": f"{a}~{b}", "note": "천천히"}).json()
+    done = _wait(client, job["id"])
+    assert done["status"] == "done" and done["result"]["mode"] == "draft" and done["result"]["end"] == 12
+    assert any(k.startswith("blueprint_draft:") for k in client.get("/api/projects/bpd/pending").json()["results"])
