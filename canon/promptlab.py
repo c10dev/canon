@@ -360,6 +360,36 @@ def example_project() -> Project:
     return _example.model_copy(deep=True)
 
 
+EXAMPLE_SERIAL_TITLE = "예시 장편"
+_example_serial: Optional[Project] = None
+
+
+def example_serial() -> Project:
+    """mock LLM 으로 만든 장편(저장하지 않음): 첫 아크는 본문을 쓰고 상태까지 반영했고, 둘째 아크는 끝 세 화만 플롯 초안이고 나머지는 확정했다.
+    장편에만 있는 갈래(부 구성)와 장편 경로(접은 줄거리 · 예산)를 보이는 프롬프트 관리 페이지의 견본이다. 한 번 만들어 두고 사본을 준다."""
+    global _example_serial
+    if _example_serial is None:
+        from . import pipeline
+        from .mock import MockLLM
+
+        llm, p = MockLLM(), Project()
+        p.meta.title, p.meta.form, p.meta.target_episodes = EXAMPLE_SERIAL_TITLE, "serial", 300
+        pipeline.apply_setup(p, pipeline.suggest_setup(llm, p))
+        pipeline.apply_series(p, pipeline.plan_series(llm, p))
+        for k in range(2):
+            a = pipeline.apply_arc(p, pipeline.plan_next_arc(llm, p, 0))
+            pipeline.register_candidates(p, [c.id for c in p.cast_candidates if c.id in a.cast])
+            pipeline.apply_plots(p, pipeline.draft_plots(llm, p, a.start_ep, a.end_ep))
+            for n in range(a.start_ep, a.end_ep + 1 if k == 0 else a.end_ep - 2):
+                pipeline.confirm_plot(p, n)
+                if k == 0:
+                    p.episode(n).text = pipeline.write_episode(llm, p, n)
+                    p.episode(n).status = "written"
+                    pipeline.apply_delta(p, pipeline.extract_state(llm, p, n))
+        _example_serial = p
+    return _example_serial.model_copy(deep=True)
+
+
 def _project(name: str) -> Project:
     if not name:
         return example_project()
