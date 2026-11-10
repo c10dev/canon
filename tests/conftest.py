@@ -20,7 +20,7 @@ REPO = Path(__file__).resolve().parent.parent
 
 def _isolate() -> None:
     # 작품 폴더 밖 저장 위치를 직접 정하는 변수는 지운다. 그러면 모두 store.ROOT 아래를 따른다
-    for name in ("CANON_PROMPTLAB", "CANON_REFS", "CANON_RULES", "CANON_STUDIO", "CANON_STYLES", "CANON_USAGE"):
+    for name in ("CANON_PROMPTLAB", "CANON_PROMPTSETS", "CANON_REFS", "CANON_RULES", "CANON_STUDIO", "CANON_STYLES", "CANON_USAGE"):
         os.environ.pop(name, None)
     if not os.environ.get("CANON_HOME"):
         home = tempfile.mkdtemp(prefix="canon-test-")

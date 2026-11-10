@@ -112,3 +112,19 @@ def test_run_card_check_and_raw():
     assert "Canon이 그대로 받는 응답이에요" in got["clean"] and "빈 칸 없음" in got["clean"]
     assert "&lt;끊긴 답" in got["failed"] and "MAX_TOKENS(출력 한도)" in got["failed"]
     assert "빈 칸" not in got["text"] and "받은 원문" not in got["text"]  # 글로 받은 결과는 검사하지 않는다
+
+
+@needs_node
+def test_blind_trial_hides_sides_until_picked():
+    run = {"backend": "mock", "model": "mock", "ok": True, "text": "글", "error": "", "seconds": 0.1, "chars": 1, "tokens_in": 0, "tokens_out": 0, "cost": 0}
+    got = run_js(["app.js", "usage.js", "promptlab.js"], """(() => {
+      fmtDateTime = () => '';
+      S.pgForm = { system: '', prompt: 'p', backends: [] };
+      const t = { no: 3, at: '', system: '', prompt: 'p', temperature: null, star: false, note: '', runs: [], base: { system: '', prompt: 'q' },
+        blinds: [{ k: 0, state: 'pending', shown: [data.run, data.run], seen: 0 }] };
+      const pending = pgTrialCard(t);
+      t.blinds = [{ k: 0, state: 'done', shown: [data.run, data.run], seen: 0, picked: 'set', order: ['original', 'set'] }];
+      return { pending, done: pgTrialCard(t) };
+    })()""", {"run": run})
+    assert 'data-action="pgPick" data-arg="3:0:1">가 고르기' in got["pending"] and "원래 판" not in got["pending"]
+    assert "고른 쪽: 실험 판" in got["done"] and 'data-action="pgPick"' not in got["done"]

@@ -4460,9 +4460,14 @@ CHECK_RULES_EN = """Find the places in the text of episode {n} that contradict t
 - episode is {n}."""
 
 
+def check_rule_lines(p: Project, n: int, mode: str = "") -> str:
+    """검수 확인 목록(CHECK_RULES)의 {rules} 자리: 작품마다 붙는 확인 줄."""
+    return f"{timeline.check_rule(p, n)}{mapprompt.travel_check_rule(p, n)}{attire_check_rule(p)}{stage_check_rule(p)}{layer_check_rule(p, check_cast(p, n) if (mode or ('budget' if p.serial else 'full')) == 'budget' else None)}{address.check_rule(p)}{statwin.check_rule(p)}{protect_check_rule(p.episode(n))}{pairlog.check_rule(pair_check_block(p, n, mode))}"
+
+
 def _check_request(p: Project, n: int, mode: str, lang: str, material: str) -> str:
     """검수 프롬프트의 자료와 요청 (scope 를 붙이기 전)."""
-    rules = f"{timeline.check_rule(p, n)}{mapprompt.travel_check_rule(p, n)}{attire_check_rule(p)}{stage_check_rule(p)}{layer_check_rule(p, check_cast(p, n) if (mode or ('budget' if p.serial else 'full')) == 'budget' else None)}{address.check_rule(p)}{statwin.check_rule(p)}{protect_check_rule(p.episode(n))}{pairlog.check_rule(pair_check_block(p, n, mode))}"
+    rules = check_rule_lines(p, n, mode)
     if lang == "en":
         return f"{material}\n\n" + CHECK_RULES_EN.format(n=n, rules=rules, severity=SEVERITY_RULE_EN)
     return f"{material}\n\n" + CHECK_RULES.format(n=n, rules=rules, severity=SEVERITY_RULE)
@@ -5676,7 +5681,8 @@ _SAMPLES = {
     "direction_rule": lambda p, n: DIRECTION_RULE if n and any(direction_texts(p, n)) else "",
     "echo_rule": lambda p, n: ECHO_RULE if n and echo_block(p, n) else "",
     "polish_ending": lambda p, n: "" if n and voiced(p, n) else POLISH_ENDING.format(rule=ending_rule(p)),
-    "check_rules": lambda p, n: CHECK_RULES.format(n=n, rules="", severity=SEVERITY_RULE),
+    "check_rules": lambda p, n: CHECK_RULES.format(n=n, rules=check_rule_lines(p, n), severity=SEVERITY_RULE) if n else "",
+    "polish_rules": lambda p, n: POLISH_RULES.format(ending=_SAMPLES["polish_ending"](p, n)),
     "time_check": lambda p, n: timeline.check_rule(p, n).strip() if n else "",
     "travel_check": lambda p, n: mapprompt.travel_check_rule(p, n).strip() if n else "",
     "attire_check": lambda p, n: attire_check_rule(p).strip(),

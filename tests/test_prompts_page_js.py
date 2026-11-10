@@ -97,3 +97,39 @@ def test_sidebar_and_menu_link_to_page():
     got = run_js(["app.js"], """(() => ({ tools: outNav().tools.map((x) => x[1]) }))()""", {})
     tools = got["tools"]
     assert tools.index("#/prompts") == tools.index("#/promptlab") + 1  # 작품 밖 도구 줄의 놀이터 옆 (정할 것 6)
+
+
+@needs_node
+def test_line_diff():
+    got = run_js(FILES, """(() => ({
+      same: pcLineDiff('a\\nb', 'a\\nb').map((r) => r.op).join(''),
+      mid: pcLineDiff('a\\nb\\nc', 'a\\nB\\nc').map((r) => r.op + r.text),
+      add: pcLineDiff('a', 'a\\nb').map((r) => r.op + r.text),
+      del: pcLineDiff('a\\nb', 'b').map((r) => r.op + r.text),
+      html: pcDiffHtml('1\\n2\\n3\\n4\\n5\\n6', '1\\n2\\n3\\n4\\n5\\nsix'),
+      none: pcDiffHtml('x', 'x'),
+    }))()""", {})
+    assert got["same"] == "  "
+    assert got["mid"] == [" a", "-b", "+B", " c"]
+    assert got["add"] == [" a", "+b"] and got["del"] == ["-a", " b"]
+    assert "… 4줄 같음" in got["html"] and "pc-diff-del" in got["html"] and "더한 줄: " in got["html"]
+    assert "원래 글과 같아요" in got["none"]
+
+
+@needs_node
+def test_set_editor(client, reg, tmp_path, monkeypatch):
+    monkeypatch.setenv("CANON_PROMPTSETS", str(tmp_path / "sets"))
+    ps = client.post("/api/promptsets", json={"name": "판", "kind": "episode"}).json()
+    d = client.put(f"/api/promptsets/{ps['id']}", json={"name": "판", "kind": "episode", "note": "",
+                                                        "changes": [{"piece": "write_style", "text": "문체는 예시 문단만 따릅니다. "},
+                                                                    {"piece": "gone", "text": "x"}]}).json()
+    html = run_js(FILES, """(() => {
+      S.pcReg = data.reg; S.route = ['prompts', 'set', data.d.set.id]; S.pcView = 'set'; S.pcSets = [data.d.set];
+      pcSetPut(data.d);
+      return viewPrompts();
+    })()""", {"reg": reg, "d": d})
+    assert 'aria-pressed="true">실험 판' in html
+    assert "프로필 따르기 · banned_phrases" in html and "바꿈</span>" in html and "없는 조각</span>" in html
+    assert "pc-diff-add" in html and "문체는 예시 문단만 따릅니다." in html
+    assert html.count('class="btn primary"') == 1 and 'data-action="pcSetOpen" data-arg="blind"' in html
+    assert 'id="pc-set-add"' in html and 'value="write_style"' not in html.split('id="pc-set-add"')[1]  # 이미 바꾼 조각은 더하기 목록에 없다

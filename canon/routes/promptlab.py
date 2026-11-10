@@ -28,6 +28,13 @@ class PromptLoadIn(BaseModel):
     kind: str = "episode"
     project: str = ""  # 비면 예시 작품
     n: int = 0  # 0 이면 갈래마다 기본 화
+    promptset: str = ""  # 끼울 실험 판 id (promptset.py). 비면 원래 글
+    blind: bool = False  # 실험 판과 원래 판을 함께 돌려 블라인드로 견준다
+
+
+class PromptPickIn(BaseModel):
+    k: int = 0  # 백엔드 차례
+    choice: int = 0  # 1 · 2 (보인 차례), 0 이면 건너뛰기
 
 
 class PromptTrialEdit(BaseModel):
@@ -100,7 +107,7 @@ def run_promptlab(sid: str, body: PromptIn) -> dict:
     with usage.scope(task="promptlab"):
         runs = promptlab.run(s)
     fresh = _lab(sid)
-    promptlab.add_trial(fresh, s.system, s.prompt, s.temperature, runs, s.source)
+    promptlab.add_trial(fresh, s.system, s.prompt, s.temperature, runs, s.source, s.base)
     return promptlab.view(promptlab.save(fresh))
 
 
@@ -109,7 +116,7 @@ def load_promptlab(sid: str, body: PromptLoadIn) -> dict:
     """Canon 프롬프트를 작업지시서와 같은 함수(prompts.brief_parts)로 조립해 시스템 · 요청 칸에 채우고 저장한다. 작품은 읽기만 한다."""
     s = _lab(sid)
     try:
-        promptlab.load_prompt(s, body.kind, body.project, body.n)
+        promptlab.load_prompt(s, body.kind, body.project, body.n, body.promptset, body.blind)
     except KeyError as e:
         raise HTTPException(404, str(e.args[0])) from None
     return promptlab.view(promptlab.save(s))
@@ -120,6 +127,18 @@ def edit_promptlab_trial(sid: str, no: int, body: PromptTrialEdit) -> dict:
     s = _lab(sid)
     _trial(s, no)
     promptlab.edit(s, no, body.star, body.note)
+    return promptlab.view(promptlab.save(s))
+
+
+@router.post("/api/promptlab/{sid}/trials/{no}/pick")
+def pick_promptlab_trial(sid: str, no: int, body: PromptPickIn) -> dict:
+    """원래 판 대 실험 판 가려 읽기에서 고른다. 고른 뒤에야 어느 쪽이 원래 판인지 보인다."""
+    s = _lab(sid)
+    _trial(s, no)
+    try:
+        promptlab.pick(s, no, body.k, body.choice)
+    except KeyError as e:
+        raise HTTPException(404, str(e.args[0])) from None
     return promptlab.view(promptlab.save(s))
 
 
@@ -148,6 +167,7 @@ EXPORTS = (
     "get_promptlab",
     "list_promptlab",
     "load_promptlab",
+    "pick_promptlab_trial",
     "promptlab_sources",
     "put_promptlab",
     "restore_promptlab_trial",

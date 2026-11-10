@@ -143,6 +143,7 @@ function pgForm() {
   return `${pgLoadCard()}<section class="card">
       <div class="between"><h2>프롬프트</h2><span class="small" id="pg-saved">${S.pgDirty ? '저장하지 않은 고침이 있어요' : '칸을 벗어나면 저장해요'}</span></div>
       ${S.pg.source ? `<div class="row"><span class="chip">불러옴</span><span class="small">${esc(pgSourceLabel(S.pg.source, S.pg.source_edited))}</span></div>` : ''}
+      ${S.pg.base ? '<div class="row"><span class="chip warn">원래 판과 블라인드</span><span class="small">돌릴 때마다 원래 판도 같은 백엔드로 돌려 가려 읽어요. 비용이 두 배예요.</span></div>' : ''}
       ${pgSpecLine(S.pg.spec) ? `<p class="small">${esc(pgSpecLine(S.pg.spec))}</p>` : ''}
       ${input('제목', 'title', { ...o, placeholder: '비우면 요청 첫 줄로 지어요' })}
       ${input('시스템 프롬프트', 'system', { ...o, rows: 5, autogrow: true, placeholder: '모델의 역할 · 규칙. 비워도 돼요' })}
@@ -261,13 +262,26 @@ function pgTrialCard(t) {
       <div class="between"><div class="row"><span class="chip">${t.no}번</span>${t.source ? `<span class="chip" title="불러온 Canon 프롬프트">${esc(pgSourceLabel(t.source, t.source_edited))}</span>` : ''}${t.temperature != null ? `<span class="small">온도 ${t.temperature}</span>` : ''}<span class="small">${esc(PG_DIFF[diff])}</span></div>
         <span class="small">${esc(fmtDateTime(t.at))}</span></div>
       ${prompt}
-      <div class="grid-auto">${t.runs.map(pgRunCard).join('')}</div>
+      ${(t.blinds || []).length ? pgBlindHtml(t) : `<div class="grid-auto">${t.runs.map(pgRunCard).join('')}</div>`}
       <div class="field"><label for="pg-note-${t.no}" class="sr-only">${t.no}번 메모</label><input id="pg-note-${t.no}" type="text" data-pg-note="${t.no}" value="${esc(t.note || '')}" placeholder="메모: 무엇을 바꿨고 어땠는지"></div>
       <div class="row">
         <button type="button" class="btn small${t.star ? ' primary' : ''}" data-action="pgStar" data-arg="${t.no}" aria-pressed="${t.star}">${t.star ? '★ 고름' : '☆ 고르기'}</button>
         <button type="button" class="btn small" data-action="pgRestore" data-arg="${t.no}"${diff === 'same' ? ' disabled title="지금 프롬프트와 같아요"' : ''}>이 프롬프트로 되돌리기</button>
-        <button type="button" class="btn small" data-action="pgCopy" data-arg="${t.no}">결과 복사</button>
+        ${(t.blinds || []).length ? '' : `<button type="button" class="btn small" data-action="pgCopy" data-arg="${t.no}">결과 복사</button>`}
         <button type="button" class="btn small danger" data-action="pgDrop" data-arg="${t.no}">지우기</button></div></section>`;
+}
+
+const PG_SIDE = { original: '원래 판', set: '실험 판', skip: '건너뜀' };
+/** 원래 판 대 실험 판 가려 읽기 (서버 promptlab.blind_view). 고르기 전에는 '가' · '나' 차례로만 보이고 어느 쪽이 원래 판인지 알리지 않는다 */
+function pgBlindHtml(t) {
+  return t.blinds.map((b) => {
+    const tag = ['가', '나'];
+    const cols = b.shown.map((r, i) => `<div><div class="row"><span class="chip">${tag[i]}</span>${b.state === 'done' ? `<span class="small">${PG_SIDE[b.order[i]]}</span>` : ''}</div>${pgRunCard(r)}</div>`).join('');
+    const foot = b.state === 'done'
+      ? `<p class="small">고른 쪽: ${PG_SIDE[b.picked]}</p>`
+      : `<div class="row"><button type="button" class="btn small" data-action="pgPick" data-arg="${t.no}:${b.k}:1">가 고르기</button><button type="button" class="btn small" data-action="pgPick" data-arg="${t.no}:${b.k}:2">나 고르기</button><button type="button" class="btn small ghost" data-action="pgPick" data-arg="${t.no}:${b.k}:0">건너뛰기</button></div>`;
+    return `<div class="pg-blind"><h3>블라인드 · ${esc((b.shown[0] || {}).backend || '')}</h3><div class="grid-2">${cols}</div>${foot}</div>`;
+  }).join('');
 }
 
 const pgTrial = (no) => S.pg.trials.find((x) => x.no === Number(no));
@@ -314,6 +328,13 @@ Object.assign(actions, {
       const t = S.pg.trials[S.pg.trials.length - 1];
       const bad = t ? t.runs.filter((r) => !r.ok).length : 0;
       toast(bad ? `${t.no}번 시도를 남겼어요. ${bad}곳은 실패했어요` : `${t.no}번 시도를 남겼어요`, !!bad);
+    });
+  },
+  async pgPick(arg) {
+    const [no, k, choice] = String(arg).split(':').map(Number);
+    await run('고르는 중', async () => {
+      if (S.pgDirty) await pgSave(true);
+      pgSet(await api('POST', `/promptlab/${enc(S.pg.id)}/trials/${no}/pick`, { k, choice }));
     });
   },
   async pgStar(no) {

@@ -1,14 +1,15 @@
 """프롬프트 관리 페이지 (작품 밖 화면 #/prompts) 라우트. 갈래 표(prompts.KINDS)와 조각 표(prompts.PIECES)를 보이고,
 조립 보기가 있는 갈래는 견본 작품으로 요청을 조립해 조각마다 글을 붙인다. 견본은 놀이터의 예시 작품이 기본이고, 고른 작품은 읽기만 한다.
-LLM 을 부르지 않고 아무것도 저장하지 않는다.
+실험 판(promptset.py)은 작품 밖에 저장하고, 견본 요청 · 놀이터 세션에만 끼운다. LLM 을 부르지 않는다.
 
 web 이 맨 끝에서 이 모듈을 불러 router 를 app 에 붙이고, 여기서 정한 이름(EXPORTS)을 web 에도 둔다."""
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
 
-from .. import context, promptlab, prompts
-from ..schema import Project
+from .. import context, promptlab, prompts, promptset
+from ..schema import Project, PromptSet, PromptSetChange
 
 router = APIRouter()
 
@@ -136,9 +137,116 @@ def prompt_piece(piece: str, project: str = "") -> dict:
     return {**_piece_row(piece), "text": text, "chars": len(text), "sample_kind": made}
 
 
+# ---------- 실험 판 ----------
+
+class PromptSetIn(BaseModel):
+    name: str = ""
+    kind: str = "episode"
+    changes: list[PromptSetChange] = Field(default_factory=list)
+    note: str = ""
+
+
+class PromptSetOpenIn(BaseModel):
+    project: str = ""  # 비면 예시 작품, ':serial' 은 예시 장편
+    n: int = 0
+    blind: bool = True  # 원래 판과 함께 돌려 블라인드로 견준다
+
+
+def _set(sid: str) -> PromptSet:
+    try:
+        return promptset.load(sid)
+    except KeyError as e:
+        raise HTTPException(404, str(e.args[0])) from None
+
+
+def _set_row(ps: PromptSet) -> dict:
+    return {**ps.model_dump(), "kind_label": prompts.KINDS[ps.kind].label if ps.kind in prompts.KINDS else ps.kind,
+            "missing": [c.piece for c in ps.changes if c.piece not in prompts.PIECES]}
+
+
+def editable(kind: str) -> list[str]:
+    """실험 판에서 바꿀 수 있는 그 갈래의 조각: 보내기 직전 줄과 요청 전체를 만드는 조각은 뺀다."""
+    return [x for x in prompts.KINDS[kind].pieces if prompts.PIECES[x].place not in promptset.FIXED_PLACES and not x.endswith("_req")]
+
+
+def set_preview(ps: PromptSet, project: str = "", n: int = 0) -> dict:
+    """판을 고른 갈래의 견본 요청에 끼운 글. 원래 글 · 끼운 글 · 조각마다 결과(바꿈 · 같음 · 이 견본에 없음 · 없는 조각)와 고를 수 있는 조각."""
+    kind = ps.kind if ps.kind in prompts.KINDS and prompts.KINDS[ps.kind].view else "episode"
+    p, project = _sample(project, kind)
+    n = n or _default_n(p, project, kind)
+    base = {"set": _set_row(ps), "kind": _kind_row(kind), "sample": {"project": project, "title": p.meta.title or project, "n": n, "serial": p.serial}}
+    try:
+        system, prompt, _ = prompts.view_request(p, n, kind)
+    except (ValueError, KeyError) as e:
+        return {**base, "error": str(e.args[0]) if e.args else str(e)}
+    new_system, new_prompt, rows = promptset.apply(p, n, kind, system, prompt, ps)
+    pieces = [{"id": x, "title": prompts.PIECES[x].title, "place": prompts.PIECES[x].place, "text": prompts.piece_text(p, n, x, kind, prompt)}
+              for x in editable(kind)]
+    return {**base, "original": {"system": system, "prompt": prompt}, "applied": {"system": new_system, "prompt": new_prompt},
+            "rows": rows, "pieces": pieces, "chars": len(new_system) + len(new_prompt), "tokens": context.est_tokens(new_system + new_prompt)}
+
+
+@router.get("/api/promptsets")
+def list_promptsets() -> dict:
+    return {"sets": [_set_row(x) for x in promptset.sets()], "max_changes": promptset.MAX_CHANGES}
+
+
+@router.post("/api/promptsets")
+def create_promptset(body: PromptSetIn) -> dict:
+    ps = promptset.create(body.name, body.kind)
+    if body.changes:
+        ps = promptset.update(ps.id, ps.name, ps.kind, body.changes, body.note)
+    return _set_row(ps)
+
+
+@router.get("/api/promptsets/{sid}")
+def get_promptset(sid: str, project: str = "", n: int = 0) -> dict:
+    """판과, 고른 갈래의 견본 요청에 끼운 미리보기."""
+    return set_preview(_set(sid), project, n)
+
+
+@router.put("/api/promptsets/{sid}")
+def put_promptset(sid: str, body: PromptSetIn, project: str = "", n: int = 0) -> dict:
+    _set(sid)
+    return set_preview(promptset.update(sid, body.name, body.kind, body.changes, body.note), project, n)
+
+
+@router.delete("/api/promptsets/{sid}")
+def delete_promptset(sid: str) -> dict:
+    _set(sid)
+    promptset.delete(sid)
+    return {"ok": True}
+
+
+@router.post("/api/promptsets/{sid}/duplicate")
+def duplicate_promptset(sid: str) -> dict:
+    _set(sid)
+    return _set_row(promptset.duplicate(sid))
+
+
+@router.post("/api/promptsets/{sid}/playground")
+def open_promptset(sid: str, body: PromptSetOpenIn) -> dict:
+    """판을 끼운 프롬프트로 새 놀이터 세션을 만든다 (promptlab.load_prompt). blind 면 원래 판도 함께 돌려 가려 읽는다."""
+    ps = _set(sid)
+    s = promptlab.create()
+    try:
+        promptlab.load_prompt(s, ps.kind, body.project, body.n, ps.id, body.blind)
+    except Exception:
+        promptlab.delete(s.id)  # 불러오지 못하면 빈 세션을 남기지 않는다
+        raise
+    return promptlab.view(promptlab.save(s))
+
+
 EXPORTS = (
+    "create_promptset",
+    "delete_promptset",
+    "duplicate_promptset",
+    "get_promptset",
+    "list_promptsets",
+    "open_promptset",
     "prompt_kind",
     "prompt_kinds",
     "prompt_piece",
     "prompt_topic",
+    "put_promptset",
 )
