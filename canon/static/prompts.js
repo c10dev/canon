@@ -18,16 +18,13 @@ const PC_PLACE_NOTE = {
 async function pcLoad(a, b) {
   if (!S.pcReg) S.pcReg = await api('GET', '/prompts/kinds');
   const q = S.pcSample ? `?project=${enc(S.pcSample)}` : '';
-  if (a === 'topic') {
-    S.pcView = 'topic';
-    S.pcData = await api('GET', `/prompts/topics/${enc(b || 'style')}${q}`);
-  } else if (a === 'piece' && b) {
-    S.pcView = 'piece';
-    S.pcData = await api('GET', `/prompts/pieces/${enc(b)}${q}`);
-  } else {
-    S.pcView = 'kind';
-    S.pcData = await api('GET', `/prompts/kinds/${enc(a || 'episode')}${q}`);
-  }
+  const [view, path] = a === 'topic' ? ['topic', `/prompts/topics/${enc(b || 'style')}`]
+    : a === 'piece' && b ? ['piece', `/prompts/pieces/${enc(b)}`] : ['kind', `/prompts/kinds/${enc(a || 'episode')}`];
+  const ticket = (S.pcTicket = (S.pcTicket || 0) + 1);
+  const data = await api('GET', path + q);
+  if (ticket !== S.pcTicket) return;  // 그 사이 다른 화면이나 견본을 골랐다. 늦게 온 응답은 버린다 (보기와 데이터를 함께 바꾼다)
+  S.pcView = view;
+  S.pcData = data;
 }
 
 /** 왼쪽 갈래 목록 (순수 함수, tests/test_prompts_page_js.py): 조립 보기가 있는 갈래를 묶음 차례로, 나머지는 '표에만' 아래에 묶음별로.
