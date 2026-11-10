@@ -1195,6 +1195,7 @@ def _put_locked(name: str, p: Project, disk: Project, response: Response, merged
     p.agent_sessions = disk.agent_sessions  # 대화 세션은 대화 라우트와 에이전트 작업만 고친다 (화면의 옛 사본이 덮지 않게)
     charlog.record_author(disk, p)
     archetypes.prune(p)
+    pipeline.prune_rule_layers(p)
     kept: list[dict] = []
     out = _save_locked(name, p, merged={m for m in merged.split(",") if m}, kept=kept)
     if kept:  # 화면이 '저장했습니다' 대신 무엇을 저장하지 않았는지 알린다

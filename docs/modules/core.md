@@ -491,6 +491,7 @@
 - `WriteCut` 이나 세 번 실패로 끝난 쓰기는 본문을 돌려주지 않으므로 규칙 걸기 기록도 없다
 - 방금 만든 스토리보드 다음의 큐 시트: `make_storyboard(lead=)` 가 보낸 요청 글을 채우고, `cue_lead` 가 그 스토리보드가 AI 가 만든 그대로 · 낡지 않음일 때만 그 글을 돌려준다. `make_cue_sheet(lead=)` 는 그 글로 시작하는 요청을 보낸다(자동 집필 `_cues`, 웹 쓰기 작업 `board: make`)
 - 문체 분석 `analyze_style` 뒤 `count_markers` 가 표지 · 장치 단서를 거른다: 원문에 없는 것, 한글 2자 미만(`MARKER_MIN_HANGUL`), 인물 이름(2자 이상)이 든 것
+- `apply_learning` 의 알림 `rule_limit_note`: write 층 지킬 것 · 피할 것이 `RULE_LIMIT`(20)를 넘으면 합치거나 계획 층으로 옮기라고 알린다
 - `count_markers` 는 원문 표본에 없는(공백 빼고 견줌) 장치 예시를 비운다
 - 검수
   - 장편 넓혀 찾기 `widen_check`: 첫 검수에 없던 옛 단락이 근거로 나온 진술만 다시 묻기
@@ -621,6 +622,7 @@
 - `return_lines` 는 작가가 정한 화면 밖 근황(`CharacterState.offscreen`)이 있으면 시점 화와 함께 그 줄 끝에 붙인다. 근황이 없으면 글이 예전과 같다
 - 스토리보드 만들기 `storyboard_prompt`(Canon 이 센 값 `canon_values_block`), 고치기 `storyboard_revise_prompt`(만들기 프롬프트 뒤에 지금 스토리보드와 요청)
 - `storyboard_prompt` 는 중심 장면(`focus`)을 고르게 하고, 작가 연출 지시가 있으면 그 줄에 함께 보여 준다
+- `storyboard_prompt` 는 요청 맨 끝에 계획 층 규칙(`plan_board_rule`)을 붙인다. 쓰기 가족 앞부분(`write_head`)에는 넣지 않아 캐시가 그대로다
 - 큐 시트 만들기 `cue_sheet_prompt(lead=)`: lead 를 주면 스토리보드 요청 글 그대로 + `board_block` + 큐 시트 요구사항(`_cue_request`). 응답 형식은 같다
 - lead 안에 장면 연출이 이미 있어 다시 넣지 않는다. 요구사항 첫 줄이 다음 화 플롯 사건을 큐에 넣지 말고 시간 · 이동 · 장면 순서는 스토리보드를 따르라고 적는다
 - 쓰기에 넣는 `board_block`(직전 화 본문 뒤, 이번 화 플롯 바로 앞, 시간 · 이동 블록을 대신함)
@@ -669,6 +671,9 @@
 - 검수 자료 · 넓혀 찾기 · 인과율 영향 분석 · 플레이 장면의 사실 줄에는 '(n화)'를 붙이지 않는다. 인과율 `rep.new_facts` 는 정리 훅을 거치지 않는다
 - 장편이고 상태 인물이 `check_cast` 와 같으면 인물 설정 · 이전 인물 상태 · 비밀 칸도 넣지 않고 검수 자료의 칸을 보라고 적는다(같은 함수로 고름)
 - 예시 문단이 있는 작품의 스타일 프로필 `style_rules_view`(칸마다 `STYLE_FIELD_LIMIT`, 예시 문단이 앞)
+- `style_rules_view` 의 지킬 것 · 피할 것은 write 층 줄만 넣는다(`layer_rules`, 층은 `rule_layer`, `Settings.rule_layers`)
+- 계획 층 줄은 `plan_rules_block`('# 계획 규칙')으로 스토리보드 만들기 요청 끝과, 스토리보드 없이 쓰는 화의 쓰기 요청 지시문 끝(`episode_parts`)에 넣는다
+- 스토리보드로 쓰는 화의 쓰기 요청에는 계획 규칙을 넣지 않는다. 스토리보드가 이미 받았다
 - 스토리보드 깨지 않을 것을 검수에 `protect_block` · `protect_check_rule`
 - 지시 수 · 크기 상한 시험 `tests/test_write_budget.py`
 - 장편 본문 쓰기 요청(`build_episode_context(write=True)`)의 뒤쪽, 가끔 쓰는 장치 뒤에 '최근 화에서 되풀이한 구절' 블록 `echo_block`(`echoes.recent`, `Settings.recent_echoes`, 단편 · 스토리보드 만들기에는 넣지 않음)
@@ -856,6 +861,9 @@
 - 큐 시트 켜기는 `Settings.cue_sheet`(비우면 장편 켬 · 단편 끔)
 - 되풀이한 구절 블록 켜기는 `Settings.recent_echoes`(기본 켬, 장편에만 넣음)
 - 쓰기 요청 블록 끄기 `Settings.blocks`(`BlockSetting`: 블록 id · on)와 예산 `Settings.budgets`(`BudgetSetting`: 예산 키 · 값)는 장편만 따른다. 비면 지금과 같다
+- 지킬 것 · 피할 것의 층 `Settings.rule_layers`(`RuleLayer`: 줄 글 그대로 · `write` 또는 `plan`). 목록에 없는 줄은 write 라 비면 지금과 같다
+- `rule_layers` 는 작가가 고르는 설정이다. AI 가 채우지 않고 대화 에이전트도 고치지 않는다
+- 줄 글이 바뀌면 그 줄은 write 로 돌아간다. 저장할 때 `pipeline.prune_rule_layers` 가 프로필에 없는 줄과 write 줄을 지운다(`web._put_locked`)
 - 끄기는 블록마다, 예산은 키마다 둔다. 블록 하나가 키를 여럿 쓰기 때문이다(관계 블록의 `relations` · `secrets`)
 - 모르는 블록 id · 예산 키는 읽을 때 무시하고 지우지 않는다
 
