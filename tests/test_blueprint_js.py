@@ -1,7 +1,7 @@
 """설계도 화면(static/blueprint.js): 쌍 목록 · 그리기 · 저장할 몫 합치기. node 가 있을 때만 돈다."""
 import typing
 
-from canon.schema import Character, ContactLadder, ContactRung, Milestone, Project, Relationship, RelStage
+from canon.schema import Character, ContactLadder, ContactReach, ContactRung, Milestone, Project, Relationship, RelStage
 
 from .jsvm import dump, needs_node, run_js
 from .test_primary_count_js import FILES
@@ -90,3 +90,20 @@ def test_draft_card_and_pending_shown():
     assert got == [True, False]
     html = _run("viewBlueprint()", p, {"bpSel": "a~d", "bpDraft": draft})
     assert 'id="bp-draft"' not in html  # 다른 쌍 쪽에는 보이지 않는다
+
+
+
+@needs_node
+def test_review_rows_and_reached_marks():
+    p = _proj()
+    p.contact_log = [ContactReach(a="j", b="a", rung="cr-1", quote="손이 스친다", episode=3)]
+    html = _run("viewBlueprint()", p, {"bpSel": "a~j"})
+    assert "3화에 닿음" in html and "본문에서 닿음" in html
+    d = {"contacts": [{"a": "a", "b": "j", "rung": "cr-1", "quote": "손이 스친다", "episode": 4}]}
+    rows = run_js(FILES, "(S.name = 't', S.project = data.project, contactDeltaRows(4, data.d, (k) => `<input id=\"pk-${k}\">`))", {"project": dump(p), "d": d})
+    assert 'id="pk-u0"' in rows and "1. 스침" in rows and "기본으로 고르지 않았어요" in rows
+    picks = run_js(FILES, "(S.name = 't', S.project = data.project, defaultPicks(data.d))", {"project": dump(p), "d": {**d, "character_updates": [], "events": [], "secrets_added": [], "relationship_updates": [], "new_facts": [], "foreshadow_planted": [], "foreshadow_resolved": []}})
+    assert picks.get("u0") is False
+    p.contact_held = [ContactReach(a="a", b="j", rung="cr-1", episode=5)]
+    html = _run("viewBlueprint()", p)
+    assert 'id="bp-held"' in html and 'data-arg="0|take"' in html

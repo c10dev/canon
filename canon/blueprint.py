@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Callable, Iterator, Optional
 
 from . import dynamics
-from .schema import ContactLadder, ContactRung, Milestone, Project
+from .schema import ContactLadder, ContactReach, ContactRung, Milestone, Project, StateDelta
 
 Ranged = Milestone | ContactRung
 
@@ -315,3 +315,94 @@ def apply_picks(p: Project, a: str, b: str, milestones: list, rungs: list) -> No
             lad.rungs.insert(at, new)
     check(q, p)
     p.blueprint = q.blueprint
+
+
+# ---------- 본문에서 실제로 닿은 칸 (docs/blueprint/specs/07-contact.md) ----------
+
+def reached(p: Project, lad: ContactLadder) -> dict[str, int]:
+    """이 사다리에서 본문에 닿은 칸 id → 처음 닿은 화 (승인한 기록 Project.contact_log). 지워진 칸의 기록은 뺀다."""
+    ids = {r.id for r in lad.rungs}
+    out: dict[str, int] = {}
+    for x in p.contact_log:
+        if {x.a, x.b} == {lad.a, lad.b} and x.rung in ids:
+            out[x.rung] = min(out.get(x.rung, x.episode), x.episode)
+    return out
+
+
+def actual_rung(p: Project, lad: ContactLadder) -> Optional[ContactRung]:
+    """본문에서 실제로 닿은 칸 가운데 차례가 가장 뒤인 칸. 없으면 None."""
+    got = reached(p, lad)
+    return next((r for r in reversed(lad.rungs) if r.id in got), None)
+
+
+def open_rungs(p: Project, ids: set[str]) -> list[tuple[ContactLadder, ContactRung]]:
+    """상태 변경안이 고를 수 있는 칸: 두 인물이 모두 ids 에 든 사다리에서 아직 본문에 닿지 않은 칸."""
+    out = []
+    for lad in p.blueprint.ladders:
+        if lad.a in ids and lad.b in ids:
+            got = reached(p, lad)
+            out += [(lad, r) for r in lad.rungs if r.id and r.id not in got]
+    return out
+
+
+def state_rule(p: Project, n: int) -> str:
+    """상태 변경안 요구사항: n 화 플롯 인물끼리 아직 닿지 않은 사다리 칸 목록과 contacts 적는 법. 칸이 없으면 빈 글 (지금 프롬프트와 같다)."""
+    try:
+        who = set(p.episode(n).plot.characters)
+    except KeyError:
+        return ""
+    picks = open_rungs(p, who)
+    if not picks:
+        return ""
+    names = {c.id: c.name or c.id for c in p.characters}
+    lines = "\n".join(f"  {r.id}: {names.get(lad.a, lad.a)}({lad.a}) ↔ {names.get(lad.b, lad.b)}({lad.b}) {rung_text(p, lad, r)}" for lad, r in picks)
+    return ("\n- contacts 에는 이번 화 본문에서 두 인물이 아래 접촉 사다리 칸에 처음 닿았을 때만 그 칸 id(rung)와 두 인물 id(a, b), 본문 문장 그대로(quote)를 적습니다. "
+            "목록에 없는 칸은 적지 않고, 닿지 않았으면 비웁니다.\n" + lines)
+
+
+def clean_delta(p: Project, d: StateDelta) -> None:
+    """상태 변경안 정리 훅 (features.CLEAN): 목록에 있는 칸만, 두 인물은 그 사다리의 쌍으로 맞추고, 이미 닿은 칸과 겹친 칸은 뺀다. 화 번호를 채운다."""
+    out: list[ContactReach] = []
+    for x in d.contacts:
+        lad = next((lad for lad in p.blueprint.ladders if any(r.id == x.rung for r in lad.rungs)), None)
+        if lad is None or {x.a, x.b} != {lad.a, lad.b} or x.rung in reached(p, lad) or any(y.rung == x.rung for y in out):
+            continue
+        out.append(x.model_copy(update={"a": lad.a, "b": lad.b, "quote": x.quote.strip(), "episode": d.episode}))
+    d.contacts = out
+
+
+def apply_delta(p: Project, d: StateDelta) -> None:
+    """반영 훅 (features.APPLY_LAST): 작가가 고른 닿은 칸을 기록한다. 자동 집필 · -y 는 그 전에 hold 로 뺀다."""
+    for x in d.contacts:
+        if not any(y.rung == x.rung and {y.a, y.b} == {x.a, x.b} for y in p.contact_log):
+            p.contact_log.append(x.model_copy(update={"episode": d.episode}))
+
+
+def hold(p: Project, d: StateDelta) -> int:
+    """사람 검토 없이 반영하기 전 (features.HOLD): 닿은 칸 제안을 반영하지 않고 남겨 둔다 (2026-11-10 사용자 결정). 남긴 개수."""
+    held = [x.model_copy(update={"episode": d.episode}) for x in d.contacts]
+    d.contacts = []
+    p.contact_held = [x for x in p.contact_held if x.episode != d.episode] + held
+    return len(held)
+
+
+def take_held(p: Project, i: int) -> None:
+    """남겨 둔 닿은 칸 제안 하나를 기록한다 (그 화의 기록). 칸이 없어졌거나 이미 닿았으면 기록 없이 지운다."""
+    if not 0 <= i < len(p.contact_held):
+        raise ValueError("남겨 둔 닿은 칸 제안이 없어요. 화면을 새로 고쳐 보세요")
+    x = p.contact_held.pop(i)
+    d = StateDelta(episode=x.episode, summary="", contacts=[x])
+    clean_delta(p, d)
+    apply_delta(p, d)
+
+
+def drop_held(p: Project, i: int) -> None:
+    if not 0 <= i < len(p.contact_held):
+        raise ValueError("남겨 둔 닿은 칸 제안이 없어요. 화면을 새로 고쳐 보세요")
+    p.contact_held.pop(i)
+
+
+def revert(p: Project, n: int) -> None:
+    """반영 취소 훅 (features.REVERT_LAST): n 화 뒤의 닿은 칸 기록과 남겨 둔 제안을 지운다."""
+    p.contact_log = [x for x in p.contact_log if x.episode <= n]
+    p.contact_held = [x for x in p.contact_held if x.episode <= n]

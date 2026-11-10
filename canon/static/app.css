@@ -1614,6 +1614,7 @@ a.ab-tile:hover { border-color: var(--line-strong); }
 .bp-track { position: relative; height: 24px; border-radius: var(--radius-6); background: var(--bg); }
 .bp-bar { position: absolute; top: 2px; bottom: 2px; border-radius: var(--radius-6); background: var(--accent-soft); border: 1px solid var(--sel-line); color: var(--accent-ink); font-size: 0.75rem; overflow: hidden; }
 .bp-bar.bp-is-rung { background: var(--amber-soft); border-color: var(--warn-line); color: var(--amber-ink); }
+.bp-bar.bp-is-hit { background: var(--green-soft); border-color: var(--green); color: var(--green-ink); }
 .bp-bar-t { display: block; padding: 0 var(--space-4); line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bp-tick, .bp-now { position: absolute; top: 0; bottom: 0; width: 0; left: calc(var(--bp-lead) + (100% - var(--bp-lead)) * var(--at)); pointer-events: none; }
 .bp-tick { border-left: 1px dashed var(--line-strong); }

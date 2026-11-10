@@ -82,6 +82,7 @@ from .schema import (
     SettingChange,
     StateDelta,
     StateDeltaAI,
+    ContactReach,
     StatValue,
     StoryTime,
     StoryArc,
@@ -837,6 +838,17 @@ def _r_agent_ask(prompt: str, hint: dict):
     return AgentAsk(question="몇 화로 갈까요?", options=[Direction(title=t, idea=f"{t}로 간다.") for t in ("7화", "15화")])
 
 
+_CONTACT_LINE = re.compile(r"^  (\S+): .*?\((\S+?)\) ↔ .*?\((\S+?)\) ", re.M)
+
+
+def _mock_contacts(prompt: str) -> list[ContactReach]:
+    """상태 변경안 요청에 닿을 수 있는 사다리 칸 목록(blueprint.state_rule)이 있으면 첫 칸에 닿았다고 낸다."""
+    if "contacts 에는" not in prompt:
+        return []
+    m = _CONTACT_LINE.search(prompt[prompt.index("contacts 에는"):])
+    return [ContactReach(a=m.group(2), b=m.group(3), rung=m.group(1), quote="서윤은 등대 앞에 섰다.")] if m else []
+
+
 @responds(StateDeltaAI)
 @responds(StateDelta)
 def _r_state_delta(prompt: str, hint: dict):
@@ -864,6 +876,7 @@ def _r_state_delta(prompt: str, hint: dict):
                                        quote="서윤은 등대 앞에 섰다.")] if n == 2 else [],
         address_changes=[AddressChange(speaker="ally", listener="hero", calls=MOCK_CALLS, speech="해체(반말)",
                                        reason="등대에서 서로 말을 놓기로 했다", quote="서윤은 등대 앞에 섰다.")] if n == 3 else [],
+        contacts=_mock_contacts(prompt),
         time=StoryTime(day=n, part="밤"),
         deadlines_added=[Deadline(id="dl-01-festival", what="등대 축제", day=5, note="닷새 뒤 축제")] if n == 1 else [],
         deadlines_done=["dl-01-festival"] if n == 3 else [],

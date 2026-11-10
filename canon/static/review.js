@@ -30,6 +30,7 @@ function pickedDelta(n) {
     setting_changes: pick('t', d.setting_changes || []),
     cast_added: pick('a', d.cast_added || []),
     address_changes: pick('h', d.address_changes || []),
+    contacts: pick('u', d.contacts || []),
     // 체크를 푼 항목은 버리지 않고 반영 기록에 남긴다 (StateDelta.dismissed). 등장 인물 붙이기는 빼 둔다
     dismissed: {
       character_updates: drop('c', d.character_updates),
@@ -46,6 +47,7 @@ function pickedDelta(n) {
       deadlines_done: drop('o', d.deadlines_done),
       setting_changes: drop('t', d.setting_changes),
       address_changes: drop('h', d.address_changes),
+      contacts: drop('u', d.contacts),
     },
   };
 }
@@ -81,9 +83,9 @@ function refreshPreview(n) {
 }
 
 /** 상태 변경안 항목 체크 키 ('c0', 'e1' …). 설정 제안 키('sc0', 'sf:logline')와 섞이지 않게 센다. */
-const DELTA_PICK = /^[cesrfpxnqlkotah]\d+$/;
+const DELTA_PICK = /^[cesrfpxnqlkotahu]\d+$/;
 /** 상태 변경안에서 하나씩 골라 반영하는 목록 (StateDelta 의 목록 칸 중 warnings 를 뺀 것, tests/test_delta_count.py 가 맞춰 본다) */
-const DELTA_LISTS = ['character_updates', 'events', 'secrets_added', 'relationship_updates', 'new_facts', 'foreshadow_planted', 'foreshadow_resolved', 'foreshadow_clues', 'new_characters', 'new_places', 'deadlines_added', 'deadlines_done', 'setting_changes', 'cast_added', 'address_changes'];
+const DELTA_LISTS = ['character_updates', 'events', 'secrets_added', 'relationship_updates', 'new_facts', 'foreshadow_planted', 'foreshadow_resolved', 'foreshadow_clues', 'new_characters', 'new_places', 'deadlines_added', 'deadlines_done', 'setting_changes', 'cast_added', 'address_changes', 'contacts'];
 /** 변경안 항목 수. 상태 승인 화면의 'n건 중'과 반영 확인창의 '0건'이 같은 셈을 쓴다 */
 const deltaCount = (d) => DELTA_LISTS.reduce((s, k) => s + (d[k] || []).length, 0);
 const deltaPicked = () => Object.entries(S.picks).filter(([k, v]) => v && DELTA_PICK.test(k)).length;
@@ -101,7 +103,7 @@ function deltaGist(d, { picks = {}, name = (id) => id, field = (f) => f, fs = []
   const sum = (d.summary || '').trim();
   // 그 밖: 여섯 묶음에 들지 않는 항목. 요약 카드에서 빠뜨리지 않게 한 줄로 센다
   const etc = [['s', d.secrets_added, '비밀'], ['r', d.relationship_updates, '관계 유형'], ['n', d.new_characters, '새 인물'], ['l', d.new_places, '장소'],
-    ['k', d.deadlines_added, '기한'], ['o', d.deadlines_done, '기한 끝'], ['h', d.address_changes, '호칭']].filter(([, list]) => (list || []).length);
+    ['k', d.deadlines_added, '기한'], ['o', d.deadlines_done, '기한 끝'], ['h', d.address_changes, '호칭'], ['u', d.contacts, '설계도 칸']].filter(([, list]) => (list || []).length);
   const groups = [
     { key: 'summary', label: '요약', count: sum ? 1 : 0, picked: sum ? 1 : 0, peek: short(sum, 40) },
     group('chars', '인물 상태', [...keys('c', d.character_updates), ...keys('a', d.cast_added)], d.character_updates.map((u) => name(u.character_id)).join(', ')),
@@ -115,14 +117,15 @@ function deltaGist(d, { picks = {}, name = (id) => id, field = (f) => f, fs = []
   const left = (p, list) => keys(p, list).filter((k) => !picks[k]).length;
   const t = left('t', d.setting_changes);
   const h = left('h', d.address_changes);
-  const skip = t || h ? `${[t && `설정 바꾸기 ${t}개`, h && `호칭 ${h}개`].filter(Boolean).join(' · ')}는 반영하지 않아요` : '';
+  const u = left('u', d.contacts);
+  const skip = t || h || u ? `${[t && `설정 바꾸기 ${t}개`, h && `호칭 ${h}개`, u && `설계도 칸 ${u}개`].filter(Boolean).join(' · ')}는 반영하지 않아요` : '';
   const total = deltaCount(d);
   const picked = Object.entries(picks).filter(([k, v]) => v && DELTA_PICK.test(k)).length;
   return { groups, picked, total, skip, fold: open > 0, head: open > 0 ? `검수 지적 ${open}개가 남았어요` : '' };
 }
 
 /** 빼 둘 수 있는 목록과 체크 키 앞글자 (StateDelta.dismissed 의 칸, pickedDelta 와 같다) */
-const DISMISS_LISTS = [['character_updates', 'c'], ['events', 'e'], ['secrets_added', 's'], ['relationship_updates', 'r'], ['new_facts', 'f'], ['foreshadow_planted', 'p'], ['foreshadow_resolved', 'x'], ['foreshadow_clues', 'q'], ['new_characters', 'n'], ['new_places', 'l'], ['deadlines_added', 'k'], ['deadlines_done', 'o'], ['setting_changes', 't'], ['address_changes', 'h']];
+const DISMISS_LISTS = [['character_updates', 'c'], ['events', 'e'], ['secrets_added', 's'], ['relationship_updates', 'r'], ['new_facts', 'f'], ['foreshadow_planted', 'p'], ['foreshadow_resolved', 'x'], ['foreshadow_clues', 'q'], ['new_characters', 'n'], ['new_places', 'l'], ['deadlines_added', 'k'], ['deadlines_done', 'o'], ['setting_changes', 't'], ['address_changes', 'h'], ['contacts', 'u']];
 
 /** 반영 기록에서 돌아온 변경안(반영 취소 web._revert_kept, 단편 다시 쓰기 pipeline.carried_delta)의 빼 둔 항목을 목록 끝에 다시 놓는다.
  * 기본 체크는 풀어 둔다(d.reoffer 의 차례, defaultPicks). 그대로 반영하면 pickedDelta 가 다시 dismissed 로 보낸다. 두 번 불러도 한 번만 놓는다 */
@@ -166,6 +169,7 @@ function defaultPicks(d, over = {}) {
   (d.setting_changes || []).forEach((_, i) => { o['t' + i] = false; });  // 인물 설정은 작가가 직접 골라야 바뀐다
   (d.cast_added || []).forEach((_, i) => { o['a' + i] = true; });  // 본문에 나온 인물은 기본으로 그 화 등장 인물에 붙인다
   (d.address_changes || []).forEach((_, i) => { o['h' + i] = false; });  // 호칭 · 말씨도 작가가 직접 골라야 바뀐다
+  (d.contacts || []).forEach((_, i) => { o['u' + i] = false; });  // 닿은 사다리 칸도 작가가 직접 골라야 기록된다 (docs/blueprint)
   // 지난번 반영에서 작가가 체크를 풀었던 항목은 다시 놓아도 체크하지 않는다 (reofferDismissed)
   Object.entries(d.reoffer || {}).forEach(([p, idx]) => idx.forEach((i) => { if (p + i in o) o[p + i] = false; }));
   Object.assign(o, over);
@@ -194,6 +198,7 @@ function newCharDeps(d, i) {
     ...hit('s', d.secrets_added, (x) => x.owner === id),
     ...hit('t', d.setting_changes, (x) => x.character_id === id),
     ...hit('h', d.address_changes, (x) => x.speaker === id || x.listener === id),
+    ...hit('u', d.contacts, (x) => x.a === id || x.b === id),
     ...hit('a', d.cast_added, (x) => x === id),
   ];
 }
@@ -575,12 +580,13 @@ function reviewPanel(n) {
     charIdx.filter(decideChar).map((i) => charRow(d.character_updates[i], i)).join(''),
     scDeltaRows(n, d, box),
     addressDeltaRows(n, d, box),
+    typeof contactDeltaRows === 'function' ? contactDeltaRows(n, d, box) : '',
     newChars,
     d.foreshadow_resolved.map((id, i) => (knownFs(id) ? '' : resolvedRow(id, i))).join(''),
     warns.audit.length ? `<div class="change rv-check"><span class="rv-bang" aria-hidden="true">!</span><div class="body"><div class="rv-row-head"><strong class="rv-name">변경안 누락 의심</strong><span class="small">본문에는 있는데 변경안에 없어 보여요. 맞으면 위 칸에 직접 더하세요</span></div>${warns.audit.map((k) => `<div class="rv-warnline"><span>${esc(d.warnings[k])}</span>${warnTools(n, k, d.warnings[k], false, true)}</div>`).join('')}</div></div>` : '',
     warns.rest.length ? `<div class="change rv-check"><span class="rv-bang" aria-hidden="true">!</span><div class="body"><div class="rv-row-head"><strong class="rv-name">본문 점검</strong><span class="small">반영과 따로, 본문을 고칠지 봐요</span></div>${warns.rest.map((k) => rvWarnLine(n, d.warnings[k], k)).join('')}</div></div>` : '',
   ].join('');
-  const decideCount = charIdx.filter(decideChar).length + (d.setting_changes || []).length + (d.address_changes || []).length + (d.new_characters || []).length
+  const decideCount = charIdx.filter(decideChar).length + (d.setting_changes || []).length + (d.address_changes || []).length + (d.contacts || []).length + (d.new_characters || []).length
     + d.foreshadow_resolved.filter((id) => !knownFs(id)).length + (warns.rest.length ? 1 : 0) + (warns.audit.length ? 1 : 0);
   const decide = decideRows ? `<section class="card rv-card rv-decide" aria-labelledby="rv-decide-h"><div class="rv-card-head"><h2 id="rv-decide-h">직접 정할 것 <span class="chip warn">${decideCount}</span></h2><span class="small">AI가 혼자 정하지 않는 것과 경고가 붙은 것이에요</span></div>${decideRows}</section>` : '';
 
@@ -814,6 +820,7 @@ function dismissedView(h) {
     ...(x.deadlines_done || []).map((id) => `기한 닫힘 · ${esc(dl(id))}`),
     ...(x.setting_changes || []).map((s) => `설정 바꾸기 · <strong>${esc(charName(s.character_id))}</strong> ${scLabel(s.field)}: ${esc(s.value)}`),
     ...(x.address_changes || []).map((a) => `호칭 · 말씨 · <strong>${esc(charName(a.speaker))} → ${esc(charName(a.listener))}</strong> ${esc([a.calls && `부르는 말 ${a.calls}`, a.speech && `말씨 ${a.speech}`].filter(Boolean).join(' · '))}`),
+    ...(x.contacts || []).map((c) => `닿은 사다리 칸 · <strong>${esc(charName(c.a))} ↔ ${esc(charName(c.b))}</strong> ${esc(c.rung)}`),
   ];
   return `<details class="card"><summary>빼 둔 항목 ${n}개</summary><div class="small" style="margin:6px 0">반영하지 않은 항목이에요. 기록으로만 남아요.</div>
     <ul style="padding-left:18px;display:flex;flex-direction:column;gap:6px;font-size:0.8125rem;line-height:1.5">${rows.map((r) => `<li>${r}</li>`).join('')}</ul></details>`;

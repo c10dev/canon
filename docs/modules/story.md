@@ -282,6 +282,10 @@
 - 거꾸로 뽑기 범위 `extract_range`: 장편은 아크 하나, 단편은 플롯이 있는 첫 화부터 마지막 화까지
 - AI 제안 정리 `clean_proposal`(`BlueprintProposal`): 두 인물 사이 줄만, 화 범위를 자르고 모르는 id · 쌍 밖 주도 인물 · 범위 밖 근거를 뺀다
 - 고른 제안 줄 더하기 `apply_picks`: 이정표는 뒤에, 사다리 칸은 처음 닿는 화 차례로 끼운다. 사본에서 `check` 한 뒤에만 바꾼다
+- 본문에서 닿은 칸은 기록 `Project.contact_log`(`ContactReach`)에서 계산한다: `reached`(칸 id → 처음 닿은 화) · `actual_rung`. 지워진 칸의 기록은 뺀다
+- 상태 변경안 요청 줄 `state_rule`: 그 화 플롯 인물끼리 아직 닿지 않은 칸(`open_rungs`) 목록. 칸이 없으면 빈 글
+- 상태 변경안 훅: 정리 `clean_delta`(목록 안 · 아직 닿지 않은 칸만), 반영 `apply_delta`, 남겨 두기 `hold`(`contact_held`), 반영 취소 `revert`(그 화 뒤 기록 · 남김 지움)
+- 남겨 둔 제안 기록하기 · 버리기 `take_held` · `drop_held`
 - LLM 호출 없음
 
 ### `canon/branches.py`
@@ -747,6 +751,9 @@
 - 단계 말 `BP_STAGES` 는 `schema.RelStage` 와 같다(`tests/test_blueprint_js.py`)
 - 쌍 쪽 맨 아래 '지금 플롯에서 뽑기' `bpExtractCard`: 장편은 플롯이 있는 아크를 골라 작업 `blueprint`(대상 쌍 키)
 - 도착한 제안은 `S.bpDraft` 로 계획 띠 · 경고 다음 카드 `bpDraftCard`(줄마다 고르기 · 근거). '고른 줄 더하기'는 `POST …/blueprint/apply`
+- 본문에서 닿은 칸 `bpReached`(서버 `blueprint.reached` 와 같다): 사다리 카드의 'n화에 닿음', 계획 띠의 '본문에서 닿음' 줄
+- 남겨 둔 닿은 칸 카드 `bpHeldCard`(개요 · 쌍 쪽, '기록하기' · '버리기' → `POST …/blueprint/held/{i}/{take|drop}`)
+- 상태 승인 화면 '직접 정할 것'의 닿은 칸 줄 `contactDeltaRows`(review.js 가 부른다, 체크 키 'u')
 
 ### `canon/static/branches.js`
 
