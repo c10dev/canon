@@ -59,6 +59,7 @@ from .schema import (
     LookSuggestion,
     MapSpec,
     MapSuggestion,
+    BlueprintBodyDraft,
     BodySuggestion,
     StatInitSuggestion,
     StatWindowSuggestion,
@@ -3543,6 +3544,43 @@ def suggest_body(llm: LLM, p: Project, cid: str) -> BodySuggestion:
     if minor:
         s.measurements = ""
     return s
+
+
+def suggest_body_from_blueprint(llm: LLM, p: Project, cid: str) -> BodySuggestion:
+    """설계도 칸 메모 · 이정표 라벨에 적은 신체 특징을 신체 프로필 제안으로 (docs/blueprint/specs/10-body-suggest.md). 저장하지 않는다.
+    재료 줄(blueprint.body_lines)이 없으면 부르지 않는다. 근거 구절이 재료 줄에 없거나 지금 특징에 이미 있는 것은 뺀다.
+    제안하는 칸은 체형 · 특징뿐이고, 특징은 지금 값 뒤에 새 특징을 이은 값이다 (화면의 적용이 칸을 통째로 바꿔서)."""
+    from . import blueprint, cast
+
+    c = next((c for c in p.characters if c.id == cid), None)
+    if c is None:
+        raise KeyError(f"인물이 없어요: {cid}. 새로 더한 인물이면 저장한 뒤 다시 하세요")
+    lines, cut = blueprint.body_lines(p, cid)
+    if not lines:
+        return BodySuggestion(note="설계도에 이 인물이 나오는 이정표 라벨 · 사다리 칸 메모가 없어요")
+    d = llm.json(prompts.SYSTEM_PLANNER, prompts.body_blueprint_prompt(p, cid, lines, cut, cast.is_minor_age(c.age)), BlueprintBodyDraft,
+                 hint={"character": cid, "lines": lines})
+    material = "\n".join(lines)
+    squash = lambda s: re.sub(r"\s+", "", s)  # noqa: E731
+    have = [squash(x) for x in cast.body_items(c.body.features)]
+    new, evidence = [], []
+    for f in d.features:
+        text, quote = f.text.strip(), f.quote.strip()
+        k = squash(text)
+        if len(k) < 2 or not quote or quote not in material:
+            continue
+        if any(k in h or h in k for h in have + [squash(x) for x in new]):
+            continue
+        new.append(text)
+        evidence.append(f"{text}: 「{quote}」")
+    build = d.build.strip()
+    if build and (not d.build_quote.strip() or d.build_quote.strip() not in material or squash(build) == squash(c.body.build)):
+        build = ""
+    elif build:
+        evidence.append(f"체형 {build}: 「{d.build_quote.strip()}」")
+    now = c.body.features.strip().rstrip(",，·;").strip()
+    features = ", ".join([now, *new] if now else new) if new else ""
+    return BodySuggestion(build=build, features=features, note=d.note.strip(), evidence=evidence)
 
 
 def suggest_aliases(llm: LLM, p: Project, targets: list) -> AliasSuggestion:

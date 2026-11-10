@@ -47,6 +47,8 @@ from .schema import (
     ImpactConflict,
     ImpactReport,
     LookSuggestion,
+    BlueprintBodyDraft,
+    BodyFeatureDraft,
     BodySuggestion,
     StatInitCharacter,
     StatInitSuggestion,
@@ -954,6 +956,19 @@ def _r_map_suggestion(prompt: str, hint: dict):
 def _r_body_suggestion(prompt: str, hint: dict):
     return BodySuggestion(height="163cm", weight="50kg", build="마른 근육형", measurements="82-60-86",
                           features="왼손잡이, 오른쪽 손목에 점", note="외모 칸의 흉터와 성격에 맞춰 활동적인 체형으로 정했어요.")
+
+
+@responds(BlueprintBodyDraft)
+def _r_blueprint_body(prompt: str, hint: dict):
+    # 재료 줄에서 흉터 · 점 · 문신 · 자국 낱말이 든 구절을 특징으로 (근거 검사 · 겹침 빼기를 시험할 수 있게 그대로 옮긴다)
+    feats, seen = [], set()
+    for line in hint.get("lines", []):
+        for m in re.finditer(r"[^\s,.:()·]*\s?[^\s,.:()·]*(?:흉터|점|문신|자국)", line):
+            text = m.group().strip()
+            if text and text not in seen:
+                seen.add(text)
+                feats.append(BodyFeatureDraft(text=text, quote=text))
+    return BlueprintBodyDraft(features=feats, note=f"설계도 줄에서 특징 {len(feats)}개를 찾았어요." if feats else "설계도 줄에 신체 특징이 없어요.")
 
 
 @responds(StatInitSuggestion)

@@ -5835,6 +5835,8 @@ KINDS: dict[str, Kind] = {
     "voice": Kind("시점 서술 말투 제안", "인물 · 데이터", "", "SYSTEM_VOICE", "voice_prompt", "VoiceSuggestion", "pipeline.suggest_voice"),
     "look": Kind("외모 제안", "인물 · 데이터", "", "SYSTEM_ILLUSTRATOR", "look_prompt", "LookSuggestion", "pipeline.suggest_look"),
     "body": Kind("신체 프로필 제안", "인물 · 데이터", "", "SYSTEM_PLANNER", "body_prompt", "BodySuggestion", "pipeline.suggest_body"),
+    "body_blueprint": Kind("설계도에서 신체 특징 가져오기", "인물 · 데이터", "", "SYSTEM_PLANNER", "body_blueprint_prompt", "BlueprintBodyDraft",
+                           "pipeline.suggest_body_from_blueprint"),
     "alias": Kind("다른 이름 제안", "인물 · 데이터", "", "SYSTEM_PLANNER", "alias_prompt", "AliasSuggestion", "pipeline.suggest_aliases"),
     "stat_window": Kind("상태창 제안", "인물 · 데이터", "", "SYSTEM_PLANNER", "stat_window_prompt", "StatWindowSuggestion",
                         "pipeline.suggest_stat_window"),
@@ -6434,6 +6436,40 @@ def body_prompt(p: Project, cid: str, minor: bool) -> str:
 {"- 이 인물은 미성년이라 measurements 는 반드시 빈 문자열로 둡니다. 다른 칸에도 몸매를 성적으로 묘사하지 않습니다." if minor else "- measurements 는 가슴-허리-엉덩이 cm 를 하이픈으로 잇습니다 (예: 84-58-86). 성별과 체형에 맞게 적고, 덧붙이는 말은 넣지 않습니다."}
 - features 에는 본문에서 이어질 만한 바뀌지 않는 신체 특징 1~3개를 쉼표로 적습니다 (예: 왼손잡이, 오른쪽 손목에 점). 선정적인 묘사는 쓰지 않습니다.
 - note 에는 무엇을 근거로 정했는지 한국어 한두 문장으로 적습니다."""
+
+
+def body_blueprint_prompt(p: Project, cid: str, lines: list[str], cut: int, minor: bool) -> str:
+    """설계도에서 신체 특징 가져오기 (pipeline.suggest_body_from_blueprint, docs/blueprint/specs/10-body-suggest.md).
+    lines 는 blueprint.body_lines 가 고른 이 인물의 설계도 줄. 바뀌지 않는 블록(작품 · 인물 · 지금 프로필)이 앞, 설계도 줄이 뒤, 요청이 맨 뒤다.
+    화면 전용이라 작업지시서에는 들어가지 않는다."""
+    c = next(c for c in p.characters if c.id == cid)
+    who = c.name or c.id
+    others = sorted({x.name or x.id for x in p.characters if x.id != cid and (x.name or x.id) in "\n".join(lines)})
+    more = f"\n(재료 상한을 넘어 뺀 줄 {cut}개)" if cut else ""
+    return f"""# 작품
+제목: {p.meta.title}
+장르: {genres.label(p.meta)}
+
+# 인물
+{dump(c.model_dump(include={"name", "age", "gender", "appearance"}))}
+지금 신체 프로필 체형: {c.body.build.strip() or "없음"}
+지금 신체 프로필 특징: {c.body.features.strip() or "없음"}
+
+# 설계도 줄 (작가가 적은 관계 이정표 라벨 · 계기, 접촉 사다리 칸 이름 · 메모)
+{chr(10).join(lines)}{more}
+
+위 설계도 줄에서 {who}의 바뀌지 않는 신체 특징을 찾아 신체 프로필에 더할 후보로 적으세요. 작가가 골라서 씁니다.
+
+요구사항:
+- 설계도 줄에 글자로 적힌 특징만 적습니다. 줄에 없는 특징을 새로 만들지 않습니다.
+- {who}의 몸에 대한 것만 적습니다.{f" {', '.join(others)}의 몸에 대한 것은 적지 않습니다." if others else ""} 누구 몸인지 줄에서 알 수 없으면 적지 않고 note 에 그 구절을 적습니다.
+- 흉터 · 점 · 문신 · 화상 자국 · 손잡이처럼 뒤 화까지 이어지는 것만 적습니다. 그 화의 동작 · 자세 · 옷 · 땀 · 붉어짐처럼 지나가는 것은 적지 않습니다.
+- 지금 신체 프로필 특징에 이미 있는 것은 적지 않습니다.
+- features 의 text 는 한 특징을 짧은 명사구로 적습니다 (예: 왼쪽 옆구리의 흉터). quote 에는 그 근거가 된 설계도 줄의 구절을 글자 그대로 옮깁니다.
+- build 는 설계도 줄에 {who}의 체형이 적혀 있을 때만 한 줄로 적고, build_quote 에 그 구절을 옮깁니다. 없으면 둘 다 빈칸입니다.
+- 키 · 몸무게 · 쓰리사이즈는 적지 않습니다.{" 이 인물은 미성년이라 몸매를 성적으로 묘사하지 않습니다." if minor else ""}
+- 찾은 것이 없으면 features 를 빈 목록으로 둡니다.
+- note 에는 무엇을 찾았는지 한국어 한두 문장으로 적습니다."""
 
 
 

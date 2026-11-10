@@ -2575,7 +2575,7 @@ class JobIn(BaseModel):
     board: Literal["", "make", "none"] = ""  # write: make 면 스토리보드를 새로 만든 뒤 쓴다(바로 쓰기), none 이면 스토리보드 없이 쓴다
     cues: Literal["", "none"] = ""  # write: 큐 시트를 쓰는 작품(cue.on)인데 그 화에 없으면 만든 뒤 쓴다. none 이면 큐 시트 없이 쓴다
     text: str = ""  # style: 분석할 예시 원문 (200자 이상)
-    target: str = ""  # blueprint: 두 인물 id 'a~b'. char_body, char_voice, char_look, names_ai: 인물 id (names_ai 는 비우면 지명). illust_render: 삽화 id. aliases: 'c:<인물 id>' · 'e:<요소 id>' (비우거나 'c:' · 'e:' 면 다른 이름이 빈 항목)
+    target: str = ""  # blueprint: 두 인물 id 'a~b'. char_body, char_body_bp, char_voice, char_look, names_ai: 인물 id (names_ai 는 비우면 지명). illust_render: 삽화 id. aliases: 'c:<인물 id>' · 'e:<요소 id>' (비우거나 'c:' · 'e:' 면 다른 이름이 빈 항목)
     place_kind: str = ""  # names_ai: 지명 종류 (target 이 비었을 때)
     selection: Selection | None = None  # illust: 그릴 부분 (비우면 AI 가 장면을 고른다)
     model: str = ""  # illust: 삽화 모델 (illust.MODELS)
@@ -2964,7 +2964,8 @@ def _job_char(p: Project, cid: str) -> Character:
 
 
 def _job_char_ai(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
-    """작업 char_body · char_voice · char_look: 인물 하나의 신체 프로필 · 서술 말투 · 외형 태그 제안. 저장하지 않는다 (작가가 칸에서 고쳐 작품 저장)."""
+    """작업 char_body · char_body_bp · char_voice · char_look: 인물 하나의 신체 프로필 · 설계도에서 가져온 신체 특징 · 서술 말투 · 외형 태그 제안.
+    저장하지 않는다 (작가가 칸에서 고쳐 작품 저장)."""
     c = _job_char(p, body.target)
     who = c.name or c.id
     cid, ask = c.id, body.note.strip()
@@ -2973,6 +2974,11 @@ def _job_char_ai(name: str, body: "JobIn", p: Project, kind: str, n: int | None,
 
         def fn(job: jobs.Job):
             return pipeline.suggest_body(llm, store.load(name), cid).model_dump()
+    elif kind == "char_body_bp":
+        label = f"{who} 설계도 신체 특징"
+
+        def fn(job: jobs.Job):
+            return pipeline.suggest_body_from_blueprint(llm, store.load(name), cid).model_dump()
     elif kind == "char_voice":
         label = f"{who} 서술 말투 초안"
 
@@ -3184,7 +3190,7 @@ def _job_atlas_ai(name: str, body: "JobIn", p: Project, kind: str, n: int | None
 
 def _job_target(kind: str, body: "JobIn") -> str:
     """같은 종류를 대상마다 따로 돌리는 작업의 대상: 인물 id, 지적 id. 이름 고르기는 지명이면 빈 글이다."""
-    return body.target if kind in ("char_body", "char_voice", "char_look", "names_ai", "fix_one", "recheck_one", "illust_render", "aliases", "blueprint", "blueprint_draft") else ""
+    return body.target if kind in ("char_body", "char_body_bp", "char_voice", "char_look", "names_ai", "fix_one", "recheck_one", "illust_render", "aliases", "blueprint", "blueprint_draft") else ""
 
 
 def _job_plots(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
@@ -3542,6 +3548,7 @@ JOB_MAKERS: dict[str, Callable] = {
     "cue_sheet": _job_cue_sheet,
     "cue_run": _job_cue_run,
     "char_body": _job_char_ai,
+    "char_body_bp": _job_char_ai,
     "char_voice": _job_char_ai,
     "char_look": _job_char_ai,
     "aliases": _job_aliases,
@@ -4637,6 +4644,12 @@ def suggest_voice(name: str, cid: str, body: VoiceRequest | None = None) -> Voic
 def suggest_body(name: str, cid: str) -> BodySuggestion:
     """신체 프로필 제안. 미성년 인물은 쓰리사이즈를 비운다. 작가가 칸별로 골라 작품 저장으로 남긴다."""
     return pipeline.suggest_body(get_llm("plan"), _load(name), cid)
+
+
+@app.post("/api/projects/{name}/characters/{cid}/body/blueprint")
+def suggest_body_from_blueprint(name: str, cid: str) -> BodySuggestion:
+    """설계도 칸 메모 · 이정표 라벨에 적은 신체 특징 제안 (체형 · 특징만). 재료 줄이 없으면 부르지 않는다. 작가가 칸별로 골라 작품 저장으로 남긴다."""
+    return pipeline.suggest_body_from_blueprint(get_llm("plan"), _load(name), cid)
 
 
 @app.post("/api/projects/{name}/characters/{cid}/look")

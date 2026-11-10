@@ -138,6 +138,29 @@ def exposed(p: Project, n: int) -> set[str]:
     return out
 
 
+BODY_LINES_MAX = 60  # 신체 특징 가져오기 재료 줄 상한 (docs/blueprint/specs/10-body-suggest.md)
+
+
+def body_lines(p: Project, cid: str) -> tuple[list[str], int]:
+    """신체 특징 가져오기(pipeline.suggest_body_from_blueprint)의 재료: 이 인물이 든 설계도 줄 가운데 작가 글이 있는 것과 뺀 줄 수.
+    이정표는 보는 쪽이든 보이는 쪽이든 라벨 · 계기가 있는 줄, 사다리는 이 인물이 든 쌍의 이름 · 메모가 있는 칸.
+    사다리 메모는 쌍의 것이라 누구 몸인지 적혀 있지 않을 수 있어 상대 이름을 함께 둔다. BODY_LINES_MAX 를 넘으면 뒤를 뺀다."""
+    names = {c.id: c.name or c.id for c in p.characters}
+    rng = lambda x: _rng(x) if x.from_ep > 0 else "화 정하지 않음"  # noqa: E731
+    out = []
+    for m in p.blueprint.milestones:
+        if cid in (m.source, m.target) and (m.label.strip() or m.trigger.strip()):
+            tail = f" (계기: {m.trigger.strip()})" if m.trigger.strip() else ""
+            out.append(f"- [{rng(m)}] 관계 이정표 {names.get(m.source, m.source)} → {names.get(m.target, m.target)}: {m.label.strip()}{tail}")
+    for lad in p.blueprint.ladders:
+        if cid not in (lad.a, lad.b):
+            continue
+        for r in lad.rungs:
+            if r.label.strip() or r.note.strip():
+                out.append(f"- [{rng(r)}] 접촉 사다리 {names.get(lad.a, lad.a)} ↔ {names.get(lad.b, lad.b)} 칸 {rung_text(p, lad, r)}")
+    return out[:BODY_LINES_MAX], max(0, len(out) - BODY_LINES_MAX)
+
+
 def move(p: Project, f: Callable[[int], int], gone: int = 0) -> int:
     """화 끼워 넣기 · 빼기 (renumber.move_points). f 는 한 화 번호를 옮기는 함수, gone 은 빼는 화.
     범위의 끝 화가 빠지면 범위가 한 칸 준다. 범위가 그 한 화뿐이면 그 자리에 온 다음 화를 가리킨다. 고친 줄 수를 돌려준다."""

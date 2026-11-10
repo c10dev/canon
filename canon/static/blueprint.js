@@ -287,7 +287,15 @@ function bpExtractCard(key) {
   const showExtract = !serial() ? p.episodes.length > 0 : arcs.length > 0;
   const extract = showExtract ? `<div class="row"><span class="label-text">지금 플롯에서 뽑기</span>${serial() ? `<select id="bp-arc" aria-label="뽑을 아크">${arcs.map((s) => `<option value="${s.number}">아크 ${s.number} · ${s.start_ep}~${s.end_ep}화</option>`).join('')}</select>` : ''}
       <button type="button" class="btn small" data-action="bpExtract" data-arg="${esc(key)}">AI로 뽑기</button></div>` : '';
-  return `<section class="card" id="bp-extract"><h2>AI로 설계도 받기</h2>${draft}${extract}</section>`;
+  return `<section class="card" id="bp-extract"><h2>AI로 설계도 받기</h2>${draft}${extract}${bpBodyRow(key)}</section>`;
+}
+
+/** 칸 메모 · 이정표 라벨에 적은 신체 특징을 인물 신체 프로필로 가져가는 길 (docs/blueprint/specs/10-body-suggest.md).
+    제안 카드는 인물 화면에만 있다. 여기는 그 인물의 신체 프로필 칸을 펴 주는 버튼만 둔다. 작가 글이 있는 인물만 (cast.js bodyBpHas) */
+function bpBodyRow(key) {
+  const who = bpPair(key).filter((cid) => P().characters.some((c) => c.id === cid) && bodyBpHas({ blueprint: S.bp.blueprint }, cid));
+  if (!who.length) return '';
+  return `<div class="row"><span class="label-text">신체 특징 가져오기</span>${who.map((cid) => `<button type="button" class="btn small" data-action="bpBodyGo" data-arg="${esc(cid)}">${esc(bpWho(cid))} 신체 프로필</button>`).join('')}</div>`;
 }
 
 /** 근거 줄: '12화 「…」' */
@@ -386,6 +394,15 @@ function bpMerged(edit, server) {
 }
 
 Object.assign(actions, {
+  /** 인물 화면으로 가서 그 인물의 신체 프로필 칸을 편다. '설계도에서 가져오기'는 거기서 누른다 */
+  bpBodyGo(cid) {
+    goThen(`${base()}/cast/${enc(cid)}`, () => {
+      S.castEdit = cid;
+      S.bodyOpen = { ...(S.bodyOpen || {}), [cid]: true };
+      render();
+      document.getElementById('csh-edit')?.focus();
+    });
+  },
   async bpDraftAI(key) {
     const sel = document.getElementById('bp-part');
     const note = (document.getElementById('bp-note-ai') || {}).value || '';

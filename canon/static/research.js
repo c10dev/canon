@@ -754,21 +754,27 @@ JOB_RESULT.rs_compare = (j) => {
 // 신체 프로필 · 서술 말투 AI 제안은 백그라운드 작업으로 돈다 (web._job_char_ai). 기다리는 동안 다른 칸을 읽고 고칠 수 있다.
 // 작업은 저장된 인물 설정을 읽으므로 방금 고친 나이 · 외모도 보게 묻지 않고 먼저 저장한다 (startJob opt.quiet)
 JOB_PAGES.char_body = ['cast'];
+JOB_PAGES.char_body_bp = ['cast'];
 JOB_PAGES.char_voice = ['cast'];
 JOB_LINK.char_body = (j) => `#/p/${enc(j.project)}/cast/${enc(j.target)}`;
+JOB_LINK.char_body_bp = JOB_LINK.char_body;
 JOB_LINK.char_voice = JOB_LINK.char_body;
 JOB_DONE_MSG.char_body = (j) => `${j.label}${josa(j.label, '이', '가')} 도착했어요. 고른 칸만 적용하세요.`;
+JOB_DONE_MSG.char_body_bp = JOB_DONE_MSG.char_body;
 JOB_DONE_MSG.char_voice = (j) => `${j.label}${josa(j.label, '이', '가')} 도착했어요.`;
-SCREEN_ONLY_JOBS.add('char_body').add('char_voice');
+SCREEN_ONLY_JOBS.add('char_body').add('char_body_bp').add('char_voice');
 JOB_BTNS.bodyAI = (cid) => ['char_body', cid];
+JOB_BTNS.bodyBpAI = (cid) => ['char_body_bp', cid];
 JOB_BTNS.voiceAI = (cid) => ['char_voice', cid];
 JOB_RESULT.char_body = (j) => {
   const cid = j.target;
   if (!j.result || !P().characters.some((x) => x.id === cid)) return { msg: `${j.label}${josa(j.label, '이', '가')} 왔지만 그 인물이 없어서 놓지 않았어요.` };
-  S.bodySug = { ...(S.bodySug || {}), [cid]: j.result };
+  S.bodySug = { ...(S.bodySug || {}), [cid]: { ...j.result, from: j.kind === 'char_body_bp' ? 'blueprint' : '' } };
   S.bodyOpen = { ...(S.bodyOpen || {}), [cid]: true };
   return null;
 };
+/** 설계도에서 가져온 신체 특징도 같은 고르기 카드로 놓는다 (bodySuggestCard 가 from 으로 제목과 근거를 바꾼다) */
+JOB_RESULT.char_body_bp = JOB_RESULT.char_body;
 /** 서술 말투 초안은 칸에 바로 넣는다. 그 칸을 고치는 중이거나 시작한 뒤 고쳤으면 덮지 않고 알림의 '넣기'로 넣게 한다 */
 JOB_RESULT.char_voice = (j) => {
   const c = P().characters.find((x) => x.id === j.target);
@@ -794,6 +800,11 @@ Object.assign(actions, {
   async bodyAI(cid) {
     if (!P().characters.some((x) => x.id === cid)) return;
     await startJob('char_body', null, { target: cid }, { quiet: true });
+  },
+  /** 설계도 칸 메모 · 이정표 라벨에 적은 신체 특징 가져오기 (docs/blueprint/specs/10-body-suggest.md) */
+  async bodyBpAI(cid) {
+    if (!P().characters.some((x) => x.id === cid)) return;
+    await startJob('char_body_bp', null, { target: cid }, { quiet: true });
   },
   bodyApply(cid) {
     const c = P().characters.find((x) => x.id === cid);

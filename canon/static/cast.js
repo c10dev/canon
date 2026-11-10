@@ -440,6 +440,15 @@ function bodyRows(c) {
   return BODY_FIELDS.filter(([k]) => (b[k] || '').trim() && !(k === 'measurements' && isMinorAge(c.age))).map(([k, label]) => [k, label, b[k].trim()]);
 }
 
+/** 이 인물이 든 설계도 줄 가운데 작가 글(이정표 라벨 · 계기, 사다리 칸 이름 · 메모)이 있는 줄이 있는지.
+    blueprint.body_lines 와 같은 규칙이다 (tests/test_body_blueprint_js.py). 있을 때만 '설계도에서 가져오기'를 보인다 */
+function bodyBpHas(p, cid) {
+  const bp = p.blueprint || {};
+  const has = (...xs) => xs.some((x) => String(x || '').trim());
+  return (bp.milestones || []).some((m) => (m.source === cid || m.target === cid) && has(m.label, m.trigger))
+    || (bp.ladders || []).some((l) => (l.a === cid || l.b === cid) && (l.rungs || []).some((r) => has(r.label, r.note)));
+}
+
 // 인물 하나의 설정(고정) · 지금 상태 · 상태창 수치 · 관계 · 비밀 · 기록을 한 장에. 값은 모두 보는 시점(frame)의 것
 
 const SHEET_STATE = [['감정', 'emotional_state'], ['목표', 'current_goal'], ['위치', 'location'], ['차림', 'attire']];
@@ -599,18 +608,20 @@ function bodyFields(c, b) {
   if (!c.body || typeof c.body !== 'object') c.body = {};  // 예전 화면에서 만든 인물도 칸을 고칠 수 있게
   const minor = isMinorAge(c.age);
   const filled = bodyRows(c).length;
+  const bp = bodyBpHas(P(), c.id);
   const open = (S.bodySug || {})[c.id] || (S.bodyOpen || {})[c.id];  // 제안을 받거나 적용한 뒤 다시 그려도 펼친 채로
   return `<details${open ? ' open' : ''}><summary>신체 프로필 <span class="small">${filled ? `· ${filled}칸 채움 ` : ''}· ${minor ? 'AI에 넣지 않아요' : '몸이 드러나는 화에만 AI에 넣어요'}</span></summary><div style="display:flex;flex-direction:column;gap:10px;padding-top:8px">
     <div class="grid-2">${input('키', b + '.body.height', { placeholder: '예: 165cm' })}${input('몸무게', b + '.body.weight', { placeholder: '예: 48kg' })}</div>
     <div class="grid-2">${input('체형', b + '.body.build', { placeholder: '예: 마른 근육형' })}${minor ? '' : input('쓰리사이즈', b + '.body.measurements', { placeholder: '예: 84-58-86' })}</div>
     ${minor ? '<div class="small">나이로 보아 미성년 인물이라 쓰리사이즈 칸은 두지 않아요.</div>' : ''}
     ${input('신체 특징', b + '.body.features', { rows: 2, placeholder: '예: 왼손잡이, 오른쪽 어깨에 화상 자국' })}
-    <div class="row"><button type="button" class="btn small" data-action="bodyAI" data-arg="${esc(c.id)}">AI 제안 받기</button><span class="small">설정에 맞춰 칸을 제안해요. 고른 칸만 적용해요${minor ? ' · 쓰리사이즈는 제안하지 않아요' : ''}</span></div>
+    <div class="row"><button type="button" class="btn small" data-action="bodyAI" data-arg="${esc(c.id)}">AI 제안 받기</button>${bp ? `<button type="button" class="btn small" data-action="bodyBpAI" data-arg="${esc(c.id)}">설계도에서 가져오기</button>` : ''}<span class="small">${bp ? '설정이나 설계도 메모에서' : '설정에 맞춰'} 칸을 제안해요. 고른 칸만 적용해요${minor ? ' · 쓰리사이즈는 제안하지 않아요' : ''}</span></div>
     ${bodySuggestCard(c)}
     <div class="small">${minor ? '미성년 인물이라 AI 프롬프트에는 넣지 않아요.' : "평소에는 AI 프롬프트에 넣지 않아요. 체형과 신체 특징만, 설계도 접촉 사다리가 '옷 안' · '맨살'에 닿은 화나 특징 낱말이 그 화 플롯 · 연출 지시에 나온 화의 스토리보드 · 본문 · 검수에 넣어요."} 늘 보일 외모는 설정 도우미의 '외모' 칸에 적어요.</div></div></details>`;
 }
 
-/** 신체 프로필 AI 제안: 칸별로 지금 값과 비교해 고른다. 비어 있는 칸만 기본으로 고른다 */
+/** 신체 프로필 AI 제안: 칸별로 지금 값과 비교해 고른다. 비어 있는 칸만 기본으로 고른다.
+    설계도에서 가져온 제안(from 'blueprint')도 같은 카드다. 특징은 지금 값 뒤에 새 특징을 이은 값이라 적용해도 지금 특징이 남는다 */
 function bodySuggestCard(c) {
   const s = (S.bodySug || {})[c.id];
   if (!s) return '';
@@ -621,8 +632,10 @@ function bodySuggestCard(c) {
     return `<label class="body-sug"><input type="checkbox" data-body-pick="${esc(c.id)}" value="${k}"${now || same ? '' : ' checked'}${same ? ' disabled' : ''}>
       <span><strong>${label}</strong> ${now ? `<span class="before">${esc(now)}</span> → ` : ''}<span class="after">${esc(s[k])}</span>${same ? ' <span class="small">지금과 같아요</span>' : ''}</span></label>`;
   }).join('');
-  return `<div class="proposal" aria-label="AI 신체 프로필 제안"><strong>AI 제안</strong>${s.note ? `<span>${esc(s.note)}</span>` : ''}
-    ${rows || '<span>제안한 칸이 없어요</span>'}
+  const fromBp = s.from === 'blueprint';
+  const ev = (s.evidence || []).length ? `<span class="small">근거: ${s.evidence.map(esc).join(' · ')}</span>` : '';
+  return `<div class="proposal" aria-label="${fromBp ? '설계도에서 가져온 신체 특징' : 'AI 신체 프로필 제안'}"><strong>${fromBp ? '설계도에서 찾은 특징' : 'AI 제안'}</strong>${s.note ? `<span>${esc(s.note)}</span>` : ''}
+    ${rows || '<span>제안한 칸이 없어요</span>'}${ev}
     ${proposalActions(['bodyDismiss', c.id], ['bodyApply', c.id], '고른 칸 적용', !rows)}</div>`;
 }
 

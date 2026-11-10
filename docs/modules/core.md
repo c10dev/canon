@@ -405,6 +405,8 @@
 - 차례: 설정 제안 → 스타일 분석 → 기승전결 → 화별 플롯 → 스토리보드 → 큐 시트 → 본문 → 검수 → 상태 추출/반영
 - 다른 이름 제안 `suggest_aliases`: `aliases.material` 로 재료를 고르고 `SYSTEM_PLANNER` · `prompts.alias_prompt` 로 한 번 부른 뒤 `aliases.clean` · `hits` 를 거친다. 저장하지 않는다
 - `suggest_aliases` 는 본문에서 찾은 단락이 없는 항목을 묻지 않는다. 모든 항목이 그러면 LLM 을 부르지 않고 알림만 돌려준다
+- 설계도에서 신체 특징 가져오기 `suggest_body_from_blueprint`: 재료 `blueprint.body_lines` 가 없으면 부르지 않는다. 응답 `BlueprintBodyDraft`, 저장하지 않는다
+- `suggest_body_from_blueprint` 정리: 근거 구절이 재료 줄에 없거나 지금 특징 묶음(`cast.body_items`)과 겹치는 특징은 뺀다. 체형 · 특징만 내고 특징은 지금 값 뒤에 잇는다
 - 기승전결 `plan_arc` 는 `Settings.heat_plan` 을 켠 단편이면 완급 계획을 함께 받는다(응답 `HeatArcPlan`, 요구 `prompts.heat_arc_rules`)
 - 완급 계획 정리 `clean_heat_plan`: `heatplan.fit` · `fit_turn`, 판돈은 단서 · 빈 것을 빼고 심는 화를 자르고 겹치지 않는 id(`fs-<화>-h<k>`)
 - 완급 계획 적용 `apply_heat_plan`: 계획 · 원칙 · 뒤집힘을 바꾸고 판돈은 같은 id 가 없을 때만 복선에 더함. 명령줄 `arc` 와 화면 구조 제안 고르기(`heatApply`)가 쓴다
@@ -559,6 +561,7 @@
 - `cast_view` 는 인물 다른 이름(`aliases`)을 빼서 앞 블록 '# 인물 설정' 캐시를 지킨다. 인물의 프롬프트용 직렬화(`_prompt_view`)도 뺀다
 - `setup_chat_prompt` 는 다른 이름을 채운 인물만 `aliases` 칸을 보인다(빈 인물은 전과 같은 글)
 - 다른 이름 제안 `alias_prompt(p, items)`: 작품 · 모든 항목 이름 목록이 앞, 항목별 재료 단락이 뒤, 요청이 맨 뒤다. 쓰기 프롬프트 · 작업지시서에는 들어가지 않는다
+- 설계도에서 신체 특징 가져오기 `body_blueprint_prompt`(갈래 `body_blueprint`): 작품 · 인물 · 지금 체형 · 특징이 앞, 설계도 줄이 뒤, 요청이 맨 뒤다. 작업지시서에는 들어가지 않는다
 - 화별 컨텍스트 조립(`build_episode_context`)
 - 쓰기 요청 블록 표 `BLOCKS`(`Block`: id · 화면 이름 · 잠금 · 쓰는 예산 키 · 캐시 앞부분 `front` · 대신 정하는 설정 `note`)와 id 찾기 `BLOCK_BY_ID`
 - 끌 수 있는 블록(`toggleable`)은 잠기지 않았고 `note` 가 없는 블록이다. `note` 의 "short" 는 단편 요청에만 있는 블록이다
@@ -807,7 +810,8 @@
 - 스타일 프로필 효과음 표기(`StyleProfile.sound_effects`)는 글 칸이다. 대화 변경안 칸(`StyleKey`)과 `pipeline.STYLE_TEXT_KEYS` 에도 있다
 - 인물 신체 프로필(`Character.body`)은 작가 메모라 AI 응답 형식(`SkipJsonSchema`)과 평소 프롬프트(`llm.dump` 의 context `prompt`)에서 빠진다
 - 체형 · 특징만 몸이 드러나는 화의 스토리보드 · 쓰기 · 검수 요청에 들어간다(`prompts.body_rule` · `body_check_rule`, `docs/blueprint/specs/09-body.md`)
-- 이 칸을 다루는 AI 호출은 신체 프로필 제안(`pipeline.suggest_body`)뿐이다
+- 이 칸을 다루는 AI 호출은 신체 프로필 제안(`pipeline.suggest_body`)과 설계도에서 신체 특징 가져오기(`pipeline.suggest_body_from_blueprint`)다
+- 설계도에서 가져오기 응답 `BlueprintBodyDraft`(`features: BodyFeatureDraft` 특징 · 근거 구절, 체형 · 근거, note). 화면에는 `BodySuggestion` 으로 주고 근거 줄 `evidence` 는 `SkipJsonSchema` 다
 - 미성년(`cast.is_minor_age`)이면 쓰리사이즈를 제안하지 않는다
 - 인물 프롬프트 넣기(`Character.context`: auto 비중대로 · always 늘 · off 이름만)도 작가 전용이라 같은 방식으로 빠진다
 - 인물 다른 이름(`Character.aliases`)도 AI 응답 형식(`SkipJsonSchema`)과 프롬프트 직렬화에서 빠진다. 설정 단계 응답이 채우지 않고 다른 이름 제안으로만 AI 가 낸다
@@ -1150,12 +1154,13 @@
 - `fix-now` 는 AI를 부르기 전에 `_text_guard` 를 보고, AI 답을 받은 뒤 한 번 더 본다
 - 오래 걸리는 AI 작업은 `jobs.start` 로 돌린다
 - `start_job` 은 작업 종류마다 `JOB_MAKERS` 의 준비 함수(`_job_<종류>`)를 부른다. 함수는 (이름표, 전체 걸음, 맡은 화, 할 일)을 돌려준다. 새 작업은 함수를 더하고 `JOB_MAKERS` 에 넣는다
-- 화면을 막던 AI 제안도 작업이다: `char_body` · `char_voice` · `char_look`(`_job_char_ai`), `statwin_suggest` · `statwin_init`(`_job_statwin_ai`), `names_ai`(`_job_names_ai`), `style_learn` · `style_example`(`_job_style_ai`)
+- 화면을 막던 AI 제안도 작업이다: `char_body` · `char_body_bp` · `char_voice` · `char_look`(`_job_char_ai`), `statwin_suggest` · `statwin_init`(`_job_statwin_ai`), `names_ai`(`_job_names_ai`), `style_learn` · `style_example`(`_job_style_ai`)
 - 그 가운데 여섯은 제안만 돌려주고 작품을 바꾸지 않는다. `style_learn` · `style_example` 은 옛 동기 경로처럼 제안 칸(`style_learning` · `style_example`)에만 `_edit` 로 쓴다
 - 인물 작업과 `names_ai` 는 `JobIn.target`(인물 id)을 `Job.target` 으로 넘긴다(`_job_target`). 지명은 `JobIn.place_kind` 를 쓰고 대상이 빈 글이다
 - 다른 이름 제안 작업 `aliases`(`_job_aliases`, 단계 `plan`)는 화면 전용이다. `JobIn.target` 이 `c:<id>` · `e:<id>` 면 그 항목, `c:` · `e:` · 빈 글이면 빈 항목 여럿이다
 - `aliases` 작업은 제안만 돌려주고 작품을 바꾸지 않는다. 대상은 `_job_target` 으로 `Job.target` 에 넘긴다
 - 옛 동기 경로(`…/characters/{cid}/body` · `voice` · `look`, `statwin-suggest` · `statwin-init`, `names`, `style/learn` · `style/example`)는 시험이 쓰는 동안 남긴다
+- 설계도에서 신체 특징 가져오기는 작업 `char_body_bp`(`_job_char_ai`, 단계 `plan`)와 같은 일의 동기 경로 `POST …/characters/{cid}/body/blueprint` 다. 둘 다 저장하지 않는다
 - 남은 AI 호출도 작업이다(UX 02c): `fix_one` · `recheck_one`(`_job_finding_ai`), `illust`(`_job_illust`), `atlas_suggest` · `atlas_sort`(`_job_atlas_ai`)
 - `fix_one` · `recheck_one` 은 지적 하나(`JobIn.target`, 화는 `ep`)를 다룬다. 결과는 옛 동기 경로처럼 그 지적에 `_edit` 로 넣는다. 본문은 바꾸지 않는다
 - `recheck_one` 은 결과에 풀렸는지(`resolved`)와 새로 생긴 딸린 지적 id(`kids`)를 싣는다

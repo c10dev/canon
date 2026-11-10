@@ -512,6 +512,7 @@
 - 연구 화면
 - 실험 다섯(샘플 생성 · 단계 시험 · 컨텍스트 크기 · 검수 시험 · 블라인드 비교 쓰기)은 화면을 막지 않는 작업 `rs_<쪽>` 이다. 끝나면 기록을 다시 읽어 결과 카드에 놓는다(`JOB_RESULT.rs_*`, `rsRepaint`)
 - 인물 카드의 신체 프로필 제안(`bodyAI`)과 서술 말투 초안(`voiceAI`)은 화면을 막지 않는 작업 `char_body` · `char_voice`(대상 인물 id)다
+- 설계도에서 신체 특징 가져오기(`bodyBpAI`)는 작업 `char_body_bp` 다. 결과는 `char_body` 와 같은 `S.bodySug` 에 `from: 'blueprint'` 를 붙여 놓는다
 - 서술 말투 초안은 칸에 바로 넣고, 그 칸을 고치는 중이거나 시작한 뒤 고쳤으면 알림의 '넣기'로 넣는다(`JOB_RESULT.char_voice`)
 - 마우스가 없으면(`hover: none`) 표 칸 아래에 큰 블록 비중(`.rs-parts`)을 적는다
 - 공용 목차 틀 위의 카드 한 열(`.rs-wrap`, 오른쪽 열은 960px 까지)
