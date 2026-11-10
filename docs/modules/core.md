@@ -581,6 +581,22 @@
 - 완급 계획 받기 요청 `heat_propose_prompt`: 기승전결, 화별 플롯, 본문 있는 화의 실제 열 참고값과 지금 계획, 열린 복선. 요구사항은 단편 기획과 같은 `heat_rules`
 - 작업지시서(`episode_brief`, `state_brief`)
 - 작업지시서는 `brief_parts`(역할 = 시스템, 요청)로 조립한다. 갈래 목록은 `BRIEF_KINDS`(`BriefKind`: 이름 · 필요한 것 · 고르는 단위 · 장편만)
+- `BRIEF_KINDS` 는 호출 갈래 표 `KINDS` 가운데 `brief` 가 있는 갈래를 고른 보기다. 열쇠 · 값 · 차례는 레지스트리 전과 같다
+- 프롬프트 레지스트리 `KINDS`(`Kind`: 이름 · 묶음 `KIND_GROUPS` · 단계 · 시스템 · 요청 함수 · 응답 스키마 · 호출 · 조각 id · 다른 함수 `also` · 조립 보기 `view` · `brief`)
+- 조각 표 `PIECES`(`Piece`: 이름 · 주제 꼬리표 `TAGS` · 자리 `PLACES` · 글을 담은 상수나 함수 이름 · 들어가는 조건). 쓰기 블록은 `BLOCKS` 의 id 를 조각 id 로 쓴다
+- 실제 요청은 `KINDS` · `PIECES` 를 읽지 않는다. 표는 프롬프트 관리 페이지(`routes/prompts.py`)만 쓴다
+- 보내기 직전 조각 `SEND_PIECES`(`llm.POLICY_NOTE` · `ADULT_NOTE`)는 모든 갈래에 붙어 `Kind.pieces` 에 적지 않는다
+- 이름 찾기 `resolve_name`(prompts 의 이름이나 `모듈.이름`) · 조각이 드는 갈래 `kinds_of`
+- 조각 견본 `piece_text(p, n, 조각, 갈래, 요청)`: 블록은 `episode_parts` · `static_parts` 의 조각, 함수 조각은 `_SAMPLES`, 나머지는 상수 글이다. 작품을 바꾸지 않는다
+- 조립 보기 `view_request(p, n, 갈래)`: 작업지시서 갈래는 `brief_request`, 다시 생성 · 서술 다듬기 · 동선 검수(`VIEW_NEED`)는 `pipeline` 과 같은 함수다
+- `view_request` 는 놀이터 불러오기처럼 화의 조건(본문 · 확정 · 초안)을 보고 맞지 않으면 ValueError
+- 조각이 조립한 요청에 있는지 `found_in`: 조각 글의 가장 긴 줄(자리표시 `{…}` 없는 줄)로 본다
+- 프롬프트 관리 페이지가 가리키도록 함수 안의 긴 글을 상수로 꺼냈다: `WRITE_FLOW_FIRST` · `WRITE_FLOW_NEXT` · `WRITE_STYLE_LINE` · `WRITE_SHIFT_LINE` · `WRITE_SPEECH_LINE`
+- 같은 까닭으로 꺼낸 상수: `DIRECTION_RULE` · `ECHO_RULE` · `STYLE_HEAD` · `STYLE_HEAD_OWN` · `BOARD_RULES`
+- 검수 · 동선 · 상태 변경안 요구사항은 `.format` 틀 `CHECK_RULES` · `CHECK_RULES_EN` · `MOTION_RULES` · `STATE_RULES` 다
+- 꺼낸 뒤 요청이 한 글자도 바뀌지 않음을 `tests/test_prompt_registry.py` 의 스냅샷(`tests/snapshots/prompt_registry.json`)이 본다
+- 새 `SYSTEM_*` 상수나 `*_prompt` 함수는 `KINDS` 나 `PIECES` 에 적는다. 없으면 `tests/test_prompt_registry.py` 가 실패한다
+- `context_parts` · `passage_head` · `cast_view` 안의 글은 꺼내지 않고 `PIECES` 가 함수 이름으로 가리킨다
 - 갈래는 집필 흐름 차례로 설정 도우미 대화 · 문체 대화 · 부 구성(장편만) · 기승전결 구조 · 다음 아크 · 완급 계획 · 플롯 초안 · 한 화 플롯 · 플롯 대화 에이전트 · 스토리보드 · 큐 시트 · 본문 쓰기 · 본문 부분 수정 · 검수 · 상태 변경안이다
 - 대화로 다듬기 갈래는 `revise_setup` · `revise_style` · `revise_passage` · `agent.run_turn` 첫 단계와 같은 글이고, 작가의 말 자리에 `CHAT_MESSAGE` 를 넣는다(`tests/test_promptlab.py` 가 견준다)
 - 본문 부분 수정 갈래가 고르는 부분은 `passage_sample`(빈 줄이 아닌 단락 가운데 한가운데 단락)이다. 빠른 요청은 쓰지 않는다
@@ -1035,7 +1051,7 @@
 - `/api/config/health` 는 Claude 단계가 있으면 `claude_api`(Anthropic 키 유무)와 `claude` · `claude_message`(구독 설치 · 로그인, `claude.status` 를 60초 기억)를 싣는다. 설정 저장은 기억을 지우고, `/api/claude/status` 는 새로 읽은 값으로 바꾸고, error 는 기억하지 않는다
 - 키 없음(`MissingKey`) 답의 문구는 낸 백엔드의 것(Gemini · Vertex · Anthropic)을 쓴다
 - 대화 세션 칸만 바꾸는 요청(세션 만들기 · 이름 · 대상 · 권한 모드 · 보관, `_session_edit`)은 화면 저장으로 치지 않는다(`store.writer` 를 비움). 저장하지 않은 변경이 있는 탭의 다음 저장이 다른 탭과의 충돌(409)을 그대로 받는다
-- 기능별 라우트 아홉 묶음은 `canon/routes/` 에 있다(`ROUTES`: 문단 연습장 · 프롬프트 놀이터 · 레퍼런스 · 지도 · 역설계 · 쇠맛 · 플레이 · 연구 · 규칙 묶음). 맨 끝의 `_attach_routes` 가 붙인다
+- 기능별 라우트 열 묶음은 `canon/routes/` 에 있다(`ROUTES`: 문단 연습장 · 프롬프트 놀이터 · 프롬프트 관리 · 레퍼런스 · 지도 · 역설계 · 쇠맛 · 플레이 · 연구 · 규칙 묶음). 맨 끝의 `_attach_routes` 가 붙인다
 - 붙인 라우트는 `app.routes` 에 감싼 모양으로만 들어가서, 응답 모양을 바꾸는 코드는 `_ROUTERS` 의 라우트도 함께 본다(`_SNAPSHOT_LIGHT`)
 - `serve` 는 로깅 설정이 없으면 INFO 수준, 시각 · 수준 · 로거 이름을 붙인 형식으로 정한다. 업데이트 · 자동 집필 이어 가기 안내도 이 로그로 낸다
 - 작품 GET 과 작품을 돌려주는 응답은 스냅샷을 화 번호만 보낸다(`_SNAPSHOT_LIGHT`). 작품 저장(PUT)은 디스크 스냅샷을 지킨다

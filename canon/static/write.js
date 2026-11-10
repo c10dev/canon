@@ -255,6 +255,7 @@ function ctxMore(c) {
   const out = [];
   const why = c.on === false ? '블록 설정에서 껐어요. 요청에 넣지 않아요.' : c.locked ? '이 블록은 끌 수 없어요.' : CTX_NOTE[c.note] || '';
   if (why) out.push(`<p class="small">${why}</p>`);
+  if (c.id) out.push(`<a class="small" href="#/prompts/piece/${enc(c.id)}">프롬프트 관리에서 보기</a>`);  // 이 블록의 조각 (prompts.PIECES 의 id 가 BLOCKS 의 id 그대로)
   if ((c.budgets || []).length) {
     out.push(`<p class="small">예산: ${c.budgets.map((b) => `${esc(BUDGET_LABEL[b.key] || b.key)} ${ctxNum(b.value)}자${b.value !== b.default ? `(기본 ${ctxNum(b.default)}자)` : ''}`).join(' · ')}</p>`);
   }

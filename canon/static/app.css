@@ -1334,6 +1334,17 @@ details.vis summary .small { margin-left: var(--space-6); font-weight: 400; }
 .learn-pair del { background: var(--red-soft); color: var(--del-ink); }
 .learn-pair ins { background: var(--green-soft); color: var(--green-ink); }
 .version-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: var(--space-8); }
+/* 프롬프트 관리 (prompts.js): 왼쪽 갈래 · 주제 목록, 조각 줄 */
+.pc-bar { gap: var(--gap-group); align-items: flex-end; margin-bottom: var(--gap-stack); }
+.pc-nav { flex: 0 1 240px; }
+.pc-nav > .card { gap: var(--space-2); }
+.pc-nav a { display: block; padding: var(--space-6) var(--space-8); border-radius: var(--radius-6); color: var(--text-2); text-decoration: none; }
+.pc-nav a[aria-current="page"] { background: var(--accent-soft); color: var(--accent-ink); font-weight: 700; }
+.pc-nav h3 { margin: var(--space-12) 0 var(--space-4); }
+.pc-piece { border-top: 1px solid var(--rule); padding: var(--pad-row) 0; }
+.pc-piece a.chip { text-decoration: none; }
+.pc-piece > summary { cursor: pointer; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-6); }
+.pc-more { display: flex; flex-direction: column; gap: var(--space-8); margin-top: var(--space-8); }
 /* 규칙 묶음 (regexrules.js): 편집 화면의 규칙 카드, 바뀐 곳 목록(편집 화면 시험 · 집필 화면 알림) */
 .rx-page { display: flex; flex-direction: column; gap: var(--gap-stack); max-width: var(--measure); }
 .rx-page > p.small:empty { display: none; }
