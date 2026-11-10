@@ -877,6 +877,50 @@ class StorylineProposal(BaseModel):
     reply: str = Field("", description="작가에게 하는 설명: 왜 이 줄기인지, 어디서 갈라져 어디서 합류하는지 2~4문장")
 
 
+# ---------- 설계도 (canon/blueprint.py, docs/blueprint/) ----------
+ContactLayer = Literal["", "옷 위", "옷 안", "맨살"]
+
+
+class Milestone(BaseModel):
+    """관계 이정표: 한 방향 관계가 어느 화 범위에 어디에 닿는지. 작가가 정하는 계획값이고 Tie 수치를 바꾸지 않는다."""
+    id: str = Field("", description="ms-1 처럼 짧은 id. 비면 저장 때 채운다")
+    source: str = Field(description="보는 인물 id")
+    target: str = Field(description="보이는 인물 id")
+    from_ep: int = Field(0, description="이 범위 안에서 닿는다. 0 이면 정하지 않음")
+    to_ep: int = Field(0, description="범위 끝 화. 0 이면 정하지 않음")
+    stage: Literal["", RelStage] = Field("", description="닿을 관계 단계 (dynamics 의 말). 비워도 된다")
+    label: str = Field("", description="작가 라벨 한 줄 (예: 처음으로 먼저 손을 잡는다)")
+    trigger: str = Field("", description="그렇게 되는 계기 한 줄")
+
+
+class ContactRung(BaseModel):
+    """접촉 사다리의 한 칸. 사다리 안 차례가 곧 단계의 차례다."""
+    id: str = Field("", description="cr-1 처럼 짧은 id. 비면 저장 때 채운다")
+    label: str = Field("", description="이 칸의 이름 한 줄")
+    parts: list[str] = Field(default_factory=list, description="닿는 부위 (stage.PARTS 의 id)")
+    acts: list[str] = Field(default_factory=list, description="닿는 동작 (stage.ACTS 의 id)")
+    layer: ContactLayer = Field("", description="닿는 겹: 옷 위 · 옷 안 · 맨살. 비면 정하지 않음")
+    places: list[str] = Field(default_factory=list, description="이 칸이 일어나는 장소 (인과율 '장소' 요소 id). 비면 어디든")
+    lead: str = Field("", description="주도하는 인물 id (쌍의 한쪽). 비면 정하지 않음")
+    note: str = Field("", description="작가 메모 한 줄")
+    from_ep: int = Field(0, description="이 칸에 처음 닿는 화 범위의 첫 화. 0 이면 정하지 않음")
+    to_ep: int = Field(0, description="범위 끝 화. 0 이면 정하지 않음")
+
+
+class ContactLadder(BaseModel):
+    """두 인물 쌍의 접촉 사다리. 쌍마다 하나."""
+    a: str = Field(description="인물 id")
+    b: str = Field(description="인물 id")
+    rungs: list[ContactRung] = Field(default_factory=list, description="낮은 칸부터 차례로")
+
+
+class Blueprint(BaseModel):
+    """작품 설계도: 작가가 먼저 정하는 계획 층. 기획은 재료로 받고, 검수 · 플롯 점검은 계획과 실제를 견준다."""
+    milestones: list[Milestone] = Field(default_factory=list, description="관계 이정표 (방향마다)")
+    ladders: list[ContactLadder] = Field(default_factory=list, description="접촉 사다리 (쌍마다 하나)")
+    note: str = Field("", description="설계 원칙 한 줄")
+
+
 class Recap(BaseModel):
     """아크나 부가 끝난 뒤의 요약 제안."""
     summary: str = Field(description="다음 화를 쓸 때 참고할 요약")
@@ -2724,6 +2768,7 @@ class Project(BaseModel):
     conversion: Optional[Conversion] = Field(None, description="단편에서 장편으로 바꾼 기록. 되돌리면 지운다")
     archive: Optional[ShortArchive] = Field(None, description="재구성 전 단편 원고와 새 화 지도")
     storylines: list[Storyline] = Field(default_factory=list, description="메인에서 갈라지는 이야기 줄기 (서브플롯, 과거 회상, 외전, 인물 이야기)")
+    blueprint: Blueprint = Field(default_factory=Blueprint, description="설계도: 관계 이정표 · 접촉 사다리 (canon/blueprint.py). 비면 쓰지 않는다")
     visuals: list[CharacterVisual] = Field(default_factory=list, description="삽화용 인물 외형 태그")
     illust: IllustSettings = Field(default_factory=IllustSettings, description="삽화 프롬프트 설정")
     atlas: Atlas = Field(default_factory=Atlas, description="지도: 장소 자리, 배경 그림, 위치 글 잇기")

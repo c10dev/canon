@@ -759,6 +759,7 @@
 - 단편을 씨앗으로 장편 앞부분을 다시 짜는 재구성(웹 `rebuild` 작업)
 - 재구성은 상태 · 관계와 함께 상태창 · 설정 바꾸기 · 호칭 · 말씨 기록도 1화 전으로 돌린다(`statwin` · `charlog` · `address.revert(p, 0)`)
 - 재구성은 반영 뒤 지금 상태를 고친 기록도 1화 전 것만 남긴다(`stateedit.revert(p, 0)`)
+- 재구성은 설계도의 화 범위도 새 화 지도로 옮긴다(`blueprint.remap`). 옮기지 못한 범위는 비우고 알림에 적는다
 - `pipeline.py` 에서 옮긴 구역이다. `pipeline` 맨 끝의 `_attach_split` 이 `EXPORTS` 의 이름을 `pipeline` 에도 둬서 `pipeline.<이름>` 으로 그대로 부른다
 - 다듬기 제안 `propose_rework` 는 작품이 켠 고침 규칙을 늘 건다(kind rework). 바뀐 곳은 `Rework.ruled`(제안 글 안 자리)에 둔다
 - 서버는 제안을 저장하지 않으므로 받아들일 때 화면 · 명령줄이 `ruled` 를 되돌려 보낸다(`accept_rework` 의 다섯째 인자)
@@ -810,6 +811,7 @@
 - 반영 취소는 그 화 기록과 함께 빼 둔 항목도 지운다
 - 지운 기록은 `_revert_kept` 가 pending.json 에 남기고, 상태 승인 화면이 빼 둔 항목을 체크를 푼 채 다시 놓는다
 - 단편 완급 계획(`Project.heat` · `heat_rule` · `heat_turn`, `HeatStep` · `HeatTurn`)은 기본값이 비어 옛 작품이 읽힌다. 규칙은 story.md 의 `canon/heatplan.py` 절
+- 설계도(`Project.blueprint`)는 기본값이 빈 `Blueprint` 라 옛 작품이 읽힌다. 규칙은 story.md 의 `canon/blueprint.py` 절
 - 작가 연출 지시 `Episode.direction` · `StoryArc.direction` 은 빈 글이 기본값이다. 아크 지시는 `ArcProposal.arc` 로 AI 가 채우는 모델이라 응답 형식(`SkipJsonSchema`)과 프롬프트 덤프(`_prompt_view`, `prompts.ARC_HEAT`)에서 뺀다
 - 복선 갈래 `Foreshadow.kind`(clue 단서 · stake 판돈 · constraint 제약 · audience 관객 · ban 금지선)는 옛 복선을 clue 로 읽는다
 - 화별 쓴 사건 체크(`Episode.events_done`, 사건 글 목록)는 집필 화면 표시용이라 `EpisodePlot` 밖에 두어 프롬프트에 들어가지 않는다

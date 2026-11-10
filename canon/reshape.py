@@ -3,7 +3,7 @@
 pipeline 이 맨 끝에서 이 모듈을 불러 여기서 정한 이름(EXPORTS)을 pipeline 에도 둔다 (pipeline.<이름> 으로 부르는 코드가 그대로 돈다)."""
 from __future__ import annotations
 
-from . import address, charlog, prompts, regexrules, stateedit, statwin, storylines
+from . import address, blueprint, charlog, prompts, regexrules, stateedit, statwin, storylines
 from .llm import LLM
 from .schema import ArcPlan, Conversion, Episode, EpisodePlot, Project, RebuildEpisode, Rework, RuleChange, RuleRun, SerialRebuild, ShortArchive, TextEdit
 from .pipeline import (  # pipeline 의 공용 도우미
@@ -223,6 +223,7 @@ def apply_rebuild(p: Project, prop: SerialRebuild, at: str = "") -> tuple[Projec
         if (sl.branch_ep and not b) or (sl.join_ep and not j):
             notes.append(f"이야기 줄기 '{sl.title}'의 갈라지는 화 · 합류하는 화를 새 화로 옮기지 못했어요")
         sl.branch_ep, sl.join_ep = b, j
+    notes += blueprint.remap(p, lambda n: _remap(n, mapping))
     if archive.dropped:
         notes.append(f"쓰지 않는 옛 화: {', '.join(map(str, archive.dropped))}화 (원고는 보관함에 남아요)")
     p.archive = archive

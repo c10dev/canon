@@ -256,6 +256,24 @@
 - 장르 · 한 줄로 새 세계 작품(`new_world`: 웹 새 작품 만들기와 `pipeline.suggest_setup` · `apply_setup`, 장소가 없으면 `naming.location_candidates` 로 채움, AI 제안 뒤에만 저장)
 - LLM 호출은 `sketch` · `new_world` 뿐
 
+### `canon/blueprint.py`
+
+- 설계도: 작가가 먼저 정하는 계획 층(`Project.blueprint`, `Blueprint`). 설계 문서는 `docs/blueprint/`
+- 관계 이정표(`Milestone`)는 방향마다 [화 범위, 관계 단계(dynamics 말, 비워도 됨), 라벨, 계기]
+- 접촉 사다리(`ContactLadder`)는 쌍마다 하나, 칸(`ContactRung`)의 차례가 단계의 차례
+- 사다리 칸의 부위 · 동작은 `stage.PARTS` · `stage.ACTS` id, 장소는 인과율 '장소' 요소 id, 겹(`layer`)은 옷 위 · 옷 안 · 맨살
+- 화 번호는 범위(`from_ep` ~ `to_ep`, 둘 다 0 이면 정하지 않음)
+- 빈 id 채우기 `fill_ids`(`ms-<k>` · `cr-<k>`, 있는 id 는 그대로)
+- 저장 검사 `check(p, before)`: 모르는 값을 지우지 않고 `ValueError` 로 거절. 작품 저장(`web._put_locked`)이 부른다
+- `check` 는 디스크 작품에서 이미 끊겨 있던 인물 · 장소 참조는 막지 않는다(`validate_characters` 와 같은 방식)
+- 범위를 적은 사다리 칸끼리는 칸 차례대로 처음 닿는 화가 줄지 않아야 한다
+- 계획 칸 `planned_rung(ladder, n)`: 처음 닿는 화가 n 화 이하인 칸 가운데 차례가 가장 뒤. 쌍 찾기 `ladder`
+- 화 끼워 넣기 · 빼기 `move`(`renumber.move_points` 가 부름): 범위 안에 넣으면 범위가 늘고, 끝 화를 빼면 범위가 준다
+- 재구성 `remap`(`reshape` 가 부름): 옮기지 못한 범위는 비우고 알림에 적는다
+- 계획값이라 관계 수치(`Tie`) · 플롯을 바꾸지 않는다
+- 아직 프롬프트 · 화면 · 명령줄이 쓰지 않는다(`docs/blueprint/plan.md` 일감 3 · 4 · 6)
+- LLM 호출 없음
+
 ### `canon/branches.py`
 
 - 갈래
@@ -552,6 +570,7 @@
 - 본문이 있거나 반영한 마지막 화 지우기는 `delete_last`(반영 취소 → 본문 비우기 → 화 빼기, 웹은 `before-delete-<화>.json` 백업)
 - 화 번호를 품은 칸을 새로 만들면 `move_points` 에도 넣는다
 - 이 작품의 문체로 고른 화 번호도 옮긴다(`anchor.move`)
+- 설계도의 화 범위도 옮긴다(`blueprint.move`, 알림 '설계도 줄 n개')
 - 화면은 `static/insert.js` (넣을 수 있는 자리 `lastFixed` 는 `last_fixed` 와 같은 규칙, `tests/test_insert_js.py`)
 - `insert.js` 의 화 지우기 버튼을 막은 이유(AI 작업 중, 자동 집필 중, 스냅샷 없음)를 버튼 아래 글로도 보인다
 - 화 지우기 확인 창은 지우기 전 작품을 설정 › 백업에서 되돌릴 수 있다고 알린다
