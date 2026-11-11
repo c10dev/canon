@@ -18,9 +18,10 @@ from .sent import SentPrompt, SentRetry
 from .sent import record as sent_record
 from .schema import AliasSuggestion, CoordDraft, CoordMemo, OffscreenSet
 from .schema import RuleChange, RuleRun
-from .schema import BlueprintProposal
+from .schema import AbilityProposal, BlueprintProposal
 from .schema import CueSheet, CueSheetDraft, Finding, MetaCut, FindingRecheck, FixBatch, FixOption, FixPatch, FixRecheckItem, FixRecheckReport, FixSet, RevArcSet, RevEpisodeDraft, RevLineSet
 from .schema import ParagraphAnatomy, ReaderCheck, SceneCard, SceneVariant, SceneVariants, StudioCandidate, StudioDraft
+from .schema import RefDigest
 from .schema import (
     AddedItems,
     Act,
@@ -858,6 +859,35 @@ def propose_blueprint(llm: LLM, p: Project, arc: int, a: str, b: str, note: str 
     with out_cap(BLUEPRINT_OUT_TOKENS):
         prop = llm.json(prompts.SYSTEM_PLANNER, ask, BlueprintProposal, hint={"start": start, "end": end, "a": a, "b": b})
     return blueprint.clean_proposal(p, prop, a, b, start, end)
+
+
+def _one_character(p: Project, cid: str) -> None:
+    if cid not in {c.id for c in p.characters}:
+        raise ValueError("능력 일정을 받을 인물을 골라 주세요")
+
+
+def propose_abilities(llm: LLM, p: Project, arc: int, cid: str, note: str = "") -> AbilityProposal:
+    """지금 화별 플롯에서 인물 하나의 능력 일정을 거꾸로 뽑는다 (docs/blueprint/specs/12-ability-ai.md). 저장하지 않는다.
+    범위는 설계도 거꾸로 뽑기와 같다 (장편은 아크 하나, 단편은 작품 전체). 작가가 고른 줄만 blueprint.apply_abilities 로 들어간다."""
+    _one_character(p, cid)
+    start, end = blueprint.extract_range(p, arc)
+    ask = prompts.ability_extract_prompt(p, start, end, cid) + prompts.request_block(note)
+    with out_cap(BLUEPRINT_OUT_TOKENS):
+        prop = llm.json(prompts.SYSTEM_PLANNER, ask, AbilityProposal, hint={"start": start, "end": end, "character": cid})
+    prop.abilities = blueprint.clean_abilities(p, prop.abilities, {cid}, start, end)
+    return prop
+
+
+def draft_abilities(llm: LLM, p: Project, part: int, cid: str, note: str = "") -> AbilityProposal:
+    """작가 설정 · 부 구성 · 스킬 도감에서 인물 하나의 능력 일정을 짠다 (docs/blueprint/specs/12-ability-ai.md). 플롯이 없어도 된다. 저장하지 않는다.
+    범위는 설계도 짜기와 같다 (장편은 부 하나, 단편은 작품 전체). 이미 적은 줄은 고치지 않는다 (같은 줄은 정리가 뺀다)."""
+    _one_character(p, cid)
+    start, end = blueprint.draft_range(p, part)
+    ask = prompts.ability_draft_prompt(p, start, end, cid) + prompts.request_block(note)
+    with out_cap(BLUEPRINT_OUT_TOKENS):
+        prop = llm.json(prompts.SYSTEM_PLANNER, ask, AbilityProposal, hint={"start": start, "end": end, "character": cid})
+    prop.abilities = blueprint.clean_abilities(p, prop.abilities, {cid}, start, end)
+    return prop
 
 
 def draft_blueprint(llm: LLM, p: Project, part: int, a: str, b: str, note: str = "") -> BlueprintProposal:
@@ -2871,6 +2901,11 @@ def reverse_lines(llm: LLM, lab) -> RevLineSet:
     """역설계한 화들의 이야기 줄기 (plan 단계). 화가 둘 넘을 때만 부른다."""
     return llm.json(prompts.SYSTEM_REVERSE, prompts.rev_lines_prompt(lab), RevLineSet,
                     hint={"episodes": [e.number for e in lab.episodes if e.plot]})
+
+def ref_digest(llm: LLM, text: str) -> RefDigest:
+    """레퍼런스 원고 한 화의 화 카드 (plan 단계, canon/refdigest.py 가 화마다 부른다)."""
+    return llm.json(prompts.SYSTEM_REVERSE, prompts.ref_digest_prompt(text), RefDigest)
+
 
 def reverse_arcs(llm: LLM, lab) -> RevArcSet:
     """역설계한 화들을 아크 · 부로 나눈다 (plan 단계). 정리는 revlab.clean_arcs 가 한다."""

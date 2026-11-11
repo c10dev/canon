@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from .mock import responds
-from .schema import BlueprintEvidence, BlueprintProposal, MilestoneDraft, RungDraft
+from .schema import AbilityDraft, AbilityProposal, BlueprintEvidence, BlueprintProposal, MilestoneDraft, RungDraft
 
 
 @responds(BlueprintProposal)
@@ -20,4 +20,21 @@ def _r_blueprint(prompt: str, hint: dict) -> BlueprintProposal:
                RungDraft(label="범위 밖 칸 (정리가 뺀다)", from_ep=end + 3, to_ep=end + 3),
                RungDraft(label="손목 잡기", parts=["wrist_r"], acts=["hold"], lead="nobody", from_ep=start, to_ep=start)],
         reply="관계 이정표 두 줄과 접촉 사다리 두 칸을 뽑았어요.",
+    )
+
+
+@responds(AbilityProposal)
+def _r_abilities(prompt: str, hint: dict) -> AbilityProposal:
+    """능력 일정 제안 (거꾸로 뽑기 · 짜기). 범위 첫 화 · 가운데 화에 한 줄씩 내고, 정리(blueprint.clean_abilities)가 거르는 줄을 섞는다:
+    등급 꼬리를 이름에 붙인 줄, 같은 줄 되풀이, 다른 인물, 범위 밖."""
+    start, end, cid = int(hint["start"]), int(hint["end"]), hint["character"]
+    mid = (start + end) // 2
+    return AbilityProposal(
+        abilities=[AbilityDraft(character=cid, ability="은신", from_ep=start, to_ep=start, condition="첫 위기에서 눈뜬다",
+                                evidence=[BlueprintEvidence(episode=start, quote="숨을 죽이자 기척이 사라진다"), BlueprintEvidence(episode=end + 5, quote="범위 밖 근거")]),
+                   AbilityDraft(character=cid, ability="은신 Lv2", from_ep=mid, to_ep=end + 9, condition="밤 훈련"),
+                   AbilityDraft(character=cid, ability="은신", grade="Lv2", from_ep=mid, to_ep=mid, condition="같은 줄 (정리가 뺀다)"),
+                   AbilityDraft(character="nobody", ability="화염구", from_ep=start, to_ep=start, condition="다른 인물 (정리가 뺀다)"),
+                   AbilityDraft(character=cid, ability="비행", from_ep=end + 3, to_ep=end + 3, condition="범위 밖 (정리가 뺀다)")],
+        reply="능력 일정 두 줄을 적었어요.",
     )

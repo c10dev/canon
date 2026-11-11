@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from .. import jobs, refs
+from .. import jobs, refdigest, refs
 from ..schema import RefBook, RefCut, RefFile
 from ..web import (  # web 의 공용 도우미
     _load,
@@ -174,7 +174,53 @@ def ref_compare(rid: str, project: str) -> dict:
     return refs.compare(_ref_id(rid), _load(project))
 
 
+class RefDigestAIIn(BaseModel):
+    provider: str = ""  # 비우면 설정의 계획 단계를 따른다
+    model: str = ""
+
+
+@router.get("/api/refs/{rid}/digest")
+def ref_digest_view(rid: str) -> dict:
+    """화 카드: 읽힌 정도, 화마다 카드, 읽힐 AI (canon/refdigest.py). AI 를 부르지 않는다."""
+    return refdigest.view(_ref_id(rid))
+
+
+@router.get("/api/refs/{rid}/digest/estimate")
+def ref_digest_estimate(rid: str) -> dict:
+    """전체 읽히기의 호출 수와 비용 추정 (AI 를 부르지 않는다)."""
+    return refdigest.estimate(_ref_id(rid))
+
+
+@router.put("/api/refs/{rid}/digest/ai")
+def ref_digest_ai(rid: str, body: RefDigestAIIn) -> dict:
+    """이 원고를 읽힐 AI 를 고른다. 다음 읽히기부터 쓴다."""
+    try:
+        return refdigest.set_ai(_ref_id(rid), body.provider, body.model)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.post("/api/refs/{rid}/digest")
+def ref_digest_start(rid: str) -> dict:
+    """전체 읽히기 작업(ref_digest)을 시작한다. 읽히지 않았거나 글이 바뀐 화만 읽힌다. 원고 하나에 하나만 돈다."""
+    rid = _ref_id(rid)
+    b = refs.load(rid)
+    if not refdigest.state(b)["todo"]:
+        raise HTTPException(400, "읽힐 화가 없어요. 모든 화가 지금 글로 읽혀 있어요")
+    llm = refdigest.llm_for(rid)  # 키가 없으면 작업을 띄우기 전에 알린다 (MissingKey → code no_key)
+    try:
+        job = jobs.start(REF_JOBS, "ref_digest", None, f"전체 읽히기 ({b.name})", lambda j: refdigest.run(rid, llm, j), target=rid)
+    except jobs.Busy as busy:
+        return {**busy.job.public(), "already": True}
+    return job.public()
+
+
 EXPORTS = (
+    "RefDigestAIIn",
+    "ref_digest_ai",
+    "ref_digest_estimate",
+    "ref_digest_start",
+    "ref_digest_view",
     "RefCreateIn",
     "RefInboxDelIn",
     "RefNewtoIn",
