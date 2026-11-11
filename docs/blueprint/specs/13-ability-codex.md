@@ -1,6 +1,6 @@
 # 13. 능력 일정에서 스킬 도감 항목 만들기 (AI 초안 · 바로 만들기)
 
-상태: 진행 (claude/ability-codex-draft) · 계획: [plan.md](../plan.md) 의 14번 · 먼저: 10, 12
+상태: 진행 (claude/ability-codex-draft, [#502](https://github.com/c10dev/canon/pull/502)) · 계획: [plan.md](../plan.md) 의 14번 · 먼저: 10, 12
 
 ## 목표
 

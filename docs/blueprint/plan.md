@@ -23,7 +23,7 @@
 | 11 | 11a | 작품 전체 띠(쌍마다 한 줄 + 능력 일정 줄)와 쌍끼리 몰림 계산, 개요 '여정 짜기' 덜기 (LLM 비용 없음) | 설계 (정할 것 대기) | [11-whole.md](specs/11-whole.md) | 10 |
 | 12 | 11b | AI 로 작품 전체 짜기: 관계가 있는 모든 쌍(+ 능력 일정)을 부 하나씩 한 번에, 쌍마다 고르는 제안 카드 | 설계 (정할 것 대기) | [11-whole.md](specs/11-whole.md) | 8, 11a |
 | 13 | 12 | 능력 일정을 AI 로 짜기 · 지금 플롯에서 거꾸로 뽑기 (인물 단위: 응답 형식 · 작업 둘 · 제안 카드) | 진행 (claude/blueprint-ability-draft-e0181a, [#501](https://github.com/c10dev/canon/pull/501)) | [12-ability-ai.md](specs/12-ability-ai.md) | 5, 8, 10 |
-| 14 | 13 | 능력 일정에서 스킬 도감 항목 만들기: AI 제안에 도감 초안 함께 받기, 줄의 '도감에 만들기' 버튼 | 진행 (claude/ability-codex-draft) | [13-ability-codex.md](specs/13-ability-codex.md) | 10, 12 |
+| 14 | 13 | 능력 일정에서 스킬 도감 항목 만들기: AI 제안에 도감 초안 함께 받기, 줄의 '도감에 만들기' 버튼 | 진행 (claude/ability-codex-draft, [#502](https://github.com/c10dev/canon/pull/502)) | [13-ability-codex.md](specs/13-ability-codex.md) | 10, 12 |
 
 - 명세서가 '—'인 일감은 시작할 때 `specs/NN-이름.md` 로 쓴다.
 - 4 와 6 은 `prompts.py` 를 고친다. 규칙 층(`Settings.rule_layers`, 브랜치 `claude/style-rule-layers`)도 스토리보드 요청 끝을 고치므로 시작 전에 견준다.
