@@ -14,12 +14,15 @@ Object.assign(S, {
   rwPeek: null,      // 이전 판 목록에서 펼친 판 id
   rwVersionsOpen: false,
   rwSync: true,      // 나란히 비교의 두 칸을 함께 스크롤
+  rwTargets: {},     // 화 → GET /polish-targets (퇴고 단계의 찾은 자리, 새 판 id 와 함께)
 });
 
 JOB_DONE_MSG.write = (j) => {
   const r = j.result || {};
   const rule = typeof ruleRunSay === 'function' && r.rule_run ? ` ${ruleRunSay(r.rule_run)}` : '';  // 고침 규칙을 걸었으면 (web._rule_note)
-  if (r.candidate) return `${j.ep}화 새 판이 나왔어요. 지금 판과 비교해 고르세요.${rule}`;
+  const pe = r.polish_error ? ` 퇴고 판은 만들지 못했어요: ${r.polish_error}` : '';  // 퇴고 단계 (web._polish_candidate)
+  if (r.candidate) return `${j.ep}화 새 판이 나왔어요. 지금 판과 비교해 고르세요.${rule}${pe}`;
+  if (r.polish_error) return `${j.ep}화 본문을 저장했어요.${rule}${pe}`;
   if (r.check_error) return `${j.ep}화 본문을 저장했어요.${rule} 바로 검수는 하지 못했어요: ${r.check_error}`;
   if (r.check) return `${j.ep}화 본문을 저장하고 검수했어요: 짚은 곳 ${r.check.issues}개.${rule}`;
   return `${j.ep}화 본문을 저장했어요.${rule}`;
@@ -34,6 +37,22 @@ const RW_KIND = { previous: '바꾸기 전', rejected: '고르지 않은 새 판
 
 async function rwLoad(n) {
   S.rwInfo[n] = await api('GET', `/projects/${enc(S.name)}/episodes/${n}/rewrite`).catch(() => null);
+  const c = ep(n) && ep(n).candidate;
+  const st = P().settings || {};
+  if (c && P().meta.form === 'serial' && st.polish_stage && (S.rwTargets[n] || {}).id !== c.id) {  // 퇴고 단계: 판 비교의 찾은 자리
+    const t = await api('GET', `/projects/${enc(S.name)}/episodes/${n}/polish-targets`).catch(() => null);
+    S.rwTargets[n] = { id: c.id, data: t };
+  }
+}
+
+/** 퇴고 단계의 찾은 자리 (polishscan.find): 지금 판 몇 곳 → 새 판 몇 곳, 펼치면 지금 판의 규칙과 인용. 퇴고 단계가 아니면 빈 글 */
+function rwTargetsLine(n) {
+  const c = ep(n).candidate;
+  const got = S.rwTargets[n];
+  const t = got && got.id === c.id ? got.data : null;
+  if (!t || !t.on || !t.candidate) return '';
+  const rows = t.current.items.map((x) => `<li><strong>${esc(x.name)}</strong> <span class="small">${esc(x.way)}</span>${x.quotes.length ? `<div class="small">${x.quotes.slice(0, 3).map((q) => `«${esc(q)}»`).join(' ')}</div>` : ''}</li>`).join('');
+  return `<details class="small"><summary>찾은 자리 ${t.current.total}곳 → 새 판 ${t.candidate.total}곳</summary>${rows ? `<ul class="pf-list">${rows}</ul>` : '<div>지금 판에서 찾은 자리가 없어요.</div>'}</details>`;
 }
 
 /** 처음 열 때의 요청. 검수 결과와 흡입력 판정은 있으면(오래되지 않았으면) 넣는다. */
@@ -186,6 +205,7 @@ function candidateCard(n) {
     ${body}
     ${(c.meta_cut || []).length ? `<div class="small">새 판을 쓸 때 AI가 붙인 작업 설명 ${c.meta_cut.length}문단을 뗐어요. 새 판으로 바꾸면 집필 화면에서 보고 되살릴 수 있어요.</div>` : ''}
     ${rwRuleLine(c)}
+    ${rwTargetsLine(n)}
     <div class="between"><span class="small" style="flex:1;min-width:200px">바꾸면 지금 판은 아래 '이전 판'에 남아 되돌릴 수 있어요(화마다 최근 6개, 고르지 않은 판부터 지워요). 검수 결과는 새 판 기준으로 다시 하세요.</span>
       <span class="row"><button type="button" class="btn" data-action="rwDrop" data-arg="${n}">지금 판 두기</button><button type="button" class="btn" data-action="rwAgain" data-arg="${n}">요청 고쳐 다시 받기</button><button type="button" class="btn primary" data-action="rwAdopt" data-arg="${n}">새 판으로 바꾸기</button></span></div>
   </section>`;

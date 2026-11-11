@@ -167,6 +167,28 @@ def _endings(text: str) -> tuple[Optional[float], Optional[float]]:
     return round(sum(narr) / len(narr), 2), round(sum(r for r in runs if r >= ENDING_RUN) / len(narr), 2)
 
 
+def da_runs(text: str) -> list[str]:
+    """'~다.' 끝이 ENDING_RUN 줄 이상 이어진 덩어리마다 그 첫 문장 (_endings 와 같은 셈, 서술 문장이 적어도 센다). 퇴고 단계가 자리를 짚는다."""
+    seq: list[tuple[Optional[bool], str]] = []
+    for line in text.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith(_QUOTE_OPEN):
+            seq.append((None, ""))
+            continue
+        seq += [(None if _QUOTE.fullmatch(x) else _da_end(x), x) for x in sentences(line)]
+    runs, cur = [], []
+    for x, s in seq + [(None, "")]:
+        if x:
+            cur.append(s)
+            continue
+        if len(cur) >= ENDING_RUN:
+            runs.append(cur[0])
+        cur = []
+    return runs
+
+
 # 대사의 꼴 (2026-11-07 실측, reports/지표 사각지대). 레퍼런스 웹소설 4편은 물결표가 든 대사 줄이 화 중앙값 0%,
 # 대사 줄 평균 길이가 21~25자였다. 물결표를 프로필에 적어 쓴 작품은 34% · 32자였다. 대사 비율(양)로는 갈리지 않았다.
 DIALOGUE_MIN = 10  # 대사 줄이 이보다 적으면 대사 꼴을 재지 않는다

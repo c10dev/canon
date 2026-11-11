@@ -1006,6 +1006,25 @@ def _write(name: str, p: Project, n: int) -> None:
     for w in pipeline.style_drift(p, n)[1]:
         print(f"! 문체: {w}")
     _print_opening(p, n)
+    if prompts.polish_split(p):
+        _polish_candidate(name, p, n)
+
+
+def _polish_candidate(name: str, p: Project, n: int) -> None:
+    """퇴고 단계 (Settings.polish_stage): 방금 쓴 본문을 퇴고한 판을 새 판 후보로 둔다. 실패해도 쓴 본문은 남는다."""
+    print(f"{n}화 퇴고 판 만드는 중...")
+    llm, cut, rec, runs = get_llm("revise"), [], [], []
+    try:
+        text = pipeline.polish_episode(llm, p, n, cut, rec, runs)
+    except Exception as e:
+        print(f"! 퇴고 판을 만들지 못했어요: {e}")
+        return
+    vid = pipeline.set_candidate(p, n, text, RewriteRequest(mode="polish"), pipeline.writer_of(llm), cut, runs).id
+    _print_rules(runs)
+    with jobs.project_lock(name):
+        sent.hold(name, n, rec, text, vid)
+        store.save(name, p)
+    print(f"퇴고 판을 새 판으로 두었어요 ({len(text):,}자). 웹 집필 화면에서 비교하거나 rewrite {name} {n} --adopt / --drop")
 
 
 def _print_rules(runs: list) -> None:

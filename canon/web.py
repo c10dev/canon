@@ -3237,6 +3237,35 @@ def _rule_note(ruled: list[RuleRun]) -> dict:
     return {"rule_run": ruled[-1].model_dump()} if ruled else {}
 
 
+def _polish_candidate(name: str, n: int, reviser, job: jobs.Job) -> dict:
+    """퇴고 단계: 방금 저장한 본문을 퇴고한 판을 새 판 후보로 둔다 (Settings.polish_stage, 작가가 집필 화면 판 비교에서 고른다).
+    실패해도 쓴 본문은 남는다. 까닭만 알린다. 그사이 본문이 바뀌었으면 퇴고한 글을 버린다."""
+    job.note = f"{n}화 퇴고 판 만드는 중"
+    q = store.load(name)
+    old = q.episode(n).text
+    cut: list = []
+    rec: list = []
+    ruled: list[RuleRun] = []
+    try:
+        text = pipeline.polish_episode(reviser, q, n, cut, rec, ruled)
+    except cancel.Cancelled:
+        raise
+    except Exception as err:
+        logging.getLogger("canon").warning("%s %s화 퇴고 판 실패", name, n, exc_info=True)
+        return {"polish_error": explain_error(err)}
+    req = RewriteRequest(mode="polish")
+    kept = {"ok": False}
+
+    def put(q: Project) -> None:
+        if q.episode(n).text != old:  # 퇴고하는 동안 작가가 고쳤다
+            return
+        v = pipeline.set_candidate(q, n, text, req, pipeline.writer_of(reviser), cut, ruled)
+        sent.hold(name, n, rec, text, v.id)
+        kept["ok"] = True
+    _edit(name, put)
+    return {"candidate": True} if kept["ok"] else {"polish_error": "퇴고하는 동안 본문이 바뀌어 퇴고 판을 두지 않았어요"}
+
+
 def _job_write(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
     """작업 write · state: (이름표, 전체 걸음, 맡은 화, 할 일)."""
     if n is None:
@@ -3249,30 +3278,52 @@ def _job_write(name: str, body: "JobIn", p: Project, kind: str, n: int | None, l
             req = pipeline.clean_rewrite(body.rewrite)
             polish = req.mode == "polish"  # 서술 다듬기는 revise 단계 모델 (설정 화면에서 다듬기만 다른 모델로 고를 수 있다)
             use = get_llm("revise") if polish else llm
-            label, total, owned = f"{n}화 {'서술 다듬기' if polish else '새 판'}", 1, {n}
+            then_polish = not polish and prompts.polish_split(p)  # 퇴고 단계: 새 판도 같은 작업에서 퇴고한 글을 후보로 둔다
+            reviser = get_llm("revise") if then_polish else None
+            label, total, owned = f"{n}화 {'서술 다듬기' if polish else '새 판과 퇴고' if then_polish else '새 판'}", 1 + then_polish, {n}
 
             def fn(job: jobs.Job):
                 cut: list = []
                 rec: list = []
                 ruled: list[RuleRun] = []
                 text = pipeline.rewrite_episode(use, store.load(name), n, req, cut, rec, ruled)
+                note: dict = {}
+                if then_polish:  # 후보 칸은 하나라 퇴고한 글이 후보다. 실패하면 퇴고 전 새 판을 둔다
+                    job.done += 1
+                    job.note = f"{n}화 새 판 퇴고 중"
+                    q = store.load(name)
+                    q.episode(n).text = text
+                    try:
+                        cut2: list = []
+                        rec2: list = []
+                        ruled2: list[RuleRun] = []
+                        text = pipeline.polish_episode(reviser, q, n, cut2, rec2, ruled2)
+                        cut, rec, ruled = cut + cut2, rec2, ruled + ruled2
+                    except cancel.Cancelled:
+                        raise
+                    except Exception as err:
+                        logging.getLogger("canon").warning("%s %s화 새 판 퇴고 실패", name, n, exc_info=True)
+                        note = {"polish_error": explain_error(err)}
 
                 def put(q: Project) -> None:  # 새 판을 낳은 요청은 대기 칸에 둔다. 작가가 고르면 지금 기록이 된다 (sent.adopt)
                     v = pipeline.set_candidate(q, n, text, req, pipeline.writer_of(use), cut, ruled)
                     sent.hold(name, n, rec, text, v.id)
                 _edit(name, put)
-                return {"candidate": True, **_rule_note(ruled)}
+                return {"candidate": True, **_rule_note(ruled), **note}
         else:
             make = body.board == "make"
             use_cues = body.cues != "none"
             make_cues = use_cues and cue.on(p) and not e.text and cue.remake(p, n)  # 없거나 낡은 AI · 뼈대 시트
             make_coord = coord.remake(p, n)  # 쓰기 재료 조율: 조율 메모가 없거나 낡았으면 쓰기 전에 만든다
             plan = get_llm("board") if make or make_cues or make_coord else None  # 스토리보드 · 큐 시트 · 조율 메모 단계 (비우면 계획 단계)
-            then_check = p.settings.check_after_write and not e.text  # 처음 쓰는 본문만 바로 검수한다 (Settings.check_after_write)
+            then_polish = prompts.polish_split(p)  # 퇴고 단계: 쓴 뒤 같은 작업에서 퇴고 판을 새 판 후보로 둔다 (Settings.polish_stage)
+            reviser = get_llm("revise") if then_polish else None
+            # 처음 쓰는 본문만 바로 검수한다 (Settings.check_after_write). 퇴고 판을 고르면 검수가 지워지므로 퇴고 단계에서는 판을 고른 뒤 검수한다
+            then_check = p.settings.check_after_write and not e.text and not then_polish
             checker = get_llm("check") if then_check else None  # 키가 없으면 시작할 때 바로 알린다
             label = (f"{n}화 {'조율 메모와 ' if make_coord else ''}{'스토리보드와 ' if make else ''}{'큐 시트와 ' if make_cues else ''}"
-                     f"본문{'과 검수' if then_check else ''}")
-            total, owned = 1 + make + make_cues + make_coord + then_check, {n}
+                     f"본문{'과 검수' if then_check else ''}{'과 퇴고 판' if then_polish else ''}")
+            total, owned = 1 + make + make_cues + make_coord + then_check + then_polish, {n}
 
             def fn(job: jobs.Job):
                 if not then_check:
@@ -3343,6 +3394,9 @@ def _job_write(name: str, body: "JobIn", p: Project, kind: str, n: int | None, l
                     sent.keep(name, n, rec, text)  # 이 본문이 받은 요청 그대로 (작품 폴더 sent/)
                 _edit(name, save)
                 job.set_partial("")  # 본문을 저장했다. 이어지는 검수 동안 미리보기를 남기지 않는다
+                if then_polish:
+                    job.done += 1
+                    return {**_rule_note(ruled), **_polish_candidate(name, n, reviser, job)} or None
                 return _rule_note(ruled) or None
     else:
         if not e.text:
@@ -4216,6 +4270,22 @@ def rewrite_prompt(name: str, n: int, body: RewriteRequest) -> PromptText:
 def _no_write_job(name: str, n: int) -> None:
     if any(j.status == "running" and n in j.owned for j in jobs.listing(name)):
         raise ValueError(f"{n}화를 쓰는 작업이 도는 중이에요. 끝난 뒤에 하세요")
+
+
+@app.get("/api/projects/{name}/episodes/{n}/polish-targets")
+def polish_targets(name: str, n: int) -> dict:
+    """퇴고 단계의 찾은 자리 (polishscan.find): 지금 본문과 새 판 후보 각각. 판 비교 머리에 접어 보인다.
+    퇴고 단계를 켠 장편이 아니면 on 만 거짓으로 돌려준다. 저장하지 않고 그때 센다."""
+    from . import polishscan
+    p = _load(name)
+    if not prompts.polish_split(p):
+        return {"on": False}
+    ep = p.episode(n)
+
+    def rows(text: str) -> dict:
+        found = polishscan.find(p, n, text) if text.strip() else []
+        return {"total": polishscan.total(found), "items": [t._asdict() for t in found]}
+    return {"on": True, "current": rows(ep.text), "candidate": rows(ep.candidate.text) if ep.candidate else None}
 
 
 @app.post("/api/projects/{name}/episodes/{n}/candidate/adopt")

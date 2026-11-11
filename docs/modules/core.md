@@ -8,6 +8,7 @@
 - `wanted(name)`: 도는 실행에 받아 둔 일시정지 · 중지 요청. 웹 `AutoView.want` 로 보내 화면이 지금 단계가 끝날 때까지 '멈추는 중'을 보인다
 - 다른 프로세스가 쥔 실행이면 `wanted` 는 주인이 아직 읽지 않은 `autorun.want` 를 돌려준다. 주인이 읽어 지우면 빈 값으로 돌아간다
 - 목표 화까지 (스토리보드 `_board`, `Policy.storyboard` · `stop_on_board_warnings`) → (큐 시트 `_cues`, `Policy.cue_sheet`) → write → (서술 다듬기 `_polish`, `Policy.polish`, 다듬을 화 `Run.polish_due`) → check + state → 정책(`Policy`) 통과 시 반영을 반복
+- 퇴고 단계를 켠 장편(`prompts.polish_split`)은 `Policy.polish` 와 상관없이 늘 다듬는다(`_write` 의 `polish_due`, `estimate` 의 revise 호출). 실행 화면은 체크를 켠 채 잠근다(`auto.js`)
 - 낡은 AI 큐 시트를 다시 받았는데 비어 오면 그 화는 낡은 시트를 넣지 않고 쓰고 `CueSheet.skipped` 로 적는다(`Runner.no_cues`)
 - 쓰기 재료 조율이면 스토리보드보다 먼저 조율 메모를 만든다(`_coord`, `coord.remake`, board 단계). 스토리보드도 그 메모를 플롯으로 본다. 사건 수가 달라 받지 못하면 경고만 남기고 원래 플롯으로 쓴다(`Runner.no_coord`)
 - 쓰기(`_write`)와 다듬기(`_polish`)는 본문을 넣는 `_edit` 안에서 보낸 프롬프트 기록을 남긴다(`sent.keep`). 다듬은 글을 버리면 기록도 남기지 않는다
@@ -155,6 +156,7 @@
   - `promote`: 본편 고르기
   - `rewrite`: 피드백 · 검수 결과 등을 반영해 그 화를 다시 생성(새 판과 바꿀지 고르기, 이전 판 되돌리기)
   - `rewrite --polish`: 대사 · 사건은 그대로 두고 서술 문장만 다듬은 새 판(revise 단계 모델)
+  - 퇴고 단계를 켠 장편은 `write` 가 저장한 뒤 퇴고 판을 새 판 후보로 둔다(`cli._polish_candidate`). 실패해도 쓴 본문은 남는다
   - `rework`: 재구성의 다듬기 화
   - `rules`: 정규식 규칙 묶음 목록(`list`, 기본) · 글 파일에 걸어 보기 `test <묶음 id> <파일>`(저장 안 함)
   - `rules use <작품> <묶음 id>` · `rules drop <작품> <묶음 id>`: 작품에서 묶음을 켜고 끈다. 켜면 맨 뒤(가장 나중에 걸기)에 붙고 `jobs.project_lock` 안에서 저장한다
@@ -537,6 +539,19 @@
 - 부분 수정 `revise_passage` 는 `passage_head` 길이를 캐시 경계(`llm.PREFIX_HINT`)로 넘긴다. 같은 화에서 이어 고치면 앞부분을 캐시에서 읽는다
 - 경계가 없을 때는 【고칠 부분】 자리가 호출마다 달라 `shared_cut` 의 자리도 달라졌다. 1분 간격 호출도 시스템 프롬프트(751토큰)만 읽었다(2026-11-07 서버 실측)
 
+### `canon/polishscan.py`
+
+- 퇴고 단계(`Settings.polish_stage`)가 고칠 자리를 본문에서 코드로 찾는다(`find`). 명세서는 `docs/context/specs/13-polish-stage.md`
+- 찾는 것: 감정 이름 서술 · 부정 후 재정의 · 셋씩 나열(`metrics.AI_PATTERNS`), 문단 끝 짧은 여운, 쉼표 둘 이상, 대명사, 번역투, 추상어, 서식 흔적
+- 금지 표현(`StyleProfile.banned_phrases`), 되풀이 구절(`echoes.recent` 가운데 본문에 나온 것), 문장 끝 몫과 '~다.' 덩어리(`metrics.da_runs`)도 찾는다
+- 대사 줄 · 효과음 줄은 퇴고가 바꾸지 못하므로 찾지 않는다(`narration_lines`, `pipeline.fixed_lines` 와 같은 기준)
+- 문체 원문이 있는 작품은 셋씩 나열 · 쉼표 · 줄표를 찾지 않는다(`prompts.prose_rules` 의 styled 와 같다)
+- 기준값(`baseline`)에서 원문이 원래 쓰는 만큼은 찾지 않는다
+- 한 화에 한 번까지인 규칙(부정 후 재정의 · 셋씩 나열 · 여운)은 둘째부터 짚는다
+- 시점 인물의 서술 말투로 쓰는 화는 문장 끝을 보지 않는다(`prompts.voiced`)
+- `block` 은 퇴고 요청 맨 끝 블록이다. 규칙마다 인용 `QUOTES`(6)개, 모두 `LINES`(25)줄까지 적고 뺀 수를 적는다
+- `prompts` 가 이 모듈을 함수 안에서 부르므로 `pipeline` 을 들이지 않는다(`baseline` 은 `pipeline.style_baseline` 과 같은 셈)
+
 ### `canon/prompts.py`
 
 - 프롬프트 템플릿
@@ -676,6 +691,11 @@
 - 장편이고 상태 인물이 `check_cast` 와 같으면 인물 설정 · 이전 인물 상태 · 비밀 칸도 넣지 않고 검수 자료의 칸을 보라고 적는다(같은 함수로 고름)
 - 예시 문단이 있는 작품의 스타일 프로필 `style_rules_view`(칸마다 `STYLE_FIELD_LIMIT`, 예시 문단이 앞)
 - `style_rules_view` 의 지킬 것 · 피할 것은 write 층 줄만 넣는다(`layer_rules`, 층은 `rule_layer`, `Settings.rule_layers`)
+- 퇴고 단계를 켠 장편(`polish_split`)은 `style_rules_view` 에서 `banned_phrases` 를 뺀다. 금지 표현은 퇴고가 본문에서 찾는다
+- 퇴고 단계의 쓰기 시스템은 `prose_rules(styled, split=True)` 로 `_SPLIT_RULES`(쓴 뒤 고칠 '하지 말 것'을 뺀 긍정형)를 쓴다. `reviser_system` 은 그대로다
+- 퇴고 단계의 쓰기 지시문 꼬리는 `WRITE_STYLE_SPLIT` · `WRITE_SHIFT_SPLIT` · `RETOLD_SPLIT` 을 쓰고 `ending_line` 과 `echo_block` 을 넣지 않는다
+- 퇴고 단계의 `polish_prompt` 는 `POLISH_RULES` 뒤에 퇴고 층 규칙(`polish_rules_block`)과 찾은 자리(`polishscan.block`)를 붙인다. 찾은 자리는 화마다 바뀌어 맨 끝이다
+- 끈 작품과 단편의 쓰기 · 다듬기 프롬프트는 퇴고 단계 전과 같다(`tests/test_polish_stage.py`)
 - 계획 층 줄은 `plan_rules_block`('# 계획 규칙')으로 스토리보드 만들기 요청 끝과, 스토리보드 없이 쓰는 화의 쓰기 요청 지시문 끝(`episode_parts`)에 넣는다
 - 스토리보드로 쓰는 화의 쓰기 요청에는 계획 규칙을 넣지 않는다. 스토리보드가 이미 받았다
 - 쓰기 재료가 조율(`coord.on`)이면 스토리보드가 있어도 쓰기 요청에 계획 규칙을 넣는다. 조율 스토리보드는 장면 칸을 비우고 본문이 장면을 짠다
@@ -863,6 +883,8 @@
 - 효과음 줄은 줄표로 여는 줄과 줄표 없이 소리나 몸짓만 적은 한 줄 문단(`metrics.is_sfx_line`)이다
 - 말줄임으로 끊는 서술 · 서술 물음(`metrics.narration_tics`)이 종류마다 `POLISH_TIC_RETRY` 를 넘고 늘면 다시 부르고(`polish_tics`), 끝내 넘으면 덜 늘린 판을 낸다
 - 웹 쓰기 작업과 명령줄은 `polish` 일 때 revise 단계 모델을 부른다
+- 퇴고 단계(`Settings.polish_stage`, 장편만)는 같은 `polish_episode` 를 부른다. 바뀌는 것은 `prompts.polish_prompt` 가 붙이는 퇴고 층 규칙과 찾은 자리(`polishscan`)뿐이다
+- 퇴고 단계의 다시 생성은 같은 작업에서 새 판을 퇴고해 후보로 둔다(`web._job_write`). 후보 칸은 하나라 퇴고 전 새 판은 두지 않는다. 퇴고가 멈추면 퇴고 전 새 판을 둔다
 - AI 가 본문 전체를 쓰는 호출자가 `pipeline.writer_of(llm)` 을 `replace_text(written_by=)` · `set_candidate(model=)` · `research.save_compare(models=)` 로 넘긴다. 작가 수정은 바꾸지 않는다(수정 기록 `edits`)
 - 인물 지금 차림(`CharacterState.attire`, 옷 · 상처 · 지닌 물건)은 지금 값만 덮어쓰고 지난 값은 스냅샷
 - 차림 규칙은 `prompts.ATTIRE_STATE_RULE` · `attire_write_rule` · `attire_check_rule`. 옷 · 가방 · 신발은 종류(백팩 · 숄더백 · 핸드백 …)와 가방의 메는 자리까지 적고, 쓰기는 그 종류 · 메는 방식을 지키고, 검수는 같은 물건의 종류 · 메는 방식 · 색이 설명 없이 바뀐 곳을 본다. 종류를 모르는 조각 경고는 `attire.py`
@@ -885,6 +907,8 @@
 - 되풀이한 구절 블록 켜기는 `Settings.recent_echoes`(기본 켬, 장편에만 넣음)
 - 쓰기 요청 블록 끄기 `Settings.blocks`(`BlockSetting`: 블록 id · on)와 예산 `Settings.budgets`(`BudgetSetting`: 예산 키 · 값)는 장편만 따른다. 비면 지금과 같다
 - 지킬 것 · 피할 것의 층 `Settings.rule_layers`(`RuleLayer`: 줄 글 그대로 · `write` 또는 `plan`). 목록에 없는 줄은 write 라 비면 지금과 같다
+- 층 `polish` 는 퇴고 요청의 작가 규칙(`prompts.polish_rules_block`)이다. 퇴고 단계를 끈 작품에서는 write 로 본다(`rule_layer` · `layer_rules`)
+- `Settings.polish_stage`(기본 끔): 장편의 퇴고 단계. 단편은 켜도 따르지 않는다(`prompts.polish_split`). 작가가 문체 화면에서 켠다
 - `rule_layers` 는 작가가 고르는 설정이다. AI 가 채우지 않고 대화 에이전트도 고치지 않는다
 - 줄 글이 바뀌면 그 줄은 write 로 돌아간다. 저장할 때 `pipeline.prune_rule_layers` 가 프로필에 없는 줄과 write 줄을 지운다(`web._put_locked`)
 - 끄기는 블록마다, 예산은 키마다 둔다. 블록 하나가 키를 여럿 쓰기 때문이다(관계 블록의 `relations` · `secrets`)
@@ -964,6 +988,7 @@
 
 - 자동 집필 화면(`viewAuto`, 서버 `autorun.py`)
 - 누락 의심 멈춤(`stop_on_audit`) 칸은 작품 설정 `state_audit` 를 켰을 때만 보인다
+- 퇴고 단계를 켠 장편은 서술 다듬기 칸 대신 '화마다 쓴 뒤 퇴고하기'를 켠 채 잠가 보인다. 승인 정책 요약도 '쓴 뒤 퇴고'다
 - 일시정지 · 중지를 누른 뒤 지금 단계가 끝날 때까지 머리 버튼이 '멈추는 중…' · '중지하는 중…'(`AutoView.want`, aria-busy)이다
 - 서버 재시작 칸은 '끊긴 호출 비용은 빠졌어요' 를 글로 보인다(title 에만 두지 않음)
 - 실행이 있으면 공용 목차 틀이다(목차 `autoToc`: 지금 실행 · 멈춘 이유 · 검토 없이 반영한 화 · 진행 기록 · 승인 정책)
@@ -1181,6 +1206,9 @@
 - 연구 실험 작업 `rs_sample` · `rs_stage` · `rs_check` · `rs_budget` · `rs_compare` 는 `routes/research.py` 가 `JOB_MAKERS` 에 더한다. 요청은 `JobIn.trial` 이다
 - `OWN_LLM_KINDS` 의 작업은 단계 LLM 대신 작업이 고른 백엔드를 쓴다. `start_job` 은 그 작업에 `get_llm` 을 부르지 않는다
 - 쓴 뒤 바로 검수(`Settings.check_after_write`, 기본 끔, `PUT …/check-after-write`): 처음 쓰는 본문이면 작업 `write` 가 저장 뒤 검수 걸음(`_run_check`, 작업 `check` 와 같은 함수)을 잇는다
+- 퇴고 단계를 켠 장편은 작업 `write` 가 본문을 저장한 뒤 퇴고 판을 새 판 후보로 둔다(`_polish_candidate`, revise 단계). 퇴고하는 동안 본문이 바뀌면 버린다
+- 퇴고 단계에서는 쓴 뒤 바로 검수를 하지 않는다. 판을 고르면 검수 결과가 지워지기 때문이다
+- `GET …/episodes/{n}/polish-targets`: 지금 본문과 새 판 후보의 찾은 자리(`polishscan.find`). 퇴고 단계가 아니면 `{"on": false}`
 - 쓴 뒤 검수 걸음 전에 그 화를 내려놓고(`Job.release`) `Job.step_ep` 를 그 화로 둔다. 화면은 본문을 먼저 받고 작가는 검수하는 동안 고칠 수 있다
 - 쓴 뒤 검수가 실패해도 작업은 끝남이고 결과에 `check_error` 를 싣는다. 성공하면 결과 `check` 는 작업 `check` 의 결과와 같다
 - 쓴 뒤 검수가 도는 (작품, 화)는 `_WRITE_CHECKS` 에 두고, 그동안 작업 `check` 는 400 으로 거절한다. 새 판(다시 생성)은 검수하지 않는다
