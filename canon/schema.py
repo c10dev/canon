@@ -1016,6 +1016,32 @@ class AbilityProposal(BaseModel):
     reply: str = Field("", description="작가에게 하는 설명 1~3문장: 무엇을 적었고 무엇이 없어 비웠는지")
 
 
+class SpotDraft(BaseModel):
+    """작품 전체 짜기의 편성 한 구간: 이 화 범위에 관계가 나아가는 쌍 (docs/blueprint/specs/11-whole.md). 저장하지 않고 제안 카드에만 보인다."""
+    from_ep: int = Field(description="구간 첫 화")
+    to_ep: int = Field(description="구간 끝 화")
+    focus: list[str] = Field(default_factory=list, description="이 구간에 관계가 나아가는 쌍 키 '인물id~인물id'")
+    note: str = Field("", description="이 구간에서 무엇이 나아가는지 한 줄 (20자 안팎 새 말)")
+
+
+class PairDraft(BaseModel):
+    """작품 전체 짜기의 쌍 하나 제안: 두 인물의 관계 이정표와 접촉 사다리 칸. 08 의 두 모델을 그대로 쓴다."""
+    a: str = Field(description="인물 id")
+    b: str = Field(description="인물 id")
+    milestones: list[MilestoneDraft] = Field(default_factory=list, description="두 방향의 관계 이정표, 화 차례")
+    rungs: list[RungDraft] = Field(default_factory=list, description="접촉 사다리 칸, 처음 닿는 화 차례")
+
+
+class BlueprintPlanSet(BaseModel):
+    """작품 전체 짜기 제안: 여러 쌍과 능력 일정을 부 하나씩 한 번에 (canon/blueprint.py clean_set 이 정리한다). 작가가 고른 줄만 설계도에 들어간다.
+    필드 차례가 생성 차례라 편성을 맨 앞에 둔다. pairs · abilities 에는 기본값을 두지 않는다(11-whole.md 실측 1회: 기본값이 있는 목록을 비우고 끝냈다)."""
+    spotlight: list[SpotDraft] = Field(default_factory=list, description="먼저 짜는 편성: 범위를 구간으로 나누고 구간마다 관계가 나아가는 쌍")
+    pairs: list[PairDraft] = Field(description="쌍마다 한 항목. 새 줄이 없는 쌍은 빈 목록으로")
+    abilities: list[AbilityDraft] = Field(description="능력 일정 줄, 화 차례. 없으면 빈 목록")
+    codex: list[AbilityCodexDraft] = Field(default_factory=list, description="abilities 의 능력 가운데 스킬 도감에 없는 능력의 도감 초안, 능력마다 하나")
+    reply: str = Field("", description="작가에게 하는 설명 1~3문장: 어떻게 엇갈려 놓았고 무엇을 비웠는지")
+
+
 class Recap(BaseModel):
     """아크나 부가 끝난 뒤의 요약 제안."""
     summary: str = Field(description="다음 화를 쓸 때 참고할 요약")

@@ -38,7 +38,7 @@ from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록
 from .schema import (Ability, ArcPlan, BodySuggestion, StatInitSuggestion, StatSkin, StatWindowSuggestion, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      RuleChange, RuleRun, StorylineProposal, StyleEntry, StyleProfile)
 from . import abilities, anchor, atlas, findings, foreshadows, heatplan, setupchat, stateedit, stattrial, statwin, timeline
-from .schema import AbilityCodexDraft, AbilityDraft, AgentSession, Blueprint, MilestoneDraft, RungDraft, ChatScope, HeatArcProposal, KnowsFoldSet, Deadline, Storyboard, StoryTime, Foreshadow, StatValue
+from .schema import AbilityCodexDraft, AbilityDraft, AgentSession, Blueprint, MilestoneDraft, PairDraft, RungDraft, ChatScope, HeatArcProposal, KnowsFoldSet, Deadline, Storyboard, StoryTime, Foreshadow, StatValue
 from .schema import OffscreenSet
 from .schema import MapSpec
 from .schema import TextMaterial
@@ -2592,6 +2592,7 @@ class JobIn(BaseModel):
     text: str = ""  # style: 분석할 예시 원문 (200자 이상)
     target: str = ""  # blueprint: 두 인물 id 'a~b'. char_body, char_voice, char_look, names_ai: 인물 id (names_ai 는 비우면 지명). illust_render: 삽화 id. aliases: 'c:<인물 id>' · 'e:<요소 id>' (비우거나 'c:' · 'e:' 면 다른 이름이 빈 항목)
     place_kind: str = ""  # names_ai: 지명 종류 (target 이 비었을 때)
+    pairs: list[str] = []  # blueprint_whole: 짤 쌍 키 'a~b' 목록 (비우면 관계 목록의 모든 쌍)
     selection: Selection | None = None  # illust: 그릴 부분 (비우면 AI 가 장면을 고른다)
     model: str = ""  # illust: 삽화 모델 (illust.MODELS)
     draw: bool = False  # illust: 만든 뒤 바로 ComfyUI 로 그린다 (illust_render 와 같은 일을 한 작업 안에서)
@@ -2741,6 +2742,27 @@ def _job_blueprint_draft(name: str, body: "JobIn", p: Project, kind: str, n: int
     def fn(job: jobs.Job):
         prop = pipeline.draft_blueprint(llm, store.load(name), part, a, b, note)
         return prop.model_dump() | {"arc": 0, "part": part, "a": a, "b": b, "start": start, "end": end, "mode": "draft"}
+    return label, 1, set(), fn
+
+
+def _job_blueprint_whole(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 blueprint_whole: 설정 · 부 구성에서 여러 쌍의 설계도와 능력 일정을 한 번에 짠다 (docs/blueprint/specs/11-whole.md 의 11b).
+    ep 는 장편 부 번호(단편은 비움), note 는 작가 메모, pairs 는 쌍 키 목록(비우면 관계 목록의 모든 쌍). 결과는 고르기를 기다린다."""
+    pairs = blueprint.whole_pairs(p, body.pairs)
+    if not pairs:
+        raise ValueError("짤 쌍이 없어요. 설정에서 관계를 더해 주세요")
+    start, end = blueprint.draft_range(p, n or 0)
+    label = f"작품 전체 짜기 · 쌍 {len(pairs)}개 ({start}~{end}화)"
+    part, note, picks = n or 0, body.note, [blueprint.pair_key(a, b) for a, b in pairs]
+
+    def fn(job: jobs.Job):
+        q = store.load(name)
+        prop = pipeline.draft_whole(llm, q, part, picks, note)
+        firsts = [{"pair": f.pair, "axis": f.axis, "value": f.value, "from_ep": f.from_ep, "to_ep": f.to_ep, "id": f.id, "source": f.who[0], "target": f.who[1],
+                   "new": f.id.startswith(blueprint.NEW)} for f in blueprint.proposal_firsts(q, prop)]
+        return prop.model_dump() | {"part": part, "start": start, "end": end, "mode": "whole", "picked": picks, "firsts": firsts,
+                                    "crowd": [{"pairs": [x, y], "text": t} for x, y, t in blueprint.proposal_crowd(q, prop)],
+                                    "mesh": [{"pair": k, "text": t} for k, t in blueprint.proposal_mesh(q, prop)]}
     return label, 1, set(), fn
 
 
@@ -3601,6 +3623,7 @@ JOB_MAKERS: dict[str, Callable] = {
     "heat": _job_heat,
     "blueprint": _job_blueprint,
     "blueprint_draft": _job_blueprint_draft,
+    "blueprint_whole": _job_blueprint_whole,
     "blueprint_ability": _job_blueprint_ability,
     "blueprint_ability_draft": _job_blueprint_ability,
     "convert": _job_convert,
@@ -3686,7 +3709,7 @@ def start_job(name: str, body: JobIn) -> dict:
 
 # 결과가 반영 전 제안인 작업. 화면이 반영하거나 버릴 때까지 pending.json 에 둔다
 # (본문 · 플롯 · 판정 같은 작업은 서버가 이미 작품에 썼다)
-PENDING_KINDS = {"arc", "heat", "blueprint", "blueprint_draft", "blueprint_ability", "blueprint_ability_draft", "suggest", "style", "series", "nextarc", "convert", "rebuild", "rework", "storyline", "recap_arc", "recap_part", "fold_knows", "offscreen", "state", "openings"}
+PENDING_KINDS = {"arc", "heat", "blueprint", "blueprint_draft", "blueprint_whole", "blueprint_ability", "blueprint_ability_draft", "suggest", "style", "series", "nextarc", "convert", "rebuild", "rework", "storyline", "recap_arc", "recap_part", "fold_knows", "offscreen", "state", "openings"}
 
 
 def _keep_pending(name: str, kind: str, n: int | None, label: str, fn, target: str = ""):
@@ -5871,6 +5894,21 @@ def blueprint_apply(name: str, body: BlueprintApplyIn) -> Project:
     """고른 제안 줄을 설계도에 더한다 (blueprint.apply_picks). 검사에 걸리면 400 이고 아무것도 바꾸지 않는다."""
     p = _load(name)
     blueprint.apply_picks(p, body.a, body.b, body.milestones, body.rungs)
+    return _save(name, p)
+
+
+class BlueprintSetIn(BaseModel):
+    """작품 전체 짜기 제안에서 작가가 고른 줄: 쌍마다 이정표 · 칸, 그리고 능력 일정 줄."""
+    pairs: list[PairDraft] = []
+    abilities: list[AbilityDraft] = []
+    codex: list[AbilityCodexDraft] = []
+
+
+@app.post("/api/projects/{name}/blueprint/apply-set")
+def blueprint_apply_set(name: str, body: BlueprintSetIn) -> Project:
+    """작품 전체 짜기에서 고른 줄을 한 번에 더한다 (blueprint.apply_set). 검사에 걸리면 400 이고 아무것도 바꾸지 않는다."""
+    p = _load(name)
+    blueprint.apply_set(p, body.pairs, body.abilities, body.codex)
     return _save(name, p)
 
 

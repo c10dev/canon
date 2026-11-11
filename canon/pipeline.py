@@ -18,7 +18,7 @@ from .sent import SentPrompt, SentRetry
 from .sent import record as sent_record
 from .schema import AliasSuggestion, CoordDraft, CoordMemo, OffscreenSet
 from .schema import RuleChange, RuleRun
-from .schema import AbilityProposal, BlueprintProposal
+from .schema import AbilityProposal, BlueprintPlanSet, BlueprintProposal
 from .schema import CueSheet, CueSheetDraft, Finding, MetaCut, FindingRecheck, FixBatch, FixOption, FixPatch, FixRecheckItem, FixRecheckReport, FixSet, RevArcSet, RevEpisodeDraft, RevLineSet
 from .schema import ParagraphAnatomy, ReaderCheck, SceneCard, SceneVariant, SceneVariants, StudioCandidate, StudioDraft
 from .schema import RefDigest
@@ -903,6 +903,39 @@ def draft_blueprint(llm: LLM, p: Project, part: int, a: str, b: str, note: str =
     with out_cap(BLUEPRINT_OUT_TOKENS):
         prop = llm.json(prompts.SYSTEM_PLANNER, ask, BlueprintProposal, hint={"start": start, "end": end, "a": a, "b": b})
     return blueprint.clean_proposal(p, prop, a, b, start, end)
+
+
+WHOLE_CHUNK = 5  # 작품 전체 짜기가 한 번에 받는 쌍 수. 넘으면 나눠 부르고 뒤 묶음은 앞 묶음 제안을 '이미 적은 설계도'로 받는다 (11-whole.md 정할 것 1)
+
+
+def draft_whole(llm: LLM, p: Project, part: int, picks: list[str] | None = None, note: str = "") -> BlueprintPlanSet:
+    """작가 설정 · 부 구성에서 여러 쌍의 설계도와 능력 일정을 한 번에 짠다 (docs/blueprint/specs/11-whole.md 의 11b). 플롯이 없어도 된다. 저장하지 않는다.
+    picks 는 쌍 키 목록(비면 관계 목록의 모든 쌍). 범위는 설계도 짜기와 같다(blueprint.draft_range). 쌍이 다섯을 넘으면 다섯씩 차례로 부른다.
+    정리는 blueprint.clean_set, 작가가 고른 줄은 blueprint.apply_set 으로 들어간다."""
+    pairs = blueprint.whole_pairs(p, picks)
+    if not pairs:
+        raise ValueError("짤 쌍이 없어요. 설정에서 관계를 더해 주세요")
+    start, end = blueprint.draft_range(p, part)
+    q = p.model_copy(deep=True)  # 앞 묶음 제안을 뒤 묶음의 '이미 적은 설계도'로 보이게 더해 두는 사본 (저장하지 않는다)
+    out = BlueprintPlanSet(spotlight=[], pairs=[], abilities=[])
+    replies = []
+    for i in range(0, len(pairs), WHOLE_CHUNK):
+        chunk = pairs[i:i + WHOLE_CHUNK]
+        ask = prompts.blueprint_whole_prompt(q, start, end, chunk, pairs[:i]) + prompts.request_block(note)
+        with out_cap(BLUEPRINT_OUT_TOKENS):
+            prop = llm.json(prompts.SYSTEM_PLANNER, ask, BlueprintPlanSet, hint={"start": start, "end": end, "pairs": [list(x) for x in chunk]})
+        prop = blueprint.clean_set(q, prop, chunk, start, end)
+        for x in prop.pairs:
+            blueprint.add_picks(q, x.a, x.b, x.milestones, x.rungs)
+        blueprint.add_abilities(q, prop.abilities)
+        out.spotlight += prop.spotlight
+        out.pairs += prop.pairs
+        out.abilities += prop.abilities
+        out.codex += [c for c in prop.codex if c.name not in {x.name for x in out.codex}]
+        if prop.reply:
+            replies.append(prop.reply)
+    out.reply = " ".join(replies)
+    return out
 
 
 ACT_NAMES = ["기", "승", "전", "결"]

@@ -294,6 +294,16 @@
 - 처음 닿는 줄 `firsts(milestones, ladders)`: 방향마다 단계마다, 쌍마다 겹마다 첫 화가 가장 이른 줄(`First`: 쌍 키 · 축 '단계' · '겹' · 값 · 화 범위 · id · 두 인물). 화 범위와 단계(겹)를 모두 적은 줄만
 - 쌍끼리 몰림 `crowd_pairs(firsts)`: 서로 다른 쌍이 같은 축 · 같은 값에 처음 닿는 줄의 화 범위가 한 화라도 겹침. 같은 쌍의 두 방향은 몰림이 아니다
 - 몰림 글 `crowd_rows(p, firsts)`(두 쌍 키, 글)는 전체 짜기 제안 카드(11b)가 쓴다. 늘 보이는 `warning_rows` 에는 넣지 않는다([docs/blueprint/specs/11-whole.md](../blueprint/specs/11-whole.md))
+- `crowd_rows` 의 `keep` 은 글로 쓸 몰림만 고른다(11b 는 한쪽이라도 제안 줄인 몰림만)
+- 작품 전체 짜기(`BlueprintPlanSet`, 11b)의 짤 쌍 `whole_pairs(p, picks)`: 기본은 관계 목록의 모든 쌍, picks(쌍 키)가 있으면 그 쌍만. 관계 밖 쌍도 두 인물이 있으면 받는다
+- 범위 앞 단계 `stage_before(p, s, t, n)`: 단계를 적고 범위 끝 화가 n 화 이하인 이정표 가운데 가장 늦은 것
+- 전체 짜기 요청의 이미 적은 줄 `whole_have_lines(p, pairs, start, end)`: 쌍마다 방향별 범위 앞 단계 한 줄과 `plan_lines`
+- 정리 `clean_set(p, prop, pairs, start, end)`: 고른 쌍만, 같은 쌍 두 항목은 합치고 쌍마다 `clean_proposal`. 능력 줄은 고른 쌍의 인물만 `clean_abilities`. 편성은 범위를 자르고 고른 쌍 키만
+- 검사 없는 쌍 더하기 `add_picks`(이정표는 뒤에 붙이고 칸은 첫 화 차례로 끼움). `apply_picks` 와 `apply_set` 이 쓴다
+- 고른 줄 한 번에 더하기 `apply_set(p, pairs, abilities, codex)`: 한 사본에 고른 도감 초안(`add_codex`) · 모든 쌍 · 능력 줄을 더하고 `check` 를 한 번. 어긋나면 아무것도 바꾸지 않는다
+- `clean_set` 은 도감 초안도 `clean_codex` 로 정리한다(능력 일정 제안은 도감 초안도 낸다, README 2026-11-11)
+- 제안 카드의 재료 `proposal_firsts` · `proposal_crowd` · `proposal_mesh`: 이미 적은 줄과 제안 줄(임시 id 머리 `NEW` '+')을 함께 본다
+- 능력 맞물림 `proposal_mesh`: 이정표 라벨 · 계기, 칸 이름 · 메모에 능력 이름(도감의 다른 이름 포함)이 나오는데 그 능력의 첫 화가 그 줄의 첫 화보다 뒤. 한쪽이라도 제안 줄일 때만
 - 능력의 실제 쪽 값은 저장하지 않는다. 얻은 화 `got_ep` 는 상태창 기록(`abilities.history`)에서 그 능력 조각이 계획 등급에 처음 닿은 화다(시작 값은 0, 기록 없이 상태창에만 있어도 0)
 - 등급 견주기 `_grade_ok`: 괄호 · 빈칸을 떼고 같은 말, 도감 등급 목록의 차례, 숫자만 다른 등급의 숫자로 '그 이상'
 - 능력 일정 줄 상태 `ability_states`: 얻음 · 앞섬 · 늦음 · 지남 · 예정 · 미정, 도감 항목이 있는지(`linked`)
@@ -314,6 +324,7 @@
 - 능력 일정 제안 요청의 재료 `ability_have_lines`(그 인물의 모든 줄, 얻은 줄 포함, 받는 범위에 걸친 줄이 앞) · `ability_owned_lines`(지금 상태창의 목록 항목 조각)
 - 웹은 `POST /api/projects/{name}/blueprint/apply-abilities`(`AbilityApplyIn`, 검사에 걸리면 400)
 - `AbilityApplyIn.codex` 는 고른 도감 초안(`AbilityCodexDraft`)이다
+- 웹은 `POST /api/projects/{name}/blueprint/apply-set`(`BlueprintSetIn`: 쌍마다 고른 줄 `PairDraft` · 능력 줄 · 도감 초안, 검사에 걸리면 400)
 - 화면은 `static/blueprint.js`
 - 기획 프롬프트 줄 `plan_lines(p, ids, start, end)`: 화 범위를 적은 줄만, 범위에 걸린 이정표 · 사다리 칸과 그 뒤 첫 것. 두 인물이 모두 ids 에 들 때만
 - 사다리 칸 한 줄 `rung_text`: '차례. 이름 (겹 · 부위 · 동작 · 장소 · 주도 · 메모)', 부위 · 동작은 장면 연출의 이름
@@ -794,10 +805,14 @@
 - 주소 `blueprint/@ability`(`BP_AB`)는 능력 일정 쪽이다. 쌍 키와 겹치지 않는다
 - 쌍 목록 `bpPairs`: 관계 설정의 쌍(그 차례와 a · b 차례)에 설계도에만 있는 쌍을 더한다
 - 개요: 수 타일 · 경고 · 전체 띠 · 설계 원칙 카드 · 쌍 목록
-- 개요의 전체 띠 `bpWholeBand`(`#bp-whole`): 쌍마다 한 줄에 서버가 고른 처음 닿는 줄(`S.bp.firsts`)만, 그 아래 능력 일정 줄(`bpAbLanes`). 처음 닿는 줄도 능력 일정도 없으면 그리지 않는다
+- 개요의 전체 띠 `bpWholeBand(pairs, firsts, plans, id, title)`(`#bp-whole`): 쌍마다 한 줄에 서버가 고른 처음 닿는 줄(`S.bp.firsts`)만, 그 아래 능력 일정 줄(`bpAbLanes`). 처음 닿는 줄도 능력 일정도 없으면 그리지 않는다
 - 전체 띠에서 다른 쌍과 몰린 막대(`crowd`)는 `.bp-crowd` 테두리만 바꾼다. 글 경고 · 경고 수에는 넣지 않는다
 - 개요 쌍 목록의 쌍 이름은 굵은 밑줄 링크 `.bp-pair` 하나다(손가락 기기에서 44px)
 - 띠의 공용 틀 `bpBandFrame`(경계 눈금 · 마지막 반영 화 · '기획한 화 / 작품 전체')과 기본 범위 `bpPlannedSpan` 은 세 띠가 함께 쓴다
+- 개요 '관계' 카드(`#bp-pairs`) 머리의 'AI로 전체 짜기'(`bpWholeToggle`, `S.bpWholeOpen`)가 그 카드 안 칸 `bpWholeAiCard` 를 편다: 메모 · 부 고르기 · 쌍 체크(기본 모두) · 'AI로 짜기'(작업 `blueprint_whole`)
+- 도착한 전체 짜기 제안은 `S.bpWhole`(하나, `PER_PROJECT`)이고 개요의 경고 · 남겨 둔 칸 다음 카드 `bpWholeDraftCard` 다. 주 버튼은 '고른 줄 더하기' 하나(`POST …/blueprint/apply-set`)
+- 전체 짜기 제안 카드: 몰림 · 맞물림 경고, 편성, 제안을 겹친 띠(`bpWholeBand` 에 결과의 `firsts`, 제안 막대는 점선 `.bp-new`), 쌍마다 접는 묶음(묶음 체크 · 줄 체크), 능력 묶음(`bpAbDraftRows`, 동작 `bpWholeAbPick`)
+- 쌍 묶음의 기본 체크 `bpWholePicks` 는 08 의 제안 카드와 같다(`bpOverlaps` 로 이미 있는 줄과 겹치면 고르지 않음). 능력 줄은 `bpAbPicks`
 - 개요의 '성장' 카드 `#bp-growth`: 능력 일정 줄 수 · 경고 수와 링크. 관계가 없어도 보인다
 - 쌍 쪽: 계획 띠 `bpBand`(두 방향 이정표 · 접촉 사다리, 아크 · 구간 경계, 마지막 반영 화) · 그 쌍의 경고 · 관계 이정표 카드 · 접촉 사다리 카드
 - 계획 띠 기본 범위 `bpSpan`: 기획한 화와 그 쌍 설계도 끝 화 가운데 큰 것. '작품 전체'(`S.bpWide`)로 바꾼다

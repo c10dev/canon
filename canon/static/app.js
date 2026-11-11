@@ -807,7 +807,7 @@ async function finishJob(j) {
 }
 
 // ---------- 검토를 기다리는 결과 · 실패 (서버 pending.json, web.PENDING_KINDS 와 같은 목록) ----------
-const PENDING_KINDS = ['arc', 'heat', 'blueprint', 'blueprint_draft', 'blueprint_ability', 'blueprint_ability_draft', 'suggest', 'style', 'series', 'nextarc', 'convert', 'rebuild', 'rework', 'storyline', 'recap_arc', 'recap_part', 'fold_knows', 'offscreen', 'state', 'openings'];
+const PENDING_KINDS = ['arc', 'heat', 'blueprint', 'blueprint_draft', 'blueprint_whole', 'blueprint_ability', 'blueprint_ability_draft', 'suggest', 'style', 'series', 'nextarc', 'convert', 'rebuild', 'rework', 'storyline', 'recap_arc', 'recap_part', 'fold_knows', 'offscreen', 'state', 'openings'];
 
 /** 그 결과가 아직 화면에 제안으로 남아 있다. 반영하거나 버리면 false 가 된다. */
 function pendingShown(r) {
@@ -817,6 +817,7 @@ function pendingShown(r) {
     case 'heat': return !!S.heatDraft;
     case 'blueprint': return !!S.bpDraft;
     case 'blueprint_draft': return !!S.bpDraft;
+    case 'blueprint_whole': return !!S.bpWhole;
     case 'blueprint_ability':
     case 'blueprint_ability_draft': return bpAbDraftShown(r);
     case 'suggest': return !!S.suggestion;
@@ -882,6 +883,8 @@ function applyJobResult(j) {
     S.styleDraft = j.result;
   } else if ((j.kind === 'blueprint' || j.kind === 'blueprint_draft') && j.result) {
     S.bpDraft = j.result;  // 설계도 쪽 카드 안 제안 (blueprint.js bpDraftCard). 고른 줄만 더한다
+  } else if (j.kind === 'blueprint_whole' && j.result) {
+    S.bpWhole = j.result;  // 설계도 개요의 제안 카드 (blueprint.js bpWholeDraftCard). 쌍마다 · 줄마다 고른 줄만 더한다
   } else if ((j.kind === 'blueprint_ability' || j.kind === 'blueprint_ability_draft') && j.result) {
     (S.bpAbDrafts ||= {})[bpAbDraftKey(j.result)] = { ...j.result, job: j.id };  // 능력 일정 쪽 제안 카드 (blueprint.js bpAbDraftCard). 인물 · 뽑기/짜기마다 하나, 고른 줄만 더한다
   } else if (j.kind === 'heat' && j.result) {
@@ -2134,7 +2137,7 @@ Object.assign(actions, {
 // 작품마다 따로 두는 화면 상태와 빈 값. 화 번호로 잡거나 반영 전 AI 제안이라, 다른 작품에 보이거나 반영되면 안 된다
 const PER_PROJECT = {
   textDraft: () => ({}), deltas: () => ({}), deltaBase: () => ({}), deltaOrig: () => ({}),
-  suggestion: () => null, styleDraft: () => null, picks: () => ({}), picksEp: () => null, picksKept: () => ({}), seriesDraft: () => null, arcDraft: () => null, arcProposal: () => null, heatProposal: () => null, heatDraft: () => null, bpDraft: () => null, recapDrafts: () => ({}), foldDrafts: () => ({}), offscreenDraft: () => null,
+  suggestion: () => null, styleDraft: () => null, picks: () => ({}), picksEp: () => null, picksKept: () => ({}), seriesDraft: () => null, arcDraft: () => null, arcProposal: () => null, heatProposal: () => null, heatDraft: () => null, bpDraft: () => null, bpWhole: () => null, recapDrafts: () => ({}), foldDrafts: () => ({}), offscreenDraft: () => null,
   bpAbDrafts: () => ({}), lineDraft: () => null, convDraft: () => null, rbDraft: () => null, reworks: () => ({}),
   openingData: () => ({}), openingPlots: () => ({}), openingUsed: () => ({}), openingPrev: () => ({}), rw: () => ({}), rwInfo: () => ({}), looks: () => ({}),
   causalLinks: () => ({}), causalPicks: () => ({}), causalGone: () => null, chatPicks: () => ({}),
