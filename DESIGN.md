@@ -246,7 +246,7 @@ AI 는 숫자를 매기지 않고 사건만 뽑는다. 같은 사건은 항상 �
 - 신체 프로필(`Character.body`)은 평소 프롬프트에서 빠지고, 몸이 드러나는 화에만 체형 · 특징이 스토리보드 · 쓰기 · 검수 요청 끝에 들어간다(`cast.body_cast`, `prompts.body_rule` · `body_check_rule`). 고르는 조건은 그 화까지 닿기로 한 설계도 사다리 칸에 옷 안 · 맨살 겹이 있는지(`blueprint.exposed`, 한 번 닿으면 뒤 화도)와 특징 낱말이 그 화 플롯 · 연출 지시에 나오는지다. 미성년 인물은 뺀다. 규칙은 `docs/blueprint/specs/09-body.md`.
 - 플롯 없이 설계도 짜기(작업 `blueprint_draft`, `pipeline.draft_blueprint`)는 설정 · 부 구성 · 작가 메모로 부 하나씩 제안을 받는다. 두 설계도 제안은 출력 한도 16,384토큰을 건다(2026-11-10 flash 실호출의 되풀이 폭주 두 번). 실호출은 `docs/blueprint/specs/08-draft.md`.
 - 지금 플롯에서 설계도 거꾸로 뽑기(작업 `blueprint`, `pipeline.propose_blueprint`)는 아크 하나 · 두 인물씩 제안을 받고, 작가가 고른 줄만 `blueprint.apply_picks` 로 더한다. 실호출 확인은 `docs/blueprint/specs/05-extract.md`.
-- 설계도 화면은 사이드바 도구 '설계도'(`static/blueprint.js`)다. 저장은 `PUT /api/projects/{name}/blueprint` 로 설계도를 통째로 보내고 서버가 `blueprint.check` 로 검사한다. 경고는 서버가 방향을 붙여 준다(`warning_rows`).
+- 설계도 화면은 사이드바 도구 '설계도'(`static/blueprint.js`)다. 저장은 `PUT /api/projects/{name}/blueprint` 로 설계도를 통째로 보내고 서버가 `blueprint.check` 로 검사한다. 경고는 서버가 방향을 붙여 준다(`warning_rows`). 줄 지우기 · 제안 더하기 · 여정 비우기의 되돌리기는 화면이 쓰기 전 설계도를 들고 있다가 서버 값이 쓴 뒤 그대로일 때만 다시 `PUT` 한다(서버 쪽 기록 없음).
 - 설계도의 능력 일정(`AbilityPlan`, `docs/blueprint/specs/10-ability.md`)은 계획만 저장한다. 얻은 화는 상태창 기록에서 계산한다(`blueprint.got_ep`). 그래서 되돌리기 · 갈래가 따로 맞출 값이 없다.
 - 능력 일정은 아직 얻지 못한 줄만 프롬프트에 들어간다: 장편 기획은 범위에 걸린 줄과 그 뒤 첫 줄(`prompts.blueprint_ability_block`, 예산 `context.BUDGET["ability_plan"]`), 스토리보드는 이 화가 얻는 범위인 줄과 다음 줄, 쓰기는 이 화가 얻는 범위이고 플롯에 그 능력 이름이 나오는 줄만, 검수는 뒤 화의 줄을 앞당겼는지 본다.
 - 능력 일정 경고(`blueprint.ability_warning_rows`, 상태 승인 화면은 `ability_delta_warnings`)는 막지 않는다.

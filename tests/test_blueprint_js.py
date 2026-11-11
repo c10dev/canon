@@ -155,3 +155,82 @@ def test_overview_opens_without_relationships():
     p.relationships, p.blueprint.milestones, p.blueprint.ladders = [], [], []
     html = _run("viewBlueprint()", p)
     assert "관계가 아직 없어요" in html and 'id="bp-growth"' in html
+
+
+def _many() -> Project:
+    """배열 차례가 화 차례와 다른 이정표 다섯 줄 (실제 작품에서 AI 제안을 두 번 더한 모양)."""
+    p = _proj()
+    p.blueprint.milestones = [Milestone(id=f"ms-{k}", source="a", target="j", from_ep=k, to_ep=k + 5, label=f"줄{k}") for k in (30, 65, 175, 360, 155)]
+    return p
+
+
+@needs_node
+def test_rows_have_edit_and_delete_and_edit_list_follows_episode_order():
+    p = _many()
+    html = _run("viewBlueprint()", p, {"bpSel": "a~j"})
+    assert 'data-action="bpRowEdit" data-arg="milestones.0"' in html and 'data-action="bpRowDel" data-arg="ladders.0.rungs.0"' in html
+    assert 'id="bp-band"' in html and 'data-action="bpClear"' in html
+    card = "(S.bpEdit = { card: 'ms', key: 'a~j', data: JSON.parse(JSON.stringify(S.project.blueprint)), orig: '' }, viewBlueprint())"
+    html = _run(card, p, {"bpSel": "a~j"})
+    order = [html.index(f'data-bp="milestones.{i}.from_ep"') for i in (0, 1, 4, 2, 3)]  # 30 · 65 · 155 · 175 · 360화
+    assert order == sorted(order)
+    assert '<textarea class="bp-text" rows="2" data-bp="milestones.0.label"' in html  # 긴 라벨이 잘리지 않게 여러 줄 칸
+
+
+@needs_node
+def test_row_edit_opens_only_that_row():
+    p = _many()
+    row = "(S.bpEdit = { card: 'ms', key: 'a~j', data: JSON.parse(JSON.stringify(S.project.blueprint)), orig: '', row: 'milestones.4' }, viewBlueprint())"
+    html = _run(row, p, {"bpSel": "a~j"})
+    assert 'data-bp="milestones.4.label"' in html and 'data-bp="milestones.0.label"' not in html
+    assert html.count('data-action="bpSave"') == 1 and "줄30" in html
+    assert 'data-action="bpRowEdit" data-arg="milestones.0"' not in html  # 같은 카드에서 한 줄을 고치는 동안은 줄 버튼을 숨긴다
+    assert 'data-action="bpRowEdit" data-arg="ladders.0.rungs.0"' in html  # 다른 카드의 줄 버튼은 그대로
+    html = _run("(S.bpEdit = { card: 'ladder', key: 'a~j', data: JSON.parse(JSON.stringify(S.project.blueprint)), orig: '', row: 'ladders.0.rungs.0' }, viewBlueprint())", p, {"bpSel": "a~j"})
+    assert 'data-bp="ladders.0.rungs.0.label"' in html and 'data-action="bpRungMove"' in html and 'data-action="bpRungDel"' not in html
+
+
+@needs_node
+def test_text_saves_as_one_line():
+    p = _proj()
+    got = _run("(S.bpEdit = { card: 'ms', key: 'a~j', data: JSON.parse(JSON.stringify(S.project.blueprint)), orig: '' }, bpSet('milestones.0.label', '첫 줄\\n  둘째 줄'), bpSet('milestones.0.to_ep', '12'), S.bpEdit.data.milestones[0])", p)
+    assert got["label"] == "첫 줄 둘째 줄" and got["to_ep"] == 12
+
+
+@needs_node
+def test_draft_marks_overlaps_and_leaves_them_unpicked():
+    p = _proj()
+    p.blueprint.milestones[0].from_ep, p.blueprint.milestones[0].to_ep = 30, 35
+    draft = {"a": "a", "b": "j", "start": 1, "end": 600, "mode": "draft", "reply": "",
+             "milestones": [{"source": "a", "target": "j", "from_ep": 35, "to_ep": 40, "stage": "경계", "label": "의심", "trigger": "", "evidence": []},
+                            {"source": "j", "target": "a", "from_ep": 35, "to_ep": 40, "stage": "", "label": "반대 방향", "trigger": "", "evidence": []},
+                            {"source": "a", "target": "j", "from_ep": 90, "to_ep": 95, "stage": "", "label": "새 줄", "trigger": "", "evidence": []}],
+             "rungs": [{"label": "스침 ", "parts": [], "acts": [], "layer": "", "places": [], "lead": "", "note": "", "from_ep": 50, "to_ep": 50, "evidence": []},
+                       {"label": "포옹", "parts": [], "acts": [], "layer": "옷 위", "places": [], "lead": "", "note": "", "from_ep": 3, "to_ep": 4, "evidence": []},
+                       {"label": "입맞춤", "parts": [], "acts": [], "layer": "맨살", "places": [], "lead": "", "note": "", "from_ep": 2, "to_ep": 2, "evidence": []}]}
+    got = _run("(viewBlueprint(), [S.bpDraft.pickMs, S.bpDraft.pickRungs])", p, {"bpSel": "a~j", "bpDraft": draft})
+    assert got == [[False, True, True], [False, False, True]]  # 끝 화가 닿는 범위(30~35 · 35~40), 비슷한 라벨, 범위가 겹치고 겹이 같은 칸
+    html = _run("viewBlueprint()", p, {"bpSel": "a~j", "bpDraft": draft})
+    assert html.count("이미 있음") == 3 and "30~35화 경계 정체를 안다" in html and "1. 1~3화 스침" in html
+
+
+@needs_node
+def test_undo_note_only_on_its_page():
+    p = _proj()
+    undo = {"bpUndo": {"name": "t", "key": "a~j", "before": "{}", "after": "{}", "msg": "아영 ↔ 지훈의 여정을 비웠어요"}}
+    assert 'data-action="bpUndo"' in _run("viewBlueprint()", p, {"bpSel": "a~j", **undo})
+    assert 'data-action="bpUndo"' not in _run("viewBlueprint()", p, {"bpSel": "a~d", **undo})
+    assert 'data-action="bpUndo"' not in _run("viewBlueprint()", p, {"bpSel": "a~j", "bpUndo": {**undo["bpUndo"], "name": "other"}})
+
+
+@needs_node
+def test_ability_edit_list_follows_view_order():
+    p = _proj()
+    p.blueprint.ability_plans = [AbilityPlan(id="ap-1", character="a", ability="은신", from_ep=50, to_ep=60),
+                                 AbilityPlan(id="ap-2", character="j", ability="추적", from_ep=1, to_ep=2),
+                                 AbilityPlan(id="ap-3", character="a", ability="도약", from_ep=5, to_ep=8)]
+    html = _run("(S.bpEdit = { card: 'ap', key: '@ability', data: JSON.parse(JSON.stringify(S.project.blueprint)), orig: '' }, viewBlueprint())", p, {"bpSel": "@ability"})
+    order = [html.index(f'data-bp="ability_plans.{i}.ability"') for i in (1, 2, 0)]  # 인물 목록 차례(지훈, 아영), 그 안에서 화 차례
+    assert order == sorted(order)
+    html = _run("viewBlueprint()", p, {"bpSel": "@ability"})
+    assert 'data-action="bpRowDel" data-arg="ability_plans.2"' in html

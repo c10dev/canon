@@ -1,14 +1,16 @@
 /* 설계도 화면 (docs/blueprint/specs/03-journey.md). app.js 의 S, actions, api, run, render, header, esc, P, base, enc, toast, askConfirm 과
    outline.js 의 공용 목차 틀을 쓴다. 작가가 먼저 정하는 계획 층(Project.blueprint): 관계 이정표(방향마다), 접촉 사다리(쌍마다), 능력 일정(인물마다 여러 줄).
    주소는 blueprint(개요) · blueprint/<쌍 키> · blueprint/@ability(능력 일정). 쌍 키는 두 인물 id 를 정렬해 '~' 로 이은 것이다.
-   카드는 읽는 모양이 기본이고 '고치기'로 그 카드만 편다. 저장은 설계도 전체를 PUT …/blueprint 로 보낸다(서버가 blueprint.check 로 검사).
+   카드는 읽는 모양이 기본이다. 줄 끝 ✎ 는 그 줄만, 카드 머리 '고치기'는 그 카드 전체를 편다. 저장은 설계도 전체를 PUT …/blueprint 로 보낸다(서버가 blueprint.check 로 검사).
+   줄 지우기 · AI 제안 더하기 · 여정 비우기는 바로 저장하고 되돌리기(S.bpUndo)를 남긴다.
    경고는 서버가 계산한다(blueprint.warning_rows). 막지 않는다. */
 'use strict';
 
 Object.assign(S, {
   bp: null,        // 서버 값 { blueprint, warnings: [{source, target, text}], plans: [{id, got, state, linked}], ability_warnings: [{character, text}], parts: [{id, label}], acts, last }
   bpSel: '',       // 지금 쪽: '' 개요 | 쌍 키 | '@ability' 능력 일정
-  bpEdit: null,    // 고치는 카드 { card: 'ms' | 'ladder' | 'note' | 'ap', key, data: Blueprint 사본, orig }
+  bpEdit: null,    // 고치는 카드 { card: 'ms' | 'ladder' | 'note' | 'ap', key, data: Blueprint 사본, orig, row: 누른 줄만 열면 그 줄의 길('milestones.3') }
+  bpUndo: null,    // 방금 한 지우기 · 더하기 · 비우기 { name, key, before, after: 설계도 JSON, msg }. 되돌리기는 지금 값이 after 일 때만 before 를 다시 저장한다
   bpOwner: '',     // 화면 상태를 가진 작품
   bpPickOpen: '',  // 펴 둔 칩 묶음의 길 (칩을 눌러 다시 그려도 펴 둔다)
   bpWide: false,   // 계획 띠를 작품 전체 화수로 (기본은 기획한 화까지)
@@ -48,7 +50,7 @@ function bpOfPair(bp, warns, a, b) {
 }
 
 async function bpLoad(sel) {
-  if (S.bpOwner && S.bpOwner !== S.name) S.bpEdit = null;  // 다른 작품으로 가면 고치던 칸을 닫는다
+  if (S.bpOwner && S.bpOwner !== S.name) S.bpEdit = S.bpUndo = null;  // 다른 작품으로 가면 고치던 칸과 되돌리기를 닫는다
   S.bpOwner = S.name;
   const prev = S.bpSel;
   S.bpSel = sel || '';
@@ -112,7 +114,8 @@ function bpBand(a, b, x) {
   const hits = x.ladder ? x.ladder.rungs.map((r, i) => [r, i]).filter(([r]) => r.id in got).map(([r, i]) => ({ from_ep: got[r.id], to_ep: got[r.id], text: `${i + 1}`, cls: 'bp-is-hit' })) : [];
   const desc = `1~${total}화 계획 띠: ${bpWho(a)} → ${bpWho(b)} 이정표 ${dir(a, b).length}개, ${bpWho(b)} → ${bpWho(a)} 이정표 ${dir(b, a).length}개, 접촉 사다리 ${rungs.length}칸`;
   const seg = full > bpSpan(p, x) ? `<div class="seg" role="group" aria-label="계획 띠 범위"><button type="button" data-action="bpWide" data-arg="" aria-pressed="${!S.bpWide}">기획한 화</button><button type="button" data-action="bpWide" data-arg="1" aria-pressed="${S.bpWide}">작품 전체</button></div>` : '';
-  return `<section class="card" id="bp-band"><div class="between"><h2>계획 띠</h2><div class="row">${seg}<span class="small">1~${total}화${S.bp.last ? ` · ${S.bp.last}화까지 반영` : ''}</span></div></div>
+  const clear = x.ms.length || rungs.length ? `<button type="button" class="btn small ghost danger" data-action="bpClear" data-arg="${esc(bpKey(a, b))}">여정 비우기</button>` : '';
+  return `<section class="card" id="bp-band"><div class="between"><h2>계획 띠</h2><div class="row">${seg}<span class="small">1~${total}화${S.bp.last ? ` · ${S.bp.last}화까지 반영` : ''}</span>${clear}</div></div>
     <div class="bp-band" role="img" aria-label="${esc(desc)}">${ticks}${last}
       ${bpLane(`${bpWho(a)} → ${bpWho(b)}`, dir(a, b), total)}${bpLane(`${bpWho(b)} → ${bpWho(a)}`, dir(b, a), total)}${bpLane('접촉 사다리', rungs, total)}${hits.length ? bpLane('본문에서 닿음', hits, total) : ''}</div></section>`;
 }
@@ -132,33 +135,53 @@ function bpNum(path, v, label) {
   return `<input type="number" min="0" inputmode="numeric" class="bp-num" data-bp="${path}" value="${v || ''}" placeholder="화" aria-label="${esc(label)}">`;
 }
 
-/** 관계 이정표 카드 (두 방향) */
+/** 여러 줄 글 칸 (라벨 · 계기 · 조건 · 메모). AI 가 쓴 긴 문장도 잘리지 않게 줄을 바꿔 보인다 */
+function bpText(path, v, label, placeholder = '') {
+  return `<textarea class="bp-text" rows="2" data-bp="${path}" placeholder="${esc(placeholder)}" aria-label="${esc(label)}">${esc(v || '')}</textarea>`;
+}
+
+/** 화 차례 (보는 화면 · 고치는 목록이 같게): 처음 화, 정하지 않은 줄은 뒤. [[줄, 차례]] 를 받는다 */
+const bpByEp = (rows) => rows.sort(([p], [q]) => (p.from_ep || 1e9) - (q.from_ep || 1e9) || (p.to_ep || 1e9) - (q.to_ep || 1e9));
+
+/** 줄 끝의 고치기 · 지우기 (보는 화면). path 는 설계도 안 길 'milestones.3' · 'ladders.0.rungs.2' · 'ability_plans.1' */
+function bpRowActs(path, what) {
+  if (S.bpEdit && S.bpEdit.row && S.bpEdit.row.split('.')[0] === path.split('.')[0]) return '';  // 같은 카드에서 한 줄을 고치는 동안은 숨긴다 (칸 차례를 옮겼을 수 있다)
+  return `<span class="bp-row-acts"><button type="button" class="btn icon-btn ghost" data-action="bpRowEdit" data-arg="${path}" aria-label="${esc(`${what} 고치기`)}" title="고치기">✎</button>
+    <button type="button" class="btn icon-btn ghost" data-action="bpRowDel" data-arg="${path}" aria-label="${esc(`${what} 지우기`)}" title="지우기">✕</button></span>`;
+}
+
+/** 고치는 카드의 모양: '' 읽기 | 'row' 누른 줄만 | 'card' 카드 전체 */
+const bpMode = (card) => (S.bpEdit && S.bpEdit.card === card ? (S.bpEdit.row ? 'row' : 'card') : '');
+
+/** 이정표 한 줄의 고치는 칸 */
+function bpMsEdit(m, i) {
+  const stage = BP_STAGES.map((w) => `<option value="${w}"${w === m.stage ? ' selected' : ''}>${w || '단계 없음'}</option>`).join('');
+  return `<div class="bp-ms-row">${bpNum(`milestones.${i}.from_ep`, m.from_ep, '처음 화')}<span aria-hidden="true">~</span>${bpNum(`milestones.${i}.to_ep`, m.to_ep, '끝 화')}
+    <select data-bp="milestones.${i}.stage" aria-label="관계 단계">${stage}</select>
+    ${S.bpEdit.row ? '' : `<button type="button" class="btn icon-btn ghost bp-del" data-action="bpMsDel" data-arg="${i}" aria-label="이정표 지우기">✕</button>`}
+    ${bpText(`milestones.${i}.label`, m.label, '라벨', '라벨 (예: 처음으로 먼저 손을 잡는다)')}
+    ${bpText(`milestones.${i}.trigger`, m.trigger, '계기', '계기')}</div>`;
+}
+
+/** 관계 이정표 카드 (두 방향). 줄은 화 차례로 보인다(고치는 목록도 같다) */
 function bpMsCard(a, b, x) {
-  const open = S.bpEdit && S.bpEdit.card === 'ms';
+  const mode = bpMode('ms');
   const dirs = [[a, b], [b, a]];
+  const src = mode ? S.bpEdit.data : S.bp.blueprint;
+  const mine = (s, t) => bpByEp(src.milestones.map((m, i) => [m, i]).filter(([m]) => m.source === s && m.target === t));
   let body;
-  if (open) {
-    const ms = S.bpEdit.data.milestones;
-    body = dirs.map(([s, t]) => {
-      const rows = ms.map((m, i) => [m, i]).filter(([m]) => m.source === s && m.target === t).map(([m, i]) => {
-        const stage = BP_STAGES.map((w) => `<option value="${w}"${w === m.stage ? ' selected' : ''}>${w || '단계 없음'}</option>`).join('');
-        return `<div class="bp-ms-row">${bpNum(`milestones.${i}.from_ep`, m.from_ep, '처음 화')}<span aria-hidden="true">~</span>${bpNum(`milestones.${i}.to_ep`, m.to_ep, '끝 화')}
-          <select data-bp="milestones.${i}.stage" aria-label="관계 단계">${stage}</select>
-          <input type="text" data-bp="milestones.${i}.label" value="${esc(m.label)}" placeholder="라벨 (예: 처음으로 먼저 손을 잡는다)" aria-label="라벨">
-          <input type="text" data-bp="milestones.${i}.trigger" value="${esc(m.trigger)}" placeholder="계기" aria-label="계기">
-          <button type="button" class="btn icon-btn ghost" data-action="bpMsDel" data-arg="${i}" aria-label="이정표 지우기">✕</button></div>`;
-      }).join('');
-      return `<div class="bp-dir"><h3>${esc(bpWho(s))} → ${esc(bpWho(t))}</h3>${rows}
-        <button type="button" class="btn small" data-action="bpMsAdd" data-arg="${esc(`${s}|${t}`)}">+ 이정표 더하기</button></div>`;
-    }).join('') + bpSaveRow();
+  if (mode === 'card') {
+    body = dirs.map(([s, t]) => `<div class="bp-dir"><h3>${esc(bpWho(s))} → ${esc(bpWho(t))}</h3>${mine(s, t).map(([m, i]) => bpMsEdit(m, i)).join('')}
+        <button type="button" class="btn small" data-action="bpMsAdd" data-arg="${esc(`${s}|${t}`)}">+ 이정표 더하기</button></div>`).join('') + bpSaveRow();
   } else {
     body = dirs.map(([s, t]) => {
-      const rows = x.ms.filter((m) => m.source === s && m.target === t).sort((p, q) => (p.from_ep || 1e9) - (q.from_ep || 1e9))
-        .map((m) => `<li><span class="chip">${esc(bpRange(m))}</span>${m.stage ? `<span class="chip confirmed">${esc(m.stage)}</span>` : ''}<span>${esc(m.label)}</span>${m.trigger ? `<span class="small">계기: ${esc(m.trigger)}</span>` : ''}</li>`).join('');
+      const rows = mine(s, t).map(([m, i]) => (mode === 'row' && S.bpEdit.row === `milestones.${i}`
+        ? `<li class="bp-row-edit">${bpMsEdit(m, i)}${bpSaveRow()}</li>`
+        : `<li><span class="chip">${esc(bpRange(m))}</span>${m.stage ? `<span class="chip confirmed">${esc(m.stage)}</span>` : ''}<span class="bp-row-t">${esc(m.label)}${m.trigger ? ` <span class="small">계기: ${esc(m.trigger)}</span>` : ''}</span>${bpRowActs(`milestones.${i}`, `${bpRange(m)} 이정표`)}</li>`)).join('');
       return `<div class="bp-dir"><h3>${esc(bpWho(s))} → ${esc(bpWho(t))}</h3>${rows ? `<ul class="bp-list">${rows}</ul>` : '<span class="small">이정표가 없어요</span>'}</div>`;
     }).join('');
   }
-  return `<section class="card pf-sec${open ? ' editing' : ''}" id="bp-ms" tabindex="-1">${bpCardHead('관계 이정표', 'ms')}${body}</section>`;
+  return `<section class="card pf-sec${mode ? ' editing' : ''}" id="bp-ms" tabindex="-1">${bpCardHead('관계 이정표', 'ms')}${body}</section>`;
 }
 
 /** 칩 고르기 묶음 (부위 · 동작 · 장소). 접어 두고 고른 수를 보인다 */
@@ -173,33 +196,37 @@ const bpPlaces = () => (P().elements || []).filter((el) => el.kind === '장소')
 
 /** 접촉 사다리 카드 (쌍마다 하나, 칸 차례가 단계 차례) */
 function bpLadderCard(a, b, x) {
-  const open = S.bpEdit && S.bpEdit.card === 'ladder';
+  const mode = bpMode('ladder');
   const label = (ids, picks) => ids.map((id) => (picks.find((p) => p.id === id) || { label: id }).label).join(', ');
+  const src = mode ? S.bpEdit.data : S.bp.blueprint;
+  const li = src.ladders.findIndex((l) => bpKey(l.a, l.b) === bpKey(a, b));
+  const rungs = li >= 0 ? src.ladders[li].rungs : [];
+  const edit = (r, i) => {
+    const at = `ladders.${li}.rungs.${i}`;
+    const lead = ['', a, b].map((id) => `<option value="${esc(id)}"${id === r.lead ? ' selected' : ''}>${id ? esc(bpWho(id)) : '주도 정하지 않음'}</option>`).join('');
+    const layer = `<div class="seg" role="group" aria-label="겹">${BP_LAYERS.map((w) => `<button type="button" data-action="bpLayer" data-arg="${esc(`${at}|${w}`)}" aria-pressed="${r.layer === w}">${w || '정하지 않음'}</button>`).join('')}</div>`;
+    return `<div class="bp-rung"><div class="bp-rung-top"><strong>${i + 1}</strong>
+        ${bpText(`${at}.label`, r.label, `${i + 1}번째 칸 이름`, '칸 이름')}
+        ${bpNum(`${at}.from_ep`, r.from_ep, `${i + 1}번째 칸 처음 닿는 화`)}<span aria-hidden="true">~</span>${bpNum(`${at}.to_ep`, r.to_ep, `${i + 1}번째 칸 끝 화`)}
+        <button type="button" class="btn icon-btn ghost" data-action="bpRungMove" data-arg="${i}|-1" aria-label="${i + 1}번째 칸 위로"${i ? '' : ' disabled'}>↑</button>
+        <button type="button" class="btn icon-btn ghost" data-action="bpRungMove" data-arg="${i}|1" aria-label="${i + 1}번째 칸 아래로"${i < rungs.length - 1 ? '' : ' disabled'}>↓</button>
+        ${mode === 'row' ? '' : `<button type="button" class="btn icon-btn ghost" data-action="bpRungDel" data-arg="${i}" aria-label="${i + 1}번째 칸 지우기">✕</button>`}</div>
+      <div class="row">${layer}<select data-bp="${at}.lead" aria-label="주도하는 인물">${lead}</select></div>
+      ${bpChips(`${at}.parts`, S.bp.parts, r.parts, '부위')}${bpChips(`${at}.acts`, S.bp.acts, r.acts, '동작')}${bpChips(`${at}.places`, bpPlaces(), r.places, '장소')}
+      ${bpText(`${at}.note`, r.note, `${i + 1}번째 칸 메모`, '메모')}</div>`;
+  };
   let body;
-  if (open) {
-    const li = S.bpEdit.data.ladders.findIndex((l) => bpKey(l.a, l.b) === S.bpEdit.key);
-    const rungs = li >= 0 ? S.bpEdit.data.ladders[li].rungs : [];
-    body = rungs.map((r, i) => {
-      const at = `ladders.${li}.rungs.${i}`;
-      const lead = ['', a, b].map((id) => `<option value="${esc(id)}"${id === r.lead ? ' selected' : ''}>${id ? esc(bpWho(id)) : '주도 정하지 않음'}</option>`).join('');
-      const layer = `<div class="seg" role="group" aria-label="겹">${BP_LAYERS.map((w) => `<button type="button" data-action="bpLayer" data-arg="${esc(`${at}|${w}`)}" aria-pressed="${r.layer === w}">${w || '정하지 않음'}</button>`).join('')}</div>`;
-      return `<div class="bp-rung"><div class="bp-rung-top"><strong>${i + 1}</strong>
-          <input type="text" data-bp="${at}.label" value="${esc(r.label)}" placeholder="칸 이름" aria-label="${i + 1}번째 칸 이름">
-          ${bpNum(`${at}.from_ep`, r.from_ep, `${i + 1}번째 칸 처음 닿는 화`)}<span aria-hidden="true">~</span>${bpNum(`${at}.to_ep`, r.to_ep, `${i + 1}번째 칸 끝 화`)}
-          <button type="button" class="btn icon-btn ghost" data-action="bpRungMove" data-arg="${i}|-1" aria-label="${i + 1}번째 칸 위로"${i ? '' : ' disabled'}>↑</button>
-          <button type="button" class="btn icon-btn ghost" data-action="bpRungMove" data-arg="${i}|1" aria-label="${i + 1}번째 칸 아래로"${i < rungs.length - 1 ? '' : ' disabled'}>↓</button>
-          <button type="button" class="btn icon-btn ghost" data-action="bpRungDel" data-arg="${i}" aria-label="${i + 1}번째 칸 지우기">✕</button></div>
-        <div class="row">${layer}<select data-bp="${at}.lead" aria-label="주도하는 인물">${lead}</select></div>
-        ${bpChips(`${at}.parts`, S.bp.parts, r.parts, '부위')}${bpChips(`${at}.acts`, S.bp.acts, r.acts, '동작')}${bpChips(`${at}.places`, bpPlaces(), r.places, '장소')}
-        <input type="text" data-bp="${at}.note" value="${esc(r.note)}" placeholder="메모" aria-label="${i + 1}번째 칸 메모"></div>`;
-    }).join('') + `<div class="between"><button type="button" class="btn small" data-action="bpRungAdd">+ 칸 더하기</button>${bpSaveRow()}</div>`;
-  } else if (x.ladder && x.ladder.rungs.length) {
-    const got = bpReached(x.ladder);
-    body = `<ol class="bp-list">${x.ladder.rungs.map((r) => `<li><span class="chip">${esc(bpRange(r))}</span><strong>${esc(r.label || '이름 없는 칸')}</strong>
+  if (mode === 'card') {
+    body = rungs.map(edit).join('') + `<div class="between"><button type="button" class="btn small" data-action="bpRungAdd">+ 칸 더하기</button>${bpSaveRow()}</div>`;
+  } else if (rungs.length) {
+    const got = bpReached(src.ladders[li]);
+    body = `<ol class="bp-list">${rungs.map((r, i) => (mode === 'row' && S.bpEdit.row === `ladders.${li}.rungs.${i}`
+      ? `<li class="bp-row-edit">${edit(r, i)}${bpSaveRow()}</li>`
+      : `<li><span class="chip">${esc(bpRange(r))}</span><span class="bp-row-t"><strong>${esc(r.label || '이름 없는 칸')}</strong>
         ${r.id in got ? `<span class="chip finalized">${got[r.id]}화에 닿음</span>` : ''}
-        <span class="small">${esc([r.layer, label(r.parts, S.bp.parts), label(r.acts, S.bp.acts), label(r.places, bpPlaces()), r.lead ? `${bpWho(r.lead)} 주도` : '', r.note].filter(Boolean).join(' · '))}</span></li>`).join('')}</ol>`;
+        <span class="small">${esc([r.layer, label(r.parts, S.bp.parts), label(r.acts, S.bp.acts), label(r.places, bpPlaces()), r.lead ? `${bpWho(r.lead)} 주도` : '', r.note].filter(Boolean).join(' · '))}</span></span>${bpRowActs(`ladders.${li}.rungs.${i}`, `${i + 1}번째 칸`)}</li>`)).join('')}</ol>`;
   } else body = '<span class="small">칸이 없어요. 낮은 칸부터 차례로 더해요.</span>';
-  return `<section class="card pf-sec${open ? ' editing' : ''}" id="bp-ladder" tabindex="-1">${bpCardHead('접촉 사다리', 'ladder')}${body}</section>`;
+  return `<section class="card pf-sec${mode ? ' editing' : ''}" id="bp-ladder" tabindex="-1">${bpCardHead('접촉 사다리', 'ladder')}${body}</section>`;
 }
 
 /** 본문에서 닿은 칸 id → 처음 닿은 화 (blueprint.reached 와 같다, Project.contact_log) */
@@ -325,45 +352,57 @@ function bpPlanChip(st) {
 
 /** 능력 일정 카드: 인물마다 [화 범위, 능력, 등급, 얻는 조건]. 능력은 스킬 도감 항목의 이름으로 잇는다 */
 function bpAbilityCard(plans) {
-  const open = S.bpEdit && S.bpEdit.card === 'ap';
+  const mode = bpMode('ap');
+  const src = mode ? bpPlans(S.bpEdit.data) : plans;
+  const edit = (x, i) => {
+    const who = P().characters.map((c) => `<option value="${esc(c.id)}"${c.id === x.character ? ' selected' : ''}>${esc(c.name || c.id)}</option>`).join('')
+      + (P().characters.some((c) => c.id === x.character) ? '' : `<option value="${esc(x.character)}" selected>${esc(x.character)}</option>`);
+    const at = `ability_plans.${i}`;
+    return `<div class="bp-ap-row"><select data-bp="${at}.character" aria-label="${i + 1}번째 줄 인물">${who}</select>
+      <input type="text" data-bp="${at}.ability" value="${esc(x.ability)}" list="bp-ab-names" placeholder="능력 (도감 항목 이름)" aria-label="${i + 1}번째 줄 능력">
+      <input type="text" data-bp="${at}.grade" value="${esc(x.grade)}" placeholder="등급" aria-label="${i + 1}번째 줄 등급">
+      ${bpNum(`${at}.from_ep`, x.from_ep, `${i + 1}번째 줄 처음 화`)}<span aria-hidden="true">~</span>${bpNum(`${at}.to_ep`, x.to_ep, `${i + 1}번째 줄 끝 화`)}
+      ${mode === 'row' ? '' : `<button type="button" class="btn icon-btn ghost bp-del" data-action="bpApDel" data-arg="${i}" aria-label="${i + 1}번째 줄 지우기">✕</button>`}
+      ${bpText(`${at}.condition`, x.condition, `${i + 1}번째 줄 얻는 조건`, '얻는 조건')}</div>`;
+  };
+  const names = () => `<datalist id="bp-ab-names">${[...new Set((P().abilities || []).flatMap((a) => [a.name, ...(a.aliases || [])]))].map((n) => `<option value="${esc(n)}"></option>`).join('')}</datalist>`;
+  // 고치는 목록도 보는 화면과 같은 차례: 인물(인물 목록 차례), 그 안에서 화 차례. 새로 더한 빈 줄은 정하지 않은 화라 그 인물 끝에 온다
+  const cast = bpPlanCast(src);
+  const ordered = cast.flatMap((id) => bpByEp(src.map((x, i) => [x, i]).filter(([x]) => x.character === id)));
   let body;
-  if (open) {
-    const rows = S.bpEdit.data.ability_plans.map((x, i) => {
-      const who = P().characters.map((c) => `<option value="${esc(c.id)}"${c.id === x.character ? ' selected' : ''}>${esc(c.name || c.id)}</option>`).join('')
-        + (P().characters.some((c) => c.id === x.character) ? '' : `<option value="${esc(x.character)}" selected>${esc(x.character)}</option>`);
-      const at = `ability_plans.${i}`;
-      return `<div class="bp-ap-row"><select data-bp="${at}.character" aria-label="${i + 1}번째 줄 인물">${who}</select>
-        <input type="text" data-bp="${at}.ability" value="${esc(x.ability)}" list="bp-ab-names" placeholder="능력 (도감 항목 이름)" aria-label="${i + 1}번째 줄 능력">
-        <input type="text" data-bp="${at}.grade" value="${esc(x.grade)}" placeholder="등급" aria-label="${i + 1}번째 줄 등급">
-        ${bpNum(`${at}.from_ep`, x.from_ep, `${i + 1}번째 줄 처음 화`)}<span aria-hidden="true">~</span>${bpNum(`${at}.to_ep`, x.to_ep, `${i + 1}번째 줄 끝 화`)}
-        <input type="text" data-bp="${at}.condition" value="${esc(x.condition)}" placeholder="얻는 조건" aria-label="${i + 1}번째 줄 얻는 조건">
-        <button type="button" class="btn icon-btn ghost" data-action="bpApDel" data-arg="${i}" aria-label="${i + 1}번째 줄 지우기">✕</button></div>`;
-    }).join('');
-    const names = [...new Set((P().abilities || []).flatMap((a) => [a.name, ...(a.aliases || [])]))].map((n) => `<option value="${esc(n)}"></option>`).join('');
-    body = `${rows}<datalist id="bp-ab-names">${names}</datalist>
+  if (mode === 'card') {
+    body = `${ordered.map(([x, i]) => edit(x, i)).join('')}${names()}
       <div class="between"><button type="button" class="btn small" data-action="bpApAdd"${P().characters.length ? '' : ' disabled'}>+ 줄 더하기</button>${bpSaveRow()}</div>`;
-  } else if (plans.length) {
-    body = bpPlanCast(plans).map((id) => {
-      const rows = plans.filter((x) => x.character === id).sort((p, q) => (p.from_ep || 1e9) - (q.from_ep || 1e9)).map((x) => {
+  } else if (src.length) {
+    body = cast.map((id) => {
+      const rows = ordered.filter(([x]) => x.character === id).map(([x, i]) => {
+        if (mode === 'row' && S.bpEdit.row === `ability_plans.${i}`) return `<li class="bp-row-edit">${edit(x, i)}${names()}${bpSaveRow()}</li>`;
         const st = bpPlanState(x.id);
-        return `<li><span class="chip">${esc(bpRange(x))}</span><strong>${esc(bpAbText(x))}</strong>${bpPlanChip(st)}
-          ${x.condition ? `<span class="small">조건: ${esc(x.condition)}</span>` : ''}${st.linked ? '' : '<span class="small">도감에 없음</span>'}</li>`;
+        return `<li><span class="chip">${esc(bpRange(x))}</span><span class="bp-row-t"><strong>${esc(bpAbText(x))}</strong>${bpPlanChip(st)}
+          ${x.condition ? `<span class="small">조건: ${esc(x.condition)}</span>` : ''}${st.linked ? '' : '<span class="small">도감에 없음</span>'}</span>${bpRowActs(`ability_plans.${i}`, `${bpWho(x.character)}의 ${bpAbText(x) || '능력'} 줄`)}</li>`;
       }).join('');
       return `<div class="bp-dir"><h3>${esc(bpWho(id))}</h3><ul class="bp-list">${rows}</ul></div>`;
     }).join('');
   } else body = '<span class="small">줄이 없어요. 인물이 어느 능력을 몇 화쯤 얻는지 더해요.</span>';
-  return `<section class="card pf-sec${open ? ' editing' : ''}" id="bp-ap" tabindex="-1">${bpCardHead('능력 일정', 'ap')}${body}</section>`;
+  return `<section class="card pf-sec${mode ? ' editing' : ''}" id="bp-ap" tabindex="-1">${bpCardHead('능력 일정', 'ap')}${body}</section>`;
+}
+
+/** 방금 한 지우기 · 더하기 · 비우기를 되돌리는 줄 (S.bpUndo). 그 쪽에서만, 다른 저장을 하면 사라진다 */
+function bpUndoNote() {
+  const u = S.bpUndo;
+  if (!u || u.name !== S.name || u.key !== S.bpSel) return '';
+  return `<div class="note bp-undo" role="status"><span>${esc(u.msg)}</span><button type="button" class="btn small" data-action="bpUndo">되돌리기</button></div>`;
 }
 
 function bpAbilityPage() {
   const plans = bpPlans(S.bp.blueprint);
-  return (plans.some((x) => x.from_ep > 0) ? bpAbilityBand(plans) : '') + bpWarnCard(bpAbWarns()) + bpAbilityCard(plans);
+  return bpUndoNote() + (plans.some((x) => x.from_ep > 0) ? bpAbilityBand(plans) : '') + bpWarnCard(bpAbWarns()) + bpAbilityCard(plans);
 }
 
 function bpPairPage(key) {
   const [, a, b] = bpPairs(P(), S.bp.blueprint).find(([k]) => k === key);
   const x = bpOfPair(S.bp.blueprint, S.bp.warnings, a, b);
-  return bpBand(a, b, x) + bpWarnCard(x.warns) + bpHeldCard() + bpDraftCard(key, a, b) + bpMsCard(a, b, x) + bpLadderCard(a, b, x) + bpExtractCard(key);
+  return bpUndoNote() + bpBand(a, b, x) + bpWarnCard(x.warns) + bpHeldCard() + bpDraftCard(key, a, b) + bpMsCard(a, b, x) + bpLadderCard(a, b, x) + bpExtractCard(key);
 }
 
 // ----- 지금 플롯에서 거꾸로 뽑기 (docs/blueprint/specs/05-extract.md, 작업 blueprint) -----
@@ -387,19 +426,53 @@ function bpExtractCard(key) {
 /** 근거 줄: '12화 「…」' */
 const bpEvidence = (ev) => (ev || []).map((e) => `${e.episode}화 「${e.quote}」`).join(' · ');
 
-/** AI 제안 카드: 줄마다 고르기(기본으로 고름)와 근거. '고른 줄 더하기'는 POST …/blueprint/apply */
+/** 비교용 라벨: 띄어쓰기 · 문장부호를 뺀 소문자 */
+const bpNorm = (s) => String(s || '').toLowerCase().replace(/[\s.,·!?~'"「」『』()[\]-]+/g, '');
+
+/** 두 라벨이 비슷한가: 같거나 한쪽이 다른 쪽을 품는다(두 글자 이상) */
+function bpSimilar(p, q) {
+  const [x, y] = [bpNorm(p), bpNorm(q)];
+  return !!x && !!y && (x === y || (Math.min(x.length, y.length) >= 2 && (x.includes(y) || y.includes(x))));
+}
+
+/** 두 화 범위가 겹치는가 (끝 화 포함: 30~35 와 35~40 은 겹친다). 정하지 않은 범위는 겹치지 않는다 */
+function bpRangesMeet(p, q) {
+  if (!(p.from_ep > 0) || !(q.from_ep > 0)) return false;
+  return p.from_ep <= (q.to_ep || q.from_ep) && q.from_ep <= (p.to_ep || p.from_ep);
+}
+
+/** AI 제안 줄과 이미 있는 줄의 겹침. { ms: [겹친 이정표 | null], rungs: [[겹친 칸, 차례] | null] }
+    이정표: 같은 방향이고 화 범위가 겹치거나, 같은 단계에 라벨이 비슷하다. 사다리 칸: 라벨이 비슷하거나, 범위가 겹치고 겹이 같다 */
+function bpOverlaps(bp, d) {
+  const ms = (bp.milestones || []);
+  const lad = (bp.ladders || []).find((l) => bpKey(l.a, l.b) === bpKey(d.a, d.b));
+  return {
+    ms: d.milestones.map((m) => ms.find((e) => e.source === m.source && e.target === m.target
+      && (bpRangesMeet(e, m) || ((!m.stage || e.stage === m.stage) && bpSimilar(e.label, m.label)))) || null),
+    rungs: d.rungs.map((r) => {
+      const i = lad ? lad.rungs.findIndex((e) => bpSimilar(e.label, r.label) || (bpRangesMeet(e, r) && e.layer === r.layer)) : -1;
+      return i >= 0 ? [lad.rungs[i], i] : null;
+    }),
+  };
+}
+
+/** AI 제안 카드: 줄마다 고르기와 근거. 이미 있는 줄과 겹치는 줄은 표시하고 기본으로 고르지 않는다. '고른 줄 더하기'는 POST …/blueprint/apply */
 function bpDraftCard(key, a, b) {
   const d = S.bpDraft;
   if (!d || bpKey(d.a, d.b) !== key) return '';
-  d.pickMs ||= d.milestones.map(() => true);
-  d.pickRungs ||= d.rungs.map(() => true);
+  const ov = bpOverlaps(S.bp.blueprint, d);
+  d.pickMs ||= d.milestones.map((_, i) => !ov.ms[i]);
+  d.pickRungs ||= d.rungs.map((_, i) => !ov.rungs[i]);
   const box = (kind, i, on, label) => `<input type="checkbox" data-action="bpDraftPick" data-arg="${kind}|${i}"${on ? ' checked' : ''} aria-label="${esc(label)}">`;
+  const same = (text) => `<span class="chip warn">이미 있음</span><span class="small">${esc(text)}</span>`;
   const ms = d.milestones.map((m, i) => `<li>${box('ms', i, d.pickMs[i], `이정표 ${i + 1} 고르기`)}<span class="chip">${esc(bpRange(m))}</span>
       <span>${esc(bpWho(m.source))} → ${esc(bpWho(m.target))}</span>${m.stage ? `<span class="chip confirmed">${esc(m.stage)}</span>` : ''}<span>${esc(m.label)}</span>
+      ${ov.ms[i] ? same(`${bpRange(ov.ms[i])} ${ov.ms[i].stage || ''} ${ov.ms[i].label}`.replace(/\s+/g, ' ')) : ''}
       ${m.evidence.length ? `<span class="small">${esc(bpEvidence(m.evidence))}</span>` : ''}</li>`).join('');
   const label = (ids, picks) => ids.map((id) => (picks.find((x) => x.id === id) || { label: id }).label).join(', ');
   const rungs = d.rungs.map((r, i) => `<li>${box('rung', i, d.pickRungs[i], `사다리 칸 ${i + 1} 고르기`)}<span class="chip">${esc(bpRange(r))}</span><strong>${esc(r.label)}</strong>
       <span class="small">${esc([r.layer, label(r.parts, S.bp.parts), label(r.acts, S.bp.acts), label(r.places, bpPlaces()), r.lead ? `${bpWho(r.lead)} 주도` : ''].filter(Boolean).join(' · '))}</span>
+      ${ov.rungs[i] ? same(`${ov.rungs[i][1] + 1}. ${bpRange(ov.rungs[i][0])} ${ov.rungs[i][0].label}`) : ''}
       ${r.evidence.length ? `<span class="small">${esc(bpEvidence(r.evidence))}</span>` : ''}</li>`).join('');
   const none = !d.milestones.length && !d.rungs.length;
   return `<section class="card" id="bp-draft"><div class="between"><h2>${d.mode === 'draft' ? 'AI가 짠 설계도' : 'AI가 뽑은 설계도'} <span class="small">${d.start}~${d.end}화</span></h2>
@@ -440,7 +513,8 @@ function bpSet(path, value) {
   let o = S.bpEdit.data;
   keys.slice(0, -1).forEach((k) => { o = o[k]; });
   const last = keys[keys.length - 1];
-  o[last] = /_ep$/.test(last) ? Math.max(0, parseInt(value, 10) || 0) : value;
+  // 글 칸은 여러 줄로 보이지만 한 줄로 저장한다 (프롬프트의 설계도 줄 plan_lines · rung_text 가 한 줄이다)
+  o[last] = /_ep$/.test(last) ? Math.max(0, parseInt(value, 10) || 0) : typeof value === 'string' ? value.replace(/\s*\n\s*/g, ' ') : value;
 }
 
 function bpGet(path) {
@@ -480,6 +554,31 @@ function bpMerged(edit, server) {
   return out;
 }
 
+/** 고치기를 닫은 뒤 포커스를 둘 곳: 누른 줄의 고치기 버튼, 카드면 카드 머리 '고치기' */
+function bpBackFocus(e) {
+  if (e.row) {
+    // 사다리 칸은 차례로 옮겼을 수 있어 그 칸의 id 로 다시 찾지 않고 같은 길을 쓴다
+    return `[data-action="bpRowEdit"][data-arg="${e.row}"], #bp-${e.card === 'ladder' ? 'ladder' : e.card}`;
+  }
+  return `[data-action="bpEditOpen"][data-arg="${e.card}"]`;
+}
+
+/** 서버에 바로 쓰는 줄 지우기 · 제안 더하기 · 여정 비우기. 고치던 칸은 닫고(저장하지 않은 글은 묻는다), 쓴 뒤 되돌리기 알림을 띄운다.
+    send 는 저장한 작품을 돌려준다. 되돌리기는 S.bpUndo 로 쪽 위 줄(bpUndoNote)에도 남는다 */
+async function bpWrite(label, msg, send) {
+  if (bpDirty() && !(await bpDropOk())) return;
+  S.bpEdit = null;
+  const before = JSON.stringify(S.bp.blueprint);
+  const name = S.name;
+  const key = S.bpSel;
+  await run(label, async () => {
+    S.project = await send();
+    S.bp = await api('GET', `/projects/${enc(name)}/blueprint`);
+    S.bpUndo = { name, key, before, after: JSON.stringify(S.bp.blueprint), msg };
+    toast(msg, false, { actions: [{ label: '되돌리기', run: () => actions.bpUndo() }] });
+  });
+}
+
 Object.assign(actions, {
   async bpDraftAI(key) {
     const sel = document.getElementById('bp-part');
@@ -504,11 +603,59 @@ Object.assign(actions, {
     const d = S.bpDraft;
     const body = { a: d.a, b: d.b, milestones: d.milestones.filter((_, i) => d.pickMs[i]), rungs: d.rungs.filter((_, i) => d.pickRungs[i]) };
     if (!body.milestones.length && !body.rungs.length) { toast('더할 줄을 골라 주세요', true); return; }
-    await run('설계도에 더하는 중', async () => {
-      S.project = await api('POST', `/projects/${enc(S.name)}/blueprint/apply`, body);
+    await bpWrite('설계도에 더하는 중', `이정표 ${body.milestones.length}줄 · 사다리 ${body.rungs.length}칸을 더했어요`, async () => {
+      const out = await api('POST', `/projects/${enc(S.name)}/blueprint/apply`, body);
       S.bpDraft = null;
+      return out;
+    });
+  },
+  async bpRowEdit(path) {
+    if (bpDirty() && !(await bpDropOk())) return;
+    const card = { milestones: 'ms', ladders: 'ladder', ability_plans: 'ap' }[String(path).split('.')[0]];
+    const data = JSON.parse(JSON.stringify(S.bp.blueprint));
+    data.ability_plans ||= [];
+    S.bpEdit = { card, key: S.bpSel, data, orig: JSON.stringify(data), row: String(path) };
+    S.focusTarget = `.bp-row-edit [data-bp^="${path}."]`;
+    render();
+  },
+  async bpRowDel(path) {
+    const next = JSON.parse(JSON.stringify(S.bp.blueprint));
+    const keys = String(path).split('.');
+    const list = keys.slice(0, -1).reduce((o, k) => o[k], next);
+    list.splice(Number(keys[keys.length - 1]), 1);
+    next.ladders = next.ladders.filter((l) => l.rungs.length);  // 칸을 다 지운 사다리는 뺀다 (bpMerged 와 같다)
+    const what = { milestones: '이정표 한 줄을', ladders: '사다리 칸 하나를', ability_plans: '능력 일정 한 줄을' }[keys[0]];
+    await bpWrite('지우는 중', `${what} 지웠어요`, () => api('PUT', `/projects/${enc(S.name)}/blueprint`, next));
+  },
+  async bpClear(key) {
+    const [a, b] = bpPair(key);
+    const x = bpOfPair(S.bp.blueprint, [], a, b);
+    const n = x.ms.length;
+    const m = x.ladder ? x.ladder.rungs.length : 0;
+    const who = `${bpWho(a)} ↔ ${bpWho(b)}`;
+    if (!(await askConfirm(`${who}의 이정표 ${n}줄과 사다리 ${m}칸을 모두 지울까요? 바로 뒤에는 되돌릴 수 있어요.`, { ok: '여정 비우기', danger: true }))) return;
+    const next = JSON.parse(JSON.stringify(S.bp.blueprint));
+    const inPair = (s, t) => bpKey(s, t) === bpKey(a, b);
+    next.milestones = next.milestones.filter((ms) => !inPair(ms.source, ms.target));
+    next.ladders = next.ladders.filter((l) => !inPair(l.a, l.b));
+    await bpWrite('여정을 비우는 중', `${who}의 여정을 비웠어요`, () => api('PUT', `/projects/${enc(S.name)}/blueprint`, next));
+  },
+  async bpUndo() {
+    const u = S.bpUndo;
+    if (!u || u.name !== S.name) { toast('되돌릴 것이 없어요', true); return; }
+    if (bpDirty() && !(await bpDropOk())) return;
+    await run('되돌리는 중', async () => {
+      const now = await api('GET', `/projects/${enc(S.name)}/blueprint`);
+      S.bpUndo = null;
+      S.bpEdit = null;
+      if (JSON.stringify(now.blueprint) !== u.after) {  // 그 뒤에 다른 곳에서 설계도를 바꿨다. 덮지 않는다
+        S.bp = now;
+        toast('그 뒤에 설계도가 바뀌어서 되돌리지 않았어요', true);
+        return;
+      }
+      S.project = await api('PUT', `/projects/${enc(S.name)}/blueprint`, JSON.parse(u.before));
       S.bp = await api('GET', `/projects/${enc(S.name)}/blueprint`);
-      toast(`이정표 ${body.milestones.length}줄 · 사다리 ${body.rungs.length}칸을 더했어요`);
+      toast('되돌렸어요');
     });
   },
   async bpEditOpen(card) {
@@ -526,7 +673,7 @@ Object.assign(actions, {
   bpCancel() {
     const e = S.bpEdit;
     S.bpEdit = null;
-    if (e) S.focusTarget = `[data-action="bpEditOpen"][data-arg="${e.card}"]`;
+    if (e) S.focusTarget = bpBackFocus(e);
     render();
   },
   bpMsAdd(arg) {
@@ -569,6 +716,7 @@ Object.assign(actions, {
     const j = i + d;
     if (j < 0 || j >= l.rungs.length) return;
     [l.rungs[i], l.rungs[j]] = [l.rungs[j], l.rungs[i]];
+    if (S.bpEdit.row) S.bpEdit.row = S.bpEdit.row.replace(/\.\d+$/, `.${j}`);  // 누른 줄만 열었으면 그 줄을 따라간다
     S.focusTarget = `[data-action="bpRungMove"][data-arg="${j}|${d}"]`;
     render();
   },
@@ -591,8 +739,9 @@ Object.assign(actions, {
     await run('설계도 저장하는 중', async () => {
       S.project = await api('PUT', `/projects/${enc(S.name)}/blueprint`, bpMerged(e, S.bp.blueprint));
       S.bpEdit = null;
+      S.bpUndo = null;  // 저장한 뒤에는 앞의 되돌리기가 이 저장을 덮으므로 닫는다
       S.bp = await api('GET', `/projects/${enc(S.name)}/blueprint`);
-      S.focusTarget = `[data-action="bpEditOpen"][data-arg="${e.card}"]`;
+      S.focusTarget = bpBackFocus(e);
       toast('설계도를 저장했어요');
     });
   },
