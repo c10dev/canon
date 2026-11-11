@@ -20,7 +20,7 @@
 | 8 | 8 | AI 로 설계도 짜기 (설정 · 부 구성 · 작가 메모, 플롯 없이) | 끝 ([#483](https://github.com/c10dev/canon/pull/483) 머지) | [08-draft.md](specs/08-draft.md) | 5 |
 | 9 | 9 | 신체 특징을 몸이 드러나는 화에만 스토리보드 · 쓰기 · 검수에 넣기 (LLM 비용 없음) | 끝 ([#485](https://github.com/c10dev/canon/pull/485) 머지) | [09-body.md](specs/09-body.md) | 6a |
 | 10 | 10 | 능력 일정 (인물마다 [화 범위, 능력, 등급, 얻는 조건]): 스키마 · 경고 · 화면 · 프롬프트 줄 (LLM 비용 없음) | 끝 ([#490](https://github.com/c10dev/canon/pull/490) 머지) | [10-ability.md](specs/10-ability.md) | 1 ~ 6 |
-| 11 | 11a | 작품 전체 띠(쌍마다 한 줄 + 능력 일정 줄)와 쌍끼리 몰림 계산, 개요 '여정 짜기' 덜기 (LLM 비용 없음) | 만드는 중 (정할 것 2026-11-11 정함) | [11-whole.md](specs/11-whole.md) | 10 |
+| 11 | 11a | 작품 전체 띠(쌍마다 한 줄 + 능력 일정 줄)와 쌍끼리 몰림 계산, 개요 '여정 짜기' 덜기 (LLM 비용 없음) | 끝 ([#504](https://github.com/c10dev/canon/pull/504)) | [11-whole.md](specs/11-whole.md) | 10 |
 | 12 | 11b | AI 로 작품 전체 짜기: 관계가 있는 모든 쌍(+ 능력 일정)을 부 하나씩 한 번에, 쌍마다 고르는 제안 카드 | 설계 (정할 것 2026-11-11 정함, 11a 다음) | [11-whole.md](specs/11-whole.md) | 8, 11a |
 | 13 | 12 | 능력 일정을 AI 로 짜기 · 지금 플롯에서 거꾸로 뽑기 (인물 단위: 응답 형식 · 작업 둘 · 제안 카드) | 끝 ([#501](https://github.com/c10dev/canon/pull/501) 머지) | [12-ability-ai.md](specs/12-ability-ai.md) | 5, 8, 10 |
 | 14 | 13 | 능력 일정에서 스킬 도감 항목 만들기: AI 제안에 도감 초안 함께 받기, 줄의 '도감에 만들기' 버튼 | 끝 ([#502](https://github.com/c10dev/canon/pull/502) 머지) | [13-ability-codex.md](specs/13-ability-codex.md) | 10, 12 |
