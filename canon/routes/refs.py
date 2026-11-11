@@ -56,6 +56,7 @@ class RefPutIn(BaseModel):
 
 class RefPickIn(BaseModel):
     eps: list[int]  # 고른 화의 차례 (1부터)
+    spread: bool = True  # 문체 표본: 길면 범위 전체에서 고루 뽑는다. 거짓이면 앞에서 자른다
 
 
 def _ref_id(rid: str) -> str:
@@ -158,8 +159,8 @@ def ref_episode(rid: str, order: int) -> dict:
 
 @router.post("/api/refs/{rid}/sample")
 def ref_sample(rid: str, body: RefPickIn) -> dict:
-    """문체 만들기에 넣을 원문 (고른 화를 이어 SAMPLE_MAX 자까지). AI 를 부르지 않는다."""
-    return refs.sample(_ref_id(rid), body.eps)
+    """문체 만들기에 넣을 원문 (SAMPLE_MAX 자까지, 길면 범위 전체에서 고루 뽑는다). AI 를 부르지 않는다."""
+    return refs.sample(_ref_id(rid), body.eps, body.spread)
 
 
 @router.post("/api/refs/{rid}/revlab")

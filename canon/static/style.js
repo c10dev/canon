@@ -617,6 +617,7 @@ function viewLibEntry() {
       <section class="card pf-sec" id="pf-source" tabindex="-1">
         <div class="pf-head"><h2>원문 · 기준 지표</h2><span class="small"><span id="lib-sample-count">${(e.sample || '').length.toLocaleString()}</span>자 · 2,000자 이상 권장</span></div>
         ${input('분석할 소설 본문', 'sample', { root: 'lib', rows: 10, style: 'font-family:var(--serif);line-height:1.9', hint: '이 컴퓨터의 라이브러리 폴더에만 저장돼요' })}
+        ${(e.ref_pieces || []).length && typeof refPieceLines === 'function' ? `<details class="small"><summary>레퍼런스 원고에서 고루 뽑은 ${e.ref_pieces.length}조각</summary><p>${refPieceLines(e.ref_pieces).map(esc).join(' · ')}</p></details>` : ''}
         <div class="sty-row">${b ? metricChips(b) : '<span class="small">원문을 넣고 저장하면 문장 길이, 대사 비율 같은 기준 지표를 재요.</span>'}
           <span class="sty-acts">${b ? menuBtn('lib-metrics', '지표 풀이', () => baselineRows(b), { cls: 'btn small ghost' }) : ''}${(() => { const lb = jobBtn('lib_style', null, '문체 분석', LIB_JOBS); return `<button class="btn small" data-action="libAnalyze"${lb.attr}>${lb.label}</button>`; })()}</span></div>
       </section>
@@ -830,7 +831,8 @@ Object.assign(actions, {
     if ((S.lib.sample || '').trim().length < 200) return toast('원문을 200자 이상 넣어 주세요', true);
     if (jobFor('lib_style', null, LIB_JOBS)) return;
     try {
-      const j = await api('POST', '/styles/analyze/job', { text: S.lib.sample, lib: S.lib.id || '' });
+      // 레퍼런스 원고에서 흩어 뽑은 표본이면 서버가 표지 빈도를 고른 화 전체에서 센다 (refs.corpus)
+      const j = await api('POST', '/styles/analyze/job', { text: S.lib.sample, lib: S.lib.id || '', ref: S.lib.ref || '', ref_orders: S.lib.ref_orders || [] });
       if (!j.already) S.libJobFor[j.id] = S.lib.id || 'new';  // 결과를 놓을 항목 (새 항목은 'new'). 이미 도는 작업이면 그 작업의 항목을 덮지 않는다
       if (j.status !== 'running' && !j.already) { S.jobsSeen.add(j.id); await finishJob(j); render(); return; }  // 본 작업으로 둬 다음 pollJobs 가 다시 끝내지 않게  // 시작 응답에서 이미 끝났다 (짧은 원문 · 가짜 응답): 바로 결과를 놓는다
       if (!j.already) toast('문체 분석을 시작했어요. 끝나면 알려 드릴게요. 그동안 다른 작업을 해도 돼요.');

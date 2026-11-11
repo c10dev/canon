@@ -409,6 +409,18 @@ const REF_DIGEST_COLS = [['d_kind', '성격'], ['tension', '긴장'], ['hook', '
 const REF_AI_NAMES = { gemini: 'Gemini', claude: 'Claude 구독', 'claude-api': 'Claude API', coralbricks: 'CoralBricks', local: '로컬 서버', mock: 'mock' };
 const REF_CORAL_VALUE = 'deepseek-v4.1-flash-value';  // 화 카드에 권하는 싼 모델 (docs/refs/README.md 9장)
 
+const REF_PART = { all: '전체', head: '첫머리', talk: '대사 덩어리', narr: '서술 덩어리', tail: '끝' };  // refsample.PART_NAMES
+
+/** 흩어 뽑은 표본 알림. 순수 함수 */
+function refSpreadMsg(s) {
+  return `고른 화가 ${s.chars.toLocaleString()}자라 앞 · 가운데 · 뒤 ${s.episodes}화에서 ${s.pieces.length}조각을 고루 뽑아 ${s.text.length.toLocaleString()}자를 넣었어요. 표지 빈도는 고른 화 전체에서 세요.`;
+}
+
+/** 뽑은 조각 목록 한 줄씩 ('23화 첫머리 812자'). 순수 함수 */
+function refPieceLines(pieces) {
+  return pieces.map((p) => `${p.label || `${p.order}번째`} ${REF_PART[p.part] || p.part} ${p.chars.toLocaleString()}자`);
+}
+
 /** 이 원고의 전체 읽히기 작업 (돌고 있을 때만) */
 const refDigestJob = (id) => S.jobs.find((j) => j.status === 'running' && j.kind === 'ref_digest' && (j.target || '') === id);
 
@@ -496,7 +508,7 @@ function refOverview(b) {
       <button type="button" class="btn small" data-action="refPickRange">고르기</button><button type="button" class="btn small" data-action="refPickNone"${n ? '' : ' disabled'}>모두 풀기</button></div>
     <div class="row"><button type="button" class="btn primary" data-action="refToStyle"${n ? '' : ' disabled'}>문체 만들기</button>
       <button type="button" class="btn" data-action="refToRevlab"${n && !tooMany ? '' : ' disabled'}>역설계 실험 만들기</button></div>
-    <p class="small">문체 만들기는 고른 화를 이어 앞 ${(S.refLabels.sample_max || 30000).toLocaleString()}자를 문체 라이브러리 새 항목의 원문 칸에 넣어요. 분석은 그 화면에서 눌러야 해요. 역설계 실험은 화 수와 상관없이 모두 합쳐 ${revMax.toLocaleString()}자까지 넣을 수 있어요${tooMany ? ` (지금 ${picked.toLocaleString()}자라 너무 많이 골랐어요)` : ''}.</p></section>`;
+    <p class="small">문체 만들기는 고른 화를 이어 문체 라이브러리 새 항목의 원문 칸에 넣어요. ${(S.refLabels.sample_max || 30000).toLocaleString()}자를 넘으면 앞 · 가운데 · 뒤에서 고루 뽑아요. 분석은 그 화면에서 눌러야 해요. 역설계 실험은 화 수와 상관없이 모두 합쳐 ${revMax.toLocaleString()}자까지 넣을 수 있어요${tooMany ? ` (지금 ${picked.toLocaleString()}자라 너무 많이 골랐어요)` : ''}.</p></section>`;
   const made = b.made.length ? `<section class="card"><h2>이 원고로 만든 것</h2><ul class="ref-made">${b.made.map((m) => `<li><a href="#/${m.kind === 'style' ? 'styles' : 'revlab'}/${enc(m.id)}">${m.kind === 'style' ? '문체 라이브러리 항목' : `역설계 실험 ${esc(m.id)}`}</a> <span class="small">${esc(m.eps)} · ${fmtDateTime(m.at)}</span></li>`).join('')}</ul></section>` : '';
   return `${refDigestCard(b)}${act}<section class="card"><div class="between"><h2>분량</h2><span class="small">한 화 평균 ${mean.toLocaleString()}자 · 막대를 누르면 그 화를 열어요</span></div><div class="ref-bars" aria-label="화별 글자 수">${bars}</div></section>
     ${refCompareCard()}
@@ -726,8 +738,10 @@ Object.assign(actions, {
     const b = S.ref;
     await run('원문을 모으는 중', async () => {
       const s = await api('POST', `/refs/${enc(b.id)}/sample`, { eps: [...S.refPick].sort((x, y) => x - y) });
-      S.libFromRef = { name: `${b.name} 문체`, source: s.source, text: s.text, ref: b.id, eps: s.source.replace(`${b.name} `, '') };
-      if (s.cut) toast(`고른 화가 ${s.chars.toLocaleString()}자라 앞 ${s.text.length.toLocaleString()}자만 넣었어요`);
+      const orders = [...S.refPick].sort((x, y) => x - y);
+      S.libFromRef = { name: `${b.name} 문체`, source: s.source, text: s.text, ref: b.id, eps: s.source.replace(`${b.name} `, ''), orders, pieces: s.spread ? s.pieces : [] };
+      if (s.spread) toast(refSpreadMsg(s));
+      else if (s.cut) toast(`고른 화가 ${s.chars.toLocaleString()}자라 앞 ${s.text.length.toLocaleString()}자만 넣었어요`);
       location.hash = '#/styles/new';
     });
   },
