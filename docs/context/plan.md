@@ -22,7 +22,7 @@ RisuAI 에서 빌려 오기로 한 생각(로어북식 조건부 넣기(활성�
 | 5 | 7 | 선언형 규칙 (상태 조건으로 항목 넣기 · 상태 변경 제안), 필요한 만큼의 `Activation` 포함 | 설계 | [07-rules.md](specs/07-rules.md) | — |
 | 6 | 5 | CBS 읽기 매크로 (값만 읽음) | 설계 | [05-macros.md](specs/05-macros.md) | — |
 | 7 | 12 | 프롬프트 관리 페이지 (갈래별 · 주제별 보기, 실험 판) | 진행: 12a 읽기 페이지 끝 ([#472](https://github.com/c10dev/canon/pull/472) 머지), 12b 실험 판 (claude/prompt-sets) | [12-prompt-catalog.md](specs/12-prompt-catalog.md) | 3 |
-| 8 | 13 | 퇴고 단계 (장편 집필 요청의 금지 규칙을 쓴 뒤 표적 퇴고로 옮김, 규칙 층 `polish`) | 진행 ([#491](https://github.com/c10dev/canon/pull/491)): 쇠맛 지표 나음, 작가 블라인드 지금 판과 같음(3.10 · 3.10) | [13-polish-stage.md](specs/13-polish-stage.md) | — |
+| 8 | 13 | 퇴고 단계 (장편 집필 요청의 금지 규칙을 쓴 뒤 표적 퇴고로 옮김, 규칙 층 `polish`) | 끝 ([#491](https://github.com/c10dev/canon/pull/491) 머지): 쇠맛 지표 나음, 작가 블라인드 지금 판과 같음(3.10 · 3.10), 기본 끔 | [13-polish-stage.md](specs/13-polish-stage.md) | — |
 | — | 11 | 장소만 직전 화 끝까지 찾기 | 넣지 않음 (2026-11-08 확인: 문턱을 넘은 작품 2/4, 꼭 필요한 놓침 0/4 잡음) | — | 1 |
 | 미룸 | 8 | 접은 줄거리 고르기 (장편만, 캐시 경계를 지킴) | 미룸 (2026-11-08 확인: 네 작품 모두 뺀 묶음 0, 가장 길 때 예산의 70%) | [08-past-select.md](specs/08-past-select.md) | — |
 | 미룸 | 9 | 옛 장면 불러오기 (집필용, 측정 9a → 구현 9b) | 설계 | [09-recall.md](specs/09-recall.md) | 8 (9b 는 9a 도) |
