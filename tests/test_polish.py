@@ -113,6 +113,21 @@ def test_narration_tics_count_only_narration():
     assert __import__("canon.metrics", fromlist=["x"]).narration_tics(text) == {"trail": 3, "question": 1}
 
 
+
+def test_cut_endings_count_narration_cut_off_at_connective():
+    from canon import metrics
+    text = "문을 열었고.\n\n불이 꺼져 있었는데.\n\n“가자고.”\n\n그가 오지 않는다고.\n\n바람이 불었다."
+    # 대사 줄은 서술이 아니고, 남의 말을 옮겨 끊은 '~다고.' 는 세지 않는다
+    assert metrics.cut_endings(text) == (2, 4)
+
+
+def test_ending_rule_has_no_connective_endings(client):
+    from canon import store
+
+    _written(client)
+    p = store.load("lh")
+    assert "연결 끝" not in prompts.ending_rule(p) and "-는데" not in prompts.ending_rule(p)
+
 LONG = "\n\n".join([f"{k}번째 문을 열었다." for k in range(12)] + ["“가자.”"])
 
 

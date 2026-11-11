@@ -287,6 +287,29 @@ def narration_tics(text: str) -> dict[str, int]:
     return {"trail": trail, "question": question}
 
 
+# 연결 어미에서 끊어 맺은 서술 문장 ('~했고.', '~있었는데.', '~지만.', '~니까.'). 2026-11-11 실측: 레퍼런스 원고 7편은
+# 150문장 덩어리 중앙값 0~6% (1인칭 독백 원고 1편 두 권은 15~16%). 서술 다듬기 판은 2~15% 로, 짝 비교가 '끊는 버릇'으로 짚었다.
+# '~다고.' '~라고.' 처럼 남의 말을 옮겨 끊은 끝은 세지 않는다.
+_CUT_END = re.compile(r"(?:고|는데|은데|던데|인데|지만|며|면서|다가|니까|어서|아서|해서|라서|도록)\.$")
+_QUOTED_END = re.compile(r"(?:다고|라고|냐고|자고|려고)\.$")
+
+
+def cut_endings(text: str) -> tuple[int, int]:
+    """(연결 어미로 끊어 맺은 서술 문장 수, 서술 문장 수). 서술 문장은 narration_tics 와 같다."""
+    cut = total = 0
+    for line in text.split("\n"):
+        line = line.strip()
+        if not line or line.startswith(_QUOTE_OPEN) or line.startswith(_FX_OPEN) or is_sfx_line(line):
+            continue
+        for x in sentences(line):
+            if _QUOTE.fullmatch(x):
+                continue
+            end = x.rstrip("\"'”’」』) ")
+            total += 1
+            cut += bool(_CUT_END.search(end)) and not _QUOTED_END.search(end)
+    return cut, total
+
+
 def _short_ending_ratio(paras: list[str]) -> Optional[float]:
     ends = []
     for para in paras:
