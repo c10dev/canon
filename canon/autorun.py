@@ -496,7 +496,7 @@ def estimate(p: Project, target: int, batch: bool, policy: Policy, name: str | N
                 calls.append(("board", prompts.SYSTEM_PLANNER, prompts.cue_sheet_prompt(sim, n, lead=lead) + " " * (BOARD_CHARS if made else 0), CUE_OUT))
             calls.append(("write", prompts.writer_system(sim), prompts.episode_prompt(sim, n)
                           + " " * ((BOARD_CHARS if made else 0) + (CUE_CHARS if sheet else 0)), write_out))
-            if policy.polish:  # 서술 다듬기 한 번: 작품 고정 블록 + 쓴 본문(목표 분량) + 규칙, 본문 전체를 다시 낸다
+            if policy.polish or prompts.polish_split(sim):  # 서술 다듬기 한 번 (퇴고 단계를 켠 장편은 늘): 작품 고정 블록 + 쓴 본문(목표 분량) + 규칙, 본문 전체를 다시 낸다
                 calls.append(("revise", prompts.writer_system(sim), prompts.polish_prompt(sim, n, sim.episode(n).text), revise_out))
         for step, system, text, out in calls:
             m = measured.get(step + (":batch" if batch and batchable(step) else "")) or measured.get(step)
@@ -847,7 +847,7 @@ class Runner:
             anchor.stamp(q, n)
             sent.keep(self.name, n, rec, text)
         q = _edit(self.name, put)
-        if self.run.policy.polish:
+        if self.run.policy.polish or prompts.polish_split(q):  # 퇴고 단계를 켠 장편은 Policy.polish 와 상관없이 늘 퇴고한다
             with self.ctl.lock:
                 self.run.polish_due = [x for x in self.run.polish_due if x != n] + [n]
                 self.ctl.save()

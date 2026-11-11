@@ -2288,8 +2288,9 @@ dialog.w-dialog::backdrop { background: var(--overlay); }
 .pf-list { margin: 0; padding: 0; list-style: none; }
 .pf-list li { padding: var(--pad-row) 0; border-top: 1px solid var(--rule); }
 .pf-list li:first-child { border-top: none; padding-top: var(--space-2); }
-.chip.rl { border: 0; margin-right: var(--space-6); cursor: pointer; font-family: inherit; }  /* 문체 규칙 층 칩 (style.js ruleLayer): 누르면 집필 ↔ 계획 */
+.chip.rl { border: 0; margin-right: var(--space-6); cursor: pointer; font-family: inherit; }  /* 문체 규칙 층 칩 (style.js ruleLayer): 누르면 집필 → 계획 → (퇴고 단계면) 퇴고 */
 .chip.rl.plan { background: var(--accent-soft); color: var(--accent-ink); }
+.chip.rl.polish { background: var(--green-soft); color: var(--green-ink); }
 .pf-quote { font-family: var(--serif); }
 .chip.pf-quote { font-weight: 400; }
 .pf-table { width: 100%; border-collapse: collapse; }

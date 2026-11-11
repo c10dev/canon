@@ -51,10 +51,31 @@ _PROSE_RULES = [
 ]
 
 
-def prose_rules(styled: bool = False) -> str:
-    """기본 문체 규칙. styled 면 문체 원문과 부딪히기 쉬운 쉼표, 셋씩 나열, 줄표 규칙을 뺀다."""
-    skip = "plain" if styled else "styled"
-    lines = [f"- {rule}" for kind, rule in _PROSE_RULES if kind != skip]
+# 퇴고 단계를 켠 장편(polish_split)의 쓰기 규칙. _PROSE_RULES 에서 쓴 뒤 문장만 고쳐 해결되는 '하지 말 것'(부정 후 재정의 · 셋씩 나열 · 여운 상한,
+# 쉼표, 대명사 · 번역투, 추상어, 줄표 · 마크다운)을 빼고 퇴고(polishscan)로 옮겼다. 남은 줄은 대신 할 일만 남긴 긍정형이다 (뜻은 그대로, docs/prompts/editing.md 5절).
+# 실측(2026-11-10, reports/polish-stage): 이 규칙으로 쓰고 표적 퇴고한 판이 지금 판보다 쇠맛 · 금지 표현 · '~다.' 덩어리가 적었다 (DESIGN.md '서술 다듬기').
+_SPLIT_RULES = [
+    "감정은 행동, 대사, 사물로 드러냅니다. 독자가 짐작할 수 있는 것은 독자에게 맡깁니다.",
+    "대사에는 인물이 말하지 않은 감정과 동기가 남습니다.",
+    "장면의 마지막 문장은 행동이나 대사로 둡니다.",
+    "문장 길이를 불규칙하게 섞습니다. 문맥으로 알 수 있는 주어는 뺍니다.",
+    "장면마다 시점 인물이 알아채는 소리, 냄새, 온도, 촉감, 맛 가운데 하나 이상을 씁니다. 그 장소, 그 순간에만 있는 것으로 고릅니다.",
+    "비유는 장면마다 한두 번 씁니다. 시점 인물의 직업, 겪은 일, 그 자리에 있는 물건에서 새로 만듭니다.",
+    "이 화에서 가장 중요한 순간 하나는 시간을 늘려 씁니다. 그 몇 초 동안 인물이 보고 듣고 떠올리는 것을 여러 문장으로 따라갑니다.",
+    "인물의 생각은 사람 머릿속처럼 튑니다. 엉뚱한 연상, 기억 조각, 말이 되다 만 생각을 섞습니다.",
+    "대사의 어미, 호칭, 길이는 인물마다 다릅니다.",
+    "장면 안에서 인물의 위치, 몸이 향한 쪽, 자세, 손에 든 것, 가려진 곳은 바꾸는 행동을 쓰기 전까지 그대로입니다. 등을 돌린 인물의 얼굴과 표정은 보이지 않습니다.",
+]
+
+
+def prose_rules(styled: bool = False, split: bool = False) -> str:
+    """기본 문체 규칙. styled 면 문체 원문과 부딪히기 쉬운 쉼표, 셋씩 나열, 줄표 규칙을 뺀다.
+    split 이면 퇴고로 옮긴 줄을 뺀 _SPLIT_RULES 를 쓴다 (퇴고 단계, polish_split). 옮긴 줄이 쉼표 · 셋씩 나열 · 줄표를 모두 품어 styled 는 상관없다."""
+    if split:
+        lines = [f"- {rule}" for rule in _SPLIT_RULES]
+    else:
+        skip = "plain" if styled else "styled"
+        lines = [f"- {rule}" for kind, rule in _PROSE_RULES if kind != skip]
     return "[문체 기본 규칙] 스타일 프로필과 부딪히면 스타일 프로필을 따릅니다.\n" + "\n".join(lines)
 
 
@@ -123,7 +144,12 @@ def writer_system(p: Project) -> str:
     """본문 쓰기 시스템 프롬프트. 문체 원문이 있는 작품은 원문과 부딪히는 기본 규칙을 뺀다.
     쓰기 재료가 고정점만이면 '사건을 모두 다루되' 문장을 고정점 · 연출 두 층 문장으로 바꾼다."""
     head = _WRITER.replace(_EVENTS_LINE, _FIXED_LINE) if board.fixed_only(p) else _WRITER
-    return system_prompt(head + prose_rules(styled(p)), korean=False)
+    return system_prompt(head + prose_rules(styled(p), polish_split(p)), korean=False)
+
+
+def polish_split(p: Project) -> bool:
+    """퇴고 단계를 켠 장편인지 (Settings.polish_stage). 켜면 쓰기 요청의 '하지 말 것'을 퇴고 요청의 찾은 자리로 옮긴다. 단편은 켜도 따르지 않는다."""
+    return p.serial and p.settings.polish_stage
 
 
 # 상태 변경안 · 줄거리 접기 · 상태 감사 · 플레이 상태가 쓰는 시스템 프롬프트. 같은 머리말로 시작하고 역할 문장은 두지 않는다 (작가 결정, 2026-11-09).
@@ -3481,19 +3507,24 @@ def style_rules_view(p: Project) -> dict:
     예시 문단은 그러지 않았다 (문체 반영도 실험을 다시 잰 쇠맛 연구, 2026-10-30). 저장된 프로필은 그대로다."""
     rules = p.style.model_dump(exclude={"markers", "devices"}) | {"sample_passages": []}
     rules["dos"], rules["donts"] = layer_rules(p, "write")  # 다른 층으로 옮긴 줄은 그 단계 요청에만 넣는다
+    if polish_split(p):  # 금지 표현은 퇴고가 본문에서 찾아 고친다 (polishscan)
+        rules.pop("banned_phrases", None)
     if styled(p):
         rules = {k: clip_sentences(v, STYLE_FIELD_LIMIT) if isinstance(v, str) else v for k, v in rules.items()}
     return rules
 
 
 def rule_layer(p: Project, text: str) -> str:
-    """지킬 것 · 피할 것 한 줄의 층 (Settings.rule_layers). 목록에 없으면 write."""
-    return next((r.layer for r in p.settings.rule_layers if r.text == text), "write")
+    """지킬 것 · 피할 것 한 줄의 층 (Settings.rule_layers). 목록에 없으면 write.
+    polish 층은 퇴고 단계를 켠 장편에서만 polish 다. 끈 작품은 write 로 본다 (그 줄이 아무 요청에도 가지 않는 일을 막는다)."""
+    got = next((r.layer for r in p.settings.rule_layers if r.text == text), "write")
+    return "write" if got == "polish" and not polish_split(p) else got
 
 
 def layer_rules(p: Project, layer: str) -> tuple[list[str], list[str]]:
     """그 층의 (지킬 것, 피할 것). 프로필 차례를 지킨다."""
-    got = {r.text: r.layer for r in p.settings.rule_layers}
+    split = polish_split(p)
+    got = {r.text: ("write" if r.layer == "polish" and not split else r.layer) for r in p.settings.rule_layers}
     return ([x for x in p.style.dos if got.get(x, "write") == layer],
             [x for x in p.style.donts if got.get(x, "write") == layer])
 
@@ -3576,7 +3607,7 @@ ECHO_RULE = ("이번 화에는 아래 구절을 그대로 쓰지 않고 다른 �
 def echo_block(p: Project, n: int) -> str:
     """장편 본문 쓰기 요청의 '최근 화에서 되풀이한 구절' 블록 (echoes.recent). 직전 화 본문에서 세므로 화마다 바뀐다 (뒤쪽 블록).
     쓰기 요청은 앞 화 본문 전체를 넣지 않아 모델이 지난 화 비유를 보지 못하고 다시 만든다. 작품 설정 recent_echoes 로 끈다. 단편 · 찾은 것이 없으면 빈 글."""
-    if not p.serial or not p.settings.recent_echoes:
+    if not p.serial or not p.settings.recent_echoes or polish_split(p):  # 퇴고 단계는 본문에 나온 구절만 퇴고가 고친다
         return ""
     rows = echoes.recent(p, n)
     if not rows:
@@ -3617,6 +3648,9 @@ WRITE_FLOW_FIRST = "첫 화이므로 앞 이야기를 요약하거나 설명으�
 WRITE_FLOW_NEXT = "직전 화 마지막 장면과 자연스럽게 이어지고, "
 WRITE_STYLE_LINE = "문체는 스타일 프로필과 문체 예시 문단을 따르고, banned_phrases 의 표현은 쓰지 않습니다. "
 WRITE_SHIFT_LINE = "플롯의 emotional_shift 는 감정 이름으로 서술하지 말고 행동과 대사로 보여 줍니다. "
+# 퇴고 단계를 켠 장편(polish_split)의 같은 자리 글. 금지 절은 퇴고(polishscan)가 본문에서 찾아 고친다
+WRITE_STYLE_SPLIT = "문체는 스타일 프로필과 문체 예시 문단을 따릅니다. "
+WRITE_SHIFT_SPLIT = "플롯의 emotional_shift 는 행동과 대사로 보여 줍니다. "
 WRITE_SPEECH_LINE = ("인물의 말투는 speech_style 을 따릅니다. speech_style 의 대사 예시는 말투를 보여 주는 예입니다. "
                      "그 문장을 그대로 쓰지 않고 어미 · 호칭 · 길이만 따릅니다. 작가가 정한 말버릇은 써도 됩니다. ")
 
@@ -3639,15 +3673,16 @@ def episode_parts(p: Project, n: int, approach: str = "", use_board: bool = True
     sheet = ep.cue_sheet if use_cues and not board.fixed_only(p) else None  # 고정점만이면 시트가 있어도 넣지 않는다
     sb = ep.storyboard if use_board else None
     windows = sb is not None and any(x["window"] for x in board.steps(p, sb))
+    split = polish_split(p)  # 퇴고 단계: '하지 말 것'은 쓴 뒤 퇴고가 고친다
     flow = WRITE_FLOW_FIRST if n == 1 else WRITE_FLOW_NEXT
     if n > OPENING_EPISODES:  # 1~3화는 opening_rules 가 설명 문장을 다룬다
-        flow += RETOLD_LINE
+        flow += RETOLD_SPLIT if split else RETOLD_LINE
     parts = context_parts(p, n, use_board=use_board, write=True, trace=trace)
     tail = ((f"\n\n{rules}" if rules else "")
             + f"\n\n위 자료를 바탕으로 {n}화 본문을 약 {p.meta.words_per_episode}자 분량으로 쓰세요. "
             + flow + "플롯의 ending_hook 으로 끝납니다. "
-            + WRITE_STYLE_LINE
-            + (WRITE_SHIFT_LINE if shift_label(ep.plot.emotional_shift) else "")
+            + (WRITE_STYLE_SPLIT if split else WRITE_STYLE_LINE)
+            + ((WRITE_SHIFT_SPLIT if split else WRITE_SHIFT_LINE) if shift_label(ep.plot.emotional_shift) else "")
             + WRITE_SPEECH_LINE
             + focus_line(p, sb)
             + blueprint_write_line(p, n)
@@ -3656,7 +3691,7 @@ def episode_parts(p: Project, n: int, approach: str = "", use_board: bool = True
             + priority_line(p, n, sb is not None)
             + statwin.write_rule(p, n, show_format=not windows, budget=context.budget(p, "stat_lines"), trace=trace)
             + attire_write_rule(p, board=sb is not None)
-            + ending_line(p, n)
+            + ("" if split else ending_line(p, n))  # 퇴고 단계는 문장 끝 몫을 퇴고 요청이 준다
             + (f"\n\n{coord.NOTE}" if coord.memo(p, n) else "")  # 쓰기 재료 조율: 조율 메모를 넣었을 때만
             + ("" if sb is not None and not coord.on(p) else plan_rules_block(p)))  # 스토리보드가 받았으면 넣지 않는다. 조율은 장면을 본문이 짠다
     parts.append(Part("instructions", tail))
@@ -3749,9 +3784,28 @@ POLISH_ENDING = "5. {rule} 말줄임으로 끝내는 서술과 시점 인물이 
 
 def polish_prompt(p: Project, n: int, text: str) -> str:
     """서술 다듬기 요청. 앞은 작품 고정 블록(static_context, 쓰기와 같아 캐시가 맞는다), 다듬을 본문, 규칙 순서.
-    시점 인물의 서술 말투로 쓰는 화는 문장 끝 몫(5번)을 넣지 않는다."""
+    시점 인물의 서술 말투로 쓰는 화는 문장 끝 몫(5번)을 넣지 않는다.
+    퇴고 단계를 켠 장편(polish_split)은 그 뒤에 작가가 고른 퇴고 규칙(polish_rules_block)과, 코드가 본문에서 찾은 자리(polishscan.block)를
+    붙인다. 찾은 자리는 화마다 바뀌어 맨 끝이다. 없으면 블록만 빠지고 호출은 그대로 한다 (다섯 항목의 이득은 위반과 상관없다)."""
     ending = "" if voiced(p, n) else POLISH_ENDING.format(rule=ending_rule(p))
-    return static_context(p) + "\n\n# 다듬을 본문\n" + text.strip() + "\n\n" + POLISH_RULES.format(ending=ending)
+    head = static_context(p) + "\n\n# 다듬을 본문\n" + text.strip() + "\n\n" + POLISH_RULES.format(ending=ending)
+    if not polish_split(p):
+        return head
+    from . import polishscan
+    return head + polish_rules_block(p) + polishscan.block(polishscan.find(p, n, text))
+
+
+POLISH_LAYER_HEAD = "# 작가가 고른 퇴고 규칙 (서술 문장을 다듬을 때 지킬 것)"
+
+
+def polish_rules_block(p: Project) -> str:
+    """퇴고 층 규칙 블록 (Settings.rule_layers 의 polish 줄). 퇴고 요청에 넣는다. 없으면 빈 글.
+    작가가 쓴 글이라 코드가 위반을 찾지 못하므로 찾은 자리와 달리 규칙으로만 넣는다."""
+    dos, donts = layer_rules(p, "polish")
+    if not (dos or donts):
+        return ""
+    rows = [f"- 지킬 것: {x}" for x in dos] + [f"- 피할 것: {x}" for x in donts]
+    return f"\n\n{POLISH_LAYER_HEAD}\n" + "\n".join(rows)
 
 
 # 사건을 차례로 처리하느라 요약처럼 흐르지 않게, 한 장면에 머물 자리를 준다 (서술 단조로움 개선, 2026-11-03).
@@ -3770,6 +3824,9 @@ def focus_line(p: Project, sb) -> str:
 # 지시 문장 수 상한(tests/test_write_budget.py)을 지키려고 따로 문장을 두지 않고 흐름 문장 안에 넣는다.
 RETOLD_LINE = ("독자가 앞 화에서 읽은 세계관 설정과 지난 사건은 다시 설명하거나 요약하지 않고"
                "(오랜만에 다시 나오는 인물만 처음 나올 때 한두 문장으로 짚음), ")
+# 퇴고 단계를 켠 장편의 같은 자리 글 (긍정형, 뜻은 그대로)
+RETOLD_SPLIT = ("독자가 앞 화에서 읽은 세계관 설정과 지난 사건은 이미 아는 것으로 두고"
+                "(오랜만에 다시 나오는 인물만 처음 나올 때 한두 문장으로 짚음), ")
 
 
 def shift_label(text: str) -> bool:
@@ -5796,6 +5853,7 @@ PIECES.update({
     "writer_task": Piece("할 일 (본문 쓰기)", ("style", "continuity", "output"), "system", "_WRITER", "쓰기 재료가 꼭 쓸 것만이면 사건 문장을 _FIXED_LINE 으로 바꾼다"),
     "fixed_line": Piece("고정점 · 연출 두 층", ("continuity",), "system", "_FIXED_LINE", "쓰기 재료가 꼭 쓸 것만일 때 (board.fixed_only)"),
     "prose_rules": Piece("문체 기본 규칙", ("style",), "system", "_PROSE_RULES", "문체 원문이 있는 작품은 쉼표 · 셋씩 나열 · 줄표 규칙을 뺀다 (prose_rules)"),
+    "prose_split": Piece("문체 기본 규칙 (퇴고 단계)", ("style",), "system", "_SPLIT_RULES", "퇴고 단계를 켠 장편: 쓴 뒤 고칠 '하지 말 것'을 뺀 긍정형 규칙 (prose_rules split)"),
     "reviser_task": Piece("할 일 (부분 수정)", ("style", "continuity", "output"), "system", "_REVISER"),
     "paragraph_task": Piece("할 일 (문단 연습장)", ("style", "output"), "system", "_PARAGRAPH_WRITER"),
     "sys_planner": Piece("기획 지시", ("policy",), "system", "SYSTEM_PLANNER"),
@@ -5815,7 +5873,7 @@ PIECES.update({
     # 요청 뒤 · 지시문 꼬리
     "opening_rules": Piece("여는 화 규칙", ("length",), "instruction", "opening_rules", "1~3화"),
     "write_flow": Piece("앞 화와 잇기", ("continuity",), "instruction", "WRITE_FLOW_NEXT", "1화는 WRITE_FLOW_FIRST, 4화부터 RETOLD_LINE 을 붙인다"),
-    "write_style": Piece("프로필 따르기 · banned_phrases", ("style",), "instruction", "WRITE_STYLE_LINE"),
+    "write_style": Piece("프로필 따르기 · banned_phrases", ("style",), "instruction", "WRITE_STYLE_LINE", "퇴고 단계를 켠 장편은 WRITE_STYLE_SPLIT (banned_phrases 는 퇴고가 찾는다)"),
     "write_shift": Piece("감정 이름 금지", ("style",), "instruction", "WRITE_SHIFT_LINE", "플롯의 emotional_shift 가 라벨 모양일 때"),
     "write_speech": Piece("말투 따르기", ("voice",), "instruction", "WRITE_SPEECH_LINE"),
     "focus_line": Piece("중심 장면에 머물기", ("length",), "instruction", "focus_line"),
@@ -5829,6 +5887,8 @@ PIECES.update({
     "echo_rule": Piece("되풀이 피하기 규칙", ("style",), "tail", "ECHO_RULE", "되풀이한 구절 블록이 있을 때"),
     "rewrite_block": Piece("다시 생성 요청", ("style",), "instruction", "rewrite_block"),
     "polish_rules": Piece("서술 다듬기 규칙", ("style",), "second", "POLISH_RULES"),
+    "polish_layer": Piece("작가가 고른 퇴고 규칙", ("style",), "second", "polish_rules_block", "퇴고 단계를 켠 장편에 퇴고 층 규칙이 있을 때"),
+    "polish_targets": Piece("찾은 자리 (퇴고)", ("style",), "second", "polishscan.block", "퇴고 단계를 켠 장편: 코드가 본문에서 찾은 위반"),
     "polish_ending": Piece("다듬기 문장 끝 몫", ("style",), "second", "POLISH_ENDING", "시점 인물의 서술 말투로 쓰는 화는 뺀다"),
     "passage_rules": Piece("부분 수정 규칙", ("style", "output"), "instruction", "PASSAGE_FREE_RULES", "모순 고치기면 PASSAGE_FIX_RULES · MINIMAL_FIX_RULES · TEXT_RIGHT_RULE"),
     "chat_message": Piece("작가의 말 자리", ("output",), "instruction", "CHAT_MESSAGE", "작업지시서 · 놀이터에서만. 실제 호출은 작가가 쓴 말"),
@@ -5890,7 +5950,7 @@ PIECES.update({
 SEND_PIECES = ("policy_note", "adult_note")
 
 _PLAN = ("preamble", "sys_planner", "korean_line")
-_WRITE_SYS = ("preamble", "writer_task", "fixed_line", "prose_rules")
+_WRITE_SYS = ("preamble", "writer_task", "fixed_line", "prose_rules", "prose_split")
 _FRONT = tuple(b.id for b in BLOCKS if b.front)
 _WRITE_TAIL = ("opening_rules", "write_flow", "write_style", "write_shift", "write_speech", "focus_line", "blueprint_write", "ability_write", "body_rule", "priority_line", "stat_rule",
                "attire_rule", "ending", "coord_note", "plan_rules")
@@ -5957,7 +6017,7 @@ KINDS: dict[str, Kind] = {
     "rewrite": Kind("다시 생성", "쓰기", "write", "writer_system", "rewrite_prompt", "", "pipeline.rewrite_episode",
                     _WRITE_SYS + _STATIC + ("instructions",) + _WRITE_TAIL + ("rewrite_block",), view=True),
     "polish": Kind("서술 다듬기", "쓰기", "revise", "writer_system", "polish_prompt", "", "pipeline.polish_episode",
-                   _WRITE_SYS + _STATIC + ("polish_rules", "polish_ending"), view=True),
+                   _WRITE_SYS + _STATIC + ("polish_rules", "polish_ending", "polish_layer", "polish_targets"), view=True),
     "passage": Kind("대화로 다듬기 · 본문 부분 수정", "쓰기", "revise", "reviser_system", "passage_prompt", "PassageRevision",
                     "pipeline.revise_passage", ("preamble", "reviser_task", "prose_rules", "passage_head", "passage_rules", "chat_message"),
                     also=("SYSTEM_REVISER",), view=True, brief=_bk("대화로 다듬기 · 본문 부분 수정", need="text", stage="revise")),
@@ -6036,6 +6096,14 @@ def resolve_name(name: str):
     return getattr(m, attr, None)
 
 
+def _polish_targets_sample(p: Project, n: int) -> str:
+    """찾은 자리 견본: 퇴고 단계를 켠 장편의 n화 본문에서 찾은 것."""
+    if not (n and polish_split(p) and p.episode(n).text):
+        return ""
+    from . import polishscan
+    return polishscan.block(polishscan.find(p, n, p.episode(n).text))
+
+
 def kinds_of(piece: str) -> list[str]:
     """이 조각이 들어가는 갈래 열쇠 (KINDS 차례). 보내기 직전 조각은 모든 갈래다."""
     return [k for k, v in KINDS.items() if piece in v.pieces or piece in SEND_PIECES]
@@ -6067,7 +6135,8 @@ _SAMPLES = {
     "korean_line": lambda p, n: KOREAN_LINE,
     "writer_task": lambda p, n: _WRITER.replace(_EVENTS_LINE, _FIXED_LINE) if board.fixed_only(p) else _WRITER,
     "fixed_line": lambda p, n: _FIXED_LINE if board.fixed_only(p) else "",
-    "prose_rules": lambda p, n: prose_rules(styled(p)),
+    "prose_rules": lambda p, n: "" if polish_split(p) else prose_rules(styled(p)),
+    "prose_split": lambda p, n: prose_rules(styled(p), True) if polish_split(p) else "",
     "style_passages": lambda p, n: "\n\n---\n\n".join(style_passages(p)),
     "style_profile": lambda p, n: dump(style_rules_view(p)),
     "style_markers": lambda p, n: marker_block(p).strip(),
@@ -6087,6 +6156,8 @@ _SAMPLES = {
     "direction_rule": lambda p, n: DIRECTION_RULE if n and any(direction_texts(p, n)) else "",
     "echo_rule": lambda p, n: ECHO_RULE if n and echo_block(p, n) else "",
     "polish_ending": lambda p, n: "" if n and voiced(p, n) else POLISH_ENDING.format(rule=ending_rule(p)),
+    "polish_layer": lambda p, n: polish_rules_block(p),
+    "polish_targets": lambda p, n: _polish_targets_sample(p, n),
     "check_rules": lambda p, n: CHECK_RULES.format(n=n, rules=check_rule_lines(p, n), severity=SEVERITY_RULE) if n else "",
     "polish_rules": lambda p, n: POLISH_RULES.format(ending=_SAMPLES["polish_ending"](p, n)),
     "time_check": lambda p, n: timeline.check_rule(p, n).strip() if n else "",

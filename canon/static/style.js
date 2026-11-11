@@ -140,13 +140,17 @@ const pfFill = (root) => (S.styleFill || {})[pfKey(root, 'narr')] || null;
 const narrHas = (prof, hot) => (k) => hot.has(k) || String(prof[k] || '').trim() !== '';
 
 // 지킬 것 · 피할 것의 층 (Settings.rule_layers, prompts.rule_layer). 작품 문체 · 장편에만 보인다. 없는 줄은 집필
-const RULE_LAYER_NAMES = { write: '집필', plan: '계획' };
+const RULE_LAYER_NAMES = { write: '집필', plan: '계획', polish: '퇴고' };
 const RULE_LIMIT = 20;  // pipeline.RULE_LIMIT 와 같다
-const RULE_LAYER_WHY = '집필 칩은 본문 쓰기에 넣는 규칙이에요. 누르면 계획으로 바뀌어, 스토리보드를 만들 때 넣고 스토리보드 없이 쓰는 화는 쓰기 지시 끝에 넣어요. 장면을 짤 때 지킬 규칙(사건 · 위험 · 전개)에 맞아요.';
+const RULE_LAYER_WHY = '집필 칩은 본문 쓰기에 넣는 규칙이에요. 누르면 계획으로 바뀌어, 스토리보드를 만들 때 넣고 스토리보드 없이 쓰는 화는 쓰기 지시 끝에 넣어요. 장면을 짤 때 지킬 규칙(사건 · 위험 · 전개)에 맞아요. 퇴고 단계를 켜면 한 번 더 눌러 퇴고로 바꿀 수 있어요. 퇴고 규칙은 쓴 뒤 퇴고할 때만 넣어요. 문장만 고쳐서 지킬 수 있는 규칙(표현 · 어휘 · 문장 모양)에 맞아요.';
+// 퇴고 단계 (Settings.polish_stage, prompts.polish_split). 장편만
+const POLISH_STAGE_WHY = '켜면 본문 쓰기 요청에서 하지 말 것(쇠맛 버릇 상한, 금지 표현, 문장 끝 몫, 되풀이 구절)을 빼고, 쓴 뒤 퇴고 판에서 코드가 찾은 자리를 고쳐요. 퇴고 판은 새 판으로 와서 비교해 골라요. 화마다 AI 호출이 하나 늘어요. 퇴고는 설정의 ‘본문 부분 수정’ 단계 모델이 써요. 실측에서는 Claude로 다듬은 판이 나았어요.';
+const polishStageOn = () => P().meta.form === 'serial' && !!(P().settings || {}).polish_stage;
 const ruleLayered = (root) => !root && P().meta.form === 'serial';
 function ruleLayerOf(text) {
   const r = (P().settings.rule_layers || []).find((x) => x.text === text);
-  return r ? r.layer : 'write';
+  const l = r ? r.layer : 'write';
+  return l === 'polish' && !polishStageOn() ? 'write' : l;  // 퇴고 단계를 끈 작품은 퇴고 줄도 집필로 본다 (prompts.rule_layer)
 }
 function writeRuleCount(prof) {
   return [...(prof.dos || []), ...(prof.donts || [])].filter((x) => ruleLayerOf(x) === 'write').length;
@@ -178,7 +182,8 @@ function pfRead(id, prof, root, hot, base = 'style') {
     };
     const n = layered ? writeRuleCount(prof) : 0;
     const over = n > RULE_LIMIT ? ` <span class="chip warn">집필 ${n}개 · ${RULE_LIMIT}개 넘음</span>` : '';
-    return `<div class="grid-2">
+    const stage = layered ? `<div class="row"><button type="button" class="btn small" aria-pressed="${polishStageOn()}" data-action="polishStage">쓴 뒤 퇴고</button>${help(POLISH_STAGE_WHY, '퇴고 단계 설명 보기')}</div>` : '';
+    return `${stage}<div class="grid-2">
         <div><div class="pf-lbl"><i class="sw ok" aria-hidden="true"></i>지킬 것 ${(prof.dos || []).length}${tag('dos')}${layered ? help(RULE_LAYER_WHY, '층 설명 보기') : ''}${over}</div>${rules('dos')}</div>
         <div><div class="pf-lbl"><i class="sw no" aria-hidden="true"></i>피할 것 ${(prof.donts || []).length}${tag('donts')}</div>${rules('donts')}</div>
       </div>
@@ -738,10 +743,17 @@ Object.assign(actions, {
     const [key, i] = arg.split('|');
     const text = (P().style[key] || [])[Number(i)];
     if (text === undefined) return;
-    const next = ruleLayerOf(text) === 'write' ? 'plan' : 'write';
+    const cur = ruleLayerOf(text);
+    const next = cur === 'write' ? 'plan' : cur === 'plan' && polishStageOn() ? 'polish' : 'write';  // 집필 → 계획 → (퇴고) → 집필
     const st = P().settings;
     st.rule_layers = (st.rule_layers || []).filter((x) => x.text !== text);
     if (next !== 'write') st.rule_layers.push({ text, layer: next });
+    markDirty();
+    render();
+  },
+  polishStage() {
+    const st = P().settings;
+    st.polish_stage = !st.polish_stage;
     markDirty();
     render();
   },

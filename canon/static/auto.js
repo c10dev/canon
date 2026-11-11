@@ -239,7 +239,9 @@ function autoPolicyForm(f, disabled, bind = 'auto') {
       ${chk('confirm_plots', '초안 플롯도 자동으로 확정하고 쓰기', '켜면 덜 멈춰요. 끄면 초안 플롯을 만난 화에서 멈춰요')}
       ${P().settings.storyboard ?? P().meta.form === 'serial' ? chk('storyboard', '화마다 스토리보드를 만들고 쓰기', '쓰기 전에 장면 순서와 이번 화 확정 값(시간 · 상태창 수치 · 차림)을 정해요. 화당 AI 호출이 하나 늘어요') : ''}
       ${cueOn() ? chk('cue_sheet', '화마다 큐 시트를 만들고 쓰기', '쓰기 전에 큐마다 긴장 · 템포 · 편성 · 핵심 대사 · 분량을 정해요. 화당 AI 호출이 하나 늘어요. 작가가 고친 큐 시트는 그대로 써요') : ''}
-      ${chk('polish', '화마다 쓴 뒤 서술 다듬기', '대사 · 사건은 그대로 두고 서술 문장만 다듬은 판으로 바꿔요. 쓴 판은 이전 판에 남아요. 설정의 &lsquo;본문 부분 수정&rsquo; 단계 모델을 써서 화당 AI 호출이 하나 늘어요. 실측에서는 Claude로 다듬은 판이 나았어요')}
+      ${P().meta.form === 'serial' && (P().settings || {}).polish_stage
+    ? `<label class="check-row"><input type="checkbox" checked disabled><span>화마다 쓴 뒤 퇴고하기<br><span class="small">퇴고 단계를 켠 작품이라 늘 퇴고해요. 쓰기 요청에서 뺀 &lsquo;하지 말 것&rsquo;을 퇴고가 고쳐요. 끄려면 문체 화면에서 &lsquo;쓴 뒤 퇴고&rsquo;를 끄세요</span></span></label>`
+    : chk('polish', '화마다 쓴 뒤 서술 다듬기', '대사 · 사건은 그대로 두고 서술 문장만 다듬은 판으로 바꿔요. 쓴 판은 이전 판에 남아요. 설정의 &lsquo;본문 부분 수정&rsquo; 단계 모델을 써서 화당 AI 호출이 하나 늘어요. 실측에서는 Claude로 다듬은 판이 나았어요')}
     </div>
     <h3 class="auto-h">이럴 때는 멈추고 기다려요</h3>
     <p class="desc">걸리는 게 없으면 상태 변경안을 검토 없이 반영하고 다음 화로 가요. 반영한 화는 표시해 두고, 화마다 남는 스냅샷으로 되돌릴 수 있어요.</p>
@@ -305,7 +307,8 @@ function autoPolicySummary(p) {
   const go = [p.check ? '화마다 검수' : '검수 안 함'];
   if (p.storyboard && (P().settings.storyboard ?? P().meta.form === 'serial')) go.push('스토리보드를 만들고 쓰기');
   if (p.cue_sheet && cueOn()) go.push('큐 시트를 만들고 쓰기');
-  if (p.polish) go.push('쓴 뒤 서술 다듬기');
+  if (P().meta.form === 'serial' && (P().settings || {}).polish_stage) go.push('쓴 뒤 퇴고');  // 퇴고 단계는 Policy.polish 와 상관없이 늘
+  else if (p.polish) go.push('쓴 뒤 서술 다듬기');
   go.push(p.confirm_plots ? '초안 플롯도 확정하고 쓰기' : '초안 플롯에서 멈춤');
   if (p.check) on.push(p.max_issues ? `검수 어긋남 ${p.max_issues + 1}개부터${p.ignore_minor ? '(사소한 것 빼고)' : ''}` : `검수 어긋남 1개부터${p.ignore_minor ? '(사소한 것 빼고)' : ''}`);
   (p.check && p.stop_on_critical ? on : off).push('치명 지적');
