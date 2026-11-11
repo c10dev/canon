@@ -185,7 +185,7 @@ def test_blueprint_api(client):
     p = client.post("/api/projects/bpa/suggest/apply", json=client.post("/api/projects/bpa/suggest").json()).json()
     a, b = p["characters"][0]["id"], p["characters"][1]["id"]
     v = client.get("/api/projects/bpa/blueprint").json()
-    assert v["blueprint"] == {"milestones": [], "ladders": [], "note": ""} and v["warnings"] == [] and v["last"] == 0
+    assert v["blueprint"] == {"milestones": [], "ladders": [], "ability_plans": [], "note": ""} and v["warnings"] == [] and v["last"] == 0
     assert {"id": "hand_r", "label": "오른 손"} in v["parts"] and {"id": "brush", "label": "스치다"} in v["acts"]
     body = {"milestones": [{"source": a, "target": b, "from_ep": 1, "to_ep": 1, "stage": "신뢰"}], "ladders": [], "note": "원칙"}
     p = client.put("/api/projects/bpa/blueprint", json=body).json()

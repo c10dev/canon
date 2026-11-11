@@ -1627,6 +1627,7 @@ ol.bp-list { counter-reset: rung; }
 ol.bp-list > li::before { counter-increment: rung; content: counter(rung) "."; font-weight: 700; color: var(--muted); }
 .bp-ms-row { display: grid; grid-template-columns: 72px auto 72px 110px minmax(0, 1fr) minmax(0, 1fr) auto; gap: var(--space-6); align-items: center; }
 .bp-num { width: 72px; }
+.bp-ap-row { display: grid; grid-template-columns: 112px minmax(0, 1fr) 88px 72px auto 72px minmax(0, 1.6fr) auto; gap: var(--space-6); align-items: center; }
 .bp-rung { display: flex; flex-direction: column; gap: var(--space-8); padding: var(--space-10) 0; border-top: 1px solid var(--rule); }
 .bp-rung-top { display: grid; grid-template-columns: auto minmax(0, 1fr) 72px auto 72px auto auto auto; gap: var(--space-6); align-items: center; }
 .bp-pick > summary { cursor: pointer; display: flex; gap: var(--space-8); align-items: baseline; }
@@ -1639,8 +1640,8 @@ ol.bp-list > li::before { counter-increment: rung; content: counter(rung) "."; f
   .sw-log li { grid-template-columns: 44px minmax(0, 1fr); }
   .sw-src { grid-column: 2; justify-content: flex-start; }
   .ab-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .bp-ms-row, .bp-rung-top { grid-template-columns: repeat(3, auto) minmax(0, 1fr); }
-  .bp-ms-row > input[type=text], .bp-rung-top > input[type=text] { grid-column: 1 / -1; }
+  .bp-ms-row, .bp-rung-top, .bp-ap-row { grid-template-columns: repeat(3, auto) minmax(0, 1fr); }
+  .bp-ms-row > input[type=text], .bp-rung-top > input[type=text], .bp-ap-row > input[type=text], .bp-ap-row > select { grid-column: 1 / -1; }
   .bp-lane { grid-template-columns: 72px minmax(0, 1fr); }
   .bp-band { --bp-lead: 80px; }
   .ab-list > li { flex-wrap: wrap; }

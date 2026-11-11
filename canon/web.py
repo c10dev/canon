@@ -5692,9 +5692,24 @@ class BlueprintPick(BaseModel):
     label: str
 
 
+class AbilityPlanState(BaseModel):
+    """능력 일정 한 줄의 계획 대 실제 (blueprint.ability_states)."""
+    id: str
+    got: int | None = Field(None, description="상태창 기록에서 계산한 얻은 화. 0 은 시작 때, 없으면 아직")
+    state: Literal["얻음", "앞섬", "늦음", "지남", "예정", "미정", "모름"]
+    linked: bool = Field(description="스킬 도감에 그 이름의 항목이 있는지")
+
+
+class AbilityPlanWarn(BaseModel):
+    character: str
+    text: str
+
+
 class BlueprintView(BaseModel):
     blueprint: Blueprint
     warnings: list[BlueprintWarn]
+    plans: list[AbilityPlanState] = []
+    ability_warnings: list[AbilityPlanWarn] = []
     parts: list[BlueprintPick]
     acts: list[BlueprintPick]
     last: int = Field(0, description="마지막으로 반영한 화")
@@ -5702,10 +5717,12 @@ class BlueprintView(BaseModel):
 
 @app.get("/api/projects/{name}/blueprint")
 def blueprint_view(name: str) -> BlueprintView:
-    """설계도와 경고(blueprint.warning_rows), 사다리 칸이 고르는 부위 · 동작 이름."""
+    """설계도와 경고(blueprint.warning_rows), 능력 일정의 계획 대 실제 · 경고, 사다리 칸이 고르는 부위 · 동작 이름."""
     from .stage import ACTS, PARTS
     p = _load(name)
     return BlueprintView(blueprint=p.blueprint, warnings=[BlueprintWarn(source=s, target=t, text=w) for s, t, w in blueprint.warning_rows(p)],
+                         plans=[AbilityPlanState(**x) for x in blueprint.ability_states(p)],
+                         ability_warnings=[AbilityPlanWarn(character=c, text=w) for c, w in blueprint.ability_warning_rows(p)],
                          parts=[BlueprintPick(id=k, label=v.label) for k, v in PARTS.items()],
                          acts=[BlueprintPick(id=k, label=v.label) for k, v in ACTS.items()],
                          last=max((e.plot.number for e in p.episodes if e.status == "finalized"), default=0))

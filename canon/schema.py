@@ -926,10 +926,23 @@ class ContactLadder(BaseModel):
     rungs: list[ContactRung] = Field(default_factory=list, description="낮은 칸부터 차례로")
 
 
+class AbilityPlan(BaseModel):
+    """능력 일정 한 줄: 인물이 어느 능력을 어느 화 범위에 어느 등급까지 얻는지 (docs/blueprint/specs/10-ability.md).
+    계획값이다. 실제로 얻은 화는 저장하지 않고 상태창 기록(Project.stat_log)에서 계산한다 (blueprint.got_ep)."""
+    id: str = Field("", description="ap-1 처럼 짧은 id. 비면 저장 때 채운다")
+    character: str = Field(description="인물 id")
+    ability: str = Field(description="스킬 도감 항목 이름 (등급 꼬리 없이, 예: 화염구). 도감에 없어도 적을 수 있다")
+    grade: str = Field("", description="닿을 등급 (상태창 조각의 꼬리, 예: Lv3, 중급). 비면 얻기만")
+    condition: str = Field("", description="얻는 조건 한 줄")
+    from_ep: int = Field(0, description="이 범위 안에서 얻는다. 0 이면 정하지 않음")
+    to_ep: int = Field(0, description="범위 끝 화. 0 이면 정하지 않음")
+
+
 class Blueprint(BaseModel):
     """작품 설계도: 작가가 먼저 정하는 계획 층. 기획은 재료로 받고, 검수 · 플롯 점검은 계획과 실제를 견준다."""
     milestones: list[Milestone] = Field(default_factory=list, description="관계 이정표 (방향마다)")
     ladders: list[ContactLadder] = Field(default_factory=list, description="접촉 사다리 (쌍마다 하나)")
+    ability_plans: list[AbilityPlan] = Field(default_factory=list, description="능력 일정 (인물마다 여러 줄)")
     note: str = Field("", description="설계 원칙 한 줄")
 
 
@@ -2832,7 +2845,7 @@ class Project(BaseModel):
     conversion: Optional[Conversion] = Field(None, description="단편에서 장편으로 바꾼 기록. 되돌리면 지운다")
     archive: Optional[ShortArchive] = Field(None, description="재구성 전 단편 원고와 새 화 지도")
     storylines: list[Storyline] = Field(default_factory=list, description="메인에서 갈라지는 이야기 줄기 (서브플롯, 과거 회상, 외전, 인물 이야기)")
-    blueprint: Blueprint = Field(default_factory=Blueprint, description="설계도: 관계 이정표 · 접촉 사다리 (canon/blueprint.py). 비면 쓰지 않는다")
+    blueprint: Blueprint = Field(default_factory=Blueprint, description="설계도: 관계 이정표 · 접촉 사다리 · 능력 일정 (canon/blueprint.py). 비면 쓰지 않는다")
     visuals: list[CharacterVisual] = Field(default_factory=list, description="삽화용 인물 외형 태그")
     illust: IllustSettings = Field(default_factory=IllustSettings, description="삽화 프롬프트 설정")
     atlas: Atlas = Field(default_factory=Atlas, description="지도: 장소 자리, 배경 그림, 위치 글 잇기")

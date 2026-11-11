@@ -11,6 +11,7 @@
 - 가진 인물(`owners`)
 - 얻은 화 · 바뀐 기록은 `stat_log` 에서 계산(`history`, `acquired`, 저장 안 함)
 - 도감에 없는 조각(`unlinked`)
+- 상태창 값에서 도감과 잇는 목록 항목의 조각만 고르기 `list_pieces`(`owners` 와 같은 거르기, 새 항목은 이름이 `LIST_NAMES` 일 때만). `blueprint.ability_delta_warnings` 가 쓴다
 - AI 에게 보이는 한 줄(`line`: 이름(=다른 이름) [상태창 항목 · 가진 인물 등급]: 효과 / 가진 등급 효과 / 대가, 다음 단계 프롬프트가 같은 함수를 쓴다)
 - 화면 값(`catalog`, `lookup`)
 - 작가 편집(`upsert`, `remove`)
@@ -271,25 +272,42 @@
 - 설계도: 작가가 먼저 정하는 계획 층(`Project.blueprint`, `Blueprint`). 설계 문서는 `docs/blueprint/`
 - 관계 이정표(`Milestone`)는 방향마다 [화 범위, 관계 단계(dynamics 말, 비워도 됨), 라벨, 계기]
 - 접촉 사다리(`ContactLadder`)는 쌍마다 하나, 칸(`ContactRung`)의 차례가 단계의 차례
+- 능력 일정(`AbilityPlan`, `Blueprint.ability_plans`)은 인물마다 여러 줄: [화 범위, 능력(스킬 도감 항목 이름), 등급(비워도 됨), 얻는 조건]. 명세는 `docs/blueprint/specs/10-ability.md`
 - 사다리 칸의 부위 · 동작은 `stage.PARTS` · `stage.ACTS` id, 장소는 인과율 '장소' 요소 id, 겹(`layer`)은 옷 위 · 옷 안 · 맨살
 - 화 번호는 범위(`from_ep` ~ `to_ep`, 둘 다 0 이면 정하지 않음)
 - 빈 id 채우기 `fill_ids`(`ms-<k>` · `cr-<k>`, 있는 id 는 그대로)
+- 능력 일정 줄의 id 는 `ap-<k>`
 - 저장 검사 `check(p, before)`: 모르는 값을 지우지 않고 `ValueError` 로 거절. 작품 저장(`web._put_locked`)이 부른다
 - `check` 는 디스크 작품에서 이미 끊겨 있던 인물 · 장소 참조는 막지 않는다(`validate_characters` 와 같은 방식)
 - 범위를 적은 사다리 칸끼리는 칸 차례대로 처음 닿는 화가 줄지 않아야 한다
+- 능력 일정은 없는 인물 · 빈 능력 이름 · 같은 인물 · 능력 · 등급 두 줄을 거절한다. 도감에 없는 이름은 막지 않는다
 - 계획 칸 `planned_rung(ladder, n)`: 처음 닿는 화가 n 화 이하인 칸 가운데 차례가 가장 뒤. 쌍 찾기 `ladder`
 - 몸이 드러나는 쌍 `exposed(p, n)`: 그 화 플롯 인물끼리, 처음 닿는 화가 n 화 이하인 칸 가운데 겹이 옷 안 · 맨살(`BODY_LAYERS`)인 칸이 있는 쌍의 두 인물. 뒤 칸이 옷 위여도 이어진다
 - 화 끼워 넣기 · 빼기 `move`(`renumber.move_points` 가 부름): 범위 안에 넣으면 범위가 늘고, 끝 화를 빼면 범위가 준다
 - 재구성 `remap`(`reshape` 가 부름): 옮기지 못한 범위는 비우고 알림에 적는다
+- `move` · `remap` 은 능력 일정의 화 범위도 옮긴다(`_ranged`)
 - 이정표 경고 `warnings`(막지 않음): 이웃한 두 이정표 사이 칸 모자람, 범위가 겹치는데 단계가 다름, 지금 단계에서 다음 이정표까지 칸 모자람
 - 플롯이 이정표를 앞지르는 경고는 `pace.milestone_warnings`
 - 계획값이라 관계 수치(`Tie`) · 플롯을 바꾸지 않는다
 - 경고에 방향을 붙인 `warning_rows`(보는 인물, 보이는 인물, 글). `warnings` 는 그 글만
+- 능력의 실제 쪽 값은 저장하지 않는다. 얻은 화 `got_ep` 는 상태창 기록(`abilities.history`)에서 그 능력 조각이 계획 등급에 처음 닿은 화다(시작 값은 0, 기록 없이 상태창에만 있어도 0)
+- 등급 견주기 `_grade_ok`: 괄호 · 빈칸을 떼고 같은 말, 도감 등급 목록의 차례, 숫자만 다른 등급의 숫자로 '그 이상'
+- 능력 일정 줄 상태 `ability_states`: 얻음 · 앞섬 · 늦음 · 지남 · 예정 · 미정, 도감 항목이 있는지(`linked`)
+- 상태창 값도 기록도 없는 인물(`tracked` 아님)의 줄은 범위 끝 화까지 반영하면 '모름'이다. '지남' 경고와 프롬프트 줄에서 뺀다(같은 능력을 또 얻게 하지 않는다)
+- 능력 일정 경고 `ability_warning_rows`(인물 id, 글, 막지 않음): 범위를 지나도록 얻지 못함, 범위보다 먼저 · 늦게 얻음, 도감에 없는 이름. `warnings` 에도 든다
+- 상태 변경안 경고 `ability_delta_warnings`(`features.CLEAN`): 반영하면 일정의 능력을 화 범위보다 먼저 얻게 됨
+- 이 경고는 `abilities.list_pieces` 로 도감과 잇는 목록 항목의 조각만 본다(인벤토리의 같은 이름 물건은 뺀다)
 - 웹은 `GET` · `PUT /api/projects/{name}/blueprint`(보기 `BlueprintView`: 설계도 · 방향 붙은 경고 · 부위 · 동작 이름 · 마지막 반영 화, 저장은 설계도 통째와 `check`)
+- `BlueprintView` 의 `plans`(`AbilityPlanState`: id · 얻은 화 · 상태 · 도감 연결) · `ability_warnings`(인물 id · 글)
 - 화면은 `static/blueprint.js`
 - 기획 프롬프트 줄 `plan_lines(p, ids, start, end)`: 화 범위를 적은 줄만, 범위에 걸린 이정표 · 사다리 칸과 그 뒤 첫 것. 두 인물이 모두 ids 에 들 때만
 - 사다리 칸 한 줄 `rung_text`: '차례. 이름 (겹 · 부위 · 동작 · 장소 · 주도 · 메모)', 부위 · 동작은 장면 연출의 이름
+- 기획 프롬프트의 능력 일정 줄 `ability_plan_lines(p, ids, start, end)`: 아직 얻지 못한 줄 가운데 범위 앞의 것(반영을 마쳤으면 '얻지 못함', 아니면 '앞 화에서 얻을 예정') · 범위에 걸린 것 · 인물마다 그 뒤 첫 것
+- 화 단계의 능력 일정 줄 재료 `ability_due(p, n)`(그 화가 얻는 범위) · `ability_next(p, n, per)`(인물마다 뒤 줄 per 개). 그 화 플롯 인물의 아직 얻지 못한 줄만
+- 쓰기 줄의 재료 `ability_in_plot(p, n)`: `ability_due` 가운데 능력 이름(도감의 다른 이름 포함)이 그 화 플롯 · 연출 지시에 그대로 나온 줄(`cast.body_cast` 와 같은 글)
+- 상태 변경안 요구사항 `ability_state_rule(p, n)`: 처음 화가 그 화 이하인 줄의 능력 이름을 그대로 적게 한다. 상태창이 없으면 빈 글
 - 스토리보드 · 쓰기 · 검수 요청의 설계도 줄은 `prompts.blueprint_board_rule` · `blueprint_write_line` · `blueprint_check_rule`(그 화 플롯 인물끼리만)
+- 같은 요청의 능력 일정 줄은 `prompts.ability_board_rule` · `ability_write_line` · `ability_check_rule`, 기획은 `prompts.blueprint_ability_block`
 - 같은 요청의 신체 특징 줄은 `prompts.body_rule` · `body_check_rule`(인물 고르기 `cast.body_cast`)
 - 거꾸로 뽑기 범위 `extract_range`: 장편은 아크 하나, 단편은 플롯이 있는 첫 화부터 마지막 화까지
 - AI 로 짜기 범위 `draft_range`: 장편은 부 하나(0 이면 작품 전체), 단편은 1화부터 작품 화수까지
@@ -756,10 +774,16 @@
 
 - 설계도 쪽(사이드바 도구 '설계도', 🧭): 공용 목차 + 카드 한 열(스킬 도감과 같은 틀 `.ab-wrap`)
 - 주소 `blueprint`(개요) · `blueprint/<쌍 키>`. 쌍 키는 두 인물 id 를 정렬해 `~` 로 이은 것(`bpKey`)
+- 주소 `blueprint/@ability`(`BP_AB`)는 능력 일정 쪽이다. 쌍 키와 겹치지 않는다
 - 쌍 목록 `bpPairs`: 관계 설정의 쌍(그 차례와 a · b 차례)에 설계도에만 있는 쌍을 더한다
 - 개요: 수 타일 · 경고 · 설계 원칙 카드 · 쌍 목록
+- 개요의 '성장' 카드 `#bp-growth`: 능력 일정 줄 수 · 경고 수와 링크. 관계가 없어도 보인다
 - 쌍 쪽: 계획 띠 `bpBand`(두 방향 이정표 · 접촉 사다리, 아크 · 구간 경계, 마지막 반영 화) · 그 쌍의 경고 · 관계 이정표 카드 · 접촉 사다리 카드
 - 계획 띠 기본 범위 `bpSpan`: 기획한 화와 그 쌍 설계도 끝 화 가운데 큰 것. '작품 전체'(`S.bpWide`)로 바꾼다
+- 능력 일정 쪽 `bpAbilityPage`: 계획 띠 `bpAbilityBand`(인물마다 한 줄, 얻은 화를 같은 줄에 겹침) · 능력 경고 · 카드 `bpAbilityCard`(카드 이름 'ap')
+- 능력 일정 줄의 실제 표시 `bpPlanChip` 은 서버 값 `S.bp.plans`(`bpPlanState`)를 쓴다. 능력 칸은 도감 항목 이름을 제안한다(`datalist#bp-ab-names`)
+- 상태가 '모름'인 줄은 '상태창이 없어 실제를 셀 수 없어요'를 적는다
+- 능력 일정 저장은 `bpMerged` 의 'ap' 몫: 능력 일정 전체를 바꾸고 능력 이름을 비운 줄은 뺀다
 - 카드는 읽는 모양이 기본이고 '고치기'로 그 카드만 편다(`S.bpEdit`: 설계도 사본, 저장하지 않은 글은 `S.editDrafts.bp`)
 - 사다리 칸의 부위 · 동작 · 장소는 접는 칩 묶음 `bpChips`(펴 둔 묶음은 `S.bpPickOpen`)
 - 저장 `bpSave` 는 서버 설계도에 고친 카드 몫만 바꿔 넣어(`bpMerged`) `PUT …/blueprint` 로 보낸다. 칸을 다 지운 사다리는 뺀다
