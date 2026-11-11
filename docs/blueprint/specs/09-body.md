@@ -1,6 +1,6 @@
 # 09. 신체 특징을 몸이 드러나는 화에만 넣기
 
-상태: 진행 (claude/body-conditional) · 계획: [plan.md](../plan.md) 의 9번 · 먼저: 6a
+상태: 끝 ([#485](https://github.com/c10dev/canon/pull/485)) · 계획: [plan.md](../plan.md) 의 9번 · 먼저: 6a
 
 ## 목표
 

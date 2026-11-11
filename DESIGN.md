@@ -242,7 +242,8 @@ AI 는 숫자를 매기지 않고 사건만 뽑는다. 같은 사건은 항상 �
 - 설계도(`canon/blueprint.py`, `docs/blueprint/`)에 관계 이정표가 있으면 `plot_warnings` 가 '플롯이 이정표를 앞지름'도 알린다(`pace.milestone_warnings`): 플롯이 바라는 단계의 이정표가 모두 그 화보다 뒤일 때. `blueprint.warnings` 는 이정표끼리 칸이 모자라거나 범위가 겹치는 것, 지금 단계에서 다음 이정표까지 칸이 모자라는 것을 알린다. 모두 막지 않는다.
 - 장편 기획(화별 플롯 초안 · 다음 아크)은 설계도 블록을 받는다(`prompts.blueprint_plan_block`, 예산 `context.BUDGET["blueprint"]`): 그 범위에 걸린 이정표 · 사다리 칸과 그 뒤 첫 것만이라 화수가 늘어도 커지지 않는다. 쓰기 요청은 받지 않는다. 앞당김 실측은 `docs/blueprint/specs/04-plan-prompt.md`.
 - 본문에서 실제로 닿은 칸은 상태 변경안이 아직 닿지 않은 칸 id 목록에서 골라 제안하고(`StateDelta.contacts`), 작가가 고르면 `Project.contact_log` 에 남는다. 지금 칸은 이 기록에서 계산한다. 자동 집필 · `-y` 는 `contact_held` 로 남겨 둔다(2026-11-10 사용자 결정).
-- 화 하나를 만드는 요청도 설계도를 본다(그 화 플롯 인물끼리): 스토리보드는 지금 칸 · 처음 닿는 칸 · 넣지 않을 다음 칸, 쓰기는 처음 닿는 범위인 화에만 한 줄, 검수는 다음 칸을 앞당겼는지. 모두 요청 끝쪽이라 쓰기 가족 캐시를 깨지 않는다.
+- 화 하나를 만드는 요청도 설계도를 본다(그 화 플롯 인물끼리): 스토리보드는 지금 칸 · 처음 닿는 칸 · 넣지 않을 다음 칸, 쓰기는 처음 닿는 범위이고 그 칸이 그 화 플롯 · 연출 지시에 나온 화에만 한 줄, 검수는 다음 칸을 앞당겼는지. 모두 요청 끝쪽이라 쓰기 가족 캐시를 깨지 않는다.
+- 사다리 쓰기 줄의 '칸이 나왔다'는 칸 이름이 그대로 나오거나 칸 이름의 낱말 가운데 절반 넘게 나오는 것이다(`blueprint.rung_in_text`, 2026-11-11). 범위 안 모든 화에 넣으면 범위 첫 화로 앞당기기 쉽다. 실측은 `docs/blueprint/specs/06-episode.md`.
 - 신체 프로필(`Character.body`)은 평소 프롬프트에서 빠지고, 몸이 드러나는 화에만 체형 · 특징이 스토리보드 · 쓰기 · 검수 요청 끝에 들어간다(`cast.body_cast`, `prompts.body_rule` · `body_check_rule`). 고르는 조건은 그 화까지 닿기로 한 설계도 사다리 칸에 옷 안 · 맨살 겹이 있는지(`blueprint.exposed`, 한 번 닿으면 뒤 화도)와 특징 낱말이 그 화 플롯 · 연출 지시에 나오는지다. 미성년 인물은 뺀다. 규칙은 `docs/blueprint/specs/09-body.md`.
 - 플롯 없이 설계도 짜기(작업 `blueprint_draft`, `pipeline.draft_blueprint`)는 설정 · 부 구성 · 작가 메모로 부 하나씩 제안을 받는다. 두 설계도 제안은 출력 한도 16,384토큰을 건다(2026-11-10 flash 실호출의 되풀이 폭주 두 번). 실호출은 `docs/blueprint/specs/08-draft.md`.
 - 지금 플롯에서 설계도 거꾸로 뽑기(작업 `blueprint`, `pipeline.propose_blueprint`)는 아크 하나 · 두 인물씩 제안을 받고, 작가가 고른 줄만 `blueprint.apply_picks` 로 더한다. 실호출 확인은 `docs/blueprint/specs/05-extract.md`.

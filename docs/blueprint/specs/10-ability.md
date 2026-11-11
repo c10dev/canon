@@ -1,6 +1,6 @@
 # 10. 능력 일정 (성장 · 해금 일정)
 
-상태: 진행 (claude/blueprint-ability-122682, [#490](https://github.com/c10dev/canon/pull/490)) · 계획: [plan.md](../plan.md) 의 10번 · 먼저: 1 ~ 6
+상태: 끝 ([#490](https://github.com/c10dev/canon/pull/490)) · 계획: [plan.md](../plan.md) 의 10번 · 먼저: 1 ~ 6
 
 ## 목표
 

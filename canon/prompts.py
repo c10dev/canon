@@ -4194,10 +4194,11 @@ def blueprint_board_rule(p: Project, n: int) -> str:
 
 
 def blueprint_write_line(p: Project, n: int) -> str:
-    """본문 쓰기 지시문의 설계도 한 줄: n 화가 어떤 사다리 칸에 처음 닿는 범위일 때만. 상한은 넣지 않는다 (README 2026-11-10, 앞당김 방지)."""
-    who, names = set(p.episode(n).plot.characters), _bp_names(p)
+    """본문 쓰기 지시문의 설계도 한 줄: n 화가 사다리 칸에 처음 닿는 범위이고 그 칸이 그 화 플롯 · 연출 지시에 나올 때만 (blueprint.rungs_in_plot).
+    범위 안 모든 화에 넣지 않는다. 상한도 넣지 않는다 (README 2026-11-10 · 2026-11-11, 앞당김 방지)."""
+    names = _bp_names(p)
     got = [f"{names.get(lad.a, lad.a)} ↔ {names.get(lad.b, lad.b)} '{blueprint.rung_text(p, lad, r)}'({r.from_ep}~{r.to_ep}화)"
-           for lad in p.blueprint.ladders if lad.a in who and lad.b in who for r in lad.rungs if 0 < r.from_ep <= n <= r.to_ep]
+           for lad, r in blueprint.rungs_in_plot(p, n)]
     return f"\n설계도에서 이 화는 처음 닿는 범위인 사다리 칸이 있습니다: {', '.join(got)}." if got else ""
 
 
@@ -6018,7 +6019,7 @@ PIECES.update({
     "stage_check": Piece("관계 단계 확인", ("check",), "instruction", "stage_check_rule", "관계 수치가 있을 때"),
     "blueprint_check": Piece("설계도 사다리 확인", ("check", "continuity"), "instruction", "blueprint_check_rule", "이 화 인물끼리 사다리의 다음 칸이 있을 때"),
     "blueprint_board": Piece("설계도 (이번 화)", ("continuity",), "instruction", "blueprint_board_rule", "이 화 인물끼리 설계도 줄이 있을 때"),
-    "blueprint_write": Piece("설계도 처음 닿는 칸", ("continuity",), "instruction", "blueprint_write_line", "이 화가 사다리 칸에 처음 닿는 범위일 때"),
+    "blueprint_write": Piece("설계도 처음 닿는 칸", ("continuity",), "instruction", "blueprint_write_line", "이 화가 사다리 칸에 처음 닿는 범위이고 그 칸이 플롯에 나올 때"),
     "body_rule": Piece("신체 특징", ("continuity",), "instruction", "body_rule", "스토리보드 · 쓰기. 그 화 플롯 인물끼리 사다리 계획 칸이 옷 안 · 맨살이거나 특징 낱말이 플롯 · 연출 지시에 나올 때 (미성년 뺌)"),
     "body_check": Piece("신체 특징 확인", ("check", "continuity"), "instruction", "body_check_rule", "body_rule 과 같은 인물이 있을 때"),
     "layer_check": Piece("겉 · 속 확인", ("check", "voice"), "instruction", "layer_check_rule", "겉 · 속을 적은 인물 상태가 있을 때"),
