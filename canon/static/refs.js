@@ -18,6 +18,8 @@ Object.assign(S, {
   refInbox: null,  // newto 로 가져온 받은 화 (GET /refs/inbox, 넣기 화면에서 읽는다)
   refNewtoOk: false,  // 서버에 newto 폴더가 있다 (refs.newto_dir)
   refNewtoWork: '',  // 가져올 작품 번호 칸
+  refDigest: null,  // 연 원고의 화 카드 (GET /refs/<id>/digest: 읽힌 정도 · 화마다 카드 · 읽힐 AI)
+  refDigestAsk: null,  // 전체 읽히기 확인 칸을 열었을 때의 비용 추정 (GET …/digest/estimate)
 });
 
 const REF_JOBS = '.refs';  // newto 가져오기 작업의 project 자리 (routes/refs.REF_JOBS)
@@ -160,8 +162,9 @@ async function refLoad(id, sub) {
     await refInboxRead().catch(() => { S.refInbox = null; });
     return;
   }
-  if (!S.ref || S.ref.id !== id) { S.refPick = new Set(); S.refCmp = null; S.refEditInfo = null; }
+  if (!S.ref || S.ref.id !== id) { S.refPick = new Set(); S.refCmp = null; S.refEditInfo = null; S.refDigest = null; S.refDigestAsk = null; }
   S.ref = await api('GET', `/refs/${enc(id)}`);
+  S.refDigest = await api('GET', `/refs/${enc(id)}/digest`).catch(() => null);
   S.refPane = sub === 'cuts' ? 'cuts' : /^\d+$/.test(sub || '') ? Number(sub) : '';
   S.refEp = null;
   if (typeof S.refPane === 'number') S.refEp = await api('GET', `/refs/${enc(id)}/eps/${S.refPane}`);
@@ -194,7 +197,7 @@ function viewRefs() {
 
 function refHome() {
   const list = S.refList || [];
-  const head = header('작품 밖 도구', '레퍼런스 원고', '다른 소설 원고 txt를 넣으면 화 표시로 화를 나눠요. 고른 화로 문체를 만들거나 역설계 실험을 열 수 있어요. 원고는 이 컴퓨터에만 저장하고, AI에는 고른 화만 보내요.',
+  const head = header('작품 밖 도구', '레퍼런스 원고', '다른 소설 원고 txt를 넣으면 화 표시로 화를 나눠요. 고른 화로 문체를 만들거나 역설계 실험을 열 수 있어요. 원고는 이 컴퓨터에만 저장하고, AI에는 고른 화와 전체 읽히기를 누른 원고만 보내요.',
     list.length ? '<a class="btn primary" href="#/refs/new">+ 원고 넣기</a>' : '');
   if (!list.length) {
     return `${head}<section class="card ref-empty"><h2>아직 넣은 원고가 없어요</h2><p class="small">'1화' · '제1화' · '[1화]' · 'EP.1' 같은 화 표시를 찾아 화마다 나눠요. 화 표시가 없으면 '===' 줄이나 빈 줄로 나눠요.</p>
@@ -253,7 +256,7 @@ function refFileCard(d) {
     <div class="field"><label for="ref-name">이름</label><input id="ref-name" type="text" data-ref-f="name" value="${esc(d.name)}" placeholder="예: 등대지기의 밤"></div>
     <div class="field"><label for="ref-src">출처 <span class="small">(작가 · 작품 등, 고르지 않아도 돼요)</span></label><input id="ref-src" type="text" data-ref-f="source" value="${esc(d.source)}"></div>
     <label class="check-row"><input type="checkbox" data-ref-f="rights"${d.rights ? ' checked' : ''}><span>내가 쓸 권리가 있는 원고예요 (내 원고, 허락받은 원고, 개인 공부용)</span></label>
-    <p class="small">원고는 이 컴퓨터의 작업 폴더에만 저장해요. AI에는 문체 만들기 · 역설계 실험에서 고른 화만 보내요.</p>
+    <p class="small">원고는 이 컴퓨터의 작업 폴더에만 저장해요. AI에는 문체 만들기 · 역설계 실험에서 고른 화와, 전체 읽히기를 누른 원고만 보내요.</p>
     <div class="row"><button type="button" class="btn primary" data-action="refDetect"${ok ? '' : ' disabled'}>화 나누기</button>
       ${d.text ? `<span class="small">${d.text.length.toLocaleString()}자</span>` : ''}</div></section>`;
 }
@@ -402,18 +405,88 @@ function refInfoCard() {
 
 const REF_COLS = [['order', '차례'], ['label', '번호'], ['title', '제목'], ['chars', '글자 수'], ['dialogue', '대사 비율'], ['sentence_len', '문장 평균'], ['paragraph_len', '문단 평균']];
 
+const REF_DIGEST_COLS = [['d_kind', '성격'], ['tension', '긴장'], ['hook', '끝맺음']];
+const REF_AI_NAMES = { gemini: 'Gemini', claude: 'Claude 구독', 'claude-api': 'Claude API', coralbricks: 'CoralBricks', local: '로컬 서버', mock: 'mock' };
+const REF_CORAL_VALUE = 'deepseek-v4.1-flash-value';  // 화 카드에 권하는 싼 모델 (docs/refs/README.md 9장)
+
+/** 이 원고의 전체 읽히기 작업 (돌고 있을 때만) */
+const refDigestJob = (id) => S.jobs.find((j) => j.status === 'running' && j.kind === 'ref_digest' && (j.target || '') === id);
+
+/** 작업 끝 알림 글 (app.js JOB_DONE_MSG). 순수 함수 */
+function refDigestDoneMsg(j) {
+  const r = j.result || {};
+  const fail = (r.failed || []).length;
+  return `${r.read || 0}화를 읽혔어요.${fail ? ` ${fail}화는 읽지 못했어요${r.error ? ` (${r.error})` : ''}.${r.stopped ? ' 연달아 실패해 멈췄어요.' : ''} 다시 읽히면 남은 화만 보내요.` : ''}`;
+}
+
+/** 작업이 한 걸음 나아갔다: 읽힌 화를 다시 받는다 (app.js pollJobs) */
+async function refDigestStep(j) {
+  if (S.route[0] !== 'refs' || !S.ref || S.ref.id !== (j.target || '')) return;
+  S.refDigest = await api('GET', `/refs/${enc(S.ref.id)}/digest`).catch(() => S.refDigest);
+  if (j.status !== 'running') S.refDigestAsk = null;
+}
+
+/** 읽히기 버튼 이름: 처음 · 글이 바뀐 화만 남음 · 읽다 만 화가 남음. 순수 함수 */
+function refDigestLabel(d) {
+  if (!d.read) return '전체 읽히기';
+  return d.stale === d.todo ? '바뀐 화만 다시 읽히기' : '남은 화 읽히기';
+}
+
+/** 비용 추정 한 줄. 순수 함수 */
+function refDigestCost(est) {
+  const free = ['local', 'claude', 'mock'].includes(est.provider);
+  const usd = est.usd == null ? '가격을 모르는 모델이에요' : est.usd === 0 ? (free ? '토큰 요금 없음' : '추정 $0.01 아래') : `추정 $${est.usd}`;
+  return `${est.calls}화 · 입력 약 ${est.input_tokens.toLocaleString()}토큰 · ${usd} · ${est.workers}화씩 함께 보내요${est.long ? ` · 아주 긴 ${est.long}화는 가운데를 줄여 보내요` : ''}`;
+}
+
+function refDigestCard(b) {
+  const d = S.refDigest;
+  if (!d || !d.total) return '';
+  const j = refDigestJob(b.id);
+  const line = `읽힌 화 ${d.read} / ${d.total}${d.stale ? ` · 글이 바뀐 화 ${d.stale}` : ''}${d.at ? ` · 마지막 ${fmtDateTime(d.at)}` : ''}`;
+  const running = j ? `<div class="ref-newto-run" aria-live="polite"><div class="between"><strong>읽히는 중 · ${j.done}/${j.total}</strong>
+      <button type="button" class="btn small" data-job-stop="${j.id}">멈추기</button></div>${j.note ? `<p class="small">${esc(j.note)}</p>` : ''}</div>` : '';
+  const est = S.refDigestAsk;
+  // 이 화면의 주 버튼은 '문체 만들기' 하나라 여기 버튼은 보통 버튼이다 (docs/design/README.md '덜기')
+  const btn = !j && d.todo ? `<button type="button" class="btn" data-action="refDigestAsk" aria-expanded="${!!est}">${refDigestLabel(d)}</button>` : '';
+  const ai = d.ai;
+  const opts = [['', `설정을 따름 (${REF_AI_NAMES[ai.follow.provider] || ai.follow.provider}${ai.follow.name ? ` · ${ai.follow.name}` : ''})`], ...ai.providers.map((p) => [p, REF_AI_NAMES[p] || p])]
+    .map(([v, l]) => `<option value="${v}"${ai.provider === v ? ' selected' : ''}>${esc(l)}</option>`).join('');
+  const coral = ai.coral && !(ai.use.provider === 'coralbricks' && ai.use.name === REF_CORAL_VALUE) && ai.use.provider !== 'mock'
+    ? `<button type="button" class="btn small" data-action="refDigestCoral">CoralBricks 싼 모델로 (${REF_CORAL_VALUE})</button>` : '';
+  const ask = est && !j ? `<div class="ref-digest-ask">
+      <div class="row"><div class="field"><label for="ref-d-ai">읽힐 AI</label><select id="ref-d-ai" data-ref-digest-ai="provider">${opts}</select></div>
+        ${ai.provider ? `<div class="field"><label for="ref-d-model">모델</label><input id="ref-d-model" type="text" data-ref-digest-ai="model" value="${esc(ai.model)}" placeholder="${esc(ai.use.name || '백엔드 기본 모델')}" autocapitalize="off" spellcheck="false"></div>` : ''}${coral}</div>
+      <p class="small">${esc(refDigestCost(est))}</p>
+      <p class="small">화마다 원문을 ${esc(REF_AI_NAMES[est.provider] || est.provider)}${est.model ? ` (${esc(est.model)})` : ''}에 보내 사건 · 인물 · 끝맺음을 정리해요. 정리한 것은 이 컴퓨터의 원고 폴더에만 두고 작품에는 넣지 않아요.${est.provider === 'coralbricks' ? ' CoralBricks는 기본으로 원문을 30일 보관해요. 남기지 않으려면 CoralBricks의 Data & Privacy에서 Zero Data Retention을 켜세요.' : ''}</p>
+      <div class="row"><button type="button" class="btn" data-action="refDigestStart"${est.calls ? '' : ' disabled'}>읽히기 시작</button><button type="button" class="btn" data-action="refDigestAsk">닫기</button></div></div>` : '';
+  return `<section class="card ref-digest"><div class="between"><div><h2>전체 읽히기</h2><span class="small">${line}</span></div>${btn}</div>${running}${ask}</section>`;
+}
+
+/** 화 읽기 화면의 화 카드 */
+function refDigestEp(order) {
+  const c = S.refDigest && S.refDigest.cards[order];
+  if (!c) return '';
+  const meta = [c.kind, c.tension ? `긴장 ${c.tension}` : '', c.hook && c.hook !== '없음' ? `끝맺음 ${c.hook}` : '', c.place].filter(Boolean).join(' · ');
+  return `<details class="ref-digest-ep" open><summary class="small">AI가 정리한 이 화 · ${esc(meta)}</summary>
+    <ol>${c.events.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>
+    <p class="small">끝: ${esc(c.ending)}${c.cast.length ? ` · 인물: ${esc(c.cast.join(', '))}` : ''}${c.cut ? ` · 가운데 ${c.cut.toLocaleString()}자를 줄여 읽혔어요` : ''}</p></details>`;
+}
+
 function refOverview(b) {
-  const eps = [...b.episodes];
+  const cards = (S.refDigest && S.refDigest.cards) || {};
+  const hasCards = Object.keys(cards).length > 0;
+  const eps = b.episodes.map((e) => { const c = cards[e.order] || {}; return { ...e, d_kind: c.kind || '', tension: c.tension || 0, hook: c.hook || '' }; });
   if (S.refSort) eps.sort((x, y) => (typeof x[S.refSort] === 'number' ? y[S.refSort] - x[S.refSort] : String(x[S.refSort]).localeCompare(String(y[S.refSort]))));
   const pick = S.refPick;
   const usable = b.episodes.filter((e) => e.kind !== 'skip' && e.chars);
   const max = Math.max(1, ...usable.map((e) => e.chars));
   const mean = usable.length ? Math.round(usable.reduce((k, e) => k + e.chars, 0) / usable.length) : 0;
   const bars = b.episodes.map((e) => `<a href="#/refs/${b.id}/${e.order}" class="ref-bar${e.kind === 'main' ? '' : ` k-${e.kind}`}${pick.has(e.order) ? ' on' : ''}" style="height:${Math.max(4, Math.round((e.chars / max) * 64))}px" title="${esc(refEpName(e))} · ${e.chars.toLocaleString()}자"><span class="sr-only">${esc(refEpName(e))} ${e.chars}자</span></a>`).join('');
-  const th = REF_COLS.map(([k, l]) => `<th scope="col"><button type="button" class="ref-sort${S.refSort === k || (!S.refSort && k === 'order') ? ' on' : ''}" data-action="refSortBy" data-arg="${k}">${l}</button></th>`).join('');
+  const th = [...REF_COLS, ...(hasCards ? REF_DIGEST_COLS : [])].map(([k, l]) => `<th scope="col"><button type="button" class="ref-sort${S.refSort === k || (!S.refSort && k === 'order') ? ' on' : ''}" data-action="refSortBy" data-arg="${k}">${l}</button></th>`).join('');
   const rows = eps.map((e) => `<tr class="${e.kind === 'skip' ? 'off' : ''}"><td><input type="checkbox" data-ref-pick="${e.order}"${pick.has(e.order) ? ' checked' : ''}${e.kind === 'skip' ? ' disabled' : ''} aria-label="${esc(refEpName(e))} 고르기"></td>
     <td>${e.order}</td><td>${esc(e.label)}${e.kind !== 'main' ? ` <span class="small">${esc(refKind(e.kind))}</span>` : ''}</td><td><a href="#/refs/${b.id}/${e.order}">${esc(e.title || '(제목 없음)')}</a></td>
-    <td class="num">${e.chars.toLocaleString()}</td><td class="num">${Math.round(e.dialogue * 100)}%</td><td class="num">${e.sentence_len}</td><td class="num">${e.paragraph_len}</td></tr>`).join('');
+    <td class="num">${e.chars.toLocaleString()}</td><td class="num">${Math.round(e.dialogue * 100)}%</td><td class="num">${e.sentence_len}</td><td class="num">${e.paragraph_len}</td>${hasCards ? `<td>${esc(e.d_kind)}</td><td class="num">${e.tension || ''}</td><td>${esc(e.hook)}</td>` : ''}</tr>`).join('');
   const n = pick.size;
   const picked = b.episodes.reduce((k, e) => k + (pick.has(e.order) ? e.chars : 0), 0);
   const revMax = S.refLabels.revlab_max_chars || 0;
@@ -425,7 +498,7 @@ function refOverview(b) {
       <button type="button" class="btn" data-action="refToRevlab"${n && !tooMany ? '' : ' disabled'}>역설계 실험 만들기</button></div>
     <p class="small">문체 만들기는 고른 화를 이어 앞 ${(S.refLabels.sample_max || 30000).toLocaleString()}자를 문체 라이브러리 새 항목의 원문 칸에 넣어요. 분석은 그 화면에서 눌러야 해요. 역설계 실험은 화 수와 상관없이 모두 합쳐 ${revMax.toLocaleString()}자까지 넣을 수 있어요${tooMany ? ` (지금 ${picked.toLocaleString()}자라 너무 많이 골랐어요)` : ''}.</p></section>`;
   const made = b.made.length ? `<section class="card"><h2>이 원고로 만든 것</h2><ul class="ref-made">${b.made.map((m) => `<li><a href="#/${m.kind === 'style' ? 'styles' : 'revlab'}/${enc(m.id)}">${m.kind === 'style' ? '문체 라이브러리 항목' : `역설계 실험 ${esc(m.id)}`}</a> <span class="small">${esc(m.eps)} · ${fmtDateTime(m.at)}</span></li>`).join('')}</ul></section>` : '';
-  return `${act}<section class="card"><div class="between"><h2>분량</h2><span class="small">한 화 평균 ${mean.toLocaleString()}자 · 막대를 누르면 그 화를 열어요</span></div><div class="ref-bars" aria-label="화별 글자 수">${bars}</div></section>
+  return `${refDigestCard(b)}${act}<section class="card"><div class="between"><h2>분량</h2><span class="small">한 화 평균 ${mean.toLocaleString()}자 · 막대를 누르면 그 화를 열어요</span></div><div class="ref-bars" aria-label="화별 글자 수">${bars}</div></section>
     ${refCompareCard()}
     <section class="card"><h2>화 표</h2><div class="ref-table-wrap"><table class="ref-table"><thead><tr><th scope="col"><span class="sr-only">고르기</span></th>${th}</tr></thead><tbody>${rows}</tbody></table></div></section>${made}`;
 }
@@ -454,7 +527,7 @@ function refReader(b) {
   const paras = S.refEp.text.split(/\n\s*\n/).map((p) => `<p>${esc(p).replace(/\n/g, '<br>')}</p>`).join('');
   const m = `${e.chars.toLocaleString()}자 · 대사 ${Math.round(e.dialogue * 100)}% · 문장 평균 ${e.sentence_len}자${e.tail_cut ? ` · 작가의 말 ${e.tail_cut.toLocaleString()}자 뗌` : ''}${e.repeat_cut ? ` · 되풀이 줄 ${e.repeat_cut.toLocaleString()}자 뗌` : ''}`;
   return `<section class="card ref-read"><div class="between"><div><h2>${esc(refEpName(e))}</h2><div class="small">${esc(refKind(e.kind))} · ${m}</div></div>${nav}</div>
-    <div class="ref-body">${paras}</div>
+    ${refDigestEp(e.order)}<div class="ref-body">${paras}</div>
     <div class="between">${nav}<a class="btn small" href="#/refs/${b.id}/cuts" data-ref-goto="${e.line}">이 화 경계 고치기</a></div></section>`;
 }
 
@@ -629,6 +702,26 @@ Object.assign(actions, {
     render();
   },
   refPickNone() { S.refPick = new Set(); render(); },
+  async refDigestAsk() {
+    if (S.refDigestAsk) { S.refDigestAsk = null; render(); return; }
+    await run('읽힐 화를 세는 중', async () => { S.refDigestAsk = await api('GET', `/refs/${enc(S.ref.id)}/digest/estimate`); });
+  },
+  async refDigestCoral() {
+    await refDigestSetAI('coralbricks', REF_CORAL_VALUE);
+  },
+  async refDigestStart() {
+    const id = S.ref.id;
+    if (refDigestJob(id)) return;
+    try {
+      const j = await api('POST', `/refs/${enc(id)}/digest`);
+      toast(j.already ? '이미 읽히는 중이에요' : '읽히기 시작했어요. 화마다 저장하니 그동안 다른 작업을 해도 돼요.');
+      S.refDigestAsk = null;
+      S.jobs = S.jobs.filter((x) => x.id !== j.id).concat(j);
+      renderHub();
+      render();
+      pollJobs(true);
+    } catch (e) { showError(e); }
+  },
   async refToStyle() {
     const b = S.ref;
     await run('원문을 모으는 중', async () => {
@@ -711,9 +804,22 @@ document.addEventListener('input', (e) => {
   if (d.refNewto) S.refNewtoWork = e.target.value;
 });
 
+/** 읽힐 AI 를 저장하고 비용 추정을 다시 받는다 */
+async function refDigestSetAI(provider, model) {
+  const id = S.ref.id;
+  await run('읽힐 AI를 바꾸는 중', async () => {
+    S.refDigest.ai = await api('PUT', `/refs/${enc(id)}/digest/ai`, { provider, model });
+    S.refDigestAsk = await api('GET', `/refs/${enc(id)}/digest/estimate`);
+  });
+}
+
 document.addEventListener('change', (e) => {
   const d = e.target.dataset || {};
   const dr = S.refDraft;
+  if (d.refDigestAi && S.ref && S.refDigest) {
+    if (d.refDigestAi === 'provider') refDigestSetAI(e.target.value, '');
+    else refDigestSetAI(S.refDigest.ai.provider, e.target.value.trim());
+  }
   if (d.refFile) refReadFiles(e.target.files).catch(showError);
   if (d.refEnc && dr) { refDecodeAll(dr, e.target.value); render(); }
   if (d.refRule && dr && e.target.value) refDetect({ rule: e.target.value, unit: '' });
@@ -771,6 +877,12 @@ document.addEventListener('dragleave', (e) => { const z = e.target.closest && e.
 .ref-steps { margin: var(--space-8) 0; padding-left: var(--space-20); }
 .ref-newto-run { margin-top: var(--space-12); }
 .ref-newto-run p { margin: var(--space-4) 0 0; overflow-wrap: anywhere; }
+.ref-digest-ask { margin-top: var(--space-12); display: grid; gap: var(--space-8); }
+.ref-digest-ask p { margin: 0; }
+.ref-digest-ask .row { align-items: flex-end; flex-wrap: wrap; }
+.ref-digest-ep { margin: var(--space-12) 0; padding: var(--space-12); border: 1px solid var(--line); border-radius: var(--radius-8); }
+.ref-digest-ep ol { margin: var(--space-8) 0; padding-left: var(--space-20); }
+.ref-digest-ep p { margin: 0; }
 .ref-rep { margin-top: var(--space-12); }
 .ref-rep-list { list-style: none; margin: var(--space-8) 0 0; padding: 0; display: grid; gap: var(--space-4); }
 .ref-rep-text { overflow-wrap: anywhere; }

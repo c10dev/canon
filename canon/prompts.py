@@ -4415,6 +4415,28 @@ SYSTEM_REVERSE = system_prompt(
 )
 
 
+REF_DIGEST_VERSION = 1  # 화 카드 프롬프트 판. 지시나 칸을 바꾸면 올린다 (읽힌 화가 모두 낡음이 된다, refdigest.state)
+
+
+def ref_digest_prompt(text: str) -> str:
+    """레퍼런스 원고 한 화의 화 카드 요청 (pipeline.ref_digest). 지시가 앞, 원문이 뒤라 화마다 앞부분이 같다."""
+    from .schema import REF_DIGEST_HOOKS, REF_DIGEST_KINDS
+
+    return f"""아래 소설 한 화를 읽고 정리하세요.
+events: 이 화에서 일어난 일 4~6개. 한 줄에 사건 하나, 누가 무엇을 했는지 적습니다. 일어난 차례대로.
+누가 했는지는 이름으로 적습니다. 1인칭 서술자도 이름을 알면 이름으로 적습니다.
+cast: 이 화에 나와 말하거나 행동한 인물 이름.
+place: 주된 장소 한 줄.
+ending: 화가 어떻게 끝나는지 한 문장 (무슨 일이 걸린 채 끝나는지).
+kind: 화의 주된 성격 하나 ({" · ".join(REF_DIGEST_KINDS)}).
+tension: 화의 긴장 1~5 (1 느슨함, 5 가장 팽팽함).
+hook: 끝맺음 방식 하나 ({" · ".join(REF_DIGEST_HOOKS)}).
+원문에 없는 일은 적지 않습니다. 원문 문장을 그대로 옮기지 않고 줄여 적습니다.
+
+[원문]
+{text}"""
+
+
 def rev_rules() -> str:
     """역설계 요구사항. 모든 화 요청이 이 글로 시작한다 (화 사이에 같은 앞부분)."""
     fn = "\n".join(f"  {k} {v[0]}: {v[1]}" for k, v in CUE_FUNCTIONS.items())
@@ -6074,6 +6096,7 @@ KINDS: dict[str, Kind] = {
     "rev": Kind("역설계 · 한 화", "실험", "", "SYSTEM_REVERSE", "rev_prompt", "RevEpisodeDraft", "pipeline.reverse_episode"),
     "rev_lines": Kind("역설계 · 줄기", "실험", "", "SYSTEM_REVERSE", "rev_lines_prompt", "RevLineSet", "pipeline.reverse_lines"),
     "rev_arcs": Kind("역설계 · 아크", "실험", "", "SYSTEM_REVERSE", "rev_arcs_prompt", "RevArcSet", "pipeline.reverse_arcs"),
+    "ref_digest": Kind("레퍼런스 · 화 카드", "실험", "", "SYSTEM_REVERSE", "ref_digest_prompt", "RefDigest", "pipeline.ref_digest"),
     "research": Kind("연구 화면 샘플 (기본 시스템)", "실험", "", "SYSTEM_WRITER", "research.sample", "", "routes.research"),
 }
 

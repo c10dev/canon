@@ -3399,6 +3399,39 @@ class RevAIs(BaseModel):
     write: RevAI = Field(default_factory=RevAI)
 
 
+REF_DIGEST_KINDS = ("전투", "대화", "탐색", "일상", "회상", "설명", "전환")
+REF_DIGEST_HOOKS = ("위기", "반전", "물음", "결심", "여운", "없음")
+
+
+class RefDigest(BaseModel):
+    """LLM 응답 형식: 레퍼런스 원고 한 화의 화 카드 (pipeline.ref_digest). 원문 문장은 담지 않는다."""
+    events: list[str] = Field(description="이 화에서 일어난 일 4~6개. 한 줄에 사건 하나, 누가 했는지를 이름으로. 일어난 차례대로")
+    cast: list[str] = Field(description="이 화에 나와 말하거나 행동한 인물 이름")
+    place: str = Field(description="주된 장소 한 줄")
+    ending: str = Field(description="화가 무엇을 걸어 둔 채 끝나는지 한 문장")
+    kind: str = Field(description="화의 주된 성격 하나: " + " · ".join(REF_DIGEST_KINDS))
+    tension: int = Field(description="화의 긴장 1(느슨함)~5(가장 팽팽함)")
+    hook: str = Field(description="끝맺음 방식 하나: " + " · ".join(REF_DIGEST_HOOKS))
+
+
+class RefDigestItem(BaseModel):
+    """읽힌 화 하나. basis 는 읽힌 그때 화 글의 지문이다. 경계를 고쳐 글이 바뀌면 지문이 달라져 다시 읽힌다."""
+    basis: str
+    order: int = Field(0, description="읽힌 그때의 차례 (표시용. 찾을 때는 basis 를 쓴다)")
+    at: str = ""
+    model: str = ""
+    version: int = Field(0, description="읽힌 프롬프트 판 (prompts.REF_DIGEST_VERSION)")
+    cut: int = Field(0, description="화가 너무 길어 가운데에서 줄인 글자 수")
+    digest: RefDigest
+
+
+class RefDigestBook(BaseModel):
+    """레퍼런스 원고의 화 카드 묶음 (<refs 폴더>/<id>/digest.json, canon/refdigest.py). 작품 데이터가 아니다."""
+    ai: RevAI = Field(default_factory=RevAI, description="읽힐 AI. 비면 설정의 계획 단계를 따른다 (preset 은 쓰지 않는다)")
+    items: list[RefDigestItem] = Field(default_factory=list)
+    read_orders: list[int] = Field(default_factory=list, description="읽힌 적이 있는 차례 (글이 바뀐 화를 세는 데만 쓴다)")
+
+
 class RevLab(BaseModel):
     """역설계 실험 하나. <CANON_HOME>/.revlab/<id>.json. 작품 데이터가 아니다."""
     id: int
