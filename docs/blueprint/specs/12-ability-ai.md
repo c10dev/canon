@@ -1,6 +1,6 @@
 # 12. 능력 일정을 AI 로 짜기 · 지금 플롯에서 거꾸로 뽑기 (인물 단위)
 
-상태: 진행 (claude/blueprint-ability-draft-e0181a) · 계획: [plan.md](../plan.md) 의 12번 · 먼저: 5, 8, 10
+상태: 진행 (claude/blueprint-ability-draft-e0181a, [#501](https://github.com/c10dev/canon/pull/501)) · 계획: [plan.md](../plan.md) 의 12번 · 먼저: 5, 8, 10
 
 ## 목표
 
