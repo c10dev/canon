@@ -6,7 +6,7 @@ LLM 을 부르지 않는다. 계획값이라 관계 수치(Tie)나 플롯을 바
 from __future__ import annotations
 
 import re
-from typing import Callable, Iterator, Optional
+from typing import Callable, Iterator, NamedTuple, Optional
 
 from . import abilities, dynamics, logline, statwin
 from .schema import Ability, AbilityPlan, ContactLadder, ContactReach, ContactRung, Milestone, Project, StateDelta
@@ -222,6 +222,70 @@ def warning_rows(p: Project) -> list[tuple[str, str, str]]:
 def warnings(p: Project) -> list[str]:
     """warning_rows 와 ability_warning_rows 의 글만."""
     return [w for _, _, w in warning_rows(p)] + [w for _, w in ability_warning_rows(p)]
+
+
+def pair_key(a: str, b: str) -> str:
+    """쌍 키: 두 인물 id 를 정렬해 '~' 로 잇는다 (화면 bpKey 와 같다)."""
+    return "~".join(sorted((a, b)))
+
+
+class First(NamedTuple):
+    """처음 닿는 줄 (docs/blueprint/specs/11-whole.md 정할 것 4): 한 방향이 한 단계에, 한 쌍이 한 겹에 처음 닿는 이정표 · 사다리 칸.
+    axis 는 '단계' 나 '겹'이다. 뒤에 인물 사다리 같은 축을 더할 수 있게 글로 둔다. who 는 단계면 (보는, 보이는), 겹이면 (a, b)."""
+    pair: str
+    axis: str
+    value: str
+    from_ep: int
+    to_ep: int
+    id: str
+    who: tuple[str, str]
+
+
+def firsts(milestones: list, ladders: list) -> list[First]:
+    """처음 닿는 줄들. 화 범위와 단계(겹)를 모두 적은 줄만 센다. 같은 방향 · 같은 단계(같은 쌍 · 같은 겹)에서 첫 화가 가장 이른 줄이 처음이다.
+    이정표는 방향마다 뽑는다(같은 쌍의 두 방향은 몰림이 아니다). 제안 줄과 이미 적은 줄을 섞어 넣을 수 있게 설계도가 아니라 목록을 받는다."""
+    best: dict[tuple, First] = {}
+
+    def keep(k: tuple, f: First) -> None:
+        if k not in best or (f.from_ep, f.to_ep) < (best[k].from_ep, best[k].to_ep):
+            best[k] = f
+    for m in milestones:
+        if m.stage and m.from_ep > 0 and m.source != m.target:
+            keep(("단계", m.source, m.target, m.stage), First(pair_key(m.source, m.target), "단계", m.stage, m.from_ep, m.to_ep or m.from_ep, m.id, (m.source, m.target)))
+    for lad in ladders:
+        for r in lad.rungs:
+            if r.layer and r.from_ep > 0:
+                keep(("겹", pair_key(lad.a, lad.b), r.layer), First(pair_key(lad.a, lad.b), "겹", r.layer, r.from_ep, r.to_ep or r.from_ep, r.id, (lad.a, lad.b)))
+    return sorted(best.values(), key=lambda f: (f.from_ep, f.to_ep, f.pair, f.axis, f.value))
+
+
+def crowd_pairs(fs: list[First]) -> list[tuple[First, First]]:
+    """몰린 두 줄: 서로 다른 쌍이 같은 축 · 같은 값에 처음 닿는 줄의 화 범위가 한 화라도 겹친다(끝 화가 같은 화도 겹침). 막지 않는다."""
+    out = []
+    for i, x in enumerate(fs):
+        for y in fs[i + 1:]:
+            if x.pair != y.pair and x.axis == y.axis and x.value == y.value and x.from_ep <= y.to_ep and y.from_ep <= x.to_ep:
+                out.append((x, y))
+    return out
+
+
+def crowd_rows(p: Project, fs: list[First]) -> list[tuple[str, str, str]]:
+    """몰림 글 (두 쌍 키, 글). 제안 카드(11b)에만 쓴다. 늘 보이는 warning_rows 에는 넣지 않는다(작가가 일부러 둔 동시 장면이 있어서다).
+    같은 두 쌍 · 같은 축 · 같은 값은 한 줄로 줄인다."""
+    names = {c.id: c.name or c.id for c in p.characters}
+
+    def who(f: First) -> str:
+        s, t = (names.get(x, x) for x in f.who)
+        return f"{s} → {t}" if f.axis == "단계" else f"{s} ↔ {t}"
+    out, seen = [], set()
+    for x, y in crowd_pairs(fs):
+        k = (*sorted((x.pair, y.pair)), x.axis, x.value)
+        if k in seen:
+            continue
+        seen.add(k)
+        what = f"{x.value} 단계" if x.axis == "단계" else f"{x.value} 겹"
+        out.append((x.pair, y.pair, f"{who(x)}({_rng(x)})와 {who(y)}({_rng(y)})가 같은 화 범위에 {what}에 처음 닿아요."))
+    return out
 
 
 def rung_text(p: Project, lad: ContactLadder, r: ContactRung) -> str:

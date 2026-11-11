@@ -5809,9 +5809,34 @@ class AbilityPlanWarn(BaseModel):
     text: str
 
 
+class BlueprintFirst(BaseModel):
+    """처음 닿는 줄 하나 (blueprint.firsts). 개요의 전체 띠가 그린다 (docs/blueprint/specs/11-whole.md)."""
+    pair: str = Field(description="쌍 키 'a~b' (두 id 정렬)")
+    axis: Literal["단계", "겹"]
+    value: str = Field(description="관계 단계나 겹")
+    from_ep: int
+    to_ep: int
+    id: str = Field(description="이정표 · 사다리 칸 id")
+    source: str = Field(description="단계면 보는 인물, 겹이면 사다리의 a")
+    target: str = Field(description="단계면 보이는 인물, 겹이면 사다리의 b")
+    crowd: list[str] = Field(default_factory=list, description="같은 축 · 같은 값에 겹치는 화 범위로 처음 닿는 다른 쌍 키 (blueprint.crowd_pairs). 띠의 테두리만 바꾼다")
+
+
+def _blueprint_firsts(p: Project) -> list[BlueprintFirst]:
+    fs = blueprint.firsts(p.blueprint.milestones, p.blueprint.ladders)
+    crowd: dict[str, list[str]] = {}
+    for x, y in blueprint.crowd_pairs(fs):
+        for f, other in ((x, y), (y, x)):
+            if other.pair not in crowd.setdefault(f.id, []):
+                crowd[f.id].append(other.pair)
+    return [BlueprintFirst(pair=f.pair, axis=f.axis, value=f.value, from_ep=f.from_ep, to_ep=f.to_ep, id=f.id, source=f.who[0], target=f.who[1], crowd=crowd.get(f.id, []))
+            for f in fs]
+
+
 class BlueprintView(BaseModel):
     blueprint: Blueprint
     warnings: list[BlueprintWarn]
+    firsts: list[BlueprintFirst] = []
     plans: list[AbilityPlanState] = []
     ability_warnings: list[AbilityPlanWarn] = []
     parts: list[BlueprintPick]
@@ -5821,12 +5846,13 @@ class BlueprintView(BaseModel):
 
 @app.get("/api/projects/{name}/blueprint")
 def blueprint_view(name: str) -> BlueprintView:
-    """설계도와 경고(blueprint.warning_rows), 능력 일정의 계획 대 실제 · 경고, 사다리 칸이 고르는 부위 · 동작 이름."""
+    """설계도와 경고(blueprint.warning_rows), 능력 일정의 계획 대 실제 · 경고, 처음 닿는 줄과 몰림(blueprint.firsts · crowd_pairs), 사다리 칸이 고르는 부위 · 동작 이름."""
     from .stage import ACTS, PARTS
     p = _load(name)
     return BlueprintView(blueprint=p.blueprint, warnings=[BlueprintWarn(source=s, target=t, text=w) for s, t, w in blueprint.warning_rows(p)],
                          plans=[AbilityPlanState(**x) for x in blueprint.ability_states(p)],
                          ability_warnings=[AbilityPlanWarn(character=c, text=w) for c, w in blueprint.ability_warning_rows(p)],
+                         firsts=_blueprint_firsts(p),
                          parts=[BlueprintPick(id=k, label=v.label) for k, v in PARTS.items()],
                          acts=[BlueprintPick(id=k, label=v.label) for k, v in ACTS.items()],
                          last=max((e.plot.number for e in p.episodes if e.status == "finalized"), default=0))

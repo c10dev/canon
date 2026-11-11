@@ -565,3 +565,70 @@ def test_draft_job_api(client):
     done = _wait(client, job["id"])
     assert done["status"] == "done" and done["result"]["mode"] == "draft" and done["result"]["end"] == 12
     assert any(k.startswith("blueprint_draft:") for k in client.get("/api/projects/bpd/pending").json()["results"])
+
+
+# ----- 처음 닿는 줄 · 쌍끼리 몰림 (docs/blueprint/specs/11-whole.md 11a) -----
+
+def _harem() -> Project:
+    p = _proj()
+    p.characters += [Character(id="s", name="수빈", role="히로인", personality="", speech_style="", appearance="", goal="", backstory="")]
+    return p
+
+
+def test_firsts_take_earliest_line_per_direction_and_layer():
+    ms = [Milestone(id="ms-1", source="a", target="j", from_ep=5, to_ep=8, stage="호감"),
+          Milestone(id="ms-2", source="a", target="j", from_ep=1, to_ep=3, stage="호감"),  # 같은 방향 · 같은 단계에서 더 이르다
+          Milestone(id="ms-3", source="j", target="a", from_ep=2, to_ep=4, stage="호감"),  # 다른 방향은 따로
+          Milestone(id="ms-4", source="a", target="j", from_ep=0, to_ep=0, stage="신뢰"),  # 화 범위 없음
+          Milestone(id="ms-5", source="a", target="j", from_ep=9, to_ep=9, label="고백")]  # 단계 없음
+    lads = [_ladder(ContactRung(id="cr-1", layer="옷 위", from_ep=3, to_ep=4), ContactRung(id="cr-2", layer="옷 위", from_ep=6, to_ep=6),
+                    ContactRung(id="cr-3", from_ep=7, to_ep=7), ContactRung(id="cr-4", layer="맨살", from_ep=9, to_ep=10))]
+    got = blueprint.firsts(ms, lads)
+    assert [(f.id, f.axis, f.value, f.pair) for f in got] == [("ms-2", "단계", "호감", "a~j"), ("ms-3", "단계", "호감", "a~j"),
+                                                             ("cr-1", "겹", "옷 위", "a~j"), ("cr-4", "겹", "맨살", "a~j")]
+    assert got[1].who == ("j", "a") and got[2].who == ("a", "j")
+
+
+def test_crowd_needs_two_pairs_same_value_and_shared_episode():
+    p = _harem()
+    ms = [Milestone(id="ms-1", source="j", target="a", from_ep=1, to_ep=10, stage="호감"),
+          Milestone(id="ms-2", source="a", target="j", from_ep=5, to_ep=6, stage="호감"),  # 같은 쌍의 다른 방향은 몰림이 아니다
+          Milestone(id="ms-3", source="s", target="a", from_ep=10, to_ep=20, stage="호감")]  # 끝 화 10이 같다 → 몰림
+    fs = blueprint.firsts(ms, [])
+    assert [(x.id, y.id) for x, y in blueprint.crowd_pairs(fs)] == [("ms-1", "ms-3")]
+    assert blueprint.crowd_rows(p, fs) == [("a~j", "a~s", "지훈 → 아영(1~10화)와 수빈 → 아영(10~20화)가 같은 화 범위에 호감 단계에 처음 닿아요.")]
+    ms[2].from_ep = 11  # 닿기만 하고 겹치지 않음
+    assert blueprint.crowd_pairs(blueprint.firsts(ms, [])) == []
+    ms[2].from_ep, ms[2].stage = 10, "신뢰"  # 다른 단계
+    assert blueprint.crowd_pairs(blueprint.firsts(ms, [])) == []
+
+
+def test_crowd_on_layers_and_not_in_warnings():
+    p = _harem()
+    p.blueprint.ladders = [_ladder(ContactRung(id="cr-1", label="손", layer="맨살", from_ep=3, to_ep=5)),
+                           ContactLadder(a="s", b="a", rungs=[ContactRung(id="cr-2", label="손", layer="맨살", from_ep=5, to_ep=5),
+                                                              ContactRung(id="cr-3", label="등", layer="옷 위", from_ep=4, to_ep=4)])]
+    fs = blueprint.firsts(p.blueprint.milestones, p.blueprint.ladders)
+    assert blueprint.crowd_rows(p, fs) == [("a~j", "a~s", "아영 ↔ 지훈(3~5화)와 수빈 ↔ 아영(5화)가 같은 화 범위에 맨살 겹에 처음 닿아요.")]
+    assert blueprint.warnings(p) == []  # 늘 보이는 경고에는 넣지 않는다 (정할 것 5)
+
+
+def test_view_has_firsts_with_crowd(client):
+    meta = {"title": "하렘", "genre": "성인", "logline": "", "target_episodes": 30}
+    assert client.post("/api/projects", json={"name": "bpw", "meta": meta}).status_code == 200
+    client.post("/api/projects/bpw/suggest/apply", json=client.post("/api/projects/bpw/suggest").json())
+    from canon import store
+    q = store.load("bpw")
+    q.characters.append(Character(id="s", name="수빈", role="히로인", personality="", speech_style="", appearance="", goal="", backstory=""))
+    store.save("bpw", q)
+    a, b, c = q.characters[0].id, q.characters[1].id, "s"
+    body = {"milestones": [{"source": a, "target": b, "from_ep": 1, "to_ep": 5, "stage": "호감"},
+                           {"source": a, "target": c, "from_ep": 4, "to_ep": 8, "stage": "호감"},
+                           {"source": b, "target": a, "from_ep": 2, "to_ep": 2, "stage": "경계"}], "ladders": []}
+    assert client.put("/api/projects/bpw/blueprint", json=body).status_code == 200
+    v = client.get("/api/projects/bpw/blueprint").json()
+    by = {f["id"]: f for f in v["firsts"]}
+    assert set(by) == {"ms-1", "ms-2", "ms-3"}
+    assert by["ms-1"]["crowd"] == [blueprint.pair_key(a, c)] and by["ms-2"]["crowd"] == [blueprint.pair_key(a, b)] and by["ms-3"]["crowd"] == []
+    assert by["ms-3"]["axis"] == "단계" and (by["ms-3"]["source"], by["ms-3"]["target"]) == (b, a)
+    assert v["warnings"] == []

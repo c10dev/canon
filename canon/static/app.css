@@ -1615,6 +1615,7 @@ a.ab-tile:hover { border-color: var(--line-strong); }
 .bp-bar { position: absolute; top: 2px; bottom: 2px; border-radius: var(--radius-6); background: var(--accent-soft); border: 1px solid var(--sel-line); color: var(--accent-ink); font-size: 0.75rem; overflow: hidden; }
 .bp-bar.bp-is-rung { background: var(--amber-soft); border-color: var(--warn-line); color: var(--amber-ink); }
 .bp-bar.bp-is-hit { background: var(--green-soft); border-color: var(--green); color: var(--green-ink); }
+.bp-bar.bp-crowd { border: 2px solid var(--amber); }  /* 전체 띠: 다른 쌍과 같은 단계 · 겹에 겹치는 화 범위로 처음 닿음 */
 .bp-bar-t { display: block; padding: 0 var(--space-4); line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bp-tick, .bp-now { position: absolute; top: 0; bottom: 0; width: 0; left: calc(var(--bp-lead) + (100% - var(--bp-lead)) * var(--at)); pointer-events: none; }
 .bp-tick { border-left: 1px dashed var(--line-strong); }
@@ -1623,6 +1624,7 @@ a.ab-tile:hover { border-color: var(--line-strong); }
 .bp-dir h3 { margin: 0; font-size: 0.875rem; }
 .bp-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--space-6); }
 .bp-list > li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-6); }
+.bp-pair { font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }  /* 개요 관계 줄의 쌍 이름: 누르면 그 쌍 쪽으로 */
 ol.bp-list { counter-reset: rung; }
 ol.bp-list > li::before { counter-increment: rung; content: counter(rung) "."; font-weight: 700; color: var(--muted); }
 .bp-list > li.bp-row-edit { display: block; padding: var(--space-8) 0; }
@@ -2600,6 +2602,7 @@ dialog.set-dlg::backdrop { background: var(--overlay); }
 /* 손가락 기기 · 휴대폰 폭: 작게 그린 누름 영역을 touch-min(44px)으로 키운다 (DS README '접근성').
    작은 버튼(.btn.small 36px)이 기본 버튼(.btn 44px)과 같아져 한 줄의 버튼 높이가 같다. 레일 메뉴 줄은 특정도가 높아 따로 건다 */
 @media (pointer: coarse), (max-width: 640px) {
+  .bp-pair { display: inline-flex; align-items: center; min-height: var(--touch-min); }
   .btn.small, .savebar .btn, .plot-wrap .outline-h .btn, .plot-todo .btn, .cast-slider .icon-btn { min-height: var(--touch-min); }
   .seg button, .outline-item, .pop-radio, .pop-check, .cmd, #toast .t .t-act { min-height: var(--touch-min); }
   .plot-wrap .outline-item.act, .plot-wrap .outline-item.ep-row, .plot-page .cast-boxes label.row, .arc-form .cast-boxes label.row { min-height: var(--touch-min); }

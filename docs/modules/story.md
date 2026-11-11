@@ -290,6 +290,10 @@
 - 플롯이 이정표를 앞지르는 경고는 `pace.milestone_warnings`
 - 계획값이라 관계 수치(`Tie`) · 플롯을 바꾸지 않는다
 - 경고에 방향을 붙인 `warning_rows`(보는 인물, 보이는 인물, 글). `warnings` 는 그 글만
+- 쌍 키 `pair_key(a, b)`: 두 id 를 정렬해 `~` 로 잇는다(화면 `bpKey` 와 같다)
+- 처음 닿는 줄 `firsts(milestones, ladders)`: 방향마다 단계마다, 쌍마다 겹마다 첫 화가 가장 이른 줄(`First`: 쌍 키 · 축 '단계' · '겹' · 값 · 화 범위 · id · 두 인물). 화 범위와 단계(겹)를 모두 적은 줄만
+- 쌍끼리 몰림 `crowd_pairs(firsts)`: 서로 다른 쌍이 같은 축 · 같은 값에 처음 닿는 줄의 화 범위가 한 화라도 겹침. 같은 쌍의 두 방향은 몰림이 아니다
+- 몰림 글 `crowd_rows(p, firsts)`(두 쌍 키, 글)는 전체 짜기 제안 카드(11b)가 쓴다. 늘 보이는 `warning_rows` 에는 넣지 않는다([docs/blueprint/specs/11-whole.md](../blueprint/specs/11-whole.md))
 - 능력의 실제 쪽 값은 저장하지 않는다. 얻은 화 `got_ep` 는 상태창 기록(`abilities.history`)에서 그 능력 조각이 계획 등급에 처음 닿은 화다(시작 값은 0, 기록 없이 상태창에만 있어도 0)
 - 등급 견주기 `_grade_ok`: 괄호 · 빈칸을 떼고 같은 말, 도감 등급 목록의 차례, 숫자만 다른 등급의 숫자로 '그 이상'
 - 능력 일정 줄 상태 `ability_states`: 얻음 · 앞섬 · 늦음 · 지남 · 예정 · 미정, 도감 항목이 있는지(`linked`)
@@ -299,6 +303,7 @@
 - 이 경고는 `abilities.list_pieces` 로 도감과 잇는 목록 항목의 조각만 본다(인벤토리의 같은 이름 물건은 뺀다)
 - 웹은 `GET` · `PUT /api/projects/{name}/blueprint`(보기 `BlueprintView`: 설계도 · 방향 붙은 경고 · 부위 · 동작 이름 · 마지막 반영 화, 저장은 설계도 통째와 `check`)
 - `BlueprintView` 의 `plans`(`AbilityPlanState`: id · 얻은 화 · 상태 · 도감 연결) · `ability_warnings`(인물 id · 글)
+- `BlueprintView` 의 `firsts`(`BlueprintFirst`: 쌍 키 · 축 · 값 · 화 범위 · id · 두 인물 · 몰린 다른 쌍 키 `crowd`, `_blueprint_firsts`)
 - 능력 일정 제안(`AbilityProposal`, 인물 하나씩 뽑기 · 짜기, `docs/blueprint/specs/12-ability-ai.md`)의 정리 `clean_abilities(p, rows, ids, start, end)`: ids 인물의 줄만, 범위 자르기, 근거는 범위 안 세 개까지
 - `clean_abilities` 는 등급 꼬리를 먼저 떼고, 이미 적은 줄 · 앞 제안 줄과 같은 인물 · 능력 · 등급인 줄을 뺀다(남으면 `check` 가 통째로 거절한다)
 - 고른 능력 줄 더하기 `apply_abilities`: 사본에 붙이고 `check`, 어긋나면 아무것도 바꾸지 않는다. 상태창 기록은 건드리지 않는다
@@ -788,11 +793,15 @@
 - 주소 `blueprint`(개요) · `blueprint/<쌍 키>`. 쌍 키는 두 인물 id 를 정렬해 `~` 로 이은 것(`bpKey`)
 - 주소 `blueprint/@ability`(`BP_AB`)는 능력 일정 쪽이다. 쌍 키와 겹치지 않는다
 - 쌍 목록 `bpPairs`: 관계 설정의 쌍(그 차례와 a · b 차례)에 설계도에만 있는 쌍을 더한다
-- 개요: 수 타일 · 경고 · 설계 원칙 카드 · 쌍 목록
+- 개요: 수 타일 · 경고 · 전체 띠 · 설계 원칙 카드 · 쌍 목록
+- 개요의 전체 띠 `bpWholeBand`(`#bp-whole`): 쌍마다 한 줄에 서버가 고른 처음 닿는 줄(`S.bp.firsts`)만, 그 아래 능력 일정 줄(`bpAbLanes`). 처음 닿는 줄도 능력 일정도 없으면 그리지 않는다
+- 전체 띠에서 다른 쌍과 몰린 막대(`crowd`)는 `.bp-crowd` 테두리만 바꾼다. 글 경고 · 경고 수에는 넣지 않는다
+- 개요 쌍 목록의 쌍 이름은 굵은 밑줄 링크 `.bp-pair` 하나다(손가락 기기에서 44px)
+- 띠의 공용 틀 `bpBandFrame`(경계 눈금 · 마지막 반영 화 · '기획한 화 / 작품 전체')과 기본 범위 `bpPlannedSpan` 은 세 띠가 함께 쓴다
 - 개요의 '성장' 카드 `#bp-growth`: 능력 일정 줄 수 · 경고 수와 링크. 관계가 없어도 보인다
 - 쌍 쪽: 계획 띠 `bpBand`(두 방향 이정표 · 접촉 사다리, 아크 · 구간 경계, 마지막 반영 화) · 그 쌍의 경고 · 관계 이정표 카드 · 접촉 사다리 카드
 - 계획 띠 기본 범위 `bpSpan`: 기획한 화와 그 쌍 설계도 끝 화 가운데 큰 것. '작품 전체'(`S.bpWide`)로 바꾼다
-- 능력 일정 쪽 `bpAbilityPage`: 계획 띠 `bpAbilityBand`(인물마다 한 줄, 얻은 화를 같은 줄에 겹침) · 능력 경고 · 카드 `bpAbilityCard`(카드 이름 'ap')
+- 능력 일정 쪽 `bpAbilityPage`: 계획 띠 `bpAbilityBand`(인물마다 한 줄 `bpAbLanes`, 얻은 화를 같은 줄에 겹침) · 능력 경고 · 카드 `bpAbilityCard`(카드 이름 'ap')
 - 능력 일정 줄의 실제 표시 `bpPlanChip` 은 서버 값 `S.bp.plans`(`bpPlanState`)를 쓴다. 능력 칸은 도감 항목 이름을 제안한다(`datalist#bp-ab-names`)
 - 도감에 없는 능력 일정 줄에는 '도감에 만들기' 글자 버튼을 단다. 스킬 도감 화면의 `abNew` 로 이름을 채운 새 항목 칸을 연다
 - 상태가 '모름'인 줄은 '상태창이 없어 실제를 셀 수 없어요'를 적는다
@@ -814,7 +823,6 @@
 - 겹친 제안 줄은 '이미 있음'과 그 줄을 보이고 기본으로 고르지 않는다
 - 쌍 쪽 맨 아래 'AI로 설계도 받기' `bpExtractCard`: 메모 · 부 고르기 · 'AI로 짜기'(작업 `blueprint_draft`), 플롯이 있으면 '지금 플롯에서 뽑기'(작업 `blueprint`, 장편은 아크 고르기)
 - 제안 카드 제목은 결과의 `mode` 로 'AI가 짠 설계도' · 'AI가 뽑은 설계도'
-- 개요의 관계 목록 줄마다 '여정 짜기' 버튼(그 쌍 쪽으로)
 - 도착한 제안은 `S.bpDraft` 로 계획 띠 · 경고 다음 카드 `bpDraftCard`(줄마다 고르기 · 근거). '고른 줄 더하기'는 `POST …/blueprint/apply`
 - 능력 일정 쪽 맨 아래 'AI로 능력 일정 받기' `bpAbAiCard`: 인물 · 메모 · 부 고르기 · 'AI로 짜기'(작업 `blueprint_ability_draft`), 플롯이 있으면 '지금 플롯에서 뽑기'(작업 `blueprint_ability`)
 - 도착한 능력 일정 제안은 `S.bpAbDrafts` 에 자리 열쇠 `bpAbDraftKey`('인물 id|extract' · '인물 id|draft')마다 하나씩 둔다(같은 자리의 새 제안이 앞 것을 바꾼다). 카드 `bpAbDraftCard` 는 경고 다음이고 주 버튼은 '고른 줄 더하기' 하나다
