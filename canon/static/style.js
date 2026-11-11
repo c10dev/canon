@@ -182,7 +182,7 @@ function pfRead(id, prof, root, hot, base = 'style') {
     };
     const n = layered ? writeRuleCount(prof) : 0;
     const over = n > RULE_LIMIT ? ` <span class="chip warn">집필 ${n}개 · ${RULE_LIMIT}개 넘음</span>` : '';
-    const stage = layered ? `<div class="row"><button type="button" class="btn small" aria-pressed="${polishStageOn()}" data-action="polishStage">쓴 뒤 퇴고</button>${help(POLISH_STAGE_WHY, '퇴고 단계 설명 보기')}</div>` : '';
+    const stage = layered ? `<div class="row" style="gap:4px"><button type="button" class="set-sw" role="switch" aria-checked="${polishStageOn()}" aria-label="쓴 뒤 퇴고" data-action="polishStage"></button><span>쓴 뒤 퇴고</span>${help(POLISH_STAGE_WHY, '퇴고 단계 설명 보기')}</div>` : '';  // 켜기 · 끄기 스위치 (docs/design Field)
     return `${stage}<div class="grid-2">
         <div><div class="pf-lbl"><i class="sw ok" aria-hidden="true"></i>지킬 것 ${(prof.dos || []).length}${tag('dos')}${layered ? help(RULE_LAYER_WHY, '층 설명 보기') : ''}${over}</div>${rules('dos')}</div>
         <div><div class="pf-lbl"><i class="sw no" aria-hidden="true"></i>피할 것 ${(prof.donts || []).length}${tag('donts')}</div>${rules('donts')}</div>

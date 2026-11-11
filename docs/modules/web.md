@@ -708,7 +708,7 @@
   - '지킬 · 피할 것' 카드에서 수가 0인 묶음은 '비어 있음'을 따로 적지 않는다
   - 장편 작품 문체의 '지킬 · 피할 것' 카드는 줄마다 층 칩(`.chip.rl`, '집필' · '계획')을 단다. 누르면 바뀐다(`ruleLayer`, `Settings.rule_layers`). 라이브러리 문체 · 단편에는 없다
   - 퇴고 단계를 켜면 칩이 집필 → 계획 → 퇴고 차례로 돈다(`.chip.rl.polish`). 끄면 퇴고 줄도 집필로 보인다
-  - 같은 카드 머리의 '쓴 뒤 퇴고' 버튼(`polishStage`)이 `Settings.polish_stage` 를 켜고 끈다(장편만)
+  - 같은 카드 머리의 '쓴 뒤 퇴고' 스위치(`.set-sw`, `polishStage`)가 `Settings.polish_stage` 를 켜고 끈다(장편만)
   - write 층 줄이 20개(`RULE_LIMIT`)를 넘으면 지킬 것 머리에 `.chip.warn` '집필 n개 · 20개 넘음'을 단다(`writeRuleCount`)
   - 목차 수 `styleCount`
   - 서술 카드 칸은 `NARR_KEYS`(효과음 표기 포함). 목차 수는 채운 칸 / 전체 칸
