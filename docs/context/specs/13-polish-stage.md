@@ -1,6 +1,6 @@
 # 13. 퇴고 단계 (집필 요청의 금지 규칙을 쓴 뒤 고치기로 옮김)
 
-상태: 진행 (claude/polish-stage, [#491](https://github.com/c10dev/canon/pull/491)) · 계획: [plan.md](../plan.md) 의 13번 · 먼저: —
+상태: 끝 ([#491](https://github.com/c10dev/canon/pull/491)) · 계획: [plan.md](../plan.md) 의 13번 · 먼저: —
 
 ## 목표
 
