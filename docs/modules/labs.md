@@ -191,6 +191,9 @@
 - 저장 `create`(권리 확인 `rights` 필수) · `update` · `delete` · `entries` · `summary`
 - 저장 때 화별 지표(`RefEp`: 글자 수 · 대사 비율 · 문장 · 문단 평균, `metrics.measure`)를 재 둔다. AI 호출 없음
 - 문체 만들기 원문 `sample`(고른 화를 이어 `SAMPLE_MAX` 자까지) · 역설계 실험 만들기 `to_revlab`(`revlab.create_episodes`, 화 수는 막지 않고 글자 수만 `revlab.MAX_CHARS`) · 있는 실험에 잇기 `to_lab`(`revlab.append_episodes`, 화마다 출처 `RevSource`) · 화 차례별 지금 글 `texts`(출처 상태용)
+- `sample` 은 고른 화가 `SAMPLE_MAX` 를 넘으면 앞에서 자르지 않고 범위 전체에서 조각을 고루 뽑는다(`refsample.spread`, 2026-11-11). `spread=False` 면 예전처럼 앞에서 자른다
+- `sample` 은 화 카드(`refdigest`)가 있는 화에 성격을, 모든 화에 저장된 대사 비율을 붙여 넘긴다. 응답에 조각 목록 `pieces` · `spread` · `with_cards` 를 더한다
+- 고른 화의 원문 전체 `corpus`: 문체 분석이 표지 빈도를 표본이 아니라 이 글에서 센다(`pipeline.analyze_style` 의 `corpus`)
 - 이 원고로 만든 것 `made`(`RefMade`, 문체는 `POST /api/styles` 의 `ref` · `ref_eps` 로 남긴다)
 - 내 작품과 견주기 `compare`(본문 있는 화 지표, 작품에 쓰지 않음)
 - 받은 화 대기열 `inbox` · `inbox_add` · `inbox_clear`: newto 로 가져온 화를 `<refs 폴더>/inbox.json` 에 둔다(원고 폴더가 아니라 `entries` 가 읽지 않음)
@@ -202,6 +205,19 @@
 - 웹은 `/api/refs…`(`routes/refs.py`)
 - 화면은 `static/refs.js`
 - 시험 `tests/test_refs.py`(원고는 `tests/fixtures/refs_story.txt`, 직접 지은 글)
+
+### `canon/refsample.py`
+
+- 레퍼런스 원고의 문체 표본 흩기(설계는 [docs/refs/](../refs/README.md) 9-3, 일감 8). AI 를 부르지 않는다
+- `spread(chosen, budget)`: 고른 화의 합이 예산 안이면 통째로 잇고, 넘으면 범위를 `ZONES`(3) 구간으로 나눠 구간마다 `PER_ZONE`(3)화를 고른다
+- 화 고르기 `pick_episodes`: 화 카드의 성격이 있으면 흔한 성격부터 성격마다 하나(구간을 셋으로 나눈 자리에 가까운 화, 한가운데에 몰리지 않게)
+- 성격이 없거나 자리가 남으면 대사 비율이 가장 낮은 화 · 가운데인 화 · 가장 높은 화 차례로 채운다
+- 화에서 뽑는 조각 `pieces_of`: 첫머리 30% · 대사 몫이 가장 큰 덩어리 20% · 가장 작은 덩어리 20% · 끝 30%(`PARTS`). 문단과 문장 끝에서 자른다
+- 화가 화 하나의 몫보다 짧으면 통째로 넣는다. `PIECE_MIN`(200자)보다 짧은 덩어리는 뽑지 않는다
+- 조각은 원문 글자 그대로다. 조각 사이는 `SEP`('***' 줄)로 잇는다
+- 돌려주는 값: 보낼 글 `text` · 조각 목록 `pieces`(차례 · 이름 · 부분 · 글자 수) · 흩어 뽑았는지 `spread` · 고른 화의 글자 수 `chars` · 조각을 뽑은 화 수 `episodes`
+- 부르는 곳은 `refs.sample`. 화면 이름 `PART_NAMES` 는 `static/refs.js` 의 `REF_PART` 와 같다
+- 시험 `tests/test_refsample.py`
 
 ### `canon/research.py`
 
@@ -493,6 +509,8 @@
 - 고른 경계 칸(`refCutEditor`): 번호 · 제목 · 종류 · 여기부터 번호 다시 매기기 · 앞 화와 합치기
 - 개요(`refOverview`): 고른 화로 하기(범위 `refRange`, 문체 만들기 `refToStyle`, 역설계 실험 만들기 `refToRevlab`) · 분량 막대 · 내 작품과 견주기 · 화 표(정렬) · 만든 것
 - 문체 만들기는 `S.libFromRef` 에 원문을 담아 `#/styles/new` 로 간다(라이브러리 새 항목의 원문 칸)
+- 문체 만들기가 흩어 뽑은 표본이면 `S.libFromRef` 에 고른 차례 `orders` 와 조각 목록 `pieces` 도 담고, 알림(`refSpreadMsg`)으로 몇 화에서 몇 조각을 뽑았는지 알린다
+- `refSpreadMsg` · `refPieceLines` 는 순수 함수
 - 개요 맨 위 전체 읽히기 카드(`refDigestCard`): 읽힌 정도 한 줄과 버튼 하나(`refDigestLabel`: 전체 읽히기 · 바뀐 화만 다시 읽히기 · 남은 화 읽히기)
 - 버튼을 누르면 확인 칸이 열린다: 읽힐 AI 고르기(`refDigestSetAI`) · 비용 추정 한 줄(`refDigestCost`) · 원문이 가는 곳 안내 · 읽히기 시작(`refDigestStart`)
 - CoralBricks 키가 있으면 확인 칸에 싼 모델(`REF_CORAL_VALUE`)로 바꾸는 버튼을 보인다

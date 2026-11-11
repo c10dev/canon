@@ -496,6 +496,7 @@
 - `WriteCut` 이나 세 번 실패로 끝난 쓰기는 본문을 돌려주지 않으므로 규칙 걸기 기록도 없다
 - 방금 만든 스토리보드 다음의 큐 시트: `make_storyboard(lead=)` 가 보낸 요청 글을 채우고, `cue_lead` 가 그 스토리보드가 AI 가 만든 그대로 · 낡지 않음일 때만 그 글을 돌려준다. `make_cue_sheet(lead=)` 는 그 글로 시작하는 요청을 보낸다(자동 집필 `_cues`, 웹 쓰기 작업 `board: make`)
 - 문체 분석 `analyze_style` 뒤 `count_markers` 가 표지 · 장치 단서를 거른다: 원문에 없는 것, 한글 2자 미만(`MARKER_MIN_HANGUL`), 인물 이름(2자 이상)이 든 것
+- `analyze_style` 에 `corpus` 를 주면 `count_markers` 가 표본이 아니라 그 글에서 세고 거른다. 모델은 표본만 읽는다(레퍼런스 원고에서 흩어 뽑은 표본, `refs.corpus`)
 - `apply_learning` 의 알림 `rule_limit_note`: write 층 지킬 것 · 피할 것이 `RULE_LIMIT`(20)를 넘으면 합치거나 계획 층으로 옮기라고 알린다
 - `count_markers` 는 원문 표본에 없는(공백 빼고 견줌) 장치 예시를 비운다
 - 검수

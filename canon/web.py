@@ -1756,6 +1756,8 @@ LIB_JOBS = ".styles"  # 문체 라이브러리 분석 작업의 project 자리 (
 class LibAnalyzeIn(BaseModel):
     text: str
     lib: str = ""  # 결과를 놓을 라이브러리 항목 id. 새 항목은 비운다 (화면이 'new' 로 받는다)
+    ref: str = ""  # 레퍼런스 원고에서 가져온 원문이면 그 원고 id. 표지 빈도를 고른 화 전체에서 센다
+    ref_orders: list[int] = []  # 그 원고에서 고른 화의 차례
 
 
 @app.post("/api/styles/analyze/job")
@@ -1764,9 +1766,11 @@ def analyze_library_style_job(body: LibAnalyzeIn) -> dict:
     if len(body.text.strip()) < 200:
         raise HTTPException(400, "예시 원문은 200자 이상 넣어 주세요")
     llm, text, lib = get_llm("plan"), body.text, body.lib or "new"
+    # 레퍼런스 원고에서 흩어 뽑은 표본이면 표지 빈도는 고른 화 전체에서 센다 (모델에는 표본만 보낸다)
+    whole = refs.corpus(body.ref, body.ref_orders) if body.ref and body.ref_orders and refs.exists(body.ref) else ""
 
     def fn(job: jobs.Job):
-        return {"profile": pipeline.analyze_style(llm, text).model_dump(), "lib": lib}
+        return {"profile": pipeline.analyze_style(llm, text, corpus=whole).model_dump(), "lib": lib, "counted": len(whole)}
     try:
         with usage.scope(project="", episode=None, task="lib_style"):
             job = jobs.start(LIB_JOBS, "lib_style", None, "문체 분석 (라이브러리)", fn)

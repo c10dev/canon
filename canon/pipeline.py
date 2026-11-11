@@ -279,10 +279,12 @@ def _init_states(p: Project) -> None:
 
 # ---------- 2. 스타일 레퍼런스 ----------
 
-def analyze_style(llm: LLM, sample: str, names: list[str] | None = None, passages: bool = True) -> StyleProfile:
-    """passages 가 거짓이면 대표 문단을 묻지 않는다 (prompts.style_prompt)."""
+def analyze_style(llm: LLM, sample: str, names: list[str] | None = None, passages: bool = True, corpus: str = "") -> StyleProfile:
+    """passages 가 거짓이면 대표 문단을 묻지 않는다 (prompts.style_prompt).
+    corpus 를 주면 표지 빈도와 장치 단서를 표본이 아니라 그 글에서 세고 거른다 (레퍼런스 원고에서 흩어 뽑은 표본의 원문 전체).
+    모델은 표본만 읽는다."""
     profile = llm.json(prompts.SYSTEM_PLANNER, prompts.style_prompt(sample, passages), StyleProfile)
-    count_markers(profile, sample, names)
+    count_markers(profile, corpus or sample, names)
     return profile
 
 
