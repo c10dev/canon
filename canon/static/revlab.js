@@ -938,7 +938,7 @@ const revTakeStyle = (t) => (t.style ? `문체 넣음${t.style_id ? ` · ${t.sty
 
 /* ----- AI 모델: 이 실험의 AI 호출만 바꾼다 (서버 revlab.ai_choice · set_ai, 고르지 않으면 설정 화면의 단계 칸) ----- */
 
-const REV_AI_PROVIDERS = ['gemini', 'claude', 'claude-api', 'local'];  // revlab.AI_PROVIDERS 와 같은 차례
+const REV_AI_PROVIDERS = ['gemini', 'claude', 'claude-api', 'coralbricks', 'local'];  // revlab.AI_PROVIDERS 와 같은 차례
 
 /** 쓸 AI 한 줄: 'claude-opus-5-5 · Claude 구독'. 모델 칸이 비면 그 백엔드의 기본 모델(default), 그것도 없으면 백엔드 이름. */
 function revAiText(u) {

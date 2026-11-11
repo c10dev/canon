@@ -1024,6 +1024,22 @@ export CANON_CLAUDE_MODEL=opus    # 선택. 비우면 Claude Code 기본 모델 
 - **추론 강도**: 설정 › 단계별 모델에서 Claude · Gemini 로 돌리는 단계 줄에 **추론 강도** 칸이 생긴다. Claude 단계는 (낮음 low · 보통 medium · 높음 high · 아주 높음 xhigh · 최대 max). 비우면 모델 기본값을 쓴다(Opus 5.5 는 medium, Sonnet 5.5 는 high. 구독은 Claude Code 설정을 따른다). 구독은 `claude --effort` 로, API 키는 `output_config.effort` 로 넘긴다. 부분 수정 · 이름 추천처럼 부모 단계가 있는 줄은 비워 두면 같은 백엔드인 부모 단계 강도를 따른다. 환경 변수 `CANON_EFFORT_CHECK` 처럼 단계마다 정할 수도 있고, 화면 칸보다 우선한다. 강도는 단계 프리셋에 들어가지 않는다. 강도가 높을수록 생각 토큰이 늘어 느려진다. 검수 한 화 실측(2026-11-04, Opus 5.5 구독, 1회씩): 낮음 17초 · 보통 41초 · 높음 59초 · 아주 높음 118초. 사용량 기록에는 정한 강도가 `effort` 로 남는다.
 - **Gemini 추론 강도**: Gemini 단계는 낮음 · 보통 · 높음을 고르고 `thinking_level`(LOW · MEDIUM · HIGH)로 넘긴다. 비우면 모델 기본값이고, gemini-4-argon 은 이때 생각하지 않는다(본문 호출 153건 모두 생각 토큰 0). 최소(MINIMAL)는 gemini-4-argon · gemini-3.8-flash 가 거절해서 두지 않는다. Claude 에서 고른 아주 높음 · 최대는 Gemini 단계에서 높음으로 넘긴다. 생각 토큰은 출력 요금이고, 큐 시트처럼 출력 한도가 있는 호출에서는 한도에 함께 든다. 본문 쓰기 실측(2026-11-04, gemini-4-argon, 3화 × 2회, 블라인드 판정): 기본 · 낮음은 생각 토큰 0 · 118초 · 호출당 약 $0.084, 높음은 생각 토큰 평균 9,643 · 274초 · 약 $0.180 이었고 판정 평균 점수는 6.1 · 6.1 · 7.3 이었다. 설정 오류 수는 수준을 가르지 못했다.
 
+
+## CoralBricks (DeepSeek V4.1 Flash)
+
+[CoralBricks](https://www.coralbricks.ai) 의 API 키로 DeepSeek V4.1 Flash 를 부른다. 설정의 **AI 연결 › CoralBricks** 에 키를 넣고 **기본 AI**나 **단계별 모델**에서 'CoralBricks API' 를 고른다.
+
+```bash
+export CORAL_API_KEY=cb_...
+export CANON_LLM_STATE=coralbricks             # 단계 하나만 맡길 때
+export CANON_MODEL_STATE=deepseek-v4.1-flash-value
+```
+
+- 모델은 `deepseek-v4.1-flash`(기본) · `deepseek-v4.1-flash-value`(싼 쪽) · `deepseek-v4.1-flash-fast`(빠른 쪽)다.
+- 선불 잔액에서 토큰만큼 빠진다. 사용량 화면 가격표에 세 모델의 값이 들어 있다.
+- 단계 추론 강도를 정하면 `reasoning_effort` 로 넘긴다. 비우면 추론 없이 답한다.
+- 원문을 서버에 남기지 않으려면 CoralBricks 대시보드의 Data & Privacy 에서 Zero Data Retention 을 켠다.
+
 ## 연구 화면 (모델 실험)
 
 웹 사이드바의 **연구 · 모델 실험**에서 모델을 시험한다. 작품 데이터(`project.json`)는 바꾸지 않고, 결과는 `projects/<이름>/research/log.jsonl` 에 남는다. 블라인드 비교에서 '본문으로 채택'을 켜고 고를 때만 그 화 본문이 바뀐다.

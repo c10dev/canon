@@ -31,7 +31,8 @@ DEFAULT_MODEL = "gemini-4-argon"
 DEFAULT_VERTEX_LOCATION = "global"  # 새 Gemini 모델은 global 엔드포인트에 먼저 나온다
 DEFAULT_LOCAL_URL = "http://localhost:11434/v1"  # Ollama. llama.cpp 는 :8080/v1, vLLM 은 :8000/v1
 # claude: 설치된 Claude Code 의 구독 로그인, claude-api: Anthropic API 키 (claude.py)
-PROVIDERS = ("gemini", "local", "claude", "claude-api", "mock")
+# coralbricks: CoralBricks API 키 (coral.py, OpenAI 호환)
+PROVIDERS = ("gemini", "local", "claude", "claude-api", "coralbricks", "mock")
 # 단계: plan(설정 제안, 문체 분석, 기승전결, 화별 플롯) / write(본문) / check(검수) / state(상태 추출)
 # / audit(상태 변경안 누락 검사, 작품 설정 state_audit 를 켤 때만, 싼 모델 권장)
 # / name(이름·지명 AI 추천) / revise(본문 부분 수정, 서술 다듬기) / illustration(삽화 프롬프트) / play(플레이 모드 장면)
@@ -42,11 +43,12 @@ STAGE_PARENT = {"board": "plan", "audit": "state", "name": "plan", "revise": "wr
 # 단계별 추론 강도. 비우면 모델 기본값을 쓴다. 단계 프리셋에는 넣지 않는다 (설정 파일 stage_efforts 와 환경 변수만).
 # Claude 는 EFFORTS 를 claude --effort · Messages API output_config.effort 로 넘긴다.
 # Gemini 는 GEMINI_EFFORTS 를 thinking_level 로 넘긴다. minimal 은 gemini-4-argon · 3.8-flash 가 400 으로 거절한다 (2026-11-04).
+# CoralBricks 는 EFFORTS 를 reasoning_effort 로 넘긴다 (서버가 medium 을 high 로, xhigh 를 max 로 읽는다).
 # 로컬 · mock 은 이 값을 보지 않는다. 백엔드가 받지 않는 값은 provider_effort 가 가장 가까운 값으로 바꾼다.
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 GEMINI_EFFORTS = ("low", "medium", "high")
 CLAUDE_PROVIDERS = ("claude", "claude-api")
-EFFORT_PROVIDERS = (*CLAUDE_PROVIDERS, "gemini")
+EFFORT_PROVIDERS = (*CLAUDE_PROVIDERS, "gemini", "coralbricks")
 # 단계별 백엔드 · 모델 묶음. 고르면 설정 화면의 단계 칸을 채운다 (적지 않은 단계는 비워서 부모 단계나 생성 방식을 따른다).
 # 작가가 만든 묶음은 설정 파일 stage_presets 에 둔다 (save_preset).
 BUILTIN_PRESETS = (
@@ -356,6 +358,16 @@ def anthropic_key() -> tuple[str, str]:
     return _pick(("ANTHROPIC_API_KEY",), _read().get("anthropic_api_key"))
 
 
+def coral_key() -> tuple[str, str]:
+    """coralbricks 백엔드의 API 키 (coralbricks.ai 의 api-keys 에서 발급)."""
+    return _pick(("CORAL_API_KEY",), _read().get("coral_api_key"))
+
+
+def coral_model() -> tuple[str, str]:
+    """coralbricks 백엔드 기본 모델. 비우면 coral.DEFAULT_MODEL."""
+    return _pick(("CANON_CORAL_MODEL",), _read().get("coral_model"))
+
+
 def local_sampling() -> dict:
     """본문 생성용 샘플링 값. 설정 파일의 local_sampling 이 기본값을 덮는다."""
     return {**DEFAULT_SAMPLING, **(_read().get("local_sampling") or {})}
@@ -420,7 +432,7 @@ def stage_model(stage: str | None, preset: dict | None = _CURRENT) -> tuple[str,
 
 def provider_effort(provider: str, value: str) -> str:
     """그 백엔드에 넘길 추론 강도. Gemini 는 xhigh · max 를 high 로 받는다. 강도를 받지 않는 백엔드와 모르는 값은 ""."""
-    if provider in CLAUDE_PROVIDERS:
+    if provider in CLAUDE_PROVIDERS or provider == "coralbricks":
         return value if value in EFFORTS else ""
     if provider == "gemini":
         return "high" if value in ("xhigh", "max") else (value if value in GEMINI_EFFORTS else "")
@@ -491,7 +503,8 @@ def update(*, provider: str | None = None, model: str | None = None,
            clear_anthropic_key: bool = False, gemini_auth: str | None = None,
            vertex_credentials: str | None = None, vertex_project: str | None = None,
            vertex_location: str | None = None, stage_efforts: dict[str, str] | None = None,
-           claude_separate: bool | None = None) -> None:
+           claude_separate: bool | None = None, coral_api_key: str | None = None,
+           clear_coral_key: bool = False, coral_model: str | None = None) -> None:
     """None 인 값은 그대로 둔다. 빈 문자열이면 파일에서 지운다."""
     bad = [f"{k}={v}" for k, v in (stage_efforts or {}).items() if (v or "").strip() and v.strip().lower() not in EFFORTS]
     if bad:
@@ -506,7 +519,8 @@ def update(*, provider: str | None = None, model: str | None = None,
                            ("claude_model", claude_model), ("claude_bin", claude_bin),
                            ("anthropic_api_key", anthropic_api_key), ("gemini_auth", gemini_auth),
                            ("vertex_credentials", vertex_credentials), ("vertex_project", vertex_project),
-                           ("vertex_location", vertex_location)):
+                           ("vertex_location", vertex_location), ("coral_api_key", coral_api_key),
+                           ("coral_model", coral_model)):
             if value is None:
                 continue
             if value.strip():
@@ -517,6 +531,8 @@ def update(*, provider: str | None = None, model: str | None = None,
             data.pop("gemini_api_key", None)
         if clear_anthropic_key:
             data.pop("anthropic_api_key", None)
+        if clear_coral_key:
+            data.pop("coral_api_key", None)
         if claude_separate is not None:  # 끄면 지운다. 전용 폴더의 로그인은 지우지 않아 다시 켜면 그대로 쓴다
             if claude_separate:
                 data["claude_separate"] = True
@@ -610,13 +626,14 @@ def set_prices(rows: list[dict]) -> None:
 
 def stage_view(preset: dict | None) -> dict[str, dict]:
     """단계마다 실제로 쓰는 백엔드와 모델 이름(비우면 백엔드 기본 모델 이름)과 출처. preset 은 stage_provider 와 같다."""
-    mdl, lmodel, cmodel = model()[0], local_model()[0], claude_model()[0]
+    mdl, lmodel, cmodel, crmodel = model()[0], local_model()[0], claude_model()[0], coral_model()[0]
     out = {}
     for s in STAGES:
         sp, ssrc = stage_provider(s, preset)
         sm, smsrc = stage_model(s, preset)
         label = {"gemini": mdl, "local": lmodel or "로컬 서버 모델", "mock": "mock",
-                 "claude": cmodel or "Claude Code 기본 모델", "claude-api": cmodel or "claude-opus-5-5"}.get(sp, sp)
+                 "claude": cmodel or "Claude Code 기본 모델", "claude-api": cmodel or "claude-opus-5-5",
+                 "coralbricks": crmodel or "deepseek-v4.1-flash"}.get(sp, sp)
         if sm and sp != "mock":
             label = sm
         eff, esrc = stage_effort(s, preset) if sp in EFFORT_PROVIDERS else ("", "default")
@@ -635,6 +652,8 @@ def public() -> dict:
     lmodel, lmodel_src = local_model()
     cmodel, cmodel_src = claude_model()
     akey, akey_src = anthropic_key()
+    ckey, ckey_src = coral_key()
+    crmodel, crmodel_src = coral_model()
     auth, auth_src = gemini_auth()
     vcred, vcred_src = vertex_credentials()
     vproj, vproj_src = vertex_project()
@@ -675,6 +694,10 @@ def public() -> dict:
         "claude_config_dir_source": claude_config_dir()[1],
         "anthropic_key_hint": f"…{akey[-4:]}" if len(akey) >= 8 else ("설정됨" if akey else ""),
         "anthropic_key_source": akey_src if akey else "none",
+        "coral_key_hint": f"…{ckey[-4:]}" if len(ckey) >= 8 else ("설정됨" if ckey else ""),
+        "coral_key_source": ckey_src if ckey else "none",
+        "coral_model": crmodel,
+        "coral_model_source": crmodel_src,
         "stages": stages,
         "stage_settings": {k: v for k, v in (_read().get("stages") or {}).items() if k in STAGES},
         "stage_model_settings": {k: v for k, v in (_read().get("stage_models") or {}).items() if k in STAGES},

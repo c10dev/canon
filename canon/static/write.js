@@ -475,7 +475,7 @@ function viewEpisode(n, panel = 'write') {
 
   // 생성 방식 토글은 본문 단계 백엔드 이름을 보인다 (작품 프리셋이 있으면 그 값, 설정을 아직 받지 않았으면 이름 없이)
   const wst = projectStage('write');
-  const wname = wst ? ({ gemini: 'Gemini', local: '로컬', mock: 'mock', claude: 'Claude', 'claude-api': 'Claude API' }[wst.provider] || wst.provider) : '';
+  const wname = wst ? ({ gemini: 'Gemini', local: '로컬', mock: 'mock', claude: 'Claude', 'claude-api': 'Claude API', coralbricks: 'CoralBricks' }[wst.provider] || wst.provider) : '';
   const seg = e.status !== 'finalized' ? `<div class="seg" role="group" aria-label="생성 방식"><button type="button" aria-pressed="${isApi}" data-action="setMode" data-arg="api" title="${wst ? `본문 모델 ${esc(wst.model || '')} · 설정에서 바꿔요` : '설정에서 바꿔요'}">AI로 쓰기${wname ? ` · ${esc(wname)}` : ''}</button><button type="button" aria-pressed="${!isApi}" data-action="setMode" data-arg="brief">채팅 앱 작업지시서</button></div>` : '';
 
   let center;

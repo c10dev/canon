@@ -13,7 +13,7 @@ const STAGE_PARENT = { board: 'plan', audit: 'state', name: 'plan', revise: 'wri
 const stageName = (s) => (STAGES.find(([x]) => x === s) || [s, s])[1];
 // '본문 쓰기를 따름' · '계획을 따름' (조사 josa 는 app.js)
 const stageFollow = (s) => `${stageName(s)}${josa(stageName(s), '을', '를')} 따름`;
-const PROVIDERS = [['gemini', 'Gemini API'], ['claude', 'Claude 구독 로그인'], ['claude-api', 'Claude API 키'], ['local', '로컬 서버'],
+const PROVIDERS = [['gemini', 'Gemini API'], ['claude', 'Claude 구독 로그인'], ['claude-api', 'Claude API 키'], ['coralbricks', 'CoralBricks API'], ['local', '로컬 서버'],
   ['mock', 'mock (AI 없이 화면 확인)']];
 const provName = (v) => (PROVIDERS.find(([x]) => x === v) || [v, v])[1];
 
@@ -41,7 +41,8 @@ function projectStage(s, p = S.project, c = S.config || {}) {
   };
   const pv = prov(s);
   const label = model(s) || { gemini: c.model_setting, local: c.local_model || '로컬 서버 모델',
-    claude: c.claude_model || 'Claude Code 기본 모델', 'claude-api': c.claude_model || 'claude-opus-5-5' }[pv] || pv;
+    claude: c.claude_model || 'Claude Code 기본 모델', 'claude-api': c.claude_model || 'claude-opus-5-5',
+    coralbricks: c.coral_model || 'deepseek-v4.1-flash' }[pv] || pv;
   return { ...st, provider: pv, model: label, source: own(s, 'LLM') ? st.source : 'project' };
 }
 
@@ -82,6 +83,8 @@ const SET_ROWS = [
   { id: 'local-url', cat: 'ai', sec: '로컬 서버', label: '로컬 서버 주소', words: 'ollama llama.cpp vllm lm studio openai url' },
   { id: 'local-model', cat: 'ai', sec: '로컬 서버', label: '로컬 모델 이름', words: '모델 ollama' },
   { id: 'local-key', cat: 'ai', sec: '로컬 서버', label: '로컬 서버 키', words: '키 key' },
+  { id: 'coral-key', cat: 'ai', sec: 'CoralBricks', label: 'CoralBricks API 키', words: '키 key coral deepseek cb_' },
+  { id: 'coral-model', cat: 'ai', sec: 'CoralBricks', label: 'CoralBricks 모델', words: '모델 deepseek flash value fast' },
   { id: 'preset-pick', cat: 'stages', sec: '프리셋', label: '프리셋으로 채우기', words: '프리셋 묶음 gemini anthropic' },
   { id: 'preset-save', cat: 'stages', sec: '프리셋', label: '내 프리셋으로 저장', words: '프리셋 저장 이름' },
   ...STAGES.map(([s, label, desc]) => ({ id: `stage-${s}`, cat: 'stages', sec: '단계', label, words: `단계 모델 백엔드 ${desc}` })),
@@ -180,7 +183,7 @@ function keyRow(id, kind, name, hint, src, placeholder, help) {
   const locked = src === 'env';
   const clear = src === 'file' && kind !== 'local' ? `<button type="button" class="btn ghost" data-action="setKeyClear" data-arg="${kind}">지우기</button>` : '';
   return setRow(id, `${name} ${hint === null ? '' : keyChip(hint, src)}`,
-    `${src !== 'none' && src ? `${srcWord(src)}에 있어요. ` : ''}${help}${locked ? ` ${envLine(src, { gemini: 'GEMINI_API_KEY', anthropic: 'ANTHROPIC_API_KEY', local: 'CANON_LOCAL_KEY' }[kind])}` : ''}`,
+    `${src !== 'none' && src ? `${srcWord(src)}에 있어요. ` : ''}${help}${locked ? ` ${envLine(src, { gemini: 'GEMINI_API_KEY', anthropic: 'ANTHROPIC_API_KEY', local: 'CANON_LOCAL_KEY', coral: 'CORAL_API_KEY' }[kind])}` : ''}`,
     locked ? '' : `<input class="set-inp" id="set-key-${kind}" type="password" autocomplete="off" data-keep aria-labelledby="rn-${id}" placeholder="${esc(src === 'none' ? placeholder : '바꿀 때만 붙여 넣기')}">
       <button type="button" class="btn" data-action="setKeySave" data-arg="${kind}">키 저장</button>${clear}`);
 }
@@ -201,6 +204,7 @@ function modelDatalist() {
     ...(((m.gemini || {}).models || []).length ? m.gemini.models : KNOWN_MODELS).map((x) => [x, 'Gemini']),
     ...((m.local || {}).models || []).map((x) => [x, '로컬 서버']),
     ...[...new Set([...((m.claude || {}).models || []), ...((m['claude-api'] || {}).models || [])])].map((x) => [x, 'Claude']),
+    ...((m.coralbricks || {}).models || []).map((x) => [x, 'CoralBricks']),
   ];
   return `<datalist id="model-options">${opts.map(([v, l]) => `<option value="${esc(v)}" label="${l}"></option>`).join('')}</datalist>`;
 }
@@ -284,6 +288,12 @@ function setRowHtml(id) {
     case 'local-key':
       return keyRow(id, 'local', '서버 키', null, c.has_local_key ? 'file' : 'none', '서버가 키를 요구할 때만',
         `서버가 키를 요구할 때만 넣어요. 지금 ${c.has_local_key ? '있어요' : '없어요'}.`);
+    case 'coral-key':
+      return keyRow(id, 'coral', 'CoralBricks API 키', c.coral_key_hint, c.coral_key_source, 'cb_ 로 시작하는 키',
+        "'CoralBricks API' 방식에서만 써요. <a href=\"https://www.coralbricks.ai/api-keys\" target=\"_blank\" rel=\"noopener\">CoralBricks</a>에서 받아요. 선불 잔액에서 토큰만큼 빠져요.");
+    case 'coral-model':
+      return textRow(id, 'coral_model', 'CoralBricks 모델', '비우면 deepseek-v4.1-flash예요. 싼 쪽은 deepseek-v4.1-flash-value, 빠른 쪽은 deepseek-v4.1-flash-fast예요.',
+        c.coral_model, c.coral_model_source, 'CANON_CORAL_MODEL', { list: 'model-options', placeholder: 'deepseek-v4.1-flash' });
     case 'preset-pick': {
       const list = c.stage_presets || [];
       const cur = presetOf(list, { stages: c.stage_settings, stage_models: c.stage_model_settings });
@@ -675,7 +685,7 @@ function stageRow(s, c) {
 // 추론 강도 (settings.EFFORTS · GEMINI_EFFORTS). Claude · Gemini 백엔드 단계에만 보인다. 비우면 모델 기본값
 const EFFORT_LABEL = { low: '낮음', medium: '보통', high: '높음', xhigh: '아주 높음', max: '최대' };
 const effortLocked = (s, st) => st.effort_env === `CANON_EFFORT_${s.toUpperCase()}`;
-const effortShown = (st) => ['claude', 'claude-api', 'gemini'].includes(st.provider);
+const effortShown = (st) => ['claude', 'claude-api', 'gemini', 'coralbricks'].includes(st.provider);
 
 /** 그 단계 백엔드가 받는 강도 목록. Gemini 는 thinking_level (낮음 · 보통 · 높음) */
 function effortOptions(st, c) {
@@ -716,6 +726,8 @@ function setEnvList(c) {
   add(c.claude_model_source, 'CANON_CLAUDE_MODEL', c.claude_model);
   add(c.claude_bin_source, 'CANON_CLAUDE_BIN', c.claude_bin);
   add(c.anthropic_key_source, 'ANTHROPIC_API_KEY', c.anthropic_key_hint);
+  add(c.coral_key_source, 'CORAL_API_KEY', c.coral_key_hint);
+  add(c.coral_model_source, 'CANON_CORAL_MODEL', c.coral_model);
   STAGES.forEach(([s]) => {
     const st = (c.stages || {})[s] || {};
     if (st.env === `CANON_LLM_${s.toUpperCase()}`) out.push([st.env, provName(st.provider)]);
@@ -726,7 +738,7 @@ function setEnvList(c) {
 }
 
 // 쓰지 않는 연결(Gemini · Claude · 로컬 서버)은 한 줄로 접어 둔다. 펼치면 칸이 보인다 (SET.open)
-const SET_PROV_SECS = { Gemini: ['gemini'], Claude: ['claude', 'claude-api'], '로컬 서버': ['local'] };
+const SET_PROV_SECS = { Gemini: ['gemini'], Claude: ['claude', 'claude-api'], '로컬 서버': ['local'], CoralBricks: ['coralbricks'] };
 
 function setSection(sec, rows, searching, title = esc(sec)) {
   const html = rows.map((r) => setRowHtml(r.id)).join('');
@@ -1008,6 +1020,7 @@ async function setChange(e) {
     const used = new Set(Object.values(pre.stages || {}));
     const c2 = S.config || {};
     if (used.has('claude-api') && c2.anthropic_key_source === 'none') setNote(row, `${SET.note[row].text}. Anthropic API 키를 넣어야 써요`, 'ok');
+    if (used.has('coralbricks') && c2.coral_key_source === 'none') setNote(row, `${SET.note[row].text}. CoralBricks API 키를 넣어야 써요`, 'ok');
     else if (used.has('gemini') && c2.key_source === 'none' && c2.gemini_auth !== 'vertex') setNote(row, `${SET.note[row].text}. Gemini API 키를 넣어야 써요`, 'ok');
     return;
   }
@@ -1109,9 +1122,9 @@ Object.assign(actions, {
   async setKeySave(kind) {
     const el = $(`#set-key-${kind}`);
     const key = el ? el.value.trim() : '';
-    const row = { gemini: 'gemini-key', anthropic: 'anthropic-key', local: 'local-key' }[kind];
+    const row = { gemini: 'gemini-key', anthropic: 'anthropic-key', local: 'local-key', coral: 'coral-key' }[kind];
     if (!key) { setNote(row, '키를 붙여 넣고 저장하세요', 'err'); el?.focus(); return; }
-    await setSave(row, { [{ gemini: 'api_key', anthropic: 'anthropic_api_key', local: 'local_key' }[kind]]: key }, '키를 저장했어요');
+    await setSave(row, { [{ gemini: 'api_key', anthropic: 'anthropic_api_key', local: 'local_key', coral: 'coral_api_key' }[kind]]: key }, '키를 저장했어요');
     if (SET.note[row].kind !== 'ok') return;
     const box = $(`#set-key-${kind}`);
     if (box) box.value = '';
@@ -1130,9 +1143,10 @@ Object.assign(actions, {
     setPaint();
   },
   async setKeyClear(kind) {
-    const name = { gemini: 'Gemini API 키', anthropic: 'Anthropic API 키' }[kind];
+    const name = { gemini: 'Gemini API 키', anthropic: 'Anthropic API 키', coral: 'CoralBricks API 키' }[kind];
     if (!name || !(await askConfirm(`저장된 ${name}를 지울까요?`, { ok: '지우기', danger: true }))) return;
-    await setSave(kind === 'gemini' ? 'gemini-key' : 'anthropic-key', kind === 'gemini' ? { clear_key: true } : { clear_anthropic_key: true }, '키를 지웠어요');
+    await setSave({ gemini: 'gemini-key', anthropic: 'anthropic-key', coral: 'coral-key' }[kind],
+      { gemini: { clear_key: true }, anthropic: { clear_anthropic_key: true }, coral: { clear_coral_key: true } }[kind], '키를 지웠어요');
   },
   async setSeg(arg) {
     const [k, v] = String(arg).split(':');

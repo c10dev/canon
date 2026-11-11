@@ -110,7 +110,7 @@ def test_sample_calls_backends_at_once_in_order(monkeypatch):
 def test_web_flow(client):
     s = client.post("/api/promptlab", json={"prompt": "요청", "backends": [{"provider": "mock"}]}).json()
     home = client.get("/api/promptlab").json()
-    assert [x["id"] for x in home["sessions"]] == [s["id"]] and home["providers"] == ["gemini", "local", "claude", "claude-api", "mock"]
+    assert [x["id"] for x in home["sessions"]] == [s["id"]] and home["providers"] == ["gemini", "local", "claude", "claude-api", "coralbricks", "mock"]
     r = client.post(f"/api/promptlab/{s['id']}/run", json={"title": "", "system": "넌 작가", "prompt": "한 문단", "backends": [{"provider": "mock"}]})
     assert r.status_code == 200, r.text
     v = r.json()

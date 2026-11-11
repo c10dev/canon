@@ -34,7 +34,7 @@ _RANGE_RE = re.compile(r"(-?\d+(?:\.\d+)?)[^\d~-]{0,10}~\s*(-?\d+(?:\.\d+)?)")
 
 
 # 실험에서 고를 수 있는 백엔드. claude 는 설치된 Claude Code 의 구독 로그인, claude-api 는 Anthropic API 키다 (llm.make_llm)
-PROVIDERS = ("gemini", "local", "claude", "claude-api", "mock")
+PROVIDERS = ("gemini", "local", "claude", "claude-api", "coralbricks", "mock")
 
 
 class Backend(BaseModel):
@@ -59,7 +59,7 @@ def stage_defaults(b: Backend, stage: str = "", preset: dict | None = None) -> t
 
 def make_backend(b: Backend, temperature: float | None = None, stage: str = "", preset: dict | None = None) -> LLM:
     """stage 를 주면 모델 칸이 빈 백엔드는 그 단계의 모델 · 추론 강도로 만든다 (stage_defaults, 프롬프트 놀이터가 불러온 갈래의 단계).
-    temperature 는 Gemini · 로컬만 받는다. Claude 는 받지 않는다(Opus 5.5 는 temperature 를 400 으로 거절한다)."""
+    temperature 는 Gemini · 로컬만 받는다. Claude 와 CoralBricks 는 받지 않는다(Opus 5.5 는 temperature 를 400 으로 거절한다)."""
     model, effort = stage_defaults(b, stage, preset)
     if b.provider == "local":
         sampling = settings.local_sampling()
@@ -68,7 +68,7 @@ def make_backend(b: Backend, temperature: float | None = None, stage: str = "", 
         return LocalLLM(base_url=b.url or None, model=model or None, sampling=sampling)
     if b.provider == "gemini":
         return GeminiLLM(model=model or None, effort=effort, temperature=temperature)
-    if b.provider in settings.CLAUDE_PROVIDERS:
+    if b.provider in settings.CLAUDE_PROVIDERS or b.provider == "coralbricks":
         return make_llm(b.provider, model or None, effort)
     if b.provider == "mock":
         return make_llm("mock")

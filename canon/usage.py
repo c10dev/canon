@@ -63,8 +63,15 @@ DEFAULT_PRICES: list[Price] = [
     _p("claude-opus-5-5", "", 4.0, 20.0, 0.20, "Anthropic API"),
     _p("claude-sonnet-5-5", "", 2.0, 10.0, 0.10, "Anthropic API"),
     _p("claude-haiku-5-5", "", 0.10, 0.50, 0.01, "Anthropic API, 10만 토큰 이하 프롬프트 기준"),
+    # CoralBricks(coralbricks). coralbricks.ai/api/public/models 의 값(2026-11-10). 캐시 쓰기 요금과 배치가 없다.
+    Price(model="deepseek-v4.1-flash", input=0.19, output=0.6, cached=0.008, cache_write=0.19, cache_write_1h=0.19,
+          batch_input=0.19, batch_output=0.6, note="CoralBricks Standard"),
+    Price(model="deepseek-v4.1-flash-value", input=0.005, output=0.57, cached=0.003, cache_write=0.005, cache_write_1h=0.005,
+          batch_input=0.005, batch_output=0.57, note="CoralBricks Value"),
+    Price(model="deepseek-v4.1-flash-fast", input=0.45, output=1.8, cached=0.009, cache_write=0.45, cache_write_1h=0.45,
+          batch_input=0.45, batch_output=1.8, note="CoralBricks Fast"),
 ]
-PRICED = ("gemini", "claude-api")  # 토큰 요금을 매기는 백엔드. 로컬과 Claude 구독은 0원
+PRICED = ("gemini", "claude-api", "coralbricks")  # 토큰 요금을 매기는 백엔드. 로컬과 Claude 구독은 0원
 
 _ctx: ContextVar[dict] = ContextVar("canon_usage", default={})
 _acc: ContextVar[Optional[list]] = ContextVar("canon_usage_acc", default=None)  # collect() 가 여는 누적기
@@ -181,7 +188,7 @@ def backend_of(llm: Any) -> Optional[str]:
     """기록할 백엔드 이름. mock 처럼 실제로 부르지 않는 것은 None."""
     name = type(llm).__name__
     return {"GeminiLLM": "gemini", "LocalLLM": "local", "ClaudeCodeLLM": "claude", "ClaudeAPILLM": "claude-api",
-            "LocalJudge": "local"}.get(name)
+            "CoralLLM": "coralbricks", "LocalJudge": "local"}.get(name)
 
 
 # 있을 때만 남기는 칸. turns 턴 수, stop 끝난 이유 (모든 백엔드: STOP · MAX_TOKENS · end_turn · max_tokens · length 등),
@@ -482,6 +489,10 @@ def stage_llm(stage: str) -> tuple[str, str]:
             model = DEFAULT_API_MODEL
     elif backend == "local":
         model = settings.local_model()[0]
+    elif backend == "coralbricks":
+        from .coral import DEFAULT_MODEL
+
+        model = settings.coral_model()[0] or DEFAULT_MODEL
     return backend, model
 
 

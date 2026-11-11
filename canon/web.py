@@ -428,6 +428,10 @@ class ConfigView(_Out):
     claude_config_dir_source: str = Field("default", description="env(CANON_CLAUDE_CONFIG_DIR) | file(claude_separate) | default")
     anthropic_key_hint: str
     anthropic_key_source: str
+    coral_key_hint: str = Field("", description="CoralBricks API 키의 끝 네 글자. 없으면 빈 값")
+    coral_key_source: str = Field("none", description="env(CORAL_API_KEY) | file | none")
+    coral_model: str = Field("", description="CoralBricks 기본 모델. 비우면 deepseek-v4.1-flash")
+    coral_model_source: str = "default"
     stages: dict[str, StageConfig]
     stage_settings: dict[str, str]  # 설정 파일에 적은 단계별 백엔드
     stage_model_settings: dict[str, str]
@@ -462,6 +466,7 @@ class ConfigHealth(_Out):
     local: bool | None = None
     local_error: str = ""
     claude_api: bool | None = Field(None, description="claude-api 단계가 있으면 Anthropic API 키가 있는지. 쓰지 않으면 null")
+    coralbricks: bool | None = Field(None, description="coralbricks 단계가 있으면 CoralBricks API 키가 있는지. 쓰지 않으면 null")
     claude: str | None = Field(None, description="claude(구독) 단계가 있으면 claude.status 의 reason (ok | login | metered | install | error). 쓰지 않으면 null")
     claude_message: str = ""
 
@@ -523,6 +528,9 @@ class SettingsIn(BaseModel):
     claude_bin: str | None = None
     anthropic_api_key: str | None = None  # Claude Console API 키. 구독 로그인은 Claude Code 가 따로 관리
     clear_anthropic_key: bool = False
+    coral_api_key: str | None = None  # CoralBricks API 키 (coral.py)
+    clear_coral_key: bool = False
+    coral_model: str | None = None
     claude_separate: bool | None = None  # Canon 전용 Claude Code 설정 폴더로 따로 로그인 (claude.py)
     gemini_auth: str | None = None  # key | vertex
     vertex_credentials: str | None = None  # 서비스 계정 JSON 키 파일 경로 (내용이 아니라 경로)
@@ -557,7 +565,8 @@ def put_config(body: SettingsIn) -> ConfigView:
                     clear_anthropic_key=body.clear_anthropic_key, gemini_auth=body.gemini_auth,
                     vertex_credentials=body.vertex_credentials, vertex_project=body.vertex_project,
                     vertex_location=body.vertex_location, stage_efforts=body.stage_efforts,
-                    claude_separate=body.claude_separate)
+                    claude_separate=body.claude_separate, coral_api_key=body.coral_api_key,
+                    clear_coral_key=body.clear_coral_key, coral_model=body.coral_model)
     return settings.public()
 
 
@@ -624,6 +633,10 @@ def config_models() -> dict[str, ModelList]:
     makers = [("gemini", GeminiLLM), ("local", lambda: LocalLLM(timeout=5))]
     if settings.anthropic_key()[0]:
         makers.append(("claude-api", claude.ClaudeAPILLM))
+    if settings.coral_key()[0]:
+        from .coral import CoralLLM
+
+        makers.append(("coralbricks", lambda: CoralLLM(timeout=10)))
     for prov, make in makers:
         try:
             out[prov] = {"models": make().models(), "error": "", "reason": ""}
@@ -647,6 +660,8 @@ def config_health() -> ConfigHealth:
             out["local"], out["local_error"] = False, str(getattr(e, "message", None) or e)
     if "claude-api" in provs:
         out["claude_api"] = bool(settings.anthropic_key()[0])
+    if "coralbricks" in provs:
+        out["coralbricks"] = bool(settings.coral_key()[0])
     if "claude" in provs:  # 첫 작업이 실패하기 전에 설치 · 로그인을 알린다. claude 를 띄우는 확인이라 잠시 기억해 둔다
         st = _claude_status_cached()
         out["claude"], out["claude_message"] = st["reason"], st["message"]

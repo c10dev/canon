@@ -141,7 +141,7 @@ const STATUS = { draft: '초안', confirmed: '확정', written: '작성됨', fin
 const ACTS = ['기', '승', '전', '결'];
 
 // 본문을 쓴 모델 글자. 값은 Episode.written_by · TextVersion.model 의 '<백엔드>:<모델>'(usage.model_id) 또는 'import'. 모르면 빈 글
-const WRITER_BACKEND = { gemini: 'Gemini', local: '로컬', claude: 'Claude 구독', 'claude-api': 'Claude API' };
+const WRITER_BACKEND = { gemini: 'Gemini', local: '로컬', claude: 'Claude 구독', 'claude-api': 'Claude API', coralbricks: 'CoralBricks' };
 function writerLabel(w) {
   const v = String(w || '').trim();
   if (!v) return '';
@@ -3104,6 +3104,7 @@ function defaultModelName(provider, c = {}) {
   if (provider === 'local') return c.local_model || '서버의 모델';
   if (provider === 'claude') return c.claude_model || 'Claude Code 기본 모델';
   if (provider === 'claude-api') return c.claude_model || 'Claude API 기본 모델';
+  if (provider === 'coralbricks') return c.coral_model || 'deepseek-v4.1-flash';
   return '설정 값';
 }
 
