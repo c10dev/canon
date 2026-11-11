@@ -416,6 +416,9 @@
 - 두 설계도 제안은 출력 한도 `BLUEPRINT_OUT_TOKENS`(16,384)를 건다. 2026-11-10 flash 실호출 두 번 모두 첫 시도가 65,521토큰까지 되풀이했다
 - 능력 일정 거꾸로 뽑기 `propose_abilities`(아크 하나 · 인물 하나, `prompts.ability_extract_prompt`, 응답 `AbilityProposal`, 정리 `blueprint.clean_abilities`). 저장하지 않는다
 - 능력 일정 짜기 `draft_abilities`(부 하나 · 인물 하나 · 작가 메모, `prompts.ability_draft_prompt`, 플롯이 없어도 됨). 같은 출력 한도를 건다
+- 작품 전체 짜기 `draft_whole(llm, p, part, picks, note)`(부 하나 · 여러 쌍 · 능력 일정, `prompts.blueprint_whole_prompt`, 응답 `BlueprintPlanSet`, 정리 `blueprint.clean_set`, `docs/blueprint/specs/11-whole.md`). 같은 출력 한도를 건다
+- 쌍이 `WHOLE_CHUNK`(5)를 넘으면 다섯씩 차례로 부른다. 뒤 묶음은 앞 묶음 제안을 사본에 더해 '이미 적은 설계도'로 받는다(`others`)
+- 전체 짜기 요청의 이미 적은 설계도는 예산 `context.BUDGET["blueprint_whole"]`(4,000자)에 맞추고 넘으면 뒤 줄부터 빼고 수를 적는다. 인물은 고른 쌍의 인물만 넣는다
 - 두 능력 일정 요청은 도감에 없는 능력의 도감 초안도 받는다(`prompts.ability_codex_rule`, 응답 `AbilityProposal.codex`, 정리 `blueprint.clean_codex`, `docs/blueprint/specs/13-ability-codex.md`)
 - 두 능력 일정 요청은 능력 블록 `prompts.ability_ai_block`(도감 이름 · 상태창의 능력 · 이미 적은 줄, 예산 `context.BUDGET["ability_ai"]` 3,000자를 묶음마다 차례로 씀)과 공통 요구사항 `ability_ai_rules` 를 쓴다
 - 다음 아크 `plan_next_arc` 는 `heat_plan` 을 켜면 `HeatArcProposal` 로 묻고(`prompts.heat_next_arc_rules`), `clean_arc` 가 완급 계획을 아크 범위에 맞춰 `arc.heat` 로 옮기고, `apply_arc` 가 판돈을 복선에 더한다
@@ -1108,6 +1111,7 @@
 - 작업 `heat`(`_job_heat`): 이미 있는 기승전결 · 아크 위 완급 계획 제안. 결과는 검토를 기다리는 결과(`PENDING_KINDS`)로 남는다
 - 작업 `blueprint`(`_job_blueprint`): 대상 'a~b' 두 인물의 설계도 거꾸로 뽑기(ep 는 장편 아크 번호). 결과는 `PENDING_KINDS` 로 남고, 고른 줄은 `POST /api/projects/{name}/blueprint/apply`(`BlueprintApplyIn`)
 - 작업 `blueprint_draft`(`_job_blueprint_draft`): 대상 'a~b', ep 는 장편 부 번호, note 는 작가 메모. 결과(`mode` draft)는 `PENDING_KINDS` 로 남고 같은 더하기 API 를 쓴다
+- 작업 `blueprint_whole`(`_job_blueprint_whole`): 대상 '@whole', ep 는 장편 부 번호, note 는 작가 메모, `pairs` 는 쌍 키(비면 관계 목록 모두). 결과(`mode` whole, `picked` · `firsts` · `crowd` · `mesh`)는 `PENDING_KINDS` 로 남고 고른 줄은 `POST …/blueprint/apply-set`
 - 작업 `blueprint_ability` · `blueprint_ability_draft`(`_job_blueprint_ability`): 대상은 인물 id, ep 는 장편 아크 · 부 번호. 결과(`character` · `mode`)는 `PENDING_KINDS` 로 남고, 고른 줄은 `POST …/blueprint/apply-abilities`
 - 작업 `offscreen`(`_job_offscreen`, 계획 단계 모델): 화면 밖 근황 제안. 결과는 `PENDING_KINDS` 로 남는다
 - 화면 밖 근황 저장 `POST …/offscreen`(`OffscreenSet`, 고른 인물만) · 지우기 `DELETE …/offscreen/{인물 id}`. 장편에서만 받는다

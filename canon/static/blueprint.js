@@ -3,7 +3,7 @@
    주소는 blueprint(개요) · blueprint/<쌍 키> · blueprint/@ability(능력 일정). 쌍 키는 두 인물 id 를 정렬해 '~' 로 이은 것이다.
    카드는 읽는 모양이 기본이다. 줄 끝 ✎ 는 그 줄만, 카드 머리 '고치기'는 그 카드 전체를 편다. 저장은 설계도 전체를 PUT …/blueprint 로 보낸다(서버가 blueprint.check 로 검사).
    줄 지우기 · AI 제안 더하기 · 여정 비우기는 바로 저장하고 되돌리기(S.bpUndo)를 남긴다.
-   AI 제안은 쌍 쪽이 S.bpDraft(하나), 능력 일정 쪽이 S.bpAbDrafts(인물 · 뽑기/짜기마다 하나)다. 둘 다 app.js 의 PER_PROJECT 가 작품마다 따로 둔다.
+   AI 제안은 쌍 쪽이 S.bpDraft(하나), 능력 일정 쪽이 S.bpAbDrafts(인물 · 뽑기/짜기마다 하나), 개요의 작품 전체 짜기가 S.bpWhole(하나)이다. 둘 다 app.js 의 PER_PROJECT 가 작품마다 따로 둔다.
    경고는 서버가 계산한다(blueprint.warning_rows). 막지 않는다.
    개요의 전체 띠는 서버가 고른 처음 닿는 줄(blueprint.firsts)만 쌍마다 한 줄에 그린다. 쌍끼리 몰림은 테두리로만 보인다(docs/blueprint/specs/11-whole.md). */
 'use strict';
@@ -17,6 +17,7 @@ Object.assign(S, {
   bpOwner: '',     // 화면 상태를 가진 작품
   bpPickOpen: '',  // 펴 둔 칩 묶음의 길 (칩을 눌러 다시 그려도 펴 둔다)
   bpWide: false,   // 계획 띠를 작품 전체 화수로 (기본은 기획한 화까지)
+  bpWholeOpen: false,  // 개요 '관계' 카드의 'AI로 전체 짜기' 칸을 폈는가
 });
 
 const BP_LAYERS = ['', '옷 위', '옷 안', '맨살'];
@@ -295,11 +296,78 @@ function bpOverview() {
     <div class="ab-tile"><span class="small">사다리 칸</span><b>${rungs}</b></div>
     <div class="ab-tile"><span class="small">능력 일정</span><b>${plans.length}</b></div>
     <div class="ab-tile${warned ? ' warn' : ''}"><span class="small">경고</span><b>${warned}</b></div></div>`;
-  const list = `<section class="card"><h2>관계</h2><ul class="bp-list">${pairs.map(([k, a, b]) => {
+  const head = `<div class="between"><h2>관계</h2><button type="button" class="btn small" data-action="bpWholeToggle" aria-expanded="${S.bpWholeOpen}" aria-controls="bp-whole-ai">AI로 전체 짜기</button></div>`;
+  const list = `<section class="card" id="bp-pairs">${head}${S.bpWholeOpen ? bpWholeAiCard(pairs) : ''}<ul class="bp-list">${pairs.map(([k, a, b]) => {
     const x = bpOfPair(d.blueprint, d.warnings, a, b);
     return `<li><a class="bp-pair" href="${bpHref(k)}">${esc(bpWho(a))} ↔ ${esc(bpWho(b))}</a><span class="small">이정표 ${x.ms.length} · 사다리 ${x.ladder ? x.ladder.rungs.length : 0}칸${x.warns.length ? ` · 경고 ${x.warns.length}` : ''}</span></li>`;
   }).join('')}</ul></section>`;
-  return tiles + bpWarnCard([...d.warnings, ...bpAbWarns()]) + bpHeldCard() + bpWholeBand(pairs) + bpNoteCard() + list + growth;
+  return tiles + bpWarnCard([...d.warnings, ...bpAbWarns()]) + bpHeldCard() + bpWholeDraftCard(pairs) + bpWholeBand(pairs, d.firsts || [], plans) + bpNoteCard() + list + growth;
+}
+
+// ----- 작품 전체 짜기 (docs/blueprint/specs/11-whole.md 의 11b, 작업 blueprint_whole) -----
+
+/** '관계' 카드 안에서 펴는 칸: 짜기 메모, 장편은 부 고르기, 쌍 체크(기본 모두), 'AI로 짜기'. 결과는 개요의 제안 카드(bpWholeDraftCard)로 온다 */
+function bpWholeAiCard(pairs) {
+  const parts = serial() ? P().parts || [] : [];
+  const partPick = parts.length ? `<select id="bp-whole-part" aria-label="짤 부">${parts.map((x) => `<option value="${x.number}">${x.number}부 · ${x.start_ep}~${x.end_ep}화</option>`).join('')}</select>` : '';
+  const boxes = pairs.map(([k, a, b]) => `<label class="pop-check"><input type="checkbox" class="bp-whole-pair" value="${esc(k)}" checked> ${esc(bpWho(a))} ↔ ${esc(bpWho(b))}</label>`).join('');
+  return `<div class="field" id="bp-whole-ai"><label for="bp-whole-note">AI로 전체 짜기 <span class="hint">고른 쌍과 능력 일정을 함께 보고 엇갈려 짜요</span></label>
+    <textarea id="bp-whole-note" rows="2" placeholder="예: 1부는 윤서 먼저, 수빈은 아크 2부터. MT에서 둘을 함께"></textarea>
+    <div class="row" role="group" aria-label="짤 쌍">${boxes}</div>
+    <div class="row">${partPick}<button type="button" class="btn small" data-action="bpWholeAI">AI로 짜기</button></div></div>`;
+}
+
+/** 제안의 쌍 묶음 기본 체크: 이미 있는 줄과 겹치는 줄은 고르지 않는다 (bpOverlaps, 08 의 제안 카드와 같다) */
+function bpWholePicks(d) {
+  if (d.pick) return d.pick;
+  d.pick = {};
+  d.pairs.forEach((x) => {
+    const ov = bpOverlaps(S.bp.blueprint, x);
+    d.pick[bpKey(x.a, x.b)] = { ms: x.milestones.map((_, i) => !ov.ms[i]), rungs: x.rungs.map((_, i) => !ov.rungs[i]) };
+  });
+  d.abPicks = bpAbPicks(S.bp.blueprint, d.abilities);
+  d.codexPicks = (d.codex || []).map(() => true);
+  return d.pick;
+}
+
+/** 작품 전체 짜기 제안 카드: 편성 · 몰림 · 맞물림 경고 · 이미 적은 줄과 제안 줄을 겹친 전체 띠 · 쌍마다 묶음 · 능력 묶음. 주 버튼은 '고른 줄 더하기' 하나 */
+function bpWholeDraftCard(pairs) {
+  const d = S.bpWhole;
+  if (!d) return '';
+  const pick = bpWholePicks(d);
+  const label = (ids, picks) => ids.map((id) => (picks.find((x) => x.id === id) || { label: id }).label).join(', ');
+  const box = (arg, on, text) => `<input type="checkbox" data-action="bpWholePick" data-arg="${esc(arg)}"${on ? ' checked' : ''} aria-label="${esc(text)}">`;
+  const groups = d.pairs.map((x) => {
+    const k = bpKey(x.a, x.b);
+    const pk = pick[k];
+    const ov = bpOverlaps(S.bp.blueprint, x);
+    const who = `${bpWho(x.a)} ↔ ${bpWho(x.b)}`;
+    const all = [...pk.ms, ...pk.rungs];
+    const ms = x.milestones.map((m, i) => `<li>${box(`${k}|ms|${i}`, pk.ms[i], `${who} 이정표 ${i + 1} 고르기`)}<span class="chip">${esc(bpRange(m))}</span>
+      <span>${esc(bpWho(m.source))} → ${esc(bpWho(m.target))}</span>${m.stage ? `<span class="chip confirmed">${esc(m.stage)}</span>` : ''}<span>${esc(m.label)}</span>
+      ${ov.ms[i] ? '<span class="chip warn">이미 있음</span>' : ''}${(m.evidence || []).length ? `<span class="small">${esc(bpEvidence(m.evidence))}</span>` : ''}</li>`).join('');
+    const rungs = x.rungs.map((r, i) => `<li>${box(`${k}|rung|${i}`, pk.rungs[i], `${who} 사다리 칸 ${i + 1} 고르기`)}<span class="chip">${esc(bpRange(r))}</span><strong>${esc(r.label)}</strong>
+      <span class="small">${esc([r.layer, label(r.parts, S.bp.parts), label(r.acts, S.bp.acts), r.lead ? `${bpWho(r.lead)} 주도` : ''].filter(Boolean).join(' · '))}</span>
+      ${ov.rungs[i] ? '<span class="chip warn">이미 있음</span>' : ''}</li>`).join('');
+    const n = all.length;
+    return `<details class="bp-pick bp-dir" open><summary><span>${esc(who)}</span><span class="small">이정표 ${x.milestones.length} · 칸 ${x.rungs.length} · 고름 ${all.filter(Boolean).length}</span></summary>
+      ${n ? `<label class="small"><input type="checkbox" data-action="bpWholePick" data-arg="${esc(k)}|all"${all.every(Boolean) ? ' checked' : ''}> 이 쌍 모두 고르기</label>` : '<span class="small">새 줄이 없어요.</span>'}
+      ${ms ? `<ul class="bp-list">${ms}</ul>` : ''}${rungs ? `<ul class="bp-list">${rungs}</ul>` : ''}</details>`;
+  }).join('');
+  const spots = (d.spotlight || []).map((sp) => `<li><span class="chip">${esc(bpRange(sp))}</span><span>${esc(sp.focus.map((c) => bpPair(c).map(bpWho).join(' ↔ ')).join(', ') || '나아가는 쌍 없음')}</span>${sp.note ? `<span class="small">${esc(sp.note)}</span>` : ''}</li>`).join('');
+  const warns = [...(d.crowd || []), ...(d.mesh || [])];
+  const shown = pairs.filter(([k]) => (d.picked || []).includes(k));
+  const plans = [...bpPlans(S.bp.blueprint), ...d.abilities.map((x) => ({ ...x, new: true }))];
+  const none = !d.pairs.some((x) => x.milestones.length || x.rungs.length) && !d.abilities.length;
+  return `<section class="card" id="bp-whole-draft"><div class="between"><h2>AI가 짠 전체 설계도 <span class="small">${d.start}~${d.end}화</span></h2>
+      <span class="row"><button type="button" class="btn small" data-action="bpWholeDrop">버리기</button>${none ? '' : '<button type="button" class="btn small primary" data-action="bpWholeUse">고른 줄 더하기</button>'}</span></div>
+    ${d.reply ? `<p class="small">${esc(d.reply)}</p>` : ''}
+    ${warns.length ? `<ul class="bp-list">${warns.map((w) => `<li class="note warn">${esc(w.text)}</li>`).join('')}</ul>` : ''}
+    ${spots ? `<h3>편성</h3><ul class="bp-list">${spots}</ul>` : ''}
+    ${bpWholeBand(shown, d.firsts || [], plans, 'bp-whole-draft-band', '제안을 겹친 띠')}
+    ${groups}
+    ${d.abilities.length ? `<div class="bp-dir"><h3>능력 일정</h3>${bpAbDraftRows(d.abilities, d.abPicks, 'whole', true, 'bpWholeAbPick')}${bpAbCodexRows(d.codex || [], d.codexPicks, 'whole', 'bpWholeCodexPick')}</div>` : ''}
+    ${none ? '<span class="small">짠 줄이 없어요.</span>' : ''}</section>`;
 }
 
 // ----- 능력 일정 (docs/blueprint/specs/10-ability.md) -----
@@ -338,7 +406,7 @@ function bpPlannedSpan(more) {
 function bpAbLanes(plans, total) {
   return bpPlanCast(plans).map((id) => {
     const mine = plans.filter((x) => x.character === id);
-    const bars = mine.map((x) => ({ ...x, text: bpAbText(x), cls: 'bp-is-rung' }));
+    const bars = mine.map((x) => ({ ...x, text: bpAbText(x), cls: x.new ? 'bp-is-rung bp-new' : 'bp-is-rung' }));
     const hits = mine.map((x) => [x, bpPlanState(x.id).got]).filter(([, got]) => got > 0).map(([x, got]) => ({ from_ep: got, to_ep: got, text: `${bpAbText(x)} 얻음`, cls: 'bp-is-hit' }));
     return bpLane(bpWho(id), [...bars, ...hits], total);
   }).join('');
@@ -352,24 +420,24 @@ function bpAbilityBand(plans) {
     <div class="bp-band" role="img" aria-label="${esc(desc)}">${f.ticks}${f.last}${bpAbLanes(plans, f.total)}</div></section>`;
 }
 
-/** 개요의 전체 띠 (docs/blueprint/specs/11-whole.md 11a): 쌍마다 한 줄에 처음 닿는 줄(단계 · 겹)만, 그 아래 능력 일정(인물마다 한 줄).
+/** 전체 띠 (docs/blueprint/specs/11-whole.md): 쌍마다 한 줄에 처음 닿는 줄(단계 · 겹)만, 그 아래 능력 일정(인물마다 한 줄).
+    개요는 서버 값 S.bp.firsts 를, 작품 전체 짜기 제안 카드는 이미 적은 줄과 제안 줄을 함께 본 결과의 firsts 를 준다(제안 줄은 new, 점선 테두리 .bp-new).
     다른 쌍과 같은 단계 · 겹에 겹치는 화 범위로 처음 닿는 막대는 경고 색 테두리만 바꾼다(글 경고 · 경고 수에는 넣지 않는다) */
-function bpWholeBand(pairs) {
-  const firsts = S.bp.firsts || [];
-  const plans = bpPlans(S.bp.blueprint).filter((x) => x.from_ep > 0);
+function bpWholeBand(pairs, firsts, plans, id = 'bp-whole', title = '전체 띠') {
+  plans = plans.filter((x) => x.from_ep > 0);
   if (!firsts.length && !plans.length) return '';
   const f = bpBandFrame(bpPlannedSpan([...firsts.map((x) => x.to_ep), ...plans.map((x) => x.to_ep)]));
   const lanes = pairs.map(([k, a, b]) => {
     const mine = firsts.filter((x) => x.pair === k).map((x) => {
       const who = x.axis === '단계' ? `${bpWho(x.source)} → ${bpWho(x.target)}` : '접촉';
       const crowd = (x.crowd || []).map((c) => bpPair(c).map(bpWho).join(' ↔ '));
-      return { ...x, text: x.value, tip: `${who} ${x.value}${crowd.length ? ` · ${crowd.join(', ')}와 겹침` : ''}`,
-        cls: `${x.axis === '단계' ? 'bp-is-ms' : 'bp-is-rung'}${crowd.length ? ' bp-crowd' : ''}` };
+      return { ...x, text: x.value, tip: `${x.new ? '제안 · ' : ''}${who} ${x.value}${crowd.length ? ` · ${crowd.join(', ')}와 겹침` : ''}`,
+        cls: `${x.axis === '단계' ? 'bp-is-ms' : 'bp-is-rung'}${crowd.length ? ' bp-crowd' : ''}${x.new ? ' bp-new' : ''}` };
     });
     return bpLane(`${bpWho(a)} ↔ ${bpWho(b)}`, mine, f.total);
   }).join('');
-  const desc = `1~${f.total}화 전체 띠: ${pairs.map(([k, a, b]) => `${bpWho(a)} ↔ ${bpWho(b)} 처음 닿는 줄 ${firsts.filter((x) => x.pair === k).length}개`).join(', ')}${plans.length ? `, 능력 일정 ${plans.length}줄` : ''}`;
-  return `<section class="card" id="bp-whole"><div class="between"><h2>전체 띠</h2><div class="row">${f.seg}${f.range}</div></div>
+  const desc = `1~${f.total}화 ${title}: ${pairs.map(([k, a, b]) => `${bpWho(a)} ↔ ${bpWho(b)} 처음 닿는 줄 ${firsts.filter((x) => x.pair === k).length}개`).join(', ')}${plans.length ? `, 능력 일정 ${plans.length}줄` : ''}`;
+  return `<section class="card" id="${id}"><div class="between"><h2>${title}</h2><div class="row">${f.seg}${f.range}</div></div>
     <div class="bp-band" role="img" aria-label="${esc(desc)}">${f.ticks}${f.last}${lanes}${bpAbLanes(plans, f.total)}</div></section>`;
 }
 
@@ -491,10 +559,10 @@ function bpAbDraftRows(rows, picks, arg, withWho = false, action = 'bpAbDraftPic
 
 /** 제안의 도감 초안 묶음: 초안마다 고르기 · 이름 · 상태창 항목 · 효과 · 대가 · 등급 수. 그새 도감에 생긴 이름은 보이지 않는다(보내지도 않는다).
     codex 는 AbilityCodexDraft 목록, picks 는 같은 길이의 체크, arg 는 data-arg 머리 (docs/blueprint/specs/13-ability-codex.md) */
-function bpAbCodexRows(codex, picks, arg) {
+function bpAbCodexRows(codex, picks, arg, action = 'bpAbCodexPick') {
   const rows = codex.map((c, i) => [c, i]).filter(([c]) => !bpAbKnown(c.name));
   if (!rows.length) return '';
-  return `<h4>도감 초안</h4><ul class="bp-list">${rows.map(([c, i]) => `<li><input type="checkbox" data-action="bpAbCodexPick" data-arg="${esc(arg)}|${i}"${picks[i] ? ' checked' : ''} aria-label="${esc(`${c.name} 도감 초안 고르기`)}">
+  return `<h4>도감 초안</h4><ul class="bp-list">${rows.map(([c, i]) => `<li><input type="checkbox" data-action="${action}" data-arg="${esc(arg)}|${i}"${picks[i] ? ' checked' : ''} aria-label="${esc(`${c.name} 도감 초안 고르기`)}">
       <strong>${esc(c.name)}</strong>${c.stat ? `<span class="chip">${esc(c.stat)}</span>` : ''}
       ${c.effect || c.description ? `<span class="small">효과: ${esc(c.effect || c.description)}</span>` : ''}${c.cost ? `<span class="small">대가: ${esc(c.cost)}</span>` : ''}
       ${(c.grades || []).length ? `<span class="small">등급 ${c.grades.length}</span>` : ''}</li>`).join('')}</ul>`;
@@ -628,6 +696,9 @@ JOB_PAGES.blueprint = ['blueprint'];
 JOB_LINK.blueprint = (j) => `#/p/${enc(j.project)}/blueprint/${enc(j.target || '')}`;
 JOB_DONE_MSG.blueprint = '설계도 제안이 도착했어요. 더할 줄을 골라 주세요.';
 JOB_PAGES.blueprint_draft = ['blueprint'];
+JOB_PAGES.blueprint_whole = ['blueprint'];
+JOB_LINK.blueprint_whole = (j) => `#/p/${enc(j.project)}/blueprint`;  // 제안 카드는 개요에 있다
+JOB_DONE_MSG.blueprint_whole = '작품 전체 설계도 제안이 도착했어요. 더할 줄을 골라 주세요.';
 JOB_LINK.blueprint_draft = JOB_LINK.blueprint;
 JOB_DONE_MSG.blueprint_draft = JOB_DONE_MSG.blueprint;
 ['blueprint_ability', 'blueprint_ability_draft'].forEach((k) => {
@@ -728,6 +799,66 @@ async function bpWrite(label, msg, send) {
 }
 
 Object.assign(actions, {
+  bpWholeToggle() {
+    S.bpWholeOpen = !S.bpWholeOpen;
+    if (S.bpWholeOpen) S.focusTarget = '#bp-whole-note';
+    render();
+  },
+  async bpWholeAI() {
+    const sel = document.getElementById('bp-whole-part');
+    const note = (document.getElementById('bp-whole-note') || {}).value || '';
+    const pairs = [...document.querySelectorAll('.bp-whole-pair')].filter((x) => x.checked).map((x) => x.value);
+    if (!pairs.length) { toast('짤 쌍을 골라 주세요', true); return; }
+    await startJob('blueprint_whole', sel ? Number(sel.value) : null, { target: '@whole', note, pairs });  // 도착하면 개요의 제안 카드 (bpWholeDraftCard)
+  },
+  bpWholePick(arg) {
+    const [k, kind, i] = String(arg).split('|');
+    const pk = (S.bpWhole && S.bpWhole.pick || {})[k];
+    if (!pk) return;
+    if (kind === 'all') {
+      const on = ![...pk.ms, ...pk.rungs].every(Boolean);
+      pk.ms = pk.ms.map(() => on);
+      pk.rungs = pk.rungs.map(() => on);
+      render();
+      return;
+    }
+    const list = kind === 'ms' ? pk.ms : pk.rungs;
+    list[Number(i)] = !list[Number(i)];
+    render();
+  },
+  bpWholeCodexPick(arg) {
+    const i = Number(String(arg).split('|').pop());
+    if (S.bpWhole) S.bpWhole.codexPicks[i] = !S.bpWhole.codexPicks[i];
+  },
+  bpWholeAbPick(arg) {
+    const i = Number(String(arg).split('|').pop());
+    if (S.bpWhole) S.bpWhole.abPicks[i] = !S.bpWhole.abPicks[i];
+  },
+  async bpWholeDrop() {
+    if (!(await confirmDrop('AI 전체 설계도 제안'))) return;
+    S.bpWhole = null;
+    render();
+  },
+  async bpWholeUse() {
+    const d = S.bpWhole;
+    const pick = bpWholePicks(d);
+    const pairs = d.pairs.map((x) => {
+      const pk = pick[bpKey(x.a, x.b)];
+      return { a: x.a, b: x.b, milestones: x.milestones.filter((_, i) => pk.ms[i]), rungs: x.rungs.filter((_, i) => pk.rungs[i]) };
+    }).filter((x) => x.milestones.length || x.rungs.length);
+    const abilities = bpAbUnique(d.abilities.filter((_, i) => d.abPicks[i]));
+    const codex = bpAbCodexPicked([d]);
+    if (!pairs.length && !abilities.length) { toast('더할 줄을 골라 주세요', true); return; }
+    const had = new Set((P().abilities || []).map((a) => a.id));
+    const ms = pairs.reduce((n, x) => n + x.milestones.length, 0);
+    const rungs = pairs.reduce((n, x) => n + x.rungs.length, 0);
+    await bpWrite('설계도에 더하는 중', `쌍 ${pairs.length}개에 이정표 ${ms}줄 · 사다리 ${rungs}칸, 능력 일정 ${abilities.length}줄을 더했어요`, async () => {
+      const out = await api('POST', `/projects/${enc(S.name)}/blueprint/apply-set`, { pairs, abilities, codex });
+      S.bpWhole = null;
+      S.bpAbMade = (out.abilities || []).map((a) => a.id).filter((id) => !had.has(id));  // bpWrite 가 되돌리기(S.bpUndo.abIds)에 옮긴다
+      return out;
+    });
+  },
   async bpDraftAI(key) {
     const sel = document.getElementById('bp-part');
     const note = (document.getElementById('bp-note-ai') || {}).value || '';

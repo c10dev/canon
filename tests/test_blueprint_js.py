@@ -319,3 +319,42 @@ def test_whole_band_hidden_without_firsts_or_plans():
     p.blueprint.ability_plans = [AbilityPlan(id="ap-1", character="a", ability="은신", grade="Lv2", from_ep=5, to_ep=8)]
     html = _run("viewBlueprint()", p)
     assert 'id="bp-whole"' in html and "은신 Lv2" in html.split('id="bp-whole"')[1]
+
+
+def _whole_draft() -> dict:
+    return {"start": 1, "end": 600, "part": 0, "mode": "whole", "picked": ["a~j", "a~d"], "reply": "엇갈려 놓았어요.",
+            "spotlight": [{"from_ep": 1, "to_ep": 20, "focus": ["a~j"], "note": "지훈 먼저"}],
+            "pairs": [{"a": "a", "b": "j", "milestones": [{"source": "a", "target": "j", "from_ep": 2, "to_ep": 9, "stage": "경계", "label": "정체를 안다", "trigger": "", "evidence": []},
+                                                         {"source": "j", "target": "a", "from_ep": 20, "to_ep": 25, "stage": "호감", "label": "끌린다", "trigger": "", "evidence": []}],
+                       "rungs": [{"label": "손등", "parts": [], "acts": [], "layer": "맨살", "places": [], "lead": "", "note": "", "from_ep": 5, "to_ep": 5, "evidence": []}]},
+                      {"a": "a", "b": "d", "milestones": [], "rungs": []}],
+            "abilities": [{"character": "a", "ability": "해금", "grade": "1단계", "condition": "첫 위기", "from_ep": 3, "to_ep": 4, "evidence": []}],
+            "firsts": [{"pair": "a~j", "axis": "단계", "value": "호감", "from_ep": 20, "to_ep": 25, "id": "+ms-0-1", "source": "j", "target": "a", "new": True}],
+            "crowd": [{"pairs": ["a~j", "a~d"], "text": "지훈 → 아영(20~25화)와 다은 → 아영(20~30화)가 같은 화 범위에 호감 단계에 처음 닿아요."}],
+            "mesh": []}
+
+
+@needs_node
+def test_whole_ai_card_opens_from_pairs_card():
+    p = _proj()
+    html = _run("viewBlueprint()", p)
+    assert 'data-action="bpWholeToggle"' in html and 'aria-expanded="false"' in html and 'id="bp-whole-ai"' not in html
+    html = _run("viewBlueprint()", p, {"bpWholeOpen": True})
+    assert 'id="bp-whole-ai"' in html and html.count('class="bp-whole-pair"') == 2 and 'data-action="bpWholeAI"' in html
+
+
+@needs_node
+def test_whole_draft_card_groups_picks_and_pending():
+    p = _proj()
+    html = _run("viewBlueprint()", p, {"bpWhole": _whole_draft()})
+    card = html[html.index('id="bp-whole-draft"'):]
+    assert "AI가 짠 전체 설계도" in card and "같은 화 범위에 호감 단계" in card and "지훈 먼저" in card
+    assert "아영 ↔ 지훈" in card and "아영 ↔ 다은" in card and "새 줄이 없어요." in card
+    assert 'data-arg="a~j|ms|0" aria' in card and 'data-arg="a~j|ms|1" checked' in card  # 이미 있는 줄과 겹친 줄만 고르지 않는다
+    assert card.count('class="chip warn">이미 있음') >= 1  # 이미 있는 1~15화 이정표와 같은 방향 · 겹치는 범위
+    assert "bp-new" in card and 'data-action="bpWholeAbPick"' in card and 'data-action="bpWholeUse"' in card
+    assert _run("pendingShown({ kind: 'blueprint_whole' })", p, {"bpWhole": _whole_draft()}) is True
+    expr = """(() => { render = () => {}; S.bpWhole = data.extra.d; bpWholePicks(S.bpWhole); actions.bpWholePick('a~j|all'); const a = JSON.stringify(S.bpWhole.pick['a~j']);
+      actions.bpWholePick('a~j|all'); return [a, JSON.stringify(S.bpWhole.pick['a~j'])]; })()"""
+    on, off = _run(expr, p, {"d": _whole_draft()})
+    assert on == '{"ms":[true,true],"rungs":[true]}' and off == '{"ms":[false,false],"rungs":[false]}'

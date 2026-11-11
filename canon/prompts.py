@@ -1321,6 +1321,64 @@ def blueprint_draft_prompt(p: Project, start: int, end: int, a: str, b: str) -> 
 - reply 에는 무엇을 짰고 어디를 비웠는지 1~3문장으로 씁니다."""
 
 
+def blueprint_whole_prompt(p: Project, start: int, end: int, pairs: list[tuple[str, str]], others: list[tuple[str, str]] = ()) -> str:
+    """작가 설정 · 부 구성에서 여러 쌍의 설계도와 능력 일정을 한 번에 짠다 (pipeline.draft_whole, 응답 형식 BlueprintPlanSet, docs/blueprint/specs/11-whole.md 의 11b).
+    모든 쌍을 함께 봐야 쌍끼리 엇갈려 놓고 능력 일정과 맞물린다. 플롯이 없어도 된다. 작가가 고른 줄만 설계도에 들어간다. 작가 메모는 요청 끝(request_block)에 붙는다.
+    이미 적은 설계도는 고른 쌍 모두 합쳐 예산(context.BUDGET["blueprint_whole"])에 맞추고, 넘으면 뒤 줄부터 빼고 수를 적는다. 인물은 고른 쌍의 인물만 넣는다.
+    others 는 앞 묶음에서 이미 짠 쌍이다(쌍이 다섯을 넘을 때). 그 쌍의 줄도 '이미 적은 설계도'에 넣어 엇갈려 놓게 한다."""
+    who = {c.id: c for c in p.characters}
+    ids = list(dict.fromkeys(x for ab in pairs for x in ab))
+    cast = [who[x] for x in ids if x in who]
+
+    def nm(x: str) -> str:
+        return who[x].name if x in who else x
+    rel_lines = []
+    for a, b in pairs:
+        rel = next((r for r in p.relationships if {r.a, r.b} == {a, b}), None)
+        line = f"- {blueprint.pair_key(a, b)} ({nm(a)} ↔ {nm(b)}): 지금 사이 {rel.type or '정하지 않음'}" if rel else f"- {blueprint.pair_key(a, b)} ({nm(a)} ↔ {nm(b)}): 관계 설정 없음"
+        if rel and rel.description:
+            line += f" · {rel.description}"
+        if rel and rel.destination:
+            line += f" / 가 닿을 곳(작가가 정한 방향): {rel.destination}"
+        rel_lines.append(line)
+    have, cut = context.fit_lines(blueprint.whole_have_lines(p, [*pairs, *others], start, end), context.BUDGET["blueprint_whole"])
+    less = f"\n(그 밖 {cut}줄 생략)" if cut else ""
+    keys = ", ".join(blueprint.pair_key(a, b) for a, b in pairs)
+    return f"""{start}화부터 {end}화까지 아래 쌍 {len(pairs)}개의 설계도와 능력 일정을 한 번에 짜세요.
+설계도는 작가가 먼저 정하는 계획입니다. 관계 이정표는 한 방향 관계가 몇 화쯤 어느 관계에 닿는지, 접촉 사다리는 두 인물의 신체 접촉이 몇 화쯤 어디까지 가는지, 능력 일정은 인물이 어느 능력을 몇 화쯤 얻는지입니다. 플롯은 이 계획을 따라 나중에 짭니다.
+
+[작품]
+{meta_text(p)}
+[인물]
+{dump(cast)}
+[짤 쌍]
+{chr(10).join(rel_lines)}
+[부 구성]
+{_bp_part_text(p, start, end) or "없음"}
+[이미 적은 설계도]
+{chr(10).join(have) or "없음"}{less}
+{ability_ai_block(p, set(ids), start, end)}
+{_bp_ids_block(p)}
+
+요구사항:
+- 작품 설정 · 로그라인 · 부 구성 · 관계의 가 닿을 곳 · 작가의 요청에 있는 방향을 따릅니다. 거기에 없는 사건을 지어내지 않습니다.
+- spotlight 를 먼저 짭니다: {start}~{end}화를 부 구성의 아크 생각에 맞춰 구간으로 나누고, 구간마다 관계가 나아가는 쌍 키를 focus 에 적습니다. 부 구성이 정한 공략 차례와 동시 장면을 따릅니다.
+- pairs 에는 쌍마다 한 항목을 적습니다. a · b 는 [짤 쌍]의 두 인물 id 입니다. 쌍 키는 {keys} 입니다. 새 줄이 없는 쌍은 milestones · rungs 를 빈 목록으로 둡니다.
+- 부 구성 · 작가 요청이 동시에 두라고 하지 않은 곳에서는 두 쌍이 같은 화 범위에 같은 단계 · 같은 겹에 처음 닿지 않게 엇갈려 둡니다.
+- milestones: 쌍마다 두 방향을 따로, 관계가 바뀌는 고비마다 한 줄. 방향마다 많아도 4줄입니다. source · target 은 인물 id 입니다.
+- stage 는 낯섦 · 경계 · 호감 · 신뢰 · 균열 · 적대 · 화해 가운데 맞는 말입니다. 맞는 말이 없으면 비우고 label 에 적습니다. 단계는 한 화에 한 칸씩 움직이므로 이웃한 이정표 사이에 칸 수만큼 화를 둡니다. 이미 적은 설계도의 '계획상' 단계에서 잇습니다.
+- rungs: 쌍마다 두 인물의 신체 접촉이 한 단계씩 나아가는 칸을 낮은 칸부터 차례로, 많아도 5칸. 뒤 칸일수록 from_ep 가 줄지 않습니다.
+- parts · acts · places 는 위 목록의 id 만 씁니다. 맞는 id 가 없으면 비우고 label 에 씁니다. lead 는 접촉을 이끄는 인물 id 입니다.
+- abilities: 능력 · 권한 · 해금 단계는 부 구성 · 로그라인에 나온 것만 적습니다. 인물마다 많아도 6줄이고 한 줄의 범위는 10화 이하로 좁힙니다. 그 능력이 있어야 하는 이정표 · 칸은 능력의 범위 뒤에 둡니다.
+- 상대마다 따로 여는 해금 단계는 주인공의 능력 줄로 적습니다(ability 에 '상대 이름 + 해금', grade 에 '1단계' 같은 단계).
+{ability_ai_rules()}
+{ability_codex_rule("작품 설정 · 인물 · 부 구성 · 작가의 요청")}
+- 이미 적은 설계도와 같은 줄은 다시 만들지 않고, 그 줄과 어긋나지 않게 잇습니다.
+- 라벨 · 계기 · 메모 · 조건 · 까닭은 20자 안팎의 새 말로 씁니다. 입력 글을 길게 그대로 옮기지 않습니다.
+- evidence 에는 그 줄을 둔 화 번호와 그 자리에 둔 까닭(작품 설정 · 부 목표 · 작가 요청 가운데 어디서 왔는지) 한 줄을 1개 넣습니다.
+- reply 에는 쌍을 어떻게 엇갈려 놓았고 어디를 비웠는지 1~3문장으로 씁니다."""
+
+
 def blueprint_extract_prompt(p: Project, start: int, end: int, a: str, b: str) -> str:
     """지금 화별 플롯에서 두 인물의 설계도를 거꾸로 뽑는다 (pipeline.propose_blueprint, 응답 형식 BlueprintProposal, docs/blueprint/specs/05-extract.md).
     작가가 고른 줄만 설계도에 들어간다. 이미 적은 설계도 줄은 같은 줄을 다시 만들지 않게 넣는다."""
@@ -6069,6 +6127,7 @@ PIECES.update({
     "heat_req": Piece("완급 계획 요청", ("length",), "tail", "heat_propose_prompt"),
     "blueprint_req": Piece("설계도 거꾸로 뽑기 요청", ("continuity",), "tail", "blueprint_extract_prompt"),
     "blueprint_draft_req": Piece("설계도 짜기 요청", ("continuity",), "tail", "blueprint_draft_prompt"),
+    "blueprint_whole_req": Piece("작품 전체 짜기 요청", ("continuity",), "tail", "blueprint_whole_prompt"),
     "ability_extract_req": Piece("능력 일정 거꾸로 뽑기 요청", ("continuity",), "tail", "ability_extract_prompt"),
     "ability_draft_req": Piece("능력 일정 짜기 요청", ("continuity",), "tail", "ability_draft_prompt"),
     "plots_req": Piece("플롯 초안 요청", ("continuity",), "tail", "plot_prompt", "장편은 serial_plot_prompt"),
@@ -6124,6 +6183,8 @@ KINDS: dict[str, Kind] = {
                       _PLAN + ("blueprint_req",)),
     "blueprint_draft": Kind("설계도 짜기", "계획", "plan", "SYSTEM_PLANNER", "blueprint_draft_prompt", "BlueprintProposal", "pipeline.draft_blueprint",
                             _PLAN + ("blueprint_draft_req",)),
+    "blueprint_whole": Kind("작품 전체 짜기", "계획", "plan", "SYSTEM_PLANNER", "blueprint_whole_prompt", "BlueprintPlanSet", "pipeline.draft_whole",
+                            _PLAN + ("blueprint_whole_req",)),
     "blueprint_ability": Kind("능력 일정 거꾸로 뽑기", "계획", "plan", "SYSTEM_PLANNER", "ability_extract_prompt", "AbilityProposal", "pipeline.propose_abilities",
                               _PLAN + ("ability_extract_req",)),
     "blueprint_ability_draft": Kind("능력 일정 짜기", "계획", "plan", "SYSTEM_PLANNER", "ability_draft_prompt", "AbilityProposal", "pipeline.draft_abilities",

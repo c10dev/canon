@@ -269,9 +269,9 @@ def crowd_pairs(fs: list[First]) -> list[tuple[First, First]]:
     return out
 
 
-def crowd_rows(p: Project, fs: list[First]) -> list[tuple[str, str, str]]:
+def crowd_rows(p: Project, fs: list[First], keep: Callable[[First, First], bool] | None = None) -> list[tuple[str, str, str]]:
     """몰림 글 (두 쌍 키, 글). 제안 카드(11b)에만 쓴다. 늘 보이는 warning_rows 에는 넣지 않는다(작가가 일부러 둔 동시 장면이 있어서다).
-    같은 두 쌍 · 같은 축 · 같은 값은 한 줄로 줄인다."""
+    같은 두 쌍 · 같은 축 · 같은 값은 한 줄로 줄인다. keep 이 있으면 그 두 줄이 참인 몰림만 글로 쓴다."""
     names = {c.id: c.name or c.id for c in p.characters}
 
     def who(f: First) -> str:
@@ -280,7 +280,7 @@ def crowd_rows(p: Project, fs: list[First]) -> list[tuple[str, str, str]]:
     out, seen = [], set()
     for x, y in crowd_pairs(fs):
         k = (*sorted((x.pair, y.pair)), x.axis, x.value)
-        if k in seen:
+        if k in seen or (keep and not keep(x, y)):
             continue
         seen.add(k)
         what = f"{x.value} 단계" if x.axis == "단계" else f"{x.value} 겹"
@@ -403,10 +403,8 @@ def clean_proposal(p: Project, prop, a: str, b: str, start: int, end: int):
     return prop
 
 
-def apply_picks(p: Project, a: str, b: str, milestones: list, rungs: list) -> None:
-    """작가가 고른 제안 줄을 설계도에 더한다. 이정표는 뒤에 붙이고, 사다리 칸은 그 쌍 사다리에 처음 닿는 화 차례로 끼운다.
-    범위를 비운 칸(정하지 않음)은 자리를 지킨다. 더한 뒤 check 로 검사해 어긋나면 ValueError 이고 아무것도 바꾸지 않는다."""
-    q = p.model_copy(deep=True)
+def add_picks(q: Project, a: str, b: str, milestones: list, rungs: list) -> None:
+    """q 에 제안 줄을 검사 없이 더한다. 이정표는 뒤에 붙이고, 사다리 칸은 그 쌍 사다리에 처음 닿는 화 차례로 끼운다. 범위를 비운 칸은 자리를 지킨다."""
     for m in milestones:
         q.blueprint.milestones.append(Milestone(source=m.source, target=m.target, from_ep=m.from_ep, to_ep=m.to_ep,
                                                 stage=m.stage, label=m.label, trigger=m.trigger))
@@ -420,8 +418,162 @@ def apply_picks(p: Project, a: str, b: str, milestones: list, rungs: list) -> No
                               note=r.note, from_ep=r.from_ep, to_ep=r.to_ep)
             at = next((i for i, x in enumerate(lad.rungs) if x.from_ep > new.from_ep), len(lad.rungs))
             lad.rungs.insert(at, new)
+
+
+def apply_picks(p: Project, a: str, b: str, milestones: list, rungs: list) -> None:
+    """작가가 고른 제안 줄을 설계도에 더한다 (add_picks). 더한 뒤 check 로 검사해 어긋나면 ValueError 이고 아무것도 바꾸지 않는다."""
+    q = p.model_copy(deep=True)
+    add_picks(q, a, b, milestones, rungs)
     check(q, p)
     p.blueprint = q.blueprint
+
+
+# ---------- 작품 전체 짜기 (docs/blueprint/specs/11-whole.md 의 11b) ----------
+
+def whole_pairs(p: Project, picks: list[str] | None = None) -> list[tuple[str, str]]:
+    """짤 쌍 (a, b). 기본은 관계 목록의 모든 쌍(관계의 차례와 a · b 차례)이다. picks(쌍 키 목록)가 있으면 그 쌍만 고른다.
+    관계 목록에 없는 쌍도 두 인물이 있으면 받는다. 같은 쌍은 한 번만."""
+    chars = {c.id for c in p.characters}
+    order: list[tuple[str, str]] = []
+    for r in p.relationships:
+        if r.a in chars and r.b in chars and r.a != r.b and pair_key(r.a, r.b) not in {pair_key(*x) for x in order}:
+            order.append((r.a, r.b))
+    if not picks:
+        return order
+    out: list[tuple[str, str]] = []
+    for k in picks:
+        a, _, b = str(k).partition("~")
+        if a in chars and b in chars and a != b and pair_key(a, b) not in {pair_key(*x) for x in out}:
+            out.append(next((x for x in order if pair_key(*x) == pair_key(a, b)), (a, b)))
+    return out
+
+
+def stage_before(p: Project, s: str, t: str, n: int) -> str:
+    """s → t 방향이 n 화까지 계획상 닿은 단계: 단계를 적고 범위 끝 화가 n 화 이하인 이정표 가운데 가장 늦은 것. 없으면 빈 글.
+    2부를 짤 때 1부 끝 단계를 모르면 AI 가 낯섦부터 다시 짜서 넣는다 (정할 것 10, 이 일감의 프롬프트에만)."""
+    done = [m for m in p.blueprint.milestones if m.source == s and m.target == t and m.stage and 0 < m.from_ep and (m.to_ep or m.from_ep) <= n]
+    return max(done, key=lambda m: (m.to_ep or m.from_ep, m.from_ep)).stage if done else ""
+
+
+def whole_have_lines(p: Project, pairs: list[tuple[str, str]], start: int, end: int) -> list[str]:
+    """작품 전체 짜기 요청의 '이미 적은 설계도' 줄: 쌍마다 범위 앞 단계(방향마다 한 줄, start-1 화까지)와 기획 줄(plan_lines)."""
+    names = {c.id: c.name or c.id for c in p.characters}
+    out = []
+    for a, b in pairs:
+        if start > 1:
+            for s, t in ((a, b), (b, a)):
+                st = stage_before(p, s, t, start - 1)
+                if st:
+                    out.append(f"- {names.get(s, s)} → {names.get(t, t)}: {start - 1}화까지 계획상 {st}")
+        out += plan_lines(p, {a, b}, start, end)
+    return out
+
+
+def clean_set(p: Project, prop, pairs: list[tuple[str, str]], start: int, end: int):
+    """작품 전체 짜기 제안 정리 (BlueprintPlanSet): 고른 쌍의 항목만 남기고 같은 쌍이 두 번 오면 줄을 합친다. 쌍마다 clean_proposal 을 부른다.
+    쌍 차례는 pairs 차례이고 a · b 도 pairs 의 것으로 맞춘다. 능력 줄은 고른 쌍의 인물만 clean_abilities 로 정리한다.
+    편성은 범위를 자르고 고른 쌍 키만 남긴다. 작가 데이터가 아니라 AI 제안이라 지운다."""
+    from .schema import BlueprintProposal, PairDraft
+    want = {pair_key(a, b): (a, b) for a, b in pairs}
+    merged: dict[str, PairDraft] = {}
+    for x in prop.pairs:
+        k = pair_key(x.a, x.b)
+        if k not in want or x.a == x.b:
+            continue
+        if k in merged:
+            merged[k].milestones += x.milestones
+            merged[k].rungs += x.rungs
+        else:
+            merged[k] = PairDraft(a=want[k][0], b=want[k][1], milestones=list(x.milestones), rungs=list(x.rungs))
+    out = []
+    for k, (a, b) in want.items():
+        if k not in merged:
+            continue
+        one = clean_proposal(p, BlueprintProposal(milestones=merged[k].milestones, rungs=merged[k].rungs), a, b, start, end)
+        out.append(PairDraft(a=a, b=b, milestones=one.milestones, rungs=one.rungs))
+    prop.pairs = out
+    prop.abilities = clean_abilities(p, prop.abilities, {c for ab in pairs for c in ab}, start, end)
+    prop.codex = clean_codex(p, prop.codex, prop.abilities)
+    spots = []
+    for sp in prop.spotlight:
+        if _clip(sp, start, end):
+            sp.focus = list(dict.fromkeys(pair_key(*str(k).partition("~")[::2]) for k in sp.focus if pair_key(*str(k).partition("~")[::2]) in want))
+            sp.note = sp.note.strip()
+            spots.append(sp)
+    prop.spotlight = sorted(spots, key=lambda sp: (sp.from_ep, sp.to_ep))
+    return prop
+
+
+def apply_set(p: Project, pairs: list, abilities_rows: list, codex: list = ()) -> list[str]:
+    """작품 전체 짜기에서 작가가 고른 줄을 한 사본에 모두 더한 뒤 check 를 한 번 부른다. 어긋나면 ValueError 이고 아무것도 바꾸지 않는다.
+    pairs 는 PairDraft(쌍마다 고른 이정표 · 칸), abilities_rows 는 고른 AbilityDraft, codex 는 고른 도감 초안이다(13 과 같이 도감에 만든다). 만든 도감 항목 id 를 돌려준다."""
+    q = p.model_copy(deep=True)
+    made = add_codex(q, list(codex))
+    for x in pairs:
+        add_picks(q, x.a, x.b, x.milestones, x.rungs)
+    add_abilities(q, abilities_rows)
+    check(q, p)
+    p.blueprint, p.abilities = q.blueprint, q.abilities
+    return made
+
+
+NEW = "+"  # 제안 줄의 임시 id 머리 (몰림 · 맞물림 계산에서 이미 적은 줄과 가른다)
+
+
+def _with_proposal(p: Project, prop) -> tuple[list[Milestone], list[ContactLadder], list[AbilityPlan]]:
+    """이미 적은 줄과 제안 줄을 한데 모은 목록. 제안 줄은 id 가 '+' 로 시작한다."""
+    ms = list(p.blueprint.milestones)
+    lads = {pair_key(x.a, x.b): ContactLadder(a=x.a, b=x.b, rungs=list(x.rungs)) for x in p.blueprint.ladders}
+    for i, x in enumerate(prop.pairs):
+        for j, m in enumerate(x.milestones):
+            ms.append(Milestone(id=f"{NEW}ms-{i}-{j}", source=m.source, target=m.target, from_ep=m.from_ep, to_ep=m.to_ep, stage=m.stage, label=m.label, trigger=m.trigger))
+        lad = lads.setdefault(pair_key(x.a, x.b), ContactLadder(a=x.a, b=x.b))
+        lad.rungs += [ContactRung(id=f"{NEW}cr-{i}-{j}", label=r.label, layer=r.layer, note=r.note, from_ep=r.from_ep, to_ep=r.to_ep) for j, r in enumerate(x.rungs)]
+    plans = list(p.blueprint.ability_plans) + [AbilityPlan(id=f"{NEW}ap-{i}", character=x.character, ability=x.ability, grade=x.grade, from_ep=x.from_ep, to_ep=x.to_ep)
+                                               for i, x in enumerate(prop.abilities)]
+    return ms, list(lads.values()), plans
+
+
+def proposal_firsts(p: Project, prop) -> list[First]:
+    """제안 카드의 전체 띠: 이미 적은 줄과 제안 줄을 함께 본 처음 닿는 줄. 제안 줄은 id 가 '+' 로 시작한다."""
+    ms, lads, _ = _with_proposal(p, prop)
+    return firsts(ms, lads)
+
+
+def proposal_crowd(p: Project, prop) -> list[tuple[str, str, str]]:
+    """제안 카드의 몰림 글: 제안 줄끼리, 그리고 제안 줄과 이미 적은 줄 사이만 (이미 적은 줄끼리는 개요의 전체 띠가 보인다, 정할 것 5)."""
+    return crowd_rows(p, proposal_firsts(p, prop), lambda x, y: x.id.startswith(NEW) or y.id.startswith(NEW))
+
+
+def proposal_mesh(p: Project, prop) -> list[tuple[str, str]]:
+    """능력 맞물림 경고 (쌍 키, 글, 막지 않음): 이정표 라벨 · 계기, 사다리 칸 이름 · 메모에 능력 이름(도감의 다른 이름 포함)이 나오는데
+    그 능력의 첫 화가 그 줄의 첫 화보다 뒤다. 한쪽이라도 제안 줄인 것만 알린다."""
+    ms, lads, plans = _with_proposal(p, prop)
+    names = {c.id: c.name or c.id for c in p.characters}
+    first: dict[str, tuple[int, AbilityPlan, list[str]]] = {}
+    for x in plans:
+        if x.from_ep <= 0:
+            continue
+        k = abilities.key(x.ability)
+        a = abilities.find(p, x.ability)
+        words = [w for w in {x.ability, *(a.aliases if a else [])} if len(_squash(w)) >= 2]
+        if k not in first or x.from_ep < first[k][0]:
+            first[k] = (x.from_ep, x, words)
+    rows: list[tuple[str, str, int, str, str]] = []
+    for m in ms:
+        rows.append((pair_key(m.source, m.target), f"{names.get(m.source, m.source)} → {names.get(m.target, m.target)} '{m.label or m.stage}'", m.from_ep, m.id, f"{m.label} {m.trigger}"))
+    for lad in lads:
+        for r in lad.rungs:
+            rows.append((pair_key(lad.a, lad.b), f"{names.get(lad.a, lad.a)} ↔ {names.get(lad.b, lad.b)} 칸 '{r.label}'", r.from_ep, r.id, f"{r.label} {r.note}"))
+    out = []
+    for key, what, ep, rid, text in rows:
+        if ep <= 0:
+            continue
+        body = _squash(text)
+        for got, x, words in first.values():
+            if got > ep and any(_squash(w) in body for w in words) and (rid.startswith(NEW) or x.id.startswith(NEW)):
+                out.append((key, f"{what}({ep}화~)에 능력 '{x.ability}' 이름이 나오는데 능력 일정은 {_rng(x)}에 얻어요."))
+    return out
 
 
 # ---------- 본문에서 실제로 닿은 칸 (docs/blueprint/specs/07-contact.md) ----------

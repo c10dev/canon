@@ -33,6 +33,7 @@ BUDGET = {
     "places": 3_000,        # 기획 · 검수 · 상태 변경안에 넣는 본문 · 플롯에서 나온 장소
     "plan_fixed": 8_000,    # 화별 플롯 초안: 범위 안 · 바로 뒤의 이미 정해진 화 플롯 (prompts.fixed_plots, 장편만)
     "blueprint": 2_000,     # 장편 기획(다음 아크 · 화별 플롯 초안)의 설계도 줄: 범위에 걸린 이정표 · 사다리 칸과 그 뒤 첫 것 (prompts.blueprint_plan_block)
+    "blueprint_whole": 4_000,  # 작품 전체 짜기의 '이미 적은 설계도': 고른 쌍 모두의 범위 앞 단계 · 기획 줄 (prompts.blueprint_whole_prompt). 2026-11-11 실측 한 쌍 16줄 2,731자
     "ability_ai": 3_000,    # 능력 일정 제안 요청(거꾸로 뽑기 · 짜기)의 능력 블록: 이미 적은 줄 · 상태창의 능력 · 도감 이름 (prompts.ability_ai_block)
     "ability_plan": 1_000,  # 장편 기획의 설계도 능력 일정 줄: 범위 앞의 것 · 범위에 걸린 것 · 인물마다 그 뒤 첫 것 (prompts.blueprint_ability_block)
     "plan_stages": 1_500,   # 화별 플롯 초안: 기획 인물끼리 지금 관계 단계 한 줄씩 (prompts.plan_stage_block, 장편만). 주역끼리 먼저

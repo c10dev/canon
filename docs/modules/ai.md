@@ -278,6 +278,7 @@
   - `mock_blueprint.py` 설계도 거꾸로 뽑기(`BlueprintProposal`): 이정표 · 사다리 칸과 정리가 거르는 줄(쌍 밖, 범위 밖, 모르는 id)
   - `mock_blueprint.py` 능력 일정 제안(`AbilityProposal`): 두 줄과 정리가 거르는 줄(이름에 붙은 등급 꼬리, 같은 줄, 다른 인물, 범위 밖)
   - `mock_blueprint.py` 능력 일정 제안의 도감 초안(`AbilityProposal.codex`): 한 항목과 정리가 거르는 항목(등급 꼬리, 같은 이름, 줄 없는 능력, 빈 등급)
+  - `mock_blueprint.py` 작품 전체 짜기(`BlueprintPlanSet`): 쌍마다 차례로 엇갈린 이정표 두 줄 · 칸 한 칸, 능력 한 줄, 정리가 거르는 항목(고르지 않은 쌍, 같은 쌍 두 번째 항목, 범위 밖 편성)
   - `mock_heat.py` 완급 계획: 기승전결과 함께(`HeatArcPlan`), 다음 아크와 함께(`HeatArcProposal`), 완급 계획만(`HeatProposal`, 첫 화를 열 5로 보내 본문 있는 화 지키기를 시험)
   - `mock_knows.py` 아는 정보 접기
   - `mock_offscreen.py` 화면 밖 근황
