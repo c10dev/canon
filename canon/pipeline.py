@@ -905,6 +905,9 @@ def draft_blueprint(llm: LLM, p: Project, part: int, a: str, b: str, note: str =
     return blueprint.clean_proposal(p, prop, a, b, start, end)
 
 
+# 작품 전체 짜기의 출력 한도 (생각 토큰 포함). 쌍 넷의 응답이 6천 토큰 안팎이라 BLUEPRINT_OUT_TOKENS 로는 모자란다.
+# 2026-11-11 실제 서버(gemini-4-argon · high): 성공 두 번이 출력 + 생각 1만~1.37만 토큰이었고, 한 번은 생각만 16,381토큰을 써 글 없이 끝났다
+WHOLE_OUT_TOKENS = 32768
 WHOLE_CHUNK = 5  # 작품 전체 짜기가 한 번에 받는 쌍 수. 넘으면 나눠 부르고 뒤 묶음은 앞 묶음 제안을 '이미 적은 설계도'로 받는다 (11-whole.md 정할 것 1)
 
 
@@ -922,7 +925,7 @@ def draft_whole(llm: LLM, p: Project, part: int, picks: list[str] | None = None,
     for i in range(0, len(pairs), WHOLE_CHUNK):
         chunk = pairs[i:i + WHOLE_CHUNK]
         ask = prompts.blueprint_whole_prompt(q, start, end, chunk, pairs[:i]) + prompts.request_block(note)
-        with out_cap(BLUEPRINT_OUT_TOKENS):
+        with out_cap(WHOLE_OUT_TOKENS):
             prop = llm.json(prompts.SYSTEM_PLANNER, ask, BlueprintPlanSet, hint={"start": start, "end": end, "pairs": [list(x) for x in chunk]})
         prop = blueprint.clean_set(q, prop, chunk, start, end)
         for x in prop.pairs:

@@ -416,7 +416,8 @@
 - 두 설계도 제안은 출력 한도 `BLUEPRINT_OUT_TOKENS`(16,384)를 건다. 2026-11-10 flash 실호출 두 번 모두 첫 시도가 65,521토큰까지 되풀이했다
 - 능력 일정 거꾸로 뽑기 `propose_abilities`(아크 하나 · 인물 하나, `prompts.ability_extract_prompt`, 응답 `AbilityProposal`, 정리 `blueprint.clean_abilities`). 저장하지 않는다
 - 능력 일정 짜기 `draft_abilities`(부 하나 · 인물 하나 · 작가 메모, `prompts.ability_draft_prompt`, 플롯이 없어도 됨). 같은 출력 한도를 건다
-- 작품 전체 짜기 `draft_whole(llm, p, part, picks, note)`(부 하나 · 여러 쌍 · 능력 일정, `prompts.blueprint_whole_prompt`, 응답 `BlueprintPlanSet`, 정리 `blueprint.clean_set`, `docs/blueprint/specs/11-whole.md`). 같은 출력 한도를 건다
+- 작품 전체 짜기 `draft_whole(llm, p, part, picks, note)`(부 하나 · 여러 쌍 · 능력 일정, `prompts.blueprint_whole_prompt`, 응답 `BlueprintPlanSet`, 정리 `blueprint.clean_set`, `docs/blueprint/specs/11-whole.md`)
+- 작품 전체 짜기의 출력 한도는 `WHOLE_OUT_TOKENS`(32,768, 생각 포함)다. 2026-11-11 실제 서버(gemini-4-argon · high)에서 16,384 로는 생각만 16,381토큰 쓰고 글 없이 끝난 적이 있다
 - 쌍이 `WHOLE_CHUNK`(5)를 넘으면 다섯씩 차례로 부른다. 뒤 묶음은 앞 묶음 제안을 사본에 더해 '이미 적은 설계도'로 받는다(`others`)
 - 전체 짜기 요청의 이미 적은 설계도는 예산 `context.BUDGET["blueprint_whole"]`(4,000자)에 맞추고 넘으면 뒤 줄부터 빼고 수를 적는다. 인물은 고른 쌍의 인물만 넣는다
 - 두 능력 일정 요청은 도감에 없는 능력의 도감 초안도 받는다(`prompts.ability_codex_rule`, 응답 `AbilityProposal.codex`, 정리 `blueprint.clean_codex`, `docs/blueprint/specs/13-ability-codex.md`)
