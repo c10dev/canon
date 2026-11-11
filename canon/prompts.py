@@ -1276,6 +1276,13 @@ def _bp_ids_block(p: Project) -> str:
 {places or "없음"}"""
 
 
+def _bp_part_text(p: Project, start: int, end: int) -> str:
+    """설계도 짜기 요청의 부 구성 줄: start~end 에 걸친 부의 목표 · 마무리 · 아크 생각. 단편이나 부가 없으면 빈 글."""
+    parts = [x for x in p.parts if x.end_ep >= start and x.start_ep <= end] if p.serial else []
+    return "\n".join(f"- {x.number}부 {x.title} ({x.start_ep}~{x.end_ep}화): {x.goal}" + (f" / 마무리: {x.key_turn}" if x.key_turn else "")
+                     + "".join(f"\n  · {i}" for i in x.arc_ideas) for x in parts)
+
+
 def blueprint_draft_prompt(p: Project, start: int, end: int, a: str, b: str) -> str:
     """작가 설정 · 부 구성에서 두 인물의 설계도를 짠다 (pipeline.draft_blueprint, 응답 형식 BlueprintProposal, docs/blueprint/specs/08-draft.md).
     플롯이 없어도 된다. 작가가 고른 줄만 설계도에 들어간다. 작가 메모는 요청 끝(request_block)에 붙는다."""
@@ -1285,9 +1292,7 @@ def blueprint_draft_prompt(p: Project, start: int, end: int, a: str, b: str) -> 
     rel = next((r for r in p.relationships if {r.a, r.b} == {a, b}), None)
     rel_text = (f"지금 사이: {rel.type or '정하지 않음'}" + (f" · {rel.description}" if rel.description else "")
                 + (f"\n가 닿을 곳 (작가가 정한 방향, 지금 관계 아님): {rel.destination}" if rel.destination else "")) if rel else "없음"
-    parts = [x for x in p.parts if x.end_ep >= start and x.start_ep <= end] if p.serial else []
-    part_text = "\n".join(f"- {x.number}부 {x.title} ({x.start_ep}~{x.end_ep}화): {x.goal}" + (f" / 마무리: {x.key_turn}" if x.key_turn else "")
-                          + "".join(f"\n  · {i}" for i in x.arc_ideas) for x in parts)
+    part_text = _bp_part_text(p, start, end)
     have = "\n".join(blueprint.plan_lines(p, {a, b}, start, end))
     return f"""{start}화부터 {end}화까지 {na}{josa(na, '과', '와')} {nb}의 설계도를 짜세요.
 설계도는 작가가 먼저 정하는 계획입니다. 관계 이정표는 한 방향 관계가 몇 화쯤 어느 관계에 닿는지, 접촉 사다리는 두 인물의 신체 접촉이 몇 화쯤 어디까지 가는지입니다. 플롯은 이 계획을 따라 나중에 짭니다.
@@ -1347,6 +1352,94 @@ def blueprint_extract_prompt(p: Project, start: int, end: int, a: str, b: str) -
 - parts · acts · places 는 위 목록의 id 만 씁니다. 맞는 id 가 없으면 비우고 label 에 씁니다. lead 는 접촉을 이끈 인물 id 입니다.
 - 이미 적은 설계도와 같은 줄은 다시 만들지 않습니다.
 - evidence 에는 근거 화 번호와 그 화 플롯에서 그대로 옮긴 구절을 1~3개 넣습니다.
+- reply 에는 무엇을 뽑았고 무엇이 플롯에 없어 비웠는지 1~3문장으로 씁니다."""
+
+
+def ability_ai_block(p: Project, ids: set[str] | None, start: int = 0, end: int = 0) -> str:
+    """능력 일정 제안 요청의 능력 블록 (docs/blueprint/specs/12-ability-ai.md): 스킬 도감 이름 · 지금 상태창의 능력 · 이미 적은 능력 일정.
+    ids 인물의 줄만 넣는다 (도감은 작품 것 모두). 실제 얻은 화는 이름으로 잇기 때문에 AI 가 이 이름을 그대로 쓰게 하려는 재료다.
+    셋을 합쳐 예산(context.BUDGET["ability_ai"])에 맞춘다: 상태창의 능력(짧고 이름 잇기에 꼭 필요하다) · 이미 적은 줄(start~end 에 걸친 줄부터) · 도감 차례로 남은 예산을 쓰고, 넘으면 뺀 수를 적는다.
+    작품 전체 짜기(11-whole.md 의 11b)도 이 블록을 쓴다."""
+    def cat(a) -> str:
+        grades = " → ".join(g.grade for g in a.grades if g.grade)
+        return (f"- {a.name}" + (f" (= {', '.join(a.aliases)})" if a.aliases else "") + (f" [{a.stat}]" if a.stat else "")
+                + (f" 등급: {grades}" if grades else "") + (f": {(a.effect or a.description)[:60]}" if a.effect or a.description else ""))
+    left, cut, kept = context.BUDGET["ability_ai"], 0, []
+    for lines in (blueprint.ability_owned_lines(p, ids), blueprint.ability_have_lines(p, ids, start, end), [cat(a) for a in p.abilities]):
+        got, n = context.fit_lines(lines, left)  # 묶음마다 남은 예산으로 맞춘다 (한데 이어 자르면 앞 묶음이 넘칠 때 뒤 묶음 줄이 앞 제목 아래로 온다)
+        left -= sum(len(x) + 1 for x in got)
+        cut += n
+        kept.append(got)
+    owned, have, book = kept
+    less = f"\n(예산을 넘어 그 밖 {cut}줄 생략)" if cut else ""
+    return f"""[스킬 도감]
+{chr(10).join(book) or "없음"}
+[지금 상태창의 능력]
+{chr(10).join(owned) or "없음"}
+[이미 적은 능력 일정]
+{chr(10).join(have) or "없음"}{less}"""
+
+
+def ability_ai_rules() -> str:
+    """능력 일정 제안 요청의 공통 요구사항 줄 (거꾸로 뽑기 · 짜기 · 작품 전체 짜기 11b 가 같이 쓴다): 이름 잇기, 등급 칸, 이미 적은 줄."""
+    return """- abilities 의 character 는 인물 id 입니다. ability 는 능력 이름만 적고, 등급(Lv3 · 중급 · 2단계 같은 꼬리)은 grade 에 따로 적습니다. 얻기만 하면 grade 를 비웁니다.
+- 스킬 도감이나 지금 상태창에 같은 능력이 있으면 그 이름을 한 글자도 바꾸지 않고 씁니다. 실제로 얻은 화를 이 이름으로 찾습니다.
+- 같은 능력의 등급이 오르면 등급마다 한 줄을 따로 적습니다.
+- 근력 · 마력 같은 수치의 오르내림은 능력이 아니므로 적지 않습니다. 스킬 · 특성 · 칭호처럼 이름이 있는 것만 적습니다.
+- 이미 적은 능력 일정과 같은 줄(같은 인물 · 능력 · 등급)은 다시 만들지 않고, 그 줄과 어긋나지 않게 잇습니다."""
+
+
+def ability_draft_prompt(p: Project, start: int, end: int, cid: str) -> str:
+    """작가 설정 · 부 구성 · 스킬 도감에서 인물 하나의 능력 일정을 짠다 (pipeline.draft_abilities, 응답 형식 AbilityProposal, docs/blueprint/specs/12-ability-ai.md).
+    플롯이 없어도 된다. 작가가 고른 줄만 설계도에 들어간다. 작가 메모는 요청 끝(request_block)에 붙는다."""
+    c = next((x for x in p.characters if x.id == cid), None)
+    name = c.name if c else cid
+    return f"""{start}화부터 {end}화까지 {name}의 능력 일정을 짜세요.
+능력 일정은 작가가 먼저 정하는 계획입니다. 인물이 어느 능력(스킬 · 특성 · 칭호)을 몇 화쯤 어느 등급까지 얻는지 적습니다. 플롯은 이 계획을 따라 나중에 짭니다.
+
+[작품]
+{meta_text(p)}
+[인물]
+{dump([c] if c else [])}
+[부 구성]
+{_bp_part_text(p, start, end) or "없음"}
+{ability_ai_block(p, {cid}, start, end)}
+
+요구사항:
+- 작품 설정 · 로그라인 · 부 구성 · 스킬 도감 · 작가의 요청에 있는 능력과 성장 방향을 따릅니다. 스킬 도감 · 상태창에 있는 능력을 먼저 쓰고, 설정 · 부 구성 · 작가의 요청이 요구하는 능력만 새 이름으로 적습니다.
+{ability_ai_rules()}
+- 화 범위는 {start}~{end}화 안에서 고르고, 부 구성이 있으면 부의 목표와 마무리에 맞는 자리에 둡니다. 한 줄의 범위는 10화 이하로 좁힙니다.
+- 같은 능력의 뒤 등급일수록 from_ep 가 늦습니다. 지금 상태창에 이미 있는 능력 · 등급은 적지 않습니다.
+- 줄은 많아도 8줄입니다. condition 에는 얻는 조건이나 계기를 20자 안팎의 새 말로 씁니다. 입력 글을 길게 그대로 옮기지 않습니다.
+- evidence 에는 그 줄을 둔 화 번호와 그 자리에 둔 까닭(작품 설정 · 부 목표 · 스킬 도감 · 작가 요청 가운데 어디서 왔는지) 한 줄을 1개 넣습니다.
+- reply 에는 무엇을 짰고 어디를 비웠는지 1~3문장으로 씁니다."""
+
+
+def ability_extract_prompt(p: Project, start: int, end: int, cid: str) -> str:
+    """지금 화별 플롯에서 인물 하나의 능력 일정을 거꾸로 뽑는다 (pipeline.propose_abilities, 응답 형식 AbilityProposal, docs/blueprint/specs/12-ability-ai.md).
+    작가가 고른 줄만 설계도에 들어간다. 범위는 설계도 거꾸로 뽑기와 같다 (장편은 아크 하나)."""
+    c = next((x for x in p.characters if x.id == cid), None)
+    name = c.name if c else cid
+    plots = [{"number": e.plot.number, "title": e.plot.title, "summary": e.plot.summary, "events": e.plot.events,
+              "ending_hook": e.plot.ending_hook} for e in sorted(p.episodes, key=lambda e: e.plot.number) if start <= e.plot.number <= end]
+    return f"""{start}화부터 {end}화까지의 화별 플롯에서 {name}의 능력 일정을 거꾸로 뽑으세요.
+능력 일정은 작가가 먼저 정하는 계획입니다. 인물이 어느 능력(스킬 · 특성 · 칭호)을 몇 화쯤 어느 등급까지 얻는지 적습니다.
+
+[작품]
+{meta_text(p)}
+[인물]
+{dump([c] if c else [])}
+[화별 플롯]
+{dump(plots) or "없음"}
+{ability_ai_block(p, {cid}, start, end)}
+
+요구사항:
+- 플롯에 적힌 일만 뽑습니다. 플롯에 없는 능력이나 등급을 지어내지 않습니다.
+- {name}({cid}){josa(name, '이', '가')} 능력을 처음 얻거나 능력의 등급이 오르는 화마다 한 줄, 화 차례로 적습니다. 이미 가진 능력을 쓰기만 하는 화는 적지 않습니다.
+{ability_ai_rules()}
+- from_ep 는 얻은 화, to_ep 는 보통 같은 화입니다. 화 범위는 {start}~{end}화 안입니다.
+- condition 에는 얻게 된 계기를 한 줄로 씁니다.
+- evidence 에는 근거 화 번호와 그 화 플롯에서 그대로 옮긴 20자 안팎 구절을 1~2개 넣습니다.
 - reply 에는 무엇을 뽑았고 무엇이 플롯에 없어 비웠는지 1~3문장으로 씁니다."""
 
 
@@ -5965,6 +6058,8 @@ PIECES.update({
     "heat_req": Piece("완급 계획 요청", ("length",), "tail", "heat_propose_prompt"),
     "blueprint_req": Piece("설계도 거꾸로 뽑기 요청", ("continuity",), "tail", "blueprint_extract_prompt"),
     "blueprint_draft_req": Piece("설계도 짜기 요청", ("continuity",), "tail", "blueprint_draft_prompt"),
+    "ability_extract_req": Piece("능력 일정 거꾸로 뽑기 요청", ("continuity",), "tail", "ability_extract_prompt"),
+    "ability_draft_req": Piece("능력 일정 짜기 요청", ("continuity",), "tail", "ability_draft_prompt"),
     "plots_req": Piece("플롯 초안 요청", ("continuity",), "tail", "plot_prompt", "장편은 serial_plot_prompt"),
     "plot_req": Piece("한 화 플롯 요청", ("continuity",), "tail", "episode_plot_prompt"),
     "agent_req": Piece("에이전트 첫 단계 요청", ("continuity",), "tail", "agent_plot_prompt"),
@@ -6018,6 +6113,10 @@ KINDS: dict[str, Kind] = {
                       _PLAN + ("blueprint_req",)),
     "blueprint_draft": Kind("설계도 짜기", "계획", "plan", "SYSTEM_PLANNER", "blueprint_draft_prompt", "BlueprintProposal", "pipeline.draft_blueprint",
                             _PLAN + ("blueprint_draft_req",)),
+    "blueprint_ability": Kind("능력 일정 거꾸로 뽑기", "계획", "plan", "SYSTEM_PLANNER", "ability_extract_prompt", "AbilityProposal", "pipeline.propose_abilities",
+                              _PLAN + ("ability_extract_req",)),
+    "blueprint_ability_draft": Kind("능력 일정 짜기", "계획", "plan", "SYSTEM_PLANNER", "ability_draft_prompt", "AbilityProposal", "pipeline.draft_abilities",
+                                    _PLAN + ("ability_draft_req",)),
     "plots": Kind("플롯 초안", "계획", "plan", "SYSTEM_PLANNER", "plot_prompt", "PlotBatch", "pipeline.draft_plots",
                   _PLAN + ("plots_req",) + _PLOT_RULES, also=("serial_plot_prompt",), view=True, brief=_bk("플롯 초안", scope="act")),
     "plot": Kind("한 화 플롯", "계획", "plan", "SYSTEM_PLANNER", "episode_plot_prompt", "PlotBatch", "pipeline.draft_episode",

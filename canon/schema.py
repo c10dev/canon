@@ -986,6 +986,25 @@ class BlueprintProposal(BaseModel):
     reply: str = Field("", description="작가에게 하는 설명 1~3문장: 무엇을 뽑았고 무엇이 플롯에 없어 비웠는지")
 
 
+class AbilityDraft(BaseModel):
+    """AI 가 제안한 능력 일정 한 줄 (docs/blueprint/specs/12-ability-ai.md). 작가가 고르면 AbilityPlan 이 된다.
+    인물 단위 제안(AbilityProposal)과 작품 전체 짜기(docs/blueprint/specs/11-whole.md 의 11b)가 같은 모델을 쓴다."""
+    character: str = Field(description="인물 id")
+    ability: str = Field(description="능력 이름 (등급 꼬리 없이). 요청에 준 스킬 도감 · 상태창의 이름이 있으면 그 이름 그대로")
+    grade: str = Field("", description="닿는 등급 (예: Lv3, 중급). 얻기만 하면 비운다")
+    condition: str = Field("", description="얻는 조건 한 줄")
+    from_ep: int = Field(description="얻는 화 범위의 첫 화")
+    to_ep: int = Field(description="범위 끝 화")
+    evidence: list[BlueprintEvidence] = Field(default_factory=list, description="근거 화와 구절 1~3개")
+
+
+class AbilityProposal(BaseModel):
+    """인물 하나의 능력 일정 제안: 지금 플롯에서 거꾸로 뽑거나 설정 · 부 구성에서 짠다 (canon/blueprint.py clean_abilities 가 정리한다).
+    작가가 고른 줄만 설계도에 들어간다. abilities 에는 기본값을 두지 않는다 (기본값이 있는 목록은 모델이 비우고 끝내기 쉽다, 11-whole.md 실측 1회)."""
+    abilities: list[AbilityDraft] = Field(description="능력 일정 줄, 화 차례. 없으면 빈 목록")
+    reply: str = Field("", description="작가에게 하는 설명 1~3문장: 무엇을 적었고 무엇이 없어 비웠는지")
+
+
 class Recap(BaseModel):
     """아크나 부가 끝난 뒤의 요약 제안."""
     summary: str = Field(description="다음 화를 쓸 때 참고할 요약")
