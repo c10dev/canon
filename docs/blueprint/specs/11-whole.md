@@ -101,7 +101,7 @@ AI 가 관계가 있는 모든 쌍의 설계도를 한 번에 짠다(장편은 �
 | `canon/schema.py` | `SpotDraft`, `PairDraft`, `BlueprintPlanSet`. 능력 줄 `AbilityDraft` 는 12 가 만든 것을 쓴다 |
 | `canon/blueprint.py` | 짤 쌍 `whole_pairs(p, picks)`, 범위 앞 단계 `stage_before(p, s, t, n)`, 정리 `clean_set(p, prop, pairs, start, end)`(쌍마다 `clean_proposal` 을 부르고 능력 줄을 정리), 더하기 `apply_set(p, picks)`(깊은 사본에 쌍마다 더하고 `check` 를 한 번), 제안의 몰림 `crowd_rows` |
 | `canon/prompts.py` | `blueprint_whole_prompt(p, start, end, pairs)`, 갈래 `KINDS["blueprint_whole"]`, 조각 `blueprint_whole_req` |
-| `canon/pipeline.py` | `draft_whole(llm, p, part, pairs, note)`, 출력 한도 `BLUEPRINT_OUT_TOKENS` 그대로, 쌍이 다섯을 넘으면 나눠 부르기 |
+| `canon/pipeline.py` | `draft_whole(llm, p, part, pairs, note)`, 출력 한도 `WHOLE_OUT_TOKENS`(32,768), 쌍이 다섯을 넘으면 나눠 부르기 |
 | `canon/mock_blueprint.py` | `BlueprintPlanSet` 가짜 응답(쌍마다 이정표 두 줄 · 칸 한 칸, 능력 한 줄). 08 의 가짜 응답과 같은 파일 |
 | `canon/web.py` | 작업 `blueprint_whole`(대상 `@whole`, ep 는 부 번호, note 는 작가 메모, `pairs` 는 쌍 키 목록). 결과 `mode: "whole"`, `PENDING_KINDS` 에 더함. 고른 줄 적용 `POST …/blueprint/apply-set` |
 | `canon/static/blueprint.js` | 개요 '관계' 카드 머리의 'AI로 전체 짜기' 버튼, 누르면 여는 카드(메모 · 부 고르기 · 쌍 체크), 쌍마다 묶은 제안 카드(묶음 체크 · 줄 체크 · 능력 묶음 · 몰림 경고 · 전체 띠) |
@@ -139,7 +139,8 @@ AI 가 관계가 있는 모든 쌍의 설계도를 한 번에 짠다(장편은 �
 - 몰림 글에 인물 이름이 들어가서 `crowd_rows` 는 작품(`p`)도 받는다.
 - 몰림은 제안 줄끼리, 그리고 제안 줄과 이미 적은 줄 사이를 본다. 이미 적은 줄끼리는 11a 의 전체 띠에서만 보인다(정할 것 5).
 - 능력 맞물림 경고: 이정표 라벨 · 계기, 사다리 칸 이름 · 메모에 능력 이름(도감의 다른 이름 포함, `blueprint._squash` 로 견줌)이 나오는데 그 능력 줄의 첫 화가 그 줄의 첫 화보다 뒤면 제안 카드에 알린다. 막지 않는다.
-- 출력 한도는 `BLUEPRINT_OUT_TOKENS`(16,384)를 그대로 건다. 넘으면 형식 고치기 재시도로 넘어간다(08 과 같다).
+- 출력 한도는 `WHOLE_OUT_TOKENS`(32,768, 생각 포함)다. 처음에는 08 의 16,384 를 썼으나, 2026-11-11 실제 서버(gemini-4-argon · high)에서 성공 두 번이 출력 + 생각 1만~1.37만 토큰이었고 한 번은 생각만 16,381토큰을 써 글 없이 끝났다.
+- 한도에 걸리면 형식 고치기 재시도로 넘어간다(08 과 같다).
 - 프롬프트의 쌍마다 줄 수 상한: 이정표 방향마다 4줄, 사다리 5칸, 근거 1개(실측 3회와 같다). 능력은 인물마다 6줄.
 - 승인 흐름: 결과는 고르기를 기다린다(`PENDING_KINDS`). 기본 체크는 08 의 제안 카드와 같다. 능력 묶음도 같다.
 - 자동 집필 · `-y` · 대화 에이전트는 이 작업을 부르지 않는다.

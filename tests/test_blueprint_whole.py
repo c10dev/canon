@@ -135,3 +135,16 @@ def test_job_and_apply_set_api(client):
     again = client.post("/api/projects/bpw/blueprint/apply-set", json={"pairs": [], "abilities": res["abilities"]})
     assert again.status_code == 400  # 같은 능력 줄이 두 줄 → 아무것도 바꾸지 않는다
     assert client.post("/api/projects/bpw/jobs", json={"kind": "blueprint_whole", "target": "@whole", "pairs": ["x~y"]}).status_code == 400
+
+
+def test_whole_uses_its_own_out_cap(monkeypatch):
+    from canon import llm as llm_mod
+    seen = []
+    real = MockLLM.json
+
+    def spy(self, *a, **k):
+        seen.append(llm_mod._out_cap.get())
+        return real(self, *a, **k)
+    monkeypatch.setattr(MockLLM, "json", spy)
+    pipeline.draft_whole(MockLLM(), _harem(), 0)
+    assert seen == [pipeline.WHOLE_OUT_TOKENS] and pipeline.WHOLE_OUT_TOKENS > pipeline.BLUEPRINT_OUT_TOKENS  # 쌍 여럿의 응답과 생각이 08 의 한도를 넘는다
