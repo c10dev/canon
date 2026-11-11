@@ -1,6 +1,6 @@
 # 08. AI 로 설계도 짜기
 
-상태: 진행 (claude/blueprint-draft) · 계획: [plan.md](../plan.md) 의 8번 · 먼저: 5번
+상태: 끝 ([#483](https://github.com/c10dev/canon/pull/483)) · 계획: [plan.md](../plan.md) 의 8번 · 먼저: 5번
 
 ## 목표
 

@@ -591,16 +591,53 @@ def _squash(text: str) -> str:
     return re.sub(r"\s+", "", text).casefold()
 
 
+def _plot_text(p: Project, n: int) -> Optional[str]:
+    """n 화 플롯 칸과 화 · 아크 연출 지시를 이어 붙이고 공백을 지운 글. 쓰기 줄의 '플롯에 나왔다'는 이 글에서 찾는다. 그 화가 없으면 None."""
+    e = next((x for x in p.episodes if x.plot.number == n), None)
+    if e is None:
+        return None
+    arc = p.arc_for(n) if p.serial else None
+    pl = e.plot
+    return _squash("\n".join([pl.title, pl.summary, *pl.events, pl.opening, pl.emotional_shift, pl.ending_hook, e.direction, arc.direction if arc else ""]))
+
+
 def ability_in_plot(p: Project, n: int) -> list[AbilityPlan]:
     """ability_due 가운데 능력 이름(도감의 다른 이름 포함)이 n 화 플롯이나 연출 지시에 그대로 나온 줄. 쓰기 요청은 이 줄만 받는다.
     범위 안 모든 화에 넣으면 범위 첫 화로 앞당기기 쉽다 (신체 특징 줄 cast.body_cast 와 같은 조건)."""
-    e = next((x for x in p.episodes if x.plot.number == n), None)
-    if e is None:
+    text = _plot_text(p, n)
+    if text is None:
         return []
-    arc = p.arc_for(n) if p.serial else None
-    pl = e.plot
-    text = _squash("\n".join([pl.title, pl.summary, *pl.events, pl.opening, pl.emotional_shift, pl.ending_hook, e.direction, arc.direction if arc else ""]))
     return [x for x in ability_due(p, n) if any(_squash(t) in text for t in abilities.terms(_plan_ability(p, x)) if _squash(t))]
+
+
+def _label_words(p: Project, label: str) -> list[str]:
+    """칸 이름의 낱말 (두 글자 이상, 겹치면 한 번). 인물 이름으로 시작하는 낱말은 뺀다: 그 쌍은 견주는 화마다 플롯에 나온다."""
+    names = [w for c in p.characters for w in {_squash(c.name), *(_squash(x) for x in c.name.split())} if len(w) >= 2]
+    words = [w.casefold() for w in re.findall(r"[^\W_]+", label)]
+    return list(dict.fromkeys(w for w in words if len(w) >= 2 and not any(w.startswith(x) for x in names)))
+
+
+def rung_in_text(p: Project, r: ContactRung, text: str) -> bool:
+    """칸이 공백을 지운 글 text 에 나왔는지: 칸 이름이 그대로 나오거나, 칸 이름의 낱말 가운데 절반 넘게 나온다.
+    부위 · 동작 이름은 보지 않는다 (2026-11-11 실측: 부위 이름은 칸과 무관한 화의 28~42% 에 나오고, 동작 이름은 기본형이라 플롯의 활용형과 맞지 않는다)."""
+    label = _squash(r.label)
+    if not label:
+        return False
+    if label in text:
+        return True
+    words = _label_words(p, r.label)
+    return bool(words) and sum(w in text for w in words) * 2 > len(words)
+
+
+def rungs_in_plot(p: Project, n: int) -> list[tuple[ContactLadder, ContactRung]]:
+    """n 화 플롯 인물끼리의 사다리 칸 가운데 n 화가 처음 닿는 범위이고 그 칸이 n 화 플롯이나 연출 지시에 나온 것 (rung_in_text). 쓰기 요청은 이 칸만 받는다.
+    범위 안 모든 화에 넣으면 범위 첫 화로 앞당기기 쉽다 (ability_in_plot 과 같은 글). 상한 대조는 스토리보드 · 검수가 맡는다."""
+    text = _plot_text(p, n)
+    if text is None:
+        return []
+    who = _plot_cast(p, n)
+    return [(lad, r) for lad in p.blueprint.ladders if lad.a in who and lad.b in who
+            for r in lad.rungs if 0 < r.from_ep <= n <= r.to_ep and rung_in_text(p, r, text)]
 
 
 def ability_next(p: Project, n: int, per: int = 1) -> list[AbilityPlan]:

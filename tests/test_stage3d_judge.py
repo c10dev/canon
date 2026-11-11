@@ -209,9 +209,13 @@ def test_speed():
                                             ends=[f"c{k - 4}"] if k >= 4 else [])]))
     sc = StageScene(id="s", room="r", cast=cast, start=start, beats=beats)
     fr = s3.frames(sc, rm, P)
-    t = time.perf_counter()
-    j3.judge3d(sc, rm, P, frames=fr)
-    assert time.perf_counter() - t < 0.2
+    # 다섯 번 재서 가장 빠른 값으로 견준다: 함께 도는 시험이 끼어든 값(같은 기계에서 59~132ms, CI 에서 한 번 362ms)은 버리고, 판정이 네 배 느려지면 가장 빠른 값도 한도를 넘는다
+    took = []
+    for _ in range(5):
+        t = time.perf_counter()
+        j3.judge3d(sc, rm, P, frames=fr)
+        took.append(time.perf_counter() - t)
+    assert min(took) < 0.2
 
 
 def test_contact_field_when_violation_has_it(monkeypatch):

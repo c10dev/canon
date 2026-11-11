@@ -719,7 +719,7 @@
 - 길이를 정하지 않은 다음 아크의 설계도 범위는 시작 화부터 `PLAN_SPAN`(30)화, 부 끝까지
 - 설계도 블록 바로 뒤에 능력 일정 블록 `blueprint_ability_block`(예산 `context.BUDGET["ability_plan"]` 1,000자). 걸린 줄이 없으면 빈 글
 - 스토리보드 요청 맨 끝(`plan_board_rule` 뒤)에 이번 화 설계도 `blueprint_board_rule`: 지금 칸 · 처음 닿는 범위인 칸 · 넣지 않을 다음 칸 · 이 화가 든 이정표
-- 쓰기 지시문(중심 장면 줄 뒤)에 `blueprint_write_line`: 그 화가 사다리 칸의 처음 닿는 범위일 때만 한 줄. 상한은 넣지 않는다
+- 쓰기 지시문(중심 장면 줄 뒤)에 `blueprint_write_line`: 그 화가 사다리 칸의 처음 닿는 범위이고 그 칸이 그 화 플롯 · 연출 지시에 나올 때만 한 줄(`blueprint.rungs_in_plot`). 상한은 넣지 않는다
 - 검수 요구사항(관계 단계 확인 뒤)에 `blueprint_check_rule`: 다음 칸을 앞당긴 본문을 짚는다(type 플롯)
 - 스토리보드 요청 끝(`blueprint_board_rule` 뒤)에 `ability_board_rule`: 이 화가 얻는 범위인 능력과 인물마다 다음 능력 하나(이 화에 얻지 않음)
 - 쓰기 지시문(`blueprint_write_line` 뒤)에 `ability_write_line`: 이 화가 얻는 범위이고 아직 얻지 못한 능력의 이름이 그 화 플롯 · 연출 지시에 나올 때만 한 줄. 다음 능력은 넣지 않는다

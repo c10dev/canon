@@ -17,9 +17,9 @@
 | 5 | 5 | 지금 플롯에서 설계도 거꾸로 뽑기(아크 단위)와 승인 화면 | 끝 ([#480](https://github.com/c10dev/canon/pull/480) 머지) | [05-extract.md](specs/05-extract.md) | 1, 3 |
 | 6 | 6a | 스토리보드 · 쓰기 · 검수 연결 (프롬프트 줄) | 끝 ([#481](https://github.com/c10dev/canon/pull/481) 머지) | [06-episode.md](specs/06-episode.md) | 4 |
 | 7 | 6b | 실제 접촉 기록: 상태 변경안이 닿은 칸을 닫힌 목록에서 고르고 작가가 승인, 자동 집필 · `-y` 는 남겨 둠 | 끝 ([#482](https://github.com/c10dev/canon/pull/482) 머지) | [07-contact.md](specs/07-contact.md) | 6a |
-| 8 | 8 | AI 로 설계도 짜기 (설정 · 부 구성 · 작가 메모, 플롯 없이) | 진행 (claude/blueprint-draft) | [08-draft.md](specs/08-draft.md) | 5 |
-| 9 | 9 | 신체 특징을 몸이 드러나는 화에만 스토리보드 · 쓰기 · 검수에 넣기 (LLM 비용 없음) | 진행 (claude/body-conditional) | [09-body.md](specs/09-body.md) | 6a |
-| 10 | 10 | 능력 일정 (인물마다 [화 범위, 능력, 등급, 얻는 조건]): 스키마 · 경고 · 화면 · 프롬프트 줄 (LLM 비용 없음) | 진행 (claude/blueprint-ability-122682, [#490](https://github.com/c10dev/canon/pull/490)) | [10-ability.md](specs/10-ability.md) | 1 ~ 6 |
+| 8 | 8 | AI 로 설계도 짜기 (설정 · 부 구성 · 작가 메모, 플롯 없이) | 끝 ([#483](https://github.com/c10dev/canon/pull/483) 머지) | [08-draft.md](specs/08-draft.md) | 5 |
+| 9 | 9 | 신체 특징을 몸이 드러나는 화에만 스토리보드 · 쓰기 · 검수에 넣기 (LLM 비용 없음) | 끝 ([#485](https://github.com/c10dev/canon/pull/485) 머지) | [09-body.md](specs/09-body.md) | 6a |
+| 10 | 10 | 능력 일정 (인물마다 [화 범위, 능력, 등급, 얻는 조건]): 스키마 · 경고 · 화면 · 프롬프트 줄 (LLM 비용 없음) | 끝 ([#490](https://github.com/c10dev/canon/pull/490) 머지) | [10-ability.md](specs/10-ability.md) | 1 ~ 6 |
 | 11 | 11a | 작품 전체 띠(쌍마다 한 줄 + 능력 일정 줄)와 쌍끼리 몰림 계산, 개요 '여정 짜기' 덜기 (LLM 비용 없음) | 설계 (정할 것 대기) | [11-whole.md](specs/11-whole.md) | 10 |
 | 12 | 11b | AI 로 작품 전체 짜기: 관계가 있는 모든 쌍(+ 능력 일정)을 부 하나씩 한 번에, 쌍마다 고르는 제안 카드 | 설계 (정할 것 대기) | [11-whole.md](specs/11-whole.md) | 8, 11a |
 
@@ -33,7 +33,7 @@
 | 능력 일정을 AI 로 짜기 · 지금 플롯에서 거꾸로 뽑기 (인물 단위의 새 응답 형식과 작업) | 장기 후보 (2026-11-10, 10 에서 나눔) | 10 |
 | 위 후보 가운데 'AI 로 짜기'는 11b 의 정할 것 2 를 받으면 11b 가 맡는다 | 정할 것 대기 (2026-11-11) | 11b |
 | 설계도 칸 메모 · 이정표 라벨에 적은 신체 특징을 인물 신체 프로필 제안 카드로 내기 | 장기 후보 (2026-11-10, 9 에서 나눔) | 9 |
-| 접촉 사다리의 쓰기 줄(`blueprint_write_line`)도 그 화 플롯에 칸이 나올 때만 넣기 (지금은 범위 안 모든 화에 들어감, 사용자 결정 필요) | 장기 후보 (2026-11-10, 10 검토에서 나옴) | 6a |
+| 접촉 사다리의 쓰기 줄(`blueprint_write_line`)도 그 화 플롯에 칸이 나올 때만 넣기 | 끝 (2026-11-11 작가 결정, 규칙은 [specs/06-episode.md](specs/06-episode.md)) | 6a |
 | 화 끼워 넣기 · 빼기가 완급 계획(`heat`)의 화 번호도 옮기기 | 장기 후보 (2026-11-10 발견: `renumber.py` 가 `heat` 를 옮기지 않음) | — |
 
 - 접촉 사다리 줄이 생성 프롬프트에 들어가는 일감(4 · 6) 전에 이 미룸을 다시 본다.

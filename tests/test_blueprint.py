@@ -345,8 +345,13 @@ def test_board_write_check_lines():
     assert "이 화가 든 관계 이정표(3~5화): 경계 · 정체를 안다" in board and "이 화까지 닿을 수 있는 칸" not in board
     assert "이 화까지 닿을 수 있는 칸: 2. 손깍지" in prompts.blueprint_board_rule(p, 6)  # 범위를 지난 화는 지금 칸
     assert "이 화까지 닿을 수 있는 칸: 1. 손목" in prompts.blueprint_board_rule(p, 3)
-    assert "손깍지" in prompts.blueprint_write_line(p, 5) and prompts.blueprint_write_line(p, 3) == ""  # 처음 닿는 범위인 화에만
-    assert "다음 칸 (" not in prompts.blueprint_write_line(p, 4) and "넣지 않습니다" not in prompts.blueprint_write_line(p, 4)  # 쓰기에는 상한 줄이 없다
+    assert prompts.blueprint_write_line(p, 4) == "" and prompts.blueprint_write_line(p, 5) == ""  # 범위 안이어도 플롯에 칸이 나오지 않으면 쓰기 줄이 없다
+    p.episode(5).plot.events.append("돌아오는 길에 둘이 손 깍지를 낀다")
+    write = prompts.blueprint_write_line(p, 5)
+    assert "'2. 손깍지 (손깍지 끼다)'(4~5화)" in write and prompts.blueprint_write_line(p, 4) == ""  # 칸이 플롯에 나온 화에만 (공백은 지우고 견줌)
+    assert "다음 칸" not in write and "넣지 않습니다" not in write and "업기" not in write  # 쓰기에는 상한 줄이 없다
+    p.episode(3).plot.summary += " 손깍지"
+    assert prompts.blueprint_write_line(p, 3) == ""  # 플롯에 나와도 처음 닿는 범위 밖이면 없다
     check = prompts.blueprint_check_rule(p, 4)
     assert "'2. 손깍지 (손깍지 끼다)'까지 닿기로" in check and "'3. 업기 (업다)'(7화부터)" in check
     assert prompts.blueprint_check_rule(p, 7) == ""  # 다음 칸이 없다
@@ -354,13 +359,38 @@ def test_board_write_check_lines():
     assert prompts.blueprint_board_rule(p, 4) == "" and prompts.blueprint_check_rule(p, 4) == ""  # 두 인물이 이 화 플롯에 함께 있을 때만
 
 
+def test_rung_in_plot_words():
+    """칸 이름이 긴 문장이면 낱말 절반 넘게 나올 때 맞는다. 인물 이름과 한 글자 낱말은 세지 않는다. 부위 · 동작 이름은 보지 않는다."""
+    p = _ep_project()
+    hero = next(c for c in p.characters if c.id == "hero")
+    lad = p.blueprint.ladders[0]
+    lad.rungs[1] = ContactRung(label=f"비 오는 옥상에서 {hero.name}의 손목을 붙잡기", parts=["wrist_r"], acts=["hold"], from_ep=4, to_ep=6)
+    assert blueprint._label_words(p, lad.rungs[1].label) == ["오는", "옥상에서", "손목을", "붙잡기"]
+    for n in (4, 5, 6):
+        e = p.episode(n)
+        e.plot.title, e.plot.events, e.plot.opening, e.plot.emotional_shift, e.plot.ending_hook, e.direction = "t", [], "", "", "", ""
+    p.episode(4).plot.summary = f"{hero.name}의 오른 손목이 시리다. 잡다 만 손."  # 부위 · 동작 이름과 인물 이름만 나온다
+    p.episode(5).plot.summary = "옥상에서 비를 맞으며 손목을 쥔다"  # 넷 가운데 둘: 절반은 넘지 않는다
+    p.episode(6).plot.summary = "비 오는 옥상에서 달아나려는 손목을 쥔다"  # 넷 가운데 셋
+    assert [bool(blueprint.rungs_in_plot(p, n)) for n in (4, 5, 6)] == [False, False, True]
+    p.episode(5).direction = "옥상 장면은 손목을 붙잡기 직전까지 끈다"
+    assert [r.label for _, r in blueprint.rungs_in_plot(p, 5)] == [lad.rungs[1].label]  # 화 연출 지시도 본다
+    lad.rungs[1].label = ""
+    assert blueprint.rungs_in_plot(p, 6) == [] and blueprint.rungs_in_plot(p, 99) == []  # 이름 없는 칸, 없는 화
+    lad.rungs[1].label = f"{hero.name}의"
+    assert blueprint._label_words(p, lad.rungs[1].label) == [] and blueprint.rungs_in_plot(p, 6) == []  # 낱말이 인물 이름뿐이고 그 글자가 그대로 나오지 않는다
+
+
 def test_episode_requests_carry_lines_at_the_end():
     from canon import prompts
     p = _ep_project()
     board = prompts.storyboard_prompt(p, 4)
     assert "[설계도 (작가가 정한 계획, 이번 화)]" in board and board.rstrip().endswith("warnings 에 적습니다.")  # 요청 맨 끝
+    assert "설계도" not in prompts.episode_prompt(p, 4)  # 범위 안이어도 플롯에 칸이 나오지 않으면 쓰기 요청은 그대로다
+    p.episode(4).plot.events.append("처음으로 손깍지를 낀다")
     write = prompts.episode_prompt(p, 4)
     assert "설계도에서 이 화는 처음 닿는 범위인 사다리 칸" in write and "이 화에 넣지 않습니다" not in write
+    assert "설계도" not in prompts.episode_prompt(p, 5)  # 같은 범위의 다른 화
     p.episode(4).text, p.episode(4).status = "본문", "written"
     assert "- 설계도 사다리:" in prompts.check_prompt(p, 4)
     empty = _ep_project()
