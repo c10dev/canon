@@ -21,6 +21,7 @@ from .schema import RuleChange, RuleRun
 from .schema import BlueprintProposal
 from .schema import CueSheet, CueSheetDraft, Finding, MetaCut, FindingRecheck, FixBatch, FixOption, FixPatch, FixRecheckItem, FixRecheckReport, FixSet, RevArcSet, RevEpisodeDraft, RevLineSet
 from .schema import ParagraphAnatomy, ReaderCheck, SceneCard, SceneVariant, SceneVariants, StudioCandidate, StudioDraft
+from .schema import RefDigest
 from .schema import (
     AddedItems,
     Act,
@@ -2871,6 +2872,11 @@ def reverse_lines(llm: LLM, lab) -> RevLineSet:
     """역설계한 화들의 이야기 줄기 (plan 단계). 화가 둘 넘을 때만 부른다."""
     return llm.json(prompts.SYSTEM_REVERSE, prompts.rev_lines_prompt(lab), RevLineSet,
                     hint={"episodes": [e.number for e in lab.episodes if e.plot]})
+
+def ref_digest(llm: LLM, text: str) -> RefDigest:
+    """레퍼런스 원고 한 화의 화 카드 (plan 단계, canon/refdigest.py 가 화마다 부른다)."""
+    return llm.json(prompts.SYSTEM_REVERSE, prompts.ref_digest_prompt(text), RefDigest)
+
 
 def reverse_arcs(llm: LLM, lab) -> RevArcSet:
     """역설계한 화들을 아크 · 부로 나눈다 (plan 단계). 정리는 revlab.clean_arcs 가 한다."""

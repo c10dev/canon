@@ -134,6 +134,36 @@
 - 이긴 판은 에이전트가 `prompts.py` 로 옮기는 PR 로 넣는다(일감 12 정할 것 1)
 - 시험 `tests/test_promptset.py`
 
+### `canon/refdigest.py`
+
+- 레퍼런스 원고 전체 읽히기(설계는 [docs/refs/](../refs/README.md) 9장, 일감 6)
+- 화마다 화 카드 `RefDigest`(사건 4~6줄 · 인물 · 장소 · 끝맺음 · 성격 · 긴장 1~5 · 끝맺음 방식)를 만들어 원고 폴더의 `digest.json`(`RefDigestBook`)에 둔다
+- 작품에는 들어가지 않는다. 화 카드에 원문 문장은 담지 않는다
+- 화 카드는 화 글의 지문(`basis`, sha1 앞 12자)으로 찾는다. 경계를 고쳐 차례가 밀려도 글이 같으면 다시 읽히지 않는다
+- 읽힌 정도 `state`: total 읽힐 화(제외 · 빈 화는 뺌) · read · stale(읽힌 적 있는 차례 `read_orders` 인데 글이나 프롬프트 판이 바뀐 화) · todo
+- 프롬프트 판 `prompts.REF_DIGEST_VERSION` 이 바뀌면 읽힌 화가 모두 낡음이 된다
+- 읽히기 `run`: 읽히지 않았거나 낡은 화만 `WORKERS`(4)개씩 `pipeline.ref_digest` 로 부른다. 스레드마다 `contextvars.copy_context()`
+- 글이 같은 화는 한 번만 보낸다
+- 화 하나가 끝날 때마다 `digest.json` 을 `store.write_atomic` 으로 쓴다. 멈춰도 읽힌 화는 남는다
+- 실패한 화(형식 오류 · 서버 오류 · 빈 사건 줄)는 건너뛰고 결과의 `failed` 에 적는다. 연달아 `FAIL_STOP`(5)번 실패하면 남은 화를 보내지 않는다(`stopped`)
+- 키 없음 · 틀림(`MissingKey`)과 멈추기는 바로 끝낸다
+- 화 하나의 응답은 `WAIT`(180초)까지만 기다린다(`llm.wait_cap`). 넘으면 그 화만 실패로 둔다
+- 긴 화 `clip`: `TEXT_MAX`(3만 자)를 넘으면 앞 60% 와 끝을 남기고 가운데를 줄인다. 줄인 글자 수는 카드의 `cut`
+- 응답 다듬기 `_norm`: 빈 줄을 빼고 길이를 자른다. 모르는 성격 · 끝맺음 방식은 비우고 긴장은 1~5 로 맞춘다
+- 읽힐 AI `ai_choice`: 설정이 mock 이면 mock → 이 원고에서 고른 백엔드 · 모델(`RefDigestBook.ai`, 프리셋은 쓰지 않음) → 설정의 `plan` 단계
+- 고를 수 있는 백엔드 `PROVIDERS` 는 `revlab.AI_PROVIDERS` 와 같다. 고르기 `set_ai`, 화면 값 `ai_view`(CoralBricks 키가 있으면 `coral`)
+- 비용 추정 `estimate`: 읽힐 화의 요청 글자 수 × `usage.token_rate`, 출력은 화마다 `OUT_TOKENS`(450). 캐시와 생각 토큰은 넣지 않는다
+- 화면 값 `view`: 읽힌 정도 · 지금 글로 읽힌 화의 카드(`cards`, 열쇠는 차례) · 읽힐 AI
+- 프롬프트 `prompts.ref_digest_prompt`(지시가 앞, 원문이 뒤) · 시스템 `SYSTEM_REVERSE`
+- 가짜 응답 `mock_refdigest.py`(원문에 `FAIL_MARK` 가 있으면 빈 사건 줄을 내 실패한 화를 시험한다)
+- 웹은 `/api/refs/{rid}/digest…`(`routes/refs.py`), 화면은 `static/refs.js`
+- 실측(2026-11-11, 454화 원고의 10화, 칸 넷짜리 시험 프롬프트): `deepseek-v4.1-flash-value` 는 어긋난 화 2/10 로 `gemini-3.8-flash` 와 같았다. 로컬 gemma4-12b 는 8/10
+- 실측(2026-11-11, 지금 프롬프트 판 1 로 454화 전부): 실패 0, 728초, 추정 $0.129 · 실제 약 $0.12. 같은 10화를 채점하면 어긋난 화 4/10(내용 6개)
+- 그때 프롬프트는 사건을 6~8줄로 냈다(4~6줄을 청했다). '6개를 넘기지 않는다 · 큰 일만 · 확실하지 않은 세부는 뺀다'를 더하고 `EVENTS_MAX` 를 6 으로 낮췄다
+- 고친 뒤 같은 10화: 사건 줄은 모두 6줄, 어긋난 내용 6 → 4개, 어긋난 화는 4/10 그대로, 기준 사건 담음 44/80 그대로. 어긋난 화가 실행마다 달라 표본 10화로는 차이를 가르지 못한다
+- 화면 값 `view` 는 454화에 0.22초 · 30만 자였다. 읽히는 동안 화면이 걸음마다 다시 받는다
+- 시험 `tests/test_refdigest.py`
+
 ### `canon/refs.py`
 
 - 레퍼런스 원고(작품 밖 화면, 주소 `#/refs[/<id>[/<차례> | cuts]]`, 설계는 [docs/refs/](../refs/README.md))
@@ -319,6 +349,9 @@
 - 공용 도우미(`_load` · `_save` · `_edit` 등)는 `..web` 에서 불러 쓴다
 - 받은 화 `GET` · `DELETE /api/refs/inbox`. `GET` 은 newto 폴더가 있는지(`newto`)도 준다. `/api/refs/{rid}` 보다 먼저 붙인다
 - newto 가져오기 `POST /api/refs/newto`(작업 kind `ref_newto`, project `REF_JOBS` = `.refs`, 한 번에 하나)
+- 화 카드 `GET /api/refs/{rid}/digest`(읽힌 정도 · 카드 · 읽힐 AI) · 비용 추정 `GET …/digest/estimate` · 읽힐 AI 고르기 `PUT …/digest/ai`
+- 전체 읽히기 `POST /api/refs/{rid}/digest`(작업 kind `ref_digest`, project `REF_JOBS`, target 은 원고 id 라 원고마다 하나)
+- 전체 읽히기는 읽힐 화가 없으면 400, 키가 없으면 작업을 띄우기 전에 `MissingKey` 로 알린다
 
 ### `canon/routes/research.py`
 
@@ -460,6 +493,13 @@
 - 고른 경계 칸(`refCutEditor`): 번호 · 제목 · 종류 · 여기부터 번호 다시 매기기 · 앞 화와 합치기
 - 개요(`refOverview`): 고른 화로 하기(범위 `refRange`, 문체 만들기 `refToStyle`, 역설계 실험 만들기 `refToRevlab`) · 분량 막대 · 내 작품과 견주기 · 화 표(정렬) · 만든 것
 - 문체 만들기는 `S.libFromRef` 에 원문을 담아 `#/styles/new` 로 간다(라이브러리 새 항목의 원문 칸)
+- 개요 맨 위 전체 읽히기 카드(`refDigestCard`): 읽힌 정도 한 줄과 버튼 하나(`refDigestLabel`: 전체 읽히기 · 바뀐 화만 다시 읽히기 · 남은 화 읽히기)
+- 버튼을 누르면 확인 칸이 열린다: 읽힐 AI 고르기(`refDigestSetAI`) · 비용 추정 한 줄(`refDigestCost`) · 원문이 가는 곳 안내 · 읽히기 시작(`refDigestStart`)
+- CoralBricks 키가 있으면 확인 칸에 싼 모델(`REF_CORAL_VALUE`)로 바꾸는 버튼을 보인다
+- 읽히는 동안 진행 줄과 멈추기를 보이고, 작업이 한 걸음 갈 때마다 카드를 다시 받는다(`refDigestStep`, `app.js pollJobs`)
+- 화 카드가 하나라도 있으면 화 표에 성격 · 긴장 · 끝맺음 열을 더한다(`REF_DIGEST_COLS`, 정렬 가능)
+- 화 읽기 화면은 본문 위에 그 화의 카드(`refDigestEp`: 사건 줄 · 끝 · 인물)를 접을 수 있게 보인다
+- `refDigestLabel` · `refDigestCost` · `refDigestDoneMsg` 는 순수 함수
 - `refDecode` · `refAssemble` · `refRange` · `refEpRows` 는 순수 함수(`tests/test_refs.py`)
 - CSS 는 JS 에서 주입
 
