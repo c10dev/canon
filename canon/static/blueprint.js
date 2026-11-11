@@ -4,11 +4,12 @@
    카드는 읽는 모양이 기본이다. 줄 끝 ✎ 는 그 줄만, 카드 머리 '고치기'는 그 카드 전체를 편다. 저장은 설계도 전체를 PUT …/blueprint 로 보낸다(서버가 blueprint.check 로 검사).
    줄 지우기 · AI 제안 더하기 · 여정 비우기는 바로 저장하고 되돌리기(S.bpUndo)를 남긴다.
    AI 제안은 쌍 쪽이 S.bpDraft(하나), 능력 일정 쪽이 S.bpAbDrafts(인물 · 뽑기/짜기마다 하나)다. 둘 다 app.js 의 PER_PROJECT 가 작품마다 따로 둔다.
-   경고는 서버가 계산한다(blueprint.warning_rows). 막지 않는다. */
+   경고는 서버가 계산한다(blueprint.warning_rows). 막지 않는다.
+   개요의 전체 띠는 서버가 고른 처음 닿는 줄(blueprint.firsts)만 쌍마다 한 줄에 그린다. 쌍끼리 몰림은 테두리로만 보인다(docs/blueprint/specs/11-whole.md). */
 'use strict';
 
 Object.assign(S, {
-  bp: null,        // 서버 값 { blueprint, warnings: [{source, target, text}], plans: [{id, got, state, linked}], ability_warnings: [{character, text}], parts: [{id, label}], acts, last }
+  bp: null,        // 서버 값 { blueprint, warnings: [{source, target, text}], firsts: [{pair, axis, value, from_ep, to_ep, id, source, target, crowd}], plans: [{id, got, state, linked}], ability_warnings: [{character, text}], parts: [{id, label}], acts, last }
   bpSel: '',       // 지금 쪽: '' 개요 | 쌍 키 | '@ability' 능력 일정
   bpEdit: null,    // 고치는 카드 { card: 'ms' | 'ladder' | 'note' | 'ap', key, data: Blueprint 사본, orig, row: 누른 줄만 열면 그 줄의 길('milestones.3') }
   bpUndo: null,    // 방금 한 지우기 · 더하기 · 비우기 { name, key, before, after: 설계도 JSON, msg, abIds: 같이 만든 도감 항목 id }. 되돌리기는 지금 값이 after 일 때만 before 를 다시 저장하고 abIds 를 지운다
@@ -56,7 +57,7 @@ async function bpLoad(sel) {
   S.bpOwner = S.name;
   const prev = S.bpSel;
   S.bpSel = sel || '';
-  S.bp = await api('GET', `/projects/${enc(S.name)}/blueprint`).catch((e) => ({ error: e.message, blueprint: bpEmpty(), warnings: [], plans: [], ability_warnings: [], parts: [], acts: [], last: 0 }));
+  S.bp = await api('GET', `/projects/${enc(S.name)}/blueprint`).catch((e) => ({ error: e.message, blueprint: bpEmpty(), warnings: [], firsts: [], plans: [], ability_warnings: [], parts: [], acts: [], last: 0 }));
   if (S.bpEdit && S.bpEdit.key !== S.bpSel) S.bpEdit = null;
   if (prev !== S.bpSel && !S.focusTarget) S.focusTarget = '#app main h1';
 }
@@ -85,40 +86,33 @@ function bpToc() {
 
 // ----- 계획 띠 -----
 
-/** 화 범위 막대들 한 줄. items: [{from_ep, to_ep, text, cls}] */
+/** 화 범위 막대들 한 줄. items: [{from_ep, to_ep, text, cls, tip}]. tip 은 막대에 다 못 쓰는 말(없으면 text)을 끌어올림 글로 */
 function bpLane(label, items, total) {
   const bars = items.filter((x) => x.from_ep > 0).map((x) => {
     const left = ((x.from_ep - 1) / total) * 100;
     const width = Math.max(((x.to_ep - x.from_ep + 1) / total) * 100, 0.6);
-    return `<span class="bp-bar${x.cls ? ` ${x.cls}` : ''}" style="left:${left.toFixed(2)}%;width:${width.toFixed(2)}%" title="${esc(`${bpRange(x)} · ${x.text}`)}"><span class="bp-bar-t">${esc(x.text)}</span></span>`;
+    return `<span class="bp-bar${x.cls ? ` ${x.cls}` : ''}" style="left:${left.toFixed(2)}%;width:${width.toFixed(2)}%" title="${esc(`${bpRange(x)} · ${x.tip || x.text}`)}"><span class="bp-bar-t">${esc(x.text)}</span></span>`;
   }).join('');
   return `<div class="bp-lane"><span class="bp-lane-h">${esc(label)}</span><div class="bp-track">${bars}</div></div>`;
 }
 
-/** 계획 띠가 기본으로 보이는 화 수: 기획한 화(아크 · 구간 · 플롯 끝)와 이 쌍 설계도의 끝 화 가운데 큰 것. 작품 화수를 넘지 않는다 */
+/** 계획 띠가 기본으로 보이는 화 수: 기획한 화와 이 쌍 설계도의 끝 화 가운데 큰 것 */
 function bpSpan(p, x) {
-  const ends = [...(p.story_arcs || []).map((s) => s.end_ep), ...(p.arc || []).map((s) => s.end_ep), ...p.episodes.map((e) => e.plot.number),
-    ...x.ms.map((m) => m.to_ep), ...(x.ladder ? x.ladder.rungs.map((r) => r.to_ep) : [])];
-  return Math.max(1, Math.min(Math.max(...ends, 1), p.meta.target_episodes || Infinity));
+  return bpPlannedSpan([...x.ms.map((m) => m.to_ep), ...(x.ladder ? x.ladder.rungs.map((r) => r.to_ep) : [])]);
 }
 
 /** 쌍의 계획 띠: 두 방향 이정표, 접촉 사다리. 아크(장편) · 구간(단편) 경계와 마지막 반영 화를 겹친다 */
 function bpBand(a, b, x) {
-  const p = P();
-  const full = Math.max(p.meta.target_episodes || 1, 1);
-  const total = S.bpWide ? full : bpSpan(p, x);
-  const marks = (serial() ? (p.story_arcs || []).map((s) => s.start_ep) : (p.arc || []).map((s) => s.start_ep)).filter((n) => n > 1);
-  const ticks = marks.map((n) => `<span class="bp-tick" style="--at:${((n - 1) / total).toFixed(4)}" aria-hidden="true"></span>`).join('');
-  const last = S.bp.last ? `<span class="bp-now" style="--at:${(S.bp.last / total).toFixed(4)}" title="${S.bp.last}화까지 반영" aria-hidden="true"></span>` : '';
+  const f = bpBandFrame(bpSpan(P(), x));
+  const total = f.total;
   const dir = (s, t) => x.ms.filter((m) => m.source === s && m.target === t).map((m) => ({ ...m, text: m.stage || m.label || '이정표', cls: 'bp-is-ms' }));
   const rungs = x.ladder ? x.ladder.rungs.map((r, i) => ({ ...r, text: `${i + 1}. ${r.label || '칸'}`, cls: 'bp-is-rung' })) : [];
   const got = x.ladder ? bpReached(x.ladder) : {};
   const hits = x.ladder ? x.ladder.rungs.map((r, i) => [r, i]).filter(([r]) => r.id in got).map(([r, i]) => ({ from_ep: got[r.id], to_ep: got[r.id], text: `${i + 1}`, cls: 'bp-is-hit' })) : [];
   const desc = `1~${total}화 계획 띠: ${bpWho(a)} → ${bpWho(b)} 이정표 ${dir(a, b).length}개, ${bpWho(b)} → ${bpWho(a)} 이정표 ${dir(b, a).length}개, 접촉 사다리 ${rungs.length}칸`;
-  const seg = full > bpSpan(p, x) ? `<div class="seg" role="group" aria-label="계획 띠 범위"><button type="button" data-action="bpWide" data-arg="" aria-pressed="${!S.bpWide}">기획한 화</button><button type="button" data-action="bpWide" data-arg="1" aria-pressed="${S.bpWide}">작품 전체</button></div>` : '';
   const clear = x.ms.length || rungs.length ? `<button type="button" class="btn small ghost danger" data-action="bpClear" data-arg="${esc(bpKey(a, b))}">여정 비우기</button>` : '';
-  return `<section class="card" id="bp-band"><div class="between"><h2>계획 띠</h2><div class="row">${seg}<span class="small">1~${total}화${S.bp.last ? ` · ${S.bp.last}화까지 반영` : ''}</span>${clear}</div></div>
-    <div class="bp-band" role="img" aria-label="${esc(desc)}">${ticks}${last}
+  return `<section class="card" id="bp-band"><div class="between"><h2>계획 띠</h2><div class="row">${f.seg}${f.range}${clear}</div></div>
+    <div class="bp-band" role="img" aria-label="${esc(desc)}">${f.ticks}${f.last}
       ${bpLane(`${bpWho(a)} → ${bpWho(b)}`, dir(a, b), total)}${bpLane(`${bpWho(b)} → ${bpWho(a)}`, dir(b, a), total)}${bpLane('접촉 사다리', rungs, total)}${hits.length ? bpLane('본문에서 닿음', hits, total) : ''}</div></section>`;
 }
 
@@ -303,9 +297,9 @@ function bpOverview() {
     <div class="ab-tile${warned ? ' warn' : ''}"><span class="small">경고</span><b>${warned}</b></div></div>`;
   const list = `<section class="card"><h2>관계</h2><ul class="bp-list">${pairs.map(([k, a, b]) => {
     const x = bpOfPair(d.blueprint, d.warnings, a, b);
-    return `<li><a href="${bpHref(k)}"><strong>${esc(bpWho(a))} ↔ ${esc(bpWho(b))}</strong></a><span class="small">이정표 ${x.ms.length} · 사다리 ${x.ladder ? x.ladder.rungs.length : 0}칸${x.warns.length ? ` · 경고 ${x.warns.length}` : ''}</span><a class="btn small" href="${bpHref(k)}">여정 짜기</a></li>`;
+    return `<li><a class="bp-pair" href="${bpHref(k)}">${esc(bpWho(a))} ↔ ${esc(bpWho(b))}</a><span class="small">이정표 ${x.ms.length} · 사다리 ${x.ladder ? x.ladder.rungs.length : 0}칸${x.warns.length ? ` · 경고 ${x.warns.length}` : ''}</span></li>`;
   }).join('')}</ul></section>`;
-  return tiles + bpWarnCard([...d.warnings, ...bpAbWarns()]) + bpHeldCard() + bpNoteCard() + list + growth;
+  return tiles + bpWarnCard([...d.warnings, ...bpAbWarns()]) + bpHeldCard() + bpWholeBand(pairs) + bpNoteCard() + list + growth;
 }
 
 // ----- 능력 일정 (docs/blueprint/specs/10-ability.md) -----
@@ -320,26 +314,63 @@ function bpPlanCast(plans) {
   return ids;
 }
 
-/** 능력 일정의 계획 띠: 인물마다 한 줄. 얻은 화(상태창 기록에서 계산)를 같은 줄에 겹친다 */
-function bpAbilityBand(plans) {
+/** 띠의 공용 틀: 아크(장편) · 구간(단편) 경계 눈금, 마지막 반영 화 선, '기획한 화 / 작품 전체' 나눔 버튼. span 은 기본으로 보이는 화 수 */
+function bpBandFrame(span) {
   const p = P();
   const full = Math.max(p.meta.target_episodes || 1, 1);
-  const ends = [...(p.story_arcs || []).map((s) => s.end_ep), ...(p.arc || []).map((s) => s.end_ep), ...p.episodes.map((e) => e.plot.number), ...plans.map((x) => x.to_ep)];
-  const span = Math.max(1, Math.min(Math.max(...ends, 1), full));
   const total = S.bpWide ? full : span;
   const marks = (serial() ? (p.story_arcs || []).map((s) => s.start_ep) : (p.arc || []).map((s) => s.start_ep)).filter((n) => n > 1);
   const ticks = marks.map((n) => `<span class="bp-tick" style="--at:${((n - 1) / total).toFixed(4)}" aria-hidden="true"></span>`).join('');
   const last = S.bp.last ? `<span class="bp-now" style="--at:${(S.bp.last / total).toFixed(4)}" title="${S.bp.last}화까지 반영" aria-hidden="true"></span>` : '';
-  const lanes = bpPlanCast(plans).map((id) => {
+  const seg = full > span ? `<div class="seg" role="group" aria-label="계획 띠 범위"><button type="button" data-action="bpWide" data-arg="" aria-pressed="${!S.bpWide}">기획한 화</button><button type="button" data-action="bpWide" data-arg="1" aria-pressed="${S.bpWide}">작품 전체</button></div>` : '';
+  const range = `<span class="small">1~${total}화${S.bp.last ? ` · ${S.bp.last}화까지 반영` : ''}</span>`;
+  return { total, ticks, last, seg, range };
+}
+
+/** 기획한 화(아크 · 구간 · 플롯 끝)와 더 받은 끝 화 가운데 큰 것. 작품 화수를 넘지 않는다 */
+function bpPlannedSpan(more) {
+  const p = P();
+  const ends = [...(p.story_arcs || []).map((s) => s.end_ep), ...(p.arc || []).map((s) => s.end_ep), ...p.episodes.map((e) => e.plot.number), ...more];
+  return Math.max(1, Math.min(Math.max(...ends, 1), p.meta.target_episodes || Infinity));
+}
+
+/** 능력 일정 줄들: 인물마다 한 줄. 얻은 화(상태창 기록에서 계산)를 같은 줄에 겹친다. 능력 일정 띠와 개요의 전체 띠가 함께 쓴다 */
+function bpAbLanes(plans, total) {
+  return bpPlanCast(plans).map((id) => {
     const mine = plans.filter((x) => x.character === id);
     const bars = mine.map((x) => ({ ...x, text: bpAbText(x), cls: 'bp-is-rung' }));
     const hits = mine.map((x) => [x, bpPlanState(x.id).got]).filter(([, got]) => got > 0).map(([x, got]) => ({ from_ep: got, to_ep: got, text: `${bpAbText(x)} 얻음`, cls: 'bp-is-hit' }));
     return bpLane(bpWho(id), [...bars, ...hits], total);
   }).join('');
-  const seg = full > span ? `<div class="seg" role="group" aria-label="계획 띠 범위"><button type="button" data-action="bpWide" data-arg="" aria-pressed="${!S.bpWide}">기획한 화</button><button type="button" data-action="bpWide" data-arg="1" aria-pressed="${S.bpWide}">작품 전체</button></div>` : '';
-  const desc = `1~${total}화 능력 일정 띠: ${bpPlanCast(plans).map((id) => `${bpWho(id)} ${plans.filter((x) => x.character === id).length}줄`).join(', ')}`;
-  return `<section class="card" id="bp-band"><div class="between"><h2>계획 띠</h2><div class="row">${seg}<span class="small">1~${total}화${S.bp.last ? ` · ${S.bp.last}화까지 반영` : ''}</span></div></div>
-    <div class="bp-band" role="img" aria-label="${esc(desc)}">${ticks}${last}${lanes}</div></section>`;
+}
+
+/** 능력 일정의 계획 띠: 인물마다 한 줄 */
+function bpAbilityBand(plans) {
+  const f = bpBandFrame(bpPlannedSpan(plans.map((x) => x.to_ep)));
+  const desc = `1~${f.total}화 능력 일정 띠: ${bpPlanCast(plans).map((id) => `${bpWho(id)} ${plans.filter((x) => x.character === id).length}줄`).join(', ')}`;
+  return `<section class="card" id="bp-band"><div class="between"><h2>계획 띠</h2><div class="row">${f.seg}${f.range}</div></div>
+    <div class="bp-band" role="img" aria-label="${esc(desc)}">${f.ticks}${f.last}${bpAbLanes(plans, f.total)}</div></section>`;
+}
+
+/** 개요의 전체 띠 (docs/blueprint/specs/11-whole.md 11a): 쌍마다 한 줄에 처음 닿는 줄(단계 · 겹)만, 그 아래 능력 일정(인물마다 한 줄).
+    다른 쌍과 같은 단계 · 겹에 겹치는 화 범위로 처음 닿는 막대는 경고 색 테두리만 바꾼다(글 경고 · 경고 수에는 넣지 않는다) */
+function bpWholeBand(pairs) {
+  const firsts = S.bp.firsts || [];
+  const plans = bpPlans(S.bp.blueprint).filter((x) => x.from_ep > 0);
+  if (!firsts.length && !plans.length) return '';
+  const f = bpBandFrame(bpPlannedSpan([...firsts.map((x) => x.to_ep), ...plans.map((x) => x.to_ep)]));
+  const lanes = pairs.map(([k, a, b]) => {
+    const mine = firsts.filter((x) => x.pair === k).map((x) => {
+      const who = x.axis === '단계' ? `${bpWho(x.source)} → ${bpWho(x.target)}` : '접촉';
+      const crowd = (x.crowd || []).map((c) => bpPair(c).map(bpWho).join(' ↔ '));
+      return { ...x, text: x.value, tip: `${who} ${x.value}${crowd.length ? ` · ${crowd.join(', ')}와 겹침` : ''}`,
+        cls: `${x.axis === '단계' ? 'bp-is-ms' : 'bp-is-rung'}${crowd.length ? ' bp-crowd' : ''}` };
+    });
+    return bpLane(`${bpWho(a)} ↔ ${bpWho(b)}`, mine, f.total);
+  }).join('');
+  const desc = `1~${f.total}화 전체 띠: ${pairs.map(([k, a, b]) => `${bpWho(a)} ↔ ${bpWho(b)} 처음 닿는 줄 ${firsts.filter((x) => x.pair === k).length}개`).join(', ')}${plans.length ? `, 능력 일정 ${plans.length}줄` : ''}`;
+  return `<section class="card" id="bp-whole"><div class="between"><h2>전체 띠</h2><div class="row">${f.seg}${f.range}</div></div>
+    <div class="bp-band" role="img" aria-label="${esc(desc)}">${f.ticks}${f.last}${lanes}${bpAbLanes(plans, f.total)}</div></section>`;
 }
 
 /** 일정 줄의 실제 표시: '3화에 얻음', '시작 때부터 있음', '지남' */

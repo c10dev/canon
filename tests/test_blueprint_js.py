@@ -120,7 +120,7 @@ def test_ai_card_and_draft_title():
     assert 'data-action="bpExtract"' not in html  # 뽑을 플롯이 없다
     draft = {"a": "a", "b": "j", "start": 1, "end": 600, "mode": "draft", "reply": "", "milestones": [], "rungs": []}
     assert "AI가 짠 설계도" in _run("viewBlueprint()", p, {"bpSel": "a~j", "bpDraft": draft})
-    assert "여정 짜기" in _run("viewBlueprint()", p)
+    assert "여정 짜기" not in _run("viewBlueprint()", p)  # 개요 관계 줄은 쌍 이름 링크만 (11a)
     assert _run("pendingShown({ kind: 'blueprint_draft' })", p, {"bpDraft": draft}) is True
 
 
@@ -293,3 +293,29 @@ def test_ability_codex_drafts_and_make_button():
     assert "고른 도감 초안은 줄과 함께 도감에 만들어요" in html
     picked = _run("(viewBlueprint(), actions.bpAbCodexPick('a|draft|2'), bpAbCodexPicked(Object.values(S.bpAbDrafts)).map((c) => c.name))", p, {"bpSel": "@ability", "bpAbDrafts": drafts})
     assert picked == ["질주"]  # 기본으로 고르고, 끈 것과 도감에 있는 이름은 보내지 않는다
+
+
+@needs_node
+def test_whole_band_lanes_and_crowd_border():
+    p = _proj()
+    p.relationships.append(Relationship(a="a", b="d", type="친구"))
+    view = {"firsts": [{"pair": "a~j", "axis": "단계", "value": "경계", "from_ep": 1, "to_ep": 15, "id": "ms-1", "source": "a", "target": "j", "crowd": ["a~d"]},
+                       {"pair": "a~d", "axis": "단계", "value": "경계", "from_ep": 10, "to_ep": 12, "id": "ms-9", "source": "d", "target": "a", "crowd": ["a~j"]},
+                       {"pair": "a~j", "axis": "겹", "value": "옷 위", "from_ep": 1, "to_ep": 3, "id": "cr-1", "source": "j", "target": "a", "crowd": []}]}
+    html = _run("(S.bp = { ...S.bp, ...data.extra.view }, viewBlueprint())", p, {"view": view})
+    whole = html[html.index('id="bp-whole"'):]
+    whole = whole[:whole.index("</section>")]
+    assert "전체 띠" in whole and "아영 ↔ 지훈" in whole and "아영 ↔ 다은" in whole  # 빈 쌍도 한 줄
+    assert "아영 → 지훈 경계 · 아영 ↔ 다은와 겹침" in whole and "접촉 옷 위" in whole
+    assert whole.count("bp-crowd") == 2
+    assert '<span class="small">경고</span><b>2</b>' in html  # 몰림은 경고 수에 넣지 않는다 (VIEW 의 경고 둘만)
+    assert 'class="bp-pair"' in html and "여정 짜기" not in html
+
+
+@needs_node
+def test_whole_band_hidden_without_firsts_or_plans():
+    p = _proj()
+    assert 'id="bp-whole"' not in _run("viewBlueprint()", p)  # VIEW 에 firsts 가 없고 능력 일정도 없다
+    p.blueprint.ability_plans = [AbilityPlan(id="ap-1", character="a", ability="은신", grade="Lv2", from_ep=5, to_ep=8)]
+    html = _run("viewBlueprint()", p)
+    assert 'id="bp-whole"' in html and "은신 Lv2" in html.split('id="bp-whole"')[1]
