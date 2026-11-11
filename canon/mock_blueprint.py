@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from .mock import responds
-from .schema import AbilityDraft, AbilityProposal, BlueprintEvidence, BlueprintProposal, MilestoneDraft, RungDraft
+from .schema import AbilityCodexDraft, AbilityDraft, AbilityGrade, AbilityProposal, BlueprintEvidence, BlueprintProposal, MilestoneDraft, RungDraft
 
 
 @responds(BlueprintProposal)
@@ -26,7 +26,8 @@ def _r_blueprint(prompt: str, hint: dict) -> BlueprintProposal:
 @responds(AbilityProposal)
 def _r_abilities(prompt: str, hint: dict) -> AbilityProposal:
     """능력 일정 제안 (거꾸로 뽑기 · 짜기). 범위 첫 화 · 가운데 화에 한 줄씩 내고, 정리(blueprint.clean_abilities)가 거르는 줄을 섞는다:
-    등급 꼬리를 이름에 붙인 줄, 같은 줄 되풀이, 다른 인물, 범위 밖."""
+    등급 꼬리를 이름에 붙인 줄, 같은 줄 되풀이, 다른 인물, 범위 밖. 도감 초안(blueprint.clean_codex)도 거르는 항목을 섞는다:
+    등급 꼬리를 붙인 이름, 같은 이름 되풀이, 남은 줄이 없는 능력, 빈 등급."""
     start, end, cid = int(hint["start"]), int(hint["end"]), hint["character"]
     mid = (start + end) // 2
     return AbilityProposal(
@@ -36,5 +37,9 @@ def _r_abilities(prompt: str, hint: dict) -> AbilityProposal:
                    AbilityDraft(character=cid, ability="은신", grade="Lv2", from_ep=mid, to_ep=mid, condition="같은 줄 (정리가 뺀다)"),
                    AbilityDraft(character="nobody", ability="화염구", from_ep=start, to_ep=start, condition="다른 인물 (정리가 뺀다)"),
                    AbilityDraft(character=cid, ability="비행", from_ep=end + 3, to_ep=end + 3, condition="범위 밖 (정리가 뺀다)")],
+        codex=[AbilityCodexDraft(name="은신 Lv1", stat="스킬", description="기척을 지운다", effect="잠시 남의 눈에 띄지 않는다", cost="움직이면 풀린다",
+                                 grades=[AbilityGrade(grade="Lv2", effect="걸어도 풀리지 않는다"), AbilityGrade(grade=" ", effect="빈 등급 (정리가 뺀다)")]),
+               AbilityCodexDraft(name="은신", effect="같은 이름 (정리가 뺀다)"),
+               AbilityCodexDraft(name="비행", effect="줄이 없는 능력 (정리가 뺀다)")],
         reply="능력 일정 두 줄을 적었어요.",
     )

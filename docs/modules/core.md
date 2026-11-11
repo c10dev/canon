@@ -416,6 +416,7 @@
 - 두 설계도 제안은 출력 한도 `BLUEPRINT_OUT_TOKENS`(16,384)를 건다. 2026-11-10 flash 실호출 두 번 모두 첫 시도가 65,521토큰까지 되풀이했다
 - 능력 일정 거꾸로 뽑기 `propose_abilities`(아크 하나 · 인물 하나, `prompts.ability_extract_prompt`, 응답 `AbilityProposal`, 정리 `blueprint.clean_abilities`). 저장하지 않는다
 - 능력 일정 짜기 `draft_abilities`(부 하나 · 인물 하나 · 작가 메모, `prompts.ability_draft_prompt`, 플롯이 없어도 됨). 같은 출력 한도를 건다
+- 두 능력 일정 요청은 도감에 없는 능력의 도감 초안도 받는다(`prompts.ability_codex_rule`, 응답 `AbilityProposal.codex`, 정리 `blueprint.clean_codex`, `docs/blueprint/specs/13-ability-codex.md`)
 - 두 능력 일정 요청은 능력 블록 `prompts.ability_ai_block`(도감 이름 · 상태창의 능력 · 이미 적은 줄, 예산 `context.BUDGET["ability_ai"]` 3,000자를 묶음마다 차례로 씀)과 공통 요구사항 `ability_ai_rules` 를 쓴다
 - 다음 아크 `plan_next_arc` 는 `heat_plan` 을 켜면 `HeatArcProposal` 로 묻고(`prompts.heat_next_arc_rules`), `clean_arc` 가 완급 계획을 아크 범위에 맞춰 `arc.heat` 로 옮기고, `apply_arc` 가 판돈을 복선에 더한다
 - 화별 플롯

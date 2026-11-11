@@ -268,3 +268,28 @@ def test_ability_edit_list_follows_view_order():
     assert order == sorted(order)
     html = _run("viewBlueprint()", p, {"bpSel": "@ability"})
     assert 'data-action="bpRowDel" data-arg="ability_plans.2"' in html
+
+
+@needs_node
+def test_ability_codex_drafts_and_make_button():
+    """도감 초안 묶음 · 고르기 · 보낼 초안, 능력 일정 줄의 '도감에 만들기' (docs/blueprint/specs/13-ability-codex.md)."""
+    from canon.schema import Ability
+    p = _proj()
+    p.abilities = [Ability(id="ab-1", name="은신")]
+    p.blueprint.ability_plans = [AbilityPlan(id="ap-1", character="a", ability="은신", grade="Lv2", from_ep=5, to_ep=8),
+                                 AbilityPlan(id="ap-2", character="a", ability="질주", from_ep=9, to_ep=12)]
+    html = _run("viewBlueprint()", p, {"bpSel": "@ability"})
+    assert html.count('data-action="abNew"') == 1 and 'data-arg="|질주"' in html  # 도감에 없는 줄(ap-2, linked false)에만
+    rows = [{"character": "a", "ability": "질주", "grade": "", "condition": "", "from_ep": 9, "to_ep": 12, "evidence": []},
+            {"character": "a", "ability": "비행", "grade": "", "condition": "", "from_ep": 20, "to_ep": 21, "evidence": []}]
+    codex = [{"name": "질주", "stat": "스킬", "description": "", "effect": "빨리 달린다", "cost": "숨이 찬다", "grades": [{"grade": "Lv2", "effect": ""}]},
+             {"name": "은 신", "stat": "", "description": "", "effect": "그새 도감에 생김", "cost": "", "grades": []},
+             {"name": "비행", "stat": "", "description": "난다", "effect": "", "cost": "", "grades": []}]
+    drafts = {"a|draft": {"character": "a", "start": 1, "end": 120, "mode": "draft", "reply": "", "abilities": rows, "codex": codex, "job": "j1"},
+              "j|draft": {"character": "j", "start": 1, "end": 120, "mode": "draft", "reply": "", "abilities": [], "job": "j2"}}
+    html = _run("viewBlueprint()", p, {"bpSel": "@ability", "bpAbDrafts": drafts})
+    assert "도감 초안" in html and "효과: 빨리 달린다" in html and "대가: 숨이 찬다" in html and "효과: 난다" in html and "등급 1" in html
+    assert "그새 도감에 생김" not in html and html.count('data-action="bpAbCodexPick"') == 2  # 도감에 있는 이름은 숨긴다
+    assert "고른 도감 초안은 줄과 함께 도감에 만들어요" in html
+    picked = _run("(viewBlueprint(), actions.bpAbCodexPick('a|draft|2'), bpAbCodexPicked(Object.values(S.bpAbDrafts)).map((c) => c.name))", p, {"bpSel": "@ability", "bpAbDrafts": drafts})
+    assert picked == ["질주"]  # 기본으로 고르고, 끈 것과 도감에 있는 이름은 보내지 않는다
