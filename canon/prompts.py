@@ -6496,14 +6496,18 @@ def illust_prompt(p: Project, n: int, sel: Selection | None, request: str = "") 
 요구사항:
 {pick}
 - characters 에는 그림에 보이는 인물만 넣습니다. 이름이 있는 인물은 위 인물 목록의 id 를 씁니다. 목소리만 나오거나 화면 밖에 있는 인물은 넣지 않습니다.
-- 외형 태그(saved_look_tags)가 있는 인물은 look 을 빈 목록으로 둡니다. 없는 인물은 appearance, age, gender 를 보고 look 에 머리 색, 머리 길이와 모양, 눈 색, 체형, 나이대 태그를 넣습니다 (예: black hair, long hair, ponytail, brown eyes, mature female).
+- 외형 태그(saved_look_tags)가 있는 인물은 look 을 빈 목록으로 둡니다. 없는 인물은 appearance, gender 를 보고 look 에 머리 색, 머리 길이와 모양, 눈 색, 체형 태그를 넣습니다 (예: black hair, long hair, ponytail, brown eyes).
+- 나이대 태그는 age 가 있는 인물이면 프로그램이 붙이므로 넣지 않습니다. 목록에 없는 인물만 adult, mature female, old man 처럼 적고, young adult · young female 은 그림이 어려 보이게 하므로 쓰지 않습니다.
+- pale skin 은 설정에 창백함이 뚜렷할 때만 적습니다 (그림 전체 색이 회색으로 바랩니다).
 - outfit 은 본문에 옷차림이 나오거나 장면에 맞는 옷이 저장된 기본 옷차림(saved_outfit_tags)과 다를 때만 적습니다 (예: school uniform, white shirt, pajamas, armor).
 - attire_now 는 이 화가 시작할 때(앞 화까지 반영한) 그 인물의 차림(옷, 상처, 지닌 물건)입니다. 장면 본문이 다르게 말하면 본문을 따르고, 본문에 없으면 attire_now 를 태그로 옮깁니다 (예: torn sleeve, bandaged hand, dagger at hip).
-- expression 과 action 은 이 순간의 모습입니다. 시선(looking at viewer, looking at another, looking away), 자세(standing, sitting, kneeling), 손(holding umbrella, hand on own chest)을 구체적으로 적습니다.
+- 상처 태그(bruise, scab, blood)는 피 자국처럼 크게 그려지므로 이 장면에서 눈에 띄어야 할 때만 적습니다.
+- expression 과 action 은 이 순간의 모습입니다. 시선(looking at viewer, looking at another, looking away), 자세(standing, sitting, kneeling), 손(holding umbrella, hand on own chest)을 구체적으로 적습니다. 얼굴 방향이나 시선 태그는 인물마다 꼭 하나 넣습니다 (없으면 뒷모습으로 그려지기 쉽습니다. 뒷모습이 맞으면 from behind).
 - 두 인물이 주고받는 행동은 하는 쪽 action 에 source#행동, 받는 쪽에 target#행동, 서로 하면 둘 다 mutual#행동 으로 적습니다 (예: source#hug, target#hug, mutual#holding hands).
 - 인물이 둘 이상이면 position 에 left, center, right 중 하나를 적어 서로 겹치지 않게 합니다.
-- setting 에는 장소와 시간대, 날씨를, lighting 에는 빛을, composition 에는 구도와 카메라를 적습니다. 인물 수에 맞는 구도를 고릅니다 (한 명: upper body, cowboy shot / 여럿: wide shot, full body).
-- mood 에는 장면의 분위기를 살리는 소품과 효과를 적습니다. 본문에 나온 사물을 우선합니다.
+- setting 에는 장소와 시간대, 날씨를, lighting 에는 빛을, composition 에는 구도와 카메라를 적습니다. 인물 수에 맞는 구도를 고릅니다 (한 명: upper body, cowboy shot / 여럿: wide shot, full body). 화면 크기 태그(close-up, upper body, cowboy shot, full body, wide shot)는 하나만 고릅니다.
+- mood 에는 장면의 분위기를 살리는, 눈에 보이는 소품과 효과만 적습니다. 본문에 나온 사물을 우선합니다. 감정 · 분위기 낱말(tension, silence, shame)은 그림에 나오지 않으니 적지 않습니다.
+- 목록 원소 하나는 태그 하나입니다. 칸 이름(lighting, mood, rating)을 앞에 붙이거나 여러 태그를 한 원소에 이어 쓰지 않습니다. position 은 left, center, right 중 하나나 빈칸입니다.
 - 1girl, 2boys 같은 인물 수 태그, rating 태그, 품질 태그(masterpiece, best quality), 인물 이름, 작품 이름은 어디에도 넣지 않습니다. 프로그램이 붙입니다.
 - caption 은 장면을 영어 한 문장으로 씁니다. 이름 대신 the girl with black hair, the tall man 처럼 씁니다.
 - negative 에는 이 장면에서 특히 나오면 안 되는 것만 적습니다 (예: 우산을 쓰지 않은 비 장면이면 umbrella). 일반적인 품질 부정어는 넣지 않습니다.
@@ -6566,10 +6570,11 @@ def look_prompt(p: Project, cid: str) -> str:
 
 요구사항:
 - subject 는 여성 girl, 남성 boy, 사람이 아니거나 정할 수 없으면 other 입니다.
-- look 에는 바뀌지 않는 외형만 6~12개: 머리 색, 머리 길이, 머리 모양, 앞머리, 눈 색, 피부, 체형, 키, 나이대(child, teenage, young adult, mature female, old man 등), 흉터 · 안경 · 점 같은 특징.
+- look 에는 바뀌지 않는 외형만 6~12개: 머리 색, 머리 길이, 머리 모양, 앞머리, 눈 색, 피부, 체형, 키, 나이대(child, teenage, adult, mature female, old man 등. 20대 초는 adult 로 적고 young adult 는 쓰지 않습니다. 그림이 어려 보입니다), 흉터 · 안경 · 점 같은 특징.
 - outfit 에는 이 인물이 평소 입는 옷 2~5개를 시대와 배경에 맞게 적습니다.
 - 태그는 Danbooru 식 영어 소문자, 낱말 사이는 띄어쓰기, 원소 하나에 태그 하나입니다. 이름, 인물 수(1girl), 품질 태그는 넣지 않습니다.
 - 설정에 없는 외형은 나이, 성격, 배경에 어울리게 정하되 흔한 조합(silver hair, red eyes)으로 몰지 않습니다.
+- pale skin 은 설정에 창백함이 뚜렷할 때만 넣습니다 (그림 전체 색이 회색으로 바랩니다).
 - note 에는 설정에서 태그로 옮기기 어려웠던 것이나 새로 정한 것을 한국어 한두 문장으로 적습니다."""
 
 

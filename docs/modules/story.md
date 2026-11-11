@@ -469,6 +469,12 @@
 - 등급
 - 모델별 품질 태그(`MODELS`)를 붙여 기본 · 인물 · 부정 프롬프트로(`assemble`)
 - 태그 정리(`clean`)
+- 한글 · 가나 · 한자가 든 태그는 뺀다
+- 나이대 태그(`age_tag`): 나이 칸이 있는 인물은 외형에 나이대 태그가 없으면 붙인다. 19~25 adult, 26~39 0.6::mature female::, 40~59 mature female, 60 넘으면 old woman (남성은 male · man)
+- 나이를 모르거나 미성년(`cast.is_minor_age`)이면 나이대 태그를 붙이지 않는다
+- AI 가 적은 외형의 young adult 같은 태그(`YOUNG_TAGS`)는 나이대 태그를 붙일 때 뺀다. 그림이 어려 보이게 해서다(WAI-illustrious 실측 2026-11-11)
+- 작가가 저장한 외형은 바꾸지 않는다. `YOUNG_TAGS` 가 있으면 `notes` 에 알린다
+- AI 원안 검사(`check_draft`, `pipeline.illustrate` 가 부름): 칸 이름으로 시작하는 원소, 낱말이 `LONG_TAG`(5)개 넘는 원소, left · center · right 가 아닌 position 을 빼고 `draft_notes` 에 알린다
 - n화 삽화에 넣을 인물 상태(`states_at`): 반영이 n-1화까지면 지금 상태, 더 뒤까지 반영했으면 n-1화 이하 가장 가까운 스냅샷
 - 장편은 스냅샷을 0화 · 아크 끝 · 최근 20화만 남긴다(`pipeline.prune_snapshots`). 옛 화 삽화는 더 앞 시점의 차림 · 위치가 들어갈 수 있다
 - n-1화 스냅샷이 지워져 더 앞 스냅샷을 쓰면 그 화를 `Illustration.draft_notes` 에 남긴다

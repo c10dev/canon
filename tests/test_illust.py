@@ -6,7 +6,7 @@ from .test_passage import TEXT, _written
 
 
 def test_clean_tags():
-    assert illust.clean(["Black_hair, long hair", "long hair", "2girls", "rating:explicit", "girl", "검은 머리", "1.2::rain ::", "^_^"]) == [
+    assert illust.clean(["Black_hair, long hair", "long hair", "2girls", "rating:explicit", "girl", "검은 머리", "fluorescent照明", "1.2::rain ::", "^_^"]) == [
         "black hair", "long hair", "1.2::rain ::", "^_^"]
 
 
@@ -151,3 +151,44 @@ def test_illustrate_checks_quote_against_prompt_scope(monkeypatch):
     ill = pipeline.illustrate(MockLLM(), p, 1)
     assert prompts.illust_scope(SCENE, None) == "파도가 방" and ill.draft.quote == ""
     assert ill.notes[0] == illust.QUOTE_DROPPED and illust.assemble(p, ill).notes[0] == illust.QUOTE_DROPPED
+
+
+def test_age_tag_from_age_field():
+    assert illust.age_tag("20", "girl") == "adult"
+    assert illust.age_tag("31", "girl") == "0.6::mature female::"
+    assert illust.age_tag("34", "boy") == "0.6::mature male::"
+    assert illust.age_tag("40대 후반", "girl") == "mature female"
+    assert illust.age_tag("72", "boy") == "old man"
+    assert illust.age_tag("30", "other") == "adult"
+    assert illust.age_tag("17", "girl") == "" and illust.age_tag("고등학생", "girl") == ""  # 미성년은 붙이지 않는다
+    assert illust.age_tag("", "girl") == "" and illust.age_tag("나이 모름", "boy") == ""
+
+
+def test_assemble_adds_age_and_drops_young_tags():
+    p = Project(characters=[Character(id="a", name="가", role="", gender="여", age="20"),
+                            Character(id="b", name="나", role="", gender="남", age="34")])
+    d = IllustDraft(quote="q", scene="s", characters=[
+        IllustCharacter(id="a", subject="girl", look=["black hair", "young adult"], position="left"),
+        IllustCharacter(id="b", subject="boy", look=["brown hair", "mature male"], position="right")])
+    a, b = illust.assemble(p, Illustration(id="i1", draft=d), "v4.5-full").characters
+    assert a.prompt == "girl, black hair, adult"  # AI 가 적은 young adult 는 빼고 나이 칸으로 붙인다
+    assert b.prompt == "boy, brown hair, mature male"  # 나이대 태그가 이미 있으면 붙이지 않는다
+
+    p.visuals = [CharacterVisual(character_id="a", look=["black hair", "young adult"])]
+    ill = illust.assemble(p, Illustration(id="i1", draft=d), "v4.5-full")
+    assert ill.characters[0].prompt == "girl, black hair, young adult"  # 작가가 저장한 외형은 바꾸지 않고 알린다
+    assert any("young adult" in n for n in ill.notes)
+
+
+def test_check_draft_drops_broken_tags():
+    d = IllustDraft(quote="q", scene="s", setting=["subway station", "lighting fluorescent lighting dim lighting", "rating sensitive"],
+                    mood=["garment bag", "mood garment bag modified school uniform zipper tense"], characters=[
+                        IllustCharacter(id="a", subject="girl", action=["holding garment bag", "source#hand on another's shoulder"],
+                                        position="centerbox action standing holding garment bag"),
+                        IllustCharacter(id="b", subject="boy", position="Right")])
+    notes = illust.check_draft(d)
+    assert d.setting == ["subway station"] and d.mood == ["garment bag"]
+    assert d.characters[0].action == ["holding garment bag", "source#hand on another's shoulder"]
+    assert d.characters[0].position == "" and d.characters[1].position == "Right"
+    assert len(notes) == 2 and "3개" in notes[0] and "1개" in notes[1]
+    assert illust.check_draft(d) == []
