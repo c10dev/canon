@@ -618,9 +618,11 @@
 - 방식 '서술만 다듬기'(`polish`)는 다른 칸을 감추고 정해진 규칙만 보낸다. 버튼은 '다듬은 판 만들기'
 - 새 판 비교(나란히 · 바뀐 곳 `textDiff`)와 고르기. 새 판을 쓸 때 뗀 작업 설명이 있으면 그 수를 한 줄로(`TextVersion.meta_cut`, 고르면 화로 따라감)
 - 새 판 카드는 새 판에 건 고침 규칙(`TextVersion.rule_runs`)의 고친 곳 수 · 규칙 이름과 건너뛴 묶음을 보인다(`rwRuleLine`). 되돌리기는 새 판으로 바꾼 뒤 집필 화면에서 한다
+- 퇴고 단계를 켠 장편의 새 판 카드는 '찾은 자리 n곳 → 새 판 m곳'을 접어 보인다(`rwTargetsLine`, `GET …/polish-targets`, 새 판 id 마다 한 번 받음)
 - 이전 판 목록과 되돌리기
 - 서버는 `pipeline.rewrite_episode` · `set_candidate` · `adopt_candidate` · `drop_candidate` · `restore_version`
 - 쓰기 작업 끝 알림(`JOB_DONE_MSG.write`)은 쓴 뒤 바로 검수의 짚은 곳 수나 못 한 까닭(`check_error`)을 함께 알린다
+- 퇴고 판을 만들지 못했으면(`polish_error`) 그 까닭을 알림 끝에 붙인다
 - `JOB_DONE_MSG.write` 는 작업 결과의 `rule_run` 이 있으면 고친 곳 수 · 건너뛴 묶음을 붙인다(`ruleRunSay`). 쓰기 · 다시 생성 모두다
 - 프롬프트는 `prompts.rewrite_prompt`
 
@@ -705,6 +707,8 @@
   - 옛 문체 대화의 변경안이 바꿀 칸 표시(`hot`)는 04e 에서 옛 패널을 지워 늘 비어 있다. 에이전트 문체 카드와 잇는 것은 남은 일이다
   - '지킬 · 피할 것' 카드에서 수가 0인 묶음은 '비어 있음'을 따로 적지 않는다
   - 장편 작품 문체의 '지킬 · 피할 것' 카드는 줄마다 층 칩(`.chip.rl`, '집필' · '계획')을 단다. 누르면 바뀐다(`ruleLayer`, `Settings.rule_layers`). 라이브러리 문체 · 단편에는 없다
+  - 퇴고 단계를 켜면 칩이 집필 → 계획 → 퇴고 차례로 돈다(`.chip.rl.polish`). 끄면 퇴고 줄도 집필로 보인다
+  - 같은 카드 머리의 '쓴 뒤 퇴고' 버튼(`polishStage`)이 `Settings.polish_stage` 를 켜고 끈다(장편만)
   - write 층 줄이 20개(`RULE_LIMIT`)를 넘으면 지킬 것 머리에 `.chip.warn` '집필 n개 · 20개 넘음'을 단다(`writeRuleCount`)
   - 목차 수 `styleCount`
   - 서술 카드 칸은 `NARR_KEYS`(효과음 표기 포함). 목차 수는 채운 칸 / 전체 칸

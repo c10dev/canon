@@ -43,6 +43,7 @@
 - 문장 경계 자리 `sentence_spans`(`sentences` 와 같은 경계)
 - 화당 상한 없는 1,000자당 횟수 `rates_per_1k`
 - 서술 문장 끝 `_endings`(`da_ending_ratio` · `da_run_ratio`, 따옴표로 여는 줄은 대사로 빼고 덩어리를 끊음, 서술 문장이 `ENDING_MIN` 개 미만이면 재지 않음)
+- `da_runs` 는 '~다.' 덩어리마다 첫 문장을 돌려준다(`_endings` 와 같은 셈). 퇴고 단계(`polishscan`)가 자리를 짚는다. 있는 지표 값은 바뀌지 않아 `METRICS_VERSION` 은 그대로다
 - 문장 끝 경고는 기준값이 비면 사람 웹소설 중앙값 `ENDING_DEFAULTS` 와 견줌
 - 효과음 줄 `is_sfx_line` · `sfx_lines`(소리나 몸짓만 적은 한 줄 문단, 낱말 꼴로만 판별, 근거는 reports/소리 표현 실측 2026-11-05.md)
 - 효과음 끝 표시 `sfx_mark` · 몫 `sfx_marks`(효과음 줄이 `SFX_MARK_MIN` 줄 미만이면 비움)
