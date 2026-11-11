@@ -875,6 +875,7 @@ def propose_abilities(llm: LLM, p: Project, arc: int, cid: str, note: str = "") 
     with out_cap(BLUEPRINT_OUT_TOKENS):
         prop = llm.json(prompts.SYSTEM_PLANNER, ask, AbilityProposal, hint={"start": start, "end": end, "character": cid})
     prop.abilities = blueprint.clean_abilities(p, prop.abilities, {cid}, start, end)
+    prop.codex = blueprint.clean_codex(p, prop.codex, prop.abilities)
     return prop
 
 
@@ -887,6 +888,7 @@ def draft_abilities(llm: LLM, p: Project, part: int, cid: str, note: str = "") -
     with out_cap(BLUEPRINT_OUT_TOKENS):
         prop = llm.json(prompts.SYSTEM_PLANNER, ask, AbilityProposal, hint={"start": start, "end": end, "character": cid})
     prop.abilities = blueprint.clean_abilities(p, prop.abilities, {cid}, start, end)
+    prop.codex = blueprint.clean_codex(p, prop.codex, prop.abilities)
     return prop
 
 

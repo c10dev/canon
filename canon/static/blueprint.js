@@ -11,7 +11,8 @@ Object.assign(S, {
   bp: null,        // 서버 값 { blueprint, warnings: [{source, target, text}], plans: [{id, got, state, linked}], ability_warnings: [{character, text}], parts: [{id, label}], acts, last }
   bpSel: '',       // 지금 쪽: '' 개요 | 쌍 키 | '@ability' 능력 일정
   bpEdit: null,    // 고치는 카드 { card: 'ms' | 'ladder' | 'note' | 'ap', key, data: Blueprint 사본, orig, row: 누른 줄만 열면 그 줄의 길('milestones.3') }
-  bpUndo: null,    // 방금 한 지우기 · 더하기 · 비우기 { name, key, before, after: 설계도 JSON, msg }. 되돌리기는 지금 값이 after 일 때만 before 를 다시 저장한다
+  bpUndo: null,    // 방금 한 지우기 · 더하기 · 비우기 { name, key, before, after: 설계도 JSON, msg, abIds: 같이 만든 도감 항목 id }. 되돌리기는 지금 값이 after 일 때만 before 를 다시 저장하고 abIds 를 지운다
+  bpAbMade: null,  // 능력 일정 제안을 더하며 막 만든 도감 항목 id (bpWrite 가 bpUndo.abIds 로 옮기고 비운다)
   bpOwner: '',     // 화면 상태를 가진 작품
   bpPickOpen: '',  // 펴 둔 칩 묶음의 길 (칩을 눌러 다시 그려도 펴 둔다)
   bpWide: false,   // 계획 띠를 작품 전체 화수로 (기본은 기획한 화까지)
@@ -380,7 +381,7 @@ function bpAbilityCard(plans) {
         if (mode === 'row' && S.bpEdit.row === `ability_plans.${i}`) return `<li class="bp-row-edit">${edit(x, i)}${names()}${bpSaveRow()}</li>`;
         const st = bpPlanState(x.id);
         return `<li><span class="chip">${esc(bpRange(x))}</span><span class="bp-row-t"><strong>${esc(bpAbText(x))}</strong>${bpPlanChip(st)}
-          ${x.condition ? `<span class="small">조건: ${esc(x.condition)}</span>` : ''}${st.linked ? '' : '<span class="small">도감에 없음</span>'}</span>${bpRowActs(`ability_plans.${i}`, `${bpWho(x.character)}의 ${bpAbText(x) || '능력'} 줄`)}</li>`;
+          ${x.condition ? `<span class="small">조건: ${esc(x.condition)}</span>` : ''}${st.linked ? '' : `<span class="small">도감에 없음</span><button type="button" class="link-btn small" data-action="abNew" data-arg="${esc(`|${x.ability}`)}">도감에 만들기</button>`}</span>${bpRowActs(`ability_plans.${i}`, `${bpWho(x.character)}의 ${bpAbText(x) || '능력'} 줄`)}</li>`;
       }).join('');
       return `<div class="bp-dir"><h3>${esc(bpWho(id))}</h3><ul class="bp-list">${rows}</ul></div>`;
     }).join('');
@@ -457,6 +458,24 @@ function bpAbDraftRows(rows, picks, arg, withWho = false, action = 'bpAbDraftPic
   }).join('')}</ul>`;
 }
 
+/** 제안의 도감 초안 묶음: 초안마다 고르기 · 이름 · 상태창 항목 · 효과 · 대가 · 등급 수. 그새 도감에 생긴 이름은 보이지 않는다(보내지도 않는다).
+    codex 는 AbilityCodexDraft 목록, picks 는 같은 길이의 체크, arg 는 data-arg 머리 (docs/blueprint/specs/13-ability-codex.md) */
+function bpAbCodexRows(codex, picks, arg) {
+  const rows = codex.map((c, i) => [c, i]).filter(([c]) => !bpAbKnown(c.name));
+  if (!rows.length) return '';
+  return `<h4>도감 초안</h4><ul class="bp-list">${rows.map(([c, i]) => `<li><input type="checkbox" data-action="bpAbCodexPick" data-arg="${esc(arg)}|${i}"${picks[i] ? ' checked' : ''} aria-label="${esc(`${c.name} 도감 초안 고르기`)}">
+      <strong>${esc(c.name)}</strong>${c.stat ? `<span class="chip">${esc(c.stat)}</span>` : ''}
+      ${c.effect || c.description ? `<span class="small">효과: ${esc(c.effect || c.description)}</span>` : ''}${c.cost ? `<span class="small">대가: ${esc(c.cost)}</span>` : ''}
+      ${(c.grades || []).length ? `<span class="small">등급 ${c.grades.length}</span>` : ''}</li>`).join('')}</ul>`;
+}
+
+/** 고른 도감 초안 (그새 도감에 생긴 이름은 빼고, 같은 이름은 앞의 것 하나만) */
+function bpAbCodexPicked(drafts) {
+  const seen = new Set();
+  return drafts.flatMap((d) => (d.codex || []).filter((c, i) => d.codexPicks[i] && !bpAbKnown(c.name)))
+    .filter((c) => !seen.has(bpAbNorm(c.name)) && !!seen.add(bpAbNorm(c.name)));
+}
+
 /** 제안 자리의 열쇠: 인물 id 와 뽑기 · 짜기. 같은 인물의 뽑은 제안과 짠 제안은 따로 남는다 */
 const bpAbDraftKey = (d) => `${d.character}|${d.mode === 'draft' ? 'draft' : 'extract'}`;
 
@@ -473,18 +492,22 @@ function bpAbDraftCard() {
   if (!drafts.length) return '';
   let n = 0;
   let unknown = 0;
+  let drafted = 0;
   const groups = drafts.map((d) => {
     d.picks ||= bpAbPicks(S.bp.blueprint, d.abilities);
+    d.codexPicks ||= (d.codex || []).map(() => true);
     n += d.abilities.length;
+    drafted += (d.codex || []).filter((c) => !bpAbKnown(c.name)).length;
     unknown += d.abilities.filter((x) => !bpAbKnown(x.ability)).length;
     return `<div class="bp-dir"><div class="between"><h3>${esc(bpWho(d.character))} <span class="small">${d.mode === 'draft' ? 'AI가 짠 줄' : 'AI가 뽑은 줄'} · ${d.start}~${d.end}화</span></h3>
         <button type="button" class="btn small" data-action="bpAbDraftDrop" data-arg="${esc(bpAbDraftKey(d))}">버리기</button></div>
       ${d.reply ? `<p class="small">${esc(d.reply)}</p>` : ''}
-      ${d.abilities.length ? bpAbDraftRows(d.abilities, d.picks, bpAbDraftKey(d)) : '<span class="small">제안한 줄이 없어요.</span>'}</div>`;
+      ${d.abilities.length ? bpAbDraftRows(d.abilities, d.picks, bpAbDraftKey(d)) : '<span class="small">제안한 줄이 없어요.</span>'}
+      ${bpAbCodexRows(d.codex || [], d.codexPicks, bpAbDraftKey(d))}</div>`;
   }).join('');
   return `<section class="card" id="bp-ab-draft"><div class="between"><h2>AI가 제안한 능력 일정</h2>
       ${n ? '<button type="button" class="btn small primary" data-action="bpAbDraftUse">고른 줄 더하기</button>' : ''}</div>
-    ${unknown ? `<p class="small">스킬 도감에 없는 이름이 ${unknown}줄 있어요. 더해도 되고, 도감에 항목을 만들면 효과 · 대가가 프롬프트에 들어가요.</p>` : ''}${groups}</section>`;
+    ${unknown ? `<p class="small">스킬 도감에 없는 이름이 ${unknown}줄 있어요. ${drafted ? '고른 도감 초안은 줄과 함께 도감에 만들어요.' : '더해도 되고, 도감에 항목을 만들면 효과 · 대가가 프롬프트에 들어가요.'}</p>` : ''}${groups}</section>`;
 }
 
 function bpPairPage(key) {
@@ -667,7 +690,8 @@ async function bpWrite(label, msg, send) {
   await run(label, async () => {
     S.project = await send();
     S.bp = await api('GET', `/projects/${enc(name)}/blueprint`);
-    S.bpUndo = { name, key, before, after: JSON.stringify(S.bp.blueprint), msg };
+    S.bpUndo = { name, key, before, after: JSON.stringify(S.bp.blueprint), msg, abIds: S.bpAbMade || [] };
+    S.bpAbMade = null;
     toast(msg, false, { actions: [{ label: '되돌리기', run: () => actions.bpUndo() }] });
   });
 }
@@ -699,17 +723,28 @@ Object.assign(actions, {
     const i = Number(String(arg).slice(at + 1));
     if (d) d.picks[i] = !d.picks[i];
   },
+  bpAbCodexPick(arg) {
+    const at = String(arg).lastIndexOf('|');
+    const d = (S.bpAbDrafts || {})[String(arg).slice(0, at)];
+    const i = Number(String(arg).slice(at + 1));
+    if (d) d.codexPicks[i] = !d.codexPicks[i];
+  },
   async bpAbDraftDrop(key) {
     if (!(await confirmDrop('AI 능력 일정 제안'))) return;
     delete (S.bpAbDrafts || {})[key];
     render();
   },
   async bpAbDraftUse() {
-    const rows = bpAbUnique(Object.values(S.bpAbDrafts || {}).flatMap((d) => d.abilities.filter((_, i) => d.picks[i])));
-    if (!rows.length) { toast('더할 줄을 골라 주세요', true); return; }
-    await bpWrite('능력 일정에 더하는 중', `능력 일정 ${rows.length}줄을 더했어요`, async () => {
-      const out = await api('POST', `/projects/${enc(S.name)}/blueprint/apply-abilities`, { abilities: rows });
+    const drafts = Object.values(S.bpAbDrafts || {});
+    const rows = bpAbUnique(drafts.flatMap((d) => d.abilities.filter((_, i) => d.picks[i])));
+    const codex = bpAbCodexPicked(drafts);
+    if (!rows.length && !codex.length) { toast('더할 줄을 골라 주세요', true); return; }
+    const had = new Set((P().abilities || []).map((a) => a.id));
+    const msg = [rows.length ? `능력 일정 ${rows.length}줄` : '', codex.length ? `도감 항목 ${codex.length}개` : ''].filter(Boolean).join('과 ');
+    await bpWrite('능력 일정에 더하는 중', `${msg}${codex.length ? '를' : '을'} 더했어요`, async () => {
+      const out = await api('POST', `/projects/${enc(S.name)}/blueprint/apply-abilities`, { abilities: rows, codex });
       S.bpAbDrafts = {};
+      S.bpAbMade = (out.abilities || []).map((a) => a.id).filter((id) => !had.has(id));  // bpWrite 가 되돌리기(S.bpUndo.abIds)에 옮긴다
       return out;
     });
   },
@@ -778,6 +813,9 @@ Object.assign(actions, {
         return;
       }
       S.project = await api('PUT', `/projects/${enc(S.name)}/blueprint`, JSON.parse(u.before));
+      for (const id of u.abIds || []) {  // 같이 만든 도감 항목도 지운다 (그새 작가가 지웠으면 건너뛴다)
+        if ((S.project.abilities || []).some((a) => a.id === id)) S.project = await api('DELETE', `/projects/${enc(S.name)}/abilities/${enc(id)}`);
+      }
       S.bp = await api('GET', `/projects/${enc(S.name)}/blueprint`);
       toast('되돌렸어요');
     });

@@ -1389,6 +1389,14 @@ def ability_ai_rules() -> str:
 - 이미 적은 능력 일정과 같은 줄(같은 인물 · 능력 · 등급)은 다시 만들지 않고, 그 줄과 어긋나지 않게 잇습니다."""
 
 
+def ability_codex_rule(where: str) -> str:
+    """능력 일정 제안 요청의 도감 초안 줄 (응답의 codex, docs/blueprint/specs/13-ability-codex.md). where 는 효과 · 대가를 가져올 재료 이름.
+    작가가 2026-11-11 에 '도감에 없는 능력은 AI 제안과 함께 도감 초안을 받는다'로 정했다. 작가가 고른 초안만 도감에 들어간다."""
+    return f"""- abilities 에 적은 능력 가운데 [스킬 도감]에 없는 능력은 codex 에 도감 초안을 능력마다 하나 적습니다. name 은 abilities 의 ability 와 같은 이름입니다. 도감에 있는 능력은 적지 않습니다.
+- 초안의 설명 · 효과 · 대가는 {where}에 있는 내용을 따르고, 거기 없으면 작품 설정과 어긋나지 않게 한 줄씩 적습니다. stat 에는 지금 상태창에서 그 능력이 들어갈 항목 이름을 적고, 모르면 비웁니다.
+- abilities 에 같은 능력의 등급을 나눠 적었으면 grades 에 그 등급 이름 그대로 차례대로 등급과 효과를 적습니다."""
+
+
 def ability_draft_prompt(p: Project, start: int, end: int, cid: str) -> str:
     """작가 설정 · 부 구성 · 스킬 도감에서 인물 하나의 능력 일정을 짠다 (pipeline.draft_abilities, 응답 형식 AbilityProposal, docs/blueprint/specs/12-ability-ai.md).
     플롯이 없어도 된다. 작가가 고른 줄만 설계도에 들어간다. 작가 메모는 요청 끝(request_block)에 붙는다."""
@@ -1408,6 +1416,7 @@ def ability_draft_prompt(p: Project, start: int, end: int, cid: str) -> str:
 요구사항:
 - 작품 설정 · 로그라인 · 부 구성 · 스킬 도감 · 작가의 요청에 있는 능력과 성장 방향을 따릅니다. 스킬 도감 · 상태창에 있는 능력을 먼저 쓰고, 설정 · 부 구성 · 작가의 요청이 요구하는 능력만 새 이름으로 적습니다.
 {ability_ai_rules()}
+{ability_codex_rule("작품 설정 · 인물 · 부 구성 · 작가의 요청")}
 - 화 범위는 {start}~{end}화 안에서 고르고, 부 구성이 있으면 부의 목표와 마무리에 맞는 자리에 둡니다. 한 줄의 범위는 10화 이하로 좁힙니다.
 - 같은 능력의 뒤 등급일수록 from_ep 가 늦습니다. 지금 상태창에 이미 있는 능력 · 등급은 적지 않습니다.
 - 줄은 많아도 8줄입니다. condition 에는 얻는 조건이나 계기를 20자 안팎의 새 말로 씁니다. 입력 글을 길게 그대로 옮기지 않습니다.
@@ -1437,6 +1446,7 @@ def ability_extract_prompt(p: Project, start: int, end: int, cid: str) -> str:
 - 플롯에 적힌 일만 뽑습니다. 플롯에 없는 능력이나 등급을 지어내지 않습니다.
 - {name}({cid}){josa(name, '이', '가')} 능력을 처음 얻거나 능력의 등급이 오르는 화마다 한 줄, 화 차례로 적습니다. 이미 가진 능력을 쓰기만 하는 화는 적지 않습니다.
 {ability_ai_rules()}
+{ability_codex_rule("화별 플롯 · 작품 설정 · 인물")}
 - from_ep 는 얻은 화, to_ep 는 보통 같은 화입니다. 화 범위는 {start}~{end}화 안입니다.
 - condition 에는 얻게 된 계기를 한 줄로 씁니다.
 - evidence 에는 근거 화 번호와 그 화 플롯에서 그대로 옮긴 20자 안팎 구절을 1~2개 넣습니다.

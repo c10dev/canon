@@ -711,6 +711,39 @@ def clean_abilities(p: Project, rows: list, ids: set[str], start: int, end: int)
     return sorted(out, key=lambda x: (order[x.character], x.from_ep, x.to_ep))
 
 
+def clean_codex(p: Project, codex: list, rows: list) -> list:
+    """AI 가 능력 일정 줄과 함께 낸 도감 초안(AbilityCodexDraft) 정리: 남은 줄(rows)의 능력 이름인 것만, 이미 도감에 있는 이름(다른 이름 포함)은 뺀다.
+    이름의 등급 꼬리는 떼고, 같은 이름은 앞의 것 하나만, 등급 이름이 빈 등급은 뺀다. 작가 데이터가 아니라 AI 제안이라 지운다 (docs/blueprint/specs/13-ability-codex.md).
+    어느 인물의 상태창 목록에 이미 그 조각이 있으면 stat 을 그 항목 이름으로 바꾼다. 도감 항목의 stat 이 다르면 상태창 조각과 잇지 않아서다(abilities.owners)."""
+    want = {abilities.key(x.ability) for x in rows}
+    lists = abilities.list_stats(p)
+    where = {abilities.key(abilities.split(piece)[0]): stat for st in p.states
+             for stat, piece in abilities.list_pieces(p, {s.name: s.value for s in st.stats}, lists)}
+    seen, out = set(), []
+    for c in codex:
+        c.name = abilities.split(c.name or "")[0]
+        k = abilities.key(c.name)
+        if not c.name or k not in want or k in seen or abilities.find(p, c.name) is not None:
+            continue
+        seen.add(k)
+        c.stat, c.description, c.effect, c.cost = where.get(k, c.stat.strip()), c.description.strip(), c.effect.strip(), c.cost.strip()
+        c.grades = [g for g in c.grades if g.grade.strip()]
+        out.append(c)
+    return out
+
+
+def add_codex(p: Project, codex: list) -> list[str]:
+    """고른 도감 초안을 p 의 스킬 도감에 AI 가 만든 항목(source="ai")으로 더한다. 그새 도감에 생긴 이름은 건너뛴다. 만든 항목 id 목록을 돌려준다.
+    이름이 다른 항목과 겹치면 abilities.upsert 가 ValueError 를 낸다."""
+    made = []
+    for c in codex:
+        if abilities.find(p, c.name) is None:
+            a = abilities.upsert(p, Ability(id="", name=c.name, stat=c.stat, description=c.description, effect=c.effect, cost=c.cost,
+                                             grades=c.grades, source="ai"))
+            made.append(a.id)
+    return made
+
+
 def add_abilities(p: Project, rows: list) -> None:
     """고른 능력 일정 줄을 p 에 그대로 더한다 (검사 없음). 여러 묶음을 한 사본에 더하고 check 를 한 번 부르는 쪽(apply_abilities, 11b 의 apply_set)이 쓴다."""
     for x in rows:
@@ -718,13 +751,16 @@ def add_abilities(p: Project, rows: list) -> None:
                                                      from_ep=x.from_ep, to_ep=x.to_ep))
 
 
-def apply_abilities(p: Project, rows: list) -> None:
-    """작가가 고른 능력 일정 제안 줄을 설계도에 더한다. 이미 적은 줄은 고치지 않는다. 더한 뒤 check 로 검사해 어긋나면 ValueError 이고 아무것도 바꾸지 않는다.
-    계획만 더한다. 실제 기록(Project.stat_log · 상태창)은 건드리지 않는다."""
+def apply_abilities(p: Project, rows: list, codex: list = ()) -> list[str]:
+    """작가가 고른 능력 일정 제안 줄을 설계도에 더하고, 고른 도감 초안(codex)을 스킬 도감에 만든다. 이미 적은 줄과 도감 항목은 고치지 않는다.
+    더한 뒤 check 로 검사해 어긋나면 ValueError 이고 아무것도 바꾸지 않는다. 만든 도감 항목 id 목록을 돌려준다.
+    실제 기록(Project.stat_log · 상태창)은 건드리지 않는다."""
     q = p.model_copy(deep=True)
+    made = add_codex(q, list(codex))
     add_abilities(q, rows)
     check(q, p)
-    p.blueprint = q.blueprint
+    p.blueprint, p.abilities = q.blueprint, q.abilities
+    return made
 
 
 def ability_have_lines(p: Project, ids: set[str] | None, start: int = 0, end: int = 0) -> list[str]:

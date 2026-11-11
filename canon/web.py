@@ -38,7 +38,7 @@ from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록
 from .schema import (Ability, ArcPlan, BodySuggestion, StatInitSuggestion, StatSkin, StatWindowSuggestion, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      RuleChange, RuleRun, StorylineProposal, StyleEntry, StyleProfile)
 from . import abilities, anchor, atlas, findings, foreshadows, heatplan, setupchat, stateedit, stattrial, statwin, timeline
-from .schema import AbilityDraft, AgentSession, Blueprint, MilestoneDraft, RungDraft, ChatScope, HeatArcProposal, KnowsFoldSet, Deadline, Storyboard, StoryTime, Foreshadow, StatValue
+from .schema import AbilityCodexDraft, AbilityDraft, AgentSession, Blueprint, MilestoneDraft, RungDraft, ChatScope, HeatArcProposal, KnowsFoldSet, Deadline, Storyboard, StoryTime, Foreshadow, StatValue
 from .schema import OffscreenSet
 from .schema import MapSpec
 from .schema import TextMaterial
@@ -5849,15 +5849,17 @@ def blueprint_apply(name: str, body: BlueprintApplyIn) -> Project:
 
 
 class AbilityApplyIn(BaseModel):
-    """능력 일정 제안에서 작가가 고른 줄."""
+    """능력 일정 제안에서 작가가 고른 줄과 도감 초안."""
     abilities: list[AbilityDraft] = []
+    codex: list[AbilityCodexDraft] = []
 
 
 @app.post("/api/projects/{name}/blueprint/apply-abilities")
 def blueprint_apply_abilities(name: str, body: AbilityApplyIn) -> Project:
-    """고른 능력 일정 제안 줄을 설계도에 더한다 (blueprint.apply_abilities). 검사에 걸리면 400 이고 아무것도 바꾸지 않는다. 상태창 기록은 건드리지 않는다."""
+    """고른 능력 일정 제안 줄을 설계도에 더하고 고른 도감 초안을 스킬 도감에 만든다 (blueprint.apply_abilities).
+    검사에 걸리면 400 이고 아무것도 바꾸지 않는다. 상태창 기록은 건드리지 않는다."""
     p = _load(name)
-    blueprint.apply_abilities(p, body.abilities)
+    blueprint.apply_abilities(p, body.abilities, body.codex)
     return _save(name, p)
 
 

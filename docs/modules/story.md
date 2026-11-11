@@ -302,9 +302,13 @@
 - 능력 일정 제안(`AbilityProposal`, 인물 하나씩 뽑기 · 짜기, `docs/blueprint/specs/12-ability-ai.md`)의 정리 `clean_abilities(p, rows, ids, start, end)`: ids 인물의 줄만, 범위 자르기, 근거는 범위 안 세 개까지
 - `clean_abilities` 는 등급 꼬리를 먼저 떼고, 이미 적은 줄 · 앞 제안 줄과 같은 인물 · 능력 · 등급인 줄을 뺀다(남으면 `check` 가 통째로 거절한다)
 - 고른 능력 줄 더하기 `apply_abilities`: 사본에 붙이고 `check`, 어긋나면 아무것도 바꾸지 않는다. 상태창 기록은 건드리지 않는다
+- 도감 초안 정리 `clean_codex(p, codex, rows)`: 남은 줄의 능력 이름인 것만, 이미 도감에 있는 이름(다른 이름 포함)은 뺀다. 등급 꼬리를 떼고 같은 이름은 하나만 (`docs/blueprint/specs/13-ability-codex.md`)
+- `clean_codex` 는 상태창 목록에 이미 있는 조각이면 `stat` 을 그 항목 이름으로 바꾼다(다르면 `abilities.owners` 가 잇지 않는다)
+- `apply_abilities(p, rows, codex)` 는 같은 사본에 고른 초안을 먼저 도감에 만든다(`add_codex`, `source="ai"`, 그새 생긴 이름은 건너뜀). 만든 항목 id 를 돌려준다
 - 검사 없는 더하기 `add_abilities` 는 여러 묶음을 한 사본에 더하고 `check` 를 한 번 부르는 쪽(11b)이 쓴다
 - 능력 일정 제안 요청의 재료 `ability_have_lines`(그 인물의 모든 줄, 얻은 줄 포함, 받는 범위에 걸친 줄이 앞) · `ability_owned_lines`(지금 상태창의 목록 항목 조각)
 - 웹은 `POST /api/projects/{name}/blueprint/apply-abilities`(`AbilityApplyIn`, 검사에 걸리면 400)
+- `AbilityApplyIn.codex` 는 고른 도감 초안(`AbilityCodexDraft`)이다
 - 화면은 `static/blueprint.js`
 - 기획 프롬프트 줄 `plan_lines(p, ids, start, end)`: 화 범위를 적은 줄만, 범위에 걸린 이정표 · 사다리 칸과 그 뒤 첫 것. 두 인물이 모두 ids 에 들 때만
 - 사다리 칸 한 줄 `rung_text`: '차례. 이름 (겹 · 부위 · 동작 · 장소 · 주도 · 메모)', 부위 · 동작은 장면 연출의 이름
@@ -790,6 +794,7 @@
 - 계획 띠 기본 범위 `bpSpan`: 기획한 화와 그 쌍 설계도 끝 화 가운데 큰 것. '작품 전체'(`S.bpWide`)로 바꾼다
 - 능력 일정 쪽 `bpAbilityPage`: 계획 띠 `bpAbilityBand`(인물마다 한 줄, 얻은 화를 같은 줄에 겹침) · 능력 경고 · 카드 `bpAbilityCard`(카드 이름 'ap')
 - 능력 일정 줄의 실제 표시 `bpPlanChip` 은 서버 값 `S.bp.plans`(`bpPlanState`)를 쓴다. 능력 칸은 도감 항목 이름을 제안한다(`datalist#bp-ab-names`)
+- 도감에 없는 능력 일정 줄에는 '도감에 만들기' 글자 버튼을 단다. 스킬 도감 화면의 `abNew` 로 이름을 채운 새 항목 칸을 연다
 - 상태가 '모름'인 줄은 '상태창이 없어 실제를 셀 수 없어요'를 적는다
 - 능력 일정 저장은 `bpMerged` 의 'ap' 몫: 능력 일정 전체를 바꾸고 능력 이름을 비운 줄은 뺀다
 - 카드는 읽는 모양이 기본이고 '고치기'로 그 카드만 편다(`S.bpEdit`: 설계도 사본, 저장하지 않은 글은 `S.editDrafts.bp`)
@@ -815,6 +820,8 @@
 - 도착한 능력 일정 제안은 `S.bpAbDrafts` 에 자리 열쇠 `bpAbDraftKey`('인물 id|extract' · '인물 id|draft')마다 하나씩 둔다(같은 자리의 새 제안이 앞 것을 바꾼다). 카드 `bpAbDraftCard` 는 경고 다음이고 주 버튼은 '고른 줄 더하기' 하나다
 - 능력 묶음 `bpAbDraftRows(rows, picks, arg, withWho, action)`: 줄마다 고르기 · 근거, '도감에 없음'(`bpAbKnown`) · '이미 있음'(`bpAbSame`) 칩. 기본 체크 `bpAbPicks` 는 이미 적은 같은 줄만 뺀다
 - '고른 줄 더하기'는 모든 묶음의 고른 줄을 한 번에 보낸다. 묶음끼리 같은 인물 · 능력 · 등급은 앞의 것만 보낸다(`bpAbUnique`)
+- 묶음마다 줄 아래 '도감 초안' `bpAbCodexRows`(기본 체크, 체크 `bpAbCodexPick`). 그새 도감에 생긴 이름은 숨기고 보내지 않는다. 보낼 초안 `bpAbCodexPicked` 는 같은 이름을 하나만 남긴다
+- 더하며 만든 도감 항목 id 는 되돌리기(`S.bpUndo.abIds`)에 남고, 되돌리기가 설계도와 함께 지운다
 - `pendingShown` 은 능력 일정 제안을 `bpAbDraftShown` 으로 본다: 그 자리의 제안이 그 작업 것일 때만 남아 있다
 - 능력 일정 작업의 링크(`JOB_LINK`)는 능력 일정 쪽(`blueprint/@ability`)이다. 대상이 인물 id 라서다
 - 본문에서 닿은 칸 `bpReached`(서버 `blueprint.reached` 와 같다): 사다리 카드의 'n화에 닿음', 계획 띠의 '본문에서 닿음' 줄

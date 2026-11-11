@@ -998,10 +998,21 @@ class AbilityDraft(BaseModel):
     evidence: list[BlueprintEvidence] = Field(default_factory=list, description="근거 화와 구절 1~3개")
 
 
+class AbilityCodexDraft(BaseModel):
+    """AI 가 능력 일정 제안과 함께 낸 스킬 도감 초안 한 항목 (docs/blueprint/specs/13-ability-codex.md). 작가가 고르면 Ability(source="ai")가 된다."""
+    name: str = Field(description="도감 항목 이름. abilities 에 적은 ability 와 같은 이름 (등급 꼬리 없이)")
+    stat: str = Field("", description="속하는 상태창 항목 이름 (스킬, 특성, 칭호). 모르면 비운다")
+    description: str = Field("", description="설명 한 줄")
+    effect: str = Field("", description="효과 한 줄")
+    cost: str = Field("", description="대가 · 제약 한 줄 (쿨타임, 마력 소모 같은 것)")
+    grades: list[AbilityGrade] = Field(default_factory=list, description="등급을 나눈 능력이면 등급 차례대로 등급과 그 등급의 효과")
+
+
 class AbilityProposal(BaseModel):
     """인물 하나의 능력 일정 제안: 지금 플롯에서 거꾸로 뽑거나 설정 · 부 구성에서 짠다 (canon/blueprint.py clean_abilities 가 정리한다).
     작가가 고른 줄만 설계도에 들어간다. abilities 에는 기본값을 두지 않는다 (기본값이 있는 목록은 모델이 비우고 끝내기 쉽다, 11-whole.md 실측 1회)."""
     abilities: list[AbilityDraft] = Field(description="능력 일정 줄, 화 차례. 없으면 빈 목록")
+    codex: list[AbilityCodexDraft] = Field(default_factory=list, description="abilities 의 능력 가운데 스킬 도감에 없는 능력의 도감 초안, 능력마다 하나")
     reply: str = Field("", description="작가에게 하는 설명 1~3문장: 무엇을 적었고 무엇이 없어 비웠는지")
 
 
@@ -3792,6 +3803,8 @@ class StudioDraft(BaseModel):
 
 
 HeatProposal.model_rebuild()
+AbilityCodexDraft.model_rebuild()
+AbilityProposal.model_rebuild()
 HeatArcPlan.model_rebuild()
 HeatArcProposal.model_rebuild()
 Snapshot.model_rebuild()
