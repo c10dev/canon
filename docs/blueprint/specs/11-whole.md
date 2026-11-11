@@ -1,6 +1,6 @@
 # 11. 작품 전체 짜기 (여러 쌍을 한 번에)
 
-상태: 11a 끝([#504](https://github.com/c10dev/canon/pull/504)) · 11b 만드는 중 · 계획: [plan.md](../plan.md) 의 11a · 11b · 먼저: 11a 는 10, 11b 는 8 · 11a
+상태: 11a 끝([#504](https://github.com/c10dev/canon/pull/504)) · 11b 끝([#505](https://github.com/c10dev/canon/pull/505)) · 계획: [plan.md](../plan.md) 의 11a · 11b · 먼저: 11a 는 10, 11b 는 8 · 11a
 
 ## 목표
 
