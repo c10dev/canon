@@ -10,6 +10,7 @@ function aiWarning() {
   if (h && h.local === false) return `AI 연결 안 됨: 로컬 모델 서버가 응답하지 않아요 (${h.local_error || '주소를 확인하세요'}).`;
   if (h && h.mock) return 'mock 모드: AI를 부르지 않고 가짜 결과를 내요. 실제로 쓰려면 설정에서 Gemini나 로컬을 고르세요.';
   if (h && h.claude_api === false) return 'Anthropic API 키가 없어요. Claude API를 고른 단계는 설정의 AI 연결에서 키를 넣어야 돌아요.';
+  if (h && h.coralbricks === false) return 'CoralBricks API 키가 없어요. CoralBricks를 고른 단계는 설정의 AI 연결에서 키를 넣어야 돌아요.';
   if (h && (h.claude === 'install' || h.claude === 'login' || h.claude === 'error')) return `Claude 구독을 고른 단계를 아직 쓸 수 없어요: ${h.claude_message}`;
   if (!cfg.has_key && cfg.gemini_auth === 'vertex') return 'Vertex AI 설정이 덜 됐어요. 설정에서 서비스 계정 키 파일 경로와 프로젝트 ID를 확인하세요.';
   if (!cfg.has_key) return 'Gemini API 키가 없어요. 키 없이는 인물 · 설정을 직접 적을 수 있고, 플롯이 생긴 화부터는 채팅 앱 작업지시서로 쓸 수 있어요.';

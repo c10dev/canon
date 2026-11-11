@@ -94,7 +94,7 @@ let usageTitles = {};  // 폴더 이름 → 작품 제목
 const usageName = (p) => (usageTitles[p] && usageTitles[p] !== p ? `${usageTitles[p]} (${p})` : p);
 
 // 모델별 표의 백엔드 이름 (usage.backend_of 의 이름). Swift 앱 UsageText.backendLabel 과 같다
-const USAGE_BACKEND = { local: '로컬 · 0원', claude: 'Claude 구독', 'claude-api': 'Claude API' };
+const USAGE_BACKEND = { local: '로컬 · 0원', claude: 'Claude 구독', 'claude-api': 'Claude API', coralbricks: 'CoralBricks' };
 
 function viewUsage() {
   const u = S.usage;

@@ -73,6 +73,28 @@
 - 구독(`ClaudeCodeLLM`)은 `text_stream` 이 없다. 본문 쓰기도 다 끝난 뒤 한 번에 받는다
 - 화면은 `static/claude.js`
 
+### `canon/coral.py`
+
+- CoralBricks 추론 API 백엔드(`coralbricks`, OpenAI 호환 Chat Completions, 주소 `BASE_URL`)
+- `CoralLLM` 은 `LocalLLM` 을 이어받아 요청 · 흘려 받기 · 구조화 출력(`response_format` json_schema)을 그대로 쓴다
+- 키는 `CORAL_API_KEY` 또는 설정 파일 `coral_api_key`(`settings.coral_key`). 없으면 `MissingKey`
+- 모델은 `CANON_CORAL_MODEL` 또는 설정 파일 `coral_model`(`settings.coral_model`). 비우면 `DEFAULT_MODEL`(deepseek-v4.1-flash)
+- 서버 `/v1/models` 의 `coralbricks/` 앞머리는 뗀다(`bare`). 요청과 사용량 기록의 모델 이름이 가격표 이름과 같다
+- 단계 추론 강도는 `reasoning_effort` 로 넘긴다. 비우면 보내지 않는다(서버 기본값은 추론 없음)
+- 샘플링 값은 보내지 않는다(`sampling={}`). 로컬 기본값의 `min_p` 는 OpenAI 규격에 없는 칸이다
+- 오류 안내 `explain`: 401 · 403 은 `BadKey`, `insufficient_credits` 는 충전 안내, 나머지는 '로컬 서버' 문구를 CoralBricks 로 바꾼다
+- 403 `card_required`(계정에 결제 카드 없음)는 키 안내가 아니라 카드 등록 안내 `CARD_HINT` 를 낸다(2026-11-11 실제 응답)
+- 요청 한도 429(`concurrency_limit` · `rate_limit_exceeded`)는 `patient` 가 `BUSY_WAITS`(2 · 4 · 8 · 16 · 30초)만큼 기다려 다시 부른다. 기다리기 전에 `cancel.check`
+- 계정의 동시 요청 한도는 5개였다(2026-11-11 실제 응답, 잔액을 채우면 오른다고 안내)
+- 선불 잔액 `quota`(`GET /v1/quota`)
+- `context_limit` 과 `count_tokens` 는 None 이다(서버에 그 칸 · 주소가 없다)
+- 사용량 백엔드 이름은 `coralbricks`(`usage.backend_of`), 가격은 `usage.DEFAULT_PRICES` 의 deepseek-v4.1-flash 세 줄
+- 웹 설정은 `coral_api_key` · `clear_coral_key` · `coral_model`, 화면 값은 `coral_key_hint` · `coral_key_source` · `coral_model`
+- 설정 화면의 CoralBricks 묶음은 `static/settings.js` 의 `coral-key` · `coral-model` 줄
+- 상태 점검 `GET /api/config/health` 의 `coralbricks`: 이 백엔드를 쓰는 단계가 있을 때 키가 있는지. 없으면 작품 목록이 한 줄로 알린다(`static/home.js`)
+- 실제 호출 확인(2026-11-11): 구조화 출력 · 흘려 받기 · `reasoning_effort` · 잔액 조회가 동작했고, 응답의 `cost` 가 가격표 값과 맞았다
+- 시험 `tests/test_coral.py`(서버를 부르지 않고 요청 본문 · 설정 · 가격만 봄)
+
 ### `canon/judge.py`
 
 - 판단기
@@ -201,7 +223,9 @@
   - `CANON_COMFY_WORKFLOW`: ComfyUI 'Export (API)' 워크플로 JSON 경로. 비우면 기본 틀
   - `CANON_COMFY_*` 가 없으면 설정 파일의 `comfy_url` · `comfy_workflow` · `comfy_ckpt` · `comfy_size` · `comfy_timeout` 을 읽는다(`settings.comfy`). systemd 로 띄운 서버처럼 환경 변수를 넣기 어려울 때 쓴다
   - `CANON_CONFIG`: 설정 파일 위치(기본 `~/.canon/config.json`, `settings.path`)
+  - `CANON_CORAL_MODEL`: CoralBricks 모델(기본 `deepseek-v4.1-flash`, `settings.coral_model`)
   - `CANON_EFFORT_<단계>`: 단계별 추론 강도(low · medium · high · xhigh · max, `settings.stage_effort`). Claude · Gemini 만 쓴다
+  - `CANON_EFFORT_<단계>` 는 CoralBricks 에도 쓴다(`reasoning_effort`)
   - `CANON_GEMINI_AUTH`: Gemini 연결 방식(key | vertex)
   - `CANON_GEMINI_CACHE`: 0 · off 면 Gemini 명시 캐시를 끈다(기본 agent: 플롯 대화 단계만, `settings.gemini_cache`)
   - `CANON_GEMINI_TIMEOUT`: Gemini 응답을 기다리는 초(기본 600)
@@ -209,7 +233,7 @@
   - `CANON_JUDGE`: 판단기(local | mock, `judge.env_choice`)
   - `CANON_JUDGE_MODEL` · `CANON_JUDGE_URL`: 로컬 판단기 서버(비면 로컬 서버 설정)
   - `CANON_JUDGE_WORKERS`: 판단기 동시 요청 수(기본 16, `judge.LocalJudge`)
-  - `CANON_LLM`: gemini | local | claude | claude-api | mock
+  - `CANON_LLM`: gemini | local | claude | claude-api | coralbricks | mock
   - `CANON_LLM_<단계>`: 단계별 백엔드(`CANON_LLM_PLAN` · `_BOARD` · `_WRITE` · `_CHECK` · `_STATE` · `_AUDIT` · `_NAME` · `_REVISE` · `_ILLUSTRATION` · `_PLAY` · `_CHAT`, 이름은 `settings.stage_env`)
   - `CANON_LOCAL_KEY` · `CANON_LOCAL_MODEL` · `CANON_LOCAL_URL`: 로컬 서버
   - `CANON_LOCAL_TIMEOUT`: 로컬 서버 응답을 기다리는 초(기본 900, 숫자가 아니거나 0 이하면 기본값, `llm.local_timeout`)
@@ -230,6 +254,7 @@
   - `CANON_STYLES`: 문체 라이브러리 폴더(기본 `<CANON_HOME>/.styles`, `library.py`)
   - `CANON_USAGE`: 사용량 기록 파일(기본 `projects/.usage/usage.jsonl`)
   - `CANON_VERTEX_CREDENTIALS` · `GOOGLE_CLOUD_LOCATION` · `GOOGLE_CLOUD_PROJECT`: Vertex AI 서비스 계정
+  - `CORAL_API_KEY`: CoralBricks API 키(`coralbricks` 만 씀, `settings.coral_key`)
   - `GEMINI_API_KEY`: Gemini API 키
 
 ### `canon/mock.py`
@@ -293,6 +318,7 @@
 - 입력 토큰 추정 `token_rate(백엔드, 모델)` 은 '기울기 × 요청 글자 수 + 호출마다 붙는 토큰' 직선(`TokenRate`)이다
 - 기본값 `TOKEN_RATES` 는 2026-11 서버 기록의 최소제곱 직선이다(Opus Claude Code 1.035/3805, Sonnet 0.995/5793, argon 0.568/1579, flash 0.599/2508)
 - `claude-api` 는 기록이 없어 같은 기울기에 붙는 토큰 0을 쓴다
+- `coralbricks` 는 캐시 쓰기 요금과 배치 할인이 없어 가격 줄의 그 칸을 입력 · 출력 값과 같게 둔다
 - 기본값이 없는 백엔드(로컬, mock)는 1.7자당 1토큰이다(`FALLBACK_CHARS_PER_TOKEN`)
 - 같은 백엔드 · 모델의 최근 성공 기록(글자 수 있음) `REFINE_MIN` 줄 이상이면 최근 `REFINE_ROWS` 줄로 다시 잰다
 - 다시 잴 때 Claude Code 가 캐시 읽기를 입력에 두 번 센 예전 줄(cached × 2 ≥ 0.9 × in 이고 in 이 기본 직선의 1.5배 초과)은 뺀다

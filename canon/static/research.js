@@ -85,7 +85,7 @@ const rsBackend = (b) => ({ provider: b.provider, model: (b.model || '').trim(),
 const rsLabel = (b) => (b.model ? `${b.provider}:${b.model}` : b.provider);
 const rsKey = (b) => `${b.provider}|${(b.model || '').trim()}|${(b.url || '').trim()}`;
 const rsNum = (v, d = 0) => (v == null ? '-' : Number(v).toLocaleString(undefined, { maximumFractionDigits: d }));
-const RS_PROV = { gemini: 'Gemini', local: '로컬', claude: 'Claude 구독', 'claude-api': 'Claude API', mock: 'mock' };
+const RS_PROV = { gemini: 'Gemini', local: '로컬', claude: 'Claude 구독', 'claude-api': 'Claude API', coralbricks: 'CoralBricks', mock: 'mock' };
 const RS_KINDS = Object.keys(RS_PROV);
 
 /** 설정에서 쓰는 Claude 백엔드: 구독은 전체 · 단계 백엔드로 고르거나 실행 파일을 적었을 때, API 키는 키가 있거나 고르고 있을 때. 순수 함수 */
@@ -136,13 +136,15 @@ function rsName(b) {
   if (b.provider === 'gemini') return c.model_setting || 'Gemini';
   if (b.provider === 'local') return c.local_model || '로컬 서버';
   if (b.provider === 'claude' || b.provider === 'claude-api') return c.claude_model || RS_PROV[b.provider];
+  if (b.provider === 'coralbricks') return c.coral_model || 'deepseek-v4.1-flash';
   return 'mock';
 }
 
 /** 백엔드가 쓸 모델 이름 '<백엔드>:<모델>' (Episode.written_by 와 같은 모양). 모델 칸이 비면 설정값. 모르면 ''. 순수 함수 */
 function rsModelId(b, config = {}) {
   const dflt = { gemini: config.model_setting, local: config.local_model, claude: config.claude_model,
-    'claude-api': config.claude_model || 'claude-opus-5-5' }[b.provider];  // claude.DEFAULT_API_MODEL
+    'claude-api': config.claude_model || 'claude-opus-5-5',  // claude.DEFAULT_API_MODEL
+    coralbricks: config.coral_model || 'deepseek-v4.1-flash' }[b.provider];  // coral.DEFAULT_MODEL
   const m = (b.model || '').trim() || dflt || '';
   return m && b.provider !== 'mock' ? `${b.provider}:${m}` : '';
 }
@@ -169,7 +171,7 @@ function rsKeptNote(e, a, b, config) {
   return lines.join(' ');
 }
 
-function rsBackendFields(path, b, kinds = [['local', '로컬 서버'], ['gemini', 'Gemini'], ['claude', 'Claude 구독 로그인'], ['claude-api', 'Claude API 키'], ['mock', 'mock']]) {
+function rsBackendFields(path, b, kinds = [['local', '로컬 서버'], ['gemini', 'Gemini'], ['claude', 'Claude 구독 로그인'], ['claude-api', 'Claude API 키'], ['coralbricks', 'CoralBricks API'], ['mock', 'mock']]) {
   const id = 'rs-' + path.replace(/\W/g, '-');
   const opts = kinds.map(([v, l]) => backendOption(v, l, b.provider)).join('');
   return `<div class="rs-backend">

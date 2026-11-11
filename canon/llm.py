@@ -1,7 +1,7 @@
 """LLM 프로바이더 추상화. 기본은 Gemini, 로컬(OpenAI 호환 서버)과 테스트용 mock 제공.
 
 설정은 웹 설정 화면(~/.canon/config.json) 또는 환경 변수로 한다. 환경 변수가 우선이다.
-  CANON_LLM    gemini(기본) | local | claude (Claude Code 구독 로그인) | claude-api (Anthropic API 키) | mock
+  CANON_LLM    gemini(기본) | local | claude (Claude Code 구독 로그인) | claude-api (Anthropic API 키) | coralbricks | mock
   CANON_MODEL  Gemini 모델 이름 (기본 gemini-4-argon)
   GEMINI_API_KEY  Gemini API 키
   CANON_GEMINI_AUTH=vertex  키 대신 Google Cloud 서비스 계정으로 Vertex AI 의 Gemini 를 부른다
@@ -1433,7 +1433,7 @@ class LocalLLM:
 
 def make_llm(provider: str, model: str | None = None, effort: str = "") -> LLM:
     """model 이 비어 있으면 그 백엔드의 기본 모델(설정의 model 또는 local_model)을 쓴다.
-    effort 는 단계 추론 강도(settings.EFFORTS)다. Claude 와 Gemini 만 받고(settings.provider_effort 로 바꿔 넘긴다)
+    effort 는 단계 추론 강도(settings.EFFORTS)다. Claude 와 Gemini, CoralBricks 만 받고(settings.provider_effort 로 바꿔 넘긴다)
     다른 백엔드는 무시한다. 비우면 모델 기본값."""
     if provider == "mock":
         from .mock import MockLLM
@@ -1451,7 +1451,12 @@ def make_llm(provider: str, model: str | None = None, effort: str = "") -> LLM:
         if provider == "claude":
             return ClaudeCodeLLM(model=model or None, effort=effort)
         return ClaudeAPILLM(model=model or None, effort=effort)
-    raise ValueError(f"알 수 없는 LLM 프로바이더: {provider} (gemini | local | claude | claude-api | mock)")
+    if provider == "coralbricks":
+        from . import settings
+        from .coral import CoralLLM
+
+        return CoralLLM(model=model or None, effort=settings.provider_effort("coralbricks", effort))
+    raise ValueError(f"알 수 없는 LLM 프로바이더: {provider} (gemini | local | claude | claude-api | coralbricks | mock)")
 
 
 def get_llm(stage: str | None = None) -> LLM:

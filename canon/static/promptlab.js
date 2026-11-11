@@ -89,7 +89,7 @@ function pgSourceLabel(src, edited) {
   return src ? `${src.label}${edited ? ' (고침)' : ''}` : '';
 }
 
-const PG_PROV = { gemini: 'Gemini', local: '로컬', claude: 'Claude 구독', 'claude-api': 'Claude API', mock: '가짜 응답(mock)' };
+const PG_PROV = { gemini: 'Gemini', local: '로컬', claude: 'Claude 구독', 'claude-api': 'Claude API', coralbricks: 'CoralBricks', mock: '가짜 응답(mock)' };
 
 function viewPromptLab() {
   return S.pg ? pgSession() : pgHome();

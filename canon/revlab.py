@@ -1083,7 +1083,7 @@ def compare(lab: RevLab, e: RevEpisode) -> list[dict]:
 # ---------- 실험별 AI ----------
 
 AI_STAGES = {"plan": "역설계 · 문체 프로필", "write": "되돌려 쓰기"}  # RevLab.ai 칸 → 화면 이름. 작업 parse · style 은 plan, write 는 write
-AI_PROVIDERS = ("gemini", "claude", "claude-api", "local")  # 직접 고를 수 있는 백엔드 (mock 은 설정에서만)
+AI_PROVIDERS = ("gemini", "claude", "claude-api", "coralbricks", "local")  # 직접 고를 수 있는 백엔드 (mock 은 설정에서만)
 
 
 def stage_of(kind: str) -> str:
@@ -1102,6 +1102,10 @@ def default_model(provider: str) -> str:
         return settings.claude_model()[0]
     if provider == "claude-api":
         return settings.claude_model()[0] or claude.DEFAULT_API_MODEL
+    if provider == "coralbricks":
+        from . import coral
+
+        return settings.coral_model()[0] or coral.DEFAULT_MODEL
     return ""
 
 

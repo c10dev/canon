@@ -69,7 +69,7 @@
 ### `canon/promptlab.py`
 
 - 프롬프트 놀이터(작품 밖 `<CANON_HOME>/.promptlab/<id>.json`, `CANON_PROMPTLAB` 으로 경로 변경, 화면은 `static/promptlab.js`, 웹 `/api/promptlab/...`)
-- 시스템 · 요청 프롬프트를 직접 써서 고른 백엔드(`PROVIDERS` = `research.PROVIDERS`: gemini · local · claude · claude-api · mock)로 돌리고 결과를 시도로 남긴다. 작품과 상관없다
+- 시스템 · 요청 프롬프트를 직접 써서 고른 백엔드(`PROVIDERS` = `research.PROVIDERS`: gemini · local · claude · claude-api · coralbricks · mock)로 돌리고 결과를 시도로 남긴다. 작품과 상관없다
 - 세션 `PromptSession` 은 지금 칸(제목 · 시스템 · 요청 · 온도 · 백엔드 `PromptBackend`)과 시도 `PromptTrial`
 - 실험 판을 원래 판과 블라인드로 불러온 세션은 끼우기 전 글을 `PromptSession.base`(`PromptPair`)에 둔다
 - `base` 가 있으면 `run` 이 실험 판(지금 칸) 다음에 원래 판을 같은 백엔드로 돌린다. 결과마다 쪽 `PromptRun.side`(set · original)를 단다
@@ -178,7 +178,8 @@
 - 연구 화면(모델 실험) 로직
 - 서버 점검
 - 샘플 비교
-- 실험 백엔드 `PROVIDERS`: gemini · local · claude · claude-api · mock. `make_backend` 가 Claude 두 백엔드는 `llm.make_llm` 으로 만들고 온도는 넘기지 않는다
+- 실험 백엔드 `PROVIDERS`: gemini · local · claude · claude-api · coralbricks · mock. `make_backend` 가 Claude 두 백엔드는 `llm.make_llm` 으로 만들고 온도는 넘기지 않는다
+- `make_backend` 는 `coralbricks` 도 `llm.make_llm` 으로 만들고 온도는 넘기지 않는다
 - 샘플 생성 `sample` 은 백엔드마다 스레드를 띄워 동시에 부르고(`_sample_one`), 결과는 고른 차례로 준다. 스레드마다 `contextvars.copy_context()` 로 사용량 기록 정보를 넘긴다
 - 샘플 생성 `sample` 은 실패하면 받은 원문(`last_raw`, `RAW_MAX` 자까지)과 끝난 이유(`last_finish`)를 줄에 남긴다
 - 샘플 생성 `sample` 은 schema 를 주면 `llm.json` 으로 받아 검증한 JSON 을 글로 돌려준다. mock 은 hint 없이 스키마 응답을 짓지 못해 글로 받는다
