@@ -3,7 +3,7 @@
    주소는 blueprint(개요) · blueprint/<쌍 키> · blueprint/@ability(능력 일정). 쌍 키는 두 인물 id 를 정렬해 '~' 로 이은 것이다.
    카드는 읽는 모양이 기본이다. 줄 끝 ✎ 는 그 줄만, 카드 머리 '고치기'는 그 카드 전체를 편다. 저장은 설계도 전체를 PUT …/blueprint 로 보낸다(서버가 blueprint.check 로 검사).
    줄 지우기 · AI 제안 더하기 · 여정 비우기는 바로 저장하고 되돌리기(S.bpUndo)를 남긴다.
-   AI 제안은 쌍 쪽이 S.bpDraft(하나), 능력 일정 쪽이 S.bpAbDrafts(인물마다 하나)다. 둘 다 app.js 의 PER_PROJECT 가 작품마다 따로 둔다.
+   AI 제안은 쌍 쪽이 S.bpDraft(하나), 능력 일정 쪽이 S.bpAbDrafts(인물 · 뽑기/짜기마다 하나)다. 둘 다 app.js 의 PER_PROJECT 가 작품마다 따로 둔다.
    경고는 서버가 계산한다(blueprint.warning_rows). 막지 않는다. */
 'use strict';
 
@@ -402,7 +402,8 @@ function bpAbilityPage() {
 
 // ----- 능력 일정을 AI 로 짜기 · 거꾸로 뽑기 (docs/blueprint/specs/12-ability-ai.md, 작업 blueprint_ability_draft · blueprint_ability) -----
 
-/** 받을 인물 · 메모 · 범위를 고르는 칸. 결과는 능력 일정 쪽 제안 카드(bpAbDraftCard)로 온다. 쌍 쪽의 bpExtractCard 와 같은 틀이다 */
+/** 받을 인물 · 메모 · 범위를 고르는 칸. 결과는 능력 일정 쪽 제안 카드(bpAbDraftCard)로 온다. 쌍 쪽의 bpExtractCard 와 같은 틀이다.
+    이 쪽은 머리 설명 두 문장과 경고가 있어 안내 문장을 더하지 않는다 (docs/design/README.md 덜기: 세 문장 이하). 짜는 재료는 메모 칸의 예시 글이 보인다 */
 function bpAbAiCard() {
   const p = P();
   if (!p.characters.length) return '';
@@ -411,7 +412,7 @@ function bpAbAiCard() {
   const parts = serial() ? p.parts || [] : [];
   const who = `<select id="bp-ab-who" aria-label="능력 일정을 받을 인물">${p.characters.map((c) => `<option value="${esc(c.id)}">${esc(c.name || c.id)}</option>`).join('')}</select>`;
   const partPick = parts.length ? `<select id="bp-ab-part" aria-label="짤 부">${parts.map((x) => `<option value="${x.number}">${x.number}부 · ${x.start_ep}~${x.end_ep}화</option>`).join('')}</select>` : '';
-  const draft = `<div class="field"><label for="bp-ab-note">AI로 짜기 <span class="hint">설정 · 부 구성 · 스킬 도감 · 이 메모로 고른 인물의 능력 일정 줄을 제안받아요</span></label>
+  const draft = `<div class="field"><label for="bp-ab-note">AI로 짜기 메모</label>
       <textarea id="bp-ab-note" rows="2" placeholder="예: 1부 끝에 빙결이 중급에 오른다. 새 특성은 부마다 하나"></textarea>
       <div class="row">${who}${partPick}<button type="button" class="btn small" data-action="bpAbDraftAI">AI로 짜기</button></div></div>`;
   const showExtract = !serial() ? p.episodes.length > 0 : arcs.length > 0;
@@ -429,16 +430,25 @@ const bpAbKnown = (name) => (P().abilities || []).some((a) => [a.name, ...(a.ali
 /** 제안 줄과 같은 인물 · 능력 · 등급인 이미 적은 줄 (서버 check 가 '두 줄'로 거절하는 줄). 없으면 undefined */
 const bpAbSame = (bp, x) => bpPlans(bp).find((e) => e.character === x.character && bpAbNorm(e.ability) === bpAbNorm(x.ability) && bpAbNorm(e.grade) === bpAbNorm(x.grade));
 
+/** 고른 줄 가운데 같은 인물 · 능력 · 등급은 앞의 것 하나만 남긴다 (뽑은 묶음과 짠 묶음이 같은 줄을 낼 수 있다. 둘 다 보내면 서버 check 가 '두 줄'로 거절한다) */
+function bpAbUnique(rows) {
+  const seen = new Set();
+  return rows.filter((x) => {
+    const k = [x.character, bpAbNorm(x.ability), bpAbNorm(x.grade)].join('|');
+    return !seen.has(k) && !!seen.add(k);
+  });
+}
+
 /** 제안의 능력 줄 기본 체크: 이미 적은 같은 줄만 고르지 않는다 */
 const bpAbPicks = (bp, rows) => rows.map((x) => !bpAbSame(bp, x));
 
 /** 제안 카드의 능력 묶음: 줄마다 고르기 · 화 범위 · 능력 · 조건 · 근거, 도감에 없는 이름과 이미 적은 줄 표시.
-    rows 는 AbilityDraft 목록, picks 는 같은 길이의 체크, arg 는 줄 번호 앞에 붙는 data-arg 머리(bpAbDraftPick 이 '머리|번호'로 받는다).
-    작품 전체 짜기(11b)의 제안 카드도 이 묶음을 쓴다 */
-function bpAbDraftRows(rows, picks, arg, withWho = false) {
+    rows 는 AbilityDraft 목록, picks 는 같은 길이의 체크, arg 는 줄 번호 앞에 붙는 data-arg 머리('머리|번호'), action 은 체크를 받는 동작 이름.
+    작품 전체 짜기(11b)의 제안 카드도 이 묶음을 쓴다 (자기 동작 이름을 준다) */
+function bpAbDraftRows(rows, picks, arg, withWho = false, action = 'bpAbDraftPick') {
   return `<ul class="bp-list">${rows.map((x, i) => {
     const same = bpAbSame(S.bp.blueprint, x);
-    return `<li><input type="checkbox" data-action="bpAbDraftPick" data-arg="${esc(arg)}|${i}"${picks[i] ? ' checked' : ''} aria-label="${esc(`${bpWho(x.character)}의 ${bpAbText(x)} 줄 고르기`)}">
+    return `<li><input type="checkbox" data-action="${action}" data-arg="${esc(arg)}|${i}"${picks[i] ? ' checked' : ''} aria-label="${esc(`${bpWho(x.character)}의 ${bpAbText(x)} 줄 고르기`)}">
       <span class="chip">${esc(bpRange(x))}</span>${withWho ? `<span>${esc(bpWho(x.character))}</span>` : ''}<strong>${esc(bpAbText(x))}</strong>
       ${x.condition ? `<span class="small">조건: ${esc(x.condition)}</span>` : ''}
       ${same ? `<span class="chip warn">이미 있음</span><span class="small">${esc(bpRange(same))}</span>` : ''}
@@ -447,10 +457,14 @@ function bpAbDraftRows(rows, picks, arg, withWho = false) {
   }).join('')}</ul>`;
 }
 
-/** 그 고르기를 기다리는 결과가 아직 카드로 남아 있는가 (app.js pendingShown). 같은 인물의 새 제안이 자리를 바꾸면 옛 결과는 서버에서도 지운다 */
+/** 제안 자리의 열쇠: 인물 id 와 뽑기 · 짜기. 같은 인물의 뽑은 제안과 짠 제안은 따로 남는다 */
+const bpAbDraftKey = (d) => `${d.character}|${d.mode === 'draft' ? 'draft' : 'extract'}`;
+
+/** 그 고르기를 기다리는 결과가 아직 카드로 남아 있는가 (app.js pendingShown). 같은 자리에 새 제안이 오면 옛 결과는 서버에서도 지운다.
+    작업이 막 끝났을 때의 기록에는 result 가 없다(app.js 가 { key, id, kind, ep } 만 넣는다). 그래서 작업 id 로 찾는다 */
 function bpAbDraftShown(r) {
-  const d = (S.bpAbDrafts || {})[(r.result || {}).character];
-  return !!d && (!r.id || d.job === r.id);
+  const drafts = S.bpAbDrafts || {};
+  return r.id ? Object.values(drafts).some((d) => d.job === r.id) : !!drafts[bpAbDraftKey(r.result || {})];
 }
 
 /** 능력 일정 제안 카드: 인물마다 한 묶음(뽑은 것 · 짠 것), 주 버튼은 '고른 줄 더하기' 하나. POST …/blueprint/apply-abilities */
@@ -464,9 +478,9 @@ function bpAbDraftCard() {
     n += d.abilities.length;
     unknown += d.abilities.filter((x) => !bpAbKnown(x.ability)).length;
     return `<div class="bp-dir"><div class="between"><h3>${esc(bpWho(d.character))} <span class="small">${d.mode === 'draft' ? 'AI가 짠 줄' : 'AI가 뽑은 줄'} · ${d.start}~${d.end}화</span></h3>
-        <button type="button" class="btn small" data-action="bpAbDraftDrop" data-arg="${esc(d.character)}">버리기</button></div>
+        <button type="button" class="btn small" data-action="bpAbDraftDrop" data-arg="${esc(bpAbDraftKey(d))}">버리기</button></div>
       ${d.reply ? `<p class="small">${esc(d.reply)}</p>` : ''}
-      ${d.abilities.length ? bpAbDraftRows(d.abilities, d.picks, d.character) : '<span class="small">제안한 줄이 없어요.</span>'}</div>`;
+      ${d.abilities.length ? bpAbDraftRows(d.abilities, d.picks, bpAbDraftKey(d)) : '<span class="small">제안한 줄이 없어요.</span>'}</div>`;
   }).join('');
   return `<section class="card" id="bp-ab-draft"><div class="between"><h2>AI가 제안한 능력 일정</h2>
       ${n ? '<button type="button" class="btn small primary" data-action="bpAbDraftUse">고른 줄 더하기</button>' : ''}</div>
@@ -681,17 +695,17 @@ Object.assign(actions, {
   },
   bpAbDraftPick(arg) {
     const at = String(arg).lastIndexOf('|');
-    const d = S.bpAbDrafts[String(arg).slice(0, at)];
+    const d = (S.bpAbDrafts || {})[String(arg).slice(0, at)];
     const i = Number(String(arg).slice(at + 1));
     if (d) d.picks[i] = !d.picks[i];
   },
-  async bpAbDraftDrop(cid) {
+  async bpAbDraftDrop(key) {
     if (!(await confirmDrop('AI 능력 일정 제안'))) return;
-    delete S.bpAbDrafts[cid];
+    delete (S.bpAbDrafts || {})[key];
     render();
   },
   async bpAbDraftUse() {
-    const rows = Object.values(S.bpAbDrafts).flatMap((d) => d.abilities.filter((_, i) => d.picks[i]));
+    const rows = bpAbUnique(Object.values(S.bpAbDrafts || {}).flatMap((d) => d.abilities.filter((_, i) => d.picks[i])));
     if (!rows.length) { toast('더할 줄을 골라 주세요', true); return; }
     await bpWrite('능력 일정에 더하는 중', `능력 일정 ${rows.length}줄을 더했어요`, async () => {
       const out = await api('POST', `/projects/${enc(S.name)}/blueprint/apply-abilities`, { abilities: rows });

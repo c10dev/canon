@@ -690,11 +690,13 @@ def apply_abilities(p: Project, rows: list) -> None:
     p.blueprint = q.blueprint
 
 
-def ability_have_lines(p: Project, ids: set[str] | None) -> list[str]:
+def ability_have_lines(p: Project, ids: set[str] | None, start: int = 0, end: int = 0) -> list[str]:
     """AI 제안 요청의 '이미 적은 능력 일정' 줄: ids 인물의 모든 줄 (얻은 줄도 넣는다. ability_plan_lines 는 얻은 줄을 빼서 AI 가 다시 제안한다).
-    화 범위를 적은 줄이 앞, 화 차례."""
+    start~end 에 걸친 줄이 맨 앞, 그다음 범위에서 가까운 줄, 화 범위를 비운 줄이 맨 뒤다. 예산으로 자를 때 받는 범위의 줄이 남게 하려는 차례다."""
+    def far(x: AbilityPlan) -> int:
+        return 0 if not start or (x.from_ep <= end and x.to_ep >= start) else min(abs(x.from_ep - end), abs(start - x.to_ep))
     rows = [x for x in p.blueprint.ability_plans if ids is None or x.character in ids]
-    rows.sort(key=lambda x: (x.from_ep <= 0, x.from_ep, x.to_ep))
+    rows.sort(key=lambda x: (x.from_ep <= 0, far(x), x.from_ep, x.to_ep))
     return [f"- {ability_line(p, x, _rng(x) if x.from_ep > 0 else '화 정하지 않음')}" for x in rows]
 
 

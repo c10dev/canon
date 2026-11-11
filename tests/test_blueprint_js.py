@@ -161,19 +161,24 @@ def test_ability_ai_card_and_draft_card():
     rows = [{"character": "a", "ability": "그림자 걸음", "grade": "", "condition": "첫 위기", "from_ep": 2, "to_ep": 2, "evidence": [{"episode": 2, "quote": "기척이 사라진다"}]},
             {"character": "a", "ability": "은 신", "grade": "(Lv2)", "condition": "", "from_ep": 6, "to_ep": 6, "evidence": []},
             {"character": "a", "ability": "질주", "grade": "", "condition": "", "from_ep": 9, "to_ep": 12, "evidence": []}]
-    drafts = {"a": {"character": "a", "start": 1, "end": 600, "mode": "extract", "reply": "세 줄을 뽑았어요.", "abilities": rows, "job": "j1"},
-              "j": {"character": "j", "start": 1, "end": 120, "mode": "draft", "reply": "", "abilities": [], "job": "j2"}}
+    drafts = {"a|extract": {"character": "a", "start": 1, "end": 600, "mode": "extract", "reply": "세 줄을 뽑았어요.", "abilities": rows, "job": "j1"},
+              "j|draft": {"character": "j", "start": 1, "end": 120, "mode": "draft", "reply": "", "abilities": [], "job": "j2"}}
     html = _run("viewBlueprint()", p, {"bpSel": "@ability", "bpAbDrafts": drafts})
     assert "AI가 제안한 능력 일정" in html and "AI가 뽑은 줄" in html and "AI가 짠 줄" in html and "제안한 줄이 없어요" in html
     assert "2화 「기척이 사라진다」" in html and "조건: 첫 위기" in html and html.count('data-action="bpAbDraftUse"') == 1
     assert html.count('<span class="chip warn">도감에 없음</span>') == 1 and "스킬 도감에 없는 이름이 1줄 있어요" in html  # 질주만 (다른 이름 · 띄어쓰기는 잇는다)
     assert html.count('<span class="chip warn">이미 있음</span>') == 1
     assert _run("bpAbPicks(S.project.blueprint, data.extra.rows)", p, {"rows": rows}) == [True, False, True]  # 이미 적은 같은 줄만 고르지 않는다
-    assert _run("pendingShown({ kind: 'blueprint_ability', id: 'j1', result: { character: 'a' } })", p, {"bpAbDrafts": drafts}) is True
-    assert _run("pendingShown({ kind: 'blueprint_ability_draft', id: 'old', result: { character: 'a' } })", p, {"bpAbDrafts": drafts}) is False  # 새 제안이 자리를 바꿨다
-    assert _run("pendingShown({ kind: 'blueprint_ability', id: 'j9', result: { character: 'd' } })", p, {"bpAbDrafts": drafts}) is False
-    got = _run("(applyJobResult({ id: 'j3', kind: 'blueprint_ability_draft', status: 'done', result: { character: 'd', abilities: [], start: 1, end: 9, mode: 'draft' } }), S.bpAbDrafts.d.job)", p, {"bpAbDrafts": {}})
-    assert got == "j3"
+    assert _run("pendingShown({ kind: 'blueprint_ability', id: 'j1', result: { character: 'a', mode: 'extract' } })", p, {"bpAbDrafts": drafts}) is True
+    assert _run("pendingShown({ key: 'blueprint_ability:1:a', kind: 'blueprint_ability', id: 'j1', ep: 1 })", p, {"bpAbDrafts": drafts}) is True  # 막 끝난 작업의 기록은 result 가 없다
+    assert _run("pendingShown({ kind: 'blueprint_ability', id: 'old', result: { character: 'a', mode: 'extract' } })", p, {"bpAbDrafts": drafts}) is False  # 새 제안이 자리를 바꿨다
+    assert _run("pendingShown({ kind: 'blueprint_ability_draft', id: 'j9', result: { character: 'a', mode: 'draft' } })", p, {"bpAbDrafts": drafts}) is False  # 같은 인물의 짠 제안은 다른 자리다
+    arrive = "applyJobResult({ id: 'j3', kind: 'blueprint_ability_draft', status: 'done', result: { character: 'd', abilities: [], start: 1, end: 9, mode: 'draft' } })"
+    assert _run(f"(delete S.bpAbDrafts, {arrive}, S.bpAbDrafts['d|draft'].job)", p) == "j3"  # 자리가 아직 없어도 받는다
+    assert _run(f"({arrive}, Object.keys(S.bpAbDrafts).sort())", p, {"bpAbDrafts": drafts}) == ["a|extract", "d|draft", "j|draft"]
+    assert _run("(actions.bpAbDraftPick('a|extract|0'), S.bpAbDrafts['a|extract'].picks)", p, {"bpAbDrafts": {"a|extract": {**drafts["a|extract"], "picks": [True, False, True]}}}) == [False, False, True]
+    assert [x["from_ep"] for x in _run("bpAbUnique([...data.extra.rows, { ...data.extra.rows[2], ability: '질 주', from_ep: 30 }])", p, {"rows": rows})] == [2, 6, 9]  # 묶음끼리 같은 줄은 앞의 것만
+    assert 'data-action="wholePick" data-arg="w|0"' in _run("bpAbDraftRows(data.extra.rows, [true, true, true], 'w', true, 'wholePick')", p, {"rows": rows})  # 11b 가 자기 동작으로 쓴다
     assert _run("JOB_LINK.blueprint_ability({ project: 't', target: 'a' })", p) == "#/p/t/blueprint/%40ability"
     assert sorted(_run("PENDING_KINDS", p)) == sorted(__import__("canon.web", fromlist=["x"]).PENDING_KINDS)
 

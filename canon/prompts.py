@@ -1355,18 +1355,22 @@ def blueprint_extract_prompt(p: Project, start: int, end: int, a: str, b: str) -
 - reply 에는 무엇을 뽑았고 무엇이 플롯에 없어 비웠는지 1~3문장으로 씁니다."""
 
 
-def ability_ai_block(p: Project, ids: set[str] | None) -> str:
+def ability_ai_block(p: Project, ids: set[str] | None, start: int = 0, end: int = 0) -> str:
     """능력 일정 제안 요청의 능력 블록 (docs/blueprint/specs/12-ability-ai.md): 스킬 도감 이름 · 지금 상태창의 능력 · 이미 적은 능력 일정.
     ids 인물의 줄만 넣는다 (도감은 작품 것 모두). 실제 얻은 화는 이름으로 잇기 때문에 AI 가 이 이름을 그대로 쓰게 하려는 재료다.
-    셋을 합쳐 예산(context.BUDGET["ability_ai"])에 맞춘다: 이미 적은 줄 · 상태창 · 도감 차례로 넣고, 넘으면 뒤 줄부터 빼고 수를 적는다.
+    셋을 합쳐 예산(context.BUDGET["ability_ai"])에 맞춘다: 상태창의 능력(짧고 이름 잇기에 꼭 필요하다) · 이미 적은 줄(start~end 에 걸친 줄부터) · 도감 차례로 남은 예산을 쓰고, 넘으면 뺀 수를 적는다.
     작품 전체 짜기(11-whole.md 의 11b)도 이 블록을 쓴다."""
     def cat(a) -> str:
         grades = " → ".join(g.grade for g in a.grades if g.grade)
         return (f"- {a.name}" + (f" (= {', '.join(a.aliases)})" if a.aliases else "") + (f" [{a.stat}]" if a.stat else "")
                 + (f" 등급: {grades}" if grades else "") + (f": {(a.effect or a.description)[:60]}" if a.effect or a.description else ""))
-    have, owned, book = blueprint.ability_have_lines(p, ids), blueprint.ability_owned_lines(p, ids), [cat(a) for a in p.abilities]
-    kept, cut = context.fit_lines(have + owned + book, context.BUDGET["ability_ai"])
-    have, owned, book = kept[:len(have)], kept[len(have):len(have) + len(owned)], kept[len(have) + len(owned):]
+    left, cut, kept = context.BUDGET["ability_ai"], 0, []
+    for lines in (blueprint.ability_owned_lines(p, ids), blueprint.ability_have_lines(p, ids, start, end), [cat(a) for a in p.abilities]):
+        got, n = context.fit_lines(lines, left)  # 묶음마다 남은 예산으로 맞춘다 (한데 이어 자르면 앞 묶음이 넘칠 때 뒤 묶음 줄이 앞 제목 아래로 온다)
+        left -= sum(len(x) + 1 for x in got)
+        cut += n
+        kept.append(got)
+    owned, have, book = kept
     less = f"\n(예산을 넘어 그 밖 {cut}줄 생략)" if cut else ""
     return f"""[스킬 도감]
 {chr(10).join(book) or "없음"}
@@ -1381,7 +1385,7 @@ def ability_ai_rules() -> str:
     return """- abilities 의 character 는 인물 id 입니다. ability 는 능력 이름만 적고, 등급(Lv3 · 중급 · 2단계 같은 꼬리)은 grade 에 따로 적습니다. 얻기만 하면 grade 를 비웁니다.
 - 스킬 도감이나 지금 상태창에 같은 능력이 있으면 그 이름을 한 글자도 바꾸지 않고 씁니다. 실제로 얻은 화를 이 이름으로 찾습니다.
 - 같은 능력의 등급이 오르면 등급마다 한 줄을 따로 적습니다.
-- 근력 · 마력 같은 수치의 오르내림은 능력이 아니므로 적지 않습니다. 스킬 · 특성 · 칭호 · 권한처럼 이름이 있는 것만 적습니다.
+- 근력 · 마력 같은 수치의 오르내림은 능력이 아니므로 적지 않습니다. 스킬 · 특성 · 칭호처럼 이름이 있는 것만 적습니다.
 - 이미 적은 능력 일정과 같은 줄(같은 인물 · 능력 · 등급)은 다시 만들지 않고, 그 줄과 어긋나지 않게 잇습니다."""
 
 
@@ -1391,7 +1395,7 @@ def ability_draft_prompt(p: Project, start: int, end: int, cid: str) -> str:
     c = next((x for x in p.characters if x.id == cid), None)
     name = c.name if c else cid
     return f"""{start}화부터 {end}화까지 {name}의 능력 일정을 짜세요.
-능력 일정은 작가가 먼저 정하는 계획입니다. 인물이 어느 능력(스킬 · 특성 · 칭호 · 권한)을 몇 화쯤 어느 등급까지 얻는지 적습니다. 플롯은 이 계획을 따라 나중에 짭니다.
+능력 일정은 작가가 먼저 정하는 계획입니다. 인물이 어느 능력(스킬 · 특성 · 칭호)을 몇 화쯤 어느 등급까지 얻는지 적습니다. 플롯은 이 계획을 따라 나중에 짭니다.
 
 [작품]
 {meta_text(p)}
@@ -1399,7 +1403,7 @@ def ability_draft_prompt(p: Project, start: int, end: int, cid: str) -> str:
 {dump([c] if c else [])}
 [부 구성]
 {_bp_part_text(p, start, end) or "없음"}
-{ability_ai_block(p, {cid})}
+{ability_ai_block(p, {cid}, start, end)}
 
 요구사항:
 - 작품 설정 · 로그라인 · 부 구성 · 스킬 도감 · 작가의 요청에 있는 능력과 성장 방향을 따릅니다. 스킬 도감 · 상태창에 있는 능력을 먼저 쓰고, 설정 · 부 구성 · 작가의 요청이 요구하는 능력만 새 이름으로 적습니다.
@@ -1419,7 +1423,7 @@ def ability_extract_prompt(p: Project, start: int, end: int, cid: str) -> str:
     plots = [{"number": e.plot.number, "title": e.plot.title, "summary": e.plot.summary, "events": e.plot.events,
               "ending_hook": e.plot.ending_hook} for e in sorted(p.episodes, key=lambda e: e.plot.number) if start <= e.plot.number <= end]
     return f"""{start}화부터 {end}화까지의 화별 플롯에서 {name}의 능력 일정을 거꾸로 뽑으세요.
-능력 일정은 작가가 먼저 정하는 계획입니다. 인물이 어느 능력(스킬 · 특성 · 칭호 · 권한)을 몇 화쯤 어느 등급까지 얻는지 적습니다.
+능력 일정은 작가가 먼저 정하는 계획입니다. 인물이 어느 능력(스킬 · 특성 · 칭호)을 몇 화쯤 어느 등급까지 얻는지 적습니다.
 
 [작품]
 {meta_text(p)}
@@ -1427,7 +1431,7 @@ def ability_extract_prompt(p: Project, start: int, end: int, cid: str) -> str:
 {dump([c] if c else [])}
 [화별 플롯]
 {dump(plots) or "없음"}
-{ability_ai_block(p, {cid})}
+{ability_ai_block(p, {cid}, start, end)}
 
 요구사항:
 - 플롯에 적힌 일만 뽑습니다. 플롯에 없는 능력이나 등급을 지어내지 않습니다.

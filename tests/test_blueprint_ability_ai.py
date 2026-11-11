@@ -58,6 +58,14 @@ def test_ai_block_lists_names_and_keeps_obtained_lines_within_budget():
     budget = context.BUDGET["ability_ai"]
     long = prompts.ability_ai_block(p, {"hero"})
     assert len(long) < budget + 200 and "줄 생략)" in long and "빙결 초급 (3화)" in long  # 도감이 커도 예산 안이고, 이미 적은 줄이 먼저 남는다
+    # 이미 적은 줄만으로 예산을 넘어도 묶음이 섞이지 않고, 받는 범위에 걸친 줄이 남는다
+    p.blueprint.ability_plans = [AbilityPlan(character="hero", ability=f"오래된 기술 {i}", condition="가" * 40, from_ep=i, to_ep=i) for i in range(1, 90)]
+    p.blueprint.ability_plans.append(AbilityPlan(character="hero", ability="먼 뒤 기술", from_ep=500, to_ep=505))
+    over = prompts.ability_ai_block(p, {"hero"}, 495, 600)
+    book, rest = over.split("[지금 상태창의 능력]")
+    owned, have = rest.split("[이미 적은 능력 일정]")
+    assert "먼 뒤 기술 (500~505화)" in have and "오래된 기술 89 (89화" in have and "오래된 기술 1 (1화" not in have  # 범위에 걸친 줄, 그다음 가까운 줄
+    assert "오래된 기술" not in book + owned and "기술2" not in have and "빙결(초급)" in owned and len(over) < budget + 200  # 상태창의 이름은 먼저 남긴다
 
 
 def test_extract_and_draft_prompts():
