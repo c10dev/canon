@@ -61,6 +61,7 @@
 - 효과음 끝 표시 경고 `sfx_mark_drift`(원문이 `SFX_MARK_RARE` 미만으로 쓰는 표시를 이번 화 효과음 줄 `SFX_MARK_NEW` 이상에 쓰면)
 - 문체 분석 요청에 넣는 원문 효과음 줄 요약 `sfx_summary`(`prompts.sfx_note`)
 - 말줄임 · 물음 셈 `narration_tics` 는 효과음 줄을 서술로 세지 않음
+- 연결 어미로 끊어 맺은 서술 셈 `cut_endings`(서술 문장은 `narration_tics` 와 같음, '~다고.' 같은 옮긴 말 끝은 뺌)
 - 템포 곡선 `tempo_curve`(400자 창마다 대사 비율 · 문장 길이, 화면 표시용, 경고 없음)
 - LLM 호출 없음
 - 문체 거리 기준표는 `style_background.py`(`scripts/make_style_background.py` 로 생성) · 문체 기준 `_style_reference` 는 조각 합에서 빼는 방식이라 조각 수에 비례하고, 같은 글은 `_reference` 가 기억한다(`lru_cache` 32개)

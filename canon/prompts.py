@@ -3750,8 +3750,10 @@ def ending_rule(p: Project) -> str:
     """서술 문장 끝 몫 한 문단. 쓰기 요청(ending_line)과 서술 다듬기(polish_prompt)가 같은 글을 쓴다."""
     da, present = ending_counts(p)
     tense = f"'~다.' 끝 가운데 열에 {present}쯤은 '~한다', '~느껴진다' 같은 현재형으로 씁니다. " if present else ""
-    return (f"서술 문장 열에 {da}쯤만 '~다.'로 맺고, 나머지는 명사 끝, 말줄임(…), 시점 인물이 스스로 묻는 물음, "
-            f"말을 도중에 끊은 연결 끝(-고, -는데, -지만)으로 맺습니다. {tense}'~다.'로 끝나는 서술 문장을 {_LINES[metrics.ENDING_RUN]} 줄 넘게 잇지 않습니다.")
+    # 목록에서 연결 끝(-고, -는데, -지만)을 뺐다 (2026-11-11 작가 결정). 다듬은 판이 '~고.' '~는데.'로 끊어 맺어 짝 비교에서 졌고,
+    # 다듬은 판은 이 셋 끝이 서술의 2~15%, 레퍼런스 원고는 150문장 덩어리 중앙값 0~2.7% 였다 (metrics.cut_endings).
+    return (f"서술 문장 열에 {da}쯤만 '~다.'로 맺고, 나머지는 명사 끝, 말줄임(…), 시점 인물이 스스로 묻는 물음으로 맺습니다. "
+            f"{tense}'~다.'로 끝나는 서술 문장을 {_LINES[metrics.ENDING_RUN]} 줄 넘게 잇지 않습니다.")
 
 
 def ending_line(p: Project, n: int) -> str:
