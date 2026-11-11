@@ -22,7 +22,7 @@ FAIL_STOP = 5  # 연달아 이만큼 실패하면 멈춘다 (키 · 잔액 · �
 WAIT = 180  # 화 하나의 응답을 기다리는 초. 넘으면 그 화만 실패로 둔다 (2026-11-11 응답 없이 900초를 기다린 호출이 있었다)
 OUT_TOKENS = 450  # 화 카드 하나의 응답 토큰 추정 (2026-11-11 실측 평균 372)
 LINE_MAX = 300  # 사건 줄 · 끝맺음 한 줄의 글자 수
-EVENTS_MAX = 8
+EVENTS_MAX = 6  # 사건 줄 상한. 줄이 6~8개로 늘면 어긋난 화가 늘었다 (2026-11-11: 10화 중 4화)
 CAST_MAX = 30
 PROVIDERS = ("gemini", "claude", "claude-api", "coralbricks", "local")  # 직접 고를 수 있는 백엔드 (revlab.AI_PROVIDERS 와 같다)
 

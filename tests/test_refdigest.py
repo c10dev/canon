@@ -125,7 +125,8 @@ def test_clip_and_norm():
 
 def test_prompt_puts_source_last_and_has_no_dict_field():
     p = prompts.ref_digest_prompt("원문 글")
-    assert p.endswith("[원문]\n원문 글") and "전투" in p and "여운" in p
+    assert p.endswith("[원문]\n원문 글") and "전투" in p and "여운" in p and "6개를 넘기지 않습니다" in p
+    assert len(refdigest._norm(RefDigest(events=[f"일 {i}" for i in range(9)], cast=[], place="", ending="", kind="", tension=3, hook="")).events) == 6
     assert set(RefDigest.model_json_schema()["required"]) == set(RefDigest.model_fields)
 
 
