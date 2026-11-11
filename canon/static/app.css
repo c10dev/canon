@@ -1625,9 +1625,20 @@ a.ab-tile:hover { border-color: var(--line-strong); }
 .bp-list > li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-6); }
 ol.bp-list { counter-reset: rung; }
 ol.bp-list > li::before { counter-increment: rung; content: counter(rung) "."; font-weight: 700; color: var(--muted); }
-.bp-ms-row { display: grid; grid-template-columns: 72px auto 72px 110px minmax(0, 1fr) minmax(0, 1fr) auto; gap: var(--space-6); align-items: center; }
+.bp-list > li.bp-row-edit { display: block; padding: var(--space-8) 0; }
+ol.bp-list > li.bp-row-edit { counter-increment: rung; }
+ol.bp-list > li.bp-row-edit::before { content: none; }
+.bp-row-t { flex: 1 1 16em; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-6); }
+.bp-row-acts { display: inline-flex; gap: var(--space-2); margin-left: auto; }
+.bp-text { width: 100%; resize: vertical; min-height: 0; }
+.bp-undo { display: flex; align-items: center; gap: var(--space-8); }
+.bp-undo > span { flex: 1; }
+.bp-ms-row { display: grid; grid-template-columns: 72px auto 72px 140px minmax(0, 1fr) auto; gap: var(--space-6); align-items: center; }
+.bp-ms-row > .bp-text { grid-column: 1 / -1; }
+.bp-ms-row > .bp-del { grid-column: -2 / -1; grid-row: 1; }
 .bp-num { width: 72px; }
-.bp-ap-row { display: grid; grid-template-columns: 112px minmax(0, 1fr) 88px 72px auto 72px minmax(0, 1.6fr) auto; gap: var(--space-6); align-items: center; }
+.bp-ap-row { display: grid; grid-template-columns: 112px minmax(0, 1fr) 88px 72px auto 72px auto; gap: var(--space-6); align-items: center; }
+.bp-ap-row > .bp-text { grid-column: 1 / -1; }
 .bp-rung { display: flex; flex-direction: column; gap: var(--space-8); padding: var(--space-10) 0; border-top: 1px solid var(--rule); }
 .bp-rung-top { display: grid; grid-template-columns: auto minmax(0, 1fr) 72px auto 72px auto auto auto; gap: var(--space-6); align-items: center; }
 .bp-pick > summary { cursor: pointer; display: flex; gap: var(--space-8); align-items: baseline; }
@@ -1641,7 +1652,8 @@ ol.bp-list > li::before { counter-increment: rung; content: counter(rung) "."; f
   .sw-src { grid-column: 2; justify-content: flex-start; }
   .ab-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .bp-ms-row, .bp-rung-top, .bp-ap-row { grid-template-columns: repeat(3, auto) minmax(0, 1fr); }
-  .bp-ms-row > input[type=text], .bp-rung-top > input[type=text], .bp-ap-row > input[type=text], .bp-ap-row > select { grid-column: 1 / -1; }
+  .bp-ms-row > input[type=text], .bp-rung-top > input[type=text], .bp-ap-row > input[type=text], .bp-ap-row > select, .bp-ms-row > .bp-text, .bp-rung-top > .bp-text, .bp-ap-row > .bp-text { grid-column: 1 / -1; }
+  .bp-ms-row > .bp-del, .bp-ap-row > .bp-del { grid-column: auto; grid-row: auto; }
   .bp-lane { grid-template-columns: 72px minmax(0, 1fr); }
   .bp-band { --bp-lead: 80px; }
   .ab-list > li { flex-wrap: wrap; }
