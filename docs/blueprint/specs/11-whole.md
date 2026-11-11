@@ -16,7 +16,7 @@ AI 가 관계가 있는 모든 쌍의 설계도를 한 번에 짠다(장편은 �
 - 정리 `blueprint.clean_proposal(p, prop, a, b, …)` 과 더하기 `blueprint.apply_picks(p, a, b, …)` 도 쌍 하나를 받는다. `apply_picks` 는 쌍마다 `check` 를 한 번 부른다.
 - 작업 `blueprint_draft` 의 대상(target)은 `a~b` 이고, 결과에 `a` · `b` · `mode: "draft"` 가 붙는다.
 - 화면은 쌍 쪽 'AI로 설계도 받기' 카드와 개요의 관계 줄마다 '여정 짜기' 버튼이다(`canon/static/blueprint.js` 의 `bpOverview`).
-- 능력 일정(10)은 인물 단위이고, AI 짜기 · 거꾸로 뽑기와 잇지 않기로 했다(README 2026-11-11).
+- 능력 일정(10)은 인물 단위다. 인물 하나씩 AI 로 짜기 · 거꾸로 뽑기는 12([12-ability-ai.md](12-ability-ai.md))가 맡는다(README 2026-11-11 에 다시 정함).
 - 기획 줄 `blueprint.plan_lines` 는 사다리에 '지금까지 닿은 칸'(`planned_rung(start-1)`)을 주지만, 이정표에는 범위 앞에서 이미 닿은 단계를 주지 않는다. 범위에 걸친 줄과 그 뒤 첫 줄만 준다.
 - 부 구성(`series`)은 설계도를 읽지 않는다(README '따로 둔다').
 
@@ -53,7 +53,9 @@ AI 가 관계가 있는 모든 쌍의 설계도를 한 번에 짠다(장편은 �
 ## 정할 것
 
 1. 한 번에 짤까, 편성 뒤 쌍마다 짤까 — 추천: 한 번에 짠다. 실측에서 네 쌍이 4,305토큰으로 들어왔고, 엇갈림은 AI 가 모든 쌍을 함께 볼 때 나온다. 응답 형식 맨 앞에 편성(`spotlight`)을 두어 먼저 계획하게 한다. 쌍이 다섯을 넘으면 다섯씩 나눠 차례로 부르고, 뒤 묶음에 앞 묶음 제안을 '이미 놓은 줄'로 준다.
-2. 능력 일정도 제안할까 — 추천: 제안한다(README 2026-11-11 '거꾸로 뽑기 · AI 로 짜기와는 잇지 않는다'를 다시 정해야 한다). 맞물림이 이 일감의 목적이고, 지금 작품은 능력 일정이 비어 있어 읽기만 하면 맞물릴 것이 없다. 제안 줄은 쌍과 같은 카드에서 따로 묶어 고른다. 범위는 10화 이하로 좁히게 한다(실측에서 부 끝까지 넓었다). 받지 않으면 능력 일정은 읽기만 하고 [plan.md](../plan.md) 의 장기 후보 '능력 일정을 AI 로 짜기'는 그대로 둔다.
+2. 능력 일정도 제안할까 — 추천: 제안한다. 맞물림이 이 일감의 목적이고, 지금 작품은 능력 일정이 비어 있어 읽기만 하면 맞물릴 것이 없다. 제안 줄은 쌍과 같은 카드에서 따로 묶어 고른다. 범위는 10화 이하로 좁히게 한다(실측에서 부 끝까지 넓었다). 받지 않으면 능력 일정은 읽기만 한다.
+   - README 의 '잇지 않는다' 규칙은 2026-11-11 에 다시 정해졌다. 인물 하나씩 받는 작업은 12([12-ability-ai.md](12-ability-ai.md))가 만들었다. 이 질문에 남은 것은 '전체 짜기가 능력 일정도 함께 받을까'뿐이다.
+   - 받으면 12 의 조각을 그대로 쓴다: 능력 줄 모델 `AbilityDraft`, 능력 블록 `prompts.ability_ai_block` · 요구사항 줄 `ability_ai_rules`, 정리 `blueprint.clean_abilities`, 검사 없는 더하기 `add_abilities`, 카드의 능력 묶음 `bpAbDraftRows`(12 의 '11b 와의 경계' 표).
 3. 히로인마다의 계정 해금 단계(1~4단계)를 어디에 둘까 — 추천: 주인공의 능력 일정 줄로 둔다(인물 dojun, 능력 '윤서 계정 해금', 등급 '1단계'~'4단계'). 등급 숫자 견주기(10 의 규칙)와 상태창 기록으로 얻은 화를 그대로 센다. 다른 안은 이정표 라벨(셀 수 없음)과 새 쌍 축(스키마가 늘어남)이다. 상태창이 이 이름을 적지 않는 작품이면 '모름'으로 남는다.
 4. '몰림'을 무엇으로 볼까 — 추천: 두 쌍의 '처음 닿는' 줄의 화 범위가 겹치면 몰림이다. 처음 닿는 줄은 같은 단계(일곱 말)에 처음 닿는 이정표, 같은 겹(옷 위 · 옷 안 · 맨살)에 처음 닿는 사다리 칸이다. 칸 차례와 라벨은 쌍마다 달라 견주지 않는다. 아크는 아직 데이터로 없으므로 쓰지 않는다. 작가 메모 · 부 목표가 동시에 두라고 한 곳도 프로그램은 가리지 못하므로 경고만 한다.
 5. 몰림 경고를 어디에 보일까 — 추천: 제안 카드에만 보인다. 늘 보이는 설계도 경고(`warning_rows`)에 넣으면 의도한 동시 장면(MT 동시 함락)마다 경고가 남는다. 다른 안은 늘 보이는 경고에 넣고 작가가 끄는 칸을 두는 것이다. README '넣지 않는 것'의 관계 축 · 접촉 축 묶기와는 다르다(이것은 쌍과 쌍 사이다).
@@ -80,7 +82,7 @@ AI 가 관계가 있는 모든 쌍의 설계도를 한 번에 짠다(장편은 �
 
 | 파일 | 바꿀 것 |
 |---|---|
-| `canon/schema.py` | `SpotDraft`, `PairDraft`, `AbilityDraft`, `BlueprintPlanSet` |
+| `canon/schema.py` | `SpotDraft`, `PairDraft`, `BlueprintPlanSet`. 능력 줄 `AbilityDraft` 는 12 가 만든 것을 쓴다 |
 | `canon/blueprint.py` | 짤 쌍 `whole_pairs(p, picks)`, 범위 앞 단계 `stage_before(p, s, t, n)`, 정리 `clean_set(p, prop, pairs, start, end)`(쌍마다 `clean_proposal` 을 부르고 능력 줄을 정리), 더하기 `apply_set(p, picks)`(깊은 사본에 쌍마다 더하고 `check` 를 한 번), 제안의 몰림 `crowd_rows` |
 | `canon/prompts.py` | `blueprint_whole_prompt(p, start, end, pairs)`, 갈래 `KINDS["blueprint_whole"]`, 조각 `blueprint_whole_req` |
 | `canon/pipeline.py` | `draft_whole(llm, p, part, pairs, note)`, 출력 한도 `BLUEPRINT_OUT_TOKENS` 그대로, 쌍이 다섯을 넘으면 나눠 부르기 |
@@ -98,7 +100,7 @@ AI 가 관계가 있는 모든 쌍의 설계도를 한 번에 짠다(장편은 �
 - `Blueprint` 는 바꾸지 않는다. 편성(`spotlight`)은 저장하지 않는다(제안 카드에만 보인다).
 - `SpotDraft`: `from_ep`, `to_ep`, `focus: list[str]`(관계가 나아가는 쌍 키 `a~b`), `note`(한 줄).
 - `PairDraft`: `a`, `b`, `milestones: list[MilestoneDraft]`, `rungs: list[RungDraft]`. 08 의 두 모델을 그대로 쓴다.
-- `AbilityDraft`: `character`, `ability`, `grade`, `condition`, `from_ep`, `to_ep`, `evidence: list[BlueprintEvidence]`. 작가가 고르면 `AbilityPlan` 이 된다.
+- `AbilityDraft`: `character`, `ability`, `grade`, `condition`, `from_ep`, `to_ep`, `evidence: list[BlueprintEvidence]`. 작가가 고르면 `AbilityPlan` 이 된다. 12 가 `canon/schema.py` 에 만들었다.
 - `BlueprintPlanSet`: `spotlight`, `pairs`, `abilities`, `reply`. 필드 차례가 생성 차례라 편성을 맨 앞에 둔다.
 - `pairs` 와 `abilities` 에는 기본값을 두지 않는다(필수). 실측 1회에서 기본값이 있는 목록을 비우고 끝냈다.
 - 쌍은 `list` 의 항목이다. dict 필드가 없다(`tests/test_schema_nodict.py`).
@@ -108,7 +110,7 @@ AI 가 관계가 있는 모든 쌍의 설계도를 한 번에 짠다(장편은 �
 
 - 범위는 08 과 같다(`draft_range`: 장편은 부 하나, 부가 없으면 작품 전체, 단편은 작품 전체).
 - 쌍 정리는 쌍마다 `clean_proposal` 과 같다. 고른 쌍 밖의 항목과 같은 쌍이 두 번 온 항목은 줄을 합친다.
-- 능력 정리: 없는 인물은 뺀다. 화 범위를 자른다. 능력 칸의 등급 꼬리는 10 의 저장 규칙대로 뗀다. 이미 적은 같은 인물 · 능력 · 등급 줄은 뺀다.
+- 능력 정리: 없는 인물은 뺀다. 화 범위를 자른다. 능력 칸의 등급 꼬리는 10 의 저장 규칙대로 뗀다. 이미 적은 같은 인물 · 능력 · 등급 줄은 뺀다. 12 의 `blueprint.clean_abilities` 가 이 규칙이다.
 - 더하기(`apply_set`)는 모든 쌍과 능력 줄을 한 사본에 더한 뒤 `check` 를 한 번 부른다. 어긋나면 아무것도 바꾸지 않는다(08 의 `apply_picks` 와 같은 꼴).
 - 몰림(`crowd_rows`)은 정할 것 4 의 정의를 따른다. 막지 않는다.
 - 몰림은 제안 줄끼리, 그리고 제안 줄과 이미 적은 줄 사이를 본다. 이미 적은 줄끼리는 11a 의 전체 띠에서만 보인다(정할 것 5).
@@ -156,8 +158,8 @@ AI 가 관계가 있는 모든 쌍의 설계도를 한 번에 짠다(장편은 �
 
 - `docs/modules/story.md` 의 `canon/blueprint.py` · `canon/static/blueprint.js` 절, `docs/modules/core.md` 의 파이프라인 · 웹 작업 줄.
 - README.md 의 설계도 도구 줄, DESIGN.md 의 설계도 줄.
-- 정한 것은 [README.md](../README.md) 의 정한 규칙에 날짜와 함께 더한다(정할 것 2 는 2026-11-11 규칙을 바꾼다).
-- [plan.md](../plan.md) 의 11 상태, 정할 것 2 를 받으면 장기 후보 '능력 일정을 AI 로 짜기' 줄의 상태.
+- 정한 것은 [README.md](../README.md) 의 정한 규칙에 날짜와 함께 더한다.
+- [plan.md](../plan.md) 의 11 상태, 정할 것 2 를 받으면 장기 후보 '작품 전체 짜기(11b)가 능력 일정도 함께 받기' 줄의 상태.
 - `docs/design/layout.md` (11a · 11b 화면).
 
 ## 인물 사다리와 겹치는 곳

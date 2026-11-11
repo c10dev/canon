@@ -299,6 +299,12 @@
 - 이 경고는 `abilities.list_pieces` 로 도감과 잇는 목록 항목의 조각만 본다(인벤토리의 같은 이름 물건은 뺀다)
 - 웹은 `GET` · `PUT /api/projects/{name}/blueprint`(보기 `BlueprintView`: 설계도 · 방향 붙은 경고 · 부위 · 동작 이름 · 마지막 반영 화, 저장은 설계도 통째와 `check`)
 - `BlueprintView` 의 `plans`(`AbilityPlanState`: id · 얻은 화 · 상태 · 도감 연결) · `ability_warnings`(인물 id · 글)
+- 능력 일정 제안(`AbilityProposal`, 인물 하나씩 뽑기 · 짜기, `docs/blueprint/specs/12-ability-ai.md`)의 정리 `clean_abilities(p, rows, ids, start, end)`: ids 인물의 줄만, 범위 자르기, 근거는 범위 안 세 개까지
+- `clean_abilities` 는 등급 꼬리를 먼저 떼고, 이미 적은 줄 · 앞 제안 줄과 같은 인물 · 능력 · 등급인 줄을 뺀다(남으면 `check` 가 통째로 거절한다)
+- 고른 능력 줄 더하기 `apply_abilities`: 사본에 붙이고 `check`, 어긋나면 아무것도 바꾸지 않는다. 상태창 기록은 건드리지 않는다
+- 검사 없는 더하기 `add_abilities` 는 여러 묶음을 한 사본에 더하고 `check` 를 한 번 부르는 쪽(11b)이 쓴다
+- 능력 일정 제안 요청의 재료 `ability_have_lines`(그 인물의 모든 줄, 얻은 줄 포함) · `ability_owned_lines`(지금 상태창의 목록 항목 조각)
+- 웹은 `POST /api/projects/{name}/blueprint/apply-abilities`(`AbilityApplyIn`, 검사에 걸리면 400)
 - 화면은 `static/blueprint.js`
 - 기획 프롬프트 줄 `plan_lines(p, ids, start, end)`: 화 범위를 적은 줄만, 범위에 걸린 이정표 · 사다리 칸과 그 뒤 첫 것. 두 인물이 모두 ids 에 들 때만
 - 사다리 칸 한 줄 `rung_text`: '차례. 이름 (겹 · 부위 · 동작 · 장소 · 주도 · 메모)', 부위 · 동작은 장면 연출의 이름
@@ -803,6 +809,11 @@
 - 제안 카드 제목은 결과의 `mode` 로 'AI가 짠 설계도' · 'AI가 뽑은 설계도'
 - 개요의 관계 목록 줄마다 '여정 짜기' 버튼(그 쌍 쪽으로)
 - 도착한 제안은 `S.bpDraft` 로 계획 띠 · 경고 다음 카드 `bpDraftCard`(줄마다 고르기 · 근거). '고른 줄 더하기'는 `POST …/blueprint/apply`
+- 능력 일정 쪽 맨 아래 'AI로 능력 일정 받기' `bpAbAiCard`: 인물 · 메모 · 부 고르기 · 'AI로 짜기'(작업 `blueprint_ability_draft`), 플롯이 있으면 '지금 플롯에서 뽑기'(작업 `blueprint_ability`)
+- 도착한 능력 일정 제안은 인물마다 하나씩 `S.bpAbDrafts[인물 id]` 에 둔다(같은 인물의 새 제안이 자리를 바꾼다). 카드 `bpAbDraftCard` 는 경고 다음이고 주 버튼은 '고른 줄 더하기' 하나다
+- 능력 묶음 `bpAbDraftRows(rows, picks, arg, withWho)`: 줄마다 고르기 · 근거, '도감에 없음'(`bpAbKnown`) · '이미 있음'(`bpAbSame`) 칩. 기본 체크 `bpAbPicks` 는 이미 적은 같은 줄만 뺀다
+- `pendingShown` 은 능력 일정 제안을 `bpAbDraftShown` 으로 본다: 그 인물 자리의 제안이 그 작업 것일 때만 남아 있다
+- 능력 일정 작업의 링크(`JOB_LINK`)는 능력 일정 쪽(`blueprint/@ability`)이다. 대상이 인물 id 라서다
 - 본문에서 닿은 칸 `bpReached`(서버 `blueprint.reached` 와 같다): 사다리 카드의 'n화에 닿음', 계획 띠의 '본문에서 닿음' 줄
 - 남겨 둔 닿은 칸 카드 `bpHeldCard`(개요 · 쌍 쪽, '기록하기' · '버리기' → `POST …/blueprint/held/{i}/{take|drop}`)
 - 상태 승인 화면 '직접 정할 것'의 닿은 칸 줄 `contactDeltaRows`(review.js 가 부른다, 체크 키 'u')

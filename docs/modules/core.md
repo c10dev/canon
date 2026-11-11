@@ -414,6 +414,9 @@
 - 설계도 거꾸로 뽑기 `propose_blueprint`(아크 하나 · 두 인물, `prompts.blueprint_extract_prompt`, 응답 `BlueprintProposal`, 정리 `blueprint.clean_proposal`). 저장하지 않는다
 - 설계도 짜기 `draft_blueprint`(부 하나 · 두 인물 · 작가 메모, `prompts.blueprint_draft_prompt`, 플롯이 없어도 됨). 정리 · 더하기는 거꾸로 뽑기와 같다
 - 두 설계도 제안은 출력 한도 `BLUEPRINT_OUT_TOKENS`(16,384)를 건다. 2026-11-10 flash 실호출 두 번 모두 첫 시도가 65,521토큰까지 되풀이했다
+- 능력 일정 거꾸로 뽑기 `propose_abilities`(아크 하나 · 인물 하나, `prompts.ability_extract_prompt`, 응답 `AbilityProposal`, 정리 `blueprint.clean_abilities`). 저장하지 않는다
+- 능력 일정 짜기 `draft_abilities`(부 하나 · 인물 하나 · 작가 메모, `prompts.ability_draft_prompt`, 플롯이 없어도 됨). 같은 출력 한도를 건다
+- 두 능력 일정 요청은 능력 블록 `prompts.ability_ai_block`(도감 이름 · 상태창의 능력 · 이미 적은 줄, 예산 `context.BUDGET["ability_ai"]` 3,000자)과 공통 요구사항 `ability_ai_rules` 를 쓴다
 - 다음 아크 `plan_next_arc` 는 `heat_plan` 을 켜면 `HeatArcProposal` 로 묻고(`prompts.heat_next_arc_rules`), `clean_arc` 가 완급 계획을 아크 범위에 맞춰 `arc.heat` 로 옮기고, `apply_arc` 가 판돈을 복선에 더한다
 - 화별 플롯
   - 대화로 다듬기 `revise_plot`/`apply_revision` 포함
@@ -1104,6 +1107,7 @@
 - 작업 `heat`(`_job_heat`): 이미 있는 기승전결 · 아크 위 완급 계획 제안. 결과는 검토를 기다리는 결과(`PENDING_KINDS`)로 남는다
 - 작업 `blueprint`(`_job_blueprint`): 대상 'a~b' 두 인물의 설계도 거꾸로 뽑기(ep 는 장편 아크 번호). 결과는 `PENDING_KINDS` 로 남고, 고른 줄은 `POST /api/projects/{name}/blueprint/apply`(`BlueprintApplyIn`)
 - 작업 `blueprint_draft`(`_job_blueprint_draft`): 대상 'a~b', ep 는 장편 부 번호, note 는 작가 메모. 결과(`mode` draft)는 `PENDING_KINDS` 로 남고 같은 더하기 API 를 쓴다
+- 작업 `blueprint_ability` · `blueprint_ability_draft`(`_job_blueprint_ability`): 대상은 인물 id, ep 는 장편 아크 · 부 번호. 결과(`character` · `mode`)는 `PENDING_KINDS` 로 남고, 고른 줄은 `POST …/blueprint/apply-abilities`
 - 작업 `offscreen`(`_job_offscreen`, 계획 단계 모델): 화면 밖 근황 제안. 결과는 `PENDING_KINDS` 로 남는다
 - 화면 밖 근황 저장 `POST …/offscreen`(`OffscreenSet`, 고른 인물만) · 지우기 `DELETE …/offscreen/{인물 id}`. 장편에서만 받는다
 - 문체 라이브러리 분석 작업 `POST /api/styles/analyze/job`(kind `lib_style`, project `LIB_JOBS` = `.styles`)

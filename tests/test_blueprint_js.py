@@ -150,6 +150,35 @@ def test_ability_page_and_merge():
 
 
 @needs_node
+def test_ability_ai_card_and_draft_card():
+    from canon.schema import Ability
+    p = _proj()
+    p.abilities = [Ability(id="ab-1", name="은신", aliases=["그림자 걸음"])]
+    p.blueprint.ability_plans = [AbilityPlan(id="ap-1", character="a", ability="은신", grade="Lv2", from_ep=5, to_ep=8)]
+    html = _run("viewBlueprint()", p, {"bpSel": "@ability"})
+    assert 'id="bp-ab-ai"' in html and 'data-action="bpAbDraftAI"' in html and 'id="bp-ab-who"' in html
+    assert 'data-action="bpAbExtract"' not in html and 'id="bp-ab-draft"' not in html  # 뽑을 플롯도 제안도 없다
+    rows = [{"character": "a", "ability": "그림자 걸음", "grade": "", "condition": "첫 위기", "from_ep": 2, "to_ep": 2, "evidence": [{"episode": 2, "quote": "기척이 사라진다"}]},
+            {"character": "a", "ability": "은 신", "grade": "(Lv2)", "condition": "", "from_ep": 6, "to_ep": 6, "evidence": []},
+            {"character": "a", "ability": "질주", "grade": "", "condition": "", "from_ep": 9, "to_ep": 12, "evidence": []}]
+    drafts = {"a": {"character": "a", "start": 1, "end": 600, "mode": "extract", "reply": "세 줄을 뽑았어요.", "abilities": rows, "job": "j1"},
+              "j": {"character": "j", "start": 1, "end": 120, "mode": "draft", "reply": "", "abilities": [], "job": "j2"}}
+    html = _run("viewBlueprint()", p, {"bpSel": "@ability", "bpAbDrafts": drafts})
+    assert "AI가 제안한 능력 일정" in html and "AI가 뽑은 줄" in html and "AI가 짠 줄" in html and "제안한 줄이 없어요" in html
+    assert "2화 「기척이 사라진다」" in html and "조건: 첫 위기" in html and html.count('data-action="bpAbDraftUse"') == 1
+    assert html.count('<span class="chip warn">도감에 없음</span>') == 1 and "스킬 도감에 없는 이름이 1줄 있어요" in html  # 질주만 (다른 이름 · 띄어쓰기는 잇는다)
+    assert html.count('<span class="chip warn">이미 있음</span>') == 1
+    assert _run("bpAbPicks(S.project.blueprint, data.extra.rows)", p, {"rows": rows}) == [True, False, True]  # 이미 적은 같은 줄만 고르지 않는다
+    assert _run("pendingShown({ kind: 'blueprint_ability', id: 'j1', result: { character: 'a' } })", p, {"bpAbDrafts": drafts}) is True
+    assert _run("pendingShown({ kind: 'blueprint_ability_draft', id: 'old', result: { character: 'a' } })", p, {"bpAbDrafts": drafts}) is False  # 새 제안이 자리를 바꿨다
+    assert _run("pendingShown({ kind: 'blueprint_ability', id: 'j9', result: { character: 'd' } })", p, {"bpAbDrafts": drafts}) is False
+    got = _run("(applyJobResult({ id: 'j3', kind: 'blueprint_ability_draft', status: 'done', result: { character: 'd', abilities: [], start: 1, end: 9, mode: 'draft' } }), S.bpAbDrafts.d.job)", p, {"bpAbDrafts": {}})
+    assert got == "j3"
+    assert _run("JOB_LINK.blueprint_ability({ project: 't', target: 'a' })", p) == "#/p/t/blueprint/%40ability"
+    assert sorted(_run("PENDING_KINDS", p)) == sorted(__import__("canon.web", fromlist=["x"]).PENDING_KINDS)
+
+
+@needs_node
 def test_overview_opens_without_relationships():
     p = _proj()
     p.relationships, p.blueprint.milestones, p.blueprint.ladders = [], [], []

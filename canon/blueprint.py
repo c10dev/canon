@@ -645,3 +645,69 @@ def ability_delta_warnings(p: Project, d: StateDelta) -> list[tuple[str, str]]:
             out.append((f"{names.get(x.character, x.character)}의 {ability_text(x)}: 설계도는 {_rng(x)}에 얻기로 했어요. "
                         f"이 변경안을 반영하면 {d.episode}화에 얻어요.", x.character))
     return out
+
+
+# ---------- 능력 일정을 AI 로 짜기 · 거꾸로 뽑기 (docs/blueprint/specs/12-ability-ai.md) ----------
+
+def _same_plan(x) -> tuple[str, str, str]:
+    """check 가 '두 줄'로 보는 열쇠: 인물, 능력 이름, 등급."""
+    return x.character, abilities.key(x.ability), _grade_key(x.grade)
+
+
+def clean_abilities(p: Project, rows: list, ids: set[str], start: int, end: int) -> list:
+    """AI 가 제안한 능력 일정 줄(AbilityDraft) 정리: ids 에 든 인물의 줄만, 화 범위는 start~end 로 자른다.
+    능력 칸의 등급 꼬리는 저장 규칙(check)대로 떼어 등급 칸으로 옮긴다. 그 뒤 이미 적은 줄 · 앞 제안 줄과 같은 인물 · 능력 · 등급인 줄을 뺀다
+    (하나라도 남으면 apply_abilities 의 check 가 통째로 거절한다). 근거는 범위 안 화만 세 개까지. 인물(ids 차례 없이 인물 id) · 화 차례로 놓는다.
+    작가 데이터가 아니라 AI 제안이라 지운다. 작품 전체 짜기(11b)도 이 함수를 부른다."""
+    chars = {c.id for c in p.characters} & set(ids)
+    seen = {_same_plan(x) for x in p.blueprint.ability_plans}
+    out = []
+    for x in rows:
+        name, tail = abilities.split(x.ability or "")
+        x.ability, x.grade, x.condition = name, (x.grade or "").strip() or tail, (x.condition or "").strip()
+        if x.character not in chars or not x.ability or not _clip(x, start, end) or _same_plan(x) in seen:
+            continue
+        seen.add(_same_plan(x))
+        x.evidence = [e for e in x.evidence if start <= e.episode <= end and e.quote.strip()][:3]
+        out.append(x)
+    order = {c.id: i for i, c in enumerate(p.characters)}
+    return sorted(out, key=lambda x: (order[x.character], x.from_ep, x.to_ep))
+
+
+def add_abilities(p: Project, rows: list) -> None:
+    """고른 능력 일정 줄을 p 에 그대로 더한다 (검사 없음). 여러 묶음을 한 사본에 더하고 check 를 한 번 부르는 쪽(apply_abilities, 11b 의 apply_set)이 쓴다."""
+    for x in rows:
+        p.blueprint.ability_plans.append(AbilityPlan(character=x.character, ability=x.ability, grade=x.grade, condition=x.condition,
+                                                     from_ep=x.from_ep, to_ep=x.to_ep))
+
+
+def apply_abilities(p: Project, rows: list) -> None:
+    """작가가 고른 능력 일정 제안 줄을 설계도에 더한다. 이미 적은 줄은 고치지 않는다. 더한 뒤 check 로 검사해 어긋나면 ValueError 이고 아무것도 바꾸지 않는다.
+    계획만 더한다. 실제 기록(Project.stat_log · 상태창)은 건드리지 않는다."""
+    q = p.model_copy(deep=True)
+    add_abilities(q, rows)
+    check(q, p)
+    p.blueprint = q.blueprint
+
+
+def ability_have_lines(p: Project, ids: set[str] | None) -> list[str]:
+    """AI 제안 요청의 '이미 적은 능력 일정' 줄: ids 인물의 모든 줄 (얻은 줄도 넣는다. ability_plan_lines 는 얻은 줄을 빼서 AI 가 다시 제안한다).
+    화 범위를 적은 줄이 앞, 화 차례."""
+    rows = [x for x in p.blueprint.ability_plans if ids is None or x.character in ids]
+    rows.sort(key=lambda x: (x.from_ep <= 0, x.from_ep, x.to_ep))
+    return [f"- {ability_line(p, x, _rng(x) if x.from_ep > 0 else '화 정하지 않음')}" for x in rows]
+
+
+def ability_owned_lines(p: Project, ids: set[str] | None) -> list[str]:
+    """AI 제안 요청의 '지금 상태창의 능력' 줄: ids 인물이 지금 가진 목록 항목 조각 (abilities.list_pieces). 이름을 이 조각 그대로 쓰게 하려는 재료다
+    (실제 얻은 화 got_ep 는 조각 이름으로 잇는다)."""
+    lists = abilities.list_stats(p)
+    names = {c.id: c.name or c.id for c in p.characters}
+    out = []
+    for st in p.states:
+        if ids is not None and st.character_id not in ids:
+            continue
+        pieces = [piece for _, piece in abilities.list_pieces(p, {s.name: s.value for s in st.stats}, lists)]
+        if pieces:
+            out.append(f"- {names.get(st.character_id, st.character_id)}: {', '.join(pieces)}")
+    return out

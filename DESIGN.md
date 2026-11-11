@@ -248,6 +248,7 @@ AI 는 숫자를 매기지 않고 사건만 뽑는다. 같은 사건은 항상 �
 - 지금 플롯에서 설계도 거꾸로 뽑기(작업 `blueprint`, `pipeline.propose_blueprint`)는 아크 하나 · 두 인물씩 제안을 받고, 작가가 고른 줄만 `blueprint.apply_picks` 로 더한다. 실호출 확인은 `docs/blueprint/specs/05-extract.md`.
 - 설계도 화면은 사이드바 도구 '설계도'(`static/blueprint.js`)다. 저장은 `PUT /api/projects/{name}/blueprint` 로 설계도를 통째로 보내고 서버가 `blueprint.check` 로 검사한다. 경고는 서버가 방향을 붙여 준다(`warning_rows`). 줄 지우기 · 제안 더하기 · 여정 비우기의 되돌리기는 화면이 쓰기 전 설계도를 들고 있다가 서버 값이 쓴 뒤 그대로일 때만 다시 `PUT` 한다(서버 쪽 기록 없음).
 - 설계도의 능력 일정(`AbilityPlan`, `docs/blueprint/specs/10-ability.md`)은 계획만 저장한다. 얻은 화는 상태창 기록에서 계산한다(`blueprint.got_ep`). 그래서 되돌리기 · 갈래가 따로 맞출 값이 없다.
+- 능력 일정도 인물 하나씩 AI 가 제안한다(작업 `blueprint_ability` · `blueprint_ability_draft`, `pipeline.propose_abilities` · `draft_abilities`, `docs/blueprint/specs/12-ability-ai.md`). 지금 플롯에서 뽑거나 설정 · 부 구성 · 스킬 도감으로 짜고, 작가가 고른 줄만 `blueprint.apply_abilities` 로 더한다. 계획만 더하고 상태창 기록은 건드리지 않는다. 실호출(2026-11-11, flash 3번 모두 첫 시도 성공)은 그 명세서.
 - 능력 일정은 아직 얻지 못한 줄만 프롬프트에 들어간다: 장편 기획은 범위에 걸린 줄과 그 뒤 첫 줄(`prompts.blueprint_ability_block`, 예산 `context.BUDGET["ability_plan"]`), 스토리보드는 이 화가 얻는 범위인 줄과 다음 줄, 쓰기는 이 화가 얻는 범위이고 플롯에 그 능력 이름이 나오는 줄만, 검수는 뒤 화의 줄을 앞당겼는지 본다.
 - 능력 일정 경고(`blueprint.ability_warning_rows`, 상태 승인 화면은 `ability_delta_warnings`)는 막지 않는다.
 - 상태창이 없는 인물은 얻었는지 셀 수 없다. 범위 끝 화까지 반영한 줄은 '얻지 못함'으로 알리지 않고 프롬프트에서 뺀다(`blueprint.tracked`, 같은 능력을 또 얻는 장면을 막으려는 것).

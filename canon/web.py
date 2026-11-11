@@ -38,7 +38,7 @@ from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록
 from .schema import (Ability, ArcPlan, BodySuggestion, StatInitSuggestion, StatSkin, StatWindowSuggestion, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      RuleChange, RuleRun, StorylineProposal, StyleEntry, StyleProfile)
 from . import abilities, anchor, atlas, findings, foreshadows, heatplan, setupchat, stateedit, stattrial, statwin, timeline
-from .schema import AgentSession, Blueprint, MilestoneDraft, RungDraft, ChatScope, HeatArcProposal, KnowsFoldSet, Deadline, Storyboard, StoryTime, Foreshadow, StatValue
+from .schema import AbilityDraft, AgentSession, Blueprint, MilestoneDraft, RungDraft, ChatScope, HeatArcProposal, KnowsFoldSet, Deadline, Storyboard, StoryTime, Foreshadow, StatValue
 from .schema import OffscreenSet
 from .schema import MapSpec
 from .schema import TextMaterial
@@ -2744,6 +2744,23 @@ def _job_blueprint_draft(name: str, body: "JobIn", p: Project, kind: str, n: int
     return label, 1, set(), fn
 
 
+def _job_blueprint_ability(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 blueprint_ability · blueprint_ability_draft: 인물 하나(target 인물 id)의 능력 일정을 지금 플롯에서 거꾸로 뽑거나(ep 는 장편 아크 번호)
+    설정 · 부 구성에서 짠다(ep 는 장편 부 번호, note 는 작가 메모). 결과는 고르기를 기다린다 (docs/blueprint/specs/12-ability-ai.md)."""
+    cid, draft = body.target, kind == "blueprint_ability_draft"
+    who = next((c.name or c.id for c in p.characters if c.id == cid), None)
+    if who is None:
+        raise ValueError("능력 일정을 받을 인물을 골라 주세요")
+    start, end = (blueprint.draft_range if draft else blueprint.extract_range)(p, n or 0)
+    label = f"{who} 능력 일정 {'짜기' if draft else '뽑기'} ({start}~{end}화)"
+    num, note = n or 0, body.note
+
+    def fn(job: jobs.Job):
+        prop = (pipeline.draft_abilities if draft else pipeline.propose_abilities)(llm, store.load(name), num, cid, note)
+        return prop.model_dump() | {"character": cid, "start": start, "end": end, "mode": "draft" if draft else "extract"}
+    return label, 1, set(), fn
+
+
 def _job_convert(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
     """작업 convert: (이름표, 전체 걸음, 맡은 화, 할 일)."""
     _not_auto(name)
@@ -3199,7 +3216,7 @@ def _job_atlas_ai(name: str, body: "JobIn", p: Project, kind: str, n: int | None
 
 def _job_target(kind: str, body: "JobIn") -> str:
     """같은 종류를 대상마다 따로 돌리는 작업의 대상: 인물 id, 지적 id. 이름 고르기는 지명이면 빈 글이다."""
-    return body.target if kind in ("char_body", "char_voice", "char_look", "names_ai", "fix_one", "recheck_one", "illust_render", "aliases", "blueprint", "blueprint_draft") else ""
+    return body.target if kind in ("char_body", "char_voice", "char_look", "names_ai", "fix_one", "recheck_one", "illust_render", "aliases", "blueprint", "blueprint_draft", "blueprint_ability", "blueprint_ability_draft") else ""
 
 
 def _job_plots(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
@@ -3584,6 +3601,8 @@ JOB_MAKERS: dict[str, Callable] = {
     "heat": _job_heat,
     "blueprint": _job_blueprint,
     "blueprint_draft": _job_blueprint_draft,
+    "blueprint_ability": _job_blueprint_ability,
+    "blueprint_ability_draft": _job_blueprint_ability,
     "convert": _job_convert,
     "rebuild": _job_rebuild,
     "rework": _job_rework,
@@ -3667,7 +3686,7 @@ def start_job(name: str, body: JobIn) -> dict:
 
 # 결과가 반영 전 제안인 작업. 화면이 반영하거나 버릴 때까지 pending.json 에 둔다
 # (본문 · 플롯 · 판정 같은 작업은 서버가 이미 작품에 썼다)
-PENDING_KINDS = {"arc", "heat", "blueprint", "blueprint_draft", "suggest", "style", "series", "nextarc", "convert", "rebuild", "rework", "storyline", "recap_arc", "recap_part", "fold_knows", "offscreen", "state", "openings"}
+PENDING_KINDS = {"arc", "heat", "blueprint", "blueprint_draft", "blueprint_ability", "blueprint_ability_draft", "suggest", "style", "series", "nextarc", "convert", "rebuild", "rework", "storyline", "recap_arc", "recap_part", "fold_knows", "offscreen", "state", "openings"}
 
 
 def _keep_pending(name: str, kind: str, n: int | None, label: str, fn, target: str = ""):
@@ -5826,6 +5845,19 @@ def blueprint_apply(name: str, body: BlueprintApplyIn) -> Project:
     """고른 제안 줄을 설계도에 더한다 (blueprint.apply_picks). 검사에 걸리면 400 이고 아무것도 바꾸지 않는다."""
     p = _load(name)
     blueprint.apply_picks(p, body.a, body.b, body.milestones, body.rungs)
+    return _save(name, p)
+
+
+class AbilityApplyIn(BaseModel):
+    """능력 일정 제안에서 작가가 고른 줄."""
+    abilities: list[AbilityDraft] = []
+
+
+@app.post("/api/projects/{name}/blueprint/apply-abilities")
+def blueprint_apply_abilities(name: str, body: AbilityApplyIn) -> Project:
+    """고른 능력 일정 제안 줄을 설계도에 더한다 (blueprint.apply_abilities). 검사에 걸리면 400 이고 아무것도 바꾸지 않는다. 상태창 기록은 건드리지 않는다."""
+    p = _load(name)
+    blueprint.apply_abilities(p, body.abilities)
     return _save(name, p)
 
 
