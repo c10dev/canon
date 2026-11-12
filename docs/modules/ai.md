@@ -284,6 +284,7 @@
   - `mock_offscreen.py` 화면 밖 근황
   - `mock_play.py` 장면
   - `mock_refdigest.py` 레퍼런스 화 카드
+  - `mock_refnote.py` 레퍼런스 설정 메모 · 박자 메모
   - `mock_revlab.py` 역설계
   - `mock_stage.py` 장면 연출
   - `mock_studio.py` 문단 연습장

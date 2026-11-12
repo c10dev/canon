@@ -1178,6 +1178,7 @@ def _put_locked(name: str, p: Project, disk: Project, response: Response, merged
     last = p.parts[-1] if p.serial and p.parts else None
     if last and last.end_ep == disk.meta.target_episodes != p.meta.target_episodes and p.meta.target_episodes >= last.start_ep:
         last.end_ep = p.meta.target_episodes
+    p.ref_notes = disk.ref_notes  # 참고 메모는 /ref-notes 로만 바뀐다 (레퍼런스 화면에서 넣은 메모를 열려 있던 작품 화면의 저장이 덮지 않게)
     me = store.writer.get()
     if me and not force and disk.edit_rev > p.edit_rev and disk.saved_by != me:
         raise HTTPException(409, "다른 탭이나 기기에서 이 작품을 먼저 저장했어요. 다시 불러와 그 변경을 보거나, 내 변경으로 덮어쓰세요")

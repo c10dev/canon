@@ -5,11 +5,13 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from .. import jobs, refdigest, refs
+from .. import jobs, refdigest, refnote, refs
 from ..llm import get_llm
 from ..schema import RefBook, RefCut, RefFile
 from ..web import (  # web 의 공용 도우미
+    _edit,
     _load,
+    _need,
 )
 
 router = APIRouter()
@@ -254,7 +256,122 @@ def ref_digest_arcs_clear(rid: str) -> dict:
     return {"ok": True}
 
 
+# ----- 참고 메모 (canon/refnote.py): 원고에서 설정 구도 요약을 만들어 작가가 넣기를 누르면 작품에 복사한다 -----
+
+class RefNoteMakeIn(BaseModel):
+    eps: list[int]
+    use: str = "setup"  # setup 설정 메모 · write · plot 박자 메모 (refnote.USE_KIND)
+    project: str = ""  # 넣을 작품 (미리보기에 실어 돌려줄 뿐, 만들 때는 작품을 읽거나 쓰지 않는다)
+
+
+@router.post("/api/refs/{rid}/note/estimate")
+def ref_note_estimate(rid: str, body: RefNoteMakeIn) -> dict:
+    """설정 메모를 만들 때 보낼 것(화 카드 · 원문)과 비용 추정. AI 를 부르지 않는다."""
+    try:
+        return refnote.estimate(_ref_id(rid), body.eps, body.use)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.post("/api/refs/{rid}/note")
+def ref_note_start(rid: str, body: RefNoteMakeIn) -> dict:
+    """참고 메모 초안 작업(ref_note)을 시작한다. 결과는 미리보기이고 작품에 저장하지 않는다. 원고 하나에 하나만 돈다."""
+    rid = _ref_id(rid)
+    if body.project:
+        _need(body.project)
+    try:
+        kind = refnote._kind(body.use)
+        m = refnote.material(rid, body.eps)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    llm = get_llm("plan")  # 키가 없으면 작업을 띄우기 전에 알린다
+    try:
+        job = jobs.start(REF_JOBS, "ref_note", None, f"{'박자' if kind == 'beats' else '설정'} 메모 ({m['name']} {m['eps']})",
+                         lambda j: refnote.run(rid, body.eps, llm, body.project, body.use), target=rid)
+    except jobs.Busy as busy:
+        return {**busy.job.public(), "already": True}
+    return job.public()
+
+
+class RefNoteMarksIn(BaseModel):
+    eps: list[int]
+    text: str
+
+
+@router.post("/api/refs/{rid}/note/marks")
+def ref_note_marks(rid: str, body: RefNoteMarksIn) -> dict:
+    """고친 메모 글에 든 원문 구절 · 원고의 이름을 다시 센다 (AI 없음)."""
+    try:
+        return {"marks": refnote.marks(_ref_id(rid), body.eps, body.text)}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+class RefNoteAddIn(BaseModel):
+    text: str
+    ref: str = ""  # 만든 원고 id. 있으면 그 원고의 '만든 것'에 남긴다
+    from_name: str = ""
+    from_eps: str = ""
+    kind: str = "setup"
+    use: str = "setup"
+
+
+class RefNotePutIn(BaseModel):
+    text: str | None = None
+    on: bool | None = None
+
+
+def _note_edit(name: str, fn) -> dict:
+    _need(name)
+    try:
+        return refnote.view(_edit(name, fn))
+    except KeyError:
+        raise HTTPException(404, "그 참고 메모가 없어요")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.get("/api/projects/{name}/ref-notes")
+def ref_notes_list(name: str) -> dict:
+    return refnote.view(_load(name))
+
+
+@router.post("/api/projects/{name}/ref-notes")
+def ref_notes_add(name: str, body: RefNoteAddIn) -> dict:
+    """작가가 미리보기에서 넣기를 누른 참고 메모를 작품에 넣는다. 원고의 '만든 것'에 남긴다."""
+    box: dict = {}
+    out = _note_edit(name, lambda p: box.update(note=refnote.add(p, body.text, body.from_name, body.from_eps, body.kind, body.use)))
+    if body.ref:
+        try:
+            refs.made(_ref_id(body.ref), "note", f"{name}/{box['note'].id}", body.from_eps)
+        except (KeyError, HTTPException):  # 원고를 그 사이 지웠어도 메모는 넣는다
+            pass
+    return {**out, "id": box["note"].id}
+
+
+@router.put("/api/projects/{name}/ref-notes/{nid}")
+def ref_notes_put(name: str, nid: str, body: RefNotePutIn) -> dict:
+    """참고 메모의 글을 고치거나 켜고 끈다."""
+    return _note_edit(name, lambda p: refnote.update(p, nid, body.text, body.on))
+
+
+@router.delete("/api/projects/{name}/ref-notes/{nid}")
+def ref_notes_delete(name: str, nid: str) -> dict:
+    return _note_edit(name, lambda p: refnote.remove(p, nid))
+
+
 EXPORTS = (
+    "RefNoteAddIn",
+    "RefNoteMakeIn",
+    "RefNoteMarksIn",
+    "RefNotePutIn",
+    "ref_note_estimate",
+    "ref_note_marks",
+    "ref_note_start",
+    "ref_notes_add",
+    "ref_notes_delete",
+    "ref_notes_list",
+    "ref_notes_put",
     "ref_digest_arcs_clear",
     "ref_digest_arcs_estimate",
     "ref_digest_arcs_start",

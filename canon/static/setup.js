@@ -758,7 +758,7 @@ function viewSetupWizard() {
   return `${header('1단계 · 새 작품', '설정 도우미', '', right)}
     ${aiNote()}
     ${S.suggestion ? viewSuggestion() : ''}
-    ${outlineDoc(wizStepper(), `<div class="setup-secs"><section class="card wiz-card" aria-labelledby="wiz-q">${bodies[w.step]()}</section></div>`)}
+    ${outlineDoc(wizStepper(), `<div class="setup-secs"><section class="card wiz-card" aria-labelledby="wiz-q">${bodies[w.step]()}</section>${setupRefNotes()}</div>`)}
     ${wizFoot(w.step)}`;
 }
 
@@ -986,8 +986,41 @@ function viewSetupDoc() {
         ${toneBox()}
         <div class="grid-2">${input('화당 분량', 'meta.words_per_episode', { type: 'number', hint: '공백 포함 글자 수' })}${input('메모', 'meta.notes', { rows: 2 })}</div>
       </section>
+      ${setupRefNotes()}
     </div>`)}
     ${first ? '' : `<div class="setup-foot phone-only">${go('')}</div>`}`;
+}
+
+const REF_NOTES_BUDGET = { setup: 4000, write: 3000, plot: 3000 };  // 쓰임마다의 예산. context.BUDGET["ref_notes"] · ["ref_beats"] 와 같다 (tests/test_refnote.py)
+const REF_NOTE_USE_NAME = { setup: '설정 도우미', write: '집필', plot: '플롯 초안' };
+const REF_NOTE_MAX = 2000;  // refnote.NOTE_MAX 와 같다
+
+/** 켰지만 쓰임마다의 예산을 넘어 프롬프트에서 빠지는 참고 메모 id (refnote.dropped 와 같은 규칙). 순수 함수 */
+function refNotesDropped(notes, budgets = REF_NOTES_BUDGET) {
+  const out = [];
+  for (const use of Object.keys(budgets)) {
+    let used = 0;
+    for (const n of notes.filter((x) => x.on && x.use === use && x.text.trim())) {
+      const head = [n.from_name, n.from_eps].filter(Boolean).join(' ') || '참고 메모';
+      const cost = `## ${head}\n${n.text.trim()}`.length + 1;
+      if (used + cost > budgets[use]) out.push(n.id); else used += cost;
+    }
+  }
+  return out;
+}
+
+/** 기획서 끝의 '참고 구조' 카드: 레퍼런스 원고에서 넣은 참고 메모(설정 · 박자)를 켜고 끄고 고치고 지운다. 메모가 없으면 그리지 않는다 */
+function setupRefNotes() {
+  const notes = P().ref_notes || [];
+  if (!notes.length) return '';
+  const gone = refNotesDropped(notes);
+  const rows = notes.map((n) => `<details class="setup-refnote"><summary><input type="checkbox" data-ref-note-on="${esc(n.id)}"${n.on ? ' checked' : ''} aria-label="${esc(n.from_name)} ${esc(n.from_eps)} 메모 켜기">
+      <strong>${esc(n.from_name || '참고 메모')}</strong> <span class="small">${esc(n.from_eps)} · 쓰임 ${REF_NOTE_USE_NAME[n.use] || n.use}${n.on ? '' : ' · 꺼 둠'}${gone.includes(n.id) ? ' · 길어서 빠져요' : ''}</span></summary>
+    <label class="sr-only" for="ref-note-${esc(n.id)}">메모 글</label><textarea id="ref-note-${esc(n.id)}" data-ref-note-text="${esc(n.id)}" rows="12" maxlength="${REF_NOTE_MAX}">${esc(n.text)}</textarea>
+    <div class="row"><button type="button" class="btn small" data-action="refNoteSave" data-arg="${esc(n.id)}">메모 저장</button><button type="button" class="btn small ghost" data-action="refNoteDelete" data-arg="${esc(n.id)}">지우기</button></div></details>`).join('');
+  return `<section class="card" id="setup-refnotes" aria-labelledby="h-setup-refnotes"><div class="sec-head"><div class="sec-title"><h2 id="h-setup-refnotes">참고 구조</h2></div><a class="small" href="#/refs">레퍼런스 원고</a></div>
+    <p class="small">켠 메모는 쓰임에 적힌 요청(설정 도우미의 변경안과 빈칸 AI 제안 · 집필 · 플롯 초안)이 구도와 박자만 참고해요. 이름과 사건은 옮기지 않아요.${gone.length ? ` <span class="warn-text">참고 메모 ${gone.length}개는 길어서 뺐어요.</span>` : ''}</p>
+    ${rows}</section>`;
 }
 
 /** 상태창을 쓰는 작품이면 상태창 수치 화면으로 가는 줄. 작품 틀과 처음 수치는 그 화면에서 정한다 */
@@ -1148,6 +1181,16 @@ outlineSpy('setup-toc', {
 });
 
 Object.assign(actions, {
+  async refNoteSave(id) {
+    const el = document.querySelector(`[data-ref-note-text="${CSS.escape(String(id))}"]`);
+    if (!el) return;
+    const ok = await run('메모를 저장하는 중', async () => { S.project.ref_notes = (await api('PUT', `/projects/${enc(S.name)}/ref-notes/${enc(id)}`, { text: el.value })).notes; });
+    if (ok) toast('참고 메모를 저장했어요.');
+  },
+  async refNoteDelete(id) {
+    if (!(await askConfirm('이 참고 메모를 지울까요? 레퍼런스 원고는 그대로 있어요.', { ok: '지우기', danger: true }))) return;
+    await run('메모를 지우는 중', async () => { S.project.ref_notes = (await api('DELETE', `/projects/${enc(S.name)}/ref-notes/${enc(id)}`)).notes; });
+  },
   // 새 작품 마법사
   async wizGo(arg) {
     const i = Number(arg);
@@ -1405,4 +1448,10 @@ Object.assign(actions, {
     markDirty();
     refreshRel(Number(i));
   },
+});
+
+document.addEventListener('change', (e) => {
+  const id = e.target.dataset && e.target.dataset.refNoteOn;
+  if (!id || !S.name) return;
+  run('메모를 바꾸는 중', async () => { S.project.ref_notes = (await api('PUT', `/projects/${enc(S.name)}/ref-notes/${enc(id)}`, { on: e.target.checked })).notes; });
 });

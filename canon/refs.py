@@ -905,6 +905,54 @@ def corpus(rid: str, orders: list[int]) -> str:
     return "\n\n".join(c["text"] for c in pick(load(rid), orders))
 
 
+OVERLAP_MIN = 20  # 이만큼 넘게 원문과 같은 구절을 원문 문장으로 본다
+_NOUN = re.compile(r"(?<![가-힣])([가-힣]{2,4}?)(?:은|는|이|가|을|를|의|에게|와|과|도)(?=[\s,.!?…])")
+COMMON = frozenset("그녀 자신 사람 우리 그것 이것 저것 여기 거기 지금 오늘 내일 어제 생각 시간 마음 얼굴 목소리 이야기 그들 누구 무엇 아무 모두 "
+                   "하나 다음 처음 마지막 사이 때문 정도 순간 소리 그때 이번 서로 아이 남자 여자 주인공 서술자 화자 소년 소녀 당신 너희 저희 이제 다시".split())
+
+
+def proper_words(texts: list[str]) -> list[str]:
+    """원고의 고유 낱말 어림 (AI 없음, 화 카드가 없는 원고의 겹침 표시용): 조사 앞 2~4글자 낱말 가운데 고른 화의 셋 중 하나 넘는 화에서
+    세 번 넘게 나온 것 (2026-11-12 실제 원고 30화: 절반으로 두면 주인공 이름도 빠졌다). 흔한 낱말(COMMON)은 뺀다. 많이 나온 차례. 형태소를 가르지 않아 이름이 아닌 낱말도 섞인다."""
+    from collections import Counter
+
+    per = [Counter(_NOUN.findall(t)) for t in texts]
+    total: Counter = Counter()
+    for c in per:
+        total.update(c)
+    need = max(1, -(-len(per) // 3))
+    return [w for w, _ in total.most_common() if w not in COMMON and sum(1 for c in per if c[w] >= 3) >= need]
+
+
+def overlap(text: str, sources: list[str], names: list[str] | tuple = ()) -> list[dict]:
+    """메모 글에 든 원고의 것 [{kind, text, start, end}] (AI 없음). kind quote: 원문과 OVERLAP_MIN 자 넘게 같은 구절,
+    name: 원고의 이름 · 고유 낱말. 넣기를 막지 않고 미리보기에 표시만 한다 (docs/refs 5-1)."""
+    src = "\n".join(" ".join(s.split()) for s in sources)
+    hit = [False] * len(text)
+    for i in range(len(text) - OVERLAP_MIN + 1):
+        g = text[i:i + OVERLAP_MIN]
+        if "\n" not in g and g.strip() == g and g in src:
+            hit[i:i + OVERLAP_MIN] = [True] * OVERLAP_MIN
+    out, i = [], 0
+    while i < len(text):
+        if hit[i]:
+            j = i
+            while j < len(text) and hit[j]:
+                j += 1
+            out.append({"kind": "quote", "text": text[i:j], "start": i, "end": j})
+            i = j
+        else:
+            i += 1
+    for name in dict.fromkeys(n.strip() for n in names):
+        if len(name) < 2:
+            continue
+        at = text.find(name)
+        while at >= 0:
+            out.append({"kind": "name", "text": name, "start": at, "end": at + len(name)})
+            at = text.find(name, at + len(name))
+    return sorted(out, key=lambda x: (x["start"], x["end"]))
+
+
 def made(rid: str, kind: str, ref_id: str, eps: str) -> None:
     from .schema import RefMade
     b = load(rid)

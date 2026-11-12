@@ -13,6 +13,8 @@ Object.assign(S, {
   refPick: new Set(),  // 개요 표에서 고른 화 차례
   refSort: '',     // 표 정렬 칸 ('' 차례)
   refCmp: null,    // 내 작품과 견주기 { project, data }
+  refNoteAsk: null,  // 참고 메모 만들기 칸 { ref, project, use, est } (열었을 때만). use: setup 설정 메모 · write · plot 박자 메모
+  refNote: null,     // 참고 메모 미리보기 { job, ref, project, from_name, from_eps, orders, text, marks, mode, sent, episodes, folded, model } (작품에 넣기 전)
   refEditInfo: null, // 이름 · 출처 고치기 칸
   refDraft: null,  // 넣기 · 경계 고치기 상태 (refBlank)
   refInbox: null,  // newto 로 가져온 받은 화 (GET /refs/inbox, 넣기 화면에서 읽는다)
@@ -575,13 +577,119 @@ function refOverview(b) {
     <div class="row"><label class="small" for="ref-range">범위</label><input id="ref-range" type="text" data-ref-range="1" placeholder="예: 1~10, 15" size="14">
       <button type="button" class="btn small" data-action="refPickRange">고르기</button><button type="button" class="btn small" data-action="refPickNone"${n ? '' : ' disabled'}>모두 풀기</button></div>
     <div class="row"><button type="button" class="btn primary" data-action="refToStyle"${n ? '' : ' disabled'}>문체 만들기</button>
-      <button type="button" class="btn" data-action="refToRevlab"${n && !tooMany ? '' : ' disabled'}>역설계 실험 만들기</button></div>
+      <button type="button" class="btn" data-action="refToRevlab"${n && !tooMany ? '' : ' disabled'}>역설계 실험 만들기</button>
+      <button type="button" class="btn" data-action="refNoteAsk"${n ? '' : ' disabled'} aria-expanded="${!!S.refNoteAsk}">참고 메모 만들기</button></div>${refNoteAskBox(b)}
     <p class="small">문체 만들기는 고른 화를 이어 문체 라이브러리 새 항목의 원문 칸에 넣어요. ${(S.refLabels.sample_max || 30000).toLocaleString()}자를 넘으면 앞 · 가운데 · 뒤에서 고루 뽑아요. 분석은 그 화면에서 눌러야 해요. 역설계 실험은 화 수와 상관없이 모두 합쳐 ${revMax.toLocaleString()}자까지 넣을 수 있어요${tooMany ? ` (지금 ${picked.toLocaleString()}자라 너무 많이 골랐어요)` : ''}.</p></section>`;
-  const made = b.made.length ? `<section class="card"><h2>이 원고로 만든 것</h2><ul class="ref-made">${b.made.map((m) => `<li><a href="#/${m.kind === 'style' ? 'styles' : 'revlab'}/${enc(m.id)}">${m.kind === 'style' ? '문체 라이브러리 항목' : `역설계 실험 ${esc(m.id)}`}</a> <span class="small">${esc(m.eps)} · ${fmtDateTime(m.at)}</span></li>`).join('')}</ul></section>` : '';
-  return `${refDigestCard(b)}${refStructureCard(b)}${act}<section class="card"><div class="between"><h2>분량</h2><span class="small">한 화 평균 ${mean.toLocaleString()}자 · 막대를 누르면 그 화를 열어요</span></div><div class="ref-bars" aria-label="화별 글자 수">${bars}</div></section>
+  const made = b.made.length ? `<section class="card"><h2>이 원고로 만든 것</h2><ul class="ref-made">${b.made.map((m) => `<li><a href="${refMadeHref(m)}">${m.kind === 'style' ? '문체 라이브러리 항목' : m.kind === 'note' ? `참고 메모 (${esc(refMadeWork(m))})` : `역설계 실험 ${esc(m.id)}`}</a> <span class="small">${esc(m.eps)} · ${fmtDateTime(m.at)}</span></li>`).join('')}</ul></section>` : '';
+  return `${refDigestCard(b)}${refStructureCard(b)}${act}${refNoteCard(b)}<section class="card"><div class="between"><h2>분량</h2><span class="small">한 화 평균 ${mean.toLocaleString()}자 · 막대를 누르면 그 화를 열어요</span></div><div class="ref-bars" aria-label="화별 글자 수">${bars}</div></section>
     ${refCompareCard()}
     <section class="card"><div class="between"><h2>화 표</h2>${filtering ? `<span class="small">거른 ${eps.length}화 / ${all.length}화</span>` : ''}</div><div class="ref-table-wrap"><table class="ref-table"><thead><tr><th scope="col"><span class="sr-only">고르기</span></th>${th}</tr></thead><tbody>${rows}</tbody></table></div></section>${made}`;
 }
+
+/** '만든 것' 한 줄의 주소. 참고 메모(id '작품 폴더/메모 id')는 그 작품의 설정 도우미로 간다. 순수 함수 */
+function refMadeHref(m) {
+  if (m.kind === 'note') return `#/p/${enc(String(m.id).split('/')[0])}/setup`;
+  return `#/${m.kind === 'style' ? 'styles' : 'revlab'}/${enc(m.id)}`;
+}
+
+function refMadeWork(m) {
+  const name = String(m.id).split('/')[0];
+  const w = (S.projects || []).find((x) => x.name === name);
+  return (w && w.title) || name;
+}
+
+/** 참고 메모에 보낼 것 한 줄 (화 카드 · 원문, 줄였는지). est 는 비용 추정이나 미리보기. 순수 함수 */
+function refNoteSent(x) {
+  if (x.mode === 'cards') return `화 카드 ${x.sent}화를 보내요${x.folded ? ' (화가 많아 화마다 첫 사건과 끝만)' : ''}. 원문은 보내지 않아요.`;
+  return `읽히지 않은 화가 있어 원문을 보내요${x.sent < x.episodes ? ` (길어서 앞 ${x.sent}화까지만)` : ''}.`;
+}
+
+/** 미리보기에 든 원고의 것 한 줄씩. marks: [{kind quote|name, text}]. 순수 함수 */
+function refNoteWarn(marks) {
+  const uniq = (k) => [...new Set((marks || []).filter((m) => m.kind === k).map((m) => m.text))];
+  const quotes = uniq('quote'), names = uniq('name');
+  return [quotes.length ? `원문 문장이 들어 있어요: ${quotes.map((q) => `‘${q}’`).join(', ')}` : '', names.length ? `원고의 이름이 들어 있어요: ${names.join(', ')}` : ''].filter(Boolean);
+}
+
+/** 끝난 설정 메모 작업의 결과를 미리보기로 받는다 (넣었거나 버린 작업은 다시 받지 않는다) */
+const REF_NOTE_DONE_KEY = 'canon.refNoteDone';
+function refNoteDone() { try { return JSON.parse(localStorage.getItem(REF_NOTE_DONE_KEY) || '[]'); } catch (e) { return []; } }
+function refNoteForget(job) { try { localStorage.setItem(REF_NOTE_DONE_KEY, JSON.stringify([...refNoteDone(), job].slice(-50))); } catch (e) { /* 저장을 못 해도 화면은 그대로 */ } }
+function refNoteTake(b) {
+  const done = refNoteDone();
+  const j = S.jobs.filter((x) => x.kind === 'ref_note' && x.status === 'done' && (x.target || '') === b.id && x.result && !done.includes(x.id)).pop();
+  if (j && (!S.refNote || S.refNote.job !== j.id)) S.refNote = { job: j.id, ...j.result };
+}
+
+/** 참고 메모의 쓰임 [값, 이름, 무엇을 요약하는지] (refnote.USE_KIND 와 같은 열쇠) */
+const REF_NOTE_USES = [['setup', '설정 도우미', '고른 화의 설정 구도(세계 규칙의 종류 · 인물 배치 · 관계 구도)만 요약해요.'],
+  ['write', '집필', '고른 화가 한 화를 굴리는 박자(여는 법 · 대목이 하는 일 · 끝을 끊는 방식 · 완급)만 요약해요. 집필 요청이 읽어요.'],
+  ['plot', '플롯 초안', '고른 화가 한 화를 굴리는 박자(여는 법 · 대목이 하는 일 · 끝을 끊는 방식 · 완급)만 요약해요. 화별 플롯 초안 요청이 읽어요.']];
+const refNoteUse = (use) => REF_NOTE_USES.find((x) => x[0] === use) || REF_NOTE_USES[0];
+
+/** '참고 메모 만들기'를 누르면 펴는 칸: 넣을 작품 · 쓰임 · 보낼 것 · 추정 비용 · 만들기 */
+function refNoteAskBox(b) {
+  if (S.refNoteAsk && S.refNoteAsk.ref !== b.id) S.refNoteAsk = null;  // 다른 원고에서 연 칸
+  const a = S.refNoteAsk;
+  if (!a) return '';
+  const works = (S.projects || []).filter((x) => !x.play);
+  const opts = works.map((w) => `<option value="${esc(w.name)}"${a.project === w.name ? ' selected' : ''}>${esc(w.title || w.name)}</option>`).join('');
+  const est = a.est;
+  const cost = !est ? '' : est.usd == null ? '가격을 모르는 모델이에요' : est.usd === 0 ? '토큰 요금이 거의 없어요' : `추정 $${est.usd}`;
+  return `<div class="ref-digest-ask">
+    <div class="row"><div class="field"><label for="ref-note-work">넣을 작품</label><select id="ref-note-work" data-ref-note-work="1"><option value="">고르기</option>${opts}</select></div>
+      <div class="field"><label for="ref-note-use">쓰임</label><select id="ref-note-use" data-ref-note-use="1">${REF_NOTE_USES.map(([v, l]) => `<option value="${v}"${a.use === v ? ' selected' : ''}>${l}</option>`).join('')}</select></div></div>
+    ${est ? `<p class="small">${esc(refNoteSent(est))} ${esc(est.model || est.provider)} · ${cost}</p>` : ''}
+    <p class="small">${refNoteUse(a.use)[2]} 이름과 줄거리는 빼요. 만든 메모는 미리보기에서 넣기를 눌러야 작품에 들어가요.</p>
+    <div class="row"><button type="button" class="btn" data-action="refNoteStart"${a.project && est ? '' : ' disabled'}>만들기</button><button type="button" class="btn ghost" data-action="refNoteAsk">닫기</button></div></div>`;
+}
+
+/** 설정 메모 미리보기 카드: 고칠 수 있는 글 · 원고의 것 표시 · 작품에 넣기 */
+function refNoteCard(b) {
+  if (S.refNote && S.refNote.ref !== b.id) S.refNote = null;  // 다른 원고의 미리보기
+  refNoteTake(b);
+  const j = S.jobs.find((x) => x.status === 'running' && x.kind === 'ref_note' && (x.target || '') === b.id);
+  const n = S.refNote;
+  if (j && !n) return '<section class="card"><p class="small" aria-live="polite">참고 메모를 만드는 중이에요. 끝나면 여기에 미리보기가 떠요.</p></section>';
+  if (!n) return '';
+  const works = (S.projects || []).filter((x) => !x.play);
+  const opts = works.map((w) => `<option value="${esc(w.name)}"${n.project === w.name ? ' selected' : ''}>${esc(w.title || w.name)}</option>`).join('');
+  const warn = refNoteWarn(n.marks);
+  const max = 2000;
+  return `<section class="card proposal ref-note" id="ref-note-preview"><div class="between"><h2>${n.kind === 'beats' ? '박자' : '설정'} 메모 미리보기</h2><span class="small">${esc(n.from_name)} ${esc(n.from_eps)} · 쓰임 ${refNoteUse(n.use)[1]} · ${esc(n.model || '')}</span></div>
+    <p class="small">${esc(refNoteSent(n).replace(/보내요/g, '보냈어요'))} 아직 작품에 넣지 않았어요. 고친 뒤 넣을 수 있어요.</p>
+    <label class="sr-only" for="ref-note-text">메모 글</label><textarea id="ref-note-text" data-ref-note="text" rows="16">${esc(n.text)}</textarea>
+    ${warn.length ? `<div class="note" role="status">${warn.map((w) => `<div>${esc(w)}</div>`).join('')}<div class="small">넣기를 막지는 않아요. 이름과 문장은 역할과 구도로 바꿔 적는 편이 좋아요.</div></div>` : ''}
+    <div class="row"><div class="field"><label for="ref-note-to">넣을 작품</label><select id="ref-note-to" data-ref-note="project"><option value="">고르기</option>${opts}</select></div>
+      <button type="button" class="btn" data-action="refNoteAdd"${n.project && n.text.trim() && n.text.length <= max ? '' : ' disabled'}>작품에 넣기</button>
+      <button type="button" class="btn ghost" data-action="refNoteDrop">버리기</button><span class="small" id="ref-note-count">${n.text.length.toLocaleString()} / ${max.toLocaleString()}자</span></div></section>`;
+}
+
+// 참고 메모 칸의 입력 (다른 레퍼런스 화면 입력과 따로 둔다)
+document.addEventListener('input', (e) => {
+  const d = e.target.dataset || {};
+  if (d.refNote === 'text' && S.refNote) {  // 글자 수와 넣기 버튼만 고친다 (입력 중에는 화면을 다시 그리지 않는다)
+    S.refNote.text = e.target.value;
+    const c = document.getElementById('ref-note-count'), btn = document.querySelector('[data-action="refNoteAdd"]');
+    if (c) c.textContent = `${S.refNote.text.length.toLocaleString()} / 2,000자`;
+    if (btn) btn.disabled = !(S.refNote.project && S.refNote.text.trim() && S.refNote.text.length <= 2000);
+  }
+});
+document.addEventListener('change', (e) => {
+  const d = e.target.dataset || {};
+  if (d.refNoteWork && S.refNoteAsk) { S.refNoteAsk.project = e.target.value; render(); }
+  if (d.refNoteUse && S.refNoteAsk && S.ref) {  // 쓰임이 바뀌면 요청 글이 달라 비용 추정을 다시 받는다
+    const a = S.refNoteAsk;
+    a.use = e.target.value;
+    api('POST', `/refs/${enc(S.ref.id)}/note/estimate`, { eps: [...S.refPick].sort((x, y) => x - y), use: a.use }).then((est) => { if (S.refNoteAsk === a) { a.est = est; render(); } }).catch(showError);
+    render();
+  }
+  if (d.refNote === 'project' && S.refNote) { S.refNote.project = e.target.value; render(); }
+  if (d.refNote === 'text' && S.refNote && S.ref) {  // 고친 글에 든 원문 구절 · 이름을 다시 센다 (AI 없음)
+    const n = S.refNote;
+    api('POST', `/refs/${enc(S.ref.id)}/note/marks`, { eps: n.orders, text: n.text }).then((r) => { if (S.refNote === n) { n.marks = r.marks; render(); } }).catch(() => {});
+  }
+});
 
 function refCompareCard() {
   const works = (S.projects || []).filter((x) => !x.play);
@@ -784,6 +892,46 @@ Object.assign(actions, {
   refPickNone() { S.refPick = new Set(); render(); },
   refFilterKind(kind) { S.refFilter = { ...S.refFilter, kind: S.refFilter.kind === kind ? '' : kind }; render(); },
   refFilterClear() { S.refFilter = { kind: '', tension: 0 }; render(); },
+  async refNoteAsk() {
+    if (S.refNoteAsk) { S.refNoteAsk = null; render(); return; }
+    const eps = [...S.refPick].sort((x, y) => x - y);
+    await run('보낼 것을 세는 중', async () => {
+      const est = await api('POST', `/refs/${enc(S.ref.id)}/note/estimate`, { eps, use: 'setup' });
+      S.refNoteAsk = { ref: S.ref.id, use: 'setup', project: S.name && (S.projects || []).some((x) => x.name === S.name && !x.play) ? S.name : '', est };
+    });
+  },
+  async refNoteStart() {
+    const a = S.refNoteAsk, id = S.ref.id;
+    if (!a || !a.project) return;
+    try {
+      const j = await api('POST', `/refs/${enc(id)}/note`, { eps: [...S.refPick].sort((x, y) => x - y), project: a.project, use: a.use });
+      toast(j.already ? '이미 만드는 중이에요' : '참고 메모를 만들기 시작했어요. 끝나면 미리보기가 떠요.');
+      S.refNoteAsk = null;
+      if (S.refNote) { refNoteForget(S.refNote.job); S.refNote = null; }
+      S.jobs = S.jobs.filter((x) => x.id !== j.id).concat(j);
+      renderHub();
+      render();
+      pollJobs(true);
+    } catch (e) { showError(e); }
+  },
+  async refNoteAdd() {
+    const n = S.refNote;
+    if (!n || !n.project) return;
+    const ok = await run('작품에 넣는 중', async () => {
+      const v = await api('POST', `/projects/${enc(n.project)}/ref-notes`, { text: n.text, ref: n.ref, from_name: n.from_name, from_eps: n.from_eps, kind: n.kind, use: n.use });
+      if (S.name === n.project && S.project) S.project.ref_notes = v.notes;
+      refNoteForget(n.job);
+      S.refNote = null;
+      S.ref = await api('GET', `/refs/${enc(S.ref.id)}`);
+    });
+    if (ok) toast('참고 메모를 작품에 넣었어요. 그 작품 설정 도우미의 참고 구조에서 끄거나 고칠 수 있어요.', false, { actions: [{ label: '설정 도우미 열기', run: () => { location.hash = `#/p/${enc(n.project)}/setup`; } }] });
+  },
+  async refNoteDrop() {
+    if (!(await askConfirm('이 미리보기를 버릴까요? 작품에는 아무것도 넣지 않아요.', { ok: '버리기', danger: true }))) return;
+    refNoteForget(S.refNote.job);
+    S.refNote = null;
+    render();
+  },
   async refArcsAsk() {
     const id = S.ref.id;
     let est;
@@ -1047,6 +1195,11 @@ document.addEventListener('dragleave', (e) => { const z = e.target.closest && e.
 .ref-made { margin: 0; padding-left: var(--space-20); }
 .ref-body { font-family: var(--serif); line-height: 1.9; max-width: 720px; }
 .ref-body p { margin: 0 0 1em; }
+.ref-note textarea { width: 100%; font-family: inherit; line-height: 1.7; }
+.ref-note .row { align-items: flex-end; flex-wrap: wrap; }
+.setup-refnote { border-top: 1px solid var(--line); padding: var(--space-8) 0; }
+.setup-refnote summary { display: flex; align-items: center; gap: var(--space-8); cursor: pointer; }
+.setup-refnote textarea { width: 100%; margin: var(--space-8) 0; font-family: inherit; line-height: 1.7; }
 @media (max-width: 900px) {
   .ref-pane { position: static; }
   .ref-row-btn { grid-template-columns: 40px 60px minmax(0, 1fr) 60px; min-height: var(--touch-min); }
