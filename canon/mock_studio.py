@@ -10,7 +10,7 @@ from .schema import AnatomyLine, ParagraphAnatomy, ReaderCheck, ReaderGap, Scene
 @responds(StudioDraft)
 def _draft(prompt: str, hint: dict) -> StudioDraft:
     """n 개 안에 더해 정리가 빼는지 볼 안 셋: 빈 안, 첫 안과 같은 안, 굵은 글씨가 붙은 안(떼고 남긴다).
-    첫 안은 감정 이름과 상투 표현을 넣어 문단 지표가 잡는지 본다."""
+    첫 안은 감정 이름과 상투 표현을 넣어 문단 지표가 잡는지 본다. 카드에 '더 지킬 것'이 있으면 안마다 끝에 한 문장을 더한다."""
     n = int(hint.get("n") or 3)
     who = (hint.get("names") or ["그"])[0]
     what = hint.get("action") or "창밖을 본다"
@@ -18,6 +18,9 @@ def _draft(prompt: str, hint: dict) -> StudioDraft:
              f"\"늦었네.\" {who}이 문틈으로 말했다. 빗소리가 창을 두드렸다. 그는 우산을 접었다. {what}.",
              f"빗물이 처마 끝에서 떨어졌다. {who}은 젖은 소매를 비틀어 짰다. 멀리서 개가 짖었다. {what}.",
              f"찻잔이 식어 갔다. {who}은 손잡이를 돌려 잡았다. {what}."]
+    if hint.get("extra"):  # 더 지킬 것을 받은 안은 한 문장이 다르다 (지시 연습의 두 판이 갈리게)
+        tail = ["목소리는 끝까지 낮았다.", "걸음은 끝까지 느렸다.", "손은 끝까지 주머니에 있었다."][len(hint["extra"]) % 3]  # 지시가 다르면 글도 다르게
+        texts = [f"{t} {tail}" for t in texts]
     out = [StudioCandidate(text=texts[i % len(texts)], note=f"{i + 1}번 방향") for i in range(n)]
     out += [StudioCandidate(text="  ", note="빈 안"), StudioCandidate(text=texts[0], note="겹치는 안"),
             StudioCandidate(text=f"**{who}**은 문을 닫았다.", note="굵은 글씨")]

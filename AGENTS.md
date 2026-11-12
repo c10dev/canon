@@ -23,6 +23,7 @@ AI 로 소설을 길게 쓸수록 인물 관계, 심리, 말투, 복선, 문체�
 | 작품 구축 형식(로그라인 · 부와 아크 기획 · 완급 계획 · 플롯 규칙)을 웹소설 · 라이트노벨식(짧은 고구마 · 잦은 사이다 · 성장 축 · 하렘)으로 가르는 일을 할 때 | [docs/webnovel/](docs/webnovel/README.md): 바꿀 곳 조사, 제안, 일감 차례와 정할 것. 일감을 끝내면 그 명세서의 상태와 `docs/webnovel/plan.md` 를 고친다 |
 | 웹 화면(`canon/static/`)의 모양을 고칠 때 | [docs/design/](docs/design/README.md): 디자인 시스템의 원본: 문구 · 색 · 글자 · 간격 규칙(README), 화면 배치(`layout.md`), 토큰 값(`tokens.json`), 컴포넌트별 문서와 미리보기(`components/<이름>/README.md` · `preview.html`), 미리보기가 읽는 컴포넌트 CSS 사본(`components/bundle.css`) |
 | 웹 화면의 쓰는 흐름(가림막 · 다시 그릴 때 본문 칸 지키기 · 대화 에이전트 하나로 합치기 · AI 답 흘려 보이기 · 집필 화면의 상태 변경안 · 메뉴 정리)을 고칠 때 | [docs/ux/](docs/ux/README.md): 2026-11-09 관찰 결과, 일감 차례와 작업 명세서. 일감을 끝내면 그 명세서의 상태와 `docs/ux/plan.md` 를 고친다 |
+| 지시 연습(`canon/drill.py` · `static/drill.js`: 가려 둔 원고 대목에 지시를 적고 AI가 쓴 글을 되짚는 작품 밖 도구)을 고칠 때 | [docs/drill/](docs/drill/README.md): 정한 규칙, 데이터 형식, 일감 차례. 일감을 끝내면 그 문서의 일감 표를 고친다 |
 | 프롬프트 글(`prompts.py` 의 지시 · 규칙 줄 · `PREAMBLE`, `llm.POLICY_NOTE` · `ADULT_NOTE`)을 다듬거나 줄일 때 | [docs/prompts/editing.md](docs/prompts/editing.md): 편집 AI의 가치관 · 제공자 정책을 끼워 넣지 않는 원칙(0절), 뜻 지도, 확인 층 |
 | 스키마 · 프롬프트 · 파이프라인 · 검수 · 스토리보드 · 큐 시트 · 저장 · 작업 · 자동 집필 · 명령줄 · 웹 서버를 고칠 때 | [docs/modules/core.md](docs/modules/core.md) |
 | LLM 백엔드 · 사용량 · 판단기 · 가짜 응답(mock) · 환경 변수를 고칠 때 | [docs/modules/ai.md](docs/modules/ai.md) |

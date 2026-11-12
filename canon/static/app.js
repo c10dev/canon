@@ -547,7 +547,7 @@ async function pollJobs(soon = false) {
   for (const j of S.jobs) {
     const old = before.get(j.id);
     const progressed = !old || old.done !== j.done || old.status !== j.status;
-    const mine = j.project === S.name || j.project === REV_JOBS || (typeof LIB_JOBS !== 'undefined' && j.project === LIB_JOBS) || (typeof REF_JOBS !== 'undefined' && j.project === REF_JOBS) || (typeof STU_JOBS !== 'undefined' && j.project === STU_JOBS);  // 문단 연습장 AI 작업도 작품 밖이다 (studio.js)  // 레퍼런스 원고 newto 가져오기도 작품 밖이다 (refs.js)  // 문체 라이브러리 분석도 작품 밖이다 (style.js)  // 역설계 실험 작업은 작품 밖이라 어느 화면에서든 제 알림을 낸다 (revlab.js)
+    const mine = j.project === S.name || j.project === REV_JOBS || (typeof LIB_JOBS !== 'undefined' && j.project === LIB_JOBS) || (typeof REF_JOBS !== 'undefined' && j.project === REF_JOBS) || (typeof STU_JOBS !== 'undefined' && j.project === STU_JOBS) || (typeof DR_JOBS !== 'undefined' && j.project === DR_JOBS);  // 지시 연습 작업도 작품 밖이다 (drill.js)  // 문단 연습장 AI 작업도 작품 밖이다 (studio.js)  // 레퍼런스 원고 newto 가져오기도 작품 밖이다 (refs.js)  // 문체 라이브러리 분석도 작품 밖이다 (style.js)  // 역설계 실험 작업은 작품 밖이라 어느 화면에서든 제 알림을 낸다 (revlab.js)
     if (progressed && !mine && old && old.status === 'running' && j.status !== 'running') {
       // 다른 작품을 보는 동안 끝났다. 결과는 그 작품을 열면 다시 놓인다 (pending.json)
       const after = SCREEN_ONLY_JOBS.has(j.kind) ? '결과는 그 작품 화면에만 놓여서 남지 않았어요. 그 작품에서 다시 받으세요' : '그 작품을 열면 결과가 보여요';
@@ -595,7 +595,7 @@ async function pollJobs(soon = false) {
     }
     if (j.status !== 'running' && !(old && old.status !== 'running')) await finishJob(j);
     // 설정 · 사용량 · 문체 라이브러리처럼 작품 밖 화면은 S.name 이 남아 있어도 다시 그리지 않는다
-    if ((S.route[0] === 'p' && jobPages(j).includes(S.route[2] || 'home')) || (S.route[0] === 'revlab' && j.project === REV_JOBS) || (S.route[0] === 'styles' && j.kind === 'lib_style') || (S.route[0] === 'refs' && (j.kind === 'ref_newto' || j.kind === 'ref_digest' || j.kind === 'ref_arcs' || j.kind === 'ref_note')) || (S.route[0] === 'studio' && typeof STU_JOBS !== 'undefined' && j.project === STU_JOBS)) {
+    if ((S.route[0] === 'p' && jobPages(j).includes(S.route[2] || 'home')) || (S.route[0] === 'revlab' && j.project === REV_JOBS) || (S.route[0] === 'styles' && j.kind === 'lib_style') || (S.route[0] === 'refs' && (j.kind === 'ref_newto' || j.kind === 'ref_digest' || j.kind === 'ref_arcs' || j.kind === 'ref_note')) || (S.route[0] === 'studio' && typeof STU_JOBS !== 'undefined' && j.project === STU_JOBS) || (S.route[0] === 'drill' && typeof DR_JOBS !== 'undefined' && j.project === DR_JOBS)) {
       redraw = true;
       if (j.status === 'done') resultFocus = RESULT_FOCUS[j.kind] || '#app .proposal button, #app .proposal input';
     }
@@ -2370,7 +2370,7 @@ async function routeNow() {
     }
     if (!S.genres) S.genres = await api('GET', '/genres').catch(() => []);
     if (!S.namingStyles) S.namingStyles = await api('GET', '/naming/styles').catch(() => []);
-    if (['usage', 'revlab', 'soelab', 'styles', 'rules', 'refs', 'studio', 'promptlab', 'prompts'].includes(parts[0])) {  // 작품 밖 사이드바의 최근 작품 · 문체 · 원고 수 (처음 한 번만, 작품 목록에 오면 다시 읽는다)
+    if (['usage', 'revlab', 'soelab', 'styles', 'rules', 'refs', 'studio', 'drill', 'promptlab', 'prompts'].includes(parts[0])) {  // 작품 밖 사이드바의 최근 작품 · 문체 · 원고 수 (처음 한 번만, 작품 목록에 오면 다시 읽는다)
       if (!S.projects) S.projects = await api('GET', '/projects').catch(() => null);
       if (!S.libs) S.libs = await api('GET', '/styles').catch(() => null);
       if (!S.refList) S.refList = await api('GET', '/refs').then((r) => r.refs).catch(() => null);
@@ -2396,6 +2396,10 @@ async function routeNow() {
       S.name = null;
       S.project = null;
       await stuLoad(parts[1]);
+    } else if (parts[0] === 'drill') {
+      S.name = null;
+      S.project = null;
+      await drLoad(parts[1]);
     } else if (parts[0] === 'promptlab') {
       S.name = null;
       S.project = null;
@@ -2743,6 +2747,7 @@ function drawApp() {
   if (p === 'soelab') return outside('soelab', 1280, viewSoe());
   if (p === 'refs') return outside('refs', 1280, viewRefs());
   if (p === 'studio') return outside('studio', 1180, viewStudio());
+  if (p === 'drill') return outside('drill', 1280, viewDrill());
   if (p === 'promptlab') return outside('promptlab', 1280, viewPromptLab());
   if (p === 'prompts') return outside('prompts', 1280, viewPrompts());
   if (p === 'styles') return outside('styles', 1180, S.route[1] && S.lib ? viewLibEntry() : viewLibrary());

@@ -246,6 +246,7 @@
   - `CANON_NO_BROWSER`: 1 이면 `serve` 가 브라우저를 열지 않는다(`updater` 가 다시 띄울 때 쓴다)
   - `CANON_NO_BUNDLE`: 1 이면 웹 화면 스크립트를 묶지 않고 파일마다 보낸다(오류 위치 보기, `web._bundle`)
   - `CANON_PORT`: `scripts/canon-mac.command` 가 띄우는 웹 포트(기본 8000)
+  - `CANON_DRILL`: 지시 연습 판 폴더(기본 `<CANON_HOME>/.drill`, `drill.py`)
   - `CANON_PROMPTLAB`: 프롬프트 놀이터 세션 폴더(기본 `<CANON_HOME>/.promptlab`, `promptlab.py`)
   - `CANON_PROMPTSETS`: 프롬프트 관리 페이지의 실험 판 폴더(기본 `<CANON_HOME>/.promptsets`, `promptset.py`)
   - `CANON_REFS`: 레퍼런스 원고 폴더(기본 `<CANON_HOME>/.refs`, `refs.py`)
@@ -279,6 +280,7 @@
   - `mock_blueprint.py` 능력 일정 제안(`AbilityProposal`): 두 줄과 정리가 거르는 줄(이름에 붙은 등급 꼬리, 같은 줄, 다른 인물, 범위 밖)
   - `mock_blueprint.py` 능력 일정 제안의 도감 초안(`AbilityProposal.codex`): 한 항목과 정리가 거르는 항목(등급 꼬리, 같은 이름, 줄 없는 능력, 빈 등급)
   - `mock_blueprint.py` 작품 전체 짜기(`BlueprintPlanSet`): 쌍마다 차례로 엇갈린 이정표 두 줄 · 칸 한 칸, 능력 한 줄, 정리가 거르는 항목(고르지 않은 쌍, 같은 쌍 두 번째 항목, 범위 밖 편성)
+  - `mock_drill.py` 지시 연습: 사실 뽑기(`DrillFacts`)와 되짚기(`DrillReview`), 정리가 거르는 항목(원문을 옮긴 줄, 본문에 없는 인용, 없는 줄 번호)
   - `mock_heat.py` 완급 계획: 기승전결과 함께(`HeatArcPlan`), 다음 아크와 함께(`HeatArcProposal`), 완급 계획만(`HeatProposal`, 첫 화를 열 5로 보내 본문 있는 화 지키기를 시험)
   - `mock_knows.py` 아는 정보 접기
   - `mock_offscreen.py` 화면 밖 근황
@@ -288,6 +290,7 @@
   - `mock_revlab.py` 역설계
   - `mock_stage.py` 장면 연출
   - `mock_studio.py` 문단 연습장
+  - `mock_studio.py` 의 AI 안은 카드에 '더 지킬 것'이 있으면 끝에 한 문장을 더한다(지시 연습의 두 판이 갈리게)
 
 ### `canon/usage.py`
 

@@ -26,6 +26,7 @@ const USAGE_DAYS = [[1, '오늘'], [7, '7일'], [30, '30일'], [90, '90일'], [0
 const USAGE_STAGE = { plan: '계획', board: '스토리보드 · 큐 시트', write: '본문', check: '검수', state: '상태 변경안', audit: '누락 검사', name: '이름 추천', revise: '부분 수정', illustration: '삽화 프롬프트', play: '플레이 장면', chat: '플롯 대화', research: '연구 · 모델 실험' };
 const USAGE_SOURCE = { web: '화면에서 직접', autorun: '자동 집필', research: '연구 화면', cli: '명령줄' };
 const USAGE_TASK = {
+  drill: '지시 연습',
   suggest: '설정 제안', arc: '기승전결 구조', series: '부 구성', nextarc: '다음 아크', convert: '장편 전환', rebuild: '장편 재구성 계획', rework: '재구성 다듬기', storyline: '이야기 줄기',
   recap_arc: '아크 요약', recap_part: '부 요약', fold_knows: '아는 정보 접기', offscreen: '화면 밖 근황', plots: '화별 플롯', write: '본문', state: '상태 변경안', impact: '인과율 영향 분석',
   hook: '흡입력 판정', openings: '여는 방식 안', opening_drafts: '여러 안으로 쓰기',
