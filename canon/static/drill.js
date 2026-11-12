@@ -62,7 +62,11 @@ async function drLoad(id) {
     S.dr = null;
     S.drForm = null;
     const src = S.drHome.sources;
+    // 문체는 앞 판에서 고른 것을 기본으로 둔다 (문체 없이 쓰면 원문과 시점 · 줄 나눔부터 달라진다). 라이브러리에서 지운 문체는 쓰지 않는다
+    const last = ((S.drHome.rounds.find((x) => x.style_id) || {}).style_id) || '';
+    const known = (id) => !!id && (!S.libs || S.libs.some((l) => l.id === id));
     if (!S.drNew || !src.some((x) => x.id === S.drNew.ref_id)) S.drNew = { ref_id: src.length ? src[0].id : '', order: 0, part: 0, kind: '', tension: 0, style_id: (S.drNew || {}).style_id || '' };
+    if (!S.drNew.style_id && !S.drStylePicked && known(last)) S.drNew.style_id = last;
     await drLoadEps();
     return;
   }
@@ -210,13 +214,20 @@ function drBriefForm() {
       ${input('인물', 'brief.people', { ...o, rows: 3, placeholder: '한 줄에 한 사람, 이름: 처지' })}
       <div class="grid-2">${input('시점 인물', 'brief.pov', o)}${input('장소', 'brief.place', o)}</div>
       ${input('때 · 날씨', 'brief.time', o)}
-      ${input('직전 상황', 'brief.before', { ...o, rows: 2 })}</section>
+      ${input('직전 상황', 'brief.before', { ...o, rows: 2 })}
+      ${input('속사정', 'brief.inner', { ...o, rows: 3, placeholder: '시점 인물만 아는 것을 한 줄에 하나: 숨기는 것, 진짜 사정, 노리는 것' })}</section>
     <section class="card"><h2>일어나는 일</h2>${input('일어나는 일', 'brief.events', { ...o, rows: 6, placeholder: '한 줄에 하나, 일어나는 차례대로' })}</section>
     <section class="card"><div class="between"><h2>쓰는 방식</h2><span class="chip${n > max ? ' bad' : ''}" id="dr-count">${n}/${max}줄</span></div>
       ${input('바뀌는 것', 'brief.change', { ...o, rows: 2, placeholder: '무엇에서 무엇으로 바뀌나요, 누가 무엇을 알게 되나요' })}
       ${input('하지 않는 것', 'brief.avoid', { ...o, rows: 2, placeholder: '예: 손대기, 목소리 높이기' })}
       ${input('방식', 'brief.manner', { ...o, rows: 2, placeholder: '말투 · 속도, 예: 존댓말을 지키고 짧게 끊는다' })}
-      <p class="small">AI가 이 칸이 있는 판과 없는 판을 함께 써요.</p></section>`;
+      <p class="small">AI가 이 칸이 있는 판과 없는 판을 함께 써요.</p><ul class="dr-list small" id="dr-hints">${drHints()}</ul></section>`;
+}
+
+/** 쓰기 전 줄 힌트 (drill.hints, AI 없음): 저장할 때마다 서버가 다시 본다. 막지 않고 알리기만 한다 */
+function drHints() {
+  const h = S.drHome || { boxes: {} };
+  return ((S.dr || {}).hints || []).map((x) => `<li>${x.text ? `<strong>${esc(x.text)}</strong> ` : `<strong>${esc(h.boxes[x.box] || x.box)}</strong> `}${esc(x.hint)}</li>`).join('');
 }
 
 /** 지시를 저장한다 (칸을 벗어날 때). 줄 수 상한을 넘으면 서버가 막고 그 말을 알린다 */
@@ -228,6 +239,8 @@ async function drSaveBrief() {
     if (S.dr && S.dr.id === id) { S.dr = r; S.drDirty = false; }
     const el = $('#dr-saved');
     if (el) el.textContent = '저장했어요';
+    const hints = $('#dr-hints');
+    if (hints) hints.innerHTML = drHints();
     return true;
   } catch (e) {
     toast(e.message, true);
@@ -251,6 +264,7 @@ document.addEventListener('change', async (e) => {
   if (el.dataset.root !== 'drNew') return;
   if (el.dataset.bind === 'ref_id') { S.drNew.order = 0; S.drNew.part = 0; await drLoadEps(); }
   if (el.dataset.bind === 'order') S.drNew.part = 0;
+  if (el.dataset.bind === 'style_id') S.drStylePicked = true;  // 작가가 '고르지 않음'을 골랐으면 앞 판 문체로 되돌리지 않는다
   render();
 });
 

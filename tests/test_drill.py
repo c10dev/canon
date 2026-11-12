@@ -188,6 +188,7 @@ def test_web_round_runs_to_the_review(client, book, monkeypatch):
     assert client.put(url, json={"brief": {**brief, "manner": "1\n2\n3\n4"}}).status_code == 400
     r = client.put(url, json={"brief": brief}).json()
     assert r["method_lines"] == 3 and [x["box"] for x in r["lines"]] == ["change", "avoid", "manner"]
+    assert r["hints"] == [] and client.get("/api/drill").json()["rounds"][0]["style_id"] == ""
     j = done({"kind": "write"})
     assert j["result"] == {"id": did, "no": 1, "reviewed": True} and j["kind"] == "dr_write"
     r = client.get(url).json()
@@ -312,3 +313,33 @@ def test_revise_guards(book):
         drill.pick_side(r, "middle")
     drill.pick_side(r, "left" if not a.flip else "right")
     assert a.pick == "old" and a.picked_at and drill.pending(r) is None and drill.stage(r) == "done"
+
+
+def test_card_writes_in_lines_with_inner_facts_and_no_invention(book):
+    """2026-11-12 작가의 세 판: AI 글이 한 덩어리로 나왔고, 원문의 속사정이 사실에서 빠졌고, 없는 과거를 지어냈다."""
+    r = _round(book)
+    assert r.facts.inner == ["서연은 물건을 사러 온 것이 아니다"] and r.brief.inner == r.facts.inner[0]  # 빈 줄 · 원문을 옮긴 줄은 빠진다
+    b = drill.clean_brief(r.brief.model_copy(update={"avoid": "주변 묘사", "inner": r.brief.inner + "\n도윤을 전에 본 적이 있다"}))
+    card, bare = drill.card_of(r, b), drill.card_of(r, b, bare=True)
+    assert card.lines and bare.lines and card.action == bare.action and card.action.endswith(drill.NO_INVENT)
+    assert "서연만 아는 속사정:\n· 서연은 물건을 사러 온 것이 아니다\n· 도윤을 전에 본 적이 있다\n일어나는 일" in card.action
+    p = prompts.paragraph_prompt(studio.world(card), card, 1, [])
+    assert "장면 한 토막" in p and prompts.PARAGRAPH_LINES in p and "한 덩어리로 씁니다" not in p
+    plain = card.model_copy(update={"lines": False})
+    q = prompts.paragraph_prompt(studio.world(plain), plain, 1, [])
+    assert "문단 하나(약" in q and "빈 줄 없이 한 덩어리로 씁니다" in q and prompts.PARAGRAPH_LINES not in q  # 문단 연습장은 그대로다
+    assert [(x.box, x.text) for x in drill.author_lines(b, drill.facts_brief(r.facts))] == [("inner", "도윤을 전에 본 적이 있다"), ("avoid", "주변 묘사")]
+    assert "시점 인물의 속사정:\n- 서연은 물건을 사러 온 것이 아니다" in drill.brief_text(b)
+    old = DrillRound.model_validate({"id": "a" * 12, "facts": {"people": [], "pov": "", "place": "", "time": "", "before": "", "events": ["말을 건다"]}})
+    assert old.facts.inner == [] and drill.facts_brief(old.facts).inner == ""  # 속사정이 없던 때의 판 파일도 읽힌다
+
+
+def test_hints_point_at_lines_that_do_not_change_the_text():
+    b = DrillBrief(events="강주혁이 순수하게 고마워서 사는 것이라며 식사를 권한다\n서하은이 한 번뿐이라며 승낙한다", change="서하은의 태도, 성격", manner="짧게 끊는다")
+    got = {(h["box"], h["text"]): h["hint"] for h in drill.hints(b)}
+    assert "무엇에서 무엇으로" in got[("change", "서하은의 태도, 성격")] and "비었어요" in got[("avoid", "")] and ("manner", "짧게 끊는다") not in got
+    again = b.model_copy(update={"change": "순수하게 고마워서 사는 것이라며 식사를 권한다", "avoid": "주변 묘사"})
+    assert [(h["box"], h["hint"][:10]) for h in drill.hints(again)] == [("change", "일어나는 일에 이미")]
+    assert drill.hints(again.model_copy(update={"change": "", "avoid": "식사를 권한다고 순수하게 고마워서 사는 것이라며"})) == []  # 금지 줄은 겹쳐도 짚지 않는다
+    good = b.model_copy(update={"change": "하은이 겁먹은 사람에서 다시 쏘아붙이는 사람으로 돌아온다\n주혁이 자기가 위협하는 쪽임을 알아챈다", "avoid": "손대기"})
+    assert drill.hints(good) == [] and drill.hints(DrillBrief(events="말을 건다")) == []

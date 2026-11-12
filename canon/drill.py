@@ -49,12 +49,15 @@ LAYERS: dict[str, tuple[str, str]] = {
 }
 RESULTS = {"applied": "반영됨", "overdone": "과하게 풀림", "ignored": "무시됨", "unsure": "판정 못 함"}
 # 지시 칸: id → 화면 이름. 앞 여섯은 사실 · 일어나는 일, 뒤 셋은 쓰는 방식이다
-BOXES = {"people": "인물", "pov": "시점 인물", "place": "장소", "time": "때", "before": "직전 상황", "events": "일어나는 일",
+BOXES = {"people": "인물", "pov": "시점 인물", "place": "장소", "time": "때", "before": "직전 상황", "inner": "속사정", "events": "일어나는 일",
          "change": "바뀌는 것", "avoid": "하지 않는 것", "manner": "방식"}
 METHOD = ("change", "avoid", "manner")
 # AI가 판정하지 않은 줄에 붙이는 층: 적은 칸으로 어림한다 (그 밖의 사실 칸은 배경 정보)
 BOX_LAYER = {"change": "change", "avoid": "ban", "manner": "manner", "events": "event"}
-FACT_LINES = ("people", "before", "events")  # 여러 줄 칸
+FACT_LINES = ("people", "before", "inner", "events")  # 여러 줄 칸
+INNER_MAX = 4  # 시점 인물의 속사정 줄 수
+NO_INVENT = "위에 없는 과거, 직업, 관계, 사건은 지어내지 않습니다."  # 두 판 모두에 넣는 줄 (card_of)
+DUP_MIN = 0.5  # 쓰는 방식 줄이 일어나는 일 줄과 이만큼 겹치면 같은 말로 본다 (두 글자 묶음의 겹친 비율)
 FACT_ONE = ("pov", "place", "time")  # 한 줄 칸
 
 
@@ -226,7 +229,9 @@ def clean_facts(f: DrillFacts, source: str, lead: str = "") -> DrillFacts:
     if not events:
         raise ValueError("AI가 일어나는 일을 뽑지 못했어요. 다시 해 보세요")
     one = lambda t: " ".join(t.split())[:LINE_MAX] if ok(t) else ""  # noqa: E731
-    return DrillFacts(people=people[:PEOPLE_MAX], pov=one(f.pov), place=one(f.place), time=one(f.time), before=one(f.before), events=events[:EVENTS_MAX])
+    inner = [e.strip()[:LINE_MAX] for e in f.inner if ok(e)]
+    return DrillFacts(people=people[:PEOPLE_MAX], pov=one(f.pov), place=one(f.place), time=one(f.time), before=one(f.before), inner=inner[:INNER_MAX],
+                      events=events[:EVENTS_MAX])
 
 
 def facts_brief(f: Optional[DrillFacts]) -> DrillBrief:
@@ -234,7 +239,7 @@ def facts_brief(f: Optional[DrillFacts]) -> DrillBrief:
     if f is None:
         return DrillBrief()
     return DrillBrief(people="\n".join(f"{p.name}: {p.note}" if p.note else p.name for p in f.people), pov=f.pov, place=f.place, time=f.time,
-                      before=f.before, events="\n".join(f.events))
+                      before=f.before, inner="\n".join(f.inner), events="\n".join(f.events))
 
 
 def set_facts(r: DrillRound, f: DrillFacts, model: str = "") -> None:
@@ -283,13 +288,16 @@ def _people(text: str) -> list[StudioPerson]:
 
 def card_of(r: DrillRound, b: DrillBrief, bare: bool = False) -> SceneCard:
     """지시를 문단 연습장 상황 카드로 옮긴다 (docs/drill 정한 것 12). bare 면 쓰는 방식을 비운다. 원문은 넣지 않는다.
-    직전 상황과 일어나는 일은 '무슨 일'에, 쓰는 방식은 '더 지킬 것'에 줄마다 물음 이름을 붙여 넣는다."""
+    직전 상황 · 속사정 · 일어나는 일은 '무슨 일'에, 쓰는 방식은 '더 지킬 것'에 줄마다 물음 이름을 붙여 넣는다.
+    두 판 모두 줄을 나눠 쓰게 하고(SceneCard.lines), 사실에 없는 것을 지어내지 말라는 줄(NO_INVENT)을 '무슨 일' 끝에 넣는다."""
     events = "\n".join(f"{i}. {x}" for i, x in enumerate(_lines(b.events), 1))
-    action = (f"직전 상황: {' '.join(_lines(b.before))}\n" if b.before.strip() else "") + f"일어나는 일 (이 차례대로):\n{events}"
+    inner = "".join(f"\n· {x}" for x in _lines(b.inner))
+    action = ((f"직전 상황: {' '.join(_lines(b.before))}\n" if b.before.strip() else "")
+              + (f"{b.pov or '시점 인물'}만 아는 속사정:{inner}\n" if inner else "") + f"일어나는 일 (이 차례대로):\n{events}\n{NO_INVENT}")
     extra = "" if bare else "\n- ".join(f"{BOXES[k]}: {x}" for k, x in method_lines(b))
     lo, hi = studio.LENGTH
     return studio.clean_card(SceneCard(people=_people(b.people), pov=b.pov, place=b.place, time=b.time, action=action, extra=extra,
-                                       length=max(lo, min(hi, round(len(r.source) / 50) * 50)), style_id=r.style_id))
+                                       length=max(lo, min(hi, round(len(r.source) / 50) * 50)), style_id=r.style_id, lines=True))
 
 
 def brief_text(b: DrillBrief) -> str:
@@ -297,7 +305,32 @@ def brief_text(b: DrillBrief) -> str:
     rows = [f"{BOXES[k]}: {getattr(b, k)}" for k in FACT_ONE if getattr(b, k)]
     people = "\n".join(f"- {x}" for x in _lines(b.people)) or "- 없음"
     events = "\n".join(f"{i}. {x}" for i, x in enumerate(_lines(b.events), 1)) or "없음"
-    return "\n".join([*rows, f"인물:\n{people}", f"직전 상황: {' '.join(_lines(b.before)) or '없음'}", f"일어나는 일:\n{events}"])
+    inner = "\n".join(f"- {x}" for x in _lines(b.inner)) or "- 없음"
+    return "\n".join([*rows, f"인물:\n{people}", f"직전 상황: {' '.join(_lines(b.before)) or '없음'}", f"시점 인물의 속사정:\n{inner}", f"일어나는 일:\n{events}"])
+
+
+_FROM_TO = re.compile(r"에서.+(?:으로|로)\b|에서.+(?:이|가)\s*(?:된|되)|→|->|알게|알아[채챈챘]|깨닫|깨달|눈치")
+
+
+def _grams(t: str) -> set[str]:
+    t = re.sub(r"[^가-힣a-zA-Z0-9]", "", t)
+    return {t[i:i + 2] for i in range(len(t) - 1)}
+
+
+def hints(b: DrillBrief) -> list[dict]:
+    """쓰기 전에 보이는 줄 힌트 [{box, text, hint}] (AI 없음, 막지 않는다). 2026-11-12 작가의 세 판에서 되풀이된 것만 본다:
+    무엇에서 무엇으로가 없는 '바뀌는 것', 일어나는 일을 다시 적은 줄, 빈 '하지 않는 것'."""
+    out = []
+    facts = [(x, _grams(x)) for k in ("events", "before") for x in _lines(getattr(b, k))]
+    for k, x in method_lines(b):
+        g = _grams(x)
+        if k != "avoid" and g and any(len(g & h) / len(g) >= DUP_MIN for _, h in facts if h):  # 일어나는 일을 막는 금지 줄은 겹쳐도 먹힌다
+            out.append({"box": k, "text": x, "hint": "일어나는 일에 이미 있는 말이에요. 지시 없는 판도 똑같이 써요"})
+        elif k == "change" and not _FROM_TO.search(x):
+            out.append({"box": k, "text": x, "hint": "무엇에서 무엇으로 바뀌는지, 누가 무엇을 알게 되는지 적어 보세요"})
+    if method_lines(b) and not _lines(b.avoid):
+        out.append({"box": "avoid", "text": "", "hint": "하지 않는 것이 비었어요. AI의 버릇(주변 묘사, 손짓 하나하나)은 여기 적어야 빠져요"})
+    return out
 
 
 def author_lines(b: DrillBrief, base: Optional[DrillBrief] = None) -> list[DrillLine]:
@@ -469,7 +502,7 @@ def view(r: DrillRound) -> dict:
     last = r.attempts[-1] if r.attempts else None
     return {**out, "source": r.source if shown else "", "source_chars": len(r.source), "revealed": shown, "stage": stage(r),
             "style_name": style_name(r), "base": base.model_dump(), "lines": [x.model_dump() for x in author_lines(r.brief, base)],
-            "method_lines": len(method_lines(r.brief)), "blind": blind,
+            "method_lines": len(method_lines(r.brief)), "hints": hints(r.brief), "blind": blind,
             "changed": brief_diff(r.attempts[-2].brief, last.brief) if last and last.versus and len(r.attempts) > 1 else None,
             "measures": {str(a.no): {"with": m(a.with_text), "bare": m(a.bare_text), **({"old": m(a.old_text)} if a.old_text else {})} for a in seen},
             "source_measure": m(r.source) if shown else None}
@@ -478,7 +511,7 @@ def view(r: DrillRound) -> dict:
 def summary(r: DrillRound) -> dict:
     a = next((x for x in reversed(r.attempts) if x is not pending(r)), None)
     last = r.attempts[-1] if r.attempts else None
-    return {"id": r.id, "title": r.title, "stage": stage(r), "style_name": style_name(r), "lines": len(a.verdicts) if a else 0,
+    return {"id": r.id, "title": r.title, "stage": stage(r), "style_id": r.style_id, "style_name": style_name(r), "lines": len(a.verdicts) if a else 0,
             "results": {k: sum(v.result == k for v in a.verdicts) for k in RESULTS} if a else {}, "pick": last.pick if last else "",
             "created_at": r.created_at, "updated_at": r.updated_at}
 

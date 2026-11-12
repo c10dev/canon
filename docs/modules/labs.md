@@ -42,6 +42,10 @@
 - `set_facts` 는 작가가 아직 고치지 않은 사실 · 일어나는 일 칸만 새 값으로 채운다
 - 지시 `DrillBrief` 의 칸 이름은 `BOXES`. 쓰는 방식(`METHOD`: 바뀌는 것 · 하지 않는 것 · 방식)은 합쳐 `METHOD_MAX` 줄까지다(`clean_brief`)
 - 쓰기 전 확인 `can_write`: 일어나는 일과 쓰는 방식이 한 줄은 있어야 하고, 원문 문장이 든 칸이 있으면 막는다
+- `card_of` 는 두 판 모두 줄을 나눠 쓰게 하고(`SceneCard.lines`), 속사정을 '무슨 일'에 넣고, 끝에 지어내지 말라는 줄 `NO_INVENT` 를 넣는다
+- 사실의 속사정 `DrillFacts.inner`(시점 인물만 아는 것, `INNER_MAX` 줄)는 지시의 '속사정' 칸 `DrillBrief.inner` 가 된다
+- 쓰기 전 줄 힌트 `hints`(AI 없음, 막지 않음): 무엇에서 무엇으로가 없는 '바뀌는 것'(`_FROM_TO`), 일어나는 일과 `DUP_MIN` 넘게 겹치는 줄, 빈 '하지 않는 것'
+- 금지 줄은 일어나는 일과 겹쳐도 짚지 않는다. `view` 가 `hints` 로 싣는다
 - 상황 카드로 옮기기 `card_of`: 직전 상황 · 일어나는 일은 `action`, 쓰는 방식은 `extra`, `bare` 면 쓰는 방식을 비운다. 원문은 넣지 않는다
 - 되짚을 줄 `author_lines`: 쓰는 방식의 모든 줄과, AI가 뽑은 것(`facts_brief`)과 다른 사실 · 일어나는 일 줄. `JUDGED_MAX` 줄까지
 - 층 `LAYERS`(배경 정보 · 사건 · 바뀌는 것 · 가릴 것 · 방식 · 동작 · 금지)와 결과 `RESULTS`(반영됨 · 과하게 풀림 · 무시됨 · 판정 못 함)
@@ -59,7 +63,7 @@
 - 고친 지시가 더한 줄 · 뺀 줄 `brief_diff` 는 `view` 의 `changed` 로 간다
 - 기록 `stats`: 층마다 줄 수 · 비율 · 결과 수 · 먹힌 줄(`_worked`: 반영됐고 지시 없는 판과 다름) · 고쳐서 더했을 때 이긴 판 수
 - `stats` 의 층 비율과 결과는 판마다 첫 시도의 줄로 센다. 추세는 최근 `RECENT` 판과 그 전의 먹힌 줄 비율, 최근 `TREND_MAX` 판의 줄이다
-- AI 호출은 `pipeline.drill_facts`(plan) · `drill_write`(write, 카드 둘을 `draft_paragraph` 로 한 번씩) · `drill_review`(check)
+- AI 호출은 `pipeline.drill_facts`(plan) · `drill_write`(write, 카드 둘을 `draft_paragraph` 로 한 번씩, 두 호출을 함께 보냄) · `drill_review`(check)
 - 프롬프트는 `prompts.drill_facts_prompt` · `drill_review_prompt`. 쓰기는 문단 연습장의 `paragraph_prompt` 그대로다
 - 원문이 들어가는 요청은 사실 뽑기와 되짚기 둘뿐이다
 - 가짜 응답 `mock_drill.py`
@@ -569,6 +573,8 @@
 - 가려 읽기 `drBlind`: 왼쪽 · 오른쪽 두 글(`.dr-two`)과 고르기 버튼 셋(`drPick`). 이 단계에는 주 버튼이 없다
 - 고른 뒤 `drPicked` 가 고른 쪽과 더한 줄 · 뺀 줄을 보이고, 견주기는 고친 지시로 쓴 판 · 앞 지시로 쓴 판 · 원문이 된다
 - 처음 화면의 기록 카드 `drStats`: 층별 표와 접어 둔 최근 판 표
+- 쓰는 방식 카드 아래 줄 힌트 `drHints`(`#dr-hints`)는 지시를 저장할 때마다 서버 것으로 바꾼다
+- 새 판의 문체는 앞 판에서 고른 문체가 기본이다(`drLoad`). 작가가 '고르지 않음'을 고르면(`S.drStylePicked`) 되돌리지 않는다
 - 지시 칸 `drBriefForm`: 사실 · 일어나는 일 · 쓰는 방식. `DRAFT_ROOTS.drForm` 으로 묶고 칸을 벗어날 때 조용히 저장한다(`drSaveBrief`)
 - 쓰는 방식 줄 수는 `#dr-count` 에 바로 센다(`drMethodCount`)
 - 견주기 `drCompare`: 지시 있는 판 · 지시 없는 판 · 원문 세 칸(`.dr-three`, 1100px 이하에서 한 칸)과 문단 지표
@@ -805,6 +811,7 @@
 - 감정 이름 확인은 대사 밖 서술에서만 `EMOTION_WORDS` 와 쇠맛 패턴 '감정 이름 서술'을 본다
 - 프롬프트 재료 `world`: 고른 문체만 채운 저장하지 않는 `Project`(프롬프트는 `prompts.paragraph_system` · `paragraph_prompt`)
 - AI 호출은 `pipeline.draft_paragraph`(write 단계, 빈 안 · 겹치는 안 · 출발 글과 같은 안을 빼고 굵은 글씨를 뗌)
+- 카드의 `lines`(줄 나눔)는 지시 연습이 켠다. 켜면 `paragraph_prompt` 가 '한 덩어리' 줄 대신 `prompts.PARAGRAPH_LINES` 를 넣는다. 문단 연습장 화면에는 이 칸이 없다
 - 구조: 카드의 문장 차례 `beats`(박자 `BEATS`, 화면 목록 `beats()`) · 가릴 것 `withhold` · 감각 전환 `sense` · 본보기 보이기 `show_model`, 프롬프트 블록 `prompts.structure_block`
 - 뜯어보기 `pipeline.anatomize_paragraph`(plan) → `clean_anatomy`(본보기에 없는 인용은 버림) · `set_anatomy`(지문 `anatomy_of`, 화면 `anatomy_stale`) · `apply_anatomy`
 - 상황 바꿔 보기 `pipeline.vary_scene`(plan, `can_vary`, `clean_variants`, 수 `VARIANTS`) → 고른 상황으로 새 세션 `from_variant`

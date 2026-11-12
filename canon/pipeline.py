@@ -742,8 +742,15 @@ def drill_facts(llm: LLM, source: str, lead: str = "") -> DrillFacts:
 
 def drill_write(llm: LLM, card: SceneCard, bare: SceneCard) -> tuple[str, str]:
     """지시 연습: 카드 둘을 문단 연습장 방식으로 하나씩 쓴다 (write 단계). 원문은 넣지 않는다.
-    첫 시도는 지시 있는 판(card)과 쓰는 방식을 비운 판(bare), 고친 시도는 고친 지시의 판과 앞 지시로 다시 쓴 판이다."""
-    return draft_paragraph(llm, card, 1)[0].text, draft_paragraph(llm, bare, 1)[0].text
+    첫 시도는 지시 있는 판(card)과 쓰는 방식을 비운 판(bare), 고친 시도는 고친 지시의 판과 앞 지시로 다시 쓴 판이다.
+    두 호출은 함께 보낸다 (차례로 보내면 기다리는 시간이 두 배다). 사용량 범위와 멈춤 신호는 스레드에 넘긴다."""
+    import contextvars
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futs = [pool.submit(contextvars.copy_context().run, draft_paragraph, llm, c, 1) for c in (card, bare)]
+        a, b = (f.result() for f in futs)
+    return a[0].text, b[0].text
 
 
 def drill_review(llm: LLM, lines: list[DrillLine], brief: str, with_text: str, bare_text: str, source: str) -> DrillReview:
