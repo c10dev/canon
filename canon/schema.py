@@ -3539,14 +3539,24 @@ class RevLab(BaseModel):
         return x.profile if x else None
 
 
+class RevPiece(BaseModel):
+    """문체 역설계 표본에 뽑은 조각 하나 (revlab.style_spread). 화면에 보이기만 한다. LLM 이 채우지 않는다."""
+    number: int = Field(description="실험의 화 번호")
+    part: str = Field("", description="화의 어느 부분인지 (refsample.PART_NAMES 의 열쇠)")
+    chars: int = 0
+
+
 class RevStyle(BaseModel):
     """역설계 실험의 문체 프로필 한 판 (revlab.run_style). 만든 뒤 고치지 않는다 (메모만). LLM 이 채우지 않는다."""
     id: int = Field(description="실험 안 번호. 1 부터 늘고 지워도 다시 쓰지 않는다")
-    profile: StyleProfile = Field(default_factory=StyleProfile, description="원문 앞부분으로 역설계한 프로필. 예시 문단은 비운다")
+    profile: StyleProfile = Field(default_factory=StyleProfile, description="원문 표본으로 역설계한 프로필. 예시 문단은 비운다")
     model: str = ""
     at: str = ""
-    basis: str = Field("", description="만들 때 넣은 원문(revlab.style_sample)의 sha1 앞 12자. 빈 값은 기록을 넣기 전 판")
-    chars: int = Field(0, description="만들 때 넣은 원문 글자 수")
+    basis: str = Field("", description="원문 지문 sha1 앞 12자 (revlab.style_basis). sampling 이 'spread' 면 원문 전체, 빈 값이면 원문 앞 3만 자. 빈 값은 기록을 넣기 전 판")
+    chars: int = Field(0, description="만들 때 모델에 넣은 표본 글자 수")
+    sampling: str = Field("", description="표본 방식. 'spread' 는 원문 전체에서 고루 뽑고 표지를 전체에서 셈, 빈 값은 원문 앞 3만 자만 쓴 옛 프로필")
+    pieces: list[RevPiece] = Field(default_factory=list, description="흩어 뽑은 조각 (원문 차례). 원문을 통째로 넣었으면 빈 목록")
+    counted: int = Field(0, description="표지 빈도를 센 원문 글자 수. 0 은 표본에서 센 옛 프로필")
     note: str = Field("", description="작가 메모 한 줄")
     library: str = Field("", description="이 프로필을 저장한 문체 라이브러리 항목 id (revlab.to_library). 빈 값은 저장하지 않음")
 

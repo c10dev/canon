@@ -314,7 +314,7 @@ class RefBook(BaseModel):
 5. (2단계) 참고 메모와 프롬프트 블록.
 6. (끝남, 2026-11-11) 전체 읽히기: 화 카드 · `digest.json` · 작업 `ref_digest` · 비용 추정 · 읽힐 AI · 원고 개요 카드 · 표 열(9-2). `canon/refdigest.py`.
 7. (끝남, 2026-11-12) 구조 보기와 아크 · 부 나누기(9-3). `refdigest.pace` · `run_arcs`. 아크를 작가가 고치는 화면은 아직 없다.
-8. (끝남, 2026-11-11) 문체 표본 흩기와 전체에서 표지 세기(9-3). `canon/refsample.py`. 역설계 실험의 문체 프로필(`revlab.style_sample`)은 아직 앞 3만 자다.
+8. (끝남, 2026-11-11) 문체 표본 흩기와 전체에서 표지 세기(9-3). `canon/refsample.py`. 역설계 실험의 문체 프로필(`revlab.style_sample`)도 같은 방식으로 뽑는다(2026-11-12, `revlab.style_spread`).
 9. 설정 · 박자 메모를 화 카드로 만들기(9-3, 5a · 5 와 합친다).
 
 ## 9. 전체 읽히기 (2026-11-11 승인)

@@ -228,7 +228,7 @@
 - 조각마다 큰따옴표의 짝을 맞춘다(`_even`): 잘린 조각은 남은 따옴표 쪽을 잘라 내고, 그래도 홀수면 그 문단을 뺀다. 따옴표 하나가 남으면 `metrics` 의 대사 재기가 그 뒤 글 전체를 뒤집어 센다
 - 2026-11-12 실측: 짝을 맞추기 전 흩은 표본의 대사 비율이 0.61(화별 평균 0.27)로 재졌고, 맞춘 뒤 0.24 가 됐다
 - 돌려주는 값: 보낼 글 `text` · 조각 목록 `pieces`(차례 · 이름 · 부분 · 글자 수) · 흩어 뽑았는지 `spread` · 고른 화의 글자 수 `chars` · 조각을 뽑은 화 수 `episodes`
-- 부르는 곳은 `refs.sample`. 화면 이름 `PART_NAMES` 는 `static/refs.js` 의 `REF_PART` 와 같다
+- 부르는 곳은 `refs.sample` 과 `revlab.style_spread`(역설계 실험의 문체 표본). 화면 이름 `PART_NAMES` 는 `static/refs.js` 의 `REF_PART` 와 같다
 - 시험 `tests/test_refsample.py`
 
 ### `canon/research.py`
@@ -305,6 +305,10 @@
 - 문체 측정(`compare`): 이 화를 뺀 원문 기준 문체 거리(`style_base`, 기준을 못 만들면 `style_note` 에 이유) · 쉼표 문장 비율 · 표지 빈도 경고 · 판이 원문과 장치 예시를 옮긴 문장(`copied` · `copied_examples`)
 - 문체 역설계(`run_style`, `pipeline.analyze_style(passages=False)`: 버릴 대표 문단은 묻지 않는다, `prompts.style_prompt`)
 - 문체 역설계는 실험 인물 이름을 `count_markers` 에 넘겨 이름이 든 표지를 거른다
+- 문체 표본 `style_spread`(2026-11-12): 원문이 `STYLE_CHARS`(3만 자)를 넘으면 앞에서 자르지 않고 실험의 화 전체에서 고루 뽑는다(`refsample.spread`). 글만 필요하면 `style_sample`
+- 실험 화에는 화 카드가 없어 화의 대사 몫(`refsample._talk`, 따옴표 안 글자 비율)으로 화를 고른다. 레퍼런스 원고에서 온 화의 화 카드 성격은 아직 넘기지 않는다
+- `run_style` 은 표지 빈도와 장치 단서를 원문 전체 `style_corpus` 에서 세고 거른다(`analyze_style` 의 `corpus`). 모델은 표본만 읽는다
+- `RevStyle` 은 표본 방식 `sampling`('spread', 빈 값은 앞 3만 자만 쓴 옛 프로필) · 뽑은 조각 `pieces`(`RevPiece`: 화 번호 · 부분 · 글자 수) · 표지를 센 글자 수 `counted` 를 남긴다
 - 문체 프로필 기록(`RevLab.styles` · `style_id`, 더하기 `add_style`, 같은 프로필이면 더하지 않고 고름)
 - 기록 상한 `STYLE_KEEP`(넘치면 지금 프로필과 판이 가리키는 프로필을 빼고 오래된 것부터 지움, 지울 것이 없으면 `check_style_room` 이 AI 를 부르기 전에 막음)
 - 고르기 `select_style` · 지우기 `drop_style`(지금 프로필은 하나만 남았을 때만) · 메모 `note_style`
@@ -313,18 +317,22 @@
 - 아크 · 부 역설계 `run_arcs`(`can_arcs`: 4화 넘게 · 모든 화 역설계, `pipeline.reverse_arcs`, 응답 `RevArcSet`), 정리 `clean_arcs`(`_cover` · `_fit_acts`), 저장 `RevLab.arcs`(`RevArcPlan`)
   - 작가 고침 `set_arcs`(by author · both), 그 뒤 AI 안은 `arc_offer`(`put_arcs`, 고르기 `take_offer`), 지우기 `clear_arcs`
   - 화 번호 옮기기 `_shift_arcs`, 낡음 `arc_state`(아크 밖 화 · 다시 역설계한 화). 웹 `PUT` · `DELETE /api/revlab/<번호>/arcs`, `POST .../arcs/offer`
-- 라이브러리에 저장 `to_library`(원문 앞부분과 AI 없이 고른 대표 문단 `pick_passages`, 항목 id `RevStyle.library`, 라이브러리에서 지우면 화면 값 `library` 가 빔), 웹 `POST /api/revlab/<번호>/styles/<id>/library`
+- 라이브러리에 저장 `to_library`(지금 원문의 표본 `style_sample` 과 AI 없이 고른 대표 문단 `pick_passages`, 항목 id `RevStyle.library`, 라이브러리에서 지우면 화면 값 `library` 가 빔), 웹 `POST /api/revlab/<번호>/styles/<id>/library`
 - 문단 연습장 카드 `paragraph_card`: 원문에서 고른 문단으로 `SceneCard` 를 채운다. AI 없음, 실험은 바꾸지 않음
   - 원문 자리 `find_passage`: 글자 그대로 없으면 공백 묶음을 느슨하게 찾는다 (화면은 큐 칸마다 앞뒤 줄바꿈을 뗀다)
   - 든 큐 `_cue_at`(경계가 큐 수와 맞을 때만)의 일 · 장면(장소 · 자리 · 때 · 있는 인물), 화 플롯 시점 인물, 실험 인물(성격 · 말투)
   - 큐 기능 · 긴장 · 템포 · 편성은 '더 지킬 것' 한 줄. 문단은 본보기 `SceneCard.model`, 출처 `ref`
   - 지금 프로필을 라이브러리에 저장했으면 그 문체를 고른다
   - 웹 `POST /api/revlab/<번호>/episodes/<화>/studio`(세션을 만들어 돌려줌)
-- 기록 화면 값 `style_items`(원문 앞부분이 바뀌었는지 `basis_ok`, `style_basis`)
+- 기록 화면 값 `style_items`(원문이 바뀌었는지 `basis_ok`, `style_basis`)
+- 지문 `style_basis(lab, sampling)`: 'spread' 프로필은 원문 전체의 지문, 옛 프로필은 원문 앞 3만 자(`_front_sample`)의 지문과 견준다. 표본 방식을 바꿔도 옛 프로필이 거짓으로 '원문 바뀜'이 되지 않는다
+- 흩은 표본이 아니라 원문 전체의 지문을 쓰는 까닭: 표지를 전체에서 세고, 뽑는 규칙(`refsample`)을 고쳐도 지문이 그대로다. 화면을 그릴 때마다 표본을 뽑지 않아도 된다
+- 화면 값 `style_pieces`(지금 프로필의 조각 목록, `view` 의 `style_pieces` · `style_counted`, `style_view` 의 `pieces` · `counted`)
 - 판은 넣은 프로필 번호 `RevTake.style_id` 를 남기고, `compare` · `_take_view` 가 `style_old` · `style_gone` 을 붙임
 - 글을 통째로 바꾸면(`replace_text`) 기록은 남기고 `style_id` 만 비움
 - 옛 파일의 `style` · `style_model` · `style_at` 은 읽을 때 1번 항목으로 옮김(`RevLab._old_style`)
 - 비용 추정(`estimate`: parse · write · style)
+- style 추정은 실제 보낼 표본(`style_spread`)으로 세고, 안내 글에 몇 화에서 몇 자를 뽑는지 적는다(`_style_note`)
 - 실험별 AI(`RevLab.ai`, `RevAI`): 단계 `AI_STAGES`(plan 역설계 · 줄기 · 문체, write 되돌려 쓰기)마다 프리셋 id 또는 백엔드 `AI_PROVIDERS` + 모델
 - 쓸 AI 풀기 `ai_choice`(mock 설정 → 프리셋 → 직접 고름 → 설정 단계 칸, 작품 프리셋은 보지 않음) · LLM 만들기 `llm_for` · 고르기 `set_ai`(웹 `PUT /api/revlab/{번호}/ai`) · 화면 값 `ai_view` · 기본 모델 이름 `default_model`
 - 비용 추정 모델도 `ai_choice` 로 고른다
@@ -560,6 +568,7 @@
 - 단계 다섯(`revSteps` · `revStepShare`, 누르면 그 단계 자리 `revStep`) · 화(`revTocEps`, 제목 옆 ＋ 로 화 이어 붙이기 칸 `revAddCard`, 미리보기 `revAppendPreview` 는 `append_text` 와 같은 규칙, '레퍼런스 원고에서' 갈래는 `revRefAddHtml` · 미리보기 `revRefPreview` · 다음 화 `revRefNext` 가 `append_episodes` 와 같은 규칙, 화 머리 출처 칩) · 실험 전체
   - 인물 · 관계 · 배경 `revContextCard`
   - 문체 프로필 `revStyleCard`
+  - 지금 프로필을 만들 때 뽑은 조각 목록 `revStylePieces`(접어 둠, 화마다 부분 이름 · 글자 수, 통째로 넣었거나 옛 프로필이면 없음)
   - 문체 프로필 기록 목록(`.version-list`, 이 프로필 쓰기 `revStyleUse` · 지금과 견주기 `revStyleDiff` 가 `mystyle.js` 의 `changeLines` 로 그림 · 메모 `revStyleNote` · 지우기 `revStyleDrop` · 라이브러리에 저장 `revStyleToLib`, 저장한 뒤에는 라이브러리에서 보기 링크)
   - 판의 문체 한 줄 `revTakeStyle` · 다른 프로필로 쓴 판의 칩 `revStyleTag`(판 목록 · 지표 머리 · 나란히 읽기)
   - 이야기 줄기 `revLinesCard`
