@@ -877,14 +877,32 @@ def span(chosen: list[dict]) -> str:
     return names[0] if len(names) == 1 else f"{names[0]}~{names[-1]}" if names[0].endswith("화") and names[-1].endswith("화") else f"{names[0]} 외 {len(names) - 1}화"
 
 
-def sample(rid: str, orders: list[int]) -> dict:
-    """문체 만들기에 넣을 원문: 고른 화를 이어 SAMPLE_MAX 자까지. 출처 이름도 준다."""
+def sample(rid: str, orders: list[int], spread: bool = True) -> dict:
+    """문체 만들기에 넣을 원문 (SAMPLE_MAX 자까지)과 출처 이름. 고른 화가 SAMPLE_MAX 를 넘으면 앞부분만 자르지 않고
+    범위의 앞 · 가운데 · 뒤에서 화를 골라 첫머리 · 대사 덩어리 · 서술 덩어리 · 끝을 뽑는다 (refsample.spread, AI 없음).
+    화 카드(refdigest)가 있으면 화의 성격으로, 없으면 저장된 대사 비율로 화를 고른다. spread 가 거짓이면 예전처럼 앞에서 자른다.
+    pieces 는 뽑은 조각 [{order, label, part, chars}], cut 은 고른 글을 다 넣지 못했는지."""
+    from . import refdigest, refsample
+
     b = load(rid)
     chosen = pick(b, orders)
-    text = "\n\n".join(c["text"] for c in chosen)
-    cut = len(text) > SAMPLE_MAX
-    return {"text": text[:SAMPLE_MAX].strip(), "cut": cut, "chars": len(text), "source": f"{b.name} {span(chosen)}".strip(),
-            "name": b.name}
+    if not spread:
+        text = "\n\n".join(c["text"] for c in chosen)
+        out = {"text": text[:SAMPLE_MAX].strip(), "spread": False, "chars": len(text), "episodes": len(chosen), "pieces": []}
+    else:
+        cards = {x.basis: x.digest.kind for x in refdigest._fresh(refdigest.load(rid)).values()}
+        talk = {e.order: e.dialogue for e in b.eps}
+        for c in chosen:
+            c["kind"] = cards.get(refdigest.basis(c["text"]), "")
+            c["dialogue"] = talk.get(c["order"], 0.0)
+        out = refsample.spread(chosen, SAMPLE_MAX)
+    return {**out, "cut": out["chars"] > len(out["text"]) + 2, "source": f"{b.name} {span(chosen)}".strip(), "name": b.name,
+            "with_cards": any(c.get("kind") for c in chosen)}
+
+
+def corpus(rid: str, orders: list[int]) -> str:
+    """고른 화의 원문 전체를 이은 글. 문체 분석이 표지 빈도를 표본이 아니라 이 글에서 센다 (pipeline.analyze_style 의 corpus)."""
+    return "\n\n".join(c["text"] for c in pick(load(rid), orders))
 
 
 def made(rid: str, kind: str, ref_id: str, eps: str) -> None:
