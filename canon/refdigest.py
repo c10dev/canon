@@ -370,39 +370,107 @@ def arcs_estimate(rid: str) -> dict:
             "folded": "화마다 첫 사건" in prompt}
 
 
-def run_arcs(rid: str, llm) -> dict:
-    """화 카드를 접어 아크 · 부로 나누고 digest.json 에 둔다 (작품에는 넣지 않는다). 화 번호는 원고의 차례다."""
+def _fit(orders: list[int], d, by: str, model: str, names: list[str]):
+    """아크 · 부를 살아 있는 차례(orders: 제외하지 않은 화)에 맞춘다 (revlab.clean_arcs). 차례에는 제외 화의 빈틈이 있어,
+    차례를 몇 번째 화인지로 바꿔 정리한 뒤 차례로 되돌린다. 그래서 저장한 시작 · 끝 · 정점 화는 늘 살아 있는 화다."""
+    from bisect import bisect_left, bisect_right
     from types import SimpleNamespace
 
-    from . import pipeline, research, revlab
+    from . import revlab
+    from .schema import RevArcPlan
+
+    if not orders:
+        raise ValueError("화가 없어요")
+    up = lambda n: bisect_left(orders, n) + 1  # noqa: E731  # n 이거나 그 뒤 첫 화가 몇 번째인지
+    down = lambda n: bisect_right(orders, n)  # noqa: E731  # n 이거나 그 앞 마지막 화가 몇 번째인지
+    live = set(orders)
+    plan = RevArcPlan(parts=[x.model_copy() for x in d.parts], arcs=[x.model_copy(deep=True) for x in d.arcs], reply=d.reply)
+    for x in [*plan.parts, *plan.arcs, *(t for a in plan.arcs for t in a.acts)]:
+        x.start_ep, x.end_ep = up(x.start_ep), down(x.end_ep)
+    for a in plan.arcs:
+        a.climax_ep = up(a.climax_ep) if a.climax_ep in live else 0
+    stand = SimpleNamespace(episodes=[SimpleNamespace(number=1), SimpleNamespace(number=len(orders))], cast=[SimpleNamespace(name=n) for n in names])
+    out = revlab.clean_arcs(stand, plan, by, model)
+    for x in [*out.parts, *out.arcs, *(t for a in out.arcs for t in a.acts)]:
+        x.start_ep, x.end_ep = orders[x.start_ep - 1], orders[x.end_ep - 1]
+    for a in out.arcs:
+        a.climax_ep = orders[a.climax_ep - 1] if a.climax_ep else 0
+    return out
+
+
+def run_arcs(rid: str, llm) -> dict:
+    """화 카드를 접어 아크 · 부로 나누고 digest.json 에 둔다 (작품에는 넣지 않는다). 화 번호는 원고의 차례다.
+    작가가 고친 아크(by author · both)가 있으면 덮지 않고 arc_offer 에 둔다 (revlab.put_arcs 와 같다)."""
+    from . import pipeline, research
 
     rows, names = arcs_ready(rid)
     cancel.check()
     with wait_cap(ARCS_WAIT):
         out = pipeline.ref_arcs(llm, rows, names)
     cancel.check()
-    stand = SimpleNamespace(episodes=[SimpleNamespace(number=rows[0]["n"]), SimpleNamespace(number=rows[-1]["n"])],
-                            cast=[SimpleNamespace(name=n) for n in names])
-    plan = revlab.clean_arcs(stand, out, "ai", research._model_name(llm))
+    plan = _fit([r["n"] for r in rows], out, "ai", research._model_name(llm), names)
+    with _lock:  # 덮을지는 쓰는 때에 본다 (기다리는 동안 작가가 고쳤을 수 있다)
+        d = load(rid)
+        offer = d.arcs is not None and d.arcs.by != "ai"
+        if offer:
+            d.arc_offer, d.arc_offer_basis = plan, _arcs_basis(rows)
+        else:
+            d.arcs, d.arcs_basis, d.arc_offer, d.arc_offer_basis = plan, _arcs_basis(rows), None, ""
+        _save(rid, d)
+    return {"arcs": len(plan.arcs), "parts": len(plan.parts), "offer": offer}
+
+
+def _orders(b: RefBook) -> list[int]:
+    return [t["order"] for t in _texts(b)]
+
+
+def set_arcs(rid: str, parts: list, arcs: list) -> None:
+    """작가가 고친 아크 · 부. AI 안을 고쳤으면 by both, 처음부터 작가가 나눴으면 author (revlab.set_arcs 와 같다).
+    읽히지 않은 화가 있어도 고칠 수 있다. 범위는 제외하지 않은 모든 화를 빈틈없이 덮게 맞추고, 맞춘 것은 notes 에 적는다."""
+    from .schema import RevArcPlan
+
+    b = refs.load(rid)
     with _lock:
         d = load(rid)
-        d.arcs, d.arcs_basis = plan, _arcs_basis(rows)
+        old = d.arcs
+        by = "author" if old is None or old.by == "author" else "both"
+        rows = _rows(b, d)
+        names = [c["name"] for c in cast_table(rows)[:CAST_TOP * 2]]
+        d.arcs = _fit(_orders(b), RevArcPlan(parts=parts, arcs=arcs, reply=old.reply if old else ""), by, old.model if old else "", names)
+        d.arcs_basis = _arcs_basis(rows)
         _save(rid, d)
-    return {"arcs": len(plan.arcs), "parts": len(plan.parts)}
+
+
+def take_offer(rid: str, take: bool) -> None:
+    """작가가 고친 아크 대신 새 AI 안을 쓸지(take) 버릴지 (revlab.take_offer 와 같다)."""
+    b = refs.load(rid)
+    with _lock:
+        d = load(rid)
+        if d.arc_offer is None:
+            raise ValueError("기다리는 AI 아크 안이 없어요")
+        if take:
+            names = [c["name"] for c in cast_table(_rows(b, d))[:CAST_TOP * 2]]
+            d.arcs = _fit(_orders(b), d.arc_offer, "ai", d.arc_offer.model, names).model_copy(update={"at": d.arc_offer.at})
+            d.arcs_basis = d.arc_offer_basis
+        d.arc_offer, d.arc_offer_basis = None, ""
+        _save(rid, d)
 
 
 def clear_arcs(rid: str) -> None:
+    """아크 · 부와 기다리는 AI 안을 지운다."""
     refs.load(rid)
     with _lock:
         d = load(rid)
-        d.arcs, d.arcs_basis = None, ""
+        d.arcs, d.arcs_basis, d.arc_offer, d.arc_offer_basis = None, "", None, ""
         _save(rid, d)
 
 
 def arcs_view(rid: str) -> dict:
-    """화면 값: 나눈 아크 · 부(없으면 None), 화 카드가 그 뒤 바뀌었는지(stale), 차례 → 화 이름."""
+    """화면 값: 나눈 아크 · 부(없으면 None), 화 카드가 그 뒤 바뀌었는지(stale), 기다리는 새 AI 안(offer),
+    고를 수 있는 차례(orders: 제외하지 않은 화), 차례 → 화 이름(labels)."""
     b = refs.load(rid)
     d = load(rid)
-    rows = _rows(b, d)
-    return {"plan": d.arcs.model_dump() if d.arcs else None, "stale": bool(d.arcs) and d.arcs_basis != _arcs_basis(rows),
-            "labels": {str(r["n"]): r["label"] for r in rows}}
+    texts = _texts(b)
+    return {"plan": d.arcs.model_dump() if d.arcs else None, "stale": bool(d.arcs) and d.arcs_basis != _arcs_basis(_rows(b, d)),
+            "offer": d.arc_offer.model_dump() if d.arc_offer else None,
+            "orders": [t["order"] for t in texts], "labels": {str(t["order"]): t["label"] for t in texts}}

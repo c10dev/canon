@@ -338,7 +338,8 @@ class RefBook(BaseModel):
 5a 문서: `docs/modules/labs.md` 의 refs 절, `docs/modules/story.md` 의 `canon/setupchat.py` · `canon/static/setupchat.js` 절, `docs/modules/web.md` 의 `canon/static/setup.js` 절, README.md, DESIGN.md.
 5. (끝남, 2026-11-12) 박자 메모와 프롬프트 블록. 쓰임 집필은 쓰기 요청 블록 `ref_notes`, 쓰임 플롯 초안은 화별 플롯 초안의 `[참고 구조]`.
 6. (끝남, 2026-11-11) 전체 읽히기: 화 카드 · `digest.json` · 작업 `ref_digest` · 비용 추정 · 읽힐 AI · 원고 개요 카드 · 표 열(9-2). `canon/refdigest.py`.
-7. (끝남, 2026-11-12) 구조 보기와 아크 · 부 나누기(9-3). `refdigest.pace` · `run_arcs`. 아크를 작가가 고치는 화면은 아직 없다.
+7. (끝남, 2026-11-12) 구조 보기와 아크 · 부 나누기(9-3). `refdigest.pace` · `run_arcs`.
+7a. (끝남, 2026-11-12) 아크 고치기. `refdigest.set_arcs` · `take_offer`. 작가가 고친 아크가 있으면 새 AI 안은 덮지 않고 따로 둔다(역설계 실험과 같은 규칙).
 8. (끝남, 2026-11-11) 문체 표본 흩기와 전체에서 표지 세기(9-3). `canon/refsample.py`. 역설계 실험의 문체 프로필(`revlab.style_sample`)은 아직 앞 3만 자다.
 9. 설정 · 박자 메모를 화 카드로 만들기(9-3, 5a · 5 와 합친다). 설정 메모와 박자 메모 모두 끝남(2026-11-12).
 

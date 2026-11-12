@@ -161,6 +161,12 @@
 - 아크의 화 번호는 원고의 차례(1부터)다. 화면은 `arcs_view` 의 `labels` 로 화 이름을 붙인다
 - 아크 나누기는 읽히지 않은 화가 없고 화가 `ARCS_MIN`(8)개 넘을 때만 한다(`arcs_ready`). 모델은 이 원고의 읽힐 AI 가 아니라 설정의 `plan` 단계다
 - 아크를 나눈 뒤 화 카드가 바뀌면 낡은 아크다(`arcs_basis` 와 지금 지문 묶음이 다름, `arcs_view` 의 `stale`). 지우기 `clear_arcs`, 비용 추정 `arcs_estimate`
+- 작가가 고친 아크 `set_arcs`: AI 안을 고쳤으면 `by` both, 처음부터 나눴으면 author. 읽히지 않은 화가 있어도 고칠 수 있다(`revlab.set_arcs` 와 같은 규칙)
+- 작가가 고친 아크(`by` author · both)가 있으면 `run_arcs` 의 새 AI 안은 덮지 않고 `RefDigestBook.arc_offer` 에 둔다. 덮을지는 `_lock` 안에서 쓸 때 본다
+- 새 AI 안은 `take_offer` 로 쓰거나 버린다. 쓰면 `arcs_basis` 는 그 안을 나눌 때의 지문 `arc_offer_basis` 가 된다. `clear_arcs` 는 기다리는 안도 지운다
+- 범위 맞추기 `_fit`: 제외 화 때문에 차례에 빈틈이 있어, 차례를 몇 번째 화인지로 바꿔 `revlab.clean_arcs` 로 정리한 뒤 차례로 되돌린다
+- 그래서 저장한 시작 · 끝 · 정점 화는 늘 제외하지 않은 화다. 정리하며 옮기거나 뺀 것은 `RevArcPlan.notes` 에 적는다
+- `arcs_view` 는 기다리는 안 `offer` 와 고를 수 있는 차례 `orders`(제외하지 않은 화)도 낸다. `labels` 는 읽히지 않은 화의 이름도 담는다
 - 아크 요청 `prompts.ref_arcs_prompt`: 예산 `context.BUDGET["ref_arcs"]`(4만 자)를 넘으면 화마다 첫 사건과 끝 첫 문장, 그래도 넘으면 첫 사건만 넣고 그렇게 했다고 적는다
 - 아크 요청은 화 카드의 세부가 틀릴 수 있으니 여러 화에 걸친 큰 흐름으로 판단하라고 이른다
 - 아크 요청의 화 머리는 'n번 · 화 이름'이다. 번호 칸에는 차례를, 글 칸에는 화 이름을 쓰게 해 AI 설명과 화면의 화 이름이 어긋나지 않게 한다(프롤로그가 있으면 차례와 화 번호가 하나씩 밀린다)
@@ -419,6 +425,7 @@
 - 전체 읽히기는 읽힐 화가 없으면 400, 키가 없으면 작업을 띄우기 전에 `MissingKey` 로 알린다
 - 구조 `GET /api/refs/{rid}/digest/pace`(구간 긴장 · 정점 화 · 인물 · 나눈 아크). AI 를 부르지 않는다
 - 아크 나누기 `POST /api/refs/{rid}/digest/arcs`(작업 kind `ref_arcs`, target 은 원고 id) · 비용 추정 `GET …/digest/arcs/estimate` · 지우기 `DELETE …/digest/arcs`
+- 아크 고치기 `PUT /api/refs/{rid}/digest/arcs`(`RefArcsIn`: `parts` · `arcs`) · 새 AI 안 쓰기 · 버리기 `POST …/digest/arcs/offer`(`take`). 둘 다 `refdigest.arcs_view` 를 돌려준다
 
 ### `canon/routes/research.py`
 
@@ -571,6 +578,10 @@
 - `refDigestLabel` · `refDigestCost` · `refDigestDoneMsg` 는 순수 함수
 - 구조 카드(`refStructureCard`, 화 카드가 있을 때만): 구간별 평균 긴장 막대 · 성격 칩과 긴장 고르기로 화 표 거르기(`S.refFilter`, `refFilterKeep`) · 긴장 5인 화 · 인물이 처음 나온 화
 - 구조 카드의 아크(`refArcsBlock`): 없으면 '아크 나누기' 버튼, 있으면 아크 목록(이름 · 화 범위 `refArcSpan` · 정점 화 · 목표)과 다시 나누기 · 지우기
+- 아크 고치기(`refArcEditor`, 값은 `S.refArcEdit`): 이름 · 끝 화 · 정점 화 · 목표 · 막는 것 · 보상, 가운데에서 나누기 · 앞 아크와 합치기 · 빼기, 부로 묶기. 역설계 실험의 `revArcEditor` 와 같은 꼴이다
+- 끝 화 · 정점 화는 화 이름으로 고르고 값은 원고의 차례다. 고르는 목록은 `arcs_view` 의 `orders` 라 제외한 화는 없다(`refArcStep`, 나누기는 `refArcHalves`, 순수 함수)
+- 아크가 없을 때는 '직접 나누기'가 모든 화를 한 아크로 두고 연다. 저장하면 서버가 정리한 것(`notes`)을 알림과 목록 아래에 보인다
+- 작가가 고친 아크가 있을 때 다시 나누면 새 AI 안이 목록 아래에 따로 오고, '이 안으로 바꾸기' · '버리기'로 고른다(`refArcOffer`)
 - 아크 나누기는 비용 추정을 확인 대화상자로 보인 뒤 시작한다(`refArcsAsk`). 끝나면 `refPaceLoad` 가 다시 받는다
 - `refFilterKeep` · `refArcSpan` 은 순수 함수
 - `refDecode` · `refAssemble` · `refRange` · `refEpRows` 는 순수 함수(`tests/test_refs.py`)

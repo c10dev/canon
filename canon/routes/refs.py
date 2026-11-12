@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from .. import jobs, refdigest, refnote, refs
 from ..llm import get_llm
-from ..schema import RefBook, RefCut, RefFile
+from ..schema import RefBook, RefCut, RefFile, RevArc, RevPart
 from ..web import (  # web 의 공용 도우미
     _edit,
     _load,
@@ -250,6 +250,37 @@ def ref_digest_arcs_start(rid: str) -> dict:
     return job.public()
 
 
+class RefArcsIn(BaseModel):
+    parts: list[RevPart] = []
+    arcs: list[RevArc]
+
+
+@router.put("/api/refs/{rid}/digest/arcs")
+def ref_digest_arcs_set(rid: str, body: RefArcsIn) -> dict:
+    """작가가 고친 아크 · 부 (refdigest.set_arcs). 범위는 제외하지 않은 화를 빈틈없이 덮게 맞추고 맞춘 것을 notes 에 적는다."""
+    rid = _ref_id(rid)
+    try:
+        refdigest.set_arcs(rid, body.parts, body.arcs)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return refdigest.arcs_view(rid)
+
+
+class RefArcOfferIn(BaseModel):
+    take: bool
+
+
+@router.post("/api/refs/{rid}/digest/arcs/offer")
+def ref_digest_arcs_offer(rid: str, body: RefArcOfferIn) -> dict:
+    """작가가 고친 아크가 있을 때 받은 새 AI 안을 쓴다(take) · 버린다 (refdigest.take_offer)."""
+    rid = _ref_id(rid)
+    try:
+        refdigest.take_offer(rid, body.take)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return refdigest.arcs_view(rid)
+
+
 @router.delete("/api/refs/{rid}/digest/arcs")
 def ref_digest_arcs_clear(rid: str) -> dict:
     refdigest.clear_arcs(_ref_id(rid))
@@ -374,6 +405,10 @@ EXPORTS = (
     "ref_notes_put",
     "ref_digest_arcs_clear",
     "ref_digest_arcs_estimate",
+    "ref_digest_arcs_offer",
+    "ref_digest_arcs_set",
+    "RefArcOfferIn",
+    "RefArcsIn",
     "ref_digest_arcs_start",
     "ref_digest_pace",
     "RefDigestAIIn",
