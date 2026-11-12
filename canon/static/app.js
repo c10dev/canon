@@ -334,6 +334,7 @@ const JOB_DONE_MSG = {
   lib_style: (j) => `문체 분석 결과가 도착했어요. 문체 라이브러리에서 확인하고 바꿀지 고르세요.${j.result && j.result.counted ? ` 표지 빈도는 고른 화 전체 ${j.result.counted.toLocaleString()}자에서 셌어요.` : ''}`,
   ref_newto: (j) => `newto에서 새로 받은 ${(j.result && j.result.added) || 0}화를 받은 화에 넣었어요. 레퍼런스 원고 넣기 화면에서 원고로 가져오세요.`,
   ref_digest: (j) => refDigestDoneMsg(j),
+  ref_arcs: (j) => `아크 ${(j.result && j.result.arcs) || 0}개로 나눴어요. 레퍼런스 원고 개요의 구조 카드에서 볼 수 있어요.`,
   arc: '기승전결 구조 제안이 도착했어요. 확인하고 저장하세요.',
   plots: '화별 플롯 초안을 만들었어요. 확정된 화는 그대로예요.',
   plot_one: (j) => (j.result && j.result.realign ? `${j.ep}화 플롯을 요약대로 채웠어요. ${j.result.realign}화와 어긋난 점은 ${j.result.realign}화에 '다시 맞추기'로 표시했어요.` : `${j.ep}화 플롯을 채웠어요. 다듬은 뒤 확정하세요.`),
@@ -553,6 +554,7 @@ async function pollJobs(soon = false) {
     if (!progressed || !mine) continue;
     if (j.kind === 'agent' && typeof agentJobUpdate === 'function') await agentJobUpdate(j, old);  // 대화 에이전트 턴 (agent.js)
     if (j.kind === 'rev_parse' && typeof revJobStep === 'function') await revJobStep(j, old);
+    if (j.kind === 'ref_arcs' && j.status !== 'running' && typeof refPaceLoad === 'function') await refPaceLoad(j.target || '');  // 나눈 아크를 다시 받는다 (refs.js)
     if (j.kind === 'ref_digest' && typeof refDigestStep === 'function') await refDigestStep(j);  // 읽힌 화를 다시 받는다 (refs.js)
     if (j.kind === 'ref_newto' && j.status !== 'running' && typeof refNewtoDone === 'function') await refNewtoDone(j);  // 받은 화를 다시 읽는다 (refs.js)  // 역설계가 끝낸 화를 바로 받는다 (revlab.js)
     if (j.kind === 'plots') {
@@ -591,7 +593,7 @@ async function pollJobs(soon = false) {
     }
     if (j.status !== 'running' && !(old && old.status !== 'running')) await finishJob(j);
     // 설정 · 사용량 · 문체 라이브러리처럼 작품 밖 화면은 S.name 이 남아 있어도 다시 그리지 않는다
-    if ((S.route[0] === 'p' && jobPages(j).includes(S.route[2] || 'home')) || (S.route[0] === 'revlab' && j.project === REV_JOBS) || (S.route[0] === 'styles' && j.kind === 'lib_style') || (S.route[0] === 'refs' && (j.kind === 'ref_newto' || j.kind === 'ref_digest')) || (S.route[0] === 'studio' && typeof STU_JOBS !== 'undefined' && j.project === STU_JOBS)) {
+    if ((S.route[0] === 'p' && jobPages(j).includes(S.route[2] || 'home')) || (S.route[0] === 'revlab' && j.project === REV_JOBS) || (S.route[0] === 'styles' && j.kind === 'lib_style') || (S.route[0] === 'refs' && (j.kind === 'ref_newto' || j.kind === 'ref_digest' || j.kind === 'ref_arcs')) || (S.route[0] === 'studio' && typeof STU_JOBS !== 'undefined' && j.project === STU_JOBS)) {
       redraw = true;
       if (j.status === 'done') resultFocus = RESULT_FOCUS[j.kind] || '#app .proposal button, #app .proposal input';
     }
@@ -953,6 +955,7 @@ const JOB_LINK = {
   style: (j) => `#/p/${enc(j.project)}/style`,
   ref_newto: () => '#/refs/new',
   ref_digest: (j) => `#/refs/${enc(j.target || '')}`,
+  ref_arcs: (j) => `#/refs/${enc(j.target || '')}`,
   lib_style: (j) => `#/styles/${enc((j.result && j.result.lib && j.result.lib !== 'new' ? j.result.lib : S.libJobFor[j.id]) || 'new')}`,
   arc: (j) => `#/p/${enc(j.project)}/arc`,
   plots: (j) => `#/p/${enc(j.project)}/arc`,

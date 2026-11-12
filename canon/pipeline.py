@@ -2947,6 +2947,12 @@ def ref_digest(llm: LLM, text: str) -> RefDigest:
     return llm.json(prompts.SYSTEM_REVERSE, prompts.ref_digest_prompt(text), RefDigest)
 
 
+def ref_arcs(llm: LLM, rows: list[dict], names: list[str]) -> RevArcSet:
+    """레퍼런스 원고의 화 카드를 아크 · 부로 나눈다 (plan 단계). 정리는 refdigest.run_arcs 가 revlab.clean_arcs 로 한다."""
+    return llm.json(prompts.SYSTEM_REVERSE, prompts.ref_arcs_prompt(rows, names), RevArcSet,
+                    hint={"episodes": [r["n"] for r in rows], "cast": names})
+
+
 def reverse_arcs(llm: LLM, lab) -> RevArcSet:
     """역설계한 화들을 아크 · 부로 나눈다 (plan 단계). 정리는 revlab.clean_arcs 가 한다."""
     eps = [e.number for e in lab.episodes if e.plot]

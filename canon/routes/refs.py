@@ -6,6 +6,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from .. import jobs, refdigest, refs
+from ..llm import get_llm
 from ..schema import RefBook, RefCut, RefFile
 from ..web import (  # web 의 공용 도우미
     _load,
@@ -216,7 +217,48 @@ def ref_digest_start(rid: str) -> dict:
     return job.public()
 
 
+@router.get("/api/refs/{rid}/digest/pace")
+def ref_digest_pace(rid: str) -> dict:
+    """화 카드로 본 구조: 구간별 긴장 · 성격, 정점 화, 인물이 처음 나온 화, 나눈 아크. AI 를 부르지 않는다."""
+    rid = _ref_id(rid)
+    return {**refdigest.pace(rid), "arcs": refdigest.arcs_view(rid)}
+
+
+@router.get("/api/refs/{rid}/digest/arcs/estimate")
+def ref_digest_arcs_estimate(rid: str) -> dict:
+    try:
+        return refdigest.arcs_estimate(_ref_id(rid))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.post("/api/refs/{rid}/digest/arcs")
+def ref_digest_arcs_start(rid: str) -> dict:
+    """아크 · 부 나누기 작업(ref_arcs)을 시작한다. 화 카드를 접어 계획 단계 모델에 한 번 보낸다."""
+    rid = _ref_id(rid)
+    try:
+        refdigest.arcs_ready(rid)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    llm = get_llm("plan")  # 키가 없으면 작업을 띄우기 전에 알린다
+    try:
+        job = jobs.start(REF_JOBS, "ref_arcs", None, f"아크 나누기 ({refs.load(rid).name})", lambda j: refdigest.run_arcs(rid, llm), target=rid)
+    except jobs.Busy as busy:
+        return {**busy.job.public(), "already": True}
+    return job.public()
+
+
+@router.delete("/api/refs/{rid}/digest/arcs")
+def ref_digest_arcs_clear(rid: str) -> dict:
+    refdigest.clear_arcs(_ref_id(rid))
+    return {"ok": True}
+
+
 EXPORTS = (
+    "ref_digest_arcs_clear",
+    "ref_digest_arcs_estimate",
+    "ref_digest_arcs_start",
+    "ref_digest_pace",
     "RefDigestAIIn",
     "ref_digest_ai",
     "ref_digest_estimate",
