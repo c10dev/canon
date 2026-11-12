@@ -4600,6 +4600,40 @@ hook: 끝맺음 방식 하나 ({" · ".join(REF_DIGEST_HOOKS)}).
 {text}"""
 
 
+def ref_arcs_prompt(rows: list[dict], names: list[str]) -> str:
+    """레퍼런스 원고의 화 카드로 아크 · 부를 나누는 요청 (pipeline.ref_arcs). rows: [{n 차례, label 화 이름, kind, tension, events, ending}].
+    화가 많아 예산(context.BUDGET["ref_arcs"])을 넘으면 모든 화를 첫 사건과 끝 첫 문장으로, 그래도 넘으면 첫 사건만 넣는다
+    (아크는 화를 빠짐없이 덮어야 해서 화를 빼지 않는다)."""
+    def tag(r: dict) -> str:
+        name = r.get("label") or f"{r['n']}번째 화"
+        return f"## {r['n']}번 · {name} [{r['kind'] or '성격 모름'} · 긴장 {r['tension']}]"
+    levels = [
+        ("", [f"{tag(r)}\n사건: " + " / ".join(r["events"]) + f"\n끝: {r['ending'] or '없음'}" for r in rows]),
+        (f"(화가 {len(rows)}개라 화마다 첫 사건과 끝 첫 문장만 넣었습니다)\n",
+         [f"{tag(r)} {context.first_sentence(r['events'][0] if r['events'] else '')} — {context.first_sentence(r['ending']) or '끝 없음'}" for r in rows]),
+        (f"(화가 {len(rows)}개라 화마다 첫 사건만 넣었습니다)\n",
+         [f"{tag(r)} {context.first_sentence(r['events'][0] if r['events'] else '', 40)}" for r in rows]),
+    ]
+    note, lines = next(((n, x) for n, x in levels if len("\n\n".join(x)) <= context.BUDGET["ref_arcs"]), levels[-1])
+    first, last = rows[0]["n"], rows[-1]["n"]
+    return ("# 인물\n" + (", ".join(names) or "없음") + "\n\n# 화 카드\n" + note + "\n\n".join(lines) + f"""
+
+위 {first}~{last}번을 아크로 나눠 JSON 으로 적습니다. 아크는 한 가지 문제가 생겨 커지고, 풀리거나 뒤집히는 덩어리입니다.
+머리의 'n번'은 원고의 차례이고 '·' 뒤는 원고에 적힌 화 이름입니다. 번호 칸(start_ep · end_ep · climax_ep)에는 차례 숫자를 적고,
+goal · why · reply 같은 글 칸에서 화를 부를 때는 화 이름으로 부릅니다.
+화 카드는 원문을 화마다 따로 줄인 것이라 세부(누가 했는지, 차례)가 틀릴 수 있습니다. 한 줄의 세부가 아니라 여러 화에 걸친 큰 흐름으로 판단합니다.
+- arcs: {first}번부터 {last}번까지 빈틈없이, 겹치지 않게 차례로. 경계는 문제가 풀리거나 새 문제가 시작되는 화에 둡니다.
+  화 수를 맞추려고 고르게 나누지 않습니다. 아크 길이는 원문이 정합니다.
+  - goal · conflict · payoff: 화 카드에 실제로 있는 일로 한 줄씩.
+  - climax_ep: 그 아크의 문제가 가장 크게 터지거나 풀리는 화.
+  - acts: 아크 안의 기승전결 네 구간 (name 기 · 승 · 전 · 결), start_ep 부터 end_ep 까지 빈틈없이. goal 은 그 구간이 끝난 상태, key_turn 은 전환점.
+  - cast: 이 아크에 주로 나오는 인물 이름 (위 인물 목록의 이름 그대로).
+  - why: 이 아크를 end_ep 에서 끝낸 근거 한 줄 (그 화에서 일어난 일).
+- parts: 아크 여럿을 묶는 더 큰 흐름(주인공의 처지나 무대가 크게 바뀌는 곳)이 분명할 때만 적습니다. 없으면 빈 목록. 부의 경계는 아크 경계와 맞춥니다.
+- reply: 작가에게 2~4문장으로 어떻게 나눴는지와 어디가 애매했는지 적습니다.
+- 긴장은 화마다 그 화 안에서 매긴 값이라, 다른 화의 같은 숫자가 같은 세기라는 뜻이 아닙니다. 경계는 사건과 끝을 먼저 보고 정합니다.""")
+
+
 def rev_rules() -> str:
     """역설계 요구사항. 모든 화 요청이 이 글로 시작한다 (화 사이에 같은 앞부분)."""
     fn = "\n".join(f"  {k} {v[0]}: {v[1]}" for k, v in CUE_FUNCTIONS.items())
@@ -6268,6 +6302,7 @@ KINDS: dict[str, Kind] = {
     "rev": Kind("역설계 · 한 화", "실험", "", "SYSTEM_REVERSE", "rev_prompt", "RevEpisodeDraft", "pipeline.reverse_episode"),
     "rev_lines": Kind("역설계 · 줄기", "실험", "", "SYSTEM_REVERSE", "rev_lines_prompt", "RevLineSet", "pipeline.reverse_lines"),
     "rev_arcs": Kind("역설계 · 아크", "실험", "", "SYSTEM_REVERSE", "rev_arcs_prompt", "RevArcSet", "pipeline.reverse_arcs"),
+    "ref_arcs": Kind("레퍼런스 · 아크", "실험", "", "SYSTEM_REVERSE", "ref_arcs_prompt", "RevArcSet", "pipeline.ref_arcs"),
     "ref_digest": Kind("레퍼런스 · 화 카드", "실험", "", "SYSTEM_REVERSE", "ref_digest_prompt", "RefDigest", "pipeline.ref_digest"),
     "research": Kind("연구 화면 샘플 (기본 시스템)", "실험", "", "SYSTEM_WRITER", "research.sample", "", "routes.research"),
 }

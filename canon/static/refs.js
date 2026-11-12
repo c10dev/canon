@@ -20,6 +20,8 @@ Object.assign(S, {
   refNewtoWork: '',  // 가져올 작품 번호 칸
   refDigest: null,  // 연 원고의 화 카드 (GET /refs/<id>/digest: 읽힌 정도 · 화마다 카드 · 읽힐 AI)
   refDigestAsk: null,  // 전체 읽히기 확인 칸을 열었을 때의 비용 추정 (GET …/digest/estimate)
+  refPace: null,  // 화 카드로 본 구조 (GET /refs/<id>/digest/pace: 구간 긴장 · 정점 화 · 인물 · 아크)
+  refFilter: { kind: '', tension: 0 },  // 화 표 거르기 (성격 · 긴장 아래 한도)
 });
 
 const REF_JOBS = '.refs';  // newto 가져오기 작업의 project 자리 (routes/refs.REF_JOBS)
@@ -162,9 +164,10 @@ async function refLoad(id, sub) {
     await refInboxRead().catch(() => { S.refInbox = null; });
     return;
   }
-  if (!S.ref || S.ref.id !== id) { S.refPick = new Set(); S.refCmp = null; S.refEditInfo = null; S.refDigest = null; S.refDigestAsk = null; }
+  if (!S.ref || S.ref.id !== id) { S.refPick = new Set(); S.refCmp = null; S.refEditInfo = null; S.refDigest = null; S.refDigestAsk = null; S.refPace = null; S.refFilter = { kind: '', tension: 0 }; }
   S.ref = await api('GET', `/refs/${enc(id)}`);
   S.refDigest = await api('GET', `/refs/${enc(id)}/digest`).catch(() => null);
+  await refPaceLoad(id);
   S.refPane = sub === 'cuts' ? 'cuts' : /^\d+$/.test(sub || '') ? Number(sub) : '';
   S.refEp = null;
   if (typeof S.refPane === 'number') S.refEp = await api('GET', `/refs/${enc(id)}/eps/${S.refPane}`);
@@ -435,7 +438,7 @@ function refDigestDoneMsg(j) {
 async function refDigestStep(j) {
   if (S.route[0] !== 'refs' || !S.ref || S.ref.id !== (j.target || '')) return;
   S.refDigest = await api('GET', `/refs/${enc(S.ref.id)}/digest`).catch(() => S.refDigest);
-  if (j.status !== 'running') S.refDigestAsk = null;
+  if (j.status !== 'running') { S.refDigestAsk = null; await refPaceLoad(S.ref.id); }
 }
 
 /** 읽히기 버튼 이름: 처음 · 글이 바뀐 화만 남음 · 읽다 만 화가 남음. 순수 함수 */
@@ -485,10 +488,75 @@ function refDigestEp(order) {
     <p class="small">끝: ${esc(c.ending)}${c.cast.length ? ` · 인물: ${esc(c.cast.join(', '))}` : ''}${c.cut ? ` · 가운데 ${c.cut.toLocaleString()}자를 줄여 읽혔어요` : ''}</p></details>`;
 }
 
+/** 화 카드로 본 구조(GET …/digest/pace)를 다시 받는다. 지금 연 원고일 때만 */
+async function refPaceLoad(id) {
+  if (S.route[0] !== 'refs' || !S.ref || S.ref.id !== id) return;
+  S.refPace = S.refDigest && S.refDigest.read ? await api('GET', `/refs/${enc(id)}/digest/pace`).catch(() => null) : null;
+}
+
+/** 표를 거른 뒤 남는 화인지 (성격 · 긴장 아래 한도). 순수 함수 */
+function refFilterKeep(e, f) {
+  return (!f.kind || e.d_kind === f.kind) && (!f.tension || e.tension >= f.tension);
+}
+
+/** 아크 한 줄의 화 범위 ('12화~31화'). labels 는 차례 → 화 이름. 순수 함수 */
+function refArcSpan(a, labels) {
+  const name = (n) => labels[n] || `${n}번째`;
+  return a.start_ep === a.end_ep ? name(a.start_ep) : `${name(a.start_ep)}~${name(a.end_ep)}`;
+}
+
+function refArcsBlock(b, p) {
+  const v = p.arcs || {};
+  const j = S.jobs.find((x) => x.status === 'running' && x.kind === 'ref_arcs' && (x.target || '') === b.id);
+  if (j) return '<p class="small" aria-live="polite">아크를 나누는 중이에요. 끝나면 여기에 보여요.</p>';
+  if (!v.plan) {
+    const left = S.refDigest ? S.refDigest.todo : 0;
+    return `<div class="between"><span class="small">${left ? `읽히지 않은 화가 ${left}개 있어 아직 아크를 나눌 수 없어요.` : '화 카드를 접어 AI에 한 번 보내 아크 · 부로 나눠요.'}</span>
+      <button type="button" class="btn small" data-action="refArcsAsk"${left ? ' disabled' : ''}>아크 나누기</button></div>`;
+  }
+  const L = v.labels || {};
+  const parts = v.plan.parts.length ? `<p class="small">부: ${v.plan.parts.map((x) => `${esc(x.title)} (${esc(refArcSpan(x, L))})`).join(' · ')}</p>` : '';
+  const arcs = v.plan.arcs.map((a) => `<li><strong>${esc(a.title)}</strong> <span class="small">${esc(refArcSpan(a, L))} · ${a.end_ep - a.start_ep + 1}화${a.climax_ep ? ` · 정점 ${esc(L[a.climax_ep] || a.climax_ep)}` : ''}</span>
+      <div class="small">${esc([a.goal, a.conflict && `막는 것: ${a.conflict}`, a.payoff && `보상: ${a.payoff}`].filter(Boolean).join(' · '))}</div></li>`).join('');
+  return `${v.stale ? '<p class="small">아크를 나눈 뒤 화 카드가 바뀌었어요. 다시 나누면 지금 카드로 맞춰요.</p>' : ''}${parts}<ol class="ref-arcs">${arcs}</ol>
+    ${v.plan.reply ? `<p class="small">${esc(v.plan.reply)}</p>` : ''}
+    <div class="row"><button type="button" class="btn small" data-action="refArcsAsk">다시 나누기</button><button type="button" class="btn small ghost" data-action="refArcsClear">아크 지우기</button>
+      <span class="small">${esc(v.plan.model)} · ${fmtDateTime(v.plan.at)}</span></div>`;
+}
+
+/** 원고 개요의 구조 카드: 구간별 긴장 막대 · 성격으로 표 거르기 · 정점 화 · 인물이 처음 나온 화 · 아크 */
+function refStructureCard(b) {
+  const p = S.refPace;
+  if (!p || !p.episodes) return '';
+  const f = S.refFilter;
+  // 구간 평균은 3 안팎에 몰려 있어, 가장 낮은 구간과 높은 구간 사이로 막대 높이를 편다 (값은 풀이에 그대로 적는다)
+  const lo = Math.min(...p.blocks.map((x) => x.tension));
+  const hi = Math.max(...p.blocks.map((x) => x.tension));
+  const tall = (t) => 14 + Math.round(((t - lo) / ((hi - lo) || 1)) * 46);
+  const bars = p.blocks.map((x) => {
+    const tip = `${x.from}~${x.to} · 평균 긴장 ${x.tension} · 긴장 5인 화 ${x.peaks}개 · ${x.kinds.map(([k, n]) => `${k} ${n}`).join(', ')}`;
+    return `<a class="ref-pace-bar${x.peaks ? ' peak' : ''}" href="#/refs/${b.id}/${x.start}" style="height:${tall(x.tension)}px" title="${esc(tip)}"><span class="sr-only">${esc(tip)}</span></a>`;
+  }).join('');
+  const chips = p.kinds.map(([k, n]) => `<button type="button" class="btn small${f.kind === k ? '' : ' ghost'}" data-action="refFilterKind" data-arg="${esc(k)}" aria-pressed="${f.kind === k}">${esc(k)} ${n}</button>`).join('');
+  const tens = [[0, '긴장 모두'], [3, '긴장 3 이상'], [4, '긴장 4 이상'], [5, '긴장 5']].map(([v, l]) => `<option value="${v}"${f.tension === v ? ' selected' : ''}>${l}</option>`).join('');
+  const peaks = p.peaks.slice(0, 14).map((x) => `<a href="#/refs/${b.id}/${x.order}">${esc(x.label || `${x.order}번째`)}</a>`).join(', ');
+  const label = (n) => { const e = b.episodes.find((x) => x.order === n); return e ? e.label || `${n}번째` : `${n}번째`; };
+  const cast = p.cast.slice(0, 8).map((c) => `${esc(c.name)} <span class="small">${esc(label(c.first))}부터 · ${c.episodes}화</span>`).join(' · ');
+  return `<section class="card ref-structure"><div class="between"><h2>구조</h2><span class="small">화 카드 ${p.episodes}화 · 막대 하나가 ${p.block_size}화의 평균 긴장이에요 (${lo}~${hi})</span></div>
+    <div class="ref-pace" aria-label="구간별 평균 긴장">${bars}</div>
+    <div class="row ref-filter">${chips}<label class="sr-only" for="ref-f-tension">긴장으로 거르기</label><select id="ref-f-tension" data-ref-filter="tension">${tens}</select>
+      ${f.kind || f.tension ? '<button type="button" class="btn small ghost" data-action="refFilterClear">거르기 풀기</button>' : ''}</div>
+    ${peaks ? `<p class="small">긴장 5인 화 ${p.peaks.length}개: ${peaks}${p.peaks.length > 14 ? ` 외 ${p.peaks.length - 14}화` : ''}</p>` : ''}
+    ${cast ? `<p>${cast}</p>` : ''}
+    <h3>아크</h3>${refArcsBlock(b, p)}</section>`;
+}
+
 function refOverview(b) {
   const cards = (S.refDigest && S.refDigest.cards) || {};
   const hasCards = Object.keys(cards).length > 0;
-  const eps = b.episodes.map((e) => { const c = cards[e.order] || {}; return { ...e, d_kind: c.kind || '', tension: c.tension || 0, hook: c.hook || '' }; });
+  const all = b.episodes.map((e) => { const c = cards[e.order] || {}; return { ...e, d_kind: c.kind || '', tension: c.tension || 0, hook: c.hook || '' }; });
+  const filtering = hasCards && (S.refFilter.kind || S.refFilter.tension);
+  const eps = filtering ? all.filter((e) => refFilterKeep(e, S.refFilter)) : all;
   if (S.refSort) eps.sort((x, y) => (typeof x[S.refSort] === 'number' ? y[S.refSort] - x[S.refSort] : String(x[S.refSort]).localeCompare(String(y[S.refSort]))));
   const pick = S.refPick;
   const usable = b.episodes.filter((e) => e.kind !== 'skip' && e.chars);
@@ -510,9 +578,9 @@ function refOverview(b) {
       <button type="button" class="btn" data-action="refToRevlab"${n && !tooMany ? '' : ' disabled'}>역설계 실험 만들기</button></div>
     <p class="small">문체 만들기는 고른 화를 이어 문체 라이브러리 새 항목의 원문 칸에 넣어요. ${(S.refLabels.sample_max || 30000).toLocaleString()}자를 넘으면 앞 · 가운데 · 뒤에서 고루 뽑아요. 분석은 그 화면에서 눌러야 해요. 역설계 실험은 화 수와 상관없이 모두 합쳐 ${revMax.toLocaleString()}자까지 넣을 수 있어요${tooMany ? ` (지금 ${picked.toLocaleString()}자라 너무 많이 골랐어요)` : ''}.</p></section>`;
   const made = b.made.length ? `<section class="card"><h2>이 원고로 만든 것</h2><ul class="ref-made">${b.made.map((m) => `<li><a href="#/${m.kind === 'style' ? 'styles' : 'revlab'}/${enc(m.id)}">${m.kind === 'style' ? '문체 라이브러리 항목' : `역설계 실험 ${esc(m.id)}`}</a> <span class="small">${esc(m.eps)} · ${fmtDateTime(m.at)}</span></li>`).join('')}</ul></section>` : '';
-  return `${refDigestCard(b)}${act}<section class="card"><div class="between"><h2>분량</h2><span class="small">한 화 평균 ${mean.toLocaleString()}자 · 막대를 누르면 그 화를 열어요</span></div><div class="ref-bars" aria-label="화별 글자 수">${bars}</div></section>
+  return `${refDigestCard(b)}${refStructureCard(b)}${act}<section class="card"><div class="between"><h2>분량</h2><span class="small">한 화 평균 ${mean.toLocaleString()}자 · 막대를 누르면 그 화를 열어요</span></div><div class="ref-bars" aria-label="화별 글자 수">${bars}</div></section>
     ${refCompareCard()}
-    <section class="card"><h2>화 표</h2><div class="ref-table-wrap"><table class="ref-table"><thead><tr><th scope="col"><span class="sr-only">고르기</span></th>${th}</tr></thead><tbody>${rows}</tbody></table></div></section>${made}`;
+    <section class="card"><div class="between"><h2>화 표</h2>${filtering ? `<span class="small">거른 ${eps.length}화 / ${all.length}화</span>` : ''}</div><div class="ref-table-wrap"><table class="ref-table"><thead><tr><th scope="col"><span class="sr-only">고르기</span></th>${th}</tr></thead><tbody>${rows}</tbody></table></div></section>${made}`;
 }
 
 function refCompareCard() {
@@ -714,6 +782,28 @@ Object.assign(actions, {
     render();
   },
   refPickNone() { S.refPick = new Set(); render(); },
+  refFilterKind(kind) { S.refFilter = { ...S.refFilter, kind: S.refFilter.kind === kind ? '' : kind }; render(); },
+  refFilterClear() { S.refFilter = { kind: '', tension: 0 }; render(); },
+  async refArcsAsk() {
+    const id = S.ref.id;
+    let est;
+    try { est = await api('GET', `/refs/${enc(id)}/digest/arcs/estimate`); } catch (e) { return showError(e); }
+    const cost = est.usd == null ? '가격을 모르는 모델이에요' : est.usd === 0 ? '토큰 요금이 거의 없어요' : `추정 $${est.usd}`;
+    const again = S.refPace && S.refPace.arcs && S.refPace.arcs.plan ? ' 지금 아크는 새 것으로 바뀌어요.' : '';
+    if (!(await askConfirm(`화 카드 ${est.episodes}화를 ${est.model || est.provider}에 한 번 보내 아크로 나눠요 (${cost}). 원문은 보내지 않아요.${again}`, { ok: '나누기' }))) return;
+    try {
+      const j = await api('POST', `/refs/${enc(id)}/digest/arcs`);
+      toast(j.already ? '이미 나누는 중이에요' : '아크를 나누기 시작했어요. 끝나면 알려 드릴게요.');
+      S.jobs = S.jobs.filter((x) => x.id !== j.id).concat(j);
+      renderHub();
+      render();
+      pollJobs(true);
+    } catch (e) { showError(e); }
+  },
+  async refArcsClear() {
+    if (!(await askConfirm('나눈 아크를 지울까요? 화 카드는 그대로 있어요.', { ok: '지우기', danger: true }))) return;
+    await run('아크를 지우는 중', async () => { await api('DELETE', `/refs/${enc(S.ref.id)}/digest/arcs`); await refPaceLoad(S.ref.id); });
+  },
   async refDigestAsk() {
     if (S.refDigestAsk) { S.refDigestAsk = null; render(); return; }
     await run('읽힐 화를 세는 중', async () => { S.refDigestAsk = await api('GET', `/refs/${enc(S.ref.id)}/digest/estimate`); });
@@ -830,6 +920,7 @@ async function refDigestSetAI(provider, model) {
 document.addEventListener('change', (e) => {
   const d = e.target.dataset || {};
   const dr = S.refDraft;
+  if (d.refFilter === 'tension') { S.refFilter = { ...S.refFilter, tension: Number(e.target.value) || 0 }; render(); }
   if (d.refDigestAi && S.ref && S.refDigest) {
     if (d.refDigestAi === 'provider') refDigestSetAI(e.target.value, '');
     else refDigestSetAI(S.refDigest.ai.provider, e.target.value.trim());
@@ -892,6 +983,14 @@ document.addEventListener('dragleave', (e) => { const z = e.target.closest && e.
 .ref-newto-run { margin-top: var(--space-12); }
 .ref-newto-run p { margin: var(--space-4) 0 0; overflow-wrap: anywhere; }
 .ref-digest-ask { margin-top: var(--space-12); display: grid; gap: var(--space-8); }
+.ref-pace { display: flex; align-items: flex-end; gap: var(--space-2); height: 64px; margin: var(--space-12) 0; border-bottom: 1px solid var(--line); }
+.ref-pace-bar { flex: 1; min-width: 4px; background: var(--chip); border-radius: var(--radius-6) var(--radius-6) 0 0; }
+.ref-pace-bar.peak { background: var(--accent-soft); }
+.ref-pace-bar:hover { background: var(--accent); }
+.ref-filter { flex-wrap: wrap; align-items: center; }
+.ref-filter select { width: auto; }
+.ref-structure h3 { margin: var(--space-16) 0 var(--space-8); }
+.ref-arcs { margin: var(--space-8) 0; padding-left: var(--space-20); display: grid; gap: var(--space-8); }
 .ref-digest-ask p { margin: 0; }
 .ref-digest-ask .row { align-items: flex-end; flex-wrap: wrap; }
 .ref-digest-ep { margin: var(--space-12) 0; padding: var(--space-12); border: 1px solid var(--line); border-radius: var(--radius-8); }

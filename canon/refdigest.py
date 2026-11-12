@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
 
 from . import cancel, prompts, refs, store, usage
+from .llm import wait_cap
 from .schema import REF_DIGEST_HOOKS, REF_DIGEST_KINDS, RefBook, RefDigest, RefDigestBook, RefDigestItem, RevAI
 
 STAGE = "plan"  # 설정을 따를 때 쓰는 단계 (사용량 기록에도 이 단계로 남는다)
@@ -19,6 +20,7 @@ WORKERS = 4  # 함께 보내는 화 수. CoralBricks 계정의 동시 요청 한
 TEXT_MAX = 30_000  # 한 화에서 보내는 글자 수. 넘으면 가운데를 줄인다
 HEAD_SHARE = 0.6  # 줄일 때 앞에 남기는 몫 (나머지는 끝)
 FAIL_STOP = 5  # 연달아 이만큼 실패하면 멈춘다 (키 · 잔액 · 한도 문제를 화 수만큼 되풀이하지 않게)
+ARCS_WAIT = 600  # 아크 나누기 한 번의 응답을 기다리는 초
 WAIT = 180  # 화 하나의 응답을 기다리는 초. 넘으면 그 화만 실패로 둔다 (2026-11-11 응답 없이 900초를 기다린 호출이 있었다)
 OUT_TOKENS = 450  # 화 카드 하나의 응답 토큰 추정 (2026-11-11 실측 평균 372)
 LINE_MAX = 300  # 사건 줄 · 끝맺음 한 줄의 글자 수
@@ -262,3 +264,145 @@ def view(rid: str) -> dict:
     st = state(b, d, texts)
     return {"id": rid, **{k: v for k, v in st.items() if k != "todo"}, "todo": len(st["todo"]), "cards": cards, "ai": ai_view(d),
             "kinds": list(REF_DIGEST_KINDS), "hooks": list(REF_DIGEST_HOOKS)}
+
+
+# ---------- 구조 보기 (AI 없음) ----------
+
+PACE_BLOCKS = 12  # 긴장 곡선을 나누는 구간 수 어림
+PACE_STEP = 5  # 구간의 화 수는 이 배수로 맞춘다
+PEAK = 5  # 이 긴장인 화를 정점 화로 본다
+CAST_TOP = 12  # 인물 표에 보이는 수
+GENERIC = {"서술자", "화자", "주인공", "남자", "여자", "나", "그", "그녀", "소년", "소녀", "남주", "여주"}  # 이름이 아닌 부름말
+ARCS_MIN = 8  # 아크를 나누는 가장 적은 화 수
+ARCS_OUT_TOKENS = 3000  # 아크 응답 토큰 추정 (revlab.ARCS_OUT_TOKENS 와 같다)
+
+
+def _rows(b: RefBook, d: RefDigestBook) -> list[dict]:
+    """지금 글로 읽힌 화 [{n 차례, label, chars, dialogue, kind, tension, hook, events, ending, cast, basis}] (원고 차례)."""
+    fresh = _fresh(d)
+    names = {e["order"]: e for e in refs.episodes(b)}
+    out = []
+    for t in _texts(b):
+        x = fresh.get(t["basis"])
+        if x:
+            e = names.get(t["order"], {})
+            out.append({"n": t["order"], "label": t["label"], "chars": e.get("chars", 0), "dialogue": e.get("dialogue", 0.0),
+                        "basis": t["basis"], **x.digest.model_dump()})
+    return out
+
+
+def cast_table(rows: list[dict]) -> list[dict]:
+    """화 카드의 인물을 모은다 [{name, episodes 나온 화 수, first 처음 나온 차례}]. 부름말(GENERIC)은 빼고,
+    성을 뗀 이름('지아')은 그 이름으로 끝나는 더 긴 이름('서지아') 가운데 가장 많이 나온 쪽으로 합친다."""
+    seen: dict[str, set[int]] = {}
+    for r in rows:
+        for n in r["cast"]:
+            n = n.strip()
+            if len(n) >= 2 and n not in GENERIC:
+                seen.setdefault(n, set()).add(r["n"])
+    for short in sorted(seen, key=len):
+        longer = [n for n in seen if n != short and n.endswith(short) and len(n) <= len(short) + 2]
+        if longer:  # 후보가 여럿이면 가장 많이 나온 이름으로
+            seen[max(longer, key=lambda n: len(seen[n]))] |= seen.pop(short)
+    table = [{"name": n, "episodes": len(v), "first": min(v)} for n, v in seen.items()]
+    return sorted(table, key=lambda x: (-x["episodes"], x["first"]))
+
+
+def pace(rid: str) -> dict:
+    """화 카드만으로 본 구조: 구간별 평균 긴장 · 성격, 정점 화, 성격 · 긴장 분포, 인물이 처음 나온 화. AI 를 부르지 않는다.
+    끝맺음 방식(hook)은 모델마다 달라 넣지 않는다 (2026-11-11: 20화 중 9화만 일치)."""
+    b = refs.load(rid)
+    d = load(rid)
+    rows = _rows(b, d)
+    if not rows:
+        return {"episodes": 0, "blocks": [], "peaks": [], "kinds": [], "tension": [], "cast": []}
+    size = max(PACE_STEP, -(-len(rows) // PACE_BLOCKS // PACE_STEP) * PACE_STEP)
+    blocks = []
+    for i in range(0, len(rows), size):
+        part = rows[i:i + size]
+        kinds: dict[str, int] = {}
+        for r in part:
+            if r["kind"]:
+                kinds[r["kind"]] = kinds.get(r["kind"], 0) + 1
+        blocks.append({"start": part[0]["n"], "end": part[-1]["n"], "from": part[0]["label"], "to": part[-1]["label"], "episodes": len(part),
+                       "tension": round(sum(r["tension"] for r in part) / len(part), 2), "peaks": sum(r["tension"] >= PEAK for r in part),
+                       "dialogue": round(sum(r["dialogue"] for r in part) / len(part), 2),
+                       "kinds": sorted(kinds.items(), key=lambda kv: -kv[1])[:3]})
+    count = lambda key: sorted(((k, sum(1 for r in rows if r[key] == k)) for k in {r[key] for r in rows} if k), key=lambda kv: -kv[1])  # noqa: E731
+    return {"episodes": len(rows), "block_size": size, "blocks": blocks,
+            "peaks": [{"order": r["n"], "label": r["label"]} for r in rows if r["tension"] >= PEAK],
+            "kinds": count("kind"), "tension": sorted(count("tension")), "cast": cast_table(rows)[:CAST_TOP]}
+
+
+# ---------- 아크 · 부 나누기 (큰 모델 한 번) ----------
+
+def _arcs_basis(rows: list[dict]) -> str:
+    return basis("|".join(r["basis"] for r in rows))
+
+
+def arcs_ready(rid: str) -> tuple[list[dict], list[str]]:
+    """아크를 나눌 화 카드와 인물 이름. 읽히지 않은 화가 있거나 화가 너무 적으면 ValueError."""
+    b = refs.load(rid)
+    d = load(rid)
+    st = state(b, d)
+    rows = _rows(b, d)
+    if st["todo"]:
+        raise ValueError(f"아직 읽히지 않은 화가 {len(st['todo'])}개 있어요. 전체 읽히기를 먼저 끝내 주세요")
+    if len(rows) < ARCS_MIN:
+        raise ValueError(f"화가 {ARCS_MIN}개는 있어야 아크를 나눠요")
+    return rows, [c["name"] for c in cast_table(rows)[:CAST_TOP * 2]]
+
+
+def arcs_estimate(rid: str) -> dict:
+    """아크 나누기 한 번의 비용 추정 (설정의 plan 단계 모델)."""
+    from . import settings
+
+    rows, names = arcs_ready(rid)
+    provider = "mock" if settings.provider()[0] == "mock" else settings.stage_provider(STAGE, None)[0]
+    model = settings.stage_model(STAGE, None)[0] or model_name({"provider": provider, "model": ""})
+    prompt = prompts.ref_arcs_prompt(rows, names)
+    rate = usage.token_rate(provider if provider != "mock" else "", model)
+    tin = usage.est_input(len(prompt), rate, len(prompts.SYSTEM_REVERSE))
+    free = provider not in usage.PRICED
+    price = None if free else usage.rate(model, date.today().isoformat())
+    return {"episodes": len(rows), "chars": len(prompt), "input_tokens": round(tin), "output_tokens": ARCS_OUT_TOKENS, "provider": provider,
+            "model": model, "usd": 0.0 if free else (round(usage.cost(price, tin, ARCS_OUT_TOKENS, 0, False), 3) if price else None),
+            "folded": "화마다 첫 사건" in prompt}
+
+
+def run_arcs(rid: str, llm) -> dict:
+    """화 카드를 접어 아크 · 부로 나누고 digest.json 에 둔다 (작품에는 넣지 않는다). 화 번호는 원고의 차례다."""
+    from types import SimpleNamespace
+
+    from . import pipeline, research, revlab
+
+    rows, names = arcs_ready(rid)
+    cancel.check()
+    with wait_cap(ARCS_WAIT):
+        out = pipeline.ref_arcs(llm, rows, names)
+    cancel.check()
+    stand = SimpleNamespace(episodes=[SimpleNamespace(number=rows[0]["n"]), SimpleNamespace(number=rows[-1]["n"])],
+                            cast=[SimpleNamespace(name=n) for n in names])
+    plan = revlab.clean_arcs(stand, out, "ai", research._model_name(llm))
+    with _lock:
+        d = load(rid)
+        d.arcs, d.arcs_basis = plan, _arcs_basis(rows)
+        _save(rid, d)
+    return {"arcs": len(plan.arcs), "parts": len(plan.parts)}
+
+
+def clear_arcs(rid: str) -> None:
+    refs.load(rid)
+    with _lock:
+        d = load(rid)
+        d.arcs, d.arcs_basis = None, ""
+        _save(rid, d)
+
+
+def arcs_view(rid: str) -> dict:
+    """화면 값: 나눈 아크 · 부(없으면 None), 화 카드가 그 뒤 바뀌었는지(stale), 차례 → 화 이름."""
+    b = refs.load(rid)
+    d = load(rid)
+    rows = _rows(b, d)
+    return {"plan": d.arcs.model_dump() if d.arcs else None, "stale": bool(d.arcs) and d.arcs_basis != _arcs_basis(rows),
+            "labels": {str(r["n"]): r["label"] for r in rows}}

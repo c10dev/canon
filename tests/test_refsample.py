@@ -49,6 +49,18 @@ def test_pieces_take_head_talk_narration_tail():
     assert refsample.pieces_of("짧은 화", 1_200) == [{"part": "all", "text": "짧은 화", "at": 0}]
 
 
+def test_pieces_keep_double_quotes_in_pairs():
+    """따옴표 하나가 남으면 대사 비율이 뒤집혀 재진다. 잘린 조각은 남은 쪽을 잘라 내고, 안 되면 그 문단을 뺀다."""
+    assert refsample._even('서윤은 걸었다. "어디 가') == "서윤은 걸었다."
+    assert refsample._even('가." 도현이 웃었다. 서윤은 문을 닫았다.', tail=True) == "도현이 웃었다. 서윤은 문을 닫았다."
+    assert refsample._even('"짝이 맞는 글."') == '"짝이 맞는 글."'
+    odd = '서윤은 걸었다.\n\n"닫히지 않은 대사.\n\n"짝이 맞는 대사." 도현이 말했다.\n\n바람이 불었다. 문이 흔들렸다. 등대 불이 한 번 깜빡였다.'
+    assert refsample._even(odd) == '서윤은 걸었다.\n\n"짝이 맞는 대사." 도현이 말했다.\n\n바람이 불었다. 문이 흔들렸다. 등대 불이 한 번 깜빡였다.'
+    eps = [_ep(n, dialogue=(n % 7) / 10) for n in range(1, 61)]
+    out = refsample.spread(eps, 6_000)
+    assert out["text"].count('"') % 2 == 0 and all(x.count('"') % 2 == 0 for x in out["text"].split(refsample.SEP))
+
+
 def test_zone_picks_one_episode_per_kind_then_by_dialogue():
     zone = [_ep(n, kind=k, dialogue=d) for n, k, d in
             [(1, "대화", 0.5), (2, "대화", 0.6), (3, "전투", 0.1), (4, "대화", 0.4), (5, "일상", 0.3), (6, "대화", 0.5), (7, "대화", 0.7)]]

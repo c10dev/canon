@@ -38,6 +38,18 @@ def _trim(text: str, quota: int, tail: bool = False) -> str:
     return cut[:ends[-1]].strip() if ends and ends[-1] > quota * 0.5 else cut.strip()
 
 
+def _even(text: str, tail: bool = False) -> str:
+    """큰따옴표가 짝이 맞게 한다. 따옴표 하나가 남으면 metrics 의 대사 재기(_QUOTE)가 그 뒤 글 전체에서 대사와 서술을 뒤바꿔 센다.
+    문장 가운데에서 잘린 조각은 남은 따옴표 쪽을 잘라 내고(앞에서 자른 글은 마지막 여는 따옴표부터, 끝을 남긴 글은 첫 닫는 따옴표까지),
+    그래도 안 맞으면 따옴표 수가 홀수인 문단을 뺀다. 글자를 고치지는 않는다."""
+    if text.count('"') % 2 == 0:
+        return text
+    cut = text[text.index('"') + 1:].lstrip() if tail else text[:text.rindex('"')].rstrip()
+    if cut.count('"') % 2 == 0 and len(cut) >= len(text) * 0.5:
+        return cut
+    return "\n\n".join(p for p in _paras(text) if p.count('"') % 2 == 0)
+
+
 def _take(paras: list[str], quota: int, tail: bool = False) -> tuple[str, int]:
     """앞(또는 끝)에서 문단을 quota 자까지 모은다. (글, 쓴 문단 수)."""
     got: list[str] = []
@@ -50,7 +62,7 @@ def _take(paras: list[str], quota: int, tail: bool = False) -> tuple[str, int]:
         if used >= quota:
             break
     body = "\n\n".join(reversed(got) if tail else got)
-    return _trim(body, quota, tail), len(got)
+    return _even(_trim(body, quota, tail), tail), len(got)
 
 
 def _window(paras: list[str], quota: int, want_talk: bool, taken: set[int]) -> tuple[str, set[int]]:
@@ -63,7 +75,7 @@ def _window(paras: list[str], quota: int, want_talk: bool, taken: set[int]) -> t
         while j < len(paras) and j not in taken and len(body) + len(paras[j]) <= quota:
             body = f"{body}\n\n{paras[j]}" if body else paras[j]
             j += 1
-        if len(body) < PIECE_MIN:
+        if len(body) < PIECE_MIN or body.count('"') % 2:
             continue
         score = _talk(body) if want_talk else -_talk(body)
         if best_score is None or score > best_score:
@@ -74,7 +86,7 @@ def _window(paras: list[str], quota: int, want_talk: bool, taken: set[int]) -> t
 def pieces_of(text: str, quota: int) -> list[dict]:
     """화 하나에서 quota 자 안으로 뽑은 조각 [{part, text, at}]. 화가 quota 보다 짧으면 통째로."""
     if len(text) <= quota:
-        return [{"part": "all", "text": text, "at": 0}]
+        return [{"part": "all", "text": _even(text), "at": 0}]
     paras = _paras(text)
     share = dict(PARTS)
     head, n_head = _take(paras, int(quota * share["head"]))

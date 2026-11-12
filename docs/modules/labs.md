@@ -154,6 +154,16 @@
 - 고를 수 있는 백엔드 `PROVIDERS` 는 `revlab.AI_PROVIDERS` 와 같다. 고르기 `set_ai`, 화면 값 `ai_view`(CoralBricks 키가 있으면 `coral`)
 - 비용 추정 `estimate`: 읽힐 화의 요청 글자 수 × `usage.token_rate`, 출력은 화마다 `OUT_TOKENS`(450). 캐시와 생각 토큰은 넣지 않는다
 - 화면 값 `view`: 읽힌 정도 · 지금 글로 읽힌 화의 카드(`cards`, 열쇠는 차례) · 읽힐 AI
+- 구조 보기 `pace`(AI 없음, 일감 7): 화 카드를 `PACE_BLOCKS`(12) 안팎의 구간으로 묶어 구간별 평균 긴장 · 정점 화 수 · 흔한 성격 · 대사 비율을 낸다
+- `pace` 는 긴장 `PEAK`(5)인 화 목록, 성격 · 긴장 분포, 인물 표 `cast_table` 도 낸다. 끝맺음 방식은 모델마다 달라 넣지 않는다
+- 인물 표 `cast_table`: 부름말(`GENERIC`: 서술자 · 남자 …)을 빼고, 성을 뗀 이름은 그 이름으로 끝나는 더 긴 이름 가운데 가장 많이 나온 쪽으로 합친다
+- 아크 · 부 나누기 `run_arcs`(일감 7): 화 카드를 접어 `pipeline.ref_arcs` 로 한 번 묻고 `revlab.clean_arcs` 로 정리해 `RefDigestBook.arcs`(`RevArcPlan`)에 둔다
+- 아크의 화 번호는 원고의 차례(1부터)다. 화면은 `arcs_view` 의 `labels` 로 화 이름을 붙인다
+- 아크 나누기는 읽히지 않은 화가 없고 화가 `ARCS_MIN`(8)개 넘을 때만 한다(`arcs_ready`). 모델은 이 원고의 읽힐 AI 가 아니라 설정의 `plan` 단계다
+- 아크를 나눈 뒤 화 카드가 바뀌면 낡은 아크다(`arcs_basis` 와 지금 지문 묶음이 다름, `arcs_view` 의 `stale`). 지우기 `clear_arcs`, 비용 추정 `arcs_estimate`
+- 아크 요청 `prompts.ref_arcs_prompt`: 예산 `context.BUDGET["ref_arcs"]`(4만 자)를 넘으면 화마다 첫 사건과 끝 첫 문장, 그래도 넘으면 첫 사건만 넣고 그렇게 했다고 적는다
+- 아크 요청은 화 카드의 세부가 틀릴 수 있으니 여러 화에 걸친 큰 흐름으로 판단하라고 이른다
+- 아크 요청의 화 머리는 'n번 · 화 이름'이다. 번호 칸에는 차례를, 글 칸에는 화 이름을 쓰게 해 AI 설명과 화면의 화 이름이 어긋나지 않게 한다(프롤로그가 있으면 차례와 화 번호가 하나씩 밀린다)
 - 프롬프트 `prompts.ref_digest_prompt`(지시가 앞, 원문이 뒤) · 시스템 `SYSTEM_REVERSE`
 - 가짜 응답 `mock_refdigest.py`(원문에 `FAIL_MARK` 가 있으면 빈 사건 줄을 내 실패한 화를 시험한다)
 - 웹은 `/api/refs/{rid}/digest…`(`routes/refs.py`), 화면은 `static/refs.js`
@@ -215,6 +225,8 @@
 - 화에서 뽑는 조각 `pieces_of`: 첫머리 30% · 대사 몫이 가장 큰 덩어리 20% · 가장 작은 덩어리 20% · 끝 30%(`PARTS`). 문단과 문장 끝에서 자른다
 - 화가 화 하나의 몫보다 짧으면 통째로 넣는다. `PIECE_MIN`(200자)보다 짧은 덩어리는 뽑지 않는다
 - 조각은 원문 글자 그대로다. 조각 사이는 `SEP`('***' 줄)로 잇는다
+- 조각마다 큰따옴표의 짝을 맞춘다(`_even`): 잘린 조각은 남은 따옴표 쪽을 잘라 내고, 그래도 홀수면 그 문단을 뺀다. 따옴표 하나가 남으면 `metrics` 의 대사 재기가 그 뒤 글 전체를 뒤집어 센다
+- 2026-11-12 실측: 짝을 맞추기 전 흩은 표본의 대사 비율이 0.61(화별 평균 0.27)로 재졌고, 맞춘 뒤 0.24 가 됐다
 - 돌려주는 값: 보낼 글 `text` · 조각 목록 `pieces`(차례 · 이름 · 부분 · 글자 수) · 흩어 뽑았는지 `spread` · 고른 화의 글자 수 `chars` · 조각을 뽑은 화 수 `episodes`
 - 부르는 곳은 `refs.sample`. 화면 이름 `PART_NAMES` 는 `static/refs.js` 의 `REF_PART` 와 같다
 - 시험 `tests/test_refsample.py`
@@ -368,6 +380,8 @@
 - 화 카드 `GET /api/refs/{rid}/digest`(읽힌 정도 · 카드 · 읽힐 AI) · 비용 추정 `GET …/digest/estimate` · 읽힐 AI 고르기 `PUT …/digest/ai`
 - 전체 읽히기 `POST /api/refs/{rid}/digest`(작업 kind `ref_digest`, project `REF_JOBS`, target 은 원고 id 라 원고마다 하나)
 - 전체 읽히기는 읽힐 화가 없으면 400, 키가 없으면 작업을 띄우기 전에 `MissingKey` 로 알린다
+- 구조 `GET /api/refs/{rid}/digest/pace`(구간 긴장 · 정점 화 · 인물 · 나눈 아크). AI 를 부르지 않는다
+- 아크 나누기 `POST /api/refs/{rid}/digest/arcs`(작업 kind `ref_arcs`, target 은 원고 id) · 비용 추정 `GET …/digest/arcs/estimate` · 지우기 `DELETE …/digest/arcs`
 
 ### `canon/routes/research.py`
 
@@ -518,6 +532,10 @@
 - 화 카드가 하나라도 있으면 화 표에 성격 · 긴장 · 끝맺음 열을 더한다(`REF_DIGEST_COLS`, 정렬 가능)
 - 화 읽기 화면은 본문 위에 그 화의 카드(`refDigestEp`: 사건 줄 · 끝 · 인물)를 접을 수 있게 보인다
 - `refDigestLabel` · `refDigestCost` · `refDigestDoneMsg` 는 순수 함수
+- 구조 카드(`refStructureCard`, 화 카드가 있을 때만): 구간별 평균 긴장 막대 · 성격 칩과 긴장 고르기로 화 표 거르기(`S.refFilter`, `refFilterKeep`) · 긴장 5인 화 · 인물이 처음 나온 화
+- 구조 카드의 아크(`refArcsBlock`): 없으면 '아크 나누기' 버튼, 있으면 아크 목록(이름 · 화 범위 `refArcSpan` · 정점 화 · 목표)과 다시 나누기 · 지우기
+- 아크 나누기는 비용 추정을 확인 대화상자로 보인 뒤 시작한다(`refArcsAsk`). 끝나면 `refPaceLoad` 가 다시 받는다
+- `refFilterKeep` · `refArcSpan` 은 순수 함수
 - `refDecode` · `refAssemble` · `refRange` · `refEpRows` 는 순수 함수(`tests/test_refs.py`)
 - CSS 는 JS 에서 주입
 
