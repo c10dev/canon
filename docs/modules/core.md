@@ -413,6 +413,7 @@
 - 완급 계획을 받을 범위 `heat_target`(단편 작품 전체, 장편은 아크 번호 또는 다 쓰지 않은 첫 아크)과 받기 `propose_heat`(본문 있는 화는 지금 계획 줄을 지킨다)
 - 설계도 거꾸로 뽑기 `propose_blueprint`(아크 하나 · 두 인물, `prompts.blueprint_extract_prompt`, 응답 `BlueprintProposal`, 정리 `blueprint.clean_proposal`). 저장하지 않는다
 - 설계도 짜기 `draft_blueprint`(부 하나 · 두 인물 · 작가 메모, `prompts.blueprint_draft_prompt`, 플롯이 없어도 됨). 정리 · 더하기는 거꾸로 뽑기와 같다
+- 쌍 설계도 요청 셋(거꾸로 뽑기 · 짜기 · 전체 짜기)은 단계 말 줄 `prompts._bp_stage_rule`(단계 말은 `schema.RelStage`)과 id 줄 `_bp_id_rule` 을 같이 쓴다
 - 두 설계도 제안은 출력 한도 `BLUEPRINT_OUT_TOKENS`(16,384)를 건다. 2026-11-10 flash 실호출 두 번 모두 첫 시도가 65,521토큰까지 되풀이했다
 - 능력 일정 거꾸로 뽑기 `propose_abilities`(아크 하나 · 인물 하나, `prompts.ability_extract_prompt`, 응답 `AbilityProposal`, 정리 `blueprint.clean_abilities`). 저장하지 않는다
 - 능력 일정 짜기 `draft_abilities`(부 하나 · 인물 하나 · 작가 메모, `prompts.ability_draft_prompt`, 플롯이 없어도 됨). 같은 출력 한도를 건다

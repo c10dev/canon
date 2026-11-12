@@ -148,3 +148,18 @@ def test_whole_uses_its_own_out_cap(monkeypatch):
     monkeypatch.setattr(MockLLM, "json", spy)
     pipeline.draft_whole(MockLLM(), _harem(), 0)
     assert seen == [pipeline.WHOLE_OUT_TOKENS] and pipeline.WHOLE_OUT_TOKENS > pipeline.BLUEPRINT_OUT_TOKENS  # 쌍 여럿의 응답과 생각이 08 의 한도를 넘는다
+
+
+def test_pair_prompts_share_stage_and_id_rules():
+    """쌍 설계도 요청 셋(거꾸로 뽑기 · 짜기 · 전체 짜기)이 단계 말 줄과 id 줄을 한 곳(_bp_stage_rule · _bp_id_rule)에서 받는다."""
+    import typing
+
+    from canon.schema import RelStage
+    from .test_blueprint import _ep_project
+    p, h = _ep_project(), _harem(serial=True)
+    stage = prompts._bp_stage_rule()
+    assert stage.startswith("stage 는 " + " · ".join(typing.get_args(RelStage)) + " 가운데")
+    texts = {"extract": prompts.blueprint_extract_prompt(p, 1, 8, "hero", "ally"), "draft": prompts.blueprint_draft_prompt(p, 1, 8, "hero", "ally"),
+             "whole": prompts.blueprint_whole_prompt(h, 1, 20, blueprint.whole_pairs(h))}
+    assert all(f"\n- {stage}" in t for t in texts.values())
+    assert prompts._bp_id_rule("이끈") in texts["extract"] and all(prompts._bp_id_rule("이끄는") in texts[k] for k in ("draft", "whole"))

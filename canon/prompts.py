@@ -11,7 +11,7 @@ import json
 import random
 import re
 from contextvars import ContextVar
-from typing import NamedTuple
+from typing import NamedTuple, get_args
 
 from pydantic import BaseModel
 
@@ -21,7 +21,7 @@ from .logline import josa
 from .llm import _inline_refs, dump
 from .schema import Birth, Character, ChatMessage, Claim, ConsistencyIssue, ConsistencyReport, Foreshadow, PlayInfo, PlotBatch, Project, Selection, StateDelta, StateDeltaAI, StoryElement
 from .schema import ArcPlan, ArcProposal, CueSheetDraft, HeatArcPlan, HeatArcProposal, HeatProposal, SeriesPlan, StoryboardDraft
-from .schema import PassageRevision, PlotAgentStep, SetupRevision, StyleRevision
+from .schema import PassageRevision, PlotAgentStep, RelStage, SetupRevision, StyleRevision
 from . import address, blueprint, board, cast, charlog, coord, echoes, foreshadows, heatplan, knows, pairlog, stage, statwin, timeline
 from . import offscreen
 from .maps import prompt as mapprompt
@@ -1276,6 +1276,16 @@ def _bp_ids_block(p: Project) -> str:
 {places or "없음"}"""
 
 
+def _bp_stage_rule() -> str:
+    """설계도 요청(거꾸로 뽑기 · 짜기 · 전체 짜기)의 단계 말 줄 머리. 단계 말은 schema.RelStage 차례다."""
+    return f"stage 는 {' · '.join(get_args(RelStage))} 가운데 맞는 말입니다. 맞는 말이 없으면 비우고 label 에 적습니다."
+
+
+def _bp_id_rule(lead: str) -> str:
+    """설계도 요청의 부위 · 동작 · 장소 id 줄 (_bp_ids_block 의 목록을 가리킨다). lead 는 주도 인물 칸의 풀이 말('이끄는' · '이끈')."""
+    return f"parts · acts · places 는 위 목록의 id 만 씁니다. 맞는 id 가 없으면 비우고 label 에 씁니다. lead 는 접촉을 {lead} 인물 id 입니다."
+
+
 def _bp_part_text(p: Project, start: int, end: int) -> str:
     """설계도 짜기 요청의 부 구성 줄: start~end 에 걸친 부의 목표 · 마무리 · 아크 생각. 단편이나 부가 없으면 빈 글."""
     parts = [x for x in p.parts if x.end_ep >= start and x.start_ep <= end] if p.serial else []
@@ -1312,10 +1322,10 @@ def blueprint_draft_prompt(p: Project, start: int, end: int, a: str, b: str) -> 
 요구사항:
 - 작품 설정 · 로그라인 · 부 구성 · 관계의 가 닿을 곳 · 작가의 요청에 있는 방향을 따릅니다. 거기에 없는 사건을 지어내지 않습니다.
 - milestones: {na} → {nb} 와 {nb} → {na} 를 따로, 관계가 바뀌는 고비마다 한 줄. source · target 은 인물 id({a}, {b})입니다.
-- stage 는 낯섦 · 경계 · 호감 · 신뢰 · 균열 · 적대 · 화해 가운데 맞는 말입니다. 맞는 말이 없으면 비우고 label 에 적습니다. 단계는 한 화에 한 칸씩 움직이므로 이웃한 이정표 사이에 칸 수만큼 화를 둡니다.
+- {_bp_stage_rule()} 단계는 한 화에 한 칸씩 움직이므로 이웃한 이정표 사이에 칸 수만큼 화를 둡니다.
 - rungs: 두 인물의 신체 접촉이 한 단계씩 나아가는 칸을 낮은 칸부터 차례로. 칸의 from_ep 는 처음 닿는 화 범위의 첫 화이고, 뒤 칸일수록 from_ep 가 줄지 않습니다.
 - 화 범위는 {start}~{end}화 안에서 고르고, 부 구성이 있으면 부의 목표와 마무리에 맞는 자리에 둡니다.
-- parts · acts · places 는 위 목록의 id 만 씁니다. 맞는 id 가 없으면 비우고 label 에 씁니다. lead 는 접촉을 이끄는 인물 id 입니다.
+- {_bp_id_rule("이끄는")}
 - 이미 적은 설계도와 같은 줄은 다시 만들지 않고, 그 줄과 어긋나지 않게 잇습니다.
 - evidence 에는 그 줄을 둔 화 번호와 그 자리에 둔 까닭(작품 설정 · 부 목표 · 작가 요청 가운데 어디서 왔는지) 한 줄을 1~2개 넣습니다.
 - reply 에는 무엇을 짰고 어디를 비웠는지 1~3문장으로 씁니다."""
@@ -1366,9 +1376,9 @@ def blueprint_whole_prompt(p: Project, start: int, end: int, pairs: list[tuple[s
 - pairs 에는 쌍마다 한 항목을 적습니다. a · b 는 [짤 쌍]의 두 인물 id 입니다. 쌍 키는 {keys} 입니다. 새 줄이 없는 쌍은 milestones · rungs 를 빈 목록으로 둡니다.
 - 부 구성 · 작가 요청이 동시에 두라고 하지 않은 곳에서는 두 쌍이 같은 화 범위에 같은 단계 · 같은 겹에 처음 닿지 않게 엇갈려 둡니다.
 - milestones: 쌍마다 두 방향을 따로, 관계가 바뀌는 고비마다 한 줄. 방향마다 많아도 4줄입니다. source · target 은 인물 id 입니다.
-- stage 는 낯섦 · 경계 · 호감 · 신뢰 · 균열 · 적대 · 화해 가운데 맞는 말입니다. 맞는 말이 없으면 비우고 label 에 적습니다. 단계는 한 화에 한 칸씩 움직이므로 이웃한 이정표 사이에 칸 수만큼 화를 둡니다. 이미 적은 설계도의 '계획상' 단계에서 잇습니다.
+- {_bp_stage_rule()} 단계는 한 화에 한 칸씩 움직이므로 이웃한 이정표 사이에 칸 수만큼 화를 둡니다. 이미 적은 설계도의 '계획상' 단계에서 잇습니다.
 - rungs: 쌍마다 두 인물의 신체 접촉이 한 단계씩 나아가는 칸을 낮은 칸부터 차례로, 많아도 5칸. 뒤 칸일수록 from_ep 가 줄지 않습니다.
-- parts · acts · places 는 위 목록의 id 만 씁니다. 맞는 id 가 없으면 비우고 label 에 씁니다. lead 는 접촉을 이끄는 인물 id 입니다.
+- {_bp_id_rule("이끄는")}
 - abilities: 능력 · 권한 · 해금 단계는 부 구성 · 로그라인에 나온 것만 적습니다. 인물마다 많아도 6줄이고 한 줄의 범위는 10화 이하로 좁힙니다. 그 능력이 있어야 하는 이정표 · 칸은 능력의 범위 뒤에 둡니다.
 - 상대마다 따로 여는 해금 단계는 주인공의 능력 줄로 적습니다(ability 에 '상대 이름 + 해금', grade 에 '1단계' 같은 단계).
 {ability_ai_rules()}
@@ -1404,10 +1414,10 @@ def blueprint_extract_prompt(p: Project, start: int, end: int, a: str, b: str) -
 요구사항:
 - 플롯에 적힌 일만 뽑습니다. 플롯에 없는 관계 변화나 접촉을 지어내지 않습니다.
 - milestones: {na} → {nb} 와 {nb} → {na} 를 따로, 관계가 눈에 띄게 바뀐 화마다 한 줄. source · target 은 인물 id({a}, {b})입니다.
-- stage 는 낯섦 · 경계 · 호감 · 신뢰 · 균열 · 적대 · 화해 가운데 맞는 말입니다. 맞는 말이 없으면 비우고 label 에 적습니다.
+- {_bp_stage_rule()}
 - rungs: 두 인물의 신체 접촉이 처음으로 한 단계 나아간 화마다 한 칸, 처음 닿은 화 차례로. 이미 닿은 접촉이 되풀이되면 새 칸을 만들지 않습니다.
 - 칸의 from_ep 는 처음 닿은 화, to_ep 는 보통 같은 화입니다.
-- parts · acts · places 는 위 목록의 id 만 씁니다. 맞는 id 가 없으면 비우고 label 에 씁니다. lead 는 접촉을 이끈 인물 id 입니다.
+- {_bp_id_rule("이끈")}
 - 이미 적은 설계도와 같은 줄은 다시 만들지 않습니다.
 - evidence 에는 근거 화 번호와 그 화 플롯에서 그대로 옮긴 구절을 1~3개 넣습니다.
 - reply 에는 무엇을 뽑았고 무엇이 플롯에 없어 비웠는지 1~3문장으로 씁니다."""
@@ -4230,14 +4240,10 @@ def plan_board_rule(p: Project) -> str:
             if block else "")
 
 
-def _bp_names(p: Project) -> dict[str, str]:
-    return {c.id: c.name or c.id for c in p.characters}
-
-
 def blueprint_board_rule(p: Project, n: int) -> str:
     """스토리보드 요청 맨 끝의 설계도 줄 (docs/blueprint/specs/06-episode.md): n 화 플롯 인물끼리의 사다리 지금 칸 · 이 화가 처음 닿는 범위인 칸 · 다음 칸,
     그리고 n 화가 든 관계 이정표. 상한은 스토리보드만 받는다 (README 2026-11-10). 요청 끝에 두어 쓰기 가족 앞부분 캐시를 깨지 않는다. 줄이 없으면 빈 글."""
-    who, names = set(p.episode(n).plot.characters), _bp_names(p)
+    who, names = set(p.episode(n).plot.characters), blueprint.char_names(p)
     lines = []
     for lad in p.blueprint.ladders:
         if lad.a not in who or lad.b not in who:
@@ -4264,7 +4270,7 @@ def blueprint_board_rule(p: Project, n: int) -> str:
 def blueprint_write_line(p: Project, n: int) -> str:
     """본문 쓰기 지시문의 설계도 한 줄: n 화가 사다리 칸에 처음 닿는 범위이고 그 칸이 그 화 플롯 · 연출 지시에 나올 때만 (blueprint.rungs_in_plot).
     범위 안 모든 화에 넣지 않는다. 상한도 넣지 않는다 (README 2026-11-10 · 2026-11-11, 앞당김 방지)."""
-    names = _bp_names(p)
+    names = blueprint.char_names(p)
     got = [f"{names.get(lad.a, lad.a)} ↔ {names.get(lad.b, lad.b)} '{blueprint.rung_text(p, lad, r)}'({r.from_ep}~{r.to_ep}화)"
            for lad, r in blueprint.rungs_in_plot(p, n)]
     return f"\n설계도에서 이 화는 처음 닿는 범위인 사다리 칸이 있습니다: {', '.join(got)}." if got else ""
@@ -4272,7 +4278,7 @@ def blueprint_write_line(p: Project, n: int) -> str:
 
 def blueprint_check_rule(p: Project, n: int) -> str:
     """검수 요구사항 한 줄: n 화 플롯 인물끼리 사다리의 다음 칸을 본문이 앞당겼는지. 다음 칸이 없으면 빈 글."""
-    who, names = set(p.episode(n).plot.characters), _bp_names(p)
+    who, names = set(p.episode(n).plot.characters), blueprint.char_names(p)
     lines = []
     for lad in p.blueprint.ladders:
         nxt = next((r for r in lad.rungs if r.from_ep > n), None)
@@ -4288,14 +4294,10 @@ def blueprint_check_rule(p: Project, n: int) -> str:
             "type 은 플롯, source_episode 는 0, source_quote 는 그 칸 줄입니다.")
 
 
-def _ab_rng(x) -> str:
-    return f"{x.from_ep}화" if x.from_ep == x.to_ep else f"{x.from_ep}~{x.to_ep}화"
-
-
 def ability_board_rule(p: Project, n: int) -> str:
     """스토리보드 요청 끝의 능력 일정 줄 (docs/blueprint/specs/10-ability.md): n 화 플롯 인물이 이 화 범위에 얻기로 한 능력과 인물마다 다음 줄 하나.
     아직 얻지 못한 줄만 본다 (blueprint.got_ep). 줄이 없으면 빈 글."""
-    lines = [f"- 이 화가 얻는 범위({_ab_rng(x)})인 능력: {blueprint.ability_line(p, x)}" for x in blueprint.ability_due(p, n)]
+    lines = [f"- 이 화가 얻는 범위({blueprint.rng_text(x)})인 능력: {blueprint.ability_line(p, x)}" for x in blueprint.ability_due(p, n)]
     lines += [f"- 다음 능력({x.from_ep}화부터)은 이 화에 얻지 않습니다: {blueprint.ability_line(p, x)}" for x in blueprint.ability_next(p, n)]
     if not lines:
         return ""
@@ -4306,7 +4308,7 @@ def ability_board_rule(p: Project, n: int) -> str:
 def ability_write_line(p: Project, n: int) -> str:
     """본문 쓰기 지시문의 능력 일정 한 줄: n 화가 얻는 범위이고 아직 얻지 못한 능력의 이름이 그 화 플롯 · 연출 지시에 나올 때만 (blueprint.ability_in_plot).
     범위 안 모든 화에 넣지 않는다. 다음 줄 · 상한도 넣지 않는다 (앞당김 방지)."""
-    got = [blueprint.ability_line(p, x, _ab_rng(x)) for x in blueprint.ability_in_plot(p, n)]
+    got = [blueprint.ability_line(p, x, blueprint.rng_text(x)) for x in blueprint.ability_in_plot(p, n)]
     return f"\n설계도에서 이 화 플롯의 능력은 얻는 범위 안입니다: {'; '.join(got)}." if got else ""
 
 

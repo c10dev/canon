@@ -335,20 +335,12 @@ function bpWholeDraftCard(pairs) {
   const d = S.bpWhole;
   if (!d) return '';
   const pick = bpWholePicks(d);
-  const label = (ids, picks) => ids.map((id) => (picks.find((x) => x.id === id) || { label: id }).label).join(', ');
-  const box = (arg, on, text) => `<input type="checkbox" data-action="bpWholePick" data-arg="${esc(arg)}"${on ? ' checked' : ''} aria-label="${esc(text)}">`;
   const groups = d.pairs.map((x) => {
     const k = bpKey(x.a, x.b);
     const pk = pick[k];
-    const ov = bpOverlaps(S.bp.blueprint, x);
     const who = `${bpWho(x.a)} ↔ ${bpWho(x.b)}`;
     const all = [...pk.ms, ...pk.rungs];
-    const ms = x.milestones.map((m, i) => `<li>${box(`${k}|ms|${i}`, pk.ms[i], `${who} 이정표 ${i + 1} 고르기`)}<span class="chip">${esc(bpRange(m))}</span>
-      <span>${esc(bpWho(m.source))} → ${esc(bpWho(m.target))}</span>${m.stage ? `<span class="chip confirmed">${esc(m.stage)}</span>` : ''}<span>${esc(m.label)}</span>
-      ${ov.ms[i] ? '<span class="chip warn">이미 있음</span>' : ''}${(m.evidence || []).length ? `<span class="small">${esc(bpEvidence(m.evidence))}</span>` : ''}</li>`).join('');
-    const rungs = x.rungs.map((r, i) => `<li>${box(`${k}|rung|${i}`, pk.rungs[i], `${who} 사다리 칸 ${i + 1} 고르기`)}<span class="chip">${esc(bpRange(r))}</span><strong>${esc(r.label)}</strong>
-      <span class="small">${esc([r.layer, label(r.parts, S.bp.parts), label(r.acts, S.bp.acts), r.lead ? `${bpWho(r.lead)} 주도` : ''].filter(Boolean).join(' · '))}</span>
-      ${ov.rungs[i] ? '<span class="chip warn">이미 있음</span>' : ''}</li>`).join('');
+    const { ms, rungs } = bpPairDraftRows(x, pk, 'bpWholePick', `${k}|`, `${who} `);
     const n = all.length;
     return `<details class="bp-pick bp-dir" open><summary><span>${esc(who)}</span><span class="small">이정표 ${x.milestones.length} · 칸 ${x.rungs.length} · 고름 ${all.filter(Boolean).length}</span></summary>
       ${n ? `<label class="small"><input type="checkbox" data-action="bpWholePick" data-arg="${esc(k)}|all"${all.every(Boolean) ? ' checked' : ''}> 이 쌍 모두 고르기</label>` : '<span class="small">새 줄이 없어요.</span>'}
@@ -521,20 +513,20 @@ function bpAbAiCard() {
   return `<section class="card" id="bp-ab-ai"><h2>AI로 능력 일정 받기</h2>${draft}${extract}</section>`;
 }
 
-/** 견주는 능력 이름 · 등급: 띄어쓰기 · 괄호를 뺀 소문자 (서버 abilities.key · blueprint._grade_key 와 같은 뜻) */
-const bpAbNorm = (s) => String(s || '').toLowerCase().replace(/[\s()[\]（）]+/g, '');
+/** 견주는 등급: 띄어쓰기 · 괄호를 뺀 소문자 (서버 blueprint._grade_key 와 같다). 능력 이름은 abKey(abilities.js, 서버 abilities.key)로 견준다 */
+const bpGradeKey = (s) => String(s || '').toLowerCase().replace(/[\s()[\]（）]+/g, '');
 
-/** 스킬 도감에 그 이름(다른 이름 포함)의 항목이 있는가 */
-const bpAbKnown = (name) => (P().abilities || []).some((a) => [a.name, ...(a.aliases || [])].some((n) => bpAbNorm(n) === bpAbNorm(name)));
+/** 스킬 도감에 그 이름(다른 이름 포함)의 항목이 있는가 (abFindLocal = 서버 abilities.find, 서버 ability_states 의 linked 와 같다) */
+const bpAbKnown = (name) => !!abFindLocal(name);
 
 /** 제안 줄과 같은 인물 · 능력 · 등급인 이미 적은 줄 (서버 check 가 '두 줄'로 거절하는 줄). 없으면 undefined */
-const bpAbSame = (bp, x) => bpPlans(bp).find((e) => e.character === x.character && bpAbNorm(e.ability) === bpAbNorm(x.ability) && bpAbNorm(e.grade) === bpAbNorm(x.grade));
+const bpAbSame = (bp, x) => bpPlans(bp).find((e) => e.character === x.character && abKey(e.ability) === abKey(x.ability) && bpGradeKey(e.grade) === bpGradeKey(x.grade));
 
 /** 고른 줄 가운데 같은 인물 · 능력 · 등급은 앞의 것 하나만 남긴다 (뽑은 묶음과 짠 묶음이 같은 줄을 낼 수 있다. 둘 다 보내면 서버 check 가 '두 줄'로 거절한다) */
 function bpAbUnique(rows) {
   const seen = new Set();
   return rows.filter((x) => {
-    const k = [x.character, bpAbNorm(x.ability), bpAbNorm(x.grade)].join('|');
+    const k = [x.character, abKey(x.ability), bpGradeKey(x.grade)].join('|');
     return !seen.has(k) && !!seen.add(k);
   });
 }
@@ -572,7 +564,7 @@ function bpAbCodexRows(codex, picks, arg, action = 'bpAbCodexPick') {
 function bpAbCodexPicked(drafts) {
   const seen = new Set();
   return drafts.flatMap((d) => (d.codex || []).filter((c, i) => d.codexPicks[i] && !bpAbKnown(c.name)))
-    .filter((c) => !seen.has(bpAbNorm(c.name)) && !!seen.add(bpAbNorm(c.name)));
+    .filter((c) => !seen.has(abKey(c.name)) && !!seen.add(abKey(c.name)));
 }
 
 /** 제안 자리의 열쇠: 인물 id 와 뽑기 · 짜기. 같은 인물의 뽑은 제안과 짠 제안은 따로 남는다 */
@@ -666,6 +658,24 @@ function bpOverlaps(bp, d) {
   };
 }
 
+/** 쌍 제안 묶음의 줄 (쌍 쪽 제안 카드 bpDraftCard 와 작품 전체 짜기 카드 bpWholeDraftCard 가 같이 쓴다).
+    x 는 { a, b, milestones, rungs }, picks 는 { ms, rungs } 체크, action 은 체크를 받는 동작 이름, arg 는 data-arg 머리('쌍 키|' 또는 ''), who 는 aria 이름 머리.
+    이미 있는 줄과 겹치면(bpOverlaps) '이미 있음'과 겹친 줄을 적는다. 돌려주는 것은 { ms, rungs } li 글 */
+function bpPairDraftRows(x, picks, action, arg, who) {
+  const ov = bpOverlaps(S.bp.blueprint, x);
+  const box = (kind, i, on, label) => `<input type="checkbox" data-action="${action}" data-arg="${esc(`${arg}${kind}|${i}`)}"${on ? ' checked' : ''} aria-label="${esc(`${who}${label}`)}">`;
+  const same = (text) => `<span class="chip warn">이미 있음</span><span class="small">${esc(text)}</span>`;
+  const ev = (y) => ((y.evidence || []).length ? `<span class="small">${esc(bpEvidence(y.evidence))}</span>` : '');
+  const label = (ids, list) => (ids || []).map((id) => (list.find((y) => y.id === id) || { label: id }).label).join(', ');
+  const ms = x.milestones.map((m, i) => `<li>${box('ms', i, picks.ms[i], `이정표 ${i + 1} 고르기`)}<span class="chip">${esc(bpRange(m))}</span>
+      <span>${esc(bpWho(m.source))} → ${esc(bpWho(m.target))}</span>${m.stage ? `<span class="chip confirmed">${esc(m.stage)}</span>` : ''}<span>${esc(m.label)}</span>
+      ${ov.ms[i] ? same(`${bpRange(ov.ms[i])} ${ov.ms[i].stage || ''} ${ov.ms[i].label}`.replace(/\s+/g, ' ')) : ''}${ev(m)}</li>`).join('');
+  const rungs = x.rungs.map((r, i) => `<li>${box('rung', i, picks.rungs[i], `사다리 칸 ${i + 1} 고르기`)}<span class="chip">${esc(bpRange(r))}</span><strong>${esc(r.label)}</strong>
+      <span class="small">${esc([r.layer, label(r.parts, S.bp.parts), label(r.acts, S.bp.acts), label(r.places, bpPlaces()), r.lead ? `${bpWho(r.lead)} 주도` : ''].filter(Boolean).join(' · '))}</span>
+      ${ov.rungs[i] ? same(`${ov.rungs[i][1] + 1}. ${bpRange(ov.rungs[i][0])} ${ov.rungs[i][0].label}`) : ''}${ev(r)}</li>`).join('');
+  return { ms, rungs };
+}
+
 /** AI 제안 카드: 줄마다 고르기와 근거. 이미 있는 줄과 겹치는 줄은 표시하고 기본으로 고르지 않는다. '고른 줄 더하기'는 POST …/blueprint/apply */
 function bpDraftCard(key, a, b) {
   const d = S.bpDraft;
@@ -673,17 +683,7 @@ function bpDraftCard(key, a, b) {
   const ov = bpOverlaps(S.bp.blueprint, d);
   d.pickMs ||= d.milestones.map((_, i) => !ov.ms[i]);
   d.pickRungs ||= d.rungs.map((_, i) => !ov.rungs[i]);
-  const box = (kind, i, on, label) => `<input type="checkbox" data-action="bpDraftPick" data-arg="${kind}|${i}"${on ? ' checked' : ''} aria-label="${esc(label)}">`;
-  const same = (text) => `<span class="chip warn">이미 있음</span><span class="small">${esc(text)}</span>`;
-  const ms = d.milestones.map((m, i) => `<li>${box('ms', i, d.pickMs[i], `이정표 ${i + 1} 고르기`)}<span class="chip">${esc(bpRange(m))}</span>
-      <span>${esc(bpWho(m.source))} → ${esc(bpWho(m.target))}</span>${m.stage ? `<span class="chip confirmed">${esc(m.stage)}</span>` : ''}<span>${esc(m.label)}</span>
-      ${ov.ms[i] ? same(`${bpRange(ov.ms[i])} ${ov.ms[i].stage || ''} ${ov.ms[i].label}`.replace(/\s+/g, ' ')) : ''}
-      ${m.evidence.length ? `<span class="small">${esc(bpEvidence(m.evidence))}</span>` : ''}</li>`).join('');
-  const label = (ids, picks) => ids.map((id) => (picks.find((x) => x.id === id) || { label: id }).label).join(', ');
-  const rungs = d.rungs.map((r, i) => `<li>${box('rung', i, d.pickRungs[i], `사다리 칸 ${i + 1} 고르기`)}<span class="chip">${esc(bpRange(r))}</span><strong>${esc(r.label)}</strong>
-      <span class="small">${esc([r.layer, label(r.parts, S.bp.parts), label(r.acts, S.bp.acts), label(r.places, bpPlaces()), r.lead ? `${bpWho(r.lead)} 주도` : ''].filter(Boolean).join(' · '))}</span>
-      ${ov.rungs[i] ? same(`${ov.rungs[i][1] + 1}. ${bpRange(ov.rungs[i][0])} ${ov.rungs[i][0].label}`) : ''}
-      ${r.evidence.length ? `<span class="small">${esc(bpEvidence(r.evidence))}</span>` : ''}</li>`).join('');
+  const { ms, rungs } = bpPairDraftRows(d, { ms: d.pickMs, rungs: d.pickRungs }, 'bpDraftPick', '', '');
   const none = !d.milestones.length && !d.rungs.length;
   return `<section class="card" id="bp-draft"><div class="between"><h2>${d.mode === 'draft' ? 'AI가 짠 설계도' : 'AI가 뽑은 설계도'} <span class="small">${d.start}~${d.end}화</span></h2>
       <span class="row"><button type="button" class="btn small" data-action="bpDraftDrop">버리기</button>${none ? '' : '<button type="button" class="btn small primary" data-action="bpDraftUse">고른 줄 더하기</button>'}</span></div>
