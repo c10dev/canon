@@ -19,7 +19,8 @@ def _draft(prompt: str, hint: dict) -> StudioDraft:
              f"빗물이 처마 끝에서 떨어졌다. {who}은 젖은 소매를 비틀어 짰다. 멀리서 개가 짖었다. {what}.",
              f"찻잔이 식어 갔다. {who}은 손잡이를 돌려 잡았다. {what}."]
     if hint.get("extra"):  # 더 지킬 것을 받은 안은 한 문장이 다르다 (지시 연습의 두 판이 갈리게)
-        texts = [t + " 목소리는 끝까지 낮았다." for t in texts]
+        tail = ["목소리는 끝까지 낮았다.", "걸음은 끝까지 느렸다.", "손은 끝까지 주머니에 있었다."][len(hint["extra"]) % 3]  # 지시가 다르면 글도 다르게
+        texts = [f"{t} {tail}" for t in texts]
     out = [StudioCandidate(text=texts[i % len(texts)], note=f"{i + 1}번 방향") for i in range(n)]
     out += [StudioCandidate(text="  ", note="빈 안"), StudioCandidate(text=texts[0], note="겹치는 안"),
             StudioCandidate(text=f"**{who}**은 문을 닫았다.", note="굵은 글씨")]

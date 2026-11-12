@@ -15,7 +15,7 @@ from ..schema import REF_DIGEST_KINDS, DrillBrief, DrillRound
 
 router = APIRouter()
 
-# 판 하나가 <CANON_HOME>/.drill/<id>.json 하나다. AI 호출 셋(사실 뽑기 · 두 판 쓰기 · 되짚기)은 백그라운드 작업으로 돈다.
+# 판 하나가 <CANON_HOME>/.drill/<id>.json 하나다. AI 호출 넷(사실 뽑기 · 두 판 쓰기 · 되짚기 · 고쳐서 다시 쓰기)은 백그라운드 작업으로 돈다.
 # 작품 밖이라 작업 목록의 project 자리는 DR_JOBS 이고 대상(target)은 판 id 다.
 DR_JOBS = ".drill"  # 작업 목록의 project 자리 (작품 폴더는 점으로 시작하지 않아 겹치지 않는다). 화면은 '지시 연습'으로 보인다
 
@@ -33,8 +33,12 @@ class DrillEdit(BaseModel):
     brief: DrillBrief
 
 
+class DrillPick(BaseModel):
+    side: Literal["left", "right", "skip"]
+
+
 class DrillJobIn(BaseModel):
-    kind: Literal["facts", "write", "review"]
+    kind: Literal["facts", "write", "review", "revise"]
     no: int = 0  # review: 되짚을 시도 번호. 0 이면 마지막 시도
 
 
@@ -47,7 +51,8 @@ def _drill(did: str) -> DrillRound:
 
 @router.get("/api/drill")
 def list_drill() -> dict:
-    return {"rounds": [drill.summary(r) for r in drill.rounds()], "sources": drill.sources(), "layers": drill.layers(), "results": drill.RESULTS,
+    rs = drill.rounds()
+    return {"rounds": [drill.summary(r) for r in rs], "stats": drill.stats(rs), "sources": drill.sources(), "layers": drill.layers(), "results": drill.RESULTS,
             "boxes": drill.BOXES, "kinds": list(REF_DIGEST_KINDS), "method_max": drill.METHOD_MAX}
 
 
@@ -81,6 +86,14 @@ def put_drill(did: str, body: DrillEdit) -> dict:
     return drill.view(drill.save(r))
 
 
+@router.post("/api/drill/{did}/pick")
+def pick_drill(did: str, body: DrillPick) -> dict:
+    """고쳐 쓴 판과 앞 지시로 다시 쓴 판을 가려 읽고 고른 쪽을 남긴다. 고른 뒤에는 어느 쪽인지와 되짚기가 보인다."""
+    r = _drill(did)
+    drill.pick_side(r, body.side)
+    return drill.view(drill.save(r))
+
+
 @router.delete("/api/drill/{did}")
 def delete_drill(did: str) -> dict:
     _drill(did)
@@ -104,7 +117,8 @@ def _review(did: str, no: int, llm) -> bool:
 def drill_job(did: str, body: DrillJobIn) -> dict:
     """지시 연습의 AI 호출을 작업으로 돌린다 (작업 종류 dr_<kind>, 대상은 판 id).
     facts: 원문 대목에서 사실과 일어나는 일을 뽑는다. write: 두 판을 쓰고 이어서 되짚는다 (되짚기가 실패해도 쓴 글은 남는다).
-    review: 시도 하나를 다시 되짚는다. 지시는 시작할 때 것을 쓴다."""
+    revise: 고친 지시의 판과 앞 지시로 다시 쓴 판을 쓰고 이어서 되짚는다 (한 판에 한 번). review: 시도 하나를 다시 되짚는다.
+    지시는 시작할 때 것을 쓴다."""
     r = _drill(did)
     name = r.title or "지시 연습"
     kind = f"dr_{body.kind}"
@@ -141,9 +155,32 @@ def drill_job(did: str, body: DrillJobIn) -> dict:
                 logging.getLogger("canon").exception("지시 연습 %s 되짚기 실패", did)
                 reviewed = False
             return {"id": did, "no": a.no, "reviewed": reviewed}
+    elif body.kind == "revise":
+        brief = drill.clean_brief(r.brief)
+        prev = drill.can_revise(r, brief)
+        card, old = drill.card_of(r, brief), drill.card_of(r, drill.clean_brief(prev.brief))
+        llm, judge = get_llm("write"), get_llm("check")
+        label, total = f"{name} · 고쳐서 다시 쓰기", 2
+
+        def fn(job: jobs.Job):
+            w, o = pipeline.drill_write(llm, card, old)
+            q = drill.load(did)
+            a = drill.add_revision(q, brief, w, o, getattr(llm, "model", "") or "")
+            drill.save(q)
+            job.done = 1
+            try:
+                reviewed = _review(did, a.no, judge)
+            except cancel.Cancelled:
+                raise
+            except Exception:  # 쓴 글은 남았다. 고른 뒤 화면이 '되짚기'를 다시 권한다
+                logging.getLogger("canon").exception("지시 연습 %s 되짚기 실패", did)
+                reviewed = False
+            return {"id": did, "no": a.no, "reviewed": reviewed}
     else:
         if not r.attempts:
             raise ValueError("먼저 두 판을 쓰세요")
+        if drill.pending(r):
+            raise ValueError("먼저 두 글 가운데 하나를 고르세요")
         no = body.no or r.attempts[-1].no
         try:
             drill.find(r, no)
@@ -164,6 +201,7 @@ def drill_job(did: str, body: DrillJobIn) -> dict:
 EXPORTS = (
     "DR_JOBS",
     "DrillEdit",
+    "DrillPick",
     "DrillIn",
     "DrillJobIn",
     "_drill",
@@ -173,5 +211,6 @@ EXPORTS = (
     "drill_source",
     "get_drill",
     "list_drill",
+    "pick_drill",
     "put_drill",
 )

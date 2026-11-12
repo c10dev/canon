@@ -741,7 +741,8 @@ def drill_facts(llm: LLM, source: str, lead: str = "") -> DrillFacts:
 
 
 def drill_write(llm: LLM, card: SceneCard, bare: SceneCard) -> tuple[str, str]:
-    """지시 연습: 지시 있는 판(card)과 쓰는 방식을 비운 판(bare)을 문단 연습장 방식으로 하나씩 쓴다 (write 단계). 원문은 넣지 않는다."""
+    """지시 연습: 카드 둘을 문단 연습장 방식으로 하나씩 쓴다 (write 단계). 원문은 넣지 않는다.
+    첫 시도는 지시 있는 판(card)과 쓰는 방식을 비운 판(bare), 고친 시도는 고친 지시의 판과 앞 지시로 다시 쓴 판이다."""
     return draft_paragraph(llm, card, 1)[0].text, draft_paragraph(llm, bare, 1)[0].text
 
 

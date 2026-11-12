@@ -4,7 +4,7 @@ import random
 import pytest
 
 from canon import drill, mock, pipeline, prompts, refdigest, refs, store, studio
-from canon.schema import DrillBrief, DrillFacts, DrillGap, DrillInvented, DrillLineVerdict, DrillPerson, DrillReview, DrillRound, RefCut
+from canon.schema import DrillBrief, DrillFacts, DrillGap, DrillInvented, DrillLineVerdict, DrillPerson, DrillReview, DrillRound, DrillVerdict, RefCut
 
 from .test_ai_jobs import _wait
 
@@ -192,12 +192,37 @@ def test_web_round_runs_to_the_review(client, book, monkeypatch):
     assert j["result"] == {"id": did, "no": 1, "reviewed": True} and j["kind"] == "dr_write"
     r = client.get(url).json()
     a = r["attempts"][0]
-    assert r["stage"] == "reviewed" and r["source"] and a["with_text"] != a["bare_text"] and a["with_text"].endswith("목소리는 끝까지 낮았다.")
+    assert r["stage"] == "reviewed" and r["source"] and a["with_text"] != a["bare_text"] and a["with_text"].startswith(a["bare_text"])
     assert [v["result"] for v in a["verdicts"]] == ["applied", "unsure", "ignored"] and a["verdicts"][0]["quote"] and a["verdicts"][0]["layer"] == "change"
     assert len(a["invented"]) == 1 and len(a["gaps"]) == 1 and a["dropped"] == 3
     assert client.post(f"{url}/jobs", json={"kind": "write"}).status_code == 400  # 한 판은 한 번 쓴다
     assert done({"kind": "review"})["result"]["reviewed"] is True
-    assert client.get("/api/drill").json()["rounds"][0]["results"]["applied"] == 1
+    home = client.get("/api/drill").json()
+    assert home["rounds"][0]["results"]["applied"] == 1 and home["stats"]["rounds"] == 1 and home["stats"]["lines"] == 3
+
+    # 한 번 고치기: 고친 지시로 다시 쓰고, 고르기 전에는 어느 글이 어느 쪽인지와 되짚기를 싣지 않는다
+    assert client.post(f"{url}/jobs", json={"kind": "revise"}).status_code == 400  # 고친 곳이 없다
+    assert client.post(f"{url}/pick", json={"side": "left"}).status_code == 400  # 고를 것이 없다
+    fixed = {**brief, "change": "서연이 묻던 사람에서 대답을 받아 내는 사람으로 바뀐다", "manner": "짧은 존댓말\n말 사이를 길게 둔다"}
+    client.put(url, json={"brief": fixed})
+    j = done({"kind": "revise"})
+    assert j["kind"] == "dr_revise" and j["result"] == {"id": did, "no": 2, "reviewed": True}
+    r = client.get(url).json()
+    b = r["attempts"][1]
+    assert r["stage"] == "pick" and set(r["blind"]) == {"left", "right"} and r["blind"]["left"] != r["blind"]["right"]
+    assert b["with_text"] == "" and b["old_text"] == "" and b["verdicts"] == [] and b["flip"] is False and b["versus"] == 1 and "2" not in r["measures"]
+    assert client.post(f"{url}/jobs", json={"kind": "review"}).status_code == 400 and client.get("/api/drill").json()["rounds"][0]["pick"] == ""
+    saved = drill.load(did).attempts[1]
+    side = "left" if saved.flip else "right"  # 고친 지시로 쓴 판이 있는 쪽
+    assert r["blind"][side] == saved.with_text and saved.old_text and saved.bare_text == a["bare_text"]
+    r = client.post(f"{url}/pick", json={"side": side}).json()
+    b = r["attempts"][1]
+    assert r["stage"] == "done" and r["blind"] is None and b["pick"] == "new" and b["with_text"] == saved.with_text and len(b["verdicts"]) == 4
+    assert r["changed"]["added"] == [{"box": "change", "text": fixed["change"]}, {"box": "manner", "text": "말 사이를 길게 둔다"}]
+    assert r["changed"]["removed"] == [{"box": "change", "text": brief["change"]}] and r["measures"]["2"]["old"]["chars"] > 0
+    assert client.post(f"{url}/pick", json={"side": "skip"}).status_code == 400 and client.post(f"{url}/jobs", json={"kind": "revise"}).status_code == 400
+    st = client.get("/api/drill").json()["stats"]
+    assert st["picks"] == {"new": 1, "old": 0, "skip": 0} and client.get("/api/drill").json()["rounds"][0]["pick"] == "new"
     assert not (store.ROOT / "projects").exists() and (store.ROOT / ".drill" / f"{did}.json").exists()
     monkeypatch.setenv("CANON_DRILL", str(store.ROOT / "elsewhere"))
     assert client.get(url).status_code == 404 and client.get("/api/drill").json()["rounds"] == []
@@ -229,3 +254,61 @@ def test_prompts_are_registered():
     q = prompts.drill_facts_prompt("대목 글", "")
     assert "화의 첫 대목" in q and "대목 글" in q
     assert DrillPerson(name="서연").note == ""
+
+
+def _judged(book, results, pick="", layer="manner", added=None):
+    """줄 판정을 손으로 채운 판. results 는 첫 시도의 줄마다 (결과, 지시 없는 판도 같음)."""
+    r = drill.create(book.id, order=1, part=1)
+    a = drill.add_attempt(r, DrillBrief(events="말을 건다", manner="\n".join(f"줄 {i}" for i in range(len(results)))), "글", "글")
+    a.verdicts = [DrillVerdict(no=i, text=f"줄 {i}", layer=layer, result=res, in_bare=same) for i, (res, same) in enumerate(results, 1)]
+    if pick:
+        b = drill.add_revision(r, DrillBrief(events="말을 건다", manner="새 줄"), "새 글", "옛 글")
+        b.verdicts = [DrillVerdict(no=1, text="새 줄", layer=added or layer, result="applied"), DrillVerdict(no=2, text="줄 1", layer="ban", result="applied")]
+        drill.pick_side(r, "skip" if pick == "skip" else "left" if (pick == "new") == b.flip else "right")
+        assert b.pick == pick
+    return drill.save(r)
+
+
+def test_stats_count_layers_results_and_revision_wins(book):
+    assert drill.stats([]) == {"rounds": 0, "lines": 0, "worked": None, "picks": {"new": 0, "old": 0, "skip": 0}, "recent_n": 5, "recent": None, "before": None, "trend": [],
+                               "layers": [{"id": k, "label": v[0], "lines": 0, "applied": 0, "overdone": 0, "ignored": 0, "unsure": 0, "worked": 0, "added": 0, "won": 0,
+                                           "share": 0.0} for k, v in drill.LAYERS.items()]}
+    rs = [_judged(book, [("applied", False), ("applied", True), ("ignored", False), ("unsure", False)], pick="new", added="change"),
+          _judged(book, [("overdone", False)], layer="background", pick="old", added="change"),
+          _judged(book, [("applied", False)], layer="ban", pick="skip", added="change"),
+          drill.create(book.id, order=1, part=1)]  # 쓰지 않은 판은 세지 않는다
+    for i, r in enumerate(rs):
+        r.created_at = f"2026-11-1{i}T09:00:00"
+    st = drill.stats(rs)
+    by = {x["id"]: x for x in st["layers"]}
+    assert st["rounds"] == 3 and st["lines"] == 6 and st["picks"] == {"new": 1, "old": 1, "skip": 1}
+    assert (by["manner"]["lines"], by["manner"]["applied"], by["manner"]["ignored"], by["manner"]["unsure"], by["manner"]["worked"]) == (4, 2, 1, 1, 1)
+    assert by["manner"]["share"] == round(4 / 6, 3) and by["background"]["overdone"] == 1 and by["ban"]["worked"] == 1
+    assert (by["change"]["added"], by["change"]["won"]) == (2, 1) and by["ban"]["added"] == 0  # 비슷함은 빼고, 앞 시도에 있던 줄도 뺀다
+    assert st["worked"] == round(2 / 5, 3)  # 판정 못 함은 분모에서 뺀다
+    assert [x["created_at"][:10] for x in st["trend"]] == ["2026-11-12", "2026-11-11", "2026-11-10"] and st["trend"][2]["layers"] == [{"id": "manner", "n": 3}]
+    assert st["recent"] == st["worked"] and st["before"] is None
+    many = [rs[1]] * 4 + [rs[2]] * drill.RECENT
+    assert drill.stats(many)["recent"] == 1.0 and drill.stats(many)["before"] == 0.0
+
+
+def test_revise_guards(book):
+    r = _round(book)
+    b = drill.clean_brief(r.brief.model_copy(update={"avoid": "손대기"}))
+    with pytest.raises(ValueError, match="먼저 두 판"):
+        drill.can_revise(r, b)
+    drill.add_attempt(r, b, "지시 있는 판", "지시 없는 판")
+    with pytest.raises(ValueError, match="고친 곳이 없"):
+        drill.can_revise(r, b)
+    with pytest.raises(ValueError, match="원문 문장"):  # 원문을 본 뒤라 원문을 옮겨 적을 수 있다
+        drill.can_revise(r, b.model_copy(update={"manner": r.source.split("\n")[1][:40]}))
+    new = b.model_copy(update={"avoid": "손대기\n다가서기"})
+    assert drill.can_revise(r, new).no == 1
+    a = drill.add_revision(r, new, "고친 판", "다시 쓴 앞 판", rng=random.Random(3))
+    assert (a.versus, a.old_text, a.bare_text, a.pick) == (1, "다시 쓴 앞 판", "지시 없는 판", "") and drill.pending(r) is a and drill.stage(r) == "pick"
+    with pytest.raises(ValueError, match="한 번만"):
+        drill.can_revise(r, new.model_copy(update={"manner": "짧게"}))
+    with pytest.raises(ValueError, match="가운데 고르세요"):
+        drill.pick_side(r, "middle")
+    drill.pick_side(r, "left" if not a.flip else "right")
+    assert a.pick == "old" and a.picked_at and drill.pending(r) is None and drill.stage(r) == "done"
