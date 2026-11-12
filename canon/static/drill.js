@@ -123,7 +123,7 @@ function drStats(st, h) {
       <td>${x.layers.map((l) => `<span class="chip">${esc(label(l.id))} ${l.n}</span>`).join(' ')}</td><td>${x.judged ? `${x.worked}/${x.judged}` : '–'}</td><td>${x.pick ? DR_PICK[x.pick] : ''}</td></tr>`).join('');
   return `<section class="card" id="dr-stats"><div class="between"><h2>기록</h2><span class="small">${esc(sum)}</span></div>
       <div class="rs-scroll"><table class="rs-table"><thead><tr><th>층</th><th>줄</th><th>비율</th><th>반영됨</th><th>과하게 풀림</th><th>무시됨</th><th>먹힌 비율</th><th>고쳐서 더했을 때 이김</th></tr></thead><tbody>${rows}</tbody></table></div>
-      <p class="small">먹힌 줄은 반영됐고 지시 없는 판과 달랐던 줄이에요. 판마다 첫 지시의 줄로 세요.</p>
+      <p class="small">먹힌 줄은 첫 지시의 줄 가운데 반영됐고 지시 없는 판과 달랐던 줄이에요.</p>
       <details><summary>최근 판</summary><div class="rs-scroll"><table class="rs-table"><thead><tr><th>날짜</th><th>판</th><th>층</th><th>먹힌 줄</th><th>고친 뒤</th></tr></thead><tbody>${trend}</tbody></table></div></details></section>`;
 }
 
@@ -172,7 +172,7 @@ function drBlind() {
   const col = (side, name) => `<section class="card"><h2>${name}</h2><div class="rw-text dr-text">${drText(b[side])}</div>
       <div class="row"><button type="button" class="btn" data-action="drPick" data-arg="${side}">${name}이 나아요</button></div></section>`;
   return `<div class="dr-two">${col('left', '왼쪽')}${col('right', '오른쪽')}</div>
-    <div class="row between"><p class="small">하나는 고친 지시로, 하나는 앞 지시로 새로 쓴 글이에요. 어느 쪽인지는 고른 뒤에 보여요.</p>
+    <div class="row between"><p class="small">하나는 고친 지시로, 하나는 앞 지시로 새로 쓴 글이고 어느 쪽인지는 고른 뒤에 보여요.</p>
       <button type="button" class="btn" data-action="drPick" data-arg="skip">비슷해요</button></div>`;
 }
 
@@ -286,7 +286,7 @@ function drCompare() {
   const col = (title, note, text, measure, marks) => `<section class="card"><div class="between"><h2>${title}</h2><span class="small">${note}</span></div>${drMeasure(measure)}
       <div class="rw-text dr-text">${drText(text, marks)}</div></section>`;
   const second = a.versus
-    ? col('앞 지시로 쓴 판', '가려 읽으려고 새로 썼어요', a.old_text, m.old, [])
+    ? col('앞 지시로 쓴 판', '가려 읽으려고 새로 쓴 글', a.old_text, m.old, [])
     : col('지시 없는 판', '쓰는 방식 없음', a.bare_text, m.bare, [...a.verdicts.map((v) => [v.bare_quote, 'rest']), ...inv('bare')]);
   return `<div class="dr-three">
       ${col(a.versus ? '고친 지시로 쓴 판' : '지시 있는 판', '쓰는 방식 있음', a.with_text, m.with, [...a.verdicts.map((v) => [v.quote, 'device']), ...inv('with')])}
