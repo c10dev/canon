@@ -21,7 +21,7 @@ from .schema import RuleChange, RuleRun
 from .schema import AbilityProposal, BlueprintPlanSet, BlueprintProposal
 from .schema import CueSheet, CueSheetDraft, Finding, MetaCut, FindingRecheck, FixBatch, FixOption, FixPatch, FixRecheckItem, FixRecheckReport, FixSet, RevArcSet, RevEpisodeDraft, RevLineSet
 from .schema import ParagraphAnatomy, ReaderCheck, SceneCard, SceneVariant, SceneVariants, StudioCandidate, StudioDraft
-from .schema import RefDigest, RefSetupDraft
+from .schema import RefBeatsDraft, RefDigest, RefSetupDraft
 from .schema import (
     AddedItems,
     Act,
@@ -2950,6 +2950,11 @@ def ref_digest(llm: LLM, text: str) -> RefDigest:
 def ref_setup_note(llm: LLM, body: str, mode: str, names: list[str] | None = None, fold: str = "") -> RefSetupDraft:
     """레퍼런스 원고의 설정 메모 초안 (plan 단계, canon/refnote.py). body 는 접은 화 카드(mode cards)나 원문(text). 저장하지 않는다."""
     return llm.json(prompts.SYSTEM_REVERSE, prompts.ref_setup_note_prompt(body, mode, names, fold), RefSetupDraft, hint={"mode": mode, "names": names or []})
+
+
+def ref_beats_note(llm: LLM, body: str, mode: str, names: list[str] | None = None, fold: str = "") -> RefBeatsDraft:
+    """레퍼런스 원고의 박자 메모 초안 (plan 단계, canon/refnote.py). body 는 접은 화 카드(mode cards)나 원문(text). 저장하지 않는다."""
+    return llm.json(prompts.SYSTEM_REVERSE, prompts.ref_beats_note_prompt(body, mode, names, fold), RefBeatsDraft, hint={"mode": mode, "names": names or []})
 
 
 def ref_arcs(llm: LLM, rows: list[dict], names: list[str]) -> RevArcSet:

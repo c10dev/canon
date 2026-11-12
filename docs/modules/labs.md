@@ -192,7 +192,13 @@
 - 비용 추정 `estimate`(AI 없음): 보낼 것(`mode` cards · text, `sent`, `folded`)과 설정의 `plan` 단계 모델 기준 추정
 - 작품의 메모 `add` · `update`(글 · 켜기) · `remove` · 화면 값 `view`. 빈 글과 2,000자 넘는 글은 받지 않는다
 - 프롬프트 블록은 `prompts.ref_notes_block`(예산 `context.BUDGET["ref_notes"]` 4,000자). 예산을 넘어 빠지는 메모 id 는 `dropped`(같은 규칙, `static/setup.js` `refNotesDropped`)
-- 지금은 `kind` setup · `use` setup 만 만든다. `RefNote` 의 beats · write · plot 은 박자 메모(일감 5)가 쓴다
+- 메모 꼴은 쓰임이 정한다(`USE_KIND`): `use` setup 은 설정 메모(`kind` setup), write · plot 은 박자 메모(`kind` beats). 어긋난 짝은 `add` 가 받지 않는다
+- 박자 메모(일감 5, 2026-11-12): `pipeline.ref_beats_note`(응답 `RefBeatsDraft`: 한 화의 꼴 · 박자 · 끝을 끊는 방식 · 완급). 재료와 겹침 표시는 설정 메모와 같다
+- 박자 요청 `prompts.ref_beats_note_prompt`: 사건을 그 대목이 화 안에서 하는 일로 바꿔 적게 한다. 원문 재료일 때는 장면이 바뀌는 곳을 세게 한다
+- 쓰임 write 인 켠 박자 메모는 쓰기 가족 요청의 '참고 구조' 블록(`prompts.ref_beats_part`, 블록 id `ref_notes`)으로 `static_context` 바로 뒤에 들어간다
+- 쓰임 plot 인 켠 박자 메모는 화별 플롯 초안(`plot_prompt` · `serial_plot_prompt`)의 `[작품]` 앞에 `[참고 구조]` 로 들어간다. 화 하나 플롯 채우기에는 넣지 않는다
+- 박자 메모의 예산은 `context.BUDGET["ref_beats"]`(3,000자, 집필과 플롯 초안이 따로 센다). 검수 · 상태 변경안 요청에는 넣지 않는다
+- 박자 메모 실측(2026-11-12, 같은 원고 화 카드 30화, gemini-3.8-flash 한 번, 약 $0.01): 원고의 이름과 20자 넘는 원문 구절이 없었다. 박자 줄은 장르의 색이 묻은 채 대목의 기능으로 적혔다
 - 실측(2026-11-12, 222화 원고 한 편, gemini-3.8-flash, 세 번): 화 카드 30화 · 화 카드 222화(접음) · 원문 30화 가운데 앞 6화
 - 세 메모 모두 원고의 이름(화 카드 인물 이름 25개 대조)과 20자 넘는 원문 구절이 없었다. 로그라인 꼴은 전제의 꼴까지 적는다. 세 번에 약 $0.05
 - 가짜 응답 `mock_refnote.py`
@@ -568,6 +574,7 @@
 - 아크 나누기는 비용 추정을 확인 대화상자로 보인 뒤 시작한다(`refArcsAsk`). 끝나면 `refPaceLoad` 가 다시 받는다
 - `refFilterKeep` · `refArcSpan` 은 순수 함수
 - `refDecode` · `refAssemble` · `refRange` · `refEpRows` 는 순수 함수(`tests/test_refs.py`)
+- 만들기 칸의 쓰임 고르기(`REF_NOTE_USES`: 설정 도우미 · 집필 · 플롯 초안)가 설정 메모와 박자 메모를 가른다. 쓰임을 바꾸면 비용 추정을 다시 받는다
 - 참고 메모 만들기(`refNoteAsk` · `refNoteAskBox`): '고른 화로 하기'의 버튼을 누르면 넣을 작품 · 보낼 것(`refNoteSent`) · 추정 비용을 펴고 '만들기'로 작업 `ref_note` 를 시작한다
 - 설정 메모 미리보기(`refNoteCard`, 값은 `S.refNote`): 끝난 작업의 결과를 받아(`refNoteTake`) 고칠 수 있는 글 칸 · 원고의 것 표시(`refNoteWarn`) · '작품에 넣기' · '버리기'를 보인다
 - 넣었거나 버린 작업 id 는 `localStorage` 의 `canon.refNoteDone` 에 두어 다시 열어도 같은 미리보기가 뜨지 않는다. 고친 글의 겹침은 칸을 떠날 때 서버가 다시 센다

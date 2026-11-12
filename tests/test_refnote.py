@@ -126,7 +126,7 @@ def test_author_adds_edits_and_removes_a_note(client):
     b = _book()
     name = _work()
     url = f"/api/projects/{name}/ref-notes"
-    assert client.get(url).json() == {"notes": [], "dropped": [], "budget": 4000, "max": 2000}
+    assert client.get(url).json() == {"notes": [], "dropped": [], "budget": 4000, "max": 2000, "budgets": {"setup": 4000, "write": 3000, "plot": 3000}}
     v = client.post(url, json={"text": " 세계 규칙:\n- 힘에 대가가 있다 ", "ref": b.id, "from_name": "등대", "from_eps": "1~3화"}).json()
     note = v["notes"][0]
     assert note["text"] == "세계 규칙:\n- 힘에 대가가 있다" and note["on"] and note["kind"] == "setup" and note["use"] == "setup" and v["id"] == note["id"]
@@ -134,7 +134,8 @@ def test_author_adds_edits_and_removes_a_note(client):
     assert [(m.kind, m.id, m.eps) for m in made] == [("note", f"{name}/{note['id']}", "1~3화")]
     assert client.post(url, json={"text": " "}).status_code == 400
     assert client.post(url, json={"text": "가" * 2001}).status_code == 400
-    assert client.post(url, json={"text": "박자", "kind": "beats", "use": "write"}).status_code == 400
+    assert client.post(url, json={"text": "박자", "kind": "beats", "use": "setup"}).status_code == 400  # 박자 메모는 집필 · 플롯 초안에만
+    assert client.post(url, json={"text": "구도", "kind": "setup", "use": "write"}).status_code == 400
     v = client.put(f"{url}/{note['id']}", json={"on": False}).json()
     assert not v["notes"][0]["on"] and v["notes"][0]["text"] == note["text"]
     v = client.put(f"{url}/{note['id']}", json={"text": "고친 글"}).json()
@@ -153,6 +154,10 @@ def test_author_adds_edits_and_removes_a_note(client):
 
 def _note(i, text, on=True, use="setup"):
     return RefNote(id=f"n{i}", from_name="등대", from_eps=f"{i}화", text=text, on=on, use=use)
+
+
+def _beat(i, text, use="write", on=True):
+    return RefNote(id=f"b{i}", from_name="등대", from_eps=f"{i}화", kind="beats", text=text, on=on, use=use)
 
 
 def test_setup_prompts_are_unchanged_without_notes_and_start_with_the_block_with_them(monkeypatch):
@@ -182,9 +187,11 @@ def test_notes_over_the_budget_are_dropped_and_counted():
 
 @needs_node
 def test_js_dropped_notes_and_preview_lines_match_python():
-    p = Project(ref_notes=[_note(1, "가" * 1900), _note(2, "나" * 1900, on=False), _note(3, "다" * 1900), _note(4, "라" * 1900), _note(5, "마" * 100)])
+    p = Project(ref_notes=[_note(1, "가" * 1900), _note(2, "나" * 1900, on=False), _note(3, "다" * 1900), _note(4, "라" * 1900), _note(5, "마" * 100),
+                           _beat(6, "바" * 1900), _beat(7, "사" * 1900), _beat(8, "아" * 1900, "plot")])
     notes = [n.model_dump() for n in p.ref_notes]
-    assert run_js(JS_FILES, "[refNotesDropped(data), REF_NOTES_BUDGET, REF_NOTE_MAX]", notes) == [refnote.dropped(p), context.BUDGET["ref_notes"], refnote.NOTE_MAX]
+    budgets = {use: context.BUDGET[key] for use, key in prompts.REF_NOTE_BUDGET.items()}
+    assert run_js(JS_FILES, "[refNotesDropped(data), REF_NOTES_BUDGET, REF_NOTE_MAX]", notes) == [refnote.dropped(p), budgets, refnote.NOTE_MAX]
     got = run_js(JS_FILES, "[refNoteSent(data.a), refNoteSent(data.b), refNoteSent(data.c), refNoteWarn(data.m), refMadeHref({kind: 'note', id: '내 작품/n1'})]",
                  {"a": {"mode": "cards", "sent": 30, "episodes": 30, "folded": False}, "b": {"mode": "cards", "sent": 222, "episodes": 222, "folded": True},
                   "c": {"mode": "text", "sent": 6, "episodes": 30}, "m": [{"kind": "name", "text": "서윤"}, {"kind": "name", "text": "서윤"}, {"kind": "quote", "text": "긴 구절"}]})
@@ -212,3 +219,94 @@ def test_setup_chat_brief_carries_the_block_and_episode_brief_does_not(client):
     q = p.model_copy(update={"ref_notes": []})
     for fn in (prompts.episode_brief, prompts.check_brief, prompts.state_brief):  # 설정 메모는 집필 · 검수 · 상태 요청에 들어가지 않는다
         assert "참고 구조" not in fn(p, 1) and fn(p, 1) == fn(q, 1)
+
+
+# ---------- 박자 메모 (쓰임 집필 · 플롯 초안) ----------
+
+def _story(serial=False):
+    """본문 쓰기 요청을 조립할 수 있는 작은 작품 (2화까지 플롯, 1화 본문)."""
+    from canon.schema import Act, Character, Episode, EpisodePlot, StoryArc
+
+    plot = lambda n: EpisodePlot(number=n, act="기", title=f"{n}화", summary="등대에 오른다", events=["계단을 오른다"], characters=["a"],  # noqa: E731
+                                 emotional_shift="망설임에서 결심으로", ending_hook="문이 열려 있다")
+    p = Project(meta=Meta(title="내 작품", logline="한 줄", target_episodes=10, form="serial" if serial else "short"),
+                characters=[Character(id="a", name="가람", role="주인공")],
+                arc=[Act(name=k, start_ep=s, end_ep=e, goal="목표") for k, s, e in (("기", 1, 2), ("승", 3, 5), ("전", 6, 8), ("결", 9, 10))],
+                episodes=[Episode(plot=plot(1), text="첫 화 본문.", status="finalized"), Episode(plot=plot(2))])
+    if serial:
+        from canon.schema import Part
+        p.parts = [Part(number=1, title="1부", start_ep=1, end_ep=10, goal="목표")]
+        p.story_arcs = [StoryArc(number=1, title="첫 아크", start_ep=1, end_ep=10, goal="목표", acts=p.arc)]
+    return p
+
+
+@pytest.fixture
+def fixed_names(monkeypatch):
+    from canon import naming
+
+    monkeypatch.setattr(naming, "prompt_block", lambda p: "(이름 후보)")  # 후보는 부를 때마다 다르게 뽑힌다
+    monkeypatch.setattr(naming, "new_cast_hint", lambda *a, **k: "(새 인물 이름 후보)")
+
+
+@pytest.mark.parametrize("serial", [False, True])
+def test_write_and_plot_requests_are_unchanged_without_beat_notes(serial, fixed_names):
+    p = _story(serial)
+    base = {"write": prompts.build_episode_context(p, 2, write=True), "brief": prompts.episode_brief(p, 2), "check": prompts.check_brief(p, 1),
+            "plot": (prompts.serial_plot_prompt if serial else prompts.plot_prompt)(p, 3, 5)}
+    off = p.model_copy(update={"ref_notes": [_beat(1, "꺼 둔 박자", on=False), _note(2, "설정 메모"), _beat(3, " ")]})
+    got = {"write": prompts.build_episode_context(off, 2, write=True), "brief": prompts.episode_brief(off, 2), "check": prompts.check_brief(off, 1),
+           "plot": (prompts.serial_plot_prompt if serial else prompts.plot_prompt)(off, 3, 5)}
+    assert got == base and "참고 구조" not in "".join(base.values())  # 켠 박자 메모가 없으면 단편 · 장편 모두 글자 하나 다르지 않다
+
+
+@pytest.mark.parametrize("serial", [False, True])
+def test_beat_notes_go_after_the_static_context_and_before_episode_blocks(serial):
+    p = _story(serial)
+    p.ref_notes = [_beat(1, "박자:\n- 낯선 흔적으로 연다"), _beat(2, "플롯용 박자", "plot"), _note(3, "설정 메모")]
+    ctx = prompts.build_episode_context(p, 2, write=True)
+    block = "\n\n# 참고 구조 (작가가 넣은 참고 메모)\n" + prompts.REF_BEATS_RULE + "\n## 등대 1화\n박자:\n- 낯선 흔적으로 연다"
+    assert ctx.startswith(prompts.static_context(p) + block) and "플롯용 박자" not in ctx and "설정 메모" not in ctx  # 바뀌지 않는 블록 바로 뒤
+    assert ctx.index("# 참고 구조") < ctx.index("# 확정된 사실") < ctx.index("# 이번 화 플롯")
+    assert block in prompts.episode_brief(p, 2)  # 작업지시서도 같은 프롬프트
+    assert "참고 구조" not in prompts.check_brief(p, 1) and "참고 구조" not in prompts.state_brief(p, 1)  # 검수 · 상태 변경안에는 넣지 않는다
+    plot = (prompts.serial_plot_prompt if serial else prompts.plot_prompt)(p, 3, 5)
+    assert "화별 플롯을 작성하세요.\n\n[참고 구조]\n(" + prompts.REF_BEATS_RULE + ")\n## 등대 2화\n플롯용 박자\n\n[작품]\n" in plot and "낯선 흔적" not in plot
+    parts = prompts.context_parts(p, 2, write=True)
+    assert [x.id for x in parts].index("ref_notes") == [x.id for x in parts].index("characters") + 1
+
+
+def test_beat_notes_over_the_budget_are_dropped_and_traced():
+    from canon import context as ctx
+
+    p = _story(True)
+    p.ref_notes = [_beat(1, "가" * 1900), _beat(2, "나" * 1900), _beat(3, "라" * 100)]
+    trace = ctx.Trace()
+    text = prompts.join_parts(prompts.context_parts(p, 2, write=True, trace=trace))
+    assert "가" * 1900 in text and "나" * 1900 not in text and "라" * 100 in text and "(참고 메모 1개는 길어서 뺐어요)" in text
+    assert [x[0] for x in trace.items["ref_notes"]] == ["등대 1화", "등대 3화"] and trace.dropped["ref_notes"] == [("등대 2화", ctx.DROP_BUDGET)]
+    assert refnote.dropped(p) == ["b2"]
+    # 글이 같은 메모 둘 가운데 뒤 것만 빠져도 차례로 가린다
+    same = Project(ref_notes=[RefNote(id="x1", from_name="등대", from_eps="1화", kind="beats", use="write", text="가" * 1900),
+                              RefNote(id="x2", from_name="등대", from_eps="1화", kind="beats", use="write", text="가" * 1900)])
+    used, kept, cut = prompts.ref_notes_fit(same, "write")
+    assert [n.id for n in used] == ["x1"] and len(kept) == 1 and cut == 1 and refnote.dropped(same) == ["x2"]
+    # 장편은 작품 블록 설정으로 끌 수 있다
+    from canon.schema import BlockSetting
+    p.settings.blocks = [BlockSetting(id="ref_notes", on=False)]
+    assert "참고 구조" not in prompts.build_episode_context(p, 2, write=True)
+
+
+def test_beat_note_job_and_prompt(client):
+    b = _book()
+    name = _work()
+    refdigest.run(b.id, refdigest.llm_for(b.id))
+    est = client.post(f"/api/refs/{b.id}/note/estimate", json={"eps": [1, 2, 3], "use": "write"}).json()
+    assert est["mode"] == "cards" and client.post(f"/api/refs/{b.id}/note/estimate", json={"eps": [1], "use": "모름"}).status_code == 400
+    r = _wait(client, client.post(f"/api/refs/{b.id}/note", json={"eps": [1, 2, 3], "project": name, "use": "write"}).json())["result"]
+    assert (r["kind"], r["use"]) == ("beats", "write") and r["text"].startswith("한 화의 꼴: (가짜)") and "박자:\n- " in r["text"] and "끝을 끊는 방식:\n- " in r["text"]
+    assert store.load(name).ref_notes == []
+    v = client.post(f"/api/projects/{name}/ref-notes", json={"text": r["text"], "ref": b.id, "from_name": r["from_name"], "from_eps": r["from_eps"], "kind": "beats", "use": "write"}).json()
+    assert v["notes"][0]["kind"] == "beats" and v["notes"][0]["use"] == "write" and v["dropped"] == []
+    ask = prompts.ref_beats_note_prompt("## 1번 · 1화 [대화 · 긴장 3]\n사건: 서윤이 등대에 올랐다", "cards", ["서윤"], "")
+    assert "그 대목이 하는 일로" in ask and "이름 대신 역할로" in ask and "되풀이되는 꼴로 판단합니다" in ask and "# 화 카드의 인물 이름 (메모에 쓰지 않습니다)\n서윤" in ask
+    assert "장면이 바뀌는 곳을 세어" in prompts.ref_beats_note_prompt("원문", "text")

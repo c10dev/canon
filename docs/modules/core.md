@@ -585,6 +585,9 @@
 - `setup_chat_prompt` 는 다른 이름을 채운 인물만 `aliases` 칸을 보인다(빈 인물은 전과 같은 글)
 - `ref_notes_block` 은 켠 참고 메모의 `[참고 구조]` 블록이다. `setup_prompt` · `setup_chat_prompt` 맨 앞에 둔다(대화 중에 바뀌지 않는 블록). 메모가 없으면 빈 글
 - `ref_notes_block` 은 넣은 차례대로 `context.BUDGET["ref_notes"]`(4,000자)에 드는 메모만 넣고 뺀 수를 "참고 메모 n개는 길어서 뺐어요"로 적는다
+- 쓰기 요청 블록 `ref_notes`('참고 구조', `ref_beats_part`): 쓰임 write 인 켠 박자 메모. `characters` 바로 뒤(바뀌지 않는 앞부분)이고 장편은 블록 설정으로 끌 수 있다
+- `ref_beats_part` 는 넣은 메모와 예산(`context.BUDGET["ref_beats"]` 3,000자)을 넘겨 뺀 메모를 `trace` 에 적는다. 켠 박자 메모가 없으면 단편 · 장편 요청이 전과 같다
+- `plot_prompt` · `serial_plot_prompt` 는 쓰임 plot 인 켠 박자 메모를 `[작품]` 앞에 `ref_notes_block(p, "plot")` 로 넣는다. 고르는 규칙은 `ref_notes_fit` 한 곳
 - `ref_cards_fold` 는 레퍼런스 화 카드를 예산에 맞게 접는다(화는 빼지 않고 화마다 줄임). `ref_arcs_prompt` 와 `ref_setup_note_prompt` 가 쓴다
 - `setup_chat_prompt` 의 `history_lines` 는 대화 기록 줄이다. 대화 에이전트는 `setup_session_history` 를 넘기고, None 이면 옛 설정 대화를 읽는다(명령줄)
 - 다른 이름 제안 `alias_prompt(p, items)`: 작품 · 모든 항목 이름 목록이 앞, 항목별 재료 단락이 뒤, 요청이 맨 뒤다. 쓰기 프롬프트 · 작업지시서에는 들어가지 않는다

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from .mock import responds
-from .schema import RefSetupDraft
+from .schema import RefBeatsDraft, RefSetupDraft
 
 
 @responds(RefSetupDraft)
@@ -16,3 +16,14 @@ def _setup_note(prompt: str, hint: dict) -> RefSetupDraft:
         relations=["(가짜) 경계하던 사이가 뒤에 같은 편이 된다", "(가짜) 보호자와 지켜지는 사람의 자리가 뒤바뀐다"],
         conflict="(가짜) 진실을 드러내려는 쪽과 묻어 두려는 쪽이 같은 사람을 아낀다.",
         tone=f"(가짜) 차분하고 눅눅한 긴장 ({'화 카드로' if cards else '원문으로'} 만듦)")
+
+
+@responds(RefBeatsDraft)
+def _beats_note(prompt: str, hint: dict) -> RefBeatsDraft:
+    """이름 없이 대목이 하는 일로만 적은 박자."""
+    cards = hint.get("mode") == "cards"
+    return RefBeatsDraft(
+        pattern=f"(가짜) 조용한 관찰로 열고 작은 어긋남이 걸린 채 물음으로 끊는다 ({'화 카드로' if cards else '원문으로'} 만듦)",
+        beats=["(가짜) 낯선 흔적을 발견하며 연다", "(가짜) 아는 사람이 말을 아낀다", "(가짜) 단서 하나가 방향을 바꾼다", "(가짜) 답 대신 더 큰 물음이 남는다"],
+        hooks=["(가짜) 문 앞에서 끊는다", "(가짜) 새 사실이 드러난 직후에 끊는다"],
+        pacing="(가짜) 느슨한 화 둘 뒤에 팽팽한 화 하나가 온다.")

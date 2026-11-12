@@ -249,17 +249,52 @@ REF_NOTES_RULE = ("참고 구조는 다른 작품의 구도입니다. 이름 · 
                   "작가가 레퍼런스를 들어 청하거나 빈 칸을 채울 때만 구도를 빌립니다. 작가가 채운 칸이 참고 구조와 다르면 작가 칸을 따릅니다.")
 
 
-def ref_notes_block(p: Project, use: str = "setup") -> str:
-    """켠 참고 메모(Project.ref_notes)의 [참고 구조] 블록. 메모가 없으면 빈 글이라 프롬프트가 전과 같다.
-    넣은 차례대로 예산(context.BUDGET["ref_notes"])에 드는 메모만 넣고, 넘겨 뺀 수를 적는다. 대화 중에 바뀌지 않아 요청 맨 앞에 둔다."""
+REF_BEATS_RULE = ("참고 구조는 다른 작품의 전개 박자입니다. 박자의 꼴만 빌리고 사건 · 인물 · 이름 · 문장은 가져오지 않습니다. "
+                  "이 작품의 설정 · 플롯 · 스토리보드가 박자와 다르면 이 작품 것을 따릅니다.")
+REF_NOTE_BUDGET = {"setup": "ref_notes", "write": "ref_beats", "plot": "ref_beats"}  # 쓰임 → context.BUDGET 열쇠
+
+
+def ref_notes_fit(p: Project, use: str) -> tuple[list, list[str], int]:
+    """쓰임(use)에 넣을 켠 참고 메모: (넣는 메모, 넣는 글 덩이, 예산을 넘겨 뺀 수). 넣은 차례대로 예산에 드는 메모만 고른다."""
     notes = [n for n in p.ref_notes if n.on and n.use == use and n.text.strip()]
-    if not notes:
-        return ""
-    kept, cut = context.fit_lines([f"## {' '.join(x for x in (n.from_name, n.from_eps) if x) or '참고 메모'}\n{n.text.strip()}" for n in notes],
-                                  context.BUDGET["ref_notes"])
+    texts = [f"## {' '.join(x for x in (n.from_name, n.from_eps) if x) or '참고 메모'}\n{n.text.strip()}" for n in notes]
+    used, kept, size = [], [], 0
+    for n, t in zip(notes, texts):  # context.fit_lines 와 같은 셈. 글이 같은 메모가 있어도 차례로 가린다
+        if size + len(t) + 1 <= context.BUDGET[REF_NOTE_BUDGET[use]]:
+            used.append(n)
+            kept.append(t)
+            size += len(t) + 1
+    return used, kept, len(notes) - len(kept)
+
+
+def ref_notes_block(p: Project, use: str = "setup") -> str:
+    """켠 참고 메모(Project.ref_notes)의 [참고 구조] 블록 (use setup: 설정 도우미, plot: 플롯 초안). 메모가 없으면 빈 글이라 프롬프트가 전과 같다.
+    넣은 차례대로 예산(context.BUDGET)에 드는 메모만 넣고, 넘겨 뺀 수를 적는다. 화나 대화에 따라 바뀌지 않아 요청 앞쪽에 둔다."""
+    _, kept, cut = ref_notes_fit(p, use)
     if not kept:
         return ""
-    return f"[참고 구조]\n({REF_NOTES_RULE})\n" + "\n\n".join(kept) + (f"\n(참고 메모 {cut}개는 길어서 뺐어요)" if cut else "") + "\n\n"
+    rule = REF_NOTES_RULE if use == "setup" else REF_BEATS_RULE
+    return f"[참고 구조]\n({rule})\n" + "\n\n".join(kept) + (f"\n(참고 메모 {cut}개는 길어서 뺐어요)" if cut else "") + "\n\n"
+
+
+def ref_beats_part(p: Project, trace: context.Trace | None = None) -> str:
+    """쓰기 가족 요청의 '참고 구조' 블록 글 (use write 인 켠 박자 메모). static_context 바로 뒤, 화마다 바뀌는 블록 앞에 둔다.
+    메모가 없으면 빈 글이라 요청이 전과 같다. 화수와 상관없이 예산(context.BUDGET["ref_beats"]) 안이고, 넘겨 뺀 수를 적는다."""
+    notes = [n for n in p.ref_notes if n.on and n.use == "write" and n.text.strip()]
+    if not notes:
+        return ""
+    used, kept, cut = ref_notes_fit(p, "write")
+    if trace is not None:
+        for n in notes:
+            label = " ".join(x for x in (n.from_name, n.from_eps) if x) or "참고 메모"
+            if n in used:
+                trace.item("ref_notes", label, context.REASON_ALWAYS)
+            else:
+                trace.drop("ref_notes", label, context.DROP_BUDGET)
+    if not kept:
+        return ""
+    return (f"\n\n# 참고 구조 (작가가 넣은 참고 메모)\n{REF_BEATS_RULE}\n" + "\n\n".join(kept)
+            + (f"\n(참고 메모 {cut}개는 길어서 뺐어요)" if cut else ""))
 
 
 def setup_prompt(p: Project) -> str:
@@ -962,7 +997,7 @@ def plot_prompt(p: Project, start: int, end: int, ahead: bool = True, redo: bool
     fixed, more = fixed_plots(p, start, end, skip=set(range(start, end + 1)) if redo else frozenset()) if ahead else ([], 0)
     return f"""{start}화부터 {end}화까지 화별 플롯을 작성하세요.
 
-[작품]
+{ref_notes_block(p, "plot")}[작품]
 {meta_text(p)}
 [세계관]
 {dump(p.world)}
@@ -1002,7 +1037,7 @@ def serial_plot_prompt(p: Project, start: int, end: int, ahead: bool = True, red
     known = plot_facts_states(p, ids, start, query, [x.number for x in near] + list(range(start, end + 1)))
     return f"""{start}화부터 {end}화까지 화별 플롯을 작성하세요.
 
-[작품]
+{ref_notes_block(p, "plot")}[작품]
 {meta_text(p)}
 [세계관]
 {dump(p.world)}
@@ -3263,6 +3298,7 @@ BLOCKS: tuple[Block, ...] = (
     Block("world", "세계관", False, front=True),
     Block("style", "문체", True, front=True),
     Block("characters", "인물 설정", True, front=True),
+    Block("ref_notes", "참고 구조", False, front=True),
     Block("structure", "현재 부 · 아크 / 현재 구간", False, front=True),
     Block("story_past", "끝난 부와 아크 줄거리", False, ("story_past",), front=True),
     Block("position", "이번 화 위치", False),
@@ -3491,6 +3527,7 @@ def context_parts(p: Project, n: int, *, use_board: bool = True, pre: str = "", 
             trace.item("states", who.get(s.character_id, s.character_id),
                        context.REASON_PLOT if s.character_id in ep.plot.characters else context.REASON_ALWAYS)
     parts = static_parts(p, False, trace) + [
+        Part("ref_notes", ref_beats_part(p, trace)),
         Part("facts", f"\n\n# 확정된 사실{f' (이번 화와 관련된 것만, {facts_cut}개 생략)' if facts_cut else ''}\n{facts_text}"),
         Part("elements", els),
         Part("cast", _cast_text(cast_names, extra_block(extra))),
@@ -3528,6 +3565,7 @@ def serial_parts(p: Project, n: int, *, where: str, act_line: str, lines: list[P
     context.trace_secrets(trace, secret_cand, secrets, cast_ids)  # 상태 예산으로 인물을 뺀 뒤라야 요청에 찍히는 비밀을 안다
     relations = serial_relations(p, cast_ids, plot_ids, secrets, budget=B("relations"), trace=trace) or dump(rels) or "없음"
     head = static_parts(p, False, trace) + [
+        Part("ref_notes", ref_beats_part(p, trace)),
         Part("structure", f"\n\n{where}"),
         Part("story_past", f"\n\n# 지금까지의 줄거리 (끝난 부와 아크)\n{past or '없음'}"),
         Part("position", f"\n\n# 이번 화 위치\n{act_line}"),
@@ -4666,6 +4704,35 @@ def ref_setup_note_prompt(body: str, mode: str, names: list[str] | None = None, 
 
 {REF_NOTE_KEEP_OUT}
 재료에 드러나지 않은 것은 짓지 않습니다. 드러나지 않은 칸은 짧게 적거나 목록을 줄입니다.
+{cast}
+{head}{body}"""
+
+
+def ref_beats_note_prompt(body: str, mode: str, names: list[str] | None = None, fold: str = "") -> str:
+    """레퍼런스 원고의 박자 메모 요청 (pipeline.ref_beats_note). mode cards: body 는 접은 화 카드, text: body 는 원문.
+    메모는 다른 작품의 집필 · 플롯 요청이 읽으므로 무슨 일이 일어났는지가 아니라 화를 굴리는 꼴만 남긴다 (docs/refs 5장)."""
+    if mode == "cards":
+        what = "아래는 소설 한 편에서 고른 화들의 화 카드(화마다 사건 · 끝 · 성격 · 긴장을 줄인 것)입니다."
+        care = ("화 카드에는 인물 이름과 사건이 적혀 있습니다. 메모에는 이름을 쓰지 않고, 사건은 그 대목이 화 안에서 하는 일로 바꿔 적습니다.\n"
+                "화 카드는 원문을 화마다 따로 줄인 것이라 세부(누가 했는지, 차례)가 틀릴 수 있습니다. 한 줄의 세부가 아니라 여러 화에 걸쳐 되풀이되는 꼴로 판단합니다.\n"
+                "긴장 숫자는 화마다 그 화 안에서 매긴 값이라, 오르내리는 흐름만 봅니다.")
+        head = "# 화 카드\n" + fold
+    else:
+        what = "아래는 소설 한 편에서 고른 화들의 원문입니다."
+        care = "메모에는 이름을 쓰지 않고, 사건은 그 대목이 화 안에서 하는 일로 바꿔 적습니다. 장면이 바뀌는 곳을 세어 한 화의 장면 수를 봅니다."
+        head = "# 원문\n"
+    cast = f"\n# 화 카드의 인물 이름 (메모에 쓰지 않습니다)\n{', '.join(names)}\n" if names else ""
+    return f"""{what} 이 화들이 한 화를 어떻게 굴리는지(전개 박자)를 다른 작품을 쓰는 작가가 참고할 메모로 요약합니다.
+{care}
+
+적을 것:
+- pattern: 한 화가 흘러가는 꼴 한두 문장 (어디서 열고 무엇이 걸리고 어떻게 끊는지). 장면 수를 알 수 있으면 함께 적습니다.
+- beats: 화 안의 박자 3~7개, 차례대로. 한 줄에 박자 하나, 무슨 일인지가 아니라 그 대목이 하는 일로 적습니다 ('불편한 재회로 연다', '주도권이 넘어간다', '작은 양보를 받아 낸다').
+- hooks: 화 끝을 끊는 방식 1~4개 ('결정 직전에 끊는다', '새 인물의 등장으로 끊는다').
+- pacing: 여러 화에 걸친 완급 한두 문장 (느슨한 화와 팽팽한 화가 어떻게 번갈아 오는지).
+
+{REF_NOTE_KEEP_OUT}
+재료에 드러나지 않은 것은 짓지 않습니다.
 {cast}
 {head}{body}"""
 
@@ -6088,6 +6155,7 @@ _BLOCK_PIECE: dict[str, tuple[tuple[str, ...], str, str]] = {
     "world": (("continuity",), "static_parts", ""),
     "style": (("style",), "style_block", ""),
     "characters": (("voice",), "static_parts", "주역과 늘 넣는 인물 (static_characters)"),
+    "ref_notes": (("length",), "ref_beats_part", "작가가 넣은 박자 메모(쓰임 집필)를 켰을 때"),
     "structure": (("continuity",), "context_parts", ""),
     "story_past": (("continuity",), "story_parts", "장편: 끝난 부 · 아크가 있을 때"),
     "position": (("continuity",), "context_parts", ""),
@@ -6365,6 +6433,7 @@ KINDS: dict[str, Kind] = {
     "ref_arcs": Kind("레퍼런스 · 아크", "실험", "", "SYSTEM_REVERSE", "ref_arcs_prompt", "RevArcSet", "pipeline.ref_arcs"),
     "ref_digest": Kind("레퍼런스 · 화 카드", "실험", "", "SYSTEM_REVERSE", "ref_digest_prompt", "RefDigest", "pipeline.ref_digest"),
     "ref_setup_note": Kind("레퍼런스 · 설정 메모", "실험", "plan", "SYSTEM_REVERSE", "ref_setup_note_prompt", "RefSetupDraft", "pipeline.ref_setup_note"),
+    "ref_beats_note": Kind("레퍼런스 · 박자 메모", "실험", "plan", "SYSTEM_REVERSE", "ref_beats_note_prompt", "RefBeatsDraft", "pipeline.ref_beats_note"),
     "research": Kind("연구 화면 샘플 (기본 시스템)", "실험", "", "SYSTEM_WRITER", "research.sample", "", "routes.research"),
 }
 

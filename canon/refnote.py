@@ -10,7 +10,7 @@ from datetime import date, datetime
 
 from . import cancel, context, prompts, refdigest, refs, usage
 from .llm import wait_cap
-from .schema import Project, RefNote, RefSetupDraft
+from .schema import Project, RefBeatsDraft, RefNote, RefSetupDraft
 
 STAGE = "plan"
 SETUP_NOTE_MAX = 30_000  # 화 카드가 없을 때 보내는 원문 글자 수 (refs.SAMPLE_MAX 와 같은 값)
@@ -22,6 +22,8 @@ WAIT = 300  # 응답을 기다리는 초
 # 화 카드의 인물 칸에 섞여 나오는 호칭 · 직함. 이름이 아니라서 '메모에 쓰지 않을 이름'과 겹침 표시에서 뺀다 (2026-11-12 실제 원고: 매니저 · 이사 · 언니 · 점원 …)
 ROLE_WORDS = frozenset("언니 오빠 누나 형 동생 엄마 아빠 어머니 아버지 할머니 할아버지 이모 삼촌 고모 아내 남편 딸 아들 친구 선배 후배 매니저 이사 사장 대표 팀장 부장 과장 실장 "
                        "회장 점원 직원 알바 알바생 기사 의사 간호사 경찰 형사 선생 교수 감독 코치 코디 비서 손님 주인 아저씨 아줌마 아가씨 학생 기자 변호사 팀원 동료 상사".split())
+USE_KIND = {"setup": "setup", "write": "beats", "plot": "beats"}  # 쓰임 → 메모 꼴. 설정 메모는 설정 도우미에만, 박자 메모는 집필 · 플롯 초안에
+BEAT_LABELS = (("pattern", "한 화의 꼴"), ("beats", "박자"), ("hooks", "끝을 끊는 방식"), ("pacing", "완급"))
 LABELS = (("logline_shape", "로그라인 꼴"), ("world_rules", "세계 규칙"), ("cast", "인물 배치"), ("relations", "관계 구도"), ("conflict", "갈등 축"), ("tone", "톤"))
 
 
@@ -61,10 +63,10 @@ def material(rid: str, orders: list[int]) -> dict:
             "names": refs.proper_words(base["texts"])[:NAMES_MAX]}
 
 
-def text_of(d: RefSetupDraft) -> str:
+def text_of(d: RefSetupDraft | RefBeatsDraft) -> str:
     """응답을 칸 이름 줄을 붙인 글 하나로 (RefNote.text). 빈 칸은 뺀다."""
     out = []
-    for key, label in LABELS:
+    for key, label in (BEAT_LABELS if isinstance(d, RefBeatsDraft) else LABELS):
         v = getattr(d, key)
         if isinstance(v, list):
             lines = [" ".join(x.split()) for x in v if x and x.strip()]
@@ -75,18 +77,26 @@ def text_of(d: RefSetupDraft) -> str:
     return "\n".join(out)
 
 
-def _prompt(m: dict) -> str:
-    return prompts.ref_setup_note_prompt(m["body"], m["mode"], m["names"] if m["mode"] == "cards" else None, m["fold"])
+def _kind(use: str) -> str:
+    if use not in USE_KIND:
+        raise ValueError(f"모르는 쓰임이에요: {use}")
+    return USE_KIND[use]
 
 
-def estimate(rid: str, orders: list[int]) -> dict:
-    """설정 메모 한 번의 비용 추정과 보낼 것 (설정의 plan 단계 모델). AI 를 부르지 않는다."""
+def _prompt(m: dict, kind: str = "setup") -> str:
+    fn = prompts.ref_beats_note_prompt if kind == "beats" else prompts.ref_setup_note_prompt
+    return fn(m["body"], m["mode"], m["names"] if m["mode"] == "cards" else None, m["fold"])
+
+
+def estimate(rid: str, orders: list[int], use: str = "setup") -> dict:
+    """참고 메모 한 번의 비용 추정과 보낼 것 (설정의 plan 단계 모델). AI 를 부르지 않는다."""
     from . import settings
 
+    kind = _kind(use)
     m = material(rid, orders)
     provider = "mock" if settings.provider()[0] == "mock" else settings.stage_provider(STAGE, None)[0]
     model = settings.stage_model(STAGE, None)[0] or refdigest.model_name({"provider": provider, "model": ""})
-    chars = len(_prompt(m))
+    chars = len(_prompt(m, kind))
     tin = usage.est_input(chars, usage.token_rate(provider if provider != "mock" else "", model), len(prompts.SYSTEM_REVERSE))
     free = provider not in usage.PRICED
     price = None if free else usage.rate(model, date.today().isoformat())
@@ -95,20 +105,22 @@ def estimate(rid: str, orders: list[int]) -> dict:
             "usd": 0.0 if free else (round(usage.cost(price, tin, OUT_TOKENS, 0, False), 3) if price else None)}
 
 
-def run(rid: str, orders: list[int], llm, project: str = "") -> dict:
-    """설정 메모 초안을 만든다 (작업 ref_note 의 결과 = 미리보기). 작품에 저장하지 않는다.
+def run(rid: str, orders: list[int], llm, project: str = "", use: str = "setup") -> dict:
+    """참고 메모 초안을 만든다 (작업 ref_note 의 결과 = 미리보기). 작품에 저장하지 않는다. use setup 은 설정 메모, write · plot 은 박자 메모.
     marks 는 초안에 든 원문 구절(20자 넘게 같음)과 원고의 이름 (refs.overlap). 넣기를 막지는 않는다."""
     from . import pipeline, research
 
+    kind = _kind(use)
     m = material(rid, orders)
     cancel.check()
     with wait_cap(WAIT):
-        d = pipeline.ref_setup_note(llm, m["body"], m["mode"], m["names"] if m["mode"] == "cards" else None, m["fold"])
+        make = pipeline.ref_beats_note if kind == "beats" else pipeline.ref_setup_note
+        d = make(llm, m["body"], m["mode"], m["names"] if m["mode"] == "cards" else None, m["fold"])
     cancel.check()
     text = text_of(d)
     if not text:
         raise ValueError("AI가 빈 메모를 냈어요. 다시 만들어 주세요")
-    return {"ref": rid, "project": project, "from_name": m["name"], "from_eps": m["eps"], "orders": sorted(orders), "kind": "setup", "use": "setup",
+    return {"ref": rid, "project": project, "from_name": m["name"], "from_eps": m["eps"], "orders": sorted(orders), "kind": kind, "use": use,
             "text": text[:NOTE_MAX], "clipped": len(text) > NOTE_MAX, "marks": refs.overlap(text[:NOTE_MAX], m["texts"], m["names"]),
             "mode": m["mode"], "episodes": m["episodes"], "sent": m["sent"], "folded": m["folded"], "model": research._model_name(llm)}
 
@@ -131,9 +143,9 @@ def _clean(text: str) -> str:
 
 
 def add(p: Project, text: str, from_name: str = "", from_eps: str = "", kind: str = "setup", use: str = "setup") -> RefNote:
-    """작가가 미리보기에서 넣기를 누른 메모를 작품에 넣는다. kind setup 은 use setup 만 쓴다."""
-    if kind == "setup" and use != "setup":
-        raise ValueError("설정 메모는 설정 도우미에만 넣어요")
+    """작가가 미리보기에서 넣기를 누른 메모를 작품에 넣는다. 설정 메모는 설정 도우미에만, 박자 메모는 집필 · 플롯 초안에만 넣는다 (USE_KIND)."""
+    if USE_KIND.get(use) != kind:
+        raise ValueError("설정 메모는 설정 도우미에만, 박자 메모는 집필과 플롯 초안에만 넣어요")
     n = RefNote(id=uuid.uuid4().hex[:8], from_name=from_name.strip()[:80], from_eps=from_eps.strip()[:40], kind=kind, use=use,
                 text=_clean(text), at=datetime.now().isoformat(timespec="seconds"))
     p.ref_notes.append(n)
@@ -160,19 +172,16 @@ def remove(p: Project, nid: str) -> None:
     p.ref_notes.remove(_find(p, nid))
 
 
-def dropped(p: Project, use: str = "setup") -> list[str]:
-    """켰지만 예산(context.BUDGET["ref_notes"])을 넘어 프롬프트에서 빠지는 메모 id (prompts.ref_notes_block 과 같은 규칙)."""
-    notes = [n for n in p.ref_notes if n.on and n.use == use and n.text.strip()]
-    used, out = 0, []
-    for n in notes:
-        cost = len(f"## {' '.join(x for x in (n.from_name, n.from_eps) if x) or '참고 메모'}\n{n.text.strip()}") + 1
-        if used + cost > context.BUDGET["ref_notes"]:
-            out.append(n.id)
-        else:
-            used += cost
+def dropped(p: Project) -> list[str]:
+    """켰지만 쓰임마다의 예산을 넘어 프롬프트에서 빠지는 메모 id (prompts.ref_notes_fit 과 같은 규칙)."""
+    out = []
+    for use in USE_KIND:
+        kept = {n.id for n in prompts.ref_notes_fit(p, use)[0]}
+        out += [n.id for n in p.ref_notes if n.on and n.use == use and n.text.strip() and n.id not in kept]
     return out
 
 
 def view(p: Project) -> dict:
     """화면 값: 메모 목록, 예산을 넘어 빠지는 메모 id, 상한."""
-    return {"notes": [n.model_dump() for n in p.ref_notes], "dropped": dropped(p), "budget": context.BUDGET["ref_notes"], "max": NOTE_MAX}
+    return {"notes": [n.model_dump() for n in p.ref_notes], "dropped": dropped(p), "budget": context.BUDGET["ref_notes"], "max": NOTE_MAX,
+            "budgets": {use: context.BUDGET[key] for use, key in prompts.REF_NOTE_BUDGET.items()}}

@@ -333,7 +333,7 @@ const JOB_DONE_MSG = {
   style: '문체 분석 결과가 도착했어요. 문체 레퍼런스에서 확인하고 바꿀지 고르세요.',
   lib_style: (j) => `문체 분석 결과가 도착했어요. 문체 라이브러리에서 확인하고 바꿀지 고르세요.${j.result && j.result.counted ? ` 표지 빈도는 고른 화 전체 ${j.result.counted.toLocaleString()}자에서 셌어요.` : ''}`,
   ref_newto: (j) => `newto에서 새로 받은 ${(j.result && j.result.added) || 0}화를 받은 화에 넣었어요. 레퍼런스 원고 넣기 화면에서 원고로 가져오세요.`,
-  ref_note: '설정 메모 미리보기가 도착했어요. 레퍼런스 원고 개요에서 확인하고 작품에 넣을지 고르세요.',
+  ref_note: '참고 메모 미리보기가 도착했어요. 레퍼런스 원고 개요에서 확인하고 작품에 넣을지 고르세요.',
   ref_digest: (j) => refDigestDoneMsg(j),
   ref_arcs: (j) => `아크 ${(j.result && j.result.arcs) || 0}개로 나눴어요. 레퍼런스 원고 개요의 구조 카드에서 볼 수 있어요.`,
   arc: '기승전결 구조 제안이 도착했어요. 확인하고 저장하세요.',

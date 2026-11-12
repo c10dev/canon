@@ -991,32 +991,35 @@ function viewSetupDoc() {
     ${first ? '' : `<div class="setup-foot phone-only">${go('')}</div>`}`;
 }
 
-const REF_NOTES_BUDGET = 4000;  // context.BUDGET["ref_notes"] 와 같다 (tests/test_refnote.py)
+const REF_NOTES_BUDGET = { setup: 4000, write: 3000, plot: 3000 };  // 쓰임마다의 예산. context.BUDGET["ref_notes"] · ["ref_beats"] 와 같다 (tests/test_refnote.py)
+const REF_NOTE_USE_NAME = { setup: '설정 도우미', write: '집필', plot: '플롯 초안' };
 const REF_NOTE_MAX = 2000;  // refnote.NOTE_MAX 와 같다
 
-/** 켰지만 예산을 넘어 프롬프트에서 빠지는 설정 메모 id (refnote.dropped 와 같은 규칙). 순수 함수 */
-function refNotesDropped(notes, budget = REF_NOTES_BUDGET) {
-  let used = 0;
+/** 켰지만 쓰임마다의 예산을 넘어 프롬프트에서 빠지는 참고 메모 id (refnote.dropped 와 같은 규칙). 순수 함수 */
+function refNotesDropped(notes, budgets = REF_NOTES_BUDGET) {
   const out = [];
-  for (const n of notes.filter((x) => x.on && x.use === 'setup' && x.text.trim())) {
-    const head = [n.from_name, n.from_eps].filter(Boolean).join(' ') || '참고 메모';
-    const cost = `## ${head}\n${n.text.trim()}`.length + 1;
-    if (used + cost > budget) out.push(n.id); else used += cost;
+  for (const use of Object.keys(budgets)) {
+    let used = 0;
+    for (const n of notes.filter((x) => x.on && x.use === use && x.text.trim())) {
+      const head = [n.from_name, n.from_eps].filter(Boolean).join(' ') || '참고 메모';
+      const cost = `## ${head}\n${n.text.trim()}`.length + 1;
+      if (used + cost > budgets[use]) out.push(n.id); else used += cost;
+    }
   }
   return out;
 }
 
-/** 기획서 끝의 '참고 구조' 카드: 레퍼런스 원고에서 넣은 설정 메모를 켜고 끄고 고치고 지운다. 메모가 없으면 그리지 않는다 */
+/** 기획서 끝의 '참고 구조' 카드: 레퍼런스 원고에서 넣은 참고 메모(설정 · 박자)를 켜고 끄고 고치고 지운다. 메모가 없으면 그리지 않는다 */
 function setupRefNotes() {
-  const notes = (P().ref_notes || []).filter((n) => n.use === 'setup');
+  const notes = P().ref_notes || [];
   if (!notes.length) return '';
   const gone = refNotesDropped(notes);
   const rows = notes.map((n) => `<details class="setup-refnote"><summary><input type="checkbox" data-ref-note-on="${esc(n.id)}"${n.on ? ' checked' : ''} aria-label="${esc(n.from_name)} ${esc(n.from_eps)} 메모 켜기">
-      <strong>${esc(n.from_name || '참고 메모')}</strong> <span class="small">${esc(n.from_eps)}${n.on ? '' : ' · 꺼 둠'}${gone.includes(n.id) ? ' · 길어서 빠져요' : ''}</span></summary>
+      <strong>${esc(n.from_name || '참고 메모')}</strong> <span class="small">${esc(n.from_eps)} · 쓰임 ${REF_NOTE_USE_NAME[n.use] || n.use}${n.on ? '' : ' · 꺼 둠'}${gone.includes(n.id) ? ' · 길어서 빠져요' : ''}</span></summary>
     <label class="sr-only" for="ref-note-${esc(n.id)}">메모 글</label><textarea id="ref-note-${esc(n.id)}" data-ref-note-text="${esc(n.id)}" rows="12" maxlength="${REF_NOTE_MAX}">${esc(n.text)}</textarea>
     <div class="row"><button type="button" class="btn small" data-action="refNoteSave" data-arg="${esc(n.id)}">메모 저장</button><button type="button" class="btn small ghost" data-action="refNoteDelete" data-arg="${esc(n.id)}">지우기</button></div></details>`).join('');
   return `<section class="card" id="setup-refnotes" aria-labelledby="h-setup-refnotes"><div class="sec-head"><div class="sec-title"><h2 id="h-setup-refnotes">참고 구조</h2></div><a class="small" href="#/refs">레퍼런스 원고</a></div>
-    <p class="small">켠 메모는 대화 에이전트의 설정 변경안과 빈칸 AI 제안이 구도만 참고해요. 이름과 사건은 옮기지 않아요.${gone.length ? ` <span class="warn-text">참고 메모 ${gone.length}개는 길어서 뺐어요.</span>` : ''}</p>
+    <p class="small">켠 메모는 쓰임에 적힌 요청(설정 도우미의 변경안과 빈칸 AI 제안 · 집필 · 플롯 초안)이 구도와 박자만 참고해요. 이름과 사건은 옮기지 않아요.${gone.length ? ` <span class="warn-text">참고 메모 ${gone.length}개는 길어서 뺐어요.</span>` : ''}</p>
     ${rows}</section>`;
 }
 

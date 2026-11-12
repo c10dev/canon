@@ -526,6 +526,14 @@ class RefSetupDraft(BaseModel):
     tone: str = Field(description="톤 한 문장")
 
 
+class RefBeatsDraft(BaseModel):
+    """LLM 응답 형식: 레퍼런스 원고의 전개 박자 요약 (pipeline.ref_beats_note). 이름 · 사건 줄거리 · 원문 문장은 담지 않는다."""
+    pattern: str = Field(description="한 화가 흘러가는 꼴 한두 문장: 어디서 열고 무엇이 걸리고 어떻게 끊는지. 장면 수를 알 수 있으면 함께")
+    beats: list[str] = Field(description="화 안의 박자 3~7개, 차례대로. 한 줄에 박자 하나, 무슨 일인지가 아니라 그 대목이 하는 일로 ('불편한 재회로 연다')")
+    hooks: list[str] = Field(description="화 끝을 끊는 방식 1~4개 ('결정 직전에 끊는다')")
+    pacing: str = Field(description="여러 화에 걸친 완급 한두 문장: 느슨한 화와 팽팽한 화가 어떻게 번갈아 오는지")
+
+
 class RefBook(BaseModel):
     """레퍼런스 원고 하나 (ref.json). 원문은 같은 폴더의 source.txt."""
     id: str

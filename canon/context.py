@@ -71,6 +71,7 @@ BUDGET = {
     "rev_lines": 40_000,    # 이야기 줄기 요청의 화별 역설계 결과 (prompts.rev_lines_prompt: 넘으면 모든 화를 첫 문장 → 줄기 이름만)
     "ref_arcs": 40_000,     # 레퍼런스 아크 나누기 요청의 화 카드 (prompts.ref_arcs_prompt: 넘으면 화마다 첫 사건과 끝 → 첫 사건만)
     "ref_notes": 4_000,     # 설정 도우미의 [참고 구조] 블록: 켠 설정 메모를 넣은 차례대로 (prompts.ref_notes_block: 넘는 메모는 빼고 수를 적는다)
+    "ref_beats": 3_000,     # 집필 · 플롯 초안의 참고 구조 블록: 켠 박자 메모를 넣은 차례대로 (prompts.ref_beats_part · ref_notes_block). 화수와 상관없이 같은 크기
     "rev_arcs": 40_000,     # 아크 역설계 요청의 화별 역설계 결과 (prompts.rev_arcs_prompt: 넘으면 모든 화를 첫 문장 → 제목 · 훅만)
 }
 PLAY_FORESHADOW_CAP = 8  # 장면에 넣는 열린 복선 수

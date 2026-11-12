@@ -260,6 +260,7 @@ def ref_digest_arcs_clear(rid: str) -> dict:
 
 class RefNoteMakeIn(BaseModel):
     eps: list[int]
+    use: str = "setup"  # setup 설정 메모 · write · plot 박자 메모 (refnote.USE_KIND)
     project: str = ""  # 넣을 작품 (미리보기에 실어 돌려줄 뿐, 만들 때는 작품을 읽거나 쓰지 않는다)
 
 
@@ -267,24 +268,26 @@ class RefNoteMakeIn(BaseModel):
 def ref_note_estimate(rid: str, body: RefNoteMakeIn) -> dict:
     """설정 메모를 만들 때 보낼 것(화 카드 · 원문)과 비용 추정. AI 를 부르지 않는다."""
     try:
-        return refnote.estimate(_ref_id(rid), body.eps)
+        return refnote.estimate(_ref_id(rid), body.eps, body.use)
     except ValueError as e:
         raise HTTPException(400, str(e))
 
 
 @router.post("/api/refs/{rid}/note")
 def ref_note_start(rid: str, body: RefNoteMakeIn) -> dict:
-    """설정 메모 초안 작업(ref_note)을 시작한다. 결과는 미리보기이고 작품에 저장하지 않는다. 원고 하나에 하나만 돈다."""
+    """참고 메모 초안 작업(ref_note)을 시작한다. 결과는 미리보기이고 작품에 저장하지 않는다. 원고 하나에 하나만 돈다."""
     rid = _ref_id(rid)
     if body.project:
         _need(body.project)
     try:
+        kind = refnote._kind(body.use)
         m = refnote.material(rid, body.eps)
     except ValueError as e:
         raise HTTPException(400, str(e))
     llm = get_llm("plan")  # 키가 없으면 작업을 띄우기 전에 알린다
     try:
-        job = jobs.start(REF_JOBS, "ref_note", None, f"설정 메모 ({m['name']} {m['eps']})", lambda j: refnote.run(rid, body.eps, llm, body.project), target=rid)
+        job = jobs.start(REF_JOBS, "ref_note", None, f"{'박자' if kind == 'beats' else '설정'} 메모 ({m['name']} {m['eps']})",
+                         lambda j: refnote.run(rid, body.eps, llm, body.project, body.use), target=rid)
     except jobs.Busy as busy:
         return {**busy.job.public(), "already": True}
     return job.public()
@@ -336,8 +339,6 @@ def ref_notes_list(name: str) -> dict:
 @router.post("/api/projects/{name}/ref-notes")
 def ref_notes_add(name: str, body: RefNoteAddIn) -> dict:
     """작가가 미리보기에서 넣기를 누른 참고 메모를 작품에 넣는다. 원고의 '만든 것'에 남긴다."""
-    if body.kind not in ("setup",) or body.use not in ("setup",):
-        raise HTTPException(400, "지금은 설정 메모만 넣을 수 있어요")
     box: dict = {}
     out = _note_edit(name, lambda p: box.update(note=refnote.add(p, body.text, body.from_name, body.from_eps, body.kind, body.use)))
     if body.ref:
