@@ -9,11 +9,11 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from canon import autorun, cue, jobs, prompts, revlab, store, usage
+from canon import autorun, cue, jobs, metrics, prompts, revlab, store, usage
 from canon.cli import main
 from canon.mock import MockLLM
 from canon.mock_revlab import FAKE_LINE
-from canon.schema import Cue, CueLine, CueSheetDraft, RevAI, RevCue, RevEpisodeDraft, RevLab, RevLineSet
+from canon.schema import Cue, CueLine, CueSheetDraft, RevAI, RevCue, RevEpisodeDraft, RevLab, RevLineSet, StyleProfile
 
 from .jsvm import STATIC, dump, needs_node, run_js
 from .test_web import _wait
@@ -1519,3 +1519,103 @@ def test_apply_lines_detaches_old_storyline_ids(tmp_path, monkeypatch):
     revlab.apply_lines(lab, RevLineSet(main="m", lines=[line("C", [b], [a])]))
     got = {e.number: (e.plot.storyline, e.plot.threads) for e in lab.episodes[:2]}
     assert got == {a: ("", ["sl-01"]), b: ("sl-01", [])}
+
+
+# ---------- 문체 표본 흩기 (원문 전체에서 고루 뽑기) ----------
+
+def _long_lab(n=12, each=4000):
+    """앞 3만 자를 넘는 실험: 화마다 서술 문단과 대사 문단이 섞이고, 뒤 화에만 '하더라'가 나온다."""
+    eps = []
+    for i in range(1, n + 1):
+        tail = "그는 그렇게 말하더라. " if i > n * 2 // 3 else "그는 고개를 끄덕인 것이었다. "
+        para = f"{i}번째 밤이 깊었다. 등대 불빛이 바다를 훑었다. " + tail
+        talk = f'"오늘은 {i}번째 밤이야." 서윤이 말했다. "그래, 알아." 도현이 답했다.'
+        body = "\n\n".join((para * 6 if k % 2 else talk * 3) for k in range(each // 150))
+        eps.append(f"{i}화\n{body}")
+    return revlab.create("긴 등대", "\n\n".join(eps))
+
+
+def test_style_sample_spreads_over_all_episodes(home):
+    lab = _long_lab()
+    whole = revlab.style_corpus(lab)
+    assert len(whole) > revlab.STYLE_CHARS * 1.3
+    got = revlab.style_spread(lab)
+    assert got["spread"] and revlab.MIN_CHARS < len(got["text"]) <= revlab.STYLE_CHARS and got["text"] == revlab.style_sample(lab)
+    nums = sorted({p["order"] for p in got["pieces"]})
+    third = len(lab.episodes) // 3
+    assert nums[0] <= third and nums[-1] > third * 2 and any(third < n <= third * 2 for n in nums)  # 앞 · 가운데 · 뒤 구간 모두
+    assert got["text"] != whole[:revlab.STYLE_CHARS].strip() and "하더라" in got["text"]  # 앞 3만 자에는 없는 뒤 화의 버릇
+    assert got["text"].count('"') % 2 == 0
+    short = revlab.create("등대", STORY)
+    one = revlab.style_spread(short)
+    assert not one["spread"] and one["text"] == revlab.style_corpus(short).strip()  # 3만 자 안이면 통째로 (옛 표본과 같은 글)
+
+
+def test_run_style_counts_markers_in_whole_text(home, monkeypatch):
+    from canon import pipeline
+    from canon.schema import StyleMarker, StyleProfile
+
+    lab = _long_lab()
+    seen = {}
+
+    class Fake(MockLLM):
+        def json(self, system, prompt, schema, **kw):
+            seen["prompt"] = prompt
+            return StyleProfile(tense="과거형", markers=[StyleMarker(text="하더라", per_1k=99), StyleMarker(text="것이었다"), StyleMarker(text="없는버릇")])
+    prof = revlab.run_style(lab.id, Fake())
+    lab = revlab.load(lab.id)
+    whole = revlab.style_corpus(lab)
+    assert len(seen["prompt"]) < revlab.STYLE_CHARS + 5000  # 모델은 표본만 읽는다
+    assert {m.text: m.per_1k for m in prof.markers} == {t: metrics.marker_rate(whole, t) for t in ("하더라", "것이었다")}
+    x = lab.styles[0]
+    assert (x.sampling, x.basis, x.counted) == ("spread", revlab._basis(whole), len(whole)) and x.chars <= revlab.STYLE_CHARS
+    assert x.pieces and {p.number for p in x.pieces} <= {e.number for e in lab.episodes}
+    v = revlab.view(lab)
+    assert v["style_counted"] == len(whole) and v["style_pieces"][0]["name"] in ("첫머리", "전체")
+    assert revlab.style_view(lab, 1)["pieces"] == v["style_pieces"]
+    est = revlab.estimate(lab, "style")
+    assert "고루 뽑은" in est["note"] and "원문 앞" not in est["note"] and est["rows"][0]["input_tokens"] < revlab.STYLE_CHARS
+    assert pipeline.analyze_style  # 서명은 그대로 (corpus 만 넘긴다)
+
+
+def test_old_front_profile_is_not_marked_stale(home):
+    """표본 방식 칸이 없는 옛 실험 파일: 앞 3만 자 지문과 견줘 '원문 바뀜'이 거짓으로 뜨지 않는다."""
+    lab = _long_lab()
+    front = revlab._front_sample(lab)
+    revlab.with_lock(lab.id, lambda lab: revlab.add_style(lab, StyleProfile(tense="과거형"), "gemini:x", front))
+    path = home / ".revlab" / f"{lab.id}.json"
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    for k in ("sampling", "pieces", "counted"):
+        raw["styles"][0].pop(k)
+    assert raw["styles"][0]["basis"] == revlab._basis(front) and raw["styles"][0]["chars"] == len(front)
+    path.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+    old = revlab.load(lab.id)
+    assert old.styles[0].sampling == "" and old.styles[0].pieces == []
+    assert revlab._basis(revlab.style_corpus(old)) != old.styles[0].basis  # 새 방식 지문과는 다르다
+    assert revlab.style_items(old)[0]["basis_ok"] and revlab.view(old)["style_pieces"] == []
+    revlab.append_text(old, APPEND)  # 3만 자 뒤에 붙는 글: 옛 표본(앞 3만 자)은 그대로다
+    assert revlab.style_items(old)[0]["basis_ok"]
+    old.episodes[0].text = "고친 첫 문장. " + old.episodes[0].text
+    assert not revlab.style_items(old)[0]["basis_ok"]
+
+
+def test_spread_profile_goes_stale_when_any_episode_changes(home):
+    lab = _long_lab()
+    revlab.run_style(lab.id, MockLLM())
+    lab = revlab.load(lab.id)
+    assert revlab.style_items(lab)[0]["basis_ok"] and lab.styles[0].pieces
+    lab.episodes[-1].text += " 덧붙인 문장."  # 표지를 원문 전체에서 세므로 뒤 화가 바뀌어도 낡는다
+    assert not revlab.style_items(lab)[0]["basis_ok"]
+
+
+@needs_node
+def test_style_pieces_fold_js():
+    """뽑은 조각 목록은 접어 두고, 조각이 없으면(통째로 넣음 · 옛 프로필) 그리지 않는다."""
+    labs = [{"style_pieces": [], "style_counted": 0},
+            {"style_pieces": [{"number": 1, "part": "head", "name": "첫머리", "chars": 900}, {"number": 1, "part": "tail", "name": "끝", "chars": 800},
+                              {"number": 7, "part": "all", "name": "전체", "chars": 1200}], "style_counted": 386405}]
+    none, some = run_js(FILES, "data.map(revStylePieces)", labs)
+    assert none == ""
+    assert some.startswith("<details") and "open" not in some.split(">")[0]
+    assert "원문 2화에서 고루 뽑은 3조각 · 2,900자" in some and "원문 386,405자에서 셈" in some
+    assert "1화 첫머리 900자, 끝 800자 · 7화 전체 1,200자" in some

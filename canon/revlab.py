@@ -9,7 +9,7 @@
   남긴다(keep_lines). 화가 둘 넘으면 이야기 줄기를 한 번 더 묻는다(pipeline.reverse_lines).
 - 되돌려 쓰기(run_write, write 단계): 역설계한 재료로 만든 작품 사본(world)에서 큐 시트 실험의 '큐 시트를 주고 한 번에' 조건
   (pipeline.write_scored)으로 같은 화를 쓴다. 쓴 글은 화마다 판(RevTake)으로 MAX_TAKES 개까지 남기고, 판마다 원문과 블라인드 비교, cue.score 지표 비교.
-- 문체 역설계(run_style, plan 단계): 원문 앞부분으로 문체 프로필을 만들어 기록(RevLab.styles)에 더하고 지금 프로필로 고른다.
+- 문체 역설계(run_style, plan 단계): 원문 전체에서 고루 뽑은 표본으로 문체 프로필을 만들어 기록(RevLab.styles)에 더하고 지금 프로필로 고른다.
   예전 프로필은 남아 다시 고르거나(select_style) 칸별로 견줄 수 있다(style_diff). 판은 넣은 프로필 번호(RevTake.style_id)를 남긴다.
 AI 호출 전에 비용 추정(estimate)을 보여 주고 작가가 눌러야 돈다. 인물 id 는 인물 이름이다.
 """
@@ -23,7 +23,7 @@ from pathlib import Path
 
 from . import cancel, context, cue, metrics, pipeline, prompts, store, usage
 from .schema import (Act, AddressForm, BoardHandover, BoardScene, BoardTime, Character, CueLine, CueSheet, CueSheetDraft, CueTake, Episode, EpisodePlot, Meta, Project,
-                     Relationship, RevAI, RevBlind, RevBound, RevCastSaved, RevEpisode, RevEpisodeDraft, RevArc, RevArcPlan, RevArcSet, RevLab, RevLineSet, RevPart, RevPerson, RevStyle, RevTake, Storyboard,
+                     Relationship, RevAI, RevBlind, RevBound, RevCastSaved, RevEpisode, RevEpisodeDraft, RevArc, RevArcPlan, RevArcSet, RevLab, RevLineSet, RevPart, RevPerson, RevPiece, RevStyle, RevTake, Storyboard,
                      StoryboardDraft, StyleProfile, WorldSetting,
                      Storyline)
 
@@ -45,8 +45,9 @@ LINES_IN_CHARS = 400  # 이야기 줄기 요청에 화마다 들어가는 글자
 JOBS = ".revlab"  # 작업 목록의 project 자리 (작품 폴더는 점으로 시작하지 않아 겹치지 않는다). 화면은 '역설계 실험'으로 보인다
 SIDES = {"original": "원문", "rewrite": "되돌려 쓴 글"}
 MAX_TAKES = 8  # 화마다 남기는 되돌려 쓴 판. 저절로 지우지 않고, 차면 작가가 지울 판을 고른다 (원문 MAX_CHARS × 8판이 상한)
-STYLE_CHARS = 30_000  # 문체 역설계에 넣는 원문 앞부분 글자 수
+STYLE_CHARS = 30_000  # 문체 역설계에 넣는 표본 글자 수 (원문이 이보다 길면 화 전체에서 고루 뽑는다, style_spread)
 STYLE_OUT_TOKENS = 2500
+SAMPLING = "spread"  # 지금 표본 방식 (RevStyle.sampling). 빈 값은 원문 앞 STYLE_CHARS 자만 쓴 옛 프로필
 STYLE_KEEP = 20  # 실험마다 남기는 문체 프로필 수
 PASSAGE_CHARS = (200, 600)  # 라이브러리로 보낼 때 고르는 대표 문단 하나의 글자 수 (to_library)
 FIRST_RE = re.compile(r"(\d{1,4})\s*화")  # 실험 이름에서 첫 화 번호를 짐작한다 (글에 제목 줄이 없을 때)
@@ -777,18 +778,22 @@ def drop_take(lab: RevLab, number: int, no: int) -> None:
 
 
 def run_style(lab_id: int, llm) -> StyleProfile:
-    """원문 앞부분(STYLE_CHARS)으로 문체 프로필을 만든다 (pipeline.analyze_style, plan 단계). 예시 문단은 묻지 않고,
+    """원문 전체에서 고루 뽑은 표본(style_spread, STYLE_CHARS 자까지)으로 문체 프로필을 만든다 (pipeline.analyze_style, plan 단계).
+    모델은 표본만 읽고, 표지 빈도와 장치 단서는 원문 전체(style_corpus)에서 세고 거른다. 예시 문단은 묻지 않고,
     모델이 그래도 내면 비운다. 기록에 더해 지금 프로필로 고른다 (add_style)."""
     from . import research
 
     lab = load(lab_id)
     check_style_room(lab)
-    sample = style_sample(lab)
+    got = style_spread(lab)
+    whole = style_corpus(lab)
     cancel.check()
-    prof = pipeline.analyze_style(llm, sample, [c.name for c in lab.cast], passages=False)
+    prof = pipeline.analyze_style(llm, got["text"], [c.name for c in lab.cast], passages=False, corpus=whole)
     prof.sample_passages = []
     cancel.check()
-    with_lock(lab_id, lambda lab: add_style(lab, prof, research._model_name(llm), sample))
+    pieces = [RevPiece(number=x["order"], part=x["part"], chars=x["chars"]) for x in got["pieces"]] if got["spread"] else []
+    with_lock(lab_id, lambda lab: add_style(lab, prof, research._model_name(llm), got["text"], basis=_basis(whole), pieces=pieces,
+                                            counted=len(whole)))
     return prof
 
 
@@ -796,12 +801,12 @@ def _basis(text: str) -> str:
     return hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
 
 
-def style_basis(lab: RevLab) -> str:
-    """지금 원문으로 문체를 역설계하면 넣을 글의 지문. 원문이 너무 짧으면 빈 값."""
-    try:
-        return _basis(style_sample(lab))
-    except ValueError:
-        return ""
+def style_basis(lab: RevLab, sampling: str = SAMPLING) -> str:
+    """프로필을 만든 원문이 지금도 같은지 볼 지문. 원문이 너무 짧으면 빈 값.
+    흩어 뽑은 프로필(sampling 'spread')은 원문 전체의 지문이다: 표지 빈도를 전체에서 세고, 뽑는 규칙(refsample)을 고쳐도 지문이 바뀌지 않는다.
+    옛 프로필(sampling 빈 값)은 만들 때처럼 원문 앞 STYLE_CHARS 자의 지문과 견준다 (표본 방식을 바꿨다고 '원문 바뀜'으로 뜨지 않게)."""
+    text = style_corpus(lab) if sampling == SAMPLING else _front_sample(lab)
+    return _basis(text) if len(text) >= MIN_CHARS else ""
 
 
 def _style_used(lab: RevLab) -> list[int]:
@@ -820,9 +825,11 @@ def check_style_room(lab: RevLab) -> None:
         raise ValueError(f"문체 프로필은 {STYLE_KEEP}개까지 남겨요. 쓰지 않는 프로필을 지우세요")
 
 
-def add_style(lab: RevLab, prof: StyleProfile, model: str, sample: str) -> RevStyle:
+def add_style(lab: RevLab, prof: StyleProfile, model: str, sample: str, basis: str = "", pieces: list[RevPiece] | None = None,
+              counted: int = 0) -> RevStyle:
     """프로필을 기록에 더하고 지금 프로필로 고른다. 기록에 같은 프로필이 있으면 더하지 않고 그것을 고른다.
-    STYLE_KEEP 을 넘으면 지울 수 있는 것 가운데 가장 오래된 것부터 지운다."""
+    STYLE_KEEP 을 넘으면 지울 수 있는 것 가운데 가장 오래된 것부터 지운다.
+    sample 은 모델에 넣은 표본, basis 는 원문 전체의 지문(비우면 표본의 지문을 적고 옛 방식 프로필로 둔다), pieces 는 흩어 뽑은 조각, counted 는 표지를 센 글자 수."""
     same = next((x for x in lab.styles if x.profile == prof), None)
     if same:
         lab.style_id = same.id
@@ -830,7 +837,8 @@ def add_style(lab: RevLab, prof: StyleProfile, model: str, sample: str) -> RevSt
     check_style_room(lab)
     while len(lab.styles) >= STYLE_KEEP:
         lab.styles.remove(next(x for x in lab.styles if x.id not in _kept(lab)))
-    x = RevStyle(id=lab.style_next, profile=prof, model=model, at=pipeline._now(), basis=_basis(sample), chars=len(sample))
+    x = RevStyle(id=lab.style_next, profile=prof, model=model, at=pipeline._now(), basis=basis or _basis(sample), chars=len(sample),
+                 sampling=SAMPLING if basis else "", pieces=pieces or [], counted=counted)
     lab.styles.append(x)
     lab.style_id, lab.style_next = x.id, x.id + 1
     return x
@@ -900,7 +908,7 @@ def pick_passages(text: str, names: list[str]) -> list[str]:
 
 
 def to_library(lab_id: int, sid: int, name: str):
-    """프로필을 문체 라이브러리 새 항목으로 저장한다 (library.create). 원문 앞부분(style_sample)을 함께 넣고
+    """프로필을 문체 라이브러리 새 항목으로 저장한다 (library.create). 지금 원문에서 뽑은 표본(style_sample)을 함께 넣고
     대표 문단은 pick_passages 로 채운다. 이미 저장한 항목이 남아 있으면 새로 만들지 않고 그 항목을 돌려준다."""
     from . import library
 
@@ -913,8 +921,8 @@ def to_library(lab_id: int, sid: int, name: str):
     prof.sample_passages = pick_passages(sample, [c.name for c in lab.cast])
     title = lab.title or f"실험 {lab.id}"
     notes = f"역설계 실험 「{title}」의 {sid}번 프로필({x.model or '모델 모름'})에서 가져왔어요. 대표 문단은 원문에서 저절로 골랐어요."
-    if x.basis and x.basis != _basis(sample):
-        notes += " 원문 앞부분이 프로필을 만들 때와 달라요."
+    if x.basis and x.basis != style_basis(lab, x.sampling):
+        notes += " 원문이 프로필을 만들 때와 달라요."
     e = library.create(name.strip() or f"{title} 문체 {sid}번", prof, sample, source=f"역설계 실험 「{title}」", notes=notes,
                        note="역설계 실험에서 가져옴")
     with_lock(lab_id, lambda lab: setattr(get_style(lab, sid), "library", e.id))
@@ -984,10 +992,10 @@ def _style_head(p: StyleProfile) -> str:
 
 def style_items(lab: RevLab) -> list[dict]:
     """문체 프로필 기록의 화면 값 (최근 것 먼저). 프로필 본문은 싣지 않는다 (GET …/styles/<번호>)."""
-    now = style_basis(lab)
+    now = {k: style_basis(lab, k) for k in {x.sampling for x in lab.styles}}
     used = _style_used(lab)
     return [{"id": x.id, "at": x.at, "model": x.model, "note": x.note, "chars": x.chars, "current": x.id == lab.style_id,
-             "basis_ok": not x.basis or x.basis == now, "markers": len(x.profile.markers), "takes": used.count(x.id),
+             "basis_ok": not x.basis or x.basis == now[x.sampling], "markers": len(x.profile.markers), "takes": used.count(x.id),
              "head": _style_head(x.profile), "library": _saved(x)} for x in reversed(lab.styles)]
 
 
@@ -1003,6 +1011,7 @@ def style_view(lab: RevLab, sid: int, against: int = 0) -> dict:
     x = get_style(lab, sid)
     item = next(i for i in style_items(lab) if i["id"] == sid)
     return {**item, "profile": x.profile.model_dump(exclude={"sample_passages"}), "against": against or lab.style_id,
+            "pieces": style_pieces(lab, x), "counted": x.counted,
             "changes": style_diff(lab, sid, against)}
 
 
@@ -1014,11 +1023,38 @@ def _take_style(lab: RevLab, t: RevTake) -> dict:
             "style_gone": not any(x.id == t.style_id for x in lab.styles)}
 
 
-def style_sample(lab: RevLab) -> str:
-    text = "\n\n".join(e.text for e in lab.episodes)[:STYLE_CHARS].strip()
-    if len(text) < MIN_CHARS:
+def style_corpus(lab: RevLab) -> str:
+    """실험 원문 전체를 이은 글. 문체 역설계가 표지 빈도를 여기서 센다 (pipeline.analyze_style 의 corpus)."""
+    return "\n\n".join(e.text for e in lab.episodes)
+
+
+def _front_sample(lab: RevLab) -> str:
+    """옛 표본: 원문 앞 STYLE_CHARS 자. 옛 프로필(RevStyle.sampling 빈 값)의 지문을 견줄 때만 쓴다."""
+    return style_corpus(lab)[:STYLE_CHARS].strip()
+
+
+def style_spread(lab: RevLab) -> dict:
+    """문체 역설계에 넣을 표본 (refsample.spread 의 값: text · pieces · spread · chars · episodes). AI 없음.
+    원문이 STYLE_CHARS 자 안이면 통째로, 넘으면 화 전체를 앞 · 가운데 · 뒤 구간으로 나눠 구간마다 화를 고르고 화마다 조각을 뽑는다.
+    실험 화에는 화 카드가 없어 화의 대사 몫(따옴표 안 글자 비율)으로 고른다. pieces 의 order 는 실험의 화 번호다."""
+    from . import refsample
+
+    eps = [{"order": e.number, "label": str(e.number), "text": e.text, "dialogue": refsample._talk(e.text)} for e in lab.episodes]
+    out = refsample.spread(eps, STYLE_CHARS)
+    if len(out["text"]) < MIN_CHARS:
         raise ValueError(f"원문이 {MIN_CHARS}자보다 짧아 문체를 역설계하지 않아요")
-    return text
+    return out
+
+
+def style_sample(lab: RevLab) -> str:
+    return style_spread(lab)["text"]
+
+
+def style_pieces(lab: RevLab, x: RevStyle) -> list[dict]:
+    """프로필을 만들 때 뽑은 조각의 화면 값 [{number, part, name, chars}]. 통째로 넣었거나 옛 프로필이면 빈 목록."""
+    from . import refsample
+
+    return [{"number": p.number, "part": p.part, "name": refsample.PART_NAMES.get(p.part, p.part), "chars": p.chars} for p in x.pieces]
 
 
 def pick(lab: RevLab, number: int, choice: int, no: int | None = None) -> str:
@@ -1215,8 +1251,9 @@ def estimate(lab: RevLab, kind: str, numbers: list[int] | None = None, model: st
         return usage.est_input(chars, rate, system)
 
     rows = []
+    got = style_spread(lab) if kind == "style" else None
     if kind == "style":
-        tin = tok(len(prompts.style_prompt(style_sample(lab), passages=False)), len(prompts.SYSTEM_PLANNER))
+        tin = tok(len(prompts.style_prompt(got["text"], passages=False)), len(prompts.SYSTEM_PLANNER))
         rows.append({"label": "문체 프로필", "calls": 1, "input_tokens": round(tin), "output_tokens": STYLE_OUT_TOKENS,
                      "usd": round(usage.cost(price, tin, STYLE_OUT_TOKENS, 0, False), 3) if price else None})
     if kind == "arcs":
@@ -1241,7 +1278,7 @@ def estimate(lab: RevLab, kind: str, numbers: list[int] | None = None, model: st
     total = sum(r["usd"] or 0 for r in rows)
     note = ("입력은 실제 요청 글자 수에 백엔드 · 모델별 글자당 토큰 추정값을 곱해 셌어요. 출력은 " + ("화마다 " if nums else "")
             + {"parse": f"약 {PARSE_OUT_TOKENS:,}토큰으로 잡았어요.", "write": "원문 분량만큼 잡았어요.",
-               "style": f"약 {STYLE_OUT_TOKENS:,}토큰으로 잡았어요 (원문 앞 {STYLE_CHARS:,}자까지 넣어요).",
+               "style": f"약 {STYLE_OUT_TOKENS:,}토큰으로 잡았어요 ({_style_note(got) if got else ''}).",
                "arcs": f"약 {ARCS_OUT_TOKENS:,}토큰으로 잡았어요."}[kind]
             + " 캐시와 생각 토큰은 넣지 않았어요.")
     return {"kind": kind, "provider": c["provider"], "model": model, "priced": price is not None, "calls": len(rows), "rows": rows,
@@ -1419,6 +1456,14 @@ def pace(lab: RevLab) -> dict:
         "chars_mean": round(mean), "chars_cv": round(sd / mean, 2) if mean else 0}}
 
 
+def _style_note(got: dict) -> str:
+    """문체 역설계 추정에 붙이는 표본 안내 (got 은 style_spread 의 값)."""
+    if not got["spread"]:
+        return f"원문 {len(got['text']):,}자를 모두 넣어요"
+    return (f"원문 {got['chars']:,}자 가운데 {got['episodes']}화에서 고루 뽑은 {len(got['text']):,}자를 넣고, "
+            "버릇 빈도는 원문 전체에서 세요")
+
+
 def view(lab: RevLab) -> dict:
     """실험 화면 값: 화마다 원문 · 역설계 결과 · 경계 · 되돌려 쓰기, 이야기 줄기, 인물, 문체 프로필 기록(style_list).
     레퍼런스 원고에서 온 화는 원고 이름(ref_names)과 출처 상태(item 의 source_state)도 준다."""
@@ -1430,6 +1475,7 @@ def view(lab: RevLab) -> dict:
                                                  for k, v in context_upto(lab, e.number).items()}} for e in [x for x in lab.episodes if x.sheet][-1:]],
             "style": lab.style.model_dump(exclude={"sample_passages"}) if lab.style else None,
             "style_model": cur.model if cur else "", "style_at": cur.at if cur else "", "style_list": style_items(lab),
+            "style_pieces": style_pieces(lab, cur) if cur else [], "style_counted": cur.counted if cur else 0,
             "ai": ai_view(lab), "ref_names": names,
             "arcs": lab.arcs.model_dump() if lab.arcs else None, "arc_offer": lab.arc_offer.model_dump() if lab.arc_offer else None,
             "arc_state": arc_state(lab), "arcs_min": ARCS_MIN,
