@@ -3488,6 +3488,8 @@ class RefDigestBook(BaseModel):
     read_orders: list[int] = Field(default_factory=list, description="읽힌 적이 있는 차례 (글이 바뀐 화를 세는 데만 쓴다)")
     arcs: Optional[RevArcPlan] = Field(None, description="화 카드로 나눈 아크 · 부 (refdigest.run_arcs). 화 번호는 원고의 차례(1부터)다. 없으면 아직 나누지 않음")
     arcs_basis: str = Field("", description="아크를 나눌 때 화 카드들의 지문. 지금 값과 다르면 낡은 아크다")
+    arc_offer: Optional[RevArcPlan] = Field(None, description="작가가 고친 아크(by author · both)가 있을 때 받은 새 AI 안. 작가가 고르거나 버린다 (refdigest.take_offer)")
+    arc_offer_basis: str = Field("", description="새 AI 안을 나눌 때 화 카드들의 지문")
 
 
 class RevLab(BaseModel):

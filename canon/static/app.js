@@ -334,7 +334,8 @@ const JOB_DONE_MSG = {
   lib_style: (j) => `문체 분석 결과가 도착했어요. 문체 라이브러리에서 확인하고 바꿀지 고르세요.${j.result && j.result.counted ? ` 표지 빈도는 고른 화 전체 ${j.result.counted.toLocaleString()}자에서 셌어요.` : ''}`,
   ref_newto: (j) => `newto에서 새로 받은 ${(j.result && j.result.added) || 0}화를 받은 화에 넣었어요. 레퍼런스 원고 넣기 화면에서 원고로 가져오세요.`,
   ref_digest: (j) => refDigestDoneMsg(j),
-  ref_arcs: (j) => `아크 ${(j.result && j.result.arcs) || 0}개로 나눴어요. 레퍼런스 원고 개요의 구조 카드에서 볼 수 있어요.`,
+  ref_arcs: (j) => ((j.result && j.result.offer) ? `새 아크 안(${j.result.arcs}개)을 받았어요. 고친 아크는 그대로 두었으니 레퍼런스 원고 개요의 구조 카드에서 견주고 고르세요.`
+    : `아크 ${(j.result && j.result.arcs) || 0}개로 나눴어요. 레퍼런스 원고 개요의 구조 카드에서 보고 고칠 수 있어요.`),
   arc: '기승전결 구조 제안이 도착했어요. 확인하고 저장하세요.',
   plots: '화별 플롯 초안을 만들었어요. 확정된 화는 그대로예요.',
   plot_one: (j) => (j.result && j.result.realign ? `${j.ep}화 플롯을 요약대로 채웠어요. ${j.result.realign}화와 어긋난 점은 ${j.result.realign}화에 '다시 맞추기'로 표시했어요.` : `${j.ep}화 플롯을 채웠어요. 다듬은 뒤 확정하세요.`),

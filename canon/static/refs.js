@@ -22,6 +22,7 @@ Object.assign(S, {
   refDigestAsk: null,  // 전체 읽히기 확인 칸을 열었을 때의 비용 추정 (GET …/digest/estimate)
   refPace: null,  // 화 카드로 본 구조 (GET /refs/<id>/digest/pace: 구간 긴장 · 정점 화 · 인물 · 아크)
   refFilter: { kind: '', tension: 0 },  // 화 표 거르기 (성격 · 긴장 아래 한도)
+  refArcEdit: null,  // 아크 · 부 고치는 중인 값 { id, parts, arcs } (PUT /refs/<id>/digest/arcs). 화 번호는 원고의 차례
 });
 
 const REF_JOBS = '.refs';  // newto 가져오기 작업의 project 자리 (routes/refs.REF_JOBS)
@@ -164,7 +165,7 @@ async function refLoad(id, sub) {
     await refInboxRead().catch(() => { S.refInbox = null; });
     return;
   }
-  if (!S.ref || S.ref.id !== id) { S.refPick = new Set(); S.refCmp = null; S.refEditInfo = null; S.refDigest = null; S.refDigestAsk = null; S.refPace = null; S.refFilter = { kind: '', tension: 0 }; }
+  if (!S.ref || S.ref.id !== id) { S.refPick = new Set(); S.refCmp = null; S.refEditInfo = null; S.refDigest = null; S.refDigestAsk = null; S.refPace = null; S.refFilter = { kind: '', tension: 0 }; S.refArcEdit = null; }
   S.ref = await api('GET', `/refs/${enc(id)}`);
   S.refDigest = await api('GET', `/refs/${enc(id)}/digest`).catch(() => null);
   await refPaceLoad(id);
@@ -505,23 +506,79 @@ function refArcSpan(a, labels) {
   return a.start_ep === a.end_ep ? name(a.start_ep) : `${name(a.start_ep)}~${name(a.end_ep)}`;
 }
 
+/** 차례 n 에서 d 칸(+1 · -1) 옆의 살아 있는 차례. 없으면 0. orders 는 제외하지 않은 화의 차례(오름차순). 순수 함수 */
+function refArcStep(orders, n, d) {
+  const i = orders.indexOf(n);
+  return i < 0 ? 0 : orders[i + d] || 0;
+}
+
+/** 아크 하나를 가운데에서 둘로 나눈 [앞, 뒤]. 화가 하나면 null. 정점 화는 범위에 남은 쪽이 갖는다. 순수 함수 */
+function refArcHalves(a, orders) {
+  const span = orders.filter((n) => n >= a.start_ep && n <= a.end_ep);
+  if (span.length < 2) return null;
+  const mid = span[Math.ceil(span.length / 2) - 1];
+  const back = { title: '새 아크', start_ep: refArcStep(orders, mid, 1), end_ep: a.end_ep, goal: '', conflict: '', payoff: '', climax_ep: a.climax_ep > mid ? a.climax_ep : 0, acts: [], cast: [...(a.cast || [])], why: '' };
+  return [{ ...a, end_ep: mid, climax_ep: a.climax_ep > mid ? 0 : a.climax_ep }, back];
+}
+
+/** 아크 · 부 목록 (읽기). plan: RevArcPlan, L: 차례 → 화 이름, orders: 제외하지 않은 화의 차례 (화 수를 센다) */
+function refArcList(b, plan, L, orders) {
+  const count = (a) => (orders && orders.length ? orders.filter((n) => n >= a.start_ep && n <= a.end_ep).length : a.end_ep - a.start_ep + 1);
+  const parts = plan.parts.length ? `<p class="small">부: ${plan.parts.map((x) => `${esc(x.title)} (${esc(refArcSpan(x, L))})`).join(' · ')}</p>` : '';
+  const arcs = plan.arcs.map((a) => `<li><strong>${esc(a.title)}</strong> <span class="small">${esc(refArcSpan(a, L))} · ${count(a)}화${a.climax_ep ? ` · 정점 <a href="#/refs/${b.id}/${a.climax_ep}">${esc(L[a.climax_ep] || `${a.climax_ep}번째`)}</a>` : ''}</span>
+      <div class="small">${esc([a.goal, a.conflict && `막는 것: ${a.conflict}`, a.payoff && `보상: ${a.payoff}`].filter(Boolean).join(' · '))}</div></li>`).join('');
+  return `${parts}<ol class="ref-arcs">${arcs}</ol>${plan.reply ? `<p class="small">${esc(plan.reply)}</p>` : ''}
+    ${plan.notes.length ? `<ul class="small ref-arc-notes">${plan.notes.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}`;
+}
+
+/** 아크 · 부 고치는 칸: 아크 · 부마다 카드 하나. 끝 화를 바꾸면 다음 것이 그 다음 화부터 시작한다 (마지막 것의 끝은 마지막 화).
+    화는 화 이름으로 고르고 값은 원고의 차례다. 역설계 실험의 revArcEditor 와 같은 꼴이다. */
+function refArcEditor(v) {
+  const E = S.refArcEdit, L = v.labels || {}, orders = v.orders || [];
+  const name = (n) => L[n] || `${n}번째`;
+  const NAMES = { title: '이름', end_ep: '끝 화', goal: '목표', conflict: '막는 것', payoff: '보상', climax_ep: '정점 화', key_turn: '마무리 사건' };
+  const text = (kind, i, k, val) => `<div class="field ref-arc-f-${k}"><label for="ref-arc-${kind}-${i}-${k}">${NAMES[k]}</label><input id="ref-arc-${kind}-${i}-${k}" type="text" data-ref-arc="${kind}:${i}:${k}" value="${esc(val)}"></div>`;
+  const pick = (kind, i, k, val, list, none) => `<div class="field ref-arc-f-${k}"><label for="ref-arc-${kind}-${i}-${k}">${NAMES[k]}</label><select id="ref-arc-${kind}-${i}-${k}" data-ref-arc="${kind}:${i}:${k}">
+      ${none ? `<option value="0"${val ? '' : ' selected'}>없음</option>` : ''}${list.map((n) => `<option value="${n}"${n === val ? ' selected' : ''}>${esc(name(n))}</option>`).join('')}</select></div>`;
+  const within = (lo, hi) => orders.filter((n) => n >= lo && n <= hi);
+  const end = (kind, x, i, list) => (i === list.length - 1 ? '' : pick(kind, i, 'end_ep', x.end_ep, within(x.start_ep, refArcStep(orders, list[i + 1].end_ep, -1))));
+  const arcs = E.arcs.map((a, i, list) => `<li class="ref-arc-ed"><div class="between"><strong>아크 ${i + 1}</strong><span class="small">${esc(refArcSpan(a, L))}</span></div>
+      <div class="ref-arc-grid">${text('arcs', i, 'title', a.title)}${end('arcs', a, i, list)}${pick('arcs', i, 'climax_ep', a.climax_ep, within(a.start_ep, a.end_ep), true)}</div>
+      ${text('arcs', i, 'goal', a.goal)}${text('arcs', i, 'conflict', a.conflict)}${text('arcs', i, 'payoff', a.payoff)}
+      <div class="row"><button type="button" class="btn small ghost" data-action="refArcSplit" data-arg="${i}"${within(a.start_ep, a.end_ep).length > 1 ? '' : ' disabled'}>가운데에서 나누기</button>
+        ${i ? `<button type="button" class="btn small ghost" data-action="refArcMerge" data-arg="arcs:${i}">앞 아크와 합치기</button>` : ''}
+        <button type="button" class="btn small ghost" data-action="refArcDrop" data-arg="arcs:${i}"${list.length > 1 ? '' : ' disabled'}>빼기</button></div></li>`).join('');
+  const parts = E.parts.map((x, i, list) => `<li class="ref-arc-ed"><div class="between"><strong>${i + 1}부</strong><span class="small">${esc(refArcSpan(x, L))}</span></div>
+      <div class="ref-arc-grid">${text('parts', i, 'title', x.title)}${end('parts', x, i, list)}</div>${text('parts', i, 'goal', x.goal)}${text('parts', i, 'key_turn', x.key_turn)}
+      <div class="row">${i ? `<button type="button" class="btn small ghost" data-action="refArcMerge" data-arg="parts:${i}">앞 부와 합치기</button>` : ''}
+        <button type="button" class="btn small ghost" data-action="refArcDrop" data-arg="parts:${i}">빼기</button></div></li>`).join('');
+  return `<ol class="ref-arc-eds">${arcs}</ol>
+    ${parts ? `<h4>부</h4><ol class="ref-arc-eds">${parts}</ol>` : ''}
+    <div class="row"><button type="button" class="btn small ghost" data-action="refPartAdd">${E.parts.length ? '마지막 부 나누기' : '부로 묶기'}</button></div>
+    <p class="small">끝 화를 바꾸면 다음 것이 그 다음 화부터 시작해요. 빼면 그 화는 앞 것(첫째면 뒤 것)으로 넘어가요.</p>
+    <div class="row"><button type="button" class="btn" data-action="refArcSave">저장</button><button type="button" class="btn ghost" data-action="refArcEditClose">취소</button></div>`;
+}
+
 function refArcsBlock(b, p) {
   const v = p.arcs || {};
   const j = S.jobs.find((x) => x.status === 'running' && x.kind === 'ref_arcs' && (x.target || '') === b.id);
-  if (j) return '<p class="small" aria-live="polite">아크를 나누는 중이에요. 끝나면 여기에 보여요.</p>';
+  const editing = S.refArcEdit && S.refArcEdit.id === b.id;
+  const busy = j ? '<p class="small" aria-live="polite">아크를 나누는 중이에요. 끝나면 여기에 보여요.</p>' : '';
+  if (editing) return `${busy}${refArcEditor(v)}`;
   if (!v.plan) {
+    if (j) return busy;
     const left = S.refDigest ? S.refDigest.todo : 0;
-    return `<div class="between"><span class="small">${left ? `읽히지 않은 화가 ${left}개 있어 아직 아크를 나눌 수 없어요.` : '화 카드를 접어 AI에 한 번 보내 아크 · 부로 나눠요.'}</span>
-      <button type="button" class="btn small" data-action="refArcsAsk"${left ? ' disabled' : ''}>아크 나누기</button></div>`;
+    return `<div class="between"><span class="small">${left ? `읽히지 않은 화가 ${left}개 있어 아직 AI로 아크를 나눌 수 없어요.` : '화 카드를 접어 AI에 한 번 보내 아크 · 부로 나눠요.'}</span>
+      <span class="row"><button type="button" class="btn small" data-action="refArcsAsk"${left ? ' disabled' : ''}>아크 나누기</button><button type="button" class="btn small ghost" data-action="refArcEditOpen">직접 나누기</button></span></div>`;
   }
   const L = v.labels || {};
-  const parts = v.plan.parts.length ? `<p class="small">부: ${v.plan.parts.map((x) => `${esc(x.title)} (${esc(refArcSpan(x, L))})`).join(' · ')}</p>` : '';
-  const arcs = v.plan.arcs.map((a) => `<li><strong>${esc(a.title)}</strong> <span class="small">${esc(refArcSpan(a, L))} · ${a.end_ep - a.start_ep + 1}화${a.climax_ep ? ` · 정점 ${esc(L[a.climax_ep] || a.climax_ep)}` : ''}</span>
-      <div class="small">${esc([a.goal, a.conflict && `막는 것: ${a.conflict}`, a.payoff && `보상: ${a.payoff}`].filter(Boolean).join(' · '))}</div></li>`).join('');
-  return `${v.stale ? '<p class="small">아크를 나눈 뒤 화 카드가 바뀌었어요. 다시 나누면 지금 카드로 맞춰요.</p>' : ''}${parts}<ol class="ref-arcs">${arcs}</ol>
-    ${v.plan.reply ? `<p class="small">${esc(v.plan.reply)}</p>` : ''}
-    <div class="row"><button type="button" class="btn small" data-action="refArcsAsk">다시 나누기</button><button type="button" class="btn small ghost" data-action="refArcsClear">아크 지우기</button>
-      <span class="small">${esc(v.plan.model)} · ${fmtDateTime(v.plan.at)}</span></div>`;
+  const by = { ai: 'AI 안', author: '작가가 나눔', both: 'AI 안을 고침' }[v.plan.by] || '';
+  const offer = v.offer ? `<div class="ref-arc-offer"><div class="between"><strong>새 AI 안 <span class="small">${v.offer.arcs.length}개${v.offer.parts.length ? ` · ${v.offer.parts.length}부` : ''}</span></strong><span class="small">${esc(v.offer.model)} · ${fmtDateTime(v.offer.at)}</span></div>
+      <p class="small">고친 아크를 덮지 않으려고 따로 두었어요. 이 안으로 바꾸면 고친 값은 사라져요.</p>${refArcList(b, v.offer, L, v.orders)}
+      <div class="row"><button type="button" class="btn small" data-action="refArcOffer" data-arg="take">이 안으로 바꾸기</button><button type="button" class="btn small ghost" data-action="refArcOffer" data-arg="drop">버리기</button></div></div>` : '';
+  return `${busy}${v.stale ? '<p class="small">아크를 나눈 뒤 화 카드가 바뀌었어요. 다시 나누면 지금 카드로 맞춰요.</p>' : ''}${refArcList(b, v.plan, L, v.orders)}
+    <div class="row"><button type="button" class="btn small" data-action="refArcEditOpen">고치기</button><button type="button" class="btn small" data-action="refArcsAsk"${j ? ' disabled' : ''}>다시 나누기</button><button type="button" class="btn small ghost" data-action="refArcsClear">아크 지우기</button>
+      <span class="small">${esc([by, v.plan.model, fmtDateTime(v.plan.at)].filter(Boolean).join(' · '))}</span></div>${offer}`;
 }
 
 /** 원고 개요의 구조 카드: 구간별 긴장 막대 · 성격으로 표 거르기 · 정점 화 · 인물이 처음 나온 화 · 아크 */
@@ -789,7 +846,8 @@ Object.assign(actions, {
     let est;
     try { est = await api('GET', `/refs/${enc(id)}/digest/arcs/estimate`); } catch (e) { return showError(e); }
     const cost = est.usd == null ? '가격을 모르는 모델이에요' : est.usd === 0 ? '토큰 요금이 거의 없어요' : `추정 $${est.usd}`;
-    const again = S.refPace && S.refPace.arcs && S.refPace.arcs.plan ? ' 지금 아크는 새 것으로 바뀌어요.' : '';
+    const cur = S.refPace && S.refPace.arcs && S.refPace.arcs.plan;
+    const again = !cur ? '' : cur.by === 'ai' ? ' 지금 아크는 새 것으로 바뀌어요.' : ' 고친 아크는 그대로 두고 새 안을 따로 보여 드려요.';
     if (!(await askConfirm(`화 카드 ${est.episodes}화를 ${est.model || est.provider}에 한 번 보내 아크로 나눠요 (${cost}). 원문은 보내지 않아요.${again}`, { ok: '나누기' }))) return;
     try {
       const j = await api('POST', `/refs/${enc(id)}/digest/arcs`);
@@ -802,7 +860,77 @@ Object.assign(actions, {
   },
   async refArcsClear() {
     if (!(await askConfirm('나눈 아크를 지울까요? 화 카드는 그대로 있어요.', { ok: '지우기', danger: true }))) return;
-    await run('아크를 지우는 중', async () => { await api('DELETE', `/refs/${enc(S.ref.id)}/digest/arcs`); await refPaceLoad(S.ref.id); });
+    await run('아크를 지우는 중', async () => { await api('DELETE', `/refs/${enc(S.ref.id)}/digest/arcs`); S.refArcEdit = null; await refPaceLoad(S.ref.id); });
+  },
+  /** 아크 고치기를 연다. 아크가 없으면 모든 화를 한 아크로 두고 시작한다. */
+  refArcEditOpen() {
+    const v = (S.refPace && S.refPace.arcs) || {};
+    const orders = v.orders || [];
+    if (!orders.length) return toast('나눌 화가 없어요', true);
+    const plan = v.plan || { parts: [], arcs: [{ title: '아크 1', start_ep: orders[0], end_ep: orders[orders.length - 1], goal: '', conflict: '', payoff: '', climax_ep: 0, acts: [], cast: [], why: '' }] };
+    S.refArcEdit = { id: S.ref.id, parts: structuredClone(plan.parts), arcs: structuredClone(plan.arcs) };
+    render();
+  },
+  refArcEditClose() { S.refArcEdit = null; render(); },
+  refArcSplit(i) {
+    const E = S.refArcEdit, k = Number(i);
+    const two = E.arcs[k] && refArcHalves(E.arcs[k], S.refPace.arcs.orders);
+    if (!two) return;
+    E.arcs.splice(k, 1, ...two);
+    render();
+  },
+  /** 'arcs:3' · 'parts:1': 앞 것과 합친다 (앞 것의 이름 · 목표를 남긴다). */
+  refArcMerge(arg) {
+    const [kind, i] = String(arg).split(':');
+    const list = S.refArcEdit[kind], k = Number(i);
+    if (!k || !list[k]) return;
+    list[k - 1].end_ep = list[k].end_ep;
+    if (kind === 'arcs' && !list[k - 1].climax_ep) list[k - 1].climax_ep = list[k].climax_ep;
+    list.splice(k, 1);
+    render();
+  },
+  /** 'arcs:0' · 'parts:2': 뺀다. 그 화는 앞 것(첫째면 뒤 것)으로 넘어간다. 부는 하나 남은 것도 뺄 수 있다. */
+  refArcDrop(arg) {
+    const [kind, i] = String(arg).split(':');
+    const list = S.refArcEdit[kind], k = Number(i);
+    if (!list[k] || (kind === 'arcs' && list.length < 2)) return;
+    if (k) list[k - 1].end_ep = list[k].end_ep;
+    else if (list[1]) list[1].start_ep = list[0].start_ep;
+    list.splice(k, 1);
+    render();
+  },
+  /** 부가 없으면 모든 화를 한 부로, 있으면 마지막 부를 그 안의 가운데 아크 경계에서 나눈다. */
+  refPartAdd() {
+    const E = S.refArcEdit, orders = S.refPace.arcs.orders;
+    if (!E.parts.length) { E.parts = [{ title: '1부', start_ep: orders[0], end_ep: orders[orders.length - 1], goal: '', key_turn: '' }]; render(); return; }
+    const p = E.parts[E.parts.length - 1];
+    const cuts = E.arcs.map((a) => a.end_ep).filter((n) => n >= p.start_ep && n < p.end_ep);
+    if (!cuts.length) return toast('마지막 부 안에 아크 경계가 없어요. 아크를 먼저 나누세요.', true);
+    const cut = cuts[Math.floor((cuts.length - 1) / 2)];
+    E.parts.push({ title: `${E.parts.length + 1}부`, start_ep: refArcStep(orders, cut, 1), end_ep: p.end_ep, goal: '', key_turn: '' });
+    p.end_ep = cut;
+    render();
+  },
+  async refArcSave() {
+    const E = S.refArcEdit, id = S.ref.id;
+    let notes = [];
+    const ok = await run('저장하는 중', async () => {
+      const v = await api('PUT', `/refs/${enc(id)}/digest/arcs`, { parts: E.parts, arcs: E.arcs });
+      if (S.refPace) S.refPace.arcs = v; else await refPaceLoad(id);
+      notes = v.plan.notes;
+      S.refArcEdit = null;
+    });
+    if (ok) toast(notes.length ? `아크를 저장했어요. ${notes.join('. ')}.` : '아크를 저장했어요.');
+  },
+  async refArcOffer(arg) {
+    const take = arg === 'take';
+    if (take && !(await askConfirm('새 AI 안으로 바꿀까요? 고친 아크는 사라져요.', { ok: '바꾸기' }))) return;
+    const id = S.ref.id;
+    const ok = await run(take ? '바꾸는 중' : '버리는 중', async () => {
+      S.refPace.arcs = await api('POST', `/refs/${enc(id)}/digest/arcs/offer`, { take });
+      S.refArcEdit = null;
+    });
+    if (ok) toast(take ? '새 AI 안으로 바꿨어요.' : '새 AI 안을 버렸어요.');
   },
   async refDigestAsk() {
     if (S.refDigestAsk) { S.refDigestAsk = null; render(); return; }
@@ -905,8 +1033,24 @@ document.addEventListener('input', (e) => {
     dr.dirty = true;
   }
   if (d.refI && S.refEditInfo) S.refEditInfo[d.refI] = e.target.value;
+  if (d.refArc && S.refArcEdit && e.target.tagName === 'INPUT') refArcInput(d.refArc, e.target.value);
   if (d.refNewto) S.refNewtoWork = e.target.value;
 });
+
+/** 아크 · 부 고치는 칸 하나. 끝 화는 다음 것의 시작을 끌고 가고, 범위를 벗어난 정점 화는 비운다. 글 칸은 화면을 다시 그리지 않는다. */
+function refArcInput(key, value) {
+  const [kind, i, k] = key.split(':');
+  const list = S.refArcEdit[kind], x = list && list[Number(i)];
+  if (!x) return;
+  if (k !== 'end_ep' && k !== 'climax_ep') { x[k] = value; return; }
+  const n = Number(value) || 0;
+  if (k === 'climax_ep') { x.climax_ep = n; return; }
+  const next = list[Number(i) + 1];
+  x.end_ep = n;
+  if (next) next.start_ep = refArcStep(S.refPace.arcs.orders, n, 1) || next.start_ep;
+  if (kind === 'arcs') for (const a of [x, next].filter(Boolean)) if (a.climax_ep && (a.climax_ep < a.start_ep || a.climax_ep > a.end_ep)) a.climax_ep = 0;
+  render();
+}
 
 /** 읽힐 AI 를 저장하고 비용 추정을 다시 받는다 */
 async function refDigestSetAI(provider, model) {
@@ -921,6 +1065,7 @@ document.addEventListener('change', (e) => {
   const d = e.target.dataset || {};
   const dr = S.refDraft;
   if (d.refFilter === 'tension') { S.refFilter = { ...S.refFilter, tension: Number(e.target.value) || 0 }; render(); }
+  if (d.refArc && S.refArcEdit && e.target.tagName === 'SELECT') refArcInput(d.refArc, e.target.value);
   if (d.refDigestAi && S.ref && S.refDigest) {
     if (d.refDigestAi === 'provider') refDigestSetAI(e.target.value, '');
     else refDigestSetAI(S.refDigest.ai.provider, e.target.value.trim());
@@ -1045,6 +1190,13 @@ document.addEventListener('dragleave', (e) => { const z = e.target.closest && e.
 @media (pointer: coarse) { .ref-sort { min-height: var(--touch-min); } }  /* 정렬 머리 버튼 누름 영역 */
 .ref-sort.on { color: var(--text); text-decoration: underline; }
 .ref-made { margin: 0; padding-left: var(--space-20); }
+.ref-arc-eds { list-style: none; margin: 0 0 var(--space-12); padding: 0; display: flex; flex-direction: column; gap: var(--space-12); }
+.ref-arc-ed { border: 1px solid var(--line); border-radius: var(--radius-8); padding: var(--space-12); display: flex; flex-direction: column; gap: var(--space-8); }
+.ref-arc-grid { display: grid; grid-template-columns: minmax(0, 1fr) 140px 140px; gap: var(--space-8); align-items: end; }
+.ref-arc-ed .field input, .ref-arc-ed .field select { width: 100%; }
+.ref-arc-notes { margin: 0 0 var(--space-8); padding-left: var(--space-20); color: var(--amber-ink); }
+.ref-arc-offer { margin-top: var(--space-12); padding-top: var(--space-12); border-top: 1px solid var(--line); }
+@media (max-width: 560px) { .ref-arc-grid { grid-template-columns: 1fr 1fr; } .ref-arc-grid .ref-arc-f-title { grid-column: 1 / -1; } }
 .ref-body { font-family: var(--serif); line-height: 1.9; max-width: 720px; }
 .ref-body p { margin: 0 0 1em; }
 @media (max-width: 900px) {
