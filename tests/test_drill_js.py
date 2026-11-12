@@ -13,7 +13,8 @@ ATTEMPT = {"no": 1, "brief": BRIEF, "with_text": "서연은 <낮게> 말했다.\
                         {"no": 3, "box": "avoid", "text": "목소리 높이기", "layer": "manner", "result": "unsure", "quote": "", "bare_quote": "", "in_bare": False, "same_as": 0, "why": "근거 없음"}],
            "invented": [{"side": "with", "quote": "도윤은 물러섰다", "what": "없던 일"}], "gaps": [{"what": "가게의 소리", "quote": "종이 울렸다"}]}
 ROUND = {"id": "d1", "title": "가게 1화 · 대목 2/4", "ref_name": "가게", "ep_label": "1화", "part": 2, "parts": 4, "source": "", "source_chars": 900, "style_name": "",
-         "brief": BRIEF, "attempts": [], "measures": {}, "source_measure": None, "lines": [], "method_lines": 3}
+         "brief": BRIEF, "attempts": [], "measures": {}, "source_measure": None, "lines": [], "method_lines": 3,
+         "hints": [{"box": "manner", "text": "짧게", "hint": "힌트 글"}, {"box": "avoid", "text": "", "hint": "비었어요"}]}
 MEASURE = {"chars": 20, "sentences": 2, "dialogue_pct": 0, "hits": []}
 
 
@@ -51,6 +52,7 @@ def test_each_stage_has_one_primary_button():
     assert 'data-action="drFacts"' in got["facts"]["html"] and 'data-action="drWrite"' in got["brief"]["html"]
     brief = got["brief"]["html"]
     assert "가려 둠" in brief and "종이 울렸다" not in brief and "3/5줄" in brief and 'data-root="drForm"' in brief
+    assert 'id="f-brief-inner"' in brief and '<ul class="dr-list small" id="dr-hints"><li><strong>짧게</strong> 힌트 글</li><li><strong>하지 않는 것</strong> 비었어요</li></ul>' in brief
     assert "아직 되짚지 않았어요" in got["written"]["html"] and 'data-action="drReview"' in got["written"]["html"]
     done = got["reviewed"]["html"]
     assert '<mark class="hl device">&lt;낮게&gt; 말했다</mark>' in done and '<mark class="hl banned">도윤은 물러섰다</mark>' in done
@@ -102,3 +104,21 @@ def test_blind_pick_hides_sides_and_done_shows_the_result():
     assert "<td>금지</td><td>2</td><td>40%</td><td>2</td><td>0</td><td>0</td><td>50%</td><td>1/1판</td>" in home
     assert "<td>방식</td><td>3</td><td>60%</td><td>1</td><td>1</td><td>0</td><td>50%</td><td>–</td>" in home and "<td>동작</td>" not in home
     assert "고친 지시가 이김" in home and "금지 2</span>" in home and home.count('class="btn primary"') == 1
+
+
+@needs_node
+def test_new_round_starts_with_the_style_of_the_last_round():
+    got = run_js(["app.js", "studio.js", "drill.js"], """(async () => {
+      const home = { ...data.home, rounds: [{ id: 'd2', style_id: '' }, { id: 'd1', style_id: 'lib1' }] };
+      api = async (m, path) => (path === '/drill' ? home : { episodes: [] });
+      S.libs = [{ id: 'lib1', name: '문체' }];
+      await drLoad();
+      const first = S.drNew.style_id;
+      S.drNew.style_id = ''; S.drStylePicked = true;  // 작가가 '고르지 않음'을 골랐다
+      await drLoad();
+      const kept = S.drNew.style_id;
+      S.drNew = null; S.drStylePicked = false; S.libs = [];  // 라이브러리에서 지운 문체
+      await drLoad();
+      return { first, kept, gone: S.drNew.style_id };
+    })()""", {"home": HOME})
+    assert got == {"first": "lib1", "kept": "", "gone": ""}

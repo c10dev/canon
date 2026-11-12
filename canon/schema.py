@@ -3704,6 +3704,7 @@ class SceneCard(BaseModel):
     withhold: str = Field("", description="가릴 것: 쓰지 않고 독자가 짐작하게 둘 것 한 줄")
     sense: str = Field("", description="감각 전환: 본 것을 어느 감각으로 넘길지 한 줄 (예: 보는 것 → 촉감)")
     show_model: bool = Field(False, description="본보기 문단을 프롬프트에 구조 참고로 넣는다 (문장은 옮기지 않게 지시)")
+    lines: bool = Field(False, description="줄을 나눠 쓴다: 한 덩어리 문단 대신 대사는 한 줄에 하나, 서술은 문체 예시처럼 줄을 바꾼다 (지시 연습이 켠다)")
 
 
 class StudioTry(BaseModel):
@@ -3902,16 +3903,18 @@ class DrillFacts(BaseModel):
     place: str = Field(description="장소 한 줄")
     time: str = Field(description="때 · 날씨 한 줄. 알 수 없으면 빈 글")
     before: str = Field(description="이 대목 바로 앞까지의 상황 한두 문장")
+    inner: list[str] = Field(default_factory=list, description="시점 인물만 아는 속사정 0~4개: 숨기는 것, 거짓말의 진짜 사정, 이 장면에서 노리는 것. 한 줄에 하나")
     events: list[str] = Field(description="이 대목에서 일어나는 일 3~6개. 한 줄에 하나, 일어난 차례대로")
 
 
 class DrillBrief(BaseModel):
-    """작가가 적는 지시. 사실(people~before) · 일어나는 일(events) · 쓰는 방식(change · avoid · manner)."""
+    """작가가 적는 지시. 사실(people~inner) · 일어나는 일(events) · 쓰는 방식(change · avoid · manner)."""
     people: str = Field("", description="인물. 한 줄에 '이름: 처지'")
     pov: str = ""
     place: str = ""
     time: str = ""
     before: str = Field("", description="직전 상황")
+    inner: str = Field("", description="시점 인물의 속사정. 한 줄에 하나")
     events: str = Field("", description="일어나는 일. 한 줄에 하나")
     change: str = Field("", description="바뀌는 것: 무엇에서 무엇으로, 누가 알게 되나")
     avoid: str = Field("", description="하지 않는 것")
@@ -3953,7 +3956,7 @@ class DrillReview(BaseModel):
 class DrillLine(BaseModel):
     """되짚을 줄: 작가가 쓴 줄 하나 (drill.author_lines)."""
     no: int
-    box: str = Field(description="적은 칸: people · pov · place · time · before · events · change · avoid · manner")
+    box: str = Field(description="적은 칸: people · pov · place · time · before · inner · events · change · avoid · manner")
     text: str
 
 

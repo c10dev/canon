@@ -9,10 +9,11 @@ _LAYER = {"change": "change", "avoid": "ban", "manner": "manner", "events": "eve
 
 @responds(DrillFacts)
 def _facts(prompt: str, hint: dict) -> DrillFacts:
-    """인물 둘과 일어나는 일 넷에 더해 정리가 빼는지 볼 것: 이름 없는 인물, 빈 줄, 원문 문장을 그대로 옮긴 줄."""
+    """인물 둘 · 속사정 하나 · 일어나는 일 넷에 더해 정리가 빼는지 볼 것: 이름 없는 인물, 빈 줄, 원문 문장을 그대로 옮긴 줄."""
     source = " ".join((hint.get("source") or "").split())
     return DrillFacts(people=[DrillPerson(name="서연", note="가게에 처음 온 손님"), DrillPerson(name="도윤", note="야간 근무자"), DrillPerson(name=" ", note="빠질 인물")],
                       pov="서연", place="골목 끝 가게", time="밤", before="서연이 가게 문을 열고 들어온 참이다.",
+                      inner=["서연은 물건을 사러 온 것이 아니다", " ", source[10:45]],
                       events=["서연이 도윤에게 말을 건다", "도윤이 짧게 대답한다", " ", "서연이 물러서지 않고 다시 묻는다", "도윤이 자리를 옮긴다", source[:30]])
 
 
