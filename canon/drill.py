@@ -31,6 +31,9 @@ PEOPLE_MAX = 6
 JUDGED_MAX = 12  # 되짚는 줄 수 상한
 INVENTED_MAX = 4
 GAPS_MAX = 3
+REVISE_MAX = 1  # 한 판에서 고쳐 쓰는 횟수
+RECENT = 5  # 추세에서 '최근'으로 보는 판 수
+TREND_MAX = 12  # 기록에 보이는 판 수
 QUOTE_MIN = 4  # 인용으로 보는 가장 짧은 글자 수 (공백 · 문장부호 빼고)
 TITLE_MAX = 60
 
@@ -330,6 +333,54 @@ def add_attempt(r: DrillRound, b: DrillBrief, with_text: str, bare_text: str, mo
     return a
 
 
+# ---------- 한 번 고치기: 고친 지시로 다시 쓰고 앞 지시와 가려 놓고 고른다 ----------
+
+def can_revise(r: DrillRound, b: DrillBrief) -> DrillAttempt:
+    """고쳐 쓸 수 있는지 본다: 첫 시도가 있고, 아직 고치지 않았고, 지시가 앞 시도와 다르다. 앞 시도를 돌려준다."""
+    if not r.attempts:
+        raise ValueError("먼저 두 판을 쓰세요")
+    if len(r.attempts) >= REVISE_MAX + 1:
+        raise ValueError("한 판은 한 번만 고쳐요. 새 판을 시작하세요")
+    prev = r.attempts[-1]
+    if b == clean_brief(prev.brief):
+        raise ValueError("지시에 고친 곳이 없어요. 줄을 고친 뒤 다시 쓰세요")
+    can_write(r, b)
+    return prev
+
+
+def add_revision(r: DrillRound, b: DrillBrief, new_text: str, old_text: str, model: str = "", rng: Optional[random.Random] = None) -> DrillAttempt:
+    """고친 시도를 남긴다. 지시 없는 판은 앞 시도 것을 옮긴다 (되짚기의 대조군). 가려 읽기의 왼쪽 · 오른쪽은 무작위다."""
+    prev = r.attempts[-1]
+    a = add_attempt(r, b, new_text, prev.bare_text, model)
+    a.versus, a.old_text, a.flip = prev.no, old_text.strip(), (rng or random.Random()).random() < 0.5
+    return a
+
+
+def pending(r: DrillRound) -> Optional[DrillAttempt]:
+    """가려 읽고 고르기를 기다리는 고친 시도."""
+    a = r.attempts[-1] if r.attempts else None
+    return a if a and a.versus and not a.pick else None
+
+
+def pick_side(r: DrillRound, side: str) -> DrillAttempt:
+    """가려 읽고 고른 쪽(left · right · skip)을 남긴다. 한 번 고르면 바꾸지 않는다 (고른 뒤에는 어느 쪽인지 보인다)."""
+    a = pending(r)
+    if a is None:
+        raise ValueError("고를 것이 없어요")
+    if side not in ("left", "right", "skip"):
+        raise ValueError("왼쪽 · 오른쪽 · 비슷함 가운데 고르세요")
+    a.pick = "skip" if side == "skip" else "new" if (side == "left") == a.flip else "old"
+    a.picked_at = _now()
+    return a
+
+
+def brief_diff(old: DrillBrief, new: DrillBrief) -> dict:
+    """고친 지시가 앞 지시에서 더한 줄과 뺀 줄 {added, removed: [{box, text}]}."""
+    rows = lambda b: [(k, x) for k in BOXES for x in _lines(getattr(b, k))]  # noqa: E731
+    a, b = rows(old), rows(new)
+    return {"added": [{"box": k, "text": x} for k, x in b if (k, x) not in a], "removed": [{"box": k, "text": x} for k, x in a if (k, x) not in b]}
+
+
 _DROP = re.compile(r"[\s\"'“”‘’「」『』…⋯·.,!?~\-—]+")
 
 
@@ -389,29 +440,86 @@ def style_name(r: DrillRound) -> str:
 
 
 def stage(r: DrillRound) -> str:
-    """판이 어디까지 왔나: facts(사실을 뽑기 전) · brief(지시를 적는 중) · written(두 판을 씀) · reviewed(되짚음)."""
+    """판이 어디까지 왔나: facts(사실을 뽑기 전) · brief(지시를 적는 중) · written(두 판을 씀) · reviewed(되짚음)
+    · pick(고쳐 쓴 판을 가려 놓고 고르는 중) · done(고름)."""
     if r.attempts:
-        return "reviewed" if r.attempts[-1].reviewed_at else "written"
+        a = r.attempts[-1]
+        if a.versus:
+            return "done" if a.pick else "pick"
+        return "reviewed" if a.reviewed_at else "written"
     return "brief" if r.facts else "facts"
 
 
 def view(r: DrillRound) -> dict:
-    """화면에 보내는 판. 원문 대목은 두 판을 쓴 뒤에만 싣고, 앞부분(lead)은 싣지 않는다. 판마다 문단 지표(studio.measure)를 붙인다."""
+    """화면에 보내는 판. 원문 대목은 두 판을 쓴 뒤에만 싣고, 앞부분(lead)은 싣지 않는다. 판마다 문단 지표(studio.measure)를 붙인다.
+    고쳐 쓴 판을 고르기 전에는 그 시도의 글 · 되짚기 · 왼쪽 오른쪽 차례를 빼고, 가려 읽을 두 글(blind)만 싣는다."""
     shown = bool(r.attempts)
     card = SceneCard(length=max(studio.LENGTH[0], min(studio.LENGTH[1], len(r.source))), style_id=r.style_id if style_name(r) else "")
     st = studio.style_of(card)
     m = lambda t: studio.measure(t, card, st)  # noqa: E731
     base = facts_brief(r.facts)
+    wait = pending(r)
     out = r.model_dump(exclude={"source", "lead"})
+    blind = None
+    if wait:
+        hidden = DrillAttempt(no=wait.no, brief=wait.brief, bare_text=wait.bare_text, model=wait.model, at=wait.at, versus=wait.versus)
+        out["attempts"][-1] = hidden.model_dump()
+        blind = {"left": wait.with_text if wait.flip else wait.old_text, "right": wait.old_text if wait.flip else wait.with_text}
+    seen = [a for a in r.attempts if a is not wait]
+    last = r.attempts[-1] if r.attempts else None
     return {**out, "source": r.source if shown else "", "source_chars": len(r.source), "revealed": shown, "stage": stage(r),
             "style_name": style_name(r), "base": base.model_dump(), "lines": [x.model_dump() for x in author_lines(r.brief, base)],
-            "method_lines": len(method_lines(r.brief)),
-            "measures": {str(a.no): {"with": m(a.with_text), "bare": m(a.bare_text)} for a in r.attempts},
+            "method_lines": len(method_lines(r.brief)), "blind": blind,
+            "changed": brief_diff(r.attempts[-2].brief, last.brief) if last and last.versus and len(r.attempts) > 1 else None,
+            "measures": {str(a.no): {"with": m(a.with_text), "bare": m(a.bare_text), **({"old": m(a.old_text)} if a.old_text else {})} for a in seen},
             "source_measure": m(r.source) if shown else None}
 
 
 def summary(r: DrillRound) -> dict:
-    a = r.attempts[-1] if r.attempts else None
+    a = next((x for x in reversed(r.attempts) if x is not pending(r)), None)
+    last = r.attempts[-1] if r.attempts else None
     return {"id": r.id, "title": r.title, "stage": stage(r), "style_name": style_name(r), "lines": len(a.verdicts) if a else 0,
-            "results": {k: sum(v.result == k for v in a.verdicts) for k in RESULTS} if a else {}, "created_at": r.created_at,
-            "updated_at": r.updated_at}
+            "results": {k: sum(v.result == k for v in a.verdicts) for k in RESULTS} if a else {}, "pick": last.pick if last else "",
+            "created_at": r.created_at, "updated_at": r.updated_at}
+
+
+# ---------- 기록: 층 비율 · 층별 결과 · 고친 지시가 이긴 비율 ----------
+
+def _worked(v: DrillVerdict) -> bool:
+    """먹힌 줄: 반영됐고 지시 없는 판과 달랐다 (지시가 글을 바꿨다)."""
+    return v.result == "applied" and not v.in_bare
+
+
+def stats(rs: list[DrillRound]) -> dict:
+    """판들을 모은 기록. 층 비율과 층별 결과는 판마다 첫 시도의 줄로 센다 (고친 시도는 같은 줄이 되풀이된다).
+    층별 '고쳐서 더했을 때'는 고친 지시에 새로 든 줄의 층마다, 그 판에서 고친 지시가 이겼는지를 센다 (비슷함은 빼고).
+    추세는 최근 RECENT 판과 그 전 판의 먹힌 줄 비율, 그리고 최근 TREND_MAX 판의 줄이다."""
+    done = sorted((r for r in rs if r.attempts and r.attempts[0].verdicts), key=lambda r: r.created_at)
+    layer = {k: {"id": k, "label": v[0], "lines": 0, "applied": 0, "overdone": 0, "ignored": 0, "unsure": 0, "worked": 0, "added": 0, "won": 0}
+             for k, v in LAYERS.items()}
+    picks = {"new": 0, "old": 0, "skip": 0}
+    rows = []
+    for r in done:
+        first = r.attempts[0]
+        for v in first.verdicts:
+            x = layer[v.layer]
+            x["lines"] += 1
+            x[v.result] += 1
+            x["worked"] += _worked(v)
+        rev = next((a for a in r.attempts if a.versus and a.pick), None)
+        if rev:
+            picks[rev.pick] += 1
+            if rev.pick != "skip":
+                old = {v.text for v in first.verdicts}
+                for k in {v.layer for v in rev.verdicts if v.text not in old and v.result != "unsure"}:
+                    layer[k]["added"] += 1
+                    layer[k]["won"] += rev.pick == "new"
+        judged = [v for v in first.verdicts if v.result != "unsure"]
+        rows.append({"id": r.id, "title": r.title, "created_at": r.created_at, "lines": len(first.verdicts), "judged": len(judged),
+                     "worked": sum(_worked(v) for v in judged), "pick": rev.pick if rev else "",
+                     "layers": [{"id": k, "n": n} for k in LAYERS if (n := sum(v.layer == k for v in judged))]})
+    total = sum(x["lines"] for x in layer.values())
+    rate = lambda xs: round(sum(x["worked"] for x in xs) / n, 3) if (n := sum(x["judged"] for x in xs)) else None  # noqa: E731
+    return {"rounds": len(done), "lines": total, "worked": rate(rows), "picks": picks, "recent_n": RECENT,
+            "layers": [{**x, "share": round(x["lines"] / total, 3) if total else 0.0} for x in layer.values()],
+            "recent": rate(rows[-RECENT:]), "before": rate(rows[:-RECENT]), "trend": rows[-TREND_MAX:][::-1]}

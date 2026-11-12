@@ -51,8 +51,15 @@
 - 인용 견주기 `quoted`: 공백 · 따옴표 · 줄임표 · 문장부호를 빼고 견준다. `QUOTE_MIN` 자보다 짧으면 인용으로 보지 않는다
 - 지어낸 사실은 그 판에, 놓친 것은 원문에 인용이 있는 것만 남긴다
 - `view` 는 두 판을 쓰기 전에는 원문을 싣지 않는다. 앞부분(`lead`)은 싣지 않는다. 판마다 `studio.measure` 지표를 붙인다
-- 판의 단계 `stage`: facts · brief · written · reviewed
-- AI 호출은 `pipeline.drill_facts`(plan) · `drill_write`(write, `draft_paragraph` 를 판마다 한 번) · `drill_review`(check)
+- 판의 단계 `stage`: facts · brief · written · reviewed · pick · done
+- 한 번 고치기 `can_revise`: 첫 시도가 있고, 아직 고치지 않았고(`REVISE_MAX`), 지시가 앞 시도와 달라야 한다. `can_write` 도 다시 본다
+- 고친 시도 `add_revision`: 고친 지시의 판 `with_text` 와 앞 지시로 다시 쓴 판 `old_text` 를 남기고, 지시 없는 판은 앞 시도 것을 옮긴다. 왼쪽 · 오른쪽 `flip` 은 무작위다
+- 고르기 `pick_side`(left · right · skip): 고른 쪽을 `pick`(new · old · skip)으로 남긴다. 한 번 고르면 바꾸지 않는다
+- 고르기 전의 `view` 는 고친 시도의 글 · 되짚기 · `flip` 을 빼고 가려 읽을 두 글 `blind`(left · right)만 싣는다
+- 고친 지시가 더한 줄 · 뺀 줄 `brief_diff` 는 `view` 의 `changed` 로 간다
+- 기록 `stats`: 층마다 줄 수 · 비율 · 결과 수 · 먹힌 줄(`_worked`: 반영됐고 지시 없는 판과 다름) · 고쳐서 더했을 때 이긴 판 수
+- `stats` 의 층 비율과 결과는 판마다 첫 시도의 줄로 센다. 추세는 최근 `RECENT` 판과 그 전의 먹힌 줄 비율, 최근 `TREND_MAX` 판의 줄이다
+- AI 호출은 `pipeline.drill_facts`(plan) · `drill_write`(write, 카드 둘을 `draft_paragraph` 로 한 번씩) · `drill_review`(check)
 - 프롬프트는 `prompts.drill_facts_prompt` · `drill_review_prompt`. 쓰기는 문단 연습장의 `paragraph_prompt` 그대로다
 - 원문이 들어가는 요청은 사실 뽑기와 되짚기 둘뿐이다
 - 가짜 응답 `mock_drill.py`
@@ -430,10 +437,13 @@
 - 지시 연습 웹 라우트(`/api/drill/...`)
 - `GET /api/drill` 은 판 목록 · 원고 목록 · 층과 결과 이름을, `GET /api/drill/sources/{원고}` 는 화 목록을 준다
 - `POST /api/drill` 은 대목을 골라 판을 만든다. `PUT /api/drill/{id}` 는 지시를 남긴다
-- AI 호출 셋은 작업이다(`POST /api/drill/{id}/jobs`, kind facts · write · review → 작업 `dr_facts` · `dr_write` · `dr_review`)
+- AI 호출 넷은 작업이다(`POST /api/drill/{id}/jobs`, kind facts · write · review · revise → 작업 `dr_facts` · `dr_write` · `dr_review` · `dr_revise`)
 - 작품 밖이라 작업 목록의 project 자리는 `DR_JOBS`(`.drill`), 대상은 판 id 다. 사용량 작업 이름은 `drill`
 - `write` 는 두 판을 쓰고 이어서 되짚는다. 되짚기가 실패해도 쓴 글은 남고 결과의 `reviewed` 가 거짓이다
-- 한 판은 한 번만 쓴다. 지시는 작업을 시작할 때 것을 쓰고, 결과를 남기기 직전에 판을 다시 읽는다
+- 한 판은 한 번만 쓰고 한 번만 고친다. 지시는 작업을 시작할 때 것을 쓰고, 결과를 남기기 직전에 판을 다시 읽는다
+- `revise` 는 고친 지시의 판과 앞 지시로 다시 쓴 판을 쓰고 이어서 되짚는다. 고르기 전에는 `review` 를 받지 않는다
+- `POST /api/drill/{id}/pick`(side left · right · skip)은 가려 읽고 고른 쪽을 남긴다
+- `GET /api/drill` 의 `stats` 는 기록(`drill.stats`)이다
 
 ### `canon/routes/promptlab.py`
 
@@ -554,7 +564,11 @@
 - 지시 연습 화면(작품 밖 `#/drill[/<판 id>]`)
 - 사이드바와 ⋯ 메뉴에는 없다. 찾기 팔레트(`palette.js` `PAL_TOOLS`)에서 연다
 - 처음 화면 `drHomeView`: 새 판 칸 `drNewForm`(원고 · 화 · 대목 또는 화의 성격 · 긴장 · 문체)과 지난 판 카드
-- 판 화면 `drRound` 는 단계(`stage`)마다 다르다. 머리 주 버튼은 단계마다 하나다: 사실 뽑기 · 두 판 쓰기 · 되짚기 · 새 판 시작
+- 판 화면 `drRound` 는 단계(`stage`)마다 다르다. 머리 주 버튼은 단계마다 하나다: 사실 뽑기 · 두 판 쓰기 · 되짚기 · 고친 지시로 다시 쓰기 · 새 판 시작
+- 되짚은 판은 되짚기 표 아래에 지시 칸을 다시 열어 고치게 한다
+- 가려 읽기 `drBlind`: 왼쪽 · 오른쪽 두 글(`.dr-two`)과 고르기 버튼 셋(`drPick`). 이 단계에는 주 버튼이 없다
+- 고른 뒤 `drPicked` 가 고른 쪽과 더한 줄 · 뺀 줄을 보이고, 견주기는 고친 지시로 쓴 판 · 앞 지시로 쓴 판 · 원문이 된다
+- 처음 화면의 기록 카드 `drStats`: 층별 표와 접어 둔 최근 판 표
 - 지시 칸 `drBriefForm`: 사실 · 일어나는 일 · 쓰는 방식. `DRAFT_ROOTS.drForm` 으로 묶고 칸을 벗어날 때 조용히 저장한다(`drSaveBrief`)
 - 쓰는 방식 줄 수는 `#dr-count` 에 바로 센다(`drMethodCount`)
 - 견주기 `drCompare`: 지시 있는 판 · 지시 없는 판 · 원문 세 칸(`.dr-three`, 1100px 이하에서 한 칸)과 문단 지표
