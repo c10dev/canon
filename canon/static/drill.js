@@ -91,7 +91,7 @@ function viewDrill() {
 
 function drHomeView() {
   const h = S.drHome || { rounds: [], sources: [], kinds: [] };
-  const head = header('작품 밖 도구', '지시 연습', 'AI에게 장면을 시키는 말을 연습해요. 가려 둔 원고 대목에 지시를 적으면 AI가 쓴 두 판을 원문과 견주고, 줄마다 글을 어떻게 바꿨는지 되짚어요.',
+  const head = header('작품 밖 도구', '지시 연습', '가려 둔 원고 대목에 지시를 적으면, AI가 쓴 두 판을 원문과 견주고 줄마다 글을 어떻게 바꿨는지 되짚어요.',
     h.sources.length ? `<button type="button" class="btn primary" data-action="drNew">새 판 시작</button>` : '');
   if (!h.sources.length) {
     return `${head}<section class="card empty"><h2>문제를 낼 원고가 없어요</h2><p class="small">레퍼런스 원고를 넣으면 그 원고의 한 대목으로 연습해요.</p>
@@ -132,7 +132,7 @@ function drRound() {
   const act = { facts: 'drFacts', brief: 'drWrite', written: 'drReview' }[r.stage];
   const main = b ? `<button type="button" class="btn primary" data-action="${act}"${b().attr}>${b().label}</button>` : '<a class="btn primary" href="#/drill">새 판 시작</a>';
   const right = `<a class="btn" href="#/drill">목록으로</a><button type="button" class="btn danger" data-action="drDelete">지우기</button>${main}`;
-  const head = header('지시 연습', r.title, r.style_name ? `문체: ${esc(r.style_name)}` : '문체를 고르지 않았어요. 기본 문체 규칙으로 써요.', right);
+  const head = header('지시 연습', r.title, `문체: ${r.style_name ? esc(r.style_name) : '기본 문체 규칙'}`, right);
   if (r.stage === 'facts') {
     const busy = jobFor('dr_facts', null, DR_JOBS, r.id);
     return `${head}<section class="card empty"><h2>${busy ? '원문에서 사실과 일어나는 일을 뽑고 있어요' : '아직 사실을 뽑지 않았어요'}</h2>
@@ -160,7 +160,7 @@ function drBriefForm() {
   const o = { root: 'drForm' };
   const max = (S.drHome || {}).method_max || 5;
   const n = drMethodCount(S.drForm.brief);
-  return `<section class="card"><div class="between"><h2>사실</h2><span class="small" id="dr-saved">${S.drDirty ? '저장하지 않은 고침이 있어요' : 'AI가 뽑은 것이에요. 틀린 곳은 고치세요'}</span></div>
+  return `<section class="card"><div class="between"><h2>사실</h2><span class="small" id="dr-saved">${S.drDirty ? '저장하지 않은 고침이 있어요' : 'AI가 뽑은 것이니 틀린 곳은 고치세요'}</span></div>
       ${input('인물', 'brief.people', { ...o, rows: 3, placeholder: '한 줄에 한 사람, 이름: 처지' })}
       <div class="grid-2">${input('시점 인물', 'brief.pov', o)}${input('장소', 'brief.place', o)}</div>
       ${input('때 · 날씨', 'brief.time', o)}
@@ -170,7 +170,7 @@ function drBriefForm() {
       ${input('바뀌는 것', 'brief.change', { ...o, rows: 2, placeholder: '무엇에서 무엇으로 바뀌나요, 누가 무엇을 알게 되나요' })}
       ${input('하지 않는 것', 'brief.avoid', { ...o, rows: 2, placeholder: '예: 손대기, 목소리 높이기' })}
       ${input('방식', 'brief.manner', { ...o, rows: 2, placeholder: '말투 · 속도, 예: 존댓말을 지키고 짧게 끊는다' })}
-      <p class="small">세 물음을 합쳐 ${max}줄까지 적어요. AI는 이 칸이 있는 판과 없는 판을 함께 써요.</p></section>`;
+      <p class="small">AI가 이 칸이 있는 판과 없는 판을 함께 써요.</p></section>`;
 }
 
 /** 지시를 저장한다 (칸을 벗어날 때). 줄 수 상한을 넘으면 서버가 막고 그 말을 알린다 */
