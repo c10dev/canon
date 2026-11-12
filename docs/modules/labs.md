@@ -161,6 +161,12 @@
 - 아크의 화 번호는 원고의 차례(1부터)다. 화면은 `arcs_view` 의 `labels` 로 화 이름을 붙인다
 - 아크 나누기는 읽히지 않은 화가 없고 화가 `ARCS_MIN`(8)개 넘을 때만 한다(`arcs_ready`). 모델은 이 원고의 읽힐 AI 가 아니라 설정의 `plan` 단계다
 - 아크를 나눈 뒤 화 카드가 바뀌면 낡은 아크다(`arcs_basis` 와 지금 지문 묶음이 다름, `arcs_view` 의 `stale`). 지우기 `clear_arcs`, 비용 추정 `arcs_estimate`
+- 작가가 고친 아크 `set_arcs`: AI 안을 고쳤으면 `by` both, 처음부터 나눴으면 author. 읽히지 않은 화가 있어도 고칠 수 있다(`revlab.set_arcs` 와 같은 규칙)
+- 작가가 고친 아크(`by` author · both)가 있으면 `run_arcs` 의 새 AI 안은 덮지 않고 `RefDigestBook.arc_offer` 에 둔다. 덮을지는 `_lock` 안에서 쓸 때 본다
+- 새 AI 안은 `take_offer` 로 쓰거나 버린다. 쓰면 `arcs_basis` 는 그 안을 나눌 때의 지문 `arc_offer_basis` 가 된다. `clear_arcs` 는 기다리는 안도 지운다
+- 범위 맞추기 `_fit`: 제외 화 때문에 차례에 빈틈이 있어, 차례를 몇 번째 화인지로 바꿔 `revlab.clean_arcs` 로 정리한 뒤 차례로 되돌린다
+- 그래서 저장한 시작 · 끝 · 정점 화는 늘 제외하지 않은 화다. 정리하며 옮기거나 뺀 것은 `RevArcPlan.notes` 에 적는다
+- `arcs_view` 는 기다리는 안 `offer` 와 고를 수 있는 차례 `orders`(제외하지 않은 화)도 낸다. `labels` 는 읽히지 않은 화의 이름도 담는다
 - 아크 요청 `prompts.ref_arcs_prompt`: 예산 `context.BUDGET["ref_arcs"]`(4만 자)를 넘으면 화마다 첫 사건과 끝 첫 문장, 그래도 넘으면 첫 사건만 넣고 그렇게 했다고 적는다
 - 아크 요청은 화 카드의 세부가 틀릴 수 있으니 여러 화에 걸친 큰 흐름으로 판단하라고 이른다
 - 아크 요청의 화 머리는 'n번 · 화 이름'이다. 번호 칸에는 차례를, 글 칸에는 화 이름을 쓰게 해 AI 설명과 화면의 화 이름이 어긋나지 않게 한다(프롤로그가 있으면 차례와 화 번호가 하나씩 밀린다)
@@ -173,6 +179,37 @@
 - 고친 뒤 같은 10화: 사건 줄은 모두 6줄, 어긋난 내용 6 → 4개, 어긋난 화는 4/10 그대로, 기준 사건 담음 44/80 그대로. 어긋난 화가 실행마다 달라 표본 10화로는 차이를 가르지 못한다
 - 화면 값 `view` 는 454화에 0.22초 · 30만 자였다. 읽히는 동안 화면이 걸음마다 다시 받는다
 - 시험 `tests/test_refdigest.py`
+
+### `canon/refnote.py`
+
+- 참고 메모(설계는 [docs/refs/](../refs/README.md) 5장 · 5-1 · 9-3, 일감 5a · 9): 레퍼런스 원고에서 설정 구도 요약을 만들어 작품에 넣는다
+- 원고는 작품에 연결하지 않는다. 메모 글(`RefNote`)만 `Project.ref_notes` 에 복사한다
+- AI 초안은 작업 결과(미리보기)로만 돌려준다. 작가가 **넣기**를 눌러야 작품에 저장한다(`add`). 대화 에이전트는 참고 메모를 만들거나 넣지 않는다
+- 재료 `material`: 고른 화가 모두 지금 글로 읽혀 있으면(화 카드) 원문 대신 화 카드를 `prompts.ref_cards_fold` 로 접어 보낸다(`NOTE_DIGEST_BUDGET` 3만 자)
+- 화 카드가 예산을 넘으면 화를 빼지 않고 화마다 줄인다(첫 사건과 끝 첫 문장 → 첫 사건만). 줄였으면 `folded`
+- 읽히지 않은 화가 하나라도 있으면 원문을 앞 화부터 `SETUP_NOTE_MAX`(3만 자)까지 채운다. 넘는 화부터는 보내지 않고 보낸 화 수를 `sent` 에 적는다
+- 초안 `run`: `pipeline.ref_setup_note`(단계 `plan`, 응답 `RefSetupDraft`: 로그라인 꼴 · 세계 규칙 · 인물 배치 · 관계 구도 · 갈등 축 · 톤)
+- 응답은 `text_of` 가 칸 이름 줄을 붙인 글 하나로 만든다. 메모 하나는 `NOTE_MAX`(2,000자)까지다
+- 요청 `prompts.ref_setup_note_prompt`: 이름 대신 역할로, 사건 줄거리 대신 구도만, 원문 문장은 옮기지 않게 이른다(`REF_NOTE_KEEP_OUT`)
+- 화 카드 요청에는 카드의 세부가 틀릴 수 있으니 여러 화에 걸쳐 되풀이되는 구도로 판단하라는 줄과, 메모에 쓰지 않을 인물 이름 목록을 더한다
+- 겹침 표시 `marks`(`refs.overlap`): 초안에 든 원문 구절(20자 넘게 같음)과 원고의 이름을 미리보기에 표시한다. 넣기를 막지는 않는다
+- 이름은 화 카드가 있으면 카드의 인물 이름, 없으면 `refs.proper_words` 의 어림이다
+- 카드의 인물 칸에는 호칭 · 직함('언니', '매니저', '이사님')이 섞여 나온다. `is_name` 이 부름말 `refdigest.GENERIC` · `ROLE_WORDS` · '님'으로 끝나는 말을 뺀다
+- 비용 추정 `estimate`(AI 없음): 보낼 것(`mode` cards · text, `sent`, `folded`)과 설정의 `plan` 단계 모델 기준 추정
+- 작품의 메모 `add` · `update`(글 · 켜기) · `remove` · 화면 값 `view`. 빈 글과 2,000자 넘는 글은 받지 않는다
+- 프롬프트 블록은 `prompts.ref_notes_block`(예산 `context.BUDGET["ref_notes"]` 4,000자). 예산을 넘어 빠지는 메모 id 는 `dropped`(같은 규칙, `static/setup.js` `refNotesDropped`)
+- 메모 꼴은 쓰임이 정한다(`USE_KIND`): `use` setup 은 설정 메모(`kind` setup), write · plot 은 박자 메모(`kind` beats). 어긋난 짝은 `add` 가 받지 않는다
+- 박자 메모(일감 5, 2026-11-12): `pipeline.ref_beats_note`(응답 `RefBeatsDraft`: 한 화의 꼴 · 박자 · 끝을 끊는 방식 · 완급). 재료와 겹침 표시는 설정 메모와 같다
+- 박자 요청 `prompts.ref_beats_note_prompt`: 사건을 그 대목이 화 안에서 하는 일로 바꿔 적게 한다. 원문 재료일 때는 장면이 바뀌는 곳을 세게 한다
+- 쓰임 write 인 켠 박자 메모는 쓰기 가족 요청의 '참고 구조' 블록(`prompts.ref_beats_part`, 블록 id `ref_notes`)으로 `static_context` 바로 뒤에 들어간다
+- 쓰임 plot 인 켠 박자 메모는 화별 플롯 초안(`plot_prompt` · `serial_plot_prompt`)의 `[작품]` 앞에 `[참고 구조]` 로 들어간다. 화 하나 플롯 채우기에는 넣지 않는다
+- 박자 메모의 예산은 `context.BUDGET["ref_beats"]`(3,000자, 집필과 플롯 초안이 따로 센다). 검수 · 상태 변경안 요청에는 넣지 않는다
+- 박자 메모 실측(2026-11-12, 같은 원고 화 카드 30화, gemini-3.8-flash 한 번, 약 $0.01): 원고의 이름과 20자 넘는 원문 구절이 없었다. 박자 줄은 장르의 색이 묻은 채 대목의 기능으로 적혔다
+- 실측(2026-11-12, 222화 원고 한 편, gemini-3.8-flash, 세 번): 화 카드 30화 · 화 카드 222화(접음) · 원문 30화 가운데 앞 6화
+- 세 메모 모두 원고의 이름(화 카드 인물 이름 25개 대조)과 20자 넘는 원문 구절이 없었다. 로그라인 꼴은 전제의 꼴까지 적는다. 세 번에 약 $0.05
+- 가짜 응답 `mock_refnote.py`
+- 웹은 `/api/refs/{rid}/note…` · `/api/projects/{name}/ref-notes…`(`routes/refs.py`), 화면은 `static/refs.js` · `static/setup.js`
+- 시험 `tests/test_refnote.py`
 
 ### `canon/refs.py`
 
@@ -205,6 +242,10 @@
 - `sample` 은 화 카드(`refdigest`)가 있는 화에 성격을, 모든 화에 저장된 대사 비율을 붙여 넘긴다. 응답에 조각 목록 `pieces` · `spread` · `with_cards` 를 더한다
 - 고른 화의 원문 전체 `corpus`: 문체 분석이 표지 빈도를 표본이 아니라 이 글에서 센다(`pipeline.analyze_style` 의 `corpus`)
 - 이 원고로 만든 것 `made`(`RefMade`, 문체는 `POST /api/styles` 의 `ref` · `ref_eps` 로 남긴다)
+- `RefMade.kind` 의 `note` 는 작품에 넣은 참고 메모다. id 는 '작품 폴더/메모 id'
+- 겹침 표시 `overlap`(AI 없음): 메모 글에서 원문과 `OVERLAP_MIN`(20)자 넘게 같은 구절(`quote`)과 원고의 이름(`name`)을 자리와 함께 낸다
+- 고유 낱말 어림 `proper_words`(AI 없음): 조사 앞 2~4글자 낱말 가운데 고른 화의 셋 중 하나 넘는 화에서 세 번 넘게 나온 것. 흔한 낱말 `COMMON` 은 뺀다
+- `proper_words` 는 형태소를 가르지 않아 이름이 아닌 낱말도 섞인다. 화 카드가 없는 원고의 겹침 표시에만 쓴다
 - 내 작품과 견주기 `compare`(본문 있는 화 지표, 작품에 쓰지 않음)
 - 받은 화 대기열 `inbox` · `inbox_add` · `inbox_clear`: newto 로 가져온 화를 `<refs 폴더>/inbox.json` 에 둔다(원고 폴더가 아니라 `entries` 가 읽지 않음)
 - newto 가져오기 `newto_fetch`: newto 폴더(`newto_dir`, `CANON_NEWTO` 또는 저장소 옆 `newto`)에서 `npm run verify -- --headless --work <번호> --wait-on-limit` 를 돌린다
@@ -385,11 +426,14 @@
 - 공용 도우미(`_load` · `_save` · `_edit` 등)는 `..web` 에서 불러 쓴다
 - 받은 화 `GET` · `DELETE /api/refs/inbox`. `GET` 은 newto 폴더가 있는지(`newto`)도 준다. `/api/refs/{rid}` 보다 먼저 붙인다
 - newto 가져오기 `POST /api/refs/newto`(작업 kind `ref_newto`, project `REF_JOBS` = `.refs`, 한 번에 하나)
+- 설정 메모 초안 `POST /api/refs/{rid}/note`(작업 kind `ref_note`, target 은 원고 id, 결과는 미리보기) · 보낼 것과 비용 추정 `POST …/note/estimate` · 겹침 다시 세기 `POST …/note/marks`
+- 작품의 참고 메모 `GET` · `POST /api/projects/{name}/ref-notes`(넣기, 원고의 '만든 것'에 남김) · `PUT` · `DELETE …/ref-notes/{nid}`(글 · 켜기 · 지우기). 모두 `refnote.view` 를 돌려준다
 - 화 카드 `GET /api/refs/{rid}/digest`(읽힌 정도 · 카드 · 읽힐 AI) · 비용 추정 `GET …/digest/estimate` · 읽힐 AI 고르기 `PUT …/digest/ai`
 - 전체 읽히기 `POST /api/refs/{rid}/digest`(작업 kind `ref_digest`, project `REF_JOBS`, target 은 원고 id 라 원고마다 하나)
 - 전체 읽히기는 읽힐 화가 없으면 400, 키가 없으면 작업을 띄우기 전에 `MissingKey` 로 알린다
 - 구조 `GET /api/refs/{rid}/digest/pace`(구간 긴장 · 정점 화 · 인물 · 나눈 아크). AI 를 부르지 않는다
 - 아크 나누기 `POST /api/refs/{rid}/digest/arcs`(작업 kind `ref_arcs`, target 은 원고 id) · 비용 추정 `GET …/digest/arcs/estimate` · 지우기 `DELETE …/digest/arcs`
+- 아크 고치기 `PUT /api/refs/{rid}/digest/arcs`(`RefArcsIn`: `parts` · `arcs`) · 새 AI 안 쓰기 · 버리기 `POST …/digest/arcs/offer`(`take`). 둘 다 `refdigest.arcs_view` 를 돌려준다
 
 ### `canon/routes/research.py`
 
@@ -542,9 +586,18 @@
 - `refDigestLabel` · `refDigestCost` · `refDigestDoneMsg` 는 순수 함수
 - 구조 카드(`refStructureCard`, 화 카드가 있을 때만): 구간별 평균 긴장 막대 · 성격 칩과 긴장 고르기로 화 표 거르기(`S.refFilter`, `refFilterKeep`) · 긴장 5인 화 · 인물이 처음 나온 화
 - 구조 카드의 아크(`refArcsBlock`): 없으면 '아크 나누기' 버튼, 있으면 아크 목록(이름 · 화 범위 `refArcSpan` · 정점 화 · 목표)과 다시 나누기 · 지우기
+- 아크 고치기(`refArcEditor`, 값은 `S.refArcEdit`): 이름 · 끝 화 · 정점 화 · 목표 · 막는 것 · 보상, 가운데에서 나누기 · 앞 아크와 합치기 · 빼기, 부로 묶기. 역설계 실험의 `revArcEditor` 와 같은 꼴이다
+- 끝 화 · 정점 화는 화 이름으로 고르고 값은 원고의 차례다. 고르는 목록은 `arcs_view` 의 `orders` 라 제외한 화는 없다(`refArcStep`, 나누기는 `refArcHalves`, 순수 함수)
+- 아크가 없을 때는 '직접 나누기'가 모든 화를 한 아크로 두고 연다. 저장하면 서버가 정리한 것(`notes`)을 알림과 목록 아래에 보인다
+- 작가가 고친 아크가 있을 때 다시 나누면 새 AI 안이 목록 아래에 따로 오고, '이 안으로 바꾸기' · '버리기'로 고른다(`refArcOffer`)
 - 아크 나누기는 비용 추정을 확인 대화상자로 보인 뒤 시작한다(`refArcsAsk`). 끝나면 `refPaceLoad` 가 다시 받는다
 - `refFilterKeep` · `refArcSpan` 은 순수 함수
 - `refDecode` · `refAssemble` · `refRange` · `refEpRows` 는 순수 함수(`tests/test_refs.py`)
+- 만들기 칸의 쓰임 고르기(`REF_NOTE_USES`: 설정 도우미 · 집필 · 플롯 초안)가 설정 메모와 박자 메모를 가른다. 쓰임을 바꾸면 비용 추정을 다시 받는다
+- 참고 메모 만들기(`refNoteAsk` · `refNoteAskBox`): '고른 화로 하기'의 버튼을 누르면 넣을 작품 · 보낼 것(`refNoteSent`) · 추정 비용을 펴고 '만들기'로 작업 `ref_note` 를 시작한다
+- 설정 메모 미리보기(`refNoteCard`, 값은 `S.refNote`): 끝난 작업의 결과를 받아(`refNoteTake`) 고칠 수 있는 글 칸 · 원고의 것 표시(`refNoteWarn`) · '작품에 넣기' · '버리기'를 보인다
+- 넣었거나 버린 작업 id 는 `localStorage` 의 `canon.refNoteDone` 에 두어 다시 열어도 같은 미리보기가 뜨지 않는다. 고친 글의 겹침은 칸을 떠날 때 서버가 다시 센다
+- '이 원고로 만든 것'의 참고 메모 줄은 그 작품의 설정 도우미로 간다(`refMadeHref`)
 - CSS 는 JS 에서 주입
 
 ### `canon/static/revlab.js`

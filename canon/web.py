@@ -1178,6 +1178,7 @@ def _put_locked(name: str, p: Project, disk: Project, response: Response, merged
     last = p.parts[-1] if p.serial and p.parts else None
     if last and last.end_ep == disk.meta.target_episodes != p.meta.target_episodes and p.meta.target_episodes >= last.start_ep:
         last.end_ep = p.meta.target_episodes
+    p.ref_notes = disk.ref_notes  # 참고 메모는 /ref-notes 로만 바뀐다 (레퍼런스 화면에서 넣은 메모를 열려 있던 작품 화면의 저장이 덮지 않게)
     me = store.writer.get()
     if me and not force and disk.edit_rev > p.edit_rev and disk.saved_by != me:
         raise HTTPException(409, "다른 탭이나 기기에서 이 작품을 먼저 저장했어요. 다시 불러와 그 변경을 보거나, 내 변경으로 덮어쓰세요")
@@ -2725,7 +2726,7 @@ def _job_blueprint(name: str, body: "JobIn", p: Project, kind: str, n: int | Non
     """작업 blueprint: 지금 플롯에서 두 인물(target 'a~b')의 설계도를 거꾸로 뽑는다. ep 는 장편 아크 번호(단편은 비움). 결과는 고르기를 기다린다."""
     a, _, b = body.target.partition("~")
     start, end = blueprint.extract_range(p, n or 0)
-    names = {c.id: c.name or c.id for c in p.characters}
+    names = blueprint.char_names(p)
     label = f"{names.get(a, a)} ↔ {names.get(b, b)} 설계도 뽑기 ({start}~{end}화)"
     arc, note = n or 0, body.note
 
@@ -2739,7 +2740,7 @@ def _job_blueprint_draft(name: str, body: "JobIn", p: Project, kind: str, n: int
     """작업 blueprint_draft: 설정 · 부 구성에서 두 인물(target 'a~b')의 설계도를 짠다. ep 는 장편 부 번호(단편은 비움), note 는 작가 메모. 결과는 고르기를 기다린다."""
     a, _, b = body.target.partition("~")
     start, end = blueprint.draft_range(p, n or 0)
-    names = {c.id: c.name or c.id for c in p.characters}
+    names = blueprint.char_names(p)
     label = f"{names.get(a, a)} ↔ {names.get(b, b)} 설계도 짜기 ({start}~{end}화)"
     part, note = n or 0, body.note
 
@@ -5882,7 +5883,7 @@ def blueprint_view(name: str) -> BlueprintView:
                          firsts=_blueprint_firsts(p),
                          parts=[BlueprintPick(id=k, label=v.label) for k, v in PARTS.items()],
                          acts=[BlueprintPick(id=k, label=v.label) for k, v in ACTS.items()],
-                         last=max((e.plot.number for e in p.episodes if e.status == "finalized"), default=0))
+                         last=blueprint.last_done(p))
 
 
 class BlueprintApplyIn(BaseModel):

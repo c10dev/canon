@@ -358,3 +358,39 @@ def test_whole_draft_card_groups_picks_and_pending():
       actions.bpWholePick('a~j|all'); return [a, JSON.stringify(S.bpWhole.pick['a~j'])]; })()"""
     on, off = _run(expr, p, {"d": _whole_draft()})
     assert on == '{"ms":[true,true],"rungs":[true]}' and off == '{"ms":[false,false],"rungs":[false]}'
+
+
+@needs_node
+def test_pair_draft_rows_are_the_same_in_pair_and_whole_cards():
+    """쌍 쪽 제안 카드와 작품 전체 짜기 카드가 같은 줄 그리기(bpPairDraftRows)를 쓴다: 장소 · 근거 · 겹친 줄 글이 두 카드에 같이 보인다."""
+    from canon.schema import StoryElement
+    p = _proj()
+    p.elements = [StoryElement(id="st", kind="장소", name="신도림역")]
+    d = _whole_draft()
+    rung = {**d["pairs"][0]["rungs"][0], "places": ["st"], "evidence": [{"episode": 5, "quote": "손등이 닿는다"}]}
+    d["pairs"][0]["rungs"] = [rung]
+    whole = _run("viewBlueprint()", p, {"bpWhole": d})
+    whole = whole[whole.index('id="bp-whole-draft"'):]
+    pair = {"a": "a", "b": "j", "mode": "extract", "start": 1, "end": 600, "reply": "", "milestones": d["pairs"][0]["milestones"], "rungs": [rung]}
+    one = _run("viewBlueprint()", p, {"bpSel": "a~j", "bpDraft": pair})
+    one = one[one.index('id="bp-draft"'):]
+    for card in (whole, one):
+        assert "신도림역" in card and "5화 「손등이 닿는다」" in card
+        assert '이미 있음</span><span class="small">1~15화 경계 정체를 안다</span>' in card  # 겹친 줄 글
+    assert 'data-action="bpDraftPick" data-arg="rung|0"' in one and 'data-action="bpWholePick" data-arg="a~j|rung|0"' in whole
+    assert 'aria-label="아영 ↔ 지훈 사다리 칸 1 고르기"' in whole and 'aria-label="사다리 칸 1 고르기"' in one
+
+
+@needs_node
+def test_codex_name_match_is_the_same_as_server():
+    """화면의 '도감에 없음'(bpAbKnown)과 같은 줄 찾기가 서버 abilities.find · check 의 이름 견주기와 같다 (등급 꼬리는 떼고 견준다)."""
+    from canon import abilities
+    from canon.schema import Ability
+    p = _proj()
+    p.abilities = [Ability(id="ab-1", name="은신", aliases=["그림자 걸음"]), Ability(id="ab-2", name="화염구")]
+    names = ["은신", "은 신", "은신 Lv3", "그림자걸음", "화염구 (B급)", "화염", "(은신)", "비행"]
+    got = _run("data.extra.names.map((n) => bpAbKnown(n))", p, {"names": names})
+    assert got == [abilities.find(p, n) is not None for n in names]
+    p.blueprint.ability_plans = [AbilityPlan(id="ap-1", character="a", ability="은신", grade="(Lv2)", from_ep=5, to_ep=8)]
+    rows = [{"character": "a", "ability": "은신 Lv9", "grade": "Lv2"}, {"character": "a", "ability": "은 신", "grade": "lv 2"}, {"character": "a", "ability": "은신", "grade": "Lv3"}]
+    assert _run("data.extra.rows.map((x) => !!bpAbSame(S.project.blueprint, x))", p, {"rows": rows}) == [True, True, False]

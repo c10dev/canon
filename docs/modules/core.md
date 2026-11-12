@@ -413,6 +413,7 @@
 - 완급 계획을 받을 범위 `heat_target`(단편 작품 전체, 장편은 아크 번호 또는 다 쓰지 않은 첫 아크)과 받기 `propose_heat`(본문 있는 화는 지금 계획 줄을 지킨다)
 - 설계도 거꾸로 뽑기 `propose_blueprint`(아크 하나 · 두 인물, `prompts.blueprint_extract_prompt`, 응답 `BlueprintProposal`, 정리 `blueprint.clean_proposal`). 저장하지 않는다
 - 설계도 짜기 `draft_blueprint`(부 하나 · 두 인물 · 작가 메모, `prompts.blueprint_draft_prompt`, 플롯이 없어도 됨). 정리 · 더하기는 거꾸로 뽑기와 같다
+- 쌍 설계도 요청 셋(거꾸로 뽑기 · 짜기 · 전체 짜기)은 단계 말 줄 `prompts._bp_stage_rule`(단계 말은 `schema.RelStage`)과 id 줄 `_bp_id_rule` 을 같이 쓴다
 - 두 설계도 제안은 출력 한도 `BLUEPRINT_OUT_TOKENS`(16,384)를 건다. 2026-11-10 flash 실호출 두 번 모두 첫 시도가 65,521토큰까지 되풀이했다
 - 능력 일정 거꾸로 뽑기 `propose_abilities`(아크 하나 · 인물 하나, `prompts.ability_extract_prompt`, 응답 `AbilityProposal`, 정리 `blueprint.clean_abilities`). 저장하지 않는다
 - 능력 일정 짜기 `draft_abilities`(부 하나 · 인물 하나 · 작가 메모, `prompts.ability_draft_prompt`, 플롯이 없어도 됨). 같은 출력 한도를 건다
@@ -435,6 +436,7 @@
   - 작가 연출 지시(`Episode.direction`)도 같이 남긴다
   - 플롯 초안을 한 번에 받는 구간 `act_groups`: 한 화를 함께 쓰는 구간(짧은 작품)은 한 묶음. 웹 작업 plots(`web._plot_ranges`)와 프롬프트 놀이터의 플롯 초안이 쓴다
   - 작품 전체 저장에서 본문이 있는 화의 플롯은 디스크 것으로 둔다(`keep_locked_plots`, 줄기 표시 `LOCKED_FREE` 만 받음, `web.put_project`)
+  - 작품 전체 저장에서 참고 메모(`Project.ref_notes`)는 디스크 것으로 둔다(`web._put_locked`). 메모는 `/api/projects/{name}/ref-notes` 로만 바뀐다
   - 상태 변경안 정리 `clean_delta`
   - 반영 전 검사 `validate_delta`: 설정에 없는 인물 id(이번 새 인물은 앎) · 같은 인물끼리이거나 설정에 없는 인물의 관계 사건과 관계 바뀜 · 없는 복선 id 회수(이번에 심는 복선은 앎)
   - 반영 전제 `check_applicable`: 본문이 쓰인(written) 화만, 앞 화가 모두 반영됐을 때만(`require_previous`) 반영한다. 반영 완료한 화는 "이미 상태를 반영했어요"로 막는다
@@ -582,6 +584,12 @@
 - 본문 쓰기 지시는 설정 · 사실을 '절대' 같은 강한 말 대신 이유('앞 화와 이어져야 하므로')를 붙여 지키게 한다
 - `cast_view` 는 인물 다른 이름(`aliases`)을 빼서 앞 블록 '# 인물 설정' 캐시를 지킨다. 인물의 프롬프트용 직렬화(`_prompt_view`)도 뺀다
 - `setup_chat_prompt` 는 다른 이름을 채운 인물만 `aliases` 칸을 보인다(빈 인물은 전과 같은 글)
+- `ref_notes_block` 은 켠 참고 메모의 `[참고 구조]` 블록이다. `setup_prompt` · `setup_chat_prompt` 맨 앞에 둔다(대화 중에 바뀌지 않는 블록). 메모가 없으면 빈 글
+- `ref_notes_block` 은 넣은 차례대로 `context.BUDGET["ref_notes"]`(4,000자)에 드는 메모만 넣고 뺀 수를 "참고 메모 n개는 길어서 뺐어요"로 적는다
+- 쓰기 요청 블록 `ref_notes`('참고 구조', `ref_beats_part`): 쓰임 write 인 켠 박자 메모. `characters` 바로 뒤(바뀌지 않는 앞부분)이고 장편은 블록 설정으로 끌 수 있다
+- `ref_beats_part` 는 넣은 메모와 예산(`context.BUDGET["ref_beats"]` 3,000자)을 넘겨 뺀 메모를 `trace` 에 적는다. 켠 박자 메모가 없으면 단편 · 장편 요청이 전과 같다
+- `plot_prompt` · `serial_plot_prompt` 는 쓰임 plot 인 켠 박자 메모를 `[작품]` 앞에 `ref_notes_block(p, "plot")` 로 넣는다. 고르는 규칙은 `ref_notes_fit` 한 곳
+- `ref_cards_fold` 는 레퍼런스 화 카드를 예산에 맞게 접는다(화는 빼지 않고 화마다 줄임). `ref_arcs_prompt` 와 `ref_setup_note_prompt` 가 쓴다
 - `setup_chat_prompt` 의 `history_lines` 는 대화 기록 줄이다. 대화 에이전트는 `setup_session_history` 를 넘기고, None 이면 옛 설정 대화를 읽는다(명령줄)
 - 다른 이름 제안 `alias_prompt(p, items)`: 작품 · 모든 항목 이름 목록이 앞, 항목별 재료 단락이 뒤, 요청이 맨 뒤다. 쓰기 프롬프트 · 작업지시서에는 들어가지 않는다
 - 화별 컨텍스트 조립(`build_episode_context`)

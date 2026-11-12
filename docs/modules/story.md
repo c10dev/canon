@@ -290,6 +290,7 @@
 - 플롯이 이정표를 앞지르는 경고는 `pace.milestone_warnings`
 - 계획값이라 관계 수치(`Tie`) · 플롯을 바꾸지 않는다
 - 경고에 방향을 붙인 `warning_rows`(보는 인물, 보이는 인물, 글). `warnings` 는 그 글만
+- 같이 쓰는 도우미: 인물 이름표 `char_names`, 마지막 반영 화 `last_done`(설계도 보기 API 도 씀), 화 범위 글 `rng_text`('5화' · '5~8화', 프롬프트 줄도 씀)
 - 쌍 키 `pair_key(a, b)`: 두 id 를 정렬해 `~` 로 잇는다(화면 `bpKey` 와 같다)
 - 처음 닿는 줄 `firsts(milestones, ladders)`: 방향마다 단계마다, 쌍마다 겹마다 첫 화가 가장 이른 줄(`First`: 쌍 키 · 축 '단계' · '겹' · 값 · 화 범위 · id · 두 인물). 화 범위와 단계(겹)를 모두 적은 줄만
 - 쌍끼리 몰림 `crowd_pairs(firsts)`: 서로 다른 쌍이 같은 축 · 같은 값에 처음 닿는 줄의 화 범위가 한 화라도 겹침. 같은 쌍의 두 방향은 몰림이 아니다
@@ -679,6 +680,9 @@
 - 다른 이름은 `charlog.LOG_FIELDS` 밖이라 `record_author` 기록에 남지 않는다
 - LLM 호출은 `pipeline.revise_setup`
 - 프롬프트는 `prompts.setup_chat_prompt`
+- `setup_chat_prompt` 와 빈칸 AI 제안(`setup_prompt`)은 켠 설정 메모(`Project.ref_notes`, `canon/refnote.py`)가 있으면 맨 앞에 `[참고 구조]` 블록을 둔다(`prompts.ref_notes_block`)
+- `[참고 구조]` 블록은 다른 작품의 구도이니 이름 · 지명 · 사건 · 고유 설정을 옮기지 말고, 작가가 채운 칸과 다르면 작가 칸을 따르라는 지시(`REF_NOTES_RULE`)와 함께 넣는다
+- 켠 설정 메모가 없으면 두 프롬프트는 전과 글자 하나 다르지 않다(`tests/test_refnote.py`). 칸 하나만 채우는 작은 제안(`suggest_field`)에는 넣지 않는다
 - 명령줄 `setupchat`
 
 ### `canon/stateedit.py`
@@ -839,9 +843,11 @@
 - 쌍 쪽 맨 아래 'AI로 설계도 받기' `bpExtractCard`: 메모 · 부 고르기 · 'AI로 짜기'(작업 `blueprint_draft`), 플롯이 있으면 '지금 플롯에서 뽑기'(작업 `blueprint`, 장편은 아크 고르기)
 - 제안 카드 제목은 결과의 `mode` 로 'AI가 짠 설계도' · 'AI가 뽑은 설계도'
 - 도착한 제안은 `S.bpDraft` 로 계획 띠 · 경고 다음 카드 `bpDraftCard`(줄마다 고르기 · 근거). '고른 줄 더하기'는 `POST …/blueprint/apply`
+- 쌍 제안의 이정표 · 사다리 칸 줄은 `bpPairDraftRows(x, picks, action, arg, who)` 하나로 그린다. 쌍 쪽 카드와 전체 짜기 카드가 같이 쓴다(장소 · 근거 · 겹친 줄 글)
 - 능력 일정 쪽 맨 아래 'AI로 능력 일정 받기' `bpAbAiCard`: 인물 · 메모 · 부 고르기 · 'AI로 짜기'(작업 `blueprint_ability_draft`), 플롯이 있으면 '지금 플롯에서 뽑기'(작업 `blueprint_ability`)
 - 도착한 능력 일정 제안은 `S.bpAbDrafts` 에 자리 열쇠 `bpAbDraftKey`('인물 id|extract' · '인물 id|draft')마다 하나씩 둔다(같은 자리의 새 제안이 앞 것을 바꾼다). 카드 `bpAbDraftCard` 는 경고 다음이고 주 버튼은 '고른 줄 더하기' 하나다
 - 능력 묶음 `bpAbDraftRows(rows, picks, arg, withWho, action)`: 줄마다 고르기 · 근거, '도감에 없음'(`bpAbKnown`) · '이미 있음'(`bpAbSame`) 칩. 기본 체크 `bpAbPicks` 는 이미 적은 같은 줄만 뺀다
+- `bpAbKnown` 은 `abFindLocal`(서버 `abilities.find`)을 부른다. 같은 줄 견주기는 이름을 `abKey`(서버 `abilities.key`), 등급을 `bpGradeKey`(서버 `_grade_key`)로 한다
 - '고른 줄 더하기'는 모든 묶음의 고른 줄을 한 번에 보낸다. 묶음끼리 같은 인물 · 능력 · 등급은 앞의 것만 보낸다(`bpAbUnique`)
 - 묶음마다 줄 아래 '도감 초안' `bpAbCodexRows`(기본 체크, 체크 `bpAbCodexPick`). 그새 도감에 생긴 이름은 숨기고 보내지 않는다. 보낼 초안 `bpAbCodexPicked` 는 같은 이름을 하나만 남긴다
 - 더하며 만든 도감 항목 id 는 되돌리기(`S.bpUndo.abIds`)에 남고, 되돌리기가 설계도와 함께 지운다

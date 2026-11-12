@@ -11,7 +11,7 @@ import json
 import random
 import re
 from contextvars import ContextVar
-from typing import NamedTuple
+from typing import NamedTuple, get_args
 
 from pydantic import BaseModel
 
@@ -21,7 +21,7 @@ from .logline import josa
 from .llm import _inline_refs, dump
 from .schema import Birth, Character, ChatMessage, Claim, ConsistencyIssue, ConsistencyReport, Foreshadow, PlayInfo, PlotBatch, Project, Selection, StateDelta, StateDeltaAI, StoryElement
 from .schema import ArcPlan, ArcProposal, CueSheetDraft, HeatArcPlan, HeatArcProposal, HeatProposal, SeriesPlan, StoryboardDraft
-from .schema import PassageRevision, PlotAgentStep, SetupRevision, StyleRevision
+from .schema import PassageRevision, PlotAgentStep, RelStage, SetupRevision, StyleRevision
 from . import address, blueprint, board, cast, charlog, coord, echoes, foreshadows, heatplan, knows, pairlog, stage, statwin, timeline
 from . import offscreen
 from .maps import prompt as mapprompt
@@ -245,8 +245,60 @@ def plan_stage_block(p: Project, ids: set[str]) -> str:
     return "\n[지금 관계 단계 (한 화에 한 칸씩 움직임)]\n" + "\n".join(lines) + (f"\n(그 밖 {cut}줄 생략)" if cut else "")
 
 
+REF_NOTES_RULE = ("참고 구조는 다른 작품의 구도입니다. 이름 · 지명 · 사건 · 고유 설정을 옮기지 않습니다. "
+                  "작가가 레퍼런스를 들어 청하거나 빈 칸을 채울 때만 구도를 빌립니다. 작가가 채운 칸이 참고 구조와 다르면 작가 칸을 따릅니다.")
+
+
+REF_BEATS_RULE = ("참고 구조는 다른 작품의 전개 박자입니다. 박자의 꼴만 빌리고 사건 · 인물 · 이름 · 문장은 가져오지 않습니다. "
+                  "이 작품의 설정 · 플롯 · 스토리보드가 박자와 다르면 이 작품 것을 따릅니다.")
+REF_NOTE_BUDGET = {"setup": "ref_notes", "write": "ref_beats", "plot": "ref_beats"}  # 쓰임 → context.BUDGET 열쇠
+
+
+def ref_notes_fit(p: Project, use: str) -> tuple[list, list[str], int]:
+    """쓰임(use)에 넣을 켠 참고 메모: (넣는 메모, 넣는 글 덩이, 예산을 넘겨 뺀 수). 넣은 차례대로 예산에 드는 메모만 고른다."""
+    notes = [n for n in p.ref_notes if n.on and n.use == use and n.text.strip()]
+    texts = [f"## {' '.join(x for x in (n.from_name, n.from_eps) if x) or '참고 메모'}\n{n.text.strip()}" for n in notes]
+    used, kept, size = [], [], 0
+    for n, t in zip(notes, texts):  # context.fit_lines 와 같은 셈. 글이 같은 메모가 있어도 차례로 가린다
+        if size + len(t) + 1 <= context.BUDGET[REF_NOTE_BUDGET[use]]:
+            used.append(n)
+            kept.append(t)
+            size += len(t) + 1
+    return used, kept, len(notes) - len(kept)
+
+
+def ref_notes_block(p: Project, use: str = "setup") -> str:
+    """켠 참고 메모(Project.ref_notes)의 [참고 구조] 블록 (use setup: 설정 도우미, plot: 플롯 초안). 메모가 없으면 빈 글이라 프롬프트가 전과 같다.
+    넣은 차례대로 예산(context.BUDGET)에 드는 메모만 넣고, 넘겨 뺀 수를 적는다. 화나 대화에 따라 바뀌지 않아 요청 앞쪽에 둔다."""
+    _, kept, cut = ref_notes_fit(p, use)
+    if not kept:
+        return ""
+    rule = REF_NOTES_RULE if use == "setup" else REF_BEATS_RULE
+    return f"[참고 구조]\n({rule})\n" + "\n\n".join(kept) + (f"\n(참고 메모 {cut}개는 길어서 뺐어요)" if cut else "") + "\n\n"
+
+
+def ref_beats_part(p: Project, trace: context.Trace | None = None) -> str:
+    """쓰기 가족 요청의 '참고 구조' 블록 글 (use write 인 켠 박자 메모). static_context 바로 뒤, 화마다 바뀌는 블록 앞에 둔다.
+    메모가 없으면 빈 글이라 요청이 전과 같다. 화수와 상관없이 예산(context.BUDGET["ref_beats"]) 안이고, 넘겨 뺀 수를 적는다."""
+    notes = [n for n in p.ref_notes if n.on and n.use == "write" and n.text.strip()]
+    if not notes:
+        return ""
+    used, kept, cut = ref_notes_fit(p, "write")
+    if trace is not None:
+        for n in notes:
+            label = " ".join(x for x in (n.from_name, n.from_eps) if x) or "참고 메모"
+            if n in used:
+                trace.item("ref_notes", label, context.REASON_ALWAYS)
+            else:
+                trace.drop("ref_notes", label, context.DROP_BUDGET)
+    if not kept:
+        return ""
+    return (f"\n\n# 참고 구조 (작가가 넣은 참고 메모)\n{REF_BEATS_RULE}\n" + "\n\n".join(kept)
+            + (f"\n(참고 메모 {cut}개는 길어서 뺐어요)" if cut else ""))
+
+
 def setup_prompt(p: Project) -> str:
-    return f"""아래는 작가가 입력한 기본 설정입니다. 비어 있거나 부족한 부분을 채워 작품 설정을 제안하세요.
+    return f"""{ref_notes_block(p)}아래는 작가가 입력한 기본 설정입니다. 비어 있거나 부족한 부분을 채워 작품 설정을 제안하세요.
 이미 입력된 내용은 바꾸지 말고 그대로 살려서 확장합니다.
 
 [기본 정보]
@@ -456,7 +508,7 @@ def setup_chat_prompt(p: Project, message: str, mode: str = "", history_lines: l
         chat = next((c for c in p.chats if c.topic == "setup"), None)
         history_lines = [_setup_chat_line(p, m) for m in (chat.messages[-SETUP_CHAT_HISTORY:] if chat else [])]
     history = "\n".join(history_lines)
-    head = f"""[작품]
+    head = f"""{ref_notes_block(p)}[작품]
 {meta_text(p)}
 
 [로그라인 다섯 칸] (위 logline 은 이 칸을 합친 문장)
@@ -945,7 +997,7 @@ def plot_prompt(p: Project, start: int, end: int, ahead: bool = True, redo: bool
     fixed, more = fixed_plots(p, start, end, skip=set(range(start, end + 1)) if redo else frozenset()) if ahead else ([], 0)
     return f"""{start}화부터 {end}화까지 화별 플롯을 작성하세요.
 
-[작품]
+{ref_notes_block(p, "plot")}[작품]
 {meta_text(p)}
 [세계관]
 {dump(p.world)}
@@ -985,7 +1037,7 @@ def serial_plot_prompt(p: Project, start: int, end: int, ahead: bool = True, red
     known = plot_facts_states(p, ids, start, query, [x.number for x in near] + list(range(start, end + 1)))
     return f"""{start}화부터 {end}화까지 화별 플롯을 작성하세요.
 
-[작품]
+{ref_notes_block(p, "plot")}[작품]
 {meta_text(p)}
 [세계관]
 {dump(p.world)}
@@ -1276,6 +1328,16 @@ def _bp_ids_block(p: Project) -> str:
 {places or "없음"}"""
 
 
+def _bp_stage_rule() -> str:
+    """설계도 요청(거꾸로 뽑기 · 짜기 · 전체 짜기)의 단계 말 줄 머리. 단계 말은 schema.RelStage 차례다."""
+    return f"stage 는 {' · '.join(get_args(RelStage))} 가운데 맞는 말입니다. 맞는 말이 없으면 비우고 label 에 적습니다."
+
+
+def _bp_id_rule(lead: str) -> str:
+    """설계도 요청의 부위 · 동작 · 장소 id 줄 (_bp_ids_block 의 목록을 가리킨다). lead 는 주도 인물 칸의 풀이 말('이끄는' · '이끈')."""
+    return f"parts · acts · places 는 위 목록의 id 만 씁니다. 맞는 id 가 없으면 비우고 label 에 씁니다. lead 는 접촉을 {lead} 인물 id 입니다."
+
+
 def _bp_part_text(p: Project, start: int, end: int) -> str:
     """설계도 짜기 요청의 부 구성 줄: start~end 에 걸친 부의 목표 · 마무리 · 아크 생각. 단편이나 부가 없으면 빈 글."""
     parts = [x for x in p.parts if x.end_ep >= start and x.start_ep <= end] if p.serial else []
@@ -1312,10 +1374,10 @@ def blueprint_draft_prompt(p: Project, start: int, end: int, a: str, b: str) -> 
 요구사항:
 - 작품 설정 · 로그라인 · 부 구성 · 관계의 가 닿을 곳 · 작가의 요청에 있는 방향을 따릅니다. 거기에 없는 사건을 지어내지 않습니다.
 - milestones: {na} → {nb} 와 {nb} → {na} 를 따로, 관계가 바뀌는 고비마다 한 줄. source · target 은 인물 id({a}, {b})입니다.
-- stage 는 낯섦 · 경계 · 호감 · 신뢰 · 균열 · 적대 · 화해 가운데 맞는 말입니다. 맞는 말이 없으면 비우고 label 에 적습니다. 단계는 한 화에 한 칸씩 움직이므로 이웃한 이정표 사이에 칸 수만큼 화를 둡니다.
+- {_bp_stage_rule()} 단계는 한 화에 한 칸씩 움직이므로 이웃한 이정표 사이에 칸 수만큼 화를 둡니다.
 - rungs: 두 인물의 신체 접촉이 한 단계씩 나아가는 칸을 낮은 칸부터 차례로. 칸의 from_ep 는 처음 닿는 화 범위의 첫 화이고, 뒤 칸일수록 from_ep 가 줄지 않습니다.
 - 화 범위는 {start}~{end}화 안에서 고르고, 부 구성이 있으면 부의 목표와 마무리에 맞는 자리에 둡니다.
-- parts · acts · places 는 위 목록의 id 만 씁니다. 맞는 id 가 없으면 비우고 label 에 씁니다. lead 는 접촉을 이끄는 인물 id 입니다.
+- {_bp_id_rule("이끄는")}
 - 이미 적은 설계도와 같은 줄은 다시 만들지 않고, 그 줄과 어긋나지 않게 잇습니다.
 - evidence 에는 그 줄을 둔 화 번호와 그 자리에 둔 까닭(작품 설정 · 부 목표 · 작가 요청 가운데 어디서 왔는지) 한 줄을 1~2개 넣습니다.
 - reply 에는 무엇을 짰고 어디를 비웠는지 1~3문장으로 씁니다."""
@@ -1366,9 +1428,9 @@ def blueprint_whole_prompt(p: Project, start: int, end: int, pairs: list[tuple[s
 - pairs 에는 쌍마다 한 항목을 적습니다. a · b 는 [짤 쌍]의 두 인물 id 입니다. 쌍 키는 {keys} 입니다. 새 줄이 없는 쌍은 milestones · rungs 를 빈 목록으로 둡니다.
 - 부 구성 · 작가 요청이 동시에 두라고 하지 않은 곳에서는 두 쌍이 같은 화 범위에 같은 단계 · 같은 겹에 처음 닿지 않게 엇갈려 둡니다.
 - milestones: 쌍마다 두 방향을 따로, 관계가 바뀌는 고비마다 한 줄. 방향마다 많아도 4줄입니다. source · target 은 인물 id 입니다.
-- stage 는 낯섦 · 경계 · 호감 · 신뢰 · 균열 · 적대 · 화해 가운데 맞는 말입니다. 맞는 말이 없으면 비우고 label 에 적습니다. 단계는 한 화에 한 칸씩 움직이므로 이웃한 이정표 사이에 칸 수만큼 화를 둡니다. 이미 적은 설계도의 '계획상' 단계에서 잇습니다.
+- {_bp_stage_rule()} 단계는 한 화에 한 칸씩 움직이므로 이웃한 이정표 사이에 칸 수만큼 화를 둡니다. 이미 적은 설계도의 '계획상' 단계에서 잇습니다.
 - rungs: 쌍마다 두 인물의 신체 접촉이 한 단계씩 나아가는 칸을 낮은 칸부터 차례로, 많아도 5칸. 뒤 칸일수록 from_ep 가 줄지 않습니다.
-- parts · acts · places 는 위 목록의 id 만 씁니다. 맞는 id 가 없으면 비우고 label 에 씁니다. lead 는 접촉을 이끄는 인물 id 입니다.
+- {_bp_id_rule("이끄는")}
 - abilities: 능력 · 권한 · 해금 단계는 부 구성 · 로그라인에 나온 것만 적습니다. 인물마다 많아도 6줄이고 한 줄의 범위는 10화 이하로 좁힙니다. 그 능력이 있어야 하는 이정표 · 칸은 능력의 범위 뒤에 둡니다.
 - 상대마다 따로 여는 해금 단계는 주인공의 능력 줄로 적습니다(ability 에 '상대 이름 + 해금', grade 에 '1단계' 같은 단계).
 {ability_ai_rules()}
@@ -1404,10 +1466,10 @@ def blueprint_extract_prompt(p: Project, start: int, end: int, a: str, b: str) -
 요구사항:
 - 플롯에 적힌 일만 뽑습니다. 플롯에 없는 관계 변화나 접촉을 지어내지 않습니다.
 - milestones: {na} → {nb} 와 {nb} → {na} 를 따로, 관계가 눈에 띄게 바뀐 화마다 한 줄. source · target 은 인물 id({a}, {b})입니다.
-- stage 는 낯섦 · 경계 · 호감 · 신뢰 · 균열 · 적대 · 화해 가운데 맞는 말입니다. 맞는 말이 없으면 비우고 label 에 적습니다.
+- {_bp_stage_rule()}
 - rungs: 두 인물의 신체 접촉이 처음으로 한 단계 나아간 화마다 한 칸, 처음 닿은 화 차례로. 이미 닿은 접촉이 되풀이되면 새 칸을 만들지 않습니다.
 - 칸의 from_ep 는 처음 닿은 화, to_ep 는 보통 같은 화입니다.
-- parts · acts · places 는 위 목록의 id 만 씁니다. 맞는 id 가 없으면 비우고 label 에 씁니다. lead 는 접촉을 이끈 인물 id 입니다.
+- {_bp_id_rule("이끈")}
 - 이미 적은 설계도와 같은 줄은 다시 만들지 않습니다.
 - evidence 에는 근거 화 번호와 그 화 플롯에서 그대로 옮긴 구절을 1~3개 넣습니다.
 - reply 에는 무엇을 뽑았고 무엇이 플롯에 없어 비웠는지 1~3문장으로 씁니다."""
@@ -3246,6 +3308,7 @@ BLOCKS: tuple[Block, ...] = (
     Block("world", "세계관", False, front=True),
     Block("style", "문체", True, front=True),
     Block("characters", "인물 설정", True, front=True),
+    Block("ref_notes", "참고 구조", False, front=True),
     Block("structure", "현재 부 · 아크 / 현재 구간", False, front=True),
     Block("story_past", "끝난 부와 아크 줄거리", False, ("story_past",), front=True),
     Block("position", "이번 화 위치", False),
@@ -3474,6 +3537,7 @@ def context_parts(p: Project, n: int, *, use_board: bool = True, pre: str = "", 
             trace.item("states", who.get(s.character_id, s.character_id),
                        context.REASON_PLOT if s.character_id in ep.plot.characters else context.REASON_ALWAYS)
     parts = static_parts(p, False, trace) + [
+        Part("ref_notes", ref_beats_part(p, trace)),
         Part("facts", f"\n\n# 확정된 사실{f' (이번 화와 관련된 것만, {facts_cut}개 생략)' if facts_cut else ''}\n{facts_text}"),
         Part("elements", els),
         Part("cast", _cast_text(cast_names, extra_block(extra))),
@@ -3511,6 +3575,7 @@ def serial_parts(p: Project, n: int, *, where: str, act_line: str, lines: list[P
     context.trace_secrets(trace, secret_cand, secrets, cast_ids)  # 상태 예산으로 인물을 뺀 뒤라야 요청에 찍히는 비밀을 안다
     relations = serial_relations(p, cast_ids, plot_ids, secrets, budget=B("relations"), trace=trace) or dump(rels) or "없음"
     head = static_parts(p, False, trace) + [
+        Part("ref_notes", ref_beats_part(p, trace)),
         Part("structure", f"\n\n{where}"),
         Part("story_past", f"\n\n# 지금까지의 줄거리 (끝난 부와 아크)\n{past or '없음'}"),
         Part("position", f"\n\n# 이번 화 위치\n{act_line}"),
@@ -4230,14 +4295,10 @@ def plan_board_rule(p: Project) -> str:
             if block else "")
 
 
-def _bp_names(p: Project) -> dict[str, str]:
-    return {c.id: c.name or c.id for c in p.characters}
-
-
 def blueprint_board_rule(p: Project, n: int) -> str:
     """스토리보드 요청 맨 끝의 설계도 줄 (docs/blueprint/specs/06-episode.md): n 화 플롯 인물끼리의 사다리 지금 칸 · 이 화가 처음 닿는 범위인 칸 · 다음 칸,
     그리고 n 화가 든 관계 이정표. 상한은 스토리보드만 받는다 (README 2026-11-10). 요청 끝에 두어 쓰기 가족 앞부분 캐시를 깨지 않는다. 줄이 없으면 빈 글."""
-    who, names = set(p.episode(n).plot.characters), _bp_names(p)
+    who, names = set(p.episode(n).plot.characters), blueprint.char_names(p)
     lines = []
     for lad in p.blueprint.ladders:
         if lad.a not in who or lad.b not in who:
@@ -4264,7 +4325,7 @@ def blueprint_board_rule(p: Project, n: int) -> str:
 def blueprint_write_line(p: Project, n: int) -> str:
     """본문 쓰기 지시문의 설계도 한 줄: n 화가 사다리 칸에 처음 닿는 범위이고 그 칸이 그 화 플롯 · 연출 지시에 나올 때만 (blueprint.rungs_in_plot).
     범위 안 모든 화에 넣지 않는다. 상한도 넣지 않는다 (README 2026-11-10 · 2026-11-11, 앞당김 방지)."""
-    names = _bp_names(p)
+    names = blueprint.char_names(p)
     got = [f"{names.get(lad.a, lad.a)} ↔ {names.get(lad.b, lad.b)} '{blueprint.rung_text(p, lad, r)}'({r.from_ep}~{r.to_ep}화)"
            for lad, r in blueprint.rungs_in_plot(p, n)]
     return f"\n설계도에서 이 화는 처음 닿는 범위인 사다리 칸이 있습니다: {', '.join(got)}." if got else ""
@@ -4272,7 +4333,7 @@ def blueprint_write_line(p: Project, n: int) -> str:
 
 def blueprint_check_rule(p: Project, n: int) -> str:
     """검수 요구사항 한 줄: n 화 플롯 인물끼리 사다리의 다음 칸을 본문이 앞당겼는지. 다음 칸이 없으면 빈 글."""
-    who, names = set(p.episode(n).plot.characters), _bp_names(p)
+    who, names = set(p.episode(n).plot.characters), blueprint.char_names(p)
     lines = []
     for lad in p.blueprint.ladders:
         nxt = next((r for r in lad.rungs if r.from_ep > n), None)
@@ -4288,14 +4349,10 @@ def blueprint_check_rule(p: Project, n: int) -> str:
             "type 은 플롯, source_episode 는 0, source_quote 는 그 칸 줄입니다.")
 
 
-def _ab_rng(x) -> str:
-    return f"{x.from_ep}화" if x.from_ep == x.to_ep else f"{x.from_ep}~{x.to_ep}화"
-
-
 def ability_board_rule(p: Project, n: int) -> str:
     """스토리보드 요청 끝의 능력 일정 줄 (docs/blueprint/specs/10-ability.md): n 화 플롯 인물이 이 화 범위에 얻기로 한 능력과 인물마다 다음 줄 하나.
     아직 얻지 못한 줄만 본다 (blueprint.got_ep). 줄이 없으면 빈 글."""
-    lines = [f"- 이 화가 얻는 범위({_ab_rng(x)})인 능력: {blueprint.ability_line(p, x)}" for x in blueprint.ability_due(p, n)]
+    lines = [f"- 이 화가 얻는 범위({blueprint.rng_text(x)})인 능력: {blueprint.ability_line(p, x)}" for x in blueprint.ability_due(p, n)]
     lines += [f"- 다음 능력({x.from_ep}화부터)은 이 화에 얻지 않습니다: {blueprint.ability_line(p, x)}" for x in blueprint.ability_next(p, n)]
     if not lines:
         return ""
@@ -4306,7 +4363,7 @@ def ability_board_rule(p: Project, n: int) -> str:
 def ability_write_line(p: Project, n: int) -> str:
     """본문 쓰기 지시문의 능력 일정 한 줄: n 화가 얻는 범위이고 아직 얻지 못한 능력의 이름이 그 화 플롯 · 연출 지시에 나올 때만 (blueprint.ability_in_plot).
     범위 안 모든 화에 넣지 않는다. 다음 줄 · 상한도 넣지 않는다 (앞당김 방지)."""
-    got = [blueprint.ability_line(p, x, _ab_rng(x)) for x in blueprint.ability_in_plot(p, n)]
+    got = [blueprint.ability_line(p, x, blueprint.rng_text(x)) for x in blueprint.ability_in_plot(p, n)]
     return f"\n설계도에서 이 화 플롯의 능력은 얻는 범위 안입니다: {'; '.join(got)}." if got else ""
 
 
@@ -4600,10 +4657,9 @@ hook: 끝맺음 방식 하나 ({" · ".join(REF_DIGEST_HOOKS)}).
 {text}"""
 
 
-def ref_arcs_prompt(rows: list[dict], names: list[str]) -> str:
-    """레퍼런스 원고의 화 카드로 아크 · 부를 나누는 요청 (pipeline.ref_arcs). rows: [{n 차례, label 화 이름, kind, tension, events, ending}].
-    화가 많아 예산(context.BUDGET["ref_arcs"])을 넘으면 모든 화를 첫 사건과 끝 첫 문장으로, 그래도 넘으면 첫 사건만 넣는다
-    (아크는 화를 빠짐없이 덮어야 해서 화를 빼지 않는다)."""
+def ref_cards_fold(rows: list[dict], budget: int) -> tuple[str, list[str]]:
+    """화 카드를 예산(글자)에 맞게 접는다 (접었다는 한 줄, 화마다 한 덩이). 화는 빼지 않는다: 넘으면 모든 화를 첫 사건과
+    끝 첫 문장으로, 그래도 넘으면 첫 사건만 넣는다. rows: [{n 차례, label 화 이름, kind, tension, events, ending}]."""
     def tag(r: dict) -> str:
         name = r.get("label") or f"{r['n']}번째 화"
         return f"## {r['n']}번 · {name} [{r['kind'] or '성격 모름'} · 긴장 {r['tension']}]"
@@ -4614,7 +4670,80 @@ def ref_arcs_prompt(rows: list[dict], names: list[str]) -> str:
         (f"(화가 {len(rows)}개라 화마다 첫 사건만 넣었습니다)\n",
          [f"{tag(r)} {context.first_sentence(r['events'][0] if r['events'] else '', 40)}" for r in rows]),
     ]
-    note, lines = next(((n, x) for n, x in levels if len("\n\n".join(x)) <= context.BUDGET["ref_arcs"]), levels[-1])
+    return next(((n, x) for n, x in levels if len("\n\n".join(x)) <= budget), levels[-1])
+
+
+REF_NOTE_KEEP_OUT = """메모에 넣지 않는 것:
+- 인물 이름, 지명, 세력 이름, 고유한 용어. 인물은 이름 대신 역할로 부릅니다 ('몰락한 가문의 장남', '주인공을 시험하는 스승').
+- 사건 줄거리와 반전. 무슨 일이 일어났는지가 아니라 어떤 구도인지만 적습니다.
+- 원문 문장. 한 구절도 그대로 옮기지 않습니다."""
+
+
+def ref_setup_note_prompt(body: str, mode: str, names: list[str] | None = None, fold: str = "") -> str:
+    """레퍼런스 원고의 설정 메모 요청 (pipeline.ref_setup_note). mode cards: body 는 접은 화 카드, text: body 는 원문.
+    지시가 앞, 재료가 뒤다. 메모는 다른 작품의 설정 도우미가 읽으므로 이름과 줄거리를 빼고 구도만 남긴다 (docs/refs 5-1)."""
+    if mode == "cards":
+        what = "아래는 소설 한 편에서 고른 화들의 화 카드(화마다 사건 · 끝을 줄인 것)입니다."
+        care = ("화 카드에는 인물 이름과 사건이 적혀 있습니다. 이름은 누가 누구인지 가리는 데만 쓰고 메모에는 역할로 바꿔 적습니다. "
+                "사건 줄거리는 옮기지 않고, 그 사건들이 보여 주는 구도만 적습니다.\n"
+                "화 카드는 원문을 화마다 따로 줄인 것이라 세부(누가 했는지, 차례)가 틀릴 수 있습니다. 한 줄의 세부가 아니라 여러 화에 걸쳐 되풀이되는 구도로 판단합니다.")
+        head = "# 화 카드\n" + fold
+    else:
+        what = "아래는 소설 한 편에서 고른 화들의 원문입니다."
+        care = "원문의 이름은 누가 누구인지 가리는 데만 쓰고 메모에는 역할로 바꿔 적습니다. 사건 줄거리는 옮기지 않고 구도만 적습니다."
+        head = "# 원문\n"
+    cast = f"\n# 화 카드의 인물 이름 (메모에 쓰지 않습니다)\n{', '.join(names)}\n" if names else ""
+    return f"""{what} 이 작품의 설정 구도를 다른 작품을 기획하는 작가가 참고할 메모로 요약합니다.
+{care}
+
+적을 것:
+- logline_shape: 로그라인 다섯 칸(누가 · 무엇 때문에 · 무엇을 하려 하나 · 무엇이 막나 · 무엇이 걸렸나)의 꼴 한 문장.
+- world_rules: 세계 규칙의 종류 2~5개 ('힘에 대가가 있다', '신분이 이동을 막는다').
+- cast: 인물 배치 3~7개. 한 줄에 역할 · 원형 · 이야기에서 하는 일.
+- relations: 관계 구도 2~5개 ('경쟁자가 뒤에 동료가 된다', '삼각 구도').
+- conflict: 갈등 축 한두 문장.
+- tone: 톤 한 문장.
+
+{REF_NOTE_KEEP_OUT}
+재료에 드러나지 않은 것은 짓지 않습니다. 드러나지 않은 칸은 짧게 적거나 목록을 줄입니다.
+{cast}
+{head}{body}"""
+
+
+def ref_beats_note_prompt(body: str, mode: str, names: list[str] | None = None, fold: str = "") -> str:
+    """레퍼런스 원고의 박자 메모 요청 (pipeline.ref_beats_note). mode cards: body 는 접은 화 카드, text: body 는 원문.
+    메모는 다른 작품의 집필 · 플롯 요청이 읽으므로 무슨 일이 일어났는지가 아니라 화를 굴리는 꼴만 남긴다 (docs/refs 5장)."""
+    if mode == "cards":
+        what = "아래는 소설 한 편에서 고른 화들의 화 카드(화마다 사건 · 끝 · 성격 · 긴장을 줄인 것)입니다."
+        care = ("화 카드에는 인물 이름과 사건이 적혀 있습니다. 메모에는 이름을 쓰지 않고, 사건은 그 대목이 화 안에서 하는 일로 바꿔 적습니다.\n"
+                "화 카드는 원문을 화마다 따로 줄인 것이라 세부(누가 했는지, 차례)가 틀릴 수 있습니다. 한 줄의 세부가 아니라 여러 화에 걸쳐 되풀이되는 꼴로 판단합니다.\n"
+                "긴장 숫자는 화마다 그 화 안에서 매긴 값이라, 오르내리는 흐름만 봅니다.")
+        head = "# 화 카드\n" + fold
+    else:
+        what = "아래는 소설 한 편에서 고른 화들의 원문입니다."
+        care = "메모에는 이름을 쓰지 않고, 사건은 그 대목이 화 안에서 하는 일로 바꿔 적습니다. 장면이 바뀌는 곳을 세어 한 화의 장면 수를 봅니다."
+        head = "# 원문\n"
+    cast = f"\n# 화 카드의 인물 이름 (메모에 쓰지 않습니다)\n{', '.join(names)}\n" if names else ""
+    return f"""{what} 이 화들이 한 화를 어떻게 굴리는지(전개 박자)를 다른 작품을 쓰는 작가가 참고할 메모로 요약합니다.
+{care}
+
+적을 것:
+- pattern: 한 화가 흘러가는 꼴 한두 문장 (어디서 열고 무엇이 걸리고 어떻게 끊는지). 장면 수를 알 수 있으면 함께 적습니다.
+- beats: 화 안의 박자 3~7개, 차례대로. 한 줄에 박자 하나, 무슨 일인지가 아니라 그 대목이 하는 일로 적습니다 ('불편한 재회로 연다', '주도권이 넘어간다', '작은 양보를 받아 낸다').
+- hooks: 화 끝을 끊는 방식 1~4개 ('결정 직전에 끊는다', '새 인물의 등장으로 끊는다').
+- pacing: 여러 화에 걸친 완급 한두 문장 (느슨한 화와 팽팽한 화가 어떻게 번갈아 오는지).
+
+{REF_NOTE_KEEP_OUT}
+재료에 드러나지 않은 것은 짓지 않습니다.
+{cast}
+{head}{body}"""
+
+
+def ref_arcs_prompt(rows: list[dict], names: list[str]) -> str:
+    """레퍼런스 원고의 화 카드로 아크 · 부를 나누는 요청 (pipeline.ref_arcs). rows: [{n 차례, label 화 이름, kind, tension, events, ending}].
+    화가 많아 예산(context.BUDGET["ref_arcs"])을 넘으면 모든 화를 첫 사건과 끝 첫 문장으로, 그래도 넘으면 첫 사건만 넣는다
+    (아크는 화를 빠짐없이 덮어야 해서 화를 빼지 않는다)."""
+    note, lines = ref_cards_fold(rows, context.BUDGET["ref_arcs"])
     first, last = rows[0]["n"], rows[-1]["n"]
     return ("# 인물\n" + (", ".join(names) or "없음") + "\n\n# 화 카드\n" + note + "\n\n".join(lines) + f"""
 
@@ -6028,6 +6157,7 @@ _BLOCK_PIECE: dict[str, tuple[tuple[str, ...], str, str]] = {
     "world": (("continuity",), "static_parts", ""),
     "style": (("style",), "style_block", ""),
     "characters": (("voice",), "static_parts", "주역과 늘 넣는 인물 (static_characters)"),
+    "ref_notes": (("length",), "ref_beats_part", "작가가 넣은 박자 메모(쓰임 집필)를 켰을 때"),
     "structure": (("continuity",), "context_parts", ""),
     "story_past": (("continuity",), "story_parts", "장편: 끝난 부 · 아크가 있을 때"),
     "position": (("continuity",), "context_parts", ""),
@@ -6304,6 +6434,8 @@ KINDS: dict[str, Kind] = {
     "rev_arcs": Kind("역설계 · 아크", "실험", "", "SYSTEM_REVERSE", "rev_arcs_prompt", "RevArcSet", "pipeline.reverse_arcs"),
     "ref_arcs": Kind("레퍼런스 · 아크", "실험", "", "SYSTEM_REVERSE", "ref_arcs_prompt", "RevArcSet", "pipeline.ref_arcs"),
     "ref_digest": Kind("레퍼런스 · 화 카드", "실험", "", "SYSTEM_REVERSE", "ref_digest_prompt", "RefDigest", "pipeline.ref_digest"),
+    "ref_setup_note": Kind("레퍼런스 · 설정 메모", "실험", "plan", "SYSTEM_REVERSE", "ref_setup_note_prompt", "RefSetupDraft", "pipeline.ref_setup_note"),
+    "ref_beats_note": Kind("레퍼런스 · 박자 메모", "실험", "plan", "SYSTEM_REVERSE", "ref_beats_note_prompt", "RefBeatsDraft", "pipeline.ref_beats_note"),
     "research": Kind("연구 화면 샘플 (기본 시스템)", "실험", "", "SYSTEM_WRITER", "research.sample", "", "routes.research"),
 }
 

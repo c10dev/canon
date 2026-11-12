@@ -14,6 +14,16 @@ from .schema import Ability, AbilityPlan, ContactLadder, ContactReach, ContactRu
 Ranged = Milestone | ContactRung | AbilityPlan
 
 
+def char_names(p: Project) -> dict[str, str]:
+    """인물 id → 보이는 이름 (이름이 비면 id). 경고 · 프롬프트 줄이 같이 쓴다."""
+    return {c.id: c.name or c.id for c in p.characters}
+
+
+def last_done(p: Project) -> int:
+    """마지막으로 반영(finalized)한 화. 없으면 0. 경고 · 능력 실제 대조 · 설계도 보기 API 가 같이 쓴다."""
+    return max((e.plot.number for e in p.episodes if e.status == "finalized"), default=0)
+
+
 def _ranged(p: Project) -> Iterator[Ranged]:
     yield from p.blueprint.milestones
     for lad in p.blueprint.ladders:
@@ -70,7 +80,7 @@ def check(p: Project, before: Project | None = None) -> None:
     before(디스크 것)에서 이미 끊겨 있던 인물 · 장소 참조는 막지 않는다 (다른 라우트가 지운 옛 데이터)."""
     from .stage import ACTS, PARTS  # stage 는 board · cast 를 불러 renumber 와 돌지 않게 늦게 부른다
     fill_ids(p)
-    names = {c.id: c.name or c.id for c in p.characters}
+    names = char_names(p)
     places = {el.id: el for el in p.elements}
     old = _broken(before) if before else set()
 
@@ -173,7 +183,7 @@ def move(p: Project, f: Callable[[int], int], gone: int = 0) -> int:
 def remap(p: Project, remap_one: Callable[[int], int]) -> list[str]:
     """재구성(reshape)의 화 지도로 옮긴다. 옮기지 못한 범위는 비우고(0) 그 줄을 알림 글로 돌려준다."""
     lost = []
-    names = {c.id: c.name or c.id for c in p.characters}
+    names = char_names(p)
     for x in _ranged(p):
         if not x.from_ep:
             continue
@@ -193,8 +203,8 @@ def warning_rows(p: Project) -> list[tuple[str, str, str]]:
     """관계 이정표 경고 (막지 않음, docs/blueprint/specs/02-milestone-warn.md): (보는 인물 id, 보이는 인물 id, 글).
     단계와 화 범위를 모두 적은 이정표만 본다.
     이웃한 두 이정표 사이 칸이 모자람, 범위가 겹치는데 단계가 다름, 지금 단계에서 다음 이정표까지 칸이 모자람."""
-    names = {c.id: c.name or c.id for c in p.characters}
-    last = max((e.plot.number for e in p.episodes if e.status == "finalized"), default=0)
+    names = char_names(p)
+    last = last_done(p)
     by_dir: dict[tuple[str, str], list[Milestone]] = {}
     for m in p.blueprint.milestones:
         if m.stage and m.from_ep > 0:
@@ -272,7 +282,7 @@ def crowd_pairs(fs: list[First]) -> list[tuple[First, First]]:
 def crowd_rows(p: Project, fs: list[First], keep: Callable[[First, First], bool] | None = None) -> list[tuple[str, str, str]]:
     """몰림 글 (두 쌍 키, 글). 제안 카드(11b)에만 쓴다. 늘 보이는 warning_rows 에는 넣지 않는다(작가가 일부러 둔 동시 장면이 있어서다).
     같은 두 쌍 · 같은 축 · 같은 값은 한 줄로 줄인다. keep 이 있으면 그 두 줄이 참인 몰림만 글로 쓴다."""
-    names = {c.id: c.name or c.id for c in p.characters}
+    names = char_names(p)
 
     def who(f: First) -> str:
         s, t = (names.get(x, x) for x in f.who)
@@ -284,14 +294,14 @@ def crowd_rows(p: Project, fs: list[First], keep: Callable[[First, First], bool]
             continue
         seen.add(k)
         what = f"{x.value} 단계" if x.axis == "단계" else f"{x.value} 겹"
-        out.append((x.pair, y.pair, f"{who(x)}({_rng(x)})와 {who(y)}({_rng(y)})가 같은 화 범위에 {what}에 처음 닿아요."))
+        out.append((x.pair, y.pair, f"{who(x)}({rng_text(x)})와 {who(y)}({rng_text(y)})가 같은 화 범위에 {what}에 처음 닿아요."))
     return out
 
 
 def rung_text(p: Project, lad: ContactLadder, r: ContactRung) -> str:
     """사다리 칸 한 줄: '2. 손목 잡기 (맨살 · 오른 손목 · 잡다 · 신도림역 · 지훈 주도 · 메모)'. 부위 · 동작은 장면 연출의 이름으로."""
     from .stage import ACTS, PARTS
-    names = {c.id: c.name or c.id for c in p.characters}
+    names = char_names(p)
     places = {el.id: el.name for el in p.elements}
     bits = [r.layer, ", ".join(PARTS[x].label if x in PARTS else x for x in r.parts), ", ".join(ACTS[x].label if x in ACTS else x for x in r.acts),
             ", ".join(places.get(x, x) for x in r.places), f"{names.get(r.lead, r.lead)} 주도" if r.lead else "", r.note]
@@ -299,14 +309,15 @@ def rung_text(p: Project, lad: ContactLadder, r: ContactRung) -> str:
     return f"{lad.rungs.index(r) + 1}. {r.label or '이름 없는 칸'}" + (f" ({detail})" if detail else "")
 
 
-def _rng(x: Ranged) -> str:
+def rng_text(x: Ranged) -> str:
+    """화 범위 글: '5화' · '5~8화'. 프롬프트 줄(prompts)도 이 글을 쓴다."""
     return f"{x.from_ep}화" if x.from_ep == x.to_ep else f"{x.from_ep}~{x.to_ep}화"
 
 
 def plan_lines(p: Project, ids: set[str] | None, start: int, end: int) -> list[str]:
     """기획 프롬프트의 설계도 줄 (docs/blueprint/specs/04-plan-prompt.md). 화 범위를 적은 줄만, start~end 에 걸친 것과 그 뒤 첫 것.
     ids 가 있으면 두 인물이 모두 ids 에 든 줄만. 이정표는 방향마다, 사다리는 쌍마다 지금 칸 · 이 범위에서 처음 닿는 칸 · 다음 칸."""
-    names = {c.id: c.name or c.id for c in p.characters}
+    names = char_names(p)
 
     def inside(a: str, b: str) -> bool:
         return ids is None or (a in ids and b in ids)
@@ -323,7 +334,7 @@ def plan_lines(p: Project, ids: set[str] | None, start: int, end: int) -> list[s
         for m in here + ([after] if after else []):
             what = " · ".join(x for x in (m.stage, m.label) if x) or "이정표"
             tail = f" (계기: {m.trigger})" if m.trigger else ""
-            out.append(f"- {who} {_rng(m)}{' (이 범위 뒤)' if m is after else ''}: {what}{tail}")
+            out.append(f"- {who} {rng_text(m)}{' (이 범위 뒤)' if m is after else ''}: {what}{tail}")
     for lad in p.blueprint.ladders:
         if not inside(lad.a, lad.b):
             continue
@@ -333,10 +344,10 @@ def plan_lines(p: Project, ids: set[str] | None, start: int, end: int) -> list[s
             out.append(f"- {who} 지금까지 닿은 칸: {rung_text(p, lad, now)}")
         for r in lad.rungs:
             if start <= r.from_ep <= end:
-                out.append(f"- {who} {_rng(r)}에 처음 닿는 칸: {rung_text(p, lad, r)}")
+                out.append(f"- {who} {rng_text(r)}에 처음 닿는 칸: {rung_text(p, lad, r)}")
         nxt = next((r for r in lad.rungs if r.from_ep > end), None)
         if nxt:
-            out.append(f"- {who} 다음 칸 (이 범위 뒤 {_rng(nxt)}): {rung_text(p, lad, nxt)}")
+            out.append(f"- {who} 다음 칸 (이 범위 뒤 {rng_text(nxt)}): {rung_text(p, lad, nxt)}")
     return out
 
 
@@ -457,7 +468,7 @@ def stage_before(p: Project, s: str, t: str, n: int) -> str:
 
 def whole_have_lines(p: Project, pairs: list[tuple[str, str]], start: int, end: int) -> list[str]:
     """작품 전체 짜기 요청의 '이미 적은 설계도' 줄: 쌍마다 범위 앞 단계(방향마다 한 줄, start-1 화까지)와 기획 줄(plan_lines)."""
-    names = {c.id: c.name or c.id for c in p.characters}
+    names = char_names(p)
     out = []
     for a, b in pairs:
         if start > 1:
@@ -549,7 +560,7 @@ def proposal_mesh(p: Project, prop) -> list[tuple[str, str]]:
     """능력 맞물림 경고 (쌍 키, 글, 막지 않음): 이정표 라벨 · 계기, 사다리 칸 이름 · 메모에 능력 이름(도감의 다른 이름 포함)이 나오는데
     그 능력의 첫 화가 그 줄의 첫 화보다 뒤다. 한쪽이라도 제안 줄인 것만 알린다."""
     ms, lads, plans = _with_proposal(p, prop)
-    names = {c.id: c.name or c.id for c in p.characters}
+    names = char_names(p)
     first: dict[str, tuple[int, AbilityPlan, list[str]]] = {}
     for x in plans:
         if x.from_ep <= 0:
@@ -572,7 +583,7 @@ def proposal_mesh(p: Project, prop) -> list[tuple[str, str]]:
         body = _squash(text)
         for got, x, words in first.values():
             if got > ep and any(_squash(w) in body for w in words) and (rid.startswith(NEW) or x.id.startswith(NEW)):
-                out.append((key, f"{what}({ep}화~)에 능력 '{x.ability}' 이름이 나오는데 능력 일정은 {_rng(x)}에 얻어요."))
+                out.append((key, f"{what}({ep}화~)에 능력 '{x.ability}' 이름이 나오는데 능력 일정은 {rng_text(x)}에 얻어요."))
     return out
 
 
@@ -613,7 +624,7 @@ def state_rule(p: Project, n: int) -> str:
     picks = open_rungs(p, who)
     if not picks:
         return ""
-    names = {c.id: c.name or c.id for c in p.characters}
+    names = char_names(p)
     lines = "\n".join(f"  {r.id}: {names.get(lad.a, lad.a)}({lad.a}) ↔ {names.get(lad.b, lad.b)}({lad.b}) {rung_text(p, lad, r)}" for lad, r in picks)
     return ("\n- contacts 에는 이번 화 본문에서 두 인물이 아래 접촉 사다리 칸에 처음 닿았을 때만 그 칸 id(rung)와 두 인물 id(a, b), 본문 문장 그대로(quote)를 적습니다. "
             "목록에 없는 칸은 적지 않고, 닿지 않았으면 비웁니다.\n" + lines)
@@ -716,15 +727,13 @@ def tracked(p: Project, cid: str) -> bool:
     return any(s.character_id == cid and s.stats for s in p.states) or any(r.character_id == cid for r in p.stat_log)
 
 
-def _last_done(p: Project) -> int:
-    return max((e.plot.number for e in p.episodes if e.status == "finalized"), default=0)
 
 
 def ability_states(p: Project) -> list[dict]:
     """일정 줄마다 계획 대 실제: [{id, got, state, linked}]. got 은 얻은 화(없으면 None), linked 는 도감 항목이 있는지.
     state: 얻음(범위 안) · 앞섬(범위보다 먼저) · 늦음(범위 뒤) · 지남(범위 끝 화까지 반영했는데 기록에 없음) · 예정 · 미정(화 범위 없음)
     · 모름(범위 끝 화까지 반영했지만 그 인물에 상태창이 없어 셀 수 없음, tracked)."""
-    last = _last_done(p)
+    last = last_done(p)
     out = []
     for x in p.blueprint.ability_plans:
         got = got_ep(p, x)
@@ -740,18 +749,18 @@ def ability_states(p: Project) -> list[dict]:
 
 def ability_warning_rows(p: Project) -> list[tuple[str, str]]:
     """능력 일정 경고 (막지 않음): (인물 id, 글). 범위를 지나도록 얻지 못함, 범위보다 먼저 · 늦게 얻음, 도감에 없는 이름."""
-    names = {c.id: c.name or c.id for c in p.characters}
-    last = _last_done(p)
+    names = char_names(p)
+    last = last_done(p)
     out = []
     for x, s in zip(p.blueprint.ability_plans, ability_states(p)):
         what = f"능력 일정 {names.get(x.character, x.character)}의 {ability_text(x)}"
         when = "시작 때부터 가지고 있어요" if s["got"] == 0 else f"{s['got']}화에 얻었어요"
         if s["state"] == "지남":
-            out.append((x.character, f"{what}: {_rng(x)}에 얻기로 했는데 {last}화까지 반영한 상태창 기록에 없어요."))
+            out.append((x.character, f"{what}: {rng_text(x)}에 얻기로 했는데 {last}화까지 반영한 상태창 기록에 없어요."))
         elif s["state"] == "앞섬":
-            out.append((x.character, f"{what}: {when}. 설계도는 {_rng(x)}에 얻기로 했어요."))
+            out.append((x.character, f"{what}: {when}. 설계도는 {rng_text(x)}에 얻기로 했어요."))
         elif s["state"] == "늦음":
-            out.append((x.character, f"{what}: {when}. 설계도는 {_rng(x)}까지 얻기로 했어요."))
+            out.append((x.character, f"{what}: {when}. 설계도는 {rng_text(x)}까지 얻기로 했어요."))
         if not s["linked"]:
             out.append((x.character, f"{what}: '{x.ability}'{logline.josa(x.ability, '은', '는')} 스킬 도감에 없는 이름이에요. 도감에 항목을 만들면 효과 · 대가가 프롬프트에 들어가요."))
     return out
@@ -760,7 +769,7 @@ def ability_warning_rows(p: Project) -> list[tuple[str, str]]:
 def _open_plans(p: Project, ids: set[str] | None) -> list[AbilityPlan]:
     """화 범위를 적었고 아직 얻지 못한 줄 (ids 가 있으면 그 인물만), 처음 화 차례.
     상태창이 없는 인물(tracked 아님)은 얻었는지 알 수 없으므로, 범위 끝 화까지 반영한 줄은 얻은 것으로 보고 뺀다 (같은 능력을 또 얻게 하지 않는다)."""
-    last = _last_done(p)
+    last = last_done(p)
     rows = [x for x in p.blueprint.ability_plans if x.from_ep > 0 and (ids is None or x.character in ids) and got_ep(p, x) is None
             and (x.to_ep > last or tracked(p, x.character))]
     return sorted(rows, key=lambda x: (x.from_ep, x.to_ep))
@@ -777,17 +786,17 @@ def ability_plan_lines(p: Project, ids: set[str] | None, start: int, end: int) -
     """기획 프롬프트의 능력 일정 줄: 아직 얻지 못한 줄 가운데 start 앞의 것, start~end 에 걸친 것, 인물마다 그 뒤 첫 것.
     start 앞의 줄은 범위 끝 화까지 반영했으면 '얻지 못함', 아직 반영하지 않은 화면 '앞 화에서 얻을 예정'으로 적는다 (같은 능력을 이 범위에 또 넣지 않게)."""
     out, after = [], set()
-    last = _last_done(p)
+    last = last_done(p)
     for x in _open_plans(p, ids):
         if x.to_ep < start and x.to_ep <= last:
-            out.append(f"- {_rng(x)}에 얻기로 했으나 아직 얻지 못함: {ability_line(p, x)}")
+            out.append(f"- {rng_text(x)}에 얻기로 했으나 아직 얻지 못함: {ability_line(p, x)}")
         elif x.to_ep < start:
-            out.append(f"- 앞 화({_rng(x)})에서 얻을 예정: {ability_line(p, x)}")
+            out.append(f"- 앞 화({rng_text(x)})에서 얻을 예정: {ability_line(p, x)}")
         elif x.from_ep <= end:
-            out.append(f"- {_rng(x)}에 얻음: {ability_line(p, x)}")
+            out.append(f"- {rng_text(x)}에 얻음: {ability_line(p, x)}")
         elif x.character not in after:
             after.add(x.character)
-            out.append(f"- {_rng(x)}에 얻음 (이 범위 뒤): {ability_line(p, x)}")
+            out.append(f"- {rng_text(x)}에 얻음 (이 범위 뒤): {ability_line(p, x)}")
     return out
 
 
@@ -875,7 +884,7 @@ def ability_state_rule(p: Project, n: int) -> str:
     rows = [x for x in _open_plans(p, _plot_cast(p, n)) if x.from_ep <= n]
     if not rows:
         return ""
-    names = {c.id: c.name or c.id for c in p.characters}
+    names = char_names(p)
     return ("\n- 설계도의 능력 일정에 아래 능력이 있습니다. 이번 화 본문에서 그 인물이 이 능력을 얻었거나 이 등급에 올랐을 때만 stats 의 목록 항목에 이 이름 그대로 적습니다. "
             "본문에 없으면 적지 않습니다: " + "; ".join(f"{names.get(x.character, x.character)}({x.character}) {ability_text(x)}" for x in rows) + ".")
 
@@ -886,7 +895,7 @@ def ability_delta_warnings(p: Project, d: StateDelta) -> list[tuple[str, str]]:
     if not rows:
         return []
     after = statwin.after_delta(p, d)
-    names = {c.id: c.name or c.id for c in p.characters}
+    names = char_names(p)
     lists = abilities.list_stats(p)
     out = []
     for x in rows:
@@ -895,7 +904,7 @@ def ability_delta_warnings(p: Project, d: StateDelta) -> list[tuple[str, str]]:
         hit = any(abilities.key(piece) in ks and _grade_ok(a, x.grade, abilities.split(piece)[1])
                   for name, piece in abilities.list_pieces(p, after.get(x.character, {}), lists) if not a.stat or name == a.stat)
         if hit:
-            out.append((f"{names.get(x.character, x.character)}의 {ability_text(x)}: 설계도는 {_rng(x)}에 얻기로 했어요. "
+            out.append((f"{names.get(x.character, x.character)}의 {ability_text(x)}: 설계도는 {rng_text(x)}에 얻기로 했어요. "
                         f"이 변경안을 반영하면 {d.episode}화에 얻어요.", x.character))
     return out
 
@@ -986,14 +995,14 @@ def ability_have_lines(p: Project, ids: set[str] | None, start: int = 0, end: in
         return 0 if not start or (x.from_ep <= end and x.to_ep >= start) else min(abs(x.from_ep - end), abs(start - x.to_ep))
     rows = [x for x in p.blueprint.ability_plans if ids is None or x.character in ids]
     rows.sort(key=lambda x: (x.from_ep <= 0, far(x), x.from_ep, x.to_ep))
-    return [f"- {ability_line(p, x, _rng(x) if x.from_ep > 0 else '화 정하지 않음')}" for x in rows]
+    return [f"- {ability_line(p, x, rng_text(x) if x.from_ep > 0 else '화 정하지 않음')}" for x in rows]
 
 
 def ability_owned_lines(p: Project, ids: set[str] | None) -> list[str]:
     """AI 제안 요청의 '지금 상태창의 능력' 줄: ids 인물이 지금 가진 목록 항목 조각 (abilities.list_pieces). 이름을 이 조각 그대로 쓰게 하려는 재료다
     (실제 얻은 화 got_ep 는 조각 이름으로 잇는다)."""
     lists = abilities.list_stats(p)
-    names = {c.id: c.name or c.id for c in p.characters}
+    names = char_names(p)
     out = []
     for st in p.states:
         if ids is not None and st.character_id not in ids:
