@@ -136,6 +136,8 @@
 - 공통 동작(`actions` 의 저장 · 되돌리기 · 작품 관리)
 - 펼침 메뉴(`menuBtn`, 열린 메뉴 `S.popMenu`, Esc · 바깥 누르기로 닫기)와 `#app` 밖 대화상자(`showDialog`)
 - 물음표 툴팁 `help(text)`: 늘 보일 필요 없는 설명 · 판정 기준을 누르면 펼친다(디자인 시스템 Help)
+- 표지의 구간별 빈도 칸 `zoneCell(z)`(`app.js`): 값 셋을 작은 글로, 구간 사이 차이가 클 때만 칩(`zoneShift`: 뒤로 갈수록 줄어요 · 늘어요 · 구간마다 달라요)을 붙인다
+- 강조 문턱은 합 `ZONE_COUNT`(100)회 이상이고 가장 잦은 구간이 가장 드문 구간의 `ZONE_SHIFT`(2)배 이상(실측 2026-11-12: 원고 7편 × 표지 46개 가운데 100회 넘게 나온 170쌍에서 실제 구간 18%, 화를 번갈아 나눈 우연 기준 1.4%)
 - `help` 는 span · button 만 써서 `<p>` · `<label>` · 제목 안에 넣어도 된다. 누르면 그 툴팁만 열리고 바깥 누르기 · Esc 로 닫힌다
 - `help` 버튼 누르기는 캡처 단계에서 기본 동작을 막는다. `<label>` 안에 있어도 체크박스 · 입력칸을 건드리지 않는다
 - `input(label, path, { help })` 은 입력칸 이름 뒤에 `help` 를 붙인다(`hint` 는 늘 보이는 글)
@@ -704,6 +706,7 @@
 - 2단계 문체 · 문체 라이브러리
   - 왼쪽 목차 `styleToc` · 목차 줄 `styleTocItems` + 카드 한 열
   - 프로필 카드 `pfCard`: 읽는 모양 `pfRead` 이 기본
+  - 문체 버릇 표는 라이브러리 항목에 구간별 빈도(`S.lib.marker_zones`)가 있는 표지가 있을 때만 '앞 · 가운데 · 뒤' 칸을 더한다(`zoneCell`). 작품 문체 화면과 고치는 칸에는 없다
   - 읽는 문체 칸은 구역(`.sec.pf-sec`), 고치는 칸은 카드(`.card.pf-sec.editing`)다. 맨 위 라이브러리 · 지표 줄과 닫힌 원문 칸도 구역이다
   - '고치기'로 그 카드만 `pfEdit`(기억 `S.styleOpen`, 빈 카드 `styleCardEmpty` 는 바로 고치는 칸)
   - 서술 카드의 읽는 모양은 값이 있는 줄만 보이고, 빈 줄은 '빈 칸 n개 채우기' 버튼 하나로 묶는다(`foldBlank`)
@@ -731,6 +734,7 @@
   - 라이브러리 항목도 같은 카드
   - 목차 틀은 공용 `outline.js`(`styleToc`)
   - `tests/test_style_js.py`
+- 분석 결과의 구간별 빈도(`zones`)는 `S.libDraft.zones` 로 들고 있다가 '이 결과로 바꾸기'에서 `S.lib.marker_zones` 로 옮기고 저장(`libSave`)할 때 보낸다
 - 문체 라이브러리 분석도 작업(`lib_style`, project `.styles`, `POST /api/styles/analyze/job` 의 `lib`)이다. 결과(`profile`, `lib`)는 그 항목 화면 맨 위 제안 카드(`libDraftCard`, `S.libDraft`)로 오고 새 항목은 저장하면 그 id 로 옮긴다. 이 탭이 열려 있는 동안 남는다
 - 레퍼런스 원고에서 온 새 항목은 분석 요청에 `ref` · `ref_orders` 를 실어, 서버가 표지 빈도를 고른 화 전체에서 센다. 작업 결과의 `counted` 는 센 글자 수다
 - 그 항목의 원문 칸 아래에 고루 뽑은 조각 목록을 접어 보인다(`S.lib.ref_pieces`, `refPieceLines`)

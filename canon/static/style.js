@@ -191,8 +191,11 @@ function pfRead(id, prof, root, hot, base = 'style') {
         ${(prof.banned_phrases || []).length ? `<div class="row">${prof.banned_phrases.map((x) => `<span class="chip pf-quote">${esc(x)}</span>`).join('')}</div>` : ''}</div>${root ? '' : heatWordsRead()}`;
   }
   if (id === 'markers') {
-    return `<table class="pf-table"><thead><tr><th scope="col">버릇</th><th scope="col">쓰임</th><th scope="col" class="num">1,000자당</th></tr></thead>
-      <tbody>${prof.markers.map((m) => `<tr><td class="pf-quote">${esc(m.text) || pfNone}</td><td>${esc(m.note)}</td><td class="num">${Number(m.per_1k || 0).toFixed(1)}</td></tr>`).join('')}</tbody></table>`;
+    // 구간별 빈도는 라이브러리 항목에만 있다 (StyleEntry.marker_zones). 값이 있는 표지가 하나라도 있을 때만 칸을 더한다 (zoneCell, app.js)
+    const zones = new Map((root && S.lib ? S.lib.marker_zones || [] : []).map((z) => [z.text, z]));
+    const zoned = prof.markers.some((m) => zones.has(m.text));
+    return `<table class="pf-table"><thead><tr><th scope="col">버릇</th><th scope="col">쓰임</th><th scope="col" class="num">1,000자당</th>${zoned ? '<th scope="col" class="num">앞 · 가운데 · 뒤</th>' : ''}</tr></thead>
+      <tbody>${prof.markers.map((m) => `<tr><td class="pf-quote">${esc(m.text) || pfNone}</td><td>${esc(m.note)}</td><td class="num">${Number(m.per_1k || 0).toFixed(1)}</td>${zoned ? `<td class="num">${zoneCell(zones.get(m.text))}</td>` : ''}</tr>`).join('')}</tbody></table>`;
   }
   if (id === 'devices') {
     // 마지막으로 쓴 화는 집필 화면 배지와 같은 규칙 (marks.js deviceLast, metrics.device_last)
@@ -576,7 +579,7 @@ const LIB_JOBS = '.styles';  // 문체 라이브러리 분석 작업의 project 
 function libStyleResult(j) {
   if (j.status !== 'done' || !j.result || !j.result.profile) return;
   const lib = j.result.lib && j.result.lib !== 'new' ? j.result.lib : (S.libJobFor[j.id] || 'new');  // 새 항목을 그사이 저장했으면 libSave 가 옮긴 id (JOB_LINK 와 같은 차례)
-  S.libDraft = { lib, profile: j.result.profile, job: j.id };  // 항목은 서버가 작업에 실은 것(다른 탭에서 시작해도 맞다)
+  S.libDraft = { lib, profile: j.result.profile, job: j.id, zones: j.result.zones || [] };  // zones: 표지의 구간별 빈도 (레퍼런스 원고에서 분석했을 때만)  // 항목은 서버가 작업에 실은 것(다른 탭에서 시작해도 맞다)
 }
 
 /** 이 항목에 온 분석 결과(S.libDraft) 카드. 작품 문체의 styleDraftCard 와 같은 모양 */
@@ -849,6 +852,7 @@ Object.assign(actions, {
     if (has && !(await askConfirm('분석 결과로 지금 문체를 바꿀까요? 저장 전까지는 되돌릴 수 있어요.', { ok: '바꾸기' }))) return;
     if (S.libDraft !== d) { render(); return toast('묻는 사이 새 분석 결과가 도착했어요. 카드를 다시 확인하세요'); }
     S.lib.profile = d.profile;
+    S.lib.marker_zones = d.zones || [];  // 저장할 때 함께 보낸다 (libSave). 서버는 프로필에 있는 표지 것만 남긴다
     S.libDraft = null;
     S.libDirty = true;
     S.focusTarget = '#app main h1';
@@ -864,7 +868,7 @@ Object.assign(actions, {
   async libSave() {
     if (!S.lib.name.trim()) return toast('문체 이름을 입력하세요', true);
     const body = { name: S.lib.name, source: S.lib.source, notes: S.lib.notes, sample: S.lib.sample, profile: S.lib.profile, note: S.libNote || '',
-      ref: S.lib.ref || '', ref_eps: S.lib.ref_eps || '' };  // 레퍼런스 원고에서 가져온 원문이면 그 원고의 '만든 것'에 남는다
+      ref: S.lib.ref || '', ref_eps: S.lib.ref_eps || '', marker_zones: S.lib.marker_zones || [] };  // 레퍼런스 원고에서 가져온 원문이면 그 원고의 '만든 것'에 남는다
     await run('저장하는 중', async () => {
       const isNew = !S.lib.id;
       S.lib = isNew ? await api('POST', '/styles', body) : await api('PUT', `/styles/${S.lib.id}`, body);

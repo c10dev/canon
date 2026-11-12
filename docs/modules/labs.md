@@ -269,6 +269,10 @@
 - 조각마다 큰따옴표의 짝을 맞춘다(`_even`): 잘린 조각은 남은 따옴표 쪽을 잘라 내고, 그래도 홀수면 그 문단을 뺀다. 따옴표 하나가 남으면 `metrics` 의 대사 재기가 그 뒤 글 전체를 뒤집어 센다
 - 2026-11-12 실측: 짝을 맞추기 전 흩은 표본의 대사 비율이 0.61(화별 평균 0.27)로 재졌고, 맞춘 뒤 0.24 가 됐다
 - 돌려주는 값: 보낼 글 `text` · 조각 목록 `pieces`(차례 · 이름 · 부분 · 글자 수) · 흩어 뽑았는지 `spread` · 고른 화의 글자 수 `chars` · 조각을 뽑은 화 수 `episodes`
+- 구간별 표지 빈도 `zone_rates(texts, markers)`(2026-11-12): 화를 `spread` 와 같게 `ZONES` 등분해 표지마다 구간의 1,000자당 횟수 `rates`(소수 넷째 자리까지) 와 횟수 `counts` 를 센다(`metrics.marker_count`)
+- 화가 `ZONES` 보다 적거나 `ZONE_MIN`(1만 자)보다 짧은 구간이 있으면 빈 목록을 준다
+- 구간별 빈도는 보기만 한다. 모델 응답 형식(`StyleProfile` · `StyleMarker`) 밖인 `StyleEntry.marker_zones` · `RevStyle.marker_zones`(`MarkerZones`)에 둬서 집필 프롬프트와 `metrics.marker_warnings` 로 가지 않는다
+- `zone_rates` 를 부르는 곳은 문체 라이브러리 분석 작업(`web.py`, `ref` · `ref_orders` 가 올 때)과 `revlab.run_style`
 - 부르는 곳은 `refs.sample` 과 `revlab.style_spread`(역설계 실험의 문체 표본). 화면 이름 `PART_NAMES` 는 `static/refs.js` 의 `REF_PART` 와 같다
 - 시험 `tests/test_refsample.py`
 
@@ -349,6 +353,7 @@
 - 문체 표본 `style_spread`(2026-11-12): 원문이 `STYLE_CHARS`(3만 자)를 넘으면 앞에서 자르지 않고 실험의 화 전체에서 고루 뽑는다(`refsample.spread`). 글만 필요하면 `style_sample`
 - 실험 화에는 화 카드가 없어 화의 대사 몫(`refsample._talk`, 따옴표 안 글자 비율)으로 화를 고른다. 레퍼런스 원고에서 온 화의 화 카드 성격은 아직 넘기지 않는다
 - `run_style` 은 표지 빈도와 장치 단서를 원문 전체 `style_corpus` 에서 세고 거른다(`analyze_style` 의 `corpus`). 모델은 표본만 읽는다
+- `run_style` 은 거른 표지의 구간별 빈도를 `RevStyle.marker_zones` 에 남긴다(`refsample.zone_rates`, 실험 화를 앞 · 가운데 · 뒤로). 화면 값 `view` 의 `style_zones`, `style_view` 의 `zones`. `to_library` 가 라이브러리 항목으로 옮긴다
 - `RevStyle` 은 표본 방식 `sampling`('spread', 빈 값은 앞 3만 자만 쓴 옛 프로필) · 뽑은 조각 `pieces`(`RevPiece`: 화 번호 · 부분 · 글자 수) · 표지를 센 글자 수 `counted` 를 남긴다
 - 문체 프로필 기록(`RevLab.styles` · `style_id`, 더하기 `add_style`, 같은 프로필이면 더하지 않고 고름)
 - 기록 상한 `STYLE_KEEP`(넘치면 지금 프로필과 판이 가리키는 프로필을 빼고 오래된 것부터 지움, 지울 것이 없으면 `check_style_room` 이 AI 를 부르기 전에 막음)
@@ -621,6 +626,7 @@
 - 단계 다섯(`revSteps` · `revStepShare`, 누르면 그 단계 자리 `revStep`) · 화(`revTocEps`, 제목 옆 ＋ 로 화 이어 붙이기 칸 `revAddCard`, 미리보기 `revAppendPreview` 는 `append_text` 와 같은 규칙, '레퍼런스 원고에서' 갈래는 `revRefAddHtml` · 미리보기 `revRefPreview` · 다음 화 `revRefNext` 가 `append_episodes` 와 같은 규칙, 화 머리 출처 칩) · 실험 전체
   - 인물 · 관계 · 배경 `revContextCard`
   - 문체 프로필 `revStyleCard`
+  - 지금 프로필의 버릇 `revStyleMarkers`: 구간별 빈도가 있으면 표(1,000자당 · 앞 · 가운데 · 뒤, `app.js` `zoneCell`), 없으면 한 줄
   - 지금 프로필을 만들 때 뽑은 조각 목록 `revStylePieces`(접어 둠, 화마다 부분 이름 · 글자 수, 통째로 넣었거나 옛 프로필이면 없음)
   - 문체 프로필 기록 목록(`.version-list`, 이 프로필 쓰기 `revStyleUse` · 지금과 견주기 `revStyleDiff` 가 `mystyle.js` 의 `changeLines` 로 그림 · 메모 `revStyleNote` · 지우기 `revStyleDrop` · 라이브러리에 저장 `revStyleToLib`, 저장한 뒤에는 라이브러리에서 보기 링크)
   - 판의 문체 한 줄 `revTakeStyle` · 다른 프로필로 쓴 판의 칩 `revStyleTag`(판 목록 · 지표 머리 · 나란히 읽기)

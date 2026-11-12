@@ -427,6 +427,14 @@ class StyleProfile(BaseModel):
     sample_passages: list[str] = Field(default_factory=list, description="본문 생성 때 그대로 보여줄 대표 문단 2~4개 (원문 발췌)")
 
 
+class MarkerZones(BaseModel):
+    """표지 하나의 구간별 빈도 (refsample.zone_rates). 원고 범위를 앞 · 가운데 · 뒤로 나눠 Canon 이 센다. 화면에 보이기만 한다.
+    LLM 이 채우는 StyleProfile · StyleMarker 밖(StyleEntry · RevStyle)에 둔다: 모델이 채우지 않고, 작품 문체 · 집필 프롬프트 · 문체 경고로 가지 않는다."""
+    text: str = Field(description="표지 글 (StyleMarker.text 와 같은 글자)")
+    rates: list[float] = Field(default_factory=list, description="구간마다 1,000자당 횟수 (원고 차례, refsample.ZONES 개)")
+    counts: list[int] = Field(default_factory=list, description="구간마다 나온 횟수. 합이 적으면 화면이 차이를 강조하지 않는다")
+
+
 class StyleEntry(BaseModel):
     """문체 라이브러리 항목 (canon/library.py). 작품과 따로 저장해 여러 작품에서 다시 쓴다."""
     id: str
@@ -436,6 +444,7 @@ class StyleEntry(BaseModel):
     sample: str = Field("", description="분석에 쓴 원문 전체. 기준 지표와 다시 분석에 쓴다")
     profile: StyleProfile = Field(default_factory=StyleProfile)
     baseline: Optional[StyleMetrics] = Field(None, description="원문 전체로 잰 문체 지표")
+    marker_zones: list[MarkerZones] = Field(default_factory=list, description="표지의 구간별 빈도. 레퍼런스 원고나 역설계 실험에서 분석했을 때만 있다. 지금 프로필에 있는 표지만 남긴다")
     created_at: str = ""
     updated_at: str = ""
     version: int = Field(0, description="지금 버전 번호. 0 은 버전 기록이 생기기 전 항목")
@@ -3591,6 +3600,7 @@ class RevStyle(BaseModel):
     sampling: str = Field("", description="표본 방식. 'spread' 는 원문 전체에서 고루 뽑고 표지를 전체에서 셈, 빈 값은 원문 앞 3만 자만 쓴 옛 프로필")
     pieces: list[RevPiece] = Field(default_factory=list, description="흩어 뽑은 조각 (원문 차례). 원문을 통째로 넣었으면 빈 목록")
     counted: int = Field(0, description="표지 빈도를 센 원문 글자 수. 0 은 표본에서 센 옛 프로필")
+    marker_zones: list[MarkerZones] = Field(default_factory=list, description="표지의 구간별 빈도 (실험 화를 앞 · 가운데 · 뒤로 나눔). 구간을 나눌 수 없으면 빈 목록")
     note: str = Field("", description="작가 메모 한 줄")
     library: str = Field("", description="이 프로필을 저장한 문체 라이브러리 항목 id (revlab.to_library). 빈 값은 저장하지 않음")
 

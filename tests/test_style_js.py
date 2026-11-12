@@ -233,3 +233,17 @@ def test_rules_card_drops_empty_placeholder():
     """지킬 · 피할 것 카드에서 수가 0인 묶음은 '비어 있음' 을 따로 적지 않는다."""
     html = js(project(profile()), "return pfRead('rules', P().style, '', new Set());")
     assert "비어 있음" not in html and "절정 낱말 0" in html
+
+
+@needs_node
+def test_library_marker_table_shows_zone_rates_only_when_present():
+    """구간별 빈도 칸은 라이브러리 항목에 값이 있을 때만 생긴다. 작품 문체 화면에는 없다."""
+    prof = profile()
+    prof.markers.append(StyleMarker(text="하더라", per_1k=0.2))
+    e = {"id": "", "name": "건조체", "source": "", "notes": "", "sample": "", "profile": dump(prof), "baseline": None, "versions": [], "used_by": []}
+    zones = [{"text": "것이었다", "rates": [0.9, 0.4, 0.1], "counts": [180, 80, 20]}]
+    none = js(project(), "S.lib = data.e; return pfRead('markers', S.lib.profile, 'lib', new Set(), 'profile');", e=e)
+    some = js(project(), "S.lib = { ...data.e, marker_zones: data.z }; return pfRead('markers', S.lib.profile, 'lib', new Set(), 'profile');", e=e, z=zones)
+    mine = js(project(prof), "S.lib = { ...data.e, marker_zones: data.z }; return pfRead('markers', P().style, '', new Set());", e=e, z=zones)
+    assert "앞 · 가운데 · 뒤" not in none and "앞 · 가운데 · 뒤" not in mine
+    assert "앞 · 가운데 · 뒤" in some and "0.90 · 0.40 · 0.10" in some and "뒤로 갈수록 줄어요" in some and some.count("chip") == 1

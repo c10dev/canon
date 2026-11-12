@@ -887,6 +887,16 @@ function revContextCard() {
     ${c.facts.length ? `<h3>앞 이야기 · 사실</h3>${li(c.facts.map((f) => `<li>${esc(f)}</li>`))}` : ''}</section>`;
 }
 
+/** 지금 프로필의 버릇. 구간별 빈도(L.style_zones)가 있으면 표로 (1,000자당 · 앞 · 가운데 · 뒤, zoneCell 은 app.js), 없으면 한 줄로 */
+function revStyleMarkers(st, zones) {
+  const ms = st.markers || [];
+  if (!ms.length) return '';
+  const by = new Map((zones || []).map((z) => [z.text, z]));
+  if (!ms.some((m) => by.has(m.text))) return `<div class="small">버릇: ${ms.map((m) => `«${esc(m.text)}»`).join(' · ')}</div>`;
+  return `<table class="pf-table"><thead><tr><th scope="col">버릇</th><th scope="col" class="num">1,000자당</th><th scope="col" class="num">앞 · 가운데 · 뒤</th></tr></thead>
+    <tbody>${ms.map((m) => `<tr><td class="pf-quote">${esc(m.text)}</td><td class="num">${Number(m.per_1k || 0).toFixed(1)}</td><td class="num">${zoneCell(by.get(m.text))}</td></tr>`).join('')}</tbody></table>`;
+}
+
 /** 지금 프로필을 만들 때 뽑은 조각 목록 (접어 둠). 원문을 통째로 넣었거나 옛 프로필이면 빈 글.
     화마다 한 줄: 화 번호와 부분 이름 · 글자 수 (L.style_pieces, 서버 revlab.style_pieces) */
 function revStylePieces(L) {
@@ -913,7 +923,7 @@ function revStyleCard() {
   const kv = (k, v) => (v ? `<dt>${k}</dt><dd>${esc(v)}</dd>` : '');
   const body = st ? `<dl class="rev-kv">${kv('시점', st.narration_pov)}${kv('시제', st.tense)}${kv('문장 리듬', st.sentence_rhythm)}${kv('묘사 밀도', st.description_density)}
       ${kv('대사 비중', st.dialogue_ratio)}${kv('대사 방식', st.dialogue_style)}${kv('속생각', st.inner_monologue)}${kv('속도', st.pacing)}${kv('장면 전환', st.scene_transition)}${kv('어휘', st.vocabulary)}${kv('효과음 표기', st.sound_effects)}</dl>
-      ${(st.markers || []).length ? `<div class="small">버릇: ${st.markers.map((m) => `«${esc(m.text)}»`).join(' · ')}</div>` : ''}
+      ${revStyleMarkers(st, L.style_zones)}
       <div class="small">${esc(L.style_model)} · ${esc(fmtDateTime(L.style_at))}${cur && !cur.basis_ok ? ' <span class="chip">원문이 바뀌었어요</span>' : ''}</div>${revStylePieces(L)}`
     : list.length ? '<p class="small">지금 고른 프로필이 없어요. 아래 기록에서 고르거나 새로 만드세요.</p>'
       : '<p class="small">원문 전체에서 고루 뽑은 글로 문체 프로필(시점 · 문장 리듬 · 대사 방식 · 버릇)을 만들어요. 원문을 베끼지 않게 예시 문단은 넣지 않아요. 되돌려 쓰기에서 문체를 넣은 판과 넣지 않은 판을 견주면 차이가 구조에서 오는지 문체에서 오는지 갈라 볼 수 있어요.</p>';

@@ -509,6 +509,7 @@
 - `analyze_style` 에 `corpus` 를 주면 `count_markers` 가 표본이 아니라 그 글에서 세고 거른다. 모델은 표본만 읽는다(레퍼런스 원고에서 흩어 뽑은 표본, `refs.corpus`)
 - `apply_learning` 의 알림 `rule_limit_note`: write 층 지킬 것 · 피할 것이 `RULE_LIMIT`(20)를 넘으면 합치거나 계획 층으로 옮기라고 알린다
 - `count_markers` 는 원문 표본에 없는(공백 빼고 견줌) 장치 예시를 비운다
+- 표지의 구간별 빈도(`MarkerZones`)는 `analyze_style` 이 세지 않는다. 부른 쪽이 `refsample.zone_rates` 로 세어 `StyleProfile` 밖에 둔다(모델이 채우는 형식에 칸을 더하지 않으려는 것)
 - 검수
   - 장편 넓혀 찾기 `widen_check`: 첫 검수에 없던 옛 단락이 근거로 나온 진술만 다시 묻기
   - 진술 뽑기(`prompts.claims_prompt`)와 진술 수 상한 `prompts.TWOSTEP_CLAIMS`(50)은 두 걸음 검수와 같이 쓴다
@@ -1126,6 +1127,7 @@
 - 작업 `offscreen`(`_job_offscreen`, 계획 단계 모델): 화면 밖 근황 제안. 결과는 `PENDING_KINDS` 로 남는다
 - 화면 밖 근황 저장 `POST …/offscreen`(`OffscreenSet`, 고른 인물만) · 지우기 `DELETE …/offscreen/{인물 id}`. 장편에서만 받는다
 - 문체 라이브러리 분석 작업 `POST /api/styles/analyze/job`(kind `lib_style`, project `LIB_JOBS` = `.styles`)
+- 그 작업은 `ref` · `ref_orders` 가 오면 결과에 표지의 구간별 빈도 `zones` 를 싣는다(`refsample.zone_rates`, AI 없음). `POST` · `PUT /api/styles` 의 `marker_zones` 로 돌아와 `StyleEntry.marker_zones` 에 남는다
 - 맨 바깥 미들웨어 `_guard_host` 는 Host 가 IP 주소 · localhost · `*.ts.net` · 이 컴퓨터 이름 · `CANON_ALLOWED_HOSTS` 의 이름이 아니면 403 으로 막는다(DNS 리바인딩)
 - `_guard_host` 는 POST · PUT · PATCH · DELETE 에 Origin 이 있으면 그 이름이 Host 나 X-Forwarded-Host 와 같아야 받는다(CSRF). Origin 이 없는 요청(명령줄 · curl)은 받는다
 - 작품 문체 분석은 작업 `style`(`_job_style`, `JobIn.text` 200자 이상): 프로필과 원문 전체 기준 지표를 돌려주고 결과는 pending 에 남는다(`PENDING_KINDS`). 옛 `POST …/style` 은 그대로 둔다

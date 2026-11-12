@@ -3139,6 +3139,29 @@ function backendOption(value, label, current) {
   return `<option value="${value}"${value === current ? ' selected' : ''}${off}>${esc(label)}${why ? ` (${why})` : ''}</option>`;
 }
 
+// 표지의 구간별 빈도 (schema MarkerZones, refsample.zone_rates): 원고 범위를 앞 · 가운데 · 뒤로 나눠 센 1,000자당 횟수. 보기만 한다.
+// 합이 ZONE_COUNT 회 이상이고 가장 잦은 구간이 가장 드문 구간의 ZONE_SHIFT 배 이상일 때만 강조한다.
+// 문턱은 실측(2026-11-12, 원고 7편 × 표지 46개 가운데 100회 넘게 나온 170쌍): 실제 구간은 18%, 화를 번갈아 나눈 우연 기준은 1.4% 가 걸렸다
+const ZONE_SHIFT = 2;
+const ZONE_COUNT = 100;
+
+/** 구간 사이 차이가 클 때의 한마디 ('' 이면 강조하지 않는다) */
+function zoneShift(z) {
+  const r = (z && z.rates) || [];
+  if (r.length < 2 || (z.counts || []).reduce((a, b) => a + b, 0) < ZONE_COUNT) return '';
+  if (Math.max(...r) < Math.min(...r) * ZONE_SHIFT) return '';
+  if (r.every((x, i) => !i || x <= r[i - 1])) return '뒤로 갈수록 줄어요';
+  if (r.every((x, i) => !i || x >= r[i - 1])) return '뒤로 갈수록 늘어요';
+  return '구간마다 달라요';
+}
+
+/** 표지 표의 구간 칸: 값 셋을 작게, 차이가 클 때만 칩을 붙인다. 값이 없으면 빈 칸 */
+function zoneCell(z) {
+  if (!z || !(z.rates || []).length) return '';
+  const shift = zoneShift(z);
+  return `<span class="small">${z.rates.map((x) => Number(x).toFixed(2)).join(' · ')}</span>${shift ? ` <span class="chip">${shift}</span>` : ''}`;
+}
+
 /** 물음표 툴팁: 늘 보일 필요 없는 설명 · 판정 기준을 누르면 펼친다 (docs/design/components/Help).
  *  글 사이 · 입력칸 이름 · 제목 설명 줄 안에 넣어도 되게 span 과 button 만 쓴다. text 는 글자 그대로 넣는다 */
 function help(text, label = '설명 보기') {
