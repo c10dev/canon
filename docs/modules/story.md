@@ -679,6 +679,9 @@
 - 다른 이름은 `charlog.LOG_FIELDS` 밖이라 `record_author` 기록에 남지 않는다
 - LLM 호출은 `pipeline.revise_setup`
 - 프롬프트는 `prompts.setup_chat_prompt`
+- `setup_chat_prompt` 와 빈칸 AI 제안(`setup_prompt`)은 켠 설정 메모(`Project.ref_notes`, `canon/refnote.py`)가 있으면 맨 앞에 `[참고 구조]` 블록을 둔다(`prompts.ref_notes_block`)
+- `[참고 구조]` 블록은 다른 작품의 구도이니 이름 · 지명 · 사건 · 고유 설정을 옮기지 말고, 작가가 채운 칸과 다르면 작가 칸을 따르라는 지시(`REF_NOTES_RULE`)와 함께 넣는다
+- 켠 설정 메모가 없으면 두 프롬프트는 전과 글자 하나 다르지 않다(`tests/test_refnote.py`). 칸 하나만 채우는 작은 제안(`suggest_field`)에는 넣지 않는다
 - 명령줄 `setupchat`
 
 ### `canon/stateedit.py`

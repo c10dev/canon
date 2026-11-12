@@ -684,6 +684,9 @@
   - 720px 이하는 위에 붙는 목차 버튼 · 걸음 막대(`.outline.steps`)와 아래 버튼 줄 `.setup-foot`
   - 새 작품 마법사 `viewSetupWizard`: 필수 칸 `setupReqs` · 걸음 목차 `wizStepper` · `wizStepState` · 세계 종류 · 시대 칩 `withWorldKind` · `worldRecs`
   - 마법사 머리에 빈칸 AI 제안받기(`suggest`) 버튼을 둔다. 옛 설정 대화 패널 아래에 있던 것을 04e 에서 옮겼다
+  - 참고 구조 카드 `setupRefNotes`(마법사 · 기획서 끝, 설정 메모가 있을 때만): 메모마다 켜기 체크 · 글 고치기(`refNoteSave`) · 지우기(`refNoteDelete`). 목차 `DOC_SECS` 에는 넣지 않는다
+  - 참고 메모는 `/api/projects/{name}/ref-notes` 로만 바뀐다. 작품 전체 저장은 디스크의 메모를 그대로 둔다(`web._put_locked`)
+  - 예산을 넘어 프롬프트에서 빠지는 메모는 `refNotesDropped`(순수 함수, `refnote.dropped` 와 같은 규칙)가 세어 "길어서 뺐어요"로 적는다
   - 다 채운 작품은 기획서 `viewSetupDoc`: 구역 `DOC_SECS` · 목차 상태 `docStatus` · 머리 요약 `docSummary` · 관계 점검 `relIssue` · `relWork` · 가 닿을 곳이 섞인 사이 `relDestNote`
   - 인물 · 관계는 한 줄 목록에서 하나만 편다
   - 관계 카드의 '여정' 줄 `relJourney`: 설계도의 그 쌍 이정표 · 사다리 칸 수와 설계도 쪽 링크(`blueprint.js`)

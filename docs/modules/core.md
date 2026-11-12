@@ -435,6 +435,7 @@
   - 작가 연출 지시(`Episode.direction`)도 같이 남긴다
   - 플롯 초안을 한 번에 받는 구간 `act_groups`: 한 화를 함께 쓰는 구간(짧은 작품)은 한 묶음. 웹 작업 plots(`web._plot_ranges`)와 프롬프트 놀이터의 플롯 초안이 쓴다
   - 작품 전체 저장에서 본문이 있는 화의 플롯은 디스크 것으로 둔다(`keep_locked_plots`, 줄기 표시 `LOCKED_FREE` 만 받음, `web.put_project`)
+  - 작품 전체 저장에서 참고 메모(`Project.ref_notes`)는 디스크 것으로 둔다(`web._put_locked`). 메모는 `/api/projects/{name}/ref-notes` 로만 바뀐다
   - 상태 변경안 정리 `clean_delta`
   - 반영 전 검사 `validate_delta`: 설정에 없는 인물 id(이번 새 인물은 앎) · 같은 인물끼리이거나 설정에 없는 인물의 관계 사건과 관계 바뀜 · 없는 복선 id 회수(이번에 심는 복선은 앎)
   - 반영 전제 `check_applicable`: 본문이 쓰인(written) 화만, 앞 화가 모두 반영됐을 때만(`require_previous`) 반영한다. 반영 완료한 화는 "이미 상태를 반영했어요"로 막는다
@@ -582,6 +583,9 @@
 - 본문 쓰기 지시는 설정 · 사실을 '절대' 같은 강한 말 대신 이유('앞 화와 이어져야 하므로')를 붙여 지키게 한다
 - `cast_view` 는 인물 다른 이름(`aliases`)을 빼서 앞 블록 '# 인물 설정' 캐시를 지킨다. 인물의 프롬프트용 직렬화(`_prompt_view`)도 뺀다
 - `setup_chat_prompt` 는 다른 이름을 채운 인물만 `aliases` 칸을 보인다(빈 인물은 전과 같은 글)
+- `ref_notes_block` 은 켠 참고 메모의 `[참고 구조]` 블록이다. `setup_prompt` · `setup_chat_prompt` 맨 앞에 둔다(대화 중에 바뀌지 않는 블록). 메모가 없으면 빈 글
+- `ref_notes_block` 은 넣은 차례대로 `context.BUDGET["ref_notes"]`(4,000자)에 드는 메모만 넣고 뺀 수를 "참고 메모 n개는 길어서 뺐어요"로 적는다
+- `ref_cards_fold` 는 레퍼런스 화 카드를 예산에 맞게 접는다(화는 빼지 않고 화마다 줄임). `ref_arcs_prompt` 와 `ref_setup_note_prompt` 가 쓴다
 - `setup_chat_prompt` 의 `history_lines` 는 대화 기록 줄이다. 대화 에이전트는 `setup_session_history` 를 넘기고, None 이면 옛 설정 대화를 읽는다(명령줄)
 - 다른 이름 제안 `alias_prompt(p, items)`: 작품 · 모든 항목 이름 목록이 앞, 항목별 재료 단락이 뒤, 요청이 맨 뒤다. 쓰기 프롬프트 · 작업지시서에는 들어가지 않는다
 - 화별 컨텍스트 조립(`build_episode_context`)

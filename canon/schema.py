@@ -496,11 +496,34 @@ class RefFile(BaseModel):
 
 
 class RefMade(BaseModel):
-    """이 원고로 만든 것."""
-    kind: Literal["style", "revlab"]
+    """이 원고로 만든 것. note 는 작품에 넣은 참고 메모 (id 는 '작품 폴더/메모 id')."""
+    kind: Literal["style", "revlab", "note"]
     id: str
     at: str = ""
     eps: str = Field("", description="고른 화 범위 이름 ('1~10화')")
+
+
+class RefNote(BaseModel):
+    """참고 메모: 레퍼런스 원고에서 만든 요약. 원고는 작품에 연결하지 않고 이 글만 작품에 복사한다 (docs/refs 5장, canon/refnote.py).
+    작가가 미리보기에서 넣기를 눌러야 Project.ref_notes 에 들어간다. 원문 문장 · 인물 이름 · 사건 줄거리는 담지 않는다."""
+    id: str
+    from_name: str = Field("", description="원고 이름 (만들 때의 값. 원고를 지워도 남는다)")
+    from_eps: str = Field("", description="고른 화 범위 이름 ('1~10화')")
+    kind: Literal["setup", "beats"] = Field("setup", description="setup 설정 구도 요약 · beats 전개 박자 요약")
+    text: str = Field("", description="프롬프트에 넣는 글. 작가가 고칠 수 있다")
+    use: Literal["setup", "write", "plot"] = Field("setup", description="넣는 곳: setup 설정 도우미 · write 집필 · plot 플롯 초안. kind setup 은 setup 만 쓴다")
+    on: bool = Field(True, description="켠 메모만 프롬프트에 넣는다")
+    at: str = ""
+
+
+class RefSetupDraft(BaseModel):
+    """LLM 응답 형식: 레퍼런스 원고의 설정 구도 요약 (pipeline.ref_setup_note). 이름 · 지명 · 사건 줄거리 · 원문 문장은 담지 않는다."""
+    logline_shape: str = Field(description="로그라인 다섯 칸(누가 · 무엇 때문에 · 무엇을 하려 하나 · 무엇이 막나 · 무엇이 걸렸나)의 꼴 한 문장. 이름 대신 역할로")
+    world_rules: list[str] = Field(description="세계 규칙의 종류 2~5개. 한 줄에 하나, 고유한 용어 없이 ('힘에 대가가 있다')")
+    cast: list[str] = Field(description="인물 배치 3~7개. 한 줄에 역할 · 원형 · 이야기에서 하는 일. 이름 없이 ('주인공을 시험하는 스승형 조력자')")
+    relations: list[str] = Field(description="관계 구도 2~5개. 한 줄에 하나, 이름 없이 역할로 ('경쟁자가 뒤에 동료가 된다')")
+    conflict: str = Field(description="갈등 축 한두 문장")
+    tone: str = Field(description="톤 한 문장")
 
 
 class RefBook(BaseModel):
@@ -2881,6 +2904,7 @@ class Project(BaseModel):
     stat_window: StatWindow = Field(default_factory=StatWindow, description="본문에 넣는 상태창 서식")
     abilities: list[Ability] = Field(default_factory=list, description="스킬 · 특성 · 칭호 도감 (canon/abilities.py)")
     setting_log: list[SettingRecord] = Field(default_factory=list, description="인물 설정이 바뀐 기록 (승인한 설정 바꾸기 제안, 1화 반영 뒤 작가가 고친 것)")
+    ref_notes: list[RefNote] = Field(default_factory=list, description="참고 메모 (레퍼런스 원고에서 만들어 작가가 넣은 구도 요약, canon/refnote.py)")
     setting_held: list[SettingChange] = Field(default_factory=list, description="자동 집필이 반영하지 않고 남겨 둔 설정 바꾸기 제안. 작가가 인물 화면에서 적용하거나 버린다")
     state_log: list[StateRecord] = Field(default_factory=list, description="반영 뒤 작가가 인물의 지금 상태를 고친 기록 (canon/stateedit.py)")
     address_forms: list[AddressForm] = Field(default_factory=list, description="인물끼리 부르는 말과 말씨 (방향마다 하나, canon/address.py)")
