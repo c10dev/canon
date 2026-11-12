@@ -14,6 +14,7 @@ PER_ZONE = 3  # 구간마다 고르는 화 수
 PARTS = (("head", 0.3), ("talk", 0.2), ("narr", 0.2), ("tail", 0.3))  # 화 하나의 예산을 나누는 몫: 첫머리 · 대사 많은 덩어리 · 서술 많은 덩어리 · 끝
 PART_NAMES = {"all": "전체", "head": "첫머리", "talk": "대사 덩어리", "narr": "서술 덩어리", "tail": "끝"}
 PIECE_MIN = 200  # 이보다 짧은 조각은 뽑지 않는다
+ZONE_MIN = 10_000  # 구간 하나가 이보다 짧으면 구간별 표지 빈도를 내지 않는다 (1,000자당 횟수가 화 한두 개에 흔들린다)
 SEP = "\n\n***\n\n"  # 조각 사이. 웹소설의 장면 전환 기호라 문체 분석이 본문으로 읽지 않는다
 
 
@@ -156,3 +157,18 @@ def spread(chosen: list[dict], budget: int) -> dict:
         meta.pop()
         text = SEP.join(parts)
     return {"text": text[:budget].strip(), "spread": True, "chars": total, "episodes": len(picked), "pieces": meta}
+
+
+def zone_rates(texts: list[str], markers: list[str]) -> list[dict]:
+    """표지마다 구간별 빈도 [{text, rates, counts}]. texts 는 원고 차례의 화 글, 구간은 spread 와 같게 화 수로 ZONES 등분한다.
+    AI 없이 센다 (metrics.marker_count). 화가 ZONES 보다 적거나 ZONE_MIN 자보다 짧은 구간이 있으면 빈 목록."""
+    if len(texts) < ZONES:
+        return []
+    zones = ["\n\n".join(z) for z in _zones(texts)]
+    if min(len(z) for z in zones) < ZONE_MIN:
+        return []
+    out = []
+    for m in dict.fromkeys(markers):
+        counts = [metrics.marker_count(z, m) for z in zones]
+        out.append({"text": m, "counts": counts, "rates": [round(c * 1000 / len(z), 4) for c, z in zip(counts, zones)]})  # 화면은 소수 둘째 자리까지 보이고, 견줄 때는 반올림 전 값에 가깝게 쓴다
+    return out

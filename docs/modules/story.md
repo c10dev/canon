@@ -534,6 +534,7 @@
 - 작품에서 올리기(`push_project`)는 가져온 뒤 다른 작품이 올린 변경을 덮지 않고 합친다(`merge`). 작품 문체도 합친 것으로 맞춘다
 - 합치기는 한쪽만 바꾼 칸은 바꾼 쪽, 목록 칸은 양쪽에서 더한 것을 모두 둔다. 글 칸을 양쪽에서 다르게 고쳤으면 올리지 않는다
 - 되돌리기(`restore`)
+- 표지의 구간별 빈도 `StyleEntry.marker_zones`(`MarkerZones`, `create` · `update` 의 `zones`): `save` 가 프로필에 있는 표지 것만 남긴다(`_fit_zones`). `update` 에 `zones` 를 주지 않으면 지금 값을 둔다. 작품에 적용(`apply`)할 때는 옮기지 않는다
 
 ### `canon/logline.py`
 

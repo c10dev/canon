@@ -23,7 +23,7 @@ from pathlib import Path
 
 from . import cancel, context, cue, metrics, pipeline, prompts, store, usage
 from .schema import (Act, AddressForm, BoardHandover, BoardScene, BoardTime, Character, CueLine, CueSheet, CueSheetDraft, CueTake, Episode, EpisodePlot, Meta, Project,
-                     Relationship, RevAI, RevBlind, RevBound, RevCastSaved, RevEpisode, RevEpisodeDraft, RevArc, RevArcPlan, RevArcSet, RevLab, RevLineSet, RevPart, RevPerson, RevPiece, RevStyle, RevTake, Storyboard,
+                     Relationship, RevAI, RevBlind, RevBound, RevCastSaved, RevEpisode, RevEpisodeDraft, RevArc, RevArcPlan, MarkerZones, RevArcSet, RevLab, RevLineSet, RevPart, RevPerson, RevPiece, RevStyle, RevTake, Storyboard,
                      StoryboardDraft, StyleProfile, WorldSetting,
                      Storyline)
 
@@ -781,7 +781,7 @@ def run_style(lab_id: int, llm) -> StyleProfile:
     """원문 전체에서 고루 뽑은 표본(style_spread, STYLE_CHARS 자까지)으로 문체 프로필을 만든다 (pipeline.analyze_style, plan 단계).
     모델은 표본만 읽고, 표지 빈도와 장치 단서는 원문 전체(style_corpus)에서 세고 거른다. 예시 문단은 묻지 않고,
     모델이 그래도 내면 비운다. 기록에 더해 지금 프로필로 고른다 (add_style)."""
-    from . import research
+    from . import refsample, research
 
     lab = load(lab_id)
     check_style_room(lab)
@@ -792,8 +792,10 @@ def run_style(lab_id: int, llm) -> StyleProfile:
     prof.sample_passages = []
     cancel.check()
     pieces = [RevPiece(number=x["order"], part=x["part"], chars=x["chars"]) for x in got["pieces"]] if got["spread"] else []
+    # 구간별 표지 빈도: 실험 화를 앞 · 가운데 · 뒤로 나눠 AI 없이 센다. 보기만 하고 되돌려 쓰기 프롬프트에는 넣지 않는다
+    zones = [MarkerZones(**z) for z in refsample.zone_rates([e.text for e in lab.episodes], [m.text for m in prof.markers])]
     with_lock(lab_id, lambda lab: add_style(lab, prof, research._model_name(llm), got["text"], basis=_basis(whole), pieces=pieces,
-                                            counted=len(whole)))
+                                            counted=len(whole), zones=zones))
     return prof
 
 
@@ -826,10 +828,10 @@ def check_style_room(lab: RevLab) -> None:
 
 
 def add_style(lab: RevLab, prof: StyleProfile, model: str, sample: str, basis: str = "", pieces: list[RevPiece] | None = None,
-              counted: int = 0) -> RevStyle:
+              counted: int = 0, zones: list[MarkerZones] | None = None) -> RevStyle:
     """프로필을 기록에 더하고 지금 프로필로 고른다. 기록에 같은 프로필이 있으면 더하지 않고 그것을 고른다.
     STYLE_KEEP 을 넘으면 지울 수 있는 것 가운데 가장 오래된 것부터 지운다.
-    sample 은 모델에 넣은 표본, basis 는 원문 전체의 지문(비우면 표본의 지문을 적고 옛 방식 프로필로 둔다), pieces 는 흩어 뽑은 조각, counted 는 표지를 센 글자 수."""
+    sample 은 모델에 넣은 표본, basis 는 원문 전체의 지문(비우면 표본의 지문을 적고 옛 방식 프로필로 둔다), pieces 는 흩어 뽑은 조각, counted 는 표지를 센 글자 수, zones 는 표지의 구간별 빈도."""
     same = next((x for x in lab.styles if x.profile == prof), None)
     if same:
         lab.style_id = same.id
@@ -838,7 +840,7 @@ def add_style(lab: RevLab, prof: StyleProfile, model: str, sample: str, basis: s
     while len(lab.styles) >= STYLE_KEEP:
         lab.styles.remove(next(x for x in lab.styles if x.id not in _kept(lab)))
     x = RevStyle(id=lab.style_next, profile=prof, model=model, at=pipeline._now(), basis=basis or _basis(sample), chars=len(sample),
-                 sampling=SAMPLING if basis else "", pieces=pieces or [], counted=counted)
+                 sampling=SAMPLING if basis else "", pieces=pieces or [], counted=counted, marker_zones=zones or [])
     lab.styles.append(x)
     lab.style_id, lab.style_next = x.id, x.id + 1
     return x
@@ -924,7 +926,7 @@ def to_library(lab_id: int, sid: int, name: str):
     if x.basis and x.basis != style_basis(lab, x.sampling):
         notes += " 원문이 프로필을 만들 때와 달라요."
     e = library.create(name.strip() or f"{title} 문체 {sid}번", prof, sample, source=f"역설계 실험 「{title}」", notes=notes,
-                       note="역설계 실험에서 가져옴")
+                       note="역설계 실험에서 가져옴", zones=x.marker_zones)
     with_lock(lab_id, lambda lab: setattr(get_style(lab, sid), "library", e.id))
     return e
 
@@ -1011,7 +1013,7 @@ def style_view(lab: RevLab, sid: int, against: int = 0) -> dict:
     x = get_style(lab, sid)
     item = next(i for i in style_items(lab) if i["id"] == sid)
     return {**item, "profile": x.profile.model_dump(exclude={"sample_passages"}), "against": against or lab.style_id,
-            "pieces": style_pieces(lab, x), "counted": x.counted,
+            "pieces": style_pieces(lab, x), "counted": x.counted, "zones": [z.model_dump() for z in x.marker_zones],
             "changes": style_diff(lab, sid, against)}
 
 
@@ -1476,6 +1478,7 @@ def view(lab: RevLab) -> dict:
             "style": lab.style.model_dump(exclude={"sample_passages"}) if lab.style else None,
             "style_model": cur.model if cur else "", "style_at": cur.at if cur else "", "style_list": style_items(lab),
             "style_pieces": style_pieces(lab, cur) if cur else [], "style_counted": cur.counted if cur else 0,
+            "style_zones": [z.model_dump() for z in cur.marker_zones] if cur else [],
             "ai": ai_view(lab), "ref_names": names,
             "arcs": lab.arcs.model_dump() if lab.arcs else None, "arc_offer": lab.arc_offer.model_dump() if lab.arc_offer else None,
             "arc_state": arc_state(lab), "arcs_min": ARCS_MIN,

@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Optional
 
 from . import metrics, store
-from .schema import Project, StyleEntry, StyleProfile, StyleVersion
+from .schema import MarkerZones, Project, StyleEntry, StyleProfile, StyleVersion
 
 ID_RE = re.compile(r"^[0-9a-f]{8,32}$")
 VERSION_KEEP = 30  # 항목마다 남기는 버전 수
@@ -66,6 +66,7 @@ def save(e: StyleEntry, note: str = "") -> StyleEntry:
         raise ValueError("문체 이름을 입력하세요")
     e.created_at = e.created_at or _now()
     e.updated_at = _now()
+    e.marker_zones = _fit_zones(e.marker_zones, e.profile)  # 되돌리기 · 작품에서 올리기로 표지가 바뀌어도 없는 표지의 값이 남지 않게
     _snapshot(e, note)
     path = _path(e.id)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -86,26 +87,34 @@ def entries() -> list[StyleEntry]:
     return sorted(out, key=lambda e: e.updated_at, reverse=True)
 
 
+def _fit_zones(zones: list[MarkerZones] | None, profile: StyleProfile) -> list[MarkerZones]:
+    """프로필에 있는 표지의 구간별 빈도만 남긴다 (표지를 지우거나 글자를 고치면 그 값은 버린다)."""
+    have = {m.text for m in profile.markers}
+    return [z.model_copy() for z in zones or [] if z.text in have]
+
+
 def create(name: str, profile: StyleProfile, sample: str = "", source: str = "", notes: str = "",
-           baseline: Optional[metrics.StyleMetrics] = None, note: str = "처음 만듦") -> StyleEntry:
+           baseline: Optional[metrics.StyleMetrics] = None, note: str = "처음 만듦", zones: list[MarkerZones] | None = None) -> StyleEntry:
     sample = sample.strip()
     if sample:
         baseline = metrics.measure(sample)
     _fill_rates(profile, sample)
     e = StyleEntry(id=uuid.uuid4().hex[:12], name=name, source=source, notes=notes,
-                   sample=sample, profile=profile, baseline=baseline)
+                   sample=sample, profile=profile, baseline=baseline, marker_zones=_fit_zones(zones, profile))
     return save(e, note)
 
 
 def update(sid: str, name: str, profile: StyleProfile, sample: str, source: str = "", notes: str = "",
-           note: str = "") -> StyleEntry:
-    """사용자가 고친 항목을 저장한다. 원문이 바뀌면 기준 지표를 다시 잰다. note 는 이번 버전 메모."""
+           note: str = "", zones: list[MarkerZones] | None = None) -> StyleEntry:
+    """사용자가 고친 항목을 저장한다. 원문이 바뀌면 기준 지표를 다시 잰다. note 는 이번 버전 메모.
+    zones 는 표지의 구간별 빈도 (None 이면 지금 값을 둔다). 어느 쪽이든 프로필에 있는 표지 것만 남긴다."""
     e = load(sid)
     sample = sample.strip()
     if sample != e.sample:
         e.baseline = metrics.measure(sample) if sample else None
     _fill_rates(profile, sample)
     e.name, e.profile, e.sample, e.source, e.notes = name, profile, sample, source, notes
+    e.marker_zones = _fit_zones(e.marker_zones if zones is None else zones, profile)
     return save(e, note)
 
 
@@ -210,7 +219,7 @@ def copy_name(name: str) -> str:
 def duplicate(sid: str) -> StyleEntry:
     e = load(sid)
     return create(copy_name(e.name), e.profile.model_copy(deep=True), e.sample, e.source, e.notes, e.baseline,
-                  note=f"'{e.name}' {e.version}번 버전에서 복제")
+                  note=f"'{e.name}' {e.version}번 버전에서 복제", zones=e.marker_zones)
 
 
 def used_by(sid: str) -> list[str]:

@@ -1619,3 +1619,55 @@ def test_style_pieces_fold_js():
     assert some.startswith("<details") and "open" not in some.split(">")[0]
     assert "원문 2화에서 고루 뽑은 3조각 · 2,900자" in some and "원문 386,405자에서 셈" in some
     assert "1화 첫머리 900자, 끝 800자 · 7화 전체 1,200자" in some
+
+
+# ---------- 구간별 표지 빈도 ----------
+
+def test_run_style_fills_zone_rates(home, monkeypatch):
+    from canon import library, refsample
+    from canon.schema import StyleMarker
+
+    monkeypatch.setattr(refsample, "ZONE_MIN", 5_000)
+    lab = _long_lab()
+
+    class Fake(MockLLM):
+        def json(self, system, prompt, schema, **kw):
+            return StyleProfile(tense="과거형", markers=[StyleMarker(text="하더라"), StyleMarker(text="것이었다"), StyleMarker(text="없는버릇")])
+    revlab.run_style(lab.id, Fake())
+    lab = revlab.load(lab.id)
+    z = {x.text: x for x in lab.styles[0].marker_zones}
+    assert list(z) == ["하더라", "것이었다"]  # 거른 표지는 세지 않는다
+    assert z["하더라"].counts[:2] == [0, 0] and z["하더라"].counts[2] > 0 and z["것이었다"].counts[2] == 0 < z["것이었다"].counts[0]
+    assert z["하더라"].rates == refsample.zone_rates([e.text for e in lab.episodes], ["하더라"])[0]["rates"]
+    v = revlab.view(lab)
+    assert [x["text"] for x in v["style_zones"]] == ["하더라", "것이었다"] and revlab.style_view(lab, 1)["zones"] == v["style_zones"]
+    assert "marker_zones" not in json.dumps(v["style"])
+    assert "marker_zones" not in lab.style.model_dump_json()  # 되돌려 쓰기 사본에 넣는 프로필(StyleProfile)에는 구간 값이 없다
+    e = revlab.to_library(lab.id, 1, "긴 등대 문체")
+    assert [x.text for x in library.load(e.id).marker_zones] == ["하더라", "것이었다"]
+    short = revlab.create("등대", STORY)  # 구간을 나눌 수 없는 짧은 실험은 비운다
+    revlab.run_style(short.id, MockLLM())
+    assert revlab.load(short.id).styles[0].marker_zones == [] and revlab.view(revlab.load(short.id))["style_zones"] == []
+
+
+@needs_node
+def test_zone_cell_and_marker_table_js():
+    cases = [None, {"text": "a", "rates": [0.41, 0.15, 0.08], "counts": [200, 70, 40]},   # 줄어듦
+             {"text": "b", "rates": [0.01, 0.03, 0.09], "counts": [10, 30, 90]},             # 늘어남
+             {"text": "c", "rates": [0.2, 0.05, 0.2], "counts": [80, 20, 80]},               # 구간마다 다름
+             {"text": "d", "rates": [0.41, 0.15, 0.08], "counts": [41, 15, 8]},              # 합이 100 회 미만: 강조하지 않는다
+             {"text": "e", "rates": [0.3, 0.2, 0.16], "counts": [300, 200, 160]}]            # 두 배 미만
+    assert run_js(FILES, "data.map(zoneShift)", cases) == ["", "뒤로 갈수록 줄어요", "뒤로 갈수록 늘어요", "구간마다 달라요", "", ""]
+    cells = run_js(FILES, "data.map(zoneCell)", cases)
+    assert cells[0] == "" and "0.41 · 0.15 · 0.08" in cells[1] and 'class="chip"' in cells[1] and "chip" not in cells[4] and "0.41" in cells[4]
+    st = {"markers": [{"text": "것 같았다", "per_1k": 0.21}, {"text": "말이지", "per_1k": 0.04}]}
+    plain, table = run_js(FILES, "[revStyleMarkers(data.st, []), revStyleMarkers(data.st, data.z)]", {"st": st, "z": [{**cases[1], "text": "것 같았다"}]})
+    assert plain.startswith('<div class="small">버릇: «것 같았다» · «말이지»') and "<table" not in plain
+    assert "앞 · 가운데 · 뒤" in table and table.count("<tr>") == 3 and table.count("chip") == 1 and "뒤로 갈수록 줄어요" in table
+
+
+@needs_node
+def test_zone_shift_uses_unrounded_rates_js():
+    """큰 원고의 드문 표지: 25 · 33 · 42회는 1.7배라 강조하지 않는다 (둘째 자리로 반올림한 0.02 · 0.04 로 견주면 두 배가 된다)."""
+    z = {"text": "말이지", "rates": [0.025, 0.033, 0.042], "counts": [25, 33, 42]}
+    assert run_js(FILES, "[zoneShift(data), zoneCell(data)]", z) == ["", '<span class="small">0.03 · 0.03 · 0.04</span>']

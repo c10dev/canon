@@ -42,6 +42,8 @@ from .schema import AbilityCodexDraft, AbilityDraft, AgentSession, Blueprint, Mi
 from .schema import OffscreenSet
 from .schema import MapSpec
 from .schema import TextMaterial
+from . import refsample
+from .schema import MarkerZones
 from . import agent_text
 from .schema import BlockSetting, BudgetSetting
 from . import offscreen
@@ -1730,6 +1732,7 @@ class StyleIn(BaseModel):
     note: str = ""  # 이번 버전 메모. 비우면 바뀐 칸 이름
     ref: str = ""  # 레퍼런스 원고에서 원문을 가져왔으면 그 원고 id (만든 것에 남긴다)
     ref_eps: str = ""  # 가져온 화 범위 이름 ('1~10화')
+    marker_zones: list[MarkerZones] | None = None  # 표지의 구간별 빈도 (분석 작업이 준 값을 화면이 그대로 돌려준다). 없으면 지금 값을 둔다
 
 
 def _style_id(sid: str) -> str:
@@ -1768,10 +1771,14 @@ def analyze_library_style_job(body: LibAnalyzeIn) -> dict:
         raise HTTPException(400, "예시 원문은 200자 이상 넣어 주세요")
     llm, text, lib = get_llm("plan"), body.text, body.lib or "new"
     # 레퍼런스 원고에서 흩어 뽑은 표본이면 표지 빈도는 고른 화 전체에서 센다 (모델에는 표본만 보낸다)
-    whole = refs.corpus(body.ref, body.ref_orders) if body.ref and body.ref_orders and refs.exists(body.ref) else ""
+    from_ref = bool(body.ref and body.ref_orders and refs.exists(body.ref))
+    whole = refs.corpus(body.ref, body.ref_orders) if from_ref else ""
+    # 구간별 표지 빈도도 고른 화 전체에서 AI 없이 센다 (범위가 짧으면 빈 목록). 화면이 제안과 함께 들고 있다가 저장할 때 돌려준다
+    texts = [c["text"] for c in refs.pick(refs.load(body.ref), body.ref_orders)] if from_ref else []
 
     def fn(job: jobs.Job):
-        return {"profile": pipeline.analyze_style(llm, text, corpus=whole).model_dump(), "lib": lib, "counted": len(whole)}
+        prof = pipeline.analyze_style(llm, text, corpus=whole)
+        return {"profile": prof.model_dump(), "lib": lib, "counted": len(whole), "zones": refsample.zone_rates(texts, [m.text for m in prof.markers])}
     try:
         with usage.scope(project="", episode=None, task="lib_style"):
             job = jobs.start(LIB_JOBS, "lib_style", None, "문체 분석 (라이브러리)", fn)
@@ -1782,7 +1789,7 @@ def analyze_library_style_job(body: LibAnalyzeIn) -> dict:
 
 @app.post("/api/styles")
 def create_style(body: StyleIn) -> StyleEntry:
-    e = library.create(body.name, body.profile, body.sample, body.source, body.notes)
+    e = library.create(body.name, body.profile, body.sample, body.source, body.notes, zones=body.marker_zones)
     if body.ref and refs.exists(body.ref):
         refs.made(body.ref, "style", e.id, body.ref_eps)
     return e
@@ -1796,7 +1803,7 @@ def get_style(sid: str) -> dict:
 
 @app.put("/api/styles/{sid}")
 def put_style(sid: str, body: StyleIn) -> dict:
-    e = library.update(_style_id(sid), body.name, body.profile, body.sample, body.source, body.notes, body.note)
+    e = library.update(_style_id(sid), body.name, body.profile, body.sample, body.source, body.notes, body.note, zones=body.marker_zones)
     return {**e.model_dump(), "used_by": library.used_by(sid)}
 
 

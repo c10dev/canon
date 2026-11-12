@@ -1,7 +1,8 @@
 """레퍼런스 원고의 문체 표본 흩기 (canon/refsample.py) 와 전체 원문에서 표지 세기 (pipeline.analyze_style 의 corpus)."""
+import json
 import time
 
-from canon import pipeline, refdigest, refs, refsample
+from canon import metrics, pipeline, refdigest, refs, refsample
 from canon.schema import RefCut, StyleMarker, StyleProfile
 
 TALK = '"어디 가?" 도현이 물었다.\n\n"등대." 서윤이 답했다.\n\n"지금?" 도현이 다시 물었다.\n\n"지금이야." 서윤이 말했다.'
@@ -127,3 +128,90 @@ def test_library_job_counts_on_chosen_episodes(client, monkeypatch):
     assert cur["status"] == "done" and cur["result"]["counted"] == len(refs.corpus(b.id, orders)) > len(s["text"])
     plain = client.post("/api/styles/analyze/job", json={"text": s["text"]}).json()
     assert plain.get("kind") == "lib_style"
+
+
+# ---------- 구간별 표지 빈도 ----------
+
+def test_zone_rates_counts_each_third(monkeypatch):
+    monkeypatch.setattr(refsample, "ZONE_MIN", 100)
+    texts = ["그는 웃은 것이었다. " * 20] * 3 + ["그는 걸었다. 것이었다. " + "그는 걸었다. " * 20] * 3 + ["그렇게 말하더라. " * 20] * 3
+    got = {z["text"]: z for z in refsample.zone_rates(texts, ["것이었다", "하더라", "것이었다", "없는말"])}
+    assert list(got) == ["것이었다", "하더라", "없는말"]  # 같은 표지는 한 번만
+    assert got["것이었다"]["counts"] == [60, 3, 0] and got["하더라"]["counts"] == [0, 0, 60] and got["없는말"]["rates"] == [0, 0, 0]
+    zone = "\n\n".join(texts[:3])
+    assert got["것이었다"]["rates"][0] == round(60 * 1000 / len(zone), 4) and round(got["것이었다"]["rates"][0], 2) == metrics.marker_rate(zone, "것이었다")
+    assert refsample.zone_rates(texts[:2], ["것이었다"]) == []  # 화가 구간 수보다 적다
+    monkeypatch.setattr(refsample, "ZONE_MIN", 10_000)
+    assert refsample.zone_rates(texts, ["것이었다"]) == []  # 구간이 너무 짧다
+
+
+def test_library_job_and_entry_carry_zone_rates(client, monkeypatch):
+    """레퍼런스 원고에서 분석하면 작업 결과에 구간별 빈도가 실리고, 저장한 항목은 프로필에 있는 표지 것만 남긴다."""
+    from canon import library
+    from canon.schema import MarkerZones
+
+    monkeypatch.setattr(refs, "SAMPLE_MAX", 8_000)
+    monkeypatch.setattr(refsample, "ZONE_MIN", 1_000)
+    b = _book()
+    orders = list(range(1, 31))
+    s = refs.sample(b.id, orders)
+    j = client.post("/api/styles/analyze/job", json={"text": s["text"], "ref": b.id, "ref_orders": orders}).json()
+    end = time.time() + 10
+    while time.time() < end:
+        cur = next(x for x in client.get("/api/jobs").json() if x["id"] == j["id"])
+        if cur["status"] != "running":
+            break
+        time.sleep(0.02)
+    res = cur["result"]
+    marks = [m["text"] for m in res["profile"]["markers"]]
+    assert marks and [z["text"] for z in res["zones"]] == marks and all(len(z["rates"]) == refsample.ZONES == len(z["counts"]) for z in res["zones"])
+    texts = [c["text"] for c in refs.pick(refs.load(b.id), orders)]
+    assert res["zones"] == refsample.zone_rates(texts, marks)
+    assert "marker_zones" not in res["profile"] and "zones" not in res["profile"]["markers"][0]  # 모델이 채우는 형식 밖이다
+    # 원고 없이 붙여 넣은 글은 구간을 나누지 않는다
+    plain = client.post("/api/styles/analyze/job", json={"text": s["text"]}).json()
+    while time.time() < end:
+        cur = next(x for x in client.get("/api/jobs").json() if x["id"] == plain["id"])
+        if cur["status"] != "running":
+            break
+        time.sleep(0.02)
+    assert cur["result"]["zones"] == []
+    # 저장: 화면이 받은 값을 그대로 돌려준다 (작가가 손으로 더한 표지 하나를 섞는다)
+    res["profile"]["markers"].append({"text": "손표지", "note": "", "per_1k": 0.5})
+    res["zones"].append({"text": "손표지", "rates": [0.9, 0.5, 0.1], "counts": [90, 50, 10]})
+    marks.append("손표지")
+    e = client.post("/api/styles", json={"name": "긴 글 문체", "sample": s["text"], "profile": res["profile"], "marker_zones": res["zones"]}).json()
+    assert [z["text"] for z in e["marker_zones"]] == marks
+    kept = client.put(f"/api/styles/{e['id']}", json={"name": "긴 글 문체", "sample": s["text"], "profile": res["profile"]}).json()
+    assert kept["marker_zones"] == e["marker_zones"]  # 값을 보내지 않으면 그대로 둔다
+    less = {**res["profile"], "markers": res["profile"]["markers"][1:]}
+    cut = client.put(f"/api/styles/{e['id']}", json={"name": "긴 글 문체", "sample": s["text"], "profile": less, "marker_zones": res["zones"]}).json()
+    assert [z["text"] for z in cut["marker_zones"]] == marks[1:]  # 지운 표지의 값은 버린다
+    back = library.restore(e["id"], 1)
+    assert [z.text for z in back.marker_zones] == marks[1:]  # 되돌린 표지에는 값이 없다 (지어내지 않는다)
+    copy = library.duplicate(e["id"])
+    assert copy.marker_zones == back.marker_zones and isinstance(copy.marker_zones[-1], MarkerZones) and copy.marker_zones[-1].text == "손표지"
+    # 옛 항목 파일(칸 없음)도 읽힌다
+    path = library._path(e["id"])
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw.pop("marker_zones")
+    path.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+    assert library.load(e["id"]).marker_zones == []
+
+
+def test_zone_rates_stay_out_of_prompts_and_warnings(client, monkeypatch):
+    """구간별 빈도는 보기만 한다: 모델 응답 형식 · 작품 문체 · 집필 프롬프트 · 문체 경고에 들어가지 않는다."""
+    from canon import library, prompts
+    from canon.schema import MarkerZones, Meta, Project
+
+    assert "marker_zones" not in StyleProfile.model_fields and set(StyleMarker.model_fields) == {"text", "note", "per_1k"}
+    assert "MarkerZones" not in json.dumps(StyleProfile.model_json_schema())
+    prof = StyleProfile(tense="과거형", markers=[StyleMarker(text="것이었다", per_1k=1.0)])
+    e = library.create("구간", prof, zones=[MarkerZones(text="것이었다", rates=[9.87, 6.54, 3.21], counts=[987, 654, 321])])
+    assert e.marker_zones[0].rates == [9.87, 6.54, 3.21]
+    p = Project(meta=Meta(title="t"))
+    library.apply(p, e)
+    dumped = p.model_dump_json()
+    assert "marker_zones" not in dumped and "9.87" not in dumped
+    assert "9.87" not in prompts.style_block(p) and "987" not in prompts.style_block(p)
+    assert metrics.marker_warnings(p.style.markers, "것이었다. " * 3 + "가나다라 " * 600) == metrics.marker_warnings(prof.markers, "것이었다. " * 3 + "가나다라 " * 600)
