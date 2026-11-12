@@ -73,6 +73,10 @@ def test_facts_drop_copied_lines_and_fill_the_brief(book):
     r.brief.avoid, r.brief.events = "목소리를 높이지 않는다", r.brief.events + "\n서연이 먼저 나간다"
     drill.set_facts(r, pipeline.drill_facts(L, r.source, r.lead))  # 작가가 고친 칸은 다시 뽑아도 덮지 않는다
     assert r.brief.events.endswith("서연이 먼저 나간다") and r.brief.avoid == "목소리를 높이지 않는다"
+    lead = "도윤은 계산대 뒤에서 삼 년째 밤을 새우는 사람이었다. 손님은 드물었다."
+    f = drill.clean_facts(DrillFacts(people=[DrillPerson(name="도윤", note="계산대 뒤에서 삼 년째 밤을 새우는 사람이었다")], pov="", place="", time="",
+                                     before="손님은 드물었다. 도윤은 계산대 뒤에서 삼 년째 밤을 새우는 사람이었다.", events=["서연이 들어온다"]), r.source, lead)
+    assert f.people[0].note == "" and f.before == ""  # 대목 앞의 글을 옮긴 줄도 버린다
     with pytest.raises(ValueError, match="뽑지 못했"):
         drill.clean_facts(DrillFacts(people=[], pov="", place="", time="", before="", events=[" ", r.source[:40]]), r.source)
 
@@ -94,6 +98,8 @@ def test_brief_limits_and_author_lines(book):
         drill.can_write(r, b.model_copy(update={"events": ""}))
     with pytest.raises(ValueError, match="원문 문장"):  # 원문을 본 뒤 고쳐 쓸 때 원문을 옮겨 적지 못하게
         drill.can_write(r, b.model_copy(update={"manner": r.source[5:45].split("\n")[0]}))
+    with pytest.raises(ValueError, match="'직전 상황' 칸에 원문"):  # 사실 뽑기에 넣은 앞부분도 원문이다
+        drill.can_write(r, b.model_copy(update={"before": r.lead[-60:].split("\n")[-1]}))
     drill.can_write(r, b)
 
 
@@ -140,6 +146,7 @@ def test_review_keeps_only_quotes_found_in_the_text(book):
     assert a.dropped == 3 and a.review_model == "judge" and a.reviewed_at
     drill.set_review(r, a.no, DrillReview(lines=[]))  # AI가 빠뜨린 줄은 판정 못 함으로 남는다
     assert [v.result for v in a.verdicts] == ["unsure"] * 4 and "판정하지 않았" in a.verdicts[0].why
+    assert [v.layer for v in a.verdicts] == ["change", "ban", "manner", "manner"]  # 층은 적은 칸으로 어림한다
     assert not drill.quoted("서연", a.with_text) and drill.quoted("목소리는 끝까지", a.with_text)
 
 

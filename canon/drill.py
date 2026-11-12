@@ -49,6 +49,8 @@ RESULTS = {"applied": "반영됨", "overdone": "과하게 풀림", "ignored": "�
 BOXES = {"people": "인물", "pov": "시점 인물", "place": "장소", "time": "때", "before": "직전 상황", "events": "일어나는 일",
          "change": "바뀌는 것", "avoid": "하지 않는 것", "manner": "방식"}
 METHOD = ("change", "avoid", "manner")
+# AI가 판정하지 않은 줄에 붙이는 층: 적은 칸으로 어림한다 (그 밖의 사실 칸은 배경 정보)
+BOX_LAYER = {"change": "change", "avoid": "ban", "manner": "manner", "events": "event"}
 FACT_LINES = ("people", "before", "events")  # 여러 줄 칸
 FACT_ONE = ("pov", "place", "time")  # 한 줄 칸
 
@@ -207,14 +209,15 @@ def _lines(text: str) -> list[str]:
     return [x.strip()[:LINE_MAX] for x in text.split("\n") if x.strip()]
 
 
-def _copied(text: str, source: str) -> bool:
-    """원문과 refs.OVERLAP_MIN 자 넘게 같은 구절이 있다."""
-    return any(h["kind"] == "quote" for h in refs.overlap(text, [source]))
+def _copied(text: str, *sources: str) -> bool:
+    """원문(대목 · 그 화의 앞부분)과 refs.OVERLAP_MIN 자 넘게 같은 구절이 있다."""
+    return any(h["kind"] == "quote" for h in refs.overlap(text, [s for s in sources if s]))
 
 
-def clean_facts(f: DrillFacts, source: str) -> DrillFacts:
-    """앞뒤 공백을 떼고 빈 줄을 뺀다. 원문 문장을 옮긴 줄은 버린다 (쓰기 요청에 원문이 새지 않게). 일어나는 일이 남지 않으면 막는다."""
-    ok = lambda t: bool(t.strip()) and not _copied(t.strip(), source)  # noqa: E731
+def clean_facts(f: DrillFacts, source: str, lead: str = "") -> DrillFacts:
+    """앞뒤 공백을 떼고 빈 줄을 뺀다. 원문 문장을 옮긴 줄은 버린다 (쓰기 요청에 원문이 새지 않게). 일어나는 일이 남지 않으면 막는다.
+    사실 뽑기 요청에는 대목 앞의 글(lead)도 들어가므로 그 글과도 견준다."""
+    ok = lambda t: bool(t.strip()) and not _copied(t.strip(), source, lead)  # noqa: E731
     people = [DrillPerson(name=p.name.strip(), note=p.note.strip()[:LINE_MAX] if ok(p.note) else "") for p in f.people if p.name.strip()]
     events = [e.strip()[:LINE_MAX] for e in f.events if ok(e)]
     if not events:
@@ -235,7 +238,7 @@ def set_facts(r: DrillRound, f: DrillFacts, model: str = "") -> None:
     """뽑은 사실을 남긴다. 작가가 사실 · 일어나는 일 칸을 아직 고치지 않았으면 그 칸도 새 값으로 채운다 (쓰는 방식은 그대로)."""
     old = facts_brief(r.facts)
     fresh = all(getattr(r.brief, k) in ("", getattr(old, k)) for k in (*FACT_LINES, *FACT_ONE))
-    r.facts, r.facts_model = clean_facts(f, r.source), model
+    r.facts, r.facts_model = clean_facts(f, r.source, r.lead), model
     if fresh:
         new = facts_brief(r.facts)
         r.brief = new.model_copy(update={k: getattr(r.brief, k) for k in METHOD})
@@ -257,13 +260,13 @@ def method_lines(b: DrillBrief) -> list[tuple[str, str]]:
 
 
 def can_write(r: DrillRound, b: DrillBrief) -> None:
-    """쓸 수 있는 지시인지 본다: 일어나는 일이 있고, 쓰는 방식이 한 줄은 있고, 원문 문장이 들어 있지 않다."""
+    """쓸 수 있는 지시인지 본다: 일어나는 일이 있고, 쓰는 방식이 한 줄은 있고, 원문 문장(대목 · 앞부분)이 들어 있지 않다."""
     if not _lines(b.events):
         raise ValueError("일어나는 일을 한 줄은 적으세요")
     if not method_lines(b):
         raise ValueError("쓰는 방식을 한 줄은 적으세요. 비우면 두 판이 같아요")
     for k in BOXES:
-        if _copied(getattr(b, k), r.source):
+        if _copied(getattr(b, k), r.source, r.lead):
             raise ValueError(f"'{BOXES[k]}' 칸에 원문 문장이 그대로 들어 있어요. 자기 말로 바꿔 적으세요")
 
 
@@ -344,7 +347,7 @@ def quoted(quote: str, text: str) -> bool:
 def set_review(r: DrillRound, no: int, rv: DrillReview, model: str = "") -> DrillAttempt:
     """되짚기 결과를 시도에 남긴다. 본문에 없는 인용은 버리고 수를 센다 (dropped).
     근거가 있어야 하는 판정(반영됨 · 과하게 풀림, 어긴 금지 줄)이 근거를 잃으면 '판정 못 함'(unsure)으로 바꾼다.
-    AI가 빠뜨린 줄도 '판정 못 함'으로 남긴다. 지어낸 사실 · 놓친 것은 인용이 본문에 있는 것만 남긴다."""
+    AI가 빠뜨린 줄도 '판정 못 함'으로 남기고 층은 적은 칸으로 어림한다 (BOX_LAYER). 지어낸 사실 · 놓친 것은 인용이 본문에 있는 것만 남긴다."""
     a = find(r, no)
     lines = {x.no: x for x in author_lines(a.brief, facts_brief(r.facts))}
     got: dict[int, DrillVerdict] = {}
@@ -360,7 +363,8 @@ def set_review(r: DrillRound, no: int, rv: DrillReview, model: str = "") -> Dril
         result = "unsure" if need and not (q or bq) else v.result
         got[v.no] = DrillVerdict(no=v.no, box=line.box, text=line.text, layer=v.layer, result=result, quote=q, bare_quote=bq, in_bare=v.in_bare,
                                  same_as=v.same_as if v.same_as in lines and v.same_as < v.no else 0, why=v.why.strip()[:LINE_MAX])
-    a.verdicts = [got.get(n) or DrillVerdict(no=n, box=x.box, text=x.text, why="AI가 이 줄을 판정하지 않았어요") for n, x in lines.items()]
+    a.verdicts = [got.get(n) or DrillVerdict(no=n, box=x.box, text=x.text, layer=BOX_LAYER.get(x.box, "background"), why="AI가 이 줄을 판정하지 않았어요")
+                  for n, x in lines.items()]
     invented = []
     for x in rv.invented:
         if quoted(x.quote, a.with_text if x.side == "with" else a.bare_text):

@@ -440,6 +440,7 @@
 - 사이드바에 그리지 않는 실험 화면(`navItems` 의 `apart`)도 찾는다. 작품 밖 화면(`foot`)과 주소가 같은 실험은 한 번만 넣는다
 - 작품 안 화면 이름이 모두 팔레트에서 찾아지는지 `tests/test_sidebar_js.py` 가 본다
 - 작품 밖은 작품 목록 · 설정 · 알림 창과 설정 줄만
+- 팔레트로만 여는 도구 `PAL_TOOLS`(지시 연습)는 작품 안팎 모두에 넣는다. 사이드바와 ⋯ 메뉴에는 없다
 - 검색 `paletteItems` · `paletteMatch` 는 순수 함수(`tests/test_palette_js.py` 가 node 로 맞춰 본다)
 - 640px 이하는 찾기 칸 오른쪽에 닫기 버튼 `.pal-x`(화면을 거의 다 덮고 Esc 가 없다)
 - 찾기 칸은 휴대폰 키보드 Enter 가 '이동'(`enterkeyhint="go"`)
