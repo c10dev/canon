@@ -3884,6 +3884,134 @@ class StudioDraft(BaseModel):
     candidates: list[StudioCandidate] = Field(default_factory=list, description="서로 다른 방향으로 쓴 문단 안")
 
 
+# ---------- 지시 연습 (canon/drill.py, 작품 밖 <CANON_HOME>/.drill, docs/drill) ----------
+
+DrillLayer = Literal["background", "event", "change", "withhold", "manner", "action", "ban"]
+DrillResult = Literal["applied", "overdone", "ignored"]
+
+
+class DrillPerson(BaseModel):
+    name: str = Field(description="인물 이름")
+    note: str = Field("", description="이 장면에서의 처지 한 줄 (누구인지, 여기서 무엇을 하는 사람인지)")
+
+
+class DrillFacts(BaseModel):
+    """LLM 응답 형식: 원문 대목에서 뽑은 사실과 일어나는 일 (pipeline.drill_facts). 원문 문장은 담지 않는다."""
+    people: list[DrillPerson] = Field(description="이 대목에 나오는 인물")
+    pov: str = Field(description="시점 인물 이름. 알 수 없으면 빈 글")
+    place: str = Field(description="장소 한 줄")
+    time: str = Field(description="때 · 날씨 한 줄. 알 수 없으면 빈 글")
+    before: str = Field(description="이 대목 바로 앞까지의 상황 한두 문장")
+    events: list[str] = Field(description="이 대목에서 일어나는 일 3~6개. 한 줄에 하나, 일어난 차례대로")
+
+
+class DrillBrief(BaseModel):
+    """작가가 적는 지시. 사실(people~before) · 일어나는 일(events) · 쓰는 방식(change · avoid · manner)."""
+    people: str = Field("", description="인물. 한 줄에 '이름: 처지'")
+    pov: str = ""
+    place: str = ""
+    time: str = ""
+    before: str = Field("", description="직전 상황")
+    events: str = Field("", description="일어나는 일. 한 줄에 하나")
+    change: str = Field("", description="바뀌는 것: 무엇에서 무엇으로, 누가 알게 되나")
+    avoid: str = Field("", description="하지 않는 것")
+    manner: str = Field("", description="방식: 말투 · 속도")
+
+
+class DrillLineVerdict(BaseModel):
+    """LLM 응답 형식: 작가가 쓴 줄 하나의 판정 (pipeline.drill_review)."""
+    no: int = Field(description="줄 번호")
+    layer: DrillLayer = Field(description="그 줄의 층. background 배경 정보 · event 사건 · change 바뀌는 것 · withhold 가릴 것 · manner 방식 · action 동작 · ban 금지")
+    result: DrillResult = Field(description="applied 반영됨 · overdone 과하게 풀림 · ignored 무시됨")
+    quote: str = Field("", description="근거: 지시 있는 판의 문장 일부를 글자 그대로. 없으면 빈 글")
+    bare_quote: str = Field("", description="지시 없는 판에서 같은 대목의 문장 일부를 글자 그대로. 없으면 빈 글")
+    in_bare: bool = Field(False, description="지시 없는 판도 이 줄대로 썼으면 참 (지시가 바꾼 것이 아니다)")
+    same_as: int = Field(0, description="같은 말을 한 앞줄의 번호. 없으면 0")
+    why: str = Field("", description="판정 까닭 한 줄")
+
+
+class DrillInvented(BaseModel):
+    """지시에 없는데 본문이 사실로 쓴 것."""
+    side: Literal["with", "bare"] = Field(description="with 지시 있는 판 · bare 지시 없는 판")
+    quote: str = Field(description="그 문장 일부를 글자 그대로")
+    what: str = Field("", description="무엇을 지어냈는지 한 줄")
+
+
+class DrillGap(BaseModel):
+    """원문에는 있고 두 판에는 없는 요점."""
+    what: str = Field(description="무엇이 빠졌는지 한 줄")
+    quote: str = Field("", description="원문에서 그것이 드러난 문장 일부를 글자 그대로")
+
+
+class DrillReview(BaseModel):
+    """LLM 응답 형식: 지시의 줄마다 층과 결과, 지어낸 사실, 놓친 것 (pipeline.drill_review)."""
+    lines: list[DrillLineVerdict] = Field(description="작가가 쓴 줄마다 하나")
+    invented: list[DrillInvented] = Field(default_factory=list, description="지시에 없는데 본문이 사실로 쓴 것. 많아야 4개")
+    gaps: list[DrillGap] = Field(default_factory=list, description="원문에는 있고 두 판 모두에 없는 요점. 많아야 3개")
+
+
+class DrillLine(BaseModel):
+    """되짚을 줄: 작가가 쓴 줄 하나 (drill.author_lines)."""
+    no: int
+    box: str = Field(description="적은 칸: people · pov · place · time · before · events · change · avoid · manner")
+    text: str
+
+
+class DrillVerdict(BaseModel):
+    """저장하는 줄 판정. result 의 unsure 는 근거 인용이 본문에 없어 판정하지 못한 줄이다 (drill.set_review)."""
+    no: int
+    box: str = ""
+    text: str = ""
+    layer: DrillLayer = "manner"
+    result: Literal["applied", "overdone", "ignored", "unsure"] = "unsure"
+    quote: str = ""
+    bare_quote: str = ""
+    in_bare: bool = False
+    same_as: int = 0
+    why: str = ""
+
+
+class DrillAttempt(BaseModel):
+    """지시 하나로 쓴 두 판과 그 되짚기. 고친 시도(versus)는 지시 있는 판만 새로 쓰고 지시 없는 판은 앞 시도 것을 옮긴다."""
+    no: int
+    brief: DrillBrief = Field(default_factory=DrillBrief)
+    with_text: str = Field("", description="지시 있는 판")
+    bare_text: str = Field("", description="쓰는 방식을 비운 판")
+    model: str = ""
+    at: str = ""
+    verdicts: list[DrillVerdict] = Field(default_factory=list)
+    invented: list[DrillInvented] = Field(default_factory=list)
+    gaps: list[DrillGap] = Field(default_factory=list)
+    dropped: int = Field(0, description="본문에 없어 버린 인용 수")
+    review_model: str = ""
+    reviewed_at: str = ""
+    versus: int = Field(0, description="고친 시도: 견준 앞 시도 번호. 0 이면 첫 시도")
+    flip: bool = Field(False, description="가려 읽기에서 이 시도를 왼쪽에 둔다")
+    pick: Literal["", "new", "old", "skip"] = Field("", description="가려 읽고 고른 쪽. new 는 이 시도, old 는 앞 시도")
+    picked_at: str = ""
+
+
+class DrillRound(BaseModel):
+    """지시 연습 한 판 (<CANON_HOME>/.drill/<id>.json). 작품 데이터가 아니다."""
+    id: str
+    title: str = ""
+    ref_id: str = ""
+    ref_name: str = ""
+    order: int = Field(0, description="원고의 화 차례 (1부터)")
+    ep_label: str = ""
+    part: int = Field(0, description="그 화의 몇째 대목 (1부터)")
+    parts: int = 0
+    source: str = Field("", description="원문 대목. 쓰기 요청에는 넣지 않는다")
+    lead: str = Field("", description="그 화에서 대목 앞의 글 (사실 뽑기에만 쓴다)")
+    style_id: str = Field("", description="문체 라이브러리 항목 id. 비면 기본 문체 규칙만")
+    facts: Optional[DrillFacts] = Field(None, description="AI가 뽑은 사실. 작가가 고친 지시(brief)와 따로 둔다")
+    facts_model: str = ""
+    brief: DrillBrief = Field(default_factory=DrillBrief, description="작가가 지금 고치는 지시")
+    attempts: list[DrillAttempt] = Field(default_factory=list)
+    created_at: str = ""
+    updated_at: str = ""
+
+
 HeatProposal.model_rebuild()
 AbilityCodexDraft.model_rebuild()
 AbilityProposal.model_rebuild()

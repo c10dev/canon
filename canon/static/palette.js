@@ -100,14 +100,18 @@ function palContext() {
   };
 }
 
+// 찾기 팔레트로만 여는 새 도구 [주소, 이름, 찾는 낱말]. 사이드바와 ⋯ 메뉴에는 두지 않는다 (docs/design '덜기': 쓴 흔적이 생기면 올린다)
+const PAL_TOOLS = [['#/drill', '지시 연습', '지시 프롬프트 연습 원문 견주기 되짚기']];
+
 /** 찾을 항목 목록 { kind, label, hint, words, href | act, n, focus }. 순서: 동작 → 화면 → 인물 → 설정 칸 → 설정 대화상자 줄 → 화.
     설정 칸은 값으로도 찾고(words), focus 는 그 칸의 입력 요소 (setup.js input 의 id 규칙 'f-' + 경로). 검색어가 없을 때는 동작 · 화면만 보인다. */
 function paletteItems(ctx) {
+  const only = PAL_TOOLS.map(([href, label, words]) => ({ kind: 'screen', label, hint: '작품 밖 도구', words, href }));
   const settings = { kind: 'screen', label: '설정', hint: 'AI 연결 · 키 · 모델', words: '설정 모델 API 키', href: '#/settings' };
   const hub = { kind: 'act', label: '알림 · AI 작업', hint: '지난 알림', words: '작업 알림', act: 'hub' };
   // 설정 줄: 검색어가 있을 때만 보인다(paletteMatch). 고르면 그 갈래를 연다
   const rows = (ctx.settings || []).map((r) => ({ kind: 'setting', label: r.label, hint: r.where === r.sec ? r.where : `${r.where} · ${r.sec}`, words: `${r.sec} ${r.words}`, act: 'settings', cat: r.cat }));
-  if (!ctx.inProject) return [{ kind: 'screen', label: '작품 목록', hint: '', words: '', href: '#/' }, settings, hub, ...rows];
+  if (!ctx.inProject) return [{ kind: 'screen', label: '작품 목록', hint: '', words: '', href: '#/' }, settings, hub, ...only, ...rows];
   const out = [];
   if (ctx.next) out.push({ kind: 'act', label: `다음 할 일 · ${ctx.next[0]}`, hint: '', words: ctx.next[0], href: ctx.next[1] });
   if (ctx.canSave) out.push({ kind: 'act', label: '저장', hint: typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches ? '' : 'Ctrl+S', words: '', act: 'save' });
@@ -122,6 +126,7 @@ function paletteItems(ctx) {
     if (apart.some((a) => a[1] === href)) return;
     out.push(href === '#/settings' ? settings : { kind: 'screen', label, hint: '', words: '', href });
   });
+  out.push(...only);
   ctx.characters.forEach((c) => out.push({ kind: 'char', label: c.name, hint: '인물 · 관계도', words: '', href: `${ctx.base}/cast/${encodeURIComponent('c:' + c.id)}` }));
   (ctx.fields || []).forEach((f) => {
     const hint = f.value ? (f.value.length > PAL_HINT ? f.value.slice(0, PAL_HINT) + '…' : f.value) : '비어 있음';

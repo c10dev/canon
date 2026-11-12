@@ -6369,7 +6369,7 @@ def brief(name: str, n: int, kind: str = "episode") -> BriefText:
 # ---------- 기능별 라우트 (canon/routes/) ----------
 # 각 모듈은 위의 도우미를 web 에서 불러 쓰므로 맨 끝 가까이에서 부른다. 시험이 web 을 다시 불러오면(reload) 라우트 모듈도 다시 불러온다.
 # 모듈이 정한 이름은 web 에도 둔다(web.<이름> 으로 부르는 코드와 시험이 그대로 돈다). 붙이는 차례는 옮기기 전 web.py 의 차례다
-ROUTES = ("studio", "promptlab", "prompts", "refs", "atlas", "revlab", "soelab", "play", "research", "regexrules")
+ROUTES = ("studio", "drill", "promptlab", "prompts", "refs", "atlas", "revlab", "soelab", "play", "research", "regexrules")
 
 
 _ROUTERS: list = []  # 붙인 라우트 모듈의 router. app.routes 에는 감싼 모양(_IncludedRouter)으로만 들어간다

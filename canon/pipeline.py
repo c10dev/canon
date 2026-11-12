@@ -20,6 +20,7 @@ from .schema import AliasSuggestion, CoordDraft, CoordMemo, OffscreenSet
 from .schema import RuleChange, RuleRun
 from .schema import AbilityProposal, BlueprintPlanSet, BlueprintProposal
 from .schema import CueSheet, CueSheetDraft, Finding, MetaCut, FindingRecheck, FixBatch, FixOption, FixPatch, FixRecheckItem, FixRecheckReport, FixSet, RevArcSet, RevEpisodeDraft, RevLineSet
+from .schema import DrillFacts, DrillLine, DrillReview
 from .schema import ParagraphAnatomy, ReaderCheck, SceneCard, SceneVariant, SceneVariants, StudioCandidate, StudioDraft
 from .schema import RefBeatsDraft, RefDigest, RefSetupDraft
 from .schema import (
@@ -718,7 +719,8 @@ def draft_paragraph(llm: LLM, card: SceneCard, n: int = 3) -> list[StudioCandida
     p = studio.world(card)
     rules = [studio.DRILLS[k].rule for k in card.drills if k in studio.DRILLS]
     r = llm.json(prompts.paragraph_system(p), prompts.paragraph_prompt(p, card, n, rules), StudioDraft,
-                 hint={"n": n, "action": card.action, "source": card.source, "names": [x.name for x in card.people if x.name]})
+                 hint={"n": n, "action": card.action, "source": card.source, "names": [x.name for x in card.people if x.name],
+                       "extra": card.extra})
     keep, seen = [], {card.source.strip()} if card.source.strip() else set()
     for c in r.candidates:
         text = re.sub(r"\*\*(.+?)\*\*", r"\1", c.text).strip()
@@ -729,6 +731,26 @@ def draft_paragraph(llm: LLM, card: SceneCard, n: int = 3) -> list[StudioCandida
     if not keep:
         raise ValueError("AI가 쓸 만한 문단을 내지 않았어요. 다시 해 보세요")
     return keep[:n]
+
+
+def drill_facts(llm: LLM, source: str, lead: str = "") -> DrillFacts:
+    """지시 연습: 원문 대목에서 사실과 일어나는 일을 뽑는다 (plan 단계). 정리는 drill.clean_facts 가 한다."""
+    if not source.strip():
+        raise ValueError("대목이 비어 있어요")
+    return llm.json(prompts.SYSTEM_DRILL_FACTS, prompts.drill_facts_prompt(source, lead), DrillFacts, hint={"source": source})
+
+
+def drill_write(llm: LLM, card: SceneCard, bare: SceneCard) -> tuple[str, str]:
+    """지시 연습: 지시 있는 판(card)과 쓰는 방식을 비운 판(bare)을 문단 연습장 방식으로 하나씩 쓴다 (write 단계). 원문은 넣지 않는다."""
+    return draft_paragraph(llm, card, 1)[0].text, draft_paragraph(llm, bare, 1)[0].text
+
+
+def drill_review(llm: LLM, lines: list[DrillLine], brief: str, with_text: str, bare_text: str, source: str) -> DrillReview:
+    """지시 연습: 작가가 쓴 줄마다 층과 결과를 판정한다 (check 단계). 인용 확인과 정리는 drill.set_review 가 한다."""
+    if not lines:
+        raise ValueError("되짚을 줄이 없어요")
+    return llm.json(prompts.SYSTEM_DRILL_REVIEW, prompts.drill_review_prompt(lines, brief, with_text, bare_text, source), DrillReview,
+                    hint={"lines": [x.model_dump() for x in lines], "with_text": with_text, "bare_text": bare_text, "source": source})
 
 
 def anatomize_paragraph(llm: LLM, card: SceneCard) -> ParagraphAnatomy:

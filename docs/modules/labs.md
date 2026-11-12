@@ -27,6 +27,38 @@
 - 작품은 저장하지 않는다
 - 웹 화면은 아직 없음
 
+### `canon/drill.py`
+
+- 지시 연습(작품 밖 `<CANON_HOME>/.drill/<id>.json`, `CANON_DRILL` 로 경로 변경, 화면은 `static/drill.js`, 웹 `/api/drill/...`)
+- 정한 규칙 · 데이터 형식 · 일감 차례는 [docs/drill/](../drill/README.md)
+- 레퍼런스 원고의 한 대목을 가려 두고 작가가 지시를 적으면, AI가 두 판을 쓰고 줄마다 되짚는다
+- 판 `DrillRound` 하나가 파일 하나다: 원문 대목 `source` · 그 화의 앞부분 `lead` · AI가 뽑은 사실 `facts` · 작가의 지시 `brief` · 시도 `attempts`
+- 대목 나누기 `passages`: 화 글을 줄 경계에서 약 `PASSAGE` 자로 자른다. 끝에 `PASSAGE_MIN` 자보다 짧게 남으면 앞 대목에 붙인다
+- 문제 고르기 `pick`: 화 차례와 대목 번호를 받거나, 화 카드(`refdigest`)의 성격 · 긴장에 맞는 화에서 대사 비율이 `DIALOGUE` 안인 대목을 무작위로 고른다
+- 화 카드가 없는 원고는 성격 · 긴장 조건 없이만 고른다
+- `create` 는 원문 대목과 앞부분(`LEAD_MAX` 자)을 판 파일에 옮겨 둔다. 원고를 고치거나 지워도 판은 남는다
+- 원고 목록 `sources` · 화 목록 `episodes` 는 원문을 싣지 않는다
+- 사실 정리 `clean_facts`: 원문과 `refs.OVERLAP_MIN` 자 넘게 같은 줄은 버린다. 일어나는 일이 남지 않으면 막는다
+- `set_facts` 는 작가가 아직 고치지 않은 사실 · 일어나는 일 칸만 새 값으로 채운다
+- 지시 `DrillBrief` 의 칸 이름은 `BOXES`. 쓰는 방식(`METHOD`: 바뀌는 것 · 하지 않는 것 · 방식)은 합쳐 `METHOD_MAX` 줄까지다(`clean_brief`)
+- 쓰기 전 확인 `can_write`: 일어나는 일과 쓰는 방식이 한 줄은 있어야 하고, 원문 문장이 든 칸이 있으면 막는다
+- 상황 카드로 옮기기 `card_of`: 직전 상황 · 일어나는 일은 `action`, 쓰는 방식은 `extra`, `bare` 면 쓰는 방식을 비운다. 원문은 넣지 않는다
+- 되짚을 줄 `author_lines`: 쓰는 방식의 모든 줄과, AI가 뽑은 것(`facts_brief`)과 다른 사실 · 일어나는 일 줄. `JUDGED_MAX` 줄까지
+- 층 `LAYERS`(배경 정보 · 사건 · 바뀌는 것 · 가릴 것 · 방식 · 동작 · 금지)와 결과 `RESULTS`(반영됨 · 과하게 풀림 · 무시됨 · 판정 못 함)
+- 되짚기 정리 `set_review`: 본문에 없는 인용은 버리고 `dropped` 에 센다
+- 근거가 있어야 하는 판정(반영됨 · 과하게 풀림 · 금지 줄)이 근거를 잃으면 '판정 못 함'(`unsure`)으로 바꾼다
+- AI가 빠뜨린 줄도 '판정 못 함'으로 남긴다
+- 인용 견주기 `quoted`: 공백 · 따옴표 · 줄임표 · 문장부호를 빼고 견준다. `QUOTE_MIN` 자보다 짧으면 인용으로 보지 않는다
+- 지어낸 사실은 그 판에, 놓친 것은 원문에 인용이 있는 것만 남긴다
+- `view` 는 두 판을 쓰기 전에는 원문을 싣지 않는다. 앞부분(`lead`)은 싣지 않는다. 판마다 `studio.measure` 지표를 붙인다
+- 판의 단계 `stage`: facts · brief · written · reviewed
+- AI 호출은 `pipeline.drill_facts`(plan) · `drill_write`(write, `draft_paragraph` 를 판마다 한 번) · `drill_review`(check)
+- 프롬프트는 `prompts.drill_facts_prompt` · `drill_review_prompt`. 쓰기는 문단 연습장의 `paragraph_prompt` 그대로다
+- 원문이 들어가는 요청은 사실 뽑기와 되짚기 둘뿐이다
+- 가짜 응답 `mock_drill.py`
+- 시험 `tests/test_drill.py`
+- LLM 호출 없음
+
 ### `canon/labstats.py`
 
 - 쇠맛 실험실 통계(표준 라이브러리만, 시드 고정)
@@ -393,6 +425,16 @@
 - 화면은 `static/revlab.js`
 - 시험 `tests/test_revlab.py`(글은 `tests/fixtures/revlab_story.txt`, 직접 지은 글)
 
+### `canon/routes/drill.py`
+
+- 지시 연습 웹 라우트(`/api/drill/...`)
+- `GET /api/drill` 은 판 목록 · 원고 목록 · 층과 결과 이름을, `GET /api/drill/sources/{원고}` 는 화 목록을 준다
+- `POST /api/drill` 은 대목을 골라 판을 만든다. `PUT /api/drill/{id}` 는 지시를 남긴다
+- AI 호출 셋은 작업이다(`POST /api/drill/{id}/jobs`, kind facts · write · review → 작업 `dr_facts` · `dr_write` · `dr_review`)
+- 작품 밖이라 작업 목록의 project 자리는 `DR_JOBS`(`.drill`), 대상은 판 id 다. 사용량 작업 이름은 `drill`
+- `write` 는 두 판을 쓰고 이어서 되짚는다. 되짚기가 실패해도 쓴 글은 남고 결과의 `reviewed` 가 거짓이다
+- 한 판은 한 번만 쓴다. 지시는 작업을 시작할 때 것을 쓰고, 결과를 남기기 직전에 판을 다시 읽는다
+
 ### `canon/routes/promptlab.py`
 
 - 프롬프트 놀이터 웹 라우트(`/api/promptlab/...`)
@@ -506,6 +548,19 @@
 - 명령줄 `soelab collect | report | export`
 - 시험 `tests/test_soelab.py` · `tests/test_soelab_web.py`
 - LLM 호출 없음
+
+### `canon/static/drill.js`
+
+- 지시 연습 화면(작품 밖 `#/drill[/<판 id>]`)
+- 사이드바와 ⋯ 메뉴에는 없다. 찾기 팔레트(`palette.js` `PAL_TOOLS`)에서 연다
+- 처음 화면 `drHomeView`: 새 판 칸 `drNewForm`(원고 · 화 · 대목 또는 화의 성격 · 긴장 · 문체)과 지난 판 카드
+- 판 화면 `drRound` 는 단계(`stage`)마다 다르다. 머리 주 버튼은 단계마다 하나다: 사실 뽑기 · 두 판 쓰기 · 되짚기 · 새 판 시작
+- 지시 칸 `drBriefForm`: 사실 · 일어나는 일 · 쓰는 방식. `DRAFT_ROOTS.drForm` 으로 묶고 칸을 벗어날 때 조용히 저장한다(`drSaveBrief`)
+- 쓰는 방식 줄 수는 `#dr-count` 에 바로 센다(`drMethodCount`)
+- 견주기 `drCompare`: 지시 있는 판 · 지시 없는 판 · 원문 세 칸(`.dr-three`, 1100px 이하에서 한 칸)과 문단 지표
+- 본문에 글자 그대로 있는 인용은 `drText` 가 `mark.hl` 로 표시한다(근거 · 지시 없는 판 인용 · 지어낸 사실)
+- 되짚기 표 `drReviewCard`: 줄 · 층 · 결과 · 근거, 지어낸 사실, 원문에는 있고 두 판에 없는 것, 버린 인용 수
+- AI 호출은 작업이다(`drStartJob`, 버튼 `drBtn`). 끝나면 그 판을 보고 있을 때 다시 받는다(`drJobDone`)
 
 ### `canon/static/promptlab.js`
 

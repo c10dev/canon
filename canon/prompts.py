@@ -953,6 +953,90 @@ def reader_prompt(text: str) -> str:
 - quote: written 이 참이면 적힌 문장 일부를 원문 글자 그대로, 거짓이면 빈 글."""
 
 
+# ---------- 지시 연습 (canon/drill.py, docs/drill) ----------
+
+SYSTEM_DRILL_FACTS = system_prompt(
+    "소설의 한 대목을 읽고, 그 장면을 다시 쓰려는 사람에게 줄 사실과 일어나는 일만 뽑습니다. "
+    "문장을 옮겨 적지 않고, 어떻게 쓰였는지는 적지 않습니다."
+)
+
+
+def drill_facts_prompt(source: str, lead: str = "") -> str:
+    """원문 대목에서 사실과 일어나는 일 뽑기 (pipeline.drill_facts). lead 는 같은 화에서 대목 앞의 글이다."""
+    return f"""# 앞부분 (같은 화에서 이 대목 앞의 글. 사실을 확인하는 데만 씁니다)
+{lead or "없음. 화의 첫 대목입니다."}
+
+# 대목
+{source}
+
+# 할 일
+대목을 읽지 않은 사람이 같은 장면을 쓸 수 있게 사실과 일어나는 일을 뽑습니다.
+- people: 대목에 나오는 인물마다 이름과 처지 한 줄. 누구인지, 이 장소에서 무엇을 하는 사람인지, 상대와 어떤 사이인지를 적습니다. 앞부분과 대목에서 확인되는 것만 적습니다.
+- pov: 시점 인물 이름. 일인칭이면 그 '나'의 이름을 앞부분에서 찾습니다.
+- place, time: 한 줄씩. 알 수 없으면 빈 글.
+- before: 대목이 시작하기 바로 전까지의 상황 한두 문장. 대목 안의 일은 적지 않습니다.
+- events: 대목에서 일어나는 일 3~6개를 일어난 차례대로. 한 줄에 하나, 누가 무엇을 하거나 말하는지 겉으로 드러난 일만 적습니다.
+
+지킬 것:
+- 원문 문장과 대사를 그대로 옮기지 않습니다. 자기 말로 짧게 적습니다.
+- 어떻게 쓰였는지는 적지 않습니다: 말투, 목소리 크기, 거리, 표정 묘사, 분위기, 문장의 호흡.
+- 확인되지 않는 것을 짐작으로 채우지 않습니다."""
+
+
+SYSTEM_DRILL_REVIEW = system_prompt(
+    "작가가 AI에게 준 지시가 글을 어떻게 바꿨는지 줄마다 판정합니다. 글이 좋은지 나쁜지는 평가하지 않습니다. "
+    "판정마다 본문 문장을 글자 그대로 인용합니다."
+)
+
+
+def drill_review_prompt(lines: list, brief: str, with_text: str, bare_text: str, source: str) -> str:
+    """지시 되짚기 (pipeline.drill_review). lines 는 DrillLine 목록, brief 는 두 판에 함께 준 사실 · 일어나는 일 글 (drill.brief_text).
+    원문(source)은 놓친 것을 찾는 데만 쓴다."""
+    from . import drill
+
+    rows = "\n".join(f"{x.no}. [{drill.BOXES.get(x.box, x.box)}] {x.text}" for x in lines)
+    layers = "\n".join(f"  - {k} {v[0]}: {v[1]}" for k, v in drill.LAYERS.items())
+    return f"""# 두 판에 함께 준 사실과 일어나는 일
+{brief}
+
+# 작가가 쓴 줄 (판정할 것. 대괄호는 적은 칸입니다)
+{rows}
+
+# 지시 있는 판 (위 줄을 모두 받고 쓴 글)
+{with_text}
+
+# 지시 없는 판 (쓰는 방식 칸의 줄을 받지 않고 쓴 글. 사실과 일어나는 일은 같습니다)
+{bare_text}
+
+# 원문 (작가도 글을 쓴 AI도 보지 않은 글. 놓친 것을 찾을 때만 씁니다)
+{source}
+
+# 할 일
+작가가 쓴 줄마다 lines 에 하나씩 적습니다.
+- no: 줄 번호.
+- layer: 그 줄이 실제로 말하는 것의 층 하나. 적은 칸이 아니라 내용으로 고릅니다.
+{layers}
+- result: 지시 있는 판이 그 줄을 어떻게 다뤘는지.
+  - applied 반영됨: 그 줄의 뜻대로 썼습니다.
+  - overdone 과하게 풀림: 줄의 뜻보다 세게, 넓게, 글자 그대로 썼습니다. 예: 짐작을 단정으로 씀, 깔아 둘 배경을 본문에 풀어 씀, 태도를 가리킨 낱말을 욕이나 반말로 씀.
+  - ignored 무시됨: 그 줄의 흔적이 없거나 반대로 썼습니다.
+- quote: 판정의 근거인 지시 있는 판의 문장 일부를 글자 그대로 10~40자. applied 와 overdone 에는 꼭 적습니다. 금지 줄을 어겼으면 어긴 문장을 적습니다.
+- bare_quote: 지시 없는 판에서 같은 것을 쓴 문장 일부를 글자 그대로 10~40자. 금지 줄이 지켜졌으면 지시 없는 판이 그것을 해 버린 문장을 적습니다. 없으면 빈 글.
+- in_bare: 지시 없는 판도 그 줄대로 썼으면 참. 그 줄은 글을 바꾸지 않은 것입니다.
+- same_as: 앞줄이 이미 시킨 것을 낱말만 바꿔 다시 시킨 줄이면 그 앞줄의 번호, 아니면 0. 예: '문장을 짧게 끊는다' 뒤의 '호흡을 길게 늘이지 않는다'. 이 줄을 지워도 글이 같았을지로 가립니다.
+- why: 까닭 한 줄.
+
+invented 에는 위 사실 · 일어나는 일과 작가가 쓴 줄 어디에도 없는데 본문이 사실로 쓴 것을 적습니다. 직업, 관계, 과거의 일, 없던 사건이 여기에 듭니다. 묘사와 감각은 넣지 않습니다. 많아야 {drill.INVENTED_MAX}개.
+- side: with 는 지시 있는 판, bare 는 지시 없는 판. quote: 그 문장 일부를 글자 그대로. what: 무엇을 지어냈는지 한 줄.
+
+gaps 에는 원문에는 있고 두 판 모두에 없는 것 가운데 이 장면의 요점에 가까운 것을 적습니다. 많아야 {drill.GAPS_MAX}개.
+- what: 무엇이 빠졌는지 한 줄. quote: 원문에서 그것이 드러난 문장 일부를 글자 그대로.
+
+지킬 것:
+- 인용은 고치거나 줄이지 않고 본문 글자 그대로 적습니다. 본문에 없는 문장을 지어내지 않습니다.
+- 줄에 적히지 않은 것으로 판정하지 않습니다. 줄의 뜻이 흐려 글로 옮길 수 없으면 ignored 로 하고 why 에 무엇이 빠졌는지 적습니다 (예: 무엇에서 무엇으로 바뀌는지 없음)."""
+
+
 def arc_prompt(p: Project) -> str:
     return f"""아래 작품을 총 {p.meta.target_episodes}화로 완결하는 기승전결 구조를 설계하세요.
 
@@ -6429,6 +6513,8 @@ KINDS: dict[str, Kind] = {
     "anatomy": Kind("문단 해부", "실험", "", "SYSTEM_ANATOMY", "anatomy_prompt", "ParagraphAnatomy", "pipeline.anatomize_paragraph"),
     "variants": Kind("장면 변주", "실험", "", "SYSTEM_PLANNER", "variants_prompt", "SceneVariants", "pipeline.vary_scene"),
     "reader": Kind("독자 반응", "실험", "", "SYSTEM_READER", "reader_prompt", "ReaderCheck", "pipeline.reader_check"),
+    "drill_facts": Kind("지시 연습 · 사실 뽑기", "실험", "plan", "SYSTEM_DRILL_FACTS", "drill_facts_prompt", "DrillFacts", "pipeline.drill_facts"),
+    "drill_review": Kind("지시 연습 · 되짚기", "실험", "check", "SYSTEM_DRILL_REVIEW", "drill_review_prompt", "DrillReview", "pipeline.drill_review"),
     "rev": Kind("역설계 · 한 화", "실험", "", "SYSTEM_REVERSE", "rev_prompt", "RevEpisodeDraft", "pipeline.reverse_episode"),
     "rev_lines": Kind("역설계 · 줄기", "실험", "", "SYSTEM_REVERSE", "rev_lines_prompt", "RevLineSet", "pipeline.reverse_lines"),
     "rev_arcs": Kind("역설계 · 아크", "실험", "", "SYSTEM_REVERSE", "rev_arcs_prompt", "RevArcSet", "pipeline.reverse_arcs"),

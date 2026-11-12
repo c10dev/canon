@@ -94,9 +94,9 @@ def test_palette_matches_names_and_episodes():
     assert ["act", "알림 · AI 작업", "hub"] in got[""]
     assert run(["알림"])["inside"][0][0] == ["act", "알림 · AI 작업", "hub"]
 
-    # 작품 밖: 작품 목록 · 설정 · 알림 창만
+    # 작품 밖: 작품 목록 · 설정 · 알림 창, 그리고 팔레트로만 여는 도구
     outside = dict(zip(qs, out["outside"]))
-    assert outside[""] == ["작품 목록", "설정", "알림 · AI 작업"]
+    assert outside[""] == ["작품 목록", "설정", "알림 · AI 작업", "지시 연습"]
     assert outside["설정"] == ["설정"]
     assert outside["3화"] == [] and outside["한서"] == []
 
@@ -175,3 +175,13 @@ def test_job_left():
                        capture_output=True, text=True, encoding="utf-8")
     assert r.returncode == 0, r.stderr
     assert json.loads(r.stdout) == [want for _, _, want in cases]
+
+
+@pytest.mark.skipif(not shutil.which("node"), reason="node 없음")
+def test_palette_only_tools_are_found_in_and_out_of_a_project():
+    """지시 연습은 사이드바 · ⋯ 메뉴에 없고 찾기 팔레트에서만 연다 (docs/drill 정한 것 24)."""
+    out = run(["", "지시", "되짚기"])
+    assert ["screen", "지시 연습", "#/drill"] in out["inside"][0] and out["inside"][1][0] == ["screen", "지시 연습", "#/drill"]
+    assert "지시 연습" in out["outside"][0] and out["outside"][1] == ["지시 연습"] and out["outside"][2] == ["지시 연습"]
+    app = (STATIC / "app.js").read_text(encoding="utf-8")
+    assert "'#/drill'" not in app  # 사이드바(outNav) · ⋯ 메뉴(navItems foot)에는 올리지 않는다
