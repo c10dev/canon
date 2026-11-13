@@ -212,6 +212,7 @@
 - 환경 변수
   - `ANTHROPIC_API_KEY`: Claude API 키(`claude-api` 만 키를 씀)
   - `CANON_ALLOWED_HOSTS`: 웹 서버가 더 받을 Host 이름(쉼표로 나눔, `web._host_allowed`). IP 주소 · localhost · `*.ts.net` · 이 컴퓨터 이름은 늘 받는다
+  - `CANON_BLIND`: 가려 읽기 묶음 폴더(기본 `<CANON_HOME>/.blind`, `blindset.py`)
   - `CANON_BATCH_POLL`: 배치 결과를 묻는 간격 초(기본 30, `llm.BatchLLM`)
   - `CANON_CLAUDE_BIN` · `CANON_CLAUDE_MODEL` · `CANON_CLAUDE_TIMEOUT`: Claude
   - `CANON_CLAUDE_CACHE_1H`: 1 · true · on 이면 Claude 프롬프트 캐시를 1시간으로 쓴다(기본 끔, `claude.cache_1h`). 쓰기 값이 5분 캐시의 1.25배에서 2배로 오른다. 끄면 Claude Code 에 5분 캐시를 강제한다

@@ -96,7 +96,7 @@ def test_palette_matches_names_and_episodes():
 
     # 작품 밖: 작품 목록 · 설정 · 알림 창, 그리고 팔레트로만 여는 도구
     outside = dict(zip(qs, out["outside"]))
-    assert outside[""] == ["작품 목록", "설정", "알림 · AI 작업", "지시 연습"]
+    assert outside[""] == ["작품 목록", "설정", "알림 · AI 작업", "지시 연습", "가려 읽기 묶음"]
     assert outside["설정"] == ["설정"]
     assert outside["3화"] == [] and outside["한서"] == []
 

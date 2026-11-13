@@ -2370,7 +2370,7 @@ async function routeNow() {
     }
     if (!S.genres) S.genres = await api('GET', '/genres').catch(() => []);
     if (!S.namingStyles) S.namingStyles = await api('GET', '/naming/styles').catch(() => []);
-    if (['usage', 'revlab', 'soelab', 'styles', 'rules', 'refs', 'studio', 'drill', 'promptlab', 'prompts'].includes(parts[0])) {  // 작품 밖 사이드바의 최근 작품 · 문체 · 원고 수 (처음 한 번만, 작품 목록에 오면 다시 읽는다)
+    if (['usage', 'revlab', 'soelab', 'styles', 'rules', 'refs', 'studio', 'drill', 'blind', 'promptlab', 'prompts'].includes(parts[0])) {  // 작품 밖 사이드바의 최근 작품 · 문체 · 원고 수 (처음 한 번만, 작품 목록에 오면 다시 읽는다)
       if (!S.projects) S.projects = await api('GET', '/projects').catch(() => null);
       if (!S.libs) S.libs = await api('GET', '/styles').catch(() => null);
       if (!S.refList) S.refList = await api('GET', '/refs').then((r) => r.refs).catch(() => null);
@@ -2400,6 +2400,10 @@ async function routeNow() {
       S.name = null;
       S.project = null;
       await drLoad(parts[1]);
+    } else if (parts[0] === 'blind') {
+      S.name = null;
+      S.project = null;
+      await blLoad(parts[1], parts[2]);
     } else if (parts[0] === 'promptlab') {
       S.name = null;
       S.project = null;
@@ -2748,6 +2752,7 @@ function drawApp() {
   if (p === 'refs') return outside('refs', 1280, viewRefs());
   if (p === 'studio') return outside('studio', 1180, viewStudio());
   if (p === 'drill') return outside('drill', 1280, viewDrill());
+  if (p === 'blind') return outside('blind', 980, viewBlind());
   if (p === 'promptlab') return outside('promptlab', 1280, viewPromptLab());
   if (p === 'prompts') return outside('prompts', 1280, viewPrompts());
   if (p === 'styles') return outside('styles', 1180, S.route[1] && S.lib ? viewLibEntry() : viewLibrary());
