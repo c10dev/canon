@@ -91,11 +91,19 @@ class StylePromptTest(unittest.TestCase):
         self.assertEqual(role_block("검수"), "# 이번 요청에서 할 일\n검수\n\n")
 
     def test_vivid_rules(self):
-        # 금지만 하던 비유 규칙을 대신 할 일로 바꾸고, 감각 · 늘려 쓰기 · 튀는 생각 규칙은 문체 원문이 있어도 넣는다
-        for rules in (prompts.prose_rules(False), prompts.prose_rules(True)):
-            self.assertNotIn("비유는 아끼고", rules)
-            for rule in ("비유는 장면마다", "소리, 냄새, 온도", "시간을 늘려", "엉뚱한 연상"):
-                self.assertIn(rule, rules)
+        # 늘려 쓰기 규칙은 문체 원문이 있어도 넣는다. 감각 · 비유 횟수 · 튀는 생각 줄은 뺐다 (2026-11-13 가려 읽기, 작가 결정)
+        plain, styled, split = prompts.prose_rules(False), prompts.prose_rules(True), prompts.prose_rules(split=True)
+        for rules in (plain, styled, split):
+            self.assertIn("시간을 늘려", rules)
+            for rule in ("비유는 아끼고", "비유는 장면마다", "소리, 냄새, 온도", "엉뚱한 연상"):
+                self.assertNotIn(rule, rules)
+        # 문체 원문이 없는 작품은 비유를 쓸 때의 방법과 대명사 줄이 남는다. 문체 원문이 있으면 둘 다 뺀다 (번역투 절은 남는다)
+        self.assertIn("비유를 쓸 때는", plain)
+        self.assertIn("대명사보다 이름", plain)
+        for rule in ("비유", "대명사"):
+            self.assertNotIn(rule, styled)
+        self.assertIn("'~를 통해'", styled)
+        self.assertEqual((len(plain.splitlines()), len(styled.splitlines()), len(split.splitlines())), (14, 12, 8))  # 머리 줄 + 규칙 13 · 11 · 7
         self.assertIn(prompts.FOCUS_LINE, prompts.episode_prompt(_project(), 1))
         self.assertIn("vivid", prompts.REWRITE_PRESETS)
         self.assertIn("vivid", prompts.PASSAGE_PRESETS)

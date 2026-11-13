@@ -16,7 +16,7 @@
 
 | 자리 | 조각 | 코드 |
 |---|---|---|
-| 시스템 프롬프트 | 문체 기본 규칙 14줄 | `_PROSE_RULES` · `prose_rules` · `writer_system` |
+| 시스템 프롬프트 | 문체 기본 규칙 13줄(문체 원문이 있으면 11줄) | `_PROSE_RULES` · `prose_rules` · `writer_system` |
 | 요청 앞(캐시 앞부분) | 문체 예시 문단 · 스타일 프로필 · 표지 | `style_block` · `style_rules_view` · `style_passages` |
 | 요청 뒤(화마다 바뀜) | 가끔 쓰는 장치 · 되풀이한 구절 | `device_block` · `echo_block` |
 | 지시문 꼬리 | 프로필 따르기 · banned_phrases · 감정 이름 금지 · 문장 끝 섞기 | `episode_prompt` 의 쓰기 지시 · `ending_rule` · `ending_line` |
