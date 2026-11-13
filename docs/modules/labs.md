@@ -12,6 +12,10 @@
 - 점수 `score`(0 은 지움, 한마디 `NOTE_MAX` 자). 결과를 연 뒤에는 고칠 수 없다
 - 결과 열기 `reveal`: 모든 글에 점수가 있어야 한다. 한 번 열면 닫지 못한다
 - 화면 값 `view` 는 결과를 열기 전에 열쇠(`BlindKey`: 판 이름 `arm` · 대목 `piece`)를 싣지 않는다
+- 문장 나누기 `sentences`: 빈 줄이 문단을, 줄바꿈과 문장 끝 부호가 문장을 끊는다. 화면은 이 목록을 그대로 그린다(나누는 곳은 여기 하나)
+- 거슬린 문장 긋기 `mark`(`BlindItem.marks`: 문장 차례 `idx` 와 그 글): 결과를 연 뒤에만 한다. 글자가 같은 글에는 같이 긋는다
+- 대목 묶음 `pieces`: 결과를 연 묶음을 대목마다 묶고 같은 글은 하나로 합친다. 점수 차가 큰 대목이 앞이고 판 이름은 싣지 않는다
+- 긋는 목적은 총점의 기준 항목을 작가가 그은 문장에서 뽑는 것이다(2026-11-13 작가 결정: 느낌 점수 11편이 모두 2~3점이라 판을 가르지 못했다)
 - 흔들림 `pairs`: 글자가 같은 글 두 편의 점수 차. 평균이 그 회차의 흔들림(`noise`)이다(2026-11-09 같은 글이 하루 안에 3.5 → 2.3)
 - 결과 `result`: 판마다 평균(같은 글 두 편은 평균 하나로 침) · 글 수 · 범위, 가장 높은 판과의 차가 흔들림 안이면 `close`
 - 저장은 `store.write_atomic`. 작품(`project.json`)에는 쓰지 않는다
@@ -468,6 +472,7 @@
 - `web.py` 맨 끝의 `_attach_routes` 가 `router` 를 앱에 붙이고 `EXPORTS` 의 이름을 `web` 에도 둔다
 - 목록 `GET /api/blind` · 넣기 `POST /api/blind`(실험 스크립트용) · 하나 `GET /api/blind/{id}` · 지우기 `DELETE /api/blind/{id}`
 - 점수 `PUT /api/blind/{id}/items/{번호}`(`{score, note}`) · 결과 열기 `POST /api/blind/{id}/reveal`(안 매긴 글이 있으면 400)
+- 긋기 `PUT /api/blind/{id}/items/{번호}/marks`(`{idx, on}`, 결과를 열기 전에는 400)
 - 작업(`jobs`)을 쓰지 않는다
 
 ### `canon/routes/drill.py`
@@ -607,7 +612,9 @@
 - 점수를 누르면 저장하고 다음 안 매긴 글로 넘어간다(`blNext`). 같은 점수를 다시 누르면 지운다. 한마디는 칸을 벗어날 때 저장한다
 - 모두 매기면 머리에 주 버튼 **결과 보기**가 생긴다. 확인을 거쳐 열고, 연 뒤에는 점수 버튼을 잠근다
 - 결과(`blResult`): 판마다 평균 · 글 수 · 범위 · 풀이(`blArmNote`: 가장 높은 판과의 차가 흔들림 안인지), 같은 글 짝의 점수 차, 글마다 판 · 대목 · 한마디
-- `blNext` · `blProgress` · `blArmNote` 는 순수 함수(`tests/test_blindset.py`)
+- 긋기(`blMarks`, `#/blind/<묶음 id>/marks[/<대목 차례>]`): 결과의 **긋기** 버튼으로 연다. 대목 줄 · 같은 대목의 글을 나란히(좁으면 아래로) · 문장을 누르면 긋고 다시 누르면 지운다
+- 긋기 화면은 판 이름을 보이지 않는다(번호와 점수만). 누를 때 화면을 다시 그리지 않아 읽던 자리가 그대로다(`blToggleMark`)
+- `blNext` · `blProgress` · `blArmNote` · `blMarkCount` · `blColHead` 는 순수 함수(`tests/test_blindset.py`)
 - CSS 는 JS 에서 주입
 
 ### `canon/static/drill.js`
