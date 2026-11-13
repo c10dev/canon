@@ -2403,7 +2403,7 @@ async function routeNow() {
     } else if (parts[0] === 'blind') {
       S.name = null;
       S.project = null;
-      await blLoad(parts[1], parts[2]);
+      await blLoad(parts[1], parts[2], parts[3]);
     } else if (parts[0] === 'promptlab') {
       S.name = null;
       S.project = null;

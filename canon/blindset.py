@@ -15,7 +15,7 @@ from datetime import datetime
 from pathlib import Path
 
 from . import store
-from .schema import BlindItem, BlindKey, BlindSet
+from .schema import BlindItem, BlindKey, BlindMark, BlindSet
 
 ID_RE = re.compile(r"^[0-9a-f]{8,32}$")
 SCALE = 5  # 점수는 1 ~ SCALE
@@ -153,6 +153,60 @@ def reveal(bid: str) -> BlindSet:
     return s
 
 
+# 문장 끝: 마침표 · 물음표 · 느낌표 · 말줄임표와 그 뒤 닫는 따옴표 · 괄호. 그 뒤가 빈칸이거나 줄 끝일 때만 끊는다 (3.5 같은 숫자는 끊지 않는다)
+_SENT = re.compile(r""".+?(?:[.!?…]+["”’'」』)\]]*(?=\s|$)|$)""")
+
+
+def sentences(text: str) -> list[list[str]]:
+    """글을 문단마다 문장 목록으로 나눈다 (긋기의 단위). 빈 줄이 문단을, 줄바꿈과 문장 끝 부호가 문장을 끊는다.
+    화면은 이 목록을 그대로 그리고 문장 차례(문단을 넘겨 0 부터 이어 센 수)로 긋는다. 나누는 곳이 여기 한 곳이라 서버와 화면이 어긋나지 않는다."""
+    out = []
+    for para in re.split(r"\n\s*\n", text.strip()):
+        sents = [x.strip() for line in para.split("\n") for x in _SENT.findall(line.strip()) if x.strip()]
+        if sents:
+            out.append(sents)
+    return out
+
+
+def mark(bid: str, no: str, idx: int, on: bool = True) -> BlindSet:
+    """결과를 연 묶음에서 거슬린 문장 하나를 긋거나(on) 지운다. 점수와 달리 결과를 연 뒤에만 한다 (판을 모르고 매긴 점수를 지키려고).
+    글자가 같은 글이 또 있으면 그 글에도 같이 긋는다 (화면은 같은 글을 한 번만 보인다)."""
+    s = load(bid)
+    if not s.revealed_at:
+        raise ValueError("결과를 연 뒤에 문장을 그을 수 있어요")
+    x = _item(s, no)
+    flat = [t for para in sentences(x.text) for t in para]
+    if not 0 <= int(idx) < len(flat):
+        raise ValueError(f"이 글에 없는 문장이에요: {idx}")
+    for y in s.items:
+        if y.text != x.text:
+            continue
+        rest = [m for m in y.marks if m.idx != int(idx)]
+        y.marks = sorted(rest + ([BlindMark(idx=int(idx), text=flat[int(idx)])] if on else []), key=lambda m: m.idx)
+    return save(s)
+
+
+def pieces(s: BlindSet) -> list[dict]:
+    """결과를 연 묶음을 대목마다 묶는다: [{piece, spread, texts: [{nos, scores, paras, marks}]}]. 긋기 화면이 같은 대목의 글을 나란히 놓는다.
+    글자가 같은 글은 하나로 합치고(nos 에 번호 둘), 점수가 낮은 글부터 놓는다. 점수 차(spread)가 큰 대목이 앞이다.
+    판 이름은 싣지 않는다: 어느 규칙이 쓴 글인지 알면 긋는 문장이 그쪽으로 쏠린다. 결과를 열기 전에는 빈 목록이다 (대목이 곧 열쇠다)."""
+    if not s.revealed_at or not s.key:
+        return []
+    piece = {k.no: k.piece for k in s.key}
+    groups: dict[str, dict[str, dict]] = {}
+    for x in s.items:
+        t = groups.setdefault(piece.get(x.no, ""), {}).setdefault(x.text, {"nos": [], "scores": [], "paras": sentences(x.text),
+                                                                           "marks": [m.idx for m in x.marks]})
+        t["nos"].append(x.no)
+        t["scores"].append(x.score)
+    out = []
+    for name, by_text in groups.items():
+        texts = sorted(by_text.values(), key=lambda t: sum(t["scores"]) / len(t["scores"]))
+        means = [sum(t["scores"]) / len(t["scores"]) for t in texts]
+        out.append({"piece": name, "spread": round(max(means) - min(means), 2), "texts": texts})
+    return sorted(out, key=lambda g: -g["spread"])
+
+
 def pairs(s: BlindSet) -> list[dict]:
     """같은 글이 두 번 들어 있는 짝 [{a, b, diff}] (글자가 같은 글끼리, 읽는 차례대로)."""
     by: dict[str, list[BlindItem]] = {}
@@ -184,8 +238,8 @@ def result(s: BlindSet) -> dict:
     top = arms[0]["mean"] if arms else 0
     for r in arms:
         r["close"] = noise is not None and top - r["mean"] <= noise
-    rows = [{"no": x.no, "score": x.score, "note": x.note, "arm": arm[x.no].arm if x.no in arm else "", "piece": arm[x.no].piece if x.no in arm else ""}
-            for x in s.items]
+    rows = [{"no": x.no, "score": x.score, "note": x.note, "arm": arm[x.no].arm if x.no in arm else "", "piece": arm[x.no].piece if x.no in arm else "",
+             "marks": [m.model_dump() for m in x.marks]} for x in s.items]
     return {"arms": arms, "pairs": ps, "noise": noise, "rows": rows}
 
 
@@ -195,10 +249,11 @@ def summary(s: BlindSet) -> dict:
 
 
 def view(s: BlindSet) -> dict:
-    """화면 값. 결과를 열기 전에는 열쇠와 판 이름을 싣지 않는다."""
+    """화면 값. 결과를 열기 전에는 열쇠와 판 이름, 대목 묶음(pieces)을 싣지 않는다."""
     out = {**summary(s), "scale": SCALE, "source": s.source,
            "texts": [{"no": x.no, "text": x.text, "chars": len(x.text), "score": x.score, "note": x.note} for x in s.items],
-           "has_key": bool(s.key), "result": None}
+           "has_key": bool(s.key), "result": None, "pieces": []}
     if s.revealed_at:
         out["result"] = result(s)
+        out["pieces"] = pieces(s)
     return out

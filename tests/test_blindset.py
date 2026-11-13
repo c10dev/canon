@@ -1,4 +1,4 @@
-"""가려 읽기 묶음 (canon/blindset.py): 넣기 · 점수 · 결과 열기 · 흔들림 · 열쇠 가리기 · API · 명령줄 · 화면."""
+"""가려 읽기 묶음 (canon/blindset.py): 넣기 · 점수 · 결과 열기 · 흔들림 · 열쇠 가리기 · 거슬린 문장 긋기 · API · 명령줄 · 화면."""
 import json
 
 import pytest
@@ -51,7 +51,7 @@ def test_view_hides_the_key_until_reveal(client):
     assert [(a["arm"], a["mean"], a["texts"]) for a in r["arms"]] == [("가", 4.25, 2), ("나", 2.5, 2)]
     assert [(p["a"], p["b"], p["diff"]) for p in r["pairs"]] == [("01", "05", 1), ("02", "06", 0)] and r["noise"] == 0.5
     assert r["arms"][0]["close"] and not r["arms"][1]["close"]  # 1.75점 차는 흔들림 0.5 보다 크다
-    assert r["rows"][2] == {"no": "03", "score": 5, "note": "한마디", "arm": "가", "piece": "장면 2"}
+    assert r["rows"][2] == {"no": "03", "score": 5, "note": "한마디", "arm": "가", "piece": "장면 2", "marks": []}
     with pytest.raises(ValueError, match="고칠 수 없어요"):
         blindset.score(s.id, "01", 1)
 
@@ -141,3 +141,84 @@ def test_screen_shows_no_key_before_reveal_and_one_primary_button():
     assert got["done"] == 1  # 다 매기면 '결과 보기' 하나
     assert got["result"]["table"] and got["result"]["locked"] and got["locked"] == 5
     assert got["result"]["notes"] == ["가장 높아요", "0.5점 낮지만 흔들림(1) 안이에요", "2점 낮고 흔들림(1)보다 커요"]
+
+
+def test_sentences_split_paragraphs_and_keep_numbers(client):
+    got = blindset.sentences('첫 문장이다. 둘째는 3.5점이다!\n"말했다." 그가 웃었다.\n\n끝이 없는 줄')
+    assert got == [["첫 문장이다.", "둘째는 3.5점이다!", '"말했다."', "그가 웃었다."], ["끝이 없는 줄"]]
+    assert blindset.sentences("  \n\n ") == []
+
+
+def test_marks_need_reveal_and_follow_the_same_text(client):
+    s = _set()
+    assert blindset.view(s)["pieces"] == []  # 대목이 곧 열쇠라 열기 전에는 싣지 않는다
+    with pytest.raises(ValueError, match="결과를 연 뒤"):
+        blindset.mark(s.id, "01", 0)
+    for no, n in zip(["01", "02", "03", "04", "05", "06"], [4, 2, 5, 3, 3, 2]):
+        blindset.score(s.id, no, n)
+    assert blindset.view(blindset.load(s.id))["pieces"] == []
+    blindset.reveal(s.id)
+    with pytest.raises(ValueError, match="없는 문장"):
+        blindset.mark(s.id, "01", 5)
+    with pytest.raises(KeyError):
+        blindset.mark(s.id, "99", 0)
+    got = blindset.mark(s.id, "01", 0)
+    # 글자가 같은 05번에도 같이 긋는다
+    assert [(x.no, [(m.idx, m.text) for m in x.marks]) for x in got.items if x.marks] == [("01", [(0, "가 판의 첫 글이다.")]), ("05", [(0, "가 판의 첫 글이다.")])]
+    v = blindset.view(got)
+    # 점수 차가 큰 대목이 앞, 대목 안에서는 낮은 글부터, 같은 글 두 편은 하나로. 판 이름은 싣지 않는다
+    assert [(g["piece"], g["spread"], [(t["nos"], t["scores"], t["marks"]) for t in g["texts"]]) for g in v["pieces"]] == [
+        ("장면 2", 2.0, [(["04"], [3], []), (["03"], [5], [])]),
+        ("장면 1", 1.5, [(["02", "06"], [2, 2], []), (["01", "05"], [4, 3], [0])])]
+    assert "arm" not in json.dumps(v["pieces"], ensure_ascii=False) and v["pieces"][0]["texts"][0]["paras"] == [["나 판의 둘째 글이다."]]
+    assert v["result"]["rows"][0]["marks"] == [{"idx": 0, "text": "가 판의 첫 글이다."}]
+    assert blindset.mark(s.id, "05", 0, on=False).items[0].marks == []  # 지울 때도 같은 글 둘 다
+
+
+def test_marks_api(client):
+    r = client.post("/api/blind", json={"title": "긋기", "items": [{"text": t} for t in TEXTS[:2]], "key": KEY[:2]})
+    bid = r.json()["id"]
+    assert client.put(f"/api/blind/{bid}/items/01/marks", json={"idx": 0}).status_code == 400  # 열기 전
+    client.put(f"/api/blind/{bid}/items/01", json={"score": 4})
+    client.put(f"/api/blind/{bid}/items/02", json={"score": 2})
+    client.post(f"/api/blind/{bid}/reveal")
+    got = client.put(f"/api/blind/{bid}/items/01/marks", json={"idx": 0}).json()
+    assert [t["marks"] for t in got["pieces"][0]["texts"]] == [[], [0]]
+    assert client.put(f"/api/blind/{bid}/items/01/marks", json={"idx": 0, "on": False}).json()["pieces"][0]["texts"][1]["marks"] == []
+    assert client.put(f"/api/blind/{bid}/items/01/marks", json={"idx": 9}).status_code == 400
+    assert client.put(f"/api/blind/{bid}/items/77/marks", json={"idx": 0}).status_code == 404
+
+
+def test_old_set_file_without_marks_still_loads(client):
+    s = _set()
+    path = blindset.root() / f"{s.id}.json"
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    for x in raw["items"]:
+        x.pop("marks")
+    path.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+    assert blindset.load(s.id).items[0].marks == []
+
+
+@needs_node
+def test_marks_screen_hides_arms_and_adds_no_primary_button():
+    pieces = [{"piece": "장면 1", "spread": 1, "texts": [{"nos": ["01"], "scores": [2], "paras": [["첫 문장.", "둘째 문장."], ["셋째 문장."]], "marks": [1]},
+                                                    {"nos": ["02", "09"], "scores": [3, 4], "paras": [["다른 글."]], "marks": []}]},
+              {"piece": "", "spread": 0, "texts": [{"nos": ["03"], "scores": [3], "paras": [["끝."]], "marks": [0]}]}]
+    got = run_js(["app.js", "blindset.js"], """(() => {
+      fmtDateTime = () => '';
+      S.jobs = []; S.route = ['blind'];
+      const rows = [{ no: '01', score: 2, note: '', arm: '가판', piece: '장면 1', marks: [] }];
+      S.bl = { id: 'b1', title: '묶음', items: 3, scored: 3, scale: 5, texts: [{ no: '01', text: '첫 문장.', chars: 5, score: 2, note: '' }], has_key: true, revealed_at: 'x',
+        result: { arms: [{ arm: '가판', mean: 2, texts: 1, low: 2, high: 2, close: false }], pairs: [], noise: null, rows }, pieces: data.pieces };
+      S.blNo = ''; S.blPiece = -1;
+      const res = viewBlind();
+      S.blPiece = 0;
+      const html = viewBlind();
+      return { link: res.includes('href="#/blind/b1/marks"'), count: [blMarkCount(S.bl), blMarkCount(S.bl, 0), blMarkCount(S.bl, 1)], head: data.pieces[0].texts.map(blColHead),
+        primary: (html.match(/btn primary/g) || []).length + (res.match(/btn primary/g) || []).length, arm: html.includes('가판'),
+        spans: (html.match(/data-bl-mark=/g) || []).length, on: (html.match(/aria-pressed="true" data-bl-mark="01" data-idx="1"/g) || []).length,
+        idx: [...html.matchAll(/data-bl-mark="01" data-idx="(\\d)"/g)].map((m) => m[1]).join(''), tabs: (html.match(/marks\\/\\d"/g) || []).length, unnamed: html.includes('대목 2') };
+    })()""", {"pieces": pieces})
+    assert got["link"] and got["count"] == [2, 1, 1] and got["head"] == ["01번 · 2점", "02번 · 09번 · 3 · 4점"]
+    assert got["primary"] == 0 and not got["arm"]  # 긋는 동안 판 이름은 보이지 않는다
+    assert got["spans"] == 4 and got["on"] == 1 and got["idx"] == "012" and got["tabs"] == 2 and got["unnamed"]

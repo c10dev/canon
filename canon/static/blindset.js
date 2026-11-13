@@ -2,17 +2,25 @@
    판(지시 · 규칙 · 모델)이 다른 글 여러 편을 섞어 둔 묶음을 한 편씩 읽고 1~5점을 매긴다. 어느 글이 어느 판인지는 결과를 열기 전까지 서버가 보내지 않는다.
    결과를 열면 판마다 평균과, 같은 글 두 편의 점수 차로 잰 흔들림을 보인다. 연 뒤에는 점수를 고칠 수 없다.
    묶음은 실험 스크립트나 명령줄(canon blind import)이 넣는다. 화면에는 넣는 칸이 없다. 사이드바에는 없고 찾기 팔레트에서 연다 (palette.js PAL_TOOLS).
-   blNext · blProgress · blArmNote 는 DOM 없는 순수 함수 (tests/test_blindset_js.py). CSS 는 JS 에서 주입 */
+   결과를 연 뒤에는 긋기 화면(#/blind/<id>/marks[/<대목 차례>])에서 같은 대목의 글을 나란히 놓고 거슬린 문장을 눌러 긋는다. 판 이름은 그 화면에 보이지 않는다.
+   blNext · blProgress · blArmNote · blMarkCount · blColHead 는 DOM 없는 순수 함수 (tests/test_blindset.py). CSS 는 JS 에서 주입 */
 
 Object.assign(S, {
   blHome: null,  // 묶음 목록 (GET /blind)
   bl: null,      // 연 묶음 (GET /blind/<id>)
   blNo: '',      // 읽고 있는 글 번호
+  blPiece: -1,   // 긋기 화면에서 보는 대목 차례 (-1 은 긋기 화면이 아님)
 });
 
-async function blLoad(id, no) {
+async function blLoad(id, no, sub) {
   if (!id) { S.bl = null; S.blHome = await api('GET', '/blind'); return; }
   if (!S.bl || S.bl.id !== id) S.bl = await api('GET', `/blind/${enc(id)}`);
+  S.blPiece = -1;
+  if (no === 'marks' && S.bl.result && (S.bl.pieces || []).length) {
+    S.blPiece = Math.min(Math.max(Number(sub) || 0, 0), S.bl.pieces.length - 1);
+    S.blNo = '';
+    return;
+  }
   const first = blNext(S.bl.texts, '');
   S.blNo = S.bl.texts.some((t) => t.no === no) ? no : (S.bl.result ? '' : first);
 }
@@ -36,6 +44,17 @@ function blArmNote(arm, top, noise) {
   const gap = Math.round((top - arm.mean) * 100) / 100;
   if (noise == null) return `가장 높은 판보다 ${gap}점 낮아요`;
   return arm.close ? `${gap}점 낮지만 흔들림(${noise}) 안이에요` : `${gap}점 낮고 흔들림(${noise})보다 커요`;
+}
+
+/** 그은 문장 수 (같은 글 두 편은 한 번만 센다). piece 를 주면 그 대목만. 순수 함수 */
+function blMarkCount(b, piece) {
+  return (b.pieces || []).filter((g, i) => piece == null || i === piece).reduce((n, g) => n + g.texts.reduce((m, t) => m + t.marks.length, 0), 0);
+}
+
+/** 긋기 화면의 글 머리 ('02번 · 09번 · 3점'). 같은 글 두 편의 점수가 다르면 둘 다 적는다. 순수 함수 */
+function blColHead(t) {
+  const scores = [...new Set(t.scores)];
+  return `${t.nos.map((n) => `${n}번`).join(' · ')} · ${scores.join(' · ')}점`;
 }
 
 function viewBlind() {
@@ -84,11 +103,47 @@ function blResult(b) {
   const noise = r.noise == null ? '같은 글을 두 번 넣은 짝이 없어 흔들림을 재지 못했어요.' : `같은 글 두 편의 점수 차는 평균 ${r.noise}점이에요 (${pairs}). 판 사이 차이가 이보다 작으면 어느 쪽이 낫다고 말할 수 없어요.`;
   return `<section class="card"><h2>결과</h2>${r.arms.length ? `<div class="bl-table-wrap"><table class="bl-table"><thead><tr><th scope="col">판</th><th scope="col">평균</th><th scope="col">글 수</th><th scope="col">범위</th><th scope="col">풀이</th></tr></thead><tbody>${arms}</tbody></table></div>` : '<p class="small">열쇠가 없는 묶음이라 판별 평균은 없어요.</p>'}
     <p class="small">${esc(noise)}</p></section>
+    ${(b.pieces || []).length ? `<section class="card between"><div><h2>거슬린 문장 긋기</h2><span class="small">같은 대목의 글을 나란히 놓고 거슬린 문장을 눌러요 · 그은 문장 ${blMarkCount(b)}개</span></div><a class="btn" href="#/blind/${b.id}/marks">긋기</a></section>` : ''}
     <section class="card"><h2>글마다</h2><div class="bl-table-wrap"><table class="bl-table"><thead><tr><th scope="col">번호</th><th scope="col">점수</th><th scope="col">판</th><th scope="col">대목</th><th scope="col">한마디</th></tr></thead><tbody>${rows}</tbody></table></div></section>`;
 }
 
+function blMarks(b) {
+  const g = b.pieces[S.blPiece];
+  const tabs = b.pieces.map((p, i) => `<a href="#/blind/${b.id}/marks/${i}" class="bl-no${i === S.blPiece ? ' on' : ''}"${i === S.blPiece ? ' aria-current="true"' : ''}>${esc(p.piece || `대목 ${i + 1}`)}<span class="bl-score" data-bl-count="${i}">${blMarkCount(b, i) || ''}</span></a>`).join('');
+  const cols = g.texts.map((t) => {
+    let idx = -1;
+    const on = new Set(t.marks);
+    const paras = t.paras.map((sents) => `<p>${sents.map((s) => { idx += 1; return `<span class="bl-s" role="button" tabindex="0" aria-pressed="${on.has(idx)}" data-bl-mark="${esc(t.nos[0])}" data-idx="${idx}">${esc(s)}</span>`; }).join(' ')}</p>`).join('');
+    return `<section class="card bl-col"><h2>${esc(blColHead(t))}</h2><div class="bl-body">${paras}</div></section>`;
+  }).join('');
+  return `<nav class="bl-nav" aria-label="대목">${tabs}</nav><p class="small">거슬린 문장을 누르면 줄이 그어지고, 다시 누르면 지워져요. 이유는 적지 않아도 돼요.</p><div class="bl-cols">${cols}</div>`;
+}
+
+async function blToggleMark(el) {
+  const b = S.bl;
+  const on = el.getAttribute('aria-pressed') !== 'true';
+  el.setAttribute('aria-pressed', String(on));  // 다시 그리지 않는다: 긴 글 가운데에서 눌러도 읽던 자리가 그대로다
+  try {
+    S.bl = await api('PUT', `/blind/${enc(b.id)}/items/${enc(el.dataset.blMark)}/marks`, { idx: Number(el.dataset.idx), on });
+  } catch (e) { el.setAttribute('aria-pressed', String(!on)); return showError(e); }
+  for (const c of document.querySelectorAll('[data-bl-count]')) c.textContent = blMarkCount(S.bl, Number(c.dataset.blCount)) || '';
+}
+
+document.addEventListener('click', (e) => {
+  const el = e.target.closest && e.target.closest('[data-bl-mark]');
+  if (el && S.bl && S.blPiece >= 0) blToggleMark(el);
+});
+document.addEventListener('keydown', (e) => {
+  if ((e.key !== 'Enter' && e.key !== ' ') || !e.target.dataset || !e.target.dataset.blMark) return;
+  e.preventDefault();
+  blToggleMark(e.target);
+});
+
 function blSetView() {
   const b = S.bl;
+  if (S.blPiece >= 0) {
+    return `${header('가려 읽기 묶음', b.title, '거슬린 문장 긋기 · 판 이름은 여기서 보이지 않아요.', `<a class="btn" href="#/blind/${b.id}">결과로 돌아가기</a>`)}${blMarks(b)}`;
+  }
   const done = b.scored === b.items;
   const menu = menuBtn('bl-more', '⋯', () => `<div class="pop-sec pop-danger"><details><summary class="small">이 묶음 지우기</summary>
       <div class="small">글과 점수가 함께 사라져요.</div><button type="button" class="pop-item danger" data-action="blDelete">지우기</button></details></div>`, { aria: '묶음 더보기' });
@@ -156,6 +211,12 @@ const BL_CSS = `
 .bl-body p { margin: 0 0 var(--space-12); }
 .bl-rate { display: flex; flex-wrap: wrap; gap: var(--space-12); align-items: center; position: sticky; bottom: 0; padding: var(--space-12) 0; background: var(--surface); border-top: 1px solid var(--line); }
 .bl-rate input { flex: 1; min-width: 12rem; }
+.bl-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr)); gap: var(--space-12); align-items: start; }
+.bl-col .bl-body { max-width: none; }
+.bl-s { cursor: pointer; border-radius: var(--radius-4, 4px); }
+.bl-s:hover { background: var(--chip); }
+.bl-s:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.bl-s[aria-pressed="true"] { background: var(--accent-soft); text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }
 .bl-table-wrap { overflow-x: auto; }
 .bl-table { width: 100%; border-collapse: collapse; }
 .bl-table th, .bl-table td { padding: var(--space-8); border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }

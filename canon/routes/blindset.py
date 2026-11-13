@@ -36,6 +36,11 @@ class BlindScoreIn(BaseModel):
     note: str = ""
 
 
+class BlindMarkIn(BaseModel):
+    idx: int  # blindset.sentences 로 나눈 문장의 차례 (0 부터)
+    on: bool = True
+
+
 def _set(bid: str):
     try:
         return blindset.load(bid)
@@ -74,6 +79,18 @@ def score_blind(bid: str, no: str, body: BlindScoreIn) -> dict:
         raise HTTPException(400, str(e))
 
 
+@router.put("/api/blind/{bid}/items/{no}/marks")
+def mark_blind(bid: str, no: str, body: BlindMarkIn) -> dict:
+    """결과를 연 묶음에서 거슬린 문장을 긋거나 지운다 (열기 전에는 400)."""
+    _set(bid)
+    try:
+        return blindset.view(blindset.mark(bid, no, body.idx, body.on))
+    except KeyError as e:
+        raise HTTPException(404, str(e.args[0]))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
 @router.post("/api/blind/{bid}/reveal")
 def reveal_blind(bid: str) -> dict:
     _set(bid)
@@ -93,12 +110,14 @@ def delete_blind(bid: str) -> dict:
 EXPORTS = (
     "BlindIn",
     "BlindKeyIn",
+    "BlindMarkIn",
     "BlindScoreIn",
     "BlindTextIn",
     "create_blind",
     "delete_blind",
     "get_blind",
     "list_blind",
+    "mark_blind",
     "reveal_blind",
     "score_blind",
 )

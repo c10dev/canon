@@ -4037,6 +4037,12 @@ PlotUndo.model_rebuild()
 ChatMessage.model_rebuild()
 RenumberOp.model_rebuild()
 RegexCard.model_rebuild()
+class BlindMark(BaseModel):
+    """작가가 거슬린다고 그은 문장 하나 (blindset.mark). idx 는 blindset.sentences 로 나눈 문장의 차례 (0 부터)."""
+    idx: int
+    text: str = ""
+
+
 class BlindItem(BaseModel):
     """가려 읽기 묶음의 글 하나 (canon/blindset.py). score 0 은 아직 매기지 않음."""
     no: str
@@ -4044,6 +4050,7 @@ class BlindItem(BaseModel):
     score: int = 0
     note: str = Field("", description="작가가 적은 한마디")
     at: str = ""
+    marks: list[BlindMark] = Field(default_factory=list, description="결과를 연 뒤 작가가 그은 거슬린 문장")
 
 
 class BlindKey(BaseModel):
