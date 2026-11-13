@@ -4037,6 +4037,34 @@ PlotUndo.model_rebuild()
 ChatMessage.model_rebuild()
 RenumberOp.model_rebuild()
 RegexCard.model_rebuild()
+class BlindItem(BaseModel):
+    """가려 읽기 묶음의 글 하나 (canon/blindset.py). score 0 은 아직 매기지 않음."""
+    no: str
+    text: str
+    score: int = 0
+    note: str = Field("", description="작가가 적은 한마디")
+    at: str = ""
+
+
+class BlindKey(BaseModel):
+    """글 하나가 어느 판인지. 결과를 열기 전에는 화면에 보내지 않는다."""
+    no: str
+    arm: str = Field(description="판 이름 (지금 규칙 · 줄을 뺀 판 · 모델 이름 등)")
+    piece: str = Field("", description="어느 장면 · 대목인지")
+
+
+class BlindSet(BaseModel):
+    """가려 읽기 묶음 하나 (<CANON_HOME>/.blind/<id>.json). 작품 데이터가 아니다."""
+    id: str
+    title: str = ""
+    note: str = ""
+    source: str = Field("", description="가져온 폴더 (blindset.import_folder)")
+    created_at: str = ""
+    items: list[BlindItem] = Field(default_factory=list, description="읽을 차례 그대로")
+    key: list[BlindKey] = Field(default_factory=list)
+    revealed_at: str = Field("", description="결과를 연 때. 연 뒤에는 점수를 고칠 수 없다")
+
+
 Approval.model_rebuild()
 WriteRecord.model_rebuild()
 AgentTurn.model_rebuild()

@@ -2,6 +2,22 @@
 
 이 파일의 줄은 [AGENTS.md](../../AGENTS.md) 의 '문서 줄 규칙'을 따른다.
 
+### `canon/blindset.py`
+
+- 가려 읽기 묶음(작품 밖 `<CANON_HOME>/.blind/<id>.json`, `CANON_BLIND` 로 경로 변경, 화면은 `static/blindset.js`, 웹 `/api/blind/...`)
+- 판(지시 · 규칙 · 모델)이 다른 글 여러 편을 섞어 둔 묶음 `BlindSet` 을 작가가 한 자리에서 읽고 1~`SCALE`(5)점을 매긴다. AI 를 부르지 않는다
+- 묶음은 실험 스크립트(`POST /api/blind`)나 명령줄(`canon blind import <폴더>`)이 넣는다. 화면에는 넣는 칸이 없다
+- 넣기 `create`(글 `ITEMS` 2~60편, 번호를 안 주면 01 · 02 …, 열쇠는 모든 글을 덮어야 함. 열쇠 없는 묶음도 받음)
+- 폴더 가져오기 `import_folder`: 숫자 이름의 txt 가 글, 열쇠는 그 폴더나 윗 폴더의 `blind_key.json`(`{번호: {arm, passage}}` 꼴과 목록 꼴). 폴더의 파일은 바꾸지 않는다
+- 점수 `score`(0 은 지움, 한마디 `NOTE_MAX` 자). 결과를 연 뒤에는 고칠 수 없다
+- 결과 열기 `reveal`: 모든 글에 점수가 있어야 한다. 한 번 열면 닫지 못한다
+- 화면 값 `view` 는 결과를 열기 전에 열쇠(`BlindKey`: 판 이름 `arm` · 대목 `piece`)를 싣지 않는다
+- 흔들림 `pairs`: 글자가 같은 글 두 편의 점수 차. 평균이 그 회차의 흔들림(`noise`)이다(2026-11-09 같은 글이 하루 안에 3.5 → 2.3)
+- 결과 `result`: 판마다 평균(같은 글 두 편은 평균 하나로 침) · 글 수 · 범위, 가장 높은 판과의 차가 흔들림 안이면 `close`
+- 저장은 `store.write_atomic`. 작품(`project.json`)에는 쓰지 않는다
+- 명령줄 `canon blind import <폴더> [--title] [--note]` · `canon blind list`(`cli.cmd_blind`)
+- 시험 `tests/test_blindset.py`
+
 ### `canon/blocktrial.py`
 
 - 쓰기 블록 시험(명령줄 `blocktrial`)
@@ -446,6 +462,14 @@
 - 화면은 `static/revlab.js`
 - 시험 `tests/test_revlab.py`(글은 `tests/fixtures/revlab_story.txt`, 직접 지은 글)
 
+### `canon/routes/blindset.py`
+
+- 가려 읽기 묶음 웹 라우트(`/api/blind/...`)
+- `web.py` 맨 끝의 `_attach_routes` 가 `router` 를 앱에 붙이고 `EXPORTS` 의 이름을 `web` 에도 둔다
+- 목록 `GET /api/blind` · 넣기 `POST /api/blind`(실험 스크립트용) · 하나 `GET /api/blind/{id}` · 지우기 `DELETE /api/blind/{id}`
+- 점수 `PUT /api/blind/{id}/items/{번호}`(`{score, note}`) · 결과 열기 `POST /api/blind/{id}/reveal`(안 매긴 글이 있으면 400)
+- 작업(`jobs`)을 쓰지 않는다
+
 ### `canon/routes/drill.py`
 
 - 지시 연습 웹 라우트(`/api/drill/...`)
@@ -574,6 +598,17 @@
 - 명령줄 `soelab collect | report | export`
 - 시험 `tests/test_soelab.py` · `tests/test_soelab_web.py`
 - LLM 호출 없음
+
+### `canon/static/blindset.js`
+
+- 가려 읽기 묶음 화면(`#/blind[/<묶음 id>[/<번호>]]`). 사이드바에는 없고 찾기 팔레트(`palette.js` 의 `PAL_TOOLS`)에서 연다
+- 목록(`blHomeView`): 묶음마다 이름 · 매긴 수 · 결과를 열었는지
+- 묶음(`blSetView`): 번호 줄(`blNav`, 매긴 글은 점수와 함께) · 글 하나(`blReader`, 읽기 글꼴) · 아래에 붙는 점수 버튼 1~5 와 한마디 칸
+- 점수를 누르면 저장하고 다음 안 매긴 글로 넘어간다(`blNext`). 같은 점수를 다시 누르면 지운다. 한마디는 칸을 벗어날 때 저장한다
+- 모두 매기면 머리에 주 버튼 **결과 보기**가 생긴다. 확인을 거쳐 열고, 연 뒤에는 점수 버튼을 잠근다
+- 결과(`blResult`): 판마다 평균 · 글 수 · 범위 · 풀이(`blArmNote`: 가장 높은 판과의 차가 흔들림 안인지), 같은 글 짝의 점수 차, 글마다 판 · 대목 · 한마디
+- `blNext` · `blProgress` · `blArmNote` 는 순수 함수(`tests/test_blindset.py`)
+- CSS 는 JS 에서 주입
 
 ### `canon/static/drill.js`
 

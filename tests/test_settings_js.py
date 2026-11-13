@@ -137,7 +137,7 @@ def test_palette_finds_setting_rows():
       const items = paletteItems({{ inProject: false, settings }});
       return {{ empty: paletteMatch(items, '').map((i) => i.label), key: paletteMatch(items, 'Anthropic').map((i) => [i.kind, i.label, i.act, i.cat, i.hint]) }};
     }})()""", {})
-    assert got["empty"] == ["작품 목록", "설정", "알림 · AI 작업", "지시 연습"]  # 검색어가 없으면 설정 줄은 숨긴다
+    assert got["empty"] == ["작품 목록", "설정", "알림 · AI 작업", "지시 연습", "가려 읽기 묶음"]  # 검색어가 없으면 설정 줄은 숨긴다
     assert got["key"][0] == ["setting", "Anthropic API 키", "settings", "ai", "AI 연결 · Claude"]
 
 

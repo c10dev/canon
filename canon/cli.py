@@ -2412,6 +2412,28 @@ def cmd_claude(a: argparse.Namespace) -> None:
     print("구독으로 쓰기: CANON_LLM=claude (단계별은 CANON_LLM_WRITE=claude 등), API 키로 쓰기: CANON_LLM=claude-api")
 
 
+def cmd_blind(a: argparse.Namespace) -> None:
+    """가려 읽기 묶음 (canon/blindset.py): 실험이 만든 폴더를 묶음으로 넣거나 목록을 본다. 점수는 웹 화면 #/blind 에서 매긴다."""
+    from . import blindset
+
+    if a.action == "import":
+        if not a.folder:
+            sys.exit("넣을 폴더를 적어 주세요: canon blind import <폴더>")
+        try:
+            s = blindset.import_folder(a.folder, a.title or "", a.note or "")
+        except ValueError as e:
+            sys.exit(str(e))
+        print(f"묶음을 넣었어요: {s.title} ({len(s.items)}편{', 열쇠 있음' if s.key else ', 열쇠 없음'})")
+        print(f"웹 화면에서 이 주소를 열어 점수를 매기세요: #/blind/{s.id}")
+        return
+    rows = blindset.sets()
+    if not rows:
+        print("가려 읽기 묶음이 없어요.")
+    for s in rows:
+        done = sum(1 for x in s.items if x.score)
+        print(f"{s.id}  {s.title}  {done}/{len(s.items)}편 매김{'  결과 엶' if s.revealed_at else ''}")
+
+
 def cmd_usage(a: argparse.Namespace) -> None:
     if a.prices:
         t = usage.price_table()
@@ -2953,6 +2975,12 @@ def _app_commands(sub, add) -> None:
     sp.add_argument("--update-interval", type=float, default=10, help="실행 중 새 코드 확인 간격(분), 기본 10")
     sp.set_defaults(fn=cmd_serve)
     sub.add_parser("upgrade", help="main 의 새 코드 받기 (git pull)").set_defaults(fn=cmd_upgrade)
+    sp = sub.add_parser("blind", help="가려 읽기 묶음 넣기 · 목록 (점수는 웹 #/blind)")
+    sp.add_argument("action", choices=["import", "list"])
+    sp.add_argument("folder", nargs="?", help="import: 01.txt … 와 blind_key.json 이 있는 폴더")
+    sp.add_argument("--title", help="묶음 이름")
+    sp.add_argument("--note", help="묶음 메모")
+    sp.set_defaults(fn=cmd_blind)
     sp = sub.add_parser("usage", help="AI 사용량과 추정 비용")
     sp.add_argument("--days", type=int, default=30, help="최근 며칠 (기본 30)")
     sp.add_argument("--all", action="store_true", help="전체 기간")
