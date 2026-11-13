@@ -271,7 +271,7 @@ def _judged(book, results, pick="", layer="manner", added=None):
 
 
 def test_stats_count_layers_results_and_revision_wins(book):
-    assert drill.stats([]) == {"rounds": 0, "lines": 0, "worked": None, "picks": {"new": 0, "old": 0, "skip": 0}, "recent_n": 5, "recent": None, "before": None, "trend": [],
+    assert drill.stats([]) == {"rounds": 0, "lines": 0, "worked": None, "picks": {"new": 0, "old": 0, "skip": 0}, "shrink": {"new": 0, "old": 0, "skip": 0}, "recent_n": 5, "recent": None, "before": None, "trend": [],
                                "layers": [{"id": k, "label": v[0], "lines": 0, "applied": 0, "overdone": 0, "ignored": 0, "unsure": 0, "worked": 0, "added": 0, "won": 0,
                                            "share": 0.0} for k, v in drill.LAYERS.items()]}
     rs = [_judged(book, [("applied", False), ("applied", True), ("ignored", False), ("unsure", False)], pick="new", added="change"),
@@ -343,3 +343,62 @@ def test_hints_point_at_lines_that_do_not_change_the_text():
     assert drill.hints(again.model_copy(update={"change": "", "avoid": "식사를 권한다고 순수하게 고마워서 사는 것이라며"})) == []  # 금지 줄은 겹쳐도 짚지 않는다
     good = b.model_copy(update={"change": "하은이 겁먹은 사람에서 다시 쏘아붙이는 사람으로 돌아온다\n주혁이 자기가 위협하는 쪽임을 알아챈다", "avoid": "손대기"})
     assert drill.hints(good) == [] and drill.hints(DrillBrief(events="말을 건다")) == []
+
+
+def test_shrink_round_writes_the_short_and_the_dense_brief_and_picks_blind(client, book):
+    assert client.get("/api/drill").json()["modes"] == drill.MODES and client.post("/api/drill", json={"ref_id": book.id, "mode": "nope"}).status_code == 422
+    r = client.post("/api/drill", json={"ref_id": book.id, "order": 3, "part": 2, "mode": "shrink"}).json()
+    did, url = r["id"], f"/api/drill/{r['id']}"
+    assert r["mode"] == "shrink" and r["stage"] == "facts" and r["dense"] == [] and r["shrink_max"] == 3
+
+    def done(body):
+        j = _wait(client, client.post(f"{url}/jobs", json=body).json()["id"])
+        assert j["status"] == "done", j
+        return j
+
+    done({"kind": "facts"})
+    r = client.get(url).json()
+    dense = [x["text"] for x in r["dense"]]
+    assert r["stage"] == "brief" and r["brief"]["events"] == "" and r["brief"]["before"] == "" and r["brief"]["people"] and len(dense) >= 5 and r["hints"] == []
+    assert {x["box"] for x in r["dense"]} == {"before", "inner", "events"}
+    assert client.post(f"{url}/jobs", json={"kind": "shrink"}).status_code == 400  # 줄인 지시가 비었다
+    assert client.post(f"{url}/jobs", json={"kind": "write"}).status_code == 400  # 줄이기 판은 두 판 쓰기를 받지 않는다
+    client.put(url, json={"brief": {**r["brief"], "events": "1\n2\n3\n4"}})
+    assert "3줄까지" in client.post(f"{url}/jobs", json={"kind": "shrink"}).json()["detail"]
+    client.put(url, json={"brief": {**r["brief"], "events": drill.load(did).source.split("\n")[0]}})
+    assert "원문 문장" in client.post(f"{url}/jobs", json={"kind": "shrink"}).json()["detail"]
+    client.put(url, json={"brief": {**r["brief"], "events": "서연이 가게에 들어와 묻는다\n도윤이 대답을 피한다", "manner": "짧게"}})
+    j = done({"kind": "shrink"})
+    assert j["kind"] == "dr_shrink" and j["result"] == {"id": did, "no": 1}
+    r = client.get(url).json()
+    a = r["attempts"][0]
+    assert r["stage"] == "pick" and r["source"] == "" and not r["revealed"] and r["source_measure"] is None  # 고르기 전에는 원문도 가린다
+    assert a["with_text"] == "" and a["old_text"] == "" and r["measures"] == {} and r["blind"]["left"] != r["blind"]["right"]
+    saved = drill.load(did).attempts[0]
+    assert saved.brief.events == "서연이 가게에 들어와 묻는다\n도윤이 대답을 피한다" and saved.brief.before == "" and saved.brief.manner == "" and not saved.verdicts
+    assert "도윤이 대답을 피한다" in saved.with_text and dense[-1] in saved.old_text and dense[-1] not in saved.with_text  # 줄인 지시의 판에는 뽑은 줄이 들어가지 않았다
+    assert client.post(f"{url}/jobs", json={"kind": "review"}).status_code == 400 and client.post(f"{url}/jobs", json={"kind": "shrink"}).status_code == 400
+    assert client.post(f"{url}/jobs", json={"kind": "revise"}).status_code == 400
+    side = "right" if saved.flip else "left"  # 뽑은 지시로 쓴 판이 있는 쪽
+    r = client.post(f"{url}/pick", json={"side": side}).json()
+    assert r["stage"] == "done" and r["attempts"][0]["pick"] == "old" and r["source"] and r["measures"]["1"]["old"]["chars"] > 0
+    home = client.get("/api/drill").json()
+    assert home["stats"]["shrink"] == {"new": 0, "old": 1, "skip": 0} and home["stats"]["rounds"] == 0  # 줄이기 판은 층 기록에 넣지 않는다
+    assert home["rounds"][0]["mode"] == "shrink" and home["rounds"][0]["pick"] == "old"
+
+
+def test_shrink_cards_share_the_facts_and_have_no_method(book):
+    r = drill.create(book.id, order=1, part=2, mode="shrink")
+    drill.set_facts(r, pipeline.drill_facts(L, r.source, r.lead), "mock")
+    with pytest.raises(ValueError, match="한 줄은"):
+        drill.shrink_briefs(r, r.brief)
+    r.brief.events = "서연이 묻고 도윤이 피한다"
+    short, dense = drill.shrink_briefs(r, drill.clean_brief(r.brief))
+    a, b = drill.card_of(r, short, bare=True), drill.card_of(r, dense, bare=True)
+    assert (a.people, a.pov, a.place, a.time, a.extra, a.lines) == (b.people, b.pov, b.place, b.time, "", True) and b.extra == ""
+    assert "서연이 묻고 도윤이 피한다" in a.action and "속사정" not in a.action and "직전 상황" not in a.action and drill.NO_INVENT in a.action
+    assert all(e in b.action for e in r.facts.events) and "속사정" in b.action
+    with pytest.raises(ValueError, match="줄이기 판이 아니에요"):
+        drill.shrink_briefs(_round(book), DrillBrief(events="한 줄"))
+    with pytest.raises(ValueError, match="모르는 연습"):
+        drill.create(book.id, mode="other")

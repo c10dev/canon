@@ -15,7 +15,7 @@ from ..schema import REF_DIGEST_KINDS, DrillBrief, DrillRound
 
 router = APIRouter()
 
-# 판 하나가 <CANON_HOME>/.drill/<id>.json 하나다. AI 호출 넷(사실 뽑기 · 두 판 쓰기 · 되짚기 · 고쳐서 다시 쓰기)은 백그라운드 작업으로 돈다.
+# 판 하나가 <CANON_HOME>/.drill/<id>.json 하나다. AI 호출(사실 뽑기 · 두 판 쓰기 · 되짚기 · 고쳐서 다시 쓰기 · 줄여서 쓰기)은 백그라운드 작업으로 돈다.
 # 작품 밖이라 작업 목록의 project 자리는 DR_JOBS 이고 대상(target)은 판 id 다.
 DR_JOBS = ".drill"  # 작업 목록의 project 자리 (작품 폴더는 점으로 시작하지 않아 겹치지 않는다). 화면은 '지시 연습'으로 보인다
 
@@ -27,6 +27,7 @@ class DrillIn(BaseModel):
     kind: str = ""  # 도구가 고를 때: 화 카드의 성격
     tension: int = 0  # 도구가 고를 때: 화 카드의 긴장 (이상)
     style_id: str = ""
+    mode: Literal["", "shrink"] = ""  # 연습 종류 (drill.MODES)
 
 
 class DrillEdit(BaseModel):
@@ -38,7 +39,7 @@ class DrillPick(BaseModel):
 
 
 class DrillJobIn(BaseModel):
-    kind: Literal["facts", "write", "review", "revise"]
+    kind: Literal["facts", "write", "review", "revise", "shrink"]
     no: int = 0  # review: 되짚을 시도 번호. 0 이면 마지막 시도
 
 
@@ -53,7 +54,7 @@ def _drill(did: str) -> DrillRound:
 def list_drill() -> dict:
     rs = drill.rounds()
     return {"rounds": [drill.summary(r) for r in rs], "stats": drill.stats(rs), "sources": drill.sources(), "layers": drill.layers(), "results": drill.RESULTS,
-            "boxes": drill.BOXES, "kinds": list(REF_DIGEST_KINDS), "method_max": drill.METHOD_MAX}
+            "boxes": drill.BOXES, "kinds": list(REF_DIGEST_KINDS), "method_max": drill.METHOD_MAX, "modes": drill.MODES, "shrink_max": drill.SHRINK_MAX}
 
 
 @router.get("/api/drill/sources/{rid}")
@@ -68,7 +69,7 @@ def drill_source(rid: str) -> dict:
 @router.post("/api/drill")
 def create_drill(body: DrillIn) -> dict:
     try:
-        return drill.view(drill.create(body.ref_id, body.order, body.part, body.kind, body.tension, body.style_id))
+        return drill.view(drill.create(body.ref_id, body.order, body.part, body.kind, body.tension, body.style_id, mode=body.mode))
     except KeyError as e:
         raise HTTPException(404, str(e.args[0])) from None
 
@@ -118,6 +119,7 @@ def drill_job(did: str, body: DrillJobIn) -> dict:
     """지시 연습의 AI 호출을 작업으로 돌린다 (작업 종류 dr_<kind>, 대상은 판 id).
     facts: 원문 대목에서 사실과 일어나는 일을 뽑는다. write: 두 판을 쓰고 이어서 되짚는다 (되짚기가 실패해도 쓴 글은 남는다).
     revise: 고친 지시의 판과 앞 지시로 다시 쓴 판을 쓰고 이어서 되짚는다 (한 판에 한 번). review: 시도 하나를 다시 되짚는다.
+    shrink: 줄이기 판에서 줄인 지시의 판과 AI가 뽑은 지시의 판을 쓴다 (쓰는 방식 없음, 되짚지 않는다).
     지시는 시작할 때 것을 쓴다."""
     r = _drill(did)
     name = r.title or "지시 연습"
@@ -132,7 +134,21 @@ def drill_job(did: str, body: DrillJobIn) -> dict:
             drill.set_facts(q, f, getattr(llm, "model", "") or "")
             drill.save(q)
             return {"id": did, "events": len(q.facts.events)}
+    elif body.kind == "shrink":
+        short, dense = drill.shrink_briefs(r, drill.clean_brief(r.brief))
+        card, old = drill.card_of(r, short, bare=True), drill.card_of(r, dense, bare=True)
+        llm = get_llm("write")
+        label, total = f"{name} · 줄여서 쓰기", 1
+
+        def fn(job: jobs.Job):
+            w, o = pipeline.drill_write(llm, card, old)
+            q = drill.load(did)
+            a = drill.add_shrink(q, short, w, o, getattr(llm, "model", "") or "")
+            drill.save(q)
+            return {"id": did, "no": a.no}
     elif body.kind == "write":
+        if r.mode:
+            raise ValueError("이 판은 지시 적기 판이 아니에요")
         if r.attempts:
             raise ValueError("이 판은 이미 썼어요. 새 판을 시작하세요")
         brief = drill.clean_brief(r.brief)
@@ -181,6 +197,8 @@ def drill_job(did: str, body: DrillJobIn) -> dict:
             raise ValueError("먼저 두 판을 쓰세요")
         if drill.pending(r):
             raise ValueError("먼저 두 글 가운데 하나를 고르세요")
+        if r.mode:
+            raise ValueError("이 연습은 되짚지 않아요")
         no = body.no or r.attempts[-1].no
         try:
             drill.find(r, no)

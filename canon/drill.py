@@ -32,6 +32,8 @@ JUDGED_MAX = 12  # 되짚는 줄 수 상한
 INVENTED_MAX = 4
 GAPS_MAX = 3
 REVISE_MAX = 1  # 한 판에서 고쳐 쓰는 횟수
+SHRINK_MAX = 3  # 줄이기 판: 줄인 지시의 줄 수 상한
+MODES = {"": "지시 적기", "shrink": "줄이기"}  # 연습 종류: id → 화면 이름
 RECENT = 5  # 추세에서 '최근'으로 보는 판 수
 TREND_MAX = 12  # 기록에 보이는 판 수
 QUOTE_MIN = 4  # 인용으로 보는 가장 짧은 글자 수 (공백 · 문장부호 빼고)
@@ -198,14 +200,16 @@ def pick(rid: str, order: int = 0, part: int = 0, kind: str = "", tension: int =
 
 
 def create(rid: str, order: int = 0, part: int = 0, kind: str = "", tension: int = 0, style_id: str = "",
-           rng: Optional[random.Random] = None) -> DrillRound:
-    """새 판을 만든다. 원문 대목과 앞부분을 판 파일에 옮겨 두므로 원고를 고치거나 지워도 판은 남는다."""
+           rng: Optional[random.Random] = None, mode: str = "") -> DrillRound:
+    """새 판을 만든다. 원문 대목과 앞부분을 판 파일에 옮겨 두므로 원고를 고치거나 지워도 판은 남는다. mode 는 연습 종류(MODES)다."""
+    if mode not in MODES:
+        raise ValueError("모르는 연습 종류예요")
     b = refs.load(rid)
     if style_id and not library.exists(style_id):
         raise ValueError("고른 문체를 문체 라이브러리에서 찾지 못했어요. 다른 문체를 고르세요")
     x = pick(rid, order, part, kind, tension, rng)
     title = f"{b.name} {x['label'] or str(x['order']) + '번째 화'} · 대목 {x['part']}/{x['parts']}"
-    return save(DrillRound(id=uuid.uuid4().hex[:12], title=title[:TITLE_MAX], ref_id=b.id, ref_name=b.name, order=x["order"], ep_label=x["label"],
+    return save(DrillRound(id=uuid.uuid4().hex[:12], title=title[:TITLE_MAX], mode=mode, ref_id=b.id, ref_name=b.name, order=x["order"], ep_label=x["label"],
                            part=x["part"], parts=x["parts"], source=x["text"], lead=x["lead"], style_id=style_id))
 
 
@@ -243,7 +247,12 @@ def facts_brief(f: Optional[DrillFacts]) -> DrillBrief:
 
 
 def set_facts(r: DrillRound, f: DrillFacts, model: str = "") -> None:
-    """뽑은 사실을 남긴다. 작가가 사실 · 일어나는 일 칸을 아직 고치지 않았으면 그 칸도 새 값으로 채운다 (쓰는 방식은 그대로)."""
+    """뽑은 사실을 남긴다. 작가가 사실 · 일어나는 일 칸을 아직 고치지 않았으면 그 칸도 새 값으로 채운다 (쓰는 방식은 그대로).
+    줄이기 판은 인물 · 시점 · 장소 · 때만 채우고, 줄일 칸(SHRUNK)은 작가가 적은 것을 둔다."""
+    if r.mode == "shrink":
+        r.facts, r.facts_model = clean_facts(f, r.source, r.lead), model
+        r.brief = facts_brief(r.facts).model_copy(update={"before": "", "inner": "", "events": r.brief.events})
+        return
     old = facts_brief(r.facts)
     fresh = all(getattr(r.brief, k) in ("", getattr(old, k)) for k in (*FACT_LINES, *FACT_ONE))
     r.facts, r.facts_model = clean_facts(f, r.source, r.lead), model
@@ -366,10 +375,50 @@ def add_attempt(r: DrillRound, b: DrillBrief, with_text: str, bare_text: str, mo
     return a
 
 
+# ---------- 줄이기: AI가 뽑은 지시를 세 줄로 줄여 쓰고, 뽑은 지시로 쓴 글과 가려 놓고 고른다 ----------
+
+SHRUNK = ("before", "inner", "events")  # 줄이는 칸. 줄인 지시는 일어나는 일 칸 하나에 적는다
+
+
+def dense_lines(r: DrillRound) -> list[dict]:
+    """줄이기 판의 빽빽한 지시: AI가 뽑은 직전 상황 · 속사정 · 일어나는 일 줄 [{box, text}]."""
+    base = facts_brief(r.facts)
+    return [{"box": k, "text": x} for k in SHRUNK for x in _lines(getattr(base, k))]
+
+
+def shrink_briefs(r: DrillRound, b: DrillBrief) -> tuple[DrillBrief, DrillBrief]:
+    """줄이기 판에서 쓸 지시 둘 (줄인 지시, 빽빽한 지시)을 돌려준다. 쓸 수 없으면 막는다.
+    인물 · 시점 · 장소 · 때는 두 지시가 같고(AI가 뽑은 것), 쓰는 방식은 둘 다 비운다. 줄인 지시는 1~SHRINK_MAX 줄이다."""
+    if r.mode != "shrink":
+        raise ValueError("줄이기 판이 아니에요")
+    if r.attempts:
+        raise ValueError("이 판은 이미 썼어요. 새 판을 시작하세요")
+    if r.facts is None:
+        raise ValueError("먼저 사실을 뽑으세요")
+    dense = facts_brief(r.facts)
+    rows = _lines(b.events)
+    if not rows:
+        raise ValueError("줄인 지시를 한 줄은 적으세요")
+    if len(rows) > SHRINK_MAX:
+        raise ValueError(f"줄인 지시는 {SHRINK_MAX}줄까지예요. 지금 {len(rows)}줄이에요")
+    if _copied("\n".join(rows), r.source, r.lead):
+        raise ValueError("지시에 원문 문장이 그대로 들어 있어요. 내 말로 바꿔 적으세요")
+    return dense.model_copy(update={"before": "", "inner": "", "events": "\n".join(rows)}), dense
+
+
+def add_shrink(r: DrillRound, short: DrillBrief, short_text: str, dense_text: str, model: str = "", rng: Optional[random.Random] = None) -> DrillAttempt:
+    """줄이기 판의 시도를 남긴다: 줄인 지시로 쓴 판(with_text)과 빽빽한 지시로 쓴 판(old_text). 가려 읽기의 왼쪽 · 오른쪽은 무작위다."""
+    a = add_attempt(r, short, short_text, "", model)
+    a.old_text, a.flip = dense_text.strip(), (rng or random.Random()).random() < 0.5
+    return a
+
+
 # ---------- 한 번 고치기: 고친 지시로 다시 쓰고 앞 지시와 가려 놓고 고른다 ----------
 
 def can_revise(r: DrillRound, b: DrillBrief) -> DrillAttempt:
     """고쳐 쓸 수 있는지 본다: 첫 시도가 있고, 아직 고치지 않았고, 지시가 앞 시도와 다르다. 앞 시도를 돌려준다."""
+    if r.mode:
+        raise ValueError("이 연습은 고쳐 쓰지 않아요. 새 판을 시작하세요")
     if not r.attempts:
         raise ValueError("먼저 두 판을 쓰세요")
     if len(r.attempts) >= REVISE_MAX + 1:
@@ -390,9 +439,9 @@ def add_revision(r: DrillRound, b: DrillBrief, new_text: str, old_text: str, mod
 
 
 def pending(r: DrillRound) -> Optional[DrillAttempt]:
-    """가려 읽고 고르기를 기다리는 고친 시도."""
+    """가려 읽고 고르기를 기다리는 시도 (고친 시도, 줄이기 판의 시도)."""
     a = r.attempts[-1] if r.attempts else None
-    return a if a and a.versus and not a.pick else None
+    return a if a and a.old_text and not a.pick else None
 
 
 def pick_side(r: DrillRound, side: str) -> DrillAttempt:
@@ -477,7 +526,7 @@ def stage(r: DrillRound) -> str:
     · pick(고쳐 쓴 판을 가려 놓고 고르는 중) · done(고름)."""
     if r.attempts:
         a = r.attempts[-1]
-        if a.versus:
+        if a.old_text:
             return "done" if a.pick else "pick"
         return "reviewed" if a.reviewed_at else "written"
     return "brief" if r.facts else "facts"
@@ -485,8 +534,9 @@ def stage(r: DrillRound) -> str:
 
 def view(r: DrillRound) -> dict:
     """화면에 보내는 판. 원문 대목은 두 판을 쓴 뒤에만 싣고, 앞부분(lead)은 싣지 않는다. 판마다 문단 지표(studio.measure)를 붙인다.
-    고쳐 쓴 판을 고르기 전에는 그 시도의 글 · 되짚기 · 왼쪽 오른쪽 차례를 빼고, 가려 읽을 두 글(blind)만 싣는다."""
-    shown = bool(r.attempts)
+    고쳐 쓴 판을 고르기 전에는 그 시도의 글 · 되짚기 · 왼쪽 오른쪽 차례를 빼고, 가려 읽을 두 글(blind)만 싣는다.
+    줄이기 판은 고른 뒤에만 원문을 싣는다 (고르기 전에 원문을 보면 원문과 닮은 쪽을 고르게 된다)."""
+    shown = any(a is not pending(r) for a in r.attempts)
     card = SceneCard(length=max(studio.LENGTH[0], min(studio.LENGTH[1], len(r.source))), style_id=r.style_id if style_name(r) else "")
     st = studio.style_of(card)
     m = lambda t: studio.measure(t, card, st)  # noqa: E731
@@ -502,7 +552,8 @@ def view(r: DrillRound) -> dict:
     last = r.attempts[-1] if r.attempts else None
     return {**out, "source": r.source if shown else "", "source_chars": len(r.source), "revealed": shown, "stage": stage(r),
             "style_name": style_name(r), "base": base.model_dump(), "lines": [x.model_dump() for x in author_lines(r.brief, base)],
-            "method_lines": len(method_lines(r.brief)), "hints": hints(r.brief), "blind": blind,
+            "method_lines": len(method_lines(r.brief)), "hints": [] if r.mode else hints(r.brief), "blind": blind,
+            "dense": dense_lines(r) if r.mode == "shrink" else [], "shrink_max": SHRINK_MAX,
             "changed": brief_diff(r.attempts[-2].brief, last.brief) if last and last.versus and len(r.attempts) > 1 else None,
             "measures": {str(a.no): {"with": m(a.with_text), "bare": m(a.bare_text), **({"old": m(a.old_text)} if a.old_text else {})} for a in seen},
             "source_measure": m(r.source) if shown else None}
@@ -511,7 +562,7 @@ def view(r: DrillRound) -> dict:
 def summary(r: DrillRound) -> dict:
     a = next((x for x in reversed(r.attempts) if x is not pending(r)), None)
     last = r.attempts[-1] if r.attempts else None
-    return {"id": r.id, "title": r.title, "stage": stage(r), "style_id": r.style_id, "style_name": style_name(r), "lines": len(a.verdicts) if a else 0,
+    return {"id": r.id, "title": r.title, "mode": r.mode, "stage": stage(r), "style_id": r.style_id, "style_name": style_name(r), "lines": len(a.verdicts) if a else 0,
             "results": {k: sum(v.result == k for v in a.verdicts) for k in RESULTS} if a else {}, "pick": last.pick if last else "",
             "created_at": r.created_at, "updated_at": r.updated_at}
 
@@ -553,6 +604,10 @@ def stats(rs: list[DrillRound]) -> dict:
                      "layers": [{"id": k, "n": n} for k in LAYERS if (n := sum(v.layer == k for v in judged))]})
     total = sum(x["lines"] for x in layer.values())
     rate = lambda xs: round(sum(x["worked"] for x in xs) / n, 3) if (n := sum(x["judged"] for x in xs)) else None  # noqa: E731
-    return {"rounds": len(done), "lines": total, "worked": rate(rows), "picks": picks, "recent_n": RECENT,
+    cut = {"new": 0, "old": 0, "skip": 0}  # 줄이기 판에서 고른 쪽 (new 는 줄인 지시)
+    for r in rs:
+        if r.mode == "shrink" and r.attempts and r.attempts[-1].pick:
+            cut[r.attempts[-1].pick] += 1
+    return {"rounds": len(done), "lines": total, "worked": rate(rows), "picks": picks, "shrink": cut, "recent_n": RECENT,
             "layers": [{**x, "share": round(x["lines"] / total, 3) if total else 0.0} for x in layer.values()],
             "recent": rate(rows[-RECENT:]), "before": rate(rows[:-RECENT]), "trend": rows[-TREND_MAX:][::-1]}

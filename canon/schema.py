@@ -3976,7 +3976,8 @@ class DrillVerdict(BaseModel):
 
 class DrillAttempt(BaseModel):
     """지시 하나로 쓴 두 판과 그 되짚기. 고친 시도(versus)는 고친 지시로 쓴 판(with_text)과 앞 지시로 다시 쓴 판(old_text)을 함께 쓰고,
-    지시 없는 판은 앞 시도 것을 옮긴다."""
+    지시 없는 판은 앞 시도 것을 옮긴다.
+    줄이기 판의 시도는 줄인 지시로 쓴 판(with_text)과 AI가 뽑은 지시로 쓴 판(old_text)이고, 되짚기와 지시 없는 판이 없다."""
     no: int
     brief: DrillBrief = Field(default_factory=DrillBrief)
     with_text: str = Field("", description="지시 있는 판")
@@ -3992,7 +3993,7 @@ class DrillAttempt(BaseModel):
     versus: int = Field(0, description="고친 시도: 견준 앞 시도 번호. 0 이면 첫 시도")
     old_text: str = Field("", description="고친 시도: 앞 시도의 지시로 다시 쓴 판. 작가가 앞 시도 글을 이미 읽어서, 가려 읽기에는 새로 쓴 글을 쓴다")
     flip: bool = Field(False, description="가려 읽기에서 고친 지시로 쓴 판을 왼쪽에 둔다")
-    pick: Literal["", "new", "old", "skip"] = Field("", description="가려 읽고 고른 쪽. new 는 고친 지시, old 는 앞 지시, skip 은 비슷함")
+    pick: Literal["", "new", "old", "skip"] = Field("", description="가려 읽고 고른 쪽. new 는 고친 지시(줄이기 판은 줄인 지시), old 는 앞 지시(줄이기 판은 AI가 뽑은 지시), skip 은 비슷함")
     picked_at: str = ""
 
 
@@ -4000,6 +4001,7 @@ class DrillRound(BaseModel):
     """지시 연습 한 판 (<CANON_HOME>/.drill/<id>.json). 작품 데이터가 아니다."""
     id: str
     title: str = ""
+    mode: Literal["", "shrink"] = Field("", description="연습 종류. 빈 값은 지시 적기, shrink 는 줄이기 (AI가 뽑은 지시를 세 줄로 줄인다)")
     ref_id: str = ""
     ref_name: str = ""
     order: int = Field(0, description="원고의 화 차례 (1부터)")

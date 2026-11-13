@@ -122,3 +122,42 @@ def test_new_round_starts_with_the_style_of_the_last_round():
       return { first, kept, gone: S.drNew.style_id };
     })()""", {"home": HOME})
     assert got == {"first": "lib1", "kept": "", "gone": ""}
+
+
+@needs_node
+def test_shrink_round_shows_the_dense_brief_then_the_blind_pick():
+    dense = [{"box": "before", "text": "막 들어왔다"}, {"box": "inner", "text": "숨기는 것이 있다"}, {"box": "events", "text": "말을 건다"}, {"box": "events", "text": "피한다"}]
+    att = {"no": 1, "brief": {**BRIEF, "events": "묻고 피한다\n나간다"}, "with_text": "줄인 지시로 쓴 글이다.", "old_text": "뽑은 지시로 쓴 글이다.", "bare_text": "", "pick": "skip",
+           "verdicts": [], "invented": [], "gaps": [], "reviewed_at": "", "dropped": 0, "versus": 0}
+    got = run_js(["app.js", "studio.js", "drill.js"], """(() => {
+      fmtDateTime = () => ''; fmtDate = () => '';
+      S.jobs = []; S.route = ['drill']; S.libs = [];
+      S.drHome = { ...data.home, modes: { '': '지시 적기', shrink: '줄이기' }, shrink_max: 3 };
+      S.drNew = { ref_id: 'r1', order: 0, part: 0, kind: '', tension: 0, style_id: '', mode: 'shrink' }; S.drEps = [];
+      const primary = (html) => (html.match(/class="btn primary"/g) || []).length;
+      const out = { home: viewDrill() };
+      const base = { ...data.round, mode: 'shrink', dense: data.dense, shrink_max: 3, hints: [] };
+      S.drForm = { brief: { ...data.round.brief, events: '하나\\n둘\\n셋\\n넷' } };
+      for (const stage of ['facts', 'brief', 'pick', 'done']) {
+        S.dr = { ...base, stage, attempts: stage === 'pick' ? [{ ...data.att, with_text: '', old_text: '', pick: '' }] : stage === 'done' ? [data.att] : [],
+          blind: stage === 'pick' ? { left: '왼쪽 글', right: '오른쪽 글' } : null, source: stage === 'done' ? '종이 울렸다.' : '',
+          measures: stage === 'done' ? { 1: { with: data.m, old: data.m, bare: data.m } } : {}, source_measure: stage === 'done' ? data.m : null };
+        const html = viewDrill();
+        out[stage] = { primary: primary(html), html };
+      }
+      S.dr = null;
+      S.drHome = { ...S.drHome, stats: { rounds: 0, shrink: { new: 1, old: 0, skip: 2 } }, rounds: [{ id: 'd1', title: '가게 1화', mode: 'shrink', stage: 'done', pick: 'new', results: {}, created_at: '' }] };
+      out.list = viewDrill();
+      return out;
+    })()""", {"home": HOME, "round": ROUND, "att": att, "dense": dense, "m": MEASURE})
+    assert 'id="dr-mode"' in got["home"] and '<option value="shrink" selected>줄이기</option>' in got["home"] and "3줄로 줄여 보는 연습" in got["home"]
+    assert [got[s]["primary"] for s in ("facts", "brief", "pick", "done")] == [1, 1, 0, 1]
+    brief = got["brief"]["html"]
+    assert 'data-action="drShrink"' in brief and "4/3줄" in brief and 'class="chip bad"' in brief and "숨기는 것이 있다" in brief and "가려 둠" in brief
+    assert "쓰는 방식" not in brief and "바뀌는 것" not in brief and brief.count('<p class="small">') == 2
+    pick = got["pick"]["html"]
+    assert "왼쪽 글" in pick and pick.count('data-action="drPick"') == 3 and "줄인 지시로 쓴 판" not in pick and "종이 울렸다" not in pick
+    done = got["done"]["html"]
+    assert "두 글이 비슷하다고 골랐어요" in done and "줄인 지시로 쓴 판" in done and "뽑은 지시로 쓴 글이다." in done and "종이 울렸다." in done and "되짚기" not in done
+    assert "<li>묻고 피한다</li><li>나간다</li>" in done and "2줄" in done and "4줄" in done
+    assert "줄이기 3판: 줄인 지시 1 · 비슷함 2 · 뽑은 지시 0" in got["list"] and '<span class="chip">줄이기</span><span class="chip">골랐음</span><span class="chip">줄인 지시가 나음</span>' in got["list"]
