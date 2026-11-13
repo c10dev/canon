@@ -62,6 +62,12 @@
 - 고르기 전의 `view` 는 고친 시도의 글 · 되짚기 · `flip` 을 빼고 가려 읽을 두 글 `blind`(left · right)만 싣는다
 - 고친 지시가 더한 줄 · 뺀 줄 `brief_diff` 는 `view` 의 `changed` 로 간다
 - 기록 `stats`: 층마다 줄 수 · 비율 · 결과 수 · 먹힌 줄(`_worked`: 반영됐고 지시 없는 판과 다름) · 고쳐서 더했을 때 이긴 판 수
+- 연습 종류 `MODES`(빈 값 지시 적기 · `shrink` 줄이기)는 `create` 의 `mode` 로 받아 `DrillRound.mode` 에 남긴다
+- 줄이기 판의 빽빽한 지시 `dense_lines`: AI가 뽑은 직전 상황 · 속사정 · 일어나는 일 줄. `view` 가 `dense` 로 싣는다
+- 줄이기 판의 `set_facts` 는 인물 · 시점 · 장소 · 때만 지시에 채우고 줄일 칸(`SHRUNK`)은 비워 둔다. 줄인 지시는 일어나는 일 칸에 적는다
+- `shrink_briefs` 는 줄인 지시(1~`SHRINK_MAX` 줄, 원문 문장 검사)와 뽑은 지시를 돌려준다. 둘 다 쓰는 방식 없이 `card_of(bare=True)` 로 쓴다
+- `add_shrink` 는 줄인 지시의 판 `with_text` 와 뽑은 지시의 판 `old_text` 를 남긴다. 고르기(`pending` · `pick_side`)는 한 번 고치기와 같은 길이다
+- 줄이기 판의 `view` 는 고른 뒤에만 원문을 싣는다. `stats` 는 줄이기 판을 층 표에 넣지 않고 고른 쪽 수만 `shrink` 로 센다
 - `stats` 의 층 비율과 결과는 판마다 첫 시도의 줄로 센다. 추세는 최근 `RECENT` 판과 그 전의 먹힌 줄 비율, 최근 `TREND_MAX` 판의 줄이다
 - AI 호출은 `pipeline.drill_facts`(plan) · `drill_write`(write, 카드 둘을 `draft_paragraph` 로 한 번씩, 두 호출을 함께 보냄) · `drill_review`(check)
 - 프롬프트는 `prompts.drill_facts_prompt` · `drill_review_prompt`. 쓰기는 문단 연습장의 `paragraph_prompt` 그대로다
@@ -441,12 +447,13 @@
 - 지시 연습 웹 라우트(`/api/drill/...`)
 - `GET /api/drill` 은 판 목록 · 원고 목록 · 층과 결과 이름을, `GET /api/drill/sources/{원고}` 는 화 목록을 준다
 - `POST /api/drill` 은 대목을 골라 판을 만든다. `PUT /api/drill/{id}` 는 지시를 남긴다
-- AI 호출 넷은 작업이다(`POST /api/drill/{id}/jobs`, kind facts · write · review · revise → 작업 `dr_facts` · `dr_write` · `dr_review` · `dr_revise`)
+- AI 호출은 작업이다(`POST /api/drill/{id}/jobs`, kind facts · write · review · revise · shrink → 작업 `dr_<kind>`)
 - 작품 밖이라 작업 목록의 project 자리는 `DR_JOBS`(`.drill`), 대상은 판 id 다. 사용량 작업 이름은 `drill`
 - `write` 는 두 판을 쓰고 이어서 되짚는다. 되짚기가 실패해도 쓴 글은 남고 결과의 `reviewed` 가 거짓이다
 - 한 판은 한 번만 쓰고 한 번만 고친다. 지시는 작업을 시작할 때 것을 쓰고, 결과를 남기기 직전에 판을 다시 읽는다
 - `revise` 는 고친 지시의 판과 앞 지시로 다시 쓴 판을 쓰고 이어서 되짚는다. 고르기 전에는 `review` 를 받지 않는다
 - `POST /api/drill/{id}/pick`(side left · right · skip)은 가려 읽고 고른 쪽을 남긴다
+- `POST /api/drill` 의 `mode`(빈 값 · shrink)가 연습 종류다. 줄이기 판은 작업 `shrink`(`dr_shrink`)로 두 판을 쓰고, `write` · `review` · `revise` 는 받지 않는다
 - `GET /api/drill` 의 `stats` 는 기록(`drill.stats`)이다
 
 ### `canon/routes/promptlab.py`
@@ -573,6 +580,8 @@
 - 가려 읽기 `drBlind`: 왼쪽 · 오른쪽 두 글(`.dr-two`)과 고르기 버튼 셋(`drPick`). 이 단계에는 주 버튼이 없다
 - 고른 뒤 `drPicked` 가 고른 쪽과 더한 줄 · 뺀 줄을 보이고, 견주기는 고친 지시로 쓴 판 · 앞 지시로 쓴 판 · 원문이 된다
 - 처음 화면의 기록 카드 `drStats`: 층별 표와 접어 둔 최근 판 표
+- 새 판 칸의 '연습'(`#dr-mode`)에서 줄이기를 고른다. 줄이기 판 화면은 `drShrinkRound` 다: 줄인 지시 칸과 뽑은 지시 → 가려 읽기 → 고른 쪽 · 두 글 · 원문
+- 고른 쪽의 이름은 연습마다 다르다(`drPickLabel`, `DR_MODE_PICK`)
 - 쓰는 방식 카드 아래 줄 힌트 `drHints`(`#dr-hints`)는 지시를 저장할 때마다 서버 것으로 바꾼다
 - 새 판의 문체는 앞 판에서 고른 문체가 기본이다(`drLoad`). 작가가 '고르지 않음'을 고르면(`S.drStylePicked`) 되돌리지 않는다
 - 지시 칸 `drBriefForm`: 사실 · 일어나는 일 · 쓰는 방식. `DRAFT_ROOTS.drForm` 으로 묶고 칸을 벗어날 때 조용히 저장한다(`drSaveBrief`)

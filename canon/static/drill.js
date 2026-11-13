@@ -1,16 +1,20 @@
 /* 지시 연습 (작품 밖 화면 #/drill[/<판 id>], docs/drill). 서버는 canon/drill.py · routes/drill.py, 엔드포인트는 /api/drill.
    레퍼런스 원고의 한 대목을 가려 두고 작가가 지시(사실 · 일어나는 일 · 쓰는 방식)를 적는다. AI가 지시 있는 판과 쓰는 방식을 비운 판을 쓰고,
    두 판을 원문과 나란히 놓은 뒤 줄마다 층과 결과를 되짚는다. 지시를 한 번 고쳐 다시 쓰면 앞 지시의 글과 가려 놓고 고른다. 작품에는 넣지 않는다.
+   변형 연습 '줄이기'(mode shrink)는 새 판 칸에서 고른다: AI가 뽑은 지시를 세 줄로 줄이고, 두 지시로 쓴 글을 가려 놓고 고른다.
    지시는 S.drForm 에 고치고, 칸을 벗어날 때(change) 조용히 저장한다. 사이드바에는 없고 찾기 팔레트에서 연다 (palette.js PAL_TOOLS). */
 
 DRAFT_ROOTS.drForm = () => S.drForm;
 DRAFT_ROOTS.drNew = () => S.drNew;
 
-// AI 호출 넷(사실 뽑기 · 두 판 쓰기 · 되짚기 · 고쳐서 다시 쓰기)은 백그라운드 작업으로 돈다 (routes/drill.drill_job). 작업 목록의 project 자리는 DR_JOBS, 대상은 판 id 다
+// AI 호출(사실 뽑기 · 두 판 쓰기 · 되짚기 · 고쳐서 다시 쓰기 · 줄여서 쓰기)은 백그라운드 작업으로 돈다 (routes/drill.drill_job). 작업 목록의 project 자리는 DR_JOBS, 대상은 판 id 다
 const DR_JOBS = '.drill';
-const DR_KINDS = { facts: '사실 뽑기', write: '두 판 쓰기', review: '되짚기', revise: '고쳐서 다시 쓰기' };
+const DR_KINDS = { facts: '사실 뽑기', write: '두 판 쓰기', review: '되짚기', revise: '고쳐서 다시 쓰기', shrink: '줄여서 쓰기' };
 const DR_STAGE = { facts: '사실 뽑기 전', brief: '지시 적는 중', written: '두 판을 씀', reviewed: '되짚음', pick: '고르는 중', done: '고쳐 봄' };
 const DR_PICK = { new: '고친 지시가 이김', old: '앞 지시가 이김', skip: '비슷함' };
+// 변형 연습에서 고른 쪽의 이름 (new 는 줄인 지시로 쓴 글)
+const DR_MODE_PICK = { shrink: { new: '줄인 지시가 나음', old: '뽑은 지시가 나음', skip: '비슷함' } };
+const drPickLabel = (mode, pick) => (DR_MODE_PICK[mode] || DR_PICK)[pick] || '';
 const DR_RESULT_CLS = { applied: 'ok', overdone: 'warn', ignored: 'bad', unsure: '' };
 const drBtn = (kind, idle) => jobBtn(`dr_${kind}`, null, idle, DR_JOBS, S.dr.id);
 
@@ -54,6 +58,7 @@ for (const kind of Object.keys(DR_KINDS)) JOB_LINK[`dr_${kind}`] = (j) => `#/dri
 JOB_DONE_MSG.dr_facts = (j) => { drJobDone(j); return `사실과 일어나는 일 ${(j.result || {}).events || 0}줄을 뽑았어요. 고친 뒤 쓰는 방식을 적어 보세요.`; };
 JOB_DONE_MSG.dr_write = (j) => { drJobDone(j); return (j.result || {}).reviewed ? '두 판을 쓰고 줄마다 되짚었어요.' : '두 판을 썼어요. 되짚기는 실패했어요. 다시 해 보세요.'; };
 JOB_DONE_MSG.dr_review = (j) => { drJobDone(j); return '지시를 줄마다 되짚었어요.'; };
+JOB_DONE_MSG.dr_shrink = (j) => { drJobDone(j); return '줄인 지시와 뽑은 지시로 한 판씩 썼어요. 가려 둔 두 글 가운데 나은 쪽을 고르세요.'; };
 JOB_DONE_MSG.dr_revise = (j) => { drJobDone(j); return '고친 지시와 앞 지시로 한 판씩 썼어요. 가려 둔 두 글 가운데 나은 쪽을 고르세요.'; };
 
 async function drLoad(id) {
@@ -65,7 +70,7 @@ async function drLoad(id) {
     // 문체는 앞 판에서 고른 것을 기본으로 둔다 (문체 없이 쓰면 원문과 시점 · 줄 나눔부터 달라진다). 라이브러리에서 지운 문체는 쓰지 않는다
     const last = ((S.drHome.rounds.find((x) => x.style_id) || {}).style_id) || '';
     const known = (id) => !!id && (!S.libs || S.libs.some((l) => l.id === id));
-    if (!S.drNew || !src.some((x) => x.id === S.drNew.ref_id)) S.drNew = { ref_id: src.length ? src[0].id : '', order: 0, part: 0, kind: '', tension: 0, style_id: (S.drNew || {}).style_id || '' };
+    if (!S.drNew || !src.some((x) => x.id === S.drNew.ref_id)) S.drNew = { ref_id: src.length ? src[0].id : '', order: 0, part: 0, kind: '', tension: 0, style_id: (S.drNew || {}).style_id || '', mode: (S.drNew || {}).mode || '' };
     if (!S.drNew.style_id && !S.drStylePicked && known(last)) S.drNew.style_id = last;
     await drLoadEps();
     return;
@@ -105,7 +110,7 @@ function drHomeView() {
   }
   const list = h.rounds.map((x) => {
     const res = Object.entries(x.results || {}).filter(([, n]) => n).map(([k, n]) => `<span class="chip ${DR_RESULT_CLS[k]}">${esc(h.results[k])} ${n}</span>`).join('');
-    return `<a class="card" href="#/drill/${enc(x.id)}"><h3>${esc(x.title)}</h3><div class="row"><span class="chip">${DR_STAGE[x.stage] || ''}</span>${x.pick ? `<span class="chip">${DR_PICK[x.pick]}</span>` : ''}${res}</div>
+    return `<a class="card" href="#/drill/${enc(x.id)}"><h3>${esc(x.title)}</h3><div class="row">${x.mode ? `<span class="chip">${esc((h.modes || {})[x.mode] || x.mode)}</span>` : ''}<span class="chip">${x.mode && x.stage === 'done' ? '골랐음' : DR_STAGE[x.stage] || ''}</span>${x.pick ? `<span class="chip">${drPickLabel(x.mode, x.pick)}</span>` : ''}${res}</div>
       <div class="small">${esc([x.style_name ? `문체 ${x.style_name}` : '', fmtDateTime(x.created_at)].filter(Boolean).join(' · '))}</div></a>`;
   }).join('');
   return `${head}${drNewForm(h)}${drStats(h.stats, h)}${list ? `<h2>지난 판</h2><div class="grid-auto">${list}</div>` : ''}`;
@@ -113,12 +118,14 @@ function drHomeView() {
 
 /** 기록: 층마다 줄 수 · 결과 · 먹힌 비율 · 고쳐서 더했을 때 이긴 판, 그리고 최근 판의 줄 (drill.stats) */
 function drStats(st, h) {
-  if (!st || !st.rounds) return '';
+  const cut = (st && st.shrink) || { new: 0, old: 0, skip: 0 };
+  const cuts = cut.new + cut.old + cut.skip ? `줄이기 ${cut.new + cut.old + cut.skip}판: 줄인 지시 ${cut.new} · 비슷함 ${cut.skip} · 뽑은 지시 ${cut.old}` : '';
+  if (!st || !st.rounds) return cuts ? `<section class="card" id="dr-stats"><div class="between"><h2>기록</h2><span class="small">${cuts}</span></div></section>` : '';
   const pct = (x) => (x == null ? '–' : `${Math.round(x * 100)}%`);
   const label = (id) => ((h.layers || []).find((x) => x.id === id) || { label: id }).label;
   const p = st.picks;
   const sum = [`판 ${st.rounds}개`, `줄 ${st.lines}개`, `먹힌 줄 ${pct(st.worked)}`, st.before != null ? `최근 ${st.recent_n}판 ${pct(st.recent)} · 그 전 ${pct(st.before)}` : '',
-    p.new + p.old + p.skip ? `고친 지시 ${p.new}승 ${p.old}패${p.skip ? ` · 비슷함 ${p.skip}` : ''}` : ''].filter(Boolean).join(' · ');
+    p.new + p.old + p.skip ? `고친 지시 ${p.new}승 ${p.old}패${p.skip ? ` · 비슷함 ${p.skip}` : ''}` : '', cuts].filter(Boolean).join(' · ');
   const rows = st.layers.filter((x) => x.lines || x.added).map((x) => {
     const judged = x.lines - x.unsure;
     return `<tr><td>${esc(x.label)}</td><td>${x.lines}</td><td>${pct(x.share)}</td><td>${x.applied}</td><td>${x.overdone}</td><td>${x.ignored}</td><td>${judged ? pct(x.worked / judged) : '–'}</td><td>${x.added ? `${x.won}/${x.added}판` : '–'}</td></tr>`;
@@ -144,10 +151,13 @@ function drNewForm(h) {
     : (cards ? sel('dr-kind', '화의 성격', 'kind', opt('', '아무거나', f.kind) + h.kinds.map((k) => opt(k, k, f.kind)).join(''))
       + sel('dr-tension', '긴장', 'tension', [0, 2, 3, 4, 5].map((t) => opt(t, t ? `${t} 이상` : '아무거나', f.tension)).join(''), 'int') : '');
   const libs = S.libs || [];
+  const modes = Object.entries(h.modes || { '': '지시 적기' });
+  const mode = modes.length > 1 ? sel('dr-mode', '연습', 'mode', modes.map(([k, v]) => opt(k, v, f.mode || '')).join('')) : '';
+  const note = f.mode === 'shrink' ? `AI가 뽑은 지시를 ${h.shrink_max || 3}줄로 줄여 보는 연습이에요.` : '원문은 두 판을 쓴 뒤에 보여요.';
   return `<section class="card" id="dr-new"><h2>새 판</h2>
       <div class="grid-auto">${sel('dr-ref', '원고', 'ref_id', h.sources.map((x) => opt(x.id, `${x.name} (${x.eps}화)`, f.ref_id)).join(''))}${pickEp}${more}
-      ${sel('dr-style', '문체', 'style_id', opt('', '고르지 않음 (기본 문체 규칙)', f.style_id) + libs.map((l) => opt(l.id, l.name, f.style_id)).join(''))}</div>
-      <p class="small">원문은 두 판을 쓴 뒤에 보여요.${cards || ep ? '' : ' 화 카드를 읽힌 원고는 화의 성격 · 긴장으로 고를 수 있어요.'}</p></section>`;
+      ${sel('dr-style', '문체', 'style_id', opt('', '고르지 않음 (기본 문체 규칙)', f.style_id) + libs.map((l) => opt(l.id, l.name, f.style_id)).join(''))}${mode}</div>
+      <p class="small">${note}${cards || ep ? '' : ' 화 카드를 읽힌 원고는 화의 성격 · 긴장으로 고를 수 있어요.'}</p></section>`;
 }
 
 // ----- 판 화면 -----
@@ -156,6 +166,7 @@ function drRound() {
   const r = S.dr;
   const b = { facts: () => drBtn('facts', '사실 뽑기'), brief: () => drBtn('write', '두 판 쓰기'), written: () => drBtn('review', '되짚기'), reviewed: () => drBtn('revise', '고친 지시로 다시 쓰기') }[r.stage];
   const act = { facts: 'drFacts', brief: 'drWrite', written: 'drReview', reviewed: 'drRevise' }[r.stage];
+  if (r.mode === 'shrink') return drShrinkRound();
   const main = b ? `<button type="button" class="btn primary" data-action="${act}"${b().attr}>${b().label}</button>` : (r.stage === 'done' ? '<a class="btn primary" href="#/drill">새 판 시작</a>' : '');
   const right = `<a class="btn" href="#/drill">목록으로</a><button type="button" class="btn danger" data-action="drDelete">지우기</button>${main}`;
   const head = header('지시 연습', r.title, `문체: ${r.style_name ? esc(r.style_name) : '기본 문체 규칙'}`, right);
@@ -170,13 +181,49 @@ function drRound() {
   return `${head}${r.stage === 'done' ? drPicked() : ''}${drCompare()}${drReviewCard()}${drBriefShown()}`;
 }
 
-/** 가려 읽기: 고친 지시로 쓴 판과 앞 지시로 다시 쓴 판을 어느 쪽인지 모르게 나란히 놓는다 (왼쪽 · 오른쪽은 서버가 무작위로 정한다) */
+/** 줄이기 판: 뽑은 지시(읽기만)와 줄인 지시 칸 → 가려 읽기 → 고른 결과와 두 글 · 원문 */
+function drShrinkRound() {
+  const r = S.dr;
+  const h = S.drHome || { boxes: {} };
+  const b = { facts: () => drBtn('facts', '사실 뽑기'), brief: () => drBtn('shrink', '두 판 쓰기') }[r.stage];
+  const act = { facts: 'drFacts', brief: 'drShrink' }[r.stage];
+  const main = b ? `<button type="button" class="btn primary" data-action="${act}"${b().attr}>${b().label}</button>` : (r.stage === 'done' ? '<a class="btn primary" href="#/drill">새 판 시작</a>' : '');
+  const right = `<a class="btn" href="#/drill">목록으로</a><button type="button" class="btn danger" data-action="drDelete">지우기</button>${main}`;
+  const head = header('지시 연습 · 줄이기', r.title, `문체: ${r.style_name ? esc(r.style_name) : '기본 문체 규칙'}`, right);
+  const dense = `<ol class="dr-list">${(r.dense || []).map((x) => `<li>${esc(x.text)} <span class="small">${esc(h.boxes[x.box] || x.box)}</span></li>`).join('')}</ol>`;
+  if (r.stage === 'facts') {
+    const busy = jobFor('dr_facts', null, DR_JOBS, r.id);
+    return `${head}<section class="card empty"><h2>${busy ? '원문에서 지시를 뽑고 있어요' : '아직 지시를 뽑지 않았어요'}</h2>
+      <p class="small">AI가 가려 둔 대목(${r.source_chars.toLocaleString()}자)을 읽고 직전 상황 · 속사정 · 일어나는 일을 빽빽하게 적어 줘요.</p></section>`;
+  }
+  if (r.stage === 'brief') {
+    const n = drLineCount(S.drForm.brief.events);
+    return `${head}<div class="cols"><div class="col wide"><section class="card"><div class="between"><h2>줄인 지시</h2><span class="chip${n > r.shrink_max ? ' bad' : ''}" id="dr-count">${n}/${r.shrink_max}줄</span></div>
+        ${input('줄인 지시', 'brief.events', { root: 'drForm', rows: 4, placeholder: '뽑은 지시에서 꼭 남길 것만 한 줄에 하나' })}
+        <p class="small">AI가 이 지시와 뽑은 지시로 한 판씩 써요. 인물 · 장소 · 때는 두 판이 같아요.</p></section></div>
+      <div class="col"><section class="card"><div class="between"><h2>뽑은 지시</h2><span class="small">${(r.dense || []).length}줄</span></div>${dense}</section>${drHidden()}</div></div>`;
+  }
+  if (r.stage === 'pick') return `${head}${drBlind()}`;
+  const a = r.attempts[r.attempts.length - 1];
+  const m = r.measures[String(a.no)] || {};
+  const col = (title, note, text, measure) => `<section class="card"><div class="between"><h2>${title}</h2><span class="small">${note}</span></div>${drMeasure(measure)}
+      <div class="rw-text dr-text">${drText(text)}</div></section>`;
+  const say = { new: '줄인 지시로 쓴 글을 골랐어요', old: '뽑은 지시로 쓴 글을 골랐어요', skip: '두 글이 비슷하다고 골랐어요' }[a.pick];
+  const kept = a.brief.events.split('\n').filter((x) => x.trim()).map((x) => `<li>${esc(x)}</li>`).join('');
+  return `${head}<section class="card" id="dr-picked"><div class="between"><h2>${say}</h2><span class="chip${a.pick === 'old' ? '' : ' ok'}">${drPickLabel('shrink', a.pick)}</span></div>
+      <div class="grid-2"><div><h3>줄인 지시</h3><ol class="dr-list">${kept}</ol></div><div><h3>뽑은 지시</h3>${dense}</div></div></section>
+    <div class="dr-three">${col('줄인 지시로 쓴 판', `${drLineCount(a.brief.events)}줄`, a.with_text, m.with)}${col('뽑은 지시로 쓴 판', `${(r.dense || []).length}줄`, a.old_text, m.old)}
+      ${col('원문', `${esc(r.ref_name)} ${esc(r.ep_label)}`, r.source, r.source_measure)}</div>`;
+}
+
+/** 가려 읽기: 고친 지시로 쓴 판과 앞 지시로 다시 쓴 판을 어느 쪽인지 모르게 나란히 놓는다 (왼쪽 · 오른쪽은 서버가 무작위로 정한다).
+    줄이기 판은 줄인 지시로 쓴 판과 뽑은 지시로 쓴 판이다 */
 function drBlind() {
   const b = S.dr.blind || { left: '', right: '' };
   const col = (side, name) => `<section class="card"><h2>${name}</h2><div class="rw-text dr-text">${drText(b[side])}</div>
       <div class="row"><button type="button" class="btn" data-action="drPick" data-arg="${side}">${name}이 나아요</button></div></section>`;
   return `<div class="dr-two">${col('left', '왼쪽')}${col('right', '오른쪽')}</div>
-    <div class="row between"><p class="small">하나는 고친 지시로, 하나는 앞 지시로 새로 쓴 글이고 어느 쪽인지는 고른 뒤에 보여요.</p>
+    <div class="row between"><p class="small">${S.dr.mode === 'shrink' ? '하나는 줄인 지시로, 하나는 뽑은 지시로 쓴 글이고 어느 쪽인지와 원문은 고른 뒤에 보여요.' : '하나는 고친 지시로, 하나는 앞 지시로 새로 쓴 글이고 어느 쪽인지는 고른 뒤에 보여요.'}</p>
       <button type="button" class="btn" data-action="drPick" data-arg="skip">비슷해요</button></div>`;
 }
 
@@ -203,6 +250,7 @@ function drLayerHelp() {
   return `<details class="card"><summary>되짚을 때 붙이는 층</summary><dl class="dr-kv">${rows}</dl></details>`;
 }
 
+const drLineCount = (t) => String(t || '').split('\n').filter((x) => x.trim()).length;
 const drMethodCount = (b) => ['change', 'avoid', 'manner'].reduce((n, k) => n + String(b[k] || '').split('\n').filter((x) => x.trim()).length, 0);
 
 /** 지시 칸: 사실 · 일어나는 일 · 쓰는 방식. 사실과 일어나는 일은 AI가 뽑은 것을 고친다. 쓰는 방식은 물음 셋에 합쳐 다섯 줄까지 */
@@ -254,8 +302,9 @@ document.addEventListener('input', (e) => {
   const el = $('#dr-saved');
   if (el) el.textContent = '저장하지 않은 고침이 있어요';
   const c = $('#dr-count');
-  const max = (S.drHome || {}).method_max || 5;
-  if (c) { const n = drMethodCount(S.drForm.brief); c.textContent = `${n}/${max}줄`; c.classList.toggle('bad', n > max); }
+  const shrink = S.dr && S.dr.mode === 'shrink';
+  const max = shrink ? S.dr.shrink_max : (S.drHome || {}).method_max || 5;
+  if (c) { const n = shrink ? drLineCount(S.drForm.brief.events) : drMethodCount(S.drForm.brief); c.textContent = `${n}/${max}줄`; c.classList.toggle('bad', n > max); }
 });
 document.addEventListener('change', async (e) => {
   const el = e.target;
@@ -362,7 +411,7 @@ Object.assign(actions, {
   async drNew() {
     await run('문제를 내는 중', async () => {
       const f = S.drNew;
-      const r = await api('POST', '/drill', { ref_id: f.ref_id, order: Number(f.order) || 0, part: Number(f.part) || 0, kind: f.order ? '' : f.kind, tension: f.order ? 0 : Number(f.tension) || 0, style_id: f.style_id });
+      const r = await api('POST', '/drill', { ref_id: f.ref_id, order: Number(f.order) || 0, part: Number(f.part) || 0, kind: f.order ? '' : f.kind, tension: f.order ? 0 : Number(f.tension) || 0, style_id: f.style_id, mode: f.mode || '' });
       drSet(r);
       location.hash = `#/drill/${enc(r.id)}`;
     }, { render: 'never' });
@@ -377,6 +426,9 @@ Object.assign(actions, {
   async drReview() {
     await drStartJob('review');
   },
+  async drShrink() {
+    await drStartJob('shrink');
+  },
   async drRevise() {
     await drStartJob('revise');
   },
@@ -385,7 +437,9 @@ Object.assign(actions, {
       drSet(await api('POST', `/drill/${enc(S.dr.id)}/pick`, { side }));
     });
     const a = S.dr.attempts[S.dr.attempts.length - 1];
-    toast({ new: '고친 지시로 쓴 글을 골랐어요.', old: '앞 지시로 쓴 글을 골랐어요.', skip: '비슷하다고 남겼어요.' }[a.pick] || '');
+    const said = S.dr.mode === 'shrink' ? { new: '줄인 지시로 쓴 글을 골랐어요.', old: '뽑은 지시로 쓴 글을 골랐어요.', skip: '비슷하다고 남겼어요.' }
+      : { new: '고친 지시로 쓴 글을 골랐어요.', old: '앞 지시로 쓴 글을 골랐어요.', skip: '비슷하다고 남겼어요.' };
+    toast(said[a.pick] || '');
   },
   async drDelete() {
     if (!(await askConfirm(`'${S.dr.title}' 판을 지울까요? 쓴 글과 되짚기가 함께 사라져요.`, { ok: '지우기', danger: true }))) return;
