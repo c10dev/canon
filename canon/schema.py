@@ -3977,7 +3977,8 @@ class DrillVerdict(BaseModel):
 class DrillAttempt(BaseModel):
     """지시 하나로 쓴 두 판과 그 되짚기. 고친 시도(versus)는 고친 지시로 쓴 판(with_text)과 앞 지시로 다시 쓴 판(old_text)을 함께 쓰고,
     지시 없는 판은 앞 시도 것을 옮긴다.
-    줄이기 판의 시도는 줄인 지시로 쓴 판(with_text)과 AI가 뽑은 지시로 쓴 판(old_text)이고, 되짚기와 지시 없는 판이 없다."""
+    줄이기 판의 시도는 줄인 지시로 쓴 판(with_text)과 AI가 뽑은 지시로 쓴 판(old_text)이고, 되짚기와 지시 없는 판이 없다.
+    거꾸로 맞히기 판의 시도는 첫째 쓰는 방식으로 쓴 판(with_text)과 둘째로 쓴 판(old_text)이고, pick 의 new 는 맞힘, old 는 틀림이다."""
     no: int
     brief: DrillBrief = Field(default_factory=DrillBrief)
     with_text: str = Field("", description="지시 있는 판")
@@ -4001,7 +4002,8 @@ class DrillRound(BaseModel):
     """지시 연습 한 판 (<CANON_HOME>/.drill/<id>.json). 작품 데이터가 아니다."""
     id: str
     title: str = ""
-    mode: Literal["", "shrink"] = Field("", description="연습 종류. 빈 값은 지시 적기, shrink 는 줄이기 (AI가 뽑은 지시를 세 줄로 줄인다)")
+    mode: Literal["", "shrink", "match"] = Field("", description="연습 종류. 빈 값은 지시 적기, shrink 는 줄이기 (AI가 뽑은 지시를 세 줄로 줄인다), "
+                                                  "match 는 거꾸로 맞히기 (쓰는 방식 둘로 쓴 두 글의 짝을 맞힌다)")
     ref_id: str = ""
     ref_name: str = ""
     order: int = Field(0, description="원고의 화 차례 (1부터)")
@@ -4014,6 +4016,7 @@ class DrillRound(BaseModel):
     facts: Optional[DrillFacts] = Field(None, description="AI가 뽑은 사실. 작가가 고친 지시(brief)와 따로 둔다")
     facts_model: str = ""
     brief: DrillBrief = Field(default_factory=DrillBrief, description="작가가 지금 고치는 지시")
+    rival: DrillBrief = Field(default_factory=DrillBrief, description="거꾸로 맞히기 판: 둘째 쓰는 방식 (change · avoid · manner 만 쓴다). 첫째는 brief 의 것")
     attempts: list[DrillAttempt] = Field(default_factory=list)
     created_at: str = ""
     updated_at: str = ""

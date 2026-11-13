@@ -271,7 +271,7 @@ def _judged(book, results, pick="", layer="manner", added=None):
 
 
 def test_stats_count_layers_results_and_revision_wins(book):
-    assert drill.stats([]) == {"rounds": 0, "lines": 0, "worked": None, "picks": {"new": 0, "old": 0, "skip": 0}, "shrink": {"new": 0, "old": 0, "skip": 0}, "recent_n": 5, "recent": None, "before": None, "trend": [],
+    assert drill.stats([]) == {"rounds": 0, "lines": 0, "worked": None, "picks": {"new": 0, "old": 0, "skip": 0}, "shrink": {"new": 0, "old": 0, "skip": 0}, "match": {"new": 0, "old": 0, "skip": 0}, "recent_n": 5, "recent": None, "before": None, "trend": [],
                                "layers": [{"id": k, "label": v[0], "lines": 0, "applied": 0, "overdone": 0, "ignored": 0, "unsure": 0, "worked": 0, "added": 0, "won": 0,
                                            "share": 0.0} for k, v in drill.LAYERS.items()]}
     rs = [_judged(book, [("applied", False), ("applied", True), ("ignored", False), ("unsure", False)], pick="new", added="change"),
@@ -402,3 +402,63 @@ def test_shrink_cards_share_the_facts_and_have_no_method(book):
         drill.shrink_briefs(_round(book), DrillBrief(events="한 줄"))
     with pytest.raises(ValueError, match="모르는 연습"):
         drill.create(book.id, mode="other")
+
+
+def test_match_round_writes_two_methods_and_checks_the_guess(client, book):
+    r = client.post("/api/drill", json={"ref_id": book.id, "order": 2, "part": 1, "mode": "match"}).json()
+    did, url = r["id"], f"/api/drill/{r['id']}"
+    assert r["mode"] == "match" and r["stage"] == "facts" and r["sides"] == [{"name": "가", "lines": []}, {"name": "나", "lines": []}]
+
+    def done(body):
+        j = _wait(client, client.post(f"{url}/jobs", json=body).json()["id"])
+        assert j["status"] == "done", j
+        return j
+
+    def err(body):
+        res = client.post(f"{url}/jobs", json=body)
+        assert res.status_code == 400, res.text
+        return res.json()["detail"]
+
+    done({"kind": "facts"})
+    r = client.get(url).json()
+    first = {**r["brief"], "avoid": "목소리 높이기", "manner": "짧은 존댓말"}
+    assert r["stage"] == "brief" and r["brief"]["events"] and "둘째 쓰는 방식" in err({"kind": "match"})
+    assert client.put(url, json={"brief": first, "rival": {"manner": "1\n2\n3\n4\n5\n6"}}).status_code == 400
+    client.put(url, json={"brief": first, "rival": {"avoid": "목소리 높이기", "manner": "짧은 존댓말", "events": "버려질 줄"}})
+    assert "두 쓰는 방식이 같아요" in err({"kind": "match"}) and drill.load(did).rival.events == ""  # 둘째는 쓰는 방식 칸만 남긴다
+    client.put(url, json={"brief": first, "rival": {"manner": drill.load(did).source.split("\n")[0]}})
+    assert "원문 문장" in err({"kind": "match"})
+    r = client.put(url, json={"brief": first, "rival": {"change": "서연이 묻는 사람에서 따지는 사람으로", "manner": "길게 늘어지는 반말로"}}).json()
+    assert [[x["box"] for x in s["lines"]] for s in r["sides"]] == [["avoid", "manner"], ["change", "manner"]]
+    assert client.put(url, json={"brief": first}).json()["rival"]["manner"] == "길게 늘어지는 반말로"  # rival 없이 보내면 그대로 둔다
+    assert "지시 적기 판이 아니에요" in err({"kind": "write"}) and "줄이기 판이 아니에요" in err({"kind": "shrink"})
+    j = done({"kind": "match"})
+    assert j["kind"] == "dr_match" and j["result"] == {"id": did, "no": 1}
+    r = client.get(url).json()
+    assert r["stage"] == "pick" and r["source"] == "" and r["attempts"][0]["with_text"] == "" and r["blind"]["left"] != r["blind"]["right"] and len(r["sides"][1]["lines"]) == 2
+    client.put(url, json={"brief": first, "rival": {"manner": "쓴 뒤에 바꾼 줄"}})
+    saved = drill.load(did)
+    a = saved.attempts[0]
+    assert saved.rival.manner == "길게 늘어지는 반말로" and a.with_text != a.old_text and a.brief.manner == "짧은 존댓말" and not a.verdicts and a.bare_text == ""
+    assert "하나를 고르세요" in err({"kind": "review"}) and err({"kind": "revise"}) and err({"kind": "match"})
+    wrong = "right" if a.flip else "left"  # 지시 나로 쓴 글이 있는 쪽
+    r = client.post(f"{url}/pick", json={"side": wrong}).json()
+    assert r["stage"] == "done" and r["attempts"][0]["pick"] == "old" and r["source"] and r["measures"]["1"]["old"]["chars"] > 0
+    st = client.get("/api/drill").json()["stats"]
+    assert "되짚지 않아요" in err({"kind": "review"})
+    assert st["match"] == {"new": 0, "old": 1, "skip": 0} and st["shrink"] == {"new": 0, "old": 0, "skip": 0} and st["rounds"] == 0
+
+
+def test_match_cards_differ_only_in_the_method(book):
+    r = drill.create(book.id, order=1, part=2, mode="match")
+    drill.set_facts(r, pipeline.drill_facts(L, r.source, r.lead), "mock")
+    r.brief.manner, r.rival = "짧게 끊는다", DrillBrief(avoid="손대기", people="버려질 사람")
+    first, second = drill.match_briefs(r, drill.clean_brief(r.brief))
+    a, b = drill.card_of(r, first), drill.card_of(r, second)
+    assert (a.people, a.pov, a.place, a.time, a.action) == (b.people, b.pov, b.place, b.time, b.action) and r.facts.events[0] in a.action
+    assert a.extra == "방식: 짧게 끊는다" and b.extra == "하지 않는 것: 손대기"
+    with pytest.raises(ValueError, match="거꾸로 맞히기 판이 아니에요"):
+        drill.match_briefs(_round(book), DrillBrief())
+    x = drill.add_match(r, first, "가의 글", "나의 글", rng=random.Random(3))
+    side = "left" if x.flip else "right"
+    assert drill.pick_side(r, side).pick == "new" and drill.stage(r) == "done"  # 지시 가의 글이 있는 쪽을 고르면 맞힘

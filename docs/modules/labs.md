@@ -67,6 +67,10 @@
 - 줄이기 판의 `set_facts` 는 인물 · 시점 · 장소 · 때만 지시에 채우고 줄일 칸(`SHRUNK`)은 비워 둔다. 줄인 지시는 일어나는 일 칸에 적는다
 - `shrink_briefs` 는 줄인 지시(1~`SHRINK_MAX` 줄, 원문 문장 검사)와 뽑은 지시를 돌려준다. 둘 다 쓰는 방식 없이 `card_of(bare=True)` 로 쓴다
 - `add_shrink` 는 줄인 지시의 판 `with_text` 와 뽑은 지시의 판 `old_text` 를 남긴다. 고르기(`pending` · `pick_side`)는 한 번 고치기와 같은 길이다
+- 거꾸로 맞히기 판(`match`)의 둘째 쓰는 방식은 `DrillRound.rival` 이다. `clean_rival` 이 쓰는 방식 칸만 남긴다
+- `match_briefs` 는 쓰는 방식만 다른 지시 둘을 돌려준다. 둘째가 비었거나 두 쓰는 방식이 같으면 막고, 둘 다 `can_write` 를 거친다
+- `add_match` 는 첫째의 판 `with_text` 와 둘째의 판 `old_text` 를 남긴다. `pick_side` 의 `new` 는 맞힘(첫째의 글이 있는 쪽을 고름)이다
+- `view` 의 `sides` 는 화면에 보일 두 쓰는 방식(가 · 나)이다. `stats` 는 맞힘 · 틀림 · 모르겠음 수를 `match` 로 센다
 - 줄이기 판의 `view` 는 고른 뒤에만 원문을 싣는다. `stats` 는 줄이기 판을 층 표에 넣지 않고 고른 쪽 수만 `shrink` 로 센다
 - `stats` 의 층 비율과 결과는 판마다 첫 시도의 줄로 센다. 추세는 최근 `RECENT` 판과 그 전의 먹힌 줄 비율, 최근 `TREND_MAX` 판의 줄이다
 - AI 호출은 `pipeline.drill_facts`(plan) · `drill_write`(write, 카드 둘을 `draft_paragraph` 로 한 번씩, 두 호출을 함께 보냄) · `drill_review`(check)
@@ -454,6 +458,7 @@
 - `revise` 는 고친 지시의 판과 앞 지시로 다시 쓴 판을 쓰고 이어서 되짚는다. 고르기 전에는 `review` 를 받지 않는다
 - `POST /api/drill/{id}/pick`(side left · right · skip)은 가려 읽고 고른 쪽을 남긴다
 - `POST /api/drill` 의 `mode`(빈 값 · shrink)가 연습 종류다. 줄이기 판은 작업 `shrink`(`dr_shrink`)로 두 판을 쓰고, `write` · `review` · `revise` 는 받지 않는다
+- 거꾸로 맞히기 판은 `PUT /api/drill/{id}` 의 `rival` 로 둘째 쓰는 방식을 받고(쓴 뒤에는 바꾸지 않음), 작업 `match`(`dr_match`)로 두 판을 쓴다
 - `GET /api/drill` 의 `stats` 는 기록(`drill.stats`)이다
 
 ### `canon/routes/promptlab.py`
@@ -582,6 +587,7 @@
 - 처음 화면의 기록 카드 `drStats`: 층별 표와 접어 둔 최근 판 표
 - 새 판 칸의 '연습'(`#dr-mode`)에서 줄이기를 고른다. 줄이기 판 화면은 `drShrinkRound` 다: 줄인 지시 칸과 뽑은 지시 → 가려 읽기 → 고른 쪽 · 두 글 · 원문
 - 고른 쪽의 이름은 연습마다 다르다(`drPickLabel`, `DR_MODE_PICK`)
+- 거꾸로 맞히기 판 화면은 `drMatchRound` 다. 지시 칸에 '쓰는 방식 나'(`rival.*`, `#dr-count2`)가 더 붙고, 가려 읽기 위에 두 지시 `drSides` 를 보인다
 - 쓰는 방식 카드 아래 줄 힌트 `drHints`(`#dr-hints`)는 지시를 저장할 때마다 서버 것으로 바꾼다
 - 새 판의 문체는 앞 판에서 고른 문체가 기본이다(`drLoad`). 작가가 '고르지 않음'을 고르면(`S.drStylePicked`) 되돌리지 않는다
 - 지시 칸 `drBriefForm`: 사실 · 일어나는 일 · 쓰는 방식. `DRAFT_ROOTS.drForm` 으로 묶고 칸을 벗어날 때 조용히 저장한다(`drSaveBrief`)

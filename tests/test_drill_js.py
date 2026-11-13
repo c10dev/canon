@@ -161,3 +161,49 @@ def test_shrink_round_shows_the_dense_brief_then_the_blind_pick():
     assert "두 글이 비슷하다고 골랐어요" in done and "줄인 지시로 쓴 판" in done and "뽑은 지시로 쓴 글이다." in done and "종이 울렸다." in done and "되짚기" not in done
     assert "<li>묻고 피한다</li><li>나간다</li>" in done and "2줄" in done and "4줄" in done
     assert "줄이기 3판: 줄인 지시 1 · 비슷함 2 · 뽑은 지시 0" in got["list"] and '<span class="chip">줄이기</span><span class="chip">골랐음</span><span class="chip">줄인 지시가 나음</span>' in got["list"]
+
+
+@needs_node
+def test_match_round_takes_two_methods_then_asks_which_text_is_which():
+    sides = [{"name": "가", "lines": [{"box": "manner", "text": "짧게"}]}, {"name": "나", "lines": [{"box": "avoid", "text": "손대기"}, {"box": "manner", "text": "길게"}]}]
+    att = {"no": 1, "brief": BRIEF, "with_text": "지시 가로 쓴 글이다.", "old_text": "지시 나로 쓴 글이다.", "bare_text": "", "pick": "new",
+           "verdicts": [], "invented": [], "gaps": [], "reviewed_at": "", "dropped": 0, "versus": 0}
+    got = run_js(["app.js", "studio.js", "drill.js"], """(async () => {
+      fmtDateTime = () => ''; fmtDate = () => '';
+      S.jobs = []; S.route = ['drill']; S.libs = [];
+      S.drHome = { ...data.home, modes: { '': '지시 적기', shrink: '줄이기', match: '거꾸로 맞히기' } };
+      const primary = (html) => (html.match(/class="btn primary"/g) || []).length;
+      const out = {};
+      const base = { ...data.round, mode: 'match', sides: data.sides, hints: [], rival: { change: '', avoid: '손대기', manner: '길게' } };
+      drSet({ ...base, stage: 'brief' });
+      out.form = JSON.parse(JSON.stringify(S.drForm.rival));
+      for (const stage of ['brief', 'pick', 'done']) {
+        S.dr = { ...base, stage, attempts: stage === 'pick' ? [{ ...data.att, with_text: '', old_text: '', pick: '' }] : stage === 'done' ? [data.att] : [],
+          blind: stage === 'pick' ? { left: '왼쪽 글', right: '오른쪽 글' } : null, source: stage === 'done' ? '종이 울렸다.' : '',
+          measures: stage === 'done' ? { 1: { with: data.m, old: data.m, bare: data.m } } : {}, source_measure: stage === 'done' ? data.m : null };
+        const html = viewDrill();
+        out[stage] = { primary: primary(html), html };
+      }
+      const calls = [];
+      run = async (label, fn) => fn(); toast = (t) => calls.push(t); render = () => {};
+      api = async (m, path, body) => { calls.push([m, path, body]); return { ...S.dr, stage: 'done', attempts: [{ ...data.att, pick: 'old' }] }; };
+      await actions.drPick('left');
+      out.calls = calls;
+      S.dr = null; S.drNew = { ref_id: 'r1', order: 0, part: 0, kind: '', tension: 0, style_id: '', mode: 'match' }; S.drEps = [];
+      S.drHome = { ...S.drHome, stats: { rounds: 0, shrink: { new: 0, old: 0, skip: 0 }, match: { new: 2, old: 1, skip: 0 } },
+        rounds: [{ id: 'd1', title: '가게 1화', mode: 'match', stage: 'done', pick: 'old', results: {}, created_at: '' }] };
+      out.list = viewDrill();
+      return out;
+    })()""", {"home": HOME, "round": ROUND, "att": att, "sides": sides, "m": MEASURE})
+    assert got["form"] == {"change": "", "avoid": "손대기", "manner": "길게"}
+    assert [got[s]["primary"] for s in ("brief", "pick", "done")] == [1, 0, 1]
+    brief = got["brief"]["html"]
+    assert 'data-action="drMatch"' in brief and "쓰는 방식 가</h2>" in brief and "쓰는 방식 나</h2>" in brief and 'data-bind="rival.manner"' in brief and 'id="dr-count2">2/5줄' in brief
+    assert "이 칸이 있는 판과 없는 판" not in brief and "가와 나로 한 판씩" in brief
+    pick = got["pick"]["html"]
+    assert "지시 가</h2>" in pick and "<li>손대기 " in pick and "왼쪽이 지시 가예요" in pick and "오른쪽이 지시 가예요" in pick and "모르겠어요" in pick
+    assert pick.count('data-action="drPick"') == 3 and "지시 가로 쓴 판" not in pick and "나아요" not in pick
+    done = got["done"]["html"]
+    assert "맞혔어요" in done and "지시 가로 쓴 판" in done and "지시 나로 쓴 글이다." in done and "종이 울렸다." in done and "되짚기" not in done
+    assert got["calls"] == [["POST", "/drill/d1/pick", {"side": "left"}], "틀렸어요."]
+    assert "거꾸로 맞히기 3판: 맞힘 2 · 틀림 1 · 모르겠음 0" in got["list"] and '<span class="chip">틀림</span>' in got["list"] and "어느 글이 어느 지시로 쓴 것인지" in got["list"]
