@@ -3,19 +3,29 @@
    결과를 열면 판마다 평균과, 같은 글 두 편의 점수 차로 잰 흔들림을 보인다. 연 뒤에는 점수를 고칠 수 없다.
    묶음은 실험 스크립트나 명령줄(canon blind import)이 넣는다. 화면에는 넣는 칸이 없다. 사이드바에는 없고 찾기 팔레트에서 연다 (palette.js PAL_TOOLS).
    결과를 연 뒤에는 긋기 화면(#/blind/<id>/marks[/<대목 차례>])에서 같은 대목의 글을 나란히 놓고 거슬린 문장을 눌러 긋는다. 판 이름은 그 화면에 보이지 않는다.
-   blNext · blProgress · blArmNote · blMarkCount · blColHead 는 DOM 없는 순수 함수 (tests/test_blindset.py). CSS 는 JS 에서 주입 */
+   결과를 열기 전에 두 가지를 더 받는다 (안 해도 결과는 열린다): 글마다 기준 항목 체크 (점수 버튼 위, b.criteria), 그리고 글을 모두 매긴 뒤의
+   쌍 비교 (#/blind/<id>/duel[/<쌍 차례 1부터>]): 같은 대목의 두 글을 나란히 놓고 나은 쪽을 고른다. 쌍 비교 화면은 번호와 점수를 보이지 않는다.
+   blNext · blProgress · blArmNote · blMarkCount · blColHead · blDuelNext · blDuelLeft 는 DOM 없는 순수 함수 (tests/test_blindset.py). CSS 는 JS 에서 주입 */
 
 Object.assign(S, {
   blHome: null,  // 묶음 목록 (GET /blind)
   bl: null,      // 연 묶음 (GET /blind/<id>)
   blNo: '',      // 읽고 있는 글 번호
   blPiece: -1,   // 긋기 화면에서 보는 대목 차례 (-1 은 긋기 화면이 아님)
+  blDuel: -1,    // 쌍 비교 화면에서 보는 쌍 차례 (-1 은 쌍 비교 화면이 아님)
 });
 
 async function blLoad(id, no, sub) {
   if (!id) { S.bl = null; S.blHome = await api('GET', '/blind'); return; }
   if (!S.bl || S.bl.id !== id) S.bl = await api('GET', `/blind/${enc(id)}`);
   S.blPiece = -1;
+  S.blDuel = -1;
+  if (no === 'duel' && !S.bl.result && (S.bl.duels || []).length) {
+    const want = sub ? Number(sub) - 1 : blDuelNext(S.bl.duels, -1);
+    S.blDuel = Math.min(Math.max(want || 0, 0), S.bl.duels.length - 1);
+    S.blNo = '';
+    return;
+  }
   if (no === 'marks' && S.bl.result && (S.bl.pieces || []).length) {
     S.blPiece = Math.min(Math.max(Number(sub) || 0, 0), S.bl.pieces.length - 1);
     S.blNo = '';
@@ -57,6 +67,17 @@ function blColHead(t) {
   return `${t.nos.map((n) => `${n}번`).join(' · ')} · ${scores.join(' · ')}점`;
 }
 
+/** 다음에 고를 쌍의 차례: 지금 쌍 뒤의 첫 안 고른 쌍, 없으면 앞에서부터 첫 안 고른 쌍, 다 골랐으면 -1. 순수 함수 */
+function blDuelNext(duels, cur) {
+  const after = duels.findIndex((d, i) => i > cur && !d.pick);
+  return after >= 0 ? after : duels.findIndex((d) => !d.pick);
+}
+
+/** 아직 고르지 않은 쌍 수. 순수 함수 */
+function blDuelLeft(b) {
+  return (b.duels || []).filter((d) => !d.pick).length;
+}
+
 function viewBlind() {
   return S.bl ? blSetView() : blHomeView();
 }
@@ -84,13 +105,14 @@ function blReader(b) {
   const row = locked ? (b.result.rows.find((r) => r.no === t.no) || {}) : {};
   const paras = t.text.split(/\n\s*\n/).map((p) => `<p>${esc(p).replace(/\n/g, '<br>')}</p>`).join('');
   const btns = Array.from({ length: b.scale }, (_, i) => i + 1).map((n) => `<button type="button" aria-pressed="${t.score === n}" data-action="blScore" data-arg="${n}"${locked ? ' disabled' : ''}>${n}</button>`).join('');
+  const flags = (b.criteria || []).length ? `<div class="bl-flags" role="group" aria-label="거슬린 점 (있으면 눌러요)"><span class="small">거슬린 점</span>${b.criteria.map((c) => `<button type="button" class="bl-flag" aria-pressed="${(t.flags || []).includes(c)}" data-bl-flag="${esc(c)}"${locked ? ' disabled' : ''}>${esc(c)}</button>`).join('')}</div>` : '';
   const i = b.texts.findIndex((x) => x.no === t.no);
   const prev = b.texts[i - 1];
   const next = b.texts[i + 1];
   return `<section class="card bl-read"><div class="between"><div><h2>${esc(t.no)}번</h2><span class="small">${t.chars.toLocaleString()}자${locked && row.arm ? ` · ${esc(row.arm)}${row.piece ? ` · ${esc(row.piece)}` : ''}` : ''}</span></div>
       <div class="row">${prev ? `<a class="btn small" href="#/blind/${b.id}/${esc(prev.no)}">‹ ${esc(prev.no)}</a>` : ''}${next ? `<a class="btn small" href="#/blind/${b.id}/${esc(next.no)}">${esc(next.no)} ›</a>` : ''}</div></div>
     <div class="bl-body">${paras}</div>
-    <div class="bl-rate"><div class="seg" role="group" aria-label="${esc(t.no)}번 점수 (1 가장 낮음 · ${b.scale} 가장 높음)">${btns}</div>
+    <div class="bl-rate">${flags}<div class="seg" role="group" aria-label="${esc(t.no)}번 점수 (1 가장 낮음 · ${b.scale} 가장 높음)">${btns}</div>
       <label class="sr-only" for="bl-note">한마디</label><input id="bl-note" type="text" data-bl-note="${esc(t.no)}" value="${esc(t.note)}" placeholder="한마디 (안 적어도 돼요)" maxlength="300"${locked ? ' disabled' : ''}></div></section>`;
 }
 
@@ -99,12 +121,18 @@ function blResult(b) {
   const top = r.arms.length ? r.arms[0].mean : 0;
   const arms = r.arms.map((a) => `<tr><td>${esc(a.arm)}</td><td class="num">${a.mean}</td><td class="num">${a.texts}</td><td class="num">${a.low}~${a.high}</td><td>${esc(blArmNote(a, top, r.noise))}</td></tr>`).join('');
   const pairs = r.pairs.length ? r.pairs.map((p) => `${esc(p.a)}번 · ${esc(p.b)}번 차 ${p.diff}`).join(', ') : '';
-  const rows = r.rows.map((x) => `<tr><td><a href="#/blind/${b.id}/${esc(x.no)}">${esc(x.no)}</a></td><td class="num">${x.score}</td><td>${esc(x.arm)}</td><td>${esc(x.piece)}</td><td>${esc(x.note)}</td></tr>`).join('');
+  const fl = r.flags || { criteria: [], arms: [], rows: [], checked: 0, diff: null };
+  const du = r.duel || { total: 0, answered: 0, arms: [], repeat: null };
+  const rows = r.rows.map((x) => `<tr><td><a href="#/blind/${b.id}/${esc(x.no)}">${esc(x.no)}</a></td><td class="num">${x.score}</td><td>${esc(x.arm)}</td><td>${esc(x.piece)}</td>${fl.checked ? `<td>${esc((x.flags || []).join(' · '))}</td>` : ''}<td>${esc(x.note)}</td></tr>`).join('');
+  const duelCard = du.answered ? `<section class="card"><h2>쌍 비교</h2><div class="bl-table-wrap"><table class="bl-table"><thead><tr><th scope="col">판</th><th scope="col">이긴 몫</th><th scope="col">쌍</th><th scope="col">이김 · 비김 · 짐</th></tr></thead><tbody>${du.arms.map((a) => `<tr><td>${esc(a.arm)}</td><td class="num">${a.rate}</td><td class="num">${a.pairs}</td><td>${a.win} · ${a.tie} · ${a.loss}</td></tr>`).join('')}</tbody></table></div>
+    <p class="small">${du.answered} / ${du.total}쌍을 골랐어요. 이긴 몫은 이김 1, 비김 0.5의 평균이에요.${du.repeat ? ` 같은 쌍을 두 번 물은 ${du.repeat.of}번 가운데 ${du.repeat.same}번은 답이 같았어요.` : ''}</p></section>` : '';
+  const flagCard = fl.checked ? `<section class="card"><h2>거슬린 점</h2><div class="bl-table-wrap"><table class="bl-table"><thead><tr><th scope="col">항목</th>${fl.arms.map((a) => `<th scope="col">${esc(a)}</th>`).join('')}</tr></thead><tbody>${fl.rows.map((x) => `<tr><td>${esc(x.label)}</td>${x.counts.map((c) => `<td class="num">${c.n} / ${c.texts}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
+    <p class="small">판마다 체크한 글 수 / 글 수예요.${fl.diff == null ? '' : ` 같은 글 두 편에서 엇갈린 체크는 ${fl.diff}개예요.`}</p></section>` : '';
   const noise = r.noise == null ? '같은 글을 두 번 넣은 짝이 없어 흔들림을 재지 못했어요.' : `같은 글 두 편의 점수 차는 평균 ${r.noise}점이에요 (${pairs}). 판 사이 차이가 이보다 작으면 어느 쪽이 낫다고 말할 수 없어요.`;
   return `<section class="card"><h2>결과</h2>${r.arms.length ? `<div class="bl-table-wrap"><table class="bl-table"><thead><tr><th scope="col">판</th><th scope="col">평균</th><th scope="col">글 수</th><th scope="col">범위</th><th scope="col">풀이</th></tr></thead><tbody>${arms}</tbody></table></div>` : '<p class="small">열쇠가 없는 묶음이라 판별 평균은 없어요.</p>'}
-    <p class="small">${esc(noise)}</p></section>
+    <p class="small">${esc(noise)}</p></section>${duelCard}${flagCard}
     ${(b.pieces || []).length ? `<section class="card between"><div><h2>거슬린 문장 긋기</h2><span class="small">같은 대목의 글을 나란히 놓고 거슬린 문장을 눌러요 · 그은 문장 ${blMarkCount(b)}개</span></div><a class="btn" href="#/blind/${b.id}/marks">긋기</a></section>` : ''}
-    <section class="card"><h2>글마다</h2><div class="bl-table-wrap"><table class="bl-table"><thead><tr><th scope="col">번호</th><th scope="col">점수</th><th scope="col">판</th><th scope="col">대목</th><th scope="col">한마디</th></tr></thead><tbody>${rows}</tbody></table></div></section>`;
+    <section class="card"><h2>글마다</h2><div class="bl-table-wrap"><table class="bl-table"><thead><tr><th scope="col">번호</th><th scope="col">점수</th><th scope="col">판</th><th scope="col">대목</th>${fl.checked ? '<th scope="col">거슬린 점</th>' : ''}<th scope="col">한마디</th></tr></thead><tbody>${rows}</tbody></table></div></section>`;
 }
 
 function blMarks(b) {
@@ -117,6 +145,33 @@ function blMarks(b) {
     return `<section class="card bl-col"><h2>${esc(blColHead(t))}</h2><div class="bl-body">${paras}</div></section>`;
   }).join('');
   return `<nav class="bl-nav" aria-label="대목">${tabs}</nav><p class="small">거슬린 문장을 누르면 줄이 그어지고, 다시 누르면 지워져요. 이유는 적지 않아도 돼요.</p><div class="bl-cols">${cols}</div>`;
+}
+
+function blDuelView(b) {
+  const d = b.duels[S.blDuel];
+  const tabs = b.duels.map((x, i) => `<a href="#/blind/${b.id}/duel/${i + 1}" class="bl-no${i === S.blDuel ? ' on' : ''}${x.pick ? ' done' : ''}"${i === S.blDuel ? ' aria-current="true"' : ''}>${i + 1}</a>`).join('');
+  const col = (no, side) => {
+    const t = b.texts.find((x) => x.no === no) || { text: '' };
+    return `<section class="card bl-col"><h2>${side}</h2><div class="bl-body" tabindex="0">${t.text.split(/\n\s*\n/).map((p) => `<p>${esc(p).replace(/\n/g, '<br>')}</p>`).join('')}</div></section>`;
+  };
+  // data-arg 는 번호가 아니라 a · b · = 이다: 숫자만 있는 인자는 누름 처리(app.js)가 수로 바꿔 '02' 가 2 가 된다
+  const btn = (side, label) => `<button type="button" aria-pressed="${d.pick === (d[side] || side)}" data-action="blPick" data-arg="${side}">${label}</button>`;
+  return `<nav class="bl-nav" aria-label="쌍">${tabs}</nav><div class="bl-cols bl-duel">${col(d.a, '왼쪽')}${col(d.b, '오른쪽')}</div>
+    <div class="bl-rate"><div class="seg" role="group" aria-label="어느 글이 나은지">${btn('a', '왼쪽이 나아요')}${btn('=', '비슷해요')}${btn('b', '오른쪽이 나아요')}</div></div>`;
+}
+
+async function blToggleFlag(el) {
+  const b = S.bl;
+  const t = b.texts.find((x) => x.no === S.blNo);
+  if (!t || b.result) return;
+  const on = el.getAttribute('aria-pressed') !== 'true';
+  el.setAttribute('aria-pressed', String(on));  // 다시 그리지 않는다: 적던 한마디와 읽던 자리가 그대로다
+  try {
+    // 항목 하나만 보낸다 (목록을 통째로 보내면 잇달아 누른 앞의 체크가 빠진다). 응답은 이 글의 체크만 옮긴다: 그 사이 누른 점수를 옛 응답이 덮지 않게
+    const res = await api('PUT', `/blind/${enc(b.id)}/items/${enc(t.no)}/flags`, { label: el.dataset.blFlag, on });
+    const cur = S.bl && S.bl.id === b.id && S.bl.texts.find((x) => x.no === t.no);
+    if (cur) cur.flags = (res.texts.find((x) => x.no === t.no) || { flags: [] }).flags;
+  } catch (e) { el.setAttribute('aria-pressed', String(!on)); showError(e); }
 }
 
 async function blToggleMark(el) {
@@ -132,6 +187,8 @@ async function blToggleMark(el) {
 document.addEventListener('click', (e) => {
   const el = e.target.closest && e.target.closest('[data-bl-mark]');
   if (el && S.bl && S.blPiece >= 0) blToggleMark(el);
+  const flag = e.target.closest && e.target.closest('[data-bl-flag]');
+  if (flag && S.bl && !flag.disabled) blToggleFlag(flag);
 });
 document.addEventListener('keydown', (e) => {
   if ((e.key !== 'Enter' && e.key !== ' ') || !e.target.dataset || !e.target.dataset.blMark) return;
@@ -144,12 +201,22 @@ function blSetView() {
   if (S.blPiece >= 0) {
     return `${header('가려 읽기 묶음', b.title, '거슬린 문장 긋기 · 판 이름은 여기서 보이지 않아요.', `<a class="btn" href="#/blind/${b.id}">결과로 돌아가기</a>`)}${blMarks(b)}`;
   }
+  if (S.blDuel >= 0) {
+    const total = b.duels.length;
+    return `${header('가려 읽기 묶음', b.title, `쌍 비교 · ${total - blDuelLeft(b)} / ${total}쌍 골랐어요. 같은 대목의 두 글 가운데 나은 쪽을 골라요.`, `<a class="btn" href="#/blind/${b.id}">묶음으로 돌아가기</a>`)}${blDuelView(b)}`;
+  }
   const done = b.scored === b.items;
+  const total = (b.duels || []).length;
+  const left = blDuelLeft(b);
+  const ask = !b.result && done;
+  // 주 버튼은 하나: 고를 쌍이 남았으면 쌍 비교, 다 골랐으면 (쌍이 없는 묶음도) 결과 보기
+  const duelBtn = ask && total ? `<a class="btn${left ? ' primary' : ''}" href="#/blind/${b.id}/duel">쌍 비교 ${total - left} / ${total}</a>` : '';
   const menu = menuBtn('bl-more', '⋯', () => `<div class="pop-sec pop-danger"><details><summary class="small">이 묶음 지우기</summary>
       <div class="small">글과 점수가 함께 사라져요.</div><button type="button" class="pop-item danger" data-action="blDelete">지우기</button></details></div>`, { aria: '묶음 더보기' });
-  const right = `<a class="btn" href="#/blind">목록으로</a>${!b.result && done ? '<button type="button" class="btn primary" data-action="blReveal">결과 보기</button>' : ''}${menu}`;
+  const right = `<a class="btn" href="#/blind">목록으로</a>${duelBtn}${ask ? `<button type="button" class="btn${left ? '' : ' primary'}" data-action="blReveal">결과 보기</button>` : ''}${menu}`;
   const desc = b.result ? `결과를 ${fmtDateTime(b.revealed_at)}에 열었어요. 점수는 고칠 수 없어요.`
-    : `${blProgress(b)} · 한 자리에서 차례대로 읽어 주세요. 같은 글이 두 번 섞여 있을 수 있어요.`;
+    : ask && left ? `${blProgress(b)} · 쌍 비교 ${left}쌍이 남았어요. 건너뛰고 결과를 열 수도 있어요.`
+      : `${blProgress(b)} · 한 자리에서 차례대로 읽어 주세요. 같은 글이 두 번 섞여 있을 수 있어요.`;
   const head = header('가려 읽기 묶음', b.title, esc(desc), right);
   return `${head}${blNav(b)}${b.result && !S.blNo ? blResult(b) : ''}${blReader(b)}${b.result && S.blNo ? `<div class="row"><a class="btn" href="#/blind/${b.id}">결과로 돌아가기</a></div>` : ''}`;
 }
@@ -169,8 +236,22 @@ Object.assign(actions, {
     if (S.bl.texts.find((x) => x.no === t.no).score && next) location.hash = `#/blind/${b.id}/${next}`;
     else render();
   },
+  async blPick(arg) {
+    const b = S.bl;
+    const d = b.duels[S.blDuel];
+    if (!d || b.result) return;
+    const pick = d[arg] || arg;
+    try {
+      S.bl = await api('PUT', `/blind/${enc(b.id)}/duels`, { a: d.a, b: d.b, pick: d.pick === pick ? '' : pick });
+    } catch (e) { return showError(e); }
+    const next = blDuelNext(S.bl.duels, S.blDuel);
+    // 고르면 다음 안 고른 쌍으로, 다 골랐으면 묶음으로 돌아간다 (거기에 결과 보기가 있다). 고른 것을 지웠으면 그 자리에 둔다
+    if (!S.bl.duels[S.blDuel].pick) render();
+    else location.hash = next >= 0 ? `#/blind/${b.id}/duel/${next + 1}` : `#/blind/${b.id}`;
+  },
   async blReveal() {
-    if (!(await askConfirm('결과를 열면 어느 글이 어느 판인지 보이고, 점수는 고칠 수 없어요. 열까요?', { ok: '결과 보기' }))) return;
+    const left = blDuelLeft(S.bl);
+    if (!(await askConfirm(`결과를 열면 어느 글이 어느 판인지 보이고, 점수는 고칠 수 없어요.${left ? ` 쌍 비교 ${left}쌍은 고르지 않은 채로 남아요.` : ''} 열까요?`, { ok: '결과 보기' }))) return;
     await run('결과를 여는 중', async () => {
       S.bl = await api('POST', `/blind/${enc(S.bl.id)}/reveal`);
       S.blNo = '';
@@ -211,6 +292,12 @@ const BL_CSS = `
 .bl-body p { margin: 0 0 var(--space-12); }
 .bl-rate { display: flex; flex-wrap: wrap; gap: var(--space-12); align-items: center; position: sticky; bottom: 0; padding: var(--space-12) 0; background: var(--surface); border-top: 1px solid var(--line); }
 .bl-rate input { flex: 1; min-width: 12rem; }
+.bl-flags { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: var(--space-4); align-items: center; }
+.bl-flag { min-height: 32px; padding: 0 var(--space-12); border: 1px solid var(--line); border-radius: var(--radius-pill); background: var(--surface); color: var(--text-2); font-size: 0.8125rem; cursor: pointer; }
+.bl-flag[aria-pressed="true"] { border-color: var(--text); background: var(--accent-soft); color: var(--text); font-weight: 700; }
+.bl-flag:disabled { cursor: default; opacity: 0.7; }
+.bl-duel .bl-body { max-height: 58vh; overflow-y: auto; padding-right: var(--space-8); }
+@media (max-width: 640px) { .bl-read .bl-rate { position: static; } }
 .bl-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr)); gap: var(--space-12); align-items: start; }
 .bl-col .bl-body { max-width: none; }
 .bl-s { cursor: pointer; border-radius: var(--radius-4, 4px); }
