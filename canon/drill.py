@@ -33,7 +33,7 @@ INVENTED_MAX = 4
 GAPS_MAX = 3
 REVISE_MAX = 1  # 한 판에서 고쳐 쓰는 횟수
 SHRINK_MAX = 3  # 줄이기 판: 줄인 지시의 줄 수 상한
-MODES = {"": "지시 적기", "shrink": "줄이기"}  # 연습 종류: id → 화면 이름
+MODES = {"": "지시 적기", "shrink": "줄이기", "match": "거꾸로 맞히기"}  # 연습 종류: id → 화면 이름
 RECENT = 5  # 추세에서 '최근'으로 보는 판 수
 TREND_MAX = 12  # 기록에 보이는 판 수
 QUOTE_MIN = 4  # 인용으로 보는 가장 짧은 글자 수 (공백 · 문장부호 빼고)
@@ -413,6 +413,45 @@ def add_shrink(r: DrillRound, short: DrillBrief, short_text: str, dense_text: st
     return a
 
 
+# ---------- 거꾸로 맞히기: 쓰는 방식 둘로 한 판씩 쓰고, 어느 글이 어느 지시로 쓴 것인지 맞힌다 ----------
+
+def clean_rival(b: DrillBrief) -> DrillBrief:
+    """둘째 쓰는 방식: 쓰는 방식 칸만 남기고 다듬는다. METHOD_MAX 줄을 넘으면 막는다."""
+    return clean_brief(DrillBrief(**{k: getattr(b, k) for k in METHOD}))
+
+
+def match_briefs(r: DrillRound, b: DrillBrief) -> tuple[DrillBrief, DrillBrief]:
+    """거꾸로 맞히기 판에서 쓸 지시 둘 (첫째, 둘째)을 돌려준다. 쓸 수 없으면 막는다.
+    사실 · 일어나는 일은 두 지시가 같고 쓰는 방식만 다르다. 두 쓰는 방식은 한 줄씩은 있고 서로 달라야 한다."""
+    if r.mode != "match":
+        raise ValueError("거꾸로 맞히기 판이 아니에요")
+    if r.attempts:
+        raise ValueError("이 판은 이미 썼어요. 새 판을 시작하세요")
+    other = b.model_copy(update={k: getattr(clean_rival(r.rival), k) for k in METHOD})
+    if not method_lines(other):
+        raise ValueError("둘째 쓰는 방식을 한 줄은 적으세요")
+    can_write(r, b)
+    can_write(r, other)
+    if method_lines(b) == method_lines(other):
+        raise ValueError("두 쓰는 방식이 같아요. 한쪽을 다르게 적으세요")
+    return b, other
+
+
+def add_match(r: DrillRound, b: DrillBrief, first_text: str, second_text: str, model: str = "", rng: Optional[random.Random] = None) -> DrillAttempt:
+    """거꾸로 맞히기 판의 시도를 남긴다: 첫째 쓰는 방식의 판(with_text)과 둘째의 판(old_text). 왼쪽 · 오른쪽은 무작위다.
+    pick_side 가 남기는 pick 은 new 가 맞힘(첫째의 글이 있는 쪽을 골랐다), old 가 틀림, skip 이 모르겠음이다."""
+    a = add_attempt(r, b, first_text, "", model)
+    a.old_text, a.flip = second_text.strip(), (rng or random.Random()).random() < 0.5
+    return a
+
+
+def sides(r: DrillRound) -> list[dict]:
+    """거꾸로 맞히기 판의 두 쓰는 방식 [{name, lines: [{box, text}]}] (가 · 나). 쓴 뒤에는 쓸 때의 지시를 보인다."""
+    first = r.attempts[-1].brief if r.attempts else r.brief
+    rows = lambda b: [{"box": k, "text": x} for k, x in method_lines(b)]  # noqa: E731
+    return [{"name": "가", "lines": rows(first)}, {"name": "나", "lines": rows(r.rival)}]
+
+
 # ---------- 한 번 고치기: 고친 지시로 다시 쓰고 앞 지시와 가려 놓고 고른다 ----------
 
 def can_revise(r: DrillRound, b: DrillBrief) -> DrillAttempt:
@@ -445,7 +484,8 @@ def pending(r: DrillRound) -> Optional[DrillAttempt]:
 
 
 def pick_side(r: DrillRound, side: str) -> DrillAttempt:
-    """가려 읽고 고른 쪽(left · right · skip)을 남긴다. 한 번 고르면 바꾸지 않는다 (고른 뒤에는 어느 쪽인지 보인다)."""
+    """가려 읽고 고른 쪽(left · right · skip)을 남긴다. 한 번 고르면 바꾸지 않는다 (고른 뒤에는 어느 쪽인지 보인다).
+    거꾸로 맞히기 판에서 고른 쪽은 '지시 가로 쓴 글이 있는 쪽'이다."""
     a = pending(r)
     if a is None:
         raise ValueError("고를 것이 없어요")
@@ -553,7 +593,7 @@ def view(r: DrillRound) -> dict:
     return {**out, "source": r.source if shown else "", "source_chars": len(r.source), "revealed": shown, "stage": stage(r),
             "style_name": style_name(r), "base": base.model_dump(), "lines": [x.model_dump() for x in author_lines(r.brief, base)],
             "method_lines": len(method_lines(r.brief)), "hints": [] if r.mode else hints(r.brief), "blind": blind,
-            "dense": dense_lines(r) if r.mode == "shrink" else [], "shrink_max": SHRINK_MAX,
+            "dense": dense_lines(r) if r.mode == "shrink" else [], "shrink_max": SHRINK_MAX, "sides": sides(r) if r.mode == "match" else [],
             "changed": brief_diff(r.attempts[-2].brief, last.brief) if last and last.versus and len(r.attempts) > 1 else None,
             "measures": {str(a.no): {"with": m(a.with_text), "bare": m(a.bare_text), **({"old": m(a.old_text)} if a.old_text else {})} for a in seen},
             "source_measure": m(r.source) if shown else None}
@@ -604,10 +644,11 @@ def stats(rs: list[DrillRound]) -> dict:
                      "layers": [{"id": k, "n": n} for k in LAYERS if (n := sum(v.layer == k for v in judged))]})
     total = sum(x["lines"] for x in layer.values())
     rate = lambda xs: round(sum(x["worked"] for x in xs) / n, 3) if (n := sum(x["judged"] for x in xs)) else None  # noqa: E731
-    cut = {"new": 0, "old": 0, "skip": 0}  # 줄이기 판에서 고른 쪽 (new 는 줄인 지시)
+    # 변형 연습 판에서 고른 쪽: 줄이기는 new 가 줄인 지시, 거꾸로 맞히기는 new 가 맞힘
+    other = {m: {"new": 0, "old": 0, "skip": 0} for m in MODES if m}
     for r in rs:
-        if r.mode == "shrink" and r.attempts and r.attempts[-1].pick:
-            cut[r.attempts[-1].pick] += 1
-    return {"rounds": len(done), "lines": total, "worked": rate(rows), "picks": picks, "shrink": cut, "recent_n": RECENT,
+        if r.mode and r.attempts and r.attempts[-1].pick:
+            other[r.mode][r.attempts[-1].pick] += 1
+    return {"rounds": len(done), "lines": total, "worked": rate(rows), "picks": picks, **other, "recent_n": RECENT,
             "layers": [{**x, "share": round(x["lines"] / total, 3) if total else 0.0} for x in layer.values()],
             "recent": rate(rows[-RECENT:]), "before": rate(rows[:-RECENT]), "trend": rows[-TREND_MAX:][::-1]}
