@@ -4,18 +4,23 @@
 묶음은 실험 스크립트나 명령줄(`canon blind import`)이 넣는다. 화면(#/blind)은 읽고 점수를 매기고 결과를 볼 뿐이다.
 어느 글이 어느 판인지(열쇠)는 작가가 결과를 열기 전까지 화면에 보내지 않고, 결과를 연 뒤에는 점수를 고칠 수 없다.
 같은 글을 두 번 넣어 두면 그 두 점수의 차를 이 회차의 흔들림으로 낸다 (2026-11-09: 같은 글이 하루 안에 3.5 → 2.3).
+느낌 점수만으로는 판이 갈리지 않아 (2026-11-13: 11편이 모두 2~3점) 결과를 열기 전에 두 가지를 더 받는다:
+글마다 기준 항목 체크(CRITERIA), 그리고 같은 대목의 글 두 편을 나란히 놓고 고르는 쌍 비교(duel). 둘 다 안 해도 결과는 열 수 있다.
 """
 from __future__ import annotations
 
 import json
 import os
+import functools
+import random
 import re
+import threading
 import uuid
 from datetime import datetime
 from pathlib import Path
 
 from . import store
-from .schema import BlindItem, BlindKey, BlindMark, BlindSet
+from .schema import BlindDuel, BlindItem, BlindKey, BlindMark, BlindSet
 
 ID_RE = re.compile(r"^[0-9a-f]{8,32}$")
 SCALE = 5  # 점수는 1 ~ SCALE
@@ -23,6 +28,30 @@ ITEMS = (2, 60)  # 묶음 하나의 글 수
 TEXT_MAX = 40_000  # 글 하나의 글자 수
 NOTE_MAX = 300  # 글마다 적는 한마디
 TITLE_MAX = 80
+# 기준 항목: 작가가 2점 · 3점 글에서 그은 문장 30개를 묶은 다섯 갈래 (2026-11-13, 작가 확인). 한 작품의 다섯 글에서 나온 것이라 고쳐 쓸 것으로 본다.
+# 그래서 묶음마다 그때의 항목을 적어 둔다 (BlindSet.criteria). 여기를 고쳐도 이미 체크한 묶음의 결과는 그대로다.
+CRITERIA = (
+    "인물 말투가 바뀜",
+    "설정을 끼워 넣음",
+    "지어낸 티 나는 대사",
+    "속셈을 그대로 말함",
+    "토막 난 속말 · 속어",
+)
+CRITERIA_MAX = (8, 30)  # 묶음 하나의 항목 수, 항목 하나의 글자 수
+DUEL_MAX = 30  # 쌍 비교로 묻는 쌍 수 (넘으면 섞은 차례의 앞쪽만)
+TIE = "="  # 쌍 비교의 '비슷함'
+
+
+_LOCK = threading.RLock()
+
+
+def _locked(fn):
+    """읽고 고쳐 쓰는 함수를 한 번에 하나만 돌린다. 화면이 항목 체크와 점수를 잇달아 보내면 두 요청이 같은 파일을 읽고 서로 덮는다."""
+    @functools.wraps(fn)
+    def run(*a, **kw):
+        with _LOCK:
+            return fn(*a, **kw)
+    return run
 
 
 def root() -> Path:
@@ -74,9 +103,14 @@ def delete(bid: str) -> None:
     path.unlink()
 
 
-def create(title: str, items: list[dict], key: list[dict] | None = None, note: str = "", source: str = "") -> BlindSet:
+def create(title: str, items: list[dict], key: list[dict] | None = None, note: str = "", source: str = "",
+           criteria: list[str] | None = None) -> BlindSet:
     """items: [{no?, text}] (읽을 차례 그대로), key: [{no, arm, piece?}]. 번호를 주지 않으면 01, 02 … 로 매긴다.
-    열쇠가 없는 묶음도 받는다 (점수만 모으고, 결과에는 흔들림만 나온다)."""
+    열쇠가 없는 묶음도 받는다 (점수만 모으고, 결과에는 흔들림만 나온다). criteria 를 안 주면 CRITERIA 를 적어 둔다."""
+    many, long = CRITERIA_MAX
+    crit = list(dict.fromkeys(str(c).strip()[:long] for c in (criteria or CRITERIA) if str(c).strip()))
+    if len(crit) > many:
+        raise ValueError(f"기준 항목은 {many}개까지 둘 수 있어요 (지금 {len(crit)}개)")
     lo, hi = ITEMS
     if not lo <= len(items) <= hi:
         raise ValueError(f"글은 {lo}~{hi}편이어야 해요 (지금 {len(items)}편)")
@@ -101,7 +135,7 @@ def create(title: str, items: list[dict], key: list[dict] | None = None, note: s
     if keys and {k.no for k in keys} != seen:
         raise ValueError("열쇠가 모든 글을 덮지 않아요")
     return save(BlindSet(id=uuid.uuid4().hex[:12], title=title.strip()[:TITLE_MAX] or "가려 읽기 묶음", note=note.strip()[:NOTE_MAX * 2],
-                         source=source.strip()[:300], items=out, key=keys))
+                         source=source.strip()[:300], items=out, key=keys, criteria=crit))
 
 
 def import_folder(folder: str, title: str = "", note: str = "") -> BlindSet:
@@ -129,18 +163,89 @@ def _item(s: BlindSet, no: str) -> BlindItem:
     raise KeyError(f"이 묶음에 없는 글이에요: {no}")
 
 
-def score(bid: str, no: str, value: int, note: str = "") -> BlindSet:
-    """글 하나의 점수(1 ~ SCALE, 0 은 지움)와 한마디를 적는다. 결과를 연 뒤에는 고칠 수 없다."""
+def criteria(s: BlindSet) -> list[str]:
+    """이 묶음의 기준 항목. 항목을 적어 두지 않은 옛 묶음은 결과를 열기 전이면 CRITERIA, 연 뒤면 없다 (체크한 적이 없는 묶음이다)."""
+    return list(s.criteria) or ([] if s.revealed_at else list(CRITERIA))
+
+
+@_locked
+def score(bid: str, no: str, value: int, note: str = "", flags: list[str] | None = None) -> BlindSet:
+    """글 하나의 점수(1 ~ SCALE, 0 은 지움)와 한마디, 체크한 기준 항목을 적는다. 결과를 연 뒤에는 고칠 수 없다.
+    flags 가 None 이면 체크는 그대로 둔다 (점수만 보내는 호출이 체크를 지우지 않게). 체크는 점수가 없어도 남는다 (점수를 누르면 다음 글로 넘어가서)."""
     s = load(bid)
     if s.revealed_at:
         raise ValueError("결과를 연 묶음은 점수를 고칠 수 없어요")
     if not 0 <= int(value) <= SCALE:
         raise ValueError(f"점수는 1~{SCALE}점이에요")
     x = _item(s, no)
+    if flags is not None:
+        crit = criteria(s)
+        bad = [f for f in flags if f not in crit]
+        if bad:
+            raise ValueError(f"이 묶음에 없는 기준 항목이에요: {bad[0]}")
+        s.criteria = crit  # 옛 묶음은 처음 체크할 때 그때의 항목을 적어 둔다
+        x.flags = [c for c in crit if c in flags]
     x.score, x.note, x.at = int(value), note.strip()[:NOTE_MAX], _now() if value else ""
     return save(s)
 
 
+@_locked
+def flag(bid: str, no: str, label: str, on: bool = True) -> BlindSet:
+    """기준 항목 하나를 체크하거나(on) 지운다. 점수와 한마디는 건드리지 않는다.
+    화면은 이 함수만 쓴다: 목록을 통째로 보내면 잇달아 누른 두 체크 가운데 앞의 것이 빠진다."""
+    s = load(bid)
+    if s.revealed_at:
+        raise ValueError("결과를 연 묶음은 점수를 고칠 수 없어요")
+    x = _item(s, no)
+    crit = criteria(s)
+    if label not in crit:
+        raise ValueError(f"이 묶음에 없는 기준 항목이에요: {label}")
+    s.criteria = crit
+    x.flags = [c for c in crit if (c in x.flags and c != label) or (on and c == label)]
+    return save(s)
+
+
+def duel_pairs(s: BlindSet) -> list[tuple[str, str]]:
+    """쌍 비교로 물을 쌍 [(왼쪽 번호, 오른쪽 번호)]: 같은 대목의 글 가운데 글자가 다른 두 편씩 모두.
+    차례와 좌우는 묶음 id 로 섞어 요청마다 같고, 판 차례와 상관없다 (글은 읽을 차례로 훑는다). 대목 이름이 없는 글과 열쇠 없는 묶음은 묻지 않는다.
+    같은 글이 두 번 들어 있으면 그 글이 낀 쌍도 두 번 나온다. 그 두 답이 같은지가 쌍 비교의 흔들림이다."""
+    piece = {k.no: k.piece for k in s.key}
+    groups: dict[str, list[BlindItem]] = {}
+    for x in s.items:
+        if piece.get(x.no):
+            groups.setdefault(piece[x.no], []).append(x)
+    out = [(a.no, b.no) for g in groups.values() for i, a in enumerate(g) for b in g[i + 1:] if a.text != b.text]
+    rnd = random.Random(s.id)
+    rnd.shuffle(out)
+    return [(b, a) if rnd.random() < 0.5 else (a, b) for a, b in out[:DUEL_MAX]]
+
+
+def duels(s: BlindSet) -> list[dict]:
+    """물을 쌍과 지금까지의 답 [{a, b, pick}]. 판 이름과 대목 이름은 싣지 않는다."""
+    got = {frozenset((d.a, d.b)): d.pick for d in s.duels}
+    return [{"a": a, "b": b, "pick": got.get(frozenset((a, b)), "")} for a, b in duel_pairs(s)]
+
+
+@_locked
+def duel(bid: str, a: str, b: str, pick: str) -> BlindSet:
+    """쌍 하나의 답을 적는다: 나은 글의 번호, TIE(비슷함), '' (지움). 글을 모두 매긴 뒤, 결과를 열기 전에만 한다."""
+    s = load(bid)
+    if s.revealed_at:
+        raise ValueError("결과를 연 묶음은 쌍 비교를 고칠 수 없어요")
+    if any(not x.score for x in s.items):
+        raise ValueError("글을 모두 매긴 뒤에 쌍 비교를 할 수 있어요")
+    pair = next(((x, y) for x, y in duel_pairs(s) if {x, y} == {a, b}), None)
+    if not pair:
+        raise KeyError(f"이 묶음에 없는 쌍이에요: {a} · {b}")
+    if pick not in (a, b, TIE, ""):
+        raise ValueError("두 글 가운데 하나나 '비슷해요'를 골라 주세요")
+    s.duels = [d for d in s.duels if {d.a, d.b} != {a, b}]
+    if pick:
+        s.duels.append(BlindDuel(a=pair[0], b=pair[1], pick=pick, at=_now()))
+    return save(s)
+
+
+@_locked
 def reveal(bid: str) -> BlindSet:
     """결과를 연다. 모든 글에 점수가 있어야 한다. 한 번 열면 닫지 못한다."""
     s = load(bid)
@@ -148,6 +253,7 @@ def reveal(bid: str) -> BlindSet:
     if left:
         raise ValueError(f"아직 점수를 매기지 않은 글이 {len(left)}편 있어요")
     if not s.revealed_at:
+        s.criteria = criteria(s)
         s.revealed_at = _now()
         save(s)
     return s
@@ -168,6 +274,7 @@ def sentences(text: str) -> list[list[str]]:
     return out
 
 
+@_locked
 def mark(bid: str, no: str, idx: int, on: bool = True) -> BlindSet:
     """결과를 연 묶음에서 거슬린 문장 하나를 긋거나(on) 지운다. 점수와 달리 결과를 연 뒤에만 한다 (판을 모르고 매긴 점수를 지키려고).
     글자가 같은 글이 또 있으면 그 글에도 같이 긋는다 (화면은 같은 글을 한 번만 보인다)."""
@@ -239,8 +346,65 @@ def result(s: BlindSet) -> dict:
     for r in arms:
         r["close"] = noise is not None and top - r["mean"] <= noise
     rows = [{"no": x.no, "score": x.score, "note": x.note, "arm": arm[x.no].arm if x.no in arm else "", "piece": arm[x.no].piece if x.no in arm else "",
-             "marks": [m.model_dump() for m in x.marks]} for x in s.items]
-    return {"arms": arms, "pairs": ps, "noise": noise, "rows": rows}
+             "marks": [m.model_dump() for m in x.marks], "flags": list(x.flags)} for x in s.items]
+    return {"arms": arms, "pairs": ps, "noise": noise, "rows": rows, "flags": flag_result(s), "duel": duel_result(s)}
+
+
+def flag_result(s: BlindSet) -> dict:
+    """기준 항목마다 판별로 체크한 글 수. 같은 글 두 편은 글 하나로 치고 체크는 그 평균이다 (한 편만 체크했으면 0.5).
+    diff 는 같은 글 두 편에서 체크가 엇갈린 항목 수의 합 (항목 체크의 흔들림), 같은 글 짝이 없으면 None."""
+    arm = {k.no: k.arm for k in s.key}
+    crit = criteria(s)
+    by_text: dict[tuple[str, str], list[BlindItem]] = {}
+    for x in s.items:
+        by_text.setdefault((arm.get(x.no, ""), x.text), []).append(x)
+    names = [r for r in dict.fromkeys(a for a, _ in by_text) if r]
+    rows = []
+    for c in crit:
+        counts = []
+        for a in names:
+            groups = [g for (name, _), g in by_text.items() if name == a]
+            counts.append({"arm": a, "n": round(sum(sum(c in x.flags for x in g) / len(g) for g in groups), 2), "texts": len(groups)})
+        rows.append({"label": c, "counts": counts, "total": sum(c in x.flags for x in s.items)})
+    same: dict[str, list[BlindItem]] = {}
+    for x in s.items:
+        same.setdefault(x.text, []).append(x)
+    twins = [(a, b) for g in same.values() for a, b in zip(g, g[1:])]
+    return {"criteria": crit, "arms": names, "rows": rows, "checked": sum(len(x.flags) for x in s.items),
+            "diff": sum(len(set(a.flags) ^ set(b.flags)) for a, b in twins) if twins else None}
+
+
+def duel_result(s: BlindSet) -> dict:
+    """쌍 비교의 판별 결과. 글자가 같은 두 글의 쌍(같은 글이 두 번 들어 있어 두 번 물은 쌍)은 한 번으로 치고 그 답의 평균을 쓴다.
+    rate 는 이긴 몫(이김 1, 비김 0.5)의 평균, pairs 는 답한 쌍 수(겹친 쌍은 하나). repeat 는 두 번 물은 쌍 가운데 답이 같았던 수다."""
+    arm = {k.no: k.arm for k in s.key}
+    text = {x.no: x.text for x in s.items}
+    asked = duels(s)
+    by: dict[frozenset, list[dict]] = {}
+    for d in asked:
+        if d["pick"]:
+            by.setdefault(frozenset((text[d["a"]], text[d["b"]])), []).append(d)
+    share: dict[str, list[float]] = {}
+    tally: dict[str, list[int]] = {}
+    same = of = 0
+    for group in by.values():
+        d0 = group[0]
+        a, b = arm.get(d0["a"], ""), arm.get(d0["b"], "")
+        won = [1.0 if d["pick"] != TIE and text[d["pick"]] == text[d0["a"]] else 0.5 if d["pick"] == TIE else 0.0 for d in group]
+        for x, y in zip(won, won[1:]):
+            of += 1
+            same += x == y
+        if not a or not b or a == b:
+            continue
+        mean = sum(won) / len(won)
+        share.setdefault(a, []).append(mean)
+        share.setdefault(b, []).append(1 - mean)
+        for w in won:
+            tally.setdefault(a, [0, 0, 0])[0 if w == 1 else 1 if w == 0.5 else 2] += 1
+            tally.setdefault(b, [0, 0, 0])[2 if w == 1 else 1 if w == 0.5 else 0] += 1
+    arms = sorted(({"arm": a, "rate": round(sum(v) / len(v), 2), "pairs": len(v), "win": tally[a][0], "tie": tally[a][1], "loss": tally[a][2]}
+                   for a, v in share.items()), key=lambda r: -r["rate"])
+    return {"total": len(asked), "answered": sum(1 for d in asked if d["pick"]), "arms": arms, "repeat": {"same": same, "of": of} if of else None}
 
 
 def summary(s: BlindSet) -> dict:
@@ -249,10 +413,12 @@ def summary(s: BlindSet) -> dict:
 
 
 def view(s: BlindSet) -> dict:
-    """화면 값. 결과를 열기 전에는 열쇠와 판 이름, 대목 묶음(pieces)을 싣지 않는다."""
-    out = {**summary(s), "scale": SCALE, "source": s.source,
-           "texts": [{"no": x.no, "text": x.text, "chars": len(x.text), "score": x.score, "note": x.note} for x in s.items],
-           "has_key": bool(s.key), "result": None, "pieces": []}
+    """화면 값. 결과를 열기 전에는 판 이름과 대목 이름, 대목 묶음(pieces)을 싣지 않는다.
+    쌍 비교의 쌍(duels)은 글을 모두 매긴 뒤부터 번호 둘로만 싣는다: 어느 두 글이 같은 대목인지는 글을 읽으면 아는 것이고, 판은 드러나지 않는다."""
+    done = all(x.score for x in s.items)
+    out = {**summary(s), "scale": SCALE, "source": s.source, "criteria": criteria(s),
+           "texts": [{"no": x.no, "text": x.text, "chars": len(x.text), "score": x.score, "note": x.note, "flags": list(x.flags)} for x in s.items],
+           "has_key": bool(s.key), "result": None, "pieces": [], "duels": duels(s) if done else []}
     if s.revealed_at:
         out["result"] = result(s)
         out["pieces"] = pieces(s)

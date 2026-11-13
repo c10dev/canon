@@ -4051,6 +4051,15 @@ class BlindItem(BaseModel):
     note: str = Field("", description="작가가 적은 한마디")
     at: str = ""
     marks: list[BlindMark] = Field(default_factory=list, description="결과를 연 뒤 작가가 그은 거슬린 문장")
+    flags: list[str] = Field(default_factory=list, description="읽으면서 체크한 기준 항목 (BlindSet.criteria 의 글 그대로)")
+
+
+class BlindDuel(BaseModel):
+    """같은 대목의 글 두 편을 나란히 놓고 고른 답 하나 (blindset.duel). pick 은 나은 글의 번호, '=' 는 비슷함."""
+    a: str
+    b: str
+    pick: str = ""
+    at: str = ""
 
 
 class BlindKey(BaseModel):
@@ -4070,6 +4079,8 @@ class BlindSet(BaseModel):
     items: list[BlindItem] = Field(default_factory=list, description="읽을 차례 그대로")
     key: list[BlindKey] = Field(default_factory=list)
     revealed_at: str = Field("", description="결과를 연 때. 연 뒤에는 점수를 고칠 수 없다")
+    criteria: list[str] = Field(default_factory=list, description="이 묶음의 기준 항목. 비어 있고 결과를 열기 전이면 blindset.CRITERIA")
+    duels: list[BlindDuel] = Field(default_factory=list, description="쌍 비교의 답 (물을 쌍은 blindset.duel_pairs 가 정한다)")
 
 
 Approval.model_rebuild()
