@@ -22,10 +22,10 @@
 | 2 | 2 | 장르 정의: `light_novel` 의 관습 · 속도 · 예시 로그라인, 요소 장르 `harem` · `system` 더하기, `modern_fantasy.avoid` 고치기, `light_novel` 의 '캐릭터마다 말버릇' · '화마다 웃음 포인트' 같은 매 화 지시 빼기 | 끝 ([#531](https://github.com/c10dev/canon/pull/531)) | [02-genre-defs.md](specs/02-genre-defs.md) | — |
 | 3 | 3 | 로그라인 웹소설 칸: 새 칸 둘(주인공만 가진 것, 독자가 받는 재미)과 틀별 합치기 · 점검(`logline.py` 와 `setup.js` 함께), 막는 것 · 걸린 것은 접어 선택으로 | 설계 | — | 1 |
 | 4 | 4 | 부 · 아크 기획 프롬프트를 틀별로: 보상 루프 아크, 짧은 고구마(`conflict` 의 뜻), 새 칸 `StoryArc.gain`(이 아크에서 얻는 성장), 하렘이면 `StoryArc.focus`(공략 대상) | 설계 | — | 1, 2 |
-| 5 | 5 | 성장 일정(능력 일정 앞당김): `Blueprint.growth` 스키마 · 저장 검사 · 화 번호 옮기기 · 상태창 기록과 견주는 경고 · 설계도 화면 | 설계 | — | 1 |
+| 5 | 5 | 성장 일정(능력 일정 앞당김): 설계도 능력 일정(`Blueprint.ability_plans`)의 스키마 · 저장 검사 · 화 번호 옮기기 · 상태창 기록과 견주는 경고 · 설계도 화면 | 일부 끝 (설계도 일감 10 · 11b · 12 · 13): 상태창 수치 항목은 명세서 정할 것 1 을 기다림 | [05-growth.md](specs/05-growth.md) | 1 |
 | 6 | 6 | 화별 플롯 규칙을 틀별로: 사이다를 깔끔하게, 2~3화마다 작은 보상, 하렘이면 관계는 위로 · 균열은 1~3화 오해, 새 칸 `EpisodePlot.reward`(이 화의 사이다 한 줄) | 설계 | — | 4 |
 | 7 | 7 | 고구마 · 사이다 경고 (LLM 비용 없음): 사이다 없는 화가 이어짐, 고구마 구간이 김, 하렘 쌍의 균열 · 적대가 오래 이어짐, 아크에 성장이 없음 | 설계 | — | 6 |
-| 8 | 8 | 성장 일정을 기획 프롬프트(다음 아크 · 장편 화별 플롯)에 넣기, 플롯에서 거꾸로 뽑기 · AI 로 짜기 | 설계 | — | 4, 5 |
+| 8 | 8 | 성장 일정을 기획 프롬프트(다음 아크 · 장편 화별 플롯)에 넣기, 플롯에서 거꾸로 뽑기 · AI 로 짜기 | 끝 (설계도 일감 10 · 11b · 12 가 맡음, [#490](https://github.com/c10dev/canon/pull/490) · [#501](https://github.com/c10dev/canon/pull/501)) | [05-growth.md](specs/05-growth.md) | — |
 | 9 | 9 | 완급 계획 웹소설 판: 틀별 `heat_rules`(쌓기 비율을 낮추고 작은 터뜨리기를 자주, 뒤집힘은 고르기), 긴 고구마 경고 | 설계 | — | 6 |
 | 10 | 10 | 인물 표지: 승인한 본문에서 작가가 거둔 말버릇 · 버릇 · 외모 특징을 인물 카드에 기록. 쓰기 요청에 넣을지는 정할 것 15 를 따른다 | 설계 | — | 11 |
 | 1과 나란히 | 11 | 인물 카드를 '표현'에서 '압력'으로: 설정 프롬프트가 버릇 하나 · 대사 예시 한 줄을 요구하지 않고, 지키려는 것과 흔들리면 어디로 가는지를 적게 함 | 설계 | — | — |
@@ -35,7 +35,7 @@
 - 2 · 11 · 12 · 13 은 틀과 상관없이 할 수 있어 다른 일감과 나란히 해도 된다.
 - 11 · 12 · 13 은 사용자가 실제로 써 보고 느낀 'AI 느낌'의 Canon 쪽 원인이다(2026-11-10). 먼저 하기를 추천한다.
 - 'AI 느낌' 묶음은 빈도 상한 · 하한을 새로 더하지 않는다(사용자 의견, 2026-11-10). 전환 속도는 6 · 8 에서 설계도 이정표 · 사다리처럼 이야기 사실로 잡는다.
-- 5 는 설계도의 일감이다. 시작하면 [docs/blueprint/plan.md](../blueprint/plan.md) 의 '능력 일정' 줄을 단기 표로 옮기고 명세서를 `docs/blueprint/specs/` 에 쓴다. 이 표에는 링크만 남긴다.
+- 5 · 8 의 대부분은 설계도 일감 10~13([docs/blueprint/plan.md](../blueprint/plan.md))이 '능력 일정'으로 만들었다. 남은 차이(상태창 수치 항목)와 `StoryArc.gain` 과의 경계는 [specs/05-growth.md](specs/05-growth.md) 에 있다.
 - 4 · 6 · 8 · 9 는 `prompts.py` 의 같은 함수들(`series_prompt` · `next_arc_prompt` · `plot_rules` · `heat_rules`)을 고친다. 한 번에 한 세션만 고친다.
 - 9 가 걸려 있던 화 끼워 넣기 · 빼기의 `heat` 화 번호 문제는 2026-11-14 에 고쳤다(설계도 plan.md 의 장기 후보 줄).
 
@@ -61,13 +61,13 @@
 | 4 | `canon/static/plot.js:934` · `:988` · `:1004` · `canon/static/chat.js:58` · `canon/static/convert.js:189` · `:318` |
 | 4 | `canon/static/agent.js:73` · `:79` 제안 칩 · `canon/cli.py:583` · `:615` |
 | 4 | `canon/mock.py:305` · `:317` |
-| 5 | `canon/schema.py:929` `Blueprint` · `canon/blueprint.py` · `canon/renumber.py` · `canon/static/blueprint.js` |
-| 5 | `canon/abilities.py` `acquired` · `canon/statwin.py` (실제 기록 읽기만) |
+| 5 | 남은 차이(상태창 수치 항목)만: `canon/schema.py` `AbilityPlan` · `canon/blueprint.py` `got_ep` · 경고 · `canon/static/blueprint.js` 편집 카드. 목록은 [specs/05-growth.md](specs/05-growth.md) |
+| 5 | `canon/statwin.py` `_amount` · `after_delta` (수치 값 읽기만) |
 | 6 | `canon/prompts.py:1120` · `:1131` `plot_rules` · `:1430` 초반 규칙 |
 | 6 | `canon/prompts.py:5584` `HOOK_GUIDE` (항목 이름은 두고 설명만) |
 | 6 | `canon/schema.py:678` `EpisodePlot` · `canon/static/plot.js` 화 플롯 칸 |
 | 7 | 새 파일(예: `canon/reward.py`) · `canon/pace.py:210` 옆 · `canon/board.py` `checks` · `canon/static/plot.js` 경고 |
-| 8 | `canon/prompts.py` 설계도 줄을 넣는 곳(설계도 일감 4 · 5 · 8 이 만든 함수) |
+| 8 | 없음: `prompts.blueprint_ability_block` · `pipeline.propose_abilities` · `draft_abilities` 가 이미 있다(설계도 일감 10 · 12) |
 | 9 | `canon/prompts.py:1198` `heat_rules` · `canon/heatplan.py:108` `WARN_CODES` · `warnings` |
 | 10 | `canon/schema.py:119` `Character` · `canon/prompts.py` 인물 블록 · `canon/static/cast.js` |
 | 11 | `canon/prompts.py:229` · `:230` 설정 요구사항 · `:319` 원형 굴리기 · `:6293` 말투 칸 설명 |
@@ -90,8 +90,8 @@
 7. 관계 단계 위쪽 끝이 '신뢰'라 하렘 히로인이 일찍 끝에 닿아요. 그 뒤 진도는 이정표 라벨과 접촉 사다리로 충분할까요? — 추천: 충분하다고 보고, 모자라면 '공략 사다리'(접촉 사다리처럼 작가가 칸을 적는 목록)를 장기 후보로 둔다.
 8. 하렘 쌍의 균열 · 적대가 몇 화 넘게 이어지면 경고할까요? — 추천: 3화.
 9. 사이다 없는 화가 몇 화 이어지면 경고할까요? — 추천: 3화.
-10. 능력 일정을 '성장 일정'으로 앞당겨 웹소설 일감 5 로 할까요? 설계도 정한 규칙(2026-11-10, 두 번째 묶음으로 미룸)을 바꾸는 일이에요. — 추천: 앞당긴다. 먼저 필요한 설계도 일감 1~6 이 모두 머지됐다.
-11. 성장 일정 한 줄을 [화 범위, 인물, 상태창 항목이나 스킬 도감 항목, 등급, 얻는 계기]로 할까요? — 추천: 그렇다. 실제 기록(`abilities.acquired` · `stat_log`)과 견줄 수 있다.
+10. (정함 2026-11-14: 추천안대로) 능력 일정을 '성장 일정'으로 앞당겨 웹소설 일감 5 로 할까요? 설계도 정한 규칙(2026-11-10, 두 번째 묶음으로 미룸)을 바꾸는 일이에요. — 추천: 앞당긴다. 먼저 필요한 설계도 일감 1~6 이 모두 머지됐다.
+11. (정함 2026-11-14: 추천안대로) 성장 일정 한 줄을 [화 범위, 인물, 상태창 항목이나 스킬 도감 항목, 등급, 얻는 계기]로 할까요? — 추천: 그렇다. 실제 기록(`abilities.acquired` · `stat_log`)과 견줄 수 있다.
 12. 웹소설 틀이면 완급 계획(`Settings.heat_plan`)을 기본으로 켤까요? — 추천: 켜지 않는다. 웹소설 판 규칙만 준비하고 켜기는 작가가 한다.
 13. 장르 계수(`Genre.dynamics`)로 하렘의 원망(grievance)이 빨리 식게 할까요? — 추천: 지금은 하지 않는다. 프롬프트 규칙과 경고(7)로 먼저 보고, 모자라면 다시 정한다.
 14. 인물 표지 칸을 모든 작품에 둘까요, 웹소설 틀에만 둘까요? — 추천: 모든 작품에 둔다. 비면 프롬프트에 넣지 않는다.
