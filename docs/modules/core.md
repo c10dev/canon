@@ -510,6 +510,11 @@
 - `apply_learning` 의 알림 `rule_limit_note`: write 층 지킬 것 · 피할 것이 `RULE_LIMIT`(20)를 넘으면 합치거나 계획 층으로 옮기라고 알린다
 - `count_markers` 는 원문 표본에 없는(공백 빼고 견줌) 장치 예시를 비운다
 - 표지의 구간별 빈도(`MarkerZones`)는 `analyze_style` 이 세지 않는다. 부른 쪽이 `refsample.zone_rates` 로 세어 `StyleProfile` 밖에 둔다(모델이 채우는 형식에 칸을 더하지 않으려는 것)
+- 문체 변경안 정리 `clean_style_revision` 은 모델이 값 안에 남긴 혼잣말(`[Wait: …]`)을 `strip_meta` 로 지운다. 마지막 표시 뒤의 글을 남기고, 그 글이 비면 가까운 앞 글을 남긴다
+- `strip_meta` 는 대괄호 안이 영문 혼잣말 낱말(`_META_NOTE`)로 시작하고 한글이 없을 때만 지운다. 상태창 글(`[관리자 권한 …]`)은 지나간다
+- 혼잣말은 모델이 지어 쓰는 값(줄글 칸, 지킬 것 · 피할 것, 표지 쓰임, 장치 이름 · 상황, 까닭, 시험 문단)에서만 지운다. 원문을 옮기는 값(금지 표현, 표지 글자, 장치 단서 · 예시, `preview_source`)은 두고, 지우고 나니 빈 줄글 칸은 변경안에서 뺀다
+- `apply_style_edits` 도 넣기 전에 같은 거르기를 `rev` 에 바로 한다. 거르기 전에 남은 옛 변경안이 그대로 들어가지 않고, 취소(`undo_style_edits`)가 넣은 값과 견준다
+- 문체 분석(`analyze_style`) · 수정에서 배우기(`learn_style`)의 결과는 `strip_meta` 를 거치지 않는다
 - 검수
   - 장편 넓혀 찾기 `widen_check`: 첫 검수에 없던 옛 단락이 근거로 나온 진술만 다시 묻기
   - 진술 뽑기(`prompts.claims_prompt`)와 진술 수 상한 `prompts.TWOSTEP_CLAIMS`(50)은 두 걸음 검수와 같이 쓴다

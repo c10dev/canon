@@ -148,3 +148,57 @@ def test_style_chat_api(client):
     ex = client.post("/api/projects/a/style/example", json={"scene": "다툼"}).json()["style_example"]
     assert ex["by"] == "example" and "다툼" in ex["text"]
     assert client.delete("/api/projects/a/style/example").json()["style_example"] is None
+
+
+def test_strip_meta_keeps_text_after_the_last_note():
+    assert pipeline.strip_meta("버린 초안 [Wait: clean description below]알림이 뜰 때") == "알림이 뜰 때"
+    assert pipeline.strip_meta("첫 안][Wait - keep string clean]둘째 안 [wait, again] 셋째 안") == "셋째 안"
+    assert pipeline.strip_meta("앞 글만 있음 [Note: retry]") == "앞 글만 있음"       # 뒤가 비면 가까운 앞 글
+    assert pipeline.strip_meta("닫지 않음 [Hmm, let me redo this") == "닫지 않음"
+    assert pipeline.strip_meta("[Wait: nothing]") == ""
+    for kept in ("화면에 [관리자 권한 승인] 창이 뜰 때", "[Note 앱 알림]이 울릴 때", "[Waiter] 명찰을 볼 때", "과거형"):
+        assert pipeline.strip_meta(kept) == kept                                   # 상태창 글, 한글이 든 대괄호, 다른 낱말
+    once = pipeline.strip_meta("가 [Wait: x] 나")
+    assert pipeline.strip_meta(once) == once == "나"
+
+
+def _junk_revision() -> StyleRevision:
+    from canon.schema import StyleDevice
+    return StyleRevision(reply="고침", preview="버린 문단. [Wait: rewrite]\n새 문단.", edits=[
+        StyleEdit(key="pacing", text="느리게 [Wait: clean below]장면마다 한 가지 일만", why="[Note: ok] 작가의 말대로"),
+        StyleEdit(key="vocabulary", text="[Wait: nothing left]"),                    # 지우면 비는 칸은 뺀다
+        StyleEdit(key="dos", items=["초안 [Wait - redo]대사는 짧게", "[Wait: x]"]),
+        StyleEdit(key="banned_phrases", items=["[Wait: 원문 그대로]"]),
+        StyleEdit(key="markers", markers=[StyleMarker(text="하더라", note="버림 [Wait: fix] 회상할 때")]),
+        StyleEdit(key="devices", devices=[StyleDevice(
+            name="알림 창", when="초안 (cues: '[관리자') [Wait: clean description below]알림이 뜰 때",
+            cues=["[관리자 권한", "[Wait: 원문]"], example="[Wait: 원문 예시]")]),
+    ])
+
+
+def test_clean_strips_model_notes_from_written_fields():
+    p = _project()
+    rev = pipeline.clean_style_revision(p, _junk_revision())
+    by = {e.key: e for e in rev.edits}
+    assert "vocabulary" not in by
+    assert by["pacing"].text == "장면마다 한 가지 일만" and by["pacing"].why == "작가의 말대로"
+    assert by["dos"].items == ["대사는 짧게"] and by["markers"].markers[0].note == "회상할 때"
+    d = by["devices"].devices[0]
+    assert d.when == "알림이 뜰 때" and d.name == "알림 창"
+    # 원문을 그대로 옮기는 값은 건드리지 않는다
+    assert d.cues == ["[관리자 권한", "[Wait: 원문]"] and d.example == "[Wait: 원문 예시]"
+    assert by["banned_phrases"].items == ["[Wait: 원문 그대로]"]
+    assert rev.preview == "새 문단."
+    again = pipeline.clean_style_revision(p, rev.model_copy(deep=True))             # 대화 에이전트는 두 번 거른다
+    assert again.model_dump() == rev.model_dump()
+
+
+def test_apply_strips_notes_of_a_stored_revision_and_undo_restores():
+    p = _project()
+    rev = _junk_revision()                                                          # 거르기 전에 남은 옛 변경안
+    pipeline.record_style_chat(p, "고쳐 줘", 0, rev)
+    assert pipeline.apply_style_chat(p, 1, ["pacing", "vocabulary", "devices"]) == ["pacing", "devices"]
+    assert p.style.pacing == "장면마다 한 가지 일만" and p.style.vocabulary == ""
+    assert p.style.devices[0].when == "알림이 뜰 때"
+    done, kept = pipeline.undo_style_chat(p, 1)
+    assert done == ["pacing", "devices"] and not kept and p.style.pacing == "" and p.style.devices == []
