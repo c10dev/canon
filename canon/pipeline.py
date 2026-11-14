@@ -934,7 +934,7 @@ def propose_blueprint(llm: LLM, p: Project, arc: int, a: str, b: str, note: str 
 
 def _one_character(p: Project, cid: str) -> None:
     if cid not in {c.id for c in p.characters}:
-        raise ValueError("능력 일정을 받을 인물을 골라 주세요")
+        raise ValueError("성장 일정을 받을 인물을 골라 주세요")
 
 
 def propose_abilities(llm: LLM, p: Project, arc: int, cid: str, note: str = "") -> AbilityProposal:

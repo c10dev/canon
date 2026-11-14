@@ -28,10 +28,14 @@ const bpPair = (key) => String(key).split('~');
 const bpHref = (k) => `${base()}/blueprint${k ? `/${enc(k)}` : ''}`;
 const bpRange = (x) => (x.from_ep > 0 ? (x.from_ep === x.to_ep ? `${x.from_ep}화` : `${x.from_ep}~${x.to_ep}화`) : '화 정하지 않음');
 const bpEmpty = () => ({ milestones: [], ladders: [], ability_plans: [], note: '' });
-const BP_AB = '@ability';  // 능력 일정 쪽의 주소 키. 쌍 키('a~b')와 겹치지 않는다
+const BP_AB = '@ability';  // 성장 일정(코드 이름은 능력 일정) 쪽의 주소 키. 쌍 키('a~b')와 겹치지 않는다
 const bpPlans = (bp) => bp.ability_plans || [];
 const bpAbWarns = () => S.bp.ability_warnings || [];
 const bpAbText = (x) => `${x.ability} ${x.grade || ''}`.trim();
+/** 일정 줄의 동사: 스킬 도감 항목 줄은 '얻음', 상태창 수치 줄(stat)은 '닿음' (서버 blueprint._verb 와 같다) */
+const bpAbGot = (x) => (x.stat ? '닿음' : '얻음');
+/** 그 인물의 상태창 수치 항목 이름 (서버 blueprint.stat_names). 저장한 줄의 항목이 목록에 없으면 뒤에 붙여 고르기에서 지워지지 않게 한다 */
+const bpStatNames = (x) => { const names = (S.bp.stat_names || {})[x.character] || []; return x.stat && !names.includes(x.stat) ? [...names, x.stat] : names; };
 
 /** 쌍 목록: 관계 설정의 쌍 + 설계도에만 있는 쌍. [[키, a, b]] (관계 차례, 그 뒤 설계도 차례). a · b 는 관계 설정의 차례 */
 function bpPairs(p, bp) {
@@ -79,9 +83,9 @@ function bpToc() {
   });
   const plans = bpPlans(d.blueprint).length;
   rows.push('<div class="outline-h">성장</div>');
-  rows.push(item(BP_AB, `<span class="tl">능력 일정</span><span class="st">${bpAbWarns().length ? `경고 ${bpAbWarns().length}` : plans ? `${plans}줄` : '비어 있음'}</span>`, bpAbWarns().length > 0));
+  rows.push(item(BP_AB, `<span class="tl">성장 일정</span><span class="st">${bpAbWarns().length ? `경고 ${bpAbWarns().length}` : plans ? `${plans}줄` : '비어 있음'}</span>`, bpAbWarns().length > 0));
   const cur = pairs.find(([k]) => k === S.bpSel);
-  const now = cur ? `${esc(bpWho(cur[1]))} ↔ ${esc(bpWho(cur[2]))}` : S.bpSel === BP_AB ? '능력 일정' : '개요';
+  const now = cur ? `${esc(bpWho(cur[1]))} ↔ ${esc(bpWho(cur[2]))}` : S.bpSel === BP_AB ? '성장 일정' : '개요';
   return outlineNav({ id: 'bp-toc', label: '설계도 목차', now, body: `<div class="outline-list">${rows.join('')}</div>` });
 }
 
@@ -287,14 +291,14 @@ function bpOverview() {
   const d = S.bp;
   const pairs = bpPairs(P(), d.blueprint);
   const plans = bpPlans(d.blueprint);
-  const growth = `<section class="card" id="bp-growth"><h2>성장</h2><ul class="bp-list"><li><a href="${bpHref(BP_AB)}"><strong>능력 일정</strong></a>
+  const growth = `<section class="card" id="bp-growth"><h2>성장</h2><ul class="bp-list"><li><a href="${bpHref(BP_AB)}"><strong>성장 일정</strong></a>
     <span class="small">${plans.length}줄${bpAbWarns().length ? ` · 경고 ${bpAbWarns().length}` : ''}</span></li></ul></section>`;
   if (!pairs.length) return `<section class="card csh-empty"><div class="empty"><p>관계가 아직 없어요. 설정에서 관계를 더하면 그 두 인물의 여정을 여기서 짜요.</p></div></section>${bpWarnCard(bpAbWarns())}${growth}`;
   const rungs = d.blueprint.ladders.reduce((n, l) => n + l.rungs.length, 0);
   const warned = d.warnings.length + bpAbWarns().length;
   const tiles = `<div class="ab-tiles"><div class="ab-tile"><span class="small">관계 이정표</span><b>${d.blueprint.milestones.length}</b></div>
     <div class="ab-tile"><span class="small">사다리 칸</span><b>${rungs}</b></div>
-    <div class="ab-tile"><span class="small">능력 일정</span><b>${plans.length}</b></div>
+    <div class="ab-tile"><span class="small">성장 일정</span><b>${plans.length}</b></div>
     <div class="ab-tile${warned ? ' warn' : ''}"><span class="small">경고</span><b>${warned}</b></div></div>`;
   const head = `<div class="between"><h2>관계</h2><button type="button" class="btn small" data-action="bpWholeToggle" aria-expanded="${S.bpWholeOpen}" aria-controls="bp-whole-ai">AI로 전체 짜기</button></div>`;
   const list = `<section class="card" id="bp-pairs">${head}${S.bpWholeOpen ? bpWholeAiCard(pairs) : ''}<ul class="bp-list">${pairs.map(([k, a, b]) => {
@@ -311,7 +315,7 @@ function bpWholeAiCard(pairs) {
   const parts = serial() ? P().parts || [] : [];
   const partPick = parts.length ? `<select id="bp-whole-part" aria-label="짤 부">${parts.map((x) => `<option value="${x.number}">${x.number}부 · ${x.start_ep}~${x.end_ep}화</option>`).join('')}</select>` : '';
   const boxes = pairs.map(([k, a, b]) => `<label class="pop-check"><input type="checkbox" class="bp-whole-pair" value="${esc(k)}" checked> ${esc(bpWho(a))} ↔ ${esc(bpWho(b))}</label>`).join('');
-  return `<div class="field" id="bp-whole-ai"><label for="bp-whole-note">AI로 전체 짜기 <span class="hint">고른 쌍과 능력 일정을 함께 보고 엇갈려 짜요</span></label>
+  return `<div class="field" id="bp-whole-ai"><label for="bp-whole-note">AI로 전체 짜기 <span class="hint">고른 쌍과 성장 일정을 함께 보고 엇갈려 짜요</span></label>
     <textarea id="bp-whole-note" rows="2" placeholder="예: 1부는 윤서 먼저, 수빈은 아크 2부터. MT에서 둘을 함께"></textarea>
     <div class="row" role="group" aria-label="짤 쌍">${boxes}</div>
     <div class="row">${partPick}<button type="button" class="btn small" data-action="bpWholeAI">AI로 짜기</button></div></div>`;
@@ -358,7 +362,7 @@ function bpWholeDraftCard(pairs) {
     ${spots ? `<h3>편성</h3><ul class="bp-list">${spots}</ul>` : ''}
     ${bpWholeBand(shown, d.firsts || [], plans, 'bp-whole-draft-band', '제안을 겹친 띠')}
     ${groups}
-    ${d.abilities.length ? `<div class="bp-dir"><h3>능력 일정</h3>${bpAbDraftRows(d.abilities, d.abPicks, 'whole', true, 'bpWholeAbPick')}${bpAbCodexRows(d.codex || [], d.codexPicks, 'whole', 'bpWholeCodexPick')}</div>` : ''}
+    ${d.abilities.length ? `<div class="bp-dir"><h3>성장 일정</h3>${bpAbDraftRows(d.abilities, d.abPicks, 'whole', true, 'bpWholeAbPick')}${bpAbCodexRows(d.codex || [], d.codexPicks, 'whole', 'bpWholeCodexPick')}</div>` : ''}
     ${none ? '<span class="small">짠 줄이 없어요.</span>' : ''}</section>`;
 }
 
@@ -399,7 +403,7 @@ function bpAbLanes(plans, total) {
   return bpPlanCast(plans).map((id) => {
     const mine = plans.filter((x) => x.character === id);
     const bars = mine.map((x) => ({ ...x, text: bpAbText(x), cls: x.new ? 'bp-is-rung bp-new' : 'bp-is-rung' }));
-    const hits = mine.map((x) => [x, bpPlanState(x.id).got]).filter(([, got]) => got > 0).map(([x, got]) => ({ from_ep: got, to_ep: got, text: `${bpAbText(x)} 얻음`, cls: 'bp-is-hit' }));
+    const hits = mine.map((x) => [x, bpPlanState(x.id).got]).filter(([, got]) => got > 0).map(([x, got]) => ({ from_ep: got, to_ep: got, text: `${bpAbText(x)} ${bpAbGot(x)}`, cls: 'bp-is-hit' }));
     return bpLane(bpWho(id), [...bars, ...hits], total);
   }).join('');
 }
@@ -407,7 +411,7 @@ function bpAbLanes(plans, total) {
 /** 능력 일정의 계획 띠: 인물마다 한 줄 */
 function bpAbilityBand(plans) {
   const f = bpBandFrame(bpPlannedSpan(plans.map((x) => x.to_ep)));
-  const desc = `1~${f.total}화 능력 일정 띠: ${bpPlanCast(plans).map((id) => `${bpWho(id)} ${plans.filter((x) => x.character === id).length}줄`).join(', ')}`;
+  const desc = `1~${f.total}화 성장 일정 띠: ${bpPlanCast(plans).map((id) => `${bpWho(id)} ${plans.filter((x) => x.character === id).length}줄`).join(', ')}`;
   return `<section class="card" id="bp-band"><div class="between"><h2>계획 띠</h2><div class="row">${f.seg}${f.range}</div></div>
     <div class="bp-band" role="img" aria-label="${esc(desc)}">${f.ticks}${f.last}${bpAbLanes(plans, f.total)}</div></section>`;
 }
@@ -428,22 +432,23 @@ function bpWholeBand(pairs, firsts, plans, id = 'bp-whole', title = '전체 띠'
     });
     return bpLane(`${bpWho(a)} ↔ ${bpWho(b)}`, mine, f.total);
   }).join('');
-  const desc = `1~${f.total}화 ${title}: ${pairs.map(([k, a, b]) => `${bpWho(a)} ↔ ${bpWho(b)} 처음 닿는 줄 ${firsts.filter((x) => x.pair === k).length}개`).join(', ')}${plans.length ? `, 능력 일정 ${plans.length}줄` : ''}`;
+  const desc = `1~${f.total}화 ${title}: ${pairs.map(([k, a, b]) => `${bpWho(a)} ↔ ${bpWho(b)} 처음 닿는 줄 ${firsts.filter((x) => x.pair === k).length}개`).join(', ')}${plans.length ? `, 성장 일정 ${plans.length}줄` : ''}`;
   return `<section class="card" id="${id}"><div class="between"><h2>${title}</h2><div class="row">${f.seg}${f.range}</div></div>
     <div class="bp-band" role="img" aria-label="${esc(desc)}">${f.ticks}${f.last}${lanes}${bpAbLanes(plans, f.total)}</div></section>`;
 }
 
-/** 일정 줄의 실제 표시: '3화에 얻음', '시작 때부터 있음', '지남' */
-function bpPlanChip(st) {
+/** 일정 줄의 실제 표시: '3화에 얻음'(수치 줄은 '닿음'), '시작 때부터 있음', '지남' */
+function bpPlanChip(st, x = {}) {
   if (st.got !== null && st.got !== undefined) {
-    const when = st.got === 0 ? '시작 때부터 있음' : `${st.got}화에 얻음`;
+    const when = st.got === 0 ? '시작 때부터 있음' : `${st.got}화에 ${bpAbGot(x)}`;
     return `<span class="chip${st.state === '얻음' ? ' finalized' : ''}">${when}${st.state === '앞섬' ? ' · 계획보다 먼저' : st.state === '늦음' ? ' · 계획보다 늦게' : ''}</span>`;
   }
   if (st.state === '모름') return '<span class="small">상태창이 없어 실제를 셀 수 없어요</span>';
-  return st.state === '지남' ? '<span class="chip">아직 얻지 못함</span>' : '';
+  return st.state === '지남' ? `<span class="chip">아직 ${x.stat ? '닿지' : '얻지'} 못함</span>` : '';
 }
 
-/** 능력 일정 카드: 인물마다 [화 범위, 능력, 등급, 얻는 조건]. 능력은 스킬 도감 항목의 이름으로 잇는다 */
+/** 성장 일정 카드: 인물마다 [화 범위, 능력이나 상태창 수치 항목, 등급(닿을 값), 얻는 조건]. 능력은 스킬 도감 항목의 이름으로 잇는다.
+    그 인물에 상태창 수치 항목이 있으면 이름 칸 앞에 항목 고르기가 나온다('스킬 도감' 이면 도감 항목 줄, 항목을 고르면 그 값으로 센다, docs/blueprint/specs/14-growth-stat.md) */
 function bpAbilityCard(plans) {
   const mode = bpMode('ap');
   const src = mode ? bpPlans(S.bpEdit.data) : plans;
@@ -451,9 +456,12 @@ function bpAbilityCard(plans) {
     const who = P().characters.map((c) => `<option value="${esc(c.id)}"${c.id === x.character ? ' selected' : ''}>${esc(c.name || c.id)}</option>`).join('')
       + (P().characters.some((c) => c.id === x.character) ? '' : `<option value="${esc(x.character)}" selected>${esc(x.character)}</option>`);
     const at = `ability_plans.${i}`;
+    const stats = bpStatNames(x);
+    const name = `<input type="text" data-bp="${at}.ability" value="${esc(x.ability)}" list="bp-ab-names" placeholder="능력 (도감 항목 이름)" aria-label="${i + 1}번째 줄 능력">`;
+    const kind = stats.length ? `<div class="bp-ap-name"><select data-bp="${at}.stat" aria-label="${i + 1}번째 줄 항목"><option value="">스킬 도감</option>${stats.map((n) => `<option value="${esc(n)}"${n === x.stat ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select>${x.stat ? '' : name}</div>` : name;
     return `<div class="bp-ap-row"><select data-bp="${at}.character" aria-label="${i + 1}번째 줄 인물">${who}</select>
-      <input type="text" data-bp="${at}.ability" value="${esc(x.ability)}" list="bp-ab-names" placeholder="능력 (도감 항목 이름)" aria-label="${i + 1}번째 줄 능력">
-      <input type="text" data-bp="${at}.grade" value="${esc(x.grade)}" placeholder="등급" aria-label="${i + 1}번째 줄 등급">
+      ${kind}
+      <input type="text" data-bp="${at}.grade" value="${esc(x.grade)}" placeholder="${x.stat ? '닿을 값' : '등급'}" aria-label="${i + 1}번째 줄 ${x.stat ? '닿을 값' : '등급'}">
       ${bpNum(`${at}.from_ep`, x.from_ep, `${i + 1}번째 줄 처음 화`)}<span aria-hidden="true">~</span>${bpNum(`${at}.to_ep`, x.to_ep, `${i + 1}번째 줄 끝 화`)}
       ${mode === 'row' ? '' : `<button type="button" class="btn icon-btn ghost bp-del" data-action="bpApDel" data-arg="${i}" aria-label="${i + 1}번째 줄 지우기">✕</button>`}
       ${bpText(`${at}.condition`, x.condition, `${i + 1}번째 줄 얻는 조건`, '얻는 조건')}</div>`;
@@ -471,13 +479,13 @@ function bpAbilityCard(plans) {
       const rows = ordered.filter(([x]) => x.character === id).map(([x, i]) => {
         if (mode === 'row' && S.bpEdit.row === `ability_plans.${i}`) return `<li class="bp-row-edit">${edit(x, i)}${names()}${bpSaveRow()}</li>`;
         const st = bpPlanState(x.id);
-        return `<li><span class="chip">${esc(bpRange(x))}</span><span class="bp-row-t"><strong>${esc(bpAbText(x))}</strong>${bpPlanChip(st)}
+        return `<li><span class="chip">${esc(bpRange(x))}</span><span class="bp-row-t"><strong>${esc(bpAbText(x))}</strong>${bpPlanChip(st, x)}
           ${x.condition ? `<span class="small">조건: ${esc(x.condition)}</span>` : ''}${st.linked ? '' : `<span class="small">도감에 없음</span><button type="button" class="link-btn small" data-action="abNew" data-arg="${esc(`|${x.ability}`)}">도감에 만들기</button>`}</span>${bpRowActs(`ability_plans.${i}`, `${bpWho(x.character)}의 ${bpAbText(x) || '능력'} 줄`)}</li>`;
       }).join('');
       return `<div class="bp-dir"><h3>${esc(bpWho(id))}</h3><ul class="bp-list">${rows}</ul></div>`;
     }).join('');
   } else body = '<span class="small">줄이 없어요. 인물이 어느 능력을 몇 화쯤 얻는지 더해요.</span>';
-  return `<section class="card pf-sec${mode ? ' editing' : ''}" id="bp-ap" tabindex="-1">${bpCardHead('능력 일정', 'ap')}${body}</section>`;
+  return `<section class="card pf-sec${mode ? ' editing' : ''}" id="bp-ap" tabindex="-1">${bpCardHead('성장 일정', 'ap')}${body}</section>`;
 }
 
 /** 방금 한 지우기 · 더하기 · 비우기를 되돌리는 줄 (S.bpUndo). 그 쪽에서만, 다른 저장을 하면 사라진다 */
@@ -502,7 +510,7 @@ function bpAbAiCard() {
   const has = (s) => p.episodes.some((e) => e.plot.number >= s.start_ep && e.plot.number <= s.end_ep);
   const arcs = serial() ? (p.story_arcs || []).filter(has) : [];
   const parts = serial() ? p.parts || [] : [];
-  const who = `<select id="bp-ab-who" aria-label="능력 일정을 받을 인물">${p.characters.map((c) => `<option value="${esc(c.id)}">${esc(c.name || c.id)}</option>`).join('')}</select>`;
+  const who = `<select id="bp-ab-who" aria-label="성장 일정을 받을 인물">${p.characters.map((c) => `<option value="${esc(c.id)}">${esc(c.name || c.id)}</option>`).join('')}</select>`;
   const partPick = parts.length ? `<select id="bp-ab-part" aria-label="짤 부">${parts.map((x) => `<option value="${x.number}">${x.number}부 · ${x.start_ep}~${x.end_ep}화</option>`).join('')}</select>` : '';
   const draft = `<div class="field"><label for="bp-ab-note">AI로 짜기 메모</label>
       <textarea id="bp-ab-note" rows="2" placeholder="예: 1부 끝에 빙결이 중급에 오른다. 새 특성은 부마다 하나"></textarea>
@@ -510,7 +518,7 @@ function bpAbAiCard() {
   const showExtract = !serial() ? p.episodes.length > 0 : arcs.length > 0;
   const extract = showExtract ? `<div class="row"><span class="label-text">지금 플롯에서 뽑기</span>${serial() ? `<select id="bp-ab-arc" aria-label="뽑을 아크">${arcs.map((s) => `<option value="${s.number}">아크 ${s.number} · ${s.start_ep}~${s.end_ep}화</option>`).join('')}</select>` : ''}
       <button type="button" class="btn small" data-action="bpAbExtract">AI로 뽑기</button></div>` : '';
-  return `<section class="card" id="bp-ab-ai"><h2>AI로 능력 일정 받기</h2>${draft}${extract}</section>`;
+  return `<section class="card" id="bp-ab-ai"><h2>AI로 성장 일정 받기</h2>${draft}${extract}</section>`;
 }
 
 /** 견주는 등급: 띄어쓰기 · 괄호를 뺀 소문자 (서버 blueprint._grade_key 와 같다). 능력 이름은 abKey(abilities.js, 서버 abilities.key)로 견준다 */
@@ -519,14 +527,17 @@ const bpGradeKey = (s) => String(s || '').toLowerCase().replace(/[\s()[\]（）]
 /** 스킬 도감에 그 이름(다른 이름 포함)의 항목이 있는가 (abFindLocal = 서버 abilities.find, 서버 ability_states 의 linked 와 같다) */
 const bpAbKnown = (name) => !!abFindLocal(name);
 
-/** 제안 줄과 같은 인물 · 능력 · 등급인 이미 적은 줄 (서버 check 가 '두 줄'로 거절하는 줄). 없으면 undefined */
-const bpAbSame = (bp, x) => bpPlans(bp).find((e) => e.character === x.character && abKey(e.ability) === abKey(x.ability) && bpGradeKey(e.grade) === bpGradeKey(x.grade));
+/** 같은 줄 열쇠: 인물 · 상태창 수치 항목 · 능력 · 등급 (서버 blueprint._same_plan 과 같다) */
+const bpAbKeyOf = (x) => [x.character, abKey(x.stat || ''), abKey(x.ability), bpGradeKey(x.grade)].join('|');
+
+/** 제안 줄과 같은 인물 · 항목 · 능력 · 등급인 이미 적은 줄 (서버 check 가 '두 줄'로 거절하는 줄). 없으면 undefined */
+const bpAbSame = (bp, x) => bpPlans(bp).find((e) => bpAbKeyOf(e) === bpAbKeyOf(x));
 
 /** 고른 줄 가운데 같은 인물 · 능력 · 등급은 앞의 것 하나만 남긴다 (뽑은 묶음과 짠 묶음이 같은 줄을 낼 수 있다. 둘 다 보내면 서버 check 가 '두 줄'로 거절한다) */
 function bpAbUnique(rows) {
   const seen = new Set();
   return rows.filter((x) => {
-    const k = [x.character, abKey(x.ability), bpGradeKey(x.grade)].join('|');
+    const k = bpAbKeyOf(x);
     return !seen.has(k) && !!seen.add(k);
   });
 }
@@ -544,7 +555,7 @@ function bpAbDraftRows(rows, picks, arg, withWho = false, action = 'bpAbDraftPic
       <span class="chip">${esc(bpRange(x))}</span>${withWho ? `<span>${esc(bpWho(x.character))}</span>` : ''}<strong>${esc(bpAbText(x))}</strong>
       ${x.condition ? `<span class="small">조건: ${esc(x.condition)}</span>` : ''}
       ${same ? `<span class="chip warn">이미 있음</span><span class="small">${esc(bpRange(same))}</span>` : ''}
-      ${bpAbKnown(x.ability) ? '' : '<span class="chip warn">도감에 없음</span>'}
+      ${x.stat || bpAbKnown(x.ability) ? '' : '<span class="chip warn">도감에 없음</span>'}
       ${(x.evidence || []).length ? `<span class="small">${esc(bpEvidence(x.evidence))}</span>` : ''}</li>`;
   }).join('')}</ul>`;
 }
@@ -589,14 +600,14 @@ function bpAbDraftCard() {
     d.codexPicks ||= (d.codex || []).map(() => true);
     n += d.abilities.length;
     drafted += (d.codex || []).filter((c) => !bpAbKnown(c.name)).length;
-    unknown += d.abilities.filter((x) => !bpAbKnown(x.ability)).length;
+    unknown += d.abilities.filter((x) => !x.stat && !bpAbKnown(x.ability)).length;
     return `<div class="bp-dir"><div class="between"><h3>${esc(bpWho(d.character))} <span class="small">${d.mode === 'draft' ? 'AI가 짠 줄' : 'AI가 뽑은 줄'} · ${d.start}~${d.end}화</span></h3>
         <button type="button" class="btn small" data-action="bpAbDraftDrop" data-arg="${esc(bpAbDraftKey(d))}">버리기</button></div>
       ${d.reply ? `<p class="small">${esc(d.reply)}</p>` : ''}
       ${d.abilities.length ? bpAbDraftRows(d.abilities, d.picks, bpAbDraftKey(d)) : '<span class="small">제안한 줄이 없어요.</span>'}
       ${bpAbCodexRows(d.codex || [], d.codexPicks, bpAbDraftKey(d))}</div>`;
   }).join('');
-  return `<section class="card" id="bp-ab-draft"><div class="between"><h2>AI가 제안한 능력 일정</h2>
+  return `<section class="card" id="bp-ab-draft"><div class="between"><h2>AI가 제안한 성장 일정</h2>
       ${n ? '<button type="button" class="btn small primary" data-action="bpAbDraftUse">고른 줄 더하기</button>' : ''}</div>
     ${unknown ? `<p class="small">스킬 도감에 없는 이름이 ${unknown}줄 있어요. ${drafted ? '고른 도감 초안은 줄과 함께 도감에 만들어요.' : '더해도 되고, 도감에 항목을 만들면 효과 · 대가가 프롬프트에 들어가요.'}</p>` : ''}${groups}</section>`;
 }
@@ -704,7 +715,7 @@ JOB_DONE_MSG.blueprint_draft = JOB_DONE_MSG.blueprint;
 ['blueprint_ability', 'blueprint_ability_draft'].forEach((k) => {
   JOB_PAGES[k] = ['blueprint'];
   JOB_LINK[k] = (j) => `#/p/${enc(j.project)}/blueprint/${enc(BP_AB)}`;  // 대상은 인물 id 라 쌍 쪽이 아니라 능력 일정 쪽으로 간다
-  JOB_DONE_MSG[k] = '능력 일정 제안이 도착했어요. 더할 줄을 골라 주세요.';
+  JOB_DONE_MSG[k] = '성장 일정 제안이 도착했어요. 더할 줄을 골라 주세요.';
 });
 
 function viewBlueprint() {
@@ -754,6 +765,12 @@ document.addEventListener('change', (e) => {
   if (!path || !S.bpEdit || e.target.tagName !== 'SELECT') return;
   bpSet(path, e.target.value);
   bpDraftMark();
+  const ap = /^(ability_plans\.\d+)\.(stat|character)$/.exec(path);
+  if (ap) {  // 성장 일정 줄: 항목을 고르면 이름 칸을 그 항목 이름으로 맞추고, 인물을 바꾸면 항목 목록이 달라져 다시 그린다
+    if (ap[2] === 'stat') bpSet(`${ap[1]}.ability`, e.target.value);
+    S.focusTarget = `[data-bp="${path}"]`;
+    render();
+  }
 });
 
 /** 저장할 설계도: 서버 값에 고친 카드의 몫만 바꿔 넣는다 */
@@ -762,7 +779,7 @@ function bpMerged(edit, server) {
   const [a, b] = bpPair(edit.key);
   const inPair = (s, t) => (s === a && t === b) || (s === b && t === a);
   if (edit.card === 'note') out.note = edit.data.note;
-  if (edit.card === 'ap') out.ability_plans = edit.data.ability_plans.filter((x) => x.ability.trim());  // 능력 이름을 비운 줄은 뺀다
+  if (edit.card === 'ap') out.ability_plans = edit.data.ability_plans.filter((x) => (x.stat || x.ability).trim());  // 능력 이름을 비운 줄은 뺀다 (수치 줄은 항목 이름이 곧 이름)
   if (edit.card === 'ms') out.milestones = [...out.milestones.filter((m) => !inPair(m.source, m.target)), ...edit.data.milestones.filter((m) => inPair(m.source, m.target))];
   if (edit.card === 'ladder') {
     const mine = edit.data.ladders.find((l) => inPair(l.a, l.b));
@@ -852,7 +869,7 @@ Object.assign(actions, {
     const had = new Set((P().abilities || []).map((a) => a.id));
     const ms = pairs.reduce((n, x) => n + x.milestones.length, 0);
     const rungs = pairs.reduce((n, x) => n + x.rungs.length, 0);
-    await bpWrite('설계도에 더하는 중', `쌍 ${pairs.length}개에 이정표 ${ms}줄 · 사다리 ${rungs}칸, 능력 일정 ${abilities.length}줄을 더했어요`, async () => {
+    await bpWrite('설계도에 더하는 중', `쌍 ${pairs.length}개에 이정표 ${ms}줄 · 사다리 ${rungs}칸, 성장 일정 ${abilities.length}줄을 더했어요`, async () => {
       const out = await api('POST', `/projects/${enc(S.name)}/blueprint/apply-set`, { pairs, abilities, codex });
       S.bpWhole = null;
       S.bpAbMade = (out.abilities || []).map((a) => a.id).filter((id) => !had.has(id));  // bpWrite 가 되돌리기(S.bpUndo.abIds)에 옮긴다
@@ -892,7 +909,7 @@ Object.assign(actions, {
     if (d) d.codexPicks[i] = !d.codexPicks[i];
   },
   async bpAbDraftDrop(key) {
-    if (!(await confirmDrop('AI 능력 일정 제안'))) return;
+    if (!(await confirmDrop('AI 성장 일정 제안'))) return;
     delete (S.bpAbDrafts || {})[key];
     render();
   },
@@ -902,8 +919,8 @@ Object.assign(actions, {
     const codex = bpAbCodexPicked(drafts);
     if (!rows.length && !codex.length) { toast('더할 줄을 골라 주세요', true); return; }
     const had = new Set((P().abilities || []).map((a) => a.id));
-    const msg = [rows.length ? `능력 일정 ${rows.length}줄` : '', codex.length ? `도감 항목 ${codex.length}개` : ''].filter(Boolean).join('과 ');
-    await bpWrite('능력 일정에 더하는 중', `${msg}${codex.length ? '를' : '을'} 더했어요`, async () => {
+    const msg = [rows.length ? `성장 일정 ${rows.length}줄` : '', codex.length ? `도감 항목 ${codex.length}개` : ''].filter(Boolean).join('과 ');
+    await bpWrite('성장 일정에 더하는 중', `${msg}${codex.length ? '를' : '을'} 더했어요`, async () => {
       const out = await api('POST', `/projects/${enc(S.name)}/blueprint/apply-abilities`, { abilities: rows, codex });
       S.bpAbDrafts = {};
       S.bpAbMade = (out.abilities || []).map((a) => a.id).filter((id) => !had.has(id));  // bpWrite 가 되돌리기(S.bpUndo.abIds)에 옮긴다
@@ -945,7 +962,7 @@ Object.assign(actions, {
     const list = keys.slice(0, -1).reduce((o, k) => o[k], next);
     list.splice(Number(keys[keys.length - 1]), 1);
     next.ladders = next.ladders.filter((l) => l.rungs.length);  // 칸을 다 지운 사다리는 뺀다 (bpMerged 와 같다)
-    const what = { milestones: '이정표 한 줄을', ladders: '사다리 칸 하나를', ability_plans: '능력 일정 한 줄을' }[keys[0]];
+    const what = { milestones: '이정표 한 줄을', ladders: '사다리 칸 하나를', ability_plans: '성장 일정 한 줄을' }[keys[0]];
     await bpWrite('지우는 중', `${what} 지웠어요`, () => api('PUT', `/projects/${enc(S.name)}/blueprint`, next));
   },
   async bpClear(key) {
@@ -1018,7 +1035,7 @@ Object.assign(actions, {
   bpApAdd() {
     const rows = S.bpEdit.data.ability_plans;
     const who = rows.length ? rows[rows.length - 1].character : P().characters[0].id;  // 앞줄과 같은 인물로 시작한다
-    rows.push({ id: '', character: who, ability: '', grade: '', condition: '', from_ep: 0, to_ep: 0 });
+    rows.push({ id: '', character: who, ability: '', stat: '', grade: '', condition: '', from_ep: 0, to_ep: 0 });
     S.focusTarget = `[data-bp="ability_plans.${rows.length - 1}.ability"]`;
     render();
   },

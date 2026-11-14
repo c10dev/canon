@@ -1586,27 +1586,30 @@ def ability_ai_block(p: Project, ids: set[str] | None, start: int = 0, end: int 
         return (f"- {a.name}" + (f" (= {', '.join(a.aliases)})" if a.aliases else "") + (f" [{a.stat}]" if a.stat else "")
                 + (f" 등급: {grades}" if grades else "") + (f": {(a.effect or a.description)[:60]}" if a.effect or a.description else ""))
     left, cut, kept = context.BUDGET["ability_ai"], 0, []
-    for lines in (blueprint.ability_owned_lines(p, ids), blueprint.ability_have_lines(p, ids, start, end), [cat(a) for a in p.abilities]):
+    for lines in (blueprint.ability_owned_lines(p, ids), blueprint.ability_stat_lines(p, ids), blueprint.ability_have_lines(p, ids, start, end), [cat(a) for a in p.abilities]):
         got, n = context.fit_lines(lines, left)  # 묶음마다 남은 예산으로 맞춘다 (한데 이어 자르면 앞 묶음이 넘칠 때 뒤 묶음 줄이 앞 제목 아래로 온다)
         left -= sum(len(x) + 1 for x in got)
         cut += n
         kept.append(got)
-    owned, have, book = kept
+    owned, stats, have, book = kept
     less = f"\n(예산을 넘어 그 밖 {cut}줄 생략)" if cut else ""
+    nums = f"\n[지금 상태창의 수치]\n{chr(10).join(stats)}" if stats else ""  # 수치 항목이 없는 작품은 지금 블록과 같다
     return f"""[스킬 도감]
 {chr(10).join(book) or "없음"}
 [지금 상태창의 능력]
-{chr(10).join(owned) or "없음"}
+{chr(10).join(owned) or "없음"}{nums}
 [이미 적은 능력 일정]
 {chr(10).join(have) or "없음"}{less}"""
 
 
 def ability_ai_rules() -> str:
-    """능력 일정 제안 요청의 공통 요구사항 줄 (거꾸로 뽑기 · 짜기 · 작품 전체 짜기 11b 가 같이 쓴다): 이름 잇기, 등급 칸, 이미 적은 줄."""
+    """능력 일정 제안 요청의 공통 요구사항 줄 (거꾸로 뽑기 · 짜기 · 작품 전체 짜기 11b 가 같이 쓴다): 이름 잇기, 등급 칸, 상태창 수치 줄, 이미 적은 줄.
+    상태창 수치 줄(stat)은 2026-11-14 에 사용자가 설계도 12 의 정할 것 6('수치는 제안하지 않음')을 바꿔 연 것이다 (docs/blueprint/specs/14-growth-stat.md)."""
     return """- abilities 의 character 는 인물 id 입니다. ability 는 능력 이름만 적고, 등급(Lv3 · 중급 · 2단계 같은 꼬리)은 grade 에 따로 적습니다. 얻기만 하면 grade 를 비웁니다.
 - 스킬 도감이나 지금 상태창에 같은 능력이 있으면 그 이름을 한 글자도 바꾸지 않고 씁니다. 실제로 얻은 화를 이 이름으로 찾습니다.
 - 같은 능력의 등급이 오르면 등급마다 한 줄을 따로 적습니다.
-- 근력 · 마력 같은 수치의 오르내림은 능력이 아니므로 적지 않습니다. 스킬 · 특성 · 칭호처럼 이름이 있는 것만 적습니다.
+- 스킬 · 특성 · 칭호처럼 이름이 있는 능력은 stat 을 비웁니다.
+- 레벨처럼 [지금 상태창의 수치]에 있는 항목이 오르는 성장은 stat 과 ability 에 그 항목 이름을 그대로 적고, grade 에 닿을 값을 지금 값과 같은 꼴로 적습니다(지금 값이 Lv3 이면 Lv15). [지금 상태창의 수치]에 없는 항목은 적지 않습니다.
 - 이미 적은 능력 일정과 같은 줄(같은 인물 · 능력 · 등급)은 다시 만들지 않고, 그 줄과 어긋나지 않게 잇습니다."""
 
 
@@ -6450,9 +6453,9 @@ KINDS: dict[str, Kind] = {
                             _PLAN + ("blueprint_draft_req",)),
     "blueprint_whole": Kind("작품 전체 짜기", "계획", "plan", "SYSTEM_PLANNER", "blueprint_whole_prompt", "BlueprintPlanSet", "pipeline.draft_whole",
                             _PLAN + ("blueprint_whole_req",)),
-    "blueprint_ability": Kind("능력 일정 거꾸로 뽑기", "계획", "plan", "SYSTEM_PLANNER", "ability_extract_prompt", "AbilityProposal", "pipeline.propose_abilities",
+    "blueprint_ability": Kind("성장 일정 거꾸로 뽑기", "계획", "plan", "SYSTEM_PLANNER", "ability_extract_prompt", "AbilityProposal", "pipeline.propose_abilities",
                               _PLAN + ("ability_extract_req",)),
-    "blueprint_ability_draft": Kind("능력 일정 짜기", "계획", "plan", "SYSTEM_PLANNER", "ability_draft_prompt", "AbilityProposal", "pipeline.draft_abilities",
+    "blueprint_ability_draft": Kind("성장 일정 짜기", "계획", "plan", "SYSTEM_PLANNER", "ability_draft_prompt", "AbilityProposal", "pipeline.draft_abilities",
                                     _PLAN + ("ability_draft_req",)),
     "plots": Kind("플롯 초안", "계획", "plan", "SYSTEM_PLANNER", "plot_prompt", "PlotBatch", "pipeline.draft_plots",
                   _PLAN + ("plots_req",) + _PLOT_RULES, also=("serial_plot_prompt",), view=True, brief=_bk("플롯 초안", scope="act")),

@@ -980,8 +980,9 @@ class AbilityPlan(BaseModel):
     계획값이다. 실제로 얻은 화는 저장하지 않고 상태창 기록(Project.stat_log)에서 계산한다 (blueprint.got_ep)."""
     id: str = Field("", description="ap-1 처럼 짧은 id. 비면 저장 때 채운다")
     character: str = Field(description="인물 id")
-    ability: str = Field(description="스킬 도감 항목 이름 (등급 꼬리 없이, 예: 화염구). 도감에 없어도 적을 수 있다")
-    grade: str = Field("", description="닿을 등급 (상태창 조각의 꼬리, 예: Lv3, 중급). 비면 얻기만")
+    ability: str = Field(description="스킬 도감 항목 이름 (등급 꼬리 없이, 예: 화염구). 도감에 없어도 적을 수 있다. stat 이 있으면 그 항목 이름과 같다")
+    stat: str = Field("", description="상태창 수치 항목 이름 (예: 레벨). 비면 스킬 도감 항목 줄이다 (docs/blueprint/specs/14-growth-stat.md)")
+    grade: str = Field("", description="닿을 등급 (상태창 조각의 꼬리, 예: Lv3, 중급). stat 이 있으면 그 항목의 닿을 값 (예: 15, Lv15). 비면 얻기만")
     condition: str = Field("", description="얻는 조건 한 줄")
     from_ep: int = Field(0, description="이 범위 안에서 얻는다. 0 이면 정하지 않음")
     to_ep: int = Field(0, description="범위 끝 화. 0 이면 정하지 않음")
@@ -1039,7 +1040,8 @@ class AbilityDraft(BaseModel):
     인물 단위 제안(AbilityProposal)과 작품 전체 짜기(docs/blueprint/specs/11-whole.md 의 11b)가 같은 모델을 쓴다."""
     character: str = Field(description="인물 id")
     ability: str = Field(description="능력 이름 (등급 꼬리 없이). 요청에 준 스킬 도감 · 상태창의 이름이 있으면 그 이름 그대로")
-    grade: str = Field("", description="닿는 등급 (예: Lv3, 중급). 얻기만 하면 비운다")
+    stat: str = Field("", description="레벨 같은 상태창 수치 항목의 성장이면 그 항목 이름. 이름이 있는 능력이면 비운다")
+    grade: str = Field("", description="닿는 등급 (예: Lv3, 중급). stat 을 적었으면 닿을 값. 얻기만 하면 비운다")
     condition: str = Field("", description="얻는 조건 한 줄")
     from_ep: int = Field(description="얻는 화 범위의 첫 화")
     to_ep: int = Field(description="범위 끝 화")

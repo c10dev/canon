@@ -273,6 +273,8 @@
 - 관계 이정표(`Milestone`)는 방향마다 [화 범위, 관계 단계(dynamics 말, 비워도 됨), 라벨, 계기]
 - 접촉 사다리(`ContactLadder`)는 쌍마다 하나, 칸(`ContactRung`)의 차례가 단계의 차례
 - 능력 일정(`AbilityPlan`, `Blueprint.ability_plans`)은 인물마다 여러 줄: [화 범위, 능력(스킬 도감 항목 이름), 등급(비워도 됨), 얻는 조건]. 명세는 `docs/blueprint/specs/10-ability.md`
+- 능력 일정 줄의 `stat` 은 상태창 수치 항목 이름(레벨 · 마력 같은 값)이다. 비면 도감 항목 줄이다. 명세는 `docs/blueprint/specs/14-growth-stat.md`
+- 화면 문구는 '성장 일정'이다(2026-11-14). 코드 이름(`ability_plans`, `blueprint/@ability`)과 프롬프트 글의 '능력 일정'은 그대로다
 - 사다리 칸의 부위 · 동작은 `stage.PARTS` · `stage.ACTS` id, 장소는 인과율 '장소' 요소 id, 겹(`layer`)은 옷 위 · 옷 안 · 맨살
 - 화 번호는 범위(`from_ep` ~ `to_ep`, 둘 다 0 이면 정하지 않음)
 - 빈 id 채우기 `fill_ids`(`ms-<k>` · `cr-<k>`, 있는 id 는 그대로)
@@ -281,6 +283,8 @@
 - `check` 는 디스크 작품에서 이미 끊겨 있던 인물 · 장소 참조는 막지 않는다(`validate_characters` 와 같은 방식)
 - 범위를 적은 사다리 칸끼리는 칸 차례대로 처음 닿는 화가 줄지 않아야 한다
 - 능력 일정은 없는 인물 · 빈 능력 이름 · 같은 인물 · 능력 · 등급 두 줄을 거절한다. 도감에 없는 이름은 막지 않는다
+- 수치 줄은 저장할 때 이름 칸을 항목 이름으로 맞추고 등급 꼬리를 떼지 않는다(`_tidy`). 닿을 값이 비면 거절한다
+- 같은 줄 열쇠 `_same_plan` 은 인물 · 수치 항목 · 능력 · 등급이다. 같은 이름의 도감 항목 줄과 수치 줄은 다른 줄이다
 - 계획 칸 `planned_rung(ladder, n)`: 처음 닿는 화가 n 화 이하인 칸 가운데 차례가 가장 뒤. 쌍 찾기 `ladder`
 - 몸이 드러나는 쌍 `exposed(p, n)`: 그 화 플롯 인물끼리, 처음 닿는 화가 n 화 이하인 칸 가운데 겹이 옷 안 · 맨살(`BODY_LAYERS`)인 칸이 있는 쌍의 두 인물. 뒤 칸이 옷 위여도 이어진다
 - 화 끼워 넣기 · 빼기 `move`(`renumber.move_points` 가 부름): 범위 안에 넣으면 범위가 늘고, 끝 화를 빼면 범위가 준다
@@ -307,22 +311,33 @@
 - 능력 맞물림 `proposal_mesh`: 이정표 라벨 · 계기, 칸 이름 · 메모에 능력 이름(도감의 다른 이름 포함)이 나오는데 그 능력의 첫 화가 그 줄의 첫 화보다 뒤. 한쪽이라도 제안 줄일 때만
 - 능력의 실제 쪽 값은 저장하지 않는다. 얻은 화 `got_ep` 는 상태창 기록(`abilities.history`)에서 그 능력 조각이 계획 등급에 처음 닿은 화다(시작 값은 0, 기록 없이 상태창에만 있어도 0)
 - 등급 견주기 `_grade_ok`: 괄호 · 빈칸을 떼고 같은 말, 도감 등급 목록의 차례, 숫자만 다른 등급의 숫자로 '그 이상'
+- 수치 줄의 얻은 화는 `stat_log` 의 그 항목 값이 닿을 값에 처음 닿은 화다(`_stat_got`, 기록 없이 지금 값만 닿았으면 0)
+- 수치 닿음 `stat_ok`: 둘 다 수(`statwin._amount`)면 크기로 견준다. 계획 값에 앞 표지 · 단위가 있으면 같아야 하고 없으면 수만 본다. 수가 아닌 값은 같은 말일 때만
+- 한도가 붙은 값('80/100')은 수로 견주지 않고 같은 말일 때만 닿은 것으로 본다
+- 인물의 상태창 수치 항목 이름 `stat_names(p, cid)`: 지금 상태창 차례, 그 뒤 기록에만 있는 이름. 도감과 잇는 목록 항목과 인벤토리는 뺀다
 - 능력 일정 줄 상태 `ability_states`: 얻음 · 앞섬 · 늦음 · 지남 · 예정 · 미정, 도감 항목이 있는지(`linked`)
+- 수치 줄의 `linked` 는 늘 참이다(도감 경고 · '도감에 만들기'를 내지 않는다)
 - 상태창 값도 기록도 없는 인물(`tracked` 아님)의 줄은 범위 끝 화까지 반영하면 '모름'이다. '지남' 경고와 프롬프트 줄에서 뺀다(같은 능력을 또 얻게 하지 않는다)
 - 능력 일정 경고 `ability_warning_rows`(인물 id, 글, 막지 않음): 범위를 지나도록 얻지 못함, 범위보다 먼저 · 늦게 얻음, 도감에 없는 이름. `warnings` 에도 든다
+- 수치 줄의 경고는 '닿'으로 적는다(`_verb`). 도감 항목 줄의 이름이 그 인물의 수치 항목 이름이면 도감 경고 대신 항목으로 고르라고 알린다(옛 줄)
 - 상태 변경안 경고 `ability_delta_warnings`(`features.CLEAN`): 반영하면 일정의 능력을 화 범위보다 먼저 얻게 됨
 - 이 경고는 `abilities.list_pieces` 로 도감과 잇는 목록 항목의 조각만 본다(인벤토리의 같은 이름 물건은 뺀다)
+- 수치 줄은 `statwin.after_delta` 의 그 항목 값을 `stat_ok` 로 본다
 - 웹은 `GET` · `PUT /api/projects/{name}/blueprint`(보기 `BlueprintView`: 설계도 · 방향 붙은 경고 · 부위 · 동작 이름 · 마지막 반영 화, 저장은 설계도 통째와 `check`)
 - `BlueprintView` 의 `plans`(`AbilityPlanState`: id · 얻은 화 · 상태 · 도감 연결) · `ability_warnings`(인물 id · 글)
+- `BlueprintView` 의 `stat_names`: 인물 id → 고를 수 있는 상태창 수치 항목 이름(`stat_names`, 빈 인물은 뺀다)
 - `BlueprintView` 의 `firsts`(`BlueprintFirst`: 쌍 키 · 축 · 값 · 화 범위 · id · 두 인물 · 몰린 다른 쌍 키 `crowd`, `_blueprint_firsts`)
 - 능력 일정 제안(`AbilityProposal`, 인물 하나씩 뽑기 · 짜기, `docs/blueprint/specs/12-ability-ai.md`)의 정리 `clean_abilities(p, rows, ids, start, end)`: ids 인물의 줄만, 범위 자르기, 근거는 범위 안 세 개까지
 - `clean_abilities` 는 등급 꼬리를 먼저 떼고, 이미 적은 줄 · 앞 제안 줄과 같은 인물 · 능력 · 등급인 줄을 뺀다(남으면 `check` 가 통째로 거절한다)
+- `clean_abilities` 는 그 인물의 `stat_names` 에 없는 수치 항목 줄과 값이 빈 수치 줄을 뺀다
+- `clean_codex` 는 수치 줄에 도감 초안을 받지 않는다. `proposal_mesh` 는 수치 줄을 견주지 않는다('레벨' 같은 이름은 거의 모든 줄에 나온다)
 - 고른 능력 줄 더하기 `apply_abilities`: 사본에 붙이고 `check`, 어긋나면 아무것도 바꾸지 않는다. 상태창 기록은 건드리지 않는다
 - 도감 초안 정리 `clean_codex(p, codex, rows)`: 남은 줄의 능력 이름인 것만, 이미 도감에 있는 이름(다른 이름 포함)은 뺀다. 등급 꼬리를 떼고 같은 이름은 하나만 (`docs/blueprint/specs/13-ability-codex.md`)
 - `clean_codex` 는 상태창 목록에 이미 있는 조각이면 `stat` 을 그 항목 이름으로 바꾼다(다르면 `abilities.owners` 가 잇지 않는다)
 - `apply_abilities(p, rows, codex)` 는 같은 사본에 고른 초안을 먼저 도감에 만든다(`add_codex`, `source="ai"`, 그새 생긴 이름은 건너뜀). 만든 항목 id 를 돌려준다
 - 검사 없는 더하기 `add_abilities` 는 여러 묶음을 한 사본에 더하고 `check` 를 한 번 부르는 쪽(11b)이 쓴다
 - 능력 일정 제안 요청의 재료 `ability_have_lines`(그 인물의 모든 줄, 얻은 줄 포함, 받는 범위에 걸친 줄이 앞) · `ability_owned_lines`(지금 상태창의 목록 항목 조각)
+- 같은 요청의 수치 재료 `ability_stat_lines`: 그 인물의 수치 항목과 지금 값. 없으면 `prompts.ability_ai_block` 이 그 묶음을 넣지 않는다
 - 웹은 `POST /api/projects/{name}/blueprint/apply-abilities`(`AbilityApplyIn`, 검사에 걸리면 400)
 - `AbilityApplyIn.codex` 는 고른 도감 초안(`AbilityCodexDraft`)이다
 - 웹은 `POST /api/projects/{name}/blueprint/apply-set`(`BlueprintSetIn`: 쌍마다 고른 줄 `PairDraft` · 능력 줄 · 도감 초안, 검사에 걸리면 400)
@@ -815,6 +830,7 @@
 - 설계도 쪽(사이드바 도구 '설계도', 🧭): 공용 목차 + 카드 한 열(스킬 도감과 같은 틀 `.ab-wrap`)
 - 주소 `blueprint`(개요) · `blueprint/<쌍 키>`. 쌍 키는 두 인물 id 를 정렬해 `~` 로 이은 것(`bpKey`)
 - 주소 `blueprint/@ability`(`BP_AB`)는 능력 일정 쪽이다. 쌍 키와 겹치지 않는다
+- 그 쪽의 화면 이름은 '성장 일정'이다(2026-11-14). 제목 · 버튼 · 알림 · 목차가 이 이름을 쓴다
 - 쌍 목록 `bpPairs`: 관계 설정의 쌍(그 차례와 a · b 차례)에 설계도에만 있는 쌍을 더한다
 - 개요: 수 타일 · 경고 · 전체 띠 · 설계 원칙 카드 · 쌍 목록
 - 개요의 전체 띠 `bpWholeBand(pairs, firsts, plans, id, title)`(`#bp-whole`): 쌍마다 한 줄에 서버가 고른 처음 닿는 줄(`S.bp.firsts`)만, 그 아래 능력 일정 줄(`bpAbLanes`). 처음 닿는 줄도 능력 일정도 없으면 그리지 않는다
@@ -833,6 +849,11 @@
 - 도감에 없는 능력 일정 줄에는 '도감에 만들기' 글자 버튼을 단다. 스킬 도감 화면의 `abNew` 로 이름을 채운 새 항목 칸을 연다
 - 상태가 '모름'인 줄은 '상태창이 없어 실제를 셀 수 없어요'를 적는다
 - 능력 일정 저장은 `bpMerged` 의 'ap' 몫: 능력 일정 전체를 바꾸고 능력 이름을 비운 줄은 뺀다
+- 그 인물에 수치 항목(`S.bp.stat_names`)이 있으면 고치는 줄의 이름 칸 앞에 항목 고르기(`.bp-ap-name`)가 나온다. '스킬 도감'이면 도감 항목 줄이다
+- 항목을 고른 줄은 이름 칸을 숨기고 등급 칸이 '닿을 값'이 된다. 목록에 없는 저장값도 고르기에 남긴다(`bpStatNames`)
+- 항목이나 인물을 바꾸면 다시 그린다(항목 이름을 이름 칸에 맞추고 항목 목록을 바꾼다)
+- 수치 줄은 이름 칸이 비어도 저장에서 빼지 않는다. 보이는 동사는 '닿음'(`bpAbGot`)
+- 같은 줄 열쇠 `bpAbKeyOf`(인물 · 수치 항목 · 능력 · 등급)는 서버 `_same_plan` 과 같다. `bpAbSame` · `bpAbUnique` 가 쓴다
 - 카드는 읽는 모양이 기본이고 '고치기'로 그 카드만 편다(`S.bpEdit`: 설계도 사본, 저장하지 않은 글은 `S.editDrafts.bp`)
 - 보는 화면의 줄(이정표 · 사다리 칸 · 능력 일정)마다 끝에 ✎ · ✕(`bpRowActs`)를 둔다. ✎(`bpRowEdit`)는 그 줄만 편다(`S.bpEdit.row` 에 설계도 안 길 'milestones.3')
 - 같은 카드에서 한 줄을 고치는 동안은 그 카드의 다른 줄 버튼을 숨긴다. 사다리 칸 차례를 옮기면 길이 바뀌어서다

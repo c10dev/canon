@@ -72,7 +72,7 @@ def test_extract_and_draft_prompts():
     p = _grown()
     s = prompts.ability_extract_prompt(p, 1, 8, "hero")
     name = next(c.name for c in p.characters if c.id == "hero")
-    assert f"{name}의 능력 일정을 거꾸로 뽑으세요" in s and "[화별 플롯]" in s and "한 글자도 바꾸지 않고" in s and "수치의 오르내림은 능력이 아니므로" in s
+    assert f"{name}의 능력 일정을 거꾸로 뽑으세요" in s and "[화별 플롯]" in s and "한 글자도 바꾸지 않고" in s and "[지금 상태창의 수치]에 있는 항목" in s
     assert p.episode(8).plot.title in s
     assert "1~8화 안" in s
     d = prompts.ability_draft_prompt(p, 1, 8, "hero")

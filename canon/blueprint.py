@@ -127,16 +127,17 @@ def check(p: Project, before: Project | None = None) -> None:
                 if r.from_ep < last:
                     raise ValueError(f"{what}의 처음 닿는 화({r.from_ep}화)가 앞 칸({last}화)보다 빨라요. 칸 차례를 바꾸거나 화를 고치세요")
                 last = r.from_ep
-    same: set[tuple[str, str, str]] = set()
+    same: set[tuple[str, str, str, str]] = set()
     for x in p.blueprint.ability_plans:
-        name, tail = abilities.split(x.ability)
-        x.ability, x.grade, x.condition = name, x.grade.strip() or tail, x.condition.strip()  # 이름 칸에 적은 등급 꼬리는 등급 칸이 비었으면 그리로 옮긴다
+        _tidy(x)
         if not x.ability:
-            raise ValueError(f"능력 일정 {who(x.character)}의 능력 이름이 비었어요")
-        what = f"능력 일정 {who(x.character)}의 {ability_text(x)}"
+            raise ValueError(f"성장 일정 {who(x.character)}의 능력 이름이 비었어요")
+        what = f"성장 일정 {who(x.character)}의 {ability_text(x)}"
+        if x.stat and not x.grade:
+            raise ValueError(f"{what}: 상태창 수치 줄은 닿을 값을 적어 주세요")
         if err := _range_error(x, what):
             raise ValueError(err)
-        k = (x.character, abilities.key(x.ability), _grade_key(x.grade))
+        k = _same_plan(x)
         if k in same:
             raise ValueError(f"{what}가 두 줄 있어요. 하나로 합치세요")
         same.add(k)
@@ -191,7 +192,7 @@ def remap(p: Project, remap_one: Callable[[int], int]) -> list[str]:
         if not lo or not hi:
             x.from_ep = x.to_ep = 0
             label = (f"관계 이정표 {names.get(x.source, x.source)} → {names.get(x.target, x.target)}" if isinstance(x, Milestone)
-                     else f"능력 일정 {names.get(x.character, x.character)}의 {ability_text(x)}" if isinstance(x, AbilityPlan)
+                     else f"성장 일정 {names.get(x.character, x.character)}의 {ability_text(x)}" if isinstance(x, AbilityPlan)
                      else f"접촉 사다리 칸 '{x.label or x.id}'")
             lost.append(label)
         else:
@@ -540,7 +541,7 @@ def _with_proposal(p: Project, prop) -> tuple[list[Milestone], list[ContactLadde
             ms.append(Milestone(id=f"{NEW}ms-{i}-{j}", source=m.source, target=m.target, from_ep=m.from_ep, to_ep=m.to_ep, stage=m.stage, label=m.label, trigger=m.trigger))
         lad = lads.setdefault(pair_key(x.a, x.b), ContactLadder(a=x.a, b=x.b))
         lad.rungs += [ContactRung(id=f"{NEW}cr-{i}-{j}", label=r.label, layer=r.layer, note=r.note, from_ep=r.from_ep, to_ep=r.to_ep) for j, r in enumerate(x.rungs)]
-    plans = list(p.blueprint.ability_plans) + [AbilityPlan(id=f"{NEW}ap-{i}", character=x.character, ability=x.ability, grade=x.grade, from_ep=x.from_ep, to_ep=x.to_ep)
+    plans = list(p.blueprint.ability_plans) + [AbilityPlan(id=f"{NEW}ap-{i}", character=x.character, ability=x.ability, stat=x.stat, grade=x.grade, from_ep=x.from_ep, to_ep=x.to_ep)
                                                for i, x in enumerate(prop.abilities)]
     return ms, list(lads.values()), plans
 
@@ -563,7 +564,7 @@ def proposal_mesh(p: Project, prop) -> list[tuple[str, str]]:
     names = char_names(p)
     first: dict[str, tuple[int, AbilityPlan, list[str]]] = {}
     for x in plans:
-        if x.from_ep <= 0:
+        if x.from_ep <= 0 or x.stat:  # 상태창 수치 줄('레벨')은 이름이 거의 모든 줄에 나와 견주지 않는다
             continue
         k = abilities.key(x.ability)
         a = abilities.find(p, x.ability)
@@ -583,7 +584,7 @@ def proposal_mesh(p: Project, prop) -> list[tuple[str, str]]:
         body = _squash(text)
         for got, x, words in first.values():
             if got > ep and any(_squash(w) in body for w in words) and (rid.startswith(NEW) or x.id.startswith(NEW)):
-                out.append((key, f"{what}({ep}화~)에 능력 '{x.ability}' 이름이 나오는데 능력 일정은 {rng_text(x)}에 얻어요."))
+                out.append((key, f"{what}({ep}화~)에 능력 '{x.ability}' 이름이 나오는데 성장 일정은 {rng_text(x)}에 얻어요."))
     return out
 
 
@@ -681,8 +682,24 @@ def revert(p: Project, n: int) -> None:
 # ---------- 능력 일정 (docs/blueprint/specs/10-ability.md) ----------
 
 def ability_text(x: AbilityPlan) -> str:
-    """일정 줄의 능력 이름과 등급: '화염구 Lv3'."""
+    """일정 줄의 능력 이름과 등급: '화염구 Lv3'. 상태창 수치 줄은 항목 이름과 닿을 값: '레벨 15'."""
     return f"{x.ability} {x.grade}".strip()
+
+
+def _tidy(x) -> None:
+    """저장 · AI 제안 정리가 같이 쓰는 칸 다듬기 (AbilityPlan · AbilityDraft).
+    도감 항목 줄은 이름 칸에 적은 등급 꼬리를 등급 칸이 비었으면 그리로 옮긴다. 상태창 수치 줄(stat)은 꼬리를 떼지 않고 이름을 항목 이름으로 맞춘다."""
+    x.stat, x.grade, x.condition = (x.stat or "").strip(), (x.grade or "").strip(), (x.condition or "").strip()
+    if x.stat:
+        x.ability = x.stat
+        return
+    name, tail = abilities.split(x.ability or "")
+    x.ability, x.grade = name, x.grade or tail
+
+
+def _verb(x: AbilityPlan, plain: str, stat: str) -> str:
+    """경고 · 기획 줄의 동사: 도감 항목 줄은 '얻', 상태창 수치 줄은 '닿'."""
+    return stat if x.stat else plain
 
 
 def _grade_key(g: str) -> str:
@@ -710,9 +727,49 @@ def _grade_ok(a: Ability, want: str, have: str) -> bool:
     return bool(mw and mh and (mw[1], mw[3]) == (mh[1], mh[3]) and int(mh[2]) >= int(mw[2]))
 
 
+def _affix(s: str) -> str:
+    return re.sub(r"[\s.]", "", s).casefold()
+
+
+def stat_ok(want: str, have: str) -> bool:
+    """상태창 수치 값 have 가 계획 값 want 에 닿았는지. 둘 다 수(statwin._amount: '1,200골드' · 'Lv15' · '12.5')면 크기로 견준다.
+    want 에 앞 표지 · 단위가 있으면 have 와 같아야 하고('Lv15' 는 'Lv' 끼리), 없으면 수만 본다('15' 는 'Lv15' 에도 닿음).
+    수가 아닌 값('D급', 한도가 붙은 '80/100')은 같은 말일 때만 (_grade_key). 빈 have 는 닿지 않았다."""
+    if not have.strip():
+        return False
+    w, h = statwin._amount(want), statwin._amount(have)
+    if w and h:
+        same = all(not _affix(w[i]) or _affix(w[i]) == _affix(h[i]) for i in (0, 4))
+        return same and h[2] >= w[2]
+    return bool(_grade_key(want)) and _grade_key(want) == _grade_key(have)
+
+
+def stat_names(p: Project, cid: str) -> list[str]:
+    """인물 하나의 상태창 수치 항목 이름: 지금 상태창 차례, 그 뒤 기록에만 있는 이름. 도감과 잇는 목록 항목(abilities.list_stats)과 인벤토리는 뺀다.
+    단 값(지금 값이나 기록 값)이 수인 항목은 목록 항목 낱말이 이름에 들어도 남긴다. 설계도 화면의 항목 고르기 · AI 제안 정리 · 경고가 같이 쓴다."""
+    lists = abilities.list_stats(p)
+    st = p.state_of(cid)
+    rows = [(s.name, s.value) for s in (st.stats if st else [])] + [(r.name, r.value) for r in p.stat_log if r.character_id == cid]
+    num = {n for n, v in rows if statwin._amount(v)}  # 값이 수인 항목은 이름에 '마법' · '능력' 이 들어도 수치 항목이다 ('마법 공격력 120')
+    return [n for n in dict.fromkeys(n for n, _ in rows) if (n not in lists or n in num) and not any(w in n for w in statwin.INVENTORY)]
+
+
+def _stat_got(p: Project, x: AbilityPlan) -> Optional[int]:
+    for r in p.stat_log:
+        if r.character_id == x.character and r.name == x.stat and stat_ok(x.grade, r.value):
+            return r.episode
+    st = p.state_of(x.character)
+    if st and any(s.name == x.stat and stat_ok(x.grade, s.value) for s in st.stats):
+        return 0
+    return None
+
+
 def got_ep(p: Project, x: AbilityPlan) -> Optional[int]:
     """일정 줄의 능력(등급)에 실제로 처음 닿은 화. 상태창 기록(stat_log)에서 계산한다. 1화 전에 정한 값은 0.
-    기록 없이 지금 상태창에만 있으면 0 (시작 때로 본다). 아직이면 None."""
+    기록 없이 지금 상태창에만 있으면 0 (시작 때로 본다). 아직이면 None.
+    상태창 수치 줄(stat)은 그 항목 값이 닿을 값에 처음 닿은 화다 (stat_ok)."""
+    if x.stat:
+        return _stat_got(p, x)
     a = _plan_ability(p, x)
     for h in abilities.history(p, x.character, a):
         if h["item"] and _grade_ok(a, x.grade, abilities.split(h["item"])[1]):
@@ -743,25 +800,31 @@ def ability_states(p: Project) -> list[dict]:
             state = "예정" if x.to_ep > last else "지남" if tracked(p, x.character) else "모름"
         else:
             state = "앞섬" if got < x.from_ep else "늦음" if got > x.to_ep else "얻음"
-        out.append({"id": x.id, "got": got, "state": state, "linked": abilities.find(p, x.ability) is not None})
+        out.append({"id": x.id, "got": got, "state": state, "linked": bool(x.stat) or abilities.find(p, x.ability) is not None})
     return out
 
 
 def ability_warning_rows(p: Project) -> list[tuple[str, str]]:
-    """능력 일정 경고 (막지 않음): (인물 id, 글). 범위를 지나도록 얻지 못함, 범위보다 먼저 · 늦게 얻음, 도감에 없는 이름."""
+    """성장 일정 경고 (막지 않음): (인물 id, 글). 범위를 지나도록 얻지 못함, 범위보다 먼저 · 늦게 얻음, 도감에 없는 이름.
+    상태창 수치 줄은 '닿'으로 적고 도감 경고를 내지 않는다. 도감 항목 줄의 이름이 그 인물의 상태창 수치 항목 이름이면 도감 경고 대신 항목으로 고르라고 알린다 (옛 줄)."""
     names = char_names(p)
     last = last_done(p)
     out = []
     for x, s in zip(p.blueprint.ability_plans, ability_states(p)):
-        what = f"능력 일정 {names.get(x.character, x.character)}의 {ability_text(x)}"
-        when = "시작 때부터 가지고 있어요" if s["got"] == 0 else f"{s['got']}화에 얻었어요"
+        what = f"성장 일정 {names.get(x.character, x.character)}의 {ability_text(x)}"
+        v = _verb(x, "얻", "닿")
+        when = ("시작 때부터 닿아 있어요" if x.stat else "시작 때부터 가지고 있어요") if s["got"] == 0 else f"{s['got']}화에 {_verb(x, '얻었어요', '닿았어요')}"
         if s["state"] == "지남":
-            out.append((x.character, f"{what}: {rng_text(x)}에 얻기로 했는데 {last}화까지 반영한 상태창 기록에 없어요."))
+            out.append((x.character, f"{what}: {rng_text(x)}에 {v}기로 했는데 {last}화까지 반영한 상태창 기록에 없어요."))
         elif s["state"] == "앞섬":
-            out.append((x.character, f"{what}: {when}. 설계도는 {rng_text(x)}에 얻기로 했어요."))
+            out.append((x.character, f"{what}: {when}. 설계도는 {rng_text(x)}에 {v}기로 했어요."))
         elif s["state"] == "늦음":
-            out.append((x.character, f"{what}: {when}. 설계도는 {rng_text(x)}까지 얻기로 했어요."))
-        if not s["linked"]:
+            out.append((x.character, f"{what}: {when}. 설계도는 {rng_text(x)}까지 {v}기로 했어요."))
+        if s["linked"]:
+            continue
+        if x.ability in stat_names(p, x.character):
+            out.append((x.character, f"{what}: '{x.ability}'{logline.josa(x.ability, '은', '는')} 상태창 수치 항목이에요. 줄을 고쳐 상태창 항목으로 고르면 값으로 셀 수 있어요."))
+        else:
             out.append((x.character, f"{what}: '{x.ability}'{logline.josa(x.ability, '은', '는')} 스킬 도감에 없는 이름이에요. 도감에 항목을 만들면 효과 · 대가가 프롬프트에 들어가요."))
     return out
 
@@ -788,15 +851,16 @@ def ability_plan_lines(p: Project, ids: set[str] | None, start: int, end: int) -
     out, after = [], set()
     last = last_done(p)
     for x in _open_plans(p, ids):
+        v = _verb(x, "얻", "닿")
         if x.to_ep < start and x.to_ep <= last:
-            out.append(f"- {rng_text(x)}에 얻기로 했으나 아직 얻지 못함: {ability_line(p, x)}")
+            out.append(f"- {rng_text(x)}에 {v}기로 했으나 아직 {v}지 못함: {ability_line(p, x)}")
         elif x.to_ep < start:
-            out.append(f"- 앞 화({rng_text(x)})에서 얻을 예정: {ability_line(p, x)}")
+            out.append(f"- 앞 화({rng_text(x)})에서 {_verb(x, '얻을', '닿을')} 예정: {ability_line(p, x)}")
         elif x.from_ep <= end:
-            out.append(f"- {rng_text(x)}에 얻음: {ability_line(p, x)}")
+            out.append(f"- {rng_text(x)}에 {v}음: {ability_line(p, x)}")
         elif x.character not in after:
             after.add(x.character)
-            out.append(f"- {rng_text(x)}에 얻음 (이 범위 뒤): {ability_line(p, x)}")
+            out.append(f"- {rng_text(x)}에 {v}음 (이 범위 뒤): {ability_line(p, x)}")
     return out
 
 
@@ -832,7 +896,15 @@ def ability_in_plot(p: Project, n: int) -> list[AbilityPlan]:
     text = _plot_text(p, n)
     if text is None:
         return []
-    return [x for x in ability_due(p, n) if any(_squash(t) in text for t in abilities.terms(_plan_ability(p, x)) if _squash(t))]
+    return [x for x in ability_due(p, n) if (_stat_in(x, text) if x.stat else any(_squash(t) in text for t in abilities.terms(_plan_ability(p, x)) if _squash(t)))]
+
+
+def _stat_in(x: AbilityPlan, text: str) -> bool:
+    """상태창 수치 줄이 공백을 지운 글 text 에 나왔는지: 항목 이름과 닿을 값(수면 그 수, 'Lv15' → '15')이 함께 나온다.
+    '레벨' 같은 이름만으로는 거의 모든 플롯에 걸려서 값도 본다."""
+    a = statwin._amount(x.grade)
+    value = statwin._fmt(a[2]) if a else _squash(x.grade)
+    return _squash(x.stat) in text and bool(value) and value in text
 
 
 def _label_words(p: Project, label: str) -> list[str]:
@@ -882,11 +954,19 @@ def ability_state_rule(p: Project, n: int) -> str:
     if not statwin.enabled(p):
         return ""
     rows = [x for x in _open_plans(p, _plot_cast(p, n)) if x.from_ep <= n]
-    if not rows:
-        return ""
     names = char_names(p)
-    return ("\n- 설계도의 능력 일정에 아래 능력이 있습니다. 이번 화 본문에서 그 인물이 이 능력을 얻었거나 이 등급에 올랐을 때만 stats 의 목록 항목에 이 이름 그대로 적습니다. "
-            "본문에 없으면 적지 않습니다: " + "; ".join(f"{names.get(x.character, x.character)}({x.character}) {ability_text(x)}" for x in rows) + ".")
+
+    def say(xs: list[AbilityPlan]) -> str:
+        return "; ".join(f"{names.get(x.character, x.character)}({x.character}) {ability_text(x)}" for x in xs) + "."
+    listed, stats = [x for x in rows if not x.stat], [x for x in rows if x.stat]
+    out = ""
+    if listed:
+        out += ("\n- 설계도의 능력 일정에 아래 능력이 있습니다. 이번 화 본문에서 그 인물이 이 능력을 얻었거나 이 등급에 올랐을 때만 stats 의 목록 항목에 이 이름 그대로 적습니다. "
+                "본문에 없으면 적지 않습니다: " + say(listed))
+    if stats:
+        out += ("\n- 설계도의 능력 일정에 아래 상태창 수치가 있습니다. 이번 화 본문에서 그 인물의 값이 오르면 stats 의 그 항목 값을 바꿉니다. "
+                "본문에 없으면 바꾸지 않습니다: " + say(stats))
+    return out
 
 
 def ability_delta_warnings(p: Project, d: StateDelta) -> list[tuple[str, str]]:
@@ -899,21 +979,26 @@ def ability_delta_warnings(p: Project, d: StateDelta) -> list[tuple[str, str]]:
     lists = abilities.list_stats(p)
     out = []
     for x in rows:
-        a = _plan_ability(p, x)
-        ks = {abilities.key(t) for t in abilities.terms(a)}
-        hit = any(abilities.key(piece) in ks and _grade_ok(a, x.grade, abilities.split(piece)[1])
-                  for name, piece in abilities.list_pieces(p, after.get(x.character, {}), lists) if not a.stat or name == a.stat)
+        mine = after.get(x.character, {})
+        if x.stat:
+            hit = stat_ok(x.grade, mine.get(x.stat, ""))
+        else:
+            a = _plan_ability(p, x)
+            ks = {abilities.key(t) for t in abilities.terms(a)}
+            hit = any(abilities.key(piece) in ks and _grade_ok(a, x.grade, abilities.split(piece)[1])
+                      for name, piece in abilities.list_pieces(p, mine, lists) if not a.stat or name == a.stat)
         if hit:
-            out.append((f"{names.get(x.character, x.character)}의 {ability_text(x)}: 설계도는 {rng_text(x)}에 얻기로 했어요. "
-                        f"이 변경안을 반영하면 {d.episode}화에 얻어요.", x.character))
+            v = _verb(x, "얻", "닿")
+            out.append((f"{names.get(x.character, x.character)}의 {ability_text(x)}: 설계도는 {rng_text(x)}에 {v}기로 했어요. "
+                        f"이 변경안을 반영하면 {d.episode}화에 {_verb(x, '얻어요', '닿아요')}.", x.character))
     return out
 
 
 # ---------- 능력 일정을 AI 로 짜기 · 거꾸로 뽑기 (docs/blueprint/specs/12-ability-ai.md) ----------
 
-def _same_plan(x) -> tuple[str, str, str]:
-    """check 가 '두 줄'로 보는 열쇠: 인물, 능력 이름, 등급."""
-    return x.character, abilities.key(x.ability), _grade_key(x.grade)
+def _same_plan(x) -> tuple[str, str, str, str]:
+    """check 가 '두 줄'로 보는 열쇠: 인물, 상태창 수치 항목(도감 항목 줄은 빈 글), 능력 이름, 등급. 화면 blueprint.js 의 bpAbSame · bpAbUnique 와 같다."""
+    return x.character, abilities.key(x.stat or ""), abilities.key(x.ability), _grade_key(x.grade)
 
 
 def clean_abilities(p: Project, rows: list, ids: set[str], start: int, end: int) -> list:
@@ -925,9 +1010,10 @@ def clean_abilities(p: Project, rows: list, ids: set[str], start: int, end: int)
     seen = {_same_plan(x) for x in p.blueprint.ability_plans}
     out = []
     for x in rows:
-        name, tail = abilities.split(x.ability or "")
-        x.ability, x.grade, x.condition = name, (x.grade or "").strip() or tail, (x.condition or "").strip()
+        _tidy(x)
         if x.character not in chars or not x.ability or not _clip(x, start, end) or _same_plan(x) in seen:
+            continue
+        if x.stat and (not x.grade or x.stat not in stat_names(p, x.character)):  # 그 인물의 상태창에 없는 항목, 값이 빈 수치 줄
             continue
         seen.add(_same_plan(x))
         x.evidence = [e for e in x.evidence if start <= e.episode <= end and e.quote.strip()][:3]
@@ -940,7 +1026,7 @@ def clean_codex(p: Project, codex: list, rows: list) -> list:
     """AI 가 능력 일정 줄과 함께 낸 도감 초안(AbilityCodexDraft) 정리: 남은 줄(rows)의 능력 이름인 것만, 이미 도감에 있는 이름(다른 이름 포함)은 뺀다.
     이름의 등급 꼬리는 떼고, 같은 이름은 앞의 것 하나만, 등급 이름이 빈 등급은 뺀다. 작가 데이터가 아니라 AI 제안이라 지운다 (docs/blueprint/specs/13-ability-codex.md).
     어느 인물의 상태창 목록에 이미 그 조각이 있으면 stat 을 그 항목 이름으로 바꾼다. 도감 항목의 stat 이 다르면 상태창 조각과 잇지 않아서다(abilities.owners)."""
-    want = {abilities.key(x.ability) for x in rows}
+    want = {abilities.key(x.ability) for x in rows if not x.stat}  # 상태창 수치 줄은 도감 초안을 받지 않는다
     lists = abilities.list_stats(p)
     where = {abilities.key(abilities.split(piece)[0]): stat for st in p.states
              for stat, piece in abilities.list_pieces(p, {s.name: s.value for s in st.stats}, lists)}
@@ -972,7 +1058,7 @@ def add_codex(p: Project, codex: list) -> list[str]:
 def add_abilities(p: Project, rows: list) -> None:
     """고른 능력 일정 줄을 p 에 그대로 더한다 (검사 없음). 여러 묶음을 한 사본에 더하고 check 를 한 번 부르는 쪽(apply_abilities, 11b 의 apply_set)이 쓴다."""
     for x in rows:
-        p.blueprint.ability_plans.append(AbilityPlan(character=x.character, ability=x.ability, grade=x.grade, condition=x.condition,
+        p.blueprint.ability_plans.append(AbilityPlan(character=x.character, ability=x.ability, stat=x.stat, grade=x.grade, condition=x.condition,
                                                      from_ep=x.from_ep, to_ep=x.to_ep))
 
 
@@ -1010,4 +1096,19 @@ def ability_owned_lines(p: Project, ids: set[str] | None) -> list[str]:
         pieces = [piece for _, piece in abilities.list_pieces(p, {s.name: s.value for s in st.stats}, lists)]
         if pieces:
             out.append(f"- {names.get(st.character_id, st.character_id)}: {', '.join(pieces)}")
+    return out
+
+
+def ability_stat_lines(p: Project, ids: set[str] | None) -> list[str]:
+    """AI 제안 요청의 '지금 상태창의 수치' 줄: ids 인물의 상태창 수치 항목과 지금 값 (stat_names, 값이 빈 항목은 뺀다).
+    레벨 같은 수치 성장 줄의 stat 이름과 값의 꼴을 이 줄 그대로 쓰게 하려는 재료다 (docs/blueprint/specs/14-growth-stat.md)."""
+    names = char_names(p)
+    out = []
+    for st in p.states:
+        if ids is not None and st.character_id not in ids:
+            continue
+        keep = set(stat_names(p, st.character_id))
+        rows = [f"{s.name} {s.value}" for s in st.stats if s.name in keep and s.value.strip()]
+        if rows:
+            out.append(f"- {names.get(st.character_id, st.character_id)}: {', '.join(rows)}")
     return out

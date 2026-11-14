@@ -2784,9 +2784,9 @@ def _job_blueprint_ability(name: str, body: "JobIn", p: Project, kind: str, n: i
     cid, draft = body.target, kind == "blueprint_ability_draft"
     who = next((c.name or c.id for c in p.characters if c.id == cid), None)
     if who is None:
-        raise ValueError("능력 일정을 받을 인물을 골라 주세요")
+        raise ValueError("성장 일정을 받을 인물을 골라 주세요")
     start, end = (blueprint.draft_range if draft else blueprint.extract_range)(p, n or 0)
-    label = f"{who} 능력 일정 {'짜기' if draft else '뽑기'} ({start}~{end}화)"
+    label = f"{who} 성장 일정 {'짜기' if draft else '뽑기'} ({start}~{end}화)"
     num, note = n or 0, body.note
 
     def fn(job: jobs.Job):
@@ -5874,6 +5874,7 @@ class BlueprintView(BaseModel):
     firsts: list[BlueprintFirst] = []
     plans: list[AbilityPlanState] = []
     ability_warnings: list[AbilityPlanWarn] = []
+    stat_names: dict[str, list[str]] = Field(default_factory=dict, description="인물 id → 성장 일정이 고를 상태창 수치 항목 이름 (blueprint.stat_names)")
     parts: list[BlueprintPick]
     acts: list[BlueprintPick]
     last: int = Field(0, description="마지막으로 반영한 화")
@@ -5881,13 +5882,15 @@ class BlueprintView(BaseModel):
 
 @app.get("/api/projects/{name}/blueprint")
 def blueprint_view(name: str) -> BlueprintView:
-    """설계도와 경고(blueprint.warning_rows), 능력 일정의 계획 대 실제 · 경고, 처음 닿는 줄과 몰림(blueprint.firsts · crowd_pairs), 사다리 칸이 고르는 부위 · 동작 이름."""
+    """설계도와 경고(blueprint.warning_rows), 능력 일정의 계획 대 실제 · 경고, 처음 닿는 줄과 몰림(blueprint.firsts · crowd_pairs), 사다리 칸이 고르는 부위 · 동작 이름,
+    인물마다 성장 일정이 고를 상태창 수치 항목 이름."""
     from .stage import ACTS, PARTS
     p = _load(name)
     return BlueprintView(blueprint=p.blueprint, warnings=[BlueprintWarn(source=s, target=t, text=w) for s, t, w in blueprint.warning_rows(p)],
                          plans=[AbilityPlanState(**x) for x in blueprint.ability_states(p)],
                          ability_warnings=[AbilityPlanWarn(character=c, text=w) for c, w in blueprint.ability_warning_rows(p)],
                          firsts=_blueprint_firsts(p),
+                         stat_names={c.id: names for c in p.characters if (names := blueprint.stat_names(p, c.id))},
                          parts=[BlueprintPick(id=k, label=v.label) for k, v in PARTS.items()],
                          acts=[BlueprintPick(id=k, label=v.label) for k, v in ACTS.items()],
                          last=blueprint.last_done(p))

@@ -106,7 +106,7 @@ def test_move_remap_and_insert():
     blueprint.move(p, renumber.point_insert(7))
     assert (p.blueprint.ability_plans[0].from_ep, p.blueprint.ability_plans[0].to_ep) == (5, 9)
     notes = blueprint.remap(p, lambda n: 0)
-    assert p.blueprint.ability_plans[0].from_ep == 0 and "능력 일정 아영의 은신" in notes[0]
+    assert p.blueprint.ability_plans[0].from_ep == 0 and "성장 일정 아영의 은신" in notes[0]
     q = _short_insert()
     q.blueprint.ability_plans = [AbilityPlan(character=q.characters[0].id, ability="은신", from_ep=7, to_ep=9)]
     notes = pipeline.insert_episode(q, 8)

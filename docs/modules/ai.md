@@ -279,6 +279,7 @@
   - `mock_foreshadow_judge.py` 복선 판정(`ForeshadowBreaks`, 회수하지 않을 복선 id 가 본문에 나오면 '미리 회수')
   - `mock_blueprint.py` 설계도 거꾸로 뽑기(`BlueprintProposal`): 이정표 · 사다리 칸과 정리가 거르는 줄(쌍 밖, 범위 밖, 모르는 id)
   - `mock_blueprint.py` 능력 일정 제안(`AbilityProposal`): 두 줄과 정리가 거르는 줄(이름에 붙은 등급 꼬리, 같은 줄, 다른 인물, 범위 밖)
+  - `mock_blueprint.py` 능력 일정 제안의 상태창 수치 줄(레벨 Lv10): 인물 상태창에 레벨이 있을 때만 정리를 지난다
   - `mock_blueprint.py` 능력 일정 제안의 도감 초안(`AbilityProposal.codex`): 한 항목과 정리가 거르는 항목(등급 꼬리, 같은 이름, 줄 없는 능력, 빈 등급)
   - `mock_blueprint.py` 작품 전체 짜기(`BlueprintPlanSet`): 쌍마다 차례로 엇갈린 이정표 두 줄 · 칸 한 칸, 능력 한 줄, 정리가 거르는 항목(고르지 않은 쌍, 같은 쌍 두 번째 항목, 범위 밖 편성)
   - `mock_drill.py` 지시 연습: 사실 뽑기(`DrillFacts`)와 되짚기(`DrillReview`), 정리가 거르는 항목(원문을 옮긴 줄, 본문에 없는 인용, 없는 줄 번호)
