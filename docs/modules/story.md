@@ -482,6 +482,7 @@
 - 화 번호로 찾기 `step`, 뒤집힘(`HeatTurn`: 반격을 심은 화 · 들킨 화 · 상대가 쥐는 것) `turn`
 - 계획 정리 `fit`: 범위 밖 화 · 같은 화 두 번째 줄을 버리고 빠진 화를 `FILL_LEVEL` · `FILL_ROLE` 로 채우고 눈금을 0~5 로 자름. 빈 계획은 그대로
 - 뒤집힘 정리 `fit_turn`: 범위 밖이거나 들킨 화가 심은 화보다 앞서면 비움
+- 화를 끼워 넣거나 빼면 `renumber.move_heat` 가 화 번호를 옮기고 `pipeline._fit_heat` 가 `fit` · `fit_turn` 으로 범위에 맞춘다(빈 계획은 채우지 않음)
 - 경고 `warnings`(`HeatWarn`, 막지 않음): 기복이 작음 · 이른 정점 · 판돈 없는 정점 · 관객 · 제약 없는 정점 · 같은 종류 정점 · 커지지 않은 판돈 · 관객이 본 일의 결과 없음 · 늦은 뒤집힘 · 쌓기 화의 높은 긴장(`WARN_CODES`)
 - 장편 경고는 아크마다 따로 본다(`_scope_warnings`). 기복 경고는 아크 첫 화를, 이른 정점은 아크 안 앞쪽인지를 본다
 - 잇닿은 터뜨리기 화는 한 정점으로 묶는다(`peak_runs`). 종류 · 판돈 견주기는 정점끼리 한다
@@ -654,6 +655,8 @@
 - 화 번호를 품은 칸을 새로 만들면 `move_points` 에도 넣는다
 - 이 작품의 문체로 고른 화 번호도 옮긴다(`anchor.move`)
 - 설계도의 화 범위도 옮긴다(`blueprint.move`, 알림 '설계도 줄 n개')
+- 완급 계획(단편 `Project.heat` · 장편 `StoryArc.heat`)의 화 번호와 뒤집힘의 심은 화 · 들킨 화도 옮긴다(`move_heat`, 알림 '완급 계획 줄 n개')
+- `move_heat` 는 뺀 화의 완급 계획 줄을 지운다. 새 화의 줄은 범위를 옮긴 뒤 `pipeline._fit_heat` 가 `heatplan.fit` 으로 채운다
 - 화면은 `static/insert.js` (넣을 수 있는 자리 `lastFixed` 는 `last_fixed` 와 같은 규칙, `tests/test_insert_js.py`)
 - `insert.js` 의 화 지우기 버튼을 막은 이유(AI 작업 중, 자동 집필 중, 스냅샷 없음)를 버튼 아래 글로도 보인다
 - 화 지우기 확인 창은 지우기 전 작품을 설정 › 백업에서 되돌릴 수 있다고 알린다
