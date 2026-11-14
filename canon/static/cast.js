@@ -22,6 +22,7 @@ Object.assign(S, {
   castEdit: '',      // 'AI · 서술 · 신체 · 삽화' 카드를 고치는 중인 인물 id
   castStateEdit: '', // '지금 상태' 카드를 고치는 중인 인물 id (stateedit.py)
   castMinorOpen: false,  // 목차의 단역 묶음을 펼쳤는지
+  castMarkEdit: '',  // 고치는 중인 표지 '<인물 id>|<표지 id>' (charmarks.py)
 });
 
 const CAST_W = 760;
@@ -702,8 +703,119 @@ function castCharPage(c) {
   const heldSet = (P().setting_held || []).some((x) => x.character_id === c.id);
   const settings = castSheetSettings(c, f, at);
   const address = addressHeldCard(c);
-  return `${castHead(c, f, at)}${heldSet ? settings : ''}${address}${castSheetState(c, f)}${castSheetStats(c, f)}${castSheetRels(c, f)}${castSheetSecrets(c, f)}${heldSet ? '' : settings}${castEditCard(c)}${castTimeline(c)}${scLogCard(c)}`;
+  return `${castHead(c, f, at)}${heldSet ? settings : ''}${address}${castSheetState(c, f)}${castSheetStats(c, f)}${castSheetRels(c, f)}${castSheetSecrets(c, f)}${heldSet ? '' : settings}${castMarksCard(c)}${castEditCard(c)}${castTimeline(c)}${scLogCard(c)}`;
 }
+
+// ----- 인물 표지 (canon/charmarks.py, docs/webnovel/specs/10-marks.md) -----
+// 반영한 화 본문에서 작가가 거둔 말버릇 · 버릇 · 외모. 기록으로만 보이고 AI에 넣지 않는다. 표지는 /marks 라우트로만 바뀐다
+
+const MARK_KINDS = ['말버릇', '버릇', '외모'];
+
+/** 근거 구절이 본문에 있는지. 공백 · 줄바꿈 차이는 봐준다 (서버 charmarks.found · elements.find 와 같은 답) */
+function castMarkFound(text, quote) {
+  const sq = (x) => String(x || '').replace(/\s+/g, ' ').trim();
+  const q = sq(quote);
+  return !!q && sq(text).includes(q);
+}
+
+/** 인물 쪽의 표지 카드. 표지가 없으면 그리지 않는다 (정할 것 14) */
+function castMarksCard(c) {
+  const list = c.marks || [];
+  if (!list.length) return '';
+  const rows = list.map((m) => {
+    const key = `${c.id}|${m.id}`;
+    const e = ep(m.episode);
+    const lost = !castMarkFound(e ? e.text : '', m.quote);
+    if (S.castMarkEdit === key) {
+      return `<li class="csh-mark"><div class="row" style="gap:8px;flex-wrap:wrap"><label class="sr-only" for="cme-kind">갈래</label><select id="cme-kind">${MARK_KINDS.map((k) => `<option${k === m.kind ? ' selected' : ''}>${k}</option>`).join('')}</select>
+        <label class="sr-only" for="cme-text">표지 글</label><input id="cme-text" type="text" maxlength="200" value="${esc(m.text)}" style="flex:1 1 200px;min-width:0"></div>
+        <div class="row" style="gap:6px;justify-content:flex-end"><button type="button" class="btn small ghost" data-action="castMarkEdit" data-arg="${esc(key)}">취소</button><button type="button" class="btn small primary" data-action="castMarkSave" data-arg="${esc(key)}">저장</button></div></li>`;
+    }
+    return `<li class="csh-mark"><div class="between" style="gap:8px;align-items:flex-start"><div><span class="chip">${esc(m.kind)}</span> ${esc(m.text)} <span class="small">${m.episode}화</span>${lost ? ' <span class="chip warn">본문에서 못 찾음</span>' : ''}</div>
+      <span class="row" style="gap:6px;flex:none"><button type="button" class="btn small ghost" data-action="castMarkEdit" data-arg="${esc(key)}" aria-label="${esc(m.text)} 표지 고치기">고치기</button><button type="button" class="btn small ghost" data-action="castMarkDel" data-arg="${esc(key)}" aria-label="${esc(m.text)} 표지 지우기">지우기</button></span></div>
+      ${m.quote && m.quote !== m.text ? `<details><summary class="small">근거 구절</summary><div class="small">“${esc(m.quote)}”</div></details>` : ''}</li>`;
+  }).join('');
+  return `<section class="card" id="csh-marks"><div class="between"><h2>표지 ${list.length}</h2><span class="small">반영한 본문에서 거둠 · AI에 넣지 않음</span></div><ul class="csh-list">${rows}</ul></section>`;
+}
+
+/** 고른 구절의 처음 인물: 구절에 이름(세 글자 이름은 뒤 두 글자도)이 가장 먼저 나오는 인물, 없으면 그 화 플롯의 첫 인물, 그것도 없으면 첫 인물 */
+function castMarkWho(p, n, text) {
+  const cs = p.characters || [];
+  let best = null;
+  cs.forEach((c) => {
+    const forms = [c.name, c.name && c.name.length === 3 ? c.name.slice(1) : ''].filter(Boolean);
+    const at = Math.min(...forms.map((f) => { const i = text.indexOf(f); return i < 0 ? Infinity : i; }));
+    if (at < Infinity && (!best || at < best.at)) best = { id: c.id, at };
+  });
+  if (best) return best.id;
+  const e = (p.episodes || []).find((x) => x.plot.number === n);
+  const first = e && (e.plot.characters || []).find((id) => cs.some((c) => c.id === id));
+  return first || (cs[0] ? cs[0].id : '');
+}
+
+/** 고른 부분 도구(passage.js)의 메뉴에 '인물 표지로 거두기'를 둘지: 반영한 화이고 인물이 있을 때 */
+const castMarkable = (e) => !!e && e.status === 'finalized' && (P().characters || []).length > 0;
+
+/** 고른 부분 도구의 거두기 칸 (mode 'mark'). S.selTool = { n, start, text, mode: 'mark', who, kind, note } */
+function castMarkToolHtml(t) {
+  const kind = (k) => `<button type="button" aria-pressed="${t.kind === k}" data-action="castMarkKind" data-arg="${k}">${k}</button>`;
+  return `<div class="between"><strong>${t.n}화에서 인물 표지 거두기</strong><span class="small">AI에 넣지 않아요</span></div>
+    <div class="small">“${esc(clip(t.text, 200))}”</div>
+    <div class="field"><label for="cm-who">인물</label><select id="cm-who">${(P().characters || []).map((c) => `<option value="${esc(c.id)}"${c.id === t.who ? ' selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>
+    <div class="seg" role="group" aria-label="갈래">${MARK_KINDS.map(kind).join('')}</div>
+    <div class="field"><label for="cm-note">한 줄로</label><input id="cm-note" type="text" maxlength="200" value="${esc(t.note)}" placeholder="비우면 고른 구절 그대로"></div>
+    <div class="row" style="gap:6px;justify-content:flex-end"><button type="button" class="btn small" data-action="selCancel">취소</button><button type="button" class="btn small primary" data-action="castMarkTake">거두기</button></div>`;
+}
+
+// 떠 있는 도구(passage.js showTool): mode 'mark' 면 거두기 칸, 반영한 화의 메뉴(mode 'menu')에는 '인물 표지로 거두기'.
+// passage.js 는 index.html 에서 이 파일보다 먼저 읽는다 (cast.js 만 읽는 시험에서는 건너뛴다)
+if (typeof showTool === 'function') {
+  const cmShowTool = showTool;
+  showTool = function showToolWithMarks() {
+    const t = S.selTool;
+    const el0 = document.getElementById('sel-tool');
+    if (el0) el0.classList.remove('cm-link');
+    const ta = t && document.querySelector(`textarea[data-draft="${t.n}"]`);
+    if (t && t.mode === 'mark') {
+      if (!ta) return hideTool();
+      const el = toolEl();
+      el.classList.remove('finding');
+      el.classList.add('edit', 'cm-link');
+      el.setAttribute('aria-label', '인물 표지 거두기');
+      el.innerHTML = castMarkToolHtml(t);
+      el.hidden = false;
+      placeTool(ta, t);
+      $('#cm-note')?.focus({ preventScroll: true });
+      return;
+    }
+    cmShowTool();
+    const el = document.getElementById('sel-tool');
+    if (!ta || !el || el.hidden || t.mode !== 'menu' || !castMarkable(ep(t.n))) return;
+    el.insertAdjacentHTML('beforeend', '<button type="button" class="btn small" data-action="selMark">인물 표지로 거두기</button>');
+    placeTool(ta, t);
+  };
+}
+
+document.addEventListener('input', (e) => {
+  const t = S.selTool;
+  if (t && t.mode === 'mark' && e.target.id === 'cm-note') t.note = e.target.value;
+});
+
+document.addEventListener('change', (e) => {
+  const t = S.selTool;
+  if (t && t.mode === 'mark' && e.target.id === 'cm-who') t.who = e.target.value;
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.isComposing && S.selTool && S.selTool.mode === 'mark' && e.target.id === 'cm-note') {
+    e.preventDefault();
+    actions.castMarkTake();
+  }
+  if (e.key === 'Enter' && !e.isComposing && e.target.id === 'cme-text' && S.castMarkEdit) {
+    e.preventDefault();
+    actions.castMarkSave(S.castMarkEdit);
+  }
+});
 
 // ----- 쌍 상세 -----
 
@@ -1084,6 +1196,64 @@ Object.assign(actions, {
       S.project = await api('PUT', `/projects/${enc(S.name)}/state/${enc(id)}`, { [k]: r.before });
       await castLoad();
       toast(`${STATE_OBJ[k] || k} ${when}으로 되돌렸어요`);
+    });
+  },
+  selMark() {
+    const t = S.selTool;
+    if (!t) return;
+    S.selTool = { n: t.n, start: t.start, text: t.text, mode: 'mark', who: castMarkWho(P(), t.n, t.text), kind: '버릇', note: '' };
+    showTool();
+  },
+  castMarkKind(k) {
+    const t = S.selTool;
+    if (!t || t.mode !== 'mark') return;
+    t.kind = k;
+    showTool();
+    $(`#sel-tool [data-action="castMarkKind"][data-arg="${k}"]`)?.focus();
+  },
+  /** 거두기: 저장하지 않은 본문 · 작품 변경을 먼저 저장한다. 서버가 저장된 본문에서 구절을 찾는다 */
+  async castMarkTake() {
+    const t = S.selTool;
+    if (!t || t.mode !== 'mark') return;
+    const c = (P().characters || []).find((x) => x.id === t.who);
+    if (!c) return toast('인물을 골라 주세요', true);
+    if (S.dirty && !(await askConfirm('저장하지 않은 변경이 있어요. 저장하고 표지를 거둘까요?', { ok: '저장하고 거두기' }))) return;
+    await run('표지를 거두는 중', async () => {
+      await saveIfDirty();
+      if (typeof flushText === 'function') await flushText(t.n);
+      S.project = await api('POST', `/projects/${enc(S.name)}/characters/${enc(c.id)}/marks`, { kind: t.kind, text: t.note, episode: t.n, quote: t.text });
+      hideTool();  // 저장한 뒤에 닫는다. 서버가 막으면 칸과 쓰던 글이 남는다
+      toast(`${c.name}의 표지로 거뒀어요. 인물 화면에서 볼 수 있어요`);
+    });
+  },
+  castMarkEdit(key) {
+    S.castMarkEdit = S.castMarkEdit === key ? '' : key;
+    render();
+    if (S.castMarkEdit) document.getElementById('cme-text')?.focus({ preventScroll: true });
+  },
+  async castMarkSave(key) {
+    const [cid, mid] = String(key).split('|');
+    const body = { kind: $('#cme-kind')?.value || '버릇', text: $('#cme-text')?.value || '' };
+    if (!body.text.trim()) return toast('표지 글을 적어 주세요', true);
+    if (S.dirty && !(await askConfirm('저장하지 않은 변경이 있어요. 저장하고 표지를 고칠까요?', { ok: '저장하고 고치기' }))) return;
+    await run('저장하는 중', async () => {
+      await saveIfDirty();
+      S.project = await api('PUT', `/projects/${enc(S.name)}/characters/${enc(cid)}/marks/${enc(mid)}`, body);
+      S.castMarkEdit = '';
+      toast('표지를 고쳤어요');
+    });
+  },
+  async castMarkDel(key) {
+    const [cid, mid] = String(key).split('|');
+    const c = (P().characters || []).find((x) => x.id === cid);
+    const m = c && (c.marks || []).find((x) => x.id === mid);
+    if (!m || !(await askConfirm(`${c.name}의 표지 '${clip(m.text, 40)}'${josa(clip(m.text, 40), '을', '를')} 지울까요?`, { ok: '지우기', danger: true }))) return;
+    if (S.dirty && !(await askConfirm('저장하지 않은 변경이 있어요. 저장하고 지울까요?', { ok: '저장하고 지우기' }))) return;
+    await run('지우는 중', async () => {
+      await saveIfDirty();
+      S.project = await api('DELETE', `/projects/${enc(S.name)}/characters/${enc(cid)}/marks/${enc(mid)}`);
+      if (S.castMarkEdit === key) S.castMarkEdit = '';
+      toast('표지를 지웠어요');
     });
   },
   castEditToggle(id) {
