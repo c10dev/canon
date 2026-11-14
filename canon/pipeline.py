@@ -300,7 +300,8 @@ def _marker_ok(text: str, sample: str, names: list[str]) -> bool:
 
 def count_markers(profile: StyleProfile, sample: str, names: list[str] | None = None) -> None:
     """표지마다 원문 1,000자당 횟수를 센다. 모델이 적은 빈도는 믿지 않는다. 원문에 없는 표지, 한글이 2자 미만인 표지,
-    인물 이름(names, 2자 이상)이 든 표지는 뺀다. 장치 단서도 같게 거르고, 원문 표본에 없는 장치 예시는 비운다."""
+    인물 이름(names, 2자 이상)이 든 표지는 뺀다. 장치 단서도 같게 거르고, 원문 표본에 없는 장치 예시는 비운다.
+    장치 최소 간격(every)은 0 으로 둔다. 표본만 보고 짐작한 간격이 곧 빈도 규칙이 되므로 작가가 적은 값만 쓴다 (웹소설 일감 12)."""
     names = [n.strip() for n in names or [] if len(n.strip()) >= 2]
     keep = []
     for m in profile.markers:
@@ -311,7 +312,7 @@ def count_markers(profile: StyleProfile, sample: str, names: list[str] | None = 
     flat = re.sub(r"\s+", "", sample)
     for d in profile.devices:
         d.cues = [c for c in d.cues if _marker_ok(c, sample, names)]
-        d.every = max(0, d.every)
+        d.every = 0  # 모델이 적은 간격은 버린다
         if d.example and re.sub(r"\s+", "", d.example) not in flat:
             d.example = ""  # 지어낸 예시는 원문 문체가 아니다
 

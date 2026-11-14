@@ -510,6 +510,7 @@
 - `analyze_style` 에 `corpus` 를 주면 `count_markers` 가 표본이 아니라 그 글에서 세고 거른다. 모델은 표본만 읽는다(레퍼런스 원고에서 흩어 뽑은 표본, `refs.corpus`)
 - `apply_learning` 의 알림 `rule_limit_note`: write 층 지킬 것 · 피할 것이 `RULE_LIMIT`(20)를 넘으면 합치거나 계획 층으로 옮기라고 알린다
 - `count_markers` 는 원문 표본에 없는(공백 빼고 견줌) 장치 예시를 비운다
+- `count_markers` 는 장치 최소 간격 `every` 를 0 으로 맞춘다. 모델이 적은 값은 버린다. 문체 대화(`clean_style_revision`)와 수정에서 배우기(`apply_learning`)로 들어온 값은 그대로다
 - 표지의 구간별 빈도(`MarkerZones`)는 `analyze_style` 이 세지 않는다. 부른 쪽이 `refsample.zone_rates` 로 세어 `StyleProfile` 밖에 둔다(모델이 채우는 형식에 칸을 더하지 않으려는 것)
 - 문체 변경안 정리 `clean_style_revision` 은 모델이 값 안에 남긴 혼잣말(`[Wait: …]`)을 `strip_meta` 로 지운다. 마지막 표시 뒤의 글을 남기고, 그 글이 비면 가까운 앞 글을 남긴다
 - `strip_meta` 는 대괄호 안이 영문 혼잣말 낱말(`_META_NOTE`)로 시작하고 한글이 없을 때만 지운다. 상태창 글(`[관리자 권한 …]`)은 지나간다
@@ -697,6 +698,7 @@
 - 쇠맛을 줄이는 쓰기 규칙: 블록 차례 한 줄 `priority_line`
 - 문체 분석 요청 `style_prompt` 은 효과음 표기 칸(`sound_effects`)을 묻고, 원문에서 센 효과음 줄 요약(`sfx_note`)을 붙인다
 - `style_prompt` 은 dos · pacing 에 '화마다' · '장면마다 한 번 이상' 같은 빈도 규칙과 화마다 정해진 순서의 구성을 적지 말라고 적는다(웹소설 일감 12)
+- `style_prompt` 은 장치 최소 간격 `every` 를 0 으로 두라고 적는다. 간격은 작가가 정한다(웹소설 일감 12, 정할 것 19)
 - 문체 대화 요청 `style_chat_prompt` 에는 그런 줄을 넣지 않는다. 실측(2026-11-14)에서 빈도 줄 수는 그대로였고 줄 있는 판만 응답 실패가 늘었다(`docs/webnovel/specs/12-rate-floor.md`)
 - 이번 화 플롯은 쓰기 · 검수(`check_material`) · 상태 변경안(`state_prompt`) · 부분 수정(`passage_prompt`)이 모두 `write_plot` 으로 넣는다(라벨 모양이 아닌 예전 `emotional_shift` 를 뺌). 플롯 화면 · 흡입력 판정은 그대로
 - `write_plot(memo=)` 는 쓰기 재료 조율의 조율 메모(`coord.memo`)가 있으면 summary · events · ending_hook 을 그것으로 바꾼다
