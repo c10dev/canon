@@ -1,6 +1,6 @@
 # 10. 인물 표지
 
-상태: 진행 (claude/cast-marks-22fd2d) · 계획: [plan.md](../plan.md) 의 10번 · 먼저: 11
+상태: 진행 (claude/cast-marks-22fd2d, [#538](https://github.com/c10dev/canon/pull/538)) · 계획: [plan.md](../plan.md) 의 10번 · 먼저: 11
 
 ## 목표
 
