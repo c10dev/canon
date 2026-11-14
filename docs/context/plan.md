@@ -18,7 +18,7 @@ RisuAI 에서 빌려 오기로 한 생각(로어북식 조건부 넣기(활성�
 | 2 | 3 | 프롬프트 보기 강화와 블록 설정 (끄고 켜기 · 블록 예산, 장편만) | 끝 ([#429](https://github.com/c10dev/canon/pull/429) 머지) | [03-prompt-view.md](specs/03-prompt-view.md) | — |
 | 3 | 6 | 정규식 규칙 묶음 (경고 · 고침) | 끝 ([#446](https://github.com/c10dev/canon/pull/446) 머지) | [06-regex-rules.md](specs/06-regex-rules.md) | — |
 | 3 | 6b | 대화 에이전트의 정규식 규칙 제안 (작가가 적용) | 끝 ([#459](https://github.com/c10dev/canon/pull/459) 머지) | [06b-rule-propose.md](specs/06b-rule-propose.md) | 6 |
-| 4 | 4 | 다른 이름 채우기 (인물 다른 이름 칸, 요소 부분 이름, AI 가 제안하고 작가가 적용) | 진행 (claude/alias-fill, #468): 확인 (나) 요소 낭비 50.8% → 16.9% | [04-key-suggest.md](specs/04-key-suggest.md) | — |
+| 4 | 4 | 다른 이름 채우기 (인물 다른 이름 칸, 요소 부분 이름, AI 가 제안하고 작가가 적용) | 끝 ([#468](https://github.com/c10dev/canon/pull/468) 머지): 확인 (나) 요소 낭비 50.8% → 16.9% | [04-key-suggest.md](specs/04-key-suggest.md) | — |
 | 5 | 7 | 선언형 규칙 (상태 조건으로 항목 넣기 · 상태 변경 제안), 필요한 만큼의 `Activation` 포함 | 설계 | [07-rules.md](specs/07-rules.md) | — |
 | 6 | 5 | CBS 읽기 매크로 (값만 읽음) | 설계 | [05-macros.md](specs/05-macros.md) | — |
 | 7 | 12 | 프롬프트 관리 페이지 (갈래별 · 주제별 보기, 실험 판) | 진행: 12a 읽기 페이지 끝 ([#472](https://github.com/c10dev/canon/pull/472) 머지), 12b 실험 판 (claude/prompt-sets) | [12-prompt-catalog.md](specs/12-prompt-catalog.md) | 3 |
