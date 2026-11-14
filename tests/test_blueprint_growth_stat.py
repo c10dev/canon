@@ -87,6 +87,8 @@ def test_stat_names_skip_list_and_inventory_items():
     p.stat_log.append(StatRecord(episode=2, character_id="hero", name="명성", value="10"))
     assert blueprint.stat_names(p, "hero") == ["레벨", "명성"]  # 지금 상태창 차례, 그 뒤 기록에만 있는 이름
     assert blueprint.stat_names(p, "ally") == []
+    next(x for x in p.states if x.character_id == "hero").stats.append(StatValue(name="마법 공격력", value="120"))
+    assert blueprint.stat_names(p, "hero") == ["레벨", "마법 공격력", "명성"]  # 값이 수면 '마법' 이 이름에 들어도 수치 항목
 
 
 def test_check_keeps_stat_names_and_refuses_empty_values():

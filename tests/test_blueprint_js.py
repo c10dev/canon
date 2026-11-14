@@ -420,3 +420,7 @@ def test_stat_line_pick_view_and_keys():
     same = "!!bpAbSame(S.project.blueprint, { character: 'a', ability: '레벨', stat: '', grade: '15' })"
     assert _run(same, p) is False  # 도감 항목 줄과 수치 줄은 다른 줄 (서버 _same_plan)
     assert _run("bpAbSame(S.project.blueprint, { character: 'a', ability: '레벨', stat: '레벨', grade: '(15)' }).id", p) == "ap-1"
+    rows = [{"character": "a", "ability": "레벨", "stat": "레벨", "grade": "Lv10", "condition": "", "from_ep": 2, "to_ep": 2, "evidence": []}]
+    drafts = {"a|draft": {"character": "a", "start": 1, "end": 600, "mode": "draft", "reply": "", "abilities": rows, "job": "j1"}}
+    html = _run("viewBlueprint()", p, {"bpSel": "@ability", "bpAbDrafts": drafts})
+    assert '<span class="chip warn">도감에 없음</span>' not in html and "스킬 도감에 없는 이름이" not in html  # 제안의 수치 줄은 도감 경고를 세지 않는다

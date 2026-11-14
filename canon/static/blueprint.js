@@ -600,7 +600,7 @@ function bpAbDraftCard() {
     d.codexPicks ||= (d.codex || []).map(() => true);
     n += d.abilities.length;
     drafted += (d.codex || []).filter((c) => !bpAbKnown(c.name)).length;
-    unknown += d.abilities.filter((x) => !bpAbKnown(x.ability)).length;
+    unknown += d.abilities.filter((x) => !x.stat && !bpAbKnown(x.ability)).length;
     return `<div class="bp-dir"><div class="between"><h3>${esc(bpWho(d.character))} <span class="small">${d.mode === 'draft' ? 'AI가 짠 줄' : 'AI가 뽑은 줄'} · ${d.start}~${d.end}화</span></h3>
         <button type="button" class="btn small" data-action="bpAbDraftDrop" data-arg="${esc(bpAbDraftKey(d))}">버리기</button></div>
       ${d.reply ? `<p class="small">${esc(d.reply)}</p>` : ''}

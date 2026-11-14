@@ -746,11 +746,12 @@ def stat_ok(want: str, have: str) -> bool:
 
 def stat_names(p: Project, cid: str) -> list[str]:
     """인물 하나의 상태창 수치 항목 이름: 지금 상태창 차례, 그 뒤 기록에만 있는 이름. 도감과 잇는 목록 항목(abilities.list_stats)과 인벤토리는 뺀다.
-    설계도 화면의 항목 고르기 · AI 제안 정리 · 경고가 같이 쓴다."""
+    단 값(지금 값이나 기록 값)이 수인 항목은 목록 항목 낱말이 이름에 들어도 남긴다. 설계도 화면의 항목 고르기 · AI 제안 정리 · 경고가 같이 쓴다."""
     lists = abilities.list_stats(p)
     st = p.state_of(cid)
-    names = [s.name for s in (st.stats if st else [])] + [r.name for r in p.stat_log if r.character_id == cid]
-    return [n for n in dict.fromkeys(names) if n not in lists and not any(w in n for w in statwin.INVENTORY)]
+    rows = [(s.name, s.value) for s in (st.stats if st else [])] + [(r.name, r.value) for r in p.stat_log if r.character_id == cid]
+    num = {n for n, v in rows if statwin._amount(v)}  # 값이 수인 항목은 이름에 '마법' · '능력' 이 들어도 수치 항목이다 ('마법 공격력 120')
+    return [n for n in dict.fromkeys(n for n, _ in rows) if (n not in lists or n in num) and not any(w in n for w in statwin.INVENTORY)]
 
 
 def _stat_got(p: Project, x: AbilityPlan) -> Optional[int]:
