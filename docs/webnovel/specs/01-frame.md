@@ -1,6 +1,6 @@
 # 01. 이야기 틀 칸
 
-상태: 진행 (claude/story-frame) · 계획: [plan.md](../plan.md) 의 1번 · 먼저: —
+상태: 진행 (claude/story-frame, [#527](https://github.com/c10dev/canon/pull/527)) · 계획: [plan.md](../plan.md) 의 1번 · 먼저: —
 
 ## 목표
 
