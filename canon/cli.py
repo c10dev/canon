@@ -86,7 +86,7 @@ from pathlib import Path
 from . import (address, archetypes, autorun, branches, cast, charlog, dynamics, elements, features, genres, illust, library, logline, metrics, naming, pipeline, prompts, publish, research, store,
                storylines, updater, usage)
 from .llm import dump, get_llm
-from .schema import FINDING_STATUS, SEVERITY, ConsistencyReport, HeatArcPlan, HeatProposal, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
+from .schema import FINDING_STATUS, FRAMES, SEVERITY, ConsistencyReport, HeatArcPlan, HeatProposal, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
 from . import abilities, anchor, atlas, blocktrial, findings, stattrial, foreshadows, setupchat, statwin, timeline
 from . import agent_style, birth, cue, heatplan, jobs, labstats, play, regexrules, sent, soelab, tofix
 from .schema import ArcProposal, ChatScope, Deadline, MapPlace, StatValue, StateDeltaAI, StoryArc, to_delta
@@ -155,8 +155,11 @@ def cmd_new(a: argparse.Namespace) -> None:
         words_per_episode=int(ask("화당 분량(자)", "5000") if a.interactive else 5000),
         form="serial" if a.serial else "short",
         arc_length=a.arc_length or 0,
+        frame=a.frame or "drama",
     )
     p = Project(meta=meta)
+    if not a.frame and genres.frame_hint(genre_ids):
+        print(f"고른 장르에는 이야기 틀 '{FRAMES['webnovel']}'을 권해요. 그렇게 만들려면 --frame webnovel을 붙이거나 설정 화면에서 고르세요.")
     if a.interactive:
         hero = ask("주인공 이름과 한 줄 설명 (예: 채은 - 사라진 오빠를 찾는 고등학생)")
         if hero:
@@ -2737,6 +2740,7 @@ def _plan_commands(sub, add) -> None:
     sp.add_argument("--no-suggest", action="store_true")
     sp.add_argument("-i", "--interactive", action="store_true", help="톤, 분량, 주인공까지 질문")
     sp.add_argument("--serial", action="store_true", help="장편 연재: 부 → 아크 → 화로 나눠 아크씩 기획")
+    sp.add_argument("--frame", choices=list(FRAMES), default="", help="이야기 틀: drama 드라마식(기본) / webnovel 웹소설식")
     sp.add_argument("--arc-length", type=int, default=0, help="장편: 아크 하나의 기본 화수 (기본은 AI 가 정함)")
     add("suggest", cmd_suggest)
     sp = add("names", cmd_names)

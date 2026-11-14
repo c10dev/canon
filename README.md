@@ -416,6 +416,7 @@ python -m canon check 등대 3 --keep f2 --note "일부러"  # 검수 지적을 
 
 ```bash
 python -m canon new 탑 -i --serial --episodes 300 --genre "현대판타지"   # 장편 연재로 시작 (--arc-length 로 아크 길이 기본값)
+python -m canon new 탑 -i --serial --frame webnovel                    # 이야기 틀을 웹소설식으로 (기본은 드라마식, 지금은 값만 저장)
 python -m canon series 탑                  # 1. 부 계획: 작품 전체를 부 2~5개로 (부마다 목표, 큰 전환, 아크 아이디어)
 python -m canon nextarc 탑                 # 2. 다음 아크 하나만 기획 (자기 기승전결, 갈등, 회수할 떡밥, 새 인물)
 #    --len 25: 길이 지정, --note "라이벌 등장": 요청, --redo: 아직 안 쓴 마지막 아크 다시 기획

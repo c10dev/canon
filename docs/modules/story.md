@@ -469,6 +469,7 @@
 - 장르 목록(`CATALOG`)과 장르별 안내
 - 프롬프트의 장르 안내(`guide`, 수위 지시는 넣지 않는다)
 - 설정 화면의 장르별 로그라인 예시(`Genre.logline`)
+- 장르가 권하는 이야기 틀 `Genre.frame`(현대 판타지 · 판타지 · 무협 · 라이트노벨 · 회귀 · 빙의는 `webnovel`)과 `frame_hint`: 권하기만 하고 `Meta.frame` 을 바꾸지 않는다
 
 ### `canon/heatplan.py`
 

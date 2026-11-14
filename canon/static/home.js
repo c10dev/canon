@@ -783,6 +783,8 @@ function syncGenre() {
   const box = $('#genre-picker');
   if (box) box.outerHTML = genrePicker();
   else render();
+  const frame = $('#frame-field');  // 장르가 바뀌면 추천 칩이 달라진다
+  if (frame && m !== S.newMeta) frame.outerHTML = frameField();
 }
 
 function genreGuide(g) {
@@ -806,11 +808,35 @@ function genrePicker() {
     ${picked.length ? `<div class="genre-guides">${picked.map(genreGuide).join('')}</div>` : ''}</div>`;
 }
 
+// 이야기 틀 (Meta.frame, schema.FRAMES). 장르가 권하는 틀에는 추천 칩만 단다 (genres.frame_hint). 값은 작가가 고른다
+const FRAMES = [['drama', '드라마식'], ['webnovel', '웹소설식']];
+const FRAME_WHY = '드라마식은 갈등이 커지며 끌고 가는 틀이에요. 웹소설식은 막히는 구간을 짧게 두고 보상을 자주 주는 틀이에요. 지금은 고른 값만 저장해요. 아크와 플롯 기획은 아직 이 값을 따르지 않아요.';
+const frameHint = (m) => ((m.genres || []).some((id) => (genreById(id) || {}).frame === 'webnovel') ? 'webnovel' : '');
+
+/** 이야기 틀 고르기. 설정 화면 기본 정보와 설정 마법사의 '제목 · 장르' 단계에 둔다 (새 작품 칸에는 없다) */
+function frameField() {
+  const m = P().meta;
+  const cur = m.frame || 'drama';
+  const rec = frameHint(m);
+  const tip = rec && rec !== cur ? '<span class="chip ai">장르에 맞춰 추천</span>' : '';
+  return `<div class="field" id="frame-field"><span class="label-text">이야기 틀${help(FRAME_WHY, '이야기 틀 설명 보기')}</span>
+    <div class="row"><div class="seg" role="group" aria-label="이야기 틀">${FRAMES.map(([k, l]) => `<button type="button" aria-pressed="${cur === k}" data-action="setFrame" data-arg="${k}">${l}</button>`).join('')}</div>${tip}</div></div>`;
+}
+
 function adultCheck(attrs) {
   return `<label class="check-row"><input type="checkbox" ${attrs}><span><strong>성인물</strong> <span class="small">성인 독자 대상</span>${help('끄면 노골적인 성적 묘사와 과도한 잔혹 묘사를 피하도록 지시해요.')}</span></label>`;
 }
 
 Object.assign(actions, {
+  /** 이야기 틀 고르기 (Meta.frame). 다른 설정 칸처럼 저장 버튼으로 저장한다 */
+  setFrame(k) {
+    if ((P().meta.frame || 'drama') === k) return;
+    P().meta.frame = k;
+    markDirty();
+    const box = $('#frame-field');
+    if (box) box.outerHTML = frameField();
+    $(`#frame-field [data-arg="${k}"]`)?.focus({ preventScroll: true });
+  },
   /** 장편 스냅샷 모두 남기기 켜기 · 끄기 (Settings.keep_snapshots). 바로 서버에 저장한다 */
   async toggleKeepSnapshots() {
     const on = !P().settings.keep_snapshots;

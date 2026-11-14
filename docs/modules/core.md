@@ -115,6 +115,7 @@
 - `update`(`-y` 없이)는 이미 있는 확정 사실과 비슷한 새 사실(`StateDelta.fact_near`)도 옛 사실과 나란히 보여 주고 묻는다. 기본은 빼고 `d.dismissed` 에 남긴다(`_ask_near_facts`)
 - `update -y` 는 비슷한 새 사실을 반영하지 않고 빼 둔 수를 알린다(`features.hold`)
 - 장편(`new --serial`)은 `arc` 대신 `series` 를 한 번 부른다
+- `new --frame drama|webnovel` 은 이야기 틀(`Meta.frame`, 기본 `drama`)을 정한다. 주지 않았는데 고른 장르가 웹소설식을 권하면 한 줄로 알린다
 - 장편은 아크마다 `nextarc` → `plot` → `confirm` → `run` → `recap` 을 되풀이한다
 - `auto --stop` 은 다른 곳(웹 서버)에서 도는 실행이면 중지를 청했다고 알린다(`autorun.elsewhere`)
 - 명령별 쓰임

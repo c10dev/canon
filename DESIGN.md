@@ -26,6 +26,7 @@ AI 로 소설을 길게 쓸수록 인물 말투, 관계, 심리, 복선, 문체�
 | 영역 | 모델 | 내용 | 바뀌는 시점 |
 |---|---|---|---|
 | 기본 정보 | `Meta` | 형식(`form`: short/serial), 아크 길이 기본값(`arc_length`), 제목, 장르(`genres`: 장르 id 목록, `genre`: 표시용 이름), 성인물 여부(`adult`), 로그라인(`logline`, 다섯 칸 `logline_parts`), 주제, 톤(`tone`, 다이얼 `tone_dials`), 총 화수, 화당 분량 | 설정 단계 |
+| 이야기 틀 | `Meta.frame` | 드라마식(`drama`, 기본) · 웹소설식(`webnovel`). 작가가 설정 화면이나 `new --frame` 으로 고른다. 장르는 틀을 권하기만 한다(`Genre.frame`). 2026-11-14 에는 값만 저장하고 프롬프트에 넣지 않는다(`docs/webnovel/`) | 설정 단계 |
 | 세계관 | `WorldSetting` | 배경, 시대, 깨면 안 되는 규칙, 장소, 이름 스타일(`name_style`, 비면 자동 감지), 이름 규칙(`name_rules`) | 설정 단계 |
 | 인물 (불변) | `Character` | 나이, 성별, 성격, 배경, 목표, 결핍, **말투(speech_style)**, 시점 화의 서술 말투(`narration_voice`), 비밀, 아크, 등장 비중(`tier`: main/support/minor), 처음 나온 화(`first_ep`), 프롬프트에 넣기(`context`: auto/always/off, 작가 전용이라 AI 응답 형식과 프롬프트 직렬화에서 뺀다) | 설정 단계, 장편은 새 인물 승인 때. 본문이 바꾼 설정은 작가가 고른 설정 바꾸기 제안으로 |
 | 설정 변경 기록 | `SettingRecord` (`setting_log`), `SettingChange` (`setting_held`) | 바뀐 화, 칸, 전후 값, AI(승인한 제안) · 작가(1화 반영 뒤 설정 화면 수정), 이유, 근거 문장. 자동 집필이 남겨 둔 제안 | 승인 · 설정 저장 때 |
