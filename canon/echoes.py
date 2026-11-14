@@ -49,7 +49,7 @@ def _canon_text(p) -> str:
     조사를 뗀 구절이 이 안에 그대로 있으면 뺀다. 예: '왼쪽 허벅지 안쪽의' 는 사실 '왼쪽 허벅지 안쪽에 작은 점이 있다' 에 있다."""
     parts = list(p.facts)
     parts.append(json.dumps(p.world.model_dump(), ensure_ascii=False))
-    parts += [json.dumps(c.model_dump(), ensure_ascii=False) for c in p.characters]
+    parts += [json.dumps(c.model_dump(exclude={"marks"}), ensure_ascii=False) for c in p.characters]  # 표지는 본문에서 거둔 구절이라 뺀다
     parts += [json.dumps(s.model_dump(), ensure_ascii=False) for s in p.states]
     parts += [f"{e.name} {' '.join(e.aliases)} {e.description}" for e in p.elements]
     return _stems(_WORD.findall("\n".join(parts)))

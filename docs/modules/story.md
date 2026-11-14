@@ -378,6 +378,7 @@
 - 신체 프로필을 요청에 넣을 인물 `body_cast(p, n)`: 그 화 플롯 인물 가운데 `blueprint.exposed` 이거나 특징 낱말(`body_items`)이 플롯 · 연출 지시에 그대로 나온 인물
 - `body_cast` 는 미성년 인물(`is_minor_age`)과 체형 · 특징이 빈 인물을 뺀다. 넣는 칸은 체형 · 특징뿐이다
 - 명령줄 `cast` 출력
+- 명령줄 `cast` 출력은 인물 표지가 있으면 설정 줄 뒤에 표지 줄을 더한다(`charmarks.lines`, 찾지 못한 구절은 '본문에서 못 찾음')
 - 반영 때 본문에 이름이 나오고 상태 변경안이 다룬 인물을 그 화 등장 인물에 붙이기(`cast_to_add`, features 훅 `clean_delta` · `apply_delta` · `revert`, 기록 `StateDelta.cast_added`, 상태 승인 화면은 `review.js` `castAdd`)
 - LLM 호출 없음
 
@@ -392,6 +393,20 @@
 - 기록은 프롬프트에 넣지 않는다
 - LLM 호출 없음
 - 화면은 `static/charlog.js`
+
+### `canon/charmarks.py`
+
+- 인물 표지(`Character.marks`, `CharMark`): 반영한 화 본문에서 작가가 거둔 말버릇 · 버릇 · 외모 특징 (docs/webnovel/specs/10-marks.md)
+- 더하기 `add` 는 반영한 화(`finalized`)만, 근거 구절이 저장된 본문에 있을 때만 받는다(`elements.find`). 구절은 본문에서 찾은 글 그대로 저장한다
+- 글은 200자(`TEXT_MAX`), 근거 구절은 400자(`QUOTE_MAX`)까지 받는다. 글이 비면 구절을 쓴다
+- 고치기 `edit` 는 갈래와 글만 바꾼다. 거둔 화와 근거 구절은 그대로다
+- 근거 구절이 지금 본문에 있는지 `found` (화면 `cast.js` `castMarkFound` 와 같은 답, `tests/test_char_marks_js.py`)
+- 본문이 바뀌어도 · 반영을 취소해도 · 마지막 화를 지워도 표지를 지우지 않는다
+- 화면 저장(`web._put_locked`)은 디스크의 표지를 인물 id 로 둔다(`keep`). 표지는 `/characters/{cid}/marks` 라우트만 고친다
+- 화 끼워 넣기 · 빼기의 거둔 화 옮기기 `move` (`renumber.move_points`)
+- 표지는 어떤 요청에도 넣지 않는다(`Character._prompt_view`, `prompts.cast_view`, `setup_chat_prompt`, `echoes._canon_text`, `pipeline._quoted`)
+- 설정 변경 기록(`setting_log`)에 남기지 않는다
+- LLM 호출 없음
 
 ### `canon/comfy.py`
 
@@ -656,6 +671,7 @@
 - 이 작품의 문체로 고른 화 번호도 옮긴다(`anchor.move`)
 - 설계도의 화 범위도 옮긴다(`blueprint.move`, 알림 '설계도 줄 n개')
 - 완급 계획(단편 `Project.heat` · 장편 `StoryArc.heat`)의 화 번호와 뒤집힘의 심은 화 · 들킨 화도 옮긴다(`move_heat`, 알림 '완급 계획 줄 n개')
+- 인물 표지의 거둔 화도 옮긴다(`charmarks.move`, 알림 '인물 표지 n개'). 뺀 화를 가리키는 표지도 지우지 않는다
 - `move_heat` 는 뺀 화의 완급 계획 줄을 지운다. 새 화의 줄은 범위를 옮긴 뒤 `pipeline._fit_heat` 가 `heatplan.fit` 으로 채운다
 - 화면은 `static/insert.js` (넣을 수 있는 자리 `lastFixed` 는 `last_fixed` 와 같은 규칙, `tests/test_insert_js.py`)
 - `insert.js` 의 화 지우기 버튼을 막은 이유(AI 작업 중, 자동 집필 중, 스냅샷 없음)를 버튼 아래 글로도 보인다
@@ -911,6 +927,10 @@
     - AI 제안 동작은 `research.js` `bodyAI`
     - 신체 프로필 안내는 몸이 드러나는 화에만 AI에 넣는다고 알린다(미성년 인물은 넣지 않는다고)
   - 타임라인(앞뒤 `CAST_TL_NEAR` 화)
+  - 표지 카드 `castMarksCard`(설정 카드 뒤, 표지가 없으면 그리지 않음): 줄마다 갈래 · 글 · 화 · 근거 구절(접음) · '본문에서 못 찾음'
+  - 표지 고치기 `castMarkEdit` · `castMarkSave`(갈래 · 글, `PUT …/marks/<표지>`) · 지우기 `castMarkDel`(확인 창, `DELETE`). 저장하지 않은 작품 변경을 먼저 저장한다
+- 고른 부분 도구(`passage.js` `showTool`)를 감싸 반영한 화의 메뉴에 '인물 표지로 거두기'(`selMark`)를 붙이고, mode `mark` 면 거두기 칸(`castMarkToolHtml`: 인물 · 갈래 · 한 줄)을 그린다
+- 거두기 `castMarkTake` 는 저장하지 않은 본문 · 작품 변경을 먼저 저장하고 `POST …/characters/<인물>/marks` 를 부른다. 처음 인물은 `castMarkWho`
 - 두 사람 쪽 `castPairDetail`(추이 그래프 · 보정 · 호칭)
 - 관계 보정 `tieFix` 는 저장하지 않은 변경이 있으면 저장하고 보정할지 먼저 묻는다
 - 등장표

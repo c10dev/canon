@@ -120,6 +120,16 @@ class AliasSuggestion(BaseModel):
     recent: SkipJsonSchema[int] = Field(0, description="화 수 세기가 본 최근 쓴 화 수 (aliases.hits)")
 
 
+class CharMark(BaseModel):
+    """인물 표지: 승인한 본문에서 작가가 거둔 말버릇 · 버릇 · 외모 특징 한 줄 (canon/charmarks.py).
+    작가만 채우고 어떤 요청에도 넣지 않는다 (docs/webnovel/specs/10-marks.md)."""
+    id: str
+    kind: Literal["말버릇", "버릇", "외모"] = "버릇"
+    text: str = Field("", description="작가가 적은 한 줄")
+    episode: int = Field(0, description="거둔 화")
+    quote: str = Field("", description="근거가 된 본문 구절. 거둘 때 본문에서 찾은 글 그대로")
+
+
 class Character(BaseModel):
     id: str = Field(description="영문 소문자 식별자, 예: hero, rival")
     name: str
@@ -149,16 +159,19 @@ class Character(BaseModel):
     # 본문에서 다르게 부르는 말 (두 글자 이상). 이름과 같이 '이 인물이 나온다'를 찾는 데만 쓴다 (context.name_pattern).
     # 작가가 칸에 적거나 다른 이름 제안(canon/aliases.py)에서 골라 넣는다. 설정 단계 응답 형식이 채우지 않게 JSON 스키마에서 뺀다
     aliases: SkipJsonSchema[list[str]] = Field(default_factory=list)
+    # 인물 표지: 반영한 화 본문에서 작가가 거둔 것 (canon/charmarks.py). 기록으로만 쓰고 요청에 넣지 않는다. 표지 라우트만 고친다
+    marks: SkipJsonSchema[list[CharMark]] = Field(default_factory=list)
 
     @model_serializer(mode="wrap")
     def _prompt_view(self, handler: SerializerFunctionWrapHandler, info: SerializationInfo):
-        """프롬프트용 직렬화(llm.dump 의 context prompt)에서는 신체 프로필, 넣기 방식, 다른 이름을 뺀다. 저장과 화면 응답은 그대로.
+        """프롬프트용 직렬화(llm.dump 의 context prompt)에서는 신체 프로필, 넣기 방식, 다른 이름, 표지를 뺀다. 저장과 화면 응답은 그대로.
         압력(pressure)은 비었으면 뺀다. 압력을 적지 않은 작품의 요청 글이 칸을 더하기 전과 글자까지 같게 한다."""
         data = handler(self)
         if isinstance(data, dict) and info.context and info.context.get("prompt"):
             data.pop("body", None)
             data.pop("context", None)
             data.pop("aliases", None)
+            data.pop("marks", None)
             if not data.get("pressure", "x"):
                 data.pop("pressure", None)
         return data

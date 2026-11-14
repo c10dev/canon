@@ -504,7 +504,7 @@ def setup_chat_prompt(p: Project, message: str, mode: str = "", history_lines: l
 
     begun = setupchat.started(p)
     # 다른 이름은 채운 인물만 보인다 (edit_setup 이 고칠 수 있게. 빈 인물은 전과 같은 글)
-    chars = [c.model_dump(exclude={"narration_voice", "first_ep", "body", "context"} | (set() if c.aliases else {"aliases"})
+    chars = [c.model_dump(exclude={"narration_voice", "first_ep", "body", "context", "marks"} | (set() if c.aliases else {"aliases"})
                           | (set() if c.pressure else {"pressure"})) for c in p.characters]
     relations = [r.model_dump(exclude={"a_view", "b_view"} if begun else set()) for r in p.relationships]
     written = sorted((e for e in p.episodes if e.text.strip()), key=lambda e: e.plot.number)
@@ -7060,8 +7060,9 @@ def cast_view(cs: list[Character]) -> list[dict]:
     """본문 · 검수에 넣는 인물 설정. 서술 말투는 그 인물이 시점 인물인 화에만 시점 블록으로 넣는다 (다른 화에 옮아오지 않게).
     신체 프로필(body)은 인물 카드에만 보이는 작가 메모라 넣지 않는다.
     다른 이름(aliases)은 '이 인물이 나온다'를 찾는 데만 쓰고 넣지 않는다 (고칠 때마다 앞 블록 캐시가 깨지지 않게).
-    압력(pressure)은 적은 인물만 넣는다 (Character._prompt_view)."""
-    return [c.model_dump(exclude={"narration_voice", "body", "context", "aliases"}, context={"prompt": True}) for c in cs]
+    압력(pressure)은 적은 인물만 넣는다 (Character._prompt_view).
+    표지(marks)는 인물 화면의 기록이라 넣지 않는다 (docs/webnovel/specs/10-marks.md)."""
+    return [c.model_dump(exclude={"narration_voice", "body", "context", "aliases", "marks"}, context={"prompt": True}) for c in cs]
 
 
 SYSTEM_VOICE = system_prompt(

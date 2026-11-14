@@ -2292,6 +2292,8 @@ def _quoted(p: Project, target: str, n: int, quote: str) -> bool:
     setting = p.model_dump(include={"meta": True, "world": True, "characters": True, "relationships": True, "secrets": True,
                                     "elements": {"__all__": {"name", "aliases", "description"}},
                                     "parts": True, "story_arcs": {"__all__": {"title", "goal", "conflict", "payoff", "summary"}}})
+    for c in setting["characters"]:  # 표지(marks)는 본문에서 거둔 구절이라 설정 근거로 보지 않는다
+        c.pop("marks", None)
     return bool(elements.find("\n".join(_strings(setting)), quote))
 
 
@@ -2426,7 +2428,7 @@ def _renumber_notes(before: Project, after: Project, counts: dict[str, int]) -> 
     if before.meta.target_episodes != after.meta.target_episodes:
         notes.append(f"총 화수 {before.meta.target_episodes}화 → {after.meta.target_episodes}화.")
     labels = {"foreshadows": "복선", "elements": "인과율 요소", "storylines": "이야기 줄기", "characters": "인물 첫 등장 화", "blueprint": "설계도 줄",
-              "heat": "완급 계획 줄"}
+              "heat": "완급 계획 줄", "marks": "인물 표지"}
     also = [f"{labels[k]} {v}개" for k, v in counts.items() if v]
     if also:
         notes.append(" · ".join(also) + "의 화 번호도 함께 옮겼어요.")

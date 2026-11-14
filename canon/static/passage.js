@@ -236,7 +236,7 @@ function caretXY(ta, pos) {
 
 /** 고른 부분 끝 줄 바로 아래에 둔다. 화면 아래로 넘치면 고른 첫 줄 위에 둔다. 고치기 칸은 넓어서 왼쪽을 본문 칸에 맞춘다. */
 /** 휴대폰 폭(900px 이하)에서 메뉴와 직접 수정 칸은 고른 문장 아래가 아니라 화면 아래에 붙인다 (app.css .sel-tool.docked) */
-const toolDocked = (t) => window.innerWidth <= BP.narrow && (t.mode === 'menu' || t.mode === 'edit');
+const toolDocked = (t) => window.innerWidth <= BP.narrow && (t.mode === 'menu' || t.mode === 'edit' || t.mode === 'mark');  // mark: 인물 표지 거두기 칸 (cast.js)
 
 function placeTool(ta, t) {
   const el = toolEl();

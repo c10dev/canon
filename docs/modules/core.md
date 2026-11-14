@@ -596,6 +596,7 @@
 - 한국어 출력 줄을 받지 않는 지시(영어 검수, 영어 태그, 목록 id 를 쓰는 칸이 있는 것, A~H 글자로 답하는 판단기)는 그 시험의 `NO_KOREAN_LINE` 에 까닭과 함께 적는다
 - 본문 쓰기 지시는 설정 · 사실을 '절대' 같은 강한 말 대신 이유('앞 화와 이어져야 하므로')를 붙여 지키게 한다
 - `cast_view` 는 인물 다른 이름(`aliases`)을 빼서 앞 블록 '# 인물 설정' 캐시를 지킨다. 인물의 프롬프트용 직렬화(`_prompt_view`)도 뺀다
+- `cast_view` · `setup_chat_prompt` 와 인물의 프롬프트용 직렬화는 인물 표지(`marks`)를 뺀다. 표지를 적은 작품의 요청 글은 적지 않은 작품과 같다(`tests/test_char_marks.py`)
 - `cast_view` 는 압력(`pressure`)을 적은 인물만 그 칸을 넣는다. 자리는 `wound` 와 `speech_style` 사이다(앞 블록 '# 인물 설정')
 - 압력을 적지 않은 작품의 쓰기 요청은 압력 칸을 더하기 전과 글자까지 같다(`tests/test_char_pressure.py`)
 - `setup_chat_prompt` 는 다른 이름을 채운 인물만 `aliases` 칸을 보인다(빈 인물은 전과 같은 글)
@@ -880,6 +881,7 @@
 - 인물 프롬프트 넣기(`Character.context`: auto 비중대로 · always 늘 · off 이름만)도 작가 전용이라 같은 방식으로 빠진다
 - 인물 다른 이름(`Character.aliases`)도 AI 응답 형식(`SkipJsonSchema`)과 프롬프트 직렬화에서 빠진다. 설정 단계 응답이 채우지 않고 다른 이름 제안으로만 AI 가 낸다
 - `CharField` 에 `aliases` 가 있어 설정 도우미 · `edit_setup` 이 목록(`items`)으로 고친다
+- 인물 표지(`Character.marks: list[CharMark]`)는 `SkipJsonSchema` 라 AI 응답 형식에 없고 프롬프트 직렬화에서 빠진다. 기본값이 빈 목록이라 옛 작품이 읽힌다(`canon/charmarks.py`)
 - 인물 압력(`Character.pressure`)은 무엇을 지키려 하는지, 흔들리면 어디로 가는지 한두 문장이다. 기본값이 빈 글이라 옛 작품이 읽힌다
 - 압력이 비면 프롬프트용 직렬화(`_prompt_view`)에서 빠진다
 - `CharField` 에 `pressure` 가 있어 설정 도우미가 고친다. 무작위 출생 배경(`BirthSketch.pressure`)도 채운다
@@ -1175,6 +1177,7 @@
 - `GET /` 는 index.html 의 `/static/*.js` 태그를 내용 해시가 붙은 묶음 하나(`/bundle/<해시>.js`, 오래 캐시)로 바꿔 보낸다(`_bundle`). 파일을 고치면 해시가 바뀐다
 - 화면의 작품 저장은 `PATCH /api/projects/{name}`(`ProjectPatch`): 바뀐 최상위 칸만 받고 보내지 않은 칸은 디스크 것을 쓴다. 그 뒤는 `put_project` 와 같다
 - 작품 저장(PUT · PATCH)은 지금 상태를 고친 기록(`state_log`)을 디스크 것으로 둔다. 그 기록은 `PUT /api/projects/{name}/state/{cid}`(`state_set`, `stateedit.set_state`)만 고친다
+- 작품 저장(PUT · PATCH)은 인물 표지를 디스크 것으로 둔다(`charmarks.keep`). 표지는 `POST · PUT · DELETE /api/projects/{name}/characters/{cid}/marks[/{mid}]`(`add_mark` · `edit_mark` · `delete_mark`)만 고친다
 - `state_set` 은 자동 집필이 도는 중이면 막고(`_not_auto`), 프로젝트 잠금 안에서 읽고 저장한다
 - PATCH 의 `episodes` 에서 `{"$same": 화}` 는 디스크의 그 화다. 디스크에 없는 화면 409
 - 작품 저장(PUT · PATCH)은 디스크 읽기 · `edit_rev` 충돌 검사 · 디스크 칸 지키기 · 저장을 한 번의 `jobs.project_lock` 안에서 한다(`_put_locked` · `_patch_locked`)
