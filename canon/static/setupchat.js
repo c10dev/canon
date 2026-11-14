@@ -7,6 +7,7 @@
 // 칸 순서와 이름 (setupchat.KEY_LABELS · CHAR_LABELS 와 같다)
 const SETUP_KEYS = [
   ['title', '제목'], ['logline.who', '로그라인 · 누가'], ['logline.why', '로그라인 · 무엇 때문에'], ['logline.goal', '로그라인 · 무엇을 하려 하나'],
+  ['logline.edge', '로그라인 · 주인공만 가진 것'], ['logline.appeal', '로그라인 · 독자가 받는 재미'],
   ['logline.block', '로그라인 · 무엇이 막나'], ['logline.stake', '로그라인 · 무엇이 걸렸나'], ['theme', '주제'], ['tone', '톤'], ['notes', '메모'],
   ['world.setting', '배경'], ['world.era', '시대'], ['world.rules', '깨면 안 되는 규칙'], ['world.locations', '장소'], ['world.name_rules', '이름 규칙'],
 ];

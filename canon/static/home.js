@@ -830,8 +830,10 @@ function adultCheck(attrs) {
 Object.assign(actions, {
   /** 이야기 틀 고르기 (Meta.frame). 다른 설정 칸처럼 저장 버튼으로 저장한다 */
   setFrame(k) {
-    if ((P().meta.frame || 'drama') === k) return;
+    const prev = P().meta.frame || 'drama';
+    if (prev === k) return;
     P().meta.frame = k;
+    if (typeof loglineFrameChanged === 'function') loglineFrameChanged(prev);  // 로그라인 칸이 틀을 따른다 (setup.js)
     markDirty();
     const box = $('#frame-field');
     if (box) box.outerHTML = frameField();

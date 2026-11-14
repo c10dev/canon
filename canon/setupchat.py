@@ -31,6 +31,7 @@ TOPIC = "setup"
 # 칸 순서와 이름 (화면 static/setupchat.js 의 SETUP_KEYS 와 같다)
 KEY_LABELS: dict[str, str] = {
     "title": "제목", "logline.who": "로그라인 · 누가", "logline.why": "로그라인 · 무엇 때문에", "logline.goal": "로그라인 · 무엇을 하려 하나",
+    "logline.edge": "로그라인 · 주인공만 가진 것", "logline.appeal": "로그라인 · 독자가 받는 재미",
     "logline.block": "로그라인 · 무엇이 막나", "logline.stake": "로그라인 · 무엇이 걸렸나", "theme": "주제", "tone": "톤", "notes": "메모",
     "world.setting": "배경", "world.era": "시대", "world.rules": "깨면 안 되는 규칙", "world.locations": "장소", "world.name_rules": "이름 규칙",
 }
@@ -268,11 +269,11 @@ def message(p: Project, i: int) -> ChatMessage:
     return msgs[i]
 
 
-def _recompose(p: Project, parts_before, logline_before: str) -> None:
+def _recompose(p: Project, parts_before, logline_before: str, frame_before: str = "drama") -> None:
     """로그라인 칸을 바꿨으면 한 문장도 다시 합친다. 작가가 직접 고친 문장(칸을 합친 것과 다름)과 칸 없이 문장만 있던
     옛 작품의 문장은 덮지 않는다 (화면 updateLogline 과 같은 규칙. 화면에 '칸 내용으로 다시 만들기'가 뜬다)."""
-    if not logline_before.strip() or logline_before == logline.compose(parts_before):
-        p.meta.logline = logline.compose(p.meta.logline_parts)
+    if not logline_before.strip() or logline_before == logline.compose(parts_before, frame_before):
+        p.meta.logline = logline.compose(p.meta.logline_parts, p.meta.frame)
 
 
 def _reseed(p: Project) -> None:
@@ -319,7 +320,7 @@ def apply_revision(p: Project, rev: SetupRevision, parts: list[str]) -> tuple[Se
         if e.key in want:
             _set_key(p, e.key, edit_value(e))
     if any(e.key in want and e.key.startswith("logline.") for e in rev.edits):
-        _recompose(p, before.meta.logline_parts, before.meta.logline)
+        _recompose(p, before.meta.logline_parts, before.meta.logline, before.meta.frame)
     for x in rev.characters:
         c = _char(p, x.id)
         if char_id(x) in want and c is not None:
@@ -380,9 +381,9 @@ def undo_revision(p: Project, rev: SetupRevision, before: SetupBefore, parts: li
             done.append(e.key)
         else:
             kept.append(e.key)
-    if any(k.startswith("logline.") for k in done) and logline_now == logline.compose(parts_now):
+    if any(k.startswith("logline.") for k in done) and logline_now == logline.compose(parts_now, p.meta.frame):
         same = p.meta.logline_parts == before.meta.logline_parts
-        p.meta.logline = before.meta.logline if same else logline.compose(p.meta.logline_parts)
+        p.meta.logline = before.meta.logline if same else logline.compose(p.meta.logline_parts, p.meta.frame)
 
     for r in rev.relationships:  # 새 인물보다 먼저: 이 변경안이 더한 관계가 빠져야 인물을 지울 수 있다
         pid = rel_id(r)

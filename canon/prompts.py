@@ -18,10 +18,11 @@ from pydantic import BaseModel
 from . import context, elements, genres, illust, metrics, naming, storylines
 from .dynamics import VIEWS, describe_relations
 from .logline import josa
+from .logline import view as logline_view
 from .llm import _inline_refs, dump
 from .schema import Birth, Character, ChatMessage, Claim, ConsistencyIssue, ConsistencyReport, Foreshadow, PlayInfo, PlotBatch, Project, Selection, StateDelta, StateDeltaAI, StoryElement
 from .schema import ArcPlan, ArcProposal, CueSheetDraft, HeatArcPlan, HeatArcProposal, HeatProposal, SeriesPlan, StoryboardDraft
-from .schema import PassageRevision, PlotAgentStep, RelStage, SetupRevision, StyleRevision
+from .schema import PassageRevision, PlotAgentStep, RelStage, SetupRevision, SetupRevisionWeb, StyleRevision
 from . import address, blueprint, board, cast, charlog, coord, echoes, foreshadows, heatplan, knows, pairlog, stage, statwin, timeline
 from . import offscreen
 from .maps import prompt as mapprompt
@@ -497,6 +498,20 @@ def setup_session_history(p: Project, turns: list) -> list[str]:
     return out
 
 
+# 설정 대화 edits 키 줄의 막는 것 · 걸린 것 부분. 웹소설 틀은 주인공만 가진 것 · 독자가 받는 재미를 더하고 둘을 선택으로 (docs/webnovel/specs/03-logline.md)
+SETUP_LOGLINE_KEYS = {
+    "drama": "logline.block 무엇이 막나(사람이나 힘), logline.stake 무엇이 걸렸나",
+    "webnovel": ("logline.edge 주인공만 가진 것(회귀 지식, 혼자만 보이는 상태창처럼 주인공에게만 있는 것), "
+                 "logline.appeal 독자가 받는 재미(사이다, 성장, 하렘처럼 독자가 되풀이해 받는 것), "
+                 "logline.block 무엇이 막나(선택), logline.stake 무엇이 걸렸나(선택)"),
+}
+
+
+def setup_schema(p: Project) -> type[SetupRevision]:
+    """설정 대화 응답 형식. 웹소설 틀이면 로그라인 웹소설 칸 키가 더 있는 SetupRevisionWeb (pipeline.revise_setup · brief_request)."""
+    return SetupRevisionWeb if p.meta.frame == "webnovel" else SetupRevision
+
+
 def setup_chat_prompt(p: Project, message: str, mode: str = "", history_lines: list[str] | None = None) -> str:
     """설정 도우미 대화. mode 'options' 면 변경안 대신 방향 여러 안을 청한다.
     history_lines: 대화 기록 줄 (대화 에이전트는 setup_session_history). None 이면 옛 설정 대화(Project.chats 'setup')를 읽는다 (명령줄)."""
@@ -520,7 +535,7 @@ def setup_chat_prompt(p: Project, message: str, mode: str = "", history_lines: l
 {meta_text(p)}
 
 [로그라인 다섯 칸] (위 logline 은 이 칸을 합친 문장)
-{dump(p.meta.logline_parts)}
+{dump(logline_view(p.meta.logline_parts, p.meta.frame))}
 
 [세계관]
 {dump(p.world)}
@@ -551,11 +566,12 @@ def setup_chat_prompt(p: Project, message: str, mode: str = "", history_lines: l
     rel_rule = ("- 1화 상태를 반영한 뒤라 지금 관계는 본문의 관계 사건으로 계산됩니다. 관계는 type, description, goal_conflict 만 고치고 a_view, b_view 는 비웁니다. 관계 수치는 적지 않습니다."
                 if begun else
                 f"- 관계의 a_view(a 가 b 를 보는 방식)와 b_view(b 가 a 를 보는 방식)는 {', '.join(VIEWS)} 중에서 1~2개 고릅니다. 시작 호감은 프로그램이 보는 방식으로 계산합니다.")
+    ll_keys = SETUP_LOGLINE_KEYS.get(p.meta.frame, SETUP_LOGLINE_KEYS["drama"])
     return head + f"""- reply 에는 작가에게 하는 대답을 2~5문장으로 씁니다. 무엇을 왜 바꿨는지, 이야기에 어떤 차이가 생기는지 말합니다. 요청이 모호하면 가장 그럴듯하게 해석해 고치고 어떻게 해석했는지 밝힙니다. 질문만 받았으면 변경 없이 대답만 합니다. 작가에게 더 물어볼 것이 있으면 reply 끝에 짧은 질문 하나를 붙입니다.
 - 작가가 앞서 낸 방향 안 중 하나를 고르거나 섞어 달라고 하면 그 방향으로 변경안을 만듭니다. options 는 비웁니다.
 - 작가의 새 말이 지난 변경안을 가리키면(예: "아까 그 인물 말고", "약점만 다시") 지난 대화에 적힌 그 변경안의 값을 기준으로 고칩니다. 작가가 적용하지 않은 변경안은 지금 설정에 없습니다.
 - 바뀌는 칸만 넣고, 칸마다 바뀐 뒤 값 전체를 씁니다. 작가가 채운 칸은 작가가 바꾸자고 했거나 요청을 이루는 데 꼭 필요할 때만 바꿉니다. 칸을 비우는 변경은 내지 않습니다.
-- edits 의 key: title 제목, logline.who 누가(이름보다 특징이 먼저 보이게), logline.why 무엇 때문에, logline.goal 무엇을 하려 하나('~한다'로 끝나는 눈에 보이는 행동), logline.block 무엇이 막나(사람이나 힘), logline.stake 무엇이 걸렸나, theme 주제(이야기가 끝까지 묻는 질문 하나), tone 톤 문장, notes 메모, world.setting 배경, world.era 시대, world.rules 깨면 안 되는 규칙, world.locations 장소, world.name_rules 이름 규칙. 로그라인은 다섯 칸으로만 고칩니다 (한 문장은 프로그램이 합칩니다). 다섯 칸이 비어 있고 logline 문장만 있으면 로그라인을 고칠 때 그 문장을 다섯 칸으로 나눠 함께 채웁니다.
+- edits 의 key: title 제목, logline.who 누가(이름보다 특징이 먼저 보이게), logline.why 무엇 때문에, logline.goal 무엇을 하려 하나('~한다'로 끝나는 눈에 보이는 행동), {ll_keys}, theme 주제(이야기가 끝까지 묻는 질문 하나), tone 톤 문장, notes 메모, world.setting 배경, world.era 시대, world.rules 깨면 안 되는 규칙, world.locations 장소, world.name_rules 이름 규칙. 로그라인은 다섯 칸으로만 고칩니다 (한 문장은 프로그램이 합칩니다). 다섯 칸이 비어 있고 logline 문장만 있으면 로그라인을 고칠 때 그 문장을 다섯 칸으로 나눠 함께 채웁니다.
 - 글 칸은 text, world.rules · world.locations · world.name_rules 는 items 에 씁니다. 목록은 그대로 둘 항목도 빠짐없이 넣습니다. 빠진 항목은 지워집니다.
 - characters 에는 이미 있는 인물의 바뀌는 칸만 (id, field) 하나씩 넣습니다. field 는 name, role, age, gender, appearance, personality, background, goal, wound, pressure, speech_style, secrets(목록, items), arc 입니다. id 와 서술 말투는 바꾸지 않습니다. speech_style 은 구체적으로 씁니다. pressure 는 무엇을 지키려 하는지, 흔들리면 어디로 가는지 한두 문장입니다.
 - new_characters 에는 작가가 청했거나 요청을 이루는 데 꼭 필요한 인물만, 모든 칸을 채워 넣습니다. id 는 이미 있는 인물과 겹치지 않는 영문 소문자이고 narration_voice 는 비웁니다. gender(남/여)를 적고, 이름은 위 [이름·지명 후보]에서 고르거나 같은 시대와 결로 짓습니다. 다른 인물과 이름의 첫 글자나 끝 글자가 겹치지 않게 합니다.
@@ -6711,7 +6727,7 @@ def brief_request(p: Project, n: int, kind: str = "episode") -> tuple[str, str, 
     if kind == "state":
         return SYSTEM_EDITOR, state_prompt(p, n), StateDeltaAI
     if kind == "setup_chat":  # pipeline.revise_setup (변경안 모드)
-        return SYSTEM_SETUP_CHAT, setup_chat_prompt(p, CHAT_MESSAGE), SetupRevision
+        return SYSTEM_SETUP_CHAT, setup_chat_prompt(p, CHAT_MESSAGE), setup_schema(p)
     if kind == "style_chat":  # pipeline.revise_style (참고할 화 없이)
         from . import pipeline
 
@@ -6876,6 +6892,8 @@ FIELD_IDEAS: dict[str, tuple[str, str]] = {
     "meta.logline_parts.goal": ("무엇을 하려 하나", "주인공이 하려는 눈에 보이는 행동. '~한다'로 끝냄. 예: 완벽한 식을 치러 주려 한다"),
     "meta.logline_parts.block": ("무엇이 막나", "목표를 막는 사람이나 힘. 한 문장, '~다'로 끝냄. 예: 신랑은 그녀를 잊지 못했다고 고백한다"),
     "meta.logline_parts.stake": ("무엇이 걸렸나", "실패하거나 진실을 알면 잃는 것. 한 문장, '~다'로 끝냄. 예: 식이 끝나면 둘 다 다시는 만날 수 없다"),
+    "meta.logline_parts.edge": ("주인공만 가진 것", "회귀 지식, 혼자만 보이는 상태창처럼 주인공에게만 있고 다른 인물에게는 없는 것. 한 문장, '~다'로 끝냄. 예: 게임을 만든 그만 모든 분기와 엔딩을 안다"),
+    "meta.logline_parts.appeal": ("독자가 받는 재미", "사이다, 성장, 하렘처럼 독자가 이 이야기에서 되풀이해 받는 재미. 한 문장, '~다'로 끝냄. 예: 엔딩을 하나 바꿀 때마다 그만 아는 숨은 길이 열린다"),
     "world.setting": ("배경", "이야기가 벌어지는 곳과 그곳의 분위기를 1~3문장으로. 장소, 사회, 이 이야기에만 있는 특징을 함께"),
     # 인물 칸: 화면 경로는 characters.<번호>.<칸>, 키는 번호 자리를 * 로 (idea_key)
     "characters.*.personality": ("성격", "겉으로 보이는 태도와 속마음이 함께 보이게 1~2문장. 원하는 것 · 약점과 이어지게 하고, 형용사 나열 대신 행동으로 드러나게 씀"),
@@ -6926,14 +6944,14 @@ def field_prompt(p: Project, field: str, n: int = 3) -> str:
         now_text = now or "비어 있음"
         keep = "- 지금 값이 있으면 그 생각을 살리되 더 좋게 고친 후보를 하나 이상 넣고, 지금 값과 똑같은 후보는 내지 않습니다."
     exs = [getattr(x, field.rsplit(".", 1)[1]) for g in p.meta.genres if g in genres.BY_ID
-           for x in genres.BY_ID[g].logline] if field.startswith("meta.logline_parts.") else []
+           for x in genres.BY_ID[g].logline if getattr(x, field.rsplit(".", 1)[1])] if field.startswith("meta.logline_parts.") else []
     return f"""아래 작품의 설정 칸 '{label}'에 넣을 후보를 {n}개 제안하세요. 작가가 하나를 골라 칸에 넣습니다.
 
 [작품]
 {meta_text(p)}
 
 [로그라인 다섯 칸]
-{dump(p.meta.logline_parts)}
+{dump(logline_view(p.meta.logline_parts, p.meta.frame))}
 
 [세계관]
 배경: {p.world.setting or "아직 없음"}
