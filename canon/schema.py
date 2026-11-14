@@ -127,10 +127,11 @@ class Character(BaseModel):
     age: str = ""
     gender: str = Field("", description="남 / 여, 정하지 않았으면 빈칸")
     appearance: str = ""
-    personality: str = Field("", description="겉 태도와 속마음이 함께 보이는 성격 1~2문장. 형용사 나열 대신, 어떤 상황에서 어떻게 행동하는지 버릇 하나를 넣는다")
+    personality: str = Field("", description="겉 태도와 속마음이 함께 보이는 성격 1~2문장. 형용사 나열 대신, 어떤 상황에서 어떻게 행동하는지 쓴다")
     background: str = ""
     goal: str = Field("", description="작품 전체에서 원하는 것")
     wound: str = Field("", description="결핍, 트라우마, 약점")
+    pressure: str = Field("", description="안에서 미는 압력 한두 문장: 무엇을 지키려 하는가, 흔들리면 어디로 가는가")
     speech_style: str = Field("", description="말투, 어미, 호칭, 자주 쓰는 표현")
     narration_voice: str = Field("", description="이 인물이 시점 인물인 화의 서술 말투 (서술 어미, 내면 독백 버릇, 자주 쓰는 표현, 예시 문장). "
                                  "작가가 정하거나 서술 말투 제안으로만 채우고, 다른 제안에서는 비워 둔다")
@@ -151,12 +152,15 @@ class Character(BaseModel):
 
     @model_serializer(mode="wrap")
     def _prompt_view(self, handler: SerializerFunctionWrapHandler, info: SerializationInfo):
-        """프롬프트용 직렬화(llm.dump 의 context prompt)에서는 신체 프로필, 넣기 방식, 다른 이름을 뺀다. 저장과 화면 응답은 그대로."""
+        """프롬프트용 직렬화(llm.dump 의 context prompt)에서는 신체 프로필, 넣기 방식, 다른 이름을 뺀다. 저장과 화면 응답은 그대로.
+        압력(pressure)은 비었으면 뺀다. 압력을 적지 않은 작품의 요청 글이 칸을 더하기 전과 글자까지 같게 한다."""
         data = handler(self)
         if isinstance(data, dict) and info.context and info.context.get("prompt"):
             data.pop("body", None)
             data.pop("context", None)
             data.pop("aliases", None)
+            if not data.get("pressure", "x"):
+                data.pop("pressure", None)
         return data
 
 
@@ -1265,7 +1269,7 @@ class PlotRevision(BaseModel):
 
 SetupKey = Literal["title", "logline.who", "logline.why", "logline.goal", "logline.block", "logline.stake", "theme", "tone", "notes",
                    "world.setting", "world.era", "world.rules", "world.locations", "world.name_rules"]
-CharField = Literal["name", "role", "age", "gender", "appearance", "personality", "background", "goal", "wound", "speech_style",
+CharField = Literal["name", "role", "age", "gender", "appearance", "personality", "background", "goal", "wound", "pressure", "speech_style",
                     "secrets", "arc", "aliases"]
 
 
@@ -3114,6 +3118,7 @@ class BirthSketch(BaseModel):
     personality: str = ""
     background: str = Field("", description="집안, 자란 곳, 지금까지의 삶 3~5문장")
     goal: str = ""
+    pressure: str = Field("", description="무엇을 지키려 하는지, 흔들리면 어디로 가는지 한두 문장")
     speech_style: str = ""
     opening: str = Field("", description="첫 장면의 실마리 한두 문장: 플레이를 시작하는 순간 이 인물이 어디서 무엇을 하고 있는지")
 

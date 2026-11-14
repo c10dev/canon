@@ -642,6 +642,9 @@ MOCK_FIELD_IDEAS = {
     "characters.*.speech_style": ["짧은 반말. 상대를 성으로 부르고 질문에 질문으로 답한다. 예: \"그걸 왜 나한테 물어?\"",
                                   "공손한 해요체. 말끝을 흐리고 사과를 먼저 한다. 예: \"죄송해요, 제가 괜히…\"",
                                   "사투리 섞인 반말. 호칭은 늘 '야'. 예: \"야, 니 또 혼자 갈 끼가.\""],
+    "characters.*.pressure": ["동생을 놓친 밤 이후 지켜 온 '다시는 손을 놓지 않는다'는 다짐. 흔들리면 상대를 붙잡으려 무리한다.",
+                              "남에게 짐이 되지 않는 자기. 흔들리면 웃으며 혼자 떠맡는다.",
+                              "틀리지 않았다는 체면. 흔들리면 말을 끊고 자리를 뜬다."],
 }
 
 
@@ -736,11 +739,13 @@ class MockLLM:
 
 @responds(SetupSuggestion)
 def _r_setup_suggestion(prompt: str, hint: dict):
+    # 서윤만 압력을 적어 인물 블록의 압력 줄을 지나게 하고, 대사 예시는 남겨 옛 작품의 말투 예시 경고(style_drift)도 지나게 한다
     return SetupSuggestion(
         theme="상실을 받아들이는 용기", tone="잔잔하지만 긴장감 있는",
         world=WorldSetting(setting="바닷가 소도시", era="현대", rules=["초자연 요소 없음"], locations=["등대", "수산시장"]),
         characters=[
-            Character(id="hero", name="서윤", role="주인공", gender="여", age="19세", goal="사라진 오빠를 찾는다", speech_style="짧고 건조한 반말. \"됐어, 내가 할게.\""),
+            Character(id="hero", name="서윤", role="주인공", gender="여", age="19세", goal="사라진 오빠를 찾는다",
+                      pressure="혼자 버틸 수 있다는 믿음을 지키려 한다. 흔들리면 사람을 밀어내고 혼자 움직인다.", speech_style="짧고 건조한 반말. \"됐어, 내가 할게.\""),
             Character(id="ally", name="도현", role="조연", gender="남", age="24세", goal="서윤을 돕는다", speech_style="느긋한 존댓말. \"천천히 해요.\""),
         ],
         relationships=[Relationship(a="hero", b="ally", type="동료", affinity=1, tension=3, a_view=["경계한다"], b_view=["좋아한다", "빚졌다"])],

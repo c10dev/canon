@@ -111,7 +111,7 @@ def test_field_prompt():
     assert "이 장르의 예시" not in prompts.field_prompt(p, "world.setting")
     assert set(prompts.FIELD_IDEAS) == {"meta.title", "world.setting", *(f"meta.logline_parts.{k}" for k in ("who", "why", "goal", "block", "stake")),
                                         *(f"characters.*.{k}" for k in ("personality", "background", "appearance", "arc",
-                                                                                  "goal", "wound", "secrets", "speech_style"))}
+                                                                                  "goal", "wound", "pressure", "secrets", "speech_style"))}
     assert pipeline.field_stage("meta.title") == "name" and pipeline.field_stage("world.setting") == "plan"
     with pytest.raises(KeyError):
         pipeline.suggest_field(MockLLM(), p, "meta.genre")

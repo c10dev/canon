@@ -21,7 +21,7 @@ const PAL_SETUP = [
 ];
 // 인물 카드의 칸: '<인물 이름> · <칸 이름>' 으로 찾는다
 const PAL_CHAR_FIELDS = [
-  ['role', '역할'], ['age', '나이'], ['goal', '원하는 것'], ['wound', '두려운 것 · 약점'], ['secrets', '숨기는 것'], ['speech_style', '말투 (대사)'],
+  ['role', '역할'], ['age', '나이'], ['goal', '원하는 것'], ['wound', '두려운 것 · 약점'], ['pressure', '압력'], ['secrets', '숨기는 것'], ['speech_style', '말투 (대사)'],
   ['personality', '성격'], ['background', '배경'], ['appearance', '외모'], ['arc', '아크'],
 ];
 const PAL_X = '<svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m4.5 4.5 9 9m0-9-9 9"></path></svg>';  // 휴대폰 닫기 버튼

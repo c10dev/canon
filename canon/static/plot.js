@@ -679,7 +679,7 @@ function castQuickEdit(i) {
     ${namePicks('c:' + c.id, 'useName', (x) => `${c.id}|${x}`)}
     <div class="grid-2">${tierSelect(c, b, 'cast-tier-' + i)}${input('성별', b + '.gender', { placeholder: '남 / 여' })}</div>
     ${input('성격 · 하는 일', b + '.personality', { rows: 2 })}
-    ${input('말투', b + '.speech_style', { rows: 2, hint: '어미, 호칭, 대사 한 줄' })}
+    ${input('말투', b + '.speech_style', { rows: 2, hint: '어미, 호칭' })}
     <div class="small">${c.first_ep ? `${c.first_ep}화에 처음 나와요. ` : ''}나이, 원하는 것, 배경은 <a href="${base()}/cast">인물 · 관계도</a>에서 채울 수 있어요.</div></div>`;
 }
 

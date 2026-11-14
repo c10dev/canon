@@ -320,8 +320,9 @@ def setup_prompt(p: Project) -> str:
 
 요구사항:
 - 인물은 주인공 포함 3~6명. {p.meta.target_episodes}화 분량의 단편에 맞게 압축합니다.
-- 각 인물의 speech_style 은 대사 예시 한 줄을 포함해 구체적으로 씁니다.
-- 각 인물의 personality 는 형용사를 늘어놓지 않고, 어떤 상황에서 어떻게 행동하는지 버릇 하나를 포함해 씁니다.
+- 각 인물의 speech_style 은 구체적으로 씁니다.
+- 각 인물의 personality 는 형용사를 늘어놓지 않고, 어떤 상황에서 어떻게 행동하는지 씁니다.
+- 각 인물의 pressure 에는 무엇을 지키려 하는지, 흔들리면 어디로 가는지를 한두 문장으로 씁니다.
 - 관계는 주요 인물 쌍마다 하나씩, affinity 와 tension 은 1화 시작 시점 기준입니다. type 과 description 은 1화 시작 시점의 지금 관계만 적습니다. '앙숙에서 연인으로'처럼 이야기에서 가 닿을 곳은 destination 에 따로 적습니다.
 - a_view(a 가 b 를 보는 방식)와 b_view(b 가 a 를 보는 방식)는 {", ".join(VIEWS)} 중에서 1~2개 고릅니다. 두 방향이 달라도 됩니다.
 - 인물 id 는 영문 소문자로 짓고, 이미 있는 id 는 유지합니다.
@@ -410,7 +411,8 @@ def birth_prompt(p: Project, b: Birth) -> str:
 - appearance: 첫눈에 보이는 특징 두세 가지. personality: 원형과 상처가 드러나는 성격 한두 문장.
 - background: 집안, 자란 곳, 지금까지의 삶을 3~5문장으로. 상처가 된 일이 이 세계에서 어떻게 일어났는지 담습니다.
 - goal: 이 세계 안에서 지금 원하는 것 한 문장. 플레이를 시작할 이유가 되게 구체적으로 씁니다.
-- speech_style: 말투 틀을 따른 어미 · 호칭 규칙과 대사 예시 한 줄.
+- pressure: 무엇을 지키려 하는지, 흔들리면 어디로 가는지 한두 문장.
+- speech_style: 말투 틀을 따른 어미 · 호칭 규칙.
 - opening: 플레이를 시작하는 순간 이 인물이 어디서 무엇을 하고 있는지 한두 문장. 태어나 자란 곳이나 위 장소 중 하나에서 시작합니다.{minor}"""
 
 
@@ -502,7 +504,8 @@ def setup_chat_prompt(p: Project, message: str, mode: str = "", history_lines: l
 
     begun = setupchat.started(p)
     # 다른 이름은 채운 인물만 보인다 (edit_setup 이 고칠 수 있게. 빈 인물은 전과 같은 글)
-    chars = [c.model_dump(exclude={"narration_voice", "first_ep", "body", "context"} | (set() if c.aliases else {"aliases"})) for c in p.characters]
+    chars = [c.model_dump(exclude={"narration_voice", "first_ep", "body", "context"} | (set() if c.aliases else {"aliases"})
+                          | (set() if c.pressure else {"pressure"})) for c in p.characters]
     relations = [r.model_dump(exclude={"a_view", "b_view"} if begun else set()) for r in p.relationships]
     written = sorted((e for e in p.episodes if e.text.strip()), key=lambda e: e.plot.number)
     story = ""
@@ -554,7 +557,7 @@ def setup_chat_prompt(p: Project, message: str, mode: str = "", history_lines: l
 - 바뀌는 칸만 넣고, 칸마다 바뀐 뒤 값 전체를 씁니다. 작가가 채운 칸은 작가가 바꾸자고 했거나 요청을 이루는 데 꼭 필요할 때만 바꿉니다. 칸을 비우는 변경은 내지 않습니다.
 - edits 의 key: title 제목, logline.who 누가(이름보다 특징이 먼저 보이게), logline.why 무엇 때문에, logline.goal 무엇을 하려 하나('~한다'로 끝나는 눈에 보이는 행동), logline.block 무엇이 막나(사람이나 힘), logline.stake 무엇이 걸렸나, theme 주제(이야기가 끝까지 묻는 질문 하나), tone 톤 문장, notes 메모, world.setting 배경, world.era 시대, world.rules 깨면 안 되는 규칙, world.locations 장소, world.name_rules 이름 규칙. 로그라인은 다섯 칸으로만 고칩니다 (한 문장은 프로그램이 합칩니다). 다섯 칸이 비어 있고 logline 문장만 있으면 로그라인을 고칠 때 그 문장을 다섯 칸으로 나눠 함께 채웁니다.
 - 글 칸은 text, world.rules · world.locations · world.name_rules 는 items 에 씁니다. 목록은 그대로 둘 항목도 빠짐없이 넣습니다. 빠진 항목은 지워집니다.
-- characters 에는 이미 있는 인물의 바뀌는 칸만 (id, field) 하나씩 넣습니다. field 는 name, role, age, gender, appearance, personality, background, goal, wound, speech_style, secrets(목록, items), arc 입니다. id 와 서술 말투는 바꾸지 않습니다. speech_style 은 대사 예시 한 줄을 포함해 구체적으로 씁니다.
+- characters 에는 이미 있는 인물의 바뀌는 칸만 (id, field) 하나씩 넣습니다. field 는 name, role, age, gender, appearance, personality, background, goal, wound, pressure, speech_style, secrets(목록, items), arc 입니다. id 와 서술 말투는 바꾸지 않습니다. speech_style 은 구체적으로 씁니다. pressure 는 무엇을 지키려 하는지, 흔들리면 어디로 가는지 한두 문장입니다.
 - new_characters 에는 작가가 청했거나 요청을 이루는 데 꼭 필요한 인물만, 모든 칸을 채워 넣습니다. id 는 이미 있는 인물과 겹치지 않는 영문 소문자이고 narration_voice 는 비웁니다. gender(남/여)를 적고, 이름은 위 [이름·지명 후보]에서 고르거나 같은 시대와 결로 짓습니다. 다른 인물과 이름의 첫 글자나 끝 글자가 겹치지 않게 합니다.
 - relationships 에는 바뀌는 관계와 새 관계만, 두 인물 id 와 바뀐 뒤 값 전체를 넣습니다. 같은 두 인물이면 그 관계를 고칩니다. 새 인물을 넣으면 그 인물과 이미 있는 인물의 관계도 하나 이상 넣습니다. type 과 description 은 지금 관계만, 이야기에서 가 닿을 곳은 destination 에 적습니다.
 {rel_rule}
@@ -6875,14 +6878,15 @@ FIELD_IDEAS: dict[str, tuple[str, str]] = {
     "meta.logline_parts.stake": ("무엇이 걸렸나", "실패하거나 진실을 알면 잃는 것. 한 문장, '~다'로 끝냄. 예: 식이 끝나면 둘 다 다시는 만날 수 없다"),
     "world.setting": ("배경", "이야기가 벌어지는 곳과 그곳의 분위기를 1~3문장으로. 장소, 사회, 이 이야기에만 있는 특징을 함께"),
     # 인물 칸: 화면 경로는 characters.<번호>.<칸>, 키는 번호 자리를 * 로 (idea_key)
-    "characters.*.personality": ("성격", "겉으로 보이는 태도와 속마음이 함께 보이게 1~2문장. 원하는 것 · 약점과 이어지게 하고, 형용사 나열 대신 행동으로 드러나는 버릇을 하나 넣음"),
+    "characters.*.personality": ("성격", "겉으로 보이는 태도와 속마음이 함께 보이게 1~2문장. 원하는 것 · 약점과 이어지게 하고, 형용사 나열 대신 행동으로 드러나게 씀"),
     "characters.*.background": ("배경", "이 인물이 이야기 시작 전까지 살아온 과거를 1~3문장으로. 지금의 원하는 것이나 약점을 만든 사건 하나와 그 사건이 남긴 것을 적음"),
     "characters.*.appearance": ("외모", "독자가 한눈에 알아볼 특징 2~3가지를 한 문장으로. 나이 · 하는 일 · 세계관에 맞게 체격, 머리, 옷차림, 눈에 띄는 표식 중에서 고름"),
     "characters.*.arc": ("아크", "'시작 상태 → 결말 상태' 형식 한 줄. 약점이나 두려운 것이 이야기를 거쳐 어떻게 바뀌는지가 보이게"),
     "characters.*.goal": ("원하는 것", "작품 전체에서 이 인물이 이루거나 지키려는 것 한 문장. 눈에 보이는 목표와 그 밑의 속마음이 함께 보이게 하고, 로그라인 · 역할과 이어지게"),
     "characters.*.wound": ("두려운 것 · 약점", "이 인물이 가장 두려워하는 것이나 약점 한 문장. 그것을 만든 과거 일이 짐작되게 하고, 원하는 것을 가로막는 쪽으로"),
     "characters.*.secrets": ("숨기는 것", "이 인물이 다른 인물이나 독자에게 숨기는 것 하나를 한 문장으로. 드러나면 관계나 이야기가 흔들리는 것. 후보는 목록에 한 줄로 더해진다"),
-    "characters.*.speech_style": ("말투", "어미(반말 · 해요체 · 하십시오체 등), 상대를 부르는 호칭, 말버릇을 적고 끝에 대사 예시 한 줄을 붙임. 예: 짧은 반말, 상대를 성으로 부른다. 예: \"그만해. 거기까지.\""),
+    "characters.*.pressure": ("압력", "무엇을 지키려 하는지, 흔들리면 어디로 가는지를 한두 문장으로"),
+    "characters.*.speech_style": ("말투", "어미(반말 · 해요체 · 하십시오체 등), 상대를 부르는 호칭, 말버릇을 적음. 예: 짧은 반말, 상대를 성으로 부른다"),
 }
 # 목록 칸: 후보 하나가 목록에 한 줄로 더해진다 (화면 ideas.js 의 IDEA_LISTS 와 같다)
 IDEA_LISTS = {"characters.*.secrets"}
@@ -7055,8 +7059,9 @@ def illust_prompt(p: Project, n: int, sel: Selection | None, request: str = "") 
 def cast_view(cs: list[Character]) -> list[dict]:
     """본문 · 검수에 넣는 인물 설정. 서술 말투는 그 인물이 시점 인물인 화에만 시점 블록으로 넣는다 (다른 화에 옮아오지 않게).
     신체 프로필(body)은 인물 카드에만 보이는 작가 메모라 넣지 않는다.
-    다른 이름(aliases)은 '이 인물이 나온다'를 찾는 데만 쓰고 넣지 않는다 (고칠 때마다 앞 블록 캐시가 깨지지 않게)."""
-    return [c.model_dump(exclude={"narration_voice", "body", "context", "aliases"}) for c in cs]
+    다른 이름(aliases)은 '이 인물이 나온다'를 찾는 데만 쓰고 넣지 않는다 (고칠 때마다 앞 블록 캐시가 깨지지 않게).
+    압력(pressure)은 적은 인물만 넣는다 (Character._prompt_view)."""
+    return [c.model_dump(exclude={"narration_voice", "body", "context", "aliases"}, context={"prompt": True}) for c in cs]
 
 
 SYSTEM_VOICE = system_prompt(

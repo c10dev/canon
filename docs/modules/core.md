@@ -473,8 +473,10 @@
   - 다시 맞추기 `apply_restate` 는 변경안 안의 같은 복선 id 를 한 번만 심고, 새로 심은 복선의 plant 근거 문장만 `foreshadow_clues` 와 그 화 반영 기록에 넣는다
   - 설정 칸 하나 AI 후보 `suggest_field` · 단계 `field_stage`
   - 칸 목록 `prompts.FIELD_IDEAS`, 목록 칸 `prompts.IDEA_LISTS`(후보는 한 줄, 있는 항목은 뺌)
+  - 인물 압력 칸(`characters.*.pressure`)도 아이디어 칸이다
   - 인물 칸 키 `prompts.idea_key`
   - 빈칸 제안은 이미 있는 인물도 빈 칸만 `fill_character`
+  - `FILL_CHAR_FIELDS` 에 압력(`pressure`)이 있어 빈칸 제안이 비어 있는 압력만 채운다
 - 스토리보드: `make_storyboard` · `set_storyboard` · 낡음 지문 `board_basis`, `write_episode(use_board=)`, AI 고치기 `revise_storyboard` → `apply_storyboard_revision`(고치기 전 것은 `Episode.storyboard_prev`) · 적용 취소 `undo_storyboard`
 - 큐 시트: `make_cue_sheet`, 넣기는 `cue.set_episode`, `write_episode(use_cues=)`
 - 조율 메모: `make_coord`(plan 계열 시스템 프롬프트, `prompts.coord_prompt`). 사건 수가 플롯과 다르면 ValueError. 저장은 호출자가 `Episode.coord` 에 한다
@@ -594,7 +596,12 @@
 - 한국어 출력 줄을 받지 않는 지시(영어 검수, 영어 태그, 목록 id 를 쓰는 칸이 있는 것, A~H 글자로 답하는 판단기)는 그 시험의 `NO_KOREAN_LINE` 에 까닭과 함께 적는다
 - 본문 쓰기 지시는 설정 · 사실을 '절대' 같은 강한 말 대신 이유('앞 화와 이어져야 하므로')를 붙여 지키게 한다
 - `cast_view` 는 인물 다른 이름(`aliases`)을 빼서 앞 블록 '# 인물 설정' 캐시를 지킨다. 인물의 프롬프트용 직렬화(`_prompt_view`)도 뺀다
+- `cast_view` 는 압력(`pressure`)을 적은 인물만 그 칸을 넣는다. 자리는 `wound` 와 `speech_style` 사이다(앞 블록 '# 인물 설정')
+- 압력을 적지 않은 작품의 쓰기 요청은 압력 칸을 더하기 전과 글자까지 같다(`tests/test_char_pressure.py`)
 - `setup_chat_prompt` 는 다른 이름을 채운 인물만 `aliases` 칸을 보인다(빈 인물은 전과 같은 글)
+- `setup_chat_prompt` 는 압력을 적은 인물만 `pressure` 칸을 보인다
+- `setup_prompt` · `birth_prompt` · `setup_chat_prompt` 는 인물마다 압력(무엇을 지키려 하는지, 흔들리면 어디로 가는지)을 적게 한다
+- 같은 셋은 personality 의 버릇 하나와 speech_style 의 대사 예시 한 줄을 요구하지 않는다(웹소설 정할 것 16 · 18, 2026-11-14)
 - `ref_notes_block` 은 켠 참고 메모의 `[참고 구조]` 블록이다. `setup_prompt` · `setup_chat_prompt` 맨 앞에 둔다(대화 중에 바뀌지 않는 블록). 메모가 없으면 빈 글
 - `ref_notes_block` 은 넣은 차례대로 `context.BUDGET["ref_notes"]`(4,000자)에 드는 메모만 넣고 뺀 수를 "참고 메모 n개는 길어서 뺐어요"로 적는다
 - 쓰기 요청 블록 `ref_notes`('참고 구조', `ref_beats_part`): 쓰임 write 인 켠 박자 메모. `characters` 바로 뒤(바뀌지 않는 앞부분)이고 장편은 블록 설정으로 끌 수 있다
@@ -873,6 +880,10 @@
 - 인물 프롬프트 넣기(`Character.context`: auto 비중대로 · always 늘 · off 이름만)도 작가 전용이라 같은 방식으로 빠진다
 - 인물 다른 이름(`Character.aliases`)도 AI 응답 형식(`SkipJsonSchema`)과 프롬프트 직렬화에서 빠진다. 설정 단계 응답이 채우지 않고 다른 이름 제안으로만 AI 가 낸다
 - `CharField` 에 `aliases` 가 있어 설정 도우미 · `edit_setup` 이 목록(`items`)으로 고친다
+- 인물 압력(`Character.pressure`)은 무엇을 지키려 하는지, 흔들리면 어디로 가는지 한두 문장이다. 기본값이 빈 글이라 옛 작품이 읽힌다
+- 압력이 비면 프롬프트용 직렬화(`_prompt_view`)에서 빠진다
+- `CharField` 에 `pressure` 가 있어 설정 도우미가 고친다. 무작위 출생 배경(`BirthSketch.pressure`)도 채운다
+- 압력은 상태 변경안의 설정 바꾸기 칸(`SettingField`)에는 없다. 작가가 고치면 설정 변경 기록(`charlog.LOG_FIELDS`)에 남는다
 - 다른 이름 제안 응답 `AliasSuggestion`(`items: AliasIdea`) · 프로그램이 채우는 `AliasHit` · `notices` · `recent`(`canon/aliases.py`)
 - ComfyUI 그림 기록 `IllustImage`(파일 · 시드 · 보낸 프롬프트 · 틀 이름 · 알림)는 `Illustration.images` 에 둔다(`canon/comfy.py`)
 - 인물 상태의 지울 칸(`CharacterState.cleared`)은 변경안에만 쓴다. 비었으면 직렬화에서 빼서 저장한 상태 · 프롬프트에 들어가지 않는다

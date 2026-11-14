@@ -13,7 +13,7 @@ const SETUP_KEYS = [
 const SETUP_KEY_LABEL = Object.fromEntries(SETUP_KEYS);
 const SETUP_LISTS = ['world.rules', 'world.locations', 'world.name_rules'];
 const SETUP_CHAR_LABEL = {
-  name: '이름', role: '역할', age: '나이', gender: '성별', goal: '원하는 것', wound: '두려운 것 · 약점', secrets: '숨기는 것',
+  name: '이름', role: '역할', age: '나이', gender: '성별', goal: '원하는 것', wound: '두려운 것 · 약점', pressure: '압력', secrets: '숨기는 것',
   speech_style: '말투 (대사)', personality: '성격', background: '배경', appearance: '외모', arc: '아크', aliases: '다른 이름',
 };
 const SETUP_CHAR_LISTS = ['secrets', 'aliases'];  // setupchat.CHAR_LIST_FIELDS 와 같다

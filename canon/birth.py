@@ -110,7 +110,7 @@ def to_character(p: Project, b: Birth, s: BirthSketch) -> Character:
     AI 배경이 비운 칸은 원형 · 상처 · 말투 틀 · 비틀기로 채운다 (archetypes.fill, 빈 칸만)."""
     c = Character(id=player_id(p), name=b.name, role="주인공", age=b.age, gender=b.gender, tier="main", first_ep=0,
                   appearance=s.appearance, personality=s.personality, background=s.background, goal=s.goal,
-                  speech_style=s.speech_style)
+                  pressure=s.pressure, speech_style=s.speech_style)
     archetypes.fill(c, archetypes.BY_ID.get(b.archetype), archetypes.WOUND_BY_ID.get(b.wound),
                     archetypes.SPEECH_BY_ID.get(b.speech), b.twist)
     c.role = "주인공"  # 원형의 역할(남주 · 적대자 등)이 아니라 플레이의 주인공

@@ -16,5 +16,6 @@ def _sketch(prompt: str, hint: dict) -> BirthSketch:
         personality="말수가 적고 고집이 세다",
         background=f"{name}{josa(name, '은', '는')} {place}에서 어부의 막내로 태어났다. 어머니는 일찍 떠났다. 열 살부터 그물을 손질했다.",
         goal="이 마을을 떠나 넓은 곳을 본다",
+        pressure="어머니처럼 떠나는 사람이 되지 않으려 한다. 흔들리면 그물 손질에 매달려 말을 끊는다.",
         opening=f"{place}의 새벽, {name}{josa(name, '이', '가')} 젖은 그물을 걷고 있다.",
     )

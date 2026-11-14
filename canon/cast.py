@@ -307,7 +307,7 @@ def describe(p: Project, cid: str, numbers: bool = False) -> str:
     last = fs[-1]
     apps = appearances(p).get(c.id, [])
     lines = [f"{c.name} ({c.id}) · {c.role} · {dict(main='주역', support='조연', minor='단역')[c.tier]}"]
-    for label, v in (("외모", c.appearance), ("성격", c.personality), ("목표", c.goal), ("결핍", c.wound), ("말투", c.speech_style), ("아크", c.arc)):
+    for label, v in (("외모", c.appearance), ("성격", c.personality), ("목표", c.goal), ("결핍", c.wound), ("압력", c.pressure), ("말투", c.speech_style), ("아크", c.arc)):
         if v:
             lines.append(f"  {label}: {v}")
     held = [x for x in p.setting_held if x.character_id == c.id]

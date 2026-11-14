@@ -21,6 +21,7 @@ const IDEA_FIELDS = {
   'characters.*.arc': '아크',
   'characters.*.goal': '원하는 것',
   'characters.*.wound': '두려운 것 · 약점',
+  'characters.*.pressure': '압력',
   'characters.*.secrets': '숨기는 것',
   'characters.*.speech_style': '말투',
 };
