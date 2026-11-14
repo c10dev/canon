@@ -1,6 +1,6 @@
 # 12. 문체 규칙의 빈도 하한 막기
 
-상태: 진행 (claude/style-rule-floor) · 계획: [plan.md](../plan.md) 의 12번 · 먼저: —
+상태: 진행 (claude/style-rule-floor, [#526](https://github.com/c10dev/canon/pull/526)) · 계획: [plan.md](../plan.md) 의 12번 · 먼저: —
 
 ## 목표
 
