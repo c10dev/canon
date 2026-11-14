@@ -20,7 +20,7 @@ from .dynamics import VIEWS, describe_relations
 from .logline import josa
 from .llm import _inline_refs, dump
 from .schema import Birth, Character, ChatMessage, Claim, ConsistencyIssue, ConsistencyReport, Foreshadow, PlayInfo, PlotBatch, Project, Selection, StateDelta, StateDeltaAI, StoryElement
-from .schema import ArcPlan, ArcProposal, CueSheetDraft, HeatArcPlan, HeatArcProposal, HeatProposal, SeriesPlan, StoryboardDraft
+from .schema import ARC_FRAME_FIELDS, ArcPlan, ArcProposal, CueSheetDraft, HeatArcPlan, HeatArcProposal, HeatProposal, SeriesPlan, StoryboardDraft
 from .schema import PassageRevision, PlotAgentStep, RelStage, SetupRevision, StyleRevision
 from . import address, blueprint, board, cast, charlog, coord, echoes, foreshadows, heatplan, knows, pairlog, stage, statwin, timeline
 from . import offscreen
@@ -184,6 +184,57 @@ def meta_text(p: Project) -> str:
     view = p.meta.model_dump(exclude={"genres", "adult", "logline_parts", "tone_dials", "frame"})
     view["genre"] = genres.label(p.meta)
     return f"{dump(view)}\n\n[장르 안내]\n{genres.guide(p.meta)}"
+
+
+# ---------- 이야기 틀 · 하렘 요소 (docs/webnovel/specs/04-arc-frame.md) ----------
+# 틀별 규칙 줄을 고르는 곳은 이 도우미를 쓴다. 웹소설 일감 6 · 8 · 9 도 여기서 가져다 쓴다.
+
+def webnovel(p: Project) -> bool:
+    """이야기 틀이 웹소설식인가 (Meta.frame). 기본 드라마식이면 틀별 줄은 모두 지금 글 그대로다."""
+    return p.meta.frame == "webnovel"
+
+
+def harem(p: Project) -> bool:
+    """요소 장르 하렘(id 'harem')을 골랐는가. 직접 적은 '하렘' 글은 장르 안내처럼 세지 않는다."""
+    return "harem" in p.meta.genres
+
+
+def arc_axes(p: Project) -> tuple[bool, bool]:
+    """아크 응답 형식에 넣을 틀별 칸 (gain, focus). 장편만 아크를 기획하므로 단편은 늘 (False, False)."""
+    return (p.serial and webnovel(p), p.serial and harem(p))
+
+
+def arc_schema(p: Project, model):
+    """아크가 든 응답 형식의 틀별 판 (schema.framed). 드라마 틀 · 하렘 없음이면 model 그대로."""
+    from .schema import framed
+
+    return framed(model, *arc_axes(p))
+
+
+# 아크 기획 규칙 줄. 드라마 틀은 원래 글 그대로, 웹소설 틀은 웹소설식 요구(docs/webnovel/README.md, 2026-11-10)를 따른다
+SERIES_GROW = {
+    False: "- 부가 바뀔 때 무대, 상대, 걸린 것의 크기가 한 단계씩 커지게 합니다. 같은 크기의 갈등을 되풀이하지 않습니다.",
+    True: "- 부가 바뀔 때 무대, 상대, 주인공의 성장이 한 단계씩 커지게 합니다.",
+}
+CONVERT_GROW = {
+    False: "- 부가 바뀔 때 무대, 상대, 걸린 것의 크기가 한 단계씩 커지게 합니다. 단편의 theme 은 마지막 부에서 완성됩니다.",
+    True: "- 부가 바뀔 때 무대, 상대, 주인공의 성장이 한 단계씩 커지게 합니다. 단편의 theme 은 마지막 부에서 완성됩니다.",
+}
+ARC_LOOP_HEAD = "- 아크는 하나의 문제를 열고 해결하는 보상 루프 한 바퀴입니다: 목표, 짧은 고구마, 사이다, 성장."
+ARC_LOOP_FIELDS = ("goal 은 아크가 끝날 때 바뀌어 있어야 하는 것, conflict 는 이 아크에서 주인공을 잠깐 막는 것(짧은 고구마), "
+                   "payoff 는 {where}독자가 받는 보상(사이다), gain 은 이 아크에서 주인공이 얻는 성장(레벨업, 해금, 자신감)입니다.")
+ARC_SHORT_BLOCK = "- 주인공이 막히는 구간은 1~3화로 짧게 둡니다."
+ARC_HAREM = ("- focus 에는 이 아크에서 주인공과 관계를 올리는 공략 대상 인물 id 하나를 넣습니다. 그런 인물이 없는 아크면 비웁니다.\n"
+             "- 관계는 주로 위로만 오릅니다. 균열은 짧은 오해로 둡니다.")
+
+
+def arc_meaning_rule(p: Project, drama: str, where: str) -> str:
+    """아크 칸의 뜻 줄 (다음 아크 기획 · 플롯 대화). 드라마 틀은 drama 그대로, 웹소설 틀은 보상 루프 줄과 짧은 고구마 줄.
+    where 는 payoff 앞말('아크 클라이맥스에서 ' 등). 하렘 요소가 있는 장편은 공략 대상 줄을 덧붙인다. 끝에 줄바꿈이 없다."""
+    lines = [f"{ARC_LOOP_HEAD} {ARC_LOOP_FIELDS.format(where=where)}", ARC_SHORT_BLOCK] if webnovel(p) else [drama]
+    if harem(p):
+        lines.append(ARC_HAREM)
+    return "\n".join(lines)
 
 
 def rels(p: Project, ids: set[str] | None = None, plan: bool = True) -> str:
@@ -1915,13 +1966,14 @@ def _entry_name(text: str) -> str:
 
 
 def structure_text(p: Project, n: int, head: str = "[지금 부와 아크]") -> str:
-    """n화가 속한 부와 아크, 아크 안 기승전결. 장편 전용."""
+    """n화가 속한 부와 아크, 아크 안 기승전결. 장편 전용.
+    아크의 얻는 성장 · 공략 대상(gain · focus)은 넣지 않는다: 화별 플롯 · 본문 쓰기 요청이 그 칸을 어떻게 쓸지는 웹소설 일감 6 이 정한다."""
     part, arc = p.part_for(n), p.arc_for(n)
     lines = []
     if part:
         lines.append(f"[{part.number}부 {part.title} ({part.start_ep}~{part.end_ep}화)]\n목표: {part.goal}\n전환점: {part.key_turn}")
     if arc:
-        lines.append(dump(arc.model_dump(exclude={"summary", *ARC_HEAT}) | {"title": f"아크 {arc.number} {arc.title}"}))
+        lines.append(dump(arc.model_dump(exclude={"summary", *ARC_HEAT, *ARC_FRAME_FIELDS}) | {"title": f"아크 {arc.number} {arc.title}"}))
     return head + "\n" + ("\n".join(lines) or "아직 없음")
 
 
@@ -2324,13 +2376,18 @@ def series_prompt(p: Project) -> str:
 
 요구사항:
 - 부는 1화부터 {total}화까지 빈틈없이 이어지고 number 는 1부터 차례대로입니다. 부 하나는 보통 50~150화입니다.
-- 부가 바뀔 때 무대, 상대, 걸린 것의 크기가 한 단계씩 커지게 합니다. 같은 크기의 갈등을 되풀이하지 않습니다.
+{SERIES_GROW[webnovel(p)]}
 - goal 은 그 부가 끝날 때 이야기가 도달해야 하는 상태, key_turn 은 부를 마무리하는 큰 사건이나 드러나는 비밀입니다.
 - 주인공의 arc 와 작품의 theme 은 마지막 부에서 완성됩니다. 가장 큰 비밀은 부마다 조금씩 드러냅니다.
 - arc_ideas 에는 그 부에서 다룰 아크(5~30화짜리 작은 이야기) 후보를 순서대로 3~8개 한 줄씩 적습니다. 화별 플롯은 쓰지 않습니다.
 - summary 는 비워 둡니다."""
 
 
+NEXT_ARC_MEANING = "- 아크는 하나의 문제를 열고 해결합니다. goal 은 아크가 끝날 때 바뀌어 있어야 하는 것, conflict 는 주인공을 막는 문제나 상대, payoff 는 아크 클라이맥스에서 독자가 받는 보상(사이다)입니다."
+NEXT_ARC_GROW = {
+    False: "- 직전 아크와 같은 모양의 갈등을 되풀이하지 않습니다. 걸린 것이나 상대가 조금씩 커지게 합니다.",
+    True: "- 주인공의 성장이나 상대가 직전 아크보다 조금씩 커지게 합니다.",
+}
 ARC_TIME_RULE = "- 열린 기한이 이 아크 범위에 들면 그 날에 맞게 conflict 와 acts 를 놓습니다. 기한을 넘기는 전개면 reply 에 어떻게 다루는지 적습니다."
 
 
@@ -2450,9 +2507,9 @@ def next_arc_prompt(p: Project, start: int, length: int, note: str) -> str:
 요구사항:
 - arc.number 는 {len(p.story_arcs) + 1}, start_ep 는 {start}, end_ep 는 {limit} 이하입니다. 길이는 {size}.
 - 지금 부의 goal 과 arc_ideas 중 아직 다루지 않은 것을 따라가되, 지금까지 실제로 쓰인 줄거리에 맞게 고칩니다.
-- 아크는 하나의 문제를 열고 해결합니다. goal 은 아크가 끝날 때 바뀌어 있어야 하는 것, conflict 는 주인공을 막는 문제나 상대, payoff 는 아크 클라이맥스에서 독자가 받는 보상(사이다)입니다.
+{arc_meaning_rule(p, NEXT_ARC_MEANING, "아크 클라이맥스에서 ")}
 - acts 는 아크 안의 기승전결로, {start}화부터 end_ep 까지 기, 승, 전, 결 순서로 빈틈없이 이어집니다. 마지막 1~2화는 정리와 다음 아크 떡밥에 씁니다.
-{"- 첫 아크입니다. 기 구간은 소개가 아니라 발단으로, 1화에 사건이 시작되고 1~3화 안에 주인공의 결핍, 작품의 핵심 장치, 작은 보상 하나가 나옵니다." + chr(10) if start == 1 else ""}- 직전 아크와 같은 모양의 갈등을 되풀이하지 않습니다. 걸린 것이나 상대가 조금씩 커지게 합니다.
+{"- 첫 아크입니다. 기 구간은 소개가 아니라 발단으로, 1화에 사건이 시작되고 1~3화 안에 주인공의 결핍, 작품의 핵심 장치, 작은 보상 하나가 나옵니다." + chr(10) if start == 1 else ""}{NEXT_ARC_GROW[webnovel(p)]}
 - payoffs 에는 이 아크에서 회수할 열린 복선 id 를 넣습니다. '오래됨' 표시가 있는 복선은 회수하거나 아크 안에서 다시 떠올립니다.
 {"- 화면 밖 근황이 있는 인물을 이 아크에 다시 데려오면 그 근황에서 이어지게 하고, 근황과 어긋나는 일을 지어내지 않습니다." + chr(10) if offscreen.listed(p)[0] else ""}- cast 에는 이 아크에 주로 나오는 인물 id 를 넣습니다. 새 인물이 필요하면 new_characters 에 전체 설정(speech_style 포함)을 넣고 tier 는 support 나 minor 로 둡니다. 이미 있는 인물을 다시 만들지 않습니다.
 - reply 에는 왜 이 아크인지, 어떤 복선을 회수하고 무엇을 다음으로 남기는지 2~4문장으로 씁니다.
@@ -2685,7 +2742,7 @@ def convert_prompt(p: Project, total: int, ending: str, note: str) -> str:
 - arc 는 아크 1입니다. number 1, start_ep 1, end_ep {end}. title, goal, conflict, payoff, cast 는 단편에서 실제로 일어난 일로 채웁니다. acts 와 payoffs 는 비워 둡니다.
 - arc.summary 는 {"화별 요약만 근거로 5~8문장, 600자 안팎으로 씁니다. 관계가 바뀐 계기, 드러난 비밀, 남은 문제를 남깁니다" if done else "비워 둡니다 (아직 다 쓰지 않았습니다)"}.
 - parts 는 1화부터 {total}화까지 빈틈없이 이어지고 number 는 1부터 차례대로입니다. 부 하나는 보통 50~150화이고, 1부는 아크 1을 품어 {end}화보다 뒤에서 끝납니다.
-- 부가 바뀔 때 무대, 상대, 걸린 것의 크기가 한 단계씩 커지게 합니다. 단편의 theme 은 마지막 부에서 완성됩니다.
+{CONVERT_GROW[webnovel(p)]}
 - arc_ideas 에는 그 부의 아크(5~30화짜리 작은 이야기) 후보를 순서대로 3~8개 한 줄씩 적습니다. 1부는 아크 2부터 적습니다. 새 인물이 필요하면 "새 인물: 역할" 을 그 아크 줄에 함께 적습니다. summary 는 비워 둡니다.
 - foreshadows 에는 장편 전체나 한 부를 끌고 갈 새 장기 떡밥 2~5개를 넣습니다. id 는 "fs-s-" 로 시작하고, scope 는 part 나 series, status 는 open, planted_ep 는 실마리가 이미 있는 화({end}화 이하)입니다.
 - scopes 에는 열린 복선 가운데 장편에서 더 멀리 끌고 갈 것만 넣습니다.
@@ -2834,6 +2891,15 @@ def _chat_tail(p: Project, message: str, scope, rules: str, options_scope: str) 
 {rules}"""
 
 
+CHAT_ARC_MEANING = "- 아크는 하나의 문제를 열고 해결합니다. goal 은 아크가 끝날 때 바뀌어 있어야 하는 것, conflict 는 주인공을 막는 문제나 상대, payoff 는 클라이맥스에서 독자가 받는 보상입니다. 직전 아크와 같은 모양의 갈등을 되풀이하지 않습니다."
+
+
+def chat_arc_fields(p: Project) -> str:
+    """플롯 대화가 고칠 수 있는 아크 칸 이름. 웹소설 틀은 얻는 성장, 하렘 요소는 공략 대상을 더한다."""
+    names = ["제목", "목표", "갈등", "보상", "주요 인물", "회수할 복선", "서술 시점"]
+    return ", ".join(names + ["얻는 성장"] * webnovel(p) + ["공략 대상"] * harem(p))
+
+
 def plot_chat_prompt(p: Project, message: str, scope=None) -> str:
     """앞쪽은 작품 설정(잘 바뀌지 않음), 뒤쪽은 지금 구조와 플롯, 대화. 캐시가 맞도록 이 순서를 지킨다.
     scope 는 schema.ChatScope (대상 아크, 보던 구간 · 화, 방향 여러 안 모드, 다음 아크 초안)."""
@@ -2927,7 +2993,7 @@ def _serial_plot_parts(p: Project, scope, rng: random.Random | None = None) -> t
         target_block = f"""[고칠 아크] 아크 {focus.number} ({focus.start_ep}~{focus.end_ep}화). 구조(acts)와 아크 칸(arc)을 바꾸면 이 아크에 들어갑니다
 {dump(focus.model_dump(exclude={"summary", *ARC_HEAT}))}"""
         target_rules = f"""- acts 는 아크 {focus.number}의 기승전결을 바꿀 때만 네 구간 모두, 그대로면 빈 목록입니다. 구간은 {focus.start_ep}화부터 아크 끝 화까지 기, 승, 전, 결 순서로 빈틈없이 이어집니다.
-- 아크 칸(제목, 목표, 갈등, 보상, 주요 인물, 회수할 복선, 서술 시점)을 바꿀 때만 arc 에 모든 칸을 채웁니다. 바꾸지 않는 칸은 지금 값을 그대로 씁니다. 그대로면 arc.title 을 비웁니다. cast 에는 이미 있는 인물 id 만 넣습니다.
+- 아크 칸({chat_arc_fields(p)})을 바꿀 때만 arc 에 모든 칸을 채웁니다. 바꾸지 않는 칸은 지금 값을 그대로 씁니다. 그대로면 arc.title 을 비웁니다. cast 에는 이미 있는 인물 id 만 넣습니다.
 """ + (f"- 아크 끝 화를 바꾸려면 arc.end_ep 에 새 끝 화({focus.start_ep + ARC_MIN - 1}~{min(end_limit, focus.start_ep + ARC_MAX - 1)}화)를 넣고 acts 도 새 범위에 맞춥니다. 그대로면 0 입니다. 줄일 때 확정했거나 본문이 있는 화는 빼지 않습니다.\n"
        if last else f"- 아크 {focus.number} 뒤에 다음 아크가 이어져 끝 화는 바꿀 수 없습니다. arc.end_ep 는 0 입니다.\n") \
             + f"- 기획한 아크 밖의 화({planned + 1}화부터)는 만들지 않습니다. 그 뒤 아크는 '다음 아크'를 골라 기획합니다."
@@ -2938,7 +3004,7 @@ def _serial_plot_parts(p: Project, scope, rng: random.Random | None = None) -> t
 [지금 다음 아크 초안 (적용 전, 작가가 손봤을 수 있음)]
 {dump({"arc": d.arc.model_dump(exclude={"summary", "number", "start_ep", *ARC_HEAT}), "new_characters": [c.model_dump(include={"id", "name", "role"}) for c in d.new_characters]}) if d else "아직 없음. 작가와 이야기하며 새로 짭니다"}"""
         target_rules = f"""- 다음 아크를 짜거나 고칠 때 arc 에 모든 칸을 채우고 arc.end_ep 에 끝 화({start + ARC_MIN - 1}~{min(limit, start + ARC_MAX - 1)}화)를, acts 에 {start}화부터 끝 화까지 기, 승, 전, 결 네 구간을 넣습니다.{" 초안이 있으면 작가가 말하지 않은 칸은 초안 값을 그대로 둡니다." if d else ""}
-- 아크는 하나의 문제를 열고 해결합니다. goal 은 아크가 끝날 때 바뀌어 있어야 하는 것, conflict 는 주인공을 막는 문제나 상대, payoff 는 클라이맥스에서 독자가 받는 보상입니다. 직전 아크와 같은 모양의 갈등을 되풀이하지 않습니다.
+{arc_meaning_rule(p, CHAT_ARC_MEANING, "클라이맥스에서 ")}
 - payoffs 에는 열린 복선 id 만 넣습니다. 새 인물이 필요하면 new_characters 에 전체 설정(speech_style 포함)을 넣고 cast 에 그 id 를 넣습니다. tier 는 support 나 minor 입니다.
 - 다음 아크의 화별 플롯은 만들지 않습니다 (아크를 적용한 뒤 초안을 만듭니다). episodes 는 이미 기획한 화({planned}화까지) 중 다음 아크와 이어지게 고칠 화가 있을 때만 넣습니다."""
     rules = f"""- 바꾸는 것만 넣습니다. episodes 에는 바뀌는 화만, 모든 칸을 채운 전체 플롯으로 넣습니다.
@@ -6719,7 +6785,7 @@ def brief_request(p: Project, n: int, kind: str = "episode") -> tuple[str, str, 
     if kind == "agent_plot":  # agent.run_turn: 새 세션 첫 턴의 첫 단계
         from . import agent
 
-        return SYSTEM_AGENT_PLOT, agent.first_step_prompt(p, CHAT_MESSAGE), PlotAgentStep
+        return SYSTEM_AGENT_PLOT, agent.first_step_prompt(p, CHAT_MESSAGE), arc_schema(p, PlotAgentStep)
     if kind == "passage":  # pipeline.revise_passage (고른 부분은 passage_sample, 빠른 요청 없이)
         return reviser_system(p), passage_prompt(p, n, passage_sample(p, n), CHAT_MESSAGE, head=passage_head(p, n)), PassageRevision
     if kind == "check":
@@ -6803,7 +6869,7 @@ def arc_ask(p: Project) -> tuple[str, type[BaseModel]]:
     if start > p.meta.target_episodes:
         raise ValueError(f"총 {p.meta.target_episodes}화까지 아크가 모두 있어요")
     return (next_arc_prompt(p, start, length, "") + (heat_next_arc_rules(start, length) if heat else ""),
-            HeatArcProposal if heat else ArcProposal)
+            arc_schema(p, HeatArcProposal if heat else ArcProposal))
 
 
 def _brief(p: Project, n: int, kind: str, head: str, lead: str = "") -> str:

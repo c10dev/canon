@@ -209,6 +209,8 @@ def run_spec(s: PromptSession) -> dict:
     from . import schema as schemas, settings
 
     model = getattr(schemas, src.schema_name, None) if src.schema_name else None
+    if model is not None and src.project and src.project != SERIAL and store.exists(src.project):  # 이야기 틀별 아크 형식 (prompts.arc_schema)
+        model = prompts.arc_schema(store.load(src.project), model)
     cap = 0
     if src.kind in OUT_TOKENS:
         mod, attr = OUT_TOKENS[src.kind]

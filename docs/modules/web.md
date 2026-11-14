@@ -24,6 +24,7 @@
 
 - 웹 화면의 뼈대
 - 이름 뒤 조사 `josa`(여러 화면이 쓴다, `logline.josa` 와 같은 규칙, `tests/test_logline_js.py`)
+- 아크의 '얻는 성장' · '공략 대상' 칸 `arcFrameInputs` · `arcGainOn` · `arcFocusOn`(plot.js · convert.js 가 쓴다)
 - 900px 이하에서 알림 창 · 찾기 팔레트 · 대화 시트 · 서랍 메뉴를 열면 기록을 하나 더해(`panelOn` · `panelOff`, state.panel) 뒤로 가기가 그 창만 닫는다. 닫을 때 되돌리기는 한 박자 미뤄 다른 창이 이어 쓰고, 주소가 바뀐 popstate 는 창을 닫지 않고, 창 없이 남은 기록은 움직인 쪽(뒤 · 앞)으로 건너뛰고, 저장하지 않은 변경이 있으면 건너뛰지 않는다. 열린 채 그려진 대화 시트는 그 시트를 처음 누를 때 `panelSync` 가 기록을 붙인다
 - 지운 것 되살리기는 최근 10개까지 쌓는다(`rememberRemoved`, `S.removed`). 지우기 사이에 다른 고침(`S.editSeq`)이 있으면 앞 기록을 버린다. 저장 띠의 '되살리기'는 가장 최근 것부터 하나씩
 - 휴대폰 키보드가 열리면 html 에 `kb-open` 을 단다(`--kb` 80px 이상). 640px 이하에서 집필 머리를 붙여 두지 않는다
@@ -254,6 +255,7 @@
 
 - 단편 → 장편 전환 화면
 - 이어 쓰기(총 화수 · 결말 처리, AI 전환 계획에서 항목 골라 반영)와 재구성(화 지도 고치기, 반영)
+- 전환 아크 1 · 재구성 아크마다 '얻는 성장' · '공략 대상' 칸(`arcFrameInputs`). AI 는 채우지 않고 작가가 적는다
 - 받은 그대로의 계획을 `S.convOrig` · `S.rbOrig` 에 둔다. 칸이나 체크를 고친 뒤 '다시 받기'를 누르면 먼저 묻는다(`planEdited` · `planRefetchOk`, `tests/test_convert_js.py`)
 - 되돌리기
 - 집필 화면의 재구성 안내 · 다듬기 비교(`rebuildNote`)도 여기 있다
@@ -277,6 +279,7 @@
 - 작품 목록(작품 밖 사이드바 옆, `tests/test_projects_js.py`)
   - 새 작품 칸 `newProjectForm`(주소 `#/new` 면 펴고 제목 칸으로)
   - 이야기 틀 고르기 `frameField`(`Meta.frame`, 이름표 `FRAMES` 는 `schema.FRAMES` 와 같다): 설정 화면 기본 정보와 설정 마법사 '제목 · 장르' 단계에 둔다(홈의 새 작품 칸에는 없다). 장르가 권하는 틀(`frameHint`, `genres.frame_hint` 와 같다)이 지금 값과 다르면 '장르에 맞춰 추천' 칩을 단다
+  - 이야기 틀 설명 풍선 `FRAME_WHY` 는 장편의 부와 아크 기획만 이 값을 따르고 화별 플롯은 아직이라고 밝힌다
   - `setFrame` 은 값을 바꾸고 `markDirty` 만 한다. 저장은 다른 설정 칸처럼 저장 버튼이 한다. 장르를 바꾸면 `syncGenre` 가 이 칸도 다시 그린다
   - 이어 쓰기 카드 `plHeroCard`(고를 작품 `plHero`, 확인할 것 줄 `plAlertHref`)
   - 모든 작품 한 줄 목록: 찾기 · 거르기(확인할 것 포함) · 정렬과 갈래 · 플레이 묶기 `plRows`
@@ -496,6 +499,7 @@
   - 장편은 고른 아크 보드 위에 그 아크의 완급 계획 카드(`heatCard(p, arc)`)
   - 구간 · 아크 · 부 고치기는 서랍 없이 그 자리에서 `actEditor` · `arcEditor` · `partEditor`
   - 아크 주요 인물 이름 체크 `arcCastField`
+  - 다음 아크 제안 · 아크 카드 · 아크 고치기의 '얻는 성장' · '공략 대상' 칸 `arcFrameInputs`(app.js). 웹소설 틀 · 하렘 요소이거나 값이 있을 때만 보이고, 설명은 풍선이다(`arcGainOn` · `arcFocusOn`)
 - 640px 이하 사건 줄의 도구(연출 · 위로 · 아래로 · 빼기)는 숨기지 않고 사건 글 아래 줄 오른쪽에 둔다
 - 손가락 기기에서는 사건 순서의 'Enter로 다음 사건' 안내를 숨긴다
 - 장편(목차가 부 › 아크 › 구간 나무 `serialTree` · `serialTocRow`, 부 펼치기 `S.tocParts`, 부 구성 카드 펼침 `S.arcFull`, 다음 아크 기획 칸의 경고 `planAhead` 는 `pipeline.plan_ahead` 와 같은 규칙 `tests/test_plan_ahead_js.py`)

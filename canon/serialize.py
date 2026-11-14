@@ -68,6 +68,7 @@ def clean_conversion(p: Project, prop: SerialConversion, total: int = 0) -> Seri
     a.number, a.start_ep, a.end_ep, a.payoffs = 1, 1, end or 1, []
     a.acts = [x.model_copy(deep=True) for x in p.arc]
     a.cast = [c for c in dict.fromkeys(a.cast) if c in known]
+    a.focus = a.focus.strip() if a.focus.strip() in known else ""  # 공략 대상은 있는 인물 id 만 (작가가 화면에서 적은 값)
     finished = bool(end) and all(any(e.plot.number == n and e.status == "finalized" for e in p.episodes)
                                  for n in range(1, end + 1))
     if not finished:

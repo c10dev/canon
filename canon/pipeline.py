@@ -1285,8 +1285,9 @@ def plan_next_arc(llm: LLM, p: Project, length: int = 0, note: str = "") -> ArcP
     ask = prompts.next_arc_prompt(p, start, length, note)
     if heat:  # 요청은 맨 뒤에 덧붙인다 (작가의 말은 next_arc_prompt 안에 있다)
         ask += prompts.heat_next_arc_rules(start, length)
-    schema = HeatArcProposal if heat else ArcProposal
-    hint = {"start": start, "length": length, "limit": limit, "number": len(p.story_arcs) + 1}
+    schema = prompts.arc_schema(p, HeatArcProposal if heat else ArcProposal)
+    gain, focus = prompts.arc_axes(p)
+    hint = {"start": start, "length": length, "limit": limit, "number": len(p.story_arcs) + 1, "gain": gain, "focus": focus}
     prop = llm.json(prompts.SYSTEM_PLANNER, ask, schema, hint=hint)
     if not prop.arc.acts:  # acts 는 필수 칸이 아니라 모델이 빼먹을 수 있다. 요청을 맨 뒤에 덧붙여 한 번 더 묻는다
         prop = llm.json(prompts.SYSTEM_PLANNER, ask + prompts.ARC_ACTS_RETRY, schema, hint=hint)
@@ -1319,6 +1320,7 @@ def clean_arc(p: Project, prop: ArcProposal) -> ArcProposal:
     ids = known | {c.id for c in prop.new_characters} | {c.id for c in p.cast_candidates}
     a.cast = [c for c in a.cast if c in ids]
     a.cast += [c.id for c in prop.new_characters if c.id not in a.cast]  # 이 아크를 위해 만든 인물이다 (후보로 남는 근거)
+    a.focus = clean_focus(a.focus, ids)
     open_fs = {f.id for f in p.foreshadows if f.status == "open"}
     a.payoffs = [f for f in a.payoffs if f in open_fs]
     if isinstance(prop, HeatArcProposal):  # 열 계획은 아크 범위에 맞춰 arc.heat 로 옮긴다. 화면이 고쳐 보낸 arc.heat 가 있으면 그것을 쓴다
@@ -1351,7 +1353,7 @@ def apply_arc(p: Project, prop: ArcProposal) -> StoryArc:
     """제안된 다음 아크를 붙인다. 복선 회수 예정 화도 함께 바꾼다. 새 인물은 인물 설정에 넣지 않고 후보로 둔다
     (플롯이 데려온 인물과 같은 길: 그 인물이 나오는 화를 확정하거나 작가가 등록하면 조연 · 단역으로 들어온다)."""
     prop = clean_arc(p, prop.model_copy(deep=True))
-    a = prop.arc
+    a = prop.arc if type(prop.arc) is StoryArc else StoryArc.model_validate(prop.arc.model_dump())  # 틀별 판(schema.framed)은 저장 모델로
     p.story_arcs.append(a)
     try:
         validate_story_arcs(p)
@@ -1538,7 +1540,7 @@ def revise_plot(llm: LLM, p: Project, message: str, scope: ChatScope | None = No
     scope = scope.model_copy(update={"target": target})
     if target == "next" and scope.draft is not None and scope.draft.arc.start_ep != next_arc_start(p):
         scope.draft = None  # 그 사이 아크가 붙어 초안 자리가 맞지 않는다
-    rev = llm.json(prompts.SYSTEM_PLOT_CHAT, prompts.plot_chat_prompt(p, message, scope), PlotRevision,
+    rev = llm.json(prompts.SYSTEM_PLOT_CHAT, prompts.plot_chat_prompt(p, message, scope), prompts.arc_schema(p, PlotRevision),
                    hint=plot_chat_hint(p, message, scope))
     return clean_revision(p, rev, scope)
 
@@ -1678,7 +1680,21 @@ def chat_where(p: Project, scope: ChatScope) -> str:
     return " · ".join(out)
 
 
-ARC_EDIT_FIELDS = ("title", "goal", "conflict", "payoff", "cast", "payoffs", "pov")
+ARC_EDIT_FIELDS = ("title", "goal", "conflict", "payoff", "cast", "payoffs", "pov", "gain", "focus")
+
+
+def clean_focus(focus: str, ids: set[str]) -> str:
+    """공략 대상(StoryArc.focus)은 있는 인물 id 하나만. 없는 id 면 비운다 (docs/webnovel/specs/04-arc-frame.md)."""
+    focus = focus.strip()
+    return focus if focus in ids else ""
+
+
+def keep_unasked(p: Project, e: ArcEdit, a: StoryArc | ArcEdit | None) -> None:
+    """이 작품의 응답 형식이 묻지 않은 틀별 칸(gain · focus)은 AI 가 채울 수 없으니 지금 아크 값을 그대로 둔다.
+    틀을 드라마식으로 되돌린 작품도 작가가 적어 둔 성장 · 공략 대상을 플롯 대화가 지우지 않는다."""
+    for k, asked in zip(("gain", "focus"), prompts.arc_axes(p)):
+        if not asked:
+            setattr(e, k, getattr(a, k) if a is not None else "")
 
 
 def arc_end_problem(p: Project, a: StoryArc, end: int) -> str:
@@ -1711,6 +1727,8 @@ def _clean_arc_edit(p: Project, rev: PlotRevision, a: StoryArc, notes: list[str]
     e.end_ep = end if end != a.end_ep else 0
     known = {c.id for c in p.characters} | {c.id for c in p.cast_candidates}
     e.cast = [c for c in dict.fromkeys(e.cast) if c in known]
+    keep_unasked(p, e, a)
+    e.focus = clean_focus(e.focus, known)
     open_fs = {f.id for f in p.foreshadows if f.status == "open"} | set(a.payoffs)
     e.payoffs = [f for f in dict.fromkeys(e.payoffs) if f in open_fs]
     if not e.end_ep and all(getattr(e, k) == getattr(a, k) for k in ARC_EDIT_FIELDS):
@@ -1729,6 +1747,7 @@ def _clean_next_arc(p: Project, rev: PlotRevision, draft: ArcProposal | None, no
         notes.append("다음 아크의 제목과 목표가 없어 구조 변경안을 뺐어요.")
         rev.arc, rev.acts = ArcEdit(), []
         return
+    keep_unasked(p, fields, base)
     start = next_arc_start(p)
     end = rev.arc.end_ep or (base.end_ep if base else 0)
     if not end:
