@@ -48,7 +48,7 @@
 
 ## 프롬프트
 
-- 수치 줄이 없는 작품은 능력 일정이 들어가는 요청 글이 이 일감 전과 글자까지 같다. `tests/test_blueprint_growth_stat.py` 의 `test_requests_without_stat_lines_stay_the_same` 가 f9c5a249 에서 뽑은 해시와 견준다.
+- 수치 줄이 없는 작품은 능력 일정이 들어가는 요청 글이 이 일감 전과 글자까지 같다. `tests/test_blueprint_growth_stat.py` 의 `test_requests_without_stat_lines_stay_the_same` 가 main 173fdd06 에서 뽑은 해시와 견준다.
 - 그 시험이 보는 글: 장편 기획 줄 · 블록, 스토리보드 줄, 쓰기 줄, 검수 줄, 상태 변경안 줄, AI 제안의 이미 적은 줄 · 상태창 능력 줄 · 능력 블록(수치 항목이 없을 때), 스토리보드 · 쓰기 · 상태 변경안 · 검수 요청 전체.
 - 프롬프트 해시 스냅샷(`tests/snapshots/prompt_registry.json`)에는 능력 일정 줄이 든 작품이 없다. 바뀐 항목은 없다.
 - 장편 기획 줄(`ability_plan_lines`): 수치 줄은 '닿기로 했으나 아직 닿지 못함' · '닿을 예정' · '닿음'으로 적는다.

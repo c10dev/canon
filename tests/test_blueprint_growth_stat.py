@@ -182,12 +182,12 @@ def test_ai_block_lists_stat_values_only_when_present():
     assert "stat 과 ability 에 그 항목 이름을 그대로" in rules and "수치의 오르내림은 능력이 아니므로" not in rules
 
 
-# 수치 줄이 없는 작품의 요청 글은 이 일감 전(f9c5a249)과 글자까지 같다. 해시는 그 커밋에서 뽑았다.
+# 수치 줄이 없는 작품의 요청 글은 이 일감 전(main 173fdd06)과 글자까지 같다. 해시는 그 커밋에서 이 일감 없이 뽑았다.
 _BEFORE = {
     "plan_lines": "54b2be0b62e65f7f", "ability_block": "aa0de20a50a659f7", "board": "b2af20832d9c4251", "write": "1e874924a63d3d35",
     "check": "702c5cb71f204e0b", "state": "8bf19180f43de9d9", "have": "465ca225993023bd", "owned": "4dbec046b55b03c6",
-    "storyboard": "d85c4e1ae24e7840", "episode": "d37ba097af22c93e", "state_prompt": "4b762d787d027c7e",
-    "ai_block_nostat": "9e26466ee599de9b", "check_prompt": "ffbba28e53e41e6e",
+    "storyboard": "b9f384001cfaf263", "episode": "024dbd9e0b5c74c6", "state_prompt": "acc6547b1b9e168e",
+    "ai_block_nostat": "9e26466ee599de9b", "check_prompt": "1b1781651524f16c",
 }
 
 
