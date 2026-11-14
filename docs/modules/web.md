@@ -698,6 +698,7 @@
   - 관계 카드의 '여정' 줄 `relJourney`: 설계도의 그 쌍 이정표 · 사다리 칸 수와 설계도 쪽 링크(`blueprint.js`)
   - 이야기 뼈대만: 로그라인 · 관계 · 이름 후보
   - 인물 상세는 `cast.js` 인물 카드
+  - 인물 줄의 '더 자세히'에 압력 칸(`pressure`)이 있다. 안내 문장 대신 칸 안 예시 글(placeholder)만 둔다
   - 상태창 처음 수치는 `statwin.js` 로 가는 링크 `setupStatLink`
   - AI 이름 · 지명 고르기(`nameAI` · `placeAI`)는 화면을 막지 않는 작업 `names_ai` 다. 작업은 저장된 작품을 읽어서 먼저 묻지 않고 저장한다. 코드만 뽑는 '후보 뽑기'는 그대로 바로 받는다
   - 인물 카드의 '다른 이름' 칸과 '다른 이름 제안'(`charAliasField`, 작업 `aliases` 대상 `c:<id>`). 고르기 카드는 `aliases.js` 의 `aliasCard`

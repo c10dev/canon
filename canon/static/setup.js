@@ -908,10 +908,10 @@ function charRow(c, i) {
       <div class="row"><button type="button" class="btn small" data-action="nameCandidates" data-arg="${esc(c.id)}">이름 후보 뽑기</button><button type="button" class="btn small" data-action="nameAI" data-arg="${esc(c.id)}">AI 이름 추천 받기</button></div>
       ${namePicks('c:' + c.id, 'useName', (n) => `${c.id}|${n}`)}
       <div class="grid-2">${charIdeaInput('원하는 것', b + '.goal', { hint: '작품 전체에서' })}${charIdeaInput('두려운 것 · 약점', b + '.wound')}</div>
-      <div class="grid-2">${charIdeaInput('숨기는 것', b + '.secrets', { kind: 'list', rows: 2 })}${charIdeaInput('말투 (대사)', b + '.speech_style', { rows: 2, hint: '어미, 호칭, 대사 한 줄' })}</div>
+      <div class="grid-2">${charIdeaInput('숨기는 것', b + '.secrets', { kind: 'list', rows: 2 })}${charIdeaInput('말투 (대사)', b + '.speech_style', { rows: 2, hint: '어미, 호칭' })}</div>
       ${charAliasField(c, b)}
-      <details data-open-key="${esc('cd:' + c.id)}"${cardOpen('cd:' + c.id, false) ? ' open' : ''}><summary>더 자세히: 성격, 배경, 외모, 아크</summary><div class="row-more">
-        ${charIdeaInput('성격', b + '.personality', { rows: 2 })}${charIdeaInput('배경', b + '.background', { rows: 2 })}${charIdeaInput('외모', b + '.appearance')}
+      <details data-open-key="${esc('cd:' + c.id)}"${cardOpen('cd:' + c.id, false) ? ' open' : ''}><summary>더 자세히: 성격, 압력, 배경, 외모, 아크</summary><div class="row-more">
+        ${charIdeaInput('성격', b + '.personality', { rows: 2 })}${charIdeaInput('압력', b + '.pressure', { rows: 2, placeholder: '지키려는 것, 흔들리면 가는 곳' })}${charIdeaInput('배경', b + '.background', { rows: 2 })}${charIdeaInput('외모', b + '.appearance')}
         ${charIdeaInput('아크', b + '.arc', { hint: '시작 → 결말' })}${input('id', b + '.id', { hint: '관계와 플롯이 인물을 찾는 값이라 바꿀 수 없어요', readonly: true })}
       </div></details>
       <div class="between"><span class="small">AI에 넣기, 서술 말투, 신체 프로필, 삽화 외형 태그는 <a href="${base()}/cast/${enc(c.id)}?tab=sheet">인물 카드</a>에서 고쳐요.</span>
@@ -1066,7 +1066,7 @@ function sugValue(o, k) {
 }
 
 // 제안 인물 카드에서 펼쳐 보는 칸 (이름 · 역할은 카드 머리에 있다). 칸 이름은 인물 카드와 같다
-const SUG_CHAR_FIELDS = [['age', '나이'], ['gender', '성별'], ['goal', '원하는 것'], ['wound', '두려운 것 · 약점'], ['secrets', '숨기는 것'],
+const SUG_CHAR_FIELDS = [['age', '나이'], ['gender', '성별'], ['goal', '원하는 것'], ['wound', '두려운 것 · 약점'], ['pressure', '압력'], ['secrets', '숨기는 것'],
   ['speech_style', '말투 (대사)'], ['personality', '성격'], ['background', '배경'], ['appearance', '외모'], ['arc', '아크']];
 
 // 이미 있는 인물에게 채우는 빈 칸 (pipeline.FILL_CHAR_FIELDS 와 같다, tests/test_setup_fill.py)
@@ -1316,7 +1316,7 @@ Object.assign(actions, {
     let id = ids.has('hero') ? '' : 'hero';
     for (let n = cs.length + 1; !id; n++) if (!ids.has('char' + n)) id = 'char' + n;
     openMap()['c:' + id] = true;
-    cs.push({ id, name: '', role: id === 'hero' ? '주인공' : '조연', age: '', gender: '', appearance: '', personality: '', background: '', goal: '', wound: '', speech_style: '', secrets: [], arc: '', body: {}, context: 'auto', aliases: [] });
+    cs.push({ id, name: '', role: id === 'hero' ? '주인공' : '조연', age: '', gender: '', appearance: '', personality: '', background: '', goal: '', wound: '', pressure: '', speech_style: '', secrets: [], arc: '', body: {}, context: 'auto', aliases: [] });
     markDirty();
     render();
   },

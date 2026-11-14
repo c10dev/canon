@@ -16,7 +16,7 @@ FIELDS: dict[str, str] = {
     "background": "배경", "goal": "원하는 것", "wound": "두려운 것 · 약점",
 }
 # 작가가 고친 것을 기록하는 칸 (AI 칸 + 작가만 고치는 칸)
-LOG_FIELDS: dict[str, str] = {"name": "이름", "gender": "성별", **FIELDS, "arc": "아크", "narration_voice": "서술 말투"}
+LOG_FIELDS: dict[str, str] = {"name": "이름", "gender": "성별", **FIELDS, "pressure": "압력", "arc": "아크", "narration_voice": "서술 말투"}
 
 
 def label(field: str) -> str:

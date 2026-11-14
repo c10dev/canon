@@ -212,7 +212,7 @@ def check_applicable(p: Project, n: int) -> None:
 
 
 # 설정 제안이 이미 있는 인물에게 채우는 칸 (비어 있을 때만). 이름 · id · 비중 · 서술 말투 · 작가 전용 칸은 건드리지 않는다
-FILL_CHAR_FIELDS = ("role", "age", "gender", "appearance", "personality", "background", "goal", "wound", "speech_style", "secrets", "arc")
+FILL_CHAR_FIELDS = ("role", "age", "gender", "appearance", "personality", "background", "goal", "wound", "pressure", "speech_style", "secrets", "arc")
 
 
 def fill_character(old: Character, new: Character) -> list[str]:

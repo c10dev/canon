@@ -445,7 +445,7 @@ function bodyRows(c) {
 const SHEET_STATE = [['감정', 'emotional_state'], ['목표', 'current_goal'], ['위치', 'location'], ['차림', 'attire']];
 // 지금 상태 칸 + 목적격 조사 (되돌리기 묻기 · 알림 글). 칸은 stateedit.FIELDS 와 같다 (tests/test_stateedit.py)
 const STATE_OBJ = { emotional_state: '감정을', current_goal: '목표를', location: '위치를', attire: '차림을' };
-const SHEET_SETTING = ['appearance', 'personality', 'speech_style', 'goal', 'wound', 'arc', 'background'];  // 서술 말투는 'AI · 서술 · 신체 · 삽화' 카드에
+const SHEET_SETTING = ['appearance', 'personality', 'pressure', 'speech_style', 'goal', 'wound', 'arc', 'background'];  // 서술 말투는 'AI · 서술 · 신체 · 삽화' 카드에
 const SW_FRACTION = /^\s*(\d[\d,]*(?:\.\d+)?)\s*\/\s*(\d[\d,]*(?:\.\d+)?)\s*$/;
 
 function castStateOf(f, cid) {

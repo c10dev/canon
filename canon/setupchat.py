@@ -36,7 +36,7 @@ KEY_LABELS: dict[str, str] = {
 }
 LIST_KEYS = ("world.rules", "world.locations", "world.name_rules")
 CHAR_LABELS: dict[str, str] = {
-    "name": "이름", "role": "역할", "age": "나이", "gender": "성별", "goal": "원하는 것", "wound": "두려운 것 · 약점", "secrets": "숨기는 것",
+    "name": "이름", "role": "역할", "age": "나이", "gender": "성별", "goal": "원하는 것", "wound": "두려운 것 · 약점", "pressure": "압력", "secrets": "숨기는 것",
     "speech_style": "말투 (대사)", "personality": "성격", "background": "배경", "appearance": "외모", "arc": "아크", "aliases": "다른 이름",
 }
 # 목록 칸 (items 로 받는다). 다른 이름은 찾는 데만 쓰는 칸이라 charlog 기록에 남지 않는다 (charlog.LOG_FIELDS 밖)

@@ -6,7 +6,7 @@
 
 const SC_LABELS = {
   name: '이름', gender: '성별', age: '나이', role: '역할', appearance: '외모', personality: '성격', speech_style: '말투',
-  background: '배경', goal: '원하는 것', wound: '두려운 것 · 약점', arc: '아크', narration_voice: '서술 말투',
+  background: '배경', goal: '원하는 것', wound: '두려운 것 · 약점', pressure: '압력', arc: '아크', narration_voice: '서술 말투',
 };
 const scLabel = (f) => SC_LABELS[f] || f;
 
