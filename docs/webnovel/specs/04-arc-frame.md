@@ -1,6 +1,6 @@
 # 04. 부 · 아크 기획을 이야기 틀별로
 
-상태: 진행 (claude/arc-frame-b29cf1) · 계획: [plan.md](../plan.md) 의 4번 · 먼저: 1, 2
+상태: 진행 (claude/arc-frame-b29cf1, [#539](https://github.com/c10dev/canon/pull/539)) · 계획: [plan.md](../plan.md) 의 4번 · 먼저: 1, 2
 
 ## 목표
 
