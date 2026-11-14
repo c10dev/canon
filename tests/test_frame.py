@@ -59,8 +59,14 @@ def test_screen_frames_match_schema_and_hint():
     assert got["picked"].count('aria-pressed="true"') == 1 and 'aria-pressed="true" data-action="setFrame" data-arg="webnovel"' in got["picked"]
 
 
+# 틀이 글을 바꾸는 요청 (스냅샷 키에서 'short:' · 'long:' 을 뗀 것). 웹소설 틀에서는 스냅샷과 달라야 한다
+FRAME_CHANGES = {
+    "brief:setup_chat",  # 로그라인 웹소설 칸 (docs/webnovel/specs/03-logline.md)
+}
+
+
 def test_frame_stays_out_of_every_request():
-    """틀을 웹소설식으로 바꾼 시험 작품의 모든 요청 글이 스냅샷(드라마식)과 같다. 장르 안내에도 권하는 틀이 나오지 않는다."""
+    """틀을 웹소설식으로 바꾼 시험 작품의 요청 글이 FRAME_CHANGES 밖에서는 스냅샷(드라마식)과 같다. 장르 안내에도 권하는 틀이 나오지 않는다."""
     import json
 
     from . import test_prompt_registry as reg
@@ -70,7 +76,8 @@ def test_frame_stays_out_of_every_request():
         p = make()
         p.meta.frame = "webnovel"
         got = {f"{tag}:{k}": reg._h(v) for k, v in reg._requests(p).items()}
-        assert {k: v for k, v in got.items() if want.get(k) != v} == {}
+        assert {k: v for k, v in got.items() if want.get(k) != v and k.split(":", 1)[1] not in FRAME_CHANGES} == {}
+        assert all(got[f"{tag}:{k}"] != want[f"{tag}:{k}"] for k in FRAME_CHANGES)
     for g in genres.CATALOG:
         text = genres.guide(Meta(genres=[g.id])) + "\n".join(genres.opening_beats(Meta(genres=[g.id]), 1))
         assert "frame" not in text and "webnovel" not in text and "웹소설식" not in text, g.id

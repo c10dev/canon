@@ -120,9 +120,11 @@ def revise_setup(llm: LLM, p: Project, message: str, mode: str = "", history: li
     정리 · 적용 · 적용 취소는 canon/setupchat.py."""
     if not message.strip():
         raise ValueError("바라는 것을 적어 주세요")
-    rev = llm.json(prompts.SYSTEM_SETUP_CHAT, prompts.setup_chat_prompt(p, message, mode, history), SetupRevision,
+    rev = llm.json(prompts.SYSTEM_SETUP_CHAT, prompts.setup_chat_prompt(p, message, mode, history), prompts.setup_schema(p),
                    hint={"message": message, "mode": mode,
                          "project": p.model_dump(include={"meta", "world", "characters", "relationships"})})
+    if type(rev) is not SetupRevision:  # 웹소설 틀 응답 형식 (SetupRevisionWeb) 은 저장 형식으로 옮긴다
+        rev = SetupRevision.model_validate(rev.model_dump())
     return setupchat.clean(p, rev, mode)
 
 

@@ -1,6 +1,8 @@
-"""로그라인 다섯 칸을 한 문장으로 합치고, 형식을 점검한다. LLM 호출 없음.
+"""로그라인 칸을 한 문장으로 합치고, 형식을 점검한다. LLM 호출 없음.
+칸은 이야기 틀(Meta.frame)을 따른다: 드라마식은 누가 · 무엇 때문에 · 목표 · 막는 것 · 걸린 것,
+웹소설식은 누가 · 무엇 때문에 · 목표 · 주인공만 가진 것 · 독자가 받는 재미에 막는 것 · 걸린 것(선택)을 접어 둔다 (docs/webnovel/specs/03-logline.md).
 
-웹 화면(canon/static/app.js 의 composeLogline, loglineChecks, toneText)과
+웹 화면(canon/static/setup.js 의 composeLogline, loglineChecks, toneText)과
 Swift 앱(swift/Sources/FeatureSetup/Logline.swift 의 Logline, Tone)도 같은 규칙으로 계산한다.
 규칙을 바꾸면 세 곳을 함께 고친다.
 """
@@ -43,13 +45,35 @@ def josa(word: str, with_final: str, without_final: str) -> str:
     return with_final if j else without_final
 
 
-def compose(p: LoglineParts) -> str:
-    """다섯 칸을 '{누가}이/가 {무엇 때문에} {목표}. 하지만 {막는 것}. {걸린 것}.' 으로 합친다. 빈 칸은 건너뛴다.
+# 틀마다 칸: (보이는 칸, 접은 칸). 화면 static/setup.js 의 LOGLINE_FRAME_SLOTS 와 같다
+SLOTS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+    "drama": (("who", "why", "goal", "block", "stake"), ()),
+    "webnovel": (("who", "why", "goal", "edge", "appeal"), ("block", "stake")),
+}
+
+
+def slots(frame: str = "drama") -> tuple[str, ...]:
+    """그 틀이 쓰는 칸 모두 (보이는 칸 다음 접은 칸). 모르는 틀은 드라마식."""
+    shown, folded = SLOTS.get(frame, SLOTS["drama"])
+    return shown + folded
+
+
+def view(p: LoglineParts, frame: str = "drama") -> dict[str, str]:
+    """프롬프트에 넣는 칸: 그 틀이 쓰는 칸만, 스키마 차례로. 드라마식은 칸을 더하기 전 덤프와 같다."""
+    use = set(slots(frame))
+    return {k: getattr(p, k) for k in LoglineParts.model_fields if k in use}
+
+
+def compose(p: LoglineParts, frame: str = "drama") -> str:
+    """칸을 한 문장으로 합친다. 빈 칸은 건너뛴다.
+    드라마식: '{누가}이/가 {무엇 때문에} {목표}. 하지만 {막는 것}. {걸린 것}.'
+    웹소설식: '{누가}이/가 {무엇 때문에} {목표}. {주인공만 가진 것}. {독자가 받는 재미}. 하지만 {막는 것}. {걸린 것}.'
+    새 칸 둘이 비면 웹소설식 문장은 드라마식과 같다.
 
     목표와 막는 것을 '~지만'으로 잇지 않는 것은 만든다(만들다)와 그린다(그리다)처럼
     어간을 사전 없이 가를 수 없어서다.
     """
-    who, why, goal, block, stake = (x.strip().rstrip(".") for x in (p.who, p.why, p.goal, p.block, p.stake))
+    who, why, goal, block, stake, edge, appeal = (x.strip().rstrip(".") for x in (p.who, p.why, p.goal, p.block, p.stake, p.edge, p.appeal))
     out = ""
     if who:
         out += who + josa(who, "이", "가") + " "
@@ -57,6 +81,10 @@ def compose(p: LoglineParts) -> str:
         out += why + " "
     if goal:
         out += goal + "."
+    if frame == "webnovel":
+        for x in (edge, appeal):
+            if x:
+                out += " " + x + "."
     if block:
         out += (" 하지만 " if out else "") + block + "."
     if stake:
@@ -64,20 +92,24 @@ def compose(p: LoglineParts) -> str:
     return out.strip()
 
 
-def is_empty(p: LoglineParts) -> bool:
-    return not any(x.strip() for x in (p.who, p.why, p.goal, p.block, p.stake))
+def is_empty(p: LoglineParts, frame: str = "drama") -> bool:
+    """그 틀이 쓰는 칸이 모두 비었는지. 드라마 틀 작품에 웹소설 칸 값만 남았으면 비었다."""
+    return not any(getattr(p, k).strip() for k in slots(frame))
 
 
-def checks(p: LoglineParts) -> list[tuple[bool, str]]:
+def checks(p: LoglineParts, frame: str = "drama") -> list[tuple[bool, str]]:
     """형식 점검. 참고용 경고이며 다음 단계로 넘어가는 것을 막지 않는다."""
-    n = len(compose(p))
-    return [
+    n = len(compose(p, frame))
+    head = [
         (len(p.who.split()) > 1, "주인공에게 이름 말고 특징이 있어요"),
         (bool(p.why.strip()), "이야기를 시작하게 만드는 일이 있어요"),
         (p.goal.strip().endswith("다"), "목표가 눈에 보이는 행동이에요 ('~한다'로 끝나요)"),
-        (bool(p.block.strip()), "목표를 막는 사람이나 힘이 있어요"),
-        (40 <= n <= 150, "길이가 40~150자 사이예요"),
     ]
+    if frame == "webnovel":
+        mid = [(bool(p.edge.strip()), "주인공만 가진 것이 있어요"), (bool(p.appeal.strip()), "독자가 받는 재미가 있어요")]
+    else:
+        mid = [(bool(p.block.strip()), "목표를 막는 사람이나 힘이 있어요")]
+    return head + mid + [(40 <= n <= 150, "길이가 40~150자 사이예요")]
 
 
 # 다이얼 값 1~4 마다 (이어지는 말, 끝맺는 말)

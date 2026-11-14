@@ -75,8 +75,10 @@ from .schema import (
     SerialRebuild,
     SeriesPlan,
     SetupRevision,
+    SetupRevisionWeb,
     SetupSuggestion,
     SetupEdit,
+    SetupEditWeb,
     CharacterEdit,
     Deadline,
     SettingChange,
@@ -615,6 +617,9 @@ MOCK_FIELD_IDEAS = {
     "meta.logline_parts.goal": ["동생이 사라진 밤을 되짚는다", "등대의 주인을 찾아 섬을 뒤진다", "축제가 끝나기 전에 배를 돌려보낸다"],
     "meta.logline_parts.block": ["마을 사람들은 그 밤을 없던 일로 하려 한다", "등대 열쇠를 가진 이는 이미 죽었다", "배를 부른 것은 그녀의 아버지다"],
     "meta.logline_parts.stake": ["진실을 알면 돌아갈 집이 사라진다", "실패하면 동생을 영영 잃는다", "들키면 마을이 그녀를 내쫓는다"],
+    "meta.logline_parts.edge": ["그녀만 꺼진 등대의 신호를 읽는다", "그녀는 그 밤의 일을 꿈으로 다시 본다", "섬의 물때를 아는 사람은 그녀뿐이다"],
+    "meta.logline_parts.appeal": ["신호를 하나 풀 때마다 마을이 숨긴 일이 하나씩 드러난다", "꿈이 맞을 때마다 그녀를 무시하던 이들이 그녀를 다시 본다",
+                                  "물때를 맞힐 때마다 섬의 길이 하나씩 열린다"],
     "world.setting": ["안개가 잦은 남해의 작은 섬마을. 등대와 수산시장이 생활의 중심이다.",
                       "관광객이 끊긴 바닷가 소도시. 오래된 가족들이 서로의 비밀을 쥐고 산다.",
                       "썰물 때만 길이 열리는 섬. 물때표가 마을의 시계다."],
@@ -1009,6 +1014,15 @@ def _r_style_revision(prompt: str, hint: dict):
 @responds(SetupRevision)
 def _r_setup_revision(prompt: str, hint: dict):
     return _setup_revision(hint)
+
+
+@responds(SetupRevisionWeb)
+def _r_setup_revision_web(prompt: str, hint: dict):
+    """웹소설 틀 작품: 같은 변경안에 주인공만 가진 것 칸을 더한다 (변경 칸이 있을 때만)."""
+    out = SetupRevisionWeb.model_validate(_setup_revision(hint).model_dump())
+    if out.edits:
+        out.edits.insert(2, SetupEditWeb(key="logline.edge", text="그녀만 꺼진 등대의 신호를 읽는다", why="주인공만 가진 것을 분명히"))
+    return out
 
 
 @responds(StyleSample)

@@ -1254,7 +1254,7 @@ document.addEventListener('input', (e) => {
     if (kind === 'list') v = v.split('\n').map((s) => s.trim()).filter(Boolean);
     if (kind === 'tags') v = splitTags(v);
     if (kind === 'bool') v = el.checked;
-    const loglinePrev = el.dataset.bind.startsWith('meta.logline_parts.') ? composeLogline(P().meta.logline_parts) : undefined;
+    const loglinePrev = el.dataset.bind.startsWith('meta.logline_parts.') ? loglineNow() : undefined;
     setPath(root, el.dataset.bind, v);
     if (el.dataset.root === 'lib') { S.libDirty = true; renderSavebar(); }
     else if (!DRAFT_ROOTS[el.dataset.root]) markDirty();

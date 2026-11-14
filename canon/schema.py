@@ -9,10 +9,10 @@ Gemini 구조화 출력에 그대로 넘기므로 dict 타입 필드를 쓰지 �
 from __future__ import annotations
 
 import re
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional, get_args
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, SerializationInfo, SerializerFunctionWrapHandler, field_validator, model_serializer, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, PrivateAttr, SerializationInfo, SerializerFunctionWrapHandler, WithJsonSchema, field_validator, model_serializer, model_validator
 from pydantic.json_schema import SkipJsonSchema
 
 from .metrics import StyleMetrics
@@ -34,6 +34,8 @@ class LoglineParts(BaseModel):
     goal: str = Field("", description="무엇을 하려 하나: 눈에 보이는 행동, '~한다'로 끝남")
     block: str = Field("", description="무엇이 막나: 사람이나 힘")
     stake: str = Field("", description="무엇이 걸렸나: 실패하거나 진실을 알면 잃는 것 (선택)")
+    edge: str = Field("", description="주인공만 가진 것 (웹소설 틀): 회귀 지식, 혼자만 보이는 상태창처럼 주인공에게만 있는 것")
+    appeal: str = Field("", description="독자가 받는 재미 (웹소설 틀): 사이다, 성장, 하렘처럼 독자가 되풀이해 받는 것")
 
 
 class ToneDials(BaseModel):
@@ -1269,13 +1271,26 @@ class PlotRevision(BaseModel):
 
 SetupKey = Literal["title", "logline.who", "logline.why", "logline.goal", "logline.block", "logline.stake", "theme", "tone", "notes",
                    "world.setting", "world.era", "world.rules", "world.locations", "world.name_rules"]
+# 웹소설 틀의 로그라인 칸 (docs/webnovel/specs/03-logline.md). 웹소설 틀 응답 형식(SetupRevisionWeb)에만 보인다
+WebSetupKey = Literal["title", "logline.who", "logline.why", "logline.goal", "logline.edge", "logline.appeal", "logline.block", "logline.stake",
+                      "theme", "tone", "notes", "world.setting", "world.era", "world.rules", "world.locations", "world.name_rules"]
+
+
+def _setup_key(v: str) -> str:
+    if v not in get_args(WebSetupKey):
+        raise ValueError(f"모르는 칸이에요: {v}")
+    return v
+
+
+# 저장한 변경안은 모든 키를 읽고, 드라마 틀 응답 형식(JSON 스키마)에는 SetupKey 목록만 보인다 (작업지시서 스냅샷이 그대로)
+StoredSetupKey = Annotated[str, AfterValidator(_setup_key), WithJsonSchema({"enum": list(get_args(SetupKey)), "type": "string"})]
 CharField = Literal["name", "role", "age", "gender", "appearance", "personality", "background", "goal", "wound", "pressure", "speech_style",
                     "secrets", "arc", "aliases"]
 
 
 class SetupEdit(BaseModel):
     """기본 정보 · 세계관 한 칸의 바뀐 뒤 값."""
-    key: SetupKey = Field(description="바꿀 칸 이름")
+    key: StoredSetupKey = Field(description="바꿀 칸 이름")
     text: str = Field("", description="글 칸일 때: 바뀐 뒤 글 전체")
     items: list[str] = Field(default_factory=list, description="world.rules · world.locations · world.name_rules 일 때: 바뀐 뒤 목록 전체 (그대로 둘 항목도 모두 넣는다)")
     why: str = Field("", description="왜 이렇게 바꾸는지 한 줄")
@@ -1301,6 +1316,16 @@ class SetupRevision(BaseModel):
 
     def has_changes(self) -> bool:
         return bool(self.edits or self.characters or self.new_characters or self.relationships)
+
+
+class SetupEditWeb(SetupEdit):
+    """웹소설 틀 작품의 설정 대화 응답 형식: 칸 키에 로그라인 웹소설 칸이 더 있다."""
+    key: WebSetupKey = Field(description="바꿀 칸 이름")
+
+
+class SetupRevisionWeb(SetupRevision):
+    """웹소설 틀 작품의 설정 대화 응답 형식 (pipeline.revise_setup). 받은 답은 SetupRevision 으로 옮겨 저장한다."""
+    edits: list[SetupEditWeb] = Field(default_factory=list, description="바뀌는 기본 정보 · 세계관 칸만")
 
 
 class SetupBefore(BaseModel):

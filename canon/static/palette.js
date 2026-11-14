@@ -15,6 +15,7 @@ const PAL_KIND = { act: '동작', screen: '화면', char: '인물', field: '설�
 const PAL_SETUP = [
   ['meta.title', '제목'], ['meta.logline_parts.who', '로그라인 · 누가'], ['meta.logline_parts.why', '로그라인 · 무엇 때문에'],
   ['meta.logline_parts.goal', '로그라인 · 무엇을 하려 하나'], ['meta.logline_parts.block', '로그라인 · 무엇이 막나'],
+  ['meta.logline_parts.edge', '로그라인 · 주인공만 가진 것'], ['meta.logline_parts.appeal', '로그라인 · 독자가 받는 재미'],
   ['meta.logline_parts.stake', '로그라인 · 무엇이 걸렸나'], ['meta.logline', '로그라인 문장'], ['meta.theme', '주제'], ['meta.tone', '톤 문장'],
   ['meta.notes', '메모'], ['world.setting', '배경'], ['world.era', '시대'], ['world.rules', '깨면 안 되는 규칙'], ['world.locations', '장소'],
   ['world.name_rules', '이름 규칙'],
@@ -73,7 +74,8 @@ function palChosung(t) {
 function palSetupFields(p) {
   const text = (v) => (Array.isArray(v) ? v.join(' / ') : String(v ?? '')).trim();
   const get = (path) => path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), p);
-  const out = PAL_SETUP.map(([path, label]) => ({ path, label, value: text(get(path)) }));
+  const hide = p.meta.frame === 'webnovel' ? [] : ['meta.logline_parts.edge', 'meta.logline_parts.appeal'];  // 웹소설 칸은 웹소설 틀 화면에만 있다
+  const out = PAL_SETUP.filter(([path]) => !hide.includes(path)).map(([path, label]) => ({ path, label, value: text(get(path)) }));
   p.characters.forEach((c, i) => {
     if (!c.name) return;
     PAL_CHAR_FIELDS.forEach(([k, label]) => out.push({ path: `characters.${i}.${k}`, label: `${c.name} · ${label}`, value: text(c[k]) }));

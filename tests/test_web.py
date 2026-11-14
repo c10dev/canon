@@ -340,7 +340,7 @@ def test_create_with_genre_list(client):
 def test_logline_parts_and_tone(client):
     meta = {"title": "등대", "genres": ["mystery"], "target_episodes": 10}
     p = client.post("/api/projects", json={"name": "lg", "meta": meta}).json()
-    assert p["meta"]["logline_parts"] == {"who": "", "why": "", "goal": "", "block": "", "stake": ""}
+    assert p["meta"]["logline_parts"] == {"who": "", "why": "", "goal": "", "block": "", "stake": "", "edge": "", "appeal": ""}
     mystery = next(g for g in client.get("/api/genres").json() if g["id"] == "mystery")
     assert len(mystery["logline"]) == 2 and mystery["logline"][0]["who"]
 
