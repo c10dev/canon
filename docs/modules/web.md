@@ -499,7 +499,7 @@
   - 장편은 고른 아크 보드 위에 그 아크의 완급 계획 카드(`heatCard(p, arc)`)
   - 구간 · 아크 · 부 고치기는 서랍 없이 그 자리에서 `actEditor` · `arcEditor` · `partEditor`
   - 아크 주요 인물 이름 체크 `arcCastField`
-  - 다음 아크 제안 · 아크 카드 · 아크 고치기의 '얻는 성장' · '공략 대상' 칸 `arcFrameInputs`(app.js). 웹소설 틀 · 하렘 요소이거나 값이 있을 때만 보인다(`arcGainOn` · `arcFocusOn`)
+  - 다음 아크 제안 · 아크 카드 · 아크 고치기의 '얻는 성장' · '공략 대상' 칸 `arcFrameInputs`(app.js). 웹소설 틀 · 하렘 요소이거나 값이 있을 때만 보이고, 설명은 풍선이다(`arcGainOn` · `arcFocusOn`)
 - 640px 이하 사건 줄의 도구(연출 · 위로 · 아래로 · 빼기)는 숨기지 않고 사건 글 아래 줄 오른쪽에 둔다
 - 손가락 기기에서는 사건 순서의 'Enter로 다음 사건' 안내를 숨긴다
 - 장편(목차가 부 › 아크 › 구간 나무 `serialTree` · `serialTocRow`, 부 펼치기 `S.tocParts`, 부 구성 카드 펼침 `S.arcFull`, 다음 아크 기획 칸의 경고 `planAhead` 는 `pipeline.plan_ahead` 와 같은 규칙 `tests/test_plan_ahead_js.py`)

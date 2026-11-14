@@ -114,3 +114,44 @@ def test_arc_card_shows_frame_fields_only_when_asked():
     assert "얻는 성장" in got["web"] and "공략 대상" not in got["web"]
     assert "공략 대상" in got["harem"] and "얻는 성장" not in got["harem"]
     assert "얻는 성장" in got["kept"]  # 틀을 되돌려도 적힌 값은 보인다
+
+
+def test_filled_fields_reach_only_planning_requests():
+    """값이 찬 gain · focus 는 부 · 아크 기획과 아크 분석 요청에만 들어간다. 화별 플롯 · 본문 쓰기 · 검수의 '지금 부와 아크'(structure_text)에는 넣지 않는다 (일감 6 이 정한다)."""
+    from . import test_prompt_registry as reg
+
+    p = reg._web(reg._long)
+    for a in p.story_arcs:
+        a.gain, a.focus = "검술 해금 표지", "ally"
+    got = {**reg._requests(p), **reg._arc_requests(p)}
+    assert sorted(k for k, v in got.items() if "검술 해금 표지" in v) == ["brief:agent_plot", "brief:arc", "impact", "plot_chat:arc", "plot_chat:next", "recap"]
+
+
+def test_framed_instances_save_and_reload(tmp_path, monkeypatch, client):
+    """틀별 판으로 받은 아크 · 플롯 대화 변경안 · 에이전트 단계가 경고 없이 저장되고 다시 읽힌다 (mock 이 판으로 낸다)."""
+    import warnings
+
+    from canon import store
+
+    from .test_agent import _say, _session
+
+    p = _serial()
+    p.meta.frame, p.meta.genres = "webnovel", ["harem"]
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        prop = pipeline.plan_next_arc(LLM, p)
+        assert type(prop) is not ArcProposal and type(prop.arc) is not StoryArc  # 판
+        a = pipeline.apply_arc(p, prop)
+        assert type(a) is StoryArc
+        _plan_arc(p)
+        rev = pipeline.revise_plot(LLM, p, "갈등을 바꿔 줘", ChatScope(target="arc:1"))
+        assert type(rev) is not PlotRevision
+        pipeline.apply_revision(p, rev, False, [], arc=True, target="arc:1")
+        pipeline.record_chat(p, "plot", "갈등을 바꿔 줘", rev, ChatScope(target="arc:1"))
+        store.save("fw", p)
+        back = store.load("fw")
+        assert (back.story_arcs[0].gain, back.story_arcs[0].focus, back.story_arcs[0].conflict) == ("새 기술 해금", "ally", "옛 동료의 배신")
+        sid = _session(client, name="fw", target="arc:2")
+        t = _say(client, sid, "갈등을 바꿔 줘", name="fw")
+        arc = t["approval"]["revision"]["arc"]  # 아크 칸 변경은 승인을 기다린다. 세션에 저장된 변경안이 두 칸을 가진다
+        assert t["end"] == "wait" and (arc["conflict"], arc["gain"], arc["focus"]) == ("옛 동료의 배신", "새 기술 해금", "ally")

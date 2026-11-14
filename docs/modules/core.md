@@ -427,6 +427,7 @@
 - 다음 아크 `plan_next_arc` 는 `heat_plan` 을 켜면 `HeatArcProposal` 로 묻고(`prompts.heat_next_arc_rules`), `clean_arc` 가 완급 계획을 아크 범위에 맞춰 `arc.heat` 로 옮기고, `apply_arc` 가 판돈을 복선에 더한다
 - 다음 아크 · 플롯 대화는 응답 형식을 `prompts.arc_schema` 로 고른다. 웹소설 틀이나 하렘 요소가 있는 장편만 `gain` · `focus` 칸이 든 판이다(docs/webnovel/specs/04-arc-frame.md)
 - `clean_arc` · `_clean_arc_edit` 는 `focus` 를 있는 인물 id 만 남긴다(`clean_focus`)
+- `apply_arc` 는 틀별 판으로 받은 아크를 저장 모델 `StoryArc` 로 바꿔 붙인다
 - 플롯 대화의 아크 칸 묶음 `ARC_EDIT_FIELDS` 에 `gain` · `focus` 가 있다. 응답 형식이 묻지 않은 칸은 지금 아크나 초안 값을 둔다(`keep_unasked`)
 - 화별 플롯
   - 대화로 다듬기 `revise_plot`/`apply_revision` 포함
@@ -648,6 +649,7 @@
 - 웹소설 틀이면 다음 아크의 커지기 줄(`NEXT_ARC_GROW`)이 같은 모양의 갈등 대신 주인공의 성장이나 상대로 커진다
 - 하렘 요소(id `harem`)가 있는 장편은 두 요청에 공략 대상 `focus` 줄과 '관계는 주로 위로만' 줄(`ARC_HAREM`)을 더한다
 - 드라마 틀 · 하렘 없음이면 틀별 줄은 모두 지금 글 그대로다(`tests/test_frame.py` 의 `test_frame_changes_only_arc_planning`)
+- '지금 부와 아크'(`structure_text`)는 아크의 `gain` · `focus` 를 넣지 않는다. 화별 플롯 · 본문 쓰기가 그 칸을 쓸지는 웹소설 일감 6 이 정한다
 - 완급 계획 받기 요청 `heat_propose_prompt`: 기승전결, 화별 플롯, 본문 있는 화의 실제 열 참고값과 지금 계획, 열린 복선. 요구사항은 단편 기획과 같은 `heat_rules`
 - 작업지시서(`episode_brief`, `state_brief`)
 - 작업지시서는 `brief_parts`(역할 = 시스템, 요청)로 조립한다. 갈래 목록은 `BRIEF_KINDS`(`BriefKind`: 이름 · 필요한 것 · 고르는 단위 · 장편만)

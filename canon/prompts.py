@@ -20,7 +20,7 @@ from .dynamics import VIEWS, describe_relations
 from .logline import josa
 from .llm import _inline_refs, dump
 from .schema import Birth, Character, ChatMessage, Claim, ConsistencyIssue, ConsistencyReport, Foreshadow, PlayInfo, PlotBatch, Project, Selection, StateDelta, StateDeltaAI, StoryElement
-from .schema import ArcPlan, ArcProposal, CueSheetDraft, HeatArcPlan, HeatArcProposal, HeatProposal, SeriesPlan, StoryboardDraft
+from .schema import ARC_FRAME_FIELDS, ArcPlan, ArcProposal, CueSheetDraft, HeatArcPlan, HeatArcProposal, HeatProposal, SeriesPlan, StoryboardDraft
 from .schema import PassageRevision, PlotAgentStep, RelStage, SetupRevision, StyleRevision
 from . import address, blueprint, board, cast, charlog, coord, echoes, foreshadows, heatplan, knows, pairlog, stage, statwin, timeline
 from . import offscreen
@@ -1966,13 +1966,14 @@ def _entry_name(text: str) -> str:
 
 
 def structure_text(p: Project, n: int, head: str = "[지금 부와 아크]") -> str:
-    """n화가 속한 부와 아크, 아크 안 기승전결. 장편 전용."""
+    """n화가 속한 부와 아크, 아크 안 기승전결. 장편 전용.
+    아크의 얻는 성장 · 공략 대상(gain · focus)은 넣지 않는다: 화별 플롯 · 본문 쓰기 요청이 그 칸을 어떻게 쓸지는 웹소설 일감 6 이 정한다."""
     part, arc = p.part_for(n), p.arc_for(n)
     lines = []
     if part:
         lines.append(f"[{part.number}부 {part.title} ({part.start_ep}~{part.end_ep}화)]\n목표: {part.goal}\n전환점: {part.key_turn}")
     if arc:
-        lines.append(dump(arc.model_dump(exclude={"summary", *ARC_HEAT}) | {"title": f"아크 {arc.number} {arc.title}"}))
+        lines.append(dump(arc.model_dump(exclude={"summary", *ARC_HEAT, *ARC_FRAME_FIELDS}) | {"title": f"아크 {arc.number} {arc.title}"}))
     return head + "\n" + ("\n".join(lines) or "아직 없음")
 
 

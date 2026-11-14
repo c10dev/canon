@@ -166,9 +166,9 @@ const arcFocusOn = (a) => (P().meta.genres || []).includes('harem') || !!(a && a
 const ARC_GAIN_HINT = '이 아크에서 주인공이 얻는 성장 (레벨업, 해금, 자신감)';
 const ARC_FOCUS_HINT = '이 아크에서 관계를 올리는 공략 대상의 인물 id';
 
-/** 얻는 성장 · 공략 대상 칸. 웹소설 틀 · 하렘 요소를 고른 작품이나 값이 있는 아크에만 (arcGainOn · arcFocusOn) */
+/** 얻는 성장 · 공략 대상 칸. 웹소설 틀 · 하렘 요소를 고른 작품이나 값이 있는 아크에만 (arcGainOn · arcFocusOn). 도움말은 풍선 */
 function arcFrameInputs(a, b, root) {
-  const opt = (hint) => ({ ...(root ? { root } : {}), hint });
+  const opt = (help) => ({ ...(root ? { root } : {}), help });  // 설명은 늘 보이는 글(hint)이 아니라 풍선으로 (덜기)
   const gain = arcGainOn(a) ? input('얻는 성장', b + '.gain', { ...opt(ARC_GAIN_HINT), rows: 2, autogrow: true }) : '';
   const focus = arcFocusOn(a) ? input('공략 대상', b + '.focus', opt(ARC_FOCUS_HINT)) : '';
   return gain && focus ? `<div class="grid-2">${gain}${focus}</div>` : gain + focus;

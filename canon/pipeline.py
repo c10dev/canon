@@ -1353,7 +1353,7 @@ def apply_arc(p: Project, prop: ArcProposal) -> StoryArc:
     """제안된 다음 아크를 붙인다. 복선 회수 예정 화도 함께 바꾼다. 새 인물은 인물 설정에 넣지 않고 후보로 둔다
     (플롯이 데려온 인물과 같은 길: 그 인물이 나오는 화를 확정하거나 작가가 등록하면 조연 · 단역으로 들어온다)."""
     prop = clean_arc(p, prop.model_copy(deep=True))
-    a = prop.arc
+    a = prop.arc if type(prop.arc) is StoryArc else StoryArc.model_validate(prop.arc.model_dump())  # 틀별 판(schema.framed)은 저장 모델로
     p.story_arcs.append(a)
     try:
         validate_story_arcs(p)

@@ -301,7 +301,7 @@ def _serial_revision(hint: dict, rev: PlotRevision) -> bool:
         size = re.search(r"(\d+)화짜리", msg)
         if draft and not size:
             a = draft.arc
-            rev.arc = ArcEdit(**a.model_dump(include={"title", "goal", "conflict", "payoff", "cast", "payoffs", "pov"}), end_ep=a.end_ep)
+            rev.arc = ArcEdit(**a.model_dump(include={"title", "goal", "conflict", "payoff", "cast", "payoffs", "pov", "gain", "focus"}), end_ep=a.end_ep)
             if "갈등" in msg:
                 rev.arc.conflict = "옛 동료의 배신"
             rev.acts = [x.model_copy(deep=True) for x in a.acts]
@@ -313,7 +313,7 @@ def _serial_revision(hint: dict, rev: PlotRevision) -> bool:
             rev.new_characters = [Character(id="rival9", name="라이벌", role="라이벌", tier="main", speech_style="짧은 반말")]
         return True
     if focus and ("갈등" in msg or "끝 화" in msg):
-        rev.arc = ArcEdit(**focus.model_dump(include={"title", "goal", "conflict", "payoff", "cast", "payoffs", "pov"}))
+        rev.arc = ArcEdit(**focus.model_dump(include={"title", "goal", "conflict", "payoff", "cast", "payoffs", "pov", "gain", "focus"}))
         if "갈등" in msg:
             rev.arc.conflict = "옛 동료의 배신"
         hit = re.search(r"끝 화 (\d+)", msg)
@@ -656,9 +656,10 @@ class MockLLM:
     def json(self, system: str, prompt: str, schema: type[T], hint: dict | None = None) -> T:
         _delay()
         hint = hint or {}
-        for base in schema.__mro__:  # 틀별 판(schema.framed)은 원래 모델의 가짜 응답을 쓴다
+        for base in schema.__mro__:  # 틀별 판(schema.framed)은 원래 모델의 가짜 응답을 그 판으로 다시 읽어 낸다 (실제 백엔드처럼)
             if base in RESPONDERS:
-                return RESPONDERS[base](prompt, hint)  # type: ignore[return-value]
+                out = RESPONDERS[base](prompt, hint)
+                return out if base is schema else schema.model_validate(out.model_dump())  # type: ignore[return-value]
         raise NotImplementedError(schema.__name__)
 
     def text(self, system: str, prompt: str) -> str:
