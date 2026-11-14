@@ -14,6 +14,7 @@ pipeline.insert_episode / remove_episode 가 맡고, 여기는 번호를 옮기�
 - 범위(구간 · 아크 · 부): 새 화는 바로 뒤 화(at)가 든 범위에 들어간다. 맨 끝에 붙이면 끝나는 범위가 늘어난다.
 상태 기록 · 스냅샷 · 사건 로그는 반영한 화에만 있으므로 옮기지 않는다 (pipeline 이 그런 화를 옮기지 못하게 막는다).
 화 안의 칸(본문, 판, 검수 지적, 수정 기록, 삽화)은 Episode 와 함께 움직이고, 화 밖에서 화 번호를 품은 칸은 move_points 가 옮긴다.
+완급 계획은 화 하나를 가리키는 번호로 옮기고 뺀 화의 줄은 지운다(move_heat). 새 화의 줄은 범위를 옮긴 뒤 heatplan.fit 이 채운다.
 """
 from __future__ import annotations
 
@@ -73,9 +74,27 @@ def last_fixed(p: Project, move_text: bool = False) -> int:
     return max([*eps, *(d.episode for d in p.history), *(s.episode for s in p.snapshots), *(x.episode for x in p.events), 0])
 
 
+def move_heat(p: Project, f: Point, gone: int = 0) -> int:
+    """완급 계획(단편 Project.heat, 장편 StoryArc.heat)의 화 번호와 뒤집힘의 심은 화 · 들킨 화를 f 로 옮긴다.
+    뺀 화의 줄은 지운다. 새 화의 줄과 범위 밖 줄은 범위를 옮긴 뒤 pipeline 이 heatplan.fit 으로 맞춘다. 고친 줄 수를 돌려준다."""
+    changed = 0
+    for owner in [p, *p.story_arcs]:
+        if gone and any(s.ep == gone for s in owner.heat):
+            owner.heat = [s for s in owner.heat if s.ep != gone]
+            changed += 1
+        for s in owner.heat:
+            ep = f(s.ep)
+            changed += ep != s.ep
+            s.ep = ep
+        t = owner.heat_turn
+        if t.plant_ep > 0:
+            t.plant_ep, t.fail_ep = f(t.plant_ep), f(t.fail_ep)
+    return changed
+
+
 def move_points(p: Project, f: Point, gone: int = 0) -> dict[str, int]:
     """화 하나를 가리키는 번호를 f 로 옮긴다. gone 은 빼는 화 (그 화만의 기록은 지운다). 고친 곳 수를 종류별로 돌려준다."""
-    count = {"foreshadows": 0, "elements": 0, "storylines": 0, "characters": 0, "blueprint": 0}
+    count = {"foreshadows": 0, "elements": 0, "storylines": 0, "characters": 0, "blueprint": 0, "heat": 0}
 
     def mv(x, key: str):
         y = f(x) if x else x
@@ -125,6 +144,7 @@ def move_points(p: Project, f: Point, gone: int = 0) -> dict[str, int]:
     for c in [*p.characters, *p.cast_candidates]:
         c.first_ep = mv(c.first_ep, "characters")
     count["blueprint"] += blueprint.move(p, f, gone)  # 설계도의 화 범위 (끝 화가 빠지면 범위가 준다)
+    count["heat"] += move_heat(p, f, gone)
     chats = []
     for c in p.chats:
         if c.topic.startswith("text:") and c.topic[5:].isdigit():
