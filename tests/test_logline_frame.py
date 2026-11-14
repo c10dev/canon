@@ -14,11 +14,11 @@ from .jsvm import dump, needs_node, run_js
 
 FULL = dict(who="사진관을 하는 채은", why="오빠 소식에", goal="되짚는다", block="막는다", stake="잃는다")
 
-# 칸을 더하기 전 코드(main 7ada3743)로 만든 드라마 틀 요청의 sha256 앞 16자
+# 칸을 더하기 전 코드(main 173fdd06)로 만든 드라마 틀 요청의 sha256 앞 16자
 BEFORE = {
-    "empty:chat": "7ee2a1683e7df863", "empty:chat_opt": "656f58707803c987", "empty:field:who": "2b2a11b6be0caad0",
+    "empty:chat": "f46b4e99b1e9be23", "empty:chat_opt": "656f58707803c987", "empty:field:who": "2b2a11b6be0caad0",
     "empty:field:why": "304d2e8d7577ab26", "empty:field:goal": "2f1fc7b2029aff07", "empty:field:block": "4fe0316b17885507",
-    "empty:field:stake": "4c3f3338fcdca066", "empty:field:title": "4ce24878b147c9e8", "full:chat": "bb0717f331614c3c",
+    "empty:field:stake": "4c3f3338fcdca066", "empty:field:title": "4ce24878b147c9e8", "full:chat": "f883125ae49baecb",
     "full:chat_opt": "1a847406b119e3e8", "full:field:who": "0197476ea7501402", "full:field:why": "22ae1b551952ef25",
     "full:field:goal": "0e07e24c678ca09a", "full:field:block": "cc3159717f57b568", "full:field:stake": "5b38cfb6ee06ed26",
     "full:field:title": "1b2e7c4a88eb5b70",
