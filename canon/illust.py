@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import re
 
-from . import elements, findings, metrics
+from . import cast, elements, findings, metrics
 from .context import grams
 from .schema import CharacterState, CharacterVisual, IllustCharacter, IllustCharPrompt, IllustDraft, Illustration, Project
 
@@ -40,8 +40,17 @@ POSITIONS = {"left": "왼쪽", "center": "가운데", "right": "오른쪽"}
 KEEP = 20  # 화마다 남기는 삽화 프롬프트 수
 
 _COUNT = re.compile(r"^(\d+\+?|multiple|no)\s*(girls?|boys?|others?|humans)$")
-_HANGUL = re.compile(r"[ㄱ-ㆎ가-힣]")
+_HANGUL = re.compile(r"[ㄱ-ㆎ가-힣\u3040-\u30ff\u3400-\u9fff]")  # 한글 · 가나 · 한자 (AI 가 fluorescent照明 처럼 섞어 씀)
 _SUBJECT = {"girl", "boy", "other"}
+
+# 나이대 태그. 이미 있으면 프로그램이 붙이지 않는다
+_AGE_TAG = re.compile(r"(^|[\s:])(child|loli|shota|teen|teenage|adult|mature (female|male)|old (woman|man)|elderly|aged (up|down)|young (adult|female|male|woman|man)|milf)\b")
+# 어려 보이게 그려지는 나이 태그 (WAI-illustrious 실측 2026-11-11: young adult 를 넣은 남자는 10대로 그려짐)
+YOUNG_TAGS = {"young adult", "young female", "young male", "young woman", "young man"}
+YOUNG_NOTE = "{name}의 저장된 외형 태그 {tag}은(는) 그림이 어려 보이게 해요. 20대 초는 adult 를 권해요"
+# AI 원안 검사: 칸 이름으로 시작하는 원소는 여러 칸을 한 원소에 붙여 쓴 깨진 출력이다
+_FIELD_LEAK = re.compile(r"^(lighting|mood|setting|composition|negative|rating|expression|outfit|look|position)\s")
+LONG_TAG = 5  # 낱말이 이만큼 넘으면 태그 하나가 아니다
 
 
 def model_info(mid: str) -> tuple[str, str, int, bool]:
@@ -49,7 +58,7 @@ def model_info(mid: str) -> tuple[str, str, int, bool]:
 
 
 def clean(tags: list[str]) -> list[str]:
-    """태그 정리: 쉼표로 나누고, 소문자, 낱말 사이 밑줄은 띄어쓰기, 한글 태그와 겹치는 것은 뺀다.
+    """태그 정리: 쉼표로 나누고, 소문자, 낱말 사이 밑줄은 띄어쓰기, 한글 · 가나 · 한자가 든 태그와 겹치는 것은 뺀다.
     인물 수와 등급 태그는 프로그램이 붙이므로 뺀다. 가중치 문법(1.2::tag ::)은 그대로 둔다."""
     out: list[str] = []
     seen: set[str] = set()
@@ -101,23 +110,84 @@ def rating_for(p: Project, rating: str) -> str:
     return r
 
 
+def age_tag(age: str, subject: str) -> str:
+    """나이 칸으로 붙일 나이대 태그 (NovelAI 문법). 나이를 모르거나 미성년(cast.is_minor_age)이면 빈 글.
+    19~25 adult, 26~39 0.6::mature female::, 40~59 mature female, 60 넘으면 old woman (남성은 male · man).
+    mature female 을 그대로 넣으면 30대로 그려지고 체형도 커져 20대 후반은 가중치를 낮춘다 (WAI-illustrious 실측 2026-11-11)."""
+    if cast.is_minor_age(age):
+        return ""
+    m = re.search(r"\d+", age or "")
+    if not m:
+        return ""
+    n = int(m.group())
+    sex = {"girl": ("female", "woman"), "boy": ("male", "man")}.get(subject)
+    if n <= 25 or not sex:
+        return "adult"
+    if n < 40:
+        return f"0.6::mature {sex[0]}::"
+    return f"mature {sex[0]}" if n < 60 else f"old {sex[1]}"
+
+
+def check_draft(d: IllustDraft) -> list[str]:
+    """AI 원안의 깨진 태그를 뺀다: 칸 이름으로 시작하는 원소(lighting fluorescent light ...), 낱말이 LONG_TAG 개 넘는 원소,
+    left · center · right 가 아닌 position. d 를 고치고 알릴 것을 돌려준다."""
+    dropped: list[str] = []
+
+    def keep(tags: list[str]) -> list[str]:
+        out = []
+        for t in tags:
+            low = re.sub(r"^(source|target|mutual)#", "", str(t).strip().lower())
+            if _FIELD_LEAK.match(low) or len(low.split()) > LONG_TAG:
+                dropped.append(str(t))
+            else:
+                out.append(t)
+        return out
+
+    for f in ("setting", "lighting", "composition", "mood", "negative"):
+        setattr(d, f, keep(getattr(d, f)))
+    bad_pos = 0
+    for c in d.characters:
+        for f in ("look", "outfit", "expression", "action"):
+            setattr(c, f, keep(getattr(c, f)))
+        if c.position.strip().lower() not in ("", *POSITIONS):
+            c.position, bad_pos = "", bad_pos + 1
+    notes = []
+    if dropped:
+        shown = ", ".join(t[:40] for t in dropped[:3])
+        notes.append(f"AI 원안에서 형식이 깨진 태그 {len(dropped)}개를 뺐어요: {shown}")
+    if bad_pos:
+        notes.append(f"AI가 적은 인물 자리 {bad_pos}개가 왼쪽 · 가운데 · 오른쪽이 아니라 비웠어요")
+    return notes
+
+
 def join(tags: list[str]) -> str:
     return ", ".join(t for t in tags if t)
 
 
-def _char_tags(p: Project, ch: IllustCharacter, missing: list[str]) -> tuple[str, list[str], list[str]]:
-    """인물 하나의 (subject, 태그, 부정 태그). 저장된 외형이 있으면 그것을, 없으면 AI 태그를 쓴다."""
+def _char_tags(p: Project, ch: IllustCharacter, missing: list[str], notes: list[str]) -> tuple[str, list[str], list[str]]:
+    """인물 하나의 (subject, 태그, 부정 태그). 저장된 외형이 있으면 그것을, 없으면 AI 태그를 쓴다.
+    나이 칸이 있는 인물은 외형에 나이대 태그가 없으면 age_tag 를 붙인다. AI 가 적은 young adult 같은 태그는 그때 뺀다.
+    작가가 저장한 외형은 바꾸지 않고, 어려 보이게 하는 태그가 있으면 notes 에 알린다."""
     v: CharacterVisual | None = p.visual(ch.id) if ch.id else None
-    known = ch.id and any(c.id == ch.id for c in p.characters)
-    subject = subject_of(p, ch.id) if known else ch.subject
-    if v and v.look:
-        look = v.look
+    c = next((c for c in p.characters if c.id == ch.id), None) if ch.id else None
+    subject = subject_of(p, ch.id) if c else ch.subject
+    saved = bool(v and v.look)
+    if saved:
+        look = clean(v.look)
+        young = [t for t in look if t in YOUNG_TAGS]
+        if young:
+            notes.append(YOUNG_NOTE.format(name=c.name if c else ch.id, tag=young[0]))
     else:
-        look = ch.look
-        if known and ch.look:
+        look = clean(ch.look)
+        if c and ch.look:
             missing.append(ch.id)
+    add = age_tag(c.age, subject) if c else ""
+    if add and not saved:
+        look = [t for t in look if t not in YOUNG_TAGS]
+    if add and not any(_AGE_TAG.search(t) for t in look):
+        look = look + [add]
     outfit = ch.outfit or (v.outfit if v else [])
-    tags = clean(look) + clean(outfit) + clean(ch.expression) + clean(ch.action)
+    tags = look + clean(outfit) + clean(ch.expression) + clean(ch.action)
     return subject, tags, clean(v.negative) if v else []
 
 
@@ -176,7 +246,7 @@ def assemble(p: Project, ill: Illustration, model: str | None = None) -> Illustr
     names = {c.id: c.name for c in p.characters}
 
     chars = [c for c in d.characters if c.id or c.subject]
-    built = [(c, *_char_tags(p, c, missing)) for c in chars]
+    built = [(c, *_char_tags(p, c, missing, notes)) for c in chars]
     rating = rating_for(p, d.rating)
     if rating != d.rating:
         notes.append(f"성인물이 아닌 작품이라 등급을 {d.rating} 에서 {rating} 로 낮췄어요")
