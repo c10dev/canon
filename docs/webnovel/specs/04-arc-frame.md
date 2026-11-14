@@ -109,7 +109,7 @@
 ## 시험
 
 - `tests/test_frame.py` 의 `test_frame_changes_only_arc_planning`: 틀만 웹소설식으로 바꾸면 바뀌는 요청이 장편 다섯(`brief:agent_plot` · `brief:arc` · `brief:series` · `plot_chat:arc` · `plot_chat:next`)과 단편 하나(`convert`)뿐이다. 나머지는 스냅샷과 같다. 옛 `test_frame_stays_out_of_every_request` 를 바꿨다.
-- `tests/test_prompt_registry.py`: 작업지시서 밖의 아크 요청(`_arc_requests`: 플롯 대화 둘 · 아크 요약 · 영향 분석 · 전환 · 재구성)을 드라마 틀 항목으로 더했다. 이 여섯 해시는 고치기 전 코드(HEAD 7ada3743)의 글과 같다.
+- `tests/test_prompt_registry.py`: 작업지시서 밖의 아크 요청(`_arc_requests`: 플롯 대화 둘 · 아크 요약 · 영향 분석 · 전환 · 재구성)을 드라마 틀 항목으로 더했다. 이 여섯 해시는 고치기 전 코드(main 173fdd06)의 글과 같다.
 - 같은 파일에 웹소설 틀 · 하렘 요소 작품의 틀별 요청을 `long_web:*` · `short_web:convert` 새 항목으로 더했다. 기존 87 항목은 하나도 바뀌지 않았다.
 - `tests/test_arc_frame.py`: 드라마 틀 형식이 원래 클래스, 웹소설 · 하렘 형식의 칸, 빈 칸이 새지 않음 · 옛 작품 읽기, 다음 아크 mock, 없는 `focus` 비우기, 플롯 대화가 묻지 않은 칸을 지키기, 화면 칸이 덜기를 따름.
 - 같은 파일: 값이 찬 두 칸이 들어가는 요청이 정확히 여섯이고, 틀별 판으로 받은 아크 · 플롯 대화 변경안 · 에이전트 단계가 경고 없이 저장되고 다시 읽힌다(mock 이 요청한 판으로 낸다).
