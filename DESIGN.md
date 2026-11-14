@@ -257,6 +257,8 @@ AI 는 숫자를 매기지 않고 사건만 뽑는다. 같은 사건은 항상 �
 - 설계도 개요의 전체 띠는 서버가 고른 처음 닿는 줄(`blueprint.firsts`)과 쌍끼리 몰림(`blueprint.crowd_pairs`)을 그린다. 몰림은 두 쌍이 같은 단계 · 같은 겹에 처음 닿는 줄의 화 범위가 겹치는 것이고, 작가가 일부러 둔 동시 장면이 있어 늘 보이는 경고에는 넣지 않는다(`docs/blueprint/specs/11-whole.md`).
 - 작품 전체 짜기(작업 `blueprint_whole`, `pipeline.draft_whole`)는 관계가 있는 여러 쌍과 능력 일정을 부 하나씩 한 번에 받는다. 모든 쌍을 함께 봐야 쌍끼리 엇갈려 놓고 능력과 맞물린다. 응답 맨 앞은 편성(`spotlight`)이고 저장하지 않는다. 쌍이 다섯을 넘으면 다섯씩 나눠 부른다. 고른 줄은 `blueprint.apply_set` 이 한 사본에 더하고 검사를 한 번 한다. 출력 한도는 생각 포함 32,768토큰(`WHOLE_OUT_TOKENS`)이다. 2026-11-11 실제 서버(gemini-4-argon · high)에서 16,384 로는 생각만 16,381토큰 쓰고 글 없이 끝난 적이 있다.
 - 설계도의 능력 일정(`AbilityPlan`, `docs/blueprint/specs/10-ability.md`)은 계획만 저장한다. 얻은 화는 상태창 기록에서 계산한다(`blueprint.got_ep`). 그래서 되돌리기 · 갈래가 따로 맞출 값이 없다.
+- 능력 일정 줄은 스킬 도감 항목 대신 상태창 수치 항목(`AbilityPlan.stat`, 레벨 · 마력 같은 값)을 가리킬 수 있다(2026-11-14, 웹소설 일감 5). 얻은 화는 그 항목 값이 닿을 값에 처음 닿은 화다(`blueprint.stat_ok`, `docs/blueprint/specs/14-growth-stat.md`).
+- 화면 이름은 '성장 일정'이다. 코드 이름과 프롬프트 글은 '능력 일정' 그대로다.
 - 능력 일정도 인물 하나씩 AI 가 제안한다(작업 `blueprint_ability` · `blueprint_ability_draft`, `pipeline.propose_abilities` · `draft_abilities`, `docs/blueprint/specs/12-ability-ai.md`). 지금 플롯에서 뽑거나 설정 · 부 구성 · 스킬 도감으로 짜고, 작가가 고른 줄만 `blueprint.apply_abilities` 로 더한다. 계획만 더하고 상태창 기록은 건드리지 않는다. 실호출(2026-11-11, flash 3번 모두 첫 시도 성공)은 그 명세서.
 - 능력 일정 제안은 도감에 없는 능력의 스킬 도감 초안(`AbilityProposal.codex`)도 함께 받는다. 작가가 고른 초안만 `source="ai"` 도감 항목이 되고, 되돌리기가 함께 지운다(`docs/blueprint/specs/13-ability-codex.md`).
 - 능력 일정은 아직 얻지 못한 줄만 프롬프트에 들어간다: 장편 기획은 범위에 걸린 줄과 그 뒤 첫 줄(`prompts.blueprint_ability_block`, 예산 `context.BUDGET["ability_plan"]`), 스토리보드는 이 화가 얻는 범위인 줄과 다음 줄, 쓰기는 이 화가 얻는 범위이고 플롯에 그 능력 이름이 나오는 줄만, 검수는 뒤 화의 줄을 앞당겼는지 본다.

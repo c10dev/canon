@@ -108,7 +108,7 @@ def test_proposal_crowd_and_mesh_only_with_new_lines():
     crowd = blueprint.proposal_crowd(p, prop)
     assert {frozenset((x, y)) for x, y, _ in crowd} == {frozenset(("d~r", "d~y"))} and len(crowd) == 2  # 호감(윤서) · 맨살. 수빈 ↔ 윤서 이미 적은 줄끼리 몰림은 빼고, 예린 ↔ 수빈 호감은 범위가 안 겹친다
     mesh = blueprint.proposal_mesh(p, prop)
-    assert mesh == [("d~r", "예린 → 도준 '해금 보고 반함'(8화~)에 능력 '해금' 이름이 나오는데 능력 일정은 10~12화에 얻어요.")]
+    assert mesh == [("d~r", "예린 → 도준 '해금 보고 반함'(8화~)에 능력 '해금' 이름이 나오는데 성장 일정은 10~12화에 얻어요.")]
 
 
 def test_job_and_apply_set_api(client):
