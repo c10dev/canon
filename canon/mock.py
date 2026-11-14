@@ -752,7 +752,7 @@ def _r_style_profile(prompt: str, hint: dict):
     return StyleProfile(narration_pov="3인칭 제한", tense="과거형", sentence_rhythm="짧은 문장 위주",
                         dos=["감각 묘사로 장면 시작"], donts=["설명조 대사"],
                         # 있었다 · 대답은 시험 원문(tests/fixtures/revlab_story.txt)에, 않았다는 examples/sample_style.txt 에 있다.
-                        # '다'(한글 1자) · '서윤은'(인물 이름) · 원문에 없는 표지와 지어낸 장치 예시는 count_markers 가 거른다
+                        # '다'(한글 1자) · '서윤은'(인물 이름) · 원문에 없는 표지와 지어낸 장치 예시는 count_markers 가 거른다. 장치 간격 every=3 도 0 으로 맞춘다
                         markers=[StyleMarker(text="않았다", note="부정으로 끝맺는 서술"), StyleMarker(text="있었다", note="상태 서술"),
                                  StyleMarker(text="다", per_1k=40), StyleMarker(text="서윤은", per_1k=3),
                                  StyleMarker(text="원문에없는표지", per_1k=9)],
