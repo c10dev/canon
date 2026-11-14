@@ -696,7 +696,7 @@
 - 쇠맛을 줄이는 쓰기 규칙: 블록 차례 한 줄 `priority_line`
 - 문체 분석 요청 `style_prompt` 은 효과음 표기 칸(`sound_effects`)을 묻고, 원문에서 센 효과음 줄 요약(`sfx_note`)을 붙인다
 - `style_prompt` 은 dos · pacing 에 '화마다' · '장면마다 한 번 이상' 같은 빈도 규칙과 화마다 정해진 순서의 구성을 적지 말라고 적는다(웹소설 일감 12)
-- 문체 대화 요청 `style_chat_prompt` 는 그런 빈도 규칙을 새로 더하지 말라고 적는다. 작가가 청한 것과 프로필에 이미 있는 줄은 그대로 두게 한다
+- 문체 대화 요청 `style_chat_prompt` 에는 그런 줄을 넣지 않는다. 실측(2026-11-14)에서 빈도 줄 수는 그대로였고 줄 있는 판만 응답 실패가 늘었다(`docs/webnovel/specs/12-rate-floor.md`)
 - 이번 화 플롯은 쓰기 · 검수(`check_material`) · 상태 변경안(`state_prompt`) · 부분 수정(`passage_prompt`)이 모두 `write_plot` 으로 넣는다(라벨 모양이 아닌 예전 `emotional_shift` 를 뺌). 플롯 화면 · 흡입력 판정은 그대로
 - `write_plot(memo=)` 는 쓰기 재료 조율의 조율 메모(`coord.memo`)가 있으면 summary · events · ending_hook 을 그것으로 바꾼다
 - 쓰기 재료 조율이면 `episode_parts` 의 지시문 끝에 `coord.NOTE` 를 붙인다(조율 메모를 넣었을 때만)

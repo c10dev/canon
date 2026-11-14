@@ -770,7 +770,6 @@ def style_chat_prompt(p: Project, message: str, episode: int = 0, recent: list[s
 - 새 규칙이 지금 규칙과 부딪히면 지금 규칙을 고치거나 뺍니다. 같은 뜻의 규칙을 두 칸에 겹쳐 쓰지 않습니다.
 - banned_phrases 와 markers 의 text 는 본문에서 글자 그대로 찾을 표현입니다. markers 의 per_1k 는 지금 값을 그대로 두고 새 표지는 0 으로 둡니다.
 - 특정 상황에만 가끔 쓰는 장면 장치는 dos 나 inner_monologue 에 규칙으로 적지 말고 devices 에 적습니다 (when, cues 1~3개, every).
-- dos 와 pacing 에 '화마다', '장면마다 한 번 이상'처럼 얼마나 자주 넣을지 정하는 규칙을 새로 더하지 않습니다. 작가가 그렇게 적어 달라고 한 것과 지금 프로필에 이미 있는 줄은 그대로 둡니다.
 - 대표 문단은 원문 발췌라 바꾸지 않습니다. 대표 문단과 부딪히는 규칙을 만들면 reply 에서 알립니다.
 - 시점 인물별 서술 말투와 부딪히는 변경이면 reply 에서 알립니다.
 {preview_rule}
