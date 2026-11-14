@@ -201,9 +201,9 @@ final class FakeSetup: SetupService, @unchecked Sendable {
 }
 
 @MainActor
-func makeModel(_ p: Project, pending: PendingList = PendingList()) async -> (SetupModel, FakeStore, FakeJobs, FakeSetup) {
+func makeModel(_ p: Project, pending: PendingList = PendingList(), name: String = "등대") async -> (SetupModel, FakeStore, FakeJobs, FakeSetup) {
     let store = FakeStore(p)
-    let doc = ProjectDocument(name: "등대", store: store)
+    let doc = ProjectDocument(name: name, store: store)
     let jobs = FakeJobs()
     jobs.pendingList = pending
     let center = JobCenter(service: jobs)
@@ -295,5 +295,69 @@ func makeModel(_ p: Project, pending: PendingList = PendingList()) async -> (Set
 extension JSONValue {
     static func encoded<T: Encodable>(_ v: T) throws -> JSONValue {
         try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(v))
+    }
+}
+
+/// 새 작품 마법사 (웹 `setupMode` · `wizState` · `wizGo`). 보기는 작품 이름마다 기억하므로 시험마다 이름을 따로 쓴다.
+@MainActor
+@Suite struct SetupWizardModelTests {
+    static func full() -> Project {
+        Project(meta: Meta(title: "소금 정원의 계약", genres: ["romance_fantasy"], logline: "서윤이 염전을 되찾으려 한다."),
+                world: World(setting: "북방 왕국"),
+                characters: [person("hero", "서윤"), person("char2", "이헌")], relationships: [rel("hero", "char2")])
+    }
+
+    @Test func newProjectOpensWizardAtFirstGap() async {
+        var p = Self.full()
+        p.world?.setting = ""
+        let (m, _, _, _) = await makeModel(p, name: "마법사-빈 세계")
+        #expect(m.mode == .wizard)
+        #expect(m.wizard?.step == 2)
+        #expect(m.stepState(2) == .miss)
+        #expect(m.stepState(5) == .none)
+        m.pickWorldKind("서양풍 제국")
+        #expect(m.project?.world?.setting == "귀족과 황실이 다스리는 서양풍 제국.")
+        // 다 채워도 마법사는 닫히지 않는다
+        #expect(m.mode == .wizard)
+        #expect(m.stepState(2) == .done)
+        m.pickEra("중세풍")
+        m.pickEra("중세풍")
+        #expect(m.project?.world?.era == "")
+    }
+
+    @Test func fullOrStartedProjectOpensDoc() async {
+        let (full, _, _, _) = await makeModel(Self.full(), name: "마법사-다 채움")
+        #expect(full.mode == .doc)
+        var started = Project(meta: Meta(title: "등대", genres: ["mystery"]))
+        started.snapshots = [.init(episode: 1)]
+        let (m, _, _, _) = await makeModel(started, name: "마법사-반영 시작")
+        #expect(m.mode == .doc)
+        m.setMode(.wizard)
+        #expect(m.mode == .wizard)
+        #expect(m.wizard?.step == 1)
+        #expect(m.wizard?.seen == [1])
+    }
+
+    @Test func forwardSavesAndBackDoesNot() async {
+        let (m, store, _, _) = await makeModel(Project(), name: "마법사-걸음")
+        #expect(m.wizard?.step == 0)
+        m.editMeta { $0.title = "등대" }
+        await m.go(step: 1)
+        #expect(store.project.meta?.title == "등대")
+        #expect(m.document.dirty == false)
+        m.editMeta { $0.title = "등대지기" }
+        await m.go(step: 0)
+        #expect(m.document.dirty)
+        #expect(m.wizard?.seen == [0, 1])
+        await m.go(step: 9)
+        #expect(m.wizard?.step == 0)
+    }
+
+    @Test func modeSurvivesReopening() async {
+        let (m, store, _, _) = await makeModel(Project(), name: "마법사-다시 열기")
+        m.setMode(.doc)
+        let again = SetupModel(document: ProjectDocument(name: "마법사-다시 열기", store: store), jobs: m.jobs, service: FakeSetup(store))
+        await again.load()
+        #expect(again.mode == .doc)
     }
 }
