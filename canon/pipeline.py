@@ -2424,15 +2424,30 @@ def _renumber_notes(before: Project, after: Project, counts: dict[str, int]) -> 
         notes.append(", ".join(grown) + (f" (뒤 범위 {moved}개는 한 칸씩 옮김)." if moved > 0 else "."))
     if before.meta.target_episodes != after.meta.target_episodes:
         notes.append(f"총 화수 {before.meta.target_episodes}화 → {after.meta.target_episodes}화.")
-    labels = {"foreshadows": "복선", "elements": "인과율 요소", "storylines": "이야기 줄기", "characters": "인물 첫 등장 화", "blueprint": "설계도 줄"}
+    labels = {"foreshadows": "복선", "elements": "인과율 요소", "storylines": "이야기 줄기", "characters": "인물 첫 등장 화", "blueprint": "설계도 줄",
+              "heat": "완급 계획 줄"}
     also = [f"{labels[k]} {v}개" for k, v in counts.items() if v]
     if also:
         notes.append(" · ".join(also) + "의 화 번호도 함께 옮겼어요.")
     return notes
 
 
-def _check_renumbered(q: Project) -> None:
-    """옮긴 뒤 구조가 맞는지 본다. 한 화를 함께 쓰던 짧은 작품의 구간은 비율을 살려 다시 나눈다."""
+def _fit_heat(q: Project) -> list[str]:
+    """옮긴 뒤 완급 계획이 범위를 빈틈없이 덮게 한다 (새 화는 heatplan.FILL_LEVEL 줄로 채움). 고친 설명을 돌려준다."""
+    owners = [(q, 1, q.meta.target_episodes)] if not q.serial else [(a, a.start_ep, a.end_ep) for a in q.story_arcs]
+    notes: list[str] = []
+    for owner, start, end in owners:
+        if owner.heat:
+            owner.heat, more = heatplan.fit(owner.heat, start, end)
+            notes += more
+        owner.heat_turn, more = heatplan.fit_turn(owner.heat_turn, start, end)
+        notes += more
+    return notes
+
+
+def _check_renumbered(q: Project) -> list[str]:
+    """옮긴 뒤 구조가 맞는지 본다. 한 화를 함께 쓰던 짧은 작품의 구간은 비율을 살려 다시 나눈다.
+    완급 계획은 범위에 맞춘다(_fit_heat). 고친 설명을 돌려준다."""
     if q.serial:
         for s in q.story_arcs:
             plan = ArcPlan(acts=s.acts)
@@ -2449,6 +2464,7 @@ def _check_renumbered(q: Project) -> None:
         act = q.act_for(e.plot.number)
         if act and e.status not in LOCKED:
             e.plot.act = act.name
+    return _fit_heat(q)
 
 
 def _renumbered(p: Project, change) -> list[str]:
@@ -2459,8 +2475,8 @@ def _renumbered(p: Project, change) -> list[str]:
     for el in q.elements:
         if el.id in fresh:  # 번호만 옮긴 분석은 지난 것으로 보지 않는다
             el.impact.basis = elements.basis(el)  # type: ignore[union-attr]
-    _check_renumbered(q)
-    notes = _renumber_notes(p, q, counts)
+    fitted = _check_renumbered(q)
+    notes = _renumber_notes(p, q, counts) + fitted
     for f in Project.model_fields:
         setattr(p, f, getattr(q, f))
     return notes
