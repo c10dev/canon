@@ -1,6 +1,6 @@
 # 02. 장르 정의: 라이트노벨 관습, 요소 장르 하렘 · 시스템
 
-상태: 진행 (claude/genre-webnovel) · 계획: [plan.md](../plan.md) 의 2번 · 먼저: —
+상태: 끝 ([#531](https://github.com/c10dev/canon/pull/531)) · 계획: [plan.md](../plan.md) 의 2번 · 먼저: —
 
 ## 목표
 
