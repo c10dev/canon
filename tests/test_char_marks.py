@@ -257,3 +257,47 @@ def test_web_routes(client):
     assert store.load("marks").characters[0].marks == []
     assert client.delete(f"{base}/{mid}").status_code == 400
     assert client.post("/api/projects/none/characters/hero/marks", json={}).status_code == 404
+
+
+# ---------- 다른 길 (되돌리기 · 대화 에이전트) ----------
+
+def test_revert_moves_added_character_to_candidates_with_marks():
+    """반영 취소로 인물 후보에 돌아간 인물은 표지를 그대로 가진다. 화면 저장도 후보의 표지를 지킨다."""
+    p = reg._short()
+    new = Character(id="newbie", name="새얼굴", role="조연", first_ep=3)
+    p.characters.append(new)
+    p.history[-1].new_characters.append(new.model_copy())
+    p.episode(4).plot.characters.append("newbie")  # 뒤 화 플롯에 나와 지우지 않고 후보로 돌린다
+    charmarks.add(p, "newbie", "외모", "", 3, QUOTE)
+    pipeline.revert(p, 2)
+    back = next(c for c in p.cast_candidates if c.id == "newbie")
+    assert len(back.marks) == 1 and all(c.id != "newbie" for c in p.characters)
+    mine = p.model_copy(deep=True)
+    for c in mine.cast_candidates:
+        c.marks = []
+    charmarks.keep(p, mine)
+    assert len(next(c for c in mine.cast_candidates if c.id == "newbie").marks) == 1
+
+
+def test_setup_chat_undo_keeps_marks():
+    from canon import setupchat
+
+    from .test_setup_chat import _ask, _project
+    from .test_timeline import _play
+
+    p = _project()
+    _play(p, 1, 1)
+    i, rev = _ask(p)
+    setupchat.apply(p, i, setupchat.part_ids(rev))
+    quote = p.episode(1).text.strip().split("\n")[0][:20].strip()
+    m = charmarks.add(p, "hero", "버릇", "", 1, quote)
+    setupchat.undo(p, i)
+    assert p.characters[0].marks == [m]
+
+
+def test_agent_read_cast_leaves_marks_out():
+    from canon import agent
+
+    q = _with_marks(reg._short())
+    _, out = agent.read(q, "read_cast", {"ids": ""})
+    assert SENT_TEXT not in out and SENT_QUOTE not in out and '"marks"' not in out
