@@ -676,6 +676,7 @@ def apply_style_edits(p: Project, rev: StyleRevision, keys: list[str], episode: 
                     src = _marker_source(p) if src is None else src
                     mk.per_1k = metrics.marker_rate(src, mk.text)
         setattr(p.style, e.key, value)
+    rev.preview = strip_meta(rev.preview).strip()  # 옛 변경안의 시험 문단도 예시 칸으로 가기 전에 거른다
     if rev.preview and len(picked) == len(rev.edits):  # 시험 문단이 그린 문체가 그대로 들어갔으면 예시 칸으로 옮긴다
         p.style_example = StyleExample(text=rev.preview, source=rev.preview_source,
                                        episode=episode if rev.preview_source else 0,

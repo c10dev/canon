@@ -202,3 +202,9 @@ def test_apply_strips_notes_of_a_stored_revision_and_undo_restores():
     assert p.style.devices[0].when == "알림이 뜰 때"
     done, kept = pipeline.undo_style_chat(p, 1)
     assert done == ["pacing", "devices"] and not kept and p.style.pacing == "" and p.style.devices == []
+
+    # 모든 칸을 적용하면 시험 문단이 예시 칸으로 간다. 그 글도 거른다
+    left = [e.key for e in rev.edits if e.key != "vocabulary"]
+    rev.edits = [e for e in rev.edits if e.key != "vocabulary"]
+    pipeline.apply_style_chat(p, 1, left)
+    assert p.style_example.text == "새 문단."
