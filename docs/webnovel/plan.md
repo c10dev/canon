@@ -21,7 +21,7 @@
 | 1 | 1 | 이야기 틀 칸(`Meta.frame`, 기본 drama)과 설정 화면의 고르기, 장르를 고를 때 틀 추천. 프롬프트는 바꾸지 않음 (LLM 비용 없음) | 끝 ([#527](https://github.com/c10dev/canon/pull/527)) | [01-frame.md](specs/01-frame.md) | — |
 | 2 | 2 | 장르 정의: `light_novel` 의 관습 · 속도 · 예시 로그라인, 요소 장르 `harem` · `system` 더하기, `modern_fantasy.avoid` 고치기, `light_novel` 의 '캐릭터마다 말버릇' · '화마다 웃음 포인트' 같은 매 화 지시 빼기 | 끝 ([#531](https://github.com/c10dev/canon/pull/531)) | [02-genre-defs.md](specs/02-genre-defs.md) | — |
 | 3 | 3 | 로그라인 웹소설 칸: 새 칸 둘(주인공만 가진 것, 독자가 받는 재미)과 틀별 합치기 · 점검(`logline.py` 와 `setup.js` 함께), 막는 것 · 걸린 것은 접어 선택으로 | 설계 | — | 1 |
-| 4 | 4 | 부 · 아크 기획 프롬프트를 틀별로: 보상 루프 아크, 짧은 고구마(`conflict` 의 뜻), 새 칸 `StoryArc.gain`(이 아크에서 얻는 성장), 하렘이면 `StoryArc.focus`(공략 대상) | 설계 | — | 1, 2 |
+| 4 | 4 | 부 · 아크 기획 프롬프트를 틀별로: 보상 루프 아크, 짧은 고구마(`conflict` 의 뜻), 새 칸 `StoryArc.gain`(이 아크에서 얻는 성장), 하렘이면 `StoryArc.focus`(공략 대상) | 진행 (claude/arc-frame-b29cf1) | [04-arc-frame.md](specs/04-arc-frame.md) | 1, 2 |
 | 5 | 5 | 성장 일정(능력 일정 앞당김): 설계도 능력 일정(`Blueprint.ability_plans`)의 스키마 · 저장 검사 · 화 번호 옮기기 · 상태창 기록과 견주는 경고 · 설계도 화면 | 일부 끝 (설계도 일감 10 · 11b · 12 · 13): 상태창 수치 항목은 명세서 정할 것 1 을 기다림 | [05-growth.md](specs/05-growth.md) | 1 |
 | 6 | 6 | 화별 플롯 규칙을 틀별로: 사이다를 깔끔하게, 2~3화마다 작은 보상, 하렘이면 관계는 위로 · 균열은 1~3화 오해, 새 칸 `EpisodePlot.reward`(이 화의 사이다 한 줄) | 설계 | — | 4 |
 | 7 | 7 | 고구마 · 사이다 경고 (LLM 비용 없음): 사이다 없는 화가 이어짐, 고구마 구간이 김, 하렘 쌍의 균열 · 적대가 오래 이어짐, 아크에 성장이 없음 | 설계 | — | 6 |

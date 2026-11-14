@@ -584,6 +584,7 @@ def cmd_revise(a: argparse.Namespace) -> None:
     if rev.arc.title:
         print(f"\n[{'다음 아크' if target == 'next' else f'아크 {focus.number} 칸'}] {rev.arc.title}{f' (끝 화 {rev.arc.end_ep}화)' if rev.arc.end_ep else ''}"
               f"\n  목표: {rev.arc.goal}\n  갈등: {rev.arc.conflict}\n  보상: {rev.arc.payoff}"
+              + (f"\n  얻는 성장: {rev.arc.gain}" if rev.arc.gain else "") + (f"\n  공략 대상: {rev.arc.focus}" if rev.arc.focus else "")
               + (f"\n  주요 인물: {', '.join(rev.arc.cast)}" if rev.arc.cast else "") + (f"\n  회수할 복선: {', '.join(rev.arc.payoffs)}" if rev.arc.payoffs else ""))
     if rev.total_episodes:
         print(f"\n총 화수: {p.meta.target_episodes}화 → {rev.total_episodes}화")
@@ -616,6 +617,10 @@ def cmd_revise(a: argparse.Namespace) -> None:
 def _print_arc(x) -> None:
     print(f"\n아크 {x.number} {x.title} ({x.start_ep}~{x.end_ep}화, {x.end_ep - x.start_ep + 1}화)")
     print(f"  목표: {x.goal}\n  갈등: {x.conflict}\n  보상: {x.payoff}")
+    if x.gain:
+        print(f"  얻는 성장: {x.gain}")
+    if x.focus:
+        print(f"  공략 대상: {x.focus}")
     if x.pov:
         print(f"  서술 시점: {x.pov}")
     for act in x.acts:

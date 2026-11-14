@@ -165,7 +165,8 @@ def _next_arc(hint: dict) -> ArcProposal:
                      speech_style="빠른 말투. \"얼른 와.\"")] if number % 2 == 0 else []
     arc = StoryArc(number=number, title=f"아크 {number}", start_ep=start, end_ep=end, goal=f"아크 {number} 목표",
                    conflict="시험관", payoff="통쾌한 역전", acts=_arc(end, start),
-                   cast=["hero", "ally"] + [c.id for c in new], payoffs=["fs-01-key"] if number == 2 else [])
+                   cast=["hero", "ally"] + [c.id for c in new], payoffs=["fs-01-key"] if number == 2 else [],
+                   gain="새 기술 해금" if hint.get("gain") else "", focus="ally" if hint.get("focus") else "")
     return ArcProposal(arc=arc, new_characters=new, reply=f"{start}화부터 아크 {number}를 제안해요.")
 
 
@@ -655,8 +656,9 @@ class MockLLM:
     def json(self, system: str, prompt: str, schema: type[T], hint: dict | None = None) -> T:
         _delay()
         hint = hint or {}
-        if schema in RESPONDERS:
-            return RESPONDERS[schema](prompt, hint)  # type: ignore[return-value]
+        for base in schema.__mro__:  # 틀별 판(schema.framed)은 원래 모델의 가짜 응답을 쓴다
+            if base in RESPONDERS:
+                return RESPONDERS[base](prompt, hint)  # type: ignore[return-value]
         raise NotImplementedError(schema.__name__)
 
     def text(self, system: str, prompt: str) -> str:

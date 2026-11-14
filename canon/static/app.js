@@ -160,6 +160,19 @@ const $ = (s) => document.querySelector(s);
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const enc = encodeURIComponent;
 const P = () => S.project;
+/** 웹소설 틀 · 하렘 요소의 아크 칸 (docs/webnovel/specs/04-arc-frame.md). 틀 · 요소를 고르지 않은 작품은 값이 있을 때만 보인다 (덜기) */
+const arcGainOn = (a) => P().meta.frame === 'webnovel' || !!(a && a.gain);
+const arcFocusOn = (a) => (P().meta.genres || []).includes('harem') || !!(a && a.focus);
+const ARC_GAIN_HINT = '이 아크에서 주인공이 얻는 성장 (레벨업, 해금, 자신감)';
+const ARC_FOCUS_HINT = '이 아크에서 관계를 올리는 공략 대상의 인물 id';
+
+/** 얻는 성장 · 공략 대상 칸. 웹소설 틀 · 하렘 요소를 고른 작품이나 값이 있는 아크에만 (arcGainOn · arcFocusOn) */
+function arcFrameInputs(a, b, root) {
+  const opt = (hint) => ({ ...(root ? { root } : {}), hint });
+  const gain = arcGainOn(a) ? input('얻는 성장', b + '.gain', { ...opt(ARC_GAIN_HINT), rows: 2, autogrow: true }) : '';
+  const focus = arcFocusOn(a) ? input('공략 대상', b + '.focus', opt(ARC_FOCUS_HINT)) : '';
+  return gain && focus ? `<div class="grid-2">${gain}${focus}</div>` : gain + focus;
+}
 const base = () => `#/p/${enc(S.name)}`;
 
 // pydantic 검증 오류 종류 → 화면 문구 ('… 칸이' 뒤에 붙는다). web.py 의 _VALIDATION_REASON 과 같다 (tests/test_fmterr_js.py)

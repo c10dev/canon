@@ -425,6 +425,9 @@
 - 두 능력 일정 요청은 도감에 없는 능력의 도감 초안도 받는다(`prompts.ability_codex_rule`, 응답 `AbilityProposal.codex`, 정리 `blueprint.clean_codex`, `docs/blueprint/specs/13-ability-codex.md`)
 - 두 능력 일정 요청은 능력 블록 `prompts.ability_ai_block`(도감 이름 · 상태창의 능력 · 이미 적은 줄, 예산 `context.BUDGET["ability_ai"]` 3,000자를 묶음마다 차례로 씀)과 공통 요구사항 `ability_ai_rules` 를 쓴다
 - 다음 아크 `plan_next_arc` 는 `heat_plan` 을 켜면 `HeatArcProposal` 로 묻고(`prompts.heat_next_arc_rules`), `clean_arc` 가 완급 계획을 아크 범위에 맞춰 `arc.heat` 로 옮기고, `apply_arc` 가 판돈을 복선에 더한다
+- 다음 아크 · 플롯 대화는 응답 형식을 `prompts.arc_schema` 로 고른다. 웹소설 틀이나 하렘 요소가 있는 장편만 `gain` · `focus` 칸이 든 판이다(docs/webnovel/specs/04-arc-frame.md)
+- `clean_arc` · `_clean_arc_edit` 는 `focus` 를 있는 인물 id 만 남긴다(`clean_focus`)
+- 플롯 대화의 아크 칸 묶음 `ARC_EDIT_FIELDS` 에 `gain` · `focus` 가 있다. 응답 형식이 묻지 않은 칸은 지금 아크나 초안 값을 둔다(`keep_unasked`)
 - 화별 플롯
   - 대화로 다듬기 `revise_plot`/`apply_revision` 포함
   - `apply_revision` 이 화를 다시 만들어도 작가 연출 지시(`Episode.direction`)는 남긴다
@@ -639,6 +642,12 @@
 - 완급 계획이 없으면 세 곳 모두 빈 글이라 프롬프트가 그대로다
 - 장편은 화별 플롯 요청(`serial_plot_prompt`) 끝에 그 아크의 `heat_plot_rules`, 쓰기 컨텍스트의 아크 안 구간 줄(`act_line`) 뒤에 이번 화 열 한 줄을 넣는다
 - 아크를 프롬프트에 덤프할 때 완급 계획 칸은 뺀다(`ARC_HEAT`, `StoryArc` 의 프롬프트용 직렬화). 아크의 완급 계획 칸은 AI 응답 형식에도 없다(`SkipJsonSchema`)
+- 이야기 틀 · 하렘 요소 도우미 `webnovel` · `harem` · `arc_axes` 는 틀별 줄을 고르는 곳이 함께 쓴다(웹소설 일감 6 · 8 · 9 도 쓴다)
+- 웹소설 틀이면 부 구성(`SERIES_GROW`) · 장편 전환(`CONVERT_GROW`)의 부 전환 줄이 걸린 것 대신 주인공의 성장으로 커진다
+- 웹소설 틀이면 다음 아크 · 플롯 대화의 아크 뜻 줄(`arc_meaning_rule`)이 보상 루프 한 바퀴 · 짧은 고구마(1~3화) · `gain` 을 적게 한다
+- 웹소설 틀이면 다음 아크의 커지기 줄(`NEXT_ARC_GROW`)이 같은 모양의 갈등 대신 주인공의 성장이나 상대로 커진다
+- 하렘 요소(id `harem`)가 있는 장편은 두 요청에 공략 대상 `focus` 줄과 '관계는 주로 위로만' 줄(`ARC_HAREM`)을 더한다
+- 드라마 틀 · 하렘 없음이면 틀별 줄은 모두 지금 글 그대로다(`tests/test_frame.py` 의 `test_frame_changes_only_arc_planning`)
 - 완급 계획 받기 요청 `heat_propose_prompt`: 기승전결, 화별 플롯, 본문 있는 화의 실제 열 참고값과 지금 계획, 열린 복선. 요구사항은 단편 기획과 같은 `heat_rules`
 - 작업지시서(`episode_brief`, `state_brief`)
 - 작업지시서는 `brief_parts`(역할 = 시스템, 요청)로 조립한다. 갈래 목록은 `BRIEF_KINDS`(`BriefKind`: 이름 · 필요한 것 · 고르는 단위 · 장편만)
@@ -778,6 +787,7 @@
 - 검수 요구사항의 관계 단계 한 줄(`stage_check_rule`, 관계 수치가 있을 때만)
 - 관계 설정 `rels(plan=)`: 가 닿을 곳(`Relationship.destination`)은 기획 프롬프트에만, 말로 넣는 기획은 `destination_block`
 - 다음 아크 기획(`next_arc_prompt`)은 관련 확정 사실(`plan_facts`) · 작품 속 시간(`time_plan`, 끝 줄 `ARC_TIME_RULE`) · 주역 밖 기획 인물 상태(`plan_side_states`)를 예산(`context.BUDGET` 의 `plan_facts` · `plan_states`) 안에서 넣는다
+- 플롯 대화가 고를 아크의 칸 목록(`chat_arc_fields`)은 웹소설 틀이면 '얻는 성장', 하렘 요소면 '공략 대상'을 더한다
 - 다음 아크 기획은 조연 상태 뒤에 화면 밖 근황(`offscreen_block`, `offscreen.OFFSCREEN_MAX` 명까지, 넘으면 뺀 수)을 넣는다. 근황이 있을 때만 요구사항에 이어 쓰기 줄을 더한다
 - 화면 밖 근황 제안 `offscreen_prompt`(종류 `OFFSCREEN_KINDS`): 인물마다 마지막으로 나온 화 요약 문장(`seen_sentence`) · 마지막 상태 · 주역과의 관계 · 지금 근황
 
@@ -905,6 +915,9 @@
 - 설계도(`Project.blueprint`)는 기본값이 빈 `Blueprint` 라 옛 작품이 읽힌다. 규칙은 story.md 의 `canon/blueprint.py` 절
 - 닿은 칸 기록 `Project.contact_log` · 남겨 둔 제안 `contact_held` 는 빈 목록이 기본값이다
 - 작가 연출 지시 `Episode.direction` · `StoryArc.direction` 은 빈 글이 기본값이다. 아크 지시는 `ArcProposal.arc` 로 AI 가 채우는 모델이라 응답 형식(`SkipJsonSchema`)과 프롬프트 덤프(`_prompt_view`, `prompts.ARC_HEAT`)에서 뺀다
+- `StoryArc.gain`(얻는 성장) · `StoryArc.focus`(공략 대상 인물 id)는 빈 글이 기본값이고 `ArcEdit` 에도 있다. 저장 모델의 응답 형식에서는 뺀다(`SkipJsonSchema`)
+- 빈 `gain` · `focus` 는 어떤 직렬화에도 키가 생기지 않는다(`drop_empty_frame_fields`)
+- `framed(형식, gain, focus)` 는 아크가 든 응답 형식의 틀별 판을 만든다. 원래 형식을 이어받고 이름이 같다. 둘 다 거짓이면 원래 형식 그대로다(`frame_of` 로 판의 축을 읽는다)
 - 복선 갈래 `Foreshadow.kind`(clue 단서 · stake 판돈 · constraint 제약 · audience 관객 · ban 금지선)는 옛 복선을 clue 로 읽는다
 - 화별 쓴 사건 체크(`Episode.events_done`, 사건 글 목록)는 집필 화면 표시용이라 `EpisodePlot` 밖에 두어 프롬프트에 들어가지 않는다
 - 지금 본문을 쓴 모델(`Episode.written_by`, 판마다 `TextVersion.model`)도 프롬프트 밖이다. 값은 `usage.model_id` 의 '<백엔드>:<모델>' 이나 'import', 모르면 빈 칸
