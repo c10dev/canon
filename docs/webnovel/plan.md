@@ -18,7 +18,7 @@
 
 | 차례 | # | 일감 | 상태 | 명세서 | 먼저 끝날 것 |
 |---|---|---|---|---|---|
-| 1 | 1 | 이야기 틀 칸(`Meta.frame`, 기본 drama)과 설정 화면의 고르기, 장르를 고를 때 틀 추천. 프롬프트는 바꾸지 않음 (LLM 비용 없음) | 진행 (claude/story-frame, [#527](https://github.com/c10dev/canon/pull/527)) | [01-frame.md](specs/01-frame.md) | — |
+| 1 | 1 | 이야기 틀 칸(`Meta.frame`, 기본 drama)과 설정 화면의 고르기, 장르를 고를 때 틀 추천. 프롬프트는 바꾸지 않음 (LLM 비용 없음) | 끝 ([#527](https://github.com/c10dev/canon/pull/527)) | [01-frame.md](specs/01-frame.md) | — |
 | 2 | 2 | 장르 정의: `light_novel` 의 관습 · 속도 · 예시 로그라인, 요소 장르 `harem` · `system` 더하기, `modern_fantasy.avoid` 고치기, `light_novel` 의 '캐릭터마다 말버릇' · '화마다 웃음 포인트' 같은 매 화 지시 빼기 | 설계 | — | — |
 | 3 | 3 | 로그라인 웹소설 칸: 새 칸 둘(주인공만 가진 것, 독자가 받는 재미)과 틀별 합치기 · 점검(`logline.py` 와 `setup.js` 함께), 막는 것 · 걸린 것은 접어 선택으로 | 설계 | — | 1 |
 | 4 | 4 | 부 · 아크 기획 프롬프트를 틀별로: 보상 루프 아크, 짧은 고구마(`conflict` 의 뜻), 새 칸 `StoryArc.gain`(이 아크에서 얻는 성장), 하렘이면 `StoryArc.focus`(공략 대상) | 설계 | — | 1, 2 |
