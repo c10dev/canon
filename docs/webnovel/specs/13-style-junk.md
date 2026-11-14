@@ -1,6 +1,6 @@
 # 13. 문체 다듬기 결과의 혼잣말 거르기
 
-상태: 진행 (claude/style-revision-junk) · 계획: [plan.md](../plan.md) 의 13번 · 먼저: —
+상태: 진행 (claude/style-revision-junk, [#525](https://github.com/c10dev/canon/pull/525)) · 계획: [plan.md](../plan.md) 의 13번 · 먼저: —
 
 ## 목표
 
