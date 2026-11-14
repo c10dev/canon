@@ -1,6 +1,6 @@
 # 14. 성장 일정의 상태창 수치 줄
 
-상태: 끝 (이 PR) · 계획: [plan.md](../plan.md) 의 15번 · 먼저: 10, 12, 13 · 웹소설 쪽 명세서: [docs/webnovel/specs/05-growth.md](../../webnovel/specs/05-growth.md)
+상태: 끝 ([#536](https://github.com/c10dev/canon/pull/536)) · 계획: [plan.md](../plan.md) 의 15번 · 먼저: 10, 12, 13 · 웹소설 쪽 명세서: [docs/webnovel/specs/05-growth.md](../../webnovel/specs/05-growth.md)
 
 ## 목표
 
