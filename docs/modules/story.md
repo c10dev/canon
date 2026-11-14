@@ -468,6 +468,9 @@
 
 - 장르 목록(`CATALOG`)과 장르별 안내
 - 프롬프트의 장르 안내(`guide`, 수위 지시는 넣지 않는다)
+- 라이트노벨 안내에서 '캐릭터마다 말버릇' · '화마다 웃음 포인트' 같은 매 화 지시를 뺐고, 새 요소에도 두지 않았다(웹소설 일감 2, `tests/test_genres.py`)
+- 웹소설식 요소 장르 `harem`(하렘) · `system`(시스템)이 있다
+- 하렘의 공략 한 바퀴 · 위로 오르는 관계는 `harem` 에만, 상태창 · 레벨업 규칙은 `system` 에만 둔다
 - 설정 화면의 장르별 로그라인 예시(`Genre.logline`)
 - 장르가 권하는 이야기 틀 `Genre.frame`(현대 판타지 · 판타지 · 무협 · 라이트노벨 · 회귀 · 빙의는 `webnovel`)과 `frame_hint`: 권하기만 하고 `Meta.frame` 을 바꾸지 않는다
 
@@ -1074,6 +1077,7 @@
   - 복사
   - 화별 변화는 바뀐 화 목록(`swChangeParts`, 목록은 같은 이름끼리 짝지음) | 표
   - 작품 틀 · 처음 수치 쪽 `swFramePage`: 작품 틀 · 인물별 처음 수치 표 `swInitCard` · AI 처음 수치 제안
+  - 상태창을 쓰는 작품인지 `swWanted`: 현대 판타지 장르나 시스템 요소, 또는 설정 글에 상태창 · 레벨업 · 시스템 창
   - 꾸미기 안 · 처음 수치 AI 제안(`swSuggest` · `swInitAI`)은 화면을 막지 않는 작업 `statwin_suggest` · `statwin_init` 이다. 결과는 제안 카드(`S.swSug` · `S.swInitSug`)에만 놓는다
   - 1화 반영 뒤 잠금 `swLocked`, 잠긴 표는 0화 기록의 시작 값 `swStartValues`
   - 틀 `SW_PRESETS` 는 `statwin.PRESETS` 와 같음
