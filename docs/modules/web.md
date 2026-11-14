@@ -276,6 +276,8 @@
 
 - 작품 목록(작품 밖 사이드바 옆, `tests/test_projects_js.py`)
   - 새 작품 칸 `newProjectForm`(주소 `#/new` 면 펴고 제목 칸으로)
+  - 이야기 틀 고르기 `frameField`(`Meta.frame`, 이름표 `FRAMES` 는 `schema.FRAMES` 와 같다): 설정 화면 기본 정보와 설정 마법사 '제목 · 장르' 단계에 둔다(홈의 새 작품 칸에는 없다). 장르가 권하는 틀(`frameHint`, `genres.frame_hint` 와 같다)이 지금 값과 다르면 '장르에 맞춰 추천' 칩을 단다
+  - `setFrame` 은 값을 바꾸고 `markDirty` 만 한다. 저장은 다른 설정 칸처럼 저장 버튼이 한다. 장르를 바꾸면 `syncGenre` 가 이 칸도 다시 그린다
   - 이어 쓰기 카드 `plHeroCard`(고를 작품 `plHero`, 확인할 것 줄 `plAlertHref`)
   - 모든 작품 한 줄 목록: 찾기 · 거르기(확인할 것 포함) · 정렬과 갈래 · 플레이 묶기 `plRows`
   - 상태 `plStatus`

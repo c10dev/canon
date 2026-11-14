@@ -29,6 +29,7 @@ class Genre(BaseModel):
     dynamics: dict[str, float] = Field(default_factory=dict, description="관계 역학 계수 덮어쓰기 (예정)")
     logline: list[LoglineParts] = Field(default_factory=list, description="설정 화면의 로그라인 칸별 예시. 프롬프트에는 넣지 않는다")
     opening: list[str] = Field(default_factory=list, description="1·2·3화에 할 일 세 줄. 초반 화의 플롯과 본문 프롬프트에만 넣는다")
+    frame: Literal["", "webnovel"] = Field("", description="이 장르를 고르면 권하는 이야기 틀 (Meta.frame). 비면 권하지 않는다. 화면이 추천 칩만 달고 값은 작가가 고른다")
 
 
 CATALOG: list[Genre] = [
@@ -51,7 +52,7 @@ CATALOG: list[Genre] = [
         avoid=["세계관 설명만 길게 이어지는 초반", "주인공의 판단이 설정 없이 늘 맞아떨어짐"],
     ),
     Genre(
-        id="modern_fantasy", name="현대 판타지",
+        id="modern_fantasy", name="현대 판타지", frame="webnovel",
         summary="현대 한국을 배경으로 능력, 시스템, 던전 같은 초월적 요소가 들어오는 이야기. 흔히 '현판'.",
         reader_expects=["주인공이 성장하고 인정받는 쾌감", "능력의 규칙이 분명한 성장", "현실 사회와 능력이 맞물리는 재미"],
         conventions=["능력이나 시스템의 규칙을 초반에 분명히 정한다", "보상과 대가가 눈에 보이게 한다", "주변 인물의 반응으로 주인공의 위상을 보여 준다"],
@@ -60,7 +61,7 @@ CATALOG: list[Genre] = [
         avoid=["능력 규칙이 편할 때만 바뀜", "갈등 없이 이기기만 하는 전개"],
     ),
     Genre(
-        id="fantasy", name="판타지",
+        id="fantasy", name="판타지", frame="webnovel",
         summary="마법, 이종족, 왕국 같은 이세계를 무대로 한 모험과 성장 이야기.",
         reader_expects=["독창적인 세계와 규칙", "모험과 전투", "동료와의 관계"],
         conventions=["마법이나 힘의 대가를 정한다", "세계 설명은 사건 속에서 조금씩", "지도와 세력 구도를 일관되게 유지"],
@@ -69,7 +70,7 @@ CATALOG: list[Genre] = [
         avoid=["설정 나열로 시작하는 1화", "힘의 한계가 없는 주인공"],
     ),
     Genre(
-        id="martial_arts", name="무협",
+        id="martial_arts", name="무협", frame="webnovel",
         summary="강호와 문파, 무공을 중심으로 한 복수, 성장, 의리 이야기.",
         reader_expects=["무공 수련과 경지 상승", "문파와 세력 사이의 대립", "의리와 은원"],
         conventions=["경지 체계를 일관되게 유지", "말투에 무협 특유의 하오체·하게체를 쓰기도 한다", "은혜와 원한은 반드시 갚는다"],
@@ -150,7 +151,7 @@ CATALOG: list[Genre] = [
         avoid=["실존 인물을 지나치게 희화화", "현대 지식이 아무 저항 없이 통함"],
     ),
     Genre(
-        id="light_novel", name="라이트노벨",
+        id="light_novel", name="라이트노벨", frame="webnovel",
         summary="캐릭터 중심의 가볍고 빠른 전개, 대사 비중이 큰 이야기.",
         reader_expects=["개성 강한 캐릭터", "빠른 템포와 유머", "캐릭터 사이의 티키타카"],
         conventions=["캐릭터마다 말버릇이나 특징을 분명히", "대사와 짧은 서술 위주", "1인칭 서술이 흔하다"],
@@ -178,7 +179,7 @@ CATALOG: list[Genre] = [
     ),
     # ---- 요소 ----
     Genre(
-        id="regression", name="회귀", kind="요소",
+        id="regression", name="회귀", kind="요소", frame="webnovel",
         summary="주인공이 과거로 돌아가 미래 지식으로 다시 사는 소재.",
         reader_expects=["미래 지식을 활용하는 쾌감", "전생의 후회를 바로잡기"],
         conventions=["회귀 전에 무엇이 일어났는지 일관되게 기록", "주인공이 바꾼 만큼 미래도 달라진다"],
@@ -186,7 +187,7 @@ CATALOG: list[Genre] = [
         avoid=["바뀐 미래가 편할 때만 원래대로 흘러감"],
     ),
     Genre(
-        id="possession", name="빙의", kind="요소",
+        id="possession", name="빙의", kind="요소", frame="webnovel",
         summary="주인공이 소설이나 게임 속 인물, 다른 사람의 몸에 들어가는 소재.",
         reader_expects=["원작 지식으로 운명을 피하는 재미", "원래 인물과 다른 행동이 주는 반응"],
         conventions=["원작 줄거리와 현재 차이를 분명히", "원래 인물을 아는 사람들의 의심"],
@@ -366,6 +367,11 @@ def parse(text: str) -> list[str]:
         if part:
             out.append(part if part in BY_ID else by_name.get(part, part))
     return list(dict.fromkeys(out))
+
+
+def frame_hint(ids: list[str]) -> str:
+    """고른 장르가 권하는 이야기 틀. 권하는 장르가 하나라도 있으면 'webnovel', 없으면 빈 글. 값을 바꾸지 않는다 (static/home.js frameHint 와 같다)."""
+    return "webnovel" if any(BY_ID[g].frame == "webnovel" for g in ids if g in BY_ID) else ""
 
 
 def label(meta: Meta) -> str:

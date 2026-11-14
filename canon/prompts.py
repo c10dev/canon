@@ -173,8 +173,8 @@ CHECK_TEXT_LIMIT = 150_000
 
 
 def meta_text(p: Project) -> str:
-    """작품 정보와 장르 안내. 장르 id 대신 이름을 넣는다."""
-    view = p.meta.model_dump(exclude={"genres", "adult", "logline_parts", "tone_dials"})
+    """작품 정보와 장르 안내. 장르 id 대신 이름을 넣는다. 이야기 틀(frame)은 넣지 않는다: 틀별 규칙 줄이 생길 때 그 줄이 맡는다."""
+    view = p.meta.model_dump(exclude={"genres", "adult", "logline_parts", "tone_dials", "frame"})
     view["genre"] = genres.label(p.meta)
     return f"{dump(view)}\n\n[장르 안내]\n{genres.guide(p.meta)}"
 

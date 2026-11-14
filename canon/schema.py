@@ -20,6 +20,9 @@ from .metrics import StyleMetrics
 ActName = Literal["기", "승", "전", "결"]
 EpisodeStatus = Literal["draft", "confirmed", "written", "finalized"]
 Form = Literal["short", "serial"]
+# 이야기 틀 (docs/webnovel/): 작가가 고르는 기획 방식. 화면 이름은 FRAMES, static/home.js 의 FRAMES 와 같다 (tests/test_frame.py)
+Frame = Literal["drama", "webnovel"]
+FRAMES: dict[str, str] = {"drama": "드라마식", "webnovel": "웹소설식"}
 
 
 # ---------- 기본 설정 ----------
@@ -54,6 +57,7 @@ class Meta(BaseModel):
     words_per_episode: int = Field(5000, description="화당 목표 분량(글자 수, 공백 포함)")
     form: Form = Field("short", description="short: 작품 전체를 기승전결 하나로 / serial: 부 → 아크 → 화로 나눠 아크씩 굴러가며 기획하는 장편 연재")
     arc_length: int = Field(0, description="장편: 아크 하나의 기본 화수. 0 이면 AI 가 내용에 맞게 정한다")
+    frame: Frame = Field("drama", description="이야기 틀. drama: 갈등이 커지며 끌고 가는 드라마식 / webnovel: 막히는 구간은 짧게, 보상은 자주 주는 웹소설식. 작가가 고른다. 아직 프롬프트에 넣지 않는다 (prompts.meta_text)")
     notes: str = ""
 
     @model_validator(mode="after")

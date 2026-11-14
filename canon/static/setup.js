@@ -621,6 +621,7 @@ function wizBasics() {
     <div class="field"><div class="lab-row"><label for="f-meta-title">제목 ${wizTag(0)}</label>${ideaBtn('meta.title', '제목 후보 받기')}</div><input id="f-meta-title" type="text" value="${esc(m.title)}" data-bind="meta.title" data-kind="text" placeholder="예: 소금 정원의 계약">${ideaList('meta.title')}</div>
     <div class="row">${wizTag(1)}<span class="small">장르를 하나 이상 골라요</span></div>
     ${genrePicker()}
+    ${frameField()}
     ${serial() ? input('총 화수', 'meta.target_episodes', { type: 'number', min: 1, max: 1000, hint: '늘리거나 줄이면 마지막 부 끝 화가 따라가요' }) : input('총 화수', 'meta.target_episodes', { type: 'number', min: 4, max: 40, hint: '단편은 10~20화를 권해요 · 4~40화' })}
     ${adultCheck(`data-bind="meta.adult" data-kind="bool"${m.adult ? ' checked' : ''}`)}`;
 }
@@ -947,6 +948,7 @@ function viewSetupDoc() {
         ${secHead(0, '기본 정보')}
         <div class="grid-2">${input('제목', 'meta.title', { aside: ideaBtn('meta.title', '제목 후보 받기'), after: ideaList('meta.title') })}${episodesInput()}</div>
         ${genreField()}
+        ${frameField()}
         ${adultCheck(`data-bind="meta.adult" data-kind="bool"${p.meta.adult ? ' checked' : ''}`)}
       </section>
       <section class="card" id="setup-logline" aria-labelledby="h-setup-logline">
