@@ -1,6 +1,6 @@
 # 03. 로그라인 웹소설 칸
 
-상태: 진행 (claude/logline-frame-87d65d) · 계획: [plan.md](../plan.md) 의 3번 · 먼저: 1
+상태: 진행 ([#537](https://github.com/c10dev/canon/pull/537)) · 계획: [plan.md](../plan.md) 의 3번 · 먼저: 1
 
 ## 목표
 
