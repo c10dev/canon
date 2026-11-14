@@ -1,6 +1,6 @@
 # 12. 문체 규칙의 빈도 하한 막기
 
-상태: 끝 ([#526](https://github.com/c10dev/canon/pull/526), 장치 간격은 PR_NO) · 계획: [plan.md](../plan.md) 의 12번 · 먼저: —
+상태: 끝 ([#526](https://github.com/c10dev/canon/pull/526), 장치 간격은 [#533](https://github.com/c10dev/canon/pull/533)) · 계획: [plan.md](../plan.md) 의 12번 · 먼저: —
 
 ## 목표
 
