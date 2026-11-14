@@ -184,3 +184,12 @@ def test_screen_example_fills_only_frame_cells_and_palette_follows_frame():
     assert got["web"]["edge"] == ex1.edge and got["web"]["appeal"] == ex1.appeal and got["web"]["block"] == "작가가 쓴 막는 것"
     assert got["drama"]["block"] == ex0.block and got["drama"]["edge"] == ex1.edge  # 드라마 틀 예시는 웹소설 칸을 두고 바꾼다
     assert "meta.logline_parts.edge" in got["webFields"] and "meta.logline_parts.edge" not in got["dramaFields"]
+
+
+@needs_node
+def test_screen_palette_jump_opens_folded_cell():
+    p = _project("webnovel", who="서윤")
+    expr = """(() => { S.genres = data.cat; S.route = ['p', 't', 'setup']; S.project = data.project; S.name = 't';
+      const closed = loglineBuilder(); S.jumpTo = '#f-meta-logline_parts-stake'; return [closed, loglineBuilder()]; })()"""
+    closed, jumped = run_js(SCREEN, expr, {"cat": [g.model_dump() for g in genres.CATALOG], "project": dump(p)})
+    assert '<details class="slot-more">' in closed and '<details class="slot-more" open>' in jumped
