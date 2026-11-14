@@ -521,12 +521,48 @@ def _style_same(key: str, a, b) -> bool:
     return a == b
 
 
+# 모델이 값 안에 남긴 혼잣말 표시: '[Wait: …]', '[Wait - …]'. 대괄호 안이 영문 혼잣말 낱말로 시작하고 한글이 없을 때만 본다.
+# 상태창 글('[관리자 권한 …]')과 한글이 든 대괄호('[Note 앱 알림]')는 지나간다. 닫는 괄호가 없으면 그 줄 끝까지로 본다.
+_META_NOTE = re.compile(r"\[\s*(?:wait|note|hmm+|actually|correction|self[- ]?correction|thinking|oops|retry|rewrite)\b"
+                        r"[^\]\n가-힣]*(?:\]|(?=\n)|$)", re.I)
+
+
+def strip_meta(text: str) -> str:
+    """모델의 혼잣말 표시와 그 앞의 버린 초안을 지운다. 마지막 표시 뒤의 글을 남기고, 그 글이 비면 가장 가까운 앞 글을 남긴다.
+    표시가 없으면 받은 글 그대로다 (두 번 불러도 같다)."""
+    parts = _META_NOTE.split(text)
+    if len(parts) == 1:
+        return text
+    return next((x.strip() for x in reversed(parts) if x.strip()), "")
+
+
+def _strip_edit_meta(e) -> bool:
+    """StyleEdit 에서 모델이 지어 쓰는 값(줄글 칸, 지킬 것 · 피할 것, 표지 쓰임, 장치 이름 · 상황, 까닭)의 혼잣말을 지운다.
+    원문을 그대로 옮기는 값(금지 표현, 표지 글자, 장치 단서 · 예시)은 건드리지 않는다. 지우고 나니 줄글 칸이 비면 False."""
+    e.why = strip_meta(e.why)
+    if e.key in STYLE_TEXT_KEYS:
+        had = bool(e.text.strip())
+        e.text = strip_meta(e.text)
+        return bool(e.text) or not had
+    if e.key in ("dos", "donts"):
+        e.items = [strip_meta(x) for x in e.items]
+    for m in e.markers if e.key == "markers" else []:
+        m.note = strip_meta(m.note)
+    for d in e.devices if e.key == "devices" else []:
+        d.name, d.when = strip_meta(d.name), strip_meta(d.when)
+    return True
+
+
 def clean_style_revision(p: Project, rev: StyleRevision, ref_text: str = "") -> StyleRevision:
     """모르는 칸, 지금 값과 같은 칸을 빼고 값을 다듬는다. 같은 칸이 두 번이면 뒤의 것을 쓴다.
+    모델이 값 안에 남긴 혼잣말('[Wait: …]')은 strip_meta 로 지운다. 지우고 나니 줄글 칸이 비면 그 칸을 뺀다.
     ref_text 는 참고한 화 본문: 시험 문단의 원래 대목이 거기 없으면 비운다."""
     st, keep = p.style, {}
     for e in rev.edits:
         if e.key not in STYLE_KEYS:
+            continue
+        if not _strip_edit_meta(e):
+            keep.pop(e.key, None)
             continue
         if e.key in STYLE_TEXT_KEYS:
             e.text = e.text.strip()
@@ -570,7 +606,7 @@ def clean_style_revision(p: Project, rev: StyleRevision, ref_text: str = "") -> 
     rev.preview_source = rev.preview_source.strip()
     if rev.preview_source and rev.preview_source not in ref_text:
         rev.preview_source = ""
-    rev.preview = rev.preview.strip()
+    rev.preview = strip_meta(rev.preview).strip()
     if not rev.edits:
         rev.preview_source = rev.preview = ""
     return rev
@@ -624,8 +660,9 @@ def _marker_source(p: Project) -> str:
 def apply_style_edits(p: Project, rev: StyleRevision, keys: list[str], episode: int = 0) -> tuple[list[str], StyleProfile]:
     """문체 변경안에서 고른 칸만 작품 문체에 넣는다. (넣은 칸 이름, 넣기 전 문체) 를 돌려준다. 고른 칸이 없으면 ValueError.
     모든 칸을 넣었고 시험 문단이 있으면 예시 칸(style_example)으로 옮긴다. episode 는 시험 문단이 고쳐 쓴 화.
-    문체 대화(apply_style_chat)와 대화 에이전트의 문체 도구(agent_style.apply)가 함께 쓴다."""
-    picked = [e for e in rev.edits if e.key in set(keys)]
+    문체 대화(apply_style_chat)와 대화 에이전트의 문체 도구(agent_style.apply)가 함께 쓴다.
+    옛 대화에 남은 변경안은 거르기 전 것일 수 있어 넣기 전에 혼잣말을 다시 지운다. rev 를 바로 고쳐야 취소(undo_style_edits)가 넣은 값과 견준다."""
+    picked = [e for e in rev.edits if e.key in set(keys) and _strip_edit_meta(e)]
     if not picked:
         raise ValueError("적용할 칸을 고르세요")
     before = p.style.model_copy(deep=True)
@@ -639,6 +676,7 @@ def apply_style_edits(p: Project, rev: StyleRevision, keys: list[str], episode: 
                     src = _marker_source(p) if src is None else src
                     mk.per_1k = metrics.marker_rate(src, mk.text)
         setattr(p.style, e.key, value)
+    rev.preview = strip_meta(rev.preview).strip()  # 옛 변경안의 시험 문단도 예시 칸으로 가기 전에 거른다
     if rev.preview and len(picked) == len(rev.edits):  # 시험 문단이 그린 문체가 그대로 들어갔으면 예시 칸으로 옮긴다
         p.style_example = StyleExample(text=rev.preview, source=rev.preview_source,
                                        episode=episode if rev.preview_source else 0,

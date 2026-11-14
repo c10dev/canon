@@ -704,6 +704,32 @@ def speech_examples(style: str) -> list[str]:
     return [x for x in out if x]
 
 
+# 빈도 하한 줄: '화마다 한 번 이상', '매 장면', '한 화에 한 번은', '각 화마다 … 구성' 처럼 화 · 장면마다 무엇을 꼭 넣으라는 문체 규칙.
+# 모델이 이런 줄을 매 화 그대로 지켜 같은 장치와 같은 구성이 되풀이된다 (docs/webnovel/specs/12-rate-floor.md).
+# 문장 하나에 FLOOR_HIT 이 있고 FLOOR_PASS 가 없으면 하한으로 본다. 상한('한 번까지', '넘게 쓰지 않는다'),
+# 부정('화마다 되풀이하지 않는다'), 달라짐('화마다 순서가 달라진다')은 지나간다. 조건('닿을 때마다')은 단위 낱말이 없어 걸리지 않는다.
+# static/style.js 의 FLOOR_HIT · FLOOR_PASS · rateFloor 와 같은 규칙이다 (tests/test_rate_floor.py). 두 언어가 다르게 읽는 \b · \d · 뒤보기는 쓰지 않는다.
+_FLOOR_UNIT = "회차|화|회|장면|씬|문단|대화|아크"
+_FLOOR_NUM = "한|두|세|[0-9]+"
+FLOOR_HIT = (rf"""(?:^|[\s'"‘“(\[,·])(?:매\s?(?:{_FLOOR_UNIT})|(?:각\s?)?(?:{_FLOOR_UNIT})\s?(?:하나)?마다"""
+             rf"|한\s?(?:{_FLOOR_UNIT})에\s?(?:{_FLOOR_NUM})\s?(?:번|개|줄|차례)\s?(?:은|씩|이상))"
+             rf"|(?:{_FLOOR_NUM})\s?(?:번|회|개|차례)\s?이상|(?:최소|적어도)\s?(?:{_FLOOR_NUM})")
+FLOOR_PASS = r"않|말\s?것|마세요|금지|(?:번|회|개|줄|차례)(?:을|를)?\s?(?:까지|넘게|넘기|이하|이내)|달라|다르게"
+FLOOR_KEYS = ("pacing", "dos")  # 보는 칸. 효과음 칸(sound_effects)은 화당 빈도를 적는 칸이라 보지 않는다
+_FLOOR_HIT_RE, _FLOOR_PASS_RE = re.compile(FLOOR_HIT), re.compile(FLOOR_PASS)
+
+
+def rate_floor(text: str) -> bool:
+    """문체 규칙 한 줄(또는 줄글 칸)에 빈도 하한 문장이 있는지 (LLM 없음)."""
+    return any(_FLOOR_HIT_RE.search(x) and not _FLOOR_PASS_RE.search(x) for x in re.split(r"[.!?\n]+", text))
+
+
+def floor_lines(style) -> list[tuple[str, str]]:
+    """StyleProfile 에서 빈도 하한이 든 (칸 이름, 글). 전개 속도 칸과 지킬 것만 본다."""
+    out = [("pacing", style.pacing)] if rate_floor(style.pacing) else []
+    return out + [("dos", x) for x in style.dos if rate_floor(x)]
+
+
 def speech_copied(text: str, styles: list[str]) -> list[str]:
     """인물 말투의 대사 예시를 본문에 그대로 쓴 문장 (copied_sentences). 대사 예시는 COPY_SPAN 보다 짧은 일이 많아
     예시 문장마다 그 길이(최대 COPY_SPAN)를 겹침 길이로 쓴다. 끝 문장부호는 빼고 견준다 ('?' 를 '.' 로 바꿔 써도 잡는다)."""

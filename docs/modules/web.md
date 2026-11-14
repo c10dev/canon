@@ -718,6 +718,7 @@
   - 퇴고 단계를 켜면 칩이 집필 → 계획 → 퇴고 차례로 돈다(`.chip.rl.polish`). 끄면 퇴고 줄도 집필로 보인다
   - 같은 카드 머리의 '쓴 뒤 퇴고' 스위치(`.set-sw`, `polishStage`)가 `Settings.polish_stage` 를 켜고 끈다(장편만)
   - write 층 줄이 20개(`RULE_LIMIT`)를 넘으면 지킬 것 머리에 `.chip.warn` '집필 n개 · 20개 넘음'을 단다(`writeRuleCount`)
+  - 빈도 하한이 든 지킬 것 줄과 전개 속도 칸에 `.chip.warn` '빈도 규칙'을 단다(`floorChip`, `rateFloor`, 까닭은 `title` 의 `FLOOR_WHY`). 라이브러리 문체에도 단다
   - 목차 수 `styleCount`
   - 서술 카드 칸은 `NARR_KEYS`(효과음 표기 포함). 목차 수는 채운 칸 / 전체 칸
   - 기준 지표 `baselineItems` 에 효과음 줄(`sfxRate`: 1,000자당 수와 가장 많은 끝 표시) · '소리' 낱말 밀도
