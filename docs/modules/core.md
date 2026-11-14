@@ -537,6 +537,9 @@
   - 그 규칙을 걸지 못하면(`hits(strict=True)` 의 `RuleSkipped`: 시간 한도 · 일꾼 오류 · 묶음을 껐거나 규칙이 없어짐) 닫지 않고 `resolved` 거짓에 그 이유를 단다
 - 문체 경고 `style_drift` 는 `Settings.heat_words` 가 있으면 정점 대목 경고(`metrics.peak_window` · `peak_drift`)를 더한다
 - `style_drift` 는 인물 말투의 대사 예시를 본문에 그대로 쓴 문장을 '말투 예시 대사를 그대로 쓴 문장' 경고로 더한다(`speech_copied`, `metrics.speech_copied`)
+- 빈도 하한 줄 찾기 `metrics.rate_floor` · `floor_lines`(LLM 없음): 문장 하나에 `FLOOR_HIT`(화 · 장면 · 문단 · 대화 · 아크마다, '한 번 이상', '최소')이 있고 `FLOOR_PASS`(부정, 횟수 상한, 달라짐)가 없으면 하한이다
+- `floor_lines` 는 전개 속도 칸(`pacing`)과 지킬 것(`dos`)만 본다(`FLOOR_KEYS`). 효과음 칸은 화당 빈도를 적는 칸이라 보지 않는다
+- 빈도 하한 줄은 저장을 막지 않고 문체 화면에 표시만 한다. 화면 규칙은 `static/style.js` 의 `rateFloor` 이고 `tests/test_rate_floor.py` 가 두 쪽을 견준다
 - 장면 연출은 플롯에서 초안 `draft_stage` · 본문에서 뽑기 `extract_stage`(박자가 빈 응답이면 한 번 다시 묻기) · 검수 때 함께 뽑기 `stage_extract_all` · 적용 `apply_stage` · 적용 취소 `undo_stage`(`stage.py`)
 - 동선 지적 고침안은 새 문장을 더한 안을 거른다(`clean_fixes` 의 `_adds_sentence`)
 - 장편은 부 계획(`plan_series`) → 다음 아크(`plan_next_arc`/`apply_arc`, 기획 전 경고 `plan_ahead`: 본문 없는 아크 2개 이상 · 요약 없는 끝난 아크 · 부, 막지 않음) → 아크 · 부 요약(`recap`/`apply_recap`)
@@ -692,6 +695,8 @@
 - `passage_prompt(head=)` 는 그 뒤에 인물 상태 · 본문 · 대화 · 요청을 둔다. 인물 상태는 고른 곳에 따라 아는 정보를 고르므로(`state_view`) 앞부분 밖이다
 - 쇠맛을 줄이는 쓰기 규칙: 블록 차례 한 줄 `priority_line`
 - 문체 분석 요청 `style_prompt` 은 효과음 표기 칸(`sound_effects`)을 묻고, 원문에서 센 효과음 줄 요약(`sfx_note`)을 붙인다
+- `style_prompt` 은 dos · pacing 에 '화마다' · '장면마다 한 번 이상' 같은 빈도 규칙과 화마다 정해진 순서의 구성을 적지 말라고 적는다(웹소설 일감 12)
+- 문체 대화 요청 `style_chat_prompt` 에는 그런 줄을 넣지 않는다. 실측(2026-11-14)에서 빈도 줄 수는 그대로였고 줄 있는 판만 응답 실패가 늘었다(`docs/webnovel/specs/12-rate-floor.md`)
 - 이번 화 플롯은 쓰기 · 검수(`check_material`) · 상태 변경안(`state_prompt`) · 부분 수정(`passage_prompt`)이 모두 `write_plot` 으로 넣는다(라벨 모양이 아닌 예전 `emotional_shift` 를 뺌). 플롯 화면 · 흡입력 판정은 그대로
 - `write_plot(memo=)` 는 쓰기 재료 조율의 조율 메모(`coord.memo`)가 있으면 summary · events · ending_hook 을 그것으로 바꾼다
 - 쓰기 재료 조율이면 `episode_parts` 의 지시문 끝에 `coord.NOTE` 를 붙인다(조율 메모를 넣었을 때만)

@@ -156,14 +156,21 @@ function writeRuleCount(prof) {
   return [...(prof.dos || []), ...(prof.donts || [])].filter((x) => ruleLayerOf(x) === 'write').length;
 }
 
+// 빈도 하한 줄 (metrics.FLOOR_HIT · FLOOR_PASS · rate_floor 와 같은 규칙, tests/test_rate_floor.py). 전개 속도 칸과 지킬 것에만 표시한다
+const FLOOR_HIT = /(?:^|[\s'"‘“(\[,·])(?:매\s?(?:회차|화|회|장면|씬|문단|대화|아크)|(?:각\s?)?(?:회차|화|회|장면|씬|문단|대화|아크)\s?(?:하나)?마다|한\s?(?:회차|화|회|장면|씬|문단|대화|아크)에\s?(?:한|두|세|[0-9]+)\s?(?:번|개|줄|차례)\s?(?:은|씩|이상))|(?:한|두|세|[0-9]+)\s?(?:번|회|개|차례)\s?이상|(?:최소|적어도)\s?(?:한|두|세|[0-9]+)/;
+const FLOOR_PASS = /않|말\s?것|마세요|금지|(?:번|회|개|줄|차례)(?:을|를)?\s?(?:까지|넘게|넘기|이하|이내)|달라|다르게/;
+const rateFloor = (text) => String(text || '').split(/[.!?\n]+/).some((x) => FLOOR_HIT.test(x) && !FLOOR_PASS.test(x));
+const FLOOR_WHY = '화나 장면마다 꼭 넣으라는 규칙이에요. AI가 매 화 그대로 지켜 같은 장치와 구성이 되풀이될 수 있어요. 상황이 올 때만 쓰게 하려면 가끔 쓰는 장치로 옮겨 보세요.';
+const floorChip = (text) => (rateFloor(text) ? ` <span class="chip warn" title="${FLOOR_WHY}">빈도 규칙</span>` : '');
+
 /** 카드의 읽는 모양 */
 function pfRead(id, prof, root, hot, base = 'style') {
-  const list = (xs) => (xs || []).length ? `<ul class="pf-list">${xs.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : '';
+  const list = (xs, mark = () => '') => (xs || []).length ? `<ul class="pf-list">${xs.map((x) => `<li>${esc(x)}${mark(x)}</li>`).join('')}</ul>` : '';
   if (id === 'narr') {
     const label = Object.fromEntries(STYLE_KEYS.slice(0, NARR_KEYS.length));
     const open = pfFill(root);
     const { shown, blank } = foldBlank(NARR_KEYS, narrHas(prof, hot), open);
-    const dl = shown.length ? `<dl class="pf-dl">${shown.map((k) => `<dt${hot.has(k) ? ' class="hot"' : ''}>${label[k]}${hot.has(k) ? ' <span class="chip hot">변경안</span>' : ''}</dt><dd>${String(prof[k] || '').trim() ? esc(prof[k]) : pfNone}</dd>`).join('')}</dl>` : '';
+    const dl = shown.length ? `<dl class="pf-dl">${shown.map((k) => `<dt${hot.has(k) ? ' class="hot"' : ''}>${label[k]}${hot.has(k) ? ' <span class="chip hot">변경안</span>' : ''}</dt><dd>${String(prof[k] || '').trim() ? esc(prof[k]) : pfNone}${k === 'pacing' ? floorChip(prof[k]) : ''}</dd>`).join('')}</dl>` : '';
     if (!blank.length) return dl;
     const fields = open ? `<div class="grid-2 pf-fill">${blank.map((k) => input(hot.has(k) ? `${label[k]} · 대화 변경안` : label[k], `${base}.${k}`,
       { rows: 1, autogrow: true, cls: hot.has(k) ? 'chat-target' : '', ...(root ? { root } : {}) })).join('')}</div>` : '';
@@ -174,10 +181,11 @@ function pfRead(id, prof, root, hot, base = 'style') {
     const layered = ruleLayered(root);
     const rules = (key) => {
       const xs = prof[key] || [];
-      if (!layered || !xs.length) return list(xs);
+      const mark = key === 'dos' ? floorChip : () => '';
+      if (!layered || !xs.length) return list(xs, mark);
       return `<ul class="pf-list">${xs.map((x, i) => {
         const l = ruleLayerOf(x);
-        return `<li><button type="button" class="chip rl ${l}" data-action="ruleLayer" data-arg="${key}|${i}" aria-label="${RULE_LAYER_NAMES[l]} 층, 눌러서 바꾸기">${RULE_LAYER_NAMES[l]}</button>${esc(x)}</li>`;
+        return `<li><button type="button" class="chip rl ${l}" data-action="ruleLayer" data-arg="${key}|${i}" aria-label="${RULE_LAYER_NAMES[l]} 층, 눌러서 바꾸기">${RULE_LAYER_NAMES[l]}</button>${esc(x)}${mark(x)}</li>`;
       }).join('')}</ul>`;
     };
     const n = layered ? writeRuleCount(prof) : 0;
