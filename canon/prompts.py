@@ -66,14 +66,21 @@ _SPLIT_RULES = [
 ]
 
 
-def prose_rules(styled: bool = False, split: bool = False) -> str:
+# 화 하나를 통째로 쓰는 호출(본문 쓰기 · 서술 다듬기)에만 뜻이 있는 줄. 문단 연습장 · 본문 부분 수정 · 검수 고침안 · 플레이 장면에는 '이 화'가 없어 뺀다
+# (prose_rules 의 whole=False). 쓰기 요청에는 같은 일을 하는 FOCUS_LINE 이 따로 있다. 가려 읽기(2026-11-13)의 문단 판은 이 줄 없이 지금 판과 점수가 같았다.
+_WHOLE_ONLY = "이 화에서 가장 중요한 순간 하나는 시간을 늘려 씁니다."
+
+
+def prose_rules(styled: bool = False, split: bool = False, whole: bool = True) -> str:
     """기본 문체 규칙. styled 면 문체 원문과 부딪히기 쉬운 쉼표, 셋씩 나열, 줄표, 대명사, 비유 규칙을 뺀다.
-    split 이면 퇴고로 옮긴 줄을 뺀 _SPLIT_RULES 를 쓴다 (퇴고 단계, polish_split). 옮긴 줄이 쉼표 · 셋씩 나열 · 줄표를 모두 품어 styled 는 상관없다."""
+    split 이면 퇴고로 옮긴 줄을 뺀 _SPLIT_RULES 를 쓴다 (퇴고 단계, polish_split). 옮긴 줄이 쉼표 · 셋씩 나열 · 줄표를 모두 품어 styled 는 상관없다.
+    whole 이 거짓이면 화 하나를 쓰는 호출에만 맞는 줄(_WHOLE_ONLY)을 뺀다: 화의 일부만 쓰거나 고치는 호출."""
     if split:
-        lines = [f"- {rule}" for rule in _SPLIT_RULES]
+        rules = list(_SPLIT_RULES)
     else:
         skip = "plain" if styled else "styled"
-        lines = [f"- {rule}" for kind, rule in _PROSE_RULES if kind != skip]
+        rules = [rule for kind, rule in _PROSE_RULES if kind != skip]
+    lines = [f"- {rule}" for rule in rules if whole or not rule.startswith(_WHOLE_ONLY)]
     return "[문체 기본 규칙] 스타일 프로필과 부딪히면 스타일 프로필을 따릅니다.\n" + "\n".join(lines)
 
 
@@ -822,7 +829,7 @@ PARAGRAPH_LINES = ("한 덩어리로 붙여 쓰지 않습니다. 대사는 한 �
 
 def paragraph_system(p: Project) -> str:
     """문단 연습장의 시스템 프롬프트. 문체 원문이 있는 문체는 원문과 부딪히는 기본 규칙을 뺀다 (writer_system 과 같은 규칙)."""
-    return system_prompt(_PARAGRAPH_WRITER + prose_rules(styled(p)), korean=False)
+    return system_prompt(_PARAGRAPH_WRITER + prose_rules(styled(p), whole=False), korean=False)
 
 
 def paragraph_markers(p: Project, length: int) -> str:
@@ -3110,11 +3117,11 @@ _REVISER = (
     "스타일 프로필과 문체 예시를 따르고, 인물 설정과 현재 상태, 확정된 사실을 어기지 않습니다. "
     "작가가 바꾸라고 하지 않은 사건과 사실은 바꾸지 않습니다. 모든 출력은 한국어로 작성합니다.\n\n"
 )
-SYSTEM_REVISER = system_prompt(_REVISER + PROSE_RULES, korean=False)
+SYSTEM_REVISER = system_prompt(_REVISER + prose_rules(whole=False), korean=False)
 
 
 def reviser_system(p: Project) -> str:
-    return system_prompt(_REVISER + prose_rules(styled(p)), korean=False)
+    return system_prompt(_REVISER + prose_rules(styled(p), whole=False), korean=False)
 
 
 # 빠른 요청: id → (버튼 이름, AI 에게 하는 말). 화면(passage.js)은 서버가 준 목록을 그대로 쓴다.
@@ -6294,7 +6301,7 @@ PIECES.update({
     "korean_line": Piece("한국어 출력 줄", ("output",), "system", "KOREAN_LINE", "머리말을 받는 지시의 끝 (본문 지시는 글 가운데)"),
     "writer_task": Piece("할 일 (본문 쓰기)", ("style", "continuity", "output"), "system", "_WRITER", "쓰기 재료가 꼭 쓸 것만이면 사건 문장을 _FIXED_LINE 으로 바꾼다"),
     "fixed_line": Piece("고정점 · 연출 두 층", ("continuity",), "system", "_FIXED_LINE", "쓰기 재료가 꼭 쓸 것만일 때 (board.fixed_only)"),
-    "prose_rules": Piece("문체 기본 규칙", ("style",), "system", "_PROSE_RULES", "문체 원문이 있는 작품은 쉼표 · 셋씩 나열 · 줄표 · 대명사 · 비유 규칙을 뺀다 (prose_rules)"),
+    "prose_rules": Piece("문체 기본 규칙", ("style",), "system", "_PROSE_RULES", "문체 원문이 있는 작품은 쉼표 · 셋씩 나열 · 줄표 · 대명사 · 비유 규칙을 뺀다. 화의 일부만 쓰는 갈래(PARTIAL_KINDS)는 '이 화에서 가장 중요한 순간' 줄을 뺀다 (prose_rules)"),
     "prose_split": Piece("문체 기본 규칙 (퇴고 단계)", ("style",), "system", "_SPLIT_RULES", "퇴고 단계를 켠 장편: 쓴 뒤 고칠 '하지 말 것'을 뺀 긍정형 규칙 (prose_rules split)"),
     "reviser_task": Piece("할 일 (부분 수정)", ("style", "continuity", "output"), "system", "_REVISER"),
     "paragraph_task": Piece("할 일 (문단 연습장)", ("style", "output"), "system", "_PARAGRAPH_WRITER"),
@@ -6561,6 +6568,10 @@ def _polish_targets_sample(p: Project, n: int) -> str:
     return polishscan.block(polishscan.find(p, n, p.episode(n).text))
 
 
+# 화의 일부만 쓰거나 고치는 갈래: 시스템 글에 prose_rules(whole=False) 를 쓴다 (paragraph_system · reviser_system · play_scene_prompt)
+PARTIAL_KINDS = ("fix", "paragraph", "passage", "play_scene")
+
+
 def kinds_of(piece: str) -> list[str]:
     """이 조각이 들어가는 갈래 열쇠 (KINDS 차례). 보내기 직전 조각은 모든 갈래다."""
     return [k for k, v in KINDS.items() if piece in v.pieces or piece in SEND_PIECES]
@@ -6575,6 +6586,8 @@ def piece_text(p: Project, n: int, piece: str, kind: str = "episode", request: s
     if piece in BLOCK_BY_ID:
         parts = episode_parts(p, n) if n and kind in ("episode", "rewrite") else static_parts(p)
         return next((x.text for x in parts if x.id == piece), "")
+    if piece == "prose_rules" and kind in PARTIAL_KINDS:  # 화의 일부만 쓰는 갈래는 퇴고 단계와 상관없이 늘려 쓰기 줄을 뺀 판을 쓴다
+        return prose_rules(styled(p), whole=False)
     f = _SAMPLES.get(piece)
     if f is not None:
         return f(p, n)
@@ -7639,7 +7652,7 @@ def play_scene_prompt(p: Project, info: PlayInfo, n: int, action: str, luck: int
 [스타일 프로필 (줄인 것)]
 {play_style(p)}
 
-{prose_rules(styled(p))}
+{prose_rules(styled(p), whole=False)}
 
 [플레이어 인물]
 {dump(player_view)}

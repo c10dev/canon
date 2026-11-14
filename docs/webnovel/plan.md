@@ -18,8 +18,8 @@
 
 | 차례 | # | 일감 | 상태 | 명세서 | 먼저 끝날 것 |
 |---|---|---|---|---|---|
-| 1 | 1 | 이야기 틀 칸(`Meta.frame`, 기본 drama)과 설정 화면의 고르기, 장르를 고를 때 틀 추천. 프롬프트는 바꾸지 않음 (LLM 비용 없음) | 진행 (claude/story-frame, [#527](https://github.com/c10dev/canon/pull/527)) | [01-frame.md](specs/01-frame.md) | — |
-| 2 | 2 | 장르 정의: `light_novel` 의 관습 · 속도 · 예시 로그라인, 요소 장르 `harem` · `system` 더하기, `modern_fantasy.avoid` 고치기, `light_novel` 의 '캐릭터마다 말버릇' · '화마다 웃음 포인트' 같은 매 화 지시 빼기 | 설계 | — | — |
+| 1 | 1 | 이야기 틀 칸(`Meta.frame`, 기본 drama)과 설정 화면의 고르기, 장르를 고를 때 틀 추천. 프롬프트는 바꾸지 않음 (LLM 비용 없음) | 끝 ([#527](https://github.com/c10dev/canon/pull/527)) | [01-frame.md](specs/01-frame.md) | — |
+| 2 | 2 | 장르 정의: `light_novel` 의 관습 · 속도 · 예시 로그라인, 요소 장르 `harem` · `system` 더하기, `modern_fantasy.avoid` 고치기, `light_novel` 의 '캐릭터마다 말버릇' · '화마다 웃음 포인트' 같은 매 화 지시 빼기 | 끝 ([#531](https://github.com/c10dev/canon/pull/531)) | [02-genre-defs.md](specs/02-genre-defs.md) | — |
 | 3 | 3 | 로그라인 웹소설 칸: 새 칸 둘(주인공만 가진 것, 독자가 받는 재미)과 틀별 합치기 · 점검(`logline.py` 와 `setup.js` 함께), 막는 것 · 걸린 것은 접어 선택으로 | 설계 | — | 1 |
 | 4 | 4 | 부 · 아크 기획 프롬프트를 틀별로: 보상 루프 아크, 짧은 고구마(`conflict` 의 뜻), 새 칸 `StoryArc.gain`(이 아크에서 얻는 성장), 하렘이면 `StoryArc.focus`(공략 대상) | 설계 | — | 1, 2 |
 | 5 | 5 | 성장 일정(능력 일정 앞당김): `Blueprint.growth` 스키마 · 저장 검사 · 화 번호 옮기기 · 상태창 기록과 견주는 경고 · 설계도 화면 | 설계 | — | 1 |
@@ -37,7 +37,7 @@
 - 'AI 느낌' 묶음은 빈도 상한 · 하한을 새로 더하지 않는다(사용자 의견, 2026-11-10). 전환 속도는 6 · 8 에서 설계도 이정표 · 사다리처럼 이야기 사실로 잡는다.
 - 5 는 설계도의 일감이다. 시작하면 [docs/blueprint/plan.md](../blueprint/plan.md) 의 '능력 일정' 줄을 단기 표로 옮기고 명세서를 `docs/blueprint/specs/` 에 쓴다. 이 표에는 링크만 남긴다.
 - 4 · 6 · 8 · 9 는 `prompts.py` 의 같은 함수들(`series_prompt` · `next_arc_prompt` · `plot_rules` · `heat_rules`)을 고친다. 한 번에 한 세션만 고친다.
-- 9 는 화 끼워 넣기가 `heat` 화 번호를 옮기지 않는 문제(설계도 plan.md 의 장기 후보)를 먼저 볼지 정한다.
+- 9 가 걸려 있던 화 끼워 넣기 · 빼기의 `heat` 화 번호 문제는 2026-11-14 에 고쳤다(설계도 plan.md 의 장기 후보 줄).
 
 ### 일감별 바꿀 곳
 

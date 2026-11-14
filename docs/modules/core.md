@@ -724,6 +724,8 @@
 - `style_rules_view` 의 지킬 것 · 피할 것은 write 층 줄만 넣는다(`layer_rules`, 층은 `rule_layer`, `Settings.rule_layers`)
 - 퇴고 단계를 켠 장편(`polish_split`)은 `style_rules_view` 에서 `banned_phrases` 를 뺀다. 금지 표현은 퇴고가 본문에서 찾는다
 - 기본 문체 규칙은 문체 원문이 없으면 13줄, 있으면 11줄(쉼표 · 셋씩 나열 · 줄표 · 대명사 절 · 비유 줄을 뺌), 퇴고 단계는 7줄이다
+- 화의 일부만 쓰거나 고치는 호출(`paragraph_system` · `reviser_system` · `SYSTEM_REVISER` · `play_scene_prompt`)은 `prose_rules(whole=False)` 로 '이 화에서 가장 중요한 순간' 줄(`_WHOLE_ONLY`)을 빼 한 줄 적다
+- 프롬프트 보기의 `prose_rules` 조각 글도 `PARTIAL_KINDS`(fix · paragraph · passage · play_scene) 갈래에서는 이 줄을 뺀 판이다(`piece_text`)
 - 2026-11-13 에 '장면마다 감각 하나 이상' · '장면마다 비유 한두 번' · '튀는 생각' 줄을 뺐다(작가 가려 읽기 11편, DESIGN.md '본문 생성')
 - 퇴고 단계의 쓰기 시스템은 `prose_rules(styled, split=True)` 로 `_SPLIT_RULES`(쓴 뒤 고칠 '하지 말 것'을 뺀 긍정형)를 쓴다. `reviser_system` 은 그대로다
 - 퇴고 단계의 쓰기 지시문 꼬리는 `WRITE_STYLE_SPLIT` · `WRITE_SHIFT_SPLIT` · `RETOLD_SPLIT` 을 쓰고 `ending_line` 과 `echo_block` 을 넣지 않는다

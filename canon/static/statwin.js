@@ -633,10 +633,10 @@ async function swPut(patch, msg) {
 /** 1화를 반영했으면 처음 수치는 더 고치지 않는다 (그 뒤 고친 값은 인물 쪽에서 작가 기록으로) */
 const swLocked = () => P().episodes.some((e) => e.status === 'finalized');
 
-/** 상태창을 자주 쓰는 작품인지: 현대 판타지 장르, 또는 설정 글에 상태창 · 레벨업 · 시스템 창 */
+/** 상태창을 자주 쓰는 작품인지: 현대 판타지 장르나 시스템 요소, 또는 설정 글에 상태창 · 레벨업 · 시스템 창 */
 function swWanted(p) {
   const text = [p.meta.genre, p.meta.logline, p.meta.notes, p.world.setting, ...(p.world.rules || [])].join(' ');
-  return (p.meta.genres || []).includes('modern_fantasy') || /상태창|상태 창|레벨\s?업|시스템 창/.test(text);
+  return (p.meta.genres || []).some((g) => g === 'modern_fantasy' || g === 'system') || /상태창|상태 창|레벨\s?업|시스템 창/.test(text);
 }
 
 /** 고치는 중이 아니면 늘 작품에서 다시 읽는다 (인물 쪽에서 고친 값도 따라오게) */
