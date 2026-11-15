@@ -317,23 +317,20 @@ function rewardRows(p) {
     const last = Math.max(0, ...p.episodes.filter((e) => e.status === 'finalized').map((e) => e.plot.number));
     const ahead = p.episodes.filter((e) => e.plot.number > last && !(e.text || '').trim() && ['draft', 'confirmed'].includes(e.status))
       .map((e) => e.plot.number).sort((a, b) => a - b);
-    const mends = (n, a, b) => paceShifts(p, n).some(([x, y, g]) => new Set([x, y, a, b]).size === 2 && x !== y && PACE_UP.has(g[0]));
     for (const f of focus) {
       let best = null;
       for (const [s, t] of [[hero, f], [f, hero]]) {
         const tie = (p.ties || []).find((x) => x.source === s && x.target === t);
         if (!tie || !REWARD_ROUGH.includes(tie.stage)) continue;
         const since = tie.stage_since || 0;
-        const run = since > 0 && since <= last ? last - since + 1 : last;
-        let planned = 0;
-        for (const n of ahead) { if (mends(n, hero, f)) break; planned += 1; }
-        if (!best || run + planned > best[0] + best[1]) best = [run, planned, tie];
+        const run = since <= 0 ? last : since <= last ? last - since + 1 : 0;  // reward._run
+        if (!best || run > best[0]) best = [run, tie];
       }
-      if (best && best[0] + best[1] > REWARD_HAREM_MAX) {
-        const [run, planned, tie] = best;
-        const more = planned ? ` (반영한 화 ${run}화, 안 쓴 화 플롯 ${planned}화)` : '';
+      if (best && best[0] > REWARD_HAREM_MAX) {
+        const [run, tie] = best;
+        const more = tie.stage_since ? '' : ' (처음부터)';
         out.push({ kind: 'harem', n: ahead.length ? ahead[0] : 0,
-          text: `${names[tie.source]} → ${names[tie.target]} 관계가 ${tie.stage}로 ${run + planned}화 이어져요${more}. `
+          text: `${names[tie.source]} → ${names[tie.target]} 관계가 ${tie.stage}로 반영한 화 ${run}화째 이어져요${more}. `
             + `하렘 관계의 균열은 ${REWARD_HAREM_MAX}화 안에 풀리는 오해로 둬요. 다음 화 플롯에서 풀어 주세요.` });
       }
     }

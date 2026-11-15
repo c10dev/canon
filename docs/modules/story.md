@@ -719,7 +719,7 @@
 - 웹소설 틀 장편의 보상 박자 경고. LLM 호출 없음, 막지 않음(docs/webnovel/specs/07-reward-warn.md)
 - 드라마 틀 · 단편은 늘 빈 목록이다(`on`)
 - 하렘 균열이 김(`harem_rows`): 하렘 요소 작품에서 주인공(`hero_id`) ↔ 아크 공략 대상(`StoryArc.focus`)이 균열 · 적대로 `HAREM_MAX`(3)화를 넘게 이어짐
-- 반영한 화는 `Tie.stage_since` 부터 세고, 안 쓴 화는 회복 쪽 바뀜(`pace.plot_shifts` 의 `UP`)이 나올 때까지 센다
+- 반영한 화만 `Tie.stage_since` 부터 센다(`_run`, 0 이면 처음부터). 안 쓴 화 플롯은 회복 말이 드물게 잡혀 세지 않는다
 - 아크에 성장이 없음(`growth_rows`): `StoryArc.gain` 이 비었고 범위에 성장 일정 줄도 없는 아크. 본문 없는 화가 남은 아크만
 - 사이다 없는 화 · 고구마 구간 경고는 화마다 사이다를 가려 세는 신호가 없어 두지 않았다
 - 화면 `static/plot.js` 의 `rewardRows` 가 같은 규칙이다(`tests/test_reward_warn.py`)

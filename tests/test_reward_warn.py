@@ -37,28 +37,30 @@ def test_hero_is_the_protagonist():
     assert reward.hero_id(p) == "hero"
 
 
-def test_harem_rift_counts_finalized_and_planned_episodes():
-    """정할 것 8: 3화까지는 괜찮고 4화째부터 알린다. 반영한 화(stage_since 부터)와 회복하지 않는 안 쓴 화 플롯을 함께 센다."""
-    p, a = _work(done=4, since=2)  # 반영한 화 2~4: 3화
-    hero, ally = _name(p, "hero"), _name(p, "ally")
-    p.episode(5).plot.summary = f"{hero}와 {ally}는 서로를 용서하고 화해한다."
-    assert reward.harem_rows(p) == []  # 3화 뒤 바로 다음 화에 화해
-    p.episode(5).plot.summary = "다른 일이 일어난다."
-    p.episode(6).plot.summary = f"{hero}와 {ally}가 화해한다."
-    rows = reward.harem_rows(p)
-    assert [(r["kind"], r["n"]) for r in rows] == [("harem", 5)] and "4화 이어져요" in rows[0]["text"]
-    assert "안 쓴 화 플롯 1화" in rows[0]["text"]
-
-
-def test_harem_rift_boundary_from_finalized_only():
+def test_harem_rift_boundary():
+    """정할 것 1: 반영한 화로 3화까지는 조용하고 4화째부터 알린다. 고칠 첫 화는 반영한 마지막 화 다음 화다."""
     p, _ = _work(done=5, since=3)  # 3~5화: 3화
-    hero, ally = _name(p, "hero"), _name(p, "ally")
-    p.episode(6).plot.summary = f"{hero}와 {ally}가 화해한다."
     assert reward.harem_rows(p) == []
     p, _ = _work(done=5, since=2)  # 2~5화: 4화
-    p.episode(6).plot.summary = f"{_name(p, 'hero')}와 {_name(p, 'ally')}가 화해한다."
     rows = reward.harem_rows(p)
-    assert len(rows) == 1 and "4화 이어져요" in rows[0]["text"] and "안 쓴 화" not in rows[0]["text"]
+    assert [(r["kind"], r["n"]) for r in rows] == [("harem", 6)] and "반영한 화 4화째" in rows[0]["text"]
+    assert "처음부터" not in rows[0]["text"]
+
+
+def test_harem_rift_ignores_unwritten_plots():
+    """안 쓴 화 플롯은 세지 않는다: 갓 생긴 균열은 안 쓴 화가 많아도, 플롯에 회복 말이 없어도 조용하다."""
+    p, _ = _work(done=4, since=4)
+    assert reward.harem_rows(p) == []
+    p.episode(5).plot.summary = f"{_name(p, 'hero')}와 {_name(p, 'ally')}는 오해를 푼다."
+    assert reward.harem_rows(p) == []
+
+
+def test_harem_rift_since_zero_and_future():
+    p, _ = _work(done=4, since=0)  # 1화 전부터 균열: 반영한 4화 모두
+    rows = reward.harem_rows(p)
+    assert len(rows) == 1 and "반영한 화 4화째" in rows[0]["text"] and "처음부터" in rows[0]["text"]
+    p, _ = _work(done=4, since=9)  # 마지막 반영 화보다 뒤 (되돌린 작품 등)
+    assert reward.harem_rows(p) == []
 
 
 def test_harem_rift_needs_frame_harem_and_focus():
@@ -103,9 +105,7 @@ def test_drama_and_short_stay_empty():
 
 @needs_node
 def test_js_matches_python():
-    p, a = _work(done=4, since=2)
-    hero, ally = _name(p, "hero"), _name(p, "ally")
-    p.episode(6).plot.summary = f"{hero}와 {ally}가 화해한다."
+    p, a = _work(done=5, since=2)
     a.gain = ""
     want = reward.rows(p)
     assert {r["kind"] for r in want} == {"harem", "growth"}
@@ -113,7 +113,7 @@ def test_js_matches_python():
     p.meta.frame = "drama"
     assert _js(p) == [] == reward.rows(p)
     p.meta.frame = "webnovel"
-    for since, done in ((3, 5), (2, 5), (0, 3)):
+    for since, done in ((3, 5), (2, 5), (0, 3), (0, 4), (9, 4), (4, 4)):
         q, _ = _work(done=done, since=since)
         assert _js(q) == reward.rows(q), (since, done)
 

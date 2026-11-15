@@ -2,7 +2,8 @@
 
 두 가지를 본다.
 - 하렘 균열이 김: 주인공과 공략 대상(StoryArc.focus) 사이 관계가 균열 · 적대로 HAREM_MAX 화를 넘게 이어짐.
-  반영한 화는 지금 관계(Tie.stage · stage_since)로, 안 쓴 화는 플롯이 바라는 관계 바뀜(pace.plot_shifts)으로 센다.
+  반영한 화만 지금 관계(Tie.stage · stage_since)로 센다. 안 쓴 화 플롯은 세지 않는다: 회복 바뀜 말(pace.SHIFTS)이 잡히는 화가
+  사용자 장편에서 0~2% 뿐이라, '회복 말이 없음'을 균열이 이어진다는 증거로 쓰면 갓 생긴 균열에도 뜬다 (명세서 '규칙').
 - 아크에 성장이 없음: 얻는 성장(StoryArc.gain)이 비었고 그 범위에 성장 일정(Blueprint.ability_plans) 줄도 없는 아크.
 
 '사이다 없는 화가 이어짐' · '고구마 구간이 김'은 화마다 사이다를 가려 세는 신호가 없어 두지 않았다(명세서 정할 것 3 · 4).
@@ -10,7 +11,7 @@
 """
 from __future__ import annotations
 
-from . import dynamics, pace, prompts
+from . import dynamics, prompts
 from .schema import Project
 
 HAREM_MAX = 3  # 하렘 쌍의 균열 · 적대가 이 화수를 넘게 이어지면 경고 (정할 것 8, 웹소설 규칙 '균열은 1~3화 오해')
@@ -37,9 +38,11 @@ def _upcoming(p: Project, last: int) -> list[int]:
     return sorted(e.plot.number for e in p.episodes if e.plot.number > last and not e.text.strip() and e.status in ("draft", "confirmed"))
 
 
-def _mends(p: Project, n: int, a: str, b: str) -> bool:
-    """n 화 플롯이 a ↔ b 관계를 가까워지는 쪽으로 옮기는가."""
-    return any({x, y} == {a, b} and g[0] in pace.UP for x, y, g in pace.plot_shifts(p, n))
+def _run(since: int, last: int) -> int:
+    """반영한 화 가운데 그 단계로 지낸 화 수. since 0 은 1화 전부터(처음 관계), since 가 마지막 반영 화보다 뒤면 0."""
+    if since <= 0:
+        return last
+    return last - since + 1 if since <= last else 0
 
 
 def harem_rows(p: Project) -> list[dict]:
@@ -58,19 +61,14 @@ def harem_rows(p: Project) -> list[dict]:
             tie = dynamics.find_tie(p.ties, s, t)
             if not tie or tie.stage not in ROUGH:
                 continue
-            run = last - tie.stage_since + 1 if 0 < tie.stage_since <= last else last
-            planned = 0
-            for n in ahead:
-                if _mends(p, n, hero, f):
-                    break
-                planned += 1
-            if best is None or run + planned > best[0] + best[1]:
-                best = (run, planned, tie)
-        if best and best[0] + best[1] > HAREM_MAX:
-            run, planned, tie = best
-            more = f" (반영한 화 {run}화, 안 쓴 화 플롯 {planned}화)" if planned else ""
+            run = _run(tie.stage_since, last)
+            if best is None or run > best[0]:
+                best = (run, tie)
+        if best and best[0] > HAREM_MAX:
+            run, tie = best
+            more = " (처음부터)" if not tie.stage_since else ""
             out.append({"kind": "harem", "n": ahead[0] if ahead else 0,
-                        "text": f"{names[tie.source]} → {names[tie.target]} 관계가 {tie.stage}로 {run + planned}화 이어져요{more}. "
+                        "text": f"{names[tie.source]} → {names[tie.target]} 관계가 {tie.stage}로 반영한 화 {run}화째 이어져요{more}. "
                                 f"하렘 관계의 균열은 {HAREM_MAX}화 안에 풀리는 오해로 둬요. 다음 화 플롯에서 풀어 주세요."})
     return out
 
