@@ -340,5 +340,5 @@ def test_core_doc_routes_line_matches():
     line = next(x for x in (Path(__file__).parents[1] / "docs/modules/core.md").read_text(encoding="utf-8").splitlines()
                 if x.startswith("- 기능별 라우트"))
     names = re.search(r"`ROUTES`: ([^)]*)\)", line).group(1).split(" · ")
-    count = "하나 둘 셋 넷 다섯 여섯 일곱 여덟 아홉 열 열하나 열둘".split()[len(web.ROUTES) - 1]
+    count = "하나 둘 셋 넷 다섯 여섯 일곱 여덟 아홉 열 열하나 열둘 열셋 열넷".split()[len(web.ROUTES) - 1]
     assert len(names) == len(web.ROUTES) and f"라우트 {count} 묶음" in line

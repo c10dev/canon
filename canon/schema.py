@@ -2398,7 +2398,7 @@ class StatRecord(BaseModel):
     name: str
     value: str = Field("", description="바뀐 뒤 값. 빈 값이면 항목이 사라짐")
     before: str = ""
-    source: Literal["ai", "author"] = Field("ai", description="ai: 승인한 상태 변경안 / author: 작가가 직접 고침")
+    source: Literal["ai", "author", "rule"] = Field("ai", description="ai: 승인한 상태 변경안 / author: 작가가 직접 고침 / rule: 승인한 상태 규칙 제안")
 
 
 StatSkin = Literal["system", "parchment", "scroll", "neon", "plain"]
@@ -2544,6 +2544,28 @@ class ContactReach(BaseModel):
     episode: SkipJsonSchema[int] = Field(0, description="닿은 화. 프로그램이 채운다")
 
 
+RuleChangeKind = Literal["stat", "resolve"]
+
+
+class RuleProposalSpec(BaseModel):
+    """상태 규칙이 조건이 맞을 때 제안할 변경 하나 (docs/context/specs/07-rules.md). 작가가 적는다. 관계 수치는 제안하지 않는다."""
+    kind: RuleChangeKind = Field("stat", description="stat: 상태창 값 바꾸기 / resolve: 복선 회수")
+    character_id: str = Field("", description="stat: 인물 id")
+    stat: str = Field("", description="stat: 상태창 항목 이름")
+    value: str = Field("", description="stat: StatValue.value 와 같은 뜻. 새 값, +3 같은 바뀐 양, +항목 · -항목, 빈 값은 지움")
+    foreshadow_id: str = Field("", description="resolve: 복선 id")
+
+
+class RuleProposal(RuleProposalSpec):
+    """상태 규칙이 만든 상태 변경 제안 한 줄 (staterules.propose). 프로그램이 채운다. 상태 승인 화면에 '규칙' 표시로 온다."""
+    rule_id: str = Field("", description="제안을 만든 규칙 id")
+    rule_name: str = Field("", description="제안을 만들 때의 규칙 이름 (화면 표시용)")
+    key: str = Field("", description="다시 계산해도 같게 나오는 열쇠: 규칙 id + 대상. 작가가 체크를 푼 것을 기억한다")
+    before: str = Field("", description="제안을 만들 때 본 지금 값 (AI 제안을 반영한 뒤)")
+    after: str = Field("", description="반영하면 될 값 (statwin.resolve)")
+    warning: str = Field("", description="같은 스탯을 AI 제안이나 다른 규칙도 바꿀 때")
+
+
 class DismissedItems(BaseModel):
     """상태 승인 화면에서 작가가 체크를 풀어 반영하지 않은 항목. StateDelta 와 같은 이름의 칸만 둔다 (반영 기록에서 다시 볼 수 있게)."""
     character_updates: list[CharacterState] = Field(default_factory=list)
@@ -2562,6 +2584,7 @@ class DismissedItems(BaseModel):
     setting_changes: list[SettingChange] = Field(default_factory=list)
     address_changes: list[AddressChange] = Field(default_factory=list)
     contacts: list[ContactReach] = Field(default_factory=list)
+    rule_proposals: list[RuleProposal] = Field(default_factory=list, description="작가가 체크를 푼 상태 규칙 제안")
 
 
 class FactNear(BaseModel):
@@ -2623,6 +2646,10 @@ class StateDelta(BaseModel):
     # 프로그램이 채운다 (pipeline.apply_delta). AI 응답 형식에서 뺀다. None 이면 이 칸이 생기기 전 기록이라 반영 취소가 스냅샷으로 짐작한다
     added: SkipJsonSchema[Optional[AddedItems]] = Field(
         None, description="반영할 때 실제로 새로 더해진 관계 쌍 · 비밀 · 사실 · 복선. 반영 뒤 작가가 더한 같은 항목과 가려 반영 취소가 이것만 뺀다")
+    # 프로그램이 채운다 (staterules.propose). AI 응답 형식에서 뺀다. 반영할 때 서버가 고른 항목으로 다시 계산한다 (web.apply_state)
+    rule_proposals: SkipJsonSchema[list[RuleProposal]] = Field(
+        default_factory=list, description="상태 규칙이 만든 상태 변경 제안. 기본으로 체크하고 반영 기록에는 반영한 것만 남는다")
+    rule_off: SkipJsonSchema[list[str]] = Field(default_factory=list, description="작가가 체크를 푼 규칙 제안의 key")
 
     def drop_rel_rows(self, drop) -> list[Relationship]:
         """relationship_updates 에서 drop 차례의 행을 빼고 뺀 행을 돌려준다. 범위 밖 차례는 무시한다.
@@ -2779,6 +2806,17 @@ class Activation(BaseModel):
     """항목을 언제 프롬프트에 넣을지의 묶음. 일감 7 은 상태 조건(conditions)만 둔다 (README 의 Q36).
     기본값(빈 목록)이면 지금 넣기 규칙 그대로다. 조건이 있으면 모두 맞을 때만 넣는다 (넣기 방식 always 도 같다)."""
     conditions: list[Condition] = Field(default_factory=list)
+
+
+class StateRule(BaseModel):
+    """상태 규칙 (효과 y, docs/context/specs/07-rules.md): 조건(when)이 모두 맞으면 상태 변경(changes)을 제안한다.
+    작가가 적는다. 상태를 바로 쓰지 않고 상태 승인 화면에 '규칙' 표시 제안으로만 올린다."""
+    id: str = Field("", description="r<N> 꼴, 작품 안에서 하나. 비면 저장할 때 붙인다 (staterules.fill_ids)")
+    name: str = ""
+    note: str = Field("", description="작가 메모")
+    on: bool = Field(True, description="끄면 계산하지 않는다")
+    when: list[Condition] = Field(default_factory=list, description="모두 맞아야 한다 (AND)")
+    changes: list[RuleProposalSpec] = Field(default_factory=list)
 
 
 class StoryElement(BaseModel):
@@ -3079,6 +3117,7 @@ class Project(BaseModel):
     chats: list[Chat] = Field(default_factory=list, description="화면별 AI 대화 기록 (옛 단발 대화. 에이전트 세션의 '이전 대화')")
     agent_sessions: list[AgentSession] = Field(default_factory=list, description="대화 에이전트 세션 (canon/agent.py)")
     elements: list[StoryElement] = Field(default_factory=list, description="인과율: 언제든 더하는 요소, 특징, 설정, 사건")
+    state_rules: list[StateRule] = Field(default_factory=list, description="상태 규칙: 조건이 맞으면 상태 변경을 제안한다 (staterules.py)")
     conversion: Optional[Conversion] = Field(None, description="단편에서 장편으로 바꾼 기록. 되돌리면 지운다")
     archive: Optional[ShortArchive] = Field(None, description="재구성 전 단편 원고와 새 화 지도")
     storylines: list[Storyline] = Field(default_factory=list, description="메인에서 갈라지는 이야기 줄기 (서브플롯, 과거 회상, 외전, 인물 이야기)")

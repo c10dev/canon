@@ -197,10 +197,12 @@ function causalToc() {
   const body = [
     `<button type="button" class="outline-item" data-action="causalShow" data-arg=""${S.causalSel ? '' : ' aria-current="page"'}><span class="tl">개요</span><span class="st">요소 ${els.length}</span></button>`,
     todo ? `<button type="button" class="outline-item warn" data-action="causalGoTodo"><span class="tl">손볼 것</span><span class="st">${todo}</span></button>` : '',
+    // 상태 규칙 쪽 (staterules.js srPage, 주소 causal/_rules)
+    `<button type="button" class="outline-item" data-action="causalShow" data-arg="_rules"${S.causalSel === '_rules' ? ' aria-current="page"' : ''}><span class="tl">상태 규칙</span><span class="st">${(P().state_rules || []).length || ''}</span></button>`,
     ...groups.map(([k, xs]) => `<span class="outline-h">${esc(k)}</span>${xs.map(item).join('')}`),
   ].join('');
   const cur = causalEl();
-  return outlineNav({ id: 'cz-toc', label: '인과율 목차', now: cur ? esc(cur.name || '이름 없음') : '개요', body });
+  return outlineNav({ id: 'cz-toc', label: '인과율 목차', now: cur ? esc(cur.name || '이름 없음') : S.causalSel === '_rules' ? '상태 규칙' : '개요', body });
 }
 
 // ----- 개요 -----
@@ -425,9 +427,10 @@ function viewCausal() {
   const add = '<button type="button" class="btn primary" data-action="causalNew">+ 요소 더하기</button>';
   const head = (right) => header('작품 도구', '인과율', '요소(특징 · 설정 · 사건)를 언제든 더하세요. 이미 쓴 화와 정해 둔 플롯 중 어디가 흔들리는지 보여 주고, 고칠 방법을 변경안으로 내요. 적용은 고른 것만 해요.', right);
   const gone = S.causalGone ? `<div class="note info between"><span>'${esc(S.causalGone.name || '이름 없음')}' 요소를 지웠어요.</span><button type="button" class="btn small" data-action="causalRestore">되살리기</button></div>` : '';
+  if (S.causalSel === '_rules' && typeof srPage === 'function') return srPage();  // 상태 규칙 쪽은 요소가 없어도 연다
   if (!els.length) {
     return `${head('')}${gone}<section class="card csh-empty"><div class="empty"><p>아직 더한 요소가 없어요. 지켜야 할 설정 하나를 더하면, 쓴 화와 플롯 중 어디가 흔들리는지 보여 줘요.</p>
-      <p class="small">예: "${esc(exName(0))}의 친아버지는 따로 있다"(과거 사건, 처음부터 사실), "7화부터 마을에 통금이 생긴다"(세계 규칙, 7화부터)</p>${add}</div></section>`;
+      <p class="small">예: "${esc(exName(0))}의 친아버지는 따로 있다"(과거 사건, 처음부터 사실), "7화부터 마을에 통금이 생긴다"(세계 규칙, 7화부터)</p>${add} <a class="btn ghost" href="${causalHref('_rules')}">상태 규칙</a></div></section>`;
   }
   const el = S.causalSel && causalEl();
   if (el) return `${gone}${causalDetail(el)}`;

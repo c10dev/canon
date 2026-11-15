@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Callable
 
-from . import address, attire, blueprint, cast, charlog, context, elements, foreshadows, knows, naming, offscreen, pace, stateedit, statwin, timeline
+from . import address, attire, blueprint, cast, charlog, context, elements, foreshadows, knows, naming, offscreen, pace, stateedit, staterules, statwin, timeline
 from .maps import travel
 from .schema import FactNear, Project, Snapshot, StateDelta
 
@@ -125,6 +125,7 @@ APPLY_LAST: tuple[Callable[[Project, StateDelta], None], ...] = (
     foreshadows.apply_delta, timeline.apply_delta, cast.apply_delta,
     offscreen.apply_delta,  # 다시 나온 인물의 화면 밖 근황을 비운다 (등장 인물 붙이기 뒤)
     blueprint.apply_delta,  # 작가가 고른 닿은 사다리 칸 기록
+    staterules.apply_delta,  # 상태 규칙 제안: AI 제안을 반영한 뒤에 적용한다 (07 의 정할 것 8). 되돌리기는 스냅샷 · statwin.revert 가 맡는다
 )
 
 # 되돌리기 (pipeline.revert): 스냅샷으로 상태를 덮기 전

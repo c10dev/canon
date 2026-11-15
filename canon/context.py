@@ -131,6 +131,9 @@ DROP_BUDGET = "예산 넘음"
 DROP_ARC = "아크와 무관"
 DROP_CAP = "개수 상한"
 DROP_UNRELATED = "이번 화와 무관"
+DROP_COND = "상태 조건이 맞지 않음"
+REASON_COND = "상태 조건 맞음"
+NOTE_COND = "조건 알림"
 
 
 class Trace:

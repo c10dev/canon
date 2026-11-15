@@ -243,7 +243,7 @@ async function api(method, path, body, meta) {
     if (asked) return api(method, path, body, meta);
     throw Object.assign(new Error('작품을 받지 못했어요. 잠시 뒤 다시 시도하세요'), { status: r.status });
   }
-  if (!r.ok) throw Object.assign(new Error(fmtErr(data, r.status)), { status: r.status, code: data && data.code });
+  if (!r.ok) throw Object.assign(new Error(fmtErr(data, r.status)), { status: r.status, code: data && data.code, body: data });  // body: 409 stale_rules 의 다시 계산한 제안 등
   if (meta) meta.headers = r.headers;
   // 문체를 분석했거나 라이브러리에 저장했으면 붙여 넣은 원문은 더 잃을 것이 없다 (hasUnsaved)
   if (method === 'POST' && /^\/projects\/[^/]+\/style(\/library)?$/.test(path)) S.styleSampleDirty = false;
@@ -1317,7 +1317,7 @@ document.addEventListener('change', (e) => {
   if (el.dataset.pick) {
     S.picks[el.dataset.pick] = el.checked;
     document.querySelectorAll('#app .pick-count').forEach((c) => { c.textContent = deltaPicked(); });
-    if (S.route[2] === 'review' && /^[ersn]\d/.test(el.dataset.pick)) refreshPreview(Number(S.route[3]));
+    if (S.route[2] === 'review' && /^[ersncpx]\d/.test(el.dataset.pick)) refreshPreview(Number(S.route[3]));  // c · p · x: 상태 규칙 제안도 다시 계산한다 (조건이 상태창 · 복선을 본다)
     if (S.route[2] === 'setup' && /^sc\d/.test(el.dataset.pick)) render();  // 고른 인물에 따라 넣을 수 있는 관계가 바뀐다
   }
   if (el.name === 'np-form') {  // 형식을 바꾸면 총 화수 기본값도 바꾼다

@@ -37,9 +37,10 @@ from . import context as ctxrules  # 이름 context 는 컨텍스트 보기 엔�
 from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록)
 from .schema import (Ability, ArcPlan, BodySuggestion, StatInitSuggestion, StatSkin, StatWindowSuggestion, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      RuleChange, RuleRun, StorylineProposal, StyleEntry, StyleProfile)
-from . import abilities, anchor, atlas, findings, foreshadows, heatplan, setupchat, stateedit, stattrial, statwin, timeline
+from . import abilities, anchor, atlas, findings, foreshadows, heatplan, setupchat, stateedit, staterules, stattrial, statwin, timeline
 from .schema import AbilityCodexDraft, AbilityDraft, AgentSession, Blueprint, MilestoneDraft, PairDraft, RungDraft, ChatScope, HeatArcProposal, KnowsFoldSet, Deadline, Storyboard, StoryTime, Foreshadow, StatValue
 from .schema import OffscreenSet
+from .schema import RuleProposal
 from .schema import MapSpec
 from .schema import TextMaterial
 from . import refsample
@@ -4517,7 +4518,7 @@ def context(name: str, n: int) -> list[dict]:
     rows = []
     for bid, raw in texts.items():
         text = raw.strip("\n")
-        if not text:
+        if not text and not (bid == "elements" and trace.dropped.get(bid)):  # 상태 조건으로 요소를 다 뺐으면 뺀 이유를 보인다
             continue
         b = prompts.BLOCK_BY_ID[bid]
         rows.append({**_block_head(p, b), "chars": len(text), "tokens": ctxrules.est_tokens(text),
@@ -4878,6 +4879,7 @@ def parse_state(name: str, n: int, body: Raw) -> StateDelta:
         raise HTTPException(400, _validation_text(e))
     pipeline.clean_delta(p, delta)
     delta.basis = pipeline.text_basis(p.episode(n).text)
+    staterules.refill(p, delta)  # 상태 규칙 제안 (extract_state 와 같은 자리)
     return delta
 
 
@@ -5085,15 +5087,24 @@ def _json_reason(raw: str, pos: int, msg: str) -> str:
 
 
 @app.post("/api/projects/{name}/episodes/{n}/apply")
-def apply_state(name: str, n: int, d: StateDelta, force: bool = False) -> Project:
+def apply_state(name: str, n: int, d: StateDelta, force: bool = False, force_rules: bool = False) -> Project:
     """화면에서 고른 항목만 담긴 변경안을 반영하고 그 화를 끝낸다.
     누구의 것도 아닌 데이터가 남는 항목(pipeline.validate_delta)이 있으면 400 으로 막는다.
-    변경안을 만든 본문(d.basis)이 지금 본문과 다르면 409(code stale_delta)로 막는다. 작가가 확인하면 force 로 다시 보낸다."""
+    변경안을 만든 본문(d.basis)이 지금 본문과 다르면 409(code stale_delta)로 막는다. 작가가 확인하면 force 로 다시 보낸다.
+    상태 규칙 제안은 서버가 고른 항목으로 다시 계산한다. 화면이 보인 제안(d.rule_proposals 의 key)과 다르면 409(code stale_rules)로 막고,
+    작가가 확인하면 force_rules 로 다시 보낸다. 화면이 보낸 제안은 견주기만 하고 반영에는 쓰지 않는다 (07 의 정할 것 12)."""
     p = _load(name)
     _not_auto(name)
     ep = p.episode(n)
     pipeline.check_applicable(p, n)
     d.episode = n
+    shown = [x.key for x in d.rule_proposals]
+    d.rule_off = [k for k in d.rule_off if k in shown]
+    fresh = staterules.propose(p, d)
+    if [x.key for x in fresh] != shown and not force_rules:
+        return JSONResponse({"detail": "고른 항목이 바뀌어 규칙 제안이 달라졌어요. 다시 확인하고 반영하세요",
+                             "code": "stale_rules", "rule_proposals": [x.model_dump() for x in fresh]}, status_code=409)
+    d.rule_proposals = fresh
     bad = pipeline.validate_delta(p, d)
     if bad:
         raise ValueError(f"반영할 수 없는 항목이 {len(bad)}개 있어요. 체크를 빼고 다시 반영하세요\n" + "\n".join(f"- {m}" for m in bad))
@@ -5115,6 +5126,7 @@ def apply_restate(name: str, n: int, d: StateDelta, force: bool = False) -> Proj
         return JSONResponse({"detail": f"변경안을 만든 뒤 {n}화 본문을 또 고쳤어요. 옛 본문 기준의 요약 · 사실 · 복선이 들어가요",
                              "code": "stale_delta"}, status_code=409)
     d.episode = n
+    d.rule_proposals, d.rule_off = [], []  # 반영 뒤 고침은 상태 규칙 제안을 계산하지 않는다 (07 의 정할 것 13)
     pipeline.apply_restate(p, d)
     return _save(name, p)
 
@@ -6188,18 +6200,22 @@ class Relations(BaseModel):
 
 
 class RelationPreview(Relations):
-    """상태 승인 화면 미리 보기: 반영하면 계산될 관계와 반영 전 관계."""
+    """상태 승인 화면 미리 보기: 반영하면 계산될 관계와 반영 전 관계, 고른 항목으로 다시 계산한 상태 규칙 제안."""
     before: Relations
+    rule_proposals: list[RuleProposal] = []
 
 
 @app.post("/api/projects/{name}/episodes/{n}/preview")
 def preview(name: str, n: int, d: StateDelta) -> RelationPreview:
-    """화면에서 고른 변경안을 복사본에 반영해, 반영 후 계산될 관계를 미리 보여 준다. 저장하지 않는다."""
+    """화면에서 고른 변경안을 복사본에 반영해, 반영 후 계산될 관계를 미리 보여 준다. 저장하지 않는다.
+    상태 규칙 제안은 뺀 채 한 번 흉내 반영하고, 그 복사본으로 규칙 제안을 다시 계산해 함께 돌려준다 (Q28)."""
     sim = _load(name)
     before = _relations(sim)
     d.episode = n
+    d.rule_proposals, d.rule_off = [], []
     pipeline.apply_delta(sim, d)
-    return {**_relations(sim), "before": before}  # 반영 전 관계: 화면이 줄마다 지금 → 반영 후를 비교한다
+    rules = staterules.propose_on(sim, d, n) if any(r.on and r.changes for r in sim.state_rules) else []
+    return {**_relations(sim), "before": before, "rule_proposals": rules}  # 반영 전 관계: 화면이 줄마다 지금 → 반영 후를 비교한다
 
 
 class View(BaseModel):
@@ -6406,7 +6422,7 @@ def brief(name: str, n: int, kind: str = "episode") -> BriefText:
 # ---------- 기능별 라우트 (canon/routes/) ----------
 # 각 모듈은 위의 도우미를 web 에서 불러 쓰므로 맨 끝 가까이에서 부른다. 시험이 web 을 다시 불러오면(reload) 라우트 모듈도 다시 불러온다.
 # 모듈이 정한 이름은 web 에도 둔다(web.<이름> 으로 부르는 코드와 시험이 그대로 돈다). 붙이는 차례는 옮기기 전 web.py 의 차례다
-ROUTES = ("studio", "drill", "blindset", "promptlab", "prompts", "refs", "atlas", "revlab", "soelab", "play", "research", "regexrules")
+ROUTES = ("studio", "drill", "blindset", "promptlab", "prompts", "refs", "atlas", "revlab", "soelab", "play", "research", "regexrules", "staterules")
 
 
 _ROUTERS: list = []  # 붙인 라우트 모듈의 router. app.routes 에는 감싼 모양(_IncludedRouter)으로만 들어간다

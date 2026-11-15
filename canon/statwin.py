@@ -19,7 +19,7 @@ PRESETS: dict[str, list[str]] = {
     "growth": ["레벨", "스킬", "특성", "칭호", "골드", "인벤토리"],
 }
 
-SOURCE = {"ai": "", "author": " (작가)", "both": " (승인 뒤 작가가 고침)"}
+SOURCE = {"ai": "", "author": " (작가)", "both": " (승인 뒤 작가가 고침)", "rule": " (규칙)"}
 # 화면 스킨 (schema.StatSkin). 화면 이름은 static/statwin.js 의 SW_SKINS 와 같다
 SKINS: dict[str, str] = {
     "system": "시스템 창: 어두운 바탕에 푸른 선. 게임 판타지 · 헌터물 · 회귀물",
@@ -242,6 +242,15 @@ def revert(p: Project, n: int) -> None:
     p.stat_log = [r for r in p.stat_log if r.episode <= n]
 
 
+def _merge_source(prev: str, now: str) -> str:
+    """같은 화에 두 기록이 있을 때의 출처. 작가가 고친 것이 섞이면 both, AI 제안 뒤 규칙 제안이면 rule(마지막 값은 규칙이 정함)."""
+    if prev == now:
+        return now
+    if "author" in (prev, now) or prev == "both":
+        return "both"
+    return "rule"
+
+
 def timeline(p: Project, cid: str) -> dict:
     """화별 비교표: 기록이 있는 화마다 그 화가 끝났을 때의 값. 바뀐 칸은 changed.
     줄 순서는 지금 상태창 순서(작가가 정한 순서), 지금은 없는 항목은 기록에 나온 순서로 그 뒤에."""
@@ -259,7 +268,7 @@ def timeline(p: Project, cid: str) -> dict:
         for r in (x for x in recs if x.episode == n):
             cur[r.name] = r.value
             prev = changed.get(r.name)  # 같은 화에 AI 반영 뒤 작가가 또 고쳤으면 처음 값과 둘 다 남긴다
-            src = r.source if prev is None or prev["source"] == r.source else "both"
+            src = _merge_source(prev["source"], r.source) if prev else r.source
             changed[r.name] = {"before": prev["before"] if prev else r.before, "source": src}
         for name, ch in changed.items():
             ch.update({k: v for k, v in diff(ch["before"], cur[name]).items() if v})  # 목록 항목은 더한 것 · 뺀 것도

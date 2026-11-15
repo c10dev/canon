@@ -28,6 +28,7 @@
 - 새 비밀 멈춤(`Policy.stop_on_secrets`, `StateDelta.secrets_added`)
 - 새 인물 · 새 비밀 멈춤은 반영(`pipeline.apply_delta`)이 빼는 항목을 세지 않는다: 이미 있는 인물 id, 이미 있거나 겹친 비밀 id, 설정에 없는 인물의 비밀
 - 복선 회수 멈춤(`Policy.stop_on_resolve`): 작품에 열려 있는 복선만 센다
+- 복선 회수 멈춤은 상태 규칙 제안이 회수하는 복선(`staterules.resolved_ids`, 체크를 푼 것은 빼고)도 센다
 - 이르거나 큰 복선 회수 멈춤(`Policy.stop_on_early_resolve`): 이번 화가 `due_ep` 보다 앞이거나 `scope` 가 part · series 인 복선
 - 기한 닫힘 멈춤(`Policy.stop_on_deadline_done`): 작품에 열려 있는 기한만 센다
 - 시간 건너뜀 멈춤(`Policy.max_time_jump_days`, 0 이면 끔): `timeline.current_day` 에서 `StateDelta.time.day` 까지 앞으로 간 날수. 어느 쪽이든 날수를 모르거나 시간 기록을 껐으면 보지 않고, 거슬러 가는 것도 보지 않는다
@@ -53,6 +54,8 @@
 - 변경안 반영(`_review` 의 put)은 반영 전제 `pipeline.check_applicable` 에 걸리면 반영하지 않고 paused 로 멈춘다
 - 검토 대기의 그대로 반영(`resume` 의 take)도 `check_applicable` 에 걸리면 반영하지 않고 오류를 낸다
 - 자동 반영(`_review` 의 put)과 그대로 반영(take)이 끝나면 pending.json 의 그 화 상태 변경안(`state:<화>`)을 지운다(`_drop_pending_state`)
+- 자동 반영(put)과 그대로 반영(take)은 `features.hold` 뒤 `staterules.refill` 로 상태 규칙 제안을 다시 채워 기본 체크 항목처럼 반영한다
+- 반영한 상태 규칙 제안은 작업 기록에 경고 한 줄('상태 규칙 제안 n개를 반영했어요: …', `staterules.describe`)로 남긴다
 - 서버 재시작 후 이어 가기
 - 도는 실행은 작품 폴더의 `.autorun.lock` 에 flock 을 쥔다(`_take`, `Control.owner`). 프로세스가 죽으면 OS 가 푼다
 - 다른 프로세스(명령줄 `canon auto` 나 다른 서버)가 잠금을 쥐면 `elsewhere` 가 참이고 `active` 도 참이다(화면 저장 보호가 켜진다)
@@ -111,6 +114,7 @@
 - 단편 흐름: `new` → `style` → `arc` → `plot` → (사용자 수정) → `confirm` → (스토리보드 → 큐 시트, 웹 집필 화면 · 자동 집필) → `write` → `check` → `update` 반복
 - `run` 이 쓰기 · 검수 · 반영을 자동으로 되풀이한다
 - `update -y` 의 관계 미리 보기는 반영처럼 `features.hold` 로 뺀 제안을 빼고 계산한다(`_print_relation_preview`)
+- `update` 출력은 상태 규칙 제안을 '[규칙]' 머리 줄로 보인다(`_print_delta`). 반영 직전에 고른 항목으로 다시 계산하고(`staterules.refill`), 달라졌으면 알린다
 - `update` 는 반영 전제(`pipeline.check_applicable`)에 걸리면 변경안을 만들지 않고 까닭을 알린다. 반영 완료한 화는 앞 화로 되돌리는 `revert <작품> <n-1>` 을 알려 준다
 - `update`(`-y` 없이)는 관계 미리 보기 전에 관계 단계와 반대인 관계 바뀜(`StateDelta.rel_flagged`)을 따로 보여 주고 묻는다. 기본은 빼고, 뺀 것은 `d.dismissed` 에 남긴다(`_ask_flagged`)
 - `update`(`-y` 없이)는 이미 있는 확정 사실과 비슷한 새 사실(`StateDelta.fact_near`)도 옛 사실과 나란히 보여 주고 묻는다. 기본은 빼고 `d.dismissed` 에 남긴다(`_ask_near_facts`)
@@ -162,6 +166,7 @@
   - 퇴고 단계를 켠 장편은 `write` 가 저장한 뒤 퇴고 판을 새 판 후보로 둔다(`cli._polish_candidate`). 실패해도 쓴 본문은 남는다
   - `rework`: 재구성의 다듬기 화
   - `rules`: 정규식 규칙 묶음 목록(`list`, 기본) · 글 파일에 걸어 보기 `test <묶음 id> <파일>`(저장 안 함)
+  - `staterules <작품>`: 상태 규칙 목록과 켬 · 끔('상태 규칙 n개 (켬 m개)'), 조건을 단 이야기 요소. 06 의 `rules` 와 이름을 나눈다
   - `rules use <작품> <묶음 id>` · `rules drop <작품> <묶음 id>`: 작품에서 묶음을 켜고 끈다. 켜면 맨 뒤(가장 나중에 걸기)에 붙고 `jobs.project_lock` 안에서 저장한다
   - `setupchat`: 설정을 말로 다듬기
   - `stats`: 화별 문체 지표 확인
@@ -353,6 +358,7 @@
 - `audit_delta` 는 변경안 칸을 바꾸지 않고, 실패하면 경고 없이 넘어간다. 반영 기록에서 돌아온 변경안(`carried_delta`)은 다시 보지 않는다
 - 띄어쓰기 · 문장 부호를 뺀 인용이 `AUDIT_QUOTE_MIN`(8)자보다 짧으면 버린다
 - 다시 쓰는 변경안(`carried_delta`, 반영 취소 `web._revert_kept`)은 옛 '[누락 의심]' 경고를 뺀다(`drop_audit_warnings`)
+- `extract_state` 는 정리 · 누락 검사 뒤 상태 규칙 제안을 채운다(`staterules.refill`). `carried_delta` 길도 옛 제안과 `rule_off` 를 비우고 다시 채운다
 - 배치 자동 집필에서도 누락 검사는 실시간 호출이다(상태 변경안만 배치). 사용량에는 그대로 잡힌다
 - 작업지시서(`brief`, 채팅 앱) 경로에는 누락 검사가 없다
 - 결정은 검수 프롬프트에 넣지 않는다
@@ -460,6 +466,8 @@
   - 웹 반영 `apply_state` · 명령줄 `update` · 플레이 `settle` · 자동 집필 반영(`_review` 의 put · `resume` 의 take)이 `check_applicable` 을 부른다. 복사본에 해 보는 미리 보기는 부르지 않는다
   - `validate_delta` 는 설정에 없는 인물이 주인인 비밀(`secrets_added` 의 `owner`)도 막는다
   - `apply_delta` 는 검사에 걸린 항목과 설정에 없는 사건 목격자를 빼고(`drop_invalid`) 반영한 뒤 뺀 항목 문구를 돌려준다
+  - 검사는 상태 규칙 제안이 설정에 없는 인물 · 없는 복선을 가리키는지도 본다(`_delta_checks` 의 `rule_proposals`)
+  - 반영 취소는 뒤 반영의 상태 규칙 제안이 회수한 복선도 스냅샷 값으로 돌린다(`_undo_later`)
   - `drop_invalid` 는 비밀의 `hidden_from` 중 설정에 없는 인물과 없는 비밀 id 를 가리키는 사건의 `reveals_secret` 을 지우고 그 문구를 더한다(비밀 · 사건은 남긴다)
   - `drop_invalid` 가 뺀 항목은 `d.dismissed` 의 같은 칸에 남는다(반영 기록에서 보이고 반영 취소로 돌아오면 체크를 푼 채 다시 놓인다)
   - 관계 바뀜 행을 빼는 곳(`drop_invalid` · `pace.hold` · `_ask_flagged`)은 `StateDelta.drop_rel_rows` 를 써서 `rel_flagged` 를 남은 행의 차례로 다시 매긴다
@@ -902,6 +910,12 @@
 - 두 되돌리기는 `_text_guard` 를 먼저 본다. 이미 되돌린 곳 · 없는 기록 · 없는 곳은 400 이다
 - 시험은 `tests/test_regexrules_web.py`
 
+### `canon/routes/staterules.py`
+
+- 상태 규칙 라우트(`web.ROUTES` 의 `staterules`, 서버 `staterules.py`): `GET` · `POST /api/projects/{name}/state-rules`, `PUT` · `DELETE …/state-rules/{rid}`(없는 id 는 404)
+- 모두 규칙 목록 전체를 돌려준다. 더하기는 id 를 서버가 붙이고(`staterules.fill_ids`, `r<N>`), 고치기는 id 와 목록 자리를 그대로 둔다
+- 규칙은 작가가 적는 설정이라 승인 흐름 없이 바로 저장한다(`_edit`)
+
 ### `canon/schema.py`
 
 - pydantic 데이터 스키마
@@ -927,6 +941,9 @@
 - 화면 밖 근황(`CharacterState.offscreen` · `offscreen_ep`)은 AI 응답 형식(`SkipJsonSchema`)과 프롬프트 직렬화에서 빠진다. 비었으면 저장하지도 않는다
 - 인물 프롬프트 넣기를 고르는 규칙은 `context.core_ids` · `off_ids` · `without_off`(모두 auto 면 예전 규칙과 같다)
 - 상태 조건 `Condition`(kind · 납작한 칸, dict 없음)과 묶음 `Activation`(조건 목록만)은 작가가 적는다. `StoryElement.activation` 은 `SkipJsonSchema` 이고 기본값이 빈 목록이라 옛 작품이 읽힌다
+- 상태 규칙 `StateRule`(조건 `when` · 제안할 변경 `changes: RuleProposalSpec`)은 `Project.state_rules` 에 둔다. 기본값이 빈 목록이라 옛 작품이 읽힌다
+- 규칙 제안 `RuleProposal` 은 `StateDelta.rule_proposals` · 체크를 푼 key `StateDelta.rule_off` 에 둔다. 둘 다 프로그램 칸이라 `SkipJsonSchema` 다
+- 체크를 푼 규칙 제안은 `DismissedItems.rule_proposals` 에 남는다. 상태창 기록 출처(`StatRecord.source`)에 `rule` 이 있다
 - 상태 변경안의 본문 지문(`StateDelta.basis`)도 프로그램이 채워 AI 응답 형식에서 빠진다(`SkipJsonSchema`). 비면 모름
 - 비슷한 새 사실 표시(`StateDelta.fact_near`, `FactNear`: 새 사실 · 옛 사실)도 프로그램 칸이다(`SkipJsonSchema`, `features._near_facts`)
 - 상태 변경안의 AI 응답 형식은 `StateDeltaAI` 다(`extract_state` · `play.settle` · `state_brief`). 관계 바뀜 `RelationshipChange` 와 사건 `AIStoryEvent` 에 관계 수치 · 보는 방식 · 가 닿을 곳 · 화 번호 · 수동보정 칸이 없다
@@ -1206,7 +1223,7 @@
 - `/api/config/health` 는 Claude 단계가 있으면 `claude_api`(Anthropic 키 유무)와 `claude` · `claude_message`(구독 설치 · 로그인, `claude.status` 를 60초 기억)를 싣는다. 설정 저장은 기억을 지우고, `/api/claude/status` 는 새로 읽은 값으로 바꾸고, error 는 기억하지 않는다
 - 키 없음(`MissingKey`) 답의 문구는 낸 백엔드의 것(Gemini · Vertex · Anthropic)을 쓴다
 - 대화 세션 칸만 바꾸는 요청(세션 만들기 · 이름 · 대상 · 권한 모드 · 보관, `_session_edit`)은 화면 저장으로 치지 않는다(`store.writer` 를 비움). 저장하지 않은 변경이 있는 탭의 다음 저장이 다른 탭과의 충돌(409)을 그대로 받는다
-- 기능별 라우트 열둘 묶음은 `canon/routes/` 에 있다(`ROUTES`: 문단 연습장 · 지시 연습 · 가려 읽기 묶음 · 프롬프트 놀이터 · 프롬프트 관리 · 레퍼런스 · 지도 · 역설계 · 쇠맛 · 플레이 · 연구 · 규칙 묶음). 맨 끝의 `_attach_routes` 가 붙인다
+- 기능별 라우트 열셋 묶음은 `canon/routes/` 에 있다(`ROUTES`: 문단 연습장 · 지시 연습 · 가려 읽기 묶음 · 프롬프트 놀이터 · 프롬프트 관리 · 레퍼런스 · 지도 · 역설계 · 쇠맛 · 플레이 · 연구 · 규칙 묶음 · 상태 규칙). 맨 끝의 `_attach_routes` 가 붙인다
 - 붙인 라우트는 `app.routes` 에 감싼 모양으로만 들어가서, 응답 모양을 바꾸는 코드는 `_ROUTERS` 의 라우트도 함께 본다(`_SNAPSHOT_LIGHT`)
 - `serve` 는 로깅 설정이 없으면 INFO 수준, 시각 · 수준 · 로거 이름을 붙인 형식으로 정한다. 업데이트 · 자동 집필 이어 가기 안내도 이 로그로 낸다
 - 작품 GET 과 작품을 돌려주는 응답은 스냅샷을 화 번호만 보낸다(`_SNAPSHOT_LIGHT`). 작품 저장(PUT)은 디스크 스냅샷을 지킨다
@@ -1257,6 +1274,12 @@
 - 사용자가 화면에서 고르거나 고친 뒤 저장 요청을 보낼 때 반영한다
 - 상태 반영 `POST …/apply` 는 `pipeline.validate_delta` 에 걸린 항목이 있으면 400 으로 막고 항목을 줄마다 적는다
 - 상태 반영은 변경안 지문(`basis`)이 지금 본문과 다르면 409(`code` `stale_delta`)로 막는다. `?force=1` 이면 반영한다
+- 상태 반영은 상태 규칙 제안을 서버가 고른 항목으로 다시 계산한다. 화면이 보인 제안의 `key` 목록과 다르면 409(`code` `stale_rules`, 다시 계산한 `rule_proposals` 함께)로 막는다
+- `stale_rules` 는 `?force_rules=1` 이어야 넘긴다. `force` 는 `stale_delta` 만 넘긴다. 반영하는 것은 다시 계산한 목록에서 `rule_off` 를 뺀 것이다
+- 미리 보기(`POST …/preview`)는 규칙 제안을 뺀 변경안으로 한 번 흉내 반영하고 그 복사본으로 `staterules.propose_on` 을 불러 `rule_proposals` 를 함께 돌려준다
+- 다시 맞추기(`restate`)와 플레이는 상태 규칙 제안을 계산하지 않는다(`rule_proposals` 를 비운다)
+- 채팅 앱 JSON 가져오기(`parse_state`)도 정리 뒤 상태 규칙 제안을 채운다
+- 프롬프트 보기(`GET …/context`)는 상태 조건으로 이야기 요소를 다 뺐어도 '이야기 요소' 줄을 보여 뺀 이유를 보인다
 - 다시 맞추기(`POST …/restate`)도 변경안 지문이 반영 뒤 고친 지금 본문과 다르면 같은 409(`stale_delta`)로 막는다. `?force=1` 이면 반영한다
 - 빈 지문(옛 결과 · 손으로 만든 변경안)은 맞춰 보지 않는다. 채팅 앱 변경안 가져오기 `state/parse` 도 지문을 채운다
 - 본문 저장 `PUT …/episodes/{n}/text` 는 고침을 시작한 저장 본문(`Text.base`)이 지금 본문과 다르면 409(`code` `stale_text`)로 막는다. `?force=true` 이면 저장한다
