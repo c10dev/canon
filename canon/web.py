@@ -5105,6 +5105,7 @@ def apply_state(name: str, n: int, d: StateDelta, force: bool = False, force_rul
         return JSONResponse({"detail": "고른 항목이 바뀌어 규칙 제안이 달라졌어요. 다시 확인하고 반영하세요",
                              "code": "stale_rules", "rule_proposals": [x.model_dump() for x in fresh]}, status_code=409)
     d.rule_proposals = fresh
+    d.dismissed.rule_proposals = []  # 화면이 보낸 빼 둔 제안 대신 다시 계산한 목록의 rule_off 를 반영 훅이 남긴다
     bad = pipeline.validate_delta(p, d)
     if bad:
         raise ValueError(f"반영할 수 없는 항목이 {len(bad)}개 있어요. 체크를 빼고 다시 반영하세요\n" + "\n".join(f"- {m}" for m in bad))

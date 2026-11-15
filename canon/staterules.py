@@ -106,21 +106,28 @@ def apply_delta(p: Project, d: StateDelta) -> None:
     """반영 훅 (features.APPLY_LAST): 체크한 규칙 제안을 반영한다. 상태창은 statwin.merge(source="rule"), 복선은 이번 화 회수.
     체크를 푼 제안은 d.dismissed.rule_proposals 로 옮기고, 기록(d.rule_proposals)에는 반영한 것만 남긴다."""
     off = set(d.rule_off)
+    gone = {x.key for x in d.dismissed.rule_proposals}  # 화면(pickedDelta)이 이미 빼 둔 것과 겹치지 않게 key 로 센다
     keep: list[RuleProposal] = []
+
+    def dismiss(x: RuleProposal) -> None:
+        if x.key not in gone:
+            gone.add(x.key)
+            d.dismissed.rule_proposals.append(x)
+
     for x in d.rule_proposals:
         if x.key in off:
-            d.dismissed.rule_proposals.append(x)
+            dismiss(x)
             continue
         if x.kind == "stat":
             s = p.state_of(x.character_id)
             if s is None:
-                d.dismissed.rule_proposals.append(x)
+                dismiss(x)
                 continue
             statwin.merge(p, s, [StatValue(name=x.stat, value=x.value)], d.episode, source="rule")
         else:
             f = next((f for f in p.foreshadows if f.id == x.foreshadow_id), None)
             if f is None or f.status == "resolved" or f.planted_ep > d.episode:
-                d.dismissed.rule_proposals.append(x)
+                dismiss(x)
                 continue
             f.status, f.payoff_ep = "resolved", d.episode
         keep.append(x)

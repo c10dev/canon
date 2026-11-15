@@ -307,9 +307,11 @@ def test_web_apply_rule_off_goes_to_dismissed(client):
     p.state_rules = [_rule("r1", [], ch_stat("기절"))]
     store.save("sr", p)
     props = client.post("/api/projects/sr/episodes/2/preview", json=_delta().model_dump()).json()["rule_proposals"]
-    q = client.post("/api/projects/sr/episodes/2/apply", json={**_delta().model_dump(), "rule_proposals": props, "rule_off": [props[0]["key"]]}).json()
+    body = _delta().model_dump()
+    body["dismissed"]["rule_proposals"] = props  # 화면도 체크를 푼 제안을 빼 둔다 (pickedDelta). 기록에는 한 번만 남는다
+    q = client.post("/api/projects/sr/episodes/2/apply", json={**body, "rule_proposals": props, "rule_off": [props[0]["key"]]}).json()
     assert next(x["value"] for x in q["states"][0]["stats"] if x["name"] == "상태") == "정상"
-    assert q["history"][-1]["dismissed"]["rule_proposals"][0]["key"] == "r1:stat:hero:상태"
+    assert [x["key"] for x in q["history"][-1]["dismissed"]["rule_proposals"]] == ["r1:stat:hero:상태"]
 
 
 def test_web_state_rules_crud(client):
