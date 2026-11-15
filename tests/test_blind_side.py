@@ -168,3 +168,26 @@ def test_side_screens_keep_one_primary_button_and_hide_arms():
     assert got["done"] == [1, True, True]  # 다 고르면 주 버튼 '결과 보기' 하나
     assert got["res"] == [0, True, True, True, True, False, False]
     assert got["progress"] == ["1 / 2쌍 고름", "1 / 3편 매김"]
+
+
+@needs_node
+def test_side_reveal_from_the_bare_address_shows_the_result():
+    # 목록에서 연 #/blind/<id> 에서 결과를 열면 주소가 그대로라 다시 읽지 않는다. 쌍 화면 차례가 남으면 결과 대신 쌍 비교 화면이 나온다
+    got = run_js(["app.js", "blindset.js"], """(async () => {
+      fmtDateTime = () => '';
+      S.jobs = []; S.route = ['blind'];
+      const side = { paras: [['문장.']], marks: [], flags: [] };
+      const texts = ['01', '02'].map((no) => ({ no, text: '문장.', chars: 3, score: 0, note: '', flags: [] }));
+      const base = { id: 's1', title: '나란히', mode: 'side', items: 2, scored: 0, picked: 1, pairs: 1, scale: 5, criteria: [], has_key: true, pieces: [], texts,
+        duels: [{ a: '01', b: '02', pick: '=', left: side, right: side }] };
+      const result = { arms: [], pairs: [], noise: null, rows: [], flags: { criteria: [], arms: [], rows: [], checked: 0, diff: null },
+        duel: { total: 1, answered: 1, arms: [], repeat: null }, marks: { arms: [{ arm: '가판', texts: 1, marks: 0, per_text: 0, per_1k: 0 }], noise: null } };
+      S.bl = { ...base, revealed_at: '', result: null }; S.blNo = ''; S.blPiece = -1; S.blDuel = 0;
+      askConfirm = async () => true;
+      api = async () => ({ ...base, revealed_at: 'x', result });
+      run = async (label, fn) => fn();
+      await actions.blReveal();
+      const html = viewBlind();
+      return { duel: S.blDuel, result: html.includes('<h2>그은 문장</h2>'), pair: html.includes('쌍 골랐어요') || html.includes('쌍 비교 ·') };
+    })()""", {})
+    assert got == {"duel": -1, "result": True, "pair": False}

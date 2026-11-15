@@ -331,11 +331,12 @@ Object.assign(actions, {
     await run('결과를 여는 중', async () => {
       S.bl = await api('POST', `/blind/${enc(S.bl.id)}/reveal`);
       S.blNo = '';
+      S.blDuel = -1;  // 주소가 이미 #/blind/<id> 면 다시 읽지 않아서, 쌍 화면 차례를 여기서 지운다
       location.hash = `#/blind/${S.bl.id}`;
     });
   },
   async blDelete() {
-    if (!(await askConfirm(`'${S.bl.title}' 묶음을 지울까요? 글과 점수가 함께 사라져요.`, { ok: '지우기', danger: true }))) return;
+    if (!(await askConfirm(`'${S.bl.title}' 묶음을 지울까요? 글과 ${S.bl.mode === 'side' ? '고른 것이' : '점수가'} 함께 사라져요.`, { ok: '지우기', danger: true }))) return;
     await run('묶음을 지우는 중', async () => {
       await api('DELETE', `/blind/${enc(S.bl.id)}`);
       S.bl = null;
