@@ -1,6 +1,6 @@
 # 07. 고구마 · 사이다 경고
 
-상태: 진행 (claude/reward-warn) · 계획: [plan.md](../plan.md) 의 7번 · 먼저: 6
+상태: 진행 (claude/reward-warn, [#544](https://github.com/c10dev/canon/pull/544)) · 계획: [plan.md](../plan.md) 의 7번 · 먼저: 6
 
 ## 목표
 
