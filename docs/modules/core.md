@@ -750,6 +750,7 @@
 - 쓰기에 넣는 `board_block`(직전 화 본문 뒤, 이번 화 플롯 바로 앞, 시간 · 이동 블록을 대신함)
 - `board_block(write=True)` 는 쓰기 재료가 꼭 쓸 것만이면 `lean_board_block` 을 돌려준다. 큐 시트 만들기는 write 를 끄고 전체를 본다
 - `board_block(write=True)` 는 쓰기 재료 조율이면 이어받을 것의 몸 · 물건 줄과 끝 차림을 뺀다. `attire_write_rule` 도 끝 차림을 말하지 않는다
+- 쓰기 프롬프트 v2(`Settings.write_prompt = "v2"`, 웹 `PUT …/write-prompt`)면 본문 쓰기 요청(`context_parts(write=True)`)이 직전 화를 늘 끝 1,500자로 넣고, 대표 문단(`style_passages`)을 `STYLE_HEAD_AGAIN` 머리글로 직전 화 블록 바로 뒤에 한 번 더 넣는다. 검수 · 상태 변경안 · 스토리보드 만들기 · 큐 시트와 앞쪽 캐시 블록은 그대로다
 - 쓰기 재료 조율이면 `storyboard_prompt` 의 장면 · 중심 장면 · 첫 장면 · 이어받을 것 규칙이 `COORD_BOARD_RULES` 로 바뀌고 끝 차림 규칙은 '비웁니다'가 된다
 - `lean_board_block` 은 '어기면 안 되는 것'(시간 · 기한 · 이어받을 것 중 `board.LEAN_HANDOVER`)을 앞에, '이번 화에 쓸 것'(장면 · 중심 장면 · 뜨는 상태창 · 이동 · 차림이 바뀌는 순간)을 뒤에 둔다
 - `lean_board_block` 은 장면 끝 상태 · 깨지 않을 것 · 끝 차림 목록 · 창이 뜨지 않는 상태창 변화를 넣지 않는다

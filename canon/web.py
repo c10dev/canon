@@ -6357,6 +6357,18 @@ def set_write_material(name: str, body: WriteMaterial) -> Project:
     return _save(name, p)
 
 
+class WritePrompt(BaseModel):
+    mode: Literal["", "v2"]
+
+
+@app.put("/api/projects/{name}/write-prompt")
+def set_write_prompt(name: str, body: WritePrompt) -> Project:
+    """쓰기 프롬프트 갈래 (Settings.write_prompt). v2 면 본문 쓰기 요청에 직전 화 끝 1,500자만 넣고 대표 문단을 한 번 더 넣는다 (prompts.context_parts)."""
+    p = _load(name)
+    p.settings.write_prompt = body.mode
+    return _save(name, p)
+
+
 @app.put("/api/projects/{name}/cue-setting")
 def set_cue_setting(name: str, body: BoardSetting) -> Project:
     """화별 큐 시트 켜기 · 끄기 (Settings.cue_sheet). 켜면 쓰기 전에 큐 시트를 만들어 쓰기 프롬프트 끝에 넣는다."""
