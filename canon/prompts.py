@@ -4147,10 +4147,13 @@ def _anchor_markers(p: Project) -> list:
 WRITE_FLOW_FIRST = "첫 화이므로 앞 이야기를 요약하거나 설명으로 깔지 않고 장면으로 시작하고, "
 WRITE_FLOW_NEXT = "직전 화 마지막 장면과 자연스럽게 이어지고, "
 WRITE_STYLE_LINE = "문체는 스타일 프로필과 문체 예시 문단을 따르고, banned_phrases 의 표현은 쓰지 않습니다. "
-WRITE_SHIFT_LINE = "플롯의 emotional_shift 는 감정 이름으로 서술하지 말고 행동과 대사로 보여 줍니다. "
+# 2026-11-15 canon-models 분석: 이 줄이 "행동과 대사로" 만 시킬 때 본문의 방향 · 손 낱말이 레퍼런스의 2~3배, 생각 · 느낌 낱말이 1/5 였다
+WRITE_SHIFT_LINE = ("플롯의 emotional_shift 는 감정 이름 대신 시점 인물이 알아챈 것과 떠올린 생각, 다른 인물의 대사와 반응으로 쓰고, "
+                    "동작은 감정이 밖으로 새어 나올 때만 보여 줍니다. ")
 # 퇴고 단계를 켠 장편(polish_split)의 같은 자리 글. 금지 절은 퇴고(polishscan)가 본문에서 찾아 고친다
 WRITE_STYLE_SPLIT = "문체는 스타일 프로필과 문체 예시 문단을 따릅니다. "
-WRITE_SHIFT_SPLIT = "플롯의 emotional_shift 는 행동과 대사로 보여 줍니다. "
+WRITE_SHIFT_SPLIT = ("플롯의 emotional_shift 는 시점 인물이 알아챈 것과 떠올린 생각, 다른 인물의 대사와 반응으로 쓰고, "
+                     "동작은 감정이 밖으로 새어 나올 때만 보여 줍니다. ")
 WRITE_SPEECH_LINE = ("인물의 말투는 speech_style 을 따릅니다. speech_style 의 대사 예시는 말투를 보여 주는 예입니다. "
                      "그 문장을 그대로 쓰지 않고 어미 · 호칭 · 길이만 따릅니다. 작가가 정한 말버릇은 써도 됩니다. ")
 
