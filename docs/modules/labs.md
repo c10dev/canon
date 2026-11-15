@@ -9,6 +9,9 @@
 - 묶음은 실험 스크립트(`POST /api/blind`)나 명령줄(`canon blind import <폴더>`)이 넣는다. 화면에는 넣는 칸이 없다
 - 넣기 `create`(글 `ITEMS` 2~60편, 번호를 안 주면 01 · 02 …, 열쇠는 모든 글을 덮어야 함. 열쇠 없는 묶음도 받음)
 - 폴더 가져오기 `import_folder`: 숫자 이름의 txt 가 글, 열쇠는 그 폴더나 윗 폴더의 `blind_key.json`(`{번호: {arm, passage}}` 꼴과 목록 꼴). 폴더의 파일은 바꾸지 않는다
+- 원문 대 AI 판 쌍 비교 폴더 만들기: `scripts/blind_pairs.py build`(시험은 `tests/test_blind_pairs.py`)
+- 같은 화의 원문과 AI 판 앞부분(약 2,000자)을 잘라 `import_folder` 로 넣을 수 있는 묶음 폴더와 `summary.json` 을 만든다
+- `summary.json` 에는 본문을 싣지 않는다. 건수 · 글자 수 · 해시만 적는다
 - 점수 `score`(0 은 지움, 한마디 `NOTE_MAX` 자). 결과를 연 뒤에는 고칠 수 없다
 - 기준 항목 `CRITERIA`(다섯): 작가가 2점 · 3점 글에서 그은 문장 30개를 묶은 갈래다(2026-11-13 작가 확인). 묶음마다 그때의 항목을 `BlindSet.criteria` 에 적어 둔다
 - 항목을 적어 두지 않은 옛 묶음은 결과를 열기 전이면 `CRITERIA` 를 쓰고 처음 체크할 때 적는다. 이미 결과를 연 옛 묶음에는 항목이 없다(`criteria`)
