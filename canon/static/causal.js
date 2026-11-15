@@ -91,6 +91,7 @@ function causalPick(sel) {
   S.causalSel = sel || '';
   if (prev !== S.causalSel && !S.focusTarget) S.focusTarget = '#app main h1';
   if (S.causalEdit && S.causalEdit !== S.causalSel) S.causalEdit = '';
+  if (S.causalSel !== '_rules') S.srEdit = null;  // 상태 규칙 쪽을 떠나면 저장하지 않은 규칙 초안을 버린다
 }
 
 function causalEl(id = S.causalSel) {

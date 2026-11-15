@@ -126,7 +126,7 @@
 
 | 파일 | 바꿀 것 |
 |---|---|
-| `canon/staterules.py` (새 파일) | `propose_on(sim, p, d, n)`: 흉내 반영한 복사본에서 조건을 보고 규칙 제안 목록을 돌려준다. 조건 판정은 `context.holds` 를 부른다 |
+| `canon/staterules.py` (새 파일) | `propose_on(sim, d, n)`: 흉내 반영한 복사본에서 조건을 보고 규칙 제안 목록을 돌려준다. 조건 판정은 `context.holds` 를 부른다 |
 | `canon/staterules.py` | `propose(p, d, n)`: 복사와 흉내 반영을 한 뒤 `propose_on` 을 부른다 |
 | `canon/context.py` | 02 의 `holds(p, n, cond)` 를 그대로 쓴다. 효과 (x)는 02 의 활성 이유를 그대로 쓰므로 새 이유를 더하지 않는다(정할 것 3 · 4) |
 | `canon/schema.py` | `StateRule` · `RuleProposal` 모델, `Project.state_rules`, `StateDelta.rule_proposals` · `rule_off`, `DismissedItems.rule_proposals` |
@@ -232,7 +232,7 @@
 - 채팅 앱 경로(`web.parse_state`)도 같은 자리에서 채운다.
 - 플레이와 반영 뒤 고침은 규칙 제안을 계산하지 않는다(정할 것 13).
 - 계산은 두 함수로 나눈다:
-  - `staterules.propose_on(sim, p, d, n)` — 이미 흉내 반영한 복사본 `sim` 을 받아 규칙 제안 목록을 돌려준다. `p` 는 반영 전 작품이다.
+  - `staterules.propose_on(sim, d, n)` — 이미 흉내 반영한 복사본 `sim` 을 받아 규칙 제안 목록을 돌려준다. `d` 는 같은 스탯 AI 제안 경고에만 쓴다(7b 에서 반영 전 작품 인자를 뺐다).
   - `staterules.propose(p, d, n)` — 복사와 흉내 반영을 한 뒤 `propose_on` 을 부르는 감싸개다.
 - `staterules.propose(p, d, n)` 의 계산 차례:
   1. `p` 를 깊은 복사한다(`p.model_copy(deep=True)`).
@@ -262,7 +262,7 @@
   - `kind = "stat"` 은 `statwin.merge(p, state, updates, n, source="rule")` 로 반영한다.
   - 바뀐 양(`+3`)도 지금 규칙(`statwin.resolve`) 그대로 값으로 바꾼다.
   - `statwin.merge` 는 `CharacterState` 를 받는다. 흉내 반영 뒤에도 상태(`p.state_of(cid)`)가 없는 인물의 stat 제안은 만들지 않는다.
-  - `kind = "resolve"` 는 `foreshadows.resolve(p, fid, n)` 로 반영한다. 이미 회수된 복선은 정할 것 6 으로 제안에 오지 않는다.
+  - `kind = "resolve"` 는 AI 회수와 같게 그 복선의 상태 · 회수 화를 바로 고친다(7b). `foreshadows.resolve` 는 스냅샷 사본까지 고치는 작가 동작이라 쓰지 않는다. 이미 회수된 복선은 정할 것 6 으로 제안에 오지 않는다.
 - `validate_delta` 는 없는 인물 · 없는 복선을 가리키는 규칙 제안도 막는다.
 - 단편과 장편 모두 같다.
 
@@ -298,7 +298,7 @@
   - 없는 대상을 가리키는 조건 · 변경: '없는 인물이에요' · '없는 스탯이에요' · '없는 복선이에요'.
   - 빈 목록: '아직 규칙이 없어요. 조건과 효과를 골라 규칙을 만들어 보세요.'
 - 상태 승인 화면:
-  - 규칙 제안은 상태창 · 복선 칸 아래 따로 묶지 않고, 같은 칸에 '규칙' 표시를 달아 둔다. 시작 전에 `docs/design/components/` 의 표시(배지) 컴포넌트를 견줄 것.
+  - (7b 에서 바꿈, 정할 것 18) 규칙 제안은 '그대로 반영할 것'의 '상태 규칙 제안' 갈래 한 곳에 '규칙' 표시(기본 칩 `.chip`)를 달아 둔다.
   - 줄 문구 예: '규칙 「기절」: 주인공 상태 정상 → 기절'.
   - 경고 예: 'AI 제안도 이 스탯을 바꿔요. 규칙 제안이 나중에 적용돼요.'
   - 409 `stale_rules` 문구(정할 것 12, 확인하면 `force_rules` 로 다시 보냄): '고른 항목이 바뀌어 규칙 제안이 달라졌어요. 다시 확인하고 반영하세요.'

@@ -357,3 +357,27 @@ def test_stat_timeline_source_merge():
     assert statwin._merge_source("ai", "rule") == "rule" and statwin._merge_source("rule", "author") == "both"
     assert statwin._merge_source("ai", "author") == "both" and statwin._merge_source("rule", "rule") == "rule"
     assert statwin.SOURCE["rule"] == " (규칙)"
+
+
+def test_parse_state_fills_rule_proposals(client):
+    p = _ready()
+    p.state_rules = [_rule("r1", [], ch_stat("기절"))]
+    store.save("sr", p)
+    got = client.post("/api/projects/sr/episodes/2/state/parse", json={"raw": '{"summary": "요약"}'})
+    assert got.status_code == 200, got.text
+    assert [x["key"] for x in got.json()["rule_proposals"]] == ["r1:stat:hero:상태"]
+
+
+def test_renumber_and_rebuild_move_rule_ranges():
+    p = _project()
+    p.state_rules = [_rule("r1", [Condition(kind="episode", from_ep=2, to_ep=3)])]
+    renumber.move_points(p, renumber.point_insert(2))
+    c = p.state_rules[0].when[0]
+    assert (c.from_ep, c.to_ep) == (3, 4)
+    from canon import pipeline as pl
+    from tests.test_convert import LLM, _short as short_project
+    q = short_project(written=8)
+    q.state_rules = [_rule("r1", [Condition(kind="episode", from_ep=3, to_ep=12)])]
+    pl.apply_rebuild(q, pl.propose_rebuild(LLM, q, 200), at="2026-10-22T00:00:00+00:00")
+    c = q.state_rules[0].when[0]
+    assert (c.from_ep, c.to_ep) == (4, 18)  # since_ep 과 같은 지도 (test_rebuild 의 3 → 4, 12 → 18)

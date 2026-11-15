@@ -150,3 +150,27 @@ def test_rules_page_lists_rules_and_condition_elements():
     empty = _p()
     html = run_js(FILES, "(() => { S.project = data; S.name = 't'; S.causalSel = '_rules'; return viewCausal(); })()", dump(empty))
     assert "아직 규칙이 없어요. 조건과 효과를 골라 규칙을 만들어 보세요." in html
+
+
+@needs_node
+def test_review_has_no_rule_group_without_rules():
+    """켠 규칙이 없는 작품의 상태 승인 화면은 지금과 같다: '상태 규칙 제안' 갈래도 '변경 없음' 줄의 이름도 없다."""
+    from .jsvm import episode
+    p = _p()
+    p.episodes = [episode(1, status="written", text="본문.")]
+    d = StateDelta(episode=1, summary="s")
+    expr = """(() => { S.project = data.p; S.name = 't'; S.route = ['p', 't', 'review', '1']; setDelta(1, data.d); return viewReview(1); })()"""
+    html = run_js(FILES, expr, {"p": dump(p), "d": dump(d)})
+    assert "상태 규칙 제안" not in html
+    p.state_rules = [StateRule(id="r1", name="기절")]
+    html = run_js(FILES, expr, {"p": dump(p), "d": dump(d)})
+    assert "상태 규칙 제안" in html  # 켠 규칙이 있으면 걸린 제안이 없어도 '변경 없음' 에 보인다
+
+
+@needs_node
+def test_history_view_shows_applied_and_dismissed_rule_proposals():
+    h = StateDelta(episode=1, summary="s", rule_proposals=[_prop("a")])
+    h.dismissed.rule_proposals = [_prop("b", after="졸림", rid="r2")]
+    html = run_js(FILES, "(() => { S.project = data.p; S.name = 't'; return historyView(data.h); })()", {"p": dump(_p()), "h": dump(h)})
+    assert "<h2>상태 규칙 제안</h2>" in html and "「기절」: 서윤 상태 정상 → 기절" in html
+    assert "빼 둔 항목 1개" in html and "상태 규칙 제안 · 「기절」: 서윤 상태 정상 → 졸림" in html

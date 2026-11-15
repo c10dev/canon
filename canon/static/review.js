@@ -88,11 +88,16 @@ function refreshPreview(n) {
 }
 
 /** 상태 규칙 제안 줄 (staterules.propose). 체크 키는 'g'+차례, '규칙' 표시를 단다. 미리 보기가 다시 계산하면 ruleRefresh 가 이 줄만 바꾼다 */
-function ruleRows(d) {
+/** 규칙 제안 한 줄 글: '「기절」: 서윤 상태 정상 → 기절' (서버 staterules.describe 와 같은 모양) */
+function ruleWhat(x) {
   const fsOf = (id) => (P().foreshadows.find((f) => f.id === id) || { description: id }).description;
+  const what = x.kind === 'stat' ? `${charName(x.character_id)} ${x.stat} ${x.before || '(없음)'} → ${x.after || '(지움)'}` : `복선 회수 · ${fsOf(x.foreshadow_id)}`;
+  return `「${x.rule_name || x.rule_id}」: ${what}`;
+}
+
+function ruleRows(d) {
   return (d.rule_proposals || []).map((x, i) => {
-    const what = x.kind === 'stat' ? `${charName(x.character_id)} ${x.stat} ${x.before || '(없음)'} → ${x.after || '(지움)'}` : `복선 회수 · ${fsOf(x.foreshadow_id)}`;
-    return `<div class="change"><input type="checkbox" id="pk-g${i}" data-pick="g${i}"${S.picks['g' + i] ? ' checked' : ''}><label for="pk-g${i}" style="font-size:0.8125rem;line-height:1.55"><span class="chip">규칙</span> 「${esc(x.rule_name || x.rule_id)}」: ${esc(what)}${x.warning ? `<span class="small" style="display:block;color:var(--amber-ink, var(--text-2))">${esc(x.warning)}</span>` : ''}</label></div>`;
+    return `<div class="change"><input type="checkbox" id="pk-g${i}" data-pick="g${i}"${S.picks['g' + i] ? ' checked' : ''}><label for="pk-g${i}" style="font-size:0.8125rem;line-height:1.55"><span class="chip">규칙</span> ${esc(ruleWhat(x))}${x.warning ? `<span class="small" style="display:block;color:var(--amber-ink, var(--text-2))">${esc(x.warning)}</span>` : ''}</label></div>`;
   }).join('');
 }
 
@@ -647,9 +652,10 @@ function reviewPanel(n) {
       gist.fs.peek, toolFoot(toolLink('foreshadow', '복선 센터'))],
     ['places', '새로 나온 장소', newPlaces ? `<p class="small">반영하면 인과율에 장소로 등록돼요. 그 뒤로는 이 장소가 나오는 화를 쓸 때 설명이 함께 들어가요.</p>${newPlaces}` : '', keys('l', d.new_places), (d.new_places || []).map((x) => x.name).join(', '), ''],
     ['time', '작품 속 시간', tl, [...keys('k', d.deadlines_added), ...keys('o', d.deadlines_done)], d.time && d.time.day > 0 ? `${d.time.day}일째${d.time.part ? ` ${d.time.part}` : ''}` : '', toolFoot(toolLink('timeline', '작품 속 시간'))],
-    // 상태 규칙 제안: 체크를 바꿀 때마다 미리 보기가 다시 계산해 이 칸을 바꾼다 (ruleRefresh). 반영할 때 서버가 한 번 더 계산한다
-    ['rules', '상태 규칙 제안', (d.rule_proposals || []).length ? `<div id="rule-props">${ruleRows(d)}</div>` : '', keys('g', d.rule_proposals),
-      (d.rule_proposals || []).map((x) => x.rule_name || x.rule_id).join(', '), toolFoot(toolLink('causal/_rules', '상태 규칙'))],
+    // 상태 규칙 제안: 체크를 바꿀 때마다 미리 보기가 다시 계산해 이 칸을 바꾼다 (ruleRefresh). 반영할 때 서버가 한 번 더 계산한다.
+    // 켠 규칙이 없는 작품은 갈래를 두지 않는다 ('변경 없음' 줄에도 넣지 않는다)
+    ...(!(d.rule_proposals || []).length && !(p.state_rules || []).some((r) => r.on) ? [] : [['rules', '상태 규칙 제안', (d.rule_proposals || []).length ? `<div id="rule-props">${ruleRows(d)}</div>` : '', keys('g', d.rule_proposals),
+      (d.rule_proposals || []).map((x) => x.rule_name || x.rule_id).join(', '), toolFoot(toolLink('causal/_rules', '상태 규칙'))]]),
   ];
   const shown = groups.filter(([, , html]) => html.replace(/<[^>]+>/g, '').trim());
   const empty = groups.filter((g) => !shown.includes(g)).map(([, label]) => label);
@@ -832,6 +838,7 @@ function historyView(h) {
       ${(h.new_places || []).length ? `<section class="card"><h2>새로 나온 장소</h2>${li(h.new_places.map(placeLabel))}</section>` : ''}
       ${withFoot(tlHistory(h), toolLink('timeline', '작품 속 시간'))}${withFoot(scHistory(h), cast)}${withFoot(addressHistory(h), cast)}
       ${(h.secrets_added || []).length ? `<section class="card"><h2>새로 생긴 비밀</h2>${li(h.secrets_added.map((x) => `<strong>${esc(charName(x.owner))}</strong> ${esc(x.content)}`))}</section>` : ''}
+      ${(h.rule_proposals || []).length ? `<section class="card"><h2>상태 규칙 제안</h2>${li(h.rule_proposals.map((x) => `<span class="chip">규칙</span> ${esc(ruleWhat(x))}`))}${toolFoot(toolLink('causal/_rules', '상태 규칙'))}</section>` : ''}
       ${(h.relationship_updates || []).length ? `<section class="card"><h2>관계 유형 · 설명 변경</h2>${li(h.relationship_updates.map((r) => `${esc(charName(r.a))} ↔ ${esc(charName(r.b))} · ${esc(r.type)}${r.description ? ` · ${esc(r.description)}` : ''}`))}</section>` : ''}
     </div>${dismissedView(h)}`;
 }
@@ -860,6 +867,7 @@ function dismissedView(h) {
     ...(x.setting_changes || []).map((s) => `설정 바꾸기 · <strong>${esc(charName(s.character_id))}</strong> ${scLabel(s.field)}: ${esc(s.value)}`),
     ...(x.address_changes || []).map((a) => `호칭 · 말씨 · <strong>${esc(charName(a.speaker))} → ${esc(charName(a.listener))}</strong> ${esc([a.calls && `부르는 말 ${a.calls}`, a.speech && `말씨 ${a.speech}`].filter(Boolean).join(' · '))}`),
     ...(x.contacts || []).map((c) => `닿은 사다리 칸 · <strong>${esc(charName(c.a))} ↔ ${esc(charName(c.b))}</strong> ${esc(c.rung)}`),
+    ...(x.rule_proposals || []).map((r) => `상태 규칙 제안 · ${esc(ruleWhat(r))}`),
   ];
   return `<details class="card"><summary>빼 둔 항목 ${n}개</summary><div class="small" style="margin:6px 0">반영하지 않은 항목이에요. 기록으로만 남아요.</div>
     <ul style="padding-left:18px;display:flex;flex-direction:column;gap:6px;font-size:0.8125rem;line-height:1.5">${rows.map((r) => `<li>${r}</li>`).join('')}</ul></details>`;
@@ -975,15 +983,23 @@ Object.assign(actions, {
       const next = ep(n + 1);
       location.hash = forAuto ? `${base()}/auto` : next && ['confirmed', 'draft'].includes(next.status) ? nextStep()[1] : base();
     });
-    await go(edited);
-    if (stale && (await askConfirm(`${stale.message}. 그래도 ${n}화를 마칠까요? 반영하면 반영 취소로만 돌아갈 수 있어요.`, { ok: '마치기' }))) await go(true);
-    if (staleRules) {
-      // 다시 계산한 제안을 화면에 놓고 묻는다. 확인하면 서버가 다시 계산한 제안(체크를 푼 key 는 빼고)을 반영한다
-      if (S.deltas[n] && staleRules.body && staleRules.body.rule_proposals) ruleRefresh(n, staleRules.body.rule_proposals);
-      if (await askConfirm(`${staleRules.message}. 다시 계산한 규칙 제안으로 ${n}화를 마칠까요?`, { ok: '마치기' })) {
-        Object.assign(out, { rule_proposals: S.deltas[n].rule_proposals, rule_off: S.deltas[n].rule_off || [] });
-        await go(edited, true);
-      }
+    // 두 409(본문 stale_delta · 규칙 stale_rules)가 차례로 올 수 있어 하나씩 묻고 다시 보낸다. 둘 다 넘겼으면 더 묻지 않는다
+    let force = edited;
+    let forceRules = false;
+    for (let i = 0; i < 3; i++) {
+      stale = null;
+      staleRules = null;
+      await go(force, forceRules);
+      if (stale) {
+        if (!(await askConfirm(`${stale.message}. 그래도 ${n}화를 마칠까요? 반영하면 반영 취소로만 돌아갈 수 있어요.`, { ok: '마치기' }))) return;
+        force = true;
+      } else if (staleRules) {
+        // 다시 계산한 제안을 화면에 놓고 묻는다. 확인하면 서버가 다시 계산한 제안(체크를 푼 key 는 빼고)을 반영한다
+        if (S.deltas[n] && staleRules.body && staleRules.body.rule_proposals) ruleRefresh(n, staleRules.body.rule_proposals);
+        if (!(await askConfirm(`${staleRules.message}. 다시 계산한 규칙 제안으로 ${n}화를 마칠까요?`, { ok: '마치기' }))) return;
+        if (S.deltas[n]) Object.assign(out, { rule_proposals: S.deltas[n].rule_proposals, rule_off: S.deltas[n].rule_off || [] });
+        forceRules = true;
+      } else return;
     }
   },
   /** 집필 화면 요약 카드의 '추천대로 반영' (write.js gistCard). 상태 승인 화면에서 아무것도 바꾸지 않고 반영하는 것과 같은 요청이다.

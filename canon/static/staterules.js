@@ -193,7 +193,7 @@ document.addEventListener('change', (e) => condChange(e.target));
 
 const SR_PAGE = '_rules';
 const SPEC_KINDS = [['stat', '상태창 값 바꾸기'], ['resolve', '복선 회수']];
-Object.assign(S, { srEdit: null });  // { id: 규칙 id(새 규칙이면 ''), rule: 초안 }
+Object.assign(S, { srEdit: null });  // { name: 작품, id: 규칙 id(새 규칙이면 ''), rule: 초안 }. 다른 작품 · 다른 쪽으로 가면 버린다 (srPage)
 
 function specBlank(p) {
   const st = (p.states || []).find((s) => (s.stats || []).length) || (p.states || [])[0];
@@ -260,6 +260,7 @@ function srRow(r, p) {
 
 /** 인과율 › 상태 규칙 쪽. causal.js 의 viewCausal 이 부른다 */
 function srPage() {
+  if (S.srEdit && S.srEdit.name !== S.name) S.srEdit = null;  // 다른 작품에서 열던 초안을 이 작품에 저장하지 않게
   const p = P();
   const rules = p.state_rules || [];
   const add = S.srEdit ? '' : '<button type="button" class="btn primary" data-action="srNew">+ 규칙 더하기</button>';
@@ -281,14 +282,14 @@ function srTake(rules) {
 
 Object.assign(actions, {
   srNew() {
-    S.srEdit = { id: '', rule: { id: '', name: '', note: '', on: true, when: [], changes: [specBlank(P())] } };
+    S.srEdit = { name: S.name, id: '', rule: { id: '', name: '', note: '', on: true, when: [], changes: [specBlank(P())] } };
     S.focusTarget = '#sr-name';
     render();
   },
   srEdit(id) {
     const r = (P().state_rules || []).find((x) => x.id === id);
     if (!r) return;
-    S.srEdit = { id, rule: structuredClone(r) };
+    S.srEdit = { name: S.name, id, rule: structuredClone(r) };
     S.focusTarget = '#sr-name';
     render();
   },
