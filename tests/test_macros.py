@@ -30,6 +30,7 @@ def test_basic_macros_and_case():
 
 
 def test_left_as_is_with_warnings():
+    assert x("{{getvar::서윤.빈칸}}", _env(stats=[("hero", "서윤", "빈칸", "")])) [1][0].note == "서윤의 상태창 '빈칸' 값이 비어 빈 글을 넣었어요."
     text, uses = x("{{roll::6}} {{chatindex}} {{setvar::a::1}} {{getvar::도현.레벨}} {{getvar::누구.레벨}}")
     assert text == "{{roll::6}} {{chatindex}} {{setvar::a::1}} {{getvar::도현.레벨}} {{getvar::누구.레벨}}"
     notes = [u.note for u in uses]
@@ -78,12 +79,20 @@ def _project() -> Project:
 
 
 def test_prompts_expand_elements_and_notes_without_touching_data():
+    for form in ("short", "serial"):
+        _expand_check(form)
+
+
+def _expand_check(form):
     p = _project()
+    p.meta.form = form
     before = p.model_dump()
     text = prompts.episode_prompt(p, 2)
     assert "도현의 각인은 레벨 7부터 빛난다. 2화" in text and "도현는 밤에 강하다" in text  # 2화 시점 인물 도현
     assert "서윤의 이야기. {{episode}}화" in text  # 메모는 {{user}} 만
-    assert prompts.static_context(p) == prompts.static_context(p) and "{{episode}}화" in prompts.static_context(p)
+    assert "서윤의 이야기. {{episode}}화" in prompts.static_context(p)
+    for raw in (prompts.setup_prompt(p), prompts.setup_chat_prompt(p, "다듬어 줘"), prompts.field_prompt(p, "meta.title")):
+        assert "{{user}}의 이야기" in raw  # 설정을 다루는 요청은 메모 원문 (펼친 글을 되돌려 제안하지 않게)
     assert prompts.episode_brief(p, 2).count("레벨 7부터") == 1  # 작업지시서도 같은 펼친 글
     assert "레벨 7부터" in prompts.passage_head(p, 2)
     assert p.model_dump() == before
@@ -129,11 +138,18 @@ def test_echoes_strip_macros():
 
 
 def test_prompt_view_lists_macros(client):
+    for form in ("short", "serial"):
+        _view_check(client, form)
+
+
+def _view_check(client, form):
     p = _project()
+    p.meta.form = form
     store.save("mc", p)
     rows = client.get("/api/projects/mc/episodes/2/context").json()
     els = next(r for r in rows if r["id"] == "elements")
-    assert {"where": "이야기 요소 '각인' 설명", "raw": "{{getvar::서윤.레벨}}", "value": "7", "note": ""} in els["macros"]
+    assert [(m["raw"], m["value"]) for m in els["macros"]] == [  # 한 번씩만 (보기 기록이 겹치지 않는다)
+        ("{{char}}", "도현"), ("{{getvar::서윤.레벨}}", "7"), ("{{episode}}", "2"), ("{{char}}", "도현")]
     work = next(r for r in rows if r["id"] == "work")
     assert [m["raw"] for m in work["macros"]] == ["{{user}}", "{{episode}}"] and "앞쪽 블록이라" in work["macros"][1]["note"]
     assert json.loads((store.project_dir("mc") / "project.json").read_text(encoding="utf-8"))["elements"][0]["description"].startswith("{{char}}")  # 저장한 글은 그대로

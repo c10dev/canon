@@ -180,11 +180,12 @@ SYSTEM_CHECKER = system_prompt(
 CHECK_TEXT_LIMIT = 150_000
 
 
-def meta_text(p: Project) -> str:
+def meta_text(p: Project, expand: bool = False) -> str:
     """작품 정보와 장르 안내. 장르 id 대신 이름을 넣는다. 이야기 틀(frame)은 넣지 않는다: 틀별 규칙 줄이 생길 때 그 줄이 맡는다.
-    작가 메모(Meta.notes)의 매크로는 화가 바뀌어도 값이 같은 {{user}} 만 펼친다 (앞쪽 블록이라 캐시가 맞게, 05 의 정할 것 11)."""
+    expand 를 켜면(쓰기 가족의 앞쪽 블록 static_parts) 작가 메모(Meta.notes)의 매크로 가운데 화가 바뀌어도 값이 같은 {{user}} 만 펼친다 (05 의 정할 것 11).
+    설정을 다루는 요청(설정 제안 · 설정 대화 · 칸 후보 · 영향 분석 등)은 원문을 받는다. 펼친 글을 AI 가 메모로 되돌려 제안하지 않게 한다 (정할 것 14)."""
     view = p.meta.model_dump(exclude={"genres", "adult", "logline_parts", "tone_dials", "frame"})
-    if macros.has(p.meta.notes):
+    if expand and macros.has(p.meta.notes):
         view["notes"] = macros.expand(p.meta.notes, notes_env(p), NOTES_WHERE)[0]
     view["genre"] = genres.label(p.meta)
     return f"{dump(view)}\n\n[장르 안내]\n{genres.guide(p.meta)}"
@@ -3665,7 +3666,7 @@ def static_parts(p: Project, follow: bool = False, trace: context.Trace | None =
     if trace is not None:
         for c in chars:
             trace.item("characters", c.name or c.id, context.REASON_ALWAYS)
-    parts = [Part("work", f"# 작품 정보\n{meta_text(p)}"),
+    parts = [Part("work", f"# 작품 정보\n{meta_text(p, expand=True)}"),
              Part("world", f"\n\n# 세계관 (깨면 안 되는 규칙 포함)\n{dump(p.world)}"),
              Part("style", f"\n\n{style_block(p)}"),
              Part("characters", f"\n\n# 인물 설정{static_note(p)}\n{dump(cast_view(chars))}")]

@@ -68,6 +68,8 @@ def _getvar(arg: str, env: MacroEnv) -> tuple[str | None, str]:
     hit = next((v for i, _, s, v in env.stats if i == cid and s == stat), None)
     if hit is None:
         return None, f"{name}의 상태창에 '{stat}'이(가) 없어 그대로 보냈어요."
+    if not hit.strip():
+        return "", f"{name}의 상태창 '{stat}' 값이 비어 빈 글을 넣었어요."
     return hit, env.note
 
 

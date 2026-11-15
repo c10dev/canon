@@ -623,7 +623,7 @@
 - `macro_env` 는 매크로를 쓴 이야기 요소 설명이 없으면 None 이라 프롬프트가 지금과 같다. 스냅샷이 없어 지금 값을 쓰면 `getvar` 쓰임에 알림을 단다
 - 쓰기(`context_parts`) · 부분 수정(`passage_head`) · 검수(`active_block`) · 플레이(`_play_elements`)가 n화 값 묶음을 이야기 요소 블록에 넘긴다
 - 기획 프롬프트의 `elements.plan_block` 은 `plan_env`(쓰지 않은 첫 화 기준)를 받는다. 영향 분석 · 탄생 · 명령줄 요소 목록은 원문 그대로다
-- `meta_text` 는 작가 메모의 `{{user}}` 만 펼친다(`notes_env`, 앞쪽 블록이라 캐시가 맞게)
+- `meta_text(p, expand=True)`(쓰기 가족의 앞쪽 '작품 정보' 블록)만 작가 메모의 `{{user}}` 를 펼친다(`notes_env`). 설정을 다루는 요청은 기본값으로 원문을 받는다
 - 쓰기 요청을 조립하며 펼친 매크로는 보기 기록에 '이야기 요소' 블록으로 적는다(`trace.macro`)
 - 본문을 쓰는 시스템 프롬프트(`writer_system` · `reviser_system` · `paragraph_system`)는 작가가 정한 머리말(`PREAMBLE`)로 시작한다
 - 머리말의 `Steady. Your craft handles this.` 줄은 작가가 더했다(2026-11-09). 조건이나 목적절을 붙이지 않는다
