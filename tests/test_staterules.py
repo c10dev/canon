@@ -146,3 +146,17 @@ def test_renumber_moves_condition_ranges():
     assert (c1.from_ep, c1.to_ep, c2.from_ep, c2.to_ep) == (3, 4, 0, 0)
     renumber.move_points(p, renumber.point_remove(1))
     assert (c1.from_ep, c1.to_ep) == (2, 3)
+
+
+def test_rebuild_moves_condition_ranges():
+    """단편 → 장편 재구성도 요소 상태 조건의 화 범위를 새 화 번호로 옮긴다 (reshape, since_ep 과 같은 _remap)."""
+    from canon import pipeline
+    from tests.test_convert import LLM, _short as short_project
+    p = short_project(written=8)
+    el = p.elements[0]
+    el.since_ep = 3
+    el.activation.conditions = [Condition(kind="episode", from_ep=3, to_ep=12), Condition(kind="episode")]
+    prop = pipeline.propose_rebuild(LLM, p, 200)
+    pipeline.apply_rebuild(p, prop, at="2026-10-22T00:00:00+00:00")
+    c1, c2 = p.elements[0].activation.conditions
+    assert (c1.from_ep, c1.to_ep) == (p.elements[0].since_ep, 18) and (c2.from_ep, c2.to_ep) == (0, 0)

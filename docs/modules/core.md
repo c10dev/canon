@@ -865,6 +865,7 @@
 - 재구성은 상태 · 관계와 함께 상태창 · 설정 바꾸기 · 호칭 · 말씨 기록도 1화 전으로 돌린다(`statwin` · `charlog` · `address.revert(p, 0)`)
 - 재구성은 반영 뒤 지금 상태를 고친 기록도 1화 전 것만 남긴다(`stateedit.revert(p, 0)`)
 - 재구성은 설계도의 화 범위도 새 화 지도로 옮긴다(`blueprint.remap`). 옮기지 못한 범위는 비우고 알림에 적는다
+- 재구성은 인과율 요소의 상태 조건 화 범위도 같은 지도로 옮긴다(`renumber.move_conditions`). 옮기지 못하면 그 요소의 알림에 적는다
 - `pipeline.py` 에서 옮긴 구역이다. `pipeline` 맨 끝의 `_attach_split` 이 `EXPORTS` 의 이름을 `pipeline` 에도 둬서 `pipeline.<이름>` 으로 그대로 부른다
 - 다듬기 제안 `propose_rework` 는 작품이 켠 고침 규칙을 늘 건다(kind rework). 바뀐 곳은 `Rework.ruled`(제안 글 안 자리)에 둔다
 - 서버는 제안을 저장하지 않으므로 받아들일 때 화면 · 명령줄이 `ruled` 를 되돌려 보낸다(`accept_rework` 의 다섯째 인자)

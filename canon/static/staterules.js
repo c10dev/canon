@@ -60,6 +60,7 @@ function condMissing(c, p) {
   const has = (id) => (p.characters || []).some((x) => x.id === id);
   if (['stat', 'tie', 'in_plot'].includes(c.kind) && !has(c.character)) return '없는 인물이에요';
   if (c.kind === 'tie' && !has(c.target)) return '없는 인물이에요';
+  if (c.kind === 'tie' && !COND_TIES.some(([k]) => k === c.name)) return '관계 수치를 고르세요';
   if (c.kind === 'stat') {
     const st = (p.states || []).find((s) => s.character_id === c.character);
     if (!st || !(st.stats || []).some((x) => x.name === c.name)) return '없는 스탯이에요';
@@ -147,19 +148,27 @@ Object.assign(actions, {
   },
 });
 
-document.addEventListener('change', (e) => {
-  const t = e.target;
+/** 조건 칸 하나가 바뀌었을 때 (change). 시험이 바로 부른다 */
+function condChange(t) {
   if (!t.dataset || !t.dataset.cond) return;
   const list = condList(t.dataset.cond);
   const c = list && list[Number(t.dataset.condI)];
   if (!c) return;
   const f = t.dataset.condF;
+  if (f === 'kind') {
+    // 종류를 바꾸면 인물만 두고 나머지 칸을 비운다. 앞 종류의 항목 이름 · 값이 남으면 늘 맞지 않는 조건이 된다
+    list[Number(t.dataset.condI)] = { ...condBlank(P()), kind: t.value, character: c.character };
+    markDirty();
+    render();
+    return;
+  }
   c[f] = f === 'from_ep' || f === 'to_ep' ? Math.max(0, parseInt(t.value, 10) || 0) : t.value;
-  if (f === 'kind' && c.kind === 'tie' && c.op === 'has') c.op = 'ge';
   markDirty();
   // 글 칸(값 · 항목 이름)은 다시 그리지 않는다: 다른 칸을 누를 때 change 가 나서 다시 그리면 커서를 잃는다
   if (t.tagName === 'SELECT') render();
-});
+}
+
+document.addEventListener('change', (e) => condChange(e.target));
 
 (function condStyle() {
   const css = `

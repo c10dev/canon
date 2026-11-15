@@ -23,6 +23,7 @@ CONDS = [
     Condition(kind="foreshadow", foreshadow="fs-1", status="resolved"),
     Condition(kind="in_plot", character="ghost"),
     Condition(kind="foreshadow", foreshadow="fs-9"),
+    Condition(kind="tie", character="hero", target="ally", name="", value="0.5"),
 ]
 
 
@@ -41,6 +42,7 @@ def test_cond_summary_and_missing():
         ["복선 「낡은 열쇠가 등대 밑에 있다」 회수됨", ""],
         ["이번 화 플롯에 나옴: ghost", "없는 인물이에요"],
         ["복선 「fs-9」 열림", "없는 복선이에요"],
+        ["서윤 → 도현  0.5 이상", "관계 수치를 고르세요"],
     ]
 
 
@@ -63,3 +65,20 @@ def test_cond_editor_rows_and_add_delete():
     })()"""
     got = run_js(["app.js", "staterules.js"], expr, dump(p))
     assert got == {"rows": 2, "kinds": 2, "dels": 2, "added": ["stat", "stat", "stat"], "left": ["스킬", ""]}
+
+
+@needs_node
+def test_kind_switch_resets_row():
+    """종류를 바꾸면 인물만 남기고 앞 종류의 항목 이름 · 값을 비운다 (늘 맞지 않는 조건이 남지 않게)."""
+    p = _p()
+    p.elements = [StoryElement(id="e1", activation=Activation(conditions=CONDS[:1]))]
+    expr = """(() => {
+      S.project = data;
+      COND_OWNERS.el = (id) => S.project.elements.find((x) => x.id === id).activation.conditions;
+      markDirty = () => {}; render = () => {};
+      const sel = { tagName: 'SELECT', value: 'tie', dataset: { cond: 'el:e1', condI: '0', condF: 'kind' } };
+      condChange(sel);
+      return S.project.elements[0].activation.conditions[0];
+    })()"""
+    got = run_js(["app.js", "staterules.js"], expr, dump(p))
+    assert (got["kind"], got["character"], got["name"], got["value"], got["op"]) == ("tie", "hero", "", "", "ge")
