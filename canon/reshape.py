@@ -3,7 +3,7 @@
 pipeline 이 맨 끝에서 이 모듈을 불러 여기서 정한 이름(EXPORTS)을 pipeline 에도 둔다 (pipeline.<이름> 으로 부르는 코드가 그대로 돈다)."""
 from __future__ import annotations
 
-from . import address, blueprint, charlog, prompts, regexrules, stateedit, statwin, storylines
+from . import address, blueprint, charlog, prompts, regexrules, renumber, stateedit, statwin, storylines
 from .llm import LLM
 from .schema import ArcPlan, Conversion, Episode, EpisodePlot, Project, RebuildEpisode, Rework, RuleChange, RuleRun, SerialRebuild, ShortArchive, TextEdit
 from .pipeline import (  # pipeline 의 공용 도우미
@@ -212,8 +212,11 @@ def apply_rebuild(p: Project, prop: SerialRebuild, at: str = "") -> tuple[Projec
     for el in p.elements:
         moved = {"since_ep": _remap(el.since_ep, mapping), "reveal_ep": _remap(el.reveal_ep, mapping),
                  "episodes": sorted({_remap(n, mapping) for n in el.episodes} - {0})}
+        conds = [(c.from_ep, c.to_ep) for c in el.activation.conditions]
+        renumber.move_conditions(el.activation.conditions, lambda n: _remap(n, mapping))  # 상태 조건의 화 범위도
         lost = (el.since_ep > 0 and not moved["since_ep"]) or (el.reveal_ep > 0 and not moved["reveal_ep"]) \
-            or len(moved["episodes"]) < len(set(el.episodes))
+            or len(moved["episodes"]) < len(set(el.episodes)) \
+            or any((a and not c.from_ep) or (b and not c.to_ep) for (a, b), c in zip(conds, el.activation.conditions))
         for k, v in moved.items():
             setattr(el, k, v)
         el.added_after = 0

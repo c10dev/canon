@@ -476,6 +476,10 @@
 - 인과율
 - 작가가 언제든 더하는 이야기 요소(`StoryElement`)의 관련 화 지도(`links`)
 - 화별로 넣을 요소(`episode_block`)
+- 요소의 상태 조건(`StoryElement.activation.conditions`)이 있으면 조건이 모두 맞을 때만 넣는다(`for_episode`, 판정은 `context.all_hold`, docs/context/specs/07-rules.md)
+- 조건은 n-1화를 반영한 뒤의 상태로 본다(`context.view_before`). 넣기 방식 always 도 조건이 문이고, off 는 조건이 맞아도 넣지 않는다
+- `for_episode(gate=False)` 는 조건을 보지 않는다. 관련 말 고르기(`context.query_terms`)가 쓴다
+- 상태 조건은 영향 분석 지문(`basis`)에 넣지 않는다
 - 시점 설명
 - 본문 · 플롯에서 처음 나온 장소(`NewPlace`)를 '장소' 요소로 등록(`clean_places`, `add_places`, 반영 취소 `unregister_places`, 플롯 후보 `place_candidates`)
 - 장편은 그런 장소를 예산(`context.BUDGET["places"]`)까지만
@@ -699,6 +703,7 @@
 - 새 화 AI 초안은 `draft_episode`(`prompts.episode_plot_prompt`)
 - 본문이 있거나 반영한 마지막 화 지우기는 `delete_last`(반영 취소 → 본문 비우기 → 화 빼기, 웹은 `before-delete-<화>.json` 백업)
 - 화 번호를 품은 칸을 새로 만들면 `move_points` 에도 넣는다
+- 인과율 요소의 상태 조건 화 범위(`Condition.from_ep` · `to_ep`)도 옮긴다(`move_conditions`, 0 은 그대로)
 - 이 작품의 문체로 고른 화 번호도 옮긴다(`anchor.move`)
 - 설계도의 화 범위도 옮긴다(`blueprint.move`, 알림 '설계도 줄 n개')
 - 완급 계획(단편 `Project.heat` · 장편 `StoryArc.heat`)의 화 번호와 뒤집힘의 심은 화 · 들킨 화도 옮긴다(`move_heat`, 알림 '완급 계획 줄 n개')
@@ -988,6 +993,8 @@
 - 모든 요소 카드 머리의 '빈 다른 이름 제안'은 작업 `aliases`(대상 `e:`)를 띄우고 결과 카드(`aliasCard('e:')`)를 그 아래에 둔다
 - 요소 내용 카드의 '다른 이름 제안'(고치는 중)은 대상 `e:<요소 id>` 다. 받은 카드는 읽기 · 고치기 모두에서 보인다
 - 요소 하나(`causalDetail`): 요소 내용 읽기 카드 `causalInfoCard`(고치기 `S.causalEdit`) → 관련 화 `causalLinksCard` → 영향 분석 `causalImpact`
+- 요소 내용 카드의 '넣는 조건': 읽기는 조건이 있을 때만 요약 줄(`condListHtml`), 고치기는 넣기 방식이 '넣지 않음'이 아닐 때 조건 칸(`condEditor('el:<요소 id>')`)
+- 요소의 조건 목록은 `elConds` 가 없으면 만든다. 조건 칸 주인 `COND_OWNERS.el` 을 등록한다(`static/staterules.js`)
 - 관련 화는 30화씩 칸 줄(`CZ_CHUNK`)과 나눔 버튼 `S.causalLinkTab` 으로 거른 줄 목록
 - 640px 이하는 칸 줄이 한 줄 10화다(`czChunk`). 칸은 버튼이고 화 번호 · 표시를 `aria-label` 로 읽는다. 손가락 기기 · 640px 이하에서 높이 32px
 - 칸 · 줄을 누르면(`causalCell`) 영향 분석의 그 화 칸으로, 없으면 그 화로 간다
@@ -1128,6 +1135,18 @@
 - 옛 설정 대화의 패널 · 보내기 · 변경안 카드 · 적용 · 방향 여러 안은 04e 에서 지웠다
 - 칸 이름(`SETUP_KEYS`, `SETUP_CHAR_LABEL`)과 부분 id 는 `setupchat.KEY_LABELS` · `CHAR_LABELS` · `part_ids` 와 같다
 
+### `canon/static/staterules.js`
+
+- 상태 조건 고치기 칸(docs/context/specs/07-rules.md). 판정은 서버 `context.holds` 한 곳이고 이 파일은 고치기와 보이기만 맡는다
+- 조건 한 줄은 서버 `schema.Condition` 과 같은 모양이다(`condBlank`)
+- 조건 종류 · 견주기 · 관계 수치 · 복선 상태 이름은 `COND_KINDS` · `COND_OPS` · `COND_TIES` · `COND_STATUS`
+- 요약 `condSummary`('서윤 마력 0 이하')와 없는 대상 경고 `condMissing`('없는 인물이에요' · '없는 스탯이에요' · '없는 복선이에요')는 순수 함수(`tests/test_staterules_js.py`)
+- 고치기 칸 `condEditor(주인, 조건 목록, 작품)`: 줄마다 종류에 맞는 칸과 지우기(`condDel`), 아래 '조건 더하기'(`condAdd`)
+- 조건 목록을 가진 화면은 `COND_OWNERS` 에 '주인 종류 → (id) => 목록' 을 등록한다. 지금은 인과율 요소(`el`, `causal.js`)
+- 고르기 칸을 바꾸면 다시 그리고, 글 칸(항목 이름 · 값)은 다시 그리지 않는다
+- 7b 의 상태 규칙 탭도 이 칸을 쓴다
+- CSS 는 JS 에서 주입
+
 ### `canon/static/statwin.js`
 
 - 상태창 수치 화면(공용 목차 틀 `outline.js`)
@@ -1190,6 +1209,7 @@
 - 상태창 수치
 - 인물의 수치(`CharacterState.stats`)가 하나라도 있으면 켜짐
 - 바뀐 항목만 합치기(`merge`, `+3` · 단위 붙은 돈 `+300` · 한도 붙은 수 `4.3/60L` + `-0.7` · 목록 `+독 내성` / `-은신` 계산은 `resolve`)
+- 값을 수로 읽기(`number`: `resolve` 와 같은 규칙, 단위 · 쉼표를 떼고 `80/100` 은 앞 수). 상태 조건 판정(`context.holds`)이 쓴다
 - 기록(`Project.stat_log`, 목록은 더한 것 · 뺀 것 `diff`)
 - 작가 수정(`set_stats`)
 - 화별 비교표

@@ -246,6 +246,7 @@ function causalInfoCard(el) {
         <dt>관련 인물</dt><dd>${el.characters.length ? esc(el.characters.map(charName).join(', ')) : none}</dd>
         <dt>다른 이름</dt><dd>${el.aliases.length ? esc(el.aliases.join(', ')) : none}${aliasCard('e:' + el.id)}</dd>
         <dt>AI에 넣기</dt><dd>${esc((EL_CTX.find(([k]) => k === el.context) || EL_CTX[0])[1])}${el.context === 'auto' ? '<div class="small">그 화에 관련 인물이 나오거나, 플롯에 이름이 있거나, 나올 화일 때만 넣어요.</div>' : ''}</dd>
+        ${elCondsNow(el).length ? `<dt>넣는 조건</dt><dd>${condListHtml(elCondsNow(el), P())}<div class="small">조건이 모두 맞는 화에만 넣어요.</div></dd>` : ''}
       </dl></section>`;
   }
   const i = causalIndex(el.id);
@@ -274,8 +275,19 @@ function causalInfoCard(el) {
     </div>
     <div class="field"><span class="label">본문을 쓸 때 AI에 넣기</span><div class="seg" role="group" aria-label="AI에 넣기">${EL_CTX.map(([k, l]) => `<button type="button" aria-pressed="${el.context === k}" data-action="causalContext" data-arg="${k}">${l}</button>`).join('')}</div>
       <span class="small">관련 있을 때: 그 화에 관련 인물이 나오거나, 플롯에 이름이 있거나, 나올 화일 때만 넣어요.</span></div>
+    ${el.context === 'off' ? '' : `<div class="field"><span class="label">넣는 조건 <span class="hint">모두 맞는 화에만 넣어요. 앞 화를 반영한 뒤의 값으로 봐요</span></span>${condEditor('el:' + el.id, elConds(el), P())}</div>`}
     <p class="small">고친 내용은 화면 아래 저장 띠로 저장해요.</p></section>`;
 }
+
+/** 요소의 상태 조건 목록(activation.conditions). 옛 작품 · 새 요소에 칸이 없으면 만든다 */
+function elConds(el) {
+  if (!el.activation) el.activation = { conditions: [] };
+  if (!el.activation.conditions) el.activation.conditions = [];
+  return el.activation.conditions;
+}
+/** 읽기만 할 때: 칸을 만들지 않는다 */
+const elCondsNow = (el) => (el.activation && el.activation.conditions) || [];
+if (typeof COND_OWNERS !== 'undefined') COND_OWNERS.el = (id) => { const el = causalEl(id); return el ? elConds(el) : null; };  // staterules.js 를 읽지 않은 node 시험도 돈다
 
 function causalLinksCard(el) {
   const total = Math.max(P().meta.target_episodes, ...P().episodes.map((e) => e.plot.number), 1);
@@ -483,7 +495,7 @@ Object.assign(actions, {
   },
   causalNew() {
     const id = newElementId();
-    P().elements.push({ id, kind: '기타', name: '', aliases: [], description: '', characters: [], since_ep: 0, episodes: [], reveal_ep: 0, context: 'auto', created_at: '', added_after: 0, impact: null });
+    P().elements.push({ id, kind: '기타', name: '', aliases: [], description: '', characters: [], since_ep: 0, episodes: [], reveal_ep: 0, context: 'auto', created_at: '', added_after: 0, impact: null, activation: { conditions: [] } });
     S.causalEdit = id;
     // 바로 저장하지 않는다 (줄기 추가와 같다). 아무것도 적지 않고 떠나면 버릴지 물어 빈 요소가 쌓이지 않는다
     markDirty();

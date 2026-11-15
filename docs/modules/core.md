@@ -194,6 +194,11 @@
 - `facts_learned` 에 인과율 `apply_impact` 로 넣은 사실은 없다(반영 기록을 남기지 않음). 설정 단계 · 직접 적은 사실도 없다
 - 비슷한 확정 사실(`near_fact`): 새 사실의 한글 3글자 조각 가운데 `FACT_NEAR`(0.5) 이상이 한 옛 사실과 겹치면 그 옛 사실. 조각이 `FACT_NEAR_MIN`(3)보다 적으면 보지 않는다
 - 기획 프롬프트 인물(`planning_cast`)
+- 상태 조건 판정 `holds(p, n, cond, view)`: 상태창 값 · 관계 수치(읽기만, `dynamics.find_tie`) · 화 범위 · 복선 상태 · 이번 화 플롯 등장(docs/context/specs/07-rules.md)
+- 없는 인물 · 스탯 · 관계 · 복선을 가리키는 조건은 맞지 않는다. 판정은 데이터를 바꾸지 않는다
+- 상태창 값은 둘 다 수로 읽히면(`statwin.number`) 수로, 아니면 같음 · 다름만 글로 견준다. `has` 는 목록 항목 이름(등급 무시)
+- 읽을 상태 `CondView`: `view_before(p, n)` 은 n-1화를 반영한 뒤(더 뒤까지 반영했으면 n-1화 스냅샷, 없으면 지금 값과 `note`), `view_now(p)` 는 지금 값
+- 조건 모두 `all_hold`(빈 목록은 참). 상태 조건 판정은 단편도 쓴다(이야기 요소 넣기, `elements.for_episode`)
 - 인물 이름(`names_of`: 세 글자 이름은 성을 뗀 이름도, `metrics.name_forms`)
 - 이름으로 켜는 인물(`named_ids` · `name_pattern`, 남은 예산 `fit_named`) · 마지막으로 나온 화(`last_seen`)
 - `name_pattern` 은 인물 다른 이름(`Character.aliases`)의 두 글자 이상 말을 이름과 같은 꼴(앞 경계, 성 떼기 없음)로 더한다. `names_of` 는 다른 이름을 보지 않는다
@@ -201,7 +206,7 @@
 - 단락 색인은 `passage_index` 로 만든다. 넣을 화와 본문이 같으면 최근 `INDEX_KEEP` 개 가운데 만든 것을 다시 써서, 검수와 검수 넓히기가 색인을 한 번만 만든다
 - 진술과 겹치는 줄 · 사실(`related_lines` · `related_facts`, 셈이 있는 진술은 셈이 있는 줄을 앞세움 `has_count`)
 - LLM 호출 없음
-- 단편 경로는 쓰지 않는다
+- 예산 고르기는 단편 경로가 쓰지 않는다(상태 조건 판정은 단편도 쓴다)
 
 ### `canon/coord.py`
 
@@ -863,6 +868,7 @@
 - 재구성은 상태 · 관계와 함께 상태창 · 설정 바꾸기 · 호칭 · 말씨 기록도 1화 전으로 돌린다(`statwin` · `charlog` · `address.revert(p, 0)`)
 - 재구성은 반영 뒤 지금 상태를 고친 기록도 1화 전 것만 남긴다(`stateedit.revert(p, 0)`)
 - 재구성은 설계도의 화 범위도 새 화 지도로 옮긴다(`blueprint.remap`). 옮기지 못한 범위는 비우고 알림에 적는다
+- 재구성은 인과율 요소의 상태 조건 화 범위도 같은 지도로 옮긴다(`renumber.move_conditions`). 옮기지 못하면 그 요소의 알림에 적는다
 - `pipeline.py` 에서 옮긴 구역이다. `pipeline` 맨 끝의 `_attach_split` 이 `EXPORTS` 의 이름을 `pipeline` 에도 둬서 `pipeline.<이름>` 으로 그대로 부른다
 - 다듬기 제안 `propose_rework` 는 작품이 켠 고침 규칙을 늘 건다(kind rework). 바뀐 곳은 `Rework.ruled`(제안 글 안 자리)에 둔다
 - 서버는 제안을 저장하지 않으므로 받아들일 때 화면 · 명령줄이 `ruled` 를 되돌려 보낸다(`accept_rework` 의 다섯째 인자)
@@ -909,6 +915,7 @@
 - 지울 칸에 값이 함께 오면 검증(`_blank_cleared`)이 그 칸을 비워 차림 · 이동 거리 경고가 새 값으로 보지 않는다
 - 화면 밖 근황(`CharacterState.offscreen` · `offscreen_ep`)은 AI 응답 형식(`SkipJsonSchema`)과 프롬프트 직렬화에서 빠진다. 비었으면 저장하지도 않는다
 - 인물 프롬프트 넣기를 고르는 규칙은 `context.core_ids` · `off_ids` · `without_off`(모두 auto 면 예전 규칙과 같다)
+- 상태 조건 `Condition`(kind · 납작한 칸, dict 없음)과 묶음 `Activation`(조건 목록만)은 작가가 적는다. `StoryElement.activation` 은 `SkipJsonSchema` 이고 기본값이 빈 목록이라 옛 작품이 읽힌다
 - 상태 변경안의 본문 지문(`StateDelta.basis`)도 프로그램이 채워 AI 응답 형식에서 빠진다(`SkipJsonSchema`). 비면 모름
 - 비슷한 새 사실 표시(`StateDelta.fact_near`, `FactNear`: 새 사실 · 옛 사실)도 프로그램 칸이다(`SkipJsonSchema`, `features._near_facts`)
 - 상태 변경안의 AI 응답 형식은 `StateDeltaAI` 다(`extract_state` · `play.settle` · `state_brief`). 관계 바뀜 `RelationshipChange` 와 사건 `AIStoryEvent` 에 관계 수치 · 보는 방식 · 가 닿을 곳 · 화 번호 · 수동보정 칸이 없다

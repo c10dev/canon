@@ -68,6 +68,16 @@ def _amount(text: str):
     return m.group(1), m.group(2), float(m.group(3).replace(",", "")), m.group(4), m.group(5), "," in m.group(3)
 
 
+def number(text: str) -> float | None:
+    """값을 수로 읽는다. resolve 와 같은 규칙: 단위 · 자릿수 쉼표를 떼고('1,200골드' → 1200), '80/100' 은 앞 수. 수가 아니면 None.
+    상태 조건(context.holds)이 견줄 때 쓴다."""
+    a = _amount(text)
+    if a:
+        return a[2]
+    f = _FRACTION.match(text.strip())
+    return float(f.group(1).replace(",", "")) if f else None
+
+
 def items(text: str) -> list[str]:
     """목록 항목 값을 나눈다. '화염구 Lv3, 은신' → ['화염구 Lv3', '은신']."""
     return [x for x in _SPLIT.split(text.strip()) if x]
