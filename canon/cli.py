@@ -106,22 +106,30 @@ def confirm(question: str, assume_yes: bool) -> bool:
     return input(f"{question} [y/N]: ").strip().lower() in ("y", "yes", "ㅛ")
 
 
-def ask_logline(genre_ids: list[str]) -> LoglineParts:
-    """로그라인을 다섯 칸으로 묻는다. 고른 장르의 예시를 먼저 보여 준다."""
+def ask_logline(genre_ids: list[str], frame: str = "drama") -> LoglineParts:
+    """로그라인을 칸으로 묻는다. 고른 장르의 예시를 먼저 보여 준다.
+    웹소설 틀은 주인공만 가진 것 · 독자가 받는 재미를 묻고 막는 것 · 걸린 것은 선택으로 묻는다 (docs/webnovel/specs/03-logline.md)."""
+    web = frame == "webnovel"
+    shown = logline.SLOTS["webnovel" if web else "drama"][0]
     examples = [ex for gid in genre_ids if gid in genres.BY_ID for ex in genres.BY_ID[gid].logline][:2]
     print("\n로그라인을 다섯 칸으로 나눠 써요. 모르는 칸은 비워 두세요.")
     for ex in examples:
-        print(f"  예: {logline.compose(ex)}")
+        print(f"  예: {logline.compose(LoglineParts(**{k: getattr(ex, k) for k in shown}), frame)}")
     parts = LoglineParts(
         who=ask("누가 (이름보다 특징이 먼저 보이게, 예: 사진관을 하는 채은)"),
         why=ask("무엇 때문에 (이야기를 시작하게 만드는 일)"),
         goal=ask("무엇을 하려 하나 (눈에 보이는 행동, '~한다'로 끝내기)"),
-        block=ask("무엇이 막나 (사람이나 힘)"),
-        stake=ask("무엇이 걸렸나 (선택)"),
     )
-    if not logline.is_empty(parts):
-        print(f"\n로그라인: {logline.compose(parts)}")
-        for ok, label in logline.checks(parts):
+    if web:
+        parts.edge = ask("주인공만 가진 것 (회귀 지식, 혼자만 보이는 상태창처럼)")
+        parts.appeal = ask("독자가 받는 재미 (사이다, 성장, 하렘처럼)")
+        parts.block = ask("무엇이 막나 (선택)")
+    else:
+        parts.block = ask("무엇이 막나 (사람이나 힘)")
+    parts.stake = ask("무엇이 걸렸나 (선택)")
+    if not logline.is_empty(parts, frame):
+        print(f"\n로그라인: {logline.compose(parts, frame)}")
+        for ok, label in logline.checks(parts, frame):
             print(f"  {'✓' if ok else '·'} {label}")
     return parts
 
@@ -138,8 +146,8 @@ def cmd_new(a: argparse.Namespace) -> None:
     if a.logline:
         line = a.logline
     elif a.interactive:
-        parts = ask_logline(genre_ids)
-        line = logline.compose(parts)
+        parts = ask_logline(genre_ids, a.frame or "drama")
+        line = logline.compose(parts, a.frame or "drama")
     else:
         line = ask("로그라인 (누가, 무엇 때문에, 무엇을 하려 하고, 무엇이 막는가)")
     meta = Meta(

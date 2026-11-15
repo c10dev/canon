@@ -279,7 +279,7 @@
 - 작품 목록(작품 밖 사이드바 옆, `tests/test_projects_js.py`)
   - 새 작품 칸 `newProjectForm`(주소 `#/new` 면 펴고 제목 칸으로)
   - 이야기 틀 고르기 `frameField`(`Meta.frame`, 이름표 `FRAMES` 는 `schema.FRAMES` 와 같다): 설정 화면 기본 정보와 설정 마법사 '제목 · 장르' 단계에 둔다(홈의 새 작품 칸에는 없다). 장르가 권하는 틀(`frameHint`, `genres.frame_hint` 와 같다)이 지금 값과 다르면 '장르에 맞춰 추천' 칩을 단다
-  - 이야기 틀 설명 풍선 `FRAME_WHY` 는 장편의 부와 아크 기획만 이 값을 따르고 화별 플롯은 아직이라고 밝힌다
+  - 이야기 틀 설명 풍선 `FRAME_WHY` 는 로그라인 칸과 장편의 부와 아크 기획만 이 값을 따르고 화별 플롯은 아직이라고 밝힌다
   - `setFrame` 은 값을 바꾸고 `markDirty` 만 한다. 저장은 다른 설정 칸처럼 저장 버튼이 한다. 장르를 바꾸면 `syncGenre` 가 이 칸도 다시 그린다
   - 이어 쓰기 카드 `plHeroCard`(고를 작품 `plHero`, 확인할 것 줄 `plAlertHref`)
   - 모든 작품 한 줄 목록: 찾기 · 거르기(확인할 것 포함) · 정렬과 갈래 · 플레이 묶기 `plRows`
@@ -702,6 +702,8 @@
   - 인물 · 관계는 한 줄 목록에서 하나만 편다
   - 관계 카드의 '여정' 줄 `relJourney`: 설계도의 그 쌍 이정표 · 사다리 칸 수와 설계도 쪽 링크(`blueprint.js`)
   - 이야기 뼈대만: 로그라인 · 관계 · 이름 후보
+  - 로그라인 칸은 이야기 틀을 따른다(`LOGLINE_FRAME_SLOTS`, `logline.SLOTS` 와 같다). 웹소설 틀은 새 칸 둘을 보이고 막는 것 · 걸린 것을 '더 쓰기'에 접는다
+  - 이야기 틀을 바꾸면 `loglineFrameChanged` 가 칸 값은 두고 칸으로 합친 문장만 새 틀로 다시 합친다. 예시 채우기는 그 틀의 보이는 칸만 바꾼다
   - 인물 상세는 `cast.js` 인물 카드
   - 인물 줄의 '더 자세히'에 압력 칸(`pressure`)이 있다. 안내 문장 대신 칸 안 예시 글(placeholder)만 둔다
   - 상태창 처음 수치는 `statwin.js` 로 가는 링크 `setupStatLink`

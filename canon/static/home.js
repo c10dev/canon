@@ -810,7 +810,7 @@ function genrePicker() {
 
 // 이야기 틀 (Meta.frame, schema.FRAMES). 장르가 권하는 틀에는 추천 칩만 단다 (genres.frame_hint). 값은 작가가 고른다
 const FRAMES = [['drama', '드라마식'], ['webnovel', '웹소설식']];
-const FRAME_WHY = '드라마식은 갈등이 커지며 끌고 가는 틀이에요. 웹소설식은 막히는 구간을 짧게 두고 보상을 자주 주는 틀이에요. 장편의 부와 아크 기획은 이 값을 따라요. 화별 플롯은 아직 따르지 않아요.';
+const FRAME_WHY = '드라마식은 갈등이 커지며 끌고 가는 틀이에요. 웹소설식은 막히는 구간을 짧게 두고 보상을 자주 주는 틀이에요. 로그라인 칸, 장편의 부와 아크 기획은 이 값을 따라요. 화별 플롯은 아직 따르지 않아요.';
 const frameHint = (m) => ((m.genres || []).some((id) => (genreById(id) || {}).frame === 'webnovel') ? 'webnovel' : '');
 
 /** 이야기 틀 고르기. 설정 화면 기본 정보와 설정 마법사의 '제목 · 장르' 단계에 둔다 (새 작품 칸에는 없다) */
@@ -830,8 +830,10 @@ function adultCheck(attrs) {
 Object.assign(actions, {
   /** 이야기 틀 고르기 (Meta.frame). 다른 설정 칸처럼 저장 버튼으로 저장한다 */
   setFrame(k) {
-    if ((P().meta.frame || 'drama') === k) return;
+    const prev = P().meta.frame || 'drama';
+    if (prev === k) return;
     P().meta.frame = k;
+    if (typeof loglineFrameChanged === 'function') loglineFrameChanged(prev);  // 로그라인 칸이 틀을 따른다 (setup.js)
     markDirty();
     const box = $('#frame-field');
     if (box) box.outerHTML = frameField();

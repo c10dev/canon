@@ -1,5 +1,5 @@
 """부 · 아크 기획의 이야기 틀 (docs/webnovel/specs/04-arc-frame.md): 틀별 응답 형식, 빈 칸이 새지 않음, 얻는 성장 · 공략 대상 칸 (mock LLM).
-틀별 요청 글은 tests/test_frame.py 의 test_frame_changes_only_arc_planning 과 tests/test_prompt_registry.py 스냅샷이 본다.
+틀별 요청 글은 tests/test_frame.py 의 test_frame_changes_only_logline_and_arc_planning 과 tests/test_prompt_registry.py 스냅샷이 본다.
 실행: python -m pytest tests/test_arc_frame.py"""
 import json
 

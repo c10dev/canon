@@ -12,6 +12,8 @@ const IDEA_FIELDS = {
   'meta.logline_parts.who': '누가',
   'meta.logline_parts.why': '무엇 때문에',
   'meta.logline_parts.goal': '무엇을 하려 하나',
+  'meta.logline_parts.edge': '주인공만 가진 것',
+  'meta.logline_parts.appeal': '독자가 받는 재미',
   'meta.logline_parts.block': '무엇이 막나',
   'meta.logline_parts.stake': '무엇이 걸렸나',
   'world.setting': '배경',
@@ -108,7 +110,7 @@ Object.assign(actions, {
     // 작가가 쓴 글은 묻고 바꾼다 (setup.js fillSlot 과 같다). 비었거나 이 후보와 같으면 바로 넣는다. 목록 칸은 한 줄 더하기라 묻지 않는다
     if (now && now !== o.text.trim() && !(await askConfirm(`칸에 쓴 글을 이 후보로 바꿀까요?\n지금: ${now}\n후보: ${o.text}`, { ok: '바꾸기' }))) return;
     const slot = path.startsWith('meta.logline_parts.');
-    const prev = slot ? composeLogline(P().meta.logline_parts) : '';
+    const prev = slot ? loglineNow() : '';
     if (list) {  // 목록 칸은 한 줄 더하기 (이미 있으면 그대로)
       const cur = (getPath(P(), path) || []).filter((x) => String(x).trim());
       setPath(P(), path, cur.includes(o.text) ? cur : [...cur, o.text]);
