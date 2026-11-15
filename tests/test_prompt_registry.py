@@ -82,6 +82,30 @@ def _requests(p) -> dict[str, str]:
     return out
 
 
+def _arc_requests(p) -> dict[str, str]:
+    """작업지시서 갈래 밖의 아크 기획 요청 (docs/webnovel/specs/04-arc-frame.md 가 틀별로 가른 곳과 아크를 덤프하는 곳).
+    장편은 플롯 대화(고를 아크 · 다음 아크 · 초안이 있는 다음 아크) · 아크 요약 · 영향 분석, 단편은 장편 전환 · 재구성."""
+    from canon.mock import MockLLM
+    from canon.schema import ChatScope
+
+    if not p.serial:
+        return {"convert": prompts.convert_prompt(p, 60, "", ""), "rebuild": prompts.rebuild_prompt(p, 60, 20, "", "")}
+    draft = pipeline.plan_next_arc(MockLLM(), p)
+    return {"plot_chat:arc": prompts.plot_chat_prompt(p, "갈등을 바꿔 줘", ChatScope(target="arc:1")),
+            "plot_chat:next": prompts.plot_chat_prompt(p, "다음 아크", ChatScope(target="next", draft=draft)),
+            "recap": prompts.recap_prompt(p, "arc", 1), "impact": prompts.impact_structure(p)}
+
+
+FRAME_KEYS = ("brief:agent_plot", "brief:arc", "brief:series", "plot_chat:arc", "plot_chat:next", "convert")  # 이야기 틀이 바꾸는 요청
+
+
+def _web(make):
+    """웹소설 틀 · 하렘 요소를 고른 같은 작품."""
+    p = make()
+    p.meta.frame, p.meta.genres = "webnovel", [*p.meta.genres, "harem"]
+    return p
+
+
 def _systems() -> dict[str, str]:
     return {k: getattr(prompts, k) for k in sorted(dir(prompts)) if k.startswith("SYSTEM_") and isinstance(getattr(prompts, k), str)}
 
@@ -90,6 +114,11 @@ def _all() -> dict[str, str]:
     out = {f"sys:{k}": v for k, v in _systems().items()}
     out.update({f"short:{k}": v for k, v in _requests(_short()).items()})
     out.update({f"long:{k}": v for k, v in _requests(_long()).items()})
+    for tag, make in (("short", _short), ("long", _long)):
+        out.update({f"{tag}:{k}": v for k, v in _arc_requests(make()).items()})
+        p = _web(make)
+        web = {**_requests(p), **_arc_requests(p)}
+        out.update({f"{tag}_web:{k}": web[k] for k in FRAME_KEYS if k in web and (k == "convert") == (tag == "short")})
     return out
 
 

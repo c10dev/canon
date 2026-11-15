@@ -55,7 +55,7 @@ const PLOT_FIELDS = [
   ['storyline', '이야기 줄기'], ['threads', '끼어드는 줄기'], ['pov', '시점 인물'], ['pov_mode', '서술 방식'],
 ];
 const ACT_FIELDS = [['goal', '구간 목표'], ['key_turn', '전환점'], ['pov', '서술 시점']];
-const ARC_FIELDS = [['title', '제목'], ['goal', '아크 목표'], ['conflict', '갈등'], ['payoff', '보상 (사이다)'], ['cast', '주요 인물'], ['payoffs', '회수할 복선'], ['pov', '서술 시점']];
+const ARC_FIELDS = [['title', '제목'], ['goal', '아크 목표'], ['conflict', '갈등'], ['payoff', '보상 (사이다)'], ['cast', '주요 인물'], ['payoffs', '회수할 복선'], ['pov', '서술 시점'], ['gain', '얻는 성장'], ['focus', '공략 대상']];
 const PART_FIELDS = [['title', '제목'], ['goal', '부 목표'], ['key_turn', '전환점'], ['arc_ideas', '아크 후보']];
 const clone = (x) => JSON.parse(JSON.stringify(x));
 const LOCKED_STATUS = ['written', 'finalized'];
@@ -200,6 +200,7 @@ function chatTopicName(topic) {
 
 function fieldText(key, v) {
   if (key === 'storyline') return v ? lineName(v) : '메인';
+  if (key === 'focus') return v ? charName(v) : '';
   if (!Array.isArray(v)) return String(v ?? '');
   return (key === 'characters' || key === 'cast' ? v.map(charName) : key === 'threads' ? v.map(lineName) : v).join(', ');
 }

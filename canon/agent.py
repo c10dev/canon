@@ -25,6 +25,7 @@ from . import cancel, context, jobs, pipeline, prompts, regexrules, renumber, st
 from . import agent_regex, agent_setup, agent_style, agent_text
 from .llm import LLM, dump, out_cap, wait_cap
 from .logline import josa
+from .schema import framed, frame_of
 from .schema import (AgentAsk, AgentSession, AgentTurn, Approval, AskCard, ChatScope, PlotAgentStep, PlotRevision, Project, RenumberOp,
                      StepRecord, TextMaterial, WriteItem, WriteRecord)
 
@@ -629,8 +630,8 @@ def _fill(llm: LLM, system: str, prompt: str, step: PlotAgentStep, hint: dict, t
         a = llm.json(system, prompt + FILL_NOTE.format(tool=tool, thought=step.thought.strip(), what=FILL_WHAT["ask"]), AgentAsk,
                      hint={**hint, "fill": "ask"})
         return step.model_copy(update={"question": a.question, "options": a.options, "reply": step.reply or a.reply})
-    if tool == "edit_plot":
-        rev = llm.json(system, prompt + FILL_NOTE.format(tool=tool, thought=step.thought.strip(), what=FILL_WHAT["edit_plot"]), PlotRevision,
+    if tool == "edit_plot":  # 변경안 형식은 단계 형식과 같은 틀별 판 (prompts.arc_schema)
+        rev = llm.json(system, prompt + FILL_NOTE.format(tool=tool, thought=step.thought.strip(), what=FILL_WHAT["edit_plot"]), framed(PlotRevision, *frame_of(type(step))),
                        hint={**hint, "fill": "edit"})
         if rev.options and empty_edit(rev.model_copy(update={"options": []})):
             return step.model_copy(update={"tool": "ask", "question": rev.reply.strip() or "어느 방향으로 갈까요?", "options": rev.options[:4],
@@ -745,7 +746,7 @@ def run_turn(llm: LLM, name: str, sid: str, t: int, job=None) -> dict:
                     "steps": [x.kind for x in turn.steps], "tools": [x.tool for x in turn.steps]}
             prompt = prompts.agent_plot_prompt(p, s, turn, scope, MAX_STEPS - i)
             with wait_cap(step_wait(llm)), out_cap(STEP_OUT_TOKENS):
-                step = llm.json(prompts.SYSTEM_AGENT_PLOT, prompt, PlotAgentStep, hint=hint)
+                step = llm.json(prompts.SYSTEM_AGENT_PLOT, prompt, prompts.arc_schema(p, PlotAgentStep), hint=hint)
                 step = fill(llm, prompts.SYSTEM_AGENT_PLOT, prompt, step, hint)
         prepared = None
         if (card := CARD_TOOLS.get(step.tool.strip())) is not None:

@@ -52,6 +52,7 @@
 - 그 옛 대화 셋의 보내기(`web.py` `chat_send` 의 `setup` · `style` · `text:N`)는 04e 에서 지웠다. 새 말은 이 에이전트의 도구가 받는다
 - 옛 기록의 적용 취소(`chat/setup/{i}/undo` · `chat/style/{i}/undo`)와 본문 되돌리기(수정 기록)는 그대로 쓴다
 - 턴(`AgentTurn`)을 백그라운드 작업 `agent` 로 돌린다(`run_turn`, 단계마다 `llm.json(PlotAgentStep)`, 최대 `MAX_STEPS`=8, 단계마다 저장)
+- 단계 형식과 `_fill` 의 변경안 형식은 틀별 판이다(`prompts.arc_schema`, `schema.frame_of`). 드라마 틀 · 하렘 없음이면 원래 형식이다
 - `first_step_prompt` 는 새 세션 첫 턴에서 `run_turn` 이 처음 보내는 요청이다. 세션(id `LAB_SID`)을 작품에 붙이지 않는다. 프롬프트 놀이터 불러오기가 쓴다
 - 단계 호출은 `step_wait` 초까지 기다린다: Claude Code(구독)는 `STEP_WAIT_CLAUDE`(480), 나머지는 `STEP_WAIT`(300)
 - 단계를 시작할 때 그 한도를 `Job.step_wait` 에 적는다. 화면의 늦음 안내가 이 값을 보인다(`agentStepLimit`)

@@ -59,18 +59,23 @@ def test_screen_frames_match_schema_and_hint():
     assert got["picked"].count('aria-pressed="true"') == 1 and 'aria-pressed="true" data-action="setFrame" data-arg="webnovel"' in got["picked"]
 
 
-def test_frame_stays_out_of_every_request():
-    """틀을 웹소설식으로 바꾼 시험 작품의 모든 요청 글이 스냅샷(드라마식)과 같다. 장르 안내에도 권하는 틀이 나오지 않는다."""
+def test_frame_changes_only_arc_planning():
+    """틀을 웹소설식으로 바꾸면 바뀌는 요청은 장편의 부 · 아크 기획(작업지시서 부 구성 · 다음 아크 · 대화 에이전트 첫 단계, 플롯 대화)뿐이다.
+    단편은 전환 요청만 바뀐다 (docs/webnovel/specs/04-arc-frame.md). 나머지 요청은 스냅샷(드라마식)과 글자까지 같다."""
     import json
 
     from . import test_prompt_registry as reg
 
     want = json.loads(reg.SNAPSHOT.read_text(encoding="utf-8"))
+    changed = {}
     for tag, make in (("short", reg._short), ("long", reg._long)):
         p = make()
         p.meta.frame = "webnovel"
-        got = {f"{tag}:{k}": reg._h(v) for k, v in reg._requests(p).items()}
-        assert {k: v for k, v in got.items() if want.get(k) != v} == {}
+        got = {f"{tag}:{k}": reg._h(v) for k, v in {**reg._requests(p), **reg._arc_requests(p)}.items()}
+        assert set(got) <= set(want)
+        changed[tag] = sorted(k for k, v in got.items() if want[k] != v)
+    assert changed == {"short": ["short:convert"],
+                       "long": ["long:brief:agent_plot", "long:brief:arc", "long:brief:series", "long:plot_chat:arc", "long:plot_chat:next"]}
     for g in genres.CATALOG:
         text = genres.guide(Meta(genres=[g.id])) + "\n".join(genres.opening_beats(Meta(genres=[g.id]), 1))
         assert "frame" not in text and "webnovel" not in text and "웹소설식" not in text, g.id
