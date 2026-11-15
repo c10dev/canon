@@ -1,6 +1,6 @@
 # 09. 완급 계획 웹소설 판
 
-상태: 진행 (claude/heat-frame-22ff92) · 계획: [plan.md](../plan.md) 의 9번 · 먼저: 6
+상태: 진행 (claude/heat-frame-22ff92, [#546](https://github.com/c10dev/canon/pull/546)) · 계획: [plan.md](../plan.md) 의 9번 · 먼저: 6
 
 ## 목표
 
