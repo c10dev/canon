@@ -82,6 +82,7 @@ async function castLoad(arg) {
   const wasLast = same && S.castFrame === S.cast.frames.length - 1;  // 마지막 시점을 보고 있었으면 새로 반영한 화로 따라간다
   S.cast = await api('GET', `/projects/${enc(S.name)}/cast`).catch((e) => ({ error: e.message, frames: [] }));
   S.cast.name = S.name;
+  await addressGapsLoad();  // 호칭이 빈 쌍 (address.js addressGapCard · 두 사람 상세)
   if (!same || wasLast || S.castFrame >= S.cast.frames.length) S.castFrame = Math.max(0, S.cast.frames.length - 1);
   if (!same && want.frame !== null && want.frame >= 0 && want.frame < S.cast.frames.length) S.castFrame = Math.floor(want.frame);
   if (want.view) S.castView = want.view;
@@ -983,7 +984,7 @@ function castMapPage() {
       <button type="button" class="btn small ghost" data-action="castResetPos"${Object.keys(S.castPos || {}).length ? '' : ' disabled'}>배치 처음대로</button>
       <span class="small">인물이나 선을 누르면 골라요. 인물을 끌어 자리를 옮겨요.</span></div>
     <div id="cast-stage">${castStage()}</div>
-  </section>`;
+  </section>${addressGapCard()}`;
 }
 
 /** 인물이 많아 선을 덜 그렸으면 몇 개를 뺐는지와 '모든 선 보기'. 인물이 적으면 빈칸 */

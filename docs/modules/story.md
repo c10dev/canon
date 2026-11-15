@@ -29,8 +29,17 @@
 - 프롬프트 블록(`block`, 장편 예산 `context.BUDGET["address"]`) · 검수 규칙(`check_rule`) · 상태 규칙(`state_rule`)
 - `block(budget=, trace=)`: 쓰기 가족만 작품 예산(`context.budget`)을 넘기고, trace 에 예산으로 뺀 줄을 적는다
 - 자주 쓰는 말씨 `SPEECH_LEVELS`
-- LLM 호출 없음
+- 호칭이 빈 방향 `gaps(p, recent=60)`: 최근 확정 화에서 `max(GAP_MIN, 화 수 // 3)` 화 이상 같은 화 본문에 함께 나왔는데 부르는 말이 빈 방향. 확정 화가 `GAP_MIN`(10)보다 적으면 빈 목록
+- `gaps` 는 인물이 나왔는지를 `context.name_pattern`(이름 · 성을 뗀 이름 · 다른 이름)으로 본다
+- AI 호칭 찾기 재료 `material(p, speaker, listener, budget=6000)`: 최근 확정 화부터 거꾸로, 따옴표 대사 문단 가운데 앞뒤 `MATERIAL_NEAR`(2) 문단 안에 두 이름이 모두 나오는 문단. 문단마다 `[N화]` 를 붙인다
+- `material` 이 대사 문단 하나가 아니라 앞뒤 문단까지 이름을 보는 까닭: 지하철 장편은 한 줄 한 문단이라, 부르는 대사("조장, 괜찮지?")에 듣는 인물 이름이 거의 없다(2026-11-15)
+- AI 호칭 찾기 응답 정리 `clean_found`: 묻지 않은 방향, 근거 대사가 그 방향 재료에 없는 항목(`findings.in_text`), 부르는 말이 빈 항목을 빼고 같은 방향은 처음 것만 둔다. `episode` 는 `last_done`
+- LLM 호출 없음 (부르는 것은 `pipeline.suggest_addresses`)
 - 화면은 `static/address.js` (두 사람 상세 `addressCard` · 인물 카드 `addressHeldCard` · 상태 승인 '직접 정할 것' 줄 `addressDeltaRows`, 말씨 목록 `ADDRESS_LEVELS` 는 `SPEECH_LEVELS` 와 같음 `tests/test_address.py`)
+- `static/address.js` 호칭이 빈 쌍 카드 `addressGapCard`: 관계도 아래에 빈 쌍이 있을 때만 그린다. 쌍마다 두 사람 상세 링크와 '본문에서 모두 찾기'(작업 `address_ai`, 대상 빈 글)
+- `static/address.js` 두 사람 상세의 빈 방향 줄 `addressGapRows`: '최근 n화에 함께 나왔는데 부르는 말이 비어 있어요'와 '본문에서 찾기'(대상 `speaker>listener`)
+- `static/address.js` 받은 제안 `S.addrSug`(열쇠 `speaker>listener`, `addressSugRow`)는 '적용'을 눌러야 `PUT /address` 로 들어간다. 말씨는 지금 칸이 비었을 때만 넣는다. '버리기'는 화면에서만 지운다
+- `static/address.js` 빈 쌍 `S.addrGaps` 는 `GET /address-gaps` 로 읽는다(`addressGapsLoad`: `cast.js` 의 `castLoad`, 적용 · 이 방향 저장 뒤)
 
 ### `canon/agent.py`
 
@@ -1014,6 +1023,7 @@
 - 열 맨 위 시점 띠 `castBar`(좁은 칸은 아래에 붙음)
 - 시점 띠가 400px 이하 칸이면 글에서 '반영 뒤'(`.cast-bar-after`)를 빼 화 번호가 잘리지 않게 한다
 - 관계도 `castMapPage`(SVG, 화별 재생, 칸 폭에 맞추고 크게 보기 `CAST_ZOOM`, 누르면 고르기만 `castMapPick` · 고른 줄 `castMapSel`, 끌어 옮긴 배치는 localStorage)
+- 관계도 카드 뒤에 호칭이 빈 쌍 카드(`address.js` `addressGapCard`)를 둔다. 빈 쌍은 `castLoad` 가 `addressGapsLoad` 로 읽는다
 - 인물 끌기가 끊기면(`pointercancel`) `castDrag` 를 지운다
 - 관계도 선(`.cg-edge`) · 긴장 점(`.cg-tension`) · 추이 그래프 칸(`.cc-col`)도 `tabindex="0"` · `role="button"` · `aria-label` 을 달고 Enter · Space 로 누른다
 - 추이 그래프 SVG 는 안에 버튼이 있어서 `role="group"` 이다

@@ -6696,6 +6696,7 @@ KINDS: dict[str, Kind] = {
     "body": Kind("신체 프로필 제안", "인물 · 데이터", "", "SYSTEM_PLANNER", "body_prompt", "BodySuggestion", "pipeline.suggest_body"),
     "pressure": Kind("압력으로 다시 쓰기", "인물 · 데이터", "", "SYSTEM_PLANNER", "pressure_prompt", "PressureRewrite", "pipeline.suggest_pressure"),
     "alias": Kind("다른 이름 제안", "인물 · 데이터", "", "SYSTEM_PLANNER", "alias_prompt", "AliasSuggestion", "pipeline.suggest_aliases"),
+    "address_find": Kind("본문에서 호칭 찾기", "인물 · 데이터", "", "SYSTEM_PLANNER", "address_find_prompt", "AddressFind", "pipeline.suggest_addresses"),
     "stat_window": Kind("상태창 제안", "인물 · 데이터", "", "SYSTEM_PLANNER", "stat_window_prompt", "StatWindowSuggestion",
                         "pipeline.suggest_stat_window"),
     "stat_init": Kind("상태창 첫 수치", "인물 · 데이터", "", "SYSTEM_PLANNER", "stat_init_prompt", "StatInitSuggestion",
@@ -7388,6 +7389,46 @@ def alias_prompt(p: Project, items: list) -> str:
 - 다른 항목의 이름 · 다른 이름과 같은 말, '그' · '그녀' · '나' 같은 대명사, '오빠' · '엄마'처럼 여러 인물에게 두루 쓰는 관계 말은 넣지 않습니다. 호칭 씨앗도 이 기준으로 고릅니다.
 - target 에는 위 '## ' 뒤의 열쇠(c:… · e:…)를 그대로 씁니다. 더할 말이 없는 항목은 빼도 됩니다.
 - reason 에는 어느 화 단락에서 어떻게 불렸는지 한국어 한두 문장으로 씁니다."""
+
+def address_find_prompt(p: Project, pairs: list[tuple[str, str]], material: list[str]) -> str:
+    """본문에서 호칭 찾기 (pipeline.suggest_addresses). pairs 는 (speaker id, listener id), material 은 같은 차례의 재료 글(address.material).
+    바뀌지 않는 블록(작품 · 말씨 목록)이 앞, 방향별 인물 · 재료가 뒤, 요청이 맨 뒤다 (Gemini 암묵적 캐시).
+    쓰기 프롬프트 · 작업지시서에는 들어가지 않는다."""
+    from . import address
+
+    chars = {c.id: c for c in p.characters}
+
+    def who(cid: str) -> str:
+        c = chars.get(cid)
+        if c is None:
+            return cid
+        return f"{c.name or c.id} (id {c.id}) · 말투: {c.speech_style.strip() or '적지 않음'}"
+    levels = "\n".join(f"- {k}: {v}" for k, v in address.SPEECH_LEVELS.items())
+    blocks = []
+    for (a, b), text in zip(pairs, material):
+        blocks.append(f"""## {a} → {b}
+speaker: {who(a)}
+listener: {who(b)}
+재료 대사:
+{text}""")
+    return f"""# 작품
+제목: {p.meta.title}
+장르: {genres.label(p.meta)}
+
+# 말씨 이름
+{levels}
+
+# 호칭을 찾을 방향
+{chr(10).join(blocks)}
+
+요구사항:
+- 방향마다 위 재료 대사들에서 speaker 가 listener 를 마주 보고 부르는 말(calls)과 listener 에게 쓰는 말씨(speech)를 고릅니다.
+- 여러 부름이 섞이면 가장 최근 화(화 번호가 큰 쪽)에서 쓰는 부름을 고릅니다. 다른 인물에게 listener 를 가리켜 말한 것은 부르는 말이 아닙니다.
+- speech 는 위 말씨 이름 가운데 하나를 그대로 씁니다. 알 수 없으면 비웁니다.
+- quote 에는 근거 대사를 재료에서 본문 그대로 옮겨 적습니다. '[N화]' 표시는 넣지 않습니다.
+- speaker · listener 에는 위 '## ' 뒤의 id 를 그대로 씁니다. 재료에 speaker 가 listener 를 부르는 장면이 없으면 그 방향은 적지 않습니다.
+- reason 에는 몇 화에서 어떻게 불렀는지 한국어 한 문장으로 씁니다."""
+
 
 def stat_window_prompt(p: Project, request: str = "") -> str:
     """상태창 꾸미기 제안 (pipeline.suggest_stat_window). 본문 서식 · 창 이름 · 항목 틀 · 화면 스킨을 함께 낸다."""

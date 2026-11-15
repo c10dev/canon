@@ -16,7 +16,7 @@ from . import anchor, blueprint, board, cancel, charlog, context, features, find
 from . import offscreen, regexrules, staterules
 from .sent import SentPrompt, SentRetry
 from .sent import record as sent_record
-from .schema import AliasSuggestion, CoordDraft, CoordMemo, OffscreenSet
+from .schema import AddressChange, AddressFind, AliasSuggestion, CoordDraft, CoordMemo, OffscreenSet
 from .schema import RuleChange, RuleRun
 from .schema import AbilityProposal, BlueprintPlanSet, BlueprintProposal
 from .schema import CueSheet, CueSheetDraft, Finding, MetaCut, FindingRecheck, FixBatch, FixOption, FixPatch, FixRecheckItem, FixRecheckReport, FixSet, RevArcSet, RevEpisodeDraft, RevLineSet
@@ -3792,6 +3792,29 @@ def suggest_aliases(llm: LLM, p: Project, targets: list) -> AliasSuggestion:
     if empty:
         s.notices.append(f"본문에서 찾은 단락이 없는 {len(empty)}개는 묻지 않았어요")
     return aliases.hits(p, s)
+
+ADDRESS_PAIRS = 6  # 한 번에 묻는 호칭 찾기 방향 수
+
+
+def suggest_addresses(llm: LLM, p: Project, pairs: list[tuple[str, str]]) -> list[AddressChange]:
+    """호칭이 빈 방향의 부르는 말 · 말씨 찾기. 방향은 ADDRESS_PAIRS 개까지(넘으면 앞에서부터) 묻는다.
+    재료(address.material: 확정 본문의 두 사람 대사 문단)가 빈 방향은 묻지 않고, 모두 비면 부르지 않는다.
+    address.clean_found 를 거쳐 돌려준다. 저장하지 않는다 (작가가 고른 것만 화면에서 PUT /address 로 넣는다). 자동 집필 · 명령줄은 부르지 않는다."""
+    from . import address
+
+    asked: list[tuple[str, str]] = []
+    texts: list[str] = []
+    for a, b in pairs[:ADDRESS_PAIRS]:
+        text = address.material(p, a, b)
+        if text:
+            asked.append((a, b))
+            texts.append(text)
+    if not asked:
+        return []
+    s = llm.json(prompts.SYSTEM_PLANNER, prompts.address_find_prompt(p, asked, texts), AddressFind,
+                 hint={"material": {f"{a}>{b}": t for (a, b), t in zip(asked, texts)}})
+    return address.clean_found(p, s.items, dict(zip(asked, texts)))
+
 
 def suggest_stat_window(llm: LLM, p: Project, request: str = "") -> StatWindowSuggestion:
     """상태창 꾸미기 안 (본문 서식 · 창 이름 · 항목 틀 · 화면 스킨). 저장하지 않는다 (작가가 고른 안만 statwin-template 로 저장)."""

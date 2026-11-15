@@ -2549,6 +2549,11 @@ class AddressChange(BaseModel):
     episode: int = Field(0, description="바뀐 화. 프로그램이 채운다")
 
 
+class AddressFind(BaseModel):
+    """AI 호칭 찾기 응답: 확정 본문 대사에서 찾은 부르는 말 · 말씨 (pipeline.suggest_addresses). 저장하지 않고 작가가 고른 것만 set_form 으로 넣는다."""
+    items: list[AddressChange] = Field(default_factory=list, description="찾은 방향마다 하나. 부르는 장면이 없는 쌍은 넣지 않는다")
+
+
 class AddressRecord(BaseModel):
     """호칭 · 말씨가 바뀐 기록. 되돌리기와 인물 화면에 쓴다 (canon/address.py)."""
     episode: int = Field(description="바뀐 화. 작가가 고쳤으면 그때 마지막으로 반영한 화")
