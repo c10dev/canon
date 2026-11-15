@@ -222,6 +222,11 @@ def apply_rebuild(p: Project, prop: SerialRebuild, at: str = "") -> tuple[Projec
         el.added_after = 0
         if lost:
             notes.append(f"인과율 요소 '{el.name}'의 화 번호 일부를 새 화로 옮기지 못했어요")
+    for r in p.state_rules:  # 상태 규칙 조건의 화 범위도 같은 지도로
+        conds = [(c.from_ep, c.to_ep) for c in r.when]
+        renumber.move_conditions(r.when, lambda n: _remap(n, mapping))
+        if any((a and not c.from_ep) or (b and not c.to_ep) for (a, b), c in zip(conds, r.when)):
+            notes.append(f"상태 규칙 '{r.name or r.id}'의 화 범위 일부를 새 화로 옮기지 못했어요")
     for sl in p.storylines:
         b, j = _remap(sl.branch_ep, mapping), _remap(sl.join_ep, mapping)
         if (sl.branch_ep and not b) or (sl.join_ep and not j):

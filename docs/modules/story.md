@@ -773,6 +773,22 @@
 - 화면은 `static/cast.js` 의 지금 상태 카드
 - LLM 호출 없음
 
+### `canon/staterules.py`
+
+- 상태 규칙(효과 y, docs/context/specs/07-rules.md): 조건이 맞으면 상태 변경을 제안한다. LLM 호출 없음
+- 규칙은 상태를 바로 쓰지 않는다. `StateDelta.rule_proposals` 를 채우고 상태 승인 화면이 기본 체크 '규칙' 줄로 보인다
+- 제안은 상태창 값 바꾸기(`stat`)와 복선 회수(`resolve`)뿐이다. 관계 수치는 조건에서 읽기만 한다
+- `propose(p, d)`: `simulate` 로 규칙 제안을 뺀 d 를 복사본에 반영한 뒤 `propose_on` 을 부른다. 켠 규칙이 없으면 흉내 반영도 하지 않는다
+- `propose_on(sim, d, n)`: 흉내 반영한 복사본의 지금 값(`context.view_now`)으로 조건을 본다. d 는 같은 스탯 AI 제안 경고(`AI_TOO`)에만 쓴다
+- 반영 뒤 값(`statwin.resolve`)이 지금 값과 같은 제안, 이미 회수한 복선, 반영 뒤에도 상태가 없는 인물의 제안은 만들지 않는다
+- 규칙끼리 잇따라 걸리지 않는다. 같은 대상을 둘 이상의 규칙이 바꾸면 목록 뒤 규칙을 남기고 스탯이면 경고(`RULE_TOO`)를 단다
+- 제안 열쇠 `key` 는 '규칙 id:종류:대상'이다. 다시 계산해도 같아 작가가 체크를 푼 것(`rule_off`)을 기억한다
+- `refill(p, d)`: 옛 제안을 버리고 다시 채운다(`extract_state` · `carried_delta` · `web.parse_state` · 자동 집필 · `update`)
+- 반영 훅 `apply_delta`(`features.APPLY_LAST` 맨 끝): 체크한 제안을 반영하고, 푼 제안은 `dismissed.rule_proposals` 로 옮긴다. 기록에는 반영한 것만 남는다
+- 되돌리기는 스냅샷 · `statwin.revert` · `pipeline._undo_later`(규칙 회수 `resolved_ids`)가 맡는다. 새 `REVERT_*` 훅은 없다
+- 한 줄 설명 `describe`('규칙 「기절」: 서윤 상태 정상 → 기절'), 새 id `fill_ids`
+- 라우트는 `canon/routes/staterules.py`, 화면은 `static/staterules.js` 의 상태 규칙 쪽
+
 ### `canon/static/abilities.js`
 
 - 스킬 도감 화면(사이드바 도구, 공용 목차 틀 `outline.js`)
@@ -1005,6 +1021,7 @@
 - 요소 하나(`causalDetail`): 요소 내용 읽기 카드 `causalInfoCard`(고치기 `S.causalEdit`) → 관련 화 `causalLinksCard` → 영향 분석 `causalImpact`
 - 요소 내용 카드의 '넣는 조건': 읽기는 조건이 있을 때만 요약 줄(`condListHtml`), 고치기는 넣기 방식이 '넣지 않음'이 아닐 때 조건 칸(`condEditor('el:<요소 id>')`)
 - 요소의 조건 목록은 `elConds` 가 없으면 만든다. 조건 칸 주인 `COND_OWNERS.el` 을 등록한다(`static/staterules.js`)
+- 목차에 '상태 규칙' 줄(쪽 `causal/_rules`)이 있다. 요소가 없어도 그 쪽을 연다(`srPage`)
 - 관련 화는 30화씩 칸 줄(`CZ_CHUNK`)과 나눔 버튼 `S.causalLinkTab` 으로 거른 줄 목록
 - 640px 이하는 칸 줄이 한 줄 10화다(`czChunk`). 칸은 버튼이고 화 번호 · 표시를 `aria-label` 로 읽는다. 손가락 기기 · 640px 이하에서 높이 32px
 - 칸 · 줄을 누르면(`causalCell`) 영향 분석의 그 화 칸으로, 없으면 그 화로 간다
@@ -1154,13 +1171,17 @@
 - 고치기 칸 `condEditor(주인, 조건 목록, 작품)`: 줄마다 종류에 맞는 칸과 지우기(`condDel`), 아래 '조건 더하기'(`condAdd`)
 - 조건 목록을 가진 화면은 `COND_OWNERS` 에 '주인 종류 → (id) => 목록' 을 등록한다. 지금은 인과율 요소(`el`, `causal.js`)
 - 고르기 칸을 바꾸면 다시 그리고, 글 칸(항목 이름 · 값)은 다시 그리지 않는다
-- 7b 의 상태 규칙 탭도 이 칸을 쓴다
+- 상태 규칙 쪽의 조건 칸도 이 칸을 쓴다
+- 상태 규칙 쪽(`srPage`, 주소 `causal/_rules`): 규칙 목록(켬 · 끔 스위치 `srToggle`, 조건 · 효과 요약, 고치기 · 지우기)과 조건을 단 이야기 요소 목록
+- 규칙 고치기는 초안 `S.srEdit` 에서 하고 '저장'(`srSave`)이 `/state-rules` 로 POST · PUT 한다. 초안 조건 칸 주인 `sr` 은 작품 저장 띠를 띄우지 않는다(`COND_QUIET`)
+- 제안할 변경 줄 `specRow`, 요약 `specSummary`, 없는 대상 `specMissing`('없는 인물이에요' · '상태가 없는 인물이에요' · '없는 복선이에요')
 - CSS 는 JS 에서 주입
 
 ### `canon/static/statwin.js`
 
 - 상태창 수치 화면(공용 목차 틀 `outline.js`)
   - 주소 `statwin/<인물 id>` · `statwin/_frame` · `statwin/_decor`
+  - 출처 문구 `SW_SOURCE` 의 `rule` 은 '상태 규칙'이다(기본 칩). 화별 표는 작가 고침(`author` · `both`)만 작가 색이다
   - 왼쪽 목차 `swToc`(작품 틀 · 처음 수치, 꾸미기, 비중별 인물, 상태창 없는 인물 접음, 스킬 도감)
   - 인물 쪽 `swPersonPage`: 머리 `swHead` · 지금 상태창 `swNowCard` · 본문에 넣을 상태창 `swTextCard` · 화별 변화 `swLogCard`
   - 지금 상태창은 읽기 먼저이고 '고치기'로 이 카드만 편다(`S.swEdit`, `swEditor`)
@@ -1220,6 +1241,8 @@
 - 인물의 수치(`CharacterState.stats`)가 하나라도 있으면 켜짐
 - 바뀐 항목만 합치기(`merge`, `+3` · 단위 붙은 돈 `+300` · 한도 붙은 수 `4.3/60L` + `-0.7` · 목록 `+독 내성` / `-은신` 계산은 `resolve`)
 - 값을 수로 읽기(`number`: `resolve` 와 같은 규칙, 단위 · 쉼표를 떼고 `80/100` 은 앞 수). 상태 조건 판정(`context.holds`)이 쓴다
+- 상태 규칙 제안 반영은 `merge(source="rule")` 이다. 화별 비교의 출처 합치기(`_merge_source`)는 AI 뒤 규칙이면 `rule`, 작가 고침이 섞이면 `both`
+- 표시 맵 `SOURCE` 의 `rule` 은 ' (규칙)' 이다
 - 기록(`Project.stat_log`, 목록은 더한 것 · 뺀 것 `diff`)
 - 작가 수정(`set_stats`)
 - 화별 비교표

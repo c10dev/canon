@@ -919,3 +919,18 @@ def test_wanted_shows_pending_pause(monkeypatch):
     ctl.thread_alive = True
     assert autorun.wanted("w") == "pause"
     assert autorun.wanted("없는 작품") == ""
+
+
+def test_auto_apply_applies_state_rule_proposals(demo):
+    """자동 반영은 상태 규칙 제안을 기본 체크 항목처럼 반영하고 작업 기록에 경고 한 줄을 남긴다 (docs/context/specs/07-rules.md 의 7b)."""
+    from canon.schema import RuleProposalSpec, StateRule
+    p = store.load(demo)
+    cid = p.characters[0].id
+    p.state_rules = [StateRule(id="r1", name="기록", changes=[RuleProposalSpec(character_id=cid, stat="표시", value="켬")])]
+    store.save(demo, p)
+    run = autorun.start(demo, 1, False, Policy(), foreground=True)
+    assert run.status == "done"
+    q = store.load(demo)
+    assert next(x.value for x in q.state_of(cid).stats if x.name == "표시") == "켬"
+    assert [r.source for r in q.stat_log if r.name == "표시"] == ["rule"]
+    assert any(e.level == "warn" and "상태 규칙 제안 1개를 반영했어요" in e.message for e in run.log)

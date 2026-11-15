@@ -13,7 +13,7 @@ from . import dynamics, elements, illust, metrics, naming, prompts, renumber, se
 from .judge import Judge, Question
 from .llm import LLM, PREFIX_HINT, Interrupted, OutputCut, dump, family_text, out_cap, was_cut
 from . import anchor, blueprint, board, cancel, charlog, context, features, findings, foreshadows, heatplan, knows, metatail, stage, statwin, usage
-from . import offscreen, regexrules
+from . import offscreen, regexrules, staterules
 from .sent import SentPrompt, SentRetry
 from .sent import record as sent_record
 from .schema import AliasSuggestion, CoordDraft, CoordMemo, OffscreenSet
@@ -1512,6 +1512,8 @@ def carried_delta(p: Project, n: int) -> StateDelta | None:
     d.warnings = [f"단편 {x.sources[0]}화 때 승인한 변경안을 다시 써요. 앞 화가 바뀌었으니 확인하고 반영하세요."] + d.warnings
     d.basis = text_basis(p.episode(n).text)
     d.warn_to = [""] + d.warn_to if d.warn_to else []  # 경고와 같은 차례를 지킨다
+    d.rule_off = []
+    staterules.refill(p, d)  # 옛 규칙 제안은 지금 규칙 · 상태로 계산한 것이 아닐 수 있다
     return d
 
 
@@ -4654,6 +4656,7 @@ def extract_state(llm: LLM, p: Project, n: int, audit: LLM | None = None) -> Sta
             from .llm import get_llm
             audit = get_llm("audit")
         audit_delta(audit, p, n, delta)
+    staterules.refill(p, delta)  # 상태 규칙 제안 (AI 제안 뒤, 프롬프트는 바꾸지 않는다)
     return delta
 
 
@@ -4724,6 +4727,9 @@ def _delta_checks(p: Project, d: StateDelta) -> list[tuple]:
          lambda s: "" if s.owner in known else f"설정에 없는 인물의 비밀이에요: {s.owner}"),
         ("foreshadow_resolved", d.foreshadow_resolved,
          lambda x: "" if x in shadows else f"없는 복선을 회수했어요: {x}"),
+        ("rule_proposals", d.rule_proposals,
+         lambda r: (f"상태 규칙 제안이 설정에 없는 인물을 가리켜요: {r.character_id}" if r.kind == "stat" and r.character_id not in known else
+                    f"상태 규칙 제안이 없는 복선을 회수해요: {r.foreshadow_id}" if r.kind == "resolve" and r.foreshadow_id not in shadows else "")),
     ]
 
 
@@ -4955,7 +4961,7 @@ def _undo_later(p: Project, n: int, snap: Snapshot) -> None:
     p.facts = [f for f in p.facts if f not in born_fact]
 
     snap_fs = {f.id: f for f in snap.foreshadows}
-    paid = {x: d.episode for d in later for x in d.foreshadow_resolved}
+    paid = {x: d.episode for d in later for x in [*d.foreshadow_resolved, *staterules.resolved_ids(d)]}  # 상태 규칙이 회수한 복선도
     p.foreshadows = [f for f in p.foreshadows if f.id not in born_fs]
     for f in p.foreshadows:
         if f.id in paid and f.status == "resolved" and f.payoff_ep == paid[f.id]:

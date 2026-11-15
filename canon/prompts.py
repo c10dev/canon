@@ -3692,6 +3692,7 @@ def context_parts(p: Project, n: int, *, use_board: bool = True, pre: str = "", 
             where += f"\n# 이번 화 열 계획 (작가가 정함)\n{heat}"
 
     els = elements.episode_block(p, n)
+    elements.trace_gate(p, n, trace)  # 상태 조건으로 넣고 뺀 요소 (프롬프트 보기)
     els = f"\n\n# 이야기 요소 (이번 화와 관련된 설정, 어기지 말 것)\n{els}" if els else ""
     line = storylines.episode_block(p, n)
     line = f"\n\n# 이번 화의 이야기 줄기\n{line}" if line else ""

@@ -27,7 +27,7 @@ from typing import Any, Callable, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from . import anchor, atlas, board, coord, cue, dynamics, features, findings, jobs, pipeline, prompts, settings, store, timeline, usage
+from . import anchor, atlas, board, coord, cue, dynamics, features, findings, jobs, pipeline, prompts, settings, staterules, store, timeline, usage
 from . import stage as stage_mod
 from . import sent
 from .llm import BatchLLM, Interrupted, QuotaSpent, SchemaMismatch, explain_error, get_llm
@@ -378,7 +378,7 @@ def _story_reasons(p: Project, delta: StateDelta, policy: Policy, names: dict[st
     if policy.stop_on_resolve or policy.stop_on_early_resolve:
         fs = {f.id: f for f in p.foreshadows if f.status == "open"}
         hits: list[str] = []
-        for fid in delta.foreshadow_resolved:
+        for fid in dict.fromkeys([*delta.foreshadow_resolved, *staterules.resolved_ids(delta)]):  # 상태 규칙이 회수하는 복선도
             f = fs.get(fid)
             if f is None:  # 없는 복선은 반영할 때 버린다 (pipeline.drop_invalid)
                 continue
@@ -955,10 +955,13 @@ class Runner:
             except ValueError as e:
                 raise _Halt("paused", f"{n}화 상태 변경안을 반영하지 못해 멈췄어요", [str(e), "앞 화를 반영한 뒤 이어 가세요"], kind="changed")
             held[0] = features.hold(q, delta)  # 인물 설정 · 호칭은 작가가 골라야 바뀐다. 인물 화면에 남겨 둔다
+            staterules.refill(q, delta)  # 상태 규칙 제안은 기본 체크 항목처럼 반영한다 (지금 작품 · 남긴 제안을 뺀 변경안으로 다시 계산)
             dropped[:] = pipeline.apply_delta(q, delta)
+            ruled[:] = [staterules.describe(q, x) for x in delta.rule_proposals]
             q.episode(n).auto = True
         held = [0]
         dropped: list[str] = []
+        ruled: list[str] = []
         _edit(self.name, put)
         _drop_pending_state(self.name, n)
         with self.ctl.lock:
@@ -969,6 +972,8 @@ class Runner:
         self.log(f"{n}화를 자동으로 반영했어요")
         for m in dropped:
             self.log(f"{n}화 반영에서 뺐어요: {m}", "warn")
+        if ruled:
+            self.log(f"{n}화 상태 규칙 제안 {len(ruled)}개를 반영했어요: " + "; ".join(ruled), "warn")
         if held[0]:
             self.log(f"{n}화 설정 바꾸기 · 호칭 제안 {held[0]}개는 반영하지 않고 인물 · 관계도 화면에 남겨 뒀어요", "warn")
         every = run.policy.review_every
@@ -1090,14 +1095,19 @@ def resume(name: str, approve: bool = False, rewrite: bool = False, *, foregroun
                 def take(q: Project) -> None:
                     pipeline.check_applicable(q, n)
                     held[0] = features.hold(q, d)  # 검토 화면 없이 반영하면 설정 바꾸기 · 호칭 제안은 고르지 않은 것으로 남겨 둔다
+                    staterules.refill(q, d)
                     dropped[:] = pipeline.apply_delta(q, d)
+                    ruled[:] = [staterules.describe(q, x) for x in d.rule_proposals]
                 held = [0]
                 dropped: list[str] = []
+                ruled: list[str] = []
                 _edit(name, take)
                 _drop_pending_state(name, n)
                 r.log(f"{n}화 변경안을 검토 화면 없이 그대로 반영했어요 (사용자 승인)")
                 for m in dropped:
                     r.log(f"{n}화 반영에서 뺐어요: {m}", "warn")
+                if ruled:
+                    r.log(f"{n}화 상태 규칙 제안 {len(ruled)}개를 반영했어요: " + "; ".join(ruled), "warn")
                 if held[0]:
                     r.log(f"{n}화 설정 바꾸기 · 호칭 제안 {held[0]}개는 반영하지 않고 인물 · 관계도 화면에 남겨 뒀어요", "warn")
             elif status == "written" and rewrite:

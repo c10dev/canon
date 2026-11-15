@@ -144,6 +144,8 @@ def move_points(p: Project, f: Point, gone: int = 0) -> dict[str, int]:
                 x.number = f(x.number)
             for t in rep.patches:
                 t.episode = f(t.episode)
+    for r in p.state_rules:  # 상태 규칙 조건의 화 범위도 같은 규칙으로
+        move_conditions(r.when, f)
     for s in p.storylines:
         before = (s.branch_ep, s.join_ep)
         s.branch_ep, s.join_ep = f(s.branch_ep), f(s.join_ep)

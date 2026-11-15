@@ -136,6 +136,26 @@ def for_episode(p: Project, n: int, gate: bool = True) -> list[StoryElement]:
     return [el for el in els if all_hold(p, n, el.activation.conditions, view)]
 
 
+def trace_gate(p: Project, n: int, trace) -> None:
+    """프롬프트 보기: 상태 조건이 있는 관련 요소를 넣었는지(조건 맞음) 뺐는지(조건 안 맞음) 'elements' 블록에 적는다.
+    n-1화 스냅샷이 없어 지금 값으로 봤으면 그 알림(context.view_before 의 note)도 적는다. 조건 있는 요소가 없으면 적지 않는다."""
+    if trace is None:
+        return
+    rel = [el for el in for_episode(p, n, gate=False) if el.activation.conditions]
+    if not rel:
+        return
+    from .context import DROP_COND, NOTE_COND, REASON_COND, view_before  # context 가 이 모듈을 부른다
+    kept = {el.id for el in for_episode(p, n)}
+    for el in rel:
+        if el.id in kept:
+            trace.item("elements", el.name or el.id, REASON_COND)
+        else:
+            trace.drop("elements", el.name or el.id, DROP_COND)
+    note = view_before(p, n).note
+    if note:
+        trace.item("elements", note, NOTE_COND)
+
+
 def episode_block(p: Project, n: int) -> str:
     """본문 쓰기 컨텍스트에 넣는 블록. 넣을 요소가 없으면 빈 문자열."""
     return "\n".join(describe(p, el, n) for el in for_episode(p, n))

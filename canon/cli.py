@@ -88,7 +88,7 @@ from . import (address, archetypes, autorun, branches, cast, charlog, dynamics, 
 from .llm import dump, get_llm
 from .schema import FINDING_STATUS, FRAMES, SEVERITY, ConsistencyReport, HeatArcPlan, HeatProposal, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
 from . import abilities, anchor, atlas, blocktrial, findings, stattrial, foreshadows, setupchat, statwin, timeline
-from . import agent_style, birth, cue, heatplan, jobs, labstats, play, regexrules, sent, soelab, tofix
+from . import agent_style, birth, cue, heatplan, jobs, labstats, play, regexrules, sent, staterules, soelab, tofix
 from .schema import ArcProposal, ChatScope, Deadline, MapPlace, StatValue, StateDeltaAI, StoryArc, to_delta
 from .maps import kinds as placekinds
 from .maps import travel
@@ -212,6 +212,18 @@ def cmd_style(a: argparse.Namespace) -> None:
             e = library.from_project(p, a.save, sample)
             print(f"라이브러리에 저장: {e.name} ({e.id})")
         print(f"저장: {store.save(a.name, p)}")
+
+
+def cmd_staterules(a: argparse.Namespace) -> None:
+    """상태 규칙 목록과 켬 · 끔 (Project.state_rules, docs/context/specs/07-rules.md). 고치기는 웹의 인과율 › 상태 규칙."""
+    p = store.load(a.name)
+    rules = p.state_rules
+    print(f"상태 규칙 {len(rules)}개 (켬 {sum(r.on for r in rules)}개)")
+    for r in rules:
+        print(f"- {r.id} [{'켬' if r.on else '끔'}] {r.name or '이름 없음'}: 조건 {len(r.when)}개 · 제안 {len(r.changes)}개")
+    els = [el for el in p.elements if el.activation.conditions]
+    if els:
+        print(f"조건을 단 이야기 요소 {len(els)}개: " + ", ".join(el.name or el.id for el in els))
 
 
 def cmd_rules(a: argparse.Namespace) -> None:
@@ -1388,6 +1400,9 @@ def _print_delta(d: StateDelta) -> None:
         print(f"- 기한 {x.id}: {x.what}{f' ({x.day}일째)' if x.day else ''}{f' · {x.note}' if x.note else ''}")
     for x in d.deadlines_done:
         print(f"- 기한 닫힘: {x}")
+    for x in d.rule_proposals:  # 상태 규칙 제안 (staterules.propose). 기본으로 반영한다
+        what = f"{x.character_id} {x.stat} {x.before or '(없음)'} → {x.after or '(지움)'}" if x.kind == "stat" else f"복선 회수 {x.foreshadow_id}"
+        print(f"[규칙] 「{x.rule_name or x.rule_id}」 {what}" + (f"  ! {x.warning}" if x.warning else ""))
     for w in d.warnings:
         print(f"! 경고: {w}")
 
@@ -1421,6 +1436,7 @@ def _update(name: str, p: Project, n: int, yes: bool, from_json: str | None = No
     if from_json:
         delta = to_delta(StateDeltaAI.model_validate_json(_strip_fence(Path(from_json).read_text(encoding="utf-8"))), n)
         pipeline.clean_delta(p, delta)
+        staterules.refill(p, delta)
     else:
         print(f"{n}화 상태 추출 중...")
         delta = pipeline.extract_state(get_llm("state"), p, n)
@@ -1445,6 +1461,10 @@ def _update(name: str, p: Project, n: int, yes: bool, from_json: str | None = No
             delta.setting_changes = []
         if delta.address_changes and not confirm(f"호칭 · 말씨 바뀜 제안 {len(delta.address_changes)}개도 반영할까요? (아니오면 빼고 반영해요)", False):
             delta.address_changes = []
+    before = [x.key for x in delta.rule_proposals]
+    staterules.refill(p, delta)  # 뺀 제안을 반영한 작품으로 다시 계산한다 (web.apply_state 와 같다)
+    if [x.key for x in delta.rule_proposals] != before:
+        print(f"! 고른 항목이 바뀌어 상태 규칙 제안을 다시 계산했어요: {len(delta.rule_proposals)}개")
     for m in pipeline.apply_delta(p, delta):
         print(f"! 반영에서 뺐어요: {m}")
     store.save(name, p)
@@ -2982,6 +3002,9 @@ def _tool_commands(sub, add) -> None:
     sp.add_argument("action", nargs="?", choices=["list", "test", "use", "drop"], default="list")
     sp.add_argument("args", nargs="*")
     sp.set_defaults(fn=cmd_rules)
+    sp = sub.add_parser("staterules", help="상태 규칙 목록 (조건이 맞으면 상태 변경을 제안)")
+    sp.add_argument("name")
+    sp.set_defaults(fn=cmd_staterules)
 
 
 def _app_commands(sub, add) -> None:

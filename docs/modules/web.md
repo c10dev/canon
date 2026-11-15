@@ -62,6 +62,7 @@
 - `proposalActions(drop, apply, label, disabled)` 는 AI 제안 버튼 줄 하나뿐이다. 인물 설정 · 신체 · 호칭 · 설정 기록 · 장면 연출 비교도 이것을 쓴다
 - 상태 `S`
 - 서버 호출 `api`
+- `api` 가 던지는 오류에는 `status` · `code` 와 응답 몸통 `body` 가 있다(409 `stale_rules` 의 다시 계산한 제안 등)
 - 작품 저장 `save` 는 받은 판(`projectBase` 의 `keys` · `eps`)과 달라진 칸 · 화만 `PATCH` 로 보낸다(`patchBody`)
 - `takeField(칸, 값)` 은 작업이 작품에 쓴 최상위 제안 칸 하나(`style_learning` · `style_example`)를 받고 `projectBase.keys` 도 맞춘다. 다음 저장이 그 칸을 덮지 않는다
 - 서버가 본문 있는 화를 지켜 `X-Canon-Kept` 에 `episode` · `text` 를 담으면 `save` 는 토스트로 알리고 '저장했어요'를 띄우지 않는다
@@ -570,6 +571,10 @@
 
 - 6단계 상태 승인 · 관계 표시
 - 상태 변경안 목록 `contacts`(체크 키 'u', 기본으로 고르지 않음): 닿은 사다리 칸. 줄은 `blueprint.js` 의 `contactDeltaRows`
+- 상태 변경안 목록 `rule_proposals`(체크 키 'g', 기본 체크, `rule_off` 의 key 는 풀림): 상태 규칙 제안. 그대로 반영할 것의 '상태 규칙 제안' 갈래에 '규칙' 표시 줄(`ruleRows`)
+- 미리 보기 응답의 `rule_proposals` 로 그 갈래를 바꾼다(`ruleRefresh`). 작가가 푼 key 는 풀린 채, 새 key 는 체크. 줄 수가 같으면 그 칸만, 다르면 다시 그린다
+- 체크 `c` · `p` · `x` 를 바꿔도 미리 보기를 다시 부른다(`app.js`). 규칙 조건이 상태창 · 복선을 보기 때문이다
+- `pickedDelta` 는 보인 규칙 제안 전부와 푼 key(`rule_off`)를 보낸다. 반영이 409 `stale_rules` 면 다시 계산한 제안을 놓고 묻고, 확인하면 `force_rules` 로 다시 보낸다
   - `DELTA_LISTS`
   - `setDelta`
   - `setDelta` 는 설정에 없는 인물이 끼었거나 같은 인물끼리인 관계 사건 · 관계 바뀜을 기본으로 체크하지 않는다(서버 `validate_delta` 와 같은 규칙)
@@ -578,7 +583,7 @@
   - 그 심는 복선(`p`) 체크를 풀면 같은 화 회수(`x`)도 풀고 다시 고르면 되돌린다(`plantedCascade`)
   - 새 인물(`n`) 체크를 풀면 그 인물을 다룬 `c` · `e` · `r` · `s` · `t` · `h` · `a` 항목도 풀고 몇 개 풀었는지 알린다(`newCharCascade` · `newCharDeps`)
   - 새 인물을 다시 고르면 그 항목을 기본 체크로 되돌린다(다른 빠진 새 인물도 다룬 항목은 빼 둔다)
-  - 새 인물 체크를 바꿔도 관계 미리 보기를 다시 계산한다(`app.js` 의 `[ersn]` 키)
+  - 새 인물 체크를 바꿔도 관계 미리 보기를 다시 계산한다(`app.js` 의 `[ersncpx]` 키)
   - 체크를 푼 항목은 `pickedDelta` 가 `dismissed` 로 보낸다(등장 인물 붙이기는 빼고)
   - 체크를 푼 설정 바꾸기(`t`) · 호칭(`h`)도 `dismissed` 로 가서 반영 취소 뒤 체크를 푼 채 다시 놓인다
   - 반영 기록에서 돌아온 변경안(반영 취소 · 단편 다시 쓰기)의 `dismissed` 는 `setDelta` 가 목록 끝에 다시 놓고(`reofferDismissed`) 기본 체크를 풀어 둔다(`d.reoffer`, 화면 전용)

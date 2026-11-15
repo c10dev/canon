@@ -31,6 +31,9 @@ function pickedDelta(n) {
     cast_added: pick('a', d.cast_added || []),
     address_changes: pick('h', d.address_changes || []),
     contacts: pick('u', d.contacts || []),
+    // 상태 규칙 제안: 보인 목록은 그대로 보내고(서버가 다시 계산해 견준다, web.apply_state) 체크를 푼 것은 key 로 (rule_off)
+    rule_proposals: d.rule_proposals || [],
+    rule_off: (d.rule_proposals || []).filter((_, i) => !S.picks['g' + i]).map((x) => x.key),
     // 체크를 푼 항목은 버리지 않고 반영 기록에 남긴다 (StateDelta.dismissed). 등장 인물 붙이기는 빼 둔다
     dismissed: {
       character_updates: drop('c', d.character_updates),
@@ -48,6 +51,7 @@ function pickedDelta(n) {
       setting_changes: drop('t', d.setting_changes),
       address_changes: drop('h', d.address_changes),
       contacts: drop('u', d.contacts),
+      rule_proposals: drop('g', d.rule_proposals),
     },
   };
 }
@@ -79,13 +83,48 @@ function refreshPreview(n) {
     }
     const box = $('#rel-preview');
     if (box) box.innerHTML = relationLines(S.preview, true);
+    if (S.preview.rule_proposals && S.deltas[n]) ruleRefresh(n, S.preview.rule_proposals);
   }, 250);
 }
 
+/** 상태 규칙 제안 줄 (staterules.propose). 체크 키는 'g'+차례, '규칙' 표시를 단다. 미리 보기가 다시 계산하면 ruleRefresh 가 이 줄만 바꾼다 */
+/** 규칙 제안 한 줄 글: '「기절」: 서윤 상태 정상 → 기절' (서버 staterules.describe 와 같은 모양) */
+function ruleWhat(x) {
+  const fsOf = (id) => (P().foreshadows.find((f) => f.id === id) || { description: id }).description;
+  const what = x.kind === 'stat' ? `${charName(x.character_id)} ${x.stat} ${x.before || '(없음)'} → ${x.after || '(지움)'}` : `복선 회수 · ${fsOf(x.foreshadow_id)}`;
+  return `「${x.rule_name || x.rule_id}」: ${what}`;
+}
+
+function ruleRows(d) {
+  return (d.rule_proposals || []).map((x, i) => {
+    return `<div class="change"><input type="checkbox" id="pk-g${i}" data-pick="g${i}"${S.picks['g' + i] ? ' checked' : ''}><label for="pk-g${i}" style="font-size:0.8125rem;line-height:1.55"><span class="chip">규칙</span> ${esc(ruleWhat(x))}${x.warning ? `<span class="small" style="display:block;color:var(--amber-ink, var(--text-2))">${esc(x.warning)}</span>` : ''}</label></div>`;
+  }).join('');
+}
+
+/** 미리 보기가 고른 항목으로 다시 계산한 상태 규칙 제안으로 바꾼다 (Q28). 작가가 체크를 푼 key 는 풀린 채 두고, 새로 생긴 제안은 기본 체크.
+ * 줄 수가 같으면 그 칸만, 다르면 화면을 다시 그린다 (갈래 셈 · 숨긴 갈래가 바뀐다) */
+function ruleRefresh(n, list) {
+  const d = S.deltas[n];
+  const old = d.rule_proposals || [];
+  const sig = (xs) => JSON.stringify(xs.map((x) => [x.key, x.after, x.warning]));
+  if (sig(old) === sig(list)) return;
+  const shown = new Set(old.map((x) => x.key));
+  const off = new Set([...(d.rule_off || []).filter((k) => !shown.has(k)), ...old.filter((_, i) => !S.picks['g' + i]).map((x) => x.key)]);
+  old.forEach((_, i) => { delete S.picks['g' + i]; });
+  d.rule_proposals = list;
+  d.rule_off = [...off];
+  list.forEach((x, i) => { S.picks['g' + i] = !off.has(x.key); });
+  const box = typeof document !== 'undefined' && document.getElementById ? document.getElementById('rule-props') : null;
+  if (box && old.length === list.length) {
+    box.innerHTML = ruleRows(d);
+    rvCountRefresh();
+  } else if (S.route && S.route[2] === 'review') render();
+}
+
 /** 상태 변경안 항목 체크 키 ('c0', 'e1' …). 설정 제안 키('sc0', 'sf:logline')와 섞이지 않게 센다. */
-const DELTA_PICK = /^[cesrfpxnqlkotahu]\d+$/;
+const DELTA_PICK = /^[cesrfpxnqlkotahug]\d+$/;
 /** 상태 변경안에서 하나씩 골라 반영하는 목록 (StateDelta 의 목록 칸 중 warnings 를 뺀 것, tests/test_delta_count.py 가 맞춰 본다) */
-const DELTA_LISTS = ['character_updates', 'events', 'secrets_added', 'relationship_updates', 'new_facts', 'foreshadow_planted', 'foreshadow_resolved', 'foreshadow_clues', 'new_characters', 'new_places', 'deadlines_added', 'deadlines_done', 'setting_changes', 'cast_added', 'address_changes', 'contacts'];
+const DELTA_LISTS = ['character_updates', 'events', 'secrets_added', 'relationship_updates', 'new_facts', 'foreshadow_planted', 'foreshadow_resolved', 'foreshadow_clues', 'new_characters', 'new_places', 'deadlines_added', 'deadlines_done', 'setting_changes', 'cast_added', 'address_changes', 'contacts', 'rule_proposals'];
 /** 변경안 항목 수. 상태 승인 화면의 'n건 중'과 반영 확인창의 '0건'이 같은 셈을 쓴다 */
 const deltaCount = (d) => DELTA_LISTS.reduce((s, k) => s + (d[k] || []).length, 0);
 const deltaPicked = () => Object.entries(S.picks).filter(([k, v]) => v && DELTA_PICK.test(k)).length;
@@ -103,7 +142,7 @@ function deltaGist(d, { picks = {}, name = (id) => id, field = (f) => f, fs = []
   const sum = (d.summary || '').trim();
   // 그 밖: 여섯 묶음에 들지 않는 항목. 요약 카드에서 빠뜨리지 않게 한 줄로 센다
   const etc = [['s', d.secrets_added, '비밀'], ['r', d.relationship_updates, '관계 유형'], ['n', d.new_characters, '새 인물'], ['l', d.new_places, '장소'],
-    ['k', d.deadlines_added, '기한'], ['o', d.deadlines_done, '기한 끝'], ['h', d.address_changes, '호칭'], ['u', d.contacts, '설계도 칸']].filter(([, list]) => (list || []).length);
+    ['k', d.deadlines_added, '기한'], ['o', d.deadlines_done, '기한 끝'], ['h', d.address_changes, '호칭'], ['u', d.contacts, '설계도 칸'], ['g', d.rule_proposals, '규칙 제안']].filter(([, list]) => (list || []).length);
   const groups = [
     { key: 'summary', label: '요약', count: sum ? 1 : 0, picked: sum ? 1 : 0, peek: short(sum, 40) },
     group('chars', '인물 상태', [...keys('c', d.character_updates), ...keys('a', d.cast_added)], d.character_updates.map((u) => name(u.character_id)).join(', ')),
@@ -125,7 +164,7 @@ function deltaGist(d, { picks = {}, name = (id) => id, field = (f) => f, fs = []
 }
 
 /** 빼 둘 수 있는 목록과 체크 키 앞글자 (StateDelta.dismissed 의 칸, pickedDelta 와 같다) */
-const DISMISS_LISTS = [['character_updates', 'c'], ['events', 'e'], ['secrets_added', 's'], ['relationship_updates', 'r'], ['new_facts', 'f'], ['foreshadow_planted', 'p'], ['foreshadow_resolved', 'x'], ['foreshadow_clues', 'q'], ['new_characters', 'n'], ['new_places', 'l'], ['deadlines_added', 'k'], ['deadlines_done', 'o'], ['setting_changes', 't'], ['address_changes', 'h'], ['contacts', 'u']];
+const DISMISS_LISTS = [['character_updates', 'c'], ['events', 'e'], ['secrets_added', 's'], ['relationship_updates', 'r'], ['new_facts', 'f'], ['foreshadow_planted', 'p'], ['foreshadow_resolved', 'x'], ['foreshadow_clues', 'q'], ['new_characters', 'n'], ['new_places', 'l'], ['deadlines_added', 'k'], ['deadlines_done', 'o'], ['setting_changes', 't'], ['address_changes', 'h'], ['contacts', 'u'], ['rule_proposals', 'g']];
 
 /** 반영 기록에서 돌아온 변경안(반영 취소 web._revert_kept, 단편 다시 쓰기 pipeline.carried_delta)의 빼 둔 항목을 목록 끝에 다시 놓는다.
  * 기본 체크는 풀어 둔다(d.reoffer 의 차례, defaultPicks). 그대로 반영하면 pickedDelta 가 다시 dismissed 로 보낸다. 두 번 불러도 한 번만 놓는다 */
@@ -170,6 +209,8 @@ function defaultPicks(d, over = {}) {
   (d.cast_added || []).forEach((_, i) => { o['a' + i] = true; });  // 본문에 나온 인물은 기본으로 그 화 등장 인물에 붙인다
   (d.address_changes || []).forEach((_, i) => { o['h' + i] = false; });  // 호칭 · 말씨도 작가가 직접 골라야 바뀐다
   (d.contacts || []).forEach((_, i) => { o['u' + i] = false; });  // 닿은 사다리 칸도 작가가 직접 골라야 기록된다 (docs/blueprint)
+  // 상태 규칙 제안은 기본으로 체크한다 (Q22). 작가가 체크를 푼 key(rule_off)는 풀어 둔다
+  (d.rule_proposals || []).forEach((x, i) => { o['g' + i] = !(d.rule_off || []).includes(x.key); });
   // 지난번 반영에서 작가가 체크를 풀었던 항목은 다시 놓아도 체크하지 않는다 (reofferDismissed)
   Object.entries(d.reoffer || {}).forEach(([p, idx]) => idx.forEach((i) => { if (p + i in o) o[p + i] = false; }));
   Object.assign(o, over);
@@ -611,6 +652,10 @@ function reviewPanel(n) {
       gist.fs.peek, toolFoot(toolLink('foreshadow', '복선 센터'))],
     ['places', '새로 나온 장소', newPlaces ? `<p class="small">반영하면 인과율에 장소로 등록돼요. 그 뒤로는 이 장소가 나오는 화를 쓸 때 설명이 함께 들어가요.</p>${newPlaces}` : '', keys('l', d.new_places), (d.new_places || []).map((x) => x.name).join(', '), ''],
     ['time', '작품 속 시간', tl, [...keys('k', d.deadlines_added), ...keys('o', d.deadlines_done)], d.time && d.time.day > 0 ? `${d.time.day}일째${d.time.part ? ` ${d.time.part}` : ''}` : '', toolFoot(toolLink('timeline', '작품 속 시간'))],
+    // 상태 규칙 제안: 체크를 바꿀 때마다 미리 보기가 다시 계산해 이 칸을 바꾼다 (ruleRefresh). 반영할 때 서버가 한 번 더 계산한다.
+    // 켠 규칙이 없는 작품은 갈래를 두지 않는다 ('변경 없음' 줄에도 넣지 않는다)
+    ...(!(d.rule_proposals || []).length && !(p.state_rules || []).some((r) => r.on) ? [] : [['rules', '상태 규칙 제안', (d.rule_proposals || []).length ? `<div id="rule-props">${ruleRows(d)}</div>` : '', keys('g', d.rule_proposals),
+      (d.rule_proposals || []).map((x) => x.rule_name || x.rule_id).join(', '), toolFoot(toolLink('causal/_rules', '상태 규칙'))]]),
   ];
   const shown = groups.filter(([, , html]) => html.replace(/<[^>]+>/g, '').trim());
   const empty = groups.filter((g) => !shown.includes(g)).map(([, label]) => label);
@@ -793,6 +838,7 @@ function historyView(h) {
       ${(h.new_places || []).length ? `<section class="card"><h2>새로 나온 장소</h2>${li(h.new_places.map(placeLabel))}</section>` : ''}
       ${withFoot(tlHistory(h), toolLink('timeline', '작품 속 시간'))}${withFoot(scHistory(h), cast)}${withFoot(addressHistory(h), cast)}
       ${(h.secrets_added || []).length ? `<section class="card"><h2>새로 생긴 비밀</h2>${li(h.secrets_added.map((x) => `<strong>${esc(charName(x.owner))}</strong> ${esc(x.content)}`))}</section>` : ''}
+      ${(h.rule_proposals || []).length ? `<section class="card"><h2>상태 규칙 제안</h2>${li(h.rule_proposals.map((x) => `<span class="chip">규칙</span> ${esc(ruleWhat(x))}`))}${toolFoot(toolLink('causal/_rules', '상태 규칙'))}</section>` : ''}
       ${(h.relationship_updates || []).length ? `<section class="card"><h2>관계 유형 · 설명 변경</h2>${li(h.relationship_updates.map((r) => `${esc(charName(r.a))} ↔ ${esc(charName(r.b))} · ${esc(r.type)}${r.description ? ` · ${esc(r.description)}` : ''}`))}</section>` : ''}
     </div>${dismissedView(h)}`;
 }
@@ -821,6 +867,7 @@ function dismissedView(h) {
     ...(x.setting_changes || []).map((s) => `설정 바꾸기 · <strong>${esc(charName(s.character_id))}</strong> ${scLabel(s.field)}: ${esc(s.value)}`),
     ...(x.address_changes || []).map((a) => `호칭 · 말씨 · <strong>${esc(charName(a.speaker))} → ${esc(charName(a.listener))}</strong> ${esc([a.calls && `부르는 말 ${a.calls}`, a.speech && `말씨 ${a.speech}`].filter(Boolean).join(' · '))}`),
     ...(x.contacts || []).map((c) => `닿은 사다리 칸 · <strong>${esc(charName(c.a))} ↔ ${esc(charName(c.b))}</strong> ${esc(c.rung)}`),
+    ...(x.rule_proposals || []).map((r) => `상태 규칙 제안 · ${esc(ruleWhat(r))}`),
   ];
   return `<details class="card"><summary>빼 둔 항목 ${n}개</summary><div class="small" style="margin:6px 0">반영하지 않은 항목이에요. 기록으로만 남아요.</div>
     <ul style="padding-left:18px;display:flex;flex-direction:column;gap:6px;font-size:0.8125rem;line-height:1.5">${rows.map((r) => `<li>${r}</li>`).join('')}</ul></details>`;
@@ -899,14 +946,21 @@ Object.assign(actions, {
     if (why.length && !(await askConfirm(`${why.join(' ')} ${n}화를 마칠까요? 반영하면 반영 취소로만 돌아갈 수 있어요.`, { ok: '마치기' }))) return;
     // 서버도 변경안을 만든 본문(out.basis)과 지금 본문을 맞춰 본다 (409 stale_delta). 위에서 본문을 고친 것을 확인했으면 force 로 보낸다
     let stale = null;
-    const go = (force) => run('반영하는 중', async () => {
+    let staleRules = null;
+    // 상태 규칙 제안이 서버가 다시 계산한 것과 다르면 409 stale_rules. 작가가 확인하면 force_rules 로 다시 보낸다 (본문 경고 force 와 나눈다)
+    const go = (force, forceRules = false) => run('반영하는 중', async () => {
       await saveIfDirty();
       if (typeof flushText === 'function') await flushText(n);  // 저장하지 않은 본문 고침 (passage.js, 다른 곳이 먼저 저장했으면 409 stale_text 로 멈춘다)
+      const q = [force ? 'force=1' : '', forceRules ? 'force_rules=1' : ''].filter(Boolean).join('&');
       try {
-        S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/apply${force ? '?force=1' : ''}`, out);
+        S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/apply${q ? `?${q}` : ''}`, out);
         clearTimeout(draftTimer);
         draftWaiting.delete(n);
       } catch (e) {
+        if (e.code === 'stale_rules' && !forceRules) {
+          staleRules = e;
+          return;
+        }
         if (e.code !== 'stale_delta' || force) throw e;
         stale = e;  // 다른 탭에서 고쳤거나 저장하지 않은 본문을 방금 저장했다: 기다림 상자를 닫은 뒤 묻는다
         return;
@@ -929,8 +983,24 @@ Object.assign(actions, {
       const next = ep(n + 1);
       location.hash = forAuto ? `${base()}/auto` : next && ['confirmed', 'draft'].includes(next.status) ? nextStep()[1] : base();
     });
-    await go(edited);
-    if (stale && (await askConfirm(`${stale.message}. 그래도 ${n}화를 마칠까요? 반영하면 반영 취소로만 돌아갈 수 있어요.`, { ok: '마치기' }))) await go(true);
+    // 두 409(본문 stale_delta · 규칙 stale_rules)가 차례로 올 수 있어 하나씩 묻고 다시 보낸다. 둘 다 넘겼으면 더 묻지 않는다
+    let force = edited;
+    let forceRules = false;
+    for (let i = 0; i < 3; i++) {
+      stale = null;
+      staleRules = null;
+      await go(force, forceRules);
+      if (stale) {
+        if (!(await askConfirm(`${stale.message}. 그래도 ${n}화를 마칠까요? 반영하면 반영 취소로만 돌아갈 수 있어요.`, { ok: '마치기' }))) return;
+        force = true;
+      } else if (staleRules) {
+        // 다시 계산한 제안을 화면에 놓고 묻는다. 확인하면 서버가 다시 계산한 제안(체크를 푼 key 는 빼고)을 반영한다
+        if (S.deltas[n] && staleRules.body && staleRules.body.rule_proposals) ruleRefresh(n, staleRules.body.rule_proposals);
+        if (!(await askConfirm(`${staleRules.message}. 다시 계산한 규칙 제안으로 ${n}화를 마칠까요?`, { ok: '마치기' }))) return;
+        if (S.deltas[n]) Object.assign(out, { rule_proposals: S.deltas[n].rule_proposals, rule_off: S.deltas[n].rule_off || [] });
+        forceRules = true;
+      } else return;
+    }
   },
   /** 집필 화면 요약 카드의 '추천대로 반영' (write.js gistCard). 상태 승인 화면에서 아무것도 바꾸지 않고 반영하는 것과 같은 요청이다.
       다른 점은 반영한 뒤 그 자리에 남아 카드에 다음 화로 · 반영 취소를 보이는 것뿐이다 */

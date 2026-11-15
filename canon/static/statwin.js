@@ -61,7 +61,7 @@ const swWin = () => P().stat_window || {};
 const swSkin = () => (SW_SKINS[swWin().skin] ? swWin().skin : 'system');
 const swTitle = () => (swWin().title || '').trim() || '상태창';
 const SW_PAGES = { _frame: '작품 틀 · 처음 수치', _decor: '꾸미기' };
-const SW_SOURCE = { ai: 'AI 변경안', author: '작가가 고침', both: '승인 뒤 작가가 고침' };
+const SW_SOURCE = { ai: 'AI 변경안', author: '작가가 고침', both: '승인 뒤 작가가 고침', rule: '상태 규칙' };  // rule: 승인한 상태 규칙 제안 (statwin._merge_source)
 const SW_LOG_FIRST = 5;  // 화별 변화 목록이 처음에 보이는 화 수
 
 async function swLoad(arg) {
@@ -391,7 +391,7 @@ function swLogCard() {
   const shown = S.swLogAll ? rows : rows.slice(0, SW_LOG_FIRST);
   const srcChip = (c) => {
     const s = [...new Set(Object.values(c.changed).map((x) => x.source))];
-    return s.map((k) => `<span class="chip ${k === 'ai' ? 'confirmed' : 'written'}">${SW_SOURCE[k]}</span>`).join('');
+    return s.map((k) => `<span class="chip ${k === 'ai' ? 'confirmed' : k === 'rule' ? '' : 'written'}">${SW_SOURCE[k]}</span>`).join('');
   };
   const list = shown.map((c) => `<li><span class="ep">${c.episode ? `<a href="${base()}/review/${c.episode}">${c.episode}화</a>` : '시작'}</span>
       <span class="sw-chs">${Object.entries(c.changed).map(([name, ch]) => swChangeHtml(name, ch, c.values[name])).join('')}</span><span class="sw-src">${srcChip(c)}</span></li>`).join('');
@@ -409,7 +409,7 @@ function swLogTable() {
     const ch = c.changed[name];
     const v = c.values[name];
     if (!ch) return `<td>${esc(v || '')}</td>`;
-    const src = ch.source === 'ai' ? '' : ' author';
+    const src = ch.source === 'author' || ch.source === 'both' ? ' author' : '';
     const was = c.episode && ch.before ? `<small>${esc(ch.before)}에서</small>` : '';
     return v ? `<td class="ch${src}">${esc(v)}${was}</td>` : `<td class="gone">${esc(ch.before)}<small>지움</small></td>`;
   }).join('')}</tr>`).join('');
