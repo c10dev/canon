@@ -20,6 +20,28 @@ ROLES = {"build": "쌓기", "hold": "미루기", "peak": "터뜨리기", "after"
 KINDS = foreshadows.KINDS
 
 
+def web(p: Project) -> bool:
+    """완급 계획의 웹소설 판을 쓰는가: 웹소설 틀(Meta.frame) 장편 (docs/webnovel/specs/09-heat-frame.md).
+    prompts.arc_axes 의 gain 축과 같은 조건이다. 단편은 웹소설 틀이어도 드라마 판 그대로다."""
+    return p.serial and p.meta.frame == "webnovel"
+
+
+def web_shape(steps: list[HeatStep]) -> list[HeatStep]:
+    """웹소설 판 밑그림: 쌓기 · 미루기가 LONG_BLOCK 화 이어진 뒤에 오는 쌓기 · 미루기 화를 작은 터뜨리기(WEB_SMALL_LEVEL)로 바꾼다.
+    드라마 밑그림(static/heatplan.js 의 heatDefaultFor, mock_heat.shape) 위에 얹는다. heatWebShape 와 같은 규칙."""
+    out: list[HeatStep] = []
+    run = 0
+    for s in sorted(steps, key=lambda s: s.ep):
+        if s.role in BLOCK_ROLES:
+            run += 1
+            if run > LONG_BLOCK:
+                s, run = s.model_copy(update={"level": WEB_SMALL_LEVEL, "role": "peak", "kind": ""}), 0
+        else:
+            run = 0
+        out.append(s)
+    return out
+
+
 class Scope:
     """계획 하나가 덮는 범위: 단편 작품 전체 또는 장편 아크 하나."""
     def __init__(self, steps: list[HeatStep], rule: str, turn: HeatTurn, acts: list, start: int, end: int):
@@ -105,6 +127,10 @@ CV_MIN = 0.5  # 열 눈금 변동계수가 이보다 작으면 기복이 작다 
 FLAT_MIN_EPS = 4  # 이보다 짧은 계획은 기복을 보지 않는다
 EARLY_SHARE = 0.3  # 작품 앞 이 몫 안의 터뜨리기는 이르다
 HOT_CUE = 4  # 쌓기 · 쉬기 화에 이 긴장도 이상 큐가 있으면 경고
+# 웹소설 판 (docs/webnovel/specs/09-heat-frame.md). 고구마 1~3화는 웹소설식 요구 1 (docs/webnovel/README.md, 2026-11-10 작가)과 prompts.ARC_SHORT_BLOCK 의 숫자다
+LONG_BLOCK = 3  # 웹소설 틀 장편에서 쌓기 · 미루기가 이 화 수보다 길게 이어지면 '긴 고구마'
+BLOCK_ROLES = ("build", "hold")  # 주인공이 막히는 몫. 터뜨리기 · 뒷날 · 쉬기가 끊는다
+WEB_SMALL_LEVEL = 3  # 웹소설 판 밑그림의 작은 터뜨리기 눈금 (드라마 밑그림의 낮은 정점과 같은 3)
 WARN_CODES = {
     "flat": "기복이 작음",
     "early_peak": "이른 정점",
@@ -115,6 +141,7 @@ WARN_CODES = {
     "no_aftermath": "관객이 본 일의 결과 없음",
     "late_turn": "늦은 뒤집힘",
     "hot_cue": "쌓기 화의 높은 긴장",
+    "long_block": "긴 고구마",
 }
 
 
@@ -165,7 +192,8 @@ def _scope_warnings(p: Project, sc: Scope) -> list[HeatWarn]:
 
     fs = {f.id: f for f in p.foreshadows}
     levels = [s.level for s in steps]
-    if len(steps) >= FLAT_MIN_EPS:
+    is_web = web(p)  # 웹소설 판: 작은 터뜨리기로 눈금이 고르게 오르내려 기복 · 이른 정점을 보지 않고, 판돈 · 관객 · 제약은 큰 정점(마지막 묶음)만 본다
+    if len(steps) >= FLAT_MIN_EPS and not is_web:
         cv = pstdev(levels) / mean(levels) if mean(levels) else 0.0
         if cv < CV_MIN:
             warn(sc.start if p.serial else 0, "flat", f"세기 눈금의 기복이 작아요 (변동계수 {cv:.2f}, {CV_MIN} 이상을 권해요). 아끼는 화와 터뜨리는 화의 차이를 키워 보세요")
@@ -173,9 +201,11 @@ def _scope_warnings(p: Project, sc: Scope) -> list[HeatWarn]:
     size = end - sc.start + 1
     gi = next((a for a in sc.acts if a.name == "기"), None)
     runs = peak_runs(steps)
-    for run in runs:
+    for k, run in enumerate(runs):
+        if is_web and k < len(runs) - 1:
+            continue
         for s in run:
-            if s.ep - sc.start + 1 <= size * EARLY_SHARE or (gi and gi.start_ep <= s.ep <= gi.end_ep):
+            if not is_web and (s.ep - sc.start + 1 <= size * EARLY_SHARE or (gi and gi.start_ep <= s.ep <= gi.end_ep)):
                 warn(s.ep, "early_peak", f"{s.ep}화의 터뜨리기가 일러요. 앞쪽은 쌓기 · 미루기로 세기를 아껴요")
         first = run[0].ep
         if not any(f.kind == "stake" and f.planted_ep < first and (f.status == "open" or (f.payoff_ep or 0) >= first)
@@ -212,6 +242,16 @@ def _scope_warnings(p: Project, sc: Scope) -> list[HeatWarn]:
     t = sc.turn if sc.turn.plant_ep > 0 else None
     if t and runs and t.fail_ep >= runs[-1][0].ep:
         warn(t.fail_ep, "late_turn", f"반격이 {t.fail_ep}화에 들켜요. 큰 정점({runs[-1][0].ep}화) 전에 들켜야 판돈이 커져요")
+    if is_web:
+        block: list[HeatStep] = []
+        for s in [*sorted(steps, key=lambda s: s.ep), None]:
+            if s is not None and s.role in BLOCK_ROLES:
+                block.append(s)
+                continue
+            if len(block) > LONG_BLOCK:
+                warn(block[0].ep, "long_block", f"{block[0].ep}~{block[-1].ep}화에 쌓기 · 미루기가 {len(block)}화 이어져요. "
+                     f"웹소설 틀은 막히는 구간을 1~{LONG_BLOCK}화로 짧게 두고 작은 터뜨리기로 풀어요")
+            block = []
     for s in steps:
         sheet = next((e.cue_sheet for e in p.episodes if e.plot.number == s.ep), None)
         if s.role in ("build", "rest") and sheet and any(c.tension >= HOT_CUE for c in sheet.cues):

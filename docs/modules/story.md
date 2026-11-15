@@ -521,6 +521,10 @@
 - 화를 끼워 넣거나 빼면 `renumber.move_heat` 가 화 번호를 옮기고 `pipeline._fit_heat` 가 `fit` · `fit_turn` 으로 범위에 맞춘다(빈 계획은 채우지 않음)
 - 경고 `warnings`(`HeatWarn`, 막지 않음): 기복이 작음 · 이른 정점 · 판돈 없는 정점 · 관객 · 제약 없는 정점 · 같은 종류 정점 · 커지지 않은 판돈 · 관객이 본 일의 결과 없음 · 늦은 뒤집힘 · 쌓기 화의 높은 긴장(`WARN_CODES`)
 - 장편 경고는 아크마다 따로 본다(`_scope_warnings`). 기복 경고는 아크 첫 화를, 이른 정점은 아크 안 앞쪽인지를 본다
+- 웹소설 판 `web`(웹소설 틀 장편, `prompts.arc_axes` 의 gain 축과 같은 조건): 기복 · 이른 정점을 보지 않고, 판돈 없는 정점 · 관객 · 제약 없는 정점은 큰 정점(마지막 터뜨리기 묶음)만 본다(docs/webnovel/specs/09-heat-frame.md)
+- 웹소설 판은 '긴 고구마'(`long_block`)를 더한다: 쌓기 · 미루기(`BLOCK_ROLES`)가 `LONG_BLOCK`(3, 웹소설식 요구의 고구마 1~3화) 화보다 길게 이어지면 그 첫 화를 가리킨다. 터뜨리기 · 뒷날 · 쉬기가 끊는다
+- 긴 고구마는 완급 계획의 몫만 본다. 화 플롯의 사이다(`EpisodePlot.reward`)로 보는 고구마 경고는 웹소설 일감 7 의 몫이다
+- 웹소설 판 밑그림 `web_shape`: 쌓기 · 미루기가 `LONG_BLOCK` 화 이어진 뒤에 오는 쌓기 · 미루기 화를 작은 터뜨리기(`WEB_SMALL_LEVEL` 3)로 바꾼다. 가짜 응답과 화면 '직접 적기'가 드라마 밑그림 위에 얹는다
 - 잇닿은 터뜨리기 화는 한 정점으로 묶는다(`peak_runs`). 종류 · 판돈 견주기는 정점끼리 한다
 - 기복은 세기 눈금 변동계수가 `CV_MIN` 미만이면 경고한다(`FLAT_MIN_EPS` 화 넘는 계획만). 이른 정점은 기 구간이나 작품 앞 `EARLY_SHARE` 안
 - 관객 결과는 관객 복선을 처음 거둔 화의 다음 화 플롯(요약 · 사건 · 회수 id)에 그 복선 id 가 있는지로만 본다
@@ -1076,6 +1080,7 @@
 - 막대를 누르면(`heatPick`) 눈금 · 몫 나눔 버튼(`heatLevel` · `heatRole`)과 정점 종류 · 한 줄 칸(`heat.<i>.kind` · `note`)을 편다
 - 몫을 터뜨리기 밖으로 바꾸면 정점 종류를 지운다
 - 경고 `heatWarnings`(범위마다 `heatScopes` · `heatScopeWarnings`) · 재기 `heatDensity` · `heatCueTension` 은 `heatplan.warnings` · `density` · `cue_tension` 과 같은 규칙(`tests/test_heatplan_js.py` · `test_heat_arcs.py`)
+- 웹소설 판 `heatWeb` · `heatWebShape` · 긴 고구마 경고는 `heatplan.web` · `web_shape` · `long_block` 과 같은 규칙(`tests/test_heat_frame.py`). 웹소설 틀 장편의 '직접 적기'는 드라마 밑그림에 `heatWebShape` 를 얹는다
 - 판돈 · 제약 · 관객 · 금지선 목록(`heatStakes`): 갈래 풀기 · 판돈 드러남(`heatKind` · `heatPublic`, 복선 고치기 API)
 - 열린 단서 복선에 갈래 붙이기, 새로 심기(`heatAddStake`, 복선 더하기 API, 플롯이 있는 화에만)
 - 뒤집힘 칸(`heat_turn.plant_ep` · `fail_ep` · `gain`)과 열 원칙 칸(`heat_rule`)

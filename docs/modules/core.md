@@ -441,6 +441,7 @@
 - 두 능력 일정 요청은 도감에 없는 능력의 도감 초안도 받는다(`prompts.ability_codex_rule`, 응답 `AbilityProposal.codex`, 정리 `blueprint.clean_codex`, `docs/blueprint/specs/13-ability-codex.md`)
 - 두 능력 일정 요청은 능력 블록 `prompts.ability_ai_block`(도감 이름 · 상태창의 능력 · 이미 적은 줄, 예산 `context.BUDGET["ability_ai"]` 3,000자를 묶음마다 차례로 씀)과 공통 요구사항 `ability_ai_rules` 를 쓴다
 - 다음 아크 `plan_next_arc` 는 `heat_plan` 을 켜면 `HeatArcProposal` 로 묻고(`prompts.heat_next_arc_rules`), `clean_arc` 가 완급 계획을 아크 범위에 맞춰 `arc.heat` 로 옮기고, `apply_arc` 가 판돈을 복선에 더한다
+- `plan_next_arc` · `propose_heat` 는 웹소설 틀 장편이면(`heatplan.web`) 완급 계획 규칙의 웹소설 판으로 묻는다. `propose_heat` 의 힌트 `web` 은 가짜 응답이 쓴다
 - 다음 아크 · 플롯 대화는 응답 형식을 `prompts.arc_schema` 로 고른다. 웹소설 틀이나 하렘 요소가 있는 장편만 `gain` · `focus` 칸이 든 판이다(docs/webnovel/specs/04-arc-frame.md)
 - `clean_arc` · `_clean_arc_edit` 는 `focus` 를 있는 인물 id 만 남긴다(`clean_focus`)
 - `apply_arc` 는 틀별 판으로 받은 아크를 저장 모델 `StoryArc` 로 바꿔 붙인다
@@ -680,6 +681,9 @@
 - 드라마 틀 · 하렘 없음이면 틀별 줄은 모두 지금 글 그대로다(`tests/test_frame.py` 의 `test_frame_changes_only_logline_arc_and_plot_planning`)
 - '지금 부와 아크'(`structure_text`)는 아크의 `gain` · `focus` 를 장편 화별 플롯 초안(`plan=True`, `serial_plot_prompt`)에만, 축이 켜진 칸만 넣는다. 본문 쓰기 · 검수 · 스토리보드 · 줄기 요청에는 넣지 않는다
 - 완급 계획 받기 요청 `heat_propose_prompt`: 기승전결, 화별 플롯, 본문 있는 화의 실제 열 참고값과 지금 계획, 열린 복선. 요구사항은 단편 기획과 같은 `heat_rules`
+- 웹소설 틀 장편(`heatplan.web`)의 `heat_rules` 는 웹소설 판 줄을 쓴다: 짧은 쌓기 · 미루기(`HEAT_WEB_BLOCK`, 1~3화) · 작은 터뜨리기(`HEAT_WEB_SMALL`) · 큰 정점만 받침(`HEAT_WEB_PROP`) · 고르는 뒤집힘(`HEAT_WEB_TURN`)(docs/webnovel/specs/09-heat-frame.md)
+- 다음 아크(`heat_next_arc_rules`) · 완급 계획 받기 · 작업지시서 구조 짜기(`arc_ask`)가 같은 조건으로 웹소설 판을 고른다. 단편 기승전결(`heat_arc_rules`)은 늘 드라마 판이다
+- 웹소설 틀 장편의 `heat_plot_rules` 는 판돈 · 관객 · 제약 id 를 넣는 화를 큰 정점(`HEAT_WEB_PAYOFF`)으로 좁힌다. 쓰기 · 스토리보드 · 큐 시트의 이번 화 열 줄(`HEAT_ROLE_GUIDE`)은 두 틀이 같다
 - 작업지시서(`episode_brief`, `state_brief`)
 - 작업지시서는 `brief_parts`(역할 = 시스템, 요청)로 조립한다. 갈래 목록은 `BRIEF_KINDS`(`BriefKind`: 이름 · 필요한 것 · 고르는 단위 · 장편만)
 - `BRIEF_KINDS` 는 호출 갈래 표 `KINDS` 가운데 `brief` 가 있는 갈래를 고른 보기다. 열쇠 · 값 · 차례는 레지스트리 전과 같다

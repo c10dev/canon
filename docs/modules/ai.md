@@ -287,6 +287,7 @@
   - `mock_blueprint.py` 작품 전체 짜기(`BlueprintPlanSet`): 쌍마다 차례로 엇갈린 이정표 두 줄 · 칸 한 칸, 능력 한 줄, 정리가 거르는 항목(고르지 않은 쌍, 같은 쌍 두 번째 항목, 범위 밖 편성)
   - `mock_drill.py` 지시 연습: 사실 뽑기(`DrillFacts`)와 되짚기(`DrillReview`), 정리가 거르는 항목(원문을 옮긴 줄, 본문에 없는 인용, 없는 줄 번호)
   - `mock_heat.py` 완급 계획: 기승전결과 함께(`HeatArcPlan`), 다음 아크와 함께(`HeatArcProposal`), 완급 계획만(`HeatProposal`, 첫 화를 열 5로 보내 본문 있는 화 지키기를 시험)
+  - `mock_heat.py` 는 웹소설 틀 장편(힌트 `web` · `gain`)이면 웹소설 판(`heatplan.web_shape`, 뒤집힘 없음)을 보낸다
   - `mock_knows.py` 아는 정보 접기
   - `mock_offscreen.py` 화면 밖 근황
   - `mock_play.py` 장면

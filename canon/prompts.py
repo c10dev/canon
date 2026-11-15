@@ -1444,6 +1444,9 @@ def heat_stakes_text(p: Project) -> str:
                      f"{f', {f.due_ep}화에 거둘 예정' if f.due_ep else ''})" for f in rows)
 
 
+HEAT_WEB_PAYOFF = "큰 정점(계획의 마지막 터뜨리기) 화"  # 웹소설 틀 장편의 화별 플롯 규칙에서 판돈 · 관객 · 제약을 받치는 화 (docs/webnovel/specs/09-heat-frame.md)
+
+
 def heat_plot_rules(p: Project, n: int = 0) -> str:
     """화별 플롯을 쓸 때 열 계획 블록과 규칙. 단편은 작품 전체, 장편은 n화가 든 아크의 계획. 계획이 없으면 빈 글 (지금 프롬프트와 같다)."""
     steps = heatplan.plan(p, n)
@@ -1460,7 +1463,7 @@ def heat_plot_rules(p: Project, n: int = 0) -> str:
 - 작가가 정한 열 계획을 따릅니다. 열은 긴장과 보상을 얼마나 쓰는지입니다 (0 없음 ~ {heatplan.LEVEL_MAX} 가장 셈). 수위가 아니라 언제 터뜨리는지를 정합니다.
 {lines}{f"{chr(10)}  열 원칙: {rule}" if rule.strip() else ""}{turn}
 - 화의 사건은 그 화의 몫을 따릅니다. 쌓기 · 미루기 · 쉬기 화에 정점 사건을 넣지 않고, 터뜨리기 화는 앞 화에 심은 것을 거둡니다.
-- 터뜨리기 화의 foreshadow_payoff 에는 받치는 판돈(stake) 하나와 관객(audience)이나 제약(constraint) 하나의 복선 id 를 넣습니다.
+- {HEAT_WEB_PAYOFF if heatplan.web(p) else "터뜨리기 화"}의 foreshadow_payoff 에는 받치는 판돈(stake) 하나와 관객(audience)이나 제약(constraint) 하나의 복선 id 를 넣습니다.
 - 관객 복선을 거둔 화의 다음 화 events 에는 그 사람이 본 일의 결과를 하나 넣고, 그 복선 id 를 적습니다.
 - 정점이 둘이면 종류가 달라야 하고, 뒤 정점의 판돈은 앞 정점보다 커야 합니다 (남에게 드러나는 쪽으로).
 - 복선 갈래:
@@ -1469,25 +1472,40 @@ def heat_plot_rules(p: Project, n: int = 0) -> str:
 {stakes or "없음"}"""
 
 
-def heat_rules(span: str, size: int, lead: str) -> str:
-    """열 계획 요구사항. span 은 다룰 화 범위 글('1화부터 16화까지'), size 는 화 수, lead 는 첫 줄 (함께 짜는지, 따로 짜는지)."""
-    low = "승 구간 끝에 낮은 정점을 하나 더 두고, 큰 정점과 종류를 다르게 합니다. 낮은 정점은 대화(흥정, 심문)가 이끕니다." if size >= 13 else "정점은 하나만 둡니다."
+# 완급 계획 규칙의 웹소설 판 줄 (docs/webnovel/specs/09-heat-frame.md). 웹소설 틀 장편(heatplan.web)만 쓴다. 드라마 틀 · 단편은 heat_rules 의 원래 글
+HEAT_WEB_BLOCK = "- 주인공이 막히는 쌓기 · 미루기는 1~3화로 짧게 끊고 작은 터뜨리기로 풉니다. 쌓기 · 미루기 화는 열 2 이하입니다. 매 화 비슷한 열을 쓰지 않습니다."
+HEAT_WEB_SMALL = "큰 정점 앞에는 막힌 것을 푸는 작은 터뜨리기를 자주 둡니다. 작은 터뜨리기는 큰 정점보다 낮은 열로 둡니다."
+HEAT_WEB_PROP = "큰 정점은 그 전 화에 심은 stake 하나와 audience 나 constraint 하나가 받쳐야 합니다."
+HEAT_WEB_TURN = ("- heat_turn 은 이 구간에 뒤집힘이 어울릴 때만 적습니다. 적으면 약한 쪽의 반격 하나를 plant_ep 에 심고, 큰 정점 전 fail_ep 에 들키게 합니다. "
+                 "반격은 겉으로 성공했다가 화의 마지막 줄에서 들킵니다. gain 에 들킨 대가로 상대가 쥐는 새 판돈을 적습니다. 적지 않으면 plant_ep 와 fail_ep 를 0 으로 둡니다.")
+
+
+def heat_rules(span: str, size: int, lead: str, web: bool = False) -> str:
+    """열 계획 요구사항. span 은 다룰 화 범위 글('1화부터 16화까지'), size 는 화 수, lead 는 첫 줄 (함께 짜는지, 따로 짜는지).
+    web 이면 웹소설 판 줄(HEAT_WEB_*): 짧은 쌓기 · 미루기, 작은 터뜨리기, 큰 정점만 받침, 고르는 뒤집힘. 아니면 원래 글 그대로."""
+    if web:
+        low = HEAT_WEB_SMALL
+    else:
+        low = "승 구간 끝에 낮은 정점을 하나 더 두고, 큰 정점과 종류를 다르게 합니다. 낮은 정점은 대화(흥정, 심문)가 이끕니다." if size >= 13 else "정점은 하나만 둡니다."
     roles = "\n".join(f"  - {k}: {v}" for k, v in HEAT_ROLE_GUIDE.items())
     kinds = "\n".join(f"  - {k}: {v}" for k, v in HEAT_KIND_GUIDE.items())
+    block = HEAT_WEB_BLOCK if web else "- 쌓기 · 미루기가 앞쪽 40~50% 를 차지하고, 이 구간은 열 2 이하입니다. 매 화 비슷한 열을 쓰지 않습니다."
+    prop = HEAT_WEB_PROP if web else "정점마다 그 전 화에 심은 stake 하나와 audience 나 constraint 하나가 받쳐야 합니다."
+    turn = HEAT_WEB_TURN if web else "- heat_turn: 약한 쪽의 반격 하나를 plant_ep 에 심고, 큰 정점 전 fail_ep 에 들키게 합니다. 반격은 겉으로 성공했다가 화의 마지막 줄에서 들킵니다. gain 에 들킨 대가로 상대가 쥐는 새 판돈을 적습니다."
     return f"""
 
 {lead} 열은 긴장과 보상을 얼마나 쓰는지입니다 (0 없음 ~ {heatplan.LEVEL_MAX} 가장 셈). 수위가 아니라 언제 아끼고 언제 터뜨리는지를 정합니다.
 - heat 에는 {span} 화마다 한 줄씩 level(0~{heatplan.LEVEL_MAX}) · role · note 를 빈틈없이 적습니다. role 은 아래 다섯 가지입니다.
 {roles}
-- 쌓기 · 미루기가 앞쪽 40~50% 를 차지하고, 이 구간은 열 2 이하입니다. 매 화 비슷한 열을 쓰지 않습니다.
+{block}
 - 큰 정점(peak)은 전 구간 끝에 둡니다. {low}
 - 정점 화에는 kind 에 정점 종류를 한 줄로 적습니다 (예: 맨정신의 흥정, 관객 앞 촬영). 다른 화는 kind 를 비웁니다.
 - 터뜨리기 다음 화는 뒷날(after)입니다.
 - heat_rule 에 열 원칙을 한 줄로 적습니다.
-- stakes 에는 정점을 받칠 새 복선을 2~5개 적습니다. 이미 있는 복선과 같은 것은 다시 적지 않습니다. 정점마다 그 전 화에 심은 stake 하나와 audience 나 constraint 하나가 받쳐야 합니다. kind 는 아래 넷 중 하나이고, planted_ep 는 심는 화입니다.
+- stakes 에는 정점을 받칠 새 복선을 2~5개 적습니다. 이미 있는 복선과 같은 것은 다시 적지 않습니다. {prop} kind 는 아래 넷 중 하나이고, planted_ep 는 심는 화입니다.
 {kinds}
 - 큰 정점의 stake 는 앞 정점의 stake 보다 커야 합니다. 남에게 드러나는 쪽으로 커지면 public 을 true 로 적습니다.
-- heat_turn: 약한 쪽의 반격 하나를 plant_ep 에 심고, 큰 정점 전 fail_ep 에 들키게 합니다. 반격은 겉으로 성공했다가 화의 마지막 줄에서 들킵니다. gain 에 들킨 대가로 상대가 쥐는 새 판돈을 적습니다."""
+{turn}"""
 
 
 def heat_arc_rules(total: int) -> str:
@@ -1495,9 +1513,9 @@ def heat_arc_rules(total: int) -> str:
     return heat_rules(f"1화부터 {total}화까지", total, "열 계획도 함께 짭니다.")
 
 
-def heat_next_arc_rules(start: int, length: int) -> str:
-    """다음 아크 기획 때 열 계획을 함께 받는 요구사항 (Settings.heat_plan 을 켠 장편, 응답 형식 HeatArcProposal)."""
-    return heat_rules(f"아크 첫 화({start}화)부터 아크 끝 화(arc.end_ep)까지", length, "이 아크의 열 계획도 함께 짭니다. 앞 아크와 같은 판돈 · 같은 종류의 정점을 되풀이하지 않습니다.")
+def heat_next_arc_rules(start: int, length: int, web: bool = False) -> str:
+    """다음 아크 기획 때 열 계획을 함께 받는 요구사항 (Settings.heat_plan 을 켠 장편, 응답 형식 HeatArcProposal). web 은 heatplan.web(p)."""
+    return heat_rules(f"아크 첫 화({start}화)부터 아크 끝 화(arc.end_ep)까지", length, "이 아크의 열 계획도 함께 짭니다. 앞 아크와 같은 판돈 · 같은 종류의 정점을 되풀이하지 않습니다.", web)
 
 
 def _bp_ids_block(p: Project) -> str:
@@ -1795,7 +1813,7 @@ def heat_propose_prompt(p: Project, start: int, end: int, acts: list, where: str
 [본문이 있는 화]
 {chr(10).join(written) or "없음"}
 [열린 복선]
-{clues or "없음"}""" + heat_rules(f"{start}화부터 {end}화까지", end - start + 1, "요구사항:") + """
+{clues or "없음"}""" + heat_rules(f"{start}화부터 {end}화까지", end - start + 1, "요구사항:", heatplan.web(p)) + """
 - 본문이 있는 화는 지금 계획이 있으면 그대로 적고, 없으면 그 화의 플롯과 참고값에 맞게 매깁니다.
 - 열린 복선 가운데 판돈 · 관객 · 제약이 될 것은 stakes 에 새로 적지 말고 note 에서 그 id 로 가리킵니다."""
 
@@ -6916,7 +6934,7 @@ def arc_ask(p: Project) -> tuple[str, type[BaseModel]]:
     start, length = pipeline.next_arc_start(p), p.meta.arc_length
     if start > p.meta.target_episodes:
         raise ValueError(f"총 {p.meta.target_episodes}화까지 아크가 모두 있어요")
-    return (next_arc_prompt(p, start, length, "") + (heat_next_arc_rules(start, length) if heat else ""),
+    return (next_arc_prompt(p, start, length, "") + (heat_next_arc_rules(start, length, heatplan.web(p)) if heat else ""),
             arc_schema(p, HeatArcProposal if heat else ArcProposal))
 
 
