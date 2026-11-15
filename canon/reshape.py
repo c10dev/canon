@@ -78,6 +78,7 @@ def clean_rebuild(p: Project, prop: SerialRebuild, total: int = 0) -> SerialRebu
         validate_arc(ArcPlan(acts=a.acts), a.end_ep, a.start_ep)
         a.acts = sorted(a.acts, key=lambda x: x.start_ep)
         a.cast = [c for c in dict.fromkeys(a.cast) if c in known]
+        a.focus = a.focus.strip() if a.focus.strip() in known else ""  # 공략 대상은 있는 인물 id 만 (작가가 화면에서 적은 값)
         expected = a.end_ep + 1
     last = expected - 1
     if last > total:
