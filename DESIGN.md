@@ -26,7 +26,7 @@ AI 로 소설을 길게 쓸수록 인물 말투, 관계, 심리, 복선, 문체�
 | 영역 | 모델 | 내용 | 바뀌는 시점 |
 |---|---|---|---|
 | 기본 정보 | `Meta` | 형식(`form`: short/serial), 아크 길이 기본값(`arc_length`), 제목, 장르(`genres`: 장르 id 목록, `genre`: 표시용 이름), 성인물 여부(`adult`), 로그라인(`logline`, 다섯 칸 `logline_parts`), 주제, 톤(`tone`, 다이얼 `tone_dials`), 총 화수, 화당 분량 | 설정 단계 |
-| 이야기 틀 | `Meta.frame` | 드라마식(`drama`, 기본) · 웹소설식(`webnovel`). 작가가 설정 화면이나 `new --frame` 으로 고른다. 장르는 틀을 권하기만 한다(`Genre.frame`). 로그라인 칸(웹소설 칸 둘)과 설정 대화 요청, 장편의 부 구성 · 다음 아크 · 플롯 대화 아크 규칙과 장편 전환의 부 전환 줄이 틀을 따른다. 화별 플롯은 아직 따르지 않는다(`docs/webnovel/specs/04-arc-frame.md`) | 설정 단계 |
+| 이야기 틀 | `Meta.frame` | 드라마식(`drama`, 기본) · 웹소설식(`webnovel`). 작가가 설정 화면이나 `new --frame` 으로 고른다. 장르는 틀을 권하기만 한다(`Genre.frame`). 로그라인 칸(웹소설 칸 둘)과 설정 대화 요청, 장편의 부 구성 · 다음 아크 · 플롯 대화 아크 규칙과 장편 전환의 부 전환 줄이 틀을 따른다(`docs/webnovel/specs/04-arc-frame.md`). 장편의 화별 플롯 규칙 · 1~3화 초반 규칙 · 초반 판정의 '걸린 것' 설명도 틀을 따른다. 단편의 화별 플롯은 그대로다(`docs/webnovel/specs/06-plot-frame.md`) | 설정 단계 |
 | 세계관 | `WorldSetting` | 배경, 시대, 깨면 안 되는 규칙, 장소, 이름 스타일(`name_style`, 비면 자동 감지), 이름 규칙(`name_rules`) | 설정 단계 |
 | 인물 (불변) | `Character` | 나이, 성별, 성격, 배경, 목표, 결핍, **말투(speech_style)**, 시점 화의 서술 말투(`narration_voice`), 비밀, 아크, 등장 비중(`tier`: main/support/minor), 처음 나온 화(`first_ep`), 프롬프트에 넣기(`context`: auto/always/off, 작가 전용이라 AI 응답 형식과 프롬프트 직렬화에서 뺀다) | 설정 단계, 장편은 새 인물 승인 때. 본문이 바꾼 설정은 작가가 고른 설정 바꾸기 제안으로 |
 | 설정 변경 기록 | `SettingRecord` (`setting_log`), `SettingChange` (`setting_held`) | 바뀐 화, 칸, 전후 값, AI(승인한 제안) · 작가(1화 반영 뒤 설정 화면 수정), 이유, 근거 문장. 자동 집필이 남겨 둔 제안 | 승인 · 설정 저장 때 |
@@ -44,7 +44,7 @@ AI 로 소설을 길게 쓸수록 인물 말투, 관계, 심리, 복선, 문체�
 | 아크 (장편) | `StoryArc` (`story_arcs`) | 범위, 목표, 갈등, 결말, 자기 기승전결(`acts`), 주요 인물(`cast`), 회수할 떡밥(`payoffs`), 서술 시점 운용(`pov`), 끝난 뒤 요약, 얻는 성장(`gain`, 웹소설 틀) · 공략 대상(`focus`, 하렘 요소) | 아크마다 승인, 요약 승인 |
 | 전환 기록 (장편) | `Conversion` (`conversion`) | 단편에서 장편으로 바꾼 시각, 방식(`mode`: continue 이어 쓰기 / rebuild 재구성), 전 화수, 아크 1 끝 화, 결말 처리, 재구성이 옮기지 못한 것(`notes`). 되돌릴 백업은 `before-serial.json` | 전환 때, 되돌리면 지움 |
 | 옛 단편 보관함 (재구성) | `ShortArchive` (`archive`) | 재구성 전 단편의 화 · 기승전결 · 상태 변경 기록과 새 화 지도(`RebuildEpisode`), 쓰지 않는 옛 화 | 재구성 때, 되돌리면 지움 |
-| 화별 플롯 | `EpisodePlot` | 제목, 요약, 사건 목록, 등장 인물, 감정 변화, 엔딩 훅, 심을/회수할 복선, 따라가는 이야기 줄기(`storyline`, 비면 메인)와 끼어드는 줄기(`threads`), 1~3화만 여는 장면(`opening`)과 독자가 들고 갈 질문(`reader_question`), 시점 인물(`pov`)과 서술 방식(`pov_mode`, 둘 다 비면 구간 · 아크 · 작품 기본 시점) | 초안 → 사용자 확정 |
+| 화별 플롯 | `EpisodePlot` | 제목, 요약, 사건 목록, 등장 인물, 감정 변화, 엔딩 훅, 심을/회수할 복선, 따라가는 이야기 줄기(`storyline`, 비면 메인)와 끼어드는 줄기(`threads`), 1~3화만 여는 장면(`opening`)과 독자가 들고 갈 질문(`reader_question`), 시점 인물(`pov`)과 서술 방식(`pov_mode`, 둘 다 비면 구간 · 아크 · 작품 기본 시점), 이 화의 사이다(`reward`, 웹소설 틀 장편만 AI 가 채운다) | 초안 → 사용자 확정 |
 | 회차 | `Episode` | 플롯 + 상태(draft → confirmed → written → finalized) + 본문 + 요약 + 마지막 검수 결과(`issues`) | 진행에 따라 |
 | 문체 기준값 | `StyleMetrics` | 레퍼런스 원문 전체로 잰 문장 길이, 대사 비율, 과거형 비율, 쇠맛 패턴 빈도, 문체 거리 기준(어절 끝 특징 중심과 퍼짐) 등 (`style_baseline`) | 스타일 분석 후 |
 | 문체 출처 | `style_id`, `style_version` | 문체를 가져온 라이브러리 항목 id 와 그 버전 번호. 비어 있으면 작품에서 직접 만든 문체 | 라이브러리 적용 · 올리기 때 |

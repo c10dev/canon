@@ -1,5 +1,5 @@
 """부 · 아크 기획의 이야기 틀 (docs/webnovel/specs/04-arc-frame.md): 틀별 응답 형식, 빈 칸이 새지 않음, 얻는 성장 · 공략 대상 칸 (mock LLM).
-틀별 요청 글은 tests/test_frame.py 의 test_frame_changes_only_logline_and_arc_planning 과 tests/test_prompt_registry.py 스냅샷이 본다.
+틀별 요청 글은 tests/test_frame.py 의 test_frame_changes_only_logline_arc_and_plot_planning 과 tests/test_prompt_registry.py 스냅샷이 본다.
 실행: python -m pytest tests/test_arc_frame.py"""
 import json
 
@@ -117,14 +117,15 @@ def test_arc_card_shows_frame_fields_only_when_asked():
 
 
 def test_filled_fields_reach_only_planning_requests():
-    """값이 찬 gain · focus 는 부 · 아크 기획과 아크 분석 요청에만 들어간다. 화별 플롯 · 본문 쓰기 · 검수의 '지금 부와 아크'(structure_text)에는 넣지 않는다 (일감 6 이 정한다)."""
+    """값이 찬 gain · focus 는 부 · 아크 기획과 아크 분석 요청, 장편 화별 플롯 초안(일감 6 의 정할 것 5)에만 들어간다.
+    본문 쓰기 · 검수 · 스토리보드의 '지금 부와 아크'(structure_text)에는 넣지 않는다."""
     from . import test_prompt_registry as reg
 
     p = reg._web(reg._long)
     for a in p.story_arcs:
         a.gain, a.focus = "검술 해금 표지", "ally"
     got = {**reg._requests(p), **reg._arc_requests(p)}
-    assert sorted(k for k, v in got.items() if "검술 해금 표지" in v) == ["brief:agent_plot", "brief:arc", "impact", "plot_chat:arc", "plot_chat:next", "recap"]
+    assert sorted(k for k, v in got.items() if "검술 해금 표지" in v) == ["brief:agent_plot", "brief:arc", "brief:plot", "brief:plots", "impact", "plot_chat:arc", "plot_chat:next", "recap"]
 
 
 def test_framed_instances_save_and_reload(tmp_path, monkeypatch, client):

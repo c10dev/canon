@@ -102,6 +102,7 @@ from .schema import (
     TextPatch,
     TierChange,
     WorldSetting,
+    frame_of,
 )
 
 T = TypeVar("T", bound=BaseModel)
@@ -654,6 +655,18 @@ MOCK_FIELD_IDEAS = {
 }
 
 
+def _fill_reward(m) -> None:
+    """응답 안의 모든 화 플롯(EpisodePlot)에 빈 reward 가 있으면 가짜 사이다 한 줄을 넣는다."""
+    if isinstance(m, EpisodePlot):
+        m.reward = m.reward or f"{m.number}화의 작은 승리"
+    if isinstance(m, BaseModel):
+        for k in type(m).model_fields:
+            _fill_reward(getattr(m, k))
+    elif isinstance(m, list):
+        for x in m:
+            _fill_reward(x)
+
+
 class MockLLM:
     knows_cut = True  # 끊긴 응답을 last_finish 로 알린다 (CUT_TEXT). pipeline._write 가 출력 한도를 건다
     last_finish = ""
@@ -664,7 +677,12 @@ class MockLLM:
         for base in schema.__mro__:  # 틀별 판(schema.framed)은 원래 모델의 가짜 응답을 그 판으로 다시 읽어 낸다 (실제 백엔드처럼)
             if base in RESPONDERS:
                 out = RESPONDERS[base](prompt, hint)
-                return out if base is schema else schema.model_validate(out.model_dump())  # type: ignore[return-value]
+                if base is schema:
+                    return out
+                out = schema.model_validate(out.model_dump())
+                if frame_of(schema)[0]:  # 웹소설 틀 판: 화 플롯마다 이 화의 사이다를 채운다 (docs/webnovel/specs/06-plot-frame.md)
+                    _fill_reward(out)
+                return out  # type: ignore[return-value]
         raise NotImplementedError(schema.__name__)
 
     def text(self, system: str, prompt: str) -> str:

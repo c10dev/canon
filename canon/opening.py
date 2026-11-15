@@ -9,6 +9,7 @@ from .schema import Episode, EpisodePlot, HookReport, OpeningPlots, Project
 from .pipeline import (  # pipeline 의 공용 도우미
     LOCKED,
     _now,
+    keep_unasked_plot,
     style_baseline,
     sync_candidates,
     text_basis,
@@ -105,7 +106,7 @@ def suggest_openings(llm: LLM, p: Project, n: int, approaches: list[str] | None 
     if not p.beats() or not p.act_for(n):
         raise ValueError("다음 아크를 먼저 기획하세요" if p.serial else "기승전결 구조(arc)를 먼저 만드세요")
     ways = _approaches(approaches)
-    out = llm.json(prompts.SYSTEM_PLANNER, prompts.opening_plots_prompt(p, n, ways), OpeningPlots,
+    out = llm.json(prompts.SYSTEM_PLANNER, prompts.opening_plots_prompt(p, n, ways), prompts.arc_schema(p, OpeningPlots),
                    hint={"episode": n, "approaches": ways, "act": p.act_for(n).name})
     return clean_openings(p, n, out, ways)
 
@@ -148,6 +149,7 @@ def apply_opening(p: Project, n: int, plot: EpisodePlot) -> None:
         plot.pov_mode = cur.plot.pov_mode or plot.pov_mode
         plot.foreshadow_payoff = cur.plot.foreshadow_payoff or plot.foreshadow_payoff
         plot.characters = list(dict.fromkeys(cur.plot.characters + plot.characters))
+        keep_unasked_plot(p, plot, cur.plot)  # 묻지 않은 사이다 칸 (docs/webnovel/specs/06-plot-frame.md)
     # 처음 고르기 전 플롯을 남겨 새로고침 뒤에도 되돌릴 수 있게 한다. 다른 안으로 다시 바꿔도 처음 것을 지킨다
     prev = (cur.opening_prev or cur.plot).model_copy(deep=True) if cur else None
     by_no[n] = Episode(plot=plot, opening_prev=prev, direction=cur.direction if cur else "")  # 작가 연출 지시는 안을 바꿔도 남긴다

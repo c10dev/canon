@@ -625,6 +625,7 @@ function plotEditor(e) {
       ${n <= 3 || e.plot.opening ? input('여는 장면', b + '.opening', { ...ro, rows: 2, autogrow: true, hint: n <= 3 ? '초반 화는 첫 장면이 독자를 붙잡아요' : '' }) : ''}
       ${input('감정 변화', b + '.emotional_shift', { ...ro, rows: 1, autogrow: true, hint: '겉으로 보이는 행동이나 대사' })}
       ${input('엔딩 훅', b + '.ending_hook', { ...ro, rows: 2, autogrow: true })}
+      ${rewardOn(e) ? input('이 화의 사이다', b + '.reward', { ...ro, rows: 1, autogrow: true, help: REWARD_HELP }) : ''}
       ${n <= 3 || e.plot.reader_question ? input('독자가 들고 갈 질문', b + '.reader_question', { ...ro, rows: 2, autogrow: true, hint: n <= 3 ? '이 화를 읽고 다음 화를 누르게 하는 질문' : '' }) : ''}`)}
     ${sec('복선', `<div class="grid-2">${input('심을 복선', b + '.foreshadow_plant', { ...ro, kind: 'list', rows: 2 })}${payoffPicker('회수할 복선', b + '.foreshadow_payoff', locked)}</div>`)}
     ${tools ? `<details class="card plot-tools"${S.insForm ? ' open' : ''}><summary><strong>화 도구</strong> <span class="small">끼워 넣기 · 빼기 · 지우기</span></summary><div class="plot-tools-body">${tools}</div></details>` : ''}
@@ -638,6 +639,10 @@ function plotEditor(e) {
     </div>
     ${openingPlotBlock(e)}`;
 }
+
+// 이 화의 사이다 칸 (docs/webnovel/specs/06-plot-frame.md). 웹소설 틀 장편이나 값이 있는 화에만, 설명은 풍선 (덜기)
+const REWARD_HELP = '이 화에서 독자가 받는 보상 한 줄. 막힌 것을 풀거나 무언가를 얻는 화만 적고, 그런 화가 아니면 비워요';
+const rewardOn = (e) => (serial() && P().meta.frame === 'webnovel') || !!e.plot.reward;
 
 // 등장 인물: 비중별로 묶고, AI 플롯이 데려온 새 인물 후보와 설정 없는 id 를 따로 보여 준다
 const TIERS = [['main', '주역'], ['support', '조연'], ['minor', '단역']];

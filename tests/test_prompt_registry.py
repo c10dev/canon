@@ -108,7 +108,8 @@ def _plot_requests(p) -> dict[str, str]:
             "hook": prompts.hook_prompt(p, 1, p.episode(1).text)}
 
 
-FRAME_KEYS = ("brief:agent_plot", "brief:arc", "brief:series", "plot_chat:arc", "plot_chat:next", "convert")  # 이야기 틀이 바꾸는 요청
+FRAME_KEYS = ("brief:agent_plot", "brief:arc", "brief:series", "plot_chat:arc", "plot_chat:next", "convert",  # 이야기 틀이 바꾸는 요청
+              "brief:plot", "brief:plots", "episode:1", "hook", "impact_prompt", "opening_plots", "plot_chat:episode")  # 화별 플롯 (06-plot-frame.md)
 
 
 def _web(make):
@@ -130,7 +131,7 @@ def _all() -> dict[str, str]:
         out.update({f"{tag}:{k}": v for k, v in _arc_requests(make()).items()})
         out.update({f"{tag}:{k}": v for k, v in _plot_requests(make()).items()})
         p = _web(make)
-        web = {**_requests(p), **_arc_requests(p)}
+        web = {**_requests(p), **_arc_requests(p), **_plot_requests(p)}
         out.update({f"{tag}_web:{k}": web[k] for k in FRAME_KEYS if k in web and (k == "convert") == (tag == "short")})
     return out
 

@@ -106,6 +106,7 @@
 - `write` · `import` · `rewrite` 는 고친 곳 수를 '규칙으로 N곳 고쳤어요' 로, 시간 한도로 건너뛴 묶음을 '! 규칙 묶음 ○○을 거는 데 너무 오래 걸려서 건너뛰었어요' 로 찍는다(`_print_rules`)
 - `fix` 는 `revise_passage(rules=True)` 로 후보마다 규칙을 걸고 후보 머리에 고친 곳 수를 붙인다. `rework` 는 제안의 `ruled` 를 `accept_rework` 에 넘긴다
 - 전체 명령 목록은 `python -m canon --help`
+- 화 플롯 출력(`plot` · 플롯 대화 등)은 시점 줄 뒤에 이 화의 사이다를 값이 있을 때만 '사이다:' 줄로 찍는다(`_plot_pov`)
 - 해석기는 `build_parser` 가 만들고, 명령은 갈래 함수(`_plan_commands` · `_write_commands` · `_tool_commands` · `_app_commands` · `_data_commands` · `_lab_commands`)가 더한다. 새 명령은 맞는 갈래 함수에 넣는다
 - 단편 흐름: `new` → `style` → `arc` → `plot` → (사용자 수정) → `confirm` → (스토리보드 → 큐 시트, 웹 집필 화면 · 자동 집필) → `write` → `check` → `update` 반복
 - `run` 이 쓰기 · 검수 · 반영을 자동으로 되풀이한다
@@ -400,6 +401,7 @@
 
 - 초반 1~3화: 지표, 흡입력 판정, 여는 방식 여러 안
 - 여는 방식 안을 고르거나 되돌려도 그 화의 작가 연출 지시(`Episode.direction`)는 남긴다
+- 여는 방식 안은 응답 형식을 `prompts.arc_schema` 로 고르고, 고른 안이 묻지 않은 `reward` 는 지금 화 값을 둔다(`pipeline.keep_unasked_plot`)
 - `pipeline.py` 에서 옮긴 구역이다. `pipeline` 맨 끝의 `_attach_split` 이 `EXPORTS` 의 이름을 `pipeline` 에도 둬서 `pipeline.<이름>` 으로 그대로 부른다
 
 ### `canon/pipeline.py`
@@ -430,6 +432,8 @@
 - `clean_arc` · `_clean_arc_edit` 는 `focus` 를 있는 인물 id 만 남긴다(`clean_focus`)
 - `apply_arc` 는 틀별 판으로 받은 아크를 저장 모델 `StoryArc` 로 바꿔 붙인다
 - 플롯 대화의 아크 칸 묶음 `ARC_EDIT_FIELDS` 에 `gain` · `focus` 가 있다. 응답 형식이 묻지 않은 칸은 지금 아크나 초안 값을 둔다(`keep_unasked`)
+- 플롯 초안 · 한 화 플롯 · 영향 분석은 응답 형식을 `prompts.arc_schema` 로 고른다. 웹소설 틀 장편만 화 플롯에 `reward` 칸이 든 판이다(docs/webnovel/specs/06-plot-frame.md)
+- 응답 형식이 묻지 않은 화 칸 `reward` 는 AI 가 다시 낸 화 플롯이 지우지 않는다(`keep_unasked_plot`, `apply_plots` · `apply_revision` · `opening.apply_opening`)
 - 화별 플롯
   - 대화로 다듬기 `revise_plot`/`apply_revision` 포함
   - `apply_revision` 이 화를 다시 만들어도 작가 연출 지시(`Episode.direction`)는 남긴다
@@ -650,8 +654,15 @@
 - 웹소설 틀이면 다음 아크 · 플롯 대화의 아크 뜻 줄(`arc_meaning_rule`)이 보상 루프 한 바퀴 · 짧은 고구마(1~3화) · `gain` 을 적게 한다
 - 웹소설 틀이면 다음 아크의 커지기 줄(`NEXT_ARC_GROW`)이 같은 모양의 갈등 대신 주인공의 성장이나 상대로 커진다
 - 하렘 요소(id `harem`)가 있는 장편은 두 요청에 공략 대상 `focus` 줄과 '관계는 주로 위로만' 줄(`ARC_HAREM`)을 더한다
-- 드라마 틀 · 하렘 없음이면 틀별 줄은 모두 지금 글 그대로다(`tests/test_frame.py` 의 `test_frame_changes_only_logline_and_arc_planning`)
-- '지금 부와 아크'(`structure_text`)는 아크의 `gain` · `focus` 를 넣지 않는다. 화별 플롯 · 본문 쓰기가 그 칸을 쓸지는 웹소설 일감 6 이 정한다
+- 웹소설 틀 장편의 화별 플롯 규칙(`plot_rules`)은 공통 줄 `PLOT_VARIETY` 가 잘못된 선택 · 덜 정리하기 대신 사이다를 깔끔하게 풀게 한다(docs/webnovel/specs/06-plot-frame.md)
+- 웹소설 틀 장편의 `plot_rules` 는 이 화의 사이다 `reward` 줄(`PLOT_REWARD`)과 아크 `gain` 을 화 사건으로 보이는 줄(`PLOT_GAIN`)을 더한다. 화수 규칙은 두지 않는다
+- 하렘 요소가 있는 장편의 `plot_rules` 는 관계 단계 줄 뒤에 '균열은 1~3화 안에 풀리는 오해' 줄(`PLOT_HAREM`)을 더한다
+- 웹소설 틀 장편의 1~3화 초반 규칙(`opening_rules`)은 결핍 줄(`OPENING_LEAD`)의 '걸린 것' 자리에 '주인공만 가진 것' 을 쓴다
+- 초반 판정 항목은 `hook_guide` 가 준다. 웹소설 틀 장편만 '걸린 것' 설명이 `HOOK_WEB_STAKE` 다. 항목 이름은 `schema.HookAspect` 그대로다
+- 단편은 웹소설 틀 · 하렘 요소를 골라도 화별 플롯 · 초반 규칙 · 판정 항목이 그대로다(`arc_axes` 가 장편만 켠다)
+- 화별 플롯 요청(작업지시서 플롯 초안 · 한 화 플롯 포함)은 응답 형식을 `arc_schema` 로 고른다. 웹소설 틀 장편이면 화 플롯에 `reward` 칸이 든 판이다
+- 드라마 틀 · 하렘 없음이면 틀별 줄은 모두 지금 글 그대로다(`tests/test_frame.py` 의 `test_frame_changes_only_logline_arc_and_plot_planning`)
+- '지금 부와 아크'(`structure_text`)는 아크의 `gain` · `focus` 를 장편 화별 플롯 초안(`plan=True`, `serial_plot_prompt`)에만, 축이 켜진 칸만 넣는다. 본문 쓰기 · 검수 · 스토리보드 · 줄기 요청에는 넣지 않는다
 - 완급 계획 받기 요청 `heat_propose_prompt`: 기승전결, 화별 플롯, 본문 있는 화의 실제 열 참고값과 지금 계획, 열린 복선. 요구사항은 단편 기획과 같은 `heat_rules`
 - 작업지시서(`episode_brief`, `state_brief`)
 - 작업지시서는 `brief_parts`(역할 = 시스템, 요청)로 조립한다. 갈래 목록은 `BRIEF_KINDS`(`BriefKind`: 이름 · 필요한 것 · 고르는 단위 · 장편만)
@@ -923,6 +934,8 @@
 - `StoryArc.gain`(얻는 성장) · `StoryArc.focus`(공략 대상 인물 id)는 빈 글이 기본값이고 `ArcEdit` 에도 있다. 저장 모델의 응답 형식에서는 뺀다(`SkipJsonSchema`)
 - 빈 `gain` · `focus` 는 어떤 직렬화에도 키가 생기지 않는다(`drop_empty_frame_fields`)
 - `framed(형식, gain, focus)` 는 아크가 든 응답 형식의 틀별 판을 만든다. 원래 형식을 이어받고 이름이 같다. 둘 다 거짓이면 원래 형식 그대로다(`frame_of` 로 판의 축을 읽는다)
+- `EpisodePlot.reward`(이 화의 사이다 한 줄)는 빈 글이 기본값이다. 저장 모델의 응답 형식에서는 빼고(`SkipJsonSchema`) 빈 값은 어떤 직렬화에도 키가 생기지 않는다
+- `framed` 의 gain 축 판은 화 플롯에 `reward` 칸을 넣는다. 화 플롯이 든 형식(`PlotBatch` · `OpeningPlots` · `ImpactReport` 등)도 판이 된다(docs/webnovel/specs/06-plot-frame.md)
 - 복선 갈래 `Foreshadow.kind`(clue 단서 · stake 판돈 · constraint 제약 · audience 관객 · ban 금지선)는 옛 복선을 clue 로 읽는다
 - 화별 쓴 사건 체크(`Episode.events_done`, 사건 글 목록)는 집필 화면 표시용이라 `EpisodePlot` 밖에 두어 프롬프트에 들어가지 않는다
 - 지금 본문을 쓴 모델(`Episode.written_by`, 판마다 `TextVersion.model`)도 프롬프트 밖이다. 값은 `usage.model_id` 의 '<백엔드>:<모델>' 이나 'import', 모르면 빈 칸

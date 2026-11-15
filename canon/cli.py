@@ -540,7 +540,9 @@ def _act_pov(act) -> str:
 
 
 def _plot_pov(e) -> str:
-    return f"\n  시점: {' '.join(x for x in [e.pov, e.pov_mode] if x)}" if e.pov or e.pov_mode else ""
+    """화 플롯 출력 끝에 붙는 시점 줄과 이 화의 사이다 줄 (값이 있을 때만)."""
+    pov = f"\n  시점: {' '.join(x for x in [e.pov, e.pov_mode] if x)}" if e.pov or e.pov_mode else ""
+    return pov + (f"\n  사이다: {e.reward}" if e.reward else "")
 
 
 def cmd_pov(a: argparse.Namespace) -> None:
