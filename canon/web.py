@@ -31,7 +31,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from . import address, agent, aliases, archetypes, autorun, blueprint, board, cancel, cast, charlog, comfy, coord, dynamics, elements, genres, illust, jobs, knows, library, metrics, naming, pipeline, prompts, publish, refs, research, settings, store, usage
+from . import address, agent, aliases, archetypes, autorun, blueprint, board, cancel, cast, charlog, charmarks, comfy, coord, dynamics, elements, genres, illust, jobs, knows, library, metrics, naming, pipeline, prompts, publish, refs, research, settings, store, usage
 from .llm import BadKey, GeminiLLM, LocalLLM, MissingKey, explain_error, get_llm, make_llm, with_note
 from . import context as ctxrules  # 이름 context 는 컨텍스트 보기 엔드포인트가 쓴다
 from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록)
@@ -1212,6 +1212,7 @@ def _put_locked(name: str, p: Project, disk: Project, response: Response, merged
     p.state_log = disk.state_log  # 지금 상태를 고친 기록은 /state 라우트만 고친다
     p.address_forms, p.address_log, p.address_held = disk.address_forms, disk.address_log, disk.address_held  # 호칭 · 말씨는 /address 라우트만 고친다
     p.agent_sessions = disk.agent_sessions  # 대화 세션은 대화 라우트와 에이전트 작업만 고친다 (화면의 옛 사본이 덮지 않게)
+    charmarks.keep(disk, p)  # 인물 표지는 /marks 라우트만 고친다
     charlog.record_author(disk, p)
     archetypes.prune(p)
     pipeline.prune_rule_layers(p)
@@ -4782,6 +4783,33 @@ def suggest_body(name: str, cid: str) -> BodySuggestion:
 def suggest_look(name: str, cid: str) -> LookSuggestion:
     """인물 설정을 외형 태그로 옮긴 제안. 저장은 화면에서 고쳐 작품 저장으로 한다."""
     return pipeline.suggest_look(get_llm("illustration"), _load(name), cid)
+
+
+class MarkIn(BaseModel):
+    """인물 표지 더하기 · 고치기 (canon/charmarks.py). 고치기는 kind · text 만 쓴다."""
+    kind: str = "버릇"
+    text: str = ""
+    episode: int = 0
+    quote: str = ""
+
+
+@app.post("/api/projects/{name}/characters/{cid}/marks")
+def add_mark(name: str, cid: str, body: MarkIn) -> Project:
+    """반영한 화 본문에서 고른 구절을 인물 표지로 거둔다. 구절이 저장된 본문에 없으면 400."""
+    _need(name)
+    return _edit(name, lambda p: charmarks.add(p, cid, body.kind, body.text, body.episode, body.quote))
+
+
+@app.put("/api/projects/{name}/characters/{cid}/marks/{mid}")
+def edit_mark(name: str, cid: str, mid: str, body: MarkIn) -> Project:
+    _need(name)
+    return _edit(name, lambda p: charmarks.edit(p, cid, mid, body.kind, body.text))
+
+
+@app.delete("/api/projects/{name}/characters/{cid}/marks/{mid}")
+def delete_mark(name: str, cid: str, mid: str) -> Project:
+    _need(name)
+    return _edit(name, lambda p: charmarks.remove(p, cid, mid))
 
 
 @app.get("/api/projects/{name}/episodes/{n}/prompt")
