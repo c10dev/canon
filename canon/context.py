@@ -142,6 +142,7 @@ class Trace:
     def __init__(self):
         self.items: dict[str, list[tuple[str, str]]] = {}
         self.dropped: dict[str, list[tuple[str, str]]] = {}
+        self.macros: dict[str, list] = {}  # 블록 id → 펼친 매크로 쓰임 (macros.MacroUse)
 
     def item(self, block_id: str, name: str, reason: str) -> None:
         self.items.setdefault(block_id, []).append((name, reason))
@@ -149,10 +150,15 @@ class Trace:
     def drop(self, block_id: str, name: str, reason: str) -> None:
         self.dropped.setdefault(block_id, []).append((name, reason))
 
+    def macro(self, block_id: str, uses) -> None:
+        """펼친 매크로 쓰임(macros.MacroUse)을 블록에 적는다 (프롬프트 보기)."""
+        self.macros.setdefault(block_id, []).extend(uses)
+
     def forget(self, block_id: str) -> None:
         """꺼진 블록의 항목을 지운다 (보기가 꺼진 블록의 항목을 보이지 않게)."""
         self.items.pop(block_id, None)
         self.dropped.pop(block_id, None)
+        self.macros.pop(block_id, None)
 
 
 TRACE_LABEL = 40  # 뺀 줄을 보기에 적을 때 이름 길이

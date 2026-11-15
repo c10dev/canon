@@ -505,6 +505,8 @@
 - 조건은 n-1화를 반영한 뒤의 상태로 본다(`context.view_before`). 넣기 방식 always 도 조건이 문이고, off 는 조건이 맞아도 넣지 않는다
 - `for_episode(gate=False)` 는 조건을 보지 않는다. 관련 말 고르기(`context.query_terms`)가 쓴다
 - 상태 조건은 영향 분석 지문(`basis`)에 넣지 않는다
+- `describe` · `episode_block` · `active_block` · `plan_block` · `found_lines` 가 `env`(`macros.MacroEnv`)를 받으면 설명의 매크로를 펼치고 쓰임을 `env.uses` 에 더한다
+- `{{char}}` 는 그 요소의 관련 인물 첫 인물이다. `found_lines` 의 장소 예산은 펼친 글로 센다
 - 시점 설명
 - 본문 · 플롯에서 처음 나온 장소(`NewPlace`)를 '장소' 요소로 등록(`clean_places`, `add_places`, 반영 취소 `unregister_places`, 플롯 후보 `place_candidates`)
 - 장편은 그런 장소를 예산(`context.BUDGET["places"]`)까지만

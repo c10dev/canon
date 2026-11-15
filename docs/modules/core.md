@@ -188,6 +188,7 @@
 - 작품 예산 검사 `budget_ok(key, value)`: `WRITE_KEYS` 의 키 · 100 단위 · 범위 안. 0 은 받지 않는다(빼려면 블록을 끈다)
 - 넣은 이유 · 뺀 이유 이름은 상수 `REASON_*` · `DROP_*` 한 곳에 둔다(보기와 컨텍스트 활성화가 같은 말을 쓴다)
 - 보기 기록 `Trace`: `item(블록 id, 이름, 이유)` · `drop(…)`, `items` · `dropped` 는 블록 id → [(이름, 이유)]
+- `Trace.macro(블록 id, 쓰임)` 은 펼친 매크로를 적는다(`macros` 는 블록 id → `MacroUse` 목록). `forget` 도 지운다
 - `Trace.forget(블록 id)` 는 꺼진 블록의 항목을 지운다(`prompts.follow_parts` 가 부른다)
 - 뺀 줄 이름 `trace_label`(앞 '- ' 를 떼고 `TRACE_LABEL` 40자까지)과 뺀 줄 적기 `trace_drops(trace, 블록 id, 줄들)`. 예산으로 줄을 빼는 함수들이 함께 쓴다
 - 무관한 옛 사실은 하나하나 적지 않고 `trace_unrelated` 가 '옛 사실 N개' 한 줄로 적는다. 예산으로 뺀 사실은 이름으로 적는다
@@ -279,6 +280,7 @@
 - 대사(따옴표 안)는 세지 않는다
 - 인물 이름(성을 뗀 이름 포함) · 부르는 말 · 이야기 요소 이름이 든 구절은 뺀다(`_names`)
 - 확정 사실 · 세계관 · 인물 설정 · 상태 · 이야기 요소에 조사만 다르게 적힌 3어절 묶음이 든 구절은 뺀다(`_in_canon`)
+- 이야기 요소 설명은 매크로(`{{…}}`)를 떼고 쪼갠다(`macros.STRIP`)
 - 짧은 구절(`MIN_CHARS`)은 빼고, 많이 나온 화부터 `LIMIT`(10)개
 - 블록은 `prompts.echo_block`, 켜기는 `Settings.recent_echoes`
 - LLM 호출 없음
@@ -397,6 +399,19 @@
 - `EP_AI_KINDS` 에는 고친 곳만 다시 보기 작업 `recheck` 도 든다
 - `EP_AI_KINDS` 에는 지적 하나의 고침안 `fix_one` 과 이 지적만 다시 검수 `recheck_one` 도 든다
 - 단계 하나가 마지막으로 끝낸 화(`Job.step_ep`). 화면 `notify.js` 가 바뀔 때마다 알린다
+
+### `canon/macros.py`
+
+- CBS 읽기 매크로(docs/context/specs/05-macros.md): 이야기 요소 설명과 작가 메모(`Meta.notes`)의 `{{user}}` · `{{char}}`(`{{bot}}`) · `{{getvar::인물.스탯}}` · `{{episode}}`
+- 조립할 때만 펼치고 저장한 글은 그대로다. 값을 읽기만 한다(Q11). LLM 호출 없음. `prompts` 를 부르지 않는다
+- `expand(글, env, 어느 칸, char)` 가 (펼친 글, 쓰임 `MacroUse` 목록)을 낸다. 매크로가 없으면 글 그대로다
+- 함수 이름은 대소문자를 가리지 않는다. 겹친 매크로는 안쪽부터 `MAX_PASSES`(3)번까지 펼치고, 펼친 값은 자리표로 막아 다시 훑지 않는다
+- `{{#…}}` 블록은 맞는 `{{/…}}` 까지 통째로 둔다(여는 표시 안의 겹친 매크로는 `_token_end` 가 센다)
+- 모르는 함수 · `{{chatindex}}` · setvar 무리 · 없는 인물 · 없는 스탯은 그대로 두고 경고한다
+- `getvar` 는 인물 id · 이름 가운데 '.' 앞까지 맞는 가장 긴 것을 고르고 나머지를 스탯 이름으로 본다. 값은 저장된 글 그대로다
+- 값 묶음 `MacroEnv`(주인공 · 시점 인물 · 인물 id 와 이름 · 화 번호 · 상태창 값 · `dynamic` · 값의 시점 알림 · 쓰임 모음)는 `prompts.macro_env` 가 만든다
+- `dynamic` 이 거짓이면(작가 메모) `{{user}}` 만 펼치고 나머지는 '앞쪽 블록이라' 경고와 함께 둔다
+- `tests/test_macros.py`
 
 ### `canon/metatail.py`
 
@@ -604,6 +619,12 @@
 ### `canon/prompts.py`
 
 - 프롬프트 템플릿
+- CBS 읽기 매크로 값 묶음 `macro_env(p, n)`: 주인공(`opening.hero_name`) · 시점 인물(`pov_character`) · n화를 쓰기 바로 전 상태창(`context.view_before`)
+- `macro_env` 는 매크로를 쓴 이야기 요소 설명이 없으면 None 이라 프롬프트가 지금과 같다. 스냅샷이 없어 지금 값을 쓰면 `getvar` 쓰임에 알림을 단다
+- 쓰기(`context_parts`) · 부분 수정(`passage_head`) · 검수(`active_block`) · 플레이(`_play_elements`)가 n화 값 묶음을 이야기 요소 블록에 넘긴다
+- 기획 프롬프트의 `elements.plan_block` 은 `plan_env`(쓰지 않은 첫 화 기준)를 받는다. 영향 분석 · 탄생 · 명령줄 요소 목록은 원문 그대로다
+- `meta_text` 는 작가 메모의 `{{user}}` 만 펼친다(`notes_env`, 앞쪽 블록이라 캐시가 맞게)
+- 쓰기 요청을 조립하며 펼친 매크로는 보기 기록에 '이야기 요소' 블록으로 적는다(`trace.macro`)
 - 본문을 쓰는 시스템 프롬프트(`writer_system` · `reviser_system` · `paragraph_system`)는 작가가 정한 머리말(`PREAMBLE`)로 시작한다
 - 머리말의 `Steady. Your craft handles this.` 줄은 작가가 더했다(2026-11-09). 조건이나 목적절을 붙이지 않는다
 - 기획 단계 시스템 프롬프트 `SYSTEM_PLANNER`(설정 제안 · 문체 분석 · 구조 · 플롯 · 스토리보드 · 큐 시트 등)도 같은 머리말로 시작한다
@@ -1287,6 +1308,7 @@
 - 다시 맞추기(`restate`)와 플레이는 상태 규칙 제안을 계산하지 않는다(`rule_proposals` 를 비운다)
 - 채팅 앱 JSON 가져오기(`parse_state`)도 정리 뒤 상태 규칙 제안을 채운다
 - 프롬프트 보기(`GET …/context`)는 상태 조건으로 이야기 요소를 다 뺐어도 '이야기 요소' 줄을 보여 뺀 이유를 보인다
+- 프롬프트 보기의 블록 줄마다 펼친 매크로 `macros`(`MacroUse`: 어느 칸 · 원문 · 값 · 경고)가 있다. 작가 메모의 쓰임은 '작품 정보'(`work`) 줄에 둔다
 - 다시 맞추기(`POST …/restate`)도 변경안 지문이 반영 뒤 고친 지금 본문과 다르면 같은 409(`stale_delta`)로 막는다. `?force=1` 이면 반영한다
 - 빈 지문(옛 결과 · 손으로 만든 변경안)은 맞춰 보지 않는다. 채팅 앱 변경안 가져오기 `state/parse` 도 지문을 채운다
 - 본문 저장 `PUT …/episodes/{n}/text` 는 고침을 시작한 저장 본문(`Text.base`)이 지금 본문과 다르면 409(`code` `stale_text`)로 막는다. `?force=true` 이면 저장한다

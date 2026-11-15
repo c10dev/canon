@@ -15,7 +15,7 @@ from typing import NamedTuple, get_args
 
 from pydantic import BaseModel
 
-from . import context, elements, genres, illust, metrics, naming, storylines
+from . import context, elements, genres, illust, macros, metrics, naming, storylines
 from .dynamics import VIEWS, describe_relations
 from .logline import josa
 from .logline import view as logline_view
@@ -181,10 +181,53 @@ CHECK_TEXT_LIMIT = 150_000
 
 
 def meta_text(p: Project) -> str:
-    """작품 정보와 장르 안내. 장르 id 대신 이름을 넣는다. 이야기 틀(frame)은 넣지 않는다: 틀별 규칙 줄이 생길 때 그 줄이 맡는다."""
+    """작품 정보와 장르 안내. 장르 id 대신 이름을 넣는다. 이야기 틀(frame)은 넣지 않는다: 틀별 규칙 줄이 생길 때 그 줄이 맡는다.
+    작가 메모(Meta.notes)의 매크로는 화가 바뀌어도 값이 같은 {{user}} 만 펼친다 (앞쪽 블록이라 캐시가 맞게, 05 의 정할 것 11)."""
     view = p.meta.model_dump(exclude={"genres", "adult", "logline_parts", "tone_dials", "frame"})
+    if macros.has(p.meta.notes):
+        view["notes"] = macros.expand(p.meta.notes, notes_env(p), NOTES_WHERE)[0]
     view["genre"] = genres.label(p.meta)
     return f"{dump(view)}\n\n[장르 안내]\n{genres.guide(p.meta)}"
+
+
+# ---------- CBS 읽기 매크로 (docs/context/specs/05-macros.md) ----------
+# 이야기 요소 설명과 작가 메모의 {{user}} · {{char}} · {{getvar::인물.스탯}} · {{episode}} 를 조립할 때만 펼친다. 저장한 글은 그대로다.
+
+NOTES_WHERE = "작가 메모"
+
+
+def _hero(p: Project) -> str:
+    from .opening import hero_name  # opening 이 이 모듈을 부른다. 주인공 규칙은 한 곳(opening.hero_name)에 둔다
+    return hero_name(p)
+
+
+def macro_env(p: Project, n: int) -> "macros.MacroEnv | None":
+    """n화를 쓰기 바로 전 값으로 매크로 값 묶음을 만든다. 매크로를 쓴 이야기 요소 설명이 없으면 None (프롬프트가 지금과 같다).
+    상태창 값은 context.view_before(p, n): n-1화 반영 뒤, 더 뒤까지 반영했으면 n-1화 스냅샷, 없으면 지금 값과 알림 (정할 것 12 · 20)."""
+    if not any(macros.has(el.description) for el in p.elements):
+        return None
+    view = context.view_before(p, n)
+    names = [(c.id, c.name) for c in p.characters]
+    name_of = dict(names)
+    user = _hero(p)
+    pov = pov_character(p, n)
+    note = f"{n - 1}화 직전 스냅샷이 없어 지금 상태창 값을 넣었어요." if view.note else ""
+    return macros.MacroEnv(user=user, pov=pov.name if pov else user, pov_fallback=pov is None and bool(user), names=names, episode=n,
+                           stats=[(s.character_id, name_of.get(s.character_id, s.character_id), v.name, v.value) for s in view.states for v in s.stats],
+                           note=note)
+
+
+def notes_env(p: Project) -> "macros.MacroEnv":
+    """작가 메모용 값 묶음: 주인공만 펼친다(dynamic 거짓). 앞쪽 블록이라 화마다 바뀌는 값을 넣지 않는다 (정할 것 11)."""
+    return macros.MacroEnv(user=_hero(p), names=[(c.id, c.name) for c in p.characters], dynamic=False)
+
+
+def plan_env(p: Project) -> "macros.MacroEnv | None":
+    """한 화에 매이지 않는 기획 프롬프트(elements.plan_block)의 값 묶음: 쓰지 않은 첫 화 기준 (정할 것 13)."""
+    if not any(macros.has(el.description) for el in p.elements):
+        return None
+    todo = [e.plot.number for e in p.episodes if not e.text]
+    return macro_env(p, min(todo) if todo else max((e.plot.number for e in p.episodes), default=0) + 1)
 
 
 # ---------- 이야기 틀 · 하렘 요소 (docs/webnovel/specs/04-arc-frame.md) ----------
@@ -1149,7 +1192,7 @@ def arc_prompt(p: Project) -> str:
 [관계]
 {rels(p, context.without_off(p, None))}
 [이야기 요소 (작가가 더한 설정과 사건, 시점 포함)]
-{elements.plan_block(p) or "없음"}{lines_block(p)}
+{elements.plan_block(p, plan_env(p)) or "없음"}{lines_block(p)}
 
 요구사항:
 {arc_range_rule(p.meta.target_episodes)}
@@ -1190,7 +1233,7 @@ def plot_prompt(p: Project, start: int, end: int, ahead: bool = True, redo: bool
 [관계]
 {rels(p, context.without_off(p, None))}
 [이야기 요소 (작가가 더한 설정과 사건, 시점 포함)]
-{elements.plan_block(p) or "없음"}{lines_block(p)}
+{elements.plan_block(p, plan_env(p)) or "없음"}{lines_block(p)}
 [기승전결 구조]
 {dump(p.arc)}
 [앞 화 플롯 (확정 또는 초안, 이어지게 쓸 것)]
@@ -1234,7 +1277,7 @@ def serial_plot_prompt(p: Project, start: int, end: int, ahead: bool = True, red
 [관계]
 {rels(p, ids | {c.id for c in static_characters(p)})}{plan_stage_block(p, ids | {c.id for c in static_characters(p)})}{blueprint_plan_block(p, ids | {c.id for c in static_characters(p)}, start, end)}{blueprint_ability_block(p, ids | {c.id for c in static_characters(p)}, start, end)}
 [이야기 요소 (작가가 더한 설정과 사건, 시점 포함)]
-{elements.plan_block(p) or "없음"}{lines_block(p)}
+{elements.plan_block(p, plan_env(p)) or "없음"}{lines_block(p)}
 
 {structure_text(p, start, plan=True)}
 
@@ -2539,7 +2582,7 @@ def next_arc_prompt(p: Project, start: int, length: int, note: str) -> str:
 [관계 (주역 · 조연 · 최근 아크 인물)]{cut_note(plan_secrets_cut, "숨긴 비밀은 이 아크와 관련된 것만")}
 {describe_relations(p, ids, secrets=plan_secrets) or rels(p, ids)}{destination_block(p, ids)}{blueprint_plan_block(p, ids, start, min(limit, start + (length or PLAN_SPAN) - 1))}{blueprint_ability_block(p, ids, start, min(limit, start + (length or PLAN_SPAN) - 1))}
 [이야기 요소 (작가가 더한 설정과 사건, 시점 포함)]
-{elements.plan_block(p) or "없음"}{lines_block(p)}
+{elements.plan_block(p, plan_env(p)) or "없음"}{lines_block(p)}
 [인물 현재 상태]{knows_note(knows_cut)}
 {dump(main_states) or "설정 그대로"}
 [조연 · 최근 인물 현재 상태 (최근에 나온 순서)]{f" (그 밖에 {side_cut}명은 예산을 넘겨 뺐습니다)" if side_cut else ""}{knows_note(side_knows_cut)}
@@ -2706,7 +2749,7 @@ def storyline_prompt(p: Project, note: str, kind: str) -> str:
 [비밀 (hidden_from 의 인물은 아직 모른다)]
 {dump(secrets) or "없음"}
 [이야기 요소]
-{elements.plan_block(p) or "없음"}
+{elements.plan_block(p, plan_env(p)) or "없음"}
 [지금 이야기 줄기]
 {storylines.plan_block(p) or "없음"}
 
@@ -2773,7 +2816,7 @@ def convert_prompt(p: Project, total: int, ending: str, note: str) -> str:
 [관계]
 {describe_relations(p) or rels(p)}
 [이야기 요소 (작가가 더한 설정과 사건)]
-{elements.plan_block(p) or "없음"}{lines_block(p)}
+{elements.plan_block(p, plan_env(p)) or "없음"}{lines_block(p)}
 [인물 현재 상태]
 {dump(p.states) or "설정 그대로"}
 [단편의 기승전결 (아크 1이 됨)]
@@ -2835,7 +2878,7 @@ def rebuild_prompt(p: Project, total: int, span: int, ending_at: str, note: str)
 [관계]
 {rels(p)}
 [이야기 요소 (작가가 더한 설정과 사건)]
-{elements.plan_block(p) or "없음"}{lines_block(p)}
+{elements.plan_block(p, plan_env(p)) or "없음"}{lines_block(p)}
 [단편의 기승전결]
 {dump(p.arc) if p.arc else "없음"}
 [단편의 화 (번호, 제목, 요약, 엔딩 훅)]
@@ -2996,7 +3039,7 @@ def _short_plot_parts(p: Project, scope, rng: random.Random | None = None) -> tu
 [관계]
 {rels(p, context.without_off(p, None))}
 [이야기 요소 (작가가 더한 설정과 사건, 시점 포함)]
-{elements.plan_block(p) or "없음"}{lines_block(p)}
+{elements.plan_block(p, plan_env(p)) or "없음"}{lines_block(p)}
 [문체 요약 (전개 속도 판단용)]
 {dump(style)}
 
@@ -3082,7 +3125,7 @@ def _serial_plot_parts(p: Project, scope, rng: random.Random | None = None) -> t
 [관계]
 {rels(p, ids)}
 [이야기 요소 (작가가 더한 설정과 사건, 시점 포함)]
-{elements.plan_block(p) or "없음"}{lines_block(p)}
+{elements.plan_block(p, plan_env(p)) or "없음"}{lines_block(p)}
 [부 구성]
 {dump(p.parts) if p.parts else "부 구성 없음"}
 
@@ -3320,7 +3363,7 @@ def passage_head(p: Project, n: int) -> str:
     cast_ids = passage_cast(p, n)
     facts, facts_cut = relevant_facts(p, cast_ids, n)
     extra = side_characters(p, context.without_off(p, cast_ids))
-    els = elements.episode_block(p, n)
+    els = elements.episode_block(p, n, macro_env(p, n))
     return f"""{static_context(p)}
 
 # 확정된 사실{f" (이번 화와 관련된 것만, {facts_cut}개 생략)" if facts_cut else ""}
@@ -3712,8 +3755,11 @@ def context_parts(p: Project, n: int, *, use_board: bool = True, pre: str = "", 
         if heat:
             where += f"\n# 이번 화 열 계획 (작가가 정함)\n{heat}"
 
-    els = elements.episode_block(p, n)
+    env = macro_env(p, n)
+    els = elements.episode_block(p, n, env)
     elements.trace_gate(p, n, trace)  # 상태 조건으로 넣고 뺀 요소 (프롬프트 보기)
+    if trace is not None and env is not None:
+        trace.macro("elements", env.uses)  # 펼친 매크로 (프롬프트 보기)
     els = f"\n\n# 이야기 요소 (이번 화와 관련된 설정, 어기지 말 것)\n{els}" if els else ""
     line = storylines.episode_block(p, n)
     line = f"\n\n# 이번 화의 이야기 줄기\n{line}" if line else ""
@@ -5683,7 +5729,7 @@ def check_material(p: Project, n: int, mode: str = "", sized: bool = False, lang
     if en and note:
         note = (" (the previous episodes are full text; earlier ones are a story summary and excerpts that overlap this episode. "
                 "When you quote an excerpt, source_episode is that excerpt's episode)")
-    els = elements.active_block(p, n)
+    els = elements.active_block(p, n, macro_env(p, n))
     els = (f"\n\n# Story elements (true as of episode {n})\n{els}" if en else f"\n\n# 이야기 요소 ({n}화 시점에 사실인 것)\n{els}") if els else ""
     line = storylines.episode_block(p, n)
     line = (f"\n\n# Storyline of episode {n}\n{line}" if en else f"\n\n# {n}화의 이야기 줄기\n{line}") if line else ""
@@ -7708,6 +7754,7 @@ def _play_states(p: Project, ids: list[str], player: str, query: str, terms: lis
 
 
 def _play_elements(p: Project, n: int, ids: set[str], query: str) -> tuple[list[str], int]:
+    env = macro_env(p, n)
     """장면에 넣을 이야기 요소 줄: '항상' · 이번 구간에 나올 요소, 장면 글에 이름이 나온 요소, 장면 인물이 얽힌 요소 순서로 예산까지."""
     ranked = []
     for el in p.elements:
@@ -7722,7 +7769,7 @@ def _play_elements(p: Project, n: int, ids: set[str], query: str) -> tuple[list[
             r = 2
         else:
             continue
-        ranked.append((r, elements.describe(p, el, n)))
+        ranked.append((r, elements.describe(p, el, n, env)))
     lines = [x for _, x in sorted(ranked, key=lambda x: x[0])]
     return context.fit_lines(lines, context.BUDGET["play_elements"])
 
