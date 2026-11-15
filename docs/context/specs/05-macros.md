@@ -1,6 +1,6 @@
 # 05. CBS 읽기 매크로
 
-상태: 끝 (claude/cbs-macros) · 계획: [plan.md](../plan.md) 의 5번 · 먼저: —
+상태: 끝 ([#548](https://github.com/c10dev/canon/pull/548)) · 계획: [plan.md](../plan.md) 의 5번 · 먼저: —
 
 2026-11-08 부터 일감 2 를 기다리지 않는다(README 의 Q36). `{{char}}` 가 항목에 묶인 인물을 찾을 때는 지금 있는 데이터만 쓴다.
 
