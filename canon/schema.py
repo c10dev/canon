@@ -4287,6 +4287,7 @@ class BlindSet(BaseModel):
     revealed_at: str = Field("", description="결과를 연 때. 연 뒤에는 점수를 고칠 수 없다")
     criteria: list[str] = Field(default_factory=list, description="이 묶음의 기준 항목. 비어 있고 결과를 열기 전이면 blindset.CRITERIA")
     duels: list[BlindDuel] = Field(default_factory=list, description="쌍 비교의 답 (물을 쌍은 blindset.duel_pairs 가 정한다)")
+    mode: str = Field("", description="읽는 방식. '' 는 글마다 점수를 매기고 결과 뒤에 긋는다, 'side' 는 나란히 한 번 읽기 (쌍마다 긋기 · 체크 · 고르기, 점수 없음)")
 
 
 Approval.model_rebuild()

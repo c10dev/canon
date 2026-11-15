@@ -30,6 +30,7 @@ class BlindIn(BaseModel):
     items: list[BlindTextIn]
     key: list[BlindKeyIn] = []
     criteria: list[str] = []  # 비우면 blindset.CRITERIA
+    mode: str = ""  # '' 는 점수 매기기, 'side' 는 나란히 한 번 읽기 (blindset.MODES)
 
 
 class BlindScoreIn(BaseModel):
@@ -70,7 +71,8 @@ def list_blind() -> dict:
 def create_blind(body: BlindIn) -> dict:
     """묶음을 넣는다 (실험 스크립트용. 화면에는 넣는 칸이 없다)."""
     try:
-        s = blindset.create(body.title, [x.model_dump() for x in body.items], [k.model_dump() for k in body.key], body.note, criteria=body.criteria)
+        s = blindset.create(body.title, [x.model_dump() for x in body.items], [k.model_dump() for k in body.key], body.note, criteria=body.criteria,
+                             mode=body.mode)
     except ValueError as e:
         raise HTTPException(400, str(e))
     return blindset.view(s)
@@ -94,7 +96,8 @@ def score_blind(bid: str, no: str, body: BlindScoreIn) -> dict:
 
 @router.put("/api/blind/{bid}/items/{no}/marks")
 def mark_blind(bid: str, no: str, body: BlindMarkIn) -> dict:
-    """결과를 연 묶음에서 거슬린 문장을 긋거나 지운다 (열기 전에는 400)."""
+    """거슬린 문장을 긋거나 지운다. 점수 매기기 묶음은 결과를 연 뒤에만 (열기 전에는 400),
+    나란히 한 번 읽기 묶음은 결과를 열기 전에만 (연 뒤에는 400)."""
     _set(bid)
     try:
         return blindset.view(blindset.mark(bid, no, body.idx, body.on))
