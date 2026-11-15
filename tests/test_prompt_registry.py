@@ -108,6 +108,43 @@ def _plot_requests(p) -> dict[str, str]:
             "hook": prompts.hook_prompt(p, 1, p.episode(1).text)}
 
 
+class _Rec(MockLLM):
+    """요청 글을 남기는 가짜 LLM."""
+    def __init__(self):
+        self.asks: list[str] = []
+
+    def json(self, system, prompt, schema, hint=None):
+        self.asks.append(prompt)
+        return super().json(system, prompt, schema, hint)
+
+
+def _heat_requests(p) -> dict[str, str]:
+    """완급 계획(Settings.heat_plan)을 켠 작품의 요청 (docs/webnovel/specs/09-heat-frame.md).
+    열 계획을 함께 받는 구조 짜기(단편 기승전결 · 장편 다음 아크, 작업지시서와 API), 열 계획만 받기,
+    받은 계획을 넣은 뒤의 화별 플롯 · 쓰기 · 스토리보드 · 큐 시트 요청."""
+    random.seed(0)
+    naming._rng = lambda rng: rng or random.Random(0)
+    p.settings.heat_plan = True
+    rec = _Rec()
+    out = {"heat_ask": prompts.arc_ask(p)[0]}
+    if p.serial:
+        pipeline.plan_next_arc(rec, p)
+    else:
+        pipeline.plan_arc(rec, p)
+    out["heat_plan_arc"] = rec.asks[-1]
+    prop = pipeline.propose_heat(rec, p)
+    out["heat_propose"] = rec.asks[-1]
+    start, end, _, _, arc = pipeline.heat_target(p)
+    pipeline.apply_heat_plan(p, prop, arc)
+    n = min(e.plot.number for e in p.episodes if not e.text and start <= e.plot.number <= end)
+    out["heat_plot_rules"] = prompts.heat_plot_rules(p, n)
+    out["heat_plots"] = "\n\0".join(map(str, prompts.brief_parts(p, n, "plots")))
+    out["heat_episode"] = prompts.episode_prompt(p, n)
+    out["heat_storyboard"] = prompts.storyboard_prompt(p, n)
+    out["heat_cue"] = prompts.cue_sheet_prompt(p, n)
+    return out
+
+
 FRAME_KEYS = ("brief:agent_plot", "brief:arc", "brief:series", "plot_chat:arc", "plot_chat:next", "convert",  # 이야기 틀이 바꾸는 요청
               "brief:plot", "brief:plots", "episode:1", "hook", "impact_prompt", "opening_plots", "plot_chat:episode")  # 화별 플롯 (06-plot-frame.md)
 
@@ -130,6 +167,7 @@ def _all() -> dict[str, str]:
     for tag, make in (("short", _short), ("long", _long)):
         out.update({f"{tag}:{k}": v for k, v in _arc_requests(make()).items()})
         out.update({f"{tag}:{k}": v for k, v in _plot_requests(make()).items()})
+        out.update({f"{tag}:{k}": v for k, v in _heat_requests(make()).items()})
         p = _web(make)
         web = {**_requests(p), **_arc_requests(p), **_plot_requests(p)}
         out.update({f"{tag}_web:{k}": web[k] for k in FRAME_KEYS if k in web and (k == "convert") == (tag == "short")})
