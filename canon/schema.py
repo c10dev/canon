@@ -762,6 +762,11 @@ class HeatArcPlan(HeatProposal, ArcPlan):
     """기승전결과 함께 받는 열 계획 (Settings.heat_plan 을 켠 단편)."""
 
 
+# 웹소설 틀의 화 칸 (docs/webnovel/specs/06-plot-frame.md). 아크의 gain 과 같이 저장 모델의 응답 형식에는 넣지 않고(SkipJsonSchema),
+# 웹소설 틀 장편만 framed() 의 gain 축 판으로 받는다
+EPISODE_REWARD_DESC = "웹소설 틀: 이 화에서 독자가 받는 사이다(작은 보상) 한 줄. 그런 보상이 없는 화는 비움"
+
+
 class EpisodePlot(BaseModel):
     number: int
     act: ActName
@@ -780,6 +785,15 @@ class EpisodePlot(BaseModel):
     pov: str = Field("", description="이 화의 시점 인물 id. 작품 기본 시점 그대로면 비움")
     pov_mode: str = Field("", description="이 화의 서술 방식 (1인칭, 3인칭 제한, 3인칭 전지). 작품 기본과 같으면 비움")
     time: str = Field("", description="이 화가 시작하는 작품 속 시점: 직전 화에서 얼마나 지났는지나 시간대 (예: 다음 날 아침, 사흘 뒤 밤, 1년 뒤). 직전 화에서 바로 이어지면 비움")
+    reward: SkipJsonSchema[str] = Field("", description=EPISODE_REWARD_DESC)
+
+    @model_serializer(mode="wrap")
+    def _drop_empty_reward(self, handler: SerializerFunctionWrapHandler):
+        """빈 reward 는 어떤 직렬화에도 키를 만들지 않는다. 드라마 틀 작품의 저장 파일과 프롬프트 글이 칸을 더하기 전과 같게 한다."""
+        data = handler(self)
+        if isinstance(data, dict) and not data.get("reward", True):
+            data.pop("reward")
+        return data
 
     @field_validator("events")
     @classmethod
@@ -4223,8 +4237,9 @@ _FRAME_OF: dict[type, tuple[bool, bool]] = {}
 
 
 def framed(model: type[BaseModel], gain: bool = False, focus: bool = False) -> type[BaseModel]:
-    """아크가 든 응답 형식(ArcProposal · HeatArcProposal · PlotRevision · PlotAgentStep 등)의 틀별 판.
+    """아크나 화 플롯이 든 응답 형식(ArcProposal · HeatArcProposal · PlotRevision · PlotAgentStep · PlotBatch 등)의 틀별 판.
     gain(웹소설 틀)이면 아크의 gain 칸을 응답 형식에 넣고 conflict 설명을 짧은 고구마로 바꾼다. focus(하렘 요소)면 focus 칸을 넣는다.
+    gain 이면 화 플롯(EpisodePlot)에도 reward 칸을 넣는다 (docs/webnovel/specs/06-plot-frame.md). 화 플롯이 든 형식(PlotBatch · OpeningPlots 등)도 같이 판을 만든다.
     둘 다 아니면 model 그대로다: 드라마 틀의 응답 형식은 칸을 더하기 전과 글자까지 같다.
     판은 원래 모델을 이어받고 이름도 같다. 받은 값은 isinstance 로 원래 모델처럼 쓰고, 저장할 때는 원래 모델의 칸(SkipJsonSchema 인 gain · focus 포함)으로 직렬화된다."""
     if not (gain or focus):
@@ -4240,6 +4255,8 @@ def framed(model: type[BaseModel], gain: bool = False, focus: bool = False) -> t
             over["conflict"] = (str, Field("", description=ARC_WEB_CONFLICT_DESC))
         if focus:
             over["focus"] = (str, Field("", description=ARC_FOCUS_DESC))
+    elif model is EpisodePlot:
+        over = {"reward": (str, Field("", description=EPISODE_REWARD_DESC))} if gain else {}
     else:
         over = {}
         for name, info in model.model_fields.items():

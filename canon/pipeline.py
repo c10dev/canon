@@ -1107,7 +1107,7 @@ def draft_plots(llm: LLM, p: Project, start: int, end: int, note: str = "") -> P
     if p.serial and end > p.planned_until():
         raise ValueError(f"{p.planned_until()}화까지만 아크가 있어요. {end}화까지 쓰려면 다음 아크를 먼저 기획하세요")
     batch = llm.json(
-        prompts.SYSTEM_PLANNER, prompts.plot_prompt(p, start, end) + prompts.request_block(note), PlotBatch,
+        prompts.SYSTEM_PLANNER, prompts.plot_prompt(p, start, end) + prompts.request_block(note), prompts.arc_schema(p, PlotBatch),
         hint={"start": start, "end": end, "arc": beats, "note": note},
     )
     numbers = [e.number for e in batch.episodes]
@@ -1118,6 +1118,13 @@ def draft_plots(llm: LLM, p: Project, start: int, end: int, note: str = "") -> P
     if numbers != list(range(start, end + 1)):
         raise ValueError(f"요청한 화({start}~{end})와 생성된 화({numbers})가 달라요")
     return batch
+
+
+def keep_unasked_plot(p: Project, plot: EpisodePlot, cur: EpisodePlot | None) -> None:
+    """이 작품의 응답 형식이 묻지 않은 화 칸(reward)은 AI 가 채울 수 없으니 지금 화 값을 그대로 둔다 (docs/webnovel/specs/06-plot-frame.md).
+    틀을 드라마식으로 되돌린 작품도 작가가 적어 둔 사이다를 AI 플롯이 지우지 않는다."""
+    if cur is not None and not prompts.arc_axes(p)[0]:
+        plot.reward = cur.reward
 
 
 def apply_plots(p: Project, batch: PlotBatch) -> None:
@@ -1133,6 +1140,7 @@ def apply_plots(p: Project, batch: PlotBatch) -> None:
             plot.act = act.name
         if cur and (cur.plot.storyline or cur.plot.threads) and not (plot.storyline or plot.threads):
             plot.storyline, plot.threads = cur.plot.storyline, list(cur.plot.threads)  # 작가가 붙인 줄기는 AI 초안이 지우지 않는다
+        keep_unasked_plot(p, plot, cur.plot if cur else None)
         new = Episode(plot=plot)
         if cur:  # 작가 자료는 플롯을 다시 받아도 남긴다. 장면 연출은 사건 글로 사건을 다시 찾는다 (stage.find_event)
             new.stage, new.to_fix, new.events_done = cur.stage, cur.to_fix, cur.events_done
@@ -1863,6 +1871,7 @@ def clean_revision(p: Project, rev: PlotRevision, scope: ChatScope | None = None
             arc = acts or p.arc
     status = {e.plot.number: e.status for e in p.episodes}
     current = {e.plot.number: e.plot.model_dump() for e in p.episodes}
+    plots = {e.plot.number: e.plot for e in p.episodes}
     keep, seen = [], set()
     for e in rev.episodes:
         n = e.number
@@ -1878,6 +1887,7 @@ def clean_revision(p: Project, rev: PlotRevision, scope: ChatScope | None = None
         cur = current.get(n)
         if cur and (cur["storyline"] or cur["threads"]) and not (e.storyline or e.threads):
             e.storyline, e.threads = cur["storyline"], list(cur["threads"])  # 작가가 붙인 줄기는 AI 가 빠뜨려도 지키기
+        keep_unasked_plot(p, e, plots.get(n))  # 묻지 않은 사이다 칸: 변경안 카드에 지운 것으로 보이지 않게 비교 전에
         if current.get(n) == e.model_dump():
             continue
         seen.add(n)
@@ -1974,7 +1984,9 @@ def apply_revision(p: Project, rev: PlotRevision, acts: bool, episodes: list[int
         validate_story_arcs(p)
     for n, plot in picked.items():
         was = by_no.get(n)
-        by_no[n] = Episode(plot=plot.model_copy(deep=True), direction=was.direction if was else "")  # 확정된 화도 내용이 바뀌면 다시 확정한다. 작가 연출 지시는 남긴다
+        plot = plot.model_copy(deep=True)
+        keep_unasked_plot(p, plot, was.plot if was else None)
+        by_no[n] = Episode(plot=plot, direction=was.direction if was else "")  # 확정된 화도 내용이 바뀌면 다시 확정한다. 작가 연출 지시는 남긴다
         storylines.clean_plot(p, by_no[n])
         applied.append(str(n))
     p.episodes = [by_no[k] for k in sorted(by_no)]
@@ -2296,7 +2308,7 @@ def analyze_impact(llm: LLM, p: Project, eid: str) -> ImpactReport:
         raise ValueError("요소의 이름과 설명을 먼저 적으세요")
     linked = {lk.episode for lk in elements.links(p, el)}
     rep = llm.json(
-        prompts.SYSTEM_IMPACT, prompts.impact_prompt(p, el, linked), ImpactReport,
+        prompts.SYSTEM_IMPACT, prompts.impact_prompt(p, el, linked), prompts.arc_schema(p, ImpactReport),
         hint={"element": el, "episodes": p.episodes},
     )
     return clean_impact(p, rep)
@@ -2640,7 +2652,7 @@ def draft_episode(llm: LLM, p: Project, n: int, fit_next: bool = True) -> PlotBa
     if not beats:
         raise ValueError("다음 아크를 먼저 기획하세요" if p.serial else "기승전결 구조(arc)를 먼저 만드세요")
     free = not fit_next and any(x.plot.number == n + 1 for x in p.episodes)
-    batch = llm.json(prompts.SYSTEM_PLANNER, prompts.episode_plot_prompt(p, n, fit_next), EpisodeDraft if free else PlotBatch,
+    batch = llm.json(prompts.SYSTEM_PLANNER, prompts.episode_plot_prompt(p, n, fit_next), prompts.arc_schema(p, EpisodeDraft if free else PlotBatch),
                      hint={"start": n, "end": n, "arc": beats, "free": free})
     pick = [x for x in batch.episodes if x.number == n] or batch.episodes[:1]
     if not pick:

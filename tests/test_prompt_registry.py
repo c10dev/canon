@@ -96,7 +96,20 @@ def _arc_requests(p) -> dict[str, str]:
             "recap": prompts.recap_prompt(p, "arc", 1), "impact": prompts.impact_structure(p)}
 
 
-FRAME_KEYS = ("brief:agent_plot", "brief:arc", "brief:series", "plot_chat:arc", "plot_chat:next", "convert")  # 이야기 틀이 바꾸는 요청
+def _plot_requests(p) -> dict[str, str]:
+    """작업지시서 갈래 밖의 화별 플롯 요청 (docs/webnovel/specs/06-plot-frame.md 가 틀별로 가른 plot_rules · 초반 규칙 · 초반 판정이 들어가는 곳).
+    플롯 대화(화 고치기) · 요소 영향 분석 · 1화 여는 방식 안 · 1화 흡입력 판정."""
+    from canon.schema import StoryElement
+
+    el = StoryElement(id="e1", kind="장소", name="등대", description="바닷가 등대", since_ep=2)
+    return {"plot_chat:episode": prompts.plot_chat_prompt(p, "2화를 더 짧게"),
+            "impact_prompt": prompts.impact_prompt(p, el, {2}),
+            "opening_plots": prompts.opening_plots_prompt(p, 1, list(prompts.OPENING_APPROACHES)[:2]),
+            "hook": prompts.hook_prompt(p, 1, p.episode(1).text)}
+
+
+FRAME_KEYS = ("brief:agent_plot", "brief:arc", "brief:series", "plot_chat:arc", "plot_chat:next", "convert",  # 이야기 틀이 바꾸는 요청
+              "brief:plot", "brief:plots", "episode:1", "hook", "impact_prompt", "opening_plots", "plot_chat:episode")  # 화별 플롯 (06-plot-frame.md)
 
 
 def _web(make):
@@ -116,8 +129,9 @@ def _all() -> dict[str, str]:
     out.update({f"long:{k}": v for k, v in _requests(_long()).items()})
     for tag, make in (("short", _short), ("long", _long)):
         out.update({f"{tag}:{k}": v for k, v in _arc_requests(make()).items()})
+        out.update({f"{tag}:{k}": v for k, v in _plot_requests(make()).items()})
         p = _web(make)
-        web = {**_requests(p), **_arc_requests(p)}
+        web = {**_requests(p), **_arc_requests(p), **_plot_requests(p)}
         out.update({f"{tag}_web:{k}": web[k] for k in FRAME_KEYS if k in web and (k == "convert") == (tag == "short")})
     return out
 

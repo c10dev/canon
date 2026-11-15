@@ -206,7 +206,8 @@ def arc_axes(p: Project) -> tuple[bool, bool]:
 
 
 def arc_schema(p: Project, model):
-    """아크가 든 응답 형식의 틀별 판 (schema.framed). 드라마 틀 · 하렘 없음이면 model 그대로."""
+    """아크나 화 플롯이 든 응답 형식의 틀별 판 (schema.framed). 웹소설 틀 장편이면 화 플롯에 reward 칸도 든다.
+    드라마 틀 · 하렘 없음이면 model 그대로."""
     from .schema import framed
 
     return framed(model, *arc_axes(p))
@@ -236,6 +237,21 @@ def arc_meaning_rule(p: Project, drama: str, where: str) -> str:
     if harem(p):
         lines.append(ARC_HAREM)
     return "\n".join(lines)
+
+
+# 화별 플롯 규칙 줄 (docs/webnovel/specs/06-plot-frame.md). 장편만 갈린다: 드라마 틀은 원래 글 그대로, 웹소설 틀은 웹소설식 요구를 따른다
+PLOT_VARIETY = {
+    False: "- 모든 화가 같은 모양이 되지 않도록, 필요한 화에는 회상, 시간 건너뛰기, 곁가지 사건, 주인공의 잘못된 선택을 씁니다. 갈등은 너무 깔끔하게 정리하지 않습니다.",
+    True: "- 모든 화가 같은 모양이 되지 않도록, 필요한 화에는 회상, 시간 건너뛰기, 곁가지 사건을 씁니다. 막힌 것을 푸는 사이다는 깔끔하게 풉니다.",
+}
+PLOT_REWARD = ("- 사이다를 자주 둡니다. 주인공이 막힌 것을 풀거나 무언가를 얻는 화는 reward 에 그 화에서 독자가 받는 보상을 한 줄로 적습니다. "
+               "그런 보상이 없는 화는 reward 를 비웁니다.")
+PLOT_GAIN = "- 아크의 gain 은 아크 안 어느 화의 사건으로 보입니다."
+PLOT_HAREM = "- 관계는 주로 위로만 오릅니다. 균열은 1~3화 안에 풀리는 오해로 둡니다."
+OPENING_LEAD = {  # 1~3화 본문의 초반 규칙. 웹소설 틀은 '걸린 것' 자리에 로그라인 웹소설 칸 '주인공만 가진 것'
+    False: "- 주인공의 결핍과 걸린 것은 감정 이름이 아니라 처지와 행동으로 보입니다.",
+    True: "- 주인공의 결핍과 주인공만 가진 것은 감정 이름이 아니라 처지와 행동으로 보입니다.",
+}
 
 
 def rels(p: Project, ids: set[str] | None = None, plan: bool = True) -> str:
@@ -1220,7 +1236,7 @@ def serial_plot_prompt(p: Project, start: int, end: int, ahead: bool = True, red
 [이야기 요소 (작가가 더한 설정과 사건, 시점 포함)]
 {elements.plan_block(p) or "없음"}{lines_block(p)}
 
-{structure_text(p, start)}
+{structure_text(p, start, plan=True)}
 
 [지금까지의 줄거리]
 {story_so_far(p, start, plans=True) or "없음 (첫 화)"}{known}
@@ -1371,10 +1387,11 @@ def plot_rules(p: Project, opening: bool = False) -> str:
     """화별 플롯을 쓸 때 지킬 규칙. 초안 생성과 대화형 수정이 같이 쓴다.
     opening 이면 1~3화 규칙과 장르별 초반 박자를 붙인다 (다룰 화에 1~3화가 있을 때만, 장편 뒤쪽 프롬프트를 키우지 않게)."""
     pov_rule = pov_plot_rule(p)
+    web, har = arc_axes(p)  # 웹소설 틀 · 하렘 요소 줄은 장편만 (docs/webnovel/specs/06-plot-frame.md)
     common = f"""- 각 화는 소속 구간(act)의 goal 을 향해 전진해야 하며, 구간의 key_turn 은 해당 구간 안의 특정 화에 배치합니다.
 - 한 화에 사건 3~6개, 분량은 약 {p.meta.words_per_episode}자 기준.
 {COORD_PLOT_RULE if coord.on(p) else ""}- emotional_shift 는 '인물: 처음 → 끝 (계기)' 모양의 짧은 줄로 적습니다 (예: "서연: 전화를 피함 → 먼저 전화를 검 (아버지의 편지)"). 본문 문장처럼 쓰지 않습니다. 문장으로 쓰면 본문에 그대로 옮겨집니다.
-- 모든 화가 같은 모양이 되지 않도록, 필요한 화에는 회상, 시간 건너뛰기, 곁가지 사건, 주인공의 잘못된 선택을 씁니다. 갈등은 너무 깔끔하게 정리하지 않습니다.
+{PLOT_VARIETY[web]}
 - 이야기 요소는 시점을 지킵니다. 'n화부터 생김'은 그 화 전에 사실로 쓰지 않고, '나올 화'에는 그 요소를 사건으로 넣고, '드러나는 화' 전에는 암시만 둡니다.
 - characters 에는 인물 id 만 씁니다.
 {pov_rule}""" + storylines.plan_rule(p) + (opening_plot_rule(p) if opening else "")
@@ -1385,8 +1402,8 @@ def plot_rules(p: Project, opening: bool = False) -> str:
     return common + f"""
 - act 는 그 화가 속한 아크 안의 기승전결 위치입니다. 아크의 conflict 가 결 구간에서 해결되고, 아크의 payoff 가 전 구간 끝이나 결 구간 첫 화에 확실하게 나옵니다.
 - 주인공이 막히는 구간은 2~3화를 넘기지 않고, 막힌 만큼 시원하게 푸는 화를 뒤에 둡니다.
-- 관계 단계(낯섦 · 경계 · 호감 · 신뢰 · 균열 · 적대 · 화해)는 한 화에 한 칸씩 움직입니다. 적대에서 친구가 되는 것처럼 두 칸 넘는 변화는 계기 사건 화와 받아들이는 화로 나눠 여러 화에 둡니다.
-- 매 화 ending_hook 을 둡니다. 장면 한가운데나 새 정보가 드러나는 순간에 끊습니다. 아크 마지막 화는 다음 아크로 이어지는 떡밥으로 끊습니다. 작품 마지막 화({p.meta.target_episodes}화)만 훅 대신 여운을 둡니다.
+{f"{PLOT_REWARD}{chr(10)}{PLOT_GAIN}{chr(10)}" if web else ""}- 관계 단계(낯섦 · 경계 · 호감 · 신뢰 · 균열 · 적대 · 화해)는 한 화에 한 칸씩 움직입니다. 적대에서 친구가 되는 것처럼 두 칸 넘는 변화는 계기 사건 화와 받아들이는 화로 나눠 여러 화에 둡니다.
+{PLOT_HAREM + chr(10) if har else ""}- 매 화 ending_hook 을 둡니다. 장면 한가운데나 새 정보가 드러나는 순간에 끊습니다. 아크 마지막 화는 다음 아크로 이어지는 떡밥으로 끊습니다. 작품 마지막 화({p.meta.target_episodes}화)만 훅 대신 여운을 둡니다.
 - 이 아크에서 심은 작은 복선은 아크 안에서 회수합니다. 아크의 payoffs 에 있는 복선은 아크가 끝나기 전에 회수합니다. 부나 작품 끝까지 끌고 갈 복선은 심을 때 그렇다고 밝힙니다.
 - 첫 아크의 큰 보상은 25화 안에 둡니다 (무료 공개 구간 안에 보상이 와야 계속 읽는다는 연재 관습)."""
 
@@ -1858,7 +1875,7 @@ def opening_rules(p: Project, n: int, approach: str = "") -> str:
         "- 첫 문단에서 주인공이 이미 무언가를 하고 있습니다. 세계관 설명, 날씨, 아침 기상, \"평범한 ~였다\" 같은 자기소개로 시작하지 않습니다.",
         "- 세계관과 인물 설정은 어기지 말라는 자료이지 모두 설명하라는 것이 아닙니다. 이번 화에 필요한 것만 장면, 대사, 속마음 속에서 드러냅니다. 설명하는 문장을 세 문장 넘게 잇지 않습니다.",
         "- 이름을 붙여 등장시키는 인물은 이번 화 등장 인물로 한정합니다. 주인공의 이름과 목소리(대사나 속마음)가 앞부분에 나옵니다.",
-        "- 주인공의 결핍과 걸린 것은 감정 이름이 아니라 처지와 행동으로 보입니다.",
+        OPENING_LEAD[p.serial and webnovel(p)],
         "- 마지막 문단은 장면 한가운데나 새 정보가 드러나는 순간입니다. \"그때는 몰랐다\", \"이것이 시작이었다\" 같은 앞날 해설이나 정리하는 문장으로 끝내지 않습니다.",
     ]
     if plot and plot.opening:
@@ -1984,15 +2001,17 @@ def _entry_name(text: str) -> str:
     return text[:text.index("]") + 1] if text.startswith("[") and "]" in text else context.first_sentence(text, 40)
 
 
-def structure_text(p: Project, n: int, head: str = "[지금 부와 아크]") -> str:
+def structure_text(p: Project, n: int, head: str = "[지금 부와 아크]", plan: bool = False) -> str:
     """n화가 속한 부와 아크, 아크 안 기승전결. 장편 전용.
-    아크의 얻는 성장 · 공략 대상(gain · focus)은 넣지 않는다: 화별 플롯 · 본문 쓰기 요청이 그 칸을 어떻게 쓸지는 웹소설 일감 6 이 정한다."""
+    아크의 얻는 성장 · 공략 대상(gain · focus)은 화별 플롯 초안(plan)에만, 이 작품의 축이 켜진 칸만 넣는다 (웹소설 틀이면 gain, 하렘 요소면 focus).
+    본문 쓰기 · 검수 · 스토리보드 · 줄기 요청에는 넣지 않는다 (docs/webnovel/specs/06-plot-frame.md 정할 것 5)."""
     part, arc = p.part_for(n), p.arc_for(n)
+    hide = {k for k, on in zip(ARC_FRAME_FIELDS, arc_axes(p)) if not (plan and on)}
     lines = []
     if part:
         lines.append(f"[{part.number}부 {part.title} ({part.start_ep}~{part.end_ep}화)]\n목표: {part.goal}\n전환점: {part.key_turn}")
     if arc:
-        lines.append(dump(arc.model_dump(exclude={"summary", *ARC_HEAT, *ARC_FRAME_FIELDS}) | {"title": f"아크 {arc.number} {arc.title}"}))
+        lines.append(dump(arc.model_dump(exclude={"summary", *ARC_HEAT, *hide}) | {"title": f"아크 {arc.number} {arc.title}"}))
     return head + "\n" + ("\n".join(lines) or "아직 없음")
 
 
@@ -6223,6 +6242,14 @@ HOOK_GUIDE = {
 }
 
 
+HOOK_WEB_STAKE = "주인공이 지금 잃을 수 있는 것이나, 주인공만 가진 것으로 얻을 수 있는 것이 분명한가"  # 웹소설 틀 장편의 '걸린 것' 설명
+
+
+def hook_guide(p: Project) -> dict[str, str]:
+    """초반 판정 항목과 설명. 항목 이름은 schema.HookAspect 그대로 두고, 웹소설 틀 장편만 '걸린 것' 설명을 바꾼다 (docs/webnovel/specs/06-plot-frame.md)."""
+    return {**HOOK_GUIDE, "걸린 것": HOOK_WEB_STAKE} if p.serial and webnovel(p) else HOOK_GUIDE
+
+
 def hook_prompt(p: Project, n: int, text: str) -> str:
     """1~3화 판정. 작품 소개와 주인공, 앞 화 요약, 이번 화 플롯과 본문을 넣는다. text 는 판정할 본문 (비교본일 수 있다)."""
     ep = p.episode(n)
@@ -6231,7 +6258,7 @@ def hook_prompt(p: Project, n: int, text: str) -> str:
     prior = [e for e in sorted(p.episodes, key=lambda e: e.plot.number) if e.plot.number < n]
     before = "\n".join(f"{e.plot.number}화 {e.plot.title}: {e.summary or e.plot.summary}"
                        + (f" (독자 질문: {e.plot.reader_question})" if e.plot.reader_question else "") for e in prior)
-    guide = "\n".join(f"- {k}: {v}" for k, v in HOOK_GUIDE.items())
+    guide = "\n".join(f"- {k}: {v}" for k, v in hook_guide(p).items())
     return f"""[작품]
 {meta_text(p)}
 [주인공과 주역]
@@ -6811,10 +6838,10 @@ def brief_request(p: Project, n: int, kind: str = "episode") -> tuple[str, str, 
     if kind == "check":
         return SYSTEM_CHECKER, check_prompt(p, n), ConsistencyReport
     if kind == "plot":  # pipeline.draft_episode (웹 작업 plot_one, 뒤 화에 맞추기 켬)
-        return SYSTEM_PLANNER, episode_plot_prompt(p, n), PlotBatch
+        return SYSTEM_PLANNER, episode_plot_prompt(p, n), arc_schema(p, PlotBatch)
     if kind == "plots":  # pipeline.draft_plots (웹 작업 plots 가 구간마다 부른다)
         start, end = plots_range(p, n)
-        return SYSTEM_PLANNER, plot_prompt(p, start, end), PlotBatch
+        return SYSTEM_PLANNER, plot_prompt(p, start, end), arc_schema(p, PlotBatch)
     if kind == "storyboard":  # pipeline.make_storyboard
         return SYSTEM_PLANNER, storyboard_prompt(p, n), StoryboardDraft
     if kind == "cue":  # pipeline.make_cue_sheet: 스토리보드를 같은 작업에서 막 만든 경우(lead)가 아닌 따로 만들 때의 글
