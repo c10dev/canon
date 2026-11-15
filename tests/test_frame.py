@@ -60,7 +60,7 @@ def test_screen_frames_match_schema_and_hint():
 
 
 def test_frame_changes_only_logline_arc_and_plot_planning():
-    """틀을 웹소설식으로 바꾸면 바뀌는 요청은 세 갈래뿐이다. 나머지 요청은 스냅샷(드라마식)과 글자까지 같다. 장르 안내에도 권하는 틀이 나오지 않는다.
+    """틀을 웹소설식으로 바꾸면 바뀌는 요청은 아래 네 갈래뿐이다. 나머지 요청은 스냅샷(드라마식)과 글자까지 같다. 장르 안내에도 권하는 틀이 나오지 않는다.
     - 로그라인 웹소설 칸: 설정 대화 작업지시서 (docs/webnovel/specs/03-logline.md)
     - 장편의 부 · 아크 기획(작업지시서 부 구성 · 다음 아크 · 대화 에이전트 첫 단계, 플롯 대화)과 단편의 전환 요청 (docs/webnovel/specs/04-arc-frame.md)
     - 장편의 화별 플롯(작업지시서 플롯 초안 · 한 화 플롯, 플롯 대화, 영향 분석, 여는 방식 안)과 1화 본문의 초반 규칙 · 1화 판정 (docs/webnovel/specs/06-plot-frame.md). 단편은 바뀌지 않는다

@@ -192,7 +192,8 @@ def _scope_warnings(p: Project, sc: Scope) -> list[HeatWarn]:
 
     fs = {f.id: f for f in p.foreshadows}
     levels = [s.level for s in steps]
-    if len(steps) >= FLAT_MIN_EPS:
+    is_web = web(p)  # 웹소설 판: 작은 터뜨리기로 눈금이 고르게 오르내려 기복 · 이른 정점을 보지 않고, 판돈 · 관객 · 제약은 큰 정점(마지막 묶음)만 본다
+    if len(steps) >= FLAT_MIN_EPS and not is_web:
         cv = pstdev(levels) / mean(levels) if mean(levels) else 0.0
         if cv < CV_MIN:
             warn(sc.start if p.serial else 0, "flat", f"세기 눈금의 기복이 작아요 (변동계수 {cv:.2f}, {CV_MIN} 이상을 권해요). 아끼는 화와 터뜨리는 화의 차이를 키워 보세요")
@@ -200,7 +201,6 @@ def _scope_warnings(p: Project, sc: Scope) -> list[HeatWarn]:
     size = end - sc.start + 1
     gi = next((a for a in sc.acts if a.name == "기"), None)
     runs = peak_runs(steps)
-    is_web = web(p)  # 웹소설 판: 작은 터뜨리기가 앞에도 오므로 이른 정점을 보지 않고, 판돈 · 관객 · 제약은 큰 정점(마지막 묶음)만 본다
     for k, run in enumerate(runs):
         if is_web and k < len(runs) - 1:
             continue

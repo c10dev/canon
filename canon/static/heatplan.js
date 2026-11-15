@@ -92,7 +92,8 @@ function heatScopeWarnings(p, sc) {
   const warn = (ep, code, text) => out.push({ ep, code, text });
   const fs = Object.fromEntries((p.foreshadows || []).map((f) => [f.id, f]));
   const levels = steps.map((s) => s.level);
-  if (steps.length >= HEAT_FLAT_MIN) {
+  const web = heatWeb(p);  // 웹소설 판: 기복 · 이른 정점을 보지 않고, 판돈 · 관객 · 제약은 큰 정점(마지막 묶음)만 본다
+  if (steps.length >= HEAT_FLAT_MIN && !web) {
     const m = levels.reduce((a, b) => a + b, 0) / levels.length;
     const sd = Math.sqrt(levels.reduce((a, b) => a + (b - m) ** 2, 0) / levels.length);
     const cv = m ? sd / m : 0;
@@ -102,7 +103,6 @@ function heatScopeWarnings(p, sc) {
   const size = end - sc.start + 1;
   const gi = (sc.acts || []).find((a) => a.name === '기');
   const runs = heatPeakRuns(steps);
-  const web = heatWeb(p);  // 웹소설 판: 이른 정점을 보지 않고, 판돈 · 관객 · 제약은 큰 정점(마지막 묶음)만 본다
   runs.forEach((run, k) => {
     if (web && k < runs.length - 1) return;
     run.forEach((s) => {

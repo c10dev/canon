@@ -109,6 +109,15 @@ def test_after_and_rest_break_the_block_and_end_counts():
     assert [ep for ep, c in _codes(p) if c == "long_block"] == [a.start_ep + 8]  # 끝까지 이어진 쌓기 · 미루기도 센다
 
 
+def test_web_skips_flat():
+    """실측 웹소설 판 세 계획이 모두 기복 경고에 걸렸다 (정할 것 11). 웹소설 판은 기복을 보지 않는다."""
+    flat = [(2, "build", ""), (2, "hold", ""), (3, "peak", "a"), (2, "after", ""), (2, "build", ""), (2, "hold", ""), (3, "peak", "b"),
+            (2, "after", ""), (2, "build", ""), (2, "hold", ""), (5, "peak", "c"), (2, "after", "")]
+    p, a = _arc_work("webnovel", flat)
+    q, _ = _arc_work("drama", flat)
+    assert "flat" not in {c for _, c in _codes(p)} and (a.start_ep, "flat") in _codes(q)
+
+
 def test_web_checks_stake_and_pressure_only_on_the_big_peak():
     p, a = _arc_work("webnovel")
     p.episode(a.start_ep + 10).plot.foreshadow_payoff = []
@@ -156,6 +165,8 @@ def test_js_warnings_and_shape_match_python():
     cases = [_arc_work("webnovel")[0], _arc_work("drama")[0]]
     four = [(1, "build", ""), (1, "build", ""), (2, "hold", ""), (2, "hold", ""), (3, "peak", "첫 사냥")] + [(1, "rest", "")] * 5 + [(5, "peak", "승급"), (1, "after", "")]
     cases += [_arc_work("webnovel", four)[0], _arc_work("drama", four)[0]]
+    flat = [(2, "build", ""), (2, "hold", ""), (3, "peak", "a"), (2, "after", "")] * 2 + [(2, "build", ""), (2, "hold", ""), (5, "peak", "c"), (2, "after", "")]
+    cases += [_arc_work("webnovel", flat)[0], _arc_work("drama", flat)[0]]
     p, a = _arc_work("webnovel")
     p.episode(a.start_ep + 10).plot.foreshadow_payoff = []
     cases.append(p)
@@ -165,7 +176,7 @@ def test_js_warnings_and_shape_match_python():
     assert got["w"] == [[w.model_dump() for w in heatplan.warnings(c)] for c in cases]
     assert any(got["w"]) and any("long_block" == w["code"] for ws in got["w"] for w in ws)
     assert got["s"] == [s.model_dump() for s in heatplan.web_shape(steps)]
-    assert got["web"] == [True, False, True, False, True]
+    assert got["web"] == [True, False, True, False, True, False, True]
 
 
 @needs_node
