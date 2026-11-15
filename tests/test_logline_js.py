@@ -26,6 +26,10 @@ PARTS = [
     LoglineParts(who="퇴역 형사 X", why="딸이 납치되자", goal="범인을 쫓지만", block="경찰이 막는다", stake="딸의 목숨"),
     LoglineParts(who="A B", why="1", goal="다" * 40, block="b"),
     LoglineParts(who="한" * 60, why="두" * 60, goal="세" * 30 + "다"),
+    LoglineParts(who="게임 폐인 대학생", why="게임 속으로 들어가", goal="배드엔딩을 막는다", edge="그만 엔딩을 안다.", appeal="엔딩을 바꿀 때마다 길이 열린다",
+                 block="게임이 막는다", stake="  "),
+    LoglineParts(edge="그만 본다", appeal="  "),
+    LoglineParts(appeal="매번 이긴다...", stake="목숨"),
 ]
 
 
@@ -44,6 +48,17 @@ def test_compose_and_checks_match_server():
         assert line == logline.compose(p), p
         assert [tuple(c) for c in checks] == logline.checks(p), p
     assert {len(line) >= 40 for line, _ in got} == {True, False}
+
+
+@needs_node
+def test_webnovel_compose_and_checks_match_server():
+    """웹소설 틀 (docs/webnovel/specs/03-logline.md)."""
+    expr = "data.map((p) => [composeLogline(p, 'webnovel'), loglineChecks(p, 'webnovel'), loglineSlots('webnovel'), loglineFilled(p, 'drama')])"
+    got = run_js(["app.js", "setup.js"], expr, [dump(p) for p in PARTS])
+    for p, (line, checks, slots, filled) in zip(PARTS, got):
+        assert line == logline.compose(p, "webnovel"), p
+        assert [tuple(c) for c in checks] == logline.checks(p, "webnovel"), p
+        assert tuple(slots) == logline.slots("webnovel") and filled == (not logline.is_empty(p)), p
 
 
 @needs_node

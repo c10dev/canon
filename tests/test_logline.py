@@ -71,6 +71,80 @@ class LoglineTest(unittest.TestCase):
                 failed = [label for ok, label in logline.checks(ex) if not ok]
                 self.assertEqual(failed, [], f"{g.id}: {logline.compose(ex)}")
 
+    def test_webnovel_genre_examples_pass_webnovel_checks(self):
+        """웹소설 틀을 권하는 장르의 예시는 화면처럼 보이는 다섯 칸만으로 웹소설 점검을 지난다 (docs/webnovel/specs/03-logline.md)."""
+        web = [g for g in genres.CATALOG if g.frame == "webnovel"]
+        self.assertEqual(len(web), 8)
+        for g in web:
+            for ex in g.logline:
+                shown = LoglineParts(**{k: getattr(ex, k) for k in logline.SLOTS["webnovel"][0]})
+                failed = [label for ok, label in logline.checks(shown, "webnovel") if not ok]
+                self.assertEqual(failed, [], f"{g.id}: {logline.compose(shown, 'webnovel')}")
+        for g in genres.CATALOG:  # 웹소설 틀을 권하지 않는 장르는 새 칸을 채우지 않는다
+            if g.frame != "webnovel":
+                self.assertFalse(any(ex.edge or ex.appeal for ex in g.logline), g.id)
+
+
+class WebnovelLoglineTest(unittest.TestCase):
+    """웹소설 틀의 로그라인 칸 (docs/webnovel/specs/03-logline.md)."""
+
+    FULL = LoglineParts(who="사진관을 하는 서윤", why="오빠의 실종 소식에 돌아와", goal="오빠의 마지막 열흘을 되짚는다",
+                        block="도현은 무언가를 숨긴다", stake="진실을 알면 가족을 잃는다",
+                        edge="그녀만 오빠의 필름을 읽을 수 있다", appeal="필름을 한 통 현상할 때마다 마을의 비밀이 하나씩 드러난다")
+
+    def test_drama_is_unchanged(self):
+        drama = "사진관을 하는 서윤이 오빠의 실종 소식에 돌아와 오빠의 마지막 열흘을 되짚는다. 하지만 도현은 무언가를 숨긴다. 진실을 알면 가족을 잃는다."
+        self.assertEqual(logline.compose(self.FULL), drama)
+        self.assertEqual(logline.compose(self.FULL, "drama"), drama)
+        self.assertEqual([label for _, label in logline.checks(self.FULL)],
+                         ["주인공에게 이름 말고 특징이 있어요", "이야기를 시작하게 만드는 일이 있어요",
+                          "목표가 눈에 보이는 행동이에요 ('~한다'로 끝나요)", "목표를 막는 사람이나 힘이 있어요", "길이가 40~150자 사이예요"])
+
+    def test_webnovel_compose_examples(self):
+        def ex(gid, i):
+            e = genres.BY_ID[gid].logline[i]
+            return logline.compose(LoglineParts(**{k: getattr(e, k) for k in logline.SLOTS["webnovel"][0]}), "webnovel")
+        self.assertEqual(ex("light_novel", 1), "게임 폐인 대학생이 직접 만든 게임 속 엑스트라로 들어가 메인 히로인의 배드엔딩을 막는다. "
+                         "게임을 만든 그만 모든 분기와 엔딩을 안다. 엔딩을 하나 바꿀 때마다 그만 아는 숨은 길이 열린다.")
+        self.assertEqual(ex("regression", 0), "멸망한 세계의 마지막 생존자가 죽는 순간 10년 전으로 돌아가 멸망의 원인을 먼저 없앤다. "
+                         "그는 앞으로 10년 동안 일어날 일을 모두 안다. 아는 미래로 앞질러 움직일 때마다 전생의 후회를 하나씩 바로잡는다.")
+        self.assertEqual(ex("system", 1), "은퇴를 앞둔 하급 마법사가 자신만 스킬 창을 볼 수 있다는 걸 알게 되자 버려진 스킬을 모아 탑의 꼭대기에 오른다. "
+                         "스킬 창은 그의 눈에만 보인다. 스킬을 합칠 때마다 숨은 직업이 하나씩 열린다.")
+
+    def test_webnovel_folds_block_and_stake_to_the_end(self):
+        self.assertEqual(logline.compose(self.FULL, "webnovel"),
+                         "사진관을 하는 서윤이 오빠의 실종 소식에 돌아와 오빠의 마지막 열흘을 되짚는다. 그녀만 오빠의 필름을 읽을 수 있다. "
+                         "필름을 한 통 현상할 때마다 마을의 비밀이 하나씩 드러난다. 하지만 도현은 무언가를 숨긴다. 진실을 알면 가족을 잃는다.")
+        self.assertEqual(logline.compose(LoglineParts(edge="그만 본다.", appeal="매번 이긴다"), "webnovel"), "그만 본다. 매번 이긴다.")
+        self.assertEqual(logline.compose(LoglineParts(appeal="매번 이긴다", block="모두가 막는다"), "webnovel"), "매번 이긴다. 하지만 모두가 막는다.")
+
+    def test_webnovel_without_new_cells_reads_like_drama(self):
+        old = self.FULL.model_copy(update={"edge": "", "appeal": ""})
+        self.assertEqual(logline.compose(old, "webnovel"), logline.compose(old, "drama"))
+        self.assertEqual(logline.compose(self.FULL, "모르는 틀"), logline.compose(self.FULL))  # 모르는 틀은 드라마식
+
+    def test_webnovel_checks(self):
+        got = logline.checks(self.FULL.model_copy(update={"block": "", "stake": ""}), "webnovel")
+        self.assertEqual([label for _, label in got],
+                         ["주인공에게 이름 말고 특징이 있어요", "이야기를 시작하게 만드는 일이 있어요", "목표가 눈에 보이는 행동이에요 ('~한다'로 끝나요)",
+                          "주인공만 가진 것이 있어요", "독자가 받는 재미가 있어요", "길이가 40~150자 사이예요"])
+        self.assertTrue(all(ok for ok, _ in got))
+        self.assertEqual([ok for ok, _ in logline.checks(LoglineParts(who="서윤", block="막는다"), "webnovel")], [False] * 6)
+
+    def test_slots_and_empty_follow_frame(self):
+        self.assertEqual(logline.slots(), ("who", "why", "goal", "block", "stake"))
+        self.assertEqual(logline.slots("webnovel"), ("who", "why", "goal", "edge", "appeal", "block", "stake"))
+        only_new = LoglineParts(edge="그만 본다")
+        self.assertTrue(logline.is_empty(only_new))  # 드라마 틀에 웹소설 칸 값만 남았다
+        self.assertFalse(logline.is_empty(only_new, "webnovel"))
+        self.assertEqual(list(logline.view(self.FULL)), ["who", "why", "goal", "block", "stake"])
+        self.assertEqual(list(logline.view(self.FULL, "webnovel")), ["who", "why", "goal", "block", "stake", "edge", "appeal"])
+
+    def test_old_project_reads(self):
+        old = Project.model_validate({"meta": {"title": "옛 작품", "logline_parts": {"who": "서윤", "goal": "찾는다"}}})
+        self.assertEqual((old.meta.logline_parts.edge, old.meta.logline_parts.appeal), ("", ""))
+        self.assertEqual(logline.compose(old.meta.logline_parts), "서윤이 찾는다.")
+
 
 class ViewTest(unittest.TestCase):
     def test_views_seed_directional_ties(self):
@@ -109,7 +183,7 @@ def test_field_prompt():
     assert "'무엇을 하려 하나'" in text and "지금 값: 지도를 찾는다" in text
     assert "지워진 땅을 찾아 국경을 넘는다" in text  # 판타지 예시의 목표 칸
     assert "이 장르의 예시" not in prompts.field_prompt(p, "world.setting")
-    assert set(prompts.FIELD_IDEAS) == {"meta.title", "world.setting", *(f"meta.logline_parts.{k}" for k in ("who", "why", "goal", "block", "stake")),
+    assert set(prompts.FIELD_IDEAS) == {"meta.title", "world.setting", *(f"meta.logline_parts.{k}" for k in ("who", "why", "goal", "block", "stake", "edge", "appeal")),
                                         *(f"characters.*.{k}" for k in ("personality", "background", "appearance", "arc",
                                                                                   "goal", "wound", "pressure", "secrets", "speech_style"))}
     assert pipeline.field_stage("meta.title") == "name" and pipeline.field_stage("world.setting") == "plan"

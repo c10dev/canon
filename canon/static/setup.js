@@ -4,35 +4,53 @@
 
 // ----- 1. 설정 도우미 -----
 
-// 로그라인 다섯 칸과 톤 다이얼. canon/logline.py, Swift 앱 FeatureSetup/Logline.swift 와 같은 규칙이라 함께 고친다.
+// 로그라인 칸과 톤 다이얼. canon/logline.py, Swift 앱 FeatureSetup/Logline.swift 와 같은 규칙이라 함께 고친다.
 const LOGLINE_SLOTS = [
   ['who', '누가', '이름보다 특징이 먼저 보이게'],
   ['why', '무엇 때문에', '이야기를 시작하게 만드는 일'],
   ['goal', '무엇을 하려 하나', "눈에 보이는 행동, '~한다'로 끝내기"],
   ['block', '무엇이 막나', '사람이나 힘'],
   ['stake', '무엇이 걸렸나', '선택'],
+  ['edge', '주인공만 가진 것', '회귀 지식, 혼자만 보이는 상태창처럼'],
+  ['appeal', '독자가 받는 재미', '사이다, 성장, 하렘처럼'],
 ];
+// 이야기 틀마다 [보이는 칸, 접은 칸] (logline.SLOTS 와 같다, docs/webnovel/specs/03-logline.md)
+const LOGLINE_FRAME_SLOTS = {
+  drama: [['who', 'why', 'goal', 'block', 'stake'], []],
+  webnovel: [['who', 'why', 'goal', 'edge', 'appeal'], ['block', 'stake']],
+};
+const loglineFrame = (frame) => LOGLINE_FRAME_SLOTS[frame] || LOGLINE_FRAME_SLOTS.drama;
+/** 그 틀이 쓰는 칸 모두 (logline.slots) */
+const loglineSlots = (frame) => loglineFrame(frame).flat();
+/** 그 틀이 쓰는 칸에 적은 것이 있는지 (logline.is_empty 의 반대) */
+const loglineFilled = (parts, frame) => loglineSlots(frame).some((k) => (parts[k] || '').trim());
+/** 지금 작품의 칸으로 합친 문장 */
+const loglineNow = () => composeLogline(P().meta.logline_parts, P().meta.frame);
 
 // 조사 josa 는 app.js (여러 화면이 쓴다)
 
-function composeLogline(p) {
-  const [who, why, goal, block, stake] = LOGLINE_SLOTS.map(([k]) => (p[k] || '').trim().replace(/\.+$/, ''));
+function composeLogline(p, frame = 'drama') {
+  const [who, why, goal, block, stake, edge, appeal] = LOGLINE_SLOTS.map(([k]) => (p[k] || '').trim().replace(/\.+$/, ''));
   let out = '';
   if (who) out += who + josa(who, '이', '가') + ' ';
   if (why) out += why + ' ';
   if (goal) out += goal + '.';
+  if (frame === 'webnovel') [edge, appeal].forEach((x) => { if (x) out += ' ' + x + '.'; });
   if (block) out += (out ? ' 하지만 ' : '') + block + '.';
   if (stake) out += ' ' + stake + '.';
   return out.trim();
 }
 
-function loglineChecks(p) {
-  const n = composeLogline(p).length;
+function loglineChecks(p, frame = 'drama') {
+  const n = composeLogline(p, frame).length;
+  const mid = frame === 'webnovel'
+    ? [[!!(p.edge || '').trim(), '주인공만 가진 것이 있어요'], [!!(p.appeal || '').trim(), '독자가 받는 재미가 있어요']]
+    : [[!!p.block.trim(), '목표를 막는 사람이나 힘이 있어요']];
   return [
     [p.who.trim().split(/\s+/).length > 1, '주인공에게 이름 말고 특징이 있어요'],
     [!!p.why.trim(), '이야기를 시작하게 만드는 일이 있어요'],
     [p.goal.trim().endsWith('다'), "목표가 눈에 보이는 행동이에요 ('~한다'로 끝나요)"],
-    [!!p.block.trim(), '목표를 막는 사람이나 힘이 있어요'],
+    ...mid,
     [n >= 40 && n <= 150, '길이가 40~150자 사이예요'],
   ];
 }
@@ -55,20 +73,32 @@ function loglineExamples() {
   return (ids.length ? ids : ['mystery', 'drama']).flatMap((id) => (genreById(id) || {}).logline || []);
 }
 
+/** 예시를 지금 틀의 보이는 칸만으로 (예시 문장 · '이 예시로 채우기') */
+function loglineExample(e, frame) {
+  return Object.fromEntries(loglineFrame(frame)[0].map((k) => [k, e[k] || '']));
+}
+
 function loglineBuilder() {
   const m = P().meta;
   const parts = m.logline_parts;
-  const exs = loglineExamples();
-  const legacy = !Object.values(parts).some((v) => v.trim()) && m.logline.trim();
-  const slots = LOGLINE_SLOTS.map(([k, label, hint]) => {
+  const frame = m.frame || 'drama';
+  const [shown, folded] = loglineFrame(frame);
+  const exs = loglineExamples().map((e) => loglineExample(e, frame));
+  const legacy = !loglineFilled(parts, frame) && m.logline.trim();
+  const slot = (k) => {
+    const [, label, hint] = LOGLINE_SLOTS.find(([x]) => x === k);
     const path = 'meta.logline_parts.' + k;
-    return `<div class="slot">${input(label, path, { hint, beside: ideaBtn(path), after: ideaList(path) })}${slotExamples(k, label)}</div>`;
-  }).join('');
+    return `<div class="slot">${input(label, path, { hint: folded.includes(k) ? '선택' : hint, beside: ideaBtn(path), after: ideaList(path) })}${slotExamples(k, label)}</div>`;
+  };
+  const slots = shown.map(slot).join('');
+  // 웹소설 틀: 막는 것 · 걸린 것은 접어 둔다. 적었거나 찾기에서 고른 칸이면 펼친다
+  const open = folded.some((k) => (parts[k] || '').trim() || S.jumpTo === '#f-meta-logline_parts-' + k);
+  const more = folded.length ? `<details class="slot-more"${open ? ' open' : ''}><summary>더 쓰기: ${folded.map((k) => LOGLINE_SLOTS.find(([x]) => x === k)[1]).join(' · ')} (선택)</summary><div class="slots">${folded.map(slot).join('')}</div></details>` : '';
   return `<div class="logline-box">
     <div class="logline-out"><p id="logline-preview" class="logline-preview" aria-live="polite">${esc(m.logline || LOGLINE_EMPTY)}</p><ul id="logline-checks" class="logline-checks" aria-label="로그라인 점검">${loglineChecksHtml(m)}</ul></div>
     ${legacy ? '<div class="note plain">지금 로그라인은 한 문장뿐이라, 칸을 채우면 칸 내용으로 바뀌어요.</div>' : ''}
-    <div class="slots">${slots}</div>
-    ${exs.length ? `<details><summary>예시 로그라인 ${exs.length}개 보기</summary><div class="ex-list">${exs.map((e, i) => `<div class="ex-item"><span>${esc(composeLogline(e))}</span><button type="button" class="btn small" data-action="useExample" data-arg="${i}">이 예시로 채우기</button></div>`).join('')}</div></details>` : ''}
+    <div class="slots">${slots}</div>${more}
+    ${exs.length ? `<details><summary>예시 로그라인 ${exs.length}개 보기</summary><div class="ex-list">${exs.map((e, i) => `<div class="ex-item"><span>${esc(composeLogline(e, frame))}</span><button type="button" class="btn small" data-action="useExample" data-arg="${i}">이 예시로 채우기</button></div>`).join('')}</div></details>` : ''}
     <div id="logline-manual">${loglineManualHtml(m)}</div>
     <details${legacy || loglineManual(m) ? ' open' : ''}><summary>한 문장으로 직접 고쳐 쓰기</summary>${input('로그라인 문장', 'meta.logline', { rows: 3, help: '직접 고친 문장은 칸을 고쳐도 그대로 둬요.' })}</details>
   </div>`;
@@ -108,7 +138,7 @@ function refreshSlotExamples() {
 /** 직접 고친 문장을 쓰는 중: 칸 내용과 다르다. 옛 작품처럼 칸이 모두 비었으면 칸을 채울 때 칸 내용으로 바꾼다 */
 function loglineManual(m) {
   const parts = m.logline_parts;
-  return Object.values(parts).some((v) => v.trim()) && !!m.logline.trim() && m.logline !== composeLogline(parts);
+  return loglineFilled(parts, m.frame) && !!m.logline.trim() && m.logline !== composeLogline(parts, m.frame);
 }
 
 function loglineManualHtml(m) {
@@ -119,8 +149,8 @@ const LOGLINE_EMPTY = '칸을 채우면 여기에 로그라인이 만들어져�
 
 function loglineChecksHtml(m) {
   const parts = m.logline_parts;
-  if (!Object.values(parts).some((v) => v.trim())) return '';
-  return loglineChecks(parts).map(([ok, t]) => `<li class="${ok ? 'ok' : ''}">${esc(t)}</li>`).join('') + `<li class="len">${m.logline.length}자 · 점검은 참고용이에요</li>`;
+  if (!loglineFilled(parts, m.frame)) return '';
+  return loglineChecks(parts, m.frame).map(([ok, t]) => `<li class="${ok ? 'ok' : ''}">${esc(t)}</li>`).join('') + `<li class="len">${m.logline.length}자 · 점검은 참고용이에요</li>`;
 }
 
 /** 로그라인 칸이 바뀌면 합친 문장, 점검, 직접 쓰기 칸만 다시 그린다 (입력 중인 칸의 포커스 유지).
@@ -128,9 +158,9 @@ function loglineChecksHtml(m) {
 function updateLogline(prev) {
   const m = P().meta;
   const parts = m.logline_parts;
-  const empty = !Object.values(parts).some((v) => v.trim());
+  const empty = !loglineFilled(parts, m.frame);
   if (!empty && (prev === undefined || !m.logline.trim() || m.logline === prev)) {
-    m.logline = composeLogline(parts);
+    m.logline = composeLogline(parts, m.frame);
     const raw = $('#f-meta-logline');
     if (raw) raw.value = m.logline;
   }
@@ -141,6 +171,17 @@ function updateLogline(prev) {
   const mn = $('#logline-manual');
   if (mn) mn.innerHTML = loglineManualHtml(m);
   refreshSlotExamples();
+}
+
+/** 이야기 틀을 바꿨다 (home.js setFrame). 칸 값은 그대로 두고, 합친 문장이 바꾸기 전 틀의 문장이었으면 새 틀로 다시 합친다.
+    직접 고친 문장과 칸 없이 문장만 있는 옛 작품은 그대로. 로그라인 칸이 그려져 있으면 새 틀의 칸으로 다시 그린다 */
+function loglineFrameChanged(prevFrame) {
+  const m = P().meta;
+  const was = composeLogline(m.logline_parts, prevFrame);
+  const now = composeLogline(m.logline_parts, m.frame);
+  if (now && (!m.logline.trim() || m.logline === was)) m.logline = now;
+  const box = $('.logline-box');
+  if (box) box.outerHTML = loglineBuilder();
 }
 
 function toneBox() {
@@ -1365,7 +1406,7 @@ Object.assign(actions, {
       const label = LOGLINE_SLOTS.find(([x]) => x === k)[1];
       if (!(await askConfirm(`'${label}' 칸에 쓴 글을 이 예시로 바꿀까요?\n지금: ${now}\n예시: ${v}`, { ok: '바꾸기' }))) return;
     }
-    const prev = composeLogline(P().meta.logline_parts);
+    const prev = loglineNow();
     P().meta.logline_parts[k] = v;
     const el = $(`#f-meta-logline_parts-${k}`);
     if (el) el.value = P().meta.logline_parts[k];
@@ -1397,7 +1438,7 @@ Object.assign(actions, {
   },
   rebuildLogline() {
     const m = P().meta;
-    m.logline = composeLogline(m.logline_parts);
+    m.logline = composeLogline(m.logline_parts, m.frame);
     const raw = $('#f-meta-logline');
     if (raw) raw.value = m.logline;
     markDirty();
@@ -1406,8 +1447,10 @@ Object.assign(actions, {
   },
   async useExample(i) {
     const parts = P().meta.logline_parts;
-    if (Object.values(parts).some((v) => v.trim()) && !(await askConfirm('지금 쓴 다섯 칸을 이 예시로 바꿀까요?', { ok: '바꾸기' }))) return;
-    Object.assign(parts, loglineExamples()[i]);
+    const frame = P().meta.frame;
+    const ex = loglineExample(loglineExamples()[i], frame);  // 그 틀의 보이는 칸만 바꾼다 (다른 칸은 그대로)
+    if (Object.keys(ex).some((k) => (parts[k] || '').trim()) && !(await askConfirm('지금 쓴 다섯 칸을 이 예시로 바꿀까요?', { ok: '바꾸기' }))) return;
+    Object.assign(parts, ex);
     LOGLINE_SLOTS.forEach(([k]) => { const el = $(`#f-meta-logline_parts-${k}`); if (el) el.value = parts[k]; });
     markDirty();
     updateLogline();

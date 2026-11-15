@@ -116,6 +116,7 @@
 - `update -y` 는 비슷한 새 사실을 반영하지 않고 빼 둔 수를 알린다(`features.hold`)
 - 장편(`new --serial`)은 `arc` 대신 `series` 를 한 번 부른다
 - `new --frame drama|webnovel` 은 이야기 틀(`Meta.frame`, 기본 `drama`)을 정한다. 주지 않았는데 고른 장르가 웹소설식을 권하면 한 줄로 알린다
+- `new -i --frame webnovel` 의 로그라인 물음(`ask_logline`)은 웹소설 칸을 묻고 막는 것 · 걸린 것은 선택으로 묻는다
 - 장편은 아크마다 `nextarc` → `plot` → `confirm` → `run` → `recap` 을 되풀이한다
 - `auto --stop` 은 다른 곳(웹 서버)에서 도는 실행이면 중지를 청했다고 알린다(`autorun.elsewhere`)
 - 명령별 쓰임
@@ -649,7 +650,7 @@
 - 웹소설 틀이면 다음 아크 · 플롯 대화의 아크 뜻 줄(`arc_meaning_rule`)이 보상 루프 한 바퀴 · 짧은 고구마(1~3화) · `gain` 을 적게 한다
 - 웹소설 틀이면 다음 아크의 커지기 줄(`NEXT_ARC_GROW`)이 같은 모양의 갈등 대신 주인공의 성장이나 상대로 커진다
 - 하렘 요소(id `harem`)가 있는 장편은 두 요청에 공략 대상 `focus` 줄과 '관계는 주로 위로만' 줄(`ARC_HAREM`)을 더한다
-- 드라마 틀 · 하렘 없음이면 틀별 줄은 모두 지금 글 그대로다(`tests/test_frame.py` 의 `test_frame_changes_only_arc_planning`)
+- 드라마 틀 · 하렘 없음이면 틀별 줄은 모두 지금 글 그대로다(`tests/test_frame.py` 의 `test_frame_changes_only_logline_and_arc_planning`)
 - '지금 부와 아크'(`structure_text`)는 아크의 `gain` · `focus` 를 넣지 않는다. 화별 플롯 · 본문 쓰기가 그 칸을 쓸지는 웹소설 일감 6 이 정한다
 - 완급 계획 받기 요청 `heat_propose_prompt`: 기승전결, 화별 플롯, 본문 있는 화의 실제 열 참고값과 지금 계획, 열린 복선. 요구사항은 단편 기획과 같은 `heat_rules`
 - 작업지시서(`episode_brief`, `state_brief`)
