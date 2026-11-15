@@ -1,6 +1,6 @@
 # 11. 인물 카드를 '표현'에서 '압력'으로
 
-상태: 진행 (11a [#535](https://github.com/c10dev/canon/pull/535) 머지, 11b claude/pressure-card-d19767, 11c 남음) · 계획: [plan.md](../plan.md) 의 11번 · 먼저: —
+상태: 진행 (11a [#535](https://github.com/c10dev/canon/pull/535) 머지, 11b [#541](https://github.com/c10dev/canon/pull/541) 머지, 11c 남음) · 계획: [plan.md](../plan.md) 의 11번 · 먼저: —
 
 ## 목표
 
