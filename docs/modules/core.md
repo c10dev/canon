@@ -433,7 +433,7 @@
 - `apply_arc` 는 틀별 판으로 받은 아크를 저장 모델 `StoryArc` 로 바꿔 붙인다
 - 플롯 대화의 아크 칸 묶음 `ARC_EDIT_FIELDS` 에 `gain` · `focus` 가 있다. 응답 형식이 묻지 않은 칸은 지금 아크나 초안 값을 둔다(`keep_unasked`)
 - 플롯 초안 · 한 화 플롯 · 영향 분석은 응답 형식을 `prompts.arc_schema` 로 고른다. 웹소설 틀 장편만 화 플롯에 `reward` 칸이 든 판이다(docs/webnovel/specs/06-plot-frame.md)
-- 응답 형식이 묻지 않은 화 칸 `reward` 는 AI 가 다시 낸 화 플롯이 지우지 않는다(`keep_unasked_plot`, `apply_plots` · `apply_revision` · `opening.apply_opening`)
+- 응답 형식이 묻지 않은 화 칸 `reward` 는 AI 가 다시 낸 화 플롯이 지우지 않는다(`keep_unasked_plot`, `clean_revision` · `apply_plots` · `apply_revision` · `opening.apply_opening`)
 - 화별 플롯
   - 대화로 다듬기 `revise_plot`/`apply_revision` 포함
   - `apply_revision` 이 화를 다시 만들어도 작가 연출 지시(`Episode.direction`)는 남긴다

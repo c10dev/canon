@@ -179,3 +179,35 @@ def test_reward_field_shows_only_when_asked():
              ["short_web", {"frame": "webnovel"}, "short", plot], ["kept", {"frame": "drama"}, "serial", {**plot, "reward": "첫 응징"}]]
     got = run_js(["app.js", "home.js", "plot.js"], expr, {"cases": cases, "p": Project().model_dump()})
     assert got == {"drama": False, "web": True, "short_web": False, "kept": True}
+
+
+def test_filled_reward_goes_where_the_plot_goes():
+    """정할 것 8: 값이 찬 reward 는 화 플롯을 덤프하는 요청(본문 쓰기 · 검수 · 상태 · 스토리보드 · 기획)에 플롯의 한 칸으로 들어간다.
+    엔딩 훅 칸이 들어가는 요청과 정확히 같다. 조율 메모를 켜도 쓰기 재료 플롯(coord.plot)에 남는다."""
+    from canon import coord
+    from canon.schema import CoordMemo
+
+    from . import test_prompt_registry as reg
+
+    for make in (reg._long, reg._short):
+        p = make()
+        for e in p.episodes:
+            e.plot.reward = "사이다표지"
+        got = {**reg._requests(p), **reg._plot_requests(p), **reg._arc_requests(p)}
+        assert {k for k, v in got.items() if "사이다표지" in v} == {k for k, v in got.items() if '"ending_hook"' in v}
+        assert any(k.startswith("episode:") for k, v in got.items() if "사이다표지" in v)
+    plot = p.episodes[0].plot
+    assert coord.plot(plot, CoordMemo(summary="s", events=["e"], ending_hook="h")).reward == "사이다표지"
+
+
+def test_plot_chat_card_does_not_show_unasked_reward_as_removed():
+    """드라마 틀 작품: AI 변경안(응답 형식에 reward 가 없음)을 정리할 때 지금 화의 reward 를 채운다.
+    그래서 변경안 카드에 지운 것으로 보이지 않고, 나머지가 같은 화는 바뀌지 않은 화로 빠진다."""
+    p, a = _drama_with_reward()
+    n = a.start_ep
+    cur = p.episode(n).plot
+    same = PlotRevision(reply="", episodes=[cur.model_copy(update={"reward": ""})])
+    assert pipeline.clean_revision(p, same, ChatScope(target=f"arc:{a.number}")).episodes == []
+    edit = PlotRevision(reply="", episodes=[cur.model_copy(update={"reward": "", "summary": "고친 요약"})])
+    got = pipeline.clean_revision(p, edit, ChatScope(target=f"arc:{a.number}")).episodes
+    assert [(e.summary, e.reward) for e in got] == [("고친 요약", "작가가 적은 사이다")]

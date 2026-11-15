@@ -1869,6 +1869,7 @@ def clean_revision(p: Project, rev: PlotRevision, scope: ChatScope | None = None
             arc = acts or p.arc
     status = {e.plot.number: e.status for e in p.episodes}
     current = {e.plot.number: e.plot.model_dump() for e in p.episodes}
+    plots = {e.plot.number: e.plot for e in p.episodes}
     keep, seen = [], set()
     for e in rev.episodes:
         n = e.number
@@ -1884,6 +1885,7 @@ def clean_revision(p: Project, rev: PlotRevision, scope: ChatScope | None = None
         cur = current.get(n)
         if cur and (cur["storyline"] or cur["threads"]) and not (e.storyline or e.threads):
             e.storyline, e.threads = cur["storyline"], list(cur["threads"])  # 작가가 붙인 줄기는 AI 가 빠뜨려도 지키기
+        keep_unasked_plot(p, e, plots.get(n))  # 묻지 않은 사이다 칸: 변경안 카드에 지운 것으로 보이지 않게 비교 전에
         if current.get(n) == e.model_dump():
             continue
         seen.add(n)
