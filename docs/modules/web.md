@@ -775,6 +775,7 @@
 
 ### `canon/static/write.js`
 
+- 프롬프트 보기의 블록 안(`ctxMore`)에 펼친 매크로 목록(`ctxMacros`: '어느 칸 · 원문 → 값'과 경고)을 보인다. 없으면 그리지 않는다
 - 4단계 집필
   - 한 화 화면 `viewEpisode(n, panel)`: 집필 · 검수 · 상태 승인 세 주소가 같은 머리 · 단계 띠 · 본문 칸을 그린다(`viewWrite` · `viewCheck` · `viewReview` 는 감싼 이름)
   - 집필 칸은 오른쪽 칸 없이 본문 칸 하나

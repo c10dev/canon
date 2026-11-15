@@ -10,6 +10,7 @@ import json
 import re
 from collections import Counter, defaultdict
 
+from .macros import STRIP
 from .metrics import _QUOTE, name_forms
 
 WINDOW = 5          # 견주는 직전 화 수 (본문이 있는 화)
@@ -51,7 +52,7 @@ def _canon_text(p) -> str:
     parts.append(json.dumps(p.world.model_dump(), ensure_ascii=False))
     parts += [json.dumps(c.model_dump(exclude={"marks"}), ensure_ascii=False) for c in p.characters]  # 표지는 본문에서 거둔 구절이라 뺀다
     parts += [json.dumps(s.model_dump(), ensure_ascii=False) for s in p.states]
-    parts += [f"{e.name} {' '.join(e.aliases)} {e.description}" for e in p.elements]
+    parts += [f"{e.name} {' '.join(e.aliases)} {STRIP.sub(' ', e.description)}" for e in p.elements]  # 매크로는 떼고 본다 (05 의 정할 것 14)
     return _stems(_WORD.findall("\n".join(parts)))
 
 

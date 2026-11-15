@@ -94,11 +94,18 @@ def timing(el: StoryElement) -> str:
     return " / ".join(parts)
 
 
-def describe(p: Project, el: StoryElement, n: int | None = None) -> str:
-    """프롬프트에 넣는 한 줄. n 을 주면 그 화 기준으로 숨길지 알려 준다."""
+def describe(p: Project, el: StoryElement, n: int | None = None, env=None) -> str:
+    """프롬프트에 넣는 한 줄. n 을 주면 그 화 기준으로 숨길지 알려 준다.
+    env(macros.MacroEnv)를 주면 설명의 매크로를 펼치고 쓰임을 env.uses 에 더한다. {{char}} 는 관련 인물의 첫 인물 (정할 것 10)."""
     names = {c.id: c.name for c in p.characters}
     alias = f" (다른 이름: {', '.join(el.aliases)})" if el.aliases else ""
-    line = f"- [{el.kind}] {el.name}{alias}: {el.description.strip()}"
+    desc = el.description.strip()
+    if env is not None and "{{" in desc:
+        from . import macros
+        char = env.name_of(el.characters[0]) if el.characters else ""
+        desc, uses = macros.expand(desc, env, f"이야기 요소 '{el.name or el.id}' 설명", char)
+        env.uses += uses
+    line = f"- [{el.kind}] {el.name}{alias}: {desc}"
     if short(el):  # 본문 · 플롯에서 처음 나와 등록된 장소는 한 줄로
         return f"{line} ({el.found_ep}화에 처음 나옴)"
     if el.characters:
@@ -156,42 +163,43 @@ def trace_gate(p: Project, n: int, trace) -> None:
         trace.item("elements", note, NOTE_COND)
 
 
-def episode_block(p: Project, n: int) -> str:
-    """본문 쓰기 컨텍스트에 넣는 블록. 넣을 요소가 없으면 빈 문자열."""
-    return "\n".join(describe(p, el, n) for el in for_episode(p, n))
+def episode_block(p: Project, n: int, env=None) -> str:
+    """본문 쓰기 컨텍스트에 넣는 블록. 넣을 요소가 없으면 빈 문자열. env 를 주면 설명의 매크로를 펼친다."""
+    return "\n".join(describe(p, el, n, env) for el in for_episode(p, n))
 
 
-def active_block(p: Project, n: int) -> str:
+def active_block(p: Project, n: int, env=None) -> str:
     """검수용: n화 시점에 이미 사실인 요소 전부. 본문 · 플롯에서 나온 장소는 장편이면 예산까지 (n화에 나오는 곳 먼저)."""
     e = p.episode(n)
-    return _block(p, [el for el in p.elements if el.context != "off" and exists_at(el, n)], e.text + "\n" + plot_text(e), n)
+    return _block(p, [el for el in p.elements if el.context != "off" and exists_at(el, n)], e.text + "\n" + plot_text(e), n, env)
 
 
-def plan_block(p: Project) -> str:
+def plan_block(p: Project, env=None) -> str:
     """기획용(구조, 화별 플롯, 플롯 대화): 시점과 함께 모든 요소. 본문 · 플롯에서 나온 장소는 장편이면 예산까지 (최근에 나온 곳 먼저)."""
-    return _block(p, [el for el in p.elements if el.context != "off"], "")
+    return _block(p, [el for el in p.elements if el.context != "off"], "", env=env)
 
 
-def _block(p: Project, els: list[StoryElement], text: str, n: int | None = None) -> str:
-    own = [describe(p, el, n) for el in els if not el.found_in]
-    return "\n".join(own + found_lines(p, [el for el in els if el.found_in], text, n))
+def _block(p: Project, els: list[StoryElement], text: str, n: int | None = None, env=None) -> str:
+    own = [describe(p, el, n, env) for el in els if not el.found_in]
+    return "\n".join(own + found_lines(p, [el for el in els if el.found_in], text, n, env))
 
 
-def found_lines(p: Project, els: list[StoryElement], text: str, n: int | None = None) -> list[str]:
+def found_lines(p: Project, els: list[StoryElement], text: str, n: int | None = None, env=None) -> list[str]:
     """처음 나와 등록된 장소 줄. 단편은 모두, 장편은 context.BUDGET['places'] 글자까지 넣고 뺀 수를 적는다.
     text 에 이름이 나오는 곳 먼저, 그다음 최근에 처음 나온 곳. 넣는 줄은 원래 순서로."""
     if not p.serial:
-        return [describe(p, el, n) for el in els]
+        return [describe(p, el, n, env) for el in els]
     from .context import BUDGET  # context 가 이 모듈을 부른다
 
     ranked = sorted(range(len(els)), key=lambda i: (not any(t in text for t in terms(els[i])), -els[i].found_ep))
+    lines = [describe(p, el, n, env) for el in els]  # 펼친 글로 예산을 센다 (05 의 정할 것 21)
     keep, used = set(), 0
     for i in ranked:
-        size = len(describe(p, els[i], n)) + 1
+        size = len(lines[i]) + 1
         if used + size <= BUDGET["places"]:
             keep.add(i)
             used += size
-    out = [describe(p, els[i], n) for i in sorted(keep)]
+    out = [lines[i] for i in sorted(keep)]
     if len(keep) < len(els):
         out.append(f"- (본문에서 나온 장소 {len(els) - len(keep)}곳은 덜 관련돼 뺐다)")
     return out

@@ -262,9 +262,16 @@ function ctxMore(c) {
   const list = (title, rows) => (rows && rows.length ? `<div class="ctx-sub"><strong class="small">${title} ${rows.length}개</strong>
     <ul class="ctx-items">${rows.map((r) => `<li><span>${esc(r.name)}</span><span class="small">${esc(r.reason)}</span></li>`).join('')}</ul></div>` : '');
   out.push(list('넣은 항목', c.items), list('뺀 항목', c.dropped));
+  out.push(ctxMacros(c.macros));
   if (c.text) out.push(`<pre class="brief mono ctx-text" tabindex="0" aria-label="${esc(c.title)} 원문">${esc(c.text)}</pre>`);
   else if (c.on !== false) out.push('<p class="small">이번 화에는 넣을 내용이 없어요.</p>');
   return `<div class="ctx-more">${out.join('')}</div>`;
+}
+/** 펼친 매크로 목록 (web.context 의 macros, 서버 canon/macros.py): '어느 칸 · 원문 → 값' 한 줄씩, 펼치지 않았으면 까닭. 없으면 빈 글 */
+function ctxMacros(list) {
+  if (!list || !list.length) return '';
+  const row = (m) => `<li><span>${esc(m.where ? `${m.where} · ` : '')}<code>${esc(m.raw)}</code>${m.value ? ` → ${esc(m.value)}` : ''}</span>${m.note ? `<span class="small">${esc(m.note)}</span>` : ''}</li>`;
+  return `<div class="ctx-sub"><strong class="small">매크로 ${list.length}개</strong><ul class="ctx-items">${list.map(row).join('')}</ul></div>`;
 }
 function ctxList(full = false) {
   const ser = serial();

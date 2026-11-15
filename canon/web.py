@@ -37,7 +37,7 @@ from . import context as ctxrules  # 이름 context 는 컨텍스트 보기 엔�
 from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록)
 from .schema import (Ability, ArcPlan, BodySuggestion, StatInitSuggestion, StatSkin, StatWindowSuggestion, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      RuleChange, RuleRun, StorylineProposal, StyleEntry, StyleProfile)
-from . import abilities, anchor, atlas, findings, foreshadows, heatplan, setupchat, stateedit, staterules, stattrial, statwin, timeline
+from . import abilities, anchor, atlas, findings, foreshadows, heatplan, macros, setupchat, stateedit, staterules, stattrial, statwin, timeline
 from .schema import AbilityCodexDraft, AbilityDraft, AgentSession, Blueprint, MilestoneDraft, PairDraft, RungDraft, ChatScope, HeatArcProposal, KnowsFoldSet, Deadline, Storyboard, StoryTime, Foreshadow, StatValue
 from .schema import OffscreenSet
 from .schema import RuleProposal
@@ -4512,6 +4512,8 @@ def context(name: str, n: int) -> list[dict]:
     p = _load(name)
     trace = ctxrules.Trace()
     parts = prompts.episode_parts(p, n, **_view_args(p, n), trace=trace)
+    if macros.has(p.meta.notes):  # 작가 메모는 앞쪽 '작품 정보' 블록에 있다 (prompts.meta_text, 정할 것 11)
+        trace.macro("work", macros.expand(p.meta.notes, prompts.notes_env(p), prompts.NOTES_WHERE)[1])
     texts: dict[str, str] = {}
     for x in parts:  # 같은 블록의 조각(장편 시간 · 연출이 둘로 나뉘는 경우 등)은 차례대로 합친다
         texts[x.id] = texts.get(x.id, "") + x.text
@@ -4524,7 +4526,8 @@ def context(name: str, n: int) -> list[dict]:
         rows.append({**_block_head(p, b), "chars": len(text), "tokens": ctxrules.est_tokens(text),
                      "budgets": _budget_rows(p, b.keys),
                      "items": [{"name": a, "reason": r} for a, r in trace.items.get(bid, [])],
-                     "dropped": [{"name": a, "reason": r} for a, r in trace.dropped.get(bid, [])], "text": text})
+                     "dropped": [{"name": a, "reason": r} for a, r in trace.dropped.get(bid, [])], "text": text,
+                     "macros": [u.model_dump() for u in trace.macros.get(bid, [])]})
     off = [b for b in prompts.BLOCKS if b.id not in texts and not prompts.block_on(p, b.id)]
     if not off:
         return rows
@@ -4532,7 +4535,7 @@ def context(name: str, n: int) -> list[dict]:
     for b in off:
         at = next((i for i, r in enumerate(rows) if order[r["id"]] > order[b.id]), len(rows))
         rows.insert(at, {**_block_head(p, b), "chars": 0, "tokens": 0, "budgets": _budget_rows(p, b.keys),
-                         "items": [], "dropped": [], "text": ""})
+                         "items": [], "dropped": [], "text": "", "macros": []})
     return rows
 
 
