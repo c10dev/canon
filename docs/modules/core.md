@@ -721,6 +721,7 @@
 - `view_request` 는 놀이터 불러오기처럼 화의 조건(본문 · 확정 · 초안)을 보고 맞지 않으면 ValueError
 - 조각이 조립한 요청에 있는지 `found_in`: 조각 글의 가장 긴 줄(자리표시 `{…}` 없는 줄)로 본다
 - 프롬프트 관리 페이지가 가리키도록 함수 안의 긴 글을 상수로 꺼냈다: `WRITE_FLOW_FIRST` · `WRITE_FLOW_NEXT` · `WRITE_STYLE_LINE` · `WRITE_SHIFT_LINE` · `WRITE_SPEECH_LINE`
+- `WRITE_SHIFT_LINE` · `WRITE_SHIFT_SPLIT` 는 감정 변화를 시점 인물이 알아챈 것과 떠올린 생각, 다른 인물의 대사와 반응으로 쓰게 하고, 동작은 감정이 밖으로 새어 나올 때만 보여 주게 한다(2026-11-15). 옛 글 '행동과 대사로 보여 줍니다'로 쓴 화는 방향 · 손 낱말이 레퍼런스 원고의 2~3배, 생각 · 느낌 낱말이 1/5 였다(canon-models 분석, 낱말 수만 셈)
 - 같은 까닭으로 꺼낸 상수: `DIRECTION_RULE` · `ECHO_RULE` · `STYLE_HEAD` · `STYLE_HEAD_OWN` · `BOARD_RULES`
 - 검수 · 동선 · 상태 변경안 요구사항은 `.format` 틀 `CHECK_RULES` · `CHECK_RULES_EN` · `MOTION_RULES` · `STATE_RULES` 다
 - 꺼낸 뒤 요청이 한 글자도 바뀌지 않음을 `tests/test_prompt_registry.py` 의 스냅샷(`tests/snapshots/prompt_registry.json`)이 본다

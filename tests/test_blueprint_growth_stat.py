@@ -186,7 +186,7 @@ def test_ai_block_lists_stat_values_only_when_present():
 _BEFORE = {
     "plan_lines": "54b2be0b62e65f7f", "ability_block": "aa0de20a50a659f7", "board": "b2af20832d9c4251", "write": "1e874924a63d3d35",
     "check": "702c5cb71f204e0b", "state": "8bf19180f43de9d9", "have": "465ca225993023bd", "owned": "4dbec046b55b03c6",
-    "storyboard": "b9f384001cfaf263", "episode": "024dbd9e0b5c74c6", "state_prompt": "acc6547b1b9e168e",
+    "storyboard": "b9f384001cfaf263", "episode": "7f47b09edd23b8a0", "state_prompt": "acc6547b1b9e168e",
     "ai_block_nostat": "9e26466ee599de9b", "check_prompt": "1b1781651524f16c",
 }
 
