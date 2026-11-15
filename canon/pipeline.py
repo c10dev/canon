@@ -62,6 +62,8 @@ from .schema import (
     MapSpec,
     MapSuggestion,
     BodySuggestion,
+    PressureProposal,
+    PressureRewrite,
     StatInitSuggestion,
     StatWindowSuggestion,
     PlaceSort,
@@ -3744,6 +3746,19 @@ def suggest_body(llm: LLM, p: Project, cid: str) -> BodySuggestion:
     if minor:
         s.measurements = ""
     return s
+
+
+def suggest_pressure(llm: LLM, p: Project, cid: str) -> PressureProposal:
+    """압력으로 다시 쓰기 제안 (docs/webnovel/specs/11-pressure.md 11b). 저장하지 않는다 (작가가 칸마다 골라 화면에서 적용하고 작품을 저장한다).
+    자동 집필 · 명령줄은 부르지 않는다."""
+    from . import pressure
+
+    c = next((c for c in p.characters if c.id == cid), None)
+    if c is None:
+        raise KeyError(f"인물이 없어요: {cid}. 새로 더한 인물이면 저장한 뒤 다시 하세요")
+    s = llm.json(prompts.SYSTEM_PLANNER, prompts.pressure_prompt(p, cid), PressureRewrite,
+                 hint={"character": cid, "personality": c.personality, "speech_style": c.speech_style})
+    return pressure.proposal(c, s)
 
 
 def suggest_aliases(llm: LLM, p: Project, targets: list) -> AliasSuggestion:

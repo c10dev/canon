@@ -668,6 +668,16 @@
 - 결말(`PlayTurn.ending` · 구간 수 · 결정 수 · 날수 한도 `_limit_reason` → `end`)
 - 설계는 DESIGN.md 10장
 
+### `canon/pressure.py`
+
+- 압력으로 다시 쓰기(docs/webnovel/specs/11-pressure.md 11b): 버릇 문장 · 대사 예시를 빼는 글 계산
+- 대사 예시 자리 `lines`: 따옴표 규칙은 `metrics.SPEECH_QUOTE` 와 같다
+- '말버릇' · '입버릇' 바로 뒤 따옴표와 '라고' · '라 부' 로 이어지는 호칭은 남긴다
+- 구절 빼기 `cut`: 앞 이름표(`예:` · `대사:`) · 빈 괄호 · 남은 이음을 함께 정리한다. 뺄 것이 없으면 글을 그대로 돌려준다
+- 응답 정리 `proposal`: AI 가 고른 버릇 문장을 `elements.find` 로 원문에서 찾고 못 찾은 것은 `dropped` 로 센다
+- 남는 글은 작가가 쓴 글 그대로다. AI 가 성격 · 말투를 새로 쓰지 않는다
+- LLM 호출 없음. 저장하지 않는다. 호출은 `pipeline.suggest_pressure` 가 한다
+
 ### `canon/publish.py`
 
 - 복사 · 내보내기
@@ -957,6 +967,9 @@
     - 신체 프로필 안내는 몸이 드러나는 화에만 AI에 넣는다고 알린다(미성년 인물은 넣지 않는다고)
   - 타임라인(앞뒤 `CAST_TL_NEAR` 화)
   - 표지 카드 `castMarksCard`(설정 카드 뒤, 표지가 없으면 그리지 않음): 줄마다 갈래 · 글 · 화 · 근거 구절(접음) · '본문에서 못 찾음'
+  - 압력 제안 카드 `castPressureCard`(마지막 시점의 설정 카드 안 칸 목록 뒤): 압력 · 성격 · 말투 줄마다 고르기. 기본으로 아무것도 고르지 않고, 제안 뒤 고친 칸은 고를 수 없다
+  - 설정 카드 머리 버튼 '압력으로 다시 쓰기'(`pressureAI`)는 마지막 시점이고 성격이나 말투 대사 예시가 있을 때만 보인다(`castPressureCan`)
+  - 적용 `pressureApply` 는 화면 안 인물 값만 바꾼다. 저장하면 `charlog.record_author` 가 작가 기록으로 남긴다. 버리기 `pressureDismiss`
   - 표지 고치기 `castMarkEdit` · `castMarkSave`(갈래 · 글, `PUT …/marks/<표지>`) · 지우기 `castMarkDel`(확인 창, `DELETE`). 저장하지 않은 작품 변경을 먼저 저장한다
 - 고른 부분 도구(`passage.js` `showTool`)를 감싸 반영한 화의 메뉴에 '인물 표지로 거두기'(`selMark`)를 붙이고, mode `mark` 면 거두기 칸(`castMarkToolHtml`: 인물 · 갈래 · 한 줄)을 그린다
 - 거두기 `castMarkTake` 는 저장하지 않은 본문 · 작품 변경을 먼저 저장하고 `POST …/characters/<인물>/marks` 를 부른다. 처음 인물은 `castMarkWho`

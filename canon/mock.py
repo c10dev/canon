@@ -48,6 +48,7 @@ from .schema import (
     ImpactReport,
     LookSuggestion,
     BodySuggestion,
+    PressureRewrite,
     StatInitCharacter,
     StatInitSuggestion,
     StatWindowOption,
@@ -966,6 +967,15 @@ def _r_map_suggestion(prompt: str, hint: dict):
 def _r_body_suggestion(prompt: str, hint: dict):
     return BodySuggestion(height="163cm", weight="50kg", build="마른 근육형", measurements="82-60-86",
                           features="왼손잡이, 오른쪽 손목에 점", note="외모 칸의 흉터와 성격에 맞춰 활동적인 체형으로 정했어요.")
+
+
+@responds(PressureRewrite)
+def _r_pressure_rewrite(prompt: str, hint: dict):
+    # 성격이 두 문장 이상이면 마지막 문장을 버릇으로 고른다 (원문 그대로라 정리가 찾는다)
+    sents = [x for x in re.split(r"(?<=[.!?])\s+", (hint.get("personality") or "").strip()) if x]
+    return PressureRewrite(pressure="혼자 해낼 수 있다는 믿음을 지키려 한다. 흔들리면 말을 줄이고 먼저 등을 돌린다.",
+                           habits=sents[-1:] if len(sents) > 1 else [],
+                           note="성격의 버릇과 말투의 대사 예시가 보여 주던 고집을 압력으로 옮겼어요.")
 
 
 @responds(StatInitSuggestion)

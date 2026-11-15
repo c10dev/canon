@@ -588,9 +588,39 @@ function castSheetSettings(c, f, at) {
     const now = at.changed.has(fl) ? `<div class="small">지금: ${esc(c[fl] || '(비어 있음)')}</div>` : '';
     return `<div class="csh-row"><span>${esc(scLabel(fl))}</span><div class="csh-val"><div class="${v ? '' : 'small'}">${esc(v || '(비어 있음)')}</div>${now}${mine.map(heldBox).join('')}</div></div>`;
   }).join('');
-  return `<section class="card"><div class="between"><h2>설정</h2><span class="small">고정 값${at.changed.size ? ` · 이 시점 뒤에 ${at.changed.size}칸 바뀜` : ''}</span></div>
+  const last = S.castFrame === S.cast.frames.length - 1;
+  const pressureBtn = last && castPressureCan(c) ? `<button type="button" class="btn small" data-action="pressureAI" data-arg="${esc(c.id)}">압력으로 다시 쓰기</button>` : '';
+  return `<section class="card"><div class="between"><h2>설정</h2><div class="row">${pressureBtn}<span class="small">고정 값${at.changed.size ? ` · 이 시점 뒤에 ${at.changed.size}칸 바뀜` : ''}</span></div></div>
     <div>${rows || '<div class="small">채운 설정이 없어요</div>'}</div>
+    ${last ? castPressureCard(c) : ''}
     <div class="small">본문에서 바뀐 설정은 작가가 골라야 바뀌어요.</div></section>`;
+}
+
+/** 압력으로 다시 쓰기를 받을 만한 인물: 성격이 있거나 말투에 따옴표 글(대사 예시)이 있다 */
+function castPressureCan(c) {
+  return !!(c.personality || '').trim() || /["“「『'‘]/.test(c.speech_style || '');
+}
+
+/** 압력으로 다시 쓰기 제안 (canon/pressure.py): 칸마다 고른다. 기본으로 아무것도 고르지 않고, 제안을 받은 뒤 고친 칸은 고를 수 없다 */
+function castPressureCard(c) {
+  const s = (S.pressureSug || {})[c.id];
+  if (!s) return '';
+  const row = ([k, label, before, after, cuts]) => {
+    const body = k === 'pressure'
+      ? `${before ? `<span class="before">${esc(before)}</span> → ` : ''}<span class="after">${esc(after)}</span>`
+      : `${cuts.map((x) => `<del>${esc(x)}</del>`).join(' · ')} → <span class="after">${esc(after) || '(비어 있음)'}</span>`;
+    const stale = (c[k] || '') !== (before || '');
+    return `<label class="body-sug"><input type="checkbox" data-pressure-pick="${esc(c.id)}" value="${k}"${stale ? ' disabled' : ''}>
+      <span><strong>${label}</strong> ${body}${stale ? ' <span class="small">그 뒤 고친 칸이라 적용하지 않아요</span>' : ''}</span></label>`;
+  };
+  const rows = [['pressure', '압력', s.pressure_before, s.pressure, []], ['personality', '성격', s.personality_before, s.personality, s.habits],
+    ['speech_style', '말투', s.speech_before, s.speech_style, s.lines]]
+    .filter(([k, , before, after, cuts]) => (k === 'pressure' ? (after || '').trim() && after !== (before || '') : cuts.length && after !== (before || '')))
+    .map(row).join('');
+  return `<div class="proposal" aria-label="AI 압력 제안"><strong>AI 제안</strong>${s.note ? `<span>${esc(s.note)}</span>` : ''}
+    ${s.dropped ? `<span class="small">AI가 고른 버릇 문장 ${s.dropped}개는 성격 칸에서 찾지 못해 뺐어요</span>` : ''}
+    ${rows || '<span>바꿀 칸이 없어요</span>'}
+    ${proposalActions(['pressureDismiss', c.id], ['pressureApply', c.id], '고른 칸 적용', !rows)}</div>`;
 }
 
 // ----- 인물 카드에서 고치는 칸: 작가 메모와 AI에 넣는 방식. 설정 도우미는 이야기 뼈대만 다룬다 -----
@@ -1115,6 +1145,24 @@ function viewCast() {
 // ----- 동작 -----
 
 Object.assign(actions, {
+  pressureApply(cid) {
+    const c = P().characters.find((x) => x.id === cid);
+    const s = (S.pressureSug || {})[cid];
+    if (!c || !s) return;
+    const before = { pressure: s.pressure_before, personality: s.personality_before, speech_style: s.speech_before };
+    const picked = [...document.querySelectorAll(`[data-pressure-pick="${CSS.escape(cid)}"]:checked`)].map((x) => x.value)
+      .filter((k) => k in before && (c[k] || '') === (before[k] || ''));
+    if (!picked.length) { toast('적용할 칸을 고르세요', true); return; }
+    picked.forEach((k) => { c[k] = s[k]; });
+    delete S.pressureSug[cid];
+    markDirty();
+    render();
+    toast(`${picked.length}칸을 적용했어요. 저장하면 남아요`);
+  },
+  pressureDismiss(cid) {
+    if (S.pressureSug) delete S.pressureSug[cid];
+    render();
+  },
   castChartAll() {
     S.castChartAll = !S.castChartAll;
     render();

@@ -6598,6 +6598,7 @@ KINDS: dict[str, Kind] = {
     "voice": Kind("시점 서술 말투 제안", "인물 · 데이터", "", "SYSTEM_VOICE", "voice_prompt", "VoiceSuggestion", "pipeline.suggest_voice"),
     "look": Kind("외모 제안", "인물 · 데이터", "", "SYSTEM_ILLUSTRATOR", "look_prompt", "LookSuggestion", "pipeline.suggest_look"),
     "body": Kind("신체 프로필 제안", "인물 · 데이터", "", "SYSTEM_PLANNER", "body_prompt", "BodySuggestion", "pipeline.suggest_body"),
+    "pressure": Kind("압력으로 다시 쓰기", "인물 · 데이터", "", "SYSTEM_PLANNER", "pressure_prompt", "PressureRewrite", "pipeline.suggest_pressure"),
     "alias": Kind("다른 이름 제안", "인물 · 데이터", "", "SYSTEM_PLANNER", "alias_prompt", "AliasSuggestion", "pipeline.suggest_aliases"),
     "stat_window": Kind("상태창 제안", "인물 · 데이터", "", "SYSTEM_PLANNER", "stat_window_prompt", "StatWindowSuggestion",
                         "pipeline.suggest_stat_window"),
@@ -7229,6 +7230,29 @@ def body_prompt(p: Project, cid: str, minor: bool) -> str:
 {"- 이 인물은 미성년이라 measurements 는 반드시 빈 문자열로 둡니다. 다른 칸에도 몸매를 성적으로 묘사하지 않습니다." if minor else "- measurements 는 가슴-허리-엉덩이 cm 를 하이픈으로 잇습니다 (예: 84-58-86). 성별과 체형에 맞게 적고, 덧붙이는 말은 넣지 않습니다."}
 - features 에는 본문에서 이어질 만한 바뀌지 않는 신체 특징 1~3개를 쉼표로 적습니다 (예: 왼손잡이, 오른쪽 손목에 점). 선정적인 묘사는 쓰지 않습니다.
 - note 에는 무엇을 근거로 정했는지 한국어 한두 문장으로 적습니다."""
+
+
+def pressure_prompt(p: Project, cid: str) -> str:
+    """압력으로 다시 쓰기 (pipeline.suggest_pressure, docs/webnovel/specs/11-pressure.md 11b). 이 제안에만 쓴다."""
+    c = next(c for c in p.characters if c.id == cid)
+    from . import pressure  # 순환 import 를 피하려고 함수 안에서
+    ex = [c.speech_style[a:b] for a, b in pressure.lines(c.speech_style)]
+    ex_line = f"말투의 대사 예시: {' / '.join(ex)}" if ex else "말투에 대사 예시 없음"
+    have = "- 작가가 이미 적은 pressure 가 있습니다. 그 뜻을 살려 다듬습니다.\n" if c.pressure.strip() else ""
+    return f"""아래 인물의 성격 · 말투에 적힌 버릇과 대사 예시를 압력으로 옮기는 제안을 하세요. 작가가 칸마다 골라 씁니다.
+
+# 작품
+제목: {p.meta.title}
+장르: {genres.label(p.meta)}
+
+# 인물
+{dump(c.model_dump(include={"name", "role", "personality", "speech_style", "goal", "wound", "pressure"}))}
+{ex_line}
+
+요구사항:
+- pressure 에는 무엇을 지키려 하는지, 흔들리면 어디로 가는지를 한두 문장으로 적습니다. 성격의 버릇과 말투의 대사 예시가 보여 주던 것을 이 문장으로 옮깁니다.
+{have}- habits 에는 personality 에서 되풀이되는 버릇 · 몸짓 · 말버릇을 적은 문장만 글자 그대로 옮깁니다. 고치거나 줄이지 않습니다. 없으면 빈 목록으로 둡니다.
+- note 에는 무엇을 근거로 썼는지 한국어 한두 문장으로 적습니다."""
 
 
 
