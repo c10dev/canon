@@ -932,6 +932,7 @@ function nextArcPanel(start) {
       <div class="grid-2">${input('아크 제목', 'arc.title', { root: 'arcDraft' })}<div class="grid-2">${input('시작 화', 'arc.start_ep', { root: 'arcDraft', type: 'number', readonly: true })}${input('끝 화', 'arc.end_ep', { root: 'arcDraft', type: 'number' })}</div></div>
       ${input('아크 목표', 'arc.goal', { root: 'arcDraft', rows: 2, autogrow: true, hint: '아크가 끝날 때 바뀌어 있어야 하는 것' })}
       <div class="grid-2">${input('갈등', 'arc.conflict', { root: 'arcDraft', rows: 2, autogrow: true, hint: '주인공을 막는 문제나 상대' })}${input('보상 (사이다)', 'arc.payoff', { root: 'arcDraft', rows: 2, autogrow: true, hint: '클라이맥스에서 독자가 받는 것' })}</div>
+      ${arcFrameInputs(a, 'arc', 'arcDraft')}
       <div class="act-strip">${a.acts.map((x, i) => `<div class="act-head ${actClass(x.name)}"><div class="between"><strong>${x.name}</strong><span class="act-meta">${epRange(x.start_ep, x.end_ep)}</span></div>${input('구간 목표', `arc.acts.${i}.goal`, { root: 'arcDraft', rows: 3, autogrow: true })}</div>`).join('')}</div>
       ${input('서술 시점', 'arc.pov', { root: 'arcDraft', placeholder: `비우면 작품 기본 (${P().style.narration_pov || '정하지 않음'})` })}
       <div class="grid-2">${input('주요 인물 id', 'arc.cast', { root: 'arcDraft', kind: 'list', rows: 3 })}${input('회수할 복선 id', 'arc.payoffs', { root: 'arcDraft', kind: 'list', rows: 3 })}</div>
@@ -987,6 +988,8 @@ function arcPanel(a, sel, head = {}) {
         <div><span class="act-label">아크 목표</span><p>${esc(a.goal) || '<span class="small">비어 있음</span>'}</p></div>
         <div><span class="act-label">갈등</span><p>${esc(a.conflict) || '<span class="small">비어 있음</span>'}</p></div>
         <div><span class="act-label">보상 (사이다)</span><p>${esc(a.payoff) || '<span class="small">비어 있음</span>'}</p></div>
+        ${arcGainOn(a) ? `<div><span class="act-label">얻는 성장</span><p>${esc(a.gain) || '<span class="small">비어 있음</span>'}</p></div>` : ''}
+        ${arcFocusOn(a) ? `<div><span class="act-label">공략 대상</span><p>${a.focus ? esc(charName(a.focus)) : '<span class="small">비어 있음</span>'}</p></div>` : ''}
       </div>
       ${a.cast.length || a.payoffs.length ? `<div class="row arc-people">${a.cast.length ? `<span class="small">주요 인물</span>${a.cast.map((id) => `<span class="chip">${esc(charName(id))}</span>`).join('')}` : ''}${a.payoffs.length ? `<span class="small">회수할 복선</span>${a.payoffs.map((id) => `<span class="chip">${esc((P().foreshadows.find((f) => f.id === id) || {}).description || id)}</span>`).join('')}` : ''}</div>` : ''}`}
       ${recap}
@@ -1003,6 +1006,7 @@ function arcEditor(a) {
     ${input('아크 목표', b + '.goal', { rows: 3, autogrow: true })}
     ${input('갈등', b + '.conflict', { rows: 2, autogrow: true })}
     ${input('보상 (사이다)', b + '.payoff', { rows: 2, autogrow: true })}
+    ${arcFrameInputs(a, b)}
     ${input('서술 시점', b + '.pov', { placeholder: `비우면 작품 기본 (${P().style.narration_pov || '정하지 않음'})`, hint: '이 아크를 누구 시점으로 쓸지. 구간마다 다르면 구간 고치기에서' })}
     ${arcCastField(b + '.cast')}
     ${payoffPicker('회수할 복선', b + '.payoffs', false)}`;

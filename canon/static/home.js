@@ -810,7 +810,7 @@ function genrePicker() {
 
 // 이야기 틀 (Meta.frame, schema.FRAMES). 장르가 권하는 틀에는 추천 칩만 단다 (genres.frame_hint). 값은 작가가 고른다
 const FRAMES = [['drama', '드라마식'], ['webnovel', '웹소설식']];
-const FRAME_WHY = '드라마식은 갈등이 커지며 끌고 가는 틀이에요. 웹소설식은 막히는 구간을 짧게 두고 보상을 자주 주는 틀이에요. 지금은 고른 값만 저장해요. 아크와 플롯 기획은 아직 이 값을 따르지 않아요.';
+const FRAME_WHY = '드라마식은 갈등이 커지며 끌고 가는 틀이에요. 웹소설식은 막히는 구간을 짧게 두고 보상을 자주 주는 틀이에요. 장편의 부와 아크 기획은 이 값을 따라요. 화별 플롯은 아직 따르지 않아요.';
 const frameHint = (m) => ((m.genres || []).some((id) => (genreById(id) || {}).frame === 'webnovel') ? 'webnovel' : '');
 
 /** 이야기 틀 고르기. 설정 화면 기본 정보와 설정 마법사의 '제목 · 장르' 단계에 둔다 (새 작품 칸에는 없다) */

@@ -168,6 +168,7 @@
 - 제목은 비우면 요청 첫 줄로 짓는다(`title_of`). 작가가 적은 제목은 프롬프트를 바꿔도 남는다
 - 돌리기 `run` 은 `research.sample` 을 그대로 부른다(동시에 부름, 한 쪽이 실패해도 나머지는 돎). 세션은 바꾸지 않고 `add_trial` 로 붙인다
 - 불러온 갈래가 있으면 `run_spec` 대로 돌린다: 응답 스키마(구조화 출력 `llm.json`), 그 단계의 모델 · 추론 강도, 출력 한도
+- `run_spec` 은 스키마 이름으로 찾은 형식을 작품의 이야기 틀별 판으로 바꾼다(`prompts.arc_schema`). 예시 장편은 드라마 틀이라 그대로다
 - 출력 한도 `OUT_TOKENS`(갈래 → 모듈 · 이름): 스토리보드 · 큐 시트는 `pipeline.BOARD_OUT_TOKENS` · `CUE_OUT_TOKENS`, 대화 에이전트는 `agent.STEP_OUT_TOKENS`, 나머지는 기본 한도
 - 고른 작품에서 불러왔으면 그 작품의 단계 프리셋(`settings.project_preset`)을 쓴다
 - 칸을 고쳐도 출처가 있으면 같은 방식으로 돌린다. 불러온 출처가 없는 세션은 예전처럼 글로 받는다

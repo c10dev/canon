@@ -20,6 +20,8 @@ def _names(node):
         return [node.attr]
     if isinstance(node, ast.IfExp):
         return _names(node.body) + _names(node.orelse)
+    if isinstance(node, ast.Call) and _names(node.func)[-1:] in (["arc_schema"], ["framed"]):  # 틀별 판: 원래 모델을 본다 (아래에서 판도 본다)
+        return _names(node.args[1] if _names(node.func)[-1] == "arc_schema" else node.args[0])
     return []
 
 
@@ -63,8 +65,11 @@ def test_finds_response_schemas():
 
 def test_response_schemas_have_no_dict():
     bad = []
+    from canon.schema import framed
+
     for name in sorted(_response_names()):
-        _open_objects(_model(name).model_json_schema(), name, bad)
+        for axes in ((False, False), (True, False), (False, True), (True, True)):  # 틀별 판 (docs/webnovel/specs/04-arc-frame.md)
+            _open_objects(framed(_model(name), *axes).model_json_schema(), f"{name}{axes}", bad)
     assert not bad, f"LLM 응답 형식에 dict 칸이 있어요: {bad}"
 
 

@@ -9,10 +9,11 @@ Gemini 구조화 출력에 그대로 넘기므로 dict 타입 필드를 쓰지 �
 from __future__ import annotations
 
 import re
-from typing import Literal, Optional
+from types import UnionType
+from typing import Literal, Optional, Union, get_args, get_origin
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, SerializationInfo, SerializerFunctionWrapHandler, field_validator, model_serializer, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, create_model, SerializationInfo, SerializerFunctionWrapHandler, field_validator, model_serializer, model_validator
 from pydantic.json_schema import SkipJsonSchema
 
 from .metrics import StyleMetrics
@@ -868,6 +869,22 @@ class ArcUndo(BaseModel):
     due_before: list[Optional[int]] = Field(default_factory=list, description="foreshadows 와 같은 순서로, 바꾸기 전 회수 예정 화 (정하지 않았으면 null)")
 
 
+# 웹소설 틀 · 하렘 요소의 아크 칸 (docs/webnovel/specs/04-arc-frame.md). 저장 모델에서는 응답 형식에 넣지 않고(SkipJsonSchema),
+# 틀이 웹소설식이거나 하렘 요소가 있는 장편만 framed() 가 만든 응답 형식으로 받는다. 비면 어떤 직렬화에도 키가 생기지 않는다
+ARC_FRAME_FIELDS = ("gain", "focus")
+ARC_GAIN_DESC = "웹소설 틀: 이 아크에서 주인공이 얻는 성장 (레벨업, 해금, 자신감)"
+ARC_FOCUS_DESC = "하렘: 이 아크에서 주인공과 관계를 올리는 공략 대상 인물 id 하나. 없으면 비움"
+ARC_WEB_CONFLICT_DESC = "이 아크에서 주인공을 잠깐 막는 것 (짧은 고구마, 1~3화)"
+
+
+def drop_empty_frame_fields(data: dict) -> dict:
+    """아크 dict 에서 빈 gain · focus 를 뺀다. 드라마 틀 작품의 저장 파일과 프롬프트 글이 칸을 더하기 전과 같게 한다."""
+    for k in ARC_FRAME_FIELDS:
+        if k in data and not data[k]:
+            data.pop(k)
+    return data
+
+
 class StoryArc(BaseModel):
     """아크: 화 5~30개로 된 작은 이야기. 하나의 문제를 열고 해결하며, 자체 기승전결과 클라이맥스 보상을 가진다."""
     number: int
@@ -882,6 +899,8 @@ class StoryArc(BaseModel):
     payoffs: list[str] = Field(default_factory=list, description="이 아크에서 회수할 열린 복선 id")
     pov: str = Field("", description="이 아크의 서술 시점 운용 한 줄 (예: 여주 서윤 1인칭으로 바뀜). 작품 기본 시점 그대로면 비움")
     summary: str = Field("", description="아크가 끝난 뒤의 요약. 작가가 승인한 것만 넣는다")
+    gain: SkipJsonSchema[str] = Field("", description=ARC_GAIN_DESC)
+    focus: SkipJsonSchema[str] = Field("", description=ARC_FOCUS_DESC)
     heat: SkipJsonSchema[list[HeatStep]] = Field(default_factory=list, description="아크의 열 계획. start_ep 부터 end_ep 까지 (canon/heatplan.py). AI 응답 형식에는 없고 HeatArcProposal 로 받는다")
     heat_rule: SkipJsonSchema[str] = ""
     heat_turn: SkipJsonSchema[HeatTurn] = Field(default_factory=HeatTurn)
@@ -891,6 +910,8 @@ class StoryArc(BaseModel):
     def _prompt_view(self, handler: SerializerFunctionWrapHandler, info: SerializationInfo):
         """프롬프트용 직렬화(llm.dump 의 context prompt)에서는 열 계획과 연출 지시를 뺀다. 둘은 prompts.heat_* · direction_block 이 따로 넣는다."""
         data = handler(self)
+        if isinstance(data, dict):
+            drop_empty_frame_fields(data)
         if isinstance(data, dict) and info.context and info.context.get("prompt"):
             for k in ("heat", "heat_rule", "heat_turn", "direction"):
                 data.pop(k, None)
@@ -1234,11 +1255,18 @@ class ArcEdit(BaseModel):
     payoffs: list[str] = Field(default_factory=list, description="이 아크에서 회수할 열린 복선 id")
     pov: str = Field("", description="이 아크의 서술 시점 운용 한 줄. 작품 기본 시점 그대로면 비움")
     end_ep: int = Field(0, description="아크 끝 화를 바꿀 때만 새 끝 화. 그대로면 0. 다음 아크를 짤 때는 꼭 넣는다")
+    gain: SkipJsonSchema[str] = Field("", description=ARC_GAIN_DESC)
+    focus: SkipJsonSchema[str] = Field("", description=ARC_FOCUS_DESC)
 
     @field_validator("title")
     @classmethod
     def _strip_number(cls, v: str) -> str:
         return strip_number(v, _ARC_NO)
+
+    @model_serializer(mode="wrap")
+    def _drop_empty(self, handler: SerializerFunctionWrapHandler):
+        data = handler(self)
+        return drop_empty_frame_fields(data) if isinstance(data, dict) else data
 
 
 class Direction(BaseModel):
@@ -4097,3 +4125,62 @@ WriteRecord.model_rebuild()
 AgentTurn.model_rebuild()
 AgentSession.model_rebuild()
 StyleEntry.model_rebuild()
+
+
+# ---------- 틀별 아크 응답 형식 (docs/webnovel/specs/04-arc-frame.md) ----------
+
+_FRAMED: dict[tuple, type] = {}
+_FRAME_OF: dict[type, tuple[bool, bool]] = {}
+
+
+def framed(model: type[BaseModel], gain: bool = False, focus: bool = False) -> type[BaseModel]:
+    """아크가 든 응답 형식(ArcProposal · HeatArcProposal · PlotRevision · PlotAgentStep 등)의 틀별 판.
+    gain(웹소설 틀)이면 아크의 gain 칸을 응답 형식에 넣고 conflict 설명을 짧은 고구마로 바꾼다. focus(하렘 요소)면 focus 칸을 넣는다.
+    둘 다 아니면 model 그대로다: 드라마 틀의 응답 형식은 칸을 더하기 전과 글자까지 같다.
+    판은 원래 모델을 이어받고 이름도 같다. 받은 값은 isinstance 로 원래 모델처럼 쓰고, 저장할 때는 원래 모델의 칸(SkipJsonSchema 인 gain · focus 포함)으로 직렬화된다."""
+    if not (gain or focus):
+        return model
+    key = (model, gain, focus)
+    if key in _FRAMED:
+        return _FRAMED[key]
+    _FRAMED[key] = model  # 순환 참조 막기: 만드는 동안은 원래 모델
+    if model in (StoryArc, ArcEdit):
+        over: dict = {}
+        if gain:
+            over["gain"] = (str, Field("", description=ARC_GAIN_DESC))
+            over["conflict"] = (str, Field("", description=ARC_WEB_CONFLICT_DESC))
+        if focus:
+            over["focus"] = (str, Field("", description=ARC_FOCUS_DESC))
+    else:
+        over = {}
+        for name, info in model.model_fields.items():
+            ann = _framed_type(info.annotation, gain, focus)
+            if ann is not info.annotation:
+                over[name] = (ann, info)
+    out = create_model(model.__name__, __base__=model, __module__=model.__module__, **over) if over else model
+    _FRAMED[key] = out
+    if out is not model:
+        _FRAME_OF[out] = (gain, focus)
+    return out
+
+
+def frame_of(model: type[BaseModel]) -> tuple[bool, bool]:
+    """framed() 가 만든 판의 (gain, focus). 원래 모델이면 (False, False)."""
+    return _FRAME_OF.get(model, (False, False))
+
+
+def _framed_type(ann, gain: bool, focus: bool):
+    if isinstance(ann, type) and issubclass(ann, BaseModel):
+        return framed(ann, gain, focus)
+    args = get_args(ann)
+    if not args:
+        return ann
+    new = tuple(_framed_type(a, gain, focus) for a in args)
+    if all(a is b for a, b in zip(args, new)):
+        return ann
+    origin = get_origin(ann)
+    if origin is list:
+        return list[new[0]]
+    if origin in (Union, UnionType):
+        return Union[new]
+    return ann
