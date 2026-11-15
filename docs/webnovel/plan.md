@@ -24,7 +24,7 @@
 | 4 | 4 | 부 · 아크 기획 프롬프트를 틀별로: 보상 루프 아크, 짧은 고구마(`conflict` 의 뜻), 새 칸 `StoryArc.gain`(이 아크에서 얻는 성장), 하렘이면 `StoryArc.focus`(공략 대상) | 끝 ([#539](https://github.com/c10dev/canon/pull/539)) | [04-arc-frame.md](specs/04-arc-frame.md) | 1, 2 |
 | 5 | 5 | 성장 일정(능력 일정 앞당김): 설계도 능력 일정(`Blueprint.ability_plans`)의 스키마 · 저장 검사 · 화 번호 옮기기 · 상태창 기록과 견주는 경고 · 설계도 화면 | 끝 (설계도 일감 10 · 11b · 12 · 13, 상태창 수치 줄은 설계도 일감 14 [14-growth-stat.md](../blueprint/specs/14-growth-stat.md), [#536](https://github.com/c10dev/canon/pull/536)) | [05-growth.md](specs/05-growth.md) | 1 |
 | 6 | 6 | 화별 플롯 규칙을 틀별로: 사이다를 깔끔하게, 2~3화마다 작은 보상, 하렘이면 관계는 위로 · 균열은 1~3화 오해, 새 칸 `EpisodePlot.reward`(이 화의 사이다 한 줄) | 진행 ([#543](https://github.com/c10dev/canon/pull/543)) | [06-plot-frame.md](specs/06-plot-frame.md) | 4 |
-| 7 | 7 | 고구마 · 사이다 경고 (LLM 비용 없음): 사이다 없는 화가 이어짐, 고구마 구간이 김, 하렘 쌍의 균열 · 적대가 오래 이어짐, 아크에 성장이 없음 | 설계 | — | 6 |
+| 7 | 7 | 고구마 · 사이다 경고 (LLM 비용 없음): 사이다 없는 화가 이어짐, 고구마 구간이 김, 하렘 쌍의 균열 · 적대가 오래 이어짐, 아크에 성장이 없음 | 진행 (claude/reward-warn, 사이다 · 고구마 경고는 미룸) | [07-reward-warn.md](specs/07-reward-warn.md) | 6 |
 | 8 | 8 | 성장 일정을 기획 프롬프트(다음 아크 · 장편 화별 플롯)에 넣기, 플롯에서 거꾸로 뽑기 · AI 로 짜기 | 끝 (설계도 일감 10 · 11b · 12 가 맡음, [#490](https://github.com/c10dev/canon/pull/490) · [#501](https://github.com/c10dev/canon/pull/501)) | [05-growth.md](specs/05-growth.md) | — |
 | 9 | 9 | 완급 계획 웹소설 판: 틀별 `heat_rules`(쌓기 비율을 낮추고 작은 터뜨리기를 자주, 뒤집힘은 고르기), 긴 고구마 경고 | 설계 | — | 6 |
 | 10 | 10 | 인물 표지: 승인한 본문에서 작가가 거둔 말버릇 · 버릇 · 외모 특징을 인물 카드에 기록. 쓰기 요청에 넣을지는 정할 것 15 를 따른다 | 끝 ([#538](https://github.com/c10dev/canon/pull/538)) | [10-marks.md](specs/10-marks.md) | 11 |

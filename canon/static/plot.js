@@ -297,6 +297,63 @@ function paceMilestone(p, n) {
   return out;
 }
 
+/* ---------- 보상 박자: 웹소설 틀 장편의 하렘 균열이 김 · 아크에 성장이 없음 (reward.rows 와 같은 규칙, tests/test_reward_warn.py) ---------- */
+const REWARD_HAREM_MAX = 3;  // reward.HAREM_MAX
+const REWARD_ROUGH = ['균열', '적대'];
+const rewardWarnOn = (p) => p.meta.form === 'serial' && p.meta.frame === 'webnovel';
+/** 주인공 id (reward.hero_id · opening.hero_name) */
+function rewardHero(p) {
+  const lead = p.characters.find((c) => (c.role || '').includes('주인공')) || p.characters.find((c) => c.tier === 'main');
+  return lead ? lead.id : '';
+}
+/** 경고 [{kind: 'harem' | 'growth', n, text}]. harem 의 n 은 고칠 첫 화(없으면 0), growth 의 n 은 아크 번호 */
+function rewardRows(p) {
+  if (!rewardWarnOn(p)) return [];
+  const out = [];
+  const names = Object.fromEntries(p.characters.map((c) => [c.id, c.name || c.id]));
+  if ((p.meta.genres || []).includes('harem')) {
+    const hero = rewardHero(p);
+    const focus = [...new Set(p.story_arcs.map((a) => a.focus).filter((f) => f && f !== hero && f in names))];
+    const last = Math.max(0, ...p.episodes.filter((e) => e.status === 'finalized').map((e) => e.plot.number));
+    const ahead = p.episodes.filter((e) => e.plot.number > last && !(e.text || '').trim() && ['draft', 'confirmed'].includes(e.status))
+      .map((e) => e.plot.number).sort((a, b) => a - b);
+    const mends = (n, a, b) => paceShifts(p, n).some(([x, y, g]) => new Set([x, y, a, b]).size === 2 && x !== y && PACE_UP.has(g[0]));
+    for (const f of focus) {
+      let best = null;
+      for (const [s, t] of [[hero, f], [f, hero]]) {
+        const tie = (p.ties || []).find((x) => x.source === s && x.target === t);
+        if (!tie || !REWARD_ROUGH.includes(tie.stage)) continue;
+        const since = tie.stage_since || 0;
+        const run = since > 0 && since <= last ? last - since + 1 : last;
+        let planned = 0;
+        for (const n of ahead) { if (mends(n, hero, f)) break; planned += 1; }
+        if (!best || run + planned > best[0] + best[1]) best = [run, planned, tie];
+      }
+      if (best && best[0] + best[1] > REWARD_HAREM_MAX) {
+        const [run, planned, tie] = best;
+        const more = planned ? ` (반영한 화 ${run}화, 안 쓴 화 플롯 ${planned}화)` : '';
+        out.push({ kind: 'harem', n: ahead.length ? ahead[0] : 0,
+          text: `${names[tie.source]} → ${names[tie.target]} 관계가 ${tie.stage}로 ${run + planned}화 이어져요${more}. `
+            + `하렘 관계의 균열은 ${REWARD_HAREM_MAX}화 안에 풀리는 오해로 둬요. 다음 화 플롯에서 풀어 주세요.` });
+      }
+    }
+  }
+  const plans = (p.blueprint || {}).ability_plans || [];
+  for (const a of p.story_arcs) {
+    if ((a.gain || '').trim()) continue;
+    if (plans.some((x) => x.from_ep && x.from_ep <= a.end_ep && (x.to_ep || x.from_ep) >= a.start_ep)) continue;
+    const eps = p.episodes.filter((e) => e.plot.number >= a.start_ep && e.plot.number <= a.end_ep);
+    if (eps.length && eps.every((e) => (e.text || '').trim())) continue;
+    out.push({ kind: 'growth', n: a.number,
+      text: `아크 ${a.number}의 얻는 성장이 비었고 ${a.start_ep}~${a.end_ep}화에 성장 일정 줄도 없어요. 이 아크에서 주인공이 얻는 것을 적어 주세요.` });
+  }
+  return out;
+}
+/** 장편 '확인할 것'에 붙는 보상 박자 경고. 웹소설 틀이 아니면 빈 목록이라 드라마 틀 화면은 그대로다 */
+const rewardTodos = (p) => rewardRows(p).map((r) => (r.kind === 'growth'
+  ? { text: `아크 성장 없음 · 아크 ${r.n}`, sub: r.text, action: 'selectArc', arg: r.n, go: `아크 ${r.n} 열기` }
+  : { kind: 'harem', n: r.n, text: `하렘 균열이 김 · ${r.text.split(' 관계가 ')[0]}`, sub: r.text }));
+
 /** start~end 화에서 작가가 확인할 것: 플롯이 데려온 새 인물 후보, 설정 없는 인물 id, 엔딩 훅이 빈 화(작품 마지막 화 빼고), 관계를 너무 빨리 옮기는 화.
     본문이 있는 화는 플롯을 고칠 수 없으니 넣지 않는다. [{kind, n, text, sub}] */
 function plotTodos(p, start, end) {
@@ -845,6 +902,7 @@ function viewSerial() {
     ...pending.map((a) => ({ text: `아크 ${a.number} 요약 필요`, sub: '요약이 있어야 오래된 줄거리를 짧게 접어 넣어요', action: 'selectArc', arg: a.number, go: `아크 ${a.number} 열기` })),
     ...partsPending.map((x) => ({ text: `${x.number}부 요약 필요`, sub: '부 요약은 그 부의 아크를 한 덩어리로 접어요', action: 'selectPart', arg: x.number, go: `${x.number}부 열기` })),
     ...(arc ? plotTodos(p, arc.start_ep, arc.end_ep) : []),
+    ...rewardTodos(p),
   ];
   const tree = serialTree(p, S.selArc, { open: S.tocParts || [], all: !!S.railAll });
   const toc = plotToc('부 · 아크 목차', arc ? `아크 ${arc.number} ${esc(arc.title)} <span class="small">${epRange(arc.start_ep, arc.end_ep)}</span>` : `다음 아크 <span class="small">${nextStart}화부터</span>`,
