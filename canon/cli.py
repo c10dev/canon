@@ -2458,18 +2458,22 @@ def cmd_blind(a: argparse.Namespace) -> None:
         if not a.folder:
             sys.exit("넣을 폴더를 적어 주세요: canon blind import <폴더>")
         try:
-            s = blindset.import_folder(a.folder, a.title or "", a.note or "")
+            s = blindset.import_folder(a.folder, a.title or "", a.note or "", mode="side" if a.side else "")
         except ValueError as e:
             sys.exit(str(e))
         print(f"묶음을 넣었어요: {s.title} ({len(s.items)}편{', 열쇠 있음' if s.key else ', 열쇠 없음'})")
-        print(f"웹 화면에서 이 주소를 열어 점수를 매기세요: #/blind/{s.id}")
+        print(f"웹 화면에서 이 주소를 열어 {'나란히 읽으세요' if s.mode == 'side' else '점수를 매기세요'}: #/blind/{s.id}")
         return
     rows = blindset.sets()
     if not rows:
         print("가려 읽기 묶음이 없어요.")
     for s in rows:
-        done = sum(1 for x in s.items if x.score)
-        print(f"{s.id}  {s.title}  {done}/{len(s.items)}편 매김{'  결과 엶' if s.revealed_at else ''}")
+        if s.mode == "side":
+            row = blindset.summary(s)
+            got = f"{row['picked']}/{row['pairs']}쌍 고름"
+        else:
+            got = f"{sum(1 for x in s.items if x.score)}/{len(s.items)}편 매김"
+        print(f"{s.id}  {s.title}  {got}{'  결과 엶' if s.revealed_at else ''}")
 
 
 def cmd_usage(a: argparse.Namespace) -> None:
@@ -3022,6 +3026,7 @@ def _app_commands(sub, add) -> None:
     sp.add_argument("folder", nargs="?", help="import: 01.txt … 와 blind_key.json 이 있는 폴더")
     sp.add_argument("--title", help="묶음 이름")
     sp.add_argument("--note", help="묶음 메모")
+    sp.add_argument("--side", action="store_true", help="import: 나란히 한 번 읽기 묶음 (점수 없이 쌍마다 긋고 고름, 열쇠에 대목 이름이 있어야 함)")
     sp.set_defaults(fn=cmd_blind)
     sp = sub.add_parser("usage", help="AI 사용량과 추정 비용")
     sp.add_argument("--days", type=int, default=30, help="최근 며칠 (기본 30)")

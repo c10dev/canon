@@ -6,6 +6,8 @@
 같은 글을 두 번 넣어 두면 그 두 점수의 차를 이 회차의 흔들림으로 낸다 (2026-11-09: 같은 글이 하루 안에 3.5 → 2.3).
 느낌 점수만으로는 판이 갈리지 않아 (2026-11-13: 11편이 모두 2~3점) 결과를 열기 전에 두 가지를 더 받는다:
 글마다 기준 항목 체크(CRITERIA), 그리고 같은 대목의 글 두 편을 나란히 놓고 고르는 쌍 비교(duel). 둘 다 안 해도 결과는 열 수 있다.
+나란히 한 번 읽기(mode "side"): 점수를 매기지 않는다. 판이 다른 두 글을 나란히 놓은 쌍(side_pairs)을 한 번씩 읽으며 거슬린 문장을 긋고
+항목을 체크하고 나은 쪽을 고른다. 긋기는 결과를 열기 전에만 하고, 모든 쌍을 골라야 결과가 열린다.
 """
 from __future__ import annotations
 
@@ -40,6 +42,7 @@ CRITERIA = (
 CRITERIA_MAX = (8, 30)  # 묶음 하나의 항목 수, 항목 하나의 글자 수
 DUEL_MAX = 30  # 쌍 비교로 묻는 쌍 수 (넘으면 섞은 차례의 앞쪽만)
 TIE = "="  # 쌍 비교의 '비슷함'
+MODES = ("", "side")  # '' 는 점수 매기기, 'side' 는 나란히 한 번 읽기
 
 
 _LOCK = threading.RLock()
@@ -104,9 +107,12 @@ def delete(bid: str) -> None:
 
 
 def create(title: str, items: list[dict], key: list[dict] | None = None, note: str = "", source: str = "",
-           criteria: list[str] | None = None) -> BlindSet:
+           criteria: list[str] | None = None, mode: str = "") -> BlindSet:
     """items: [{no?, text}] (읽을 차례 그대로), key: [{no, arm, piece?}]. 번호를 주지 않으면 01, 02 … 로 매긴다.
-    열쇠가 없는 묶음도 받는다 (점수만 모으고, 결과에는 흔들림만 나온다). criteria 를 안 주면 CRITERIA 를 적어 둔다."""
+    열쇠가 없는 묶음도 받는다 (점수만 모으고, 결과에는 흔들림만 나온다). criteria 를 안 주면 CRITERIA 를 적어 둔다.
+    mode 'side' (나란히 한 번 읽기)는 모든 글에 대목 이름이 든 열쇠가 있어야 하고, 모든 글이 판이 다른 글과 쌍을 이뤄야 한다."""
+    if mode not in MODES:
+        raise ValueError(f"읽는 방식은 '' 나 'side' 만 받아요: {mode}")
     many, long = CRITERIA_MAX
     crit = list(dict.fromkeys(str(c).strip()[:long] for c in (criteria or CRITERIA) if str(c).strip()))
     if len(crit) > many:
@@ -134,11 +140,19 @@ def create(title: str, items: list[dict], key: list[dict] | None = None, note: s
         keys.append(BlindKey(no=no, arm=str(k.get("arm") or "").strip(), piece=str(k.get("piece") or "").strip()))
     if keys and {k.no for k in keys} != seen:
         raise ValueError("열쇠가 모든 글을 덮지 않아요")
-    return save(BlindSet(id=uuid.uuid4().hex[:12], title=title.strip()[:TITLE_MAX] or "가려 읽기 묶음", note=note.strip()[:NOTE_MAX * 2],
-                         source=source.strip()[:300], items=out, key=keys, criteria=crit))
+    s = BlindSet(id=uuid.uuid4().hex[:12], title=title.strip()[:TITLE_MAX] or "가려 읽기 묶음", note=note.strip()[:NOTE_MAX * 2],
+                 source=source.strip()[:300], items=out, key=keys, criteria=crit, mode=mode)
+    if mode == "side":
+        if not keys or any(not k.piece for k in keys):
+            raise ValueError("나란히 읽기는 모든 글에 대목 이름이 든 열쇠가 있어야 해요")
+        covered = {no for pair in side_pairs(s) for no in pair}
+        alone = [x.no for x in out if x.no not in covered]
+        if alone:
+            raise ValueError(f"나란히 읽기는 대목마다 판이 둘 이상 있어야 해요. 짝이 없는 글: {', '.join(alone)}")
+    return save(s)
 
 
-def import_folder(folder: str, title: str = "", note: str = "") -> BlindSet:
+def import_folder(folder: str, title: str = "", note: str = "", mode: str = "") -> BlindSet:
     """실험 스크립트가 만든 폴더를 묶음으로 넣는다: 숫자 이름의 txt (01.txt …)가 글이고, 열쇠는 그 폴더나 윗 폴더의 blind_key.json.
     열쇠 꼴은 {번호: {arm, passage 또는 piece}} 또는 [{no, arm, piece}]. 폴더의 파일은 바꾸지 않는다."""
     d = Path(folder).expanduser()
@@ -153,7 +167,7 @@ def import_folder(folder: str, title: str = "", note: str = "") -> BlindSet:
             rows = [{"no": no, **v} for no, v in raw.items()] if isinstance(raw, dict) else list(raw)
             key = [{"no": str(r.get("no")), "arm": r.get("arm", ""), "piece": r.get("piece") or r.get("passage") or ""} for r in rows]
             break
-    return create(title or d.parent.name or d.name, items, key, note, str(d))
+    return create(title or d.parent.name or d.name, items, key, note, str(d), mode=mode)
 
 
 def _item(s: BlindSet, no: str) -> BlindItem:
@@ -205,10 +219,62 @@ def flag(bid: str, no: str, label: str, on: bool = True) -> BlindSet:
     return save(s)
 
 
+def side_pairs(s: BlindSet) -> list[tuple[str, str]]:
+    """나란히 한 번 읽기의 쌍 [(왼쪽 번호, 오른쪽 번호)]. 대목마다 글을 묶음 id 로 섞고, 판이 다르고 글자가 다른 두 글끼리 짝짓는다.
+    한 글은 한 쌍에만 든다. 남은 글이 가장 많은 두 판에서 하나씩 뽑아 짝지어 짝 없는 글을 줄인다.
+    짝을 못 찾은 글(같은 판만 남음, 홀수)은 같은 대목의 이미 짝지은 다른 판 글과 한 쌍을 더 만든다 (그 글은 두 번 읽힌다).
+    글자가 같은 두 글은 판이 같으니 서로 짝이 되지 않아 다른 쌍에 든다 (그 두 긋기의 차가 흔들림이다).
+    쌍 차례와 좌우도 묶음 id 로 섞어 늘 같다. 차례는 s.items 차례만 따른다 (집합 차례는 프로세스마다 달라진다)."""
+    arm = {k.no: k.arm for k in s.key}
+    piece = {k.no: k.piece for k in s.key}
+    groups: dict[str, list[BlindItem]] = {}
+    for x in s.items:
+        if piece.get(x.no):
+            groups.setdefault(piece[x.no], []).append(x)
+    rnd = random.Random(f"side:{s.id}")
+    out: list[tuple[str, str]] = []
+    for g in groups.values():
+        g = list(g)
+        rnd.shuffle(g)
+        left: dict[str, list[BlindItem]] = {}
+        for x in g:
+            left.setdefault(arm.get(x.no, ""), []).append(x)
+        made: list[tuple[BlindItem, BlindItem]] = []
+        while True:
+            names = sorted((a for a in left if left[a]), key=lambda a: -len(left[a]))  # sorted 는 안정 정렬이라 같은 수면 섞은 차례
+            pick = None
+            for i, a in enumerate(names):
+                for b in names[i + 1:]:
+                    y = next((y for y in left[b] if y.text != left[a][0].text), None)
+                    if y:
+                        pick = (left[a][0], y)
+                        break
+                if pick:
+                    break
+            if not pick:
+                break
+            x, y = pick
+            left[arm.get(x.no, "")].remove(x)
+            left[arm.get(y.no, "")].remove(y)
+            made.append((x, y))
+        rest = [x for x in g if any(x is r for v in left.values() for r in v)]
+        paired = [y for pair in made for y in pair]
+        for x in rest:
+            mates = [y for y in paired if arm.get(y.no, "") != arm.get(x.no, "") and y.text != x.text]
+            if mates:
+                made.append((x, rnd.choice(mates)))
+        out += [(x.no, y.no) for x, y in made]
+    rnd.shuffle(out)
+    return [(b, a) if rnd.random() < 0.5 else (a, b) for a, b in out]
+
+
 def duel_pairs(s: BlindSet) -> list[tuple[str, str]]:
     """쌍 비교로 물을 쌍 [(왼쪽 번호, 오른쪽 번호)]: 같은 대목의 글 가운데 글자가 다른 두 편씩 모두.
     차례와 좌우는 묶음 id 로 섞어 요청마다 같고, 판 차례와 상관없다 (글은 읽을 차례로 훑는다). 대목 이름이 없는 글과 열쇠 없는 묶음은 묻지 않는다.
-    같은 글이 두 번 들어 있으면 그 글이 낀 쌍도 두 번 나온다. 그 두 답이 같은지가 쌍 비교의 흔들림이다."""
+    같은 글이 두 번 들어 있으면 그 글이 낀 쌍도 두 번 나온다. 그 두 답이 같은지가 쌍 비교의 흔들림이다.
+    나란히 한 번 읽기(mode 'side') 묶음은 side_pairs 다."""
+    if s.mode == "side":
+        return side_pairs(s)
     piece = {k.no: k.piece for k in s.key}
     groups: dict[str, list[BlindItem]] = {}
     for x in s.items:
@@ -228,11 +294,12 @@ def duels(s: BlindSet) -> list[dict]:
 
 @_locked
 def duel(bid: str, a: str, b: str, pick: str) -> BlindSet:
-    """쌍 하나의 답을 적는다: 나은 글의 번호, TIE(비슷함), '' (지움). 글을 모두 매긴 뒤, 결과를 열기 전에만 한다."""
+    """쌍 하나의 답을 적는다: 나은 글의 번호, TIE(비슷함), '' (지움). 글을 모두 매긴 뒤, 결과를 열기 전에만 한다.
+    나란히 한 번 읽기 묶음은 점수가 없어 바로 고른다."""
     s = load(bid)
     if s.revealed_at:
         raise ValueError("결과를 연 묶음은 쌍 비교를 고칠 수 없어요")
-    if any(not x.score for x in s.items):
+    if s.mode != "side" and any(not x.score for x in s.items):
         raise ValueError("글을 모두 매긴 뒤에 쌍 비교를 할 수 있어요")
     pair = next(((x, y) for x, y in duel_pairs(s) if {x, y} == {a, b}), None)
     if not pair:
@@ -247,9 +314,13 @@ def duel(bid: str, a: str, b: str, pick: str) -> BlindSet:
 
 @_locked
 def reveal(bid: str) -> BlindSet:
-    """결과를 연다. 모든 글에 점수가 있어야 한다. 한 번 열면 닫지 못한다."""
+    """결과를 연다. 모든 글에 점수가 있어야 한다 (나란히 한 번 읽기는 모든 쌍을 골라야 한다). 한 번 열면 닫지 못한다."""
     s = load(bid)
-    left = [x.no for x in s.items if not x.score]
+    if s.mode == "side":
+        open_ = [d for d in duels(s) if not d["pick"]]
+        if open_:
+            raise ValueError(f"아직 고르지 않은 쌍이 {len(open_)}개 있어요")
+    left = [x.no for x in s.items if not x.score] if s.mode != "side" else []
     if left:
         raise ValueError(f"아직 점수를 매기지 않은 글이 {len(left)}편 있어요")
     if not s.revealed_at:
@@ -277,16 +348,20 @@ def sentences(text: str) -> list[list[str]]:
 @_locked
 def mark(bid: str, no: str, idx: int, on: bool = True) -> BlindSet:
     """결과를 연 묶음에서 거슬린 문장 하나를 긋거나(on) 지운다. 점수와 달리 결과를 연 뒤에만 한다 (판을 모르고 매긴 점수를 지키려고).
-    글자가 같은 글이 또 있으면 그 글에도 같이 긋는다 (화면은 같은 글을 한 번만 보인다)."""
+    글자가 같은 글이 또 있으면 그 글에도 같이 긋는다 (화면은 같은 글을 한 번만 보인다).
+    나란히 한 번 읽기 묶음은 거꾸로 결과를 열기 전에만 긋고, 글자가 같은 글에 따라 긋지 않는다 (두 번 읽은 긋기의 차가 흔들림이다)."""
     s = load(bid)
-    if not s.revealed_at:
+    side = s.mode == "side"
+    if side and s.revealed_at:
+        raise ValueError("결과를 연 묶음은 고칠 수 없어요")
+    if not side and not s.revealed_at:
         raise ValueError("결과를 연 뒤에 문장을 그을 수 있어요")
     x = _item(s, no)
     flat = [t for para in sentences(x.text) for t in para]
     if not 0 <= int(idx) < len(flat):
         raise ValueError(f"이 글에 없는 문장이에요: {idx}")
     for y in s.items:
-        if y.text != x.text:
+        if (y is not x) if side else (y.text != x.text):
             continue
         rest = [m for m in y.marks if m.idx != int(idx)]
         y.marks = sorted(rest + ([BlindMark(idx=int(idx), text=flat[int(idx)])] if on else []), key=lambda m: m.idx)
@@ -347,7 +422,33 @@ def result(s: BlindSet) -> dict:
         r["close"] = noise is not None and top - r["mean"] <= noise
     rows = [{"no": x.no, "score": x.score, "note": x.note, "arm": arm[x.no].arm if x.no in arm else "", "piece": arm[x.no].piece if x.no in arm else "",
              "marks": [m.model_dump() for m in x.marks], "flags": list(x.flags)} for x in s.items]
-    return {"arms": arms, "pairs": ps, "noise": noise, "rows": rows, "flags": flag_result(s), "duel": duel_result(s)}
+    out = {"arms": arms, "pairs": ps, "noise": noise, "rows": rows, "flags": flag_result(s), "duel": duel_result(s)}
+    if s.mode == "side":
+        out["marks"] = mark_result(s)
+    return out
+
+
+def mark_result(s: BlindSet) -> dict:
+    """나란히 한 번 읽기의 그은 문장 결과: 판마다 글 수 · 그은 수 합 · 글당 · 1천 자당. 같은 글 두 편은 글 하나로 치고 그은 수는 그 평균이다.
+    noise 는 글자가 같은 글 짝의 그은 수 차의 평균 (짝이 없으면 None)."""
+    arm = {k.no: k.arm for k in s.key}
+    by_text: dict[tuple[str, str], list[BlindItem]] = {}
+    for x in s.items:
+        if x.no in arm:
+            by_text.setdefault((arm[x.no], x.text), []).append(x)
+    tally: dict[str, list[float]] = {}  # 판 → [글 수, 그은 수, 글자 수]
+    for (a, text), g in by_text.items():
+        t = tally.setdefault(a, [0, 0.0, 0])
+        t[0] += 1
+        t[1] += sum(len(x.marks) for x in g) / len(g)
+        t[2] += len(text)
+    arms = [{"arm": a, "texts": n, "marks": round(m, 2), "per_text": round(m / n, 2) if n else 0, "per_1k": round(m * 1000 / chars, 2) if chars else 0}
+            for a, (n, m, chars) in tally.items()]
+    same: dict[str, list[BlindItem]] = {}
+    for x in s.items:
+        same.setdefault(x.text, []).append(x)
+    diffs = [abs(len(a.marks) - len(b.marks)) for g in same.values() for a, b in zip(g, g[1:])]
+    return {"arms": sorted(arms, key=lambda r: r["per_1k"]), "noise": round(sum(diffs) / len(diffs), 2) if diffs else None}
 
 
 def flag_result(s: BlindSet) -> dict:
@@ -408,13 +509,35 @@ def duel_result(s: BlindSet) -> dict:
 
 
 def summary(s: BlindSet) -> dict:
-    return {"id": s.id, "title": s.title, "note": s.note, "created_at": s.created_at, "items": len(s.items),
-            "scored": sum(1 for x in s.items if x.score), "revealed_at": s.revealed_at}
+    """목록 한 줄. 나란히 한 번 읽기는 고른 쌍 수(picked)와 전체 쌍 수(pairs)를 더 싣는다."""
+    out = {"id": s.id, "title": s.title, "note": s.note, "created_at": s.created_at, "items": len(s.items),
+           "scored": sum(1 for x in s.items if x.score), "revealed_at": s.revealed_at, "mode": s.mode}
+    if s.mode == "side":
+        ds = duels(s)
+        out["picked"], out["pairs"] = sum(1 for d in ds if d["pick"]), len(ds)
+    return out
+
+
+def side_duels(s: BlindSet) -> list[dict]:
+    """나란히 한 번 읽기의 쌍마다 두 글: [{a, b, pick, left: {paras, marks, flags}, right: {…}}]. 판 이름 · 대목 이름은 싣지 않는다."""
+    by = {x.no: x for x in s.items}
+
+    def side(no: str) -> dict:
+        x = by[no]
+        return {"paras": sentences(x.text), "marks": [m.idx for m in x.marks], "flags": list(x.flags)}
+
+    return [{**d, "left": side(d["a"]), "right": side(d["b"])} for d in duels(s)]
 
 
 def view(s: BlindSet) -> dict:
     """화면 값. 결과를 열기 전에는 판 이름과 대목 이름, 대목 묶음(pieces)을 싣지 않는다.
-    쌍 비교의 쌍(duels)은 글을 모두 매긴 뒤부터 번호 둘로만 싣는다: 어느 두 글이 같은 대목인지는 글을 읽으면 아는 것이고, 판은 드러나지 않는다."""
+    쌍 비교의 쌍(duels)은 글을 모두 매긴 뒤부터 번호 둘로만 싣는다: 어느 두 글이 같은 대목인지는 글을 읽으면 아는 것이고, 판은 드러나지 않는다.
+    나란히 한 번 읽기 묶음은 쌍을 처음부터 두 글의 문장 목록 · 그은 문장 · 체크와 함께 싣는다 (side_duels). 긋기는 쌍 화면에서 하므로 대목 묶음(pieces)은 늘 비운다."""
+    if s.mode == "side":
+        out = {**summary(s), "scale": SCALE, "source": s.source, "criteria": criteria(s),
+               "texts": [{"no": x.no, "text": x.text, "chars": len(x.text), "score": x.score, "note": x.note, "flags": list(x.flags)} for x in s.items],
+               "has_key": bool(s.key), "result": result(s) if s.revealed_at else None, "pieces": [], "duels": side_duels(s)}
+        return out
     done = all(x.score for x in s.items)
     out = {**summary(s), "scale": SCALE, "source": s.source, "criteria": criteria(s),
            "texts": [{"no": x.no, "text": x.text, "chars": len(x.text), "score": x.score, "note": x.note, "flags": list(x.flags)} for x in s.items],
