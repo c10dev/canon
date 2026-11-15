@@ -2604,7 +2604,7 @@ class JobIn(BaseModel):
     board: Literal["", "make", "none"] = ""  # write: make 면 스토리보드를 새로 만든 뒤 쓴다(바로 쓰기), none 이면 스토리보드 없이 쓴다
     cues: Literal["", "none"] = ""  # write: 큐 시트를 쓰는 작품(cue.on)인데 그 화에 없으면 만든 뒤 쓴다. none 이면 큐 시트 없이 쓴다
     text: str = ""  # style: 분석할 예시 원문 (200자 이상)
-    target: str = ""  # blueprint: 두 인물 id 'a~b'. char_body, char_voice, char_look, char_pressure, names_ai: 인물 id (names_ai 는 비우면 지명). illust_render: 삽화 id. aliases: 'c:<인물 id>' · 'e:<요소 id>' (비우거나 'c:' · 'e:' 면 다른 이름이 빈 항목)
+    target: str = ""  # blueprint: 두 인물 id 'a~b'. char_body, char_voice, char_look, char_pressure, names_ai: 인물 id (names_ai 는 비우면 지명). illust_render: 삽화 id. aliases: 'c:<인물 id>' · 'e:<요소 id>' (비우거나 'c:' · 'e:' 면 다른 이름이 빈 항목). address_ai: 'speaker>listener' (비우면 호칭이 빈 쌍)
     place_kind: str = ""  # names_ai: 지명 종류 (target 이 비었을 때)
     pairs: list[str] = []  # blueprint_whole: 짤 쌍 키 'a~b' 목록 (비우면 관계 목록의 모든 쌍)
     selection: Selection | None = None  # illust: 그릴 부분 (비우면 AI 가 장면을 고른다)
@@ -3072,6 +3072,41 @@ def _job_aliases(name: str, body: "JobIn", p: Project, kind: str, n: int | None,
         return pipeline.suggest_aliases(llm, q, [it for k in keys if (it := aliases.item(q, k))]).model_dump()
     return label, 1, set(), fn
 
+def _address_pairs(p: Project, target: str) -> list[tuple[str, str]]:
+    """작업 address_ai 의 대상: 'speaker>listener' 는 그 방향 하나, 빈 글은 호칭이 빈 방향(address.gaps)을 ADDRESS_PAIRS 개까지. 고를 것이 없으면 400."""
+    target = target.strip()
+    if not target:
+        pairs = [(g["speaker"], g["listener"]) for g in address.gaps(p)][:pipeline.ADDRESS_PAIRS]
+        if not pairs:
+            raise ValueError("호칭이 빈 쌍이 없어요")
+        return pairs
+    a, sep, b = target.partition(">")
+    ids = {c.id for c in p.characters}
+    if not sep or a not in ids or b not in ids:
+        raise KeyError(f"인물이 없어요: {target}. 새로 더한 인물이면 저장한 뒤 다시 하세요")
+    if a == b:
+        raise ValueError("같은 인물끼리는 호칭을 찾지 않아요")
+    return [(a, b)]
+
+
+def _job_address_ai(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 address_ai: 확정 본문 대사에서 호칭 · 말씨 찾기 (pipeline.suggest_addresses). 결과 {"items": [AddressChange…], "notices": [...]}.
+    저장하지 않는다 (작가가 고른 것만 화면에서 PUT /address 로 넣는다)."""
+    pairs = _address_pairs(p, body.target)
+    names = {c.id: c.name or c.id for c in p.characters}
+    label = f"{names[pairs[0][0]]} → {names[pairs[0][1]]} 호칭 찾기" if body.target.strip() else f"호칭이 빈 쌍 {len(pairs)}개 찾기"
+
+    def fn(job: jobs.Job):
+        q = store.load(name)
+        empty = sum(1 for a, b in pairs if not address.material(q, a, b))
+        items = pipeline.suggest_addresses(llm, q, pairs)
+        notices = [f"함께 나온 대사를 찾지 못한 {empty}개는 묻지 않았어요"] if empty else []
+        if len(items) < len(pairs) - empty:
+            notices.append(f"부르는 장면을 찾지 못한 {len(pairs) - empty - len(items)}개는 뺐어요")
+        return {"items": [x.model_dump() for x in items], "notices": notices}
+    return label, 1, set(), fn
+
+
 def _job_statwin_ai(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
     """작업 statwin_suggest · statwin_init: 상태창 꾸미기 안 · 처음 수치 제안. 저장하지 않는다 (작가가 고른 안만 상태창 라우트로 저장)."""
     ask = body.note.strip()
@@ -3257,7 +3292,7 @@ def _job_atlas_ai(name: str, body: "JobIn", p: Project, kind: str, n: int | None
 
 def _job_target(kind: str, body: "JobIn") -> str:
     """같은 종류를 대상마다 따로 돌리는 작업의 대상: 인물 id, 지적 id. 이름 고르기는 지명이면 빈 글이다."""
-    return body.target if kind in ("char_body", "char_voice", "char_look", "char_pressure", "names_ai", "fix_one", "recheck_one", "illust_render", "aliases", "blueprint", "blueprint_draft", "blueprint_ability", "blueprint_ability_draft") else ""
+    return body.target if kind in ("char_body", "char_voice", "char_look", "char_pressure", "names_ai", "fix_one", "recheck_one", "illust_render", "aliases", "address_ai", "blueprint", "blueprint_draft", "blueprint_ability", "blueprint_ability_draft") else ""
 
 
 def _job_plots(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
@@ -3676,6 +3711,7 @@ JOB_MAKERS: dict[str, Callable] = {
     "char_look": _job_char_ai,
     "char_pressure": _job_char_ai,
     "aliases": _job_aliases,
+    "address_ai": _job_address_ai,
     "statwin_suggest": _job_statwin_ai,
     "statwin_init": _job_statwin_ai,
     "names_ai": _job_names_ai,
@@ -5518,6 +5554,16 @@ def set_address(name: str, body: AddressIn) -> Project:
     _not_auto(name)
     address.set_form(p, body.speaker, body.listener, body.calls, body.speech)
     return _save(name, p)
+
+
+@app.get("/api/projects/{name}/address-gaps")
+def address_gaps(name: str) -> dict:
+    """호칭이 빈 쌍 (address.gaps): 최근 확정 화에서 자주 함께 나왔는데 부르는 말이 빈 방향. 인물 화면의 알림 카드 · 두 사람 상세가 읽는다."""
+    p = _load(name)
+    names = {c.id: c.name or c.id for c in p.characters}
+    items = [{**g, "speaker_name": names[g["speaker"]], "listener_name": names[g["listener"]]} for g in address.gaps(p)]
+    recent = min(60, sum(1 for e in p.episodes if e.status == "finalized" and e.text.strip()))
+    return {"recent": recent, "items": items}
 
 
 @app.post("/api/projects/{name}/address-held/{i}")

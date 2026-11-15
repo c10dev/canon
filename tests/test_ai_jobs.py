@@ -202,8 +202,9 @@ def test_js_registers_pages_messages_links_and_buttons():
                                   "illMake", "atlasGenSuggest", "atlasSort",  # 뒤 여덟은 02c (test_ai_jobs_more.py)
                                   "illDraw",  # ComfyUI 그리기 (test_comfy.py)
                                   "aliasAI",  # 다른 이름 제안 (test_aliases.py)
+                                  "addrFind",  # 본문에서 호칭 찾기 (test_address_gaps.py)
                                   "rsSample", "rsStage", "rsCheck", "rsBudget", "rsCompare"])
-    assert got["screen"] == sorted(["char_body", "char_voice", "char_look", "char_pressure", "statwin_suggest", "statwin_init", "names_ai", "atlas_suggest", "atlas_sort", "aliases"])
+    assert got["screen"] == sorted(["char_body", "char_voice", "char_look", "char_pressure", "statwin_suggest", "statwin_init", "names_ai", "atlas_suggest", "atlas_sort", "aliases", "address_ai"])
     assert got["body"] == "#/p/%EB%93%B1%EB%8C%80/cast/ally"
 
 

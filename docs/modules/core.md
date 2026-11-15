@@ -437,6 +437,8 @@
 - 차례: 설정 제안 → 스타일 분석 → 기승전결 → 화별 플롯 → 스토리보드 → 큐 시트 → 본문 → 검수 → 상태 추출/반영
 - 다른 이름 제안 `suggest_aliases`: `aliases.material` 로 재료를 고르고 `SYSTEM_PLANNER` · `prompts.alias_prompt` 로 한 번 부른 뒤 `aliases.clean` · `hits` 를 거친다. 저장하지 않는다
 - `suggest_aliases` 는 본문에서 찾은 단락이 없는 항목을 묻지 않는다. 모든 항목이 그러면 LLM 을 부르지 않고 알림만 돌려준다
+- 본문에서 호칭 찾기 `suggest_addresses(llm, p, pairs)`: 방향을 `ADDRESS_PAIRS`(6)개까지, `address.material` 이 빈 방향은 빼고 `SYSTEM_PLANNER` · `prompts.address_find_prompt` 로 한 번 부른 뒤 `address.clean_found` 를 거친다. 저장하지 않는다
+- `suggest_addresses` 는 재료가 있는 방향이 없으면 LLM 을 부르지 않고 빈 목록을 돌려준다. 작업 `address_ai` 로만 부르고 자동 집필 · 명령줄은 부르지 않는다
 - 압력으로 다시 쓰기 제안 `suggest_pressure`: `SYSTEM_PLANNER` · `prompts.pressure_prompt` 로 한 번 부르고 `pressure.proposal` 로 정리한다. 저장하지 않는다
 - `suggest_pressure` 는 작업 `char_pressure` 로만 부른다. 자동 집필 · 명령줄은 부르지 않는다
 - 기승전결 `plan_arc` 는 `Settings.heat_plan` 을 켠 단편이면 완급 계획을 함께 받는다(응답 `HeatArcPlan`, 요구 `prompts.heat_arc_rules`)
@@ -657,6 +659,7 @@
 - `ref_cards_fold` 는 레퍼런스 화 카드를 예산에 맞게 접는다(화는 빼지 않고 화마다 줄임). `ref_arcs_prompt` 와 `ref_setup_note_prompt` 가 쓴다
 - `setup_chat_prompt` 의 `history_lines` 는 대화 기록 줄이다. 대화 에이전트는 `setup_session_history` 를 넘기고, None 이면 옛 설정 대화를 읽는다(명령줄)
 - 다른 이름 제안 `alias_prompt(p, items)`: 작품 · 모든 항목 이름 목록이 앞, 항목별 재료 단락이 뒤, 요청이 맨 뒤다. 쓰기 프롬프트 · 작업지시서에는 들어가지 않는다
+- 본문에서 호칭 찾기 `address_find_prompt(p, pairs, material)`: 작품 · 말씨 이름이 앞, 방향마다 두 인물 이름 · id · 말투와 재료 대사가 뒤, 요청이 맨 뒤다. 레지스트리 열쇠는 `address_find`
 - 압력으로 다시 쓰기 `pressure_prompt(p, cid)`: 성격 · 말투 · 지금 압력과 프로그램이 찾은 대사 예시(`pressure.lines`)를 보인다. 이 제안에만 쓴다
 - 화별 컨텍스트 조립(`build_episode_context`)
 - 쓰기 요청 블록 표 `BLOCKS`(`Block`: id · 화면 이름 · 잠금 · 쓰는 예산 키 · 캐시 앞부분 `front` · 대신 정하는 설정 `note`)와 id 찾기 `BLOCK_BY_ID`
@@ -959,6 +962,7 @@
 - 압력이 비면 프롬프트용 직렬화(`_prompt_view`)에서 빠진다
 - `CharField` 에 `pressure` 가 있어 설정 도우미가 고친다. 무작위 출생 배경(`BirthSketch.pressure`)도 채운다
 - 압력은 상태 변경안의 설정 바꾸기 칸(`SettingField`)에는 없다. 작가가 고치면 설정 변경 기록(`charlog.LOG_FIELDS`)에 남는다
+- 본문에서 호칭 찾기 응답 `AddressFind`(`items: AddressChange`, `canon/address.py` · `pipeline.suggest_addresses`)
 - 다른 이름 제안 응답 `AliasSuggestion`(`items: AliasIdea`) · 프로그램이 채우는 `AliasHit` · `notices` · `recent`(`canon/aliases.py`)
 - ComfyUI 그림 기록 `IllustImage`(파일 · 시드 · 보낸 프롬프트 · 틀 이름 · 알림)는 `Illustration.images` 에 둔다(`canon/comfy.py`)
 - 인물 상태의 지울 칸(`CharacterState.cleared`)은 변경안에만 쓴다. 비었으면 직렬화에서 빼서 저장한 상태 · 프롬프트에 들어가지 않는다
@@ -1331,6 +1335,9 @@
 - 인물 작업과 `names_ai` 는 `JobIn.target`(인물 id)을 `Job.target` 으로 넘긴다(`_job_target`). 지명은 `JobIn.place_kind` 를 쓰고 대상이 빈 글이다
 - 다른 이름 제안 작업 `aliases`(`_job_aliases`, 단계 `plan`)는 화면 전용이다. `JobIn.target` 이 `c:<id>` · `e:<id>` 면 그 항목, `c:` · `e:` · 빈 글이면 빈 항목 여럿이다
 - `aliases` 작업은 제안만 돌려주고 작품을 바꾸지 않는다. 대상은 `_job_target` 으로 `Job.target` 에 넘긴다
+- 본문에서 호칭 찾기 작업 `address_ai`(`_job_address_ai`, 단계 `plan`)는 화면 전용이다. `JobIn.target` 이 `speaker>listener` 면 그 방향, 빈 글이면 `address.gaps` 의 앞 `ADDRESS_PAIRS` 방향이다(`_address_pairs`, 없으면 400)
+- `address_ai` 결과는 `{"items": [AddressChange…], "notices": [...]}` 이고 작품을 바꾸지 않는다. 적용은 화면의 `PUT /api/projects/{name}/address` 로만 한다
+- `GET /api/projects/{name}/address-gaps` 는 `address.gaps` 에 두 인물 이름을 붙이고 `recent`(센 확정 화 수, 60까지)와 함께 돌려준다
 - 옛 동기 경로(`…/characters/{cid}/body` · `voice` · `look`, `statwin-suggest` · `statwin-init`, `names`, `style/learn` · `style/example`)는 시험이 쓰는 동안 남긴다
 - 남은 AI 호출도 작업이다(UX 02c): `fix_one` · `recheck_one`(`_job_finding_ai`), `illust`(`_job_illust`), `atlas_suggest` · `atlas_sort`(`_job_atlas_ai`)
 - `fix_one` · `recheck_one` 은 지적 하나(`JobIn.target`, 화는 `ep`)를 다룬다. 결과는 옛 동기 경로처럼 그 지적에 `_edit` 로 넣는다. 본문은 바꾸지 않는다

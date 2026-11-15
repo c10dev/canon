@@ -7,8 +7,11 @@
 자동 집필 · run -y · 플레이는 반영하지 않고 남겨 둔다(Project.address_held). 바뀐 기록은 Project.address_log 에 전후 값으로 남고,
 스냅샷은 호칭을 담지 않으므로 되돌리기는 이 기록으로 한다 (charlog 와 같은 방식). 쓰기 · 검수 · 상태 변경안에는 이번 화 인물끼리의 줄만 넣는다.
 LLM 을 부르지 않는다. 화면은 static/cast.js(두 사람 상세) · review.js(바뀜 카드).
+호칭이 빈 쌍 알림(gaps)과 AI 찾기 재료(material) · 응답 정리(clean_found)도 여기 있다. 부르는 것은 pipeline.suggest_addresses, 적용은 작가 버튼(set_form)으로만.
 """
 from __future__ import annotations
+
+import re
 
 from . import context
 from .schema import AddressChange, AddressForm, AddressRecord, Project, StateDelta
@@ -175,6 +178,92 @@ def revert(p: Project, n: int) -> None:
         keep.append(r)
     p.address_log = keep[::-1]
     p.address_held = [x for x in p.address_held if x.episode <= n]
+
+
+# ---------- 호칭이 빈 쌍 (작가에게 알리기 · AI 찾기 재료) ----------
+# 자주 함께 나오는데 부르는 말이 빈 방향을 알린다. 상태 변경안은 바뀐 호칭만 올려서, 처음부터 빈 쌍은 채워질 길이 없었다.
+# 사용자 장편 6편 중 5편은 호칭 줄이 0개였고, 호칭 표에 '조장' 한 줄을 넣자 flash 가 그 부름을 2/12 → 10/12 편에서 썼다 (2026-11-14).
+
+GAP_MIN = 10  # 함께 나온 화가 이보다 적은 쌍은 알리지 않는다 (확정 화가 이보다 적으면 빈 목록)
+MATERIAL_NEAR = 2  # 대사 문단 앞뒤로 이만큼의 문단 안에 두 인물 이름이 모두 나와야 재료로 쓴다 (부르는 대사에는 듣는 인물 이름이 없을 때가 많다)
+_QUOTE = re.compile(r'["“”]')
+
+
+def _finalized(p: Project) -> list:
+    """본문이 있는 확정 화, 화 순서."""
+    return sorted((e for e in p.episodes if e.status == "finalized" and e.text.strip()), key=lambda e: e.plot.number)
+
+
+def _patterns(p: Project) -> dict:
+    """인물 id → 이름 정규식 (context.name_pattern: 이름 · 성을 뗀 이름 · 다른 이름). 찾을 꼴이 없는 인물은 뺀다."""
+    return {c.id: pat for c in p.characters if (pat := context.name_pattern(c))}
+
+
+def gaps(p: Project, recent: int = 60) -> list[dict]:
+    """최근 recent 개 확정 화에서 max(GAP_MIN, 화 수 // 3) 화 이상 같은 화 본문에 함께 나왔는데 부르는 말(calls)이 빈 방향.
+    [{"speaker", "listener", "together"}], together 많은 차례. LLM 을 부르지 않는다."""
+    eps = _finalized(p)[-recent:] if recent > 0 else []
+    if len(eps) < GAP_MIN:
+        return []
+    pats = _patterns(p)
+    together: dict[tuple[str, str], int] = {}
+    for e in eps:
+        ids = [cid for cid, pat in pats.items() if pat.search(e.text)]
+        for a in ids:
+            for b in ids:
+                if a != b:
+                    together[(a, b)] = together.get((a, b), 0) + 1
+    need = max(GAP_MIN, len(eps) // 3)
+    order = {c.id: i for i, c in enumerate(p.characters)}
+    out = []
+    for (a, b), n in together.items():
+        f = find(p, a, b)
+        if n >= need and not (f and f.calls.strip()):
+            out.append({"speaker": a, "listener": b, "together": n})
+    out.sort(key=lambda x: (-x["together"], order[x["speaker"]], order[x["listener"]]))
+    return out
+
+
+def material(p: Project, speaker: str, listener: str, budget: int = 6000) -> str:
+    """AI 호칭 찾기 재료: 최근 확정 화부터 거꾸로, 따옴표 대사가 든 문단 가운데 앞뒤 MATERIAL_NEAR 문단 안에 두 인물 이름이 모두 나오는 문단.
+    문단마다 앞에 '[N화] ' 를 붙이고 한 화 안에서는 본문 차례다. budget 자를 넘기 전에 멈춘다. 없으면 빈 글."""
+    pats = _patterns(p)
+    pa, pb = pats.get(speaker), pats.get(listener)
+    if pa is None or pb is None or speaker == listener:
+        return ""
+    out: list[str] = []
+    used = 0
+    for e in reversed(_finalized(p)):
+        paras = context._paragraphs(e.text)
+        for k, para in enumerate(paras):
+            if not _QUOTE.search(para):
+                continue
+            near = "\n".join(paras[max(0, k - MATERIAL_NEAR):k + MATERIAL_NEAR + 1])
+            if not (pa.search(near) and pb.search(near)):
+                continue
+            line = f"[{e.plot.number}화] {para}"
+            if used + len(line) + 1 > budget:
+                return "\n".join(out)
+            out.append(line)
+            used += len(line) + 1
+    return "\n".join(out)
+
+
+def clean_found(p: Project, items: list[AddressChange], material_by_pair: dict[tuple[str, str], str]) -> list[AddressChange]:
+    """AI 호칭 찾기 응답 정리: 물은 쌍(material_by_pair 열쇠)이 아닌 항목, 근거 대사(quote)가 그 쌍의 재료 글에 없는 항목
+    (띄어쓰기 · 따옴표 차이는 봐준다, findings.in_text), 부르는 말이 빈 항목을 뺀다. 같은 방향은 처음 것만. episode 는 last_done."""
+    from .findings import in_text
+
+    n = last_done(p)
+    out: dict[tuple[str, str], AddressChange] = {}
+    for x in items:
+        key = (x.speaker, x.listener)
+        text = material_by_pair.get(key)
+        calls, quote = x.calls.strip(), x.quote.strip()
+        if text is None or key in out or not calls or not quote or not in_text(text, quote):
+            continue
+        out[key] = x.model_copy(update={"calls": calls, "speech": x.speech.strip(), "reason": x.reason.strip(), "quote": quote, "episode": n})
+    return list(out.values())
 
 
 # ---------- 프롬프트 ----------
