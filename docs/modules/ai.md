@@ -265,6 +265,7 @@
 - `MockLLM.json` 은 스키마로 `RESPONDERS` 만 찾는다. `mock.py` 의 응답도 `@responds` 함수(`_r_<스키마>`)이고 `json` 안에 스키마 분기를 두지 않는다(`tests/test_mock_registry.py`)
 - 틀별 판(`schema.framed`)은 MRO 를 따라 원래 스키마의 응답을 찾고, 그 응답을 요청한 판으로 다시 읽어 낸다. 다음 아크 응답은 hint 의 `gain` · `focus` 가 참이면 두 칸을 채운다
 - 가짜 문체 프로필은 시험 원문에 있는 표지 · 장치와 걸러져야 할 표지 · 장치를 함께 낸다 (`count_markers` 와 문체 넣은 쓰기 경로 시험)
+- 가짜 압력으로 다시 쓰기 응답(`_r_pressure_rewrite`)은 hint 의 성격이 두 문장 이상이면 마지막 문장을 버릇으로 고른다(원문 그대로라 `pressure.proposal` 이 찾는다)
 - `CUT_TEXT` 에 넣은 만큼 다음 글 응답을 앞 절반만 내고 `last_finish` 를 `MAX_TOKENS` 로 둔다(끊긴 본문 시험)
 - `MockLLM.text_stream` 은 `text` 와 같은 글을 `STREAM_PIECES`(6) 조각으로 나눠 낸다. 조각마다 멈추기 신호를 본다
 - 대화 에이전트 단계 `_agent_step` 은 말에 '규칙'과 «찾을 글»(또는 `rule=id`)이 들면 `revise_text` 갈래보다 먼저 `propose_regex` 를 부른다

@@ -100,6 +100,28 @@ class BodySuggestion(BaseModel):
     note: str = Field("", description="작가에게 하는 한두 문장: 설정에서 무엇을 근거로 정했는지")
 
 
+class PressureRewrite(BaseModel):
+    """압력으로 다시 쓰기 AI 응답 (pipeline.suggest_pressure, docs/webnovel/specs/11-pressure.md 11b). 지울 버릇 문장은 personality 에서 글자 그대로 옮긴 것만 받는다."""
+    pressure: str = Field("", description="무엇을 지키려 하는지, 흔들리면 어디로 가는지 한두 문장")
+    habits: list[str] = Field(default_factory=list, description="personality 에서 버릇 · 몸짓 · 말버릇을 적은 문장을 글자 그대로 옮긴 것. 없으면 빈 목록")
+    note: str = Field("", description="작가에게 하는 한두 문장: 무엇을 근거로 썼는지")
+
+
+class PressureProposal(BaseModel):
+    """화면에 주는 압력으로 다시 쓰기 제안 (pressure.proposal 이 채운다, LLM 이 쓰지 않는다).
+    *_before 는 제안을 만들 때 읽은 값이다. 화면은 지금 값이 이와 다르면 그 칸을 적용하지 않는다."""
+    pressure: str = ""
+    pressure_before: str = ""
+    personality: str = ""          # 버릇 문장을 뺀 뒤
+    personality_before: str = ""
+    habits: list[str] = Field(default_factory=list)   # 원문에서 찾아 뺀 글 (원문 글자 그대로)
+    speech_style: str = ""         # 대사 예시를 뺀 뒤
+    speech_before: str = ""
+    lines: list[str] = Field(default_factory=list)    # 뺀 대사 예시 (따옴표 포함 원문 글)
+    dropped: int = 0               # AI 가 골랐지만 원문에서 못 찾아 버린 버릇 문장 수
+    note: str = ""
+
+
 class AliasHit(BaseModel):
     """제안한 다른 이름 하나가 최근 쓴 화 본문에서 찾히는 화 (aliases.hits 가 채운다, LLM 이 쓰지 않는다)."""
     alias: str

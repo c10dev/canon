@@ -2603,7 +2603,7 @@ class JobIn(BaseModel):
     board: Literal["", "make", "none"] = ""  # write: make 면 스토리보드를 새로 만든 뒤 쓴다(바로 쓰기), none 이면 스토리보드 없이 쓴다
     cues: Literal["", "none"] = ""  # write: 큐 시트를 쓰는 작품(cue.on)인데 그 화에 없으면 만든 뒤 쓴다. none 이면 큐 시트 없이 쓴다
     text: str = ""  # style: 분석할 예시 원문 (200자 이상)
-    target: str = ""  # blueprint: 두 인물 id 'a~b'. char_body, char_voice, char_look, names_ai: 인물 id (names_ai 는 비우면 지명). illust_render: 삽화 id. aliases: 'c:<인물 id>' · 'e:<요소 id>' (비우거나 'c:' · 'e:' 면 다른 이름이 빈 항목)
+    target: str = ""  # blueprint: 두 인물 id 'a~b'. char_body, char_voice, char_look, char_pressure, names_ai: 인물 id (names_ai 는 비우면 지명). illust_render: 삽화 id. aliases: 'c:<인물 id>' · 'e:<요소 id>' (비우거나 'c:' · 'e:' 면 다른 이름이 빈 항목)
     place_kind: str = ""  # names_ai: 지명 종류 (target 이 비었을 때)
     pairs: list[str] = []  # blueprint_whole: 짤 쌍 키 'a~b' 목록 (비우면 관계 목록의 모든 쌍)
     selection: Selection | None = None  # illust: 그릴 부분 (비우면 AI 가 장면을 고른다)
@@ -3031,7 +3031,7 @@ def _job_char(p: Project, cid: str) -> Character:
 
 
 def _job_char_ai(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
-    """작업 char_body · char_voice · char_look: 인물 하나의 신체 프로필 · 서술 말투 · 외형 태그 제안. 저장하지 않는다 (작가가 칸에서 고쳐 작품 저장)."""
+    """작업 char_body · char_voice · char_look · char_pressure: 인물 하나의 신체 프로필 · 서술 말투 · 외형 태그 · 압력으로 다시 쓰기 제안. 저장하지 않는다 (작가가 칸에서 고쳐 작품 저장)."""
     c = _job_char(p, body.target)
     who = c.name or c.id
     cid, ask = c.id, body.note.strip()
@@ -3045,6 +3045,11 @@ def _job_char_ai(name: str, body: "JobIn", p: Project, kind: str, n: int | None,
 
         def fn(job: jobs.Job):
             return pipeline.suggest_voice(llm, store.load(name), cid, ask).model_dump()
+    elif kind == "char_pressure":
+        label = f"{who} 압력 제안"
+
+        def fn(job: jobs.Job):
+            return pipeline.suggest_pressure(llm, store.load(name), cid).model_dump()
     else:
         label = f"{who} 외형 태그"
 
@@ -3251,7 +3256,7 @@ def _job_atlas_ai(name: str, body: "JobIn", p: Project, kind: str, n: int | None
 
 def _job_target(kind: str, body: "JobIn") -> str:
     """같은 종류를 대상마다 따로 돌리는 작업의 대상: 인물 id, 지적 id. 이름 고르기는 지명이면 빈 글이다."""
-    return body.target if kind in ("char_body", "char_voice", "char_look", "names_ai", "fix_one", "recheck_one", "illust_render", "aliases", "blueprint", "blueprint_draft", "blueprint_ability", "blueprint_ability_draft") else ""
+    return body.target if kind in ("char_body", "char_voice", "char_look", "char_pressure", "names_ai", "fix_one", "recheck_one", "illust_render", "aliases", "blueprint", "blueprint_draft", "blueprint_ability", "blueprint_ability_draft") else ""
 
 
 def _job_plots(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
@@ -3668,6 +3673,7 @@ JOB_MAKERS: dict[str, Callable] = {
     "char_body": _job_char_ai,
     "char_voice": _job_char_ai,
     "char_look": _job_char_ai,
+    "char_pressure": _job_char_ai,
     "aliases": _job_aliases,
     "statwin_suggest": _job_statwin_ai,
     "statwin_init": _job_statwin_ai,

@@ -757,18 +757,28 @@ JOB_RESULT.rs_compare = (j) => {
 // 작업은 저장된 인물 설정을 읽으므로 방금 고친 나이 · 외모도 보게 묻지 않고 먼저 저장한다 (startJob opt.quiet)
 JOB_PAGES.char_body = ['cast'];
 JOB_PAGES.char_voice = ['cast'];
+JOB_PAGES.char_pressure = ['cast'];
 JOB_LINK.char_body = (j) => `#/p/${enc(j.project)}/cast/${enc(j.target)}`;
 JOB_LINK.char_voice = JOB_LINK.char_body;
+JOB_LINK.char_pressure = JOB_LINK.char_body;
 JOB_DONE_MSG.char_body = (j) => `${j.label}${josa(j.label, '이', '가')} 도착했어요. 고른 칸만 적용하세요.`;
 JOB_DONE_MSG.char_voice = (j) => `${j.label}${josa(j.label, '이', '가')} 도착했어요.`;
-SCREEN_ONLY_JOBS.add('char_body').add('char_voice');
+JOB_DONE_MSG.char_pressure = (j) => `${j.label}${josa(j.label, '이', '가')} 도착했어요. 고른 칸만 적용하세요.`;
+SCREEN_ONLY_JOBS.add('char_body').add('char_voice').add('char_pressure');
 JOB_BTNS.bodyAI = (cid) => ['char_body', cid];
 JOB_BTNS.voiceAI = (cid) => ['char_voice', cid];
+JOB_BTNS.pressureAI = (cid) => ['char_pressure', cid];
 JOB_RESULT.char_body = (j) => {
   const cid = j.target;
   if (!j.result || !P().characters.some((x) => x.id === cid)) return { msg: `${j.label}${josa(j.label, '이', '가')} 왔지만 그 인물이 없어서 놓지 않았어요.` };
   S.bodySug = { ...(S.bodySug || {}), [cid]: j.result };
   S.bodyOpen = { ...(S.bodyOpen || {}), [cid]: true };
+  return null;
+};
+JOB_RESULT.char_pressure = (j) => {
+  const cid = j.target;
+  if (!j.result || !P().characters.some((x) => x.id === cid)) return { msg: `${j.label}${josa(j.label, '이', '가')} 왔지만 그 인물이 없어서 놓지 않았어요.` };
+  S.pressureSug = { ...(S.pressureSug || {}), [cid]: j.result };
   return null;
 };
 /** 서술 말투 초안은 칸에 바로 넣는다. 그 칸을 고치는 중이거나 시작한 뒤 고쳤으면 덮지 않고 알림의 '넣기'로 넣게 한다 */
@@ -814,6 +824,10 @@ Object.assign(actions, {
   bodyDismiss(cid) {
     if (S.bodySug) delete S.bodySug[cid];
     render();
+  },
+  async pressureAI(cid) {
+    if (!P().characters.some((x) => x.id === cid)) return;
+    await startJob('char_pressure', null, { target: cid }, { quiet: true });
   },
   async voiceAI(cid) {
     const c = P().characters.find((x) => x.id === cid);

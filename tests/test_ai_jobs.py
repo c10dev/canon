@@ -37,7 +37,7 @@ def _saved(name):
 
 
 def test_new_kinds_are_registered():
-    for kind in ("char_body", "char_voice", "char_look", "statwin_suggest", "statwin_init", "names_ai", "style_learn", "style_example"):
+    for kind in ("char_body", "char_voice", "char_look", "char_pressure", "statwin_suggest", "statwin_init", "names_ai", "style_learn", "style_example"):
         assert kind in web.JOB_MAKERS, kind
         assert kind not in web.PENDING_KINDS  # 화면 제안으로만 놓고 pending.json 에는 남기지 않는다
 
@@ -51,6 +51,8 @@ def test_character_jobs_return_drafts_without_saving(client):
     assert j["result"]["voice"]
     j = _run(client, "lh", {"kind": "char_look", "target": "ally"})
     assert j["result"]["look"] and j["result"]["subject"]
+    j = _run(client, "lh", {"kind": "char_pressure", "target": "ally"})
+    assert j["result"]["pressure"] and "habits" in j["result"]
     assert _saved("lh") == before  # 작가가 칸에서 적용하고 저장해야 들어간다
 
 
@@ -174,7 +176,7 @@ def test_job_target_in_public_and_busy_key():
 FILES = __import__("re").findall(r'src="/static/([a-z-]+\.js)"', (STATIC / "index.html").read_text(encoding="utf-8"))
 
 
-KINDS = {"char_body": ["cast"], "char_voice": ["cast"], "char_look": ["cast"], "statwin_suggest": ["statwin"],
+KINDS = {"char_body": ["cast"], "char_voice": ["cast"], "char_look": ["cast"], "char_pressure": ["cast"], "statwin_suggest": ["statwin"],
          "statwin_init": ["statwin"], "names_ai": ["setup", "arc", "review"], "style_learn": ["style"], "style_example": ["style"]}
 
 
@@ -196,12 +198,12 @@ def test_js_registers_pages_messages_links_and_buttons():
     })()""" % json.dumps(list(KINDS)), {})
     assert got["pages"] == KINDS
     assert got["msg"] == [] and got["link"] == [] and got["result"] == []
-    assert got["btns"] == sorted(["bodyAI", "voiceAI", "lookAI", "swSuggest", "swInitAI", "nameAI", "placeAI", "learnRun", "styleExampleWrite",
+    assert got["btns"] == sorted(["bodyAI", "voiceAI", "lookAI", "pressureAI", "swSuggest", "swInitAI", "nameAI", "placeAI", "learnRun", "styleExampleWrite",
                                   "illMake", "atlasGenSuggest", "atlasSort",  # 뒤 여덟은 02c (test_ai_jobs_more.py)
                                   "illDraw",  # ComfyUI 그리기 (test_comfy.py)
                                   "aliasAI",  # 다른 이름 제안 (test_aliases.py)
                                   "rsSample", "rsStage", "rsCheck", "rsBudget", "rsCompare"])
-    assert got["screen"] == sorted(["char_body", "char_voice", "char_look", "statwin_suggest", "statwin_init", "names_ai", "atlas_suggest", "atlas_sort", "aliases"])
+    assert got["screen"] == sorted(["char_body", "char_voice", "char_look", "char_pressure", "statwin_suggest", "statwin_init", "names_ai", "atlas_suggest", "atlas_sort", "aliases"])
     assert got["body"] == "#/p/%EB%93%B1%EB%8C%80/cast/ally"
 
 
