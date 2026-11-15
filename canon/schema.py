@@ -1526,6 +1526,8 @@ AGENT_TOOL_NAMES = (
     "edit_style",
     "propose_regex",
     "read_rules",
+    "propose_rule",
+    "read_state_rules",
 )
 AGENT_END_TOOLS = ("done", "end", "finish", "none", "reply")  # 모델이 턴 끝을 도구 이름처럼 적는 말. 빈 tool 과 같이 받는다
 
@@ -1535,7 +1537,7 @@ class PlotAgentStep(BaseModel):
     thought: str = Field("", description="작가에게 보일 한 줄: 이 단계에서 무엇을 왜 하는지")
     tool: Literal[AGENT_TOOL_NAMES] = Field(  # type: ignore[valid-type]
         "", description="부를 도구 이름 ([도구] 목록에 있는 것). 턴을 끝낼 때는 빈 글로 두고 reply 칸에 답을 쓴다. reply 는 도구 이름이 아니다")
-    args: list[ToolArg] = Field(default_factory=list, description="읽기 도구와 insert_episodes · remove_episode · revise_text · edit_setup · propose_regex 의 인자")
+    args: list[ToolArg] = Field(default_factory=list, description="읽기 도구와 insert_episodes · remove_episode · revise_text · edit_setup · propose_regex · propose_rule 의 인자")
     edit: PlotRevision = Field(default_factory=lambda: PlotRevision(reply=""),
                                description="edit_plot 일 때만: 바꿀 것만 채운 변경안. reply 는 한 줄 설명. 다른 도구면 비워 둔다")
     question: str = Field("", description="ask 일 때만: 작가에게 묻는 말")
@@ -1607,6 +1609,18 @@ class WriteRecord(BaseModel):
     setup_before: Optional[SetupBefore] = Field(None, description="설정 도구가 쓰기 전 설정. 되돌리기는 setupchat.undo_revision")
     style: Optional[StyleCard] = Field(None, description="문체 변경안을 적용한 기록 (tool 'edit_style'). 되돌리기는 agent_style.undo")
     regex: Optional[RegexCard] = Field(None, description="정규식 규칙 제안을 적용한 기록 (tool 'propose_regex'). 되돌리기는 agent_regex.undo")
+    state_rule: Optional["StateRuleCard"] = Field(None, description="상태 규칙 제안을 적용한 기록 (tool 'propose_rule'). 되돌리기는 agent_staterules.undo")
+
+
+class StateRuleCard(BaseModel):
+    """대화 에이전트의 상태 규칙 제안 카드와 적용 기록 (canon/agent_staterules.py, docs/context/specs/07-rules.md 의 7c). AI 가 채우지 않는다.
+    승인 카드(Approval.state_rule)는 적용 전 값, 적용 기록(WriteRecord.state_rule)은 서버가 붙인 규칙 id 까지 남긴다. 되돌리기는 agent_staterules.undo."""
+    rule: "StateRule" = Field(description="넣을 규칙 (적용 뒤 값). 새 규칙 카드는 id 가 비고, 적용하면 붙인 id 를 채운다")
+    before: Optional["StateRule"] = Field(None, description="고치기의 적용 전 규칙. 새 규칙이면 None")
+    project: str = Field("", description="카드를 만든 작품의 폴더 이름")
+    holds_ep: int = Field(0, description="조건을 본 화: 카드를 만들 때 마지막으로 반영한 화. 0 이면 보지 않음")
+    holds_now: bool = Field(False, description="holds_ep 화를 반영한 뒤 상태로 조건이 모두 맞는지")
+    notices: list[str] = Field(default_factory=list, description="저장을 막지 않는 알림")
 
 
 class RegexCard(BaseModel):
@@ -1649,6 +1663,7 @@ class Approval(BaseModel):
     defaults: list[str] = Field(default_factory=list, description="카드가 처음 체크해 두는 부분 (agent_setup.defaults). 채운 칸 · 인물 칸은 빠진다")
     style: Optional[StyleCard] = Field(None, description="문체 변경안을 묻는 카드 (tool 'edit_style'). 권한 모드와 상관없이 늘 묻는다")
     regex: Optional[RegexCard] = Field(None, description="정규식 규칙 제안 카드 (tool 'propose_regex'). keys 는 ['rule']. 권한 모드와 상관없이 늘 묻는다")
+    state_rule: Optional["StateRuleCard"] = Field(None, description="상태 규칙 제안 카드 (tool 'propose_rule'). keys 는 ['rule']. 권한 모드와 상관없이 늘 묻는다")
 
 
 class AskCard(BaseModel):

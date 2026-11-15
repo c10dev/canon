@@ -7,9 +7,10 @@
 - 쓰기는 권한 모드 안이면 바로 저장하고(WriteRecord, 되돌리기 가능), 밖이면 승인 카드(Approval)를 남기고 턴을 끝낸다.
   막힌 것(본문이 있는 화)은 clean_revision 이 빼고, 까닭을 단계 결과로 AI 에게 돌려준다.
 - 쓰기는 지금 적용 함수(pipeline.plot_apply · apply_revision)와 정리 함수(clean_revision)를 감싸기만 한다. 새 계산은 없다.
-- 늘 카드로 묻는 도구(CARD_TOOLS, 본문 고치기 agent_text · 설정 agent_setup · 문체 agent_style · 정규식 규칙 제안 agent_regex)는 몸통을 제 파일에 두고 여기에는 등록 줄만 둔다. 권한 모드와 상관없이 묻는다(ALWAYS_ASK).
+- 늘 카드로 묻는 도구(CARD_TOOLS, 본문 고치기 agent_text · 설정 agent_setup · 문체 agent_style · 정규식 규칙 제안 agent_regex · 상태 규칙 제안 agent_staterules)는 몸통을 제 파일에 두고 여기에는 등록 줄만 둔다. 권한 모드와 상관없이 묻는다(ALWAYS_ASK).
   재료나 빠른 요청이 붙은 턴은 에이전트 단계 없이 그 도구를 바로 부른다(지름길, AI 호출 한 번).
 - 읽기 도구 read_rules 는 이 작품이 켠 정규식 규칙 묶음과 규칙을 돌려준다. 규칙 묶음은 작가가 propose_regex 카드에서 적용할 때만 바뀐다.
+- 읽기 도구 read_state_rules 는 상태 규칙 · 상태창 항목 이름 · 열린 복선을 돌려준다. 상태 규칙은 작가가 propose_rule 카드에서 적용할 때만 바뀐다.
 대상이 본문 · 설정 · 문체이면 플롯 쓰기는 모두 '다듬을 곳 밖'으로 묻는다.
 옛 단발 대화(chat_send: 'AI에게 고치기' · 설정 · 문체)의 보내기는 04e 에서 지웠다. 그 옛 기록은 '이전 대화'에서 읽고(legacy_chats), 적용 취소는 web.py 의 옛 엔드포인트가 맡는다.
 """
@@ -22,7 +23,7 @@ import uuid
 from datetime import datetime, timezone
 
 from . import cancel, context, jobs, pipeline, prompts, regexrules, renumber, store, usage
-from . import agent_regex, agent_setup, agent_style, agent_text
+from . import agent_regex, agent_setup, agent_staterules, agent_style, agent_text
 from .llm import LLM, dump, out_cap, wait_cap
 from .logline import josa
 from .schema import framed, frame_of
@@ -44,7 +45,7 @@ KIND_LABELS = {"draft": "초안 화", "next": "다음 아크 초안", "confirmed
                "renumber": "화 넣기 · 빼기", "outside": "다듬을 곳 밖", "text": "본문 고치기", "setup": "설정 칸",
                "style": "문체", "rule": "규칙"}
 DRAFT_KINDS = ("draft", "next")
-READ_TOOLS = ("read_plots", "read_summaries", "find_text", "read_cast", "read_rules")
+READ_TOOLS = ("read_plots", "read_summaries", "find_text", "read_cast", "read_rules", "read_state_rules")
 # 화 넣기 · 빼기. 뒤 화 번호(본문만 있고 반영하지 않은 화 포함, renumber.last_fixed)가 바뀌므로 권한 모드와 상관없이 늘 묻는다
 RENUMBER_TOOLS = ("insert_episodes", "remove_episode")
 # 늘 카드로 묻는 도구: 도구 이름 → 모듈 (agent_text.py 머리의 이름들을 둔다). 04c · 04d 는 한 줄씩 더한다
@@ -53,9 +54,10 @@ CARD_TOOLS = {m.TOOL: m for m in (
     agent_setup,
     agent_style,
     agent_regex,
+    agent_staterules,  # 상태 규칙 제안 propose_rule (07 의 7c). 종류 rule 을 propose_regex 와 함께 쓴다
 )}
 # 권한 모드('모두 자동' 포함)와 '이 세션에서 묻지 않기'(auto_kinds)를 따르지 않고 늘 묻는 쓰기 종류
-ALWAYS_ASK = ("renumber", *(m.KIND for m in CARD_TOOLS.values()))
+ALWAYS_ASK = tuple(dict.fromkeys(("renumber", *(m.KIND for m in CARD_TOOLS.values()))))  # rule 은 두 도구가 함께 쓴다
 MAX_INSERT = 10  # 한 번에 넣는 새 화 수
 # 한 단계의 AI 호출 한도. 보통 5~30초, 길어도 4분 남짓이다(2026-11-03 사용량 기록 13건, 가장 긴 것 263초).
 # 응답이 없으면 STEP_WAIT 초 뒤 한 번 다시 부르고, 또 없으면 오류로 턴을 멈춘다 (llm.wait_cap)
@@ -390,6 +392,9 @@ def read(p: Project, tool: str, args: dict[str, str]) -> tuple[str, str]:
         return ", ".join(c.name for c in chars[:4]) + (f" 외 {len(chars) - 4}명" if len(chars) > 4 else ""), _cut(dump(chars))
     if tool == "read_rules":
         return read_rules(p)
+    if tool == "read_state_rules":
+        head, body = agent_staterules.read(p)
+        return head, _cut(body)
     raise KeyError(tool)
 
 
