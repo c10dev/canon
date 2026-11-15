@@ -1562,6 +1562,18 @@ class AgentAsk(BaseModel):
     reply: str = Field("", description="묻기 전에 작가에게 하는 짧은 말 1~3문장")
 
 
+class StateRuleFill(BaseModel):
+    """빈 propose_rule 을 채우는 작은 형식 (agent.fill, canon/agent_staterules.py). 도구 인자(args)를 비운 단계에 한 번 더 받는다.
+    2026-11-15 gemini-3.8-flash 가 propose_rule 을 고르고 args 를 비운 채(출력 90자 남짓) 거듭 냈다. 조건 · 변경을 JSON 글 대신 칸으로 받는다."""
+    rule: str = Field("", description="고칠 상태 규칙 id. 새 규칙이면 빈칸")
+    name: str = Field("", description="규칙 이름")
+    note: str = Field("", description="작가 메모. 없으면 빈칸")
+    on: Literal["", "true", "false"] = Field("", description="켜기 · 끄기. 바꾸지 않으면 빈칸")
+    when: list["Condition"] = Field(default_factory=list, description="조건 (모두 맞아야 함). 고치기에서 바꾸지 않으면 빈 목록")
+    changes: list["RuleProposalSpec"] = Field(default_factory=list, description="조건이 맞으면 제안할 변경. 고치기에서 바꾸지 않으면 빈 목록")
+    reply: str = Field("", description="작가에게 하는 짧은 말 1~2문장")
+
+
 class StepRecord(BaseModel):
     """턴의 한 단계 (화면의 단계 줄). result 는 다음 단계 프롬프트에 넣는 결과로, 턴이 끝나면 비운다."""
     kind: Literal["read", "write", "wait", "block", "ask", "note"] = "read"

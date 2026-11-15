@@ -62,6 +62,7 @@
 - 도구 이름 목록은 `schema.AGENT_TOOL_NAMES` 이고 한 줄에 하나다. 새 도구는 줄을 더한다
 - 도구 이름만 오고 칸이 빈 단계는 같은 단계에서 그 칸만 담은 형식으로 한 번 더 부른다(`fill`: ask 는 `AgentAsk`, edit_plot 은 `PlotRevision`, 방향 안만 오면 되묻기로). 그래도 비면 되돌림 단계(`ask_empty` · `edit_empty`)
 - `fill` 이 다시 부르는 동안 작업 진행 줄(`cancel.say` → `Job.retry`)에 까닭을 띄우고 끝나면 지운다
+- `propose_rule` 의 인자가 모두 비면 `fill` 이 `StateRuleFill`(조건 · 변경을 칸으로)로 한 번 더 받아 `agent_staterules.fill_args` 로 인자로 옮긴다
 - 모델이 'reply' · 'done' 같은 끝 이름(`schema.AGENT_END_TOOLS`)을 tool 에 적으면 빈 글로 받는다
 - 도구는 읽기(`read_plots` · `read_summaries` · `find_text`(`context.recall`) · `read_cast` · `read_rules`, 결과 `RESULT_LIMIT` 자)와 쓰기 `edit_plot`
 - 읽기 도구 `read_rules`(함수 `read_rules`)는 이 작품이 켠 정규식 규칙 묶음마다 id · 이름 · 켠 작품 수와 규칙 칸을 돌려준다. 켜지 않은 묶음은 보이지 않는다
@@ -159,12 +160,15 @@
 ### `canon/agent_staterules.py`
 
 - 대화 에이전트의 상태 규칙 제안 도구 `propose_rule`(종류 `rule`, 이름표 '규칙'). `agent.CARD_TOOLS` 가 등록한다
-- 명세서는 [docs/context/specs/07-rules.md](../context/specs/07-rules.md) 의 7c(정할 것 9 · 25~29). `agent_regex.py` 꼴을 따른다
+- 명세서는 [docs/context/specs/07-rules.md](../context/specs/07-rules.md) 의 7c(정할 것 9 · 25~31). `agent_regex.py` 꼴을 따른다
 - 에이전트 단계(`PlotAgentStep.args`)가 규칙을 채운다. `prepare` 는 AI 를 부르지 않는다(LLM 호출은 에이전트의 `chat` 단계 하나)
 - 인자: `rule`(고칠 규칙 id, 비우면 새 규칙) · `name` · `note` · `on` · `when`(조건 JSON 배열) · `changes`(제안할 변경 JSON 배열)
 - 고치기에서 비운 인자는 지금 값을 둔다. 인물 칸에는 이름을 적어도 같은 이름 인물의 id 로 바꾼다(`_who`)
+- 조건 · 변경의 글 칸(`TEXT_KEYS`)에 수가 오면 글로 받는다(`"value": 0`). 인자가 하나도 없으면 다시 채우라는 까닭(`NO_ARGS`)을 돌려준다
 - 변경 종류는 `stat` · `resolve` 뿐이라(`RuleProposalSpec.kind`) 관계 수치는 제안할 수 없다. 도구 한 번에 규칙 하나, 지우기는 하지 않는다
 - `prepare` 는 JSON 꼴 · 없는 인물 · 복선 · 모르는 관계 수치 이름 · 빈 항목 이름 · 빈 `changes` · 바뀌는 칸 없음 · 같은 규칙(같은 조건과 변경)을 막는다
+- 조건의 상태창 항목이 지금 그 인물에게 없으면 막지 않고 카드 알림으로 보인다. 그 항목이 생기기 전에는 조건이 맞지 않는다
+- `read` 결과는 `agent._cut` 이 자르므로 관계 수치 이름 · 규칙 · 상태창이 있는 인물 · 열린 복선(`FS_LIMIT` 40개) · 조건을 단 요소 차례로 둔다
 - 막히면 `record` 가 카드 없이 `block` 단계를 남기고 까닭을 AI 에게 돌려준다. AI 는 같은 턴에서 고쳐 다시 부를 수 있다
 - 카드(`Approval.state_rule`, `schema.StateRuleCard`)는 마지막 반영 화 뒤 상태로 조건이 지금 맞는지(`holds_ep` · `holds_now`)와 알림을 남긴다
 - `decide` 는 새 규칙을 끝에 넣고 id 를 붙인다(`staterules.fill_ids`). 고치기는 고칠 규칙이 카드를 만든 뒤 바뀌었으면 ValueError 로 막고 카드를 둔다

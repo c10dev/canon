@@ -10,6 +10,7 @@ from .schema import (
     AddressChange,
     Act,
     AgentAsk,
+    StateRuleFill,
     PlotAgentStep,
     ToolArg,
     ArcEdit,
@@ -870,6 +871,11 @@ def _r_agent_ask(prompt: str, hint: dict):
     if "빈 물음" in hint["message"]:
         return AgentAsk(question="")
     return AgentAsk(question="몇 화로 갈까요?", options=[Direction(title=t, idea=f"{t}로 간다.") for t in ("7화", "15화")])
+
+
+@responds(StateRuleFill)
+def _r_state_rule_fill(prompt: str, hint: dict):
+    return mock_staterules.fill(hint)
 
 
 _CONTACT_LINE = re.compile(r"^  (\S+): .*?\((\S+?)\) ↔ .*?\((\S+?)\) ", re.M)

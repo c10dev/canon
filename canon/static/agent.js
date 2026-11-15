@@ -535,7 +535,8 @@ function agentSrFields(r, before) {
   const p = P();
   const conds = (x) => (x.when.length ? x.when.map((c) => (typeof condSummary === 'function' ? condSummary(c, p) : c.kind)).join(' · ') : '조건 없음(늘 맞음)');
   const specs = (x) => x.changes.map((c) => (typeof specSummary === 'function' ? specSummary(c, p) : c.kind)).join(' · ') || '없음';
-  const rows = [['이름', (x) => x.name || '이름 없음'], ['켬', (x) => (x.on ? '켬' : '끔')], ['조건', conds], ['제안', specs]];
+  const rows = [['이름', (x) => x.name || '이름 없음'], ['메모', (x) => x.note || ''], ['켬', (x) => (x.on ? '켬' : '끔')], ['조건', conds], ['제안', specs]]
+    .filter(([l, f]) => l !== '메모' || f(r) || (before && f(before)));  // 메모는 있거나 바뀔 때만
   return rows.map(([l, f]) => {
     const now = f(r);
     if (!before) return `<div class="diff-row"><span class="act-label">${l}</span><span>${esc(now)}</span></div>`;

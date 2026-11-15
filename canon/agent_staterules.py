@@ -24,13 +24,17 @@ from pydantic import ValidationError
 
 from . import context, statwin
 from .schema import (TIE_NAMES, AgentSession, AgentTurn, Approval, Condition, PlotAgentStep, Project, RuleProposalSpec, StateRule,
-                     StateRuleCard, StepRecord, WriteItem, WriteRecord)
+                     StateRuleCard, StateRuleFill, StepRecord, ToolArg, WriteItem, WriteRecord)
 
 TOOL = "propose_rule"
 KIND = "rule"  # 승인 카드의 종류 (agent.KIND_LABELS '규칙'). 06b 의 propose_regex 와 함께 쓴다. agent.ALWAYS_ASK 에 들어 늘 묻는다
 LABEL = "상태 규칙 제안"
 KEPT = "그 뒤에 다시 고친 규칙이라 그대로 뒀어요"
 GONE = "그 규칙을 찾을 수 없어 그대로 뒀어요"
+FS_LIMIT = 40  # read_state_rules 가 보이는 열린 복선 수
+TEXT_KEYS = ("value", "name", "character", "target", "foreshadow", "character_id", "stat", "foreshadow_id")  # 글 칸
+NO_ARGS = ("인자가 하나도 없어요. 다시 부를 때는 앞 단계의 인자가 남지 않으니 when · changes · name 을 모두 다시 채워 부르세요 "
+           "(고치기면 rule 과 바꿀 인자). ")
 TRUE = ("true", "1", "yes", "on", "켬", "참")
 FALSE = ("false", "0", "no", "off", "끔", "거짓")
 WHEN_HELP = ('when 은 JSON 배열이에요. 예: [{"kind": "stat", "character": "hero", "name": "마력", "op": "le", "value": "0"}, '
@@ -76,6 +80,10 @@ def _list(raw: str, model, help_text: str) -> list | str:
         data = [data]
     if not isinstance(data, list) or not all(isinstance(x, dict) for x in data):
         return help_text
+    for x in data:  # 모델이 값 칸에 수를 그대로 적는다("value": 0, 2026-11-15 gemini-3.8-flash 실측). 글 칸의 수는 글로 받는다
+        for k, v in x.items():
+            if k in TEXT_KEYS and isinstance(v, (int, float)) and not isinstance(v, bool):
+                x[k] = format(v, "g") if isinstance(v, float) else str(v)
     try:
         return [model.model_validate(x) for x in data]
     except ValidationError as e:
@@ -107,6 +115,16 @@ def _fields(p: Project, args: dict[str, str]) -> dict | str:
             c.character_id = _who(p, c.character_id)
             c.stat, c.value = c.stat.strip(), c.value.strip()
         out["changes"] = changes
+    return out
+
+
+def fill_args(f: StateRuleFill) -> list[ToolArg]:
+    """채우기 형식(agent.fill)을 도구 인자로 옮긴다. 빈 칸은 넣지 않아 고치기에서 지금 값을 둔다."""
+    out = [ToolArg(name=k, value=v) for k, v in (("rule", f.rule), ("name", f.name), ("note", f.note), ("on", f.on)) if v.strip()]
+    if f.when:
+        out.append(ToolArg(name="when", value=json.dumps([c.model_dump() for c in f.when], ensure_ascii=False)))
+    if f.changes:
+        out.append(ToolArg(name="changes", value=json.dumps([c.model_dump() for c in f.changes], ensure_ascii=False)))
     return out
 
 
@@ -144,6 +162,8 @@ def _same(a: StateRule, b: StateRule) -> bool:
 def prepare(name: str, p: Project, s: AgentSession, turn: AgentTurn, step: PlotAgentStep) -> StateRuleCard | str:
     """잠금 밖에서 규칙을 만들고 검사한다 (AI 를 부르지 않는다). 막히면 까닭(글)을 돌려준다."""
     args = _args(step)
+    if not any(v.strip() for v in args.values()):  # 막힌 뒤 인자 없이 다시 부른다 (2026-11-15 gemini-3.8-flash 실측)
+        return NO_ARGS + CHANGES_HELP
     rid = args.get("rule", "").strip()
     before = next((r for r in p.state_rules if r.id == rid), None) if rid else None
     if rid and before is None:
@@ -170,6 +190,10 @@ def prepare(name: str, p: Project, s: AgentSession, turn: AgentTurn, step: PlotA
     last = statwin.last_done(p)
     if last:
         card.holds_ep, card.holds_now = last, context.all_hold(p, last, rule.when, context.view_now(p))
+    stats = {x.character_id: {v.name for v in x.stats} for x in p.states}
+    for c in rule.when:  # 없는 상태창 항목의 조건은 맞지 않는다 (context.holds). 막지 않고 알린다 (새 항목을 다른 규칙이 만들 수도 있다)
+        if c.kind == "stat" and c.name.strip() not in stats.get(c.character, set()):
+            card.notices.append(f"조건의 상태창 항목 '{c.name}' 이(가) 지금 그 인물에게 없어요. 그 항목이 생기기 전에는 조건이 맞지 않아요")
     if not rule.when:
         card.notices.append("조건이 없어 상태 변경안마다 제안해요")
     if not rule.on:
@@ -270,12 +294,13 @@ def compact(rec: WriteRecord, reason: str) -> None:
 def read(p: Project) -> tuple[str, str]:
     """read_state_rules 도구: 상태 규칙(조건 · 변경), 조건을 단 이야기 요소, 상태창 항목 이름, 열린 복선. (단계 줄 이름, 결과 글)."""
     stats = {s.character_id: [x.name for x in s.stats] for s in p.states if s.stats}
+    # 결과는 agent._cut 이 자른다. 짧고 꼭 필요한 것을 앞에 둔다. 인물은 상태창이 있는 인물만 (다른 인물 id 는 read_cast)
     data = {
+        "tie_names": list(TIE_NAMES),
         "state_rules": [r.model_dump() for r in p.state_rules],
+        "characters_with_stats": [{"id": c.id, "name": c.name, "stats": stats[c.id]} for c in p.characters if c.id in stats],
+        "open_foreshadows": [{"id": f.id, "description": f.description[:40]} for f in p.foreshadows if f.status == "open"][:FS_LIMIT],
         "element_conditions": [{"id": el.id, "name": el.name, "when": [c.model_dump() for c in el.activation.conditions]}
                                for el in p.elements if el.activation.conditions],
-        "characters": [{"id": c.id, "name": c.name, "stats": stats.get(c.id, [])} for c in p.characters],
-        "open_foreshadows": [{"id": f.id, "description": f.description[:60]} for f in p.foreshadows if f.status == "open"],
-        "tie_names": list(TIE_NAMES),
     }
     return f"상태 규칙 {len(p.state_rules)}개", json.dumps(data, ensure_ascii=False)

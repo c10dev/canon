@@ -27,6 +27,7 @@ from . import agent_regex, agent_setup, agent_staterules, agent_style, agent_tex
 from .llm import LLM, dump, out_cap, wait_cap
 from .logline import josa
 from .schema import framed, frame_of
+from .schema import StateRuleFill
 from .schema import (AgentAsk, AgentSession, AgentTurn, Approval, AskCard, ChatScope, PlotAgentStep, PlotRevision, Project, RenumberOp,
                      StepRecord, TextMaterial, WriteItem, WriteRecord)
 
@@ -612,7 +613,8 @@ def _edit(name: str, fn):
 
 FILL_NOTE = ("\n\n[이번 단계] 도구 {tool} 을(를) 골랐습니다 (생각: {thought}). 이 도구의 칸만 채웁니다. {what}")
 FILL_WHAT = {"ask": "작가에게 물을 question 과, 방향을 묻는다면 서로 다른 방향 options 2~3개를 채웁니다.",
-             "edit_plot": "변경안을 [변경안 규칙]대로 채웁니다. reply 는 한 줄 설명입니다."}
+             "edit_plot": "변경안을 [변경안 규칙]대로 채웁니다. reply 는 한 줄 설명입니다.",
+             "propose_rule": "상태 규칙 하나를 채웁니다. 새 규칙이면 when · changes · name 을, 고치기면 rule 과 바꿀 칸만 채웁니다. 인물 · 복선은 id 로 적습니다."}
 
 
 def fill(llm: LLM, system: str, prompt: str, step: PlotAgentStep, hint: dict) -> PlotAgentStep:
@@ -621,7 +623,8 @@ def fill(llm: LLM, system: str, prompt: str, step: PlotAgentStep, hint: dict) ->
     프롬프트에 '칸을 채운다'를 더해도 4번 모두 비었고, 같은 프롬프트 뒤에 AgentAsk 로 다시 부르니 2번 모두 묻는 말과
     방향 3안을 냈다. edit_plot 을 PlotRevision 으로 채우게 하면 방향 안(options)만 낼 때가 있어, 그때는 되묻기로 바꾼다."""
     tool = step.tool.strip()
-    if (tool == "ask" and not step.question.strip() and not step.options) or (tool == "edit_plot" and empty_edit(step.edit)):
+    if (tool == "ask" and not step.question.strip() and not step.options) or (tool == "edit_plot" and empty_edit(step.edit)) \
+            or (tool == agent_staterules.TOOL and not any(a.value.strip() for a in step.args)):
         cancel.say("AI가 빈 칸을 보내 그 칸만 한 번 더 받아요")  # 한 단계가 호출 두 번이 된다. 화면이 까닭을 보인다
         try:
             return _fill(llm, system, prompt, step, hint, tool)
@@ -642,6 +645,10 @@ def _fill(llm: LLM, system: str, prompt: str, step: PlotAgentStep, hint: dict, t
             return step.model_copy(update={"tool": "ask", "question": rev.reply.strip() or "어느 방향으로 갈까요?", "options": rev.options[:4],
                                            "reply": step.reply or rev.reply})
         return step.model_copy(update={"edit": rev})
+    if tool == agent_staterules.TOOL:  # 상태 규칙: 조건 · 변경을 칸으로 받아 도구 인자로 옮긴다 (agent_staterules.fill_args)
+        f = llm.json(system, prompt + FILL_NOTE.format(tool=tool, thought=step.thought.strip(), what=FILL_WHAT[tool]), StateRuleFill,
+                     hint={**hint, "fill": "rule"})
+        return step.model_copy(update={"args": agent_staterules.fill_args(f), "reply": step.reply or f.reply})
     return step
 
 

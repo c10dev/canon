@@ -117,6 +117,9 @@ def test_prepare_checks_and_holds_now():
     card = go(when=when, changes=stat)
     assert card.holds_ep == 1 and card.holds_now is True and card.rule.when[0].character == "hero"
     assert "changes" in go(when=when)  # 빈 변경
+    assert go().startswith("인자가 하나도 없어요")  # 막힌 뒤 인자 없이 다시 부른 단계
+    num = json.dumps([{"kind": "stat", "character": "hero", "name": "마력", "op": "le", "value": 0}])
+    assert go(when=num, changes=stat).rule.when[0].value == "0"  # 수로 적은 값도 받는다
     assert "kind" in go(when=when, changes=json.dumps([{"kind": "tie", "character_id": "hero"}]))  # 관계 수치는 제안할 수 없다
     tie = json.dumps([{"kind": "tie", "character": "hero", "target": "ally", "name": "love", "op": "ge", "value": "1"}])
     assert "관계 수치 이름은" in go(when=tie, changes=stat)
@@ -126,7 +129,11 @@ def test_prepare_checks_and_holds_now():
     assert "찾을 수 없어요" in go(rule="r9", on="false")
     head, body = agent_staterules.read(p)
     data = json.loads(body)
-    assert head == "상태 규칙 1개" and data["characters"][0]["stats"] == ["마력"] and data["state_rules"][0]["id"] == "r1"
+    assert head == "상태 규칙 1개" and data["characters_with_stats"] == [{"id": "hero", "name": "서윤", "stats": ["마력"]}]
+    assert data["state_rules"][0]["id"] == "r1" and list(data)[0] == "tie_names"
+    p.state_rules = []
+    mana = json.dumps([{"kind": "stat", "character": "hero", "name": "마나", "op": "le", "value": "0"}], ensure_ascii=False)
+    assert "'마나'" in " ".join(go(when=mana, changes=stat).notices)  # 없는 상태창 항목은 막지 않고 알린다
 
 
 from .jsvm import needs_node, run_js  # noqa: E402
@@ -155,3 +162,38 @@ def test_state_rule_card_shows_rule_and_no_remember_box():
     assert 'data-arg="0|1"' in got["fresh"] and "규칙 고치기" in got["edit"] and "<del>켬</del><ins>끔</ins>" in got["edit"]
     assert "마력 0 이하" not in got["edit"]  # 바뀌지 않은 칸은 보이지 않는다
     assert (got["name"], got["read"]) == ("상태 규칙 제안", "상태 규칙 읽기")
+
+
+def test_all_mode_still_asks_and_remember_does_not_open(client):
+    """'모두 자동' 세션에서도 propose_rule 은 카드로 묻고 상태 규칙은 그대로다. 승인할 때 '묻지 않기'를 보내도 rule 은 auto_kinds 에 들지 않는다 (Q29)."""
+    cid = _setup(client)
+    sid = _session(client, topic="agent")
+    assert client.patch(f"/api/projects/lh/sessions/{sid}", json={"mode": "all"}).status_code == 200
+    t = _say(client, sid, f"상태 규칙 {cid} 마력 le 0 => {cid} 상태 기절")
+    assert t["end"] == "wait" and t["approval"]["state_rule"] and store.load("lh").state_rules == []
+    assert _approve(client, sid, remember=True).status_code == 200
+    sess = next(x for x in client.get("/api/projects/lh/sessions?topic=plot").json()["sessions"] if x["id"] == sid)
+    assert sess["mode"] == "all" and "rule" not in sess["auto_kinds"] and len(store.load("lh").state_rules) == 1
+
+
+def test_stale_edit_card_is_blocked_and_stays(client):
+    cid = _setup(client)
+    sid = _session(client, topic="agent")
+    _say(client, sid, f"상태 규칙 {cid} 마력 le 0 => {cid} 상태 기절")
+    _approve(client, sid)
+    _say(client, sid, "상태 규칙 rule=r1 끄기")
+    rule = client.get("/api/projects/lh/state-rules").json()[0]
+    assert client.put("/api/projects/lh/state-rules/r1", json={**rule, "name": "작가가 먼저 고침"}).status_code == 200
+    r = _approve(client, sid, t=1)
+    assert r.status_code == 400 and "그 사이 규칙이 바뀌었어요" in r.text
+    assert _turn(client, sid, t=1)["approval"]["state"] == "wait" and store.load("lh").state_rules[0].on is True
+
+
+def test_empty_args_step_is_filled_with_typed_form(client, monkeypatch):
+    """도구만 고르고 인자를 비운 단계(2026-11-15 실측)는 agent.fill 이 StateRuleFill 로 한 번 더 받아 카드를 띄운다. AI 호출 두 번."""
+    cid = _setup(client)
+    calls = _usage_calls(monkeypatch)
+    sid = _session(client, topic="agent")
+    t = _say(client, sid, f"상태 규칙 빈 {cid} 마력 le 0 => {cid} 상태 기절")
+    assert t["end"] == "wait" and t["approval"]["state_rule"]["rule"]["changes"][0]["value"] == "기절"
+    assert calls == ["PlotAgentStep", "StateRuleFill"]
