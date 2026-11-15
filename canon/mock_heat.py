@@ -1,6 +1,7 @@
 """열 계획 가짜 응답 (CANON_LLM=mock). 기승전결과 함께 받는 열 계획(HeatArcPlan)을 mock.RESPONDERS 에 등록한다."""
 from __future__ import annotations
 
+from .heatplan import web_shape
 from .mock import _arc, _next_arc, responds
 from .schema import Foreshadow, HeatArcPlan, HeatArcProposal, HeatProposal, HeatStep, HeatTurn
 
@@ -41,11 +42,12 @@ def _r_heat_arc_plan(prompt: str, hint: dict) -> HeatArcPlan:
                                Foreshadow(id="w", description="커진 판돈", planted_ep=total + 5, kind="stake", public=True)])
 
 
-def _proposal(start: int, end: int) -> HeatProposal:
-    steps = shape(end, start)
+def _proposal(start: int, end: int, web: bool = False) -> HeatProposal:
+    """web 이면 웹소설 판(heatplan.web_shape): 긴 쌓기 · 미루기를 작은 터뜨리기로 끊고 뒤집힘을 비운다."""
+    steps = web_shape(shape(end, start)) if web else shape(end, start)
     peak = next(s.ep for s in steps if s.role == "peak")
     return HeatProposal(heat=steps, heat_rule=f"{start}~{end}화: 앞은 쌓고 전 구간 끝에 터뜨린다",
-                        heat_turn=HeatTurn(plant_ep=max(start, peak - 2), fail_ep=max(start, peak - 1), gain="새 약점"),
+                        heat_turn=HeatTurn() if web else HeatTurn(plant_ep=max(start, peak - 2), fail_ep=max(start, peak - 1), gain="새 약점"),
                         stakes=[Foreshadow(id="x", description=f"{start}화의 새 판돈", planted_ep=start, kind="stake"),
                                 Foreshadow(id="y", description=f"{start}화의 관객", planted_ep=start, kind="audience")])
 
@@ -53,14 +55,14 @@ def _proposal(start: int, end: int) -> HeatProposal:
 @responds(HeatProposal)
 def _r_heat_proposal(prompt: str, hint: dict) -> HeatProposal:
     """이미 있는 기승전결 위에 받는 열 계획 (hint: start, end). 1화는 일부러 열 5 로 보내 본문 있는 화 지키기를 시험한다."""
-    prop = _proposal(int(hint["start"]), int(hint["end"]))
+    prop = _proposal(int(hint["start"]), int(hint["end"]), bool(hint.get("web")))
     prop.heat[0] = prop.heat[0].model_copy(update={"level": 5, "role": "peak"})
     return prop
 
 
 @responds(HeatArcProposal)
 def _r_heat_arc_proposal(prompt: str, hint: dict) -> HeatArcProposal:
-    """열 계획을 함께 받는 다음 아크 (hint 는 ArcProposal 과 같다)."""
+    """열 계획을 함께 받는 다음 아크 (hint 는 ArcProposal 과 같다). gain 축(웹소설 틀 장편)이면 웹소설 판."""
     base = _next_arc(hint)
-    heat = _proposal(base.arc.start_ep, base.arc.end_ep)
+    heat = _proposal(base.arc.start_ep, base.arc.end_ep, bool(hint.get("gain")))
     return HeatArcProposal(**base.model_dump(), **heat.model_dump())

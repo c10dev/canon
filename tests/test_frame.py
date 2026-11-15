@@ -63,7 +63,8 @@ def test_frame_changes_only_logline_arc_and_plot_planning():
     """틀을 웹소설식으로 바꾸면 바뀌는 요청은 세 갈래뿐이다. 나머지 요청은 스냅샷(드라마식)과 글자까지 같다. 장르 안내에도 권하는 틀이 나오지 않는다.
     - 로그라인 웹소설 칸: 설정 대화 작업지시서 (docs/webnovel/specs/03-logline.md)
     - 장편의 부 · 아크 기획(작업지시서 부 구성 · 다음 아크 · 대화 에이전트 첫 단계, 플롯 대화)과 단편의 전환 요청 (docs/webnovel/specs/04-arc-frame.md)
-    - 장편의 화별 플롯(작업지시서 플롯 초안 · 한 화 플롯, 플롯 대화, 영향 분석, 여는 방식 안)과 1화 본문의 초반 규칙 · 1화 판정 (docs/webnovel/specs/06-plot-frame.md). 단편은 바뀌지 않는다"""
+    - 장편의 화별 플롯(작업지시서 플롯 초안 · 한 화 플롯, 플롯 대화, 영향 분석, 여는 방식 안)과 1화 본문의 초반 규칙 · 1화 판정 (docs/webnovel/specs/06-plot-frame.md). 단편은 바뀌지 않는다
+    - 장편의 완급 계획만 받기(작업지시서 '완급 계획'). 설정 heat_plan 과 상관없이 열 계획을 묻는 요청이다 (docs/webnovel/specs/09-heat-frame.md)"""
     import json
 
     from . import test_prompt_registry as reg
@@ -77,7 +78,7 @@ def test_frame_changes_only_logline_arc_and_plot_planning():
         assert set(got) <= set(want)
         changed[tag] = sorted(k for k, v in got.items() if want[k] != v)
     assert changed == {"short": ["short:brief:setup_chat", "short:convert"],
-                       "long": ["long:brief:agent_plot", "long:brief:arc", "long:brief:plot", "long:brief:plots", "long:brief:series", "long:brief:setup_chat",
+                       "long": ["long:brief:agent_plot", "long:brief:arc", "long:brief:heat", "long:brief:plot", "long:brief:plots", "long:brief:series", "long:brief:setup_chat",
                                 "long:episode:1", "long:hook", "long:impact_prompt", "long:opening_plots", "long:plot_chat:arc", "long:plot_chat:episode",
                                 "long:plot_chat:next"]}
     for g in genres.CATALOG:

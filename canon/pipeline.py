@@ -910,7 +910,7 @@ def propose_heat(llm: LLM, p: Project, number: int = 0, note: str = "") -> HeatP
     본문이 있는 화는 지금 계획이 있으면 그 줄을 그대로 둔다 (AI 가 바꿔 보내도 되돌린다)."""
     start, end, acts, where, arc = heat_target(p, number)
     ask = prompts.heat_propose_prompt(p, start, end, acts, where) + prompts.request_block(note)
-    prop = llm.json(prompts.SYSTEM_PLANNER, ask, HeatProposal, hint={"start": start, "end": end, "note": note})
+    prop = llm.json(prompts.SYSTEM_PLANNER, ask, HeatProposal, hint={"start": start, "end": end, "note": note, "web": heatplan.web(p)})
     clean_heat(p, prop, start, end)
     old = {s.ep: s for s in heatplan.plan(p, start)}
     written = {e.plot.number for e in p.episodes if e.text}
@@ -1296,7 +1296,7 @@ def plan_next_arc(llm: LLM, p: Project, length: int = 0, note: str = "") -> ArcP
     heat = p.settings.heat_plan
     ask = prompts.next_arc_prompt(p, start, length, note)
     if heat:  # 요청은 맨 뒤에 덧붙인다 (작가의 말은 next_arc_prompt 안에 있다)
-        ask += prompts.heat_next_arc_rules(start, length)
+        ask += prompts.heat_next_arc_rules(start, length, heatplan.web(p))
     schema = prompts.arc_schema(p, HeatArcProposal if heat else ArcProposal)
     gain, focus = prompts.arc_axes(p)
     hint = {"start": start, "length": length, "limit": limit, "number": len(p.story_arcs) + 1, "gain": gain, "focus": focus}

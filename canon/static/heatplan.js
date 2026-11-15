@@ -13,6 +13,9 @@ const HEAT_FLAT_MIN = 4;
 const HEAT_EARLY = 0.3;
 const HEAT_HOT_CUE = 4;
 const HEAT_MAX = 5;
+const HEAT_LONG_BLOCK = 3;  // 웹소설 판: 쌓기 · 미루기가 이보다 길면 '긴 고구마' (heatplan.LONG_BLOCK)
+const HEAT_BLOCK_ROLES = ['build', 'hold'];
+const HEAT_WEB_SMALL = 3;
 
 Object.assign(S, { heatSel: 0, heatNewD: '', heatNewEp: '', heatNewKind: 'stake' });
 
@@ -25,6 +28,23 @@ function heatScopes(p) {
   }
   return [...(p.story_arcs || [])].sort((x, y) => x.start_ep - y.start_ep).filter((a) => (a.heat || []).length)
     .map((a) => ({ steps: a.heat, rule: a.heat_rule || '', turn: a.heat_turn || {}, acts: a.acts || [], start: a.start_ep, end: a.end_ep }));
+}
+
+/** 완급 계획의 웹소설 판을 쓰는가: 웹소설 틀 장편 (heatplan.web) */
+function heatWeb(p) {
+  return !!(p.meta && p.meta.form === 'serial' && p.meta.frame === 'webnovel');
+}
+
+/** 웹소설 판 밑그림: 쌓기 · 미루기가 HEAT_LONG_BLOCK 화 이어진 뒤에 오는 쌓기 · 미루기 화를 작은 터뜨리기로 (heatplan.web_shape) */
+function heatWebShape(steps) {
+  let run = 0;
+  return [...steps].sort((a, b) => a.ep - b.ep).map((s) => {
+    if (!HEAT_BLOCK_ROLES.includes(s.role)) { run = 0; return s; }
+    run += 1;
+    if (run <= HEAT_LONG_BLOCK) return s;
+    run = 0;
+    return { ...s, level: HEAT_WEB_SMALL, role: 'peak', kind: '' };
+  });
 }
 
 /** 열 계획. 단편은 작품 전체, 장편은 n화가 든 아크 (heatplan.plan) */
@@ -82,9 +102,11 @@ function heatScopeWarnings(p, sc) {
   const size = end - sc.start + 1;
   const gi = (sc.acts || []).find((a) => a.name === '기');
   const runs = heatPeakRuns(steps);
-  runs.forEach((run) => {
+  const web = heatWeb(p);  // 웹소설 판: 이른 정점을 보지 않고, 판돈 · 관객 · 제약은 큰 정점(마지막 묶음)만 본다
+  runs.forEach((run, k) => {
+    if (web && k < runs.length - 1) return;
     run.forEach((s) => {
-      if (s.ep - sc.start + 1 <= size * HEAT_EARLY || (gi && gi.start_ep <= s.ep && s.ep <= gi.end_ep)) warn(s.ep, 'early_peak', `${s.ep}화의 터뜨리기가 일러요. 앞쪽은 쌓기 · 미루기로 세기를 아껴요`);
+      if (!web && (s.ep - sc.start + 1 <= size * HEAT_EARLY || (gi && gi.start_ep <= s.ep && s.ep <= gi.end_ep))) warn(s.ep, 'early_peak', `${s.ep}화의 터뜨리기가 일러요. 앞쪽은 쌓기 · 미루기로 세기를 아껴요`);
     });
     const first = run[0].ep;
     if (!(p.foreshadows || []).some((f) => f.kind === 'stake' && f.planted_ep < first && (f.status === 'open' || (f.payoff_ep || 0) >= first))) {
@@ -118,6 +140,16 @@ function heatScopeWarnings(p, sc) {
   });
   const t = sc.turn && sc.turn.plant_ep > 0 ? sc.turn : null;
   if (t && runs.length && t.fail_ep >= runs[runs.length - 1][0].ep) warn(t.fail_ep, 'late_turn', `반격이 ${t.fail_ep}화에 들켜요. 큰 정점(${runs[runs.length - 1][0].ep}화) 전에 들켜야 판돈이 커져요`);
+  if (web) {
+    let block = [];
+    [...[...steps].sort((a, b) => a.ep - b.ep), null].forEach((s) => {
+      if (s && HEAT_BLOCK_ROLES.includes(s.role)) { block.push(s); return; }
+      if (block.length > HEAT_LONG_BLOCK) {
+        warn(block[0].ep, 'long_block', `${block[0].ep}~${block[block.length - 1].ep}화에 쌓기 · 미루기가 ${block.length}화 이어져요. 웹소설 틀은 막히는 구간을 1~${HEAT_LONG_BLOCK}화로 짧게 두고 작은 터뜨리기로 풀어요`);
+      }
+      block = [];
+    });
+  }
   steps.forEach((s) => {
     const e = (p.episodes || []).find((x) => x.plot.number === s.ep);
     const sheet = e && e.cue_sheet;
@@ -352,7 +384,7 @@ Object.assign(actions, {
   heatStart() {
     const h = heatNowHost();
     if (!h) return;
-    h.obj.heat = heatDefaultFor(h.acts, h.start, h.end);
+    h.obj.heat = heatWeb(P()) ? heatWebShape(heatDefaultFor(h.acts, h.start, h.end)) : heatDefaultFor(h.acts, h.start, h.end);
     S.heatSel = 0;
     markDirty();
     S.focusTarget = '#app .heat-bars .heat-col';

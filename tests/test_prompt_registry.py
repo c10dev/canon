@@ -171,6 +171,8 @@ def _all() -> dict[str, str]:
         p = _web(make)
         web = {**_requests(p), **_arc_requests(p), **_plot_requests(p)}
         out.update({f"{tag}_web:{k}": web[k] for k in FRAME_KEYS if k in web and (k == "convert") == (tag == "short")})
+        if tag == "long":  # 완급 계획의 웹소설 판은 장편만 (09-heat-frame.md). 단편은 tests/test_heat_frame.py 가 드라마 틀과 같은지 본다
+            out.update({f"long_web:{k}": v for k, v in _heat_requests(_web(make)).items()})
     return out
 
 
