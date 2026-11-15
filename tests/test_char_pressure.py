@@ -12,7 +12,7 @@ from canon.mock import MockLLM
 from canon.schema import Birth, BirthSketch, Character, CharacterEdit, Project, SetupRevision, SetupSuggestion
 
 L = MockLLM()
-CAST_EXCLUDE = {"narration_voice", "body", "context", "aliases"}
+CAST_EXCLUDE = {"narration_voice", "body", "context", "aliases", "marks"}
 
 
 def _written() -> Project:

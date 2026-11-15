@@ -26,7 +26,7 @@ AI 로 소설을 길게 쓸수록 인물 말투, 관계, 심리, 복선, 문체�
 | 영역 | 모델 | 내용 | 바뀌는 시점 |
 |---|---|---|---|
 | 기본 정보 | `Meta` | 형식(`form`: short/serial), 아크 길이 기본값(`arc_length`), 제목, 장르(`genres`: 장르 id 목록, `genre`: 표시용 이름), 성인물 여부(`adult`), 로그라인(`logline`, 다섯 칸 `logline_parts`), 주제, 톤(`tone`, 다이얼 `tone_dials`), 총 화수, 화당 분량 | 설정 단계 |
-| 이야기 틀 | `Meta.frame` | 드라마식(`drama`, 기본) · 웹소설식(`webnovel`). 작가가 설정 화면이나 `new --frame` 으로 고른다. 장르는 틀을 권하기만 한다(`Genre.frame`). 2026-11-14 에는 값만 저장하고 프롬프트에 넣지 않는다(`docs/webnovel/`) | 설정 단계 |
+| 이야기 틀 | `Meta.frame` | 드라마식(`drama`, 기본) · 웹소설식(`webnovel`). 작가가 설정 화면이나 `new --frame` 으로 고른다. 장르는 틀을 권하기만 한다(`Genre.frame`). 장편의 부 구성 · 다음 아크 · 플롯 대화 아크 규칙과 장편 전환의 부 전환 줄이 틀을 따른다. 화별 플롯은 아직 따르지 않는다(`docs/webnovel/specs/04-arc-frame.md`) | 설정 단계 |
 | 세계관 | `WorldSetting` | 배경, 시대, 깨면 안 되는 규칙, 장소, 이름 스타일(`name_style`, 비면 자동 감지), 이름 규칙(`name_rules`) | 설정 단계 |
 | 인물 (불변) | `Character` | 나이, 성별, 성격, 배경, 목표, 결핍, **말투(speech_style)**, 시점 화의 서술 말투(`narration_voice`), 비밀, 아크, 등장 비중(`tier`: main/support/minor), 처음 나온 화(`first_ep`), 프롬프트에 넣기(`context`: auto/always/off, 작가 전용이라 AI 응답 형식과 프롬프트 직렬화에서 뺀다) | 설정 단계, 장편은 새 인물 승인 때. 본문이 바꾼 설정은 작가가 고른 설정 바꾸기 제안으로 |
 | 설정 변경 기록 | `SettingRecord` (`setting_log`), `SettingChange` (`setting_held`) | 바뀐 화, 칸, 전후 값, AI(승인한 제안) · 작가(1화 반영 뒤 설정 화면 수정), 이유, 근거 문장. 자동 집필이 남겨 둔 제안 | 승인 · 설정 저장 때 |
@@ -41,7 +41,7 @@ AI 로 소설을 길게 쓸수록 인물 말투, 관계, 심리, 복선, 문체�
 | 문체 | `StyleProfile` | 시점, 시제, 문장 리듬, 묘사 밀도, 대사 비율과 방식, 내면 독백, 전개 속도, 장면 전환, 어휘, 지킬 것/피할 것, **문체 버릇와 원문 빈도**(`markers`), **가끔 쓰는 장치**(`devices`: 이름, 쓰는 상황, 알아보는 글자, 최소 간격), **원문 대표 문단** | 스타일 분석 후, 수정에서 배운 규칙 반영 때, 대화 변경안 적용 · 취소 때 |
 | 큰 줄기 | `Act` ×4 | 기/승/전/결 구간 범위, 구간 목표, 전환점, 서술 시점 운용(`pov`, 비면 작품 기본). 장편은 아크마다 따로 가진다 | 구조 설계 후 확정 |
 | 부 (장편) | `Part` (`parts`) | 범위, 목표, 큰 전환, 아크 아이디어, 끝난 뒤 요약 | 부 계획 승인, 요약 승인 |
-| 아크 (장편) | `StoryArc` (`story_arcs`) | 범위, 목표, 갈등, 결말, 자기 기승전결(`acts`), 주요 인물(`cast`), 회수할 떡밥(`payoffs`), 서술 시점 운용(`pov`), 끝난 뒤 요약 | 아크마다 승인, 요약 승인 |
+| 아크 (장편) | `StoryArc` (`story_arcs`) | 범위, 목표, 갈등, 결말, 자기 기승전결(`acts`), 주요 인물(`cast`), 회수할 떡밥(`payoffs`), 서술 시점 운용(`pov`), 끝난 뒤 요약, 얻는 성장(`gain`, 웹소설 틀) · 공략 대상(`focus`, 하렘 요소) | 아크마다 승인, 요약 승인 |
 | 전환 기록 (장편) | `Conversion` (`conversion`) | 단편에서 장편으로 바꾼 시각, 방식(`mode`: continue 이어 쓰기 / rebuild 재구성), 전 화수, 아크 1 끝 화, 결말 처리, 재구성이 옮기지 못한 것(`notes`). 되돌릴 백업은 `before-serial.json` | 전환 때, 되돌리면 지움 |
 | 옛 단편 보관함 (재구성) | `ShortArchive` (`archive`) | 재구성 전 단편의 화 · 기승전결 · 상태 변경 기록과 새 화 지도(`RebuildEpisode`), 쓰지 않는 옛 화 | 재구성 때, 되돌리면 지움 |
 | 화별 플롯 | `EpisodePlot` | 제목, 요약, 사건 목록, 등장 인물, 감정 변화, 엔딩 훅, 심을/회수할 복선, 따라가는 이야기 줄기(`storyline`, 비면 메인)와 끼어드는 줄기(`threads`), 1~3화만 여는 장면(`opening`)과 독자가 들고 갈 질문(`reader_question`), 시점 인물(`pov`)과 서술 방식(`pov_mode`, 둘 다 비면 구간 · 아크 · 작품 기본 시점) | 초안 → 사용자 확정 |
@@ -257,6 +257,8 @@ AI 는 숫자를 매기지 않고 사건만 뽑는다. 같은 사건은 항상 �
 - 설계도 개요의 전체 띠는 서버가 고른 처음 닿는 줄(`blueprint.firsts`)과 쌍끼리 몰림(`blueprint.crowd_pairs`)을 그린다. 몰림은 두 쌍이 같은 단계 · 같은 겹에 처음 닿는 줄의 화 범위가 겹치는 것이고, 작가가 일부러 둔 동시 장면이 있어 늘 보이는 경고에는 넣지 않는다(`docs/blueprint/specs/11-whole.md`).
 - 작품 전체 짜기(작업 `blueprint_whole`, `pipeline.draft_whole`)는 관계가 있는 여러 쌍과 능력 일정을 부 하나씩 한 번에 받는다. 모든 쌍을 함께 봐야 쌍끼리 엇갈려 놓고 능력과 맞물린다. 응답 맨 앞은 편성(`spotlight`)이고 저장하지 않는다. 쌍이 다섯을 넘으면 다섯씩 나눠 부른다. 고른 줄은 `blueprint.apply_set` 이 한 사본에 더하고 검사를 한 번 한다. 출력 한도는 생각 포함 32,768토큰(`WHOLE_OUT_TOKENS`)이다. 2026-11-11 실제 서버(gemini-4-argon · high)에서 16,384 로는 생각만 16,381토큰 쓰고 글 없이 끝난 적이 있다.
 - 설계도의 능력 일정(`AbilityPlan`, `docs/blueprint/specs/10-ability.md`)은 계획만 저장한다. 얻은 화는 상태창 기록에서 계산한다(`blueprint.got_ep`). 그래서 되돌리기 · 갈래가 따로 맞출 값이 없다.
+- 능력 일정 줄은 스킬 도감 항목 대신 상태창 수치 항목(`AbilityPlan.stat`, 레벨 · 마력 같은 값)을 가리킬 수 있다(2026-11-14, 웹소설 일감 5). 얻은 화는 그 항목 값이 닿을 값에 처음 닿은 화다(`blueprint.stat_ok`, `docs/blueprint/specs/14-growth-stat.md`).
+- 화면 이름은 '성장 일정'이다. 코드 이름과 프롬프트 글은 '능력 일정' 그대로다.
 - 능력 일정도 인물 하나씩 AI 가 제안한다(작업 `blueprint_ability` · `blueprint_ability_draft`, `pipeline.propose_abilities` · `draft_abilities`, `docs/blueprint/specs/12-ability-ai.md`). 지금 플롯에서 뽑거나 설정 · 부 구성 · 스킬 도감으로 짜고, 작가가 고른 줄만 `blueprint.apply_abilities` 로 더한다. 계획만 더하고 상태창 기록은 건드리지 않는다. 실호출(2026-11-11, flash 3번 모두 첫 시도 성공)은 그 명세서.
 - 능력 일정 제안은 도감에 없는 능력의 스킬 도감 초안(`AbilityProposal.codex`)도 함께 받는다. 작가가 고른 초안만 `source="ai"` 도감 항목이 되고, 되돌리기가 함께 지운다(`docs/blueprint/specs/13-ability-codex.md`).
 - 능력 일정은 아직 얻지 못한 줄만 프롬프트에 들어간다: 장편 기획은 범위에 걸린 줄과 그 뒤 첫 줄(`prompts.blueprint_ability_block`, 예산 `context.BUDGET["ability_plan"]`), 스토리보드는 이 화가 얻는 범위인 줄과 다음 줄, 쓰기는 이 화가 얻는 범위이고 플롯에 그 능력 이름이 나오는 줄만, 검수는 뒤 화의 줄을 앞당겼는지 본다.
@@ -284,6 +286,8 @@ AI 는 숫자를 매기지 않고 사건만 뽑는다. 같은 사건은 항상 �
 - `appearances`(플롯 등장 화, 상태, 시점 인물)와 `timelines`(반영한 화마다 바뀐 상태 칸, 새로 안 것, 관계 사건, 생긴 비밀, 첫 등장).
 
 화면은 공용 목차 틀(`outline.js`)이다. 왼쪽 목차(관계도 · 등장표 · 비중별 인물, `castToc`)와 오른쪽 한 열에 쪽 하나(`castPage`: 관계도 · 등장표 · 인물 · 두 사람, `S.castView`)를 둔다. 열 맨 위 시점 띠(`castBar`)를 세 쪽이 함께 써서 탭마다 시점 막대가 따로 있던 것을 하나로 했고, 인물을 두 곳(관계도 옆 요약, 인물 카드 탭)에서 다른 모양으로 보던 것도 인물 쪽 하나로 합쳤다. 관계도에서 인물 · 선을 누르면 쪽을 옮기지 않고 고르기만 해(`castMapPick`) 인물이 많을 때 고른 인물의 선만 보며 둘러볼 수 있다. 인물 쪽(`castCharPage`)은 서버 값을 더 받지 않고 같은 `frames` 로 그린다. 보는 시점의 상태와 상태창 수치(`states[].stats`)를 바로 앞 시점과 비교해 '이번 화에 바뀜'과 바뀐 양을 붙이고(`castStatDelta`, 금액 · 목록 규칙은 `statwin.js` 의 `SW_AMOUNT` · `swItems` · `swKey`), 바뀐 출처(AI 변경안 · 작가)는 `stat_log` 에서 찾는다. 설정은 `scAt` 으로 그 시점 값을, 남겨 둔 설정 바꾸기 제안은 그 칸 안에 `scTake` · `scDrop` 과 같은 번호로 둔다. 신체 프로필(`Character.body`, `CharacterBody`)은 작가 메모다. `SkipJsonSchema` 로 AI 응답 형식에서 빼고, 프롬프트 직렬화(`llm.dump` 가 넘기는 context `prompt`, `prompts.cast_view`)에서는 `Character` 의 직렬화가 `body` 를 뺀다. 저장과 화면 응답에는 그대로 있다. 신체 프로필 AI 제안(`pipeline.suggest_body`, `prompts.body_prompt`, `BodySuggestion`, `POST .../characters/{id}/body`)만 이 칸을 읽고 제안한다. 저장하지 않고, 화면이 칸별로 고른 값만 `Character.body` 에 넣는다. 미성년 판정(`cast.is_minor_age`, 화면은 `cast.js` `isMinorAge`, 같은 규칙)이면 쓰리사이즈 칸을 두지 않고 상태창에도 보이지 않는다. 신체 프로필 · 삽화 외형 태그 · AI에 넣기 · 서술 말투는 처음 작품을 만들 때 거의 쓰지 않아 설정 도우미에서 빼고, 인물 쪽의 'AI · 서술 · 신체 · 삽화' 카드(`castEditCard`, 읽는 모양이 기본이고 '고치기'로 그 카드만 편다, `S.castEdit`)에 둔다. 값은 `characters.<i>` 경로로 바인딩해 작품 저장 하나로 남고, 보는 시점과 상관없이 지금 설정을 고친다. AI 제안은 프롬프트에서 쓰리사이즈를 비우라고 하고, 모델이 적어 와도 `suggest_body` 가 비운다. 상태창 수치를 창으로 볼지는 보는 사람 편의라 `localStorage`(`canon-cast-theme:<작품>`)에만 두고, 창 이름과 모양은 작품의 `stat_window.title` · `skin` 을 따른다. 관계 수치는 막대로 보여 줄 뿐 고치는 곳은 두 사람 화면의 수동보정이다.
+
+인물 표지(`Character.marks`, `canon/charmarks.py`)는 반영한 화 본문에서 작가가 거둔 말버릇 · 버릇 · 외모 특징이다. 한 줄은 갈래 · 글 · 거둔 화 · 근거 구절이다. 집필 화면에서 반영한 화의 대목을 고르면 뜨는 도구의 **인물 표지로 거두기**로 더하고, 인물 쪽의 표지 카드(`castMarksCard`, 표지가 없으면 그리지 않음)에서 고치고 지운다. 서버는 근거 구절이 그 화의 저장된 본문에 있을 때만 받고(`elements.find`), 본문이 나중에 바뀌어 구절이 사라져도 표지를 지우지 않고 화면이 '본문에서 못 찾음'으로 알린다. 표지는 기록이라 어떤 요청에도 넣지 않는다(정할 것 15: 넣으면 모델이 장면마다 그 표지를 쓴다). `SkipJsonSchema` 로 응답 형식에서 빼고, 프롬프트 직렬화 · `cast_view` · 설정 대화 · 반복 검사 · 인용 근거 찾기에서도 뺀다. AI 가 표지 후보를 뽑아 주지 않는다. 화면 저장은 표지를 고치지 않고 표지 라우트만 고친다(`charmarks.keep`). 설정 변경 기록에 남기지 않는다. 명세는 [docs/webnovel/specs/10-marks.md](docs/webnovel/specs/10-marks.md).
 
 관계도 배치는 모든 시점의 간선과 모든 인물(단역 포함)을 합친 결정적 힘 배치라 재생하거나 단역을 숨겨도 자리가 흔들리지 않는다. 관계도는 칸 폭에 맞춰 그리고, 크게 보기(`CAST_ZOOM`)를 고르면 그림 폭만 늘려 칸 안에서 굴린다(페이지는 가로로 굴리지 않는다). 작가가 끌어 옮긴 자리는 브라우저 `localStorage` 에만 둔다. 호칭 표 · 특징 칸 같은 인물 데이터 확장과 성격 모델은 다음 단계다.
 

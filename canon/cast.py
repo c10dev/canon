@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 from typing import Iterator, Optional
 
-from . import blueprint, charlog, context, dynamics
+from . import blueprint, charlog, charmarks, context, dynamics
 from .schema import Character, CharacterState, Project, Snapshot, StateDelta
 
 STATE_FIELDS = ("emotional_state", "current_goal", "location", "attire")
@@ -310,6 +310,9 @@ def describe(p: Project, cid: str, numbers: bool = False) -> str:
     for label, v in (("외모", c.appearance), ("성격", c.personality), ("목표", c.goal), ("결핍", c.wound), ("압력", c.pressure), ("말투", c.speech_style), ("아크", c.arc)):
         if v:
             lines.append(f"  {label}: {v}")
+    if c.marks:
+        lines.append("  표지:")
+        lines += [f"    {x}" for x in charmarks.lines(p, c)]
     held = [x for x in p.setting_held if x.character_id == c.id]
     for x in held:
         lines.append(f"  ! 남겨 둔 설정 바꾸기 제안 ({x.episode}화): {charlog.label(x.field)} → {x.value}")

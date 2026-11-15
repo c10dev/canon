@@ -8,7 +8,7 @@ from .test_primary_count_js import FILES
 
 VIEW = {"warnings": [{"source": "a", "target": "j", "text": "관계 이정표 아영 → 지훈: 경고"}],
         "plans": [{"id": "ap-1", "got": 3, "state": "앞섬", "linked": True}, {"id": "ap-2", "got": None, "state": "예정", "linked": False}],
-        "ability_warnings": [{"character": "a", "text": "능력 일정 아영의 은신 Lv2: 3화에 얻었어요."}],
+        "ability_warnings": [{"character": "a", "text": "성장 일정 아영의 은신 Lv2: 3화에 얻었어요."}],
         "parts": [{"id": "hand_r", "label": "오른 손"}], "acts": [{"id": "brush", "label": "스치다"}], "last": 3}
 
 
@@ -130,10 +130,10 @@ def test_ability_page_and_merge():
     p.blueprint.ability_plans = [AbilityPlan(id="ap-1", character="a", ability="은신", grade="Lv2", condition="밤 훈련", from_ep=5, to_ep=8),
                                  AbilityPlan(id="ap-2", character="j", ability="추적", from_ep=20, to_ep=22)]
     html = _run("viewBlueprint()", p)
-    assert "능력 일정" in html and "2줄" in html and "blueprint/%40ability" in html
+    assert "성장 일정" in html and "능력 일정" not in html and "2줄" in html and "blueprint/%40ability" in html
     html = _run("viewBlueprint()", p, {"bpSel": "@ability"})
     assert 'id="bp-band"' in html and "은신 Lv2" in html and "3화에 얻음 · 계획보다 먼저" in html and "조건: 밤 훈련" in html and "도감에 없음" in html
-    assert "능력 일정 아영의 은신 Lv2: 3화에 얻었어요." in html and "관계 이정표 아영 → 지훈: 경고" not in html  # 이 쪽은 능력 경고만
+    assert "성장 일정 아영의 은신 Lv2: 3화에 얻었어요." in html and "관계 이정표 아영 → 지훈: 경고" not in html  # 이 쪽은 능력 경고만
     html = _run("(S.bp.plans[1].state = '모름', viewBlueprint())", p, {"bpSel": "@ability"})
     assert "상태창이 없어 실제를 셀 수 없어요" in html
     html = _run("(S.bpEdit = { card: 'ap', key: '@ability', data: JSON.parse(JSON.stringify(S.project.blueprint)), orig: '' }, viewBlueprint())", p, {"bpSel": "@ability"})
@@ -164,7 +164,7 @@ def test_ability_ai_card_and_draft_card():
     drafts = {"a|extract": {"character": "a", "start": 1, "end": 600, "mode": "extract", "reply": "세 줄을 뽑았어요.", "abilities": rows, "job": "j1"},
               "j|draft": {"character": "j", "start": 1, "end": 120, "mode": "draft", "reply": "", "abilities": [], "job": "j2"}}
     html = _run("viewBlueprint()", p, {"bpSel": "@ability", "bpAbDrafts": drafts})
-    assert "AI가 제안한 능력 일정" in html and "AI가 뽑은 줄" in html and "AI가 짠 줄" in html and "제안한 줄이 없어요" in html
+    assert "AI가 제안한 성장 일정" in html and "AI가 뽑은 줄" in html and "AI가 짠 줄" in html and "제안한 줄이 없어요" in html
     assert "2화 「기척이 사라진다」" in html and "조건: 첫 위기" in html and html.count('data-action="bpAbDraftUse"') == 1
     assert html.count('<span class="chip warn">도감에 없음</span>') == 1 and "스킬 도감에 없는 이름이 1줄 있어요" in html  # 질주만 (다른 이름 · 띄어쓰기는 잇는다)
     assert html.count('<span class="chip warn">이미 있음</span>') == 1
@@ -394,3 +394,33 @@ def test_codex_name_match_is_the_same_as_server():
     p.blueprint.ability_plans = [AbilityPlan(id="ap-1", character="a", ability="은신", grade="(Lv2)", from_ep=5, to_ep=8)]
     rows = [{"character": "a", "ability": "은신 Lv9", "grade": "Lv2"}, {"character": "a", "ability": "은 신", "grade": "lv 2"}, {"character": "a", "ability": "은신", "grade": "Lv3"}]
     assert _run("data.extra.rows.map((x) => !!bpAbSame(S.project.blueprint, x))", p, {"rows": rows}) == [True, True, False]
+
+
+@needs_node
+def test_stat_line_pick_view_and_keys():
+    """성장 일정의 상태창 수치 줄 (docs/blueprint/specs/14-growth-stat.md): 항목 고르기, 보이는 줄, 저장할 몫, 같은 줄 열쇠."""
+    p = _proj()
+    p.blueprint.ability_plans = [AbilityPlan(id="ap-1", character="a", ability="레벨", stat="레벨", grade="15", from_ep=2, to_ep=4),
+                                 AbilityPlan(id="ap-2", character="j", ability="추적", from_ep=20, to_ep=22)]
+    edit = "S.bpEdit = { card: 'ap', key: '@ability', data: JSON.parse(JSON.stringify(S.project.blueprint)), orig: '' }"
+    html = _run(f"(S.bp.stat_names = {{ a: ['레벨', '명성'] }}, {edit}, viewBlueprint())", p, {"bpSel": "@ability"})
+    assert 'data-bp="ability_plans.0.stat"' in html and '<option value="레벨" selected>레벨</option>' in html and '<option value="">스킬 도감</option>' in html
+    assert 'data-bp="ability_plans.0.ability"' not in html and 'placeholder="닿을 값"' in html  # 항목을 고른 줄은 이름 칸이 없다
+    assert 'data-bp="ability_plans.1.stat"' not in html and 'data-bp="ability_plans.1.ability"' in html  # 수치 항목이 없는 인물은 지금 칸 그대로
+    html = _run(f"(S.bp.stat_names = {{}}, {edit}, viewBlueprint())", p, {"bpSel": "@ability"})
+    assert '<option value="레벨" selected>레벨</option>' in html  # 목록에 없는 저장값도 고르기에 남는다
+    html = _run("viewBlueprint()", p, {"bpSel": "@ability"})
+    assert "3화에 닿음" in html and "레벨 15 닿음" in html  # VIEW 의 ap-1: 3화 (앞섬)
+    expr = """(() => {
+      const data = JSON.parse(JSON.stringify(S.project.blueprint));
+      data.ability_plans[0].ability = '';
+      return bpMerged({ card: 'ap', key: '@ability', data }, S.project.blueprint).ability_plans.length;
+    })()"""
+    assert _run(expr, p) == 2  # 수치 줄은 이름 칸이 비어도 빼지 않는다
+    same = "!!bpAbSame(S.project.blueprint, { character: 'a', ability: '레벨', stat: '', grade: '15' })"
+    assert _run(same, p) is False  # 도감 항목 줄과 수치 줄은 다른 줄 (서버 _same_plan)
+    assert _run("bpAbSame(S.project.blueprint, { character: 'a', ability: '레벨', stat: '레벨', grade: '(15)' }).id", p) == "ap-1"
+    rows = [{"character": "a", "ability": "레벨", "stat": "레벨", "grade": "Lv10", "condition": "", "from_ep": 2, "to_ep": 2, "evidence": []}]
+    drafts = {"a|draft": {"character": "a", "start": 1, "end": 600, "mode": "draft", "reply": "", "abilities": rows, "job": "j1"}}
+    html = _run("viewBlueprint()", p, {"bpSel": "@ability", "bpAbDrafts": drafts})
+    assert '<span class="chip warn">도감에 없음</span>' not in html and "스킬 도감에 없는 이름이" not in html  # 제안의 수치 줄은 도감 경고를 세지 않는다

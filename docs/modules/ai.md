@@ -263,6 +263,7 @@
 
 - 테스트용 가짜 LLM
 - `MockLLM.json` 은 스키마로 `RESPONDERS` 만 찾는다. `mock.py` 의 응답도 `@responds` 함수(`_r_<스키마>`)이고 `json` 안에 스키마 분기를 두지 않는다(`tests/test_mock_registry.py`)
+- 틀별 판(`schema.framed`)은 MRO 를 따라 원래 스키마의 응답을 찾고, 그 응답을 요청한 판으로 다시 읽어 낸다. 다음 아크 응답은 hint 의 `gain` · `focus` 가 참이면 두 칸을 채운다
 - 가짜 문체 프로필은 시험 원문에 있는 표지 · 장치와 걸러져야 할 표지 · 장치를 함께 낸다 (`count_markers` 와 문체 넣은 쓰기 경로 시험)
 - `CUT_TEXT` 에 넣은 만큼 다음 글 응답을 앞 절반만 내고 `last_finish` 를 `MAX_TOKENS` 로 둔다(끊긴 본문 시험)
 - `MockLLM.text_stream` 은 `text` 와 같은 글을 `STREAM_PIECES`(6) 조각으로 나눠 낸다. 조각마다 멈추기 신호를 본다
@@ -279,6 +280,7 @@
   - `mock_foreshadow_judge.py` 복선 판정(`ForeshadowBreaks`, 회수하지 않을 복선 id 가 본문에 나오면 '미리 회수')
   - `mock_blueprint.py` 설계도 거꾸로 뽑기(`BlueprintProposal`): 이정표 · 사다리 칸과 정리가 거르는 줄(쌍 밖, 범위 밖, 모르는 id)
   - `mock_blueprint.py` 능력 일정 제안(`AbilityProposal`): 두 줄과 정리가 거르는 줄(이름에 붙은 등급 꼬리, 같은 줄, 다른 인물, 범위 밖)
+  - `mock_blueprint.py` 능력 일정 제안의 상태창 수치 줄(레벨 Lv10): 인물 상태창에 레벨이 있을 때만 정리를 지난다
   - `mock_blueprint.py` 능력 일정 제안의 도감 초안(`AbilityProposal.codex`): 한 항목과 정리가 거르는 항목(등급 꼬리, 같은 이름, 줄 없는 능력, 빈 등급)
   - `mock_blueprint.py` 작품 전체 짜기(`BlueprintPlanSet`): 쌍마다 차례로 엇갈린 이정표 두 줄 · 칸 한 칸, 능력 한 줄, 정리가 거르는 항목(고르지 않은 쌍, 같은 쌍 두 번째 항목, 범위 밖 편성)
   - `mock_drill.py` 지시 연습: 사실 뽑기(`DrillFacts`)와 되짚기(`DrillReview`), 정리가 거르는 항목(원문을 옮긴 줄, 본문에 없는 인용, 없는 줄 번호)

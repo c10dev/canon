@@ -187,6 +187,7 @@ function convertProposal(d) {
     sections.push(`<div class="field"><span class="label">아크 1 (단편 1~${a.end_ep}화)</span>
       <div class="grid-2">${input('아크 제목', 'arc.title', { root: 'convDraft' })}${input('보상 (사이다)', 'arc.payoff', { root: 'convDraft', rows: 2, autogrow: true })}</div>
       <div class="grid-2">${input('아크 목표', 'arc.goal', { root: 'convDraft', rows: 2, autogrow: true })}${input('갈등', 'arc.conflict', { root: 'convDraft', rows: 2, autogrow: true })}</div>
+      ${arcFrameInputs(a, 'arc', 'convDraft')}
       <div class="act-strip">${a.acts.map((x) => `<div class="act-head ${actClass(x.name)}"><div class="between"><strong>${x.name}</strong><span class="act-meta">${x.start_ep}~${x.end_ep}화</span></div><div class="small">${esc(x.goal)}</div></div>`).join('')}</div>
       ${a.summary ? input('아크 1 요약 (다 쓴 단편이라 함께 제안했어요. 앞으로 이 구간 대신 프롬프트에 들어가요)', 'arc.summary', { root: 'convDraft', rows: 5, autogrow: true }) : '<div class="small">단편을 다 쓰고 상태까지 반영하면 아크 1 요약을 만들 수 있어요.</div>'}
     </div>`);
@@ -316,6 +317,7 @@ function rebuildProposal(d) {
   const arcs = d.arcs.map((a, i) => `<div class="part-draft">
       <div class="grid-2">${input(`아크 ${a.number} 제목 (${a.start_ep}~${a.end_ep}화)`, `arcs.${i}.title`, { root: 'rbDraft' })}${input('보상 (사이다)', `arcs.${i}.payoff`, { root: 'rbDraft', rows: 2, autogrow: true })}</div>
       <div class="grid-2">${input('아크 목표', `arcs.${i}.goal`, { root: 'rbDraft', rows: 2, autogrow: true })}${input('갈등', `arcs.${i}.conflict`, { root: 'rbDraft', rows: 2, autogrow: true })}</div>
+      ${arcFrameInputs(a, `arcs.${i}`, 'rbDraft')}
       <div class="act-strip">${a.acts.map((x) => `<div class="act-head ${actClass(x.name)}"><div class="between"><strong>${x.name}</strong><span class="act-meta">${x.start_ep}~${x.end_ep}화</span></div><div class="small">${esc(x.goal)}</div></div>`).join('')}</div>
     </div>`).join('');
   const parts = d.parts.length ? d.parts.map((x, i) => `<div class="part-draft">
