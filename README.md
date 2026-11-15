@@ -1123,10 +1123,13 @@ export CANON_MODEL_STATE=deepseek-v4.1-flash-value
 
 결과를 연 뒤에는 **긋기**에서 같은 대목의 글을 나란히 놓고 거슬린 문장을 눌러 둘 수 있다. 위 항목은 그렇게 그은 문장에서 뽑은 것이다.
 
+**나란히 한 번 읽기** 묶음(`--side` 로 넣음)은 점수를 매기지 않는다. 같은 대목에서 판이 다른 두 글이 나란히 놓이고, 읽으면서 거슬린 문장을 긋고 거슬린 점을 누른 뒤 나은 쪽을 고른다. 글은 대개 한 번만 읽는다. 모든 쌍을 고르면 결과가 열리고, 판마다 그은 문장 수(글당 · 1천 자당)와 이긴 몫이 나온다. 같은 글이 두 번 들어 있으면 두 편에 따로 그은 수의 차가 흔들림이다.
+
 묶음은 실험이 만들어 넣는다. 화면에는 넣는 칸이 없다.
 
 ```bash
 python -m canon blind import reports/<실험>/blind --title "문체 규칙 비교"   # 01.txt … 와 blind_key.json 이 있는 폴더
+python -m canon blind import reports/<실험>/blind --side   # 나란히 한 번 읽기
 python -m canon blind list
 ```
 
