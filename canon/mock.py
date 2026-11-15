@@ -10,6 +10,7 @@ from .schema import (
     AddressChange,
     Act,
     AgentAsk,
+    StateRuleFill,
     PlotAgentStep,
     ToolArg,
     ArcEdit,
@@ -339,7 +340,8 @@ def _agent_step(hint: dict) -> PlotAgentStep:
     대상이 설정이거나 '설정을' 이 든 말이 MOCK_SETUP_WORDS 를 담으면 설정 도구(edit_setup)를 부른다.
     본문 대상에서 «원문» 이 든 말은 본문 고치기(revise_text)를 그 원문으로 부르고, 막혔으면 답만 한다.
     대상이 문체이거나 말에 '문체'가 들면 문체 도구(edit_style)를 부른다. 'N화 참고' 는 episode 인자. 문체 대상의 '?' 물음도 문체 도구에 넘기고, 다른 대상의 '?' 물음은 넘기지 않는다.
-    말에 '규칙'과 «찾을 글»(또는 'rule=id')이 들면 정규식 규칙 제안(propose_regex)을 부른다 (_regex_args). 막혀 돌아오면 답만 한다."""
+    말에 '규칙'과 «찾을 글»(또는 'rule=id')이 들면 정규식 규칙 제안(propose_regex)을 부른다 (_regex_args). 막혀 돌아오면 답만 한다.
+    '상태 규칙 …' 으로 시작하는 말은 상태 규칙 제안(propose_rule)을 부른다 (mock_staterules.agent_step)."""
     msg, steps, tools = hint["message"], hint.get("steps", []), hint.get("tools", [])
     if "끝없이" in msg:
         return PlotAgentStep(thought="더 읽어 봐요", tool="read_plots",
@@ -370,6 +372,8 @@ def _agent_step(hint: dict) -> PlotAgentStep:
         return PlotAgentStep(reply="아크 1(1~7화)의 기승전결 구조를 분석해 작가님께 전달합니다.")
     if "끝 이름" in msg and steps:
         return PlotAgentStep.model_validate({"tool": "reply", "reply": "읽어 보니 고칠 곳이 없어요."})
+    if (rule_step := mock_staterules.agent_step(hint)) is not None:  # 상태 규칙 제안 (07 의 7c, '상태 규칙 …' 으로 시작하는 말)
+        return rule_step
     if "propose_regex" in tools:  # 막혀서 카드 없이 돌아왔다 (카드를 남기면 턴이 끝난다)
         return PlotAgentStep(reply="규칙을 만들지 못했어요. 막힌 까닭을 보고 다시 말해 주세요.")
     quotes = re.findall(r"«([^»]+)»", msg)
@@ -869,6 +873,11 @@ def _r_agent_ask(prompt: str, hint: dict):
     return AgentAsk(question="몇 화로 갈까요?", options=[Direction(title=t, idea=f"{t}로 간다.") for t in ("7화", "15화")])
 
 
+@responds(StateRuleFill)
+def _r_state_rule_fill(prompt: str, hint: dict):
+    return mock_staterules.fill(hint)
+
+
 _CONTACT_LINE = re.compile(r"^  (\S+): .*?\((\S+?)\) ↔ .*?\((\S+?)\) ", re.M)
 
 
@@ -1155,4 +1164,4 @@ def _broken(out: str) -> str:
 
 
 # 기능별 가짜 응답 등록 (RESPONDERS). 위의 responds 를 쓰므로 맨 끝에서 불러온다
-from . import mock_aliases, mock_audit, mock_birth, mock_blueprint, mock_board, mock_coord, mock_cue, mock_drill, mock_fixrecheck, mock_foreshadow_judge, mock_heat, mock_knows, mock_offscreen, mock_play, mock_refdigest, mock_refnote, mock_revlab, mock_stage, mock_studio  # noqa: E402,F401
+from . import mock_aliases, mock_audit, mock_birth, mock_blueprint, mock_board, mock_coord, mock_cue, mock_drill, mock_fixrecheck, mock_foreshadow_judge, mock_heat, mock_knows, mock_offscreen, mock_play, mock_refdigest, mock_refnote, mock_revlab, mock_stage, mock_staterules, mock_studio  # noqa: E402,F401

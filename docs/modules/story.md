@@ -43,6 +43,7 @@
 - 설정 쓰기 도구는 `edit_setup`(`agent_setup.py`)이다. 대상과 상관없이 쓸 수 있다
 - 문체 쓰기 도구는 `edit_style`(`agent_style.py`)이다. 대상과 상관없이 쓸 수 있다
 - 규칙 제안 도구는 `propose_regex`(`agent_regex.py`)다. 대상과 상관없이 쓸 수 있다
+- 상태 규칙 제안 도구는 `propose_rule`(`agent_staterules.py`)다. 대상과 상관없이 쓸 수 있고 종류 `rule` 을 `propose_regex` 와 함께 쓴다
 - 플롯 화면 밖에서 작품 전체('')를 대상으로 보낸 턴도 플롯 쓰기를 모두 `outside` 로 묻는다(`off_plot`, 2026-11-09 사용자 결정). 플롯 화면(`PLOT_SCREENS`)은 지금 규칙 그대로다
 - 턴은 작가가 보던 화면을 `AgentTurn.screen` 에 남긴다. `SCREENS`(웹 drawApp 의 views 표와 'home')에 없거나 비면 '' 이고 플롯 화면과 같게 다룬다
 - 턴을 열 때 화면 대상이 오면(`add_turn` 의 `target`) 고정하지 않은 세션의 대상을 그 값으로 바꾼다. 고정은 `AgentSession.pinned`(옛 세션은 False)
@@ -61,14 +62,17 @@
 - 도구 이름 목록은 `schema.AGENT_TOOL_NAMES` 이고 한 줄에 하나다. 새 도구는 줄을 더한다
 - 도구 이름만 오고 칸이 빈 단계는 같은 단계에서 그 칸만 담은 형식으로 한 번 더 부른다(`fill`: ask 는 `AgentAsk`, edit_plot 은 `PlotRevision`, 방향 안만 오면 되묻기로). 그래도 비면 되돌림 단계(`ask_empty` · `edit_empty`)
 - `fill` 이 다시 부르는 동안 작업 진행 줄(`cancel.say` → `Job.retry`)에 까닭을 띄우고 끝나면 지운다
+- `propose_rule` 의 인자가 모두 비면 `fill` 이 `StateRuleFill`(조건 · 변경을 칸으로)로 한 번 더 받아 `agent_staterules.fill_args` 로 인자로 옮긴다
 - 모델이 'reply' · 'done' 같은 끝 이름(`schema.AGENT_END_TOOLS`)을 tool 에 적으면 빈 글로 받는다
 - 도구는 읽기(`read_plots` · `read_summaries` · `find_text`(`context.recall`) · `read_cast` · `read_rules`, 결과 `RESULT_LIMIT` 자)와 쓰기 `edit_plot`
 - 읽기 도구 `read_rules`(함수 `read_rules`)는 이 작품이 켠 정규식 규칙 묶음마다 id · 이름 · 켠 작품 수와 규칙 칸을 돌려준다. 켜지 않은 묶음은 보이지 않는다
+- 읽기 도구 `read_state_rules`(`agent_staterules.read`)는 상태 규칙 · 조건을 단 이야기 요소 · 인물 id 와 상태창 항목 이름 · 열린 복선 · 관계 수치 이름을 JSON 으로 돌려준다
 - 되묻기 `ask`
 - 화 넣기 · 빼기 `insert_episodes` · `remove_episode`(`RENUMBER_TOOLS`, `RenumberOp`): 복사본에 해 보고(`preview`) 늘 승인 카드로 묻는다(`permit` 의 `renumber`). 쓰기 `apply_op`, 되돌리기 반대 동작 `inverse`, 자동 집필 번호 `shift`. 번호를 옮긴 뒤에는 턴을 다시 찾는다(작품 칸이 통째로 바뀜)
 - 화 넣기 · 빼기가 빼는 옛 화 번호 `dropped`(되돌리기면 넣었던 화들): 웹이 `store.renumber_side_files` 의 `gone` 으로 넘긴다
 - 늘 카드로 묻는 도구는 `CARD_TOOLS`(도구 이름 → 모듈)에 한 줄씩 등록한다. 몸통은 제 파일에 두고 모듈은 `agent_text.py` 머리에 적은 이름들을 둔다. 04c · 04d · 06b(`agent_regex`)도 같은 방식으로 더한다
 - 권한 모드('모두 자동' 포함)와 '이 세션에서 묻지 않기'를 따르지 않고 늘 묻는 종류는 `ALWAYS_ASK`(`renumber` 와 `CARD_TOOLS` 의 종류, 규칙 제안의 `rule` 포함)다
+- `ALWAYS_ASK` 는 겹친 종류를 한 번만 둔다(`rule` 은 두 도구가 함께 쓴다). 화면 `agent.js` 의 `AGENT_ALWAYS` 와 같다
 - `permit` 은 `ALWAYS_ASK` 종류에 늘 'ask' 를 낸다. `decide` 의 `remember` 는 이 종류를 `auto_kinds` 에 넣지 않는다
 - `run_turn` 은 카드 도구의 AI 호출(`prepare`)을 잠금 밖에서 부르고, 그 결과를 `_step` 에 넘겨 잠금 안에서 기록한다(`record`)
 - 지름길: 턴의 첫 단계에서 `card_shortcut` 이 단계를 정하면 에이전트 단계(`PlotAgentStep`)를 부르지 않는다. 재료나 빠른 요청이 붙은 턴이다(`agent_text.shortcut`)
@@ -152,6 +156,27 @@
 - `compact`: 오래된 턴의 `WriteRecord.setup` · `setup_before` 를 지운다(`agent._compact` 가 이 훅이 있는 도구에만 부른다)
 - 화면 카드는 `static/agentsetup.js`
 - 웹 승인(`web.agent_approval`)은 관계를 고르면 자동 집필이 도는지 본다(`chat_apply` 와 같다)
+
+### `canon/agent_staterules.py`
+
+- 대화 에이전트의 상태 규칙 제안 도구 `propose_rule`(종류 `rule`, 이름표 '규칙'). `agent.CARD_TOOLS` 가 등록한다
+- 명세서는 [docs/context/specs/07-rules.md](../context/specs/07-rules.md) 의 7c(정할 것 9 · 25~31). `agent_regex.py` 꼴을 따른다
+- 에이전트 단계(`PlotAgentStep.args`)가 규칙을 채운다. `prepare` 는 AI 를 부르지 않는다(LLM 호출은 에이전트의 `chat` 단계 하나)
+- 인자: `rule`(고칠 규칙 id, 비우면 새 규칙) · `name` · `note` · `on` · `when`(조건 JSON 배열) · `changes`(제안할 변경 JSON 배열)
+- 고치기에서 비운 인자는 지금 값을 둔다. 인물 칸에는 이름을 적어도 같은 이름 인물의 id 로 바꾼다(`_who`)
+- 조건 · 변경의 글 칸(`TEXT_KEYS`)에 수가 오면 글로 받는다(`"value": 0`). 인자가 하나도 없으면 다시 채우라는 까닭(`NO_ARGS`)을 돌려준다
+- 변경 종류는 `stat` · `resolve` 뿐이라(`RuleProposalSpec.kind`) 관계 수치는 제안할 수 없다. 도구 한 번에 규칙 하나, 지우기는 하지 않는다
+- `prepare` 는 JSON 꼴 · 없는 인물 · 복선 · 모르는 관계 수치 이름 · 빈 항목 이름 · 빈 `changes` · 바뀌는 칸 없음 · 같은 규칙(같은 조건과 변경)을 막는다
+- 조건의 상태창 항목이 지금 그 인물에게 없으면 막지 않고 카드 알림으로 보인다. 그 항목이 생기기 전에는 조건이 맞지 않는다
+- `read` 결과는 `agent._cut` 이 자르므로 관계 수치 이름 · 규칙 · 상태창이 있는 인물 · 열린 복선(`FS_LIMIT` 40개) · 조건을 단 요소 차례로 둔다
+- 막히면 `record` 가 카드 없이 `block` 단계를 남기고 까닭을 AI 에게 돌려준다. AI 는 같은 턴에서 고쳐 다시 부를 수 있다
+- 카드(`Approval.state_rule`, `schema.StateRuleCard`)는 마지막 반영 화 뒤 상태로 조건이 지금 맞는지(`holds_ep` · `holds_now`)와 알림을 남긴다
+- `decide` 는 새 규칙을 끝에 넣고 id 를 붙인다(`staterules.fill_ids`). 고치기는 고칠 규칙이 카드를 만든 뒤 바뀌었으면 ValueError 로 막고 카드를 둔다
+- 적용 기록(`WriteRecord.state_rule`)은 붙인 id 까지 남긴다. `undo` 는 지금 규칙이 적용 뒤 값과 같을 때만 돌린다(새 규칙은 빼고 고치기는 적용 전으로)
+- 그 뒤 규칙을 고쳤으면 `KEPT`, 규칙이 없으면 `GONE` 으로 남긴다. `compact` 는 오래된 턴의 `WriteRecord.state_rule` 을 지운다
+- 에이전트는 상태 승인 화면의 규칙 제안(`StateDelta.rule_proposals`)을 만들거나 반영하지 않는다
+- 화면 카드는 `static/agent.js` 의 `agentStateRuleApproval`, 가짜 응답은 `canon/mock_staterules.py`
+- 시험 `tests/test_agent_staterules.py`
 
 ### `canon/agent_style.py`
 
@@ -835,6 +860,8 @@
 - 문체 변경안 카드 `agentStyleApproval`: 칸마다 체크 · 지금 값과 비교(`stylechat.js` `styleEditDiff`) · 시험 문단(`sampleBlock`)을 보인다. '이 세션에서 묻지 않기'는 그리지 않는다
 - 적용한 문체 기록은 칸별 되돌리기 없이 '적용 취소' 하나로 턴의 기록을 돌린다
 - 정규식 규칙 제안 카드 `agentRegexApproval`: 규칙 칸(고치기면 칸마다 전 · 뒤), 동작 문구, 시험 줄과 바뀐 곳(`regexrules.js` `ruleChangeHtml`) · 걸린 곳
+- 상태 규칙 제안 카드 `agentStateRuleApproval`: 규칙 칸(`agentSrFields`, 고치기면 바뀐 칸만 전 · 뒤), 지금 조건이 맞는지, 알림. '이 세션에서 묻지 않기'는 그리지 않는다
+- 상태 규칙 칸의 조건 · 변경 요약은 `staterules.js` 의 `condSummary` · `specSummary` 를 쓴다
 - 규칙 카드는 다른 작품 수 · 새 묶음 안내 · 알림(`notices`)을 보이고 '이 세션에서 묻지 않기'는 그리지 않는다. 규칙 키는 `in` 과 `in_` 을 다 읽는다
 - 규칙 카드를 적용하면 언제부터 걸리는지 알린다(`agentRxDone`). 턴이 끝나므로 '이어서 돌아요'가 없다
 - 적용한 규칙 항목은 '적용함'으로 보이고 '바뀐 칸 보기'는 적용 전 · 뒤 규칙 칸이다(`agentItemDiff` 의 `w.regex`)

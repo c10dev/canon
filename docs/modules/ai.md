@@ -295,6 +295,8 @@
   - `mock_refnote.py` 레퍼런스 설정 메모 · 박자 메모
   - `mock_revlab.py` 역설계
   - `mock_stage.py` 장면 연출
+  - `mock_staterules.py` 대화 에이전트의 상태 규칙 제안(`propose_rule`). `mock._agent_step` 이 '상태 규칙 …' 으로 시작하는 말에 부른다
+  - `mock_staterules.py` 의 '상태 규칙 빈 …' 은 인자를 비운 단계를 내고, `StateRuleFill` 가짜 응답(`fill`)이 칸을 채운다
   - `mock_studio.py` 문단 연습장
   - `mock_studio.py` 의 AI 안은 카드에 '더 지킬 것'이 있으면 끝에 한 문장을 더한다(지시 연습의 두 판이 갈리게)
 

@@ -948,6 +948,9 @@
 - 상태 규칙 `StateRule`(조건 `when` · 제안할 변경 `changes: RuleProposalSpec`)은 `Project.state_rules` 에 둔다. 기본값이 빈 목록이라 옛 작품이 읽힌다
 - 규칙 제안 `RuleProposal` 은 `StateDelta.rule_proposals` · 체크를 푼 key `StateDelta.rule_off` 에 둔다. 둘 다 프로그램 칸이라 `SkipJsonSchema` 다
 - 체크를 푼 규칙 제안은 `DismissedItems.rule_proposals` 에 남는다. 상태창 기록 출처(`StatRecord.source`)에 `rule` 이 있다
+- 대화 에이전트의 상태 규칙 제안 카드 · 적용 기록 `StateRuleCard` 는 `Approval.state_rule` · `WriteRecord.state_rule` 에 둔다(`canon/agent_staterules.py`)
+- 에이전트 도구 이름 `AGENT_TOOL_NAMES` 에 `propose_rule` · `read_state_rules` 가 있다. 규칙 칸은 `PlotAgentStep.args` 의 글 인자로 받아 응답 형식은 늘지 않는다
+- 빈 `propose_rule` 채우기 형식 `StateRuleFill`(`rule` · `name` · `note` · `on` · `when: list[Condition]` · `changes: list[RuleProposalSpec]` · `reply`)은 `agent.fill` 만 쓴다
 - 상태 변경안의 본문 지문(`StateDelta.basis`)도 프로그램이 채워 AI 응답 형식에서 빠진다(`SkipJsonSchema`). 비면 모름
 - 비슷한 새 사실 표시(`StateDelta.fact_near`, `FactNear`: 새 사실 · 옛 사실)도 프로그램 칸이다(`SkipJsonSchema`, `features._near_facts`)
 - 상태 변경안의 AI 응답 형식은 `StateDeltaAI` 다(`extract_state` · `play.settle` · `state_brief`). 관계 바뀜 `RelationshipChange` 와 사건 `AIStoryEvent` 에 관계 수치 · 보는 방식 · 가 닿을 곳 · 화 번호 · 수동보정 칸이 없다

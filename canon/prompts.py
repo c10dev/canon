@@ -3113,6 +3113,7 @@ AGENT_PLOT_TOOLS = """[도구] 한 단계에 하나만 부릅니다
 - find_text (args: query): 이미 쓴 본문에서 query 와 겹치는 단락
 - read_cast (args: ids, 쉼표로): 인물 설정 전체
 - read_rules: 이 작품이 켠 정규식 규칙 묶음과 규칙. 규칙을 고치거나 겹치지 않게 더할 때 먼저 봅니다
+- read_state_rules: 상태 규칙(조건 · 제안할 변경)과 인물 id · 상태창 항목 이름 · 열린 복선 id. 상태 규칙을 고치거나 더할 때 먼저 봅니다
 - edit_plot: edit 에 바꿀 것만 채운 변경안을 넣습니다 (아래 [변경안 규칙]). 작가의 권한 안이면 바로 저장되고, 아니면 작가에게 물어집니다. 결과로 저장된 것 · 물은 것 · 막힌 것을 받습니다
 - insert_episodes (args: at, count, titles, summaries): at 화 앞에 새 화 count 개를 넣고 at 화부터 뒤 화를 그만큼 뒤로 밉니다. titles · summaries 는 새 화마다 '|' 로 나눕니다. 본문만 있고 상태를 반영하지 않은 화도 함께 밀립니다(본문은 그대로). 늘 작가에게 묻고 턴이 끝납니다. 승인되면 같은 턴에서 이어 가며, 새 화 플롯은 edit_plot 으로 채웁니다
 - remove_episode (args: n): 본문이 없는 n 화를 빼고 뒤 화를 한 칸씩 당깁니다. 늘 작가에게 묻습니다
@@ -3120,6 +3121,7 @@ AGENT_PLOT_TOOLS = """[도구] 한 단계에 하나만 부릅니다
 - edit_setup (args: request): 작가가 설정(제목, 로그라인, 주제, 톤, 메모, 세계관, 인물 칸, 새 인물, 관계)을 바꾸라고 할 때 부릅니다. 설정 편집자가 바뀌는 칸만 담은 변경안을 만들고, 권한 모드와 상관없이 늘 작가에게 칸마다 물으며 턴이 끝납니다. 작가가 고른 칸만 들어갑니다. request 에는 작가의 말 가운데 설정에 대한 부분을 작가가 쓴 그대로 넣습니다(줄이거나 풀어 쓰지 않음. 설정 편집자가 이 세션의 지난 대화와 지난 설정 변경안의 값을 따로 봅니다). 이번 턴에 읽어서 정한 것이 있으면 덧붙입니다. 관계 수치는 적지 않습니다
 - edit_style (args: request, episode): 작품 문체(스타일 프로필)를 바꾸는 변경안을 문체 편집자에게 맡깁니다. request 에는 작가의 말 가운데 문체에 대한 부분을 작가가 쓴 그대로(줄이거나 풀어 쓰지 않음. 문체 편집자가 이 세션의 지난 대화와 지난 문체 변경안의 값을 따로 봅니다), episode 에는 작가가 참고하라고 한 화 번호(본문이 있는 화, 없으면 빈칸)를 넣습니다. 바꿀 칸과 시험 문단이 카드로 작가에게 물어지고 턴이 끝납니다. 바꿀 칸이 없으면 편집자의 대답으로 턴이 끝납니다. 플롯 · 본문 · 설정 일에는 부르지 않습니다
 - propose_regex (args: in, out, action, type, flag, comment, rule, enabled, bundle): 작가가 본문 표기를 잡는 규칙을 청하면 정규식 규칙 하나를 더하거나 고치자고 제안합니다. in 은 찾을 정규식으로 JavaScript 정규식 꼴(예: [.]{3,})이고, out 은 바꿀 글로 JavaScript String.replace 꼴($1 · $&)입니다. action 은 warn(검수 때 걸린 곳을 보임, 기본) · fix(본문을 바꿈), type 은 output(쓴 본문, 기본) · export(내보낼 때만), flag 는 기본 g, comment 는 규칙 이름입니다. 이미 있는 규칙을 고치려면 rule 에 read_rules 로 본 그 규칙 id 를 넣고 바꿀 인자만 채웁니다(끄기는 enabled=false). bundle 은 넣을 묶음 id 로, 켠 묶음이 둘 이상일 때만 채웁니다. 한 번에 규칙 하나만 다루고, 지금 본문에 걸어 본 결과와 함께 늘 작가에게 물으며 턴이 끝납니다. 작가가 적용하기 전에는 어디에도 걸리지 않습니다. 규칙과 묶음을 지우는 일은 하지 않습니다
+- propose_rule (args: when, changes, name, note, on, rule): 작가가 '조건이 맞으면 상태를 바꾸자'는 상태 규칙을 청하면 규칙 하나를 더하거나 고치자고 제안합니다. when 은 조건 JSON 배열로, 모두 맞아야 합니다. 조건 kind 는 stat(상태창 값: character · name · op · value) · tie(관계 수치 읽기만: character · target · name 은 warmth · trust · status · familiarity · grievance · op · value) · episode(from_ep · to_ep, 0 은 처음 · 끝) · foreshadow(foreshadow · status 는 open · resolved) · in_plot(character) 이고, op 는 ge · le · gt · lt · eq · ne · has 입니다. changes 는 제안할 변경 JSON 배열로, kind 는 stat(character_id · stat · value: 새 값, +3 같은 바뀐 양, +항목 · -항목, 빈 값은 지움) · resolve(foreshadow_id) 뿐입니다. 관계 수치는 바꾸자고 할 수 없습니다. 이미 있는 규칙을 고치려면 rule 에 read_state_rules 로 본 id 를 넣고 바꿀 인자만 채웁니다(끄기는 on=false). 한 번에 규칙 하나만 다루고 늘 작가에게 물으며 턴이 끝납니다. 규칙은 상태를 바로 바꾸지 않고, 적용한 뒤 상태 승인 화면에 '규칙' 제안으로 올라옵니다. 규칙을 지우는 일은 하지 않습니다
 - ask: question 과 options (서로 다른 방향 2~3개) 를 넣습니다. 작가의 답을 기다리며 턴이 끝납니다
 - 턴을 끝낼 때는 tool 칸을 빈 글("")로 두고 reply 칸에 답을 씁니다. reply 는 칸 이름이지 도구 이름이 아닙니다
 
@@ -3127,6 +3129,7 @@ AGENT_PLOT_TOOLS = """[도구] 한 단계에 하나만 부릅니다
 - 집필 화면: 본문 쓰기, 다시 생성, 본문 고르기 고치기 / 검수 화면: 검수 / 상태 승인 화면: 상태 반영
 - 플롯 화면: 화 끼워 넣기 · 빼기 (위 도구와 같다), 마지막으로 쓴 화 지우기
 - 규칙 묶음 화면: 정규식 규칙 · 묶음 지우기 / 설정 화면: 규칙 묶음 켜기 · 끄기 · 차례 바꾸기
+- 인과율 › 상태 규칙: 상태 규칙 지우기 · 켜기 · 끄기 / 상태 승인 화면: 상태 규칙 제안 고르기 · 반영
 - 상태를 반영한 화와 연재처에 올린 화는 번호를 옮길 수 없고, 이미 있는 본문을 다른 화로 떼어 옮기는 기능은 없습니다"""
 
 

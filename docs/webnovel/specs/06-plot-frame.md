@@ -1,6 +1,6 @@
 # 06. 화별 플롯 규칙을 이야기 틀별로
 
-상태: 진행 (claude/plot-frame-767cec, [#543](https://github.com/c10dev/canon/pull/543)) · 계획: [plan.md](../plan.md) 의 6번 · 먼저: 4
+상태: 끝 ([#543](https://github.com/c10dev/canon/pull/543) 머지) · 계획: [plan.md](../plan.md) 의 6번 · 먼저: 4
 
 ## 목표
 
