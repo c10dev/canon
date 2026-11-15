@@ -124,9 +124,16 @@ def relevant(el: StoryElement, e: Episode) -> bool:
     return any(t in text for t in terms(el))
 
 
-def for_episode(p: Project, n: int) -> list[StoryElement]:
+def for_episode(p: Project, n: int, gate: bool = True) -> list[StoryElement]:
+    """n화 본문 쓰기 · 부분 수정에 넣을 요소. 상태 조건(activation.conditions)이 있는 요소는 조건이 모두 맞을 때만 남긴다(gate).
+    조건은 n-1화를 반영한 뒤의 상태로 본다(context.view_before). gate=False 는 조건을 보지 않는다(관련 말 고르기 context.query_terms)."""
     e = p.episode(n)
-    return [el for el in p.elements if relevant(el, e)]
+    els = [el for el in p.elements if relevant(el, e)]
+    if not gate or not any(el.activation.conditions for el in els):
+        return els
+    from .context import all_hold, view_before  # context 가 이 모듈을 부른다
+    view = view_before(p, n)
+    return [el for el in els if all_hold(p, n, el.activation.conditions, view)]
 
 
 def episode_block(p: Project, n: int) -> str:

@@ -2719,6 +2719,32 @@ class ElementImpact(BaseModel):
     applied: list[str] = Field(default_factory=list, description="반영한 부분: 'ep:3', 'patch:0', 'fact:1'")
 
 
+CondKind = Literal["stat", "tie", "episode", "foreshadow", "in_plot"]
+CondOp = Literal["ge", "le", "gt", "lt", "eq", "ne", "has"]
+TIE_NAMES = ("warmth", "trust", "status", "familiarity", "grievance")
+
+
+class Condition(BaseModel):
+    """상태 조건 하나 (docs/context/specs/07-rules.md). 작가가 적는다. 판정은 context.holds 한 곳에서 읽기만 한다.
+    dict 칸 없이 종류(kind)와 납작한 칸으로 적는다. 종류에 쓰지 않는 칸은 무시한다."""
+    kind: CondKind = "stat"
+    character: str = Field("", description="stat · tie · in_plot: 인물 id")
+    target: str = Field("", description="tie: 상대 인물 id (character 가 target 을 보는 관계)")
+    name: str = Field("", description="stat: 상태창 항목 이름 / tie: warmth · trust · status · familiarity · grievance")
+    op: CondOp = "ge"
+    value: str = Field("", description="견줄 값. 둘 다 숫자로 읽히면 숫자로, 아니면 글로 견준다. has 는 목록 항목 이름")
+    from_ep: int = Field(0, description="episode: 이 화부터. 0 이면 처음부터")
+    to_ep: int = Field(0, description="episode: 이 화까지. 0 이면 끝까지")
+    foreshadow: str = Field("", description="foreshadow: 복선 id")
+    status: Literal["open", "resolved"] = "open"
+
+
+class Activation(BaseModel):
+    """항목을 언제 프롬프트에 넣을지의 묶음. 일감 7 은 상태 조건(conditions)만 둔다 (README 의 Q36).
+    기본값(빈 목록)이면 지금 넣기 규칙 그대로다. 조건이 있으면 모두 맞을 때만 넣는다 (넣기 방식 always 도 같다)."""
+    conditions: list[Condition] = Field(default_factory=list)
+
+
 class StoryElement(BaseModel):
     """작가가 언제든 더하는 요소, 특징, 설정, 사건 (인과율 화면). 작가 입력이라 바로 저장한다."""
     id: str
@@ -2736,6 +2762,7 @@ class StoryElement(BaseModel):
     impact: Optional[ElementImpact] = None
     found_in: Literal["", "본문", "플롯"] = Field("", description="본문(상태 반영)이나 플롯(화 확정)에서 처음 나와 등록된 장소. 비면 작가가 더한 요소")
     found_ep: int = Field(0, description="처음 나와 등록된 화")
+    activation: SkipJsonSchema[Activation] = Field(default_factory=Activation, description="상태 조건. 모두 맞을 때만 본문 쓰기 · 부분 수정 프롬프트에 넣는다 (elements.for_episode)")
 
 
 class SetupSuggestion(BaseModel):

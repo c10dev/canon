@@ -34,6 +34,12 @@ def point_remove(n: int) -> Point:
     return lambda x: x - 1 if x and x > n else x
 
 
+def move_conditions(conds: list, f: Point) -> None:
+    """상태 조건의 화 범위(from_ep · to_ep)를 화 하나를 가리키는 번호처럼 옮긴다. 0(처음부터 · 끝까지)은 그대로."""
+    for c in conds:
+        c.from_ep, c.to_ep = f(c.from_ep), f(c.to_ep)
+
+
 def shift_ranges(ranges: list, at: int) -> None:
     """at 화 앞에 한 화를 넣을 때 범위들(start_ep, end_ep)을 고친다. 새 화는 at 이 든 범위, 없으면 at-1 에서 끝나는 범위에 든다."""
     host = next((r for r in ranges if r.start_ep <= at <= r.end_ep), None) \
@@ -128,6 +134,7 @@ def move_points(p: Project, f: Point, gone: int = 0) -> dict[str, int]:
         el.reveal_ep = f(el.reveal_ep)
         el.found_ep = f(el.found_ep)
         count["elements"] += before != (el.since_ep, el.episodes, el.reveal_ep, el.found_ep)
+        move_conditions(el.activation.conditions, f)
         if el.impact:
             rep = el.impact.report
             for c in rep.conflicts:

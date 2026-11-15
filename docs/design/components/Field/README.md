@@ -17,6 +17,7 @@
 - 켜기 · 끄기는 스위치(`.set-sw`, `role="switch"`, `aria-checked`)다. 누름 영역 52 × 44px, 막대 44 × 26px. 꺼지면 `line-strong`, 켜지면 `accent` 막대, 손잡이는 흰색. 설정 대화상자와 문체 화면의 '쓴 뒤 퇴고'가 쓴다.
 - 설정 대화상자의 줄 안 입력칸(`.set-inp`)은 38px다. 줄(64px) 안에 나란히 놓여 나눔 버튼(38px)과 높이를 맞춘다.
 - 설정 대화상자의 숫자 칸(`.set-inp.set-num`, 블록 예산)은 110px, 오른쪽 맞춤 `tabular-nums` 다. 뒤에 단위 글자와 '기본값으로' 버튼을 둔다(`.set-bud`). 기본값이면 버튼을 쓸 수 없게 둬 줄마다 칸 자리를 맞춘다.
+- 조건 줄(`.cond-row`, 상태 조건 칸 `static/staterules.js`)은 테두리 `line` · 모서리 8px 상자 안에 고르기 · 입력칸을 한 줄로 늘어놓고 넘치면 감는다. 칸 너비는 내용만큼(`width: auto`), 높이 `control-small`, 손가락 기기 · 640px 이하 `touch-min`. 칸마다 `aria-label` 을 단다. 없는 대상 경고는 줄 끝 `red` 12px 글(`.cond-miss`).
 
 ## 지킬 것
 

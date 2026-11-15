@@ -3,7 +3,7 @@
 장편은 화가 쌓일수록 사실 · 상태 · 비밀 · 줄거리가 늘어난다. 입력이 길어지면 필요한 정보를 다 넣어도 품질이 떨어지고,
 같은 인물에 대한 비슷한 문장이 서로 방해물이 된다 (장편 입력 토큰 진단, 2026-10). 그래서 장편 프롬프트는
 블록마다 글자 예산(BUDGET)을 두고, 넘치면 이번 화와 덜 관련된 것부터 뺀 뒤 몇 개를 뺐는지 적는다.
-저장된 데이터는 그대로 두고 프롬프트에 넣는 보기만 고른다. 단편(form="short") 경로는 쓰지 않는다.
+저장된 데이터는 그대로 두고 프롬프트에 넣는 보기만 고른다. 단편(form="short") 경로는 예산을 쓰지 않는다. 상태 조건 판정(holds)은 단편도 쓴다.
 """
 from __future__ import annotations
 
@@ -240,7 +240,7 @@ def query_terms(p: Project, n: int) -> list[str]:
     except KeyError:
         return []
     plot = elements.plot_text(e)
-    out = [t for el in elements.for_episode(p, n) for t in elements.terms(el)]
+    out = [t for el in elements.for_episode(p, n, gate=False) for t in elements.terms(el)]  # 상태 조건은 넣기만 가른다. 관련 말은 그대로
     out += [loc for loc in p.world.locations if loc and loc in plot + e.text]
     return list(dict.fromkeys(out))
 
@@ -469,6 +469,91 @@ def trace_secrets(trace: Trace | None, cand: list[Secret], picked: list[Secret],
             trace.item("relations", sec.content, REASON_SECRET)
         else:
             trace.drop("relations", sec.content, DROP_BUDGET)
+
+
+# ---------- 상태 조건 (Condition, docs/context/specs/07-rules.md) ----------
+# 활성화(효과 x)와 선언형 규칙(효과 y)이 같은 판정 함수 holds 를 부른다. 판정은 읽기만 한다: 없는 관계를 만드는 dynamics.get_tie 는 쓰지 않는다.
+# 어느 상태에서 보는지는 CondView 로 받는다. n화를 쓸 때는 n-1화를 반영한 뒤의 상태(view_before), 흉내 반영한 복사본은 그 작품의 지금 값(view_now).
+
+class CondView:
+    """조건이 읽는 상태: 인물 상태 · 관계 수치 · 복선. note 는 맞는 스냅샷이 없어 지금 값을 썼을 때의 알림."""
+    __slots__ = ("states", "ties", "foreshadows", "note")
+
+    def __init__(self, states, ties, foreshadows, note: str = ""):
+        self.states, self.ties, self.foreshadows, self.note = states, ties, foreshadows, note
+
+
+def view_now(p: Project) -> CondView:
+    return CondView(p.states, p.ties, p.foreshadows)
+
+
+def view_before(p: Project, n: int) -> CondView:
+    """n화를 시작할 때, 곧 n-1화를 반영한 뒤의 상태. 반영이 n-1화까지면(또는 그 앞이면) 지금 값, 더 뒤까지 반영했으면 n-1화 스냅샷.
+    그 스냅샷이 없으면(장편은 스냅샷을 줄여 남긴다) 지금 값을 쓰고 note 에 적는다 (02-activation.md '조건 계산')."""
+    last = max((e.plot.number for e in p.episodes if e.status == "finalized"), default=0)
+    if last <= n - 1:
+        return view_now(p)
+    snap = p.snapshot(n - 1)
+    if snap is None:
+        return CondView(p.states, p.ties, p.foreshadows, f"{n - 1}화 스냅샷이 없어 지금({last}화 반영 뒤) 값으로 조건을 봤어요")
+    return CondView(snap.states, snap.ties, snap.foreshadows)
+
+
+def _compare(have: str, op: str, want: str) -> bool:
+    from . import statwin  # statwin → dynamics · logline 이 이 모듈을 부르지 않게 늦게 부른다
+    if op == "has":
+        k = statwin._key(want)
+        return bool(want.strip()) and any(statwin._key(x) == k for x in statwin.items(have))
+    a, b = statwin.number(have), statwin.number(want)
+    if a is not None and b is not None:
+        return _order(a, op, b)
+    if op not in ("eq", "ne"):
+        return False  # 글끼리는 크기를 견주지 않는다
+    return _order(have.strip(), op, want.strip())
+
+
+def _order(x, op: str, y) -> bool:
+    return {"ge": x >= y, "le": x <= y, "gt": x > y, "lt": x < y, "eq": x == y, "ne": x != y}.get(op, False)
+
+
+def holds(p: Project, n: int, cond, view: CondView | None = None) -> bool:
+    """조건 하나가 맞는지. n 은 화 번호(episode · in_plot 이 본다), view 는 읽을 상태(없으면 view_before(p, n)).
+    없는 인물 · 스탯 · 관계 · 복선을 가리키면 맞지 않는다."""
+    k = cond.kind
+    if k == "episode":
+        return cond.from_ep <= n and (not cond.to_ep or n <= cond.to_ep)
+    if k == "in_plot":
+        try:
+            return bool(cond.character) and cond.character in p.episode(n).plot.characters
+        except KeyError:
+            return False
+    view = view or view_before(p, n)
+    if k == "stat":
+        s = next((x for x in view.states if x.character_id == cond.character), None)
+        v = next((x for x in (s.stats if s else []) if x.name == cond.name), None)
+        return v is not None and _compare(v.value, cond.op, cond.value)
+    if k == "tie":
+        from .dynamics import find_tie
+        from .schema import TIE_NAMES
+        t = find_tie(view.ties, cond.character, cond.target)
+        from .statwin import number
+        want = number(cond.value)
+        if t is None or cond.name not in TIE_NAMES or want is None:
+            return False
+        return _order(float(getattr(t, cond.name)), cond.op, want)  # has 는 _order 에서 거짓
+    if k == "foreshadow":
+        f = next((x for x in view.foreshadows if x.id == cond.foreshadow), None)
+        return f is not None and f.status == cond.status
+    return False
+
+
+def all_hold(p: Project, n: int, conds, view: CondView | None = None) -> bool:
+    """조건이 모두 맞는지(AND). 빈 목록은 참. 상태를 읽는 조건이 있을 때만 view 를 한 번 만든다."""
+    if not conds:
+        return True
+    if view is None and any(c.kind in ("stat", "tie", "foreshadow") for c in conds):
+        view = view_before(p, n)
+    return all(holds(p, n, c, view) for c in conds)
 
 
 # ---------- 인물 넣기 방식 (Character.context) ----------
