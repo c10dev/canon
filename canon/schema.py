@@ -360,6 +360,7 @@ class Settings(BaseModel):
     stage_extract: bool = Field(True, description="검수 때 본문에서 장면 연출을 함께 뽑는다 (계획 장면이 있는 사건마다 check 호출 1번 더, 본문이 그대로인 사건은 건너뜀)")
     storyboard: Optional[bool] = Field(None, description="화마다 쓰기 전에 스토리보드를 만들고, 쓰기 프롬프트에 직전 화 본문 전체를 넣는다. 비우면 장편 켬 · 단편 끔 (board.on)")
     cue_sheet: Optional[bool] = Field(None, description="화마다 쓰기 전에 큐 시트(큐마다 기능 · 긴장 · 템포 · 편성 · 핵심 대사 · 분량)를 만들어 쓰기 프롬프트 끝에 넣는다. 비우면 장편 켬 · 단편 끔 (cue.on)")
+    write_prompt: Literal["", "v2"] = Field("", description="쓰기 프롬프트 갈래. v2(실험)면 본문 쓰기 요청에 직전 화 끝 1,500자만 넣고(스토리보드가 있어도), 대표 문단 블록을 직전 화 블록 바로 뒤에 한 번 더 넣는다 (prompts.context_parts). 앞쪽 캐시 블록은 그대로다")
     write_material: Literal["", "scenes", "lean", "fixed", "coord"] = Field("", description="쓰기 재료의 양. coord(조율)면 고정점만처럼 장면 목록 · 큐 시트를 빼고, 플롯 사건을 조율 메모(Episode.coord, '무엇이 바뀌는가' 한 줄씩)로 바꿔 넣으며, 이어받을 것의 몸 · 물건 줄을 빼고 끝 차림은 지키기만 하게 한다 (coord.on). fixed(고정점만)면 스토리보드의 장면 목록을 쓰기 요청에서 빼고 고정점(시간 · 기한 · 이어받을 것 · 상태창 · 이동 · 끝 차림 · 깨지 않을 것)만 넣으며, 큐 시트를 만들거나 넣지 않는다. lean(꼭 쓸 것만)이면 스토리보드를 '어기면 안 되는 것'과 '이번 화에 쓸 것'으로 나눠 넣고 장면 끝 상태 · 깨지 않을 것 · 큐 끝 상태 같은 설계 메모를 뺀다 (board.lean). scenes 와 비움은 지금처럼 장면까지 넣는다 (board.fixed_only)")
     polish_stage: bool = Field(False, description="퇴고 단계 (장편만): 본문 쓰기 요청에서 '하지 말 것'(쇠맛 패턴 상한, banned_phrases, 문장 끝 몫, 되풀이 구절)을 빼고, 쓴 뒤 퇴고 요청이 코드가 찾은 자리(canon/polishscan.py)를 고친다. 손 집필은 퇴고 판을 새 판 후보로 두고, 자동 집필은 늘 퇴고한다")
     recent_echoes: bool = Field(True, description="장편 본문 쓰기 요청에 '최근 화에서 되풀이한 구절' 블록을 넣는다 (echoes.recent: 직전 5화 본문에서 3개 화 이상에 그대로 나온 서술 구절, prompts.echo_block). 단편에는 넣지 않는다")

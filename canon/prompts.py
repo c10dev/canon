@@ -3784,12 +3784,18 @@ def context_parts(p: Project, n: int, *, use_board: bool = True, pre: str = "", 
 
     facts_text = fact_rows(p, facts)
     full = sb is not None if full_prev is None else full_prev
+    again: list[Part] = []
+    if write and p.settings.write_prompt == "v2":  # 쓰기 프롬프트 v2: 직전 화는 늘 끝 1,500자, 대표 문단은 직전 화 블록 바로 뒤에 한 번 더
+        full = False
+        passages = style_passages(p)
+        if passages:
+            again = [Part("prev", "\n\n" + STYLE_HEAD_AGAIN + "\n" + "\n\n---\n\n".join(passages))]
     if late:
-        prev_head = [Part("prev", "\n\n" + prev_block(p, n, last_text, full))]
+        prev_head = [Part("prev", "\n\n" + prev_block(p, n, last_text, full))] + again
         prev_rest = [Part("time", tl), Part("travel", tr), Part("stage", stg),
                      Part("extra", f"\n\n{pre.rstrip()}" if pre else ""), Part("extra", between)]
     else:
-        prev_head = _pre_parts(pre) + [Part("prev", ("\n\n" if not pre or pre.endswith("\n\n") else "") + prev_block(p, n, last_text, full))]
+        prev_head = _pre_parts(pre) + [Part("prev", ("\n\n" if not pre or pre.endswith("\n\n") else "") + prev_block(p, n, last_text, full))] + again
         prev_rest = ([Part("board", f"\n\n{board_block(p, n, write=write, budget=B('deadlines'), trace=trace)}"), Part("stage", stg)] if sb is not None else []) \
             + [Part("extra", between)]
     if p.serial:
@@ -4049,6 +4055,7 @@ def style_passages(p: Project) -> list[str]:
 
 
 STYLE_HEAD = "# 문체 예시 (이 문체를 따를 것, 내용은 가져오지 말 것)"
+STYLE_HEAD_AGAIN = "# 문체 예시 (다시. 직전 화 글이 아니라 이 문단들의 문장 결로 이어 쓸 것, 내용은 가져오지 말 것)"  # 쓰기 프롬프트 v2
 STYLE_HEAD_OWN = "# 문체 예시 (이 작품이 지금까지 써 온 문체. 이 문체를 이어 쓸 것, 내용은 가져오지 말 것)"  # 고른 화로 굳힌 문체
 
 

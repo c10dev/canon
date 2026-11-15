@@ -94,6 +94,7 @@ const SET_ROWS = [
   { id: 'project-preset', cat: 'preset', sec: '이 작품', label: '이 작품의 프리셋', words: '프리셋 작품 모델 단계' },
   { id: 'storyboard', cat: 'writing', sec: '집필', label: '화별 스토리보드', words: '스토리보드 장면 순서 직전 화' },
   { id: 'write-material', cat: 'writing', sec: '집필', label: '쓰기 재료', words: '고정점 장면 큐 시트 재료 스토리보드 꼭 쓸 것만 중심 장면' },
+  { id: 'write-prompt', cat: 'writing', sec: '집필', label: '쓰기 프롬프트', words: '프롬프트 v2 예시 문단 문체 직전 화 실험' },
   { id: 'echoes', cat: 'writing', sec: '집필', label: '되풀이한 구절 피하기', words: '반복 구절 비유 되풀이 최근 화 장편' },
   { id: 'timeline', cat: 'writing', sec: '집필', label: '작품 속 시간 기록', words: '시간 날짜 기한 타임라인' },
   { id: 'travel', cat: 'writing', sec: '집필', label: '이동 시간 검사', words: '지도 이동 거리 탈것' },
@@ -341,6 +342,9 @@ function setRowHtml(id) {
       return setRow(id, '쓰기 재료', '쓰기 요청에 스토리보드 장면 목록과 큐 시트까지 넣을지, 고정점(시간 · 기한 · 이어받을 것 · 상태창 · 이동 · 끝 차림 · 깨지 않을 것)만 넣을지 정해요. 고정점만이면 장면 나눔과 연출을 AI가 정하고, 큐 시트를 만들지 않아 화당 AI 호출이 하나 줄어요. 실측에서 Claude로 쓰면 고정점만, Gemini로 쓰면 장면까지 넣은 글이 나았어요. 꼭 쓸 것만(실험)은 장면과 큐 시트를 넣되 장면 끝 상태 · 깨지 않을 것 · 끝 차림 목록 같은 설계 메모를 빼고, 스토리보드가 고른 중심 장면에 분량의 절반쯤을 써요. 조율(실험)은 고정점만에 더해, 쓰기 전에 플롯 사건을 \'무엇이 바뀌는가\' 한 줄씩으로 줄인 조율 메모를 만들어 넣어요. 손 · 물건 · 이동 같은 동작은 AI가 정해요. 화당 AI 호출은 고정점만보다 하나 늘어요.',
         `<select class="set-inp" data-setfield="write_material" aria-labelledby="rn-${id}">${[['', '장면 · 큐 시트까지 (기본)'], ['lean', '꼭 쓸 것만 (실험)'], ['fixed', '고정점만'], ['coord', '조율 (실험)']].map(([k, l]) => `<option value="${k}"${v === k ? ' selected' : ''}>${l}</option>`).join('')}</select>`);
     }
+    case 'write-prompt':
+      return p ? setRow(id, '쓰기 프롬프트', 'v2(실험)를 고르면 본문 쓰기 요청에 직전 화는 끝 1,500자만 넣고, 대표 문단을 직전 화 바로 뒤에 한 번 더 넣어요. 스토리보드가 있어도 직전 화 전체는 넣지 않아요. 앞쪽 캐시 블록은 그대로예요.',
+        `<select class="set-inp" data-setfield="write_prompt" aria-labelledby="rn-${id}">${[['', '지금 쓰기 프롬프트 (기본)'], ['v2', 'v2: 예시 문단 앞세우기 (실험)']].map(([k, l]) => `<option value="${k}"${(p.settings.write_prompt || '') === k ? ' selected' : ''}>${l}</option>`).join('')}</select>`) : '';
     case 'echoes':
       return serialOn() ? setRow(id, `되풀이한 구절 피하기 ${SET_CHIP('장편')}`, '직전 5화 본문에서 3개 화 이상에 그대로 나온 서술 구절을 찾아, 쓰기 요청에 이번 화에는 다른 말로 쓰라고 넣어요. 이름 · 호칭 · 확정 사실에 적힌 말과 대사는 빼요. AI 호출은 늘지 않아요.',
         SW(id, p.settings.recent_echoes !== false, '되풀이한 구절 피하기'), { wide: false }) : '';
@@ -1029,6 +1033,7 @@ async function setChange(e) {
     return setProjectSave(row, 'model-preset', { preset: el.value }, (p) => { p.settings.model_preset = el.value; });
   }
   if (f === 'write_material') return setProjectSave(row, 'write-material', { mode: el.value }, (p) => { p.settings.write_material = el.value; });
+  if (f === 'write_prompt') return setProjectSave(row, 'write-prompt', { mode: el.value }, (p) => { p.settings.write_prompt = el.value; });
   if (f === 'stat_prompt') return setProjectSave(row, 'stat-prompt', { mode: el.value }, (p) => { p.stat_window.prompt = el.value; });
   if (f === 'copy_fmt') {
     S.copyFmt = el.value;
