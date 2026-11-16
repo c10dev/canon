@@ -110,6 +110,7 @@ python scripts/health_metrics.py    # 주별 코드 건강 지표 표 (크기 ·
 - 화면 모양(색, 글자, 간격, 컴포넌트, 배치, 폭 구간)을 바꾸면 같은 변경 안에서 `docs/design/` 도 고친다. 색 토큰을 더하거나 바꾸면 `canon/static/app.css` 의 두 `:root` 블록과 `docs/design/tokens.json` 을 함께 고친다(`tests/test_design_tokens.py` 가 맞춰 본다). 컴포넌트 규칙을 바꾸면 `components/bundle.css` 의 그 줄도 app.css 와 같게 고친다. Claude 디자인 시스템 페이지는 이 폴더에서 다시 올리는 보기라 그 페이지만 고치지 않는다.
 - 화면에 늘 보이는 버튼 · 안내 문장 · 메뉴를 더하면 `docs/design/README.md` 의 '덜기' 절을 따른다.
 - 여러 에이전트 세션이 동시에 일할 때는 코드를 고치는 세션마다 자기 git worktree 와 브랜치를 쓴다. 같은 폴더 · 같은 브랜치에서 둘 이상이 고치면 변경이 섞여 커밋할 때 hunk 를 손으로 골라야 한다. 읽기만 하는 세션은 같은 폴더를 써도 된다.
+- PR 을 머지하기 전에 [docs/ops/merge-policy.md](docs/ops/merge-policy.md) 로 등급을 정한다. 0등급은 CI 통과 뒤 묻지 않고 머지하고, 1등급은 독립 검수 댓글 뒤 머지하고, 2등급은 멈추고 사용자 승인을 받는다.
 
 ## 문서 줄 규칙
 
