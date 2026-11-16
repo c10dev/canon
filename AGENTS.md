@@ -59,6 +59,8 @@ CANON_HOME=$(mktemp -d) python -m pytest -q -n auto tests  # 전체 시험 (mock
 CANON_HOME=$(mktemp -d) python -m pytest -q tests/test_timeline.py  # 고친 기능의 시험만 빠르게
 CANON_LLM=mock python -m canon ...  # 수동 확인
 ruff check canon tests scripts      # 정적 검사 (쓰지 않는 import · 변수, 정의 안 된 이름, 설정은 pyproject.toml)
+python scripts/complexity_gate.py   # 복잡도 게이트만 빠르게 (상한 15, 기준선은 tests/complexity_baseline.txt)
+python scripts/health_metrics.py    # 주별 코드 건강 지표 표 (크기 · 복잡도 · 경고 밀도 · 변경 크기)
 ```
 
 - 시험은 `CANON_HOME` 을 임시 폴더로 두고 돌린다. `tests/conftest.py` 도 값이 없으면 임시 폴더를 정하므로, 이 값은 덤 안전장치다.
@@ -71,6 +73,9 @@ ruff check canon tests scripts      # 정적 검사 (쓰지 않는 import · 변
 - 스키마나 파이프라인을 바꾸면 `canon/mock.py`(새 기능은 `mock_<기능>.py`)도 맞춰 고치고 전체 시험이 통과하는지 확인한다.
 - 실제 Gemini 호출은 키가 있을 때만 확인할 수 있다. 확인하지 못했다면 그렇다고 밝힌다.
 - 의존성은 `requirements.txt` 에 범위로 적고, 바꾸면 `uv pip compile --universal --python-version 3.12 requirements.txt -o requirements.lock` 으로 잠금 파일을 다시 만든다(`tests/test_requirements_lock.py`).
+- 함수 복잡도(ruff C901)가 15를 넘는 함수를 새로 만들지 않는다. `tests/test_complexity_gate.py` 가 `tests/complexity_baseline.txt` 와 견준다.
+- 기준선에 있는 함수는 점수를 올리지 않는다. 시험이 실패하면 함수를 나눈다. 나누기 어려우면 멈추고 사용자에게 알린다.
+- 기준선에 항목을 더하거나 값을 올리는 변경(`--raise-baseline`)은 사용자와 정한다. 점수를 낮춘 뒤 `python scripts/complexity_gate.py --tighten` 으로 기준선을 낮추는 것은 묻지 않는다.
 - 환경 변수 목록은 [docs/modules/ai.md](docs/modules/ai.md) 의 `canon/llm.py` 절.
 
 ## 비용 드는 모델 실험
