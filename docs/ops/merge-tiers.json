@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "match": "fnmatch",
+  "tier2": {
+    "paths": [
+      ".github/*",
+      ".gitignore",
+      "AGENTS.md",
+      "CLAUDE.md",
+      "LICENSE",
+      "canon/updater.py",
+      "deploy/*",
+      "docs/ops/*",
+      "pyproject.toml",
+      "requirements.*",
+      "scripts/complexity_gate.py",
+      "tests/complexity_baseline.txt",
+      "tests/conftest.py",
+      "tests/test_complexity_gate.py"
+    ],
+    "deleted": [
+      "tests/*"
+    ]
+  },
+  "tier1": {
+    "paths": [
+      "canon/agent.py",
+      "canon/context.py",
+      "canon/llm.py",
+      "canon/schema.py",
+      "canon/settings.py",
+      "canon/store.py"
+    ]
+  },
+  "review_marker": "독립 검수:",
+  "approval_marker": "작가 승인:"
+}
