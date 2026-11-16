@@ -12,6 +12,10 @@
 - 읽는 방식 `BlindSet.mode`(`MODES`): 빈 값은 글마다 점수를 매기는 지금 방식, `side` 는 나란히 한 번 읽기. `create` · `import_folder` 의 `mode` 로 정한다
 - 나란히 한 번 읽기는 점수를 매기지 않는다. 판이 다른 두 글을 나란히 놓은 쌍마다 거슬린 문장을 긋고 항목을 체크하고 나은 쪽을 고른다
 - 나란히 한 번 읽기 묶음은 모든 글에 대목 이름이 든 열쇠가 있어야 하고, 쌍에 들지 못하는 글(대목에 판이 하나뿐)이 있으면 넣지 않는다
+- 판별 묶음(`mode` 가 `ident`): 길이를 맞춘 짝에서 어느 쪽이 정답 판(`BlindSet.answer_arm`, 레퍼런스 원고)인지 확신 1~`CONFIDENCE` 4와 함께 고른다. 비김 · 점수 · 긋기 · 체크는 없다
+- 판별 묶음은 나란히 한 번 읽기와 같은 조건에 더해 `answer_arm` 이 열쇠의 판 이름에 있어야 하고, `side_pairs` 의 모든 쌍에 정답 판 글이 하나씩 있어야 한다(`_check_mode`)
+- `create` · `import_folder` 의 `answer_arm` 은 `ident` 가 아닌 묶음에서는 무시하고 빈 값으로 둔다
+- 판별 묶음의 쌍은 `side_pairs` 다(`duel_pairs`)
 - 원문 대 AI 판 쌍 비교 폴더 만들기: `scripts/blind_pairs.py build`(시험은 `tests/test_blind_pairs.py`)
 - 같은 화의 원문과 AI 판 앞부분(약 2,000자)을 잘라 `import_folder` 로 넣을 수 있는 묶음 폴더와 `summary.json` 을 만든다
 - `summary.json` 에는 본문을 싣지 않는다. 건수 · 글자 수 · 해시만 적는다
@@ -33,9 +37,14 @@
 - `side_pairs` 에서 글자가 같은 두 글은 다른 쌍에 든다. 쌍 차례와 좌우도 묶음 id 로 섞는다
 - 쌍 비교의 답 `duel`(`BlindSet.duels`: 나은 글의 번호, `TIE` 는 비슷함, 빈 값은 지움): 글을 모두 매긴 뒤, 결과를 열기 전에만 한다
 - 나란히 한 번 읽기 묶음의 `duel` 은 점수가 없어 바로 고른다. `reveal` 은 모든 쌍을 골라야 열린다(아니면 '아직 고르지 않은 쌍이 n개 있어요')
+- 판별 묶음의 `duel(bid, a, b, pick, confidence, seconds)` 은 `TIE` 를 받지 않고, 답이 있으면 확신이 1~4 여야 한다(`_ident_answer`)
+- 판별 묶음의 `seconds`(쌍을 띄운 뒤 고를 때까지 초)는 0~`SECONDS_MAX`(3600)로 자른다. 확신 · 초는 `BlindDuel` 에 남고 `duels` 는 확신만 싣는다
+- 판별 묶음의 `reveal` 은 나란히 한 번 읽기처럼 모든 쌍을 골라야 열린다. `score` · `flag` · `mark` 는 '판별 묶음은 고르기만 받아요' 로 거절한다
 - `view` 는 글을 모두 매긴 뒤부터 쌍을 번호 둘로만 싣는다(`duels`). 어느 두 글이 같은 대목인지는 글을 읽으면 아는 것이라 열쇠로 보지 않는다
 - 나란히 한 번 읽기 묶음의 `view` 는 쌍을 처음부터 싣고(`side_duels`), 쌍마다 두 글의 문장 목록 · 그은 문장 · 체크를 `left` · `right` 에 싣는다. 판 · 대목 이름은 싣지 않는다
 - 나란히 한 번 읽기 묶음의 `view` 는 `pieces` 를 늘 비운다. 긋기는 쌍 화면에서 결과를 열기 전에 한다
+- 판별 묶음의 `view`(`_ident_view`)는 쌍마다 두 글의 본문만 `left` · `right` 에 싣는다(문장 나누기 없음). `criteria` · `pieces` 는 비운다
+- 판별 묶음의 `view` 는 결과를 열기 전에 판 이름 · 대목 이름 · `answer_arm` 을 싣지 않는다. 연 뒤 `result` 는 `{ident: blindstats.ident_stats, rows: [{no, arm, piece}]}` 다
 - 쌍 비교를 다 하지 않아도 결과는 열린다. 결과에는 답한 쌍 수와 전체 쌍 수를 함께 싣는다
 - 문장 나누기 `sentences`: 빈 줄이 문단을, 줄바꿈과 문장 끝 부호가 문장을 끊는다. 화면은 이 목록을 그대로 그린다(나누는 곳은 여기 하나)
 - 거슬린 문장 긋기 `mark`(`BlindItem.marks`: 문장 차례 `idx` 와 그 글): 결과를 연 뒤에만 한다. 글자가 같은 글에는 같이 긋는다
@@ -52,10 +61,13 @@
 - `duel_result` 의 `repeat` 는 두 번 물은 쌍 가운데 답이 같았던 수다(쌍 비교의 흔들림)
 - 저장은 `store.write_atomic`. 작품(`project.json`)에는 쓰지 않는다
 - 목록 한 줄 `summary` 는 읽는 방식(`mode`)과, 나란히 한 번 읽기면 고른 쌍 수(`picked`) · 전체 쌍 수(`pairs`)를 싣는다
+- 판별 묶음의 `summary` 도 고른 쌍 수와 전체 쌍 수를 싣는다
 - 명령줄 `canon blind import <폴더> [--title] [--note] [--side]` · `canon blind list`(`cli.cmd_blind`)
 - `--side` 는 나란히 한 번 읽기 묶음으로 넣는다. `list` 는 그 묶음을 'n/m쌍 고름' 으로 보인다
+- `--ident ARM` 은 판별 묶음으로 넣는다(ARM 은 정답 판 이름). `--side` 와 함께 쓰면 끝낸다. `list` 는 판별 묶음도 'n/m쌍 고름' 으로 보인다
 - 시험 `tests/test_blindset.py`
 - 나란히 한 번 읽기 시험 `tests/test_blind_side.py`
+- 판별 묶음 시험 `tests/test_blind_ident.py`
 
 ### `canon/blindstats.py`
 
@@ -68,8 +80,16 @@
 - `null_pairs` 에 든 판 짝은 같은 조건의 잡음 기준선이다. `null: true` 로 내고 판별(`arms`) 계산에서 뺀다
 - 판 이름이 없거나 두 글의 판이 같은 묶음은 `skipped` 로 세고 다른 값에는 넣지 않는다
 - `repeat` 는 두 번 물은 쌍의 잇닿은 답이 같았던 수와 뒤집힘 비율이다
+- 판별 묶음(`mode` 가 `ident`)은 `stats` 가 `ident_stats` 를 돌려준다. 승률 표는 내지 않는다
+- `ident_stats`: 단위는 글자가 같은 두 글의 쌍끼리 묶은 한 묶음의 첫 답이다. 정답 글은 열쇠의 판이 `answer_arm` 인 글이다
+- 정답 판 글이 쌍에 하나가 아닌 묶음은 `skipped` 로 세고 다른 값에 넣지 않는다
+- 정확도 · Wilson 95% 구간 · 단측 정확 이항 꼬리 `p`(우연 0.5) · 확신 기반 AUC(`auc`: 고른 글이 왼쪽이면 +확신, 오른쪽이면 -확신, 확신이 0인 답이 있으면 None)를 낸다
+- 확신별(`by_confidence`) · 쌍 5개씩 묶은 차례별(`blocks`) · 정답이 아닌 쪽 판별(`by_arm`) · 다시 물은 쌍의 일치(`repeat`)를 낸다
+- `fast` 는 `FAST_SECONDS`(30) 초 안에 고른 쌍 수, `median_seconds` 는 읽은 초의 중앙값이다
+- `verdict`: 20쌍 미만은 `short`, 앞 20쌍에서 16쌍 이상(`IDENT_MARKS`)이면 `gap`, 아니면 37쌍까지 읽어 앞 37쌍에서 24쌍 이상이면 `gap`, 못 미치면 `not_shown`(37쌍 전이면 `more`)
 - 명령줄 `canon blind stats [<id>] [--null A:B] [--json]`(`cli.cmd_blind`). 결과를 열기 전 묶음은 내지 않는다
 - 시험 `tests/test_blindstats.py`
+- 판별 묶음 통계 시험 `tests/test_blind_ident.py`
 
 ### `canon/blocktrial.py`
 
@@ -522,6 +542,7 @@
 - `web.py` 맨 끝의 `_attach_routes` 가 `router` 를 앱에 붙이고 `EXPORTS` 의 이름을 `web` 에도 둔다
 - 목록 `GET /api/blind` · 넣기 `POST /api/blind`(실험 스크립트용) · 하나 `GET /api/blind/{id}` · 지우기 `DELETE /api/blind/{id}`
 - 넣기 요청의 `mode` 는 읽는 방식이다(빈 값 또는 `side`)
+- 넣기 요청의 `answer_arm` 은 판별 묶음(`ident`)의 정답 판 이름이다
 - 점수 `PUT /api/blind/{id}/items/{번호}`(`{score, note}`) · 결과 열기 `POST /api/blind/{id}/reveal`(안 매긴 글이 있으면 400)
 - 점수 요청의 `flags` 는 체크한 기준 항목이다. 안 보내면 그대로 둔다
 - 항목 체크 `PUT /api/blind/{id}/items/{번호}/flags`(`{label, on}`, 결과를 연 뒤에는 400)
@@ -529,6 +550,7 @@
 - 긋기 `PUT /api/blind/{id}/items/{번호}/marks`(`{idx, on}`, 결과를 열기 전에는 400)
 - 나란히 한 번 읽기 묶음의 긋기는 거꾸로 결과를 열기 전에만 되고 연 뒤에는 400 이다
 - 나란히 한 번 읽기 묶음의 쌍 비교는 점수 없이 되고, 결과 열기는 고르지 않은 쌍이 있으면 400 이다
+- 쌍 비교 요청의 `confidence`(1~4) · `seconds` 는 판별 묶음에서만 쓴다. 판별 묶음의 `=` 와 확신 밖의 값은 400 이다
 - 작업(`jobs`)을 쓰지 않는다
 
 ### `canon/routes/drill.py`
@@ -677,12 +699,17 @@
 - 쌍 화면의 긋기 · 체크는 응답에서 그 글의 값만 옮긴다(`blPatchSide`). 늦은 응답이 그 사이 고른 답을 덮지 않는다
 - 쌍 화면 머리는 'n / m쌍 골랐어요' 다. 다 고르면 그 자리에 머물고 주 버튼 **결과 보기**가 생긴다
 - 나란히 한 번 읽기의 결과는 점수 표 대신 **그은 문장** 표(판 · 글 수 · 그은 수 · 글당 · 1천 자당)와 그은 수의 흔들림을 보인다. 긋기 버튼은 없다
-- 목록과 진행(`blProgress`)은 나란히 한 번 읽기 묶음을 'n / m쌍 고름' 으로 보인다
+- 목록과 진행(`blProgress`)은 나란히 한 번 읽기 · 판별 묶음을 'n / m쌍 고름' 으로 보인다
+- 판별 묶음(`mode` 가 `ident`)은 결과를 열기 전 어느 주소든 쌍 화면(`blIdentView`)이다. 쌍을 띄운 때를 `S.blShownAt` 에 적는다
+- 판별 쌍 화면은 두 칸에 두 글을 문단으로만 그리고, 아래에 버튼 8개(왼쪽 4 · 3 · 2 · 1, 오른쪽 1 · 2 · 3 · 4, `blIdentButtons`)가 있다
+- 판별 버튼(`blIdent`)은 `{a, b, pick, confidence, seconds}` 를 보낸다. 같은 답을 다시 누르면 지운다. 다 고르면 그 자리에 머물고 주 버튼 **결과 보기**가 생긴다
+- 판별 결과(`blIdentResult`)는 정답 수 · 정확도 · 95% 구간 · 판정 · 확신 AUC · 확신별 표 · 쌍 차례별 표 · 다시 물은 쌍 · 30초 안에 고른 쌍 · 경고를 한 카드에, 그 아래 번호 · 판 · 대목 표를 보인다
 - 결과(`blResult`): 판마다 평균 · 글 수 · 범위 · 풀이(`blArmNote`: 가장 높은 판과의 차가 흔들림 안인지), 같은 글 짝의 점수 차, 글마다 판 · 대목 · 한마디
 - 결과의 쌍 비교 표(판마다 이긴 몫)와 거슬린 점 표(항목 × 판)는 답하거나 체크한 것이 있을 때만 보인다
 - 긋기(`blMarks`, `#/blind/<묶음 id>/marks[/<대목 차례>]`): 결과의 **긋기** 버튼으로 연다. 대목 줄 · 같은 대목의 글을 나란히(좁으면 아래로) · 문장을 누르면 긋고 다시 누르면 지운다
 - 긋기 화면은 판 이름을 보이지 않는다(번호와 점수만). 누를 때 화면을 다시 그리지 않아 읽던 자리가 그대로다(`blToggleMark`)
 - `blNext` · `blProgress` · `blArmNote` · `blMarkCount` · `blColHead` · `blDuelNext` · `blDuelLeft` 는 순수 함수(`tests/test_blindset.py`)
+- `blIdentButtons` 는 순수 함수(`tests/test_blind_ident.py`)
 - CSS 는 JS 에서 주입
 
 ### `canon/static/drill.js`

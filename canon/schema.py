@@ -4272,6 +4272,8 @@ class BlindDuel(BaseModel):
     b: str
     pick: str = ""
     at: str = ""
+    confidence: int = Field(0, description="판별 묶음(mode 'ident')에서 고른 확신 1~4 (1 짐작 · 4 확실). 0 은 받지 않음")
+    seconds: int = Field(0, description="판별 묶음에서 쌍을 띄운 뒤 고를 때까지 걸린 초. 0 은 재지 않음")
 
 
 class BlindKey(BaseModel):
@@ -4293,7 +4295,8 @@ class BlindSet(BaseModel):
     revealed_at: str = Field("", description="결과를 연 때. 연 뒤에는 점수를 고칠 수 없다")
     criteria: list[str] = Field(default_factory=list, description="이 묶음의 기준 항목. 비어 있고 결과를 열기 전이면 blindset.CRITERIA")
     duels: list[BlindDuel] = Field(default_factory=list, description="쌍 비교의 답 (물을 쌍은 blindset.duel_pairs 가 정한다)")
-    mode: str = Field("", description="읽는 방식. '' 는 글마다 점수를 매기고 결과 뒤에 긋는다, 'side' 는 나란히 한 번 읽기 (쌍마다 긋기 · 체크 · 고르기, 점수 없음)")
+    mode: str = Field("", description="읽는 방식. '' 는 글마다 점수를 매기고 결과 뒤에 긋는다, 'side' 는 나란히 한 번 읽기 (쌍마다 긋기 · 체크 · 고르기, 점수 없음), 'ident' 는 판별 (쌍마다 어느 쪽이 정답 판인지 확신과 함께 고름, 비김 없음)")
+    answer_arm: str = Field("", description="판별 묶음(mode 'ident')에서 정답인 판 이름 (레퍼런스 원고). 결과를 열기 전에는 화면에 보내지 않는다")
 
 
 Approval.model_rebuild()
