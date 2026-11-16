@@ -57,6 +57,20 @@
 - 시험 `tests/test_blindset.py`
 - 나란히 한 번 읽기 시험 `tests/test_blind_side.py`
 
+### `canon/blindstats.py`
+
+- 가려 읽기 묶음의 쌍 비교 통계(`stats`). 읽기만 하고 저장하지 않는다
+- 결과에 판 이름이 실리므로 결과를 연 묶음에만 부른다. 부르는 쪽(`cli._blind_stats`)이 확인한다
+- 글자가 같은 두 글의 쌍은 한 묶음으로 보고 첫 답만 판 짝의 승 · 패 · 비김에 센다
+- 판 짝마다 승률(`win / (win + loss)`, 비김은 뺌) · Wilson 95% 구간 · 대목으로 묶은 `labstats.cluster_boot` 95% 구간 · 부호 검정 p · 비김 비율을 낸다
+- 대목이 둘 미만이면 `boot` 는 None 이다
+- `N_MARKS`(37 · 69쌍)는 승률 0.70 · 0.65 를 우연과 가르는 데 드는 쌍 수다. 짝의 `n` 이 모자라면 `short_of` 와 경고를 낸다
+- `null_pairs` 에 든 판 짝은 같은 조건의 잡음 기준선이다. `null: true` 로 내고 판별(`arms`) 계산에서 뺀다
+- 판 이름이 없거나 두 글의 판이 같은 묶음은 `skipped` 로 세고 다른 값에는 넣지 않는다
+- `repeat` 는 두 번 물은 쌍의 잇닿은 답이 같았던 수와 뒤집힘 비율이다
+- 명령줄 `canon blind stats [<id>] [--null A:B] [--json]`(`cli.cmd_blind`). 결과를 열기 전 묶음은 내지 않는다
+- 시험 `tests/test_blindstats.py`
+
 ### `canon/blocktrial.py`
 
 - 쓰기 블록 시험(명령줄 `blocktrial`)

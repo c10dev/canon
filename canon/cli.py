@@ -2454,6 +2454,8 @@ def cmd_blind(a: argparse.Namespace) -> None:
     """가려 읽기 묶음 (canon/blindset.py): 실험이 만든 폴더를 묶음으로 넣거나 목록을 본다. 점수는 웹 화면 #/blind 에서 매긴다."""
     from . import blindset
 
+    if a.action == "stats":
+        return _blind_stats(a)
     if a.action == "import":
         if not a.folder:
             sys.exit("넣을 폴더를 적어 주세요: canon blind import <폴더>")
@@ -2474,6 +2476,75 @@ def cmd_blind(a: argparse.Namespace) -> None:
         else:
             got = f"{sum(1 for x in s.items if x.score)}/{len(s.items)}편 매김"
         print(f"{s.id}  {s.title}  {got}{'  결과 엶' if s.revealed_at else ''}")
+
+
+def _parse_null(raw: list[str]) -> list[tuple[str, str]]:
+    """--null A:B 를 (A, B) 목록으로 바꾼다. ':' 이 없거나 한쪽이 비면 사용법을 알리고 끝낸다."""
+    out = []
+    for x in raw:
+        left, sep, right = x.partition(":")
+        if not sep or not left.strip() or not right.strip():
+            sys.exit(f"--null 은 판 이름 둘을 ':' 로 이어 적어 주세요: --null base:base2 (받은 값: {x})")
+        out.append((left.strip(), right.strip()))
+    return out
+
+
+def _pct(x: float) -> str:
+    return f"{round(x * 100)}%"
+
+
+def _blind_pair_text(p: dict) -> str:
+    head = f"{p['a']} 대 {p['b']}: {p['win']}승 {p['loss']}패 {p['tie']}비김"
+    rate = "-" if p["rate"] is None else f"{p['rate']:.2f}"
+    lo, hi = p["wilson"]
+    body = f"승률 {rate} (95% {lo:.2f}~{hi:.2f})"
+    if p["null"]:
+        return f"[같은 조건] {head} · {body}"
+    parts = [body]
+    if p["boot"]:
+        parts.append(f"대목 묶음 {p['boot'][0]:.2f}~{p['boot'][1]:.2f}")
+    parts.append(f"p {p['p']:.3f}")
+    if p["tie_rate"] is not None:
+        parts.append(f"비김 {_pct(p['tie_rate'])}")
+    return f"{head} · " + " · ".join(parts)
+
+
+def _print_blind_stats(st: dict) -> None:
+    print(f"{st['id']}  {st['title']}  답 {st['answered']}/{st['total']}쌍")
+    for p in st["pairs"]:
+        print(f"  {_blind_pair_text(p)}")
+    if st["arms"]:
+        print("  판마다 이긴 비율: " + " · ".join(f"{r['arm']} {'-' if r['rate'] is None else format(r['rate'], '.2f')} ({r['win']}/{r['n']})" for r in st["arms"]))
+    rep = st["repeat"]
+    if rep:
+        lo, hi = rep["flip_wilson"]
+        print(f"  다시 물은 쌍: {rep['of']}쌍 중 {rep['same']}쌍 같음 · 뒤집힘 {_pct(rep['flip_rate'])} (95% {_pct(lo)}~{_pct(hi)})")
+    for w in st["warnings"]:
+        print(f"  ! {w}")
+
+
+def _blind_stats(a: argparse.Namespace) -> None:
+    """canon blind stats [<id>] [--null A:B] [--json]: 결과를 연 묶음의 쌍 비교 통계. 결과를 열기 전 묶음은 판 이름이 드러나서 내지 않는다."""
+    from . import blindset, blindstats
+
+    nulls = _parse_null(a.null or [])
+    if a.folder:
+        try:
+            s = blindset.load(a.folder)
+        except KeyError as e:
+            sys.exit(str(e.args[0]))
+        if not s.revealed_at:
+            sys.exit("결과를 열기 전이라 통계를 내지 않아요. 웹 화면에서 결과를 연 뒤 다시 불러 주세요.")
+        out = [blindstats.stats(s, nulls)]
+    else:
+        out = [st for st in (blindstats.stats(s, nulls) for s in blindset.sets() if s.revealed_at) if st["answered"]]
+    if a.json:
+        print(json.dumps(out[0] if a.folder else out, ensure_ascii=False, indent=2))
+        return
+    if not out:
+        print("결과를 연 묶음 가운데 쌍 비교 답이 있는 묶음이 없어요.")
+    for st in out:
+        _print_blind_stats(st)
 
 
 def cmd_usage(a: argparse.Namespace) -> None:
@@ -3022,11 +3093,13 @@ def _app_commands(sub, add) -> None:
     sp.set_defaults(fn=cmd_serve)
     sub.add_parser("upgrade", help="main 의 새 코드 받기 (git pull)").set_defaults(fn=cmd_upgrade)
     sp = sub.add_parser("blind", help="가려 읽기 묶음 넣기 · 목록 (점수는 웹 #/blind)")
-    sp.add_argument("action", choices=["import", "list"])
-    sp.add_argument("folder", nargs="?", help="import: 01.txt … 와 blind_key.json 이 있는 폴더")
+    sp.add_argument("action", choices=["import", "list", "stats"])
+    sp.add_argument("folder", nargs="?", help="import: 01.txt … 와 blind_key.json 이 있는 폴더 · stats: 묶음 id")
     sp.add_argument("--title", help="묶음 이름")
     sp.add_argument("--note", help="묶음 메모")
     sp.add_argument("--side", action="store_true", help="import: 나란히 한 번 읽기 묶음 (점수 없이 쌍마다 긋고 고름, 열쇠에 대목 이름이 있어야 함)")
+    sp.add_argument("--null", action="append", help="stats: 같은 조건으로 볼 판 짝 A:B (여러 번 쓸 수 있음)")
+    sp.add_argument("--json", action="store_true", help="stats: JSON 으로 찍기")
     sp.set_defaults(fn=cmd_blind)
     sp = sub.add_parser("usage", help="AI 사용량과 추정 비용")
     sp.add_argument("--days", type=int, default=30, help="최근 며칠 (기본 30)")
