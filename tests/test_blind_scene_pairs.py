@@ -80,7 +80,7 @@ def test_pick_write_pairs(home):
     assert all("**" not in v["text"] for v in done.values())
     assert llm.calls.count("DrillFacts") == 3 and llm.calls.count("StudioDraft") == 6
     pairs, st = m.make_pairs(rows, done)
-    assert st == {"rows": 3, "pairs": 3, "missing": 0, "copied": 0}
+    assert st == {"rows": 3, "pairs": 3, "missing": 0, "copied": 0, "style_overlap": 0}
     for p, r in zip(pairs, rows):
         assert p["ref"] == r["source"] and p["base"] == done[f"{r['id']}|1"]["text"] and p["base2"] == done[f"{r['id']}|2"]["text"]
         assert set(p["names"]) == set(PEOPLE) and p["rid"] == r["rid"] and p["order"] == r["order"] and "work" not in p
@@ -206,10 +206,10 @@ def test_commands_files(home, monkeypatch, capsys):
     assert json.loads(capsys.readouterr().out)["kept"] == 2
     with pytest.raises(SystemExit):
         m.main(["pick", "--rid", rid, "--n", "2", "--model", "fake:x", "--dir", str(d)])
-    assert m.main(["gen", "--dir", str(d), "--model", "fake:x", "--reps", "2"]) == 0
+    assert m.main(["gen", "--dir", str(d), "--path", "paragraph", "--model", "fake:x", "--reps", "2"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out == {"new": 4, "errors": 0, "total": 4}
-    assert m.main(["gen", "--dir", str(d), "--model", "fake:x"]) == 0
+    assert m.main(["gen", "--dir", str(d), "--path", "paragraph", "--model", "fake:x"]) == 0
     assert json.loads(capsys.readouterr().out)["new"] == 0
     assert m.main(["pairs", "--dir", str(d), "--out", str(home / "p.json")]) == 0
     printed = capsys.readouterr().out
@@ -217,3 +217,184 @@ def test_commands_files(home, monkeypatch, capsys):
     assert len(json.loads((home / "p.json").read_text(encoding="utf-8"))) == 2
     with pytest.raises(SystemExit):
         m.main(["pairs", "--dir", str(d), "--out", str(home / "p.json")])
+
+
+# ---------- 화 쓰기 길 (--path episode) ----------
+
+LONG = "\n".join(" ".join(f"E{i}_{j} 도윤은 창가에 서서 오래 기다렸다." for j in range(3)) for i in range(24))
+
+
+class CountLLM:
+    """canon.mock.MockLLM 을 감싸 부른 횟수를 세고, 본문 쓰기만 약 1,900자 글을 돌려준다."""
+
+    def __init__(self, long_text: bool = True):
+        from canon.mock import MockLLM
+
+        self.inner = MockLLM()
+        self.calls: list[str] = []
+        self.long_text = long_text
+        self.knows_cut = True
+        self.last_finish = "STOP"
+        self.lock = threading.Lock()
+
+    def json(self, system, prompt, schema, hint=None):
+        with self.lock:
+            self.calls.append(schema.__name__)
+        return self.inner.json(system, prompt, schema, hint)
+
+    def _text(self, text: str) -> str:
+        with self.lock:
+            self.calls.append("text")
+        self.last_finish = "STOP"
+        return LONG if self.long_text else text
+
+    def text(self, system, prompt):
+        return self._text(self.inner.text(system, prompt))
+
+    def text_stream(self, system, prompt, on_chunk):
+        return self._text(self.inner.text_stream(system, prompt, on_chunk))
+
+
+def _style_file(home, passages=(), name="style.json"):
+    from canon.schema import StyleProfile
+
+    prof = StyleProfile(sample_passages=list(passages))
+    f = home / name
+    f.write_text(json.dumps({"profile": prof.model_dump(), "sample": "지은 표본 글"}, ensure_ascii=False), encoding="utf-8")
+    return f
+
+
+def _rows(m, rids, n=2):
+    rows, _ = m.pick_passages(rids, n, FakeLLM(), random.Random(m.SEED))
+    return rows
+
+
+def _episode_run(m, home, rows, llm, done=None, passages=(), limit=0):
+    from canon.schema import Settings
+
+    styles = {r: m.load_style(str(_style_file(home, passages, f"s{i}.json"))) for i, r in enumerate({x["rid"] for x in rows})}
+    return m.write_episode_scenes(rows, Settings(storyboard=True), styles, llm, llm, 1, done or {}, limit), styles
+
+
+def test_episode_project(home):
+    from canon import prompts, store
+    from canon.schema import Settings
+
+    m = _load("blind_scene_pairs")
+    row = _rows(m, [_book(1).id], 1)[0]
+    style = m.load_style(str(_style_file(home)))
+    before = sorted(store.ROOT.rglob("*"))
+    p = m.episode_project(row, Settings(storyboard=True), style)
+    ids = [b.id if hasattr(b, "id") else b[0] for b in prompts.episode_parts(p, m.EP_NO)]
+    assert p.serial and "plot" in ids and "instructions" in ids
+    assert len(p.characters) == len(PEOPLE) and next(c for c in p.characters if c.name == PEOPLE[0]).tier == "main"
+    assert p.episode(m.EP_NO - 1).summary == row["facts"]["before"] and p.episode(m.EP_NO).plot.pov == "c1"
+    assert p.meta.words_per_episode == round(len(row["source"]) / 50) * 50
+    assert sorted(store.ROOT.rglob("*")) == before
+    ghost = dict(row, facts=dict(row["facts"], pov="낯선이"))
+    q = m.episode_project(ghost, Settings(), style)
+    assert len(q.characters) == len(PEOPLE) + 1 and q.characters[-1].name == "낯선이" and q.characters[-1].tier == "main"
+
+
+def test_episode_path_end_to_end(home):
+    m = _load("blind_scene_pairs")
+    rows = _rows(m, [_book(1).id], 2)
+    llm = CountLLM()
+    done, _ = _episode_run(m, home, rows, llm)
+    for r in rows:
+        assert done[f"{r['id']}|plan"]["storyboard"] and len(done[f"{r['id']}|1"]["text"]) > 1500
+    assert done["_meta"]["path"] == "episode" and done["_meta"]["write_model"] == "mock:mock"
+    pairs, st = m.make_pairs(rows, done)
+    assert st["pairs"] == 2 and st["style_overlap"] == 0
+
+
+def test_episode_resume(home):
+    m = _load("blind_scene_pairs")
+    rows = _rows(m, [_book(1).id], 2)
+    done, _ = _episode_run(m, home, rows, CountLLM())
+    llm = CountLLM()
+    same, _ = _episode_run(m, home, rows, llm, done)
+    assert llm.calls == [] and same == done
+    key = f"{rows[0]['id']}|1"
+    bad = dict(done, **{key: {"error": "끊김"}})
+    llm = CountLLM()
+    again, _ = _episode_run(m, home, rows, llm, bad)
+    assert llm.calls == ["text"] and "text" in again[key]
+    only, _ = _episode_run(m, home, rows, CountLLM(), {}, limit=1)
+    assert f"{rows[1]['id']}|plan" not in only
+
+
+def test_episode_style_overlap(home):
+    m = _load("blind_scene_pairs")
+    rows = _rows(m, [_book(1).id], 2)
+    rows[1] = dict(rows[1], source="\n".join(f"Z{i} 전혀 다른 장면의 문장이 {i * 7919} 번째로 이어진다." for i in range(40)))
+    llm = CountLLM()
+    done, _ = _episode_run(m, home, rows, llm, passages=[rows[0]["source"][100:400]])
+    assert done[f"{rows[0]['id']}|plan"] == {"skip": "style_overlap"} and f"{rows[0]['id']}|1" not in done
+    assert llm.calls.count("text") == 1  # 겹친 대목은 쓰기를 부르지 않고 나머지 한 대목만 쓴다
+    _, st = m.make_pairs(rows, done)
+    assert st["style_overlap"] == 1 and st["pairs"] == 1
+
+
+def test_make_pairs_style_passages_copied(home):
+    m = _load("blind_scene_pairs")
+    rows = _rows(m, [_book(1).id], 1)
+    para = "달빛 아래 오래된 우물가에서 그녀는 아무 말 없이 물동이를 내려놓았다."
+    done = {f"{rows[0]['id']}|plan": {"style_passages": [para]}, f"{rows[0]['id']}|1": {"text": "앞 글. " + para + " 뒤 글."}}
+    pairs, st = m.make_pairs(rows, done)
+    assert pairs == [] and st["copied"] == 1
+
+
+def test_make_style(home, monkeypatch):
+    from canon import library
+    from canon.schema import StyleProfile
+
+    m = _load("blind_scene_pairs")
+    rid = _book(1).id
+    seen = {}
+
+    def fake(llm, sample, names=None, passages=True, corpus=""):
+        seen["corpus"] = corpus
+        return StyleProfile(sample_passages=["예시"])
+
+    monkeypatch.setattr(m.pipeline, "analyze_style", fake)
+    lib_before = library.list_entries() if hasattr(library, "list_entries") else None
+    out = m.make_style(rid, object())
+    assert out["profile"]["sample_passages"] == ["예시"] and out["sample"] and seen["corpus"]
+    assert refs.load(rid).made == []
+    if lib_before is not None:
+        assert library.list_entries() == lib_before
+    prof, base, sample = m.load_style(str(_style_file(home)))
+    assert base is None and sample == "지은 표본 글" and prof.sample_passages == []
+
+
+def test_episode_options_stop(home, monkeypatch):
+    m = _load("blind_scene_pairs")
+    rid = _book(1).id
+    d = home / "work"
+    monkeypatch.setattr(m, "_llm", lambda text: FakeLLM())
+    m.main(["pick", "--rid", rid, "--n", "1", "--model", "fake:x", "--dir", str(d)])
+    with pytest.raises(SystemExit):
+        m.main(["gen", "--dir", str(d)])  # --settings-from 없음
+    monkeypatch.setattr(m, "_settings_from", lambda name: __import__("canon.schema", fromlist=["Settings"]).Settings())
+    with pytest.raises(SystemExit) as e:
+        m.main(["gen", "--dir", str(d), "--settings-from", "x"])  # --style 빠짐
+    assert "1" in str(e.value) and rid not in str(e.value)
+
+
+def test_estimate_episode(home):
+    from canon.schema import Settings
+
+    m = _load("blind_scene_pairs")
+    rid = _book(1).id
+    st = {rid: m.load_style(str(_style_file(home)))}
+    both = {"board": "gemini:no-such-model-zz", "write": "gemini:no-such-model-zz"}
+    e = m.estimate([rid], 6, 2, path="episode", settings=Settings(storyboard=True), styles=st, models=both)
+    assert e["calls"]["facts"] == 6 and e["calls"]["board"] == 6 and e["calls"]["write"] == 12
+    assert sum(e["calls"].values()) == 6 + 6 + e["calls"]["cue"] + 12
+    assert e["tokens"]["in"] > 0 and e["tokens"]["out"] > 0 and e["usd"] is None and e["note"] == "가격표에 없어요"
+    assert e["models"]["write"]["usd"] is None
+    priced = m.estimate([rid], 6, 2, path="episode", settings=Settings(storyboard=True), styles=st, models=both, assume="gemini-4-argon-001")
+    assert priced["assumed"] == "gemini-4-argon-001"
+    if priced["usd"] is not None:
+        assert priced["usd"] > 0 and priced["usd_worst"] >= priced["usd"]
