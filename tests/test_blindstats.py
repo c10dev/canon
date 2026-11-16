@@ -106,6 +106,6 @@ def test_cli_stats_refuses_unrevealed_and_prints_json(client, capsys):
     assert json.loads(capsys.readouterr().out)["pairs"][0]["win"] == 4
     cli.main(["blind", "stats", open_.id])
     out = capsys.readouterr().out
-    assert "base 대 v2: 4승 1패 0비김" in out and "판별:" in out
+    assert "base 대 v2: 4승 1패 0비김" in out and "판마다 이긴 비율:" in out
     cli.main(["blind", "stats", "--json"])
     assert [x["id"] for x in json.loads(capsys.readouterr().out)] == [open_.id]
