@@ -2460,17 +2460,20 @@ def cmd_blind(a: argparse.Namespace) -> None:
         if not a.folder:
             sys.exit("넣을 폴더를 적어 주세요: canon blind import <폴더>")
         try:
-            s = blindset.import_folder(a.folder, a.title or "", a.note or "", mode="side" if a.side else "")
+            if a.side and a.ident:
+                sys.exit("--side 와 --ident 는 함께 쓸 수 없어요")
+            mode = "ident" if a.ident else "side" if a.side else ""
+            s = blindset.import_folder(a.folder, a.title or "", a.note or "", mode=mode, answer_arm=a.ident or "")
         except ValueError as e:
             sys.exit(str(e))
         print(f"묶음을 넣었어요: {s.title} ({len(s.items)}편{', 열쇠 있음' if s.key else ', 열쇠 없음'})")
-        print(f"웹 화면에서 이 주소를 열어 {'나란히 읽으세요' if s.mode == 'side' else '점수를 매기세요'}: #/blind/{s.id}")
+        print(f"웹 화면에서 이 주소를 열어 {'나란히 읽으세요' if s.mode == 'side' else '고르세요' if s.mode == 'ident' else '점수를 매기세요'}: #/blind/{s.id}")
         return
     rows = blindset.sets()
     if not rows:
         print("가려 읽기 묶음이 없어요.")
     for s in rows:
-        if s.mode == "side":
+        if s.mode in ("side", "ident"):
             row = blindset.summary(s)
             got = f"{row['picked']}/{row['pairs']}쌍 고름"
         else:
@@ -2509,7 +2512,29 @@ def _blind_pair_text(p: dict) -> str:
     return f"{head} · " + " · ".join(parts)
 
 
+_IDENT_VERDICT = {"gap": "격차 확인", "more": "17쌍을 더 읽어 37쌍에서 다시 봐요", "not_shown": "37쌍에서 격차를 보이지 못함", "short": "20쌍에 못 미쳐 판정하지 않아요"}
+
+
+def _print_ident_stats(st: dict) -> None:
+    print(f"{st['id']}  {st['title']}  판별 {st['answered']}/{st['total']}쌍")
+    lo, hi = st["wilson"]
+    acc = "-" if st["accuracy"] is None else f"{st['accuracy']:.2f}"
+    print(f"  정답 {st['correct']}/{st['n']} · 정확도 {acc} (95% {lo:.2f}~{hi:.2f}) · 단측 p {st['p']:.4f}")
+    print(f"  확신 AUC {'-' if st['auc'] is None else format(st['auc'], '.2f')}")
+    print(f"  판정: {_IDENT_VERDICT[st['verdict']]}")
+    print("  차례별: " + " · ".join(f"{b['from']}~{b['to']}번째 {b['correct']}/{b['n']}" for b in st["blocks"]))
+    print("  확신별: " + " · ".join(f"{b['confidence']} {b['correct']}/{b['n']}" for b in st["by_confidence"]))
+    rep = st["repeat"]
+    if rep:
+        print(f"  다시 물은 쌍: {rep['of']}쌍 중 {rep['same']}쌍 같음")
+    print(f"  30초 안에 고른 쌍 {st['fast']}개")
+    for w in st["warnings"]:
+        print(f"  ! {w}")
+
+
 def _print_blind_stats(st: dict) -> None:
+    if st["mode"] == "ident":
+        return _print_ident_stats(st)
     print(f"{st['id']}  {st['title']}  답 {st['answered']}/{st['total']}쌍")
     for p in st["pairs"]:
         print(f"  {_blind_pair_text(p)}")
@@ -3098,6 +3123,7 @@ def _app_commands(sub, add) -> None:
     sp.add_argument("--title", help="묶음 이름")
     sp.add_argument("--note", help="묶음 메모")
     sp.add_argument("--side", action="store_true", help="import: 나란히 한 번 읽기 묶음 (점수 없이 쌍마다 긋고 고름, 열쇠에 대목 이름이 있어야 함)")
+    sp.add_argument("--ident", metavar="ARM", help="import: 판별 묶음. ARM 은 정답 판 이름 (레퍼런스 원고)")
     sp.add_argument("--null", action="append", help="stats: 같은 조건으로 볼 판 짝 A:B (여러 번 쓸 수 있음)")
     sp.add_argument("--json", action="store_true", help="stats: JSON 으로 찍기")
     sp.set_defaults(fn=cmd_blind)

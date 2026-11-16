@@ -8,6 +8,7 @@
 글마다 기준 항목 체크(CRITERIA), 그리고 같은 대목의 글 두 편을 나란히 놓고 고르는 쌍 비교(duel). 둘 다 안 해도 결과는 열 수 있다.
 나란히 한 번 읽기(mode "side"): 점수를 매기지 않는다. 판이 다른 두 글을 나란히 놓은 쌍(side_pairs)을 한 번씩 읽으며 거슬린 문장을 긋고
 항목을 체크하고 나은 쪽을 고른다. 긋기는 결과를 열기 전에만 하고, 모든 쌍을 골라야 결과가 열린다.
+판별(mode "ident"): 길이를 맞춘 짝에서 어느 쪽이 정답 판(answer_arm, 레퍼런스 원고)인지 확신 1~4와 읽은 초와 함께 고른다. 비김 없음, 점수 · 긋기 · 체크 없음.
 """
 from __future__ import annotations
 
@@ -42,7 +43,9 @@ CRITERIA = (
 CRITERIA_MAX = (8, 30)  # 묶음 하나의 항목 수, 항목 하나의 글자 수
 DUEL_MAX = 30  # 쌍 비교로 묻는 쌍 수 (넘으면 섞은 차례의 앞쪽만)
 TIE = "="  # 쌍 비교의 '비슷함'
-MODES = ("", "side")  # '' 는 점수 매기기, 'side' 는 나란히 한 번 읽기
+MODES = ("", "side", "ident")  # '' 는 점수 매기기, 'side' 는 나란히 한 번 읽기, 'ident' 는 판별
+CONFIDENCE = (1, 4)  # 판별 묶음의 확신 (1 짐작 · 4 확실)
+SECONDS_MAX = 3600  # 판별 묶음에서 한 쌍을 읽은 초의 상한
 
 
 _LOCK = threading.RLock()
@@ -107,12 +110,13 @@ def delete(bid: str) -> None:
 
 
 def create(title: str, items: list[dict], key: list[dict] | None = None, note: str = "", source: str = "",
-           criteria: list[str] | None = None, mode: str = "") -> BlindSet:
+           criteria: list[str] | None = None, mode: str = "", answer_arm: str = "") -> BlindSet:
     """items: [{no?, text}] (읽을 차례 그대로), key: [{no, arm, piece?}]. 번호를 주지 않으면 01, 02 … 로 매긴다.
     열쇠가 없는 묶음도 받는다 (점수만 모으고, 결과에는 흔들림만 나온다). criteria 를 안 주면 CRITERIA 를 적어 둔다.
-    mode 'side' (나란히 한 번 읽기)는 모든 글에 대목 이름이 든 열쇠가 있어야 하고, 모든 글이 판이 다른 글과 쌍을 이뤄야 한다."""
+    mode 'side' (나란히 한 번 읽기)는 모든 글에 대목 이름이 든 열쇠가 있어야 하고, 모든 글이 판이 다른 글과 쌍을 이뤄야 한다.
+    mode 'ident' (판별)는 거기에 더해 answer_arm (정답 판 이름)이 열쇠에 있고, 모든 쌍에 정답 판 글이 하나씩 있어야 한다."""
     if mode not in MODES:
-        raise ValueError(f"읽는 방식은 '' 나 'side' 만 받아요: {mode}")
+        raise ValueError(f"읽는 방식은 '', 'side', 'ident' 만 받아요: {mode}")
     many, long = CRITERIA_MAX
     crit = list(dict.fromkeys(str(c).strip()[:long] for c in (criteria or CRITERIA) if str(c).strip()))
     if len(crit) > many:
@@ -141,18 +145,36 @@ def create(title: str, items: list[dict], key: list[dict] | None = None, note: s
     if keys and {k.no for k in keys} != seen:
         raise ValueError("열쇠가 모든 글을 덮지 않아요")
     s = BlindSet(id=uuid.uuid4().hex[:12], title=title.strip()[:TITLE_MAX] or "가려 읽기 묶음", note=note.strip()[:NOTE_MAX * 2],
-                 source=source.strip()[:300], items=out, key=keys, criteria=crit, mode=mode)
-    if mode == "side":
-        if not keys or any(not k.piece for k in keys):
-            raise ValueError("나란히 읽기는 모든 글에 대목 이름이 든 열쇠가 있어야 해요")
-        covered = {no for pair in side_pairs(s) for no in pair}
-        alone = [x.no for x in out if x.no not in covered]
-        if alone:
-            raise ValueError(f"나란히 읽기는 대목마다 판이 둘 이상 있어야 해요. 짝이 없는 글: {', '.join(alone)}")
+                 source=source.strip()[:300], items=out, key=keys, criteria=crit, mode=mode,
+                 answer_arm=answer_arm.strip() if mode == "ident" else "")
+    _check_mode(s)
     return save(s)
 
 
-def import_folder(folder: str, title: str = "", note: str = "", mode: str = "") -> BlindSet:
+def _check_mode(s: BlindSet) -> None:
+    """side · ident 묶음이 쌍으로 읽을 수 있는지 본다. 아니면 ValueError."""
+    if s.mode not in ("side", "ident"):
+        return
+    if not s.key or any(not k.piece for k in s.key):
+        raise ValueError("나란히 읽기는 모든 글에 대목 이름이 든 열쇠가 있어야 해요")
+    if s.mode == "ident":
+        if not s.answer_arm:
+            raise ValueError("판별 묶음은 정답 판 이름(answer_arm)이 있어야 해요")
+        if s.answer_arm not in {k.arm for k in s.key}:
+            raise ValueError(f"열쇠에 없는 정답 판이에요: {s.answer_arm}")
+    pairs = side_pairs(s)
+    covered = {no for pair in pairs for no in pair}
+    alone = [x.no for x in s.items if x.no not in covered]
+    if alone:
+        raise ValueError(f"나란히 읽기는 대목마다 판이 둘 이상 있어야 해요. 짝이 없는 글: {', '.join(alone)}")
+    if s.mode == "ident":
+        arm = {k.no: k.arm for k in s.key}
+        for a, b in pairs:
+            if [arm[a], arm[b]].count(s.answer_arm) != 1:
+                raise ValueError(f"판별 묶음의 쌍은 정답 판 글이 하나씩이어야 해요: {a} · {b}")
+
+
+def import_folder(folder: str, title: str = "", note: str = "", mode: str = "", answer_arm: str = "") -> BlindSet:
     """실험 스크립트가 만든 폴더를 묶음으로 넣는다: 숫자 이름의 txt (01.txt …)가 글이고, 열쇠는 그 폴더나 윗 폴더의 blind_key.json.
     열쇠 꼴은 {번호: {arm, passage 또는 piece}} 또는 [{no, arm, piece}]. 폴더의 파일은 바꾸지 않는다."""
     d = Path(folder).expanduser()
@@ -167,7 +189,7 @@ def import_folder(folder: str, title: str = "", note: str = "", mode: str = "") 
             rows = [{"no": no, **v} for no, v in raw.items()] if isinstance(raw, dict) else list(raw)
             key = [{"no": str(r.get("no")), "arm": r.get("arm", ""), "piece": r.get("piece") or r.get("passage") or ""} for r in rows]
             break
-    return create(title or d.parent.name or d.name, items, key, note, str(d), mode=mode)
+    return create(title or d.parent.name or d.name, items, key, note, str(d), mode=mode, answer_arm=answer_arm)
 
 
 def _item(s: BlindSet, no: str) -> BlindItem:
@@ -187,6 +209,8 @@ def score(bid: str, no: str, value: int, note: str = "", flags: list[str] | None
     """글 하나의 점수(1 ~ SCALE, 0 은 지움)와 한마디, 체크한 기준 항목을 적는다. 결과를 연 뒤에는 고칠 수 없다.
     flags 가 None 이면 체크는 그대로 둔다 (점수만 보내는 호출이 체크를 지우지 않게). 체크는 점수가 없어도 남는다 (점수를 누르면 다음 글로 넘어가서)."""
     s = load(bid)
+    if s.mode == "ident":
+        raise ValueError("판별 묶음은 고르기만 받아요")
     if s.revealed_at:
         raise ValueError("결과를 연 묶음은 점수를 고칠 수 없어요")
     if not 0 <= int(value) <= SCALE:
@@ -208,6 +232,8 @@ def flag(bid: str, no: str, label: str, on: bool = True) -> BlindSet:
     """기준 항목 하나를 체크하거나(on) 지운다. 점수와 한마디는 건드리지 않는다.
     화면은 이 함수만 쓴다: 목록을 통째로 보내면 잇달아 누른 두 체크 가운데 앞의 것이 빠진다."""
     s = load(bid)
+    if s.mode == "ident":
+        raise ValueError("판별 묶음은 고르기만 받아요")
     if s.revealed_at:
         raise ValueError("결과를 연 묶음은 점수를 고칠 수 없어요")
     x = _item(s, no)
@@ -273,7 +299,7 @@ def duel_pairs(s: BlindSet) -> list[tuple[str, str]]:
     차례와 좌우는 묶음 id 로 섞어 요청마다 같고, 판 차례와 상관없다 (글은 읽을 차례로 훑는다). 대목 이름이 없는 글과 열쇠 없는 묶음은 묻지 않는다.
     같은 글이 두 번 들어 있으면 그 글이 낀 쌍도 두 번 나온다. 그 두 답이 같은지가 쌍 비교의 흔들림이다.
     나란히 한 번 읽기(mode 'side') 묶음은 side_pairs 다."""
-    if s.mode == "side":
+    if s.mode in ("side", "ident"):
         return side_pairs(s)
     piece = {k.no: k.piece for k in s.key}
     groups: dict[str, list[BlindItem]] = {}
@@ -289,38 +315,55 @@ def duel_pairs(s: BlindSet) -> list[tuple[str, str]]:
 def duels(s: BlindSet) -> list[dict]:
     """물을 쌍과 지금까지의 답 [{a, b, pick}]. 판 이름과 대목 이름은 싣지 않는다."""
     got = {frozenset((d.a, d.b)): d.pick for d in s.duels}
-    return [{"a": a, "b": b, "pick": got.get(frozenset((a, b)), "")} for a, b in duel_pairs(s)]
+    rows = [{"a": a, "b": b, "pick": got.get(frozenset((a, b)), "")} for a, b in duel_pairs(s)]
+    if s.mode == "ident":
+        conf = {frozenset((d.a, d.b)): d.confidence for d in s.duels}
+        rows = [{**r, "confidence": conf.get(frozenset((r["a"], r["b"])), 0)} for r in rows]
+    return rows
 
 
 @_locked
-def duel(bid: str, a: str, b: str, pick: str) -> BlindSet:
+def duel(bid: str, a: str, b: str, pick: str, confidence: int = 0, seconds: int = 0) -> BlindSet:
     """쌍 하나의 답을 적는다: 나은 글의 번호, TIE(비슷함), '' (지움). 글을 모두 매긴 뒤, 결과를 열기 전에만 한다.
-    나란히 한 번 읽기 묶음은 점수가 없어 바로 고른다."""
+    나란히 한 번 읽기 묶음은 점수가 없어 바로 고른다. 판별 묶음은 TIE 가 없고 확신(CONFIDENCE)을 함께 받으며, 읽은 초(seconds)를 적는다."""
     s = load(bid)
     if s.revealed_at:
         raise ValueError("결과를 연 묶음은 쌍 비교를 고칠 수 없어요")
-    if s.mode != "side" and any(not x.score for x in s.items):
+    if s.mode not in ("side", "ident") and any(not x.score for x in s.items):
         raise ValueError("글을 모두 매긴 뒤에 쌍 비교를 할 수 있어요")
     pair = next(((x, y) for x, y in duel_pairs(s) if {x, y} == {a, b}), None)
     if not pair:
         raise KeyError(f"이 묶음에 없는 쌍이에요: {a} · {b}")
     if pick not in (a, b, TIE, ""):
         raise ValueError("두 글 가운데 하나나 '비슷해요'를 골라 주세요")
+    ident = s.mode == "ident"
+    if ident:
+        _ident_answer(pick, a, b, confidence)
     s.duels = [d for d in s.duels if {d.a, d.b} != {a, b}]
     if pick:
-        s.duels.append(BlindDuel(a=pair[0], b=pair[1], pick=pick, at=_now()))
+        extra = {"confidence": int(confidence), "seconds": max(0, min(int(seconds), SECONDS_MAX))} if ident else {}
+        s.duels.append(BlindDuel(a=pair[0], b=pair[1], pick=pick, at=_now(), **extra))
     return save(s)
+
+
+def _ident_answer(pick: str, a: str, b: str, confidence: int) -> None:
+    """판별 묶음의 답을 본다: 비김은 없고, 고른 답에는 확신 1~4 가 따라야 한다."""
+    if pick == TIE:
+        raise ValueError("판별 묶음에는 '비슷해요'가 없어요. 두 글 가운데 하나를 골라 주세요")
+    lo, hi = CONFIDENCE
+    if pick and not lo <= int(confidence) <= hi:
+        raise ValueError("확신을 1~4 가운데 골라 주세요")
 
 
 @_locked
 def reveal(bid: str) -> BlindSet:
     """결과를 연다. 모든 글에 점수가 있어야 한다 (나란히 한 번 읽기는 모든 쌍을 골라야 한다). 한 번 열면 닫지 못한다."""
     s = load(bid)
-    if s.mode == "side":
+    if s.mode in ("side", "ident"):
         open_ = [d for d in duels(s) if not d["pick"]]
         if open_:
             raise ValueError(f"아직 고르지 않은 쌍이 {len(open_)}개 있어요")
-    left = [x.no for x in s.items if not x.score] if s.mode != "side" else []
+    left = [x.no for x in s.items if not x.score] if s.mode not in ("side", "ident") else []
     if left:
         raise ValueError(f"아직 점수를 매기지 않은 글이 {len(left)}편 있어요")
     if not s.revealed_at:
@@ -351,6 +394,8 @@ def mark(bid: str, no: str, idx: int, on: bool = True) -> BlindSet:
     글자가 같은 글이 또 있으면 그 글에도 같이 긋는다 (화면은 같은 글을 한 번만 보인다).
     나란히 한 번 읽기 묶음은 거꾸로 결과를 열기 전에만 긋고, 글자가 같은 글에 따라 긋지 않는다 (두 번 읽은 긋기의 차가 흔들림이다)."""
     s = load(bid)
+    if s.mode == "ident":
+        raise ValueError("판별 묶음은 고르기만 받아요")
     side = s.mode == "side"
     if side and s.revealed_at:
         raise ValueError("결과를 연 묶음은 고칠 수 없어요")
@@ -512,7 +557,7 @@ def summary(s: BlindSet) -> dict:
     """목록 한 줄. 나란히 한 번 읽기는 고른 쌍 수(picked)와 전체 쌍 수(pairs)를 더 싣는다."""
     out = {"id": s.id, "title": s.title, "note": s.note, "created_at": s.created_at, "items": len(s.items),
            "scored": sum(1 for x in s.items if x.score), "revealed_at": s.revealed_at, "mode": s.mode}
-    if s.mode == "side":
+    if s.mode in ("side", "ident"):
         ds = duels(s)
         out["picked"], out["pairs"] = sum(1 for d in ds if d["pick"]), len(ds)
     return out
@@ -533,6 +578,8 @@ def view(s: BlindSet) -> dict:
     """화면 값. 결과를 열기 전에는 판 이름과 대목 이름, 대목 묶음(pieces)을 싣지 않는다.
     쌍 비교의 쌍(duels)은 글을 모두 매긴 뒤부터 번호 둘로만 싣는다: 어느 두 글이 같은 대목인지는 글을 읽으면 아는 것이고, 판은 드러나지 않는다.
     나란히 한 번 읽기 묶음은 쌍을 처음부터 두 글의 문장 목록 · 그은 문장 · 체크와 함께 싣는다 (side_duels). 긋기는 쌍 화면에서 하므로 대목 묶음(pieces)은 늘 비운다."""
+    if s.mode == "ident":
+        return _ident_view(s)
     if s.mode == "side":
         out = {**summary(s), "scale": SCALE, "source": s.source, "criteria": criteria(s),
                "texts": [{"no": x.no, "text": x.text, "chars": len(x.text), "score": x.score, "note": x.note, "flags": list(x.flags)} for x in s.items],
@@ -545,4 +592,21 @@ def view(s: BlindSet) -> dict:
     if s.revealed_at:
         out["result"] = result(s)
         out["pieces"] = pieces(s)
+    return out
+
+
+def _ident_view(s: BlindSet) -> dict:
+    """판별 묶음의 화면 값. 결과를 열기 전에는 판 이름 · 대목 이름 · answer_arm 을 어디에도 싣지 않는다 (글 번호와 글만).
+    쌍마다 두 글의 본문만 싣고 문장 나누기 · 긋기 · 체크는 없다. 결과를 연 뒤에는 판별 통계와 글마다 판 · 대목을 싣는다."""
+    from . import blindstats
+
+    text = {x.no: x.text for x in s.items}
+    out = {**summary(s), "scale": SCALE, "source": s.source if s.revealed_at else "", "criteria": [],
+           "texts": [{"no": x.no, "text": x.text, "chars": len(x.text), "score": 0, "note": "", "flags": []} for x in s.items],
+           "has_key": bool(s.key), "result": None, "pieces": [],
+           "duels": [{**d, "left": {"text": text[d["a"]]}, "right": {"text": text[d["b"]]}} for d in duels(s)]}
+    if s.revealed_at:
+        arm = {k.no: k for k in s.key}
+        out["result"] = {"ident": blindstats.ident_stats(s),
+                         "rows": [{"no": x.no, "arm": arm[x.no].arm if x.no in arm else "", "piece": arm[x.no].piece if x.no in arm else ""} for x in s.items]}
     return out

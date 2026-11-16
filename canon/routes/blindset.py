@@ -30,7 +30,8 @@ class BlindIn(BaseModel):
     items: list[BlindTextIn]
     key: list[BlindKeyIn] = []
     criteria: list[str] = []  # 비우면 blindset.CRITERIA
-    mode: str = ""  # '' 는 점수 매기기, 'side' 는 나란히 한 번 읽기 (blindset.MODES)
+    mode: str = ""  # '' 는 점수 매기기, 'side' 는 나란히 한 번 읽기, 'ident' 는 판별 (blindset.MODES)
+    answer_arm: str = ""  # 판별 묶음의 정답 판 이름 (레퍼런스 원고)
 
 
 class BlindScoreIn(BaseModel):
@@ -47,7 +48,9 @@ class BlindFlagIn(BaseModel):
 class BlindDuelIn(BaseModel):
     a: str
     b: str
-    pick: str = ""  # 나은 글의 번호, '=' 는 비슷함, '' 는 지움
+    pick: str = ""  # 나은 글의 번호, '=' 는 비슷함, '' 는 지움. 판별 묶음은 정답이라 믿는 글의 번호
+    confidence: int = 0  # 판별 묶음의 확신 1~4
+    seconds: int = 0  # 판별 묶음에서 쌍을 띄운 뒤 고를 때까지 초
 
 
 class BlindMarkIn(BaseModel):
@@ -72,7 +75,7 @@ def create_blind(body: BlindIn) -> dict:
     """묶음을 넣는다 (실험 스크립트용. 화면에는 넣는 칸이 없다)."""
     try:
         s = blindset.create(body.title, [x.model_dump() for x in body.items], [k.model_dump() for k in body.key], body.note, criteria=body.criteria,
-                             mode=body.mode)
+                             mode=body.mode, answer_arm=body.answer_arm)
     except ValueError as e:
         raise HTTPException(400, str(e))
     return blindset.view(s)
@@ -124,7 +127,7 @@ def duel_blind(bid: str, body: BlindDuelIn) -> dict:
     """쌍 비교의 답 하나를 적는다 (글을 모두 매긴 뒤, 결과를 열기 전에만)."""
     _set(bid)
     try:
-        return blindset.view(blindset.duel(bid, body.a, body.b, body.pick))
+        return blindset.view(blindset.duel(bid, body.a, body.b, body.pick, body.confidence, body.seconds))
     except KeyError as e:
         raise HTTPException(404, str(e.args[0]))
     except ValueError as e:

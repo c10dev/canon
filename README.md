@@ -1127,15 +1127,19 @@ export CANON_MODEL_STATE=deepseek-v4.1-flash-value
 
 **나란히 한 번 읽기** 묶음(`--side` 로 넣음)은 점수를 매기지 않는다. 같은 대목에서 판이 다른 두 글이 나란히 놓이고, 읽으면서 거슬린 문장을 긋고 거슬린 점을 누른 뒤 나은 쪽을 고른다. 글은 대개 한 번만 읽는다. 모든 쌍을 고르면 결과가 열리고, 판마다 그은 문장 수(글당 · 1천 자당)와 이긴 몫이 나온다. 같은 글이 두 번 들어 있으면 두 편에 따로 그은 수의 차가 흔들림이다.
 
+**판별** 묶음(`--ident 레퍼런스` 로 넣음)은 길이를 맞춘 짝에서 어느 쪽이 레퍼런스 원고인지 비김 없이 고른다. 고를 때마다 확신(1 짐작 · 4 확실)을 함께 누르고, 쌍을 읽은 초도 남는다. 모든 쌍을 고르면 결과가 열리고, 정답 수 · 정확도 · 95% 구간 · 확신 기반 AUC · 차례별 정확도와 판정이 나온다. 20쌍 중 16쌍 이상이면 격차를 확인한 것이고, 못 미치면 37쌍까지 읽어 24쌍 이상인지 본다.
+
 묶음은 실험이 만들어 넣는다. 화면에는 넣는 칸이 없다.
 
 ```bash
 python -m canon blind import reports/<실험>/blind --title "문체 규칙 비교"   # 01.txt … 와 blind_key.json 이 있는 폴더
 python -m canon blind import reports/<실험>/blind --side   # 나란히 한 번 읽기
+python -m canon blind import reports/<실험>/blind --ident 레퍼런스   # 판별: 어느 쪽이 레퍼런스인지 고름
 python -m canon blind list
 ```
 
 결과를 연 묶음의 쌍 비교는 `python -m canon blind stats [<묶음 id>]` 로 판 짝마다 승률 · 95% 구간 · 비김 · 다시 물은 쌍의 일치를 본다. `--null base:base2` 로 같은 조건의 두 판을 기준선으로 적고, `--json` 으로 JSON 을 받는다.
+판별 묶음은 승률 표 대신 정답 수 · 정확도 · 단측 p · 확신 AUC · 판정을 찍는다.
 
 묶음은 `projects/.blind/` 에 남고(`CANON_BLIND` 로 바꿈) 작품에는 들어가지 않는다. AI 를 부르지 않는다.
 

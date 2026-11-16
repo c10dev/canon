@@ -7,6 +7,8 @@
    쌍 비교 (#/blind/<id>/duel[/<쌍 차례 1부터>]): 같은 대목의 두 글을 나란히 놓고 나은 쪽을 고른다. 쌍 비교 화면은 번호와 점수를 보이지 않는다.
    나란히 한 번 읽기 묶음 (mode 'side'): 점수가 없다. 결과를 열기 전 #/blind/<id>[/duel/<쌍 차례>] 는 쌍 화면(blSideView)이다.
    두 칸에 판이 다른 두 글을 문장 단위로 그려 누르면 긋고, 칸마다 기준 항목을 체크하고, 아래에서 나은 쪽을 고른다. 다 고르면 결과 보기.
+   판별 묶음 (mode 'ident'): 점수도 긋기도 없다. 결과를 열기 전 어느 주소든 쌍 화면(blIdentView)이고, 두 글 가운데 레퍼런스 원고 같은 쪽을
+   확신 1~4와 함께 고른다 (버튼 8개, blIdentButtons). 쌍을 띄운 뒤 고를 때까지의 초를 함께 보낸다. 결과는 blIdentResult (정확도 · AUC · 판정).
    blNext · blProgress · blArmNote · blMarkCount · blColHead · blDuelNext · blDuelLeft 는 DOM 없는 순수 함수 (tests/test_blindset.py). CSS 는 JS 에서 주입 */
 
 Object.assign(S, {
@@ -15,6 +17,7 @@ Object.assign(S, {
   blNo: '',      // 읽고 있는 글 번호
   blPiece: -1,   // 긋기 화면에서 보는 대목 차례 (-1 은 긋기 화면이 아님)
   blDuel: -1,    // 쌍 비교 화면에서 보는 쌍 차례 (-1 은 쌍 비교 화면이 아님)
+  blShownAt: 0,  // 판별 묶음에서 지금 쌍을 띄운 때 (Date.now())
 });
 
 async function blLoad(id, no, sub) {
@@ -22,8 +25,9 @@ async function blLoad(id, no, sub) {
   if (!S.bl || S.bl.id !== id) S.bl = await api('GET', `/blind/${enc(id)}`);
   S.blPiece = -1;
   S.blDuel = -1;
-  if (S.bl.mode === 'side' && !S.bl.result && (S.bl.duels || []).length) {
-    // 나란히 한 번 읽기는 결과를 열기 전 어느 주소든 쌍 화면이다 (점수 버튼이 있는 글 하나 화면은 없다)
+  if ((S.bl.mode === 'side' || S.bl.mode === 'ident') && !S.bl.result && (S.bl.duels || []).length) {
+    // 나란히 한 번 읽기 · 판별은 결과를 열기 전 어느 주소든 쌍 화면이다 (점수 버튼이 있는 글 하나 화면은 없다)
+    S.blShownAt = Date.now();
     const next = blDuelNext(S.bl.duels, -1);
     const want = no === 'duel' && sub ? Number(sub) - 1 : (next >= 0 ? next : S.bl.duels.length - 1);
     S.blDuel = Math.min(Math.max(want || 0, 0), S.bl.duels.length - 1);
@@ -55,7 +59,7 @@ function blNext(texts, cur) {
 
 /** 진행 한 줄 ('7 / 11편 매김', 나란히 한 번 읽기는 '3 / 7쌍 고름'). 순수 함수 */
 function blProgress(b) {
-  if (b.mode === 'side') return `${b.picked || 0} / ${b.pairs || 0}쌍 고름`;
+  if (b.mode === 'side' || b.mode === 'ident') return `${b.picked || 0} / ${b.pairs || 0}쌍 고름`;
   return `${b.scored} / ${b.items}편 매김`;
 }
 
@@ -268,8 +272,56 @@ function blSideView(b) {
     <div class="bl-rate"><div class="seg" role="group" aria-label="어느 글이 나은지">${btn('a', '왼쪽이 나아요')}${btn('=', '비슷해요')}${btn('b', '오른쪽이 나아요')}</div></div>`;
 }
 
+/** 판별 묶음의 버튼 8개: 왼쪽 4 · 3 · 2 · 1, 오른쪽 1 · 2 · 3 · 4 (글자 '왼쪽 4', arg 'a:4'). on 은 지금 답과 같은 것. 순수 함수 */
+function blIdentButtons(d) {
+  const out = [];
+  for (const [side, name, confs] of [['a', '왼쪽', [4, 3, 2, 1]], ['b', '오른쪽', [1, 2, 3, 4]]]) {
+    for (const c of confs) out.push({ arg: `${side}:${c}`, label: `${name} ${c}`, on: !!d.pick && d.pick === d[side] && d.confidence === c });
+  }
+  return out;
+}
+
+function blIdentView(b) {
+  const d = b.duels[S.blDuel];
+  const total = b.duels.length;
+  const left = blDuelLeft(b);
+  const tabs = b.duels.map((x, i) => `<a href="#/blind/${b.id}/duel/${i + 1}" class="bl-no${i === S.blDuel ? ' on' : ''}${x.pick ? ' done' : ''}"${i === S.blDuel ? ' aria-current="true"' : ''}>${i + 1}</a>`).join('');
+  const col = (t, label) => `<section class="card bl-col"><h2>${label}</h2><div class="bl-body" tabindex="0">${t.text.split(/\n\s*\n/).map((p) => `<p>${esc(p).replace(/\n/g, '<br>')}</p>`).join('')}</div></section>`;
+  const btns = blIdentButtons(d).map((x) => `<button type="button" aria-pressed="${x.on}" data-action="blIdent" data-arg="${x.arg}">${x.label}</button>`).join('');
+  const menu = menuBtn('bl-more', '⋯', () => `<div class="pop-sec pop-danger"><details><summary class="small">이 묶음 지우기</summary>
+      <div class="small">글과 고른 것이 함께 사라져요.</div><button type="button" class="pop-item danger" data-action="blDelete">지우기</button></details></div>`, { aria: '묶음 더보기' });
+  // 주 버튼은 하나: 모든 쌍을 고르면 결과 보기
+  const right = `<a class="btn" href="#/blind">목록으로</a>${left ? '' : '<button type="button" class="btn primary" data-action="blReveal">결과 보기</button>'}${menu}`;
+  const desc = `${total - left} / ${total}쌍 골랐어요. 두 글 가운데 하나가 레퍼런스 원고예요. 어느 쪽인지와 확신(1 짐작 · 4 확실)을 눌러요.`;
+  return `${header('가려 읽기 묶음', b.title, esc(desc), right)}<nav class="bl-nav" aria-label="쌍">${tabs}</nav>
+    <div class="bl-cols bl-duel">${col(d.left, '왼쪽')}${col(d.right, '오른쪽')}</div>
+    <div class="bl-rate"><div class="seg" role="group" aria-label="어느 쪽이 레퍼런스 원고인지와 확신 (1 짐작 · 4 확실)">${btns}</div></div>`;
+}
+
+const BL_VERDICT = { gap: '격차를 확인했어요', more: '17쌍을 더 읽어 37쌍에서 다시 봐요', not_shown: '37쌍에서 격차를 보이지 못했어요', short: '20쌍에 못 미쳐 판정하지 않아요' };
+
+function blIdentResult(b) {
+  const r = b.result;
+  const st = r.ident;
+  const pct = (x) => (x == null ? '-' : x.toFixed(2));
+  const [lo, hi] = st.wilson;
+  const tab = (head, rows) => `<div class="bl-table-wrap"><table class="bl-table"><thead><tr>${head.map((h) => `<th scope="col">${h}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
+  const conf = tab(['확신', '쌍', '정답'], st.by_confidence.map((c) => `<tr><td class="num">${c.confidence}</td><td class="num">${c.n}</td><td class="num">${c.correct}</td></tr>`));
+  const blocks = tab(['쌍 차례', '쌍', '정답'], st.blocks.map((c) => `<tr><td>${c.from}~${c.to}</td><td class="num">${c.n}</td><td class="num">${c.correct}</td></tr>`));
+  const rows = r.rows.map((x) => `<tr><td>${esc(x.no)}</td><td>${esc(x.arm)}</td><td>${esc(x.piece)}</td></tr>`).join('');
+  const warn = st.warnings.length ? `<ul class="small">${st.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>` : '';
+  return `<section class="card"><h2>판별 결과</h2>
+    <p><strong>정답 ${st.correct} / ${st.n}쌍</strong> · 정확도 ${pct(st.accuracy)} (95% ${lo.toFixed(2)}~${hi.toFixed(2)}) · ${esc(BL_VERDICT[st.verdict])}</p>
+    <p class="small">확신 기반 AUC ${pct(st.auc)} · 우연이면 이만큼 맞힐 확률 p ${st.p.toFixed(4)} (단측)</p>
+    ${conf}${blocks}
+    <p class="small">${st.repeat ? `같은 쌍을 두 번 물은 ${st.repeat.of}번 가운데 ${st.repeat.same}번은 답이 같았어요. ` : ''}${st.fast}쌍은 30초 안에 골랐어요.</p>${warn}</section>
+    <section class="card"><h2>글마다</h2>${tab(['번호', '판', '대목'], [rows])}</section>`;
+}
+
 function blSetView() {
   const b = S.bl;
+  if (b.mode === 'ident' && b.result) return `${header('가려 읽기 묶음', b.title, esc(`결과를 ${fmtDateTime(b.revealed_at)}에 열었어요. 고른 것은 고칠 수 없어요.`), '<a class="btn" href="#/blind">목록으로</a>')}${blIdentResult(b)}`;
+  if (b.mode === 'ident' && S.blDuel >= 0) return blIdentView(b);
   if (b.mode === 'side' && !b.result && S.blDuel >= 0) return blSideView(b);
   if (S.blPiece >= 0) {
     return `${header('가려 읽기 묶음', b.title, '거슬린 문장 긋기 · 판 이름은 여기서 보이지 않아요.', `<a class="btn" href="#/blind/${b.id}">결과로 돌아가기</a>`)}${blMarks(b)}`;
@@ -324,9 +376,24 @@ Object.assign(actions, {
     if (!S.bl.duels[S.blDuel].pick) render();
     else location.hash = next >= 0 ? `#/blind/${b.id}/duel/${next + 1}` : `#/blind/${b.id}`;
   },
+  async blIdent(arg) {
+    const b = S.bl;
+    const d = b.duels[S.blDuel];
+    if (!d || b.result) return;
+    const [side, conf] = String(arg).split(':');
+    const pick = d[side];
+    const same = d.pick === pick && d.confidence === Number(conf);
+    try {
+      S.bl = await api('PUT', `/blind/${enc(b.id)}/duels`, { a: d.a, b: d.b, pick: same ? '' : pick, confidence: same ? 0 : Number(conf), seconds: Math.round((Date.now() - S.blShownAt) / 1000) });
+    } catch (e) { return showError(e); }
+    const next = blDuelNext(S.bl.duels, S.blDuel);
+    // 다 고르면 그 자리에 둔다 (머리에 결과 보기가 생긴다). 지웠으면 그 자리에 둔다
+    if (!S.bl.duels[S.blDuel].pick || next < 0) { S.blShownAt = Date.now(); return render(); }
+    location.hash = `#/blind/${b.id}/duel/${next + 1}`;
+  },
   async blReveal() {
     const left = blDuelLeft(S.bl);
-    const what = S.bl.mode === 'side' ? '긋기와 고른 것은' : '점수는';
+    const what = S.bl.mode === 'side' ? '긋기와 고른 것은' : S.bl.mode === 'ident' ? '고른 것은' : '점수는';
     if (!(await askConfirm(`결과를 열면 어느 글이 어느 판인지 보이고, ${what} 고칠 수 없어요.${left ? ` 쌍 비교 ${left}쌍은 고르지 않은 채로 남아요.` : ''} 열까요?`, { ok: '결과 보기' }))) return;
     await run('결과를 여는 중', async () => {
       S.bl = await api('POST', `/blind/${enc(S.bl.id)}/reveal`);
@@ -336,7 +403,7 @@ Object.assign(actions, {
     });
   },
   async blDelete() {
-    if (!(await askConfirm(`'${S.bl.title}' 묶음을 지울까요? 글과 ${S.bl.mode === 'side' ? '고른 것이' : '점수가'} 함께 사라져요.`, { ok: '지우기', danger: true }))) return;
+    if (!(await askConfirm(`'${S.bl.title}' 묶음을 지울까요? 글과 ${S.bl.mode === 'side' || S.bl.mode === 'ident' ? '고른 것이' : '점수가'} 함께 사라져요.`, { ok: '지우기', danger: true }))) return;
     await run('묶음을 지우는 중', async () => {
       await api('DELETE', `/blind/${enc(S.bl.id)}`);
       S.bl = null;
