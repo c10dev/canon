@@ -1,0 +1,29 @@
+# 매주 월요일에 주별 코드 건강 지표 표(크기 · 복잡도 · 경고 밀도 · 변경 크기)를 실행 요약에 남긴다.
+# 코드가 어느 쪽으로 가는지 추세를 보려는 것이라 실패하는 기준은 두지 않는다.
+name: 코드 건강 지표
+
+on:
+  schedule:
+    - cron: "0 0 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  metrics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - name: 의존성 설치
+        run: pip install -r requirements.lock
+      - name: 지표 표
+        run: python scripts/health_metrics.py >> "$GITHUB_STEP_SUMMARY"
