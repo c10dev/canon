@@ -1135,6 +1135,8 @@ python -m canon blind import reports/<실험>/blind --side   # 나란히 한 번
 python -m canon blind list
 ```
 
+결과를 연 묶음의 쌍 비교는 `python -m canon blind stats [<묶음 id>]` 로 판 짝마다 승률 · 95% 구간 · 비김 · 다시 물은 쌍의 일치를 본다. `--null base:base2` 로 같은 조건의 두 판을 기준선으로 적고, `--json` 으로 JSON 을 받는다.
+
 묶음은 `projects/.blind/` 에 남고(`CANON_BLIND` 로 바꿈) 작품에는 들어가지 않는다. AI 를 부르지 않는다.
 
 ## 지시 연습 (AI에게 장면을 시키는 말 연습)
