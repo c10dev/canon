@@ -704,6 +704,54 @@ def consistency(labels: list[SoeLabel], seed: int = SEED, n_boot: int = labstats
             "hold": hold, "hold_below": labstats.KAPPA_HOLD}
 
 
+def _acc_cell(correct: int, n: int, unsure: int) -> dict:
+    """작가 정확도의 클래스 한 칸. n 이 0 이면 rate 는 None, ci95 는 [0.0, 1.0]."""
+    lo, hi = labstats.wilson(correct, n)
+    return {"n": n, "correct": correct, "unsure": unsure, "rate": _rnd(correct / n) if n else None,
+            "ci95": [_rnd(lo), _rnd(hi)]}
+
+
+def _acc_batches(rows: list[tuple[int, bool, bool]]) -> list[dict]:
+    """rows: (판정 차례 i, 셈 대상 여부, 맞힘 여부). 묶음 번호 차례로 n · correct · rate."""
+    seen: dict[int, list[int]] = {}
+    for i, counted, ok in rows:
+        cell = seen.setdefault(i // BATCH + 1, [0, 0])
+        cell[0] += counted
+        cell[1] += counted and ok
+    return [{"batch": b, "n": n, "correct": c, "rate": _rnd(c / n) if n else None} for b, (n, c) in sorted(seen.items())]
+
+
+def author_accuracy(firsts: list[SoeLabel], by_id: dict[str, SoePiece], hidden: set[str]) -> dict:
+    """작가 정확도: 조각마다 첫 판정을 출처(origin)와 견준다.
+    firsts 는 첫 판정 목록이고 차례는 _firsts(labels) 의 차례(판정한 차례)다.
+    가린 조각(hidden: 다시 읽기 예정 · 예비)은 세지 않는다. 출처가 human · ai 가 아닌 조각(edited · unknown)과 by_id 에 없는 조각도 세지 않는다."""
+    tally = {o: [0, 0, 0] for o in ("human", "ai")}  # n, correct, unsure
+    rows: list[tuple[int, bool, bool]] = []
+    left = {"hidden": 0, "other_origin": 0}
+    for i, lb in enumerate(firsts):
+        p = by_id.get(lb.piece)
+        if lb.piece in hidden:
+            left["hidden"] += 1
+        elif p is None or p.origin not in tally:
+            left["other_origin"] += 1
+        else:
+            t = tally[p.origin]
+            voted = lb.verdict in ("ai", "human")
+            t[0] += voted
+            t[1] += voted and lb.verdict == p.origin
+            t[2] += not voted
+            rows.append((i, voted, voted and lb.verdict == p.origin))
+            continue
+        rows.append((i, False, False))
+    cells = {o: _acc_cell(t[1], t[0], t[2]) for o, t in tally.items()}
+    h, a = cells["human"], cells["ai"]
+    both = h["n"] + a["n"]
+    return {"human": h, "ai": a,
+            "balanced": _rnd((h["correct"] / h["n"] + a["correct"] / a["n"]) / 2) if h["n"] and a["n"] else None,
+            "majority": _rnd(max(h["n"], a["n"]) / both) if both else None,
+            "by_batch": _acc_batches(rows), "left_out": left}
+
+
 def _sent_of(spans: list[tuple[int, int]], at: int) -> int:
     """글자 자리 at 이 든 문장 번호. 문장 사이 빈칸이면(정규식이 앞 빈칸부터 잡을 때) 다음 문장."""
     return next((i for i, (a, b) in enumerate(spans) if at < b), -1)
@@ -828,6 +876,7 @@ def report(seed: int = SEED, n_boot: int = labstats.BOOT, save: bool = True) -> 
                    "by_source": dict(Counter(p.source.kind for p in pieces)),
                    "queue": len(q["order"]), "redo": len(q["redo"]), "judged": len(firsts), "hidden": len(hidden)},
         "notes": notes, "first_round": first_round, "consistency": cons, "metrics": rows,
+        "author_accuracy": author_accuracy(list(firsts.values()), by_id, hidden),
         "same": _same_pairs(free, feats), "patterns": pattern_table(by_id, labels), "edits": _edit_rows(pieces, feats),
         "pieces": [{"id": p.id, "origin": p.origin, "model": p.model, "group": p.group, "source": p.source.kind,
                     "chars": p.chars, "values": feats[p.id]} for p in pieces if p.id not in masked],
@@ -926,6 +975,32 @@ def export(include_hidden: bool = False) -> dict:
     }
 
 
+def _acc_rate(c: dict, label: str) -> str:
+    if not c["n"]:
+        return f"{label} –"
+    return f"{label} {c['correct']}/{c['n']} ({c['rate']:.2f} [{c['ci95'][0]:.2f}–{c['ci95'][1]:.2f}])"
+
+
+def _accuracy_lines(block: Optional[dict]) -> list[str]:
+    """describe 의 작가 정확도 줄. 옛 보고서 파일에는 블록이 없다(None)."""
+    if block is None:
+        return []
+    h, a = block["human"], block["ai"]
+    if not h["n"] + a["n"]:
+        return ["작가 정확도는 사람 글이나 AI 글을 판정하면 보여요."]
+    bal = "–" if block["balanced"] is None else f"{block['balanced']:.2f}"
+    lines = [f"작가 정확도: {_acc_rate(h, '사람 글')} · {_acc_rate(a, 'AI 글')} · 균형 정확도 {bal} · "
+             f"모르겠어요 {h['unsure'] + a['unsure']}개"]
+    if block["majority"] is not None:
+        lines.append(f"! 늘 많은 쪽으로 답해도 {block['majority']:.2f} 라 전체 정확도는 쓰지 않아요")
+    if block["by_batch"]:
+        lines.append("이번 10개 차례별: " + " · ".join(
+            f"{b['batch']}) " + (f"{b['correct']}/{b['n']}" if b["n"] else "–") for b in block["by_batch"]))
+    if block["left_out"]["hidden"] > 0:
+        lines.append(f"가린 조각 {block['left_out']['hidden']}개는 정답이 보일 때까지 세지 않아요")
+    return lines
+
+
 def describe(rep: dict) -> str:
     """보고서를 명령줄 글로."""
     c = rep["counts"]
@@ -960,6 +1035,7 @@ def describe(rep: dict) -> str:
     lines.append(f"판정 {c['judged']}개 · 다시 읽기 {cons['pairs']}개" + (
         f" · 판정 일관성 {cons['kappa']} [{cons['ci95'][0]}–{cons['ci95'][1]}]" if cons["kappa"] is not None else "")
         + (" · 보류" if cons["hold"] else ""))
+    lines += _accuracy_lines(rep.get("author_accuracy"))
     if not c["judged"]:
         lines.append(f"작가 판정 기준 가르는 힘은 판정 {AUTHOR_MIN}개부터 보여요.")
     if rep["same"]:
