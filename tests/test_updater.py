@@ -1,8 +1,12 @@
 """자동 업데이트 테스트. 임시 git 저장소 두 개(origin, 클론)로 확인한다."""
+import json
+import os
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from canon import updater
 
@@ -77,7 +81,7 @@ class UpdaterTest(unittest.TestCase):
         self.commit("canon/__init__.py", "", "패키지")
         self.commit("canon/web.py", "x = 1\n", "웹")
         git(self.dev, "push", "-q", "origin", "HEAD:main")
-        self.assertTrue(updater.update(self.clone, install=False).updated)
+        self.assertTrue(updater.update(self.clone, install=False, start=False).updated)  # 시험용 web.py 는 서버가 아니다
         good = git(self.clone, "rev-parse", "HEAD")
         self.commit("canon/web.py", "def broken(:\n", "깨진 커밋")
         git(self.dev, "push", "-q", "origin", "HEAD:main")
@@ -86,6 +90,49 @@ class UpdaterTest(unittest.TestCase):
         self.assertIn("이전 버전으로 돌렸어요", r.message)
         self.assertEqual(git(self.clone, "rev-parse", "HEAD"), good)
         self.assertEqual((self.clone / "canon" / "web.py").read_text(), "x = 1\n")
+
+    def test_rolls_back_when_start_check_fails(self):
+        self.push_new()
+        with mock.patch.object(updater, "_start_check", return_value="boom"):
+            r = updater.update(self.clone, install=False)
+        self.assertFalse(r.updated)
+        self.assertTrue(r.rolled_back)
+        self.assertIn("boom", r.message)
+        self.assertEqual((self.clone / "a.txt").read_text(), "1")
+
+    def test_records_pull_only(self):
+        with tempfile.TemporaryDirectory() as d, mock.patch.dict(os.environ, {"CANON_CONFIG": f"{d}/config.json"}):
+            log = Path(d) / "update-log.jsonl"
+            updater.update(self.clone, install=False)  # 최신이면 기록 없음
+            self.assertFalse(log.exists())
+            self.push_new()
+            self.assertTrue(updater.update(self.clone, install=False).updated)
+            lines = log.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(lines), 1)
+            row = json.loads(lines[0])
+            self.assertEqual(set(row), {"at", "updated", "rolled_back", "old", "new", "message"})
+            self.assertEqual((len(row["old"]), len(row["new"])), (7, 7))
+
+    def _fake_repo(self, main: str) -> Path:
+        root = Path(self.tmp.name) / "fake"
+        (root / "canon").mkdir(parents=True)
+        (root / "canon" / "__init__.py").write_text("")
+        (root / "canon" / "web.py").write_text("")
+        (root / "canon" / "__main__.py").write_text(main)
+        return root
+
+    def test_start_check_reports_exit_code(self):
+        self.assertIn("종료 코드 3", updater._start_check(self._fake_repo("import sys; sys.exit(3)\n"), timeout=10))
+
+    def test_start_check_times_out(self):
+        root = self._fake_repo("import time; time.sleep(60)\n")
+        t0 = time.monotonic()
+        msg = updater._start_check(root, timeout=2)
+        self.assertLess(time.monotonic() - t0, 5)
+        self.assertIn("초 안에", msg)
+
+    def test_start_check_passes_on_this_repo(self):
+        self.assertEqual(updater._start_check(Path(updater.__file__).resolve().parent.parent, timeout=60), "")
 
     def test_not_a_repo(self):
         self.assertFalse(updater.update(Path(self.tmp.name), install=False).updated)

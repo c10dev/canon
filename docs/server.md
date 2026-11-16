@@ -38,4 +38,25 @@ PR 과 `main` 푸시마다 GitHub Actions(`.github/workflows/test.yml`)가 전�
    - 변수 `CANON_SERVER_URL`: `https://<서버이름>.<tailnet>.ts.net:8446` (끝에 / 없이)
 4. Actions 탭에서 '서버에 새 코드 알리기'를 손으로 한 번 돌려(Run workflow) 서버 로그(`journalctl -u canon -f`)에 `[업데이트]` 줄이 바로 찍히는지 본다.
 
+## 받은 뒤 점검과 되돌림
+
+서버는 새 코드를 받으면 다시 시작하기 전에 아래 순서로 점검한다. 하나라도 실패하면 `git reset --keep` 으로 이전 커밋으로 돌리고, 다시 시작하지 않는다.
+
+1. 의존성 설치: `requirements.txt` 나 `requirements.lock` 이 바뀌었을 때만 한다.
+2. import: 새 프로세스에서 `canon.web` 을 불러 본다.
+3. 임시 서버 시작: 새 코드로 서버를 빈 포트와 빈 데이터 폴더로 띄우고 `GET /` 가 200 인지 본다. 60초 안에 200 을 받지 못하거나 프로세스가 먼저 끝나면 실패다. 점검이 끝나면 임시 서버와 임시 폴더를 지운다.
+
+받았거나 되돌렸을 때만 기록 파일에 한 줄을 덧붙인다. 최신이거나 건너뛴 경우에는 쓰지 않는다. 기록 파일은 설정 파일(`CANON_CONFIG`, 기본 `~/.canon/config.json`)과 같은 폴더의 `update-log.jsonl` 이다. 한 줄은 JSON 하나다.
+
+```json
+{"at": "2026-11-16T09:00:00Z", "updated": false, "rolled_back": true, "old": "abc1234", "new": "def5678", "message": "새 코드로 서버를 띄우지 못해 이전 버전으로 돌렸어요: ..."}
+```
+
+`at` 은 UTC 시각, `old` 와 `new` 는 7자리 커밋이다. 기록에 실패해도 서버는 멈추지 않는다.
+
+남는 틈:
+
+- 임시 서버는 빈 데이터 폴더로 뜬다. 실제 작품을 읽을 때만 나는 오류는 잡지 못한다.
+- 다시 시작한 뒤에 죽으면 되돌리지 않는다. systemd 의 `Restart=on-failure` 는 같은 코드로 다시 띄울 뿐이다.
+
 `CANON_SERVER_URL` 이 없으면 워크플로는 돌지 않는다.
