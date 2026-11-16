@@ -289,7 +289,13 @@ def write_episode_scenes(rows: list[dict], settings, styles: dict[str, tuple], b
 
 def make_pairs(rows: list[dict], done: dict) -> tuple[list[dict], dict]:
     """짝 목록과 센 값. 글이 없거나 오류이면 missing, 문체 겹침으로 쓰지 않은 대목은 style_overlap,
-    대목 · 문체 예시 문단의 문장을 옮겼으면 copied 로 뺀다."""
+    대목 · 문체 예시 문단의 문장을 옮겼으면 copied 로 뺀다. names 는 같은 rid 모든 대목의 사실 카드 이름을 합친다."""
+    rid_names: dict[str, list[str]] = {}
+    for r in rows:
+        f = r["facts"]
+        got = rid_names.setdefault(r["rid"], [])
+        got.extend(x for x in [*(p["name"] for p in f["people"]), f["pov"]] if x)
+    rid_names = {k: list(dict.fromkeys(v)) for k, v in rid_names.items()}
     pairs: list[dict] = []
     stats = {"rows": len(rows), "pairs": 0, "missing": 0, "copied": 0, "style_overlap": 0}
     for r in rows:
@@ -304,9 +310,7 @@ def make_pairs(rows: list[dict], done: dict) -> tuple[list[dict], dict]:
         if metrics.copied_sentences(base, [r["source"], r["lead"], *plan.get("style_passages", [])]):
             stats["copied"] += 1
             continue
-        f = r["facts"]
-        names = list(dict.fromkeys(x for x in [*(p["name"] for p in f["people"]), f["pov"]] if x))
-        pair = {"ref": r["source"], "base": base, "names": names, "rid": r["rid"], "order": r["order"]}
+        pair = {"ref": r["source"], "base": base, "names": rid_names[r["rid"]], "rid": r["rid"], "order": r["order"]}
         base2 = (done.get(f"{r['id']}|2") or {}).get("text") or ""
         if base2:
             pair["base2"] = base2

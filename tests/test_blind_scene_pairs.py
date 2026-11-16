@@ -87,6 +87,22 @@ def test_pick_write_pairs(home):
     json.dumps(pairs, ensure_ascii=False)
 
 
+def test_make_pairs_names_union_per_rid(home):
+    m = _load("blind_scene_pairs")
+
+    def row(i, rid, names):
+        facts = DrillFacts(people=[{"name": n, "note": "인물"} for n in names], pov=names[0], place="", time="", before="",
+                           inner=[], events=["일"]).model_dump()
+        return {"id": f"S{i}", "rid": rid, "order": i, "part": 0, "source": f"원문 {i}번 대목이에요.", "lead": f"앞 {i}", "facts": facts}
+
+    rows = [row(1, "r1", ["가", "나"]), row(2, "r1", ["나", "다"]), row(3, "r2", ["라"])]
+    done = {f"{r['id']}|1": {"text": f"새 글 {r['id']}"} for r in rows}
+    pairs, st = m.make_pairs(rows, done)
+    assert st["pairs"] == 3
+    assert pairs[0]["names"] == pairs[1]["names"] == ["가", "나", "다"]
+    assert pairs[2]["names"] == ["라"]
+
+
 def test_joined_passages_do_not_overlap(home):
     m = _load("blind_scene_pairs")
     rid = _book(1).id
