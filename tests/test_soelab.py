@@ -347,3 +347,54 @@ def test_cli(home, capsys):
     assert "지표 버전" in capsys.readouterr().out
     main(["soelab", "export", "--out", str(home / "out.json")])
     assert json.loads((home / "out.json").read_text(encoding="utf-8"))["left_out"] == 3
+
+
+def test_author_accuracy_unit():
+    from canon import labstats
+    from canon.schema import SoeLabel, SoePiece, SoeSource
+    origins = ["human"] * 4 + ["ai"] * 6 + ["edited"]
+    pieces = {f"p{i:02d}": SoePiece(id=f"p{i:02d}", text="글", origin=o, source=SoeSource(kind="paste"), group="g")
+              for i, o in enumerate(origins)}
+    # 사람 p00~p03: 맞힘 · 틀림 · 모르겠어요 · 맞힘. AI p04~p09: 맞힘 x3 · 틀림 · 모르겠어요 · (p09 는 가림). edited p10
+    verdicts = ["human", "ai", "unsure", "human", "ai", "ai", "ai", "human", "unsure", "ai", "ai"]
+    firsts = [SoeLabel(id=f"l{i}", piece=f"p{i:02d}", verdict=v) for i, v in enumerate(verdicts)]
+    firsts.append(SoeLabel(id="lx", piece="없는조각", verdict="ai"))
+    acc = soelab.author_accuracy(firsts, pieces, {"p09"})
+    assert (acc["human"]["n"], acc["human"]["correct"], acc["human"]["unsure"], acc["human"]["rate"]) == (3, 2, 1, 0.667)
+    assert (acc["ai"]["n"], acc["ai"]["correct"], acc["ai"]["unsure"], acc["ai"]["rate"]) == (4, 3, 1, 0.75)
+    assert acc["balanced"] == 0.708 and acc["majority"] == round(4 / 7, 3)
+    assert acc["left_out"] == {"hidden": 1, "other_origin": 2}
+    assert acc["ai"]["ci95"] == [round(x, 3) for x in labstats.wilson(3, 4)]
+    assert acc["human"]["ci95"] == [round(x, 3) for x in labstats.wilson(2, 3)]
+    # 판정 12개: 묶음 1 은 앞 10개(p00~p09), 묶음 2 는 p10 · 없는조각 (둘 다 셈 대상 아님)
+    assert [b["batch"] for b in acc["by_batch"]] == [1, 2]
+    assert acc["by_batch"][0] == {"batch": 1, "n": 7, "correct": 5, "rate": 0.714}
+    assert acc["by_batch"][1] == {"batch": 2, "n": 0, "correct": 0, "rate": None}
+    # 12번째 이후 셈 대상이 묶음 2 에 들어가는지
+    more = [SoeLabel(id=f"m{i}", piece=f"p{i:02d}", verdict="human") for i in range(4)]
+    acc2 = soelab.author_accuracy(firsts[:10] + more, pieces, set())
+    assert acc2["by_batch"][1] == {"batch": 2, "n": 4, "correct": 4, "rate": 1.0}
+    none = soelab.author_accuracy([], pieces, set())
+    assert none["balanced"] is None and none["majority"] is None and none["by_batch"] == []
+    assert none["human"]["ci95"] == [0.0, 1.0]
+    assert soelab._accuracy_lines(None) == []
+
+
+def test_report_author_accuracy(home):
+    _corpus(home, judged=36)
+    rep = soelab.report(n_boot=BOOT, save=False)
+    acc = rep["author_accuracy"]
+    hidden = len(soelab.hidden_ids())
+    assert acc["human"]["rate"] == 1.0 and acc["ai"]["rate"] == 1.0
+    assert acc["left_out"]["hidden"] == hidden
+    assert acc["human"]["n"] + acc["ai"]["n"] == rep["counts"]["judged"] - hidden - acc["left_out"]["other_origin"]
+    assert "작가 정확도:" in soelab.describe(rep)
+
+
+def test_author_accuracy_empty(home):
+    _corpus(home)
+    rep = soelab.report(n_boot=BOOT, save=False)
+    acc = rep["author_accuracy"]
+    assert acc["human"]["n"] == 0 and acc["ai"]["n"] == 0
+    assert acc["balanced"] is None and acc["by_batch"] == []
+    assert "판정하면 보여요" in soelab.describe(rep)

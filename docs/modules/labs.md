@@ -668,6 +668,7 @@
 - 예비 정답 보여 주기 `show_spares`: 보류 아님 보고서 · 여기서 멈추기 · 90개 끝 가운데 먼저 온 때
 - 채점 `features`(저장 안 함, 열쇠 `METRICS_VERSION`)
 - 보고서 `report`(출처 기준 · revlab 짝 · 작가 판정 · 모델별 참고 · 패턴 · 판정 일관성) · `view` · `export`(원문 · quote · 메모 없음)
+- 작가 정확도 `author_accuracy`: 첫 판정으로 사람 · AI 글 정답률과 Wilson 구간 · 균형 정확도 · 모르겠어요 수 · 이번 10개 차례별, 가린 조각은 뺀다
 - 보고서는 끝나지 않은 이번 10개의 판정을 작가 판정 기준 · 패턴 · 판정 일관성에 넣지 않는다
 - 화면 값 `screen`(진행 · 다시 읽기 `redo_state` · 최근 보고서 `latest_report` · `report_summary` · 낡음 `corpus_key` · `labels_key`)
 - 진행 상태 `load_state` · `set_state`(`state.json`: 목표 40 · 60 · 90, 멈춤, 넘긴 정답 카드, `spare_shown`, `filled`)
