@@ -92,6 +92,7 @@
 - `verdict`: 20쌍 미만은 `short`, 앞 20쌍에서 16쌍 이상(`IDENT_MARKS`)이면 `gap`, 아니면 37쌍까지 읽어 앞 37쌍에서 24쌍 이상이면 `gap`, 못 미치면 `not_shown`(37쌍 전이면 `more`)
 - 명령줄 `canon blind stats [<id>] [--null A:B] [--json]`(`cli.cmd_blind`). 결과를 열기 전 묶음은 내지 않는다
 - 시험 `tests/test_blindstats.py`
+- `scripts/metric_agree.py` 가 `_groups` 를 다시 써서 쌍마다 첫 답만 센다(시험 `tests/test_metric_agree.py`)
 - 판별 묶음 통계 시험 `tests/test_blind_ident.py`
 
 ### `canon/blocktrial.py`
@@ -199,6 +200,9 @@
 - 대사 줄이 `DIALOGUE_MIN` 줄 미만이면 대사 꼴을 재지 않음
 - 대사 꼴은 `drift` 가 기준값과 견줘 경고함(물결표는 차이 0.15, 길이는 30%). 옛 기준값에는 값이 없어 경고하지 않음
 - 대사 꼴을 더한 근거는 reports/지표 사각지대 2026-11-07.md(대사 비율로는 갈리지 않던 작품과 레퍼런스가 이 값으로 갈림)
+- 감정 이름 낱말 `EMOTION_WORDS` · 몸 부위와 작은 동작 낱말 `BODY_WORDS`(근거: 장편 어긋남 진단 2026-11-13 1.7절, AI 판이 몸 낱말 약 2.1배 · 감정 이름은 적음, 목록은 글자 그대로 두고 고치지 않음)
+- 지문 `narration`(빈 줄과 대사 · 속생각으로 여는 줄을 뺌) · 지문 1천 자당 `emotion_per_1k` · `body_per_1k`(지문이 비면 None, `measure` 와 `METRICS_VERSION` 은 그대로)
+- 쓰는 곳은 `scripts/metric_agree.py`(결과를 연 가려 읽기 묶음에서 지표가 고른 쪽과 작가 선택의 일치를 잼)
 - 문단 경계 창 `_para_windows`(`tempo_curve` 와 `peak_window` 가 함께 씀)
 - 정점 대목 `peak_window`: 절정 낱말(`Settings.heat_words`)이 가장 많이 든 `PEAK_WINDOW` 자 창의 자리 · 절정 낱말 수 · 문장 평균 길이. 낱말이 없거나 `PEAK_MIN_HITS` 개 미만이면 None
 - 정점 대목 경고 `peak_drift`: 그 창의 문장 평균이 기준값보다 `PEAK_LIMIT`(30%) 넘게 길면 한 줄. `pipeline.style_drift` 가 붙임
