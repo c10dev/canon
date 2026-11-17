@@ -1,7 +1,7 @@
 """판별 묶음 만들기: 레퍼런스 대목과 canon 글의 짝 목록 -> 'canon blind import --ident ref' 로 넣을 폴더.
 
 짝 목록(JSON 배열, 원소 하나가 쌍 하나)은 scripts/blind_scene_pairs.py pairs 가 쓴다. 키: ref · base (필수), names · rid · work · order (선택).
-두 글은 같은 대체 이름으로 이름을 가리고, 같은 자르개(둘째 문단 시작 ~ 마지막 문단 앞의 문장 끝)로 모양을 맞추고, 길이를 TOL 안으로 맞춘다.
+이름은 바꾸지 않는다(MASK_NAMES). 같은 자르개(둘째 문단 시작 ~ 마지막 문단 앞의 문장 끝)로 모양을 맞추고, 길이를 TOL 안으로 맞춘다.
 이미 읽은 묶음(--exclude-set)과 글이 겹치는 쌍은 뺀다. LLM 도 네트워크도 쓰지 않는다. 값은 모두 모듈 맨 위 상수로 못 박았고 명령줄로 바꾸지 않는다.
 
 실행 (Canon 작업 폴더. CANON_HOME 이 레퍼런스 원고와 묶음을 가리킨다):
@@ -33,6 +33,7 @@ REPEATS = 3         # 한 번 더 넣는 글 수 (같은 쌍을 다시 묻는 �
 OVERLAP = 30        # 이미 읽은 묶음과 공백을 뺀 글자가 이만큼 이어서 같으면 겹침
 PROBE_STEP = 10     # 겹침을 찾을 때 OVERLAP 자 창을 옮기는 간격
 ARMS = ("ref", "base")  # 판 이름. 정답 판은 "ref"
+MASK_NAMES = False  # 인물 이름을 대체 이름으로 바꾸지 않는다 (2026-11-17 작가 결정). True 면 이름 원천이 없는 쌍을 빼고 이름을 가린다
 SYLLABLES_OPEN = "랴뎌쥬휴슈묘쿠뷔튜퓨켸쵸뮤쇼햐겨셔쟈뉴쿄"  # 받침 없음
 SYLLABLES_L = "랄뎔쥘휼슐묠쿨뷜튤퓰켈쵤뮬숄햘겔셜쟐뉼똘"  # ㄹ 받침
 SYLLABLES_CLOSED = "쿤뎅쟁휜슌묭뷘튼풍켄쵼뮨숑행룬겸쥰닝랑뎀"  # 그 밖의 받침
@@ -245,18 +246,31 @@ def _check_cut(ref: str, base: str, names: list[str], seen: list[str], spans, ra
     return ""
 
 
-def _one(i: int, pair: dict, project: list[str], seen: list[str]) -> dict:
-    row = {"i": i, "ok": False, "reason": "", "ref_chars": None, "base_chars": None, "names": 0, "masked": 0, "ref_names_from": "none"}
+def _mask_pair(i: int, pair: dict, project: list[str], row: dict) -> tuple[str, str, list[str]] | None:
+    """이름을 가린 (ref, base, 이름 목록). 이름 원천이 없으면 None. MASK_NAMES 가 False 면 원래 글."""
+    ref, base = pair["ref"], pair["base"]
+    if not MASK_NAMES:
+        row["names"], row["masked"], row["ref_names_from"] = 0, 0, "off"
+        return ref, base, []
     names, row["ref_names_from"] = names_for(pair, project)
     row["names"] = len(names)
     if row["ref_names_from"] == "none":
-        row["reason"] = "no_ref_names"
-        return row
-    ref, base = pair["ref"], pair["base"]
+        return None
     mapping = substitutes(names, random.Random(f"{SEED}:{i}"), avoid=ref + "\n" + base)
     mref, a = mask(ref, mapping)
     mbase, b = mask(base, mapping)
     row["masked"] = a + b
+    return mref, mbase, names
+
+
+def _one(i: int, pair: dict, project: list[str], seen: list[str]) -> dict:
+    row = {"i": i, "ok": False, "reason": "", "ref_chars": None, "base_chars": None, "names": 0, "masked": 0, "ref_names_from": "none"}
+    got = _mask_pair(i, pair, project, row)
+    if got is None:
+        row["reason"] = "no_ref_names"
+        return row
+    mref, mbase, names = got
+    ref, base = pair["ref"], pair["base"]
     spans = fit_spans(mref, mbase)
     if spans is None:
         row["reason"] = "no_fit"
@@ -367,7 +381,7 @@ def main(argv: list[str] | None = None) -> int:
     for name, text in (("check", "쓸 수 있는 쌍을 세어 요약만 찍어요"), ("build", "묶음 폴더와 summary.json 을 만들어요")):
         s = sub.add_parser(name, help=text)
         s.add_argument("--pairs", action="append", required=True, type=Path, metavar="파일", help="짝 목록 JSON (여러 번)")
-        s.add_argument("--project", action="append", default=[], metavar="작품", help="이름을 더 가릴 작품 (여러 번)")
+        s.add_argument("--project", action="append", default=[], metavar="작품", help="이름을 더 가릴 작품 (MASK_NAMES 가 True 일 때만 써요, 여러 번)")
         s.add_argument("--exclude-set", action="append", default=[], metavar="묶음id", help="이미 읽은 묶음 (여러 번)")
         s.add_argument("--max-pairs", type=int, default=20)
         if name == "build":

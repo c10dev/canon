@@ -165,8 +165,9 @@ def _pairs_files(home):
     return [fa, fb], seen.id
 
 
-def test_check_and_build(home):
+def test_check_and_build(home, monkeypatch):
     m = _script()
+    monkeypatch.setattr(m, "MASK_NAMES", True)
     files, seen = _pairs_files(home)
     s = m.check(files, exclude=[seen])
     assert (s["pairs_in"], s["pairs_ok"], s["pairs_used"]) == (7, 3, 3)
@@ -198,12 +199,29 @@ def test_check_and_build(home):
         m.build(out, files, exclude=[seen])  # 비어 있지 않은 폴더
 
 
+def test_check_and_build_keeps_names(home):
+    m = _script()
+    assert m.MASK_NAMES is False
+    files, seen = _pairs_files(home)
+    s = m.check(files, exclude=[seen])
+    assert s["dropped"]["no_ref_names"] == 0 and s["dropped"]["name_left"] == 0
+    assert all(r["ref_names_from"] == "off" and r["masked"] == 0 for r in s["rows"])
+    assert [r["reason"] for r in s["rows"]] == ["", "", "no_fit", "ref_seen", "", "base_seen", ""]
+    assert s["pairs_ok"] == 4
+    out = home / "out"
+    m.build(out, files, exclude=[seen])
+    summary = (out / "summary.json").read_text(encoding="utf-8")
+    assert not any(n in summary for n in CAST)
+    got = blindset.import_folder(str(out / "set1"), mode="ident", answer_arm="ref")
+    assert any(n in x.text for x in got.items for n in CAST)
+
+
 def test_main(home, capsys):
     m = _script()
     files, seen = _pairs_files(home)
     args = [x for f in files for x in ("--pairs", str(f))]
     assert m.main(["check", *args, "--exclude-set", seen]) == 0
-    assert json.loads(capsys.readouterr().out)["pairs_ok"] == 3
+    assert json.loads(capsys.readouterr().out)["pairs_ok"] == 4  # 이름을 바꾸지 않으니 이름 원천이 없는 쌍도 통과
     assert m.main(["build", *args, "--exclude-set", seen, "--out", str(home / "o2")]) == 0
     assert "blind import" in capsys.readouterr().out.splitlines()[-1]
 

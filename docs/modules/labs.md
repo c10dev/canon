@@ -22,7 +22,7 @@
 - 레퍼런스 원고끼리 나란히 읽기 폴더 만들기: `scripts/blind_refs.py build`(시험은 `tests/test_blind_refs.py`)
 - 원고(`--same` 으로 묶은 원고들은 한 판)마다 화의 30% 뒤 첫 빈 줄부터 약 900~1,300자 대목을 잘라 판끼리 round robin 으로 짝짓고, `import_folder` 의 `side` 로 넣을 수 있는 폴더를 만든다
 - 역설계 실험에 넘긴 화와 글이 겹치는 화는 뺀다. `summary.json` 에는 본문 · 판 이름 · 원고 이름을 싣지 않는다
-- 판별 묶음 만들기: `scripts/blind_ident.py check` · `build`(시험은 `tests/test_blind_ident_script.py`). 짝 목록의 두 글을 같은 대체 이름으로 가리고 같은 자르개로 길이 차 3% 안에 맞춰 `import_folder` 의 `ident` 로 넣을 폴더를 만든다
+- 판별 묶음 만들기: `scripts/blind_ident.py check` · `build`(시험은 `tests/test_blind_ident_script.py`). 짝 목록의 두 글을 이름은 그대로 두고(`MASK_NAMES = False`) 같은 자르개로 길이 차 3% 안에 맞춰 `import_folder` 의 `ident` 로 넣을 폴더를 만든다
 - 내용 맞춘 짝 목록 만들기: `scripts/blind_scene_pairs.py` 의 `estimate` · `pick` · `gen` · `pairs`(시험은 `tests/test_blind_scene_pairs.py`). 레퍼런스 대목의 사실 카드로 canon 이 같은 장면을 써서 짝 목록을 만든다
 - `scripts/blind_scene_pairs.py gen` 의 기본 길 `--path episode` 는 임시 장편 작품으로 스토리보드 · 큐 시트 · 본문을 쓰고, `style` 명령이 원고마다 문체 파일을 만든다(`--path paragraph` 는 문단 연습장 길)
 - 점수 `score`(0 은 지움, 한마디 `NOTE_MAX` 자). 결과를 연 뒤에는 고칠 수 없다
