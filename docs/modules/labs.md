@@ -204,6 +204,7 @@
 - 지문 `narration`(빈 줄과 대사 · 속생각으로 여는 줄을 뺌) · 지문 1천 자당 `emotion_per_1k` · `body_per_1k`(지문이 비면 None, `measure` 와 `METRICS_VERSION` 은 그대로)
 - 쓰는 곳은 `scripts/metric_agree.py`(결과를 연 가려 읽기 묶음에서 지표가 고른 쪽과 작가 선택의 일치를 잼)
 - `scripts/metric_agree.py` 는 판별 묶음에서 지표마다 정답 쪽 · 다른 쪽 중앙값과 사분위, 짝 안 차이(다른 쪽 − 정답 쪽) 중앙값, 다른 쪽 글이 정답 쪽 사분위 범위 안에 든 비율(`sizes`)도 낸다
+- `scripts/metric_agree.py pairs` 는 `blind_scene_pairs.py pairs` 의 짝 파일을 바로 재서 판마다 `sizes` 를 내고, 같은 대목끼리 첫 파일과 견준다(쓰기 판 후보 거르기)
 - 문단 경계 창 `_para_windows`(`tempo_curve` 와 `peak_window` 가 함께 씀)
 - 정점 대목 `peak_window`: 절정 낱말(`Settings.heat_words`)이 가장 많이 든 `PEAK_WINDOW` 자 창의 자리 · 절정 낱말 수 · 문장 평균 길이. 낱말이 없거나 `PEAK_MIN_HITS` 개 미만이면 None
 - 정점 대목 경고 `peak_drift`: 그 창의 문장 평균이 기준값보다 `PEAK_LIMIT`(30%) 넘게 길면 한 줄. `pipeline.style_drift` 가 붙임

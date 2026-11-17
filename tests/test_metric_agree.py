@@ -275,3 +275,73 @@ def test_run_sizes_only_on_ident_truth(mod, monkeypatch, capsys):
     for text in (shown, as_json):
         for token in TOKENS:
             assert token not in text
+
+
+# ---------- pairs 하위 명령 ----------
+
+def _pair(i: int, rid: str = "ridsecret", names=("라온",)) -> dict:
+    return {"ref": _ref_text("r", i), "base": _base_text("b", i), "names": list(names), "rid": rid, "order": i}
+
+
+def _write_pairs(tmp_path, name: str, pairs: list) -> str:
+    p = tmp_path / name
+    p.write_text(json.dumps(pairs, ensure_ascii=False), encoding="utf-8")
+    return str(p)
+
+
+def test_load_pair_file(mod, tmp_path):
+    good = _write_pairs(tmp_path, "g.json", [_pair(1), _pair(2)])
+    assert len(mod.load_pair_file(good)) == 2
+    bad = _write_pairs(tmp_path, "b.json", [{"ref": "a", "base": "b", "rid": "r"}])
+    with pytest.raises(SystemExit):
+        mod.load_pair_file(bad)
+    with pytest.raises(SystemExit):
+        mod.load_pair_file(_write_pairs(tmp_path, "d.json", {"ref": 1}))
+
+
+def test_file_summary_sizes_and_length_ratio(mod):
+    pairs = [_pair(i) for i in (1, 2, 3)]
+    res = mod.file_summary(pairs, {})
+    body = res["sizes"]["body_per_1k"]
+    assert body["other"]["median"] > body["ref"]["median"]
+    ratios = sorted(len(p["base"].strip()) / len(p["ref"].strip()) for p in pairs)
+    assert res["length_ratio_median"] == round(ratios[1], 4)
+    assert res["n"] == 3
+    assert res["sizes"]["style_distance"] is None
+
+
+def _vals(body, emo, dist=1.0):
+    return {"body_per_1k": (0.0, body), "emotion_per_1k": (0.0, emo), "style_distance": (0.0, dist)}
+
+
+def test_compare_files_hand_count(mod):
+    first = {("r", 1): _vals(5, 5), ("r", 2): _vals(5, 5), ("r", 3): _vals(5, 5), ("r", 4): _vals(1, 1)}
+    other = {("r", 1): _vals(3, 8), ("r", 2): _vals(7, 2), ("r", 3): _vals(5, 5), ("r", 5): _vals(1, 1)}
+    other[("r", 3)]["style_distance"] = (0.0, None)
+    res = mod.compare_files([first, other])
+    assert len(res) == 1
+    c = res[0]
+    assert c["common"] == 3
+    body = c["body_per_1k"]
+    assert (body["better"], body["worse"], body["equal"], body["missing"]) == (1, 1, 1, 0)
+    emo = c["emotion_per_1k"]
+    assert (emo["better"], emo["worse"], emo["equal"]) == (1, 1, 1)
+    assert (c["style_distance"]["equal"], c["style_distance"]["missing"]) == (2, 1)
+    assert (body["base_median"], body["cand_median"]) == (5.0, 5.0)
+
+
+def test_pairs_command_hides_text_and_names(mod, monkeypatch, capsys, tmp_path):
+    monkeypatch.setattr(refs, "texts", lambda rid: None)
+    names = ("ZQXTOKEN인물",)
+    f1 = _write_pairs(tmp_path, "one.json", [_pair(i, names=names) for i in (1, 2, 3)])
+    f2 = _write_pairs(tmp_path, "two.json", [_pair(i, names=names) for i in (2, 3, 4)])
+    assert mod.main(["pairs", f1, f2]) == 0
+    text = capsys.readouterr().out
+    assert "F2 대 F1" in text and "W1" in text
+    out = tmp_path / "o.json"
+    assert mod.main(["pairs", f1, f2, "--json", "--out", str(out)]) == 0
+    dumped = capsys.readouterr().out + out.read_text(encoding="utf-8")
+    assert json.loads(out.read_text(encoding="utf-8"))["compare"][0]["common"] == 2
+    for blob in (text, dumped):
+        for token in (*TOKENS, "인물", "손가락이", "조용한"):
+            assert token not in blob

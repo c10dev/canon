@@ -6,6 +6,8 @@
 실행 (Canon 작업 폴더. CANON_HOME 이 묶음과 레퍼런스 원고를 가리킨다. 저장 폴더를 읽기만 하고 LLM 도 네트워크도 쓰지 않는다):
   python scripts/metric_agree.py groups SET_ID [SET_ID ...] [--refs RID ...]
   python scripts/metric_agree.py run SET_ID [SET_ID ...] [--refs RID ...] [--held W2 ...] [--json] [--out FILE]
+  python scripts/metric_agree.py pairs PAIRS.json [PAIRS.json ...] [--json] [--out FILE]
+pairs 는 blind_scene_pairs.py pairs 가 쓴 짝 파일을 바로 잰다. 첫 파일이 기준 판이다.
 groups 는 작품 묶음별 짝 수만 찍는다. 지표 값을 보기 전에 --held 로 보류할 묶음을 고르는 데 쓴다.
 판별 묶음은 차이의 크기(쪽별 중앙값 · 사분위 · 짝 안 차이 · 레퍼런스 쪽 가운데 50% 범위 안에 든 비율)도 찍는다.
 값은 모두 모듈 맨 위 상수로 못 박았고 명령줄로 바꾸지 않는다.
@@ -460,6 +462,143 @@ def render(res: dict) -> str:
     return "\n".join(lines)
 
 
+# ---------- 짝 파일 ----------
+
+PAIR_KEYS = ("ref", "base", "rid", "order")
+
+
+def load_pair_file(path: str) -> list[dict]:
+    """짝 목록을 읽는다. 목록이 아니거나 'ref' · 'base' · 'rid' · 'order' 가 빠진 항목이 있으면 멈춘다."""
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raise SystemExit("짝 파일 형식이 아니에요") from None
+    if not isinstance(data, list) or any(not isinstance(p, dict) or any(k not in p for k in PAIR_KEYS) for p in data):
+        raise SystemExit("짝 파일 형식이 아니에요")
+    return data
+
+
+def pair_values(pair: dict, bases: dict[str, metrics.StyleMetrics]) -> dict[str, tuple[float | None, float | None]]:
+    """지표마다 (ref 글 값, base 글 값). style_distance 는 그 원고의 기준값이 없으면 (None, None)."""
+    out = {}
+    for name in METRICS:
+        if name == "style_distance":
+            base = bases.get(pair["rid"])
+            out[name] = (metrics.style_distance(base, pair["ref"]), metrics.style_distance(base, pair["base"])) if base else (None, None)
+        else:
+            fn = getattr(metrics, name)
+            out[name] = (fn(pair["ref"]), fn(pair["base"]))
+    return out
+
+
+def _pair_bases(pairs: list[dict]) -> dict[str, metrics.StyleMetrics]:
+    """원고마다 문체 거리 기준값. ref 글이 나온 화를 빼고 나머지 화 전체를 잰다. 원고를 못 찾으면 기준값 없이 둔다."""
+    flats: dict[str, dict[int, str]] = {}
+    for rid in sorted({p["rid"] for p in pairs}):
+        t = refs.texts(rid)
+        if t is not None:
+            flats[rid] = {ep: _flat(body) for ep, body in t.items()}
+    found: dict[str, set[int]] = {rid: set() for rid in flats}
+    for p in pairs:
+        loc = locate(p["ref"], {p["rid"]: flats[p["rid"]]}) if p["rid"] in flats else None
+        if loc:
+            found[loc[0]].add(loc[1])
+    return reference_metrics(found)
+
+
+def _median(xs: list[float]) -> float | None:
+    return round(labstats.percentile(xs, 0.5), 4) if xs else None
+
+
+def file_summary(pairs: list[dict], bases) -> dict:
+    ratios = [len(p["base"].strip()) / len(p["ref"].strip()) for p in pairs if p["ref"].strip()]
+    vals = [pair_values(p, bases) for p in pairs]
+    sizes: dict[str, dict | None] = {}
+    for name in METRICS:
+        res = gap_sizes([v[name] for v in vals])
+        if res is not None and name in UNVERIFIED:
+            res["note"] = UNVERIFIED_NOTE
+        sizes[name] = res
+    return {"n": len(pairs), "length_ratio_median": _median(ratios), "sizes": sizes}
+
+
+def _tally(rows: list[tuple[float | None, float | None]], direction: str) -> dict:
+    """rows 는 공통 대목마다 (첫 파일 base 값, 이 파일 base 값)."""
+    out = {"better": 0, "worse": 0, "equal": 0, "missing": 0}
+    for first, cand in rows:
+        c = choose(cand, first, direction)
+        out[{"a": "better", "b": "worse"}.get(c, c)] += 1
+    ok = [(f, c) for f, c in rows if f is not None and c is not None]
+    out["base_median"] = _median([f for f, _ in ok])
+    out["cand_median"] = _median([c for _, c in ok])
+    return out
+
+
+def compare_files(per_file: list[dict[tuple, dict]]) -> list[dict]:
+    """두 번째 파일부터 첫 파일과 같은 대목끼리 견준다. 방향은 METRICS 를 따른다."""
+    first = per_file[0]
+    out = []
+    for other in per_file[1:]:
+        keys = [k for k in first if k in other]
+        entry: dict = {"common": len(keys)}
+        for name, direction in METRICS.items():
+            entry[name] = _tally([(first[k][name][1], other[k][name][1]) for k in keys], direction)
+        out.append(entry)
+    return out
+
+
+def _dedupe(pairs: list[dict]) -> dict[tuple, dict]:
+    out: dict[tuple, dict] = {}
+    for p in pairs:
+        out.setdefault((p["rid"], p["order"]), p)
+    return out
+
+
+def _group_labels(rids: list[str]) -> dict[str, str]:
+    keys = sorted(set(rids), key=lambda k: hashlib.sha256((str(SEED) + k).encode()).hexdigest())
+    return {k: f"W{i + 1}" for i, k in enumerate(keys)}
+
+
+def run_pairs(files: list[str]) -> dict:
+    loaded = [list(_dedupe(load_pair_file(f)).values()) for f in files]
+    bases = _pair_bases([p for pairs in loaded for p in pairs])
+    summaries = [file_summary(pairs, bases) for pairs in loaded]
+    per_file = [{(p["rid"], p["order"]): pair_values(p, bases) for p in pairs} for pairs in loaded]
+    labels = _group_labels([p["rid"] for p in loaded[0]])
+    counts = Counter(labels[p["rid"]] for p in loaded[0])
+    cmp_ = compare_files(per_file)
+    return {
+        "files": [{"label": f"F{i + 1}", "path": f, **sm} for i, (f, sm) in enumerate(zip(files, summaries))],
+        "groups": {k: counts[k] for k in sorted(counts, key=lambda k: int(k[1:]))},
+        "compare": [{"label": f"F{i + 2}", **c} for i, c in enumerate(cmp_)],
+        "metrics": dict(METRICS),
+    }
+
+
+def render_pairs(res: dict) -> str:
+    lines = ["작품 묶음: " + ", ".join(f"{k} {v}" for k, v in res["groups"].items())]
+    lines.append("지표 방향: " + ", ".join(f"{k} {v}" for k, v in res["metrics"].items()))
+    for f in res["files"]:
+        lines.append(f"{f['label']} {f['path']} 짝 {f['n']} 길이비 중앙 {_fmt(f['length_ratio_median'])}")
+        lines.extend(_size_lines(f["sizes"]))
+    for c in res["compare"]:
+        lines.append(f"{c['label']} 대 F1 공통 대목 {c['common']}")
+        for name in res["metrics"]:
+            t = c[name]
+            lines.append(f"  {c['label']} 대 F1 {name} 나음 {t['better']} 나쁨 {t['worse']} 같음 {t['equal']} 없음 {t['missing']} "
+                         f"중앙 {_fmt(t['base_median'])} -> {_fmt(t['cand_median'])}")
+    return "\n".join(lines)
+
+
+def _main_pairs(a) -> int:
+    res = run_pairs(a.files)
+    dump = json.dumps(res, ensure_ascii=False, indent=1, sort_keys=True)
+    if a.out:
+        Path(a.out).write_text(dump + "\n", encoding="utf-8")
+    print(dump if a.json else render_pairs(res))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -471,7 +610,13 @@ def main(argv: list[str] | None = None) -> int:
             p.add_argument("--held", nargs="*", default=[])
             p.add_argument("--json", action="store_true")
             p.add_argument("--out")
+    pp = sub.add_parser("pairs")
+    pp.add_argument("files", nargs="+")
+    pp.add_argument("--json", action="store_true")
+    pp.add_argument("--out")
     a = ap.parse_args(argv)
+    if a.cmd == "pairs":
+        return _main_pairs(a)
     if a.cmd == "groups":
         for label, n in group_counts(a.sets, a.refs):
             print(label, n)
