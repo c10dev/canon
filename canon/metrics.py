@@ -539,6 +539,35 @@ def style_distance(base: StyleMetrics, text: str) -> Optional[float]:
     return round(_cos_dist(_suffix_z(text), base.style_centroid) / base.style_spread, 2)
 
 
+# 감정을 이름으로 부르는 낱말 (지문 1천 자당, 근거: 장편 어긋남 진단 2026-11-13 1.7절. 레퍼런스 1.2~1.9, Opus 판 0.54)
+EMOTION_WORDS = re.compile(r"감정|기분|분노|화가 |짜증|두려|무서|겁에|겁이|불안|당황|부끄|수치|창피|설레|기뻤|기쁘|슬프|슬펐|외로|질투|역겨|싫었|싫은|행복|민망|초조|긴장|안도|억울|서러|미안|후회|놀라|놀랐|어이없|황당|한심|답답")
+# 몸 부위 · 작은 동작 낱말 25개 (같은 근거. 레퍼런스 1.3~2.8, AI 판은 원문의 약 2.1배)
+BODY_WORDS = re.compile(r"손가락|손끝|손바닥|손등|손목|눈동자|동공|시선|눈길|눈꺼풀|입술|입꼬리|어깨|턱|목덜미|숨을|숨이|침을 삼|마른침|주먹|이를 악|귓바퀴|속눈썹|눈썹|고개")
+_NARRATION_SKIP = ('"', "“", "「", "'", "‘", "『")  # 이 글자로 여는 줄은 대사 · 속생각으로 빼고 지문만 센다
+
+
+def narration(text: str) -> str:
+    """지문만: 빈 줄과 _NARRATION_SKIP 으로 여는 줄을 뺀 줄을 '\n' 으로 잇는다 (줄 앞 공백은 보고 판단할 때만 지운다)."""
+    return "\n".join(ln for ln in text.split("\n") if ln.strip() and ln.strip()[:1] not in _NARRATION_SKIP)
+
+
+def _per_1k(pattern: re.Pattern, text: str) -> Optional[float]:
+    nar = narration(text)
+    if not nar:
+        return None
+    return len(pattern.findall(nar)) / (len(nar) / 1000)
+
+
+def emotion_per_1k(text: str) -> Optional[float]:
+    """지문 1천 자당 감정 이름 낱말 수(EMOTION_WORDS.findall 개수). 지문이 비면 None. 반올림하지 않는다."""
+    return _per_1k(EMOTION_WORDS, text)
+
+
+def body_per_1k(text: str) -> Optional[float]:
+    """지문 1천 자당 몸 부위 · 작은 동작 낱말 수(BODY_WORDS.findall). 지문이 비면 None. 반올림하지 않는다."""
+    return _per_1k(BODY_WORDS, text)
+
+
 # ---------- 템포 곡선 ----------
 # 화 안에서 대사 대목과 서술 대목이 어떻게 오가는지 본다. 화면 표시용이라 경고를 내지 않는다.
 # 사람 웹소설 4편과 AI 연재 4개의 창별 기복이 같은 범위여서(reports/문체 흐름 실측 2026-11-02.md) 기복 자체로는 가르지 않는다.

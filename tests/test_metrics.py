@@ -142,5 +142,22 @@ class StyleReferenceTest(unittest.TestCase):
         self.assertEqual(m["senses"], round(sum(m[s] for s in metrics.SENSES), 2))
 
 
+class NarrationRateTest(unittest.TestCase):
+    def test_narration_drops_dialogue_lines(self):
+        text = '그는 창을 보았다.\n\n"가자."\n“정말?”\n「네」\n\'속말\'\n‘속말’\n『책』\n  "들여쓴 대사"\n비가 왔다.'
+        self.assertEqual(metrics.narration(text), "그는 창을 보았다.\n비가 왔다.")
+
+    def test_empty_narration_gives_none(self):
+        self.assertIsNone(metrics.emotion_per_1k('"가자."\n"응."'))
+        self.assertIsNone(metrics.body_per_1k("  \n\n"))
+
+    def test_counts_per_1k(self):
+        text = "손가락이 떨렸다. 어깨를 폈다.\n\"기분이 나빠.\""
+        nar = metrics.narration(text)
+        self.assertEqual(metrics.body_per_1k(text), 2 / (len(nar) / 1000))
+        self.assertEqual(metrics.emotion_per_1k(text), 0.0)
+        self.assertEqual(metrics.emotion_per_1k("두려웠다. 불안했다."), 2 / (len("두려웠다. 불안했다.") / 1000))
+
+
 if __name__ == "__main__":
     unittest.main()
