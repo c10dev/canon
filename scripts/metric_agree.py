@@ -7,6 +7,7 @@
   python scripts/metric_agree.py groups SET_ID [SET_ID ...] [--refs RID ...]
   python scripts/metric_agree.py run SET_ID [SET_ID ...] [--refs RID ...] [--held W2 ...] [--json] [--out FILE]
 groups 는 작품 묶음별 짝 수만 찍는다. 지표 값을 보기 전에 --held 로 보류할 묶음을 고르는 데 쓴다.
+판별 묶음은 차이의 크기(쪽별 중앙값 · 사분위 · 짝 안 차이 · 레퍼런스 쪽 가운데 50% 범위 안에 든 비율)도 찍는다.
 값은 모두 모듈 맨 위 상수로 못 박았고 명령줄로 바꾸지 않는다.
 출력에 판 이름 · 대목 이름 · 원고 id · 글 본문을 찍지 않는다. 작품 묶음은 W1, W2 … 라벨로만 찍는다.
 시험은 tests/test_metric_agree.py (지어낸 글과 지어낸 묶음).
@@ -19,7 +20,7 @@ import json
 import re
 import sys
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
@@ -39,6 +40,8 @@ MODES = ("side", "ident")
 LENGTH_NOTE = "판별 묶음은 길이를 ±3%로 맞췄어요. 길이 기준선은 정보가 거의 없어요"
 MAJORITY_NOTE = "정답 판을 늘 고르는 규칙은 정답을 쓰므로 뜻이 없어서 내지 않아요"
 DIFFER_MIN = 0.3                 # 작가가 틀린 짝이 n 의 이 몫 미만이면 두 과녁이 거의 갈리지 않는다는 경고
+UNVERIFIED = ("emotion_per_1k",)
+UNVERIFIED_NOTE = "6단계 검증에서 정답 쪽을 우연보다 낫게 고르지 못한 지표예요. 크기는 참고로만 봐요"
 
 
 @dataclass
@@ -52,6 +55,7 @@ class Unit:
     pick_a: bool         # 작가가 a 를 골랐나
     truth_a: bool | None # ident: 정답(레퍼런스)이 a 인가. side: None
     group: str = ""      # 작품 묶음 키. 출력에는 라벨 W1.. 만
+    values: dict = field(default_factory=dict)  # 지표 이름 -> (a 값, b 값). 내부에서만 씀. 출력 금지
 
 
 # ---------- 묶음 받기 ----------
@@ -183,16 +187,54 @@ def choose(va: float | None, vb: float | None, direction: str) -> str:
     return "a" if (va < vb) == (direction == "low") else "b"
 
 
-def measure_unit(u: Unit, bases: dict[str, metrics.StyleMetrics]) -> dict[str, str]:
+def unit_values(u: Unit, bases: dict[str, metrics.StyleMetrics]) -> dict[str, tuple[float | None, float | None]]:
+    """지표마다 (a 글 값, b 글 값). style_distance 는 그 작품 묶음의 기준값이 없으면 (None, None)."""
     out = {}
-    for name, direction in METRICS.items():
+    for name in METRICS:
         if name == "style_distance":
             base = bases.get(u.group)
-            va, vb = (metrics.style_distance(base, u.a_text), metrics.style_distance(base, u.b_text)) if base else (None, None)
+            out[name] = (metrics.style_distance(base, u.a_text), metrics.style_distance(base, u.b_text)) if base else (None, None)
         else:
             fn = getattr(metrics, name)
-            va, vb = fn(u.a_text), fn(u.b_text)
-        out[name] = choose(va, vb, direction)
+            out[name] = (fn(u.a_text), fn(u.b_text))
+    return out
+
+
+def measure_unit(u: Unit, bases: dict[str, metrics.StyleMetrics]) -> dict[str, str]:
+    vals = unit_values(u, bases)
+    return {name: choose(*vals[name], direction) for name, direction in METRICS.items()}
+
+
+def _quart(xs: list[float]) -> dict:
+    return {"median": round(labstats.percentile(xs, 0.5), 4), "q1": round(labstats.percentile(xs, 0.25), 4),
+            "q3": round(labstats.percentile(xs, 0.75), 4)}
+
+
+def gap_sizes(pairs: list[tuple[float | None, float | None]]) -> dict | None:
+    """pairs 는 짝마다 (정답 쪽 값, 다른 쪽 값). 둘 중 하나라도 None 인 짝은 뺀다. 남은 짝이 0이면 None."""
+    ok = [(r, o) for r, o in pairs if r is not None and o is not None]
+    if not ok:
+        return None
+    ref, other = _quart([r for r, _ in ok]), _quart([o for _, o in ok])
+    inside = sum(ref["q1"] <= o <= ref["q3"] for _, o in ok)
+    return {"n": len(ok), "ref": ref, "other": other,
+            "diff_median": round(labstats.percentile([o - r for r, o in ok], 0.5), 4),
+            "in_ref_iqr": inside, "in_ref_iqr_rate": round(inside / len(ok), 4)}
+
+
+def sizes_for(units: list[Unit]) -> dict[str, dict | None]:
+    """판별 짝만. 지표마다 gap_sizes. 정답 쪽 = truth_a 면 a 값, 아니면 b 값."""
+    ident = [u for u in units if u.truth_a is not None]
+    out: dict[str, dict | None] = {}
+    for name in METRICS:
+        pairs = []
+        for u in ident:
+            va, vb = u.values[name]
+            pairs.append((va, vb) if u.truth_a else (vb, va))
+        res = gap_sizes(pairs)
+        if res is not None and name in UNVERIFIED:
+            res["note"] = UNVERIFIED_NOTE
+        out[name] = res
     return out
 
 
@@ -309,6 +351,8 @@ def _entry(rows: list, dev: list[Unit], mode: str, target: str, warnings: list[s
         entry["length_note"] = LENGTH_NOTE
         differ = sum(u.pick_a != u.truth_a for u, _ in mine)
         entry["author_vs_truth_differ"] = differ
+        if target == "truth":
+            entry["sizes"] = sizes_for([u for u, _ in mine])
         if target == "author" and mine and differ < DIFFER_MIN * len(mine):
             warnings.append(f"{scope}: 작가가 정답과 다르게 고른 짝이 {len(mine)}쌍 중 {differ}쌍뿐이라 두 과녁이 거의 갈리지 않아요")
     return entry
@@ -343,7 +387,10 @@ def run(ids: list[str], rids: list[str], held: list[str]) -> dict:
     if any(h not in labels.values() for h in held):
         raise SystemExit("없는 작품 묶음 라벨이에요")
     bases = reference_metrics(found)
-    rows = [(u, measure_unit(u, bases)) for u in units]
+    rows = []
+    for u in units:
+        u.values = unit_values(u, bases)
+        rows.append((u, {name: choose(*u.values[name], d) for name, d in METRICS.items()}))
     warnings: list[str] = []
     scopes = _scopes(rows, {k for k, v in labels.items() if v in held}, held, warnings)
     counts = Counter(u.group for u in units)
@@ -379,6 +426,23 @@ def _line(name: str, st: dict) -> str:
             f"없음={st['missing']} 같음={st['equal']}")
 
 
+def _size_lines(sizes: dict) -> list[str]:
+    lines, noted = [], False
+    for name, sz in sizes.items():
+        if sz is None:
+            lines.append(f"  크기 {name} -")
+            continue
+        r, o = sz["ref"], sz["other"]
+        mark = " (참고)" if "note" in sz else ""
+        noted = noted or bool(mark)
+        lines.append(f"  크기 {name:<15} n={sz['n']} 정답쪽 {_fmt(r['median'])} ({_fmt(r['q1'])}~{_fmt(r['q3'])}) "
+                     f"다른쪽 {_fmt(o['median'])} ({_fmt(o['q1'])}~{_fmt(o['q3'])}) "
+                     f"짝차 {_fmt(sz['diff_median'])} 범위안 {sz['in_ref_iqr']}/{sz['n']}{mark}")
+    if noted:
+        lines.append(f"  {UNVERIFIED_NOTE}")
+    return lines
+
+
 def render(res: dict) -> str:
     lines = ["묶음: " + ", ".join(f"{s['id']}({s['mode']}) 짝 {s['units']} 무승부 {s['ties']} 뺌 {s['skipped']}" for s in res["sets"])]
     lines.append("작품 묶음: " + ", ".join(f"{k} {v}" for k, v in res["groups"].items()))
@@ -390,6 +454,8 @@ def render(res: dict) -> str:
             lines.extend(_line(name, st) for name, st in e["metrics"].items())
             if "length_note" in e:
                 lines.append(f"  {e['length_note']}. 작가가 정답과 다른 짝 {e['author_vs_truth_differ']}")
+            if "sizes" in e:
+                lines.extend(_size_lines(e["sizes"]))
     lines.extend(f"경고: {w}" for w in res["warnings"])
     return "\n".join(lines)
 

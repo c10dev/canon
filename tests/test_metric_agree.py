@@ -228,3 +228,50 @@ def test_held_scopes_and_unknown_label(mod, monkeypatch):
     assert not any("기준선이 유리해요" in w for w in res["warnings"])
     assert any("held: 작품 묶음이 1개뿐이라 구간이 좁게 나와요" in w for w in res["warnings"])
     assert mod.run(["s1"], [], [])["results"]["all"]["side/author"]["metrics"]["body_per_1k"]["boot95"] is not None
+
+
+def test_gap_sizes_hand_count(mod):
+    g = mod.gap_sizes([(1.0, 3.0), (2.0, 2.0), (3.0, 7.0), (None, 1.0)])
+    assert g["n"] == 3
+    assert g["ref"] == {"median": 2.0, "q1": 1.5, "q3": 2.5}
+    assert g["other"]["median"] == 3.0
+    assert g["diff_median"] == 2.0
+    assert (g["in_ref_iqr"], g["in_ref_iqr_rate"]) == (1, 0.3333)
+    assert mod.gap_sizes([]) is None
+    assert mod.gap_sizes([(None, 1.0), (2.0, None)]) is None
+
+
+def _vunit(mod, truth_a, va, vb):
+    u = mod.Unit("s", "ident" if truth_a is not None else "side", "", "", "", "", True, truth_a)
+    u.values = {name: (va, vb) for name in mod.METRICS}
+    return u
+
+
+def test_sizes_for_picks_sides_by_truth(mod):
+    units = [_vunit(mod, True, 1.0, 5.0), _vunit(mod, False, 9.0, 3.0), _vunit(mod, None, 100.0, 200.0)]
+    sz = mod.sizes_for(units)
+    assert set(sz) == set(mod.METRICS)
+    body = sz["body_per_1k"]
+    assert body["n"] == 2
+    assert body["ref"]["median"] == 2.0
+    assert body["other"]["median"] == 7.0
+    assert sz["emotion_per_1k"]["note"] == mod.UNVERIFIED_NOTE
+    assert "note" not in body
+
+
+def test_run_sizes_only_on_ident_truth(mod, monkeypatch, capsys):
+    _install(monkeypatch, _set("s1", "ident", "x"), _set("s2", "side", "y"))
+    res = mod.run(["s1", "s2"], [], [])["results"]["all"]
+    assert set(res["ident/truth"]["sizes"]) == set(mod.METRICS)
+    assert "sizes" not in res["ident/author"]
+    assert "sizes" not in res["side/author"]
+    emo = res["ident/truth"]["sizes"]["emotion_per_1k"]
+    assert emo is None or "note" in emo
+    assert mod.main(["run", "s1", "s2"]) == 0
+    shown = capsys.readouterr().out
+    assert "크기 " in shown
+    assert mod.main(["run", "s1", "s2", "--json"]) == 0
+    as_json = capsys.readouterr().out
+    for text in (shown, as_json):
+        for token in TOKENS:
+            assert token not in text

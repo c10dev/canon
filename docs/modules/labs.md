@@ -203,6 +203,7 @@
 - 감정 이름 낱말 `EMOTION_WORDS` · 몸 부위와 작은 동작 낱말 `BODY_WORDS`(근거: 장편 어긋남 진단 2026-11-13 1.7절, AI 판이 몸 낱말 약 2.1배 · 감정 이름은 적음, 목록은 글자 그대로 두고 고치지 않음)
 - 지문 `narration`(빈 줄과 대사 · 속생각으로 여는 줄을 뺌) · 지문 1천 자당 `emotion_per_1k` · `body_per_1k`(지문이 비면 None, `measure` 와 `METRICS_VERSION` 은 그대로)
 - 쓰는 곳은 `scripts/metric_agree.py`(결과를 연 가려 읽기 묶음에서 지표가 고른 쪽과 작가 선택의 일치를 잼)
+- `scripts/metric_agree.py` 는 판별 묶음에서 지표마다 정답 쪽 · 다른 쪽 중앙값과 사분위, 짝 안 차이(다른 쪽 − 정답 쪽) 중앙값, 다른 쪽 글이 정답 쪽 사분위 범위 안에 든 비율(`sizes`)도 낸다
 - 문단 경계 창 `_para_windows`(`tempo_curve` 와 `peak_window` 가 함께 씀)
 - 정점 대목 `peak_window`: 절정 낱말(`Settings.heat_words`)이 가장 많이 든 `PEAK_WINDOW` 자 창의 자리 · 절정 낱말 수 · 문장 평균 길이. 낱말이 없거나 `PEAK_MIN_HITS` 개 미만이면 None
 - 정점 대목 경고 `peak_drift`: 그 창의 문장 평균이 기준값보다 `PEAK_LIMIT`(30%) 넘게 길면 한 줄. `pipeline.style_drift` 가 붙임
