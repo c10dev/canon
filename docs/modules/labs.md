@@ -995,7 +995,7 @@
 - 시험 `tests/test_studio.py`
 - LLM 호출 없음
 
-### scripts/mind_measure.py
+### `scripts/mind_measure.py`
 
 - 인물 심리 이어짐의 세 값을 재는 도구(목표 `character-mind-continuity`). `store.save` 를 부르지 않고 `--out` 폴더에만 쓴다
 - 글 읽기는 `scripts/trail_measure.py` 의 `ref_episodes` · `canon_episodes` · `wilson` 을 `importlib` 로 불러 쓴다
