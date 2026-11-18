@@ -38,6 +38,7 @@ BUDGET = {
     "ability_plan": 1_000,  # 장편 기획의 설계도 능력 일정 줄: 범위 앞의 것 · 범위에 걸린 것 · 인물마다 그 뒤 첫 것 (prompts.blueprint_ability_block)
     "plan_stages": 1_500,   # 화별 플롯 초안: 기획 인물끼리 지금 관계 단계 한 줄씩 (prompts.plan_stage_block, 장편만). 주역끼리 먼저
     "plan_views": 1_500,    # 상태 변경안의 '지금 보는 눈'(charviews.state_block)과 기획 블록(일감 8-3)이 같이 쓴다. 근거: plan_stages 와 같은 크기
+    "state_trails": 2_000,  # 상태 변경안의 '앞 화 자취'(trails.state_block). 근거: 한 줄 약 120자, 15줄 안팎
     "storylines": 3_000,    # 장편 기획의 이야기 줄기 블록 (storylines.plan_block). 넘치면 합류가 끝난 줄기부터 뺀다
     "deadlines": 1_200,     # 쓰기 · 검수 · 기획 · 상태 변경안의 작품 속 열린 기한 (timeline.deadline_lines, 단편도)
     "plan_facts": 6_000,    # 다음 아크 기획: 부 목표 · 아크 아이디어 · 직전 아크 플롯과 관련된 확정 사실 (최근 FACTS_RECENT 개는 늘)
