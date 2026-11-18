@@ -308,9 +308,11 @@ def style_blanks(profile: StyleProfile, passages: bool = True) -> list[str]:
     return out
 
 
-def analyze_style(llm: LLM, sample: str, names: list[str] | None = None, passages: bool = True, corpus: str = "",
-                  retry: bool = True) -> StyleProfile:
-    """passages 가 거짓이면 대표 문단을 묻지 않는다 (prompts.style_prompt).
+def analyze_style_full(llm: LLM, sample: str, names: list[str] | None = None, passages: bool = True, corpus: str = "",
+                       retry: bool = True) -> tuple[StyleProfile, list[str]]:
+    """(프로필, 남은 빈 칸 필드 이름)을 돌려준다. 빈 칸은 마지막으로 쓴 응답의 style_blanks 결과(count_markers 전에 센 것)이고,
+    그 수가 STYLE_BLANK_MAX 이하이면 빈 목록이다.
+    passages 가 거짓이면 대표 문단을 묻지 않는다 (prompts.style_prompt).
     retry 가 거짓이면 빈 칸이 많아도 다시 묻지 않는다 (연구 화면의 단계 시험은 모델이 처음 낸 응답을 본다).
     corpus 를 주면 표지 빈도와 장치 단서를 표본이 아니라 그 글에서 세고 거른다 (레퍼런스 원고에서 흩어 뽑은 표본의 원문 전체).
     모델은 표본만 읽는다."""
@@ -326,7 +328,13 @@ def analyze_style(llm: LLM, sample: str, names: list[str] | None = None, passage
         if len(blanks) > STYLE_BLANK_MAX:
             logging.getLogger("canon").warning("문체 분석 응답에 빈 칸이 %d개 있어요(다시 물어도 같아요): %s", len(blanks), ", ".join(blanks))
     count_markers(profile, corpus or sample, names)
-    return profile
+    return profile, (blanks if len(blanks) > STYLE_BLANK_MAX else [])
+
+
+def analyze_style(llm: LLM, sample: str, names: list[str] | None = None, passages: bool = True, corpus: str = "",
+                  retry: bool = True) -> StyleProfile:
+    """프로필만 돌려준다 (analyze_style_full 의 첫 값)."""
+    return analyze_style_full(llm, sample, names, passages, corpus, retry)[0]
 
 
 MARKER_MIN_HANGUL = 2  # 표지와 장치 단서는 한글이 이만큼 있어야 쓴다 ('다' · '.' 는 거의 모든 글에 나와 뜻이 없다)

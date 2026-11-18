@@ -202,8 +202,8 @@ def cmd_style(a: argparse.Namespace) -> None:
     if not a.file:
         sys.exit("예시 원문 파일이나 --library ID 를 주세요 (라이브러리 목록: python -m canon styles)")
     sample = Path(a.file).read_text(encoding="utf-8")
-    profile = pipeline.analyze_style(get_llm("plan"), sample, [c.name for c in p.characters])
-    print(dump(profile))
+    profile, blanks = pipeline.analyze_style_full(get_llm("plan"), sample, [c.name for c in p.characters])
+    _print_style(profile, blanks)
     if confirm("이 스타일 프로필을 저장할까요?", a.yes):
         p.style = profile
         p.style_baseline = metrics.measure(sample)
@@ -282,8 +282,8 @@ def cmd_styles(a: argparse.Namespace) -> None:
             sys.exit("사용법: python -m canon styles add 이름 원문.txt")
         name, file = a.args
         sample = Path(file).read_text(encoding="utf-8")
-        profile = pipeline.analyze_style(get_llm("plan"), sample)
-        print(dump(profile))
+        profile, blanks = pipeline.analyze_style_full(get_llm("plan"), sample)
+        _print_style(profile, blanks)
         if confirm("이 문체를 라이브러리에 저장할까요?", a.yes):
             e = library.create(name, profile, sample, a.source)
             print(f"저장: {e.name} ({e.id})")
@@ -369,6 +369,21 @@ def cmd_learn(a: argparse.Namespace) -> None:
             e = library.push_project(p, f"수정 기록에서 배운 규칙 {len(done)}개 반영")
             print(f"라이브러리 '{e.name}' 을 {e.version}번 버전으로 올렸어요")
     print(f"저장: {store.save(a.name, p)}")
+
+
+def _style_blank_line(blanks: list[str]) -> str:
+    """문체 분석이 다시 물어도 비운 칸 경고 한 줄. 빈 목록이면 ""."""
+    if not blanks:
+        return ""
+    names = ", ".join(library.FIELD_LABELS.get(k, k) for k in blanks)
+    return f"AI가 칸 {len(blanks)}개를 비워 두었어요: {names}. 다시 분석하거나 직접 채워 주세요."
+
+
+def _print_style(profile, blanks: list[str]) -> None:
+    """분석한 프로필을 찍고, 다시 물어도 비운 칸이 있으면 경고 한 줄을 뒤에 찍는다."""
+    print(dump(profile))
+    if blanks:
+        print(_style_blank_line(blanks))
 
 
 def _style_value_text(v) -> str:
