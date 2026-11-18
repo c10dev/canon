@@ -58,6 +58,7 @@ def test_carry_pulls_a_passage_the_plain_search_misses():
     assert bell not in base.get(1, [])
     found = dict(prompts.check_recall(_project(["서윤 | 1화 | 종이 울렸다"]), 6)[1])
     assert bell in found[1]
+    assert found[1] == sorted(found[1], key=OLD.find)  # 결정 단락과 일반 찾기 단락을 합쳐도 본문 차례
 
 
 def test_recent_or_zero_episode_changes_nothing():

@@ -5429,7 +5429,8 @@ def check_recall(p: Project, n: int, sized: bool = False) -> tuple[list, list[tu
     for m, paras in found:
         have = merged.setdefault(m, [])
         have += [para for para in paras if para not in have]
-    return recent, [(m, merged[m]) for m in sorted(merged)]
+    text = {e.plot.number: e.text for e in p.episodes}  # 화 안의 단락은 본문 차례로 (PassageIndex.find 와 같게)
+    return recent, [(m, sorted(merged[m], key=lambda para, t=text.get(m, ""): t.find(para))) for m in sorted(merged)]
 
 
 def _carry_passages(p: Project, n: int, ep, recent_nos: set[int]) -> dict[int, list[str]]:
