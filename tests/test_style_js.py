@@ -247,3 +247,16 @@ def test_library_marker_table_shows_zone_rates_only_when_present():
     mine = js(project(prof), "S.lib = { ...data.e, marker_zones: data.z }; return pfRead('markers', P().style, '', new Set());", e=e, z=zones)
     assert "앞 · 가운데 · 뒤" not in none and "앞 · 가운데 · 뒤" not in mine
     assert "앞 · 가운데 · 뒤" in some and "0.90 · 0.40 · 0.10" in some and "뒤로 갈수록 줄어요" in some and some.count("chip") == 1
+
+
+@needs_node
+def test_draft_cards_show_blank_note():
+    prof = dump(profile())
+    got = js(project(), """S.styleDraft = { profile: data.pr, blanks: ['vocabulary', 'sample_passages'] }; const a = styleDraftCard();
+      S.styleDraft = { profile: data.pr, blanks: [] }; const b = styleDraftCard(); return [a, b];""", pr=prof)
+    assert "note warn" in got[0] and "칸 2개" in got[0] and "어휘, 대표 문단" in got[0]
+    assert "note warn" not in got[1]
+    lib = js(project(), """S.lib = { id: 'x', profile: data.pr }; S.libDraft = { lib: 'x', profile: data.pr, blanks: ['tense'] }; const a = libDraftCard();
+      S.libDraft = { lib: 'x', profile: data.pr, blanks: [] }; return [a, libDraftCard()];""", pr=prof)
+    assert "note warn" in lib[0] and "칸 1개" in lib[0] and "시제" in lib[0]
+    assert "note warn" not in lib[1]

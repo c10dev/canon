@@ -763,6 +763,7 @@
 - 레퍼런스 원고에서 온 새 항목은 분석 요청에 `ref` · `ref_orders` 를 실어, 서버가 표지 빈도를 고른 화 전체에서 센다. 작업 결과의 `counted` 는 센 글자 수다
 - 그 항목의 원문 칸 아래에 고루 뽑은 조각 목록을 접어 보인다(`S.lib.ref_pieces`, `refPieceLines`)
 - '문체 분석'(`analyzeStyle`)은 화면을 막지 않는 작업 `style` 을 시작한다. 버튼은 `jobBtn` 으로 진행을 보이고, 결과는 문체 화면 맨 위 제안 카드(`styleDraftCard`, `S.styleDraft`)로 온다. '이 결과로 바꾸기'(`styleDraftApply`)를 눌러야 작품 문체 · 기준 지표에 들어가고 라이브러리 연결을 끊는다. 문체 라이브러리의 분석은 작품 밖이라 아직 가림막(run)이다
+- 두 제안 카드(`styleDraftCard` · `libDraftCard`)는 결과에 `blanks` 가 있으면 경고 한 줄(`styleBlankNote`)을 보인다
 - 지금 문체로 예시 쓰기(`stylechat.js` `styleExampleWrite`)도 화면을 막지 않는 작업 `style_example` 이다. 등록(`JOB_PAGES` · `JOB_RESULT`)은 여기 두고 예시는 `takeField('style_example')` 로 받는다
 
 ### `canon/static/stylechat.js`

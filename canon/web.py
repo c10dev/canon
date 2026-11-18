@@ -1781,8 +1781,9 @@ def analyze_library_style_job(body: LibAnalyzeIn) -> dict:
     texts = [c["text"] for c in refs.pick(refs.load(body.ref), body.ref_orders)] if from_ref else []
 
     def fn(job: jobs.Job):
-        prof = pipeline.analyze_style(llm, text, corpus=whole)
-        return {"profile": prof.model_dump(), "lib": lib, "counted": len(whole), "zones": refsample.zone_rates(texts, [m.text for m in prof.markers])}
+        prof, blanks = pipeline.analyze_style_full(llm, text, corpus=whole)
+        return {"profile": prof.model_dump(), "lib": lib, "counted": len(whole), "zones": refsample.zone_rates(texts, [m.text for m in prof.markers]),
+                "blanks": blanks}
     try:
         with usage.scope(project="", episode=None, task="lib_style"):
             job = jobs.start(LIB_JOBS, "lib_style", None, "문체 분석 (라이브러리)", fn)
@@ -2687,8 +2688,8 @@ def _job_style(name: str, body: "JobIn", p: Project, kind: str, n: int | None, l
     text, names = body.text, [c.name for c in p.characters]
 
     def fn(job: jobs.Job):
-        prof = pipeline.analyze_style(llm, text, names)
-        return {"profile": prof.model_dump(), "baseline": metrics.measure(text).model_dump()}
+        prof, blanks = pipeline.analyze_style_full(llm, text, names)
+        return {"profile": prof.model_dump(), "baseline": metrics.measure(text).model_dump(), "blanks": blanks}
     return "문체 분석", 1, set(), fn
 
 
