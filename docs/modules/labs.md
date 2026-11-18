@@ -944,6 +944,7 @@
 - `scripts/context_measure.py` 의 열린 복선 블록 흉내는 장편 화마다 `prompts.serial_foreshadow_block` 으로 한 줄 꼴과 예전 JSON 꼴을 찍어 줄어든 글자를 센다(LLM 없음, `docs/context/specs/10-foreshadow-trim.md` 의 확인 (가))
 - 복선 흉내는 한 줄 블록이 실제 쓰기 프롬프트에 없으면 `align` 에 `foreshadow-block` 을 적는다
 - 복선 흉내의 옵션은 `--fs-works` · `--fs-mode` · `--fs-only` · `--fs-table` 이고 결과 JSON 에 `foreshadow` 키를 더한다
+- 인물 자취 측정 `scripts/trail_measure.py` 도 `context_measure.rebuild` 로 Canon 화의 쓰기 요청을 다시 짓는다(LLM 없음, `docs/trail/specs/01-measure.md`, 시험 `tests/test_trail_measure.py`)
 - 복선 흉내의 판정은 합친 값과 독립 작품 셋(`FS_WORKS`)의 블록 글자가 모두 `FS_CHARS`(40%) 이상 줄어야 통과다
 - 원래 반영의 바뀐 항목(`changes`)
 - LLM 없는 채점(`score`: 바뀌지 않을 값 · 바뀔 값 오류, 없던 항목, 플롯에 없던 상태창)
