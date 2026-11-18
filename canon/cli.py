@@ -1524,9 +1524,20 @@ def _print_address(p: Project, d: StateDelta) -> None:
             print(f"  · 근거: \"{x.quote}\"")
 
 
+def _print_views(p: Project, d: StateDelta) -> None:
+    """보는 눈 제안을 보여 준다. 기본으로 반영하므로 확인을 묻지 않는다."""
+    if not d.views:
+        return
+    name = {c.id: c.name for c in p.characters} | {c.id: c.name for c in d.new_characters}
+    print("\n--- 보는 눈 (반영해요) ---")
+    for x in d.views:
+        print(f"- {name.get(x.viewer, x.viewer)} → {name.get(x.target, x.target)}: {x.verdict}" + (f" (겉으로는 {x.surface})" if x.surface else ""))
+
+
 def _print_settings(p: Project, d: StateDelta) -> None:
     """설정 바꾸기 · 호칭 제안을 지금 값과 나란히 보여 준다."""
     _print_address(p, d)
+    _print_views(p, d)
     if not d.setting_changes:
         return
     name = {c.id: c for c in p.characters}

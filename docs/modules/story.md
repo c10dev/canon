@@ -461,8 +461,15 @@
 ### `canon/charviews.py`
 
 - 보는 눈 기록(`Project.views`, `CharView`): 인물이 상대를 어떻게 보는지, 본문에 드러난 평가
-- 지금은 자리만 있다. 채우는 길(상태 변경안)은 docs/trail 일감 8-2 다
+- 채우는 길은 상태 변경안의 `views` 다(docs/trail 일감 8-2)
 - `live`: 보는 사람과 대상이 모두 있는 인물인 줄만, 저장 차례 그대로
+- `MAX_PER_EPISODE`(4): 한 화에 받는 보는 눈 줄 수. 넘으면 앞의 것만 받는다
+- `latest`: 방향 쌍마다 가장 최근 줄(화가 큰 것, 같은 화면 뒤에 저장된 것)
+- `state_block`: 상태 변경안 요청의 `[지금 보는 눈]` 블록. 최근 화가 먼저, 예산은 `context.BUDGET["plan_views"]`, 넘치면 '(그 밖 n줄 생략)'
+- `state_rule`: 상태 변경안 규칙 한 줄(`views` 적는 법). 늘 붙는다
+- `clean_delta`(`features.CLEAN`): 없는 인물 · 같은 인물 · 빈 평가 · 최근 평가와 같은 줄을 빼고 같은 방향은 뒤의 것만 남긴다. 경고 없이 거른다
+- `apply_delta`(`features.APPLY_LAST`): 작가가 고른 `views` 를 `CharView(episode=d.episode)` 로 쌓는다. 최근 평가와 같으면 건너뛴다
+- 상태 승인 화면은 기본으로 체크한다. 자동 집필 · `-y` 도 반영한다(`features.HOLD` 에 없다). 본문에 드러난 일의 기록이라서 관계 사건과 같다
 - 되돌리기 `revert`: n화 뒤 줄과 지워진 인물의 줄을 지운다(훅 `features.REVERT_LAST`)
 - 다시 짜기(`reshape`)는 `revert(p, 0)` 으로 비운다
 - 화면의 작품 전체 저장(`web.put_project`)은 디스크의 보는 눈을 둔다

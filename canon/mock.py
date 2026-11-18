@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from .schema import (
     AddressChange,
+    ViewChange,
     Act,
     AgentAsk,
     StateRuleFill,
@@ -916,6 +917,7 @@ def _r_state_delta(prompt: str, hint: dict):
                                        quote="서윤은 등대 앞에 섰다.")] if n == 2 else [],
         address_changes=[AddressChange(speaker="ally", listener="hero", calls=MOCK_CALLS, speech="해체(반말)",
                                        reason="등대에서 서로 말을 놓기로 했다", quote="서윤은 등대 앞에 섰다.")] if n == 3 else [],
+        views=[ViewChange(viewer="hero", target="ally", verdict="믿어도 되는 사람", surface="")] if n == 2 else [],
         contacts=_mock_contacts(prompt),
         time=StoryTime(day=n, part="밤"),
         deadlines_added=[Deadline(id="dl-01-festival", what="등대 축제", day=5, note="닷새 뒤 축제")] if n == 1 else [],

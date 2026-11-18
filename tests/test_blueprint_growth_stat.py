@@ -183,10 +183,11 @@ def test_ai_block_lists_stat_values_only_when_present():
 
 
 # 수치 줄이 없는 작품의 요청 글은 이 일감 전(main 173fdd06)과 글자까지 같다. 해시는 그 커밋에서 이 일감 없이 뽑았다.
+# state_prompt 해시는 보는 눈 규칙 줄(docs/trail 8-2, charviews.state_rule)이 늘 붙으며 바꿨다.
 _BEFORE = {
     "plan_lines": "54b2be0b62e65f7f", "ability_block": "aa0de20a50a659f7", "board": "b2af20832d9c4251", "write": "1e874924a63d3d35",
     "check": "702c5cb71f204e0b", "state": "8bf19180f43de9d9", "have": "465ca225993023bd", "owned": "4dbec046b55b03c6",
-    "storyboard": "b9f384001cfaf263", "episode": "024dbd9e0b5c74c6", "state_prompt": "acc6547b1b9e168e",
+    "storyboard": "b9f384001cfaf263", "episode": "024dbd9e0b5c74c6", "state_prompt": "615f9be5e939fd92",
     "ai_block_nostat": "9e26466ee599de9b", "check_prompt": "1b1781651524f16c",
 }
 

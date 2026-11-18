@@ -182,6 +182,7 @@
 - 장편 프롬프트 크기 관리
 - 블록 재기(`blocks`, 사용량 기록 · 연구 화면)
 - 블록 글자 예산(`BUDGET`)
+- `BUDGET["plan_views"]`(1,500자)는 상태 변경안의 지금 보는 눈 블록(`charviews.state_block`)과 기획 블록(docs/trail 일감 8-3)이 같이 쓴다
 - 쓰기 가족 예산 키 `WRITE_KEYS`: 작품 설정(`Settings.budgets`)으로 바꿀 수 있는 키는 이 14개뿐이다
 - 작품 예산 `budget(p, key)`: 장편이고 `WRITE_KEYS` 의 키에 작품 값이 있으면 그 값, 아니면 `BUDGET[key]`. 단편은 늘 기본값
 - 저장한 값이 `budget_ok` 를 지나지 못하면(손으로 고친 `project.json` 등) `budget` 은 그 값을 무시하고 `BUDGET[key]` 를 쓴다
@@ -843,6 +844,9 @@
 - 스토리보드 요청 끝(`blueprint_board_rule` 뒤)과 쓰기 지시문(`blueprint_write_line` 뒤)에 신체 특징 블록 `body_rule`. 넣을 인물은 `cast.body_cast`
 - 검수 요구사항(`blueprint_check_rule` 뒤)에 `body_check_rule`: 같은 인물의 신체 특징과 다른 몸 묘사를 짚는다(type 사실)
 - 상태 변경안 요구사항(호칭 · 말씨 뒤)에 `blueprint.state_rule`: 그 화 인물끼리 아직 닿지 않은 사다리 칸 목록과 `contacts` 적는 법
+- 상태 변경안은 `[호칭 · 말씨]` 바로 뒤에 `[지금 보는 눈]` 블록(`charviews.state_block`)을 넣는다. 보는 눈이 없으면 블록이 없다
+- 상태 변경안 요구사항에 `charviews.state_rule` 이 늘 붙는다(`address.state_rule` 바로 뒤)
+- 상태 변경안 누락 검사의 변경안 줄임(`_audit_delta_lines`)은 호칭 줄 뒤에 '보는 눈 · A → B: 평가' 줄을 더한다
 - 그 뒤에 `blueprint.ability_state_rule`: 얻을 때가 된 능력을 얻었으면 일정의 이름 그대로 적게 한다
 - `StateDelta.contacts`(`ContactReach`)는 작가가 골라야 기록되고(`features.APPLY_LAST`), 사람 검토 없는 반영은 `contact_held` 로 남겨 둔다(`features.HOLD`)
 - 장편 화별 플롯 초안(`serial_plot_prompt`)과 장편 플롯 대화(`_serial_plot_parts`)는 접은 줄거리 뒤에 확정 사실 · 주역 상태 · 주역 밖 인물 상태를 넣는다(`plot_facts_states`)
@@ -994,6 +998,9 @@
 - 반영 기록의 `StateDelta.legacy_rel` 은 프로그램 칸이다(`SkipJsonSchema`). 칸이 없던 예전 기록은 참으로 읽히고 지금 반영은 거짓으로 남긴다
 - 상태 승인에서 반영하지 않은 항목(`StateDelta.dismissed`, `DismissedItems`)은 AI 응답 형식에서 빠지고 반영 기록(`Project.history`)에만 남는다
 - `DismissedItems.setting_changes` · `address_changes` 는 작가가 체크를 푼 설정 바꾸기 · 호칭이다. 반영하지 않는다. 자동 집필은 여기 말고 `setting_held` · `address_held` 에 남긴다
+- `ViewChange`(`viewer` · `target` · `verdict` · `surface`)는 상태 변경안이 제안하는 보는 눈 한 줄이다. dict 칸이 없다
+- `StateDelta.views`(`list[ViewChange]`)는 상태 변경안이 낸 보는 눈이다. 기본으로 체크하고 hold 하지 않는다
+- `DismissedItems.views` 는 작가가 체크를 푼 보는 눈이다. 반영하지 않는다
 - 반영이 실제로 새로 더한 항목(`StateDelta.added`, `AddedItems`)도 AI 응답 형식에서 빠진다. 없으면(None) 이 칸이 생기기 전 기록이다
 - 반영 취소는 그 화 기록과 함께 빼 둔 항목도 지운다
 - 지운 기록은 `_revert_kept` 가 pending.json 에 남기고, 상태 승인 화면이 빼 둔 항목을 체크를 푼 채 다시 놓는다
