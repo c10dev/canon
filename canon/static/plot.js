@@ -681,7 +681,7 @@ function plotEditor(e) {
       ${input('엔딩 훅', b + '.ending_hook', { ...ro, rows: 2, autogrow: true })}
       ${rewardOn(e) ? input('이 화의 사이다', b + '.reward', { ...ro, rows: 1, autogrow: true, help: REWARD_HELP }) : ''}
       ${n <= 3 || e.plot.reader_question ? input('독자가 들고 갈 질문', b + '.reader_question', { ...ro, rows: 2, autogrow: true, hint: n <= 3 ? '이 화를 읽고 다음 화를 누르게 하는 질문' : '' }) : ''}
-      ${!locked || (e.plot.carry || []).length ? input('이어받을 앞 일', b + '.carry', { ...ro, kind: 'carry', rows: 2, autogrow: true, help: CARRY_HELP, placeholder: '예: 서하은 | 7화 | 그때의 동정도 연기였다고 다시 읽음' }) : ''}`)}
+      ${!locked || (e.plot.carry || []).length ? input('이어받을 앞 일', b + '.carry', { ...ro, kind: 'carry', rows: 2, autogrow: true, help: CARRY_HELP, placeholder: '예: 서윤 | 7화 | 그날의 거절도 두려움이었다고 다시 읽음' }) : ''}`)}
     ${sec('복선', `<div class="grid-2">${input('심을 복선', b + '.foreshadow_plant', { ...ro, kind: 'list', rows: 2 })}${payoffPicker('회수할 복선', b + '.foreshadow_payoff', locked)}</div>`)}
     ${tools ? `<details class="card plot-tools"${S.insForm ? ' open' : ''}><summary><strong>화 도구</strong> <span class="small">끼워 넣기 · 빼기 · 지우기</span></summary><div class="plot-tools-body">${tools}</div></details>` : ''}
     ${fitNextField(e)}
