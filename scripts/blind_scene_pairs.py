@@ -10,7 +10,7 @@
   python scripts/blind_ident.py build --pairs 짝목록.json --out 묶음폴더
 대목은 한 화의 이웃한 두 대목(약 1,800자)을 이은 것이다. 자르개가 첫 · 마지막 문단을 버려도 MIN_CHARS 를 채우게 하려는 것이다.
 쓰기 카드의 목표 글자 수는 그 대목 길이(50 단위 반올림)라서 canon 글도 같은 분량이다.
-기본 길(--path episode)은 사실 카드 하나로 임시 장편 작품을 만들고 canon 의 화 쓰기 길(스토리보드 · 큐 시트 · 본문)로 쓴다. 작품 · 문체 · 원고는 저장하지 않는다.
+기본 길(--path episode)은 사실 카드 하나로 임시 장편 작품을 만들고 canon 의 화 쓰기 길(조율 메모 · 스토리보드 · 큐 시트 · 본문)로 쓴다. 작품 · 문체 · 원고는 저장하지 않는다.
 --path paragraph 는 예전 문단 연습장 길이다.
 유료 모델을 부르므로 돌리기 전에 estimate 로 비용을 본다. AGENTS.md '비용 드는 모델 실험'의 한도(실험 하나 $5, 세션 합계 $10)를 지킨다.
 --model 은 백엔드:모델 꼴이다. paragraph 길은 필수, episode 길은 선택(없으면 canon 단계 기본 모델)이다. pick 은 폴더/passages.json 을, gen 은 폴더/gen.json 을 쓰고(이어 돌리기), pairs 는 --out 을 쓴다.
@@ -30,10 +30,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from canon import board, cue, drill, library, metrics, pipeline, prompts, refs, studio, usage  # noqa: E402
+from canon import board, coord, cue, drill, library, metrics, pipeline, prompts, refs, studio, usage  # noqa: E402
 from canon.metrics import StyleMetrics  # noqa: E402
 from canon.schema import (  # noqa: E402
     Character,
+    CoordMemo,
     CueSheet,
     DrillFacts,
     DrillRound,
@@ -56,7 +57,8 @@ KO_CHARS_PER_TOKEN = 1.7
 OUT_TOKENS_FACTS = 800            # 사실 뽑기 응답 토큰 어림
 OUT_TOKENS_BOARD = 1500           # 스토리보드 응답 토큰 어림
 OUT_TOKENS_CUE = 2000             # 큐 시트 응답 토큰 어림
-THOUGHT_TOKENS = {"facts": 3000, "board": 6000, "cue": 6000, "write": 17000}  # 생각 토큰 어림 (지난 실측: 장면 쓰기 한 번에 약 1만 7천)
+OUT_TOKENS_COORD = 600            # 조율 메모 응답 토큰 어림 (실측 아님)
+THOUGHT_TOKENS = {"facts": 3000, "board": 6000, "cue": 6000, "coord": 3000, "write": 17000}  # 생각 토큰 어림 (지난 실측: 장면 쓰기 한 번에 약 1만 7천)
 EP_NO = prompts.OPENING_EPISODES + 1  # 4화: 1~3화 여는 규칙이 걸리지 않는 첫 화
 ARC_END = EP_NO + 6
 MAX_DRAWS_PER_RID = 20
@@ -205,19 +207,34 @@ def episode_project(row: dict, settings: Settings, style: tuple) -> Project:
     return p
 
 
+def _plan_coord(p: Project, board_llm) -> dict:
+    """쓰기 재료 조율(write_material=coord)이면 조율 메모를 만들어 임시 작품의 화에 넣는다 (실제 쓰기의 coord.remake 와 같다).
+    받지 못하면 {"coord_error": 앞 200자} 만 남기고 원래 플롯으로 쓴다 (웹 쓰기 · 자동 집필과 같다)."""
+    if not coord.remake(p, EP_NO):
+        return {}
+    try:
+        m = pipeline.make_coord(board_llm, p, EP_NO)
+    except Exception as e:  # noqa: BLE001 - 조율 메모는 연출 메모라 멈추지 않는다
+        return {"coord_error": str(e)[:200]}
+    p.episode(EP_NO).coord = m
+    return {"coord": m.model_dump()}
+
+
 def plan_scene(row: dict, p: Project, board_llm) -> dict:
-    """쓰기 재료. 스토리보드와 큐 시트를 켠 작품이면 만들어 임시 작품의 화에 넣는다. 실패는 {"error": 앞 200자}."""
+    """쓰기 재료. 조율이면 조율 메모를 먼저(스토리보드도 메모를 플롯으로 본다), 스토리보드와 큐 시트를 켠 작품이면 그것도 만들어
+    임시 작품의 화에 넣는다. board_llm 은 board 단계(비우면 plan 단계) 모델이다. 실패는 {"error": 앞 200자}."""
     try:
         ep = p.episode(EP_NO)
         lead: list[str] = []
         b = c = None
+        memo = _plan_coord(p, board_llm)
         if board.on(p):
             b = pipeline.make_storyboard(board_llm, p, EP_NO, lead=lead)
             ep.storyboard = b
         if cue.on(p):
             c = pipeline.make_cue_sheet(board_llm, p, EP_NO, lead=pipeline.cue_lead(p, EP_NO, lead, b.made_at if b else ""))
             ep.cue_sheet = c
-        return {"storyboard": b.model_dump() if b else None, "cue_sheet": c.model_dump() if c else None}
+        return {**memo, "storyboard": b.model_dump() if b else None, "cue_sheet": c.model_dump() if c else None}
     except Exception as e:  # noqa: BLE001 - 실패는 남기고 다음으로 간다
         return {"error": str(e)[:200]}
 
@@ -225,6 +242,8 @@ def plan_scene(row: dict, p: Project, board_llm) -> dict:
 def _attach(p: Project, plan: dict) -> None:
     """이어 돌릴 때 남겨 둔 쓰기 재료를 임시 작품의 화에 다시 넣는다."""
     ep = p.episode(EP_NO)
+    if plan.get("coord"):
+        ep.coord = CoordMemo.model_validate(plan["coord"])
     if plan.get("storyboard"):
         ep.storyboard = Storyboard.model_validate(plan["storyboard"])
     if plan.get("cue_sheet"):
@@ -363,21 +382,22 @@ def estimate_episode(rids: list[str], n: int, reps: int, models: dict, settings:
     samples = [(rid, _sample(rid, rng)) for rid in rids]
     k = len(samples)
     projs = [episode_project(_fact_row(sm), settings, styles.get(rid, (StyleProfile(), None, ""))) for rid, sm in samples]
-    use_board, use_cue = board.on(projs[0]), cue.on(projs[0])
+    use_board, use_cue, use_coord = board.on(projs[0]), cue.on(projs[0]), coord.on(projs[0])
     avg = lambda xs: sum(xs) / k / KO_CHARS_PER_TOKEN  # noqa: E731 - 글자 수 평균을 토큰으로
     facts_in = avg([len(prompts.drill_facts_prompt(sm["source"], sm["lead"])) for _, sm in samples])
     board_in = avg([len(prompts.storyboard_prompt(p, EP_NO)) for p in projs]) if use_board else 0
     cue_in = avg([len(prompts.cue_sheet_prompt(p, EP_NO)) for p in projs]) if use_cue else 0
+    coord_in = avg([len(prompts.SYSTEM_PLANNER) + len(prompts.coord_prompt(p, EP_NO)) for p in projs]) if use_coord else 0
     write_in = avg([len(prompts.episode_prompt(p, EP_NO)) + len(prompts.writer_system(p)) for p in projs])
     write_out = avg([len(sm["source"]) for _, sm in samples])
-    plan_in = n * (facts_in + board_in + cue_in)
+    plan_in = n * (facts_in + board_in + cue_in + coord_in)
     plan_out = n * (OUT_TOKENS_FACTS + THOUGHT_TOKENS["facts"] + (OUT_TOKENS_BOARD + THOUGHT_TOKENS["board"]) * bool(use_board)
-                    + (OUT_TOKENS_CUE + THOUGHT_TOKENS["cue"]) * bool(use_cue))
+                    + (OUT_TOKENS_CUE + THOUGHT_TOKENS["cue"]) * bool(use_cue) + (OUT_TOKENS_COORD + THOUGHT_TOKENS["coord"]) * bool(use_coord))
     w_in, w_out = n * reps * write_in, n * reps * (write_out + THOUGHT_TOKENS["write"])
     board_g = _group_cost(models["board"], plan_in, plan_out, 1, assume)
     write_g = _group_cost(models["write"], w_in, w_out, pipeline.WRITE_TRIES, assume)
     parts = (board_g, write_g)
-    out = {"path": "episode", "calls": {"facts": n, "board": n * use_board, "cue": n * use_cue, "write": n * reps},
+    out = {"path": "episode", "calls": {"facts": n, "coord": n * use_coord, "board": n * use_board, "cue": n * use_cue, "write": n * reps},
            "tokens": {"in": round(plan_in + w_in), "out": round(plan_out + w_out)}, "models": {"board": board_g, "write": write_g},
            "usd": None, "usd_worst": None}
     if all(g["usd"] is not None for g in parts):
@@ -392,7 +412,7 @@ def estimate_episode(rids: list[str], n: int, reps: int, models: dict, settings:
 
 def estimate(rids: list[str], n: int, reps: int, backend: str = "", model: str = "", path: str = "paragraph",
              settings: Settings | None = None, styles: dict[str, tuple] | None = None, assume: str = "", models: dict | None = None) -> dict:
-    """호출 수와 어림 비용. paragraph: 사실 뽑기 n 번 + 쓰기 n*reps 번. episode: 사실 + 스토리보드 + 큐 시트 + 쓰기. 호출하지 않는다."""
+    """호출 수와 어림 비용. paragraph: 사실 뽑기 n 번 + 쓰기 n*reps 번. episode: 사실 + 조율 메모 + 스토리보드 + 큐 시트 + 쓰기. 호출하지 않는다."""
     if path == "episode":
         both = f"{backend}:{model}"
         return estimate_episode(rids, n, reps, models or {"board": both, "write": both}, settings or Settings(), styles or {}, assume)
@@ -492,7 +512,7 @@ def cmd_style(a) -> dict:
 def _gen_summary(got: dict, done: dict) -> dict:
     keys = [k for k in got if not k.startswith("_")]
     return {"new": len(keys) - sum(1 for k in done if not k.startswith("_")), "errors": sum(1 for k in keys if "error" in got[k]),
-            "total": len(keys)}
+            "coord_errors": sum(1 for k in keys if "coord_error" in got[k]), "total": len(keys)}  # 조율 메모 없이 원래 플롯으로 쓴 대목
 
 
 def cmd_gen(a) -> dict:

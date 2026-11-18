@@ -25,6 +25,8 @@
 - 판별 묶음 만들기: `scripts/blind_ident.py check` · `build`(시험은 `tests/test_blind_ident_script.py`). 짝 목록의 두 글을 이름은 그대로 두고(`MASK_NAMES = False`) 같은 자르개로 길이 차 3% 안에 맞춰 `import_folder` 의 `ident` 로 넣을 폴더를 만든다
 - 내용 맞춘 짝 목록 만들기: `scripts/blind_scene_pairs.py` 의 `estimate` · `pick` · `gen` · `pairs`(시험은 `tests/test_blind_scene_pairs.py`). 레퍼런스 대목의 사실 카드로 canon 이 같은 장면을 써서 짝 목록을 만든다
 - `scripts/blind_scene_pairs.py gen` 의 기본 길 `--path episode` 는 임시 장편 작품으로 스토리보드 · 큐 시트 · 본문을 쓰고, `style` 명령이 원고마다 문체 파일을 만든다(`--path paragraph` 는 문단 연습장 길)
+- episode 길은 작품 설정이 쓰기 재료 조율(`write_material=coord`)이면 실제 쓰기처럼 스토리보드 전에 `pipeline.make_coord` 를 board 단계 모델로 불러 조율 메모를 `|plan` 의 `coord` 에 남기고 `ep.coord` 에 넣는다. 조율이면 큐 시트는 만들지 않는다(`board.fixed_only`)
+- 조율 메모를 받지 못한 대목은 `coord_error` 를 남기고 원래 플롯으로 쓴다. `gen` 출력의 `coord_errors` 가 그 수다. 이 변경 전에 만든 `|plan` 에는 메모가 없으므로 조율 판은 새 `--dir` 로 돌린다
 - 점수 `score`(0 은 지움, 한마디 `NOTE_MAX` 자). 결과를 연 뒤에는 고칠 수 없다
 - 기준 항목 `CRITERIA`(다섯): 작가가 2점 · 3점 글에서 그은 문장 30개를 묶은 갈래다(2026-11-13 작가 확인). 묶음마다 그때의 항목을 `BlindSet.criteria` 에 적어 둔다
 - 항목을 적어 두지 않은 옛 묶음은 결과를 열기 전이면 `CRITERIA` 를 쓰고 처음 체크할 때 적는다. 이미 결과를 연 옛 묶음에는 항목이 없다(`criteria`)
