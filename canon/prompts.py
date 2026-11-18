@@ -5429,8 +5429,9 @@ def check_recall(p: Project, n: int, sized: bool = False) -> tuple[list, list[tu
     for m, paras in found:
         have = merged.setdefault(m, [])
         have += [para for para in paras if para not in have]
-    text = {e.plot.number: e.text for e in p.episodes}  # 화 안의 단락은 본문 차례로 (PassageIndex.find 와 같게)
-    return recent, [(m, sorted(merged[m], key=lambda para, t=text.get(m, ""): t.find(para))) for m in sorted(merged)]
+    # 화 안의 단락은 단락 번호 차례로 (PassageIndex.find 와 같게). 글자 자리(find)는 짧은 단락이 앞 단락 안에 있으면 앞당겨진다
+    order = {m: {para: k for k, para in reversed(list(enumerate(context._paragraphs(p.episode(m).text))))} for m in merged}
+    return recent, [(m, sorted(merged[m], key=lambda para, o=order[m]: o.get(para, len(o)))) for m in sorted(merged)]
 
 
 def _carry_passages(p: Project, n: int, ep, recent_nos: set[int]) -> dict[int, list[str]]:

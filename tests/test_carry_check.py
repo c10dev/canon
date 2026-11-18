@@ -61,6 +61,19 @@ def test_carry_pulls_a_passage_the_plain_search_misses():
     assert found[1] == sorted(found[1], key=OLD.find)  # 결정 단락과 일반 찾기 단락을 합쳐도 본문 차례
 
 
+def test_short_paragraph_inside_an_earlier_one_keeps_its_place():
+    quote = "“은빛 나침반.”"
+    old = "\n\n".join([quote + " 민호가 부르자 서윤이 돌아봤다. " + FILLER[0] * 10,
+                       *(FILLER[i % 5] * 20 for i in range(1, 7)),
+                       "서윤은 등대 계단에서 거절당한 날을 떠올렸다. " + FILLER[2] * 10, quote])
+    p = _project(["서윤 | 1화 | 거절당한 날을 다시 떠올림"])
+    p.episode(1).text = old
+    p.episode(6).text = "서윤은 은빛 나침반을 쥐었다."
+    paras = context._paragraphs(old)
+    found = dict(prompts.check_recall(p, 6)[1])[1]
+    assert found == sorted(found, key=paras.index)
+
+
 def test_recent_or_zero_episode_changes_nothing():
     base = prompts.check_recall(_project(), 6)
     assert prompts.check_recall(_project(["서윤 | 4화 | 안개"]), 6)[1] == base[1]
