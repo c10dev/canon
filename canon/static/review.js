@@ -30,6 +30,7 @@ function pickedDelta(n) {
     setting_changes: pick('t', d.setting_changes || []),
     cast_added: pick('a', d.cast_added || []),
     address_changes: pick('h', d.address_changes || []),
+    views: pick('v', d.views || []),
     contacts: pick('u', d.contacts || []),
     // 상태 규칙 제안: 보인 목록은 그대로 보내고(서버가 다시 계산해 견준다, web.apply_state) 체크를 푼 것은 key 로 (rule_off)
     rule_proposals: d.rule_proposals || [],
@@ -50,6 +51,7 @@ function pickedDelta(n) {
       deadlines_done: drop('o', d.deadlines_done),
       setting_changes: drop('t', d.setting_changes),
       address_changes: drop('h', d.address_changes),
+      views: drop('v', d.views),
       contacts: drop('u', d.contacts),
       rule_proposals: drop('g', d.rule_proposals),
     },
@@ -122,9 +124,9 @@ function ruleRefresh(n, list) {
 }
 
 /** 상태 변경안 항목 체크 키 ('c0', 'e1' …). 설정 제안 키('sc0', 'sf:logline')와 섞이지 않게 센다. */
-const DELTA_PICK = /^[cesrfpxnqlkotahug]\d+$/;
+const DELTA_PICK = /^[cesrfpxnqlkotahugv]\d+$/;
 /** 상태 변경안에서 하나씩 골라 반영하는 목록 (StateDelta 의 목록 칸 중 warnings 를 뺀 것, tests/test_delta_count.py 가 맞춰 본다) */
-const DELTA_LISTS = ['character_updates', 'events', 'secrets_added', 'relationship_updates', 'new_facts', 'foreshadow_planted', 'foreshadow_resolved', 'foreshadow_clues', 'new_characters', 'new_places', 'deadlines_added', 'deadlines_done', 'setting_changes', 'cast_added', 'address_changes', 'contacts', 'rule_proposals'];
+const DELTA_LISTS = ['character_updates', 'events', 'secrets_added', 'relationship_updates', 'new_facts', 'foreshadow_planted', 'foreshadow_resolved', 'foreshadow_clues', 'new_characters', 'new_places', 'deadlines_added', 'deadlines_done', 'setting_changes', 'cast_added', 'address_changes', 'views', 'contacts', 'rule_proposals'];
 /** 변경안 항목 수. 상태 승인 화면의 'n건 중'과 반영 확인창의 '0건'이 같은 셈을 쓴다 */
 const deltaCount = (d) => DELTA_LISTS.reduce((s, k) => s + (d[k] || []).length, 0);
 const deltaPicked = () => Object.entries(S.picks).filter(([k, v]) => v && DELTA_PICK.test(k)).length;
@@ -142,7 +144,7 @@ function deltaGist(d, { picks = {}, name = (id) => id, field = (f) => f, fs = []
   const sum = (d.summary || '').trim();
   // 그 밖: 여섯 묶음에 들지 않는 항목. 요약 카드에서 빠뜨리지 않게 한 줄로 센다
   const etc = [['s', d.secrets_added, '비밀'], ['r', d.relationship_updates, '관계 유형'], ['n', d.new_characters, '새 인물'], ['l', d.new_places, '장소'],
-    ['k', d.deadlines_added, '기한'], ['o', d.deadlines_done, '기한 끝'], ['h', d.address_changes, '호칭'], ['u', d.contacts, '설계도 칸'], ['g', d.rule_proposals, '규칙 제안']].filter(([, list]) => (list || []).length);
+    ['k', d.deadlines_added, '기한'], ['o', d.deadlines_done, '기한 끝'], ['h', d.address_changes, '호칭'], ['v', d.views, '보는 눈'], ['u', d.contacts, '설계도 칸'], ['g', d.rule_proposals, '규칙 제안']].filter(([, list]) => (list || []).length);
   const groups = [
     { key: 'summary', label: '요약', count: sum ? 1 : 0, picked: sum ? 1 : 0, peek: short(sum, 40) },
     group('chars', '인물 상태', [...keys('c', d.character_updates), ...keys('a', d.cast_added)], d.character_updates.map((u) => name(u.character_id)).join(', ')),
@@ -164,7 +166,7 @@ function deltaGist(d, { picks = {}, name = (id) => id, field = (f) => f, fs = []
 }
 
 /** 빼 둘 수 있는 목록과 체크 키 앞글자 (StateDelta.dismissed 의 칸, pickedDelta 와 같다) */
-const DISMISS_LISTS = [['character_updates', 'c'], ['events', 'e'], ['secrets_added', 's'], ['relationship_updates', 'r'], ['new_facts', 'f'], ['foreshadow_planted', 'p'], ['foreshadow_resolved', 'x'], ['foreshadow_clues', 'q'], ['new_characters', 'n'], ['new_places', 'l'], ['deadlines_added', 'k'], ['deadlines_done', 'o'], ['setting_changes', 't'], ['address_changes', 'h'], ['contacts', 'u'], ['rule_proposals', 'g']];
+const DISMISS_LISTS = [['character_updates', 'c'], ['events', 'e'], ['secrets_added', 's'], ['relationship_updates', 'r'], ['new_facts', 'f'], ['foreshadow_planted', 'p'], ['foreshadow_resolved', 'x'], ['foreshadow_clues', 'q'], ['new_characters', 'n'], ['new_places', 'l'], ['deadlines_added', 'k'], ['deadlines_done', 'o'], ['setting_changes', 't'], ['address_changes', 'h'], ['views', 'v'], ['contacts', 'u'], ['rule_proposals', 'g']];
 
 /** 반영 기록에서 돌아온 변경안(반영 취소 web._revert_kept, 단편 다시 쓰기 pipeline.carried_delta)의 빼 둔 항목을 목록 끝에 다시 놓는다.
  * 기본 체크는 풀어 둔다(d.reoffer 의 차례, defaultPicks). 그대로 반영하면 pickedDelta 가 다시 dismissed 로 보낸다. 두 번 불러도 한 번만 놓는다 */
@@ -208,6 +210,7 @@ function defaultPicks(d, over = {}) {
   (d.setting_changes || []).forEach((_, i) => { o['t' + i] = false; });  // 인물 설정은 작가가 직접 골라야 바뀐다
   (d.cast_added || []).forEach((_, i) => { o['a' + i] = true; });  // 본문에 나온 인물은 기본으로 그 화 등장 인물에 붙인다
   (d.address_changes || []).forEach((_, i) => { o['h' + i] = false; });  // 호칭 · 말씨도 작가가 직접 골라야 바뀐다
+  (d.views || []).forEach((_, i) => { o['v' + i] = true; });  // 보는 눈은 본문에 드러난 일의 기록이라 기본으로 반영한다 (docs/trail 08)
   (d.contacts || []).forEach((_, i) => { o['u' + i] = false; });  // 닿은 사다리 칸도 작가가 직접 골라야 기록된다 (docs/blueprint)
   // 상태 규칙 제안은 기본으로 체크한다 (Q22). 작가가 체크를 푼 key(rule_off)는 풀어 둔다
   (d.rule_proposals || []).forEach((x, i) => { o['g' + i] = !(d.rule_off || []).includes(x.key); });
@@ -239,6 +242,7 @@ function newCharDeps(d, i) {
     ...hit('s', d.secrets_added, (x) => x.owner === id),
     ...hit('t', d.setting_changes, (x) => x.character_id === id),
     ...hit('h', d.address_changes, (x) => x.speaker === id || x.listener === id),
+    ...hit('v', d.views, (x) => x.viewer === id || x.target === id),
     ...hit('u', d.contacts, (x) => x.a === id || x.b === id),
     ...hit('a', d.cast_added, (x) => x === id),
   ];
@@ -615,6 +619,8 @@ function reviewPanel(n) {
     fsClueRows(d, box, n),
   ].join('');
   const castLink = toolLink('cast', '인물 · 관계도');
+  // 보는 눈: 기본으로 체크한다. 줄 고치기는 아직 없다
+  const viewRows = (d.views || []).map((x, i) => `<div class="change">${box('v' + i)}<label for="pk-v${i}" style="font-size:0.8125rem;line-height:1.55"><strong>${esc(charName(x.viewer))} → ${esc(charName(x.target))}</strong> ${esc(x.verdict)}${x.surface ? ` <span class="small">겉으로는 ${esc(x.surface)}</span>` : ''}</label></div>`).join('');
 
   // 직접 정할 것: AI 혼자 정하지 않는 것(설정 바꾸기 · 호칭 · 말씨 바뀜 · 새 인물 · 설정에 없는 인물 · 모르는 복선)과 경고가 붙은 인물, 인물에 붙지 않은 경고
   const decideRows = [
@@ -645,6 +651,7 @@ function reviewPanel(n) {
       [...keys('c', d.character_updates, (i) => !decideChar(i)), ...keys('a', d.cast_added)],
       charIdx.filter((i) => !decideChar(i)).map((i) => charName(d.character_updates[i].character_id)).join(', '), toolFoot(castLink, statLink(d.character_updates))],
     ['rel', '관계 사건', events, keys('e', d.events), gist.rel.peek, toolFoot(castLink)],
+    ['views', '보는 눈', viewRows, keys('v', d.views), (d.views || []).slice(0, 2).map((x) => `${charName(x.viewer)} → ${charName(x.target)}`).join(' · '), toolFoot(castLink)],
     ['secrets', '비밀 · 관계 유형', `${secrets ? `<h3>새로 생긴 비밀</h3>${secrets}` : ''}${rels ? `<h3>관계 유형 · 설명 변경</h3>${rels}` : ''}`, [...keys('s', d.secrets_added), ...keys('r', d.relationship_updates)],
       [...d.secrets_added.map((x) => short(x.content)), ...d.relationship_updates.map((r) => `${charName(r.a)} ↔ ${charName(r.b)}`)].join(' · '), toolFoot(castLink)],
     ['facts', '확정 사실', facts, keys('f', d.new_facts), gist.facts.peek, ''],
@@ -866,6 +873,7 @@ function dismissedView(h) {
     ...(x.deadlines_done || []).map((id) => `기한 닫힘 · ${esc(dl(id))}`),
     ...(x.setting_changes || []).map((s) => `설정 바꾸기 · <strong>${esc(charName(s.character_id))}</strong> ${scLabel(s.field)}: ${esc(s.value)}`),
     ...(x.address_changes || []).map((a) => `호칭 · 말씨 · <strong>${esc(charName(a.speaker))} → ${esc(charName(a.listener))}</strong> ${esc([a.calls && `부르는 말 ${a.calls}`, a.speech && `말씨 ${a.speech}`].filter(Boolean).join(' · '))}`),
+    ...(x.views || []).map((v) => `보는 눈 · <strong>${esc(charName(v.viewer))} → ${esc(charName(v.target))}</strong> ${esc(v.verdict)}`),
     ...(x.contacts || []).map((c) => `닿은 사다리 칸 · <strong>${esc(charName(c.a))} ↔ ${esc(charName(c.b))}</strong> ${esc(c.rung)}`),
     ...(x.rule_proposals || []).map((r) => `상태 규칙 제안 · ${esc(ruleWhat(r))}`),
   ];

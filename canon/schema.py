@@ -2623,6 +2623,14 @@ class CharView(BaseModel):
     basis: list[str] = Field(default_factory=list, description="근거 자취 id. 자취(docs/trail 일감 5 · 6) 전에는 빈 목록")
 
 
+class ViewChange(BaseModel):
+    """상태 변경안이 제안하는 보는 눈 한 줄 (canon/charviews.py). 작가가 승인하면 CharView 로 Project.views 에 쌓인다."""
+    viewer: str = Field(description="보는 인물 id")
+    target: str = Field(description="평가받는 인물 id")
+    verdict: str = Field(description="보는 인물이 속말 · 대사에서 쓰는 낱말을 살린 평가, 30자 안팎")
+    surface: str = Field("", description="겉으로 다르게 말하면 그 말. 같으면 빈 글")
+
+
 class ContactReach(BaseModel):
     """이번 화 본문에서 두 인물이 접촉 사다리의 한 칸에 처음 닿음 (docs/blueprint/specs/07-contact.md). 작가가 승인하면 Project.contact_log 에 남는다."""
     a: str = Field(description="인물 id")
@@ -2671,6 +2679,7 @@ class DismissedItems(BaseModel):
     # 작가가 체크를 푼 설정 바꾸기 · 호칭 제안. 반영하지 않고, 반영 취소로 돌아오면 체크를 푼 채 다시 놓인다. 자동 집필은 여기 말고 setting_held · address_held 에 남긴다
     setting_changes: list[SettingChange] = Field(default_factory=list)
     address_changes: list[AddressChange] = Field(default_factory=list)
+    views: list[ViewChange] = Field(default_factory=list)
     contacts: list[ContactReach] = Field(default_factory=list)
     rule_proposals: list[RuleProposal] = Field(default_factory=list, description="작가가 체크를 푼 상태 규칙 제안")
 
@@ -2705,6 +2714,7 @@ class StateDelta(BaseModel):
     new_places: list[NewPlace] = Field(default_factory=list, description="장소 목록과 이야기 요소에 없는데 이번 화에 이름을 갖고 처음 나온 장소 (지형, 마을, 건물, 가게 등)")
     setting_changes: list[SettingChange] = Field(default_factory=list, description="인물 설정(외모, 성격, 말투 등)이 뒤 화까지 이어지게 바뀐 칸만. 대부분의 화는 비어 있다")
     address_changes: list[AddressChange] = Field(default_factory=list, description="인물끼리 부르는 말이나 말씨(존댓말 · 반말)가 뒤 화까지 이어지게 바뀐 방향만. 대부분의 화는 비어 있다")
+    views: list[ViewChange] = Field(default_factory=list, description="이번 화 본문에서 한 인물이 다른 인물을 보는 평가가 새로 드러나거나 바뀐 방향만. 같은 평가가 이어지면 적지 않는다. 대부분의 화는 비어 있다")
     contacts: list[ContactReach] = Field(default_factory=list, description="두 인물이 이번 화 본문에서 처음 닿은 접촉 사다리 칸 (요청의 칸 목록에서만). 대부분의 화는 비어 있다")
     time: StoryTime = Field(default_factory=StoryTime, description="이번 화가 끝난 작품 속 시점")
     deadlines_added: list[Deadline] = Field(default_factory=list, description="이번 화에 새로 생기거나 날이 바뀐 기한. 바뀐 기한은 같은 id 로")

@@ -572,6 +572,7 @@
 ### `canon/static/review.js`
 
 - 6단계 상태 승인 · 관계 표시
+- 상태 변경안 목록 `views`(체크 키 'v', 기본으로 체크): 보는 눈. 갈래 '보는 눈'은 '관계 사건' 바로 뒤이고, 줄 고치기는 없다
 - 상태 변경안 목록 `contacts`(체크 키 'u', 기본으로 고르지 않음): 닿은 사다리 칸. 줄은 `blueprint.js` 의 `contactDeltaRows`
 - 상태 변경안 목록 `rule_proposals`(체크 키 'g', 기본 체크, `rule_off` 의 key 는 풀림): 상태 규칙 제안. 그대로 반영할 것의 '상태 규칙 제안' 갈래에 '규칙' 표시 줄(`ruleRows`)
 - 미리 보기 응답의 `rule_proposals` 로 그 갈래를 바꾼다(`ruleRefresh`). 작가가 푼 key 는 풀린 채, 새 key 는 체크. 줄 수가 같으면 그 칸만, 다르면 다시 그린다

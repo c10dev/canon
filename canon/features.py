@@ -101,6 +101,7 @@ CLEAN: tuple[Callable[[Project, StateDelta], list[Warn] | None], ...] = (
     timeline.clean_delta,
     charlog.clean_delta,
     address.clean_delta,       # 호칭 · 말씨 바뀜: 있는 인물 사이의 지금 값과 다른 칸만
+    charviews.clean_delta,     # 보는 눈: 있는 인물 사이의 최근 평가와 다른 줄만 (경고 없이 거른다)
     blueprint.clean_delta,     # 닿은 사다리 칸: 목록에 있고 아직 닿지 않은 칸만
     knows.clean_delta,         # 프롬프트가 아는 정보 앞에 붙인 '(n화)' 표시를 뗀다
     _untag_facts,              # 프롬프트가 사실 줄 앞에 붙인 '(n화)' 표시를 뗀다 (비슷한 사실 보기 전에)
@@ -125,6 +126,7 @@ APPLY_LAST: tuple[Callable[[Project, StateDelta], None], ...] = (
     foreshadows.apply_delta, timeline.apply_delta, cast.apply_delta,
     offscreen.apply_delta,  # 다시 나온 인물의 화면 밖 근황을 비운다 (등장 인물 붙이기 뒤)
     blueprint.apply_delta,  # 작가가 고른 닿은 사다리 칸 기록
+    charviews.apply_delta,  # 작가가 고른 보는 눈 줄 기록 (기본 체크 · hold 하지 않음)
     staterules.apply_delta,  # 상태 규칙 제안: AI 제안을 반영한 뒤에 적용한다 (07 의 정할 것 8). 되돌리기는 스냅샷 · statwin.revert 가 맡는다
 )
 

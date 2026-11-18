@@ -23,7 +23,7 @@ from .llm import _inline_refs, dump
 from .schema import Birth, Character, ChatMessage, Claim, ConsistencyIssue, ConsistencyReport, Foreshadow, PlayInfo, PlotBatch, Project, Selection, StateDelta, StateDeltaAI, StoryElement
 from .schema import ARC_FRAME_FIELDS, ArcPlan, ArcProposal, CueSheetDraft, HeatArcPlan, HeatArcProposal, HeatProposal, SeriesPlan, StoryboardDraft
 from .schema import PassageRevision, PlotAgentStep, RelStage, SetupRevision, SetupRevisionWeb, StyleRevision
-from . import address, blueprint, board, cast, charlog, coord, echoes, foreshadows, heatplan, knows, pairlog, stage, statwin, timeline
+from . import address, blueprint, board, cast, charlog, charviews, coord, echoes, foreshadows, heatplan, knows, pairlog, stage, statwin, timeline
 from . import offscreen
 from .maps import prompt as mapprompt
 
@@ -5279,6 +5279,7 @@ def _audit_delta_lines(p: Project, d: StateDelta) -> str:
     out += [f"닿은 사다리 칸 · {nm.get(x.a, x.a)} ↔ {nm.get(x.b, x.b)} {x.rung}" for x in d.contacts]
     out += [f"호칭 · 말씨 · {nm.get(x.speaker, x.speaker)} → {nm.get(x.listener, x.listener)}: {' '.join(v for v in (x.calls, x.speech) if v)}"
             for x in d.address_changes]
+    out += [f"보는 눈 · {nm.get(x.viewer, x.viewer)} → {nm.get(x.target, x.target)}: {x.verdict}" for x in d.views]
     return "\n".join(out)
 
 
@@ -5372,13 +5373,13 @@ def state_prompt(p: Project, n: int, cuts: tuple[int, int] | None = None, facts_
     return f"""{lead}
 
 {cast}[이전 관계]
-{relations}{address.block(p, ids if p.serial else context.without_off(p, None), "[호칭 · 말씨]")}
+{relations}{address.block(p, ids if p.serial else context.without_off(p, None), "[호칭 · 말씨]")}{charviews.state_block(p, ids if p.serial else context.without_off(p, None))}
 {secret_block}[열린 복선]{cut_note(fs_cut, "이번 아크와 관련된 것만", "목록에 없는 복선의 id 는 쓰지 않습니다")}
 {dump(fs) or "없음"}
 {plot}{facts}[이미 있는 장소]
 {places_line(p, ep.text)}
 {f"[작품 속 시간]{chr(10)}{timeline.state_block(p, n)}{chr(10)}" if timeline.enabled(p) else ""}{text}
-""" + STATE_RULES.format(n=n) + f"""{fact_rule}{storylines.state_rule(p, n)}{foreshadows.state_rule(p)}{statwin.state_rule(p)}{ATTIRE_STATE_RULE}{LAYER_STATE_RULE}{charlog.state_rule(p)}{address.state_rule(p)}{blueprint.state_rule(p, n)}{blueprint.ability_state_rule(p, n)}{timeline.state_rule(p, n)}"""
+""" + STATE_RULES.format(n=n) + f"""{fact_rule}{storylines.state_rule(p, n)}{foreshadows.state_rule(p)}{statwin.state_rule(p)}{ATTIRE_STATE_RULE}{LAYER_STATE_RULE}{charlog.state_rule(p)}{address.state_rule(p)}{charviews.state_rule(p)}{blueprint.state_rule(p, n)}{blueprint.ability_state_rule(p, n)}{timeline.state_rule(p, n)}"""
 
 
 def _check_full(p: Project, n: int) -> tuple[str, str, str, str, str, str]:
