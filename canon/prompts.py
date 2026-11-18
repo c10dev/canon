@@ -1232,7 +1232,7 @@ def plot_prompt(p: Project, start: int, end: int, ahead: bool = True, redo: bool
 [인물]
 {cast_block(p)}
 [관계]
-{rels(p, context.without_off(p, None))}
+{rels(p, context.without_off(p, None))}{charviews.plan_block(p, context.without_off(p, None))}
 [이야기 요소 (작가가 더한 설정과 사건, 시점 포함)]
 {elements.plan_block(p, plan_env(p)) or "없음"}{lines_block(p)}
 [기승전결 구조]
@@ -1276,7 +1276,7 @@ def serial_plot_prompt(p: Project, start: int, end: int, ahead: bool = True, red
 [등장할 수 있는 다른 인물 (id: 이름, 역할)]
 {roster_line(p, ids) or "없음"}
 [관계]
-{rels(p, ids | {c.id for c in static_characters(p)})}{plan_stage_block(p, ids | {c.id for c in static_characters(p)})}{blueprint_plan_block(p, ids | {c.id for c in static_characters(p)}, start, end)}{blueprint_ability_block(p, ids | {c.id for c in static_characters(p)}, start, end)}
+{rels(p, ids | {c.id for c in static_characters(p)})}{plan_stage_block(p, ids | {c.id for c in static_characters(p)})}{charviews.plan_block(p, ids | {c.id for c in static_characters(p)})}{blueprint_plan_block(p, ids | {c.id for c in static_characters(p)}, start, end)}{blueprint_ability_block(p, ids | {c.id for c in static_characters(p)}, start, end)}
 [이야기 요소 (작가가 더한 설정과 사건, 시점 포함)]
 {elements.plan_block(p, plan_env(p)) or "없음"}{lines_block(p)}
 
@@ -2581,7 +2581,7 @@ def next_arc_prompt(p: Project, start: int, length: int, note: str) -> str:
 [다른 인물 (id: 이름, 역할)]
 {roster_line(p, set()) or "없음"}
 [관계 (주역 · 조연 · 최근 아크 인물)]{cut_note(plan_secrets_cut, "숨긴 비밀은 이 아크와 관련된 것만")}
-{describe_relations(p, ids, secrets=plan_secrets) or rels(p, ids)}{destination_block(p, ids)}{blueprint_plan_block(p, ids, start, min(limit, start + (length or PLAN_SPAN) - 1))}{blueprint_ability_block(p, ids, start, min(limit, start + (length or PLAN_SPAN) - 1))}
+{describe_relations(p, ids, secrets=plan_secrets) or rels(p, ids)}{destination_block(p, ids)}{charviews.plan_block(p, ids)}{blueprint_plan_block(p, ids, start, min(limit, start + (length or PLAN_SPAN) - 1))}{blueprint_ability_block(p, ids, start, min(limit, start + (length or PLAN_SPAN) - 1))}
 [이야기 요소 (작가가 더한 설정과 사건, 시점 포함)]
 {elements.plan_block(p, plan_env(p)) or "없음"}{lines_block(p)}
 [인물 현재 상태]{knows_note(knows_cut)}
@@ -3038,7 +3038,7 @@ def _short_plot_parts(p: Project, scope, rng: random.Random | None = None) -> tu
 [인물]
 {cast_block(p)}
 [관계]
-{rels(p, context.without_off(p, None))}
+{rels(p, context.without_off(p, None))}{charviews.plan_block(p, context.without_off(p, None))}
 [이야기 요소 (작가가 더한 설정과 사건, 시점 포함)]
 {elements.plan_block(p, plan_env(p)) or "없음"}{lines_block(p)}
 [문체 요약 (전개 속도 판단용)]
@@ -3124,7 +3124,7 @@ def _serial_plot_parts(p: Project, scope, rng: random.Random | None = None) -> t
 [다른 인물 (id: 이름, 역할)]
 {roster_line(p, set()) or "없음"}
 [관계]
-{rels(p, ids)}
+{rels(p, ids)}{charviews.plan_block(p, ids)}
 [이야기 요소 (작가가 더한 설정과 사건, 시점 포함)]
 {elements.plan_block(p, plan_env(p)) or "없음"}{lines_block(p)}
 [부 구성]

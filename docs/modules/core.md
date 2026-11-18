@@ -846,6 +846,7 @@
 - 상태 변경안 요구사항(호칭 · 말씨 뒤)에 `blueprint.state_rule`: 그 화 인물끼리 아직 닿지 않은 사다리 칸 목록과 `contacts` 적는 법
 - 상태 변경안은 `[호칭 · 말씨]` 바로 뒤에 `[지금 보는 눈]` 블록(`charviews.state_block`)을 넣는다. 보는 눈이 없으면 블록이 없다
 - 상태 변경안 요구사항에 `charviews.state_rule` 이 늘 붙는다(`address.state_rule` 바로 뒤)
+- 화별 플롯(장편 `serial_plot_prompt` · 단편 `plot_prompt`) · 다음 아크 · 플롯 대화는 관계 줄 뒤에 `charviews.plan_block` 을 넣는다. 쓰기 · 검수에는 없다
 - 상태 변경안 누락 검사의 변경안 줄임(`_audit_delta_lines`)은 호칭 줄 뒤에 '보는 눈 · A → B: 평가' 줄을 더한다
 - 그 뒤에 `blueprint.ability_state_rule`: 얻을 때가 된 능력을 얻었으면 일정의 이름 그대로 적게 한다
 - `StateDelta.contacts`(`ContactReach`)는 작가가 골라야 기록되고(`features.APPLY_LAST`), 사람 검토 없는 반영은 `contact_held` 로 남겨 둔다(`features.HOLD`)
