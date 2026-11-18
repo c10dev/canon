@@ -5420,7 +5420,51 @@ def check_recall(p: Project, n: int, sized: bool = False) -> tuple[list, list[tu
     if sized:
         return recent, context.recall_size(p, first, context.BUDGET["check_recall"], recent_nos)
     terms = context.query_terms(p, n) + context.names_of(p, ids)[1]
-    return recent, context.recall(p, first, ep.text + "\n" + elements.plot_text(ep), context.BUDGET["check_recall"], recent_nos, terms)
+    carried = _carry_passages(p, n, ep, recent_nos)
+    used = sum(len(para) for paras in carried.values() for para in paras)
+    found = context.recall(p, first, ep.text + "\n" + elements.plot_text(ep), max(0, context.BUDGET["check_recall"] - used), recent_nos, terms)
+    if not carried:
+        return recent, found
+    merged: dict[int, list[str]] = {m: list(paras) for m, paras in carried.items()}
+    for m, paras in found:
+        have = merged.setdefault(m, [])
+        have += [para for para in paras if para not in have]
+    return recent, [(m, merged[m]) for m in sorted(merged)]
+
+
+def _carry_passages(p: Project, n: int, ep, recent_nos: set[int]) -> dict[int, list[str]]:
+    """이어받기 결정이 가리키는 옛 화(직전 화 밖)의 원문 단락. {화: [단락...]}. 결정이 없거나 고를 단락이 없으면 빈 사전."""
+    out: dict[int, list[str]] = {}
+    texted = {e.plot.number for e in p.episodes if e.text}
+    for c in ep.plot.carry:
+        if not 0 < c.episode < n or c.episode in recent_nos or c.episode not in texted:
+            continue
+        query = c.meaning + "\n" + elements.plot_text(ep)
+        have = out.setdefault(c.episode, [])
+        have += [para for para in context.episode_passages(p, c.episode, query, context.CARRY_RECALL) if para not in have]
+    return {m: paras for m, paras in out.items() if paras}
+
+
+def carry_check_block(p: Project, n: int, lang: str = "ko") -> str:
+    """검수 자료의 이어받기 결정 칸. 결정이 없으면 빈 글."""
+    carry = p.episode(n).plot.carry
+    if not carry:
+        return ""
+    names = {c.id: c.name for c in p.characters}
+    head = (f"\n\n# Carry-over decisions of episode {n} (past events the plot chose)\n" if lang == "en"
+            else f"\n\n# {n}화의 이어받기 결정 (플롯이 고른 앞 일)\n")
+    lines = [f"- {names.get(c.character, c.character)} | " + (f"{c.episode}화 | " if c.episode else "") + c.meaning for c in carry]
+    return head + "\n".join(lines)
+
+
+def carry_check_rule(p: Project, n: int) -> str:
+    """검수 확인 목록의 이어받기 결정 줄. 결정이 없으면 빈 글."""
+    if not p.episode(n).plot.carry:
+        return ""
+    return (f"\n- 이어받기 결정: [{n}화의 이어받기 결정] 줄마다 본문이 그 앞 일을 다시 떠올리는지 봅니다. "
+            "떠올리지 않았으면 type 플롯, severity mid, source_episode 0, source_quote 는 그 결정 줄입니다. "
+            "떠올린 내용이 그 화 원문과 다르면(사람 · 장소 · 까닭 · 차례 · 때) type 사실 또는 시간, source_episode 는 그 화입니다. "
+            "이미 밝힌 일을 처음 털어놓는 것처럼 쓰면 type 사실입니다.")
 
 
 def check_cast(p: Project, n: int) -> set[str]:
@@ -5539,7 +5583,7 @@ CHECK_RULES_EN = """Find the places in the text of episode {n} that contradict t
 
 def check_rule_lines(p: Project, n: int, mode: str = "") -> str:
     """검수 확인 목록(CHECK_RULES)의 {rules} 자리: 작품마다 붙는 확인 줄."""
-    return f"{timeline.check_rule(p, n)}{mapprompt.travel_check_rule(p, n)}{attire_check_rule(p)}{stage_check_rule(p)}{blueprint_check_rule(p, n)}{ability_check_rule(p, n)}{body_check_rule(p, n)}{layer_check_rule(p, check_cast(p, n) if (mode or ('budget' if p.serial else 'full')) == 'budget' else None)}{address.check_rule(p)}{statwin.check_rule(p)}{protect_check_rule(p.episode(n))}{pairlog.check_rule(pair_check_block(p, n, mode))}"
+    return f"{timeline.check_rule(p, n)}{mapprompt.travel_check_rule(p, n)}{attire_check_rule(p)}{stage_check_rule(p)}{blueprint_check_rule(p, n)}{ability_check_rule(p, n)}{body_check_rule(p, n)}{layer_check_rule(p, check_cast(p, n) if (mode or ('budget' if p.serial else 'full')) == 'budget' else None)}{address.check_rule(p)}{statwin.check_rule(p)}{protect_check_rule(p.episode(n))}{pairlog.check_rule(pair_check_block(p, n, mode))}{carry_check_rule(p, n)}"
 
 
 def _check_request(p: Project, n: int, mode: str, lang: str, material: str) -> str:
@@ -5773,7 +5817,7 @@ def check_material(p: Project, n: int, mode: str = "", sized: bool = False, lang
 {past or "None (first episode)"}
 
 # Plot of episode {n}
-{dump(write_plot(ep.plot, coord.memo(p, n)))}{line}{pov}{protect_block(ep)}
+{dump(write_plot(ep.plot, coord.memo(p, n)))}{carry_check_block(p, n, lang)}{line}{pov}{protect_block(ep)}
 
 # Text of episode {n} (under review)
 {ep.text}"""
@@ -5795,7 +5839,7 @@ def check_material(p: Project, n: int, mode: str = "", sized: bool = False, lang
 {past or "없음 (첫 화)"}
 
 # {n}화 플롯
-{dump(write_plot(ep.plot, coord.memo(p, n)))}{line}{pov}{protect_block(ep)}
+{dump(write_plot(ep.plot, coord.memo(p, n)))}{carry_check_block(p, n, lang)}{line}{pov}{protect_block(ep)}
 
 # {n}화 본문 (검수 대상)
 {ep.text}"""
