@@ -110,6 +110,7 @@
 - `write` · `import` · `rewrite` 는 고친 곳 수를 '규칙으로 N곳 고쳤어요' 로, 시간 한도로 건너뛴 묶음을 '! 규칙 묶음 ○○을 거는 데 너무 오래 걸려서 건너뛰었어요' 로 찍는다(`_print_rules`)
 - `fix` 는 `revise_passage(rules=True)` 로 후보마다 규칙을 걸고 후보 머리에 고친 곳 수를 붙인다. `rework` 는 제안의 `ruled` 를 `accept_rework` 에 넘긴다
 - 전체 명령 목록은 `python -m canon --help`
+- `style` · `styles add` 는 다시 물어도 비운 칸이 있으면 프로필 뒤에 경고 한 줄을 찍는다(`_style_blank_line`)
 - 화 플롯 출력(`plot` · 플롯 대화 등)은 시점 줄 뒤에 이 화의 사이다를 값이 있을 때만 '사이다:' 줄로 찍는다(`_plot_pov`)
 - 해석기는 `build_parser` 가 만들고, 명령은 갈래 함수(`_plan_commands` · `_write_commands` · `_tool_commands` · `_app_commands` · `_data_commands` · `_lab_commands`)가 더한다. 새 명령은 맞는 갈래 함수에 넣는다
 - 단편 흐름: `new` → `style` → `arc` → `plot` → (사용자 수정) → `confirm` → (스토리보드 → 큐 시트, 웹 집필 화면 · 자동 집필) → `write` → `check` → `update` 반복
@@ -370,7 +371,6 @@
 - `extract_state` 는 정리 · 누락 검사 뒤 상태 규칙 제안을 채운다(`staterules.refill`). `carried_delta` 길도 옛 제안과 `rule_off` 를 비우고 다시 채운다
 - `extract_state` 는 본문이 1,500자 이상인데 주요 칸이 모두 빈 응답이면 같은 프롬프트로 한 번만 다시 부른다(`thin.once_more`)
 - 그래도 짧으면 변경안 경고 `thin.STATE_WARNING`('[짧은 응답]')을 붙인다. 짧은지는 `clean_delta` 전에 본다
-- `analyze_style` 은 글 칸 11개 가운데 6개 미만이 찬 응답이면 한 번 다시 부르고, 그래도 짧으면 `thin.ThinResponse` 를 낸다. 표지를 세기 전에 본다
 - 배치 자동 집필에서도 누락 검사는 실시간 호출이다(상태 변경안만 배치). 사용량에는 그대로 잡힌다
 - 작업지시서(`brief`, 채팅 앱) 경로에는 누락 검사가 없다
 - 결정은 검수 프롬프트에 넣지 않는다
@@ -562,6 +562,12 @@
 - 방금 만든 스토리보드 다음의 큐 시트: `make_storyboard(lead=)` 가 보낸 요청 글을 채우고, `cue_lead` 가 그 스토리보드가 AI 가 만든 그대로 · 낡지 않음일 때만 그 글을 돌려준다. `make_cue_sheet(lead=)` 는 그 글로 시작하는 요청을 보낸다(자동 집필 `_cues`, 웹 쓰기 작업 `board: make`)
 - 문체 분석 `analyze_style` 뒤 `count_markers` 가 표지 · 장치 단서를 거른다: 원문에 없는 것, 한글 2자 미만(`MARKER_MIN_HANGUL`), 인물 이름(2자 이상)이 든 것
 - `analyze_style` 에 `corpus` 를 주면 `count_markers` 가 표본이 아니라 그 글에서 세고 거른다. 모델은 표본만 읽는다(레퍼런스 원고에서 흩어 뽑은 표본, `refs.corpus`)
+- `analyze_style` 은 `count_markers` 전에 `style_blanks` 로 빈 칸을 센다(글 칸 11 · dos · donts · markers, 대표 문단은 passages 일 때만. devices · banned_phrases 는 세지 않음)
+- 빈 칸이 `STYLE_BLANK_MAX`(4)보다 많으면 프롬프트 맨 뒤에 `prompts.style_blank_retry` 를 붙여 한 번 다시 묻고, 빈 칸이 적은 쪽을 쓴다
+- 다시 물어도 많이 비면 `canon` 로거에 빈 칸 수와 칸 이름을 경고로 남기고 프로필은 돌려준다(canon#595)
+- `analyze_style_full` 은 (프로필, 남은 빈 칸)을 돌려준다. `analyze_style` 은 그 프로필만 돌려준다
+- 웹 작업 style · lib_style 결과의 `blanks` 와 명령줄 `style` · `styles add` 가 남은 빈 칸을 경고 한 줄로 보인다
+- `analyze_style(retry=False)` 는 빈 칸이 많아도 다시 묻지 않는다. 연구 화면 단계 시험(`research.stage_trial`)이 모델의 처음 응답을 보려고 쓴다
 - `apply_learning` 의 알림 `rule_limit_note`: write 층 지킬 것 · 피할 것이 `RULE_LIMIT`(20)를 넘으면 합치거나 계획 층으로 옮기라고 알린다
 - `count_markers` 는 원문 표본에 없는(공백 빼고 견줌) 장치 예시를 비운다
 - `count_markers` 는 장치 최소 간격 `every` 를 0 으로 맞춘다. 모델이 적은 값은 버린다. 문체 대화(`clean_style_revision`)와 수정에서 배우기(`apply_learning`)로 들어온 값은 그대로다
@@ -1257,7 +1263,7 @@
 
 - 짧은 응답 거르기: 형식은 맞지만 칸이 거의 빈 LLM 응답을 알아보고 한 번만 다시 부른다
 - 상태 변경안(`state_thin`): 본문 1,500자 이상이고 `STATE_KEYS` 칸이 모두 비었을 때
-- 문체 프로필(`style_thin`): 글 칸 11개 가운데 채운 칸이 6개 미만일 때
+- 문체 분석은 이 모듈을 쓰지 않는다(`pipeline.analyze_style_full` 의 `STYLE_BLANK_MAX`)
 - `once_more` 는 같은 호출을 한 번만 더 한다. 다시 부르는 호출도 `llm.json` 을 거쳐 사용량에 기록된다
 - 반영 기록에서 돌아온 변경안(`carried_delta`)과 `play.settle` 은 이 검사를 거치지 않는다
 - `tests/test_thin.py`
@@ -1291,6 +1297,7 @@
 - 맨 바깥 미들웨어 `_guard_host` 는 Host 가 IP 주소 · localhost · `*.ts.net` · 이 컴퓨터 이름 · `CANON_ALLOWED_HOSTS` 의 이름이 아니면 403 으로 막는다(DNS 리바인딩)
 - `_guard_host` 는 POST · PUT · PATCH · DELETE 에 Origin 이 있으면 그 이름이 Host 나 X-Forwarded-Host 와 같아야 받는다(CSRF). Origin 이 없는 요청(명령줄 · curl)은 받는다
 - 작품 문체 분석은 작업 `style`(`_job_style`, `JobIn.text` 200자 이상): 프로필과 원문 전체 기준 지표를 돌려주고 결과는 pending 에 남는다(`PENDING_KINDS`). 옛 `POST …/style` 은 그대로 둔다
+- 작업 style · lib_style 결과에는 `blanks`(다시 물어도 비운 칸 이름 목록, 없으면 빈 목록)가 있다
 - 결과 지우기 `DELETE …/pending/{key}?id=` 는 id 가 같을 때만 지운다. 화면이 옛 결과를 반영하는 사이 같은 키에 새 결과가 들어왔으면 남긴다(`syncPending` 이 id 를 보낸다)
 - 작품 카드 `setup_ready`: 설정 도우미 필수 칸이 다 찼는지(`_setup_ready`, setup.js `setupReqs` 와 같은 규칙)
 - `/api/config/health` 는 Claude 단계가 있으면 `claude_api`(Anthropic 키 유무)와 `claude` · `claude_message`(구독 설치 · 로그인, `claude.status` 를 60초 기억)를 싣는다. 설정 저장은 기억을 지우고, `/api/claude/status` 는 새로 읽은 값으로 바꾸고, error 는 기억하지 않는다

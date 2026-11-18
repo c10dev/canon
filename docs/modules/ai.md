@@ -269,7 +269,6 @@
 - 틀별 판(`schema.framed`)은 MRO 를 따라 원래 스키마의 응답을 찾고, 그 응답을 요청한 판으로 다시 읽어 낸다. 다음 아크 응답은 hint 의 `gain` · `focus` 가 참이면 두 칸을 채운다
 - gain 축 판으로 받은 응답은 안의 모든 화 플롯에 빈 `reward` 가 있으면 가짜 사이다를 채운다(`_fill_reward`)
 - 가짜 문체 프로필은 시험 원문에 있는 표지 · 장치와 걸러져야 할 표지 · 장치를 함께 낸다 (`count_markers` 와 문체 넣은 쓰기 경로 시험)
-- 가짜 문체 프로필은 글 칸 11개를 모두 채운다(`thin.style_thin` 에 걸리지 않게)
 - 가짜 압력으로 다시 쓰기 응답(`_r_pressure_rewrite`)은 hint 의 성격이 두 문장 이상이면 마지막 문장을 버릇으로 고른다(원문 그대로라 `pressure.proposal` 이 찾는다)
 - `CUT_TEXT` 에 넣은 만큼 다음 글 응답을 앞 절반만 내고 `last_finish` 를 `MAX_TOKENS` 로 둔다(끊긴 본문 시험)
 - `MockLLM.text_stream` 은 `text` 와 같은 글을 `STREAM_PIECES`(6) 조각으로 나눠 낸다. 조각마다 멈추기 신호를 본다

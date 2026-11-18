@@ -788,11 +788,18 @@ def _r_setup_suggestion(prompt: str, hint: dict):
 
 @responds(StyleProfile)
 def _r_style_profile(prompt: str, hint: dict):
-    return StyleProfile(narration_pov="3인칭 제한", tense="과거형", sentence_rhythm="짧은 문장 위주",
-                        description_density="감각 묘사를 짧게 곁들임", dialogue_ratio="서술이 대사보다 조금 많음",
-                        dialogue_style="따옴표 대사에 짧은 지문", inner_monologue="내면 독백은 드물게 한 줄",
-                        pacing="장면이 짧고 빠름", scene_transition="빈 줄로 전환", vocabulary="쉬운 일상 어휘",
-                        sound_effects="소리는 문장 안에 붙임",
+    if "MOCK_STYLE_BLANK_ALWAYS" in prompt or ("MOCK_STYLE_BLANK" in prompt and "앞 응답에서 " not in prompt):
+        return _style_profile_full(blank=True)
+    return _style_profile_full()
+
+
+def _style_profile_full(blank: bool = False):
+    # blank 면 글 칸 셋만 채운 프로필 (analyze_style 빈 칸 다시 묻기 시험)
+    fill = {} if blank else dict(
+        description_density="감각 묘사가 짧게 든다", dialogue_ratio="서술과 대사가 비슷하다", dialogue_style="따옴표 안에 짧게 말한다",
+        inner_monologue="속말은 지문에 녹인다", pacing="장면이 짧고 빠르다", scene_transition="빈 줄로 넘어간다",
+        vocabulary="쉬운 일상어 위주", sound_effects="소리는 문장 안에 붙여 적는다")
+    return StyleProfile(narration_pov="3인칭 제한", tense="과거형", sentence_rhythm="짧은 문장 위주", **fill,
                         dos=["감각 묘사로 장면 시작"], donts=["설명조 대사"],
                         # 있었다 · 대답은 시험 원문(tests/fixtures/revlab_story.txt)에, 않았다는 examples/sample_style.txt 에 있다.
                         # '다'(한글 1자) · '서윤은'(인물 이름) · 원문에 없는 표지와 지어낸 장치 예시는 count_markers 가 거른다. 장치 간격 every=3 도 0 으로 맞춘다

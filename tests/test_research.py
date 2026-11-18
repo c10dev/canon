@@ -116,7 +116,7 @@ class ResearchTest(unittest.TestCase):
         self.assertEqual(log[0]["id"], r["id"])
 
     def test_stage_trial_finds_empty_fields_and_out_of_range(self):
-        VllmLike.replies = [json.dumps({"sample_passages": ["바람이 불었다."], **{k: "값" for k in ("tense", "pacing", "vocabulary", "dialogue_style", "sound_effects", "scene_transition")}}, ensure_ascii=False)]
+        VllmLike.replies = [json.dumps({"sample_passages": ["바람이 불었다."]}, ensure_ascii=False)]
         r = self.c.post(f"{self.api}/research/stage", json={"backend": {"provider": "local", "model": "base-12b"}, "stage": "style"}).json()
         self.assertTrue(r["ok"])
         self.assertEqual(r["attempts"], 1)

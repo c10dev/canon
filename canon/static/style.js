@@ -346,6 +346,13 @@ document.addEventListener('input', (e) => {
 /** 스타일 프로필 칸이 모두 비었다 (library.blank 와 같은 규칙) */
 const styleBlank = (st) => !Object.values(st || {}).some((v) => (typeof v === 'string' ? v.trim() : Array.isArray(v) ? v.length : v));
 
+/** 문체 분석이 다시 물어도 많이 비운 칸(작업 결과 blanks) 경고. 비었으면 '' */
+function styleBlankNote(blanks) {
+  if (!Array.isArray(blanks) || !blanks.length) return '';
+  const names = blanks.map((k) => (k === 'sample_passages' ? '대표 문단' : STYLE_LABEL[k] || k));
+  return `<div class="note warn" role="status">AI가 칸 ${blanks.length}개를 비워 두었어요: ${esc(names.join(', '))}. 다시 분석하거나 직접 채워 주세요.</div>`;
+}
+
 /** 도착한 문체 분석 결과(S.styleDraft). 무엇이 바뀌는지 짧게 보이고 [버리기] [바꾸기] 를 준다 (디자인 시스템 AI 제안 카드) */
 function styleDraftCard() {
   const d = S.styleDraft;
@@ -355,6 +362,7 @@ function styleDraftCard() {
     (p.markers || []).length && `문체 버릇 ${p.markers.length}개`, (p.sample_passages || []).length && `대표 문단 ${p.sample_passages.length}개`, (p.devices || []).length && `장치 ${p.devices.length}개`].filter(Boolean);
   return `<section class="card proposal" aria-labelledby="sty-draft-h"><h2 id="sty-draft-h">문체 분석 결과가 도착했어요</h2>
     <p class="small">${esc(bits.join(' · ') || '뽑은 칸이 적어요')}. 바꾸면 지금 문체 대신 이 결과가 들어가요. 저장하기 전에는 되돌릴 수 있어요.</p>
+    ${styleBlankNote(d.blanks)}
     ${proposalActions(['styleDraftDrop'], ['styleDraftApply'], '이 결과로 바꾸기')}</section>`;
 }
 
@@ -587,7 +595,7 @@ const LIB_JOBS = '.styles';  // 문체 라이브러리 분석 작업의 project 
 function libStyleResult(j) {
   if (j.status !== 'done' || !j.result || !j.result.profile) return;
   const lib = j.result.lib && j.result.lib !== 'new' ? j.result.lib : (S.libJobFor[j.id] || 'new');  // 새 항목을 그사이 저장했으면 libSave 가 옮긴 id (JOB_LINK 와 같은 차례)
-  S.libDraft = { lib, profile: j.result.profile, job: j.id, zones: j.result.zones || [] };  // zones: 표지의 구간별 빈도 (레퍼런스 원고에서 분석했을 때만)  // 항목은 서버가 작업에 실은 것(다른 탭에서 시작해도 맞다)
+  S.libDraft = { lib, profile: j.result.profile, job: j.id, zones: j.result.zones || [], blanks: j.result.blanks || [] };  // zones: 표지의 구간별 빈도 (레퍼런스 원고에서 분석했을 때만)  // 항목은 서버가 작업에 실은 것(다른 탭에서 시작해도 맞다)
 }
 
 /** 이 항목에 온 분석 결과(S.libDraft) 카드. 작품 문체의 styleDraftCard 와 같은 모양 */
@@ -598,6 +606,7 @@ function libDraftCard() {
   const bits = [p.narration_pov && `시점 ${p.narration_pov}`, p.tense && `시제 ${p.tense}`, (p.markers || []).length && `문체 버릇 ${p.markers.length}개`, (p.sample_passages || []).length && `대표 문단 ${p.sample_passages.length}개`].filter(Boolean);
   return `<section class="card proposal" aria-labelledby="lib-draft-h"><h2 id="lib-draft-h">문체 분석 결과가 도착했어요</h2>
     <p class="small">${esc(bits.join(' · ') || '뽑은 칸이 적어요')}. 바꾸면 지금 문체 대신 이 결과가 들어가요. 저장하기 전에는 되돌릴 수 있어요.</p>
+    ${styleBlankNote(d.blanks)}
     ${proposalActions(['libDraftDrop'], ['libDraftApply'], '이 결과로 바꾸기')}</section>`;
 }
 

@@ -284,19 +284,57 @@ def _init_states(p: Project) -> None:
 
 # ---------- 2. 스타일 레퍼런스 ----------
 
-def analyze_style(llm: LLM, sample: str, names: list[str] | None = None, passages: bool = True, corpus: str = "") -> StyleProfile:
-    """passages 가 거짓이면 대표 문단을 묻지 않는다 (prompts.style_prompt).
+STYLE_BLANK_MAX = 4  # 이보다 많이 비면 한 번 다시 묻는다. 2026-11-18 hydrogen 10번 중 8번이 칸 셋만 찬 프로필이었다 (canon#595)
+_STYLE_TEXT_FIELDS = ("narration_pov", "tense", "sentence_rhythm", "description_density", "dialogue_ratio", "dialogue_style",
+                      "inner_monologue", "pacing", "scene_transition", "vocabulary", "sound_effects")
+
+
+def style_blanks(profile: StyleProfile, passages: bool = True) -> list[str]:
+    """빈 칸의 필드 이름을 StyleProfile 필드 차례로 돌려준다. devices · banned_phrases 는 비어도 정상이라 세지 않는다.
+    sample_passages 는 passages 가 참일 때만 센다."""
+    out = []
+    for name in StyleProfile.model_fields:
+        value = getattr(profile, name)
+        if name in _STYLE_TEXT_FIELDS:
+            blank = not value.strip()
+        elif name in ("dos", "donts", "markers"):
+            blank = not value
+        elif name == "sample_passages":
+            blank = passages and not value
+        else:
+            blank = False
+        if blank:
+            out.append(name)
+    return out
+
+
+def analyze_style_full(llm: LLM, sample: str, names: list[str] | None = None, passages: bool = True, corpus: str = "",
+                       retry: bool = True) -> tuple[StyleProfile, list[str]]:
+    """(프로필, 남은 빈 칸 필드 이름)을 돌려준다. 빈 칸은 마지막으로 쓴 응답의 style_blanks 결과(count_markers 전에 센 것)이고,
+    그 수가 STYLE_BLANK_MAX 이하이면 빈 목록이다.
+    passages 가 거짓이면 대표 문단을 묻지 않는다 (prompts.style_prompt).
+    retry 가 거짓이면 빈 칸이 많아도 다시 묻지 않는다 (연구 화면의 단계 시험은 모델이 처음 낸 응답을 본다).
     corpus 를 주면 표지 빈도와 장치 단서를 표본이 아니라 그 글에서 세고 거른다 (레퍼런스 원고에서 흩어 뽑은 표본의 원문 전체).
     모델은 표본만 읽는다."""
-    profile, thin_left = thin.once_more(
-        lambda: llm.json(prompts.SYSTEM_PLANNER, prompts.style_prompt(sample, passages), StyleProfile),
-        thin.style_thin, "문체 분석")
-    if thin_left:
-        keys = thin.style_text_keys()
-        raise thin.ThinResponse(f"AI가 문체 분석 칸 {len(keys)}개 가운데 {thin.style_filled(profile)}개만 채웠어요. "
-                                "다시 불러도 같아서 쓰지 않았어요. 잠시 뒤 다시 하거나 계획 단계 모델을 바꿔 보세요")
+    ask = prompts.style_prompt(sample, passages)
+    profile = llm.json(prompts.SYSTEM_PLANNER, ask, StyleProfile)
+    blanks = style_blanks(profile, passages)
+    if retry and len(blanks) > STYLE_BLANK_MAX:
+        cancel.check()
+        again = llm.json(prompts.SYSTEM_PLANNER, ask + "\n\n" + prompts.style_blank_retry(blanks), StyleProfile)
+        again_blanks = style_blanks(again, passages)
+        if len(again_blanks) <= len(blanks):
+            profile, blanks = again, again_blanks
+        if len(blanks) > STYLE_BLANK_MAX:
+            logging.getLogger("canon").warning("문체 분석 응답에 빈 칸이 %d개 있어요(다시 물어도 같아요): %s", len(blanks), ", ".join(blanks))
     count_markers(profile, corpus or sample, names)
-    return profile
+    return profile, (blanks if len(blanks) > STYLE_BLANK_MAX else [])
+
+
+def analyze_style(llm: LLM, sample: str, names: list[str] | None = None, passages: bool = True, corpus: str = "",
+                  retry: bool = True) -> StyleProfile:
+    """프로필만 돌려준다 (analyze_style_full 의 첫 값)."""
+    return analyze_style_full(llm, sample, names, passages, corpus, retry)[0]
 
 
 MARKER_MIN_HANGUL = 2  # 표지와 장치 단서는 한글이 이만큼 있어야 쓴다 ('다' · '.' 는 거의 모든 글에 나와 뜻이 없다)

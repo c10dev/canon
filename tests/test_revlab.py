@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from canon import autorun, cue, jobs, metrics, prompts, revlab, store, thin, usage
+from canon import autorun, cue, jobs, metrics, prompts, revlab, store, usage
 from canon.cli import main
 from canon.mock import MockLLM
 from canon.mock_revlab import FAKE_LINE
@@ -1561,7 +1561,7 @@ def test_run_style_counts_markers_in_whole_text(home, monkeypatch):
     class Fake(MockLLM):
         def json(self, system, prompt, schema, **kw):
             seen["prompt"] = prompt
-            return StyleProfile(**{k: "값" for k in thin.style_text_keys()}, markers=[StyleMarker(text="하더라", per_1k=99), StyleMarker(text="것이었다"), StyleMarker(text="없는버릇")])
+            return StyleProfile(tense="과거형", markers=[StyleMarker(text="하더라", per_1k=99), StyleMarker(text="것이었다"), StyleMarker(text="없는버릇")])
     prof = revlab.run_style(lab.id, Fake())
     lab = revlab.load(lab.id)
     whole = revlab.style_corpus(lab)
@@ -1632,7 +1632,7 @@ def test_run_style_fills_zone_rates(home, monkeypatch):
 
     class Fake(MockLLM):
         def json(self, system, prompt, schema, **kw):
-            return StyleProfile(**{k: "값" for k in thin.style_text_keys()}, markers=[StyleMarker(text="하더라"), StyleMarker(text="것이었다"), StyleMarker(text="없는버릇")])
+            return StyleProfile(tense="과거형", markers=[StyleMarker(text="하더라"), StyleMarker(text="것이었다"), StyleMarker(text="없는버릇")])
     revlab.run_style(lab.id, Fake())
     lab = revlab.load(lab.id)
     z = {x.text: x for x in lab.styles[0].marker_zones}

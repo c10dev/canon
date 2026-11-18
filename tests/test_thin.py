@@ -1,7 +1,5 @@
-"""짧은 응답 거르기(canon/thin.py): 상태 변경안 · 문체 분석이 칸이 거의 빈 JSON 을 받으면 한 번 다시 부르고, 그래도 짧으면 알린다.
+"""짧은 응답 거르기(canon/thin.py): 상태 변경안이 칸이 거의 빈 JSON 을 받으면 한 번 다시 부르고, 그래도 짧으면 알린다. 응답 형식의 required 도 본다.
 실행: python -m pytest tests/test_thin.py"""
-import pytest
-
 from canon import autorun, pipeline, thin
 from canon.autorun import Policy
 from canon.mock import MockLLM
@@ -65,20 +63,6 @@ def test_state_short_text_no_retry():
     assert len(s.prompts) == 1 and not any(w.startswith(thin.THIN_MARK) for w in d.warnings)
 
 
-def _style(n):
-    keys = thin.style_text_keys()
-    return StyleProfile(**{k: "값" for k in keys[:n]})
-
-
-def test_style_retry_and_error():
-    s = _Seq([_style(3), _style(11)])
-    assert pipeline.analyze_style(s, "표본 글이다.") is not None and len(s.prompts) == 2
-    s = _Seq([_style(3), _style(2)])
-    with pytest.raises(thin.ThinResponse, match="채웠어요"):
-        pipeline.analyze_style(s, "표본 글이다.")
-    assert len(s.prompts) == 2
-
-
 def test_autorun_thin_reason():
     d = _full()
     d.warnings = [thin.STATE_WARNING]
@@ -100,6 +84,5 @@ def test_schema_required_all_keys():
 
 def test_mock_not_thin():
     llm = MockLLM()
-    assert not thin.style_thin(llm.json("s", "p", StyleProfile))
     d = llm.json("s", "p", StateDeltaAI, hint={"episode": 3})
     assert not thin.state_thin(pipeline.to_delta(d, 3), LONG)
