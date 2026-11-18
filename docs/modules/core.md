@@ -212,6 +212,9 @@
 - `name_pattern` 은 인물 다른 이름(`Character.aliases`)의 두 글자 이상 말을 이름과 같은 꼴(앞 경계, 성 떼기 없음)로 더한다. `names_of` 는 다른 이름을 보지 않는다
 - 검수용 옛 본문 단락 찾기(`recall`, 질문 여러 개는 색인 `PassageIndex` 하나로, 검수 넓히기도 이 색인)
 - 단락 색인은 `passage_index` 로 만든다. 넣을 화와 본문이 같으면 최근 `INDEX_KEEP` 개 가운데 만든 것을 다시 써서, 검수와 검수 넓히기가 색인을 한 번만 만든다
+- 이어받기 결정이 가리키는 화의 원문 단락은 `episode_passages` 가 그 화 본문만으로 색인을 만들어 고른다(캐시 색인을 쓰지 않음)
+- `CARRY_RECALL`(1,500자)은 결정 한 줄이 가리키는 화에서 검수에 넣는 원문 글자 수다. 이 글자 수만큼 `BUDGET["check_recall"]` 에서 뺀다
+- `episode_passages` 는 한 화만의 색인이라 `PassageIndex.find(common=1.0)` 로 흔한 말 거르기를 끈다(그 화의 중심 낱말이 빠지지 않게)
 - 진술과 겹치는 줄 · 사실(`related_lines` · `related_facts`, 셈이 있는 진술은 셈이 있는 줄을 앞세움 `has_count`)
 - LLM 호출 없음
 - 예산 고르기는 단편 경로가 쓰지 않는다(상태 조건 판정은 단편도 쓴다)
@@ -847,6 +850,10 @@
 - 플레이 줄거리(`play_story`)는 `story_parts` 가 뺀 수를 이어 센다
 - `plot_facts_states` 는 `plan_facts` · `plan_side_states` 를 예산 키 `plot_facts` · `plot_states` 로 부르고, 뺀 수를 머리글에 적는다. 단편 플롯 경로는 부르지 않는다
 - 검수 요구사항의 관계 단계 한 줄(`stage_check_rule`, 관계 수치가 있을 때만)
+- 플롯에 이어받기 결정(`carry`)이 있으면 검수 자료에 결정 목록(`carry_check_block`)이 `write_plot` 바로 뒤에 들어간다
+- 장편 검수(`check_recall`)는 결정이 가리키는 직전 3화 밖의 화에서 원문 단락을 먼저 고른다(`_carry_passages`, 결정마다 `CARRY_RECALL` 자)
+- 검수 요구사항 끝에 `carry_check_rule`: 결정이 본문에 닿지 않았거나 앞 일을 원문과 다르게 되짚은 곳을 짚는다
+- 결정이 없는 화의 검수 요청 글은 그대로다
 - 관계 설정 `rels(plan=)`: 가 닿을 곳(`Relationship.destination`)은 기획 프롬프트에만, 말로 넣는 기획은 `destination_block`
 - 다음 아크 기획(`next_arc_prompt`)은 관련 확정 사실(`plan_facts`) · 작품 속 시간(`time_plan`, 끝 줄 `ARC_TIME_RULE`) · 주역 밖 기획 인물 상태(`plan_side_states`)를 예산(`context.BUDGET` 의 `plan_facts` · `plan_states`) 안에서 넣는다
 - 플롯 대화가 고를 아크의 칸 목록(`chat_arc_fields`)은 웹소설 틀이면 '얻는 성장', 하렘 요소면 '공략 대상'을 더한다

@@ -80,6 +80,7 @@ PLAY_KNOWS = (10, 4)  # 장면: 플레이어 인물의 아는 정보 (넣는 수
 PLAY_KNOWS_OTHER = (5, 2)  # 장면: 다른 장면 인물의 아는 정보
 FACTS_RECENT = 30  # 최근 사실은 예산과 상관없이 넣는다
 CHECK_RECENT = 3  # 검수에 원문 그대로 넣는 직전 화 수
+CARRY_RECALL = 1_500  # 검수: 이어받기 결정 한 줄이 가리키는 화에서 넣는 원문 글자 수 (4-0 시험 2026-11-18: 결정당 1,500자로 다시 지음 2/2)
 FORESHADOW_CAP = 25  # 본문 쓰기에 넣는 열린 복선 수
 PLAN_FORESHADOW_CAP = 60  # 다음 아크 기획에 넣는 열린 복선 수
 
@@ -769,13 +770,14 @@ class PassageIndex:
         for *_, g in self.paras:
             self.df.update(g)
 
-    def find(self, query: str, budget: int, terms: Iterable[str] = ()) -> list[tuple[int, list[str]]]:
+    def find(self, query: str, budget: int, terms: Iterable[str] = (), common: float = COMMON) -> list[tuple[int, list[str]]]:
         """query 와 겹치는 단락을 예산만큼. [(화, [단락...])] 화 순서.
+        common: 이보다 많은 비율의 단락에 나오는 조각은 흔한 말로 보고 뺀다. 한 화만의 색인은 1.0 으로 끈다(episode_passages).
         점수는 겹치는 글 조각의 희소도(idf) 합을 단락 길이로 누른 값, terms(조연 이름, 이야기 요소, 장소)가 있으면 더 준다."""
         if not self.paras or budget <= 0:
             return []
         df, total = self.df, len(self.paras)
-        q = {g for g in grams(query) if df[g] and df[g] <= COMMON * total}
+        q = {g for g in grams(query) if df[g] and df[g] <= common * total}
         idf = {g: math.log(1 + total / df[g]) for g in q}
         terms = [t for t in terms if t]
         scored = []
@@ -821,6 +823,14 @@ def passage_index(p: Project, n: int, skip: set[int] = frozenset()) -> "PassageI
 def recall(p: Project, n: int, query: str, budget: int, skip: set[int], terms: Iterable[str] = ()) -> list[tuple[int, list[str]]]:
     """n화 앞의 본문(skip 화 제외)에서 query 와 겹치는 단락을 예산만큼 찾는다. [(화, [단락...])] 화 순서."""
     return passage_index(p, n, skip).find(query, budget, terms)
+
+
+def episode_passages(p: Project, m: int, query: str, budget: int) -> list[str]:
+    """m화 본문만에서 query 와 겹치는 단락을 예산만큼, 본문 차례로. m화에 본문이 없으면 빈 목록. 캐시 색인은 쓰지 않는다."""
+    skip = {e.plot.number for e in p.episodes if e.plot.number != m}
+    # 한 화만의 색인이라 흔한 말 거르기를 끈다: 결정이 가리키는 화는 그 일이 중심이라, 핵심 낱말이 단락 30% 넘게 나오기 쉽다
+    found = PassageIndex(p, m + 1, skip=skip).find(query, budget, common=1.0)
+    return [para for _, paras in found for para in paras]
 
 
 def recall_size(p: Project, n: int, budget: int, skip: set[int]) -> list[tuple[int, list[str]]]:
