@@ -1212,6 +1212,7 @@ def _put_locked(name: str, p: Project, disk: Project, response: Response, merged
     p.setting_log, p.setting_held = disk.setting_log, disk.setting_held
     p.state_log = disk.state_log  # 지금 상태를 고친 기록은 /state 라우트만 고친다
     p.address_forms, p.address_log, p.address_held = disk.address_forms, disk.address_log, disk.address_held  # 호칭 · 말씨는 /address 라우트만 고친다
+    p.views = disk.views  # 보는 눈은 상태 승인으로만 바뀐다 (화면의 옛 사본이 덮지 않게)
     p.agent_sessions = disk.agent_sessions  # 대화 세션은 대화 라우트와 에이전트 작업만 고친다 (화면의 옛 사본이 덮지 않게)
     charmarks.keep(disk, p)  # 인물 표지는 /marks 라우트만 고친다
     charlog.record_author(disk, p)

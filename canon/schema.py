@@ -2613,6 +2613,16 @@ class AddressRecord(BaseModel):
     quote: str = ""
 
 
+class CharView(BaseModel):
+    """보는 눈 한 줄: 한 인물이 다른 인물을 어떻게 보는지, 본문에 드러난 평가 (canon/charviews.py). 프로그램이 저장한다."""
+    viewer: str = Field(description="보는 사람 인물 id")
+    target: str = Field(description="대상 인물 id")
+    episode: int = Field(description="이 평가가 본문에 드러난 화")
+    verdict: str = Field(description="보는 사람이 쓰는 낱말 그대로, 30자 안팎")
+    surface: str = Field("", description="겉으로 다르게 말하면 그 말. 같으면 빈 글")
+    basis: list[str] = Field(default_factory=list, description="근거 자취 id. 자취(docs/trail 일감 5 · 6) 전에는 빈 목록")
+
+
 class ContactReach(BaseModel):
     """이번 화 본문에서 두 인물이 접촉 사다리의 한 칸에 처음 닿음 (docs/blueprint/specs/07-contact.md). 작가가 승인하면 Project.contact_log 에 남는다."""
     a: str = Field(description="인물 id")
@@ -3182,6 +3192,7 @@ class Project(BaseModel):
     state_log: list[StateRecord] = Field(default_factory=list, description="반영 뒤 작가가 인물의 지금 상태를 고친 기록 (canon/stateedit.py)")
     address_forms: list[AddressForm] = Field(default_factory=list, description="인물끼리 부르는 말과 말씨 (방향마다 하나, canon/address.py)")
     address_log: list[AddressRecord] = Field(default_factory=list, description="호칭 · 말씨가 바뀐 기록 (승인한 바뀜 제안, 1화 반영 뒤 작가가 고친 것)")
+    views: list[CharView] = Field(default_factory=list, description="인물이 상대를 보는 눈: 본문에 드러난 평가를 화마다 쌓은 기록 (canon/charviews.py)")
     knows_folds: list[KnowsFoldRecord] = Field(default_factory=list, description="아는 정보를 접은 기록 (canon/knows.py)")
     address_held: list[AddressChange] = Field(default_factory=list, description="자동 집필이 반영하지 않고 남겨 둔 호칭 · 말씨 바뀜 제안. 작가가 인물 화면에서 적용하거나 버린다")
     contact_log: list[ContactReach] = Field(default_factory=list, description="본문에서 실제로 닿은 접촉 사다리 칸 (승인한 상태 변경안, canon/blueprint.py). 지금 칸은 이 기록에서 계산한다")

@@ -24,7 +24,7 @@
 | 단계 | 내용 | LLM 비용 | 멈출 조건 |
 |---|---|---|---|
 | 8-0 시험 | 기획 요청에 보는 눈 줄이 있는 판 · 없는 판을 견준다. 스크립트만, 코드 없음 | 약 $1.5 (아래 '비용') | 두 판을 가르지 못하면 8-1 을 멈추고 사용자와 다시 정한다 |
-| 8-1 스키마 | `CharView` · `Project.views`, 반영 취소 · 인물 지우기 · 화 번호 옮기기 | 없음 | — |
+| 8-1 스키마 | `CharView` · `Project.views`, 되돌리기 · 다시 짜기 · 지워진 인물 정리, 작품 저장이 디스크 것을 둠 (구현, 2026-11-18) | 없음 | — |
 | 8-2 거두기 | 상태 변경안의 `views`, 상태 승인 화면 줄, mock | 확인 1~2회 | 상태 변경안 시간이 2026-11-09 실측보다 15% 넘게 늘면 사용자와 정한다 |
 | 8-3 기획 블록 | `[인물이 서로를 보는 눈]` 블록, 예산, 프롬프트 보기 | 확인 1~2회 | — |
 
@@ -66,8 +66,10 @@
 
 | 단계 | 파일 | 바꿀 것 |
 |---|---|---|
-| 8-1 | `canon/schema.py` | `CharView` 모델, `Project.views`, 화 번호 옮기기 · 인물 지우기에서 `views` 도 다루기 |
-| 8-1 | `canon/pipeline.py` | 반영 취소가 그 화에서 더한 `views` 를 뺀다(`d.added` 와 같은 길) |
+| 8-1 | `canon/schema.py` | `CharView` 모델, `Project.views` |
+| 8-1 | `canon/charviews.py` | 새 모듈: `live`(지워진 인물 줄 뺌), `revert`(n화 뒤 줄 · 지워진 인물 줄 지움) |
+| 8-1 | `canon/features.py` · `canon/reshape.py` · `canon/web.py` | 되돌리기 훅 `REVERT_LAST`, 다시 짜기에서 `revert(p, 0)`, 작품 전체 저장은 디스크의 `views` 를 둠 |
+| 8-1 | (안 바꿈) | 화 번호 옮기기: 반영한 화는 번호를 옮기지 않아(`pipeline.insert_range`) 필요 없다. 반영 취소는 `d.added` 대신 호칭 기록처럼 되돌리기 훅으로 한다 |
 | 8-2 | `canon/schema.py` | `ViewChange` 모델, `StateDelta.views` |
 | 8-2 | `canon/prompts.py` | 상태 변경안 요청에 '지금 보는 눈' 블록(최근 평가만)을 넣어 같은 평가를 다시 적지 않게 한다 |
 | 8-2 | `canon/pipeline.py` | `apply_delta` 가 고른 `views` 를 `Project.views` 에 더한다 |

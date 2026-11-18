@@ -458,6 +458,18 @@
 - 설정 변경 기록(`setting_log`)에 남기지 않는다
 - LLM 호출 없음
 
+### `canon/charviews.py`
+
+- 보는 눈 기록(`Project.views`, `CharView`): 인물이 상대를 어떻게 보는지, 본문에 드러난 평가
+- 지금은 자리만 있다. 채우는 길(상태 변경안)은 docs/trail 일감 8-2 다
+- `live`: 보는 사람과 대상이 모두 있는 인물인 줄만, 저장 차례 그대로
+- 되돌리기 `revert`: n화 뒤 줄과 지워진 인물의 줄을 지운다(훅 `features.REVERT_LAST`)
+- 다시 짜기(`reshape`)는 `revert(p, 0)` 으로 비운다
+- 화면의 작품 전체 저장(`web.put_project`)은 디스크의 보는 눈을 둔다
+- 화 끼워 넣기 · 빼기는 화 번호를 옮기지 않는다(`renumber` 를 건드리지 않음)
+- 설계 문서는 `docs/trail/specs/08-views.md`
+- LLM 호출 없음
+
 ### `canon/comfy.py`
 
 - 저장한 삽화 프롬프트(`Illustration`)를 ComfyUI로 그려 작품 폴더 `illust/` 에 PNG로 둔다
