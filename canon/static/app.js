@@ -1234,6 +1234,7 @@ function bindValue(path, kind, root) {
   const v = getPath(bindRoot(root), path);
   if (kind === 'list') return (v || []).join('\n');
   if (kind === 'tags') return (v || []).join(', ');
+  if (kind === 'carry') return (v || []).map((c) => [charName(c.character), c.episode ? `${c.episode}화` : '', c.meaning].filter(Boolean).join(' | ')).join('\n');
   return v ?? '';
 }
 
@@ -1246,7 +1247,7 @@ function input(label, path, opt = {}) {
   const rootAttr = opt.root ? ` data-root="${opt.root}"` : '';
   const hint = (opt.hint ? ` <span class="hint">${esc(opt.hint)}</span>` : '') + (opt.help ? help(opt.help) : '');
   const ro = opt.readonly ? ' readonly' : '';
-  const ctrl = opt.rows || kind === 'list'
+  const ctrl = opt.rows || kind === 'list' || kind === 'carry'
     ? `<textarea id="${id}" rows="${opt.rows || 3}" data-bind="${path}" data-kind="${kind}"${rootAttr}${ro}${opt.autogrow ? ' data-autogrow' : ''}${opt.style ? ` style="${opt.style}"` : ''} placeholder="${esc(opt.placeholder || (kind === 'list' ? '한 줄에 하나씩' : ''))}">${val}</textarea>`
     : `<input id="${id}" type="${opt.type || 'text'}" value="${val}" data-bind="${path}" data-kind="${kind}"${rootAttr}${ro}${opt.min != null ? ` min="${opt.min}"` : ''}${opt.max != null ? ` max="${opt.max}"` : ''}${opt.list ? ` list="${opt.list}"` : ''} placeholder="${esc(opt.placeholder || '')}">`;
   // aside 는 이름 줄 오른쪽, beside 는 칸 바로 옆, after 는 칸 바로 아래 (칸 하나 AI 후보 버튼과 후보, ideas.js)
@@ -1254,6 +1255,14 @@ function input(label, path, opt = {}) {
   const head = opt.aside ? `<div class="lab-row">${lab}${opt.aside}</div>` : lab;
   const body = opt.beside ? `<div class="in-ai">${ctrl}${opt.beside}</div>` : ctrl;
   return `<div class="field${opt.cls ? ' ' + opt.cls : ''}">${head}${body}${opt.after || ''}</div>`;
+}
+
+/** 이어받을 앞 일 칸의 글을 [{character, episode, meaning}] 로: "이름 | n화 | 뜻" 또는 "이름 | 뜻". 뜻이 빈 줄은 버리고 앞 2개만 */
+function parseCarry(text) {
+  const cast = P().characters || [];
+  const idOf = (s) => (cast.find((c) => c.id === s) || cast.find((c) => c.name === s) || { id: s }).id;
+  return text.split('\n').map((line) => line.split('|').map((s) => s.trim())).filter((p) => p.length >= 2 && p[p.length - 1])
+    .map((p) => ({ character: idOf(p[0]), episode: p.length >= 3 ? parseInt((p[1].match(/\d+/) || [0])[0], 10) || 0 : 0, meaning: p[p.length - 1] })).slice(0, 2);
 }
 
 document.addEventListener('input', (e) => {
@@ -1266,6 +1275,7 @@ document.addEventListener('input', (e) => {
     if (kind === 'float') v = parseFloat(v) || 0;
     if (kind === 'list') v = v.split('\n').map((s) => s.trim()).filter(Boolean);
     if (kind === 'tags') v = splitTags(v);
+    if (kind === 'carry') v = parseCarry(v);
     if (kind === 'bool') v = el.checked;
     const loglinePrev = el.dataset.bind.startsWith('meta.logline_parts.') ? loglineNow() : undefined;
     setPath(root, el.dataset.bind, v);

@@ -680,7 +680,8 @@ function plotEditor(e) {
       ${input('감정 변화', b + '.emotional_shift', { ...ro, rows: 1, autogrow: true, hint: '겉으로 보이는 행동이나 대사' })}
       ${input('엔딩 훅', b + '.ending_hook', { ...ro, rows: 2, autogrow: true })}
       ${rewardOn(e) ? input('이 화의 사이다', b + '.reward', { ...ro, rows: 1, autogrow: true, help: REWARD_HELP }) : ''}
-      ${n <= 3 || e.plot.reader_question ? input('독자가 들고 갈 질문', b + '.reader_question', { ...ro, rows: 2, autogrow: true, hint: n <= 3 ? '이 화를 읽고 다음 화를 누르게 하는 질문' : '' }) : ''}`)}
+      ${n <= 3 || e.plot.reader_question ? input('독자가 들고 갈 질문', b + '.reader_question', { ...ro, rows: 2, autogrow: true, hint: n <= 3 ? '이 화를 읽고 다음 화를 누르게 하는 질문' : '' }) : ''}
+      ${!locked || (e.plot.carry || []).length ? input('이어받을 앞 일', b + '.carry', { ...ro, kind: 'carry', rows: 2, autogrow: true, help: CARRY_HELP, placeholder: '예: 서하은 | 7화 | 그때의 동정도 연기였다고 다시 읽음' }) : ''}`)}
     ${sec('복선', `<div class="grid-2">${input('심을 복선', b + '.foreshadow_plant', { ...ro, kind: 'list', rows: 2 })}${payoffPicker('회수할 복선', b + '.foreshadow_payoff', locked)}</div>`)}
     ${tools ? `<details class="card plot-tools"${S.insForm ? ' open' : ''}><summary><strong>화 도구</strong> <span class="small">끼워 넣기 · 빼기 · 지우기</span></summary><div class="plot-tools-body">${tools}</div></details>` : ''}
     ${fitNextField(e)}
@@ -694,6 +695,8 @@ function plotEditor(e) {
     ${openingPlotBlock(e)}`;
 }
 
+// 이어받을 앞 일 칸 (docs/trail/README.md 3-6). 고칠 수 있는 화나 값이 있는 화에만, 설명은 풍선 (덜기)
+const CARRY_HELP = '이번 화에서 인물이 다시 떠올릴 앞 일이에요. 한 줄에 하나씩 인물 | 화 | 이번 화에서의 뜻으로 적고, 두 줄까지 받아요';
 // 이 화의 사이다 칸 (docs/webnovel/specs/06-plot-frame.md). 웹소설 틀 장편이나 값이 있는 화에만, 설명은 풍선 (덜기)
 const REWARD_HELP = '이 화에서 독자가 받는 보상 한 줄. 막힌 것을 풀거나 무언가를 얻는 화만 적고, 그런 화가 아니면 비워요';
 const rewardOn = (e) => (serial() && P().meta.frame === 'webnovel') || !!e.plot.reward;

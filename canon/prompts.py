@@ -4346,8 +4346,11 @@ def shift_label(text: str) -> bool:
 def write_plot(plot, memo=None):
     """쓰기 요청에 넣는 플롯. 라벨 모양이 아닌 emotional_shift(예전 플롯의 행동 문장)는 뺀다. 플롯 화면은 그대로 본다.
     검수 · 상태 변경안 · 부분 수정도 이것을 넣는다: 쓰기가 받지 않은 문장을 '플롯 누락'으로 짚지 않게 (2026-11-04, 84화 고정점만 쓴 판 셋이 모두 이 지적을 받았다).
-    memo 는 쓰기 재료 조율의 조율 메모(coord.memo)다. 주면 summary · events · ending_hook 을 그것으로 바꾼다. 검수도 같은 글을 받는다."""
+    memo 는 쓰기 재료 조율의 조율 메모(coord.memo)다. 주면 summary · events · ending_hook 을 그것으로 바꾼다. 검수도 같은 글을 받는다.
+    이어받기 결정(carry)은 화 번호를 0 으로 바꿔 넣는다: 본문에 '9화'가 옮겨진다 (docs/trail/README.md 1-7)."""
     plot = coord.plot(plot, memo)
+    if plot.carry:
+        plot = plot.model_copy(update={"carry": [c.model_copy(update={"episode": 0}) for c in plot.carry]})
     return plot if shift_label(plot.emotional_shift) else plot.model_copy(update={"emotional_shift": ""})
 
 

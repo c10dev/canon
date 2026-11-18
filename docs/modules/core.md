@@ -779,6 +779,7 @@
 - 문체 대화 요청 `style_chat_prompt` 에는 그런 줄을 넣지 않는다. 실측(2026-11-14)에서 빈도 줄 수는 그대로였고 줄 있는 판만 응답 실패가 늘었다(`docs/webnovel/specs/12-rate-floor.md`)
 - 이번 화 플롯은 쓰기 · 검수(`check_material`) · 상태 변경안(`state_prompt`) · 부분 수정(`passage_prompt`)이 모두 `write_plot` 으로 넣는다(라벨 모양이 아닌 예전 `emotional_shift` 를 뺌). 플롯 화면 · 흡입력 판정은 그대로
 - `write_plot(memo=)` 는 쓰기 재료 조율의 조율 메모(`coord.memo`)가 있으면 summary · events · ending_hook 을 그것으로 바꾼다
+- `write_plot` 은 이어받기 결정(`carry`)의 화 번호를 0 으로 바꿔 넣는다. 0 인 `episode` 는 직렬화에서 빠지므로 본문에 '9화'가 옮겨지지 않는다
 - 쓰기 재료 조율이면 `episode_parts` 의 지시문 끝에 `coord.NOTE` 를 붙인다(조율 메모를 넣었을 때만)
 - 조율 메모 만들기 요청 `coord_prompt`: 플롯 summary · events · ending_hook 만 넣는다
 - 쓰기 재료 조율이면 `plot_rules` 에 `COORD_PLOT_RULE`(사건은 무엇이 바뀌는지만, 동작은 정하지 않음)을 넣는다
@@ -997,6 +998,7 @@
 - 빈 `gain` · `focus` 는 어떤 직렬화에도 키가 생기지 않는다(`drop_empty_frame_fields`)
 - `framed(형식, gain, focus)` 는 아크가 든 응답 형식의 틀별 판을 만든다. 원래 형식을 이어받고 이름이 같다. 둘 다 거짓이면 원래 형식 그대로다(`frame_of` 로 판의 축을 읽는다)
 - `EpisodePlot.reward`(이 화의 사이다 한 줄)는 빈 글이 기본값이다. 저장 모델의 응답 형식에서는 빼고(`SkipJsonSchema`) 빈 값은 어떤 직렬화에도 키가 생기지 않는다
+- `EpisodePlot.carry`(이어받기 결정 `CarryOver` 0~2줄: 인물 · 화 · 뜻, docs/trail)는 빈 목록이 기본값이고 빈 값은 어떤 직렬화에도 키가 생기지 않는다. 글 한 줄 `인물 | 화 | 뜻` 도 받고 뜻이 빈 줄은 버리며 앞 2개만 남긴다
 - `framed` 의 gain 축 판은 화 플롯에 `reward` 칸을 넣는다. 화 플롯이 든 형식(`PlotBatch` · `OpeningPlots` · `ImpactReport` 등)도 판이 된다(docs/webnovel/specs/06-plot-frame.md)
 - 복선 갈래 `Foreshadow.kind`(clue 단서 · stake 판돈 · constraint 제약 · audience 관객 · ban 금지선)는 옛 복선을 clue 로 읽는다
 - 화별 쓴 사건 체크(`Episode.events_done`, 사건 글 목록)는 집필 화면 표시용이라 `EpisodePlot` 밖에 두어 프롬프트에 들어가지 않는다
