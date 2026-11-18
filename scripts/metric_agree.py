@@ -5,11 +5,12 @@
 
 실행 (Canon 작업 폴더. CANON_HOME 이 묶음과 레퍼런스 원고를 가리킨다. 저장 폴더를 읽기만 하고 LLM 도 네트워크도 쓰지 않는다):
   python scripts/metric_agree.py groups SET_ID [SET_ID ...] [--refs RID ...]
-  python scripts/metric_agree.py run SET_ID [SET_ID ...] [--refs RID ...] [--held W2 ...] [--json] [--out FILE]
+  python scripts/metric_agree.py run SET_ID [SET_ID ...] [--refs RID ...] [--held W2 ...] [--by-arm ARM ...] [--json] [--out FILE]
   python scripts/metric_agree.py pairs PAIRS.json [PAIRS.json ...] [--json] [--out FILE]
 pairs 는 blind_scene_pairs.py pairs 가 쓴 짝 파일을 바로 잰다. 첫 파일이 기준 판이다.
 groups 는 작품 묶음별 짝 수만 찍는다. 지표 값을 보기 전에 --held 로 보류할 묶음을 고르는 데 쓴다.
 판별 묶음은 차이의 크기(쪽별 중앙값 · 사분위 · 짝 안 차이 · 레퍼런스 쪽 가운데 50% 범위 안에 든 비율)도 찍는다.
+--by-arm 은 정답 아닌 판별로도 나눠 잰다. 판 이름은 명령줄로 받은 것만 찍는다.
 값은 모두 모듈 맨 위 상수로 못 박았고 명령줄로 바꾸지 않는다.
 출력에 판 이름 · 대목 이름 · 원고 id · 글 본문을 찍지 않는다. 작품 묶음은 W1, W2 … 라벨로만 찍는다.
 시험은 tests/test_metric_agree.py (지어낸 글과 지어낸 묶음).
@@ -360,13 +361,33 @@ def _entry(rows: list, dev: list[Unit], mode: str, target: str, warnings: list[s
     return entry
 
 
-def _scope(rows: list, dev: list[Unit], scope: str, warnings: list[str]) -> dict:
+def other_arm(u: Unit) -> str | None:
+    """판별 짝에서 정답이 아닌 쪽의 판. side 짝은 None. 내부에서만 쓴다."""
+    if u.truth_a is None:
+        return None
+    return u.b_arm if u.truth_a else u.a_arm
+
+
+def _arm_entries(rows: list, dev: list[Unit], scope: str, warnings: list[str], by_arm: list[str]) -> dict:
+    """판별 짝을 정답 아닌 판별로 나눈 항목. 키는 ident/truth@ARM · ident/author@ARM."""
+    out = {}
+    for arm in by_arm:
+        arm_rows = [(u, c) for u, c in rows if u.mode == "ident" and other_arm(u) == arm]
+        arm_dev = [u for u in dev if u.mode == "ident" and other_arm(u) == arm]
+        for target in ("truth", "author"):
+            out[f"ident/{target}@{arm}"] = _entry(arm_rows, arm_dev, "ident", target, warnings, f"{scope}@{arm}")
+    return out
+
+
+def _scope(rows: list, dev: list[Unit], scope: str, warnings: list[str], by_arm: list[str] | None = None) -> dict:
     out = {}
     for mode, targets in (("side", ("author",)), ("ident", ("truth", "author"))):
         if not any(u.mode == mode for u, _ in rows):
             continue
         for target in targets:
             out[f"{mode}/{target}"] = _entry(rows, dev, mode, target, warnings, scope)
+    if by_arm and any(u.mode == "ident" for u, _ in rows):
+        out.update(_arm_entries(rows, dev, scope, warnings, by_arm))
     n_groups = len({u.group for u, _ in rows})
     if n_groups < 3:
         warnings.append(f"{scope}: 작품 묶음이 {n_groups}개뿐이라 구간이 좁게 나와요")
@@ -382,8 +403,12 @@ def _scopes(rows: list, held_keys: set[str], held: list[str], warnings: list[str
     return {"all": (rows, dev), "dev": (dev_rows, dev), "held": ([(u, c) for u, c in rows if u.group in held_keys], dev)}
 
 
-def run(ids: list[str], rids: list[str], held: list[str]) -> dict:
+def run(ids: list[str], rids: list[str], held: list[str], by_arm: list[str] | None = None) -> dict:
+    by_arm = list(by_arm or [])
     parts = [(s, *units_of(s)) for s in load_sets(ids)]
+    known = {k.arm for s, _, _, _ in parts if s.mode == "ident" for k in s.key}
+    if any(a not in known for a in by_arm):
+        raise SystemExit("판별 묶음에 없는 판이에요")
     units = [u for _, us, _, _ in parts for u in us]
     labels, found = assign_groups(units, rids)
     if any(h not in labels.values() for h in held):
@@ -401,8 +426,9 @@ def run(ids: list[str], rids: list[str], held: list[str]) -> dict:
         "groups": {labels[k]: counts[k] for k in sorted(counts, key=lambda k: int(labels[k][1:]))},
         "metrics": dict(METRICS),
         "split": "held" if held else "none",
+        "by_arm": by_arm,
         "warnings": warnings,
-        "results": {name: _scope(r, d, name, warnings) for name, (r, d) in scopes.items()},
+        "results": {name: _scope(r, d, name, warnings, by_arm) for name, (r, d) in scopes.items()},
     }
 
 
@@ -608,6 +634,7 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--refs", nargs="*", default=[])
         if name == "run":
             p.add_argument("--held", nargs="*", default=[])
+            p.add_argument("--by-arm", nargs="+", default=[])
             p.add_argument("--json", action="store_true")
             p.add_argument("--out")
     pp = sub.add_parser("pairs")
@@ -621,7 +648,7 @@ def main(argv: list[str] | None = None) -> int:
         for label, n in group_counts(a.sets, a.refs):
             print(label, n)
         return 0
-    res = run(a.sets, a.refs, a.held)
+    res = run(a.sets, a.refs, a.held, a.by_arm)
     dump = json.dumps(res, ensure_ascii=False, indent=1, sort_keys=True)
     if a.out:
         Path(a.out).write_text(dump + "\n", encoding="utf-8")

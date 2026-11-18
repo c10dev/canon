@@ -277,6 +277,67 @@ def test_run_sizes_only_on_ident_truth(mod, monkeypatch, capsys):
             assert token not in text
 
 
+def _two_arm_set(sid: str, arms: tuple[str, str] = (BASE_ARM, "SECRETARM_argon")) -> BlindSet:
+    """정답 아닌 판이 둘인 판별 묶음. 대목 0 · 1 은 첫 판, 2 · 3 은 둘째 판과 짝."""
+    items, key = [], []
+    for i in range(4):
+        arm = arms[0] if i < 2 else arms[1]
+        for kind, text, a in (("r", _ref_text("z", i), REF_ARM), ("b", _base_text(arm[-4:] + "q", i), arm)):
+            no = f"{i}{kind}"
+            items.append(BlindItem(no=no, text=text))
+            key.append(BlindKey(no=no, arm=a, piece=f"SECRETPIECE{i}"))
+    s = BlindSet(id=sid, mode="ident", items=items, key=key, answer_arm=REF_ARM, revealed_at="2026-11-17")
+    pick = _picker(s, REF_ARM)
+    s.duels = [BlindDuel(a=a, b=b, pick=pick(a, b), confidence=2) for a, b in blindset.duel_pairs(s)]
+    return s
+
+
+def test_by_arm_splits_ident_results(mod, monkeypatch):
+    _install(monkeypatch, _two_arm_set("s1"))
+    arms = [BASE_ARM, "SECRETARM_argon"]
+    res = mod.run(["s1"], [], [], by_arm=arms)
+    assert res["by_arm"] == arms
+    all_ = res["results"]["all"]
+    for arm in arms:
+        assert "sizes" in all_[f"ident/truth@{arm}"]
+        assert "sizes" not in all_[f"ident/author@{arm}"]
+    for target in ("truth", "author"):
+        assert sum(all_[f"ident/{target}@{a}"]["n_units"] for a in arms) == all_[f"ident/{target}"]["n_units"] == 4
+        assert [all_[f"ident/{target}@{a}"]["n_units"] for a in arms] == [2, 2]
+    assert len([k for k in all_ if "@" in k]) == 4
+    held = mod.run(["s1"], [], ["W1"], by_arm=arms)
+    assert all(f"ident/truth@{arms[0]}" in held["results"][sc] for sc in ("all", "dev", "held"))
+
+
+def test_by_arm_absent_without_option(mod, monkeypatch):
+    _install(monkeypatch, _two_arm_set("s1"))
+    res = mod.run(["s1"], [], [])
+    assert res["by_arm"] == []
+    assert not any("@" in k for sc in res["results"].values() for k in sc)
+
+
+def test_by_arm_unknown_arm_stops(mod, monkeypatch):
+    _install(monkeypatch, _two_arm_set("s1"), _set("s2", "side", "y"))
+    with pytest.raises(SystemExit):
+        mod.run(["s1"], [], [], by_arm=["nope"])
+    with pytest.raises(SystemExit):
+        mod.run(["s2"], [], [], by_arm=[BASE_ARM])
+
+
+def test_by_arm_output_shows_only_given_arm_names(mod, monkeypatch, capsys):
+    _install(monkeypatch, _two_arm_set("s1", ("argonX", "argonY")))
+    assert mod.main(["run", "s1", "--by-arm", "argonX", "--json"]) == 0
+    as_json = capsys.readouterr().out
+    assert mod.main(["run", "s1", "--by-arm", "argonX"]) == 0
+    as_table = capsys.readouterr().out
+    assert "[all] ident/truth@argonX (짝 2)" in as_table
+    for shown in (as_json, as_table):
+        assert "argonX" in shown
+        assert "argonY" not in shown
+        for token in TOKENS:
+            assert token not in shown
+
+
 # ---------- pairs 하위 명령 ----------
 
 def _pair(i: int, rid: str = "ridsecret", names=("라온",)) -> dict:
