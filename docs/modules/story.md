@@ -476,6 +476,7 @@
 - `apply_delta`(`features.APPLY_LAST`): 작가가 고른 `views` 를 `CharView(episode=d.episode)` 로 쌓는다. 최근 평가와 같으면 건너뛴다
 - 상태 승인 화면은 기본으로 체크한다. 자동 집필 · `-y` 도 반영한다(`features.HOLD` 에 없다). 본문에 드러난 일의 기록이라서 관계 사건과 같다
 - 되돌리기 `revert`: n화 뒤 줄과 지워진 인물의 줄을 지운다(훅 `features.REVERT_LAST`)
+- 되돌리기와 `live` 는 `basis` 에서 없는 자취 id 만 뺀다(줄은 남긴다). `live` 는 `p.views` 를 바꾸지 않고 사본을 돌려준다
 - 다시 짜기(`reshape`)는 `revert(p, 0)` 으로 비운다
 - 화면의 작품 전체 저장(`web.put_project`)은 디스크의 보는 눈을 둔다
 - 화 끼워 넣기 · 빼기는 화 번호를 옮기지 않는다(`renumber` 를 건드리지 않음)
@@ -1379,4 +1380,18 @@
 - 프롬프트에 넣지 않는다
 - 명령줄 `tofix`
 - 명령줄 `tofix` 도 `jobs.project_lock` 안에서 다시 읽고 고쳐 저장한다. 웹 서버의 자동 집필이 도는 동안 달아도 서로 덮지 않는다
+- LLM 호출 없음
+
+### `canon/trails.py`
+
+- 인물 자취 기록(`Project.trails`, `CharTrail`, 다시 꺼냄 `TrailEcho`): 승인한 본문에서 한 인물이 남긴 선택 · 말 · 드러냄
+- 갈래 `TrailKind`: 선택 · 말 · 드러냄
+- 지금은 자리만 있다. 채우는 길은 docs/trail 일감 6, 쓰는 길은 일감 9 다
+- id 는 프로그램이 `tr-{화:03d}-{차례}` 로 붙인다(`next_id`: 그 화의 가장 큰 차례 + 1)
+- `live`: 주인이 있는 인물인 자취만, 저장 차례 그대로. 본 사람 · 다시 꺼낸 인물 가운데 지워진 인물은 뺀 사본
+- 되돌리기 `revert`: n화 뒤 자취와 다시 꺼냄, 주인이 지워진 자취를 지우고 본 사람 · 다시 꺼낸 인물 칸의 지워진 인물을 뺀다(훅 `features.REVERT_LAST`, 보는 눈 훅 바로 앞)
+- 다시 짜기(`reshape`)는 `revert(p, 0)` 으로 비운다
+- 화면의 작품 전체 저장(`web.put_project`)은 디스크의 자취를 둔다
+- 화 번호 옮기기는 하지 않는다(반영한 화는 번호를 옮기지 않는다)
+- 프롬프트에 넣지 않는다
 - LLM 호출 없음

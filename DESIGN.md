@@ -823,6 +823,7 @@ OpenStreetMap(OSM) 데이터를 올리면 실제 동네를 지도로 쓴다. 현
 - **둘 곳**: `Relationship` 칸이 아니라 새 목록 `Project.address_forms`(`AddressForm`: speaker · listener · calls · speech, 방향마다 하나). `Relationship` 은 설정 제안 · 설정 대화 · 상태 변경안의 `relationship_updates` 가 AI 로 채우는 스키마라 칸을 더하면 AI 가 처음 값을 승인 없이 쓰는 길이 생기고, 쌍(a, b)에 a→b · b→a 칸 네 개를 붙이면 방향이 a/b 순서에 묶인다. 새 목록은 기본값이 빈 목록이라 옛 `project.json` 이 그대로 읽히고, 관계 기록이 없는 인물 사이(조연 · 단역)도 적을 수 있다.
 - **값**: 둘 다 자유 글이다. 말씨는 자주 쓰는 값 `SPEECH_LEVELS`(하십시오체 · 해요체 · 하오체 · 하게체 · 해체(반말) · 해라체)를 화면 고르기와 상태 규칙에 보이지만 다른 말('반말 섞인 존댓말')도 받는다(화면은 `address.js` `ADDRESS_LEVELS`, 같은 목록).
 - `Project.views` 는 인물이 상대를 보는 눈의 기록이고 지금은 자리만 있으며 docs/trail 일감 8 에서 채운다.
+- `Project.trails` 는 인물 자취(승인한 본문에서 한 인물이 남긴 선택 · 말 · 드러냄과 뒤 화의 다시 꺼냄, `canon/trails.py`)의 기록이고 지금은 자리만 있으며 docs/trail 일감 6 에서 채운다.
 - **처음 값**은 작가가 인물 · 관계도 두 사람 상세(`addressCard`, `PUT /address` → `set_form`)에서 정한다. 1화 반영 뒤 고친 것은 작가 기록(`address_log`, source author, 마지막 반영 화, 같은 화 뒤 여러 번은 한 기록, 처음 값이면 지움)이다. 화면의 작품 전체 저장은 세 목록을 디스크 것으로 둔다(`put_project`).
 - **빈 쌍 알림과 본문에서 찾기** (2026-11-15): 사용자 장편 6편 중 5편은 호칭 줄이 0개였고, 지하철 장편은 자주 함께 나오는 쌍 6방향 중 4방향이 비었다. 상태 변경안은 바뀐 호칭만 올려서 처음부터 빈 쌍은 채워질 길이 없었다. 호칭 표에 '조장' 한 줄을 넣자 flash 가 그 부름을 2/12 → 10/12 편에서 썼다(2026-11-14 시험).
 - 그래서 `address.gaps`(최근 60화 중 `max(10, 화 수 // 3)` 화 이상 함께 나왔는데 부르는 말이 빈 방향, LLM 없음)를 관계도 아래 카드와 두 사람 상세 한 줄로 알린다. '본문에서 찾기'(작업 `address_ai`, `pipeline.suggest_addresses`)는 확정 본문의 두 사람 대사 문단(`address.material`, 6,000자)을 읽혀 부르는 말 · 말씨 · 근거 대사를 받는다.

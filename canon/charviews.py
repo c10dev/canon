@@ -3,26 +3,37 @@
 채우는 길은 상태 변경안의 views 다 (docs/trail 일감 8-2). 작가가 승인한 것만 쌓인다.
 기본으로 체크하고 hold 하지 않는다: 자동 집필 · run -y 도 반영한다 (본문에 드러난 일의 기록이라서, 관계 사건과 같다).
 되돌리기(features.REVERT_LAST)와 다시 짜기(reshape)가 n화 뒤 줄과 지워진 인물의 줄을 지운다.
+basis 에서는 없는 자취 id 만 뺀다(줄은 남긴다).
 LLM 을 부르지 않는다.
 """
 from __future__ import annotations
 
-from . import context
+from . import context, trails
 from .schema import CharView, Project, StateDelta, ViewChange
 
 MAX_PER_EPISODE = 4  # 한 화에 받는 보는 눈 줄 수. 넘으면 앞의 것만
 
 
 def live(p: Project) -> list[CharView]:
-    """보는 사람과 대상이 모두 p.characters 에 있는 줄만, 저장 차례 그대로."""
+    """보는 사람과 대상이 모두 p.characters 에 있는 줄만, 저장 차례 그대로.
+    basis 에서 살아 있는 자취에 없는 id 는 뺀 사본이다. p.views 는 바꾸지 않는다."""
     ids = {c.id for c in p.characters}
-    return [v for v in p.views if v.viewer in ids and v.target in ids]
+    alive = {t.id for t in trails.live(p)}
+    out = []
+    for v in p.views:
+        if v.viewer in ids and v.target in ids:
+            basis = [b for b in v.basis if b in alive]
+            out.append(v if len(basis) == len(v.basis) else v.model_copy(update={"basis": basis}))
+    return out
 
 
 def revert(p: Project, n: int) -> None:
-    """되돌리기 훅. n화 뒤 줄과, 보는 사람 · 대상이 없는 인물인 줄을 지운다."""
+    """되돌리기 훅. n화 뒤 줄과, 보는 사람 · 대상이 없는 인물인 줄을 지운다. 남은 줄의 basis 에서는 p.trails 에 없는 id 를 뺀다."""
     ids = {c.id for c in p.characters}
+    tids = {t.id for t in p.trails}
     p.views = [v for v in p.views if v.episode <= n and v.viewer in ids and v.target in ids]
+    for v in p.views:
+        v.basis = [b for b in v.basis if b in tids]
 
 
 def latest(p: Project) -> dict[tuple[str, str], CharView]:

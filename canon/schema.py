@@ -2613,6 +2613,28 @@ class AddressRecord(BaseModel):
     quote: str = ""
 
 
+TrailKind = Literal["선택", "말", "드러냄"]
+
+
+class TrailEcho(BaseModel):
+    """뒤 화 본문이 자취를 되짚은 한 번. 프로그램이 저장한다."""
+    episode: int = Field(description="되짚은 화")
+    character: str = Field(description="되짚은 인물 id. 자취의 주인이 아닐 수 있다(본 사람이 기억함)")
+    meaning: str = Field("", description="그때의 뜻, 20자 안팎")
+
+
+class CharTrail(BaseModel):
+    """자취 한 줄: 승인한 본문에서 한 인물이 남긴 선택 · 말 · 드러냄 (canon/trails.py). 프로그램이 저장한다."""
+    id: str = Field(description="tr-{화:03d}-{차례}, 프로그램이 붙인다")
+    character: str = Field(description="그 일을 한 인물 id")
+    episode: int = Field(description="그 일이 나온 화")
+    kind: TrailKind = Field("선택")
+    label: str = Field(description="40자 안팎의 짧은 이름")
+    quote: str = Field("", description="근거 구절, 본문 그대로")
+    witnesses: list[str] = Field(default_factory=list, description="그 자리에서 보거나 들은 인물 id")
+    echoes: list[TrailEcho] = Field(default_factory=list, description="뒤 화에서 되짚은 기록, 화 차례")
+
+
 class CharView(BaseModel):
     """보는 눈 한 줄: 한 인물이 다른 인물을 어떻게 보는지, 본문에 드러난 평가 (canon/charviews.py). 프로그램이 저장한다."""
     viewer: str = Field(description="보는 사람 인물 id")
@@ -3202,6 +3224,7 @@ class Project(BaseModel):
     state_log: list[StateRecord] = Field(default_factory=list, description="반영 뒤 작가가 인물의 지금 상태를 고친 기록 (canon/stateedit.py)")
     address_forms: list[AddressForm] = Field(default_factory=list, description="인물끼리 부르는 말과 말씨 (방향마다 하나, canon/address.py)")
     address_log: list[AddressRecord] = Field(default_factory=list, description="호칭 · 말씨가 바뀐 기록 (승인한 바뀜 제안, 1화 반영 뒤 작가가 고친 것)")
+    trails: list[CharTrail] = Field(default_factory=list, description="인물 자취: 승인한 본문에서 한 인물이 남긴 선택 · 말 · 드러냄과 뒤 화의 다시 꺼냄 (canon/trails.py)")
     views: list[CharView] = Field(default_factory=list, description="인물이 상대를 보는 눈: 본문에 드러난 평가를 화마다 쌓은 기록 (canon/charviews.py)")
     knows_folds: list[KnowsFoldRecord] = Field(default_factory=list, description="아는 정보를 접은 기록 (canon/knows.py)")
     address_held: list[AddressChange] = Field(default_factory=list, description="자동 집필이 반영하지 않고 남겨 둔 호칭 · 말씨 바뀜 제안. 작가가 인물 화면에서 적용하거나 버린다")
