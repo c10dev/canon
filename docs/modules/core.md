@@ -214,6 +214,7 @@
 - 단락 색인은 `passage_index` 로 만든다. 넣을 화와 본문이 같으면 최근 `INDEX_KEEP` 개 가운데 만든 것을 다시 써서, 검수와 검수 넓히기가 색인을 한 번만 만든다
 - 이어받기 결정이 가리키는 화의 원문 단락은 `episode_passages` 가 그 화 본문만으로 색인을 만들어 고른다(캐시 색인을 쓰지 않음)
 - `CARRY_RECALL`(1,500자)은 결정 한 줄이 가리키는 화에서 검수에 넣는 원문 글자 수다. 이 글자 수만큼 `BUDGET["check_recall"]` 에서 뺀다
+- `episode_passages` 는 한 화만의 색인이라 `PassageIndex.find(common=1.0)` 로 흔한 말 거르기를 끈다(그 화의 중심 낱말이 빠지지 않게)
 - 진술과 겹치는 줄 · 사실(`related_lines` · `related_facts`, 셈이 있는 진술은 셈이 있는 줄을 앞세움 `has_count`)
 - LLM 호출 없음
 - 예산 고르기는 단편 경로가 쓰지 않는다(상태 조건 판정은 단편도 쓴다)

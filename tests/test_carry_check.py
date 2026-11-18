@@ -86,3 +86,15 @@ def test_block_lines_for_zero_episode_and_unknown_character():
     block = prompts.carry_check_block(p, 6)
     assert "\n- 서윤 | 거절당한 날" in block
     assert "\n- zz | 2화 | 뜻" in block
+
+
+def test_core_words_of_the_carried_episode_are_not_dropped_as_common():
+    """결정이 가리키는 화는 그 일이 중심이라 핵심 낱말이 단락 30% 넘게 나온다. 한 화 색인은 흔한 말로 거르지 않는다."""
+    trade = "트레이드 소식을 들은 서윤은 한참 말이 없었다."
+    old = "\n\n".join([trade + " " + FILLER[0] * 8] * 2 + [FILLER[1] * 20, trade + " " + FILLER[2] * 8])  # 4단락 중 3단락
+    p = _project()
+    p.episode(1).text = old
+    assert context.episode_passages(p, 1, "트레이드 소식을 떠올림", 1_500)
+    short = Project(meta=p.meta, characters=p.characters,
+                    episodes=[Episode(plot=_plot(1), status="finalized", text=trade + "\n\n" + FILLER[1] * 20 + "\n\n" + FILLER[3] * 20)])
+    assert context.episode_passages(short, 1, "트레이드 소식을 떠올림", 1_500)[0].startswith("트레이드")
