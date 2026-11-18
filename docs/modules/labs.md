@@ -444,6 +444,7 @@
 - `sample` 의 stage · out_tokens: 모델 칸이 빈 백엔드는 그 단계의 모델 · 추론 강도(`stage_defaults`)로 만들고 출력 한도(`llm.out_cap`)를 건다
 - `stage_defaults`: 단계 모델은 그 단계 백엔드가 같을 때만 쓰고, 추론 강도는 `settings.provider_effort` 로 바꿔 Gemini · Claude 에만 넘긴다
 - 단계 시험
+  - 문체 단계는 `analyze_style(retry=False)` 로 불러 빈 칸 다시 묻기 없이 처음 응답의 빈 필드를 본다
 - 컨텍스트 크기
 - 검수 시험
   - 모순을 심고 `TRIAL_MODES` 마다 찾는지
