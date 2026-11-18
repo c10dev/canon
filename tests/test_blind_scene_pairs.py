@@ -224,7 +224,7 @@ def test_commands_files(home, monkeypatch, capsys):
         m.main(["pick", "--rid", rid, "--n", "2", "--model", "fake:x", "--dir", str(d)])
     assert m.main(["gen", "--dir", str(d), "--path", "paragraph", "--model", "fake:x", "--reps", "2"]) == 0
     out = json.loads(capsys.readouterr().out)
-    assert out == {"new": 4, "errors": 0, "total": 4}
+    assert out == {"new": 4, "errors": 0, "coord_errors": 0, "total": 4}
     assert m.main(["gen", "--dir", str(d), "--path", "paragraph", "--model", "fake:x"]) == 0
     assert json.loads(capsys.readouterr().out)["new"] == 0
     assert m.main(["pairs", "--dir", str(d), "--out", str(home / "p.json")]) == 0
@@ -414,3 +414,91 @@ def test_estimate_episode(home):
     assert priced["assumed"] == "gemini-4-argon-001"
     if priced["usd"] is not None:
         assert priced["usd"] > 0 and priced["usd_worst"] >= priced["usd"]
+
+
+class PromptLLM(CountLLM):
+    """CountLLM 에 본문 쓰기 요청을 남긴다."""
+
+    def __init__(self):
+        super().__init__()
+        self.prompts: list[str] = []
+
+    def text_stream(self, system, prompt, on_chunk):
+        with self.lock:
+            self.prompts.append(prompt)
+        return super().text_stream(system, prompt, on_chunk)
+
+    def text(self, system, prompt):
+        with self.lock:
+            self.prompts.append(prompt)
+        return super().text(system, prompt)
+
+
+def _coord_run(m, home, rows, llm, done=None):
+    from canon.schema import Settings
+
+    styles = {r: m.load_style(str(_style_file(home, (), f"s{i}.json"))) for i, r in enumerate({x["rid"] for x in rows})}
+    return m.write_episode_scenes(rows, Settings(storyboard=True, write_material="coord"), styles, llm, llm, 1, done or {})
+
+
+def test_episode_coord_memo(home):
+    from canon import coord
+
+    m = _load("blind_scene_pairs")
+    rows = _rows(m, [_book(1).id], 2)
+    llm = PromptLLM()
+    done = _coord_run(m, home, rows, llm)
+    assert llm.calls.count("CoordDraft") == 2
+    assert llm.calls[0] == "CoordDraft"  # 스토리보드보다 먼저
+    for r in rows:
+        plan = done[f"{r['id']}|plan"]
+        assert len(plan["coord"]["events"]) == len(r["facts"]["events"]) and "coord_error" not in plan
+    assert len(llm.prompts) == 2
+    for prompt in llm.prompts:  # 쓰기 요청 끝(지시 꼬리)에 [조율 메모] 단락
+        assert f"\n\n{coord.NOTE}" in prompt and prompt.rindex(coord.NOTE) > len(prompt) // 2
+        assert "사건 1에서 주인공의 마음이" in prompt  # 플롯 사건을 조율 메모로 바꿔 넣었다 (mock_coord)
+    key = f"{rows[0]['id']}|1"  # 이어 돌리면 남긴 조율 메모를 다시 넣고 부르지 않는다
+    again = PromptLLM()
+    _coord_run(m, home, rows, again, dict(done, **{key: {"error": "끊김"}}))
+    assert again.calls == ["text"] and coord.NOTE in again.prompts[0]
+
+
+def test_episode_no_coord_without_setting(home):
+    from canon import coord
+
+    m = _load("blind_scene_pairs")
+    rows = _rows(m, [_book(1).id], 1)
+    llm = PromptLLM()
+    done, _ = _episode_run(m, home, rows, llm)
+    assert "CoordDraft" not in llm.calls and "coord" not in done[f"{rows[0]['id']}|plan"]
+    assert coord.NOTE not in llm.prompts[0]
+
+
+def test_episode_coord_failure_writes_with_plot(home, monkeypatch):
+    from canon import coord
+
+    m = _load("blind_scene_pairs")
+    rows = _rows(m, [_book(1).id], 1)
+
+    def boom(*a, **k):
+        raise ValueError("사건 수가 달라요")
+    monkeypatch.setattr(m.pipeline, "make_coord", boom)
+    llm = PromptLLM()
+    done = _coord_run(m, home, rows, llm)
+    plan = done[f"{rows[0]['id']}|plan"]
+    assert "사건 수" in plan["coord_error"] and "error" not in plan and plan["storyboard"]
+    assert "text" in done[f"{rows[0]['id']}|1"] and coord.NOTE not in llm.prompts[0]
+    assert m._gen_summary(done, {})["coord_errors"] == 1
+
+
+def test_estimate_episode_coord(home):
+    from canon.schema import Settings
+
+    m = _load("blind_scene_pairs")
+    rid = _book(1).id
+    st = {rid: m.load_style(str(_style_file(home)))}
+    both = {"board": "gemini:no-such-model-zz", "write": "gemini:no-such-model-zz"}
+    off = m.estimate([rid], 6, 1, path="episode", settings=Settings(storyboard=True, cue_sheet=False), styles=st, models=both)
+    on = m.estimate([rid], 6, 1, path="episode", settings=Settings(storyboard=True, cue_sheet=False, write_material="coord"), styles=st, models=both)
+    assert off["calls"]["coord"] == 0 and on["calls"]["coord"] == 6 and on["calls"]["cue"] == 0
+    assert on["tokens"]["out"] - off["tokens"]["out"] == 6 * (m.OUT_TOKENS_COORD + m.THOUGHT_TOKENS["coord"])
