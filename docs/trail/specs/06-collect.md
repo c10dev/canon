@@ -1,0 +1,172 @@
+# 06. 자취 거두기
+
+상태: 설계 · 계획: [plan.md](../plan.md) 의 6번 · 먼저: 5
+
+## 목표
+
+화를 반영할 때 상태 변경안이 이번 화 본문에서 생긴 자취와, 기존 자취를 다시 꺼낸 곳(다시 꺼냄)을 제안한다.
+작가는 상태 승인 화면의 '자취' · '다시 꺼냄' 묶음에서 줄을 고른다. 고른 줄만 `Project.trails` 에 쌓인다.
+다시 꺼냄이 앞의 자취와 내용이 어긋나면 상태 변경안 경고로 보인다. 반영을 막지는 않는다.
+
+따르는 정한 규칙:
+
+- 2026-11-17: 쓰기 요청에는 자취 블록을 따로 넣지 않는다. 이 일감은 상태 변경안 요청만 바꾼다.
+
+같은 꼴의 앞선 일감: 보는 눈 거두기(일감 8-2, #584). 이 명세는 그 흐름을 따른다.
+쓰는 길(기획 블록)은 일감 9, 인물 화면 카드와 손으로 거두기는 일감 7 이다.
+
+## 정할 것
+
+1. 기본 체크와 자동 집필 — 추천: 두 묶음 모두 기본으로 체크하고, 자동 집필 · `-y` 도 반영한다(README 정할 것 5).
+   - 까닭: 관계 사건 · 보는 눈처럼 본문에 드러난 일의 기록이고, 인물 설정을 바꾸지 않는다.
+   - 다른 안: 체크하지 않고 자동 집필은 남겨 둔다(`charlog.hold` 꼴). 200화 장편에서 승인 일이 늘어난다.
+2. 한 화에 받는 수 — 추천: 자취 3줄, 다시 꺼냄 4줄(README 정할 것 4). 응답 형식 설명에는 '대부분의 화는 0~1개'만 적고, 넘치면 프로그램이 앞의 것만 받는다.
+3. 근거 구절 확인 — 추천: 프로그램이 이번 화 본문에서 구절을 찾는다. 공백을 고른 뒤에도 없으면 구절만 비우고 줄은 남긴다. 경고는 내지 않는다.
+   - 다른 안: 구절이 없는 줄을 버린다. 모델이 구절을 조금 바꿔 적는 일이 잦아 좋은 줄을 잃는다.
+4. 어긋남 경고의 모양 — 추천: 다시 꺼냄 줄의 `conflict` 칸에 모델이 어긋남을 한 줄로 적고, 프로그램이 그것을 그 인물의 경고(`warnings` · `warn_to`)로 옮긴다(README 정할 것 12).
+   - 다른 안: 모델이 `warnings` 에 바로 적는다. 그러면 어느 자취의 어긋남인지 묶이지 않는다.
+5. 상태 변경안 요청의 자취 블록 예산 — 추천: 새 키 `context.BUDGET["state_trails"]` 2,000자.
+   - 근거: 자취 한 줄은 id · 주인 · 갈래 · 화 · 라벨 · 본 사람 · 최근 뜻 2개로 약 120자, 15줄 안팎.
+6. 이어받기 결정과의 연결 — 추천: 이번 화 플롯의 이어받기 결정(`EpisodePlot.carry`)이 가리키는 화의 자취를 블록 맨 앞에 둔다. 결정 줄과 자취를 프로그램이 짝짓지는 않는다(자취 id 칸은 일감 9).
+
+## 바꿀 곳
+
+| 파일 | 바꿀 것 |
+|---|---|
+| `canon/schema.py` | `TrailChange`, `TrailEchoChange` 모델. `StateDelta.trails` · `StateDelta.trail_echoes`, `DismissedItems` 의 같은 이름 칸 |
+| `canon/trails.py` | `state_block`, `state_rule`, `clean_delta`, `apply_delta`, `MAX_PER_EPISODE` · `MAX_ECHOES` |
+| `canon/features.py` | `CLEAN` 에 `trails.clean_delta`, `APPLY_LAST` 에 `trails.apply_delta` (보는 눈 훅 바로 앞, 보는 눈 근거가 같은 반영의 자취를 볼 수 있게) |
+| `canon/context.py` | `BUDGET["state_trails"]` |
+| `canon/prompts.py` | `state_prompt` 에 `trails.state_block` (`charviews.state_block` 바로 앞), 규칙 줄에 `trails.state_rule` (`charviews.state_rule` 바로 앞). 상태 변경안 요약 줄(`charviews` 줄 근처)에 자취 · 다시 꺼냄 |
+| `canon/cli.py` | `_print_trails`: 자취 · 다시 꺼냄 제안을 보인다(기본 반영이라 묻지 않음). `_print_views` 꼴 |
+| `canon/mock.py` | 1화 상태 변경안에 자취 한 줄, 2화에 그 자취의 다시 꺼냄 한 줄 |
+| `canon/static/review.js` | '자취' · '다시 꺼냄' 묶음, 체크 · 버림(`dismissed`) · 인물 걸러 보기 · 반영 기록 줄. 보는 눈(`v`)과 같은 꼴 |
+| `tests/test_trails_collect.py` | 새 시험 |
+| 스냅샷 | 상태 변경안 요청과 작업지시서 키 |
+| 문서 | 아래 '문서' |
+
+- 새 LLM 호출 · 명령줄 명령 · 웹 엔드포인트가 없다. 상태 변경안 · 반영의 기존 길을 쓴다.
+- 반영 취소는 일감 5 의 되돌리기 훅(`trails.revert`)이 한다. n화 자취와 n화 다시 꺼냄이 함께 빠진다.
+- 승인 화면 글자는 쓰지 않는 것을 고른다(예: 자취 `j`, 다시 꺼냄 `y`). 구현 때 `review.js` 의 글자 목록과 견준다.
+- `canon/static/review.js` 는 다른 갈래 일감이 자주 고친다. 시작할 때 열린 PR 과 견준다.
+
+## 데이터 · 스키마
+
+```python
+class TrailChange(BaseModel):
+    """상태 변경안이 제안하는 자취 한 줄 (canon/trails.py). 작가가 승인하면 CharTrail 로 Project.trails 에 쌓인다."""
+    character: str = Field(description="그 일을 한 인물 id")
+    kind: TrailKind = Field("선택", description="선택: 갈림길에서 고른 행동 / 말: 뒤에 남이 기억할 약속 · 핑계 · 선언 / 드러냄: 처음 꺼낸 과거 · 상처 · 비밀 · 속마음")
+    label: str = Field(description="40자 안팎의 짧은 이름. 문장이 아니라 라벨로")
+    quote: str = Field("", description="근거 구절, 이번 화 본문 그대로 한 문장")
+    witnesses: list[str] = Field(default_factory=list, description="그 자리에서 보거나 들은 인물 id. 주인은 넣지 않는다")
+
+class TrailEchoChange(BaseModel):
+    """상태 변경안이 제안하는 다시 꺼냄 한 줄 (canon/trails.py). 작가가 승인하면 그 자취의 echoes 에 쌓인다."""
+    trail: str = Field(description="[앞 화 자취] 블록의 자취 id")
+    character: str = Field(description="이번 화에서 그 일을 떠올리거나 그 일에 기대어 움직인 인물 id")
+    meaning: str = Field(description="이번 화에서 그 일이 갖는 뜻, 20자 안팎 라벨")
+    conflict: str = Field("", description="이번 화 본문이 그 자취와 다르게 말하면 무엇이 다른지 한 줄. 같으면 빈 글")
+```
+
+- `StateDelta.trails: list[TrailChange] = []`, `StateDelta.trail_echoes: list[TrailEchoChange] = []`. `StateDelta.views` 바로 앞.
+- 설명: `trails` 는 '이번 화 본문에서 한 인물이 뒤 화에서 다시 떠올릴 만한 선택 · 말 · 드러냄을 남긴 것만. 대부분의 화는 0~1개', `trail_echoes` 는 '이번 화 본문이 [앞 화 자취]의 일을 다시 떠올리거나 그에 기대어 움직인 곳만'.
+- 화 번호와 자취 id 는 LLM 이 적지 않는다. 반영할 때 `d.episode` 와 `trails.next_id` 로 붙인다.
+- `DismissedItems.trails` · `DismissedItems.trail_echoes` 를 같은 꼴로 둔다.
+- dict 칸은 없다(`tests/test_schema_nodict.py`). 옛 `project.json` · 옛 반영 기록(`history`)은 고치지 않고 읽힌다.
+
+## 규칙
+
+상태 변경안 요청:
+
+- `trails.state_block(p, ids, n)`: `[앞 화 자취 (다시 꺼냈으면 trail_echoes 에 이 id 로 적는다)]` 블록. 자취가 없거나 걸린 줄이 없으면 빈 글이고, 요청 글은 지금과 글자까지 같다.
+  - 넣는 자취: `live(p)` 가운데 주인이나 본 사람이 `ids`(이번 화 플롯 인물, 단편은 `context.without_off(p, None)`)에 있는 것.
+  - 차례: (1) 이번 화 플롯의 이어받기 결정이 가리키는 화의 자취, (2) 주인과 본 사람이 함께 `ids` 에 있는 자취, (3) 주인만 있는 자취, (4) 본 사람만 있는 자취. 같은 무리 안에서는 최근 화가 먼저.
+  - 한 줄 꼴: `- {id} {주인 이름} · {갈래} · {화}화 '{label}'` + 본 사람이 있으면 ` (본 사람: 이름, 이름)` + 다시 꺼냄이 있으면 ` · 다시 꺼냄: {화}화 '{뜻}' / …`(최근 2개).
+  - 근거 구절은 넣지 않는다. 같은 화를 다시 반영하는 것이라 이번 화 본문이 이미 요청에 있다.
+  - 예산 `BUDGET["state_trails"]` 를 `context.fit_lines` 로 맞추고, 넘치면 `(그 밖 n줄 생략)`.
+- `trails.state_rule(p)`: 규칙 한 줄. 늘 붙는다(보는 눈 `state_rule` 과 같다). 담을 것:
+  - 자취는 본문의 속말 · 대사 · 행동에 드러난 일만, 시점 밖 인물의 속을 짐작하지 않는다.
+  - 라벨은 문장이 아니라 짧은 이름으로 적는다(예: '핑계를 대고 밥 약속을 거절함').
+  - 상대에 대해 알게 된 것은 자취가 아니라 아는 정보에 둔다.
+  - 다시 꺼냄은 [앞 화 자취]의 id 로만 적고, 그때의 뜻을 앞 뜻과 다르게 옮겼으면 옮긴 뜻을 적는다.
+  - 본문이 그 자취와 다르게 말하면 `conflict` 에 무엇이 다른지 적는다.
+  - 대부분의 화에는 둘 다 비어 있다.
+  - 예시 낱말은 레퍼런스 · 사용자 원고에서 가져오지 않는다.
+
+정리(`clean_delta`, `features.CLEAN`):
+
+- 자취: 없는 인물(새 인물 포함해 확인)의 줄, 빈 라벨 줄을 뺀다. 본 사람에서 없는 인물과 주인을 뺀다. 같은 주인 · 같은 라벨은 뒤의 것만. 앞에서 `MAX_PER_EPISODE`(3)줄만.
+- 근거 구절: 이번 화 본문에서 공백을 고른 뒤 찾는다. 없으면 구절만 비운다.
+- 다시 꺼냄: 없는 자취 id, 없는 인물, 빈 뜻, 이번 화 자취를 가리키는 줄을 뺀다. 같은 자취 · 같은 인물은 뒤의 것만. 앞에서 `MAX_ECHOES`(4)줄만.
+- 어긋남: `conflict` 가 빈 글이 아니면 `'{자취 라벨}' 다시 꺼냄이 앞 화와 달라요: {conflict}` 꼴 경고를 그 인물 id 로 돌려준다(`Warn` 튜플). 줄은 남긴다.
+- 빼는 줄에는 경고를 내지 않는다(보는 눈과 같다).
+
+반영(`apply_delta`, `features.APPLY_LAST`):
+
+- 고른 자취마다 `CharTrail(id=trails.next_id(p, d.episode), episode=d.episode, …)` 를 더한다.
+- 고른 다시 꺼냄마다 그 자취의 `echoes` 에 `TrailEcho(episode=d.episode, character, meaning)` 를 더한다. 자취가 없어졌으면 건너뛴다. 같은 화 · 같은 인물 줄이 이미 있으면 뜻만 바꾼다.
+- 작가가 고치거나 지운 줄은 되돌리기 뒤 다시 놓지 않는다(일감 5 의 `revert` 가 화 번호로 지운다).
+- 자동 집필 · `-y` 는 정할 것 1 을 따른다.
+
+공통:
+
+- 대화 에이전트: 바뀌지 않는다. 자취를 쓰는 길을 만들지 않는다.
+- 단편 · 장편이 같다.
+- 쓰기 · 검수 · 기획 요청은 바뀌지 않는다.
+
+## 화면 · 명령줄 · 프롬프트
+
+- 상태 승인 화면 줄(이름은 예시):
+  - 자취: `서윤 · 선택 · 핑계를 대고 밥 약속을 거절함 · 본 사람 도현`. 근거 구절은 줄 아래 작은 글.
+  - 다시 꺼냄: `도현 · 12화 '핑계를 대고 밥 약속을 거절함' · 그날의 거절도 두려움이었다고 다시 읽음`. 어긋남이 있으면 그 인물 줄에 경고가 붙는다(기존 `warn_to` 길).
+- 줄 고치기는 이번에 넣지 않는다(보는 눈 8-2 와 같다). 고치기는 일감 7 의 인물 화면에서 한다.
+- 화면 모양을 바꾸면 `docs/design/` 의 상태 승인 화면 문서를 고친다. 새 컴포넌트는 만들지 않고 보는 눈 묶음의 꼴을 쓴다.
+- 반영 기록(`history`) 줄에 '자취 · 서윤 핑계를 대고 …', '다시 꺼냄 · 도현 → tr-012-1' 꼴을 더한다.
+- 명령줄: `run` · `update` 의 상태 변경안 출력에 `--- 자취 (반영해요) ---` 와 `--- 다시 꺼냄 (반영해요) ---` 묶음.
+- 고친 뒤 `brief` 출력(작업지시서)을 함께 본다.
+
+## 시험
+
+- 새 시험 `tests/test_trails_collect.py`:
+  - 옛 반영 기록(`trails` · `trail_echoes` 칸 없는 `StateDelta` dict)이 읽힌다.
+  - `state_block`: 자취가 없으면 빈 글이고 `state_prompt` 에 `[앞 화 자취` 가 없다.
+  - `state_block` 차례: 이어받기 결정이 가리키는 화의 자취가 맨 앞, 그다음 주인 · 본 사람이 함께 나오는 자취.
+  - `state_block` 예산: 작게 하면(`monkeypatch.setitem(context.BUDGET, "state_trails", …)`) 뒤 줄이 빠지고 생략 줄이 나온다.
+  - `clean_delta`: 없는 인물 · 빈 라벨 · 주인이 본 사람에 낀 경우 · 상한 · 같은 라벨 겹침 · 본문에 없는 구절 비우기.
+  - `clean_delta`: 없는 자취 id · 이번 화 자취를 가리키는 다시 꺼냄을 뺀다. `conflict` 가 그 인물의 경고가 되고 `warn_to` 차례가 맞는다.
+  - `apply_delta`: id 가 `tr-{화:03d}-1`, `-2` 로 붙고, 다시 꺼냄이 그 자취의 `echoes` 에 화 번호와 함께 쌓인다.
+  - 되돌리기(`pipeline.revert`)가 그 화의 자취와 다시 꺼냄을 함께 뺀다.
+  - mock 으로 1~2화를 반영하면 자취 1줄과 그 다시 꺼냄 1줄이 쌓인다(`tests/test_charviews_collect.py` 꼴).
+  - 쓰기(`episode_prompt`) · 검수(`check_prompt`) · 화별 플롯 요청에는 `[앞 화 자취` 가 없다.
+- 스냅샷: 상태 변경안 응답 형식이 바뀌어 작업지시서 키와 상태 변경안 요청 해시가 바뀐다. 바뀐 키가 상태 변경안 밖이면 멈추고 본다. PR 에 이유를 적는다.
+- 전체: `CANON_HOME=$(mktemp -d) python -m pytest -q -n auto tests`, `ruff check canon tests scripts`, 복잡도 게이트.
+
+## 실측
+
+- 상태 변경안 시간 · 출력 토큰: 8-2 와 같은 대목(`nsfw_saintess` 사본 88화, 임시 `CANON_HOME`)에서 flash 로 고치기 전 · 뒤 2회씩 잰다.
+- 멈출 조건: 시간이 8-2 실측(평균 90초)보다 15% 넘게 늘면 머지 전에 사용자와 정한다.
+- 같은 호출에서 자취 · 다시 꺼냄 줄을 사람이 읽고, 라벨 꼴 · 시점 밖 짐작 · 헛 다시 꺼냄의 수를 PR 에 적는다. 그 작품은 아직 자취가 없으므로, 시험 사본에 앞 화 자취 몇 줄을 손으로 넣어 다시 꺼냄도 본다.
+- 결과는 [README.md](../README.md) 1-9 뒤에 새 절로 옮긴다.
+
+## 문서
+
+- `docs/modules/story.md`: `canon/trails.py` 절에 거두기 함수 줄(한 줄에 사실 하나).
+- `docs/modules/core.md`: `canon/schema.py` · `canon/prompts.py` 절에 한 줄씩.
+- `docs/modules/web.md`: `canon/static/review.js` 절에 한 줄.
+- `DESIGN.md`: 상태 변경안 칸 설명에 `trails` · `trail_echoes`.
+- `README.md`(저장소): 상태 승인 화면 설명에 '자취' · '다시 꺼냄' 줄.
+- 이 폴더: [plan.md](../plan.md) 6번 상태. 정할 것을 정하면 [README.md](../README.md) 정한 규칙에 옮긴다.
+
+## 확인하지 못할 것
+
+- 자취가 여러 화 쌓인 실제 작품에서 다시 꺼냄이 맞게 붙는지는 반영을 여러 화 거친 뒤에 본다.
+- 라벨이 '뒤 화에서 다시 떠올릴 만한 일'을 잘 고르는지는 사람이 읽고 매긴다. 에이전트가 매긴 것은 한 사람 판정이다.
+- 사용자가 할 일:
+  1. 머지 뒤 자기 작품에서 몇 화를 반영하며 '자취' 줄이 맞게 나오는지 본다.
+  2. 앞 일을 되짚는 화에서 '다시 꺼냄' 줄과 어긋남 경고가 맞게 붙는지 본다.
+
+## 비용
+
+- 실측: flash 상태 변경안 4~6회, 회당 약 $0.05 → 약 $0.3.
+- 확인 호출 1~2회, 약 $0.1.
