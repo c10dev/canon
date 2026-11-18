@@ -768,6 +768,26 @@ class HeatArcPlan(HeatProposal, ArcPlan):
 EPISODE_REWARD_DESC = "웹소설 틀: 이 화에서 독자가 받는 사이다(작은 보상) 한 줄. 그런 보상이 없는 화는 비움"
 
 
+class CarryOver(BaseModel):
+    """화 플롯의 이어받기 결정 한 줄: 이번 화에서 인물이 앞 화의 일을 다시 떠올리거나 그 일에 기대어 움직인다 (docs/trail/README.md 3-6)."""
+    character: str = Field(description="앞 일을 떠올리거나 그 일에 기대어 움직이는 인물 id")
+    episode: int = Field(0, description="그 일이 나온 화 번호")
+    meaning: str = Field(description="이번 화에서 그 일이 갖는 뜻. 30자 안팎 라벨. 본문 문장이나 장면 지시로 쓰지 않는다")
+
+    @model_serializer(mode="wrap")
+    def _drop_zero_episode(self, handler: SerializerFunctionWrapHandler):
+        """episode 0 은 키를 빼고 직렬화한다. write_plot 이 쓰기 요청에서 화 번호를 감출 때 쓴다."""
+        data = handler(self)
+        if isinstance(data, dict) and not data.get("episode"):
+            data.pop("episode", None)
+        return data
+
+
+CARRY_DESC = ("이어받기 결정: 앞 화에서 일어난 일 가운데 이번 화에서 인물이 다시 떠올리거나 그 일에 기대어 생각 · 행동할 일 0~2개. "
+              "대부분의 화는 0~1개. 바로 앞 화의 일과 이 플롯의 events 에 이미 적힌 일은 고르지 않는다. "
+              "인물이 지금 상대를 다시 보게 만드는 앞 일(상대가 예전에 한 말 · 행동, 인물 자신이 털어놓은 일)을 먼저 살핀다. 없으면 빈 목록")
+
+
 class EpisodePlot(BaseModel):
     number: int
     act: ActName
@@ -786,15 +806,40 @@ class EpisodePlot(BaseModel):
     pov: str = Field("", description="이 화의 시점 인물 id. 작품 기본 시점 그대로면 비움")
     pov_mode: str = Field("", description="이 화의 서술 방식 (1인칭, 3인칭 제한, 3인칭 전지). 작품 기본과 같으면 비움")
     time: str = Field("", description="이 화가 시작하는 작품 속 시점: 직전 화에서 얼마나 지났는지나 시간대 (예: 다음 날 아침, 사흘 뒤 밤, 1년 뒤). 직전 화에서 바로 이어지면 비움")
+    carry: list[CarryOver] = Field(default_factory=list, description=CARRY_DESC)
     reward: SkipJsonSchema[str] = Field("", description=EPISODE_REWARD_DESC)
 
     @model_serializer(mode="wrap")
-    def _drop_empty_reward(self, handler: SerializerFunctionWrapHandler):
-        """빈 reward 는 어떤 직렬화에도 키를 만들지 않는다. 드라마 틀 작품의 저장 파일과 프롬프트 글이 칸을 더하기 전과 같게 한다."""
+    def _drop_empty_fields(self, handler: SerializerFunctionWrapHandler):
+        """빈 reward 와 빈 carry 는 어떤 직렬화에도 키를 만들지 않는다. 드라마 틀 작품의 저장 파일과 프롬프트 글이 칸을 더하기 전과 같게 한다."""
         data = handler(self)
-        if isinstance(data, dict) and not data.get("reward", True):
-            data.pop("reward")
+        if isinstance(data, dict):
+            for key in ("reward", "carry"):
+                if not data.get(key, True):
+                    data.pop(key)
         return data
+
+    @field_validator("carry", mode="before")
+    @classmethod
+    def _carry_lines(cls, v):
+        # 글 한 줄 "인물 | 화 | 뜻" 도 받는다. 뜻이 빈 줄은 버리고 앞 2개만 남긴다
+        if not isinstance(v, list):
+            return v
+        out = []
+        for x in v:
+            if isinstance(x, str):
+                parts = [p.strip() for p in x.split("|")]
+                if len(parts) < 2:
+                    continue
+                who, meaning = parts[0], parts[-1]
+                m = re.search(r"\d+", parts[1]) if len(parts) >= 3 else None
+                x = {"character": who, "episode": int(m.group()) if m else 0, "meaning": meaning}
+            if isinstance(x, dict) and not str(x.get("meaning", "x")).strip():
+                continue
+            if isinstance(x, CarryOver) and not x.meaning.strip():
+                continue
+            out.append(x)
+        return out[:2]
 
     @field_validator("events")
     @classmethod

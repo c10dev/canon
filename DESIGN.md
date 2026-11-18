@@ -44,7 +44,7 @@ AI 로 소설을 길게 쓸수록 인물 말투, 관계, 심리, 복선, 문체�
 | 아크 (장편) | `StoryArc` (`story_arcs`) | 범위, 목표, 갈등, 결말, 자기 기승전결(`acts`), 주요 인물(`cast`), 회수할 떡밥(`payoffs`), 서술 시점 운용(`pov`), 끝난 뒤 요약, 얻는 성장(`gain`, 웹소설 틀) · 공략 대상(`focus`, 하렘 요소) | 아크마다 승인, 요약 승인 |
 | 전환 기록 (장편) | `Conversion` (`conversion`) | 단편에서 장편으로 바꾼 시각, 방식(`mode`: continue 이어 쓰기 / rebuild 재구성), 전 화수, 아크 1 끝 화, 결말 처리, 재구성이 옮기지 못한 것(`notes`). 되돌릴 백업은 `before-serial.json` | 전환 때, 되돌리면 지움 |
 | 옛 단편 보관함 (재구성) | `ShortArchive` (`archive`) | 재구성 전 단편의 화 · 기승전결 · 상태 변경 기록과 새 화 지도(`RebuildEpisode`), 쓰지 않는 옛 화 | 재구성 때, 되돌리면 지움 |
-| 화별 플롯 | `EpisodePlot` | 제목, 요약, 사건 목록, 등장 인물, 감정 변화, 엔딩 훅, 심을/회수할 복선, 따라가는 이야기 줄기(`storyline`, 비면 메인)와 끼어드는 줄기(`threads`), 1~3화만 여는 장면(`opening`)과 독자가 들고 갈 질문(`reader_question`), 시점 인물(`pov`)과 서술 방식(`pov_mode`, 둘 다 비면 구간 · 아크 · 작품 기본 시점), 이 화의 사이다(`reward`, 웹소설 틀 장편만 AI 가 채운다) | 초안 → 사용자 확정 |
+| 화별 플롯 | `EpisodePlot` | 제목, 요약, 사건 목록, 등장 인물, 감정 변화, 엔딩 훅, 심을/회수할 복선, 따라가는 이야기 줄기(`storyline`, 비면 메인)와 끼어드는 줄기(`threads`), 1~3화만 여는 장면(`opening`)과 독자가 들고 갈 질문(`reader_question`), 시점 인물(`pov`)과 서술 방식(`pov_mode`, 둘 다 비면 구간 · 아크 · 작품 기본 시점), 이어받을 앞 일(`carry`, 0~2줄: 인물 · 화 · 뜻, docs/trail), 이 화의 사이다(`reward`, 웹소설 틀 장편만 AI 가 채운다) | 초안 → 사용자 확정 |
 | 회차 | `Episode` | 플롯 + 상태(draft → confirmed → written → finalized) + 본문 + 요약 + 마지막 검수 결과(`issues`) | 진행에 따라 |
 | 문체 기준값 | `StyleMetrics` | 레퍼런스 원문 전체로 잰 문장 길이, 대사 비율, 과거형 비율, 쇠맛 패턴 빈도, 문체 거리 기준(어절 끝 특징 중심과 퍼짐) 등 (`style_baseline`) | 스타일 분석 후 |
 | 문체 출처 | `style_id`, `style_version` | 문체를 가져온 라이브러리 항목 id 와 그 버전 번호. 비어 있으면 작품에서 직접 만든 문체 | 라이브러리 적용 · 올리기 때 |
