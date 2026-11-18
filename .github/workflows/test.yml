@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   pytest:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, lan-desktop]  # 계정 결제 잠금으로 GitHub 호스트 러너가 막혀 데스크톱 러너를 쓴다 (2026-11-18)
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
