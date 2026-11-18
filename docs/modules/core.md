@@ -558,6 +558,10 @@
 - 방금 만든 스토리보드 다음의 큐 시트: `make_storyboard(lead=)` 가 보낸 요청 글을 채우고, `cue_lead` 가 그 스토리보드가 AI 가 만든 그대로 · 낡지 않음일 때만 그 글을 돌려준다. `make_cue_sheet(lead=)` 는 그 글로 시작하는 요청을 보낸다(자동 집필 `_cues`, 웹 쓰기 작업 `board: make`)
 - 문체 분석 `analyze_style` 뒤 `count_markers` 가 표지 · 장치 단서를 거른다: 원문에 없는 것, 한글 2자 미만(`MARKER_MIN_HANGUL`), 인물 이름(2자 이상)이 든 것
 - `analyze_style` 에 `corpus` 를 주면 `count_markers` 가 표본이 아니라 그 글에서 세고 거른다. 모델은 표본만 읽는다(레퍼런스 원고에서 흩어 뽑은 표본, `refs.corpus`)
+- `analyze_style` 은 `count_markers` 전에 `style_blanks` 로 빈 칸을 센다(글 칸 11 · dos · donts · markers, 대표 문단은 passages 일 때만. devices · banned_phrases 는 세지 않음)
+- 빈 칸이 `STYLE_BLANK_MAX`(4)보다 많으면 프롬프트 맨 뒤에 `prompts.style_blank_retry` 를 붙여 한 번 다시 묻고, 빈 칸이 적은 쪽을 쓴다
+- 다시 물어도 많이 비면 `canon` 로거에 빈 칸 수와 칸 이름을 경고로 남기고 프로필은 돌려준다(canon#595)
+- `analyze_style(retry=False)` 는 빈 칸이 많아도 다시 묻지 않는다. 연구 화면 단계 시험(`research.stage_trial`)이 모델의 처음 응답을 보려고 쓴다
 - `apply_learning` 의 알림 `rule_limit_note`: write 층 지킬 것 · 피할 것이 `RULE_LIMIT`(20)를 넘으면 합치거나 계획 층으로 옮기라고 알린다
 - `count_markers` 는 원문 표본에 없는(공백 빼고 견줌) 장치 예시를 비운다
 - `count_markers` 는 장치 최소 간격 `every` 를 0 으로 맞춘다. 모델이 적은 값은 버린다. 문체 대화(`clean_style_revision`)와 수정에서 배우기(`apply_learning`)로 들어온 값은 그대로다

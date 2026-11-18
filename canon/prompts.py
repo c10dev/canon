@@ -733,6 +733,12 @@ SYSTEM_STYLE_EDITOR = system_prompt(
 EDIT_SOURCE_TEXT = {"manual": "고른 부분을 직접 고침", "typed": "본문을 직접 고쳐 저장", "ai": "AI 후보 중 골라 넣음"}
 
 
+def style_blank_retry(blanks: list[str]) -> str:
+    """문체 분석 응답에 칸이 많이 비었을 때 프롬프트 맨 뒤에 덧붙여 다시 묻는 글 (pipeline.analyze_style)."""
+    return (f"앞 응답에서 {', '.join(blanks)} 칸이 비어 있었습니다. 예시 텍스트를 다시 읽고 모든 칸을 채웁니다. "
+            "원문에서 관찰한 특징을 칸마다 구체적으로 적습니다.")
+
+
 def _clip(t: str, k: int = 400) -> str:
     t = t.strip()
     return t if len(t) <= k else t[:k] + "…"

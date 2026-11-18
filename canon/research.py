@@ -311,7 +311,7 @@ def stage_trial(p: Project, b: Backend, stage: str, sample_text: str = "") -> di
         if stage == "setup":
             result: BaseModel = pipeline.suggest_setup(llm, p)
         elif stage == "style":
-            result = pipeline.analyze_style(llm, sample_text, [c.name for c in p.characters])
+            result = pipeline.analyze_style(llm, sample_text, [c.name for c in p.characters], retry=False)  # 처음 응답의 빈 칸을 본다
         else:
             result = pipeline.plan_arc(llm, p)
         empty = empty_fields(result)
