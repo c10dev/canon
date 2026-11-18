@@ -454,7 +454,14 @@ class StyleDevice(BaseModel):
     example: str = Field("", description="짧은 원문 예시. 써도 되는 화에만 보여 준다")
 
 
+def _all_keys_required(s: dict) -> None:
+    """LLM 응답 형식에서 맨 위 칸을 모두 required 로 적는다. 모델이 기본값 있는 칸을 통째로 건너뛰는 일을 막는다
+    (flash 상태 변경안 · hydrogen 문체 분석, 2026-11-18). 칸의 기본값은 그대로라 예전 JSON · 빠진 칸도 읽힌다."""
+    s["required"] = list(s.get("properties", {}))
+
+
 class StyleProfile(BaseModel):
+    model_config = ConfigDict(json_schema_extra=_all_keys_required)
     narration_pov: str = Field("", description="서술 시점: 1인칭 주인공, 3인칭 제한 등")
     tense: str = Field("", description="시제: 과거형, 현재형")
     sentence_rhythm: str = Field("", description="문장 길이와 리듬")
@@ -2848,6 +2855,7 @@ class AuditReport(BaseModel):
 
 class StateDeltaAI(StateDelta):
     """한 화를 쓴 뒤 AI 가 제안하는 상태 변경안. 사용자가 승인하면 반영된다."""
+    model_config = ConfigDict(json_schema_extra=_all_keys_required)
     events: list[AIStoryEvent] = Field(default_factory=list, description="인물 사이에 일어난 관계 사건, 일어난 순서대로")
     relationship_updates: list[RelationshipChange] = Field(default_factory=list, description="관계 유형이나 설명이 바뀐 쌍만")
 

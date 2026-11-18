@@ -29,7 +29,7 @@ from pydantic import BaseModel, Field
 
 from . import anchor, atlas, board, coord, cue, dynamics, features, findings, jobs, pipeline, prompts, settings, staterules, store, timeline, usage
 from . import stage as stage_mod
-from . import sent
+from . import sent, thin
 from .llm import BatchLLM, Interrupted, QuotaSpent, SchemaMismatch, explain_error, get_llm
 from .research import JSON_OUTPUT_RESERVE, _filler
 from .schema import ConsistencyReport, Project, RewriteRequest, StateDelta, TextVersion
@@ -306,6 +306,23 @@ def _names(p: Project) -> dict[str, str]:
     return {c.id: c.name or c.id for c in p.characters}
 
 
+def _warning_reasons(delta: StateDelta, policy: Policy) -> list[str]:
+    """상태 변경안 경고로 생긴 멈춤 이유. 짧은 응답 경고는 정책과 상관없이 멈춘다 (승인 정책을 조이는 쪽).
+    누락 검사 경고와 짧은 응답 경고는 stop_on_warnings 가 세지 않는다."""
+    out: list[str] = []
+    # 누락 검사 경고는 따로 센다. stop_on_warnings 를 켠 작가가 덤 검사 때문에 자주 멈추지 않게
+    audits = [w for w in delta.warnings if w.startswith(pipeline.AUDIT_MARK)]
+    thins = [w for w in delta.warnings if w.startswith(thin.THIN_MARK)]
+    warns = [w for w in delta.warnings if not w.startswith((pipeline.AUDIT_MARK, thin.THIN_MARK))]
+    if thins:
+        out.append("상태 변경안 응답이 짧아 직접 확인하도록 멈춰요: AI가 두 번 불러도 인물 상태 · 사건 · 사실을 내지 않았어요")
+    if policy.stop_on_warnings and warns:
+        out.append(f"상태 변경안 경고 {len(warns)}개: {warns[0]}")
+    if policy.stop_on_audit and audits:
+        out.append(f"상태 변경안 누락 의심 {len(audits)}개: {audits[0][len(pipeline.AUDIT_MARK):].strip()}")
+    return out
+
+
 def review_reasons(p: Project, delta: StateDelta, report: Optional[ConsistencyReport], policy: Policy) -> list[str]:
     """정책에 걸린 이유. 빈 목록이면 자동으로 반영해도 된다. p 는 반영 전 상태이고 바꾸지 않는다."""
     out: list[str] = []
@@ -321,13 +338,7 @@ def review_reasons(p: Project, delta: StateDelta, report: Optional[ConsistencyRe
         out.append(f"검수에서 치명적인 어긋남 {len(crit)}개: {crit[0].description}")
     if policy.hand_pick_opening and prompts.is_opening(delta.episode):
         out.append(f"{delta.episode}화는 초반 화라 직접 읽고 반영하도록 멈춰요 (집필 화면에서 초반 점검과 여는 방식 비교를 쓸 수 있어요)")
-    # 누락 검사 경고는 따로 센다. stop_on_warnings 를 켠 작가가 덤 검사 때문에 자주 멈추지 않게
-    audits = [w for w in delta.warnings if w.startswith(pipeline.AUDIT_MARK)]
-    warns = [w for w in delta.warnings if not w.startswith(pipeline.AUDIT_MARK)]
-    if policy.stop_on_warnings and warns:
-        out.append(f"상태 변경안 경고 {len(warns)}개: {warns[0]}")
-    if policy.stop_on_audit and audits:
-        out.append(f"상태 변경안 누락 의심 {len(audits)}개: {audits[0][len(pipeline.AUDIT_MARK):].strip()}")
+    out += _warning_reasons(delta, policy)
     if policy.max_style_distance > 0 and not anchor.voiced(p, delta.episode):
         r = anchor.rolling(p, delta.episode)
         if r is not None and r > policy.max_style_distance:
