@@ -37,8 +37,9 @@ WINDOW = 30                      # 원고 찾기: 공백을 뺀 글의 30자 창
 PROBES = 5                       # 글 하나에서 고르게 뽑는 창 수
 MIN_HITS = 3                     # 창 다섯 중 셋 이상이 한 원고의 한 화에 들면 그 화로 본다
 # 지표 이름 -> 방향. "low" 는 값이 작은 쪽을, "high" 는 큰 쪽을 '레퍼런스다운 쪽 = 나은 쪽'으로 고른다.
-# 방향은 결과를 보기 전에 정했다: 근거는 metrics.EMOTION_WORDS · BODY_WORDS 주석, 문체 거리는 작을수록 기준 원고에 가깝다.
-METRICS = {"body_per_1k": "low", "emotion_per_1k": "high", "style_distance": "low"}
+# 방향은 결과를 보기 전에 정했다: thought_per_1k · inner_line_share 는 벤치마크 보고서의 '속을 말로 다 하는가' 줄(레퍼런스가 높음). 근거는 metrics.EMOTION_WORDS · BODY_WORDS 주석, 문체 거리는 작을수록 기준 원고에 가깝다.
+METRICS = {"body_per_1k": "low", "emotion_per_1k": "high", "style_distance": "low",
+           "thought_per_1k": "high", "inner_line_share": "high"}
 MODES = ("side", "ident")
 LENGTH_NOTE = "판별 묶음은 길이를 ±3%로 맞췄어요. 길이 기준선은 정보가 거의 없어요"
 MAJORITY_NOTE = "정답 판을 늘 고르는 규칙은 정답을 쓰므로 뜻이 없어서 내지 않아요"
