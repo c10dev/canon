@@ -48,6 +48,42 @@ def state_block(p: Project, ids: set[str] | None) -> str:
     return "\n[지금 보는 눈 (인물이 상대를 어떻게 보는지, 가장 최근 것)]\n" + "\n".join(keep) + (f"\n(그 밖 {cut}줄 생략)" if cut else "")
 
 
+def plan_lines(p: Project, ids: set[str] | None) -> tuple[list[str], list[str]]:
+    """기획 요청에 넣는 보는 눈 줄. 방향 쌍마다 첫 평가 + 최근 3개의 한 줄.
+    쌍 차례는 주역끼리가 먼저, 그 안에서 마지막 평가의 화가 큰 쌍이 먼저. 예산을 넘는 쌍부터 뺀다. (넣을 줄, 뺀 쌍 이름)"""
+    name = {c.id: c.name for c in p.characters}
+    core = context.core_ids(p)
+    pairs: dict[tuple[str, str], list[CharView]] = {}
+    for v in live(p):
+        if ids is None or (v.viewer in ids and v.target in ids):
+            pairs.setdefault((v.viewer, v.target), []).append(v)
+    order = sorted(pairs, key=lambda k: (not (k[0] in core and k[1] in core), -max(v.episode for v in pairs[k]), k[0], k[1]))
+    keep: list[str] = []
+    cut: list[str] = []
+    used = 0
+    for key in order:
+        rows = sorted(pairs[key], key=lambda v: v.episode)  # 안정 정렬이라 같은 화는 저장 차례 그대로
+        if len(rows) > 3:
+            rows = [rows[0]] + rows[-3:]
+        who = f"{name.get(key[0], key[0])} → {name.get(key[1], key[1])}"
+        line = f"{who}: " + " / ".join(f"{v.episode}화 '{v.verdict}'" + (f" (겉으로는 '{v.surface}')" if v.surface else "") for v in rows)
+        if used + len(line) + 1 > context.BUDGET["plan_views"]:
+            cut.append(who)
+            continue
+        keep.append(line)
+        used += len(line) + 1
+    return keep, cut
+
+
+def plan_block(p: Project, ids: set[str] | None) -> str:
+    """기획 요청(화별 플롯 · 다음 아크 · 플롯 대화 · 단편 플롯)에 넣는 보는 눈 블록. 걸린 쌍이 없으면 빈 글."""
+    keep, cut = plan_lines(p, ids)
+    if not keep:
+        return ""
+    return ("\n[인물이 서로를 보는 눈 (본문에 드러난 평가의 흐름. 앞이 오래된 것)]\n" + "\n".join(keep)
+            + (f"\n(그 밖 {len(cut)}쌍 생략)" if cut else ""))
+
+
 def state_rule(p: Project) -> str:
     """상태 변경안 규칙 한 줄. 늘 붙는다."""
     return ("\n- views 에는 이번 화 본문에서 한 인물이 다른 인물을 어떻게 보는지(평가)가 새로 드러나거나 바뀐 방향만 넣습니다. "

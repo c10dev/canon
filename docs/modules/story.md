@@ -466,6 +466,11 @@
 - `MAX_PER_EPISODE`(4): 한 화에 받는 보는 눈 줄 수. 넘으면 앞의 것만 받는다
 - `latest`: 방향 쌍마다 가장 최근 줄(화가 큰 것, 같은 화면 뒤에 저장된 것)
 - `state_block`: 상태 변경안 요청의 `[지금 보는 눈]` 블록. 최근 화가 먼저, 예산은 `context.BUDGET["plan_views"]`, 넘치면 '(그 밖 n줄 생략)'
+- `plan_lines`: 기획 요청의 보는 눈 줄과 뺀 쌍 이름. 방향 쌍마다 첫 평가 + 최근 3개를 한 줄로 쓴다
+- `plan_lines` 의 쌍 차례: 주역끼리가 먼저, 그 안에서 마지막 평가의 화가 큰 쌍이 먼저, 같으면 보는 사람 · 대상 id 차례
+- `plan_lines` 는 `context.BUDGET["plan_views"]` 를 넘는 쌍부터 뺀다. 쌍 안의 줄은 자르지 않는다
+- `plan_block`: `[인물이 서로를 보는 눈]` 블록. 뺀 쌍이 있으면 '(그 밖 n쌍 생략)'. 걸린 쌍이 없으면 빈 글
+- `plan_block` 을 넣는 요청은 화별 플롯(장편 · 단편) · 다음 아크 · 플롯 대화 넷뿐이다. 쓰기 · 검수 · 상태 변경안에는 넣지 않는다
 - `state_rule`: 상태 변경안 규칙 한 줄(`views` 적는 법). 늘 붙는다
 - `clean_delta`(`features.CLEAN`): 없는 인물 · 같은 인물 · 빈 평가 · 최근 평가와 같은 줄을 빼고 같은 방향은 뒤의 것만 남긴다. 경고 없이 거른다
 - `apply_delta`(`features.APPLY_LAST`): 작가가 고른 `views` 를 `CharView(episode=d.episode)` 로 쌓는다. 최근 평가와 같으면 건너뛴다
