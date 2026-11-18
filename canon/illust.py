@@ -177,9 +177,10 @@ def assemble(p: Project, ill: Illustration, model: str | None = None) -> Illustr
 
     chars = [c for c in d.characters if c.id or c.subject]
     built = [(c, *_char_tags(p, c, missing)) for c in chars]
-    rating = rating_for(p, d.rating)
-    if rating != d.rating:
-        notes.append(f"성인물이 아닌 작품이라 등급을 {d.rating} 에서 {rating} 로 낮췄어요")
+    want = ill.rating_pick if ill.rating_pick in RATINGS else d.rating
+    rating = rating_for(p, want)
+    if rating != want:
+        notes.append(f"성인물이 아닌 작품이라 등급을 {want} 에서 {rating} 로 낮췄어요")
 
     head = counts([b[1] for b in built])
     scene = clean(s.style) + clean(d.setting) + clean(d.composition) + clean(d.lighting) + clean(d.mood)

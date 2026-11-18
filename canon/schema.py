@@ -3029,6 +3029,7 @@ class Illustration(BaseModel):
     negative: str = ""
     combined: str = Field("", description="한 칸에 붙여 넣는 프롬프트 (V4 이상은 | 로 인물을 나눔)")
     rating: str = ""
+    rating_pick: str = Field("", description="작가가 고른 등급 (illust.RATINGS 가운데 하나). 비우면 AI 원안 등급(draft.rating)을 따른다. 전연령 작품은 illust.rating_for 가 낮춘다")
     missing_look: list[str] = Field(default_factory=list, description="외형 태그가 저장되지 않아 AI 태그를 쓴 인물 id")
     notes: list[str] = Field(default_factory=list, description="조립하며 알릴 것")
     draft_notes: list[str] = Field(default_factory=list, description="원안을 받을 때 알릴 것 (상태 시점, 인용 대조). 다시 조립해도 notes 앞에 남는다")
