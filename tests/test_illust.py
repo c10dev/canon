@@ -58,6 +58,26 @@ def test_rating_follows_adult_flag():
     assert ill.rating == "explicit" and "rating:explicit, nsfw" in ill.base and "nsfw" not in ill.negative.split(", ")
 
 
+def test_rating_pick_overrides_draft():
+    p = Project(characters=[Character(id="a", name="가", role="", gender="여")], meta=Meta(adult=True))
+    ill = _ill(p, rating="general")
+    ill.rating_pick = "explicit"
+    ill = illust.assemble(p, ill)
+    assert ill.rating == "explicit" and "rating:explicit, nsfw" in ill.base and "nsfw" not in ill.negative.split(", ")
+    ill = _ill(p, rating="explicit")
+    ill.rating_pick = "general"
+    ill = illust.assemble(p, ill)
+    assert ill.rating == "general" and ill.negative.split(", ")[0] == "nsfw"
+    p.meta = Meta(adult=False)
+    ill = _ill(p, rating="general")
+    ill.rating_pick = "explicit"
+    ill = illust.assemble(p, ill)
+    assert ill.rating == "sensitive" and any("explicit 에서 sensitive" in t for t in ill.notes)
+    ill = _ill(p, rating="sensitive")
+    ill.rating_pick = "bogus"
+    assert illust.assemble(p, ill).rating == "sensitive"
+
+
 def test_illust_prompt_has_rules(client):
     _written(client)
     from canon import store
@@ -96,6 +116,14 @@ def test_web_flow(client):
     p = client.post("/api/projects/lh/episodes/1/illust/i3/rebuild", json={"model": "v5-full"}).json()
     assert p["episodes"][0]["illustrations"][-1]["model"] == "v5-full"
     assert "A girl stands before a lighthouse at night" in p["episodes"][0]["illustrations"][-1]["base"]
+    url = "/api/projects/lh/episodes/1/illust/i3/rebuild"
+    last = client.post(url, json={"model": "v5-full", "rating": "sensitive"}).json()["episodes"][0]["illustrations"][-1]
+    assert last["rating_pick"] == "sensitive" and last["rating"] == "sensitive"
+    last = client.post(url, json={"model": "v5-full"}).json()["episodes"][0]["illustrations"][-1]
+    assert last["rating_pick"] == "sensitive"
+    last = client.post(url, json={"rating": ""}).json()["episodes"][0]["illustrations"][-1]
+    assert last["rating_pick"] == ""
+    assert client.post(url, json={"rating": "bogus"}).status_code == 400
     p = client.delete("/api/projects/lh/episodes/1/illust/i1").json()
     assert [x["id"] for x in p["episodes"][0]["illustrations"]] == ["i2", "i3"]
     assert client.delete("/api/projects/lh/episodes/1/illust/i1").status_code == 400

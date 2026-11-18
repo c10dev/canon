@@ -3660,11 +3660,17 @@ def _illustration(p: Project, n: int, iid: str) -> Illustration:
     return ill
 
 
-def rebuild_illustration(p: Project, n: int, iid: str, model: str = "") -> Illustration:
-    """모델이나 외형 태그 · 화풍을 바꾼 뒤 AI 를 다시 부르지 않고 조립만 새로 한다."""
+def rebuild_illustration(p: Project, n: int, iid: str, model: str = "", rating: str | None = None) -> Illustration:
+    """모델이나 외형 태그 · 화풍 · 등급을 바꾼 뒤 AI 를 다시 부르지 않고 조립만 새로 한다.
+    rating 이 None 이면 고른 등급을 그대로 두고, "" 이면 AI 원안 등급으로 되돌리고, 등급 이름이면 그 등급을 고른다."""
     if model and model not in illust.MODELS:
         raise ValueError(f"모르는 모델이에요: {model}")
-    return illust.assemble(p, _illustration(p, n, iid), model or None)
+    if rating is not None and rating and rating not in illust.RATINGS:
+        raise ValueError(f"모르는 등급이에요: {rating}")
+    ill = _illustration(p, n, iid)
+    if rating is not None:
+        ill.rating_pick = rating
+    return illust.assemble(p, ill, model or None)
 
 
 def remove_illustration(p: Project, n: int, iid: str) -> None:

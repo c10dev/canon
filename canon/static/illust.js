@@ -13,6 +13,7 @@ Object.assign(S, {
   illAsk: '',       // 덧붙일 요청
   illScroll: false, // 다시 그린 뒤 삽화 카드로 내려갈지
   illRebuild: {},   // 삽화 id → 다시 조립할 모델
+  illRating: {},   // 삽화 id → 다시 조립할 등급 ('' 는 AI 등급)
   looks: {},        // 인물 id → AI 외형 태그 제안 메모
   illOpen: {},      // 화 → 삽화 카드를 펼쳤는지 (없으면 삽화나 고른 부분이 있을 때 펼침)
   illSetOpen: false, // 삽화 카드 안 '삽화 설정'을 펼쳤는지
@@ -202,6 +203,7 @@ document.addEventListener('toggle', (e) => {
 document.addEventListener('change', (e) => {
   const el = e.target;
   if (el.dataset && el.dataset.illRebuild) S.illRebuild[el.dataset.illRebuild] = el.value;
+  if (el.dataset && el.dataset.illRating !== undefined) S.illRating[el.dataset.illRating] = el.value;
 });
 
 // ----- 집필 화면: 삽화 카드 -----
@@ -231,6 +233,7 @@ function ilCard(n, x) {
   const m = ilModel(x.model);
   const names = Object.fromEntries(P().characters.map((c) => [c.id, c.name]));
   const pick = S.illRebuild[x.id] || x.model;
+  const ratingPick = S.illRating[x.id] ?? (x.rating_pick || '');
   const chars = x.characters.map((c, k) => ilField(`인물 ${k + 1} · ${esc(c.name || '이름 없는 인물')}`, c.prompt, 2,
     `${c.position ? ` <span class="chip">${esc(c.position)}</span>` : ''}${c.negative ? ` <span class="small">부정: ${esc(c.negative)}</span>` : ''}`)).join('');
   // 만들 때 외형이 없던 인물. 그 뒤 설정에 외형을 저장했으면 고정 대신 다시 조립을 권한다 (고정하면 저장한 태그를 덮는다)
@@ -256,8 +259,12 @@ function ilCard(n, x) {
     ${x.characters.length ? `<details><summary class="small">인물 칸 없이 한 칸에 붙여 넣기 (| 로 나눔)</summary>${ilField('한 칸 프롬프트', x.combined, 4)}</details>` : ''}
     <div class="row ill-foot" style="gap:6px">
       <select aria-label="다시 조립할 모델" data-ill-rebuild="${esc(x.id)}">${(S.illModels || []).map((o) => `<option value="${esc(o.id)}"${o.id === pick ? ' selected' : ''}>${esc(o.label)}</option>`).join('')}</select>
+      <select aria-label="다시 조립할 등급" data-ill-rating="${esc(x.id)}">
+        <option value=""${ratingPick === '' ? ' selected' : ''}>AI 등급 · ${IL_RATING[x.draft.rating] || x.draft.rating}</option>
+        ${(P().meta.adult ? ['general', 'sensitive', 'questionable', 'explicit'] : ['general', 'sensitive']).map((r) => `<option value="${r}"${r === ratingPick ? ' selected' : ''}>${IL_RATING[r]}</option>`).join('')}
+      </select>
       <button type="button" class="btn small" data-action="illRebuild" data-arg="${esc(x.id)}">다시 조립</button>
-      <span class="small" style="flex:1 1 200px">AI를 다시 부르지 않고 고른 모델과 지금 외형 태그 · 화풍으로 다시 맞춰요</span>
+      <span class="small" style="flex:1 1 200px">AI를 다시 부르지 않고 고른 모델 · 등급과 지금 외형 태그 · 화풍으로 다시 맞춰요</span>
       ${(S.comfy || {}).on ? `<button type="button" class="btn small" data-action="illDraw" data-arg="${esc(x.id)}">${(x.images || []).length ? '다시 그리기' : 'ComfyUI로 그리기'}</button>` : ''}
       <button type="button" class="btn small danger" data-action="illDelete" data-arg="${esc(x.id)}">지우기</button></div>
   </article>`;
@@ -304,7 +311,7 @@ function illustPanel(n) {
         ${input('공통 부정 태그', 'illust.negative', { kind: 'tags', rows: 2, placeholder: 'blurry, multiple views' })}
         <label class="row small" style="gap:6px"><input type="checkbox" data-bind="illust.quality" data-kind="bool"${s.quality ? ' checked' : ''}><span style="flex:1 1 0;min-width:0">품질 태그 직접 넣기 (NovelAI의 Add Quality Tags를 끈 경우)</span></label>
         <label class="row small" style="gap:6px"><input type="checkbox" data-bind="illust.basic_negative" data-kind="bool"${s.basic_negative ? ' checked' : ''}><span style="flex:1 1 0;min-width:0">기본 부정 태그 넣기 (UC 프리셋을 끈 경우)</span></label>
-        <span class="small">${P().meta.adult ? '성인 작품이라 장면에 맞는 등급(rating)을 붙여요.' : '전연령 작품이라 등급을 general · sensitive로 묶고 부정 프롬프트에 nsfw를 넣어요.'} 바꾼 설정은 새로 만들거나 '다시 조립'할 때 함께 저장돼요.</span>
+        <span class="small">${P().meta.adult ? '성인 작품이라 AI가 장면에 맞는 등급(rating)을 붙여요. 카드에서 등급을 골라 다시 조립할 수 있어요.' : '전연령 작품이라 등급을 general · sensitive로 묶고 부정 프롬프트에 nsfw를 넣어요.'} 바꾼 설정은 새로 만들거나 '다시 조립'할 때 함께 저장돼요.</span>
       </div></details>
     </div>
     ${list ? `<div class="ill-list">${list}</div>` : ''}
@@ -441,7 +448,9 @@ Object.assign(actions, {
     const n = ilEpNum();
     await run('다시 조립하는 중', async () => {
       await saveIfDirty();
-      S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/illust/${enc(id)}/rebuild`, { model: S.illRebuild[id] || '' });
+      const saved = ((ep(n).illustrations || []).find((x) => x.id === id) || {}).rating_pick || '';
+      S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/illust/${enc(id)}/rebuild`, { model: S.illRebuild[id] || '', rating: S.illRating[id] ?? saved });
+      delete S.illRating[id];
       toast('지금 외형 태그와 설정으로 다시 조립했어요');
     });
   },

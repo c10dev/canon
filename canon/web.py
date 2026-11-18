@@ -4754,13 +4754,14 @@ def make_illust(name: str, n: int, body: IllustIn) -> Project:
 
 class IllustModel(BaseModel):
     model: str = ""
+    rating: str | None = None  # 비우면 AI 원안 등급, None 이면 그대로
 
 
 @app.post("/api/projects/{name}/episodes/{n}/illust/{iid}/rebuild")
 def rebuild_illust(name: str, n: int, iid: str, body: IllustModel) -> Project:
-    """모델이나 외형 태그를 바꾼 뒤 AI 없이 다시 조립한다."""
+    """모델 · 외형 태그 · 등급을 바꾼 뒤 AI 없이 다시 조립한다."""
     _load(name).episode(n)
-    return _edit(name, lambda p: pipeline.rebuild_illustration(p, n, iid, body.model))
+    return _edit(name, lambda p: pipeline.rebuild_illustration(p, n, iid, body.model, body.rating))
 
 
 class KeepLook(BaseModel):

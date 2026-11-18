@@ -577,6 +577,7 @@
 - AI 원안(`IllustDraft`)에 저장된 인물 외형 태그(`Project.visuals`)
 - 인물 수
 - 등급
+- 작가가 고른 등급(`Illustration.rating_pick`)이 있으면 AI 원안 등급(`draft.rating`) 대신 쓴다. 전연령 작품은 고른 등급도 `rating_for` 가 낮춘다
 - 모델별 품질 태그(`MODELS`)를 붙여 기본 · 인물 · 부정 프롬프트로(`assemble`)
 - 태그 정리(`clean`)
 - n화 삽화에 넣을 인물 상태(`states_at`): 반영이 n-1화까지면 지금 상태, 더 뒤까지 반영했으면 n-1화 이하 가장 가까운 스냅샷
@@ -1130,6 +1131,7 @@
 ### `canon/static/illust.js`
 
 - 집필 화면 삽화 프롬프트 카드(칸별 복사, 다시 조립, 외형 고정)
+- 카드 아래 줄의 등급 고르기(`data-ill-rating`, `S.illRating`): 'AI 등급'과 등급 이름. 전연령 작품은 general · sensitive 만 보인다. '다시 조립'이 `rating` 을 보낸다
 - '고른 부분으로 만들기'는 보조 버튼이다. 집필 화면의 주 버튼은 머리의 다음 일 하나다
 - 서버에 ComfyUI를 이어 두면(`GET /api/comfy` 의 `on`, `S.comfy`) 카드 아래 줄에 'ComfyUI로 그리기' · '다시 그리기'(`illDraw`)를 둔다
 - ComfyUI가 켜져 있으면 패널 제목에 'ComfyUI 연결됨', 삽화 설정에 워크플로 틀 이름과 체크포인트를 보인다. 틀과 주소는 서버 설정 파일의 `comfy_*` 칸에서 바꾼다고 알린다
