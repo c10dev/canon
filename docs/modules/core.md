@@ -22,6 +22,7 @@
 - 관계 정책(`max_shift` · `stop_on_stage`)은 작품 복사본에 `features.hold` 로 뺀 변경안을 반영해 본다(`review_reasons`)
 - 그래서 관계 정책은 실제 반영(`put`)과 같은 제안만 센다
 - 변경안 경고 멈춤(`Policy.stop_on_warnings`)은 누락 검사의 '[누락 의심]' 경고를 세지 않는다. 그 경고는 `Policy.stop_on_audit`(기본 꺼짐)가 따로 본다
+- 짧은 응답 경고(`thin.THIN_MARK`)는 정책과 상관없이 멈춤 이유를 낸다. `stop_on_warnings` 는 이 경고를 세지 않는다(`_warning_reasons`)
 - 비용 · 시간 추정(`estimate`)은 누락 검사를 켠 작품에서 상태 변경안 호출을 화마다 하나 더 센다(상태 변경안 단계 값으로 어림)
 - 이야기 데이터 정책은 `_story_reasons` 가 본다. 모두 기본으로 꺼져 있어(0 · false) 켜기 전과 같이 돈다
 - 새 인물 멈춤(`Policy.stop_on_new_characters`, `StateDelta.new_characters`)
@@ -367,6 +368,9 @@
 - 띄어쓰기 · 문장 부호를 뺀 인용이 `AUDIT_QUOTE_MIN`(8)자보다 짧으면 버린다
 - 다시 쓰는 변경안(`carried_delta`, 반영 취소 `web._revert_kept`)은 옛 '[누락 의심]' 경고를 뺀다(`drop_audit_warnings`)
 - `extract_state` 는 정리 · 누락 검사 뒤 상태 규칙 제안을 채운다(`staterules.refill`). `carried_delta` 길도 옛 제안과 `rule_off` 를 비우고 다시 채운다
+- `extract_state` 는 본문이 1,500자 이상인데 주요 칸이 모두 빈 응답이면 같은 프롬프트로 한 번만 다시 부른다(`thin.once_more`)
+- 그래도 짧으면 변경안 경고 `thin.STATE_WARNING`('[짧은 응답]')을 붙인다. 짧은지는 `clean_delta` 전에 본다
+- `analyze_style` 은 글 칸 11개 가운데 6개 미만이 찬 응답이면 한 번 다시 부르고, 그래도 짧으면 `thin.ThinResponse` 를 낸다. 표지를 세기 전에 본다
 - 배치 자동 집필에서도 누락 검사는 실시간 호출이다(상태 변경안만 배치). 사용량에는 그대로 잡힌다
 - 작업지시서(`brief`, 채팅 앱) 경로에는 누락 검사가 없다
 - 결정은 검수 프롬프트에 넣지 않는다
@@ -998,6 +1002,7 @@
 - 상태 변경안의 본문 지문(`StateDelta.basis`)도 프로그램이 채워 AI 응답 형식에서 빠진다(`SkipJsonSchema`). 비면 모름
 - 비슷한 새 사실 표시(`StateDelta.fact_near`, `FactNear`: 새 사실 · 옛 사실)도 프로그램 칸이다(`SkipJsonSchema`, `features._near_facts`)
 - 상태 변경안의 AI 응답 형식은 `StateDeltaAI` 다(`extract_state` · `play.settle` · `state_brief`). 관계 바뀜 `RelationshipChange` 와 사건 `AIStoryEvent` 에 관계 수치 · 보는 방식 · 가 닿을 곳 · 화 번호 · 수동보정 칸이 없다
+- `StateDeltaAI` · `StyleProfile` 의 JSON 스키마는 맨 위 칸을 모두 `required` 로 적는다(`_all_keys_required`). 읽을 때 빠진 칸은 지금처럼 기본값으로 받는다
 - `to_delta` 가 받은 `StateDeltaAI`(또는 `StateDelta` 를 돌려주는 가짜 LLM)를 n화 `StateDelta` 로 바꾸며 그 칸들을 버린다. 채팅 앱 JSON 가져오기(`web.parse_state`, 명령줄 `update --from-json`)도 거친다
 - 사건 종류 목록에서 수동보정은 응답 형식에서만 빠지고 읽기는 한다(예전 JSON). 반영이 뺀다
 - 반영 기록의 `StateDelta.legacy_rel` 은 프로그램 칸이다(`SkipJsonSchema`). 칸이 없던 예전 기록은 참으로 읽히고 지금 반영은 거짓으로 남긴다
@@ -1247,6 +1252,15 @@
 - 뺀 화(`gone`)의 바깥 파일은 지우지 않고 `cuelab/removed/` · `compare/removed/` 에 `<화>.<시각>` 으로 남긴다(`SIDE_REMOVED`)
 - `renumber_side_files` 에 `aside` 목록을 주면 뺀 화의 파일을 남긴 경로(작품 폴더 기준)를 더한다
 - `restore_side_files` 는 그 경로의 파일을 n화 자리로 되돌린다. 그 자리에 파일이 있으면 덮지 않고, `<종류>/removed/<이름>` 꼴이 아닌 경로는 건너뛴다
+
+### `canon/thin.py`
+
+- 짧은 응답 거르기: 형식은 맞지만 칸이 거의 빈 LLM 응답을 알아보고 한 번만 다시 부른다
+- 상태 변경안(`state_thin`): 본문 1,500자 이상이고 `STATE_KEYS` 칸이 모두 비었을 때
+- 문체 프로필(`style_thin`): 글 칸 11개 가운데 채운 칸이 6개 미만일 때
+- `once_more` 는 같은 호출을 한 번만 더 한다. 다시 부르는 호출도 `llm.json` 을 거쳐 사용량에 기록된다
+- 반영 기록에서 돌아온 변경안(`carried_delta`)과 `play.settle` 은 이 검사를 거치지 않는다
+- `tests/test_thin.py`
 
 ### `canon/updater.py`
 

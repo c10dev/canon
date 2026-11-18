@@ -2,7 +2,7 @@
 import json
 import time
 
-from canon import metrics, pipeline, refdigest, refs, refsample
+from canon import metrics, pipeline, refdigest, refs, refsample, thin
 from canon.schema import RefCut, StyleMarker, StyleProfile
 
 TALK = '"어디 가?" 도현이 물었다.\n\n"등대." 서윤이 답했다.\n\n"지금?" 도현이 다시 물었다.\n\n"지금이야." 서윤이 말했다.'
@@ -104,7 +104,7 @@ def test_markers_are_counted_on_the_corpus():
     class Fake:
         def json(self, system, prompt, schema, hint=None):
             assert "도현은 웃었다" not in prompt  # 모델은 표본만 읽는다
-            return StyleProfile(markers=[StyleMarker(text="것이다"), StyleMarker(text="말이지"), StyleMarker(text="하더라")])
+            return StyleProfile(**{k: "값" for k in thin.style_text_keys()}, markers=[StyleMarker(text="것이다"), StyleMarker(text="말이지"), StyleMarker(text="하더라")])
 
     by_sample = pipeline.analyze_style(Fake(), sample)
     assert [m.text for m in by_sample.markers] == ["것이다"] and by_sample.markers[0].per_1k > 50

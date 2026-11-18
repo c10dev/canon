@@ -13,7 +13,7 @@ from . import dynamics, elements, illust, metrics, naming, prompts, renumber, se
 from .judge import Judge, Question
 from .llm import LLM, PREFIX_HINT, Interrupted, OutputCut, dump, family_text, out_cap, was_cut
 from . import anchor, blueprint, board, cancel, charlog, context, features, findings, foreshadows, heatplan, knows, metatail, stage, statwin, usage
-from . import offscreen, regexrules, staterules
+from . import offscreen, regexrules, staterules, thin
 from .sent import SentPrompt, SentRetry
 from .sent import record as sent_record
 from .schema import AddressChange, AddressFind, AliasSuggestion, CoordDraft, CoordMemo, OffscreenSet
@@ -288,7 +288,13 @@ def analyze_style(llm: LLM, sample: str, names: list[str] | None = None, passage
     """passages 가 거짓이면 대표 문단을 묻지 않는다 (prompts.style_prompt).
     corpus 를 주면 표지 빈도와 장치 단서를 표본이 아니라 그 글에서 세고 거른다 (레퍼런스 원고에서 흩어 뽑은 표본의 원문 전체).
     모델은 표본만 읽는다."""
-    profile = llm.json(prompts.SYSTEM_PLANNER, prompts.style_prompt(sample, passages), StyleProfile)
+    profile, thin_left = thin.once_more(
+        lambda: llm.json(prompts.SYSTEM_PLANNER, prompts.style_prompt(sample, passages), StyleProfile),
+        thin.style_thin, "문체 분석")
+    if thin_left:
+        keys = thin.style_text_keys()
+        raise thin.ThinResponse(f"AI가 문체 분석 칸 {len(keys)}개 가운데 {thin.style_filled(profile)}개만 채웠어요. "
+                                "다시 불러도 같아서 쓰지 않았어요. 잠시 뒤 다시 하거나 계획 단계 모델을 바꿔 보세요")
     count_markers(profile, corpus or sample, names)
     return profile
 
@@ -4665,6 +4671,15 @@ def text_basis(text: str) -> str:
 
 # ---------- 6. 상태 갱신 ----------
 
+def _state_once_more(llm: LLM, p: Project, n: int, hint: dict) -> tuple[StateDelta, bool]:
+    """상태 변경안을 받는다. 칸이 거의 빈 응답이면 같은 프롬프트로 한 번만 다시 부른다 (thin.py). (변경안, 그래도 짧은지)."""
+    text = p.episode(n).text
+    prompt = prompts.state_prompt(p, n)
+    return thin.once_more(
+        lambda: to_delta(llm.json(prompts.SYSTEM_EDITOR, prompt, StateDeltaAI, hint=hint), n),  # 관계 수치 칸은 응답 형식에 없고, 있어도 버린다
+        lambda d: thin.state_thin(d, text), f"{n}화 상태 변경안")
+
+
 def extract_state(llm: LLM, p: Project, n: int, audit: LLM | None = None) -> StateDelta:
     """n화 상태 변경안. 작품 설정 state_audit 를 켜면 받은 뒤 누락 검사(audit_delta)를 한 번 더 부른다.
     audit 를 주지 않으면 audit 단계 모델(get_llm('audit'))을 쓴다. 반영 기록에서 돌아온 변경안(carried_delta)은 다시 검사하지 않는다."""
@@ -4676,10 +4691,13 @@ def extract_state(llm: LLM, p: Project, n: int, audit: LLM | None = None) -> Sta
     basis = text_basis(p.episode(n).text)  # 프롬프트에 넣은 본문의 지문. 부르는 사이 p 가 바뀌어도 이 본문 기준이다
     # 검수 자료(check_material)로 시작해 검수 캐시를 읽던 판은 뺐다 (2026-11-09 실측: 입력 2배, 느리고 연속성 경고를 덜 잡음)
     hint = {"episode": n, "stats": statwin.enabled(p)}
-    raw = llm.json(prompts.SYSTEM_EDITOR, prompts.state_prompt(p, n), StateDeltaAI, hint=hint)
-    delta = to_delta(raw, n)  # 관계 수치 칸은 응답 형식에 없고, 있어도 버린다
+    delta, thin_left = _state_once_more(llm, p, n, hint)
     clean_delta(p, delta)
     delta.basis = basis
+    if thin_left:
+        features.align_warn_to(delta)
+        delta.warnings.append(thin.STATE_WARNING)
+        delta.warn_to.append("")
     if p.settings.state_audit:
         if audit is None:
             from .llm import get_llm
