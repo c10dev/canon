@@ -263,6 +263,8 @@
 
 - 테스트용 가짜 LLM
 - `MockLLM.json` 은 스키마로 `RESPONDERS` 만 찾는다. `mock.py` 의 응답도 `@responds` 함수(`_r_<스키마>`)이고 `json` 안에 스키마 분기를 두지 않는다(`tests/test_mock_registry.py`)
+- 가짜 상태 변경안 응답은 1화에 자취 한 줄(`trails`: 서윤 '등대에 혼자 남기로 함', 본 사람 도현)을 낸다
+- 가짜 상태 변경안 응답은 2화에 그 자취의 다시 꺼냄 한 줄(`trail_echoes`: 도현)을 낸다
 - 가짜 상태 변경안 응답(`mock.py` 의 `StateDeltaAI`)은 2화에 보는 눈 한 줄(`views`: 서윤 → 도현 '믿어도 되는 사람')을 낸다
 - 틀별 판(`schema.framed`)은 MRO 를 따라 원래 스키마의 응답을 찾고, 그 응답을 요청한 판으로 다시 읽어 낸다. 다음 아크 응답은 hint 의 `gain` · `focus` 가 참이면 두 칸을 채운다
 - gain 축 판으로 받은 응답은 안의 모든 화 플롯에 빈 `reward` 가 있으면 가짜 사이다를 채운다(`_fill_reward`)

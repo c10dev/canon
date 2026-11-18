@@ -8,6 +8,8 @@ from pydantic import BaseModel
 
 from .schema import (
     AddressChange,
+    TrailChange,
+    TrailEchoChange,
     ViewChange,
     Act,
     AgentAsk,
@@ -917,6 +919,8 @@ def _r_state_delta(prompt: str, hint: dict):
                                        quote="서윤은 등대 앞에 섰다.")] if n == 2 else [],
         address_changes=[AddressChange(speaker="ally", listener="hero", calls=MOCK_CALLS, speech="해체(반말)",
                                        reason="등대에서 서로 말을 놓기로 했다", quote="서윤은 등대 앞에 섰다.")] if n == 3 else [],
+        trails=[TrailChange(character="hero", kind="선택", label="등대에 혼자 남기로 함", quote="서윤은 등대 앞에 섰다.", witnesses=["ally"])] if n == 1 else [],
+        trail_echoes=[TrailEchoChange(trail="tr-001-1", character="ally", meaning="그날의 고집을 다시 떠올림")] if n == 2 else [],
         views=[ViewChange(viewer="hero", target="ally", verdict="믿어도 되는 사람", surface="")] if n == 2 else [],
         contacts=_mock_contacts(prompt),
         time=StoryTime(day=n, part="밤"),

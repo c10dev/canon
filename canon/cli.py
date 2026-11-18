@@ -1524,6 +1524,24 @@ def _print_address(p: Project, d: StateDelta) -> None:
             print(f"  · 근거: \"{x.quote}\"")
 
 
+def _print_trails(p: Project, d: StateDelta) -> None:
+    """자취 · 다시 꺼냄 제안을 보여 준다. 기본으로 반영하므로 확인을 묻지 않는다."""
+    name = {c.id: c.name for c in p.characters} | {c.id: c.name for c in d.new_characters}
+    if d.trails:
+        print("\n--- 자취 (반영해요) ---")
+        for x in d.trails:
+            seen = f" (본 사람: {', '.join(name.get(w, w) for w in x.witnesses)})" if x.witnesses else ""
+            print(f"- {name.get(x.character, x.character)} · {x.kind} · {x.label}{seen}")
+            if x.quote:
+                print(f"  · 근거: \"{x.quote}\"")
+    if d.trail_echoes:
+        print("\n--- 다시 꺼냄 (반영해요) ---")
+        for e in d.trail_echoes:
+            print(f"- {name.get(e.character, e.character)} → {e.trail}: {e.meaning}")
+            if e.conflict:
+                print(f"  · 어긋남: {e.conflict}")
+
+
 def _print_views(p: Project, d: StateDelta) -> None:
     """보는 눈 제안을 보여 준다. 기본으로 반영하므로 확인을 묻지 않는다."""
     if not d.views:
@@ -1537,6 +1555,7 @@ def _print_views(p: Project, d: StateDelta) -> None:
 def _print_settings(p: Project, d: StateDelta) -> None:
     """설정 바꾸기 · 호칭 제안을 지금 값과 나란히 보여 준다."""
     _print_address(p, d)
+    _print_trails(p, d)
     _print_views(p, d)
     if not d.setting_changes:
         return

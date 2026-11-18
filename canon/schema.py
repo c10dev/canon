@@ -2645,6 +2645,23 @@ class CharView(BaseModel):
     basis: list[str] = Field(default_factory=list, description="근거 자취 id. 자취(docs/trail 일감 5 · 6) 전에는 빈 목록")
 
 
+class TrailChange(BaseModel):
+    """상태 변경안이 제안하는 자취 한 줄 (canon/trails.py). 작가가 승인하면 CharTrail 로 Project.trails 에 쌓인다."""
+    character: str = Field(description="그 일을 한 인물 id")
+    kind: TrailKind = Field("선택", description="선택: 갈림길에서 고른 행동 / 말: 뒤에 남이 기억할 약속 · 핑계 · 선언 / 드러냄: 처음 꺼낸 과거 · 상처 · 비밀 · 속마음")
+    label: str = Field(description="40자 안팎의 짧은 이름. 문장이 아니라 라벨로")
+    quote: str = Field("", description="근거 구절, 이번 화 본문 그대로 한 문장")
+    witnesses: list[str] = Field(default_factory=list, description="그 자리에서 보거나 들은 인물 id 모두. 빠뜨리지 않는다. 주인은 넣지 않는다")
+
+
+class TrailEchoChange(BaseModel):
+    """상태 변경안이 제안하는 다시 꺼냄 한 줄 (canon/trails.py). 작가가 승인하면 그 자취의 echoes 에 쌓인다."""
+    trail: str = Field(description="[앞 화 자취] 블록의 자취 id")
+    character: str = Field(description="이번 화에서 그 일을 떠올리거나 그 일에 기대어 움직인 인물 id. 그 일을 본 사람이 꺼낸 곳을 먼저 적는다")
+    meaning: str = Field(description="이번 화에서 그 일이 갖는 뜻, 20자 안팎 라벨")
+    conflict: str = Field("", description="이번 화 본문이 그 자취와 다르게 말하면 무엇이 다른지 한 줄. 같으면 빈 글")
+
+
 class ViewChange(BaseModel):
     """상태 변경안이 제안하는 보는 눈 한 줄 (canon/charviews.py). 작가가 승인하면 CharView 로 Project.views 에 쌓인다."""
     viewer: str = Field(description="보는 인물 id")
@@ -2701,6 +2718,8 @@ class DismissedItems(BaseModel):
     # 작가가 체크를 푼 설정 바꾸기 · 호칭 제안. 반영하지 않고, 반영 취소로 돌아오면 체크를 푼 채 다시 놓인다. 자동 집필은 여기 말고 setting_held · address_held 에 남긴다
     setting_changes: list[SettingChange] = Field(default_factory=list)
     address_changes: list[AddressChange] = Field(default_factory=list)
+    trails: list[TrailChange] = Field(default_factory=list)
+    trail_echoes: list[TrailEchoChange] = Field(default_factory=list)
     views: list[ViewChange] = Field(default_factory=list)
     contacts: list[ContactReach] = Field(default_factory=list)
     rule_proposals: list[RuleProposal] = Field(default_factory=list, description="작가가 체크를 푼 상태 규칙 제안")
@@ -2736,6 +2755,8 @@ class StateDelta(BaseModel):
     new_places: list[NewPlace] = Field(default_factory=list, description="장소 목록과 이야기 요소에 없는데 이번 화에 이름을 갖고 처음 나온 장소 (지형, 마을, 건물, 가게 등)")
     setting_changes: list[SettingChange] = Field(default_factory=list, description="인물 설정(외모, 성격, 말투 등)이 뒤 화까지 이어지게 바뀐 칸만. 대부분의 화는 비어 있다")
     address_changes: list[AddressChange] = Field(default_factory=list, description="인물끼리 부르는 말이나 말씨(존댓말 · 반말)가 뒤 화까지 이어지게 바뀐 방향만. 대부분의 화는 비어 있다")
+    trails: list[TrailChange] = Field(default_factory=list, description="이번 화 본문에서 한 인물이 뒤 화에서 다시 떠올릴 만한 선택 · 말 · 드러냄을 남긴 것만. 대부분의 화는 0~1개")
+    trail_echoes: list[TrailEchoChange] = Field(default_factory=list, description="이번 화 본문이 [앞 화 자취]의 일을 다시 떠올리거나 그에 기대어 움직인 곳만. 대부분의 화는 비어 있다")
     views: list[ViewChange] = Field(default_factory=list, description="이번 화 본문에서 한 인물이 다른 인물을 보는 평가가 새로 드러나거나 바뀐 방향만. 같은 평가가 이어지면 적지 않는다. 대부분의 화는 비어 있다")
     contacts: list[ContactReach] = Field(default_factory=list, description="두 인물이 이번 화 본문에서 처음 닿은 접촉 사다리 칸 (요청의 칸 목록에서만). 대부분의 화는 비어 있다")
     time: StoryTime = Field(default_factory=StoryTime, description="이번 화가 끝난 작품 속 시점")

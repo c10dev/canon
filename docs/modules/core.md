@@ -115,6 +115,7 @@
 - `run` 이 쓰기 · 검수 · 반영을 자동으로 되풀이한다
 - `update -y` 의 관계 미리 보기는 반영처럼 `features.hold` 로 뺀 제안을 빼고 계산한다(`_print_relation_preview`)
 - `update` 출력은 상태 규칙 제안을 '[규칙]' 머리 줄로 보인다(`_print_delta`). 반영 직전에 고른 항목으로 다시 계산하고(`staterules.refill`), 달라졌으면 알린다
+- `update` 출력은 자취 · 다시 꺼냄 제안을 '--- 자취 (반영해요) ---' · '--- 다시 꺼냄 (반영해요) ---' 묶음으로 보인다(`_print_trails`). 기본 반영이라 묻지 않는다
 - `update` 는 반영 전제(`pipeline.check_applicable`)에 걸리면 변경안을 만들지 않고 까닭을 알린다. 반영 완료한 화는 앞 화로 되돌리는 `revert <작품> <n-1>` 을 알려 준다
 - `update`(`-y` 없이)는 관계 미리 보기 전에 관계 단계와 반대인 관계 바뀜(`StateDelta.rel_flagged`)을 따로 보여 주고 묻는다. 기본은 빼고, 뺀 것은 `d.dismissed` 에 남긴다(`_ask_flagged`)
 - `update`(`-y` 없이)는 이미 있는 확정 사실과 비슷한 새 사실(`StateDelta.fact_near`)도 옛 사실과 나란히 보여 주고 묻는다. 기본은 빼고 `d.dismissed` 에 남긴다(`_ask_near_facts`)
@@ -844,10 +845,13 @@
 - 스토리보드 요청 끝(`blueprint_board_rule` 뒤)과 쓰기 지시문(`blueprint_write_line` 뒤)에 신체 특징 블록 `body_rule`. 넣을 인물은 `cast.body_cast`
 - 검수 요구사항(`blueprint_check_rule` 뒤)에 `body_check_rule`: 같은 인물의 신체 특징과 다른 몸 묘사를 짚는다(type 사실)
 - 상태 변경안 요구사항(호칭 · 말씨 뒤)에 `blueprint.state_rule`: 그 화 인물끼리 아직 닿지 않은 사다리 칸 목록과 `contacts` 적는 법
+- 상태 변경안은 `[지금 보는 눈]` 블록 바로 앞에 `[앞 화 자취]` 블록(`trails.state_block`)을 넣는다. 자취가 없으면 블록이 없다
 - 상태 변경안은 `[호칭 · 말씨]` 바로 뒤에 `[지금 보는 눈]` 블록(`charviews.state_block`)을 넣는다. 보는 눈이 없으면 블록이 없다
+- 상태 변경안 요구사항에 `trails.state_rule` 이 늘 붙는다(`charviews.state_rule` 바로 앞)
 - 상태 변경안 요구사항에 `charviews.state_rule` 이 늘 붙는다(`address.state_rule` 바로 뒤)
 - 화별 플롯(장편 `serial_plot_prompt` · 단편 `plot_prompt`) · 다음 아크 · 플롯 대화는 관계 줄 뒤에 `charviews.plan_block` 을 넣는다. 쓰기 · 검수에는 없다
 - 상태 변경안 누락 검사의 변경안 줄임(`_audit_delta_lines`)은 호칭 줄 뒤에 '보는 눈 · A → B: 평가' 줄을 더한다
+- `_audit_delta_lines` 는 보는 눈 줄 앞에 '자취 · 주인 라벨' 줄과 '다시 꺼냄 · 인물 → 자취 id' 줄을 더한다
 - 그 뒤에 `blueprint.ability_state_rule`: 얻을 때가 된 능력을 얻었으면 일정의 이름 그대로 적게 한다
 - `StateDelta.contacts`(`ContactReach`)는 작가가 골라야 기록되고(`features.APPLY_LAST`), 사람 검토 없는 반영은 `contact_held` 로 남겨 둔다(`features.HOLD`)
 - 장편 화별 플롯 초안(`serial_plot_prompt`)과 장편 플롯 대화(`_serial_plot_parts`)는 접은 줄거리 뒤에 확정 사실 · 주역 상태 · 주역 밖 인물 상태를 넣는다(`plot_facts_states`)
@@ -1002,6 +1006,10 @@
 - `ViewChange`(`viewer` · `target` · `verdict` · `surface`)는 상태 변경안이 제안하는 보는 눈 한 줄이다. dict 칸이 없다
 - `StateDelta.views`(`list[ViewChange]`)는 상태 변경안이 낸 보는 눈이다. 기본으로 체크하고 hold 하지 않는다
 - `DismissedItems.views` 는 작가가 체크를 푼 보는 눈이다. 반영하지 않는다
+- `TrailChange`(`character` · `kind` · `label` · `quote` · `witnesses`)는 상태 변경안이 제안하는 자취 한 줄이다. dict 칸이 없다
+- `TrailEchoChange`(`trail` · `character` · `meaning` · `conflict`)는 상태 변경안이 제안하는 다시 꺼냄 한 줄이다. dict 칸이 없다
+- `StateDelta.trails` · `StateDelta.trail_echoes` 는 상태 변경안이 낸 자취와 다시 꺼냄이다. 기본으로 체크하고 hold 하지 않는다
+- `DismissedItems.trails` · `DismissedItems.trail_echoes` 는 작가가 체크를 푼 줄이다. 반영하지 않는다
 - 반영이 실제로 새로 더한 항목(`StateDelta.added`, `AddedItems`)도 AI 응답 형식에서 빠진다. 없으면(None) 이 칸이 생기기 전 기록이다
 - 반영 취소는 그 화 기록과 함께 빼 둔 항목도 지운다
 - 지운 기록은 `_revert_kept` 가 pending.json 에 남기고, 상태 승인 화면이 빼 둔 항목을 체크를 푼 채 다시 놓는다
