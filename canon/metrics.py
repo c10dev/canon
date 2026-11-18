@@ -568,6 +568,24 @@ def body_per_1k(text: str) -> Optional[float]:
     return _per_1k(BODY_WORDS, text)
 
 
+# 생각 · 판단 · 짐작을 적는 낱말 (심리 이어짐 측정 값 1. 목록은 값을 보기 전에 정했고 원고로 돌려 고르지 않았다)
+THOUGHT_WORDS = re.compile(r"생각했|생각하|생각이 들|생각이 났|싶었|것 같았|것 같다|듯했|듯하|모양이었|알았|깨달|깨닫|판단|짐작|확신|의심|궁금|어쩌면|아마|왜[^.\n]{0,15}지")
+_INNER_OPEN = ("'", "‘")  # 이 글자로 여는 줄은 속생각 줄이다
+
+
+def thought_per_1k(text: str) -> Optional[float]:
+    """지문 1천 자당 생각 · 판단 낱말 수(THOUGHT_WORDS.findall). 지문이 비면 None. 반올림하지 않는다."""
+    return _per_1k(THOUGHT_WORDS, text)
+
+
+def inner_line_share(text: str) -> Optional[float]:
+    """빈 줄을 뺀 줄 가운데 작은따옴표(' ‘)로 여는 줄의 비율. 줄이 없으면 None."""
+    lines = [ln.strip() for ln in text.split("\n") if ln.strip()]
+    if not lines:
+        return None
+    return sum(ln[0] in _INNER_OPEN for ln in lines) / len(lines)
+
+
 # ---------- 템포 곡선 ----------
 # 화 안에서 대사 대목과 서술 대목이 어떻게 오가는지 본다. 화면 표시용이라 경고를 내지 않는다.
 # 사람 웹소설 4편과 AI 연재 4개의 창별 기복이 같은 범위여서(reports/문체 흐름 실측 2026-11-02.md) 기복 자체로는 가르지 않는다.

@@ -204,6 +204,10 @@
 - 대사 꼴을 더한 근거는 reports/지표 사각지대 2026-11-07.md(대사 비율로는 갈리지 않던 작품과 레퍼런스가 이 값으로 갈림)
 - 감정 이름 낱말 `EMOTION_WORDS` · 몸 부위와 작은 동작 낱말 `BODY_WORDS`(근거: 장편 어긋남 진단 2026-11-13 1.7절, AI 판이 몸 낱말 약 2.1배 · 감정 이름은 적음, 목록은 글자 그대로 두고 고치지 않음)
 - 지문 `narration`(빈 줄과 대사 · 속생각으로 여는 줄을 뺌) · 지문 1천 자당 `emotion_per_1k` · `body_per_1k`(지문이 비면 None, `measure` 와 `METRICS_VERSION` 은 그대로)
+- 생각 낱말 `THOUGHT_WORDS`(생각 · 판단 · 짐작을 적는 낱말, 목록은 값을 보기 전에 정했고 원고로 돌려 고르지 않음)
+- `thought_per_1k`: 지문 1천 자당 `THOUGHT_WORDS` 수(지문이 비면 None, `METRICS_VERSION` 은 그대로)
+- `inner_line_share`: 빈 줄을 뺀 줄 가운데 작은따옴표로 여는 줄의 비율(줄이 없으면 None)
+- `scripts/metric_agree.py` 의 `METRICS` 에 두 값을 `high` 방향으로 더했다(`UNVERIFIED` 는 그대로)
 - 쓰는 곳은 `scripts/metric_agree.py`(결과를 연 가려 읽기 묶음에서 지표가 고른 쪽과 작가 선택의 일치를 잼)
 - `scripts/metric_agree.py` 는 판별 묶음에서 지표마다 정답 쪽 · 다른 쪽 중앙값과 사분위, 짝 안 차이(다른 쪽 − 정답 쪽) 중앙값, 다른 쪽 글이 정답 쪽 사분위 범위 안에 든 비율(`sizes`)도 낸다
 - `scripts/metric_agree.py run --by-arm ARM …` 은 판별 결과(`ident/truth` · `ident/author`, `sizes` 포함)를 정답 아닌 판별로도 나눠 `ident/truth@ARM` 꼴로 낸다. 판 이름은 명령줄로 받은 것만 찍는다
@@ -990,3 +994,25 @@
 - 가짜 응답 `mock_studio.py`
 - 시험 `tests/test_studio.py`
 - LLM 호출 없음
+
+### `scripts/mind_measure.py`
+
+- 인물 심리 이어짐의 세 값을 재는 도구(목표 `character-mind-continuity`). `store.save` 를 부르지 않고 `--out` 폴더에만 쓴다
+- 글 읽기는 `scripts/trail_measure.py` 의 `ref_episodes` · `canon_episodes` · `wilson` 을 `importlib` 로 불러 쓴다
+- 값 1: `metrics.thought_per_1k` · `inner_line_share` 의 화별 평균(LLM 없음)
+- 값 2: 라벨 `kind == "마음"` 이고 거리(지금 화 − `source_ep`)가 1~3화인 것의 1만 자당 수
+- 값 3: 같은 라벨에서 거리가 10화를 넘는 것의 1만 자당 수. 본문이 50화 아래인 글은 '못 잼'
+- `sample`: 글마다 본문이 있는 31번째 화부터 무작위 `--per` 화(`pick_eps`). 본문이 50화 아래면 4번째 화부터 모두
+- `sample` 은 `samples.json`(본문 없음)과 같은 폴더의 `keymap.json`(글 키 → 원고 id · 작품 이름)을 쓴다
+- 글 키는 `R1`~`R3`(레퍼런스) · `C1`~`C3`(canon). 표준 출력 · `T.md` · `T.json` 에는 글 키만 찍는다
+- `label`: 화마다 한 줄 요약(`summarize`, 캐시 `summaries-<글 키>.json`)과 라벨(`label_ep`)을 `llm.json` 으로 받는다
+- 라벨 응답 형식 `MindLabels` 에 dict 필드가 없다. 라벨은 `{ep, at, kind, source_ep, who}` 만 저장하고 본문 구절은 받지 않는다
+- `--repeat N` 은 글마다 앞 N 화를 한 번 더 매긴다(`again`). 값에는 첫 라벨만 쓴다
+- `--dry-run` 은 호출 수 · 글자 수 · 어림 비용만 찍고 모델을 부르지 않는다(가격은 `usage.rate`)
+- 형식 오류가 호출의 10% 를 넘으면 종료 코드 2
+- `table`: `table()` 의 키는 `works`(글별) · `groups`(`ref` · `canon`) · `splits` · `group_splits` · `v1_verdicts` · `jitter`
+- 95% 구간은 화 단위 부트스트랩(2000번, 시드 20261119)
+- 판정 규칙은 `T.md` 머리에 값보다 먼저 찍는다
+- `--agree` 는 `metric_agree.py run --json` 의 `results.all["ident/truth"]` 를 읽어 값 1 의 판정 근거로 찍는다. 없으면 '검증 값 없음'
+- 시험 `tests/test_mind_measure.py`
+- LLM 호출은 `label` 만(가짜 객체로 시험)

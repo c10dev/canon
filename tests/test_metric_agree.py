@@ -372,7 +372,15 @@ def test_file_summary_sizes_and_length_ratio(mod):
 
 
 def _vals(body, emo, dist=1.0):
-    return {"body_per_1k": (0.0, body), "emotion_per_1k": (0.0, emo), "style_distance": (0.0, dist)}
+    return {"body_per_1k": (0.0, body), "emotion_per_1k": (0.0, emo), "style_distance": (0.0, dist),
+            "thought_per_1k": (0.0, 1.0), "inner_line_share": (0.0, 1.0)}
+
+
+def test_mind_metrics_are_high_direction(mod):
+    assert mod.METRICS["thought_per_1k"] == "high"
+    assert mod.METRICS["inner_line_share"] == "high"
+    assert "thought_per_1k" not in mod.UNVERIFIED and "inner_line_share" not in mod.UNVERIFIED
+    assert mod.choose(1.0, 2.0, "high") == "b"
 
 
 def test_compare_files_hand_count(mod):

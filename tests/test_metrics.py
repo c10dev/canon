@@ -159,5 +159,21 @@ class NarrationRateTest(unittest.TestCase):
         self.assertEqual(metrics.emotion_per_1k("두려웠다. 불안했다."), 2 / (len("두려웠다. 불안했다.") / 1000))
 
 
+class MindMetricsTest(unittest.TestCase):
+    def test_thought_per_1k_counts_narration_only(self):
+        text = "그는 이상하다고 생각했다. 아마 틀렸을 것이다.\n'생각했다 아마'\n\"아마 그럴걸\""
+        nar = metrics.narration(text)
+        self.assertEqual(len(metrics.THOUGHT_WORDS.findall(nar)), 2)
+        self.assertEqual(metrics.thought_per_1k(text), 2 / (len(nar) / 1000))
+        self.assertIsNone(metrics.thought_per_1k("'속말'\n\"대사\""))
+        self.assertIsNone(metrics.thought_per_1k(""))
+
+    def test_inner_line_share(self):
+        text = "지문이다.\n\n'속으로 생각'\n‘또 속말’\n\"대사\"\n"
+        self.assertEqual(metrics.inner_line_share(text), 0.5)
+        self.assertIsNone(metrics.inner_line_share("  \n\n"))
+        self.assertIsNone(metrics.inner_line_share(""))
+
+
 if __name__ == "__main__":
     unittest.main()
