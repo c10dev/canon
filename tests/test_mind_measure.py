@@ -159,3 +159,71 @@ def test_dry_run_cost_is_small():
     assert got["calls"] > 7 and 0 < got["cost_usd"] < 5
     with pytest.raises(SystemExit):
         mm.dry_run(samples, {"C1": _eps(60)}, "coralbricks:없는모델", 2)
+
+
+class ByEpLLM:
+    """화 번호로 정해진 답을 내는 가짜 LLM. flaky 의 첫 호출은 예외, sum_fail 화의 요약은 늘 예외."""
+
+    def __init__(self, flaky=False, sum_fail=None):
+        self.calls = []
+        self.flaky = flaky
+        self.sum_fail = sum_fail
+        self.seen = set()
+
+    def json(self, system, prompt, schema, hint=None):
+        import re
+        n = int(re.search(r"(\d+)화 본문", prompt).group(1))
+        self.calls.append((schema.__name__, n))
+        if schema is mm.EpSummary:
+            if n == self.sum_fail:
+                raise ValueError("bad")
+            return mm.EpSummary(line=f"{n}번 요약")
+        if self.flaky and (schema.__name__, n) not in self.seen:
+            self.seen.add((schema.__name__, n))
+            raise ValueError("first")
+        return mm.MindLabels(items=[mm.MindLabel(kind="마음", source_ep=n - 1, who="본인", at=n)])
+
+
+def _run(out, llm, **kw):
+    a = _args(out, kw.pop("repeat", 1))
+    for k, v in kw.items():
+        setattr(a, k, v)
+    mm.cmd_label(a, llm)
+    return json.loads((out / "labels.json").read_text(encoding="utf-8"))
+
+
+def test_retries_and_err_field(tmp_path, monkeypatch):
+    out = _sampled(tmp_path, monkeypatch)
+    ok = _run(out, ByEpLLM(flaky=True), repeat=0, retries=1)
+    assert all(r["labels"] is not None and "err" not in r for r in ok["works"]["C1"]["eps"].values())
+    bad = _run(out, ByEpLLM(flaky=True), repeat=0, retries=0)
+    rows = bad["works"]["C1"]["eps"].values()
+    assert all(r["labels"] is None and r["err"] == "ValueError" for r in rows)
+
+
+def test_workers_do_not_change_result(tmp_path, monkeypatch):
+    out = _sampled(tmp_path, monkeypatch)
+    one = _run(out, ByEpLLM(), workers=1)
+    for f in out.glob("summaries-*.json"):
+        f.unlink()
+    three = _run(out, ByEpLLM(), workers=3)
+    assert one == three
+
+
+def test_resume_calls_only_missing_ep(tmp_path, monkeypatch):
+    out = _sampled(tmp_path, monkeypatch)
+    first = _run(out, ByEpLLM(), repeat=0)
+    ep = sorted(first["works"]["C1"]["eps"], key=int)[2]
+    first["works"]["C1"]["eps"][ep]["labels"] = None
+    (out / "labels.json").write_text(json.dumps(first), encoding="utf-8")
+    llm = ByEpLLM()
+    again = _run(out, llm, repeat=0, resume=True)
+    assert [c for c in llm.calls if c[0] == "MindLabels"] == [("MindLabels", int(ep))]
+    assert again["works"]["C1"]["eps"][ep]["labels"] is not None
+
+
+def test_summary_failure_does_not_stop(tmp_path, monkeypatch):
+    out = _sampled(tmp_path, monkeypatch)
+    low = min(json.loads((out / "samples.json").read_text(encoding="utf-8"))["works"]["C1"]["eps"])
+    got = _run(out, ByEpLLM(sum_fail=low - 1), repeat=0)
+    assert got["works"]["C1"]["summary_errors"] == 1 and got["summary_errors"] == 1
