@@ -94,6 +94,27 @@ def test_arm_prompts():
     assert mc.arm_prompts("그 글자열 없음")["S"] is None
 
 
+def test_arm_prompts_p_and_t():
+    base = "앞 문장. " + mc.P_SENTENCE + " 뒤"
+    got = mc.arm_prompts(base)
+    assert got["P"] == "앞 문장. 뒤"
+    assert got["T"] == base + "\n" + mc.T_LINE
+    assert mc.arm_prompts("문장 없음")["P"] is None
+    assert mc.ARMS == ("B1", "B2", "S", "M") and mc.ALL_ARMS == mc.ARMS + ("P", "T")
+
+
+def test_line_blocks_p_or_t_alone():
+    assert mc._line_blocks({"B1": 1.0, "B2": 1.2, "P": 3.0})[0] is True
+    assert mc._line_blocks({"B1": 1.0, "B2": 1.2, "T": 3.0})[0] is True
+    assert mc._line_blocks({"B1": 1.0, "B2": 1.2, "T": 1.1})[0] is False
+
+
+def test_dry_run_p_not_applicable_dropped(abl_world, monkeypatch):
+    monkeypatch.setattr(mc.prompts, "episode_prompt", lambda q, n, *a, **k: "# 지시\n줄 없음")
+    got = mc.ablate_dry_run(mc.store.load(NAME), [70], list(mc.ALL_ARMS), FLASH, FLASH, set())
+    assert got["write"]["calls"] == 4
+
+
 def _item(src, block="인물 현재 상태", kind="마음"):
     return {"block": block, "source_ep": src, "kind": kind}
 

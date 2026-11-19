@@ -83,6 +83,9 @@ M_LINE = "시점 인물이 지금 느끼고 판단하고 고르는 것을, 위 �
 ABLATE_RANGE = (69, 88)
 ABLATE_EPS = 4
 ARMS = ("B1", "B2", "S", "M")    # X 는 늘 함께 낸다(저장된 본문, 새 호출 없음)
+ALL_ARMS = ARMS + ("P", "T")     # --arms 로 고를 수 있는 판
+P_SENTENCE = "다른 인물의 속마음은 행동과 대사로만 드러냅니다."
+T_LINE = "시점 인물이 지금 무엇을 생각하고 판단하는지, 지문과 속생각으로 적습니다."
 ABLATE_BUDGET = 4.0
 BUCKET_OF = {"v2": "near", "v3": "far"}
 
@@ -552,7 +555,16 @@ def pick_ablate(p, k: int = ABLATE_EPS) -> list[int]:
 def arm_prompts(base: str) -> dict[str, Optional[str]]:
     return {"B1": base, "B2": base,
             "S": base.replace(prompts.WRITE_SHIFT_LINE, "", 1) if prompts.WRITE_SHIFT_LINE in base else None,
-            "M": base + "\n" + M_LINE}
+            "M": base + "\n" + M_LINE,
+            "P": _drop_sentence(base),
+            "T": base + "\n" + T_LINE}
+
+
+def _drop_sentence(base: str) -> Optional[str]:
+    """P 판: P_SENTENCE 를 앞의 공백 하나까지 한 번 지운다. 없으면 None(해당 없음)."""
+    if P_SENTENCE not in base:
+        return None
+    return base.replace(" " + P_SENTENCE if " " + P_SENTENCE in base else P_SENTENCE, "", 1)
 
 
 def _head_kept(q, n: int, aps: dict) -> dict[str, bool]:
@@ -703,7 +715,7 @@ def arm_summary(rows: list) -> Optional[dict]:
     return out
 
 
-def _label_stage(a, llm, p, key: str, eps: list[int], out: Path, prev: dict, na: set[int]) -> tuple[dict, dict]:
+def _label_stage(a, llm, p, key: str, eps: list[int], out: Path, prev: dict, na: dict[str, set[int]]) -> tuple[dict, dict]:
     """(판별 줄, 실패 목록)."""
     summaries = mm.summarize(llm, tm.canon_episodes(a.project, 1), out / "summaries.json", upto=max(eps),
                              workers=a.workers, retries=a.retries, stats={}, max_out=a.max_out)
@@ -729,8 +741,8 @@ def _label_stage(a, llm, p, key: str, eps: list[int], out: Path, prev: dict, na:
 
 
 def _arm_row(p, out: Path, key: str, n: int, arm: str, env: dict):
-    """한 칸의 값. env 는 done(라벨 결과) · prev(이전 줄) · errors · na(S 판이 해당 없는 화)."""
-    if arm == "S" and n in env["na"]:
+    """한 칸의 값. env 는 done(라벨 결과) · prev(이전 줄) · errors · na(판마다 해당 없는 화 번호)."""
+    if n in env["na"].get(arm, ()):
         return "해당 없음"
     old = env["prev"].get(arm, {}).get("eps", {}).get(str(n)) or {}
     if old.get("c2") is not None:
@@ -795,7 +807,7 @@ def cmd_ablate(a, write_llm=None, label_llm=None) -> int:
         print("쓰기 실패가 화의 반을 넘었어요. 멈추고 원인을 먼저 봐요")
         return 3
     prev = ((_read(out / "ablate.json") or {}).get("arms") or {}) if a.resume else {}
-    na = {n for n, (_, aps) in ctx.items() if aps["S"] is None}
+    na = {arm: {n for n, (_, aps) in ctx.items() if aps[arm] is None} for arm in ALL_ARMS}
     rows, label_errors = _label_stage(a, label_llm, p, key, eps, out, prev, na)
     doc["arms"] = _arm_doc(rows, kept)
     doc["errors"] = {**errors, **label_errors}
@@ -810,7 +822,7 @@ RULES = (
     "판정 규칙 (값을 보기 전에 정했다). 값(v2 가까운 · v3 먼)마다 따로 판정한다.",
     "- 재료 없음: 화당 재료 수의 중앙값이 레퍼런스 한 화의 기대 건수보다 작다",
     "- 있는데 안 씀: 재료 없음이 아니고, 쓴 재료 비율이 0.5 아래다",
-    "- 줄이 막음: S 판이나 M 판의 값이 B1 · B2 평균보다 높고, 그 차가 |B1 − B2| 보다 크다",
+    "- 줄이 막음: S · M · P · T 판 가운데 하나의 값이 B1 · B2 평균보다 높고, 그 차가 |B1 − B2| 보다 크다",
     "- 못 가름: 대상 화가 10화 아래이거나, 거리 모름이 재료의 반을 넘거나, 다시 매긴 흔들림이 재료 수 중앙값보다 크다",
     "- '줄이 막음'은 앞 두 판정과 함께 설 수 있다",
     "- X 판과 B 판: |X − B 평균| 이 |B1 − B2| 보다 크면 '옛 길과 지금 길이 다르다'",
@@ -834,7 +846,7 @@ def _line_blocks(vals: dict) -> tuple[Optional[bool], Optional[float], Optional[
     if b1 is None or b2 is None:
         return None, None, None
     base, gap = (b1 + b2) / 2, abs(b1 - b2)
-    tests = [vals[x] for x in ("S", "M") if vals.get(x) is not None]
+    tests = [vals[x] for x in ("S", "M", "P", "T") if vals.get(x) is not None]
     return any(t > base and t - base > gap for t in tests), base, gap
 
 
@@ -982,7 +994,7 @@ def _parser() -> argparse.ArgumentParser:
     ab.add_argument("--project", required=True)
     ab.add_argument("--keymap")
     ab.add_argument("--eps", nargs="+", type=int)
-    ab.add_argument("--arms", nargs="+", default=list(ARMS), choices=list(ARMS))
+    ab.add_argument("--arms", nargs="+", default=list(ARMS), choices=list(ALL_ARMS))
     ab.add_argument("--write-model", default=WRITE_MODEL)
     ab.add_argument("--label-model", default=FLASH_MODEL)
     ab.add_argument("--summaries")
