@@ -1006,7 +1006,7 @@
 - `sample` 은 `samples.json`(본문 없음)과 같은 폴더의 `keymap.json`(글 키 → 원고 id · 작품 이름)을 쓴다
 - 글 키는 `R1`~`R3`(레퍼런스) · `C1`~`C3`(canon). 표준 출력 · `T.md` · `T.json` 에는 글 키만 찍는다
 - `label`: 화마다 한 줄 요약(`summarize`, 캐시 `summaries-<글 키>.json`)과 라벨(`label_ep`)을 `llm.json` 으로 받는다
-- 라벨 응답 형식 `MindLabels` 에 dict 필드가 없다. 라벨은 `{ep, at, kind, source_ep, who}` 만 저장하고 본문 구절은 받지 않는다
+- 라벨 응답 형식 `MindLabels` 에 dict 필드가 없다. 라벨은 `{ep, at, kind, source_ep, who}` 만 저장한다
 - `--repeat N` 은 글마다 앞 N 화를 한 번 더 매긴다(`again`). 값에는 첫 라벨만 쓴다
 - `--dry-run` 은 호출 수 · 글자 수 · 어림 비용만 찍고 모델을 부르지 않는다(가격은 `usage.rate`)
 - `label --workers K` 는 요약과 라벨 호출을 K 개씩 함께 부른다(기본 1). 결과의 화 차례 · 내용은 K 와 상관없다
@@ -1015,7 +1015,10 @@
 - 끝내 실패한 요약은 빼고 `summary_errors`(글별 · 전체 합)에 센다. 멈추지 않는다
 - `label --max-out N`(기본 4000)은 라벨 호출을 `out_cap(N)` 안에서, 요약 호출을 `out_cap(min(N, 1000))` 안에서 부른다
 - 호출 뒤 `was_cut` 이 참이면 `OutputCut` 을 던져 `--retries` 로 다시 부른다. 끝내 잘리면 `err` 는 `OutputCut`
-- `LABEL_SYSTEM` 은 라벨을 `LABEL_MAX`(40)개까지만 적게 한다. 라벨이 40개인 화의 수를 글별로 `capped` 에 센다(0 이면 쓰지 않는다)
+- `LABEL_SYSTEM` 은 앞 화 사건에 기댄 곳만 `event`(다섯 낱말 안) · `source_ep` 와 함께 적게 한다
+- `event` 는 응답 형식 `MindLabel` 에만 있고 저장하지 않는다
+- 라벨이 `LABEL_MAX`(40)개 이상인 화는 실패다. 그 칸은 None 이고 `err` 는 `Capped`(`again` 은 `again_err`)
+- `Capped` 가 된 화의 수를 글별로 `capped` 에 센다(0 이면 쓰지 않는다)
 - `label` 은 스레드마다 LLM 객체를 따로 만든다(`_PerThread`). `last_finish` 가 스레드끼리 섞이지 않게 한다
 - `label --timeout SEC` 은 `CANON_LOCAL_TIMEOUT` 을 SEC 로 둔다(CoralLLM · LocalLLM 이 읽는다)
 - `label --resume` 은 `--out` 파일의 라벨이 None 이 아닌 줄을 다시 부르지 않는다
