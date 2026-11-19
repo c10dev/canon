@@ -7,6 +7,7 @@ import logging
 import re
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
+from collections.abc import Collection
 from typing import Callable
 
 from . import dynamics, elements, illust, metrics, naming, prompts, renumber, setupchat, storylines
@@ -2845,7 +2846,8 @@ def revise_storyboard(llm: LLM, p: Project, n: int, ask: str) -> Storyboard:
     d = _board_draft(llm, n, len(ep.plot.events), prompts.storyboard_revise_prompt(p, n, ep.storyboard, ask),
                      {"episode": n, "events": len(ep.plot.events), "characters": ep.plot.characters,
                       "stats": {s.character_id: [x.name for x in s.stats] for s in p.states if s.stats},
-                      "revise": ep.storyboard.model_dump(include=set(StoryboardDraft.model_fields)), "ask": ask})
+                      "revise": ep.storyboard.model_dump(include=set(StoryboardDraft.model_fields)), "ask": ask},
+                     known=[t for _, t in board.cells(ep.storyboard)])
     b = Storyboard(**d.model_dump(), made_at=_now(), made_by="both", basis=board_basis(p, n),
                    ask=ask.strip()[:prompts.BOARD_ASK_LIMIT])
     b.checks = board.checks(p, n, b)
@@ -2876,21 +2878,28 @@ def undo_storyboard(p: Project, n: int) -> None:
 BOARD_OUT_TOKENS = 16384
 
 
-def _board_draft(llm: LLM, n: int, events: int, prompt: str, hint: dict) -> StoryboardDraft:
-    """스토리보드 응답을 받아 정리한다. 플롯에 사건이 있는데 장면이 하나도 없으면 한 번 더 묻고, 그래도 없으면 저장하지 않게 오류를 낸다.
+def _board_draft(llm: LLM, n: int, events: int, prompt: str, hint: dict, known: Collection[str] = ()) -> StoryboardDraft:
+    """스토리보드 응답을 받아 정리한다. 플롯에 사건이 있는데 장면이 하나도 없거나 한 칸에 board.CELL_LIMIT 자를 넘는 글이 있으면
+    한 번 더 묻고, 그래도 그러면 저장하지 않게 오류를 낸다. known 에 있는 글(고치기 전 스토리보드의 글)은 넘어도 받는다.
     실측(2026-11-04, gemini-4-argon): 성인 장면이 많은 플롯에서 다른 칸은 채우고 scenes 만 비운 응답(finish STOP)을 연달아 냈다.
-    출력은 BOARD_OUT_TOKENS 로 막는다."""
+    실측(2026-11-03, gemini-3.8-flash): 나머지 JSON 전체가 time.part 한 칸에 9,444자로 들어왔다. 출력은 BOARD_OUT_TOKENS 로 막는다."""
     with out_cap(BOARD_OUT_TOKENS):
         d = clean_storyboard(llm.json(prompts.SYSTEM_PLANNER, prompt, StoryboardDraft, hint=hint))
-    if d.scenes or not events:
+    empty, long = bool(events) and not d.scenes, board.long_cells(d, known)
+    if not empty and not long:
         return d
+    retry = (prompts.board_scenes_retry(events) if empty else "") + (prompts.board_cells_retry(long, board.CELL_LIMIT) if long else "")
     with out_cap(BOARD_OUT_TOKENS):
-        d = clean_storyboard(llm.json(prompts.SYSTEM_PLANNER, prompt + prompts.board_scenes_retry(events), StoryboardDraft,
-                                      hint={**hint, "retry": True}))
-    if d.scenes:
-        return d
-    raise RuntimeError(f"AI가 {n}화 스토리보드의 장면을 하나도 만들지 않았어요 (두 번 물었어요). "
-                       "모델이 이 플롯의 장면을 나누지 않는 것일 수 있어요. 설정에서 계획 단계 모델을 바꾸거나, 스토리보드 없이 쓰거나 직접 장면을 적어 주세요")
+        d = clean_storyboard(llm.json(prompts.SYSTEM_PLANNER, prompt + retry, StoryboardDraft, hint={**hint, "retry": True}))
+    empty, long = bool(events) and not d.scenes, board.long_cells(d, known)
+    if long:
+        raise RuntimeError(f"AI가 {n}화 스토리보드의 한 칸에 너무 긴 글을 넣었어요 ({', '.join(long[:3])}, 두 번 물었어요). "
+                           "모델이 응답 형식을 놓쳤거나 같은 글을 되풀이한 것일 수 있어요. 저장하지 않았어요. "
+                           "다시 만들거나 설정에서 계획 단계 모델을 바꿔 주세요")
+    if empty:
+        raise RuntimeError(f"AI가 {n}화 스토리보드의 장면을 하나도 만들지 않았어요 (두 번 물었어요). "
+                           "모델이 이 플롯의 장면을 나누지 않는 것일 수 있어요. 설정에서 계획 단계 모델을 바꾸거나, 스토리보드 없이 쓰거나 직접 장면을 적어 주세요")
+    return d
 
 
 def clean_storyboard(d: StoryboardDraft) -> StoryboardDraft:

@@ -263,6 +263,9 @@ def canon_notes(src: PromptSource, obj) -> list[str]:
             notes.append(f"빈 장면 {before - len(obj.scenes)}개는 Canon이 빼요")
         if not obj.scenes and p.episode(n).plot.events:
             notes.append("장면이 하나도 없어 Canon은 한 번 더 물어요. 그래도 없으면 저장하지 않아요")
+        long = pipeline.board.long_cells(obj)
+        if long:
+            notes.append(f"한 칸 글이 너무 길어요({', '.join(long[:3])}). Canon은 한 번 더 물어요. 그래도 길면 저장하지 않아요")
     elif kind == "cue":  # pipeline.make_cue_sheet · cue.clean
         board = p.episode(n).storyboard
         before = len(obj.cues)
