@@ -227,3 +227,58 @@ def test_summary_failure_does_not_stop(tmp_path, monkeypatch):
     low = min(json.loads((out / "samples.json").read_text(encoding="utf-8"))["works"]["C1"]["eps"])
     got = _run(out, ByEpLLM(sum_fail=low - 1), repeat=0)
     assert got["works"]["C1"]["summary_errors"] == 1 and got["summary_errors"] == 1
+
+
+class CutLLM(ByEpLLM):
+    """각 화의 첫 라벨 호출은 last_finish=length 로 끊기고 빈 라벨을 준다."""
+
+    def __init__(self):
+        super().__init__()
+        self.last_finish = ""
+
+    def json(self, system, prompt, schema, hint=None):
+        if schema is mm.EpSummary:
+            self.last_finish = "stop"
+            return super().json(system, prompt, schema, hint)
+        import re
+        n = int(re.search(r"(\d+)화 본문", prompt).group(1))
+        if ("cut", n) not in self.seen:
+            self.seen.add(("cut", n))
+            self.calls.append((schema.__name__, n))
+            self.last_finish = "length"
+            return mm.MindLabels(items=[])
+        self.last_finish = "stop"
+        return super().json(system, prompt, schema, hint)
+
+
+def test_cut_response_is_retried_or_counted(tmp_path, monkeypatch):
+    out = _sampled(tmp_path, monkeypatch)
+    ok = _run(out, CutLLM(), repeat=0, retries=1)
+    assert all(r["labels"] for r in ok["works"]["C1"]["eps"].values())
+    bad = _run(out, CutLLM(), repeat=0, retries=0)
+    rows = bad["works"]["C1"]["eps"].values()
+    assert all(r["labels"] is None and r["err"] == "OutputCut" for r in rows)
+
+
+def test_per_thread_makes_one_llm_per_thread():
+    import threading
+    made = []
+
+    class Obj:
+        last_finish = "stop"
+
+    def factory():
+        made.append(1)
+        return Obj()
+
+    pt = mm._PerThread(factory)
+    assert pt.last_finish == "stop" and pt.last_finish == "stop"
+    assert len(made) == 1
+    t = threading.Thread(target=lambda: pt.last_finish)
+    t.start()
+    t.join()
+    assert len(made) == 2
+
+
+def test_label_system_names_the_limit():
+    assert str(mm.LABEL_MAX) in mm.LABEL_SYSTEM

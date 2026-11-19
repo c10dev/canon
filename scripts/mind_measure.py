@@ -32,6 +32,7 @@ from pydantic import BaseModel
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ.setdefault("CANON_LLM", "mock")
 
+from canon import llm as llm_mod  # noqa: E402
 from canon import metrics, usage  # noqa: E402
 
 SEED = 20261119
@@ -57,6 +58,7 @@ RULES = (
 
 SUMMARY_SYSTEM = ("너는 소설 편집자다. 주어진 한 화의 본문을 읽고 일어난 일을 한 문장(80자 안팎)으로 요약한다. "
                   "누가 무엇을 했고 무엇이 달라졌는지만 적는다.")
+LABEL_MAX = 40
 LABEL_SYSTEM = (
     "너는 소설 편집자다. 한 화의 본문과 앞 화들의 한 줄 요약(화 번호 포함)을 받는다. "
     "본문에서 인물의 감정 · 판단 · 태도 · 선택을 적은 곳을 모두 찾아 라벨을 매긴다. 본문 구절을 옮겨 적지 않는다.\n"
@@ -66,6 +68,7 @@ LABEL_SYSTEM = (
     "- source_ep: 기대는 앞 화의 번호. 요약에서 찾아 적는다. 모르거나 이 화 안의 일이면 비운다.\n"
     "- who: 그 마음의 주인이 시점 인물 본인이면 '본인', 다른 인물이면 '남'.\n"
     "- at: 이 화 본문 안에서 그곳이 있는 글자 자리(대략).\n"
+    f"라벨은 많아야 {LABEL_MAX}개만 적는다. {LABEL_MAX}개를 넘으면 앞 화에 기대는 곳('마음' 가운데 source_ep 가 있는 것)을 먼저 남긴다.\n"
     "없으면 빈 목록을 돌려준다."
 )
 
@@ -166,8 +169,42 @@ def _par(workers: int, fn, items: list) -> None:
             f.result()
 
 
+def _capped(llm, max_out: Optional[int], fn):
+    """fn() 을 out_cap(max_out) 안에서 부른다. 끝난 이유가 잘림이면 OutputCut 을 던진다."""
+    if max_out:
+        with llm_mod.out_cap(max_out):
+            res = fn()
+    else:
+        res = fn()
+    if llm_mod.was_cut(llm):
+        raise llm_mod.OutputCut("응답이 출력 상한에 걸려 끊겼어요")
+    return res
+
+
+def _summary_call(llm, n: int, text: str, max_out: Optional[int]) -> str:
+    cap = min(max_out, 1000) if max_out else None
+    return _capped(llm, cap, lambda: llm.json(SUMMARY_SYSTEM, f"{n}화 본문:\n{text}", EpSummary).line.strip())
+
+
+class _PerThread:
+    """스레드마다 factory() 로 만든 LLM 을 쓴다. 속성 읽기(json, last_finish 등)는 그 스레드의 객체로 간다."""
+
+    def __init__(self, factory):
+        self._factory = factory
+        self._local = threading.local()
+
+    def __getattr__(self, name):
+        if name in ("_factory", "_local"):
+            raise AttributeError(name)
+        obj = getattr(self._local, "obj", None)
+        if obj is None:
+            obj = self._local.obj = self._factory()
+        return getattr(obj, name)
+
+
 def summarize(llm, eps: list[tuple[int, str]], cache: Path, upto: Optional[int] = None,
-              workers: int = 1, retries: int = 0, stats: Optional[dict] = None) -> dict[int, str]:
+              workers: int = 1, retries: int = 0, stats: Optional[dict] = None,
+              max_out: Optional[int] = None) -> dict[int, str]:
     """화마다 한 줄 요약. cache(JSON)에 있으면 다시 부르지 않는다. upto 가 있으면 그 번호 아래 화만.
     stats 를 주면 끝내 실패한 화는 빼고 stats["errors"] 에 센다. 없으면 예외를 그대로 던진다."""
     got = {int(k): v for k, v in (_read(cache) or {}).items()}
@@ -177,7 +214,7 @@ def summarize(llm, eps: list[tuple[int, str]], cache: Path, upto: Optional[int] 
     def one(item) -> None:
         n, text = item
         try:
-            line = _retry(lambda: llm.json(SUMMARY_SYSTEM, f"{n}화 본문:\n{text}", EpSummary).line.strip(), retries)
+            line = _retry(lambda: _summary_call(llm, n, text, max_out), retries)
         except Exception:  # noqa: BLE001
             if stats is None:
                 raise
@@ -202,16 +239,18 @@ def _clean(item: MindLabel, ep: int, size: int) -> dict:
     return {"ep": ep, "at": min(max(item.at, 0), size), "kind": item.kind, "source_ep": src, "who": item.who}
 
 
-def label_ep(llm, ep: int, text: str, summaries: dict[int, str]) -> list[dict]:
-    """한 화의 라벨. 돌려주는 dict 는 {"ep","at","kind","source_ep","who"} 뿐. 본문 구절을 넣지 않는다."""
-    got = llm.json(LABEL_SYSTEM, _label_prompt(ep, text, summaries), MindLabels)
+def label_ep(llm, ep: int, text: str, summaries: dict[int, str], max_out: Optional[int] = None) -> list[dict]:
+    """한 화의 라벨. 돌려주는 dict 는 {"ep","at","kind","source_ep","who"} 뿐. 본문 구절을 넣지 않는다.
+    max_out 이 있으면 그 토큰까지만 받는다. 응답이 잘리면 OutputCut."""
+    got = _capped(llm, max_out, lambda: llm.json(LABEL_SYSTEM, _label_prompt(ep, text, summaries), MindLabels))
     return [_clean(it, ep, len(text)) for it in got.items]
 
 
-def _try_label_err(llm, ep: int, text: str, summaries: dict[int, str], retries: int = 0):
+def _try_label_err(llm, ep: int, text: str, summaries: dict[int, str], retries: int = 0,
+                   max_out: Optional[int] = None):
     """(라벨 목록 또는 None, 실패한 예외 클래스 이름 또는 None)."""
     try:
-        return _retry(lambda: label_ep(llm, ep, text, summaries), retries), None
+        return _retry(lambda: label_ep(llm, ep, text, summaries, max_out), retries), None
     except Exception as e:  # noqa: BLE001 형식 오류 · 검증 실패는 세어서 보고한다
         return None, type(e).__name__
 
@@ -241,18 +280,19 @@ def _label_tasks(w: dict, repeat: int, old: dict) -> tuple[list[tuple[int, str]]
 
 
 def _label_work(llm, w: dict, eps: list[tuple[int, str]], key_dir: Path, key: str, repeat: int,
-                workers: int = 1, retries: int = 0, old: Optional[dict] = None) -> dict:
+                workers: int = 1, retries: int = 0, old: Optional[dict] = None,
+                max_out: Optional[int] = None) -> dict:
     texts = dict(eps)
     sstats: dict = {}
     summaries = summarize(llm, eps, key_dir / f"summaries-{key}.json", upto=max(w["eps"]) if w["eps"] else None,
-                          workers=workers, retries=retries, stats=sstats)
+                          workers=workers, retries=retries, stats=sstats, max_out=max_out)
     todo, kept = _label_tasks(w, repeat, old or {})
     got, errs, lock = dict(kept), {}, threading.Lock()
     total = len(todo) + len(kept)
 
     def one(task) -> None:
         n, name = task
-        res, err = _try_label_err(llm, n, texts[n], summaries, retries)
+        res, err = _try_label_err(llm, n, texts[n], summaries, retries, max_out)
         with lock:
             got[task] = res
             if err:
@@ -271,6 +311,9 @@ def _label_work(llm, w: dict, eps: list[tuple[int, str]], key_dir: Path, key: st
             if (n, "again") in errs:
                 row["again_err"] = errs[(n, "again")]
         out["eps"][str(n)] = row
+    capped = sum(1 for n in w["eps"] if len(got[(n, "labels")] or []) >= LABEL_MAX)
+    if capped:
+        out["capped"] = capped
     if sstats.get("errors"):
         out["summary_errors"] = sstats["errors"]
     return out
@@ -309,13 +352,14 @@ def cmd_label(a, llm=None) -> int:
     workers, retries = getattr(a, "workers", 1), getattr(a, "retries", 0)
     if getattr(a, "timeout", None):
         os.environ["CANON_LOCAL_TIMEOUT"] = str(a.timeout)
-    llm = llm or make_llm(a.model)
+    llm = llm or _PerThread(lambda: make_llm(a.model))
+    max_out = getattr(a, "max_out", 4000)
     out_dir = Path(a.out).parent
     prev = ((_read(Path(a.out)) or {}).get("works") or {}) if getattr(a, "resume", False) else {}
     done: dict = {}
     for k, w in samples["works"].items():
         old = (prev.get(k) or {}).get("eps") or {}
-        done[k] = _label_work(llm, w, loaded[k], out_dir, k, a.repeat, workers, retries, old)
+        done[k] = _label_work(llm, w, loaded[k], out_dir, k, a.repeat, workers, retries, old, max_out)
         _dump(Path(a.out), _snapshot(a, samples, done, prev))
     labels = _snapshot(a, samples, done, {})
     bad, total = labels["errors"], labels["calls"]
@@ -562,6 +606,7 @@ def _parser() -> argparse.ArgumentParser:
     lb.add_argument("--out")
     lb.add_argument("--workers", type=int, default=1)
     lb.add_argument("--retries", type=int, default=0)
+    lb.add_argument("--max-out", type=int, default=4000)
     lb.add_argument("--timeout", type=float)
     lb.add_argument("--resume", action="store_true")
     t = sub.add_parser("table")

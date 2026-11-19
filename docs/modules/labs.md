@@ -1013,6 +1013,10 @@
 - `label --retries R` 은 예외로 끝난 호출을 R 번까지 다시 부른다(기본 0). 끝내 실패한 라벨은 None 이고 그 줄에 `err`(예외 클래스 이름)를 적는다
 - 다시 매긴 줄(`again`)이 끝내 실패하면 `again_err` 를 적는다
 - 끝내 실패한 요약은 빼고 `summary_errors`(글별 · 전체 합)에 센다. 멈추지 않는다
+- `label --max-out N`(기본 4000)은 라벨 호출을 `out_cap(N)` 안에서, 요약 호출을 `out_cap(min(N, 1000))` 안에서 부른다
+- 호출 뒤 `was_cut` 이 참이면 `OutputCut` 을 던져 `--retries` 로 다시 부른다. 끝내 잘리면 `err` 는 `OutputCut`
+- `LABEL_SYSTEM` 은 라벨을 `LABEL_MAX`(40)개까지만 적게 한다. 라벨이 40개인 화의 수를 글별로 `capped` 에 센다(0 이면 쓰지 않는다)
+- `label` 은 스레드마다 LLM 객체를 따로 만든다(`_PerThread`). `last_finish` 가 스레드끼리 섞이지 않게 한다
 - `label --timeout SEC` 은 `CANON_LOCAL_TIMEOUT` 을 SEC 로 둔다(CoralLLM · LocalLLM 이 읽는다)
 - `label --resume` 은 `--out` 파일의 라벨이 None 이 아닌 줄을 다시 부르지 않는다
 - `label` 은 글마다 끝날 때 `--out` 을 중간 저장하고 라벨 20번마다 `글 키 라벨 된 수/전체` 를 찍는다
