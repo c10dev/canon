@@ -60,20 +60,22 @@ SUMMARY_SYSTEM = ("너는 소설 편집자다. 주어진 한 화의 본문을 �
                   "누가 무엇을 했고 무엇이 달라졌는지만 적는다.")
 LABEL_MAX = 40
 LABEL_SYSTEM = (
-    "너는 소설 편집자다. 한 화의 본문과 앞 화들의 한 줄 요약(화 번호 포함)을 받는다. "
-    "본문에서 인물의 감정 · 판단 · 태도 · 선택을 적은 곳을 모두 찾아 라벨을 매긴다. 본문 구절을 옮겨 적지 않는다.\n"
-    "각 라벨의 칸:\n"
-    "- kind: '마음'은 앞 화의 일에 기대어 지금의 감정 · 판단 · 태도 · 선택을 적은 곳이다. "
-    "줄거리 정보만 전하는 곳은 '줄거리'다.\n"
-    "- source_ep: 기대는 앞 화의 번호. 요약에서 찾아 적는다. 모르거나 이 화 안의 일이면 비운다.\n"
-    "- who: 그 마음의 주인이 시점 인물 본인이면 '본인', 다른 인물이면 '남'.\n"
-    "- at: 이 화 본문 안에서 그곳이 있는 글자 자리(대략).\n"
-    f"라벨은 많아야 {LABEL_MAX}개만 적는다. {LABEL_MAX}개를 넘으면 앞 화에 기대는 곳('마음' 가운데 source_ep 가 있는 것)을 먼저 남긴다.\n"
+    "너는 소설 편집자다. 한 화의 본문과 앞 화들의 한 줄 요약(화 번호 포함)을 받는다.\n"
+    "찾을 것: 본문에서 인물이 앞 화(요약에 있는 화)에서 일어난 구체적인 사건을 떠올리거나, "
+    "그 사건에 기대어 지금의 감정 · 판단 · 태도 · 선택을 드러내는 곳.\n"
+    "넣지 않는 것: 이 화 안에서 일어난 일에 대한 반응, 어느 앞 화 사건인지 요약에서 찾을 수 없는 감정, "
+    "늘 그런 성격 묘사, 앞 화와 이어지기만 하는 장면 진행.\n"
+    "항목마다 그 사건이 적힌 요약의 화 번호를 source_ep 로, 그 사건을 다섯 낱말 안으로 event 에 적는다. "
+    "화 번호를 요약에서 찾지 못하면 그 항목은 적지 않는다. 같은 앞 화 사건을 여러 번 떠올리면 처음 한 번만 적는다.\n"
+    "kind: 그곳이 감정 · 판단 · 태도 · 선택을 적으면 '마음', 앞 일의 정보만 전하면 '줄거리'.\n"
+    "who: 그 마음의 주인이 시점 인물 본인이면 '본인', 다른 인물이면 '남'.\n"
+    "at: 이 화 본문 안에서 그곳이 있는 글자 자리(대략).\n"
     "없으면 빈 목록을 돌려준다."
 )
 
 
 class MindLabel(BaseModel):
+    event: str                        # 기댄 앞 화 사건(다섯 낱말 안). 저장하지 않는다
     kind: Literal["마음", "줄거리"]
     source_ep: Optional[int] = None   # 기대는 앞 화 번호. 모르면 None
     who: Literal["본인", "남"]
@@ -293,6 +295,8 @@ def _label_work(llm, w: dict, eps: list[tuple[int, str]], key_dir: Path, key: st
     def one(task) -> None:
         n, name = task
         res, err = _try_label_err(llm, n, texts[n], summaries, retries, max_out)
+        if res is not None and len(res) >= LABEL_MAX:
+            res, err = None, "Capped"
         with lock:
             got[task] = res
             if err:
@@ -311,7 +315,7 @@ def _label_work(llm, w: dict, eps: list[tuple[int, str]], key_dir: Path, key: st
             if (n, "again") in errs:
                 row["again_err"] = errs[(n, "again")]
         out["eps"][str(n)] = row
-    capped = sum(1 for n in w["eps"] if len(got[(n, "labels")] or []) >= LABEL_MAX)
+    capped = sum(1 for n in w["eps"] if errs.get((n, "labels")) == "Capped")
     if capped:
         out["capped"] = capped
     if sstats.get("errors"):

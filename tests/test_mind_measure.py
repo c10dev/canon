@@ -56,9 +56,9 @@ def test_summarize_caches(tmp_path):
 
 
 def test_label_ep_keeps_only_allowed_keys():
-    items = [{"kind": "마음", "source_ep": 3, "who": "본인", "at": 5},
-             {"kind": "마음", "source_ep": 9, "who": "남", "at": 10 ** 6},
-             {"kind": "줄거리", "who": "남", "at": -4}]
+    items = [{"event": "e", "kind": "마음", "source_ep": 3, "who": "본인", "at": 5},
+             {"event": "e", "kind": "마음", "source_ep": 9, "who": "남", "at": 10 ** 6},
+             {"event": "e", "kind": "줄거리", "who": "남", "at": -4}]
     got = mm.label_ep(FakeLLM(items), 6, "가" * 100, {1: "a"})
     assert all(set(x) == {"ep", "at", "kind", "source_ep", "who"} for x in got)
     assert [x["source_ep"] for x in got] == [3, None, None]
@@ -136,7 +136,7 @@ def test_sample_label_table_end_to_end(tmp_path, monkeypatch, capsys):
     assert "작품가" not in capsys.readouterr().out
     assert mm.main(["label", "--samples", str(out / "samples.json"), "--repeat", "2", "--dry-run"]) == 0
     assert json.loads(capsys.readouterr().out)["calls"] > 0
-    items = [{"kind": "마음", "source_ep": 2, "who": "본인", "at": 3}]
+    items = [{"event": "사건", "kind": "마음", "source_ep": 2, "who": "본인", "at": 3}]
     assert mm.cmd_label(_args(out, 2), FakeLLM(items)) == 0
     labels = json.loads((out / "labels.json").read_text(encoding="utf-8"))
     assert labels["errors"] == 0 and labels["calls"] == 7
@@ -181,7 +181,7 @@ class ByEpLLM:
         if self.flaky and (schema.__name__, n) not in self.seen:
             self.seen.add((schema.__name__, n))
             raise ValueError("first")
-        return mm.MindLabels(items=[mm.MindLabel(kind="마음", source_ep=n - 1, who="본인", at=n)])
+        return mm.MindLabels(items=[mm.MindLabel(event="e", kind="마음", source_ep=n - 1, who="본인", at=n)])
 
 
 def _run(out, llm, **kw):
@@ -280,5 +280,33 @@ def test_per_thread_makes_one_llm_per_thread():
     assert len(made) == 2
 
 
-def test_label_system_names_the_limit():
-    assert str(mm.LABEL_MAX) in mm.LABEL_SYSTEM
+def test_label_system_asks_for_event_and_source():
+    assert "event" in mm.LABEL_SYSTEM and "source_ep" in mm.LABEL_SYSTEM
+    assert str(mm.LABEL_MAX) not in mm.LABEL_SYSTEM
+
+
+def test_event_is_not_saved(tmp_path, monkeypatch):
+    out = _sampled(tmp_path, monkeypatch)
+    got = _run(out, ByEpLLM(), repeat=1)
+    text = json.dumps(got, ensure_ascii=False)
+    assert '"event"' not in text
+    rows = got["works"]["C1"]["eps"].values()
+    assert all(set(x) == {"ep", "at", "kind", "source_ep", "who"} for r in rows for x in r["labels"])
+
+
+class FullLLM(ByEpLLM):
+    def json(self, system, prompt, schema, hint=None):
+        if schema is mm.EpSummary:
+            return super().json(system, prompt, schema, hint)
+        item = mm.MindLabel(event="e", kind="마음", source_ep=1, who="본인", at=1)
+        return mm.MindLabels(items=[item] * mm.LABEL_MAX)
+
+
+def test_full_label_list_counts_as_capped(tmp_path, monkeypatch):
+    out = _sampled(tmp_path, monkeypatch)
+    got = _run(out, FullLLM(), repeat=1)
+    w = got["works"]["C1"]
+    n = len(w["eps"])
+    assert all(r["labels"] is None and r["err"] == "Capped" for r in w["eps"].values())
+    assert w["capped"] == n
+    assert all(r["again"] is None and r["again_err"] == "Capped" for r in list(w["eps"].values())[:1])
