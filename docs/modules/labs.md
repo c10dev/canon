@@ -1009,6 +1009,13 @@
 - 라벨 응답 형식 `MindLabels` 에 dict 필드가 없다. 라벨은 `{ep, at, kind, source_ep, who}` 만 저장하고 본문 구절은 받지 않는다
 - `--repeat N` 은 글마다 앞 N 화를 한 번 더 매긴다(`again`). 값에는 첫 라벨만 쓴다
 - `--dry-run` 은 호출 수 · 글자 수 · 어림 비용만 찍고 모델을 부르지 않는다(가격은 `usage.rate`)
+- `label --workers K` 는 요약과 라벨 호출을 K 개씩 함께 부른다(기본 1). 결과의 화 차례 · 내용은 K 와 상관없다
+- `label --retries R` 은 예외로 끝난 호출을 R 번까지 다시 부른다(기본 0). 끝내 실패한 라벨은 None 이고 그 줄에 `err`(예외 클래스 이름)를 적는다
+- 다시 매긴 줄(`again`)이 끝내 실패하면 `again_err` 를 적는다
+- 끝내 실패한 요약은 빼고 `summary_errors`(글별 · 전체 합)에 센다. 멈추지 않는다
+- `label --timeout SEC` 은 `CANON_LOCAL_TIMEOUT` 을 SEC 로 둔다(CoralLLM · LocalLLM 이 읽는다)
+- `label --resume` 은 `--out` 파일의 라벨이 None 이 아닌 줄을 다시 부르지 않는다
+- `label` 은 글마다 끝날 때 `--out` 을 중간 저장하고 라벨 20번마다 `글 키 라벨 된 수/전체` 를 찍는다
 - 형식 오류가 호출의 10% 를 넘으면 종료 코드 2
 - `table`: `table()` 의 키는 `works`(글별) · `groups`(`ref` · `canon`) · `splits` · `group_splits` · `v1_verdicts` · `jitter`
 - 95% 구간은 화 단위 부트스트랩(2000번, 시드 20261119)

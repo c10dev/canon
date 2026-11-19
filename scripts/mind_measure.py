@@ -16,11 +16,14 @@
   CANON_HOME=<임시 폴더> python scripts/mind_measure.py table --labels <out>/labels.json --out-md T.md --out-json T.json
 """
 import argparse
+import concurrent.futures as cf
+import contextvars
 import importlib.util
 import json
 import os
 import random
 import sys
+import threading
 from pathlib import Path
 from typing import Literal, Optional
 
@@ -145,14 +148,47 @@ def cmd_sample(a) -> None:
 
 # ---------- 모델 호출 ----------
 
-def summarize(llm, eps: list[tuple[int, str]], cache: Path, upto: Optional[int] = None) -> dict[int, str]:
-    """화마다 한 줄 요약. cache(JSON)에 있으면 다시 부르지 않는다. upto 가 있으면 그 번호 아래 화만."""
+def _retry(fn, retries: int):
+    """fn() 이 예외로 끝나면 retries 번까지 다시 부른다. 끝내 실패하면 마지막 예외를 던진다."""
+    for left in range(retries, -1, -1):
+        try:
+            return fn()
+        except Exception:  # noqa: BLE001
+            if not left:
+                raise
+
+
+def _par(workers: int, fn, items: list) -> None:
+    """items 마다 fn(item) 을 workers 개씩 함께 부른다. 스레드마다 contextvars 를 복사해 넘긴다."""
+    with cf.ThreadPoolExecutor(max(1, workers)) as ex:
+        futs = [ex.submit(contextvars.copy_context().run, fn, it) for it in items]
+        for f in futs:
+            f.result()
+
+
+def summarize(llm, eps: list[tuple[int, str]], cache: Path, upto: Optional[int] = None,
+              workers: int = 1, retries: int = 0, stats: Optional[dict] = None) -> dict[int, str]:
+    """화마다 한 줄 요약. cache(JSON)에 있으면 다시 부르지 않는다. upto 가 있으면 그 번호 아래 화만.
+    stats 를 주면 끝내 실패한 화는 빼고 stats["errors"] 에 센다. 없으면 예외를 그대로 던진다."""
     got = {int(k): v for k, v in (_read(cache) or {}).items()}
-    for n, text in sorted(eps):
-        if (upto is not None and n >= upto) or n in got:
-            continue
-        got[n] = llm.json(SUMMARY_SYSTEM, f"{n}화 본문:\n{text}", EpSummary).line.strip()
-        _dump(cache, {str(k): v for k, v in got.items()})
+    todo = [(n, t) for n, t in sorted(eps) if not (upto is not None and n >= upto) and n not in got]
+    lock = threading.Lock()
+
+    def one(item) -> None:
+        n, text = item
+        try:
+            line = _retry(lambda: llm.json(SUMMARY_SYSTEM, f"{n}화 본문:\n{text}", EpSummary).line.strip(), retries)
+        except Exception:  # noqa: BLE001
+            if stats is None:
+                raise
+            with lock:
+                stats["errors"] = stats.get("errors", 0) + 1
+            return
+        with lock:
+            got[n] = line
+            _dump(cache, {str(k): v for k, v in got.items()})
+
+    _par(workers, one, todo)
     return got
 
 
@@ -172,11 +208,16 @@ def label_ep(llm, ep: int, text: str, summaries: dict[int, str]) -> list[dict]:
     return [_clean(it, ep, len(text)) for it in got.items]
 
 
-def _try_label(llm, ep: int, text: str, summaries: dict[int, str]) -> Optional[list[dict]]:
+def _try_label_err(llm, ep: int, text: str, summaries: dict[int, str], retries: int = 0):
+    """(라벨 목록 또는 None, 실패한 예외 클래스 이름 또는 None)."""
     try:
-        return label_ep(llm, ep, text, summaries)
-    except Exception:  # noqa: BLE001 형식 오류 · 검증 실패는 세어서 보고한다
-        return None
+        return _retry(lambda: label_ep(llm, ep, text, summaries), retries), None
+    except Exception as e:  # noqa: BLE001 형식 오류 · 검증 실패는 세어서 보고한다
+        return None, type(e).__name__
+
+
+def _try_label(llm, ep: int, text: str, summaries: dict[int, str], retries: int = 0) -> Optional[list[dict]]:
+    return _try_label_err(llm, ep, text, summaries, retries)[0]
 
 
 def make_llm(model: str):
@@ -186,15 +227,52 @@ def make_llm(model: str):
     return build(provider, name)
 
 
-def _label_work(llm, w: dict, eps: list[tuple[int, str]], key_dir: Path, key: str, repeat: int) -> dict:
-    texts = dict(eps)
-    summaries = summarize(llm, eps, key_dir / f"summaries-{key}.json", upto=max(w["eps"]) if w["eps"] else None)
-    out = {"kind": w["kind"], "can3": w["can3"], "chars": w["chars"], "v1": w["v1"], "eps": {}}
+def _label_tasks(w: dict, repeat: int, old: dict) -> tuple[list[tuple[int, str]], dict]:
+    """(다시 불러야 할 (화, 칸) 목록, 이미 있는 값). 칸은 'labels' 나 'again'. old 는 --resume 으로 읽은 글의 화별 줄."""
+    todo, kept = [], {}
     for i, n in enumerate(w["eps"]):
-        row = {"labels": _try_label(llm, n, texts[n], summaries)}
-        if i < repeat:
-            row["again"] = _try_label(llm, n, texts[n], summaries)
+        for name in ("labels", "again") if i < repeat else ("labels",):
+            prev = (old.get(str(n)) or {}).get(name)
+            if prev is not None:
+                kept[(n, name)] = prev
+            else:
+                todo.append((n, name))
+    return todo, kept
+
+
+def _label_work(llm, w: dict, eps: list[tuple[int, str]], key_dir: Path, key: str, repeat: int,
+                workers: int = 1, retries: int = 0, old: Optional[dict] = None) -> dict:
+    texts = dict(eps)
+    sstats: dict = {}
+    summaries = summarize(llm, eps, key_dir / f"summaries-{key}.json", upto=max(w["eps"]) if w["eps"] else None,
+                          workers=workers, retries=retries, stats=sstats)
+    todo, kept = _label_tasks(w, repeat, old or {})
+    got, errs, lock = dict(kept), {}, threading.Lock()
+    total = len(todo) + len(kept)
+
+    def one(task) -> None:
+        n, name = task
+        res, err = _try_label_err(llm, n, texts[n], summaries, retries)
+        with lock:
+            got[task] = res
+            if err:
+                errs[task] = err
+            if len(got) % 20 == 0:
+                print(f"{key} 라벨 {len(got)}/{total}", flush=True)
+
+    _par(workers, one, todo)
+    out = {"kind": w["kind"], "can3": w["can3"], "chars": w["chars"], "v1": w["v1"], "eps": {}}
+    for n in w["eps"]:
+        row = {"labels": got[(n, "labels")]}
+        if (n, "labels") in errs:
+            row["err"] = errs[(n, "labels")]
+        if (n, "again") in got:
+            row["again"] = got[(n, "again")]
+            if (n, "again") in errs:
+                row["again_err"] = errs[(n, "again")]
         out["eps"][str(n)] = row
+    if sstats.get("errors"):
+        out["summary_errors"] = sstats["errors"]
     return out
 
 
@@ -210,6 +288,17 @@ def count_errors(labels: dict) -> tuple[int, int]:
     return bad, total
 
 
+def _snapshot(a, samples: dict, done: dict, prev: dict) -> dict:
+    """샘플 차례대로 끝난 글(done)과 이전 값(prev)을 합친 labels 모양."""
+    works = {k: done.get(k) or prev[k] for k in samples["works"] if k in done or k in prev}
+    labels = {"model": a.model, "repeat": a.repeat, "works": works}
+    labels["errors"], labels["calls"] = count_errors(labels)
+    summary_errors = sum(w.get("summary_errors", 0) for w in works.values())
+    if summary_errors:
+        labels["summary_errors"] = summary_errors
+    return labels
+
+
 def cmd_label(a, llm=None) -> int:
     samples = _read(Path(a.samples))
     keymap = _read(Path(a.samples).parent / "keymap.json")
@@ -217,12 +306,19 @@ def cmd_label(a, llm=None) -> int:
     if a.dry_run:
         print(json.dumps(dry_run(samples, loaded, a.model, a.repeat), ensure_ascii=False, indent=1))
         return 0
+    workers, retries = getattr(a, "workers", 1), getattr(a, "retries", 0)
+    if getattr(a, "timeout", None):
+        os.environ["CANON_LOCAL_TIMEOUT"] = str(a.timeout)
     llm = llm or make_llm(a.model)
     out_dir = Path(a.out).parent
-    works = {k: _label_work(llm, w, loaded[k], out_dir, k, a.repeat) for k, w in samples["works"].items()}
-    labels = {"model": a.model, "repeat": a.repeat, "works": works}
-    bad, total = count_errors(labels)
-    labels["errors"], labels["calls"] = bad, total
+    prev = ((_read(Path(a.out)) or {}).get("works") or {}) if getattr(a, "resume", False) else {}
+    done: dict = {}
+    for k, w in samples["works"].items():
+        old = (prev.get(k) or {}).get("eps") or {}
+        done[k] = _label_work(llm, w, loaded[k], out_dir, k, a.repeat, workers, retries, old)
+        _dump(Path(a.out), _snapshot(a, samples, done, prev))
+    labels = _snapshot(a, samples, done, {})
+    bad, total = labels["errors"], labels["calls"]
     _dump(Path(a.out), labels)
     print(f"호출 {total}번 형식 오류 {bad}번")
     if total and bad / total > ERROR_LIMIT:
@@ -464,6 +560,10 @@ def _parser() -> argparse.ArgumentParser:
     lb.add_argument("--repeat", type=int, default=5)
     lb.add_argument("--dry-run", action="store_true")
     lb.add_argument("--out")
+    lb.add_argument("--workers", type=int, default=1)
+    lb.add_argument("--retries", type=int, default=0)
+    lb.add_argument("--timeout", type=float)
+    lb.add_argument("--resume", action="store_true")
     t = sub.add_parser("table")
     t.add_argument("--labels", required=True)
     t.add_argument("--agree")
