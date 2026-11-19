@@ -1071,3 +1071,36 @@
 - `--agree` 는 `metric_agree.py run --json` 의 `results.all["ident/truth"]` 를 읽어 값 1 의 판정 근거로 찍는다. 없으면 '검증 값 없음'
 - 시험 `tests/test_mind_measure.py`
 - LLM 호출은 `label` 만(가짜 객체로 시험)
+
+### `scripts/mind_run.py`
+
+- 후보 판(`B1` · `B2` · `K` · `D`)마다 작품 사본에 목표 화까지 자동 집필하고 심리 값을 한 표로 보는 도구(목표 `character-mind-continuity` 명세 3)
+- 두 명령: `run` · `table`
+- 원본 작품은 읽기만 한다. 판 폴더는 `<home>/arm-<판>/<작품>` 이다
+- `mind_measure.py` · `mind_cause.py` 는 `importlib` 로 불러 쓴다(동작을 바꾸지 않는다)
+- 출력에는 판 이름 · 화 번호 · 숫자만 찍는다. 작품 이름 · 제목 · 인물 이름 · 본문 · 요약 글 · 멈춘 이유 글을 찍지 않는다
+- `run`: `store.ROOT`(`CANON_HOME`)의 작품을 판 폴더로 복사한다. `autorun.json` 은 빼고 복사한다
+- 판 폴더가 이미 있으면 그대로 두고 이어 쓴다
+- 판 루트가 원본 루트 안이거나 같으면 멈춘다
+- 복사한 뒤 `store.ROOT` 를 판 루트로 바꾸고 끝나면 되돌린다
+- `K` 판은 `prompts.LAYER_STATE_RULE` 의 `K_OLD` 한 줄을 `K_NEW` 로 바꿔 끼운다. `K_OLD` 가 없으면 멈춘다
+- `D` 판은 `CANON_LLM_WRITE` · `CANON_MODEL_WRITE` 를 `coralbricks` · `deepseek-v4.1-flash` 로 정한다
+- `B1` · `B2` 는 아무것도 바꾸지 않는다
+- 판을 바꾼 것은 `arm_env` 를 나올 때 원래 값으로 되돌린다
+- 정책은 `policy()` 한 곳이다. 플롯 자동 확정 · 1~3화 멈춤 끔 · 검수 끔 · 스토리보드 경고로 멈추지 않음
+- 쓰기 백엔드가 mock 이면 멈춘다. mock 으로 돌리려면 `--allow-mock` 을 준다(시험과 연기 시험용)
+- `--dry-run` 은 `autorun.estimate` 로 남은 화 · 토큰 · 비용 · 플롯 없는 화 수만 찍고 LLM 을 부르지 않는다
+- 검토(`review`)에서 멈추면 그 화를 한 번 `approve` 하고 이어 간다. 같은 화에서 다시 멈추면 끝낸다
+- 종료 코드: 0 은 끝남 또는 `--dry-run`, 3 은 멈춤
+- `table`: 판마다 판 폴더의 본문으로 요약 · 라벨을 받고 `mind_cause._ep_values` · `arm_summary` 로 값을 낸다
+- 요약 캐시는 `<판 폴더>/mind_run/summaries.json` 이고 `--summaries` 파일을 복사해 시작한다
+- 라벨 캐시는 `<판 폴더>/mind_run/labels.json` 이다. 성공한 라벨만 저장한다
+- 요약 · 라벨 캐시는 판 폴더에만 둔다
+- `--dry-run` 은 호출 수와 어림 글자 수만 찍는다
+- 판정 규칙은 `R.md` 머리에 값보다 먼저 찍는다
+- 값 1 은 `thought_per_1k` 의 판 평균이고 `floor` 는 `T.json` 레퍼런스 글의 최솟값이다
+- 후보 판은 값 1 이 `floor` 이상이고 (값 1 − B 평균)이 `|B1 − B2|` 보다 크면 통과한다
+- 후보의 `body_per_1k` 나 `style_distance` 가 B 평균보다 그 지표의 흔들림을 넘게 크면 '보조 지표 나빠짐' 이고 통과가 아니다
+- `B1` · `B2` 가 둘 다 없으면 판정은 '못 냄' 이다
+- 통과한 판이 없으면 `R.md` 에 '통과한 판 없음' 줄을 쓴다
+- 시험 `tests/test_mind_run.py`
