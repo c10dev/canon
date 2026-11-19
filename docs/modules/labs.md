@@ -1024,6 +1024,8 @@
 - `P` 판은 요청에서 `P_SENTENCE` 를 한 번 뺀 것이다. 문장이 없는 화는 `S` 처럼 '해당 없음'이다
 - `T` 판은 요청 끝에 `T_LINE` 을 더한 것이다
 - `P` · `T` 는 `--arms` 로 고를 때만 쓴다. 기본 `--arms` 는 `B1 B2 S M` 이다
+- 실제 실행에서 `--write-model stage`(기본)의 쓰기 백엔드가 mock 이면 멈추고 'CANON_LLM 을 주세요' 를 찍는다. 스크립트가 import 때 `CANON_LLM` 기본값을 mock 으로 두기 때문이다
+- mock 으로 돌리려면 `--write-model mock` 을 준다
 - 판마다 요청이 `write_head` 로 시작하는지 `head_kept` 로 적는다
 - 본문은 `pipeline._write` 로 쓰고 `<out>/texts/` 에만 둔다. 요청 글은 파일에 쓰지 않는다
 - 쓰기 실패가 있는 화가 화 수의 반을 넘으면 종료 코드 3

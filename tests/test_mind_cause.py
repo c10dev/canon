@@ -440,6 +440,19 @@ def test_ablate_resume_does_not_rewrite(abl_world, tmp_path):
     assert len(abl_world.calls) == n
 
 
+def test_ablate_stops_when_stage_write_is_mock(abl_world, tmp_path, monkeypatch):
+    monkeypatch.setenv("CANON_LLM", "mock")
+    with pytest.raises(SystemExit, match="CANON_LLM"):
+        mc.cmd_ablate(_abl_args(tmp_path, write_model=mc.WRITE_MODEL), None, LabLLM())
+    assert not (tmp_path / "abl").exists()
+    assert abl_world.calls == []
+
+
+def test_ablate_mock_write_model_is_allowed(abl_world, tmp_path, monkeypatch):
+    monkeypatch.setenv("CANON_LLM", "mock")
+    assert mc.cmd_ablate(_abl_args(tmp_path, write_model="mock"), None, LabLLM()) == 0
+
+
 def test_ablate_dry_run_counts_and_no_llm(abl_world, capsys):
     p = mc.store.load(NAME)
     got = mc.ablate_dry_run(p, [70, 75], list(mc.ARMS), FLASH, FLASH, set())

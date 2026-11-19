@@ -645,6 +645,12 @@ def _write_model_name(a) -> str:
     return a.write_model
 
 
+def _check_write_not_mock(a) -> None:
+    """쓰기 모델이 단계 설정이고 그 백엔드가 mock 이면 멈춘다. mock 으로 돌리려면 --write-model mock 을 준다."""
+    if a.write_model == WRITE_MODEL and settings.stage_provider("write")[0] == "mock":
+        raise SystemExit("쓰기 모델이 mock 이에요. CANON_LLM 을 주세요 (mock 으로 돌리려면 --write-model mock)")
+
+
 def _text_path(out: Path, key: str, n: int, arm: str) -> Path:
     return out / "texts" / f"{key}-{n}-{arm}.txt"
 
@@ -792,6 +798,7 @@ def cmd_ablate(a, write_llm=None, label_llm=None) -> int:
     if a.dry_run:
         print(json.dumps(ablate_dry_run(p, eps, a.arms, a.write_model, a.label_model, _summaries_have(a)), ensure_ascii=False, indent=1))
         return 0
+    _check_write_not_mock(a)
     if a.timeout:
         os.environ["CANON_LOCAL_TIMEOUT"] = str(a.timeout)
     out = Path(a.out)
