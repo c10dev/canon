@@ -995,6 +995,42 @@
 - 시험 `tests/test_studio.py`
 - LLM 호출 없음
 
+### `scripts/mind_cause.py`
+
+- 심리 이어짐이 앞 화에서 이어지지 않는 까닭을 재료 없음 · 있는데 안 씀 · 요청의 줄이 막음으로 가르는 도구(목표 `character-mind-continuity` 명세 2)
+- 다섯 명령: `scan` · `material` · `use` · `ablate` · `table`
+- `store.save` 를 부르지 않고 `--out` 경로에만 쓴다
+- 글 읽기와 모델 호출 도구는 `mind_measure.py` · `trail_measure.py` · `context_measure.py` 를 `importlib` 로 불러 쓴다
+- 출력(JSON · md · 표준 출력)에는 글 키(`C1`, `C2`)만 쓴다. `--keymap` 이 있으면 `mind_measure sample` 의 글 키를 따른다
+- `scan`: 대상 화(스냅샷 있는 화 가운데 4화 이상)마다 요청 글을 다시 짓고 글자 수 · 블록별 글자 수를 센다(LLM 없음)
+- `scan` 이 세는 것: `carry` · `trails` · 사실 줄의 거리별 수 · 감정 상태가 있는 인물 수 · 직전 화 끝 글자 수 · 감정 이름 금지 줄 · 시점 줄
+- 스냅샷이 없는 화는 `unknown` 에 넣고 건너뛴다
+- `scan --samples-out PATH` 는 `mind_measure label --samples` 가 읽는 표본 파일과 같은 폴더의 `keymap.json` 을 만든다
+- 그 폴더의 `keymap.json` 이 이미 있고 내용이 다르면 멈춘다
+- `material`: flash 급 모델이 요청 글에서 앞 화의 일에 기댄 마음 줄(재료)을 찾는다. 응답 형식 `MaterialItems` 에 dict 필드가 없다
+- 재료는 `{block, source_ep, kind}` 만 저장한다. 구절은 받지도 저장하지도 않는다
+- `source_ep` 가 0 이하이거나 그 화 번호 이상이면 None 이다
+- 재료가 `MATERIAL_MAX`(60)개 이상이면 그 칸은 None 이고 `err` 는 `Capped`
+- `--repeat N` 은 글마다 앞 N 화를 한 번 더 매긴다(`again`)
+- `--workers` · `--retries` · `--timeout` · `--max-out` · `--resume` 은 `mind_measure label` 과 같다
+- 형식 오류가 호출의 10% 를 넘으면 종료 코드 2
+- `--dry-run` 은 호출 수 · 글자 수 · 어림 비용만 찍는다
+- `use`: `material.json` 과 `mind_measure label` 의 `labels.json` 을 화 번호(1화 안쪽)로만 맞춘다. 새 호출이 없다
+- 재료 쓰임은 거리 가까움(1~3화, `v2`)과 먼(10화 넘음, `v3`)으로 센다
+- 쓴 재료 비율 · 근거 있는 본문 라벨 몫 · 거리 모름 몫 · 다시 매긴 흔들림을 `U.json` · `U.md` 에 쓴다
+- `--m1` 은 `mind_measure table` 의 `T.json` 이다. 레퍼런스 한 화의 기대 건수를 셈한다
+- `ablate`: 쓰기 모델이 같은 화를 판(`B1` · `B2` · `S` · `M`)마다 다시 쓴다. `X` 는 저장된 본문이다
+- `S` 판은 요청에서 `WRITE_SHIFT_LINE` 을 뺀 것이고 `M` 판은 요청 끝에 `M_LINE` 을 더한 것이다
+- 판마다 요청이 `write_head` 로 시작하는지 `head_kept` 로 적는다
+- 본문은 `pipeline._write` 로 쓰고 `<out>/texts/` 에만 둔다. 요청 글은 파일에 쓰지 않는다
+- 쓰기 실패가 있는 화가 화 수의 반을 넘으면 종료 코드 3
+- 화마다 `thought_per_1k` · `inner_line_share` · `c2` · `c3` · `body_per_1k` · `style_distance` 를 `<out>/ablate.json` 에 쓴다
+- 어림이 4달러를 넘고 `--eps` 가 없으면 3화로 줄인다
+- `table`: 판정 규칙을 `C.md` 머리에 값보다 먼저 찍고 값(v2 · v3)마다 따로 판정한다
+- 판정 줄: 재료 없음 · 있는데 안 씀 · 줄이 막음 · 못 가름 · 옛 길과 지금 길
+- 시험 `tests/test_mind_cause.py`
+- LLM 호출은 `material` · `ablate` 만(가짜 객체로 시험)
+
 ### `scripts/mind_measure.py`
 
 - 인물 심리 이어짐의 세 값을 재는 도구(목표 `character-mind-continuity`). `store.save` 를 부르지 않고 `--out` 폴더에만 쓴다
