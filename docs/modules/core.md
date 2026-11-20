@@ -92,6 +92,9 @@
 - LLM 호출 없음
 - AI 호출은 `pipeline.make_storyboard`, 작가 요청대로 고치기는 `pipeline.revise_storyboard`
 - 두 호출 모두 `pipeline._board_draft` 안에서 출력을 `out_cap(BOARD_OUT_TOKENS)`(16,384토큰)로 막는다
+- AI 응답에서 글이 `CELL_LIMIT`(1,000자)를 넘는 칸(`long_cells`, 칸마다 이름표와 글은 `cells`)
+- `pipeline._board_draft` 는 긴 칸이 있으면 한 번 더 묻고 그래도 있으면 저장하지 않게 오류를 낸다
+- `pipeline.revise_storyboard` 는 고치기 전 스토리보드의 글을 `known` 으로 넘겨 그 글은 길어도 받는다
 - 화면은 `static/board.js`
 
 ### `canon/cancel.py`

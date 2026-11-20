@@ -9,11 +9,11 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from canon import autorun, board, branches, jobs, pipeline, prompts, store
+from canon import autorun, board, branches, jobs, mock, pipeline, prompts, store
 from canon.cli import main
 from canon.mock import MockLLM
 from canon.mock_board import CONFLICT
-from canon.schema import BoardStat, BoardWarning, CharacterState, StatValue, Storyboard, StoryTime
+from canon.schema import BoardHandover, BoardStat, BoardWarning, CharacterState, StatValue, Storyboard, StoryboardDraft, StoryTime
 
 from .jsvm import STATIC, needs_node, run_js
 from .test_web import _wait
@@ -482,3 +482,75 @@ def test_empty_scenes_retry_then_error(demo):
     pipeline.set_storyboard(p, 2, b, by="ai")
     with pytest.raises(RuntimeError, match="장면을 하나도"):
         pipeline.revise_storyboard(_EmptyScenes(2), p, 2, "밤으로")
+
+
+class _LongCell(MockLLM):
+    """처음 k번 응답의 time.part 에 긴 글을 넣는다 (실측: gemini-3.8-flash 가 JSON 전체를 한 칸에 넣었다). empty 면 장면도 비운다."""
+    def __init__(self, k: int, empty: bool = False, target: str = "time"):
+        super().__init__()
+        self.k, self.empty, self.target, self.calls, self.prompts = k, empty, target, 0, []
+
+    def json(self, system, prompt, schema, hint=None):
+        d = super().json(system, prompt, schema, hint)
+        self.calls += 1
+        self.prompts.append(prompt)
+        if self.calls <= self.k:
+            if self.target == "time":
+                d.time.part = "가" * 9444
+            else:
+                d.protect.append("나" * 1100)
+            if self.empty:
+                d.scenes = []
+        return d
+
+
+def test_long_cells_labels():
+    b = Storyboard(scenes=[{"turn": "가" * 1582, "goal": "나" * 1000}], time={"part": "다" * 9444},
+                   handover=[BoardHandover(text="짧은 글"), BoardHandover(text="라" * 1001)])
+    turn = b.scenes[0].turn
+    assert board.long_cells(b) == ["장면 1 전환점 1,582자", "시간 9,444자", "넘겨받을 것 2 1,001자"]
+    assert board.long_cells(b, known=[turn]) == ["시간 9,444자", "넘겨받을 것 2 1,001자"]
+
+
+def test_long_cell_retry_then_error(demo):
+    p = store.load(demo)
+    _written(p, 1)
+    llm = _LongCell(1)
+    b = pipeline.make_storyboard(llm, p, 2)  # 한 칸이 길면 다시 묻는다
+    assert llm.calls == 2 and not board.long_cells(b)
+    assert llm.prompts[1].startswith(llm.prompts[0]) and "너무 긴 글" in llm.prompts[1] and "scenes 가 비어" not in llm.prompts[1]
+    twice = _LongCell(2)
+    with pytest.raises(RuntimeError, match="너무 긴 글"):
+        pipeline.make_storyboard(twice, p, 2)  # 두 번 길면 저장하지 않게 오류
+    assert twice.calls == 2  # 세 번째 호출은 없다
+    both = _LongCell(1, empty=True)  # 실측 모양: 긴 칸 + 장면 0개
+    pipeline.make_storyboard(both, p, 2)
+    assert "scenes 가 비어" in both.prompts[1] and "너무 긴 글" in both.prompts[1]
+
+
+def test_revise_keeps_known_long_cell(demo):
+    p = store.load(demo)
+    _written(p, 1)
+    b = pipeline.make_storyboard(MockLLM(), p, 2)
+    b.protect.append("가" * 1500)
+    pipeline.set_storyboard(p, 2, b)  # 작가가 저장하는 길에는 길이 검사가 없다
+    r = pipeline.revise_storyboard(MockLLM(), p, 2, "밤으로")  # 가짜 응답이 지금 스토리보드를 그대로 옮긴다
+    assert any(len(x) == 1500 for x in r.protect)
+    with pytest.raises(RuntimeError, match="너무 긴 글"):
+        pipeline.revise_storyboard(_LongCell(2, target="protect"), p, 2, "밤으로")  # 새 긴 칸은 받지 않는다
+
+
+def test_autorun_stops_and_keeps_no_leaked_board(demo, monkeypatch):
+    orig = mock.RESPONDERS[StoryboardDraft]
+
+    def leaky(prompt, hint):
+        d = orig(prompt, hint)
+        d.time.part = "가" * 9444
+        return d
+
+    monkeypatch.setitem(mock.RESPONDERS, StoryboardDraft, leaky)
+    run = autorun.start(demo, 3, False, autorun.Policy(hand_pick_opening=False, check=False), foreground=True)
+    assert run.status == "error"
+    assert "너무 긴 글" in " ".join(run.reasons + [x.message for x in run.log])
+    p = store.load(demo)
+    assert p.episode(1).storyboard is None and not p.episode(1).text

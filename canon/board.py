@@ -8,9 +8,12 @@ from __future__ import annotations
 
 import hashlib
 import re
+from collections.abc import Collection, Iterator
+
+from pydantic import BaseModel
 
 from . import statwin, timeline
-from .schema import Episode, Project, StatValue, Storyboard
+from .schema import Episode, Project, StatValue, Storyboard, StoryboardDraft
 
 # 이번 화 플롯과 어긋남: 자동 집필이 멈추는 경고 (다음 화 플롯 경고 next_plot · 설정 setting 은 기록만)
 STOP_KINDS = ("plot_vs_state", "plot_vs_text", "time")
@@ -180,6 +183,54 @@ def window_text(p: Project, step: dict) -> str:
 
 def _num(x: str) -> float:
     return float(x.replace(",", ""))
+
+
+# 스토리보드 응답의 한 칸 글자 수 한도 (pipeline._board_draft 가 넘으면 한 번 더 묻고, 그래도 넘으면 저장하지 않는다).
+# 실측: 2026-11-19 서버에 저장된 스토리보드 155개에서 정상 칸은 가장 길어 285자(scenes[].end_state)다.
+# 점검 메모가 새어 scenes[0].turn 이 1,582자인 스토리보드가 한 건 있었다. 2026-11-03 gemini-3.8-flash 는 JSON 전체를 time.part 한 칸에 9,444자로 넣었다.
+CELL_LIMIT = 1000
+SCENE_CELLS = {"place": "장소", "spot": "자리", "time": "시각", "goal": "목표", "turn": "전환점", "end_state": "끝 상태"}
+_LIST_CELLS = {"stats": "상태창", "stat_basis": "수치 근거", "moves": "이동", "attire": "차림", "handover": "넘겨받을 것",
+               "protect": "깨지 않을 것", "warnings": "어긋남"}
+
+
+def _strings(v) -> Iterator[str]:
+    """값 안의 문자열을 모두 낸다. 목록과 안쪽 모델도 들어가고 숫자 · 불 값은 건너뛴다."""
+    if isinstance(v, str):
+        yield v
+    elif isinstance(v, BaseModel):
+        for k in type(v).model_fields:
+            yield from _strings(getattr(v, k))
+    elif isinstance(v, (list, tuple)):
+        for x in v:
+            yield from _strings(x)
+
+
+def cells(d: StoryboardDraft) -> Iterator[tuple[str, str]]:
+    """스토리보드의 글 칸마다 (이름표, 글). StoryboardDraft 의 칸만 본다 (Storyboard 의 basis · ask · checks 등은 보지 않는다)."""
+    for name in StoryboardDraft.model_fields:
+        v = getattr(d, name)
+        if name == "scenes":
+            for i, sc in enumerate(v, 1):
+                for k, label in SCENE_CELLS.items():
+                    yield f"장면 {i} {label}", getattr(sc, k)
+                for t in sc.present:
+                    yield f"장면 {i} 인물", t
+        elif name == "time":
+            for t in _strings(v):
+                yield "시간", t
+        elif name in _LIST_CELLS:
+            for i, item in enumerate(v, 1):
+                for t in _strings(item):
+                    yield f"{_LIST_CELLS[name]} {i}", t
+        else:
+            for t in _strings(v):
+                yield name, t
+
+
+def long_cells(d: StoryboardDraft, known: Collection[str] = ()) -> list[str]:
+    """글이 CELL_LIMIT 자를 넘는 칸마다 '이름표 1,582자'. known 에 같은 글이 있으면 세지 않는다."""
+    return [f"{label} {len(t):,}자" for label, t in cells(d) if len(t) > CELL_LIMIT and t not in known]
 
 
 def checks(p: Project, n: int, b: Storyboard) -> list[str]:

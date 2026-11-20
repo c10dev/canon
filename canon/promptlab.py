@@ -250,6 +250,23 @@ def inspect(s: PromptSession, obj, r: PromptRun) -> None:
         r.notes = [f"Canon 정리를 검사하지 못했어요: {type(e).__name__}: {e}"]
 
 
+def _board_notes(obj, events: bool) -> list[str]:
+    """스토리보드 응답에 pipeline._board_draft 가 하는 정리와 검사: 빈 장면 빼기, 장면 없음, 긴 칸."""
+    from . import pipeline
+
+    notes: list[str] = []
+    before = len(obj.scenes)
+    pipeline.clean_storyboard(obj)
+    if before > len(obj.scenes):
+        notes.append(f"빈 장면 {before - len(obj.scenes)}개는 Canon이 빼요")
+    if not obj.scenes and events:
+        notes.append("장면이 하나도 없어 Canon은 한 번 더 물어요. 그래도 없으면 저장하지 않아요")
+    long = pipeline.board.long_cells(obj)
+    if long:
+        notes.append(f"한 칸 글이 너무 길어요({', '.join(long[:3])}). Canon은 한 번 더 물어요. 그래도 길면 저장하지 않아요")
+    return notes
+
+
 def canon_notes(src: PromptSource, obj) -> list[str]:
     """실제 경로의 정리 함수를 사본에 돌려 본 결과. 갈래마다 pipeline 과 같은 함수를 쓴다."""
     from . import cue, pipeline
@@ -257,12 +274,7 @@ def canon_notes(src: PromptSource, obj) -> list[str]:
     p, n, kind = _project(src.project), src.n, src.kind
     notes: list[str] = []
     if kind == "storyboard":  # pipeline._board_draft · clean_storyboard
-        before = len(obj.scenes)
-        pipeline.clean_storyboard(obj)
-        if before > len(obj.scenes):
-            notes.append(f"빈 장면 {before - len(obj.scenes)}개는 Canon이 빼요")
-        if not obj.scenes and p.episode(n).plot.events:
-            notes.append("장면이 하나도 없어 Canon은 한 번 더 물어요. 그래도 없으면 저장하지 않아요")
+        notes += _board_notes(obj, bool(p.episode(n).plot.events))
     elif kind == "cue":  # pipeline.make_cue_sheet · cue.clean
         board = p.episode(n).storyboard
         before = len(obj.cues)

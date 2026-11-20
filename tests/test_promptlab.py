@@ -476,3 +476,6 @@ def test_structured_run_is_checked_like_canon(home, monkeypatch):
     _fake_gemini(monkeypatch, json.dumps({"scenes": []}))
     promptlab.load_prompt(s, "storyboard")
     assert "장면이 하나도 없어" in promptlab.run(s)[0].notes[0]
+    _fake_gemini(monkeypatch, json.dumps({"scenes": [{"place": "부두", "turn": "가" * 1200}]}))
+    promptlab.load_prompt(s, "storyboard")
+    assert any("한 칸 글이 너무 길어요" in x for x in promptlab.run(s)[0].notes)

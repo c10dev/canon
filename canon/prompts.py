@@ -4701,6 +4701,12 @@ def board_scenes_retry(events: int) -> str:
             "묘사와 본문 문장은 적지 않으므로 장면 칸에는 일어나는 일의 이름만 적습니다.")
 
 
+def board_cells_retry(cells: list[str], limit: int) -> str:
+    """스토리보드 응답의 한 칸 글이 너무 길 때 다시 물으며 프롬프트 맨 뒤에 붙이는 글 (pipeline._board_draft). 앞부분 캐시를 깨지 않게 뒤에 붙인다."""
+    return (f"\n\n지난 응답에는 너무 긴 글이 든 칸이 있었습니다 ({', '.join(cells[:3])}). 한 칸은 {limit}자를 넘기지 않고 "
+            "그 칸의 값만 적습니다. 다른 칸의 내용 · JSON · 점검 메모를 칸 안에 적지 않습니다.")
+
+
 BOARD_ASK_LIMIT = 2000  # 스토리보드 고치기 요청 글자 수 (web.JobIn.note)
 
 
