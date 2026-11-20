@@ -32,6 +32,7 @@
       "canon/store.py"
     ]
   },
+  "content_rules": [],
   "review_marker": "독립 검수:",
   "approval_marker": "작가 승인:"
 }
