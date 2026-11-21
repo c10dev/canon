@@ -26,7 +26,7 @@ OUT_TOKENS = 450  # 화 카드 하나의 응답 토큰 추정 (2026-11-11 실측
 LINE_MAX = 300  # 사건 줄 · 끝맺음 한 줄의 글자 수
 EVENTS_MAX = 6  # 사건 줄 상한. 줄이 6~8개로 늘면 어긋난 화가 늘었다 (2026-11-11: 10화 중 4화)
 CAST_MAX = 30
-PROVIDERS = ("gemini", "claude", "claude-api", "coralbricks", "local")  # 직접 고를 수 있는 백엔드 (revlab.AI_PROVIDERS 와 같다)
+PROVIDERS = ("gemini", "claude", "claude-api", "coralbricks", "superlinked", "local")  # 직접 고를 수 있는 백엔드 (revlab.AI_PROVIDERS 와 같다)
 
 _lock = threading.Lock()  # digest.json 은 화 하나가 끝날 때마다 읽고 고쳐 쓴다
 

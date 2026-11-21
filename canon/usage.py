@@ -188,7 +188,7 @@ def backend_of(llm: Any) -> Optional[str]:
     """기록할 백엔드 이름. mock 처럼 실제로 부르지 않는 것은 None."""
     name = type(llm).__name__
     return {"GeminiLLM": "gemini", "LocalLLM": "local", "ClaudeCodeLLM": "claude", "ClaudeAPILLM": "claude-api",
-            "CoralLLM": "coralbricks", "LocalJudge": "local"}.get(name)
+            "CoralLLM": "coralbricks", "SuperlinkedLLM": "superlinked", "LocalJudge": "local"}.get(name)
 
 
 # 있을 때만 남기는 칸. turns 턴 수, stop 끝난 이유 (모든 백엔드: STOP · MAX_TOKENS · end_turn · max_tokens · length 등),
@@ -493,6 +493,10 @@ def stage_llm(stage: str) -> tuple[str, str]:
         from .coral import DEFAULT_MODEL
 
         model = settings.coral_model()[0] or DEFAULT_MODEL
+    elif backend == "superlinked":
+        from .superlinked import DEFAULT_MODEL
+
+        model = settings.superlinked_model()[0] or DEFAULT_MODEL
     return backend, model
 
 

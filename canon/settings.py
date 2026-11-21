@@ -32,7 +32,8 @@ DEFAULT_VERTEX_LOCATION = "global"  # 새 Gemini 모델은 global 엔드포인�
 DEFAULT_LOCAL_URL = "http://localhost:11434/v1"  # Ollama. llama.cpp 는 :8080/v1, vLLM 은 :8000/v1
 # claude: 설치된 Claude Code 의 구독 로그인, claude-api: Anthropic API 키 (claude.py)
 # coralbricks: CoralBricks API 키 (coral.py, OpenAI 호환)
-PROVIDERS = ("gemini", "local", "claude", "claude-api", "coralbricks", "mock")
+# superlinked: Superlinked API 키 (superlinked.py, OpenAI 호환)
+PROVIDERS = ("gemini", "local", "claude", "claude-api", "coralbricks", "superlinked", "mock")
 # 단계: plan(설정 제안, 문체 분석, 기승전결, 화별 플롯) / write(본문) / check(검수) / state(상태 추출)
 # / audit(상태 변경안 누락 검사, 작품 설정 state_audit 를 켤 때만, 싼 모델 권장)
 # / name(이름·지명 AI 추천) / revise(본문 부분 수정, 서술 다듬기) / illustration(삽화 프롬프트) / play(플레이 모드 장면)
@@ -368,6 +369,16 @@ def coral_model() -> tuple[str, str]:
     return _pick(("CANON_CORAL_MODEL",), _read().get("coral_model"))
 
 
+def superlinked_key() -> tuple[str, str]:
+    """superlinked 백엔드의 API 키 (console.superlinked.com 에서 발급)."""
+    return _pick(("SUPERLINKED_API_KEY",), _read().get("superlinked_api_key"))
+
+
+def superlinked_model() -> tuple[str, str]:
+    """superlinked 백엔드 기본 모델. 비우면 superlinked.DEFAULT_MODEL."""
+    return _pick(("CANON_SUPERLINKED_MODEL",), _read().get("superlinked_model"))
+
+
 def local_sampling() -> dict:
     """본문 생성용 샘플링 값. 설정 파일의 local_sampling 이 기본값을 덮는다."""
     return {**DEFAULT_SAMPLING, **(_read().get("local_sampling") or {})}
@@ -504,7 +515,9 @@ def update(*, provider: str | None = None, model: str | None = None,
            vertex_credentials: str | None = None, vertex_project: str | None = None,
            vertex_location: str | None = None, stage_efforts: dict[str, str] | None = None,
            claude_separate: bool | None = None, coral_api_key: str | None = None,
-           clear_coral_key: bool = False, coral_model: str | None = None) -> None:
+           clear_coral_key: bool = False, coral_model: str | None = None,
+           superlinked_api_key: str | None = None, clear_superlinked_key: bool = False,
+           superlinked_model: str | None = None) -> None:
     """None 인 값은 그대로 둔다. 빈 문자열이면 파일에서 지운다."""
     bad = [f"{k}={v}" for k, v in (stage_efforts or {}).items() if (v or "").strip() and v.strip().lower() not in EFFORTS]
     if bad:
@@ -520,7 +533,8 @@ def update(*, provider: str | None = None, model: str | None = None,
                            ("anthropic_api_key", anthropic_api_key), ("gemini_auth", gemini_auth),
                            ("vertex_credentials", vertex_credentials), ("vertex_project", vertex_project),
                            ("vertex_location", vertex_location), ("coral_api_key", coral_api_key),
-                           ("coral_model", coral_model)):
+                           ("coral_model", coral_model), ("superlinked_api_key", superlinked_api_key),
+                           ("superlinked_model", superlinked_model)):
             if value is None:
                 continue
             if value.strip():
@@ -533,6 +547,8 @@ def update(*, provider: str | None = None, model: str | None = None,
             data.pop("anthropic_api_key", None)
         if clear_coral_key:
             data.pop("coral_api_key", None)
+        if clear_superlinked_key:
+            data.pop("superlinked_api_key", None)
         if claude_separate is not None:  # 끄면 지운다. 전용 폴더의 로그인은 지우지 않아 다시 켜면 그대로 쓴다
             if claude_separate:
                 data["claude_separate"] = True
@@ -626,14 +642,17 @@ def set_prices(rows: list[dict]) -> None:
 
 def stage_view(preset: dict | None) -> dict[str, dict]:
     """단계마다 실제로 쓰는 백엔드와 모델 이름(비우면 백엔드 기본 모델 이름)과 출처. preset 은 stage_provider 와 같다."""
+    from .superlinked import DEFAULT_MODEL as sl_default
+
     mdl, lmodel, cmodel, crmodel = model()[0], local_model()[0], claude_model()[0], coral_model()[0]
+    slmodel = superlinked_model()[0]
     out = {}
     for s in STAGES:
         sp, ssrc = stage_provider(s, preset)
         sm, smsrc = stage_model(s, preset)
         label = {"gemini": mdl, "local": lmodel or "로컬 서버 모델", "mock": "mock",
                  "claude": cmodel or "Claude Code 기본 모델", "claude-api": cmodel or "claude-opus-5-5",
-                 "coralbricks": crmodel or "deepseek-v4.1-flash"}.get(sp, sp)
+                 "coralbricks": crmodel or "deepseek-v4.1-flash", "superlinked": slmodel or sl_default}.get(sp, sp)
         if sm and sp != "mock":
             label = sm
         eff, esrc = stage_effort(s, preset) if sp in EFFORT_PROVIDERS else ("", "default")
@@ -654,6 +673,8 @@ def public() -> dict:
     akey, akey_src = anthropic_key()
     ckey, ckey_src = coral_key()
     crmodel, crmodel_src = coral_model()
+    slkey, slkey_src = superlinked_key()
+    slmodel, slmodel_src = superlinked_model()
     auth, auth_src = gemini_auth()
     vcred, vcred_src = vertex_credentials()
     vproj, vproj_src = vertex_project()
@@ -698,6 +719,10 @@ def public() -> dict:
         "coral_key_source": ckey_src if ckey else "none",
         "coral_model": crmodel,
         "coral_model_source": crmodel_src,
+        "superlinked_key_hint": f"…{slkey[-4:]}" if len(slkey) >= 8 else ("설정됨" if slkey else ""),
+        "superlinked_key_source": slkey_src if slkey else "none",
+        "superlinked_model": slmodel,
+        "superlinked_model_source": slmodel_src,
         "stages": stages,
         "stage_settings": {k: v for k, v in (_read().get("stages") or {}).items() if k in STAGES},
         "stage_model_settings": {k: v for k, v in (_read().get("stage_models") or {}).items() if k in STAGES},

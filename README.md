@@ -1084,6 +1084,21 @@ export CANON_MODEL_STATE=deepseek-v4.1-flash-value
 - 단계 추론 강도를 정하면 `reasoning_effort` 로 넘긴다. 비우면 추론 없이 답한다.
 - 원문을 서버에 남기지 않으려면 CoralBricks 대시보드의 Data & Privacy 에서 Zero Data Retention 을 켠다.
 
+## Superlinked API (SIE Serverless)
+
+[Superlinked 콘솔](https://console.superlinked.com) 에서 받은 API 키로 SIE Serverless 의 채팅 모델을 부른다. 설정의 **AI 연결 › Superlinked** 에 키를 넣고 **기본 AI**나 **단계별 모델**에서 'Superlinked API' 를 고른다.
+
+```bash
+export SUPERLINKED_API_KEY=...
+export CANON_LLM_STATE=superlinked             # 단계 하나만 맡길 때
+export CANON_SUPERLINKED_MODEL=google/gemma-4-31B-it:h100-96k-hires-out8k-no-spec
+```
+
+- 기본 모델은 `google/gemma-4-31B-it:h100-96k-hires-out8k-no-spec` 이다. 처음 부를 때 모델을 준비하느라 몇 분 걸릴 수 있고, 그동안 기다렸다 다시 부른다.
+- 쓴 만큼 크레딧에서 빠진다. 사용량 화면에는 가격표가 없어 0원으로 보인다.
+- 추론 강도는 받지 않는다.
+- 콘솔의 SIE Relay 가 켜져 있으면 일부 모델은 다른 업체 서버가 답한다.
+
 ## 연구 화면 (모델 실험)
 
 웹 사이드바의 **연구 · 모델 실험**에서 모델을 시험한다. 작품 데이터(`project.json`)는 바꾸지 않고, 결과는 `projects/<이름>/research/log.jsonl` 에 남는다. 블라인드 비교에서 '본문으로 채택'을 켜고 고를 때만 그 화 본문이 바뀐다.

@@ -412,7 +412,7 @@ function refInfoCard() {
 const REF_COLS = [['order', '차례'], ['label', '번호'], ['title', '제목'], ['chars', '글자 수'], ['dialogue', '대사 비율'], ['sentence_len', '문장 평균'], ['paragraph_len', '문단 평균']];
 
 const REF_DIGEST_COLS = [['d_kind', '성격'], ['tension', '긴장'], ['hook', '끝맺음']];
-const REF_AI_NAMES = { gemini: 'Gemini', claude: 'Claude 구독', 'claude-api': 'Claude API', coralbricks: 'CoralBricks', local: '로컬 서버', mock: 'mock' };
+const REF_AI_NAMES = { gemini: 'Gemini', claude: 'Claude 구독', 'claude-api': 'Claude API', coralbricks: 'CoralBricks', superlinked: 'Superlinked', local: '로컬 서버', mock: 'mock' };
 const REF_CORAL_VALUE = 'deepseek-v4.1-flash-value';  // 화 카드에 권하는 싼 모델 (docs/refs/README.md 9장)
 
 const REF_PART = { all: '전체', head: '첫머리', talk: '대사 덩어리', narr: '서술 덩어리', tail: '끝' };  // refsample.PART_NAMES

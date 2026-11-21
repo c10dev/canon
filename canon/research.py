@@ -34,7 +34,7 @@ _RANGE_RE = re.compile(r"(-?\d+(?:\.\d+)?)[^\d~-]{0,10}~\s*(-?\d+(?:\.\d+)?)")
 
 
 # 실험에서 고를 수 있는 백엔드. claude 는 설치된 Claude Code 의 구독 로그인, claude-api 는 Anthropic API 키다 (llm.make_llm)
-PROVIDERS = ("gemini", "local", "claude", "claude-api", "coralbricks", "mock")
+PROVIDERS = ("gemini", "local", "claude", "claude-api", "coralbricks", "superlinked", "mock")
 
 
 class Backend(BaseModel):
@@ -70,6 +70,11 @@ def make_backend(b: Backend, temperature: float | None = None, stage: str = "", 
         return GeminiLLM(model=model or None, effort=effort, temperature=temperature)
     if b.provider in settings.CLAUDE_PROVIDERS or b.provider == "coralbricks":
         return make_llm(b.provider, model or None, effort)
+    if b.provider == "superlinked":  # OpenAI 호환이라 temperature 를 받는다
+        llm = make_llm("superlinked", model or None)
+        if temperature is not None:
+            llm.sampling = {"temperature": temperature}  # type: ignore[attr-defined]
+        return llm
     if b.provider == "mock":
         return make_llm("mock")
     raise ValueError(f"알 수 없는 백엔드: {b.provider} ({' | '.join(PROVIDERS)})")
