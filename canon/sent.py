@@ -71,7 +71,7 @@ def _now() -> str:
 
 def _secrets() -> list[str]:
     out = []
-    for get in (settings.api_key, settings.anthropic_key, settings.local_key):
+    for get in (settings.api_key, settings.anthropic_key, settings.local_key, settings.superlinked_key):
         try:
             v = get()[0]
         except Exception:  # 설정 파일을 못 읽어도 기록은 남긴다 (모양 검사는 그대로 한다)

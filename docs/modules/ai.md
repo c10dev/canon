@@ -234,7 +234,7 @@
   - `CANON_JUDGE`: 판단기(local | mock, `judge.env_choice`)
   - `CANON_JUDGE_MODEL` · `CANON_JUDGE_URL`: 로컬 판단기 서버(비면 로컬 서버 설정)
   - `CANON_JUDGE_WORKERS`: 판단기 동시 요청 수(기본 16, `judge.LocalJudge`)
-  - `CANON_LLM`: gemini | local | claude | claude-api | coralbricks | mock
+  - `CANON_LLM`: gemini | local | claude | claude-api | coralbricks | superlinked | mock
   - `CANON_LLM_<단계>`: 단계별 백엔드(`CANON_LLM_PLAN` · `_BOARD` · `_WRITE` · `_CHECK` · `_STATE` · `_AUDIT` · `_NAME` · `_REVISE` · `_ILLUSTRATION` · `_PLAY` · `_CHAT`, 이름은 `settings.stage_env`)
   - `CANON_LOCAL_KEY` · `CANON_LOCAL_MODEL` · `CANON_LOCAL_URL`: 로컬 서버
   - `CANON_LOCAL_TIMEOUT`: 로컬 서버 응답을 기다리는 초(기본 900, 숫자가 아니거나 0 이하면 기본값, `llm.local_timeout`)
@@ -254,10 +254,12 @@
   - `CANON_RULES`: 정규식 규칙 묶음 폴더(기본 `<CANON_HOME>/.rules`, `regexrules.py`)
   - `CANON_STUDIO`: 문단 연습장 세션 폴더(기본 `<CANON_HOME>/.studio`, `studio.py`)
   - `CANON_STYLES`: 문체 라이브러리 폴더(기본 `<CANON_HOME>/.styles`, `library.py`)
+  - `CANON_SUPERLINKED_MODEL`: Superlinked 모델(기본 `google/gemma-4-31B-it:h100-96k-hires-out8k-no-spec`, `settings.superlinked_model`)
   - `CANON_USAGE`: 사용량 기록 파일(기본 `projects/.usage/usage.jsonl`)
   - `CANON_VERTEX_CREDENTIALS` · `GOOGLE_CLOUD_LOCATION` · `GOOGLE_CLOUD_PROJECT`: Vertex AI 서비스 계정
   - `CORAL_API_KEY`: CoralBricks API 키(`coralbricks` 만 씀, `settings.coral_key`)
   - `GEMINI_API_KEY`: Gemini API 키
+  - `SUPERLINKED_API_KEY`: Superlinked API 키(`superlinked` 만 씀, `settings.superlinked_key`)
 
 ### `canon/mock.py`
 
@@ -304,6 +306,43 @@
   - `mock_studio.py` 문단 연습장
   - `mock_studio.py` 의 AI 안은 카드에 '더 지킬 것'이 있으면 끝에 한 문장을 더한다(지시 연습의 두 판이 갈리게)
 
+### `canon/superlinked.py`
+
+- Superlinked SIE Serverless 추론 API 백엔드(`superlinked`, OpenAI 호환 Chat Completions, 주소 `BASE_URL`)
+- `SuperlinkedLLM` 은 `LocalLLM` 을 이어받아 요청 · 흘려 받기 · 구조화 출력(`response_format` json_schema)을 그대로 쓴다
+- 키는 `SUPERLINKED_API_KEY` 또는 설정 파일 `superlinked_api_key`(`settings.superlinked_key`). 없으면 `MissingKey`
+- 모델은 `CANON_SUPERLINKED_MODEL` 또는 설정 파일 `superlinked_model`(`settings.superlinked_model`). 비우면 `DEFAULT_MODEL`(google/gemma-4-31B-it:h100-96k-hires-out8k-no-spec)
+- 기본 모델은 전용 용량이라 SIE Relay(다른 업체 서버)를 타지 않는다. 처음 부를 때 503 `PROVISIONING` 으로 몇 분 기다릴 수 있다(2026-11-21 실측 약 4분)
+- 추론 강도는 받지 않는다. 샘플링 값도 보내지 않는다(`sampling={}`)
+- `max_tokens` 는 늘 보낸다. 안 보내면 서버가 출력을 1024 토큰에서 끊는다(2026-11-21 실측)
+- 호출자가 준 `max_tokens` 나 `llm._out_cap` 이 있으면 그 값, 없으면 모델 정보(`GET /models/{id}`)의 `max_output_tokens`(없으면 `FALLBACK_OUT` 8192)다
+- 모델 정보를 못 읽었거나 `max_output_tokens` 가 없으면 줄이지 않는다(값이 없을 때만 `FALLBACK_OUT`)
+- 모델의 `max_output_tokens` 를 아는 동안은 어느 값이든 그것을 넘기지 않는다. 서버가 넘는 값을 400 으로 거절한다(2026-11-21 실측: 16384 > 8192)
+- 모델 정보 `info` 는 같은 객체 안에서 모델별로 한 번만 부른다. 실패한 조회는 `INFO_RETRY_S`(60초) 동안만 기억하고 그 뒤 다시 묻는다
+- `_chat` 은 호출마다 `info` 를 한 번만 부르고 한도와 추론 강도에 같이 쓴다
+- `max_tokens` 는 `context_length` − 프롬프트 추정(글자 수 / 1.5) − 1024 도 넘지 않는다. 서버는 프롬프트와 출력을 함께 센다. 바닥은 1024
+- 모델 정보의 `capabilities.reasoning.effort` 에 `none` 이 있으면 `reasoning_effort` 를 `none` 으로 보낸다(호출자가 주면 그 값)
+- 켜 두면 생각이 출력을 다 써 본문이 비어도 크레딧이 빠진다(DeepSeek-V4.1-Flash-1017, 2026-11-21 실측)
+- 응답이 비면(`RuntimeError` 그대로일 때만) '생각 토큰이 출력 한도를 다 썼을 수 있어요' 안내를 붙인다. `OutputCut` · `BadKey` 는 그대로 올린다
+- `check` 는 목록이 아니라 모델 정보(`info`)를 읽을 수 있으면 통과한다. 목록은 컨텍스트로 걸러지고 '<모델>:<프로필>' 이름이 없다
+- 모델 id 는 `urllib.parse.quote(safe="/:")` 로 경로에 붙인다
+- 다시 부르기 `patient`: 429 · 503 에 `Retry-After` 가 있으면 그 초(정수가 아니면 `DEFAULT_WAIT_S`)만큼 기다려 다시 부른다. 기다리기 전에 `cancel.check`
+- 기다림은 `llm._pause` 라 멈추기 신호가 오면 바로 깬다. 깬 뒤 `cancel.check` 를 다시 불러 다시 보내지 않는다
+- `Retry-After: 0` 은 1초로 센다
+- 처음 부른 때부터 `DEADLINE_S`(900초)를 넘기면 그만둔다. 작업이 `llm._wait_cap` 을 걸었으면 그 값이 더 작을 때 그 값이다
+- `X-SIE-Fallback-Error` 가 붙은 오류는 생성이 이미 돌았을 수 있어 다시 보내지 않는다
+- 다시 부르기는 생성(POST)에만 건다. 모델 목록 · 정보(GET)는 설정 화면이 오래 멈추지 않게 한 번만 부른다
+- 오류 안내 `explain`: 401 은 `BadKey`, `THIRD_PARTY_SERVING_DISABLED` 는 SIE Relay 켜기 안내 `RELAY_OFF_HINT`, 나머지는 '로컬 서버' 문구를 Superlinked 로 바꾼다
+- `models` 는 `/v1/models` 의 id 마다 모델 정보를 8개씩 함께 불러 `outputs` 에 `tokens` 가 있고 `guard` 가 아닌 것만 남긴다(임베딩 · OCR 모델을 뺀다)
+- 컨텍스트가 `MIN_CONTEXT`(16384) 보다 작다고 알려진 모델도 뺀다(번역 모델 512 · 4096, Qwen3.5-4B 8192). 모르면 남긴다
+- `context_limit` 은 모델 정보의 `context_length`, `count_tokens` 는 None 이다(`/tokenize` 가 없다)
+- 사용량 백엔드 이름은 `superlinked`(`usage.backend_of`). 기본 가격표에 줄이 없어 비용은 모름이다. 작가가 더한 가격 줄은 쓴다
+- 응답 usage 에 `credits_charged` 칸이 오지만 아직 기록하지 않는다
+- 웹 설정은 `superlinked_api_key` · `clear_superlinked_key` · `superlinked_model`, 화면 값은 `superlinked_key_hint` · `superlinked_key_source` · `superlinked_model` · `superlinked_model_source`
+- 설정 화면의 Superlinked 묶음은 `static/settings.js` 의 `superlinked-key` · `superlinked-model` 줄
+- 상태 점검 `GET /api/config/health` 의 `superlinked`: 이 백엔드를 쓰는 단계가 있을 때 키가 있는지. 없으면 작품 목록이 한 줄로 알린다(`static/home.js`)
+- 시험 `tests/test_superlinked.py`(서버를 부르지 않고 요청 본문 · 다시 부르기 · 설정만 봄)
+
 ### `canon/usage.py`
 
 - AI 사용량과 비용
@@ -314,6 +353,11 @@
 - `collect()` 는 안에서 `record` 한 줄을 목록에 모은다(`_acc`). `copy_context` 로 넘긴 스레드의 호출도 같은 목록에 모인다
 - `totals(rows)` 는 모은 줄의 입력 · 출력(생각 포함) 토큰과 `row_cost` 비용 합이다. 가격을 모르는 줄이 있으면 비용은 None
 - 가격표(`DEFAULT_PRICES` + 설정의 `prices`, 날짜별 `since`)로 볼 때 비용을 계산한다
+- `superlinked` 는 기본 가격표에 줄이 없어 비용을 모름으로 센다. 사용량 화면 이름은 'Superlinked' 이고 가격을 모르는 줄은 화면이 따로 알린다
+- 자동 집필 추정(`autorun.stage_cost`)은 단계 백엔드 · 모델을 `stage_llm` 에서 받아 그 백엔드 가격표 줄로 센다
+- `stage_cost` 와 `row_cost` 는 `UNPRICED` 도 가격표를 찾고 줄이 없으면 None · (None, 0)이다. 합계 · 자동 집필 추정은 None 을 가격 모름으로 센다
+- `UNPRICED`(superlinked)는 돈이 들지만 기본 가격표에 줄이 없는 백엔드다. `PRICE_LOOKUP`(`PRICED` + `UNPRICED`)은 가격표에서 가격을 찾는 백엔드다
+- 레퍼런스 비용 어림(`refdigest` · `refnote`)과 프롬프트 놀이터 비용도 `PRICE_LOOKUP` 으로 찾는다. 줄이 없으면 0원이 아니라 모름(None)이다
 - 기본 가격표는 `PRICES_CHECKED` 에 Google 가격표(`PRICES_URL`)와 Anthropic 가격표(`CLAUDE_PRICES_URL`)에서 옮겼다
 - `Price.cache_write` · `cache_write_1h` 는 5분 · 1시간 캐시에 새로 쓴 입력의 값이다
 - 캐시 쓰기 칸이 비면 입력의 1.25배 · 2배로 친다(Anthropic 가격표의 배율)

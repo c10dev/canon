@@ -143,6 +143,9 @@ def test_ai_choice_follows_plan_stage_or_the_book(client, monkeypatch):
     assert v["follow"]["provider"] == "gemini" and v["coral"] is False
     est = refdigest.estimate(b.id)
     assert 0 < est["calls"] <= 14 and est["priced"] and est["usd"] is not None and est["usd"] < 0.01
+    refdigest.set_ai(b.id, "superlinked", "x/m")
+    est = refdigest.estimate(b.id)
+    assert est["provider"] == "superlinked" and est["usd"] is None and not est["priced"]
     with pytest.raises(ValueError, match="고를 수 없는"):
         refdigest.set_ai(b.id, "mock")
     assert refdigest.set_ai(b.id)["use"]["source"] == "settings"

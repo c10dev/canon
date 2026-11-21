@@ -130,7 +130,7 @@ class Run(BaseModel):
                                   "서버가 다시 시작해도 이어서 다듬는다. 작가가 쓴 본문은 넣지 않는다")
     tokens_in: int = 0
     tokens_out: int = 0
-    cost: float = 0.0
+    cost: Optional[float] = Field(0.0, description="이번 실행의 추정 비용(USD). 가격을 모르는 호출이 하나라도 있으면 None")
     started: str = ""
     updated: str = ""
     log: list[LogEntry] = Field(default_factory=list)
@@ -423,9 +423,9 @@ def _story_reasons(p: Project, delta: StateDelta, policy: Policy, names: dict[st
 
 def stage_cost(stage: str, tin: float, tout: float, batch: bool) -> Optional[float]:
     """단계가 쓰는 모델로 tin/tout 토큰을 쓸 때의 USD. 가격은 사용량 화면과 같은 가격표(usage.prices)를 쓴다.
-    로컬은 0원, 가격표에 없는 Gemini 모델이면 None."""
-    prov = settings.stage_provider(stage)[0]
-    return usage.stage_cost(prov, gemini_model(stage), tin, tout, batch and prov == "gemini" and batchable(stage))
+    로컬은 0원, 가격표에 없는 모델이면 None. 모델은 단계 백엔드의 것이다(usage.stage_llm)."""
+    prov, model = usage.stage_llm(stage)
+    return usage.stage_cost(prov, model, tin, tout, batch and prov == "gemini" and batchable(stage))
 
 
 def gemini_model(stage: str) -> str:
@@ -519,7 +519,7 @@ def estimate(p: Project, target: int, batch: bool, policy: Policy, name: str | N
     for step, (tin, tout) in tokens.items():
         c = stage_cost(step, tin, tout, batch and step != "board")
         if c is None:
-            unpriced.append(gemini_model(step))
+            unpriced.append(usage.stage_llm(step)[1])
         elif cost is not None:
             cost += c
     if unpriced:
@@ -662,10 +662,16 @@ class Runner:
         with self.ctl.lock:
             self.run.tokens_in += tin
             self.run.tokens_out += tout
-            if c:
-                self.run.cost = round(self.run.cost + c, 4)
+            self._add_cost(c)
         return out, dict(step=stage, tokens_in=tin, tokens_out=tout, calls=max(1, len(rows)),
                          seconds=round(time.time() - t, 1), batch=use_batch)
+
+    def _add_cost(self, c: Optional[float]) -> None:
+        """실행 비용에 c 를 더한다. 가격을 모르는 호출(c 가 None)이 한 번이라도 있으면 이번 실행의 비용은 끝까지 None 이다. 호출하는 쪽이 ctl.lock 을 쥔다."""
+        if c is None:
+            self.run.cost = None
+        elif self.run.cost is not None and c:
+            self.run.cost = round(self.run.cost + c, 4)
 
     def loop(self) -> None:
         run = self.run

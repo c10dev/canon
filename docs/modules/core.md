@@ -48,6 +48,8 @@
 - 실행 중 비용은 `usage.totals` 로 사용량 화면과 같은 값(캐시 · 배치 요금)이다. 기록하지 않는 LLM(mock)은 마지막 호출의 `last_usage` 로 짐작한다
 - 로그 줄(`LogEntry`)의 `tokens_out` 은 단계 안 호출의 합이고 `calls` 에 호출 수를 남긴다. 옛 기록은 호출 하나로 읽는다
 - 비용 · 시간 추정(`_measured`)은 지난 로그의 출력 토큰을 호출 수로 나눠 호출 하나의 평균으로 쓴다
+- 가격을 모르는 호출이 한 번이라도 있으면 `Run.cost` 는 None 이고(`Runner._add_cost`) 그 실행은 끝까지 None 이다. 화면은 '가격 모름', 명령줄은 '비용 가격 모름'으로 보인다
+- 추정 비용(`stage_cost`)은 단계 백엔드 · 모델(`usage.stage_llm`)의 가격표 줄로 센다. 줄이 없으면 `unpriced` 에 그 모델 이름을 적는다
 - 추정의 입력 · 출력 토큰은 단계 백엔드 · 모델의 글자 → 토큰 직선(`usage.stage_rate`)으로 센다
 - 추정 결과의 `token_rates` 는 단계마다 쓴 기울기 · 붙는 토큰 · 출처(default · measured · fallback)다
 - 이 작품의 문체 흐름 멈춤(`Policy.max_style_distance`, 0 이면 끔, `anchor.rolling`)

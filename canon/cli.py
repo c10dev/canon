@@ -1637,7 +1637,8 @@ def cmd_auto(a: argparse.Namespace) -> None:
         print(f"상태: {run.status}  ({run.target}화까지, 배치 {'켬' if run.batch else '끔'}, 지금 {run.ep or '-'}화 {run.step})")
         for r in run.reasons:
             print(f"  ! {r}")
-        print(f"토큰 입력 {run.tokens_in:,} / 출력 {run.tokens_out:,}, 비용 약 ${run.cost:.2f}")
+        cost = "비용 가격 모름" if run.cost is None else f"비용 약 ${run.cost:.2f}"
+        print(f"토큰 입력 {run.tokens_in:,} / 출력 {run.tokens_out:,}, {cost}")
         for e in run.log[-15:]:
             print(f"  {e.at[11:19]} [{e.ep or '-'}화] {e.message}")
         return

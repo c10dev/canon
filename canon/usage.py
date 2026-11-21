@@ -72,6 +72,8 @@ DEFAULT_PRICES: list[Price] = [
           batch_input=0.45, batch_output=1.8, note="CoralBricks Fast"),
 ]
 PRICED = ("gemini", "claude-api", "coralbricks")  # 토큰 요금을 매기는 백엔드. 로컬과 Claude 구독은 0원
+UNPRICED = ("superlinked",)  # 돈은 들지만 기본 가격표에 줄이 없는 백엔드. 줄이 없으면 비용은 0원이 아니라 모름(None)이다
+PRICE_LOOKUP = (*PRICED, *UNPRICED)  # 가격표에서 가격을 찾는 백엔드
 
 _ctx: ContextVar[dict] = ContextVar("canon_usage", default={})
 _acc: ContextVar[Optional[list]] = ContextVar("canon_usage_acc", default=None)  # collect() 가 여는 누적기
@@ -188,7 +190,7 @@ def backend_of(llm: Any) -> Optional[str]:
     """기록할 백엔드 이름. mock 처럼 실제로 부르지 않는 것은 None."""
     name = type(llm).__name__
     return {"GeminiLLM": "gemini", "LocalLLM": "local", "ClaudeCodeLLM": "claude", "ClaudeAPILLM": "claude-api",
-            "CoralLLM": "coralbricks", "LocalJudge": "local"}.get(name)
+            "CoralLLM": "coralbricks", "SuperlinkedLLM": "superlinked", "LocalJudge": "local"}.get(name)
 
 
 # 있을 때만 남기는 칸. turns 턴 수, stop 끝난 이유 (모든 백엔드: STOP · MAX_TOKENS · end_turn · max_tokens · length 등),
@@ -493,6 +495,10 @@ def stage_llm(stage: str) -> tuple[str, str]:
         from .coral import DEFAULT_MODEL
 
         model = settings.coral_model()[0] or DEFAULT_MODEL
+    elif backend == "superlinked":
+        from .superlinked import DEFAULT_MODEL
+
+        model = settings.superlinked_model()[0] or DEFAULT_MODEL
     return backend, model
 
 
@@ -587,8 +593,8 @@ def cost(p: Price, tin: float, tout: float, cached: float = 0.0, batch: bool = F
 
 
 def stage_cost(backend: str, model: str, tin: float, tout: float, batch: bool = False) -> Optional[float]:
-    """자동 집필 추정용. 로컬과 Claude 구독은 0, 가격을 모르는 모델이면 None."""
-    if backend not in PRICED:
+    """자동 집필 추정용. 로컬과 Claude 구독은 0, 가격을 모르는 모델(가격표에 줄이 없는 UNPRICED 포함)이면 None."""
+    if backend not in PRICE_LOOKUP:
         return 0.0
     if backend == "claude-api":
         from .claude import api_model
@@ -599,8 +605,8 @@ def stage_cost(backend: str, model: str, tin: float, tout: float, batch: bool = 
 
 
 def row_cost(r: dict, table: list[Price]) -> tuple[Optional[float], float]:
-    """(실제 추정 비용, 배치로 아낀 비용). 가격을 모르면 (None, 0)."""
-    if r.get("backend") not in PRICED:
+    """(실제 추정 비용, 배치로 아낀 비용). 가격을 모르면(가격표에 줄이 없는 UNPRICED 포함) (None, 0)."""
+    if r.get("backend") not in PRICE_LOOKUP:
         return 0.0, 0.0
     p = rate(r.get("model", ""), r.get("at", "")[:10], table)
     if p is None:
@@ -616,7 +622,7 @@ def row_cache(r: dict, table: list[Price]) -> tuple[float, float]:
     """(캐시 읽기로 아낀 비용, 캐시 쓰기 할증). 둘 다 0 이상이고, 캐시로 실제로 아낀 것은 앞에서 뒤를 뺀 값이다.
     아낌 = 캐시 읽기를 입력 값으로 친 비용 − 실제 비용. 할증 = 실제 비용 − 캐시 쓰기를 입력 값으로 친 비용.
     로컬 · Claude 구독(0원) · 가격을 모르는 모델은 (0, 0)."""
-    if r.get("backend") not in PRICED:
+    if r.get("backend") not in PRICE_LOOKUP:
         return 0.0, 0.0
     p = rate(r.get("model", ""), r.get("at", "")[:10], table)
     if p is None:

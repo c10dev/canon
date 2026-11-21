@@ -26,7 +26,7 @@ OUT_TOKENS = 450  # 화 카드 하나의 응답 토큰 추정 (2026-11-11 실측
 LINE_MAX = 300  # 사건 줄 · 끝맺음 한 줄의 글자 수
 EVENTS_MAX = 6  # 사건 줄 상한. 줄이 6~8개로 늘면 어긋난 화가 늘었다 (2026-11-11: 10화 중 4화)
 CAST_MAX = 30
-PROVIDERS = ("gemini", "claude", "claude-api", "coralbricks", "local")  # 직접 고를 수 있는 백엔드 (revlab.AI_PROVIDERS 와 같다)
+PROVIDERS = ("gemini", "claude", "claude-api", "coralbricks", "superlinked", "local")  # 직접 고를 수 있는 백엔드 (revlab.AI_PROVIDERS 와 같다)
 
 _lock = threading.Lock()  # digest.json 은 화 하나가 끝날 때마다 읽고 고쳐 쓴다
 
@@ -159,13 +159,13 @@ def estimate(rid: str) -> dict:
     todo = set(st["todo"])
     c = ai_choice(d)
     model = model_name(c)
-    price = usage.rate(model, date.today().isoformat()) if c["provider"] in usage.PRICED else None
+    price = usage.rate(model, date.today().isoformat()) if c["provider"] in usage.PRICE_LOOKUP else None
     rate = usage.token_rate(c["provider"] if c["provider"] != "mock" else "", model)
     once = {t["basis"]: t for t in texts if t["order"] in todo}  # 글이 같은 화는 한 번만 보낸다
     chars = [len(prompts.ref_digest_prompt(clip(t["text"])[0])) for t in once.values()]
     tin = sum(usage.est_input(n, rate, len(prompts.SYSTEM_REVERSE)) for n in chars)
     tout = OUT_TOKENS * len(chars)
-    free = c["provider"] not in usage.PRICED
+    free = c["provider"] not in usage.PRICE_LOOKUP
     return {"calls": len(chars), "chars": sum(chars), "input_tokens": round(tin), "output_tokens": tout,
             "provider": c["provider"], "model": model, "priced": free or price is not None,
             "usd": 0.0 if free else (round(usage.cost(price, tin, tout, 0, False), 3) if price else None),
@@ -363,7 +363,7 @@ def arcs_estimate(rid: str) -> dict:
     prompt = prompts.ref_arcs_prompt(rows, names)
     rate = usage.token_rate(provider if provider != "mock" else "", model)
     tin = usage.est_input(len(prompt), rate, len(prompts.SYSTEM_REVERSE))
-    free = provider not in usage.PRICED
+    free = provider not in usage.PRICE_LOOKUP
     price = None if free else usage.rate(model, date.today().isoformat())
     return {"episodes": len(rows), "chars": len(prompt), "input_tokens": round(tin), "output_tokens": ARCS_OUT_TOKENS, "provider": provider,
             "model": model, "usd": 0.0 if free else (round(usage.cost(price, tin, ARCS_OUT_TOKENS, 0, False), 3) if price else None),
