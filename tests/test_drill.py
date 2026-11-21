@@ -752,7 +752,8 @@ def test_web_write_round_hides_the_ai_text_until_the_marks_are_saved(client, boo
     assert fin.status_code == 200 and fin.json()["stage"] == "done" and fin.json()["attempts"][0]["next_try"] == "대사 사이에 동작을 넣는다"
     assert client.post(f"{url}/finish", json={}).status_code == 400
     home = client.get("/api/drill").json()
-    assert home["rounds"][0]["mode"] == "write" and home["rounds"][0]["stage"] == "done" and home["modes"]["write"] == "직접 쓰기"
+    mine = next(x for x in home["rounds"] if x["id"] == did)  # 맨 앞의 판은 같은 초에 만든 다른 판일 수 있다
+    assert mine["mode"] == "write" and mine["stage"] == "done" and home["modes"]["write"] == "직접 쓰기"
     assert home["stats"]["write"] == {"rounds": 1, "chars": drill._chars(own), "next_tries": ["대사 사이에 동작을 넣는다"]} and home["stats"]["rounds"] == 0
     drill.update(did, lambda q: setattr(q, "created_at", "2026-11-01T09:00:00"))  # 같은 초에 만든 판은 앞 판으로 보지 않는다
     nxt = client.post("/api/drill", json={"ref_id": book.id, "order": 1, "part": 1, "mode": "write"}).json()
