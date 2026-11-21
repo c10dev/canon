@@ -4305,11 +4305,19 @@ class DrillVerdict(BaseModel):
     why: str = ""
 
 
+class WriteMark(BaseModel):
+    """직접 쓰기 판: 작가가 짚은 곳 하나 (원문이 내 글과 다르게 다룬 곳). 인용은 고를 때만 넣는다."""
+    note: str = Field("", description="원문이 내 글과 다르게 다룬 곳 한 줄")
+    source_quote: str = ""
+    own_quote: str = ""
+
+
 class DrillAttempt(BaseModel):
     """지시 하나로 쓴 두 판과 그 되짚기. 고친 시도(versus)는 고친 지시로 쓴 판(with_text)과 앞 지시로 다시 쓴 판(old_text)을 함께 쓰고,
     지시 없는 판은 앞 시도 것을 옮긴다.
     줄이기 판의 시도는 줄인 지시로 쓴 판(with_text)과 AI가 뽑은 지시로 쓴 판(old_text)이고, 되짚기와 지시 없는 판이 없다.
-    거꾸로 맞히기 판의 시도는 첫째 쓰는 방식으로 쓴 판(with_text)과 둘째로 쓴 판(old_text)이고, pick 의 new 는 맞힘, old 는 틀림이다."""
+    거꾸로 맞히기 판의 시도는 첫째 쓰는 방식으로 쓴 판(with_text)과 둘째로 쓴 판(old_text)이고, pick 의 new 는 맞힘, old 는 틀림이다.
+    직접 쓰기 판의 시도는 작가가 쓴 글(own_text)과 AI 판(bare_text, '가장 뻔한 선택')이고, 작가의 짚기 · 다음에 해 볼 것을 함께 둔다."""
     no: int
     brief: DrillBrief = Field(default_factory=DrillBrief)
     with_text: str = Field("", description="지시 있는 판")
@@ -4327,14 +4335,21 @@ class DrillAttempt(BaseModel):
     flip: bool = Field(False, description="가려 읽기에서 고친 지시로 쓴 판을 왼쪽에 둔다")
     pick: Literal["", "new", "old", "skip"] = Field("", description="가려 읽고 고른 쪽. new 는 고친 지시(줄이기 판은 줄인 지시), old 는 앞 지시(줄이기 판은 AI가 뽑은 지시), skip 은 비슷함")
     picked_at: str = ""
+    own_text: str = Field("", description="직접 쓰기 판: 작가가 쓴 글")
+    own_at: str = ""
+    marks: list[WriteMark] = Field(default_factory=list, description="직접 쓰기 판: 작가의 짚기")
+    marked_at: str = Field("", description="직접 쓰기 판: 짚기를 저장한 때 (빈 목록이어도 채운다)")
+    next_try: str = Field("", description="직접 쓰기 판: 다음엔 해 볼 것")
+    done_at: str = ""
 
 
 class DrillRound(BaseModel):
     """지시 연습 한 판 (<CANON_HOME>/.drill/<id>.json). 작품 데이터가 아니다."""
     id: str
     title: str = ""
-    mode: Literal["", "shrink", "match"] = Field("", description="연습 종류. 빈 값은 지시 적기, shrink 는 줄이기 (AI가 뽑은 지시를 세 줄로 줄인다), "
-                                                  "match 는 거꾸로 맞히기 (쓰는 방식 둘로 쓴 두 글의 짝을 맞힌다)")
+    mode: Literal["", "shrink", "match", "write"] = Field("", description="연습 종류. 빈 값은 지시 적기, shrink 는 줄이기 (AI가 뽑은 지시를 세 줄로 줄인다), "
+                                                          "match 는 거꾸로 맞히기 (쓰는 방식 둘로 쓴 두 글의 짝을 맞힌다), "
+                                                          "write 는 직접 쓰기 (작가가 가린 대목을 직접 쓰고 원문 · AI 판과 견준다)")
     ref_id: str = ""
     ref_name: str = ""
     order: int = Field(0, description="원고의 화 차례 (1부터)")

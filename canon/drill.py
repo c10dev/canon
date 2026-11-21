@@ -7,9 +7,11 @@
 """
 from __future__ import annotations
 
+import math
 import os
 import random
 import re
+import threading
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -17,7 +19,7 @@ from typing import Optional
 
 from . import library, metrics, refdigest, refs, store, studio
 from .schema import (DrillAttempt, DrillBrief, DrillFacts, DrillGap, DrillInvented, DrillLine, DrillPerson, DrillReview, DrillRound,
-                     DrillVerdict, SceneCard, StudioPerson)
+                     DrillVerdict, SceneCard, StudioPerson, WriteMark)
 
 ID_RE = re.compile(r"^[0-9a-f]{8,32}$")
 PASSAGE = 900  # 대목 하나의 글자 수 어림 (줄 경계에서 자른다)
@@ -33,7 +35,12 @@ INVENTED_MAX = 4
 GAPS_MAX = 3
 REVISE_MAX = 1  # 한 판에서 고쳐 쓰는 횟수
 SHRINK_MAX = 3  # 줄이기 판: 줄인 지시의 줄 수 상한
-MODES = {"": "지시 적기", "shrink": "줄이기", "match": "거꾸로 맞히기"}  # 연습 종류: id → 화면 이름
+WRITE_PASSAGE = 450  # 직접 쓰기 판의 대목 글자 수 어림
+WRITE_PASSAGE_MIN = 225  # 직접 쓰기 판: 화 끝에 이보다 짧게 남으면 앞 대목에 붙인다
+WRITE_SLACK = 0.3  # 작가 글 길이는 원문 대목 길이의 ±이만큼 안이어야 낼 수 있다 (공백 뺀 글자)
+WRITE_MARKS_MAX = 5  # 작가가 짚는 곳 수 상한
+WRITE_TRIES = 5  # 기록에 보이는 '다음엔 해 볼 것' 수
+MODES = {"": "지시 적기", "shrink": "줄이기", "match": "거꾸로 맞히기", "write": "직접 쓰기"}  # 연습 종류: id → 화면 이름
 RECENT = 5  # 추세에서 '최근'으로 보는 판 수
 TREND_MAX = 12  # 기록에 보이는 판 수
 QUOTE_MIN = 4  # 인용으로 보는 가장 짧은 글자 수 (공백 · 문장부호 빼고)
@@ -99,6 +106,21 @@ def save(r: DrillRound) -> DrillRound:
     return r
 
 
+_LOCKS: dict[str, threading.Lock] = {}
+_LOCKS_GUARD = threading.Lock()
+
+
+def update(did: str, fn) -> DrillRound:
+    """판을 읽고 fn(r) 로 고치고 저장한다. 같은 판의 update 는 한 번에 하나씩 돈다 (읽은 뒤 다른 쪽이 저장한 것을 덮어쓰지 않게).
+    fn 이 ValueError 를 내면 저장하지 않는다. fn 안에서 update 를 다시 부르지 않는다."""
+    with _LOCKS_GUARD:
+        lock = _LOCKS.setdefault(did, threading.Lock())
+    with lock:
+        r = load(did)
+        fn(r)
+        return save(r)
+
+
 def rounds() -> list[DrillRound]:
     d = root()
     if not d.exists():
@@ -121,18 +143,23 @@ def delete(did: str) -> None:
 
 # ---------- 문제: 원고의 화를 대목으로 나누고 하나를 고른다 ----------
 
-def passages(text: str) -> list[dict]:
-    """화 글을 줄 경계에서 약 PASSAGE 자 대목으로 나눈다 [{start, end, text}] (글자 자리). 같은 글이면 같은 결과다.
-    끝에 PASSAGE_MIN 자보다 짧게 남으면 앞 대목에 붙인다."""
-    cuts, start, size, pos = [], 0, 0, 0
+def _sizes(mode: str) -> tuple[int, int]:
+    """대목 크기 (약 글자 수, 화 끝에 붙이는 최소 글자 수). 직접 쓰기 판은 더 짧게 나눈다."""
+    return (WRITE_PASSAGE, WRITE_PASSAGE_MIN) if mode == "write" else (PASSAGE, PASSAGE_MIN)
+
+
+def passages(text: str, size: int = PASSAGE, min_size: int = PASSAGE_MIN) -> list[dict]:
+    """화 글을 줄 경계에서 약 size(기본 PASSAGE) 자 대목으로 나눈다 [{start, end, text}] (글자 자리). 같은 글이면 같은 결과다.
+    끝에 min_size(기본 PASSAGE_MIN) 자보다 짧게 남으면 앞 대목에 붙인다."""
+    cuts, start, acc, pos = [], 0, 0, 0
     for line in text.split("\n"):
-        size += len(line.strip())
+        acc += len(line.strip())
         pos += len(line) + 1
-        if size >= PASSAGE:
+        if acc >= size:
             cuts.append((start, min(pos, len(text))))
-            start, size = pos, 0
+            start, acc = pos, 0
     if start < len(text) and text[start:].strip():
-        if cuts and size < PASSAGE_MIN:
+        if cuts and acc < min_size:
             cuts[-1] = (cuts[-1][0], len(text))
         else:
             cuts.append((start, len(text)))
@@ -162,15 +189,16 @@ def sources() -> list[dict]:
     return [{"id": b.id, "name": b.name, "eps": len(b.eps)} for b in refs.entries() if b.eps]
 
 
-def episodes(rid: str) -> list[dict]:
-    """원고의 화 목록 (원문 없음): 차례 · 이름 · 글자 수 · 대목 수 · 화 카드의 성격 · 긴장."""
-    return [{"order": e["order"], "label": e["label"], "chars": len(e["text"]), "parts": len(passages(e["text"])), "kind": e["kind"],
+def episodes(rid: str, mode: str = "") -> list[dict]:
+    """원고의 화 목록 (원문 없음): 차례 · 이름 · 글자 수 · 대목 수(연습 종류 mode 의 크기로 센다) · 화 카드의 성격 · 긴장."""
+    size, low = _sizes(mode)
+    return [{"order": e["order"], "label": e["label"], "chars": len(e["text"]), "parts": len(passages(e["text"], size, low)), "kind": e["kind"],
              "tension": e["tension"]} for e in _episodes(rid)]
 
 
-def pick(rid: str, order: int = 0, part: int = 0, kind: str = "", tension: int = 0, rng: Optional[random.Random] = None) -> dict:
+def pick(rid: str, order: int = 0, part: int = 0, kind: str = "", tension: int = 0, rng: Optional[random.Random] = None, mode: str = "") -> dict:
     """대목 하나를 고른다 {order, label, part, parts, text, lead}. order · part 가 0 이면 도구가 고른다:
-    화는 화 카드의 성격(kind) · 긴장(tension 이상)에 맞는 것 가운데, 대목은 대사 비율이 DIALOGUE 안인 것 가운데 무작위."""
+    화는 화 카드의 성격(kind) · 긴장(tension 이상)에 맞는 것 가운데, 대목은 대사 비율이 DIALOGUE 안인 것 가운데 무작위. 대목 크기는 mode 로 정한다(_sizes)."""
     rng = rng or random.Random()
     eps = _episodes(rid)
     if not eps:
@@ -184,7 +212,7 @@ def pick(rid: str, order: int = 0, part: int = 0, kind: str = "", tension: int =
         if not pool:
             raise ValueError("고른 성격 · 긴장에 맞는 화가 없어요. 조건을 풀거나 레퍼런스 원고에서 화 카드를 먼저 읽히세요")
         ep = rng.choice(pool)
-    ps = passages(ep["text"])
+    ps = passages(ep["text"], *_sizes(mode))
     if not ps:
         raise ValueError("그 화에는 글이 없어요")
     if part:
@@ -207,7 +235,7 @@ def create(rid: str, order: int = 0, part: int = 0, kind: str = "", tension: int
     b = refs.load(rid)
     if style_id and not library.exists(style_id):
         raise ValueError("고른 문체를 문체 라이브러리에서 찾지 못했어요. 다른 문체를 고르세요")
-    x = pick(rid, order, part, kind, tension, rng)
+    x = pick(rid, order, part, kind, tension, rng, mode=mode)
     title = f"{b.name} {x['label'] or str(x['order']) + '번째 화'} · 대목 {x['part']}/{x['parts']}"
     return save(DrillRound(id=uuid.uuid4().hex[:12], title=title[:TITLE_MAX], mode=mode, ref_id=b.id, ref_name=b.name, order=x["order"], ep_label=x["label"],
                            part=x["part"], parts=x["parts"], source=x["text"], lead=x["lead"], style_id=style_id))
@@ -246,9 +274,16 @@ def facts_brief(f: Optional[DrillFacts]) -> DrillBrief:
                       before=f.before, inner="\n".join(f.inner), events="\n".join(f.events))
 
 
+def can_edit_facts(r: DrillRound) -> None:
+    """직접 쓰기 판은 글을 낸 뒤 사실을 고치거나 다시 뽑지 않는다 (낸 글이 어떤 사실로 쓴 것인지 남겨야 한다)."""
+    if r.mode == "write" and r.attempts:
+        raise ValueError("글을 낸 뒤에는 사실을 고칠 수 없어요")
+
+
 def set_facts(r: DrillRound, f: DrillFacts, model: str = "") -> None:
     """뽑은 사실을 남긴다. 작가가 사실 · 일어나는 일 칸을 아직 고치지 않았으면 그 칸도 새 값으로 채운다 (쓰는 방식은 그대로).
-    줄이기 판은 인물 · 시점 · 장소 · 때만 채우고, 줄일 칸(SHRUNK)은 작가가 적은 것을 둔다."""
+    줄이기 판은 인물 · 시점 · 장소 · 때만 채우고, 줄일 칸(SHRUNK)은 작가가 적은 것을 둔다. 글을 낸 직접 쓰기 판은 막는다."""
+    can_edit_facts(r)
     if r.mode == "shrink":
         r.facts, r.facts_model = clean_facts(f, r.source, r.lead), model
         r.brief = facts_brief(r.facts).model_copy(update={"before": "", "inner": "", "events": r.brief.events})
@@ -373,6 +408,109 @@ def add_attempt(r: DrillRound, b: DrillBrief, with_text: str, bare_text: str, mo
                      bare_text=bare_text.strip(), model=model, at=_now())
     r.attempts.append(a)
     return a
+
+
+# ---------- 직접 쓰기: 작가가 가린 대목을 쓰고, 원문을 보며 짚고, AI 판('가장 뻔한 선택')과 견준다 (docs/drill/write.md) ----------
+
+def _chars(t: str) -> int:
+    """공백을 뺀 글자 수."""
+    return len(re.sub(r"\s", "", t))
+
+
+def write_range(r: DrillRound) -> tuple[int, int]:
+    """작가 글의 허용 글자 수 (아래, 위). 원문 대목의 공백 뺀 글자 수 n 의 ±WRITE_SLACK 이다."""
+    n = _chars(r.source)
+    return math.floor(round(n * (1 - WRITE_SLACK), 6)), math.ceil(round(n * (1 + WRITE_SLACK), 6))
+
+
+def write_brief(b: DrillBrief) -> DrillBrief:
+    """직접 쓰기 판의 지시: 쓰는 방식 칸을 비우고 나머지를 다듬는다 (정한 것 5)."""
+    return clean_brief(b.model_copy(update={k: "" for k in METHOD}))
+
+
+def can_submit(r: DrillRound, b: DrillBrief, text: str) -> None:
+    """글을 낼 수 있는지 본다: 직접 쓰기 판이고, 아직 내지 않았고(한 판에 시도 하나), 일어나는 일이 있고,
+    글자 수가 허용 범위 안이고, 사실 · 일어나는 일 칸에 원문 문장(대목 · 앞부분)이 들어 있지 않다."""
+    if r.mode != "write":
+        raise ValueError("직접 쓰기 판이 아니에요")
+    if r.attempts:
+        raise ValueError("이 판은 이미 글을 냈어요. 새 판을 시작하세요")
+    if r.facts is None:
+        raise ValueError("먼저 사실을 뽑으세요")
+    if not _lines(b.events):
+        raise ValueError("일어나는 일을 한 줄은 적으세요")
+    lo, hi = write_range(r)
+    n = _chars(text)
+    if not lo <= n <= hi:
+        raise ValueError(f"글은 공백을 빼고 {lo}~{hi}자로 써 주세요. 지금 {n}자예요")
+    for k in BOXES:
+        if k not in METHOD and _copied(getattr(b, k), r.source, r.lead):
+            raise ValueError(f"'{BOXES[k]}' 칸에 원문 문장이 그대로 들어 있어요. 자기 말로 바꿔 적으세요")
+
+
+def add_own(r: DrillRound, b: DrillBrief, text: str) -> DrillAttempt:
+    """작가가 쓴 글을 시도로 남긴다. 그때의 지시는 쓰는 방식 칸을 비워 둔다."""
+    a = DrillAttempt(no=1, brief=write_brief(b), own_text=text.strip(), own_at=_now())
+    r.attempts.append(a)
+    return a
+
+
+def set_ai_text(r: DrillRound, text: str, model: str = "") -> None:
+    """AI 판을 남긴다. 시도의 bare_text 와 model 만 채운다 (작가의 글 · 짚기는 건드리지 않는다)."""
+    a = r.attempts[-1] if r.attempts else None
+    if a is None or not a.own_text:
+        raise ValueError("먼저 글을 내세요")
+    a.bare_text, a.model = text.strip(), model
+
+
+def set_marks(r: DrillRound, marks: list[WriteMark]) -> DrillAttempt:
+    """작가의 짚기를 남긴다 (빈 목록도 된다). 글을 낸 뒤 한 번만, 다섯 개까지. 한 줄 글은 꼭 있어야 하고,
+    넣은 인용은 원문 · 내 글에 글자 그대로 있어야 한다."""
+    a = r.attempts[-1] if r.attempts else None
+    if a is None or not a.own_text:
+        raise ValueError("먼저 글을 내세요")
+    if a.marked_at:
+        raise ValueError("짚기는 한 번만 저장해요")
+    if len(marks) > WRITE_MARKS_MAX:
+        raise ValueError(f"짚기는 {WRITE_MARKS_MAX}개까지예요. 지금 {len(marks)}개예요")
+    out = []
+    for i, m in enumerate(marks, 1):
+        note = " ".join(m.note.split())[:LINE_MAX]
+        if not note:
+            raise ValueError(f"{i}번째 짚기에 한 줄 글을 적으세요")
+        sq, oq = m.source_quote.strip(), m.own_quote.strip()
+        if any(q and len(_flat(q)) < QUOTE_MIN for q in (sq, oq)):
+            raise ValueError(f"{i}번째 짚기의 인용은 공백과 문장부호를 빼고 {QUOTE_MIN}자 이상이에요")
+        if sq and not quoted(sq, r.source):
+            raise ValueError(f"{i}번째 짚기의 원문 인용이 원문에 없어요")
+        if oq and not quoted(oq, a.own_text):
+            raise ValueError(f"{i}번째 짚기의 내 글 인용이 내 글에 없어요")
+        out.append(WriteMark(note=note, source_quote=sq, own_quote=oq))
+    a.marks, a.marked_at = out, _now()
+    return a
+
+
+def finish(r: DrillRound, next_try: str) -> DrillAttempt:
+    """판을 끝낸다: '다음엔 해 볼 것' 한 줄(비워도 된다)을 남긴다. 짚기를 저장한 뒤 한 번만."""
+    a = r.attempts[-1] if r.attempts else None
+    if a is None or not a.marked_at:
+        raise ValueError("먼저 짚기를 저장하세요")
+    if a.done_at:
+        raise ValueError("이미 끝낸 판이에요")
+    a.next_try, a.done_at = " ".join(next_try.split())[:LINE_MAX], _now()
+    return a
+
+
+def _done_writes(rs: list[DrillRound]) -> list[DrillRound]:
+    """끝낸 직접 쓰기 판, 만든 때 가장 최근 것부터."""
+    return sorted((r for r in rs if r.mode == "write" and r.attempts and r.attempts[-1].done_at), key=lambda r: r.created_at, reverse=True)
+
+
+def last_next_try(rs: list[DrillRound], exclude: str = "", before: str = "") -> str:
+    """앞 직접 쓰기 판들의 '다음엔 해 볼 것' 가운데 가장 최근(끝낸 때 기준) 것 하나. id 가 exclude 인 판은 빼고,
+    before 가 있으면 그보다 먼저 만든 판만 본다. 없으면 빈 글."""
+    ok = [r for r in _done_writes(rs) if r.id != exclude and r.attempts[-1].next_try and (not before or r.created_at < before)]
+    return max(ok, key=lambda r: r.attempts[-1].done_at).attempts[-1].next_try if ok else ""
 
 
 # ---------- 줄이기: AI가 뽑은 지시를 세 줄로 줄여 쓰고, 뽑은 지시로 쓴 글과 가려 놓고 고른다 ----------
@@ -563,7 +701,13 @@ def style_name(r: DrillRound) -> str:
 
 def stage(r: DrillRound) -> str:
     """판이 어디까지 왔나: facts(사실을 뽑기 전) · brief(지시를 적는 중) · written(두 판을 씀) · reviewed(되짚음)
-    · pick(고쳐 쓴 판을 가려 놓고 고르는 중) · done(고름)."""
+    · pick(고쳐 쓴 판을 가려 놓고 고르는 중) · done(고름).
+    직접 쓰기 판은 facts · writing(글을 내기 전) · marking(짚는 중) · compare(짚은 뒤, 판을 끝내기 전) · done."""
+    if r.mode == "write":
+        a = r.attempts[-1] if r.attempts else None
+        if a is None:
+            return "writing" if r.facts else "facts"
+        return "done" if a.done_at else "compare" if a.marked_at else "marking"
     if r.attempts:
         a = r.attempts[-1]
         if a.old_text:
@@ -572,10 +716,42 @@ def stage(r: DrillRound) -> str:
     return "brief" if r.facts else "facts"
 
 
+def _measure_write(text: str, card: SceneCard, st) -> dict:
+    """직접 쓰기 판의 글 하나의 지표: studio.measure 에 지문 1천 자당 몸 낱말 · 감정 낱말을 더한다 (없으면 None)."""
+    rd = lambda x: None if x is None else round(x, 1)  # noqa: E731
+    return {**studio.measure(text, card, st), "body_per_1k": rd(metrics.body_per_1k(text)), "emotion_per_1k": rd(metrics.emotion_per_1k(text))}
+
+
+def _write_view(r: DrillRound) -> dict:
+    """직접 쓰기 판의 화면 판. 원문은 짚는 단계부터, AI 판과 그 지표는 짚기를 저장한 뒤에만 싣는다 (정한 것 7 · 12). 앞부분(lead)은 싣지 않는다."""
+    st = stage(r)
+    seen_source = st in ("marking", "compare", "done")
+    seen_ai = st in ("compare", "done")
+    card = SceneCard(length=max(studio.LENGTH[0], min(studio.LENGTH[1], len(r.source))), style_id=r.style_id if style_name(r) else "")
+    sty = studio.style_of(card)
+    out = r.model_dump(exclude={"source", "lead"})
+    a = r.attempts[-1] if r.attempts else None
+    ready = bool(a and a.bare_text)
+    measures: dict = {}
+    if a:
+        if not seen_ai:
+            out["attempts"][-1]["bare_text"] = ""
+        measures["own"] = _measure_write(a.own_text, card, sty)
+        if seen_source:
+            measures["source"] = _measure_write(r.source, card, sty)
+        if seen_ai and ready:
+            measures["ai"] = _measure_write(a.bare_text, card, sty)
+    return {**out, "source": r.source if seen_source else "", "source_chars": len(r.source), "revealed": seen_source, "stage": st,
+            "style_name": style_name(r), "base": facts_brief(r.facts).model_dump(), "measures": measures, "write_range": list(write_range(r)),
+            "next_try_prev": last_next_try(rounds(), exclude=r.id, before=r.created_at), "quote_min": QUOTE_MIN, "ai_ready": ready, "marks_max": WRITE_MARKS_MAX}
+
+
 def view(r: DrillRound) -> dict:
     """화면에 보내는 판. 원문 대목은 두 판을 쓴 뒤에만 싣고, 앞부분(lead)은 싣지 않는다. 판마다 문단 지표(studio.measure)를 붙인다.
     고쳐 쓴 판을 고르기 전에는 그 시도의 글 · 되짚기 · 왼쪽 오른쪽 차례를 빼고, 가려 읽을 두 글(blind)만 싣는다.
     줄이기 판은 고른 뒤에만 원문을 싣는다 (고르기 전에 원문을 보면 원문과 닮은 쪽을 고르게 된다)."""
+    if r.mode == "write":
+        return _write_view(r)
     shown = any(a is not pending(r) for a in r.attempts)
     card = SceneCard(length=max(studio.LENGTH[0], min(studio.LENGTH[1], len(r.source))), style_id=r.style_id if style_name(r) else "")
     st = studio.style_of(card)
@@ -600,7 +776,7 @@ def view(r: DrillRound) -> dict:
 
 
 def summary(r: DrillRound) -> dict:
-    a = next((x for x in reversed(r.attempts) if x is not pending(r)), None)
+    a = None if r.mode == "write" else next((x for x in reversed(r.attempts) if x is not pending(r)), None)  # 직접 쓰기 판은 줄 판정이 없다
     last = r.attempts[-1] if r.attempts else None
     return {"id": r.id, "title": r.title, "mode": r.mode, "stage": stage(r), "style_id": r.style_id, "style_name": style_name(r), "lines": len(a.verdicts) if a else 0,
             "results": {k: sum(v.result == k for v in a.verdicts) for k in RESULTS} if a else {}, "pick": last.pick if last else "",
@@ -612,6 +788,13 @@ def summary(r: DrillRound) -> dict:
 def _worked(v: DrillVerdict) -> bool:
     """먹힌 줄: 반영됐고 지시 없는 판과 달랐다 (지시가 글을 바꿨다)."""
     return v.result == "applied" and not v.in_bare
+
+
+def _write_stats(rs: list[DrillRound]) -> dict:
+    """직접 쓰기 판의 기록: 끝낸 판 수, 낸 글의 글자 수 합, 최근 '다음엔 해 볼 것' 다섯 개 (층 기록에 넣지 않는다, 정한 것 26)."""
+    done = _done_writes(rs)
+    chars = sum(_chars(r.attempts[-1].own_text) for r in rs if r.mode == "write" and r.attempts)
+    return {"rounds": len(done), "chars": chars, "next_tries": [r.attempts[-1].next_try for r in done if r.attempts[-1].next_try][:WRITE_TRIES]}
 
 
 def stats(rs: list[DrillRound]) -> dict:
@@ -645,10 +828,10 @@ def stats(rs: list[DrillRound]) -> dict:
     total = sum(x["lines"] for x in layer.values())
     rate = lambda xs: round(sum(x["worked"] for x in xs) / n, 3) if (n := sum(x["judged"] for x in xs)) else None  # noqa: E731
     # 변형 연습 판에서 고른 쪽: 줄이기는 new 가 줄인 지시, 거꾸로 맞히기는 new 가 맞힘
-    other = {m: {"new": 0, "old": 0, "skip": 0} for m in MODES if m}
+    other = {m: {"new": 0, "old": 0, "skip": 0} for m in MODES if m and m != "write"}
     for r in rs:
-        if r.mode and r.attempts and r.attempts[-1].pick:
+        if r.mode in other and r.attempts and r.attempts[-1].pick:
             other[r.mode][r.attempts[-1].pick] += 1
-    return {"rounds": len(done), "lines": total, "worked": rate(rows), "picks": picks, **other, "recent_n": RECENT,
+    return {"rounds": len(done), "lines": total, "worked": rate(rows), "picks": picks, **other, "write": _write_stats(rs), "recent_n": RECENT,
             "layers": [{**x, "share": round(x["lines"] / total, 3) if total else 0.0} for x in layer.values()],
             "recent": rate(rows[-RECENT:]), "before": rate(rows[:-RECENT]), "trend": rows[-TREND_MAX:][::-1]}

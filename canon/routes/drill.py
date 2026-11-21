@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from .. import cancel, drill, jobs, pipeline, usage
 from ..llm import get_llm
-from ..schema import REF_DIGEST_KINDS, DrillBrief, DrillRound
+from ..schema import REF_DIGEST_KINDS, DrillBrief, DrillRound, WriteMark
 
 router = APIRouter()
 
@@ -27,7 +27,7 @@ class DrillIn(BaseModel):
     kind: str = ""  # 도구가 고를 때: 화 카드의 성격
     tension: int = 0  # 도구가 고를 때: 화 카드의 긴장 (이상)
     style_id: str = ""
-    mode: Literal["", "shrink", "match"] = ""  # 연습 종류 (drill.MODES)
+    mode: Literal["", "shrink", "match", "write"] = ""  # 연습 종류 (drill.MODES)
 
 
 class DrillEdit(BaseModel):
@@ -39,8 +39,21 @@ class DrillPick(BaseModel):
     side: Literal["left", "right", "skip"]
 
 
+class WriteSubmit(BaseModel):
+    brief: DrillBrief
+    text: str
+
+
+class WriteMarks(BaseModel):
+    marks: list[WriteMark] = []
+
+
+class WriteFinish(BaseModel):
+    next_try: str = ""
+
+
 class DrillJobIn(BaseModel):
-    kind: Literal["facts", "write", "review", "revise", "shrink", "match"]
+    kind: Literal["facts", "write", "review", "revise", "shrink", "match", "ai_write"]
     no: int = 0  # review: 되짚을 시도 번호. 0 이면 마지막 시도
 
 
@@ -59,10 +72,10 @@ def list_drill() -> dict:
 
 
 @router.get("/api/drill/sources/{rid}")
-def drill_source(rid: str) -> dict:
-    """원고의 화 목록 (원문 없음). 작가가 화와 대목 번호를 직접 고를 때 쓴다."""
+def drill_source(rid: str, mode: str = "") -> dict:
+    """원고의 화 목록 (원문 없음). 작가가 화와 대목 번호를 직접 고를 때 쓴다. 대목 수는 연습 종류(mode)의 크기로 센다."""
     try:
-        return {"episodes": drill.episodes(rid)}
+        return {"episodes": drill.episodes(rid, mode)}
     except KeyError as e:
         raise HTTPException(404, str(e.args[0])) from None
 
@@ -83,11 +96,14 @@ def get_drill(did: str) -> dict:
 @router.put("/api/drill/{did}")
 def put_drill(did: str, body: DrillEdit) -> dict:
     """작가가 고친 지시를 남긴다. 쓰는 방식이 줄 수 상한을 넘으면 막는다 (ValueError → 400)."""
-    r = _drill(did)
-    r.brief = drill.clean_brief(body.brief)
-    if body.rival is not None and r.mode == "match" and not r.attempts:  # 쓴 뒤에는 둘째 쓰는 방식을 바꾸지 않는다 (맞힌 짝이 달라진다)
-        r.rival = drill.clean_rival(body.rival)
-    return drill.view(drill.save(r))
+    _drill(did)
+
+    def fn(r: DrillRound) -> None:
+        drill.can_edit_facts(r)
+        r.brief = drill.write_brief(body.brief) if r.mode == "write" else drill.clean_brief(body.brief)  # 직접 쓰기 판은 쓰는 방식 칸을 받지 않는다
+        if body.rival is not None and r.mode == "match" and not r.attempts:  # 쓴 뒤에는 둘째 쓰는 방식을 바꾸지 않는다 (맞힌 짝이 달라진다)
+            r.rival = drill.clean_rival(body.rival)
+    return drill.view(drill.update(did, fn))
 
 
 @router.post("/api/drill/{did}/pick")
@@ -96,6 +112,40 @@ def pick_drill(did: str, body: DrillPick) -> dict:
     r = _drill(did)
     drill.pick_side(r, body.side)
     return drill.view(drill.save(r))
+
+
+@router.post("/api/drill/{did}/submit")
+def submit_drill(did: str, body: WriteSubmit) -> dict:
+    """직접 쓰기 판: 작가의 글을 낸다. 낸 순간 AI 판 쓰기(작업 ai_write)가 뒤에서 시작한다. 작업을 시작하지 못해도 글은 남고, 화면이 다시 쓰기를 권한다."""
+    _drill(did)
+
+    def fn(r: DrillRound) -> None:
+        b = drill.write_brief(body.brief)
+        drill.can_submit(r, b, body.text)
+        drill.add_own(r, b, body.text)
+        r.brief = b
+    r = drill.update(did, fn)
+    job = None
+    try:
+        fn, label, total = _ai_write_job(did, r, r.title or "지시 연습")
+        job = _run_job("dr_ai_write", label, fn, total, did)
+    except Exception:  # 글은 남았다. 화면의 '다시 쓰기'가 같은 작업을 다시 보낸다
+        logging.getLogger("canon").exception("지시 연습 %s AI 판 쓰기 시작 실패", did)
+    return {**drill.view(r), "job": job}
+
+
+@router.post("/api/drill/{did}/marks")
+def marks_drill(did: str, body: WriteMarks) -> dict:
+    """직접 쓰기 판: 작가의 짚기를 저장한다 (빈 목록도 된다). 저장하면 AI 판이 보인다."""
+    _drill(did)
+    return drill.view(drill.update(did, lambda r: drill.set_marks(r, body.marks)))
+
+
+@router.post("/api/drill/{did}/finish")
+def finish_drill(did: str, body: WriteFinish) -> dict:
+    """직접 쓰기 판: '다음엔 해 볼 것'을 남기고 판을 끝낸다."""
+    _drill(did)
+    return drill.view(drill.update(did, lambda r: drill.finish(r, body.next_try)))
 
 
 @router.delete("/api/drill/{did}")
@@ -117,6 +167,36 @@ def _review(did: str, no: int, llm) -> bool:
     return True
 
 
+def _ai_write_job(did: str, r: DrillRound, name: str):
+    """직접 쓰기 판의 AI 판 쓰기 작업 (fn, label, total). 사실 · 일어나는 일만 담은 카드(쓰는 방식 없음, 원문 없음)로 한 번 쓴다.
+    결과는 drill.update 로 남긴다: 같은 판의 저장과 한 번에 하나씩 돌고, 판을 다시 읽어 AI 판만 채우므로 그 사이 저장한 짚기를 덮지 않는다."""
+    if r.mode != "write":
+        raise ValueError("직접 쓰기 판이 아니에요")
+    a = r.attempts[-1] if r.attempts else None
+    if a is None or not a.own_text:
+        raise ValueError("먼저 글을 내세요")
+    if a.bare_text:
+        raise ValueError("AI 판을 이미 썼어요")
+    card = drill.card_of(r, a.brief, bare=True)
+    llm = get_llm("write")
+    model = getattr(llm, "model", "") or ""
+
+    def fn(job: jobs.Job):
+        text = pipeline.draft_paragraph(llm, card, 1)[0].text
+        drill.update(did, lambda q: drill.set_ai_text(q, text, model))  # 읽고 고치고 저장하는 사이 다른 저장이 끼지 않는다
+        return {"id": did}
+    return fn, f"{name} · AI 판 쓰기", 1
+
+
+def _run_job(kind: str, label: str, fn, total: int, did: str) -> dict:
+    """작업을 시작한다. 같은 판에서 이미 도는 같은 작업이 있으면 그 작업에 already 를 달아 돌려준다."""
+    try:
+        with usage.scope(project="", episode=None, task="drill"):
+            return jobs.start(DR_JOBS, kind, None, label, fn, total=total, target=did).public()
+    except jobs.Busy as b:
+        return {**b.job.public(), "already": True}
+
+
 @router.post("/api/drill/{did}/jobs")
 def drill_job(did: str, body: DrillJobIn) -> dict:
     """지시 연습의 AI 호출을 작업으로 돌린다 (작업 종류 dr_<kind>, 대상은 판 id).
@@ -129,15 +209,14 @@ def drill_job(did: str, body: DrillJobIn) -> dict:
     name = r.title or "지시 연습"
     kind = f"dr_{body.kind}"
     if body.kind == "facts":
+        drill.can_edit_facts(r)
         llm = get_llm("plan")
         source, lead, label, total = r.source, r.lead, f"{name} · 사실 뽑기", 1
 
         def fn(job: jobs.Job):
             f = pipeline.drill_facts(llm, source, lead)
-            q = drill.load(did)
-            drill.set_facts(q, f, getattr(llm, "model", "") or "")
-            drill.save(q)
-            return {"id": did, "events": len(q.facts.events)}
+            q = drill.update(did, lambda x: drill.set_facts(x, f, getattr(llm, "model", "") or ""))
+            return {"id": did, "events": len(q.facts.events), "mode": q.mode}
     elif body.kind == "shrink":
         short, dense = drill.shrink_briefs(r, drill.clean_brief(r.brief))
         card, old = drill.card_of(r, short, bare=True), drill.card_of(r, dense, bare=True)
@@ -162,6 +241,8 @@ def drill_job(did: str, body: DrillJobIn) -> dict:
             a = drill.add_match(q, first, w, o, getattr(llm, "model", "") or "")
             drill.save(q)
             return {"id": did, "no": a.no}
+    elif body.kind == "ai_write":
+        fn, label, total = _ai_write_job(did, r, name)
     elif body.kind == "write":
         if r.mode:
             raise ValueError("이 판은 지시 적기 판이 아니에요")
@@ -225,11 +306,7 @@ def drill_job(did: str, body: DrillJobIn) -> dict:
 
         def fn(job: jobs.Job):
             return {"id": did, "no": no, "reviewed": _review(did, no, judge)}
-    try:
-        with usage.scope(project="", episode=None, task="drill"):
-            return jobs.start(DR_JOBS, kind, None, label, fn, total=total, target=did).public()
-    except jobs.Busy as b:
-        return {**b.job.public(), "already": True}
+    return _run_job(kind, label, fn, total, did)
 
 
 EXPORTS = (
@@ -238,13 +315,19 @@ EXPORTS = (
     "DrillPick",
     "DrillIn",
     "DrillJobIn",
+    "WriteFinish",
+    "WriteMarks",
+    "WriteSubmit",
     "_drill",
     "create_drill",
     "delete_drill",
     "drill_job",
     "drill_source",
+    "finish_drill",
     "get_drill",
     "list_drill",
+    "marks_drill",
     "pick_drill",
     "put_drill",
+    "submit_drill",
 )

@@ -157,7 +157,21 @@
 - 고르기 전의 `view` 는 고친 시도의 글 · 되짚기 · `flip` 을 빼고 가려 읽을 두 글 `blind`(left · right)만 싣는다
 - 고친 지시가 더한 줄 · 뺀 줄 `brief_diff` 는 `view` 의 `changed` 로 간다
 - 기록 `stats`: 층마다 줄 수 · 비율 · 결과 수 · 먹힌 줄(`_worked`: 반영됐고 지시 없는 판과 다름) · 고쳐서 더했을 때 이긴 판 수
-- 연습 종류 `MODES`(빈 값 지시 적기 · `shrink` 줄이기)는 `create` 의 `mode` 로 받아 `DrillRound.mode` 에 남긴다
+- 연습 종류 `MODES`(빈 값 지시 적기 · `shrink` 줄이기 · `match` 거꾸로 맞히기 · `write` 직접 쓰기)는 `create` 의 `mode` 로 받아 `DrillRound.mode` 에 남긴다
+- 직접 쓰기 판(`write`, [docs/drill/write.md](../drill/write.md))은 대목을 `WRITE_PASSAGE`(450)자로 나눈다. 크기는 `_sizes(mode)` 가 고르고 `passages` · `episodes` · `pick` 이 받는다
+- 직접 쓰기 판의 글자 수는 공백을 뺀다(`_chars`). 허용 범위 `write_range` 는 원문 대목의 ±`WRITE_SLACK`(0.3)이다
+- 글 내기 `can_submit`: 사실을 뽑은 판이고, 일어나는 일이 한 줄은 있고, 글자 수가 범위 안이고, 사실 칸에 원문 문장이 없고, 아직 글을 내지 않았어야 한다(한 판에 시도 하나)
+- `write_brief` 는 쓰는 방식 칸을 비운다. `add_own` 은 작가의 글을 시도로 남긴다
+- `set_ai_text` 는 시도의 `bare_text` 와 `model` 만 채운다. 작업이 결과를 남기기 직전에 판을 다시 읽어 부른다
+- 짚기 저장 `set_marks`: 글을 낸 뒤 한 번, `WRITE_MARKS_MAX`(5)개까지, 한 줄 글은 꼭, 넣은 인용은 `quoted` 로 본문에 있어야 한다. 빈 목록도 된다
+- 판 끝내기 `finish` 는 짚기를 저장한 뒤 한 번만 '다음엔 해 볼 것'을 남긴다
+- `last_next_try` 는 이 판보다 먼저 만든 끝낸 직접 쓰기 판 가운데 가장 나중에 끝낸 판의 것 하나를 준다
+- 짚기의 인용은 공백과 문장부호를 뺀 글자가 `QUOTE_MIN` 이상이어야 한다. `view` 가 `quote_min` 을 싣는다
+- `update(did, fn)` 은 판마다 자물쇠 아래 읽고 `fn` 으로 고치고 저장한다. `fn` 이 `ValueError` 를 내면 저장하지 않는다
+- 직접 쓰기 판의 `stage` 는 facts · writing · marking · compare · done 이다
+- 직접 쓰기 판의 `view`(`_write_view`)는 마킹 단계부터 원문을, compare 단계부터 AI 판 글과 그 지표를 싣는다. 앞 단계에서는 시도의 `bare_text` 를 비운다
+- 직접 쓰기 판의 `view` 는 `measures`(`own` · `source` · `ai`, `studio.measure` + `body_per_1k` · `emotion_per_1k`) · `write_range` · `next_try_prev` · `ai_ready` 를 싣고 `hints` · `blind` · `dense` · `sides` 는 싣지 않는다
+- `stats` 는 직접 쓰기 판을 층 기록과 `other` 에 넣지 않고 `write`(끝낸 판 수 · 쓴 글자 수 합 · 최근 '다음엔 해 볼 것' 다섯 개)로 센다
 - 줄이기 판의 빽빽한 지시 `dense_lines`: AI가 뽑은 직전 상황 · 속사정 · 일어나는 일 줄. `view` 가 `dense` 로 싣는다
 - 줄이기 판의 `set_facts` 는 인물 · 시점 · 장소 · 때만 지시에 채우고 줄일 칸(`SHRUNK`)은 비워 둔다. 줄인 지시는 일어나는 일 칸에 적는다
 - `shrink_briefs` 는 줄인 지시(1~`SHRINK_MAX` 줄, 원문 문장 검사)와 뽑은 지시를 돌려준다. 둘 다 쓰는 방식 없이 `card_of(bare=True)` 로 쓴다
@@ -171,6 +185,7 @@
 - AI 호출은 `pipeline.drill_facts`(plan) · `drill_write`(write, 카드 둘을 `draft_paragraph` 로 한 번씩, 두 호출을 함께 보냄) · `drill_review`(check)
 - 프롬프트는 `prompts.drill_facts_prompt` · `drill_review_prompt`. 쓰기는 문단 연습장의 `paragraph_prompt` 그대로다
 - 원문이 들어가는 요청은 사실 뽑기와 되짚기 둘뿐이다
+- 직접 쓰기 판의 AI 판은 `pipeline.draft_paragraph(n=1)` 를 `card_of(bare=True)` 로 한 번 부른다. 원문은 넣지 않는다
 - 가짜 응답 `mock_drill.py`
 - 시험 `tests/test_drill.py`
 - LLM 호출 없음
@@ -581,8 +596,15 @@
 - 한 판은 한 번만 쓰고 한 번만 고친다. 지시는 작업을 시작할 때 것을 쓰고, 결과를 남기기 직전에 판을 다시 읽는다
 - `revise` 는 고친 지시의 판과 앞 지시로 다시 쓴 판을 쓰고 이어서 되짚는다. 고르기 전에는 `review` 를 받지 않는다
 - `POST /api/drill/{id}/pick`(side left · right · skip)은 가려 읽고 고른 쪽을 남긴다
-- `POST /api/drill` 의 `mode`(빈 값 · shrink)가 연습 종류다. 줄이기 판은 작업 `shrink`(`dr_shrink`)로 두 판을 쓰고, `write` · `review` · `revise` 는 받지 않는다
+- `POST /api/drill` 의 `mode`(빈 값 · shrink · match · write)가 연습 종류다. 줄이기 판은 작업 `shrink`(`dr_shrink`)로 두 판을 쓰고, `write` · `review` · `revise` 는 받지 않는다
 - 거꾸로 맞히기 판은 `PUT /api/drill/{id}` 의 `rival` 로 둘째 쓰는 방식을 받고(쓴 뒤에는 바꾸지 않음), 작업 `match`(`dr_match`)로 두 판을 쓴다
+- `GET /api/drill/sources/{원고}?mode=write` 는 직접 쓰기 크기로 센 대목 수를 준다
+- 직접 쓰기 판은 `PUT /api/drill/{id}` 에서 쓰는 방식 칸을 비운다. `write` · `review` · `revise` · `shrink` · `match` 작업은 받지 않는다
+- `POST /api/drill/{id}/submit`(brief · text)은 글을 내고 AI 판 작업 `ai_write`(`dr_ai_write`)를 시작한다. 작업을 시작하지 못해도 판을 돌려주고 `job` 은 비어 있다
+- `ai_write` 작업(`POST /api/drill/{id}/jobs`)은 글을 낸 판에서만 받고, AI 판이 이미 있으면 받지 않는다. 앞 작업이 실패했으면 다시 돌릴 수 있다
+- `ai_write` 는 `drill.update` 로 결과를 남긴다. 판마다 자물쇠 아래 읽고 AI 판만 채워 저장하므로 같은 판의 짚기 · 끝내기 저장과 겹쳐도 서로 덮지 않는다
+- `put_drill` · `submit` · `marks` · `finish` 와 사실 뽑기 작업의 저장도 `drill.update` 를 거친다. 글을 낸 직접 쓰기 판은 `PUT` 과 `facts` 작업을 받지 않는다
+- `POST /api/drill/{id}/marks` 는 짚기를 저장하고 `POST /api/drill/{id}/finish` 는 판을 끝낸다. 둘 다 판을 돌려준다
 - `GET /api/drill` 의 `stats` 는 기록(`drill.stats`)이다
 
 ### `canon/routes/promptlab.py`
@@ -751,6 +773,15 @@
 - 본문에 글자 그대로 있는 인용은 `drText` 가 `mark.hl` 로 표시한다(근거 · 지시 없는 판 인용 · 지어낸 사실)
 - 되짚기 표 `drReviewCard`: 줄 · 층 · 결과 · 근거, 지어낸 사실, 원문에는 있고 두 판에 없는 것, 버린 인용 수
 - AI 호출은 작업이다(`drStartJob`, 버튼 `drBtn`). 끝나면 그 판을 보고 있을 때 다시 받는다(`drJobDone`)
+- 시작한 작업은 `drTrack` 이 작업 목록에 올린다
+- 새 판 칸의 '연습'에서 직접 쓰기를 고르면 화 목록을 `?mode=write` 로 다시 받는다(`drLoadEps`)
+- 직접 쓰기 판 화면은 `drWriteRound` 다. 글 · 짚기 · 다음에 해 볼 것은 `S.drWrite`(`DRAFT_ROOTS.drWrite`), 사실 · 일어나는 일은 `S.drForm` 에 고친다
+- writing: 사실 카드(쓰는 방식 칸 없음) · 지난 판의 '다음엔 해 볼 것' · 쓰는 칸(공백 뺀 글자 수와 허용 범위, 범위 밖이면 내기 버튼을 막음)
+- 쓰는 칸의 글은 `localStorage`(`canon.drWrite.<판 id>`)에도 남기고 글을 내면 지운다(`drDraftSave`)
+- marking: 내 글과 원문을 나란히(`.dr-two`) '검증 안 됨'을 붙인 두 글의 지표와 함께 보이고, 짚기 칸을 다섯 개까지 더한다(`drWMarkBox`). '짚기 저장'과 '짚을 것 없음'이 있다
+- compare: 내 글 · 원문 · '가장 뻔한 선택'(AI 판) 세 칸(`.dr-three`), '검증 안 됨'을 붙인 지표 표(`drWTable`), 내 짚기, '다음엔 해 볼 것' 칸과 판 끝내기
+- AI 판이 아직 없으면 `drWWaiting` 이 기다림이나 다시 쓰기 버튼(`ai_write`)을 보인다. 판을 끝내는 것은 막지 않는다
+- done: 읽기만 한다. 처음 화면 카드는 직접 쓰기 판이 끝나면 '끝남'을 보인다
 
 ### `canon/static/promptlab.js`
 
