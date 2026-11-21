@@ -165,7 +165,7 @@ def estimate(rid: str) -> dict:
     chars = [len(prompts.ref_digest_prompt(clip(t["text"])[0])) for t in once.values()]
     tin = sum(usage.est_input(n, rate, len(prompts.SYSTEM_REVERSE)) for n in chars)
     tout = OUT_TOKENS * len(chars)
-    free = c["provider"] not in usage.PRICED
+    free = c["provider"] not in usage.PRICED and c["provider"] not in usage.UNPRICED
     return {"calls": len(chars), "chars": sum(chars), "input_tokens": round(tin), "output_tokens": tout,
             "provider": c["provider"], "model": model, "priced": free or price is not None,
             "usd": 0.0 if free else (round(usage.cost(price, tin, tout, 0, False), 3) if price else None),
@@ -363,8 +363,8 @@ def arcs_estimate(rid: str) -> dict:
     prompt = prompts.ref_arcs_prompt(rows, names)
     rate = usage.token_rate(provider if provider != "mock" else "", model)
     tin = usage.est_input(len(prompt), rate, len(prompts.SYSTEM_REVERSE))
-    free = provider not in usage.PRICED
-    price = None if free else usage.rate(model, date.today().isoformat())
+    free = provider not in usage.PRICED and provider not in usage.UNPRICED
+    price = None if free or provider in usage.UNPRICED else usage.rate(model, date.today().isoformat())
     return {"episodes": len(rows), "chars": len(prompt), "input_tokens": round(tin), "output_tokens": ARCS_OUT_TOKENS, "provider": provider,
             "model": model, "usd": 0.0 if free else (round(usage.cost(price, tin, ARCS_OUT_TOKENS, 0, False), 3) if price else None),
             "folded": "화마다 첫 사건" in prompt}

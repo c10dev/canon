@@ -98,8 +98,8 @@ def estimate(rid: str, orders: list[int], use: str = "setup") -> dict:
     model = settings.stage_model(STAGE, None)[0] or refdigest.model_name({"provider": provider, "model": ""})
     chars = len(_prompt(m, kind))
     tin = usage.est_input(chars, usage.token_rate(provider if provider != "mock" else "", model), len(prompts.SYSTEM_REVERSE))
-    free = provider not in usage.PRICED
-    price = None if free else usage.rate(model, date.today().isoformat())
+    free = provider not in usage.PRICED and provider not in usage.UNPRICED
+    price = None if free or provider in usage.UNPRICED else usage.rate(model, date.today().isoformat())
     return {"mode": m["mode"], "episodes": m["episodes"], "sent": m["sent"], "folded": m["folded"], "eps": m["eps"], "chars": chars,
             "input_tokens": round(tin), "output_tokens": OUT_TOKENS, "provider": provider, "model": model,
             "usd": 0.0 if free else (round(usage.cost(price, tin, OUT_TOKENS, 0, False), 3) if price else None)}

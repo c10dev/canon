@@ -170,6 +170,8 @@ def find(s: PromptSession, no: int) -> PromptTrial:
 
 def run_cost(provider: str, model: str, tokens: Optional[dict]) -> Optional[float]:
     """가격표(usage.rate)로 어림한 USD. 토큰 요금을 매기지 않는 백엔드는 0, 가격 · 토큰을 모르면 None."""
+    if provider in usage.UNPRICED:
+        return None
     if provider not in usage.PRICED:
         return 0.0
     p = usage.rate(model)

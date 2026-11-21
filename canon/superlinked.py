@@ -9,6 +9,7 @@ from __future__ import annotations
 import contextvars
 import time
 import urllib.error
+import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable
 
@@ -18,6 +19,7 @@ from .llm import BadKey, LocalLLM, MissingKey
 BASE_URL = "https://api.superlinked.com/v1"
 DEFAULT_MODEL = "google/gemma-4-31B-it:h100-96k-hires-out8k-no-spec"
 DEADLINE_S = 900  # 429 · 503 을 다시 보내는 총 시간. 문서의 예시 값
+MIN_CONTEXT = 16384  # 컨텍스트가 이보다 작다고 알려진 모델은 목록에서 뺀다 (번역 모델 512 · 4096, Qwen3.5-4B 8192는 Canon 프롬프트가 안 들어간다)
 DEFAULT_WAIT_S = 5  # Retry-After 가 정수가 아닐 때
 FALLBACK_OUT = 8192  # 모델 정보에 max_output_tokens 가 없을 때
 KEY_HINT = "Superlinked API 키를 받지 않았어요. 웹 설정의 AI 연결에서 키를 다시 넣거나 SUPERLINKED_API_KEY를 확인해 주세요."
@@ -39,7 +41,7 @@ def retry_wait(e: RuntimeError) -> float | None:
     if after is None:
         return None
     after = str(after).strip()
-    return float(int(after)) if after.isdigit() else float(DEFAULT_WAIT_S)
+    return float(max(1, int(after))) if after.isdigit() else float(DEFAULT_WAIT_S)  # 0 이면 바로 다시 보내 돌기만 한다
 
 
 def explain(e: RuntimeError) -> RuntimeError:
@@ -50,7 +52,7 @@ def explain(e: RuntimeError) -> RuntimeError:
     if "invalid_api_key" in msg or "Unauthorized" in msg or "오류 401" in msg:
         return BadKey(KEY_HINT)
     return RuntimeError(msg.replace("로컬 서버", "Superlinked").replace("로컬 모델", "Superlinked 모델")
-                        .replace("CANON_LOCAL_TIMEOUT", "CANON_LOCAL_TIMEOUT(Superlinked 도 이 값을 씀)"))
+                        .replace("CANON_LOCAL_TIMEOUT", "CANON_LOCAL_TIMEOUT(Superlinked도 이 값을 써요)"))
 
 
 def patient(call: Callable[[], dict]) -> dict:
@@ -70,7 +72,8 @@ def patient(call: Callable[[], dict]) -> dict:
                 cancel.say(f"Superlinked 요청 한도에 걸려 {wait:g}초 기다려요")
             else:
                 cancel.say(f"Superlinked 모델을 준비하는 중이라 {wait:g}초 기다려요")
-            time.sleep(wait)
+            llm._pause(wait)  # 멈추기 신호가 오면 바로 깬다
+            cancel.check()  # 깬 뒤에는 다시 보내지 않는다
 
 
 class SuperlinkedLLM(LocalLLM):
@@ -105,12 +108,19 @@ class SuperlinkedLLM(LocalLLM):
         """GET /models/{model} 의 응답. 실패하면 {}. 같은 객체 안에서는 모델별로 한 번만 부른다."""
         name = model or self.model
         if name not in self._info:
-            try:
-                got = self._request("GET", f"/models/{name}", timeout=llm.LOCAL_LIST_TIMEOUT)
-            except RuntimeError:
-                got = {}
-            self._info[name] = got if isinstance(got, dict) else {}
+            got = self._detail(name)
+            if not got:
+                return {}  # 실패한 조회는 기억하지 않는다. 다음 호출이 다시 묻는다
+            self._info[name] = got
         return self._info[name]
+
+    def _detail(self, name: str) -> dict:
+        """GET /models/{name}. 실패하거나 모양이 틀리면 {}."""
+        try:
+            got = self._request("GET", f"/models/{urllib.parse.quote(name, safe='/:')}", timeout=llm.LOCAL_LIST_TIMEOUT)
+        except (RuntimeError, ValueError, UnicodeError):  # http.client.InvalidURL 은 ValueError 다
+            return {}
+        return got if isinstance(got, dict) else {}
 
     def out_limit(self) -> int:
         """요청에 넣을 max_tokens. 모델 정보의 max_output_tokens, 없으면 FALLBACK_OUT."""
@@ -118,27 +128,27 @@ class SuperlinkedLLM(LocalLLM):
 
     def _chat(self, system: str, messages: list[dict], attempt: int = 1, parse: Any = None,
               on_chunk: Callable[[str], None] | None = None, **extra: Any) -> Any:
-        if "max_tokens" not in extra and not llm._out_cap.get():
-            extra["max_tokens"] = self.out_limit()
+        want = extra.get("max_tokens") or llm._out_cap.get()  # 서버는 모델 한도를 넘는 max_tokens 를 400 으로 거절한다
+        extra["max_tokens"] = min(want, self.out_limit()) if want else self.out_limit()
         return super()._chat(system, messages, attempt, parse, on_chunk, **extra)
 
     def models(self) -> list[str]:
         """채팅 모델 id 만. 목록의 id 마다 모델 정보를 불러 outputs 에 tokens 가 있고 guard 가 아닌 것만 남긴다. 목록 차례를 지킨다."""
         ids = [m["id"] for m in self._request("GET", "/models", timeout=llm.LOCAL_LIST_TIMEOUT).get("data", [])]
 
-        def detail(mid: str) -> dict:
-            try:
-                got = self._request("GET", f"/models/{mid}", timeout=llm.LOCAL_LIST_TIMEOUT)
-            except RuntimeError:
-                return {}  # 세부 호출 하나가 실패하면 그 id 는 뺀다
-            return got if isinstance(got, dict) else {}
-
         if not ids:
             return []
         with ThreadPoolExecutor(max_workers=8) as pool:
-            infos = list(pool.map(lambda mid: contextvars.copy_context().run(detail, mid), ids))
-        return [mid for mid, d in zip(ids, infos)
-                if "tokens" in (d.get("outputs") or []) and (d.get("capabilities") or {}).get("guard") is not True]
+            futures = [pool.submit(contextvars.copy_context().run, self._detail, mid) for mid in ids]
+            infos = [f.result() for f in futures]
+        return [mid for mid, d in zip(ids, infos) if self._chat_model(d)]
+
+    @staticmethod
+    def _chat_model(d: dict) -> bool:
+        """outputs 에 tokens 가 있고 guard 가 아니며 컨텍스트가 MIN_CONTEXT 이상(모르면 통과)인 채팅 모델인가."""
+        ctx = d.get("context_length")
+        return ("tokens" in (d.get("outputs") or []) and (d.get("capabilities") or {}).get("guard") is not True
+                and not (isinstance(ctx, int) and ctx < MIN_CONTEXT))
 
     def server_info(self) -> dict:
         info = super().server_info()

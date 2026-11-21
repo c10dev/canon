@@ -5,7 +5,7 @@ from email.message import Message
 import pytest
 from pydantic import BaseModel
 
-from canon import settings, superlinked, usage
+from canon import cancel, llm as canon_llm, settings, superlinked, usage
 from canon.llm import BadKey, LocalLLM, MissingKey, make_llm
 from canon.superlinked import SuperlinkedLLM
 
@@ -76,7 +76,7 @@ def test_request_goes_to_superlinked_with_key_and_model(monkeypatch):
 def test_retries_with_retry_after(monkeypatch, code):
     monkeypatch.setenv("SUPERLINKED_API_KEY", "sl_test_key")
     calls, slept, said = [], [], []
-    monkeypatch.setattr(superlinked.time, "sleep", slept.append)
+    monkeypatch.setattr(superlinked.llm, "_pause", slept.append)
     monkeypatch.setattr(superlinked.cancel, "say", said.append)
 
     def call():
@@ -92,12 +92,13 @@ def test_retries_with_retry_after(monkeypatch, code):
 def test_non_integer_retry_after_uses_default():
     assert superlinked.retry_wait(_wrapped(503, {"Retry-After": "Wed, 21 Oct"})) == superlinked.DEFAULT_WAIT_S
     assert superlinked.retry_wait(_wrapped(503)) is None
+    assert superlinked.retry_wait(_wrapped(503, {"Retry-After": "0"})) == 1
     assert superlinked.retry_wait(_wrapped(500, {"Retry-After": "1"})) is None
 
 
 def test_fallback_error_is_not_retried(monkeypatch):
     slept, calls = [], []
-    monkeypatch.setattr(superlinked.time, "sleep", slept.append)
+    monkeypatch.setattr(superlinked.llm, "_pause", slept.append)
 
     def call():
         calls.append(1)
@@ -111,7 +112,7 @@ def test_get_is_not_retried(monkeypatch):
     """모델 목록 · 정보(GET)는 503 이어도 기다리지 않는다. 설정 화면이 오래 멈추지 않게."""
     monkeypatch.setenv("SUPERLINKED_API_KEY", "sl_test_key")
     slept, calls = [], []
-    monkeypatch.setattr(superlinked.time, "sleep", slept.append)
+    monkeypatch.setattr(superlinked.llm, "_pause", slept.append)
 
     def request(self, method, path, body=None, timeout=None):
         calls.append((method, path))
@@ -134,8 +135,10 @@ def test_errors_become_hints():
 
 def test_models_drop_non_chat_and_guard(monkeypatch):
     monkeypatch.setenv("SUPERLINKED_API_KEY", "sl_test_key")
-    infos = {"a/chat": {"outputs": ["tokens"], "capabilities": {"guard": False}},
+    infos = {"a/chat": {"outputs": ["tokens"], "capabilities": {"guard": False}, "context_length": 16384},
+             "d/short": {"outputs": ["tokens"], "context_length": 8192},
              "b/embed": {"outputs": ["vector"]},
+             "e/unknown": {"outputs": ["tokens"]},
              "c/guard": {"outputs": ["tokens"], "capabilities": {"guard": True}}}
 
     def request(self, method, path, body=None, timeout=None):
@@ -143,7 +146,7 @@ def test_models_drop_non_chat_and_guard(monkeypatch):
             return {"data": [{"id": i} for i in infos]}
         return infos[path.removeprefix("/models/")]
     monkeypatch.setattr(LocalLLM, "_request", request)
-    assert make_llm("superlinked").models() == ["a/chat"]
+    assert make_llm("superlinked").models() == ["a/chat", "e/unknown"]
 
 
 def test_max_tokens_is_always_sent(monkeypatch):
@@ -193,3 +196,56 @@ def test_web_config_roundtrip(client):
     assert got["superlinked_key_hint"] == "…5678" and got["superlinked_model"] == "x/m"
     client.put("/api/config", json={"clear_superlinked_key": True})
     assert client.get("/api/config").json()["superlinked_key_source"] == "none"
+
+
+def test_max_tokens_is_capped_by_model_limit(monkeypatch):
+    monkeypatch.setenv("SUPERLINKED_API_KEY", "sl_test_key")
+    sent = []
+    _fake(monkeypatch, sent, info={"max_output_tokens": 8192})
+    llm = make_llm("superlinked")
+    with canon_llm.out_cap(16384):
+        llm.text("시스템", "쓰세요")
+    assert sent[-1][2]["max_tokens"] == 8192
+    with canon_llm.out_cap(4000):
+        llm.text("시스템", "쓰세요")
+    assert sent[-1][2]["max_tokens"] == 4000
+    llm._chat("시스템", [{"role": "user", "content": "x"}], max_tokens=20000)
+    assert sent[-1][2]["max_tokens"] == 8192
+
+
+def test_failed_info_is_not_cached(monkeypatch):
+    monkeypatch.setenv("SUPERLINKED_API_KEY", "sl_test_key")
+    paths = []
+
+    def request(self, method, path, body=None, timeout=None):
+        paths.append(path)
+        if len(paths) == 1:
+            raise RuntimeError("로컬 서버 오류 500")
+        return {"max_output_tokens": 100}
+    monkeypatch.setattr(LocalLLM, "_request", request)
+    llm = make_llm("superlinked", "a b/m:x")
+    assert llm.out_limit() == superlinked.FALLBACK_OUT
+    assert llm.out_limit() == 100 and paths == ["/models/a%20b/m:x"] * 2
+
+
+def test_stop_during_wait_does_not_resend(monkeypatch):
+    import threading
+    ev = threading.Event()
+    calls = []
+    monkeypatch.setattr(superlinked.llm, "_pause", lambda s: ev.set())
+    tok = cancel.current.set(ev)
+    try:
+        def call():
+            calls.append(1)
+            raise _wrapped(503, {"Retry-After": "1"})
+        with pytest.raises(cancel.Cancelled):
+            superlinked.patient(call)
+    finally:
+        cancel.current.reset(tok)
+    assert len(calls) == 1
+
+
+def test_unpriced_backend_has_unknown_cost(monkeypatch):
+    assert "superlinked" in usage.UNPRICED and "superlinked" not in usage.PRICED
+    from canon import promptlab
+    assert promptlab.run_cost("superlinked", "m", {"prompt_tokens": 10}) is None

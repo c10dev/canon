@@ -72,6 +72,7 @@ DEFAULT_PRICES: list[Price] = [
           batch_input=0.45, batch_output=1.8, note="CoralBricks Fast"),
 ]
 PRICED = ("gemini", "claude-api", "coralbricks")  # 토큰 요금을 매기는 백엔드. 로컬과 Claude 구독은 0원
+UNPRICED = ("superlinked",)  # 돈은 들지만 가격표가 없는 백엔드. 비용 어림은 0원이 아니라 모름(None)이다
 
 _ctx: ContextVar[dict] = ContextVar("canon_usage", default={})
 _acc: ContextVar[Optional[list]] = ContextVar("canon_usage_acc", default=None)  # collect() 가 여는 누적기
