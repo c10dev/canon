@@ -213,9 +213,11 @@ def test_max_tokens_is_capped_by_model_limit(monkeypatch):
     assert sent[-1][2]["max_tokens"] == 8192
 
 
-def test_failed_info_is_not_cached(monkeypatch):
+def test_failed_info_is_retried_only_after_60_seconds(monkeypatch):
     monkeypatch.setenv("SUPERLINKED_API_KEY", "sl_test_key")
     paths = []
+    clock = [1000.0]
+    monkeypatch.setattr(superlinked.time, "monotonic", lambda: clock[0])
 
     def request(self, method, path, body=None, timeout=None):
         paths.append(path)
@@ -224,8 +226,12 @@ def test_failed_info_is_not_cached(monkeypatch):
         return {"max_output_tokens": 100}
     monkeypatch.setattr(LocalLLM, "_request", request)
     llm = make_llm("superlinked", "a b/m:x")
-    assert llm.out_limit() is None
-    assert llm.out_limit() == 100 and paths == ["/models/a%20b/m:x"] * 2
+    assert llm.info() == {}
+    clock[0] += 59
+    assert llm.info() == {} and len(paths) == 1  # 기다리는 동안은 묻지 않는다
+    clock[0] += 2
+    assert llm.info()["max_output_tokens"] == 100 and paths == ["/models/a%20b/m:x"] * 2
+    assert llm.info() and len(paths) == 2  # 성공하면 기억한다
 
 
 def test_stop_during_wait_does_not_resend(monkeypatch):
@@ -305,3 +311,35 @@ def test_failed_info_does_not_clip_max_tokens(monkeypatch):
     with canon_llm.out_cap(16384):
         make_llm("superlinked").text("시스템", "쓰세요")
     assert sent[-1][2]["max_tokens"] == 16384
+
+
+def test_max_tokens_fits_the_context(monkeypatch):
+    monkeypatch.setenv("SUPERLINKED_API_KEY", "sl_test_key")
+    sent = []
+    _fake(monkeypatch, sent, info={"context_length": 98304, "max_output_tokens": 32768})
+    make_llm("superlinked").text("가" * 60000, "나" * 60000)
+    assert sent[-1][2]["max_tokens"] == 98304 - 80000 - 1024
+    sent.clear()
+    make_llm("superlinked").text("가" * 200000, "나")  # 컨텍스트를 넘어도 바닥은 1024
+    assert sent[-1][2]["max_tokens"] == 1024
+
+
+def test_wait_cap_shortens_the_deadline(monkeypatch):
+    calls, slept, clock = [], [], [0.0]
+    monkeypatch.setattr(superlinked.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(superlinked.llm, "_pause", lambda s: (slept.append(s), clock.__setitem__(0, clock[0] + s)))
+
+    def call():
+        calls.append(1)
+        raise _wrapped(503, {"Retry-After": "20"})
+    with canon_llm.wait_cap(30), pytest.raises(RuntimeError):
+        superlinked.patient(call)
+    assert len(calls) == 2 and slept == [20.0]  # 두 번째 기다림은 20 + 20 이 30초 상한을 넘는다
+
+
+def test_user_price_row_is_used_for_unpriced_backend():
+    row = {"backend": "superlinked", "model": "x/m", "at": "2026-11-21T00:00:00", "in": 1_000_000, "out": 1_000_000}
+    assert usage.row_cost(row, usage.DEFAULT_PRICES) == (None, 0.0)
+    table = [*usage.DEFAULT_PRICES, usage.Price(model="x/m", input=1.0, output=2.0)]
+    assert usage.row_cost(row, table)[0] == pytest.approx(3.0)
+    assert usage.stage_cost("superlinked", "x/zzz", 10, 10) is None

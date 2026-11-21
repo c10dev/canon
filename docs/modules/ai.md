@@ -318,7 +318,9 @@
 - 호출자가 준 `max_tokens` 나 `llm._out_cap` 이 있으면 그 값, 없으면 모델 정보(`GET /models/{id}`)의 `max_output_tokens`(없으면 `FALLBACK_OUT` 8192)다
 - 모델 정보를 못 읽었거나 `max_output_tokens` 가 없으면 줄이지 않는다(값이 없을 때만 `FALLBACK_OUT`)
 - 모델의 `max_output_tokens` 를 아는 동안은 어느 값이든 그것을 넘기지 않는다. 서버가 넘는 값을 400 으로 거절한다(2026-11-21 실측: 16384 > 8192)
-- 모델 정보 `info` 는 같은 객체 안에서 모델별로 한 번만 부른다. 실패한 조회는 기억하지 않는다
+- 모델 정보 `info` 는 같은 객체 안에서 모델별로 한 번만 부른다. 실패한 조회는 `INFO_RETRY_S`(60초) 동안만 기억하고 그 뒤 다시 묻는다
+- `_chat` 은 호출마다 `info` 를 한 번만 부르고 한도와 추론 강도에 같이 쓴다
+- `max_tokens` 는 `context_length` − 프롬프트 추정(글자 수 / 1.5) − 1024 도 넘지 않는다. 서버는 프롬프트와 출력을 함께 센다. 바닥은 1024
 - 모델 정보의 `capabilities.reasoning.effort` 에 `none` 이 있으면 `reasoning_effort` 를 `none` 으로 보낸다(호출자가 주면 그 값)
 - 켜 두면 생각이 출력을 다 써 본문이 비어도 크레딧이 빠진다(DeepSeek-V4.1-Flash-1017, 2026-11-21 실측)
 - 응답이 비면(`RuntimeError` 그대로일 때만) '생각 토큰이 출력 한도를 다 썼을 수 있어요' 안내를 붙인다. `OutputCut` · `BadKey` 는 그대로 올린다
@@ -327,14 +329,14 @@
 - 다시 부르기 `patient`: 429 · 503 에 `Retry-After` 가 있으면 그 초(정수가 아니면 `DEFAULT_WAIT_S`)만큼 기다려 다시 부른다. 기다리기 전에 `cancel.check`
 - 기다림은 `llm._pause` 라 멈추기 신호가 오면 바로 깬다. 깬 뒤 `cancel.check` 를 다시 불러 다시 보내지 않는다
 - `Retry-After: 0` 은 1초로 센다
-- 처음 부른 때부터 `DEADLINE_S`(900초)를 넘기면 그만둔다
+- 처음 부른 때부터 `DEADLINE_S`(900초)를 넘기면 그만둔다. 작업이 `llm._wait_cap` 을 걸었으면 그 값이 더 작을 때 그 값이다
 - `X-SIE-Fallback-Error` 가 붙은 오류는 생성이 이미 돌았을 수 있어 다시 보내지 않는다
 - 다시 부르기는 생성(POST)에만 건다. 모델 목록 · 정보(GET)는 설정 화면이 오래 멈추지 않게 한 번만 부른다
 - 오류 안내 `explain`: 401 은 `BadKey`, `THIRD_PARTY_SERVING_DISABLED` 는 SIE Relay 켜기 안내 `RELAY_OFF_HINT`, 나머지는 '로컬 서버' 문구를 Superlinked 로 바꾼다
 - `models` 는 `/v1/models` 의 id 마다 모델 정보를 8개씩 함께 불러 `outputs` 에 `tokens` 가 있고 `guard` 가 아닌 것만 남긴다(임베딩 · OCR 모델을 뺀다)
 - 컨텍스트가 `MIN_CONTEXT`(16384) 보다 작다고 알려진 모델도 뺀다(번역 모델 512 · 4096, Qwen3.5-4B 8192). 모르면 남긴다
 - `context_limit` 은 모델 정보의 `context_length`, `count_tokens` 는 None 이다(`/tokenize` 가 없다)
-- 사용량 백엔드 이름은 `superlinked`(`usage.backend_of`). 가격표가 없어 0원으로 센다
+- 사용량 백엔드 이름은 `superlinked`(`usage.backend_of`). 기본 가격표에 줄이 없어 비용은 모름이다. 작가가 더한 가격 줄은 쓴다
 - 응답 usage 에 `credits_charged` 칸이 오지만 아직 기록하지 않는다
 - 웹 설정은 `superlinked_api_key` · `clear_superlinked_key` · `superlinked_model`, 화면 값은 `superlinked_key_hint` · `superlinked_key_source` · `superlinked_model` · `superlinked_model_source`
 - 설정 화면의 Superlinked 묶음은 `static/settings.js` 의 `superlinked-key` · `superlinked-model` 줄
@@ -351,9 +353,10 @@
 - `collect()` 는 안에서 `record` 한 줄을 목록에 모은다(`_acc`). `copy_context` 로 넘긴 스레드의 호출도 같은 목록에 모인다
 - `totals(rows)` 는 모은 줄의 입력 · 출력(생각 포함) 토큰과 `row_cost` 비용 합이다. 가격을 모르는 줄이 있으면 비용은 None
 - 가격표(`DEFAULT_PRICES` + 설정의 `prices`, 날짜별 `since`)로 볼 때 비용을 계산한다
-- `superlinked` 는 가격표에 없어 0원으로 세고 화면은 '가격표 없음' 으로 보인다
-- `stage_cost` 는 `UNPRICED` 에 None, `row_cost` 는 (None, 0)을 돌려준다. 합계 · 자동 집필 추정은 None 을 가격 모름으로 센다
-- `UNPRICED`(superlinked)는 돈이 들지만 가격표가 없는 백엔드다. 레퍼런스 비용 어림(`refdigest` · `refnote`)과 프롬프트 놀이터 비용은 0원이 아니라 모름(None)이다
+- `superlinked` 는 기본 가격표에 줄이 없어 비용을 모름으로 세고 화면은 '가격표 없음' 으로 보인다
+- `stage_cost` 와 `row_cost` 는 `UNPRICED` 도 가격표를 찾고 줄이 없으면 None · (None, 0)이다. 합계 · 자동 집필 추정은 None 을 가격 모름으로 센다
+- `UNPRICED`(superlinked)는 돈이 들지만 기본 가격표에 줄이 없는 백엔드다. `PRICE_LOOKUP`(`PRICED` + `UNPRICED`)은 가격표에서 가격을 찾는 백엔드다
+- 레퍼런스 비용 어림(`refdigest` · `refnote`)과 프롬프트 놀이터 비용도 `PRICE_LOOKUP` 으로 찾는다. 줄이 없으면 0원이 아니라 모름(None)이다
 - 기본 가격표는 `PRICES_CHECKED` 에 Google 가격표(`PRICES_URL`)와 Anthropic 가격표(`CLAUDE_PRICES_URL`)에서 옮겼다
 - `Price.cache_write` · `cache_write_1h` 는 5분 · 1시간 캐시에 새로 쓴 입력의 값이다
 - 캐시 쓰기 칸이 비면 입력의 1.25배 · 2배로 친다(Anthropic 가격표의 배율)
