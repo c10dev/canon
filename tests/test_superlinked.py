@@ -224,7 +224,7 @@ def test_failed_info_is_not_cached(monkeypatch):
         return {"max_output_tokens": 100}
     monkeypatch.setattr(LocalLLM, "_request", request)
     llm = make_llm("superlinked", "a b/m:x")
-    assert llm.out_limit() == superlinked.FALLBACK_OUT
+    assert llm.out_limit() is None
     assert llm.out_limit() == 100 and paths == ["/models/a%20b/m:x"] * 2
 
 
@@ -249,3 +249,59 @@ def test_unpriced_backend_has_unknown_cost(monkeypatch):
     assert "superlinked" in usage.UNPRICED and "superlinked" not in usage.PRICED
     from canon import promptlab
     assert promptlab.run_cost("superlinked", "m", {"prompt_tokens": 10}) is None
+
+
+def test_cost_helpers_treat_superlinked_as_unknown():
+    assert usage.stage_cost("superlinked", "m", 1000, 1000) is None
+    assert usage.stage_cost("local", "m", 1000, 1000) == 0.0
+    assert usage.row_cost({"backend": "superlinked", "model": "m", "in": 10, "out": 10}, usage.DEFAULT_PRICES) == (None, 0.0)
+    assert usage.totals([{"backend": "superlinked", "model": "m", "in": 10, "out": 10}])[2] is None
+
+
+def test_check_uses_model_info(monkeypatch):
+    monkeypatch.setenv("SUPERLINKED_API_KEY", "sl_test_key")
+    sent = []
+    _fake(monkeypatch, sent, info={"max_output_tokens": 100})
+    make_llm("superlinked", "Qwen/Qwen3.8-27B-FP8:prof").check()  # 목록에 없는 이름도 정보가 있으면 통과
+    _fake(monkeypatch, [], info=None)
+    with pytest.raises(RuntimeError, match="없거나 정보를 읽지 못했어요"):
+        make_llm("superlinked", "x/none").check()
+
+
+def test_reasoning_none_is_sent_only_when_supported(monkeypatch):
+    monkeypatch.setenv("SUPERLINKED_API_KEY", "sl_test_key")
+    sent = []
+    _fake(monkeypatch, sent, info={"max_output_tokens": 100, "capabilities": {"reasoning": {"effort": ["none", "low"]}}})
+    llm = make_llm("superlinked")
+    llm.text("시스템", "쓰세요")
+    assert sent[-1][2]["reasoning_effort"] == "none"
+    llm._chat("시스템", [{"role": "user", "content": "x"}], reasoning_effort="low")
+    assert sent[-1][2]["reasoning_effort"] == "low"
+    sent.clear()
+    _fake(monkeypatch, sent, info={"max_output_tokens": 100, "capabilities": {"reasoning": {"effort": []}}})
+    make_llm("superlinked").text("시스템", "쓰세요")
+    assert "reasoning_effort" not in sent[-1][2]
+
+
+def test_empty_answer_hint_only_for_plain_runtime_error(monkeypatch):
+    monkeypatch.setenv("SUPERLINKED_API_KEY", "sl_test_key")
+    sent = []
+    _fake(monkeypatch, sent, info={}, reply="")
+    with pytest.raises(RuntimeError, match="Superlinked 모델 응답이 비었어요.*생각 토큰") as ei:
+        make_llm("superlinked").text("시스템", "쓰세요")
+    assert type(ei.value) is RuntimeError and ei.value.__cause__ is not None
+
+    def boom(self, *a, **k):
+        raise BadKey("키")
+    monkeypatch.setattr(LocalLLM, "_chat", boom)
+    with pytest.raises(BadKey):
+        make_llm("superlinked").text("시스템", "쓰세요")
+
+
+def test_failed_info_does_not_clip_max_tokens(monkeypatch):
+    monkeypatch.setenv("SUPERLINKED_API_KEY", "sl_test_key")
+    sent = []
+    _fake(monkeypatch, sent, info=None)
+    with canon_llm.out_cap(16384):
+        make_llm("superlinked").text("시스템", "쓰세요")
+    assert sent[-1][2]["max_tokens"] == 16384

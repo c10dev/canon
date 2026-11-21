@@ -592,7 +592,9 @@ def cost(p: Price, tin: float, tout: float, cached: float = 0.0, batch: bool = F
 
 
 def stage_cost(backend: str, model: str, tin: float, tout: float, batch: bool = False) -> Optional[float]:
-    """자동 집필 추정용. 로컬과 Claude 구독은 0, 가격을 모르는 모델이면 None."""
+    """자동 집필 추정용. 로컬과 Claude 구독은 0, 가격을 모르는 모델이나 가격표 없는 유료 백엔드(UNPRICED)면 None."""
+    if backend in UNPRICED:
+        return None
     if backend not in PRICED:
         return 0.0
     if backend == "claude-api":
@@ -604,7 +606,9 @@ def stage_cost(backend: str, model: str, tin: float, tout: float, batch: bool = 
 
 
 def row_cost(r: dict, table: list[Price]) -> tuple[Optional[float], float]:
-    """(실제 추정 비용, 배치로 아낀 비용). 가격을 모르면 (None, 0)."""
+    """(실제 추정 비용, 배치로 아낀 비용). 가격을 모르거나 가격표 없는 유료 백엔드(UNPRICED)면 (None, 0)."""
+    if r.get("backend") in UNPRICED:
+        return None, 0.0
     if r.get("backend") not in PRICED:
         return 0.0, 0.0
     p = rate(r.get("model", ""), r.get("at", "")[:10], table)

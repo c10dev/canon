@@ -122,15 +122,30 @@ class SuperlinkedLLM(LocalLLM):
             return {}
         return got if isinstance(got, dict) else {}
 
-    def out_limit(self) -> int:
-        """요청에 넣을 max_tokens. 모델 정보의 max_output_tokens, 없으면 FALLBACK_OUT."""
-        return int(self.info().get("max_output_tokens") or FALLBACK_OUT)
+    def out_limit(self) -> int | None:
+        """모델 정보의 max_output_tokens. 정보를 못 읽었거나 칸이 없으면 None."""
+        return int(self.info().get("max_output_tokens") or 0) or None
+
+    def check(self) -> None:
+        """모델 정보를 읽을 수 있으면 통과한다. 목록(models)은 컨텍스트로 거르고 '<모델>:<프로필>' 이름도 없어서 견주지 않는다."""
+        if not self.info(self.model):
+            raise RuntimeError(f"Superlinked에 {self.model} 모델이 없거나 정보를 읽지 못했어요. 모델 이름과 키를 확인해 주세요")
 
     def _chat(self, system: str, messages: list[dict], attempt: int = 1, parse: Any = None,
               on_chunk: Callable[[str], None] | None = None, **extra: Any) -> Any:
-        want = extra.get("max_tokens") or llm._out_cap.get()  # 서버는 모델 한도를 넘는 max_tokens 를 400 으로 거절한다
-        extra["max_tokens"] = min(want, self.out_limit()) if want else self.out_limit()
-        return super()._chat(system, messages, attempt, parse, on_chunk, **extra)
+        want = extra.get("max_tokens") or llm._out_cap.get()
+        limit = self.out_limit()  # 서버는 모델 한도를 넘는 max_tokens 를 400 으로 거절한다
+        extra["max_tokens"] = min(want, limit) if want and limit else (want or limit or FALLBACK_OUT)
+        efforts = ((self.info().get("capabilities") or {}).get("reasoning") or {}).get("effort") or []
+        if "none" in efforts:  # 생각을 끌 수 있는 모델은 끈다. 켜 두면 생각이 출력을 다 써 본문이 비어도 크레딧은 빠진다
+            extra.setdefault("reasoning_effort", "none")
+        try:
+            return super()._chat(system, messages, attempt, parse, on_chunk, **extra)
+        except RuntimeError as e:
+            if type(e) is RuntimeError and str(e).startswith("로컬 모델 응답이 비었어요"):
+                raise RuntimeError(str(e).replace("로컬 모델", "Superlinked 모델")
+                                   + " 생각 토큰이 출력 한도를 다 썼을 수 있어요. 다른 모델을 골라 보세요.") from e
+            raise
 
     def models(self) -> list[str]:
         """채팅 모델 id 만. 목록의 id 마다 모델 정보를 불러 outputs 에 tokens 가 있고 guard 가 아닌 것만 남긴다. 목록 차례를 지킨다."""

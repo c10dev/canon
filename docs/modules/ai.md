@@ -316,8 +316,13 @@
 - 추론 강도는 받지 않는다. 샘플링 값도 보내지 않는다(`sampling={}`)
 - `max_tokens` 는 늘 보낸다. 안 보내면 서버가 출력을 1024 토큰에서 끊는다(2026-11-21 실측)
 - 호출자가 준 `max_tokens` 나 `llm._out_cap` 이 있으면 그 값, 없으면 모델 정보(`GET /models/{id}`)의 `max_output_tokens`(없으면 `FALLBACK_OUT` 8192)다
-- 어느 값이든 모델의 `max_output_tokens` 를 넘기지 않는다. 서버가 넘는 값을 400 으로 거절한다(2026-11-21 실측: 16384 > 8192)
+- 모델 정보를 못 읽었거나 `max_output_tokens` 가 없으면 줄이지 않는다(값이 없을 때만 `FALLBACK_OUT`)
+- 모델의 `max_output_tokens` 를 아는 동안은 어느 값이든 그것을 넘기지 않는다. 서버가 넘는 값을 400 으로 거절한다(2026-11-21 실측: 16384 > 8192)
 - 모델 정보 `info` 는 같은 객체 안에서 모델별로 한 번만 부른다. 실패한 조회는 기억하지 않는다
+- 모델 정보의 `capabilities.reasoning.effort` 에 `none` 이 있으면 `reasoning_effort` 를 `none` 으로 보낸다(호출자가 주면 그 값)
+- 켜 두면 생각이 출력을 다 써 본문이 비어도 크레딧이 빠진다(DeepSeek-V4.1-Flash-1017, 2026-11-21 실측)
+- 응답이 비면(`RuntimeError` 그대로일 때만) '생각 토큰이 출력 한도를 다 썼을 수 있어요' 안내를 붙인다. `OutputCut` · `BadKey` 는 그대로 올린다
+- `check` 는 목록이 아니라 모델 정보(`info`)를 읽을 수 있으면 통과한다. 목록은 컨텍스트로 걸러지고 '<모델>:<프로필>' 이름이 없다
 - 모델 id 는 `urllib.parse.quote(safe="/:")` 로 경로에 붙인다
 - 다시 부르기 `patient`: 429 · 503 에 `Retry-After` 가 있으면 그 초(정수가 아니면 `DEFAULT_WAIT_S`)만큼 기다려 다시 부른다. 기다리기 전에 `cancel.check`
 - 기다림은 `llm._pause` 라 멈추기 신호가 오면 바로 깬다. 깬 뒤 `cancel.check` 를 다시 불러 다시 보내지 않는다
@@ -347,6 +352,7 @@
 - `totals(rows)` 는 모은 줄의 입력 · 출력(생각 포함) 토큰과 `row_cost` 비용 합이다. 가격을 모르는 줄이 있으면 비용은 None
 - 가격표(`DEFAULT_PRICES` + 설정의 `prices`, 날짜별 `since`)로 볼 때 비용을 계산한다
 - `superlinked` 는 가격표에 없어 0원으로 세고 화면은 '가격표 없음' 으로 보인다
+- `stage_cost` 는 `UNPRICED` 에 None, `row_cost` 는 (None, 0)을 돌려준다. 합계 · 자동 집필 추정은 None 을 가격 모름으로 센다
 - `UNPRICED`(superlinked)는 돈이 들지만 가격표가 없는 백엔드다. 레퍼런스 비용 어림(`refdigest` · `refnote`)과 프롬프트 놀이터 비용은 0원이 아니라 모름(None)이다
 - 기본 가격표는 `PRICES_CHECKED` 에 Google 가격표(`PRICES_URL`)와 Anthropic 가격표(`CLAUDE_PRICES_URL`)에서 옮겼다
 - `Price.cache_write` · `cache_write_1h` 는 5분 · 1시간 캐시에 새로 쓴 입력의 값이다
