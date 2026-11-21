@@ -135,3 +135,11 @@ def test_option_stops_run(demo, monkeypatch):
     run = autorun.start(demo, 1, False, Policy(check=False, stop_on_secrets=True), foreground=True)
     assert run.status == "review" and run.ep == 1
     assert "새 비밀 1개가 생겼어요: 실행 중 비밀" in run.reasons
+
+
+def test_stage_cost_uses_the_stage_backend_model(monkeypatch, tmp_path):
+    monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
+    monkeypatch.setenv("CANON_LLM", "gemini")  # mock 이면 모든 단계가 mock 이다
+    monkeypatch.setenv("CANON_LLM_WRITE", "superlinked")
+    monkeypatch.delenv("CANON_MODEL_WRITE", raising=False)
+    assert autorun.stage_cost("write", 1e6, 1e6, False) is None  # 모델 이름이 없어도 gemini 가격으로 세지 않는다

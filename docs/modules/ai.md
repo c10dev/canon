@@ -353,7 +353,8 @@
 - `collect()` 는 안에서 `record` 한 줄을 목록에 모은다(`_acc`). `copy_context` 로 넘긴 스레드의 호출도 같은 목록에 모인다
 - `totals(rows)` 는 모은 줄의 입력 · 출력(생각 포함) 토큰과 `row_cost` 비용 합이다. 가격을 모르는 줄이 있으면 비용은 None
 - 가격표(`DEFAULT_PRICES` + 설정의 `prices`, 날짜별 `since`)로 볼 때 비용을 계산한다
-- `superlinked` 는 기본 가격표에 줄이 없어 비용을 모름으로 세고 화면은 '가격표 없음' 으로 보인다
+- `superlinked` 는 기본 가격표에 줄이 없어 비용을 모름으로 센다. 사용량 화면 이름은 'Superlinked' 이고 가격을 모르는 줄은 화면이 따로 알린다
+- 자동 집필 추정(`autorun.stage_cost`)은 단계 백엔드 · 모델을 `stage_llm` 에서 받아 그 백엔드 가격표 줄로 센다
 - `stage_cost` 와 `row_cost` 는 `UNPRICED` 도 가격표를 찾고 줄이 없으면 None · (None, 0)이다. 합계 · 자동 집필 추정은 None 을 가격 모름으로 센다
 - `UNPRICED`(superlinked)는 돈이 들지만 기본 가격표에 줄이 없는 백엔드다. `PRICE_LOOKUP`(`PRICED` + `UNPRICED`)은 가격표에서 가격을 찾는 백엔드다
 - 레퍼런스 비용 어림(`refdigest` · `refnote`)과 프롬프트 놀이터 비용도 `PRICE_LOOKUP` 으로 찾는다. 줄이 없으면 0원이 아니라 모름(None)이다

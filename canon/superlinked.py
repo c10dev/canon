@@ -130,7 +130,7 @@ class SuperlinkedLLM(LocalLLM):
         """GET /models/{name}. 실패하거나 모양이 틀리면 {}."""
         try:
             got = self._request("GET", f"/models/{urllib.parse.quote(name, safe='/:')}", timeout=llm.LOCAL_LIST_TIMEOUT)
-        except (RuntimeError, ValueError, UnicodeError):  # http.client.InvalidURL 은 ValueError 다
+        except (RuntimeError, ValueError, UnicodeError, OSError):  # InvalidURL 은 ValueError. 끊긴 연결 하나는 그 id 만 뺀다
             return {}
         return got if isinstance(got, dict) else {}
 

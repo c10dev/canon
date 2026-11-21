@@ -59,7 +59,7 @@ def stage_defaults(b: Backend, stage: str = "", preset: dict | None = None) -> t
 
 def make_backend(b: Backend, temperature: float | None = None, stage: str = "", preset: dict | None = None) -> LLM:
     """stage 를 주면 모델 칸이 빈 백엔드는 그 단계의 모델 · 추론 강도로 만든다 (stage_defaults, 프롬프트 놀이터가 불러온 갈래의 단계).
-    temperature 는 Gemini · 로컬만 받는다. Claude 와 CoralBricks 는 받지 않는다(Opus 5.5 는 temperature 를 400 으로 거절한다)."""
+    temperature 는 Gemini · 로컬 · Superlinked 만 받는다. Claude 와 CoralBricks 는 받지 않는다(Opus 5.5 는 temperature 를 400 으로 거절한다)."""
     model, effort = stage_defaults(b, stage, preset)
     if b.provider == "local":
         sampling = settings.local_sampling()

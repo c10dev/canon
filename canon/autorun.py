@@ -423,9 +423,9 @@ def _story_reasons(p: Project, delta: StateDelta, policy: Policy, names: dict[st
 
 def stage_cost(stage: str, tin: float, tout: float, batch: bool) -> Optional[float]:
     """단계가 쓰는 모델로 tin/tout 토큰을 쓸 때의 USD. 가격은 사용량 화면과 같은 가격표(usage.prices)를 쓴다.
-    로컬은 0원, 가격표에 없는 Gemini 모델이면 None."""
-    prov = settings.stage_provider(stage)[0]
-    return usage.stage_cost(prov, gemini_model(stage), tin, tout, batch and prov == "gemini" and batchable(stage))
+    로컬은 0원, 가격표에 없는 모델이면 None. 모델은 단계 백엔드의 것이다(usage.stage_llm)."""
+    prov, model = usage.stage_llm(stage)
+    return usage.stage_cost(prov, model, tin, tout, batch and prov == "gemini" and batchable(stage))
 
 
 def gemini_model(stage: str) -> str:
@@ -519,7 +519,7 @@ def estimate(p: Project, target: int, batch: bool, policy: Policy, name: str | N
     for step, (tin, tout) in tokens.items():
         c = stage_cost(step, tin, tout, batch and step != "board")
         if c is None:
-            unpriced.append(gemini_model(step))
+            unpriced.append(usage.stage_llm(step)[1])
         elif cost is not None:
             cost += c
     if unpriced:

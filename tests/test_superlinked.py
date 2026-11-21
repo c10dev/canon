@@ -15,7 +15,8 @@ class Pick(BaseModel):
 
 
 @pytest.fixture(autouse=True)
-def _no_real_key(monkeypatch):
+def _no_real_key(monkeypatch, tmp_path):
+    monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))  # 설정 파일을 시험마다 따로 둔다 (-n 에서 섞이지 않게)
     monkeypatch.delenv("SUPERLINKED_API_KEY", raising=False)
     monkeypatch.delenv("CANON_SUPERLINKED_MODEL", raising=False)
 
