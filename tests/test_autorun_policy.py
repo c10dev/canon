@@ -143,3 +143,15 @@ def test_stage_cost_uses_the_stage_backend_model(monkeypatch, tmp_path):
     monkeypatch.setenv("CANON_LLM_WRITE", "superlinked")
     monkeypatch.delenv("CANON_MODEL_WRITE", raising=False)
     assert autorun.stage_cost("write", 1e6, 1e6, False) is None  # 모델 이름이 없어도 gemini 가격으로 세지 않는다
+
+
+def test_run_cost_stays_unknown_after_an_unpriced_call():
+    runner = autorun.Runner(autorun.Control("등대", autorun.Run(target=1)))
+    runner._add_cost(0.5)
+    runner._add_cost(0.25)
+    assert runner.run.cost == 0.75
+    runner._add_cost(None)  # 가격을 모르는 호출
+    assert runner.run.cost is None
+    runner._add_cost(1.0)  # 뒤의 가격 아는 호출이 숫자로 되돌리지 않는다
+    assert runner.run.cost is None
+    assert autorun.Run.model_validate({"target": 1}).cost == 0.0

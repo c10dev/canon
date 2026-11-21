@@ -130,7 +130,7 @@ class Run(BaseModel):
                                   "서버가 다시 시작해도 이어서 다듬는다. 작가가 쓴 본문은 넣지 않는다")
     tokens_in: int = 0
     tokens_out: int = 0
-    cost: float = 0.0
+    cost: Optional[float] = Field(0.0, description="이번 실행의 추정 비용(USD). 가격을 모르는 호출이 하나라도 있으면 None")
     started: str = ""
     updated: str = ""
     log: list[LogEntry] = Field(default_factory=list)
@@ -662,10 +662,16 @@ class Runner:
         with self.ctl.lock:
             self.run.tokens_in += tin
             self.run.tokens_out += tout
-            if c:
-                self.run.cost = round(self.run.cost + c, 4)
+            self._add_cost(c)
         return out, dict(step=stage, tokens_in=tin, tokens_out=tout, calls=max(1, len(rows)),
                          seconds=round(time.time() - t, 1), batch=use_batch)
+
+    def _add_cost(self, c: Optional[float]) -> None:
+        """실행 비용에 c 를 더한다. 가격을 모르는 호출(c 가 None)이 한 번이라도 있으면 이번 실행의 비용은 끝까지 None 이다. 호출하는 쪽이 ctl.lock 을 쥔다."""
+        if c is None:
+            self.run.cost = None
+        elif self.run.cost is not None and c:
+            self.run.cost = round(self.run.cost + c, 4)
 
     def loop(self) -> None:
         run = self.run
